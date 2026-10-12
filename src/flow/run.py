@@ -92,18 +92,6 @@ FROM_MODE = {None: "full", "analyze": "full", "export": "adopted", "transcribe":
 _num = _spec.num_ok   # 扱ってよい大きさの数か(src/flow/spec.py)
 
 
-def _media_is_30fps(path):
-    """素材がちょうど 30fps か(ytt.normalize の probe。ffprobe が無い・読めないときは False)。2026-10-04 Q1。
-    パックの fps が固定の 30 になった RS7-1 S4 から段では使わない(src/home/autorun.py が同じ名前で読み直している)"""
-    try:
-        from ytt import normalize
-        info = normalize.probe(path)
-    except Exception:
-        return False
-    fps = (info or {}).get("fps")
-    return isinstance(fps, (int, float)) and abs(fps - 30) <= 0.01
-
-
 def _has_captions(doc):
     """文書に残す字幕の行(文字があってカットしていない行)があるか"""
     return any(s.get("text", "").strip() and not s.get("cut") for s in doc.get("segments") or [])
@@ -639,18 +627,25 @@ class Runner:
         except StepError:
             return "none", None
 
-    def _call_when_free(self, run, st, send, waiting):
-        """send() で仕事を頼み、ツールが 409 busy(別の処理の最中)なら BUSY_WAIT 秒ごとにやり直す(待つ間は st に waiting の文)。-> (HTTP の番号, 応答)"""
+    def _call_when_free(self, run, st, send, waiting, free=None):
+        """send() で仕事を頼み、ツールが 409 busy(別の処理の最中)なら BUSY_WAIT 秒ごとにやり直す(待つ間は st に waiting の文)。-> (HTTP の番号, 応答)。
+        free(timeout) = 器が空くまで待つ口(入口の FlowTools の export_free・pack_free。同じプロセスの ② の器なら空いたらすぐやり直す。OPT2 後半 J7)。
+        None を返す・無いときは今までどおり BUSY_WAIT 秒眠る。どちらも中止は待つ前後で見る"""
         while True:
             status, res = send()
             if not (status == 409 and res.get("error") == "busy"):
                 return status, res
             st["detail"] = waiting
+            if free is not None:
+                self._check(run)
+                if free(BUSY_WAIT) is not None:
+                    self._check(run)
+                    continue
             self._wait(run, BUSY_WAIT)
 
     def _poll(self, run, owned, read, cancel=None, start=None):
         """ツールの仕事が終わるまで待つ骨組み(解析・書き出し・文字起こし・パック・「編集」のジョブで共通)。-> read() の結果
-        owned: 起動し直すときに止めてよいツールの仕事(run.owned。None = 書き出しのように自分の仕事にしない)。終わったら外す。
+        owned: 起動し直すときに止めてよいツールの仕事(run.owned。("export", [id]) = 書き出し = 掲示板の親子の印だけ・起動し直しでは止めない)。終わったら外す。
         start(): 待つ前の投入(中止されたら、投入済みの分も cancel で取り消す)。read(): 終わったら None 以外、まだなら None(進み具合は read の中で st へ)。
         中止(Cancelled)なら cancel()(ツールの仕事を取り消す)を呼んでから上げ直す"""
         run.owned = owned
@@ -858,7 +853,8 @@ class Runner:
             st["state"], st["detail"] = "skip", ("書き出し済み %d 本(新しく採用したものはありません)" % done if done else "採用したマークがありません")
             return None if done else "stop"
         body = _spec.export_body(self._bundle(run), run.video_id, ids[:50])
-        status, res = self._call_when_free(run, st, lambda: self.tools.export_start(body), "別の書き出しが終わるのを待っています")
+        status, res = self._call_when_free(run, st, lambda: self.tools.export_start(body), "別の書き出しが終わるのを待っています",
+                                           getattr(self.tools, "export_free", None))
         if status != 200:
             raise StepError("書き出しを始められませんでした: %s" % (res.get("message") or "HTTP %d" % status))
         jid = res.get("id")
@@ -869,8 +865,8 @@ class Runner:
             st["detail"] = ("他のツールの重い処理を待っています" if j.get("waiting")
                             else "%d / %d 本" % (sum(1 for i in items if i.get("status") == "done"), len(items)))
             return j if j.get("state") != "running" else None
-        # 書き出しは自分の仕事にしない(owned なし = 書き出しの最中は起動し直しを断る。REDO_STEPS)
-        items = self._poll(run, None, read, lambda: self.tools.export_cancel(jid)).get("items") or []
+        # owned の "export" は掲示板の親子の印だけ(ex:<jid> を親の run の下に畳む)。起動し直しは段が REDO_STEPS に無いので今までどおり断る
+        items = self._poll(run, ("export", [jid]), read, lambda: self.tools.export_cancel(jid)).get("items") or []
         done = sum(1 for i in items if i.get("status") == "done")
         bad = [i for i in items if i.get("status") == "error"]
         st["detail"] = "%d 本を書き出しました" % done + ("(%d 本失敗)" % len(bad) if bad else "")
@@ -1022,7 +1018,8 @@ class Runner:
         body, keeps, rev = built or self._pack_body(run, doc, media, pack_opts)
         if force:
             body["output"]["force"] = True
-        status, res = self._call_when_free(run, st, lambda: self.tools.pack_start(body), prefix + "cut2resolve の別の処理が終わるのを待っています")
+        status, res = self._call_when_free(run, st, lambda: self.tools.pack_start(body), prefix + "cut2resolve の別の処理が終わるのを待っています",
+                                           getattr(self.tools, "pack_free", None))
         if status == 409 and res.get("error") == "exists":
             return "exists", False
         if status != 200:

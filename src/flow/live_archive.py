@@ -21,8 +21,8 @@
               欠けのマーク(速報版が無い)は、同じ録画の照合できたマークのずれのうち、前にある・時刻が近いものを使う(1 本も無ければできない)。
               2026-10-05 に本物の配信で確かめて変えた: yt-dlp の区間取得(--download-sections)は遅く(±600 秒で 570 秒)、m4a と opus で頭が 35ms ずれて
               本番版の作り直しが毎回やり直しになっていた / 合わない区間で ratio 1.58 が出た(MIN_RATIO 3.0)/ yt-dlp の一時的な 403 は 30 秒あけて 2 回までやり直す
-  3. fetch  … スタジオの POST /studio/api/live/section {videoId, start, end, path, volume, loudness, maxHeight, precision}(YouTube の書き出しの中身を使う。
-              二重に書かない)→ GET api/export?id= で進み具合。path は書き出し先の中の、まだ無い .mp4(<配信のフォルダ>\\作業用\\本番版の作りかけ\\<ジョブ>\\)
+  3. fetch  … ② の書き出しの器 flow/export(スタジオの POST /studio/api/live/section と同じ束 {videoId, start, end, path, volume, loudness, maxHeight,
+              precision} = ① の build_section_spec。YouTube の書き出しの中身を使う。二重に書かない。OPT2 の J5 でスタジオの HTTP をやめた)を直に呼んで待つ。path は書き出し先の中の、まだ無い .mp4(<配信のフォルダ>\\作業用\\本番版の作りかけ\\<ジョブ>\\)
   4. verify … 30fps・長さ(区間 ±0.2 秒)・速報版との音のずれが 1 コマ(FRAME_TOL = 0.034 秒)以内。超えたら1回だけずれを足して作り直す。それでもだめなら入れ替えない
   5. 入れ替え … 速報版を <配信のフォルダ>\\作業用\\速報版\\<元の名前>(重なれば _2…)へ移し、本番版を元の名前へ(fsio.replace_retry)。
               速報版は消さない。使用中で動かせなければ archive.state を wait に戻し(本番版は built に残す)、RETRY_SEC 後の見回りでやり直す
@@ -66,8 +66,11 @@ import threading
 import time
 import urllib.parse
 
+from pipeline.export import exporter as _exporter   # 区間の書き出しの束を組む所は ① の 1 か所(OPT2 の J5)
 from pipeline.transcribe import recognize as _recognize   # wav の引数を組む所は ① の 1 か所(OPT2)
 from ytt import fsio, jobs, normalize, schemas, tools
+from ytt.errors import ApiError
+from . import export as _export   # 書き出しの器(プロセスに 1 つ。OPT2 の J5)
 from . import keys as _keys   # 成果物の鍵(RS6 b-K1)
 from . import live_failures   # 失敗の文は 1 か所。M3・M7
 from . import live_export as LX
@@ -102,7 +105,6 @@ READY_CACHE = 600.0          # 「用意できた」を確かめ直さずに使�
 POLL = 60.0                  # 見回りの間隔
 RETRY_SEC = 15 * 60.0        # 使用中で入れ替えられなかったとき、次に試すまで
 STEP = 1.0                   # スタジオの書き出しの進み具合を見る間隔
-STUDIO_DOWN = 120.0          # スタジオにこれだけつながらなければ失敗
 PROBE_TIMEOUT = 60.0
 FETCH_TIMEOUT = 300.0        # 配信の丸ごとの音の取得(2.5 時間の配信で 7 秒だった)
 FFMPEG_TIMEOUT = 300.0
@@ -379,7 +381,7 @@ class Archiver(LX.Patrol):
                  slots=None, python=None, ffmpeg=None, ffprobe=None, log=None, first_delay=FIRST_DELAY, interval=INTERVAL,
                  give_up=GIVE_UP, poll=POLL, retry_sec=RETRY_SEC, step=STEP, after=None,
                  after_stream=None, per_hour=None, recordings=None, adopt=None, after_max_age=AFTER_MAX_AGE, compare=None, request=None,
-                 pack_info=None, settings_for=None, taken=None):
+                 pack_info=None, settings_for=None, taken=None, exports=None, section_spec=None, queue=None):
         """exporter: src/flow/live_export.py の Exporter(ジョブ・マーク・書き出し先・音量)。
         studio(method, path, body) -> (HTTP の番号 か None(つながらない), JSON): 取り込んだスタジオの API(src/home/live.py が autorun と同じ形で呼ぶ)。
         enabled()・auto(): リアルタイム切り抜きがオンか・設定 live.autoArchive。recording_state(録画元, 録画) -> {"active", "endedAt"(epoch)} か None。
@@ -395,9 +397,15 @@ class Archiver(LX.Patrol):
         taken(録画元, 録画) -> その録画の採用・書き出し済みのマーク [{start, end, …}](秒 = 録画の頭から)か None(読めない):
         配信後の全自動が重ねない区間(RS8 B3-5 の G3。ライブ係はマークの置き場 marks.adopted = スタジオか、スタジオなしは案件・正本)。
         無ければ今までどおりスタジオの GET /api/video?id=<録画>。
+        exports: 本番版の書き出しを頼む器(既定 flow/export.default() = スタジオの書き出しと同じ物 = 同時 1 本)。section_spec(依頼) -> 書き出しの束
+        (既定 ① の exporter.build_section_spec)。queue() -> 解析の順番待ち(flow/batch の Batch.snapshot の形)か None(直に読めない =
+        スタジオの GET /api/queue。入口の Live が取り込んだスタジオの Batch を渡す。OPT2 の J5)。
         テストは probe・audio・studio を偽物に、間隔を短くする(本物の YouTube へ繋がない)"""
         super().__init__()
         self.ex, self.studio = exporter, studio
+        self._exports = exports
+        self.section_spec = section_spec or _exporter.build_section_spec
+        self.queue = queue or (lambda: None)
         self.taken = taken or self._studio_taken
         self.after = after
         self.after_stream = after_stream or (lambda: False)
@@ -429,6 +437,11 @@ class Archiver(LX.Patrol):
         self.info = {}
         self.board = None         # 掲示板(attach_board。RS8 の ② の口 S2)
         self._load()
+
+    @property
+    def exports(self):
+        """書き出しの器(使うときに決める = テストや入口が default を差し替えても、作ったときの物に固まらない)"""
+        return self._exports if self._exports is not None else _export.default()
 
     # --- 録画ごとの記録(archive.json) ---
     @staticmethod
@@ -1001,8 +1014,11 @@ class Archiver(LX.Patrol):
             shutil.rmtree(wdir, ignore_errors=True)
 
     def _after_analyze(self, rc, rec, a):
-        """スタジオの解析の進み具合を見る。済めば採用へ"""
-        code, d = self.studio("GET", "/api/queue", None)
+        """スタジオの解析の進み具合を見る(取り込んだスタジオの Batch を直に読めればそれ、無ければ GET /api/queue)。済めば採用へ"""
+        d = self.queue()
+        code = 200 if isinstance(d, dict) else None
+        if code is None:
+            code, d = self.studio("GET", "/api/queue", None)
         if code is None:
             return False   # スタジオが止まっている: 次の見回りで
         items = (d or {}).get("items") or [] if code == 200 and isinstance(d, dict) else []
@@ -1446,62 +1462,46 @@ class Archiver(LX.Patrol):
         return float(r["offset"]) - trim
 
     def _section(self, job, vid, start, end, path, height, vol, loud):
-        """スタジオの POST api/live/section で作り直してもらい、済むまで待つ。-> スタジオの書き出しの item"""
-        body = {"videoId": vid, "start": round(start, 3), "end": round(end, 3), "path": path, "volume": vol, "loudness": loud,
-                "maxHeight": height, "precision": "accurate"}
-        down = None
-        while True:   # スタジオの書き出しは同時に 1 本だけ: ほかが動いていれば 409 busy → 失敗にせず、待ってやり直す
+        """② の書き出しの器(flow/export の ExportJobs。プロセスに 1 つ = スタジオの書き出しと同時 1 本を分け合う)に区間を頼み、済むまで待つ。
+        スタジオの HTTP を通さない(スタジオなしの入口でも動く。OPT2 の J5)。-> 書き出しの item(GET /api/export の items[0] の形)"""
+        req = {"videoId": vid, "start": round(start, 3), "end": round(end, 3), "path": path, "volume": vol, "loudness": loud,
+               "maxHeight": height, "precision": "accurate"}
+        try:
+            spec = self.section_spec(req)   # 検査(書き出し先の中・まだ無い .mp4・ffmpeg と yt-dlp)は ① の build_section_spec
+        except ApiError as e:
+            raise ArchiveError("作り直しを始められませんでした: %s" % e.message)
+        while True:   # 書き出しは同時に 1 本だけ: ほかが動いていれば busy → 失敗にせず、待ってやり直す
             self._check(job)
-            code, d = self.studio("POST", "/api/live/section", body)
-            if code == 409 and isinstance(d, dict) and d.get("error") == "busy":
+            try:
+                rec = self.exports.start(spec)
+            except ApiError as e:
+                if e.code != "busy":
+                    raise ArchiveError("作り直しを始められませんでした: %s" % e.message)
                 self._aset(job, save=False, message="スタジオの書き出しが終わるのを待っています")
                 self._halt.wait(max(self.step, 1.0) * 3)
                 continue
-            if code is None:
-                down = down or time.time()
-                if time.time() - down > STUDIO_DOWN:
-                    raise ArchiveError("スタジオに %d 秒つながりませんでした(%s)" % (int(STUDIO_DOWN), (d or {}).get("message") or ""))
-                self._halt.wait(max(self.step, 1.0) * 3)
-                continue
             break
-        if code != 200 or not isinstance(d, dict) or not isinstance(d.get("id"), str):
-            msg = d.get("message") if isinstance(d, dict) else ""
-            raise ArchiveError("スタジオで作り直しを始められませんでした: %s" % (msg or "HTTP %s" % code))
-        sid, down = d["id"], None
         while True:
             try:
                 self._check(job)
             except (LX.Cancelled, LX.Halted):
-                try:
-                    self.studio("POST", "/api/export/cancel", {"id": sid})
-                except Exception:
-                    pass
+                rec["ctl"].cancel()
                 raise
-            code, d = self.studio("GET", "/api/export?id=" + urllib.parse.quote(sid), None)
-            if code is None:
-                down = down or time.time()
-                if time.time() - down > STUDIO_DOWN:
-                    raise ArchiveError("スタジオに %d 秒つながりませんでした" % int(STUDIO_DOWN))
-            elif code == 404:
-                raise ArchiveError("スタジオの書き出しが見つかりません(スタジオを起動し直したかもしれません)")
-            elif code == 200 and isinstance(d, dict):
-                down = None
-                items = d.get("items") or [{}]
-                it = items[0] if isinstance(items[0], dict) else {}
-                p = it.get("progress")
-                if isinstance(p, (int, float)) and not isinstance(p, bool):
-                    self._aset(job, save=False, progress=round(0.15 + 0.7 * max(0.0, min(1.0, p)), 3))
-                if d.get("waiting"):
-                    self._aset(job, save=False, message="ほかの重い処理が終わるのを待っています(スタジオの書き出し)")
-                st = d.get("state")
-                if st == "done":
-                    if it.get("status") not in (None, "done"):
-                        raise ArchiveError("スタジオの書き出しに失敗しました: %s" % (it.get("error") or it.get("status")))
-                    return it
-                if st in ("error", "cancelled"):
-                    raise ArchiveError("スタジオの書き出しに失敗しました: %s" % (it.get("error") or ("取り消されました" if st == "cancelled" else "理由は分かりません")))
-            else:
-                raise ArchiveError("スタジオから思わぬ応答がありました(HTTP %s)" % code)
+            d = self.exports.public_of(rec)
+            items = d.get("items") or [{}]
+            it = items[0] if isinstance(items[0], dict) else {}
+            p = it.get("progress")
+            if isinstance(p, (int, float)) and not isinstance(p, bool):
+                self._aset(job, save=False, progress=round(0.15 + 0.7 * max(0.0, min(1.0, p)), 3))
+            if d.get("waiting"):
+                self._aset(job, save=False, message="ほかの重い処理が終わるのを待っています(スタジオの書き出し)")
+            st = d.get("state")
+            if st == "done":
+                if it.get("status") not in (None, "done"):
+                    raise ArchiveError("スタジオの書き出しに失敗しました: %s" % (it.get("error") or it.get("status")))
+                return it
+            if st in ("error", "cancelled"):
+                raise ArchiveError("スタジオの書き出しに失敗しました: %s" % (it.get("error") or ("取り消されました" if st == "cancelled" else "理由は分かりません")))
             self._halt.wait(self.step)
 
     def _swap(self, job, speed, built, folder):

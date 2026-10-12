@@ -222,20 +222,10 @@ class TestAltJob(_AltStore):
 
     def tearDown(self):
         self.env.stop()
-        with jobs._jobs_lock:   # このテストのジョブを残さない(待機列の分も)
+        with jobs._jobs_lock:   # このテストのジョブを残さない
             for k in list(jobs._jobs):
                 if k in self.mine or (jobs._jobs[k].get("spec") or {}).get("sourcePath") == self.video:
                     jobs._jobs.pop(k, None)
-            keep = []
-            while True:
-                try:
-                    it = jobs._queue.get_nowait()
-                except Exception:
-                    break
-                if it[2] in jobs._jobs:
-                    keep.append(it)
-            for it in keep:
-                jobs._queue.put(it)
         super().tearDown()
 
     def _take(self, job):

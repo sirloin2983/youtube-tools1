@@ -102,37 +102,42 @@ def wait_for(fn, timeout=60.0, step=0.1):
 
 
 class ArchiveStudio:
-    """スタジオの POST /api/live/section・GET /api/export・POST /api/export/cancel の代わり(アーカイブから ffmpeg で 30fps に切る)"""
+    """本番版の作り直しが頼む書き出しの代わり(アーカイブから ffmpeg で 30fps に切る)。OPT2 の J5 から Archiver はスタジオの HTTP ではなく
+    ② の器 flow/export を直に呼ぶので、器の形(start・public_of)と束を組む口(section_spec)を持つ。Archiver には
+    exports=<これ>・section_spec=<これ>.section_spec で渡す(opts())"""
 
     def __init__(self, archive, shifts=(), block=False, busy=0):
         self.archive, self.shifts, self.block, self.busy = archive, list(shifts), block, busy
         self.calls, self.jobs, self.cancelled = [], {}, []
 
-    def __call__(self, method, path, body):
-        if method == "POST" and path == "/api/live/section":
-            if self.busy > 0:   # ほかの書き出しが動いている(スタジオは同時に 1 本だけ)
-                self.busy -= 1
-                return 409, {"error": "busy", "message": "ほかの書き出しが動いています"}
-            p = body["path"]
-            assert os.path.isabs(p) and p.endswith(".mp4") and not p.endswith(".partial.mp4") and not os.path.exists(p), p
-            assert os.path.isdir(os.path.dirname(p)), p
-            self.calls.append(dict(body))
-            jid = uuid.uuid4().hex[:12]
-            job = {"id": jid, "state": "running", "items": [{"status": "running", "progress": 0, "error": None, "path": None}], "cancel": False}
-            self.jobs[jid] = job
-            start = body["start"] + (self.shifts[len(self.calls) - 1] if len(self.calls) <= len(self.shifts) else 0.0)   # shifts: n 回目の書き出しを頼まれた区間からずらして作る
-            threading.Thread(target=self._run, args=(job, start, body["end"] - body["start"], p), daemon=True).start()
-            return 200, {"id": jid, "state": "running", "items": job["items"]}
-        if method == "GET" and path.startswith("/api/export?id="):
-            j = self.jobs.get(path.split("=", 1)[1])
-            return (404, {"error": "not_found"}) if j is None else (200, {"id": j["id"], "state": j["state"], "items": j["items"]})
-        if method == "POST" and path == "/api/export/cancel":
-            self.cancelled.append(body["id"])
-            j = self.jobs.get(body["id"])
-            if j:
-                j["cancel"] = True
-            return 200, {"ok": True}
-        return 404, {"error": "not_found"}
+    def opts(self):
+        """Archiver の引数(書き出しの器と束を組む口)"""
+        return {"exports": self, "section_spec": self.section_spec}
+
+    def section_spec(self, req):
+        """① の build_section_spec の代わり: 依頼の形を確かめて、そのまま束にする"""
+        p = req["path"]
+        assert os.path.isabs(p) and p.endswith(".mp4") and not p.endswith(".partial.mp4") and not os.path.exists(p), p
+        assert os.path.isdir(os.path.dirname(p)), p
+        return dict(req)
+
+    def start(self, spec):
+        from ytt.errors import ApiError
+        if self.busy > 0:   # ほかの書き出しが動いている(器は同時に 1 本だけ)
+            self.busy -= 1
+            raise ApiError("busy", "ほかの書き出しが動いています", 409)
+        self.calls.append(dict(spec))
+        jid = uuid.uuid4().hex[:12]
+        job = {"id": jid, "state": "running", "items": [{"status": "running", "progress": 0, "error": None, "path": None}], "cancel": False}
+        self.jobs[jid] = job
+        job["ctl"] = _FakeCtl(self, job)
+        start = spec["start"] + (self.shifts[len(self.calls) - 1] if len(self.calls) <= len(self.shifts) else 0.0)   # shifts: n 回目の書き出しを頼まれた区間からずらして作る
+        threading.Thread(target=self._run, args=(job, start, spec["end"] - spec["start"], spec["path"]), daemon=True).start()
+        return job
+
+    @staticmethod
+    def public_of(job):
+        return {"id": job["id"], "state": job["state"], "waiting": False, "items": job["items"]}
 
     def _run(self, job, start, dur, path):
         it = job["items"][0]
@@ -149,6 +154,17 @@ class ArchiveStudio:
         except subprocess.CalledProcessError as e:
             it.update(status="error", error=e.stderr.decode("utf-8", "replace")[-200:])
             job["state"] = "error"
+
+
+class _FakeCtl:
+    """取り消しの合図(ytt/jobs.Ctl の cancel だけ)"""
+
+    def __init__(self, owner, job):
+        self.owner, self.job = owner, job
+
+    def cancel(self):
+        self.owner.cancelled.append(self.job["id"])
+        self.job["cancel"] = True
 
 
 class FakeStudio:

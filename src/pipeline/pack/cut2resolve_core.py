@@ -21,12 +21,11 @@ import stat
 import subprocess
 import sys
 import tempfile
-import threading
 import unicodedata
 from fractions import Fraction
 from pathlib import Path
 
-from ytt import fsio, tools as _tools
+from ytt import fsio, jobs as _jobs, tools as _tools
 from . import srt2resolve as S
 
 ToolError = S.ToolError
@@ -62,31 +61,12 @@ class OutputExists(ToolError):
                          + ", ".join(p.name for p in self.existing))
 
 
-class Task:
-    """長い処理(無音の検出・粗編集の書き出し・動画のコピー)の進み具合の報告と取り消し。
-    画面(serve.py)はジョブごとに1つ作って渡す。CLI は渡さない(None = 報告も取り消しもしない、従来どおりの動作)"""
+class Task(_jobs.Ctl):
+    """長い処理(無音の検出・粗編集の書き出し・動画のコピー)の進み具合の報告と取り消し = ytt/jobs.Ctl(OPT2 の J0 で上げた)。
+    取り消しは core の Cancelled(ToolError の仲間 = CLI 側の扱いは他のエラーと同じ)。画面(serve.py)はジョブごとに1つ作って渡す。CLI は渡さない"""
 
     def __init__(self, on_progress=None, cancel_event=None):
-        self._on = on_progress
-        self.cancel_event = cancel_event or threading.Event()
-
-    @property
-    def cancelled(self):
-        return self.cancel_event.is_set()
-
-    def cancel(self):
-        self.cancel_event.set()
-
-    def check(self):
-        if self.cancel_event.is_set():
-            raise Cancelled()
-
-    def report(self, frac=None, message=None):
-        if self._on:
-            try:
-                self._on(frac, message)
-            except Exception:   # 報告の失敗で処理を止めない
-                pass
+        super().__init__(on_progress, cancel_event, exc=Cancelled)
 
 
 # ---------------------------------------------------------------- 時刻・カットリストの読み込み

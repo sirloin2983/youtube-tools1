@@ -580,7 +580,8 @@ class LiveSession:
         ex = self.exporter
         with self._ex_lock:
             if self._archiver is None:
-                kw = dict({"studio": self.studio_call, "enabled": self.enabled, "auto": lambda: self.cfg().get("autoArchive") is not False,
+                kw = dict({"studio": self.studio_call, "queue": self.studio_queue,   # 解析の順番待ちは直に読めればそれ(OPT2 の J5)
+                           "enabled": self.enabled, "auto": lambda: self.cfg().get("autoArchive") is not False,
                            "recording_state": self.recording_state, "python": self.python, "log": self.log,
                            "after": self._cleaner_check,   # 1本終えたら: 全部入れ替わった録画を消す
                            "after_stream": lambda: self.cfg().get("autoAfterStream") is True,   # 配信後の全自動(M7)
@@ -623,6 +624,11 @@ class LiveSession:
     def studio_call(self, method, path, body=None):
         """取り込んだスタジオの API -> (HTTP の番号, JSON)。ここ(スタジオなし)は (None, {"message"})。入口の Live が埋める"""
         return None, {"message": "切り抜きスタジオがありません"}
+
+    def studio_queue(self):
+        """解析の順番待ち(flow/batch の Batch.snapshot の形)を直に読む。ここ(スタジオなし)は None = 読めない(スタジオの GET /api/queue へ)。
+        入口の Live が取り込んだスタジオの Batch を渡す(OPT2 の J5)"""
+        return None
 
     def list_recordings(self):
         """録画元ごとの録画の一覧(配信後の全自動 M7 の見回り)-> [{recorder, id, url, title, active, endedAt, firstPdt, lastPdt}](時刻は epoch か None)。

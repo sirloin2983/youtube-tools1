@@ -144,7 +144,8 @@ class ArchiveTest(unittest.TestCase):
         return A.run_align(ref, win)
 
     def archiver(self, studio=None, **kw):
-        opts = dict(studio=studio or FakeStudio(self.arc), probe=self.probe, audio=self.audio, align=self.align, poll=0.1, step=0.1, retry_sec=0.3)
+        studio = studio or FakeStudio(self.arc)
+        opts = dict(studio=studio, probe=self.probe, audio=self.audio, align=self.align, poll=0.1, step=0.1, retry_sec=0.3, **studio.opts())
         opts.update(kw)
         a = A.Archiver(self.ex, **opts)
         self.arcs.append(a)
@@ -660,6 +661,15 @@ class AfterStreamTest(unittest.TestCase):
         n = len(self.calls)
         self.assertEqual(a.after_tick(), 0)                                    # 済んだ録画はもう触らない
         self.assertEqual(len(self.calls), n)
+
+    def test_queue_read_directly(self):
+        """OPT2 の J5: 解析の順番待ちは queue()(取り込んだスタジオの Batch.snapshot)を直に読めればそれ。GET /api/queue は呼ばない"""
+        a = self.archiver(queue=lambda: {"items": self.queue})
+        self.status = "was_live"
+        self.assertEqual(a.after_tick(), 1)
+        a.after_tick()
+        self.assertIn("30%", a.info_view("local", REC)["afterStream"]["message"])
+        self.assertFalse([c for c in self.calls if c[1] == "/api/queue"])
 
     def test_taken_from_marks_book(self):
         """G3(RS8 B3-5): 重ねない採用はマークの置き場から(taken。headless のスタジオなしの採用 = 案件の 採用.json か正本)。

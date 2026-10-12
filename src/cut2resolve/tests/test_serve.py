@@ -262,7 +262,7 @@ class TestHeavyJobLimit(unittest.TestCase):
         from ytt import jobs
         slots = jobs.HeavySlots(1)
         held = slots.acquire("transcribe")
-        with mock.patch.object(serve._heavy, "SLOTS", slots):
+        with mock.patch.object(jobs, "SLOTS", slots):
             app = serve.AppState()
             ran = []
             job = app.start_job("build", lambda task: ran.append(1) or {"ok": True})
@@ -448,7 +448,7 @@ class TestJobs(ServerBase):
         slots = jobs.HeavySlots(1)
         held = slots.acquire("transcribe")
         try:
-            with mock.patch.object(serve._heavy, "SLOTS", slots):
+            with mock.patch.object(jobs, "SLOTS", slots):
                 j = self.run_job("/api/plan", {"spec": self.spec(mode="list", listKind="keep", listText="0:01 0:03")})
                 self.assertEqual(j["state"], "done")   # 検出が要らない試算は待たない
                 st, j = self.c.json("POST", "/api/plan", {"spec": self.spec(silence={"noise": -41.5})})   # 覚えていない設定 = 検出が要る
@@ -467,7 +467,7 @@ class TestJobs(ServerBase):
             j = self.run_job("/api/plan", {"spec": self.spec(silence={"noise": -41.5})})   # 空いたら通る(以後は覚えるので、次の試算は待たない)
             self.assertEqual(j["state"], "done", j)
             held = slots.acquire("transcribe")
-            with mock.patch.object(serve._heavy, "SLOTS", slots):
+            with mock.patch.object(jobs, "SLOTS", slots):
                 j = self.run_job("/api/plan", {"spec": self.spec(silence={"noise": -41.5})})
                 self.assertEqual(j["state"], "done", j)
         finally:

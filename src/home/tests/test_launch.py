@@ -973,6 +973,18 @@ class PortalHttpTest(Base):
         r, _ = self.req("GET", "/api/flow/status", headers={"Sec-Fetch-Site": "cross-site"})   # ほかのサイトからは読めない
         self.assertEqual(r.status, 403)
 
+    def test_flow_submit_waits_for_tools(self):
+        """起動直後(ツールの取り込みの途中)の submit は取り込みが済むまで待つ・待ちきれなければ 503 starting(CLI が「編集が動いていない」で落ちない)"""
+        self.srv.tools_started = threading.Event()
+        try:
+            with mock.patch.object(L, "SUBMIT_START_WAIT", 0.2):
+                r, body = self.post("/api/flow/submit", body=json.dumps({}).encode("utf-8"))
+                self.assertEqual((r.status, json.loads(body)["error"]), (503, "starting"))
+            threading.Timer(0.3, self.srv.tools_started.set).start()
+            r, body = self.post("/api/flow/submit", body=json.dumps({}).encode("utf-8"))   # 済んだら今までどおり検査へ進む
+            self.assertEqual(r.status, 400)
+        finally:
+            self.srv.tools_started = None
     def test_flow_submit_spec_errors(self):
         """F1 F0-1: 束の版の違いは 400 spec_version・束の知らない節・項目は 400 bad_spec(送るアプリは「更新してください」)・封筒の形は今までどおり bad_request"""
         media = os.path.join(self.tmp, "切り抜き.mp4")

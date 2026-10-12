@@ -3,6 +3,10 @@
 
 Runner(flow/run.py)の段は、ツールの仕事を self.tools.<動詞>(...) で頼む。動詞は今の各ツールの API 1 つずつ(返す形も API の応答のまま)。
   HttpTools(client) … 今の形(既定)。入口の中の 3 ツールの公開している API を client(call・ok)で呼ぶ。呼ぶ API と本文は RS6 b-0 の前と同じ
+  FlowTools(client, hosts) … 入口の形(OPT2 後半 J7)。① の動詞(解析 analyze_*・書き出し export_*・パック pack_*)は同じプロセスの ② の器
+                      (hosts(道具の id) が返す口。スタジオ = flow/studiobook の LocalStudio(スタジオの Store と Batch)・cut2resolve = PackHost)を
+                      直に呼ぶ。口が無い(取り込まれていない・動いていない)ときと ③ の動詞・編集の文字起こしは HttpTools のまま。
+                      export_free・pack_free(timeout) = 器が空くまで待つ(Runner の _call_when_free が 409 busy のあと BUSY_WAIT 秒の眠りの代わりに使う)
   LocalTools()      … 入口なしで動かす最小の形(app の CLI が使う)。文字起こし = ② flow/tx の動詞を同じスレッドで(ジョブの表は通さない。
                       重い処理の枠 ytt.jobs.SLOTS は取る)・パック = ① pipeline/pack の plan_cut → build_pack を直に。
                       配信の読み・解析・採用・書き出しは studio(② flow/studiobook の LocalStudio = スタジオなしの台帳。RS8 の「URL も CLI で」)を
@@ -114,6 +118,101 @@ class HttpTools:
 
     def pack_cancel(self, jid):
         self.client.call("cut2resolve", "POST", "/api/job/cancel", {"id": jid})
+
+
+class FlowTools(HttpTools):
+    """入口の形(J7): ① の動詞は同じプロセスの ② の器を直に・それ以外は HttpTools。hosts(tool) -> 口か None(None = 今の HTTP の道)。
+    口は呼ぶたびに引く(ツールの起動し直し・取り込みの有無に合わせる)。返す形は HttpTools の同じ名前の動詞と同じ"""
+
+    def __init__(self, client, hosts):
+        super().__init__(client)
+        self.hosts = hosts
+
+    def _host(self, tool):
+        return self.hosts(tool) if self.hosts is not None else None
+
+    def analyze_add(self, item, settings):
+        h = self._host("studio")
+        return h.analyze_add(item, settings) if h is not None else super().analyze_add(item, settings)
+
+    def analyze_items(self):
+        h = self._host("studio")
+        return h.analyze_items() if h is not None else super().analyze_items()
+
+    def analyze_cancel(self, qid):
+        h = self._host("studio")
+        return h.analyze_cancel(qid) if h is not None else super().analyze_cancel(qid)
+
+    def export_start(self, body):
+        h = self._host("studio")
+        return h.export_start(body) if h is not None else super().export_start(body)
+
+    def export_job(self, jid):
+        h = self._host("studio")
+        return h.export_job(jid) if h is not None else super().export_job(jid)
+
+    def export_cancel(self, jid):
+        h = self._host("studio")
+        return h.export_cancel(jid) if h is not None else super().export_cancel(jid)
+
+    def export_free(self, timeout):
+        """書き出しの器が空くまで待つ(timeout 秒まで)-> 空いたか。口が無ければ None(呼ぶ側が今までどおり眠る)"""
+        h = self._host("studio")
+        return h.export_free(timeout) if h is not None else None
+
+    def pack_start(self, body):
+        h = self._host("cut2resolve")
+        return h.pack_start(body) if h is not None else super().pack_start(body)
+
+    def pack_job(self, jid):
+        h = self._host("cut2resolve")
+        return h.pack_job(jid) if h is not None else super().pack_job(jid)
+
+    def pack_cancel(self, jid):
+        h = self._host("cut2resolve")
+        return h.pack_cancel(jid) if h is not None else super().pack_cancel(jid)
+
+    def pack_free(self, timeout):
+        """パックの器が空くまで待つ -> 空いたか。口が無ければ None"""
+        h = self._host("cut2resolve")
+        return h.pack_free(timeout) if h is not None else None
+
+
+class PackHost:
+    """同じプロセスの cut2resolve の口(J7): jobs = パックの器(② flow/packjobs.PackJobs)・build(body) = POST /api/build の中身
+    (cut2resolve の serve の start_build。{"job"} を返すか ApiError などを上げる)。返す形は HttpTools の pack_* と同じ(エラーの写し方も API と同じ)"""
+
+    def __init__(self, jobs, build):
+        self.jobs = jobs
+        self.build = build
+
+    def pack_start(self, body):
+        try:
+            return 200, self.build(body)
+        except _errors.ApiError as e:
+            return e.status, dict(e.extra or {}, error=e.code, message=e.message)
+        except _core.OutputExists as e:
+            return 409, {"error": "exists", "message": str(e), "files": [p.name for p in e.existing]}
+        except _core.ToolError as e:
+            return 400, {"error": "tool", "message": str(e)}
+
+    def pack_job(self, jid):
+        try:
+            return self.jobs.job(jid).public()
+        except _errors.ApiError as e:
+            raise _step_error(e.message)
+
+    def pack_cancel(self, jid):
+        try:
+            job = self.jobs.job(jid)
+        except _errors.ApiError:
+            return
+        if job.state == "running":
+            job.task.cancel()
+
+    def pack_free(self, timeout):
+        t = self.jobs.table
+        return t.wait(lambda: not t.active(), timeout)
 
 
 def _step_error(msg):

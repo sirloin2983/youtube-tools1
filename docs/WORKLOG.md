@@ -3592,6 +3592,16 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - テスト: unittest 約 3,900 件・lint 0・層 OK・node 74・ui_audit all --demo Must 0・e2e 一式 19 本(e2e_live_studio は直したあと単独で 2 回 OK)
 - 次: F1(並行のセッション)→ RV。文書の層の primary はユーザーの合図で
 - 未コミット: なし
+## 2026-10-11 夜 Claude Code(PC。Opus まとめ役。セッション「OPT2 の残りと RS8 の直し残し」。worktree claude/eager-ritchie-6cb469。下調べ Sonnet 1 体・段の並び Fable 1 回・実装 Opus 4 体・Sonnet 3 体(worktree で並列 → cherry-pick))— OPT2 の後半(ジョブの器を ② の 1 つに)・RS8 の直し残し
+- 3-35(ラウドネスをやめる): 既定の %(書き出し 75・パック 30)を聞いた答え = **消すのを待つ**。今回は消していない(decisions 3-35 に追記)
+- RS8 の直し残し: fc1109a3 書き出し ex を親の run に繋ぐ(Run.owned に ("export", [id]))・lt の case(lx と同じ Exporter.case_of)・タブを閉じたときの ConnectionAbortedError を黙らせる(httpsec.ExclusiveServer.handle_error)・live_tx の whisper.cpp の値を tx_engines から読む・使っていない _media_is_30fps を消す / 9bc1b322 入口の起動直後の POST /api/flow/submit はツールの取り込みが済むまで待つ(最長 120 秒・503 starting)
+- OPT2 後半(計画 `docs/design/opt2-jobs-plan.md` = Fable。仮決め decisions 3-42 (o2a)〜(o2d)。**まだ確認していない**): 7c6e4973 J0 手渡し `ytt/jobs.Ctl`(cut2resolve_core.Task はその子)/ e47f5d53 J1 `analyze.run(spec, ctl)` / 24b06590 J2 ① exporter は new_result・run・result_public だけ・② の器 `flow/export.ExportJobs` / 1e59efa1 J3 パックの器 `flow/packjobs` / 7b430fbf J4 互換の包みを消す / a5901f11 J5 ライブの作り直しがスタジオの HTTP を通さず書き出しの器を直に / 9debb76c J6 `flow/jobs.Table` 1 つの上に 解析・書き出し・パック / 6405ea45 J7 入口の実行が同じプロセスの器を直に呼ぶ(`flow/tools.FlowTools`。器が無ければ HTTP・③ の動詞と文字起こしは HTTP のまま)/ 01f64aa3 J8 編集の tx も Table(`TX_TABLE`)
+- A3: 972530e8 音量・ラウドネスの ffmpeg の引数を `ytt/loudness` の 1 か所に(② のライブの書き出しに残っていた ① の引数を外した。引数の列は前と同じ)
+- 動きの小さな差(サブエージェントの報告): 取り消しで子プロセスを即座に止めず見張り(約 0.3 秒)が止める / 履歴は「終わった物を keep 件」(書き出し・パックは最大 1 件多く残る)/ パックの受けた直後の待ちは画面には今までどおり「実行中」/ 編集のジョブで本体が state を終わりにせず戻ったら done(前は loading のまま)
+- テスト: フォルダごとの unittest 全部 OK(flow 419・pipeline 519・human 370・manage 186・ytt 232・studio 133・cut2resolve 38・契約 35・app 52・home 246・test_mount 27・editor 1210・eval 391・dev 58)・lint 0・層 OK。studio の組で test_board_s2 の 1 本が器がプロセスに 1 つになったため前のテストの終わった物を見て落ちた → テストを直した。e2e は各段で近い物(e2e_analyze・e2e_cases_cand・e2e_cases_cut・e2e_live_archive・e2e_autorun・e2e_pipeline)、取り込み後に e2e_pipeline・e2e_live_archive
+- 気づいたこと(直していない): スタジオを取り込まない形では、作り直しの区間の書き出し先の確かめ(studio_env の書き出し先)がライブの datadir.studio_out_dir と食い違い得る(今の headless はスタジオを取り込むので出ない)/ 配信後の全自動の解析の依頼 `POST /api/queue/add` は ③ の store の登録と一緒なので HTTP のまま / スタジオの test_api と cut2resolve の test_serve・test_mount を 1 プロセスで混ぜると serve の名前がぶつかる(前から)/ e2e_live_archive の説明文の「スタジオの section は本物」は古い
+- 残り: 3-35(ユーザーの合図待ち)・J9 鍵を ② の段の終わりで(任意)・`ffmpeg -i` の読み 2 つ。版は上げていない(V4 と相談)
+- 未コミット: なし(この記録と AGENTS・data.js・opt-pipeline-flow.md を一緒にコミット)。main への取り込みはまだ(worktree のブランチ)
 
 ## 2026-10-11 夜 Claude Code(PC。Opus まとめ役。セッション「F1」。ユーザー「F1 始めて」)— F1 友人の PC で ② + ① = 版 0.61.0(AI の分は済み・友人の PC での確かめ待ち)
 - 下調べ 3 本(Sonnet)→ 作り方の計画 docs/design/f1-build.md(Fable)→ 第 1 波 6 本・第 2 波 4 本・仕上げ 3 本を worktree で並列(Opus = ② の口・GPU・送るアプリの土台・配る zip・配線 / Sonnet = 学習の束・送り返し・設定・同期・取得と更新・説明・文書)

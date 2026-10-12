@@ -35,7 +35,6 @@ output.fcpxml・output.crf。送っても黙って無視する(知らない鍵�
 """
 import json
 import os
-import secrets
 import socket
 import subprocess
 import sys
@@ -45,7 +44,6 @@ import traceback
 import urllib.parse
 import urllib.request
 import webbrowser
-from collections import OrderedDict
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
@@ -69,9 +67,11 @@ _load_core()
 from manage.cases import txindex as _txi  # noqa: E402
 from flow import keys as _flowkeys  # noqa: E402  成果物の鍵(RS6 b-K1)
 from flow import board as _flowboard  # noqa: E402  ② のジョブの掲示板(RS8 の ② の口 S2)
+from flow.packjobs import PackJobs  # noqa: E402  パックのジョブの器(OPT2 J3)
+from flow import tools as _flowtools  # noqa: E402  入口のまとめて実行が直に呼ぶ口 PackHost(OPT2 後半 J7)
 from pipeline.pack import cut2resolve_core as C, pack, resolve_textplus as TP, srt2resolve as S  # noqa: E402
 from ytt.errors import ApiError as _ApiError  # noqa: E402
-from ytt import colors as _colors, datadir, fsio, httpsec, jobs as _heavy, loudness as _loud, runtime as _runtime, tools  # noqa: E402
+from ytt import colors as _colors, datadir, fsio, httpsec, loudness as _loud, runtime as _runtime, tools  # noqa: E402
 
 APP_ID = "cut2resolve"
 TOOL_ID = "cut2resolve"
@@ -158,43 +158,12 @@ from pipeline.pack.request import (  # noqa: E402,F401
 
 # ---------------------------------------------------------------- アプリの状態(ジョブ・開いてよいフォルダ・キャッシュ)
 
-class Job:
-    def __init__(self, kind):
-        self.id = secrets.token_hex(6)
-        self.kind = kind
-        self.state = "running"
-        self.progress = None
-        self.message = ""
-        self.result = None
-        self.error = None
-        self.started = time.time()
-        self.finished = None
-        self.task = C.Task(self._on_progress)
-
-    def _on_progress(self, frac, message):
-        if frac is not None:
-            self.progress = round(float(frac), 4)
-        if message:
-            self.message = message
-            self.progress = None if frac is None else self.progress
-
-    def public(self):
-        d = {"id": self.id, "kind": self.kind, "state": self.state, "progress": self.progress, "message": self.message,
-             "elapsed": round((self.finished or time.time()) - self.started, 1)}
-        if self.result is not None:
-            d["result"] = self.result
-        if self.error is not None:
-            d["error"] = self.error
-        return d
-
-
 class AppState:
     """1つのサーバーの状態。テストで複数のサーバーを作ってもぶつからないよう、グローバルではなくサーバーに持たせる"""
 
     def __init__(self, opener=None):
         self.lock = threading.Lock()
-        self.jobs = OrderedDict()
-        self.running = None
+        self.packjobs = PackJobs(TOOL_ID, log=log, log_path=LOG_PATH)   # ジョブの器は ② の flow/packjobs(OPT2 J3)
         self.cache = pack.Cache()
         self.out_dirs = set()             # パックを書いたフォルダ(「フォルダを開く」を許すもの)
         self.opener = opener or open_folder
@@ -208,97 +177,24 @@ class AppState:
         with self.lock:
             return os.path.normcase(os.path.realpath(str(path))) in self.out_dirs
 
-    # ---- ジョブ(同時に1つだけ。無音の検出・書き出しは重いので、画面の二度押しで並ばないように)
+    # ---- ジョブ(同時に1つだけ。器は flow/packjobs)
     def start_job(self, kind, fn, heavy=None):
-        """heavy: 引数なしで呼べる関数。真を返すなら、その処理は他のツールの重い処理と順番を待つ(build は常に待つ。試算は無音の検出が要るときだけ)"""
-        with self.lock:
-            if self.running is not None and self.running.state == "running":
-                raise ApiError("busy", "前の処理が終わっていません(「取り消す」で止められます)", 409,
-                               {"job": self.running.public()})
-            job = Job(kind)
-            self.running = job
-            self.jobs[job.id] = job
-            while len(self.jobs) > 20:
-                self.jobs.popitem(last=False)
-        th = threading.Thread(target=self._run, args=(job, fn, heavy), daemon=True, name="job-" + kind)
-        th.start()
-        return job
-
-    def _run(self, job, fn, heavy=None):
-        try:
-            # パックの作成(粗編集・動画のコピー)と、無音の検出が要る試算(動画の音声を全部読む)は重いので、他のツールの重い処理と順番を待つ(ytt.jobs)
-            if job.kind == "build" or (heavy is not None and heavy()):
-                with _heavy.SLOTS.slot(TOOL_ID, "パックの作成" if job.kind == "build" else "試算(無音の検出)", cancelled=lambda: job.task.cancelled,
-                                       on_wait=lambda: setattr(job, "message", _heavy.WAIT_MESSAGE)) as ok:
-                    if not ok:
-                        raise C.Cancelled()
-                    job.message = ""
-                    job.result = fn(job.task)
-            else:
-                job.result = fn(job.task)
-            job.state = "done"
-        except C.Cancelled:
-            job.state = "cancelled"
-            job.message = "取り消しました"
-        except C.OutputExists as e:
-            job.state = "error"
-            job.error = {"code": "exists", "message": str(e), "files": [p.name for p in e.existing]}
-        except (C.ToolError, ApiError) as e:
-            job.state = "error"
-            job.error = {"code": getattr(e, "code", "tool"), "message": getattr(e, "message", None) or str(e)}
-        except Exception as e:   # 想定外でもサーバーは落とさない(詳細は serve.log)
-            log("error: job %s: %s" % (job.kind, traceback.format_exc()))
-            job.state = "error"
-            job.error = {"code": "internal", "message": "内部エラー: %s %s(%s に記録しました)" % (e.__class__.__name__, str(e)[:200], LOG_PATH)}
-        finally:
-            job.finished = time.time()
+        return self.packjobs.start_job(kind, fn, heavy)
 
     def job(self, jid):
-        with self.lock:
-            j = self.jobs.get(str(jid or ""))
-        if j is None:
-            raise ApiError("not_found", "その処理は見つかりません(サーバーを起動し直した可能性があります)", 404)
-        return j
-
-
-BOARD_STATE = {"running": "running", "done": "done", "error": "error", "cancelled": "cancelled"}
-
-
-def board_job(job):
-    """パックのジョブ 1 つ -> 掲示板の Job(id = "pk:<ジョブの id>"。kind pack。試算も同じ kind で題だけ違う)。読むだけ"""
-    state = BOARD_STATE.get(job.state, "running")
-    err = None
-    if job.error:
-        err = {"code": job.error.get("code"), "text": job.error.get("message") or "", "detail": None}
-    res = job.result if isinstance(job.result, dict) else {}
-    target = {"path": str(res["outDir"])} if res.get("outDir") else {}
-    return {"id": "pk:" + job.id, "kind": "pack", "target": target, "title": "パックの作成" if job.kind == "build" else "試算",
-            "state": state, "phase": job.message or "", "progress": job.progress, "waiting": job.message == _heavy.WAIT_MESSAGE and state == "running",
-            "createdAt": int(job.started * 1000), "startedAt": int(job.started * 1000),
-            "finishedAt": int(job.finished * 1000) if job.finished else None, "error": err, "canCancel": state == "running", "canRetry": False}
+        return self.packjobs.job(jid)
 
 
 def board_jobs():
-    """入口に取り込まれているときのジョブ(入れた順)を掲示板の Job に(引く形の source)。取り込まれていなければ空"""
-    mount = MOUNT
-    if mount is None:
-        return []
-    with mount.app.lock:
-        jobs = list(mount.app.jobs.values())
-    return [board_job(j) for j in jobs]
+    """入口に取り込まれているときのジョブ(入れた順)を掲示板の Job に(引く形の source。形は flow/packjobs.board_job)。取り込まれていなければ空"""
+    return MOUNT.app.packjobs.board_jobs() if MOUNT is not None else []
 
 
 def board_cancel(jid):
     """掲示板の cancel(器の中の id)。無い id は LookupError"""
-    mount = MOUNT
-    try:
-        job = mount.app.job(jid) if mount else None
-    except ApiError as e:
-        raise LookupError(e.message)
-    if job is None:
+    if MOUNT is None:
         raise LookupError("そのジョブはありません")
-    if job.state == "running":
-        job.task.cancel()
+    MOUNT.app.packjobs.board_cancel(jid)
 
 
 def attach_board(board):
@@ -532,43 +428,7 @@ class Handler(BaseHTTPRequestHandler):
         return {"job": app.start_job("plan", work, heavy=lambda: pack.detect_pending(req, app.cache)).public()}
 
     def _build(self, o):
-        req = request_from_spec(o.get("spec"))
-        app = self.app
-        out = output_from_spec(o.get("output"), req.video)
-        if out["dir"].exists() and not out["dir"].is_dir():
-            raise ApiError("bad_out", "出力先がフォルダではありません: %s" % out["dir"])
-        if not out["force"]:   # 先に分かる範囲で上書きの確認(字幕の有無は入力から見積もる。最終的な確認はジョブの中でも行う)
-            names = pack.expected_paths(req, out["dir"], bool(req.sub or req.transcript), render=out["render"], copy_video=out["copyVideo"],
-                                        textplus=out["textplus"], backup=out["backup"], plan_file=False, readme_file=False)
-            existing = [p for p in names.values() if p.exists()]
-            if existing:
-                raise ApiError("exists", "出力ファイルが既にあります", 409, {"files": [p.name for p in existing], "dir": str(out["dir"])})
-
-        def work(task):
-            plan = pack.plan_cut(req, task=task, cache=app.cache)
-            # 字幕の文字の色の決まり方: 話者ごとの指定(speakerStyles)→ メンバーカラー(speakerColors が真)→ 配信者の色(textplusColor)→ 黒
-            spk_map, spk_shown = speaker_colors_for(plan, out)
-            prev = _txi.read_pack_record(str(out["dir"]), c2r_dir=CODE_DIR) or {}   # 前にこのフォルダへ作ったパックの記録(音量をかけた写しを比べる)
-            res = pack.build_pack(plan, out["dir"], render=out["render"], copy_video=out["copyVideo"],
-                                  textplus=out["textplus"], textplus_target=out["textplusTarget"],
-                                  force=out["force"], task=task, backup=out["backup"], plan_file=False,
-                                  textplus_wrap=out["textplusWrap"], readme_file=False, textplus_color=out["textplusColor"],
-                                  speaker_colors=spk_map or None, loudness=out["loudness"], volume=out["volume"],
-                                  video_tracks=out["videoTracks"], prev_copy=prev.get("videoCopy"))
-            app.allow_out_dir(res["out_dir"])
-            try:
-                write_pack_record(res, plan, out["textplus"], out["backup"], out["textplusColor"])
-            except (OSError, ValueError) as e:
-                log("warn: パックの記録を書けません: %s" % e)
-                res["warnings"].append("パックを作った記録を残せませんでした(一覧の「パック済み」が出ないことがあります): %s" % e)
-            _flowkeys.write_pack(res["out_dir"], o.get("spec") or {}, o.get("output") or {})   # <パック>/pack.key.json(要求の本文から。書けなくてもログだけ。RS6 b-K1・K2)
-            files = [file_info(k, p) for k, p in res["files"]]
-            r = {"outDir": str(res["out_dir"]), "files": files, "readme": res["readme"], "warnings": res["warnings"],
-                 "warningLevels": classify_warnings(res["warnings"]),
-                 "summary": with_warning_levels(pack.summary(plan)),
-                 "editMedia": res["editMedia"], "speakerColors": spk_shown, "loudness": res.get("loudness")}
-            return r
-        return {"job": app.start_job("build", work).public()}
+        return start_build(self.app, o)
 
     def _cancel(self, o):
         job = self.app.job(o.get("id"))
@@ -587,6 +447,54 @@ class Handler(BaseHTTPRequestHandler):
         except OSError as e:
             raise ApiError("open_failed", "フォルダを開けませんでした: %s" % (e.strerror or e))
         return {"ok": True}
+
+
+def start_build(app, o):
+    """POST /api/build の中身: 要求 o -> {"job"}(入れられなければ ApiError。上書きの確かめは 409 exists)。入口のまとめて実行も同じ物を直に呼ぶ(flow_host。OPT2 後半 J7)"""
+    req = request_from_spec(o.get("spec"))
+    out = output_from_spec(o.get("output"), req.video)
+    if out["dir"].exists() and not out["dir"].is_dir():
+        raise ApiError("bad_out", "出力先がフォルダではありません: %s" % out["dir"])
+    if not out["force"]:   # 先に分かる範囲で上書きの確認(字幕の有無は入力から見積もる。最終的な確認はジョブの中でも行う)
+        names = pack.expected_paths(req, out["dir"], bool(req.sub or req.transcript), render=out["render"], copy_video=out["copyVideo"],
+                                    textplus=out["textplus"], backup=out["backup"], plan_file=False, readme_file=False)
+        existing = [p for p in names.values() if p.exists()]
+        if existing:
+            raise ApiError("exists", "出力ファイルが既にあります", 409, {"files": [p.name for p in existing], "dir": str(out["dir"])})
+
+    def work(task):
+        plan = pack.plan_cut(req, task=task, cache=app.cache)
+        # 字幕の文字の色の決まり方: 話者ごとの指定(speakerStyles)→ メンバーカラー(speakerColors が真)→ 配信者の色(textplusColor)→ 黒
+        spk_map, spk_shown = speaker_colors_for(plan, out)
+        prev = _txi.read_pack_record(str(out["dir"]), c2r_dir=CODE_DIR) or {}   # 前にこのフォルダへ作ったパックの記録(音量をかけた写しを比べる)
+        res = pack.build_pack(plan, out["dir"], render=out["render"], copy_video=out["copyVideo"],
+                              textplus=out["textplus"], textplus_target=out["textplusTarget"],
+                              force=out["force"], task=task, backup=out["backup"], plan_file=False,
+                              textplus_wrap=out["textplusWrap"], readme_file=False, textplus_color=out["textplusColor"],
+                              speaker_colors=spk_map or None, loudness=out["loudness"], volume=out["volume"],
+                              video_tracks=out["videoTracks"], prev_copy=prev.get("videoCopy"))
+        app.allow_out_dir(res["out_dir"])
+        try:
+            write_pack_record(res, plan, out["textplus"], out["backup"], out["textplusColor"])
+        except (OSError, ValueError) as e:
+            log("warn: パックの記録を書けません: %s" % e)
+            res["warnings"].append("パックを作った記録を残せませんでした(一覧の「パック済み」が出ないことがあります): %s" % e)
+        _flowkeys.write_pack(res["out_dir"], o.get("spec") or {}, o.get("output") or {})   # <パック>/pack.key.json(要求の本文から。書けなくてもログだけ。RS6 b-K1・K2)
+        files = [file_info(k, p) for k, p in res["files"]]
+        r = {"outDir": str(res["out_dir"]), "files": files, "readme": res["readme"], "warnings": res["warnings"],
+             "warningLevels": classify_warnings(res["warnings"]),
+             "summary": with_warning_levels(pack.summary(plan)),
+             "editMedia": res["editMedia"], "speakerColors": spk_shown, "loudness": res.get("loudness")}
+        return r
+    return {"job": app.start_job("build", work).public()}
+
+
+def flow_host():
+    """入口のまとめて実行の口(flow/tools.PackHost。OPT2 後半 J7): 取り込まれていればこのサーバーのパックの器と start_build を直に呼ぶ口・取り込まれていなければ None(HTTP の道)"""
+    if MOUNT is None:
+        return None
+    app = MOUNT.app
+    return _flowtools.PackHost(app.packjobs, lambda o: start_build(app, o))
 
 
 class C2RServer(httpsec.ExclusiveServer):
@@ -671,16 +579,15 @@ def prepare(port, base_path="/", opener=None):
 
 def busy():
     """書き出しなどのジョブが動いているか(入口の「すべて終了」の確認用)"""
-    job = MOUNT.app.running if MOUNT else None
-    return job is not None and job.state == "running"
+    return MOUNT is not None and MOUNT.app.packjobs.running_now() is not None
 
 
 def finish():
     """取り込まれたときの後始末。動いているジョブ(ffmpeg での書き出しなど)を取り消し、自分が書いた .runtime の記録を消す"""
     if MOUNT is None:
         return
-    job = MOUNT.app.running
-    if job is not None and job.state == "running":
+    job = MOUNT.app.packjobs.running_now()
+    if job is not None:
         job.task.cancel()
     remove_runtime(MOUNT.port)
     log("終了(入口)")

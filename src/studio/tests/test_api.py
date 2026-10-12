@@ -692,7 +692,7 @@ class TestLiveApi(Base):
         rid = "20261005-190300"
         self.req("POST", "/api/videos/open", live_body(rid))
         self.req("PUT", "/api/video", {"id": rid, "marks": [{"id": "m1", "start": 10, "end": 40, "status": "adopted"}]})
-        with patch.object(serve.exporter, "start_job") as sj:
+        with patch.object(serve.EXPORTS, "start") as sj:
             st, j, *_ = self.req("POST", "/api/export", {"id": rid, "markIds": ["m1"]})
         self.assertEqual((st, j["error"]), (400, "bad_request"))
         self.assertIn("ライブ", j["message"])
@@ -805,7 +805,7 @@ class TestLiveSectionApi(Base):
         bads = [dict(videoId="bad"), dict(videoId="zzzzzzzzzz\n"), dict(videoId=None), dict(start=-1), dict(start=6), dict(start="2"), dict(end=0), dict(end=None),
                 dict(start=0, end=3601), dict(path=outside), dict(path=os.path.join(studio_env.get_out_dir(), "..", "outside.mp4")), dict(path=existing),
                 dict(path=os.path.join(studio_env.get_out_dir(), "nodir", "a.mp4")), dict(path=os.path.join(self.folder, "a.txt")), dict(path="rel.mp4"), dict(path=None)]
-        with patch.object(serve.exporter, "start_job") as sj:
+        with patch.object(serve.EXPORTS, "start") as sj:
             for kw in bads:
                 st, j, *_ = self.req("POST", "/api/live/section", self.body("bad.mp4", **kw))
                 self.assertEqual((st, j["error"]), (400, "bad_request"), kw)
@@ -827,9 +827,9 @@ class TestLiveSectionApi(Base):
         self.assertFalse(os.path.exists(os.path.join(self.folder, "g.mp4")))
 
     def test_busy_and_cancel(self):
-        def slow(job, *a, **kw):
+        def slow(ctl, *a, **kw):   # ctl = 器が ① に渡す ytt/jobs.Ctl(OPT2 の J2)
             for _ in range(300):
-                if job["cancel"]:
+                if ctl.cancelled:
                     raise serve.exporter.ExportError("中止しました")
                 time.sleep(0.05)
         with patch.object(serve.exporter, "run_ffmpeg", side_effect=slow):

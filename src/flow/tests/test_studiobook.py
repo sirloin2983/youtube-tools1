@@ -133,19 +133,18 @@ class BookTest(Base):
             self.assertEqual(f.read(), "{壊れた")
 
 
-def _fake_run_analyze(job):
+def _fake_run_analyze(spec, ctl=None):
     """① の解析の代わり(ネットワーク・ffmpeg に出ない): 候補 2 つ"""
-    src = job["spec"]["source"]
-    job["result"] = {"source": dict(src, duration=300.0), "series": {"n": 1}, "signals": {}, "counts": {}, "warnings": [], "spec": {"count": 2},
-                     "candidates": [{"start": 10, "end": 40, "peak": 20, "score": 3, "parts": {}, "reasons": []},
-                                    {"start": 100, "end": 130, "peak": 110, "score": 8, "parts": {}, "reasons": []}]}
-    job["state"], job["phase"], job["progress"] = "done", "解析が完了しました", 1.0
+    src = spec["source"]
+    return {"source": dict(src, duration=300.0), "series": {"n": 1}, "signals": {}, "counts": {}, "warnings": [], "spec": {"count": 2},
+            "candidates": [{"start": 10, "end": 40, "peak": 20, "score": 3, "parts": {}, "reasons": []},
+                           {"start": 100, "end": 130, "peak": 110, "score": 8, "parts": {}, "reasons": []}]}
 
 
 class LocalStudioTest(Base):
     def setUp(self):
         super().setUp()
-        for p in (mock.patch.dict(os.environ, {"STUDIO_FAKE": "1"}), mock.patch.object(SB._batch.analyze, "run_analyze", _fake_run_analyze)):
+        for p in (mock.patch.dict(os.environ, {"STUDIO_FAKE": "1"}), mock.patch.object(SB._batch.analyze, "run", _fake_run_analyze)):
             p.start()
             self.addCleanup(p.stop)
         self.ls = SB.LocalStudio(self.book)

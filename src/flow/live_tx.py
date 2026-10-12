@@ -312,11 +312,18 @@ class LiveTx(LX.Patrol):
         end = state not in ("queued", "running")
         phase = {"queued": "順番待ち", "running": "重い処理の順番待ち" if self.slot_wait else "認識中", "done": "文字を付けました",
                  "error": "文字を付けられませんでした", "cancelled": "取り消しました"}.get(state, "")
-        return {"id": self.board_id(key), "kind": "live_tx", "case": None, "target": {"recording": rec},
+        return {"id": self.board_id(key), "kind": "live_tx", "case": self._case(rc, rec), "target": {"recording": rec},
                 "title": "配信中の候補の文字起こし: %s %s" % (rec, span), "state": state, "phase": phase,
                 "waiting": state == "running" and self.slot_wait, "createdAt": m.get("createdAt"),
                 "finishedAt": int(self.clock() * 1000) if end else None, "error": (why or "失敗しました") if state == "error" else None,
                 "canCancel": state == "queued", "canRetry": False}
+
+    def _case(self, rc, rec):
+        """録画の案件の根(lx と同じ = マークの正本の case。初めて書き出すまでは None)。引けなくても載せる"""
+        try:
+            return self.host.exporter.case_of(rc, rec)
+        except Exception:   # noqa: BLE001  (案件が分からなくても掲示板には載せる)
+            return None
 
     def _publish(self, key, state, why=""):
         b = self.board

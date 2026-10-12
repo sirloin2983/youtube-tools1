@@ -32,7 +32,7 @@ PREFIXES = {"run": "② の実行(flow/runqueue)", "tx": "編集のジョブ(文
             "la": "ライブの作り直し(flow/live_archive)", "lt": "配信中の候補の文字起こし(flow/live_tx)", "dl": "届ける(human/friend/deliver)",
             "se": "配信の検索(human/find/rank)"}
 # Run.owned のツールの ID -> 頼んだ器の id の頭(親子の印。runqueue が使う)
-OWNED_PREFIX = {"transcribe": "tx", "studio": "an", "cut2resolve": "pk"}
+OWNED_PREFIX = {"transcribe": "tx", "studio": "an", "cut2resolve": "pk", "export": "ex"}
 # 段の語彙(flow/run.STEP_LABELS の鍵 + 器の種類)。増やすときはここに足す
 KINDS = ("run", "analyze", "adopt", "export", "transcribe", "diarize", "pack", "deliver", "rerun", "search", "live_export", "live_archive", "live_tx")
 STATES = ("queued", "running", "done", "error", "cancelled", "skipped")

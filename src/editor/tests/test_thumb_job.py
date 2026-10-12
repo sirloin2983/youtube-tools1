@@ -29,20 +29,10 @@ HAVE_FF = bool(shutil.which("ffmpeg"))
 
 
 def _drop_jobs(match):
-    """このテストのジョブを表と待機列から外す(ほかのテストの run_job に拾われないように)"""
+    """このテストのジョブを表から外す(ほかのテストの run_job に拾われないように)"""
     with jobs._jobs_lock:
         for k in [k for k, j in jobs._jobs.items() if match(j)]:
             jobs._jobs.pop(k, None)
-        keep = []
-        while True:
-            try:
-                it = jobs._queue.get_nowait()
-            except Exception:
-                break
-            if it[2] in jobs._jobs:
-                keep.append(it)
-        for it in keep:
-            jobs._queue.put(it)
 
 
 @unittest.skipUnless(HAVE_FF, "ffmpeg が必要")

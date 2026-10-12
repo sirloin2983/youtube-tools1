@@ -196,6 +196,15 @@ class Live(livesession.LiveSession):
         except autorun.StepError as e:
             return None, {"message": str(e)}
 
+    def studio_queue(self):
+        """取り込んだスタジオの解析の順番待ち(flow/batch の Batch.snapshot)を HTTP を通さずに読む(OPT2 の J5)。
+        スタジオが取り込まれていない・まだ用意ができていなければ None(LiveSession の既定 = スタジオの GET /api/queue へ)"""
+        sup = getattr(self._server, "sup", None) if self._server is not None else None
+        t = (getattr(sup, "by_id", None) or {}).get("studio") if sup is not None else None
+        mod = getattr(getattr(t, "mount", None), "mod", None) if t is not None and getattr(t, "mounted", False) else None
+        batch = getattr(mod, "BATCH", None)
+        return batch.snapshot() if batch is not None else None
+
     def _make_cleaner(self):
         """録画を自動で消す(src/manage/keep/live_cleanup.py。P4。設定 live.autoDelete)"""
         kw = dict({"enabled": self.auto_delete, "studio": self.studio_call, "log": self.log,

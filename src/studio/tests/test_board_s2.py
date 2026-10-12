@@ -5,15 +5,13 @@ import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない
 os.environ["STUDIO_FAKE"] = "1"
 import sys
-import time
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # ツールのフォルダ(studio/)
 import startup  # noqa: E402  (src を sys.path に足し、スタジオのフォルダを ytt/studio_env に知らせる)
 import serve  # noqa: E402
-from flow import batch as batch_mod, board as B  # noqa: E402
+from flow import batch as batch_mod, board as B, export as flow_export  # noqa: E402
 from human.find import rank  # noqa: E402
-from pipeline.export import exporter  # noqa: E402
 
 
 class Store:
@@ -33,46 +31,47 @@ class TestAnalyze(unittest.TestCase):
     def new(self):
         bt, b = batch_mod.Batch(Store()), B.Board()
         bt.attach_board(b)
-        bt.start = lambda: None   # 糸は起こさない
-        it = bt._new_item({"kind": "youtube", "videoId": "abcdefghijk", "name": "abcdefghijk"}, {}, "配信A", "ch")
-        bt.items.append(it)
+        bt.table.start = lambda: None   # 糸は起こさない(② の器 flow/jobs.Table。OPT2 の J6)
+        src = {"kind": "youtube", "videoId": "abcdefghijk", "name": "abcdefghijk"}
+        it = bt.table.add({"src": src, "settings": {}}, extra={"title": "配信A", "channel": "ch", "marks": 0, "chatSnap": None})
         return bt, b, it
 
     def test_states_on_board(self):
         bt, b, it = self.new()
         b.refresh()
-        j = b.get("an:" + it["qid"])
+        j = b.get("an:" + it["id"])
         self.assertEqual((j["kind"], j["state"], j["canCancel"], j["title"]), ("analyze", "queued", True, "配信A"))
-        it["status"] = "running"
+        it["state"] = "running"
         b.refresh()
-        self.assertEqual(state_of(b, "an:" + it["qid"]), "running")
-        bt._finish(it, "error", "だめ")
+        self.assertEqual(state_of(b, "an:" + it["id"]), "running")
+        bt.table.finish(it, "error", "だめ")
         b.refresh()
-        j = b.get("an:" + it["qid"])
+        j = b.get("an:" + it["id"])
         self.assertEqual((j["state"], j["error"]["text"], j["canRetry"]), ("error", "だめ", True))
 
     def test_cancel_and_retry_by_board_id(self):
         bt, b, it = self.new()
-        j = b.cancel("an:" + it["qid"])
+        j = b.cancel("an:" + it["id"])
         self.assertEqual(j["state"], "skipped")
-        new = b.retry("an:" + it["qid"])
-        self.assertEqual((new["state"], new["id"] != "an:" + it["qid"]), ("queued", True))
+        new = b.retry("an:" + it["id"])
+        self.assertEqual((new["state"], new["id"] != "an:" + it["id"]), ("queued", True))
         with self.assertRaises(B.NotFound):
             b.cancel("an:nai")
 
 
 class TestExport(unittest.TestCase):
     def setUp(self):
-        self.addCleanup(exporter._jobs.clear)
-        exporter._jobs.clear()
+        self.ex = flow_export.ExportJobs()   # 書き出しの器(② の flow/export。OPT2 の J2)
         self.b = B.Board()
-        self.b.register("ex", source=exporter.board_jobs, cancel=exporter.board_cancel)
+        self.ex.attach_board(self.b)
 
     def job(self, state="running"):
-        j = {"id": "e1", "videoId": "abcdefghijk", "state": state, "cancel": False, "proc": None, "created": time.time(),
-             "items": [{"id": "m1", "status": "running", "progress": 0.5, "path": None, "error": None}]}
-        exporter._jobs["e1"] = j
-        return j
+        res = {"videoId": "abcdefghijk", "state": state, "folder": "", "combined": None,
+               "items": [{"id": "m1", "status": "running", "progress": 0.5, "path": None, "error": None}]}
+        rec = self.ex.table._new({"videoId": "abcdefghijk", "clips": []}, "export", "", {"videoId": "abcdefghijk", "outDir": "", "res": res})
+        rec.update(id="e1", state="running")
+        self.ex.table.jobs["e1"] = rec
+        return res
 
     def test_states_on_board(self):
         j = self.job()
@@ -86,7 +85,7 @@ class TestExport(unittest.TestCase):
     def test_cancel_by_board_id(self):
         j = self.job()
         self.b.cancel("ex:e1")
-        self.assertTrue(j["cancel"])
+        self.assertTrue(self.ex.get("e1")["ctl"].cancelled)
         j["state"] = "cancelled"
         with self.assertRaises(B.Refused):
             self.b.cancel("ex:e1")
@@ -120,7 +119,8 @@ class TestWiring(unittest.TestCase):
         serve.init()
         b = B.Board()
         serve.attach_board(b)
-        self.assertEqual(b.snapshot()["jobs"], [])
+        jobs = b.snapshot()["jobs"]   # 器はプロセスに 1 つ(OPT2 の J2・J6)= 同じプロセスの前のテストの終わった物が残ってよい
+        self.assertTrue(all(j["id"].split(":")[0] in ("an", "ex", "se") and j["state"] not in ("queued", "running") for j in jobs), jobs)
 
 
 if __name__ == "__main__":

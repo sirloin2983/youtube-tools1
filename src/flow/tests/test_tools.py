@@ -74,6 +74,103 @@ class TestHttpTools(unittest.TestCase):
         self.assertIsNone(t.doc("nai"))
 
 
+class TestFlowTools(unittest.TestCase):
+    """入口の形(OPT2 後半 J7): ① の動詞は口があれば直に・無ければ HTTP。③ の動詞と編集の文字起こしはいつも HTTP"""
+
+    class C:
+        def __init__(self):
+            self.calls = []
+
+        def call(self, tool, method, path, body=None):
+            self.calls.append((tool, path))
+            return 200, {"id": "h1", "items": [], "jobs": []}
+
+        def ok(self, tool, method, path, body=None):
+            return self.call(tool, method, path, body)[1]
+
+    class Host:
+        def __init__(self):
+            self.calls = []
+
+        def __getattr__(self, name):
+            def f(*a):
+                self.calls.append(name)
+                return (200, {"id": "d1"}) if name.endswith("_start") else ([] if name == "analyze_items" else True)
+            return f
+
+    def test_no_host_is_http(self):
+        c = self.C()
+        t = T.FlowTools(c, lambda tool: None)
+        t.analyze_add({}, {})
+        t.export_start({})
+        t.pack_start({})
+        self.assertIsNone(t.export_free(0.01))
+        self.assertIsNone(t.pack_free(0.01))
+        self.assertEqual([p for _t, p in c.calls], ["/api/queue/add", "/api/export", "/api/build"])
+
+    def test_host_is_direct(self):
+        c, hs = self.C(), {"studio": self.Host(), "cut2resolve": self.Host()}
+        t = T.FlowTools(c, hs.get)
+        self.assertEqual(t.export_start({"x": 1}), (200, {"id": "d1"}))
+        t.analyze_add({}, {})
+        t.analyze_items()
+        t.analyze_cancel("q")
+        t.export_job("j")
+        t.export_cancel("j")
+        self.assertTrue(t.export_free(0.01))
+        t.pack_start({})
+        t.pack_job("p")
+        t.pack_cancel("p")
+        self.assertTrue(t.pack_free(0.01))
+        t.video("abcdefghijk")
+        t.request_marks({})
+        t.transcribe_start({})
+        t.edit("a")
+        self.assertEqual(hs["studio"].calls, ["export_start", "analyze_add", "analyze_items", "analyze_cancel", "export_job", "export_cancel", "export_free"])
+        self.assertEqual(hs["cut2resolve"].calls, ["pack_start", "pack_job", "pack_cancel", "pack_free"])
+        self.assertEqual([p for _t, p in c.calls], ["/api/video?id=abcdefghijk", "/api/video/request-marks", "/api/transcribe", "/api/edit?id=a"])
+
+    def test_pack_host(self):
+        """PackHost: POST /api/build と同じ応答の形(200 {"job"}・ApiError は番号と error・message・extra)・器が空くまで待てる"""
+        import threading
+        from flow import packjobs
+        from ytt.errors import ApiError
+        jobs = packjobs.PackJobs("test-j7")
+        go = threading.Event()
+        h = T.PackHost(jobs, lambda body: {"job": jobs.start_job("build", lambda task: go.wait(5) and {"outDir": "x"}).public()})
+        st, res = h.pack_start({})
+        self.assertEqual(st, 200)
+        jid = res["job"]["id"]
+        st2, res2 = h.pack_start({})
+        self.assertEqual((st2, res2["error"]), (409, "busy"))
+        self.assertIn("job", res2)
+        self.assertFalse(h.pack_free(0.05))
+        go.set()
+        self.assertTrue(h.pack_free(5))
+        self.assertEqual(h.pack_job(jid)["state"], "done")
+        h.pack_cancel(jid)   # 終わった物は何もしない
+        h.pack_cancel("nai")
+        with self.assertRaises(R.StepError):
+            h.pack_job("nai")
+
+        def bad(body):
+            raise ApiError("exists", "出力ファイルが既にあります", 409, {"files": ["a.edl"]})
+        self.assertEqual(T.PackHost(jobs, bad).pack_start({}), (409, {"error": "exists", "message": "出力ファイルが既にあります", "files": ["a.edl"]}))
+
+    def test_call_when_free_waits_on_the_table(self):
+        """409 busy のあと、器の待ち(free)があれば眠らずにやり直す・free が None なら今までどおり BUSY_WAIT 秒眠る"""
+        slept = []
+        r = R.Runner(None, sleep=slept.append, tools=T.LocalTools())
+        r._check = lambda run: None
+        answers = [(409, {"error": "busy"}), (200, {"id": "x"})]
+        st = {}
+        self.assertEqual(r._call_when_free(None, st, lambda: answers.pop(0), "待っています", lambda t: True), (200, {"id": "x"}))
+        self.assertEqual((slept, st["detail"]), ([], "待っています"))
+        answers = [(409, {"error": "busy"}), (200, {"id": "y"})]
+        self.assertEqual(r._call_when_free(None, st, lambda: answers.pop(0), "待っています", lambda t: None), (200, {"id": "y"}))
+        self.assertEqual(slept, [R.BUSY_WAIT])
+
+
 class TestLocalRefuses(unittest.TestCase):
     def test_steps_that_need_the_portal(self):
         t = T.LocalTools()

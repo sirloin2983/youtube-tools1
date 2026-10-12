@@ -56,7 +56,7 @@ class ApiTest(unittest.TestCase):
         self.status = "post_live"
         self.studio = LF.ArchiveStudio("unused", block=True)
         self.srv.live.archive_opts = {"probe": lambda vid: {"status": self.status, "release": RELEASE}, "studio": self.studio,
-                                      "audio": lambda *a, **k: (_ for _ in ()).throw(A.ArchiveError("偽: 取らない")), "poll": 0.1}
+                                      "audio": lambda *a, **k: (_ for _ in ()).throw(A.ArchiveError("偽: 取らない")), "poll": 0.1, **self.studio.opts()}
         self.fake = TL.FakeRecorder()
 
     def tearDown(self):

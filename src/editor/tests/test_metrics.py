@@ -8,7 +8,6 @@
 import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
-import queue
 import random
 import shutil
 import socket
@@ -549,33 +548,21 @@ class TestSplitAndRobust(unittest.TestCase):
             S.RUN_MARK, S.run_job = old_mark, old_run
             shutil.rmtree(tmp, ignore_errors=True)
 
-    def _drain_queue(self):
-        while True:
-            try:
-                S._queue.get_nowait()
-            except queue.Empty:
-                return
-
     def test_diarize_overtakes_queued_transcribe(self):
         """話者判別(diarize)は、待機列に並んでいる文字起こし(transcribe)より先に取り出される。
         実行中のジョブを中断するわけではなく、待機列の中の順序だけを入れ替える(同じ種類どうしの順番は変えない)。"""
-        old_jobs, old_order = dict(S._jobs), list(S._order)
-        self._drain_queue()
+        old_jobs = dict(S._jobs)
         S._jobs.clear()
-        S._order.clear()
         try:
             j1 = S.add_job({"title": "t1"}, "transcribe")
             j2 = S.add_job({"title": "t2"}, "transcribe")
             j3 = S.add_job({"title": "d1", "tid": "docabc"}, "diarize")
             j4 = S.add_job({"title": "t3"}, "transcribe")
-            picked = [S._queue.get_nowait()[2] for _ in range(4)]
+            picked = [r["id"] for r in S.TX_TABLE.queue_order()]
             self.assertEqual(picked, [j3["id"], j1["id"], j2["id"], j4["id"]])
         finally:
-            self._drain_queue()
             S._jobs.clear()
             S._jobs.update(old_jobs)
-            S._order.clear()
-            S._order.extend(old_order)
 
 
 def free_port():

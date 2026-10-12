@@ -996,6 +996,21 @@ class TestHttpsec(unittest.TestCase):
         finally:
             s.close()
 
+    def test_exclusive_server_quiet_on_disconnect(self):
+        """相手が先に切った(ConnectionAbortedError など)は黒い画面に出さない・ほかの例外は今までどおり出す"""
+        srv = httpsec.ExclusiveServer(("127.0.0.1", 0), http.server.BaseHTTPRequestHandler)
+        try:
+            for exc, shown in ((ConnectionAbortedError(10053, "x"), False), (ConnectionResetError(), False),
+                               (BrokenPipeError(), False), (socket.timeout(), False), (ValueError("x"), True)):
+                with mock.patch("socketserver.BaseServer.handle_error") as base:
+                    try:
+                        raise exc
+                    except Exception:   # noqa: BLE001
+                        srv.handle_error(None, ("127.0.0.1", 1))
+                self.assertEqual(base.called, shown, exc)
+        finally:
+            srv.server_close()
+
 
 class TestTools(unittest.TestCase):
     def test_find_tool_env_override(self):
@@ -1636,6 +1651,56 @@ class TestHeavySlots(unittest.TestCase):
         self.assertEqual(s.snapshot()["active"], [])
 
 
+class TestCtl(unittest.TestCase):
+    """OPT2 の J0: ① の関数への手渡し ytt/jobs.Ctl(取り消し・報告・覚え書き・合図・子の写し・時間)と run_capture が Ctl を受けること"""
+
+    def test_cancel_and_check(self):
+        c = jobs.Ctl()
+        self.assertFalse(c.cancelled or c.is_cancelled())
+        c.check()
+        c.cancel()
+        self.assertTrue(c.cancelled and c.is_cancelled())
+        with self.assertRaises(errors.Cancelled):
+            c.check()
+
+        class Mine(Exception):
+            pass
+        with self.assertRaises(Mine):
+            jobs.Ctl(exc=Mine, cancel_event=c.cancel_event).check()
+
+    def test_report_note_flag_span_timer(self):
+        got, notes = [], {}
+        c = jobs.Ctl(lambda f, m: got.append((f, m)), on_note=notes.__setitem__)
+        c.report(0.5, "半分")
+        c.note("chat", {"state": "wait"})
+        sub = c.span(0.5, 1.0)
+        sub.report(0.5)
+        sub.report(None, "文だけ")
+        sub.raise_flag("skipChat")
+        self.assertTrue(c.flag("skipChat"))
+        c.timer(10)(5)
+        c.timer(0)(5)   # 長さが分からなければ報告しない
+        self.assertEqual(got, [(0.5, "半分"), (0.75, None), (None, "文だけ"), (0.5, None)])
+        self.assertEqual(notes, {"chat": {"state": "wait"}})
+        c.cancel()
+        self.assertTrue(sub.cancelled)   # 取り消しは親と共有
+
+    def test_report_errors_are_swallowed(self):
+        def boom(*a):
+            raise RuntimeError("x")
+        c = jobs.Ctl(boom, on_note=boom)
+        c.report(0.1)
+        c.note("k", 1)
+
+    def test_run_capture_with_ctl(self):
+        c = jobs.Ctl()
+        code, _err = procs.run_capture(c, [sys.executable, "-c", "print('a')"], on_line=lambda l: None)
+        self.assertEqual(code, 0)
+        c.cancel()
+        with self.assertRaises(errors.Cancelled):
+            procs.run_capture(c, [sys.executable, "-c", "import time; time.sleep(5)"])
+
+
 class TestTxIndex(unittest.TestCase):
     """文字起こしの文書を他のツールから読む(入口の案件・スタジオのセリフの表示で共通の紐づけの規則)"""
     VID = "abcdefghijk"
@@ -2074,6 +2139,17 @@ class TestPick(unittest.TestCase):
 
 class TestLoudness(unittest.TestCase):
     """ラウドネスの決まり(ytt/loudness.py。スタジオの書き出し・パック作りが共通で使う)"""
+
+    def test_ffmpeg_args(self):
+        """OPT2: 音量・ラウドネスの引数は 1 か所(スタジオの書き出しとライブの書き出しの引数の列は移す前と同じ)"""
+        from ytt import loudness as L
+        P = ["-progress", "pipe:1", "-nostats"]
+        self.assertEqual((L.volume_filter(75), L.gain_filter(-3.456)), ("volume=0.750", "volume=-3.46dB"))
+        self.assertEqual(L.measure_args("ff", "a.mp4"), ["ff", "-hide_banner", "-nostdin", "-i", "a.mp4", "-vn", "-af", "loudnorm=print_format=json", "-f", "null", "-"] + P)
+        tail = ["-c:v", "copy", "-af", "volume=1.000", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"] + P + ["o.mp4"]
+        self.assertEqual(L.reencode_args("ff", "a.mp4", "o.mp4", "volume=1.000"), ["ff", "-hide_banner", "-nostdin", "-y", "-i", "a.mp4"] + tail)
+        self.assertEqual(L.reencode_args("ff", "a.mp4", "o.mp4", "volume=1.000", first_streams=True),
+                         ["ff", "-hide_banner", "-nostdin", "-y", "-v", "error", "-i", "a.mp4", "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn"] + tail)
 
     def test_check_target_and_volume(self):
         from ytt import loudness as L

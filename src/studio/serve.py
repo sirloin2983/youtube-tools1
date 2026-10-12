@@ -26,7 +26,8 @@ import handoff  # noqa: E402  実行中のポートの共有(.runtime・/api/sib
 from human.find import rank  # noqa: E402  (startup が src を sys.path に足してある。RS3-5 でスタジオの隣から層へ)
 from human.review import store as store_mod  # noqa: E402
 from manage.cases import txlink  # noqa: E402
-from flow import batch as batch_mod, board as board_mod, keys as _flowkeys  # noqa: E402  (keys = 成果物の鍵。RS6 b-K1)
+from flow import studiobook as _studiobook  # noqa: E402  入口のまとめて実行が直に呼ぶ口 LocalStudio(OPT2 後半 J7)
+from flow import batch as batch_mod, board as board_mod, export as _flowexport, keys as _flowkeys  # noqa: E402  (keys = 成果物の鍵。RS6 b-K1・export = 書き出しの器。OPT2 の J2)
 from pipeline.analyze import analyze  # noqa: E402
 from pipeline.analyze import fetch  # noqa: E402
 from pipeline.export import exporter  # noqa: E402
@@ -40,6 +41,7 @@ APP_ID = ytt_runtime.TOOL_APPS["studio"]   # /api/ping の app 名(互換のた�
 SERVER_VERSION = _version.VERSION  # 全体の版(ytt/version.py の 1 か所。画面は入口が入れる meta ytt-version から読む)
 TOOL_ID = "studio"        # docs/spec/pipeline.md の 4 のツールID(.runtime/studio.json)
 exporter.TOOL.update(name=APP_ID, version=SERVER_VERSION)   # .clip.json の tool
+EXPORTS = _flowexport.default()   # 書き出しの器(② の flow/export。プロセスに 1 つ = スタジオなしの台帳 flow/studiobook と同じ物。OPT2 の J2)
 CODE_DIR = startup.CODE_DIR
 # 画面の部品だけ(RS8 C4 でスタジオの画面のページ・core.js・settings.js・CSS・ui-kit の写しを消した)。案件の画面とホームの「新しい案件」が
 # studio/review.js(候補のパネル)・studio/rank.js と queue.js(新しい案件)・studio/collab.js(新しい案件の「探す設定」のコラボ)を相対パスで読む
@@ -70,14 +72,22 @@ def init(home=None):
 
 
 def attach_board(board):
-    """解析(頭 an)・書き出し(頭 ex)・配信の検索(頭 se)を掲示板(RS8 の ② の口 S2。flow/board.py)に載せる。① の書き出しと ③ の検索は flow を読めないので、ここ(取り込みの側)で登録する"""
+    """解析(頭 an)・書き出し(頭 ex。② の器 flow/export)・配信の検索(頭 se)を掲示板(RS8 の ② の口 S2。flow/board.py)に載せる。③ の検索は flow を読めないので、ここ(取り込みの側)で登録する"""
     BATCH.attach_board(board)
-    board.register("ex", source=exporter.board_jobs, cancel=exporter.board_cancel)
+    EXPORTS.attach_board(board)
     rank.attach_board(board)
 
 
+def flow_host():
+    """入口のまとめて実行の口(OPT2 後半 J7): このスタジオの Store と解析の順番 Batch を直に呼ぶ LocalStudio(解析・書き出しの動詞。
+    書き出しの器はプロセスに 1 つの flow/export)。init の前は None(HTTP の道)"""
+    if STORE is None or BATCH is None:
+        return None
+    return _studiobook.LocalStudio(STORE, batch=BATCH)
+
+
 def busy():
-    return BATCH.is_busy() or exporter.is_busy()
+    return BATCH.is_busy() or EXPORTS.is_busy()
 
 
 def fetch_title(vid):
@@ -203,7 +213,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/video": lambda: self._video(arg("id")),
             "/api/transcripts": lambda: txlink.for_video(STORE.get(arg("id"))[0]),   # 書き出したマークのセリフ(文字起こしツールのデータを読むだけ)
             "/api/title": lambda: self._title(arg("v")),
-            "/api/export": lambda: exporter.job_public(exporter.get_job(arg("id"))),
+            "/api/export": lambda: EXPORTS.public(arg("id")),
             "/api/collab/groups": lambda: {"groups": STORE.list_groups()},
             "/api/collab/group": lambda: {"group": STORE.get_group(arg("id"))},
         }
@@ -330,14 +340,14 @@ def _live_section(o):
     """入口の「アーカイブで本番版に作り直す」(線 D の P4)から: YouTube の videoId の区間を、ちょうど path へ書き出す。
     マーク・配信のデータは触らない(入口が /api/live/exported で自分で記録する)。進み具合は GET /api/export?id=・取り消しは POST /api/export/cancel"""
     spec = exporter.build_section_spec(o)
-    return exporter.job_public(exporter.start_job(spec))
+    return EXPORTS.public_of(EXPORTS.start(spec))
 
 
 def _video_delete(o):
     vid = str(o.get("id") or "")
     if not STORE.has(vid):
         raise ApiError("not_found", "配信が見つかりません", 404)
-    if exporter.is_busy_for(vid):
+    if EXPORTS.is_busy_for(vid):
         raise ApiError("busy", "書き出し中は削除できません。終わってから削除してください", 409)
     if not BATCH.cancel_video(vid):   # 待ち item は取り除き、実行中の解析は中止してから削除
         raise ApiError("busy", "解析を中止しています。少し待ってからもう一度削除してください", 409)
@@ -395,11 +405,11 @@ def _export(o):
         recorded = STORE.mark_exported(vid, mid, rel, start, end, path)
         _flowkeys.write_studio_export(spec, path, start, end)   # 切り抜きの横に export の鍵(書けなくてもログだけ。RS6 b-K1)
         return recorded
-    return exporter.job_public(exporter.start_job(spec, on_done))
+    return EXPORTS.public_of(EXPORTS.start(spec, on_done))
 
 
 def _export_cancel(o):
-    exporter.cancel(o.get("id"))
+    EXPORTS.cancel(o.get("id"))
     return {"ok": True}
 
 
@@ -608,7 +618,7 @@ def prepare(port, base_path="/"):
 def _clean_leftovers():
     """前回の途中(強制終了・PC の不安定)で残った書き出しの書きかけ(*.partial.*)を消し、チャットのキャッシュを上限(件数・合計の大きさ)に収める。"""
     try:
-        n = exporter.clean_partials()
+        n = exporter.clean_partials(busy=EXPORTS.is_busy)
         if n:
             _log("前回の書き出しの書きかけを %d 個消しました" % n)
     except Exception as e:
@@ -631,16 +641,16 @@ def shutdown_jobs(wait=SHUTDOWN_WAIT):
     Windows では子が別のプロセスグループ・窓なしで起動しているので、止めないと入口が終わったあとも見えないまま残る(2026-09-30 の設計レビュー)。
     中断したものは studio.log に残す(待ち行列・書き出しのジョブはメモリだけなので、起動し直すと画面からは消える)"""
     names = BATCH.shutdown() if BATCH else []
-    exports = exporter.cancel_all()
+    exports = EXPORTS.cancel_all()
     pf = fetch.cancel_all_prefetch()
     if not (names or exports or pf or _procs.children()):
         return 0
     killed = _procs.stop_children()
     deadline = time.time() + wait
-    while time.time() < deadline and ((BATCH and BATCH.running_now()) or exporter.is_busy() or fetch.PREFETCH):
+    while time.time() < deadline and ((BATCH and BATCH.running_now()) or EXPORTS.is_busy() or fetch.PREFETCH):
         time.sleep(0.05)
     killed += _procs.stop_children(1.0)   # 待つ間に次の段階が起動した子(中止を見る前に起動したもの)
-    left = bool((BATCH and BATCH.running_now()) or exporter.is_busy())
+    left = bool((BATCH and BATCH.running_now()) or EXPORTS.is_busy())
     _log("終了のため中断しました: 解析 %d 本(%s)・書き出し %d 件・チャットの先読み %d 本・止めた子プロセス %d%s"
          % (len(names), " / ".join(names)[:300], len(exports), pf, killed, "(終わりきらないものがありました)" if left else ""))
     return killed
@@ -694,7 +704,7 @@ def main():
     except KeyboardInterrupt:
         _log("Ctrl+C(KeyboardInterrupt)で終了")
         print("\nCtrl+C を受け取ったので終了します")
-        if BATCH.is_busy() or exporter.is_busy():
+        if BATCH.is_busy() or EXPORTS.is_busy():
             _log("解析または書き出しの実行中でした")
             print("(解析・書き出しの途中でした)")
         return 130

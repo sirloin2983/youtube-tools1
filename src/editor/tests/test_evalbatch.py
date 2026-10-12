@@ -47,10 +47,8 @@ class TestEvalBatch(unittest.TestCase):
         self.saved = (S.TX_DIR, S.TMP_DIR, S.SETTINGS)
         S.TX_DIR, S.TMP_DIR, S.SETTINGS = os.path.join(self.tmp, "transcripts"), os.path.join(self.tmp, ".tmp"), os.path.join(self.tmp, "settings.json")
         os.makedirs(S.TX_DIR)
-        self.old_jobs = (dict(ytt_jobs._jobs), list(ytt_jobs._order))
+        self.old_jobs = dict(ytt_jobs._jobs)
         ytt_jobs._jobs.clear()
-        ytt_jobs._order.clear()
-        self.drain()
         self.env = mock.patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "fake", "TRANSCRIBE_FAKE_DELAY": "0", "TRANSCRIBE_NORMALIZE": "off",
                                                 "TRANSCRIBE_EVAL_BATCH": "off",   # 裏のスレッドは動かさない(見回りはテストが呼ぶ)
                                                 "TRANSCRIBE_AUTO_DIARIZE": "off"})   # 文字起こしの続きの話者の自動判別・後追いは test_autodiar で(ここは文字起こしの数え方だけ)
@@ -64,19 +62,13 @@ class TestEvalBatch(unittest.TestCase):
     def tearDown(self):
         EB.eb_shutdown()
         self.env.stop()
-        self.drain()
         ytt_jobs._jobs.clear()
-        ytt_jobs._jobs.update(self.old_jobs[0])
-        ytt_jobs._order[:] = self.old_jobs[1]
+        ytt_jobs._jobs.update(self.old_jobs)
         S.TX_DIR, S.TMP_DIR, S.SETTINGS = self.saved
         shutil.rmtree(self.tmp, ignore_errors=True)
         shutil.rmtree(self.ev, ignore_errors=True)
 
     # -- 道具
-    def drain(self):
-        while not ytt_jobs._queue.empty():
-            ytt_jobs._queue.get_nowait()
-
     def settings(self, d):
         with open(S.SETTINGS, "w", encoding="utf-8") as f:
             json.dump(d, f, ensure_ascii=False)
@@ -247,15 +239,12 @@ class TestEvalBatch(unittest.TestCase):
             self.assertIs(json.load(f)["enabled"], True)
         # 起動し直し: ジョブの表・待機列は空(プロセスが入れ替わった)。状態ファイルの enabled で続く
         ytt_jobs._jobs.clear()
-        ytt_jobs._order.clear()
-        self.drain()
         self.assertTrue(EB.eval_batch_status()["enabled"])
         r = EB.eb_tick("after-restart")
         self.assertEqual(r["added"], 2, r)
         self.assertEqual(len(self.mine()), 2)
         # 裏のスレッドも状態ファイルを見て動く(start を呼ばなくても)
         ytt_jobs._jobs.clear()
-        self.drain()
         with mock.patch.dict(os.environ, {"TRANSCRIBE_EVAL_BATCH": ""}):
             self.assertIsNotNone(EB.eb_start_background(first_delay=0.05, interval=0.05))
         for _ in range(100):

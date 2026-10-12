@@ -14,7 +14,7 @@
   スタジオと違うこと: 学習の記録(③ の feedback)は書かない(人の判定ではない・③ を読まない)。盛り上がりのグラフは cache/series へ書く(画面で出る)。
   コラボのまとまりへの転写はしない(人の採用ではないので Store の adopt_marks もしない)
 - `LocalStudio(book)` = 段が頼む動詞(flow/tools の HttpTools の video・analyze_add・analyze_items・analyze_cancel・request_marks・export_start・
-  export_job・export_cancel と同じ名前・同じ返す形)。解析の順番は flow/batch.Batch(台帳を store に)・書き出しは ① pipeline/export/exporter
+  export_job・export_cancel と同じ名前・同じ返す形)。解析の順番は flow/batch.Batch(台帳を store に)・書き出しは ② の器 flow/export(中身は ① pipeline/export/exporter)
   (書き出した 1 本ごとに台帳の mark_exported と flow/keys の export の鍵 = スタジオの serve の /api/export と同じ)。`close()` で解析・書き出し・子プロセスを止める
 置き場所(スタジオの作業データ・書き出し先)は呼ぶ側(app の CLI)が ytt/studio_env に入れてから作る。
 """
@@ -33,7 +33,7 @@ from ytt import casefiles as _cf, fsio as _fsio, marks as _marks, procs as _proc
 from ytt import version as _version
 from ytt.errors import ApiError
 
-from . import adopt as _adopt, batch as _batch, casebook as _casebook, keys as _keys
+from . import adopt as _adopt, batch as _batch, casebook as _casebook, export as _export, keys as _keys
 
 log = logging.getLogger("ytt.flow.studiobook")
 
@@ -281,11 +281,12 @@ def _step_error(msg):
 
 
 class LocalStudio:
-    """URL の段の動詞(入口なし)。book = StudioBook。HttpTools の同じ名前の動詞と同じ返す形"""
+    """URL の段の動詞(入口なし)。book = StudioBook。HttpTools の同じ名前の動詞と同じ返す形。
+    入口の FlowTools の口にも使う(OPT2 後半 J7): book = スタジオの Store・batch = スタジオの serve の Batch(入口が渡す。② は ③ を読まない)"""
 
-    def __init__(self, book):
+    def __init__(self, book, batch=None):
         self.book = book
-        self.batch = _batch.Batch(book)
+        self.batch = batch if batch is not None else _batch.Batch(book)
         if not _exporter.TOOL.get("version"):   # .clip.json の tool の版(スタジオの serve と同じく全体の版)
             _exporter.TOOL["version"] = _version.VERSION
 
@@ -338,32 +339,39 @@ class LocalStudio:
                 recorded = self.book.mark_exported(vid, mid, rel, start, end, path)
                 _keys.write_studio_export(spec, path, start, end)   # 切り抜きの横に export の鍵(スタジオの serve と同じ。RS6 b-K1)
                 return recorded
-            return 200, _exporter.job_public(_exporter.start_job(spec, on_done))
+            exports = _export.default()   # 書き出しの器(② の flow/export。スタジオの serve と同じ物 = 同時 1 本。OPT2 の J2)
+            return 200, exports.public_of(exports.start(spec, on_done))
         except ApiError as e:
             return e.status, {"error": e.code, "message": e.message}
 
     def export_job(self, jid):
         try:
-            return _exporter.job_public(_exporter.get_job(jid))
+            return _export.default().public(jid)
         except ApiError as e:
             raise _step_error(e.message)
 
     def export_cancel(self, jid):
         try:
-            _exporter.cancel(jid)
+            _export.default().cancel(jid)
         except ApiError:
             pass
+
+    @staticmethod
+    def export_free(timeout):
+        """書き出しの器(プロセスに 1 つ)が空くまで待つ(timeout 秒まで)-> 空いたか(J7。Runner の 409 busy の待ち)"""
+        t = _export.default().table
+        return t.wait(lambda: not t.active(), timeout)
 
     def close(self, wait=STOP_WAIT):
         """終わるとき(Ctrl+C・失敗でも): 解析の待ちを取り除き、解析・書き出し・チャットの先読みに中止を伝え、子プロセス(ffmpeg・yt-dlp)を孫ごと止め、
         スレッドの後始末を wait 秒まで待つ(スタジオの serve.shutdown_jobs と同じ順)。-> 止めた子プロセスの数"""
         names = self.batch.shutdown()
-        exports = _exporter.cancel_all()
+        exports = _export.default().cancel_all()
         pf = _fetch.cancel_all_prefetch()
         if not (names or exports or pf or _procs.children()):
             return 0
         killed = _procs.stop_children()
         deadline = time.time() + wait
-        while time.time() < deadline and (self.batch.running_now() or _exporter.is_busy() or _fetch.PREFETCH):
+        while time.time() < deadline and (self.batch.running_now() or _export.default().is_busy() or _fetch.PREFETCH):
             time.sleep(0.05)
         return killed + _procs.stop_children(1.0)

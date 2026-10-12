@@ -11,7 +11,7 @@
 普通の枠が空いていれば、先に来た順のまま普通の枠を使う(用途つきの枠は、普通の枠が埋まっているときだけ・同じ用途の中では先に来た順)。
 値は仮(U4 = 本物の 3 時間の配信の値が出たら決め直す。plan/line-d-auto-pack.md の M6)。snapshot の active の行には、用途つきの枠なら extra: true が付く
 
-ここは ① 道具の部品も使う物だけ(枠・中止の例外・中止の確かめ)。ジョブの表・待機列・種類の登録・ワーカーの繰り返し・取り消しの受付は ② の src/flow/jobs.py(RS6 a-2。2026-10-10 に移した)。
+ここは ① 道具の部品も使う物だけ(枠・中止の例外・中止の確かめ・① の関数への手渡し Ctl)。ジョブの表・待機列・種類の登録・ワーカーの繰り返し・取り消しの受付は ② の src/flow/jobs.py(RS6 a-2。2026-10-10 に移した)。
 
 使い方:
     with jobs.SLOTS.slot("transcribe", "配信タイトル", cancelled=lambda: job["cancel"], on_wait=lambda: ...) as ok:
@@ -134,6 +134,76 @@ Cancelled = errors.Cancelled   # lint: keep 別名(RS3-4)= 中止の例外(正�
 
 
 def check_cancel(job):
-    """取り消されていれば Cancelled を上げる(ジョブの本体の区切りごとの確かめ。① の認識・判別・後処理が使う)"""
-    if job.get("cancel"):
+    """取り消されていれば Cancelled を上げる(ジョブの本体の区切りごとの確かめ。① の認識・判別・後処理が使う)。
+    旗 job["cancel"] のほか、ジョブに ctl(器が付ける Ctl。OPT2 の J8)があればその取り消しも見る"""
+    ctl = job.get("ctl")
+    if job.get("cancel") or (ctl is not None and ctl.is_cancelled()):
         raise Cancelled()
+
+
+class Ctl:
+    """① の関数への手渡し(OPT2 の J0。docs/design/opt2-jobs-plan.md の 2): 進み具合の報告・取り消し・途中の覚え書き・小さな合図。
+    器(② のジョブの表)が 1 ジョブに 1 つ作って ① の fn(spec, ctl) に渡す。CLI は None か Ctl()(報告も取り消しもしない)。
+    子プロセスはここに持たない(ytt/tools.run_progress(cancelled=ctl.is_cancelled) の見張りが止める)。枠 SLOTS は器が取る(① は知らない)。
+    exc: check() が上げる例外の型(既定は ytt/errors の Cancelled。パックは cut2resolve_core の Cancelled = CLI の扱いを保つ)"""
+
+    def __init__(self, on_progress=None, cancel_event=None, on_note=None, exc=None):
+        self._on = on_progress
+        self._on_note = on_note
+        self.cancel_event = cancel_event or threading.Event()
+        self.exc = exc or Cancelled
+        self.flags = set()
+
+    @property
+    def cancelled(self):
+        return self.cancel_event.is_set()
+
+    def is_cancelled(self):
+        """cancelled の関数の形(run_progress(cancelled=…)・SLOTS.slot(cancelled=…) にそのまま渡す)"""
+        return self.cancel_event.is_set()
+
+    def cancel(self):
+        self.cancel_event.set()
+
+    def check(self):
+        """区切りごとの確かめ: 取り消されていれば self.exc を上げる"""
+        if self.cancel_event.is_set():
+            raise self.exc()
+
+    def report(self, frac=None, message=None):
+        """進み具合(0〜1 か None)と人が読む段階の文。報告の失敗で処理を止めない"""
+        if self._on:
+            try:
+                self._on(frac, message)
+            except Exception:   # noqa: BLE001  (報告の失敗で処理を止めない)
+                pass
+
+    def note(self, key, value):
+        """器に見せる途中の値(解析のチャットの状態など)。失敗で処理を止めない"""
+        if self._on_note:
+            try:
+                self._on_note(key, value)
+            except Exception:   # noqa: BLE001  (覚え書きの失敗で処理を止めない)
+                pass
+
+    def flag(self, name):
+        """器から ① への小さな合図が立っているか(解析の「チャット待ちだけ打ち切る」skipChat など)"""
+        return name in self.flags
+
+    def raise_flag(self, name):
+        self.flags.add(name)
+
+    def span(self, lo, hi):
+        """子の Ctl: report(frac) を lo〜hi に写す(取り消し・覚え書き・合図は親と共有)"""
+        def on(frac, message):
+            self.report(None if frac is None else lo + (hi - lo) * max(0.0, min(1.0, frac)), message)
+        child = Ctl(on, self.cancel_event, self._on_note, self.exc)
+        child.flags = self.flags
+        return child
+
+    def timer(self, dur):
+        """run_progress の on_time(秒) 用: 秒 / dur を report する関数(dur が 0 以下なら何もしない)"""
+        def on_time(sec):
+            if dur and dur > 0:
+                self.report(max(0.0, min(1.0, sec / dur)))
+        return on_time

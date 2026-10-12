@@ -119,6 +119,7 @@ if CODE_DIR not in sys.path:   # home の部品を裸の名前で読む(import m
 from manage.cases import handoff_io, txindex  # noqa: E402
 from app import redirects as redirects_mod  # noqa: E402  (古い画面の URL -> /cases の転送の表。RS8 C0・C4 でいつも有効)
 from flow import placement  # noqa: E402  (② の .flow.lock。RS6 b-B0)
+from flow import tools as flowtools_mod  # noqa: E402  (まとめて実行の段が仕事を頼む先 FlowTools = ① の動詞は取り込んだツールの ② の器を直に。OPT2 後半 J7)
 from flow import board as board_mod  # noqa: E402  (② のジョブの掲示板 = GET /api/flow/status の jobs・cases・rev と cancel・retry。RS8 の ② の口)
 from flow import live_export  # noqa: E402  (書き出しの途中の数 = ② の status の live 欄。RS7-2 G5a)
 from flow import livesession  # noqa: E402  (ライブ係。録画の部品を残したときの文 KEPT_NOTE。RS7-2 G2b)
@@ -165,6 +166,7 @@ UI_KIT_DIR = os.path.join(ROOT, layout.UI_KIT_DIR)   # 共通の見た目は正�
 LOG_MAX = 1024 * 1024     # ログ(*.log。.gitignore 済み)はこれを超えたら <名前>.old.log に回す(fsio.rotate。回せなければそのまま追記)
 PING_TIMEOUT = 0.5
 MAX_BODY = 4096
+SUBMIT_START_WAIT = 120  # 起動直後の POST /api/flow/submit がツールの取り込みを待つ最長の秒(_post_flow_submit)
 PORTAL_TITLE = "動画編集ツール — ホーム"   # ホームの画面(portal.html)の <title>。窓を前に出すときに題名で探す(test_launch が portal.html と比べる)
 YTT_API = mount_mod.YTT_API   # 画面の共通の API の場所(入口の画面・取り込んだツールの画面の両方から。PortalServer.ytt_request)
 YTT_BODY_MAX = 16 * 1024   # エラーのスタックが入るので、他の API より大きめ
@@ -969,7 +971,11 @@ class PortalHandler(BaseHTTPRequestHandler):
             return self._fail(400, "bad_request", str(e))
 
     def _post_flow_submit(self, path, body):
-        """② の口(RS7-1 S4): {envelope, spec?} を待ち行列に積む(src/flow/runqueue.py の Queue.submit)。形が違う・積めない理由は 400"""
+        """② の口(RS7-1 S4): {envelope, spec?} を待ち行列に積む(src/flow/runqueue.py の Queue.submit)。形が違う・積めない理由は 400。
+        入口の起動直後(ツールの取り込みの途中)は済むまで SUBMIT_START_WAIT 秒まで待つ(待ちきれなければ 503 starting)"""
+        started = getattr(self.server, "tools_started", None)
+        if started is not None and not started.wait(SUBMIT_START_WAIT):
+            return self._fail(503, "starting", "入口がまだツールを準備しています。少し待ってからもう一度頼んでください")
         try:
             return self._json(200, {"run": self.server.autorun.submit(body.get("envelope"), body.get("spec"))})
         except queue_mod.SpecVersionError as e:   # 送る側と ② の束の版が違う(アプリは「更新してください」。F1 F0-1)
@@ -1400,13 +1406,24 @@ class PortalServer(httpsec.ExclusiveServer):
             return None
         return snap["port"], snap["path"] or "/"
 
+    def flow_host(self, tid):
+        """まとめて実行が ① の動詞を直に呼ぶ口(flow/tools.FlowTools。OPT2 後半 J7): 入口に取り込んで動いているツールの serve の flow_host()
+        (スタジオ = 解析・書き出しの LocalStudio・cut2resolve = パックの PackHost)。取り込んでいない・動いていない・口が無いときは None(HTTP の道)"""
+        t = self.sup.by_id.get(tid)
+        if t is None or not t.mounted or t.mount is None or t.snapshot()["state"] != "running":
+            return None
+        fn = getattr(t.mount.mod, "flow_host", None)
+        return fn() if fn is not None else None
+
     @property
     def autorun(self):
         with self._autorun_lock:
             if self._autorun is None:
-                self._autorun = autorun_mod.AutoRunner(autorun_mod.ToolClient(self.tool_endpoint, self.token), self.sup.root, prefs=self.prefs,
+                client = autorun_mod.ToolClient(self.tool_endpoint, self.token)
+                self._autorun = autorun_mod.AutoRunner(client, self.sup.root, prefs=self.prefs,
                                                        log_dir=self.sup.logs_dir,   # 終わった実行の記録(画面のエラーの記録と同じ logs。B-6)
-                                                       log=self.sup.log)   # 友人の区間の長さを使わなかった理由など(launcher.log に1行)
+                                                       log=self.sup.log,   # 友人の区間の長さを使わなかった理由など(launcher.log に1行)
+                                                       tools=flowtools_mod.FlowTools(client, self.flow_host))   # ① の動詞は ② の器を直に(J7)
                 self._autorun.set_status_hook(self.live_activity)   # GET /api/flow/status の live 欄と idle(Queue はライブを知らない。RS7-2 G5a)
                 self._autorun.set_live_hook(lambda env, spec: self.live.submit(env, spec))   # 封筒 kind live はライブ係が受ける(録画を始めて録画の束を残す。画面なしでも。RS7-2 G2b)
                 self._autorun.attach_board(self.board)   # ② の Run を掲示板へ(引く形・頭 run。取り消し・やり直しも。RS8 の ② の口 S3)
@@ -1884,9 +1901,13 @@ def _main(opts, ready_out=None):
                 srv.serve_forever()
             finally:
                 served.set()
+        srv.tools_started = threading.Event()   # 取り込みが済んだ印(済む前の submit は待つ = 起動直後の CLI が「編集が動いていない」で落ちない)
         http_thread = threading.Thread(target=serve, daemon=True, name="portal-http")
         http_thread.start()   # 取り込みの準備中も画面を開けるように、先に待ち受ける
-        sup.start_all()
+        try:
+            sup.start_all()
+        finally:
+            srv.tools_started.set()
         sup.start_monitor()
         try:   # 学習データの置き場所(machine の learningDir。F1 F6a)。取り込みのあと・まとめて実行を作る前
             if srv.wire_learning() is not None:

@@ -1,4 +1,4 @@
-"""run_analyze の通し試験(疑似モード: 合成音声 + 合成チャット)。 実行: python3 e2e_analyze.py
+"""analyze.run の通し試験(疑似モード: 合成音声 + 合成チャット)。 実行: python3 e2e_analyze.py
 音声のイベントの LAG 秒後にチャットが増える配信を作り、遅れが自動推定され、候補のピークが音声側の時刻に合うことを確かめる。"""
 import json, math, os, random, shutil, struct, sys, tempfile, wave
 os.environ["STUDIO_FAKE"] = "1"
@@ -37,10 +37,7 @@ src = {"kind": "youtube", "videoId": "abcdefghijk", "name": "x"}
 
 def run(**kw):
     spec = analyze.make_spec(src, analyze.validate_settings(dict({"useComments": False, "count": 6, "length": 60, "sensitivity": "normal", "noCache": True}, **kw)))
-    job = analyze.new_job(spec)
-    analyze.run_analyze(job)
-    assert job["state"] == "done", (job["state"], job["error"])
-    return job["result"]
+    return analyze.run(spec)
 
 ok = True
 r = run()
