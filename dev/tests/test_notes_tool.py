@@ -87,6 +87,7 @@ class NotesToolTest(unittest.TestCase):
         fixed = notes_tool.unlink_prose(text)
         self.assertEqual(fixed, "色 `#7BDF0E` と `#1D3467`、こぼ・かなえる・#タブ・`#ok`・見出しでない #12\n## 見出し\n```\n#x\n```\n")
         self.assertEqual(notes_tool.tag_spans("a #タブ と"), [(2, 5)])   # 日本語のタグは区切りまで
+        self.assertEqual(notes_tool.unlink_prose("背景 #000・LIVE と #1・2\n"), "背景 `#000`・LIVE と `#1`・2\n")   # 数字の後ろに続く物があればタグ
 
     def test_relink_text(self):
         old, new = os.path.join(self.v, "docs", "W.md"), os.path.join(self.v, "docs", "worklog", "w1.md")

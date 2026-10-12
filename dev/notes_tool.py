@@ -123,7 +123,7 @@ def tag_spans(line):
             continue
         body = m.group(1)
         core = re.match(r"[A-Za-z0-9_\-/]+", body) or re.match(r"[^、。・「」『』()()\s]+", body)
-        if core and not core.group(0).isdigit():
+        if core and not body.isdigit():   # タグかどうかは # の後ろ全体で決まる(「#000・LIVE」「#1・」はタグ。「#12」だけは違う)
             out.append((m.start(), m.start() + 1 + core.end()))
     return out
 
