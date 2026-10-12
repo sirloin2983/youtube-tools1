@@ -3586,6 +3586,14 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 未コミット: なし(この記録と HANDOVER・data.js・decisions を一緒にコミット)
 - 追記(17:40): 2fb9c12f 案件の画面の小さな直し(校正の ? の一覧から効かないキーを外す・キー配置が殻のキー Alt+1/2・Shift+N を断る・?clip= は指す動画に直して転送・音声だけを校正の中に限る・1 コマを動画の fps で(60fps は手で未確認)・2 列で最後の行が窓の外に出る・review.js の案件で見るを /cases へ)。e2e_cases_proof・cand・cut OK
 
+## 2026-10-11 夜 Claude Code(PC。Opus まとめ役。セッション「RV の下調べ」。読むだけ = コード・テスト・画面・設定は変えていない)— 全体の見直し RV の下調べ
+- 変更: 新しい文書 `docs/design/rv-survey-2026-10-11/`(`README.md` = 要約・候補の表 A〜E・相談の問い 13 問 / `code.md`・`eval.md`・`ui.md`・`folders.md`・`docs.md`(R1 の案も)・`tests.md`)。`docs/ROADMAP.md` の索引に 1 行・`plan/data.js` の RV の行の名前に「下調べ」を足した
+- 調べ方: 読むだけのサブエージェント 6 体を並列(Sonnet 5・Haiku 1)。まとめと裏取りは Opus。Haiku の「未使用かも」4 件は使われていると確かめて外した
+- 要点: 細かいデッドコードはほぼ無い = 減らすなら機能ごと(⑤ の一度きりの道具と評価ドリル系 約 5,400 行・CSS で隠しているだけの編集の UI 約 1,100 行と review.js 約 250 行・ライブの機能 約 1,900 行)/ 受付が AutoRunner.start* と /api/flow/submit の 2 つ / src/home・src/editor のテストに層の部品のテストが置き去り / 資料の遅れ(AGENTS の版 0.58.0・src/editor/AGENTS.md・ui-guidelines.md・索引に無い文書 約 20 本)
+- 直していない(RV で): AGENTS の版・画面 4 枚(/check)・e2e 19 本・`e2e_edit_pack.py` の参照 / data.js の V1 が todo(V4 のセッションに任せた)・U8・U5 の重複・`userTasks.provisional` が空
+- 次: RV を始めるとき README の相談の問いを 1 問ずつ
+- 未コミット: なし(ブランチ claude/busy-engelbart-40e533 にコミット。main への取り込みは別)
+
 ## 2026-10-11 夜 Claude Code(PC。Opus まとめ役。セッション「RS8」の続き)— V1 確かめる = 版 0.60.0
 - 計画 docs/design/v1-check-build.md(Fable)・決定 3-41(ユーザー 4 問 = 全部おすすめ)。V0 7dd91a38 ⑤ src/eval/check(lineup・sources・goals・deck)+ ③ src/human/check(answerlog・apply)+ /api/check/* + accuracy に fill・timing / V1 1897d87e 画面 /check(src/app/ui/check)・player.js・ui-kit .ui-pair / V2a 価値(52ba08ba で「要らない」も 1 枚遅れ)・V2b 読み・V2c 声(30 秒で voice-learn)・V2d 時刻(timerow・eval_timing --check)/ V3 9272b594 ホームの [始める]・案件の「確かめると効く物」・appnav 4 項目・続けて確認を消した / V4 締め(版 0.60.0・ui_audit の場面・demo_env・AGENTS・README・pipeline.md 2.10)
 - 直した揺れ: test_mount の子の出力の文字コード(794a707d)・入口のサーバーの受け付けの待ち行列 5 → 64(e2e_live_studio の ERR_CONNECTION_REFUSED)
