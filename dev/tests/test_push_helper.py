@@ -140,6 +140,75 @@ class TestCheck(Repo):
         self.assertEqual(P.check(log=logs.append), 0)
 
 
+class TestNotes(unittest.TestCase):
+    """保管庫を送る(push_notes)。一時フォルダの bare リポジトリを送り先にする"""
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.remote = os.path.join(self.tmp, "remote.git")
+        self.vault = os.path.join(self.tmp, "vault")
+        subprocess.run(["git", "init", "-q", "--bare", self.remote], check=True)
+        os.makedirs(self.vault)
+        self.git("init", "-q")
+        self.git("config", "user.name", "t")
+        self.git("config", "user.email", "t@example.com")
+        self.write("plan/a.md", "a")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "init")
+        self.logs = []
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def git(self, *args, cwd=None):
+        return subprocess.run(["git", *args], cwd=cwd or self.vault, check=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout.decode().strip()
+
+    def write(self, rel, text):
+        p = os.path.join(self.vault, *rel.split("/"))
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(text)
+
+    def push(self):
+        return P.push_notes(self.vault, log=self.logs.append, stamp="t")
+
+    def test_no_remote_is_skipped(self):
+        self.write("plan/b.md", "b")
+        self.assertEqual(self.push(), 0)
+        self.assertIn("plan/b.md", self.git("status", "--short"))   # 何もコミットしない
+
+    def test_commits_and_pushes(self):
+        self.git("remote", "add", "origin", self.remote)
+        self.write("plan/b.md", "b")
+        self.assertEqual(self.push(), 0)
+        self.assertEqual(self.git("status", "--short"), "")
+        branch = self.git("rev-parse", "--abbrev-ref", "HEAD")
+        self.assertEqual(self.git("rev-parse", "HEAD"), self.git("rev-parse", branch, cwd=self.remote))
+        self.assertEqual(self.push(), 0)   # 2 回目: 送る物が無くても成功
+
+    def test_secret_stops(self):
+        self.git("remote", "add", "origin", self.remote)
+        self.write("plan/key.md", "key = " + FAKE_GOOGLE)
+        self.assertEqual(self.push(), 1)
+        self.assertIn("plan/key.md", self.git("status", "--short"))   # git add を取り消した
+        self.assertEqual(self.git("rev-list", "--count", "HEAD"), "1")
+
+    def test_takes_remote_commits_first(self):
+        self.git("remote", "add", "origin", self.remote)
+        self.assertEqual(self.push(), 0)
+        other = os.path.join(self.tmp, "other")
+        subprocess.run(["git", "clone", "-q", self.remote, other], check=True)
+        self.git("config", "user.name", "t", cwd=other)
+        self.git("config", "user.email", "t@example.com", cwd=other)
+        with open(os.path.join(other, "plan", "c.md"), "w", encoding="utf-8") as f:
+            f.write("c")
+        self.git("add", "-A", cwd=other)
+        self.git("commit", "-q", "-m", "other", cwd=other)
+        self.git("push", "-q", cwd=other)
+        self.write("plan/d.md", "d")
+        self.assertEqual(self.push(), 0)
+        self.assertTrue(os.path.isfile(os.path.join(self.vault, "plan", "c.md")))   # 別の所のコミットを取り込んでから送った
+
+
 class TestPushBat(unittest.TestCase):
     def test_order_in_push_bat(self):
         with open(os.path.join(REPO, "push.bat"), encoding="ascii") as f:
@@ -147,6 +216,8 @@ class TestPushBat(unittest.TestCase):
         a, b, c = s.index("push_helper.py removals"), s.index("git add -A"), s.index("push_helper.py check")
         self.assertTrue(a < b < c, "削除 → git add → 検査 の順")
         self.assertIn("git reset -q", s[c:c + 400])   # 検査で止まったらコミットしない(git add を取り消す)
+        self.assertGreaterEqual(s.count("call :notes"), 2)   # 送ったあと・送る物が無いとき、どちらも保管庫を送る
+        self.assertIn("push_helper.py notes", s)
 
 
 if __name__ == "__main__":

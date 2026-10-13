@@ -31,7 +31,15 @@ goto sync
 
 :nothing
 echo Nothing to save. Everything is already on GitHub.
+call :notes
 pause
+exit /b 0
+
+rem 3. The notes vault (Obsidian, outside this folder) goes to its own private repository. Skipped while it has no remote.
+:notes
+echo.
+echo Notes (Obsidian vault):
+%PY% dev\push_helper.py notes
 exit /b 0
 
 :ask
@@ -61,6 +69,7 @@ git push
 if errorlevel 1 goto pushfail
 echo.
 echo Done.
+call :notes
 pause
 exit /b 0
 

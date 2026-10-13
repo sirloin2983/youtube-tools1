@@ -3,6 +3,7 @@
 
     python dev/push_helper.py removals   … dev/removals.txt に書いたファイルを git rm する(コミットの前に呼ぶ)
     python dev/push_helper.py check      … これからコミットするファイル(git add したもの)に、個人データ・秘密情報らしいものが無いか調べる
+    python dev/push_helper.py notes      … 資料の保管庫(Obsidian)の変更を同じ検査のあとコミットし、非公開のリポジトリ(origin)へ送る(送り先が無ければ何もしない)
 
 ■ removals(ファイルの削除)
   Cowork(クラウドの Claude)は PC のファイルを消せないので、消したいファイルを dev/removals.txt に書き、ユーザーの push.bat で消す。
@@ -23,6 +24,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REMOVALS = os.path.join(ROOT, "dev", "removals.txt")
@@ -54,8 +56,8 @@ BAD_DIRS = {"transcripts", "dataset", "models", "cache", "archive", "exports", "
 ALLOW = {"dev/push_helper.py", "dev/tests/test_push_helper.py"}
 
 
-def git(*args, check=True):
-    r = subprocess.run(["git", *args], cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+def git(*args, check=True, cwd=None):
+    r = subprocess.run(["git", *args], cwd=cwd or ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if check and r.returncode != 0:
         raise RuntimeError("git %s: %s" % (" ".join(args), r.stderr.decode("utf-8", "replace").strip()))
     return r
@@ -108,14 +110,14 @@ def apply_removals(path=REMOVALS, log=print):
 
 # ---------------------------------------------------------------- check
 
-def staged_files():
-    """これからコミットする(追加・変更の)ファイル。-> [相対パス]"""
-    r = git("diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z")
+def staged_files(cwd=None):
+    """これからコミットする(追加・変更の)ファイル。-> [相対パス]。cwd = リポジトリ(既定はこのリポジトリ)"""
+    r = git("diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z", cwd=cwd)
     return [x for x in r.stdout.decode("utf-8", "replace").split("\0") if x]
 
 
-def staged_blob(path):
-    return git("show", ":" + path).stdout
+def staged_blob(path, cwd=None):
+    return git("show", ":" + path, cwd=cwd).stdout
 
 
 def problems_for(path, data):
@@ -159,6 +161,52 @@ def check(files=None, read=staged_blob, log=print):
     return bad
 
 
+# ---------------------------------------------------------------- notes(資料の保管庫も送る。2026-10-14)
+
+def notes_root():
+    """資料の保管庫(ytt/layout.notes_root と同じ = 環境変数 YTT_NOTES_DIR か既定の NOTES_DIR)"""
+    sys.path.insert(0, os.path.join(ROOT, "src"))
+    from ytt import layout
+    return layout.notes_root()
+
+
+def push_notes(root=None, log=print, stamp=None):
+    """保管庫の変更をコミットして、非公開のリポジトリ(origin)へ送る -> 0 送った・送る物が無い・送り先がまだ無い / 1 止めた・送れなかった。
+    コミットの前に check と同じ検査をかける。GitHub に新しいコミットがあれば(別の PC・クラウドの Claude)取り込んでから送る(マージは残す)"""
+    root = root or notes_root()
+    if not os.path.isdir(os.path.join(root, ".git")):
+        log("保管庫(%s)が git ではないので送りません" % root)
+        return 0
+    if "origin" not in git("remote", cwd=root).stdout.decode("utf-8", "replace").split():
+        log("保管庫に送り先(origin)がまだ無いので送りません")
+        return 0
+    git("add", "-A", cwd=root)
+    files = staged_files(root)
+    if check(files, read=lambda p: staged_blob(p, root), log=log):
+        git("reset", "-q", cwd=root)
+        log("保管庫に個人データ・秘密情報らしいファイルがあります。保管庫はコミットしません。この表示を Claude に見せてください。")
+        return 1
+    if files:
+        git("commit", "-q", "-m", "update " + (stamp or time.strftime("%Y-%m-%d %H:%M")), cwd=root)
+        log("保管庫の変更 %d ファイルをコミットしました" % len(files))
+    branch = git("rev-parse", "--abbrev-ref", "HEAD", cwd=root).stdout.decode().strip()
+    if git("fetch", "origin", check=False, cwd=root).returncode:
+        log("[エラー] 保管庫の送り先(GitHub)につながりません。コミットは PC に残っています(次の push.bat で送ります)")
+        return 1
+    up = "origin/" + branch
+    if not git("rev-parse", "--verify", "-q", up, check=False, cwd=root).returncode and \
+            git("merge-base", "--is-ancestor", up, "HEAD", check=False, cwd=root).returncode:
+        if git("rebase", "-q", "--rebase-merges", up, check=False, cwd=root).returncode:
+            git("rebase", "--abort", check=False, cwd=root)
+            log("[エラー] 保管庫の同じ行が GitHub でも変わっています。取り込みはやめました(コミットは PC に残っています)。この表示を Claude に見せてください")
+            return 1
+    if git("push", "-q", "-u", "origin", branch, check=False, cwd=root).returncode:
+        log("[エラー] 保管庫を送れませんでした(ネットワークか GitHub のログイン)。コミットは PC に残っています")
+        return 1
+    log("保管庫も GitHub に送りました")
+    return 0
+
+
 def main(argv):
     try:
         sys.stdout.reconfigure(encoding="utf-8")
@@ -179,6 +227,8 @@ def main(argv):
                 print("心当たりが無ければ、この表示をそのまま Claude に見せてください。")
                 return 1
             return 0
+        if cmd == "notes":
+            return push_notes()
     except (ValueError, RuntimeError) as e:
         print("[エラー] %s" % e)
         return 2
