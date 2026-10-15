@@ -19,7 +19,7 @@
 規則の部分(llm_fold 〜 llm_cap)は編集のほかの部品を読まない(src/eval/tools/eval_llm.py が単独で読む)。組み込みの部分だけが、ytt/jobs・ytt/workdata・worker_client・roster・backend を呼ぶ。
 名前は llm_ / LLM_ で始める(read_llm のほか。serve.py の _ED_MODULES。ほかの部品と重ならないように)。
 
-役割で組み直す RS2-9(2026-10-10)に編集の src/editor/ed_llm.py から移した(中身は同じ。旧い名前の殻は作らない = 読み手は全部直した。S.llm_* は serve の名前の受付で読める)。
+役割で組み直す RS2-9(2026-10-10)に移した(中身は同じ。旧い名前の殻は作らない = 読み手は全部直した。S.llm_* は serve の名前の受付で読める)。
 以前は組み込みの部分が関数の中で import していた(ed_state・roster・ytt/jobs・worker_client)。今は先頭で同じパッケージの兄弟(backend・roster・txbase・worker_client)と
 ytt(fsio・jobs・workdata)を読み、置き場所(workdata.TX_DIR・roster.ROSTER)は呼ぶたびに持ち主から(RS3-0A まで txenv の口)、疑似の問い合わせは backend の口 llm_ask から(RS5-D。app の ed_state を読まない)。
 標準ライブラリ・ytt・兄弟だけなので、ネイティブの部品は読み込まない。

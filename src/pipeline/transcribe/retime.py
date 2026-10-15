@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-"""① 字幕の読む速さの印(T2)と、直した行の時刻を単語の時刻から配り直す候補(T1 の簡易版)の計算。2026-10-05 に編集の ed_retime.py として作った。
+"""① 字幕の読む速さの印(T2)と、直した行の時刻を単語の時刻から配り直す候補(T1 の簡易版)の計算。2026-10-05 に作った。
 
 役割で組み直す RS2-9(2026-10-10)に、計算の部分(subread_*・retime_raw・retime_candidates ほか。純粋な関数 = ファイルを読まない・書かない)を
-編集の src/editor/ed_retime.py からここへ切り出した(中身は同じ)。文書と単語の時刻 words.json を読んで POST /api/retime に答える包み(retime_engine・retime_doc)は
+ここへ切り出した(中身は同じ)。文書と単語の時刻 words.json を読んで POST /api/retime に答える包み(retime_engine・retime_doc)は
 src/human/proof/retime.py に残した(② の層)。標準ライブラリ・ytt(schemas)・同じパッケージの兄弟(txbase の alt_fold)だけを読む。ネイティブの部品は読み込まない。
 名前は serve.py からも見える(serve.py の _ED_MODULES)。ほかの部品と重ならないよう subread_ / SUBREAD_ / retime_ / RETIME_ で始める。
-ed_retime には別名・転送を置かない(差し替えが別名に当たる)。呼ぶ側は retime.名前 を呼ぶたびに読む。
+retime には別名・転送を置かない(差し替えが別名に当たる)。呼ぶ側は retime.名前 を呼ぶたびに読む。
 
 1. 読む速さ(表示だけ。行を書き換えない)
    行ごとに「読む速さ」= 字幕として数える文字数(NFKC にして文字と数字だけ = 記号・空白・句読点・伸ばしの〜を除く。ー は数える)÷ 行の長さ(秒)。
@@ -20,7 +20,7 @@ ed_retime には別名・転送を置かない(差し替えが別名に当たる
 2. 時刻の配り直しの候補(**候補を出すだけ。文書を書き換えない**。採るのは画面の 1 押し)
    POST /api/retime {id, rows: [行の id…]} → {items: [{id, start, end, matched, dStart, dEnd, edges, from}], checked, updatedAt, reasonCode?, reason?}
    保存済みの文書と transcripts/<id>.words.json(認識のときの単語。行を直しても古いまま)で計算する。
-   当て方: 行の今の時刻の前後 RETIME_PAD 秒にある単語の文字をつなげ、行の文字と寄せて(txbase.alt_fold。もとは ed_alt の alt_fold)比べる。
+   当て方: 行の今の時刻の前後 RETIME_PAD 秒にある単語の文字をつなげ、行の文字と寄せて(txbase.alt_fold)比べる。
    単語の文字の並びのうち行の文字にいちばん合う所(両端は自由な編集距離 = fitting alignment)を探し、
    行の文字の最初・最後が当たった単語の開始・終了を候補にする(単語の途中の字なら字数で割り振る)。人が足した文字(単語に無い)は当たった所だけで決める。
    出す条件: 当たった文字の割合 RETIME_MIN_MATCH 以上・端ごとに、その端の字が当たっている・今との差 RETIME_MIN_DELTA 秒以上・

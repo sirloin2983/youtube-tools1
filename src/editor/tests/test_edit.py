@@ -5,7 +5,7 @@
     python -m unittest test_edit -q                          # これだけ
 
 編集の内容(<id>.edit.json)の検査・rev と 409・行の cutState の同期(どの書き込みでも編集の内容から決まる)・パックの記録と「作り直し」、
-文字起こしせずに開く(open-video)・音の波形(peaks)・文字起こしを文字起こしの無い文書に入れる(intoDoc)を確かめる。
+音の波形(peaks)・文字起こしを文字起こしの無い文書に入れる(intoDoc)・文書を消す(delete_doc)を確かめる(行の無い文書は put_empty_doc で置く)。
 HTTP のものは疑似モード(TRANSCRIBE_BACKEND=fake)のサーバーを空いているポートで起動する(ffmpeg が必要)。
 """
 import json
@@ -39,6 +39,24 @@ def edit_obj(clips=((0.3, 5.6), (8.6, 11.2)), fps=(30, 1), duration=12.0, **over
     d = {"sources": [{"fps": list(fps), "duration": duration}], "clips": [{"src": 0, "in": a, "out": b} for a, b in clips], "origin": "manual"}
     d.update(over)
     return d
+
+
+def put_empty_doc(tx_dir, path, title=""):
+    """行の無い文書のファイルを tx_dir に直に置く(テストの下ごしらえ。以前の「文字起こしせずに開く」open_video が作っていた形)-> 文書の id"""
+    import uuid
+    from ytt import schemas, tools
+    src = os.path.abspath(path)
+    dur = tools.probe_media(src)[0] if os.path.isfile(src) else None
+    clip = schemas.find_clip(src, dur)[0] if os.path.isfile(src) else None
+    tid, now = uuid.uuid4().hex[:12], int(time.time() * 1000)
+    doc = {"schema": "transcribe/v1", "id": tid, "title": str(title or "").strip()[:120] or os.path.splitext(os.path.basename(src))[0][:120],
+           "sourcePath": src, "sourceName": os.path.basename(src), "start": 0, "end": round(dur, 2) if dur else None, "whole": True,
+           "duration": dur, "model": "", "language": "", "params": {}, "speakers": [], "segments": [], "original": [], "createdAt": now, "updatedAt": now}
+    if clip:
+        doc["clip"] = clip
+    os.makedirs(tx_dir, exist_ok=True)
+    write_json(os.path.join(tx_dir, tid + ".json"), doc)
+    return tid
 
 
 class TestEditStore(StoreDir):
@@ -284,7 +302,7 @@ class TestEditStore(StoreDir):
 
 @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg が必要")
 class TestEditHttp(unittest.TestCase):
-    """open-video・peaks・edit の HTTP・intoDoc・削除(疑似モードのサーバー)"""
+    """doc-for・peaks・edit の HTTP・intoDoc・削除(疑似モードのサーバー)"""
 
     @classmethod
     def setUpClass(cls):
@@ -417,8 +435,13 @@ class TestEditHttp(unittest.TestCase):
             if "cutSilence" in orig:
                 self.call("POST", "/api/settings/patch", {"values": {"cutSilence": orig["cutSilence"]}})
 
-    def open_video(self, path, **kw):
-        return self.call("POST", "/api/open-video", dict({"path": path}, **kw))
+    def empty_doc(self, path, title=""):
+        """行の無い文書を作る(テストの下ごしらえ。「文字起こしせずに開く」/api/open-video は消した = 決定 3-47 の Q1)。
+        同じ動画の文書があればそれ(以前の open_video と同じ)。-> {"id", "created"}"""
+        hit = self.call("GET", "/api/doc-for?path=" + urllib.parse.quote(path))["doc"]
+        if hit:
+            return {"id": hit["id"], "created": False}
+        return {"id": put_empty_doc(os.path.join(self.tmp, "transcripts"), path, title), "created": True}
 
     def peaks(self, tid, timeout=60):
         end = time.time() + timeout
@@ -431,36 +454,20 @@ class TestEditHttp(unittest.TestCase):
             time.sleep(0.1)
         self.fail("波形ができません")
 
-    def test_open_video(self):
-        video = os.path.join(self.media_dir, "開く.mkv")   # 他のテストが開いていない動画
+    def test_doc_for_and_open_video_is_gone(self):
+        """「文字起こしせずに開く」(/api/open-video)は消した(決定 3-47 の Q1)。動画の文書を探す /api/doc-for は残る(パスを比べるだけ)"""
+        video = os.path.join(self.media_dir, "開く.mkv")   # 他のテストが使っていない動画
         shutil.copy(self.video, video)
-        r = self.open_video(video, title="  <題名>  ")
-        self.assertEqual((r["_status"], r["created"]), (200, True), r)
-        tid = r["id"]
-        d = self.call("GET", "/api/transcript?id=" + tid)
-        self.assertEqual((d["title"], d["segments"], os.path.normcase(d["sourcePath"]), d["whole"]),
-                         ("<題名>", [], os.path.normcase(video), True))
-        self.assertAlmostEqual(d["duration"], 6.0, delta=0.1)
-        again = self.open_video(video.replace("\\", "/"))      # 同じ動画(書き方が違っても)→ 同じ文書
-        self.assertEqual((again["id"], again["created"]), (tid, False))
-        item = next(i for i in self.call("GET", "/api/transcripts")["items"] if i["id"] == tid)
-        self.assertEqual((item["rows"], item["hasEdit"], item["mediaOk"]), (0, False, True))
-        st, hd, body = self.call("GET", "/media?id=" + tid, raw=True)
-        self.assertEqual(st, 200)
-        # 動画でないもの・読めないもの・無いもの・相対パスは文書にしない(文書にした動画は /media で配るため)
-        for p, code in ((self.txt, "bad_ext"), (self.fake_mp4, "bad_media"), (os.path.join(self.media_dir, "無い.mp4"), "no_file"),
-                        ("", "no_file")):
-            r = self.open_video(p)
-            self.assertEqual((r["_status"], r["error"]), (400, code), p)
+        self.assertEqual(self.call("POST", "/api/open-video", {"path": video})["_status"], 404)
+        self.assertIsNone(self.call("GET", "/api/doc-for?path=" + urllib.parse.quote(video))["doc"])
+        tid = self.empty_doc(video)["id"]
         self.assertEqual(self.call("GET", "/api/doc-for?path=" + urllib.parse.quote(video))["doc"], {"id": tid, "rows": 0})
+        self.assertEqual(self.call("GET", "/api/doc-for?path=" + urllib.parse.quote(video.replace("\\", "/")))["doc"]["id"], tid)   # 書き方が違っても同じ動画
         self.assertIsNone(self.call("GET", "/api/doc-for?path=" + urllib.parse.quote(self.txt))["doc"])
         self.assertIsNone(self.call("GET", "/api/doc-for?path=")["doc"])
-        n = len(self.call("GET", "/api/transcripts")["items"])
-        self.assertEqual(self.call("POST", "/api/open-video", {"path": 3})["_status"], 400)
-        self.assertEqual(len(self.call("GET", "/api/transcripts")["items"]), n)
 
     def test_peaks(self):
-        tid = self.open_video(self.video)["id"]
+        tid = self.empty_doc(self.video)["id"]
         st, hd, body, seen = self.peaks(tid)
         self.assertEqual((st, hd["X-Peaks-Rate"], hd["X-Peaks-Scale"], hd["X-Peaks-Audio"], hd["Content-Type"]),
                          (200, "100", "sqrt", "1", "application/octet-stream"))
@@ -475,25 +482,25 @@ class TestEditHttp(unittest.TestCase):
         self.assertLess(time.time() - t0, 2)
         self.assertEqual(len(os.listdir(os.path.join(self.tmp, "cache", "peaks"))), 2)   # 作業データの cache/peaks/ に .bin と .json
         # 音の無い動画は空(画面は「音声なし」)
-        st, hd, body, _ = self.peaks(self.open_video(self.silent)["id"])
+        st, hd, body, _ = self.peaks(self.empty_doc(self.silent)["id"])
         self.assertEqual((st, hd["X-Peaks-Audio"], body), (200, "0", b""))
         # id の検査・元の動画が無い
         self.assertEqual(self.call("GET", "/api/peaks?id=../../x")["_status"], 404)
         gone = os.path.join(self.media_dir, "消える.wav")
         shutil.copy(self.wav, gone)
-        gid = self.open_video(gone)["id"]
+        gid = self.empty_doc(gone)["id"]
         os.unlink(gone)
         r = self.call("GET", "/api/peaks?id=" + gid)
         self.assertEqual((r["_status"], r["error"]), (404, "source_missing"))
 
     def test_edit_draft(self):
         """開いたときの下書き・たたき台「行から」は pack.TRANSCRIPT_ROWS(cut2resolve の規則)。fps・長さも返す"""
-        tid = self.open_video(self.wav)["id"]
+        tid = self.empty_doc(self.wav)["id"]
         r = self.call("GET", "/api/edit/draft?id=" + tid)
         self.assertEqual((r["_status"], r["unavailable"]["code"]), (200, "no_video"))   # 音声だけのファイルはカット・パックに使えない(理由は 200 で返す)
         video = os.path.join(self.media_dir, "下書き.mkv")
         shutil.copy(self.video, video)
-        tid = self.open_video(video)["id"]
+        tid = self.empty_doc(video)["id"]
         r = self.call("GET", "/api/edit/draft?id=" + tid)                           # 行の無い文書 → 全部残す
         self.assertEqual((r["_status"], r["fps"], r["base"], r["planBeside"]), (200, [30, 1], "all", ""))
         self.assertAlmostEqual(r["durationSec"], 6.0, delta=0.05)
@@ -574,7 +581,7 @@ class TestEditHttp(unittest.TestCase):
         import zipfile
         video = os.path.join(self.media_dir, "パック.mkv")
         shutil.copy(self.video, video)
-        tid = self.open_video(video)["id"]
+        tid = self.empty_doc(video)["id"]
         doc = self.call("GET", "/api/transcript?id=" + tid)
         segs = [{"id": "a", "start": 0.5, "end": 1.5, "text": "一"}, {"id": "b", "start": 2.0, "end": 2.2, "text": "二"}, {"id": "c", "start": 3.0, "end": 5.0, "text": "三"}]
         self.call("PUT", "/api/transcript?id=" + tid, {"title": doc["title"], "speakers": [], "segments": segs})
@@ -662,51 +669,28 @@ class TestEditHttp(unittest.TestCase):
         self.assertIn("動画: パック.mp4", r["text"])
         self.assertIn("1080 x 1920", r["text"])
 
-    def test_resplit_with_saved_words(self):
-        """今の文書を分け直す(12 ②): 単語の時刻(words.json)で、校正済みでない・文字が単語と一致する長い行だけ分ける。前の版は履歴に残す"""
-        tid = self.open_video(self.wav)["id"]
+    def test_delete_removes_words_and_history(self):
+        """文書を消すと、横の単語の時刻(words.json)と履歴(.hist/<id>/)も消える(store.delete_doc。1b-3)。長い行の分け直し /api/resplit は消した(決定 3-47 の Q4)"""
+        tid = self.empty_doc(self.wav)["id"]
         doc = self.call("GET", "/api/transcript?id=" + tid)
-        long1 = "きょうはいいてんきですねさんぽにいきましょうか"       # 23 文字(縦 16 + 2 を超える)
-        segs = [{"id": "a", "start": 0.0, "end": 4.6, "text": long1, "speaker": "sp1", "flag": "自信が低い"},
-                {"id": "b", "start": 5.0, "end": 9.6, "text": long1, "proofed": True},                 # 校正済み → 触らない
-                {"id": "c", "start": 10.0, "end": 14.6, "text": "ぜんぜんちがうぶんしょうになおしたぎょうですよね"},   # 人が直した(単語と違う)
-                {"id": "d", "start": 15.0, "end": 16.0, "text": "みじかい"}]
-        r = self.call("PUT", "/api/transcript?id=" + tid, {"title": doc["title"], "speakers": [{"id": "sp1", "name": "話者A"}], "segments": segs})
-        r = self.call("POST", "/api/resplit", {"id": tid})
-        self.assertEqual((r["_status"], r["error"]), (400, "no_words"))                    # 単語の時刻が無い → 範囲の再認識を案内
-        self.assertIn("範囲を再認識", r["message"])
-        words = []
-        for t0 in (0.0, 5.0, 10.0):
-            words += [[round(t0 + i * 0.2, 2), round(t0 + (i + 1) * 0.2, 2), ch] for i, ch in enumerate(long1)]
-        with open(os.path.join(self.tmp, "transcripts", tid + ".words.json"), "w", encoding="utf-8") as f:
-            json.dump({"schema": "youtube-tools-words/v1", "words": words}, f, ensure_ascii=False)
-        before = self.call("GET", "/api/transcript?id=" + tid)
-        r = self.call("POST", "/api/resplit", {"id": tid, "baseUpdatedAt": before["updatedAt"] - 1})
-        self.assertEqual(r["_status"], 409)                                                 # 別の画面で先に保存されている
-        r = self.call("POST", "/api/resplit", {"id": tid, "orientation": "vertical", "baseUpdatedAt": before["updatedAt"]})
-        self.assertEqual((r["_status"], r["changed"], r["skipped"]), (200, 1, 1), r)        # a だけ分ける・c は単語と違う
-        after = self.call("GET", "/api/transcript?id=" + tid)
-        got = [(g["id"], g["text"], g.get("speaker"), g.get("flag")) for g in after["segments"]]
-        self.assertEqual([x[0] for x in got], ["a", "a-2", "b", "c", "d"])
-        self.assertEqual("".join(x[1] for x in got[:2]), long1)
-        self.assertTrue(all(len(x[1]) <= 18 for x in got[:2]))
-        self.assertEqual((got[1][2], got[1][3]), ("sp1", "自信が低い"))                    # 話者・印を引き継ぐ
-        self.assertEqual(after["segments"][2]["text"], long1)                               # 校正済みはそのまま
-        hist = self.call("GET", "/api/history?id=" + tid)["items"]
-        self.assertTrue(hist)                                                               # 分ける前の版が「以前の版に戻す」にある
-        r = self.call("POST", "/api/resplit", {"id": tid, "orientation": "horizontal"})
-        self.assertEqual(r["changed"], 0)                                                   # 横(28)では分ける行が無い
-        # 文書を消すと words.json も消える
+        self.assertEqual(self.call("POST", "/api/resplit", {"id": tid})["_status"], 404)
+        segs = [{"id": "a", "start": 0.0, "end": 1.0, "text": "あ"}]
+        self.assertEqual(self.call("PUT", "/api/transcript?id=" + tid, {"title": doc["title"], "speakers": [], "segments": segs})["_status"], 200)
         wp = os.path.join(self.tmp, "transcripts", tid + ".words.json")
-        self.assertTrue(os.path.isfile(wp))
+        with open(wp, "w", encoding="utf-8") as f:
+            json.dump({"schema": "youtube-tools-words/v1", "words": [[0.0, 1.0, "あ"]]}, f, ensure_ascii=False)
+        hist = os.path.join(self.tmp, "transcripts", ".hist", tid)
+        self.assertTrue(os.path.isdir(hist))                                                # 保存で履歴が 1 つ
         self.assertEqual(self.call("DELETE", "/api/transcript?id=" + tid)["_status"], 200)
         self.assertFalse(os.path.exists(wp))
+        self.assertFalse(os.path.exists(hist))
+        self.assertEqual(self.call("DELETE", "/api/transcript?id=" + tid)["_status"], 404)
 
     def test_delete_placed_doc(self):
         """索引(.loc.json)で案件の 作業用 に置いた文書を消すと、本体・横のファイル・索引が消える。transcripts の同じ名前の別物には触らない"""
         video = os.path.join(self.media_dir, "置いて消す.mkv")
         shutil.copy(self.video, video)
-        tid = self.open_video(video)["id"]
+        tid = self.empty_doc(video)["id"]
         tx = os.path.join(self.tmp, "transcripts")
         case = os.path.join(self.tmp, "案件", "作業用")
         os.makedirs(case)
@@ -732,7 +716,7 @@ class TestEditHttp(unittest.TestCase):
         """疑わしい所だけ認識し直す(12 ③-2)の HTTP: 良くなった行だけ置き換える・校正済みは触らない・前の版は履歴・対象が無ければ 400"""
         video = os.path.join(self.media_dir, "認識し直し.wav")
         shutil.copy(self.wav, video)
-        tid = self.open_video(video)["id"]
+        tid = self.empty_doc(video)["id"]
         doc = self.call("GET", "/api/transcript?id=" + tid)
         F = "長い区間に文字が少ない(抜けの可能性)"
         r = self.call("POST", "/api/redo", {"tid": tid})
@@ -763,7 +747,7 @@ class TestEditHttp(unittest.TestCase):
         self.assertEqual((r["_status"], r["error"]), (400, "empty"))                         # もう疑わしい行が無い
 
     def test_edit_http_into_doc_and_delete(self):
-        tid = self.open_video(self.wav)["id"]
+        tid = self.empty_doc(self.wav)["id"]
         self.assertEqual(self.call("GET", "/api/edit?id=" + tid), {"edit": None, "rev": 0, "broken": False, "packStale": False, "_status": 200})
         e = edit_obj(clips=((0.0, 3.0), (6.0, 12.0)), duration=12.0)
         r = self.call("PUT", "/api/edit?id=" + tid, {"edit": e, "baseRev": 0})
@@ -791,7 +775,7 @@ class TestEditHttp(unittest.TestCase):
         # もう行がある文書・別の動画には入れない
         again = self.call("POST", "/api/transcribe", {"sourcePath": self.wav, "model": "small", "intoDoc": tid})
         self.assertEqual((again["_status"], again["error"]), (409, "not_empty"))
-        other = self.open_video(self.video)["id"]
+        other = self.empty_doc(self.video)["id"]
         r = self.call("POST", "/api/transcribe", {"sourcePath": self.wav, "model": "small", "intoDoc": other})
         self.assertEqual((r["_status"], r["error"]), (400, "bad_request"))
         # パックの記録・一覧
@@ -848,10 +832,9 @@ class TestRelinkStore(StoreDir):
         for k in ("segments", "speakers", "original", "clip", "start", "end", "duration", "title", "createdAt"):
             self.assertEqual(d[k], before[k], k)                                   # 行・校正・話者・元の出力・clip・範囲は変えない
         bak = os.path.join(self.tmp, ".bak")
-        with open(os.path.join(bak, TID + ".pre-relink.json"), encoding="utf-8") as f:
-            self.assertEqual(json.load(f)["sourcePath"], "C:\\x\\clip.mp4")        # 1) 直前の文書
+        self.assertFalse(os.path.exists(os.path.join(bak, TID + ".pre-relink.json")))   # 1) 直前の文書は履歴だけ(.bak の控えはやめた = 決定 3-47 の 1b-1)
         with open(os.path.join(bak, TID + ".edit.pre-relink.json"), encoding="utf-8") as f:
-            self.assertEqual(json.load(f)["rev"], 3)                               # 2) カット
+            self.assertEqual(json.load(f)["rev"], 3)                               # 2) カット(④ relink の写し。OPT-M1 で外す = opt-human 2a-4)
         stamps = S.hist_stamps(TID)                                                # 3) 履歴(「以前の版に戻す」)
         self.assertEqual(len(stamps), 1)
         S.restore_history(TID, stamps[0])
@@ -1130,11 +1113,12 @@ class TestRelinkHttp(unittest.TestCase):
         shutil.rmtree(cls.media_dir, ignore_errors=True)
 
     call = TestEditHttp.call
+    empty_doc = TestEditHttp.empty_doc
 
     def make_doc(self, name):
         src = os.path.join(self.media_dir, name)
         shutil.copy(self.v6, src)
-        tid = self.call("POST", "/api/open-video", {"path": src})["id"]
+        tid = self.empty_doc(src)["id"]
         d = self.call("GET", "/api/transcript?id=" + tid)
         d["segments"] = [{"id": "s1", "start": 0.5, "end": 2.0, "text": "こんばんは", "proofed": True},
                          {"id": "s2", "start": 3.0, "end": 5.5, "text": "待って"}]
@@ -1152,7 +1136,7 @@ class TestRelinkHttp(unittest.TestCase):
         self.assertEqual((c["name"], c["fps"], c["hasVideo"], c["mismatch"], c["sameAsNow"], c["rowsAfterEnd"]), ("移した先.mkv", [30, 1], True, False, False, 0))
         self.assertAlmostEqual(c["durationSec"], 6.0, delta=0.1)
         self.assertLess(abs(c["diffSec"]), 0.2)
-        other = self.call("POST", "/api/open-video", {"path": self.v6})["id"]   # 同じ動画を使う別の文書は知らせる
+        other = self.empty_doc(self.v6)["id"]   # 同じ動画を使う別の文書は知らせる
         shutil.copy(self.v6, os.path.join(self.media_dir, "x.mkv"))
         c2 = self.call("POST", "/api/relink/check", {"id": tid, "path": self.v6})
         self.assertEqual([u["id"] for u in c2["usedBy"]], [other])

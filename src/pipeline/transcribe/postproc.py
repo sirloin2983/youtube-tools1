@@ -4,11 +4,11 @@
 自信の度合い(machine_conf)・後処理の記録(post_record)・行の単語(row_words)。
 split_segment・strip_punct・SPARSE_FLAG・text_chars・SPLIT_*・_squash の本体は RS6 a-3(2026-10-10)から ytt/txtext.py(③ も読む語彙)。ここに別名は残さない。
 
-役割で組み直す RS2-4b(2026-10-10)に編集の ed_jobs から移した(中身は同じ)。標準ライブラリ・ytt・同じパッケージの兄弟(txbase・tx_engines・roster)だけを読む
+役割で組み直す RS2-4b(2026-10-10)に移した(中身は同じ)。標準ライブラリ・ytt・同じパッケージの兄弟(txbase・tx_engines・roster)だけを読む
 = 編集のサーバー(serve)なしで ① から読める(post_record の編集の版だけは ytt/workdata の SERVER_VERSION = app が入れた値)。
 差し替えられる値(END_TRIM・JOIN_GAP)と、それを読む expand_segments・join_rows・post_record は同じこのモジュールにある。
-テストの S.END_TRIM = …・mock.patch.object(ed_jobs, "expand_segments", …) は serve の名前の受付と ed_jobs の転送(ytt/modfwd)でここに届くので、
-読む側は呼ぶたびに postproc.名前(ed_jobs)か ed_jobs.名前(ほかの編集の部品)で読む(from … import で読み直さない)。
+テストの S.END_TRIM = …・mock.patch.object(S, "expand_segments", …) は serve の名前の受付と転送(ytt/modfwd)でここに届くので、
+読む側は呼ぶたびに postproc.名前か S.名前(ほかの編集の部品)で読む(from … import で読み直さない)。
 """
 import functools
 import math

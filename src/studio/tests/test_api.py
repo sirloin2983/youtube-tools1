@@ -336,7 +336,7 @@ class TestStateEnv(Base):
         env = j["env"]
         self.assertEqual(set(env) >= {"checked", "python", "tools", "outDirFree", "warnings"}, True)
         self.assertIsInstance(env["warnings"], list)
-        for k in ("hasKey", "ffmpeg", "ytdlp", "outDir", "defaultOutDir", "quota"):   # 既存の項目はそのまま
+        for k in ("hasKey", "ffmpeg", "ytdlp", "outDir", "defaultOutDir"):   # 既存の項目はそのまま
             self.assertIn(k, j)
 
     def test_old_ytdlp_and_low_disk_warn(self):

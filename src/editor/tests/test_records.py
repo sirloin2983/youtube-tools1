@@ -7,7 +7,7 @@
 - 文字起こし: 行の proofedAt(初めて校正済みにした時刻。引き継ぐ・外れたら捨てる・機械が書き換えたら外す)・
   再認識の前の機械の出力を recognition.runs に範囲つきで残す(件数・行数の上限)・辞書の版(settings.dict / params.dict)
 - カット: edit.json の draft(初めての保存のときだけ一度書く・以前の edit.json が読める・パックの記録で消えない)
-- 校正の手間: POST /api/effort(updatedAt を変えない = 保存の競合に巻き込まない・累計)・保存で数える校正済みの行
+- 校正の行の数と作業中の印: POST /api/effort(effort.lastAt だけ・updatedAt を変えない = 保存の競合に巻き込まない)・保存で数える校正済みの行
 - 生出力 <id>.asr.json(分ける前・置換の前の認識の結果。単語ごとの時刻と確信度)と GPU の精度の型(TRANSCRIBE_CUDA_COMPUTE)
 """
 import json
@@ -225,24 +225,22 @@ class TestEffort(StoreDir):
         super().setUp()
         self.put_doc(doc_obj())
 
-    def test_add_does_not_touch_updated_at(self):
-        r = S.add_effort({"id": TID, "activeSec": 30, "newSession": True})
-        self.assertEqual({k: r["effort"][k] for k in ("activeSec", "cutSec", "sessions")}, {"activeSec": 30, "cutSec": 0, "sessions": 1})
-        S.add_effort({"id": TID, "activeSec": 60, "cutSec": 30})
+    def test_touch_sets_last_at_only(self):
+        """POST /api/effort は操作中の知らせ = effort.lastAt だけ(作業した時間は数えない = 決定 3-47 の 1d-3)。updatedAt は動かさない・以前の時間の値は消さない"""
+        d = _rd()
+        d["effort"] = {"activeSec": 90, "cutSec": 30, "sessions": 1, "proofedRows": 0, "unproofedRows": 0}
+        self.put_doc(d)
+        t0 = int(time.time() * 1000)
+        r = S.touch_effort({"id": TID, "activeSec": 30, "newSession": True})   # 以前の画面が送る秒は受け取って捨てる
+        self.assertGreaterEqual(r["effort"]["lastAt"], t0)
         d = _rd()
         self.assertEqual(d["updatedAt"], 1000)                                       # 記録のために updatedAt を動かさない
-        self.assertEqual((d["effort"]["activeSec"], d["effort"]["cutSec"], d["effort"]["sessions"]), (90, 30, 1))
-        S.save_transcript(TID, dict(d, baseUpdatedAt=1000, effort={"activeSec": 0}))  # 開いていた画面の保存は 409 にならず、累計も消さない
-        self.assertEqual(_rd()["effort"]["activeSec"], 90)
-        self.assertEqual(S.add_effort({"id": TID, "activeSec": 0})["effort"]["activeSec"], 90)   # 0 なら書かない
-        for bad in ({"id": TID, "activeSec": -1}, {"id": TID, "activeSec": 3601}, {"id": TID, "activeSec": "30"}, {"id": TID, "activeSec": True},
-                    {"id": TID, "activeSec": 1, "cutSec": 1.5}):
-            with self.subTest(bad=bad):
-                with self.assertRaises(S.ApiError) as cm:
-                    S.add_effort(bad)
-                self.assertEqual(cm.exception.status, 400)
+        self.assertEqual((d["effort"]["activeSec"], d["effort"]["cutSec"], d["effort"]["sessions"]), (90, 30, 1))   # 今ある値は消さない・足さない
+        S.save_transcript(TID, dict(d, baseUpdatedAt=1000, effort={"lastAt": 1}))   # 開いていた画面の保存は 409 にならず、作業中の印も戻さない
+        self.assertGreaterEqual(_rd()["effort"]["lastAt"], t0)
+        self.assertFalse(hasattr(S, "add_effort"))
         with self.assertRaises(S.ApiError) as cm:
-            S.add_effort({"id": "../x", "activeSec": 1})
+            S.touch_effort({"id": "../x"})
         self.assertEqual(cm.exception.status, 404)
 
     def test_rows_counted_on_save_and_kept_on_restore(self):
@@ -251,15 +249,18 @@ class TestEffort(StoreDir):
         S.save_transcript(TID, dict(d, baseUpdatedAt=1000))
         d = _rd()
         self.assertEqual((d["effort"]["proofedRows"], d["effort"]["unproofedRows"]), (2, 0))
-        S.add_effort({"id": TID, "activeSec": 120, "newSession": True})
+        S.touch_effort({"id": TID})
         d = _rd()
+        last = d["effort"]["lastAt"]
         d["segments"][1].pop("proofed")
         S.save_transcript(TID, dict(d, baseUpdatedAt=d["updatedAt"]))
         d = _rd()
-        self.assertEqual((d["effort"]["proofedRows"], d["effort"]["unproofedRows"], d["effort"]["activeSec"]), (2, 1, 120))
-        ts = S.hist_stamps(TID)[0]   # 校正済みにする前の版へ戻しても、手間の累計は戻さない
+        self.assertEqual((d["effort"]["proofedRows"], d["effort"]["unproofedRows"]), (2, 1))
+        self.assertNotIn("activeSec", d["effort"])
+        ts = S.hist_stamps(TID)[0]   # 校正済みにする前の版へ戻しても、行の数と作業中の印は戻さない
         S.restore_history(TID, ts)
-        self.assertEqual(_rd()["effort"]["activeSec"], 120)
+        self.assertEqual((_rd()["effort"]["proofedRows"], _rd()["effort"]["unproofedRows"]), (2, 1))
+        self.assertGreaterEqual(_rd()["effort"]["lastAt"], last)
 
 
 class TestCudaCompute(unittest.TestCase):

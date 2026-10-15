@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirna
 from human.review import store  # noqa: E402
 from ytt import yturl  # noqa: E402
 from ytt import studio_env  # noqa: E402
-from ytt import casefiles, names, schemas  # noqa: E402
+from ytt import casefiles, marks, names, schemas, studiodata  # noqa: E402
 from flow import casebook  # noqa: E402
 from ytt.errors import ApiError  # noqa: E402
 
@@ -60,12 +60,12 @@ class Base(unittest.TestCase):
 
 class TestCheckTimes(unittest.TestCase):
     def test_ok_rounds(self):
-        self.assertEqual(store.check_times(1.04, 10.26), (1.0, 10.3))
+        self.assertEqual(marks.check_times(1.04, 10.26), (1.0, 10.3))
 
     def test_rejects(self):
         for a, b in [("1", 2), (True, 2), (float("nan"), 2), (-1, 5), (5, 5), (5, 4), (0, 3601), (0, 1e9), (None, 1)]:
-            with self.assertRaises(store.BadMark, msg=(a, b)):
-                store.check_times(a, b)
+            with self.assertRaises(marks.BadMark, msg=(a, b)):
+                marks.check_times(a, b)
 
 
 class TestValidate(Base):
@@ -95,7 +95,7 @@ class TestValidate(Base):
 
     def test_too_many(self):
         with self.assertRaises(ApiError):
-            self.put([{"start": i, "end": i + 1} for i in range(store.MAX_MARKS + 1)])
+            self.put([{"start": i, "end": i + 1} for i in range(marks.MAX_MARKS + 1)])
 
     def test_conflict_409_returns_latest(self):
         rev = self.video()["rev"]
@@ -488,10 +488,10 @@ class TestPersistence(Base):
         self.st.series[YT["videoId"]] = {"a": 1}
         st2 = store.Store(self.path)
         self.assertEqual(st2.series.get(YT["videoId"]), {"a": 1})
-        for i in range(store.SERIES_KEEP + 5):
+        for i in range(studiodata.SERIES_KEEP + 5):
             self.st.series["v%010d" % i] = {"i": i}
         files = os.listdir(os.path.join(self.tmp, "cache", "series"))
-        self.assertLessEqual(len(files), store.SERIES_KEEP)
+        self.assertLessEqual(len(files), studiodata.SERIES_KEEP)
 
     def test_delete_removes_series(self):
         self.st.series[YT["videoId"]] = {"a": 1}
@@ -602,11 +602,11 @@ class TestCollab(Base):
         self.assertAlmostEqual(p["b"], 8.0)
 
     def test_offset_from_anchors_too_close(self):
-        with self.assertRaises(store.BadMark):
+        with self.assertRaises(marks.BadMark):
             store.offset_from_anchors([[100, 108], [105, 113]])
 
     def test_offset_from_anchors_bad_slope(self):
-        with self.assertRaises(store.BadMark):
+        with self.assertRaises(marks.BadMark):
             store.offset_from_anchors([[0, 0], [100, 400]])   # a=4 は範囲外
 
     def test_set_anchor_rejects_base(self):
@@ -1044,6 +1044,21 @@ class TestCaseFiles(Base):
         self.assertNotIn(gone["start"], [m["start"] for m in self.marks()])
         self.assertEqual(next(m for m in self.marks() if m["id"] == "m1")["status"], "exported")
         self.assertNotIn("marks", self.row(vid))
+
+    def test_delete_and_reenter_keeps_previous_case_record(self):
+        """7c-1: 案件にした配信を一覧から消して同じ URL を入れ直し、もう一度初めて書き出しても、採用.json の前の採用・書き出しの記録は消えない"""
+        self.yt_case()
+        vid = YT["videoId"]
+        self.assertTrue(self.st.delete(vid))
+        self.assertNotIn(vid, self.st.videos)
+        self.st.ensure(YT, "t", "c")
+        self.assertEqual(self.marks(), [])
+        self.put_marks(vid, [{"id": "m2", "start": 300, "end": 330, "status": "adopted"}])
+        self.assertTrue(self.export(vid, "m2", "02.mp4"))
+        got = {m["id"]: m for m in self.st.get(vid)[0]["marks"]}
+        self.assertEqual((got["m1"]["status"], got["m2"]["status"]), ("exported", "exported"))
+        self.assertEqual(sorted(m["id"] for m in casefiles.read(self.root)[1]["marks"]), ["m1", "m2"])
+        self.assertEqual(self.row(vid)["rev"], self.st.get(vid)[0]["rev"])
 
     def test_old_video_with_exports_stays_in_data_json(self):
         """それまでに書き出したマークがある配信は案件にしない(既存は B3-8 の移行まで data.json のまま)"""

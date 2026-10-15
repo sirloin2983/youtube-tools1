@@ -1,10 +1,13 @@
-"""① 配信ランキング(配信ランキング sr/serve.py 由来): 事務所・所属チャンネルの登録と、YouTube Data API による検索ジョブ。
+"""③ 配信の検索: 事務所・所属チャンネルの登録と、YouTube Data API による検索ジョブ。
 
 HTTP は serve.py が受け持つ。ここは素の関数だけを公開する:
   get_registry() / put_registry(obj) / resolve(agency) / import_official_channels(agency)
-  start_search(obj) / get_search(id) / cancel_search(id) / quota()
-  live_list(agencies)(配信中・これからの予定。① の「配信中」のタブ。2026-10-05)
-STUDIO_FAKE=1 のときは疑似API(ネットワークなし)で動く。
+  start_search(obj) / get_search(id) / cancel_search(id)
+  live_list(agencies)(配信中・これからの予定。画面の「配信中」のタブ)
+  attach_board(board)(掲示板に検索のジョブを出す。board_jobs・board_cancel・board_retry は掲示板が呼ぶ引く形・取り消し・やり直し)
+STUDIO_FAKE=1 のときは疑似API(fake_yt.py。ネットワークなし)で動く。
+中の部品は _ を付けた名前。_ なしで残すのは、外から呼ぶ上の口と、テストが使う load_registry・sanitize_registry・validate_search・run_search・
+parse_live_agencies・live_row・yt_get(テストの差し替えの的)。
 """
 import hashlib
 import json
@@ -20,9 +23,11 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
-from ytt import yturl as _yturl  # noqa: E402  動画 ID の形・動画のページ(RS3-4 にスタジオの common から)
-from ytt import apikey as _key, fsio as _fsio, studio_env as _env  # noqa: E402  (src は serve とスタジオの common が sys.path に足してある)
+from ytt import yturl as _yturl  # noqa: E402  動画 ID の形・動画のページ
+from ytt import apikey as _key, fsio as _fsio, studio_env as _env  # noqa: E402  (src は studio/startup.py が sys.path に足してある)
 from ytt.errors import ApiError, Cancelled  # noqa: E402
+
+from . import fake_yt as _fake  # noqa: E402  疑似 API(STUDIO_FAKE=1)
 
 API_BASE = _yturl.YT_API_BASE
 NET_MSG = "YouTube の API に接続できません。インターネットの接続を確かめてから、もう一度試してください"
@@ -34,7 +39,7 @@ MAX_AGENCIES, MAX_CHANNELS = 30, 400
 MAX_PAGES = 40            # 1チャンネルあたり、アップロード一覧を最大40ページ(=2000本)
 WORKERS = 4
 CACHE_TTL = 1800
-SEED = os.path.join(os.path.dirname(os.path.abspath(__file__)), "seed.json")   # 事務所の初期の登録(このファイルの隣。RS3-5 で studio から一緒に動かした)
+SEED = os.path.join(os.path.dirname(os.path.abspath(__file__)), "seed.json")   # 事務所の初期の登録(このファイルの隣)
 FATAL = ("quota", "no_key", "key_invalid", "api_not_enabled", "api_permission")   # 1チャンネルの失敗として続けず、検索・取り込み全体を止める失敗
 
 _quota = 0
@@ -44,26 +49,30 @@ _cache = {}
 _cache_lock = threading.Lock()
 
 
-def registry_path():
+def _registry_path():
     return _env.p("registry.json")
 
 
-def quota():
-    return _quota
-
-
-def yt_get(path, params):
-    """YouTube Data API を1回呼ぶ(すべて1ユニット)。テスト用の疑似モードでは fake_get を使う。"""
+def _count():
+    """YouTube Data API を 1 回呼ぶ数え(すべて 1 ユニット)。起動してからの累計で、検索の結果の「API の使用量」は前後の差。
+    実際に外へ出るとき(と疑似のとき)だけ数える = キーが無くて呼ばなかったときは数えない"""
     global _quota
     with _quota_lock:
         _quota += 1
+
+
+def yt_get(path, params):
+    """YouTube Data API を1回呼ぶ(すべて1ユニット)。テスト用の疑似モードでは fake_yt.fake_get を使う。
+    キーは URL ではなく見出し X-goog-api-key で送る(失敗の文・ログに URL が出ても漏れないように)"""
     if _env.fake():
-        return fake_get(path, params)
+        _count()
+        return _fake.fake_get(path, params, LIVE_PAGE)
     key, _ = _key.get_api_key()
     if not key:
         raise ApiError("no_key", "API キーが未設定です(設定の「YouTube Data API キー」で入れてください)", 400)
-    url = API_BASE + path + "?" + urllib.parse.urlencode({**params, "key": key})
-    req = urllib.request.Request(url, headers={"Accept": "application/json"})
+    _count()
+    url = API_BASE + path + "?" + urllib.parse.urlencode(params)
+    req = urllib.request.Request(url, headers={"Accept": "application/json", "X-goog-api-key": key})
     last = None
     for attempt in range(2):
         try:
@@ -91,7 +100,7 @@ def yt_get(path, params):
             if e.code >= 500 and attempt == 0:   # サーバー側の一時的な失敗は1回だけやり直す
                 time.sleep(1)
                 continue
-            raise ApiError("upstream", "YouTube の API がエラーを返しました。少し待ってから、もう一度試してください", 502, {"detail": "HTTP %d" % e.code})   # 番号は画面の「元のメッセージ」へ(見直し M7)
+            raise ApiError("upstream", "YouTube の API がエラーを返しました。少し待ってから、もう一度試してください", 502, {"detail": "HTTP %d" % e.code})   # 番号は画面の「元のメッセージ」へ
         except (urllib.error.URLError, TimeoutError, OSError):
             last = ApiError("network", NET_MSG, 502)
             if attempt == 0:
@@ -99,118 +108,10 @@ def yt_get(path, params):
     raise last or ApiError("network", NET_MSG, 502)
 
 
-# ---------- 疑似API(テスト用: STUDIO_FAKE=1) ----------
-_FAKE_WORDS = ["雑談", "ゲーム", "歌枠", "マイクラ", "コラボ", "ホラー"]
-_FAKE_INDEX = {}   # 疑似の動画ID → 動画(疑似動画IDからは元のチャンネルが分からないので、ここから引く)
-
-
-def _h(s, mod=1000003):
-    return int(hashlib.sha1(s.encode()).hexdigest()[:8], 16) % mod
-
-
-def fake_channel_id(ref):
-    return "UC" + hashlib.sha1(ref.lower().encode()).hexdigest()[:22].replace("0", "a")[:22].ljust(22, "x")
-
-
-def fake_video(cid, n):
-    """チャンネル cid の n 本目(新しい順)の動画。日付は現在から遡る(2日に1本ぐらい)。"""
-    vid = "f" + hashlib.sha1(("%s/%d" % (cid, n)).encode()).hexdigest()[:10]
-    when = datetime.now(timezone.utc).replace(hour=12, minute=0, second=0, microsecond=0) - timedelta(days=n * 2 + _h(vid, 2), hours=_h(vid + "h", 5))
-    title = "【%s】%s配信 #%d" % (_FAKE_WORDS[_h(vid, 6)], _FAKE_WORDS[_h(vid + "x", 6)], n)
-    live = _h(vid + "l", 10) < 8
-    return {"id": vid, "publishedAt": when.strftime("%Y-%m-%dT%H:%M:%SZ"), "title": title, "views": _h(vid + "v", 900000) + 100, "live": live, "channelId": cid,
-            "dur": ("PT%dH%dM%dS" % (1 + _h(vid, 3), _h(vid, 50), _h(vid, 50))) if live else "PT%dM%dS" % (_h(vid, 9), _h(vid, 50))}
-
-
-def fake_get(path, params):
-    if path == "channels":
-        items = []
-        if "forHandle" in params:
-            ref = params["forHandle"]
-            if "nothere" in ref:
-                return {"items": []}
-            ids = [fake_channel_id(ref)]
-            names = {ids[0]: ref.lstrip("@")}
-        else:
-            ids = params["id"].split(",")
-            names = {i: "ch-" + i[2:8] for i in ids}
-        for i in ids:
-            items.append({"id": i, "snippet": {"title": names.get(i, i)}, "contentDetails": {"relatedPlaylists": {"uploads": "UU" + i[2:]}}, "statistics": {"subscriberCount": "100000"}})
-        return {"items": items}
-    if path == "channelSections":
-        cid = params["channelId"]
-        ids = [fake_channel_id("%s-m%d" % (cid, k)) for k in range(4)]
-        return {"items": [{"snippet": {"type": "multipleChannels"}, "contentDetails": {"channels": ids}}, {"snippet": {"type": "allPlaylists"}}]}
-    if path == "playlistItems":
-        cid = "UC" + params["playlistId"][2:]
-        _fake_register(cid)
-        start = int(params.get("pageToken") or 0)
-        items = []
-        if params.get("maxResults") == LIVE_PAGE and not start:   # 「配信中」のタブの見回り(先頭の数本だけ): 疑似の配信中・予定を先頭に足す
-            items = [{"contentDetails": {"videoId": v["id"]}} for v in fake_live(cid)]
-            items += [{"contentDetails": {"videoId": fake_video(cid, n)["id"]}} for n in range(LIVE_PAGE - len(items))]
-            return {"items": items}
-        for n in range(start, min(start + 50, 150)):
-            v = fake_video(cid, n)
-            items.append({"contentDetails": {"videoId": v["id"], "videoPublishedAt": v["publishedAt"]}})
-        out = {"items": items}
-        if start + 50 < 150:
-            out["nextPageToken"] = str(start + 50)
-        return out
-    if path == "videos":
-        items = []
-        for vid in params["id"].split(","):
-            v = _FAKE_INDEX.get(vid)
-            if not v:
-                continue
-            det = {"duration": v["dur"]}
-            item = {"id": vid, "snippet": {"title": v["title"], "description": "説明文 " + v["title"], "channelId": v["channelId"], "channelTitle": "ch-" + v["channelId"][2:8],
-                                           "publishedAt": v["publishedAt"], "thumbnails": {"medium": {"url": "https://i.ytimg.com/vi/%s/mqdefault.jpg" % vid}}},
-                    "statistics": {"viewCount": str(v["views"]), "likeCount": str(v["views"] // 30), "commentCount": str(v["views"] // 200)}, "contentDetails": det}
-            item["snippet"]["liveBroadcastContent"] = v.get("lbc", "none")
-            if v.get("lsd"):   # 疑似の配信中・予定(fake_live)
-                item["liveStreamingDetails"] = v["lsd"]
-            elif v["live"]:
-                st = datetime.strptime(v["publishedAt"], "%Y-%m-%dT%H:%M:%SZ")
-                item["liveStreamingDetails"] = {"actualStartTime": v["publishedAt"], "actualEndTime": (st + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")}
-            items.append(item)
-        return {"items": items}
-    raise ApiError("upstream", "fake: unknown " + path, 502)
-
-
-def _fake_register(cid):
-    for n in range(150):
-        v = fake_video(cid, n)
-        _FAKE_INDEX[v["id"]] = v
-
-
-def fake_live(cid):
-    """チャンネル cid の疑似の配信中・予定(チャンネルごとに決まった形: 配信中 / 数時間後の予定 / 30時間後の予定(出さない) / メン限の配信中 / なし)。
-    時刻は今の「時」の頭から決める(同じ時間の中なら何度呼んでも同じ)"""
-    k = _h(cid + "/live", 6)
-    if k > 3:
-        return []
-    base = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
-    vid = "L" + hashlib.sha1((cid + "/live").encode()).hexdigest()[:10]
-    fmt = "%Y-%m-%dT%H:%M:%SZ"
-    title = "【%s】%s配信" % (_FAKE_WORDS[_h(vid, 6)], _FAKE_WORDS[_h(vid + "x", 6)])
-    if k in (0, 3):
-        st = base - timedelta(minutes=20 + _h(vid, 90))
-        lsd = {"actualStartTime": st.strftime(fmt), "concurrentViewers": str(500 + _h(vid + "c", 40000))}
-        lbc = "live"
-        if k == 3:
-            title = "【メン限】" + title
-    else:
-        st = base + timedelta(hours=1 + _h(vid, 5) if k == 1 else 30)
-        lsd, lbc = {"scheduledStartTime": st.strftime(fmt)}, "upcoming"
-    v = {"id": vid, "publishedAt": st.strftime(fmt), "title": title, "views": 0, "live": False, "channelId": cid, "dur": "P0D", "lbc": lbc, "lsd": lsd}
-    _FAKE_INDEX[vid] = v
-    return [v]
-
-
 # ---------- 登録(事務所・所属チャンネル) ----------
 def parse_ref(text):
-    """入力(@ハンドル / チャンネルID / YouTubeのURL)→ 正規化した ref。読めなければ None。"""
+    """入力(@ハンドル / チャンネルID / YouTubeのURL)→ 正規化した ref。読めなければ None。
+    読める URL は https://(www.|m.)youtube.com/@ハンドル と /channel/UC…(https なし・/c/名前・/user/名前・music. は読めない)。素の名前は頭に @ を足す"""
     t = str(text or "").strip()
     if not t:
         return None
@@ -235,6 +136,8 @@ def _list(x):
 
 
 def sanitize_registry(obj):
+    """画面から来た登録簿を整える -> {"agencies": [{id, name, official, channels}]}(知っている欄だけ写す。事務所 30・公式 10・所属チャンネル 400 まで)。
+    チャンネルの ID が正しい形のときだけ解決済み(ok)にし、アップロード一覧の ID は ID から作る。画面から来た ID・名前は信じる(手元だけの道具)"""
     out, seen = [], set()
     for a in _list(obj.get("agencies") if isinstance(obj, dict) else None)[:MAX_AGENCIES]:
         if not isinstance(a, dict):
@@ -266,7 +169,7 @@ def sanitize_registry(obj):
 def load_registry():
     """registry.json(無ければ seed.json)。registry.json が壊れていたら、退避してから seed.json で始める
     (以前は黙って seed.json に戻り、次の保存で壊れたファイルごと登録が上書きされて消えていた)。"""
-    path = registry_path()
+    path = _registry_path()
     try:
         with open(path, encoding="utf-8-sig") as f:
             d = json.load(f)
@@ -281,12 +184,13 @@ def load_registry():
         # 一時的に開けない(Windows のウイルス対策のロックなど)ときは退避も seed への切り替えもしない
         # (seed で続けると、解決・取り込みの保存で登録が上書きされるため)
         _env.log_failure("registry.json の読み込み", e)
-        raise ApiError("registry_read", "事務所の登録を読み込めませんでした。少し待ってからもう一度試してください", 500, {"detail": "registry.json: %s" % (e.strerror or e.__class__.__name__)})   # ファイル名は「元のメッセージ」へ(見直し S4)
+        raise ApiError("registry_read", "事務所の登録を読み込めませんでした。少し待ってからもう一度試してください", 500, {"detail": "registry.json: %s" % (e.strerror or e.__class__.__name__)})   # ファイル名は「元のメッセージ」へ
     return sanitize_registry(_fsio.read_json_or(SEED, {}))   # 読めなければ事務所なし
 
 
 def _quarantine_registry(path, error):
-    # 名前の末尾を .bak にするのは、.gitignore の *.bak に掛けるため(push.bat の git add -A で公開リポジトリに載せない)
+    # 名前の末尾を .bak にするのは、.gitignore の *.bak に掛けるため(登録簿の置き場所がリポジトリの中のときに、push.bat の git add -A で公開リポジトリに載せない。
+    # 今の置き場所は %LOCALAPPDATA% の studio フォルダでリポジトリの外)
     dst = "%s.corrupt-%s.bak" % (path, time.strftime("%Y%m%d-%H%M%S"))
     try:
         if not os.path.exists(dst):
@@ -296,8 +200,8 @@ def _quarantine_registry(path, error):
         _env.log_failure("壊れた registry.json を退避できませんでした", e)
 
 
-def save_registry(reg):
-    _fsio.atomic_write(registry_path(), json.dumps(reg, ensure_ascii=False, indent=1).encode("utf-8"))
+def _save_registry(reg):
+    _fsio.atomic_write(_registry_path(), json.dumps(reg, ensure_ascii=False, indent=1).encode("utf-8"))
 
 
 def _soft(fn, default, on_err=None):
@@ -329,7 +233,12 @@ def _resolve_channels(entries):
     for e in entries:
         if CHID_RE.match(e["ref"]):
             continue
-        items = _soft(lambda: yt_get("channels", {"part": "snippet,contentDetails", "forHandle": e["ref"]}).get("items", []), [])
+        failed = []
+        items = _soft(lambda: yt_get("channels", {"part": "snippet,contentDetails", "forHandle": e["ref"]}).get("items", []), [], failed.append)
+        if failed:   # 問い合わせ自体の失敗(通信・サーバー)は「見つかりません」ではない: 未解決のまま残して次の「解決」でもう一度引く
+            why = "通信" if failed[0].code == "network" else failed[0].message[:40]
+            e.update({"id": "", "title": "", "uploads": "", "status": "pending", "note": "確かめられませんでした(%s)" % why})
+            continue
         _apply_channel(e, items[0] if items else None)
 
 
@@ -343,16 +252,19 @@ def _apply_channel(e, it):
     e["status"], e["note"] = "ok", ""
 
 
-def resolve_registry(agency_id=None):
+def _resolve_registry(agency_id=None):
+    """未解決の所属チャンネル(agency_id の事務所、None = 全部。300 まで)を引いて登録簿に保存する -> (登録簿, 試した数, 解決した数)"""
     with _reg_lock:
         reg = load_registry()
         todo = [c for a in reg["agencies"] if agency_id in (None, a["id"]) for c in a["channels"] if c["status"] != "ok"][:300]
         _resolve_channels(todo)
-        save_registry(reg)
+        _save_registry(reg)
         return reg, len(todo), sum(1 for c in todo if c["status"] == "ok")
 
 
-def import_official(agency_id):
+def _import_official(agency_id):
+    """事務所の公式チャンネルの「チャンネル」欄から所属チャンネルを取り込み、まだ無い物を足して解決する -> (登録簿, 足した数, メモ)。
+    公式チャンネルが未登録なら 400(no_official)・事務所が無ければ 404"""
     with _reg_lock:
         reg = load_registry()
         ag = next((a for a in reg["agencies"] if a["id"] == agency_id), None)
@@ -379,7 +291,7 @@ def import_official(agency_id):
         new = [_pending(cid) for cid in found if cid.lower() not in have][:MAX_CHANNELS - len(ag["channels"])]
         _resolve_channels(new)
         ag["channels"].extend(new)
-        save_registry(reg)
+        _save_registry(reg)
         return reg, len(new), notes
 
 
@@ -388,11 +300,11 @@ _jobs = {}
 _jobs_lock = threading.Lock()
 
 
-def norm(s):
+def _norm(s):
     return unicodedata.normalize("NFKC", str(s or "")).lower()
 
 
-def parse_iso_dur(s):
+def _parse_iso_dur(s):
     m = re.match(r"^P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$", s or "")
     if not m:
         return 0
@@ -400,7 +312,7 @@ def parse_iso_dur(s):
     return d * 86400 + h * 3600 + mi * 60 + sec
 
 
-def parse_dt(s):
+def _parse_dt(s):
     if not s or not isinstance(s, str):
         return None
     try:
@@ -413,6 +325,9 @@ def parse_dt(s):
 
 
 def validate_search(req):
+    """検索の指定(画面の JSON)を検査して整える -> spec。期間は日本時間の開始日 0 時〜終了日の次の日 0 時(800 日まで)・ワードは NFKC と小文字で 20 個まで・
+    top は事務所ごとの上位の数(1〜100)・minViews は最低の再生数・minDur は最低の再生時間(秒。画面の「10分以上だけ」= 600)・agencies は事務所の id の一覧(省くと全部)。
+    spec["req"] に元の指定を持つ(掲示板のやり直しが今の登録簿でもう一度検査するため)。だめなら ApiError 400"""
     try:
         d0 = datetime.strptime(str(req.get("start")), "%Y-%m-%d").replace(tzinfo=JST)
         d1 = datetime.strptime(str(req.get("end")), "%Y-%m-%d").replace(tzinfo=JST) + timedelta(days=1)
@@ -422,7 +337,7 @@ def validate_search(req):
         raise ApiError("bad_range", "終了日は開始日以降にしてください", 400)
     if (d1 - d0).days > 800:
         raise ApiError("bad_range", "期間が長すぎます(800日まで)", 400)
-    words = [w for w in re.split(r"[\s,、]+", norm(req.get("words"))) if w][:20]
+    words = [w for w in re.split(r"[\s,、]+", _norm(req.get("words"))) if w][:20]
     reg = load_registry()
     want = req.get("agencies")
     ags = [a for a in reg["agencies"] if not isinstance(want, list) or a["id"] in want]
@@ -431,7 +346,7 @@ def validate_search(req):
     try:
         top = max(1, min(100, int(req.get("top") or 20)))
         min_views = max(0, int(req.get("minViews") or 0))
-        # 最低の再生時間(秒)。画面の「10分以上だけ」= 600(2026-10-04)。送られなければ 0 = 絞らない(以前の画面・CLI と同じ結果)
+        # 最低の再生時間(秒)。画面の「10分以上だけ」= 600。送られなければ 0 = 絞らない
         min_dur = int(req.get("minDur") or 0)
     except (TypeError, ValueError):
         raise ApiError("bad_request", "数値が正しくありません", 400)
@@ -439,7 +354,7 @@ def validate_search(req):
         raise ApiError("bad_request", "最低の再生時間が正しくありません(0〜86400秒)", 400)
     return {"start": d0, "end": d1, "words": words, "mode": "all" if req.get("mode") == "all" else "any", "inDesc": req.get("inDesc") is not False,
             "archiveOnly": req.get("archiveOnly") is not False, "noShorts": req.get("noShorts") is not False, "top": top, "minViews": min_views,
-            "minDur": min_dur, "agencies": ags}
+            "minDur": min_dur, "agencies": ags, "req": dict(req)}
 
 
 _MISS = object()
@@ -466,7 +381,7 @@ def _cached(key, fn, ttl=CACHE_TTL):
     return val
 
 
-def list_candidates(job, ch, spec):
+def _list_candidates(job, ch, spec):
     """チャンネルのアップロード一覧を新しい順に読み、期間(前後1日の余裕つき)に入る動画IDを返す。"""
     lo, hi = spec["start"] - timedelta(days=1), spec["end"] + timedelta(days=1)
 
@@ -483,7 +398,7 @@ def list_candidates(job, ch, spec):
             items = r.get("items", [])
             for it in items:
                 cd = it.get("contentDetails", {})
-                t = parse_dt(cd.get("videoPublishedAt"))
+                t = _parse_dt(cd.get("videoPublishedAt"))
                 if t is None:
                     continue
                 if t < lo:
@@ -497,7 +412,7 @@ def list_candidates(job, ch, spec):
     return _cached(("pl", ch["uploads"], spec["start"].date().isoformat(), spec["end"].date().isoformat()), run)
 
 
-def fetch_videos(job, ids):
+def _fetch_videos(job, ids):
     out, todo = {}, []
     now = time.time()
     for i in ids:
@@ -519,19 +434,21 @@ def fetch_videos(job, ids):
     return out
 
 
-def video_row(it):
+def _video_row(it):
+    """videos.list の 1 件 -> 検索の 1 行(at = 配信を始めた時刻、無ければ公開日時。archive = 配信が終わった時刻がある)"""
     sn, st, ld = it.get("snippet", {}), it.get("statistics", {}), it.get("liveStreamingDetails") or {}
-    start = parse_dt(ld.get("actualStartTime")) or parse_dt(sn.get("publishedAt"))
+    start = _parse_dt(ld.get("actualStartTime")) or _parse_dt(sn.get("publishedAt"))
     return {"id": it["id"], "title": sn.get("title", ""), "desc": sn.get("description", ""), "channelId": sn.get("channelId", ""), "channel": sn.get("channelTitle", ""),
             "views": int(st.get("viewCount") or 0), "likes": int(st.get("likeCount") or 0), "comments": int(st.get("commentCount") or 0),
-            "at": start, "dur": parse_iso_dur(it.get("contentDetails", {}).get("duration")), "archive": bool(ld.get("actualEndTime")),
+            "at": start, "dur": _parse_iso_dur(it.get("contentDetails", {}).get("duration")), "archive": bool(ld.get("actualEndTime")),
             "thumb": ((sn.get("thumbnails") or {}).get("medium") or {}).get("url", "")}
 
 
-def matches(row, spec):
+def _matches(row, spec):
+    """題名(と、inDesc なら概要欄)にワードが入っているか(mode all = 全部・any = どれか。ワードなしは常に真)"""
     if not spec["words"]:
         return True
-    hay = norm(row["title"] + ("\n" + row["desc"] if spec["inDesc"] else ""))
+    hay = _norm(row["title"] + ("\n" + row["desc"] if spec["inDesc"] else ""))
     hits = [w in hay for w in spec["words"]]
     return all(hits) if spec["mode"] == "all" else any(hits)
 
@@ -551,6 +468,10 @@ def _ok_channels(ags):
 
 
 def run_search(job, spec):
+    """検索ジョブの本体(糸の中。結果・失敗は job に書く): 解決済みのチャンネルごとにアップロード一覧から期間に入る動画 ID を集める(0〜0.5)→
+    動画の詳しい情報を引く(0.5〜0.9)→ 配信を始めた時刻が期間に入る・アーカイブだけ・ショートを除く(61 秒以下。2024-10 からのショートは 3 分までだが、
+    画面の既定「10分以上だけ」で落ちる)・最低の再生時間・再生数・ワードで絞り、事務所ごとに再生数の多い順の上位 N 本。
+    scanned = 期間に入った数(絞る前)。1 チャンネルの失敗は警告に積んで続け、上限・キーの失敗(FATAL)は全体を止める"""
     q0 = _quota
     try:
         job["state"], job["phase"] = "running", "所属チャンネルを確認中"
@@ -560,7 +481,7 @@ def run_search(job, spec):
 
         def one(item):
             a, c = item
-            ids = _soft(lambda: list_candidates(job, c, spec), [],
+            ids = _soft(lambda: _list_candidates(job, c, spec), [],
                         lambda ex: warns.append("%s: 一覧を読めませんでした(%s)" % (c["title"] or c["ref"], ex.message)))
             done[0] += 1
             job["progress"] = 0.5 * done[0] / len(chans)
@@ -572,7 +493,7 @@ def run_search(job, spec):
             for vid in ids:
                 owner.setdefault(vid, aid)
         job["phase"] = "動画の再生数などを取得中(%d本)" % len(owner)
-        vids = fetch_videos(job, list(owner))
+        vids = _fetch_videos(job, list(owner))
         job["phase"] = "絞り込み中"
         buckets = {a["id"]: [] for a in spec["agencies"]}
         scanned = {a["id"]: 0 for a in spec["agencies"]}
@@ -580,7 +501,7 @@ def run_search(job, spec):
             it = vids.get(vid)
             if not it:
                 continue
-            row = video_row(it)
+            row = _video_row(it)
             if row["at"] is None or not (spec["start"] <= row["at"] < spec["end"]):
                 continue
             scanned[aid] += 1
@@ -591,7 +512,7 @@ def run_search(job, spec):
             # 再生時間が分からない動画(dur 0 = 配信中・予定。アーカイブではない)も、最低の再生時間を決めたときは除く(ショートを除くのと同じ扱い)
             if row["dur"] < spec.get("minDur", 0):
                 continue
-            if row["views"] < spec["minViews"] or not matches(row, spec):
+            if row["views"] < spec["minViews"] or not _matches(row, spec):
                 continue
             buckets[aid].append(row)
         out = []
@@ -614,6 +535,7 @@ def run_search(job, spec):
 
 
 def _start_search(spec):
+    """検索ジョブを作って糸を立てる。同時に 1 本だけ(動いていれば 409 busy)・古いジョブは 5 個残して捨てる"""
     with _jobs_lock:
         if any(j["state"] in ("queued", "running") for j in _jobs.values()):
             raise ApiError("busy", "別の検索が実行中です", 409)
@@ -621,17 +543,18 @@ def _start_search(spec):
             _jobs.pop(k, None)
         jid = uuid.uuid4().hex[:10]
         job = {"id": jid, "state": "running", "phase": "開始", "progress": 0.0, "cancel": False, "error": "", "result": None,
-               "created": int(time.time() * 1000), "spec": spec}   # created・spec は掲示板が読む(job_public には出さない)
+               "created": int(time.time() * 1000), "spec": spec}   # created・spec は掲示板が読む(_job_public には出さない)
         _jobs[jid] = job
     threading.Thread(target=run_search, args=(job, spec), daemon=True).start()
     return job
 
 
-def job_public(j):
+def _job_public(j):
+    """画面に返すジョブの形(spec・created は出さない = 掲示板が job を直に読む)"""
     return dict({k: j[k] for k in ("id", "state", "phase", "progress", "error", "result")}, code=j.get("code", ""), detail=j.get("detail", ""))
 
 
-# ---------- 配信中・これからの予定(① の「配信中」のタブ。2026-10-05) ----------
+# ---------- 配信中・これからの予定(画面の「配信中」のタブ) ----------
 # 取得元は検索と同じ YouTube Data API と、登録した事務所のチャンネル(新しい鍵・外部サービスは足さない)。
 # search(eventType=live)は 1 回 100 ユニットと高いので使わない。代わりに:
 #   見回り: 各チャンネルのアップロード一覧の先頭 LIVE_PAGE 本(playlistItems。1 チャンネル 1 ユニット)。配信中・予定の枠もアップロード一覧に入る。
@@ -684,13 +607,13 @@ def live_row(it, now):
     sn, ld = it.get("snippet") or {}, it.get("liveStreamingDetails") or {}
     kind = sn.get("liveBroadcastContent")
     if kind == "live" and not ld.get("actualEndTime"):
-        start = parse_dt(ld.get("actualStartTime")) or parse_dt(ld.get("scheduledStartTime"))
+        start = _parse_dt(ld.get("actualStartTime")) or _parse_dt(ld.get("scheduledStartTime"))
         try:
             viewers = max(0, int(ld.get("concurrentViewers")))
         except (TypeError, ValueError):
             viewers = None   # 視聴者数を隠している配信
     elif kind == "upcoming":
-        start = parse_dt(ld.get("scheduledStartTime"))
+        start = _parse_dt(ld.get("scheduledStartTime"))
         if start is None or not (now - LIVE_LATE <= start.timestamp() <= now + LIVE_AHEAD):
             return None
         viewers = None
@@ -799,32 +722,32 @@ def get_registry():
 def put_registry(obj):
     with _reg_lock:
         reg = sanitize_registry(obj)
-        save_registry(reg)
+        _save_registry(reg)
     return reg
 
 
 def resolve(agency):
-    reg, n, ok = resolve_registry(str(agency) if agency else None)
+    reg, n, ok = _resolve_registry(str(agency) if agency else None)
     return {"registry": reg, "tried": n, "resolved": ok}
 
 
 def import_official_channels(agency):
-    reg, n, notes = import_official(str(agency or ""))
+    reg, n, notes = _import_official(str(agency or ""))
     return {"registry": reg, "added": n, "notes": notes}
 
 
 def start_search(req):
-    return job_public(_start_search(validate_search(req)))
+    return _job_public(_start_search(validate_search(req)))
 
 
 def get_search(jid):
     j = _jobs.get(str(jid or ""))
     if not j:
         raise ApiError("not_found", "検索が見つかりません", 404)
-    return job_public(j)
+    return _job_public(j)
 
 
-# 掲示板(RS8 の ② の口 S2。flow/board.py。頭 se・id = se:<検索の id>)。入口の側(スタジオの serve)が board を渡して 1 回呼ぶ
+# 掲示板(flow/board.py。頭 se・id = se:<検索の id>)。入口の側(スタジオの serve)が board を渡して 1 回呼ぶ
 def attach_board(board):
     board.register("se", source=board_jobs, cancel=board_cancel, retry=board_retry)
 
@@ -850,12 +773,14 @@ def board_cancel(jid):
 
 
 def board_retry(jid):
-    """掲示板のやり直し: 同じ指定でもう一度検索する -> 新しい検索の Job。無い id は LookupError・別の検索が動いていれば ValueError"""
+    """掲示板のやり直し: 同じ指定でもう一度検索する -> 新しい検索の Job。無い id は LookupError・別の検索が動いていれば(や今の登録簿で指定が通らなければ)ValueError。
+    前の検索の登録簿の写し(spec["agencies"])は使わず、元の指定から今の登録簿で検査し直す(あとで足した・解決したチャンネルも入る)"""
     j = _jobs.get(str(jid or ""))
-    if not j or not j.get("spec"):
+    req = (j.get("spec") or {}).get("req") if j else None
+    if not isinstance(req, dict):
         raise LookupError("その検索はありません")
     try:
-        new = _start_search(j["spec"])
+        new = _start_search(validate_search(req))
     except ApiError as e:
         raise ValueError(e.message)
     return _board_job(new)

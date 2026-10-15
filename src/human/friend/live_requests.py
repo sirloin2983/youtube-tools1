@@ -1,18 +1,20 @@
 """友人のライブ配信の依頼と録画の結びつき(notes:docs/spec/friend.md の 2-15。ホーム 0.47.0)。
 
-依頼の受付(src/human/friend/intake.py)が配信中・配信前の URL の依頼を受け付けると、録画を始めて(src/home/live.py の Live.begin_request)ここに結びつけ、
-録画の候補の検出・自動の採用(src/flow/live_detect.py・live_excite_worker.py)・採用した切り抜きの書き出しのあと(src/flow/live_export.py の _handoff)・
-配信後のアーカイブからの追加(src/flow/live_archive.py)が、この結びつきを見て友人の設定で動き、パックを友人へ届ける。
+依頼の受付(src/human/friend/intake.py)が配信中・配信前の URL の依頼を受け付けると、録画を始めて(入口の src/home/live.py の Live.submit_request →
+src/flow/livesession.py の begin_request)ここに結びつけ、録画の候補の検出・自動の採用(src/flow/live_detect.py・src/pipeline/analyze/live_excite_worker.py)・
+採用した切り抜きの書き出しのあと(src/flow/live_export.py の _handoff)・配信後のアーカイブからの追加(src/flow/live_archive.py)が、
+この結びつきを見て友人の設定で動き、パックを友人へ届ける。
 
 置き場所: 入口の作業データの live/requests.json
   {"v": 1, "items": {"<録画元の id>/<録画の id>": {"rid", "deliverDir", "url", "title", "streamer", "speakers", "videoTracks", "cut", "memo",
-                                                   "settings": {"sens", "perHour", "length", "waitMin", "pad", "afterStream"}, "createdAt"}}}
+                                                   "settings": {"sens", "perHour", "length", "waitMin", "pad", "afterStream"}, "createdAt", "deliverBatch"}}}
 settings = 友人のベータの設定(依頼の JSON の live)。範囲の外・無い鍵は既定(SETTINGS_DEFAULT)。
 """
 import copy
 import threading
 import time
 
+from flow import envelope
 from ytt import fsio, schemas, tools
 
 SENS = ("high", "normal", "low")
@@ -95,8 +97,7 @@ class Store:
                 "videoTracks": ctx["videoTracks"] if isinstance(ctx.get("videoTracks"), int) and not isinstance(ctx.get("videoTracks"), bool) else None,
                 "cut": ctx.get("cut") if isinstance(ctx.get("cut"), str) and ctx.get("cut") else None,
                 "memo": str(ctx.get("memo") or "")[:500], "settings": clean_settings(ctx.get("settings")), "createdAt": self.clock(),
-                "deliverBatch": ctx["deliverBatch"] if isinstance(ctx.get("deliverBatch"), int) and not isinstance(ctx.get("deliverBatch"), bool)
-                and 1 <= ctx["deliverBatch"] <= 10 else None}   # 届け方(2.9.0 のアプリ。None = ホームの設定 intake.deliverBatch)
+                "deliverBatch": ctx["deliverBatch"] if envelope.batch_ok(ctx.get("deliverBatch")) else None}   # 届け方(2.9.0 のアプリ。None = ホームの設定 intake.deliverBatch)
         with self.lock:
             items = self._load()
             items[key_of(rc, rec)] = item

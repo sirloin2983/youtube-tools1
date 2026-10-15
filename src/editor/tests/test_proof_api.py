@@ -287,13 +287,13 @@ class TestRangeRetranscribe(_ProofStore):
         starts = [g["start"] for g in segs]
         self.assertEqual(starts, sorted(starts))                                   # 時刻順
         self.assertEqual(len({g["id"] for g in segs}), len(segs))                  # id は重複しない
-        self.assertTrue(os.path.isfile(os.path.join(S.TX_DIR, ".bak", TID_A + ".pre-retranscribe.json")))   # 実行前の状態を退避
+        self.assertTrue(S.hist_stamps(TID_A))                                      # 実行前の状態を履歴に退避(.bak の控えはやめた = 決定 3-47 の 1b-1)
         self.assertEqual(os.listdir(S.TMP_DIR) if os.path.isdir(S.TMP_DIR) else [], [])                    # 一時ファイルは残さない
 
     def test_backup_is_the_state_before_the_run(self):
         self.put(self.rows(), [{"id": "S1", "name": "話者", "color": "#2f62d6"}])
         self.run_range(["x1", "x2"])
-        with open(os.path.join(S.TX_DIR, ".bak", TID_A + ".pre-retranscribe.json"), encoding="utf-8") as f:
+        with open(os.path.join(S._hist_dir(TID_A), "%d.json" % S.hist_stamps(TID_A)[-1]), encoding="utf-8") as f:   # 最後の履歴 = 実行の直前
             bak = json.load(f)
         self.assertEqual([g["text"] for g in bak["segments"]], ["行0", "行1", "行2", "行3"])                 # 差し替える前の行
 

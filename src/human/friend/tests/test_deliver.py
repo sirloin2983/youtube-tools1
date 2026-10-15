@@ -49,7 +49,7 @@ class ZipPackTest(unittest.TestCase):
         self.out = os.path.join(self.tmp, "Dropbox", deliver.OUT_DIR)
 
     def test_zip_has_top_folder_and_no_temp_left(self):
-        dest = deliver.zip_pack(self.pack, self.out, "20261004-120000-abcdef__題名")
+        dest = deliver.zip_packs([self.pack], self.out, "20261004-120000-abcdef__題名")
         self.assertEqual(os.path.basename(dest), "20261004-120000-abcdef__題名.zip")
         with zipfile.ZipFile(dest) as z:
             names = sorted(n.replace("\\", "/") for n in z.namelist())
@@ -58,8 +58,8 @@ class ZipPackTest(unittest.TestCase):
         self.assertEqual([n for n in os.listdir(self.tmp) if n.startswith(".deliver-")], [])
 
     def test_same_name_does_not_overwrite(self):
-        a = deliver.zip_pack(self.pack, self.out, "n")
-        b = deliver.zip_pack(self.pack, self.out, "n")
+        a = deliver.zip_packs([self.pack], self.out, "n")
+        b = deliver.zip_packs([self.pack], self.out, "n")
         self.assertNotEqual(a, b)
         self.assertEqual(len(os.listdir(self.out)), 2)
 
@@ -70,9 +70,18 @@ class ZipPackTest(unittest.TestCase):
         def check():
             raise Stop()
         with self.assertRaises(Stop):
-            deliver.zip_pack(self.pack, self.out, "n", check=check)
+            deliver.zip_packs([self.pack], self.out, "n", check=check)
         self.assertEqual([n for n in os.listdir(self.tmp) if n.startswith(".deliver-")], [])
         self.assertEqual(os.listdir(self.out), [])
+
+    def test_file_older_than_1980_is_zipped(self):
+        """更新時刻が 1980 年より前のファイルも zip にできる(前は ValueError で手で届ける仕事が「届けている途中」のまま残った。9c-2)"""
+        old = os.path.join(self.pack, "old.txt")
+        put(old, b"old")
+        os.utime(old, (315000000, 315000000))   # 1979 年
+        dest = deliver.zip_packs([self.pack], self.out, "n")
+        with zipfile.ZipFile(dest) as z:
+            self.assertIn("clip_pack/old.txt", [n.replace("\\", "/") for n in z.namelist()])
 
     def test_request_id_matches_friend_app(self):
         # friend-apps/request-sender/src/Core.cs の NameRx と同じ形(アプリが先頭の id を除いて題名を出す)
@@ -94,16 +103,14 @@ class ZipPacksTest(unittest.TestCase):
         put(os.path.join(self.b, "sub", "x.txt"), b"x")
         self.out = os.path.join(self.tmp, "Dropbox", deliver.OUT_DIR)
 
-    def test_layout_and_extra_and_dest(self):
-        preview = os.path.join(self.tmp, "p.mp4")
-        put(preview, b"PV")
+    def test_layout_and_dest(self):
         dest = deliver.unique_zip(self.out, "rid__題 1-2")
         self.assertEqual(deliver.preview_path_for(dest), os.path.join(self.out, "rid__題 1-2.preview.mp4"))
-        got = deliver.zip_packs([self.a, self.b], self.out, "rid__題 1-2", extra=[(preview, deliver.PREVIEW_NAME)], dest=dest)
+        got = deliver.zip_packs([self.a, self.b], self.out, "rid__題 1-2", dest=dest)
         self.assertEqual(got, dest)
         with zipfile.ZipFile(got) as z:
             names = sorted(n.replace("\\", "/") for n in z.namelist())
-        self.assertEqual(names, sorted([deliver.PREVIEW_NAME, "配信 A_pack/cut-plan.json", "配信 A_pack/配信 A.mp4", "配信 A_pack/配信 A_roughcut.mp4",
+        self.assertEqual(names, sorted(["配信 A_pack/cut-plan.json", "配信 A_pack/配信 A.mp4", "配信 A_pack/配信 A_roughcut.mp4",
                                         "配信 B_pack/sub/x.txt", "配信 B_pack/配信 B.mp4"]))
         self.assertEqual([n for n in os.listdir(self.tmp) if n.startswith(".deliver-")], [])
 
@@ -113,11 +120,9 @@ class ZipPacksTest(unittest.TestCase):
         self.assertIsNone(deliver.pack_video(os.path.join(self.tmp, "無い")))
         self.assertEqual(deliver.pack_title(self.a), "配信 A")
         self.assertEqual(deliver.pack_title(os.path.join(self.tmp, "そのまま")), "そのまま")
-        self.assertEqual(deliver._atempo(2.0), "atempo=2")
-        self.assertEqual(deliver._atempo(3.0), "atempo=2.0,atempo=1.5")
 
     def test_names_and_place_preview(self):
-        """名前 <依頼 id>__<題>(使えない文字は _)・まとめ動画を zip の隣に写す(元は zip に入れるので残す)・動画の無いパックがあれば作らない"""
+        """名前 <依頼 id>__<題>(使えない文字は _)・まとめ動画を zip の隣に写す(元の一時ファイルは呼ぶ側が消す)・動画の無いパックがあれば作らない"""
         self.assertEqual(deliver.delivery_name("rid", "題/1:2"), "rid__題_1_2")
         preview = os.path.join(self.tmp, "p.mp4")
         put(preview, b"PV")
@@ -257,11 +262,11 @@ class GroupFilesTest(unittest.TestCase):
 
 
 class PreviewArgsTest(unittest.TestCase):
-    """まとめ動画の ffmpeg の引数(ffmpeg は要らない): 等速なら setpts/atempo を入れない・札はずっと(2026-10-08 ユーザー決定)"""
+    """まとめ動画の ffmpeg の引数(ffmpeg は要らない): 等速だけ(setpts/atempo を入れない)・札はずっと(2026-10-08 ユーザー決定)"""
 
     def test_normal_speed_and_label_always(self):
-        self.assertEqual((deliver.PREVIEW_SPEED, deliver.PREVIEW_LABEL_SEC), (1.0, 0))
-        args = deliver._preview_args("ffmpeg", ["a.mp4", "b.mp4"], "out.mp4", 1.0, 480, True, label_files=["l1.txt", "l2.txt"], font="C:/Windows/Fonts/meiryo.ttc")
+        self.assertEqual(deliver.PREVIEW_LABEL_SEC, 0)
+        args = deliver._preview_args("ffmpeg", ["a.mp4", "b.mp4"], "out.mp4", 480, True, label_files=["l1.txt", "l2.txt"], font="C:/Windows/Fonts/meiryo.ttc")
         fc = args[args.index("-filter_complex") + 1]
         self.assertNotIn("setpts", fc)
         self.assertNotIn("atempo", fc)
@@ -270,12 +275,12 @@ class PreviewArgsTest(unittest.TestCase):
         self.assertNotIn("enable=", fc, "札はずっと出す")
         self.assertIn("concat=n=2:v=1:a=1[v][a]", fc)
 
-    def test_fast_when_asked(self):
-        args = deliver._preview_args("ffmpeg", ["a.mp4"], "out.mp4", 2.0, 480, True)
+    def test_without_labels_or_audio(self):
+        args = deliver._preview_args("ffmpeg", ["a.mp4"], "out.mp4", 480, False)
         fc = args[args.index("-filter_complex") + 1]
-        self.assertIn("setpts=PTS/2", fc)
-        self.assertIn("atempo=", fc)
         self.assertNotIn("drawtext", fc)
+        self.assertIn("concat=n=1:v=1:a=0[v]", fc)
+        self.assertIn("-an", args)
 
 
 class PreviewTest(unittest.TestCase):
@@ -302,7 +307,7 @@ class PreviewTest(unittest.TestCase):
         subprocess.run(args + ["-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-shortest", p], check=True, timeout=60)
         return p
 
-    def test_two_clips_at_normal_speed_and_double_when_asked(self):
+    def test_two_clips_at_normal_speed(self):
         from ytt import normalize
         a, b = self.clip("一本目_pack/一本目.mp4", 2), self.clip("二本目_pack/二本目.mp4", 2)
         out = os.path.join(self.tmp, "preview.mp4")
@@ -311,9 +316,6 @@ class PreviewTest(unittest.TestCase):
         self.assertEqual((info["height"], info["has_audio"]), (480, True))
         self.assertAlmostEqual(info["duration"], 4.0, delta=0.5)   # 等速: 2 秒 × 2 本 = 4 秒(2026-10-08 ユーザー決定)
         self.assertEqual(self.logs, [])
-        fast = os.path.join(self.tmp, "fast.mp4")
-        self.assertTrue(deliver.make_preview([a, b], fast, speed=2.0, ffmpeg=self.ffmpeg, ffprobe=self.ffprobe, log=self.logs.append), self.logs)
-        self.assertAlmostEqual(normalize.probe(fast, ffprobe=self.ffprobe)["duration"], 2.0, delta=0.5)   # 定数を変えれば速くもできる
 
     def test_silent_clip_makes_a_silent_preview(self):
         from ytt import normalize
@@ -373,7 +375,11 @@ class DeliveriesTest(unittest.TestCase):
         self.cfg = {"folder": self.folder}
         self.packs = {os.path.normpath(self.pack)}
         self.logs = []
-        self.dl = deliver.Deliveries(lambda: self.cfg["folder"], lambda d: os.path.normpath(d) in self.packs, log=self.logs.append)
+        self.log_dir = os.path.join(self.tmp, "logs")
+        self.dl = deliver.Deliveries(lambda: self.cfg["folder"], lambda d: os.path.normpath(d) in self.packs, log=self.logs.append, log_dir=self.log_dir)
+        p = mock.patch.object(deliver, "batch_preview", lambda dirs, check=None, log=None: None)   # まとめ動画は作らない(ffmpeg を呼ばない)。作るときは各テストで
+        p.start()
+        self.addCleanup(p.stop)
 
     def test_start_and_done(self):
         j = wait(self.dl, self.dl.start(self.pack, "【雑談】校正済み/1"))
@@ -381,6 +387,32 @@ class DeliveriesTest(unittest.TestCase):
         self.assertRegex(j["name"], r"^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}__【雑談】校正済み_1\.zip$")
         self.assertEqual(os.listdir(os.path.join(self.folder, deliver.OUT_DIR)), [j["name"]])
         self.assertTrue(self.logs)
+
+    def test_same_as_auto_preview_zip_and_record(self):
+        """手で届けるのも全自動と同じ 1 本の届け方(deliver_one): まとめ動画を zip の隣に・届けた記録 deliveries.jsonl に 1 行(友人の「要らない」が引ける。Q16)"""
+        from human.friend import friend_feedback
+        tmp_preview = os.path.join(self.tmp, ".deliver-preview-x.mp4")
+
+        def fake_preview(dirs, check=None, log=None):
+            put(tmp_preview, b"PV")
+            return tmp_preview
+        clip = os.path.join(self.tmp, "clip.mp4")
+        with mock.patch.object(deliver, "batch_preview", fake_preview):
+            j = wait(self.dl, self.dl.start(self.pack, "題", clip={"path": clip, "markId": "m1", "videoId": "abcdefghijk"}))
+        self.assertEqual(j["state"], "done")
+        out = os.path.join(self.folder, deliver.OUT_DIR)
+        self.assertEqual(sorted(os.listdir(out)), sorted([j["name"], j["name"][:-4] + deliver.PREVIEW_SUFFIX]))
+        self.assertFalse(os.path.exists(tmp_preview), "一時のまとめ動画は消す")
+        row = friend_feedback.find_delivery(self.log_dir, j["name"])
+        self.assertEqual((row["requestId"], row["videoId"], row["title"]), (j["name"].split("__")[0], "abcdefghijk", "題"))
+        self.assertEqual(row["packs"], [{"dir": os.path.normpath(self.pack), "path": clip, "markId": "m1"}])
+        j2 = wait(self.dl, self.dl.start(self.pack, ""))   # 切り抜きが分からなければパックだけ
+        self.assertEqual(friend_feedback.find_delivery(self.log_dir, j2["name"])["packs"], [{"dir": os.path.normpath(self.pack), "path": "", "markId": ""}])
+
+    def test_without_log_dir_does_not_record(self):
+        dl = deliver.Deliveries(lambda: self.cfg["folder"], lambda d: os.path.normpath(d) in self.packs)
+        self.assertEqual(wait(dl, dl.start(self.pack, "t"))["state"], "done")
+        self.assertFalse(os.path.exists(self.log_dir))
 
     def test_title_falls_back_to_folder_name(self):
         j = wait(self.dl, self.dl.start(self.pack, ""))
@@ -411,9 +443,9 @@ class DeliveriesTest(unittest.TestCase):
         b.refresh()
         got = b.get("dl:" + j["id"])
         self.assertEqual((got["kind"], got["state"], got["target"]["path"], got["finishedAt"] is not None), ("deliver", "done", os.path.normpath(self.pack), True))
-        orig = deliver.zip_pack
-        deliver.zip_pack = mock.Mock(side_effect=OSError(28, "No space left on device"))
-        self.addCleanup(setattr, deliver, "zip_pack", orig)
+        orig = deliver.zip_packs
+        deliver.zip_packs = mock.Mock(side_effect=OSError(28, "No space left on device"))
+        self.addCleanup(setattr, deliver, "zip_packs", orig)
         j2 = wait(self.dl, self.dl.start(self.pack, "t2"))
         b.refresh()
         got = b.get("dl:" + j2["id"])
@@ -425,15 +457,25 @@ class DeliveriesTest(unittest.TestCase):
         self.assertIsNone(self.dl.status(None))
 
     def test_error_is_reported(self):
-        orig = deliver.zip_pack
+        orig = deliver.zip_packs
 
         def boom(*a, **k):
             raise OSError(28, "No space left on device")
-        deliver.zip_pack = boom
-        self.addCleanup(setattr, deliver, "zip_pack", orig)
+        deliver.zip_packs = boom
+        self.addCleanup(setattr, deliver, "zip_packs", orig)
         j = wait(self.dl, self.dl.start(self.pack, "t"))
         self.assertEqual(j["state"], "error")
         self.assertIn("No space left", j["message"])
+        self.assertFalse(os.path.exists(self.log_dir), "置けなければ記録しない")
+
+    def test_unexpected_error_is_not_left_running(self):
+        """OSError でない失敗(zip にできないファイルの ValueError など)でも error にする = 同じパックをもう一度届けられる(9c-2)"""
+        with mock.patch.object(deliver, "zip_packs", mock.Mock(side_effect=ValueError("ZIP does not support timestamps before 1980"))):
+            j = wait(self.dl, self.dl.start(self.pack, "t"))
+        self.assertEqual(j["state"], "error")
+        self.assertIn("ValueError", j["message"])
+        self.assertFalse(self.dl.running(self.pack))
+        self.assertEqual(wait(self.dl, self.dl.start(self.pack, "t"))["state"], "done")
 
 
 

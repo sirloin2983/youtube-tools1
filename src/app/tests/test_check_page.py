@@ -7,16 +7,11 @@
 - 画面のファイル: インラインの script・on〇〇= が無い・相対パス・カード 4 本が殻のあとに読まれ CheckCards.define で登録する・
   カードの中で document.getElementById / document.querySelector を使わない(殻の id とぶつけない)
 (名前は test_check_page = 案件の画面の test_cases_page と同じ形)"""
-import http.client
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所に書かない(ytt.datadir)
 import re
-import shutil
 import sys
-import tempfile
-import threading
 import unittest
-from unittest import mock
 
 TESTS = os.path.dirname(os.path.abspath(__file__))   # src/app/tests
 SRC = os.path.dirname(os.path.dirname(TESTS))
@@ -24,8 +19,8 @@ sys.path.insert(0, os.path.join(SRC, "home"))
 sys.path.insert(0, os.path.join(SRC, "home", "tests"))
 if SRC not in sys.path:
     sys.path.append(SRC)
-from app import server as L  # noqa: E402
-from test_launch import free_ports  # noqa: E402
+sys.path.insert(0, TESTS)   # 土台 _pagetest.py(入口を立てる共通の準備)
+from _pagetest import PageServerTest, L  # noqa: E402
 
 UI = os.path.join(SRC, "app", "ui", "check")
 CARDS = ("value", "read", "voice", "time")
@@ -36,37 +31,8 @@ def read(path):
         return f.read()
 
 
-class CheckPageHttpTest(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.tmp = tempfile.mkdtemp(prefix="ytt-check-page-")
-        cls.env = mock.patch.dict(os.environ, {"YTT_RUNTIME_DIR": os.path.join(cls.tmp, ".runtime")})
-        cls.env.start()
-        cls.sup = L.Supervisor(cls.tmp, ready_timeout=5, stop_timeout=5, poll=0.5, log=lambda m: None,
-                               ports=dict(zip(L.TOOL_IDS, free_ports(3))), mounts=())
-        cls.srv, cls.port = L.make_server(0, cls.sup)
-        cls.sup.attach(cls.srv)
-        cls.th = threading.Thread(target=cls.srv.serve_forever, daemon=True)
-        cls.th.start()
-        cls.host = "127.0.0.1:%d" % cls.port
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.srv.shutdown()
-        cls.srv.server_close()
-        cls.sup.close()
-        cls.env.stop()
-        shutil.rmtree(cls.tmp, ignore_errors=True)
-
-    def req(self, path, headers=None):
-        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=30)
-        h = {"Host": self.host}
-        h.update(headers or {})
-        conn.request("GET", path, headers=h)
-        r = conn.getresponse()
-        body = r.read()
-        conn.close()
-        return r, body
+class CheckPageHttpTest(PageServerTest):
+    TMP_PREFIX = "ytt-check-page-"
 
     def test_page_csp_and_token(self):
         r, body = self.req("/check?c=abc&kind=voice&back=cases")
@@ -143,6 +109,15 @@ class CheckPageFilesTest(unittest.TestCase):
             self.assertNotRegex(code, r"""(?:fetch|URL|http)\(\s*['"]/(?!/)""", "%s: 絶対パスを書かない" % path)
             self.assertNotRegex(code, r"\b(confirm|alert|prompt)\(", path)
             self.assertNotIn("visibilitychange", code, path)   # 離れた・戻ったは UIKit.life
+
+    def test_held_send_is_confirmed_by_this_page_only(self):
+        """6b-1(決定 Q12 (a)): 保留の [送る] は別の窓へ移っただけ(blur)では確定しない・答え / 飛ばす / flush は画面の印 page を送る"""
+        shell = read(os.path.join(UI, "check.js"))
+        leave = shell[shell.index("UIKit.life.onLeave"):]
+        leave = leave[:leave.index("});")]
+        self.assertRegex(leave, r"if \(reason !== 'blur'\) \{.*\n\s*flush\(\);", "flush は blur の外だけ")
+        for api in ("api/check/flush', { body: { page: PAGE }", "api/check/skip', { body: { card: card.id, page: PAGE }", "page: PAGE };"):
+            self.assertIn(api, shell, api)
 
 
 if __name__ == "__main__":

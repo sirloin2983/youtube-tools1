@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
-"""② 人の操作の層 human/proof: 2つ目のエンジンとの食い違いに候補を出す(精度改善の計画 第2版 D1-b。notes:plan/line-b-transcription.md)。
-役割で組み直す RS3-E6(2026-10-10)に編集の src/editor/ed_alt.py から human/proof へ移した(中身は同じ)。旧い名前 ed_alt.名前 は editor/ed_alt.py(転送だけの殻。RS5 で消す)が回す。
+"""③ 人の操作の層 human/proof: 2つ目のエンジンとの食い違いに候補を出す(精度改善の計画 第2版 D1-b。notes:plan/line-b-transcription.md)。
 
 ねらい: 校正を速くする。主のエンジンの文字起こしとは別に、2つ目のエンジンで同じ音声を認識し、2つの結果が食い違う所を
 行の「候補」(学習の提案と同じ形。tier = "alt")として出す。人が 1 押しで採る。**自動では書き換えない**。
-  POST /api/alt {id, engine?}   ジョブ(kind "alt")を足す。文書の範囲の音声を 2つ目のエンジンで認識して transcripts/<id>.alt.json に書く
+  POST /api/alt {id, engine?}   ジョブ(kind "alt")を足す。文書の範囲の音声を 2つ目のエンジンで認識して、文書の隣の <id>.alt.json に書く
+                                (置き場所は ytt/docloc.doc_file = 案件の 作業用 に置いた文書ならそこ)
   GET  /api/suggest?id=          学習の提案に alt の候補を足す(learn.suggest_for_doc → alt_suggest)
+  文書 1 本の候補(却下済みを外す)は alt_doc_candidates が 1 つの口(編集の提案と「確かめる」の読みのカード read:alt が同じ物を読むため)
 
 決まり:
   - 文書(<id>.json)は書き換えない・updatedAt を動かさない(開いている画面の保存を 409 にしない)ので、編集を止めるジョブにしない
@@ -14,13 +15,14 @@
   - その文書の最初の認識(recognition.runs の kind の無い記録)と同じエンジン・同じモデルなら断る(同じ結果を比べても意味が無い)
   - エンジンが使えない(実行ファイルが無い・GPU が無い)ときは、今のエンジンの仕組みどおり理由を出して失敗(黙って CPU にしない)
   - 候補は**今の行の文字**に対して毎回計算する(人が直した・採用した所は自然に消える)。校正済みの行には出さない
+  - 採った候補は行の文字が変わるだけ(印は付かない)= 採った後の文字は人の直しとして学習の材料に入る。候補そのものと採否の数は学習の統計に入れない
 
-名前は serve.py からも見える(serve.py の _ED_MODULES。ほかの部品と重ならないよう、名前は alt_ / ALT_ / _alt_ で始める)。
-ほかの部品の名前は `モジュール.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。編集の ed_state は読まない(app = 上の層)。
-疑似の認識(TRANSCRIBE_BACKEND=fake)は backend.select() の口 alt_rows・check_engine・engine_version(本体は eval/fake/fake_asr)に任せる(RS5-D)。
-**役割で組み直す RS6 a-3(2026-10-10)から ① pipeline/transcribe を直に読まない**: エンジンの準備(engine_ready)・ジョブの前の確かめ(check_engine_ready)・
+名前は serve.py からも見える(serve.py の _ED_MODULES。ほかの部品と重ならないよう、名前は alt_ / ALT_ / _alt_ で始める。ジョブの口は run_alt・read_alt)。
+ほかの部品の名前は `モジュール.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
+疑似の認識(TRANSCRIBE_BACKEND=fake)は backend.select() の口 alt_rows・check_engine・engine_version(本体は eval/fake/fake_asr)に任せる。
+① pipeline/transcribe は直に読まない: エンジンの準備(engine_ready)・ジョブの前の確かめ(check_engine_ready)・
 音声の取り出しから整えた行まで(alt_lines。本物の処理 _alt_real とエンジンの版 alt_engine_version も)は ② の `flow/tx`(`_flowtx.名前`)。
-ここに残るのは受付・alt.json の書き込み(文書があるときだけ = 保存のロック)・候補の計算(alt_diffs)と提案。
+ここにあるのは受付・alt.json の書き込み(文書があるときだけ = 保存のロック)・候補の計算(alt_diffs)と提案。
 """
 import bisect
 import difflib
@@ -28,13 +30,13 @@ import json
 import os
 import threading
 
-from ytt import docloc as _docloc, errors as _errors, fsio as _fsio, schemas as _yschemas  # noqa: E402   エラー・書き込み・ジョブの表と待機列・文書の形の小道具
+from ytt import docloc as _docloc, errors as _errors, fsio as _fsio, schemas as _yschemas  # noqa: E402   置き場所・エラー・書き込み・文書の形の小道具
 from flow import jobs as _heavy  # noqa: E402
-from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings(RS3-1 に ed_learn から ytt/settings へ)
-from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
-from flow import tx as _flowtx  # noqa: E402   ② エンジンの準備と確かめ・2 つ目のエンジンの行(engine_ready・check_engine_ready・alt_lines。RS6 a-3)
-from ytt import txbase as _txbase  # noqa: E402   比べるときの寄せ方 alt_fold の正(RS2-9)・LANGS・MAX_TEXT・ロガー・ジョブの注意
-from . import doc_jobs, store  # noqa: E402   行を分ける文字数 split_chars_for(doc_jobs ↔ alt は呼ぶときに読むので循環しても動く)・文書の読み書き(呼ぶたびに store.名前 で読む)
+from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings・評価用のフォルダの判定 in_eval_dir
+from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所の今の値・動画と音声の小道具)
+from flow import tx as _flowtx  # noqa: E402   ② エンジンの準備と確かめ・2 つ目のエンジンの行(engine_ready・check_engine_ready・alt_lines)
+from ytt import txbase as _txbase  # noqa: E402   比べるときの寄せ方 alt_fold の正・LANGS・ロガー・ジョブの注意
+from . import doc_jobs, learn, store  # noqa: E402   行を分ける文字数 split_chars_for・却下した候補 load_feedback(doc_jobs・learn ↔ alt は呼ぶときに読むので循環しても動く)・文書の読み書き(呼ぶたびに store.名前 で読む)
 
 ALT_SCHEMA = "youtube-tools-alt/v1"
 MAX_ALT_BYTES = 32 * 1024 * 1024
@@ -45,14 +47,14 @@ ALT_ENGINES = {
     "llama.cpp": {"engine": "llama.cpp", "model": "qwen3-asr-1.7b", "device": "auto", "label": "Qwen3-ASR 1.7B(GPU・llama.cpp)"},
 }
 ALT_DEFAULT = "llama.cpp"   # 既定 = Qwen3-ASR(Whisper と間違え方が違い、GPU でとても速い)
-# 設定 altEngine は api/settings/patch で直せる鍵。値の検査はこの表の持ち主のここで足す(ytt/settings は alt を読まない。RS3-1)
+# 設定 altEngine は api/settings/patch で直せる鍵。値の検査はこの表の持ち主のここで足す(ytt/settings は alt を読まない)
 _settings.register_patch_key("altEngine", lambda v: isinstance(v, str) and v in ALT_ENGINES)
 
 # 食い違いの候補の決まり(alt_diffs)
 ALT_WINDOW_SEC = 90         # 行の時刻でこの長さごとの窓に区切ってそろえる(長い文書でも遅くならないように)
 ALT_WINDOW_SLACK = 20       # 窓の区切りは、目安の前後この秒の中で、行と行のすき間がいちばん長い所
 ALT_MAX_CHARS = 12          # wrong・right のどちらかがこれより長い食い違いは候補にしない
-ALT_MAX_ITEMS = 1000        # (そろえるときに無視する字 ALT_DROP_CHARS は寄せ方 alt_fold と一緒に ytt/txbase.py。RS2-9)
+ALT_MAX_ITEMS = 1000        # 提案 1 回に出す alt の候補の上限(そろえるときに無視する字 ALT_DROP_CHARS は寄せ方 alt_fold と一緒に ytt/txbase.py)
 
 
 # ---------- エンジンの選び方 ----------
@@ -69,7 +71,7 @@ def alt_info():
     """/api/tools の alt: 選べるエンジンと準備(画面の select)"""
     out = []
     for k, e in ALT_ENGINES.items():
-        ok, why = _flowtx.engine_ready(e["engine"])   # 疑似は常に使える・faster-whisper は部品の有無・ほかは実行ファイルとモデル
+        ok, why = _flowtx.engine_ready(e["engine"])   # 疑似は常に使える・本物は実行ファイルとモデル
         out.append({"key": k, "label": e["label"], "ready": bool(ok), "why": why})
     return {"engines": out, "default": ALT_DEFAULT}
 
@@ -110,7 +112,7 @@ def alt_spec(tid, req=None):
             "beam": 5, "vadMode": "weak", "boost": False, "wordSplit": True, "splitChars": doc_jobs.split_chars_for({}), "stripPunct": True,
             "glossary": [], "glossAuto": [], "context": {"members": [], "terms": []}, "autoDict": False, "autoLearned": False,
             "title": "別のエンジンで聞く: " + (str(doc.get("title") or "") or "無題")[:100]}
-    # 実行ファイルが無い・faster-whisper が無い(理由を出して断る。GPU の有無は読み込みのときに分かる)。疑似は確かめない(口 check_engine。RS5-D)
+    # 実行ファイル・モデルが無い(理由を出して断る。GPU の有無は読み込みのときに分かる)。疑似は確かめない(口 check_engine)
     _flowtx.check_engine_ready(spec)
     return spec
 
@@ -128,7 +130,7 @@ def read_alt(tid):
     return _fsio.read_schema_json(alt_path(tid), MAX_ALT_BYTES, ALT_SCHEMA, "rows")
 
 
-# 本物の認識 _alt_real とエンジンの版 alt_engine_version は RS6 a-3 に ② flow/tx へ(alt_lines が使う)
+# 本物の認識 _alt_real とエンジンの版 alt_engine_version は ② flow/tx(alt_lines が使う)
 
 
 def run_alt(job):
@@ -143,7 +145,7 @@ def run_alt(job):
         body = {"schema": ALT_SCHEMA, "id": tid, "engine": spec["engine"], "engineVersion": res["engineVersion"], "model": spec["model"],
                 "device": job.get("device", ""), "at": _yschemas.now_ms(), "range": [spec["start"], spec["end"]],
                 "audioSec": round(float(res["total"] or 0), 2), "wallSec": res["wallSec"], "rows": rows,
-                "post": {"clip": True, "mergeRepeats": True}}   # 行の後処理の印(0.52.1 より前の alt.json には無い。0.64.0 までは pullEnds も = 0.65.0 で音の谷へ寄せるのを消した)
+                "post": {"clip": True, "mergeRepeats": True}}   # 行の後処理の印(古い alt.json には無い・pullEnds も入っていた物がある)
         if res["fake"]:
             body["fake"] = True
         with store._save_lock:   # 認識の間に文書が消えていたら書かない(削除と同じロック。消したあとに付き物だけが生き返らないように)
@@ -168,7 +170,7 @@ def alt_after_transcribe(job, spec, tid):
 
 
 # ---------- 食い違いから候補を作る(純粋な関数) ----------
-alt_fold = _txbase.alt_fold   # lint: keep 別名(RS2-9)= 比べるときだけの寄せ方(正は txbase。S.alt_fold・src/eval/tools/eval_alt・retime・ytcap が読む。差し替えない)
+alt_fold = _txbase.alt_fold   # lint: keep 別名 = 比べるときだけの寄せ方(正は txbase。S.alt_fold・src/eval/tools/eval_alt・retime・ytcap が読む。差し替えない)
 
 
 def _alt_chars(text, tag):
@@ -352,19 +354,40 @@ def alt_skip(x, dismissed, spans):
             or any(x["i"] < b and a < x["i"] + len(x["wrong"]) for a, b in spans.get(x["seg"], [])))
 
 
+def _alt_doc_diffs(tid, doc):
+    """文書 1 本の alt.json と候補 -> (alt.json, 候補, 数えた理由) か None(評価用・alt.json が無い・形が違う)"""
+    if doc.get("evalSet") is True:
+        return None
+    stamp = _fsio.stamp(alt_path(tid))
+    if stamp is None:
+        return None
+    alt = read_alt(tid)
+    if not alt:
+        return None
+    items, stats = alt_cached(_alt_cache, _alt_cache_lock, tid, (stamp, doc.get("updatedAt"), len(doc.get("segments") or [])),
+                              lambda: alt_diffs(doc.get("segments") or [], alt.get("rows") or []))
+    return alt, items, stats
+
+
+def alt_doc_candidates(tid, doc, dismissed=None):
+    """文書 1 本の 2つ目のエンジンの候補 [{seg, i, wrong, right, tier: "alt", pos, neg}](読むだけ)。却下した候補は外す
+    (dismissed = {"seg|誤=>正"}。None なら採否の記録 learn-feedback.json から読む)。評価用・alt.json が無い文書は []。
+    編集の提案(alt_suggest)と「確かめる」の読みのカード(⑤ eval/check/read_sources の read:alt)が同じ物を読むための口"""
+    got = _alt_doc_diffs(tid, doc)
+    if got is None:
+        return []
+    if dismissed is None:
+        dismissed = set(learn.load_feedback()["dismissed"].get(tid, []))
+    return [dict(x) for x in got[1] if not alt_skip(x, dismissed, {})]
+
+
 def alt_suggest(tid, doc, dismissed, taken):
     """文書への alt の候補 → (候補, 情報 {engine, model, label, at, count, skipped} か None)。
     評価用の文書・alt.json が無い文書は ([], None)。却下した候補(dismissed = {"seg|誤=>正"})・学習の提案(taken)と重なる位置は出さない"""
-    if doc.get("evalSet") is True:
+    got = _alt_doc_diffs(tid, doc)
+    if got is None:
         return [], None
-    stamp = _fsio.stamp(alt_path(tid))
-    if stamp is None:
-        return [], None
-    alt = read_alt(tid)
-    if not alt:
-        return [], None
-    items, stats = alt_cached(_alt_cache, _alt_cache_lock, tid, (stamp, doc.get("updatedAt"), len(doc.get("segments") or [])),
-                              lambda: alt_diffs(doc.get("segments") or [], alt.get("rows") or []))
+    alt, items, stats = got
     spans = alt_spans_of(taken)
     out = []
     for x in items:

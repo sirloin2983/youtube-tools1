@@ -170,7 +170,7 @@ def fit(terms, limit=PROMPT_LIMIT, sep=1):
 def prompt_terms(spec):
     """認識のヒント(initial_prompt)に渡す語: 用語集(自動で足した語を含む)→ 配信ごとの文脈(出る人の名前と呼び名。段1-2)。
     先頭 150 字に収まるだけ(語の途中で切らない)。プロンプトの漏れ出しの印(S-3)も、この語で調べる。
-    RS2-4a(2026-10-10)に編集の ed_jobs から移した。読む側は呼ぶたびに roster.prompt_terms で読む(テストの差し替えが届くように)"""
+    RS2-4a(2026-10-10)に移した。読む側は呼ぶたびに roster.prompt_terms で読む(テストの差し替えが届くように)"""
     return fit(list(spec.get("glossary") or []) + list((spec.get("context") or {}).get("terms") or []))
 
 
@@ -182,7 +182,7 @@ def stream_context(doc, enabled=True):
     その人の名前と呼び名だけをヒントの語にする。**題名の文字列そのものは渡さない**。
     doc: clip・title・sourceName・sourcePath・speakers を持つ辞書。-> {"members": [{"name", "from"}], "terms": [語]}。
     名簿は roster.ROSTER、スタジオの配信の情報は ytt/studiodata.studio_stream(配信の ID -> {"channel", "title", "collab"} か None)。
-    スタジオの情報が読めない(例外)ときは、文脈なしで続ける。RS2-8a に編集の ed_jobs から移した"""
+    スタジオの情報が読めない(例外)ときは、文脈なしで続ける。RS2-8a に移した"""
     if not enabled:
         return {"members": [], "terms": []}
     r = load(ROSTER)
@@ -225,7 +225,7 @@ KANJI_VARIANTS = {   # 名簿の名前 → [(whisper が当てた漢字, 名簿�
 }
 _VOWEL_ROWS = {"あ": "あかさたなはまやらわがざだばぱゃ", "い": "いきしちにひみりぎじぢびぴ", "う": "うくすつぬふむゆるぐずづぶぷゅ",
                "え": "えけせてねへめれげぜでべぺ", "お": "おこそとのほもよろごぞどぼぽょ"}
-_SMALL_VOWEL_MAP = {"ぁ": "あ", "ぃ": "い", "ぅ": "う", "ぇ": "え", "ぉ": "お"}   # ed_learn の _SMALL_VOWELS(translate の表)と名前を分ける(serve の名前の受付で重ならないように。RS2-4a)
+_SMALL_VOWEL_MAP = {"ぁ": "あ", "ぃ": "い", "ぅ": "う", "ぇ": "え", "ぉ": "お"}   # human/proof/learn.py の _SMALL_VOWELS(translate の表)と名前を分ける(serve の名前の受付で重ならないように。RS2-4a)
 VARIANT_MIN = 3   # これより短い綴りは普通の言葉に紛れるので表に入れない
 
 

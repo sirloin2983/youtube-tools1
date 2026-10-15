@@ -5,7 +5,7 @@
 置換辞書の読み方(`parse_replacements`・`wb_split`・`_bounded`。RS6 a-1)と当て方(`apply_replacements`。RS6 a-3)は `ytt/dictfmt.py`
 (③ 人の再認識の反映・④⑤ も ① を読まずに使う。ここでは再公開しない)。
 
-役割で組み直す RS3-E5c(2026-10-10)に編集の ed_learn(段10 で editor/serve.py から分けた部品)から置換辞書の部品をここへ移した。旧い名前 S.名前 は serve の受付がここへ回す。
+役割で組み直す RS3-E5c(2026-10-10)に置換辞書の部品をここへ移した。旧い名前 S.名前 は serve の受付がここへ回す。
 """
 
 

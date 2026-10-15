@@ -12,6 +12,8 @@ from pipeline.analyze import adopt as _adopt
 from ytt import yturl
 from ytt.errors import ApiError
 
+TOP_MAX = _adopt.TOP_MAX   # 採用する数の上限(スタジオの adopt_top が読む)
+
 
 def check(ranges, top):
     """区間と上限の検査 -> [(開始, 終了), …](小数 1 桁)。だめなら ApiError 400 bad_request"""

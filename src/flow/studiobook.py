@@ -38,13 +38,7 @@ from . import adopt as _adopt, batch as _batch, casebook as _casebook, export as
 log = logging.getLogger("ytt.flow.studiobook")
 
 SCHEMA = _sd.SCHEMA              # data.json の形の名前(スタジオの Store と同じ)
-SERIES_KEEP = 60                 # 盛り上がりのグラフ cache/series/<配信>.json を残す本数(スタジオの Store と同じ)
 STOP_WAIT = 10.0                 # close で解析・書き出しのスレッドが後始末を終えるのを待つ秒
-
-
-def _unseen(root, why):
-    return ApiError(_cf.UNSEEN_CODE, "案件のフォルダが見えません(%s)。ドライブをつないでから、もう一度試してください" % why,
-                    503, {"dir": str(root or ""), "reason": why})
 
 
 def _need(v):
@@ -117,7 +111,7 @@ class StudioBook:
             return row
         full = _cf.merge(*_cf.read(root), row["id"], root)
         if full is None:
-            raise _unseen(root, "案件の採用の記録にこの配信がありません")
+            raise _cf.unseen(root, "案件の採用の記録にこの配信がありません")
         return _cf.fill(full, row, root)
 
     def get(self, vid):
@@ -142,7 +136,7 @@ class StudioBook:
             prev = _cf.read(root)
             full = _cf.merge(*prev, row["id"], root)
             if full is None:
-                raise _unseen(root, "案件の採用の記録にこの配信がありません")
+                raise _cf.unseen(root, "案件の採用の記録にこの配信がありません")
             yield _cf.fill(full, row, root), prev
 
     def _put(self, nv, prev=None, keep=True):
@@ -215,14 +209,8 @@ class StudioBook:
         return n
 
     def _save_series(self, vid, series):
-        """盛り上がりのグラフ(スタジオの画面が読む cache/series/<配信>.json。最新 SERIES_KEEP 本)。書けなくても上げない"""
-        if not isinstance(vid, str) or not _marks.ID_RE.match(vid) or series is None:
-            return
-        try:
-            _fsio.atomic_write(os.path.join(self.series_dir, vid + ".json"), json.dumps(series, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
-            _fsio.prune_cache(self.series_dir, "*.json", SERIES_KEEP)
-        except OSError as e:
-            log.info("盛り上がりのグラフを書けませんでした: %s", e)
+        """盛り上がりのグラフ(スタジオの画面が読む cache/series/<配信>.json。最新 ytt/studiodata.SERIES_KEEP 本)。書けなくても上げない"""
+        _sd.save_series(self.series_dir, vid, series)
 
     def adopt_marks(self, vid, ranges, top):
         """採用の規則 F-5(② flow/adopt)を当てて保存する(スタジオの Store.adopt_marks と同じ)。
@@ -267,7 +255,9 @@ class StudioBook:
         """初めて書き出した配信を案件にする(スタジオの Store._make_case と同じ: 案件のファイル → data.json の索引の行。案件にできなければ全部の形のまま)"""
         with _cf.lock(root):
             try:
-                _casebook.write(root, *_casebook.split(nv, root, prev=_cf.read(root)))
+                prev = _cf.read(root)
+                nv = _casebook.carry_over(prev, nv, root)   # 消して入れ直した配信は 採用.json の前の記録に重ねる(Store._make_case と同じ。7c-1)
+                _casebook.write(root, *_casebook.split(nv, root, prev=prev))
             except ApiError as e:
                 log.warning("案件にできませんでした(data.json のまま保存します。%s): %s", e.code, root)
                 self._save_row(nv["id"], _cf.stored(nv))

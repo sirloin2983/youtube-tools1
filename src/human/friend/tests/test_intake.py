@@ -107,8 +107,10 @@ class TestParse(unittest.TestCase):
             self.assertEqual(intake.youtube_id(u), v, u)
         for u in ("https://evil.example/watch?v=abcdefghijk", "https://www.youtube.com.evil.example/watch?v=abcdefghijk",
                   "https://www.youtube.com/watch?v=short", "https://www.youtube.com/channel/abcdefghijk", "file:///C:/x", "",
-                  "https://www.youtube.com/watch?vv=abcdefghijk"):
-            self.assertIsNone(intake.youtube_id(u), u)
+                  "https://www.youtube.com/watch?vv=abcdefghijk", "abcdefghijk", "https://www.youtube.com/watchfoo?v=abcdefghijk"):
+            self.assertIsNone(intake.youtube_id(u), u)   # 素の ID・/watch で始まるだけの道は受けない(yturl の strict)
+        from ytt import yturl
+        self.assertEqual(yturl.parse_video_id("abcdefghijk"), "abcdefghijk")   # strict でなければ素の ID も(ほかの入口の決まりは変えない)
 
     def test_parse_lines(self):
         ok, bad = intake.parse_lines("# メモ\n\nhttps://youtu.be/abcdefghijk 5\nhttps://youtu.be/bbbbbbbbbbb\nhttps://x.example/ 3\n"
@@ -242,6 +244,18 @@ class TestVideo(Base):
         self.scan2()
         self.assertEqual(len(self.runner.files), 2)
         self.assertEqual(self.it.snapshot()["requests"][0]["state"], "accepted")
+
+    def test_flow_label_only_when_known(self):
+        """行の「① 全自動」「② 軽く確認」は流れが分かる依頼だけ(手で置いた動画は ②・友人の依頼は断っても ①・形の読めない依頼と知らないファイルは出さない。9a-3)"""
+        self.put("手で置いた.mp4", b"m")
+        self.put("写真.png", b"x")
+        rid = "20261001-120000-abc130"
+        self.put(rid + ".request.json", "{broken")
+        rid2 = "20261001-120000-abc131"
+        self.put(rid2 + ".request.json", json.dumps({"v": 1, "kind": "video", "id": rid2, "files": []}))
+        self.scan2()
+        labels = {r["title"]: r["flowLabel"] for r in self.it.snapshot()["requests"]}
+        self.assertEqual(labels, {"手で置いた.mp4": "② 軽く確認", "写真.png": "", rid + ".request.json": "", rid2 + ".request.json": "① 全自動"})
 
     def test_unknown_streamer_goes_without_color(self):
         self.put("【だれでもない人】x.mp4", b"v2")
@@ -693,40 +707,58 @@ class TestNormalize(Base):
 
 
 class TestFeedback(Base):
-    """友人のアプリの「要らない」(<zip の名前>.feedback.json。アプリ 2.6.0): 読んで feedback= に渡し、一覧に kind "feedback" で残して 受付済み へ"""
+    """友人のアプリの「要らない」(<zip の名前>.feedback.json。アプリ 2.6.0): 読んで feedback= に渡し、受付済み へ。
+    受付の記録(最近の依頼)には入れず、片付けた「要らない」を日ごとの数だけ(画面の「今日 要らない n 本」。10-13 Q17)"""
 
-    def test_reject_is_applied_and_filed(self):
+    def reason_txt(self, path):
+        with open(os.path.splitext(path)[0] + ".理由.txt", encoding="utf-8-sig") as f:
+            return f.read()
+
+    def test_reject_is_applied_and_counted(self):
         got = []
         self.it.feedback = lambda fb: (got.append(fb), {"ok": True, "summary": "2 本をごみ箱フォルダへ(スタジオのマークを不採用 2 本)"})[1]
         self.put("20261002-120000-0a1b2c__配信A 1-2.feedback.json",
                  '{"v":1,"kind":"feedback","verdict":"reject","zip":"20261002-120000-0a1b2c__配信A 1-2.zip","requestId":"20261002-120000-0a1b2c",'
                  '"title":"配信A 1-2","sentAt":"2026-10-08T01:02:03+09:00"}')
+        self.put("made.feedback.json", '{"v":1,"kind":"feedback","verdict":"made_video","zip":"made.zip"}')
         self.scan2()
-        self.assertEqual([f["zip"] for f in got], ["20261002-120000-0a1b2c__配信A 1-2.zip"])
-        rec = self.it.st["requests"][0]
-        self.assertEqual((rec["kind"], rec["source"], rec["state"], rec["title"]), ("feedback", "app", "accepted", "要らない: 配信A 1-2"))
-        self.assertEqual((rec["items"][0]["label"], rec["items"][0]["reason"]), ("20261002-120000-0a1b2c__配信A 1-2.zip", "2 本をごみ箱フォルダへ(スタジオのマークを不採用 2 本)"))
-        self.assertTrue(os.path.exists(self.done("20261002-120000-0a1b2c__配信A 1-2.feedback.json")), "受付済み へ")
+        self.assertEqual([f["zip"] for f in got], ["20261002-120000-0a1b2c__配信A 1-2.zip", "made.zip"])
+        self.assertEqual(self.it.st["requests"], [], "受付の記録には入れない")
+        snap = self.it.snapshot()
+        self.assertEqual((snap["today"], snap["todayRejects"], snap["requests"]), (0, 1, []), "数えるのは片付けた「要らない」だけ(動画にした は数えない)")
+        done = self.done("20261002-120000-0a1b2c__配信A 1-2.feedback.json")
+        self.assertTrue(os.path.exists(done), "受付済み へ")
+        self.assertIn("2 本をごみ箱フォルダへ", self.reason_txt(done))
+        self.assertTrue(os.path.exists(self.done("made.feedback.json")))
         self.assertEqual((self.runner.files, self.runner.requests), ([], []), "依頼としては扱わない")
+        with open(os.path.join(self.data, intake.STATE_FILE), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["rejects"], {self.it._today(): 1})
 
     def test_unreadable_or_unapplied_goes_to_failed(self):
         self.it.feedback = lambda fb: {"ok": False, "reason": "届けた記録に見つかりません: x.zip"}
         self.put("x.feedback.json", '{"v":1,"kind":"feedback","verdict":"reject","zip":"x.zip"}')
         self.put("y.feedback.json", "{broken")
         self.scan2()
-        recs = {r["title"]: r for r in self.it.st["requests"]}
-        self.assertEqual(recs["要らない: x.zip"]["state"], "rejected")
-        self.assertIn("届けた記録に", recs["要らない: x.zip"]["reason"])
-        self.assertIn("読めませんでした", recs["y.feedback.json"]["reason"])
+        self.assertEqual(self.it.st["requests"], [])
+        self.assertEqual(self.it.snapshot()["todayRejects"], 0)
         self.assertTrue(os.path.exists(self.failed("x.feedback.json")) and os.path.exists(self.failed("y.feedback.json")), os.listdir(self.folder))
+        self.assertIn("届けた記録に", self.reason_txt(self.failed("x.feedback.json")))
+        self.assertIn("読めませんでした", self.reason_txt(self.failed("y.feedback.json")))
         self.assertFalse(os.path.isdir(os.path.join(self.folder, intake.OUT_DIR)), "友人には知らせない(もう消したあと)")
 
     def test_without_handler_is_refused(self):
         self.put("x.feedback.json", '{"v":1,"kind":"feedback","verdict":"reject","zip":"x.zip"}')
         self.scan2()
-        rec = self.it.st["requests"][0]
-        self.assertEqual((rec["kind"], rec["state"]), ("feedback", "rejected"))
-        self.assertIn("部品", rec["reason"])
+        self.assertEqual(self.it.st["requests"], [])
+        self.assertIn("部品", self.reason_txt(self.failed("x.feedback.json")))
+
+    def test_old_feedback_records_are_dropped_on_load(self):
+        """前に 1 件ずつ入れていた友人の返事の記録(kind feedback)は読み込むときに外す(受付の記録の枠を友人の依頼に返す)"""
+        with open(os.path.join(self.data, intake.STATE_FILE), "w", encoding="utf-8") as f:
+            json.dump({"v": 1, "files": {"x": 1}, "requests": [{"kind": "feedback", "title": "要らない: a"}, {"kind": "url", "title": "配信"}]}, f)
+        it = intake.Intake(self.prefs, lambda: self.runner, self.data, clock=lambda: self.now)
+        self.assertEqual([r["title"] for r in it.st["requests"]], ["配信"])
+        self.assertNotIn("files", it.st, "使っていなかった欄は持たない")
 
 
 class TestReturns(Base):
@@ -746,7 +778,7 @@ class TestReturns(Base):
         self.it.scan()
         self.assertTrue(os.path.isfile(os.path.join(self.data, "friend-returns", time.strftime("%Y-%m", time.localtime(self.now)),
                                                     "20261011-120000-abcdef", "r1", "run.json")))
-        self.assertTrue(os.path.isfile(os.path.join(inbox, "受付済み", "20261011-120000-abcdef__r1.zip")))
+        self.assertTrue(os.path.isfile(os.path.join(inbox, "受付済み", self.it._today(), "20261011-120000-abcdef__r1.zip")))
         self.assertEqual(self.it.st["requests"], [])
 
 
@@ -1022,10 +1054,10 @@ class TestYoutubeInfo(unittest.TestCase):
 
         def fake_run(args, **kw):
             calls.append(list(args))
-            return subprocess.CompletedProcess(args, returncode, stdout.encode("utf-8"), stderr.encode("utf-8"))
+            return intake.tools.RunResult(returncode, stdout.encode("utf-8"), stderr.encode("utf-8"), None)
 
         with mock.patch.dict(os.environ, {"STUDIO_FAKE": "0"}), mock.patch.object(intake.tools, "find_tool", lambda name: "C:/x/yt-dlp.exe"), \
-                mock.patch.object(intake.subprocess, "run", fake_run):
+                mock.patch.object(intake.tools, "run", fake_run):
             out = intake.youtube_info("abcdefghijk")
         return out, calls
 
@@ -1047,6 +1079,16 @@ class TestYoutubeInfo(unittest.TestCase):
         self.assertIsNone(self.run_info(0, "garbage\n")[0])
         out, _calls = self.run_info(0, "3600\twas_live\tch\t題\n")
         self.assertEqual(out, {"duration": 3600.0, "live": "was_live", "channel": "ch", "title": "題"})
+
+    def test_uses_shared_ytdlp_command(self):
+        """呼び方は ytt/tools.ytdlp_print_cmd(flow/livesession.probe_live と同じ)・時間切れは None"""
+        from unittest import mock
+        _out, calls = self.run_info(0, "NA\tis_live\tc\tt\n")
+        self.assertEqual(calls[0], intake.tools.ytdlp_print_cmd("C:/x/yt-dlp.exe", "https://www.youtube.com/watch?v=abcdefghijk",
+                                                                "%(duration)s\t%(live_status)s\t%(channel)s\t%(title)s"))
+        with mock.patch.dict(os.environ, {"STUDIO_FAKE": "0"}), mock.patch.object(intake.tools, "find_tool", lambda name: "C:/x/yt-dlp.exe"), \
+                mock.patch.object(intake.tools, "run", lambda args, **kw: intake.tools.RunResult(None, b"", b"", "timeout")):
+            self.assertIsNone(intake.youtube_info("abcdefghijk"))
 
 
 if __name__ == "__main__":

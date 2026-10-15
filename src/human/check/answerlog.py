@@ -1,11 +1,18 @@
-"""「確かめる」の答えの記録(V1 の V0。notes:docs/design/v1-check-build.md の 3-1)。
+"""「確かめる」の答えの記録(notes:docs/design/v1-check-build.md の 3-1)。
 
 置き場所: 入口の作業データ `app\\check\\`(accuracy-state.json と同じ app の持ち物。バックアップは app を丸ごと写すので足す物は無い)。
-  - answers.jsonl: 追記だけ(fsio.append_line)。1 行 = 1 件の JSON。形は 3 通り:
-      答え   {id, at, kind, source, card, case, target, guess, answer, ms, applied, held?}
-             held = 1 枚遅れで確定する答え(友人へ届けるなど。3-3)。確定するまで実物は変えていない
-      確定   {id, at, confirm: <答えの id>, applied} か {id, at, confirm, failed: 理由}(held の答えを実物へ反映した / できなかった)
-      戻す   {id, at, undo: <答えの id>, reverted}(Z。held のまま戻したときは reverted = {"held": true})
+  - answers.jsonl: 追記だけ(fsio.append_line)。1 行 = 1 件の JSON。形は 5 通り:
+      答え   {id, at, kind, source, card, case, target, guess, answer, ms, applied, held?, page?}
+             held = 1 枚遅れで確定する答え(友人へ届けるなど。3-3)。確定するまで実物は変えていない。page = 答えた画面の印(確定はその画面の保留だけ)
+      始める {id, at, begin: "undo" | "confirm", of: <答えの id>}(実物を変える前に書く意図。この行の id = 操作の id)
+      確定   {id, at, confirm: <答えの id>, op?, applied} か {id, at, confirm, op?, failed: 理由}(held の答えを実物へ反映した / できなかった)
+      戻す   {id, at, undo: <答えの id>, op?, reverted}(Z。held のまま戻したときは reverted = {"held": true}・意図を書かない)
+      やめる {id, at, abort: <始めるの id>, why}(戻すのを断られた = 実物は変えていない)
+    op = 始めるの行の id。始めるの行に、確定・戻す(op が同じ)・やめるのどれも続いていなければ「やりかけ」(pending)=
+    実物が変わったかどうか分からない。apply が次の操作の前に同じ操作 id でやり直す(戻すは部品の revert をもう一度 = 戻し済みなら何もしない・
+    確定は届いたか分からないので failed にする = 二重に届けない)。やりかけの Z の答えは effective に数えない(評価にも使わない)・
+    カードは答えたまま(by_card に残す)。やりかけの確定の答えは held に出さない(もう一度確定しない)。
+    回すと(MAX_LOG_BYTES)前の答え・保留・やりかけを忘れる(今のファイルだけを読む。1 日 200 件で 1 年以上先)
   - skip.json: {day: "YYYY-MM-DD", ids: [カードの id]}(その日の間だけ後ろへ回すカード。日が変わったら空と同じ)
 読み書きはここだけ(⑤ eval/check の待ち行列は読むだけ・③ human/check/apply が書く)。標準ライブラリと ytt だけを読む。
 """
@@ -29,16 +36,16 @@ _cache = fsio.StampCache()
 _skip_lock = threading.Lock()
 
 
-def check_dir(app_dir):
+def _check_dir(app_dir):
     return os.path.join(app_dir, DIR_NAME)
 
 
 def answers_path(app_dir):
-    return os.path.join(check_dir(app_dir), ANSWERS)
+    return os.path.join(_check_dir(app_dir), ANSWERS)
 
 
-def skips_path(app_dir):
-    return os.path.join(check_dir(app_dir), SKIPS)
+def _skips_path(app_dir):
+    return os.path.join(_check_dir(app_dir), SKIPS)
 
 
 def now_ms():
@@ -80,7 +87,7 @@ def _parse(path):
     return rows
 
 
-def read_rows(app_dir):
+def _read_rows(app_dir):
     """answers.jsonl の行(古い順)。無い・読めなければ []。ファイルが変わったときだけ読み直す(返した中身は書き換えない)"""
     got = _cache.get(answers_path(app_dir), _parse)
     return got if got is not None else []
@@ -88,19 +95,32 @@ def read_rows(app_dir):
 
 class State:
     """記録を読んだ今の状態。answers = {答えの id: 行}・order = 答えの id(古い順)・undone = {答えの id: 戻した行}・
-    confirmed = {答えの id: 確定の行}・by_card = {カードの id: 効いている答えの id}(戻した答えは数えない)"""
+    confirmed = {答えの id: 確定の行}・by_card = {カードの id: 効いている答えの id}(戻した答えは数えない)・
+    pending = {始めるの id: 始めるの行}(やりかけ)・undoing / confirming = {答えの id: やりかけの始めるの行}"""
 
     def __init__(self, rows):
         self.answers, self.order, self.undone, self.confirmed, self.by_card = {}, [], {}, {}, {}
         self.rev = len(rows)
+        begun, done = {}, set()
         for r in rows:
             if isinstance(r.get("undo"), str):
                 self.undone[r["undo"]] = r
+                done.add(r.get("op"))
             elif isinstance(r.get("confirm"), str):
                 self.confirmed[r["confirm"]] = r
+                done.add(r.get("op"))
+            elif r.get("begin") in ("undo", "confirm") and isinstance(r.get("of"), str):
+                begun[r["id"]] = r
+            elif isinstance(r.get("abort"), str):
+                done.add(r["abort"])
             elif isinstance(r.get("card"), str):
                 self.answers[r["id"]] = r
                 self.order.append(r["id"])
+        # やりかけ = 始めたのに終わりの行が無い(終わりの行が op を持たない古い形でも、同じ答えがもう戻した / 確定したなら終わったと見る)
+        self.pending = {k: r for k, r in begun.items() if k not in done
+                        and r["of"] not in (self.undone if r["begin"] == "undo" else self.confirmed)}
+        self.undoing = {r["of"]: r for r in self.pending.values() if r["begin"] == "undo"}
+        self.confirming = {r["of"]: r for r in self.pending.values() if r["begin"] == "confirm"}
         for aid in self.order:
             r = self.answers[aid]
             if aid in self.undone:
@@ -114,14 +134,15 @@ class State:
         return aid in self.answers and aid not in self.undone
 
     def held(self):
-        """確定を待っている答え(held で、戻しても確定してもいない)。古い順"""
-        return [self.answers[a] for a in self.order if self.answers[a].get("held") and self.live(a) and a not in self.confirmed]
+        """確定を待っている答え(held で、戻しても確定してもいない・確定のやりかけでもない)。古い順"""
+        return [self.answers[a] for a in self.order
+                if self.answers[a].get("held") and self.live(a) and a not in self.confirmed and a not in self.confirming]
 
     def effective(self):
-        """効いている答えの行(古い順)。held で確定に失敗した物は外す(実物は変わっていない)"""
+        """効いている答えの行(古い順)。held で確定に失敗した物・Z のやりかけ(実物はもう戻っているかもしれない)は外す"""
         out = []
         for a in self.order:
-            if not self.live(a):
+            if not self.live(a) or a in self.undoing:
                 continue
             c = self.confirmed.get(a)
             if c is not None and c.get("failed"):
@@ -140,14 +161,14 @@ class State:
 
 
 def state(app_dir):
-    return State(read_rows(app_dir))
+    return State(_read_rows(app_dir))
 
 
 # ---------------------------------------------------------------- その日の間だけ後ろへ(skip.json)
 
 def read_skips(app_dir, at_ms=None):
     """今日後ろへ回したカードの id(順に)。日が違う・無い・壊れていれば []"""
-    d = fsio.read_json_or(skips_path(app_dir), {}, max_bytes=1024 * 1024, kind=dict)
+    d = fsio.read_json_or(_skips_path(app_dir), {}, max_bytes=1024 * 1024, kind=dict)
     if d.get("day") != day_of(now_ms() if at_ms is None else at_ms) or not isinstance(d.get("ids"), list):
         return []
     return [x for x in d["ids"] if isinstance(x, str)]
@@ -159,6 +180,6 @@ def add_skip(app_dir, card_id, at_ms=None):
         at = now_ms() if at_ms is None else at_ms
         ids = [x for x in read_skips(app_dir, at) if x != card_id] + [card_id]
         ids = ids[-MAX_SKIPS:]
-        os.makedirs(check_dir(app_dir), exist_ok=True)
-        fsio.write_json(skips_path(app_dir), {"day": day_of(at), "ids": ids}, indent=None)
+        os.makedirs(_check_dir(app_dir), exist_ok=True)
+        fsio.write_json(_skips_path(app_dir), {"day": day_of(at), "ids": ids}, indent=None)
         return ids

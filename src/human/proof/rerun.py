@@ -1,15 +1,13 @@
 # -*- coding: utf-8 -*-
-"""② 人の操作の層 human/proof: 再認識(選んだ行 each・範囲 range・全体 whole)と疑わしい所の認識し直し(redo)のジョブの本体と、文書への反映・
-再認識で差し替えた機械の出力の記録(recognition.runs)・単語の時刻の差し替え。
+"""③ 人の操作の層 human/proof: 再認識(選んだ行 each・範囲 range・全体 whole)と疑わしい所の認識し直し(redo)のジョブの本体と、文書への反映・
+再認識で差し替えた機械の出力の記録(recognition.runs)。
 
-役割で組み直す RS2-8c(2026-10-10)に human/proof/doc_jobs から割った(中身は同じ。元は編集の ed_jobs)。受付(validate_retranscribe・redo_spec)・
-疑わしい行の選び方(redo_targets)・辞書の組(dict_pairs)・新しい行の id(_fresh_id)は doc_jobs に残し、ここから `doc_jobs.名前` で呼ぶたびに読む
-(向きは rerun → doc_jobs だけ。doc_jobs はここを読まない)。
-**役割で組み直す RS6 a-3(2026-10-10)から ① pipeline/transcribe を直に読まない**: 音声の取り出し(extract_span)・認識器とワーカーのモデル(redo_recognizer・
-each_lines・recognize_range)・全体の続きの記録の後始末(end_whole)・声の検出の知らせ(note_vad)・置換辞書の組(dict_pairs)は ② の `flow/tx`(`_flowtx.名前`)。
-疑わしい所の認識し直しの設定 redo_kwargs と本物の処理(_redo_real・_redo_finish・_each_real)もそこへ移した。句読点・文字数・印の文は ytt/txtext、
-置換辞書の当て方は ytt/dictfmt。再認識の記録の共通項目は ② flow/tx の rerun_base・単語の時刻は ytt/txwords(RS6 a-5b)。
-ed_state は読まない(置き場所と元のファイルの検査は ytt の workdata・tools・ジョブの表は ytt/jobs)。S.名前 は serve の受付がここへ回す
+受付(validate_retranscribe・redo_spec)・疑わしい行の選び方(redo_targets)・新しい行の id(_fresh_id)は doc_jobs にあり、ここから `doc_jobs.名前` で
+呼ぶたびに読む(向きは rerun → doc_jobs だけ。doc_jobs はここを読まない)。
+① pipeline/transcribe は直に読まない: 音声の取り出し(extract_span)・認識器とワーカーのモデル(redo_recognizer・each_lines・recognize_range)・
+全体の続きの記録の後始末(end_whole)・声の検出の知らせ(note_vad)・置換辞書の組(dict_pairs)・再認識の記録の共通項目(rerun_base)・
+単語の時刻 words.json の差し替え(replace_span_words)は ② の `flow/tx`(`_flowtx.名前`)。句読点・文字数・印の文は ytt/txtext、置換辞書の当て方は ytt/dictfmt。
+置き場所と元のファイルの検査は ytt の tools・ジョブの表は ② flow/jobs。S.名前 は serve の受付がここへ回す
 (テストの S.MAX_RERUNS = …・patch.object(S, "apply_range") もここに届く)。
 """
 import copy
@@ -18,23 +16,22 @@ import time
 from ytt import errors as _errors, schemas as _yschemas, tools as _tools  # noqa: E402
 from flow import jobs as _heavy  # noqa: E402
 from ytt import jobs as _slots  # noqa: E402
-from ytt import dictfmt as _dictfmt, txtext as _txtext  # noqa: E402   置換辞書を当てる apply_replacements・句読点 strip_punct・文字数 text_chars・印の文 SPARSE_FLAG(RS6 a-3 に ① から ytt へ)
-from ytt import txwords  # noqa: E402   単語の時刻の読み書き read_words・write_words(RS6 a-5b に ① records から ytt へ)
-from flow import tx as _flowtx  # noqa: E402   ② 再認識の動詞(extract_span・redo_recognizer・each_lines・recognize_range・end_whole・note_vad・dict_pairs。RS6 a-3)
+from ytt import dictfmt as _dictfmt, txtext as _txtext  # noqa: E402   置換辞書を当てる apply_replacements・句読点 strip_punct・文字数 text_chars・印の文 SPARSE_FLAG
+from flow import tx as _flowtx  # noqa: E402   ② 再認識の動詞(extract_span・redo_recognizer・each_lines・recognize_range・end_whole・note_vad・dict_pairs・rerun_base・replace_span_words)
 from ytt import txbase as _txbase  # noqa: E402
-from . import store  # noqa: E402   文書の読み書き・保存のロック・控え(RS3-E5a に editor/ed_store から隣へ。呼ぶたびに store.名前 で読む)
+from . import store  # noqa: E402   文書の読み書き・保存のロック・控え(呼ぶたびに store.名前 で読む)
 from . import doc_jobs  # noqa: E402   受付の側の _fresh_id・redo_targets(呼ぶたびに doc_jobs.名前 で読む)
-from . import layers as _layers  # noqa: E402   層が正のときの再認識 each(機械の層の差し替え・印 MACH_CHANGED。RS8 O2-5)
+from . import layers as _layers  # noqa: E402   層が正のときの再認識 each(機械の層の差し替え・印 MACH_CHANGED)
 
 
-# ---------- 再認識で差し替えた機械の出力の記録(マスタープラン Q2。original を差し替える前の分を recognition.runs に残す) ----------
+# ---------- 再認識で差し替えた機械の出力の記録(マスタープラン Q2 = notes:plan/line-bc-master-plan.md の Q2。original を差し替える前の分を recognition.runs に残す) ----------
 MAX_RERUNS = 30             # recognition.runs に残す再認識の記録の件数(古いものから捨てる。最初の認識の記録 = kind の無いものは捨てない)
 MAX_REPLACED_ROWS = 20000   # 再認識の記録の replaced の行の合計の上限(超えたら古い記録から捨てる。文書が大きくなりすぎないように)
 
 
-def replaced_rows(orig, spans, keep=()):
+def _replaced_rows(orig, spans, keep=()):
     """original のうち、spans のどれかに真ん中が入り、keep に入らない行(= これから差し替えられる機械の出力)。
-    replace_original・replace_original_multi と同じ決まり(真ん中で決める)"""
+    _replace_original・replace_original_multi と同じ決まり(真ん中で決める)"""
     out = []
     for o in orig or []:
         if not isinstance(o, dict):
@@ -50,7 +47,7 @@ def replaced_rows(orig, spans, keep=()):
 
 def record_rerun(doc, spec, kind, spans, replaced, pairs=None):
     """再認識で original を差し替える前に、差し替えられる機械の出力を recognition.runs に1件足す(文書を書くのは呼び出し側。_save_lock の中)。
-    1件 = {"kind": "each" | "range" | "whole" | "redo", 新しい結果を出したエンジン・版・モデル・言語・設定(settings.dict = 辞書の版),
+    1件 = {"kind": "each" | "range" | "whole" | "redo" | "evalRedo"(⑤ eval/drill/evalbatch の評価用の作り直し), 新しい結果を出したエンジン・版・モデル・言語・設定(settings.dict = 辞書の版),
            "range": [最初, 最後], "spans"?: 行ごとの範囲(each・redo で2つ以上のとき), "replaced": [差し替えられた original の行], "at"}。
     original の無い文書(文字起こしせずに開いた)でも、いつ・何で認識し直したかは残す(replaced は空)。pairs = 作ってある _flowtx.dict_pairs(spec)"""
     spans = [[round(float(a), 3), round(float(b), 3)] for a, b in spans]
@@ -78,16 +75,8 @@ def record_rerun(doc, spec, kind, spans, replaced, pairs=None):
     doc["recognition"] = dict(rec, runs=[r for r in runs if id(r) not in drop])
 
 
-def replace_words(tid, a, b, new_words, model="", keep_spans=()):
-    """範囲 [a, b] の単語を、認識し直した単語に差し替える(真ん中が範囲に入る単語を消す。keep_spans の区間の単語は残す)。
-    以前の単語が無い文書は、新しい単語だけにしない(範囲の外の単語が無いまま一部だけあると、分け直すときに紛らわしいため、範囲の単語だけで作る)"""
-    old = txwords.read_words(tid) or []
-    keep = [w for w in old if not (a - 1e-6 <= (w[0] + w[1]) / 2 <= b + 1e-6) or _in_spans((w[0] + w[1]) / 2, keep_spans)]
-    txwords.write_words(tid, keep + [list(w) for w in new_words], model)
-
-
 # ---------- 選んだ行の再認識の反映(行ごと = each) ----------
-def replace_original(orig, a, b, text):
+def _replace_original(orig, a, b, text):
     """機械の出力の記録のうち、a〜b にある分を、新しい機械の出力1件に差し替える(再認識の結果を『人が直した』と誤学習しないため)。"""
     return replace_original_multi(orig, a, b, [{"start": a, "end": b, "raw": text}])
 
@@ -99,13 +88,13 @@ def apply_retranscribe(spec, results):
 
 def _apply_retranscribe(spec, results):
     doc = store.read_transcript(spec["tid"])
-    primary = _txbase.layers_mode() == _txbase.LAYERS_PRIMARY   # 層が正: 校正済みの行は機械で置き換えない(RS8 O2-5 の (r8s))
+    primary = _txbase.layers_mode() == _txbase.LAYERS_PRIMARY   # 層が正: 校正済みの行は機械で置き換えない(決定 3-37 の (r8s) = notes:plan/decisions.md)
     before = copy.deepcopy(doc) if primary else None
     pairs = _flowtx.dict_pairs(spec)
     have_orig = isinstance(doc.get("original"), list)
     orig = doc["original"] if have_orig else []
     spans = [(sg["start"], sg["end"]) for sg in doc.get("segments") or [] if results.get(sg["id"])]
-    record_rerun(doc, spec, "each", spans, replaced_rows(orig, spans), pairs)   # 差し替える前の機械の出力を残す(マスタープラン Q2)
+    record_rerun(doc, spec, "each", spans, _replaced_rows(orig, spans), pairs)   # 差し替える前の機械の出力を残す(マスタープラン Q2)
     done = unsure = 0
     mrows, kept = [], []   # 層が正: 新しい機械の行・機械で置き換えなかった校正済みの行 (行, 新しい機械の文字)
     for sg in doc.get("segments") or []:
@@ -120,7 +109,7 @@ def _apply_retranscribe(spec, results):
         unsure += 1 if flag else 0
         done += 1
         if have_orig:
-            orig = replace_original(orig, sg["start"], sg["end"], raw)
+            orig = _replace_original(orig, sg["start"], sg["end"], raw)
         if primary and sg.get("proofed") is True:
             kept.append((sg, text))
             continue
@@ -164,7 +153,7 @@ def replace_original_multi(orig, a, b, items, keep=()):
     return keep_o
 
 
-# ---------- 範囲・全体の再認識の反映(docs/design/whole-retranscribe-design.md の 3-4・4-2) ----------
+# ---------- 範囲・全体の再認識の反映 ----------
 PROTECT_PAD = 0.05      # 守る行(校正済み・元のまま残す行)の前後の余白(秒)
 MIN_NEW_LINE = 0.3      # 守る区間を避けて切り詰めた行がこれより短ければ捨てる(秒)
 EMPTY_COVER = 0.3       # 元の行の時間のうち、新しい行が重なるのがこの割合未満なら「新しい認識でほぼ空」→ 元の行を残す
@@ -212,7 +201,7 @@ def fit_lines(lines, protect, strip=True):
     return out
 
 
-def plan_range(doc, spec, lines):
+def _plan_range(doc, spec, lines):
     """範囲・全体の再認識の反映の計画(文書は変えない)。
     -> {"protect": 守る区間, "kept": 守った行(範囲にかかる、差し替えない行), "lines": 守る区間を避けた新しい行,
         "empty": 新しい認識でほぼ空だった差し替え対象の行(元のまま残す)}"""
@@ -236,7 +225,7 @@ def plan_range(doc, spec, lines):
 def apply_range(spec, lines, loose=()):
     """範囲の行を、新しく認識した行に差し替える。話者は、時間が最も重なっていた元の行から引き継ぐ。
     lines=[{start,end,raw,flag,words?,conf?}]、loose = ほぼ空だった所を緩い条件で認識した行(印を付けて入れる)。
-    差し替えない行(spec["ids"] に無い行。全体の再認識では校正済み)にかかる新しい行は避け、新しい認識でほぼ空だった元の行は残す(4-2・3-4)。
+    差し替えない行(spec["ids"] に無い行。全体の再認識では校正済み)にかかる新しい行は避け、新しい認識でほぼ空だった元の行は残す。
     -> {"lines": 入れた新しい行の数, "unsure", "kept": 守った行の数, "emptyKept": 元のまま残した行の数, "loose": 緩い条件の行の数}"""
     with store._save_lock:   # 保存と同じロック(apply_diarization と同じ理由)
         return _apply_range(spec, lines, loose)
@@ -247,7 +236,7 @@ def _apply_range(spec, lines, loose=()):
     doc = store.read_transcript(spec["tid"])
     pairs = _flowtx.dict_pairs(spec)
     loose = [dict(x, flag="、".join(f for f in (LOOSE_FLAG, x.get("flag", "")) if f)) for x in loose]
-    plan = plan_range(doc, spec, sorted(list(lines) + loose, key=lambda x: x["start"]))
+    plan = _plan_range(doc, spec, sorted(list(lines) + loose, key=lambda x: x["start"]))
     empty_ids = {g["id"] for g in plan["empty"]}
     empty_spans = [(g["start"] - PROTECT_PAD, g["end"] + PROTECT_PAD) for g in plan["empty"]]
     keep_spans = plan["protect"] + empty_spans
@@ -272,7 +261,7 @@ def _apply_range(spec, lines, loose=()):
         unsure += 1 if x.get("flag") else 0
     doc["segments"] = sorted(rest + new, key=lambda g: (g["start"], g["end"]))
     record_rerun(doc, spec, "whole" if spec.get("mode") == "whole" else "range", [(a, b)],
-                 replaced_rows(doc.get("original") if isinstance(doc.get("original"), list) else [], [(a, b)], keep_spans), pairs)   # 差し替える前の機械の出力を残す(Q2)
+                 _replaced_rows(doc.get("original") if isinstance(doc.get("original"), list) else [], [(a, b)], keep_spans), pairs)   # 差し替える前の機械の出力を残す(Q2)
     if isinstance(doc.get("original"), list):   # 守った行・元のまま残した行の機械の出力は古いまま(人が直した行との対応を壊さない)
         doc["original"] = replace_original_multi(doc["original"], a, b, new_lines, keep_spans)
     store.backup_doc(spec["tid"], "retranscribe")
@@ -283,7 +272,7 @@ def _apply_range(spec, lines, loose=()):
     store.apply_edit_cuts(spec["tid"], doc)   # 差し替えた行の「カット済」は、編集の内容(時刻)から付け直す
     store.commit(spec["tid"], doc, why="rerun_range")
     try:   # 単語の時刻も範囲の分を差し替える(守った行の単語は残す。古い文書は、ここで取り直せる = 「今の文書を分け直す」の案内)
-        replace_words(spec["tid"], a, b, [w for x in new_lines for w in x.get("words") or []], spec["model"], keep_spans)
+        _flowtx.replace_span_words(spec["tid"], a, b, [w for x in new_lines for w in x.get("words") or []], spec["model"], keep_spans)
     except OSError as e:
         _txbase.log.warning("単語の時刻を保存できませんでした: %s %s", spec["tid"], e)
     return {"lines": len(new), "unsure": unsure, "kept": len(plan["kept"]), "emptyKept": len(empty_ids), "loose": n_loose}
@@ -294,7 +283,7 @@ REDO_MAX_SEC = 600      # 時間の上限(秒)。超えたら残りの行はや�
 REDO_BAD_FLAGS = (_txtext.SPARSE_FLAG, "よくある誤認識の文", "同じ文の繰り返し", "繰り返しの可能性", "音声でない可能性", _txbase.LEAK_FLAG)
 
 
-# 疑わしい所を認識し直すときの設定 redo_kwargs は RS6 a-3 に ② flow/tx へ(ワーカーに渡す設定 = 認識器の準備と一緒)
+# 疑わしい所を認識し直すときの設定 redo_kwargs は ② flow/tx(ワーカーに渡す設定 = 認識器の準備と一緒)
 
 
 def redo_better(row, lines, old_lp=None):
@@ -339,7 +328,7 @@ def apply_redo(spec, results):
                              "speaker": g.get("speaker", ""), "flag": str(x.get("flag") or "")[:100]})
             spans.append((a, b))
             if isinstance(doc.get("original"), list):
-                replaced += replaced_rows(doc["original"], [(a, b)])   # 差し替える前の機械の出力(下で recognition.runs に残す。Q2)
+                replaced += _replaced_rows(doc["original"], [(a, b)])   # 差し替える前の機械の出力(下で recognition.runs に残す。Q2)
                 doc["original"] = replace_original_multi(doc["original"], a, b, lines)
             new_words.append((a, b, [w for x in lines for w in x.get("words") or []]))
         if not n_rep:
@@ -353,7 +342,7 @@ def apply_redo(spec, results):
         store.commit(tid, doc, why="redo")
         for a, b, ws in new_words:
             try:
-                replace_words(tid, a, b, ws, spec["model"])
+                _flowtx.replace_span_words(tid, a, b, ws, spec["model"])
             except OSError as e:
                 _txbase.log.warning("単語の時刻を保存できませんでした: %s %s", tid, e)
         return n_rep
@@ -421,8 +410,8 @@ def _retranscribe_range(job, spec, doc, wav, start, whole):
     a, b = spec["range"]
     rec, lines = _flowtx.recognize_range(job, spec, wav, start, doc)   # 全体は区間に分けて続きから(状態 running)
     _slots.check_cancel(job)
-    # 新しい認識でほぼ空だった所(元の行があった所 = 声があった所)だけ、声の検出なし・捨てる判定なしで認識し直す(4-2 の 3)
-    gaps = [(max(a, g["start"] - LOOSE_PAD), min(b, g["end"] + LOOSE_PAD)) for g in plan_range(doc, spec, lines)["empty"]]
+    # 新しい認識でほぼ空だった所(元の行があった所 = 声があった所)だけ、声の検出なし・捨てる判定なしで認識し直す
+    gaps = [(max(a, g["start"] - LOOSE_PAD), min(b, g["end"] + LOOSE_PAD)) for g in _plan_range(doc, spec, lines)["empty"]]
     loose = rec.loose(_yschemas.union_spans(gaps)) if gaps else []
     _slots.check_cancel(job)
     if not lines and not loose:
@@ -437,5 +426,5 @@ def _retranscribe_range(job, spec, doc, wav, start, whole):
 
 def _retranscribe_each(job, spec, targets, wav, start):
     """選んだ行を 1 行ずつ認識する(run_retranscribe の each。音声は取り出し済み)。-> {行の id: (文章, 要確認の理由)}。
-    本物と疑似の選び方・ワーカーでの行ごとの認識は ② flow/tx.each_lines(RS6 a-3。本物の処理 _each_real もそこ)"""
+    本物と疑似の選び方・ワーカーでの行ごとの認識は ② flow/tx.each_lines(本物の処理 _each_real もそこ)"""
     return _flowtx.each_lines(job, spec, targets, wav, start)

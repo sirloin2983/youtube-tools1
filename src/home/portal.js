@@ -1787,7 +1787,7 @@
     $('#intakeMsg').textContent = d.message || '';
     $('#intakeScan').textContent = d.lastScan ? '最後に確認: ' + ago(d.lastScan) : (d.state === 'watching' ? 'まだ確認していません' : '');
     $('#intakeScan').title = d.lastScan ? when(d.lastScan) : '';
-    $('#intakeToday').textContent = d.enabled ? '今日 ' + (d.today || 0) + ' 件' : '';
+    $('#intakeToday').textContent = d.enabled ? '今日 ' + (d.today || 0) + ' 件' + (d.todayRejects ? '・要らない ' + d.todayRejects + ' 本' : '') : '';
     $('#intakeScanBtn').disabled = intakeBusy || !d.enabled;
     $('#intakeScanBtn').title = d.enabled ? '' : '受付がオフです。下の「依頼を受け付ける」をオンにすると押せます';
   }

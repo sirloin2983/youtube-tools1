@@ -6,9 +6,7 @@ human/proof/speakers.voice_learn_plan の rows=。一時フォルダの作業デ
 """
 import json
 import os
-import shutil
 import sys
-import tempfile
 import unittest
 from unittest import mock
 
@@ -21,6 +19,7 @@ from flow import diar as _diar, jobs as _heavy  # noqa: E402
 from human.check import answerlog, apply, voice  # noqa: E402
 from human.proof import layers, speakers, store  # noqa: E402
 from ytt import schemas, txbase, workdata  # noqa: E402
+from human.tests._workdata import temporary_workdata  # noqa: E402
 
 TID = "0123456789ab"
 EMB = _diar.default_embedding()
@@ -48,12 +47,7 @@ class Base(unittest.TestCase):
     LAYERS = "shadow"   # 今の既定(TRANSCRIBE_LAYERS)
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="check-voice-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
-        saved = {n: getattr(workdata, n) for n in ("DATA_DIR", "TX_DIR", "TMP_DIR", "EVAL_BASE", "SETTINGS", "FEEDBACK")}
-        self.addCleanup(lambda: [setattr(workdata, n, v) for n, v in saved.items()])
-        workdata.set_data_dir(os.path.join(self.tmp, "data"))
-        os.makedirs(workdata.TX_DIR)
+        self.tmp = temporary_workdata(self, "check-voice-")
         for p in (mock.patch.object(_diar, "VOICES_DIR", os.path.join(self.tmp, "voices")),
                   mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": self.LAYERS})):
             p.start()
@@ -77,15 +71,15 @@ class Base(unittest.TestCase):
 
 class AnswerFormTest(unittest.TestCase):
     def test_check_answer(self):
-        self.assertEqual(voice.check_answer({"choice": "S1"}), {"choice": "S1"})
-        self.assertEqual(voice.check_answer({"choice": "name:みこ"}), {"name": "みこ"})
-        self.assertEqual(voice.check_answer({"name": " みこ "}), {"name": "みこ"})
+        self.assertEqual(voice._check_answer({"choice": "S1"}), {"choice": "S1"})
+        self.assertEqual(voice._check_answer({"choice": "name:みこ"}), {"name": "みこ"})
+        self.assertEqual(voice._check_answer({"name": " みこ "}), {"name": "みこ"})
         for bad in ("S1", {"choice": "S1", "x": 1}, {"choice": "a b"}, {"name": ""}, {"name": "x" * 31}, {"name": "a\nb"}, {}, {"choice": 3}):
             with self.assertRaises(ValueError, msg=repr(bad)):
-                voice.check_answer(bad)
+                voice._check_answer(bad)
 
     def test_registered(self):
-        self.assertTrue(apply.registered("voice", "diar"))
+        self.assertTrue(apply._registered("voice", "diar"))
 
     def test_options_and_guess(self):
         doc = make_doc()
@@ -159,15 +153,15 @@ class ApplyTest(Base):
         self.assertEqual(cm.exception.error, "gone")
         with self.assertRaises(apply.Refused) as cm:
             self.answer("zz", {"choice": "S1"})
-        self.assertEqual(cm.exception.error, "gone")
-        with mock.patch.object(_heavy, "tid_busy", return_value=True):
+        self.assertEqual(cm.exception.error, "no_row")
+        with mock.patch.object(_heavy, "doc_busy", return_value=True):
             with self.assertRaises(apply.Refused) as cm:
                 self.answer("s1", {"choice": "S1"})
         self.assertEqual(cm.exception.error, "busy")
         self.put(make_doc(evalSet=True))
         with self.assertRaises(apply.Refused) as cm:
             self.answer("s1", {"choice": "S1"})
-        self.assertEqual(cm.exception.error, "eval_set")
+        self.assertEqual(cm.exception.error, "eval")
         self.assertEqual(answerlog.state(self.app).order, [])           # 断った答えは記録しない
 
     def test_layers_shadow_matches(self):
@@ -226,33 +220,48 @@ class RelearnTest(Base):
         # 覚えた(登録簿の learnedFrom に行を控えた)= もう材料に数えない
         with _diar.voices_edit(EMB) as v:
             v["ぺこら"] = _diar.merge_voice(None, [1.0, 0.0], 2, 32.0, TID, by="check", row_ids=["s1", "s4"])
-        self.assertEqual(voice.pending(self.ctx), {})
+        self.assertEqual(voice._pending(self.ctx), {})
 
     def test_undo_and_threshold_and_inflight(self):
         a = self.answer("s1", {"choice": "S1"})
         apply.undo(self.ctx, a["answer"])                                # Z で戻した = 材料から外れる
         self.answer("s4", {"choice": "S1"})                              # 20 秒だけ
         self.assertEqual(self.jobs, [])
-        self.assertEqual(voice.pending(self.ctx), {(EMB, "ぺこら"): {TID: {"s4": 20.0}}})
+        self.assertEqual(voice._pending(self.ctx), {(EMB, "ぺこら"): {TID: {"s4": 20.0}}})
         with mock.patch.object(voice._settings, "load_settings", return_value={"check": {"voiceRelearnSec": 10}}):
-            self.assertEqual(voice.relearn_sec(), 10.0)
+            self.assertEqual(voice._relearn_sec(), 10.0)
             with mock.patch.dict(_heavy._jobs, {"j": {"kind": "voice-learn", "state": "running", "spec": {"by": "check", "tid": TID, "rows": ["s4"]}}}):
-                self.assertEqual(voice.maybe_relearn(self.ctx), [])          # 待っている・動いている覚え直しの行は数えない
-            got = voice.maybe_relearn(self.ctx)
+                self.assertEqual(voice._maybe_relearn(self.ctx), [])          # 待っている・動いている覚え直しの行は数えない
+            got = voice._maybe_relearn(self.ctx)
         self.assertEqual((got[0]["names"], self.jobs[0][1]["rows"]), (["ぺこら"], ["s4"]))
         with mock.patch.object(voice._settings, "load_settings", return_value={"check": {"voiceRelearnSec": 1}}):
-            self.assertEqual(voice.relearn_sec(), voice.RELEARN_SEC_DEFAULT)   # 範囲の外は既定
+            self.assertEqual(voice._relearn_sec(), voice.RELEARN_SEC_DEFAULT)   # 範囲の外は既定
+
+    def test_failed_relearn_is_not_repeated(self):
+        """6g-1: 失敗した覚え直しと同じ行だけなら、答えるたびに足し直さない(材料が増えたらまた試す)"""
+        with mock.patch.dict(_heavy._jobs, {"j": {"kind": "voice-learn", "state": "error", "spec": {"by": "check", "tid": TID, "rows": ["s1", "s4"]}}}):
+            self.answer("s1", {"choice": "S1"})
+            got = self.answer("s4", {"choice": "S1"})                     # 32 秒 ≥ 30 だが前に失敗した行と同じ
+            self.assertEqual(self.jobs, [])
+            self.assertIn("skipped", got["applied"]["relearn"][0])
+            self.answer("s2", {"choice": "S1"})                          # 材料が増えた = また試す
+        self.assertEqual(self.jobs[0][1]["rows"], ["s1", "s2", "s4"])
+
+    def test_name_match_ignores_kana_and_width(self):
+        """Q8: 名前は ytt.textutil.person_key で比べる(カタカナ・全角半角・空白の違いは同じ人)"""
+        got = self.answer("s2", {"name": "ペコラ"})
+        self.assertEqual((self.seg("s2")["speaker"], got["applied"]["added"]), ("S1", None))
 
     def test_no_learn_for_default_name(self):
         self.answer("s4", {"choice": "S2"})                              # 「話者2」= 仮の名前は覚えない
-        self.assertEqual(voice.pending(self.ctx), {})
+        self.assertEqual(voice._pending(self.ctx), {})
 
     def test_not_ready(self):
         with mock.patch.object(_diar, "models_ready", return_value=False):
             self.answer("s4", {"choice": "S1"})
             self.answer("s1", {"choice": "S1"})
         self.assertEqual(self.jobs, [])                                  # 部品が無い = 材料は残す
-        self.assertEqual(sum(voice.pending(self.ctx)[(EMB, "ぺこら")][TID].values()), 32.0)
+        self.assertEqual(sum(voice._pending(self.ctx)[(EMB, "ぺこら")][TID].values()), 32.0)
 
 
 class LearnPlanRowsTest(unittest.TestCase):

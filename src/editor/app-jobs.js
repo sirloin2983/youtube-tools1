@@ -1,4 +1,4 @@
-/* app-jobs.js — 「編集」の画面: 新規ジョブ・フォルダ一括・スタジオ/マーカー連携・ジョブの進捗・話者の自動判別・声を覚える・再認識(段10 で app.js から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
+/* app-jobs.js — 「編集」の画面: 新規ジョブ・スタジオ/マーカー連携・ジョブの進捗・話者の自動判別・声を覚える・再認識(段10 で app.js から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
    ここは関数の定義だけ。状態(S・V など)・定数・ボタンの配線・起動は app.js(この後に読む)。
    関数はトップレベルの宣言なので、ほかの app-*.js・app.js から名前で呼べる(読む順番は src/app/ui/cases/edhost.js の ED_SCRIPTS の1か所。RS8 C4 で編集の画面のページは消した) */
 'use strict';
@@ -6,11 +6,9 @@
 /* ---------- 新規ジョブ ---------- */
 
 function setTab(t){
-  tab = t; $('#paneFile').hidden = t !== 'file'; $('#paneMarker').hidden = t !== 'marker'; $('#paneFolder').hidden = t !== 'folder';
-  $('#tabFile').setAttribute('aria-pressed', t === 'file'); $('#tabMarker').setAttribute('aria-pressed', t === 'marker'); $('#tabFolder').setAttribute('aria-pressed', t === 'folder');
-  $('#btnStart').textContent = t === 'file' ? '文字起こしを開始' : t === 'folder' ? '選んだ動画を、それぞれ文字起こし' : '選んだマークを文字起こし';
-  $('#btnOpenVideo').hidden = t !== 'file';
-  if (t === 'folder') fdSyncStudio();
+  tab = t; $('#paneFile').hidden = t !== 'file'; $('#paneMarker').hidden = t !== 'marker';
+  $('#tabFile').setAttribute('aria-pressed', t === 'file'); $('#tabMarker').setAttribute('aria-pressed', t === 'marker');
+  $('#btnStart').textContent = t === 'file' ? '文字起こしを開始' : '選んだマークを文字起こし';
   if (t === 'marker') renderMarker();
 }
 
@@ -35,7 +33,7 @@ async function startFile(){
    -> 新しく文字起こしするか。UIKit.dialog.confirm は Esc も「キャンセル」と同じ false なので、Esc(dialog の cancel)だけは別に見て「やめる」にする */
 async function askTxAgain(path){
   let r; try { r = await api('/api/doc-for?path=' + encodeURIComponent(path)); } catch { return true; }   // 調べられなければ今までどおり始める
-  const hit = r && r.doc; if (!hit || !(hit.rows > 0)) return true;   // 文字起こしせずに開いた文書(行 0)は聞かない
+  const hit = r && r.doc; if (!hit || !(hit.rows > 0)) return true;   // 行の無い文書(行 0)は聞かない
   const it = S.list.find(x => x.id === hit.id), when = it ? ago(Number(it.updatedAt) || 0) : '';
   const p = UIKit.dialog.confirm({ title: '前に作った文書があります', ok: '開く', cancel: '作り直す',
     body: `この動画は前に文字起こししています(「${(it && it.title) || '無題'}」・${hit.rows} 行${when ? '・' + when : ''})。「開く」でその文書の続きから直せます。` +
@@ -55,8 +53,12 @@ async function startMarker(){
   if (!path){   // 元の動画が手元に無いときは、スタジオが書き出した切り抜き(mp4)を、そのまま文字起こしする
     const files = ids.map(i => v.clips[i].fileAbs).filter(Boolean);
     if (!files.length) return toast('元の動画・音声ファイルのパスを入力してください(書き出し済みの切り抜きが見つかったポイントは、パスなしでも文字起こしできます)');
-    const r = await api('/api/transcribe-batch', { body: { paths: files, skipDone: true, ...jobOpts() } });
-    return toast(`書き出し済みの切り抜き ${r.added.length}本を待機列に追加しました` + (r.skipped.length ? `(${r.skipped.length}本は文字起こし済みなどで追加せず)` : '') + (files.length < ids.length ? `。書き出されていない${ids.length - files.length}件は対象外` : ''), 6000);
+    let added = 0;   // 1 本ずつ別の文字起こしに(フォルダの一括 /api/transcribe-batch は消した。文字起こし済みは一覧の「文字起こし済みはスキップ」で外れている)
+    for (const f of [...new Set(files)]){
+      try { await api('/api/transcribe', { body: { sourcePath: f, title: '', ...jobOpts() } }); added++; }
+      catch (e){ toast(`${added}本追加したところで失敗: ${e.message}`); break; }
+    }
+    return toast(`書き出し済みの切り抜き ${added}本を待機列に追加しました` + (files.length < ids.length ? `。書き出されていない${ids.length - files.length}件は対象外` : ''), 6000);
   }
   const pad = Number($('#mPad').value) || 0;
   let n = 0;
@@ -71,63 +73,14 @@ async function startMarker(){
   if (n) toast(`${n}件を待機列に追加しました`);
 }
 
-/* 文字起こしせずに開く: 動画のパスだけで文書を作り(同じ動画の文書があればそれ)、カットのタブを開く */
-async function openVideoNoTx(){
-  const path = $('#srcPath').value.trim();
-  if (!path) return toast('動画のパスを入力してください');
-  const b = $('#btnOpenVideo'); b.disabled = true;
-  try {
-    const r = await api('/api/open-video', { body: { path, title: $('#jTitle').value.trim() } });
-    await loadList();
-    if (!(await openDoc(r.id))) return;
-    $('#mediaChoice').hidden = true;
-    if (r.created) setEditTab('cut', { into: true });   // 2 カット の最初の操作(再生)へ(S18)
-    toast(r.created ? '文字起こしせずに開きました。カットのタブで残す・削る所を決められます(文字起こしは 1 文字起こし のタブから、あとでもできます)' : 'この動画は前に開いています。その文書を開きました', 6000, 'ok');
-    for (const w of r.warnings || []) toast(w, 6000);
-  } catch (e){ toast(e.message, 6000, 'err'); }
-  finally { b.disabled = false; }
-}
-
 async function onStart(){
   readOpts();
   const btn = $('#btnStart'); btn.disabled = true;
   let ok = false;
-  try { await (tab === 'file' ? startFile() : tab === 'folder' ? startFolder() : startMarker()); await kickJobs(); ok = true; }
+  try { await (tab === 'file' ? startFile() : startMarker()); await kickJobs(); ok = true; }
   catch (e){ toast(e.message); }
   finally { btn.disabled = false; }
   if (ok){ const jb = $('#jobBadge'); if (!jb.hidden && jb.offsetParent) jb.focus(); }   // 始めたら処理中の札へ(押すと処理状況。S18)
-}
-
-/* ---------- フォルダ内すべて ---------- */
-
-function fdSyncStudio(){ const b = $('#fdStudio'); b.hidden = !S.marker.outDir; }
-
-function renderFolder(){
-  const box = $('#fdList'), skip = $('#fdSkip').checked;
-  if (!FD.files.length){ box.innerHTML = '<p class="hint" style="padding:8px;margin:0">動画・音声が見つかりませんでした</p>'; $('#fdCount').textContent = ''; return; }
-  box.innerHTML = FD.files.map((f, i) => {
-    const st = f.doneTid ? '文字起こし済み' : f.queued ? '待機中' : '', off = skip && st;
-    return `<label><input type="checkbox" data-i="${i}" ${off ? '' : 'checked'}><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(f.path)}">${esc(f.rel)}</span><span class="hint">${fmtSize(f.size)}</span>${st ? `<span class="pill">${st}</span>` : ''}</label>`;
-  }).join('');
-  updateFdCount();
-}
-
-function updateFdCount(){ const n = document.querySelectorAll('#fdList input:checked').length, t = document.querySelectorAll('#fdList input').length; $('#fdCount').textContent = t ? `${n} / ${t} 本を選択` + (FD.truncated ? '(多いので、先頭の500本だけ)' : '') : ''; $('#fdAll').checked = t > 0 && n === t; }
-
-async function scanFolder(){
-  const path = $('#fdPath').value.trim(); if (!path) return toast('フォルダのパスを入力してください');
-  const r = await api('/api/scan-folder', { body: { path, recursive: $('#fdRec').checked } });
-  FD = { files: r.files, dir: r.dir, truncated: r.truncated }; renderFolder();
-}
-
-async function startFolder(){
-  if (!FD.files.length) await scanFolder();
-  const paths = [...document.querySelectorAll('#fdList input:checked')].map(x => FD.files[Number(x.dataset.i)].path);
-  if (!paths.length) return toast('文字起こしする動画を選んでください');
-  const r = await api('/api/transcribe-batch', { body: { paths, skipDone: $('#fdSkip').checked, ...jobOpts() } });
-  const sk = r.skipped.length;
-  toast(`${r.added.length}本を待機列に追加しました` + (sk ? `(${sk}本は追加していません: ${r.skipped.slice(0, 2).map(x => x.reason).join(' / ')}${sk > 2 ? ' ほか' : ''})` : ''), 6000);
-  await scanFolder().catch(() => {});   // 追加した分に「待機中」を付け直す
 }
 
 /* ---------- 切り抜きスタジオ/マーカー連携 ---------- */
@@ -183,7 +136,7 @@ function updateMCount(){ const n = document.querySelectorAll('#mClips input:chec
 
 async function loadMarker(){
   try { S.marker = await api('/api/marker'); } catch { S.marker = { found: false, videos: [] }; }
-  renderMarker(); fdSyncStudio();
+  renderMarker();
 }
 
 /* ---------- ジョブの進捗 ---------- */
@@ -193,10 +146,10 @@ function startPolling(){ if (!S.pollT) S.pollT = setInterval(pollJobs, 1000); }
 async function pollJobs(){
   let j; try { j = await api('/api/jobs'); } catch { return; }
   S.jobs = j.jobs.slice().reverse();
-  let doneNew = false, diar = null, txDone = [], failed = null, voiceDone = null, normDone = [], altDone = [], ytDone = [];
+  let doneNew = false, diar = null, txDone = [], failed = null, voiceDone = null, normDone = [], altDone = [];
   for (const x of S.jobs){
     if (S.seen.has(x.id)) continue;
-    if (x.state === 'done'){ S.seen.add(x.id); doneNew = true; if (LOCK_KINDS.includes(x.kind)) diar = x; else if (x.kind === 'voice-learn') voiceDone = x; else if (x.kind === 'normalize') normDone.push(x); else if (x.kind === 'alt') altDone.push(x); else if (x.kind === 'ytcap') ytDone.push(x); else if (x.tid) txDone.push(x); }
+    if (x.state === 'done'){ S.seen.add(x.id); doneNew = true; if (LOCK_KINDS.includes(x.kind)) diar = x; else if (x.kind === 'voice-learn') voiceDone = x; else if (x.kind === 'normalize') normDone.push(x); else if (x.kind === 'alt') altDone.push(x); else if (x.tid) txDone.push(x); }
     else if (x.state === 'error'){ S.seen.add(x.id); failed = x; }   // 失敗も一度だけ知らせる(メニューを閉じていると気づけないため)
   }
   renderJobs(); applyLock();
@@ -208,7 +161,6 @@ async function pollJobs(){
   if (failed) toast(jobFailText(failed), { ms: 15000, kind: 'err', detail: failed.errorDetail || undefined,
     action: failed.canRetry ? { label: 'やり直す', fn: () => retryJob(failed.id) } : undefined });   // 原文は「詳しく」の中だけ・[やり直す](M9)
   if (altDone.some(x => x.tid === S.docId)){ await loadSuggest(); toast(`別のエンジンで聞き終えました。食い違う所に候補を ${S.sug.filter(x => x.tier === 'alt').length} 件出しました(行の「別」)`, 6000, 'ok'); }   // D1-b: 文書は書き換えないので、候補だけ読み直す
-  if (ytDone.some(x => x.tid === S.docId)){ await loadSuggest(); toast(`YouTube の字幕と比べました。食い違う所に候補を ${S.sug.filter(x => x.tier === 'yt' || (x.also || []).includes('yt')).length} 件出しました(行の「YT」)`, 6000, 'ok'); }   // A1: 同じく候補だけ読み直す
   if (voiceDone){ toast(`声を覚えました: ${(voiceDone.learned || []).join('・')}。次からの話者判別で、この声の話者に名前を付けます`, 6000, 'ok'); loadVoices(); }
   if (doneNew){
     await loadList();
@@ -273,7 +225,7 @@ function renderIntoState(){
 }
 
 /* 失敗の文(M9): 想定外の失敗(errorDetail がある)は決まった文 + 次の一手。原文は知らせ・カードの「詳しく」の中だけ */
-const JOB_KIND_NAME = { transcribe: '文字起こし', diarize: '話者の判別', retranscribe: '再認識', redo: '疑わしい所の認識し直し', 'voice-learn': '声を覚える処理', alt: '別のエンジンでの聞き直し', ytcap: 'YouTube の字幕との比較', normalize: '30fps にそろえる処理' };
+const JOB_KIND_NAME = { transcribe: '文字起こし', diarize: '話者の判別', retranscribe: '再認識', redo: '疑わしい所の認識し直し', 'voice-learn': '声を覚える処理', alt: '別のエンジンでの聞き直し', normalize: '30fps にそろえる処理' };
 /* 進み具合の文: 「n% か状態」(札・文字起こし中の 1 行)と「段階 + n%」(カード・別のエンジンの欄) */
 const jobProg = j => j.state === 'running' ? pctOf(j) + '%' : STATE_LABEL[j.state] || '';
 const jobPhase = j => (j.phase || '') + (j.state === 'running' ? ' ' + pctOf(j) + '%' : '');
@@ -333,7 +285,7 @@ function applyLock(){
   const j = lockJob(), on = !!j;
   $('#segs').inert = on; document.querySelectorAll('#doc .tt-lockable').forEach(el => { el.inert = on; }); $('#docTitle').disabled = on;
   if (S.doc) renderCutPack();
-  renderRedoOne(); renderOvd();
+  renderRedoOne();
   const b = $('#diarBanner'); b.hidden = !on;
   if (on) b.textContent = `${j.redoOne ? 'この動画を今の設定で作り直' : LOCK_LABEL[j.kind] || '処理'}しています(${j.phase}${j.state === 'running' ? ' ' + Math.round(j.progress * 100) + '%' : ''})。終わると自動で読み込み直します。それまで編集はできません(中止は左の「処理状況」から)。`;
 }
@@ -373,109 +325,7 @@ async function startDiarize(){
   await kickJobs(); toast('話者の判別を待機列に追加しました');
 }
 
-/* ---------- 重なり・抜けの所に空の行を置く(2026-10-05。notes:plan/done/line-b-overlap.md の 5-3 の C・6-2 の 1・2。抜けは第2版 E2 の前倒し) ----------
-   同時にしゃべっている所は、認識が片方しか書かない。話者判別の記録(diar.json)で声があったのに行の無い所を GET api/overlap-drafts で数え、
-   押したら時刻(と分かれば話者)を入れた空の行(印 draft・重なりは音のメモ「声が重なる」も)を画面で足す。サーバーに行を作る API は無い。
-   置く所は「重なり」(why overlap・unassigned)と「抜け」(why missing = 主の話者も含めて、どの行も無い所)をチェックで選ぶ(kinds。上限 40 は選んだ所で数える)
-   (元に戻す 1 回で全部消える・保存はいつもの道)。自動では置かない。確かめ済みの評価用の文書には置かない(空の行が残ると「全部聞いた」と合わない)。
-   状態は app.js の OVD。行の見た目・印の外し方は app-rows.js の isBlankDraft・clearDraftMark */
-
-/* 置けるか -> [押せるか, 理由(数の下に出す文・ボタンの title)] */
-function ovdKinds(){ return [['overlap', '#ovdKOvl'], ['missing', '#ovdKMiss']].filter(([, k]) => $(k).checked).map(([v]) => v); }
-const ovdSplit = items => { const m = items.filter(x => x.why === 'missing').length; return [items.length - m, m]; };   // -> [重なり, 抜け]
-
-function ovdState(){
-  const d = S.doc;
-  if (!d || !S.docId) return [false, ''];
-  if (!ovdKinds().length) return [false, '置く所(重なり・抜け)を 1 つ以上選んでください'];
-  if (d.evalReviewed) return [false, '確かめ済みの動画には置けません(空の行が残ると「全部聞いて確かめた」と合わなくなるため)。置くときは、先に確かめ済みを取り消してください'];
-  if (lockJob()) return [false, '処理中です(終わってから押してください)'];
-  if (OVD.busy) return [false, '置いています…'];
-  if (OVD.id !== S.docId) return [false, OVD.err || '数えています…'];
-  if (OVD.reason) return [false, OVD.reason];
-  if (!OVD.items.length){
-    const c = OVD.counts || {}, other = (c.overlap || 0) + (c.missing || 0);
-    return [false, other ? `選んだ所には、声があるのに行の無い所はありません(重なり ${c.overlap || 0} か所・抜け ${c.missing || 0} か所)` : '声があるのに行の無い所はありません(書いてある所・置いた空の行は数えません)'];
-  }
-  return [true, ''];
-}
-
-function renderOvd(){
-  const box = $('#ovdBox'); if (!box) return;
-  const [ok, why] = ovdState(), n = OVD.id === S.docId ? OVD.items.length : 0;
-  const un = OVD.items.filter(x => x.why === 'unassigned').length, c = OVD.counts || {};
-  $('#ovdCount').textContent = ok
-    ? `声があるのに行の無い所: 重なり ${c.overlap || 0} か所・抜け ${c.missing || 0} か所(選んだ所 ${n} か所のうち、誰の声か分からない所 ${un})${OVD.more ? `。ほかに ${OVD.more} か所あります(置いたあとで、もう一度押すと続きを置けます)` : ''}`
-    : why;
-  $('#ovdCount').classList.toggle('tt-ovd-none', !ok);
-  const go = $('#ovdGo'); go.disabled = !ok; go.title = ok ? `${n} か所に、時刻(分かれば話者も)を入れた空の行を置きます。聞いて文字を打ってください` : why;
-  const k = blankDrafts().length, cl = $('#ovdClear');
-  cl.hidden = !k; cl.textContent = `空のままの下書きを消す(${k} 行)`; cl.disabled = !!lockJob() || OVD.busy;
-}
-
-/* 候補を数える(読むだけ)。id = 開いている文書。待っている間に別の文書を開いたら捨てる */
-async function loadOvd(id = S.docId){
-  if (!id) return;
-  const seq = ++OVD.seq;
-  if (OVD.id !== id) OVD.err = '';   // 前の文書で数えられなかった知らせを、この文書に出さない
-  let r;
-  try { r = await api('/api/overlap-drafts?id=' + encodeURIComponent(id) + '&kinds=' + encodeURIComponent(ovdKinds().join(',') || 'none')); }
-  catch (e){ if (seq === OVD.seq && S.docId === id){ OVD.err = '数えられませんでした: ' + e.message; renderOvd(); } return null; }
-  if (seq !== OVD.seq || S.docId !== id) return null;
-  Object.assign(OVD, { id, items: Array.isArray(r.items) ? r.items : [], more: Number(r.more) || 0, counts: r.counts || {}, reason: r.reason || '', diarAt: r.diarAt || null, err: '', drafts: blankDrafts().length });
-  renderOvd();
-  return r;
-}
-
-/* 押した: 保存し終えてから数え直す → 確かめる → 行を足す(1 回の元に戻す) */
-async function ovdPlace(){
-  const id = S.docId;
-  if (!ovdState()[0]) return;
-  OVD.busy = true; renderOvd();
-  try {
-    if (!(await savedFor(id))){
-      if (S.docId === id) toast('保存が終わっていないため、置いていません(保存の状態を確かめてから、もう一度押してください)', 6000, 'err');
-      return;
-    }
-    const r = await loadOvd(id);   // 保存済みの文書で数え直す(今の行で数える = 2 回押しても増えない)
-    if (!r || S.docId !== id) return;
-    const items = OVD.items.slice(), n = items.length, [no, nm] = ovdSplit(items);
-    if (!n) return toast(OVD.reason || ovdState()[1] || '声があるのに行の無い所はありません', 5000);
-    if (!(await UIKit.dialog.confirm({ title: '空の行を置きますか', ok: '空の行を置く',
-      body: `${n} か所に空の行を置きます(重なり ${no} か所・抜け ${nm} か所)。文字はありません。聞いて打ってください(打つと札「下書き(重なり)」「下書き(抜け)」が外れます。置いた行は、元に戻す 1 回でまとめて消せます)` }))) return;
-    if (S.docId !== id || lockJob() || S.doc.evalReviewed) return;
-    const navId = navSnapshot();
-    pushUndo();
-    const added = items.map(x => { const miss = x.draft === 'missing';   // 抜けの行に音のメモ「声が重なる」は付けない
-      return { id: uid(), start: r2(x.start), end: r2(x.end), text: '', speaker: x.speaker && spById(x.speaker) ? x.speaker : '', flag: '', tags: miss ? [] : ['overlap'], draft: miss ? 'missing' : OVD_KIND }; });
-    S.doc.segments.push(...added);
-    sortSegs(); navRestore(navId, S.navIdx); renderDoc(); markDirty();
-    const goFirst = () => {   // 知らせの「最初の行へ」: 絞り込みで隠れていれば解いてから
-      const i = S.doc && S.docId === id ? S.doc.segments.findIndex(g => g.id === added[0].id) : -1; if (i < 0) return;
-      revealRow(i);
-      gotoRow(i, { center: true });
-    };
-    toast(`${n} か所に空の行を置きました(重なり ${no}・抜け ${nm}。札「下書き(…)」。絞り込みの「下書きだけ」で、その行だけを出せます)`, { ms: 8000, kind: 'ok', action: { label: '最初の行へ', fn: goFirst } });
-    if (await saveDoc() && S.docId === id) await loadOvd(id);
-  } finally { OVD.busy = false; renderOvd(); }
-}
-
-/* 保存のあと: 空のままの下書きの数が変わった(置いた・消した・元に戻した・行を消した)なら数え直す(候補は保存済みの文書で数えるため) */
-function ovdAfterSave(){
-  if (!S.doc || OVD.id !== S.docId) return;
-  const k = blankDrafts().length;
-  if (k !== OVD.drafts) loadOvd(S.docId);
-}
-
-/* 空のままの下書きを消す(1 回の元に戻す。文字を打った行・印の無い空の行は消さない) */
-async function ovdClear(){
-  const id = S.docId, k = blankDrafts().length;
-  if (!k || lockJob()) return;
-  removeBlankDrafts();
-  toast(`空のままの下書きを ${k} 行消しました(元に戻すで戻せます)`, 4000, 'ok');
-  if (await saveDoc() && S.docId === id) loadOvd(id);
-}
-
+/* ---------- 前に置いた空の下書き(行の印 draft)。置く機能(空の行の下書き ovdraft)は OPT-H1 で消した(決定 3-47 Q6)。行の見た目は app-rows.js の isBlankDraft ---------- */
 /* 空のままの下書きを消す本体(「済みにして次へ」の前にも使う)。-> 消した行の数 */
 function removeBlankDrafts(){
   const k = blankDrafts().length; if (!k) return 0;

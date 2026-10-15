@@ -14,7 +14,7 @@ import os
 import re
 import time
 
-from ytt import tools
+from ytt import fsio, tools
 
 DELIVERIES_LOG = "deliveries.jsonl"       # 届けた記録(入口の作業データの logs の中)
 FEEDBACK_LOG = "friend_feedback.jsonl"    # 友人の「要らない」の記録
@@ -43,10 +43,8 @@ def record_delivery(log_dir, zip_path, run, packs, marks=None):
 
 def _append(log_dir, name, row):
     """log_dir/name(jsonl)に 1 行足す(フォルダが無ければ作る)。書けなければ OSError。
-    回さない(clientlog.append_line と違う: find_delivery は今のファイルだけを見るので、回すと届けた記録を引けなくなる)"""
-    os.makedirs(log_dir, exist_ok=True)
-    with open(os.path.join(log_dir, name), "a", encoding="utf-8") as f:
-        f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    回さない(ytt/fsio.append_line の max_bytes None: find_delivery は今のファイルだけを見るので、回すと届けた記録を引けなくなる)"""
+    fsio.append_line(os.path.join(log_dir, name), json.dumps(row, ensure_ascii=False) + "\n", None)
 
 
 def find_delivery(log_dir, zip_name):

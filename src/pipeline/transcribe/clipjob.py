@@ -6,7 +6,7 @@
 名簿の呼び名の聞き違いらしい所だけ LLM で直す(llm.llm_after_doc。E)。
 ① は ② ③ を読まない: 置換辞書の組 pairs と学習した置換の選び方 learned は呼ぶ側(② の flow/tx・③ の doc_jobs)が渡す。ファイルは書かない
 (文書・words.json・asr.json・llm.json を書くのは ② の flow/tx と ③)。名前は呼ぶたびに `モジュール.名前` で読む(S.extract_audio などの差し替えが届く)。
-名前は編集の serve の名前の受付(_ED_MODULES)に並ぶ(旧 ed_jobs の S._rows_to_doc はここ)。
+名前は編集の serve の名前の受付(_ED_MODULES)に並ぶ(S._rows_to_doc はここ)。
 """
 from ytt import dictfmt as _dictfmt, jobs as _heavy, txbase as _txbase, txtext as _txtext
 from . import fill, llm, postproc, recognize, replace, roster as _roster

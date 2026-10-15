@@ -47,7 +47,7 @@ function saveDoc(){
         if ('evalReviewed' in r && !!r.evalReviewed !== !!S.doc.evalReviewed){ S.doc.evalReviewed = r.evalReviewed || undefined; renderEvalReview(); renderDrillBar(); }   // 評価用を外すと確かめ済みの印も消える(サーバー)
         if (S.dirty) setSaveState('未保存…', ''); else setSaveState('保存しました ' + hhmm(), 'ok');
         scheduleLearn(); scheduleAcc(); scheduleDrillStat();
-        syncListItem(); cpAfterSave(); ovdAfterSave();
+        syncListItem(); cpAfterSave();
       } catch (e){
         if (S.docId !== id) return false;   // 保存を待つ間に文書が閉じられた(削除など)。閉じた文書の「未保存」を残さない
         S.dirty = true;
@@ -85,33 +85,11 @@ function fillSubtitle(v){
   set('#optSubOrient', o.orientation === 'horizontal' ? 'horizontal' : 'vertical');
   set('#optMaxV', subNum(m.vertical, 4, 80, d.maxChars.vertical)); set('#optMaxH', subNum(m.horizontal, 4, 80, d.maxChars.horizontal));
   set('#optWrapV', subNum(w.vertical, 2, 40, d.wrapChars.vertical)); set('#optWrapH', subNum(w.horizontal, 2, 40, d.wrapChars.horizontal));
-  renderResplitOpts();
 }
 
 /* 文字起こし・範囲の再認識の要求に付ける(設定の保存は少し遅れて送られるので、今の欄の値を直接渡す)。
-   0.59.5: 行を分ける文字数(splitChars)は付けない = サーバーの設定 subtitle.splitChars(既定 40 → 0.59.6 で 24)で分ける。字幕の最大文字数(縦 16)で分けると人が 73% 戻していた。
-   「長い行を分け直す」(resplitDoc)だけは字幕の最大文字数を明示して渡す */
+   行を分ける文字数(splitChars)は付けない = サーバーの設定 subtitle.splitChars(既定 24)で分ける。字幕の最大文字数(縦 16)で分けると人が 73% 戻していた */
 function subtitleReq(){ const v = readSubtitle(); return { subtitleOrientation: v.orientation }; }
-
-function renderResplitOpts(){
-  const v = readSubtitle(), sel = $('#rsOrient'), cur = sel.dataset.touched ? sel.value : v.orientation;
-  sel.options[0].textContent = `縦(最大 ${v.maxChars.vertical} 文字)`; sel.options[1].textContent = `横(最大 ${v.maxChars.horizontal} 文字)`; sel.value = cur;
-}
-
-async function resplitDoc(){
-  if (!S.docId || lockJob() || !(await saveDone())) return;
-  const b = $('#rsGo'), msg = $('#rsMsg'), id = S.docId, o = $('#rsOrient').value;
-  b.disabled = true; msg.textContent = '分けています…';
-  try {
-    const r = await api('/api/resplit', { body: { id, orientation: o, splitChars: readSubtitle().maxChars[o], ...(Number.isInteger(S.baseUpdatedAt) ? { baseUpdatedAt: S.baseUpdatedAt } : {}) } });
-    if (S.docId !== id) return;
-    if (!r.changed){ msg.textContent = r.skipped ? `分ける行はありませんでした(人が直した長い行 ${r.skipped} 行は分けていません)` : '分ける行はありませんでした'; return; }
-    await openDoc(id, true);
-    msg.textContent = `${r.changed} 行を分けました(${r.added} 行増えました)`;
-    toast(`${r.changed} 行を分けました(${r.added} 行増えました)。元に戻すときは「以前の版に戻す」`, 7000, 'ok');
-  } catch (e){ msg.textContent = ''; toast('分け直せませんでした: ' + e.message, 8000, 'err'); }
-  finally { b.disabled = false; }
-}
 
 async function openDoc(id, keep){
   if (EDIT_HOST && id !== S.docId && !EDIT_HOST.opening) return EDIT_HOST.open(id);   // 案件の画面: 別の文書は殻の一覧から開く(一覧の選択と開いている文書をそろえる)
@@ -133,7 +111,7 @@ async function openDoc(id, keep){
     toast('読み込み中に編集されたため、現在の内容を保持しました。もう一度開いてください'); return false;
   }
   const sameDoc = S.docId === id;
-  if (!sameDoc) effortStart(id);   // 前の文書の校正の手間を送ってから、この文書で数え始める(Q2)
+  if (!sameDoc) effortStart(id);   // 前の文書の操作中の知らせを送ってから、この文書で数え始める
   S.doc = d; S.docId = id; S.undo = []; S.sug = []; S.alt = null; S.sel = new Set(); S.curIdx = -1; S.dirty = false; S.conflict = false; S.forceNext = false; S.baseUpdatedAt = d.updatedAt || null; $('#conflictBar').hidden = true;
   if (!keep) S.navIdx = -1; else navRestore(navId, S.navIdx);
   const pos = keep ? null : loadPos(id), resumeIdx = pos ? d.segments.findIndex(x => x.id === pos.id) : -1;
@@ -168,7 +146,6 @@ async function openDoc(id, keep){
   else { window.scrollTo(0, 0); if ($('.tx-list')) $('.tx-list').scrollTop = 0; }
   if (autoClosed && resumeIdx < 0 && !isDrawer() && !S.menuToldOnce){ S.menuToldOnce = true; toast('編集欄を広くするため、メニューを閉じました(左上の「メニューを開く」か G で開けます)', 4000); }   // 知らせるのはこの画面を開いている間に1回だけ(毎回だとうるさい。段3-3)
   setUrlDoc(id);   // 再読み込み・窓の開き直しで同じ文書に戻る(監査 06)
-  loadOvd(id);     // 重なりの所の空の行の候補の数(話者のカードに出す。話者判別のあとの読み直しでも数え直す)
   return true;
 }
 
@@ -228,8 +205,8 @@ function paintNoSub(row, s){
   const b = row.querySelector('[data-act=nosub]'); if (b) b.setAttribute('aria-pressed', s.noSub ? 'true' : 'false');
 }
 
-/* ---------- 重なり・抜けの所に置いた空の行(行の印 draft。2026-10-05。置く・消すは app-jobs.js の ovd*) ----------
-   draft = 機械が置いた下書きで、まだ人が打っていない印(サーバーの ed_state.ROW_DRAFT_KINDS = DRAFT_KINDS。overlap = 重なり・missing = 抜け)。文字を打ったら外す(clearDraftMark・保存の前にも)。
+/* ---------- 重なり・抜けの所に置いた空の行(行の印 draft。2026-10-05。置く機能は OPT-H1 で消した = 前に置いた行の見た目と印の外し方だけ。消すのは app-jobs.js の removeBlankDrafts) ----------
+   draft = 機械が置いた下書きで、まだ人が打っていない印(サーバーの ytt/schemas の ROW_DRAFT_KINDS = DRAFT_KINDS。overlap = 重なり・missing = 抜け)。文字を打ったら外す(clearDraftMark・保存の前にも)。
    空のままの行は字幕・カット・パックに出ない(文字の無い行は今も数えない)・重なりの赤にしない。決まりは種類によらず同じで、札と案内の文だけ変える */
 const DRAFT_NAME = { overlap: '重なり', missing: '抜け' };
 const draftName = g => DRAFT_NAME[g && g.draft] || DRAFT_NAME.overlap;
@@ -249,7 +226,6 @@ function clearDraftMark(s, row){
     const ta = row.querySelector('textarea'); if (ta) ta.placeholder = '(空の行)文字を入力。不要なら「削除」';
   }
   const i = S.doc.segments.indexOf(s); if (i >= 0) markOvl(i);
-  renderOvd();
 }
 
 /* 字幕に出さない行の数(書き出しのカード・3 パック の「これから作るパック」に出す。0 なら出さない) */
@@ -514,7 +490,7 @@ function segHTML(s, i, T = rowTitles()){
 }
 
 function renderDoc(){
-  const segs = S.doc.segments, untranscribed = !segs.length && !S.doc.model;   // 文字起こしせずに開いた文書(model が空)
+  const segs = S.doc.segments, untranscribed = !segs.length && !S.doc.model;   // まだ文字起こしの入っていない文書(model が空)
   $('#noRows').hidden = !untranscribed;
   const T = rowTitles();
   /* 文字起こししたのに行が 0 の文書(段7 E-14): もう一度この文書に文字起こし(#btnTxInto と同じ intoDoc)か、手で行を足す */
@@ -528,7 +504,7 @@ function renderDoc(){
   S.curIdx = -1;   // 描き直すと「再生中」の印(.cur)も消えるので、次の timeupdate で付け直す
   if (S.navIdx >= segs.length) S.navIdx = segs.length - 1;
   { const r = rowsEl()[S.navIdx]; if (S.navIdx >= 0 && r && r.classList && r.classList.contains('seg')) r.classList.add('nav'); }
-  renderSpeakers(); applyFilter(); updateSel(); updatePfStat(); renderCutPack(); updateCaption(); renderNoSubCount(); renderOvd();
+  renderSpeakers(); applyFilter(); updateSel(); updatePfStat(); renderCutPack(); updateCaption(); renderNoSubCount();
   syncRead(true); rtPaint(); rtSoon();   // 読む速さの件数・選んだ行の「時刻を言葉に合わせる」(2026-10-05)
 }
 

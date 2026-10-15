@@ -66,11 +66,16 @@ def problem(root):
     return None
 
 
+def unseen(root, why):
+    """案件の置き場所が見えない ApiError 503(case_unseen)。スタジオの Store・flow/studiobook・need_root が同じ文を使う(OPT-H1 7b-2)"""
+    return _errors.ApiError(UNSEEN_CODE, "案件のフォルダが見えません(%s)。ドライブをつないでから、もう一度試してください" % why,
+                            503, {"dir": str(root or ""), "reason": why})
+
+
 def need_root(root):
     why = problem(root)
     if why:
-        raise _errors.ApiError(UNSEEN_CODE, "案件のフォルダが見えません(%s)。ドライブをつないでから、もう一度試してください" % why,
-                               503, {"dir": str(root or ""), "reason": why})
+        raise unseen(root, why)
 
 
 

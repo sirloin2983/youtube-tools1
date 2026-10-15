@@ -19,10 +19,11 @@ MEDIA_EXT = {".mp4", ".mkv", ".webm", ".mov", ".m4a", ".mp3", ".wav", ".flac", "
 YT_HOSTS = ("youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be")
 
 
-def parse_video_id(text):
-    """YouTube の URL(watch / youtu.be / live / shorts / embed)または11文字のID → 動画ID。"""
+def parse_video_id(text, strict=False):
+    """YouTube の URL(watch / youtu.be / live / shorts / embed)または11文字のID → 動画ID。
+    strict=True: 外から来た依頼の URL 用(友人の依頼の受付 human/friend/intake.youtube_id)。素の ID は受けない・/watch は完全一致(/watchfoo を通さない)"""
     raw = str(text or "")
-    if VID_RE.match(raw.strip(" \t")):   # 素のID(改行などは不可)
+    if not strict and VID_RE.match(raw.strip(" \t")):   # 素のID(改行などは不可)
         return raw.strip(" \t")
     t = raw.strip()
     try:
@@ -34,7 +35,7 @@ def parse_video_id(text):
         cand = u.path.strip("/").split("/")[0]
     elif host in ("youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"):
         parts = [x for x in u.path.split("/") if x]
-        if u.path.startswith("/watch"):
+        if (u.path in ("/watch", "/watch/")) if strict else u.path.startswith("/watch"):
             cand = (urllib.parse.parse_qs(u.query).get("v") or [""])[0]
         elif len(parts) >= 2 and parts[0] in ("live", "shorts", "embed", "v"):
             cand = parts[1]

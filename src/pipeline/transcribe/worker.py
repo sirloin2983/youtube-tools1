@@ -9,7 +9,7 @@ faster-whisper(ctranslate2)と sherpa-onnx はネイティブコードで、メ�
 その処理だけをこのプロセスで行い、落ちてもサーバー(入口に取り込んだときはスタジオ・cut2resolve も同じプロセス)は止まらないようにする。
 中身の処理は ① の部品の関数(models._load_model_local・diarize._diarize_local・_embed_local)をそのまま使う(2か所に同じ処理を書かない)。
 
-役割で組み直す RS2-9(2026-10-10)に src/editor/tx_worker.py から移した(旧い場所の転送は RS5-G で消した)。編集の serve を読まない:
+役割で組み直す RS2-9(2026-10-10)に移した(旧い場所の転送は RS5-G で消した)。編集の serve を読まない:
 - 起動はスクリプトのパスのまま(python -u <src>/pipeline/transcribe/worker.py。cwd は編集のフォルダ)なので相対 import を使えない。
   スクリプトとして起動したときだけ、sys.path からこのフォルダを外して src を先頭に置き、兄弟は絶対 import(from pipeline.transcribe import …)で読む(層の決まりの例外)。
   import したとき(テスト・src/eval/tools/_evalcommon の _audio)は sys.path に触らない
@@ -227,7 +227,7 @@ def _op_embed(m, rid, job, out, cancels):
 
 
 def _op_complete(m, rid, job, out, cancels):
-    """文字の LLM に聞く(LLM の後処理 = ed_llm)。messages = [{"role", "content": 文字}](40 件・1 件 8000 字まで)-> {"content": 答え}"""
+    """文字の LLM に聞く(LLM の後処理 = pipeline/transcribe/llm.py)。messages = [{"role", "content": 文字}](40 件・1 件 8000 字まで)-> {"content": 答え}"""
     name, dev, eng = str(m.get("name")), str(m.get("device") or "vulkan"), _engine(m)
     if eng != tx_engines.LlamaText.id:
         raise _errors.ApiError("bad_engine", "文字の問い合わせは文字の LLM だけです", 400)

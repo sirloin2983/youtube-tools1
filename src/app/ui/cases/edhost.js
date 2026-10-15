@@ -69,8 +69,6 @@
     var set = document.createElement('div');
     set.hidden = true;
     set.innerHTML = T.settings;
-    var pk = set.querySelector('#edSetPack');
-    if (pk) pk.remove();   // パックの設定はカット・パックのパネルの中(同じ id を 2 つ置かない)
     park.appendChild(set);
     var dlg = document.createElement('div');
     dlg.className = 'cs-ed-dialogs';   // ダイアログは隠し場所の外(隠した親の中では開いても見えない)

@@ -412,8 +412,6 @@ html.fsz .seg textarea{field-sizing:content;height:auto}
 .sg{font-size:12px;border:1px solid var(--accent-line);border-radius:var(--r);padding:2px 3px 2px 8px;background:var(--accent-soft);display:inline-flex;align-items:center;gap:6px;max-width:100%;color:var(--ink)}
 .sg .sgl{font-weight:650;color:var(--accent)}.sg.high{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
 .sg.tt-sg-alt{border-style:dashed;border-color:var(--info);background:var(--info-soft)}.sg.tt-sg-alt .sgl{color:var(--info-ink)}
-.sg.tt-sg-yt{border-style:dotted;border-color:var(--line-strong);background:var(--panel)}.sg.tt-sg-yt .sgl{color:var(--ink-2)}
-.sg.tt-sg-both{border-style:solid;box-shadow:inset 0 0 0 1px var(--info)}
 .sg button{border:1px solid var(--line-2);background:var(--panel);border-radius:6px;padding:0 8px;min-height:22px;font-size:12px;cursor:pointer;color:var(--ink-2)}
 .sg button:hover{color:var(--ink);border-color:var(--line-strong)}
 .seg .tg{grid-column:3/-1;display:none;gap:6px;flex-wrap:wrap}.seg.tagged .tg,.seg.nav .tg{display:flex}
@@ -455,12 +453,10 @@ html.fsz .seg textarea{field-sizing:content;height:auto}
 .tt-sp-subsw{display:inline-block;width:14px;height:14px;border-radius:50%;border:1px solid var(--line-strong);vertical-align:middle}
 .tt-sp-subsw[hidden]{display:none}
 .sp-row.tt-sp-other input[type=text]{color:var(--ink-3)}
-/* 重なりの所に置いた空の行(印 draft。2026-10-05): 札と、打つ欄の点線の枠(空のままでも欄が見える)。重なりの赤にはしない(app-rows.js の badOverlap) */
+/* 重なり・抜けの所に置いた空の行(印 draft。置く機能は OPT-H1 で消した = 前に置いた行の見た目だけ): 札と、打つ欄の点線の枠(空のままでも欄が見える)。重なりの赤にはしない(app-rows.js の badOverlap) */
 .seg .tt-draft-pill{grid-column:5;justify-self:start}
 .seg.tt-draft textarea{border:1px dashed color-mix(in srgb,var(--info) 55%,transparent);background:color-mix(in srgb,var(--info-soft) 50%,transparent)}
 .seg.tt-draft textarea:focus{border-style:solid;border-color:var(--accent);background:var(--field)}
-.tt-ovd-count{margin:0 0 6px}
-.tt-ovd-count.tt-ovd-none{color:var(--ink-4)}
 /* 一覧が狭いとき: 1段目に「□ ▶ 時刻 話者 校正済み」、2段目から文字(全幅)と、選んだ行の操作
    (v0.9.6: 一覧の実際の幅で判断する。2カラム化でビューポート幅と一覧の幅が一致しなくなったため、コンテナクエリにした) */
 @container (max-width:700px){

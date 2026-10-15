@@ -248,5 +248,74 @@ class TestHttp(unittest.TestCase):
         self.assertEqual(st, 403)
 
 
+class TestResolveAndRetry(unittest.TestCase):
+    """8b-1: ハンドルの解決で通信の失敗を「見つかりません」と書かない / 8c-1: やり直しは今の登録簿で / 数えと見出しのキー"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        studio_env.set_home(self.tmp)
+        rank.put_registry({"agencies": [{"id": "aaa", "name": "事務所A", "channels": [{"ref": "@abc"}]}]})
+        rank._cache.clear()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_handle_network_failure_stays_pending(self):
+        from ytt.errors import ApiError
+        with patch.object(rank, "yt_get", side_effect=ApiError("network", rank.NET_MSG, 502)):
+            r = rank.resolve("aaa")
+        c = r["registry"]["agencies"][0]["channels"][0]
+        self.assertEqual((c["status"], r["resolved"]), ("pending", 0))
+        self.assertIn("通信", c["note"])
+        self.assertNotIn("見つかりません", c["note"])
+        with patch.object(rank, "yt_get", return_value={"items": []}):   # 引けたが無い = 本当に見つからない
+            c = rank.resolve("aaa")["registry"]["agencies"][0]["channels"][0]
+        self.assertEqual((c["status"], "見つかりません" in c["note"]), ("error", True))
+
+    def test_board_retry_validates_again_with_current_registry(self):
+        from flow import board as B
+        b = B.Board()
+        rank.attach_board(b)
+        req = {"start": "2026-09-01", "end": "2026-09-30"}
+        spec = rank.validate_search(req)
+        self.assertEqual(spec["req"], req)
+        self.assertEqual([c["ref"] for c in spec["agencies"][0]["channels"]], ["@abc"])
+        rank._jobs["s1"] = {"id": "s1", "state": "cancelled", "phase": "", "progress": 0.0, "cancel": True, "error": "", "result": None, "created": 1, "spec": spec}
+        self.addCleanup(rank._jobs.clear)
+        rank.put_registry({"agencies": [{"id": "aaa", "name": "事務所A", "channels": [{"ref": "@abc"}, {"ref": "@later"}]}]})   # 検索のあとで足したチャンネル
+        got = []
+        with patch.object(rank, "_start_search", lambda s: got.append(s) or {"id": "s2", "state": "running", "phase": "", "progress": 0.0, "cancel": False, "error": "", "created": 2}):
+            b.refresh()
+            b.retry("se:s1")
+        self.assertEqual([c["ref"] for c in got[0]["agencies"][0]["channels"]], ["@abc", "@later"])
+
+    def test_quota_counts_only_when_going_out_and_key_in_header(self):
+        q0 = rank._quota
+        with patch.object(rank._env, "fake", return_value=False), patch.object(rank._key, "get_api_key", return_value=("", "")):
+            with self.assertRaises(rank.ApiError):
+                rank.yt_get("channels", {"id": "x"})
+        self.assertEqual(rank._quota, q0)   # キーが無くて呼ばなかったときは数えない
+        seen = []
+
+        class R:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def read(self, *a):
+                return b"{}"
+
+        def fake_open(req, timeout=0):
+            seen.append(req)
+            return R()
+        with patch.object(rank._env, "fake", return_value=False), patch.object(rank._key, "get_api_key", return_value=("KEY123", "env")),                 patch.object(rank.urllib.request, "urlopen", fake_open), patch.object(rank.json, "load", return_value={"items": []}):
+            rank.yt_get("channels", {"id": "x"})
+        self.assertEqual(rank._quota, q0 + 1)
+        self.assertNotIn("KEY123", seen[0].full_url)   # キーは URL に載せない(失敗の文・ログに出ても漏れない)
+        self.assertEqual(seen[0].get_header("X-goog-api-key"), "KEY123")
+
+
 if __name__ == "__main__":
     unittest.main()

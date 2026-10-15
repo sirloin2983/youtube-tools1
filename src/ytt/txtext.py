@@ -92,5 +92,5 @@ def split_segment(s, max_chars=SPLIT_CHARS):
 
 
 def split_terms(text):
-    """「、」「,」・改行で区切った語の並び(用語集の欄など)。RS2-8a に編集の ed_jobs から pipeline/transcribe/roster へ、RS6 a-3 にここへ"""
+    """「、」「,」・改行で区切った語の並び(用語集の欄など)。RS2-8a に pipeline/transcribe/roster へ、RS6 a-3 にここへ"""
     return [t.strip() for t in re.split(r"[\r\n,、]+", str(text or "")) if t.strip()]

@@ -193,7 +193,7 @@ class WorkerTest(unittest.TestCase):
         self.assertTrue(all(g["start"] >= s1["end"] for g in new))           # 校正済みの行にかかる新しい行は切り詰めた
         self.assertEqual((d["retranscribed"]["whole"], d["retranscribed"]["kept"], d["retranscribed"]["emptyKept"]), (True, 1, 0))
         self.assertEqual((job["kept"], S.public_job(job)["kept"]), (1, 1))
-        self.assertTrue(os.path.isfile(os.path.join(S.TX_DIR, ".bak", tid + ".pre-retranscribe.json")))
+        self.assertTrue(S.hist_stamps(tid))                                  # 実行前の状態は履歴に(.bak の控えはやめた = 決定 3-47 の 1b-1)
 
     def test_whole_resumes_from_saved_parts(self):
         """S-1: 長い動画の全体の再認識は区間ごとに書いておき、途中で落ちても、同じ設定でもう一度始めれば続きから。結果は通しで認識したときと同じ"""

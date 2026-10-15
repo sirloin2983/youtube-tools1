@@ -14,7 +14,7 @@
   transcribe(audio, **kw) -> (行の生成器, 情報)      faster-whisper の WhisperModel.transcribe と同じ形。
       行は属性 start・end・text・words(start・end・word・probability)・avg_logprob・no_speech_prob・compression_ratio、
       情報は language・duration・duration_after_vad。audio は wav のパスか float32 のサンプル(16kHz・モノラル)。kw は faster-whisper の引数の名前
-  params() -> [受け付ける引数の名前]                  サーバーは、これに無い引数を渡さない(ed_jobs.filter_kwargs)
+  params() -> [受け付ける引数の名前]                  サーバーは、これに無い引数を渡さない(worker_client.filter_kwargs)
   hooks = {"cancelled": 関数, "progress": 関数}        ワーカーが入れる(取り消しと進み具合。faster-whisper は使わない)
 
 このファイルは、サーバー側からも名前・版・準備できているかのために読む。
@@ -46,7 +46,7 @@ except ImportError:   # このファイルだけを読み込んだとき(tests/t
 # 要求にエンジンも GPU の機器(vulkan・cuda)も無いときのエンジン。F1 F0-2 で whisper.cpp にする予定だったが、機器なしの要求
 # (測る道具・テストの model small など)が whisper.cpp で断られるので faster-whisper のまま(機器 vulkan・cuda は worker_client.req_engine が whisper.cpp に)
 DEFAULT = "faster-whisper"
-ENGINE_DIR = None   # エンジンの実行ファイル・モデルの置き場所(既定 = 作業データ)。RS2-4a(2026-10-10)に編集の ed_jobs から移した
+ENGINE_DIR = None   # エンジンの実行ファイル・モデルの置き場所(既定 = 作業データ)。RS2-4a(2026-10-10)に移した
 
 
 def engine_home():
@@ -65,7 +65,7 @@ def engine_of(spec):
 
 def env_num(name, default, lo=1, hi=64, cast=int):
     """環境変数 name の数(cast で読む)を lo〜hi に収めて返す。無い・空・読めなければ default(収めない)。
-    サーバー側(ed_jobs・ed_speakers)とワーカーの両方が使う(標準ライブラリだけ)"""
+    サーバー側(文書の側・話者判別)とワーカーの両方が使う(標準ライブラリだけ)"""
     try:
         return max(lo, min(hi, cast(str(os.environ.get(name) or default).strip())))
     except ValueError:
@@ -73,7 +73,7 @@ def env_num(name, default, lo=1, hi=64, cast=int):
 
 
 def is_16k_mono(w):
-    """開いた wav(wave.open)が、認識・判別に渡す形(16kHz・モノラル・16bit = ed_jobs.extract_audio が作るもの)か"""
+    """開いた wav(wave.open)が、認識・判別に渡す形(16kHz・モノラル・16bit = recognize.extract_audio が作るもの)か"""
     return w.getnchannels() == 1 and w.getsampwidth() == 2 and w.getframerate() == 16000
 
 
@@ -94,7 +94,7 @@ class Engine:
     """エンジンの元。id = 記録(recognition.runs の engine)とワーカーへの要求に使う名前、package = 版を読むパッケージ(dist-info)"""
     id = ""
     package = ""
-    light = False   # True = 小さいモデル(SenseVoice)。ed_jobs._load_model_local が、別のモデルを読むときも手放さない(主のモデルと一緒に持つ)
+    light = False   # True = 小さいモデル(SenseVoice)。models._load_model_local が、別のモデルを読むときも手放さない(主のモデルと一緒に持つ)
 
     def __init__(self, name, device, model):
         self.name, self.device, self.model = name, device, model
@@ -201,7 +201,7 @@ WCPP_MODELS = {   # モデルの名前 → ggml のファイル(Hugging Face の
 WCPP_VAD = {"file": "ggml-silero-v6.2.0.bin", "url": "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin", "size": 885098,
             "sha256": "2aa269b785eeb53a82983a20501ddf7c1d9c48e33ab63a41391ac6c9f7fb6987"}   # 声の検出(Silero v6.2。計画の 3)
 # ↑ whisper.cpp 自身の声の検出(--vad。TRANSCRIBE_WCPP_VAD=1)は 0.65.0(2026-10-09)で消した = 編集はもう取得しない。
-#   定数は入口の home/live_tx_worker.py が名前を参照しているので残す(fetch_file の固定の形の例としても test_whispercpp が確かめる)
+#   定数は入口の pipeline/transcribe/live_tx_worker.py が名前を参照しているので残す(fetch_file の固定の形の例としても test_whispercpp が確かめる)
 WCPP_EXE = _txbase.WCPP_EXE
 _GPU_LINE = re.compile(r"whisper_backend_init_gpu: (?:using (.+?) backend|no GPU found)")
 _PROGRESS = re.compile(r"progress\s*=\s*(\d+)%")
@@ -423,7 +423,7 @@ class WhisperCpp(Engine):
         return os.environ.get("TRANSCRIBE_WCPP_FA") == "1"
 
     def args(self, wav, out_base, kw):
-        """whisper-cli の引数(応答ファイルの行)。kw は faster-whisper の引数の名前(ed_jobs.whisper_kwargs が作る)。
+        """whisper-cli の引数(応答ファイルの行)。kw は faster-whisper の引数の名前(worker_client.whisper_kwargs が作る)。
         vad_filter・vad_parameters は使わない(whisper.cpp 自身の声の検出 --vad は、声の所をつないで認識するので評価用の音声で文字が大きく抜けた
         = CER 36% → 80%。2026-10-02。測るときだけの TRANSCRIBE_WCPP_VAD=1 は 0.65.0 で消した)。音声の全体を認識する"""
         a = ["-m", _ascii_path(self.model["model"]), "-f", _ascii_path(wav), "-ojf", "-of", _ascii_path(out_base), "-pp",
@@ -787,7 +787,7 @@ LLAMA_MODELS = {   # 2026-10-02 に Hugging Face の API で大きさと SHA-256
                                   "sha256": "46c1d533af3f354ceb37ce855dbceff7da7fa7cf1e6a523df3b13440bd164c0d"}},
 }
 LLAMA_EXE = "llama-server.exe" if os.name == "nt" else "llama-server"
-# 文字の LLM(提案 P18 の LLM の後処理 = ed_llm。2026-10-09 に Hugging Face の API で大きさと SHA-256 を確かめた・Apache-2.0)。
+# 文字の LLM(提案 P18 の LLM の後処理 = pipeline/transcribe/llm.py。2026-10-09 に Hugging Face の API で大きさと SHA-256 を確かめた・Apache-2.0)。
 # 同じ llama-server を mmproj なしで起動する(tx_engines.LlamaText)。置き場所は作業データの models/llm-gguf/(Qwen3-ASR の qwen3asr-gguf にそろえた)
 LLAMA_TEXT_MODELS = {
     "qwen3-8b": {"model": {"file": "Qwen3-8B-Q4_K_M.gguf", "size": 5027783488, "sha256": "d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785",
@@ -796,7 +796,7 @@ LLAMA_TEXT_MODELS = {
     "qwen3-4b": {"model": {"file": "Qwen3-4B-Q4_K_M.gguf", "size": 2497280256, "sha256": "7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5",
                            "url": "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/bc640142c66e1fdd12af0bd68f40445458f3869b/Qwen3-4B-Q4_K_M.gguf"}},
 }
-# ---------- SenseVoice(sherpa-onnx・CPU)。文字の少ない行を別の読みで埋める 2 つ目のエンジン(ed_fill。10-08 の実験ループの A・D。編集 0.60.0) ----------
+# ---------- SenseVoice(sherpa-onnx・CPU)。文字の少ない行を別の読みで埋める 2 つ目のエンジン(pipeline/transcribe/fill.py。10-08 の実験ループの A・D。編集 0.60.0) ----------
 # モデルは sherpa-onnx の公式の配布(SenseVoice-small int8・2024-07-17)を URL・大きさ・SHA-256 固定で取る(2026-10-08 に確かめた。2025-09-09 の版は sherpa-onnx 1.13.8 で壊れた出力)。
 # ライセンス: FunASR MODEL_LICENSE(商用可・出典とモデル名の表示)。トークンごとの時刻が出るので、SV_GAP 秒以上の間・文末・SV_MAX_CHARS で行にする(終わりは目安)
 SENSE_VOICE_MODELS = {
@@ -838,7 +838,7 @@ def sv_rows(tokens, stamps, a, b, gap=SV_GAP, max_chars=SV_MAX_CHARS):
 
 
 class SenseVoice(_Qwen3Chunked):
-    """SenseVoice-small(sherpa-onnx・CPU・int8)。文字の少ない行の窓・名簿の呼び名の確かめに使う 2 つ目のエンジン(ed_fill)。小さいので主のモデルと一緒に持つ(light)。
+    """SenseVoice-small(sherpa-onnx・CPU・int8)。文字の少ない行の窓・名簿の呼び名の確かめに使う 2 つ目のエンジン(pipeline/transcribe/fill.py)。小さいので主のモデルと一緒に持つ(light)。
     区切り方は Qwen3 と同じ(_Qwen3Chunked)。区切りの中の行はトークンの時刻で作る(_chunk_rows。時刻が無ければ Qwen3 と同じ割り振り)。
     FAKE_TEXT(テスト用)が文字列なら、音声を読まずにその文字を 1 行にして返す(空なら行なし。認識ワーカーの疑似 eval/fake/fake_worker が環境変数 TRANSCRIBE_FAKE_FILL から入れる)"""
     id = "sense-voice"
@@ -1154,7 +1154,7 @@ class LlamaQwen3(_Qwen3Chunked):
 
 
 class LlamaText(LlamaQwen3):
-    """文字の LLM(Qwen3-8B Q4_K_M)を同じ llama-server(Vulkan)で。LLM の後処理(提案 P18 = ed_llm)が complete() で聞く。音声は認識しない。
+    """文字の LLM(Qwen3-8B Q4_K_M)を同じ llama-server(Vulkan)で。LLM の後処理(提案 P18 = pipeline/transcribe/llm.py)が complete() で聞く。音声は認識しない。
     主の認識のモデルと一緒に持つ(light)= 認識のたびに読み直さない(VRAM 16GB に large-v3 と合わせて約 8GB)。使わなければ認識ワーカーのアイドル終了で手放す。
     FAKE_REPLY(テスト用)が文字列なら、server を起動せずにその文字を答える(認識ワーカーの疑似 eval/fake/fake_worker が環境変数 TRANSCRIBE_FAKE_LLM から入れる)"""
     id = "llama-text"

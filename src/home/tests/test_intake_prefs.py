@@ -34,6 +34,24 @@ class TestPrefs(unittest.TestCase):
         self.assertIsNot(it._cfg(), d)    # 呼ぶ側が書き換えても既定は変わらない
         self.assertEqual(intake.Intake(Broken(), lambda: None, tmp)._cfg(), {})   # 渡さなければ空 = オフ扱い
 
+    def test_folder_and_out_dir(self):
+        """受付のフォルダと 出力\\ の読み方の口(入口の手で届ける・片付けの候補・学習の束・ライブの自動の届け先が使う)。オフでもフォルダは返す"""
+        tmp = tempfile.mkdtemp(prefix="intake-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        p = prefs_mod.Prefs(os.path.join(tmp, "prefs.json"), fsio.atomic_write)
+        it = intake.Intake(p, lambda: None, tmp, defaults=prefs_mod.DEFAULTS["intake"])
+        self.assertEqual((it.folder(), it.out_dir()), ("", None))
+        box = os.path.join(tmp, "Dropbox")
+        p.patch("intake", {"folder": box, "enabled": False})
+        self.assertEqual((it.folder(), it.out_dir()), (box, os.path.join(box, intake.OUT_DIR)))
+        self.assertEqual(intake.out_dir_of(intake.configured_folder(p)), os.path.join(box, "出力"))
+
+        class Broken:
+            def get(self, sections):
+                raise OSError("読めない")
+        self.assertEqual(intake.Intake(Broken(), lambda: None, tmp, defaults={"folder": box}).folder(), box)
+        self.assertEqual(intake.configured_folder(Broken()), "")
+
     def test_intake_prefs(self):
         tmp = tempfile.mkdtemp()
         try:

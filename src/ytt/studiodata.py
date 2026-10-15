@@ -1,12 +1,12 @@
-"""切り抜きスタジオの data.json(読むだけ)の配信の情報(役割で組み直す RS3-0A。2026-10-10 に編集の ed_store から移した。中身は同じ)。
+"""切り抜きスタジオの data.json の配信の情報(読む側。書くのは盛り上がりグラフの save_series だけ)。
 
 編集の履歴の一覧の配信者・配信の題名(studio_videos)と、文字起こしの配信ごとの文脈(pipeline/transcribe/roster.stream_context の
 チャンネル名とコラボ相手 = studio_stream)が読む。置き場所は workdata.STUDIO_DATA(起動時に編集の serve が datadir の規則で入れる)を
 呼ぶたびに読む(テストの S.STUDIO_DATA = … が効く)。スタジオのデータは書き換えない。
 読む側は呼ぶたびに studiodata.名前 で読む(テストの S.studio_stream の差し替えは編集の serve の名前の受付がここへ届ける)。
 """
+import json
 import logging
-
 import os
 
 from . import casefiles as _casefiles, errors as _errors, fsio as _fsio, marks as _marks, workdata as _workdata, yturl as _yturl
@@ -16,6 +16,7 @@ _log = logging.getLogger("ytt.studiodata")
 
 STUDIO_JSON_MAX = 64 * 1024 * 1024   # 読む上限(スタジオの data.json・旧マーカーなど他のツールが書く JSON の上限の 1 か所。これより大きいものは読めない扱い)
 SCHEMA = "clip-studio/v1"
+SERIES_KEEP = 60   # 盛り上がりのグラフ cache/series/<配信>.json を残す本数
 
 
 # ---------------------------------------------------------------- data.json の行 1 つの読み方(書く側も同じ形で読む)
@@ -76,6 +77,20 @@ def _case_row(vid, row):
         return dict(row, marks=[], duration=row.get("duration") or 0.0, analysis=None, caseUnseen=True)
     v["case"] = root
     return v
+
+
+def save_series(folder, vid, series):
+    """盛り上がりのグラフ(解析の結果の時系列)を folder/<配信>.json に書き、古い物から消して SERIES_KEEP 本にする。
+    スタジオの Store(SeriesCache)と flow/studiobook が同じ 1 つを使う(OPT-H1 7f-2)。-> 書けたか(書けなくても上げない)"""
+    if not isinstance(vid, str) or not _marks.ID_RE.match(vid) or series is None:
+        return False
+    try:
+        _fsio.atomic_write(os.path.join(folder, vid + ".json"), json.dumps(series, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+    except OSError as e:
+        _log.info("盛り上がりのグラフを書けませんでした: %s", e)
+        return False
+    _fsio.prune_cache(folder, "*.json", SERIES_KEEP)
+    return True
 
 
 def read(path=None):

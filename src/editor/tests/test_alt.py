@@ -166,6 +166,17 @@ class TestAltSuggest(_AltStore):
         self.assertIsNone(r["alt"])
         self.assertEqual([x for x in r["items"] if x["tier"] == "alt"], [])
 
+    def test_doc_candidates_port(self):
+        """文書 1 本の候補の口(編集の提案と「確かめる」の読みのカードが読む): 却下済みを外す・評価用と alt.json の無い文書は空"""
+        self.put_doc(self.doc())
+        self.assertEqual(S.alt_doc_candidates(TID, self.doc()), [])
+        self.put_alt([_alt(0, 3, "白神フブキです"), _alt(3, 6, "大上ミオです")])
+        self.assertEqual([x["seg"] for x in S.alt_doc_candidates(TID, self.doc())], ["s1", "s2"])
+        S.record_feedback({"tid": TID, "action": "reject", "items": [{"seg": "s1", "wrong": "上", "right": "神", "tier": "alt"}]})
+        self.assertEqual([x["seg"] for x in S.alt_doc_candidates(TID, self.doc())], ["s2"])       # 採否の記録から却下を読む
+        self.assertEqual([x["seg"] for x in S.alt_doc_candidates(TID, self.doc(), set())], ["s1", "s2"])
+        self.assertEqual(S.alt_doc_candidates(TID, self.doc(evalSet=True)), [])
+
     def test_no_alt_file(self):
         self.put_doc(self.doc())
         r = S.suggest_for_doc(TID)

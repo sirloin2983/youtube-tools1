@@ -112,7 +112,7 @@ def no_sub_row(g):
     return isinstance(g, dict) and g.get("noSub") is True
 
 
-# 行の印 draft(機械が置いた下書き・まだ人が打っていない。2026-10-05。話者の部品 human/proof/speakers の ovdraft_)。決まった文字列のときだけ持つ。
+# 行の印 draft(機械が置いた下書き・まだ人が打っていない。2026-10-05。置く機能 ovdraft は OPT-H1 で消した = 前に置いた行の印として読むだけ)。決まった文字列のときだけ持つ。
 # "overlap" = 声があるのに行の無い所に置いた空の行(重なりの下書き)。文字を打ったら画面が外す。文字の無い行なので字幕・カット・パックには出ない
 # "missing" = 主の話者も含めて、声があるのにどの行も無い所(抜けの下書き。音のメモ overlap は付けない。決まりは overlap と同じ)
 ROW_DRAFT_KINDS = ("overlap", "missing")
@@ -276,7 +276,7 @@ def find_clip(media_path, media_duration=None):
     """動画の .clip.json を探して読む(作業用/ → 以前の置き方 = 動画の隣。find_clip_path)。
     戻り値 (clip または None, 警告または None, .clip.json のパスまたは None)。
     media_duration(秒)を渡すと、.clip.json の durationSec と大きく違うときに警告を付ける(clip は使う)。
-    編集の受け渡し(pipeline_io.find_clip)・文字起こしの受付(human/proof/doc_jobs)・文字起こしせずに開く(ed_store)が読む
+    編集の受け渡し(pipeline_io.find_clip)・文字起こしの受付(human/proof/doc_jobs)・文字起こしせずに開く(human/proof/store)が読む
     (RS3-0A に編集の pipeline_io から移した = 下の層の部品が pipeline_io(manage)を読まずに済むように。中身は同じ)"""
     p = find_clip_path(media_path)
     if not p:

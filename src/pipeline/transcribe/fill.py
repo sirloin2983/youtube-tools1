@@ -21,7 +21,7 @@
   - 置き換えた・捨てた数は記録に残す(recognition.runs[].fill・diarization.fillDropped)
 名前は fill_ / FILL_ / _fill_ で始める(serve.py の _ED_MODULES。ほかの部品と重ならないように)。
 
-役割で組み直す RS2-9(2026-10-10)に編集の src/editor/ed_fill.py から移した(中身は同じ。旧い名前の殻は作らない = 読み手は全部直した。S.fill_* は serve の名前の受付で読める)。
+役割で組み直す RS2-9(2026-10-10)に移した(中身は同じ。旧い名前の殻は作らない = 読み手は全部直した。S.fill_* は serve の名前の受付で読める)。
 標準ライブラリ・ytt・同じパッケージの兄弟(backend・diarize・roster・tx_engines・txbase・worker_client)だけを読む。名簿のファイルの場所は呼ぶたびに
 roster.ROSTER から(RS3-0A まで txenv の口)、話者判別の部品の有無は diarize.has_sherpa から、疑似の窓の読みは backend の口 fill_reader から(RS5-D。app の ed_state を読まない)。ネイティブの部品は読み込まない。
 """
@@ -243,8 +243,7 @@ def fill_strip_names(spec, rows):
 
 def fill_head_stripper(spec):
     """範囲・全体の再認識と疑わしい所の認識し直しで、行の頭の「名前:」を外す決まり(B。0.67.0)。recognize.finish_range_lines が使う
-    (recognize は fill を読まない = 編集の serve が recognize.set_head_stripper で登録する)。RS6 a-3 に human/proof/doc_jobs.head_stripper からここへ
-    (③ を通さない ① どうしの決まり)。-> None(設定 stripNames が明示のオフ・評価用)か、split(文字) -> (本文, 外したときの印 FILL_SPK_NOTE か None)"""
+    (同じ ① の recognize が直に呼ぶ)。-> None(設定 stripNames が明示のオフ・評価用)か、split(文字) -> (本文, 外したときの印 FILL_SPK_NOTE か None)"""
     if spec.get("stripNames", True) is False or spec.get("evalSet"):
         return None
     names = fill_spk_names(spec)

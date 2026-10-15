@@ -209,7 +209,7 @@ function showPackArea(){
   requestAnimationFrame(() => { el.scrollIntoView({ block: 'start' }); const b = $('#pkBuild'); if (b && !b.disabled && b.offsetParent) b.focus({ preventScroll: true }); });
 }
 
-/* キー(Alt+2/3)・「文字起こしせずに開く」でタブを移ったあと: そのタブの最初の操作へ(フォーカスが隠れたタブの中に残って body に落ちないように。UI の見直し S18)。
+/* キー(Alt+2/3)でタブを移ったあと: そのタブの最初の操作へ(フォーカスが隠れたタブの中に残って body に落ちないように。UI の見直し S18)。
    2 カット = 再生(読み込みが終わって押せるようになるまで少し待つ)。1 文字起こし は行の操作のキーがどこからでも効くので動かさない */
 function focusTabStart(t, tries = 30){
   const el = t === 'cut' ? $('#cutPlay') : null;
@@ -388,11 +388,11 @@ async function reloadSettings(){
 
 /* 設定のチェック [設定の鍵, 欄の id, 無いときの扱い](readOpts・applySettings・jobOpts と、変えたら保存する配線(app.js)が同じ表を使う)。
    扱い: true = 明示の false のときだけ外す / false = true のときだけ付ける / null = 真らしい値なら付ける。
-   OPT_CHECKS = 「認識の設定」(文字起こしの要求にも付ける。autoYtcap = 終わったら元の配信の YouTube の字幕と比べる 案 A1)。
+   OPT_CHECKS = 「認識の設定」(文字起こしの要求にも付ける)。YouTube の字幕の候補 autoYtcap・評価用でない自動の判別 autoDiarize は OPT-H1 で消した(決定 3-47 Q7・Q10)。
    0.66.0: OPT_CHECKS の欄は 1 文字起こし から外して設定の画面へ(notes:docs/spec/data.md の 6)。表は鍵と既定の扱いのために残し、欄が無ければ S.settings を読む */
 const OPT_CHECKS = [['boost', 'optBoost', null], ['autoDict', 'optAutoDict', true], ['wordSplit', 'optWordSplit', true], ['stripPunct', 'optStripPunct', true],
   ['autoGloss', 'optAutoGloss', true], ['autoContext', 'optAutoContext', false], ['autoLearned', 'optAutoLearned', false], ['autoRedo', 'optAutoRedo', false],
-  ['autoAlt', 'optAutoAlt', false], ['autoYtcap', 'optAutoYtcap', false], ['autoDiarize', 'optAutoDiar', false],
+  ['autoAlt', 'optAutoAlt', false],
   ['autoFill', 'optAutoFill', true],   // autoFill = 認識のあとの後処理(文字の少ない行を別の読みで埋める。既定オン。0.60.0)
   ['autoLlm', 'optAutoLlm', true],   // autoLlm = 名簿の呼び名の聞き違いらしい所だけを手元の LLM で直す(既定オン。0.61.0 のサーバー・画面のチェックは 0.63.0)
   ['stripNames', 'optStripNames', true]];   // stripNames = 行の頭の話者名(「名前:」)を外す(既定オン。0.67.0。欄は設定の画面だけ)

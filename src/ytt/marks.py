@@ -1,7 +1,7 @@
 """マークの純粋な語彙(スタジオの data.json の配信のマーク。RS8 B3-2 で human/review/store.py から下ろした)。
 
 ファイルにもロックにも触らない関数と定数だけ(標準ライブラリと ytt だけを import する)。
-読み書きとロックは human/review/store.py の Store(B3-3 からは ② の置き場)、API の検査(validate_marks)と学習の記録も store に残る。
+読み書きとロックは human/review/store.py の Store と flow/studiobook の StudioBook、学習の記録は human/review/feedback.py。API の検査 validate_marks は build_mark の隣(ここ)。
 採用の規則 F-5 は pipeline/analyze/adopt.py(この語彙を読む)。ライブの採用(flow/live_adopt.py)・マークの正本(flow/live_export.py の
 MarkStore)・束の検査(flow/spec.py)も、同じ区間の幅・長さの上限をここから読む(前は値を写していた)。
 
@@ -19,6 +19,7 @@ import re
 import sys
 
 from ytt import schemas
+from ytt.errors import ApiError
 
 ID_RE = re.compile(r"^[\w-]{1,40}\Z", re.ASCII)   # マーク・配信・グループの id
 MAX_MARKS = 500
@@ -188,6 +189,37 @@ def build_mark(m, old, trusted=False):
     if srv.get("adoptedBy") and d["status"] in ("adopted", "exported"):
         d["adoptedBy"] = srv["adoptedBy"]
     return d
+
+
+def validate_marks(raw, old_marks):
+    """PUT /api/video のマークを厳しく検査する。1件でも不正なら ApiError 400 bad_marks(何も変えない)。id の無い新しいマークにはサーバーが id を付ける。"""
+    if len(raw) > MAX_MARKS:
+        raise ApiError("bad_marks", "マークは%d件までです(いま%d件)" % (MAX_MARKS, len(raw)), 400)
+    old = {m["id"]: m for m in old_marks}
+    ids = {m.get("id") for m in raw if isinstance(m, dict) and isinstance(m.get("id"), str)}
+    out, seen = [], set()
+    for i, m in enumerate(raw):
+        where = "%d番目のマーク" % (i + 1)
+        if not isinstance(m, dict):
+            raise ApiError("bad_marks", where + "が正しくありません(オブジェクトではありません)", 400)
+        mid = m.get("id")
+        if mid is None or mid == "":
+            while True:
+                mid = "m" + os.urandom(6).hex()
+                if mid not in ids and mid not in seen and mid not in old:
+                    break
+            m = dict(m, id=mid)
+        elif not isinstance(mid, str) or not ID_RE.match(mid):
+            raise ApiError("bad_marks", where + "の id が正しくありません(英数字・_・- の1〜40文字)", 400)
+        if mid in seen:
+            raise ApiError("bad_marks", "%s(id: %s)は id が重複しています" % (where, mid), 400)
+        try:
+            c = build_mark(m, old.get(mid))
+        except BadMark as e:
+            raise ApiError("bad_marks", "%s(id: %s)が正しくありません: %s" % (where, mid, e), 400)
+        seen.add(mid)
+        out.append(c)
+    return out
 
 
 def new_mark(prefix, s, e, status=""):

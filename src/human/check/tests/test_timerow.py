@@ -3,10 +3,9 @@
 実行(リポジトリ直下から): py -3.10 -m unittest src/human/check/tests/test_timerow.py -v
 """
 import os
-import shutil
 import sys
-import tempfile
 import unittest
+from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> check -> human -> src
@@ -17,7 +16,7 @@ for _p in (os.path.join(ROOT, "editor"), ROOT):
 from human.check import answerlog, apply  # noqa: E402
 from human.check import timerow as check_time  # noqa: E402
 from human.proof import store  # noqa: E402
-from ytt import workdata  # noqa: E402
+from human.tests._workdata import temporary_workdata  # noqa: E402
 
 TID = "0123456789ab"
 
@@ -29,12 +28,7 @@ def card(row="s1", tid=TID):
 
 class TimeApplyTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-check-time-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
-        saved = {n: getattr(workdata, n) for n in ("DATA_DIR", "TX_DIR", "TMP_DIR", "EVAL_BASE", "SETTINGS", "FEEDBACK")}
-        self.addCleanup(lambda: [setattr(workdata, n, v) for n, v in saved.items()])
-        workdata.set_data_dir(os.path.join(self.tmp, "data"))
-        os.makedirs(workdata.TX_DIR)
+        self.tmp = temporary_workdata(self, "ytt-check-time-")
         self.doc = {"id": TID, "updatedAt": 1, "segments": [
             {"id": "s1", "start": 10.0, "end": 12.0, "text": "あいう", "speaker": "", "proofed": True, "flag": ""},
             {"id": "s2", "start": 12.5, "end": 14.0, "text": "えお", "speaker": "", "proofed": True, "flag": ""}]}
@@ -45,11 +39,11 @@ class TimeApplyTest(unittest.TestCase):
         return next(g for g in store.read_transcript(TID)["segments"] if g["id"] == rid)
 
     def test_registered_and_why(self):
-        self.assertTrue(apply.registered("time", "row"))
+        self.assertTrue(apply._registered("time", "row"))
         self.assertIn("check:time", store.HUMAN_WHYS)
 
     def test_check(self):
-        c = check_time.check
+        c = check_time._check
         self.assertEqual(c({"choice": "ok"}), {"choice": "ok", "dStart": 0.0, "dEnd": 0.0})
         self.assertEqual(c({"choice": "head", "dStart": -0.1004}), {"choice": "head", "dStart": -0.1, "dEnd": 0.0})
         self.assertEqual(c({"choice": "both", "dStart": 0.2, "dEnd": -0.3})["dEnd"], -0.3)
@@ -118,6 +112,44 @@ class TimeApplyTest(unittest.TestCase):
         with self.assertRaises(apply.Refused) as cm:
             apply.answer(self.ctx, card(), {"answer": {"choice": "head", "dStart": 0.1}})
         self.assertEqual(cm.exception.error, "eval")
+
+    def test_undo_log_failure_then_retry(self):
+        """部品 H2 の再現: 頭を 1.0 → 1.5 秒へ答え、Z で 1.0 へ戻したあと戻すの行だけ OSError → 評価の有効な答えから外れ、
+        同じ Z のやり直しで 409 changed にならずに記録が整う・同じカードに答え直せる"""
+        doc = store.read_transcript(TID)
+        doc["segments"][0].update(start=1.0, end=3.0)
+        store.commit(TID, doc, why="save")
+        r = apply.answer(self.ctx, card(), {"answer": {"choice": "head", "dStart": 0.5}})
+        self.assertEqual(self.seg()["start"], 1.5)
+        real = answerlog.append
+
+        def append(app_dir, row):
+            if "undo" in row:
+                raise OSError("full")
+            return real(app_dir, row)
+        with mock.patch.object(answerlog, "append", side_effect=append):
+            with self.assertRaises(OSError):
+                apply.undo(self.ctx, r["answer"])
+        self.assertEqual(self.seg()["start"], 1.0)
+        st = answerlog.state(self.ctx.app_dir)
+        self.assertEqual([x for x in st.effective() if x["kind"] == "time"], [])   # eval_timing は effective を読む = 戻した答えを使わない
+        u = apply.undo(self.ctx, r["answer"])
+        self.assertTrue(u["ok"])
+        self.assertEqual(self.seg()["start"], 1.0)
+        again = apply.answer(self.ctx, card(), {"answer": {"choice": "ok"}})
+        self.assertTrue(again["ok"])
+
+    def test_move_limit_matches_screen(self):
+        self.assertEqual(check_time.MAX_MOVE, 2.5)   # 画面 cards/time.js の LIMIT と同じ
+        with self.assertRaises(ValueError):
+            check_time._check({"choice": "head", "dStart": 3.0})
+
+    def test_busy_doc_is_refused(self):
+        from flow import jobs as _heavy
+        with mock.patch.object(_heavy, "doc_busy", return_value=True):
+            with self.assertRaises(apply.Refused) as cm:
+                apply.answer(self.ctx, card(), {"answer": {"choice": "head", "dStart": 0.1}})
+        self.assertEqual(cm.exception.error, "busy")
 
     def test_start_not_before_zero(self):
         doc = store.read_transcript(TID)

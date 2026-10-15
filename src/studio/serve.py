@@ -7,6 +7,7 @@
   エンドポイントは API.md を参照。127.0.0.1 にのみバインドし、Host / Origin / Sec-Fetch-Site を検査する。
 """
 import json
+import logging
 import os
 import re
 import shutil
@@ -72,7 +73,7 @@ def init(home=None):
 
 
 def attach_board(board):
-    """解析(頭 an)・書き出し(頭 ex。② の器 flow/export)・配信の検索(頭 se)を掲示板(RS8 の ② の口 S2。flow/board.py)に載せる。③ の検索は flow を読めないので、ここ(取り込みの側)で登録する"""
+    """解析(頭 an)・書き出し(頭 ex。② の器 flow/export)・配信の検索(頭 se)を掲示板(flow/board.py)に載せる。登録はここ(入口の側)でまとめて行う"""
     BATCH.attach_board(board)
     EXPORTS.attach_board(board)
     rank.attach_board(board)
@@ -106,7 +107,7 @@ def api_state():
     key, source = _key.get_api_key()
     fk = _env.fake()
     d = {"hasKey": bool(key) or fk, "keySource": source, "fake": fk, "ffmpeg": bool(_env.find_tool("ffmpeg")), "ytdlp": bool(_env.find_tool("yt-dlp")) or fk,
-         "outDir": _env.get_out_dir(), "defaultOutDir": _env.default_out_dir(), "dataDir": _env.home(), "quota": rank.quota(),
+         "outDir": _env.get_out_dir(), "defaultOutDir": _env.default_out_dir(), "dataDir": _env.home(),
          "env": startup.env_state()}   # 起動時の環境チェック(道具の版・古い yt-dlp・出力先の空き容量など)。warnings は画面にそのまま出せる文
     warning, backup = STORE.take_warning()   # 起動時の data.json の問題は、最初の1回だけ知らせる
     if warning:
@@ -310,7 +311,7 @@ def _live_adopt(o):
 
 
 def _live_exported(o):
-    """入口のライブの書き出し(home/live_export.py)が済んだマークを「書き出し済み」にする。
+    """入口のライブの書き出し(flow/live_export.py)が済んだマークを「書き出し済み」にする。
     path は書き出し先(今の設定の out dir)の中にある実在の .mp4 だけ(画面・入口から来る値なので realpath で比べる)。"""
     vid, mid, raw = o.get("id"), o.get("markId"), o.get("path")
     if not isinstance(vid, str) or not isinstance(mid, str) or not mid or len(mid) > 64:
@@ -523,6 +524,26 @@ def _log(msg):
         pass
 
 
+class _WarnToStudioLog(logging.Handler):
+    """ytt の下のロガー(ytt.casefiles・ytt.flow.casebook・ytt.review など)の警告を studio.log にも残す。入口は隠れた窓から動くので、
+    標準エラーだけだと「書いたあと読み直して比べる自己検査」「採用.json が読めないので .bak を使います」などの警告が消える(OPT-H1 7d-2)"""
+
+    def emit(self, record):
+        try:
+            _log("[%s] %s" % (record.name, record.getMessage()))
+            sys.stderr.write("[%s] %s\n" % (record.name, record.getMessage()))
+        except Exception:
+            pass
+
+
+def _attach_warn_log():
+    """ytt の警告を studio.log へ(1 回だけ。prepare から)"""
+    lg = logging.getLogger("ytt")
+    if not any(isinstance(h, _WarnToStudioLog) for h in lg.handlers):
+        h = _WarnToStudioLog(level=logging.WARNING)
+        lg.addHandler(h)
+
+
 def _setup_diagnostics():
     """途中で終了したとき原因が分かるように、終了・例外・シグナルを studio.log と画面に残す。"""
     import atexit
@@ -607,6 +628,7 @@ def prepare(port, base_path="/"):
     init(_data_home() if default else None)
     datadir.register(TOOL_ID, _env.home())   # テスト・入口が先に決めていたときも、実際に使う場所を同じプロセスの他のツールへ知らせる
     startup.migrate_old_logs()   # 以前の studio.log.old などは .gitignore に掛からないので、*.log の名前に直す(公開リポジトリに載せない)
+    _attach_warn_log()
     _log("起動 v%s port=%d%s pid=%d python=%s" % (SERVER_VERSION, port, "" if base_path == "/" else " path=" + base_path, os.getpid(), sys.version.split()[0]))
     shutil.rmtree(fetch.work_dir(), ignore_errors=True)   # 前回の途中で残った作業ファイルを消す
     runtime = handoff.write_runtime(TOOL_ID, port, SERVER_VERSION, base_path)   # 他のツールの「他のツール」メニュー用。書けなくても続ける

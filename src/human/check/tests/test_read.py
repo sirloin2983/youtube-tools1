@@ -5,9 +5,7 @@
 """
 import json
 import os
-import shutil
 import sys
-import tempfile
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
@@ -18,7 +16,7 @@ for _p in (os.path.join(ROOT, "editor"), ROOT):
 
 from human.check import answerlog, apply, read  # noqa: E402,F401
 from human.proof import learn, store  # noqa: E402
-from ytt import workdata  # noqa: E402
+from human.tests._workdata import temporary_workdata  # noqa: E402
 
 TID = "aaaaaaaaaaaa"
 FLAG = "別の読みで埋めた(元の文字は「別の読み」の札)"
@@ -44,12 +42,7 @@ CAND = {"i": 3, "wrong": "晴", "right": "腫", "tier": "alt", "also": ["yt"]}
 
 class ReadTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-check-read-")
-        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
-        saved = {n: getattr(workdata, n) for n in ("DATA_DIR", "TX_DIR", "TMP_DIR", "EVAL_BASE", "SETTINGS", "FEEDBACK")}
-        self.addCleanup(lambda: [setattr(workdata, n, v) for n, v in saved.items()])
-        workdata.set_data_dir(os.path.join(self.tmp, "data"))
-        os.makedirs(workdata.TX_DIR)
+        self.tmp = temporary_workdata(self, "ytt-check-read-")
         with open(store.tx_path(TID), "w", encoding="utf-8") as f:
             json.dump(doc(), f, ensure_ascii=False)
         self.app = os.path.join(self.tmp, "app")
@@ -64,15 +57,15 @@ class ReadTest(unittest.TestCase):
 
     def test_registered_for_three_sources(self):
         for s in ("fill", "alt", "yt"):
-            self.assertTrue(apply.registered("read", s))
+            self.assertTrue(apply._registered("read", s))
 
     def test_check_answer_shape(self):
-        self.assertEqual(read.check({"choice": "2", "x": 1}), {"choice": "2"})
-        self.assertEqual(read.check({"choice": "other", "text": "  正しい文字 "}), {"choice": "other", "text": "正しい文字"})
+        self.assertEqual(read._check({"choice": "2", "x": 1}), {"choice": "2"})
+        self.assertEqual(read._check({"choice": "other", "text": "  正しい文字 "}), {"choice": "other", "text": "正しい文字"})
         for bad in ({"choice": "3"}, {"choice": "other"}, {"choice": "other", "text": "  "}, {"choice": "other", "text": "あ" * 5000}, "1", None,
                     {"choice": "other", "text": "a\x01b"}):
             with self.assertRaises(ValueError):
-                read.check(bad)
+                read._check(bad)
 
     def test_fill_keep_changes_nothing(self):
         with self.assertNoLogs("tx", level="INFO"):
@@ -149,6 +142,40 @@ class ReadTest(unittest.TestCase):
             apply.undo(self.ctx, got["answer"])
         self.assertEqual(e.exception.error, "changed")
         self.assertEqual(self.fb()["alt"]["acc"], 1)   # 文書を戻せないときは記録も戻さない
+
+    def test_undo_refused_when_flag_changed_afterwards(self):
+        """6c-1: 文字が同じでも、答えたあとに印を直していたら Z は断る(印・後処理の札を黙って上書きしない)"""
+        got = apply.answer(self.ctx, card("fill", "s1"), {"answer": {"choice": "2"}})
+        d = store.read_transcript(TID)
+        d["segments"][0]["flag"] = "メモ、人が足した印"
+        store.commit(TID, d, why="save")
+        with self.assertRaises(apply.Refused) as e:
+            apply.undo(self.ctx, got["answer"])
+        self.assertEqual(e.exception.error, "changed")
+        self.assertEqual(self.seg("s1")["flag"], "メモ、人が足した印")
+
+    def test_history_is_not_forced(self):
+        """6c-2: 読みの答えは編集の保存と同じく履歴を 10 分に 1 つ(必ず 1 つ残して 30 個の履歴を押し出さない)・.bak の控えを作らない"""
+        from unittest import mock
+        with mock.patch.object(store, "snapshot") as snap, mock.patch.object(store, "backup_doc") as bak:
+            apply.answer(self.ctx, card("fill", "s1"), {"answer": {"choice": "2"}})
+        snap.assert_called_once_with(TID, False)
+        bak.assert_not_called()
+
+    def test_busy_and_eval_are_refused(self):
+        """6c-3: 処理中の文書と評価用の文書には反映しない(声・時刻のカードと同じ守り)"""
+        from unittest import mock
+        from flow import jobs as _heavy
+        with mock.patch.object(_heavy, "doc_busy", return_value=True):
+            with self.assertRaises(apply.Refused) as e:
+                apply.answer(self.ctx, card("fill", "s1"), {"answer": {"choice": "2"}})
+        self.assertEqual(e.exception.error, "busy")
+        d = store.read_transcript(TID)
+        d["evalSet"] = True
+        store.commit(TID, d, why="save")
+        with self.assertRaises(apply.Refused) as e:
+            apply.answer(self.ctx, card("fill", "s1"), {"answer": {"choice": "2"}})
+        self.assertEqual(e.exception.error, "eval")
 
     def test_human_why_is_registered(self):
         self.assertIn("check:read", store.HUMAN_WHYS)

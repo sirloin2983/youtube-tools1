@@ -7,6 +7,7 @@ install は ① と ② だけを読む。③ の関数(doc_jobs.run_job・speak
 二度呼んでも壊れない(登録は上書き)。ジョブの種類ごとの順序・同時に入れない組・やり直せるかはこの表が正(入口の検査 validate_*・redo_spec の tid_busy と
 登録の add_job の両方が ジョブの表 flow/jobs.EXCLUSIVE を使う)。
 
+差し込みの口はここ(① ← ② の 3 つ)と編集の serve.py の install の直後(③ ← ④⑤ の 2 つ)だけ。一覧は serve.py のその所(OPT-H1)。
 ③ が登録の口を持つ物(doc_jobs.set_hooks + check_hooks・speakers.set_context_namer + check_context_namer)は ② から呼べない(② は ③ を読めない)ので serve が呼ぶ。
 本体は呼ぶ側が lambda で渡す(呼ぶたびに読む = S.run_job = … のテストの差し替えが効く)。
 """
@@ -14,12 +15,12 @@ import os
 
 from ytt import workdata as _workdata
 from . import jobs as _jobs, tx as _tx
-from pipeline.transcribe import backend as _backend, fill as _fill, models as _models, recognize as _recognize, records as _records, worker_client as _worker_client
+from pipeline.transcribe import backend as _backend, models as _models, records as _records, worker_client as _worker_client
 
 # 同じ文字起こしに同時に入れない組み合わせ(exclusive)。10-09: 声を覚える(voice-learn)は入口だけが再認識・疑わしい所の最中を断り、判別・再認識は入口と登録で見る組が違っていたのをそろえた。
 # 0.65.0(10-09): 表を対称に(a が b を断るなら b も a を断る)= 再認識・疑わしい所も声を覚えるの最中は断る(声を覚える途中で行の時刻が変わると、覚える区間がずれる)。
-# ほかの種類(alt・ytcap・thumb)は同じ種類どうしだけ(thumb は文書を読むだけ = ほかと同時でよい)。test_voices.TestExclusive が対称を確かめる。
-# 優先度は数値が小さいほど先(話者判別 0 = 待っている文字起こしを追い越す・alt と ytcap 2 = 普通の文字起こしより後。D1-b)。
+# ほかの種類(alt・thumb)は同じ種類どうしだけ(thumb は文書を読むだけ = ほかと同時でよい)。test_voices.TestExclusive が対称を確かめる。
+# 優先度は数値が小さいほど先(話者判別 0 = 待っている文字起こしを追い越す・alt 2 = 普通の文字起こしより後。D1-b)。
 # retry = [やり直す] で同じ指定のまま入れ直せる(文書を書き換える処理は、文書の画面のボタンから始め直す)
 DOC_LOCK = ("diarize", "retranscribe", "redo", "voice-learn")
 JOB_KINDS = {
@@ -30,7 +31,6 @@ JOB_KINDS = {
     "redo": dict(exclusive=DOC_LOCK, has_tid=True),
     "normalize": dict(has_tid=True),   # 動画を選び直したあとの 30fps の作り直し(Q1)
     "alt": dict(priority=2, exclusive=("alt",), has_tid=True),   # 2つ目のエンジンで聞いて <id>.alt.json に(文書は書き換えない。D1-b)
-    "ytcap": dict(priority=2, exclusive=("ytcap",), has_tid=True),   # 元の配信の YouTube の字幕(案 A1)
     "thumb": dict(exclusive=("thumb",), has_tid=True),   # サムネの案を 1 枚に(文書は読むだけ。P5)
 }
 
@@ -58,5 +58,3 @@ def install(*, bodies=None, tool=None, log=None, tmp_dir=None, max_queue=None, m
         _worker_client.WORKER_LOG = os.path.join(_workdata.DATA_DIR, "worker.log")
     if fake_worker_module:
         _worker_client.FAKES_MODULE = fake_worker_module
-    # 範囲・全体の再認識と疑わしい所の行の頭の「名前:」を外す決まり(fill の B を ① の recognize へ。呼ぶたびに読む)
-    _recognize.set_head_stripper(lambda spec: _fill.fill_head_stripper(spec))

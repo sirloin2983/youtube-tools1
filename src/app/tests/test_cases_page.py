@@ -9,16 +9,11 @@
   スクリプトを 'self' のままに画像(ytimg)とスタイルの属性だけ足す・新しい案件の引き出しの中の id(スタジオ ① の rank.js・queue.js が document.querySelector で引く物)は
   ホームの id とぶつからない
 (名前は test_cases_page = manage/cases/tests/test_cases.py と重ねない)"""
-import http.client
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所に書かない(ytt.datadir)
 import re
-import shutil
 import sys
-import tempfile
-import threading
 import unittest
-from unittest import mock
 
 TESTS = os.path.dirname(os.path.abspath(__file__))   # src/app/tests
 SRC = os.path.dirname(os.path.dirname(TESTS))
@@ -26,8 +21,8 @@ sys.path.insert(0, os.path.join(SRC, "home"))
 sys.path.insert(0, os.path.join(SRC, "home", "tests"))
 if SRC not in sys.path:
     sys.path.append(SRC)
-from app import server as L  # noqa: E402
-from test_launch import free_ports  # noqa: E402
+sys.path.insert(0, TESTS)   # 土台 _pagetest.py(入口を立てる共通の準備)
+from _pagetest import PageServerTest, L  # noqa: E402
 
 UI = os.path.join(SRC, "app", "ui", "cases")
 PANELS = ("cand", "proof", "cut")
@@ -38,37 +33,8 @@ def read(path):
         return f.read()
 
 
-class CasesPageHttpTest(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.tmp = tempfile.mkdtemp(prefix="ytt-cases-page-")
-        cls.env = mock.patch.dict(os.environ, {"YTT_RUNTIME_DIR": os.path.join(cls.tmp, ".runtime")})
-        cls.env.start()
-        cls.sup = L.Supervisor(cls.tmp, ready_timeout=5, stop_timeout=5, poll=0.5, log=lambda m: None,
-                               ports=dict(zip(L.TOOL_IDS, free_ports(3))), mounts=())
-        cls.srv, cls.port = L.make_server(0, cls.sup)
-        cls.sup.attach(cls.srv)
-        cls.th = threading.Thread(target=cls.srv.serve_forever, daemon=True)
-        cls.th.start()
-        cls.host = "127.0.0.1:%d" % cls.port
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.srv.shutdown()
-        cls.srv.server_close()
-        cls.sup.close()
-        cls.env.stop()
-        shutil.rmtree(cls.tmp, ignore_errors=True)
-
-    def req(self, path, headers=None):
-        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=30)
-        h = {"Host": self.host}
-        h.update(headers or {})
-        conn.request("GET", path, headers=h)
-        r = conn.getresponse()
-        body = r.read()
-        conn.close()
-        return r, body
+class CasesPageHttpTest(PageServerTest):
+    TMP_PREFIX = "ytt-cases-page-"
 
     def test_page_csp_and_token(self):
         r, body = self.req("/cases?c=abc&d=t1")

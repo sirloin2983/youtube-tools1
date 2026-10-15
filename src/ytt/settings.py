@@ -16,9 +16,9 @@
     with sf.lock: d, broken = sf.load(); ...; sf.save(d, broken)   # 自分で読み書きするとき(ホームの remember・hide など)
 
 編集の設定(settings.json)の読み書きと鍵の検査(load_settings・patch_settings・merge_settings・replace_settings・SETTINGS_PATCH_KEYS)も
-ここに置く(役割で組み直す RS3-1。2026-10-10 に editor/ed_learn.py から移した = どの層の部品も ed_learn を読まずに設定を読める)。
+ここに置く(どの層の部品も編集の部品を読まずに設定を読める)。
 置き場所は ytt/workdata の SETTINGS を呼ぶたびに読む(テストの S.SETTINGS = … が効く)。鍵の検査は持ち主の部品が register_patch_key で足す
-(2 つ目のエンジンの altEngine は ed_alt)。
+(2 つ目のエンジンの altEngine は human/proof/alt)。
 評価用のフォルダの判定(eval_dirs・in_eval_dir・eval_name_guard。設定 evalDirs を読む)もここ(RS0-f。RS3-1 に ed_relink から)。編集の部品・テストは serve の名前の受付(S.load_settings など)からも読める。
 """
 import json
@@ -172,7 +172,7 @@ class SettingsFile:
         self.update(put)
 
 
-# ---------- 編集の設定(settings.json。RS3-1 に editor/ed_learn.py から移した)----------
+# ---------- 編集の設定(settings.json)----------
 SETTINGS_MAX = 400000   # settings.json の大きさの上限(バイト)。読むときも書くときも同じ
 _settings_lock = threading.RLock()   # 設定の読み→書きを 1 つにする(SettingsFile に渡す)
 
@@ -195,7 +195,7 @@ def load_settings():
 
 
 # ほかの画面から直してよい設定と、その値の検査(送ったキーだけ直す。全体を上書きしない = 窓を並べても他の値を消さない。気が利く画面へ 1)。
-# 編集のほかの部品が持つ値で検査する鍵は、その持ち主が register_patch_key で足す(altEngine = ed_alt の ALT_ENGINES)。evalDirs は下の評価用の節
+# 編集のほかの部品が持つ値で検査する鍵は、その持ち主が register_patch_key で足す(altEngine = human/proof/alt の ALT_ENGINES)。evalDirs は下の評価用の節
 SETTINGS_PATCH_KEYS = {"packLoudness": lambda v: not isinstance(v, bool) and v in (0, -11, -14, -16, -18),   # パックの音量(LUFS。0 = % で決める)
                        "packVolume": lambda v: isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 200,   # packLoudness が 0 のときの音量(%)
                        # パックの出力(3 パック のタブ・まとめて実行の欄が同じ値を読み書きする。気が利く画面へ 段4)
@@ -208,7 +208,7 @@ SETTINGS_PATCH_KEYS = {"packLoudness": lambda v: not isinstance(v, bool) and v i
                        "keymap": lambda v: _keymap_ok(v),
                        # 話者判別のあと、短い 1 行だけ別の人になるのをならす(S2。試験中・既定オフ。pipeline/transcribe/diarize の smooth_)
                        "diarSmooth": lambda v: isinstance(v, bool),
-                       # 2 カット の「無音 ▾」の値(気が利く画面へ 段7 E-5)。まとめて実行(pipeline/run.py の _pack_settings)も同じ鍵を読む
+                       # 2 カット の「無音 ▾」の値(気が利く画面へ 段7 E-5)。まとめて実行(flow/run.py の _pack_settings)も同じ鍵を読む
                        "cutSilence": lambda v: _cut_silence_ok(v),
                        # サムネの案の切り取り(パックの所の「サムネの案」。alt = 中央と右下を交互。P5。ed_thumb.THUMB_CROPS)
                        "thumbCrop": lambda v: v in ("alt", "center", "right")}
@@ -286,7 +286,7 @@ def replace_settings(obj):
     return {"ok": True}
 
 
-# ---------- 評価用のフォルダの判定(2026-10-01 ユーザー決定。notes:docs/spec/data.md。RS3-1 に editor/ed_relink.py から移した = RS0-f)----------
+# ---------- 評価用のフォルダの判定(2026-10-01 ユーザー決定。notes:docs/spec/data.md。RS3-1 に移した = RS0-f)----------
 # 設定 evalDirs のフォルダ(の下)にある動画は、精度を測るためだけのデータ。文字起こし・保存・付け替え・履歴から戻すときに評価用の印を付ける。
 # 判定はパスを比べるだけ(ネットワーク上のパスには触らない)。整理(名前をそろえる)と仮置きは editor/ed_relink に残る
 EVAL_DIRS_MAX = 10

@@ -288,17 +288,6 @@ class TestPerformance(StoreDir):
         finally:
             S.STUDIO_DATA, S.PACK_CHECK_BUDGET = old
 
-    def test_scan_common_reads_transcripts_once(self):
-        calls = []
-        old = S.transcribed_ranges
-        S.transcribed_ranges = lambda: calls.append(1) or [{"path": os.path.normcase(os.path.abspath("/d1/a.mp4")), "start": 0, "end": None, "whole": True, "tid": "t1"}]
-        try:
-            out = S.scan_common(["/d1/a.mp4", "/d2/b.mp4", "/d3/.hidden.mp4"])
-        finally:
-            S.transcribed_ranges = old
-        self.assertEqual(len(calls), 1)                              # フォルダごとに全文書を読み直さない
-        self.assertEqual([(o["doneTid"], o["queued"]) for o in out], [("t1", False), ("", False), ("", False)])
-
 
 class TestStartupChecks(StoreDir):
     def test_checks(self):
@@ -755,11 +744,7 @@ class TestPipelineHttp(unittest.TestCase):
         self.assertEqual(len(job["warnings"]), 1)
         self.assertIn("未対応の版", job["warnings"][0])
         self.assertNotIn("clip", self.call("GET", "/api/transcript?id=" + job["tid"]))
-        # フォルダ一括でも同じ
-        self.write_clip(clip_obj())
-        r = self.call("POST", "/api/transcribe-batch", {"paths": [self.wav, self.wav], "skipDone": False, "model": "small", "autoGloss": False})
-        self.assertEqual(len(r["added"]), 1)   # 同じファイルは1回だけ
-        self.assertTrue(r["added"][0]["hasClip"])
+        self.assertEqual(self.call("POST", "/api/transcribe-batch", {"paths": [self.wav]})["_status"], 404)   # フォルダの一括は消した(決定 3-47 の Q5)
 
     def test_clip_info(self):
         r = self.call("GET", "/api/clip-info?path=" + self.q(self.wav))
@@ -914,7 +899,8 @@ class TestPipelineHttp(unittest.TestCase):
 
     def test_media_range_head_and_416(self):
         """/media の Range(シーク)・HEAD・範囲の外(416)。応答は ytt.httpsec.send_file(0.60.1。スタジオと同じ 1 か所)"""
-        tid = self.call("POST", "/api/open-video", {"path": self.wav})["id"]
+        from test_edit import put_empty_doc   # 行の無い文書(「文字起こしせずに開く」は消した)
+        tid = put_empty_doc(os.path.join(self.tmp, "transcripts"), self.wav)
         with open(self.wav, "rb") as f:
             body = f.read()
         size = len(body)

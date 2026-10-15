@@ -1,7 +1,7 @@
-"""ytt — 基盤(役割で組み直す計画 notes:plan/role-restructure.md の 3 節。2026-10-09 の RS1-1 で ytt_core から移した。どの層からも読める)。
+"""ytt — 基盤(役割で組み直す計画 notes:plan/role-restructure.md の 3 節。2026-10-09 の RS1-1 で移した。どの層からも読める)。
 
 Python 標準ライブラリだけで動く。読む側は src/ を sys.path に入れて `from ytt import fsio` のように読む(層のパッケージの中は兄弟を相対で)。
-旧い名前 `ytt_core` の転送は RS5-G で消した。excite は pipeline/analyze、evaldata は eval/tools、txindex は manage/cases に移した。
+旧い名前の転送は RS5-G で消した。excite は pipeline/analyze、evaldata は eval/tools、txindex は manage/cases に移した。
 この __init__ は説明と定数だけ(import しない。dev/tests/test_layering.py が検査)。
 
 - fsio      … 原子的な書き込み(Windows の一時的なロックはやり直す)・大きさの上限つきの JSON の読み込み(読めなければ既定値 read_json_or も)・
@@ -28,9 +28,9 @@ Python 標準ライブラリだけで動く。読む側は src/ を sys.path に
 使っている各ツールのテスト(notes:docs/spec/code.md の 6 の表)を通すこと。
 """
 # 版は全体で 1 つ = ytt/version.py の VERSION(RS5-E。ytt 自身の版 1.8.0 は廃止。__init__ は import しない決まり)。以下は ytt の変更の経緯
-# 1.8.0(2026-10-09): ytt_core から ytt へ移した(RS1-1。excite → pipeline/analyze・evaldata → eval/tools・txindex → manage/cases。旧い名前は転送)。layout の SHARED_CODE_DIRS・copy_shared_code
+# 1.8.0(2026-10-09): 旧基盤から ytt へ移した(RS1-1。excite → pipeline/analyze・evaldata → eval/tools・txindex → manage/cases。旧い名前は転送)。layout の SHARED_CODE_DIRS・copy_shared_code
 # 1.7.0(2026-10-09): normalize の公開の run_ffmpeg・run_with_legacy・verify(入口の作り直しが使う)・fsio.existing_parent・runtime.safe_stdio・install_stop_signals を足した(見直しの次の周)
-# 1.6.0(2026-10-09): 設定ファイルの読み書きの共通部品 settings(SettingsFile・SettingsError・SettingsTooLarge)を足した(設定を 1 つに S4。home/prefs.py・studio/store.py・editor/ed_learn.py が使う)
+# 1.6.0(2026-10-09): 設定ファイルの読み書きの共通部品 settings(SettingsFile・SettingsError・SettingsTooLarge)を足した(設定を 1 つに S4。home/prefs.py と学習の部品が使う)
 # 1.5.0(2026-10-09): 使われていない公開の関数・定数を消した(コードの見直しの F。evaldata の書き出し側 RULES・scrub_paths・zip_name・safe_url・overlap・raw_links、colors.rgb01、loudness.db_to_pct、normalize.TARGET、excite.PEAK_STATES)
 # 1.4.0(2026-10-09): ツールをまたいだ規則 names・recproto を足した(T8)。fsio の StampCache.peek/set・read_json_or(allow_nan)・write_json(mode)、httpsec.send_head(cache)、tools.OUT_TIME を公開
 # 1.3.0(2026-10-09): 各ツールの写しを吸い上げる小道具を足した(fsio・tools・httpsec・schemas・datadir.studio_out_dir・excite の定数)

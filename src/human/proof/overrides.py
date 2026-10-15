@@ -19,14 +19,15 @@ import os
 import re
 
 from ytt import docloc as _docloc, fsio as _fsio, schemas as _yschemas, txbase as _txbase, workdata as _workdata  # noqa: E402
+from . import layers as _layers  # noqa: E402   対応づけの決まりの値(持ち主は layers = O2。O1 はそれを読む)
 
 OVER_SCHEMA = "youtube-tools-over/v1"
 OVER_SUFFIX = ".over.json"
 STALE_FLAG = "古い認識を元にした直し(作り直した文字起こしに対応する行がありません)"   # 対応づかない人の文字の行に付ける要確認の印
-HALF = 0.5          # 重なりが短い方の長さのこの割合以上なら対応づける(中心が入らなくても)
-COVER_DROP = 0.5    # 新しい機械の行は、対応づいた人の文字の行が長さのこの割合以上を覆うか、
-TEXT_DROP = 0.5     # 機械の文字のこの割合以上が人の行の文字に現れるときだけ人の行に置き換える(小さな人の行で長い機械の行のほかの言葉を消さない)
-FLAG_MAX = 100      # 行の印の文字数の上限(store.sanitize_transcript と同じ)
+HALF = _layers.HALF               # 重なりが短い方の長さのこの割合以上なら対応づける(中心が入らなくても)
+COVER_DROP = _layers.COVER_DROP   # 新しい機械の行は、対応づいた人の文字の行が長さのこの割合以上を覆うか、
+TEXT_DROP = _layers.TEXT_DROP     # 機械の文字のこの割合以上が人の行の文字に現れるときだけ人の行に置き換える(小さな人の行で長い機械の行のほかの言葉を消さない)
+FLAG_MAX = _layers.FLAG_MAX       # 行の印の文字数の上限(store.sanitize_transcript と同じ)
 
 
 def _span(g):

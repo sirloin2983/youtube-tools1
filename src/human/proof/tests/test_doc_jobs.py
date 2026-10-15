@@ -132,8 +132,7 @@ class TestCarryOverrides(unittest.TestCase):
                 mock.patch.object(doc_jobs._flowtx, "transcribe_clip", lambda *a, **k: clip), \
                 mock.patch.object(doc_jobs._flowtx, "write_clip_records", lambda *a, **k: None), \
                 mock.patch.object(doc_jobs.speakers, "autodiar_after_transcribe", lambda *a: None), \
-                mock.patch.object(doc_jobs.alt, "alt_after_transcribe", lambda *a: None), \
-                mock.patch.object(doc_jobs.ytcap, "ytcap_after_transcribe", lambda *a: None):
+                mock.patch.object(doc_jobs.alt, "alt_after_transcribe", lambda *a: None):
             doc_jobs.run_job(job)
         self.store._summary_cache.clear()
         return self.store.read_transcript(job["tid"]), job
@@ -168,6 +167,18 @@ class TestCarryOverrides(unittest.TestCase):
         self.assertEqual(overrides.read(doc["id"])["at"], doc["updatedAt"])          # 新しい文書の控えも書く
         old = self.store.read_transcript(self.OLD)
         self.assertEqual(old["segments"][1]["text"], "待って")                      # 前の文書はそのまま
+
+    def test_run_warnings_move_from_spec_to_job(self):
+        """走っている間に指定 spec へ足された注意(入れる文書が変わっていた)は、終わったら job の注意へ移る = [やり直す] が前の回の注意を引き継がない(3c-3)"""
+        self.put_old()
+        doc, job = self.run_new([{"id": "s1", "start": 0.0, "end": 2.0, "text": "あ", "speaker": "", "flag": ""}],
+                                {"intoDoc": self.OLD, "warnings": ["受付の注意"]})
+        self.assertNotEqual(doc["id"], self.OLD)   # 行のある文書には入れない(新しい文書)
+        self.assertEqual(job["spec"]["warnings"], ["受付の注意"])
+        self.assertTrue(any("入れる文書が変わっていた" in w for w in job["warnings"]), job["warnings"])
+        pub = doc_jobs.public_job(dict(job, title="t", state="done", phase="", progress=1.0, error="", segments=0, speakers=0, unsure=0, device="", createdAt=0))
+        self.assertEqual(pub["warnings"][0], "受付の注意")
+        self.assertTrue(any("入れる文書が変わっていた" in w for w in pub["warnings"]))
 
     def test_no_carry_into_eval_doc(self):
         self.put_old()

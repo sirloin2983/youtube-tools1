@@ -1,14 +1,13 @@
 # -*- coding: utf-8 -*-
-"""② 人の操作の層 human/proof: 人が直した内容からの学習(機械の出力と人の行の対応づけ・「誤=>正」の統計・確度)と、行への修正の提案・
-提案の採用と却下の記録・確度「高」の自動置換・用語の自動追加・同梱の名簿(画面の「名簿から追加」)。
+"""③ 人の操作の層 human/proof: 人が直した内容からの学習(機械の出力と人の行の対応づけ・「誤=>正」の統計・確度)と、行への修正の提案・
+提案の採用と却下の記録・確度「高」の自動置換の選び方(当てるのは ① pipeline/transcribe/replace)・用語の自動追加・同梱の名簿(画面の「名簿から追加」)。
 
-役割で組み直す RS3-E5c(2026-10-10)に編集の ed_learn(段10 で editor/serve.py から分けた部品)から移した(中身は同じ)。
 置換辞書の読み方と当て方は pipeline/transcribe/replace.py、認識精度の測定(CER)と評価用の基準の記録は eval/drill/metrics.py(metrics → learn の一方向 =
-ここは metrics を読まない。機械と人の行の対応づけ _groups・_prep・split_nosub・_norm は metrics もここから読む)。
-設定(settings.json)の読み書きは ytt/settings(RS3-1)。ed_state は読まない(文書の形の小道具は ytt/schemas・エラーは ytt/errors・書き込みは ytt/fsio)。
-旧い名前 ed_learn.名前・S.名前 は editor/ed_learn.py(転送だけの殻。RS5 で消す)と serve の受付がここへ回す(テストの S.名前 = … もここに入る)。
-ほかの部品の名前は `ed_xxx.名前`・`replace.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
-2つ目のエンジンの候補 alt・YouTube の字幕の候補 ytcap は隣(RS3-E6 に editor の ed_alt・ed_ytcap から)。文書の置き場は隣の store(RS3-E5a)。
+ここは metrics を読まない。機械と人の行の対応づけ align_groups・prep_rows・split_nosub・row_text は ⑤ の metrics と測る道具もここから読む)。
+設定(settings.json)の読み書きは ytt/settings。文書の形の小道具は ytt/schemas・エラーは ytt/errors・書き込みは ytt/fsio。
+名前は serve の名前の受付(_ED_MODULES)からも読める(テストの S.名前 = … もここに入る)。
+ほかの部品の名前は `alt.名前`・`store.名前`・`_flowtx.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
+2つ目のエンジンの候補 alt は隣。文書の置き場は隣の store。
 """
 import difflib
 import json
@@ -16,18 +15,18 @@ import os
 import re
 import threading
 
-from ytt import errors as _errors, fsio as _fsio, schemas as _yschemas, settings as _settings, workdata as _workdata  # noqa: E402
-from ytt import dictfmt as _dictfmt  # noqa: E402   置換辞書の読み方 parse_replacements・wb_split・_bounded(RS6 a-1 に pipeline/transcribe/replace から)
-from flow import tx as _flowtx  # noqa: E402   名簿のファイルを読む read_roster_file(置き場所 roster.ROSTER は ① の持ち主のまま。RS6 a-3)
-from ytt import txbase as _txbase  # noqa: E402   文字の種類 char_class(RS2-4b に _cc を移した)
-from . import alt, ytcap  # noqa: E402   2つ目のエンジンの候補(suggest_for_doc の alt。D1-b)・YouTube の字幕の候補(suggest_for_doc の yt。案 A1)(RS3-E6 に editor/ed_alt・ed_ytcap から隣へ。呼ぶたびに alt.名前・ytcap.名前 で読む)
-from . import store  # noqa: E402   文書の一覧と読み(_tids・tx_path・read_transcript。RS3-E5a に editor/ed_store から隣へ。呼ぶたびに store.名前 で読む)
+from ytt import docloc as _docloc, errors as _errors, fsio as _fsio, schemas as _yschemas, settings as _settings, workdata as _workdata  # noqa: E402
+from ytt import dictfmt as _dictfmt  # noqa: E402   置換辞書の読み方 parse_replacements・wb_split・spans
+from flow import tx as _flowtx  # noqa: E402   名簿の画面向けの中身 roster_listing・用語の選び方 pick_glossary_terms(どちらも ① の決まりを ② 経由で)
+from ytt import txbase as _txbase  # noqa: E402   文字の種類 char_class
+from . import alt  # noqa: E402   2つ目のエンジンの候補(suggest_for_doc の alt。呼ぶたびに alt.名前 で読む)
+from . import store  # noqa: E402   文書のパスと読み(tx_path・read_transcript。呼ぶたびに store.名前 で読む)
 
 
 PUNCT_ONLY = re.compile(r"^[\s、。,.!?！？…・「」『』()（）ー〜~-]*$")
 
 
-def _groups(orig, segs):
+def align_groups(orig, segs):
     """機械の出力(orig)と修正後(segs)を、時刻が重なるまとまりごとに対応づける(分割・結合・時刻の微調整があっても比べられる)。"""
     items = sorted([(o["start"], o["end"], 0, i) for i, o in enumerate(orig)] + [(g["start"], g["end"], 1, i) for i, g in enumerate(segs)])
     groups, cur, cur_end = [], None, -1.0
@@ -46,7 +45,8 @@ def _groups(orig, segs):
     return groups
 
 
-def _prep(doc):
+def prep_rows(doc):
+    """文書 -> (機械の出力の行, 人の行)(どちらも開始の順。時刻の無い機械の行と空のままの下書きは除く)"""
     orig = sorted([o for o in (doc.get("original") or []) if isinstance(o, dict) and _yschemas.num_or(o.get("start")) is not None and _yschemas.num_or(o.get("end")) is not None],
                   key=lambda o: o["start"])
     # 空のままの下書き(印 draft・文字なし。重なりの所に置いた空の行)は数えない: 残っている間、重なる校正済みのまとまりを丸ごと数から外してしまうため
@@ -84,14 +84,21 @@ def split_nosub(orig, segs):
 
 
 def _prep_main(doc):
-    """_prep から noSub の行(とその時間の機械の行)を外したもの。学習・提案・保管・精度の測定の本体が読む"""
-    orig, segs = _prep(doc)
+    """prep_rows から noSub の行(とその時間の機械の行)を外したもの。学習・提案・保管・精度の測定の本体が読む"""
+    orig, segs = prep_rows(doc)
     o, s, _no, _ns = split_nosub(orig, segs)
     return o, s
 
 
-def _norm(items, idx):
+def row_text(items, idx):
+    """items の idx の行の文字をつないで空白を除いたもの(比べる文字)"""
     return re.sub(r"\s+", "", "".join(str(items[i].get("text", "")) for i in idx))
+
+
+# ⑤(eval/drill/metrics・eval/tools の eval_asr・eval_alt)が読む旧い内部名。⑤ を公開名に付け替えたら消す(OPT-E1)
+_groups = align_groups   # lint: keep 別名(OPT-H1)
+_prep = prep_rows   # lint: keep 別名(OPT-H1)
+_norm = row_text   # lint: keep 別名(OPT-H1)
 
 
 def learn_events(doc):
@@ -101,12 +108,12 @@ def learn_events(doc):
     if not orig or not segs:
         return []
     out = []
-    for go, ge in _groups(orig, segs):
+    for go, ge in align_groups(orig, segs):
         if not go or not ge:
             continue   # 片方にしかない(行の追加・削除)は、置換ではないので対象外
         if any(isinstance(segs[j].get("fill"), dict) for j in ge):
-            continue   # 後処理(ed_fill の A・D・ed_llm)が直した行は機械の直し。「人の直し」として覚えると自己強化になる(notes:plan/done/llm-postfix.md の 3)
-        a, b = _norm(orig, go), _norm(segs, ge)
+            continue   # 後処理(① pipeline/transcribe の fill の A・D・llm)が直した行は機械の直し。「人の直し」として覚えると自己強化になる(notes:plan/done/llm-postfix.md の 3)
+        a, b = row_text(orig, go), row_text(segs, ge)
         if a == b or len(a) > 600 or len(b) > 600:
             continue
         for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
@@ -143,10 +150,10 @@ def learn_groups(doc):
     out = []
     if not orig or not segs:
         return out
-    for go, ge in _groups(orig, segs):
+    for go, ge in align_groups(orig, segs):
         if not go or not ge:
             continue
-        a, b = _norm(orig, go), _norm(segs, ge)
+        a, b = row_text(orig, go), row_text(segs, ge)
         if a == b or not b:
             continue
         st, en = min(segs[i]["start"] for i in ge), max(segs[i]["end"] for i in ge)
@@ -179,7 +186,7 @@ def _doc_info(tid):
 
 def _all_infos():
     out = []
-    for tid in sorted(store._tids()):
+    for tid in sorted(_docloc.iter_tids()):
         try:
             info = _doc_info(tid)
         except (OSError, ValueError):
@@ -210,7 +217,7 @@ def learned_candidates(min_count=1):
 
 # ---------- 文脈つきの統計 → 修正の提案 / 自動置換 / 用語集 ----------
 # 「直された回数」と「同じ語をそのまま残した回数」を数え、確度で3段階に分ける。
-#   高: 3回以上・2件以上の文字起こしで直され、そのまま残した例が1つもない → 自動置換の対象(設定でオン時のみ)
+#   高: 3回以上・2件以上の文字起こしで直され、そのまま残した例が1つもなく、却下も 0 → 自動置換の対象(設定 autoLearned でオン時のみ。既定オフ)
 #   中: 直した例が多く、そのまま残した例(と却下)より優勢 → 行に「候補」として出すだけ
 #   低: 何も出さない
 HIGH_POS, HIGH_DOCS, MID_RATIO, REJECT_WEIGHT = 3, 2, 0.6, 2
@@ -220,6 +227,8 @@ _fb_lock = threading.Lock()
 
 
 def load_feedback():
+    """採否の記録 learn-feedback.json -> {"stat": {"誤=>正": {acc, rej}}(5,000 組まで)・"dismissed": {文書の id: ["行の id|誤=>正"]}(文書ごとに 2,000 まで)・
+    "alt"・"yt": {acc, rej}(2つ目のエンジン・YouTube の字幕の候補の採否の数。学習の統計とは別。記録にあるときだけ)}。読めなければ空"""
     d = _fsio.read_json_or(_workdata.FEEDBACK, None, kind=dict)
     if d is None:
         return {"stat": {}, "dismissed": {}}
@@ -253,7 +262,8 @@ def unrecord_feedback(obj):
     with _fb_lock:
         fb = load_feedback()
         for seg, w, r, srcs in items:
-            for st in [fb[t] for t in srcs if t in fb] or [fb["stat"].get("%s=>%s" % (w, r))]:
+            # 出どころ(alt・yt)のある候補は、その数だけを減らす(記録に欄が無くても学習の統計 stat へは落とさない = record_feedback と同じ分け方)
+            for st in [fb[t] for t in srcs if t in fb] if srcs else [fb["stat"].get("%s=>%s" % (w, r))]:
                 if st:
                     k = "acc" if action == "accept" else "rej"
                     st[k] = max(0, st[k] - 1)
@@ -269,6 +279,8 @@ def unrecord_feedback(obj):
 
 
 def record_feedback(obj):
+    """提案の採用・却下を記録する(POST /api/feedback・確かめるの読みのカード)。obj = {tid, action: accept|reject, items: [{seg, wrong, right, tier, also}]}。
+    却下は文書ごとの dismissed にも入れる(その行に同じ候補を出さない)。-> 記録した数"""
     tid, action, items = _fb_items(obj)
     with _fb_lock:
         fb = load_feedback()
@@ -286,6 +298,20 @@ def record_feedback(obj):
             fb["stat"] = dict(list(fb["stat"].items())[-5000:])
         _fsio.atomic_write(_workdata.FEEDBACK, json.dumps(fb, ensure_ascii=False).encode("utf-8"), fsync_required=True)
     return len(items)
+
+
+def forget_doc(tid):
+    """消した文書の「この候補は出さない」(dismissed)を外す(store.delete_doc が呼ぶ。採否の数 stat は文書をまたぐので残す)。-> 外したか"""
+    with _fb_lock:
+        fb = load_feedback()
+        if fb["dismissed"].pop(str(tid or ""), None) is None:
+            return False
+        try:
+            _fsio.atomic_write(_workdata.FEEDBACK, json.dumps(fb, ensure_ascii=False).encode("utf-8"), fsync_required=True)
+        except OSError as e:   # 記録なので、書けなくても文書を消すのは止めない
+            _txbase.log.warning("学習の記録から消した文書の分を外せませんでした %s: %s", tid, e)
+            return False
+    return True
 
 
 def _spans(text, w, r):
@@ -388,30 +414,39 @@ def suggest_for_doc(tid):
                 break
     alt_items, alt_info = alt.alt_suggest(tid, doc, dismissed, items)
     alt_items = alt_items[:max(0, 1000 - len(items))]
-    learned = list(items)
     items += alt_items
     if alt_info:
         alt_info["count"] = len(alt_items)
-    # YouTube の字幕の候補(tier "yt"。案 A1): 学習 → alt → yt の順に優先。alt と同じ直しは alt の項目に also: ["yt"] を付けてまとめる(ytcap.ytcap_suggest)
-    yt_items, yt = ytcap.ytcap_suggest(tid, doc, dismissed, learned, alt_items)
-    yt_items = yt_items[:max(0, 1000 - len(items))]
-    items += yt_items
-    if yt:
-        yt["count"] = len(yt_items) + yt["agree"]
-    return {"items": items, "rules": len(rules), "alt": alt_info, "yt": yt}
+    return {"items": items, "rules": len(rules), "alt": alt_info}
 
 
-# 確度「高」の学習済み置換を当てる auto_learned_replace は RS6 a-3 に ① pipeline/transcribe/replace へ(選び方 find_suggestions(only_high)は ここのまま。
+# 確度「高」の学習済み置換を当てる auto_learned_replace は ① pipeline/transcribe/replace(選び方 find_suggestions(only_high)は ここ。
 # 文字起こしのジョブ doc_jobs.learned_finder が包んで ① の clipjob に渡す)
 
 
+def _high_rules(rules, fb):
+    """確度「高」の組 [{wrong, right, pos, docs}](文脈に依らず決まる。多い順)"""
+    high = []
+    for (w, r), x in rules.items():
+        if _tier(x, "", "", fb["stat"].get("%s=>%s" % (w, r), {}))[0] == "high":
+            high.append({"wrong": w, "right": r, "pos": x["pos"], "docs": len(x["docs"])})
+    high.sort(key=lambda d: (-d["pos"], d["wrong"], d["right"]))
+    return high
+
+
+def _gloss_ranked(rules):
+    """用語の自動追加の順位: 文脈なしで 2 回以上直された正しい語(2〜15 字)を多い順に(重なりなし)"""
+    ranked = sorted(((x["pos"], r) for (w, r), x in rules.items() if not x["ctx"] and x["pos"] >= 2 and 2 <= len(r) <= 15), key=lambda t: (-t[0], t[1]))
+    return list(dict.fromkeys(r for _pos, r in ranked))
+
+
 def dict_learned_text(rules=None, fb=None):
-    """辞書の版(records.dict_version)の learned の元の文字: 学習済みの置換の規則と採用・却下の記録(別のエンジン alt・YouTube の字幕 yt の数は除く)。
+    """辞書の版(records.dict_version)の learned の元の文字: 自動で当てる確度「高」の組だけ(誤 → 正)。
+    中・低の規則・候補の却下(dismissed)・別のエンジン alt と YouTube の字幕 yt の数は入れない(当てる置換が変わらない限り版を変えない)。
     rules・fb = 読んである物(無ければ読む)"""
     rules = learn_rules() if rules is None else rules
     fb = load_feedback() if fb is None else fb
-    return json.dumps({"rules": sorted([w, r, x["pos"], len(x["docs"])] for (w, r), x in rules.items()), "fb": {k: v for k, v in fb.items() if k not in ("alt", "yt")}},
-                      ensure_ascii=False, sort_keys=True)
+    return json.dumps({"high": sorted([x["wrong"], x["right"]] for x in _high_rules(rules, fb))}, ensure_ascii=False, sort_keys=True)
 
 
 def export_rules(settings=None):
@@ -419,40 +454,17 @@ def export_rules(settings=None):
     {"schema", "high": [{wrong, right, pos, docs}](確度「高」= 自動で当てる置換。文脈に依らず決まる)・"glossary": [語](認識のヒントにする順位)・
     "dictLearned": 辞書の版の元の文字(入口の経路と同じ値 = 鍵が同じになる)}。時刻は入れない(同じ学習なら同じ中身 = 版が変わらない)"""
     rules, fb = learn_rules(settings), load_feedback()
-    high = []
-    for (w, r), x in rules.items():
-        if _tier(x, "", "", fb["stat"].get("%s=>%s" % (w, r), {}))[0] == "high":
-            high.append({"wrong": w, "right": r, "pos": x["pos"], "docs": len(x["docs"])})
-    high.sort(key=lambda d: (-d["pos"], d["wrong"], d["right"]))
-    ranked = sorted(((x["pos"], r) for (w, r), x in rules.items() if not x["ctx"] and x["pos"] >= 2 and 2 <= len(r) <= 15), key=lambda t: (-t[0], t[1]))
-    return {"schema": "ytt-learned-rules/v1", "high": high, "glossary": list(dict.fromkeys(r for _pos, r in ranked)), "dictLearned": dict_learned_text(rules, fb)}
+    return {"schema": "ytt-learned-rules/v1", "high": _high_rules(rules, fb), "glossary": _gloss_ranked(rules), "dictLearned": dict_learned_text(rules, fb)}
 
 
 def load_roster():
-    """同梱の名簿。読めない・形が違うときは空(画面では「名簿を読めません」と出す)。中身は文字列だけに整える。
+    """同梱の名簿(GET /api/roster = 画面の「名簿から追加」)-> {asOf, note, groups: [{id, label, names}]}。
+    読めない・形が違うときは空(画面では「名簿を読めません」と出す)。groups の整え方は認識と同じ ① の名簿の読み方(② flow/tx.roster_listing 経由)。
     README で「直せます」と案内しているので、BOM 付きでも読む"""
-    d = _flowtx.read_roster_file()
-    if d is None:
-        return {"asOf": "", "note": "", "groups": []}
-    groups = []
-    for g in d.get("groups") or []:
-        names = [str(n).strip() for n in g.get("names") or [] if str(n).strip()]
-        if names and g.get("id") and g.get("label"):
-            groups.append({"id": str(g["id"])[:40], "label": str(g["label"])[:80], "names": names[:100]})
-    return {"asOf": str(d.get("asOf") or "")[:20], "note": str(d.get("note") or "")[:400], "groups": groups}
+    return _flowtx.roster_listing()
 
 
 def auto_glossary(user_terms, limit=150, settings=None):
-    """よく直される正しい語を、認識のヒントとして自動で足す(ヒント全体が limit 文字に収まる範囲)。settings = 読んである設定(learn_rules へ)"""
-    have = list(user_terms)
-    out = []
-    ranked = sorted(((x["pos"], r) for (w, r), x in learn_rules(settings).items() if not x["ctx"] and x["pos"] >= 2 and 2 <= len(r) <= 15), key=lambda t: (-t[0], t[1]))
-    for _pos, r in ranked:
-        if r in have or r in out:
-            continue
-        if len("、".join(have + out + [r])) > limit:
-            continue
-        out.append(r)
-        if len(out) >= 20:
-            break
-    return out
+    """よく直される正しい語を、認識のヒントとして自動で足す(ヒント全体が limit 文字に収まる範囲・20 語まで)。settings = 読んである設定(learn_rules へ)。
+    選び方は友人の PC と同じ ① の決まり(② flow/tx.pick_glossary_terms 経由)"""
+    return _flowtx.pick_glossary_terms(user_terms, _gloss_ranked(learn_rules(settings)), limit)

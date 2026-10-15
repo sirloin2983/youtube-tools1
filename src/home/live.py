@@ -86,7 +86,7 @@ from flow import livesession   # ライブ係(RS7-2 G2b。Live はこれを継�
 from manage.keep import live_cleanup   # 録画を自動で消す。P4
 from human.friend import live_requests  # noqa: E402  (友人のライブ配信の依頼と録画の結びつき。notes:docs/spec/friend.md の 2-15)
 from human.friend import deliver as deliver_mod  # noqa: E402  (自動の切り抜きを友人へ届けるときの依頼 id の形)
-from human.friend.intake import OUT_DIR  # noqa: E402  # lint: keep 別名(RS3-3。差し替えない定数)= (見張るフォルダの 出力\ = 友人のアプリの「受け取る」が読む)
+from human.friend import intake as intake_mod  # noqa: E402  (受付のフォルダと 出力\ の読み方 configured_folder・out_dir_of = 受付と同じ 1 か所)
 
 CODE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(CODE_DIR, "vendor")
@@ -430,12 +430,8 @@ class Live(livesession.LiveSession):
         return out
 
     def deliver_dir(self):
-        """友人へ届ける所(依頼の受付の Dropbox のフォルダの 出力 の中)。決まっていなければ None"""
-        try:
-            folder = (self.prefs.get(["intake"])["intake"] or {}).get("folder") or ""
-        except Exception:   # noqa: BLE001
-            folder = ""
-        return os.path.join(folder, OUT_DIR) if folder else None
+        """友人へ届ける所(依頼の受付の Dropbox のフォルダの 出力 の中)。決まっていなければ None。読み方は受付と同じ 1 か所(intake.configured_folder)"""
+        return intake_mod.out_dir_of(intake_mod.configured_folder(self.prefs))
 
     def _auto_deliver_for(self, origin, after, streamer):
         """自分の配信の自動の切り抜き(配信中の自動採用 auto・配信後の追加 archive)を確認なしで友人へ届ける(設定 live.autoDeliver。10-08 ユーザー決定 = 10-06 の

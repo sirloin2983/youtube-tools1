@@ -1,48 +1,48 @@
-"""③ 動画とマークの保存(data.json)。スレッドセーフ・原子的に書き込む。
+"""③ 動画とマークの保存(data.json)。スレッドセーフ・原子的に書き込む。スタジオの `Store` が書き手(スタジオなしの書き手は ② flow/studiobook の StudioBook)。
 
 - 動画: youtube(id=YouTube動画ID) / file(id="f"+sha1(絶対パス)[:10])。file のパスはサーバー内部だけが持ち、クライアントには返さない。
 - マーク: サーバーが検査・整形する。status / file / src / 点数 / auto0 などのサーバー由来の値はクライアントから書き換えられない。
 - 変更は「新しい状態を作る → ディスクに保存 → 成功したらメモリに反映」の順(保存に失敗したらメモリは変わらない)。
-- 解析結果の series(盛り上がりグラフ)は cache/series/<動画ID>.json にも保存する(最新60本まで。再起動後もグラフが出る)。
+- 解析結果の series(盛り上がりグラフ)は cache/series/<動画ID>.json にも保存する(最新 ytt/studiodata.SERIES_KEEP 本まで。再起動後もグラフが出る)。
 - マークの status: ""(候補) / "adopted"(採用) / "rejected"(不採用) / "exported"(書き出し済み)。exported はサーバーだけが付ける。
 - data.json が壊れていたら data.json.corrupt-<日時> に退避して空で起動し、dataWarning で知らせる。1つ前の世代は data.json.bak。
-- **案件にした配信**(RS8 B3-4b。決定 3-37 の (r8j)〜(r8q)): 初めて書き出したとき(mark_exported。それまでに書き出したマークが無い配信だけ =
-  既存の配信は B3-8 の一括の移行まで data.json のまま)に flow/casebook.case_of で案件の根が引けたら、配信を案件の
+- **案件にした配信**(決定 3-37 の (r8j)〜(r8q)): 初めて書き出したとき(mark_exported。それまでに書き出したマークが無い配信だけ。
+  書き出したマークのある全部の形の配信は一括の移行で案件に移し済み)に flow/casebook.case_of で案件の根が引けたら、配信を案件の
   `作業用/候補.json`・`作業用/採用.json` に分けて書き、data.json(とメモリ)には索引の行 {id, kind, title, channel, live?, rev, createdAt, updatedAt, case}
   だけを持つ。読む所(list・get・internal・media_path)は案件のファイルを読んで重ねる(ytt/casefiles。更新日時と大きさのキャッシュ)。
   書く所は 採用 → 候補 → data.json の索引の行の順(rev の正は 採用.json・data.json の rev・題は写し)。人の保存は 候補.json を書き換えない
   (消した候補は 採用.json の消した印)・再解析(replace_auto)だけ候補を作り直す。書いたあと同じロックの中で読み直して重ね、違えば警告のログだけ。
   ロックの順はいつも Store.lock → casefiles.lock(root)(逆の順は作らない。② の側は casefiles.lock を持ったままスタジオの API を呼ばない)。
   案件が見えない(ドライブが外れた・フォルダが消えた)とき: 一覧の行は caseUnseen で出す・get・put_video・adopt_marks・mark_exported・ifNoMarks の削除は 503
-  (case_unseen)・replace_auto とコラボの転写はログだけで反映しない。削除は索引の行だけ消す(案件のファイルは触らない)。コラボのまとまりは data.json のまま
-- 入口のライブの採用(adopt_live = POST /api/live/adopt。RS8 B3-5): 録画の配信の登録・同じ区間の使い回し・保存を self.lock の中で 1 度に(put_video を通す)。
+  (case_unseen)・replace_auto とコラボの転写はログだけで反映しない。削除は索引の行だけ消す(案件のファイルは触らない)。コラボのまとまりは data.json のまま。
+  消した配信を同じ URL で入れ直して初めて書き出すと、採用.json にある前の記録に重ねる(flow/casebook.carry_over。丸ごと置き換えない)
+- 入口のライブの採用(adopt_live = POST /api/live/adopt): 録画の配信の登録・同じ区間の使い回し・保存を self.lock の中で 1 度に(put_video を通す)。
   案件にした録画の配信も同じ道で 採用.json へ = スタジオの採用もスタジオなしの採用(flow/casebook.live_adopt)も、案件にしたあとは 採用.json を通る
+- 警告(案件が読めない・書いたあとの読み直しが違う・data.json の読み飛ばし)は logging の ytt.review.store へ。入口は studio/serve の _WarnToStudioLog で studio.log に残す
+- 503 を返す口: get・put_video・adopt_marks・adopt_live・internal・mark_exported・ifNoMarks の削除・題を変える ensure(案件が見えないとき)
 """
 import contextlib
 import copy
 import json
+import logging
 import math
 import os
 import shutil
-import sys
 import threading
 import time
 
-from ytt import fsio as _fsio, marks as _marks, mediainfo as _media, schemas, settings as _settings, studio_env as _env  # noqa: E402  (prune_cache は RS6 a-5a で ytt/fsio へ。録画の live の検査は ytt/studiodata.load_live)
-# マークの純粋な語彙(検査・整形・同じ区間・手を入れたか)は RS8 B3-2 で ytt/marks へ下ろした。下の名前は今までどおり store からも読める
-from ytt.marks import BadMark, EDIT_TOL, ID_RE, MAX_MARKS, check_times, load_marks  # noqa: E402,F401
+from ytt import fsio as _fsio, marks as _marks, mediainfo as _media, schemas, settings as _settings, studio_env as _env  # noqa: E402  (マークの検査・整形・同じ区間・手を入れたかは ytt/marks。録画の live の検査は ytt/studiodata.load_live)
 
-from ytt import casefiles as _casefiles  # noqa: E402  案件の 候補.json・採用.json の読み・重ね方・ロック(RS8 B3-4a)
-from ytt import studiodata as _studiodata  # noqa: E402  data.json の行の読み方(load_video。「URL も CLI で」で flow/studiobook と共有するため下ろした)
-from flow import adopt as _flow_adopt  # noqa: E402  採用の規則 F-5 の口(① pipeline/analyze/adopt。RS8 B3-2 の G1a)
-from flow import casebook as _casebook  # noqa: E402  案件の分け方・引き方・書き(RS8 B3-4b)
-from . import feedback  # noqa: E402  判定の記録(RS3-5 に analyze から隣へ。呼ぶたびに feedback.名前 で読む)
+from ytt import casefiles as _casefiles  # noqa: E402  案件の 候補.json・採用.json の読み・重ね方・ロック
+from ytt import studiodata as _studiodata  # noqa: E402  data.json の行の読み方(load_video)と盛り上がりグラフの書き方(save_series)・形の名前 SCHEMA。flow/studiobook と共有
+from flow import adopt as _flow_adopt  # noqa: E402  採用の規則 F-5 の口(① pipeline/analyze/adopt)
+from flow import casebook as _casebook  # noqa: E402  案件の分け方・引き方・書き
+from . import feedback  # noqa: E402  判定の記録(呼ぶたびに feedback.名前 で読む)
 from ytt.errors import ApiError  # noqa: E402
 
-SCHEMA = "clip-studio/v1"
+_log = logging.getLogger("ytt.review.store")
 # 作業データが壊れていたときの戻し方(画面の帯に出す。退避したファイルの名前・フォルダは画面の「詳しく」に出す。見直し M8)
 RESTORE_STEPS = "前のデータは退避してあります。戻すには: ホームで「すべて終了」→ 退避したファイルの名前を元に戻す(下の「詳しく」)→ start.bat で起動し直す"
-SERIES_KEEP = 60
 SAVE_ERR = "保存に失敗しました(ディスクの空きなど)"
 UI_MAX_BYTES = 32 * 1024   # 画面の設定 settings-ui.json の大きさの上限
 
@@ -53,54 +53,18 @@ COLLAB_MARGIN = 2.5     # 転写した区間を前後に広げる秒数(反応�
 ANCHOR_A_MIN, ANCHOR_A_MAX = 0.5, 1.5   # アンカー点から求めた傾き(ドリフト補正)の妥当な範囲。外れたら入力ミスの可能性が高い
 MIN_ANCHOR_GAP = 20.0   # 2点指定のとき、この動画の時刻でこれ以上離れていることを要求する(近すぎると傾きが不安定)
 
-# ---- 案件にした配信(RS8 B3-4b) ----
-INDEX_KEYS = _casefiles.INDEX_KEYS     # data.json の索引の行に写す欄(と live・case。形の持ち主は ytt/casefiles = flow/studiobook と同じ 1 つ)
+# ---- 案件にした配信 ----
 _NOT_STORED = _casefiles.NOT_STORED    # メモリの全部の形にだけ付ける印(案件のファイルには書かない)
 _CASE_SKIP = (_casefiles.UNSEEN_CODE, _casefiles.BROKEN_CODE)   # 反映しない(ログだけ)で済ませる案件の読めなさ
 
 
 def _warn(msg):
-    sys.stderr.write("[store] " + msg + "\n")
-
-
-def _unseen(root, why):
-    return ApiError(_casefiles.UNSEEN_CODE, "案件のフォルダが見えません(%s)。ドライブをつないでから、もう一度試してください" % why,
-                    503, {"dir": str(root or ""), "reason": why})
+    """警告のログ(入口は studio.log にも残す = studio/serve の _WarnToStudioLog。7d-2)"""
+    _log.warning(msg)
 
 
 _index_row = _casefiles.index_row   # 全部の形 -> data.json の索引の行(ytt/casefiles。manage/cases/markmove もこの名前で読む)
 _stored = _casefiles.stored         # 全部の形 -> 案件のファイルに分ける形(印 case・caseUnseen を外す)
-
-
-def validate_marks(raw, old_marks):
-    """PUT /api/video のマークを厳しく検査する。1件でも不正なら ApiError 400 bad_marks(何も変えない)。id の無い新しいマークにはサーバーが id を付ける。"""
-    if len(raw) > MAX_MARKS:
-        raise ApiError("bad_marks", "マークは%d件までです(いま%d件)" % (MAX_MARKS, len(raw)), 400)
-    old = {m["id"]: m for m in old_marks}
-    ids = {m.get("id") for m in raw if isinstance(m, dict) and isinstance(m.get("id"), str)}
-    out, seen = [], set()
-    for i, m in enumerate(raw):
-        where = "%d番目のマーク" % (i + 1)
-        if not isinstance(m, dict):
-            raise ApiError("bad_marks", where + "が正しくありません(オブジェクトではありません)", 400)
-        mid = m.get("id")
-        if mid is None or mid == "":
-            while True:
-                mid = "m" + os.urandom(6).hex()
-                if mid not in ids and mid not in seen and mid not in old:
-                    break
-            m = dict(m, id=mid)
-        elif not isinstance(mid, str) or not ID_RE.match(mid):
-            raise ApiError("bad_marks", where + "の id が正しくありません(英数字・_・- の1〜40文字)", 400)
-        if mid in seen:
-            raise ApiError("bad_marks", "%s(id: %s)は id が重複しています" % (where, mid), 400)
-        try:
-            c = _marks.build_mark(m, old.get(mid))
-        except BadMark as e:
-            raise ApiError("bad_marks", "%s(id: %s)が正しくありません: %s" % (where, mid, e), 400)
-        seen.add(mid)
-        out.append(c)
-    return out
 
 
 # ---- コラボグループの時刻対応(t_ref = a * t_this + b。区分的な配列を持てるが、v0 は要素1つだけ作る) ----
@@ -121,29 +85,29 @@ def _load_pieces(raw):
 
 
 def offset_from_anchors(points):
-    """[[この動画の時刻, 基準動画の時刻], …](1〜2点)から {a,b} を求める。1点なら定数オフセット(a=1)。不正なら BadMark。"""
+    """[[この動画の時刻, 基準動画の時刻], …](1〜2点)から {a,b} を求める。1点なら定数オフセット(a=1)。不正なら _marks.BadMark。"""
     if not isinstance(points, list) or not (1 <= len(points) <= 2):
-        raise BadMark("アンカーは1〜2点で指定してください")
+        raise _marks.BadMark("アンカーは1〜2点で指定してください")
     pts = []
     for p in points:
         if not (isinstance(p, (list, tuple)) and len(p) == 2):
-            raise BadMark("アンカーの形式が正しくありません")
+            raise _marks.BadMark("アンカーの形式が正しくありません")
         t_this, t_ref = _marks.num_strict(p[0]), _marks.num_strict(p[1])
         if t_this is None or t_ref is None or t_this < 0 or t_ref < 0:
-            raise BadMark("アンカーの時刻が正しくありません")
+            raise _marks.BadMark("アンカーの時刻が正しくありません")
         pts.append((t_this, t_ref))
     if len(pts) == 1:
         a, b = 1.0, pts[0][1] - pts[0][0]
     else:
         (t1, r1), (t2, r2) = pts
         if abs(t2 - t1) < MIN_ANCHOR_GAP:
-            raise BadMark("2つのアンカーは、この配信の時刻で%d秒以上離してください" % int(MIN_ANCHOR_GAP))   # 用語は「アンカー」(2 周目 S20)
+            raise _marks.BadMark("2つのアンカーは、この配信の時刻で%d秒以上離してください" % int(MIN_ANCHOR_GAP))   # 用語は「アンカー」(2 周目 S20)
         a = (r2 - r1) / (t2 - t1)
         b = r1 - a * t1
     if not (math.isfinite(a) and math.isfinite(b)):
-        raise BadMark("計算できませんでした(時刻を確認してください)")
+        raise _marks.BadMark("計算できませんでした(時刻を確認してください)")
     if a < ANCHOR_A_MIN or a > ANCHOR_A_MAX:
-        raise BadMark("傾きが%.1f〜%.1f倍の範囲を外れています。時刻の入力を確認してください" % (ANCHOR_A_MIN, ANCHOR_A_MAX))
+        raise _marks.BadMark("傾きが%.1f〜%.1f倍の範囲を外れています。時刻の入力を確認してください" % (ANCHOR_A_MIN, ANCHOR_A_MAX))
     return {"a": round(a, 6), "b": round(b, 3), "tStart": None, "tEnd": None}
 
 
@@ -220,25 +184,20 @@ def _replaced(d, key, val):
 
 
 class SeriesCache(dict):
-    """動画ID → 盛り上がりグラフ。メモリにあればそれを、なければ cache/series のファイルから読む(再起動後も残る)。"""
+    """動画ID → 盛り上がりグラフ。メモリにあればそれを、なければ cache/series のファイルから読む(再起動後も残る)。
+    消すのは pop だけ(ファイルも消す)。60 本に減らしたあとも、メモリの辞書は起動し直すまで残る(一覧の hasSeries は真のまま。害は小さい)"""
 
     def __init__(self, folder):
         super().__init__()
         self.folder = folder
 
     def _path(self, vid):
-        return os.path.join(self.folder, vid + ".json") if isinstance(vid, str) and ID_RE.match(vid) else None
+        return os.path.join(self.folder, vid + ".json") if isinstance(vid, str) and _marks.ID_RE.match(vid) else None
 
     def __setitem__(self, vid, val):
         super().__setitem__(vid, val)
-        p = self._path(vid)
-        if not p or val is None:
-            return
-        try:
-            _fsio.atomic_write(p, json.dumps(val, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))   # フォルダは atomic_write が作る
-        except OSError:
-            return   # 保存に失敗してもメモリには残る
-        _fsio.prune_cache(self.folder, "*.json", SERIES_KEEP)   # 古いものから消して SERIES_KEEP 本に
+        if val is not None:
+            _studiodata.save_series(self.folder, vid, val)   # 古いものから消して SERIES_KEEP 本に。保存に失敗してもメモリには残る
 
     def get(self, vid, default=None):
         if super().__contains__(vid):
@@ -264,6 +223,10 @@ class SeriesCache(dict):
 
 
 class Store:
+    """スタジオの台帳(③。書き手は 1 つ)。data.json をメモリに全部持ち、変えるときは新しい形を作って保存してからメモリを替える。
+    案件にした配信は 候補.json・採用.json を読んで重ねる(_full)・書くのは _writing の中(案件の錠)。ロックの順は Store.lock → casefiles.lock(root)。
+    学習の記録(feedback.jsonl)は保存に成功したあと、ロックの外で書く。スタジオなしの書き手は ② flow/studiobook の StudioBook(同じ形で書く)"""
+
     def __init__(self, path):
         self.path = path
         self.ui_path = os.path.join(os.path.dirname(path), "settings-ui.json")
@@ -326,12 +289,11 @@ class Store:
             self.warning = "作業データ(マークの記録)の一部(%s)が壊れていたので、読み飛ばしました。" % "・".join(parts) + (RESTORE_STEPS if name else "")
             _warn("data.json の壊れた%sを読み飛ばしました。元のファイルは %s" % ("・".join(parts), name or "(退避に失敗)"))
 
-    _load_live = staticmethod(_studiodata.load_live)     # 録画の live の検査(ytt/studiodata。flow/studiobook と同じ 1 つ)
-    _load_video = staticmethod(_studiodata.load_video)   # data.json の行 -> メモリの形(manage/cases/markmove もこの名前で読む)
+    _load_video = staticmethod(_studiodata.load_video)   # data.json の行 -> メモリの形(ytt/studiodata。manage/cases/markmove・eval_casebook もこの名前で読む = OPT-M1/E1 で ytt 直に)
 
     @staticmethod
     def _load_group(gid, g):
-        if not isinstance(g, dict) or g.get("id") != gid or not isinstance(gid, str) or not ID_RE.match(gid):
+        if not isinstance(g, dict) or g.get("id") != gid or not isinstance(gid, str) or not _marks.ID_RE.match(gid):
             raise ValueError("id が正しくありません")
         members = g.get("members")
         if not isinstance(members, list) or not (2 <= len(members) <= MAX_GROUP_MEMBERS):
@@ -356,7 +318,7 @@ class Store:
 
     def _save(self, videos, groups):
         """videos・groups をまとめて data.json に書き込み、成功したらメモリに反映する。失敗時は ApiError 500 でメモリは変えない。"""
-        data = json.dumps({"schema": SCHEMA, "videos": videos, "groups": groups}, ensure_ascii=False).encode("utf-8")
+        data = json.dumps({"schema": _studiodata.SCHEMA, "videos": videos, "groups": groups}, ensure_ascii=False).encode("utf-8")
         try:
             if os.path.exists(self.path):
                 try:
@@ -408,7 +370,7 @@ class Store:
             full = None
         if full is None:
             if strict:
-                raise _unseen(root, "案件の採用の記録にこの配信がありません")
+                raise _casefiles.unseen(root, "案件の採用の記録にこの配信がありません")
             return dict(v, duration=0.0, fileName="", path="", marks=[], analysis=None, caseUnseen=True)
         return self._fill(full, v, root)
 
@@ -427,7 +389,7 @@ class Store:
             prev = _casefiles.read(root)
             full = _casefiles.merge(*prev, row["id"], root)
             if full is None:
-                raise _unseen(root, "案件の採用の記録にこの配信がありません")
+                raise _casefiles.unseen(root, "案件の採用の記録にこの配信がありません")
             yield self._fill(full, row, root), prev
 
     def _put(self, nv, prev=None, keep=True):
@@ -462,7 +424,9 @@ class Store:
         ① のあと ② が落ちても data.json は全部の形のまま = 次の書き出しで同じ根に split(prev) で上書きされて直る"""
         with _casefiles.lock(root):
             try:
-                _casebook.write(root, *_casebook.split(nv, root, prev=_casefiles.read(root)))
+                prev = _casefiles.read(root)
+                nv = _casebook.carry_over(prev, nv, root)   # 消して入れ直した配信は 採用.json の前の記録に重ねる(丸ごと置き換えない。7c-1)
+                _casebook.write(root, *_casebook.split(nv, root, prev=prev))
             except ApiError as e:
                 _warn("案件にできませんでした(data.json のまま保存します。%s): %s" % (e.code, root))
                 self._commit(nv["id"], nv)
@@ -561,8 +525,10 @@ class Store:
                 if not (t or ch):
                     return self._pub(v)
                 nv["rev"] += 1
+                nv["updatedAt"] = schemas.now_ms()
             elif v is not None and ((t and t != nv["title"]) or (ch and ch != nv["channel"])):
                 nv["rev"] += 1
+                nv["updatedAt"] = schemas.now_ms()   # 題を直した配信が一覧(updatedAt の新しい順)で上がる(StudioBook と同じ。7b-2)
             nv["title"] = t or nv["title"]      # 空のタイトル・チャンネルで既存の値を消さない
             nv["channel"] = ch or nv["channel"]
             self._commit(vid, nv)
@@ -579,10 +545,9 @@ class Store:
             return self._pub(self._full(row))
         with self._writing(row) as (v, prev):
             nv = copy.deepcopy(v)
-            nv["rev"] += 1
             nv["title"] = t or nv["title"]
             nv["channel"] = ch or nv["channel"]
-            self._put(nv, prev)
+            self._bump(nv, prev)
             return self._pub(nv)
 
     def delete(self, vid, if_no_marks=False):
@@ -607,6 +572,11 @@ class Store:
 
     # ---- マークの置き換え(確認画面からの保存) ----
     def put_video(self, vid, title, marks_raw, base_rev=None):
+        """画面の保存(PUT /api/video): マーク全件を置き換える。-> 公開用の動画。
+        baseRev が今の版と違えば 409(解析・書き出し・別タブが先に入っている。何も変えない)・全件を ytt/marks.validate_marks で検査して 1 件でも不正なら 400(何も変えない)。
+        サーバーだけが決める値(src・点数・exported・file・path・adoptedBy)は前の値を引き継ぐ。案件の配信は 採用.json の版と比べて 採用.json へ書く。
+        保存できたあと、ロックの外で、人の判定を feedback.jsonl へ(採用 = good・不採用と候補のままの自動マークの削除 = bad・人の最終の操作 = miss など。
+        録画は書かない)・採用したマークはコラボの相手へ転写する"""
         if not isinstance(marks_raw, list):
             raise ApiError("bad_request", "marks が正しくありません", 400)
         if base_rev is not None and not schemas.is_int(base_rev):
@@ -614,7 +584,7 @@ class Store:
         with self.lock, self._writing(self._need(vid)) as (v, prev):   # 案件の配信は案件から読んだ版と比べる(rev の正は 採用.json)
             if base_rev is not None and base_rev != v["rev"]:   # 別の更新(解析・書き出し・別タブ)が先に入っている: 何も変えない
                 raise ApiError("conflict", "解析や書き出しで内容が更新されています。最新の内容を読み込み直してください", 409, {"video": self._pub(v), "series": self.series.get(v["id"])})
-            new = validate_marks(marks_raw, v["marks"])   # 1件でも不正なら 400(何も変えない)
+            new = _marks.validate_marks(marks_raw, v["marks"])   # 1件でも不正なら 400(何も変えない)
             ids = {m["id"] for m in new}
             old_by = {m["id"]: m for m in v["marks"]}
             # 判定を記録: 採用 = よかった / 不採用 = ちがう / 候補のまま削除 = ちがう。
@@ -637,15 +607,15 @@ class Store:
             for m in new:
                 o = old_by.get(m["id"])
                 changed = (m["status"] != o["status"]) if o is not None else (m["status"] in ("adopted", "rejected"))
-                if changed and (o is not None or m["src"] == "manual"):
+                if changed:   # 画面から来る新しいマークは build_mark で必ず manual なので、o が無くてもここで足りる
                     if m["status"] == "adopted":
                         verdicts.append((m, "good", "adopt"))
                     elif m["status"] == "rejected":
                         verdicts.append((m, "bad", "reject"))
                 if o is None and m["src"] == "manual":
                     extras.append((m, "manual_add", feedback.nearest_auto(v["marks"], m["start"], m["end"])))
-                elif o is not None and o["status"] in ("adopted", "exported") and m["status"] == "":
-                    extras.append((m, "unadopt", {"prevStatus": o["status"]}))
+                elif o is not None and o["status"] in ("adopted", "exported", "rejected") and m["status"] == "":
+                    extras.append((m, "unadopt", {"prevStatus": o["status"]}))   # 不採用の取り消しも(prevStatus = rejected。確かめるの Z = 6e-2)
             nv = copy.deepcopy(v)
             nv["marks"] = new
             if isinstance(title, str):   # 空文字はタイトルを消す
@@ -662,16 +632,16 @@ class Store:
 
     def adopt_top(self, vid, top):
         """スタジオの「上位 n 本を採用」・まとめて実行用: 採用の規則 adopt_marks(F-5)を区間なし(ranges = [])で呼ぶ。
-        人が採用したマークは数に入れ、上限 top までの残りを自動マークの点数の高い順で足す(RS6 b-A。以前は「人が採用済みなら自動は 0」)。
+        人が採用したマークは数に入れ、上限 top までの残りを自動マークの点数の高い順で足す。
         -> (この呼び出しで採用にしたマークの id(点数の高い順), 公開用の動画)"""
-        if schemas.int_in(top, 1, 30) is None:
-            raise ApiError("bad_request", "採用する数は1〜30です", 400)
+        if schemas.int_in(top, 1, _flow_adopt.TOP_MAX) is None:
+            raise ApiError("bad_request", "採用する数は1〜%d です" % _flow_adopt.TOP_MAX, 400)
         r = self.adopt_marks(vid, [], top)
         return r["added"], r["video"]
 
     def adopt_marks(self, vid, ranges, top):
         """採用の規則(F-5。notes:plan/role-restructure.md 5-5・決定 3-29 Q3。スタジオの「上位 n 本を採用」・まとめて実行・友人の依頼で同じ 1 つ)を当てて保存する。
-        規則の本体は ① pipeline/analyze/adopt.py(RS8 B3-2 の G1a)。③ は ② flow/adopt を通して呼び、ここは配信を読んで保存するだけ:
+        規則の本体は ① pipeline/analyze/adopt.py。③ は ② flow/adopt を通して呼び、ここは配信を読んで保存するだけ:
         採用の集合 = 区間 ranges のマーク ∪ 人が採用したマーク ∪ 自動マークの点数の高い順(上限 top までの残り)。不採用と、前の 2 つに重なる自動マークは除く。
         人の判定ではないので、学習の記録(feedback)・コラボへの転写はしない。kind live の録画は断る(400)。
         -> {"rangeIds"(ranges の順), "humanIds"(時刻の順), "autoIds"(点数の高い順), "added"(この呼び出しで採用にした id), "video"(公開用の動画)}"""
@@ -686,10 +656,10 @@ class Store:
             return r
 
     def adopt_live(self, src, title, start, end, label=""):
-        """入口のライブの採用(POST /api/live/adopt。flow/live_adopt.py の StudioMarks。RS8 B3-5): 録画の配信(kind live。src は analyze.validate_live)を
+        """入口のライブの採用(POST /api/live/adopt。flow/live_adopt.py の StudioMarks): 録画の配信(kind live。src は analyze.validate_live)を
         (無ければ)登録し、区間 [start, end](録画の頭からの秒)と同じ区間(±ytt/marks.DUP_TOL 秒)のマークがあれば使い回し(候補・不採用なら採用に)、
         無ければ採用のマークを足す。登録・読み・保存を self.lock の中で 1 度にする(前は入口が open → GET → PUT(baseRev)と 409 のやり直し)。
-        保存は put_video(画面の保存と同じ検査・学習の記録。案件にした配信は 採用.json へ)。
+        保存は put_video(画面の保存と同じ検査。案件にした配信は 採用.json へ)。学習の記録は録画では書かない(feedback は kind live を記録しない)。
         -> (配信の id, マーク(公開の形), 番号 n = 配信のマークを開始の順に並べた位置)"""
         if not (schemas.is_num(start) and schemas.is_num(end)):
             raise ApiError("bad_request", "start・end は録画の頭からの秒(数)で指定してください", 400)
@@ -777,7 +747,7 @@ class Store:
         m = next((x for x in v["marks"] if x["id"] == mark_id), None)
         if not m:
             return None
-        if abs(m["start"] - expected_start) > EDIT_TOL or abs(m["end"] - expected_end) > EDIT_TOL:
+        if abs(m["start"] - expected_start) > _marks.EDIT_TOL or abs(m["end"] - expected_end) > _marks.EDIT_TOL:
             return None   # 書き出し中の編集を保持する。古い区間の動画は関連付けない
         first = m["status"] != "exported"
         nv = copy.deepcopy(v)
@@ -922,7 +892,7 @@ class Store:
                 raise ApiError("bad_request", "基準の配信にはズレの指定は不要です", 400)
             try:
                 piece = offset_from_anchors(points)
-            except BadMark as e:
+            except _marks.BadMark as e:
                 raise ApiError("bad_anchor", str(e), 400)
             offsets = dict(g["offsets"])
             offsets[vid] = [piece]
@@ -966,8 +936,8 @@ class Store:
         if already:
             return
         try:
-            s, e = check_times(max(0.0, s_raw), e_raw)
-        except BadMark:
+            s, e = _marks.check_times(max(0.0, s_raw), e_raw)
+        except _marks.BadMark:
             return
         e = _marks.clamp_end(v["duration"], s, e)
         if e is None:
@@ -977,10 +947,10 @@ class Store:
         similar = next((x for x in v["marks"] if _marks.overlaps(s, e, x["start"], x["end"])), None)
         if similar is not None:
             try:
-                new_s, new_e = check_times(min(similar["start"], s), max(similar["end"], e))
-            except BadMark:
+                new_s, new_e = _marks.check_times(min(similar["start"], s), max(similar["end"], e))
+            except _marks.BadMark:
                 new_s, new_e = similar["start"], similar["end"]   # 広げると長さ上限を超える等の異常時は広げない(安全側)
-            moved = abs(new_s - similar["start"]) > EDIT_TOL or abs(new_e - similar["end"]) > EDIT_TOL
+            moved = abs(new_s - similar["start"]) > _marks.EDIT_TOL or abs(new_e - similar["end"]) > _marks.EDIT_TOL
             note_needed = note not in similar["reasons"]
             if moved or note_needed:
                 nv = copy.deepcopy(v)
@@ -992,12 +962,12 @@ class Store:
                     target["status"], target["file"] = "adopted", ""
                 self._bump(nv, prev)
             return
-        if len(v["marks"]) >= MAX_MARKS:
+        if len(v["marks"]) >= _marks.MAX_MARKS:
             return
         m = _marks.new_mark("c", s, e)
         m.update({"src": "collab", "reasons": [note], "collabFrom": {"videoId": from_vid, "markId": from_mark_id}, "auto0": [s, e]})
         nv = copy.deepcopy(v)
-        nv["marks"] = sorted(nv["marks"] + [m], key=_marks.by_time)[:MAX_MARKS]
+        nv["marks"] = sorted(nv["marks"] + [m], key=_marks.by_time)[:_marks.MAX_MARKS]
         self._bump(nv, prev)
 
     # ---- 画面の設定(不透明な辞書。self.ui_file = ytt.settings.SettingsFile) ----

@@ -255,7 +255,8 @@ class TestTranscribeNormalize(_Base):
 
 class TestRelinkNormalize(_Base):
     def make_doc(self, path):
-        tid = store.open_video({"path": path})["id"]
+        from test_edit import put_empty_doc   # 行の無い文書(「文字起こしせずに開く」は消した)
+        tid = put_empty_doc(store._workdata.TX_DIR, path)
         return tid, self.doc(tid)
 
     def test_relink_then_background_job(self):

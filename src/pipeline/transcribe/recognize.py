@@ -4,12 +4,12 @@
 選んだ行の 1 行ずつの認識(recognize_chunk・ChunkModel)・範囲の認識と行の整え方(range_lines_real・finish_range_lines・RangeRecognizer)・
 全体の再認識の区間分けと続きから(whole_parts・whole_key・read_resume・write_resume・drop_resume・whole_lines)。
 
-役割で組み直す RS2-7(2026-10-10)に編集の ed_jobs から移した(中身は同じ)。標準ライブラリ・ytt・同じパッケージの兄弟(backend・postproc・roster・tx_engines・
+役割で組み直す RS2-7(2026-10-10)に移した(中身は同じ)。標準ライブラリ・ytt・同じパッケージの兄弟(backend・postproc・roster・tx_engines・
 txbase・worker_client・records)だけを読む。ffmpeg(ytt/tools)・置き場所(ytt/workdata の TX_DIR)は呼ぶたびに持ち主から(RS3-0A まで txenv の口)。
-行の頭の「名前:」を外す決まり(fill の B)は ① から fill を読まず、app(編集の serve.py)が set_head_stripper で登録した関数を呼ぶたびに使う
-(fill.fill_head_stripper。RS6 a-3 まで doc_jobs.head_stripper。spec -> None(外さない)か 文字 -> (本文, 足す印) の関数)。
+行の頭の「名前:」を外す決まり(fill の B)は同じ ① の fill.fill_head_stripper を直に呼ぶ(spec -> None(外さない)か 文字 -> (本文, 足す印) の関数。
+OPT-H1 で差し込みの口 set_head_stripper をやめた = 同じ層どうしなので口は要らない)。
 差し替えられる名前(extract_audio・WHOLE_PART_SEC・RangeRecognizer.main など)と読み手は同じこのモジュール。テストの S.extract_audio = …・
-mock.patch.object(S.RangeRecognizer, "main", …) は serve の名前の受付と ed_jobs の転送(ytt/modfwd)でここに届く。
+mock.patch.object(S.RangeRecognizer, "main", …) は serve の名前の受付と転送(ytt/modfwd)でここに届く。
 ジョブの本体(run_job・run_retranscribe・run_redo)と文書への反映(apply_range・plan_range・fit_lines・_ov など)は文書の側(human/proof の doc_jobs・rerun)。
 run_job は transcribe_rows が返す行を受け取って、別の読み(fill)・LLM(llm)・置換辞書と学習した置換・文書の書き込みをする(計算 = ① / 文書への書き込み = ② の第 1 歩)。
 """
@@ -19,21 +19,8 @@ import os
 import time
 
 from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, schemas as _yschemas, tools as _tools, workdata as _workdata
-from . import backend as _backend, postproc, records, roster as _roster, tx_engines, worker_client
+from . import backend as _backend, fill as _fill, postproc, records, roster as _roster, tx_engines, worker_client
 from ytt import txbase as _txbase
-
-_head_stripper = []
-
-
-def set_head_stripper(fn):
-    """行の頭の「名前:」を外す決まりを登録する(app が読み込みのときに)。fn(spec) -> None(外さない)か split(文字) -> (本文, 足す印 か None)"""
-    _head_stripper[:] = [fn]
-
-
-def _stripper(spec):
-    if not _head_stripper:
-        raise RuntimeError("recognize の行の頭の名前を外す決まりが登録されていません(編集の serve.py が set_head_stripper で登録する)")
-    return _head_stripper[0](spec)
 
 
 BOOST_AF = "highpass=f=70,dynaudnorm=f=200:g=15:m=15"   # 小さい声を持ち上げる(低域のこもりを削り、音量のばらつきをならす)
@@ -287,7 +274,7 @@ def finish_range_lines(raw, spec, shift, join=True):
     join = 続いている行をつなぐか(expand_segments の join。範囲・全体の再認識は行の時刻を使うのでつなぐ・疑わしい所の認識し直しはつながない)"""
     a, b = spec["range"]
     out, prev, terms = [], [], _roster.prompt_terms(spec)
-    split = _stripper(spec)   # 行の頭の「名前:」(0.67.0。決まりは app が登録した fill.fill_head_stripper = fill の B)
+    split = _fill.fill_head_stripper(spec)   # 行の頭の「名前:」(0.67.0。fill の B。呼ぶたびに読む = テストの差し替えが効く)
     for s in postproc.expand_segments(raw, spec, join=join):
         note = None
         if split is not None:

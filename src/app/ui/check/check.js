@@ -3,9 +3,11 @@
    URL: /check?c=<案件 id>(その案件だけ)&kind=value|read|voice|time(この種類だけ)&back=cases(終わったら案件へ戻るボタン)。URL を開いただけでは何も書かない。
    読む口・書く口(入口。⑤ src/eval/check/ が数えて並べ、③ src/human/check/apply.py が実物に反映する。V0):
      GET  api/check/next?c=&kind=&n=<枚数。0 = 数だけ>&skip=<id,…>  → {cards: [カード], counts: {today, perKind, failed}, goal, goals: {種類: {label, left, unit, opens, reached}}, total}
-     POST api/check/answer {card, answer, ms, skip(待っている id)} → {ok, answer(答えの id = Z で戻すときに使う), applied, held, flushed, next}
+     POST api/check/answer {card, answer, ms, skip(待っている id), page} → {ok, answer(答えの id = Z で戻すときに使う), applied, held, flushed, next}
      POST api/check/answer {undo: <答えの id>}                       → {ok, answer, card, reverted}
-     POST api/check/skip   {card}                                     → {ok, flushed}・POST api/check/flush {} → {ok, flushed}(画面を離れたとき)
+     POST api/check/skip   {card, page}                               → {ok, flushed}・POST api/check/flush {page} → {ok, flushed}(タブを閉じた・隠したとき)
+     page = この画面の印(開くたびに作る)。保留(1 枚遅れの [送る])の確定は、この画面の次の答え・飛ばす・タブを閉じる / 隠すときに、この画面の分だけ
+     (別の窓へ移っただけ = blur では確定しない。決定 Q12 (a))
    カード = {id, kind, source, case: {id, title}, target, media: {url | youtube, start, end, pad}, text, guess, options, score, note}。
    殻が持つ物: 上の帯(今日 n 件・この確認で決まる物)・カードの枠・keydown 1 本・Z・[飛ばす]・10 件のまとめ・先読み(10 枚を持ち、3 枚を切ったら補充)・
    空の状態・失敗・UIKit.life(見えなくなったら再生を止める)・カードの再生部品の後始末。CSP(script-src 'self')の下で動く: インラインの script・on〇〇= は書かない。
@@ -90,6 +92,8 @@
   var KEEP = 10, LOW = 3, SUM_EVERY = 10;
   var ID_RE = /^[\w:.#|\/-]{1,200}$/;
   var LOAD_TEXT = { offline: 'ホームにつながりませんでした(start.bat の黒い画面が閉じていないか確かめてください)' };
+  var PAGE = 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);   // この画面の印(秘密ではない。保留の確定を画面ごとに分けるだけ)
+  var GONE_UNDO = { cannot_undo: 1, changed: 1, undone: 1, not_found: 1 };   // Z を断られた答えは履歴から外す(次の Z は 1 つ前へ)
 
   var S = {
     want: { c: '', kind: '', back: '' },
@@ -273,7 +277,7 @@
   function answer(a) {
     var card = S.cur;
     if (!card || !a || typeof a !== 'object') return;
-    var body = { card: card.id, answer: a, ms: Math.max(0, Date.now() - S.shownAt), skip: S.queue.slice(0, 50).map(function (c) { return c.id; }) };
+    var body = { card: card.id, answer: a, ms: Math.max(0, Date.now() - S.shownAt), skip: S.queue.slice(0, 50).map(function (c) { return c.id; }), page: PAGE };
     var entry = { card: card, p: null };
     entry.p = api('api/check/answer', { body: body }).then(function (j) {
       if (!j || typeof j.answer !== 'string' || !j.answer) throw Object.assign(new Error('答えの記録の番号が返ってきませんでした'), { code: 'no_id' });
@@ -302,10 +306,7 @@
     var last = S.hist[S.hist.length - 1];
     if (!last || undoing) { if (!last) UIKit.toast('戻せる答えがありません(飛ばしたカードは戻しません)', { ms: 2500 }); return; }
     undoing = true;
-    last.p.then(function (id) {
-      return api('api/check/answer', { body: { undo: id } });
-    }).then(function () {
-      undoing = false;
+    function back() {   // 戻せた(か、もう戻っていた)= カードを前に出し直す
       var i = S.hist.indexOf(last);
       if (i >= 0) S.hist.splice(i, 1);
       S.today = Math.max(0, S.today - 1); S.answered = Math.max(0, S.answered - 1);
@@ -316,9 +317,23 @@
       renderBand(); refreshCounts();
       show();
       UIKit.keybar.flash('Z');
+    }
+    last.p.then(function (id) {
+      return api('api/check/answer', { body: { undo: id } });
+    }).then(function () {
+      undoing = false;
+      back();
     }, function (e) {
       undoing = false;
-      if (S.hist.indexOf(last) < 0) return;   // 記録できなかった答え(もう戻してある)
+      var i = S.hist.indexOf(last);
+      if (i < 0) return;   // 記録できなかった答え(もう戻してある)
+      if (e && e.code === 'undone') return back();   // 前の Z がサーバーで済んでいた(やりかけのやり直し)
+      if (e && GONE_UNDO[e.code]) {   // 戻せない答え(届けた・あとで直された)は履歴から外す = 次の Z は 1 つ前へ
+        S.hist.splice(i, 1);
+        renderUndo(); renderKeys();
+        UIKit.toast('この答えは戻せません: ' + e.message + '(次の Z は 1 つ前の答えへ)', { kind: 'err', detail: e.detail });
+        return;
+      }
       UIKit.toast('1 つ前に戻せませんでした: ' + e.message, { kind: 'err', detail: e.detail });
     });
   }
@@ -326,17 +341,18 @@
     var card = S.cur;
     if (!card) return;
     S.seen[card.id] = 1;
-    api('api/check/skip', { body: { card: card.id } }).then(null, function (e) {
+    api('api/check/skip', { body: { card: card.id, page: PAGE } }).then(null, function (e) {
       UIKit.toast('飛ばしたことを記録できませんでした(次に開くとまた出ます): ' + e.message, { kind: 'err', detail: e.detail });
     });
     UIKit.keybar.flash('N');
     show();
   }
 
-  /* 保留(1 枚遅れの [送る])を確定する。画面を離れたとき(閉じる直前も keepalive で届く)。失敗は次に開いたときの counts.failed */
+  /* この画面の保留(1 枚遅れの [送る])を確定する。タブを閉じた・隠したとき(閉じる直前も keepalive で届く)。失敗は次に開いたときの counts.failed。
+     別の窓へ移っただけ(blur)では確定しない(案件の画面や別のアプリを見に行っただけで届かないように。決定 Q12 (a)) */
   function flush() {
     if (!S.hist.length) return;
-    api('api/check/flush', { body: {}, keepalive: true, timeout: 10000 }).then(null, function () { /* 次の答え・次に開いたときに確定する */ });
+    api('api/check/flush', { body: { page: PAGE }, keepalive: true, timeout: 10000 }).then(null, function () { /* 次の答え・しばらくして別の画面の答えで確定する */ });
   }
 
   /* ---- このあと・戻すボタン・下の帯 ---- */
@@ -415,8 +431,10 @@
       S.failed = null; S.exhausted = false; show();
     });
     UIKit.life.onLeave(function (reason) {
-      flush();   // 1 枚遅れの [送る] を確定(離れたまま閉じても届く。decisions 3-41)
-      if (reason !== 'blur') stopPlayers();   // 'blur' = 隣の窓へ(画面は見えている。再生は止めない)
+      if (reason !== 'blur') {   // 'blur' = 隣の窓へ(画面は見えている。保留は確定しない・再生は止めない)
+        flush();   // 1 枚遅れの [送る] を確定(隠したまま閉じても届く。decisions 3-41・Q12)
+        stopPlayers();
+      }
       if (S.view && S.view.leave) { try { S.view.leave(reason); } catch (e) { UIKit.report('カードの leave で失敗しました: ' + (e && e.message)); } }
     });
     renderBand(); renderQueue();

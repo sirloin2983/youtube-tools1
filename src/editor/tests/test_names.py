@@ -154,7 +154,7 @@ class TestEdSpeakersNames(unittest.TestCase):
 
     def test_old_ed_speakers_names_still_resolve(self):
         names = _old_names("data_ed_speakers_names.txt")
-        self.assertEqual(len(names), 124)   # RS6 a-4 で _autodiar_record を flow/diar の record_context に名前を変えて外した(125 → 124)
+        self.assertEqual(len(names), 103)   # RS6 a-4 で _autodiar_record を外した(125 → 124)・OPT-H1 で ovdraft_ の 20 と _spksub_key を外した(124 → 103)
         missing = [n for n in names if not hasattr(S, n)]
         self.assertEqual(missing, [])
 
@@ -235,7 +235,7 @@ class TestEdStoreNames(unittest.TestCase):
 
     def test_old_ed_store_names_still_resolve(self):
         names = _old_names("data_ed_store_names.txt")
-        self.assertEqual(len(names), 79)   # 0.69.0 で進行度の要約 _prog_of・_part を消した
+        self.assertEqual(len(names), 75)   # 0.69.0 で進行度の要約 _prog_of・_part・OPT-H1 で open_video・_open_lock・add_effort・MAX_EFFORT_SEC を消した
         missing = [n for n in names if not hasattr(S, n)]
         self.assertEqual(missing, [])
 
@@ -278,7 +278,7 @@ class TestEdAltYtcapRetimeNames(unittest.TestCase):
         return alt, ytcap, retime
 
     def test_old_names_still_resolve(self):
-        for fname, n in (("data_ed_alt_names.txt", 31), ("data_ed_ytcap_names.txt", 51), ("data_ed_retime_names.txt", 2)):
+        for fname, n in (("data_ed_alt_names.txt", 31), ("data_ed_ytcap_names.txt", 12), ("data_ed_retime_names.txt", 2)):
             names = _old_names(fname)
             self.assertEqual(len(names), n, fname)
             missing = [k for k in names if not hasattr(S, k)]
@@ -309,12 +309,12 @@ class TestEdAltYtcapRetimeNames(unittest.TestCase):
         with mock.patch.object(S, "alt_spec", lambda tid, req=None: {"tid": tid}):
             self.assertEqual(alt.alt_spec("a"), {"tid": "a"})
             self.assertEqual(S.alt_spec("b"), {"tid": "b"})
-        saved = ytcap.YTCAP_TIMEOUT_SEC
+        saved = ytcap.YTCAP_MAX_CACHE_BYTES
         try:
-            S.YTCAP_TIMEOUT_SEC = 8
-            self.assertEqual(ytcap.YTCAP_TIMEOUT_SEC, 8)
+            S.YTCAP_MAX_CACHE_BYTES = 8
+            self.assertEqual(ytcap.YTCAP_MAX_CACHE_BYTES, 8)
         finally:
-            ytcap.YTCAP_TIMEOUT_SEC = saved
+            ytcap.YTCAP_MAX_CACHE_BYTES = saved
 
     def test_fake_rows_come_from_the_backend_slot(self):
         """疑似の行は Backend.alt_rows(疑似は eval/fake/fake_asr)。本物の Backend は real をそのまま呼ぶ"""
@@ -384,7 +384,7 @@ class TestEdMiscNames(unittest.TestCase):
 
     def test_old_ed_misc_names_still_resolve(self):
         names = _old_names("data_ed_misc_names.txt")
-        self.assertEqual(len(names), 16)   # OTHER_JSON_MAX は ytt/studiodata.STUDIO_JSON_MAX に一本化(RS8 B3-1)
+        self.assertEqual(len(names), 11)   # OTHER_JSON_MAX は ytt/studiodata.STUDIO_JSON_MAX に一本化(RS8 B3-1)・フォルダの一括の 5 つは OPT-H1 で消した
         self.assertEqual([n for n in names if not hasattr(S, n)], [])
 
     def test_moved_owners(self):
@@ -394,15 +394,16 @@ class TestEdMiscNames(unittest.TestCase):
             self.assertIn(m, S._ED_MODULES, m.__name__)
         handoff_io, batch = owners
         self.assertIs(S.clip_info, handoff_io.clip_info)
-        self.assertIs(S.scan_common, batch.scan_common)
+        self.assertIs(S.transcribed_ranges, batch.transcribed_ranges)
         self.assertFalse(hasattr(S, "progress_stats"))   # 0.69.0(段 D2)で消した
+        self.assertFalse(hasattr(S, "scan_folder") or hasattr(S, "add_batch"))   # 汎用のフォルダの一括は消した(決定 3-47 の Q5)
         self.assertIs(S.runtime_path_dir, ed_state.runtime_path_dir)
 
-    def test_transcribed_ranges_patch_reaches_marker_and_batch(self):
-        """S.transcribed_ranges の差し替え(test_backend・test_metrics の形)はフォルダの一括とマーカーの読みの両方に届く"""
+    def test_transcribed_ranges_patch_reaches_marker(self):
+        """S.transcribed_ranges の差し替え(test_backend・test_metrics の形)はマーカーの読みに届く(持ち主は batch)"""
         handoff_io, batch = self.owners()
         with mock.patch.object(S, "transcribed_ranges", lambda: [{"path": "k", "start": 0.0, "end": None, "whole": True, "tid": "t1"}]):
-            self.assertEqual(batch._done_and_active()[0], {"k": "t1"})
+            self.assertEqual(batch.transcribed_ranges()[0]["tid"], "t1")
             self.assertIn("transcribed_ranges", vars(batch))
         self.assertNotIn("transcribed_ranges", vars(handoff_io))   # マーカーは _batch.transcribed_ranges を呼ぶたびに読む
 
@@ -550,7 +551,7 @@ class TestSettingsMoved(unittest.TestCase):
         with mock.patch.object(S, "load_settings", lambda: {"diarSmooth": True}):
             self.assertEqual(settings.load_settings(), {"diarSmooth": True})
             from human.proof import speakers
-            self.assertTrue(speakers.diar_smooth_setting())   # 読み手は呼ぶたびに ytt/settings の名前を読む
+            self.assertTrue(speakers._diar_smooth_setting())   # 読み手は呼ぶたびに ytt/settings の名前を読む
 
     def test_owner_registered_keys(self):
         self.assertTrue(S.SETTINGS_PATCH_KEYS["altEngine"](S.ALT_DEFAULT))

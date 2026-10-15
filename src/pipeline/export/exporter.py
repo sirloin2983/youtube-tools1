@@ -759,7 +759,7 @@ TOOL = {"name": _runtime.TOOL_APPS["studio"], "version": ""}   # .clip.json の 
 def write_clip(media_path, duration, source, rng, mark, export):
     """mp4 の .clip.json(youtube-tools-clip/v1。ytt.schemas.build_clip)を 作業用/ に書いて、そのパスを返す。失敗したら OSError(呼び出し側で警告にする)。
     UTF-8(BOM なし)で、一時ファイルに書いてから置き換える(書きかけを他のツールに読ませない。ytt.fsio.write_json。作業用/ も作る)。
-    OPT1(2026-10-11)に、ytt を呼び直すだけだった pipeline/export/manifest.py を畳んでここへ"""
+    OPT1(2026-10-11)に、ytt を呼び直すだけだった部品を畳んでここへ"""
     path = schemas.clip_path_for(media_path)
     _fsio.write_json(path, schemas.build_clip(media_path, duration, source, rng, mark, export, TOOL))
     return path

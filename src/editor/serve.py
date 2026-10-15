@@ -15,23 +15,18 @@
   POST /api/diarize          話者の自動判別ジョブを追加(sherpa-onnx。文字起こしと同じ待機列。recognize: 覚えている声で名前を付ける。既定オン)。
                              numSpeakers 1 = 判別せず全部の行をその1人に / names = 出てくる人の名前(照らし合わせをこの名前だけに・1人だけ残れば消去法で付ける。友人からの依頼)
   GET  /api/voices           覚えている声の一覧(A-3。判別モデルごと。特徴そのものは返さない。generic = 一般的な名前)
-  GET  /api/overlap-drafts?id=&kinds=overlap,missing  声があるのに行の無い所(重なり・抜け)の空の行の候補 {items, more, counts, reason, reasonCode, diarAt}(読むだけ。
-                             判別の記録 <id>.diar.json の latest から。行を足すのは画面。human/proof/speakers の ovdraft_)
   GET  /api/voices/preview   ?tid=&embedding= 覚える前の確認(読むだけ。覚える人・行・秒・既にある名前・断った名前・使わなかった行の数。段1)
   POST /api/voices/learn     {tid, embedding, names, confirmSame} 名前を付けた話者の声を覚えるジョブを追加(A-3。作業データの voices/ に保存。
                              校正済みの行だけ・評価用は断る・一般的な名前は覚えない・既にある名前は confirmSame に入れたときだけ足す。段1)
   POST /api/voices/delete    覚えている声を消す {embedding, name}
   POST /api/retranscribe     選んだ行だけを、別のモデルで再認識するジョブを追加
   POST /api/redo             {"tid"}疑わしい所(「長い区間に文字が少ない」の行)だけ認識し直すジョブ(12 ③-2。良くなったときだけ置き換える)
-  POST /api/resplit          {"id", "orientation"?, "splitChars"?, "baseUpdatedAt"?} 今の文書の長い行を、保存してある単語の時刻(transcripts/<id>.words.json)で分け直す(12 ②)
   POST /api/retime           {"id", "rows": [行の id…]} 行の時刻を単語の時刻(words.json)に合わせる候補(読むだけ。文書は書き換えない。本体は human/proof/retime.py の包み + pipeline/transcribe/retime.py の計算)
   GET  /api/learned          修正から学習した「誤=>正」の候補
   GET  /api/suggest?id=      この文字起こしの各行への「修正の提案」(文脈つきの統計)
   POST /api/suggest/feedback 提案の採用・却下を記録(項目の tier "alt" = 2つ目のエンジンの候補は学習の統計に入れず、数だけ数える)
   POST /api/alt              {"id", "engine"?} 2つ目のエンジンで同じ音声を聞くジョブ(結果は transcripts/<id>.alt.json。文書は書き換えない。
                              食い違う所が GET /api/suggest に tier "alt" の候補として出る。評価用・最初の認識と同じエンジンとモデルは断る。D1-b。本体は human/proof/alt.py)
-  POST /api/ytcap            {"id"} 元の配信の YouTube の字幕(配信者の字幕 → 自動字幕)を取って比べるジョブ(字幕だけ・配信ごとに ytcaps/ で使い回す・結果は transcripts/<id>.ytcap.json。
-                             文書は書き換えない。食い違う所が GET /api/suggest に tier "yt" の候補として出る。評価用・元の配信が分からない文書は断る。案 A1。本体は human/proof/ytcap.py)
   GET  /api/metrics?id=&legacy=1  校正済みの行を正解とした文字誤り率(CER)。id 省略で全件
   GET  /api/transcripts      保存済みの文字起こし一覧
   GET/PUT/DELETE /api/transcript?id=   1件の取得・保存・削除
@@ -39,8 +34,8 @@
   「編集」(notes:docs/design/edit-tool-design.md の 5):
   GET/PUT /api/edit?id=      編集の内容(残す区間)。PUT {"edit", "baseRev", "draft"?} → {"rev", "cutRows"}(rev が違えば 409。行の cutState も合わせる。
                              draft = 始めたたき台。初めての保存のときだけ edit.json に一度書く = マスタープラン Q2)
-  POST /api/effort           {"id", "activeSec", "cutSec"?, "newSession"?} 校正の手間(操作していた秒)を文書の effort に足す(updatedAt は変えない。
-                             校正済みにした行の数は保存のときにサーバーが数える。Q2)
+  POST /api/effort           {"id"} 操作中の知らせ = 文書の effort.lastAt を今に(updatedAt は変えない。作業した時間は数えない。
+                             校正済みにした行の数は保存のときにサーバーが数える。本体は human/proof/store.touch_effort)
   POST /api/doc-diarnum      {"id", "diarNum"} 文書ごとの話者判別の人数(0 = 自動・1〜8。updatedAt は変えない。段7 E-6)
   GET  /api/mach-changes?id=&row=  機械の結果が変わって人の直しと食い違う行(印 MACH_CHANGED)の 前の機械・今の機械・人の直し(層が正のときだけ。RS8 O2-4)
   POST /api/mach-changes/pick {"id", "row", "pick": mine|machine, "baseUpdatedAt"?} 自分の直しのまま / 今の機械にする(本体は human/proof/machpick.py)
@@ -49,9 +44,8 @@
   GET  /api/edit/draft?id=&rows=1  動画の fps・長さと、たたき台「行から」(pack.TRANSCRIPT_ROWS。残す行が無ければ全部)・隣の .cut-plan.json。
                              「行から」はカットが無い文書か rows=1 のときだけ計算する(設定の rowEdge = 行の端を声の止まる所まで広げるか)
   POST /api/edit/pack        {"id", "rev", "docUpdatedAt", "dir", "files", "output"?} パックを作り終えた記録(packRev)。output = 作ったときの出力の設定(壊れていれば保存しない)
-  POST /api/edit/preview     {"id", "keeps"} カットのとおりに作ったときのパックの見積もり(ファイルは作らない)
+  POST /api/edit/preview     {"id", "keeps", "wrap"?} カットのとおりに作ったときのパックの見積もり(ファイルは作らない)
   GET  /api/edit/pack-readme?id=  前回のパックの手順書(友人へ.txt)
-  POST /api/open-video       {"path", "title"?} 文字起こしせずに開く → {"id", "created"}(同じ動画の文書があればそれ)
   GET  /api/doc-for?path=    その動画の文書 → {"doc": {"id", "rows"} | null}(?media= で開いたとき。パスを比べるだけ)
   GET  /api/peaks?id=        音の波形(0〜255 の1バイトの並び。X-Peaks-Rate・X-Peaks-Duration)。作っている間は 202
   受け渡し(notes:docs/spec/pipeline.md。読み・保存・.runtime は manage/cases/pipeline_io.py・JSON と SRT の組み立ては pipeline/pack/resolve_export.py):
@@ -102,14 +96,14 @@ from flow import jobs as _heavy_jobs  # noqa: E402
 from ytt import jobs as _slots_jobs  # noqa: E402  重い処理の枠・Cancelled・check_cancel(① の部品も使う物。RS6 a-2 で flow/jobs と分けた)
 from flow import board as _flowboard  # noqa: E402  ② のジョブの掲示板(RS8 の ② の口)
 from flow import wire as _flowwire  # noqa: E402  ② 文字起こしの配線(ジョブの種類の登録・ジョブの表の設定・本物と疑似の選び方・① の口。RS6 a-5b)
-from flow import tx as _flowtx  # noqa: E402  ② 文字起こしの動詞(RS6 a-3。旧 ed_jobs の _doc_fields・dict_pairs・redo_kwargs と旧 ed_alt の alt_engine_version はここ)
-from pipeline.transcribe import clipjob as _txclipjob  # noqa: E402  ① 文字起こしのジョブの機械の文書の行(RS6 a-3 に doc_jobs.run_job から。旧 ed_jobs の _rows_to_doc はここ)
+from flow import tx as _flowtx  # noqa: E402  ② 文字起こしの動詞(RS6 a-3。_doc_fields・dict_pairs・redo_kwargs と alt_engine_version はここ)
+from pipeline.transcribe import clipjob as _txclipjob  # noqa: E402  ① 文字起こしのジョブの機械の文書の行(RS6 a-3 に doc_jobs.run_job から。_rows_to_doc はここ)
 from ytt import txwords as _txwords  # noqa: E402  単語の時刻 words.json の読み書き(RS6 a-5b に records から。S.read_words・S.words_path はここ)
 from ytt import txtext as _txtext  # noqa: E402  文字起こしの文字の語彙(RS6 a-3 に postproc・roster から。S.strip_punct・S.split_segment・S.SPARSE_FLAG・S.split_terms はここ)
 from ytt import version as _version  # noqa: E402
-from ytt import settings as _settings  # noqa: E402  (編集の設定の読み書きと鍵の検査・評価用のフォルダの判定。RS3-1 に ed_learn・ed_relink から移した = S.load_settings・S.in_eval_dir はここへ届く)
-from ytt import docloc as _docloc, studiodata as _studiodata, tools as _tools, workdata as _workdata  # noqa: E402  (スタジオの data.json の読み口・置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した = S.TX_DIR = …・S.find_ffmpeg = … はここへ届く)
-import ed_state, ed_media  # noqa: E402,F401  (分けた部品。段10。RS5-A で転送だけの殻 ed_store・ed_relink・ed_jobs・ed_speakers・ed_learn・ed_misc を消した。評価用の音声 ed_evalaudio は 0.68.0 で消した)
+from ytt import settings as _settings  # noqa: E402  (編集の設定の読み書きと鍵の検査・評価用のフォルダの判定。RS3-1 に移した = S.load_settings・S.in_eval_dir はここへ届く)
+from ytt import studiodata as _studiodata, tools as _tools, workdata as _workdata  # noqa: E402  (スタジオの data.json の読み口・置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state から移した = S.TX_DIR = …・S.find_ffmpeg = … はここへ届く)
+import ed_state, ed_media  # noqa: E402,F401  (分けた部品。段10。RS5-A で転送だけの殻を消した。評価用の音声は 0.68.0 で消した)
 from manage.cases import pipeline_io  # noqa: E402  (受け渡しの読み・保存・.runtime。RS3-E5b に editor から manage/cases へ。RS3-0A まで ed_state.pio() の遅延ロード = serve.py だけ差し替えたときの備えはやめた)
 from pipeline.pack import resolve_export  # noqa: E402  (Resolve パッケージ(zip)と受け渡しの JSON・SRT の組み立て。RS3-E5b に editor から pipeline/pack へ)
 from ytt import errors as _errors  # noqa: E402
@@ -117,13 +111,13 @@ import ed_thumb  # noqa: E402,F401  (サムネの案のジョブ。提案 P5。0
 from eval.fake import fake_asr  # noqa: E402  (疑似の文字起こし。app だけが ④ を読んで差し込み口に登録する。RS2-2)
 from eval.fake import fake_worker  # noqa: E402  (認識ワーカーの中の疑似。ワーカーへはモジュールの名前だけを渡す = worker_client.FAKES_MODULE。RS2-9)
 from pipeline.transcribe import backend as _txbackend  # noqa: E402  (本物と疑似の差し込み口。RS2-2)
-from pipeline.transcribe import roster as _txroster, tx_engines as _txengines  # noqa: E402  (名簿の prompt_terms・エンジンの engine_of・engine_home を ed_jobs から移した。RS2-4a)
-from pipeline.transcribe import postproc as _txpost  # noqa: E402  (行の後処理と要確認の印を ed_jobs から移した。RS2-4b)
-from pipeline.transcribe import records as _txrecords  # noqa: E402  (認識の記録・辞書の版・生出力・単語の時刻を ed_jobs から移した。RS2-5)
-from pipeline.transcribe import models as _txmodels, worker_client as _txworker  # noqa: E402  (認識ワーカー・モデル・エンジンの確かめを ed_jobs から、wav の形を ed_speakers から移した。RS2-6)
-from pipeline.transcribe import recognize as _txrecognize  # noqa: E402  (音声の取り出し・認識・範囲の行・全体の再認識の続きからを ed_jobs から移した。RS2-7)
-from pipeline.transcribe import fill as _txfill, llm as _txllm, retime as _txretime  # noqa: E402  (認識のあとの後処理 A・B・C・D と LLM の後処理 E を ed_fill・ed_llm から、読む速さと時刻の候補の計算を ed_retime から移した。fill・llm の殻は作らない。RS2-9)
-from human.proof import doc_jobs as _docjobs  # noqa: E402  (文字起こしのジョブの本体・文書づくり・受付。RS2-8b に ed_jobs から移した。ed_jobs は転送だけの殻)
+from pipeline.transcribe import roster as _txroster, tx_engines as _txengines  # noqa: E402  (名簿の prompt_terms・エンジンの engine_of・engine_home を移した。RS2-4a)
+from pipeline.transcribe import postproc as _txpost  # noqa: E402  (行の後処理と要確認の印を移した。RS2-4b)
+from pipeline.transcribe import records as _txrecords  # noqa: E402  (認識の記録・辞書の版・生出力・単語の時刻を移した。RS2-5)
+from pipeline.transcribe import models as _txmodels, worker_client as _txworker  # noqa: E402  (認識ワーカー・モデル・エンジンの確かめと wav の形を移した。RS2-6)
+from pipeline.transcribe import recognize as _txrecognize  # noqa: E402  (音声の取り出し・認識・範囲の行・全体の再認識の続きからを移した。RS2-7)
+from pipeline.transcribe import fill as _txfill, llm as _txllm, retime as _txretime  # noqa: E402  (認識のあとの後処理 A・B・C・D と LLM の後処理 E と、読む速さと時刻の候補の計算を移した。RS2-9)
+from human.proof import doc_jobs as _docjobs  # noqa: E402  (文字起こしのジョブの本体・書く先・受付)
 from human.proof import overrides as _overrides  # noqa: E402  (校正の上書き over.json。文書の削除で一緒に消す。RS6 b-O1)
 from human.proof import rerun as _rerun  # noqa: E402  (再認識と疑わしい所の認識し直しの本体・反映・記録。RS2-8c に doc_jobs から割った)
 from pipeline.transcribe import diarize as _txdiarize  # noqa: E402  (話者判別の計算・判別の記録・声の特徴と照らし合わせ。RS2-9 に ed_speakers から分けた。ed_speakers は転送だけの殻)
@@ -131,21 +125,21 @@ from flow import pack as _flowpack  # noqa: E402  (② パックの動詞。RS6 
 from flow import machine as _machine  # noqa: E402  (② この PC の設定 machine.json。⚙ のデバイスはここへ書く・読む。RS7-1 S6b)
 from flow import keys as _flowkeys  # noqa: E402  (② 成果物の鍵。文書の削除で鍵のファイルも消す。RS6 b-K1)
 from flow import diar as _flowdiar  # noqa: E402  (② 判別と声の段取り・判別の記録を書く・覚えた声の置き場所 VOICES_DIR・load_voices ほか。RS6 a-4 に speakers・diarize から)
-from human.proof import speakers as _speakers  # noqa: E402  (判別の結果を文書へ・判別のジョブ・空の行の下書き・自動の判別・声を覚える・字幕の見た目。RS2-9)
+from human.proof import speakers as _speakers  # noqa: E402  (判別の結果を文書へ・判別のジョブ・評価用の自動の判別・声を覚える・字幕の見た目)
 from ytt import dictfmt as _dictfmt  # noqa: E402  (置換辞書の読み方 parse_replacements・wb_split・_bounded。RS6 a-1 に pipeline/transcribe/replace から ytt へ = S.parse_replacements・S._bounded はここへ届く)
-from pipeline.transcribe import replace as _txreplace  # noqa: E402  (置換辞書の読み方と当て方。RS3-E5c に ed_learn から移した。ed_learn は転送だけの殻)
-from human.proof import learn as _learn  # noqa: E402  (人が直した内容からの学習・提案・採用と却下の記録・名簿。RS3-E5c に ed_learn から)
-from eval.drill import metrics as _evmetrics  # noqa: E402  (認識精度の測定・noSub と重なりの数え方・評価用の基準の記録。RS3-E5c に ed_learn から)
-from human.proof import alt as _alt  # noqa: E402  (2つ目のエンジンとの食い違いの候補。精度改善 第2版 D1-b。RS3-E6 に ed_alt から移した。ed_alt は転送だけの殻)
-from human.proof import ytcap as _ytcap  # noqa: E402  (元の配信の YouTube の字幕との食い違いの候補。案 A1。RS3-E6 に ed_ytcap から移した。ed_ytcap は転送だけの殻)
-from human.proof import retime as _proofretime  # noqa: E402  (字幕の読む速さの印・行の時刻を単語の時刻に合わせる候補の API の包み。2026-10-05。RS3-E6 に ed_retime から移した。計算は _txretime)
+from pipeline.transcribe import replace as _txreplace  # noqa: E402  (置換辞書の読み方と当て方。RS3-E5c に移した)
+from human.proof import learn as _learn  # noqa: E402  (人が直した内容からの学習・提案・採用と却下の記録・名簿)
+from eval.drill import metrics as _evmetrics  # noqa: E402  (認識精度の測定・noSub と重なりの数え方・評価用の基準の記録。RS3-E5c に移した)
+from human.proof import alt as _alt  # noqa: E402  (2つ目のエンジンとの食い違いの候補。精度改善 第2版 D1-b)
+from human.proof import ytcap as _ytcap  # noqa: E402  (元の配信の YouTube の字幕の候補の比べ方の部品だけ。⑤ eval_alt が S.ytcap_* で読む。取得とジョブは OPT-H1 で消した)
+from human.proof import retime as _proofretime  # noqa: E402  (行の時刻を単語の時刻に合わせる候補の API の包み。計算は ① の _txretime)
 from human.proof import machpick as _machpick  # noqa: E402  (3 択の口: 機械の結果が変わった人の行。RS8 O2-4)
-from human.proof import store as _store  # noqa: E402  (文書の読み書き・履歴・整形・手間・要約のキャッシュ・編集の内容・文字起こしせずに開く。RS3-E5a に ed_store から移した。ed_store は転送だけの殻)
-from manage.cases import doclist as _doclist  # noqa: E402  (一覧と元の動画・パックの有無・前回のパックの手順。RS3-E5a に ed_store から切り出した)
+from human.proof import store as _store  # noqa: E402  (文書の読み書き・層・履歴・消す・整形・校正の行の数と作業中の印・要約のキャッシュ・編集の内容)
+from manage.cases import doclist as _doclist  # noqa: E402  (一覧と元の動画・パックの有無・前回のパックの手順。RS3-E5a に切り出した)
 from manage.cases import relink as _relink  # noqa: E402  (付け替え・まとめて付け替える・「参照…」・素材を 30fps にそろえる。RS3-E7 に ed_relink から移した。ed_relink は転送だけの殻)
 from eval.drill import folders as _evfolders  # noqa: E402  (評価用のフォルダの整理・仮置き・外からの取り込み。RS3-E7 に ed_relink から切り出した)
 from manage.cases import handoff_io as _handoff_io  # noqa: E402  (clip-marker との連携・受け渡しの API。RS3-E7 に ed_misc から移した。ed_misc は転送だけの殻)
-from human.proof import batch as _batch  # noqa: E402  (フォルダの一括読み込みと文字起こし済みの範囲。RS3-E7 に ed_misc から切り出した。進行度 progress は 0.69.0(段 D2)で消した)
+from human.proof import batch as _batch  # noqa: E402  (文字起こし済みの範囲 transcribed_ranges だけ。汎用のフォルダの一括は消した。OPT-M1 で read_marker と一緒に消す)
 from eval.drill import drill as _drill  # noqa: E402  (評価ドリルと定点の「あと何分」。マスタープラン Q4。RS4-2 に ed_drill から移した = 殻なし)
 from eval.drill import evalbatch as _evalbatch  # noqa: E402  (評価用の動画のまとめての文字起こし。マスタープラン Q4。RS4-2 に ed_evalbatch から移した = 殻なし)
 
@@ -159,50 +153,51 @@ _workdata.SERVER_VERSION = SERVER_VERSION   # 部品が読む版(RS3-0A から�
 # ---------- 分けた部品(段10。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md) ----------
 # serve.py の名前の受付: serve.py に無い名前は分けた部品から読み、S.名前 = … の差し替えはその名前を持つ部品へ転送する
 # (テスト・認識ワーカー・src/eval/tools/eval_asr.py・入口の取り込みは、今までどおり serve の名前で使える)
-_ED_MODULES = (_workdata, _tools, _studiodata, ed_state, _store, _doclist, _relink, _evfolders, ed_media, _heavy_jobs, _slots_jobs, fake_asr, _txroster, _txengines, _txpost, _txrecords, _txworker, _txmodels, _txrecognize, _docjobs, _rerun, _txdiarize, _speakers, _txreplace, _learn, _evmetrics, _handoff_io, _batch, _drill, _evalbatch, _alt, _ytcap)   # _workdata = ytt/workdata(置き場所と版の今の値。ed_state から移した。RS3-0A)・_tools = ytt/tools(動画と音声の小道具 find_ffmpeg・check_source・media_duration・probe_media ほか。ed_state・ed_store から移した。RS3-0A)・_studiodata = ytt/studiodata(スタジオの data.json の読み口 studio_videos・studio_stream。ed_store から移した。RS3-0A)・_heavy_jobs = ytt/jobs(ed_jobs から移したジョブの表。RS2-1b)・fake_asr = 疑似の文字起こし(RS2-2)・_txroster・_txengines = 名簿とエンジン(RS2-4a)・_txpost = 行の後処理(RS2-4b)・_txrecords = 認識の記録(RS2-5)・_txworker = 認識ワーカー(RS2-6)・_txrecognize = 認識(RS2-7)・_docjobs = 文書の側のジョブ(RS2-8b。ed_jobs は転送だけの殻 = 名前を持たない)・_rerun = 再認識の本体と反映(RS2-8c)。移した先は ed_jobs より前。_txdiarize・_speakers = 話者判別の計算と文書の側(RS2-9。ed_speakers のあった所。殻の ed_speakers は ed_jobs の殻と名前が重なるので並べない)・_txreplace・_learn・_evmetrics = 置換辞書・学習と提案・精度と基準(RS3-E5c。ed_learn のあった所。殻の ed_learn も並べない)
-_ED_MODULES += (_txretime, _proofretime)   # 読む速さ・時刻の候補(2026-10-05。足すときは上の行を書き換えずにこの形で)。計算は pipeline/transcribe/retime.py(RS2-9。移した先は包みより前)・文書を読む包みが human/proof/retime(RS3-E6。殻の ed_retime は並べない)
-_ED_MODULES += (_txfill,)   # 認識のあとの後処理 A・B・C・D(2026-10-08。0.60.0。RS2-9 から pipeline/transcribe/fill.py。ed_fill は無い)
-_ED_MODULES += (_txllm,)   # LLM の後処理 E(2026-10-09。0.61.0。RS2-9 から pipeline/transcribe/llm.py。ed_llm は無い)
+_ED_MODULES = (_workdata, _tools, _studiodata, ed_state, _store, _doclist, _relink, _evfolders, ed_media, _heavy_jobs, _slots_jobs, fake_asr, _txroster, _txengines, _txpost, _txrecords, _txworker, _txmodels, _txrecognize, _docjobs, _rerun, _txdiarize, _speakers, _txreplace, _learn, _evmetrics, _handoff_io, _batch, _drill, _evalbatch, _alt, _ytcap)   # _workdata = ytt/workdata(置き場所と版の今の値。ed_state から移した。RS3-0A)・_tools = ytt/tools(動画と音声の小道具 find_ffmpeg・check_source・media_duration・probe_media ほか。ed_state から移した。RS3-0A)・_studiodata = ytt/studiodata(スタジオの data.json の読み口 studio_videos・studio_stream。RS3-0A)・_heavy_jobs = flow/jobs(ジョブの表。RS2-1b)・fake_asr = 疑似の文字起こし(RS2-2)・_txroster・_txengines = 名簿とエンジン(RS2-4a)・_txpost = 行の後処理(RS2-4b)・_txrecords = 認識の記録(RS2-5)・_txworker = 認識ワーカー(RS2-6)・_txrecognize = 認識(RS2-7)・_docjobs = 文書の側のジョブ(RS2-8b)・_rerun = 再認識の本体と反映(RS2-8c)。移した先は文書の側の部品より前。_txdiarize・_speakers = 話者判別の計算と文書の側(RS2-9。ed_speakers のあった所)・_txreplace・_learn・_evmetrics = 置換辞書・学習と提案・精度と基準(RS3-E5c)
+_ED_MODULES += (_txretime, _proofretime)   # 読む速さ・時刻の候補(2026-10-05。足すときは上の行を書き換えずにこの形で)。計算は pipeline/transcribe/retime.py(RS2-9。移した先は包みより前)・文書を読む包みが human/proof/retime(RS3-E6)
+_ED_MODULES += (_txfill,)   # 認識のあとの後処理 A・B・C・D(2026-10-08。0.60.0。RS2-9 から pipeline/transcribe/fill.py)
+_ED_MODULES += (_txllm,)   # LLM の後処理 E(2026-10-09。0.61.0。RS2-9 から pipeline/transcribe/llm.py)
 _ED_MODULES += (ed_thumb,)   # サムネの案(2026-10-09。0.64.0)
-_ED_MODULES += (_settings,)   # 編集の設定の読み書き・鍵の検査(load_settings・patch_settings・SETTINGS_PATCH_KEYS ほか)と評価用のフォルダの判定(RS3-1 に ed_learn・ed_relink から ytt/settings へ)
+_ED_MODULES += (_settings,)   # 編集の設定の読み書き・鍵の検査(load_settings・patch_settings・SETTINGS_PATCH_KEYS ほか)と評価用のフォルダの判定(RS3-1 に ytt/settings へ)
 _ED_MODULES += (_dictfmt,)   # 置換辞書の読み方(RS6 a-1。ytt へ移した。S.parse_replacements・S.wb_split・S._bounded の差し替えが届く)
 _ED_MODULES += (_flowdiar,)   # 判別と声の段取り(RS6 a-4。speakers の覚えた声の置き場所・diarize の _record_diar を ② へ。S.VOICES_DIR = … はここへ届く)
 _ED_MODULES += (_txtext, _txclipjob, _flowtx)   # RS6 a-3: 文字の語彙(ytt/txtext)・① の機械の文書の行(clipjob)・② 文字起こしの動詞(flow/tx)
 _ED_MODULES += (_txwords,)   # RS6 a-5b: 単語の時刻の読み書き(records から ytt へ。S.read_words・S.words_path)
-_ED_MODULES += (_flowpack,)   # RS6 a-5a: ② パックの動詞(カットのたたき台の枠 DRAFT_SLOT_WAIT・_draft_slot を ed_store の名前として読めるように)
-# ↑ _store・_doclist = 文書の置き場と一覧(RS3-E5a。ed_store のあった所。殻の ed_store は ed_jobs の殻と名前が重なるので並べない)
+_ED_MODULES += (_flowpack,)   # RS6 a-5a: ② パックの動詞(カットのたたき台の枠 DRAFT_SLOT_WAIT・_draft_slot を serve の名前として読めるように)
+# ↑ _store・_doclist = 文書の置き場と一覧(RS3-E5a)
 # ↑ _relink・_evfolders = 付け替えと 30fps・評価用のフォルダの整理(RS3-E7。ed_relink のあった所)・_handoff_io・_batch = 受け渡し・フォルダの一括(RS3-E7。ed_misc のあった所。進行度 _progress は 0.69.0 で消した)。殻の ed_relink・ed_misc も並べない
 
 
 # ---------- 文字起こしの配線(役割で組み直す RS6 a-5b。ジョブの種類の登録・ジョブの表の設定・本物と疑似の選び方・① の口の登録は ② flow/wire.install。表と待機列は flow/jobs) ----------
 # 種類ごとの優先度・同時に入れない組・やり直せるかは flow/wire の表が正。本体は lambda の中で呼ぶたびに読む(S.run_job = … などのテストの差し替えが効く)。
-# ③ ⑤ の関数(doc_jobs・speakers・rerun・alt・ytcap・relink・ed_thumb・疑似の本体)は ② が読めないので、ここから渡す。
+# ③ ⑤ の関数(doc_jobs・speakers・rerun・alt・relink・ed_thumb・疑似の本体)は ② が読めないので、ここから渡す。
 # 置き場所(ytt/workdata)・動画と音声の小道具(ytt/tools)・ワーカーと GPU とモデル名の検査(worker_client)・名簿のファイル(roster.ROSTER)・スタジオの配信の情報(ytt/studiodata)は、
 # 下の層の部品が持ち主を呼ぶたびに直に読む(S.TX_DIR = …・patch.object(S, "check_source") は名前の受付が持ち主へ届ける)
 _flowwire.install(
     bodies={"transcribe": lambda job: _docjobs.run_job(job), "diarize": lambda job: _speakers.run_diarize(job), "voice-learn": lambda job: _speakers.run_voice_learn(job),
             "retranscribe": lambda job: _rerun.run_retranscribe(job), "redo": lambda job: _rerun.run_redo(job),
             "normalize": lambda job: _relink.run_normalize(job),   # 動画を選び直したあとの 30fps の作り直し(Q1)
-            "alt": lambda job: _alt.run_alt(job), "ytcap": lambda job: _ytcap.run_ytcap(job), "thumb": lambda job: ed_thumb.run_thumb(job)},
+            "alt": lambda job: _alt.run_alt(job), "thumb": lambda job: ed_thumb.run_thumb(job)},
     tool=ed_state.TOOL_ID, log=ed_state.log, tmp_dir=lambda: _workdata.TMP_DIR, max_queue=lambda: ed_state.MAX_QUEUE,
     mark=lambda info: ed_state.write_mark(info), no_retry=lambda: _docjobs.NO_RETRY,
-    backend_name=lambda: ed_state.backend_name(), fake_backend=fake_asr.FAKE,   # 呼ぶたびに決める(テストの S.backend_name の差し替えが効く)。ed_jobs.transcribe_fake などの旧い名前は fake_asr へ転送
+    backend_name=lambda: ed_state.backend_name(), fake_backend=fake_asr.FAKE,   # 呼ぶたびに決める(テストの S.backend_name の差し替えが効く)。transcribe_fake などの旧い名前は fake_asr へ転送
     fake_worker_module=fake_worker.__name__,   # worker-fake(テスト)のときワーカーに読ませる疑似の部品の名前(RS2-9)
     dict_learned=lambda: _docjobs.dict_learned())   # 辞書の版の材料の学習の記録は文書の側(doc_jobs が learn を読む)から。呼ぶたびに読む
 _heavy_jobs.attach_board(_flowboard.default())   # ② のジョブの掲示板に頭 tx で見せる(引く形・取り消し・やり直し。表と /api/jobs は今のまま。RS8 の ② の口 S2)
-# 文書の側(doc_jobs)が使う評価用の作り直し(eval の evalbatch。RS4-2 まで ed_evalbatch)と 30fps の作り直し(manage の relink。RS3-E7 まで ed_relink)。② から ③・④ を読まないための口。
-# 評価用のフォルダの判定は RS3-1 から ytt/settings(doc_jobs が直に読む = 口は 5 → 3 本)。
-# 呼ぶたびに持ち主のモジュールの属性を読む(test_evalbatch の patch.object(EB, "eb_redo_skip_at_start") が届く)。呼ぶ順は run_job のまま(RS2-8d)
+# ---- 差し込みの口(import の向きを守るため、上の層の関数を起動時に渡す)はここと flow/wire.install の 2 つだけ(OPT-H1) ----
+# ① ← ②(flow/wire.install の中): jobs.configure・backend.set_selector・records.set_dict_inputs
+# ③ ← ④⑤(下の 2 つ): doc_jobs.set_hooks(評価用の作り直し = ⑤ evalbatch・30fps の作り直し = ④ relink)・speakers.set_context_namer(⑤ drill の名前の候補)
+# 例外: 学習データの読み手 doc_jobs.set_learning は機械の設定(learningDir)が要るので入口 app/server.py が入れる
+# 呼ぶたびに持ち主のモジュールの属性を読む(test_evalbatch の patch.object(EB, "eb_redo_skip_at_start") が届く)。呼ぶ順は run_job のまま
 _docjobs.set_hooks(redo_skip=lambda job: _evalbatch.eb_redo_skip_at_start(job), redo_fill=lambda job, spec, fields: _evalbatch.eb_redo_fill(job, spec, fields),
                    norm_after=lambda job, spec, tid: _relink.norm_after_transcribe(job, spec, tid))
 _docjobs.check_hooks()
-# 話者の文書の側(human/proof/speakers)が使う評価用の文書の名前の候補(eval の drill。RS4-2 まで ed_drill)。② から ④ を読まないための口(呼ぶたびに持ち主の属性を読む。RS2-9)
 _speakers.set_context_namer(lambda tid: _drill.drill_candidates(tid).get("suggest"))
 _speakers.check_context_namer()
 
 
 _ed_owner = _modfwd.install(globals(), _ED_MODULES, "serve")   # serve.名前 で serve.py に無い名前を分けた部品から読み、
-# serve.名前 = …・del(テストの差し替え・mock.patch.object・入口の ALLOWED_HOSTS・ワーカーの IN_WORKER)はその名前を持つ部品へ。仕組みは ytt/modfwd.py(ed_jobs の転送と共通)
+# serve.名前 = …・del(テストの差し替え・mock.patch.object・入口の ALLOWED_HOSTS・ワーカーの IN_WORKER)はその名前を持つ部品へ。仕組みは ytt/modfwd.py
 
 
 # ---------- HTTP ----------
@@ -227,12 +222,11 @@ def _ping():
 def _tools_info():
     return {"ffmpeg": bool(_tools.find_ffmpeg()), "fasterWhisper": _txworker.has_faster_whisper(), "cuda": _txworker.gpu_ready(), "nvidia": _txworker.nvidia_gpu(),
             "backend": ed_state.backend_name(), "diarize": _txdiarize.diar_info(), "models": ed_state.MODELS, "langs": ed_state.LANGS, "root": _workdata.TX_DIR,
-            "envWarnings": list(_env_warnings), "alt": _alt.alt_info(), "ytcap": _ytcap.ytcap_info(), **_txworker.engines_info()}
+            "envWarnings": list(_env_warnings), "alt": _alt.alt_info(), **_txworker.engines_info()}
 
 
 def _jobs_list():
-    with _heavy_jobs._jobs_lock:
-        return {"jobs": [_docjobs.public_job(j) for j in _heavy_jobs._jobs.values()]}
+    return {"jobs": [_docjobs.public_job(j) for j in _heavy_jobs.all_jobs()]}
 
 
 def _learned(a):
@@ -260,7 +254,6 @@ GET_API = {
     "/api/tools": lambda a: _tools_info(),
     "/api/marker": lambda a: _handoff_io.read_marker(),
     "/api/voices": lambda a: {"voices": _speakers.voices_summary(), "match": _txdiarize.VOICE_MATCH},   # A-3: 覚えている声の一覧(特徴そのものは返さない)
-    "/api/overlap-drafts": lambda a: _speakers.ovdraft_for_doc(a("id"), a("kinds", None)),   # 重なりの所の空の行の候補(読むだけ。判別の記録 diar.json の声の区間から)
     "/api/voices/preview": lambda a: _speakers.voice_preview(a("tid"), a("embedding")),   # 段1: 覚える前の確認(読むだけ。話者の名前を返すので、ほかの GET と同じ Host/Origin 検査の下)
     "/api/transcribed-ranges": lambda a: {"items": _batch.transcribed_ranges()},
     "/api/jobs": lambda a: _jobs_list(),
@@ -314,15 +307,11 @@ POST_API = {
     "/api/redo": lambda o: _job(_docjobs.redo_spec(str(o.get("tid") or ""), o), "redo"),
     "/api/alt": lambda o: _job(_alt.alt_spec(_id_of(o), o), "alt"),   # 2つ目のエンジンで聞く(D1-b)。文書は書き換えないので、編集は止めない
     "/api/thumb-ideas": lambda o: _job(ed_thumb.thumb_spec(_id_of(o), o), "thumb"),   # サムネの案を 1 枚に(P5)。文書は読むだけなので、編集は止めない
-    "/api/ytcap": lambda o: _job(_ytcap.ytcap_spec(_id_of(o), o), "ytcap"),   # 元の配信の YouTube の字幕を取って比べる(案 A1)。文書は書き換えないので、編集は止めない
-    "/api/scan-folder": lambda o: _batch.scan_folder(o.get("path"), o.get("recursive") is True),
-    "/api/transcribe-batch": lambda o: _batch.add_batch(o),
     "/api/settings/patch": lambda o: _settings.patch_settings(o),   # ほかの画面(ホーム・スタジオのまとめて実行の欄)から、決まった項目だけを直す
     "/api/eval-baseline": lambda o: _evmetrics.record_baseline(o.get("label")),
     "/api/restore": lambda o: {"ok": True, "updatedAt": _store.restore_history(str(o.get("id", "")), o.get("ts"))["updatedAt"]},
     "/api/suggest/feedback": lambda o: {"ok": True, "n": _learn.record_feedback(o)},
     "/api/export-file": lambda o: _handoff_io.export_file(o),
-    "/api/open-video": lambda o: _store.open_video(o),
     "/api/relink/check": lambda o: _relink.relink_check(o),
     "/api/relink": lambda o: _relink.relink_doc(o),
     "/api/relink/missing": lambda o: _relink.relink_missing(),
@@ -334,11 +323,10 @@ POST_API = {
     "/api/eval-batch/redo": lambda o: _evalbatch.eval_batch_redo(o),   # 未確認で手つかずの評価用を作り直す(dryRun = 数えるだけ)
     "/api/eval-batch/redo-one": lambda o: _evalbatch.eval_batch_redo_one(o),   # 開いている評価用の動画 1 本だけを今の設定ですぐ作り直す(人が手を入れていれば force のときだけ)
     "/api/pick": lambda o: _relink.pick_path(o),
-    "/api/resplit": lambda o: _docjobs.resplit_doc(o),
     "/api/retime": lambda o: _proofretime.retime_doc(o),   # 行の時刻を単語の時刻に合わせる候補(読むだけ。human/proof/retime)
     "/api/edit/pack": lambda o: _store.record_pack(o),
     "/api/edit/preview": lambda o: _store.edit_preview(o),
-    "/api/effort": lambda o: _store.add_effort(o),
+    "/api/effort": lambda o: _store.touch_effort(o),   # 操作中の知らせ(effort.lastAt。作業した時間は数えない)
     "/api/doc-diarnum": lambda o: _store.set_diar_num(o),   # 文書ごとの話者判別の人数(updatedAt は変えない。段7 E-6)
     "/api/mach-changes/pick": lambda o: _machpick.pick(o),   # 3 択: 自分の直しのまま / 今の機械にする(RS8 O2-4。409 = 別の所で変わった・層が正でない)
     "/api/drill/reviewed": lambda o: _drill.drill_reviewed(o),   # 評価ドリル(Q4): 動画を全部聞いて直した印(409 = 別の所で変わった)
@@ -640,20 +628,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._fail(404, "not_found", "その操作はありません")
         tid = _qid(u)
         try:
-            with _store._save_lock:   # 話者判別・再認識の書き込みと重ならないように(読み直しのあとに消すと、書き込みで生き返っていた)
-                _store.read_transcript(tid)
-                main = _store.tx_path(tid)
-                extras = [_docloc.doc_file(tid, sfx) for sfx in _docloc.DOC_SUFFIXES[1:]]   # 横のファイル(編集の内容・単語の時刻・話者判別の記録・2つ目のエンジンと YouTube の字幕・LLM の提案・上書き・成果物の鍵)も一緒に。置き場所は文書を消す前に引く(消すと索引が使えなくなる)
-                os.unlink(main)
-                for extra in extras:
-                    try:
-                        os.unlink(extra)
-                    except FileNotFoundError:
-                        pass
-                    except OSError as e:
-                        ed_state.log.warning("編集の内容を消せませんでした: %s %s", os.path.basename(extra), e)
-                _docloc.unplace(tid)   # 案件の 作業用 に置いた文書の索引も消す
-                _store._edit_cache.pop(tid, None)
+            _store.delete_doc(tid)   # 本体・横のファイル・履歴・索引・キャッシュ・「この候補は出さない」(③ の消す口 1 か所)
         except ed_state.ApiError as e:
             return self._err(e)
         except OSError as e:
@@ -799,14 +774,12 @@ def prepare(port, base_path="/", hooks=False):
 
 def busy():
     """ジョブ(文字起こし・話者判別など)が動いているか・待っているか(入口の「すべて終了」の確認用)"""
-    with _heavy_jobs._jobs_lock:
-        return any(j["state"] in _heavy_jobs.ACTIVE_STATES for j in _heavy_jobs._jobs.values())
+    return bool(_heavy_jobs.active_jobs())
 
 
 def finish():
     """終了の後始末: 動いているジョブを取り消し、認識ワーカーを終わらせ、.runtime の記録と起動中の印を消す。"""
-    with _heavy_jobs._jobs_lock:
-        active = [j["id"] for j in _heavy_jobs._jobs.values() if j["state"] in _heavy_jobs.ACTIVE_STATES]
+    active = [j["id"] for j in _heavy_jobs.active_jobs()]
     for jid in active:
         try:
             _heavy_jobs.cancel_job(jid)

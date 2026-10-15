@@ -16,7 +16,7 @@ import uuid
 
 from . import levels  # 1 秒ごとの音量の測り方(配信中の検出と同じ 1 か所。OPT1)
 from . import fetch  # 材料を取ってくる仕事とそのキャッシュ(OPT2)
-from . import excite  # noqa: E402  盛り上がりの式(線 D の L1 で src/ytt_core/excite.py に移した。配信中の検出と同じ式。隣のファイル)
+from . import excite  # noqa: E402  盛り上がりの式(線 D の L1 で移した。配信中の検出と同じ式。隣のファイル)
 from ytt import yturl as _yturl   # URL・動画 ID の形と入力の判定(sources.py を畳んだ)
 from ytt import fsio as _fsio, mediainfo as _media, procs as _procs, studio_env as _env  # noqa: E402  (RS3-4 にスタジオの common から。呼ぶたびに持ち主から読む)
 from ytt.errors import ApiError, Cancelled

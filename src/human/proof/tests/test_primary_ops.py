@@ -10,9 +10,7 @@
 import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データ(AppData など)に触らない
-import shutil
 import sys
-import tempfile
 import unittest
 from unittest import mock
 
@@ -22,6 +20,7 @@ for _p in (os.path.join(SRC, "editor"), SRC):
         sys.path.insert(0, _p)
 from human.proof import layers as L, rerun, speakers, store  # noqa: E402
 from ytt import schemas as YS, txbase, workdata  # noqa: E402
+from human.tests._workdata import temporary_workdata  # noqa: E402
 
 TID = "0123456789ab"
 SPEC = {"tid": TID, "model": "m", "autoDict": False}
@@ -68,12 +67,7 @@ class _Env(unittest.TestCase):
     MODE = "primary"
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="primary-ops-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
-        saved = {n: getattr(workdata, n) for n in ("DATA_DIR", "TX_DIR", "TMP_DIR", "EVAL_BASE", "SETTINGS", "FEEDBACK")}
-        self.addCleanup(lambda: [setattr(workdata, n, v) for n, v in saved.items()])
-        workdata.set_data_dir(os.path.join(self.tmp, "data"))
-        os.makedirs(workdata.TX_DIR)
+        self.tmp = temporary_workdata(self, "primary-ops-")
         p = mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": self.MODE})
         p.start()
         self.addCleanup(p.stop)

@@ -480,7 +480,7 @@ async function lookupClip(path){
 /* URL の ?media=<動画のパス> / ?clip=<.clip.json のパス>(他のツールの画面からのリンク)。
    ファイル欄に入れるだけで、文字起こしは始めない(別のサイトのリンクからでも開けるので、重い処理を URL だけで動かさない。notes:docs/spec/pipeline.md 3)。
    読んだら URL から消す(再読み込み・ブックマークで、同じ値が何度も入らないように) */
-/* まだ文書の無い動画の「文字起こしをする / 文字起こしせずに開く」。主ボタンにフォーカスを置く(次に押す所。段8 E-27) */
+/* まだ文書の無い動画の「文字起こしをする」。ボタンにフォーカスを置く(次に押す所。段8 E-27) */
 function showMediaChoice(){ $('#mediaChoice').hidden = false; requestAnimationFrame(() => { const b = $('#mcTx'); if (b && b.offsetParent) b.focus({ preventScroll: true }); }); }
 
 function takeUrlParams(){
@@ -516,13 +516,13 @@ function takeUrlParams(){
   function openByMedia(){
   setTab('file'); $('#newBox').open = true;
   if (media) $('#srcPath').value = media;
-  const ask = () => {   // まだ文書の無い動画: 「文字起こしする / 文字起こしせずに開く」を選ばせる(自動では始めない)
+  const ask = () => {   // まだ文書の無い動画: 「文字起こしをする」を出す(自動では始めない)
     setSideTab('start'); showMediaChoice();
     lookupClip(clip || media).then(r => {
       if (clip && !media && r && r.mediaPath && !$('#srcPath').value.trim()) $('#srcPath').value = r.mediaPath;   // ?clip= だけのときは、.clip.json が指す動画を入れる
     });
     window.scrollTo(0, 0);   // 「新しく文字起こしする」はメニューの先頭なので、一番上を見せる(ファイル欄と「元の配信」が見える)
-    toast((media ? '動画のパスを入れました。' : '元の配信の情報(.clip.json)を読み込みます。') + '「文字起こしをする」か「文字起こしせずに開く」を選んでください(自動では始めません)', 7000, 'info');
+    toast((media ? '動画のパスを入れました。' : '元の配信の情報(.clip.json)を読み込みます。') + '「文字起こしをする」で始めます(自動では始めません)', 7000, 'info');
   };
   if (!media) { ask(); return true; }
   api('/api/doc-for?path=' + encodeURIComponent(media)).then(async r => {   // その動画の文書があれば、それを開く(編集で開く)

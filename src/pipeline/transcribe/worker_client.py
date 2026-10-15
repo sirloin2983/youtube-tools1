@@ -8,7 +8,7 @@ GPU で失敗したら CPU でやり直す決まり(cpu_fallback)・wav をサ�
 GPU(CUDA)の部品の調べ(setup_cuda_paths・cuda_count・cuda_libs_ok・_gpu_ready_local)・cuda_compute はそちら(呼び手は models.名前で読む)。ここに残るのはサーバー側の物
 (WorkerClient・RemoteModel・load_model の代理・release_idle_models の呼び分け・GPU の有無の別プロセス調べ・部品の有無・モデル名の検査・引数・cpu_fallback・wav の形)。
 
-役割で組み直す RS2-6(2026-10-10)に編集の ed_jobs(WavRef・WavSlice・read_wav_f32 は ed_speakers)から移した(中身は同じ)。
+役割で組み直す RS2-6(2026-10-10)に移した(中身は同じ)。
 標準ライブラリ・ytt・同じパッケージの兄弟(backend・roster・tx_engines・txbase)だけを読む。
 **このモジュールは編集のサーバーのプロセスでも読む**ので、numpy・faster_whisper・ctranslate2・sherpa_onnx は IN_WORKER のときだけ通る関数の中で読む
 (src/editor/tests/test_worker.py が検査)。IN_WORKER は認識ワーカー(同じフォルダの worker.py の main)と測る道具(src/eval/tools/_evalcommon)が入れる。
@@ -18,7 +18,7 @@ app(編集の serve.py)が読み込みのときと作業データの切り替え
 サーバーのプロセスでの GPU の有無(別プロセスで 1 回だけ調べる gpu_ready)・部品の有無(has_faster_whisper・worker_has・nvidia_gpu)・ワーカーの Python(worker_python)・
 疑似のワーカーの判定(worker_fake)・モデル名の検査(valid_model)もここ(RS3-0A に ed_state から)。
 差し替えられる名前(IN_WORKER・WORKER・WORKER_*・check_engine・load_model・read_wav_f32 など)と読み手は同じこのモジュール。
-ほかの部品は呼ぶたびに worker_client.名前(か転送の ed_jobs.名前・S.名前)で読む(from … import で読み直さない)。
+ほかの部品は呼ぶたびに worker_client.名前(か転送の S.名前)で読む(from … import で読み直さない)。
 """
 import contextlib
 import itertools

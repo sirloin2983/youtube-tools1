@@ -1,4 +1,4 @@
-"""② パックの口(役割で組み直す RS6 a-5a。2026-10-10)。③ 人・④ データが Resolve のパックの部品(① pipeline/pack/resolve_export)を直に読まずに済む動詞。
+"""② パックの口(役割で組み直す RS6 a-5a。2026-10-10)。人とデータの層(③・④)が Resolve のパックの部品(① pipeline/pack/resolve_export)を直に読まずに済む動詞。
 
 - `cut_draft(doc, rows, row_edge)` : カットのたたき台。② が足すこと = 版(workdata)・無音の検出(ffmpeg)の順番待ち(SLOTS。待つのは DRAFT_SLOT_WAIT 秒まで)
 - `cut_preview(doc, keeps, wrap)` : カットのとおりに作ったときのパックの見積もり。② が足すこと = 版

@@ -1,9 +1,9 @@
 """認識の部品が共有する小さな物: 記録(ロガー)・決まった値(文字・言語・長さの上限)・要確認の印の文と幻覚の決まり文句・ジョブの注意。
 
-役割で組み直す RS2-1a(2026-10-10)に編集の ed_state(app の層)から移した。ed_jobs の中身を pipeline/transcribe へ移したとき、
+役割で組み直す RS2-1a(2026-10-10)に編集の ed_state(app の層)から移した。中身を pipeline/transcribe へ移したとき、
 移した先が ed_state を読まずに済むように。ed_state には同じ物の別名を残している(どれも差し替え・付け直しをしない名前 =
 テストも本体も `S.名前 = …` をしていないことを確かめてから移した)。差し替える名前(置き場所のパス・ffmpeg など)は移さない(RS3-0A から持ち主は ytt/workdata・ytt/tools・worker_client。それまでは txenv の口)。
-RS2-9 で足した物: 比べるときの文字の寄せ方 alt_fold(ed_alt から)・環境変数のスイッチ env_off(ed_state から)。
+RS2-9 で足した物: 比べるときの文字の寄せ方 alt_fold・環境変数のスイッチ env_off(ed_state から)。
 """
 import logging
 import os
@@ -33,12 +33,12 @@ REP_RE = re.compile(r"(.{2,10}?)\1{%d,}" % (REP_MIN - 1))
 MIXED_FLAG = "声が混ざっている可能性"   # 話者判別の要確認の印
 WEAK_FLAG = "話者が不確か"
 NONE_FLAG = "話者を判別できなかった"
-SPK_FLAGS = (MIXED_FLAG, WEAK_FLAG, NONE_FLAG)   # 話者の印(行の flag のうち文字の印と分ける。選んだ行の再認識は残し、判別は付け直す。RS2-8a に ed_jobs から移した)
+SPK_FLAGS = (MIXED_FLAG, WEAK_FLAG, NONE_FLAG)   # 話者の印(行の flag のうち文字の印と分ける。選んだ行の再認識は残し、判別は付け直す。RS2-8a に移した)
 
 
 def char_class(ch):
     """文字の種類。K=カタカナ(ー・を含む) / H=漢字 / A=英数字。それ以外(ひらがな・記号・空白)は空。単語の切れ目の判定に使う
-    (行を分ける postproc._cut_words と、学習の語の境目 ed_learn。RS2-4b に ed_learn._cc から移した)"""
+    (行を分ける postproc._cut_words と、学習の語の境目(human/proof/learn)。RS2-4b に移した)"""
     o = ord(ch)
     if 0x30A1 <= o <= 0x30FA or ch in "ー・ヽヾ":
         return "K"
@@ -54,8 +54,8 @@ ALT_DROP_CHARS = "ー〜～~"   # alt_fold で無視する字(伸ばし。表記
 
 def alt_fold(ch):
     """比べるときだけの寄せ方: NFKC・小文字・カタカナ → ひらがな・伸ばしと記号と空白は捨てる(文字でも数字でもないもの)。
-    2 つ目のエンジンの食い違い(ed_alt)・YouTube の字幕(ed_ytcap)・行の時刻の候補(ed_retime)・src/eval/tools/eval_alt が同じ寄せ方を使う
-    (RS2-9 に ed_alt から移した。ed_alt には別名がある)"""
+    2 つ目のエンジンの食い違い(human/proof/alt)・YouTube の字幕(human/proof/ytcap)・行の時刻の候補(pipeline/transcribe/retime)・src/eval/tools/eval_alt が同じ寄せ方を使う
+    (RS2-9 に移した。human/proof/alt には別名がある)"""
     out = []
     for c in unicodedata.normalize("NFKC", ch).lower():
         o = ord(c)

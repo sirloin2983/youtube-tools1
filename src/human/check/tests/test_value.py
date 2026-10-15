@@ -31,6 +31,7 @@ def cand_card():
 class FakeStudio:
     def __init__(self, status="", export_code=200):
         self.status, self.rev, self.calls, self.export_code, self.put_409 = status, 3, [], export_code, 0
+        self.export_state = "running"
 
     def __call__(self, method, path, body=None):
         self.calls.append((method, path, body))
@@ -43,7 +44,9 @@ class FakeStudio:
             self.status = next(m["status"] for m in body["marks"] if m["id"] == "m1")
             return 200, {"ok": True}
         if path == "/api/export":
-            return self.export_code, {"message": "別の書き出しが実行中です"} if self.export_code != 200 else {"id": VID}
+            return self.export_code, {"message": "別の書き出しが実行中です"} if self.export_code != 200 else {"id": "ex1", "state": "queued"}
+        if method == "GET" and path.startswith("/api/export?id="):
+            return 200, {"id": "ex1", "state": self.export_state}
         return 200, {"ok": True}
 
 
@@ -61,7 +64,7 @@ class ValueTest(unittest.TestCase):
         self.ctx = apply.Context(self.tmp, ROOT, hooks={"auto_review": auto_review, "studio": lambda *a: self.studio(*a)})
 
     def test_registered(self):
-        self.assertTrue(apply.registered("value", "auto") and apply.registered("value", "cand"))
+        self.assertTrue(apply._registered("value", "auto") and apply._registered("value", "cand"))
 
     def test_send_is_deferred_until_next_answer_and_undo_cancels(self):
         got = apply.answer(self.ctx, auto_card(), {"answer": {"choice": "send"}})
@@ -111,14 +114,30 @@ class ValueTest(unittest.TestCase):
 
     def test_cand_adopt_exports_and_undo(self):
         got = apply.answer(self.ctx, cand_card(), {"answer": {"choice": "adopt"}})
-        self.assertEqual((self.studio.status, got["applied"]["export"], got["applied"]["before"]), ("adopted", "started", ""))
+        self.assertEqual((self.studio.status, got["applied"]["export"], got["applied"]["before"], got["applied"]["exportJob"]), ("adopted", "started", "", "ex1"))
         self.assertIn(("POST", "/api/export", {"id": VID, "markIds": ["m1"]}), self.studio.calls)
         put = next(c for c in self.studio.calls if c[0] == "PUT")
         self.assertEqual(put[2]["baseRev"], 3)
         self.assertEqual([m["status"] for m in put[2]["marks"]], ["adopted", ""])   # 他のマークは触らない
         back = apply.undo(self.ctx, got["answer"])
         self.assertEqual((self.studio.status, back["reverted"]["status"]), ("", ""))
-        self.assertIn(("POST", "/api/export/cancel", {"id": VID}), self.studio.calls)
+        self.assertIn(("POST", "/api/export/cancel", {"id": "ex1"}), self.studio.calls)   # 取り消すのは書き出しのジョブ(6e-1)
+
+    def test_cand_adopt_undo_refused_when_export_done(self):
+        """6e-1: 頼んだ書き出しがもう済んでいたら Z を断る(status を戻しても切り抜きはできている)"""
+        got = apply.answer(self.ctx, cand_card(), {"answer": {"choice": "adopt"}})
+        self.studio.export_state = "done"
+        with self.assertRaises(apply.Refused) as e:
+            apply.undo(self.ctx, got["answer"])
+        self.assertEqual((e.exception.error, self.studio.status), ("changed", "adopted"))
+
+    def test_cand_undo_again_when_already_back(self):
+        """やりかけの Z のやり直し: status がもう元なら書かずに済ませる"""
+        got = apply.answer(self.ctx, cand_card(), {"answer": {"choice": "reject"}})
+        self.studio.status = ""
+        puts = len([c for c in self.studio.calls if c[0] == "PUT"])
+        apply.undo(self.ctx, got["answer"])
+        self.assertEqual(len([c for c in self.studio.calls if c[0] == "PUT"]), puts)
 
     def test_cand_adopt_when_export_busy_still_adopts(self):
         self.studio.export_code = 409

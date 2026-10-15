@@ -7,9 +7,7 @@ import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データ(AppData など)に触らない
 import re
-import shutil
 import sys
-import tempfile
 import unittest
 from unittest import mock
 
@@ -19,18 +17,14 @@ for _p in (os.path.join(SRC, "editor"), SRC):
         sys.path.insert(0, _p)
 from human.proof import layers, store  # noqa: E402
 from ytt import workdata  # noqa: E402
+from human.tests._workdata import temporary_workdata  # noqa: E402
 
 TID = "0123456789ab"
 
 
 class CommitTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="commit-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
-        saved = {n: getattr(workdata, n) for n in ("DATA_DIR", "TX_DIR", "TMP_DIR", "EVAL_BASE", "SETTINGS", "FEEDBACK")}
-        self.addCleanup(lambda: [setattr(workdata, n, v) for n, v in saved.items()])
-        workdata.set_data_dir(os.path.join(self.tmp, "data"))
-        os.makedirs(workdata.TX_DIR)
+        self.tmp = temporary_workdata(self, "commit-")
 
     def test_commit_writes_like_write_doc_and_logs_why(self):
         doc = {"id": TID, "segments": [{"id": 1, "start": 0, "end": 1, "text": "あ"}]}
@@ -51,6 +45,17 @@ class CommitTest(unittest.TestCase):
     def test_hum_only_when_primary(self):
         with mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": ""}), self.assertRaises(ValueError):
             store.commit(TID, {"id": TID}, why="save", hum={})
+
+    def test_commit_resets_cut_flags_from_edit(self):
+        """行の「カット済」は commit が必ず編集の内容から付け直す(確かめるの時刻のカード check:time のように apply_edit_cuts を呼ばない書き手でも。2a-1)"""
+        edit = {"schema": store.EDIT_SCHEMA, "rev": 1, "sources": [{"fps": [30, 1], "duration": 40.0}], "clips": [{"src": 0, "in": 0.0, "out": 10.0}, {"src": 0, "in": 20.0, "out": 30.0}]}
+        with open(store.edit_path(TID, for_write=True), "w", encoding="utf-8") as f:
+            json.dump(edit, f)
+        doc = {"id": TID, "segments": [{"id": "a", "start": 8.0, "end": 9.5, "text": "あ", "cutState": "cut"},
+                                       {"id": "b", "start": 10.5, "end": 12.0, "text": "い"}]}
+        store.commit(TID, doc, why="check:time")
+        segs = store.read_transcript(TID)["segments"]
+        self.assertEqual([g.get("cutState") for g in segs], [None, "cut"])
 
     def test_whys_do_not_overlap(self):
         self.assertFalse(store.HUMAN_WHYS & store.MACHINE_WHYS)
@@ -96,12 +101,7 @@ class ShadowTest(unittest.TestCase):
     """影のモード(RS8 O2-2): commit のたびに人の層 <id>.hum.json・機械の層 <id>.mach.json も書き、組み立てが文書と合うかをログに。正は文書のまま"""
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="shadow-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
-        saved = {n: getattr(workdata, n) for n in ("DATA_DIR", "TX_DIR", "TMP_DIR", "EVAL_BASE", "SETTINGS", "FEEDBACK")}
-        self.addCleanup(lambda: [setattr(workdata, n, v) for n, v in saved.items()])
-        workdata.set_data_dir(os.path.join(self.tmp, "data"))
-        os.makedirs(workdata.TX_DIR)
+        self.tmp = temporary_workdata(self, "shadow-")
         p = mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": ""})
         p.start()
         self.addCleanup(p.stop)
@@ -236,12 +236,7 @@ class PrimaryTest(ShadowTest.__base__):
     """層が正(TRANSCRIBE_LAYERS=primary。RS8 O2-3): 人の層 → 機械の層 → 写し(composedFrom)。開いたときに写しが古ければ組み立て直す"""
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="primary-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
-        saved = {n: getattr(workdata, n) for n in ("DATA_DIR", "TX_DIR", "TMP_DIR", "EVAL_BASE", "SETTINGS", "FEEDBACK")}
-        self.addCleanup(lambda: [setattr(workdata, n, v) for n, v in saved.items()])
-        workdata.set_data_dir(os.path.join(self.tmp, "data"))
-        os.makedirs(workdata.TX_DIR)
+        self.tmp = temporary_workdata(self, "primary-")
         p = mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": "primary"})
         p.start()
         self.addCleanup(p.stop)
@@ -361,7 +356,7 @@ class PrimaryTest(ShadowTest.__base__):
     def test_new_doc_in_folder_copy_then_layers(self):
         wd = os.path.join(self.tmp, "out", "題名", "作業用")
         os.makedirs(os.path.dirname(wd))
-        out = store.commit(TID, _doc([_row(1, 0.0, "あ")]), why="open_video", folder=wd)
+        out = store.commit(TID, _doc([_row(1, 0.0, "あ")]), why="whole", folder=wd)
         self.assertEqual(out["composedFrom"], {"mach": 1, "hum": 1})
         for sfx in (".json", ".hum.json", ".mach.json"):
             self.assertTrue(os.path.isfile(os.path.join(wd, TID + sfx)), sfx)

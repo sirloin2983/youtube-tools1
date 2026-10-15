@@ -116,8 +116,6 @@
         { "key": "autoLlm", "type": "bool", "label": "名前の聞き違いらしい所を手元の LLM で直す(GPU)", "default": true, "hint": "名簿の呼び名と 1 字違いの所だけ Qwen3-8B で直します。モデルは作業データの models/llm-gguf。" },
         { "key": "autoAlt", "type": "bool", "label": "別のエンジンでも聞いて、食い違う所に候補を出す(試験中)", "default": false },
         { "key": "altEngine", "type": "enum", "label": "別のエンジン", "default": "llama.cpp", "options": [["llama.cpp", "Qwen3-ASR 1.7B(GPU)"]], "validated": true, "when": { "key": "autoAlt", "eq": true } },
-        { "key": "autoYtcap", "type": "bool", "label": "元の配信の YouTube の字幕と比べて、食い違う所に候補を出す(試験中)", "default": false },
-        { "key": "autoDiarize", "type": "bool", "label": "話者を自動で判別する", "default": false, "hint": "sherpa-onnx が要ります(setup/install-diarize.bat)。評価用の文書は常に判別します。" },
         { "key": "diarSmooth", "type": "bool", "label": "短い 1 行だけ別の人になるのをならす(試験中)", "default": false, "validated": true }
       ] },
       { "id": "text", "title": "用語集・置換辞書", "items": [

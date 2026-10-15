@@ -115,12 +115,6 @@
           <button type="button" class="btn small primary" id="diarGo">話者を自動で判別</button></div>
         <label class="lag"><input type="checkbox" class="ui-switch" id="diarSmooth">短い 1 行だけ別の人になるのをならす(試験中)</label>
         <span class="hint">2人の対談なら「2人」を指定してください(「自動」だと、1人を複数に分けたり、逆にまとめたりしやすくなります)。「判別モデル」は声の特徴を見分ける部分です。日本語の音声でどれが合うかは、同じ範囲で切り替えて比べてください。すでに割り当てた話者は置き換わります(「ゲーム音声など」の行・字幕に出さない行・「声が重なる」のメモを付けた話者のある行は変えません)。判別中は編集できません。</span></div>
-      <!-- 重なり・抜けの所に空の行を置く(2026-10-05。app-jobs.js の ovd*。候補は GET api/overlap-drafts = 判別の記録から。押したときだけ置く) -->
-      <div class="fld tt-ovd" id="ovdBox"><span class="l">重なり・抜けの所に空の行を置く</span>
-        <p class="hint tt-ovd-count" id="ovdCount" aria-live="polite"></p>
-        <div class="row"><span class="lag keep">置く所</span><label class="lag"><input type="checkbox" id="ovdKOvl" checked>重なり</label><label class="lag"><input type="checkbox" id="ovdKMiss" checked>抜け</label>
-          <button type="button" class="btn small" id="ovdGo">空の行を置く</button><button type="button" class="btn small" id="ovdClear" hidden>空のままの下書きを消す</button></div>
-        <span class="hint">話者の判別で声が見つかったのに行の無い所に、時刻(分かれば話者も)を入れた空の行を置きます。「重なり」= 同時にしゃべっている所(文字起こしは片方の声しか書きません)・「抜け」= 声があるのに、どの話者の行も無い所(認識が落としたかもしれない所。重なりの所は除きます)。聞いて文字を打ってください(打つと札「下書き(重なり)」「下書き(抜け)」が外れます)。空のままの行は字幕・カット・パックに出ません。</span></div>
       <div class="fld"><span class="l">名前の変更・手動での割り当て</span>
         <div id="spList"></div>
         <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="spAdd">話者を追加</button>
@@ -157,16 +151,6 @@
         <span class="hint" id="altMsg"></span>
         <span class="hint">同じ音声を別のエンジンでも認識し、今の文字と食い違う所の行に「別」の候補を出します(採用・却下は行の候補で)。文字は自動では書き換えません。
           聞いている間も編集できます。評価用の文字起こしには出しません。</span></div>
-      <div class="fld"><span class="l">YouTube の字幕の候補(試験中)</span>
-        <div class="row"><button type="button" class="btn small" id="ytcapGo">字幕を取って比べる</button></div>
-        <span class="hint" id="ytcapMsg"></span>
-        <span class="hint">元の配信(スタジオで書き出した切り抜き)の YouTube の字幕(配信者が付けた字幕。無ければ自動字幕)を取り、今の文字と食い違う所の行に「YT」の候補を出します。
-          取るのは字幕だけで、動画・音声は送りません(公開の配信だけ)。文字は自動では書き換えません。別のエンジンの候補と同じ直しは「別・YT」にまとめます。評価用の文字起こしには出しません。</span></div>
-      <div class="fld"><span class="l">長い行を分け直す(字幕の文字数に合わせる)</span>
-        <div class="row"><label class="lag">向き <select id="rsOrient" style="width:auto"><option value="vertical">縦</option><option value="horizontal">横</option></select></label>
-          <button type="button" class="btn small" id="rsGo">今の文書を分け直す</button><span class="hint" id="rsMsg"></span></div>
-        <span class="hint">校正済みでない行のうち、文字が機械の出力のままの長い行を、保存してある単語の時刻で分けます。人が直した行は分けません。
-          v0.17.0 より前の文字起こしには単語の時刻がありません(行を選んで「範囲を再認識」すると、その範囲の単語の時刻を取り直せます)。分ける前の状態は「以前の版に戻す」に残ります。</span></div>
     </details>
 
     <details class="card tt-tool" id="exDetails"><summary>書き出し <span class="hint">字幕・テキスト・次のツールへ</span></summary>
@@ -234,7 +218,7 @@
   T.menu = `<nav class="tt-mstrip" id="menuStrip" aria-label="メニュー(畳んだ帯)">
   <button type="button" class="btn ghost small icon" data-strip="menu" title="メニューを開く" data-key-title="menu" aria-label="メニューを開く"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
   <button type="button" class="btn ghost small icon" data-strip="files" title="履歴(保存済みの文字起こし)を開く" aria-label="履歴を開く"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></button>
-  <button type="button" class="btn ghost small icon" data-strip="start" title="新規(新しく文字起こし・文字起こしせずに開く)" aria-label="新規を開く"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+  <button type="button" class="btn ghost small icon" data-strip="start" title="新規(新しく文字起こし)" aria-label="新規を開く"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
 </nav>
 <aside id="menuPanel" aria-label="メニュー">
   <div class="menuhead"><b>メニュー</b><button type="button" class="btn ghost small" id="btnMenuClose" title="メニューを閉じて、編集画面を広く使います" data-key-title="menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>閉じる</button></div>
@@ -250,13 +234,12 @@
     <summary>新しく文字起こしする</summary>
     <div class="seg-tabs" role="group" aria-label="入力の種類">
       <button type="button" id="tabFile" aria-pressed="true" title="手元の動画・音声ファイルを 1 本">ファイル</button>
-      <button type="button" id="tabFolder" aria-pressed="false" title="フォルダの中の動画・音声をまとめて">フォルダ</button>
       <button type="button" id="tabMarker" aria-pressed="false" title="切り抜きスタジオで付けたマーク(の区間)を文字起こし">スタジオの<wbr>マーク</button>
     </div>
 
     <div id="paneFile">
-      <div class="notice tt-mchoice" id="mediaChoice" hidden role="status"><b>この動画はまだ開いたことがありません。</b>文字起こしをするか、文字起こしせずに(カットだけに)使うかを選んでください。
-        <div class="row" style="margin-top:6px"><button type="button" class="btn small primary" id="mcTx">文字起こしをする</button><button type="button" class="btn small" id="mcOpen">文字起こしせずに開く</button></div></div>
+      <div class="notice tt-mchoice" id="mediaChoice" hidden role="status"><b>この動画はまだ文字起こししていません。</b>
+        <div class="row" style="margin-top:6px"><button type="button" class="btn small primary" id="mcTx">文字起こしをする</button></div></div>
       <div class="fld"><label for="srcPath">動画・音声ファイルのパス</label>
         <input id="srcPath" type="text" placeholder="例: C:\\Videos\\stream.mp4 / /Users/me/stream.mp4" autocomplete="off" spellcheck="false">
         <span class="hint">エクスプローラーでファイルを選び、Shift+右クリック →「パスのコピー」で貼り付けられます(Mac は Finder で option+右クリック →「パス名をコピー」)。</span>
@@ -264,16 +247,6 @@
       <div class="fld"><span class="l">範囲(空欄なら全体)</span>
         <div class="row"><input id="rStart" type="text" aria-label="開始" placeholder="開始 例: 1:23:45" style="width:130px" autocomplete="off"><span>〜</span><input id="rEnd" type="text" aria-label="終了" placeholder="終了 例: 1:30:00" style="width:130px" autocomplete="off"></div></div>
       <div class="fld"><label for="jTitle">タイトル(任意)</label><input id="jTitle" type="text" maxlength="120" placeholder="空欄ならファイル名"></div>
-    </div>
-
-    <div id="paneFolder" hidden>
-      <div class="fld"><label for="fdPath">フォルダのパス</label>
-        <div class="row"><input id="fdPath" type="text" placeholder="例: C:\\Videos\\clips / /Users/me/clips" autocomplete="off" spellcheck="false" style="flex:1;min-width:220px"><button type="button" class="btn small" id="fdScan">フォルダを読む</button><button type="button" class="btn small" id="fdStudio" hidden title="切り抜きスタジオの設定にある、書き出し先のフォルダを入れます">スタジオの書き出し先</button></div>
-        <span class="hint">中の動画・音声を、1本ずつ別の文字起こしとして待機列に入れます(順番に処理します)。</span></div>
-      <div class="row"><label class="lag" title="スタジオは、動画ごとのフォルダに書き出します。その中も探します(3階層まで)"><input type="checkbox" id="fdRec">下のフォルダも探す</label>
-        <label class="lag" title="このツールで、全体を文字起こし済みの動画と、待機中の動画は、最初から選ばない・追加もしません"><input type="checkbox" id="fdSkip" checked>文字起こし済みはスキップ</label></div>
-      <div class="row" style="margin-top:8px"><label class="lag"><input type="checkbox" id="fdAll" checked>すべて選択</label><span class="hint" id="fdCount"></span></div>
-      <div class="clist" id="fdList"><p class="hint" style="padding:8px;margin:0">フォルダのパスを入れて「フォルダを読む」を押してください</p></div>
     </div>
 
     <div id="paneMarker" hidden>
@@ -312,8 +285,7 @@
     </details>
     <p class="hint" id="optSummary" style="margin:8px 0 0"></p>
     <label class="lag" style="margin-top:10px" title="精度を測るためだけに取っておく文書にします(学習・辞書に使いません)。比べる基準にするため、用語集・呼び名のヒント・置換辞書・学習した置換を使わずに文字起こしします"><input type="checkbox" id="optEvalStart">評価用として文字起こしする(用語集・呼び名・置換辞書を使わない)</label>
-    <div class="row" style="margin-top:12px"><button type="button" class="btn primary" id="btnStart">文字起こしを開始</button>
-      <button type="button" class="btn" id="btnOpenVideo" title="文字起こしをしないで、この動画を「編集」で開きます(カットのタブで手で切る・無音で切る。あとから文字起こしもできます)">文字起こしせずに開く</button></div>
+    <div class="row" style="margin-top:12px"><button type="button" class="btn primary" id="btnStart">文字起こしを開始</button></div>
   </details>
 
   <!-- 評価ドリル(マスタープラン Q4)。定点(確かめ済みの評価用の動画 15 分)の「あと何分」と条件(GET api/drill/status。app-learn.js の renderDrillStat)と評価ドリルへの入口。
@@ -381,7 +353,7 @@
     <!-- 前回の続き(段7 E-7。app-list.js の renderResume。前に開いていた文書とタブ = このブラウザの tx.last.v1) -->
     <div class="tt-resume" id="noDocResume" hidden><button type="button" class="btn primary" id="noDocResumeBtn"><span class="tt-resume-l">前回の続き:</span> <span class="tt-resume-t" id="noDocResumeT"></span></button><span class="hint" id="noDocResumeSub"></span></div>
     <ol class="tt-steps" role="list">
-      <li><span class="n">1</span><span>左のメニューの「新規」に、動画のパスを入れて「文字起こしを開始」(文字起こしが要らなければ「文字起こしせずに開く」)</span></li>
+      <li><span class="n">1</span><span>左のメニューの「新規」に、動画のパスを入れて「文字起こしを開始」</span></li>
       <li><span class="n">2</span><span>終わったら自動で開きます(保存済みのものは「履歴」から)</span></li>
       <li><span class="n">3</span><span><b>1 文字起こし</b>: 聞いて直して「校正済み」に。キーだけで回せます(一覧は右上の「キー操作」)</span></li>
       <li><span class="n">4</span><span><b>2 カット</b> で残す・削る所を決めて、<b>3 パック</b> で Resolve へ渡すパックを作る</span></li>
@@ -423,36 +395,6 @@
     <label class="lag" title="行の「開始 −/＋」「終了 −/＋」ボタンで動かす幅"><span>時刻の微調整の幅</span> <select id="adjStep" class="mini"><option value="0.05">0.05秒</option><option value="0.1" selected>0.1秒</option><option value="0.25">0.25秒</option><option value="0.5">0.5秒</option><option value="1">1秒</option></select></label>
   </div>
   <p class="hint" style="margin:8px 0 0">この設定は、このブラウザだけに保存されます。</p>
-  <section id="edSetPack">
-  <h3 style="margin-top:18px">パック</h3>
-  <p class="hint" style="margin:0 0 6px">Resolve へ渡すパックの決まり。変えるとすぐ保存し、2 カット の「パックを作る」とホームのまとめて実行の両方に効きます。出力先・タイムコード・zip は、作るときの値なので「パックを作る」の「詳しく」にあります。</p>
-  <h4 class="tt-set-sub">置き先のプロジェクト(Resolve で作るもの)</h4>
-  <div class="tt-pk-row" id="pkFpsFixedRow"><span class="tt-pk-l"><abbr class="ui-term" title="1秒あたりのコマ数。素材は 30fps にそろえてあるので、Resolve のプロジェクトも 30fps で作ります">フレームレート</abbr></span>
-    <span id="pkFpsFixed">素材とプロジェクトは 30fps</span></div>
-  <div class="tt-pk-row"><span class="tt-pk-l">画面の大きさ</span>
-    <div class="ui-seg" id="pkSize" role="group" aria-label="画面の大きさ"><button type="button" data-v="1080x1920">縦 1080×1920</button><button type="button" data-v="1920x1080">横 1920×1080</button></div></div>
-  <p class="hint tt-pk-p">字幕の位置・大きさをこれに合わせます。縦に切り取る作業(クロップ)は Resolve で行います。</p>
-  <h4 class="tt-set-sub">パックに入れるもの</h4>
-  <label class="tt-pk-item"><input type="checkbox" checked disabled title="いつも入ります(外せません)"><span><b><abbr class="ui-term" title="DaVinci Resolve の文字のタイトル。パックに入るスクリプトが Resolve の中で字幕として作ります">Text+</abbr> 字幕とカット済みのタイムラインを作るスクリプト</b><span class="hint">Resolve の中で実行すると、開いているプロジェクトにタイムラインと Text+ 字幕を足します(字幕の雛形 .drb・登録用の .bat つき)</span></span></label>
-  <label class="tt-pk-item"><input type="checkbox" checked disabled title="いつも入ります(外せません)"><span><b>元の動画のコピー</b><span class="hint">パックのフォルダの直下に入れます。スタジオの余白つき素材があればそれを使い、Resolve で区間の端を延ばせます。カットの記録はこのパソコンの作業データに残します(パックには入れません)</span></span></label>
-  <div class="tt-pk-row"><label class="tt-pk-l" for="pkLoud">音量のそろえ方(<abbr class="ui-term" title="聞こえ方の音量(ラウドネス)の単位。YouTube は再生時に約 -14 LUFS に下げます">LUFS</abbr>)</label>
-    <select id="pkLoud" title="カットで残す部分だけを測って、パックに入れる動画の音量をそろえます(映像はそのまま)"><option value="-14">-14 LUFS(YouTube と同じくらい・おすすめ)</option><option value="-11">-11 LUFS(大きめ)</option><option value="-16">-16 LUFS(少し小さめ)</option><option value="-18">-18 LUFS(小さめ)</option><option value="0">音量を % で決める</option></select>
-    <span id="pkVolBox" hidden><input id="pkVol" type="number" min="1" max="200" step="5" style="width:4.5em" aria-label="音量(%。元の音量 = 100)" title="元の音量を 100 としたときの大きさ(%)。小さくするなら 100 より下">%</span></div>
-  <p class="hint tt-pk-p">LUFS = 聞こえ方の大きさ(数字が小さいほど小さい音)。カットで残す部分だけを測って、パックに入れる動画の音声をその大きさにそろえます。単位が分かりにくいときは「音量を % で決める」(元の音量 = 100%。小さくするなら 100 より下)。映像はそのまま・元の動画は書き換えません。</p>
-  <label class="tt-pk-item"><input type="checkbox" id="pkBackup"><span><b>予備も入れる(<abbr class="ui-term" title="Edit Decision List。カットの位置を並べた、編集ソフト共通の古い形式のファイル">EDL</abbr>・予備_EDLで開く手順.txt・カット後の字幕 <abbr class="ui-term" title="字幕の標準的なファイル形式(時刻と文字の組)">SRT</abbr>)</b><span class="hint" id="pkBackupHint">スクリプトが使えないときに、EDL と字幕のファイルで開くための予備。ふだんは要りません</span></span></label>
-  <label class="tt-pk-item"><input type="checkbox" id="pkRender"><span><b>粗編集の動画(mp4)</b><span class="hint">カットだけした確認用の動画。時間と容量がかかります</span></span></label>
-  <h4 class="tt-set-sub">字幕</h4>
-  <div class="fld"><span class="l">Text+ 字幕の 1 段の文字数(改行)</span>
-    <div class="row"><label class="lag">縦 <input id="optWrapV" type="number" min="2" max="40" step="1" value="8" style="width:4.5em"></label>
-      <label class="lag">横 <input id="optWrapH" type="number" min="2" max="40" step="1" value="14" style="width:4.5em"></label></div>
-    <span class="hint">置き先が縦なら縦の値、横なら横の値で 2 段にします(文字起こしの行を分ける文字数とは別。そちらは「認識の設定」の「字幕の文字数」)。</span></div>
-  <label class="lag tt-pk-spk" title="話者の名前(「話者」の欄で付けた名前)がメンバーと1人に合えば、その話者の字幕だけ文字をその人の色にします。合わない話者は配信者の色(無ければ黒)のまま">
-    <input type="checkbox" class="ui-switch" id="pkSpk" checked>話者の名前がメンバーと合えば、その話者の字幕をその色に</label>
-  <div class="hint tt-pk-spklist" id="pkSpkList"></div>
-  <div class="fld" style="margin-top:10px"><label for="pkPadAfter">行の後の余白(秒)</label><input id="pkPadAfter" type="number" min="0" max="2" step="0.05" value="0.2" style="width:5em" title="語尾が切れるときに延ばします。「行から」のたたき台で、行の終わりに無音が見つからないときの決まった余白(既定 0.2 秒)">
-    <span class="hint">語尾が切れるときに延ばします(既定 0.2 秒)。「行から」のたたき台・zip と、まとめて実行で「行から」を選んだときに効きます。前の余白 0.1 秒は変わりません</span>
-    <span class="hint" id="pkPadAfterNote"></span></div>
-  </section>
   <h3 style="margin-top:18px">評価用のフォルダ</h3>
   <p class="hint" style="margin:0 0 6px">この中(下のフォルダも)の動画は、評価用(精度を測るためだけ。学習・辞書に使わない)として文字起こしし、評価用の印は外せません。
     「整理」は動画の名前を「フォルダ名_番号_済 / 未 / 未文字起こし」にそろえ、文書を新しい名前に付け替えます(ホームの起動時にも自動で行います)。済 = 文字のある行がすべて校正済み。

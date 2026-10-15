@@ -99,7 +99,8 @@ class TestSearch(unittest.TestCase):
     def test_states_cancel_retry(self):
         b = B.Board()
         rank.attach_board(b)
-        spec = {"agencies": []}
+        req = {"start": "2026-09-01", "end": "2026-09-30", "agencies": ["hololive"]}
+        spec = {"agencies": [], "req": req}
         rank._jobs["s1"] = {"id": "s1", "state": "running", "phase": "開始", "progress": 0.2, "cancel": False, "error": "", "result": None, "created": 1, "spec": spec}
         b.refresh()
         self.assertEqual((state_of(b, "se:s1"), b.get("se:s1")["canCancel"]), ("running", True))
@@ -108,10 +109,10 @@ class TestSearch(unittest.TestCase):
         rank._jobs["s1"]["state"] = "cancelled"
         calls = []
         orig = rank._start_search
-        rank._start_search = lambda s: calls.append(s) or {"id": "s2", "state": "running", "phase": "開始", "progress": 0.0, "cancel": False, "error": "", "created": 2}
+        rank._start_search = lambda s: calls.append(s["req"]) or {"id": "s2", "state": "running", "phase": "開始", "progress": 0.0, "cancel": False, "error": "", "created": 2}
         self.addCleanup(setattr, rank, "_start_search", orig)
         new = b.retry("se:s1")
-        self.assertEqual((new["id"], new["state"], calls), ("se:s2", "running", [spec]))
+        self.assertEqual((new["id"], new["state"], calls), ("se:s2", "running", [req]))   # やり直しは前の登録簿の写しでなく、元の指定から今の登録簿で検査し直す(8c-1)
 
 
 class TestWiring(unittest.TestCase):

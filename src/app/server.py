@@ -129,6 +129,7 @@ from flow import learning as learning_mod  # noqa: E402  (学習データの読�
 from flow import outbox as outbox_mod  # noqa: E402  (送り返しの zip。画面なしで依頼の実行が終わるたびに組む・GET /api/flow/outbox。F1 F6a)
 from manage.keep import learnpack as learnpack_mod  # noqa: E402  (学習の束を <依頼の受付のフォルダ>/学習 に置く。起動時と 1 時間ごと。F1 F6a)
 from ytt import colors as colors_mod, datadir, docloc, fsio, httpsec, jobs, layout, runtime, tools, version as _version  # noqa: E402
+from ytt import errors as _yerrors  # noqa: E402  (確かめるの部品が上げる ApiError を状態の番号で返す)
 import mount as mount_mod  # noqa: E402  (src/home/mount.py: 統合サーバーへのツールの取り込み)
 import autorun as autorun_mod
 from human.friend import intake as intake_mod  # noqa: E402  (src/human/friend/intake.py: 友人からの依頼の受付)
@@ -917,16 +918,16 @@ class PortalHandler(BaseHTTPRequestHandler):
         return self._json(*self.server.auto_review(body))
 
     def _post_check(self, path, body):
-        """「確かめる」(V1): answer {card, answer, ms?, skip?} か {undo} / skip {card} / flush {}。カードは src/eval/check/deck.py で引き直し、
-        記録と反映は src/human/check/apply.py(種類ごとの反映の部品は V2 が登録する。無い種類は 409 not_ready)"""
+        """「確かめる」(V1): answer {card, answer, ms?, skip?, page?} か {undo} / skip {card, page?} / flush {page?}。カードは src/eval/check/deck.py で引き直し、
+        記録と反映は src/human/check/apply.py(種類ごとの反映の部品が登録する。無い種類は 409 not_ready)。page = 画面の印(確定はその画面の保留だけ)"""
         op, ctx = path.rsplit("/", 1)[1], self.server.check_ctx()
         try:
             if op == "flush":
-                out = check_apply.flush(ctx)
+                out = check_apply.flush(ctx, body.get("page"))
             elif op == "skip":
                 if not check_lineup.parse_id(body.get("card")):
                     return self._fail(400, "bad_request", "飛ばすカード(card)の指定が正しくありません")
-                out = check_apply.skip(ctx, body["card"])
+                out = check_apply.skip(ctx, body["card"], body.get("page"))
             elif "undo" in body:
                 out = check_apply.undo(ctx, body.get("undo"))
             else:
@@ -942,10 +943,12 @@ class PortalHandler(BaseHTTPRequestHandler):
                 out["next"] = nxt["cards"][0] if nxt["cards"] else None
         except check_apply.Refused as e:
             return self._fail(e.code, e.error, e.message)
+        except _yerrors.ApiError as e:   # 部品の中の文書・学習の記録の失敗(状態の番号をそのまま)
+            return self._fail(e.status if isinstance(e.status, int) and 400 <= e.status <= 599 else 500, e.code, e.message)
         except ValueError as e:
             return self._fail(400, "bad_request", str(e))
-        except OSError as e:
-            return self._fail(500, "write", "確かめるの記録を書けませんでした: %s" % tools.why(e))
+        except OSError as e:   # 部品の文書の書き込みか、確かめるの記録(answers.jsonl)
+            return self._fail(500, "write", "書けませんでした(文書か確かめるの記録): %s" % tools.why(e))
         finally:
             check_deck.invalidate()
         return self._json(200, out)
@@ -1140,8 +1143,8 @@ class PortalServer(httpsec.ExclusiveServer):
         # 精度の自動測定(見張りは main で start。テストで作る入口では動かさない)。手が空いた判定は _accuracy_busy・_accuracy_last_edit
         self.accuracy = accuracy_mod.Accuracy(self.prefs, app_dir, sup.root, busy=self._accuracy_busy,
                                               last_edit=self._accuracy_last_edit, log=sup.log, defaults=prefs_mod.DEFAULTS["accuracy"])
-        self.deliveries = deliver_mod.Deliveries(lambda: (self.prefs.get(["intake"])["intake"] or {}).get("folder") or "",
-                                                 txindex.is_pack_dir, log=sup.log)   # 「編集」の ③ パックの「友人へ届ける」(api/ytt/deliver)
+        self.deliveries = deliver_mod.Deliveries(self.intake.folder, txindex.is_pack_dir, log=sup.log,
+                                                 log_dir=sup.logs_dir)   # 手で「友人へ届ける」(api/ytt/deliver・案件の採用)。届けた記録は全自動と同じ logs/deliveries.jsonl
         self.deliveries.attach_board(self.board)   # 届ける(頭 dl)を掲示板へ(RS8 の ② の口 S2)
         # リアルタイム切り抜き(線 D。既定はオフ。見回り = 録画の部品を起こすのは main で start。テストで作る入口では動かさない)
         self.live = live_mod.Live(self.prefs, sup.root, sup.logs_dir, log=sup.log, server=self)   # server: P4 の作り直しがスタジオの API を呼ぶ
@@ -1217,10 +1220,7 @@ class PortalServer(httpsec.ExclusiveServer):
         except Exception as e:   # 案件を読めなくても、キャッシュ・ログの候補は出す
             self.sup.log("片付け: 案件を読めませんでした: %r" % (e,))
             cases = []
-        try:
-            folder = (self.intake._cfg() or {}).get("folder") or None
-        except Exception:
-            folder = None
+        folder = self.intake.folder() or None
         with self.cleanup_lock:
             return self.cleanup.candidates(cases, intake_dir=folder)
 
@@ -1465,7 +1465,7 @@ class PortalServer(httpsec.ExclusiveServer):
     def build_learnpack(self):
         """依頼の受付のフォルダ(intake.folder)が設定されていれば、学習の束を <フォルダ>/学習 に置く(F1 F6a。中身が変わらなければ作らない)。
         -> learnpack.build の結果か None(フォルダが無い・失敗 = ログだけ)"""
-        folder = ((self.prefs.get(["intake"]) or {}).get("intake") or {}).get("folder") or ""
+        folder = self.intake.folder()
         if not folder or not os.path.isdir(folder):
             return None
         try:

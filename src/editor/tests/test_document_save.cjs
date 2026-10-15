@@ -61,9 +61,9 @@ function harness(respond) {
     }
   };
   // 保存と切り替えの競合には関係しない画面の更新(上の context にないもの): 知らせ・学習と精度の読み直し・題名・一覧の進み具合・パックの見積もり・
-  // 校正の手間(effortStart。マスタープラン Q2)・重なりの所の空の行の候補(ovdAfterSave・loadOvd。2026-10-05)
+  // 校正の手間(effortStart。マスタープラン Q2)
   for (const name of ['toast', 'scheduleLearn', 'scheduleAcc', 'scheduleDrillStat', 'updateDocTitle', 'syncListItem', 'cpAfterSave',
-    'effortStart', 'ovdAfterSave', 'loadOvd', 'fillDiarNum', 'rememberLast', 'paintSaveState']) context[name] = () => {};   // 話者の人数の欄・前回の文書(段7 E-6・E-7)
+    'effortStart', 'fillDiarNum', 'rememberLast', 'paintSaveState']) context[name] = () => {};   // 話者の人数の欄・前回の文書(段7 E-6・E-7)
   context.apiUrl = p => p;
   vm.createContext(withUIKit(context));
   vm.runInContext(saveSource + '\n' + openSource, context);
@@ -199,10 +199,10 @@ test('app.js and ui-kit.js parse successfully (CSP: the cases page has no inline
   new vm.Script(fs.readFileSync(path.join(editorDir, '..', 'ui-kit', 'ui-kit.js'), 'utf8'));   // 共通の見た目の正本(編集の写しは C4 で消した)
 });
 
-// 字幕の読む速さの印(2026-10-05): 画面の readMark とサーバーの ed_retime.subread_mark が同じ結果になること(例は tests/subread_cases.json。test_retime.py も読む)
+// 字幕の読む速さの印(2026-10-05): 画面の readMark とサーバーの pipeline/transcribe/retime.subread_mark が同じ結果になること(例は tests/subread_cases.json。test_retime.py も読む)
 test('readMark matches the server rule (subread_cases.json)', () => {
   const cases = JSON.parse(fs.readFileSync(path.join(__dirname, 'subread_cases.json'), 'utf8'));
-  const src = lineSource("const OVD_KIND =") + lineSource('const DRAFT_KINDS =') + lineSource('const READ_FAST_CPS') + lineSource('const READ_CH') + lineSource('const READ_MEMO')
+  const src = lineSource('const DRAFT_KINDS =') + lineSource('const READ_FAST_CPS') + lineSource('const READ_CH') + lineSource('const READ_MEMO')
     + fnSource('isBlankDraft') + fnSource('readChars') + fnSource('readLimits') + fnSource('readMark');
   const context = { S: { settings: {} } };
   vm.createContext(withUIKit(context));

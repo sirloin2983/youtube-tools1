@@ -37,7 +37,7 @@ class CheckApiTest(TL.Base):
         apply.register("read", "tst", lambda ctx, c, ans: self.applied.append(c["id"]) or {"n": len(self.applied)},
                        lambda ctx, row: self.applied.remove(row["card"]) or {"ok": True})
         self.addCleanup(sources.unregister, "read", "tst")
-        self.addCleanup(apply.unregister, "read", "tst")
+        self.addCleanup(apply._unregister, "read", "tst")
         deck.invalidate()
         self.srv, self.port = L.make_server(0, self.sup)
         self.th = threading.Thread(target=self.srv.serve_forever, daemon=True)
@@ -104,11 +104,13 @@ class CheckApiTest(TL.Base):
         self.assertEqual(self.post("/api/check/skip", {"card": 3})[0], 400)
         st, j6 = self.post("/api/check/flush", {})
         self.assertEqual((st, j6["flushed"]), (200, []))
+        st, j7 = self.post("/api/check/flush", {"page": "pABC123"})   # 画面の印つき(その画面の保留だけ確定。6b-1)
+        self.assertEqual((st, j7["flushed"]), (200, []))
         self.assertTrue(os.path.isfile(answerlog.answers_path(os.path.dirname(self.sup.logs_dir))))   # app/check/answers.jsonl
 
     def test_value_card_wiring(self):
         """価値のカードの反映が入口の hooks(auto_review・studio)につながっている(V2a)"""
-        self.assertTrue(apply.registered("value", "auto") and apply.registered("value", "cand"))
+        self.assertTrue(apply._registered("value", "auto") and apply._registered("value", "cand"))
         ctx = self.srv.check_ctx()
         code, j = ctx.hook("auto_review")({"op": "discard", "id": "abcdefghijk", "markId": "nope"})
         self.assertEqual((code, j["error"]), (404, "not_found"))   # 一覧に無い切り抜き = 今の POST /api/cases/auto と同じ答え
@@ -135,12 +137,12 @@ class CheckApiTest(TL.Base):
 
     def test_time_card_wired(self):
         """入口が time:row の反映を登録している(V2d)。同じ部品を別の出どころ名で試す: 形の違う答えは 400・文書が無ければ 409"""
-        self.assertTrue(apply.registered("time", "row"))
+        self.assertTrue(apply._registered("time", "row"))
         from human.check import timerow as check_time
         sources.register("time", "tst", lambda view: [dict(c, id=c["id"].replace("read:", "time:"), kind="time") for c in fake_cards(view)])
-        apply.register("time", "tst", check_time.apply_time, check_time.revert_time, check_time.check)
+        apply.register("time", "tst", check_time._apply_time, check_time._revert_time, check_time._check)
         self.addCleanup(sources.unregister, "time", "tst")
-        self.addCleanup(apply.unregister, "time", "tst")
+        self.addCleanup(apply._unregister, "time", "tst")
         deck.invalidate()
         cid = "time:tst:aaaaaaaaaaaa#s1"
         st, j = self.post("/api/check/answer", {"card": cid, "answer": {"choice": "ok", "dStart": 0.5}})

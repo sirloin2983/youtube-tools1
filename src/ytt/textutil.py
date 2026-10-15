@@ -5,9 +5,11 @@
 - `permission_message`: PermissionError を画面に出せる文に
 - `tail_reason`: 外部コマンドの標準エラーの末尾から、原因らしい行を拾う
 - `fmt_ts`(ffmpeg・yt-dlp に渡す時:分:秒.ミリ秒)・`fmt_ms`(画面の 分:秒)・`num`(数を範囲に収める。不正なら既定)
+- `person_key`: 人(話者・メンバー)の名前を比べる鍵の 1 つの決まり(OPT-H1。決定 notes:plan/decisions.md の 3-47 Q8)
 """
 import math
 import re
+import unicodedata
 
 _URL_RE = re.compile(r"https?://\S+")
 _REASON_RE = re.compile(r"error|fail|forbidden|denied|invalid|not found|unable|HTTP|403|404|private|unavailable|Sign in", re.I)
@@ -54,3 +56,13 @@ def num(v, lo, hi, default):
     except (TypeError, ValueError):
         return default
     return default if math.isnan(x) else max(lo, min(hi, x))
+
+
+_KATA_TO_HIRA = {c: c - 0x60 for c in range(0x30A1, 0x30F7)}   # ァ〜ヶ → ぁ〜ゖ(ー・ヽヾ は そのまま)
+
+
+def person_key(name):
+    """人の名前を比べる鍵: 全角半角(NFKC)・大文字小文字・空白・ひらがなとカタカナの違いを無視する(同じ読みの別の人はいない前提。
+    ローマ字とかな(pekora・ぺこら)は結ばない = 名簿の呼び名で結ぶ)。声を覚える・文脈の名前・1 人指定・確かめるの声・字幕の色の名前合わせが使う"""
+    s = unicodedata.normalize("NFKC", str(name or "")).casefold()
+    return re.sub(r"\s+", "", s).translate(_KATA_TO_HIRA)

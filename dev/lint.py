@@ -15,6 +15,8 @@
   6 dup-block     … 同じ行の並びが --dup 行以上、別の場所にもある(空白と行末のコメントをそろえて比べる。src/ と dev/ の .py・.js。tests/ は除く)
   7 no-docstring  … モジュールの先頭に説明(docstring)が無い .py(tests/ は除く)
   8 version       … 版は全体で 1 つ(ytt/version.py)。そこが正しい形か、各ツールの定数・画面に版の数字を直に書いていないか
+  9 ref-path/ref-gone/ref-layer … 説明文(docstring とコメント。tests/ は除く)の参照が戻らない検査: 無い .py のパス・もう無い名前(ed_alt など)・先頭の説明の層の番号がフォルダと合わない。
+                    過去の経緯として書くなら行に `lint: ref <理由>`。`notes:`・`git:` の後ろは見ない(notes_tool check が見る)
 対象: src/ と dev/ と setup/。friend-apps/ の C# は見ない(csc の警告 /warn:4 で代える)。
 """
 import argparse
@@ -36,8 +38,8 @@ DUP_HELPERS = {"_unlink": "fsio.unlink_quiet", "_unlink_quiet": "fsio.unlink_qui
                "read_json": "fsio.read_json_or", "_read_json_file": "fsio.read_json_or", "_inside": "fsio.is_inside",
                "dir_size": "fsio.dir_size", "_dir_bytes": "fsio.dir_size",
                "low_flags": "tools.no_window_flags(priority=\"low\")", "_flags": "tools.no_window_flags(priority=\"low\")",
-               "_ytcap_flags": "tools.no_window_flags(priority=\"low\")", "child_flags": "tools.no_window_flags(priority=\"low\")",
-               "_worker_flags": "tools.no_window_flags(new_group=True)", "kill_tree": "tools.kill_tree", "_ytcap_kill": "tools.kill_tree",
+               "child_flags": "tools.no_window_flags(priority=\"low\")",
+               "_worker_flags": "tools.no_window_flags(new_group=True)", "kill_tree": "tools.kill_tree",
                "_python": "tools.python_exe", "_why": "tools.why", "rss_mb": "tools.process_memory_mb", "memory_mb": "tools.process_memory_mb",
                "peak_memory_mb": "tools.process_memory_mb(peak=True)", "parse_version_line": "tools.tool_version(first_line=True)",
                "plain_int": "schemas.plain_int", "_num_sec": "schemas.num", "drain_body": "httpsec.drain_body"}
@@ -247,6 +249,90 @@ def version_mismatch():
     return out
 
 
+# 説明文の参照が戻らない検査(OPT-H1 ③-R2。notes:plan/opt-human.md の ③ 全体)。対象は src/ dev/ setup/ の .py の docstring とコメント(tests/ と lint.py 自身は除く)
+GONE_NAMES = ("ed_alt", "ed_jobs", "ed_learn", "ed_retime", "ed_ytcap", "ed_store", "ed_fill", "ed_llm", "ytt_core", "studio/common.py", "home/live_cleanup.py")
+GONE_RE = re.compile(r"(?<![A-Za-z0-9_])(?:%s)(?![A-Za-z0-9_])" % "|".join(re.escape(n) for n in GONE_NAMES))
+PATH_RE = re.compile(r"(?<![A-Za-z0-9_./:\\-])((?:[A-Za-z0-9_-]+/)+[A-Za-z0-9_-]+\.py)(?![A-Za-z0-9_])")
+LAYER_OF = {"pipeline": "①", "flow": "②", "human": "③", "manage": "④", "eval": "⑤"}   # src/ の直下のフォルダ → 層の番号(正は notes:docs/spec/overview.md の 2)
+LAYER_RE = re.compile(r"([①②③④⑤])\s*(?:道具|管理|人の操作|人|データ|検証|テスト)")
+# 一時的に許す物(件数を減らす方向だけ。OPT-M1・E1 で直したら外す)。キーは (kind, ファイル) → 理由
+REF_ALLOW = {
+    ("ref-path", "src/eval/drill/drill.py"): "OPT-E1 で直す",
+    ("ref-path", "src/eval/drill/evalbatch.py"): "OPT-E1 で直す",
+    ("ref-path", "src/eval/drill/folders.py"): "OPT-E1 で直す",
+    ("ref-path", "src/eval/drill/metrics.py"): "OPT-E1 で直す",
+    ("ref-path", "src/eval/fake/fake_worker.py"): "OPT-E1 で直す",
+    ("ref-path", "src/eval/tools/eval_llm.py"): "OPT-E1 で直す",
+    ("ref-path", "src/eval/tools/evaldata.py"): "OPT-E1 で直す",
+    ("ref-gone", "src/eval/drill/evalbatch.py"): "OPT-E1 で直す",
+    ("ref-gone", "src/eval/drill/folders.py"): "OPT-E1 で直す",
+    ("ref-gone", "src/eval/drill/metrics.py"): "OPT-E1 で直す",
+    ("ref-gone", "src/eval/fake/fake_asr.py"): "OPT-E1 で直す",
+    ("ref-gone", "src/eval/tools/_evalcommon.py"): "OPT-E1 で直す",
+    ("ref-gone", "src/eval/tools/eval_asr.py"): "OPT-E1 で直す",
+    ("ref-gone", "src/eval/tools/eval_fill.py"): "OPT-E1 で直す",
+    ("ref-gone", "src/eval/tools/eval_llm.py"): "OPT-E1 で直す",
+    ("ref-gone", "src/eval/tools/eval_timing.py"): "OPT-E1 で直す",
+    ("ref-layer", "src/eval/__init__.py"): "OPT-E1 で直す",
+    ("ref-layer", "src/eval/drill/metrics.py"): "OPT-E1 で直す",
+    ("ref-gone", "src/manage/cases/doclist.py"): "OPT-M1 で直す",
+    ("ref-gone", "src/manage/cases/handoff_io.py"): "OPT-M1 で直す",
+    ("ref-gone", "src/manage/cases/relink.py"): "OPT-M1 で直す",
+    ("ref-layer", "src/manage/__init__.py"): "OPT-M1 で直す",
+}
+
+
+def doc_texts(tree, src):
+    """説明文の本体 = docstring と # のコメント。[(行, 文字列)]。行は先頭行の番号(複数行の docstring は行ごとに分けて返す)"""
+    import io
+    import tokenize
+    out = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Expr) and isinstance(getattr(node, "value", None), ast.Constant) and isinstance(node.value.value, str):
+            for i, line in enumerate(node.value.value.splitlines()):
+                out.append((node.lineno + i, line))
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(src).readline):
+            if tok.type == tokenize.COMMENT:
+                out.append((tok.start[0], tok.string))
+    except (tokenize.TokenError, IndentationError):
+        pass
+    return out
+
+
+def stale_refs(path, tree, src):
+    """[(行, 種類, 名前)]。種類 = ref-path(無い .py のパス)・ref-gone(もう無い名前)・ref-layer(先頭の説明の層の番号がフォルダと合わない)。
+    その行に `lint: ref <理由>` があれば除く(過去の経緯としての言及など)。`notes:`・`git:` の後ろのパスは見ない(notes_tool check が見る)"""
+    r = rel(path)
+    if is_test(path) or r in ("dev/lint.py", "dev/layer_map.py"):   # layer_map.py は旧い名前 → 新しい名前の表(旧い名前を書くのが仕事)
+        return []
+    lines = src.splitlines()
+    out = []
+    tops = set(os.listdir(SRC)) | {"src", "dev", "setup"}
+    for ln, text in doc_texts(tree, src):
+        if "lint: ref" in text or (ln <= len(lines) and "lint: ref" in lines[ln - 1]):
+            continue
+        for m in GONE_RE.finditer(text):
+            out.append((ln, "ref-gone", m.group(0)))
+        for m in PATH_RE.finditer(text):
+            p = m.group(1)
+            if p.split("/")[0] not in tops or any(c in text[m.start() - 1:m.start()] for c in "*<%"):
+                continue
+            base = REPO if p.split("/")[0] in ("src", "dev", "setup") else SRC
+            if not os.path.isfile(os.path.join(base, p)):
+                out.append((ln, "ref-path", p))
+    # 先頭の説明の 1 行目(モジュールの docstring)の層の番号。src/<層>/ の下だけ
+    parts = r.split("/")
+    if len(parts) >= 3 and parts[0] == "src" and parts[1] in LAYER_OF and tree.body:
+        first = tree.body[0]
+        if isinstance(first, ast.Expr) and isinstance(getattr(first, "value", None), ast.Constant) and isinstance(first.value.value, str):
+            head = first.value.value.strip().splitlines()[0] if first.value.value.strip() else ""
+            m = LAYER_RE.search(head)
+            if m and m.group(1) != LAYER_OF[parts[1]] and "lint: ref" not in head:
+                out.append((first.lineno, "ref-layer", "%s(%s は %s)" % (m.group(1), parts[1], LAYER_OF[parts[1]])))
+    return sorted({x for x in out if (x[1], r) not in REF_ALLOW})
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--json", action="store_true")
@@ -259,7 +345,7 @@ def main():
     except Exception:
         pass
     corpus = Corpus()
-    issues = {k: [] for k in ("unused-import", "dead-name", "long-function", "dup-helper", "js-dead", "dup-block", "no-docstring", "version", "notes-path")}
+    issues = {k: [] for k in ("unused-import", "dead-name", "long-function", "dup-helper", "js-dead", "dup-block", "no-docstring", "version", "notes-path", "ref-path", "ref-gone", "ref-layer")}
 
     def add(kind, file, line, name, **extra):
         issues[kind].append(dict({"file": file, "line": line, "name": name}, **extra))
@@ -276,6 +362,8 @@ def main():
             add("unused-import", rel(p), ln, name)
         for ln, name, n in long_functions(p, nodes, src, a.long_test if is_test(p) else a.long):
             add("long-function", rel(p), ln, name, lines=n)
+        for ln, kind, name in stale_refs(p, tree, src):
+            add(kind, rel(p), ln, name)
         if not is_test(p):
             for ln, name in dead_names(p, tree, src, corpus):
                 add("dead-name", rel(p), ln, name)

@@ -9,9 +9,7 @@ import copy
 import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データ(AppData など)に触らない
-import shutil
 import sys
-import tempfile
 import unittest
 from unittest import mock
 
@@ -21,6 +19,7 @@ for _p in (os.path.join(SRC, "editor"), SRC):
         sys.path.insert(0, _p)
 from human.proof import layers as L, machpick, store  # noqa: E402
 from ytt import errors, workdata  # noqa: E402
+from human.tests._workdata import temporary_workdata  # noqa: E402
 
 TID = "0123456789ab"
 META = {"schema": "transcribe/v1", "id": TID, "title": "t", "updatedAt": 1}
@@ -103,12 +102,7 @@ class ApiTest(unittest.TestCase):
         cls.S = serve
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="machpick-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
-        saved = {n: getattr(workdata, n) for n in ("DATA_DIR", "TX_DIR", "TMP_DIR", "EVAL_BASE", "SETTINGS", "FEEDBACK")}
-        self.addCleanup(lambda: [setattr(workdata, n, v) for n, v in saved.items()])
-        workdata.set_data_dir(os.path.join(self.tmp, "data"))
-        os.makedirs(workdata.TX_DIR)
+        self.tmp = temporary_workdata(self, "machpick-")
         p = mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": "primary"})
         p.start()
         self.addCleanup(p.stop)

@@ -122,11 +122,9 @@ class TestPure(unittest.TestCase):
         self.assertEqual(S.split_chars_for({}, st), 24)                                  # 設定の向き(横)でも 28 ではなく既定 24
         self.assertEqual(S.split_chars_for({"subtitleOrientation": "vertical"}, st), 24)  # 要求の向きでも変わらない
         self.assertEqual(S.split_chars_for({"subtitleOrientation": "x"}, {}), 24)          # 既定 24(0.59.6)
-        self.assertEqual(S.split_chars_for({"splitChars": 20, "subtitleOrientation": "vertical"}, st), 20)   # 「長い行を分け直す」の明示の値
+        self.assertEqual(S.split_chars_for({"splitChars": 20, "subtitleOrientation": "vertical"}, st), 20)   # 要求の明示の値(② のまとめて実行の束)
         self.assertEqual(S.split_chars_for({"splitChars": 200}, st), 24)                  # 範囲の外は使わない
-        self.assertEqual(S.subtitle_max_chars({}, st), 28)                                # 「長い行を分け直す」は字幕の最大文字数(設定の向き = 横)
-        self.assertEqual(S.subtitle_max_chars({"subtitleOrientation": "vertical"}, st), 12)
-        self.assertEqual(S.subtitle_max_chars({"splitChars": 20}, st), 20)
+        self.assertFalse(hasattr(S, "subtitle_max_chars"))                                # 「長い行を分け直す」は消した(決定 3-47 の Q4)
         self.assertEqual(S.split_chars_for({}, {"subtitle": {"splitChars": 32}}), 32)       # 設定の値
         self.assertEqual(S.split_chars_for({}, {"subtitle": {"splitChars": 4}}), 24)        # 範囲(8〜80)の外は既定
         with patch.dict(os.environ, {"TRANSCRIBE_SPLIT_CHARS": "16"}):
@@ -807,7 +805,7 @@ class TestMarkerDone(unittest.TestCase):
 from test_backend import *  # noqa: E402,F401,F403
 from test_worker import *  # noqa: E402,F401,F403   認識ワーカー(別プロセス)のテストも同じコマンドで
 from test_voices import *  # noqa: E402,F401,F403   話者の声を覚える(A-3)
-from test_edit import *  # noqa: E402,F401,F403   「編集」のサーバー側(編集の内容・open-video・peaks・intoDoc)
+from test_edit import *  # noqa: E402,F401,F403   「編集」のサーバー側(編集の内容・doc-for・peaks・intoDoc・削除)
 from test_roster import *  # noqa: E402,F401,F403   名簿の呼び名・配信ごとの文脈(計画 段1)
 from test_normalize30 import *  # noqa: E402,F401,F403   素材を 30fps にそろえる(マスタープラン Q1。文字起こし・選び直し)
 from test_evalbatch import *  # noqa: E402,F401,F403   評価用の動画の手が空いたときのまとめての文字起こし(マスタープラン Q4(b))
@@ -819,10 +817,9 @@ from test_alt import *  # noqa: E402,F401,F403   2つ目のエンジンとの食
 from test_fill import *  # noqa: E402,F401,F403   認識のあとの後処理 A・C・D(10-08 の実験ループ。pipeline/transcribe/fill.py。0.60.0)
 from test_llm import *  # noqa: E402,F401,F403   LLM の後処理 E(提案 P18。pipeline/transcribe/llm.py・tx_engines.LlamaText・ワーカーの op complete。0.61.0)
 from test_thumb_job import *  # noqa: E402,F401,F403   サムネの案のジョブ(提案 P5。ed_thumb.py → thumb_ideas.py。0.64.0)
-from test_ytcap import *  # noqa: E402,F401,F403   元の配信の YouTube の字幕との食い違いの候補(案 A1。ed_ytcap.py)
-from test_autodiar import *  # noqa: E402,F401,F403   文字起こしのあとの話者の自動判別(評価用は常に・設定 autoDiarize。v0.50.0)
+from test_ytcap import *  # noqa: E402,F401,F403   元の配信の YouTube の字幕の候補の比べ方の部品(⑤ が読む分だけ。human/proof/ytcap.py)
+from test_autodiar import *  # noqa: E402,F401,F403   評価用の文書の文字起こしのあとの話者の自動判別(human/proof/speakers の autodiar_)
 from test_nosub_metrics import *  # noqa: E402,F401,F403   字幕に出さない行(noSub)と重なりの数え方・学習(eval/drill/metrics・human/proof/learn。RS3-E5c まで ed_learn.py)
-from test_ovdraft import *  # noqa: E402,F401,F403   重なりの所の空の行の下書き(ed_speakers の ovdraft_・GET /api/overlap-drafts・行の印 draft)
 from test_smooth import *  # noqa: E402,F401,F403   話者の細切れをならす(S2。ed_speakers の smooth_・設定 diarSmooth)
 from test_retime import *  # noqa: E402,F401,F403   字幕の読む速さの印・行の時刻を単語の時刻に合わせる候補(ed_retime.py・POST /api/retime)
 from test_names import *  # noqa: E402,F401,F403   serve の名前の受付と ed_jobs の転送(役割で組み直す RS2。ytt/modfwd.py)

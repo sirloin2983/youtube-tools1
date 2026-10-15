@@ -2,12 +2,12 @@
 """① 文字起こしの記録: recognition.runs の 1 件(エンジンと版・設定・辞書の版・後処理)・配信ごとの文脈と声の検出の記録・
 生出力(transcripts/<id>.asr.json)・単語の時刻(transcripts/<id>.words.json)の読み書き。
 
-役割で組み直す RS2-5(2026-10-10)に編集の ed_jobs から移した(中身は同じ)。標準ライブラリ・ytt・同じパッケージの兄弟(backend・postproc・roster・
+役割で組み直す RS2-5(2026-10-10)に移した(中身は同じ)。標準ライブラリ・ytt・同じパッケージの兄弟(backend・postproc・roster・
 tx_engines・txbase)と ytt だけを読む。置き場所(ytt/workdata の TX_DIR)と名簿のファイル(roster.ROSTER)は呼ぶたびに持ち主から(RS3-0A まで txenv の口)。
-辞書の版(dict_version)の置換辞書の組と学習の記録は、設定と学習(編集の ed_learn = 文書の側)を ① が直に読まないよう、引数(pairs・learned)で受け取る。
-渡されなければ app(編集の serve.py)が set_dict_inputs で登録した口から読む(ed_jobs.dict_pairs・ed_jobs.dict_learned。呼ぶたびに読む = S.dict_pairs の差し替えが効く)。
+辞書の版(dict_version)の置換辞書の組と学習の記録は、設定と学習(文書の側)を ① が直に読まないよう、引数(pairs・learned)で受け取る。
+渡されなければ app(編集の serve.py)が set_dict_inputs で登録した口から読む(dict_pairs・dict_learned。呼ぶたびに読む = S.dict_pairs の差し替えが効く)。
 dict_version を読むのは同じモジュールの _run_base だけ(テストの mock.patch.object(S, "dict_version", …) が届く)。
-再認識で差し替えた機械の出力の記録(record_rerun・replaced_rows)は文書の側(ed_jobs。のちに human/proof)に残した。
+再認識で差し替えた機械の出力の記録(record_rerun・replaced_rows)は文書の側(のちに human/proof)に残した。
 """
 import functools
 import hashlib
@@ -111,7 +111,7 @@ def dict_version(spec, pairs=None, learned=None):
     glossary = 用語集(自動で足した語を含む。ヒントに入った語)・replacements = 置換辞書(autoDict のとき)・
     learned = 学習済みの置換と採用・却下の記録(autoLearned のとき)・roster = 名簿のファイル。
     辞書を変えた前後で成績を分ける・同じ版どうしで比べるために、中身ではなく短いハッシュだけを残す。使っていない・読めないものは入れない。
-    pairs = 呼ぶ側で作ってある置換辞書の組(ed_jobs.dict_pairs(spec)。設定と名簿を読み直さない)・learned = 学習の記録を並べた文字(ed_jobs.dict_learned())。
+    pairs = 呼ぶ側で作ってある置換辞書の組(dict_pairs(spec)。設定と名簿を読み直さない)・learned = 学習の記録を並べた文字(dict_learned())。
     渡さなければ app が set_dict_inputs で登録した口から読む(RS2-5。① は設定・学習を直に読まない)"""
     out = {}
     try:

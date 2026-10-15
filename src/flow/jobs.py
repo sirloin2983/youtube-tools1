@@ -15,12 +15,12 @@ import uuid
 from ytt import errors, fsio, tools
 from ytt import jobs as _slots
 
-# ---------- ジョブの表・待機列・ワーカーの繰り返し・取り消し・登録の口(RS2-1b で編集の ed_jobs から ytt/jobs へ・RS6 a-2 で ytt から flow へ) ----------
+# ---------- ジョブの表・待機列・ワーカーの繰り返し・取り消し・登録の口(RS6 a-2 で flow へ) ----------
 # 1 つのプロセスに 1 つの表 = 下の Table の既定インスタンス TX_TABLE(OPT2 後半 J8。ファイルの末尾で作る。_jobs・_jobs_lock はその表と錠の別名)。
 # 種類(kind)ごとの本体・優先度・同時に入れない組・文書の id を持つか・やり直せるかは register で登録する(登録するのは app = 編集の serve.py。下の層は自分で登録しない)。
 # 編集だけの値(記録の書き先・起動中の印・一時フォルダ・待機の上限・やり直せない理由)は configure で渡す(ytt は編集の部品を読まない)。
 # 状態(state)・段階(phase)の文字は画面(編集の app-jobs.js)が読むので変えない(loading・extracting は走らせる本体が入れる)。
-# 編集の部品・テストは今までどおり ed_jobs.名前 / S.名前 で読み書きできる(ed_jobs の転送 _MOVED と serve の名前の受付)。
+# 編集の部品・テストは今までどおり serve.名前 / S.名前 で読み書きできる(転送 _MOVED と serve の名前の受付)。
 JOB_RUNNERS = {}     # 種類 → 本体 run(job)
 JOB_PRIORITY = {}    # 種類 → 優先度(登録しない種類は 1。数値が小さいほど先に実行。話者判別は文字起こしの待機列を追い越す = 実行中は中断せず次の空きで割り込む)
 EXCLUSIVE = {}       # 種類 → 同じ文書に同時に入れない種類(入口の検査 validate_* と add_job の両方がこの表を使う)
@@ -124,6 +124,38 @@ def tid_busy(tid, kinds):
     """その文書に、kinds の種類のジョブが待っている・動いているか(同じ文書に同時に入れない組み合わせ = EXCLUSIVE。add_job も同じロックの中で確かめ直す)"""
     with _jobs_lock:
         return _busy_locked(tid, kinds)
+
+
+# ---- 処理中かの読み口(OPT-H1。使う側は表 _jobs と錠 _jobs_lock を読まない = 設計原則のレビューの指摘 5) ----
+def _view(j):
+    """表の記録の読み取り用の写し(spec も写す。書き換えても表は変わらない)"""
+    v = dict(j)
+    v["spec"] = dict(j.get("spec") or {})
+    return v
+
+
+def doc_busy(tid, skip_kinds=()):
+    """その文書を読み書きするジョブ(skip_kinds の種類を除く)が待っている・動いているか。
+    文書を指す欄 = job["tid"]・spec の tid・spec の intoDoc(この文書に入れる文字起こし)のどれか"""
+    tid = str(tid or "")
+    if not tid:
+        return False
+    with _jobs_lock:
+        return any(j["state"] in ACTIVE_STATES and j.get("kind") not in skip_kinds
+                   and tid in (j.get("tid"), (j.get("spec") or {}).get("tid"), (j.get("spec") or {}).get("intoDoc"))
+                   for j in _jobs.values())
+
+
+def active_jobs(kind=None):
+    """待っている・動いているジョブの写し(入れた順。kind を渡せばその種類だけ)-> [記録の写し]"""
+    with _jobs_lock:
+        return [_view(j) for j in _jobs.values() if j["state"] in ACTIVE_STATES and (kind is None or j.get("kind") == kind)]
+
+
+def all_jobs():
+    """表のジョブ全部の写し(入れた順。終わった物も)-> [記録の写し]"""
+    with _jobs_lock:
+        return [_view(j) for j in _jobs.values()]
 
 
 def can_retry(j):

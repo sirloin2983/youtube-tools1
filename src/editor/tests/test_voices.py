@@ -270,7 +270,7 @@ class TestVoiceStore(StoreDir):
                                        [(0, 5, "S1", ""), (6, 12, "S2", ""), (13, 20, "S3", "")]))
         vec = {"S1": unit(1, 0.05, 0), "S2": unit(0.05, 1, 0), "S3": unit(0, 0, 1)}
         with mock.patch.object(S, "embed_groups", lambda job, wav, emb, groups, off: [vec[k] for k in ("S1", "S2", "S3")]):
-            named = S.recognize_voices(self.job({}), TID, "x.wav", 0.0, "voxceleb")
+            named = S._recognize_voices(self.job({}), TID, "x.wav", 0.0, "voxceleb")
         self.assertEqual([(n["speaker"], n["name"]) for n in named], [("S1", "兎田ぺこら")])   # S2 は自分で付けた名前なので変えない・S3 は似ていない
         with open(S.tx_path(TID), encoding="utf-8") as f:
             d = json.load(f)
@@ -283,7 +283,7 @@ class TestVoiceStore(StoreDir):
         self.put_doc(doc_with_speakers([("S1", "話者1"), ("S2", "話者2")], [(0, 5, "S1", ""), (6, 12, "S2", "")]))
         vec = {"S1": unit(1, 0.05, 0), "S2": unit(0.05, 1, 0)}   # S2 はみこに似ているが、みこは名前の一覧に無い
         with mock.patch.object(S, "embed_groups", lambda job, wav, emb, groups, off: [vec[k] for k in ("S1", "S2")]):
-            named = S.recognize_voices(self.job({}), TID, "x.wav", 0.0, "voxceleb", ["兎田ぺこら", "宝鐘マリン"])
+            named = S._recognize_voices(self.job({}), TID, "x.wav", 0.0, "voxceleb", ["兎田ぺこら", "宝鐘マリン"])
         self.assertEqual([(n["speaker"], n["name"], n["score"] is None) for n in named], [("S1", "兎田ぺこら", False), ("S2", "宝鐘マリン", True)])
 
     def test_single_speaker(self):
@@ -533,20 +533,20 @@ class TestOtherVoice(StoreDir):
             seen.extend(groups)
             return [unit(1, 0, 0)] + [unit(0, 0, 1)] * (len(groups) - 1)
         with mock.patch.object(S, "embed_groups", emb):
-            S.recognize_voices(self.job({}), TID, "x.wav", 0.0, "voxceleb")
+            S._recognize_voices(self.job({}), TID, "x.wav", 0.0, "voxceleb")
         self.assertFalse(any(a == 8 for g in seen for a, _b in g))   # ゲーム音声などの行(8〜14 秒)の声は照らし合わせない
         self.assertEqual(self.read()["speakers"][-1]["name"], "ゲーム音声など")
         # 自動の判別: 守る行(ゲーム音声など・字幕に出さない・重なりのメモ)だけに話者があるなら「話者あり」に数えない
         d2 = self.manual_doc()
         d2["segments"][0]["speaker"] = ""
-        self.assertIsNone(S.autodiar_why_not(d2))
-        self.assertEqual(S.autodiar_why_not(self.manual_doc()), "has_speakers")
+        self.assertIsNone(S._autodiar_why_not(d2))
+        self.assertEqual(S._autodiar_why_not(self.manual_doc()), "has_speakers")
         # 動画の手がかりの名前は、仮の名前の話者のうち話した秒の長い人に(字幕に出さない行は数えない・組み込みには付けない)
         d3 = self.manual_doc()
         d3["speakers"][1]["name"] = "話者2"
         d3["segments"][1]["end"] = 100.0   # ゲーム音声などが長くても選ばれない
         self.put_doc(d3)
-        hit = S.autodiar_name_by_context(TID, "さくらみこ")
+        hit = S._autodiar_name_by_context(TID, "さくらみこ")
         self.assertIn(hit["speaker"], ("S1", "S2"))
 
     def test_speakers_sub_api(self):
@@ -577,11 +577,37 @@ class TestOtherVoice(StoreDir):
         with mock.patch.dict(S._jobs, {"jy": {"kind": "alt", "state": "running", "tid": TID, "spec": {"tid": TID}}}):   # 文書を書き換えないジョブは止めない
             self.assertEqual(S.speakers_sub_apply({"id": TID, "styles": {"兎田 ぺこら": {"color": "#000000"}}})["applied"], ["兎田 ぺこら"])
 
+    def test_speakers_sub_name_key_ignores_case_and_kana(self):
+        """字幕の色の名前合わせも person_key(大文字小文字・ひらがなとカタカナ・全角半角を無視。OPT-H1 Q8)"""
+        d = self.manual_doc()
+        d["speakers"][0]["name"] = "Pekora"
+        d["speakers"][1]["name"] = "兎田ペコラ"
+        self.put_doc(d)
+        r = S.speakers_sub_apply({"id": TID, "styles": {"pekora": {"color": "#111111"}, "兎田ぺこら": {"color": "#222222"}}})
+        self.assertEqual(sorted(r["applied"]), ["Pekora", "兎田ペコラ"])
+
+    @mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": "shadow"})
+    def test_kept_speaker_survives_max_speakers(self):
+        """判別が 20 人を見つけ、守る行の話者が 1 人いても、保存で守った話者が消えない(新しい話者は 20 − 守った人数まで。4d-2)"""
+        rows = [(i * 2.0, i * 2.0 + 1.5, "", "") for i in range(22)] + [(50.0, 52.0, "S1", "", False, ["overlap"])]
+        self.put_doc(doc_with_speakers([("S1", "ぺこら")], rows))
+        S.apply_diarization(TID, [(i * 2.0, i * 2.0 + 1.5, i) for i in range(22)], 0.0, 0)
+        d = self.read()
+        ids = {s["id"] for s in d["speakers"]}
+        self.assertLessEqual(len(d["speakers"]), S.MAX_SPEAKERS)
+        kept = d["segments"][-1]
+        self.assertIn(kept["speaker"], ids)
+        self.assertEqual({s["id"]: s["name"] for s in d["speakers"]}[kept["speaker"]], "ぺこら")
+
     def test_pack_output_speaker_styles(self):
         base = {"fps": "30", "size": "1080x1920", "wrap": 8, "textplus": True, "backup": False, "render": False, "speakerColors": False}
         out = S.sanitize_pack_output(dict(base, speakerStyles={"ぺこら": {"color": "7ec2fe", "x": 1}}))
         self.assertEqual(out["speakerStyles"], {"ぺこら": {"color": "#7EC2FE"}})
-        self.assertIsNone(S.sanitize_pack_output(dict(base, speakerStyles={"ぺこら": {"color": "bad"}})))
+        mixed = S.sanitize_pack_output(dict(base, speakerStyles={"ぺこら": {"color": "bad"}, "みこ": {"color": "#FF0000"}, "": {"color": "#000000"}}))
+        self.assertEqual(mixed["speakerStyles"], {"みこ": {"color": "#FF0000"}})   # 正しくない項目だけ捨てる(① request.py と同じ。2c-5)
+        self.assertNotIn("speakerStyles", S.sanitize_pack_output(dict(base, speakerStyles={"ぺこら": {"color": "bad"}})))
+        many = {"人%d" % i: {"color": "#000000"} for i in range(60)}
+        self.assertEqual(len(S.sanitize_pack_output(dict(base, speakerStyles=many))["speakerStyles"]), 50)
         self.assertNotIn("speakerStyles", S.sanitize_pack_output(base))
 
     def test_eval_redo_treats_nosub_as_touched(self):

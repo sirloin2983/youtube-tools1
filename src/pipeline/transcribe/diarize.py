@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """① 自動の流れの層 pipeline/transcribe: 話者判別の計算(sherpa-onnx)と判別の記録・声の特徴と覚えた声との照らし合わせ。
 
-役割で組み直す RS2-9(2026-10-10)に編集の src/editor/ed_speakers.py から移した(中身は同じ。文書へ反映する側・判別のジョブ・空の行の下書き・
+役割で組み直す RS2-9(2026-10-10)に移した(中身は同じ。文書へ反映する側・判別のジョブ・空の行の下書き・
 自動の判別・声を覚える・字幕の見た目は human/proof/speakers.py)。③ の speakers はここを直に読まず、② flow/diar.py(判別のジョブの段取り・
-判別の記録を書く _record_diar・覚えた声の置き場所。RS6 a-4)を通す。旧い名前 ed_speakers.名前 は editor/ed_speakers.py(転送だけの殻。RS5 で消す)が、
+判別の記録を書く _record_diar・覚えた声の置き場所。RS6 a-4)を通す。旧い名前の転送は RS5 で消した。
 serve.名前 は serve の名前の受付がここへ回す(テストの S.名前 = …・patch.object(S, "has_sherpa") もここに届く)。
 - 判別のモデル: DIAR_SEG・DIAR_EMBS(固定の URL と SHA-256)を作業データの models/diar に取る(ensure_diar_models)。置き場所は呼ぶたびに ytt/workdata の DATA_DIR から
   (diar_models_dir。DIAR_DIR は上書き用 = src/eval/tools/eval_speakers が本物の作業データの場所を入れる)

@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
-"""② 文書の置き場: 文字起こしの保存・履歴(自動スナップショット)・整形・校正の手間・要約のキャッシュ・編集の内容(残す区間)・「文字起こしせずに開く」
-(段10 で editor/serve.py から分けた ed_store。役割で組み直す RS3-E5a(2026-10-10)に human/proof/store.py へ移した。旧い名前 ed_store は転送だけの殻 = RS5 で消す)。
+"""③ 文書の置き場: 文書を書く唯一の口 commit と機械の層・人の層(影のモードと層が正のときの読み直し fresh_copy)・保存の錠 saving・
+履歴(自動スナップショット)と戻す・消す delete_doc・画面から来た文書の整形・校正の行の数と作業中の印(effort)・要約のキャッシュ・
+編集の内容(残す区間 edit.json)とパックの記録・行の無い文書へ文字起こしを入れる fill_doc。
 
-- 一覧と元の動画・パックの有無(list_transcripts・pack_info)と前回のパックの手順(pack_readme)は manage/cases/doclist.py(txindex を読むのはそちら)
-- 評価ドリルの要約は持たない(eval/drill/drill.drill_docs が自前で文書を読んで足す。決定 3-25 #8)
-- 編集の内容(edit.json)は文書と相互に呼ぶので割らない(文書の書き込みは必ず apply_edit_cuts を通す)
+- 一覧と元の動画・パックの有無(list_transcripts・pack_info)と前回のパックの手順(pack_readme)は ④ manage/cases/doclist.py(txindex を読むのはそちら)
+- 評価ドリルの要約は持たない(⑤ eval/drill/drill.drill_docs が自前で文書を読んで足す)
+- 編集の内容(edit.json)は文書と相互に呼ぶので割らない。行の「カット済」は commit が必ず apply_edit_cuts で編集の内容に合わせる
 名前は serve.py からも見える(serve.py の名前の受付 _ED_MODULES がこの部品へ転送する。テストの S.名前 = … もここに入る)。
-ほかの部品の名前は `モジュール.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。編集の ed_state は読まない(app = 上の層)。
+ほかの部品の名前は `モジュール.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。編集の ed_state は読まない(入口 = 上の層)。
+説明の中の記号: RS8 O2-0〜5・(r8t) など = 層の段と仮決め(notes:plan/decisions.md の 3-37)・Q2 = notes:plan/line-bc-master-plan.md の Q2。
 """
 import bisect
 import json
@@ -14,16 +16,14 @@ import os
 import re
 import shutil
 import threading
-import uuid
 
 from ytt import errors as _errors, fsio as _fsio, schemas as _yschemas  # noqa: E402
-from flow import placement as _placement  # noqa: E402   新しい文書の置き場所 doc_home(RS8 B2-2)
-from flow import pack as _flowpack  # noqa: E402   カットのたたき台・見積もり(RS6 a-5a に pipeline/pack/resolve_export から。呼ぶたびに _flowpack.名前 で読む)
-from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings(RS3-1 に ed_learn から ytt/settings へ)
-from ytt import docloc as _docloc, tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
-from ytt import txbase as _txbase  # noqa: E402   ロガー log・1 行の文字数の上限 MAX_TEXT(RS3-E5a まで ed_state の別名で読んでいた)
-from . import overrides as _overrides  # noqa: E402   校正の上書きの控え <id>.over.json(RS6 b-O1。保存のたびに save_after)
-from . import layers as _layers  # noqa: E402   機械の層・人の層の組み立てと差分(RS8 O2-1。commit の影のモードが使う。O2-2)
+from flow import pack as _flowpack  # noqa: E402   カットのたたき台・見積もり(呼ぶたびに _flowpack.名前 で読む)
+from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings・評価用のフォルダの判定
+from ytt import docloc as _docloc, workdata as _workdata  # noqa: E402   文書の置き場所(索引・履歴のフォルダ)と作業データの場所
+from ytt import txbase as _txbase  # noqa: E402   ロガー log・1 行の文字数の上限 MAX_TEXT・層のモード
+from . import overrides as _overrides  # noqa: E402   校正の上書きの控え <id>.over.json(保存のたびに save_after)
+from . import layers as _layers  # noqa: E402   機械の層・人の層の組み立てと差分(commit が使う)
 
 
 # ---------- 文字起こしの保存 ----------
@@ -41,9 +41,10 @@ def tx_path(tid):
 
 
 def write_doc(tid, doc, folder=None):
-    """文書を書く(読みやすい JSON。fsio.atomic_write の fsync_required = 書き出しを確かめてから置き換え。停電のあとに空の文書を残さない)。文書の書き込みはここを通す。
-    folder = 新しく作る文書を置く 作業用(② flow/placement.doc_home が決める。None = 今までどおり)。あれば docloc.place_new が本体を書いてから索引を書く
-    (置けなければ TX_DIR。RS8 B2-2)。今ある文書の書き直しは folder を渡さない(索引があるのに置き場所が見えなければ断る = for_write)"""
+    """文書のファイルを書く下回り(読みやすい JSON。fsio.atomic_write の fsync_required = 書き出しを確かめてから置き換え。停電のあとに空の文書を残さない)。
+    **文書の書き込みは commit を通す**(ここを直に呼ぶと層・カット済・ログが進まない。呼ぶのは commit・fresh_copy とテストの下ごしらえだけ)。
+    folder = 新しく作る文書を置く 作業用(② flow/placement.doc_home が決める。None = 今の場所)。あれば docloc.place_new が本体を書いてから索引を書く
+    (置けなければ TX_DIR)。今ある文書の書き直しは folder を渡さない(索引があるのに置き場所が見えなければ断る = for_write)"""
     body = json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8")
 
     def _write(path):
@@ -54,11 +55,12 @@ def write_doc(tid, doc, folder=None):
         _write(_doc_file(tid, ".json", for_write=True))
 
 
-# 文書を書く操作(why)。人の操作か機械の操作かの印(機械の操作のときだけ機械の層を進める。RS8 O2-2)。
-# O2-2 で 2 つ入れ替えた: fill = 行の無い文書へ文字起こしの結果を入れる(fill_doc)= 機械・drill = 評価ドリルの「全部聞いて直した」の印と行の校正済み = 人
-HUMAN_WHYS = frozenset({"save", "restore", "effort", "diar_num", "edit_cutstate", "open_video", "single_speaker", "speaker_sub", "relink", "eval_mark", "drill", "mach_pick", "check:time", "check:read"})   # mach_pick = 3 択(O2-4)・check:time・check:read = 確かめるの時刻のカード(V2d。human/check/timerow.py)
-HUMAN_WHYS = HUMAN_WHYS | {"check:voice"}   # 確かめるの声のカード(V1 V2c。human/check/voice。行の話者・混ざりの印。Z の戻しも同じ why)
-MACHINE_WHYS = frozenset({"whole", "fill", "rerun_each", "rerun_range", "redo", "resplit", "diar", "diar_context", "diar_voices", "eval_rebuild"})
+# 文書を書く操作(why)。人の操作か機械の操作かの印(機械の操作のときだけ機械の層を進める)。
+# fill = 行の無い文書へ文字起こしの結果を入れる(fill_doc)= 機械・drill = 評価ドリルの「全部聞いて直した」の印と行の校正済み = 人・mach_pick = 3 択(machpick)・
+# check:time・check:read・check:voice = 確かめるのカード(human/check の timerow・read・voice。行の時刻・文字・話者と混ざりの印。Z の戻しも同じ why)
+HUMAN_WHYS = frozenset({"save", "restore", "effort", "diar_num", "edit_cutstate", "single_speaker", "speaker_sub", "relink", "eval_mark", "drill", "mach_pick",
+                        "check:time", "check:read", "check:voice"})
+MACHINE_WHYS = frozenset({"whole", "fill", "rerun_each", "rerun_range", "redo", "diar", "diar_context", "diar_voices", "eval_rebuild"})
 FULL_WHYS = frozenset({"whole", "fill", "eval_rebuild"})   # 機械が文書の行を丸ごと書いた操作: 機械の層 = 文書の行(呼び手が mach を渡せばそれ)
 DIAR_WHYS = frozenset({"diar", "diar_context", "diar_voices"})   # 話者の判別: 機械の層の話者と話者の表も文書から写す
 LAYER_MAX_BYTES = 64 * 1024 * 1024   # 層のファイルを読む上限(測る道具が文書を読む上限と同じ)
@@ -76,6 +78,12 @@ def _read_layer(tid, suffix, schema):
         return None
     d = _fsio.read_json_or(path, None, size, kind=dict)
     return d if d is not None and d.get("schema") == schema else None
+
+
+def read_layers(tid):
+    """今の機械の層・人の層 -> (機械, 人)(それぞれ 無い・大きすぎる・壊れている・形が違えば None。3 択の口 machpick が読む)"""
+    return (_read_layer(tid, _yschemas.MACH_SUFFIX, _yschemas.MACH_SCHEMA),
+            _read_layer(tid, _yschemas.HUM_SUFFIX, _yschemas.HUM_SCHEMA))
 
 
 def _shadow_prepare(tid, doc, why, given, hum=None):
@@ -124,9 +132,11 @@ def commit(tid, doc, *, why, mach=None, hum=None, folder=None):
     **層が正(TRANSCRIBE_LAYERS=primary。RS8 O2-3)**: _commit_primary(人の層 → 機械の層 → 組み立て済みの写し)。shadow・off では文書から composedFrom を外す(文書が正)。
     mach = 機械の層(呼び手が機械の行を知っているとき。whole の新しい文書 = 引き継いだ人の行を機械に入れない・再認識と話者の判別の層が正の道 = O2-5)。
     hum = 人の層(層が正のときだけ。差分を取らずにそれを使い、写しは組み立てた文書。3 択の口・O2-5)。-> 書いた文書(層が正で hum を渡したときは組み立てた写し)。
-    呼び手の _save_lock・履歴・バックアップはこれまでどおり呼び手の側"""
+    行の「カット済」は書く前に必ず編集の内容に合わせる(apply_edit_cuts。編集の内容が無ければ何もしない = 呼び手が忘れても古い印で書かない)。
+    錠(saving)・履歴は呼び手の側"""
     if why not in HUMAN_WHYS and why not in MACHINE_WHYS:
         raise ValueError("commit: unknown why " + repr(why))
+    apply_edit_cuts(tid, doc)
     if _txbase.layers_mode() == _txbase.LAYERS_PRIMARY:
         return _commit_primary(tid, doc, why, mach, hum, folder)
     if hum is not None:   # 人の層を呼び手が渡すのは層が正のときだけ
@@ -226,7 +236,7 @@ def fresh_copy(tid, d):
     """層が正のとき、読んだ写し d が層より古ければ組み立て直して書き、新しい写しを返す(古くなければ d のまま)。
     古い = 写しに composedFrom があって、今の層の rev と違う(composedFrom の無い写し = 文書が正だったころ・層の書けなかった写しは組み立て直さない)。
     守り: 機械の層が無い・層が読めない・組み立てられないときは写しのまま読み、ログを出す。行・話者の表が変わったときだけ updatedAt を進める
-    (開いている画面の古い文書で上書きされないよう 409 にする)。書けなくても組み立てた文書を返す"""
+    (開いている画面の古い文書で上書きされないよう 409 にする)。書けなくても(OSError・ApiError = ディスク・置き場所が見えない)組み立てた文書を返す"""
     cf = d.get(_yschemas.COMPOSED_FROM)
     if not isinstance(cf, dict):
         return d
@@ -262,7 +272,7 @@ def fresh_copy(tid, d):
 
 
 def snapshot(tid, force=True):
-    """いまの文書を履歴へ1つ残す(hist_snapshot。残せなくても続ける)"""
+    """いまの文書を履歴へ1つ残す(hist_snapshot。force=False は前の履歴から HIST_INTERVAL 経っていなければ残さない。残せなくても続ける)"""
     try:
         hist_snapshot(tid, force=force)
     except OSError:
@@ -270,17 +280,19 @@ def snapshot(tid, force=True):
 
 
 def backup_doc(tid, kind):
-    """機械が行を書き換える前の控え: .bak/<id>.pre-<kind>.json(直前の 1 世代)と履歴(「以前の版に戻す」で戻せる)"""
-    try:
-        bak = _docloc.bak_dir(tid, for_write=True)
-    except ValueError:
-        bak = os.path.join(_workdata.TX_DIR, _docloc.BAK_DIR)
-    os.makedirs(bak, exist_ok=True)
-    shutil.copy2(tx_path(tid), os.path.join(bak, "%s.pre-%s.json" % (tid, kind)))
+    """機械が行を書き換える前に、いまの文書を履歴へ必ず 1 つ残す(「以前の版に戻す」で戻せる)。kind = 操作の名前(check・retranscribe・diarize・relink。
+    呼び手の目印。以前は .bak/<id>.pre-<kind>.json にも写していたが、読む所が無く履歴と二重なのでやめた = 決定 3-47 の 1b-1)。
+    仮: kind が relink のときだけ .bak のフォルダを作っておく(④ manage/cases/relink がカットの写し <id>.edit.pre-relink.json をそこへ置くため。
+    relink の写しを外したら(OPT-M1。notes:plan/opt-human.md の 2a-4)この 2 行も消す)"""
+    if kind == "relink":
+        try:
+            os.makedirs(_docloc.bak_dir(tid, for_write=True), exist_ok=True)
+        except ValueError:
+            pass
     snapshot(tid)
 
 
-# ---------- 話者ごとの字幕の見た目 sub(2026-10-05。notes:docs/spec/friend.md の 6) ----------
+# ---------- 話者ごとの字幕の見た目 sub(notes:docs/spec/friend.md の 2-8・2-11) ----------
 # 色を単独の値で持たず「字幕の見た目」のまとまりの 1 項目にする(あとでフォント・大きさなどを足しても形を変えない)。
 # 検査は鍵ごとの許可の一覧: 知っている鍵だけ受け、形を確かめ、知らない鍵・形の違う値は黙って捨てる(画面・Lua に入るので必ずここを通す)
 def _sub_color(v):
@@ -307,7 +319,8 @@ def sanitize_sub_style(v):
 
 
 def sanitize_transcript(obj, base=None):
-    """クライアントから来た編集内容を検査して、保存できる形にする。"""
+    """画面から来た編集内容を検査して、保存できる形にする(知っている欄だけ写す。base = 保存済みの文書 = 欄を残し、title・speakers・segments・updatedAt だけ替える)。
+    時刻の読めない行・終わり < 始まりの行は捨てて、捨てた数をログに 1 行(画面の不具合で行が消えたときに気づけるように)"""
     speakers, seen = [], set()
     for s in (obj.get("speakers") or [])[:21]:   # 20 人 + 組み込みの「ゲーム音声など」
         if not isinstance(s, dict):
@@ -327,7 +340,7 @@ def sanitize_transcript(obj, base=None):
         if st:
             one["sub"] = st
         speakers.append(one)
-    segs, ids = [], set()
+    segs, ids, dropped = [], set(), 0
     now = _yschemas.now_ms()
     base_at = {}   # 保存済みの校正済みの行 id -> 校正した時刻(以前の文書で時刻が無ければ None = 分からないまま。今の時刻を作らない)
     for g in (base or {}).get("segments") or []:
@@ -341,6 +354,7 @@ def sanitize_transcript(obj, base=None):
             continue
         a, b = _yschemas.num_or(sg.get("start")), _yschemas.num_or(sg.get("end"))
         if a is None or b is None or a < 0 or b < a:
+            dropped += 1
             continue
         sid = re.sub(r"[^\w-]", "", str(sg.get("id", "")))[:16] or "s%d" % (i + 1)
         while sid in ids:
@@ -354,7 +368,7 @@ def sanitize_transcript(obj, base=None):
             one["tags"] = tg
         if sg.get("proofed") is True:   # 校正済み(人が聞いて、この行の文字が正しいと確認した印)。学習・精度測定の正解データに使う
             one["proofed"] = True
-            # 初めて校正済みにした時刻(ミリ秒。マスタープラン Q2 = 時期で分けて測る)。保存済みの同じ id の行から引き継ぎ(画面の値は使わない)、
+            # 初めて校正済みにした時刻(ミリ秒。時期で分けて測る = notes:plan/line-bc-master-plan.md の Q2)。保存済みの同じ id の行から引き継ぎ(画面の値は使わない)、
             # 保存済みで校正済みでなかった行は今。外した行は残さない(次に校正済みにした時刻から数え直す)。
             # この項目より前に校正済みだった行は時刻を作らない(分からないまま。時期で分けるときは「時刻なし = この版より前」)
             at = base_at[sid] if sid in base_at else now
@@ -364,18 +378,20 @@ def sanitize_transcript(obj, base=None):
             one["cutState"] = "cut"
         if sg.get("noSub") is True:   # 字幕に出さない(ゲームの声など。真のときだけ持つ)。機械の出力 original は変えない
             one["noSub"] = True
-        if isinstance(sg.get("fill"), dict) and isinstance(sg["fill"].get("from"), str):   # 別の読みで埋めた行の元の文字(ed_fill。画面の「別の読み」の札で戻す)
+        if isinstance(sg.get("fill"), dict) and isinstance(sg["fill"].get("from"), str):   # 別の読みで埋めた行の元の文字(① pipeline/transcribe/fill.py。画面の「別の読み」の札で戻す)
             one["fill"] = {"from": sg["fill"]["from"][:_txbase.MAX_TEXT], "by": str(sg["fill"].get("by") or "")[:20]}
-        if sg.get("draft") in _yschemas.ROW_DRAFT_KINDS:   # 機械の下書き(重なりの所に置いた空の行など。決まった文字列のときだけ。文字を打ったら画面が外す。2026-10-05)
+        if sg.get("draft") in _yschemas.ROW_DRAFT_KINDS:   # 機械の下書き(重なりの所に置いた空の行など。決まった文字列のときだけ。文字を打ったら画面が外す)
             one["draft"] = sg["draft"]
         segs.append(one)
+    if dropped:
+        _txbase.log.warning("保存で時刻の正しくない行を %d 行捨てました %s", dropped, str((base or {}).get("id") or "")[:16])
     out = dict(base or {})
     if "evalSet" in obj:   # 評価用の印(キーが来たときだけ変える。古い画面から保存しても外れないように)
         if obj.get("evalSet") is True:
             out["evalSet"] = True
         else:
             out.pop("evalSet", None)
-    if _settings.in_eval_dir(out.get("sourcePath")):   # 評価用のフォルダの動画は外せない(2026-10-01 ユーザー決定)
+    if _settings.in_eval_dir(out.get("sourcePath")):   # 評価用のフォルダの動画は外せない(ユーザー決定)
         out["evalSet"] = True
     # 「動画を全部聞いて確かめた」印(評価ドリル。eval/drill/drill.drill_reviewed)は base から引き継ぐだけ(画面から送られた値は使わない = out は base の写し)。
     # 評価用を外したら一緒に外す(評価用でない間は一括置換・再認識などで機械が書き換えられるため、付け直すときは聞き直す)
@@ -399,8 +415,8 @@ def doc_length(d):
     return max(0.0, max([_yschemas.num_or(s.get("end"), 0.0) or 0.0 for s in segs] or [0.0]) - a)
 
 
-# 文書ごとの要約のキャッシュは 1 つ(2026-10-09。notes:docs/design/reviews/code-review-simplify-2026-10-08.md の C・G7-2)。
-# 一覧(manage/cases/doclist.list_transcripts)・文字起こし済みの判定・評価ドリル(eval/drill/drill.drill_docs)が同じ要約を使うので、
+# 文書ごとの要約のキャッシュは 1 つ(notes:docs/design/reviews/code-review-simplify-2026-10-08.md の表の T2・T7 の行の G7-2)。
+# 一覧(④ manage/cases/doclist.list_transcripts)・文字起こし済みの判定・評価ドリル(⑤ eval/drill/drill.drill_docs)が同じ要約を使うので、
 # 保存のたびに変わった文書の JSON を読むのは 1 回だけ(以前は 3 つのキャッシュが別々に読んでいた)。
 # 鍵 = (パス, 更新日時ns, 大きさ)。パスも入れるのは、作業データの場所を切り替えたとき(テストの一時フォルダ)に同じ id・同じ大きさ・同じ時刻の別の文書を引かないため
 _summary_cache = {}   # tid -> (鍵, 要約)。名前はテストが clear するので変えない
@@ -408,7 +424,7 @@ _summary_lock = threading.Lock()
 
 
 def good_row(g):
-    """定点(評価ドリルの条件)に数える行(校正済み・聞き取れない印なし)"""
+    """定点(評価ドリルの条件)に数える行(校正済み・聞き取れない印なし)。使うのは ⑤ eval/drill だけ(⑤ へ移すのは OPT-E1)"""
     return g.get("proofed") is True and "unclear" not in (g.get("tags") or [])
 
 
@@ -428,7 +444,7 @@ def _load_doc(path):
 
 
 def transcript_summary(tid):
-    """文書1件の要約(一覧の1行 + 元ファイル・範囲)。評価ドリルの要約は eval/drill/drill.drill_docs が自前で足す(RS3-E5a。② が ④ を読まない)。ファイルの更新日時と大きさが同じなら、前に読んだ結果を使う。読めなければ None。"""
+    """文書1件の要約(一覧の1行 + 元ファイル・範囲)。評価ドリルの要約は ⑤ eval/drill/drill.drill_docs が自前で足す(③ が ⑤ を読まない)。ファイルの更新日時と大きさが同じなら、前に読んだ結果を使う。読めなければ None。"""
     path = tx_path(tid)
     st = _fsio.stamp(path)
     if st is None:
@@ -453,13 +469,13 @@ def transcript_summary(tid):
           "end": d.get("end"), "model": d.get("model", ""), "segments": len(d.get("segments") or []),
           "createdAt": d.get("createdAt", 0), "updatedAt": d.get("updatedAt", 0), "evalSet": d.get("evalSet") is True,
           "hasClip": clip is not None,
-          # v0.15.0: 履歴の一覧で見分け・絞り込みに使う(校正の進み具合・長さ・元の配信)
+          # 履歴の一覧で見分け・絞り込みに使う(校正の進み具合・長さ・元の配信)
           "rows": text_rows, "proofed": proofed, "cut": sum(1 for s in segs if s.get("cutState") == "cut"),
           "flagged": sum(1 for s in segs if str(s.get("flag") or "").strip()), "durationSec": round(max(0.0, length), 1),
           "videoId": str(src.get("videoId") or "")[:40] if clip else "", "clipTitle": str(src.get("title") or "")[:200] if clip else "",
           "clipStart": _yschemas.num_or(rng.get("start")), "clipEnd": _yschemas.num_or(rng.get("end")), "markLabel": str(mk.get("label") or "")[:80],
           "_sourcePath": d.get("sourcePath") or "", "_whole": bool(d.get("whole")),
-          "_aliases": [r["from"] for r in d.get("relinks") or [] if isinstance(r, dict) and r.get("why") == "normalize30" and isinstance(r.get("from"), str) and r["from"]][-5:],   # 30fps の写しへ付け替える前のパス(Q1)
+          "_aliases": [r["from"] for r in d.get("relinks") or [] if isinstance(r, dict) and r.get("why") == "normalize30" and isinstance(r.get("from"), str) and r["from"]][-5:],   # 30fps の写しへ付け替える前のパス(notes:plan/line-bc-master-plan.md の Q1)
           "_key": key}
     with _summary_lock:
         _summary_cache[tid] = (key, sm)
@@ -486,11 +502,17 @@ def summaries():
         sm = transcript_summary(tid)
         if sm:
             yield tid, sm, str(sm.get("_sourcePath") or "")
+    prune_summaries(seen)
+
+
+def prune_summaries(seen):
+    """要約と編集の状態のキャッシュから、seen(今ある文書の id)に無い文書の分を捨てる(全文書を回した呼び手が呼ぶ。④ doclist の一覧もこの口で)"""
     prune_cache(_summary_cache, seen)
+    prune_cache(_edit_cache, seen)
 
 
 # 一覧と元の動画・パックの有無(PACK_CHECK_BUDGET・pack_info・_files_state・list_transcripts)と前回のパックの手順(pack_readme)は
-# manage/cases/doclist.py へ移した(RS3-E5a。txindex = ③ を読むのはそちら)
+# ④ manage/cases/doclist.py(txindex = ④ を読むのはそちら)
 
 
 def read_transcript(tid):
@@ -507,7 +529,12 @@ def read_transcript(tid):
 # ---------- 履歴(自動スナップショット)と保存の競合検出 ----------
 HIST_INTERVAL = 600     # 秒。保存のたびではなく、前回の履歴からこれだけ経っていたら1つ残す
 HIST_KEEP = 30          # 1本あたりの保持数(古いものから消す)
-_save_lock = threading.Lock()
+_save_lock = threading.Lock()   # 文書の読み直し → 書き込みの錠(再入できない。commit の中では取らない = 呼び手が持つ)。新しい呼び手は saving() で
+
+
+def saving():
+    """文書を読み直して書く間の錠(`with store.saving():`)。保存・戻す・消す・機械の書き込みが重ならないように。再入できないので、中で commit は呼べるが saving は取り直さない"""
+    return _save_lock
 
 
 def _hist_dir(tid, for_write=False):
@@ -518,6 +545,7 @@ def _hist_dir(tid, for_write=False):
 
 
 def hist_stamps(tid):
+    """文書の履歴の時刻(ミリ秒。.hist/<id>/<時刻>.json の名前)の古い順の一覧"""
     d = _hist_dir(tid)
     out = []
     if os.path.isdir(d):
@@ -547,6 +575,7 @@ def hist_snapshot(tid, force=False):
 
 
 def list_history(tid):
+    """GET /api/history: 履歴の一覧(新しい順。行の数・校正済みの数・文字数。読めない履歴は飛ばす)"""
     read_transcript(tid)
     items = []
     for ts in reversed(hist_stamps(tid)):
@@ -560,22 +589,25 @@ def list_history(tid):
 
 
 def save_transcript(tid, obj):
-    """編集内容の保存。baseUpdatedAt が付いていて、保存済みの版とずれていれば 409(別のタブ・再認識などで先に更新されている)。"""
+    """PUT /api/transcript: 画面の編集内容の保存。baseUpdatedAt が付いていて、保存済みの版とずれていれば 409(別のタブ・再認識などで先に更新されている。force で上書き)。
+    錠の中で: 整形(sanitize_transcript)→ 校正済みにした行・外した行を数える(effort_rows)→ 履歴(前の履歴から 10 分経っていれば)→ commit
+    (行の「カット済」は編集の内容から決まる = 画面の古い印で上書きしない)→ 人の行の控え <id>.over.json(overrides.save_after。書けなくても保存は成功)"""
     with _save_lock:
         base = read_transcript(tid)
         b = obj.get("baseUpdatedAt")
         if b is not None and not obj.get("force") and base.get("updatedAt") and b != base.get("updatedAt"):
             raise _errors.ApiError("conflict", "別の場所で先に更新されています(別のタブ、再認識、話者分離など)。読み込み直すか、この内容で上書きするか選んでください", 409)
         doc = sanitize_transcript(obj, base)
-        effort_rows(base, doc)   # 校正済みにした行・外した行の数(校正の手間。Q2)
-        apply_edit_cuts(tid, doc)   # 編集の内容があれば、行の「カット済」はそちらから決める(画面の古い印で上書きしない)
+        effort_rows(base, doc)   # 校正済みにした行・外した行の数
         snapshot(tid, False)   # 履歴が残せなくても保存は止めない
         commit(tid, doc, why="save")
-        _overrides.save_after(tid, doc)   # 人の行の控え <id>.over.json(派生。書けなくても保存は成功。RS6 b-O1)
+        _overrides.save_after(tid, doc)
         return doc
 
 
 def restore_history(tid, ts):
+    """POST /api/restore: 選んだ履歴の版を今の文書にする(戻す前の状態も履歴に残す)。戻すのは文字と行だけ:
+    校正の行の数と作業中の印 effort は今のまま・評価用のフォルダの動画は評価用のまま・行の「カット済」は今の編集の内容から(commit)"""
     with _save_lock:
         read_transcript(tid)
         if not isinstance(ts, int) or ts not in hist_stamps(tid):
@@ -588,32 +620,79 @@ def restore_history(tid, ts):
             hist_snapshot(tid, force=True)      # 戻す前の状態も残す(戻したことを取り消せるように)
             old["updatedAt"] = _yschemas.now_ms()
             cur = read_transcript(tid)
-            if isinstance(cur.get("effort"), dict):   # 校正の手間の累計は戻さない(戻すのは文字と行。マスタープラン Q2)
+            if isinstance(cur.get("effort"), dict):   # 校正の行の数と作業中の印は戻さない(戻すのは文字と行)
                 old["effort"] = cur["effort"]
             else:
                 old.pop("effort", None)
             if _settings.in_eval_dir(old.get("sourcePath")):   # 評価用のフォルダの動画は、印の無い版へ戻しても評価用のまま
                 old["evalSet"] = True
-            apply_edit_cuts(tid, old)   # 戻すのは文字と行。カットは今の編集の内容のまま
-            commit(tid, old, why="restore")
+            commit(tid, old, why="restore")   # カットは今の編集の内容のまま(commit が行の「カット済」を付け直す)
         except (OSError, ValueError):
             raise _errors.ApiError("broken", "履歴を読み込めません", 500)
         return old
 
 
-# ---------- 校正の手間(マスタープラン Q2。文書ごとの累計 effort = {"activeSec", "cutSec", "sessions", "proofedRows", "unproofedRows", "lastAt"}) ----------
-# 時間(activeSec = 1 文字起こし のタブで操作していた秒・cutSec = 2 カット / 3 パック・sessions = 開いて作業した回数)は画面が POST /api/effort で送る。
+def delete_doc(tid):
+    """DELETE /api/transcript: 文書を消す。本体・横のファイル(docloc.DOC_SUFFIXES = 編集の内容・単語の時刻・話者判別の記録・候補・上書き・成果物の鍵ほか)・
+    履歴 .hist/<id>/・以前の控え .bak/<id>.*・置き場所の索引・要約と編集の状態のキャッシュ・学習の記録の「この候補は出さない」(learn.forget_doc)を一緒に消す。
+    錠の中で(話者判別・再認識の書き込みと重ならないように。読み直しのあとに消すと、書き込みで生き返っていた)。
+    無い・id の形が違えば ApiError(404)。本体を消せなければ OSError(横のファイル・履歴を消せないときはログだけ)"""
+    with _save_lock:
+        read_transcript(tid)   # id の形と、あるかを確かめる
+        main = tx_path(tid)
+        # 置き場所は文書を消す前に引く(消すと索引が使えなくなる)
+        extras = [_docloc.doc_file(tid, sfx) for sfx in _docloc.DOC_SUFFIXES[1:]]
+        hist = _hist_dir(tid)
+        try:
+            bak = _docloc.bak_dir(tid)
+        except ValueError:
+            bak = None
+        os.unlink(main)
+        for extra in extras:
+            try:
+                os.unlink(extra)
+            except FileNotFoundError:
+                pass
+            except OSError as e:
+                _txbase.log.warning("文書の横のファイルを消せませんでした: %s %s", os.path.basename(extra), e)
+        shutil.rmtree(hist, ignore_errors=True)
+        if bak and os.path.isdir(bak):
+            for n in os.listdir(bak):
+                if n.startswith(tid + "."):
+                    _fsio.unlink_quiet(os.path.join(bak, n))
+        for d in (os.path.dirname(hist), bak):   # 空になった .hist・.bak も片付ける(ほかの文書の分があれば消さない)
+            try:
+                if d:
+                    os.rmdir(d)
+            except OSError:
+                pass
+        _docloc.unplace(tid)   # 案件の 作業用 に置いた文書の索引も消す
+        with _summary_lock:
+            _summary_cache.pop(tid, None)
+            _edit_cache.pop(tid, None)
+    for sfx in (_yschemas.HUM_SUFFIX, _yschemas.MACH_SUFFIX):
+        _layer_rev_cache.pop((tid, sfx), None)
+    from . import learn   # 呼ぶときに読む(learn は読み込みのときにこの部品を読むので、循環を作らない)
+    learn.forget_doc(tid)
+
+
+# ---------- 校正の行の数と作業中の印(文書の effort = {"proofedRows", "unproofedRows", "lastAt"}。notes:plan/line-bc-master-plan.md の Q2) ----------
 # 行(proofedRows = 校正済みにした行・unproofedRows = 外した行)は保存のときにサーバーが数える(どの画面から保存しても同じ数え方)。
+# lastAt = 人が最後に操作した時刻(保存・校正済みの数が変わったとき・編集の画面が操作中に送る POST /api/effort)。**記録のほかの役目**:
+# ⑤ eval/drill/evalbatch が「人が作業中か」をこれで見て、評価用の作り直しで文書を上書きしない守りに使う。
+# 作業した時間の記録(activeSec・cutSec・sessions)はやめた(決定 3-47 の 1d-3。数え方が粗い)。今ある値は消さずに残す(読み手は ⑤ eval/tools/eval_effort.py だけ)。
 # どれも文書の updatedAt を動かさない(記録のために画面の保存の競合 baseUpdatedAt / 409 を起こさない)
-MAX_EFFORT_SEC = 3600   # 1回に足せる秒の上限(画面は 30 秒刻みで数え、5 分たまったとき・離れたとき・文書を切り替えるときに送る)
-EFFORT_KEYS = ("activeSec", "cutSec", "sessions", "proofedRows", "unproofedRows")
+EFFORT_KEYS = ("proofedRows", "unproofedRows")
 
 
 def _effort_of(doc):
+    """文書の effort の写し(行の数は 0 以上の整数に直す。以前の版の時間の欄は残す)"""
     ef = doc.get("effort") if isinstance(doc.get("effort"), dict) else {}
-    out = {k: max(0, _yschemas.plain_int(ef.get(k)) or 0) for k in EFFORT_KEYS}
-    if _yschemas.plain_int(ef.get("lastAt")):
-        out["lastAt"] = ef["lastAt"]
+    out = dict(ef)
+    for k in EFFORT_KEYS:
+        out[k] = max(0, _yschemas.plain_int(ef.get(k)) or 0)
+    if not _yschemas.plain_int(ef.get("lastAt")):
+        out.pop("lastAt", None)
     return out
 
 
@@ -631,21 +710,13 @@ def effort_rows(base, doc):
         doc["effort"] = ef
 
 
-def add_effort(obj):
-    """POST /api/effort {"id", "activeSec", "cutSec"?, "newSession"?} -> {"effort": 累計}。文書の effort の時間と回数に足す。
-    **文書の updatedAt は変えない**。保存と同じロックの中で読み直して足す"""
+def touch_effort(obj):
+    """POST /api/effort {"id"} -> {"effort"}。編集の画面が操作している間(5 分ごと・離れるとき・別の文書を開くとき)に送る「作業中」の知らせ。
+    effort.lastAt を今にする(以前の画面が送る activeSec などの秒は受け取って捨てる)。**文書の updatedAt は変えない**。保存と同じ錠の中で読み直して書く"""
     tid = str(obj.get("id") or "")
-    sec, cut = _yschemas.plain_int(obj.get("activeSec", 0)), _yschemas.plain_int(obj.get("cutSec", 0))
-    if sec is None or cut is None or not 0 <= sec <= MAX_EFFORT_SEC or not 0 <= cut <= MAX_EFFORT_SEC:
-        raise _errors.ApiError("bad_request", "activeSec・cutSec は 0〜%d 秒の整数にしてください" % MAX_EFFORT_SEC, 400)
     with _save_lock:
         doc = read_transcript(tid)
         ef = _effort_of(doc)
-        if not sec and not cut:
-            return {"effort": ef}
-        ef["activeSec"] += sec
-        ef["cutSec"] += cut
-        ef["sessions"] += 1 if obj.get("newSession") is True else 0
         ef["lastAt"] = _yschemas.now_ms()
         doc["effort"] = ef
         commit(tid, doc, why="effort")
@@ -653,9 +724,9 @@ def add_effort(obj):
 
 
 def set_diar_num(obj):
-    """POST /api/doc-diarnum {"id", "diarNum"} -> {"diarNum"}。文書ごとの話者判別の人数(0 = 自動・1〜8 人。気が利く画面へ 段7 E-6)。
+    """POST /api/doc-diarnum {"id", "diarNum"} -> {"diarNum"}。文書ごとの話者判別の人数(0 = 自動・1〜8 人。notes:plan/done/ux-stage7-9.md の E-6)。
     画面が選んだときだけ送る(開いたときの既定 = その文書の話者の数は画面が決める)。**文書の updatedAt は変えない**
-    (人数を選んだだけで保存の競合 409・パックの「作り直しが要る」を起こさない。校正の手間 add_effort と同じ)。画面の保存(PUT)は前の値を残す"""
+    (人数を選んだだけで保存の競合 409・パックの「作り直しが要る」を起こさない。作業中の印 touch_effort と同じ)。画面の保存(PUT)は前の値を残す"""
     n = obj.get("diarNum")
     if _yschemas.int_in(n, 0, DIAR_NUM_MAX) is None:
         raise _errors.ApiError("bad_request", "diarNum は 0〜%d の整数にしてください" % DIAR_NUM_MAX, 400)
@@ -668,8 +739,8 @@ def set_diar_num(obj):
 
 
 # ---------- 編集の内容(残す区間。「編集」ツールのカットの正。notes:docs/design/edit-tool-design.md の 4・5) ----------
-# 文書 transcripts/<id>.json の隣の <id>.edit.json。校正の保存(文書の baseUpdatedAt)と、タイムラインの細かい保存(rev)を別にするため別のファイル。
-# 行の「カット済」(cutState)は、編集の内容があるときは常にそこから決める(文書のどの書き込みでも apply_edit_cuts を通す)。
+# 文書の隣の <id>.edit.json。校正の保存(文書の baseUpdatedAt)と、タイムラインの細かい保存(rev)を別にするため別のファイル。
+# 行の「カット済」(cutState)は、編集の内容があるときは常にそこから決める(commit が書く前に必ず apply_edit_cuts を通す)。
 EDIT_SCHEMA = "youtube-tools-edit/v1"
 MAX_EDIT_BYTES = 1024 * 1024
 MAX_CLIPS = 5000
@@ -736,7 +807,7 @@ DRAFT_ORIGINS = ("rows", "all", "whole", "silence", "list", "plan")   # 機械�
 
 
 def sanitize_draft(v):
-    """初めてのたたき台の記録 draft(マスタープラン Q2。人の最終 = 保存したカット・パックの cutPlan と並べて、たたき台の規則を直すため)を確かめる。
+    """初めてのたたき台の記録 draft(notes:plan/line-bc-master-plan.md の Q2。人の最終 = 保存したカット・パックの cutPlan と並べて、たたき台の規則を直すため)を確かめる。
     {"origin": たたき台の種類, "settings": {名前: 数・真偽・短い文字}(行から = 行の端の設定 rowEdge・無音 = しきい値など), "keepsSec": [[開始, 終了], …], "at"}。
     記録のための値なので、正しくなければ None(= 保存しない。カットの保存は止めない)"""
     if not isinstance(v, dict) or v.get("origin") not in DRAFT_ORIGINS:
@@ -784,7 +855,7 @@ def read_edit(tid):
                 "packRev": max(0, _yschemas.plain_int(pr) or 0)})
     if isinstance(d.get("pack"), dict):
         out["pack"] = d["pack"]
-    draft = sanitize_draft(d.get("draft"))   # 初めてのたたき台の記録(Q2。以前の edit.json には無い)
+    draft = sanitize_draft(d.get("draft"))   # 初めてのたたき台の記録(以前の edit.json には無い)
     if draft:
         out["draft"] = draft
     return out, False
@@ -816,7 +887,7 @@ def edit_cut_flags(segs, edit):
 
 
 def apply_edit_cuts(tid, doc, edit=None):
-    """編集の内容があれば、文書の行の cutState をそれに合わせる(文書の書き込みは全部ここを通す)。
+    """編集の内容があれば、文書の行の cutState をそれに合わせる(commit が書く前に必ず呼ぶ。edit = 読んである編集の内容)。
     -> 変わった行の数。編集の内容が無い・壊れているときは None(行の cutState はそのまま = 以前の使い方)"""
     if edit is None:
         edit, _broken = read_edit(tid)
@@ -834,24 +905,33 @@ def apply_edit_cuts(tid, doc, edit=None):
     return changed
 
 
+def media_reason(doc):
+    """文書の動画がカット・パックに使えない理由 -> (code, message)。使えれば None。調べるのはパスだけ
+    (ネットワーク上の動画は調べない = 開くだけで資格情報を送らない。一覧・clip-info と同じ)。返し方(200 の理由・400)は呼び手が決める"""
+    src = str(doc.get("sourcePath") or "")
+    if not src:
+        return "no_source", "この文書には動画のパスがありません"
+    if _fsio.is_network_path(src):
+        return "network_path", "ネットワーク上の動画は、カットとパックに使えません(このパソコンにコピーして開いてください)"
+    if not os.path.isfile(src):
+        return "source_missing", "元の動画が見つかりません(移動・削除した可能性があります)"
+    return None
+
+
 def edit_draft(tid, rows=False):
-    """GET /api/edit/draft?id=&rows=1 : 動画の fps・長さと、たたき台「行から」(残す行が無ければ全部残す)。計算は cut2resolve の pack.py(flow.pack.cut_draft)。
+    """GET /api/edit/draft?id=&rows=1 : 動画の fps・長さと、たたき台「行から」(残す行が無ければ全部残す)。計算は ② flow/pack.cut_draft(→ ① の resolve_export)。
     「行から」を計算するのは、カットが無い(壊れている)文書か rows=1(「行から」のボタン)のときだけ(行の端の無音を調べるのは重いので、開くたびにしない)。
     行の端を広げるかは設定の rowEdge(notes:docs/design/edit-tool-design.md の 12 ⑥)。無音の検出は SLOTS を通す(flow.pack.DRAFT_SLOT_WAIT 秒待っても空かなければ決まった余白)。
-    カット・パックに使えないとき(動画が無い・ネットワーク上・音声だけ)は {"unavailable": {"code", "message"}}。
-    ネットワーク上の動画は調べない(カット・パックに使えない理由を画面に出す。一覧・clip-info と同じく、開くだけで資格情報を送らない)。
+    カット・パックに使えないとき(動画が無い・ネットワーク上・音声だけ = media_reason と映像の無いファイル)は {"unavailable": {"code", "message"}}。
     隣の .cut-plan.json(スタジオなどの残す区間の指定)があるかも返す(たたき台「スタジオ」)"""
     doc = read_transcript(tid)
     src = str(doc.get("sourcePath") or "")
 
     def unavailable(code, message):   # 使えない理由は 200 で返す(画面が毎回エラーとして記録しないように。文書が無いときだけ 404)
         return {"unavailable": {"code": code, "message": message}}
-    if not src:
-        return unavailable("no_source", "この文書には動画のパスがありません")
-    if _fsio.is_network_path(src):
-        return unavailable("network_path", "ネットワーク上の動画は、カットとパックに使えません(このパソコンにコピーして開いてください)")
-    if not os.path.isfile(src):
-        return unavailable("source_missing", "元の動画が見つかりません(移動・削除した可能性があります)")
+    why = media_reason(doc)
+    if why:
+        return unavailable(*why)
     try:
         need = bool(rows) or not read_edit(tid)[0]
         out = _flowpack.cut_draft(doc, rows=need, row_edge=_settings.load_settings().get("rowEdge"))
@@ -871,7 +951,7 @@ def edit_keeps_sec(edit):
 
 
 def keeps_arg(v):
-    """画面から来た残す区間 [[開始, 終了], ...](秒)の検査(cut2resolve の keeps_from_spec と同じ決まり)"""
+    """画面から来た残す区間 [[開始, 終了], ...](秒)の検査(① pipeline/pack/request.keeps_from_spec と同じ決まり)"""
     if not isinstance(v, list) or not 1 <= len(v) <= MAX_CLIPS:
         raise _errors.ApiError("bad_keeps", "残す区間は 1〜%d 個にしてください" % MAX_CLIPS, 400)
     out, prev = [], 0.0
@@ -885,11 +965,11 @@ def keeps_arg(v):
 
 
 def edit_preview(obj):
-    """POST /api/edit/preview {"id", "keeps"}: カットのとおりに作ったときのパックの見積もり(区間の数・カット後の長さ・Text+ 字幕の数・注意)。ファイルは作らない"""
+    """POST /api/edit/preview {"id", "keeps", "wrap"?}: カットのとおりに作ったときのパックの見積もり(区間の数・カット後の長さ・Text+ 字幕の数・注意)。
+    wrap = 字幕の 1 段の文字数(wrap_arg)。ファイルは作らない。動画が使えなければ 400 no_media"""
     doc = read_transcript(str(obj.get("id") or ""))
     keeps = keeps_arg(obj.get("keeps"))
-    src = str(doc.get("sourcePath") or "")
-    if not src or _fsio.is_network_path(src) or not os.path.isfile(src):
+    if media_reason(doc):
         raise _errors.ApiError("no_media", "元の動画が見つかりません", 400)
     try:
         return _flowpack.cut_preview(doc, keeps, wrap_arg(obj.get("wrap")))
@@ -907,18 +987,16 @@ def wrap_arg(v, size=None):
 
 
 def get_edit(tid):
-    """GET /api/edit?id= -> {"edit": 中身 | null, "rev", "broken"}(無ければ null と rev 0)"""
+    """GET /api/edit?id= -> {"edit": 中身 | null, "rev", "broken", "packStale"}(無ければ null と rev 0。packStale = パックの作り直しが要るか = pack_stale)"""
     doc = read_transcript(tid)
     d, broken = read_edit(tid)
-    pk = (d or {}).get("pack") or {}
-    stale = pack_stale({"packRev": d["packRev"] if d else 0, "editRev": d["rev"] if d else 0, "updatedAt": doc.get("updatedAt") or 0,
-                        "_packDocAt": pk.get("docUpdatedAt") if isinstance(pk.get("docUpdatedAt"), int) else 0})
+    stale = pack_stale(dict(_edit_state(d), updatedAt=doc.get("updatedAt") or 0))
     return {"edit": d, "rev": d["rev"] if d else 0, "broken": broken, "packStale": stale}
 
 
 def save_edit(tid, obj):
     """PUT /api/edit?id= {"edit", "baseRev", "draft"?} -> {"rev", "cutRows", "updatedAt"}。baseRev が保存済みの rev と違えば 409(別のタブ・窓で先に保存された)。
-    draft = 画面がそのカットを始めたたき台(sanitize_draft)。保存済みの edit.json に draft が無いときだけ一度だけ書く(上書きしない。Q2)。
+    draft = 画面がそのカットを始めたたき台(sanitize_draft)。保存済みの edit.json に draft が無いときだけ一度だけ書く(上書きしない)。
     文書の行の cutState も同じロックの中で合わせる(画面から2回に分けて送らない)。文書の updatedAt は変えない
     (cutState は編集の内容から決まる値なので、校正の保存の競合の検出(baseUpdatedAt)に巻き込まない)"""
     base = obj.get("baseRev")
@@ -957,6 +1035,7 @@ def save_edit(tid, obj):
 
 
 PACK_OUTPUT_LOUDNESS = (0, -11, -14, -16, -18)
+PACK_SPEAKER_STYLES_MAX = 50   # 話者ごとの色の人数の上限(① pipeline/pack/request.SPEAKER_STYLES_MAX と同じ)
 
 
 def _pack_text(v, limit):
@@ -979,8 +1058,10 @@ _PACK_OPTIONAL = (("streamer", lambda v: _pack_text(v, 200) is not None),
 def sanitize_pack_output(o):
     """POST /api/edit/pack の output(作ったときの出力の設定)を確かめる。決まった鍵だけ残し(余計な鍵は黙って捨てる)、
     必須の鍵が1つでも正しくなければ、あるいは任意の鍵が入っていて正しくなければ None(= 記録には output を入れない。
-    古い画面・まとめて実行 home/autorun.py は output を送らないので、エラーにはしない)。bool は int でもあるので数の検査は schemas で(bool を数えない)。
-    鍵と検査は表 _PACK_REQUIRED・_PACK_OPTIONAL(足すときは 1 行。並びは記録の鍵の順)"""
+    送るのはパックのタブ pack-tab.js(古い編集の画面と新しい画面 app/ui の両方)。古い画面と ② の全自動 flow/run.py(入口の AutoRunner が継ぐ)は
+    output を送らないので、エラーにはしない)。bool は int でもあるので数の検査は schemas で(bool を数えない)。
+    鍵と検査は表 _PACK_REQUIRED・_PACK_OPTIONAL(足すときは 1 行。並びは記録の鍵の順)。話者ごとの色 speakerStyles は正しくない項目だけ捨てる
+    (① pipeline/pack/request.py と同じ。パックには色が付いたのに記録に何も残らない、を起こさない)"""
     if not isinstance(o, dict):
         return None
     out = {}
@@ -1005,24 +1086,23 @@ def sanitize_pack_output(o):
                     return None
                 a[k] = t
         out["advanced"] = a
-    if "speakerStyles" in o:   # 話者ごとの字幕の見た目 {話者の名前: {"color": "#RRGGBB"}}(文書の話者の sub。2026-10-05)
+    if "speakerStyles" in o:   # 話者ごとの字幕の見た目 {話者の名前: {"color": "#RRGGBB"}}(文書の話者の sub)
         ss = o["speakerStyles"]
-        if not isinstance(ss, dict) or len(ss) > 21:
-            return None
         styles = {}
-        for name, st in ss.items():
+        for name, st in (ss.items() if isinstance(ss, dict) else ()):   # 全体の形が違えば無かったことに・正しくない項目と 50 人を超えた分は捨てる(① と同じ)
+            if len(styles) >= PACK_SPEAKER_STYLES_MAX:
+                break
             nm = _pack_text(name, 60)
             one = sanitize_sub_style(st)
-            if not nm or one is None:
-                return None
-            styles[nm] = one
+            if nm and one is not None:
+                styles[nm] = one
         if styles:
             out["speakerStyles"] = styles
     return out
 
 
 def record_pack(obj):
-    """POST /api/edit/pack {"id", "rev", "docUpdatedAt", "dir", "files"}: 画面がパックを作り終えたときに呼ぶ(rev は増やさない)。
+    """POST /api/edit/pack {"id", "rev", "docUpdatedAt", "dir", "files", "output"?}: 画面がパックを作り終えたときに呼ぶ(rev は増やさない。output = sanitize_pack_output)。
     packRev = そのパックを作った編集の rev。rev ≠ packRev か、文書の updatedAt が docUpdatedAt より新しければ「作り直し」"""
     tid = str(obj.get("id") or "")
     rev, dua = obj.get("rev"), obj.get("docUpdatedAt")
@@ -1058,26 +1138,33 @@ def edit_summary(tid):
     hit = _edit_cache.get(tid)
     if hit and hit[0] == key:
         return hit[1]
-    d, _broken = read_edit(tid)
-    pk = (d or {}).get("pack") or {}
-    sm = {"hasEdit": bool(d), "editRev": d["rev"] if d else 0, "packRev": d["packRev"] if d else 0,
-          "_packDocAt": pk.get("docUpdatedAt") if isinstance(pk.get("docUpdatedAt"), int) else 0,
-          "packAt": pk.get("at") if isinstance(pk.get("at"), int) else 0}
+    sm = _edit_state(read_edit(tid)[0])
     _edit_cache[tid] = (key, sm)
     return sm
 
 
+def _edit_state(d):
+    """読んだ編集の内容 d(無ければ None)-> 一覧の形 {"hasEdit", "editRev", "packRev", "_packDocAt", "packAt"}(edit_summary・get_edit の 1 か所)"""
+    pk = (d or {}).get("pack") or {}
+    return {"hasEdit": bool(d), "editRev": d["rev"] if d else 0, "packRev": d["packRev"] if d else 0,
+            "_packDocAt": pk.get("docUpdatedAt") if isinstance(pk.get("docUpdatedAt"), int) else 0,
+            "packAt": pk.get("at") if isinstance(pk.get("at"), int) else 0}
+
+
 def pack_stale(item):
-    """パックを作ったあとにカットか文字が変わったか(一覧と画面の「作り直し」の知らせ。規則はここ1か所)"""
+    """パックを作ったあとにカットか文字が変わったか(一覧と画面の「作り直し」の知らせ。item = edit_summary の形 + 文書の updatedAt)。
+    規則は 3 つある: ここ(一覧・GET /api/edit)・画面の pack-tab.js の staleWhy(同じ規則 + まだ保存していないカット)・
+    ② flow/keys.pack_state(全自動が作り直すかを中身のハッシュで決める)"""
     return bool(item.get("packRev")) and (item.get("editRev") != item.get("packRev") or (item.get("updatedAt") or 0) > (item.get("_packDocAt") or 0))
 
 
 def doc_has_rows(doc):
+    """文字のある行が 1 つでもあるか(行の無い文書へ入れる intoDoc の確かめ・alt・ytcap が使う。カットとは関係ない)"""
     return any(isinstance(s, dict) and str(s.get("text") or "").strip() for s in doc.get("segments") or [])
 
 
 def fill_doc(spec, fields):
-    """文字起こしの結果を、文字起こしの無い文書(intoDoc)に入れる。id・題名・作った日・clip・編集の内容はそのまま。
+    """文字起こしの結果を、文字起こしの無い文書(intoDoc。② の全自動・⑤ の評価用のまとめてが指す)に入れる。id・題名・作った日・clip・編集の内容はそのまま。
     -> 入れた文書の id。その間に文書が消えた・行が入った・動画が変わったときは None(呼び出し側が新しい文書にする。結果は捨てない)"""
     tid = spec["intoDoc"]
     with _save_lock:
@@ -1085,7 +1172,7 @@ def fill_doc(spec, fields):
             doc = read_transcript(tid)
         except _errors.ApiError:
             doc = None
-        same = doc is not None and _fsio.norm_path(str(doc.get("sourcePath") or "")) == os.path.normcase(spec["sourcePath"])
+        same = doc is not None and _fsio.norm_path(str(doc.get("sourcePath") or "")) == _fsio.norm_path(spec["sourcePath"])
         if not same or doc_has_rows(doc):
             spec.setdefault("warnings", []).append("文字起こしを入れる文書が変わっていたため、新しい文字起こしとして保存しました")
             return None
@@ -1095,16 +1182,13 @@ def fill_doc(spec, fields):
         if spec.get("evalSet"):
             doc["evalSet"] = True   # 評価用として文字起こしした(外すのは画面の「評価用にする」)
         doc.pop("evalReviewed", None)   # 機械が行を書いたので「全部聞いて確かめた」印は外す(行の無い文書を確かめ済みにしていたとき)
-        apply_edit_cuts(tid, doc)   # 先にカットを決めてあれば、行の「カット済」もそれに合わせる
-        commit(tid, doc, why="fill")
+        commit(tid, doc, why="fill")   # 先にカットを決めてあれば、行の「カット済」もそれに合わせる(commit)
         return tid
 
 
-_open_lock = threading.Lock()
-
-
 def find_doc_for_media(path):
-    """その動画の文書(行のある文書・更新が新しいものを先に)。-> {"id", "rows"} か None。パスを比べるだけで、ファイルには触らない"""
+    """その動画の文書(行のある文書・更新が新しいものを先に。30fps に付け替える前のパスでも引く)。-> {"id", "rows"} か None。
+    パスを比べるだけで、動画のファイルには触らない(文書の要約 summaries は読む)"""
     p = str(path or "").strip().strip('"')
     if not p or "\x00" in p:
         return None
@@ -1117,30 +1201,3 @@ def find_doc_for_media(path):
         if best is None or rank > best[0]:
             best = (rank, {"id": tid, "rows": sm["rows"]})
     return best[1] if best else None
-
-
-def open_video(req):
-    """POST /api/open-video {"path", "title"?} -> {"id", "created", "warnings"}。「文字起こしせずに開く」: 動画のパスだけで文書を作る。
-    同じ動画の文書があればそれを返す(行のある文書・新しいものを先に)。隣の .clip.json があれば文書の clip に入れる(スタジオの切り抜きと紐づく)。
-    文書にした動画は /media で配るので、動画・音声の拡張子で、ffmpeg で映像か音声が読めるものだけ受け付ける"""
-    src = _tools.check_source(req.get("path"))
-    with _open_lock:   # 同じ動画を続けて2回開いても、文書を2つ作らない
-        hit = find_doc_for_media(src)
-        if hit:
-            return {"id": hit["id"], "created": False, "warnings": []}
-        dur, has_v, has_a = _tools.probe_media(src)
-        if not (has_v or has_a):
-            raise _errors.ApiError("bad_media", "動画・音声として読めませんでした(壊れているか、対応していない形式です)", 400)
-        clip, warn, _cp = _yschemas.find_clip(src, dur)
-        tid = uuid.uuid4().hex[:12]
-        now = _yschemas.now_ms()
-        doc = {"schema": "transcribe/v1", "id": tid, "title": str(req.get("title") or "").strip()[:120] or os.path.splitext(os.path.basename(src))[0][:120],
-               "sourcePath": src, "sourceName": os.path.basename(src), "start": 0, "end": round(dur, 2) if dur else None, "whole": True,
-               "duration": dur, "model": "", "language": "", "params": {}, "speakers": [], "segments": [], "original": [],
-               "createdAt": now, "updatedAt": now}
-        if clip:
-            doc["clip"] = clip
-        with _save_lock:
-            commit(tid, doc, why="open_video", folder=_placement.doc_home(src))   # 書き出し先の案件の動画なら、その 作業用 に置く(RS8 B2-2)
-    _txbase.log.info("文字起こしせずに開く: %s", os.path.basename(src))
-    return {"id": tid, "created": True, "warnings": [warn] if warn else []}

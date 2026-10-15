@@ -8,7 +8,7 @@ const esc = UIKit.esc;   // ui-kit の 1 か所(null・undefined は ''。0.60.1
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
   undo: [], sel: new Set(), curIdx: -1, playEnd: null, seen: new Set(), pollT: null,
   navIdx: -1, conflict: false, forceNext: false, baseUpdatedAt: null, stripR: null, sess: { n: 0, activeMs: 0, lastBreak: 0, lastAct: Date.now() },
-  eff: { id: null, tx: 0, cut: 0, fresh: true } };   // eff = 文書ごとの校正の手間のまだ送っていない分(effortFlush。マスタープラン Q2)
+  eff: { id: null, ms: 0 } };   // eff = 操作中の知らせ(effortFlush = 文書の effort.lastAt)を送るまでの、たまった操作の時間
 const PALETTE = ['#2f62d6', '#d9534f', '#2e9e5b', '#c98a12', '#8a4fd6', '#0f9aa8', '#d6479a', '#6b7280'];
 /* 組み込みの話者「ゲーム音声など」(ゲームのキャラ・NPC・動画の音声など、その場かぎりの声。2026-10-05)。サーバーの ed_state.OTHER_SPK_* と同じ値(変えるときは両方)。
    話者の選択の候補に常に出し(話者なしの次・文書の話者より前)、選ぶと文書の speakers に 1 つだけ足す。名前は変えられない・声を覚えない・Alt+数字の番号に入らない。
@@ -115,16 +115,6 @@ document.querySelectorAll('aside details.card[id]').forEach(d => {
 /* ---------- 新規ジョブ ---------- */
 let tab = 'file';
 
-/* ---------- フォルダ内すべて ---------- */
-let FD = { files: [], dir: '' };
-const fmtSize = n => n >= 1e9 ? (n / 1e9).toFixed(1) + 'GB' : n >= 1e6 ? Math.round(n / 1e6) + 'MB' : Math.max(1, Math.round(n / 1e3)) + 'KB';
-$('#fdScan').addEventListener('click', () => scanFolder().catch(e => toast(e.message)));
-$('#fdPath').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); scanFolder().catch(er => toast(er.message)); } });
-$('#fdStudio').addEventListener('click', () => { $('#fdPath').value = S.marker.outDir || ''; $('#fdRec').checked = true; scanFolder().catch(e => toast(e.message)); });
-$('#fdSkip').addEventListener('change', renderFolder);
-$('#fdList').addEventListener('change', updateFdCount);
-$('#fdAll').addEventListener('change', e => { document.querySelectorAll('#fdList input').forEach(x => { x.checked = e.target.checked; }); updateFdCount(); });
-
 /* ---------- ジョブの進捗 ---------- */
 const ACTIVE = new Set(['queued', 'extracting', 'loading', 'running']);
 const STATE_LABEL = { queued: '待機中', extracting: '準備中', loading: '準備中', running: '処理中', done: '完了', error: '失敗', cancelled: '中止' };
@@ -191,11 +181,7 @@ const SPALL = { id: null, cands: [], suggest: '' };
 const DR = { on: false, done: 0, skip: [], none: '', status: null, busy: false };
 /* この動画だけを今の設定で作り直す(app-learn.js の redoOneHere。2026-10-05): busy = 保存・確認・送るの途中 */
 const REDO1 = { busy: false };
-/* 重なりの所に空の行を置く(app-jobs.js の ovd*。2026-10-05): id = 数えた文書・items = 候補(api/overlap-drafts)・more = 出し切れなかった数・reason = 出せない理由・
-   drafts = 数えたときの空のままの下書きの数(保存のあとで変わったら数え直す)・busy = 保存・確認・置くの途中・seq = 古い応答を捨てる番号 */
-const OVD = { id: null, items: [], more: 0, reason: '', diarAt: null, err: '', drafts: 0, busy: false, seq: 0 };
-const OVD_KIND = 'overlap';   // 置いた行の印 draft の値(サーバーの ed_state.ROW_DRAFT_KINDS と同じ)
-const DRAFT_KINDS = ['overlap', 'missing'];   // 印 draft の値の全部(missing = 抜けの所に置いた空の行。ed_state.ROW_DRAFT_KINDS と同じ)
+const DRAFT_KINDS = ['overlap', 'missing'];   // 行の印 draft の値の全部(重なり・抜けの所に置いた空の行。置く機能は OPT-H1 で消した。ytt/schemas の ROW_DRAFT_KINDS と同じ)
 const SPALL_FROM = { voice: '覚えた声', folder: 'メンバーのフォルダ', stream: '配信の文脈' };
 /* 行の時刻を言葉に合わせる(app-rows.js の rt*。2026-10-05): cache = 行の中身ごとの候補({c: 候補 | null, why})・el = 選んだ行の操作の欄に置いた部品・
    open = 見せている候補 {id, key, c}・t = 少し止まったら調べる予約 */
@@ -235,10 +221,7 @@ $('#voiceLearn').addEventListener('click', async () => {
     await kickJobs(); toast(names.join('・') + ' の声を覚える処理を待機列に追加しました(メニューの「処理状況」に出ます)', 4000);
   } catch (er){ toast(er.message, 6000, 'err'); }
 });
-$('#spDetails').addEventListener('toggle', () => { if ($('#spDetails').open){ renderVoiceLearn(); loadVoices(); loadOvd(); } });
-$('#ovdGo').addEventListener('click', () => ovdPlace());
-$('#ovdClear').addEventListener('click', () => ovdClear());
-['#ovdKOvl', '#ovdKMiss'].forEach(k => $(k).addEventListener('change', () => { renderOvd(); loadOvd(); }));   // 置く所(重なり・抜け)を選び直したら数え直す
+$('#spDetails').addEventListener('toggle', () => { if ($('#spDetails').open){ renderVoiceLearn(); loadVoices(); } });
 $('#diarSmooth').addEventListener('change', e => diarSmoothSave(e.target.checked));
 $('#diarEmb').addEventListener('change', () => { if ($('#spDetails').open) loadVoices(); });
 try { $('#diarRecog').checked = localStorage.getItem('tx.voiceRecog') !== '0'; } catch {}
@@ -287,7 +270,6 @@ const RANGE_MAX = 900;
 /* 動画全体(docs/design/whole-retranscribe-design.md の 3-1): 範囲・残す行・差し替える行・かかる時間の目安。
    目安は large-v3 の CPU で測った速さ(実時間の約 0.37 倍。2026-09-28 src/eval/tools/eval_asr.py)だけ。ほかのモデルは出さない(でたらめな数字を出さない) */
 const WHOLE_RTF = { 'large-v3': 0.37 };
-$('#rsGo').addEventListener('click', resplitDoc);
 $('#redoGo').addEventListener('click', async () => {   // 疑わしい所だけ認識し直す(12 ③-2)
   if (!S.docId || lockJob() || !(await saveDone())) return;
   try {
@@ -296,8 +278,6 @@ $('#redoGo').addEventListener('click', async () => {   // 疑わしい所だけ�
     kickJobs();
   } catch (e){ $('#redoMsg').textContent = ''; toast(e.message, 7000, 'err'); }
 });
-$('#rsOrient').addEventListener('change', () => { $('#rsOrient').dataset.touched = '1'; });
-// 0.66.0: 字幕の向きと最大文字数の欄は設定の画面へ(renderResplitOpts は applySettings → fillSubtitle から)
 $('#rtGo').addEventListener('click', e => {
   const b = e.currentTarget, first = !b.dataset.armed;
   armDelete(b, async () => { b.disabled = true; try { await startRetranscribe(); } catch (er){ toast(er.message); } finally { updateRt(); } });   // 文字を上書きするので、2度押しにする
@@ -372,21 +352,12 @@ $('#altGo').addEventListener('click', async () => {
 $('#altEngine').addEventListener('change', async e => {   // 設定 altEngine(送ったキーだけ直す api/settings/patch。ほかの窓の設定を消さない)
   if (!(await patchSettings({ altEngine: e.target.value }, '2つ目のエンジンを保存できませんでした'))) renderAlt();   // 先に S.settings へ入れる(保存を待つ間の描き直し renderAlt で選択が戻らないように)。失敗は元に戻して描き直す
 });
-/* 元の配信の YouTube の字幕の候補(案 A1): S.yt = 結果の情報(GET /api/suggest の yt に、どの文書のものかの tid を足す)。文書は書き換えないので、取っている間も編集できる */
-S.yt = null;
-$('#ytcapGo').addEventListener('click', async () => {
-  if (!S.docId || ytcapJob()) return;
-  try {
-    await api('/api/ytcap', { body: { id: S.docId } });
-    kickJobs();
-  } catch (e){ toast(e.message, 7000, 'err'); }
-});
 
 /* ---------- 校正済み(正解として使える行の印) ---------- */
 setInterval(() => {   // 操作している時間だけ数える(放置している間は進めない)。休憩のお知らせも、この時間で出す
   if (Date.now() - S.sess.lastAct < 120000){
     S.sess.activeMs += 30000; updateSess();
-    effortTick(30000);   // 文書ごとの校正の手間にも同じ時間を足す(開いている文書・今のタブ)
+    effortTick(30000);   // 開いている文書の操作中の知らせ(effort.lastAt)
     const b = Number(V.brk) * 60000;
     if (b && S.sess.activeMs - S.sess.lastBreak >= b){ S.sess.lastBreak = S.sess.activeMs; toast(`操作を始めて${Math.round(S.sess.activeMs / 60000)}分たちました。少し休憩しませんか(目を離す・肩を回す・水分)`, 9000); }
   }
@@ -471,7 +442,7 @@ $('#cfForce').addEventListener('click', e => armDelete(e.currentTarget, () => {
   S.conflict = false; S.forceNext = true; $('#conflictBar').hidden = true; S.dirty = true; saveDoc(); if (CUT) CUT.refresh();
 }));
 onLeave(() => { if (S.dirty && !S.conflict){ clearTimeout(markDirty.t); saveDoc(); } });   // タブ・窓を離れるとき・画面を閉じるときに、待たずに保存する
-onLeave(() => effortFlush(true));   // 校正の手間のまだ送っていない分も送る(保存とは別の小さな POST。'blur' でも送るだけ = 重い処理はしない。閉じるときも届くよう keepalive)
+onLeave(() => effortFlush(true));   // 操作中の知らせのまだ送っていない分も送る(保存とは別の小さな POST。'blur' でも送るだけ = 重い処理はしない。閉じるときも届くよう keepalive)
 /* ---------- 字幕の文字数(既定。app-rows.js の readSubtitle) ---------- */
 const SUB_DEFAULT = { orientation: 'vertical', maxChars: { vertical: 16, horizontal: 28 }, wrapChars: { vertical: 8, horizontal: 14 } };
 
@@ -1137,7 +1108,6 @@ document.querySelectorAll('[data-ex]').forEach(b => b.addEventListener('click', 
 /* ---------- 左パネルのイベント ---------- */
 $('#tabFile').addEventListener('click', () => setTab('file'));
 $('#tabMarker').addEventListener('click', () => setTab('marker'));
-$('#tabFolder').addEventListener('click', () => setTab('folder'));
 $('#btnStart').addEventListener('click', onStart);
 $('#btnMarkerFile').addEventListener('click', () => $('#markerFile').click());
 $('#markerFile').addEventListener('change', async e => {
@@ -1250,8 +1220,6 @@ S.handoff = null;   // { id, transcript, srt, plan }: 開いている文書を�
 const HANDOFF_KEY = { 'transcript-v1': 'transcript', srt: 'srt', 'cut-plan-v1': 'plan' };
 const handoffRow = (h, k, l) => `<div><span class="hint">${l}:</span> <span class="path">${esc(h[k])}</span> <button type="button" class="btn ghost small" data-act="copy" data-k="${k}" title="このパスをコピー">コピー</button></div>`;
 document.querySelectorAll('[data-beside]').forEach(b => b.addEventListener('click', () => exportBeside(b.dataset.beside, b)));
-$('#btnOpenVideo').addEventListener('click', openVideoNoTx);
-$('#mcOpen').addEventListener('click', openVideoNoTx);
 $('#mcTx').addEventListener('click', () => { $('#mediaChoice').hidden = true; onStart(); });
 $('#btnTxInto').addEventListener('click', () => transcribeInto($('#btnTxInto')));
 /* #cpPlanOut は 2 カット の欄(案件の画面ではカット・パックのパネルが持つ = 無い) */

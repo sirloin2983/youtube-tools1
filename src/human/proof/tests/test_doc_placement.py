@@ -3,7 +3,7 @@
 
     py -3.10 -m unittest src/human/proof/tests/test_doc_placement.py -v
 
-索引 transcripts/<id>.loc.json が案件の 作業用 を指す文書を、store(読み書き・履歴・控え・一覧)・alt・ytcap・overrides が
+索引 transcripts/<id>.loc.json が案件の 作業用 を指す文書を、store(読み書き・履歴・一覧・消す)・alt・overrides が
 その場所で読み書きすること。索引が無い・id の形が正しくない呼び手は今までどおり TX_DIR。
 """
 import json
@@ -11,28 +11,23 @@ import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データ(AppData など)に触らない
 import shutil
 import sys
-import tempfile
 import unittest
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 for _p in (os.path.join(SRC, "editor"), SRC):
     if _p not in sys.path:
         sys.path.insert(0, _p)
-from human.proof import alt, overrides, store, ytcap  # noqa: E402
+from human.proof import alt, overrides, store  # noqa: E402
 from ytt import docloc, schemas, workdata  # noqa: E402
+from human.tests._workdata import temporary_workdata  # noqa: E402
 
 TID = "0123456789ab"
 
 
 class PlacementTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="docplace-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
-        saved = {n: getattr(workdata, n) for n in ("DATA_DIR", "TX_DIR", "TMP_DIR", "EVAL_BASE", "SETTINGS", "FEEDBACK")}
-        self.addCleanup(lambda: [setattr(workdata, n, v) for n, v in saved.items()])
-        workdata.set_data_dir(os.path.join(self.tmp, "data"))
+        self.tmp = temporary_workdata(self, "docplace-")
         self.tx = workdata.TX_DIR
-        os.makedirs(self.tx)
         docloc._warned.clear()
         self.case = os.path.join(self.tmp, "案件", schemas.WORK_DIR)
         os.makedirs(self.case)
@@ -47,7 +42,6 @@ class PlacementTest(unittest.TestCase):
         self.assertEqual(store.edit_path(TID), os.path.join(self.tx, TID + ".edit.json"))
         self.assertEqual(store._hist_dir(TID), os.path.join(self.tx, ".hist", TID))
         self.assertEqual(alt.alt_path(TID), os.path.join(self.tx, TID + ".alt.json"))
-        self.assertEqual(ytcap.ytcap_path(TID), os.path.join(self.tx, TID + ".ytcap.json"))
         self.assertEqual(overrides.over_path(TID), os.path.join(self.tx, TID + ".over.json"))
 
     def test_bad_id_keeps_old_path(self):
@@ -60,7 +54,6 @@ class PlacementTest(unittest.TestCase):
         self.assertEqual(store.edit_path(TID), os.path.join(self.case, TID + ".edit.json"))
         self.assertEqual(store._hist_dir(TID), os.path.join(self.case, ".hist", TID))
         self.assertEqual(alt.alt_path(TID), os.path.join(self.case, TID + ".alt.json"))
-        self.assertEqual(ytcap.ytcap_path(TID), os.path.join(self.case, TID + ".ytcap.json"))
         self.assertEqual(overrides.over_path(TID), os.path.join(self.case, TID + ".over.json"))
         self.assertEqual(store.read_transcript(TID)["id"], TID)
 
@@ -69,11 +62,40 @@ class PlacementTest(unittest.TestCase):
         store.write_doc(TID, {"id": TID, "segments": [], "n": 1})
         self.assertFalse(os.path.exists(os.path.join(self.tx, TID + ".json")))
         self.assertEqual(store.read_transcript(TID)["n"], 1)
-        store.backup_doc(TID, "test")
-        self.assertTrue(os.path.isfile(os.path.join(self.case, ".bak", TID + ".pre-test.json")))
+        store.backup_doc(TID, "test")   # 履歴だけ(.bak の控えはやめた = 決定 3-47 の 1b-1)
         self.assertTrue(os.path.isdir(os.path.join(self.case, ".hist", TID)))
+        self.assertFalse(os.path.exists(os.path.join(self.case, ".bak")))
         self.assertFalse(os.path.exists(os.path.join(self.tx, ".bak")))
         self.assertEqual(store._tids(), [TID])
+
+    def test_delete_doc_removes_files_history_index_and_dismissed(self):
+        """消す口 store.delete_doc: 本体・横のファイル・履歴・以前の控え .bak・索引・要約・学習の記録の「この候補は出さない」を一緒に消す(1b-3・5d-6)"""
+        from human.proof import learn
+        other = "ba9876543210"
+        self._place()
+        store.write_doc(TID, {"id": TID, "segments": [], "updatedAt": 1})
+        store.backup_doc(TID, "x")
+        for sfx in (".edit.json", ".words.json", schemas.HUM_SUFFIX):
+            with open(os.path.join(self.case, TID + sfx), "w", encoding="utf-8") as f:
+                f.write("{}")
+        os.makedirs(os.path.join(self.case, ".bak"))
+        for n in (TID + ".pre-diarize.json", other + ".pre-diarize.json"):   # 以前の版が残した控え(ほかの文書の分は残す)
+            with open(os.path.join(self.case, ".bak", n), "w", encoding="utf-8") as f:
+                f.write("{}")
+        with open(workdata.FEEDBACK, "w", encoding="utf-8") as f:
+            json.dump({"stat": {"あ=>い": {"acc": 1, "rej": 1}}, "dismissed": {TID: ["s1|あ=>い"], other: ["s2|う=>え"]}}, f)
+        self.assertIsNotNone(store.transcript_summary(TID))
+        store.delete_doc(TID)
+        self.assertEqual(sorted(os.listdir(self.case)), [".bak"])
+        self.assertEqual(os.listdir(os.path.join(self.case, ".bak")), [other + ".pre-diarize.json"])
+        self.assertFalse(os.path.exists(docloc.loc_path(TID)))
+        self.assertNotIn(TID, store._summary_cache)
+        fb = learn.load_feedback()
+        self.assertEqual((sorted(fb["dismissed"]), fb["stat"]["あ=>い"]["rej"]), ([other], 1))   # 採否の数は残す
+        from ytt import errors
+        with self.assertRaises(errors.ApiError) as cm:
+            store.delete_doc(TID)
+        self.assertEqual(cm.exception.status, 404)
 
     def test_placed_over_roundtrip(self):
         self._place()
@@ -95,7 +117,7 @@ class PlacementTest(unittest.TestCase):
         with self.assertRaises(errors.ApiError) as cm:
             store.read_transcript(TID)
         self.assertEqual(cm.exception.status, 404)
-        writes = (lambda: store.write_doc(TID, {"id": TID, "segments": []}), lambda: store.backup_doc(TID, "x"),
+        writes = (lambda: store.write_doc(TID, {"id": TID, "segments": []}),
                   lambda: store._hist_dir(TID, for_write=True), lambda: store.edit_path(TID, for_write=True),
                   lambda: overrides.write(TID, {"rows": []}),
                   lambda: txwords.write_words(TID, [[0.0, 1.0, "a"]]), lambda: records.write_asr(TID, [], {}))
@@ -116,58 +138,6 @@ class PlacementTest(unittest.TestCase):
         with self.assertRaises(errors.ApiError) as cm:
             store.save_transcript(TID, {"segments": []})
         self.assertEqual(cm.exception.code, docloc.UNSEEN_CODE)
-
-
-class OpenVideoPlacementTest(unittest.TestCase):
-    """「文字起こしせずに開く」の新しい文書: 書き出し先の下の案件(作業用/.studio-id)の動画なら その 作業用 に置く。案件でなければ TX_DIR"""
-
-    def setUp(self):
-        from unittest import mock
-        from flow import placement
-        from ytt import names
-        self.tmp = tempfile.mkdtemp(prefix="docplace-open-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
-        saved = {n: getattr(workdata, n) for n in ("DATA_DIR", "TX_DIR", "TMP_DIR", "EVAL_BASE", "SETTINGS", "FEEDBACK")}
-        self.addCleanup(lambda: [setattr(workdata, n, v) for n, v in saved.items()])
-        workdata.set_data_dir(os.path.join(self.tmp, "data"))
-        self.tx = workdata.TX_DIR
-        os.makedirs(self.tx)
-        store._summary_cache.clear()
-        self.addCleanup(store._summary_cache.clear)
-        self.out = os.path.join(self.tmp, "out")
-        self.wd = os.path.join(self.out, "題名", schemas.WORK_DIR)
-        os.makedirs(self.wd)
-        with open(os.path.join(self.wd, names.OWNER_FILE), "w", encoding="utf-8") as f:
-            f.write("vid")
-        for p in (mock.patch.object(placement._datadir, "studio_out_dir", return_value=self.out),
-                  mock.patch.object(placement._fsio, "is_fixed_drive", return_value=True),
-                  mock.patch.object(store._tools, "probe_media", return_value=(10.0, True, True))):
-            p.start()
-            self.addCleanup(p.stop)
-
-    def _video(self, folder, name="題名_01.mp4"):
-        os.makedirs(folder, exist_ok=True)
-        path = os.path.join(folder, name)
-        with open(path, "wb") as f:
-            f.write(b"x")
-        return path
-
-    def test_case_video_goes_to_work_dir(self):
-        src = self._video(os.path.dirname(self.wd))
-        got = store.open_video({"path": src})
-        tid = got["id"]
-        self.assertTrue(got["created"])
-        self.assertTrue(os.path.isfile(os.path.join(self.wd, tid + ".json")))
-        self.assertFalse(os.path.exists(os.path.join(self.tx, tid + ".json")))
-        self.assertEqual(docloc.placed(tid), os.path.normpath(self.wd))
-        self.assertEqual(store.read_transcript(tid)["sourcePath"], src)
-        self.assertEqual(store.open_video({"path": src}), {"id": tid, "created": False, "warnings": []})   # 2 回目は同じ文書(一覧が索引を読む)
-
-    def test_other_video_stays_in_tx_dir(self):
-        src = self._video(os.path.join(self.tmp, "よそ"))
-        tid = store.open_video({"path": src})["id"]
-        self.assertTrue(os.path.isfile(os.path.join(self.tx, tid + ".json")))
-        self.assertFalse(os.path.exists(docloc.loc_path(tid)))
 
 
 if __name__ == "__main__":

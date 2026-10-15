@@ -1,25 +1,26 @@
-"""「確かめる」の読みのカード(どちらの読みが正しいか)の反映(V1 の V2b。notes:docs/design/v1-check-build.md の 2-3・3-2。import で apply に登録する)。
+"""「確かめる」の読みのカード(どちらの読みが正しいか)の反映(notes:docs/design/v1-check-build.md の 2-2・3-2。import で apply に登録する)。
 出どころ: fill = 後処理が直した行(1 = 今の文字・2 = 認識のまま)/ alt = 2 つ目のエンジンの読み / yt = YouTube の字幕の読み(1 = 今の字幕・2 = その読みを入れた行)。
-答え = {choice: "1" | "2" | "other", text?: 打った正しい文字}。**文字だけの判定**: 行を校正済み(proofed)にしない・行の時刻には触れない(時刻の正解に使わない)。
-  fill  1 = 何も変えない(後処理の札を残す)/ 2 = 認識のままに戻す(編集の「別の読み」の札と同じ。fill と後処理の印を外す)/ 3 = 打った文字(fill と印を外す)
-  alt・yt  1 = 何も変えない・候補を却下 / 2 = 食い違う所を直す・候補を採る / 3 = 打った文字・候補を却下
+答え = {choice: "1" | "2" | "other", text?: 打った正しい文字}(other = 画面の 3 のキー)。**文字だけの判定**: 行を校正済み(proofed)にしない・行の時刻には触れない(時刻の正解に使わない)。
+  fill  1 = 何も変えない(後処理の札を残す)/ 2 = 認識のままに戻す(編集の「別の読み」の札と同じ。fill と後処理の印を外す)/ other = 打った文字(fill と印を外す)
+  alt・yt  1 = 何も変えない・候補を却下 / 2 = 食い違う所を直す・候補を採る / other = 打った文字・候補を却下
   採否は編集の「提案」と同じ記録(learn-feedback.json の alt / yt の数と dismissed)に残す = eval_alt が今までどおり読める。fill の残す / 戻すは eval_fill が文書から読む。
-文書へは store.commit(why='check:read')(人の層)。Z は逆の commit(行がその後に変わっていたら断る)+ 記録の取り消し。
-③ の層: 文書は human/proof/store と learn だけを読む(① は読まない)。
+  alt・yt の反映は card["_cand"](候補の位置と文字)を使う = 記録の行からカードを組み直せないので defer(1 枚遅れ)にはできない。
+文書へは _doc.edit_row(why='check:read'。人の層・履歴は 10 分に 1 つ・処理中と評価用は断る)。
+Z = 行の文字・fill・印の 3 つが答えたあとのままのときだけ答える前に戻す(どれかがその後に変わっていたら断る)+ 採否の記録の取り消し。
+③ の層: 文書は human/check/_doc(human/proof/store)と learn だけを読む(① は読まない)。
 """
 import re
-import time
 
 from ytt import errors as _errors, schemas as _yschemas, txbase as _txbase
-from . import apply   # 同じ human/check の兄弟
-from human.proof import learn, store
+from . import _doc, apply   # 同じ human/check の兄弟
+from human.proof import learn
 
 CHOICES = ("1", "2", "other")
 FILL_FLAG_RE = re.compile(r"^(別の読みで埋めた|名簿の呼び名に直した|話者名を外した)")   # 編集の「別の読み」の札が外す印(src/editor/app.js の unfill と同じ)
 TIERS = ("alt", "yt")
 
 
-def check(ans):
+def _check(ans):
     if not isinstance(ans, dict) or ans.get("choice") not in CHOICES:
         raise ValueError("choice は 1・2・other のどれかです")
     if ans["choice"] != "other":
@@ -40,29 +41,13 @@ def _tid(card):
     return tid
 
 
-def _load(tid, row_id):
-    try:
-        doc = store.read_transcript(tid)
-    except _errors.ApiError as e:
-        raise apply.Refused("文字起こしを読めません: %s" % e.message, 409, "gone")
-    seg = next((g for g in doc.get("segments") or () if isinstance(g, dict) and str(g.get("id")) == str(row_id)), None)
-    if seg is None:
-        raise apply.Refused("その行はもうありません", 409, "gone")
-    return doc, seg
-
-
-def _bump(doc):
-    doc["updatedAt"] = max(int(time.time() * 1000), int(_yschemas.num_or(doc.get("updatedAt"), 0) or 0) + 1)
-
-
-def _write(tid, doc, backup=True):
-    if backup:
-        store.backup_doc(tid, "check")   # 直前の 1 世代 + 履歴(「以前の版に戻す」でも戻せる)
-    store.commit(tid, doc, why="check:read")
-
-
 def _unflag(flag):
-    return "、".join(f for f in str(flag or "").split("、") if f and not FILL_FLAG_RE.match(f))[:100]
+    return _doc.join_flags(f for f in _doc.flag_parts(flag) if not FILL_FLAG_RE.match(f))
+
+
+def _row_state(seg):
+    """Z で比べる・戻す行の 3 つの欄(無い欄は None)"""
+    return {"text": str(seg.get("text") or ""), "fill": seg.get("fill"), "flag": seg.get("flag")}
 
 
 def _feedback(tid, row_id, cand, action):
@@ -84,16 +69,15 @@ def _cand_of(card):
     return c
 
 
-def do_apply(ctx, card, ans):
+def _apply(ctx, card, ans):
     tid, row_id, source, choice = _tid(card), (card.get("target") or {}).get("row"), card.get("source"), ans["choice"]
     if source == "fill" and choice == "1":
         return {"docId": tid, "row": row_id, "source": source, "choice": "1"}   # 後処理の札を残す = 文書は何も変えない
-    with store._save_lock:
-        doc, seg = _load(tid, row_id)
+    cand = None if source == "fill" else _cand_of(card)
+
+    def fn(doc, seg):
         old = str(seg.get("text") or "")
-        before = {"text": old, "fill": seg.get("fill"), "flag": seg.get("flag")}
-        out = {"docId": tid, "row": row_id, "source": source, "choice": choice}
-        cand = None if source == "fill" else _cand_of(card)
+        before = _row_state(seg)
         new = old
         if choice == "other":
             new = ans["text"]
@@ -112,11 +96,13 @@ def do_apply(ctx, card, ans):
             seg.pop("fill", None)
             seg["flag"] = _unflag(seg.get("flag"))
             changed = True
+        out = {"docId": tid, "row": row_id, "source": source, "choice": choice}
         if changed:
             seg["text"] = new
-            _bump(doc)
-            _write(tid, doc)
-            out["before"], out["after"] = before, new
+            out["before"], out["after"] = before, _row_state(seg)
+        return changed, out
+
+    out = _doc.edit_row(tid, row_id, fn, "check:read")
     if cand is not None:
         fb = _feedback(tid, row_id, cand, "accept" if choice == "2" else "reject")
         if fb:
@@ -124,25 +110,33 @@ def do_apply(ctx, card, ans):
     return out
 
 
-def do_revert(ctx, row):
+def _same(seg, want):
+    """行の今の 3 つの欄が want と同じか(want が文字だけの古い記録なら文字だけ比べる)"""
+    now = _row_state(seg)
+    return now == want if isinstance(want, dict) else now["text"] == want
+
+
+def _revert(ctx, row):
     a = row.get("applied") or {}
     before, changed = a.get("before"), False
     if isinstance(before, dict):   # 文書を先に戻す(行がその後に変わっていたら断る = 記録も戻さない)
         tid = _tid({"target": {"docId": a.get("docId")}})
-        with store._save_lock:
-            doc, seg = _load(tid, a.get("row"))
-            if str(seg.get("text") or "") != a.get("after"):
-                raise apply.Refused("その後に行の文字が変わっているので、戻せません(編集の画面で直してください)", 409, "changed")
+
+        def fn(doc, seg):
+            if _same(seg, before):
+                return False, False   # もう戻っている(やりかけの Z のやり直し)= 書かない
+            if not _same(seg, a.get("after")):
+                raise apply.Refused("その後に行の文字か印が変わっているので、戻せません(編集の画面で直してください)", 409, "changed")
             seg["text"] = str(before.get("text") or "")
             for k in ("fill", "flag"):
                 if before.get(k) is None:
                     seg.pop(k, None)
                 else:
                     seg[k] = before[k]
-            _bump(doc)
-            _write(tid, doc, backup=False)
-        changed = True
-    if isinstance(a.get("feedback"), dict):
+            return True, True
+        changed = _doc.edit_row(tid, a.get("row"), fn, "check:read")
+    # 採否の記録の取り消しは数を 1 つ減らす(何度も呼ぶと減りすぎる)= やりかけの Z のやり直しで文書がもう戻っていたら、取り消しも済んでいると見る
+    if isinstance(a.get("feedback"), dict) and not (row.get("again") and not changed):
         try:
             learn.unrecord_feedback(a["feedback"])
         except (_errors.ApiError, OSError, ValueError):
@@ -151,4 +145,4 @@ def do_revert(ctx, row):
 
 
 for _src in ("fill", "alt", "yt"):
-    apply.register("read", _src, do_apply, do_revert, check=check)
+    apply.register("read", _src, _apply, _revert, check=_check)

@@ -1,32 +1,28 @@
 # -*- coding: utf-8 -*-
 """③ 人の操作の層 human/proof: 話者判別の結果を文書へ(apply_diarization・1 人指定 single_speaker・守る行 diar_keep_row)・判別のジョブの受付と文書への書き込み(validate_diarize・
-run_diarize)・重なりと抜けの所の空の行の下書き(ovdraft_)・文字起こしのあとの自動の判別の判断(autodiar_)・話者の声を覚える(声の登録簿の編集の受付 =
-recognize_voices・voice_learn_plan・run_voice_learn・delete_voice)・話者ごとの字幕の見た目(speakers_sub_apply)。
+run_diarize)・評価用の文書の文字起こしのあとの自動の判別(autodiar_)・覚えた声での名前付けと声を覚える(声の登録簿の編集の受付 =
+voice_learn_plan・voice_preview・validate_voice_learn・run_voice_learn・voices_summary・delete_voice)・話者ごとの字幕の見た目(speakers_sub_apply)。
 
-役割で組み直す RS2-9(2026-10-10)に編集の src/editor/ed_speakers.py から移した(中身は同じ。段10 で editor/serve.py から分けた部品)。
-判別の計算・判別の記録・声の特徴と照らし合わせは pipeline/transcribe/diarize.py(①)へ分けた。RS6 a-4(2026-10-10)で、ここが ① を直に読んでいた所
-(判別のジョブの計算の糸・判別の記録・声の特徴と照合・覚えた声の置き場所)を ② flow/diar.py へ移した = ここは ① を読まず ② の動詞(`_diar.名前`。
-呼ぶたびに読む)と ytt だけを読む(テストの patch.object(S, "has_sherpa"・"ensure_diar_models"・"embed_groups"・"write_diar") は ① に届き、② が呼ぶたびに読む)。
-旧い名前 serve.名前 は serve の名前の受付がここ・flow/diar・diarize へ回す(覚えた声の置き場所 VOICES_DIR・load_voices ほか・判別の記録を書く _record_diar は flow/diar)。
-評価用の文書の名前の候補(eval の drill.drill_candidates)は読まず、serve が set_context_namer で登録する口を呼ぶたびに引く(③ から ⑤ を読まない)。
-文書の置き場は隣の store(RS3-E5a)。
+判別の計算・判別の記録・声の特徴と照らし合わせは ① pipeline/transcribe/diarize.py。ここは ① を読まず ② flow/diar の動詞(`_diar.名前`。呼ぶたびに読む)と ytt だけを読む
+(判別のジョブの計算の糸・判別の記録・声の特徴と照合・覚えた声の置き場所は ② flow/diar。テストの patch.object(S, "has_sherpa"・"ensure_diar_models"・"embed_groups"・"write_diar") は ① に届き、② が呼ぶたびに読む)。
+評価用の文書の名前の候補(⑤ eval/drill の drill_candidates)は読まず、serve が set_context_namer で登録する口を呼ぶたびに引く(③ から ⑤ を読まない)。
+人の名前を比べる鍵は ytt/textutil.person_key の 1 つ(決定 notes:plan/decisions.md の 3-47 Q8)。文書の置き場は隣の store。
 """
-import bisect
 import copy
 import re
 import time
-import unicodedata
 
 from ytt import errors as _errors, schemas as _yschemas, tools as _tools  # noqa: E402
+from ytt import textutil as _textutil  # noqa: E402   人の名前を比べる鍵 person_key(OPT-H1。Q8)
 from flow import jobs as _heavy  # noqa: E402
 from ytt import jobs as _slots  # noqa: E402
 from ytt import txbase as _txbase  # noqa: E402
-from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings(RS3-1 に ed_learn から ytt/settings へ)
-from flow import diar as _diar  # noqa: E402   ② 判別と声の段取り(判別・割り当て・判別の記録・声の特徴と照合・覚えた声の置き場所。RS6 a-4。呼ぶたびに _diar.名前 で読む)
-from . import store  # noqa: E402   文書の読み書き・保存のロック・控え(RS3-E5a に editor/ed_store から隣へ。呼ぶたびに store.名前 で読む)
-from . import layers as _layers  # noqa: E402   層が正のときの話者の判別(機械の層・話者の対応表。RS8 O2-5)
+from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings
+from flow import diar as _diar  # noqa: E402   ② 判別と声の段取り(判別・割り当て・判別の記録・声の特徴と照合・覚えた声の置き場所。呼ぶたびに _diar.名前 で読む)
+from . import store  # noqa: E402   文書の読み書き・保存のロック・控え(呼ぶたびに store.名前 で読む)
+from . import layers as _layers  # noqa: E402   層が正のときの話者の判別(機械の層・話者の対応表)
 
-# ---------- serve が登録する口(RS2-9。eval の drill を ② から読まない) ----------
+# ---------- serve が登録する口(⑤ eval の drill を ③ から読まない) ----------
 _namer = {}
 
 
@@ -56,22 +52,21 @@ MAX_SPEAKERS = 20
 SPK_COLORS = ["#2f62d6", "#d9534f", "#2e9e5b", "#c98a12", "#8a4fd6", "#0f9aa8", "#d6479a", "#6b7280"]
 
 
-def diar_smooth_setting():
-    """設定 diarSmooth(既定オフ)"""
-    return _settings.load_settings().get("diarSmooth") is True
+def _diar_smooth_setting(st=None):
+    """設定 diarSmooth(既定オフ)。st = 読んである設定(無ければ読む)"""
+    return (_settings.load_settings() if st is None else st).get("diarSmooth") is True
 
 
-def apply_diarization(tid, turns, offset, requested, emb=None, auto=None, smooth=False, with_map=False):
+def apply_diarization(tid, turns, offset, requested, emb=None, auto=None, smooth=False):
     """最新の文字起こしを読み直して話者を書き込む(判別中に行を編集されていても、時刻で割り当てるので矛盾しない)。
     読み直し〜書き込みは保存と同じロックの中で行う(間に画面の保存が挟まると、その保存が黙って上書きされるため)。
-    auto(文字起こしのあとの自動の判別。v0.50.0)なら文書の diarization と diar.json に印を残す(画面の「自動で付けた」の案内・人の最終との比べ)。
+    auto(評価用の文字起こしのあとの自動の判別)なら文書の diarization と diar.json に印を残す(画面の「自動で付けた」の案内・人の最終との比べ)。
     smooth = 短い 1 行だけ別の人になるのをならす(S2。smooth_speakers。行の話者だけ。turns・overlaps はそのまま記録する)。emb = 判別モデル(None なら既定)。
-    戻り値は (話者の数, 要確認の数)。with_map=True なら 3 つ目に {idmap, remap}(S1… の振り直しの対応。O2-0b)"""
+    戻り値は (話者の数, 要確認の数)"""
     if emb is None:
         emb = _diar.default_embedding()
     with store._save_lock:
-        n, unsure, maps = _apply_diarization(tid, turns, offset, requested, emb, auto, smooth)
-    return (n, unsure, maps) if with_map else (n, unsure)
+        return _apply_diarization(tid, turns, offset, requested, emb, auto, smooth)
 
 
 def _spk_ids(doc):
@@ -115,7 +110,7 @@ def _diar_kept_speakers(doc, segs, keep, taken):
 
 
 def _commit_diar_primary(tid, before, doc, keep_ids):
-    """層が正のときの話者の判別の書き込み(RS8 O2-5 の (r8r)): 機械の層に判別の結果(話者 S…・話者の印)を入れ、判別の鍵 keys.diar を新しくする。
+    """層が正のときの話者の判別の書き込み(決定 3-37 の (r8r) = notes:plan/decisions.md): 機械の層に判別の結果(話者 S…・話者の印)を入れ、判別の鍵 keys.diar を新しくする。
     判別し直し(前の文書に話者の付いた行がある)なら、人の層の話者の表はそのまま(付け直さない)で、機械の S… → 人の話者の対応表 spkMap を
     重なり時間で当てる(layers.assign_speakers。当たらない話者だけ新しい H… と弱い印 SPK_CHANGED)。人が決めた話者は残し、層より前の判別の話者は判別に従う
     (layers.after_rediar)。初めての判別は今と同じ(文書の話者 = 機械の話者)"""
@@ -133,17 +128,18 @@ def _commit_diar_primary(tid, before, doc, keep_ids):
 
 def _apply_diarization(tid, turns, offset, requested, emb, auto=None, smooth=False):
     doc = store.read_transcript(tid)
-    primary = _txbase.layers_mode() == _txbase.LAYERS_PRIMARY   # 層が正: 人の層が話者の表を持つ(RS8 O2-5 の (r8r))
+    primary = _txbase.layers_mode() == _txbase.LAYERS_PRIMARY   # 層が正: 人の層が話者の表を持つ((r8r))
     before = copy.deepcopy(doc) if primary else None
     ids = _spk_ids(doc)
-    # 定型の幻覚で声の区間と重ならない行を捨ててから(autoFill の文書だけ。0.60.0)割り当てる。手で決めた行(字幕に出さない・ゲーム音声など・重なりのメモつき)は話者を変えない
+    # 定型の幻覚で声の区間と重ならない行を捨ててから(autoFill の文書だけ)割り当てる。手で決めた行(字幕に出さない・ゲーム音声など・重なりのメモつき)は話者を変えない
     a = _diar.assign(doc, turns, offset, lambda g: diar_keep_row(g, ids), smooth)
     segs, keep, res, smoothed, dropped = a["segs"], a["keep"], a["res"], a["smoothed"], a["dropped"]
     spent = {}
     for sg, (sp, _, _), k in zip(segs, res, keep):
         if sp is not None and not k:
             spent[sp] = spent.get(sp, 0.0) + max(0.0, sg["end"] - sg["start"])
-    order = sorted(spent, key=lambda k: -spent[k])[:MAX_SPEAKERS]   # 話した時間が長い人から「話者1」「話者2」…
+    n_kept = len(_diar_kept_speakers(doc, segs, keep, ())[0])   # 守った行の話者(判別のあとも一覧に残る。合わせて MAX_SPEAKERS まで = 保存の検査で切れない)
+    order = sorted(spent, key=lambda k: -spent[k])[:max(0, MAX_SPEAKERS - n_kept)]   # 話した時間が長い人から「話者1」「話者2」…
     idmap = {raw: "S%d" % (i + 1) for i, raw in enumerate(order)}
     speakers = [{"id": "S%d" % (i + 1), "name": "話者%d" % (i + 1), "color": SPK_COLORS[i % len(SPK_COLORS)]} for i in range(len(order))]
     kept_sps, remap = _diar_kept_speakers(doc, segs, keep, set(idmap.values()))
@@ -161,7 +157,7 @@ def _apply_diarization(tid, turns, offset, requested, emb, auto=None, smooth=Fal
             parts.append(mark)
             unsure += 1
         sg["flag"] = "、".join(parts)[:100]
-    store.backup_doc(tid, "diarize")   # 直前の状態を1世代だけ残す・履歴にも残す(画面の「履歴」から戻せる)
+    store.backup_doc(tid, "diarize")   # 判別の前の状態を履歴に残す(画面の「履歴」から戻せる)
     doc.update({"speakers": speakers, "segments": segs, "updatedAt": int(time.time() * 1000),
                 "diarization": dict({"engine": "sherpa-onnx", "embedding": emb, "requested": requested, "found": len(order), "unsure": unsure, "at": int(time.time() * 1000)},
                                     **({"auto": True} if auto else {}), **({"smoothed": len(smoothed)} if smoothed is not None else {}),
@@ -171,7 +167,7 @@ def _apply_diarization(tid, turns, offset, requested, emb, auto=None, smooth=Fal
     else:
         store.commit(tid, doc, why="diar")
     _diar.record_run(tid, a, turns, offset, requested, emb, idmap, auto)   # 機械の最初の結果(人が直す前)を <id>.diar.json に
-    return len(order), unsure, {"idmap": idmap, "remap": remap}   # idmap = 生の話者 → S1…(話した長さ順)・remap = 守った行の話者の付け替え(話者の対応表の材料。O2-0b)
+    return len(order), unsure
 
 
 def validate_diarize(req):
@@ -190,11 +186,11 @@ def validate_diarize(req):
     names = []   # 出てくる人の名前(友人からの依頼の「話す人」。2026-10-01)
     for x in req.get("names") if isinstance(req.get("names"), list) else []:
         s = str(x or "").strip()[:60] if isinstance(x, str) else ""
-        if s and not any(ord(ch) < 32 for ch in s) and s not in names and not DEFAULT_SPK_NAME.match(s):
+        if s and not any(ord(ch) < 32 for ch in s) and not DEFAULT_SPK_NAME.match(s) and _textutil.person_key(s) not in {_textutil.person_key(n) for n in names}:
             names.append(s)
     return {"tid": tid, "numSpeakers": n if 1 <= n <= 10 else 0, "names": names[:10], "embedding": emb, "title": _heavy.job_title("話者判別: ", doc),
             "recognize": req.get("recognize") is not False,   # A-3: 覚えている声と照らし合わせる(既定オン)
-            "smooth": req["smooth"] if isinstance(req.get("smooth"), bool) else diar_smooth_setting()}   # S2: 細切れをならす(要求に無ければ設定 diarSmooth。既定オフ)
+            "smooth": req["smooth"] if isinstance(req.get("smooth"), bool) else _diar_smooth_setting()}   # S2: 細切れをならす(要求に無ければ設定 diarSmooth。既定オフ)
 
 
 def single_speaker(tid, name):
@@ -206,8 +202,8 @@ def single_speaker(tid, name):
         ids = _spk_ids(doc)
         keep = [diar_keep_row(g, ids) for g in segs]
         kept_sps, remap = _diar_kept_speakers(doc, segs, keep, {"S1"})
-        same = _spk_name_key(name or "話者1")
-        for s in [s for s in kept_sps if s.get("id") != _yschemas.OTHER_SPK_ID and _spk_name_key(s.get("name")) == same]:   # 同じ名前の人は 1 人にまとめる
+        same = _textutil.person_key(name or "話者1")
+        for s in [s for s in kept_sps if s.get("id") != _yschemas.OTHER_SPK_ID and _textutil.person_key(s.get("name")) == same]:   # 同じ名前の人は 1 人にまとめる
             remap.update({k: "S1" for k, v in remap.items() if v == s["id"]})
             kept_sps.remove(s)
         for sg, k in zip(segs, keep):
@@ -227,16 +223,13 @@ def single_speaker(tid, name):
 
 def run_diarize(job):
     spec = job["spec"]
-    if spec.get("auto") and autodiar_skip_at_start(job):   # 自動の判別: 待っている間に人が話者を付けた・確かめ済みにしたなら何もしない(v0.50.0)
+    if spec.get("auto") and _autodiar_skip_at_start(job):   # 自動の判別: 待っている間に人が話者を付けた・確かめ済みにしたなら何もしない
         return
-    if spec.get("numSpeakers") == 1:   # 1人なら判別しない(音声も取り出さない)
-        try:
-            single_speaker(spec["tid"], (spec.get("names") or [""])[0])
-            job["speakers"], job["unsure"] = 1, 0
-            job["named"] = [{"speaker": "S1", "name": spec["names"][0], "score": None}] if spec.get("names") else []
-            _heavy.job_done(job, spec["tid"])
-        except Exception as e:
-            job["state"], job["error"], job["phase"] = "error", "話者を付けられませんでした: %s %s" % (e.__class__.__name__, str(e)[:150]), "失敗"
+    if spec.get("numSpeakers") == 1:   # 1人なら判別しない(音声も取り出さない)。失敗は ② のジョブの器が受ける(ほかの道と同じ)
+        single_speaker(spec["tid"], (spec.get("names") or [""])[0])
+        job["speakers"], job["unsure"] = 1, 0
+        job["named"] = [{"speaker": "S1", "name": spec["names"][0], "score": None}] if spec.get("names") else []
+        _heavy.job_done(job, spec["tid"])
         return
     with _heavy.job_temp_wav(job) as wav:
         doc = store.read_transcript(spec["tid"])
@@ -248,16 +241,16 @@ def run_diarize(job):
         job["speakers"], job["unsure"] = apply_diarization(spec["tid"], turns, start, spec["numSpeakers"], spec["embedding"], auto, bool(spec.get("smooth")))
         if spec.get("recognize", True):   # A-3: 覚えている声と照らし合わせて、仮の名前(話者n)に名前を付ける。失敗しても判別の結果は残す
             try:
-                job["named"] = recognize_voices(job, spec["tid"], wav, start, spec["embedding"], spec.get("names") or None)
+                job["named"] = _recognize_voices(job, spec["tid"], wav, start, spec["embedding"], spec.get("names") or None)
             except _slots.Cancelled:
                 raise
             except Exception as e:
                 _txbase.log.warning("声の照らし合わせに失敗: %s %s", e.__class__.__name__, str(e)[:200])
                 job["voiceError"] = "覚えている声との照らし合わせに失敗しました(話者の判別の結果はそのまま): %s" % str(e)[:120]
                 _diar.record_match_error(spec["tid"], "%s %s" % (e.__class__.__name__, str(e)[:150]))
-        if spec.get("contextName"):   # 評価用の自動の判別: 声で名前が付かなかった人のうち、いちばん長く話した人に動画の手がかりの名前(v0.50.0)
+        if spec.get("contextName"):   # 評価用の自動の判別: 声で名前が付かなかった人のうち、いちばん長く話した人に動画の手がかりの名前
             try:
-                hit = autodiar_name_by_context(spec["tid"], spec["contextName"])
+                hit = _autodiar_name_by_context(spec["tid"], spec["contextName"])
                 if hit:
                     job["named"] = list(job.get("named") or []) + [hit]
             except Exception as e:   # 名前が付けられなくても判別の結果は残す
@@ -265,242 +258,15 @@ def run_diarize(job):
         _heavy.job_done(job, spec["tid"])
 
 
-# ---------- 重なりの所の空の行の下書き(2026-10-05。notes:plan/done/line-b-overlap.md の 5-3 の C・6-2 の 1・2) ----------
-# 同時にしゃべっている所は、認識が片方しか書かない。判別の記録(diar.json の latest)には、声があったのに行が付かなかった区間が残るので、
-# そこを「時刻(と分かれば話者)を入れた空の行」の候補にする。ここは候補を数えるだけ(文書も diar.json も書かない)。行を足すのは画面(元に戻すが効く・保存はいつもの道)。
-# 候補 = 判別の声の区間(同じラベルの区間はすき間 OVDRAFT_JOIN 以下でつなぐ)のうち、主の話者(区間の合計がいちばん長いラベル)でないもの:
-#   (a) labelMap に無いラベル(行が 1 つも付かなかった声)→ speaker ""(誰か分からない)・why "unassigned"
-#   (b) labelMap にあるラベルで、ほかの話者の区間と重なる(overlaps に入る部分がある)→ speaker = その話者の id・why "overlap"
-# 区間の半分以上が「書いてある」(下の _ovdraft_cover_rows)なら出さない = 2 回押しても増えない。出す区間は、両端の書いてある所を削る(同じ話者の行と重ねて赤くしない)。
-# 時刻は元の動画の秒(build_diar_run が offset を足して書く)= 行を直したあとの文書にもそのまま使える
-OVDRAFT_JOIN = 0.3    # 同じラベルの区間をつなぐすき間(秒)
-OVDRAFT_MIN = 0.5     # これより短い区間は出さない(短い相づちは数が多く当たりも悪いので、最初は出さない)
-OVDRAFT_MAX = 40      # 1 回に出す数(開始の順。超えた数は more)
-OVDRAFT_COVER = 0.5   # 区間のこの割合以上が書いてあれば出さない
-OVDRAFT_KIND = "overlap"   # 置いた行の印 draft の値(ytt/schemas の ROW_DRAFT_KINDS の 1 つ)
-# 抜け(why "missing"。計画 第2版 E2 の前倒し): 主の話者も含めて、どのラベルの声の区間でも、書いてある所(文字のある行は話者によらず・空の下書き・字幕に出さない行・
-# ゲーム音声などの行)と、先に出した重なりの候補を除いた残り。区間の中のすき間(1 人の話の途中で認識が落とした所)も拾うため、区間ごとの「半分以上」ではなく、
-# 書いてある所を引いた残りの切れ端ごとに見る。違うラベルの切れ端が重なればつなぐ(話者は長い方)。置いた行の印は OVDRAFT_MISS_KIND(音のメモ overlap は付けない)
-OVDRAFT_MISS_MIN = 0.8     # 抜けの切れ端の最短(秒)。息・相づち・行の端の余りを出さない(本物のデータで 0.5・0.8・1.2 を数えて決めた。docs は WORKLOG)
-OVDRAFT_MISS_KIND = "missing"
-OVDRAFT_GROUPS = ("overlap", "missing")   # 画面で選べるまとまり: overlap = 重なり(why overlap・unassigned)・missing = 抜け
-OVDRAFT_REASONS = {
-    "no_diar": "話者の判別の記録がありません(「話者を自動で判別」のあとで使えます)",
-    "single": "1 人として付けた判別なので、声の区間の記録がありません(人数を「自動」か 2 人以上で判別すると使えます)",
-    "no_turns": "判別の記録に声の区間がありません",
-}
-
-
-def _ovdraft_union(spans):
-    """[(開始, 終了)] をつなげて開始の順に(重なる・接するものは 1 つに。長さの無い区間は捨てる)"""
-    return _yschemas.union_spans((a, b) for a, b in spans if b > a)
-
-
-def _ovdraft_covered(a, b, union):
-    return sum(max(0.0, min(b, y) - max(a, x)) for x, y in union if x < b and y > a)
-
-
-def _ovdraft_trim(a, b, union):
-    """両端が書いてある所に入っていれば、その外まで縮める(真ん中の書いてある所はそのまま)"""
-    for x, y in union:
-        if x <= a < y:
-            a = y
-    for x, y in reversed(union):
-        if x < b <= y:
-            b = x
-    return a, b
-
-
-def _ovdraft_cover_rows(segs, ids, speaker):
-    """候補の区間を「書いてある」とみなす行の時間(つなげたもの)。speaker = None なら行の付かなかった声(a)、id ならその話者(b)。
-    どちらも: 機械の下書きのままの空の行(話者によらず。置いた所)・字幕に出さない行・「ゲーム音声など」の行(別の声として書いてある)。
-    (a): 文字のある行のうち、話者の無い行(文書に無い id を含む)と、判別のやり直しで守る行(diar_keep_row = 声が重なるのメモつきの話者のある行)。
-    (b): 文字のある行のうち、その話者の行"""
-    spans = []
-    for g in segs:
-        if not isinstance(g, dict):
-            continue
-        a, b = _yschemas.num_or(g.get("start")), _yschemas.num_or(g.get("end"))
-        if a is None or b is None or b <= a:
-            continue
-        if _yschemas.blank_draft_row(g):
-            spans.append((a, b))
-            continue
-        if not str(g.get("text") or "").strip():
-            continue
-        sp = str(g.get("speaker") or "")
-        if _yschemas.no_sub_row(g) or sp == _yschemas.OTHER_SPK_ID:
-            spans.append((a, b))
-        elif speaker is None:
-            if sp not in ids or diar_keep_row(g, ids):
-                spans.append((a, b))
-        elif sp == speaker:
-            spans.append((a, b))
-    return _ovdraft_union(spans)
-
-
-def ovdraft_candidates(doc, latest, kinds=None):
-    """文書(今の行・話者)と diar.json の latest から、空の行の候補。読むだけ。kinds = 出すまとまり(OVDRAFT_GROUPS の部分。None は全部)。
-    -> {"items": [{start, end, speaker: 話者の id か "", label, why: "unassigned" | "overlap" | "missing", draft: 置く行の印}](開始の順・選んだまとまりで OVDRAFT_MAX まで),
-        "more": 超えた数, "counts": {"overlap": 重なり(why overlap・unassigned)の数, "missing": 抜けの数}(kinds によらず全部・上限の前),
-        "reason": 出せない理由(文) か None, "reasonCode": no_diar | single | no_turns | None}。
-    同じ所は二重に出さない(重なり overlap → unassigned → 抜け missing の順に決める)"""
-    def empty(code):
-        return {"items": [], "more": 0, "counts": {g: 0 for g in OVDRAFT_GROUPS}, "reason": OVDRAFT_REASONS[code], "reasonCode": code}
-    if not isinstance(latest, dict):
-        return empty("no_diar")
-    eng = latest.get("engine") if isinstance(latest.get("engine"), dict) else {}
-    if eng.get("name") == "single":
-        return empty("single")
-    turns = []
-    for t in latest.get("turns") or []:
-        if not isinstance(t, dict) or t.get("label") is None:
-            continue
-        a, b = _yschemas.num_or(t.get("start")), _yschemas.num_or(t.get("end"))
-        if a is not None and b is not None and b > a:
-            turns.append((a, b, t["label"]))
-    if not turns:
-        return empty("no_turns")
-    lmap = {str(k): str(v) for k, v in (latest.get("labelMap") or {}).items() if v} if isinstance(latest.get("labelMap"), dict) else {}
-    ovl = _ovdraft_union((_yschemas.num_or(x[0]), _yschemas.num_or(x[1])) for x in latest.get("overlaps") or []
-                         if isinstance(x, (list, tuple)) and len(x) >= 2 and _yschemas.num_or(x[0]) is not None and _yschemas.num_or(x[1]) is not None)
-    total = {}
-    for a, b, lb in turns:
-        total[str(lb)] = total.get(str(lb), 0.0) + (b - a)
-    main = max(total, key=lambda k: total[k])   # 主の話者(ほかの声が乗っているだけの側。書かれている側なので出さない)
-    joined = []   # [(開始, 終了, ラベル)] 同じラベルの区間をつないだもの
-    for lb in total:
-        if lb != main:
-            joined += [tuple(j) for j in _join_label_spans(sorted(t for t in turns if str(t[2]) == lb))]
-    lo = _yschemas.num_or(doc.get("start"), 0.0) or 0.0
-    hi = _yschemas.num_or(doc.get("end"))
-    dur = _yschemas.num_or(doc.get("duration"))
-    hi = min(x for x in (hi, dur, float("inf")) if x is not None and x > 0)
-    segs = [g for g in doc.get("segments") or [] if isinstance(g, dict)]
-    ids = _spk_ids(doc)
-    covers = {}
-    items = []
-    for a, b, lb in sorted(joined):
-        a, b = max(a, lo), min(b, hi)
-        if b - a < OVDRAFT_MIN:
-            continue
-        sp = lmap.get(str(lb))
-        if sp is not None and _ovdraft_covered(a, b, ovl) <= 0.01:   # (b) は、ほかの話者の区間と重なっている声だけ
-            continue
-        if sp not in covers:   # (a) は None
-            covers[sp] = _ovdraft_cover_rows(segs, ids, sp)
-        union = covers[sp]
-        if _ovdraft_covered(a, b, union) >= OVDRAFT_COVER * (b - a):
-            continue
-        a2, b2 = _ovdraft_trim(a, b, union)
-        if b2 - a2 < OVDRAFT_MIN:
-            continue
-        items.append({"start": round(a2, 2), "end": round(b2, 2), "speaker": sp if sp in ids else "", "label": lb,
-                      "why": "unassigned" if sp is None else "overlap", "draft": OVDRAFT_KIND})
-    items += _ovdraft_missing(turns, lmap, ids, segs, items, lo, hi)
-    counts = {g: sum(1 for x in items if _ovdraft_group(x) == g) for g in OVDRAFT_GROUPS}
-    want = set(OVDRAFT_GROUPS if kinds is None else [k for k in kinds if k in OVDRAFT_GROUPS])
-    items = sorted((x for x in items if _ovdraft_group(x) in want), key=lambda x: (x["start"], x["end"]))
-    return {"items": items[:OVDRAFT_MAX], "more": max(0, len(items) - OVDRAFT_MAX), "counts": counts, "reason": None, "reasonCode": None}
-
-
-def _join_label_spans(ts):
-    """同じラベルの区間 ts = [(開始, 終了, ラベル)](開始の順)を、すき間 OVDRAFT_JOIN 以下でつなぐ -> [[開始, 終了, 最初のラベル]]。
-    重なりの候補(ovdraft_candidates)と抜けの候補(_ovdraft_missing)が同じつなぎ方を使う"""
-    out = []
-    for a, b, x in ts:
-        if out and a - out[-1][1] <= OVDRAFT_JOIN:
-            out[-1][1] = max(out[-1][1], b)
-        else:
-            out.append([a, b, x])
-    return out
-
-
-def _ovdraft_group(x):
-    return "missing" if x.get("why") == "missing" else "overlap"
-
-
-def _ovdraft_cover_any(segs):
-    """抜けの覆い: 文字のある行(話者によらない)・機械の下書きのままの空の行・字幕に出さない行・ゲーム音声などの行"""
-    spans = []
-    for g in segs:
-        a, b = _yschemas.num_or(g.get("start")), _yschemas.num_or(g.get("end"))
-        if a is None or b is None or b <= a:
-            continue
-        if (str(g.get("text") or "").strip() or _yschemas.blank_draft_row(g) or _yschemas.no_sub_row(g)
-                or str(g.get("speaker") or "") == _yschemas.OTHER_SPK_ID):
-            spans.append((a, b))
-    return _ovdraft_union(spans)
-
-
-def _ovdraft_cut(a, b, union, ends=None):
-    """[a, b] から union(開始の順・重ならない)を引いた残り [(開始, 終了)]。ends = union の終わりの並び(渡せば二分探索で始める。長い文書でも重くしない)"""
-    out, cur = [], a
-    for k in range(bisect.bisect_right(ends, a) if ends is not None else 0, len(union)):
-        x, y = union[k]
-        if x >= b:
-            break
-        if y <= cur:
-            continue
-        if x > cur:
-            out.append((cur, x))
-        cur = max(cur, y)
-        if cur >= b:
-            break
-    if cur < b:
-        out.append((cur, b))
-    return out
-
-
-def _ovdraft_missing(turns, lmap, ids, segs, prior, lo, hi):
-    """抜けの候補(why missing)。turns = [(開始, 終了, ラベル)]・prior = 先に決めた重なりの候補(同じ所は二重に出さない)。
-    ラベルごとに区間をつなぎ(OVDRAFT_JOIN)、書いてある所と prior を引いた切れ端を、違うラベルどうしで重なればつないで、OVDRAFT_MISS_MIN 以上を出す"""
-    cover = _ovdraft_union(_ovdraft_cover_any(segs) + [(x["start"], x["end"]) for x in prior])
-    ends = [y for _, y in cover]
-    by_label = {}
-    for t in sorted(turns):
-        by_label.setdefault(str(t[2]), []).append(t)
-    pieces = []   # [(開始, 終了, ラベル)]
-    for ts in by_label.values():
-        for a, b, x in _join_label_spans(ts):
-            pieces += [(p, q, x) for p, q in _ovdraft_cut(max(a, lo), min(b, hi), cover, ends)]
-    groups = []   # [[開始, 終了, {ラベル: 秒}]]
-    for a, b, lb in sorted((p for p in pieces if p[1] > p[0]), key=lambda p: (p[0], p[1], str(p[2]))):
-        if groups and a < groups[-1][1]:
-            g = groups[-1]
-            g[1] = max(g[1], b)
-            g[2][lb] = g[2].get(lb, 0.0) + (b - a)
-        else:
-            groups.append([a, b, {lb: b - a}])
-    out = []
-    for a, b, secs in groups:
-        if b - a < OVDRAFT_MISS_MIN:
-            continue
-        best = max(secs, key=lambda k: (secs[k], str(k)))
-        sp = lmap.get(str(best))
-        out.append({"start": round(a, 2), "end": round(b, 2), "speaker": sp if sp in ids else "", "label": best, "why": "missing", "draft": OVDRAFT_MISS_KIND})
-    return out
-
-
-def ovdraft_for_doc(tid, kinds=None):
-    """GET /api/overlap-drafts?id=&kinds= : 保存済みの文書と判別の記録で候補を数える(読むだけ)。文書が無ければ 404。
-    kinds = 「,」区切りのまとまり(overlap・missing。無い・空なら全部。知らない名前は捨てる)。
-    -> ovdraft_candidates の結果 + "diarAt"(判別の時刻。記録が無ければ None)"""
-    doc = store.read_transcript(tid)
-    latest = _diar.latest_run(tid)
-    ks = None if kinds is None or not str(kinds).strip() else [k.strip() for k in str(kinds)[:100].split(",")]
-    out = ovdraft_candidates(doc, latest, ks)
-    out["diarAt"] = latest.get("at") if latest else None
-    return out
-
-
-# ---------- 文字起こしのあと、話者を自動で判別する(v0.50.0。評価用は常に・それ以外は設定 autoDiarize) ----------
+# ---------- 評価用の文書の文字起こしのあと、話者を自動で判別する ----------
+# 評価用でない文書の自動の判別(設定 autoDiarize)は消した(OPT-H1。決定 notes:plan/decisions.md の 3-47 Q7。普段の判別は ② の流れ = 依頼は人数を指定して直に呼ぶ)。
 # 評価ドリルでは全行に話者が要る(評価用のフォルダの「メンバーのフォルダへ移す」条件)ので、評価用の文字起こしのあとは必ず判別のジョブを足し、
 # 覚えた声で名前が付かなかった(仮の名前 話者n の)話者のうち、話した秒がいちばん長い人に「動画の手がかり」の名前
 # (drill.drill_candidates の suggest = 覚えた声 → 動画の入ったメンバーのフォルダ → 配信の文脈)を付ける。新しい認識の道は作らない(今の diarize のジョブ)。
 # 人が付けたものは置き換えない: 文字のある行に1つでも話者があれば何もしない(足すときと、ジョブが動き出すときの両方で確かめる)。
-# 判別の部品(sherpa-onnx)が無いときは黙って飛ばす(ログだけ。文字起こしは失敗にしない)。名前は serve.py からも見える(autodiar_ / AUTODIAR_ で始める)
-AUTODIAR_BY = "context"   # diar.json の voices の by(動画の手がかりで付けた。覚えた声 = threshold・消去法 = elimination・依頼 = request と並べる)
+# 判別の部品(sherpa-onnx)が無いときは黙って飛ばす(ログだけ。文字起こしは失敗にしない)。外から呼ぶ口は autodiar_enqueue・autodiar_after_transcribe
+# (⑤ eval/drill/evalbatch と doc_jobs)・autodiar_enabled・autodiar_ready。名前は serve.py からも見える(autodiar_ / _autodiar_ で始める)
+_AUTODIAR_BY = "context"   # diar.json の voices の by(動画の手がかりで付けた。覚えた声 = threshold・消去法 = elimination・依頼 = request と並べる)
 
 
 def autodiar_enabled():
@@ -514,7 +280,7 @@ def autodiar_ready():
     return _diar.models_ready(auto=True)
 
 
-def autodiar_why_not(doc):
+def _autodiar_why_not(doc):
     """自動で判別しない理由(None = 判別してよい): empty(文字のある行が無い)・reviewed(評価用で確かめ済み)・
     has_speakers(文字のある行に話者がある = 人か前の判別が付けた。置き換えない)"""
     ids = {s.get("id") for s in doc.get("speakers") or [] if isinstance(s, dict) and s.get("id")}
@@ -532,27 +298,27 @@ def autodiar_enqueue(tid, batch=False, smooth=None):
     """自動の判別のジョブを足す(人数 自動・覚えた声との照合あり)。評価用なら名前の候補(suggest)も渡す。
     -> {"job": ジョブ, "name": 名前の候補 or None} か {"skipped": 理由}。足せない(待機列がいっぱい・処理中など)は ApiError。
     batch = 評価用のまとめての文字起こし(eval/drill/evalbatch)が入れた印(spec["evalBatch"]。そちらの待ちの数に入る)。
-    smooth = 細切れをならすか(文字起こしの要求にあればその値。None = 保存した設定 diarSmooth。RS7-1 S2)"""
+    smooth = 細切れをならすか(文字起こしの要求にあればその値。None = 保存した設定 diarSmooth)"""
     if not autodiar_enabled():
         return {"skipped": "off"}
     if not autodiar_ready():
         _txbase.log.info("話者の自動判別を飛ばしました(判別の部品 sherpa-onnx が無い): %s", tid)
         return {"skipped": "no_sherpa"}
     doc = store.read_transcript(tid)
-    why = autodiar_why_not(doc)
+    why = _autodiar_why_not(doc)
     if why:
         return {"skipped": why}
     ev = doc.get("evalSet") is True
     name = None
     if ev:
         try:
-            name = str(_context_name(tid) or "").strip()[:30] or None   # serve が登録した口 = drill.drill_candidates の suggest(RS2-9)
+            name = str(_context_name(tid) or "").strip()[:30] or None   # serve が登録した口 = drill.drill_candidates の suggest
         except Exception as e:   # 名簿・ほかのツールのデータが読めなくても判別は始める(名前は付けない)
             _txbase.log.info("話者の名前の候補を決められませんでした: %s %s", tid, str(e)[:150])
         if name and (DEFAULT_SPK_NAME.match(name) or is_generic_speaker_name(name)):
             name = None
     st = _settings.load_settings()   # 判別モデルと「細切れをならす」(diarSmooth)を 1 回で読む
-    spec = validate_diarize({"tid": tid, "numSpeakers": 0, "recognize": True, "embedding": st.get("diarEmb"), "smooth": st.get("diarSmooth") is True if smooth is None else smooth})
+    spec = validate_diarize({"tid": tid, "numSpeakers": 0, "recognize": True, "embedding": st.get("diarEmb"), "smooth": _diar_smooth_setting(st) if smooth is None else smooth})
     spec.update({"auto": True, "autoEval": ev, "contextName": name,
                  "title": _heavy.job_title("話者判別(自動): ", doc)})
     if batch:
@@ -562,25 +328,23 @@ def autodiar_enqueue(tid, batch=False, smooth=None):
 
 def autodiar_after_transcribe(job, spec, tid):
     """文字起こしのジョブ(run_job)の終わり。文書を書いたあと・「完了」にする前に呼ぶ(ドリルが判別の前の文書を開かないよう、間を空けない)。
-    評価用は常に・それ以外は設定 autoDiarize。始められなくても文字起こしは成功のまま(job["warnings"])"""
-    if not (spec.get("evalSet") or spec.get("autoDiarize")):
+    評価用の文書だけ(要求の autoDiarize は見ない)。部品が無ければ黙って飛ばす(人が「全行をこの人に」)。始められなくても文字起こしは成功のまま(job["warnings"])"""
+    if not spec.get("evalSet"):
         return
     try:
-        r = autodiar_enqueue(tid, batch=bool(spec.get("evalBatch")), smooth=spec.get("diarSmooth"))
-        if r.get("skipped") == "no_sherpa" and not spec.get("evalSet"):   # 設定でオンにした人には知らせる(評価用は黙って飛ばす = 人が「全行をこの人に」)
-            _txbase.add_warning(job, "話者の判別の部品(sherpa-onnx)が入っていないため、話者は自動で判別しませんでした")
+        autodiar_enqueue(tid, batch=bool(spec.get("evalBatch")), smooth=spec.get("diarSmooth"))
     except _errors.ApiError as e:
         _txbase.add_warning(job, "話者の自動判別を始められませんでした: " + e.message)
     except Exception as e:   # 想定外でも、書き終えた文字起こしのジョブを失敗にしない
         _txbase.log.warning("話者の自動判別を始められませんでした: %s %s %s", tid, e.__class__.__name__, str(e)[:150])
 
 
-def autodiar_skip_at_start(job):
+def _autodiar_skip_at_start(job):
     """自動の判別のジョブが動き出すとき、もう一度確かめる(待っている間に人が話者を付けた・確かめ済みにした・行が消えた)。
     判別しないなら「完了(判別しませんでした)」にして True"""
     spec = job["spec"]
     try:
-        why = autodiar_why_not(store.read_transcript(spec["tid"]))
+        why = _autodiar_why_not(store.read_transcript(spec["tid"]))
     except _errors.ApiError as e:
         why = e.code
     if not why:
@@ -590,12 +354,12 @@ def autodiar_skip_at_start(job):
     return True
 
 
-def autodiar_name_by_context(tid, name):
+def _autodiar_name_by_context(tid, name):
     """覚えた声で名前が付かなかった(仮の名前 話者n の)話者のうち、話した秒がいちばん長い人に name を付ける(1 人だけならその人)。
-    name がもうほかの話者に使われていれば付けない(覚えた声の名前を優先)。読み直し〜書き込みは保存と同じロックの中(recognize_voices と同じ)。
+    name がもうほかの話者に使われていれば付けない(覚えた声の名前を優先・名前は person_key で比べる)。読み直し〜書き込みは保存と同じロックの中(_recognize_voices と同じ)。
     -> {"speaker", "name", "score": None, "by": "context"} か None。経過は diar.json の voices(② の record_context)"""
     nm = str(name or "").strip()[:30]
-    key = _spk_name_key(nm)
+    key = _textutil.person_key(nm)
     hit, reason = None, None
     with store._save_lock:
         doc = store.read_transcript(tid)
@@ -608,53 +372,59 @@ def autodiar_name_by_context(tid, name):
         left = [s for s in sps if DEFAULT_SPK_NAME.match(str(s.get("name") or "")) and spent.get(s.get("id"), 0.0) > 0]
         if not nm or not sps:
             reason = "no_speakers" if nm else "no_name"
-        elif any(_spk_name_key(str(s.get("name") or "")) == key for s in sps):
+        elif any(_textutil.person_key(s.get("name")) == key for s in sps):
             reason = "name_in_use"
         elif not left:
             reason = "all_named"
         else:
             pick = max(left, key=lambda s: spent.get(s.get("id"), 0.0))   # 同じ秒なら先の人(話者1 = 判別が長い順に付けた番号)
             pick["name"] = nm
-            hit = {"speaker": pick["id"], "name": nm, "score": None, "by": AUTODIAR_BY}
+            hit = {"speaker": pick["id"], "name": nm, "score": None, "by": _AUTODIAR_BY}
             if isinstance(doc.get("diarization"), dict):
                 doc["diarization"]["contextName"] = nm
             doc["updatedAt"] = int(time.time() * 1000)
             store.commit(tid, doc, why="diar_context")
-    _diar.record_context(tid, nm, hit, reason)   # diar.json の voices に by = context と経過(RS6 a-4 まで ③ の _autodiar_record)
+    _diar.record_context(tid, nm, hit, reason)   # diar.json の voices に by = context と経過(② flow/diar)
     return hit
 
 
-# ---------- 話者の声を覚える(A-3。git の履歴(679ff01 以前)の docs/archive/backlog-ui-2026-09-27.md) ----------
+# ---------- 覚えた声で名前を付ける・話者の声を覚える(A-3。git の履歴(679ff01 以前)の docs/archive/backlog-ui-2026-09-27.md) ----------
 # 名前を付けた話者の行の音声から「声の特徴」(sherpa-onnx の話者の埋め込み。判別モデルごとに別)を作って覚え、
 # 次からの話者判別のあとで、見つかった話者を覚えている声と比べて名前を付ける。
 # 声の特徴は個人を見分けられる情報なので、作業データ(voices/)にだけ置く(リポジトリ・パックには入れない)。
 # 声の特徴の計算と照らし合わせ(VOICE_MATCH・embed_groups・match_voices)は pipeline/transcribe/diarize(numpy・sherpa-onnx は認識ワーカーの中だけ)。
-# 覚えた声の置き場所(VOICES_DIR・voices_dir・load_voices・save_voices・登録簿のロック)と、声の特徴を取る・照らし合わせる段取りは ② flow/diar(RS6 a-4)。
-# ここに残るのは、覚える行の計画・覚える前の確認・受付・覚えるジョブ・一覧・忘れる(声の登録簿の編集の受付)
-VOICE_MAX_PEOPLE = 300
+# 覚えた声の置き場所(VOICES_DIR・voices_dir・load_voices・save_voices・登録簿のロック)と、声の特徴を取る・照らし合わせる段取りは ② flow/diar。
+# ここにあるのは、判別のあとの名前付け(_recognize_voices)・覚える行の計画・覚える前の確認・受付・覚えるジョブ・一覧・忘れる(声の登録簿の編集の受付)。
+# 名前は person_key で比べる(登録簿の「Pekora」と文書の「pekora」は同じ人 = 登録簿の名前に足す)
+_VOICE_MAX_PEOPLE = 300
 DEFAULT_SPK_NAME = re.compile(r"^話者\d+$")   # 話者判別が付けた仮の名前(覚えない・声で付けた名前で置き換えてよい)
 # 一般的な名前(監査18。段1・2026-09-29 ユーザー決定): 声を覚えると、別の配信の「本人」「ゲスト」に同じ名前が付いてしまう(人ではなく役の名前)ので覚えない。
-# 判定は is_generic_speaker_name の1か所(画面は preview の結果を出すだけ)。比べる前に NFKC・小文字・空白を寄せる(全角の「ＭＣ」・「Speaker 1」も同じに)
-GENERIC_SPK_NAMES = frozenset(("本人", "ゲスト", "配信者", "私", "自分", "相手", "司会", "mc", "男性", "女性", "不明", "その他", "視聴者", "ナレーション",
-                               "話者", "speaker", "スピーカー", _yschemas.OTHER_SPK_NAME))   # 組み込みの「ゲーム音声など」も人の名前ではない(覚えない・照らし合わせない)
-GENERIC_SPK_FORM = re.compile(r"^(?:話者|speaker|spk|スピーカー)?(?:\d+|[a-z])$")   # 話者A・話者1・Speaker 1・英字1文字・数字だけ
-
-
-def _spk_name_key(name):
-    return re.sub(r"\s+", "", unicodedata.normalize("NFKC", str(name or "")).lower())
+# 判定は is_generic_speaker_name の1か所(画面は preview の結果を出すだけ)。比べる前に person_key で寄せる(全角の「ＭＣ」・「Speaker 1」・カタカナとひらがなも同じに)
+_GENERIC_SPK_NAMES = frozenset(_textutil.person_key(x) for x in (
+    "本人", "ゲスト", "配信者", "私", "自分", "相手", "司会", "mc", "男性", "女性", "不明", "その他", "視聴者", "ナレーション",
+    "話者", "speaker", "スピーカー", _yschemas.OTHER_SPK_NAME))   # 組み込みの「ゲーム音声など」も人の名前ではない(覚えない・照らし合わせない)
+_GENERIC_SPK_FORM = re.compile(r"^(?:話者|speaker|spk|すぴーかー)?(?:\d+|[a-z])$")   # 話者A・話者1・Speaker 1・英字1文字・数字だけ(person_key のあとの形 = スピーカーはひらがな)
+_spk_name_key = _textutil.person_key   # lint: keep 別名(⑤ eval/drill/drill が読む旧い内部名。⑤ が ytt.textutil.person_key を読むようにしたら消す = OPT-E1)
 
 
 def is_generic_speaker_name(name):
-    k = _spk_name_key(name)
-    return bool(k) and (k in GENERIC_SPK_NAMES or bool(GENERIC_SPK_FORM.match(k)))
+    k = _textutil.person_key(name)
+    return bool(k) and (k in _GENERIC_SPK_NAMES or bool(_GENERIC_SPK_FORM.match(k)))
 
 
-def recognize_voices(job, tid, wav, offset, emb, names=None):
+def _voice_name(voices, name):
+    """登録簿の中で name と同じ人(person_key が同じ)の名前。いなければ name のまま"""
+    k = _textutil.person_key(name)
+    return next((n for n in voices if _textutil.person_key(n) == k), name)
+
+
+def _recognize_voices(job, tid, wav, offset, emb, names=None):
     """話者判別のあと: 見つかった話者を覚えている声と比べ、仮の名前(話者n)のままの話者に名前を付ける。-> [{"speaker", "name", "score"}]。
     names(出てくる人の名前。友人からの依頼)があれば、照らし合わせをその名前だけにし、最後に仮の名前の話者と使っていない名前が1つずつ残れば消去法で付ける(score None)。
     照合の経過(点数・2位との差・決まり方・付けなかった理由)は <id>.diar.json の voices に残す(② の record_match。書けなくても名前付けは続ける)"""
     all_voices = _diar.load_voices(emb)
-    voices = {n: v for n, v in all_voices.items() if n in names} if names else all_voices
+    want = {_textutil.person_key(n) for n in names or ()}
+    voices = {n: v for n, v in all_voices.items() if _textutil.person_key(n) in want} if names else all_voices
     got, detail = {}, {}
     if voices:
         doc = store.read_transcript(tid)
@@ -686,16 +456,17 @@ def recognize_voices(job, tid, wav, offset, emb, names=None):
     named = []
     with store._save_lock:   # 読み直し〜書き込みは保存と同じロックの中(話者判別の書き込みと同じ)
         doc = store.read_transcript(tid)
-        taken = {str(s.get("name") or "") for s in doc.get("speakers") or [] if isinstance(s, dict)}
+        key = _textutil.person_key
+        taken = {key(s.get("name")) for s in doc.get("speakers") or [] if isinstance(s, dict)}   # 使われている名前(person_key で比べる)
         for s in doc.get("speakers") or []:
             hit = got.get(s.get("id")) if isinstance(s, dict) else None
-            if hit and DEFAULT_SPK_NAME.match(str(s.get("name") or "")) and hit[0] not in taken:
+            if hit and DEFAULT_SPK_NAME.match(str(s.get("name") or "")) and key(hit[0]) not in taken:
                 s["name"] = hit[0]
-                taken.add(hit[0])
+                taken.add(key(hit[0]))
                 named.append({"speaker": s["id"], "name": hit[0], "score": hit[1], "by": "threshold"})
         if names:   # 消去法: 名前の無い話者と使っていない名前が1つずつなら、その人
             left = [s for s in doc.get("speakers") or [] if isinstance(s, dict) and DEFAULT_SPK_NAME.match(str(s.get("name") or ""))]
-            unused = [n for n in names if n not in taken]
+            unused = [n for n in names if key(n) not in taken]
             if len(left) == 1 and len(unused) == 1:
                 left[0]["name"] = unused[0]
                 named.append({"speaker": left[0]["id"], "name": unused[0], "score": None, "by": "elimination"})
@@ -712,12 +483,13 @@ EVAL_SET_VOICE_MSG = "評価用の文字起こしでは声を覚えません(評
 
 def voice_learn_plan(doc, rows=None):
     """声を覚えるときに使う行(監査17。段1): voice_groups の条件(1秒以上・声が混ざっていない)に加えて、校正済みで、音のメモ(重なり・BGM・聞き取れない)が無い行だけ。
-    話者判別のときの照らし合わせ(recognize_voices)は voice_groups のまま(校正前の文書でも名前が付くように。変えない決定)。
+    話者判別のときの照らし合わせ(_recognize_voices)は voice_groups のまま(校正前の文書でも名前が付くように。変えない決定)。
     rows = 使う行の id を明示する(確かめるの声のカードで人が名前を答えた行。V1 V2c)。渡すとその行だけを使い、校正済みかは見ない
     (カードの行は校正済みにしない = 文字は確かめていない)。ほかの条件(1 秒以上・混ざり・音のメモ・名前)は同じ。
     -> {"groups": {名前: ([(開始, 終了)...], 秒)}, "speakers": {名前: [話者の id]}, "refused": [{"name", "speakers", "reason": "generic"|"no_rows"}],
         "skipped": {"unproofed", "tagged", "mixed", "short"}(覚える人の行のうち使わなかった数。理由は 1秒未満 → 混ざる → 音のメモ → 未校正 の順に1つ。
-        rows を渡したときの unproofed = 指定に無い行), "rowIds": {名前: [使える行の id]}(条件を通った行。上限で使わない行も含む)}"""
+        rows を渡したときの unproofed = 指定に無い行), "rowIds": {名前: [声に使う行の id]}(groups に入った行だけ。1 人の上限(① voice_groups)で使わない行は入れない =
+        確かめるの覚え直しで、使わなかった行を「覚えた」と控えない)}"""
     names = {s.get("id"): str(s.get("name") or "").strip()[:60] for s in doc.get("speakers") or [] if isinstance(s, dict) and not _yschemas.other_speaker(s)}   # 組み込みの「ゲーム音声など」は覚えない(断った扱いにもしない)
     by_name, refused = {}, {}
     for sid, n in names.items():
@@ -737,14 +509,15 @@ def voice_learn_plan(doc, rows=None):
         ok = g.get("proofed") is True if pick is None else str(g.get("id")) in pick
         if not ok:
             return "unproofed"
-        row_ids.setdefault(who.get(g.get("speaker")), []).append(str(g.get("id")))
+        row_ids.setdefault(who.get(g.get("speaker")), []).append((str(g.get("id")), _yschemas.num_or(g.get("start")), _yschemas.num_or(g.get("end"))))
         return None
     groups, skipped = _diar.voice_learn_rows(doc.get("segments") or [], who, accept)
     for n, sids in by_name.items():
         if n not in groups:
             refused[n] = {"name": n, "speakers": sids, "reason": "no_rows"}
     return {"groups": groups, "speakers": {n: sids for n, sids in by_name.items() if n in groups},
-            "refused": sorted(refused.values(), key=lambda r: r["name"]), "skipped": skipped, "rowIds": {n: ids for n, ids in row_ids.items() if n in groups}}
+            "refused": sorted(refused.values(), key=lambda r: r["name"]), "skipped": skipped,
+            "rowIds": {n: [rid for rid, a, b in ids if (a, b) in set(groups[n][0])] for n, ids in row_ids.items() if n in groups}}
 
 
 def _voice_emb(req, doc):
@@ -760,7 +533,7 @@ def voice_preview(tid, emb):
     people = []
     for n in sorted(plan["groups"]):
         rs, sec = plan["groups"][n]
-        old = voices.get(n)
+        old = voices.get(_voice_name(voices, n))
         people.append({"name": n, "speaker": plan["speakers"][n][0], "speakers": plan["speakers"][n], "rows": len(rs), "sec": round(sec, 1), "exists": bool(old),
                        "old": {"rows": int(old.get("rows") or 0), "sec": float(old.get("sec") or 0.0), "updatedAt": int(old.get("updatedAt") or 0)} if old else None})
     return {"tid": tid, "embedding": emb, "evalSet": doc.get("evalSet") is True, "people": people, "refused": plan["refused"], "skipped": plan["skipped"]}
@@ -784,7 +557,7 @@ def validate_voice_learn(req):
     emb = _voice_emb(req, doc)
     same = {str(x) for x in req.get("confirmSame") or [] if isinstance(x, str)}
     voices = _diar.load_voices(emb)
-    ask = [n for n in names if n in voices and n not in same]
+    ask = [n for n in names if _voice_name(voices, n) in voices and n not in same]
     if ask:   # 監査18: 既にある名前に足すのは「同じ人」と確かめたときだけ(別人の声が混ざると、その名前の照らし合わせが外れる)
         raise _errors.ApiError("confirm_same", "「%s」の声はもう覚えています。同じ人か確かめてから、もう一度押してください" % "」「".join(ask), 409, extra={"names": ask})
     if _heavy.tid_busy(tid, _heavy.EXCLUSIVE["voice-learn"]):
@@ -817,15 +590,16 @@ def run_voice_learn(job):
             for n, v in zip(people, vecs):
                 if not v:
                     continue
-                old = voices.get(n)
+                at = _voice_name(voices, n)   # 登録簿に同じ人(person_key が同じ)がいれば、その名前に足す
+                old = voices.get(at)
                 if old and n not in same:   # 待っている間にほかで同じ名前を覚えた(確かめていない人の声には足さない)
                     _txbase.add_warning(job, "「%s」の声は、待っている間にほかで覚えられたので足しませんでした(同じ人なら、もう一度「声を覚える」を押してください)" % n)
                     continue
-                voices[n] = _diar.merge_voice(old, v, len(grp[n][0]), grp[n][1], spec["tid"],   # 前に覚えた声とは使った長さで重みを付けて混ぜる
+                voices[at] = _diar.merge_voice(old, v, len(grp[n][0]), grp[n][1], spec["tid"],   # 前に覚えた声とは使った長さで重みを付けて混ぜる
                                               by=spec.get("by"), row_ids=plan["rowIds"].get(n) if spec.get("rows") is not None else None)
                 learned.append(n)
-            if len(voices) > VOICE_MAX_PEOPLE:
-                raise _errors.ApiError("too_many", "覚えられる声は %d 人までです(使わない声を消してください)" % VOICE_MAX_PEOPLE, 400)
+            if len(voices) > _VOICE_MAX_PEOPLE:
+                raise _errors.ApiError("too_many", "覚えられる声は %d 人までです(使わない声を消してください)" % _VOICE_MAX_PEOPLE, 400)
         if not learned:
             raise _errors.ApiError("no_voice", "声の特徴を取り出せませんでした(行が短すぎる・音声が無い可能性があります)", 400)
         job["learned"] = learned
@@ -854,24 +628,19 @@ def delete_voice(emb, name):
         del voices[name]
 
 
-# ---------- 話者ごとの字幕の見た目を外から入れる(入口のまとめて実行。2026-10-05。notes:docs/spec/friend.md の 3・6) ----------
+# ---------- 話者ごとの字幕の見た目を外から入れる(入口のまとめて実行。2026-10-05。notes:docs/spec/friend.md の 2-8・2-11) ----------
 # POST /api/speakers/sub {"id": 文書の id, "styles": {"名前": {"color": "#RRGGBB" か "RRGGBB"}}} -> {"ok": true, "applied": [名前…]}
-# 友人の依頼で指定した色を、話者分離のあとに文書の話者へ覚える(PC の「自分の色」には入れない)。名前がちょうど合った人(NFKC・空白を寄せて比べる)だけ。
-# 合う人がいなくても 200(applied が空)。履歴の控えは recognize_voices が名前を付けるときと同じく残さない(話者の見た目だけの書き込み)
+# 友人の依頼で指定した色を、話者分離のあとに文書の話者へ覚える(PC の「自分の色」には入れない)。名前が合った人(person_key で比べる)だけ。
+# 合う人がいなくても 200(applied が空)。履歴の控えは _recognize_voices が名前を付けるときと同じく残さない(話者の見た目だけの書き込み)
 SPKSUB_SKIP_KINDS = ("alt", "normalize")   # この文書を書き換えないジョブ(2つ目のエンジン・30fps の作り直し)は「最中」に数えない
 
 
-def _spksub_key(name):
-    return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", str(name or ""))).strip()
-
-
 def _spksub_busy(tid):
-    with _heavy._jobs_lock:
-        return any(j.get("state") in _heavy.ACTIVE_STATES and j.get("kind") not in SPKSUB_SKIP_KINDS
-                   and tid in (j.get("tid"), (j.get("spec") or {}).get("tid"), (j.get("spec") or {}).get("intoDoc")) for j in _heavy._jobs.values())
+    return _heavy.doc_busy(tid, SPKSUB_SKIP_KINDS)
 
 
 def speakers_sub_apply(obj):
+    """POST /api/speakers/sub: 名前が合った話者の字幕の見た目 sub に色を重ねる -> {"ok": True, "applied": [名前…]}。処理中なら 409"""
     tid = str(obj.get("id") or "") if isinstance(obj, dict) else ""
     if not _yschemas.TID_RE.match(tid):
         raise _errors.ApiError("bad_request", "文書の指定が正しくありません", 400)
@@ -885,10 +654,10 @@ def speakers_sub_apply(obj):
         if "color" in st and store._sub_color(st["color"]) is None:
             raise _errors.ApiError("bad_request", "字幕の色は 16 進 6 桁(#RRGGBB)で送ってください: %s" % str(st["color"])[:20], 400)
         one = store.sanitize_sub_style(st)   # 知らない鍵は黙って捨てる(新しい入口が古い編集へ送っても、色までは効く)
-        key = _spksub_key(name)
+        key = _textutil.person_key(name)
         if one and key:
             want[key] = one
-    with store._save_lock:   # 読み直し〜書き込みは保存と同じロックの中(recognize_voices と同じ)
+    with store._save_lock:   # 読み直し〜書き込みは保存と同じロックの中(_recognize_voices と同じ)
         doc = store.read_transcript(tid)
         if _spksub_busy(tid):
             raise _errors.ApiError("busy", "この文字起こしは処理中です(話者判別などが終わってから、もう一度送ってください)", 409)
@@ -896,7 +665,7 @@ def speakers_sub_apply(obj):
         for s in doc.get("speakers") or []:
             if not isinstance(s, dict) or _yschemas.other_speaker(s):
                 continue
-            one = want.get(_spksub_key(s.get("name")))
+            one = want.get(_textutil.person_key(s.get("name")))
             if one:
                 s["sub"] = dict(store.sanitize_sub_style(s.get("sub")) or {}, **one)
                 applied.append(str(s.get("name") or ""))

@@ -73,5 +73,26 @@ class TestDupBlocks(unittest.TestCase):
         self.assertEqual(lint.dup_blocks.__code__.co_argcount, 2)
 
 
+class TestStaleRefs(unittest.TestCase):
+    def refs(self, src, path):
+        return [(k, n) for _l, k, n in lint.stale_refs(os.path.join(lint.REPO, path), ast.parse(src), src)]
+
+    def test_path_exists_or_not(self):
+        src = '"""x。実在 src/ytt/fsio.py と flow/jobs.py・無い src/ytt/nothing_here.py と flow/nothing.py"""\n# git:ab/cd.py は見ない\n'
+        self.assertEqual(self.refs(src, "src/ytt/m.py"), [("ref-path", "flow/nothing.py"), ("ref-path", "src/ytt/nothing_here.py")])
+
+    def test_gone_names_and_ref_mark(self):
+        src = '"""x"""\n# ed_alt を呼ぶ\n# 旧 ed_store(経緯)  lint: ref 経緯\nx = "ed_jobs"\n# my_ed_alt2 は別の名前\n'
+        self.assertEqual(self.refs(src, "src/ytt/m.py"), [("ref-gone", "ed_alt")])
+
+    def test_layer_number_matches_folder(self):
+        self.assertEqual(self.refs('"""② 人の操作。x"""\n', "src/human/m.py"), [("ref-layer", "②(human は ③)")])
+        self.assertEqual(self.refs('"""③ 人の操作。x"""\n', "src/human/m.py"), [])
+        self.assertEqual(self.refs('"""② 管理(③ 人の操作を読まない)"""\n', "src/flow/m.py"), [])
+
+    def test_tests_are_skipped(self):
+        self.assertEqual(self.refs('"""ed_alt"""\n', "src/human/tests/test_x.py"), [])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -347,8 +347,8 @@ class LocalTools:
                 "device": req.get("device") if req.get("device") in ("auto", "cuda", "cpu", "vulkan") else "auto",
                 "vadMode": req.get("vadMode") if req.get("vadMode") in ("weak", "normal", "off") else "weak",
                 "boost": req.get("boost") is True, "autoDict": req.get("autoDict") is not False, "wordSplit": req.get("wordSplit") is not False,
-                "splitChars": post["splitChars"], "autoRedo": post["autoRedo"], "autoAlt": False, "autoYtcap": False,
-                "autoFill": post["autoFill"], "autoLlm": post["autoLlm"], "stripNames": post["stripNames"], "autoDiarize": False,
+                "splitChars": post["splitChars"], "autoRedo": post["autoRedo"], "autoAlt": False,
+                "autoFill": post["autoFill"], "autoLlm": post["autoLlm"], "stripNames": post["stripNames"],
                 "stripPunct": req.get("stripPunct") is not False, "glossary": glossary + gauto, "glossAuto": gauto,
                 "learningVersion": b["post"]["learning"]["version"], "context": ctx, "evalSet": False, "autoLearned": post["autoLearned"], "clip": clip, "warnings": [clip_warn] if clip_warn else [], "title": title}
 

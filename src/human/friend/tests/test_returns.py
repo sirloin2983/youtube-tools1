@@ -63,7 +63,7 @@ class TestZip(Base):
         self.assertTrue(os.path.isfile(os.path.join(reqs[0]["dir"], "r1", "docs", "a.json")))
         self.assertEqual(reqs[0]["month"], time.strftime("%Y-%m"))
         self.assertEqual(os.listdir(self.inbox), [R.DONE_DIR])
-        self.assertTrue(os.path.isfile(os.path.join(self.inbox, R.DONE_DIR, "%s__r1.zip" % RID)))
+        self.assertTrue(os.path.isfile(os.path.join(self.inbox, R.DONE_DIR, time.strftime("%Y-%m-%d"), "%s__r1.zip" % RID)), "受付済み は日付のフォルダ(受付と同じ)")
 
     def test_zip_slip_refused(self):
         for bad in ("../evil.txt", "a/../../evil.txt", "/abs.txt", "C:/win.txt", "..\\evil.txt"):
@@ -77,6 +77,17 @@ class TestZip(Base):
         self.assertFalse(os.path.exists(os.path.join(self.tmp, "evil.txt")))
         self.assertFalse(os.path.exists(os.path.join(self.app, "evil.txt")))
         self.assertEqual(R.iter_requests(self.app), [])   # 途中まで書いた物を残さない
+
+    def test_windows_reserved_names_refused(self):
+        """Windows の予約名(拡張子つき・大文字小文字・末尾の . も)と : を含む名前は断る(9e-2)"""
+        for bad in ("CON", "docs/nul.json", "aux.txt", "a/Com1", "lpt9.log", "prn.", "a:b.txt", "docs/x:stream"):
+            make_zip(os.path.join(self.inbox, "%s__r5.zip" % RID), {"ok.txt": "1", bad: "x"})
+            res = self.scan()
+            self.assertEqual(res[0]["state"], "rejected", bad)
+            shutil.rmtree(os.path.join(self.inbox, R.FAIL_DIR))
+        self.assertEqual(R.iter_requests(self.app), [])
+        make_zip(os.path.join(self.inbox, "%s__r6.zip" % RID), {"console.txt": "1", "connect/a.txt": "1"})   # 予約名で始まるだけの名前は通す
+        self.assertEqual(self.scan()[0]["state"], "accepted")
 
     def test_too_many_files_refused(self):
         make_zip(os.path.join(self.inbox, "%s__r3.zip" % RID), {"f%d" % i: "" for i in range(R.MAX_FILES + 1)})
@@ -116,7 +127,7 @@ class TestVerdict(Base):
         self.assertEqual(sorted((r["kind"], r["state"]) for r in res), [("run", "accepted"), ("verdict", "accepted")])
         req = R.iter_requests(self.app)[0]
         self.assertEqual(req["verdicts"], {"パック1": {"verdict": "made_video", "at": 1760000000000}})
-        self.assertTrue(os.path.isfile(os.path.join(self.inbox, R.DONE_DIR, os.path.basename(vp))))
+        self.assertTrue(os.path.isfile(os.path.join(self.inbox, R.DONE_DIR, time.strftime("%Y-%m-%d"), os.path.basename(vp))))
 
     def test_bad_verdict_rejected(self):
         for name, body in (("%s__p.verdict.json" % RID, '{"verdict": "great"}'), ("%s__p.verdict.json" % RID, "nope"), ("no-sep.verdict.json", '{"verdict":"keep"}')):
@@ -132,6 +143,40 @@ class TestVerdict(Base):
         self.assertEqual(R.parse_verdict(b'{"verdict":"keep","at":5}'), {"verdict": "keep", "at": 5})
         with self.assertRaises(ValueError):
             R.parse_verdict(b"[]")
+
+    def test_parse_verdict_odd_at_is_none(self):
+        """at が大きすぎる・無限・NaN・0 以下・数でない = 時刻なし(前は大きすぎる at で OSError / OverflowError になり、送り返し\\ に残り続けた。9e-1)"""
+        for raw in ('1e15', '1000000000000000', 'Infinity', '-Infinity', 'NaN', '0', '-5', '"5"', 'true', 'null'):
+            self.assertIsNone(R.parse_verdict(('{"verdict":"keep","at":%s}' % raw).encode())["at"], raw)
+        self.assertEqual(R.parse_verdict(b'{"verdict":"keep","at":1760000000000.0}')["at"], 1760000000000)
+
+    def test_huge_at_is_filed_not_left(self):
+        vp = os.path.join(self.inbox, "%s__p.verdict.json" % RID)
+        for raw in ('1e15', 'Infinity'):
+            with open(vp, "w", encoding="utf-8") as f:
+                f.write('{"verdict":"keep","at":%s}' % raw)
+            os.utime(vp, (time.time() - 600,) * 2)
+            self.assertEqual([r["state"] for r in self.scan()], ["accepted"], raw)
+            self.assertFalse(os.path.exists(vp), raw)
+        self.assertEqual(R.iter_requests(self.app)[0]["month"], time.strftime("%Y-%m"))
+
+    def test_unexpected_error_moves_to_failed(self):
+        """想定外の例外(OSError 以外)は 失敗 へ理由つき(送り返し\\ に残して毎回ログを増やさない)。OSError は次の見回りでもう一度"""
+        from unittest import mock
+        vp = os.path.join(self.inbox, "%s__p.verdict.json" % RID)
+        with open(vp, "w", encoding="utf-8") as f:
+            f.write('{"verdict":"keep","at":5}')
+        os.utime(vp, (time.time() - 600,) * 2)
+        with mock.patch.object(R, "parse_verdict", side_effect=OSError(13, "busy")):
+            self.assertEqual(self.scan(), [])
+        self.assertTrue(os.path.isfile(vp), "OSError は残してやり直す")
+        with mock.patch.object(R, "parse_verdict", side_effect=OverflowError("too big")):
+            res = self.scan()
+        self.assertEqual([(r["kind"], r["state"]) for r in res], [("verdict", "rejected")])
+        failed = os.path.join(self.inbox, R.FAIL_DIR, os.path.basename(vp))
+        self.assertTrue(os.path.isfile(failed))
+        with open(os.path.splitext(failed)[0] + ".理由.txt", encoding="utf-8-sig") as f:
+            self.assertIn("OverflowError", f.read())
 
 
 class TestRoundTrip(Base):

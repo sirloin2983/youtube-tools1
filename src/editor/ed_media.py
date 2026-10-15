@@ -17,7 +17,7 @@ import time
 from ytt import jobs as _heavy  # noqa: E402
 from manage.cases import handoff_io as _handoff_io  # noqa: E402   他のツールが書く JSON の読み _read_json_file(RS3-E7 に ed_misc から)
 import ed_state  # noqa: E402,F401
-from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
+from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state から移した)
 from human.proof import store  # noqa: E402
 # ---------- 音の波形(カットのタイムライン用。notes:docs/design/edit-tool-design.md の 5・8) ----------
 # ffmpeg で 8kHz・モノラルの 16bit にして、区切りごとの最大の振れ幅を 0〜255(平方根で小さい声も見えるように)の1バイトに。

@@ -270,13 +270,46 @@ def rotate(path, limit, old=None):
     return False
 
 
-def append_line(path, line, max_bytes):
+def append_line(path, line, max_bytes, keep_old=False):
     """1 行を書き足す(max_bytes を超えていたら先に <path>.1 へ回す = 1 世代)。書けなければ OSError。line は改行つきの文字列(UTF-8 で書く)。
-    画面のエラーの記録(clientlog)・まとめて実行の記録(autorun)・採用の記録(live_export)が同じ形で使う(RS3-0B で clientlog から移した)"""
+    画面のエラーの記録(clientlog)・まとめて実行の記録(autorun)・採用の記録(live_export)が同じ形で使う(RS3-0B で clientlog から移した)。
+    keep_old=True(判定の記録 feedback.jsonl。精度の見直しの材料なので消さない): 超えたら <path>.old の末尾へ足して空にする(バイトのまま・改行は LF)。
+    前回の行が書きかけ(電源断など)で改行が無ければ、先に改行を足して次の行と繋がらないようにする"""
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    rotate(path, max_bytes, old=path + ".1")
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(line)
+    if not keep_old:
+        if max_bytes is not None:   # None = 回さない(友人へ届けた記録・友人の返事。human/friend/friend_feedback)
+            rotate(path, max_bytes, old=path + ".1")
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(line)
+        return
+    if os.path.exists(path) and os.path.getsize(path) > max_bytes:
+        _spill_to_old(path)
+    with open(path, "a+b") as f:
+        f.seek(0, os.SEEK_END)
+        if f.tell() > 0:
+            f.seek(-1, os.SEEK_END)
+            if f.read(1) != b"\n":
+                f.write(b"\n")
+        f.write(line.encode("utf-8"))
+
+
+def _spill_to_old(path):
+    """大きくなった path を path + ".old" の末尾へ移して空にする(.old は上書きしない)。移し終えてから空にする(途中で止まっても記録は消えない。重複は呼ぶ側の時刻で見分けられる)"""
+    old = path + ".old"
+    with open(path, "rb") as src, open(old, "ab") as dst:
+        if dst.tell() > 0:
+            with open(old, "rb") as chk:
+                chk.seek(-1, os.SEEK_END)
+                if chk.read(1) != b"\n":
+                    dst.write(b"\n")
+        shutil.copyfileobj(src, dst)
+        dst.flush()
+        try:
+            os.fsync(dst.fileno())
+        except OSError:
+            pass
+    with open(path, "wb"):
+        pass
 
 
 def is_inside(path, root, strict=False):
@@ -340,7 +373,7 @@ def disk_space(path):
 
 def is_remote_drive(p):
     """Windows のネットワークドライブ(net use で割り当てた Z: など)か。ドライブの種類を聞くだけで、ファイルには触らない
-    (RS3-1 に editor/ed_relink.py の _remote_drive から)"""
+    (RS3-1 に _remote_drive から)"""
     if os.name != "nt":
         return False
     drive = os.path.splitdrive(p)[0]
@@ -378,7 +411,7 @@ def same_drive(a, b):
 def move_file(a, b, log=None):
     """ファイルを移す。同じドライブなら名前を変えるだけ。別のドライブ(C: → E: など。評価用のフォルダへ取り込むとき)は
     コピー(.part)→ 大きさを確かめる → 名前を付ける → 元を消す。元を消せなければ(開いているなど)コピーを消して OSError(元のまま)。
-    log: 別のドライブへ移したときに 1 行書くロガー(省略で書かない)。RS3-1 に editor/ed_relink.py の _move から"""
+    log: 別のドライブへ移したときに 1 行書くロガー(省略で書かない)。RS3-1 に _move から"""
     try:
         os.rename(a, b)
         return

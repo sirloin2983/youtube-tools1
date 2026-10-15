@@ -1376,7 +1376,7 @@ class TestRequests(Base):
         self.assertIn("a3_pack/cut-plan.json", got[z3])
         self.assertEqual([n for n in got[z2] if not n.startswith("a2_pack/")] + [n for n in got[z3] if not n.startswith("a3_pack/")], [], "1 本の zip に 1 本だけ")
         for z in (z2, z3):
-            self.assertNotIn(deliver_mod.PREVIEW_NAME, got[z], "まとめ動画は zip の隣だけ(受け取ったあとは要らない。2026-10-08)")
+            self.assertNotIn("まとめ.mp4", got[z], "まとめ動画は zip の隣だけ(受け取ったあとは要らない。2026-10-08)")
         with open(os.path.join(out, pre + " 1-2.preview.mp4"), "rb") as f:
             self.assertEqual(f.read(), b"PREVIEW")   # 組のまとめ動画(偽物)がそのまま置かれる
         doc = self.group_json(out, pre + " 1-2.group.json")
@@ -1454,7 +1454,7 @@ class TestRequests(Base):
         z2, z3 = "%s__a2.zip" % self.RID, "%s__a3.zip" % self.RID
         self.assertEqual(sorted(os.listdir(out)), sorted(["%s__a2.preview.mp4" % self.RID, z2, "%s__a3.preview.mp4" % self.RID, z3]))
         self.assertIn("a2_pack/cut-plan.json", got[z2])
-        self.assertNotIn(deliver_mod.PREVIEW_NAME, got[z2])
+        self.assertNotIn("まとめ.mp4", got[z2])
         self.assertEqual([k for k, _n in events], ["zip", "zip"], "組の一覧は書かない")
         self.assertIn("%s__a2.preview.mp4" % self.RID, events[0][1], "まとめ動画は zip より先に置く")
         self.assertIn("%s__a3.preview.mp4" % self.RID, events[1][1])

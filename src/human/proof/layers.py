@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """③ 文書を「機械の層 + 人の層」から組み立てる純粋な関数(O2-1。RS8・2026-10-11。決定 3-37 の (r8r)〜(r8u)・notes:plan/rs8-cases-ui.md の決めたこと 3)。
 
-ファイルも store も触らない(保存の経路から使うのは store.commit の影のモード = O2-2。機械の操作のあとの機械の層は advance_mach)。O1 の overrides(extract・apply)を一般にした物で、
-対応づけの決まり(match・COVER_DROP・TEXT_DROP)は O1 と同じ値(O2-5 で O1 を消すのでここが持ち主)。
+ファイルも store も触らない。呼び手は store(commit の影のモードと層が正の道・fresh_copy・layers_for)・再認識 rerun・話者 speakers・3 択 machpick
+(機械の操作のあとの機械の層は advance_mach)。O1 の overrides(extract・apply)を一般にした物で、対応づけの決まり(match・COVER_DROP・TEXT_DROP)は O1 と同じ値
+(O1 は層が正に切り替えたあとで消す = それまで overrides に同じ決まりの写しがある。notes:plan/opt-human.md の 1a-6・1f-1)。
 
 - 機械の層 mach = {schema, rev, keys{transcribe, post, diar}, rows[{id, start, end, text, flag, fill?, speaker?}], speakers}
   (① の後処理まで当てた行。rev は機械の行が変わるたびに上がる)
@@ -26,13 +27,13 @@ import re
 
 from ytt import schemas as _ys
 
-MACH_SCHEMA = _ys.MACH_SCHEMA   # 形の名前は ytt/schemas(② flow/tx も機械の層を書くため。RS8 O2-2)
+MACH_SCHEMA = _ys.MACH_SCHEMA   # 形の名前は ytt/schemas(② flow/tx も機械の層を書くため)
 HUM_SCHEMA = _ys.HUM_SCHEMA
 MACH_CHANGED = "機械の結果が変わりました(前の機械・今の機械・あなたの直しを比べてください)"   # 案 A の印(O1 の STALE_FLAG を広げた物)
 SPK_CHANGED = "話者の判別が変わりました"   # 弱い印(話者だけが変わった)
-HALF = 0.5          # 重なりが短い方の長さのこの割合以上なら対応づける(overrides.HALF と同じ)
+HALF = 0.5          # 重なりが短い方の長さのこの割合以上なら対応づける(O1 の overrides もこの値を読む)
 COVER_DROP = 0.5    # 機械の行は、人の文字の行が長さのこの割合以上を覆うか、
-TEXT_DROP = 0.5     # 機械の文字のこの割合以上が人の行の文字に現れるときだけ人の行に置き換える(overrides と同じ)
+TEXT_DROP = 0.5     # 機械の文字のこの割合以上が人の行の文字に現れるときだけ人の行に置き換える(overrides もこの値を読む)
 FLAG_MAX = 100      # 行の印の文字数の上限(store.sanitize_transcript と同じ)
 MAX_SPEAKERS = 20   # 組み込みの「ゲーム音声など」を除いた話者の上限(store.sanitize_transcript と同じ)
 DOC_FIELDS = ("title", "evalSet", "evalReviewed", "effort", "diarNum", "relinks", "sourcePath")   # 人の層が持つ文書の欄
@@ -130,7 +131,7 @@ def join_flags(*flags):
     return "、".join(out)[:FLAG_MAX]
 
 
-def diar_key(mach):
+def _diar_key(mach):
     """機械の層の話者判別の鍵(spkMap の鍵)。keys.diar の hash か文字。無ければ ""(判別なし)"""
     k = ((mach or {}).get("keys") or {}).get("diar")
     if isinstance(k, dict):
@@ -164,7 +165,7 @@ def _joined(rows):
     return _norm("".join(str(r.get("text") or "") for r in rows))
 
 
-def speaker_mapper(hum, key, hum_ids):
+def _speaker_mapper(hum, key, hum_ids):
     """機械の話者 → 人の話者の関数(判別の鍵 key の spkMap。表に無い機械の話者は、同じ id の人の話者があればそれ、無ければ "")"""
     mp = ((hum or {}).get("spkMap") or {}).get(key) or {}
 
@@ -196,7 +197,7 @@ def _speakers_of(obj):
     return [copy.deepcopy(s) for s in (obj or {}).get("speakers") or [] if isinstance(s, dict)]
 
 
-def machine_hum(mach):
+def _machine_hum(mach):
     """人の層が無いとき(機械のまま)の人の層: 話者の表は機械の表・対応表は空(同じ id のまま)"""
     return {"schema": HUM_SCHEMA, "rev": 0, "machRev": (mach or {}).get("rev"), "rows": [], "dead": [], "speakers": _speakers_of(mach),
             "spkMap": {}, "docFields": {}}
@@ -317,7 +318,7 @@ def compose_rows(mach, hum, covers_out=None):
     """機械の層 + 人の層 -> (文書の行, stats)。stats = {kept: 機械のままの行, human: 人の文字の行, attr: 属性を重ねた行, dead: 消した機械の行,
     dropped: 当たる機械の行が無くて捨てた属性の行, machChanged: 印 MACH_CHANGED, spkChanged: 印 SPK_CHANGED}。
     covers_out = dict を渡すと {人の文字の行の id: [今覆う機械の行(写し)]} を入れる(3 択の口。O2-4)"""
-    hum = hum if isinstance(hum, dict) else machine_hum(mach)
+    hum = hum if isinstance(hum, dict) else _machine_hum(mach)
     M = _mrows(mach)
     by = {m["id"]: j for j, m in enumerate(M)}
     sp = [_span(m) for m in M]
@@ -325,7 +326,7 @@ def compose_rows(mach, hum, covers_out=None):
     rev = (mach or {}).get("rev")
     fast = rev is not None and rev == hum.get("machRev")
     stats = {"kept": 0, "human": 0, "attr": 0, "dead": 0, "dropped": 0, "machChanged": 0, "spkChanged": 0}
-    ctx = {"mapper": speaker_mapper(hum, diar_key(mach), hum_ids), "mapper_for": lambda k: speaker_mapper(hum, k, hum_ids),
+    ctx = {"mapper": _speaker_mapper(hum, _diar_key(mach), hum_ids), "mapper_for": lambda k: _speaker_mapper(hum, k, hum_ids),
            "fresh": {str(x) for x in hum.get("spkFresh") or []}, "stats": stats}
     taken = {j: "dead" for j in _dead_rows(hum, M, by, sp)}
     stats["dead"] = len(taken)
@@ -515,7 +516,7 @@ def _new_hum(mach, doc, prev):
     speakers = _speakers_of(doc)
     hum_ids = {str(s.get("id")) for s in speakers}
     spk_map = copy.deepcopy(prev.get("spkMap") or {})
-    key = diar_key(mach)
+    key = _diar_key(mach)
     if key not in spk_map:
         ident = {}
         for m in _mrows(mach):
@@ -548,8 +549,8 @@ def diff(mach, doc, prev_hum=None):
     by = {m["id"]: j for j, m in enumerate(M)}
     sp = [_span(m) for m in M]
     hum = _new_hum(mach, doc, prev)
-    mapper = speaker_mapper(hum, diar_key(mach), {str(s.get("id")) for s in hum["speakers"]})
-    rev, key = (mach or {}).get("rev"), diar_key(mach)
+    mapper = _speaker_mapper(hum, _diar_key(mach), {str(s.get("id")) for s in hum["speakers"]})
+    rev, key = (mach or {}).get("rev"), _diar_key(mach)
     prev_rows = {str(h.get("id")): h for h in prev.get("rows") or [] if isinstance(h, dict)}
     segs = [g for g in (doc or {}).get("segments") or [] if isinstance(g, dict) and _span(g)]
     link = _link(segs, M, by)
@@ -609,7 +610,7 @@ def diff(mach, doc, prev_hum=None):
 
 
 # ---------- 3 択の口(O2-4。案 A): 機械の結果が変わった人の行 ----------
-def strip_flag(flag, mark):
+def _strip_flag(flag, mark):
     """印の並び(「、」区切り)から mark を外す"""
     return "、".join(x for x in str(flag or "").split("、") if x and x != mark)
 
@@ -656,9 +657,9 @@ def pick(mach, hum, rid, choice):
     now = cov.get(str(rid), [])
     h = rows[k]
     h["covers"] = [m["id"] for m in now]
-    h["base"] = {"rev": (mach or {}).get("rev"), "diar": diar_key(mach), "rows": now}
+    h["base"] = {"rev": (mach or {}).get("rev"), "diar": _diar_key(mach), "rows": now}
     if "flag" in h:
-        h["flag"] = strip_flag(h["flag"], MACH_CHANGED)
+        h["flag"] = _strip_flag(h["flag"], MACH_CHANGED)
     return out
 
 
@@ -675,8 +676,8 @@ def assign_speakers(mach, hum, rows):
     rows = 今の文書の行(人の話者が付いた行)。機械の話者ごとに、その話者の機械の行と人の話者の行の重なり時間を足し、いちばん長い人の話者に当てる
     (同じなら表の先の話者。組み込みの「ゲーム音声など」には当てない)。重ならない機械の話者は新しい H… を表に足し、spkFresh に入れる
     (その話者の行に弱い印 SPK_CHANGED)。同じ判別の鍵が spkMap に既にあれば何もしない"""
-    out = copy.deepcopy(hum) if isinstance(hum, dict) else machine_hum(mach)
-    key = diar_key(mach)
+    out = copy.deepcopy(hum) if isinstance(hum, dict) else _machine_hum(mach)
+    key = _diar_key(mach)
     spk_map = out.setdefault("spkMap", {})
     if key in spk_map:
         return out
@@ -767,7 +768,7 @@ def _speaker_rows(rows, segs):
 
 
 def advance_mach(mach, old_doc, new_doc, speakers=False):
-    """機械の操作(再認識・疑わしい所・分け直し・話者の判別など)のあとの機械の層 -> (新しい機械の層, 変わったか)(RS8 O2-2 の影のモード)。
+    """機械の操作(再認識・疑わしい所・話者の判別など)のあとの機械の層 -> (新しい機械の層, 変わったか)(store._shadow_prepare が影のモードでも層が正でも呼ぶ)。
     old_doc = 操作の前の文書・new_doc = 操作のあとの文書。mach は書き換えない。操作が書いた行だけを機械の層で入れ替える:
     - 機械が書いた行 = 新しい文書の行のうち、前の文書に同じ id が無いか、同じ id の行と時刻か文字が違う行(印・話者・校正済みなどだけの違いは人の層へ)
     - 書き換えた範囲(機械が書いた行と、消えた・書き換えられた前の行の区間)に match で当たる機械の行は捨てる。

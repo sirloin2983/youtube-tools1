@@ -188,5 +188,5 @@ def backend_name():
 
 
 MIXED_FLAG, WEAK_FLAG, NONE_FLAG = _txbase.MIXED_FLAG, _txbase.WEAK_FLAG, _txbase.NONE_FLAG   # 別名(RS2-1a)
-SPK_FLAGS = _txbase.SPK_FLAGS   # 別名(RS2-8a。ed_jobs から txbase へ移した。dev/eval_asr が S.SPK_FLAGS を読む・差し替えない名前)
+SPK_FLAGS = _txbase.SPK_FLAGS   # 別名(RS2-8a。txbase へ移した。dev/eval_asr が S.SPK_FLAGS を読む・差し替えない名前)
 

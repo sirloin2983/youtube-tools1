@@ -1,16 +1,14 @@
 """判定の記録(feedback.jsonl)。確認画面での人の結果(採用・不採用・削除・書き出し)と、人の最終の操作(手で足した・消した・採用の取り消し)を
 1 行ずつ残す。盛り上がりの式の見直し(src/eval/tools/eval_marks.py など)の材料。パスは含めない。
 
-RS3-5(2026-10-10)で studio/analyze.py から human/review へ割った(解析 = 機械の流れ(①)は人の判定を書かない。書き手は store = ②)。
-行の形・記録先(feedback_path)・大きくなったときの .old への移し方は前のまま。
+解析 = 機械の流れ(①)は人の判定を書かない。書き手は ③ の human/review/store(保存に成功したあとにロックの外で書く)。録画(kind live)は書かない。
+大きくなったら feedback.jsonl.old の末尾へ足して空にする(fsio.append_line の keep_old。消さない)。
 """
 import json
-import os
-import shutil
 import threading
 import time
 
-from ytt import studio_env as _env
+from ytt import fsio as _fsio, studio_env as _env
 
 MAX_FEEDBACK_BYTES = 32 * 1024 * 1024   # 1行 500〜800 バイトなので約5万件。超えたら feedback.jsonl.old の末尾へ移す(消さない)
 FB_SETTING_KEYS = ("sensitivity", "length", "preRatio", "lag", "lagAuto", "headSec", "wAudio", "wChat", "wComments")
@@ -57,10 +55,7 @@ def _feedback_write(row):
     path = feedback_path()
     with _fb_lock:
         try:
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            if os.path.exists(path) and os.path.getsize(path) > MAX_FEEDBACK_BYTES:
-                _move_feedback_to_old(path)
-            _append_line(path, json.dumps(row, ensure_ascii=False) + "\n")
+            _fsio.append_line(path, json.dumps(row, ensure_ascii=False) + "\n", MAX_FEEDBACK_BYTES, keep_old=True)   # 超えたら .old の末尾へ足す(消さない)
         except OSError as e:
             _env.log_failure("feedback.jsonl への記録", e)
             return False
@@ -84,12 +79,12 @@ def feedback_for_mark(video, mark, verdict, event=""):
 FB_EXTRA_EVENTS = {"manual_add": "miss", "manual_remove": "unmiss", "unadopt": "retract", "delete_judged": "retract"}
 
 
-def nearest_auto(marks, start, end, skip_id=None):
+def nearest_auto(marks, start, end):
     """区間 (start, end) にいちばん近い自動マーク(src=auto)を探す。近さは区間どうしの隙間(重なっていれば 0 秒)。
     -> {"autoCount": 自動マークの数, "nearAuto": None か {"score", "distance", "start", "end", "status"}}"""
     best, n = None, 0
     for m in marks:
-        if m.get("src") != "auto" or m.get("id") == skip_id:
+        if m.get("src") != "auto":
             continue
         try:
             ms, me = float(m["start"]), float(m["end"])
@@ -116,35 +111,3 @@ def feedback_event(video, mark, event, extra=None):
     if extra:
         row.update(extra)
     return _feedback_write(row)
-
-
-def _append_line(path, line):
-    """1行追記する。前回の行が書きかけ(電源断など)で改行が無ければ、先に改行を足して次の行と繋がらないようにする。"""
-    with open(path, "a+b") as f:
-        f.seek(0, os.SEEK_END)
-        if f.tell() > 0:
-            f.seek(-1, os.SEEK_END)
-            if f.read(1) != b"\n":
-                f.write(b"\n")
-        f.write(line.encode("utf-8"))
-
-
-def _move_feedback_to_old(path):
-    """大きくなった feedback.jsonl を feedback.jsonl.old の末尾へ移して空にする。
-    以前は .old を上書きしていたため、2回目の切り替えで古い記録が消えていた(精度の見直しに使う大事なデータなので消さない)。"""
-    old = path + ".old"
-    with open(path, "rb") as src, open(old, "ab") as dst:
-        if dst.tell() > 0:
-            with open(old, "rb") as chk:
-                chk.seek(-1, os.SEEK_END)
-                if chk.read(1) != b"\n":
-                    dst.write(b"\n")
-        shutil.copyfileobj(src, dst)
-        dst.flush()
-        try:
-            os.fsync(dst.fileno())
-        except OSError:
-            pass
-    with open(path, "wb"):
-        pass   # 移し終えてから空にする(途中で止まっても記録は消えない。重複は ts で見分けられる)
-

@@ -175,7 +175,7 @@ DEFAULTS = {
         "diarSmooth": False,  # 試験中・既定オフ(src/ytt/settings.py の SETTINGS_PATCH_KEYS の説明)
         "learning": {"version": ""},   # 学習データの版(中身も場所も束に入れない。場所は機械の設定 machine。決定 3-30 Q3)。"" = 指定なし。違えば後処理の鍵が変わる
     },
-    "pack": {                 # パック(run.py の _pack_settings・_cut_method・src/cut2resolve/cut2resolve_core.py の DEFAULT_*)
+    "pack": {                 # パック(run.py の _pack_settings・_cut_method・src/pipeline/pack/cut2resolve_core.py の DEFAULT_*)
         "size": "1080x1920",
         "loudness": 0,        # パックの音量をそろえる目標(LUFS)。0 = そろえない(volume で決める)
         "volume": 30,         # loudness が 0 のときの音量(%)

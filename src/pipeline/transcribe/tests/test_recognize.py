@@ -4,7 +4,7 @@
     py -3.10 -m unittest src/pipeline/transcribe/tests/test_recognize.py -v
 
 認識の流れ(声の検出のやり直し・GPU から CPU・全体の区間ごとの続き)は編集のテスト(src/editor/tests/test_metrics.py・test_worker.py・test_whispercpp.py。
-serve の名前で読む)が確かめる。ここは「① が serve なしで読めて、行の頭の名前を外す決まりと ffmpeg を口(set_head_stripper・ytt/tools)から読む」ことだけ。
+serve の名前で読む)が確かめる。ここは「① が serve なしで読めて、行の頭の名前を外す決まり(同じ ① の fill)と ffmpeg(ytt/tools)を読む」ことだけ。
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない(一時フォルダだけ)。ほかのテストとそろえる
@@ -16,7 +16,7 @@ from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> transcribe -> pipeline -> src
 sys.path.insert(0, SRC)
-from pipeline.transcribe import backend, recognize  # noqa: E402
+from pipeline.transcribe import backend, fill, recognize  # noqa: E402
 from ytt import errors, tools, workdata  # noqa: E402
 
 SPEC = {"range": [10.0, 20.0], "language": "ja", "wordSplit": False}
@@ -25,7 +25,6 @@ SPEC = {"range": [10.0, 20.0], "language": "ja", "wordSplit": False}
 class _Env(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="txrecognize_")
-        self.saved = list(recognize._head_stripper)
         self.patch(workdata, "TX_DIR", self.tmp)
         self.patch(tools, "find_ffmpeg", lambda: None)
 
@@ -36,7 +35,6 @@ class _Env(unittest.TestCase):
         self.addCleanup(p.stop)
 
     def tearDown(self):
-        recognize._head_stripper[:] = self.saved
         shutil.rmtree(self.tmp, True)
 
 
@@ -100,16 +98,16 @@ class TestFinishRangeLines(_Env):
 
         def split(text):
             return (text.split(":", 1)[1], "印") if ":" in text else (text, None)
-        recognize.set_head_stripper(lambda spec: None if spec.get("evalSet") else split)
+        self.patch(fill, "fill_head_stripper", lambda spec: None if spec.get("evalSet") else split)
         out = recognize.finish_range_lines(raw, SPEC, 10.0)
         self.assertEqual([(x["start"], x["end"], x["raw"], x["flag"]) for x in out], [(11.0, 12.0, "こんにちは", "印")])
         out = recognize.finish_range_lines(raw, dict(SPEC, evalSet=True), 10.0)   # 外さない(None)
         self.assertEqual(out[0]["raw"], "名前:こんにちは")
 
-    def test_unregistered_is_an_error(self):
-        recognize._head_stripper[:] = []
-        with self.assertRaises(RuntimeError):
-            recognize.finish_range_lines([], SPEC, 0.0)
+    def test_reads_fill_without_registration(self):
+        """登録しなくても fill の決まりで外す(評価用は外さない)"""
+        out = recognize.finish_range_lines([], SPEC, 0.0)
+        self.assertEqual(out, [])
 
 
 class TestWhole(_Env):

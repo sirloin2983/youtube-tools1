@@ -138,6 +138,23 @@ def split(video, root=None, prev=None, keep_candidates=False, at=None):
     return cands, adopts
 
 
+def carry_over(prev, video, root):
+    """初めて案件にする配信 video(全部の形)に、案件の 採用.json に既にある同じ配信の記録(スタジオの一覧から消して同じ URL を入れ直した配信。
+    索引の行だけ消えて 採用.json は残る = (r8x))を重ねた形を返す(OPT-H1 7c-1)。split(prev) は採用.json のその配信を丸ごと置き換えるので、
+    先に重ねないと前の採用・書き出しの記録が消える。同じ id のマークは新しい方・無いマークは足す・題と作った日時は前の物を優先(live_into と同じ決まり)。
+    prev = 今の (候補, 採用)。採用.json にその配信が無ければ video のまま"""
+    old = _cf.merge(*prev, video["id"], root)
+    if old is None:
+        return video
+    by = {m["id"]: m for m in video["marks"]}
+    marks = [by.pop(m["id"], m) for m in old["marks"]] + [m for m in video["marks"] if m["id"] in by]
+    nv = dict(video, marks=sorted(marks, key=_marks.by_time), title=old.get("title") or video.get("title") or "",
+              createdAt=old.get("createdAt") or video.get("createdAt"), rev=max(video["rev"], old["rev"] + 1))
+    nv["duration"] = video.get("duration") or old.get("duration") or 0.0
+    nv["analysis"] = video.get("analysis") or old.get("analysis")
+    return nv
+
+
 def _set_aside(path):
     """読めない 採用.json を <名前>.broken-<日時> へ退ける(.bak を壊れた物で上書きしないため)。退けられなければ OSError"""
     ts = time.strftime("%Y%m%d-%H%M%S")
@@ -286,16 +303,7 @@ def live_exported(root, rec, mark_id, relfile, abspath, archived=False):
         m = next((x for x in v["marks"] if x["id"] == mark_id), None)
         if m is None:
             return False
-        nm = dict(m, status="exported", file=str(relfile or os.path.basename(str(abspath or "")))[:300])
-        if isinstance(abspath, str) and abspath and len(abspath) <= 600 and os.path.isabs(abspath):
-            nm["path"] = abspath
-        else:
-            nm.pop("path", None)
-        same_file = m["status"] == "exported" and m.get("file") == nm["file"] and m.get("path") == nm.get("path")
-        if archived is True or (same_file and m.get("archived")):
-            nm["archived"] = True
-        else:
-            nm.pop("archived", None)
+        nm = _marks.exported_mark(m, relfile or os.path.basename(str(abspath or "")), abspath, True if archived is True else None, live=True)   # スタジオの Store と同じ 1 つ(ytt/marks)
         _put_live(root, prev, _bump(v, [nm if x["id"] == mark_id else x for x in v["marks"]]))
         return True
 

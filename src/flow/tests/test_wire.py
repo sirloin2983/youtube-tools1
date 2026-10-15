@@ -23,7 +23,7 @@ class TestInstall(unittest.TestCase):
     def setUp(self):
         # 全体の表・口を、このテストが終わったら元に戻す
         for obj, name in ((jobs, "JOB_RUNNERS"), (jobs, "JOB_PRIORITY"), (jobs, "EXCLUSIVE"), (jobs, "_conf"), (backend, "_selector"),
-                          (records, "_dict_inputs"), (recognize, "_head_stripper")):
+                          (records, "_dict_inputs")):
             saved = getattr(obj, name)
             copy = saved.copy()
             self.addCleanup(lambda saved=saved, copy=copy: (saved.clear(), saved.update(copy)) if isinstance(saved, dict) else saved.__setitem__(slice(None), copy))

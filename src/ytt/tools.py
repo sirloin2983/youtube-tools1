@@ -6,7 +6,7 @@
 - run … 子プロセスを最後まで動かして出力を集める(取り消し・時間切れで止める)。run_progress … ffmpeg・yt-dlp の出力(-progress の進み具合)を 1 行ずつ読みながら動かす(取り消し・時間切れ・無出力で止める。窓なし・優先度「低」。ffmpeg を動かす形はこの 1 つ)
 - kill_quiet … 止める(上げない)。kill_tree … 孫ごと止める。KillJob … 親が落ちても子を残さない
 - process_memory_mb … このプロセスのメモリ。why … 例外 → 画面に出せる短い理由
-- MEDIA_TYPES・find_ffmpeg・ffmpeg_info・duration_in・media_duration・check_source・probe_media … 編集の動画・音声のファイルの小道具(拡張子・ffmpeg の場所と -i の出力・長さ・元のファイルの検査・映像と音声の有無。RS3-0A に編集の ed_state・ed_store から)
+- MEDIA_TYPES・find_ffmpeg・ffmpeg_info・duration_in・media_duration・check_source・probe_media … 編集の動画・音声のファイルの小道具(拡張子・ffmpeg の場所と -i の出力・長さ・元のファイルの検査・映像と音声の有無。RS3-0A に編集の ed_state から)
 """
 import collections
 import glob
@@ -60,7 +60,7 @@ def find_tool(name, env_var=None):
     return shutil.which(name) or _in_dirs(name, _winget_dirs())
 
 
-# ---------- 動画・音声のファイル(編集の文字起こし・波形・付け替え・保管が使う。RS3-0A に編集の ed_state・ed_store から移した) ----------
+# ---------- 動画・音声のファイル(編集の文字起こし・波形・付け替え・保管が使う。RS3-0A に編集の ed_state から移した) ----------
 # 編集の部品は呼ぶたびに tools.名前 で読む(テストの S.find_ffmpeg = …・patch.object(S, "check_source", …) は編集の serve の名前の受付がここへ届ける)
 MEDIA_TYPES = {   # 編集が受け付ける動画・音声の拡張子 → 配信する Content-Type(/media・check_source・フォルダの一括・付け替え)
     ".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm", ".mkv": "video/x-matroska",

@@ -9,11 +9,11 @@
 動詞(それぞれの docstring に「② が足すこと」):
   文字起こし    transcribe_clip(① clipjob → fields)・write_clip_records(words・asr・llm を書く)・write_machine_doc(③ なしで文書の機械の分を書く)・dict_pairs
   受付          check_model・request_engine
-  再認識        extract_span・redo_recognizer(+ redo_kwargs)・each_lines・recognize_range・end_whole・note_vad
+  再認識        extract_span・redo_recognizer(+ redo_kwargs)・each_lines・recognize_range・end_whole・note_vad・replace_span_words(words.json の差し替え)
   2 つ目のエンジン engine_ready・check_engine_ready・alt_lines(+ alt_engine_version)
   時刻の候補    word_retime
-  名簿          read_roster_file
-名前は編集の serve の名前の受付(_ED_MODULES)に並ぶ(旧 ed_jobs の S._doc_fields・S.dict_pairs・S.redo_kwargs と旧 ed_alt の S.alt_engine_version はここ)。
+  名簿と学習    roster_listing・pick_glossary_terms
+名前は編集の serve の名前の受付(_ED_MODULES)に並ぶ(S._doc_fields・S.dict_pairs・S.redo_kwargs・S.alt_engine_version はここ)。
 受付に並ぶほかの部品と同じ名前を作らない(modfwd.duplicates)。① の名前は呼ぶたびに `モジュール.名前` で読む(S.extract_audio などの差し替えが届く)。
 ジョブの表は兄弟の flow/jobs、枠と取り消しの確かめ(check_cancel・Cancelled)は ytt/jobs(_slots)。
 """
@@ -24,6 +24,7 @@ import time
 from ytt import dictfmt as _dictfmt, docloc as _docloc, errors as _errors, fsio as _fsio, jobs as _slots, schemas as _yschemas, settings as _settings
 from ytt import tools as _tools, txbase as _txbase, txtext as _txtext, txwords as _txwords, workdata as _workdata
 from pipeline.transcribe import backend as _backend, clipjob, llm, postproc, recognize, records, roster as _roster, tx_engines, worker_client
+from pipeline.transcribe import replace as _replace
 from pipeline.transcribe import retime as _retime
 
 from . import keys as _keys, machine as _machine
@@ -54,10 +55,19 @@ def rerun_base(spec, pairs, kind):
     return run
 
 
-def read_roster_file():
-    """名簿のファイル(roster.ROSTER)の中身の辞書か None(読めない・形が違う)。BOM 付きでも読む。
-    ② が足すこと = 学習データの置き場所(① roster.ROSTER)から読む(③ の learn.load_roster が中身を整える。RS6 a-3)"""
-    return _fsio.read_json_or(_roster.ROSTER, None, kind=dict)
+def roster_listing():
+    """名簿の画面向けの中身 {asOf, note, groups: [{id, label, names}]}(③ の learn.load_roster = GET /api/roster)。読めない・形が違うときは空。BOM 付きでも読む。
+    ② が足すこと = 学習データの置き場所(① roster.ROSTER)から読み、groups は ① roster.load の整え方(認識と同じ検査)に、ファイルの asOf・note を添える"""
+    if not _roster.ROSTER:
+        return {"asOf": "", "note": "", "groups": []}
+    d = _fsio.read_json_or(_roster.ROSTER, None, kind=dict) or {}
+    return {"asOf": str(d.get("asOf") or "")[:20], "note": str(d.get("note") or "")[:400],
+            "groups": [dict(g, names=list(g["names"])) for g in _roster.load(_roster.ROSTER)["groups"]]}
+
+
+def pick_glossary_terms(user_terms, ranked, limit=150):   # flow: alias ok(③ は ① を読めない。選び方の正は ① replace.pick_glossary = 友人の PC と同じ)
+    """③ の learn.auto_glossary が順位を付けた語 ranked から、認識のヒントに足す語を選ぶ(① replace.pick_glossary)"""
+    return _replace.pick_glossary(user_terms, ranked, limit)
 
 
 # ---------- 受付 ----------
@@ -137,6 +147,18 @@ def write_clip_records(tid, clip, spec):
     if clip["llm_items"]:
         llm.llm_write(tid, clip["llm_rec"], clip["llm_items"])   # LLM の生の提案・採否(<id>.llm.json。あとで「あり/なし」を測り直せる)
     _keys.write_after_transcribe(tid, spec, clip["fields"]["recognition"]["runs"][-1])   # 成果物の鍵 <id>.transcribe.key.json・<id>.post.key.json(書けなくてもログだけ。RS6 b-K1)
+
+
+def replace_span_words(tid, a, b, new_words, model="", keep_spans=()):
+    """再認識(③ human/proof/rerun の range・whole・redo)のあと、単語の時刻 <id>.words.json の範囲 [a, b] を認識し直した単語に差し替える
+    (真ん中が範囲に入る単語を消す。keep_spans の区間の単語は残す)。以前の単語が無い文書は、新しい単語だけを書く。
+    ② が足すこと = 認識の記録 words.json の書き込み(③ は ytt/txwords を直に書かない)"""
+    old = _txwords.read_words(tid) or []
+
+    def inside(w):
+        m = (w[0] + w[1]) / 2
+        return a - 1e-6 <= m <= b + 1e-6 and not any(p0 <= m <= p1 for p0, p1 in keep_spans)
+    _txwords.write_words(tid, [w for w in old if not inside(w)] + [list(w) for w in new_words], model)
 
 
 def write_machine_doc(tid, fields, spec=None, folder=None):

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""文字起こしのあとの話者の自動判別(v0.50.0。ed_speakers の autodiar_*・eval/drill/evalbatch の後追い)のテスト。
+"""評価用の文書の文字起こしのあとの話者の自動判別(human/proof/speakers の autodiar_*・eval/drill/evalbatch の後追い)のテスト。
 
     py -3.10 -m unittest src/editor/tests/test_metrics.py    # test_metrics がこのファイルのテストも読み込む
     py -3.10 -m unittest src/editor/tests/test_autodiar.py   # これだけ
 ffmpeg が必要(小さな動画を lavfi で作る)。ワーカーのスレッドは動かさず、待機列のジョブをテストがその場で動かす(疑似の認識・疑似の話者判別
 diarize_fake = 10 秒ごとに入れ替わる・声の特徴 embed_fake = 同じ入れ替わり)。
 評価用の文書: 文字起こしのあと判別のジョブが足される → 覚えた声 → 名前の候補(suggest)をいちばん長く話した人に → diar.json に by: context。
-人が付けた話者・確かめ済みは触らない・評価用でない文書は設定 autoDiarize のときだけ・部品が無ければ黙って飛ばす・
+人が付けた話者・確かめ済みは触らない・評価用でない文書は判別しない(設定 autoDiarize は消した。OPT-H1 Q7)・部品が無ければ黙って飛ばす・
 まとめての文字起こしの後追いは文書ごとに 1 回・直近に直した文書は後回し・判別の待ちの文書はドリルに出ない。
 """
 import json
@@ -210,21 +210,17 @@ class TestAutoDiar(unittest.TestCase):
         S.atomic_write(S.tx_path(tid), json.dumps(d, ensure_ascii=False).encode("utf-8"))
         self.assertEqual(S.autodiar_enqueue(tid), {"skipped": "reviewed"})
 
-    def test_non_eval_only_with_setting(self):
+    def test_non_eval_is_never_diarized(self):
+        """評価用でない文書は、保存した設定・要求の autoDiarize があっても判別しない(評価用でない枝は消した)"""
         other = os.path.join(self.src, "other.mp4")   # 評価用のフォルダの外
         shutil.copy2(self.short, other)
         tid, _ = self.transcribe(other)
-        self.assertEqual(self.diar_jobs(tid), [])   # 既定はオフ
-        self.settings({"evalDirs": [self.ev], "autoDiarize": True})
+        self.assertEqual(self.diar_jobs(tid), [])
+        self.settings({"evalDirs": [self.ev], "autoDiarize": True})   # 前に保存した設定が残っていても効かない
         tid2, _ = self.transcribe(other)
-        (dj,) = self.diar_jobs(tid2)
-        self.assertEqual((dj["spec"]["autoEval"], dj["spec"]["contextName"]), (False, None))   # 名前の候補は評価用だけ
-        self.run_one(dj)
-        self.assertEqual(self.names(tid2), {"S1": "話者1"})
-        self.assertNotIn("evalSet", self.doc(tid2))
-        tid3, _ = self.transcribe(other, autoDiarize=False)   # 要求が優先
+        self.assertEqual(self.diar_jobs(tid2), [])
+        tid3, _ = self.transcribe(other, autoDiarize=True)
         self.assertEqual(self.diar_jobs(tid3), [])
-        self.assertIs(doc_jobs.validate_job({"sourcePath": other, "model": "small"})["autoDiarize"], True)
         os.unlink(other)
 
     def test_no_sherpa_skips_silently_for_eval(self):
@@ -232,11 +228,6 @@ class TestAutoDiar(unittest.TestCase):
             tid, tj = self.transcribe(self.put(self.mem, "j.mp4"))
             self.assertEqual(self.diar_jobs(tid), [])
             self.assertFalse(tj.get("warnings"))   # 評価用: 黙って飛ばす(人が「全行をこの人に」)
-            other = os.path.join(self.src, "other2.mp4")
-            shutil.copy2(self.short, other)
-            _tid2, tj2 = self.transcribe(other, autoDiarize=True)
-            self.assertTrue(any("sherpa-onnx" in w for w in tj2.get("warnings") or []))   # 設定でオンにした人には知らせる
-            os.unlink(other)
         self.assertEqual(self.doc(tid).get("evalSet"), True)
 
     def test_enqueue_failure_keeps_transcription(self):
