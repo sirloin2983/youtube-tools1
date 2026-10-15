@@ -22,6 +22,7 @@ from human.find import rank  # noqa: E402
 
 CH_A, CH_B, CH_C = "UC" + "a" * 22, "UC" + "b" * 22, "UC" + "c" * 22
 NOW = 1_800_000_000.0   # 2027-01-15 08:00 UTC(固定の「今」)
+BOTH = ["hololive", "other"]   # 事務所を両方とも明示する(省くとホロライブだけ = rank.DEFAULT_GROUPS)
 
 
 def iso(t):
@@ -101,7 +102,7 @@ class TestLiveList(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_split_order_and_fields(self):
-        r = rank.live_list(None, now=NOW)
+        r = rank.live_list(BOTH, now=NOW)
         self.assertEqual([x["id"] for x in r["live"]], [vid(2), vid(1), vid(10), vid(11), vid(3)])   # 視聴者数の多い順・隠している配信は後ろ
         self.assertEqual([x["id"] for x in r["upcoming"]], [vid(7), vid(5), vid(4)])                  # 始まる時刻の早い順(24 時間より先・古い枠は除く)
         a = r["live"][0]
@@ -135,6 +136,8 @@ class TestLiveList(unittest.TestCase):
         with self.assertRaises(rank.ApiError) as cm:
             rank.live_list("nothere", now=NOW)
         self.assertEqual(cm.exception.code, "no_agency")
+        self.assertEqual([x["id"] for x in rank.live_list(None, now=NOW)["live"]], [vid(1), vid(11)])   # 省くとホロライブだけ(その他の vid(2)・vid(10) は入らない)
+        self.assertEqual([a["id"] for a in rank.validate_search({"start": "2026-09-01", "end": "2026-09-30"})["agencies"]], ["hololive"])
         self.assertEqual(rank.parse_live_agencies("A A, b<script>,," + "x" * 50), ["aa", "bscript", "x" * 30])   # 文字の検査と長さ
         self.assertEqual(len(rank.parse_live_agencies(",".join("a%d" % i for i in range(100)))), rank.MAX_AGENCIES)
 
@@ -149,27 +152,27 @@ class TestLiveList(unittest.TestCase):
         self.assertNotIn("region", rank.load_registry()["agencies"][0]["channels"][1])
         table = {CH_B: "JP", CH_C: "ID"}
         with patch.object(rank._live, "channel_regions", return_value=table):
-            r = rank.live_list(None, now=NOW)            # 既定 = JP と不明: A(手の EN)は外れ、B(JP)だけ。C(ID)も外れる
+            r = rank.live_list(BOTH, now=NOW)            # 既定 = JP と不明: A(手の EN)は外れ、B(JP)だけ。C(ID)も外れる
             self.assertEqual((r["channels"], sorted(x["id"] for x in r["live"])), (1, [vid(2)]))
             self.assertEqual(r["live"][0]["region"], "JP")
-            r = rank.live_list(None, now=NOW, regions="EN,ID")
+            r = rank.live_list(BOTH, now=NOW,regions="EN,ID")
             self.assertEqual(sorted(x["id"] for x in r["live"]), sorted([vid(1), vid(10), vid(11), vid(3)]))
             self.assertEqual({x["id"]: x["region"] for x in r["live"]}[vid(11)], "ID")
             self.assertEqual({x["id"]: x["region"] for x in r["live"]}[vid(1)], "EN")   # 2 つのチャンネルに出る動画は先のチャンネルの地域
             with self.assertRaises(rank.ApiError) as cm:
-                rank.live_list(None, now=NOW, regions=["unknown"])   # 不明のチャンネルは「@notyet」(未解決)だけ = 解決済みの物は全部外れる
+                rank.live_list(BOTH, now=NOW,regions=["unknown"])   # 不明のチャンネルは「@notyet」(未解決)だけ = 解決済みの物は全部外れる
             self.assertEqual(cm.exception.code, "no_region")
             with self.assertRaises(rank.ApiError) as cm:
-                rank.live_list(None, now=NOW, regions="")
+                rank.live_list(BOTH, now=NOW,regions="")
             self.assertEqual(cm.exception.code, "no_region")
         with patch.object(rank._live, "channel_regions", return_value={CH_B: "EN", CH_C: "ID"}):
             with self.assertRaises(rank.ApiError) as cm:
-                rank.live_list(None, now=NOW, regions="JP")   # 解決済みはあるが、選んだ地域に当てはまる物が無い
+                rank.live_list(BOTH, now=NOW,regions="JP")   # 解決済みはあるが、選んだ地域に当てはまる物が無い
         self.assertEqual(cm.exception.code, "no_region")
 
     def test_region_filter_changes_cache_key(self):
         with patch.object(rank._live, "channel_regions", return_value={CH_B: "JP", CH_C: "ID"}):
-            a = rank.live_list(None, now=NOW, regions="JP")
+            a = rank.live_list(BOTH, now=NOW,regions="JP")
             b = rank.live_list(None, now=NOW + 1, regions="ID")
         self.assertFalse(b["cached"])
         self.assertNotEqual([x["id"] for x in a["live"]], [x["id"] for x in b["live"]])
@@ -192,7 +195,7 @@ class TestLiveList(unittest.TestCase):
 
         def run(**k):
             job = {"cancel": False, "progress": 0.0}
-            rank.run_search(job, rank.validate_search(dict({"start": "2026-09-01", "end": "2026-09-30"}, **k)))
+            rank.run_search(job, rank.validate_search(dict({"start": "2026-09-01", "end": "2026-09-30", "agencies": BOTH}, **k)))
             return job
         with patch.object(rank, "yt_get", fake), patch.object(rank._live, "channel_regions", return_value={CH_B: "JP", CH_C: "ID"}):
             j = run()   # 既定 = JP と不明: A(手の EN)・C(ID)は外れ、B(JP)だけ。事務所 aaa は「その他」
@@ -211,11 +214,11 @@ class TestLiveList(unittest.TestCase):
         self.assertEqual(rank.parse_regions(""), [])
 
     def test_cache_does_not_call_out(self):
-        rank.live_list(None, now=NOW)
+        rank.live_list(BOTH, now=NOW)
         n = len(self.fake.calls)
-        r = rank.live_list(None, now=NOW + 30)               # 60 秒の間は外へ聞かない
+        r = rank.live_list(BOTH, now=NOW + 30)              # 60 秒の間は外へ聞かない
         self.assertEqual((len(self.fake.calls), r["cached"]), (n, True))
-        r = rank.live_list(None, now=NOW + 61)               # 過ぎたら状態だけ聞き直す(一覧の見回りは 20 分覚える)
+        r = rank.live_list(BOTH, now=NOW + 61)              # 過ぎたら状態だけ聞き直す(一覧の見回りは 20 分覚える)
         self.assertFalse(r["cached"])
         self.assertEqual(self.fake.count("playlistItems"), 3)
         last = self.fake.calls[-1]
@@ -233,17 +236,17 @@ class TestLiveList(unittest.TestCase):
             rank._cache.clear()
             self.fake.fail = err
             with self.assertRaises(rank.ApiError) as cm:
-                rank.live_list(None, now=NOW)
+                rank.live_list(BOTH, now=NOW)
             self.assertEqual((cm.exception.code, cm.exception.message), (err.code, err.message))
         rank._cache.clear()
         self.fake.fail = rank.ApiError("network", "YouTube APIに接続できません", 502)   # 全部のチャンネルが読めない → 空の一覧ではなく失敗
         with self.assertRaises(rank.ApiError) as cm:
-            rank.live_list(None, now=NOW)
+            rank.live_list(BOTH, now=NOW)
         self.assertEqual(cm.exception.code, "network")
         self.fake.fail = None
         rank.put_registry({"agencies": [{"id": "zzz", "name": "空", "channels": [{"ref": "@pending"}]}]})
         with self.assertRaises(rank.ApiError) as cm:
-            rank.live_list(None, now=NOW)
+            rank.live_list(BOTH, now=NOW)
         self.assertEqual(cm.exception.code, "no_channels")
 
     def test_some_channels_fail(self):
@@ -254,7 +257,7 @@ class TestLiveList(unittest.TestCase):
                 raise rank.ApiError("not_found", "見つかりません", 404)
             return real(path, params)
         with patch.object(rank, "yt_get", flaky):
-            r = rank.live_list(None, now=NOW)
+            r = rank.live_list(BOTH, now=NOW)
         self.assertEqual(len(r["warnings"]), 1)
         self.assertNotIn(vid(2), [x["id"] for x in r["live"]])
 
@@ -275,7 +278,7 @@ class TestFakeMode(unittest.TestCase):
             rank._cache.clear()
             rank._live_none.clear()
             rank.put_registry({"agencies": [{"id": "f", "name": "疑似", "channels": [{"ref": "UC" + ("%022d" % i)} for i in range(30)]}]})
-            r = rank.live_list(None)
+            r = rank.live_list(BOTH)
             self.assertTrue(r["live"] and r["upcoming"], r)
             self.assertTrue(all(x["start"] <= (time.time() + rank.LIVE_AHEAD) * 1000 for x in r["upcoming"]))
             self.assertTrue(any(x["blocked"] == "members" for x in r["live"]))
@@ -314,10 +317,10 @@ class TestHttp(unittest.TestCase):
             return r.status, data
 
     def test_get(self):
-        st, d = self.get("/api/rank/live")
+        st, d = self.get("/api/rank/live?agencies=hololive,other")
         self.assertEqual(st, 200, d)
         self.assertTrue({"live", "upcoming", "agencies", "warnings", "quota", "checkedAt", "cached"} <= set(d))
-        st, d2 = self.get("/api/rank/live?agencies=f")
+        st, d2 = self.get("/api/rank/live?agencies=hololive,other")
         self.assertEqual((st, d2["cached"], d2["live"]), (200, True, d["live"]))
         st, e = self.get("/api/rank/live?agencies=nothere")
         self.assertEqual((st, e["error"]), (400, "no_agency"))
@@ -353,7 +356,7 @@ class TestResolveAndRetry(unittest.TestCase):
         from flow import board as B
         b = B.Board()
         rank.attach_board(b)
-        req = {"start": "2026-09-01", "end": "2026-09-30"}
+        req = {"start": "2026-09-01", "end": "2026-09-30", "agencies": ["other"]}
         spec = rank.validate_search(req)
         self.assertEqual(spec["req"], req)
         self.assertEqual([c["ref"] for c in spec["agencies"][0]["channels"]], ["@abc"])

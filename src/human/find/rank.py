@@ -43,6 +43,7 @@ WORKERS = 4
 CACHE_TTL = _ytapi.CACHE_TTL
 SEED = os.path.join(os.path.dirname(os.path.abspath(__file__)), "seed.json")   # 事務所の初期の登録(このファイルの隣)
 GROUPS = (("hololive", "ホロライブ"), ("other", "その他"))   # 検索・配信中の事務所の選び方(登録簿のホロライブ以外は「その他」)
+DEFAULT_GROUPS = ["hololive"]   # 事務所を省いたときに探すのはホロライブだけ(「その他」は手で選んだときだけ。10-16 ユーザー)
 REGIONS = _live.REGIONS            # ("JP", "EN", "ID")
 UNKNOWN = "unknown"                # 地域が決まらない物(名簿に無い・手の指定が無い)
 DEFAULT_REGIONS = ("JP", UNKNOWN)  # 既定の地域(不明も探して、画面で印を付ける)
@@ -291,16 +292,18 @@ def _channel_region(c, table):
 
 def _scope(ags, want, regions):
     """登録簿の事務所 → 検索・配信中の対象 [{id, name, channels}](「ホロライブ」「その他」の順。ホロライブ以外の事務所は「その他」にまとめる)。
-    want = 選んだ id の一覧(事務所の id でも hololive・other でもよい。リストでなければ全部)。channels は選んだ地域に入る物だけで、各チャンネルに region(不明は "")を足した写し。
+    want = 選んだ id の一覧(事務所の id でも hololive・other でもよい。リストでなければ DEFAULT_GROUPS = ホロライブだけ)。channels は選んだ地域に入る物だけで、各チャンネルに region(不明は "")を足した写し。
     解決済みのチャンネルがあるのに地域の選びで全部外れたら 400(no_region)"""
     table = _live.channel_regions()
     keys = set(regions)
     groups = {gid: {"id": gid, "name": name, "channels": []} for gid, name in GROUPS}
     seen = set()
     before = after = 0
+    if not isinstance(want, list):
+        want = DEFAULT_GROUPS
     for a in ags:
         gid = "hololive" if a["id"] == "hololive" else "other"
-        if isinstance(want, list) and gid not in want and a["id"] not in want:
+        if gid not in want and a["id"] not in want:
             continue
         seen.add(gid)
         for c in a["channels"]:
@@ -317,7 +320,7 @@ def _scope(ags, want, regions):
 
 def validate_search(req):
     """検索の指定(画面の JSON)を検査して整える -> spec。期間は日本時間の開始日 0 時〜終了日の次の日 0 時(800 日まで)・ワードは NFKC と小文字で 20 個まで・
-    top は事務所ごとの上位の数(1〜100)・minViews は最低の再生数・minDur は最低の再生時間(秒。画面の「10分以上だけ」= 600)・agencies は「ホロライブ」「その他」の選び(hololive・other。登録簿の事務所の id でもよい。省くと全部)・
+    top は事務所ごとの上位の数(1〜100)・minViews は最低の再生数・minDur は最低の再生時間(秒。画面の「10分以上だけ」= 600)・agencies は「ホロライブ」「その他」の選び(hololive・other。登録簿の事務所の id でもよい。省くとホロライブだけ)・
     regions は探す地域(JP・EN・ID・unknown。省くと JP と unknown)。
     spec["req"] に元の指定を持つ(掲示板のやり直しが今の登録簿でもう一度検査するため)。だめなら ApiError 400"""
     try:
@@ -548,7 +551,7 @@ def parse_live_agencies(arg):
 
 
 def live_list(agencies=None, now=None, regions=None):
-    """配信中(視聴者数の多い順)と、24 時間以内に始まる予定(早い順)。agencies: 「ホロライブ」「その他」の選び(hololive・other か登録簿の事務所の id のリスト。None = 全部)。
+    """配信中(視聴者数の多い順)と、24 時間以内に始まる予定(早い順)。agencies: 「ホロライブ」「その他」の選び(hololive・other か登録簿の事務所の id のリスト。None = ホロライブだけ)。
     regions: 探す地域(JP・EN・ID・unknown のリストか、カンマ区切りの文字。None = JP と unknown)。各行に region(不明は "")を足す。
     登録簿から対象を選び、② flow/live_watch に渡す(この yt_get と _ok_channels も渡す)。事務所が 1 つも無ければ 400(no_agency)・地域が 1 つも無ければ 400(no_region)"""
     want = parse_live_agencies(agencies) if not isinstance(agencies, list) else parse_live_agencies(",".join(str(x) for x in agencies))

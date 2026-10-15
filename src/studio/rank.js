@@ -202,8 +202,8 @@ const REGION_DEFAULT = { JP: true, EN: false, ID: false, unknown: true };
 const agGroups = () => [['hololive', 'ホロライブ'], ['other', 'その他']].map(([id, name]) => ({ id, name, n: R.reg.agencies.filter(a => (a.id === 'hololive') === (id === 'hololive')).reduce((x, a) => x + okCount(a), 0) }));
 const rgChecked = k => (Object.prototype.hasOwnProperty.call(R.rgPick, k) ? !!R.rgPick[k] : REGION_DEFAULT[k]);
 const rgSelected = () => REGION_KEYS.map(x => x[0]).filter(rgChecked);
-/* 事務所にチェックが入るか: ユーザーが変えたならその値、触っていないなら「解決済みのチャンネルがあるか」 */
-const agChecked = g => (Object.prototype.hasOwnProperty.call(R.agPick, g.id) ? !!R.agPick[g.id] : g.n > 0);
+/* 事務所にチェックが入るか: ユーザーが変えたならその値、触っていないならホロライブだけ(解決済みのチャンネルがあるとき)。「その他」は手で入れたときだけ(10-16 ユーザー) */
+const agChecked = g => (Object.prototype.hasOwnProperty.call(R.agPick, g.id) ? !!R.agPick[g.id] : g.id === 'hololive' && g.n > 0);
 function loadAgPick(){
   const v = lsGet('agsel');
   if (v && typeof v === 'object' && !Array.isArray(v)){ for (const [k, x] of Object.entries(v)) if (typeof x === 'boolean') R.agPick[k] = x; return; }

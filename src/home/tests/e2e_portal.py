@@ -273,9 +273,9 @@ def _mounted_cards_and_health(cx):
           and pg.evaluate("!document.querySelector('#healthList #accuracyGoals')"), "[A] 確かめる: すべての条件は畳んだ欄に(調子の中の行は無くなった)")
     pg.click("#btnHealthRefresh")
     check(wait_js(pg, "document.querySelector('#healthWhen').textContent.indexOf('数えた') >= 0", 20000), "[A] 「数え直す」で数え直して、いつ数えたかが出る: %s" % pg.text_content("#healthWhen"))
-    # 段9 9-2: 「片付け」の節。候補を探すと種類ごと(5 種類)に出て、何も選ばなければ移せない
+    # 段9 9-2: 「片付け」の節。候補を探すと種類ごと(6 種類。失敗 は OPT-M1 の続きで足した)に出て、何も選ばなければ移せない
     pg.click("#btnCleanFind")
-    check(wait_js(pg, "document.querySelectorAll('#cleanKinds details').length === 5", 20000), "[A] 「片付け」の候補が種類ごとに出る: %d" % pg.locator("#cleanKinds details").count())
+    check(wait_js(pg, "document.querySelectorAll('#cleanKinds details').length === 6", 20000), "[A] 「片付け」の候補が種類ごとに出る: %d" % pg.locator("#cleanKinds details").count())
     check(pg.is_disabled("#btnCleanMove") and "候補" in pg.text_content("#cleanWhen"), "[A] 何も選んでいなければ「ごみ箱フォルダへ移す」は押せない")
 
     for tid, verfrag in (("studio", STUDIO_VER), ("transcribe", TX_VER)):
@@ -825,13 +825,13 @@ def _new_case_rank(cx):
     p = ctx.new_page()
     _watch_errors(p, errs)
     p.goto(cx.base + "#new")
-    want = {"hololive": True, "other": True}   # 事務所はホロライブとその他の 2 つ(FIND-R。にじさんじはその他)
+    want = {"hololive": True, "other": False}   # 事務所はホロライブとその他の 2 つ(FIND-R。にじさんじはその他)・その他は既定でオフ(10-16 ユーザー)
     check(wait_js(p, "%s.length === 2" % AGC_JS, 25000) and dict(p.evaluate(AGC_JS)) == want,
-          "[A] 2j-3: チャンネルを登録した事務所だけにチェックが入る: %s" % p.evaluate(AGC_JS))
-    p.uncheck('#agChecks .agc[value="other"]')
+          "[A] 2j-3: 既定はホロライブだけにチェック(その他は手で入れたときだけ): %s" % p.evaluate(AGC_JS))
+    p.check('#agChecks .agc[value="other"]')
     p.reload()
-    check(wait_js(p, "%s.length === 2" % AGC_JS, 25000) and dict(p.evaluate(AGC_JS)) == dict(want, other=False),
-          "[A] 2j-3: 自分で外した事務所は、読み込み直しても外れたまま: %s" % p.evaluate(AGC_JS))
+    check(wait_js(p, "%s.length === 2" % AGC_JS, 25000) and dict(p.evaluate(AGC_JS)) == dict(want, other=True),
+          "[A] 2j-3: 自分で入れた事務所は、読み込み直しても入ったまま: %s" % p.evaluate(AGC_JS))
     p.check('#agChecks .agc[value="other"]')
     # 期間の早見と「10分以上の動画だけ」
     check(p.evaluate("document.querySelector('#rkCond .cs-quick .btn').hasAttribute('data-yday')"), "[A] 2j-3: 期間の早見の先頭は「昨日0時〜今」")
