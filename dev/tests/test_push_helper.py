@@ -220,5 +220,13 @@ class TestPushBat(unittest.TestCase):
         self.assertIn("push_helper.py notes", s)
 
 
+class TestDataJs(unittest.TestCase):
+    def test_broken_plan_data_js_stops(self):
+        bad = "window.PLAN = {\n tasks: [\n  {a: 1}\n  {a: 2},\n ],\n};\n".encode()
+        good = "window.PLAN = {\n tasks: [\n  {a: 1},\n  {a: 2},\n ],\n};\n".encode()
+        self.assertTrue(any("読めない" in w for w in P.problems_for("plan/data.js", bad)))
+        self.assertEqual(P.problems_for("plan/data.js", good), [])
+
+
 if __name__ == "__main__":
     unittest.main()

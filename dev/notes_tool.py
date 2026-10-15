@@ -141,6 +141,58 @@ def link_to(full, here_dir):
     return "<" + r + ">" if re.search(r"[ ()<>]", r) else r
 
 
+NODE_SYNTAX = ("const vm=require('vm'),fs=require('fs');const t=fs.readFileSync(process.argv[1],'utf8');"
+               "try{vm.runInNewContext(t,{window:{}},{filename:'data.js'})}catch(e){"
+               "const m=/data\\.js:(\\d+)/.exec(e.stack||'');console.log((m?m[1]:0)+'\\t'+e.message);process.exit(1)}")
+COMMA_GAP = re.compile(r"[}\]]\s*(//.*)?$")
+
+
+def _comma_gaps(text):
+    """要素の間のカンマ抜け(「}」「]」で終わる行のすぐ次が「{」「[」で始まる行)。-> [(次の行の番号, 説明)]。node が無い PC の代わり"""
+    lines = text.splitlines()
+    return [(i + 2, "前の行の終わりにカンマが無い(} や ] の次に { や [ が来ている)")
+            for i in range(len(lines) - 1)
+            if COMMA_GAP.search(lines[i].strip()) and not lines[i].strip().startswith("//")
+            and lines[i + 1].lstrip().startswith(("{", "["))]
+
+
+def data_js_problems(text, use_node=True):
+    """data.js が JavaScript として読めるか。-> [(行, 説明)]。node(PATH か Playwright 同梱)で vm に通す。無ければカンマ抜けだけ Python で探す"""
+    node = None
+    if use_node:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from run_editor_suite import find_node
+        node = find_node()
+    if not node:
+        return _comma_gaps(text)
+    import tempfile
+    with tempfile.NamedTemporaryFile("wb", suffix=".js", delete=False) as f:
+        f.write(text.encode("utf-8"))
+    try:
+        r = subprocess.run([node, "-e", NODE_SYNTAX, f.name], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    finally:
+        os.unlink(f.name)
+    if r.returncode == 0:
+        return []
+    ln, _, msg = r.stdout.decode("utf-8", "replace").strip().partition("\t")
+    return [(int(ln) if ln.isdigit() else 0, msg or r.stderr.decode("utf-8", "replace").strip()[-200:])]
+
+
+def explain_data_js(text, path="plan/data.js", use_node=True):
+    """読めないときの表示(壊れた行の番号と前後 2 行)。読めるなら None"""
+    probs = data_js_problems(text, use_node)
+    if not probs:
+        return None
+    lines = text.splitlines()
+    out = []
+    for ln, msg in probs:
+        out.append("%s の %d 行目が JavaScript として読めません: %s" % (path, ln, msg))
+        for i in range(max(1, ln - 2), min(len(lines), ln + 2) + 1):
+            out.append("  %s%5d| %s" % (">" if i == ln else " ", i, lines[i - 1][:160]))
+    return "\n".join(out)
+
+
 def check():
     """切れたパスを [(どこ, 行, パス)] で返す。資料のフォルダが無い PC では空"""
     root = vault()
@@ -165,6 +217,8 @@ def check():
                     bad.append((vrel(p, root), ln, lt[0]))
     data = os.path.join(root, "plan", "data.js")
     if os.path.isfile(data):
+        for ln, msg in data_js_problems(read(data)):
+            bad.append(("plan/data.js", ln, "JavaScript として読めない: " + msg))
         for ln, line in enumerate(read(data).splitlines(), 1):
             for m in DATA_DOCS.finditer(line):
                 for q in QUOTED.findall(m.group(1)):
