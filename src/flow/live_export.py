@@ -1047,7 +1047,9 @@ class Exporter(Patrol):
         tmp = names.partial_path(folder, base)
         flags = tools.no_window_flags(priority="low")   # 書き出しは「通常より下」(録画は「通常より上」)
         # 切り出し・30fps・繋ぎ直しをまたぐ(欠けは無い)ときのセッションごとのファイルの concat は ① の ytt/normalize(OPT2)。ここは動かし方だけ
-        code, tail, why = normalize.encode_section(ff, [p for p, _ in files], ss, dur, tmp, lambda cmd: self._run(job, cmd, dur, flags))
+        vol, loud = self._audio_cfg(job)
+        af = loudness.volume_filter(vol) if not loud and vol != 100 else None   # 音量(%)は作り直しの中で(O3)。ラウドネスは測ってから _adjust_audio
+        code, tail, why = normalize.encode_section(ff, [p for p, _ in files], ss, dur, tmp, lambda cmd: self._run(job, cmd, dur, flags), afilter=af)
         if why == "cancel":
             fsio.unlink_quiet(tmp)
             self._check(job, stopped=True)
@@ -1055,7 +1057,7 @@ class Exporter(Patrol):
             fsio.unlink_quiet(tmp)
             raise LiveError("作り直しに失敗しました: %s" % (" / ".join(tail[-3:]) or "終了コード %s" % code))
         try:
-            audio = self._adjust_audio(job, ff, tmp, dur, flags)
+            audio = self._adjust_audio(job, ff, tmp, dur, flags, (vol, loud))
             info = normalize.verify(tmp, dur, LEN_TOL, self.ffprobe, what="作り直した動画", ref="区間", got="動画", error=LiveError)   # 30fps・長さ
         except BaseException:   # 取り消し・入口の終了・失敗: 書きかけは残さない
             fsio.unlink_quiet(tmp)
@@ -1105,13 +1107,14 @@ class Exporter(Patrol):
             vol = 100
         return vol, loud
 
-    def _adjust_audio(self, job, ff, path, dur, flags):
-        """作り直した動画の音量を、スタジオの書き出しと同じ設定にそろえる(音声だけ作り直し。映像は -c:v copy で無劣化)。
-        ラウドネスのとき: 測って(loudnorm)・上げ下げの量は ytt.loudness.gain(音が割れない・上げすぎない範囲)。
+    def _adjust_audio(self, job, ff, path, dur, flags, cfg=None):
+        """作り直した動画の音量を、スタジオの書き出しと同じ設定にそろえる。音量(%)は作り直しの中でかけ済み(_encode。O3)なので記録だけ。
+        ラウドネスのとき: 測って(loudnorm)・上げ下げの量は ytt.loudness.gain(音が割れない・上げすぎない範囲)で音声だけ作り直す(映像は -c:v copy で無劣化)。
+        cfg: _encode が作り直しに使った (音量, ラウドネス)(省略なら今の設定を読む = 作り直しに音量が入っていない前提)。
         -> .clip.json の export に足す項目({"loudness": {...}} か {"volume": %}。スタジオの _clip_export_info と同じ形)"""
-        vol, loud = self._audio_cfg(job)
-        if not loud and vol == 100:
-            return {"volume": 100}
+        vol, loud = cfg or self._audio_cfg(job)
+        if not loud and (vol == 100 or cfg):
+            return {"volume": vol}
         info = normalize.probe(path, self.ffprobe)
         if info is not None and not info.get("has_audio"):   # 音声の無い録画: 何もしない
             return {"loudness": {"target": loud, "skipped": "音声がありません"}} if loud else {"volume": vol}

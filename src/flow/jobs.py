@@ -542,6 +542,8 @@ class Table:
     def retry(self, jid, prepare=None):
         """やり直し: 同じ指定で新しい記録を末尾に入れる(前の記録は消す)-> 新しい記録。retryable の外は bad_state(409)・入れられなければ admit の ApiError"""
         with self.cv:
+            if self.closing:   # add と同じく、終了のあとは新しい待ちの記録を作らない(待ち列が動かないまま残るのを防ぐ)
+                raise errors.ApiError("closing", self.messages["closing"], 503)
             old = self.get(jid)
             if old["state"] not in self.retryable:
                 raise errors.ApiError("bad_state", self.messages["no_retry"], 409)

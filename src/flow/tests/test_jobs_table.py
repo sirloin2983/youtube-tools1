@@ -69,6 +69,20 @@ class TestTable(unittest.TestCase):
             t.add({})
         self.assertEqual((c.exception.code, c.exception.status), ("closing", 503))
 
+    def test_retry_refused_after_shutdown(self):
+        """終了のあとの retry は add と同じく closing(503)で拒否し、待ち列に新しい記録を作らない"""
+        t = self.table(lambda rec, ctl: 1 / 0, retryable=("error",))
+        a = t.add({})
+        self.assertTrue(wait(lambda: not t.busy()))
+        self.assertEqual(a["state"], "error")
+        self.assertEqual(t.shutdown(), [])
+        before = list(t.jobs)
+        with self.assertRaises(ApiError) as c:
+            t.retry(a["id"])
+        self.assertEqual((c.exception.code, c.exception.status), ("closing", 503))
+        self.assertEqual(list(t.jobs), before)
+        self.assertFalse(t.busy())
+
     def test_cancel_queued_and_running(self):
         gate = threading.Event()
 

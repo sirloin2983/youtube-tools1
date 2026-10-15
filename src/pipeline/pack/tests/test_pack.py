@@ -13,6 +13,7 @@ import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 TESTS = Path(__file__).resolve().parent
@@ -1436,6 +1437,45 @@ class TestEditMediaPack(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg が無いためスキップ")
+class TestEditMediaProbeCache(unittest.TestCase):
+    """余白つき素材の媒体情報(probe)は Cache があれば覚える。選び直し(selectionIn)は毎回読む。ffmpeg は使わない(S.probe をモック)"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.em = Path(self.tmp.name) / "clip_edit.mp4"
+        self.em.write_bytes(b"x" * 10)
+        self.plan = SimpleNamespace(req=SimpleNamespace(edit_media=True), video=Path(self.tmp.name) / "clip.mp4", src_start="00:00:00:00",
+                                    meta={"fps": (30, 1), "w": 1920, "h": 1080, "total": 180, "audio": True}, keeps=[(0, 60)])
+        self.probe = mock.Mock(return_value={"fps": (30, 1), "w": 1920, "h": 1080, "total": 600, "audio": True, "warnings": []})
+        for p in (mock.patch.object(pack.S, "probe", self.probe),
+                  mock.patch.object(pack.C, "resolve_src_start", return_value=("00:00:00:00", "d", [])),
+                  mock.patch.object(pack.C, "find_edit_media", return_value=self.edit(10))):
+            p.start()
+
+    def tearDown(self):
+        mock.patch.stopall()
+        self.tmp.cleanup()
+
+    def edit(self, sel):
+        return {"path": self.em, "sidecar": None, "selectionIn": float(sel), "handleBefore": float(sel), "handleAfter": 10.0}
+
+    def test_probe_once_with_cache_and_remade_on_change(self):
+        cache = pack.Cache()
+        self.assertEqual(pack.media_for_pack(self.plan, True, cache)["keeps"], [(300, 360)])    # 10 秒 = 300 フレーム
+        pack.C.find_edit_media.return_value = self.edit(5)
+        self.assertEqual(pack.media_for_pack(self.plan, True, cache)["keeps"], [(150, 210)])    # 選び直しは毎回読む
+        self.assertEqual(self.probe.call_count, 1)                                              # 同じ素材の媒体情報は 1 回
+        st = self.em.stat()
+        os.utime(self.em, ns=(st.st_atime_ns, st.st_mtime_ns + 10 ** 9))
+        pack.media_for_pack(self.plan, True, cache)
+        self.assertEqual(self.probe.call_count, 2)                                              # 更新日時が変わったら調べ直す
+
+    def test_without_cache_probes_every_time(self):
+        pack.media_for_pack(self.plan, True)
+        pack.media_for_pack(self.plan, True)
+        self.assertEqual(self.probe.call_count, 2)                                              # 渡さなければ今までどおり
+
+
 class TestMinimalPack(unittest.TestCase):
     """パックの出力を最小限に(notes:docs/design/edit-tool-design.md の 12 ④): 画面・API の Text+ パックは動画(直下)・Lua・雛形・登録用の ps1/bat だけ
     (readme_file=False: 手順書は画面の「手順を見る」。2026-09-27 ユーザー)。backup=True で EDL・予備_EDLで開く手順.txt・カット後の SRT も。

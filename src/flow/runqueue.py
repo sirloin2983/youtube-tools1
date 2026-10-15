@@ -48,6 +48,7 @@ HISTORY_DEFAULT, HISTORY_MAX = 50, 200   # history の limit の既定と上限
 PAST_KEYS = ("id", "kind", "docId", "videoId", "title", "mode", "modeLabel", "state", "stateLabel", "nothing", "message", "error",
              "created", "finished", "steps")   # past に入れる項目(2〜15 秒ごとの問い合わせを重くしない。全部は history で)
 MAX_WAITING = 20       # 順番待ちの上限
+CLOSED_MSG = "終了しているところです。起動し直してから入れてください"   # close のあとは新しく積まない(submit・_enqueue)
 ACTIVE_FILE = "autorun-active.json"  # 待ち・実行中の実行(log_dir の中。runlog.RUNS_LOG の隣)
 ACTIVE_VERSION = 2     # 中身は Run.saved()(封筒 + 束 + 状態)。2 = RS7-1 S4 から(束は受けたときに組んだ物・受付で決めた物も入る)
 ACTIVE_READ_MAX = 4 * 1024 * 1024
@@ -318,6 +319,8 @@ class Queue(run_mod.Runner):
         -> {"runs": [作った実行], "skipped": [飛ばしたもの]}"""
         made, skipped = [], []
         with self.cv:
+            if self.closed:
+                raise ValueError(CLOSED_MSG)
             active = self._active_runs()
             for it in items:
                 r = make(it, active)
@@ -351,6 +354,8 @@ class Queue(run_mod.Runner):
         if accept:
             self._accept(run)
         with self.cv:
+            if self.closed:
+                raise ValueError(CLOSED_MSG)
             active = self._active_runs()
             if any(r.id == run.id for r in active):
                 raise ValueError("その依頼(id %s)はもう待ち・実行中です" % run.id)

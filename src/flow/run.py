@@ -227,6 +227,7 @@ class Run:
         self.video_tracks = video_tracks   # 友人が選んだ Resolve の映像トラックの数(2〜5。① 全自動のパック。None = 編集の既定 = 1。2026-10-02)
         self.speakers = speakers         # 友人が入れた「配信者」{"count", "names", "styles"?: {名前: {"color": "#RRGGBB"}}}。あれば文字起こしのあとに話者分離(2026-10-01)。styles = 字幕の色(文書に覚え、パックにも渡す)
         self.new_docs = []               # この実行で文字起こしした文書(話者分離はこれだけ。前からある文書の話者は人が直したかもしれない)
+        self.tx_before = {}              # 文字起こしを頼む直前に、動画ごとに前からあった文書(文字のある物)の id(F2。再開でこの外の文書 = この実行が作った物)
         self.deliver_dir = deliver_dir   # ① 全自動: パックを zip にして置く所(Dropbox の 出力\)。失敗したら理由の .txt も
         self.packs = []                  # この実行で作ったパックのフォルダ
         self.kept_packs = []             # 鍵で飛ばして作らなかった、前からあるパックのフォルダ(結果の packs には載せる。届ける対象にはしない = packs とは別)
@@ -377,7 +378,7 @@ class Run:
                 "fresh": self.fresh, "onFail": self.on_fail, "sourcePath": self.source_path, "requestId": self.request_id, "deliverDir": self.deliver_dir,
                 "speakers": self.speakers, "videoTracks": self.video_tracks, "ranges": [list(r) for r in self.ranges], "cut": self.cut, "weights": self.weights,
                 "duration": self.duration, "engine": self.engine, "model": self.model, "friendLength": self.friend_length, "deliverBatch": self.deliver_batch,
-                "pool": self.pool, "docs": list(self.docs), "newDocs": list(self.new_docs), "packs": list(self.packs), "keptPacks": list(self.kept_packs), "delivered": list(self.delivered),
+                "pool": self.pool, "docs": list(self.docs), "newDocs": list(self.new_docs), "txBefore": copy.deepcopy(self.tx_before), "packs": list(self.packs), "keptPacks": list(self.kept_packs), "delivered": list(self.delivered),
                 "packMarks": dict(self.pack_marks), "force": self.force,
                 "friendPlan": copy.deepcopy(self.friend_plan), "notes": list(self.notes),   # 受付で決めた物(RS7-1 S4)
                 "created": self.created, "state": self.state, "message": self.message,
@@ -445,6 +446,8 @@ class Run:
         run.friend_plan = fp if isinstance(fp, dict) and _num(fp.get("length")) else None   # 受付で決めた友人の区間の長さ(RS7-1 S4。版 1 の記録には無い)
         run.notes = strs("notes", 20)
         run.docs, run.new_docs = strs("docs"), strs("newDocs")
+        tb = d.get("txBefore") if isinstance(d.get("txBefore"), dict) else {}
+        run.tx_before = {k: [x for x in v if isinstance(x, str)][:200] for k, v in list(tb.items())[:200] if isinstance(k, str) and isinstance(v, list)}
         run.packs, run.delivered = strs("packs"), strs("delivered")
         run.kept_packs = strs("keptPacks")
         pm = d.get("packMarks") if isinstance(d.get("packMarks"), dict) else {}
@@ -620,6 +623,27 @@ class Runner:
         return _keys.transcribe_state(doc["id"], path, opts)
 
     @staticmethod
+    def _tx_path_key(path):
+        return os.path.normcase(os.path.normpath(str(path)))
+
+    def _tx_mark(self, run, items):
+        """文字起こしを頼む直前(F2): items = [(動画のパス, 前からある文書の id の一覧)] を覚えて待ちの記録に残す。
+        子が文書を保存した直後・親が結果を見る前に終了しても、再開で「この実行が作った文書」と分かる(前からある文書の話者は変えない)"""
+        for path, ids in items:
+            run.tx_before[self._tx_path_key(path)] = list(ids)
+        self._checkpoint(run)
+
+    def _made_here(self, run, path, doc):
+        """再開で見つけた文書 doc が、この実行で頼んだ文字起こしの成果物か(_tx_mark で覚えた外の文書)。頼んでいなければ False"""
+        before = run.tx_before.get(self._tx_path_key(path))
+        return before is not None and bool(doc) and doc["id"] not in before
+
+    @staticmethod
+    def _add_new_doc(run, tid):
+        if tid and tid not in run.new_docs:
+            run.new_docs.append(tid)
+
+    @staticmethod
     def _keep_pack(run, media, doc=None):
         """鍵・既存で飛ばした段の成果物(前からあるパックのフォルダ・文書)を結果に載せる。作った物(run.packs)ではないので別の欄"""
         d = os.path.normpath(_keys.pack_dir(media))
@@ -630,10 +654,11 @@ class Runner:
 
     def _pack_state(self, run, doc, media, pack_opts, v=None):
         """切り抜き media の既定のパックの鍵と、今作ったときの材料を比べる -> (same | differ | none, _pack_body の結果 か None)。
-        鍵が無ければ本文を作らない(今のパックは今のまま)。本文を作れなければ (none, None)"""
+        鍵が無ければ本文を作らない(今のパックは今のまま)。本文を作れなければ (none, None)。
+        比べるだけなので字幕のファイルは書かない(dry。見積もりも同じ関数 = 「何も書き込まない」。指摘 2)。作るときは _pack_one が書いて作り直す"""
         def make():
             self._auto_streamer(run, doc, v)
-            return self._pack_body(run, doc, media, pack_opts)
+            return self._pack_body(run, doc, media, pack_opts, dry=True)
         try:
             return _keys.pack_state(media, make)
         except StepError:
@@ -900,24 +925,28 @@ class Runner:
             return "stop"
         docs = self._docs()
         opts = self._tx_opts(run)
-        todo, differ, redo = [], 0, 0
+        todo, differ, redo, before = [], 0, 0, []
         for m in clips:   # 文書のある切り抜きは鍵を見る(RS6 b-K2): 同じ・鍵なし = 飛ばす / 違う = 飛ばして印 / force = 作り直す(新しい文書。人の直しは引き継ぐ)
             doc = self._pick_doc(docs, run.video_id, m.get("id"), m["path"])
-            verdict = tx_verdict(bool(doc), self._force(run))
-            if verdict == "make":
+            made = self._made_here(run, m["path"], doc)   # 再開: 終了の前にこの実行が作った文書(F2)は作り直さず、話者の判別の対象に
+            verdict = "skip" if made else tx_verdict(bool(doc), self._force(run))
+            if verdict in ("make", "redo"):
                 todo.append(m)
-            elif verdict == "redo":
-                todo.append(m)
-                redo += 1
+                redo += verdict == "redo"
+                before.append((m["path"], [doc["id"]] if doc else []))
             else:
                 if doc["id"] not in run.docs:
                     run.docs.append(doc["id"])   # 飛ばした文書も結果に載せる
-                differ += self._tx_state(doc, m["path"], opts) == "differ"
+                if made:
+                    self._add_new_doc(run, doc["id"])
+                else:
+                    differ += self._tx_state(doc, m["path"], opts) == "differ"
         note = ("。うち %d 本は%s" % (differ, TX_DIFFER)) if differ else ""
         if not todo:
             st["state"], st["detail"] = "skip", "%d 本とも文字起こし済み" % len(clips) + note
             return None
         jobs = []   # 入れたジョブ(同じリストに足していく = 起動し直すときに止めてよい仕事 run.owned)
+        self._tx_mark(run, before)
 
         def submit():
             for m in todo:
@@ -939,7 +968,8 @@ class Runner:
         ok = [j for j in mine if j.get("state") == "done"]
         bad = [j for j in mine if j.get("state") != "done"]
         run.docs += [j["tid"] for j in ok if j.get("tid") and j["tid"] not in run.docs]
-        run.new_docs += [j["tid"] for j in ok if j.get("tid")]
+        for j in ok:
+            self._add_new_doc(run, j.get("tid"))
         st["detail"] = "%d 本を文字起こししました" % len(ok) + ("(%d 本失敗)" % len(bad) if bad else "") + \
             ("。うち %d 本は作り直し(force)" % redo if redo else "") + note + "。字幕の校正は「編集」の 1 文字起こしで"
         if bad and (not ok or run.on_fail == "stop"):
@@ -987,18 +1017,29 @@ class Runner:
                 out[p["name"]] = {"color": hx}
         return out
 
-    def _pack_body(self, run, doc, media, pack_opts):
+    def _pack_body(self, run, doc, media, pack_opts, dry=False):
         """1本のパックの要求の本文(cut2resolve の POST /api/build。上書き force は送る直前に足す)。「編集」でカットを決めてあればそのとおり
-        (3 パック のタブのパックと同じ中身)、無ければ文字起こしの行だけを残す規則(preset transcript-rows)など。-> (本文, 残す区間 か None, カットの rev)"""
+        (3 パック のタブのパックと同じ中身)、無ければ文字起こしの行だけを残す規則(preset transcript-rows)など。-> (本文, 残す区間 か None, カットの rev)。
+        dry=True: 字幕の受け渡しの JSON を書かずに中身だけ作り、本文の "contents" に入れる(spec の transcript は None。鍵の比べ・見積もり用 = 送れない本文)"""
         row_edge, wrap_out, cut_silence = pack_opts[:3]   # fps は固定の 30(RS7-1 S4 で画面の packFps を読まなくなったので、素材の fps を見る分岐は消した)
+        contents = {}
+
+        def transcript():
+            if not dry:
+                return self.tools.transcript_file(doc["id"]).get("path")
+            data = self.tools.transcript_data(doc["id"])
+            if data is None:
+                raise StepError("パックに渡す文字のある行がありません")
+            contents["transcript"] = data
+            return None
         keeps, rev = self._edit_keeps(doc)
         if keeps:
             captions = _has_captions(doc)
-            tr = self.tools.transcript_file(doc["id"]) if captions else {}
+            tr = {"path": transcript()} if captions else {}
             spec = dict({"video": media, "keeps": keeps}, **({"transcript": tr.get("path")} if captions else {}))
             body = {"spec": spec, "output": dict({"textplus": captions, "copyVideo": True}, **wrap_out)}
         else:   # カットを決めていない文書: カットの方法(ホームの設定。rows = 行から・none = カットしない・silence = 無音で削る)
-            tr = self.tools.transcript_file(doc["id"])
+            tr = {"path": transcript()}
             # 友人が選んだカット(① の依頼)・リアルタイム切り抜きの live.auto.cut(M2)= 束の pack.cut + run.pinned の cut。
             # 無ければ、自動の採用の切り抜きは区間の全体(M8)、ほかはホームの設定(束の pack.cut)
             b = self._bundle(run)
@@ -1022,12 +1063,14 @@ class Runner:
         styles = self._speaker_styles(run)
         if styles:   # 友人が指定した話者ごとの字幕の色(古い cut2resolve は知らない鍵を読み飛ばす。空なら鍵ごと付けない = 今までと同じ要求)
             body["output"]["speakerStyles"] = styles
+        if dry:
+            body["contents"] = contents
         return body, keeps, rev
 
     def _pack_one(self, run, st, doc, media, pack_opts, force=False, prefix="", built=None):
-        """1本のパックを cut2resolve で作る(本文は _pack_body。built = 鍵を比べるときに作った本文があれば使い回す)。
+        """1本のパックを cut2resolve で作る(本文は _pack_body。built = 鍵を比べるときに作った本文。字幕を書いていない(dry)ので作り直す)。
         -> ("made", カットのとおりか) か ("exists", False)(同じ名前のパックがあり force でない)"""
-        body, keeps, rev = built or self._pack_body(run, doc, media, pack_opts)
+        body, keeps, rev = built if built and "contents" not in built[0] else self._pack_body(run, doc, media, pack_opts)
         if force:
             body["output"]["force"] = True
         status, res = self._call_when_free(run, st, lambda: self.tools.pack_start(body), prefix + "cut2resolve の別の処理が終わるのを待っています",
@@ -1153,14 +1196,16 @@ class Runner:
     def _doc_transcribe(self, run, st):
         doc = self._doc(run)
         if tx_verdict(bool(doc["count"]), False) == "skip":   # 文書単位は force でも作り直さない
+            if self._made_here(run, doc["sourcePath"], doc):   # 再開: 終了の前にこの実行が文字を入れた(F2)
+                self._add_new_doc(run, doc["id"])
             st["state"], st["detail"] = "skip", "文字起こし済み"
             return None
+        self._tx_mark(run, [(doc["sourcePath"], [])])   # 空の文書に入れる = 文字が入ればこの実行の成果物
         jid = self.tools.transcribe_start(dict(self._tx_opts(run), sourcePath=doc["sourcePath"], intoDoc=doc["id"]), bundle=self._bundle(run))
         j = self._wait_job(run, jid, st)
         if j.get("state") != "done":
             raise StepError("文字起こしに失敗しました: %s" % _job_why(j))
-        if doc["id"] not in run.new_docs:
-            run.new_docs.append(doc["id"])   # この実行で文字起こしした文書(public の newDocs)
+        self._add_new_doc(run, doc["id"])   # この実行で文字起こしした文書(public の newDocs)
         st["detail"] = "文字起こししました。字幕の校正は「編集」の 1 文字起こしで"
         return None
 
@@ -1246,20 +1291,25 @@ class Runner:
         from_pack = b["run"]["from"] == "pack"   # 束の run.from = pack(CLI の --from pack): 文字起こし済みの文書でパックだけ(force でも文字起こしは作り直さない。RS7-1 S4)
         if from_pack and not (doc and doc.get("count")):
             raise StepError("この動画の文字起こしの文書がありません(パックからでなく、文字起こしから実行してください)")
-        verdict = tx_verdict(bool(doc and doc.get("count")), self._force(run) and not from_pack)   # 鍵(RS6 b-K2): force なら作り直す(新しい文書。人の直しは引き継ぐ)
+        made = self._made_here(run, run.source_path, doc if doc and doc.get("count") else None)   # 再開: 終了の前にこの実行が作った文書(F2)
+        verdict = "skip" if made else tx_verdict(bool(doc and doc.get("count")), self._force(run) and not from_pack)   # 鍵(RS6 b-K2): force なら作り直す(新しい文書。人の直しは引き継ぐ)
         redo = verdict == "redo"
-        if verdict == "skip":
+        if made:
+            self._add_new_doc(run, doc["id"])
+            st["state"], st["detail"] = "skip", "文字起こし済み(起動し直す前に済んでいた分)"
+            tid = doc["id"]
+        elif verdict == "skip":
             differ = self._tx_state(doc, run.source_path, opts) == "differ"   # 違えば飛ばして印・同じ / 鍵なしは飛ばす
             st["state"], st["detail"] = "skip", "文字起こし済み" + ("(%s)" % TX_DIFFER if differ else "")
             tid = doc["id"]
         else:
+            self._tx_mark(run, [(run.source_path, [doc["id"]] if doc and doc.get("count") else [])])
             jid = self.tools.transcribe_start(dict(opts, sourcePath=run.source_path), bundle=self._bundle(run))
             j = self._wait_job(run, jid, st)
             if j.get("state") != "done":
                 raise StepError("文字起こしに失敗しました: %s" % _job_why(j))
             tid = j.get("tid")
-            if tid:
-                run.new_docs.append(tid)
+            self._add_new_doc(run, tid)
             st["state"], st["detail"] = "done", ("文字起こしし直しました(force)" if redo else "文字起こししました") + "。字幕の校正は「編集」で"
         if tid and tid not in run.docs:
             run.docs.append(tid)

@@ -472,7 +472,7 @@ def start_build(app, o):
                               force=out["force"], task=task, backup=out["backup"], plan_file=False,
                               textplus_wrap=out["textplusWrap"], readme_file=False, textplus_color=out["textplusColor"],
                               speaker_colors=spk_map or None, loudness=out["loudness"], volume=out["volume"],
-                              video_tracks=out["videoTracks"], prev_copy=prev.get("videoCopy"))
+                              video_tracks=out["videoTracks"], prev_copy=prev.get("videoCopy"), cache=app.cache)   # 余白つき素材の probe も覚える(O2)
         app.allow_out_dir(res["out_dir"])
         try:
             write_pack_record(res, plan, out["textplus"], out["backup"], out["textplusColor"])

@@ -238,13 +238,15 @@ def section_cmd(ffmpeg, paths, ss, dur, out, enc, list_path=None):
         ["-t", "%.3f" % dur, "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn"] + list(enc) + ["-progress", "pipe:1", "-nostats", out]
 
 
-def encode_section(ffmpeg, paths, ss, dur, out, run):
+def encode_section(ffmpeg, paths, ss, dur, out, run, afilter=None):
     """paths(時刻の順。1 つか、つなぎ直しごとのファイル)の ss 秒から dur 秒を 30fps に作り直して out に書く(ライブの書き出し)。
     2 つ以上なら concat の一覧を最初のファイルと同じフォルダの parts.txt に書いてつなぐ。run(引数の全部) -> (終了コード, エラーの行, 止めた理由) は
     呼ぶ側の動かし方(取り消し・進み具合・優先度)。ffmpeg が 5.1 より古ければ -vsync で 1 回だけやり直す(run_with_legacy)。
+    afilter: 音声の -af(音量。作り直しの中でかける = 後から音声だけ作り直さない。音声の無い録画では ffmpeg が使わない)。
     -> 最後の (終了コード, エラーの行, 止めた理由)。検証(verify)と置き換えは呼ぶ側"""
     lst = concat_list(paths, os.path.join(os.path.dirname(paths[0]), "parts.txt")) if len(paths) > 1 else None
-    return run_with_legacy(lambda enc: run(section_cmd(ffmpeg, paths, ss, dur, out, enc, lst)), encode_args(), out)
+    enc = encode_args() + (["-af", afilter] if afilter else [])
+    return run_with_legacy(lambda enc: run(section_cmd(ffmpeg, paths, ss, dur, out, enc, lst)), enc, out)
 
 
 def verify(path, dur, tol=DURATION_TOL, ffprobe=None, what="作り直した動画", ref="元", got="作り直し", error=NormalizeError):

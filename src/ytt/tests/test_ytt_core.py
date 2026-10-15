@@ -19,7 +19,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 TOP = os.path.dirname(REPO)   # リポジトリ直下(dev/・friend-apps/・setup/)
 sys.path.insert(0, REPO)
 from manage.cases import txindex  # noqa: E402
-from ytt import colors, datadir, errors, fsio, httpsec, jobs, layout, pick, procs, runtime, schemas, studio_env, tools  # noqa: E402
+from ytt import colors, datadir, errors, fsio, httpsec, jobs, layout, mediainfo, pick, procs, runtime, schemas, studio_env, tools  # noqa: E402
 
 
 def locked(winerror=32):
@@ -1357,6 +1357,47 @@ class TestTools(unittest.TestCase):
             self.assertGreaterEqual(peak, now * 0.5)
         with mock.patch.object(tools.os, "name", "posix"), mock.patch("builtins.open", side_effect=OSError):
             self.assertIsNone(tools.process_memory_mb())             # 測れなければ None
+
+
+class TestFfmpegInfo(unittest.TestCase):
+    """ffmpeg -i の出力の読み方(tools.parse_ffmpeg_info の 1 か所)。ffmpeg は動かさず、出力の文字列だけで調べる"""
+    COVER = ("Input #0, mp3, from 'a.mp3':\n"
+             "  Duration: 00:03:20.50, start: 0.000000, bitrate: 192 kb/s\n"
+             "  Stream #0:0: Audio: mp3, 44100 Hz, stereo, fltp, 192 kb/s\n"
+             "  Stream #0:1: Video: mjpeg (Progressive), yuvj420p(pc), 500x500 [SAR 1:1 DAR 1:1], 90k tbr, 90k tbn (attached pic)\n")
+    VIDEO = ("Input #0, mov,mp4, from 'v.mp4':\n"
+             "  Duration: 00:00:05.00, start: 0.000000, bitrate: 1000 kb/s\n"
+             "  Stream #0:0[0x1](und): Video: h264 (High), yuv420p, 1920x1080, 30 fps\n"
+             "  Stream #0:1[0x2](und): Audio: aac (LC), 48000 Hz, stereo\n")
+
+    def test_cover_art_is_not_video(self):
+        self.assertEqual(tools.parse_ffmpeg_info(self.COVER), (200.5, False, True, ""))
+        self.assertEqual(tools.duration_in(self.COVER), 200.5)
+
+    def test_video_line_and_flags(self):
+        dur, has_v, has_a, line = tools.parse_ffmpeg_info(self.VIDEO)
+        self.assertEqual((dur, has_v, has_a), (5.0, True, True))
+        self.assertEqual(line, "Stream #0:0[0x1](und): Video: h264 (High), yuv420p, 1920x1080, 30 fps")
+
+    def test_first_real_video_after_cover(self):
+        text = self.COVER + "  Stream #0:2: Video: h264, 640x360\n"
+        self.assertEqual(tools.parse_ffmpeg_info(text)[1:], (True, True, "Stream #0:2: Video: h264, 640x360"))
+
+    def test_no_duration_and_empty(self):
+        self.assertEqual(tools.parse_ffmpeg_info("  Stream #0:0: Video: h264, 640x360, 30 fps\n"),
+                         (None, True, False, "Stream #0:0: Video: h264, 640x360, 30 fps"))
+        self.assertEqual(tools.parse_ffmpeg_info(None), (None, False, False, ""))
+        self.assertEqual(tools.parse_ffmpeg_info(""), (None, False, False, ""))
+
+    def test_video_line_is_capped(self):
+        line = tools.parse_ffmpeg_info("  Stream #0:0: Video: " + "x" * 400)[3]
+        self.assertEqual(len(line), 300)
+
+    def test_mediainfo_uses_the_same_reading(self):
+        with mock.patch.object(mediainfo._procs, "run_short", return_value=mock.Mock(stdout=self.COVER)):
+            self.assertEqual(mediainfo._probe_media("ffmpeg", "a.mp3"), (200.5, False, True, ""))
+        with mock.patch.object(mediainfo._procs, "run_short", return_value=mock.Mock(stdout=self.VIDEO)):
+            self.assertEqual(mediainfo._probe_media("ffmpeg", "v.mp4")[1], True)
 
 
 class TestDatadir(unittest.TestCase):

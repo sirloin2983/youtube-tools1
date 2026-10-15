@@ -386,7 +386,11 @@ DL_TAG = "_dl"      # 区間取得の途中のファイルの名前(<base>_dl.pa
 
 
 def _enc(spec):
-    return ENC_FAST if spec.get("fast") else ENC
+    """作り直しの出力側の引数。音量(%)はここで最初の書き出しに組み込む(音声の作り直しは 1 回だけ = AAC の 2 回目の圧縮と
+    ファイル全体の読み書きをしない。O3)。ラウドネスのときは測ってから apply_loudness が後でかける(測る前は量が分からないため)"""
+    enc = ENC_FAST if spec.get("fast") else ENC
+    vol = spec.get("volume", 100)
+    return enc if vol == 100 or spec.get("loudness") else enc + ["-af", _loud.volume_filter(vol)]
 
 
 def _method(spec):
@@ -569,15 +573,6 @@ def _reencode_audio(ctl, it, path, afilter, what):
     _media.remember_media_info(path, info)
 
 
-def apply_volume(ctl, spec, it, rel_file):
-    """書き出したクリップの音量を調整する(file/url どちらの方式で切り出したかによらず、常に最後にこの一手間をかける)。
-    volume が100(調整なし)・ラウドネスをそろえるとき(apply_loudness が行う)は何もしない。"""
-    vol = spec.get("volume", 100)
-    if vol == 100 or spec.get("loudness"):
-        return
-    _reencode_audio(ctl, it, os.path.join(spec["outDir"], os.path.basename(rel_file)), _loud.volume_filter(vol), "音量調整")
-
-
 def measure_loudness(ctl, it, path):
     """(統合ラウドネス LUFS, トゥルーピーク dBTP)。無音・測れないときは (None, None)。ffmpeg の loudnorm で測るだけ(書き換えない)"""
     dur = _media.media_info(path)[0] or (it["end"] - it["start"])
@@ -630,7 +625,7 @@ def _fail(ctl, it, e, context):
 
 
 def _run_combine(res, ctl, spec):
-    """選んだマークを1本ずつ 作業用/ に切り出し(音量の調整も)、時刻の順につないで出力先の直下に1本の mp4 を作る。切り出した部品は最後に消す。
+    """選んだマークを1本ずつ 作業用/ に切り出し(音量は切り出しの作り直しの中で)、時刻の順につないで出力先の直下に1本の mp4 を作る。切り出した部品は最後に消す。
     つないだ動画は元の配信の1つの区間ではないので、.clip.json は書かず、マークにも「書き出し済み」を付けない
     (.clip.json の時刻 = 元の配信の時刻 の約束を崩さないため。文字起こしは画面の「編集で開く」から)。ラウドネスは、つないだ1本で測ってそろえる"""
     work = os.path.join(spec["outDir"], schemas.WORK_DIR)
@@ -648,8 +643,7 @@ def _run_combine(res, ctl, spec):
             try:
                 base = unique_base("つなぐ_%02d_%s-%s" % (idx, compact_ts(it["start"]), compact_ts(it["end"])), work)
                 rel = _runner(spec)(ctl, pspec, it, base)
-                apply_volume(ctl, pspec, it, rel)
-                pieces.append(os.path.join(work, os.path.basename(rel)))
+                pieces.append(os.path.join(work, os.path.basename(rel)))   # できた直後に後始末の一覧へ(この先で止まっても残さない。M2)
                 it["status"], it["progress"] = "done", 1.0
             except Exception as e:
                 _fail(ctl, it, e, "つなぐ部品の書き出し")
@@ -674,7 +668,7 @@ def _run_combine(res, ctl, spec):
         res["state"] = comb["status"]
     finally:
         for p in pieces:
-            _rm(p, p + ".vol.mp4")
+            _rm(p)
         if comb.get("status") != "done":
             drop_partial(comb.get("path"))
 
@@ -715,13 +709,8 @@ def export_edit_media(ctl, spec, it, base, runner):
     # 編集用素材と .edit.json は途中のファイルなので 作業用/ に書く(出力先の直下はパックと元動画だけ。2026-09-27)
     wspec = dict(spec, outDir=os.path.join(spec["outDir"], schemas.WORK_DIR), folder=spec.get("folder", "") + "/" + schemas.WORK_DIR)
     os.makedirs(wspec["outDir"], exist_ok=True)
-    rel = runner(ctl, wspec, edit_it, base + "_edit")   # 書きかけ(<base>_edit.partial.mp4)
+    rel = runner(ctl, wspec, edit_it, base + "_edit")   # 書きかけ(<base>_edit.partial.mp4。音量は本体と同じ spec で作り直しの中で)
     media_path = os.path.join(wspec["outDir"], os.path.basename(rel))
-    try:
-        apply_volume(ctl, wspec, edit_it, rel)
-    except BaseException:
-        drop_partial(media_path)
-        raise
     actual, _v, _a, _line = _media.media_info(media_path)
     selection_in = float(it["start"]) - edit_it["start"]
     selected = float(it["end"]) - float(it["start"])
@@ -805,7 +794,7 @@ def run(spec, res, ctl, on_done=None):
 def _run_section(res, ctl, spec):
     """POST /api/live/section: 1本(YouTube の videoId の区間)を、ちょうど spec["finalPath"] へ作る。
     マーク・配信のデータ・.clip.json・学習の記録・編集用素材は作らない・書かない(呼ぶ側の入口が自分で扱う)。
-    中身は _run_job の1本ぶんと同じ(run_ytdlp → 音量 → ラウドネス → 書きかけを本当の名前へ)"""
+    中身は _run_job の1本ぶんと同じ(run_ytdlp(音量も)→ ラウドネス → 書きかけを本当の名前へ)"""
     it = res["items"][0]
     final = spec["finalPath"]
     base = os.path.splitext(os.path.basename(final))[0]
@@ -814,7 +803,6 @@ def _run_section(res, ctl, spec):
     try:
         it["file"] = _runner(spec)(ctl, spec, it, base)   # 書きかけ(<base>.partial.mp4)
         it["path"] = os.path.join(spec["outDir"], os.path.basename(it["file"]))
-        apply_volume(ctl, spec, it, it["file"])
         apply_loudness(ctl, spec, it)
         if os.path.lexists(final):   # 作っている間に同じ名前ができた: 置き換えると上書きになるので断る
             raise ExportError("書き出し先に同じ名前のファイルができたので、置きませんでした")
@@ -861,14 +849,13 @@ def _run_job(res, ctl, spec, on_done=None):
 
 
 def _export_clip(ctl, spec, it, idx, on_done):
-    """_run_job の1本ぶん: 切り出し → 音量 → 編集用素材 → ラウドネス → 本当の名前へ → マークへの記録・.clip.json。
+    """_run_job の1本ぶん: 切り出し(音量も)→ 編集用素材 → ラウドネス → 本当の名前へ → マークへの記録・.clip.json。
     失敗は例外で返す(状態と書きかけの片付けは呼び出し側)"""
     # <番号>_<開始>-<終わり>_<ラベル>(パスの長さに収まる分)。unique はここの名前を通す(テストが exporter.unique_base を差し替える)
     base = _names.clip_base(spec["outDir"], idx, it["start"], it["end"], it["label"], unique=unique_base)
     runner = _runner(spec)
     it["file"] = runner(ctl, spec, it, base)   # 書きかけ(<base>.partial.mp4)
     it["path"] = os.path.join(spec["outDir"], os.path.basename(it["file"]))
-    apply_volume(ctl, spec, it, it["file"])
     warnings = []
     try:
         it["editFile"] = export_edit_media(ctl, spec, it, base, runner)

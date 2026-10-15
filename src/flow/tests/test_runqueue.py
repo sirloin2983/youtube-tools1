@@ -185,6 +185,17 @@ class TestSubmit(Base):
         tools.gate.set()
         _until(lambda: q.status()["idle"], "待ち・実行中が 0")
 
+    def test_closed_rejects_submit_and_enqueue(self):
+        """終了(close)のあとの submit と _enqueue は理由つきの ValueError(待ちに積まず、待ちの記録も作らない)"""
+        q = self.queue()
+        q.close()
+        with self.assertRaisesRegex(ValueError, "終了しているところです"):
+            q.submit(self.env_of(self.media[0]))
+        with self.assertRaisesRegex(ValueError, "終了しているところです"):
+            q._enqueue([1], lambda it, active: {"id": "x", "title": "", "reason": "x"})
+        self.assertEqual(q.status()["runs"], [])
+        self.assertFalse(os.path.exists(os.path.join(self.logs, Q.ACTIVE_FILE)))
+
     def test_submit_file_must_be_media(self):
         """動画ファイルの封筒は、実在する絶対パスで拡張子が動画・音声の物だけ(RS7-1 S4)"""
         q = self.queue()

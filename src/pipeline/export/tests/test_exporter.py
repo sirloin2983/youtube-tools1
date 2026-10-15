@@ -1,4 +1,4 @@
-"""書き出しの音量調整(exporter.apply_volume / build_spec の volume 検証)のテスト。
+"""書き出しの音量調整(切り出しの作り直しに入る音量 / build_spec の volume 検証)のテスト。
 実際に ffmpeg を1回動かして確認する(合成した2秒の無音動画を使う。数秒で終わる)。
 
     py -3.10 -m unittest src/pipeline/export/tests/test_exporter.py
@@ -50,26 +50,36 @@ class TestApplyVolume(unittest.TestCase):
     def _job_it(self):
         return jobs.Ctl(), {"start": 0.0, "end": 2.0, "progress": 0.0}
 
-    def test_volume_100_is_a_noop(self):
-        """既定の100(調整なし)では、ffmpeg を呼び直さずファイルはそのまま(バイト列が変わらない)。"""
-        with open(self.clip, "rb") as f:
-            before = hashlib.sha1(f.read()).hexdigest()
-        job, it = self._job_it()
-        exporter.apply_volume(job, {"outDir": self.tmp, "volume": 100}, it, os.path.basename(self.clip))
-        with open(self.clip, "rb") as f:
-            after = hashlib.sha1(f.read()).hexdigest()
-        self.assertEqual(before, after)
-        self.assertFalse(os.path.exists(self.clip + ".vol.mp4"))
+    def test_volume_is_in_the_first_encode(self):
+        """O3: 音量(%)は切り出しの作り直しの -af に入る(後から音声だけ作り直さない)。100 は付けない"""
+        self.assertNotIn("-af", exporter._enc({"volume": 100}))
+        self.assertNotIn("-af", exporter._enc({}))
+        for fast in (False, True):
+            enc = exporter._enc({"volume": 75, "fast": fast})
+            self.assertEqual(enc[enc.index("-af") + 1], "volume=0.750")
+            self.assertEqual(enc[:-2], exporter.ENC_FAST if fast else exporter.ENC)
 
-    def test_volume_75_reencodes_audio_and_keeps_length(self):
-        """既定値75では実際に ffmpeg が動き、映像は無劣化(長さが変わらない)のまま音量だけ変わる。"""
-        job, it = self._job_it()
-        exporter.apply_volume(job, {"outDir": self.tmp, "volume": 75}, it, os.path.basename(self.clip))
-        dur, has_v, has_a, _ = mediainfo.media_info(self.clip)
-        self.assertTrue(has_v)
-        self.assertTrue(has_a)
-        self.assertAlmostEqual(dur, 2.0, delta=0.3)
-        self.assertFalse(os.path.exists(self.clip + ".vol.mp4"))   # 一時ファイルは置き換え後に残らない
+    def test_volume_changes_decoded_level_and_keeps_length(self):
+        """切り出し 1 回で、デコードした音量が指定の % だけ下がり(50% = 約 -6dB)、長さと 30fps は変わらない"""
+        src = os.path.join(self.tmp, "sine.mp4")
+        ff = studio_env.find_tool("ffmpeg")
+        subprocess.run([ff, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-f", "lavfi", "-i", "testsrc=size=64x64:rate=30:duration=4",
+                        "-f", "lavfi", "-i", "sine=frequency=440:duration=4", "-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac",
+                        "-shortest", src], check=True, stdin=subprocess.DEVNULL)
+
+        def level(path):
+            r = subprocess.run([ff, "-hide_banner", "-nostdin", "-i", path, "-af", "volumedetect", "-vn", "-f", "null", "-"],
+                               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace")
+            return float(r.stdout.split("mean_volume:")[1].split("dB")[0])
+        got = {}
+        for vol in (100, 50):
+            spec = {"outDir": self.tmp, "folder": "f", "sourcePath": src, "volume": vol}
+            it = {"start": 1.0, "end": 3.0, "progress": 0.0}
+            path = os.path.join(self.tmp, os.path.basename(exporter.run_ffmpeg(jobs.Ctl(), spec, it, "v%d" % vol)))
+            self.assertAlmostEqual(mediainfo.media_info(path)[0], 2.0, delta=0.2)
+            got[vol] = level(path)
+        self.assertAlmostEqual(got[50] - got[100], -6.02, delta=0.5)
+        self.assertEqual([n for n in os.listdir(self.tmp) if n.endswith(".vol.mp4")], [])
 
     def _fake_store(self):
         clip = self.clip
@@ -100,8 +110,7 @@ class TestExportCompletion(unittest.TestCase):
             done = Mock(return_value=False)   # マークが変更されていても、出力ファイル自体は成功
             with patch.object(studio_env, "get_out_dir", return_value=tmp), \
                     patch.object(exporter, "pick_folder", return_value=("video", tmp)), \
-                    patch.object(exporter, "run_ffmpeg", return_value="video/clip.mp4"), \
-                    patch.object(exporter, "apply_volume"):
+                    patch.object(exporter, "run_ffmpeg", return_value="video/clip.mp4"):
                 _run(job, spec, done)
             done.assert_called_once_with("abcdefghijk", "m1", "video/clip.mp4", 10.0, 15.0, os.path.join(tmp, "clip.mp4"))   # 最後は書き出した mp4 の絶対パス(マークに残す)
             self.assertEqual((job["state"], item["status"], item["file"]), ("done", "done", "video/clip.mp4"))
@@ -261,6 +270,28 @@ class TestClipManifestExport(unittest.TestCase):
         if studio_env.find_tool("ffprobe"):
             self.assertEqual(_fps(c["path"]), "30/1")
 
+    def test_combine_failure_leaves_no_piece(self):
+        """M2: つなぐ書き出しが部品の 2 本目・つなぐ段のどちらで失敗しても、切り出した部品と書きかけを残さない"""
+        clips = [{"id": "a", "start": 2.0, "end": 4.0, "title": "a", "label": "a", "src": "manual", "markStatus": ""},
+                 {"id": "b", "start": 10.0, "end": 12.0, "title": "b", "label": "b", "src": "manual", "markStatus": ""}]
+        real = exporter.run_ffmpeg
+        n = [0]
+
+        def second_fails(ctl, spec, it, base):
+            n[0] += 1
+            if n[0] == 2:
+                raise exporter.ExportError("2 本目の切り出し 失敗")
+            return real(ctl, spec, it, base)
+        for name, patcher in (("piece", patch.object(exporter, "run_ffmpeg", side_effect=second_fails)),
+                              ("concat", patch.object(exporter, "concat_pieces", side_effect=exporter.ExportError("つなぐ 失敗")))):
+            with self.subTest(name=name):
+                n[0] = 0
+                job = _job(clips, studio_env.get_out_dir())
+                with patcher:
+                    _run(job, dict(_spec(self.src, clips), combine=True))
+                self.assertEqual((job["state"], job["combined"]["status"]), ("error", "error"))
+                self.assertEqual(self._files(job), [])
+
     # ---- 書きかけの名前(<base>.partial.mp4)に書いて、仕上がったら置き換える(2026-09-30。設計レビュー studio の 4) ----
     def _files(self, job):
         folder = os.path.join(studio_env.get_out_dir(), job["folder"])
@@ -299,16 +330,16 @@ class TestClipManifestExport(unittest.TestCase):
 
     def test_cancel_during_edit_media_leaves_no_file(self):
         clip = {"id": "m8", "start": 7.0, "end": 12.0, "title": "x", "label": "", "src": "manual", "markStatus": ""}
-        real = exporter.apply_volume
+        real = exporter.run_ffmpeg
         state = {"n": 0}
 
-        def cancel_on_second(job, spec, it, rel):   # 1回目 = 本体、2回目 = 編集用素材 の音量の調整で「中止」
+        def cancel_on_second(job, spec, it, base):   # 1回目 = 本体、2回目 = 編集用素材 の切り出しで「中止」
             state["n"] += 1
             if state["n"] == 2:
                 job.cancel()   # job = ① に渡る Ctl
                 raise exporter.ExportError("中止しました")
-            return real(job, spec, it, rel)
-        with patch.object(exporter, "apply_volume", side_effect=cancel_on_second):
+            return real(job, spec, it, base)
+        with patch.object(exporter, "run_ffmpeg", side_effect=cancel_on_second):
             job, _ = self.export([clip])
         self.assertEqual((job["state"], job["items"][0]["status"]), ("cancelled", "cancelled"))
         self.assertEqual(self._files(job), [])
@@ -381,7 +412,7 @@ class TestManifestFailure(unittest.TestCase):
             denied = PermissionError(13, "denied", os.path.join(tmp, "clip.clip.json"))
             with patch.object(exporter, "pick_folder", return_value=("video", tmp)), \
                     patch.object(exporter, "run_ffmpeg", return_value="video/clip.mp4"), \
-                    patch.object(exporter, "apply_volume"), patch.object(exporter, "export_edit_media", return_value="video/clip_edit.mp4"), \
+                    patch.object(exporter, "export_edit_media", return_value="video/clip_edit.mp4"), \
                     patch.object(exporter, "write_clip", side_effect=denied), patch.object(studio_env, "log_failure") as log:
                 _run(job, spec, Mock(return_value=True))
             it = job["items"][0]
@@ -580,10 +611,7 @@ class TestLoudness(unittest.TestCase):
             self.assertEqual(hashlib.sha1(f.read()).hexdigest(), before)   # 無音は触らない
 
     def test_volume_is_not_applied_when_loudness_is_on(self):
-        job = jobs.Ctl()
-        with patch.object(exporter, "_reencode_audio") as re_:
-            exporter.apply_volume(job, {"outDir": self.tmp, "volume": 75, "loudness": -14.0}, {"start": 0, "end": 1}, "x.mp4")
-        re_.assert_not_called()
+        self.assertNotIn("-af", exporter._enc({"volume": 75, "loudness": -14.0}))   # ラウドネスは測ってから apply_loudness がかける
 
 
 # 偽物の yt-dlp: --download-sections の区間を、手元の動画から本物の yt-dlp と同じ形(入力側の -ss + コピー)で取る。

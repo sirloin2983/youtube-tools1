@@ -296,16 +296,25 @@ def _pack_settings(o):
             "videoTracks": 1 if o.get("videoTracks") in (None, "") else _tp.video_tracks_value(o.get("videoTracks"))}
 
 
-def pack_body_inputs(spec, output):
+def _content_part(obj):
+    """_file_part の、まだ書いていない中身(dict)の版(書いてから読んだときと同じ値。指摘 2 = 見積もりは書かない)"""
+    if isinstance(obj, dict):
+        obj = {k: v for k, v in obj.items() if k not in _FILE_META}
+    return _short(json.loads(json.dumps(obj)))
+
+
+def pack_body_inputs(spec, output, contents=None):
     """パックの要求(cut2resolve の POST /api/build の本文の spec・output)-> pack の鍵の inputs(RS6 b-K2)。作る前に分かる材料だけで組む
     (② の段が「今作ったら同じか」を比べ、cut2resolve と LocalTools が作り終えたところで同じ関数で書く):
     clips = 元の動画の素性(切り抜きの export の鍵の hash か内容のハッシュ)・doc = カットの指定(場所を除く)と字幕のファイルの中身の版・
-    settings = 出来上がりに効く設定(_pack_settings)。形が違えば ValueError・TypeError"""
+    settings = 出来上がりに効く設定(_pack_settings)。形が違えば ValueError・TypeError。
+    contents: まだ書いていない材料のファイルの中身 {spec の鍵: dict}(鍵の比べ・見積もりは字幕を書かない = 指摘 2)。場所より優先"""
     video = str(spec["video"])
     basis = _clip_basis(video)
     clip = basis if isinstance(basis, str) else (_short(basis) if basis else "")
     cut = {k: v for k, v in spec.items() if k not in PACK_PATH_KEYS}
     files = {k: _file_part(spec[k]) for k in PACK_PATH_KEYS[1:] if spec.get(k)}
+    files.update({k: _content_part(v) for k, v in (contents or {}).items() if k in PACK_PATH_KEYS[1:]})
     return dict(pack_inputs([clip], _short(json.loads(json.dumps({"cut": cut, "files": files}, default=str))), _pack_settings(output or {})),
                 form=PACK_FORM)
 
@@ -332,7 +341,8 @@ def write_pack(out_dir, spec, output):
 
 def pack_state(video, make_body):
     """動画の既定のパックの鍵と、今作ったときの材料を比べる(RS6 b-K2)。-> ("same" | "differ" | "none", 作った本文 か None)。
-    鍵が無い・壊れていれば ("none", None)(make_body は呼ばない = 鍵の無い今のパックは今のまま)。make_body() -> {"spec", "output", ...}(段が送る本文)。
+    鍵が無い・壊れていれば ("none", None)(make_body は呼ばない = 鍵の無い今のパックは今のまま)。make_body() -> {"spec", "output", ...}(段が送る本文。
+    "contents" があれば書いていない材料の中身 = pack_body_inputs の contents)。
     make_body が上げる例外(段の StepError)はそのまま上げる。材料の形が違えば none"""
     try:
         have = read(pack_dir_key_path(video), "pack")
@@ -343,7 +353,7 @@ def pack_state(video, make_body):
     built = make_body()
     body = built[0] if isinstance(built, tuple) else built
     try:
-        now = _schemas.make_key("pack", pack_body_inputs(body["spec"], body["output"]))
+        now = _schemas.make_key("pack", pack_body_inputs(body["spec"], body["output"], body.get("contents")))
     except (TypeError, ValueError, KeyError):
         return "none", built
     return ("same" if now["hash"] == have["hash"] else "differ"), built
