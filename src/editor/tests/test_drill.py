@@ -203,7 +203,7 @@ class TestDrillReviewed(DrillBase):
         S.apply_retranscribe({"tid": tid_of(1), "model": "m", "autoDict": False}, {"s1": ("A", "")})   # 機械が行を書き換えた
         d = self.rd(1)
         self.assertNotIn("evalReviewed", d)
-        self.assertNotIn("proofed", d["segments"][0])
+        self.assertTrue(d["segments"][0].get("proofed"))   # X-RERUN: 校正済みの行は影のモードでも残る(印 MACH_CHANGED)
         doc = {"evalReviewed": {"at": 1}}
         S.record_rerun(doc, {"model": "m"}, "range", [(0, 1)], [])                          # 範囲・全体・疑わしい所も同じ所を通る
         self.assertNotIn("evalReviewed", doc)

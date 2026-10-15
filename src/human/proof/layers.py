@@ -211,7 +211,7 @@ def _resolve(h, M, by, fast):
         if not fast and (str(cid) not in base or not _same_mach(base[str(cid)], M[j])):
             return False, []
         js.append(j)
-    if not js and not fast and (h.get("base") or {}).get("rows"):
+    if not js and not fast:   # 何も覆っていなかった人の行(足した行など)も、機械が変わったら時刻で当て直す(新しい機械の行を横に重ねて出さない。X-RERUN)
         return False, []
     return True, js
 
@@ -856,6 +856,46 @@ def put_mach_rows(mach, rows):
     out.sort(key=lambda m: (m["start"], m["end"]))
     return {"schema": MACH_SCHEMA, "rev": (_ys.plain_int((mach or {}).get("rev")) or 0) + 1, "keys": copy.deepcopy((mach or {}).get("keys") or {}),
             "rows": out, "speakers": _speakers_of(mach)}
+
+
+def replace_mach_span(mach, spans, rows, empty_cover=None, empty_flag=""):
+    """認識し直しの機械の層(X-RERUN。each・range・whole の共通)-> (新しい機械の層(写し・rev + 1), {"dropped", "emptyKept", "emptySpans": 残した行の区間, "added"})。
+    中心が spans [(a, b)] のどれか(両端を含む)に入る機械の行を捨て、rows(新しい機械の行。文書の行の形)を足す。人の層は触らない
+    (人の行は残り、覆っていた機械が変わったら組み立てが印 MACH_CHANGED を付ける = 3 択)。
+    empty_cover: 捨てる行のうち文字があって、時間の empty_cover 未満しか新しい行に重ならない行は捨てずに印 empty_flag を付けて残す
+    (新しい認識でほぼ空 = 声の検出で落ちたかもしれない所の文字を黙って消さない)。
+    新しい行に話者が無ければ、捨てた行でいちばん重なる行の話者。id が残した行と重なれば末尾に x"""
+    base = _mrows(mach)
+    new = [_ys.mach_row(r) for r in rows or [] if isinstance(r, dict) and _span(r)]
+    nsp = [_span(r) for r in new]
+    keep, gone, kept_empty = [], [], []
+    for m in base:
+        sp = _span(m)
+        c = _center(sp)
+        if not any(a <= c <= b for a, b in spans or ()):
+            keep.append(m)
+            continue
+        length = sp[1] - sp[0]
+        cover = sum(b - a for a, b in _ys.union_spans([(max(s[0], sp[0]), min(s[1], sp[1])) for s in nsp if _overlap(s, sp) > 0]))
+        if empty_cover is not None and _norm(m.get("text")) and length > 0 and cover / length < empty_cover:
+            keep.append(dict(m, flag=join_flags(m.get("flag"), empty_flag)) if empty_flag else m)
+            kept_empty.append((sp[0], sp[1]))
+        else:
+            gone.append(m)
+    used = {m["id"] for m in keep}
+    out = list(keep)
+    for r in new:
+        if not r.get("speaker"):
+            best = max(gone, key=lambda m: _overlap(_span(m), _span(r)), default=None)
+            if best is not None and _overlap(_span(best), _span(r)) > 0 and best.get("speaker"):
+                r["speaker"] = best["speaker"]
+        while r["id"] in used:
+            r["id"] += "x"
+        used.add(r["id"])
+        out.append(r)
+    out.sort(key=lambda m: (m["start"], m["end"]))
+    return ({"schema": MACH_SCHEMA, "rev": (_ys.plain_int((mach or {}).get("rev")) or 0) + 1, "keys": copy.deepcopy((mach or {}).get("keys") or {}),
+             "rows": out, "speakers": _speakers_of(mach)}, {"dropped": len(gone), "emptyKept": len(kept_empty), "emptySpans": kept_empty, "added": len(new)})
 
 
 def mach_moved(hum, rid, new_text, human_text):

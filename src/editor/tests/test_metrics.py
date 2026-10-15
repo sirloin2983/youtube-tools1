@@ -265,9 +265,9 @@ class TestStore(unittest.TestCase):
             json.dump(doc, f)
         S.apply_retranscribe({"tid": tid, "model": "large-v3", "autoDict": False}, {"s1": ("A", "")})
         d = S.read_transcript(tid)
-        self.assertNotIn("proofed", d["segments"][0])   # 機械が書き換えた行は外れる
+        self.assertTrue(d["segments"][0].get("proofed"))   # X-RERUN: 影のモードでも校正済みの行は機械で置き換えない(印 MACH_CHANGED)
         self.assertTrue(d["segments"][1].get("proofed"))  # 触っていない行はそのまま
-        self.assertEqual(d["segments"][0]["text"], "A")
+        self.assertEqual(d["segments"][0]["text"], "a")
 
     @patch.dict(os.environ, {"TRANSCRIBE_LAYERS": "primary"})
     def test_retranscribe_keeps_proofed_primary(self):
@@ -454,18 +454,6 @@ class TestSplitAndRobust(unittest.TestCase):
                 del sys.modules["faster_whisper"]
             else:
                 sys.modules["faster_whisper"] = old
-
-    def test_fit_lines_avoids_protected_rows(self):
-        """全体の再認識: 守る区間(校正済みの行)にかかる新しい行は、捨てるか外側に切り詰める(単語の時刻があれば文字も)"""
-        protect = [(4.0, 6.0)]
-        words = [[3.0, 3.5, "あい"], [3.7, 4.5, "うえ"], [4.5, 5.5, "おか"]]
-        lines = [{"start": 0.0, "end": 3.0, "raw": "前"},                              # かからない
-                 {"start": 4.2, "end": 5.8, "raw": "中"},                              # 真ん中が守る区間 → 捨てる
-                 {"start": 3.0, "end": 4.6, "raw": "あいうえおか", "words": words},     # 後ろがかかる → 4.0 まで。文字は単語で切る
-                 {"start": 5.9, "end": 6.2, "raw": "短"},                              # 切ると 0.3 秒未満 → 捨てる
-                 {"start": 5.5, "end": 9.0, "raw": "後ろ"}]                            # 前がかかる → 6.0 から(単語なし = 文字はそのまま)
-        out = S.fit_lines(lines, protect)
-        self.assertEqual([(x["start"], x["end"], x["raw"]) for x in out], [(0.0, 3.0, "前"), (3.0, 4.0, "あい"), (6.0, 9.0, "後ろ")])
 
     def test_transcribe_vad_fallback_order(self):
         """声の検出: 残りが 20% 未満なら行を読まずに緩める・文字が 0 でも緩める・最後(なし)はそのまま返す"""

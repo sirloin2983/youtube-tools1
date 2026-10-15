@@ -158,7 +158,7 @@ class TestEditStore(StoreDir):
         S.apply_range({"tid": TID, "range": [5.9, 8.5], "ids": ["s3"], "model": "small", "autoDict": False},
                       [{"start": 6.1, "end": 8.2, "raw": "新しい行", "flag": ""}])
         d = self.doc()
-        new = next(s for s in d["segments"] if s["text"] == "新しい行")
+        new = next(s for s in d["segments"] if s["start"] < 8.2 and s["end"] > 6.1)   # 新しい機械の行か、そこを覆う人の行(X-RERUN)
         self.assertEqual(new.get("cutState"), "cut")
         # 履歴から戻しても、カットは今の編集の内容のまま
         S.hist_snapshot(TID, force=True)

@@ -31,11 +31,9 @@ MAX_REPLACED_ROWS
 MAX_RERUNS
 MAX_RESUME_BYTES
 MAX_WORDS_BYTES
-MIN_NEW_LINE
 MODEL_IDLE_SEC
 NO_RETRY
 ORIENTATIONS
-PROTECT_PAD
 REDO_BAD_FLAGS
 REDO_MAX_ROWS
 REDO_MAX_SEC
@@ -142,7 +140,6 @@ expand_segments
 extract_audio
 filter_kwargs
 finish_range_lines
-fit_lines
 glossary_of
 job_done
 job_errors

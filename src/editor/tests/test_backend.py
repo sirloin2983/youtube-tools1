@@ -186,8 +186,11 @@ class TestPerformance(StoreDir):
 
     @patch.dict(os.environ, {"TRANSCRIBE_LAYERS": "shadow"})   # 層のスイッチを固定(primary の対は *_primary)
     def test_retranscribe_extracts_only_needed_span(self):
-        doc = self._extracts_only_needed_span()
-        self.assertEqual(doc["segments"][100]["text"], "行100(再)")
+        """影のモードでも守り方は層と同じ(X-RERUN): 校正済みの行は機械の文字で置き換わらず、印 MACH_CHANGED が付く"""
+        from human.proof import layers
+        g = self._extracts_only_needed_span()["segments"][100]
+        self.assertEqual((g["text"], g.get("proofed")), ("行100", True))
+        self.assertIn(layers.MACH_CHANGED, g["flag"])
 
     @patch.dict(os.environ, {"TRANSCRIBE_LAYERS": "primary"})
     def test_retranscribe_extracts_only_needed_span_primary(self):

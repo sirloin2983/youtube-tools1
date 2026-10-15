@@ -78,8 +78,7 @@ class TestProofedAt(StoreDir):
         self.put_doc(d)
         S.apply_retranscribe({"tid": TID, "model": "m", "autoDict": False}, {"s1": ("こんばんは", "")})
         g = _rd()["segments"][0]
-        self.assertNotIn("proofed", g)
-        self.assertNotIn("proofedAt", g)
+        self.assertEqual((g.get("proofed"), g.get("proofedAt")), (True, 1111))   # X-RERUN: 影のモードでも校正済みの行は残る
 
     @patch.dict(os.environ, {"TRANSCRIBE_LAYERS": "primary"})
     def test_retranscribe_keeps_proofed_at_primary(self):

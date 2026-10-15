@@ -10,7 +10,6 @@
 置き場所と元のファイルの検査は ytt の tools・ジョブの表は ② flow/jobs。S.名前 は serve の受付がここへ回す
 (テストの S.MAX_RERUNS = …・patch.object(S, "apply_range") もここに届く)。
 """
-import copy
 import time
 
 from ytt import errors as _errors, schemas as _yschemas, tools as _tools  # noqa: E402
@@ -87,16 +86,17 @@ def apply_retranscribe(spec, results):
 
 
 def _apply_retranscribe(spec, results):
+    """選んだ行の再認識(each)の反映(X-RERUN。守り方は層 = 機械の層の選んだ行の区間だけを新しい機械の行に差し替え、人の層は今のまま。
+    人が直した行(校正済みでなくても)は残り、覆っていた機械が変わったら組み立てが印 MACH_CHANGED を付ける = 3 択。直していない行は新しい機械の文字になる)"""
     doc = store.read_transcript(spec["tid"])
-    primary = _txbase.layers_mode() == _txbase.LAYERS_PRIMARY   # 層が正: 校正済みの行は機械で置き換えない(決定 3-37 の (r8s) = notes:plan/decisions.md)
-    before = copy.deepcopy(doc) if primary else None
+    layers0 = store.layers_for(spec["tid"], doc)   # 差し替える前の層(機械の層のファイルが無い文書は original から作るので、original を変える前に)
     pairs = _flowtx.dict_pairs(spec)
     have_orig = isinstance(doc.get("original"), list)
     orig = doc["original"] if have_orig else []
     spans = [(sg["start"], sg["end"]) for sg in doc.get("segments") or [] if results.get(sg["id"])]
     record_rerun(doc, spec, "each", spans, _replaced_rows(orig, spans), pairs)   # 差し替える前の機械の出力を残す(マスタープラン Q2)
     done = unsure = 0
-    mrows, kept = [], []   # 層が正: 新しい機械の行・機械で置き換えなかった校正済みの行 (行, 新しい機械の文字)
+    mrows = []
     for sg in doc.get("segments") or []:
         r = results.get(sg["id"])
         if not r:
@@ -104,41 +104,41 @@ def _apply_retranscribe(spec, results):
         raw, flag = r
         keep = [x for x in str(sg.get("flag", "")).split("、") if x in _txbase.SPK_FLAGS]   # 話者の印は残し、文字の印は付け直す
         text, _ = _dictfmt.apply_replacements(raw[:_txbase.MAX_TEXT], pairs)
-        new_flag = _layers.join_flags(flag, *keep)
-        mrows.append({"id": sg["id"], "start": sg["start"], "end": sg["end"], "text": text, "flag": new_flag})
+        mrows.append({"id": sg["id"], "start": sg["start"], "end": sg["end"], "text": text, "flag": _layers.join_flags(flag, *keep),
+                      **({"speaker": sg["speaker"]} if sg.get("speaker") else {})})
         unsure += 1 if flag else 0
         done += 1
         if have_orig:
             orig = _replace_original(orig, sg["start"], sg["end"], raw)
-        if primary and sg.get("proofed") is True:
-            kept.append((sg, text))
-            continue
-        sg["text"] = text
-        sg.pop("proofed", None)   # 機械が書き換えた行は、人が確認し直すまで校正済みにしない
-        sg.pop("proofedAt", None)   # 校正した時刻も一緒に外す(次に校正済みにした時刻から数え直す)
-        sg["flag"] = new_flag
     if have_orig:
         doc["original"] = orig
     store.backup_doc(spec["tid"], "retranscribe")
-    doc["retranscribed"] = dict({"model": spec["model"], "lines": done, "at": int(time.time() * 1000)}, **({"keptProofed": len(kept)} if kept else {}))
-    doc["updatedAt"] = int(time.time() * 1000)
-    store.apply_edit_cuts(spec["tid"], doc)
-    if primary:
-        _commit_each_primary(spec["tid"], before, doc, mrows, kept)
-    else:
-        store.commit(spec["tid"], doc, why="rerun_each")
+    st = _commit_rerun(spec["tid"], doc, layers0, spans, mrows, "rerun_each",
+                     lambda st: {"retranscribed": dict({"model": spec["model"], "lines": done, "at": int(time.time() * 1000)},
+                                                       **({"keptProofed": st["machChanged"]} if st["machChanged"] else {}))})
     return done, unsure
 
 
-def _commit_each_primary(tid, before, doc, mrows, kept):
-    """層が正のときの再認識 each の書き込み((r8s)): 機械の層の行を新しい機械の行に差し替え、校正済みの行は人の直しのまま
-    (機械の文字が覆ったときの機械と違い、人の文字とも違えば印 MACH_CHANGED = 3 択)。校正していない行は文書の側で置き換え済み"""
-    mach0, hum0 = store.layers_for(tid, before)
-    mach1 = _layers.put_mach_rows(mach0, mrows)
-    for sg, text in kept:
-        if _layers.mach_moved(hum0, sg["id"], text, sg.get("text")):
-            sg["flag"] = _layers.join_flags(sg.get("flag"), _layers.MACH_CHANGED)
-    store.commit(tid, doc, why="rerun_each", mach=mach1, hum=_layers.diff(mach1, doc, hum0))
+def _commit_rerun(tid, doc, layers0, spans, mrows, why, extra=None, empty_cover=None):
+    """認識し直しの書き込み(X-RERUN の 1 か所)。doc = 書く前の文書(original・recognition.runs はもう新しくしてある)。
+    layers0 = 差し替える前の (機械の層, 人の層)(store.layers_for。doc の original を変える前に取る)。機械の層の spans の中を mrows に差し替え(layers.replace_mach_span)、人の層は今のまま(差分を取り直さない = 認識し直しは人の層を変えない)で
+    組み立てた文書を commit(why, mach=)する。層が正なら hum も渡す。影のモード・off でも同じ組み立てを書く(守り方がモードで変わらない)。
+    extra(stats) -> 文書の欄(retranscribed など)。-> {組み立ての stats + replace_mach_span の数}"""
+    mach0, hum0 = layers0
+    hum0 = dict(hum0, docFields={k: v for k, v in (hum0.get("docFields") or {}).items() if k in doc})   # record_rerun が外した文書の欄(evalReviewed)は人の層からも外す
+    mach1, rep = _layers.replace_mach_span(mach0, spans, mrows, empty_cover, EMPTY_FLAG)
+    rows, st = _layers.compose_rows(mach1, hum0)
+    st = dict(st, **rep)
+    if extra:
+        doc.update(extra(st))
+    doc["updatedAt"] = int(time.time() * 1000)
+    new = _layers.compose(mach1, hum0, _layers.split_meta(doc), rows)
+    store.apply_edit_cuts(tid, new)   # 差し替えた行の「カット済」は、編集の内容(時刻)から付け直す
+    if _txbase.layers_mode() == _txbase.LAYERS_PRIMARY:
+        store.commit(tid, new, why=why, mach=mach1, hum=hum0)
+    else:
+        store.commit(tid, new, why=why, mach=mach1)
+    return st
 
 
 def _in_spans(t, spans):
@@ -154,9 +154,7 @@ def replace_original_multi(orig, a, b, items, keep=()):
 
 
 # ---------- 範囲・全体の再認識の反映 ----------
-PROTECT_PAD = 0.05      # 守る行(校正済み・元のまま残す行)の前後の余白(秒)
-MIN_NEW_LINE = 0.3      # 守る区間を避けて切り詰めた行がこれより短ければ捨てる(秒)
-EMPTY_COVER = 0.3       # 元の行の時間のうち、新しい行が重なるのがこの割合未満なら「新しい認識でほぼ空」→ 元の行を残す
+EMPTY_COVER = 0.3       # 機械の行の時間のうち、新しい行が重なるのがこの割合未満なら「新しい認識でほぼ空」→ 元の機械の行を印つきで残す
 LOOSE_PAD = 0.5         # ほぼ空だった所を緩い条件で認識し直すときの前後の余白(秒)
 EMPTY_FLAG = _yschemas.EMPTY_FLAG
 LOOSE_FLAG = "声が重なる所などを緩い条件で認識"
@@ -166,116 +164,61 @@ def _ov(a0, a1, b0, b1):
     return max(0.0, min(a1, b1) - max(a0, b0))
 
 
-def fit_lines(lines, protect, strip=True):
-    """新しい行が守る区間 protect=[(a,b)] にかからないようにする: 真ん中が守る区間に入る行は捨て、一部だけ重なる行は外側に切り詰める
-    (単語の時刻があれば文字も切り詰める)。MIN_NEW_LINE 秒未満になった行は捨てる"""
+def thin_rows(doc, a, b, lines):
+    """範囲 a〜b の文字のある文書の行のうち、新しい行 lines が時間の EMPTY_COVER 未満しか重ならない行(新しい認識でほぼ空 = 緩い条件で認識し直す所)"""
     out = []
-    for x in lines:
-        st, en = float(x["start"]), float(x["end"])
-        mid = (st + en) / 2
-        if _in_spans(mid, protect):
+    for g in doc.get("segments") or []:
+        if not isinstance(g, dict) or not str(g.get("text") or "").strip() or _ov(g["start"], g["end"], a, b) <= 0:
             continue
-        for p0, p1 in protect:
-            if p1 <= st or p0 >= en:
-                continue
-            if p0 <= st:
-                st = p1
-            elif en <= p1:
-                en = p0
-            elif mid < p0:   # 守る区間が行の中にある: 真ん中のある側を残す
-                en = p0
-            else:
-                st = p1
-        if en - st < MIN_NEW_LINE:
-            continue
-        if (st, en) != (x["start"], x["end"]):
-            ws = [w for w in x.get("words") or [] if st - 1e-6 <= (w[0] + w[1]) / 2 <= en + 1e-6]
-            y = dict(x, start=st, end=en, words=ws)
-            if x.get("words"):
-                joined = "".join(w[2] for w in ws).strip()
-                y["raw"] = _txtext.strip_punct(joined) if strip else joined
-                if not y["raw"]:
-                    continue
-            x = y
-        out.append(x)
+        d = g["end"] - g["start"]
+        cover = sum(_ov(g["start"], g["end"], x["start"], x["end"]) for x in lines) / d if d > 0 else 1.0
+        if cover < EMPTY_COVER:
+            out.append(g)
     return out
 
 
-def _plan_range(doc, spec, lines):
-    """範囲・全体の再認識の反映の計画(文書は変えない)。
-    -> {"protect": 守る区間, "kept": 守った行(範囲にかかる、差し替えない行), "lines": 守る区間を避けた新しい行,
-        "empty": 新しい認識でほぼ空だった差し替え対象の行(元のまま残す)}"""
-    a, b = spec["range"]
-    ids = set(spec["ids"])
-    segs = [g for g in doc.get("segments") or [] if isinstance(g, dict)]
-    kept = [g for g in segs if g["id"] not in ids and _ov(g["start"], g["end"], a, b) > 0]
-    protect = [(g["start"] - PROTECT_PAD, g["end"] + PROTECT_PAD) for g in kept]
-    fitted = fit_lines(lines, protect, spec.get("stripPunct", True) is not False)
-    empty = []
-    for g in segs:
-        if g["id"] not in ids or not str(g.get("text") or "").strip():
-            continue
-        d = g["end"] - g["start"]
-        cover = sum(_ov(g["start"], g["end"], x["start"], x["end"]) for x in fitted) / d if d > 0 else 1.0
-        if cover < EMPTY_COVER:
-            empty.append(g)
-    return {"protect": protect, "kept": kept, "lines": fitted, "empty": empty}
-
-
 def apply_range(spec, lines, loose=()):
-    """範囲の行を、新しく認識した行に差し替える。話者は、時間が最も重なっていた元の行から引き継ぐ。
+    """範囲・全体を新しく認識した行に差し替える(X-RERUN。守り方は層 = 機械の層の a〜b の行だけを差し替え、人の行は残る)。
     lines=[{start,end,raw,flag,words?,conf?}]、loose = ほぼ空だった所を緩い条件で認識した行(印を付けて入れる)。
-    差し替えない行(spec["ids"] に無い行。全体の再認識では校正済み)にかかる新しい行は避け、新しい認識でほぼ空だった元の行は残す。
-    -> {"lines": 入れた新しい行の数, "unsure", "kept": 守った行の数, "emptyKept": 元のまま残した行の数, "loose": 緩い条件の行の数}"""
+    新しい認識でほぼ空だった機械の行は印 EMPTY_FLAG を付けて残す。話者は時間が最も重なっていた前の機械の行から。
+    -> {"lines": 入れた新しい行の数, "unsure", "kept": 機械が変わって 3 択になった人の行の数, "emptyKept": 元のまま残した機械の行の数, "loose": 緩い条件の行の数}"""
     with store._save_lock:   # 保存と同じロック(apply_diarization と同じ理由)
         return _apply_range(spec, lines, loose)
 
 
 def _apply_range(spec, lines, loose=()):
     a, b = spec["range"]
-    doc = store.read_transcript(spec["tid"])
+    tid = spec["tid"]
+    doc = store.read_transcript(tid)
     pairs = _flowtx.dict_pairs(spec)
-    loose = [dict(x, flag="、".join(f for f in (LOOSE_FLAG, x.get("flag", "")) if f)) for x in loose]
-    plan = _plan_range(doc, spec, sorted(list(lines) + loose, key=lambda x: x["start"]))
-    empty_ids = {g["id"] for g in plan["empty"]}
-    empty_spans = [(g["start"] - PROTECT_PAD, g["end"] + PROTECT_PAD) for g in plan["empty"]]
-    keep_spans = plan["protect"] + empty_spans
-    new_lines = fit_lines(plan["lines"], empty_spans, spec.get("stripPunct", True) is not False)   # 元のまま残す行にもかけない
-    ids = set(spec["ids"])
-    old = [g for g in doc.get("segments") or [] if g["id"] in ids]
-    rest = [g for g in doc.get("segments") or [] if g["id"] not in ids or g["id"] in empty_ids]
-    for g in rest:
-        if g["id"] in empty_ids and not _yschemas.has_flag(g.get("flag"), EMPTY_FLAG):
-            g["flag"] = _layers.join_flags(g.get("flag"), EMPTY_FLAG)
-    used = {g["id"] for g in rest}
-    new, unsure, n = [], 0, 0
+    loose = [dict(x, flag=_layers.join_flags(LOOSE_FLAG, x.get("flag", ""))) for x in loose]
+    new_lines = sorted(list(lines) + loose, key=lambda x: x["start"])
+    used = {g["id"] for g in doc.get("segments") or []}
+    mrows, unsure, n = [], 0, 0
     for x in new_lines:
-        best, bo = "", 0.0
-        for g in old:
-            ov = min(g["end"], x["end"]) - max(g["start"], x["start"])
-            if ov > bo and g.get("speaker"):
-                best, bo = g["speaker"], ov
         text, _ = _dictfmt.apply_replacements(x["raw"][:_txbase.MAX_TEXT], pairs)
         sid, n = doc_jobs._fresh_id(used, "r%d".__mod__, n)
-        new.append({"id": sid, "start": round(x["start"], 2), "end": round(x["end"], 2), "text": text, "speaker": best, "flag": _layers.join_flags(x.get("flag", ""))})
+        mrows.append({"id": sid, "start": round(x["start"], 2), "end": round(x["end"], 2), "text": text, "flag": _layers.join_flags(x.get("flag", ""))})
         unsure += 1 if x.get("flag") else 0
-    doc["segments"] = sorted(rest + new, key=lambda g: (g["start"], g["end"]))
+    # 元のまま残す機械の行(ほぼ空)の original・単語は古いまま(下の replace の keep)。数え方は replace_mach_span と同じ
+    layers0 = store.layers_for(tid, doc)
+    mach0 = layers0[0]
+    keep_spans = _layers.replace_mach_span(mach0, [(a, b)], mrows, EMPTY_COVER)[1]["emptySpans"]
     record_rerun(doc, spec, "whole" if spec.get("mode") == "whole" else "range", [(a, b)],
                  _replaced_rows(doc.get("original") if isinstance(doc.get("original"), list) else [], [(a, b)], keep_spans), pairs)   # 差し替える前の機械の出力を残す(Q2)
-    if isinstance(doc.get("original"), list):   # 守った行・元のまま残した行の機械の出力は古いまま(人が直した行との対応を壊さない)
+    if isinstance(doc.get("original"), list):   # 元のまま残した機械の行の出力は古いまま
         doc["original"] = replace_original_multi(doc["original"], a, b, new_lines, keep_spans)
-    store.backup_doc(spec["tid"], "retranscribe")
-    n_loose = sum(1 for x in new_lines if LOOSE_FLAG in str(x.get("flag") or ""))
-    doc["retranscribed"] = {"model": spec["model"], "lines": len(new), "range": [a, b], "whole": spec.get("mode") == "whole",
-                            "kept": len(plan["kept"]), "emptyKept": len(empty_ids), "loose": n_loose, "at": int(time.time() * 1000)}
-    doc["updatedAt"] = int(time.time() * 1000)
-    store.apply_edit_cuts(spec["tid"], doc)   # 差し替えた行の「カット済」は、編集の内容(時刻)から付け直す
-    store.commit(spec["tid"], doc, why="rerun_range")
-    try:   # 単語の時刻も範囲の分を差し替える(守った行の単語は残す。古い文書は、ここで取り直せる = 「今の文書を分け直す」の案内)
-        _flowtx.replace_span_words(spec["tid"], a, b, [w for x in new_lines for w in x.get("words") or []], spec["model"], keep_spans)
+    store.backup_doc(tid, "retranscribe")
+    n_loose = sum(1 for x in new_lines if _yschemas.has_flag(x.get("flag"), LOOSE_FLAG))
+    st = _commit_rerun(tid, doc, layers0, [(a, b)], mrows, "rerun_range",
+                     lambda st: {"retranscribed": {"model": spec["model"], "lines": len(mrows), "range": [a, b], "whole": spec.get("mode") == "whole",
+                                                   "kept": st["machChanged"], "emptyKept": st["emptyKept"], "loose": n_loose, "at": int(time.time() * 1000)}},
+                     EMPTY_COVER)
+    try:   # 単語の時刻も範囲の分を差し替える(元のまま残した行の単語は残す。古い文書は、ここで取り直せる = 「今の文書を分け直す」の案内)
+        _flowtx.replace_span_words(tid, a, b, [w for x in new_lines for w in x.get("words") or []], spec["model"], keep_spans)
     except OSError as e:
-        _txbase.log.warning("単語の時刻を保存できませんでした: %s %s", spec["tid"], e)
-    return {"lines": len(new), "unsure": unsure, "kept": len(plan["kept"]), "emptyKept": len(empty_ids), "loose": n_loose}
+        _txbase.log.warning("単語の時刻を保存できませんでした: %s %s", tid, e)
+    return {"lines": len(mrows), "unsure": unsure, "kept": st["machChanged"], "emptyKept": st["emptyKept"], "loose": n_loose}
 
 
 # ---------- 疑わしい所だけ認識し直す(12 ③-2。ユーザー承認 2026-09-27: 設計どおり) ----------
@@ -411,7 +354,7 @@ def _retranscribe_range(job, spec, doc, wav, start, whole):
     rec, lines = _flowtx.recognize_range(job, spec, wav, start, doc)   # 全体は区間に分けて続きから(状態 running)
     _slots.check_cancel(job)
     # 新しい認識でほぼ空だった所(元の行があった所 = 声があった所)だけ、声の検出なし・捨てる判定なしで認識し直す
-    gaps = [(max(a, g["start"] - LOOSE_PAD), min(b, g["end"] + LOOSE_PAD)) for g in _plan_range(doc, spec, lines)["empty"]]
+    gaps = [(max(a, g["start"] - LOOSE_PAD), min(b, g["end"] + LOOSE_PAD)) for g in thin_rows(doc, a, b, lines)]
     loose = rec.loose(_yschemas.union_spans(gaps)) if gaps else []
     _slots.check_cancel(job)
     if not lines and not loose:

@@ -96,7 +96,7 @@ def _shadow_prepare(tid, doc, why, given, hum=None):
     rev = (_yschemas.plain_int(prev_mach.get("rev")) or 0) + 1 if prev_mach else 1
     if given is not None or why in FULL_WHYS:
         mach = dict(given) if given is not None else _yschemas.make_mach(doc.get("segments"), speakers=doc.get("speakers"))
-        mach["rev"], moved = rev, True
+        mach["rev"], moved = max(rev, _yschemas.plain_int(mach.get("rev")) or 0), True   # 呼び手の層の rev より戻さない(層のファイルが無い文書で、人の層の machRev と同じ番号にしない = X-RERUN)
     else:
         old = _load_doc(tx_path(tid)) if prev_mach is None or why in MACHINE_WHYS else None   # 書く前の文書(人の操作で機械の層があれば読まない)
         mach, moved = prev_mach, False

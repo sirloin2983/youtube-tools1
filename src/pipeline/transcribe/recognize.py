@@ -10,7 +10,7 @@ txbase・worker_client・records)だけを読む。ffmpeg(ytt/tools)・置き場
 OPT-H1 で差し込みの口 set_head_stripper をやめた = 同じ層どうしなので口は要らない)。
 差し替えられる名前(extract_audio・WHOLE_PART_SEC・RangeRecognizer.main など)と読み手は同じこのモジュール。テストの S.extract_audio = …・
 mock.patch.object(S.RangeRecognizer, "main", …) は serve の名前の受付と転送(ytt/modfwd)でここに届く。
-ジョブの本体(run_job・run_retranscribe・run_redo)と文書への反映(apply_range・plan_range・fit_lines・_ov など)は文書の側(human/proof の doc_jobs・rerun)。
+ジョブの本体(run_job・run_retranscribe・run_redo)と文書への反映(apply_range・thin_rows・_ov など)は文書の側(human/proof の doc_jobs・rerun)。
 run_job は transcribe_rows が返す行を受け取って、別の読み(fill)・LLM(llm)・置換辞書と学習した置換・文書の書き込みをする(計算 = ① / 文書への書き込み = ② の第 1 歩)。
 """
 import hashlib

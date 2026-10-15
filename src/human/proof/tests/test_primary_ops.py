@@ -3,9 +3,9 @@
 
     py -3.10 -m unittest src/human/proof/tests/test_primary_ops.py -v
 
-- (r8s) 再認識 each: 校正済みの行は機械で置き換えない(機械の層だけ更新・人の行に印 MACH_CHANGED)・校正していない行は今と同じく置き換わる
+- (r8s)・X-RERUN 再認識 each・範囲・全体: 機械の層の選んだ区間だけ差し替え、人の行(校正済みでない直し・話者だけの直しも)は残る(機械が変わったら印 MACH_CHANGED)。直していない行は置き換わる
 - (r8r) 話者の判別: 人の層が話者の表を持ち(付け直さない)、判別し直したら機械の S… → 人の話者を重なり時間で当てる。当たらない話者だけ新しい H… と弱い印
-- shadow・off では今の動きのまま
+- 再認識は shadow・off でも同じ守り方(X-RERUN)。話者の判別は shadow・off では今の動きのまま
 """
 import json
 import os
@@ -99,16 +99,18 @@ class RerunEachPrimaryTest(_Env):
         self.assertEqual(done, 3)
         got = store.read_transcript(TID)
         by = {g["id"]: g for g in got["segments"]}
-        self.assertEqual((by["s1"]["text"], by["s3"]["text"]), ("ああ", "うう"))   # 校正していない行は置き換わる
+        self.assertEqual((by["s1"]["text"], by["s3"]["text"]), ("ああ", "うー"))   # 直していない行は置き換わる・直した行は校正済みでなくても残る(X-RERUN)
         self.assertEqual((by["s2"]["text"], by["s2"].get("proofed")), ("いー", True))   # 校正済みは人の直しのまま
         self.assertIn(L.MACH_CHANGED, by["s2"]["flag"])
-        self.assertEqual(got["retranscribed"]["keptProofed"], 1)
+        self.assertIn(L.MACH_CHANGED, by["s3"]["flag"])
+        self.assertEqual(got["retranscribed"]["keptProofed"], 2)   # 機械が変わって 3 択になった人の行
         mach = self.load(".mach.json")
         self.assertEqual([r["text"] for r in mach["rows"]], ["ああ", "いい", "うう"])   # 機械の層は全部新しい
         from human.proof import machpick
         x = machpick.changes(TID)["rows"]
-        self.assertEqual(([r["id"] for r in x], [b["text"] for b in x[0]["before"]], [n["text"] for n in x[0]["now"]]), (["s2"], ["い"], ["いい"]))
+        self.assertEqual(([r["id"] for r in x], [b["text"] for b in x[0]["before"]], [n["text"] for n in x[0]["now"]]), (["s2", "s3"], ["い"], ["いい"]))
         machpick.pick({"id": TID, "row": "s2", "pick": "machine"})
+        machpick.pick({"id": TID, "row": "s3", "pick": "machine"})
         self.assertEqual([g["text"] for g in store.read_transcript(TID)["segments"]], ["ああ", "いい", "うう"])
 
     def test_same_machine_text_no_flag(self):
@@ -123,14 +125,46 @@ class RerunEachPrimaryTest(_Env):
 class RerunEachShadowTest(_Env):
     MODE = "shadow"
 
-    def test_shadow_replaces_proofed_like_before(self):
+    def test_shadow_keeps_human_rows_like_primary(self):
         d = self.start([row(1, 0.0, "あ")])
         d["segments"][0].update(text="あー", proofed=True)
         self.save(d)
         rerun.apply_retranscribe(SPEC, {"s1": ("ああ", "")})
         g = store.read_transcript(TID)["segments"][0]
-        self.assertEqual((g["text"], g.get("proofed")), ("ああ", None))   # 今と同じ: 機械で置き換えて校正済みを外す
-        self.assertNotIn("keptProofed", store.read_transcript(TID)["retranscribed"])
+        self.assertEqual((g["text"], g.get("proofed")), ("あー", True))   # X-RERUN: 影のモードでも守り方は層と同じ(人の行は残る)
+        self.assertEqual(store.read_transcript(TID)["retranscribed"]["keptProofed"], 1)
+
+
+class RerunRangeTest(_Env):
+    """X-RERUN: 範囲・全体の再認識も機械の層の範囲だけを差し替え、人の層は触らない(校正済みでない直し・話者だけの直しも残る)"""
+
+    def test_range_keeps_human_rows_and_replaces_machine(self):
+        d = self.start([row(1, 0.0, "あ"), row(2, 2.0, "い"), row(3, 4.0, "う"), row(4, 6.0, "え"), row(5, 8.0, "お")])
+        d["segments"][1].update(text="いー", proofed=True)   # 校正済み
+        d["segments"][2]["text"] = "うー"                     # 直したが校正済みにしていない
+        d["segments"][3]["speaker"] = "S9"                     # 話者だけ直した(属性の行)
+        d["speakers"] = [{"id": "S9", "name": "九"}]
+        d = self.save(d)
+        spec = dict(SPEC, range=[1.9, 7.6], ids=["s2", "s3", "s4"], mode="range")
+        with self.assertLogs("tx", level="INFO") as cm:
+            r = rerun.apply_range(spec, [{"start": 2.0, "end": 3.5, "raw": "いい"}, {"start": 4.0, "end": 5.5, "raw": "うう"},
+                                         {"start": 6.0, "end": 7.5, "raw": "ええ"}])
+        self.assertFalse([m for m in cm.output if "WARNING" in m], cm.output)   # 往復の検査も合う
+        got = store.read_transcript(TID)
+        by = {g["start"]: g for g in got["segments"]}
+        self.assertEqual([by[t]["text"] for t in (0.0, 2.0, 4.0, 6.0, 8.0)], ["あ", "いー", "うー", "ええ", "お"])   # 範囲の外は不変・人の行は残る
+        self.assertTrue(all(L.MACH_CHANGED in by[t]["flag"] for t in (2.0, 4.0)))
+        self.assertEqual(by[6.0]["speaker"], "S9")   # 話者だけの直しは新しい機械の行に重なる
+        self.assertEqual((r["kept"], r["emptyKept"], r["lines"]), (2, 0, 3))
+        self.assertEqual([o["text"] for o in got["original"]], ["あ", "いい", "うう", "ええ", "お"])   # 機械の出力の記録は範囲だけ差し替え
+
+    def test_empty_result_keeps_machine_row_with_flag(self):
+        self.start([row(1, 0.0, "あ"), row(2, 2.0, "い")])
+        r = rerun.apply_range(dict(SPEC, range=[0.0, 3.5], ids=["s1", "s2"], mode="range"), [{"start": 0.0, "end": 1.5, "raw": "ああ"}])
+        got = store.read_transcript(TID)["segments"]
+        self.assertEqual([g["text"] for g in got], ["ああ", "い"])   # 新しい認識でほぼ空だった行は消さずに残す
+        self.assertTrue(YS.has_flag(got[1]["flag"], rerun.EMPTY_FLAG))
+        self.assertEqual(r["emptyKept"], 1)
 
 
 TURNS2 = [(0.0, 1.6, 0), (2.0, 3.6, 1), (4.0, 5.6, 0)]

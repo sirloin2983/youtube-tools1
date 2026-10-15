@@ -186,11 +186,13 @@ class WorkerTest(unittest.TestCase):
         self.assertEqual(spec["ids"], [g["id"] for g in before["segments"][1:]])   # 校正済みでない行だけ差し替える
         self.assertEqual(job["state"], "done", job.get("error"))
         d = self.doc(tid)
-        self.assertEqual(d["segments"][0], s1)                               # 校正済みの行は文字・時刻・印そのまま
-        self.assertIn(orig1, d["original"])                                  # その機械の出力も古いまま
+        g1 = d["segments"][0]
+        self.assertEqual({k: g1[k] for k in ("id", "start", "end", "text", "proofed")}, {k: s1[k] for k in ("id", "start", "end", "text", "proofed")})   # 校正済みの行は文字・時刻そのまま
+        from human.proof import layers
+        self.assertIn(layers.MACH_CHANGED, g1["flag"])                       # 下の機械が変わった = 3 択(X-RERUN。人の層は触らない)
+        self.assertNotIn(orig1, d["original"])                               # 機械の出力の記録は範囲を丸ごと差し替える(人の行は人の層にある)
         new = d["segments"][1:]
         self.assertTrue(new and all(g["text"].startswith("範囲再認識") for g in new))
-        self.assertTrue(all(g["start"] >= s1["end"] for g in new))           # 校正済みの行にかかる新しい行は切り詰めた
         self.assertEqual((d["retranscribed"]["whole"], d["retranscribed"]["kept"], d["retranscribed"]["emptyKept"]), (True, 1, 0))
         self.assertEqual((job["kept"], S.public_job(job)["kept"]), (1, 1))
         self.assertTrue(S.hist_stamps(tid))                                  # 実行前の状態は履歴に(.bak の控えはやめた = 決定 3-47 の 1b-1)

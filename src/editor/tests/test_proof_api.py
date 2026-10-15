@@ -253,12 +253,13 @@ class TestRangeRetranscribe(_ProofStore):
         segs = d["segments"]
         self.assertEqual(segs[0]["text"], "行0")                                   # 範囲外の行は不変
         self.assertEqual({k: segs[0][k] for k in ("id", "start", "end", "proofed", "tags")}, {"id": "x0", "start": 0.0, "end": 1.8, "proofed": True, "tags": ["bgm"]})
-        new = segs[1:]
-        self.assertTrue(new and all(g["text"].startswith("範囲再認識") for g in new))
-        self.assertFalse(any(g.get("proofed") for g in new))                       # 差し替えた行は未校正
-        self.assertTrue(all("tags" not in g for g in new))                         # 音の状態のメモは引き継がない
-        self.assertTrue(any(g["speaker"] == "S1" for g in new))                    # 話者は重なった元の行から引き継ぐ
-        self.assertGreaterEqual(min(g["start"] for g in new), 2.0 - 1e-6)          # 新しい行は範囲の内側
+        rest = segs[1:]   # X-RERUN: 範囲の校正済みの行は人の行として残り、下の機械が変わった印 MACH_CHANGED(3 択)。機械の層だけが新しくなる
+        from human.proof import layers
+        self.assertEqual([g["id"] for g in rest], ["x1", "x2", "x3"])
+        self.assertTrue(all(g.get("proofed") and layers.MACH_CHANGED in g["flag"] for g in rest))
+        mach = S.read_layers(TID_A)[0]
+        self.assertTrue(mach["rows"] and all(r["text"].startswith("範囲再認識") for r in mach["rows"] if r["start"] >= 2.0 - 1e-6))
+        self.assertGreaterEqual(min(r["start"] for r in mach["rows"] if r["text"].startswith("範囲再認識")), 2.0 - 1e-6)   # 新しい行は範囲の内側
         self.assertLessEqual(max(g["end"] for g in segs), 7.8 + 1e-6)
         starts = [g["start"] for g in segs]
         self.assertEqual(starts, sorted(starts))                                   # 時刻順
