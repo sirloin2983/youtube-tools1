@@ -8,9 +8,6 @@ FIND_BUDGET_SEC
 FIND_MAX_DEPTH
 FIND_MAX_ENTRIES
 FIND_PER_DOC
-NORM_MIN_FREE
-NORM_PHASE
-NORM_SUFFIX
 NORM_WHY
 RELINK_KEEP
 RELINK_RANGE_TOL
@@ -42,8 +39,6 @@ _evalorg_last
 _evalorg_lock
 _evalorg_startup
 _norm_member
-_norm_note
-_norm_room
 _path_busy
 _relink_ref
 _relink_write
@@ -51,14 +46,8 @@ _rename_sidecars
 eval_folders_info
 eval_organize
 eval_settle
-norm_after_transcribe
-norm_enabled
-norm_name
-norm_plan
-norm_run
 norm_start
 norm_swap
-norm_usable
 pick_path
 relink_check
 relink_doc
@@ -66,4 +55,3 @@ relink_find
 relink_folder
 relink_missing
 relink_path
-run_normalize

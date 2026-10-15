@@ -337,7 +337,7 @@ class TestEdRelinkNames(unittest.TestCase):
 
     def test_old_ed_relink_names_still_resolve(self):
         names = _old_names("data_ed_relink_names.txt")
-        self.assertEqual(len(names), 68)
+        self.assertEqual(len(names), 56)
         missing = [n for n in names if not hasattr(S, n)]
         self.assertEqual(missing, [])
 
@@ -365,11 +365,11 @@ class TestEdRelinkNames(unittest.TestCase):
             relink.FIND_MAX_DEPTH = saved
         self.assertNotIn("FIND_MAX_DEPTH", vars(S))
 
-    def test_norm_after_hook_points_to_relink(self):
-        """doc_jobs の口 norm_after は relink.norm_after_transcribe を呼ぶたびに読む(S の差し替えが届く)"""
-        doc_jobs.check_hooks()
-        with mock.patch.object(S, "norm_after_transcribe", lambda job, spec, tid: "norm:" + tid):
-            self.assertEqual(doc_jobs._hook("norm_after")({}, {}, "t1"), "norm:t1")
+    def test_norm_after_hook_is_gone(self):
+        """文字起こしの続きの 30fps の口 norm_after は無い(OPT-M2 5b-2。受付の段 ② flow/normalize が先にそろえる)"""
+        self.assertNotIn("norm_after", doc_jobs._HOOK_KEYS)
+        relink, _ = self.owners()
+        self.assertFalse(hasattr(relink, "norm_after_transcribe"))
 
 
 class TestEdMiscNames(unittest.TestCase):

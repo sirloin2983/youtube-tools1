@@ -101,7 +101,8 @@ from flow import placement as _placement  # noqa: E402  (② 置き場所の持�
 from flow import jobs as _heavy_jobs  # noqa: E402
 from ytt import jobs as _slots_jobs  # noqa: E402  重い処理の枠・Cancelled・check_cancel(① の部品も使う物。RS6 a-2 で flow/jobs と分けた)
 from flow import board as _flowboard  # noqa: E402  ② のジョブの掲示板(RS8 の ② の口)
-from flow import wire as _flowwire  # noqa: E402  ② 文字起こしの配線(ジョブの種類の登録・ジョブの表の設定・本物と疑似の選び方・① の口。RS6 a-5b)
+from flow import normalize as _flownorm  # noqa: E402  ② 30fps にそろえる 1 つの段(ジョブ normalize の本体。OPT-M2 5b-1)
+from flow import wire as _flowwire  # noqa: E402 ② 文字起こしの配線(ジョブの種類の登録・ジョブの表の設定・本物と疑似の選び方・① の口。RS6 a-5b)
 from flow import tx as _flowtx  # noqa: E402  ② 文字起こしの動詞(RS6 a-3。旧 ed_jobs の _doc_fields・dict_pairs・redo_kwargs と旧 ed_alt の alt_engine_version はここ)
 from pipeline.transcribe import clipjob as _txclipjob  # noqa: E402  ① 文字起こしのジョブの機械の文書の行(RS6 a-3 に doc_jobs.run_job から。旧 ed_jobs の _rows_to_doc はここ)
 from ytt import txwords as _txwords  # noqa: E402  単語の時刻 words.json の読み書き(RS6 a-5b に records から。S.read_words・S.words_path はここ)
@@ -182,7 +183,7 @@ _ED_MODULES += (_flowpack,)   # RS6 a-5a: ② パックの動詞(カットのた
 _flowwire.install(
     bodies={"transcribe": lambda job: _docjobs.run_job(job), "diarize": lambda job: _speakers.run_diarize(job), "voice-learn": lambda job: _speakers.run_voice_learn(job),
             "retranscribe": lambda job: _rerun.run_retranscribe(job), "redo": lambda job: _rerun.run_redo(job),
-            "normalize": lambda job: _relink.run_normalize(job),   # 動画を選び直したあとの 30fps の作り直し(Q1)
+            "normalize": lambda job: _flownorm.run_job(job, swap=lambda tid, src, dst: _relink.norm_swap(tid, src, dst)),   # 動画を選び直したあとの 30fps の作り直し(Q1。本体は ② flow/normalize・付け替えは ④)
             "alt": lambda job: _alt.run_alt(job), "ytcap": lambda job: _ytcap.run_ytcap(job), "thumb": lambda job: ed_thumb.run_thumb(job)},
     tool=ed_state.TOOL_ID, log=ed_state.log, tmp_dir=lambda: _workdata.TMP_DIR, max_queue=lambda: ed_state.MAX_QUEUE,
     mark=lambda info: ed_state.write_mark(info), no_retry=lambda: _docjobs.NO_RETRY,
@@ -193,8 +194,7 @@ _heavy_jobs.attach_board(_flowboard.default())   # ② のジョブの掲示板�
 # 文書の側(doc_jobs)が使う評価用の作り直し(eval の evalbatch。RS4-2 まで ed_evalbatch)と 30fps の作り直し(manage の relink。RS3-E7 まで ed_relink)。② から ③・④ を読まないための口。
 # 評価用のフォルダの判定は RS3-1 から ytt/settings(doc_jobs が直に読む = 口は 5 → 3 本)。
 # 呼ぶたびに持ち主のモジュールの属性を読む(test_evalbatch の patch.object(EB, "eb_redo_skip_at_start") が届く)。呼ぶ順は run_job のまま(RS2-8d)
-_docjobs.set_hooks(redo_skip=lambda job: _evalbatch.eb_redo_skip_at_start(job), redo_fill=lambda job, spec, fields: _evalbatch.eb_redo_fill(job, spec, fields),
-                   norm_after=lambda job, spec, tid: _relink.norm_after_transcribe(job, spec, tid))
+_docjobs.set_hooks(redo_skip=lambda job: _evalbatch.eb_redo_skip_at_start(job), redo_fill=lambda job, spec, fields: _evalbatch.eb_redo_fill(job, spec, fields))
 _docjobs.check_hooks()
 # 話者の文書の側(human/proof/speakers)が使う評価用の文書の名前の候補(eval の drill。RS4-2 まで ed_drill)。② から ④ を読まないための口(呼ぶたびに持ち主の属性を読む。RS2-9)
 _speakers.set_context_namer(lambda tid: _drill.drill_candidates(tid).get("suggest"))

@@ -45,8 +45,7 @@ class TestHooks(unittest.TestCase):
         with self.assertRaises(RuntimeError) as cm:
             doc_jobs.check_hooks()
         msg = str(cm.exception)
-        for k in ("redo_fill", "norm_after"):
-            self.assertIn(k, msg)
+        self.assertIn("redo_fill", msg)
         self.assertNotIn("redo_skip", msg)
         doc_jobs.check_hooks(("redo_skip",))   # 登録した鍵だけなら通る
 
@@ -59,17 +58,17 @@ class TestHooks(unittest.TestCase):
 
     def test_hook_is_looked_up_at_call_time(self):
         calls = []
-        doc_jobs.set_hooks(norm_after=lambda job, spec, tid: calls.append(("a", tid)))
-        doc_jobs._hook("norm_after")({}, {}, "t1")
-        doc_jobs.set_hooks(norm_after=lambda job, spec, tid: calls.append(("b", tid)))   # 登録し直すと次の呼び出しから新しい方
-        doc_jobs._hook("norm_after")({}, {}, "t2")
+        doc_jobs.set_hooks(redo_skip=lambda job: calls.append(("a", job)))
+        doc_jobs._hook("redo_skip")("t1")
+        doc_jobs.set_hooks(redo_skip=lambda job: calls.append(("b", job)))   # 登録し直すと次の呼び出しから新しい方
+        doc_jobs._hook("redo_skip")("t2")
         self.assertEqual(calls, [("a", "t1"), ("b", "t2")])
         doc_jobs.set_hooks(redo_skip=lambda j: False, redo_fill=lambda j, s, f: None)
         doc_jobs.check_hooks()
 
     def test_eval_dir_hooks_are_gone(self):
-        """評価用のフォルダの判定は口でなく ytt/settings を直に読む(RS3-1。口は redo_skip・redo_fill・norm_after の 3 本)"""
-        self.assertEqual(doc_jobs._HOOK_KEYS, ("redo_skip", "redo_fill", "norm_after"))
+        """評価用のフォルダの判定は口でなく ytt/settings を直に読む(RS3-1。口は redo_skip・redo_fill の 2 本。norm_after は OPT-M2 5b-2 で消えた)"""
+        self.assertEqual(doc_jobs._HOOK_KEYS, ("redo_skip", "redo_fill"))
         with self.assertRaises(TypeError):
             doc_jobs.set_hooks(in_eval_dir=lambda path: False)
 
@@ -105,7 +104,6 @@ class TestCarryOverrides(unittest.TestCase):
         workdata.SETTINGS = os.path.join(self.tmp, "settings.json")
         os.makedirs(workdata.TX_DIR)
         store._summary_cache.clear()
-        doc_jobs.set_hooks(norm_after=lambda job, spec, tid: None)
         self.src = os.path.join(self.tmp, "clip_0001.mp4")
         self.spec = {"sourcePath": self.src, "sourceName": "clip_0001.mp4", "title": "t", "start": 0.0, "end": 20.0, "evalSet": False}
 

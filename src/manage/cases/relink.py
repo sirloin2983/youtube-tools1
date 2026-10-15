@@ -10,11 +10,10 @@
 import os
 import re
 import shutil
-import tempfile
 import time
 
 from ytt import docloc as _docloc, errors as _errors, fsio as _fsio, normalize as _vnorm, schemas as _yschemas  # noqa: E402
-from flow import jobs as _heavy  # noqa: E402
+from flow import jobs as _heavy, normalize as _flownorm  # noqa: E402
 from ytt import settings as _settings  # noqa: E402   評価用のフォルダの判定 in_eval_dir・eval_name_guard(RS3-1 に ed_relink から ytt/settings へ)
 from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
 from ytt import txbase as _txbase  # noqa: E402   ロガー log・環境変数のスイッチ env_off・ジョブの注意 add_warning(RS3-E7 まで ed_state の別名で読んでいた)
@@ -187,91 +186,15 @@ def _relink_write(tid, doc, path, diff, why=None, bump=True):
 
 
 # ---------- 素材を 30fps にそろえる(マスタープラン Q1。2026-10-04 ユーザー決定) ----------
-# 「編集」の単体の文字起こし(動画のパスを指定)と動画を選び直したとき、動画が 30fps(H.264・yuv420p・AAC)でなければ、
-# 元の動画の隣に <名前>_30fps.mp4 を作り、文書をそれに付け替える(元は消さない。作り直しは ytt/normalize.py)。
-# - 順番: 文字起こしは元の動画のまま(時刻は秒なので同じ)→ 同じジョブの続きで作り直す → できたら付け替える。
-#   作り直しに失敗・取り消し・隣に書けないときは、文書は元の動画のまま・ジョブの知らせ(normNote)に理由(文字起こしの結果は失わない)
+# 計画と作り直しは ② flow/normalize の 1 つの段(OPT-M2 5b-1)。ここ(④)に残るのは文書の付け替え norm_swap と、付け替えのあとの作り直しの始め方 norm_start だけ。
+# 動画を選び直したとき、動画が 30fps(H.264・yuv420p・AAC)でなければ、元の動画の隣に <名前>_30fps.mp4 を作り、文書をそれに付け替える(元は消さない)。
+# 文字起こしのあとの 30fps は ② の実行の段(file)が先にそろえるので、文字起こしの続きの口 norm_after は無い(OPT-M2 5b-2)。
 # - 選び直し: 付け替えはすぐに済ませ、作り直しは裏のジョブ(kind "normalize")→ できたら付け替える(付け替えの要求を待たせない。
 #   失敗しても付け替えは済んでいる)。まとめて付け替える(以前の文書の動画を移したとき)は作り直さない(normalize: false)
 # - 評価用(evalSet・評価用のフォルダの中)は作り直さない(パックを作らない・評価用のフォルダの整理が動画の数を数えるため)
 # - ジョブはすでに SLOTS(ytt.jobs)を持っている(ytt/jobs の work_one)。この中で取り直さない(上限 1 だと自分を待って止まる)
 # - 付け替えは updatedAt を変えない(_relink_write の bump=False。開いている画面の次の保存を 409 にしない)
-NORM_SUFFIX = "_30fps"
-NORM_PHASE = "動画の 1 秒のコマ数を 30 にそろえています(30fps)…"   # 言葉の説明つき(2 周目 S10)   # 画面は「30fps にそろえています… n%」(ジョブの progress)
-NORM_MIN_FREE = 1024 ** 3                 # 作り直しの前に、元の動画の大きさ + これだけの空きを求める
 NORM_WHY = "normalize30"                  # 付け替えの記録 relinks[].why
-
-
-def norm_enabled():
-    """TRANSCRIBE_NORMALIZE=off で作り直さない(どの fps でも動くので、困ったときの逃げ道)"""
-    return not _txbase.env_off("TRANSCRIBE_NORMALIZE")
-
-
-def norm_name(src):
-    """隣に作る名前 <名前>_30fps.mp4"""
-    d, n = os.path.split(os.path.abspath(src))
-    return os.path.join(d, os.path.splitext(n)[0] + NORM_SUFFIX + ".mp4")
-
-
-def norm_usable(path, info_src):
-    """すでにある写しをそのまま使えるか(30fps でそろっていて、長さが元と同じ)"""
-    info = _vnorm.probe(path)
-    if not info or _vnorm.needs_normalize(info)[0]:
-        return False
-    a, b = info.get("duration"), (info_src or {}).get("duration")
-    return a is not None and (b is None or abs(a - b) <= max(_vnorm.DURATION_TOL, RELINK_TOL_RATIO * b))
-
-
-def norm_plan(src):
-    """作り直しの予定。-> None(作り直さない)か {"src", "dst", "reuse", "why": [理由], "note"?: 作れない理由(作らずに知らせる)}"""
-    if not norm_enabled() or not src:
-        return None
-    src = os.path.abspath(src)
-    ext = os.path.splitext(src)[1].lower()
-    if _tools.MEDIA_TYPES.get(ext, "").startswith("audio/"):   # 音声だけのファイル(カバー画像を映像と数えない)
-        return None
-    if _fsio.is_network_path(src) or _fsio.is_remote_drive(src):
-        return {"src": src, "dst": None, "reuse": False, "why": [], "note": "ネットワーク上の動画は 30fps にそろえません(元の動画のまま使います)"}
-    info = _vnorm.probe(src)
-    if info is None:
-        return {"src": src, "dst": None, "reuse": False, "why": [],
-                "note": "動画を調べられなかったため、30fps にそろえませんでした(ffprobe が見つからないか、読めないファイルです)"}
-    if not info.get("has_video"):
-        return None
-    need, why = _vnorm.needs_normalize(info)
-    if not need:
-        return None
-    base = norm_name(src)
-    for p in [base] + [base[:-4] + "_%d.mp4" % i for i in range(2, 10)]:
-        # 同じ名前があって使えるならそれを使う。使えない(別の動画・30fps でない)なら上書きせずに次の名前へ
-        if os.path.normcase(p) == os.path.normcase(src):
-            continue
-        if not os.path.exists(p):
-            return {"src": src, "dst": p, "reuse": False, "why": why}
-        if os.path.isfile(p) and norm_usable(p, info):
-            return {"src": src, "dst": p, "reuse": True, "why": why}
-    return {"src": src, "dst": None, "reuse": False, "why": why,
-            "note": "隣に 30fps の動画を作る名前が空いていないため、元の動画のまま使います(%s)" % os.path.basename(base)}
-
-
-def _norm_room(src, dst):
-    """隣に書けるか・空きが足りるか。-> None(書ける)か 書けない理由"""
-    d = os.path.dirname(dst)
-    try:
-        os.makedirs(d, exist_ok=True)
-        fd, test_path = tempfile.mkstemp(prefix=".ytt-write-test-", dir=d)
-        os.close(fd)
-        os.unlink(test_path)
-    except OSError:
-        return "動画のフォルダに書き込めないため(読み取り専用など)、30fps にそろえられませんでした。文書は元の動画のままです"
-    try:
-        need = os.path.getsize(src) + NORM_MIN_FREE
-        free = shutil.disk_usage(d).free
-    except OSError:
-        return None
-    if free < need:
-        return "ディスクの空きが足りないため(%.1f GB 必要)、30fps にそろえられませんでした。文書は元の動画のままです" % (need / 1024 ** 3)
-    return None
 
 
 def norm_swap(tid, src, dst):
@@ -292,68 +215,12 @@ def norm_swap(tid, src, dst):
     return None
 
 
-def norm_run(job, tid, plan):
-    """作り直して付け替える(ジョブの中で。SLOTS はジョブが持っている)。-> (付け替えたか, 知らせの文)。
-    job の state・phase・progress を「30fps にそろえています… n%」にする"""
-    src, dst = plan["src"], plan.get("dst")
-    if plan.get("note") or not dst:
-        return False, plan.get("note") or ""
-    if not plan.get("reuse"):
-        room = _norm_room(src, dst)
-        if room:
-            return False, room
-        job["state"], job["phase"], job["progress"], job["device"] = "running", NORM_PHASE, 0.0, ""
-        try:
-            _vnorm.normalize(src, dst, cancelled=lambda: bool(job.get("cancel")),
-                            on_progress=lambda p: job.__setitem__("progress", round(float(p), 3)))
-        except _vnorm.Cancelled:
-            return False, "30fps にそろえるのを取り消しました。文書は元の動画のままです"
-        except (_vnorm.NormalizeError, OSError) as e:
-            _txbase.log.warning("30fps の作り直しに失敗: %s %s", tid, e)
-            return False, "30fps にそろえられませんでした(%s)。文書は元の動画のままです" % str(e)[:200]
-    why = norm_swap(tid, src, dst)
-    if why:
-        return False, why
-    if plan.get("reuse"):
-        return True, "30fps の動画 %s があったので、それに付け替えました" % os.path.basename(dst)
-    return True, "30fps にそろえた動画 %s を作って付け替えました(元の動画はそのまま残っています)" % os.path.basename(dst)
-
-
-def norm_after_transcribe(job, spec, tid):
-    """文字起こしのジョブの続き(human/proof/doc_jobs.run_job が文書を書いたあとで、serve が登録した口 norm_after から呼ぶ)。評価用は作り直さない。
-    知らせは job["normNote"](付け替えなかったときは job["warnings"] にも)"""
-    if spec.get("evalSet") or _settings.in_eval_dir(spec.get("sourcePath")):
-        return
-    try:
-        plan = norm_plan(spec.get("sourcePath"))
-    except Exception as e:   # 調べる所の想定外でも、文字起こしの結果は残す
-        _txbase.log.warning("30fps の確認に失敗: %s %s", tid, e)
-        return
-    if not plan:
-        return
-    job["tid"] = tid   # 作り直しの間は、この文書の付け替えを止める(_doc_busy)
-    try:
-        ok, note = norm_run(job, tid, plan)
-    except Exception as e:
-        _txbase.log.exception("30fps の作り直しで例外")
-        ok, note = False, "30fps にそろえられませんでした(内部エラー: %s)。文書は元の動画のままです" % e.__class__.__name__
-    _norm_note(job, ok, note)
-
-
-def _norm_note(job, ok, note):
-    if not note:
-        return
-    job["normNote"], job["normOk"] = note, bool(ok)
-    if not ok:
-        _txbase.add_warning(job, note)
-
-
 def norm_start(tid, path, doc):
     """動画を選び直したあと: 30fps でなければ裏のジョブで作り直して付け替える。
     -> (始めたジョブの id か None, 知らせ(作らない理由。無ければ ""))。評価用・30fps なら (None, "")"""
     if doc.get("evalSet") is True or _settings.in_eval_dir(path):
         return None, ""
-    plan = norm_plan(path)
+    plan = _flownorm.plan(path)
     if not plan:
         return None, ""
     if plan.get("note"):
@@ -365,16 +232,6 @@ def norm_start(tid, path, doc):
         return None, "30fps にそろえるのを始められませんでした(%s)。元の動画のまま使えます" % e.message
     return job["id"], ""
 
-
-def run_normalize(job):
-    """ジョブ kind "normalize"(選び直しのあとの作り直し。SLOTS は work_one が持っている)"""
-    spec = job["spec"]
-    try:
-        ok, note = norm_run(job, spec["tid"], spec["plan"])
-        _norm_note(job, ok, note)
-        job["progress"], job["state"], job["phase"] = 1.0, "done", "完了" if ok else "元の動画のまま"
-    except Exception as e:
-        _heavy.set_internal_error(job, e)
 
 # ---------- まとめて付け替える・「参照…」(2026-10-01。ユーザー決定: 参照の窓 + 履歴からまとめて) ----------
 # 付け替えそのものは1件ずつ /api/relink(控え・長さの確認・競合の確認を同じにするため)。ここは候補を集めるだけで、書き込まない。
