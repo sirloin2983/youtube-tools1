@@ -30,7 +30,7 @@
                                           cases({案件の根: {active, lastState, lastFinished}})。?case=<案件の根> で jobs だけ絞る(ほかの項目は絞らない)。notes:docs/spec/pipeline.md 2.9
                                           F1 F0-1: + blocked(null か {reason: "disk", freeGB, minGB} = 空き容量が下限を切って次の実行を始めていない)・
                                           machine({engine, device, llmModel, gpu: {name, vramGB, ...} か null}。src/flow/runqueue.py の machine_status)
-  GET  /api/flow/machine                  この PC の設定(src/flow/machine.py の load。{engine, device, llmModel, caseRoot, diskMinGB, learningDir, docMove, markMove, sources})
+  GET  /api/flow/machine                  この PC の設定(src/flow/machine.py の load。{engine, device, llmModel, caseRoot, diskMinGB, learningDir, sources})
   PUT  /api/flow/machine                  {device?, llmModel?, caseRoot?, diskMinGB?, learningDir?}(null = 既定へ戻す)を machine.json に書く(合言葉が要る)→
                                           {machine: 書いたあとの load, file: ファイルの中身}。知らない項目・合わない値は 400 bad_request と理由(F1 F0-1)
   POST /api/flow/cancel                   {id} 掲示板の id(「頭:id」)のジョブを止める → {job}。無い id は 404・止められない物は 409 cannot_cancel・形が違えば 400
@@ -143,8 +143,7 @@ from human.check import value as check_value  # noqa: E402, F401  (src/human/che
 from human.check import voice as _check_voice  # noqa: E402,F401  (誰の声のカードの反映と声の覚え直し。読み込みで apply に登録する。V2c)
 from human.friend import deliver as deliver_mod  # noqa: E402 (src/human/friend/deliver.py: パックを友人へ届ける = Dropbox の 出力 に zip で置く)
 from manage.cases import cases as cases_mod  # noqa: E402  (src/manage/cases/cases.py: 案件(配信1本)ごとの紐づけ)
-from manage.cases import docmove as docmove_mod  # noqa: E402  (src/manage/cases/docmove.py: 起動のとき文書を案件の 作業用 へ移す。RS8 B2-3)
-from manage.cases import markmove as markmove_mod  # noqa: E402  (src/manage/cases/markmove.py: 起動のとき data.json の配信を案件の 採用.json へ移す。RS8 B3-8)
+from manage.cases import outdirs as outdirs_mod  # noqa: E402  (src/manage/cases/outdirs.py: 書き出し先を変えたあとの案件の繋ぎ直し・「調子」の置き場所の行。RS8 B3-8 の残り)
 from human.friend import friend_feedback as friend_feedback_mod  # noqa: E402  (src/human/friend/friend_feedback.py: 友人の「要らない」= 切り抜きとパックを ごみ箱 へ・記録を残す。マークは変えない)
 import appwindow as appwindow_mod  # noqa: E402  (src/home/appwindow.py: 窓(Edge のアプリモード)で開く。段階7-3)
 from manage.ops import clientlog as clientlog_mod  # noqa: E402  (src/manage/ops/clientlog.py: 画面のエラーの記録。段階7-0)
@@ -1111,8 +1110,6 @@ class PortalServer(httpsec.ExclusiveServer):
         self.closing = threading.Event()
         self.token = secrets.token_urlsafe(24)   # 書き込み系の API の合言葉(CSRF トークン)。起動ごとに変わる
         self.headless = False   # 画面なし(--headless。main が決める。起動し直しを断る)
-        self.docs_moved = None  # 起動のときの文書の移行の結果(move_docs。「調子」の 1 行に出す。RS8 B2-3)
-        self.marks_moved = None  # 起動のときの配信の記録の移行の結果(move_marks。「調子」の 1 行に出す。RS8 B3-8)
         self.mounts = {}
         self._autorun = None
         self._autorun_lock = threading.Lock()
@@ -1149,7 +1146,7 @@ class PortalServer(httpsec.ExclusiveServer):
         cases_mod.relink_delivered_later(sup.root, sup.logs_dir, log=sup.log)   # 届けた印の付け直し(起動の少しあとに 1 回・裏で。opt-manage 2a-1。inplace では走らない)
         self.health = health_mod.Health(sup, sup.logs_dir, sup.root, worker_probe=self._worker_probe, extra_dirs=self._extra_dirs,
                                         live_probe=self.live.health, accuracy_probe=self.accuracy.snapshot,
-                                        docs_probe=self._docs_probe, marks_probe=self._marks_probe)   # 「調子」(段9 9-1。録画の行はオンのときだけ・精度の行・文書と配信の記録の置き場所の行)
+                                        places_probe=self._places_probe)   # 「調子」(段9 9-1。録画の行はオンのときだけ・精度の行・置き場所の行)
         # 片付け(段9 9-2)。ごみ箱フォルダは動画と同じドライブ(書き出し先\ごみ箱。2026-10-01 ユーザー決定)
         self.cleanup = cleanup_mod.Cleanup(app_dir, repo_root=sup.root, log=sup.log, out_dirs=self._extra_dirs)
         self.cleanup_lock = threading.Lock()
@@ -1269,17 +1266,11 @@ class PortalServer(httpsec.ExclusiveServer):
         w = d.get("worker") if st == 200 else None
         return w if isinstance(w, dict) else None
 
-    def _docs_probe(self):
-        """「調子」の文書の置き場所の行(案件へ移した・残した・見えない文書の数。RS8 B2-3)。作業データがツールの中(inplace)・何も無ければ None = 行を出さない"""
+    def _places_probe(self):
+        """「調子」の置き場所の 1 行(見えない文書・見えない案件・繋ぎ直した本数。src/manage/cases/outdirs.py の status)。inplace・何も無ければ None"""
         if datadir.data_root() is None:
             return None
-        return docmove_mod.status(os.path.dirname(txindex.folder(self.sup.root)), self.docs_moved)
-
-    def _marks_probe(self):
-        """「調子」の配信の記録の置き場所の行(案件へ移した・残した配信・案件が見えない索引の行の数。RS8 B3-8)。inplace・何も無ければ None"""
-        if datadir.data_root() is None:
-            return None
-        return markmove_mod.status(placement.studio_data(self.sup.root), self.marks_moved)
+        return outdirs_mod.status(placement.studio_data(self.sup.root), os.path.dirname(txindex.folder(self.sup.root)))
 
     def _extra_dirs(self):
         """空き容量を見る追加の場所・ごみ箱フォルダを置く書き出し先: スタジオの書き出し先(datadir.studio_out_dir。outDir が無ければ作業データの exports)。
@@ -1780,58 +1771,17 @@ def watch_parent(pid, stdin, on_gone, log=None):
     return threads
 
 
-def move_docs(srv, log):
-    """起動のとき 1 回、transcripts の文書を案件の 作業用 へ移す(予算まで。src/manage/cases/docmove.py。RS8 B2-3)。
-    .flow.lock を取ったあと・待ち受けの前に呼ぶ(CLI・画面の書き込みとぶつからない)。フォルダは workdata.TX_DIR(取り込む前はまだ無い)でなく txindex.folder。
-    作業データがツールの中(inplace = テスト)なら何もしない。この PC の設定 docMove(flow/machine.py。既定 false)が false なら移さない
-    (= {"state": "off"}。「調子」に止めていると出す。移す規則をユーザーが見てからオンにする)。バックアップが 1 回済んでいなければ移さない
-    (画面なしはバックアップを動かさない = 記録が無ければ移さない)。-> 結果か None。失敗しても入口は起動する"""
+def relink_out_dirs(srv, log):
+    """起動のとき 1 回: 書き出し先を変えたあとの案件の繋ぎ直し(src/manage/cases/outdirs.py の relink_out_dir。決定 3-37 の (r8o)。題では探さない)。
+    .flow.lock を取ったあと・待ち受けの前・スタジオの取り込みの前に呼ぶ(スタジオの Store と同時に data.json を書かない)。
+    作業データがツールの中(inplace = テスト)なら何もしない。失敗しても入口は起動する。-> 繋ぎ直した本数か None"""
     if datadir.data_root() is None:
         return None
     try:
-        on = machine_mod.get("docMove") is True
-    except (OSError, ValueError) as e:
-        log("この PC の設定の docMove を読めませんでした(文書は移しません): %s" % (e,), console=False)
-        on = False
-    if not on:
-        return {"state": "off", "moved": 0}
-    try:
-        return docmove_mod.run(os.path.dirname(txindex.folder(srv.sup.root)), datadir.studio_out_dir(srv.sup.root),
-                               backup_ok=docmove_mod.backup_done(srv.backup.last), log=log)
-    except Exception as e:
-        log("文書を案件のフォルダへ移せませんでした: %r" % (e,))
-        return None
-
-
-def move_marks(srv, log):
-    """起動のとき 1 回、スタジオの data.json の配信(書き出したマークがある物)と cases.json の状態を案件の 採用.json・候補.json へ移す
-    (予算まで。src/manage/cases/markmove.py。RS8 B3-8)。move_docs と同じ所(.flow.lock の後・待ち受けの前・スタジオの取り込みの前 =
-    スタジオの Store と同時に data.json を書かない)で呼ぶ。inplace(テスト)なら何もしない。
-    書き出し先を変えたときの案件の繋ぎ直し(markmove.relink_out_dir)はスイッチに関係なく毎回。移すのはこの PC の設定 markMove が true で、
-    バックアップが 1 回済んでいるときだけ。-> 結果(state = off・waitBackup・done など + relinked)か None。失敗しても入口は起動する"""
-    if datadir.data_root() is None:
-        return None
-    data = placement.studio_data(srv.sup.root)
-    out_dir = datadir.studio_out_dir(srv.sup.root)
-    try:
-        relinked = markmove_mod.relink_out_dir(data, out_dir, log=log)
+        return outdirs_mod.relink_out_dir(placement.studio_data(srv.sup.root), datadir.studio_out_dir(srv.sup.root), log=log)
     except Exception as e:
         log("書き出し先を変えたときの案件の繋ぎ直しができませんでした: %r" % (e,))
-        relinked = 0
-    try:
-        on = machine_mod.get("markMove") is True
-    except (OSError, ValueError) as e:
-        log("この PC の設定の markMove を読めませんでした(配信の記録は移しません): %s" % (e,), console=False)
-        on = False
-    if not on:
-        return {"state": "off", "moved": 0, "relinked": relinked}
-    try:
-        r = markmove_mod.run(data, cases_mod.locations(srv.sup.root)["cases"], out_dir,
-                             backup_ok=docmove_mod.backup_done(srv.backup.last), log=log)
-    except Exception as e:
-        log("配信の記録を案件のフォルダへ移せませんでした: %r" % (e,))
         return None
-    return dict(r, relinked=relinked)
 
 
 def main(argv=None):
@@ -1896,8 +1846,7 @@ def _main(opts, ready_out=None):
         runtime.write_runtime(sup.rdir, TOOL_ID, port, VERSION)   # 書けなくても続ける(使う人はまだいない)
         log("ホーム v%s: %s (終了は画面の「すべて終了」・Ctrl+C・この黒い画面を閉じる)%s" % (VERSION, url, "(画面なし)" if headless else ""))
         log("各ツールの出力: %s" % sup.logs_dir)
-        srv.docs_moved = move_docs(srv, log)   # 文書を案件の 作業用 へ(.flow.lock の後・待ち受けの前。予算 20 秒か 50 本。RS8 B2-3)
-        srv.marks_moved = move_marks(srv, log)   # data.json の配信を案件の 採用.json へ(同じ所 = スタジオの取り込みの前。RS8 B3-8)
+        relink_out_dirs(srv, log)   # 書き出し先を変えたあとの案件の繋ぎ直し(.flow.lock の後・待ち受けの前・スタジオの取り込みの前。(r8o))
         sup.attach(srv)
         served = threading.Event()
 

@@ -68,7 +68,7 @@ def _unseen(root, why):
                     503, {"dir": str(root or ""), "reason": why})
 
 
-_index_row = _casefiles.index_row   # 全部の形 -> data.json の索引の行(ytt/casefiles。manage/cases/markmove もこの名前で読む)
+_index_row = _casefiles.index_row   # 全部の形 -> data.json の索引の行(ytt/casefiles)
 _stored = _casefiles.stored         # 全部の形 -> 案件のファイルに分ける形(印 case・caseUnseen を外す)
 
 
@@ -327,7 +327,7 @@ class Store:
             _warn("data.json の壊れた%sを読み飛ばしました。元のファイルは %s" % ("・".join(parts), name or "(退避に失敗)"))
 
     _load_live = staticmethod(_studiodata.load_live)     # 録画の live の検査(ytt/studiodata。flow/studiobook と同じ 1 つ)
-    _load_video = staticmethod(_studiodata.load_video)   # data.json の行 -> メモリの形(manage/cases/markmove もこの名前で読む)
+    _load_video = staticmethod(_studiodata.load_video)   # data.json の行 -> メモリの形
 
     @staticmethod
     def _load_group(gid, g):

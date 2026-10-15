@@ -1454,36 +1454,20 @@
     // 重い処理
     var hv = h.heavy;
     if (hv) ul.appendChild(healthRow('ok', '重い処理', '実行中 ' + (hv.active || []).length + '・順番待ち ' + (hv.waiting || []).length + '(同時に ' + hv.limit + ' まで)'));
-    if (h.docs) ul.appendChild(docsHealthRow(h.docs));
-    if (h.marks) ul.appendChild(marksHealthRow(h.marks));
+    if (h.places) ul.appendChild(placesHealthRow(h.places));
     renderAccuracy(h.accuracy, ul);
   }
-  /* 配信の記録の置き場所の 1 行(RS8 B3-8。src/manage/cases/markmove.py の status): data.json の配信を案件の 採用.json へ移した・残した数と、案件が見えない配信の数 */
-  function marksHealthRow(mk) {
-    var kept = mk.kept || {}, keptN = 0, subs = [];
-    Object.keys(kept).forEach(function (k) { keptN += kept[k]; subs.push('残した理由: ' + ((mk.reasons || {})[k] || k) + ' ' + kept[k] + ' 本'); });
-    if (mk.relinked) subs.push('書き出し先を変えたので繋ぎ直した案件 ' + mk.relinked + ' 本');
-    var text = mk.state === 'off' ? '配信の記録の移行は止めています(machine.json の markMove)'
-      : mk.state === 'waitBackup' ? 'バックアップが 1 回済むまで、配信の記録を案件のフォルダへ移すのを待っています(設定のバックアップをオンに)'
-      : mk.state === 'paused' ? '移すのを止めています(再開は py -3.10 src/manage/cases/markmove.py --resume)'
-      : '案件のフォルダへ移した ' + (mk.moved || 0) + ' 本・data.json に残した ' + keptN + ' 本' + (mk.remaining ? '・続きの ' + mk.remaining + ' 本は次の起動で' : '');
-    if (mk.unseen) text += '。案件のフォルダが見えない配信が ' + mk.unseen + ' 本あります(ドライブがつながっているか確かめてください。動かしたなら markmove.py --relink で繋ぎ直せます)';
-    var row = healthRow(mk.unseen || mk.state === 'waitBackup' ? 'warn' : mk.state === 'off' ? 'info' : 'ok', '配信の記録の置き場所', text, subs);
-    row.id = 'marksHealth';
-    return row;
-  }
-  /* 文書の置き場所の 1 行(RS8 B2-3。src/manage/cases/docmove.py の status): 案件の 作業用 へ移した・transcripts に残した・見えない文書の数 */
-  function docsHealthRow(dc) {
-    var kept = dc.kept || {}, keptN = 0, subs = [], un = dc.unseen || { count: 0, reasons: {} };
-    Object.keys(kept).forEach(function (k) { keptN += kept[k]; subs.push('残した理由: ' + ((dc.reasons || {})[k] || k) + ' ' + kept[k] + ' 本'); });
-    Object.keys(un.reasons || {}).forEach(function (k) { subs.push('見えない理由: ' + k + ' ' + un.reasons[k] + ' 本'); });
-    var text = dc.state === 'off' ? '文書の移行は止めています(machine.json の docMove)'
-      : dc.state === 'waitBackup' ? 'バックアップが 1 回済むまで、文書を案件のフォルダへ移すのを待っています(設定のバックアップをオンに)'
-      : dc.state === 'paused' ? '移すのを止めています(再開は py -3.10 src/manage/cases/docmove.py --resume)'
-      : '案件のフォルダへ移した ' + (dc.moved || 0) + ' 本・transcripts に残した ' + keptN + ' 本' + (dc.remaining ? '・続きの ' + dc.remaining + ' 本は次の起動で' : '');
-    if (un.count) text += '。見えない文書が ' + un.count + ' 本あります(案件のフォルダのドライブがつながっているか確かめてください。つながるまで、その文書は直せません)';
-    var row = healthRow(un.count || dc.state === 'waitBackup' ? 'warn' : dc.state === 'off' ? 'info' : 'ok', '文書の置き場所', text, subs);
-    row.id = 'docsHealth';
+  /* 置き場所の 1 行(src/manage/cases/outdirs.py の status): 案件のフォルダが見えない文書・配信の数と、書き出し先を変えて繋ぎ直した本数。出す物が無ければ出さない */
+  function placesHealthRow(pl) {
+    var subs = [], parts = [];
+    Object.keys(pl.docReasons || {}).forEach(function (k) { subs.push('見えない理由: ' + k + ' ' + pl.docReasons[k] + ' 本'); });
+    if (pl.docs) parts.push('案件のフォルダが見えない文書が ' + pl.docs + ' 本');
+    if (pl.cases) parts.push('案件のフォルダが見えない配信が ' + pl.cases + ' 本');
+    if (pl.relinked) subs.push('書き出し先を変えて繋ぎ直した案件 ' + pl.relinked + ' 本');
+    var text = parts.join('・');
+    if (text) text += '(ドライブがつながっているか確かめてください。動かしたなら py -3.10 src/manage/cases/outdirs.py --relink <配信の id> <フォルダ> で繋ぎ直せます)';
+    var row = healthRow(parts.length ? 'warn' : 'ok', '置き場所', text || '案件のフォルダは見えています', subs);
+    row.id = 'placesHealth';
     return row;
   }
 

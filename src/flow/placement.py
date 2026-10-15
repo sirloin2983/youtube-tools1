@@ -98,7 +98,7 @@ def doc_home(source_path, out_dir=None, eval_set=False):
     元の動画が絶対パスでネットワーク上でない・その案件の根(case_root の file。今ある物だけ)が書き出し先 out_dir
     (None = スタジオの設定 = ytt.datadir.studio_out_dir)の下(書き出し先そのものは除く)・案件に 作業用/.studio-id か 作業用/case.json がある・
     書き出し先のドライブが固定ディスク・評価用でない(eval_set = 評価用として作る文書・または元の動画が設定の評価用のフォルダの中)。
-    フォルダを作らない・書かない(読むだけ)。案件の移行(manage/cases/docmove)も同じ規則でこれを呼ぶ"""
+    フォルダを作らない・書かない(読むだけ)"""
     try:
         if eval_set or not isinstance(source_path, str) or not source_path or not os.path.isabs(source_path):
             return None
