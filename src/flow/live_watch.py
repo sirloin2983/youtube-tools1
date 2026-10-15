@@ -9,14 +9,19 @@ search(eventType=live)は 1 回 100 ユニットと高いので使わない。�
   結果は LIVE_TTL(60 秒)覚える(画面の「更新」・2 分ごとの読み直しで外へ聞きすぎない)
 取得の関数 get(path, params) と、事務所から解決済みのチャンネルを選ぶ関数 pick(ags) は呼び手が渡す(③ の rank は自分の yt_get を渡す = テストが差し替えられる)。
 """
+import os
 import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+from pipeline.transcribe import roster as _roster
 from ytt import ytapi as _api
 from ytt import yturl as _yturl
 from ytt.errors import ApiError
+
+REGIONS = _roster.REGIONS   # 地域の種類(JP・EN・ID。名簿の members の region)
+_BUNDLED_ROSTER = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "editor", "hololive-roster.json")   # 名簿の置き場所が決まっていないとき(スタジオだけを動かすとき)の同梱の名簿
 
 LIVE_TTL = 60
 LIVE_SCAN_TTL = 1200
@@ -29,6 +34,12 @@ WORKERS = 8               # 1 チャンネル 1 回の軽い問い合わせな�
 MEMBERS_RE = re.compile(r"メン限|メンシ限|メンバー(?:シップ)?限定|members?[\s_-]*only|members?[\s_-]*limited", re.I)
 none_ids = {}             # 配信でないと分かった動画 ID(聞き直さない)
 _lock = threading.Lock()
+
+
+def channel_regions():
+    """チャンネル ID → 地域(JP・EN・ID)。名簿(① roster.ROSTER。無ければ同梱の名簿)の members の region から。名簿に無い・欄が無いチャンネルは入らない = 不明。
+    検索(③ human/find/rank)も「配信中」も、地域の絞り込みはこの表を引く(登録簿には地域を二重に持たない)"""
+    return _roster.channel_regions(_roster.ROSTER or _BUNDLED_ROSTER)
 
 
 def _scan(ch, get):
@@ -138,12 +149,12 @@ def _build(ags, now, get, pick):
             "warnings": warns[:30], "unresolved": unresolved, "channels": len(chans), "quota": _api.used() - q0, "checkedAt": int(now * 1000)}
 
 
-def live_list(ags, get, pick, now=None):
-    """配信中(視聴者数の多い順)と、24 時間以内に始まる予定(早い順)。ags: 対象の事務所の登録(1 つ以上)。
-    LIVE_TTL 秒は同じ事務所の組み合わせの結果を返す(外へ聞かない)。同時に来たら1つずつ(2つの窓から開いても二重に聞かない)"""
+def live_list(ags, get, pick, now=None, scope=()):
+    """配信中(視聴者数の多い順)と、24 時間以内に始まる予定(早い順)。ags: 対象の事務所の登録(1 つ以上。地域で絞った後のチャンネルを持つ)。
+    LIVE_TTL 秒は同じ事務所・同じ絞り方(scope = 選んだ地域)の結果を返す(外へ聞かない)。同時に来たら1つずつ(2つの窓から開いても二重に聞かない)"""
     if not ags:
         raise ApiError("no_agency", "対象の事務所を選んでください", 400)
-    key = ("lv", tuple(sorted(a["id"] for a in ags)))
+    key = ("lv", tuple(sorted(a["id"] for a in ags)), tuple(scope))
     with _lock:
         t = time.time() if now is None else now
         hit = _api.cache_get(key, LIVE_TTL, t)

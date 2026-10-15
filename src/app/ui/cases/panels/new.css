@@ -189,6 +189,8 @@
 .nw-panel .st.ok{color:var(--ok)}.nw-panel .st.error{color:var(--danger)}.nw-panel .st.pending{color:var(--warn)}
 .nw-panel .ch-name{flex:1;min-width:0;overflow-wrap:anywhere}
 .nw-panel .reg .ch .rf{font-family:var(--mono);font-size:11.5px;color:var(--ink-3);overflow-wrap:anywhere;max-width:40%}
+.nw-panel .reg .ch .rgsel{flex:none;font-size:11.5px;max-width:110px}
+.nw-panel .rk-region{font-size:11px;color:var(--ink-3)}
 .nw-panel .ch-empty{margin:6px 0 0}
 .nw-panel .ag-new{margin-top:14px;padding-top:12px;border-top:1px dashed var(--line-2)}
 .nw-panel .ag-new input{flex:1 1 200px;max-width:320px}

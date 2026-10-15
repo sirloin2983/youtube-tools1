@@ -20,7 +20,7 @@ const LIMITS = [10, 30, 50, 100, 0];   // 「全部まとめて」の上位の�
 /* agPick: ユーザーが自分でチェックを変えた事務所だけ {事務所ID: true/false}。触っていない事務所は「解決済みのチャンネルがあれば選ぶ」。
    以前は画面の未チェックの状態から選択を決めていたため、事務所を登録してから ① に戻ると、件数は出ているのに全部外れていた */
 const R = { reg: { agencies: [] }, job: null, result: null, poll: null, polling: false, picked: new Map(), inQueue: new Set(), analyzed: new Set(), auto: new Map(), regEls: [], busy: new Set(),
-  agPick: {}, view: 'all', limit: 30, q: '' };
+  agPick: {}, rgPick: {}, view: 'all', limit: 30, q: '' };
 
 /* ================= 事務所の登録(設定の引き出しに置く) ================= */
 let saveT = null;
@@ -62,8 +62,11 @@ function restoreReg(el, st){
     if (t){ t.focus({ preventScroll: true }); try { t.setSelectionRange(f.ss, f.se); } catch {} }
   }
 }
+/* チャンネルの地域の手の指定(自動 = 名簿から引く。名簿に無ければ不明)。保存するのは JP・EN・ID を選んだときだけ */
+const regionSel = c => `<select class="rgsel" aria-label="地域" title="検索・配信中で地域を絞るときの、このチャンネルの地域。自動は名簿(ホロライブの公式サイトの区分)から引き、名簿に無ければ「不明」">` +
+  `<option value=""${c.region ? '' : ' selected'}>自動(${esc(c.auto || '不明')})</option>` + REGIONS.map(r => `<option value="${r}"${c.region === r ? ' selected' : ''}>${r}</option>`).join('') + '</select>';
 function renderReg(){
-  const html = `<p class="hint">各事務所に所属するチャンネルを登録します。@ハンドル・チャンネルID(UC…)・YouTubeのURL(…/@name、…/channel/UC…)を1行に1つ貼り付けられます。登録後に「解決」を押すと、チャンネルIDとチャンネル名が確定します。登録したチャンネルだけが検索の対象になります。</p>` +
+  const html = `<p class="hint">検索では、ホロライブ以外の事務所は「その他」にまとまります。各事務所に所属するチャンネルを登録します。@ハンドル・チャンネルID(UC…)・YouTubeのURL(…/@name、…/channel/UC…)を1行に1つ貼り付けられます。登録後に「解決」を押すと、チャンネルIDとチャンネル名が確定します。登録したチャンネルだけが検索の対象になります。</p>` +
   (R.reg.agencies.map((a, i) => {
     const bad = a.channels.filter(c => c.status !== 'ok').length, k = agKey(a, i), busy = R.busy.has(a.id) ? ' disabled' : '';
     return `<details class="ag" data-i="${i}" data-key="${esc(k)}"><summary><span class="ag-name">${esc(a.name)}</span>${a.channels.length ? `<span class="pill ok">${a.channels.length - bad}件 解決済み</span>` : '<span class="pill">チャンネル未登録</span>'}${bad ? `<span class="pill warn">${bad}件 未解決</span>` : ''}${R.busy.has(a.id) ? '<span class="pill run">確認中</span>' : ''}</summary>
@@ -72,7 +75,7 @@ function renderReg(){
       <div class="row ag-acts"><button type="button" class="btn small" data-act="imp"${busy}>公式から取り込む</button></div></div>
     <div class="fld"><label class="l">チャンネルを追加(1行に1つ)<textarea class="paste" rows="3" placeholder="@handle&#10;https://www.youtube.com/@handle&#10;UCxxxxxxxxxxxxxxxxxxxxxx"></textarea></label>
       <div class="row ag-acts"><button type="button" class="btn small primary" data-act="add"${busy}>追加して解決</button><button type="button" class="btn small" data-act="res"${busy}>未解決を解決</button><span class="spacer"></span><button type="button" class="btn small danger" data-act="delag">この事務所を削除</button></div></div>
-    <div class="ch-list">${a.channels.map((c, j) => `<div class="ch" data-k="${j}"><span class="st ${c.status === 'ok' ? 'ok' : c.status === 'error' ? 'error' : 'pending'}">${c.status === 'ok' ? '解決済み' : c.status === 'error' ? '失敗' : '未解決'}</span><span class="ch-name">${esc(c.title || c.ref)}${c.note ? ` <span class="hint">${esc(c.note)}</span>` : ''}</span><span class="rf hide-s">${esc(c.ref)}</span><button type="button" class="btn small ghost" data-act="delch">外す</button></div>`).join('') || '<p class="hint ch-empty">まだチャンネルがありません。「公式から取り込む」か、上の欄に @ハンドル・URL を入れて「追加して解決」すると、ここに出ます</p>'}</div></div></details>`;
+    <div class="ch-list">${a.channels.map((c, j) => `<div class="ch" data-k="${j}"><span class="st ${c.status === 'ok' ? 'ok' : c.status === 'error' ? 'error' : 'pending'}">${c.status === 'ok' ? '解決済み' : c.status === 'error' ? '失敗' : '未解決'}</span><span class="ch-name">${esc(c.title || c.ref)}${c.note ? ` <span class="hint">${esc(c.note)}</span>` : ''}</span><span class="rf hide-s">${esc(c.ref)}</span>${c.status === 'ok' ? regionSel(c) : ''}<button type="button" class="btn small ghost" data-act="delch">外す</button></div>`).join('') || '<p class="hint ch-empty">まだチャンネルがありません。「公式から取り込む」か、上の欄に @ハンドル・URL を入れて「追加して解決」すると、ここに出ます</p>'}</div></div></details>`;
   }).join('') || '<div class="empty"><b>まだ事務所がありません</b>下の欄で事務所の名前を入れて追加すると、ここに出ます</div>');
   const add = `<div class="row ag-new"><label class="l" for="newAgency">事務所を追加</label><input type="text" id="newAgency" class="newAgency" placeholder="例: ○○プロダクション" maxlength="40"><button type="button" class="btn small" data-act="addag">追加</button></div>`;
   for (const el of R.regEls){
@@ -131,13 +134,19 @@ function regClick(e){
     UIKit.confirmTwice(b, () => { if (R.reg.agencies[i] === a){ R.reg.agencies.splice(i, 1); saveReg(true); } }, 'もう一度押すと削除');
   }
 }
+function regChange(e){
+  const sel = e.target.closest('.rgsel'); if (!sel) return;
+  const a = R.reg.agencies[Number(sel.closest('.ag').dataset.i)], c = a && a.channels[Number(sel.closest('.ch').dataset.k)]; if (!c) return;
+  if (sel.value) c.region = sel.value; else delete c.region;
+  saveReg(true);
+}
 function regInput(e){
   if (!e.target.matches('.off')) return;
   const a = R.reg.agencies[Number(e.target.closest('.ag').dataset.i)]; if (!a) return;
   a.official = e.target.value.split(/\s+/).filter(Boolean); saveReg();
 }
 function mountRegistry(el){
-  if (!R.regEls.includes(el)){ R.regEls.push(el); el.classList.add('reg-host'); el.addEventListener('click', regClick); el.addEventListener('input', regInput); }
+  if (!R.regEls.includes(el)){ R.regEls.push(el); el.classList.add('reg-host'); el.addEventListener('click', regClick); el.addEventListener('input', regInput); el.addEventListener('change', regChange); }
   renderReg();
 }
 
@@ -155,6 +164,7 @@ function paneHtml(){
       <div class="fld cs-words"><label class="l" for="words">ワード <span class="muted">(任意)</span></label><input type="search" id="words" placeholder="例: マイクラ 歌枠" maxlength="200" autocomplete="off"><span class="hint">空白かカンマで区切ります。空なら人気順だけ</span></div>
     </div>
     <div class="fld"><span class="l">対象の事務所 <span class="muted">(チャンネルの登録は「設定」の「事務所の登録」)</span></span><div class="chips" id="agChecks" role="group" aria-label="対象の事務所"></div></div>
+    <div class="fld"><span class="l">探す地域 <span class="muted">(公式サイトの区分。名簿に無いチャンネルは「不明」で、結果に印が付きます)</span></span><div class="chips" id="rgChecks" role="group" aria-label="探す地域"></div></div>
     <details class="ui-disclosure cs-adv" id="rkAdv"><summary>詳しい条件 <span class="muted cs-advsum" id="rkAdvSum"></span></summary>
       <div class="cs-opts">
         <label class="cs-opt"><span class="l">ワードの一致</span><select id="mode"><option value="any">どれか1つを含む</option><option value="all">すべて含む</option></select></label>
@@ -185,11 +195,19 @@ function paneHtml(){
   <div id="results"><div class="empty rk-idle"><b>まだ検索していません</b>条件を決めて「検索する」を押すと、人気の配信がここに並びます</div></div>`;
 }
 const okCount = a => a.channels.filter(c => c.status === 'ok').length;
+const REGIONS = ['JP', 'EN', 'ID'];
+const REGION_KEYS = [['JP', 'JP(日本)'], ['EN', 'EN(英語)'], ['ID', 'ID(インドネシア)'], ['unknown', '不明']];
+const REGION_DEFAULT = { JP: true, EN: false, ID: false, unknown: true };
+/* 事務所の選び方は「ホロライブ / その他」の 2 つ(登録簿のホロライブ以外の事務所は「その他」にまとまる)。n = 解決済みのチャンネルの数 */
+const agGroups = () => [['hololive', 'ホロライブ'], ['other', 'その他']].map(([id, name]) => ({ id, name, n: R.reg.agencies.filter(a => (a.id === 'hololive') === (id === 'hololive')).reduce((x, a) => x + okCount(a), 0) }));
+const rgChecked = k => (Object.prototype.hasOwnProperty.call(R.rgPick, k) ? !!R.rgPick[k] : REGION_DEFAULT[k]);
+const rgSelected = () => REGION_KEYS.map(x => x[0]).filter(rgChecked);
 /* 事務所にチェックが入るか: ユーザーが変えたならその値、触っていないなら「解決済みのチャンネルがあるか」 */
-const agChecked = a => (Object.prototype.hasOwnProperty.call(R.agPick, a.id) ? !!R.agPick[a.id] : okCount(a) > 0);
+const agChecked = g => (Object.prototype.hasOwnProperty.call(R.agPick, g.id) ? !!R.agPick[g.id] : g.n > 0);
 function loadAgPick(){
   const v = lsGet('agsel');
   if (v && typeof v === 'object' && !Array.isArray(v)){ for (const [k, x] of Object.entries(v)) if (typeof x === 'boolean') R.agPick[k] = x; return; }
+  { const r = lsGet('rgsel'); if (r && typeof r === 'object' && !Array.isArray(r)) for (const [k, x] of Object.entries(r)) if (k in REGION_DEFAULT && typeof x === 'boolean') R.rgPick[k] = x; }
   const old = lsGet('ags');   // v0.7.0 まで: 選んだ事務所の ID の配列(外したのか、まだ登録していなかったのかは区別できないので「選んだ」だけ引き継ぐ)
   if (Array.isArray(old)) for (const k of old) if (typeof k === 'string' && k) R.agPick[k] = true;
 }
@@ -197,13 +215,18 @@ function renderAgChecks(){
   const box = $('#agChecks'); if (!box) return;
   const sn = $('#rkSetupNotice'); if (sn) sn.hidden = R.reg.agencies.some(a => okCount(a) > 0);
   box.innerHTML = agChipsHtml('agc');
+  const rb = $('#rgChecks'); if (rb) rb.innerHTML = rgChipsHtml('rgc');
   syncGo();
   renderLvAg();   // 「配信中」のタブの事務所の選び方も同じ(登録を変えたとき)
 }
 /* 事務所の選択のチェック(「終わった配信」= agc・「配信中」= lvagc。選んだ状態は同じ R.agPick) */
 function agChipsHtml(cls){
-  return R.reg.agencies.map(a => { const n = okCount(a);
-    return `<label class="cs-chip${n ? '' : ' cs-chip-empty'}" title="${n ? `登録して解決済みのチャンネル ${n} 件` : 'まだチャンネルがありません(設定の「事務所の登録」で追加します)'}"><input type="checkbox" class="${cls}" value="${esc(a.id)}"${agChecked(a) ? ' checked' : ''}>${esc(a.name)}<span class="cs-chip-n num">${n}</span></label>`; }).join('') || '<span class="hint">事務所がありません(設定の「事務所の登録」で追加します)</span>';
+  return agGroups().map(g => { const n = g.n;
+    return `<label class="cs-chip${n ? '' : ' cs-chip-empty'}" title="${n ? `登録して解決済みのチャンネル ${n} 件` : 'まだチャンネルがありません(設定の「事務所の登録」で追加します)'}"><input type="checkbox" class="${cls}" value="${g.id}"${agChecked(g) ? ' checked' : ''}>${esc(g.name)}<span class="cs-chip-n num">${n}</span></label>`; }).join('');
+}
+/* 地域の選び(JP・EN・ID・不明。既定は JP と不明。不明は印を付けて出す)。「終わった配信」= rgc・「配信中」= lvrgc。選んだ状態は同じ R.rgPick */
+function rgChipsHtml(cls){
+  return REGION_KEYS.map(([k, name]) => `<label class="cs-chip"><input type="checkbox" class="${cls}" value="${k}"${rgChecked(k) ? ' checked' : ''}>${name}</label>`).join('');
 }
 const MIN_DUR = 600;   // 「10分以上の動画だけ」の秒数(既定でオン。2026-10-04 ユーザー指示)
 function setRange(a, b){ $('#dStart').value = ymd(a); $('#dEnd').value = ymd(b); }
@@ -211,10 +234,10 @@ function setRange(a, b){ $('#dStart').value = ymd(a); $('#dEnd').value = ymd(b);
 function lastDays(n){ const s = new Date(); s.setDate(s.getDate() - (n - 1)); setRange(s, new Date()); }
 function condBody(){
   return { start: $('#dStart').value, end: $('#dEnd').value, words: $('#words').value, mode: $('#mode').value, inDesc: $('#inDesc').value === '1', top: Number($('#top').value),
-    minViews: Number($('#minViews').value) || 0, archiveOnly: $('#archiveOnly').checked, noShorts: $('#noShorts').checked, minDur: $('#minDur10').checked ? MIN_DUR : 0, agencies: [...document.querySelectorAll('.agc:checked')].map(x => x.value) };
+    minViews: Number($('#minViews').value) || 0, archiveOnly: $('#archiveOnly').checked, noShorts: $('#noShorts').checked, minDur: $('#minDur10').checked ? MIN_DUR : 0, agencies: [...document.querySelectorAll('.agc:checked')].map(x => x.value), regions: rgSelected() };
 }
 /* 検索の条件を覚える(選んだ事務所は R.agPick の 1 か所に別に覚えるので除く) */
-function saveCond(){ const c = condBody(); delete c.agencies; lsSet('cond', c); advSummary(); }
+function saveCond(){ const c = condBody(); delete c.agencies; delete c.regions; lsSet('cond', c); advSummary(); }
 /* 「詳しい条件」を閉じていても、いまの条件が分かるように見出しの横に短く出す */
 function advSummary(){
   const el = $('#rkAdvSum'); if (!el) return;
@@ -234,11 +257,12 @@ function keyNotice(){ $('#rkKeyNotice').hidden = !noKey(); syncGo(); }
 function goState(){
   if (!$('#btnCancel').hidden) return ['busy', '検索しています…(終わるか「中止」を押すと、もう一度押せます)'];
   if (noKey()) return ['key', '先に設定で YouTube Data API キーを入れると押せます'];
-  const ags = R.reg.agencies;
-  if (!ags.some(a => okCount(a) > 0)) return ['reg', '先に事務所のチャンネルを登録すると押せます(上の「事務所の登録を開く」)'];
-  const picked = ags.filter(a => document.querySelector(`.agc[value="${CSS.escape(a.id)}"]:checked`));
+  const gs = agGroups();
+  if (!gs.some(g => g.n > 0)) return ['reg', '先に事務所のチャンネルを登録すると押せます(上の「事務所の登録を開く」)'];
+  const picked = gs.filter(g => document.querySelector(`.agc[value="${g.id}"]:checked`));
   if (!picked.length) return ['ag', '対象の事務所を 1 つ以上選ぶと押せます'];
-  if (!picked.some(a => okCount(a) > 0)) return ['ag', '選んだ事務所に、登録済みのチャンネルがありません(チャンネルのある事務所を選ぶと押せます)'];
+  if (!picked.some(g => g.n > 0)) return ['ag', '選んだ事務所に、登録済みのチャンネルがありません(チャンネルのある事務所を選ぶと押せます)'];
+  if (!rgSelected().length) return ['rg', '探す地域を 1 つ以上選ぶと押せます'];
   return ['', ''];
 }
 /* まだ検索していないときの空の表示も、押せない理由と次の一手に合わせる(押せないのに「検索する」を押すよう案内していた。2 周目 N3) */
@@ -246,7 +270,8 @@ const IDLE = {
   '': '<b>まだ検索していません</b>条件を決めて「検索する」を押すと、人気の配信がここに並びます',
   key: '<b>まだ検索できません</b>設定で YouTube Data API キーを入れると検索できます<div class="cs-emptyacts"><button type="button" class="btn small" data-rkopen="setKey">設定で API キーを入れる</button></div>',
   reg: '<b>まだ検索できません</b>先に事務所のチャンネルを登録すると検索できます<div class="cs-emptyacts"><button type="button" class="btn small" data-rkopen="setReg">事務所の登録を開く</button></div>',
-  ag: '<b>まだ検索できません</b>対象の事務所を選ぶと検索できます<div class="cs-emptyacts"><button type="button" class="btn small" data-rkfocus=".agc">対象の事務所を選ぶ</button></div>'
+  ag: '<b>まだ検索できません</b>対象の事務所を選ぶと検索できます<div class="cs-emptyacts"><button type="button" class="btn small" data-rkfocus=".agc">対象の事務所を選ぶ</button></div>',
+  rg: '<b>まだ検索できません</b>探す地域を選ぶと検索できます<div class="cs-emptyacts"><button type="button" class="btn small" data-rkfocus=".rgc">探す地域を選ぶ</button></div>'
 };
 function syncGo(){
   const b = $('#btnGo'); if (!b) return;
@@ -289,6 +314,7 @@ function searchErrHTML(code, msg, detail){
   const act = ['no_key', 'key_invalid', 'api_permission'].includes(code) ? '<button type="button" class="btn small" data-rkopen="setKey">設定で API キーを入れる</button>'
     : code === 'no_channels' ? '<button type="button" class="btn small" data-rkopen="setReg">事務所の登録を開く</button>'
     : code === 'no_agency' ? '<button type="button" class="btn small" data-rkfocus=".agc">対象の事務所を選ぶ</button>'
+    : code === 'no_region' ? '<button type="button" class="btn small" data-rkfocus=".rgc">探す地域を選ぶ</button>'
     : code === 'bad_range' ? '<button type="button" class="btn small" data-rkfocus="#dStart">期間を直す</button>'
     : code === 'quota' || code === 'busy' ? '' : '<button type="button" class="btn small" data-rkretry>もう一度検索する</button>';
   return `<div class="empty rk-err" role="alert"><b>検索できませんでした</b>${esc(msg)}${act ? `<div class="cs-emptyacts">${act}</div>` : ''}` +
@@ -342,7 +368,7 @@ function renderBody(){
 }
 function row(v, i, agName){
   const id = okId(v.id), link = id ? S.watchUrl(v.id) : '', ms = atMs(v.at);
-  const meta = [esc(v.channel), agName ? `<span class="rk-ag-name">${esc(agName)}</span>` : '', ms ? `<span title="${esc(v.at)}">${esc(S.ago(ms))}</span>` : ''].filter(Boolean).join('<span class="q-dot">・</span>');
+  const meta = [esc(v.channel), v.region === 'EN' || v.region === 'ID' ? `<span class="rk-region">${v.region}</span>` : v.region ? '' : '<span class="pill warn rk-region" title="名簿に無いチャンネルなので地域が決まっていません(設定の「事務所の登録」で地域を選べます)">地域不明</span>', agName ? `<span class="rk-ag-name">${esc(agName)}</span>` : '', ms ? `<span title="${esc(v.at)}">${esc(S.ago(ms))}</span>` : ''].filter(Boolean).join('<span class="q-dot">・</span>');
   return `<tr data-vid="${esc(v.id)}"><td class="ck">${id ? `<input type="checkbox" class="pk" aria-label="解析に追加する: ${esc(v.title)}" data-id="${esc(v.id)}" data-title="${esc(v.title)}" data-channel="${esc(v.channel)}">` : ''}</td><td class="rk num">${i + 1}</td>
     <td class="hide-s th-cell">${okThumb(v.thumb) && id ? `<a href="${link}" target="_blank" rel="noopener noreferrer" tabindex="-1"><img loading="lazy" src="${esc(v.thumb)}" alt=""></a>` : '<span class="rk-noimg"></span>'}</td>
     <td class="tt">${id ? `<a href="${link}" target="_blank" rel="noopener noreferrer">${esc(v.title)}</a>` : esc(v.title)}<div class="hint rk-meta">${meta}</div>
@@ -444,6 +470,7 @@ function liveHtml(){
   <section class="card cs-search lv-head">
     <div class="card-head"><h2 class="card-title">配信中・これからの配信</h2><span class="card-sub">登録した事務所の、いま配信中の配信と、24 時間以内に始まる予定を並べます</span></div>
     <div class="fld"><span class="l">対象の事務所 <span class="muted">(「終わった配信」と同じ選び方です)</span></span><div class="chips" id="lvAgChecks" role="group" aria-label="対象の事務所(配信中)"></div></div>
+    <div class="fld"><span class="l">探す地域 <span class="muted">(「終わった配信」と同じ選び方です)</span></span><div class="chips" id="lvRgChecks" role="group" aria-label="探す地域(配信中)"></div></div>
     <div class="row cs-go"><button type="button" class="btn" id="lvRefresh">更新</button><span class="hint" id="lvStatus" role="status"></span></div>
     <p class="hint lv-off" id="lvOff" hidden>録画するには、ホームの「試験中の機能」でリアルタイム切り抜きをオンにします</p>
   </section>
@@ -457,8 +484,9 @@ function liveHtml(){
 }
 function renderLvAg(){
   const box = $('#lvAgChecks'); if (box) box.innerHTML = agChipsHtml('lvagc');
+  const rb = $('#lvRgChecks'); if (rb) rb.innerHTML = rgChipsHtml('lvrgc');
 }
-const lvAgencies = () => R.reg.agencies.filter(agChecked).map(a => a.id);
+const lvAgencies = () => agGroups().filter(agChecked).map(g => g.id);
 const lvShowing = () => L.tab === 'live' && S.step === 'rank' && !document.hidden;
 
 function setTab(t, user){
@@ -481,9 +509,10 @@ async function lvLoad(){
   const ags = lvAgencies(), my = ++L.seq;
   clearTimeout(L.timer); L.timer = 0;
   if (!ags.length){ L.data = null; L.err = { message: '対象の事務所を1つ以上選んでください', code: 'no_agency' }; L.loading = false; lvPaint(); return; }
+  if (!rgSelected().length){ L.data = null; L.err = { message: '探す地域を1つ以上選んでください', code: 'no_region' }; L.loading = false; lvPaint(); return; }
   L.loading = true; lvPaint();
   let d = null, err = null;
-  try { d = await S.api('/api/rank/live?agencies=' + encodeURIComponent(ags.join(','))); } catch (e){ err = { message: e.message, code: e.code || '' }; }
+  try { d = await S.api('/api/rank/live?agencies=' + encodeURIComponent(ags.join(',')) + '&regions=' + encodeURIComponent(rgSelected().join(','))); } catch (e){ err = { message: e.message, code: e.code || '' }; }
   try { L.avail = !!(S.live && await S.live.available()); } catch { L.avail = false; }
   if (my !== L.seq) return;   // 読み込み中に事務所を変えた: 新しい方の結果だけを出す
   L.loading = false; L.at = Date.now();
@@ -535,7 +564,7 @@ function lvMakeRow(vid){
   return row;
 }
 function lvMeta(v){
-  const parts = [v.channel, v.agencyName, whenText(v)];
+  const parts = [v.channel, v.agencyName, v.region === 'EN' || v.region === 'ID' ? v.region : v.region ? '' : '地域不明', whenText(v)];
   if (v.state === 'live') parts.push(v.viewers == null ? '視聴者数は非公開' : `視聴 ${fmtN(v.viewers)} 人`);
   return parts.filter(Boolean).join(' ・ ');
 }
@@ -596,7 +625,7 @@ function lvPaint(){
   if (e && !d){
     const act = e.code === 'no_key' || e.code === 'key_invalid' ? '<button type="button" class="btn small" data-lvopen="setKey">設定を開く</button>'
       : e.code === 'no_channels' ? '<button type="button" class="btn small" data-lvopen="setReg">事務所の登録を開く</button>' : '';
-    note += `<div class="empty lv-err"><b>${e.code === 'no_agency' ? '事務所が選ばれていません' : '配信の一覧を読めませんでした'}</b>${esc(e.message)}${act ? '<div class="lv-erract">' + act + '</div>' : ''}</div>`;
+    note += `<div class="empty lv-err"><b>${e.code === 'no_agency' ? '事務所が選ばれていません' : e.code === 'no_region' ? '地域が選ばれていません' : '配信の一覧を読めませんでした'}</b>${esc(e.message)}${act ? '<div class="lv-erract">' + act + '</div>' : ''}</div>`;
   }
   const nb = $('#lvNotice'); if (nb.dataset.html !== note){ nb.innerHTML = note; nb.dataset.html = note; }   // 同じ中身なら作り直さない(ボタンを押そうとしているときに消さない)
   const body = $('#lvBody');
@@ -662,6 +691,10 @@ function wireLive(){
     const cb = e.target.closest('.lvagc'); if (!cb) return;
     R.agPick[cb.value] = cb.checked; lsSet('agsel', R.agPick); renderAgChecks(); lvLoad();
   });
+  $('#lvRgChecks').addEventListener('change', e => {
+    const cb = e.target.closest('.lvrgc'); if (!cb) return;
+    R.rgPick[cb.value] = cb.checked; lsSet('rgsel', R.rgPick); renderAgChecks(); lvLoad();
+  });
   $('#rkMode').addEventListener('click', e => { const b = e.target.closest('[data-mode]'); if (b) setTab(b.dataset.mode, true); });
   S.on('step', st => { if (st === 'rank' && L.tab === 'live') lvResume(); else lvPause(); });
   UIKit.life.onLeave(reason => { if (reason !== 'blur') lvPause(); });   // 隣の窓へ移っただけ(blur)なら見えているので続ける
@@ -690,6 +723,7 @@ S.onReady(async () => {
   $('#words').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); startSearch(); } });
   /* 事務所のチェックは、ユーザーが変えたものだけ覚える(触っていない事務所は、チャンネルを登録すれば自動で選ばれる) */
   $('#agChecks').addEventListener('change', e => { const cb = e.target.closest('.agc'); if (!cb) return; R.agPick[cb.value] = cb.checked; lsSet('agsel', R.agPick); syncGo(); });
+  $('#rgChecks').addEventListener('change', e => { const cb = e.target.closest('.rgc'); if (!cb) return; R.rgPick[cb.value] = cb.checked; lsSet('rgsel', R.rgPick); renderLvAg(); syncGo(); });
   $('#btnGo').addEventListener('click', startSearch);
   $('#btnCancel').addEventListener('click', () => { if (R.job) S.api('/api/rank/search/cancel', { body: { id: R.job.id } }).catch(() => {}); });
   $('#rkOpenSet').addEventListener('click', () => S.openSettings('setKey'));

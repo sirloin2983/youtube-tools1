@@ -70,7 +70,7 @@ class TestLiveList(unittest.TestCase):
         studio_env.set_home(self.tmp)
         rank.put_registry({"agencies": [
             {"id": "aaa", "name": "事務所A", "channels": [{"ref": CH_A}, {"ref": CH_B}, {"ref": "@notyet"}]},
-            {"id": "bbb", "name": "事務所B", "channels": [{"ref": CH_C}]},
+            {"id": "hololive", "name": "ホロライブ", "channels": [{"ref": CH_C}]},
         ]})
         rank._cache.clear()
         rank._live_none.clear()
@@ -105,7 +105,7 @@ class TestLiveList(unittest.TestCase):
         self.assertEqual([x["id"] for x in r["live"]], [vid(2), vid(1), vid(10), vid(11), vid(3)])   # 視聴者数の多い順・隠している配信は後ろ
         self.assertEqual([x["id"] for x in r["upcoming"]], [vid(7), vid(5), vid(4)])                  # 始まる時刻の早い順(24 時間より先・古い枠は除く)
         a = r["live"][0]
-        self.assertEqual((a["state"], a["viewers"], a["agency"], a["agencyName"], a["start"]), ("live", 9000, "aaa", "事務所A", int((NOW - 600) * 1000)))
+        self.assertEqual((a["state"], a["viewers"], a["agency"], a["agencyName"], a["start"]), ("live", 9000, "other", "その他", int((NOW - 600) * 1000)))
         self.assertEqual(a["url"], "https://www.youtube.com/watch?v=" + vid(2))
         self.assertTrue(a["thumb"].startswith("https://i.ytimg.com/"))
         self.assertIsNone(r["live"][-1]["viewers"])
@@ -115,7 +115,7 @@ class TestLiveList(unittest.TestCase):
         self.assertEqual(next(x for x in r["upcoming"] if x["id"] == vid(4))["blocked"], "age")
         self.assertEqual(r["live"][0]["blocked"], "")
         long = next(x for x in r["live"] if x["id"] == vid(11))
-        self.assertEqual((len(long["title"]), long["thumb"], long["agency"]), (rank.LIVE_TITLE_MAX, "", "bbb"))
+        self.assertEqual((len(long["title"]), long["thumb"], long["agency"]), (rank.LIVE_TITLE_MAX, "", "hololive"))
         self.assertEqual(sum(1 for x in r["live"] + r["upcoming"] if x["id"] == vid(1)), 1)   # 2つのチャンネルに出ても1回だけ(最初の事務所)
         self.assertEqual((r["unresolved"], r["channels"], r["cached"]), (1, 3, False))
         self.assertEqual(self.fake.count("playlistItems"), 3)
@@ -124,14 +124,91 @@ class TestLiveList(unittest.TestCase):
         self.assertEqual(r["quota"], 0)   # yt_get を偽物に替えたので数えない(本物は 1 回 1 ユニット)
 
     def test_agency_filter(self):
-        r = rank.live_list("bbb", now=NOW)
+        r = rank.live_list("hololive", now=NOW)
         self.assertEqual(([x["id"] for x in r["live"]], r["upcoming"]), ([vid(1), vid(11)], []))
-        self.assertEqual(r["agencies"], [{"id": "bbb", "name": "事務所B"}])
+        self.assertEqual(r["agencies"], [{"id": "hololive", "name": "ホロライブ"}])
+        r = rank.live_list(["other"], now=NOW)   # ホロライブ以外は「その他」にまとまる
+        self.assertEqual(r["agencies"], [{"id": "other", "name": "その他"}])
+        self.assertNotIn(vid(11), [x["id"] for x in r["live"]])
+        r = rank.live_list("aaa", now=NOW)       # 登録簿の事務所の id でも(その他に入る事務所なら)選べる
+        self.assertEqual(r["agencies"], [{"id": "other", "name": "その他"}])
         with self.assertRaises(rank.ApiError) as cm:
             rank.live_list("nothere", now=NOW)
         self.assertEqual(cm.exception.code, "no_agency")
         self.assertEqual(rank.parse_live_agencies("A A, b<script>,," + "x" * 50), ["aa", "bscript", "x" * 30])   # 文字の検査と長さ
         self.assertEqual(len(rank.parse_live_agencies(",".join("a%d" % i for i in range(100)))), rank.MAX_AGENCIES)
+
+    def test_region_filter(self):
+        """地域: 既定は JP と不明。手の指定が名簿より先。選んだ地域に当てはまらない物は探さない。各行に region が付く"""
+        rank.put_registry({"agencies": [
+            {"id": "aaa", "name": "事務所A", "channels": [{"ref": CH_A, "region": "EN"}, {"ref": CH_B}, {"ref": "@notyet"}]},
+            {"id": "hololive", "name": "ホロライブ", "channels": [{"ref": CH_C}]},
+        ]})
+        rank.put_registry(dict(rank.load_registry()))   # 保存した形でも region が残る
+        self.assertEqual(rank.load_registry()["agencies"][0]["channels"][0]["region"], "EN")
+        self.assertNotIn("region", rank.load_registry()["agencies"][0]["channels"][1])
+        table = {CH_B: "JP", CH_C: "ID"}
+        with patch.object(rank._live, "channel_regions", return_value=table):
+            r = rank.live_list(None, now=NOW)            # 既定 = JP と不明: A(手の EN)は外れ、B(JP)だけ。C(ID)も外れる
+            self.assertEqual((r["channels"], sorted(x["id"] for x in r["live"])), (1, [vid(2)]))
+            self.assertEqual(r["live"][0]["region"], "JP")
+            r = rank.live_list(None, now=NOW, regions="EN,ID")
+            self.assertEqual(sorted(x["id"] for x in r["live"]), sorted([vid(1), vid(10), vid(11), vid(3)]))
+            self.assertEqual({x["id"]: x["region"] for x in r["live"]}[vid(11)], "ID")
+            self.assertEqual({x["id"]: x["region"] for x in r["live"]}[vid(1)], "EN")   # 2 つのチャンネルに出る動画は先のチャンネルの地域
+            with self.assertRaises(rank.ApiError) as cm:
+                rank.live_list(None, now=NOW, regions=["unknown"])   # 不明のチャンネルは「@notyet」(未解決)だけ = 解決済みの物は全部外れる
+            self.assertEqual(cm.exception.code, "no_region")
+            with self.assertRaises(rank.ApiError) as cm:
+                rank.live_list(None, now=NOW, regions="")
+            self.assertEqual(cm.exception.code, "no_region")
+        with patch.object(rank._live, "channel_regions", return_value={CH_B: "EN", CH_C: "ID"}):
+            with self.assertRaises(rank.ApiError) as cm:
+                rank.live_list(None, now=NOW, regions="JP")   # 解決済みはあるが、選んだ地域に当てはまる物が無い
+        self.assertEqual(cm.exception.code, "no_region")
+
+    def test_region_filter_changes_cache_key(self):
+        with patch.object(rank._live, "channel_regions", return_value={CH_B: "JP", CH_C: "ID"}):
+            a = rank.live_list(None, now=NOW, regions="JP")
+            b = rank.live_list(None, now=NOW + 1, regions="ID")
+        self.assertFalse(b["cached"])
+        self.assertNotEqual([x["id"] for x in a["live"]], [x["id"] for x in b["live"]])
+
+    def test_search_uses_regions_and_groups(self):
+        """過去の検索も同じ絞り込み: 結果は「ホロライブ」「その他」にまとまり、各行に region が付く。regions の既定は JP と不明"""
+        rank.put_registry({"agencies": [
+            {"id": "aaa", "name": "事務所A", "channels": [{"ref": CH_A, "region": "EN"}, {"ref": CH_B}]},
+            {"id": "hololive", "name": "ホロライブ", "channels": [{"ref": CH_C}]},
+        ]})
+        pub = {CH_A: vid(21), CH_B: vid(22), CH_C: vid(23)}
+
+        def fake(path, params):
+            if path == "playlistItems":
+                ch = "UC" + params["playlistId"][2:]
+                return {"items": [{"contentDetails": {"videoId": pub[ch], "videoPublishedAt": "2026-09-10T00:00:00Z"}}]}
+            return {"items": [{"id": i, "snippet": {"title": "t" + i, "channelId": "x", "publishedAt": "2026-09-10T00:00:00Z"}, "statistics": {"viewCount": "5"},
+                               "contentDetails": {"duration": "PT1H"}, "liveStreamingDetails": {"actualStartTime": "2026-09-10T00:00:00Z", "actualEndTime": "2026-09-10T01:00:00Z"}}
+                              for i in params["id"].split(",")]}
+
+        def run(**k):
+            job = {"cancel": False, "progress": 0.0}
+            rank.run_search(job, rank.validate_search(dict({"start": "2026-09-01", "end": "2026-09-30"}, **k)))
+            return job
+        with patch.object(rank, "yt_get", fake), patch.object(rank._live, "channel_regions", return_value={CH_B: "JP", CH_C: "ID"}):
+            j = run()   # 既定 = JP と不明: A(手の EN)・C(ID)は外れ、B(JP)だけ。事務所 aaa は「その他」
+            self.assertEqual(j["state"], "done", j)
+            self.assertEqual([(a["id"], a["name"], [(i["id"], i["region"]) for i in a["items"]]) for a in j["result"]["agencies"]], [("hololive", "ホロライブ", []), ("other", "その他", [(vid(22), "JP")])])
+            j = run(regions=["EN", "ID"], agencies=["hololive", "other"])
+            self.assertEqual([(a["id"], [(i["id"], i["region"]) for i in a["items"]]) for a in j["result"]["agencies"]], [("hololive", [(vid(23), "ID")]), ("other", [(vid(21), "EN")])])
+            with self.assertRaises(rank.ApiError) as cm:
+                rank.validate_search({"start": "2026-09-01", "end": "2026-09-30", "regions": []})
+            self.assertEqual(cm.exception.code, "no_region")
+
+    def test_parse_regions(self):
+        self.assertEqual(rank.parse_regions(None), ["JP", "unknown"])
+        self.assertEqual(rank.parse_regions("jp, EN,unknown,xx,JP"), ["JP", "EN", "unknown"])
+        self.assertEqual(rank.parse_regions(["ID", 5, "Unknown"]), ["ID", "unknown"])
+        self.assertEqual(rank.parse_regions(""), [])
 
     def test_cache_does_not_call_out(self):
         rank.live_list(None, now=NOW)
@@ -147,7 +224,7 @@ class TestLiveList(unittest.TestCase):
         self.assertNotIn(vid(9), asked)    # 配信でない(アーカイブ・終わった)と分かった動画は聞き直さない
         self.assertNotIn(vid(12), asked)
         self.assertIn(vid(1), asked)
-        rank.live_list("bbb", now=NOW + 62)                  # 事務所の組み合わせが違えば別に覚える(見回りはチャンネルごとに覚えたものを使う)
+        rank.live_list("hololive", now=NOW + 62)                  # 事務所の組み合わせが違えば別に覚える(見回りはチャンネルごとに覚えたものを使う)
         self.assertEqual(self.fake.count("playlistItems"), 3)
 
     def test_errors(self):

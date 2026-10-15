@@ -208,7 +208,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/settings": lambda: {"settings": STORE.get_ui()},
             "/api/rank/registry": rank.get_registry,
             "/api/rank/search": lambda: rank.get_search(arg("id")),
-            "/api/rank/live": lambda: rank.live_list(arg("agencies") if "agencies" in q else None),   # 配信中・これからの予定(① の「配信中」のタブ)
+            "/api/rank/live": lambda: rank.live_list(arg("agencies") if "agencies" in q else None, regions=arg("regions") if "regions" in q else None),   # 配信中・これからの予定(① の「配信中」のタブ。regions = 探す地域)
             "/api/queue": BATCH.snapshot,
             "/api/videos": lambda: {"videos": STORE.list()},
             "/api/video": lambda: self._video(arg("id")),

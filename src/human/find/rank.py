@@ -3,12 +3,15 @@
 HTTP は serve.py が受け持つ。ここは素の関数だけを公開する:
   get_registry() / put_registry(obj) / resolve(agency) / import_official_channels(agency)
   start_search(obj) / get_search(id) / cancel_search(id)
-  live_list(agencies)(配信中・これからの予定。画面の「配信中」のタブ。いつ探すか・覚える長さは ② flow/live_watch。ここは登録簿から事務所を選んで渡す)
+  live_list(agencies, now, regions)(配信中・これからの予定。画面の「配信中」のタブ。いつ探すか・覚える長さは ② flow/live_watch。ここは登録簿から事務所と地域を選んで渡す)
   attach_board(board)(掲示板に検索のジョブを出す。board_jobs・board_cancel・board_retry は掲示板が呼ぶ引く形・取り消し・やり直し)
 STUDIO_FAKE=1 のときは疑似API(fake_yt.py。ネットワークなし。起動時に ytt/ytapi へ差し込む)で動く。
 YouTube Data API を呼ぶ口は ytt/ytapi.get の 1 つ(失敗の対応表・数え・覚え)。ここの yt_get はその呼び手の名前(テストの差し替えの的)。
 中の部品は _ を付けた名前。_ なしで残すのは、外から呼ぶ上の口と、テストが使う load_registry・sanitize_registry・validate_search・run_search・
-parse_live_agencies・live_row・yt_get。
+parse_live_agencies・parse_regions・live_row・yt_get。
+事務所の選び方は「ホロライブ / その他」の 2 つ(登録簿の事務所は消さず、ホロライブ以外を使うときに「その他」にまとめる)。
+地域(JP・EN・ID・不明)の選び方: 名簿(hololive-roster.json の members の region)をチャンネル ID で引く。名簿に無い・欄が無い物は不明。
+登録簿のチャンネルの 1 行に region を持てば(画面で人が選ぶ)それが先。YouTube のチャンネルの国は使わない。既定は JP と不明(不明は印つきで出す)。
 """
 import hashlib
 import json
@@ -39,6 +42,10 @@ MAX_PAGES = 40            # 1チャンネルあたり、アップロード一覧
 WORKERS = 4
 CACHE_TTL = _ytapi.CACHE_TTL
 SEED = os.path.join(os.path.dirname(os.path.abspath(__file__)), "seed.json")   # 事務所の初期の登録(このファイルの隣)
+GROUPS = (("hololive", "ホロライブ"), ("other", "その他"))   # 検索・配信中の事務所の選び方(登録簿のホロライブ以外は「その他」)
+REGIONS = _live.REGIONS            # ("JP", "EN", "ID")
+UNKNOWN = "unknown"                # 地域が決まらない物(名簿に無い・手の指定が無い)
+DEFAULT_REGIONS = ("JP", UNKNOWN)  # 既定の地域(不明も探して、画面で印を付ける)
 FATAL = _ytapi.FATAL   # 1チャンネルの失敗として続けず、検索・取り込み全体を止める失敗
 LIVE_PAGE, LIVE_AHEAD, LIVE_TITLE_MAX = _live.LIVE_PAGE, _live.LIVE_AHEAD, _live.LIVE_TITLE_MAX   # テストが読む名前(本体は ② flow/live_watch)
 
@@ -90,7 +97,7 @@ def _list(x):
 
 
 def sanitize_registry(obj):
-    """画面から来た登録簿を整える -> {"agencies": [{id, name, official, channels}]}(知っている欄だけ写す。事務所 30・公式 10・所属チャンネル 400 まで)。
+    """画面から来た登録簿を整える -> {"agencies": [{id, name, official, channels}]}(知っている欄だけ写す。チャンネルの region は JP・EN・ID のときだけ。事務所 30・公式 10・所属チャンネル 400 まで)。
     チャンネルの ID が正しい形のときだけ解決済み(ok)にし、アップロード一覧の ID は ID から作る。画面から来た ID・名前は信じる(手元だけの道具)"""
     out, seen = [], set()
     for a in _list(obj.get("agencies") if isinstance(obj, dict) else None)[:MAX_AGENCIES]:
@@ -116,6 +123,8 @@ def sanitize_registry(obj):
             chans.append({"ref": ref, "id": cid, "title": str(c.get("title", ""))[:100] if cid else "",
                           "uploads": ("UU" + cid[2:]) if cid else "", "status": "ok" if cid else ("error" if c.get("status") == "error" else "pending"),
                           "note": str(c.get("note", ""))[:100] if not cid else ""})
+            if c.get("region") in REGIONS:   # 地域の手の指定(画面で人が選んだ物)。名簿より先に使う
+                chans[-1]["region"] = c["region"]
         out.append({"id": aid, "name": name, "official": official, "channels": chans})
     return {"agencies": out}
 
@@ -259,9 +268,57 @@ def _parse_iso_dur(s):
 _parse_dt = _ytapi.parse_dt
 
 
+def parse_regions(arg):
+    """?regions=JP,unknown(カンマ区切り。配列でもよい)→ 地域のリスト(JP・EN・ID・unknown。ほかの文字は捨てる)。None(引数なし)= 既定(JP と unknown)。空のリストは「1 つも選ばない」"""
+    if arg is None:
+        return list(DEFAULT_REGIONS)
+    items = arg if isinstance(arg, list) else str(arg)[:100].split(",")
+    out = []
+    for x in items:
+        x = str(x).strip()
+        k = UNKNOWN if x.lower() == UNKNOWN else x.upper()
+        if k in REGIONS + (UNKNOWN,) and k not in out:
+            out.append(k)
+    return out
+
+
+def _channel_region(c, table):
+    """所属チャンネルの地域: 手の指定 → 名簿(チャンネル ID で引く)→ 決まらなければ ""(不明)"""
+    if c.get("region") in REGIONS:
+        return c["region"]
+    return table.get(c.get("id") or "", "")
+
+
+def _scope(ags, want, regions):
+    """登録簿の事務所 → 検索・配信中の対象 [{id, name, channels}](「ホロライブ」「その他」の順。ホロライブ以外の事務所は「その他」にまとめる)。
+    want = 選んだ id の一覧(事務所の id でも hololive・other でもよい。リストでなければ全部)。channels は選んだ地域に入る物だけで、各チャンネルに region(不明は "")を足した写し。
+    解決済みのチャンネルがあるのに地域の選びで全部外れたら 400(no_region)"""
+    table = _live.channel_regions()
+    keys = set(regions)
+    groups = {gid: {"id": gid, "name": name, "channels": []} for gid, name in GROUPS}
+    seen = set()
+    before = after = 0
+    for a in ags:
+        gid = "hololive" if a["id"] == "hololive" else "other"
+        if isinstance(want, list) and gid not in want and a["id"] not in want:
+            continue
+        seen.add(gid)
+        for c in a["channels"]:
+            ok = c["status"] == "ok" and bool(c["uploads"])
+            r = _channel_region(c, table)
+            before += ok
+            if (r or UNKNOWN) in keys:
+                after += ok
+                groups[gid]["channels"].append(dict(c, region=r))
+    if before and not after:
+        raise ApiError("no_region", "選んだ地域に当てはまるチャンネルがありません(地域を増やすか、事務所の登録で地域を選んでください)", 400)
+    return [groups[gid] for gid, _n in GROUPS if gid in seen]
+
+
 def validate_search(req):
     """検索の指定(画面の JSON)を検査して整える -> spec。期間は日本時間の開始日 0 時〜終了日の次の日 0 時(800 日まで)・ワードは NFKC と小文字で 20 個まで・
-    top は事務所ごとの上位の数(1〜100)・minViews は最低の再生数・minDur は最低の再生時間(秒。画面の「10分以上だけ」= 600)・agencies は事務所の id の一覧(省くと全部)。
+    top は事務所ごとの上位の数(1〜100)・minViews は最低の再生数・minDur は最低の再生時間(秒。画面の「10分以上だけ」= 600)・agencies は「ホロライブ」「その他」の選び(hololive・other。登録簿の事務所の id でもよい。省くと全部)・
+    regions は探す地域(JP・EN・ID・unknown。省くと JP と unknown)。
     spec["req"] に元の指定を持つ(掲示板のやり直しが今の登録簿でもう一度検査するため)。だめなら ApiError 400"""
     try:
         d0 = datetime.strptime(str(req.get("start")), "%Y-%m-%d").replace(tzinfo=JST)
@@ -274,8 +331,10 @@ def validate_search(req):
         raise ApiError("bad_range", "期間が長すぎます(800日まで)", 400)
     words = [w for w in re.split(r"[\s,、]+", _norm(req.get("words"))) if w][:20]
     reg = load_registry()
-    want = req.get("agencies")
-    ags = [a for a in reg["agencies"] if not isinstance(want, list) or a["id"] in want]
+    regions = parse_regions(req.get("regions"))
+    if not regions:
+        raise ApiError("no_region", "探す地域を 1 つ以上選んでください", 400)
+    ags = _scope(reg["agencies"], req.get("agencies"), regions)
     if not ags:
         raise ApiError("no_agency", "対象の事務所を選んでください", 400)
     try:
@@ -289,7 +348,7 @@ def validate_search(req):
         raise ApiError("bad_request", "最低の再生時間が正しくありません(0〜86400秒)", 400)
     return {"start": d0, "end": d1, "words": words, "mode": "all" if req.get("mode") == "all" else "any", "inDesc": req.get("inDesc") is not False,
             "archiveOnly": req.get("archiveOnly") is not False, "noShorts": req.get("noShorts") is not False, "top": top, "minViews": min_views,
-            "minDur": min_dur, "agencies": ags, "req": dict(req)}
+            "minDur": min_dur, "agencies": ags, "regions": regions, "req": dict(req)}
 
 
 _cache_get = _ytapi.cache_get
@@ -403,10 +462,11 @@ def run_search(job, spec):
             return a["id"], c, ids
         with ThreadPoolExecutor(WORKERS) as ex:
             results = list(ex.map(one, chans))
-        owner = {}
+        owner, vreg = {}, {}
         for aid, c, ids in results:
             for vid in ids:
                 owner.setdefault(vid, aid)
+                vreg.setdefault(vid, c.get("region", ""))
         job["phase"] = "動画の再生数などを取得中(%d本)" % len(owner)
         vids = _fetch_videos(job, list(owner))
         job["phase"] = "絞り込み中"
@@ -417,6 +477,7 @@ def run_search(job, spec):
             if not it:
                 continue
             row = _video_row(it)
+            row["region"] = vreg.get(vid, "")
             if row["at"] is None or not (spec["start"] <= row["at"] < spec["end"]):
                 continue
             scanned[aid] += 1
@@ -436,7 +497,7 @@ def run_search(job, spec):
             out.append({"id": a["id"], "name": a["name"], "channels": sum(1 for c in a["channels"] if c["status"] == "ok"), "unresolved": sum(1 for c in a["channels"] if c["status"] != "ok"),
                         "scanned": scanned[a["id"]], "matched": len(rows),
                         "items": [{"id": r["id"], "title": r["title"], "channel": r["channel"], "channelId": r["channelId"], "views": r["views"], "likes": r["likes"], "comments": r["comments"],
-                                   "at": r["at"].astimezone(JST).strftime("%Y-%m-%d %H:%M"), "dur": r["dur"], "url": _yturl.watch_url(r["id"]), "thumb": r["thumb"]}
+                                   "at": r["at"].astimezone(JST).strftime("%Y-%m-%d %H:%M"), "dur": r["dur"], "url": _yturl.watch_url(r["id"]), "thumb": r["thumb"], "region": r["region"]}
                                   for r in rows[:spec["top"]]]})
         job["result"] = {"agencies": out, "warnings": warns[:30], "unresolved": unresolved, "quota": _ytapi.used() - q0, "videos": len(vids)}
         job["state"], job["phase"], job["progress"] = "done", "完了", 1.0
@@ -486,34 +547,48 @@ def parse_live_agencies(arg):
     return out[:MAX_AGENCIES]
 
 
-def live_list(agencies=None, now=None):
-    """配信中(視聴者数の多い順)と、24 時間以内に始まる予定(早い順)。agencies: 事務所 ID のリスト(None = 全部)。
-    登録簿から対象の事務所を選び、② flow/live_watch に渡す(この yt_get と _ok_channels も渡す)。事務所が 1 つも無ければ 400(no_agency)"""
+def live_list(agencies=None, now=None, regions=None):
+    """配信中(視聴者数の多い順)と、24 時間以内に始まる予定(早い順)。agencies: 「ホロライブ」「その他」の選び(hololive・other か登録簿の事務所の id のリスト。None = 全部)。
+    regions: 探す地域(JP・EN・ID・unknown のリストか、カンマ区切りの文字。None = JP と unknown)。各行に region(不明は "")を足す。
+    登録簿から対象を選び、② flow/live_watch に渡す(この yt_get と _ok_channels も渡す)。事務所が 1 つも無ければ 400(no_agency)・地域が 1 つも無ければ 400(no_region)"""
     want = parse_live_agencies(agencies) if not isinstance(agencies, list) else parse_live_agencies(",".join(str(x) for x in agencies))
-    ags = [a for a in load_registry()["agencies"] if want is None or a["id"] in want]
-    return _live.live_list(ags, yt_get, _ok_channels, now)
+    keys = parse_regions(regions)
+    if not keys:
+        raise ApiError("no_region", "探す地域を 1 つ以上選んでください", 400)
+    ags = _scope(load_registry()["agencies"], want, keys)
+    out = _live.live_list(ags, yt_get, _ok_channels, now, scope=tuple(sorted(keys)))
+    table = {c["id"]: c["region"] for a in ags for c in a["channels"] if c.get("id")}
+    return dict(out, live=[dict(r, region=table.get(r["channelId"], "")) for r in out["live"]],
+                upcoming=[dict(r, region=table.get(r["channelId"], "")) for r in out["upcoming"]])
 
 
 # ---------- serve.py から呼ぶ公開関数 ----------
+def _view(reg):
+    """画面に返す登録簿: 保存した形に、名簿から引いた地域 auto(名簿に載るチャンネルだけ。保存はしない = sanitize_registry が落とす)を足す。
+    画面の地域の選び(自動 / JP / EN / ID)が「自動だといま何になるか」を出すのに使う"""
+    table = _live.channel_regions()
+    return {"agencies": [dict(a, channels=[dict(c, auto=table[c["id"]]) if c.get("id") in table else c for c in a["channels"]]) for a in reg["agencies"]]}
+
+
 def get_registry():
-    return load_registry()
+    return _view(load_registry())
 
 
 def put_registry(obj):
     with _reg_lock:
         reg = sanitize_registry(obj)
         _save_registry(reg)
-    return reg
+    return _view(reg)
 
 
 def resolve(agency):
     reg, n, ok = _resolve_registry(str(agency) if agency else None)
-    return {"registry": reg, "tried": n, "resolved": ok}
+    return {"registry": _view(reg), "tried": n, "resolved": ok}
 
 
 def import_official_channels(agency):
     reg, n, notes = _import_official(str(agency or ""))
-    return {"registry": reg, "added": n, "notes": notes}
+    return {"registry": _view(reg), "added": n, "notes": notes}
 
 
 def start_search(req):

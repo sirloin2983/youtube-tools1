@@ -80,6 +80,29 @@ def _parse(path):
     return {"groups": groups, "members": members, "people": people}
 
 
+REGIONS = ("JP", "EN", "ID")   # 地域(公式サイトのタレント一覧のブランチの区分。決まらない人は欄を書かない = 不明)
+GROUP_REGION = {**dict.fromkeys(("gen0", "gen1", "gen2", "gen3", "gen4", "gen5", "gamers", "holox", "regloss", "flowglow", "asobi", "announcer"), "JP"),
+                **dict.fromkeys(("en_myth", "en_council", "en_advent", "en_justice"), "EN"), **dict.fromkeys(("id1", "id2", "id3"), "ID")}   # 名簿の groups の id → 地域(members の region を足すときの決め方。units・alum は所属の別の group で決める)
+_region_cache = []   # [ytt.fsio.StampCache](_stamp_cache と同じく初めて作る。load の名簿の形とは別の読み方)
+
+
+def channel_regions(path):
+    """名簿のファイル → {チャンネル ID: 地域("JP"・"EN"・"ID")}(members の channel と region がそろう人だけ。読めない・欄が無ければ入らない = 不明)。ファイルが変わったときだけ読み直す"""
+    with _lock:
+        if not _region_cache:
+            from ytt import fsio as _fsio
+            _region_cache.append(_fsio.StampCache())
+        cache = _region_cache[0]
+    return cache.get(path, _parse_regions) or {}
+
+
+def _parse_regions(path):
+    from ytt import fsio as _fsio
+    d = _fsio.read_json_or(path, {}, kind=dict)
+    return {str(m["channel"]): m["region"] for m in d.get("members") or []
+            if isinstance(m, dict) and m.get("region") in REGIONS and isinstance(m.get("channel"), str) and m["channel"]}
+
+
 def _keys(r, strict):
     """[(照らし合わせる形, 名前)](長い形から)。strict = 題名・チャンネル名から探すとき(普通の言葉と重なる呼び名・短い呼び名は使わない)"""
     out = []

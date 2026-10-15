@@ -57,6 +57,29 @@ class TestRosterFile(unittest.TestCase):
         self.assertGreaterEqual(len(r["members"]), 50)
         self.assertNotIn("ホロライブ", r["people"])                                          # グループ名は人ではない
 
+    def test_member_regions_follow_groups(self):
+        """members の region は groups の id から決めた地域(ホロライブ・DEV_IS = JP・EN・ID)と合い、決まらない人(alum だけ)は欄が無い"""
+        with open(ROSTER, encoding="utf-8") as f:
+            d = json.load(f)
+        in_groups = {}
+        for g in d["groups"]:
+            for n in g["names"]:
+                in_groups.setdefault(n, []).append(g["id"])
+        for m in d["members"]:
+            want = {R.GROUP_REGION[g] for g in in_groups.get(m["name"], []) if g in R.GROUP_REGION}
+            self.assertLessEqual(len(want), 1, m["name"])
+            self.assertEqual(m.get("region"), (want or {None}).pop(), m["name"])
+            self.assertIn(m.get("region"), (None,) + R.REGIONS)
+        self.assertEqual(R.channel_regions(ROSTER)["UCp6993wxpyDPHUpavwDFqgg"], "JP")      # ときのそら
+        self.assertEqual(R.channel_regions(os.path.join(HERE, "no-such-roster.json")), {})  # 読めないときは空 = 全部不明
+
+    def test_channel_regions_small(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = os.path.join(tmp, "roster.json")
+            write_json(p, {"groups": [], "members": [{"name": "a", "channel": "UC1", "region": "EN", "aliases": ["a"]}, {"name": "b", "channel": "UC2", "aliases": ["b"]},
+                                                     {"name": "c", "region": "JP", "aliases": ["c"]}, {"name": "d", "channel": "UC4", "region": "XX", "aliases": ["d"]}, "壊れた行"]})
+            self.assertEqual(R.channel_regions(p), {"UC1": "EN"})   # channel と有効な region がそろう人だけ(欄の無い人・知らない地域・channel の無い人は不明)
+
     def test_serve_roster_api_unchanged(self):
         r = S.load_roster()                                                                  # 画面の「名簿から追加」は groups だけを読む(形は今までどおり)
         self.assertEqual(set(r), {"asOf", "note", "groups"})

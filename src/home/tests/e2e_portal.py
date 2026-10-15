@@ -825,14 +825,14 @@ def _new_case_rank(cx):
     p = ctx.new_page()
     _watch_errors(p, errs)
     p.goto(cx.base + "#new")
-    want = {"hololive": True, "nijisanji": True, "vspo": False, "neoporte": False}
-    check(wait_js(p, "%s.length === 4" % AGC_JS, 25000) and dict(p.evaluate(AGC_JS)) == want,
+    want = {"hololive": True, "other": True}   # 事務所はホロライブとその他の 2 つ(FIND-R。にじさんじはその他)
+    check(wait_js(p, "%s.length === 2" % AGC_JS, 25000) and dict(p.evaluate(AGC_JS)) == want,
           "[A] 2j-3: チャンネルを登録した事務所だけにチェックが入る: %s" % p.evaluate(AGC_JS))
-    p.uncheck('#agChecks .agc[value="nijisanji"]')
+    p.uncheck('#agChecks .agc[value="other"]')
     p.reload()
-    check(wait_js(p, "%s.length === 4" % AGC_JS, 25000) and dict(p.evaluate(AGC_JS)) == dict(want, nijisanji=False),
+    check(wait_js(p, "%s.length === 2" % AGC_JS, 25000) and dict(p.evaluate(AGC_JS)) == dict(want, other=False),
           "[A] 2j-3: 自分で外した事務所は、読み込み直しても外れたまま: %s" % p.evaluate(AGC_JS))
-    p.check('#agChecks .agc[value="nijisanji"]')
+    p.check('#agChecks .agc[value="other"]')
     # 期間の早見と「10分以上の動画だけ」
     check(p.evaluate("document.querySelector('#rkCond .cs-quick .btn').hasAttribute('data-yday')"), "[A] 2j-3: 期間の早見の先頭は「昨日0時〜今」")
     p.click("#rkCond [data-yday]")
