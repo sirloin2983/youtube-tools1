@@ -10,6 +10,8 @@ import os
 import re
 import unicodedata
 
+from . import schemas as _schemas   # 決まった印の文字(MIXED_FLAG)
+
 log = logging.getLogger("tx")   # 編集の記録(serve.log)。ed_state.setup_logging がこの logger に書き先を付ける(名前で同じ物)
 
 MAX_TEXT = 2000   # 1 行の文字の上限
@@ -30,7 +32,7 @@ LEAK_MAX_SEC = 3.0      # 短い区間で、認識のヒントに渡した語だ
 REP_MIN = 5             # 行の中で同じ語(2〜10 文字)がこの回数以上続いたら「繰り返しの可能性」(笑い・叫びの 1 文字の繰り返しは除く)
 REP_RE = re.compile(r"(.{2,10}?)\1{%d,}" % (REP_MIN - 1))
 
-MIXED_FLAG = "声が混ざっている可能性"   # 話者判別の要確認の印
+MIXED_FLAG = _schemas.MIXED_FLAG   # 話者判別の要確認の印(決まった印 = ytt/schemas。100 字で切らない)
 WEAK_FLAG = "話者が不確か"
 NONE_FLAG = "話者を判別できなかった"
 SPK_FLAGS = (MIXED_FLAG, WEAK_FLAG, NONE_FLAG)   # 話者の印(行の flag のうち文字の印と分ける。選んだ行の再認識は残し、判別は付け直す。RS2-8a に移した)

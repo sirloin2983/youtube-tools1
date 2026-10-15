@@ -104,7 +104,7 @@ def _apply_retranscribe(spec, results):
         raw, flag = r
         keep = [x for x in str(sg.get("flag", "")).split("、") if x in _txbase.SPK_FLAGS]   # 話者の印は残し、文字の印は付け直す
         text, _ = _dictfmt.apply_replacements(raw[:_txbase.MAX_TEXT], pairs)
-        new_flag = "、".join(([flag] if flag else []) + keep)[:100]
+        new_flag = _layers.join_flags(flag, *keep)
         mrows.append({"id": sg["id"], "start": sg["start"], "end": sg["end"], "text": text, "flag": new_flag})
         unsure += 1 if flag else 0
         done += 1
@@ -158,7 +158,7 @@ PROTECT_PAD = 0.05      # 守る行(校正済み・元のまま残す行)の前�
 MIN_NEW_LINE = 0.3      # 守る区間を避けて切り詰めた行がこれより短ければ捨てる(秒)
 EMPTY_COVER = 0.3       # 元の行の時間のうち、新しい行が重なるのがこの割合未満なら「新しい認識でほぼ空」→ 元の行を残す
 LOOSE_PAD = 0.5         # ほぼ空だった所を緩い条件で認識し直すときの前後の余白(秒)
-EMPTY_FLAG = "再認識で文字が出なかった(元の行のまま)"
+EMPTY_FLAG = _yschemas.EMPTY_FLAG
 LOOSE_FLAG = "声が重なる所などを緩い条件で認識"
 
 
@@ -245,8 +245,8 @@ def _apply_range(spec, lines, loose=()):
     old = [g for g in doc.get("segments") or [] if g["id"] in ids]
     rest = [g for g in doc.get("segments") or [] if g["id"] not in ids or g["id"] in empty_ids]
     for g in rest:
-        if g["id"] in empty_ids and EMPTY_FLAG not in str(g.get("flag") or ""):
-            g["flag"] = "、".join(f for f in (str(g.get("flag") or ""), EMPTY_FLAG) if f)[:100]
+        if g["id"] in empty_ids and not _yschemas.has_flag(g.get("flag"), EMPTY_FLAG):
+            g["flag"] = _layers.join_flags(g.get("flag"), EMPTY_FLAG)
     used = {g["id"] for g in rest}
     new, unsure, n = [], 0, 0
     for x in new_lines:
@@ -257,7 +257,7 @@ def _apply_range(spec, lines, loose=()):
                 best, bo = g["speaker"], ov
         text, _ = _dictfmt.apply_replacements(x["raw"][:_txbase.MAX_TEXT], pairs)
         sid, n = doc_jobs._fresh_id(used, "r%d".__mod__, n)
-        new.append({"id": sid, "start": round(x["start"], 2), "end": round(x["end"], 2), "text": text, "speaker": best, "flag": x.get("flag", "")[:100]})
+        new.append({"id": sid, "start": round(x["start"], 2), "end": round(x["end"], 2), "text": text, "speaker": best, "flag": _layers.join_flags(x.get("flag", ""))})
         unsure += 1 if x.get("flag") else 0
     doc["segments"] = sorted(rest + new, key=lambda g: (g["start"], g["end"]))
     record_rerun(doc, spec, "whole" if spec.get("mode") == "whole" else "range", [(a, b)],
@@ -325,7 +325,7 @@ def apply_redo(spec, results):
             for x in lines:
                 sid, k = doc_jobs._fresh_id(used, lambda n: "%s-r%d" % (rid, n), k)
                 segs.append({"id": sid, "start": round(x["start"], 2), "end": round(x["end"], 2), "text": x["raw"][:_txbase.MAX_TEXT],
-                             "speaker": g.get("speaker", ""), "flag": str(x.get("flag") or "")[:100]})
+                             "speaker": g.get("speaker", ""), "flag": _layers.join_flags(x.get("flag"))})
             spans.append((a, b))
             if isinstance(doc.get("original"), list):
                 replaced += _replaced_rows(doc["original"], [(a, b)])   # 差し替える前の機械の出力(下で recognition.runs に残す。Q2)

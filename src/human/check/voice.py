@@ -200,7 +200,7 @@ def _learn_of(doc, g, sid, ans):
     if ans.get("choice") in (OTHER, MIXED) or doc.get("evalSet") is True:
         return None
     a, b = _yschemas.num_or(g.get("start")), _yschemas.num_or(g.get("end"))
-    if a is None or b is None or b - a < MIN_LEARN_SEC or _txbase.MIXED_FLAG in str(g.get("flag") or ""):
+    if a is None or b is None or b - a < MIN_LEARN_SEC or _yschemas.has_flag(g.get("flag"), _txbase.MIXED_FLAG):
         return None
     tags = g.get("tags") if isinstance(g.get("tags"), list) else []
     if any(t in tags for t in _speakers.VOICE_LEARN_TAGS):

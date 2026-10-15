@@ -362,6 +362,45 @@ class PrimaryTest(ShadowTest.__base__):
             self.assertTrue(os.path.isfile(os.path.join(wd, TID + sfx)), sfx)
         self.assertEqual(store.read_transcript(TID)["segments"][0]["text"], "あ")
 
+    def test_read_repair_does_not_undo_a_save_in_progress(self):
+        """P-PRIMARY(parts-review の H1): 保存が層を書いてから写しを書くまでの間に別のスレッドが古い写しを開いても、
+        古い写しの original・recognition で組み立て直した物が保存のあとに書かれない(新しい認識の原文と履歴が古い値に戻らない)"""
+        import threading
+        store.commit(TID, _doc([_row(1, 0.0, "あ")], original=[{"start": 0.0, "end": 1.0, "text": "old machine"}]), why="whole")
+        new = _doc([_row(1, 0.0, "新")], original=[{"start": 0.0, "end": 1.0, "text": "new machine"}])
+        new["recognition"] = {"runs": [{"kind": "whole", "note": "new"}]}
+        layers_written, go, got = threading.Event(), threading.Event(), {}
+        real = store.write_doc
+
+        def slow_write(tid, doc, folder=None):
+            if not layers_written.is_set():   # 保存の写しの書き込みの直前(層はもう書いた)で止める
+                layers_written.set()
+                go.wait(10)
+            return real(tid, doc, folder)
+
+        def saver():
+            with store.saving():
+                store.commit(TID, new, why="whole")
+
+        def reader():
+            got["doc"] = store.read_transcript(TID)
+
+        with mock.patch.object(store, "write_doc", side_effect=slow_write):
+            ts = threading.Thread(target=saver)
+            ts.start()
+            self.assertTrue(layers_written.wait(10))
+            tr = threading.Thread(target=reader)
+            tr.start()
+            tr.join(0.5)   # 読み手は古い写しを見て、組み立て直しの錠で待つ
+            go.set()
+            ts.join(10)
+            tr.join(10)
+        disk = self.load(".json")
+        self.assertEqual(disk["original"][0]["text"], "new machine")
+        self.assertEqual(disk["recognition"]["runs"][0]["note"], "new")
+        self.assertEqual(got["doc"]["original"][0]["text"], "new machine")
+        self.assertEqual(disk["segments"][0]["text"], "新")
+
 
 if __name__ == "__main__":
     unittest.main()

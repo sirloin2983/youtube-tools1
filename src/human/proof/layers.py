@@ -29,12 +29,12 @@ from ytt import schemas as _ys
 
 MACH_SCHEMA = _ys.MACH_SCHEMA   # 形の名前は ytt/schemas(② flow/tx も機械の層を書くため)
 HUM_SCHEMA = _ys.HUM_SCHEMA
-MACH_CHANGED = "機械の結果が変わりました(前の機械・今の機械・あなたの直しを比べてください)"   # 案 A の印(O1 の STALE_FLAG を広げた物)
-SPK_CHANGED = "話者の判別が変わりました"   # 弱い印(話者だけが変わった)
+MACH_CHANGED = _ys.MACH_CHANGED   # 案 A の印(O1 の STALE_FLAG を広げた物。文字は ytt/schemas の決まった印)
+SPK_CHANGED = _ys.SPK_CHANGED   # 弱い印(話者だけが変わった)
 HALF = 0.5          # 重なりが短い方の長さのこの割合以上なら対応づける(O1 の overrides もこの値を読む)
 COVER_DROP = 0.5    # 機械の行は、人の文字の行が長さのこの割合以上を覆うか、
 TEXT_DROP = 0.5     # 機械の文字のこの割合以上が人の行の文字に現れるときだけ人の行に置き換える(overrides もこの値を読む)
-FLAG_MAX = 100      # 行の印の文字数の上限(store.sanitize_transcript と同じ)
+FLAG_MAX = _ys.FLAG_MAX   # 行の印の文字数の上限(決まった印は切らない。つなぎ方は ytt/schemas.join_flags の 1 か所)
 MAX_SPEAKERS = 20   # 組み込みの「ゲーム音声など」を除いた話者の上限(store.sanitize_transcript と同じ)
 DOC_FIELDS = ("title", "evalSet", "evalReviewed", "effort", "diarNum", "relinks", "sourcePath")   # 人の層が持つ文書の欄
 ROW_KEYS = ("id", "start", "end", "text", "speaker", "flag", "tags", "proofed", "proofedAt", "cutState", "noSub", "fill", "draft")   # 行の欄の並び(sanitize と同じ)
@@ -122,13 +122,8 @@ def _replaced(msp, mtext, hums):
 
 
 def join_flags(*flags):
-    """印を「、」でつなぐ(同じ印は 1 つ・空は捨てる・FLAG_MAX 字まで)"""
-    out = []
-    for f in flags:
-        for x in str(f or "").split("、"):
-            if x and x not in out:
-                out.append(x)
-    return "、".join(out)[:FLAG_MAX]
+    """印を「、」でつなぐ(同じ印は 1 つ・空は捨てる・決まった印は先に並べて切らない・ほかは FLAG_MAX 字に入る分。ytt/schemas.join_flags)"""
+    return _ys.join_flags(*flags)
 
 
 def _diar_key(mach):
@@ -227,8 +222,16 @@ def _centers(sp):
     return [c for c, _k in cs], [k for _c, k in cs]
 
 
-def _dead_rows(hum, M, by, sp, cs=None):
-    """消す印に当たる機械の行の番号: mid の行が今も同じならそれだけ、違えば中心が範囲に入る行。cs = _centers(sp)(何度も呼ぶ呼び手が先に作る)"""
+def _like_dead(d, m):
+    """mid の行が変わったあと、消す印の範囲に出た機械の行 m を印で消すか: 文字が空か、m の文字の TEXT_DROP 以上が消した行の文字にある
+    (同じ雑音・言い直しの出し直し)。違う言葉は消さない(P-PRIMARY。notes:plan/opt-human.md の 1e-2a = 雑音を消した所に作り直しで本当の言葉が出ても見えなかった)"""
+    now = _norm(m.get("text"))
+    return not now or bool(_norm(d.get("text"))) and _contained(now, d.get("text")) >= TEXT_DROP - 1e-9
+
+
+def _dead_rows(hum, M, by, sp, cs=None, spared=None):
+    """消す印に当たる機械の行の番号: mid の行が今も同じならそれだけ、違えば中心が範囲に入る行のうち消した行と似ている物(_like_dead)。
+    cs = _centers(sp)(何度も呼ぶ呼び手が先に作る)・spared = set を渡すと、範囲に入ったが似ていないので残した行の番号を入れる"""
     out = set()
     cs = cs or _centers(sp)
     for d in (hum or {}).get("dead") or []:
@@ -241,7 +244,13 @@ def _dead_rows(hum, M, by, sp, cs=None):
         ds = _span(d)
         if ds is None:
             continue
-        out.update(cs[1][bisect.bisect_left(cs[0], ds[0]):bisect.bisect_right(cs[0], ds[1])])
+        for k in cs[1][bisect.bisect_left(cs[0], ds[0]):bisect.bisect_right(cs[0], ds[1])]:
+            if _like_dead(d, M[k]):
+                out.add(k)
+            elif spared is not None:
+                spared.add(k)
+    if spared is not None:
+        spared -= out
     return out
 
 
@@ -316,7 +325,7 @@ def _sort_rows(items, order):
 
 def compose_rows(mach, hum, covers_out=None):
     """機械の層 + 人の層 -> (文書の行, stats)。stats = {kept: 機械のままの行, human: 人の文字の行, attr: 属性を重ねた行, dead: 消した機械の行,
-    dropped: 当たる機械の行が無くて捨てた属性の行, machChanged: 印 MACH_CHANGED, spkChanged: 印 SPK_CHANGED}。
+    deadSpared: 消す印の範囲に出たが、消した行と違う言葉なので残した機械の行(1e-2a), dropped: 当たる機械の行が無くて捨てた属性の行, machChanged: 印 MACH_CHANGED, spkChanged: 印 SPK_CHANGED}。
     covers_out = dict を渡すと {人の文字の行の id: [今覆う機械の行(写し)]} を入れる(3 択の口。O2-4)"""
     hum = hum if isinstance(hum, dict) else _machine_hum(mach)
     M = _mrows(mach)
@@ -325,11 +334,12 @@ def compose_rows(mach, hum, covers_out=None):
     hum_ids = {str(s.get("id")) for s in hum.get("speakers") or [] if isinstance(s, dict)}
     rev = (mach or {}).get("rev")
     fast = rev is not None and rev == hum.get("machRev")
-    stats = {"kept": 0, "human": 0, "attr": 0, "dead": 0, "dropped": 0, "machChanged": 0, "spkChanged": 0}
+    stats = {"kept": 0, "human": 0, "attr": 0, "dead": 0, "deadSpared": 0, "dropped": 0, "machChanged": 0, "spkChanged": 0}
     ctx = {"mapper": _speaker_mapper(hum, _diar_key(mach), hum_ids), "mapper_for": lambda k: _speaker_mapper(hum, k, hum_ids),
            "fresh": {str(x) for x in hum.get("spkFresh") or []}, "stats": stats}
-    taken = {j: "dead" for j in _dead_rows(hum, M, by, sp)}
-    stats["dead"] = len(taken)
+    spared = set()
+    taken = {j: "dead" for j in _dead_rows(hum, M, by, sp, spared=spared)}
+    stats["dead"], stats["deadSpared"] = len(taken), len(spared)
     H = [h for h in hum.get("rows") or [] if isinstance(h, dict) and _span(h) and h.get("id") is not None]
     text_i = [i for i, h in enumerate(H) if "text" in h]
     attr_i = [i for i, h in enumerate(H) if "text" not in h]
@@ -409,11 +419,12 @@ def compose_rows(mach, hum, covers_out=None):
     return _sort_rows(items, hum.get("order")), stats
 
 
-def compose(mach, hum, meta=None):
+def compose(mach, hum, meta=None, rows=None):
     """機械の層 + 人の層 -> 今の文書の形(meta = 文書の機械の側の欄 schema・id・original・recognition など。split_meta)。
     人の層が無ければ機械のまま(meta の文書の欄はそのまま)。人の層があれば文書の欄 DOC_FIELDS は人の層の docFields だけ"""
     doc = copy.deepcopy(meta) if isinstance(meta, dict) else {}
-    rows, _stats = compose_rows(mach, hum)
+    if rows is None:   # rows = 同じ mach・hum で組み立て済みの行(diff の rows_out。保存 1 回の組み立てを 1 回減らす = 最適化案 O12)
+        rows, _stats = compose_rows(mach, hum)
     if isinstance(hum, dict):
         fields = hum.get("docFields") or {}
         for k in DOC_FIELDS:
@@ -494,7 +505,7 @@ def _keep_base(g, prev_rows):
     """人がまだ選んでいない印(MACH_CHANGED・SPK_CHANGED)の行は、前の人の層の base(前の機械)を引き継ぐ"""
     flag = str(g.get("flag") or "")
     p = prev_rows.get(str(g.get("id")))
-    if p and isinstance(p.get("base"), dict) and (MACH_CHANGED in flag or SPK_CHANGED in flag):
+    if p and isinstance(p.get("base"), dict) and (_ys.has_flag(flag, MACH_CHANGED) or _ys.has_flag(flag, SPK_CHANGED)):
         return copy.deepcopy(p["base"])
     return None
 
@@ -535,7 +546,7 @@ def _new_hum(mach, doc, prev):
     return hum
 
 
-def diff(mach, doc, prev_hum=None):
+def diff(mach, doc, prev_hum=None, rows_out=None):
     """文書と機械の層の差 -> 人の層(O1 の extract を一般にした物)。prev_hum = 前の人の層(消す印・話者の対応表・まだ選んでいない印の base を引き継ぐ)。
     - 機械の行そのままの行(同じ id・時刻・文字・印・話者)は人の層に入れない
     - 時刻と文字が機械の行と同じで、話者・印・音のメモ・id などだけ違う行 = 属性の行(text なし。covers は 1 つ)
@@ -543,7 +554,8 @@ def diff(mach, doc, prev_hum=None):
       置き換えの決まり(COVER_DROP・TEXT_DROP)にも当たる、文書に無い機械の行(組み立てで機械が変わったときと同じ決まり)
     - 文書に無く、covers にならない機械の行 = 消す印 {start, end, text, mid}
     - 印: 機械(文字の行は覆った機械の行の印をつないだ物・校正済みなら空)と違えば flag、空にしたなら flagOff
-    - 同じ時刻の行の並びが組み立てと違えば order"""
+    - 同じ時刻の行の並びが組み立てと違えば order
+    rows_out = list を渡すと、できた人の層で組み立てた行(compose_rows と同じ並び)を入れる(呼び手が組み立て直さずに使う。O12)"""
     prev = prev_hum if isinstance(prev_hum, dict) else {}
     M = _mrows(mach)
     by = {m["id"]: j for j, m in enumerate(M)}
@@ -606,6 +618,10 @@ def diff(mach, doc, prev_hum=None):
         tied = [str(g.get("id")) for g in segs if len(spans[(g["start"], g["end"])]) > 1]
         if tied:
             hum["order"] = tied
+            pos = {x: i for i, x in enumerate(tied)}   # 組み立てと同じ並び(同じ時刻は order の順 → 出した順。rows は出した順に並んでいる = 安定に並べ直す)
+            rows = sorted(rows, key=lambda r: (r["start"], r["end"], pos.get(r["id"], len(pos))))
+    if rows_out is not None:
+        rows_out[:] = rows
     return hum
 
 
@@ -626,7 +642,7 @@ def mach_changes(mach, hum, rid=None):
     out = []
     for g in rows:
         h = H.get(g["id"])
-        if h is None or MACH_CHANGED not in str(g.get("flag") or "").split("、") or (rid is not None and g["id"] != str(rid)):
+        if h is None or not _ys.has_flag(g.get("flag"), MACH_CHANGED) or (rid is not None and g["id"] != str(rid)):
             continue
         out.append({"id": g["id"], "human": {"start": g["start"], "end": g["end"], "text": g["text"], "speaker": g.get("speaker") or "",
                                              "proofed": g.get("proofed") is True},
@@ -868,7 +884,7 @@ def set_spk_flags(mach, doc, flags):
             continue
         mine = [x for x in str(m.get("flag") or "").split("、") if x and x not in flags]
         spk = [x for x in str(g.get("flag") or "").split("、") if x in flags]
-        m["flag"] = "、".join(mine + spk)[:FLAG_MAX]
+        m["flag"] = join_flags(*(mine + spk))
 
 
 def after_rediar(mach, hum, keep_ids, flags):
@@ -952,5 +968,6 @@ def compare_docs(want, got, loose=False):
 
 def roundtrip(mach, doc, prev_hum=None, loose=False):
     """往復の検査: compose(mach, diff(mach, doc), split_meta(doc)) と doc の違い -> (人の層, [(理由, 例)…])。loose は compare_docs と同じ"""
-    hum = diff(mach, doc, prev_hum)
-    return hum, compare_docs(doc, compose(mach, hum, split_meta(doc)), loose)
+    rows = []
+    hum = diff(mach, doc, prev_hum, rows)
+    return hum, compare_docs(doc, compose(mach, hum, split_meta(doc), rows), loose)

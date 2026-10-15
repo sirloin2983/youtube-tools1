@@ -67,6 +67,8 @@ class RoundTripTest(unittest.TestCase):
         hum, reasons = L.roundtrip(mach, doc, prev)
         self.assertEqual(reasons, [], reasons)
         self.assertEqual(L.compose(mach, hum, L.split_meta(doc)), doc)
+        rows = []   # O12: diff が返す組み立て済みの行は、その人の層で組み立て直した行と同じ(order のある文書も)
+        self.assertEqual(rows if L.diff(mach, doc, prev, rows) is not None else None, L.compose_rows(mach, hum)[0])
         return hum
 
     def test_machine_only(self):
@@ -406,6 +408,54 @@ class AdvanceMachTest(unittest.TestCase):
 
     def test_near(self):
         self.assertEqual(L._near([(0.0, 1.0), (5.0, 5.0), None], [(1.0, 2.0), (0.5, 0.6), (4.0, 6.0), (9.0, 30.0)]), [[0, 1], [2], []])
+
+
+class FlagsAndDeadTest(unittest.TestCase):
+    def test_machine_flags_kept_whole_and_mine_clears_mach_changed(self):
+        flags = ["機械の印その一" + "い" * 20, "機械の印その二" + "う" * 20, "機械の印その三" + "え" * 20]   # 合わせて 83 字
+        joined = "、".join(flags)
+        m = machine([mrow(1, 0.0, 2.0, "こんにちは", flag=joined)])
+        d = base_doc(m)
+        self.assertEqual(seg(d, "s1")["flag"], joined)
+        seg(d, "s1")["text"] = "こんにちは!"
+        hum = L.diff(m, d)
+        m2 = rebuild(m, texts={0: "こんばんは"})   # 機械の文字が変わった(id も変わる)
+        out = L.compose(m2, hum, L.split_meta(d))
+        g = seg(out, "s1")
+        self.assertEqual(g["text"], "こんにちは!")
+        self.assertTrue(L._ys.has_flag(g["flag"], L._ys.MACH_CHANGED))
+        self.assertLessEqual(len(g["flag"]), L._ys.FLAG_MAX)
+        ch = L.mach_changes(m2, hum)
+        self.assertEqual([c["id"] for c in ch], ["s1"])
+        self.assertEqual(ch[0]["now"][0]["text"], "こんばんは")
+        hum3 = L.pick(m2, hum, "s1", "mine")
+        g3 = seg(L.compose(m2, hum3, L.split_meta(d)), "s1")
+        self.assertFalse(L._ys.has_flag(g3["flag"], L._ys.MACH_CHANGED))
+        self.assertEqual(L.mach_changes(m2, hum3), [])
+
+    def test_dead_mark_spares_other_words_and_drops_same_words(self):
+        m = machine([mrow(1, 0.0, 1.0, "あ"), mrow(2, 1.0, 2.0, "い")])
+        d = base_doc(m)
+        d["segments"] = [seg(d, "s2")]   # s1 の「あ」を消した
+        hum = L.diff(m, d)
+        self.assertEqual([x["mid"] for x in hum["dead"]], ["s1"])
+        # 作り直し(id と rev が変わる)・同じ時間帯に違う言葉が出た: 消さずに残す
+        other = rebuild(m, texts={0: "今日はいい天気ですね"}, rev=2)
+        rows, st = L.compose_rows(other, hum)
+        self.assertEqual(st["deadSpared"], 1)
+        self.assertEqual(st["dead"], 0)
+        self.assertEqual([g["text"] for g in rows], ["今日はいい天気ですね", "い"])
+        self.assertEqual(texts(L.compose(other, hum)), ["今日はいい天気ですね", "い"])
+        # 同じ時間帯に「あ」が出た: 消す
+        same = rebuild(m, texts={0: "あ"}, rev=3)
+        rows, st = L.compose_rows(same, hum)
+        self.assertEqual((st["dead"], st["deadSpared"]), (1, 0))
+        self.assertEqual([g["text"] for g in rows], ["い"])
+        # 同じ時間帯に空の行が出た: 消す
+        empty = rebuild(m, texts={0: ""}, rev=4)
+        rows, st = L.compose_rows(empty, hum)
+        self.assertEqual((st["dead"], st["deadSpared"]), (1, 0))
+        self.assertEqual([g["text"] for g in rows], ["い"])
 
 
 if __name__ == "__main__":

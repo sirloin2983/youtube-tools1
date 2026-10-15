@@ -137,7 +137,9 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(cm.exception.status, 404)
 
     def test_pick_machine(self):
-        machpick.pick({"id": TID, "row": "s2", "pick": "machine"})
+        with mock.patch.object(store, "snapshot", wraps=store.snapshot) as snap:
+            machpick.pick({"id": TID, "row": "s2", "pick": "machine"})
+        snap.assert_called_once_with(TID, True)   # 前の履歴から 10 分経っていなくても必ず残す(P-PRIMARY = 1f-3。人の直しを丸ごと外すため)
         d = store.read_transcript(TID)
         self.assertEqual([g["text"] for g in d["segments"]], ["あ", "いい", "う"])
         self.assertNotIn("proofed", d["segments"][1])

@@ -32,7 +32,7 @@ def changes(tid, row=None):
 def pick(obj):
     """POST /api/mach-changes/pick {"id", "row", "pick": "mine" | "machine", "baseUpdatedAt"?} -> {"ok", "row", "pick", "updatedAt"}。
     baseUpdatedAt が保存済みの版と違えば 409 conflict(画面の保存と同じ)・層が正でなければ 409 not_primary・印の付いた行で無ければ 404 not_changed。
-    書く前の文書を履歴に残す(前の履歴から 10 分経っていれば = store.snapshot(force=False)。「以前の版に戻す」で戻せる)"""
+    書く前の文書を必ず履歴に残す(store.snapshot(force=True)。「以前の版に戻す」で戻せる。P-PRIMARY = 1f-3)"""
     tid = str(obj.get("id") or "")
     rid, choice = str(obj.get("row") or ""), obj.get("pick")
     if choice not in PICKS or not rid:
@@ -48,7 +48,7 @@ def pick(obj):
         if mach is None or hum is None or not _layers.mach_changes(mach, hum, rid):
             raise _errors.ApiError("not_changed", "その行に「機械の結果が変わりました」の印はありません", 404)
         new_hum = _layers.pick(mach, hum, rid, choice)
-        store.snapshot(tid, False)
+        store.snapshot(tid, True)   # 今の機械にするは人の直しを丸ごと外すので、前の履歴からの時間に関わらず必ず残す(1f-3)
         doc["updatedAt"] = _yschemas.now_ms()
         out = store.commit(tid, doc, why="mach_pick", hum=new_hum)
     _txbase.log.info("3 択 %s row=%s pick=%s", tid, rid, choice)

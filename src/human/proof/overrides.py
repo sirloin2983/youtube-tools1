@@ -23,7 +23,7 @@ from . import layers as _layers  # noqa: E402   対応づけの決まりの値(�
 
 OVER_SCHEMA = "youtube-tools-over/v1"
 OVER_SUFFIX = ".over.json"
-STALE_FLAG = "古い認識を元にした直し(作り直した文字起こしに対応する行がありません)"   # 対応づかない人の文字の行に付ける要確認の印
+STALE_FLAG = _yschemas.STALE_FLAG   # 対応づかない人の文字の行に付ける要確認の印
 HALF = _layers.HALF               # 重なりが短い方の長さのこの割合以上なら対応づける(中心が入らなくても)
 COVER_DROP = _layers.COVER_DROP   # 新しい機械の行は、対応づいた人の文字の行が長さのこの割合以上を覆うか、
 TEXT_DROP = _layers.TEXT_DROP     # 機械の文字のこの割合以上が人の行の文字に現れるときだけ人の行に置き換える(小さな人の行で長い機械の行のほかの言葉を消さない)
@@ -121,12 +121,7 @@ def _replaced(m, mtext, hums):
 
 
 def _join_flags(*flags):
-    out = []
-    for f in flags:
-        for x in str(f or "").split("、"):
-            if x and x not in out:
-                out.append(x)
-    return "、".join(out)[:FLAG_MAX]
+    return _layers.join_flags(*flags)   # 決まった印(STALE_FLAG)は先に並べて切らない(ytt/schemas.join_flags)
 
 
 def _fresh_id(used, n=0):

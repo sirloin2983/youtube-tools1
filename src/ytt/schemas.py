@@ -138,6 +138,46 @@ def composed_from(mach_rev, hum_rev):
     return {"mach": plain_int(mach_rev), "hum": plain_int(hum_rev)}
 
 
+# ---------- 行の印(flag)。「、」でつないだ文字。つなぎ方・探し方はここ 1 か所(P-PRIMARY。notes:plan/opt-human.md の 1e-1a・1e-3a・4a-3・6f-1) ----------
+FLAG_MAX = 100   # 行の印の文字数の上限(決まった印は数えても切らない)
+MACH_CHANGED = "機械の結果が変わりました(前の機械・今の機械・あなたの直しを比べてください)"   # 3 択の印(③ human/proof/layers。案 A)
+SPK_CHANGED = "話者の判別が変わりました"   # 話者だけが変わった弱い印(layers)
+STALE_FLAG = "古い認識を元にした直し(作り直した文字起こしに対応する行がありません)"   # O1 の上書き(③ human/proof/overrides)
+EMPTY_FLAG = "再認識で文字が出なかった(元の行のまま)"   # 範囲の再認識(③ human/proof/rerun)
+MIXED_FLAG = "声が混ざっている可能性"   # 話者判別の要確認の印(ytt/txbase が再公開)
+FIXED_FLAGS = (MACH_CHANGED, SPK_CHANGED, STALE_FLAG, EMPTY_FLAG, MIXED_FLAG)   # 決まった印: 先に並べ、100 字で切らない(探す側が完全一致で探すため)
+
+
+def flag_parts(flag):
+    """印 -> 「、」で割った部分(空は捨てる)"""
+    return [x for x in str(flag or "").split("、") if x]
+
+
+def has_flag(flag, mark):
+    """印の部分に mark がそのままあるか(文字の一部の一致では見ない)"""
+    return mark in flag_parts(flag)
+
+
+def join_flags(*flags):
+    """印を「、」でつなぐ(同じ印は 1 つ・空は捨てる)。決まった印 FIXED_FLAGS は先に並べて切らない。ほかの印は FLAG_MAX 字に入る分だけ丸ごと
+    (入らない印は落とす。ただし最初の 1 つは入る所まで切る = 長い 1 つの手書きの印を丸ごと失わない)。2 回通しても同じ(往復の検査の前提)"""
+    seen, fixed, other = set(), [], []
+    for f in flags:
+        for x in flag_parts(f):
+            if x not in seen:
+                seen.add(x)
+                (fixed if x in FIXED_FLAGS else other).append(x)
+    out = list(fixed)
+    for k, x in enumerate(other):
+        room = FLAG_MAX - len("、".join(out)) - (1 if out else 0)
+        if len(x) > room:
+            if k == 0 and room > 0:
+                out.append(x[:room])
+            break
+        out.append(x)
+    return "、".join(out)
+
+
 def mach_row(g):
     """文書の行 -> 機械の行の写し(MACH_ROW_KEYS の欄だけ。text・flag は文字に。fill は dict のときだけ・speaker は空でないときだけ)"""
     r = {"id": str(g.get("id") or ""), "start": g.get("start"), "end": g.get("end"), "text": str(g.get("text") or ""), "flag": str(g.get("flag") or "")}

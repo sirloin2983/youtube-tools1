@@ -213,7 +213,6 @@ def layers_for(tid, doc):
 # ---------- 層が正のときの読み(RS8 O2-3): 写しが古ければ組み立て直す ----------
 _layer_rev_cache = {}   # (tid, suffix) -> (パスと stamp, rev か _BROKEN)
 _BROKEN = object()
-_compose_lock = threading.Lock()   # 組み立て直しは保存のロック(_save_lock)と別(read_transcript は _save_lock の中からも呼ばれる)
 
 
 def _layer_rev(tid, suffix, schema):
@@ -236,7 +235,10 @@ def fresh_copy(tid, d):
     """層が正のとき、読んだ写し d が層より古ければ組み立て直して書き、新しい写しを返す(古くなければ d のまま)。
     古い = 写しに composedFrom があって、今の層の rev と違う(composedFrom の無い写し = 文書が正だったころ・層の書けなかった写しは組み立て直さない)。
     守り: 機械の層が無い・層が読めない・組み立てられないときは写しのまま読み、ログを出す。行・話者の表が変わったときだけ updatedAt を進める
-    (開いている画面の古い文書で上書きされないよう 409 にする)。書けなくても(OSError・ApiError = ディスク・置き場所が見えない)組み立てた文書を返す"""
+    (開いている画面の古い文書で上書きされないよう 409 にする)。書けなくても(OSError・ApiError = ディスク・置き場所が見えない)組み立てた文書を返す。
+    組み立て直して書くのは保存と同じ錠 _save_lock の中(P-PRIMARY。parts-review の H1: 別の錠だと、保存が層を書いてから写しを書くまでの間に読んだ
+    古い写しの original・recognition で組み立て直した物が保存のあとに書かれ、新しい認識の原文と履歴が古い値に戻る)。錠の中で写しと層を読み直して比べ直し、
+    保存が先に済んでいればその写しを返す。古くない写し(速い道)は錠を取らない"""
     cf = d.get(_yschemas.COMPOSED_FROM)
     if not isinstance(cf, dict):
         return d
@@ -249,12 +251,20 @@ def fresh_copy(tid, d):
     now = _yschemas.composed_from(mrev, hrev)
     if cf == now:
         return d
-    with _compose_lock:
+    with _save_lock:
         try:
+            disk = _load_doc(tx_path(tid))   # 錠の中で写しも読み直す(待っている間に保存が新しい写しを書いたかもしれない)
+            if disk is None:
+                raise ValueError("写しを読み直せません")
+            d, cf = disk, disk.get(_yschemas.COMPOSED_FROM)
+            if not isinstance(cf, dict):
+                return d
             mach = _read_layer(tid, _yschemas.MACH_SUFFIX, _yschemas.MACH_SCHEMA)
-            hum = _read_layer(tid, _yschemas.HUM_SUFFIX, _yschemas.HUM_SCHEMA) if has_h else None
-            if mach is None or (has_h and hum is None):
+            hum = _read_layer(tid, _yschemas.HUM_SUFFIX, _yschemas.HUM_SCHEMA)
+            if mach is None or (hum is None and _fsio.stamp(_doc_file(tid, _yschemas.HUM_SUFFIX)) is not None):
                 raise ValueError("層を読み直せません")
+            if cf == _yschemas.composed_from(mach.get("rev"), (hum or {}).get("rev")):
+                return d   # 保存が先に済んで、写しはもう今の層の物
             new = _layers.compose(mach, hum, _layers.split_meta(d))
             apply_edit_cuts(tid, new)   # 機械の新しい行の「カット済」も編集の内容に合わせる
         except Exception as e:
@@ -355,7 +365,7 @@ def sanitize_transcript(obj, base=None):
         ids.add(sid)
         sp = str(sg.get("speaker", ""))
         one = {"id": sid, "start": round(a, 2), "end": round(b, 2), "text": str(sg.get("text", ""))[:_txbase.MAX_TEXT],
-               "speaker": sp if sp in seen else "", "flag": str(sg.get("flag", ""))[:100]}
+               "speaker": sp if sp in seen else "", "flag": _layers.join_flags(sg.get("flag", ""))}
         tg = [t for t in _yschemas.ROW_TAGS if isinstance(sg.get("tags"), list) and t in sg["tags"]]   # 音の状態のメモ(聞き取れない・声が重なる・BGMが大きい)
         if tg:
             one["tags"] = tg
@@ -522,11 +532,13 @@ def read_transcript(tid):
 # ---------- 履歴(自動スナップショット)と保存の競合検出 ----------
 HIST_INTERVAL = 600     # 秒。保存のたびではなく、前回の履歴からこれだけ経っていたら1つ残す
 HIST_KEEP = 30          # 1本あたりの保持数(古いものから消す)
-_save_lock = threading.Lock()   # 文書の読み直し → 書き込みの錠(再入できない。commit の中では取らない = 呼び手が持つ)。新しい呼び手は saving() で
+_save_lock = threading.RLock()   # 文書の読み直し → 書き込みの錠(commit の中では取らない = 呼び手が持つ)。新しい呼び手は saving() で。
+# 再入できる(P-PRIMARY: 層が正のとき read_transcript の組み立て直し fresh_copy も取る。保存の錠の中から read_transcript を呼ぶ道があるため)
 
 
 def saving():
-    """文書を読み直して書く間の錠(`with store.saving():`)。保存・戻す・消す・機械の書き込みが重ならないように。再入できないので、中で commit は呼べるが saving は取り直さない"""
+    """文書を読み直して書く間の錠(`with store.saving():`)。保存・戻す・消す・機械の書き込み・層が正のときの写しの組み立て直しが重ならないように。
+    同じスレッドなら取り直してよい(RLock)。ほかの錠を持ったまま取るときは、その錠を _save_lock の中で取る所が無いこと(逆順で止まる)"""
     return _save_lock
 
 
