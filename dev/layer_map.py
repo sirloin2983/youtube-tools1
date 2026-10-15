@@ -100,13 +100,13 @@ FILES = {
     "src/flow/livesession.py": ("flow", "flow", "ライブ係(RS7-2 G2b。Live から app でない部分 = 録画元のクライアント・録画を始める・受付 submit(封筒 kind live + 束 → live/bundles.json)・"
                                 "見回り・子プロセス・調子・採用の口。入口の home/live.py の Live はこれを継ぐ app の殻)"),
     # ---- analytics → manage/ops/analytics(別件。中身は変えない)
-    "src/analytics/__init__.py": ("manage", "manage/ops/analytics", ""),
-    "src/analytics/bridge.py": ("manage", "manage/ops/analytics", ""),
-    "src/analytics/calc.py": ("manage", "manage/ops/analytics", ""),
-    "src/analytics/data.py": ("manage", "manage/ops/analytics", ""),
-    "src/analytics/render.py": ("manage", "manage/ops/analytics", ""),
-    "src/analytics/service.py": ("manage", "manage/ops/analytics", ""),
-    "src/analytics/timeutil.py": ("manage", "manage/ops/analytics", ""),
+    "src/manage/ops/analytics/__init__.py": ("manage", "manage/ops/analytics", ""),
+    "src/manage/ops/analytics/bridge.py": ("manage", "manage/ops/analytics", ""),
+    "src/manage/ops/analytics/calc.py": ("manage", "manage/ops/analytics", ""),
+    "src/manage/ops/analytics/data.py": ("manage", "manage/ops/analytics", ""),
+    "src/manage/ops/analytics/render.py": ("manage", "manage/ops/analytics", ""),
+    "src/manage/ops/analytics/service.py": ("manage", "manage/ops/analytics", ""),
+    "src/manage/ops/analytics/timeutil.py": ("manage", "manage/ops/analytics", ""),
 }
 
 # 新しいフォルダ(RS1 以降に移した先)。フォルダ名 → 層。ここにある物は FILES に書かなくてよい

@@ -15,7 +15,7 @@
   画面の「取り込んで作り、LINE に送る」で、いつでも同じことを手で行えます(同じデータでも送り直す)。「送らずに作り直す」は画面で見るだけ。
 
 ■ はじめての設定
-  src\analytics\gas\README.txt の手順で、Apps Script に「Youtube分析 連携」を作ってデプロイし、
+  src\manage\ops\analytics\gas\README.txt の手順で、Apps Script に「Youtube分析 連携」を作ってデプロイし、
   画面の「連携の設定」に URL と合言葉を入れます。既存の「Youtube日次」の pollAndSend のトリガーは消します(残すと 12 時に知らせが毎日届く)。
   画面では、予定の週のショートの本数(既定 28)と、境目の日(既定 2026-10-01。戦略が変わった日)も変えられます。
 
@@ -41,7 +41,7 @@
   合言葉とチャンネルの数字はリポジトリに入れません。
 
 ■ テスト
-  py -3.10 -m unittest src/analytics/tests/test_analytics.py   (本物の数字は使わない。規則どおりに伸びる架空のチャンネルで確かめる)
+  py -3.10 -m unittest src/manage/ops/analytics/tests/test_analytics.py   (本物の数字は使わない。規則どおりに伸びる架空のチャンネルで確かめる)
 
 ■ v0.1.1(2026-10-09)
   - 月報を LINE に送れなかったのを直した(連携は日付を YYYY-MM-DD でしか受け取らないのに、月報は「2026-09」で渡していた。その月の 1 日で渡す)

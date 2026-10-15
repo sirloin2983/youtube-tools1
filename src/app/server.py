@@ -153,8 +153,8 @@ from manage.keep import cleanup as cleanup_mod  # noqa: E402  (src/manage/keep/c
 from manage.ops import restart as restart_mod  # noqa: E402  (src/manage/ops/restart.py: 入口ごと起動し直す。段9 9-3)
 import prefs as prefs_mod  # noqa: E402  (src/home/prefs.py: ホームの設定。まとめて実行の既定・配信者の記憶・共通の再生キー)
 import live as live_mod  # noqa: E402  (src/home/live.py: リアルタイム切り抜き(線 D)。既定はオフ)
-try:   # src/analytics: 分析と日報(/analytics/ を受け持つ。notes:plan/analytics-daily-report.md)。入口を一時フォルダに写すテストでは無いことがある
-    from analytics import service as analytics_mod  # noqa: E402
+try:   # src/manage/ops/analytics: 分析と日報(/analytics/ を受け持つ。notes:plan/analytics-daily-report.md)。入口を一時フォルダに写すテストでは無いことがある
+    from manage.ops.analytics import service as analytics_mod  # noqa: E402
 except ImportError:
     analytics_mod = None
 
@@ -855,7 +855,7 @@ class PortalHandler(BaseHTTPRequestHandler):
             return
         if u.path.startswith("/live/") and self.server.live.enabled():   # リアルタイム切り抜き: 録画元へ中継(オフなら下の 404 のまま)
             return self.server.live.handle_post(self, u, body)
-        if u.path.startswith("/analytics/") and self.server.analytics:   # 分析と日報(src/analytics/service.py)
+        if u.path.startswith("/analytics/") and self.server.analytics:   # 分析と日報(src/manage/ops/analytics/service.py)
             return self.server.analytics.handle_post(self, u, body)
         m = ACTION_RE.fullmatch(u.path)
         if m:
