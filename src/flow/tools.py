@@ -23,8 +23,8 @@ import uuid
 from pathlib import Path
 
 from pipeline.pack import cut2resolve_core as _core, pack as _pack, request as _packreq
-from ytt import docloc as _docloc, errors as _errors, fsio as _fsio, jobs as _slots, schemas as _yschemas, tools as _ytools
-from ytt import txbase as _txbase, txtext as _txtext, version as _version, workdata as _workdata
+from ytt import docloc as _docloc, errors as _errors, fsio as _fsio, jobs as _slots
+from ytt import version as _version, workdata as _workdata
 
 from . import jobs as _jobs, pack as _flowpack, packrec as _packrec, tx as _tx
 from . import machine as _machine, placement as _placement, spec as _spec
@@ -342,29 +342,8 @@ class LocalTools:
 
     @staticmethod
     def _tx_spec(req, b, learning=None):
-        """要求と束 -> 文字起こしのジョブの指定(「編集」の受付 validate_job と同じ形。評価用・入れる文書・2 つ目のエンジン・YouTube の字幕・
-        話者の自動の判別・疑わしい所の認識し直しは ③ の物なので使わない。学習した用語・置換は learning があるときだけ = 入口の経路と同じ優先:
-        ユーザーの用語が先・自動の用語はその後ろ。RS7-1 F-k)"""
-        src = _ytools.check_source(req.get("sourcePath"))
-        dur = _ytools.media_duration(src)
-        clip, clip_warn, _clip_path = _yschemas.find_clip(src, dur)
-        title = os.path.splitext(os.path.basename(src))[0][:120]
-        model = _tx.check_model(str(req.get("model") or "large-v3").strip())
-        lang = req.get("language") if req.get("language") in _txbase.LANGS else "ja"
-        post = b["post"]
-        glossary = _txtext.split_terms(req.get("glossary"))[:200]
-        gauto = list(learning.glossary(glossary)) if learning is not None and post.get("autoGloss") is not False else []
-        engine, ctx = _tx.request_engine(req, model, {"clip": clip, "title": title, "sourceName": os.path.basename(src), "sourcePath": src},
-                                         post["autoContext"])
-        return {"sourcePath": src, "sourceName": os.path.basename(src), "start": 0.0, "end": round(dur, 2) if dur else None, "intoDoc": None,
-                "duration": dur, "whole": True, "model": model, "engine": engine, "language": lang, "beam": 1 if req.get("quality") == "fast" else 5,
-                "device": req.get("device") if req.get("device") in ("auto", "cuda", "cpu", "vulkan") else "auto",
-                "vadMode": req.get("vadMode") if req.get("vadMode") in ("weak", "normal", "off") else "weak",
-                "boost": req.get("boost") is True, "autoDict": req.get("autoDict") is not False, "wordSplit": req.get("wordSplit") is not False,
-                "splitChars": post["splitChars"], "autoRedo": post["autoRedo"], "autoAlt": False,
-                "autoFill": post["autoFill"], "autoLlm": post["autoLlm"], "stripNames": post["stripNames"],
-                "stripPunct": req.get("stripPunct") is not False, "glossary": glossary + gauto, "glossAuto": gauto,
-                "learningVersion": b["post"]["learning"]["version"], "context": ctx, "evalSet": False, "autoLearned": post["autoLearned"], "clip": clip, "warnings": [clip_warn] if clip_warn else [], "title": title}
+        """要求と束 -> 文字起こしのジョブの指定(本体は flow/tx の tx_spec = ③ の受付 validate_job と同じ物。学習した用語・置換は learning があるときだけ)"""
+        return _tx.tx_spec(req, b["post"], learning)
 
     def _transcribe(self, job, spec):
         """認識 → 文書の機械の分と記録を書く → 一覧に足す(job_temp_wav が失敗・取り消しをジョブの状態にする)"""

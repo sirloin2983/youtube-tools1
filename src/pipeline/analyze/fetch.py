@@ -10,17 +10,13 @@ import re
 import shutil
 import threading
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
 
 from ytt import yturl as _yturl
-from ytt import apikey as _key, fsio as _fsio, procs as _procs, studio_env as _env
+from ytt import apikey as _key, fsio as _fsio, procs as _procs, studio_env as _env, ytapi as _ytapi
 from ytt.jobs import Ctl
 from ytt.errors import ApiError, Cancelled
 from ytt.textutil import redact, tail_reason
 
-API_BASE = _yturl.YT_API_BASE
 CHAT_CACHE_KEEP = 30
 # チャットのキャッシュの合計の上限(2026-09-30。件数だけでは、実機で 30 件・2.0GB になっていた)。既定 1GB。環境変数 STUDIO_CHAT_CACHE_MB(MB)で変えられる
 CHAT_CACHE_MAX_BYTES = 1024 ** 3
@@ -331,22 +327,22 @@ def fetch_comments(vid, dur, texts=None):
         return None, "APIキーが未設定のため、コメント欄は使っていません(任意)"
     items, token = [], None
     for _ in range(5):
-        params = {"part": "snippet", "videoId": vid, "maxResults": 100, "order": "relevance", "textFormat": "plainText", "key": key}
+        params = {"part": "snippet", "videoId": vid, "maxResults": 100, "order": "relevance", "textFormat": "plainText"}
         if token:
             params["pageToken"] = token
         try:
-            with urllib.request.urlopen(urllib.request.Request(API_BASE + "commentThreads?" + urllib.parse.urlencode(params), headers={"Accept": "application/json"}), timeout=20) as r:
-                d = json.load(r)
-        except urllib.error.HTTPError as e:
-            try:
-                reason = (json.loads(e.read().decode("utf-8", "replace")).get("error", {}).get("errors") or [{}])[0].get("reason", "")
-            except ValueError:
-                reason = ""
+            d = _ytapi.get("commentThreads", params)   # キーは URL でなく見出しで送る(取得の口は ytt/ytapi の 1 つ)
+        except ApiError as ex:
+            if ex.code == "quota":
+                return None, "コメント欄を取得できませんでした(YouTube API の1日の利用上限に達しました)"
+            if ex.code == "network":
+                return None, "コメント欄を取得できませんでした(接続エラー)"
+            reason = ex.extra.get("reason", "")
             if reason == "commentsDisabled":
                 return None, "この動画はコメントが無効です"
-            return None, "コメント欄を取得できませんでした(%s / HTTP %d)" % (reason or "エラー", e.code)
-        except (urllib.error.URLError, TimeoutError, OSError):
-            return None, "コメント欄を取得できませんでした(接続エラー)"
+            if ex.code == "upstream" or ex.status == 403:
+                return None, "コメント欄を取得できませんでした(%s / %s)" % (reason or "エラー", ex.extra.get("detail") or "HTTP %d" % ex.status)
+            return None, "コメント欄を取得できませんでした(%s)" % ex.message
         for it in d.get("items", []):
             sn = it.get("snippet", {}).get("topLevelComment", {}).get("snippet", {})
             items.append({"text": sn.get("textOriginal") or sn.get("textDisplay") or "", "likes": int(sn.get("likeCount") or 0)})

@@ -400,7 +400,7 @@ def _settings(o):
 
 
 def _export(o):
-    spec = exporter.build_spec(STORE, o)
+    spec = _flowexport.build_spec(STORE, o)
 
     def on_done(vid, mid, rel, start, end, path=None):
         recorded = STORE.mark_exported(vid, mid, rel, start, end, path)

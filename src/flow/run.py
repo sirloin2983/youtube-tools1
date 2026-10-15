@@ -48,20 +48,23 @@ import sys
 import time
 import uuid
 
-from ytt import colors
-from . import envelope as _envelope, keys as _keys, placement as _placement, spec as _spec, tools as _tools
+from ytt import colors, jobs as _slots
+from . import envelope as _envelope, keys as _keys, normalize as _norm, placement as _placement, prio as _prio, spec as _spec, tools as _tools
 from .envelope import clean_pool  # noqa: F401  (src/home/autorun.py が同じ名前で読む。RS7-1 S3 で envelope へ移した)
 from .spec import (CUTS, LIVE_AUTO_CUT, MAX_MARKS, TX_ENGINES, TX_MODELS, WEIGHT_KEYS, clean_ranges, clean_weights)
 
 
 MODES ={"full": "解析から全部", "adopted": "採用後を全部", "transcribe": "文字起こしまで"}
 STEP_LABELS = {"analyze": "解析", "adopt": "採用(自動)", "export": "書き出し", "transcribe": "文字起こし", "pack": "パック",
-               "deliver": "Dropbox へ届ける", "diarize": "話者分離", "analyze_later": "解析(あとで)"}
+               "deliver": "Dropbox へ届ける", "diarize": "話者分離", "analyze_later": "解析(あとで)", "normalize": "30fps にそろえる"}
 MODE_STEPS = {"full": ("analyze", "adopt", "export", "transcribe", "pack"), "adopted": ("export", "transcribe", "pack"),
               "transcribe": ("export", "transcribe"), "doc": ("transcribe", "pack"),
-              "request": ("analyze", "adopt", "export", "transcribe"), "file": ("transcribe",),
+              "request": ("analyze", "adopt", "export", "transcribe"), "file": ("normalize", "transcribe"),
               "request_auto": ("analyze", "adopt", "export", "transcribe", "pack", "deliver"),
-              "file_auto": ("transcribe", "pack", "deliver")}
+              "file_auto": ("normalize", "transcribe", "pack", "deliver")}
+# 段 normalize(動画ファイルの実行の最初。opt-human 9a-1 で友人の受付から移した): 作業データへ写した動画を 30fps に置き換える(flow/normalize の replace=True)。
+# 置き換えは元を消すので、写しを渡す受付(入口の start_file。既定 normalize=True)の実行だけ。Run(normalize=False)(既定 = ライブの書き出し・CLI・② の口 submit)は段を持たない
+NORMALIZE_STEP = "normalize"
 # 友人からの依頼(src/human/friend/intake.py。notes:docs/spec/friend.md)の形。ホームの画面の「まとめて実行」の選択肢には出さない(MODES に入れない)。
 # 友人が送るときに選ぶ(2026-10-01 ユーザー決定): ① 全自動 auto = パックまで作って Dropbox の 出力\ へ / ② 軽く確認 check = 文字起こしまで /
 # (③ 全部人が行う manual = 解析まで は RS5-F で無くした。② check は自分の配信の書き出しのあと(L2)と手で置いた動画・URL が使う)。request* = 配信の URL(解析 → 上位 N 個を採用 → 書き出し → …)/ file* = 友人が切り抜いた動画
@@ -210,8 +213,9 @@ class Run:
 
     def __init__(self, video_id, title, mode, top, doc_id=None, overwrite=False, streamer=None, marks=None, fresh=None, on_fail="next",
                  source_path=None, request_id=None, deliver_dir=None, speakers=None, video_tracks=None, ranges=None, cut=None, weights=None, duration=None,
-                 engine=None, model=None, deliver_batch=None, pool=None, force=False):
+                 engine=None, model=None, deliver_batch=None, pool=None, force=False, normalize=False):
         self.id = uuid.uuid4().hex[:10]
+        self.normalize = normalize is True   # 動画ファイルの実行で、最初に写しを 30fps に置き換える段 normalize を持つか(上の NORMALIZE_STEP)
         self.force = force is True   # 鍵が同じ・違っても作り直す(文字起こし = 新しい文書・パック = 上書き。束の run.force と同じ。RS6 b-K2)
         self.pool = clean_pool(pool)   # ライブの切り抜きの組の溜め {"key", "rid", "title", "meta": {recorder, recording, phase}}(None = この実行の中で届ける)
         self.engine = engine if engine in TX_ENGINES else None   # 文字起こしのエンジン(None = 編集の設定のまま。リアルタイム切り抜きの live.auto。M2)
@@ -259,6 +263,8 @@ class Run:
         self.owned = None          # 今ツールで動かしている仕事 (ツールの ID, [ジョブ・キューの id])(「起動し直す」の確かめ = restart_info。残さない)
         self.result_path = None    # 結果の束 <案件>/作業用/runs/<id>.json(終わったら flow/placement.write_result が置く。記録の 1 行の resultPath = 索引。RS6 b-B0)
         keys = list(MODE_STEPS[mode])
+        if NORMALIZE_STEP in keys and not self.normalize:
+            keys.remove(NORMALIZE_STEP)
         if mode in REQUEST_URL_MODES and self.ranges and len(self.ranges) >= (top or 0):
             keys.remove("analyze")   # 区間が切り抜く数に足りている: 解析なしで、その区間だけを取りに行く
             keys.append("analyze_later")   # 解析は最後(届けたあと)に順番へ入れるだけ = 友人の区間と自動の候補を比べる材料(決定 3-49 Q6。OPT-E2)
@@ -340,9 +346,10 @@ class Run:
                 "legacy": {"mode": self.mode, "onFail": self.on_fail, "streamer": self.streamer}}
 
     @classmethod
-    def from_envelope(cls, env, spec=None):
+    def from_envelope(cls, env, spec=None, normalize=False):
         """封筒 + 束 -> 「待ち」の Run(RS7-1 S3。受け口・待ちの記録の新しい形から)。束の中身の欄は束から読み戻す(③ の hook と public のため)。
-        spec = 束(変えたい所だけでもよい。None = 既定)。形が違えば理由つきの ValueError"""
+        spec = 束(変えたい所だけでもよい。None = 既定)。normalize = 段 normalize を持つか(待ちの記録から戻すときだけ。② の口 submit は持たない)。
+        形が違えば理由つきの ValueError"""
         env = _envelope.check(env)
         kind, inp, lg, dl = env["kind"], env["input"], env["legacy"], env["deliver"]
         if kind == "live":
@@ -364,7 +371,7 @@ class Run:
                   video_tracks=pk["videoTracks"] if "videoTracks" in pins else None, ranges=[tuple(r) for r in b["hints"]["ranges"]],
                   cut=pk["cut"] if "cut" in pins else None, weights={k: b["analyze"][k] for k in WEIGHT_KEYS} if "weights" in pins else None,
                   duration=inp.get("duration"), engine=t["engine"] if "engine" in pins else None, model=t["model"] if "model" in pins else None,
-                  deliver_batch=dl["batch"], pool=dl["pool"], force=b["run"]["force"])
+                  deliver_batch=dl["batch"], pool=dl["pool"], force=b["run"]["force"], normalize=normalize)
         if RUN_ID_RE.match(env["id"]):
             run.id = env["id"]
         run.created = env["createdAt"] / 1000.0
@@ -380,7 +387,7 @@ class Run:
                 "speakers": self.speakers, "videoTracks": self.video_tracks, "ranges": [list(r) for r in self.ranges], "cut": self.cut, "weights": self.weights,
                 "duration": self.duration, "engine": self.engine, "model": self.model, "friendLength": self.friend_length, "deliverBatch": self.deliver_batch,
                 "pool": self.pool, "docs": list(self.docs), "newDocs": list(self.new_docs), "txBefore": copy.deepcopy(self.tx_before), "packs": list(self.packs), "keptPacks": list(self.kept_packs), "delivered": list(self.delivered),
-                "packMarks": dict(self.pack_marks), "force": self.force,
+                "packMarks": dict(self.pack_marks), "force": self.force, "normalize": self.normalize,
                 "friendPlan": copy.deepcopy(self.friend_plan), "notes": list(self.notes),   # 受付で決めた物(RS7-1 S4)
                 "created": self.created, "state": self.state, "message": self.message,
                 "steps": [_step_saved(s) for s in self.steps],
@@ -389,12 +396,14 @@ class Run:
     @classmethod
     def restore(cls, d):
         """saved() の形 -> 「待ち」の Run(同じ id。済んだ段はそのまま・途中の段は待ちに)。形が違えば None(手で直した・壊れた記録は読み飛ばす)。
-        欄の鍵(mode など)があれば欄から(古い形 = 束なしも読める)、無ければ封筒 + 束から(from_envelope)。束があれば Run.spec に置く(合わなければ置かない)"""
+        欄の鍵(mode など)があれば欄から(古い形 = 束なしも読める)、無ければ封筒 + 束から(from_envelope)。束があれば Run.spec に置く(合わなければ置かない)。
+        normalize の欄の無い古い記録(段 normalize の前 = 受付が 30fps にしてから渡していた)は True で読む(30fps 済みなら段が飛ばす)"""
         if not isinstance(d, dict) or not RUN_ID_RE.match(str(d.get("id") or "")):
             return None
+        norm = d.get("normalize") is not False
         if "mode" not in d and isinstance(d.get("envelope"), dict):
             try:
-                run = cls.from_envelope(d["envelope"], d.get("spec") if isinstance(d.get("spec"), dict) else None)
+                run = cls.from_envelope(d["envelope"], d.get("spec") if isinstance(d.get("spec"), dict) else None, normalize=norm)
             except (TypeError, ValueError, KeyError):
                 return None
             run.id = d["id"]
@@ -419,7 +428,8 @@ class Run:
                       speakers=d.get("speakers") if isinstance(d.get("speakers"), dict) else None,
                       video_tracks=vt if isinstance(vt, int) and not isinstance(vt, bool) else None, ranges=clean_ranges(d.get("ranges")),
                       cut=d.get("cut"), weights=clean_weights(d.get("weights")), duration=d.get("duration") if _num(d.get("duration")) else None,
-                      engine=d.get("engine"), model=d.get("model"), deliver_batch=d.get("deliverBatch"), pool=d.get("pool"), force=d.get("force") is True)
+                      engine=d.get("engine"), model=d.get("model"), deliver_batch=d.get("deliverBatch"), pool=d.get("pool"), force=d.get("force") is True,
+                      normalize=norm)
         except (TypeError, ValueError, KeyError):
             return None
         run.id = d["id"]
@@ -1293,6 +1303,54 @@ class Runner:
         return self._step_diarize(run, st)
 
     # 依頼の動画(mode file) -------------------------------------
+    def _step_normalize(self, run, st, v=None):
+        """動画ファイルの実行の最初: 作業データへ写した動画が 30fps(H.264・yuv420p・AAC)でなければ、写しを作り直して置き換える
+        (flow/normalize の plan(replace=True)・run。友人の元のファイルは触らない。opt-human 9a-1 で受付 intake から移した)。
+        重い処理の枠 SLOTS はこの段の中で取る(実行ごとの糸なので、受付の見回りは止まらない)。作り直したら run.source_path を新しいパスにして
+        待ちの記録(封筒の input.path)を書き直す。30fps 済みなら飛ばす。作れない・失敗・取り消しの文は警告にして、元の写しのまま次の段へ"""
+        if run.doc_id or any(s["key"] == "transcribe" and s["state"] in DONE_STEPS for s in run.steps):
+            st["state"], st["detail"] = "skip", "文字起こしのあとなので、30fps にそろえません(文書の動画を変えないため)"
+            return None
+        if not os.path.isfile(run.source_path):
+            raise StepError("依頼の動画が見つかりません(移動・削除した可能性があります)")
+        p = _norm.plan(run.source_path, replace=True)
+        if p is None:
+            st["state"], st["detail"] = "skip", "30fps 済み"
+            return None
+        if p.get("note"):
+            st["state"], st["detail"] = "warn", p["note"]
+            return None
+        st["detail"] = "重い処理の枠が空くのを待っています"
+        last = [-1]
+
+        def progress(x):
+            pct = int(float(x) * 100)
+            if pct != last[0]:
+                last[0] = pct
+                st["detail"] = "30fps にそろえています(%d%%)" % pct
+
+        def started():
+            st["detail"] = "30fps にそろえています(%s)" % " / ".join(p.get("why") or [])[:120]
+        stop = lambda: run.cancel or self.closed   # noqa: E731
+        self.log("30fps にそろえます: %s(%s)" % (run.title, " / ".join(p.get("why") or [])))
+        with _slots.SLOTS.slot("flow", "30fps にそろえる: " + str(run.title)[:60], cancelled=stop, **_prio.slot_kw(_prio.of_run(run))) as ok:
+            self._check(run)   # 待っている間に中止 = Cancelled(枠は取れていない)
+            if not ok:
+                raise Cancelled()
+            path, note = _norm.run(p, cancelled=stop, on_progress=progress, on_start=started)
+        self._check(run)   # 作り直しの途中で中止(normalize.run は「取り消しました」で返る)
+        if not path:
+            self.log("30fps にできませんでした。写しのまま進めます: %s(%s)" % (run.title, note))
+            st["state"], st["detail"] = "warn", note or "30fps にそろえられませんでした。元の動画のまま進めます"
+            return None
+        run.source_path = path
+        st["detail"] = "30fps にそろえました(%s)" % " / ".join(p.get("why") or [])[:120]
+        self._checkpoint(run)   # 封筒の input.path が新しい写しになる(起動し直しで消えた古い写しを探さない)
+        return None
+
+    def _file_normalize(self, run, st):
+        return self._step_normalize(run, st)
+
     def _file_pack(self, run, st):
         if not run.doc_id:
             st["state"], st["detail"] = "skip", "文字起こしの文書がありません"

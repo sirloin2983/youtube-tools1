@@ -39,7 +39,7 @@ def thumb_spec(tid, req=None):
     req = req or {}
     tid = str(tid or "")
     doc, src = _thumb_doc_src(tid)
-    if _fsio.is_network_path(src):   # パックと同じ(ネットワーク上のファイルには触らない = 資格情報を送らない)。音声だけのファイルは作るときに thumb_ideas.probe が断る
+    if _fsio.is_network_path(src):   # パックと同じ(ネットワーク上のファイルには触らない = 資格情報を送らない)。音声だけのファイルは作るときに flow/thumbs.scan(① thumb_cards.probe)が断る
         raise ed_state.ApiError("network_path", "ネットワーク上の動画では、サムネの案は作れません(このパソコンにコピーして開いてください)", 400)
     crop = req.get("crop", "alt")
     if crop not in THUMB_CROPS:

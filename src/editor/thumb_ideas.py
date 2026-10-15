@@ -11,29 +11,25 @@
 - 出力: 2 列 × 3 行の PNG と、同じ名前の .json(案ごとの番号・型・時刻・文字・切り取り)。既定の置き場所は動画の隣の <名前>_thumb-ideas.png
 - 文字: けいふぉんと(入っていれば)→ 游ゴシック Bold → BIZ UD ゴシック Bold。白か黄色の太い文字 + 黒の縁(6-1 の他チャンネルの型)。配信者のメンバーカラーが分かれば帯の色に(ytt.colors)
 - 作業データ(文字起こし)は読むだけ。ffmpeg は ytt.tools.find_tool(環境変数 YTT_FFMPEG → PATH → winget)
+- 描く部分(ffmpeg で切り取り・文字を載せ・1 枚にまとめる)は ① の src/pipeline/export/thumb_cards.py。③ のこの殻は ② の src/flow/thumbs.py(動詞 font・scan・render)を通す。この殻は文字起こしを読んで案を決め、JSON を書く
 """
 import argparse
-import array
 import json
 import os
 import re
-import subprocess
 import sys
-import tempfile
 import unicodedata
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)   # src(ツールの親 = ytt の置き場所。ytt.layout の src_root と同じ)
 if REPO not in sys.path:
     sys.path.insert(0, REPO)
-from ytt import datadir, docloc, tools  # noqa: E402
+from ytt import datadir, docloc  # noqa: E402
+from flow import thumbs as _thumbs  # noqa: E402  (描く部分 = ② の口 flow/thumbs。① pipeline/export/thumb_cards を直に読まない = ③ の層の向き)
+ThumbError = _thumbs.ThumbError   # ed_thumb が thumb_ideas.ThumbError で捕まえる
 
-W, H = 540, 960                 # 1 案の大きさ(9:16)
-SAFE_H = W * 3 // 2             # チャンネルページで見える 2:3 の範囲の高さ
 MIN_GAP = 3.0                   # 時刻の候補どうしの間(秒)
 N_CARDS = 6
-FONTS = [os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "Windows", "Fonts", "keifont.ttf"),
-         "C:/Windows/Fonts/keifont.ttf", "C:/Windows/Fonts/YuGothB.ttc", "C:/Windows/Fonts/BIZ-UDGothicB.ttc", "C:/Windows/Fonts/msgothic.ttc"]
 LAYOUTS = [("A", "型A 状況 + キャッチ", "center"), ("B", "型B 大きい 2 行", "right"), ("C", "型C 吹き出し", "center"),
            ("D", "型D 一語ドン", "right"), ("E", "今の型(3〜4 行)", "center"), ("F", "今の型(右寄り)", "right")]
 WORD_RE = re.compile(r"(なんで|うそ|嘘|やば|待って|まって|ちょ|えぇ+|えっ|は[?？]|ん[?？]|誰|あれ|おい|うわ+|ぎゃ+|最高|無理|好き)")
@@ -127,47 +123,6 @@ def card_texts(layout, rows, t):
     return {"top": None, "lines": lines_of(text, 10, 4), "word": None}
 
 
-# ---------------------------------------------------------------- 入力(動画・文字起こし)
-
-def ffmpeg_path():
-    p = tools.find_tool("ffmpeg")
-    if not p:
-        raise ThumbError("ffmpeg が見つかりません(winget の Gyan.FFmpeg か、環境変数 YTT_FFMPEG)")
-    return p
-
-
-def probe(ff, video):
-    """-> (長さの秒, 幅, 高さ)。ffmpeg -i の表示から読む"""
-    r = subprocess.run([ff, "-hide_banner", "-i", video], capture_output=True, text=True, encoding="utf-8", errors="replace", creationflags=tools.no_window_flags())
-    m = re.search(r"Duration: (\d+):(\d+):([\d.]+)", r.stderr)
-    s = re.search(r"Video:.*?(\d{2,5})x(\d{2,5})", r.stderr)
-    if not m or not s:
-        raise ThumbError("動画を読めませんでした: %s" % os.path.basename(video))
-    return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3)), int(s.group(1)), int(s.group(2))
-
-
-def loud_times(ff, video, step=0.5):
-    """0.5 秒ごとの音の大きさの上位 -> [(時刻, 点数, "loud")]"""
-    r = subprocess.run([ff, "-hide_banner", "-loglevel", "error", "-i", video, "-vn", "-ac", "1", "-ar", "8000", "-f", "s16le", "-"],
-                       capture_output=True, creationflags=tools.no_window_flags())
-    a = array.array("h")
-    a.frombytes(r.stdout[: len(r.stdout) // 2 * 2])
-    n = int(8000 * step)
-    rms = [(sum(x * x for x in a[i:i + n]) / max(1, len(a[i:i + n]))) ** 0.5 for i in range(0, len(a), n)]
-    if not rms:
-        return []
-    mean = sum(rms) / len(rms)
-    sd = (sum((v - mean) ** 2 for v in rms) / len(rms)) ** 0.5 or 1.0
-    return [(round(i * step + step / 2, 2), round((v - mean) / sd, 2), "loud") for i, v in enumerate(rms) if v > mean + sd]
-
-
-def scene_times(ff, video):
-    """場面の切り替わり(scene > 0.35)の直後 -> [(時刻, 点数, "scene")]"""
-    r = subprocess.run([ff, "-hide_banner", "-i", video, "-an", "-vf", "select='gt(scene,0.35)',showinfo", "-f", "null", "-"],
-                       capture_output=True, text=True, encoding="utf-8", errors="replace", creationflags=tools.no_window_flags())
-    return [(round(float(m) + 0.4, 2), 1.0, "scene") for m in re.findall(r"pts_time:([\d.]+)", r.stderr)]
-
-
 def find_doc(video, doc_id=None, tdir=None):
     """文字起こしの文書(--doc の id か、動画のパスが同じ文書)-> 文書 | None(作業データは読むだけ)"""
     tdir = tdir or os.path.join(datadir.locate("transcribe"), "transcripts")
@@ -216,104 +171,6 @@ def member_color(name, hay):
     return max(hit, key=lambda e: len(e["name"]))["hex"] if hit else None
 
 
-# ---------------------------------------------------------------- 描く(ffmpeg)
-
-def font_path():
-    for p in FONTS:
-        if p and os.path.isfile(p):
-            return p
-    raise ThumbError("日本語のフォントが見つかりません(游ゴシックか BIZ UD ゴシック)")
-
-
-def fpath(p):
-    """フィルタの中に書くパス(区切りを / に・: を逃がす)"""
-    return "'" + p.replace("\\", "/").replace(":", "\\:") + "'"
-
-
-def text_filter(tmp, key, text, size, x, y, color="white", border=8, bordercolor="black"):
-    """drawtext(文字は UTF-8 のファイルで渡す = 日本語と記号を逃がさなくてよい)"""
-    path = os.path.join(tmp, "%s.txt" % key)
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(text)
-    return ("drawtext=fontfile=%s:textfile=%s:fontsize=%d:fontcolor=%s:borderw=%d:bordercolor=%s:x=%s:y=%s:shadowx=3:shadowy=3:shadowcolor=black@0.6"
-            % (fpath(FONT), fpath(path), size, color, border, bordercolor, x, y))
-
-
-def card_filters(tmp, n, layout, label, texts, color):
-    """1 案のフィルタ(枠線・型ごとの文字・番号の札)-> [フィルタ]"""
-    band = (color or "#1f2430").replace("#", "0x")
-    f = ["drawbox=x=0:y=%d:w=%d:h=%d:color=white@0.55:t=2" % ((H - SAFE_H) // 2, W, SAFE_H)]
-    lines = texts["lines"]
-    if layout == "A":
-        f.append("drawbox=x=0:y=130:w=%d:h=84:color=%s@0.88:t=fill" % (W, band))
-        f.append(text_filter(tmp, "%d-top" % n, texts["top"] or "…", 40, "(w-text_w)/2", "150", border=4))
-        for i, s in enumerate(lines):
-            size = min(96, 500 // max(1, len(s)))
-            f.append(text_filter(tmp, "%d-%d" % (n, i), s, size, "(w-text_w)/2", str(560 + i * (size + 18)), color="yellow", border=10))
-    elif layout == "B":
-        for i, s in enumerate(lines):
-            size = min(110, 510 // max(1, len(s)))
-            f.append(text_filter(tmp, "%d-%d" % (n, i), s, size, "(w-text_w)/2", str(540 + i * (size + 20)), border=12, bordercolor=band))
-    elif layout == "C":
-        f.append("drawbox=x=24:y=560:w=%d:h=%d:color=white@0.95:t=fill" % (W - 48, 70 + 64 * max(1, len(lines))))
-        for i, s in enumerate(lines):
-            f.append(text_filter(tmp, "%d-%d" % (n, i), s, 50, "(w-text_w)/2", str(592 + i * 64), color="black", border=0))
-    elif layout == "D":
-        w = texts["word"] or "…"
-        f.append(text_filter(tmp, "%d-w" % n, w, min(220, 480 // max(1, len(w))), "(w-text_w)/2", "330", border=16, bordercolor=band))
-    else:
-        for i, s in enumerate(lines):
-            f.append(text_filter(tmp, "%d-%d" % (n, i), s, 50, "(w-text_w)/2", str(560 + i * 66), border=4))
-    f.append("drawbox=x=0:y=%d:w=%d:h=40:color=black@0.6:t=fill" % (H - 40, W))
-    f.append(text_filter(tmp, "%d-label" % n, label, 24, "12", str(H - 34), border=0))
-    return f
-
-
-def crop_box(crop, vw, vh, rect=None):
-    """切り取りの箱 -> (幅, 高さ, x, y)。center = 中央を縦いっぱい(ゲームの画面 = 状況)/ right = 右下を寄せる(ゲーム実況のアバターはたいてい右下)/
-    rect = アバターの矩形 (x, y, 幅, 高さ) を指定したときの寄せ(矩形を含む 9:16 の箱。画面に組み込むときは配信者ごとに覚える)"""
-    if crop == "zoom" and rect:
-        rx, ry, rw, rh = rect
-        ch = min(vh, max(rh, rw * 16 // 9) * 6 // 5)
-        cw = min(vw, ch * 9 // 16)
-        x = min(max(0, rx + rw // 2 - cw // 2), vw - cw)
-        y = min(max(0, ry + rh // 2 - ch // 2), vh - ch)
-        return cw, ch, x, y
-    if crop == "right":
-        ch = vh * 7 // 10
-        cw = min(vw, ch * 9 // 16)
-        return cw, ch, vw - cw, vh - ch
-    cw = min(vw, vh * 9 // 16)
-    return cw, vh, (vw - cw) // 2, 0
-
-
-def render_card(ff, tmp, video, n, t, vw, vh, crop, filters, rect=None):
-    """1 案の PNG(時刻 t の 1 枚 → 9:16 に切り取り → 540×960 → 文字)-> パス"""
-    cw, ch, x, y = crop_box(crop, vw, vh, rect)
-    out = os.path.join(tmp, "card%d.png" % n)
-    vf = ",".join(["crop=%d:%d:%d:%d" % (cw, ch, x, y), "scale=%d:%d" % (W, H)] + filters)
-    for at in (t, max(0.0, t - 1.0)):   # 取れなければ 1 秒前でもう一度
-        r = subprocess.run([ff, "-hide_banner", "-loglevel", "error", "-y", "-ss", "%.2f" % at, "-i", video, "-frames:v", "1", "-vf", vf, out],
-                           capture_output=True, text=True, encoding="utf-8", errors="replace", creationflags=tools.no_window_flags())
-        if r.returncode == 0 and os.path.isfile(out):
-            break
-    if r.returncode != 0 or not os.path.isfile(out):
-        raise ThumbError("案 %d を描けませんでした" % n, r.stderr.strip()[-300:])
-    return out
-
-
-def tile(ff, cards, out):
-    """6 案を 2 列 × 3 行の 1 枚に"""
-    ins = []
-    for c in cards:
-        ins += ["-i", c]
-    layout = "|".join("%d_%d" % ((i % 2) * W, (i // 2) * H) for i in range(len(cards)))
-    r = subprocess.run([ff, "-hide_banner", "-loglevel", "error", "-y"] + ins + ["-filter_complex", "xstack=inputs=%d:layout=%s" % (len(cards), layout), "-frames:v", "1", out],
-                       capture_output=True, text=True, encoding="utf-8", errors="replace", creationflags=tools.no_window_flags())
-    if r.returncode != 0:
-        raise ThumbError("1 枚にまとめられませんでした", r.stderr.strip()[-300:])
-
-
 def mmss(t):
     return "%02d:%04.1f" % (int(t // 60), t % 60)
 
@@ -329,38 +186,24 @@ def crops_for(mode, rect):
 
 def make(video, doc=None, name=None, out=None, crop="alt", rect=None):
     """案の一覧を作る -> (png のパス, 記録)"""
-    global FONT
-    FONT = font_path()
-    ff = ffmpeg_path()
-    duration, vw, vh = probe(ff, video)
+    font = _thumbs.font()
+    duration, vw, vh, found = _thumbs.scan(video)
     rows = doc_rows(doc)
-    cands = loud_times(ff, video) + scene_times(ff, video) + [((r["start"] + r["end"]) / 2, float(excite_score(r["text"])), "row") for r in rows if excite_score(r["text"])]
+    cands = found + [((r["start"] + r["end"]) / 2, float(excite_score(r["text"])), "row") for r in rows if excite_score(r["text"])]
     times = select_times(cands, duration)
     color = member_color(name, video + " " + str((doc or {}).get("title") or ""))
     out = out or os.path.splitext(video)[0] + "_thumb-ideas.png"
-    rec = {"schema": "youtube-tools-thumb-ideas/v1", "video": video, "doc": (doc or {}).get("id"), "font": os.path.basename(FONT), "color": color, "cards": []}
-    with tempfile.TemporaryDirectory(prefix="thumb-ideas-") as tmp:
-        cards = []
-        for n, ((key, label, _default), (t, score, src), c) in enumerate(zip(LAYOUTS, times, crops_for(crop, rect)), 1):
-            texts = card_texts(key, rows, t)
-            filters = card_filters(tmp, n, key, "%d  %s  %s" % (n, label, mmss(t)), texts, color)
-            cards.append(render_card(ff, tmp, video, n, t, vw, vh, c, filters, rect))
-            rec["cards"].append({"n": n, "layout": key, "label": label, "at": round(t, 2), "from": src, "crop": c, **texts})
-        os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
-        tile(ff, cards, out)
+    rec = {"schema": "youtube-tools-thumb-ideas/v1", "video": video, "doc": (doc or {}).get("id"), "font": os.path.basename(font), "color": color, "cards": []}
+    plan = []
+    for n, ((key, label, _default), (t, score, src), c) in enumerate(zip(LAYOUTS, times, crops_for(crop, rect)), 1):
+        texts = card_texts(key, rows, t)
+        plan.append({"n": n, "layout": key, "label": "%d  %s  %s" % (n, label, mmss(t)), "t": t, "crop": c, "texts": texts})
+        rec["cards"].append({"n": n, "layout": key, "label": label, "at": round(t, 2), "from": src, "crop": c, **texts})
+    _thumbs.render(video, vw, vh, plan, color, font, out, rect)
     with open(os.path.splitext(out)[0] + ".json", "w", encoding="utf-8") as f:
         json.dump(rec, f, ensure_ascii=False, indent=1)
     return out, rec
 
-
-FONT = ""
-
-
-class ThumbError(Exception):
-    """作れなかった理由(文 = 画面・知らせに出す日本語・detail = ffmpeg の原文。編集のジョブ(ed_thumb)が捕まえる。コマンドでは SystemExit にして出す)"""
-    def __init__(self, message, detail=""):
-        super().__init__(message)
-        self.message, self.detail = message, detail
 
 
 def main(argv=None):

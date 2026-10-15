@@ -8,7 +8,7 @@
 
 動詞(それぞれの docstring に「② が足すこと」):
   文字起こし    transcribe_clip(① clipjob → fields)・write_clip_records(words・asr・llm を書く)・write_machine_doc(③ なしで文書の機械の分を書く)・dict_pairs
-  受付          check_model・request_engine
+  受付          check_model・request_engine・tx_spec(文字起こしの指定。③ の validate_job も使う)・new_doc(新しい文書の頭。③ の run_job も使う)
   再認識        extract_span・redo_recognizer(+ redo_kwargs)・each_lines・recognize_range・end_whole・note_vad・replace_span_words(words.json の差し替え)
   2 つ目のエンジン engine_ready・check_engine_ready・alt_lines(+ alt_engine_version)
   時刻の候補    word_retime
@@ -87,6 +87,50 @@ def request_engine(req, model, ctx_doc, auto_context):
     ② が足すこと = 2 つを受付の 1 か所で組む(文脈の材料 = スタジオの data.json と名簿は ② が置き場所を知る学習データ)"""
     ctx = _roster.stream_context(ctx_doc, auto_context)
     return worker_client.req_engine(req, model), ctx
+
+
+def tx_spec(req, post, learning=None, *, src=None, dur=None):
+    """要求と後処理の値 post -> 文字起こしのジョブの指定(動画 1 本を頭から終わりまで。評価用・入れる文書・2 つ目のエンジン・話者の自動の判別・LLM のモデルは入れない)。
+    ② の CLI(flow/tools の transcribe_start)と ③ の受付(human/proof/doc_jobs の validate_job)が同じ形を使う = ③ は返した指定に自分の分(範囲・入れる文書・評価用・
+    2 つ目のエンジン・話者・LLM のモデル)を重ねる。post = 束の post の形(splitChars・autoRedo・autoFill・autoLlm・stripNames・autoLearned・autoContext・
+    autoGloss・learning.version)。learning = 学習データの読み手(ユーザーの用語が先・自動の用語はその後ろ。無ければ自動の用語は入れない)。
+    src・dur = 検査済みの動画のパスと長さ(③ が先に範囲を確かめるとき。無ければここで check_source・media_duration)。
+    機器は auto・cuda・cpu・vulkan。要求の title(120 字まで)があれば題名に(無ければ動画のファイル名)"""
+    if src is None:
+        src = _tools.check_source(req.get("sourcePath"))
+        dur = _tools.media_duration(src)
+    clip, clip_warn, _clip_path = _yschemas.find_clip(src, dur)
+    title = str(req.get("title") or "")[:120] or os.path.splitext(os.path.basename(src))[0][:120]
+    model = check_model(str(req.get("model") or "large-v3").strip())
+    lang = req.get("language") if req.get("language") in _txbase.LANGS else "ja"
+    glossary = _txtext.split_terms(req.get("glossary"))[:200]
+    gauto = list(learning.glossary(glossary)) if learning is not None and post.get("autoGloss") is not False else []
+    engine, ctx = request_engine(req, model, {"clip": clip, "title": title, "sourceName": os.path.basename(src), "sourcePath": src}, post["autoContext"])
+    return {"sourcePath": src, "sourceName": os.path.basename(src), "start": 0.0, "end": round(dur, 2) if dur else None, "intoDoc": None,
+            "duration": dur, "whole": True, "model": model, "engine": engine, "language": lang, "beam": 1 if req.get("quality") == "fast" else 5,
+            "device": req.get("device") if req.get("device") in ("auto", "cuda", "cpu", "vulkan") else "auto",
+            "vadMode": req.get("vadMode") if req.get("vadMode") in ("weak", "normal", "off") else "weak",
+            "boost": req.get("boost") is True, "autoDict": req.get("autoDict") is not False, "wordSplit": req.get("wordSplit") is not False,
+            "splitChars": post["splitChars"], "autoRedo": post["autoRedo"], "autoAlt": False,
+            "autoFill": post["autoFill"], "autoLlm": post["autoLlm"], "stripNames": post["stripNames"],
+            "stripPunct": req.get("stripPunct") is not False, "glossary": glossary + gauto, "glossAuto": gauto,
+            "learningVersion": post["learning"]["version"], "context": ctx, "evalSet": False, "autoLearned": post["autoLearned"], "clip": clip,
+            "warnings": [clip_warn] if clip_warn else [], "title": title}
+
+
+def new_doc(tid, fields, spec=None):
+    """新しい文字起こしの文書の頭: schema・id・題名・動画(spec があれば。title・sourcePath・sourceName)+ fields(transcribe_clip の "fields")+ 作った日
+    (fields の updatedAt。無ければ今)+ clip・評価用の印(spec にあれば)。③ の文字起こし(doc_jobs の run_job)と ② の write_machine_doc が同じ形で作る"""
+    doc = {"schema": "transcribe/v1", "id": tid}
+    if spec:
+        doc.update({"title": spec.get("title") or "", "sourcePath": spec.get("sourcePath") or "", "sourceName": spec.get("sourceName") or ""})
+    doc.update(fields)
+    doc["createdAt"] = fields.get("updatedAt") or int(time.time() * 1000)
+    if spec and spec.get("clip"):
+        doc["clip"] = spec["clip"]   # youtube-tools-clip/v1 の中身そのもの(transcript/v1 にもそのまま入る)
+    if spec and spec.get("evalSet"):
+        doc["evalSet"] = True
+    return doc
 
 
 # ---------- 文字起こし ----------
@@ -180,15 +224,7 @@ def write_machine_doc(tid, fields, spec=None, folder=None):
         _write_mach(tid, fields)
         return _docloc.doc_file(tid, ".json")
     primary = mode == _txbase.LAYERS_PRIMARY
-    doc = {"schema": "transcribe/v1", "id": tid}
-    if spec:
-        doc.update({"title": spec.get("title") or "", "sourcePath": spec.get("sourcePath") or "", "sourceName": spec.get("sourceName") or ""})
-    doc.update(fields)
-    doc["createdAt"] = fields.get("updatedAt") or int(time.time() * 1000)
-    if spec and spec.get("clip"):
-        doc["clip"] = spec["clip"]
-    if spec and spec.get("evalSet"):
-        doc["evalSet"] = True
+    doc = new_doc(tid, fields, spec)
     def _write(path):
         _fsio.write_json(path, doc, indent=1, fsync_required=True)
     if primary and not folder:   # 層が正: 機械の層 → 写し(書けた版を写しに記す)

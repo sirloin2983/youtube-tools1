@@ -209,7 +209,7 @@ class WhisperCppTest(unittest.TestCase):
         make_wav(media, 3)
         with mock.patch.object(S, "media_duration", lambda p: 3.0):
             spec = S.validate_job({"sourcePath": media, "model": "large-v3", "device": "vulkan"})
-            self.assertEqual((spec["engine"], spec["device"]), ("whisper.cpp", "auto"))
+            self.assertEqual((spec["engine"], spec["device"]), ("whisper.cpp", "vulkan"))   # OPT-H2: 機器の語彙は ② flow/tx.tx_spec にそろえた(vulkan をそのまま通す)
             with self.assertRaises(S.ApiError) as cm:
                 S.validate_job({"sourcePath": media, "model": "small", "device": "vulkan"})
             self.assertEqual(cm.exception.code, "bad_model")

@@ -151,7 +151,7 @@ def _bad_opt(detail):
 
 
 def _parse_opts(req):
-    """precision・volume・loudness の検査(build_spec と build_section_spec で共通)。-> (precision, 音量%, ラウドネス or None)"""
+    """precision・volume・loudness の検査(spec_from_video と build_section_spec で共通)。-> (precision, 音量%, ラウドネス or None)"""
     prec = req.get("precision")
     if prec not in (None, "accurate", "fast"):
         raise _bad_opt("precision")
@@ -248,11 +248,9 @@ def build_section_spec(req):
     return spec
 
 
-def build_spec(store, req):
-    """クライアントからは {id, markIds, precision, maxHeight} だけを受け取り、パス・タイトル・時刻はサーバーが store から組み立てる。"""
-    v = store.internal(req.get("id"))
-    if not v:
-        raise ApiError("not_found", "配信が見つかりません", 404)
+def spec_from_video(v, req):
+    """書き出しの指定(束)を配信の dict v から組む。台帳(スタジオの Store・StudioBook)から v を引くのは ② flow/export.build_spec(① は台帳を知らない)。
+    クライアントからは {id, markIds, precision, maxHeight} だけを受け取り、パス・タイトル・時刻は v(サーバーの配信の中身)から組み立てる。"""
     if v["kind"] == "live":   # 録画はスタジオのサーバーからは取りに行かない(入口のライブの書き出しが録画待ち・取得・30fps をする)
         raise _bad("ライブの録画は、画面の「マークしたらすぐ書き出す」から書き出します(この書き出しでは行えません)")
     ids = req.get("markIds")
@@ -777,7 +775,7 @@ def write_manifests(spec, it, mark_status):
 
 
 def run(spec, res, ctl, on_done=None):
-    """① の書き出し(OPT2 の J2): spec(build_spec / build_section_spec の束)を書き出し、res(new_result の辞書)に結果を書き込む。
+    """① の書き出し(OPT2 の J2): spec(spec_from_video / build_section_spec の束)を書き出し、res(new_result の辞書)に結果を書き込む。
     ctl(ytt/jobs.Ctl)は取り消しの合図だけを見る(子プロセスは run_progress の見張りが止める)。枠(SLOTS)・同時 1 本・履歴は器(② の flow/export)。
     想定外の例外は studio-errors.log に残してそのまま上げる(res を「実行中」のまま残さない後始末は器)"""
     ctl = ctl or jobs.Ctl()

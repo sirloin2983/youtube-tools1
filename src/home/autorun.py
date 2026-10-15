@@ -399,16 +399,18 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
         return self._enqueue(items, make)
 
     def start_file(self, path, title="", streamer=None, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None, cut=None,
-                   engine=None, model=None, deliver_batch=None, pool=None):
+                   engine=None, model=None, deliver_batch=None, pool=None, normalize=True):
         """友人が切り抜いた動画の依頼(src/human/friend/intake.py が作業データへコピーしたもの)を文字起こしだけ(mode file)。
         streamer = 照らし合わせ済みの名前か None。文字起こしができたら、その文書の配信者として覚える(あとでパックを作るときの字幕の色)。
-        engine・model = 文字起こしのエンジンとモデル(None = 編集の設定のまま。リアルタイム切り抜きの書き出しが live.auto から渡す。M2)"""
+        engine・model = 文字起こしのエンジンとモデル(None = 編集の設定のまま。リアルタイム切り抜きの書き出しが live.auto から渡す。M2)。
+        normalize = 最初の段で写しを 30fps に置き換える(flow/run.py の段 normalize。opt-human 9a-1 で受付から移した。置き換えは path を消すので、
+        作業データへの写しだけに使う。既に 30fps の物 = ライブの自動の書き出しなどは False)"""
         if not isinstance(path, str) or not os.path.isabs(path) or not os.path.isfile(path):
             raise ValueError("動画が見つかりません")
         self._push_accepted(lambda r: r.source_path == path, "この動画は", None)   # 先に断る物を断る(束を組む前)
         run = Run(None, str(title or os.path.basename(path))[:120], FLOW_MODES["file"].get(flow, "file"), None, streamer=streamer or None,
                   on_fail=self._pref("onFail", "next"), source_path=path, request_id=request_id, deliver_dir=deliver_dir, speakers=speakers,
-                  video_tracks=video_tracks, cut=cut, engine=engine, model=model, deliver_batch=deliver_batch, pool=pool)
+                  video_tracks=video_tracks, cut=cut, engine=engine, model=model, deliver_batch=deliver_batch, pool=pool, normalize=normalize is True)
         self._accept(run)   # 束は受けたときに組む(RS7-1 S4。ライブの書き出しの経路も欄から作った Run を、ここで束にする)
         return self._push_accepted(lambda r: r.source_path == path, "この動画は", run)
 

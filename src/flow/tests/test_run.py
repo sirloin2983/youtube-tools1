@@ -743,5 +743,138 @@ class VerdictTest(unittest.TestCase):
         self.assertEqual(R.pack_verdict(False, "none", True), "skip")         # 鍵なしで既にある
 
 
+class TestStepNormalize(unittest.TestCase):
+    """段 normalize(動画ファイルの実行の最初。opt-human 9a-1 で友人の受付 intake から移した): 写しを 30fps に置き換える。
+    本物の ffmpeg で lavfi の短い動画を「作業データへ写した動画」にする"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="run-norm-")
+        self.env = mock.patch.dict(os.environ, {"TRANSCRIBE_NORMALIZE": ""})
+        self.env.start()
+        self.marks = []
+
+        test = self
+
+        class Hooked(R.Runner):
+            def _checkpoint(self, run):
+                test.marks.append(run.source_path)
+        self.runner = Hooked(FakeClient(), poll=0.01, sleep=lambda s: None)
+
+    def tearDown(self):
+        self.env.stop()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def make(self, name, fps, ext=".mp4"):
+        from ytt import tools as ytools
+        path = os.path.join(self.tmp, name + ext)
+        subprocess.run([ytools.find_tool("ffmpeg"), "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=160x120:rate=%s:duration=2" % fps,
+                        "-f", "lavfi", "-i", "sine=frequency=440:duration=2", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", path],
+                       check=True, stdin=subprocess.DEVNULL, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        return path
+
+    def run_step(self, path, mode="file_auto"):
+        run = R.Run(None, "依頼", mode, None, source_path=path, request_id="20261016-120000-abcdef", normalize=True)
+        st = run.step("normalize")
+        self.runner._file_normalize(run, st)
+        return run, st
+
+    def test_steps_only_when_asked(self):
+        """段を持つのは normalize=True の実行だけ(入口の start_file。ライブの書き出し・CLI・② の口 submit は持たない)・待ちの記録に残る・
+        欄の無い古い記録は True で読む"""
+        p = os.path.join(self.tmp, "a.mp4")
+        self.assertEqual([s["key"] for s in R.Run(None, "a", "file_auto", None, source_path=p, normalize=True).steps],
+                         ["normalize", "transcribe", "pack", "deliver"])
+        self.assertEqual([s["key"] for s in R.Run(None, "a", "file", None, source_path=p).steps], ["transcribe"])
+        self.assertEqual([s["key"] for s in R.Run.from_input({"path": p}).steps], ["transcribe"])
+        self.assertEqual([s["key"] for s in R.Run.from_envelope({"id": "0123456789", "kind": "file", "input": {"path": p, "title": "a"}}).steps],
+                         ["transcribe", "pack", "deliver"])
+        r = R.Run(None, "a", "file", None, source_path=p, normalize=True)
+        d = r.saved()
+        self.assertIs(d["normalize"], True)
+        self.assertEqual([s["key"] for s in R.Run.restore(d).steps], ["normalize", "transcribe"])
+        self.assertEqual([s["key"] for s in R.Run.restore(dict(d, normalize=False)).steps], ["transcribe"])
+        old = {k: v for k, v in d.items() if k != "normalize"}   # 段 normalize の前の記録
+        self.assertEqual([s["key"] for s in R.Run.restore(old).steps], ["normalize", "transcribe"])
+
+    def test_30fps_is_skipped(self):
+        src = self.make("そのまま", 30)
+        run, st = self.run_step(src)
+        self.assertEqual((st["state"], st["detail"], run.source_path), ("skip", "30fps 済み", src))
+        self.assertEqual(self.marks, [])
+
+    def test_60fps_mov_is_replaced(self):
+        """作り直したら run.source_path が新しい写し(.mp4)になり、古い写しは消え、待ちの記録を書き直す"""
+        src = self.make("めっきー", 60, ".mov")
+        run, st = self.run_step(src)
+        self.assertNotIn(st["state"], ("skip", "warn"))   # 段の印(done)は _run_steps が付ける
+        self.assertIn("30fps にそろえました", st["detail"])
+        self.assertTrue(run.source_path.endswith(".mp4"), run.source_path)
+        self.assertEqual(os.path.dirname(run.source_path), self.tmp)
+        self.assertFalse(os.path.exists(src), "古い写しは消す")
+        from ytt import normalize as vnorm
+        self.assertEqual(vnorm.probe(run.source_path)["r_frame_rate"], "30/1")
+        self.assertEqual(self.marks, [run.source_path])
+        self.assertEqual(run.envelope()["input"]["path"], run.source_path)
+        self.assertEqual([n for n in os.listdir(self.tmp) if vnorm.PART in n], [], "途中のファイルは残さない")
+
+    def test_failure_keeps_copy_and_continues(self):
+        src = self.make("失敗", 60)
+        with open(src, "rb") as f:
+            original = f.read()
+        from ytt import normalize as vnorm
+
+        def boom(*a, **kw):
+            raise vnorm.NormalizeError("作り直しに失敗しました: テスト")
+        with mock.patch.object(vnorm, "normalize", boom):
+            run, st = self.run_step(src)
+        self.assertEqual((st["state"], run.source_path), ("warn", src))
+        self.assertIn("30fps にそろえられませんでした", st["detail"])
+        with open(src, "rb") as f:
+            self.assertEqual(f.read(), original, "写しのまま続ける")
+
+    def test_after_transcribe_is_skipped(self):
+        """戻した実行で文字起こしが済んでいれば作り直さない(文書の動画を変えない)"""
+        src = self.make("済み", 60)
+        run = R.Run(None, "依頼", "file_auto", None, source_path=src, normalize=True)
+        run.step("transcribe")["state"] = "done"
+        st = run.step("normalize")
+        self.runner._file_normalize(run, st)
+        self.assertEqual((st["state"], run.source_path), ("skip", src))
+
+    def test_waits_for_slot_and_can_be_cancelled(self):
+        """重い処理の枠は段の中で取る(実行の糸が待つ = 受付の見回りは止まらない)。待っている間の中止は Cancelled"""
+        import threading
+        from ytt import jobs as yjobs
+        src = self.make("待つ", 60)
+        slots = yjobs.HeavySlots(limit=1, reserved={})
+        token = slots.acquire("test", "枠を埋める")
+        run = R.Run(None, "依頼", "file", None, source_path=src, normalize=True)
+        st = run.step("normalize")
+        got = []
+
+        def go():
+            try:
+                self.runner._file_normalize(run, st)
+                got.append("done")
+            except R.Cancelled:
+                got.append("cancelled")
+        try:
+            with mock.patch.object(yjobs, "SLOTS", slots):
+                t = threading.Thread(target=go, daemon=True)
+                t.start()
+                for _ in range(100):
+                    if slots.snapshot()["waiting"]:
+                        break
+                    t.join(0.05)
+                self.assertEqual([w["label"] for w in slots.snapshot()["waiting"]], ["30fps にそろえる: 依頼"])
+                self.assertEqual(st["detail"], "重い処理の枠が空くのを待っています")
+                run.cancel = True
+                t.join(30)
+        finally:
+            slots.release(token)
+        self.assertEqual(got, ["cancelled"])
+        self.assertEqual(run.source_path, src)
+
+
 if __name__ == "__main__":
     unittest.main()

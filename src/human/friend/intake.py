@@ -17,7 +17,9 @@
 - 受け付けた元のファイルは 受付済み/YYYY-MM-DD/ へ、断ったものは 失敗/ へ移し「<名前>.理由.txt」を添える(消さない)
 - 動画は依頼のフォルダへコピーしてから文字起こしする(書き出し先があれば <書き出し先>/依頼/<日付>_<題>_<id6>/ = 案件、無ければ作業データの
   app/intake/<日付>/<依頼 id>/。_request_dir。Dropbox の「オンラインのみ」や片付けで元が消えても、文書の元のパスが切れない)
-  コピーが 30fps(H.264・AAC)でなければ、コピーを ytt.normalize で作り直して置き換える(SLOTS を通す。元は触らない。失敗してもコピーのまま続ける)
+  コピーを 30fps(H.264・AAC)にそろえるのは受付ではなく、まとめて実行の最初の段 normalize(② flow/run.py の _step_normalize。start_file の normalize=True)。
+  受付は錠の中で短い仕事(大きさ・ffprobe・コピー・案件・start_file)だけをする = 重い処理の枠 SLOTS を待たない(opt-human 9a-1: 枠を待つ間、
+  ライブ配信の依頼・「要らない」・送り返しの見回りが丸ごと止まっていた)
 - 同じ動画・同じ配信も断らない(2026-10-02 ユーザー: 送り直せるように。配信は解析・切り抜き・文字起こしを使い回す。受け付けた配信は intake-state.json に覚えるだけ)
 - 友人が時刻で指定した区間(items[].ranges)・カット(cut)・解析の重み(weights)は、形を確かめてまとめて実行へ渡す(送るアプリ 2.0.0。notes:docs/spec/friend.md の 2-6)
 - 友人の「要らない」は受付の記録(最近の依頼)に 1 件ずつ入れず、日ごとの数(画面の「今日 要らない n 本」)だけ。中身は friend_feedback.jsonl(10-13 ユーザー決定 Q17)
@@ -36,8 +38,8 @@ import time
 import uuid
 
 from flow import envelope, placement
-from flow import prio as _prio   # 優先度の表(PRIO。受付の 30fps の作り直しは友人の依頼)
-from ytt import colors, fsio, jobs, names as ytt_names, normalize, studio_env, tools, yturl
+from flow import spec as _spec   # 区間・重みの理由つきの検査(まとめて実行と同じ。opt-human 9b-2)
+from ytt import colors, fsio, names as ytt_names, normalize, studio_env, tools, yturl
 from . import friend_feedback  # noqa: E402  (友人のアプリの「要らない」<zip の名前>.feedback.json の読み取り。片付けは入口が feedback= で渡す)
 from . import live_requests  # noqa: E402  (ライブ配信の依頼の設定の検査と一覧の文。結びつきは入口が live_begin= で渡す Live.submit_request が書く。2-15)
 from . import returns  # noqa: E402  (友人の送り返し 送り返し\ の zip と採否を app/friend-returns へ並べる。F1 の F2)
@@ -249,7 +251,6 @@ def parse_speakers(v):
 
 
 VIDEO_TRACKS_DEFAULT, VIDEO_TRACKS_MAX = 1, 5
-RANGE_MAX, RANGE_MAX_SEC = 10, 3600   # 1本の配信の区間の数・1つの区間の長さ(まとめて実行・スタジオと同じ)
 CUT_LABELS = {"none": "カットしない", "silence": "無音で削る"}
 
 
@@ -259,26 +260,14 @@ def _hms(sec):
 
 
 def parse_ranges(v):
-    """依頼の区間 [{"start": 秒, "end": 秒}, …](2.0.0 のアプリ)-> ([(開始, 終了)], [断った理由])。
-    0 ≤ 開始 < 終了・長さ 3600 秒まで・10 個まで。形が違うものだけ断る(ほかは進める)"""
-    ok, bad = [], []
+    """依頼の区間 [{"start": 秒, "end": 秒}, …](2.0.0 のアプリ)-> ([(開始, 終了)], [断った理由])。受付の口(アプリの形を読むだけ)。
+    検査は ② flow/spec.check_ranges(0 ≤ 開始 < 終了・長さと個数の上限は flow/spec の RANGE_MAX_SEC・RANGE_MAX = ytt/marks の値・小数 1 桁に丸めて長さ 0 は断る。
+    形が違うものだけ断る = ほかは進める。まとめて実行の clean_ranges と同じ検査。opt-human 9b-2)"""
     if v is None:
-        return ok, bad
+        return [], []
     if not isinstance(v, list):
-        return ok, ["区間の形が正しくありません"]
-    for r in v[:50]:
-        s, e = (r.get("start"), r.get("end")) if isinstance(r, dict) else (None, None)
-        if not all(isinstance(x, (int, float)) and not isinstance(x, bool) and x == x and 0 <= x <= 360000 for x in (s, e)):
-            bad.append("区間の形が正しくありません")
-        elif e <= s:
-            bad.append("区間 %s〜%s: 終了が開始より前です" % (_hms(s), _hms(e)))
-        elif e - s > RANGE_MAX_SEC:
-            bad.append("区間 %s〜%s: 1つの区間は 60 分までです" % (_hms(s), _hms(e)))
-        elif len(ok) >= RANGE_MAX:
-            bad.append("区間 %s〜%s: 1本の配信の区間は %d 個までです" % (_hms(s), _hms(e), RANGE_MAX))
-        elif (s, e) not in ok:
-            ok.append((s, e))
-    return ok, bad
+        return [], ["区間の形が正しくありません"]
+    return _spec.check_ranges([(r.get("start"), r.get("end")) if isinstance(r, dict) else None for r in v[:50]])
 
 
 def parse_cut(v):
@@ -287,16 +276,11 @@ def parse_cut(v):
 
 
 def parse_weights(v):
-    """依頼の解析の重み {"audio", "chat", "comments"}(0〜3)-> スタジオの解析の設定の名前 {"wAudio", "wChat", "wComments"} か None(無い・形が違う)"""
+    """依頼の解析の重み {"audio", "chat", "comments"}(0〜3)-> スタジオの解析の設定の名前 {"wAudio", "wChat", "wComments"} か None(無い・形が違う)。
+    受付の口(アプリの名前を束の名前に読み替えるだけ)。検査は ② flow/spec.check_weights(まとめて実行の clean_weights と同じ。opt-human 9b-2)"""
     if not isinstance(v, dict):
         return None
-    out = {}
-    for src, dst in (("audio", "wAudio"), ("chat", "wChat"), ("comments", "wComments")):
-        x = v.get(src)
-        if isinstance(x, bool) or not isinstance(x, (int, float)) or x != x or not 0 <= x <= 3:
-            return None
-        out[dst] = round(float(x), 1)
-    return out
+    return _spec.check_weights({dst: v.get(src) for src, dst in (("audio", "wAudio"), ("chat", "wChat"), ("comments", "wComments"))})[0]
 
 
 def parse_video_tracks(v):
@@ -334,10 +318,10 @@ def _streamer(name):
 
 class Intake:
     def __init__(self, prefs, runner, data_dir, log=None, clock=None, probe=None, info=None, interval=INTERVAL, settle=SETTLE,
-                 norm_probe=None, norm_run=None, feedback=None, live_begin=None, defaults=None):
+                 feedback=None, live_begin=None, defaults=None):
         """prefs: src/home/prefs.py の Prefs(節 intake)。defaults: 設定が読めないときに使う節の既定(入口が prefs.DEFAULTS["intake"] を渡す。
         prefs を読み込まない = app の部品に依存しない。None = 空 = オフ扱い)。runner: まとめて実行を返す関数(AutoRunner)。data_dir: ホームの作業データ(app)。
-        probe・info: 動画・配信を調べる関数(テストで差し替える)。norm_probe・norm_run: 30fps の判定・作り直し(既定は ytt.normalize)。
+        probe・info: 動画・配信を調べる関数(テストで差し替える)。30fps にそろえるのはまとめて実行の段 normalize(opt-human 9a-1)。
         feedback: 友人の「要らない」(friend_feedback.parse の dict)を片付ける関数 -> {"ok", "summary"/"reason"}(入口が friend_feedback.apply を渡す。None = 断る)。
         live_begin(url, ctx): ライブ配信の依頼で録画を始めて結びつける関数 -> {"recorder", "recording", "existing"}(入口が Live.submit_request を渡す。
         だめなら ValueError か live_export.LiveError。None = ライブ配信の依頼を断る)"""
@@ -348,8 +332,6 @@ class Intake:
         self.log = log or (lambda msg: None)
         self.clock = clock or time.time
         self.probe = probe or probe_video
-        self.norm_probe = norm_probe or normalize.probe
-        self.norm_run = norm_run or normalize.normalize
         self.info = info or youtube_info
         self.interval, self.settle = interval, settle
         self.state_path = os.path.join(data_dir, STATE_FILE)
@@ -418,7 +400,7 @@ class Intake:
 
     def snapshot(self):
         cfg = self._cfg()
-        # 見る処理が長い(動画を 30fps にそろえている間は数分〜)ときに画面の表示を止めないよう、ロックは短く待つだけ(取れなくても読むだけなので安全)
+        # 見る処理が長い(大きな動画のコピー・yt-dlp の問い合わせ)ときに画面の表示を止めないよう、ロックは短く待つだけ(取れなくても読むだけなので安全)
         got = self.lock.acquire(timeout=0.3)
         try:
             return dict(cfg, state=self.state, stateLabel=STATE_LABELS[self.state], message=self.message,
@@ -794,8 +776,7 @@ class Intake:
             return {"state": "rejected", "reason": "作業データへコピーできませんでした(%s)" % tools.why(e)}
         if in_case:   # 依頼のフォルダを案件にする(文書を最初から 作業用 へ置けるように。無ければ作るだけ)
             placement.ensure_case({"kind": "file", "path": dest}, channel=who or "", root=dest_dir, request_id=rid or "")
-        dest, note = self._normalize_copy(dest, label)   # 30fps でなければ写しを作り直す(元の動画は触らない。失敗しても写しのまま続ける)
-        try:
+        try:   # 30fps にそろえるのは実行の最初の段(start_file の既定 normalize=True。写しを置き換える = 元の動画は触らない。失敗しても写しのまま続く)
             run = self.runner().start_file(dest, title=os.path.splitext(label)[0], streamer=who, request_id=rid, flow=flow,
                                            deliver_dir=os.path.join(folder, OUT_DIR) if folder else None, speakers=speakers,
                                            video_tracks=tracks, cut=cut, deliver_batch=deliver_batch)
@@ -806,7 +787,7 @@ class Intake:
                 pass
             return {"state": "rejected", "reason": "文字起こしに入れられませんでした(%s)" % e}
         self._count()
-        return {"state": "accepted", "reason": note, "runId": run["id"]}
+        return {"state": "accepted", "reason": "", "runId": run["id"]}
 
     def _request_dir(self, rid, label, day):
         """依頼 1 件の動画の置き場所 -> (フォルダ, 案件か)。書き出し先が設定されていて固定ディスクなら <書き出し先>/依頼/<日付>_<題>_<id6>/
@@ -828,49 +809,6 @@ class Intake:
                 self._req_dirs.pop(next(iter(self._req_dirs)))
             self._req_dirs[key] = got
         return got
-
-    def _normalize_copy(self, dest, label):
-        """作業データへコピーした動画 dest が 30fps(H.264・yuv420p・AAC)でなければ、写しを作り直して置き換える(Q1。2026-10-04 ユーザー決定)。
-        友人の元のファイル(Dropbox 側)は触らない。-> (使うパス, 知らせ)。知らせは作り直せなかったときだけ(受付済みの「理由.txt」・依頼の一覧に残る)。
-        作り直せなくても依頼は止めない(写しのまま続ける)。出力は mp4 なので、拡張子が違えば .mp4 の名前にして古い写しを消す"""
-        try:
-            need, why = normalize.needs_normalize(self.norm_probe(dest))
-        except Exception as e:   # 調べられなくても依頼は進める
-            need, why = False, []
-            self.log("依頼の受付: %s の形を調べられませんでした(%s)" % (label, e.__class__.__name__))
-        if not need:
-            return dest, ""
-        target = os.path.splitext(dest)[0] + ".mp4"
-        if target != dest and os.path.exists(target):
-            target = "%s-%s.mp4" % (os.path.splitext(dest)[0], uuid.uuid4().hex[:6])
-        last = [-1]
-
-        def progress(x):
-            pct = int(x * 100)
-            if pct != last[0]:
-                last[0] = pct
-                self.message = "30fps にそろえています: %s(%d%%)" % (label[:60], pct)
-        self.message = "30fps にそろえています: %s" % label[:60]
-        self.log("依頼の受付: %s を 30fps にそろえます(%s)" % (label, " / ".join(why)))
-        try:
-            with jobs.SLOTS.slot("intake", "30fps にそろえる: " + label, cancelled=lambda: self.closed, **_prio.slot_kw("friend")) as ok:
-                if not ok:
-                    raise normalize.Cancelled("取り消しました")
-                self.norm_run(dest, target, cancelled=lambda: self.closed, on_progress=progress)
-        except normalize.NormalizeError as e:
-            self.log("依頼の受付: %s を 30fps にできませんでした。写しのまま進めます(%s)" % (label, e))
-            return dest, "30fps にそろえられませんでした。元の動画のまま進めます(%s)" % str(e)[:150]
-        except Exception as e:
-            self.log("依頼の受付: %s を 30fps にできませんでした。写しのまま進めます(%s %s)" % (label, e.__class__.__name__, e))
-            return dest, "30fps にそろえられませんでした。元の動画のまま進めます(%s)" % e.__class__.__name__
-        finally:
-            self.message = ""
-        if target != dest:
-            try:
-                os.remove(dest)
-            except OSError:
-                pass
-        return target, ""
 
     # ------------------------------------------------------------ 後始末と記録
     def _record(self, folder, kind, source, title, moved, streamer, memo, runs, items, flow="", speakers=None, rid=None, tracks=None, cut=None,

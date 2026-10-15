@@ -44,6 +44,30 @@ class TestMoved(unittest.TestCase):
         self.assertEqual(str(cm.exception), "区間の指定が正しくありません")
         self.assertEqual(spec.clean_ranges([[0, 3600]]), [(0.0, 3600.0)])
         self.assertEqual(len(spec.clean_ranges([[i, i + 1] for i in range(10)])), 10)
+        with self.assertRaises(ValueError):
+            spec.clean_ranges([[0.01, 0.04]])   # 丸めたあと長さ 0(opt-human 9b-2。前は (0.0, 0.0) で通っていた)
+
+    def test_check_ranges(self):
+        """理由つきの検査(opt-human 9b-2。友人の受付 intake.parse_ranges が呼ぶ): 形の違う区間だけ断り、ほかは進める"""
+        self.assertEqual(spec.check_range((10, 20)), ((10.0, 20.0), ""))
+        for r, why in (((5, 5), "終了が開始より前"), ((0, 3601), "60 分まで"), ((0.01, 0.04), "短すぎます"), (("1", 2), "形が正しくありません"),
+                       ((True, 2), "形が正しくありません"), ((0, 360001), "形が正しくありません"), (None, "形が正しくありません"), ((1,), "形が正しくありません")):
+            got, msg = spec.check_range(r)
+            self.assertIsNone(got, r)
+            self.assertIn(why, msg, r)
+        self.assertEqual(spec.check_ranges(None), ([], []))
+        self.assertEqual(spec.check_ranges("x"), ([], ["区間の形が正しくありません"]))
+        ok, bad = spec.check_ranges([(10, 20), (9, 3), (10, 20.04)] + [(i * 100, i * 100 + 5) for i in range(1, 12)])
+        self.assertEqual((len(ok), ok[0], len(bad)), (spec.RANGE_MAX, (10.0, 20.0), 1 + 2))   # 同じ区間(丸めたあと)は 1 つ・上限を超えた 2 つは理由つき
+        self.assertTrue(any("個までです" in b for b in bad))
+
+    def test_check_weights(self):
+        self.assertEqual(spec.check_weights({"wAudio": 1, "wChat": 0.25, "wComments": 3}), ({"wAudio": 1.0, "wChat": 0.2, "wComments": 3.0}, ""))
+        for bad in (None, {"wAudio": 4, "wChat": 1, "wComments": 1}, {"wAudio": True, "wChat": 1, "wComments": 1}, {"wAudio": 1, "wChat": 1},
+                    {"wAudio": float("inf"), "wChat": 1, "wComments": 1}):
+            got, why = spec.check_weights(bad)
+            self.assertIsNone(got, bad)
+            self.assertTrue(why, bad)
 
     def test_clean_weights(self):
         self.assertEqual(spec.clean_weights({"wAudio": 1, "wChat": 0.25, "wComments": 3}), {"wAudio": 1.0, "wChat": 0.2, "wComments": 3.0})

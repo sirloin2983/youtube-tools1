@@ -108,15 +108,6 @@ def validate_job(req):
     if end is not None and end - start > _txbase.MAX_SPAN_SEC:
         raise _errors.ApiError("too_long", "1回に処理できるのは6時間までです。範囲を分けてください", 400)
     whole = start == 0 and (end is None or dur is None or abs(end - dur) < 0.5)
-    # 切り抜きスタジオが書き出した mp4 なら、隣の .clip.json(youtube-tools-clip/v1)を読んで文書に残す(元の配信のどこかが分かる)。
-    # 不正・別の版なら使わずに警告だけ(文字起こし自体は続ける)。範囲指定でも clip はそのまま残す:
-    # 文書の時刻は「動画ファイルの先頭 = 0 秒」のままなので、元の配信の時刻は常に clip_offset(clip) + 行の時刻になる(範囲の開始で補正しない)
-    clip, clip_warn, _clip_path = _yschemas.find_clip(src, dur)
-    warnings = [clip_warn] if clip_warn else []
-    model = _flowtx.check_model(str(req.get("model") or "large-v3").strip())   # 要求に無ければ large-v3(主の文字起こしのモデル。0.58.0 まで small)
-    lang = str(req.get("language") or "ja")
-    if lang not in _txbase.LANGS:
-        lang = "ja"
     st = _settings.load_settings()   # 保存した設定は 1 回だけ読む(自動の用語・下の 4 つの auto・行を分ける文字数・用語集)
     if "glossary" not in req:   # 要求に用語集が無い(② のまとめて実行。用語集は束の外 = 学習データ): 保存した設定の用語集
         req = dict(req, glossary=st.get("glossary") if isinstance(st.get("glossary"), str) else None)   # (編集の画面から始めるときに送る値と同じ)
@@ -138,36 +129,34 @@ def validate_job(req):
     ev = ev or _settings.in_eval_dir(src)   # 評価用のフォルダの動画は、画面のチェックが無くても評価用
     if ev:
         glossary, gauto = [], []
-    title = str(req.get("title") or "")[:120] or os.path.splitext(os.path.basename(src))[0][:120]
-    engine, ctx = _flowtx.request_engine(req, model, {"clip": clip, "title": title, "sourceName": os.path.basename(src), "sourcePath": src}, req.get("autoContext") is True and not ev)
-
+    # 指定の本体は ② flow/tx の tx_spec(動画 1 本を頭から終わりまで・CLI の transcribe_start と同じ形。切り抜きの .clip.json の読み・モデルとエンジンの確かめ・
+    # 配信ごとの文脈もそこ)。下は ③ が重ねる分: 範囲・入れる文書・評価用・2 つ目のエンジン・話者の細切れ・LLM のモデル・設定の読み方 pref・旧い vad
     def pref(key, default_on=False):
         """要求の真偽値があればそれ、無ければ(まとめて実行・古い画面)保存した設定。default_on = 設定に無いときもオン(明示の false だけオフ)"""
         if isinstance(req.get(key), bool):
             return req[key]
         return st.get(key) is not False if default_on else st.get(key) is True
-    return {"sourcePath": src, "sourceName": os.path.basename(src), "start": round(start, 2), "end": round(end, 2) if end else None, "intoDoc": into,
-            "duration": dur, "whole": whole, "model": model, "engine": engine, "language": lang, "beam": 1 if req.get("quality") == "fast" else 5,
-            "device": req.get("device") if req.get("device") in ("cuda", "cpu") else "auto",
-            "vadMode": req.get("vadMode") if req.get("vadMode") in ("weak", "normal", "off") else ("off" if req.get("vad") is False else "weak"),
-            "boost": req.get("boost") is True, "autoDict": req.get("autoDict") is not False and not ev, "wordSplit": req.get("wordSplit") is not False,
-            "splitChars": split_chars_for(req, st),
+    post = {"splitChars": split_chars_for(req, st),
             "autoRedo": req.get("autoRedo") is True and not ev,   # 疑わしい所の認識し直し(評価用は redo_spec が断るので始めない)
-            # 終わったら 2つ目のエンジンでも聞く(D1-b)。要求に無ければ(まとめて実行・古い画面)保存した設定 autoAlt
-            "autoAlt": pref("autoAlt") and not ev,
             # 認識のあとの後処理(fill の A・C・D。既定オン。0.60.0)。要求に無ければ保存した設定 autoFill(明示の false だけオフ)。評価用には当てない
             "autoFill": pref("autoFill", default_on=True) and not ev,
             # LLM の後処理(llm。名簿の呼び名の聞き違いらしい所だけ。既定オン = decisions 3-17。0.61.0)。評価用には当てない
             "autoLlm": pref("autoLlm", default_on=True) and not ev,
             # 行の頭の話者名(「名前:」)を外す(fill の B。既定オン。0.67.0)。評価用には当てない
             "stripNames": pref("stripNames", default_on=True) and not ev,
-            # 自動の判別の「細切れをならす」(diarSmooth。既定オフ)。要求に無ければ None = 保存した設定(speakers.autodiar_enqueue)
-            "diarSmooth": req["diarSmooth"] if isinstance(req.get("diarSmooth"), bool) else None,
-            "stripPunct": req.get("stripPunct") is not False, "glossary": glossary + gauto, "glossAuto": gauto, "context": ctx, "evalSet": ev,
-            "autoLearned": req.get("autoLearned") is True and not ev, "clip": clip, "warnings": warnings,
-            "learningVersion": str(req.get("learningVersion") or "")[:80],
-            "llmModel": _llm_model_of(req),   # LLM の後処理のモデル(要求にあれば。無ければ ② が machine.json の値を入れる = flow/tx)
-            "title": title}
+            "autoLearned": req.get("autoLearned") is True and not ev, "autoContext": req.get("autoContext") is True and not ev,
+            "learning": {"version": str(req.get("learningVersion") or "")[:80]}}
+    spec = _flowtx.tx_spec(req, post, src=src, dur=dur)
+    spec.update({"start": round(start, 2), "end": round(end, 2) if end else None, "intoDoc": into, "whole": whole,
+                 "vadMode": spec["vadMode"] if req.get("vadMode") in ("weak", "normal", "off") or req.get("vad") is not False else "off",   # 旧い画面の vad: false は「なし」
+                 "autoDict": spec["autoDict"] and not ev,
+                 # 終わったら 2つ目のエンジンでも聞く(D1-b)。要求に無ければ(まとめて実行・古い画面)保存した設定 autoAlt
+                 "autoAlt": pref("autoAlt") and not ev,
+                 # 自動の判別の「細切れをならす」(diarSmooth。既定オフ)。要求に無ければ None = 保存した設定(speakers.autodiar_enqueue)
+                 "diarSmooth": req["diarSmooth"] if isinstance(req.get("diarSmooth"), bool) else None,
+                 "glossary": glossary + gauto, "glossAuto": gauto, "evalSet": ev,
+                 "llmModel": _llm_model_of(req)})   # LLM の後処理のモデル(要求にあれば。無ければ ② が machine.json の値を入れる = flow/tx)
+    return spec
 
 
 NO_RETRY = ("extract_failed", "bad_range", "too_long", "bad_model", "bad_engine", "bad_ext", "not_found", "no_speech")   # 同じ指定ではまた失敗する理由(2 周目 N2)
@@ -357,12 +346,7 @@ def _run_transcribe(job, spec):
             tid = store.fill_doc(spec, fields) if spec.get("intoDoc") else None
         if tid is None:
             tid = uuid.uuid4().hex[:12]
-            doc = dict({"schema": "transcribe/v1", "id": tid, "title": spec["title"], "sourcePath": spec["sourcePath"], "sourceName": spec["sourceName"]},
-                       **fields, createdAt=fields["updatedAt"])
-            if spec.get("clip"):
-                doc["clip"] = spec["clip"]   # youtube-tools-clip/v1 の中身そのもの(transcript/v1 にもそのまま入る)
-            if spec.get("evalSet"):
-                doc["evalSet"] = True
+            doc = _flowtx.new_doc(tid, fields, spec)   # 文書の頭(schema・id・題名・動画・作った日・clip・評価用の印)は ② と同じ形
             mach = _yschemas.make_mach(doc["segments"], speakers=doc.get("speakers"))   # 機械の層 = 引き継ぐ前の機械の行(引き継いだ人の行は人の層へ)
             carried = carry_overrides(job, spec, doc)   # 同じ動画の文書があれば人の行を引き継ぐ(評価用には当てない)
             # 書き出し先の案件の動画なら、その 作業用 に置く(② flow/placement.doc_home。評価用・案件でなければ transcripts)

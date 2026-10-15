@@ -18,7 +18,8 @@ from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # src
-from flow import run as R, studiobook as SB, tools as T  # noqa: E402
+from flow import export as E, run as R, studiobook as SB, tools as T  # noqa: E402
+from pipeline.export import exporter as _exporter  # noqa: E402  (ffmpeg と yt-dlp の検査を外して ② の指定を組むだけを見る)
 from human.review import store as store_mod  # noqa: E402  (台帳の書いた物をスタジオの Store が読めるかを見るだけ。② の本体は ③ を読まない)
 from ytt import casefiles as CF, errors, names, studio_env  # noqa: E402
 
@@ -201,6 +202,40 @@ class LocalToolsTest(Base):
         t.request_marks({"id": VID, "ranges": [[5, 15]], "top": 1})
         self.assertEqual(t.studio_video(VID)["id"], VID)
         self.assertEqual(len(t.video(VID)[1]["video"]["marks"]), 1)
+
+
+class BuildSpecTest(Base):
+    """② の書き出しの指定(flow/export.build_spec)は、台帳が Store でも StudioBook でも同じ指定になる(書き出しの本文の口を 1 つに)"""
+    def _req(self):
+        self.analyzed()
+        mid = self.book.internal(VID)["marks"][0]["id"]
+        return {"id": VID, "markIds": [mid]}
+
+    def test_store_and_book_give_the_same_spec(self):
+        req = self._req()
+        with mock.patch.object(_exporter, "_need_ffmpeg"), mock.patch.object(_exporter, "_youtube_source"):
+            a = E.build_spec(self.book, req)
+            b = E.build_spec(self.studio(), req)
+        self.assertEqual(a, b)
+        self.assertEqual([c["id"] for c in a["clips"]], req["markIds"])
+
+    def test_refuses_live_and_missing_file_on_both(self):
+        req = self._req()
+        v = self.book.internal(VID)
+        for ledger in (self.book, self.studio()):
+            with mock.patch.object(_exporter, "_need_ffmpeg"), mock.patch.object(ledger, "internal", return_value=dict(v, kind="live")):
+                with self.assertRaises(errors.ApiError):
+                    E.build_spec(ledger, req)
+        for ledger in (self.book, self.studio()):
+            with mock.patch.object(_exporter, "_need_ffmpeg"), mock.patch.object(ledger, "internal", return_value=dict(v, kind="file", path=os.path.join(self.tmp, "none.mp4"))):
+                with self.assertRaises(errors.ApiError) as cm:
+                    E.build_spec(ledger, req)
+                self.assertEqual(cm.exception.code, "no_file")
+
+    def test_unknown_video_is_not_found(self):
+        with self.assertRaises(errors.ApiError) as cm:
+            E.build_spec(self.book, {"id": "zzzzzzzzzzz", "markIds": ["m"]})
+        self.assertEqual(cm.exception.status, 404)
 
 
 if __name__ == "__main__":

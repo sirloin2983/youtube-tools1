@@ -1,8 +1,8 @@
 """① 配信の検索 rank.py の疑似 YouTube Data API(STUDIO_FAKE=1 のときだけ使う。ネットワークなし。e2e と画面の確かめが使う)。
 
 チャンネル・チャンネルの欄・アップロード一覧(150 本)・動画の詳しい情報・配信中の枠を、ハッシュから決まった形で作る。
-本来は ⑤ eval/fake/ の仕事だが、③ は ⑤ を読めないので同じフォルダに分けた(疑似の口を差し込む仕組みは OPT2)。
-rank.yt_get だけが呼ぶ(fake_get に「配信中」の見回りの本数を渡す)。
+本来は ⑤ eval/fake/ の仕事だが、③ は ⑤ を読めないので同じフォルダに分けた(差し込む口は ytapi.set_fake。⑤ へ移すのは次の段)。
+rank が起動時に ytt/ytapi.set_fake で差し込む(fake_get に「配信中」の見回りの本数を渡す)。
 """
 import hashlib
 from datetime import datetime, timedelta, timezone

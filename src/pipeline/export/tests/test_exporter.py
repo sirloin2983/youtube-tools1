@@ -24,6 +24,7 @@ sys.path.insert(0, SRC)
 import startup  # noqa: E402  (src を sys.path に足し、スタジオのフォルダを ytt/studio_env に知らせる)
 from ytt import errors, jobs, mediainfo, studio_env  # noqa: E402
 from pipeline.export import exporter
+from flow import export as _fexport  # noqa: E402  (指定は ② の build_spec = 台帳から引く口。① の spec_from_video は配信の dict を受けるだけ)
 from ytt import normalize, schemas  # noqa: E402  (途中のファイルの置き場所 WORK_DIR)
 
 
@@ -90,14 +91,14 @@ class TestApplyVolume(unittest.TestCase):
         return FakeStore()
 
     def test_volume_out_of_range_rejected_by_build_spec(self):
-        """build_spec は 1〜200 の範囲外を bad_request で断る(ffmpeg は呼ばない)。"""
+        """build_spec(② の口)は 1〜200 の範囲外を bad_request で断る(ffmpeg は呼ばない)。"""
         store = self._fake_store()
         for bad in (0, 201, -5, "abc"):
             with self.assertRaises(errors.ApiError):
-                exporter.build_spec(store, {"id": "v1", "markIds": ["m1"], "volume": bad})
+                _fexport.build_spec(store, {"id": "v1", "markIds": ["m1"], "volume": bad})
 
     def test_volume_missing_defaults_to_75(self):
-        spec = exporter.build_spec(self._fake_store(), {"id": "v1", "markIds": ["m1"]})
+        spec = _fexport.build_spec(self._fake_store(), {"id": "v1", "markIds": ["m1"]})
         self.assertEqual(spec["volume"], exporter.DEFAULT_EXPORT_VOLUME)
 
 
@@ -521,7 +522,7 @@ class TestBuildSpecIds(unittest.TestCase):
                 return {"id": "-o /tmp/x", "kind": "youtube", "marks": [{"id": "m1", "start": 0, "end": 1, "label": ""}], "title": "", "fileName": "", "path": ""}
         with patch.dict(os.environ, {"STUDIO_FAKE": ""}), patch.object(studio_env, "find_tool", return_value="/bin/true"):
             with self.assertRaises(errors.ApiError) as cm:
-                exporter.build_spec(S(), {"id": "x", "markIds": ["m1"]})
+                _fexport.build_spec(S(), {"id": "x", "markIds": ["m1"]})
         self.assertIn("配信の ID", cm.exception.message)   # 0.22.3: 配信の意味の「動画」は「配信」(見直し S5)
 
 
@@ -555,12 +556,12 @@ class TestLoudness(unittest.TestCase):
         class Store:
             def internal(self, vid):
                 return {"id": vid, "marks": [{"id": "m1", "start": 1.0, "end": 2.0, "label": ""}], "kind": "file", "path": src, "title": "t", "fileName": ""}
-        self.assertIsNone(exporter.build_spec(Store(), {"id": "v1", "markIds": ["m1"]})["loudness"])   # 送らなければ今までどおり音量(%)
-        self.assertEqual(exporter.build_spec(Store(), {"id": "v1", "markIds": ["m1"], "loudness": -14})["loudness"], -14.0)
-        self.assertIsNone(exporter.build_spec(Store(), {"id": "v1", "markIds": ["m1"], "loudness": 0})["loudness"])
+        self.assertIsNone(_fexport.build_spec(Store(), {"id": "v1", "markIds": ["m1"]})["loudness"])   # 送らなければ今までどおり音量(%)
+        self.assertEqual(_fexport.build_spec(Store(), {"id": "v1", "markIds": ["m1"], "loudness": -14})["loudness"], -14.0)
+        self.assertIsNone(_fexport.build_spec(Store(), {"id": "v1", "markIds": ["m1"], "loudness": 0})["loudness"])
         for bad in (-13, -40, "x", [1]):
             with self.subTest(bad=bad), self.assertRaises(errors.ApiError):
-                exporter.build_spec(Store(), {"id": "v1", "markIds": ["m1"], "loudness": bad})
+                _fexport.build_spec(Store(), {"id": "v1", "markIds": ["m1"], "loudness": bad})
 
     def test_clip_and_edit_media_reach_target_with_same_gain(self):
         clips = [{"id": "m1", "start": 12.0, "end": 18.0, "title": "t", "label": "t", "src": "manual", "markStatus": "adopted"}]

@@ -289,32 +289,19 @@ class TestResolveAndRetry(unittest.TestCase):
             b.retry("se:s1")
         self.assertEqual([c["ref"] for c in got[0]["agencies"][0]["channels"]], ["@abc", "@later"])
 
-    def test_quota_counts_only_when_going_out_and_key_in_header(self):
-        q0 = rank._quota
-        with patch.object(rank._env, "fake", return_value=False), patch.object(rank._key, "get_api_key", return_value=("", "")):
-            with self.assertRaises(rank.ApiError):
+    def test_yt_get_goes_through_ytapi_and_replaced_yt_get_is_not_counted(self):
+        """取得の本体は ytt/ytapi.get の 1 つ(失敗の対応表・数え・見出しのキーは ytt のテスト)。ここは rank.yt_get がそこへ繋がっていることと、差し替えたときに数えが増えないこと"""
+        q0 = rank._ytapi.used()
+        with patch.object(rank._env, "fake", return_value=False), patch.object(rank._ytapi._key, "get_api_key", return_value=("", "")):
+            with self.assertRaises(rank.ApiError) as cm:
                 rank.yt_get("channels", {"id": "x"})
-        self.assertEqual(rank._quota, q0)   # キーが無くて呼ばなかったときは数えない
-        seen = []
-
-        class R:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *a):
-                return False
-
-            def read(self, *a):
-                return b"{}"
-
-        def fake_open(req, timeout=0):
-            seen.append(req)
-            return R()
-        with patch.object(rank._env, "fake", return_value=False), patch.object(rank._key, "get_api_key", return_value=("KEY123", "env")),                 patch.object(rank.urllib.request, "urlopen", fake_open), patch.object(rank.json, "load", return_value={"items": []}):
-            rank.yt_get("channels", {"id": "x"})
-        self.assertEqual(rank._quota, q0 + 1)
-        self.assertNotIn("KEY123", seen[0].full_url)   # キーは URL に載せない(失敗の文・ログに出ても漏れない)
-        self.assertEqual(seen[0].get_header("X-goog-api-key"), "KEY123")
+        self.assertEqual((cm.exception.code, rank._ytapi.used()), ("no_key", q0))   # キーが無くて呼ばなかったときは数えない
+        with patch.object(rank._ytapi, "get", return_value={"items": []}) as g:
+            self.assertEqual(rank.yt_get("channels", {"id": "x"}), {"items": []})
+        g.assert_called_once_with("channels", {"id": "x"})
+        with patch.object(rank, "yt_get", return_value={"items": []}):   # 差し替えた yt_get は外へ出ない = 数えない
+            rank._resolve_channels([rank._pending("@abc")])
+        self.assertEqual(rank._ytapi.used(), q0)
 
 
 if __name__ == "__main__":

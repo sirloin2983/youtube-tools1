@@ -22,6 +22,7 @@ from ytt import marks as _marks, schemas
 # ---------- 区間・マーク・採用数・重みの検査(autorun.py から移した) ----------
 RANGE_MAX = _marks.MAX_REQUEST_RANGES   # 1本の配信の区間の数(スタジオと同じ = ytt/marks)
 RANGE_MAX_SEC = _marks.MAX_MARK_SEC     # 1つの区間の長さ(スタジオと同じ = ytt/marks)
+RANGE_TIME_MAX = 360000  # 区間の時刻の上限(秒 = 100 時間。これより後は形が違う扱い。友人の受付の検査から)
 RANGE_PAD = 2.0          # 区間の前後に足す秒(ぴったり指定すると頭の一言が欠けやすいため。2026-10-02 ユーザー決定: 自動で付ける。RS1-7 で autorun.py から)
 CUTS = ("none", "silence")          # 友人が選べるカットの方法(① 全自動のパック)
 PACK_CUTS = ("rows",) + CUTS        # 束の pack.cut で選べる方法(rows = 行から = ホームの設定 autorun.cut の選択肢。run.py の _cut_method と同じ)
@@ -47,17 +48,60 @@ def num_ok(v):
     return schemas.is_num(v) and abs(v) < 1e7
 
 
+def _hms(sec):
+    sec = int(sec)
+    return "%d:%02d:%02d" % (sec // 3600, sec % 3600 // 60, sec % 60)
+
+
+def check_range(r):
+    """区間 1 つ (開始, 終了)(秒)を確かめる(理由つきの検査。opt-human 9b-2)。-> (小数 1 桁に丸めた (開始, 終了) か None, 断った理由)。
+    時刻は 0〜RANGE_TIME_MAX 秒・開始 < 終了・長さ RANGE_MAX_SEC 秒まで。丸めたあと長さ 0 になる区間(0.01〜0.04 など)も断る。
+    友人の受付(③ human/friend/intake.parse_ranges)と束の検査 clean_ranges が同じこれを使う"""
+    s, e = r if isinstance(r, (list, tuple)) and len(r) == 2 else (None, None)
+    if not all(num_ok(x) and 0 <= x <= RANGE_TIME_MAX for x in (s, e)):
+        return None, "区間の形が正しくありません"
+    a, b = round(float(s), 1), round(float(e), 1)
+    if e <= s:
+        return None, "区間 %s〜%s: 終了が開始より前です" % (_hms(s), _hms(e))
+    if b <= a:
+        return None, "区間 %s〜%s: 短すぎます(0.1 秒より長くしてください)" % (_hms(s), _hms(e))
+    if b - a > RANGE_MAX_SEC:
+        return None, "区間 %s〜%s: 1つの区間は %d 分までです" % (_hms(s), _hms(e), RANGE_MAX_SEC // 60)
+    return (a, b), ""
+
+
+def check_ranges(v):
+    """区間の一覧 [(開始, 終了), …] -> ([丸めた (開始, 終了)], [断った理由])。形の違う区間だけ断る(ほかは進める。友人の依頼の受付の決まり)。
+    RANGE_MAX 個まで(超えた分は理由つきで断る)・同じ区間は 1 つだけ。一覧でなければ全体を断る"""
+    if v in (None, [], ()):
+        return [], []
+    if not isinstance(v, (list, tuple)):
+        return [], ["区間の形が正しくありません"]
+    ok, bad = [], []
+    for r in v:
+        got, why = check_range(r)
+        if got is None:
+            bad.append(why)
+        elif len(ok) >= RANGE_MAX:
+            bad.append("区間 %s〜%s: 1本の配信の区間は %d 個までです" % (_hms(got[0]), _hms(got[1]), RANGE_MAX))
+        elif got not in ok:
+            ok.append(got)
+    return ok, bad
+
+
 def clean_ranges(v):
-    """区間の一覧 [(開始, 終了), …](秒)を確かめる。-> 整えた一覧(None・空 = 区間なし)。形が違えば ValueError"""
+    """区間の一覧 [(開始, 終了), …](秒)を確かめる。-> 整えた一覧(None・空 = 区間なし)。形が違えば ValueError。
+    1 つずつの検査は check_range(丸めたあと長さ 0 の区間も断る)。こちらは 1 つでも合わなければ全体を断る(束・まとめて実行の受付)"""
     if v in (None, [], ()):
         return []
     if not isinstance(v, (list, tuple)) or len(v) > RANGE_MAX:
         raise ValueError("区間は %d 個までです" % RANGE_MAX)
     out = []
     for r in v:
-        if not isinstance(r, (list, tuple)) or len(r) != 2 or not num_ok(r[0]) or not num_ok(r[1]) or not 0 <= r[0] < r[1] or r[1] - r[0] > RANGE_MAX_SEC:
+        got, _why = check_range(r)
+        if got is None:
             raise ValueError("区間の指定が正しくありません")
-        out.append((round(float(r[0]), 1), round(float(r[1]), 1)))
+        out.append(got)
     return out
 
 
@@ -70,11 +114,20 @@ def pad_range(s, e, duration=None, pad=RANGE_PAD):
     return [round(a, 1), round(max(b, a + 0.1), 1)]
 
 
+def check_weights(v):
+    """解析の重み {"wAudio", "wChat", "wComments"}(0〜3)を確かめる(理由つきの検査。opt-human 9b-2)。
+    -> (小数1桁に整えたもの か None, 断った理由)。友人の受付(③ intake.parse_weights)と clean_weights が同じこれを使う"""
+    if not isinstance(v, dict):
+        return None, "解析の重みの形が正しくありません"
+    miss = [k for k in WEIGHT_KEYS if not (num_ok(v.get(k)) and 0 <= v[k] <= 3)]
+    if miss:
+        return None, "解析の重みは 0〜3 の数です(%s)" % "・".join(miss)
+    return {k: round(float(v[k]), 1) for k in WEIGHT_KEYS}, ""
+
+
 def clean_weights(v):
-    """解析の重み {"wAudio", "wChat", "wComments"}(0〜3)-> 小数1桁に整えたもの か None(指定なし・形が違う)"""
-    if not isinstance(v, dict) or not all(num_ok(v.get(k)) and 0 <= v[k] <= 3 for k in WEIGHT_KEYS):
-        return None
-    return {k: round(float(v[k]), 1) for k in WEIGHT_KEYS}
+    """解析の重み {"wAudio", "wChat", "wComments"}(0〜3)-> 小数1桁に整えたもの か None(指定なし・形が違う)。検査は check_weights"""
+    return check_weights(v)[0]
 
 
 def top_arg(top):

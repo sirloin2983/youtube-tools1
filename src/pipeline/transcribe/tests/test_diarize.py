@@ -60,6 +60,18 @@ class TestPure(unittest.TestCase):
         got, info = diarize.match_voices_explain({"S1": None}, voices)
         self.assertEqual((got, info["S1"]["reason"]), ({}, "no_feature"))
 
+    def test_blend_voice(self):
+        """声の混ぜ方の計算(長さで重み・長さ 1 に直す・前の重みは 1 時間まで・前が無ければそのまま)"""
+        v, s = diarize.blend_voice([1.0, 0.0], 10.0, [0.0, 1.0], 10.0)
+        self.assertAlmostEqual(v[0], v[1], places=6)                          # 同じ長さ同士は半々
+        self.assertAlmostEqual(sum(x * x for x in v), 1.0, places=6)           # 長さ 1
+        self.assertEqual(s, 20.0)
+        v, s = diarize.blend_voice([1.0, 0.0], 36000.0, [0.0, 1.0], 10.0)
+        self.assertAlmostEqual(v[0], diarize._unit([3600.0, 10.0])[0], places=6)   # 前の重みは 3600 秒で頭打ち
+        self.assertEqual(s, 3610.0)
+        self.assertEqual(diarize.blend_voice(None, 5.0, [0.0, 1.0], 7.0), ([0.0, 1.0], 7.0))   # 前が無い
+        self.assertEqual(diarize.blend_voice([1.0, 0.0, 0.0], 5.0, [0.0, 1.0], 7.0), ([0.0, 1.0], 7.0))   # 次元が違う
+
 
 class TestPlaces(_Patches):
     def test_models_dir_follows_workdata(self):

@@ -16,6 +16,8 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/editor
 sys.path.insert(0, HERE)
 import thumb_ideas as T  # noqa: E402
+from pipeline.export import thumb_cards as _cards  # noqa: E402  (fpath・crop_box・font_path・W・H は ① の名前。③ の殻(thumb_ideas)は ① を読まないので直に読む)
+from ytt import tools  # noqa: E402
 
 
 def row(a, b, text):
@@ -63,10 +65,10 @@ class TimesTest(unittest.TestCase):
         self.assertTrue(any(g[2] == "even" for g in got))   # 足りない分は均等に
 
     def test_crop_box(self):
-        self.assertEqual(T.crop_box("center", 1920, 1080), (607, 1080, 656, 0))
-        cw, ch, x, y = T.crop_box("right", 1920, 1080)
+        self.assertEqual(_cards.crop_box("center", 1920, 1080), (607, 1080, 656, 0))
+        cw, ch, x, y = _cards.crop_box("right", 1920, 1080)
         self.assertEqual((x + cw, y + ch), (1920, 1080))
-        cw, ch, x, y = T.crop_box("zoom", 1920, 1080, (800, 200, 300, 400))
+        cw, ch, x, y = _cards.crop_box("zoom", 1920, 1080, (800, 200, 300, 400))
         self.assertTrue(x <= 800 and x + cw >= 1100 and y <= 200 and y + ch >= 600)
         self.assertTrue(0 <= x and x + cw <= 1920 and 0 <= y and y + ch <= 1080)
 
@@ -93,16 +95,16 @@ class DocTest(unittest.TestCase):
             self.assertEqual(T.doc_rows(None), [])
 
     def test_fpath(self):
-        self.assertEqual(T.fpath("C:\\Windows\\Fonts\\a.ttc"), "'C\\:/Windows/Fonts/a.ttc'")
+        self.assertEqual(_cards.fpath("C:\\Windows\\Fonts\\a.ttc"), "'C\\:/Windows/Fonts/a.ttc'")
 
 
 class RenderTest(unittest.TestCase):
     def test_make_png(self):
-        ff = T.tools.find_tool("ffmpeg", "YTT_FFMPEG")
+        ff = tools.find_tool("ffmpeg", "YTT_FFMPEG")
         if not ff:
             self.skipTest("ffmpeg が無い")
         try:
-            T.font_path()
+            _cards.font_path()
         except SystemExit:
             self.skipTest("日本語のフォントが無い")
         with tempfile.TemporaryDirectory() as tmp:
@@ -114,7 +116,7 @@ class RenderTest(unittest.TestCase):
             with open(out, "rb") as f:
                 head = f.read(24)
             self.assertEqual(head[:8], b"\x89PNG\r\n\x1a\n")
-            self.assertEqual(struct.unpack(">II", head[16:24]), (T.W * 2, T.H * 3))
+            self.assertEqual(struct.unpack(">II", head[16:24]), (_cards.W * 2, _cards.H * 3))
             self.assertEqual(len(rec["cards"]), 6)
             with open(os.path.join(tmp, "ideas.json"), encoding="utf-8") as f:
                 self.assertEqual(json.load(f)["schema"], "youtube-tools-thumb-ideas/v1")

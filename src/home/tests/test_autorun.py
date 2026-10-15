@@ -1068,7 +1068,7 @@ class TestRestore(Base):
         media = os.path.join(self.tmp, "ライブ.mp4")
         open(media, "wb").close()
         self.tools.hold = True
-        run = self.r.start_file(media, title="ライブの切り抜き", flow="auto", engine="whisper.cpp", model="large-v3")
+        run = self.r.start_file(media, title="ライブの切り抜き", flow="auto", engine="whisper.cpp", model="large-v3", normalize=False)   # ライブの書き出しは 30fps 済み
         self.until(lambda: (self.snap(run["id"]) or {}).get("steps", [{}])[0].get("state") == "run")
         saved = self.active()
         self.assertEqual([(x["id"], x["state"], x["mode"], x["engine"], x["steps"][0]["state"]) for x in saved],
@@ -1264,7 +1264,8 @@ class TestRequests(Base):
         self.assertEqual([(x["kind"], x["sourcePath"]) for x in recs], [("file", media)])
         # もう一度: 文字起こし済みなので飛ばす
         run = self.wait(self.r.start_file(media))
-        self.assertEqual(self.states(run), {"transcribe": "skip"})
+        # 段 normalize(start_file の既定。空のファイルは調べられない = 警告で続く。中身は src/flow/tests/test_run.py の TestStepNormalize)
+        self.assertEqual(self.states(run), {"normalize": "warn", "transcribe": "skip"})
         with self.assertRaisesRegex(ValueError, "見つかりません"):
             self.r.start_file(os.path.join(self.tmp, "nai.mp4"))
 
@@ -1739,7 +1740,7 @@ class TestRequests(Base):
         open(media, "wb").close()
         out = os.path.join(self.tmp, "Dropbox", "出力")
         run = self.wait(self.r.start_file(media, title="依頼", streamer="さくらみこ", request_id="rid1", flow="auto", deliver_dir=out))
-        self.assertEqual((run["state"], run["mode"], list(self.states(run))), ("done", "file_auto", ["transcribe", "pack", "deliver"]), run)
+        self.assertEqual((run["state"], run["mode"], list(self.states(run))), ("done", "file_auto", ["normalize", "transcribe", "pack", "deliver"]), run)
         self.assertEqual(self.tools.c2r["body"]["output"].get("streamer"), "さくらみこ")   # 選んだ配信者の色でパック
         self.assertNotIn("videoTracks", self.tools.c2r["body"]["output"])                 # 選ばなければ送らない(= 1)
         self.assertEqual(sorted(self.zips(out)), ["rid1__依頼.zip"])
@@ -1770,7 +1771,7 @@ class TestRequests(Base):
         media = os.path.join(self.tmp, "コラボ.mp4")
         open(media, "wb").close()
         run = self.wait(self.r.start_file(media, speakers={"count": 2, "names": ["兎田ぺこら"]}))
-        self.assertEqual((run["state"], list(self.states(run))), ("done", ["transcribe", "diarize"]), run)
+        self.assertEqual((run["state"], list(self.states(run))), ("done", ["normalize", "transcribe", "diarize"]), run)
         body = self.tools.tx_jobs["d1"]["body"]
         self.assertEqual((body["tid"], body["numSpeakers"], body["names"]), ("000000000001", 2, ["兎田ぺこら"]))
 
@@ -1789,7 +1790,7 @@ class TestRequests(Base):
         media = os.path.join(self.tmp, "コラボ.mp4")
         open(media, "wb").close()
         run = self.wait(self.r.start_file(media, speakers=dict(self.SPEAKERS)))
-        self.assertEqual((run["state"], list(self.states(run))), ("done", ["transcribe", "diarize"]), run)
+        self.assertEqual((run["state"], list(self.states(run))), ("done", ["normalize", "transcribe", "diarize"]), run)
         subs = [c for c in self.tools.calls if c[2] == "/api/speakers/sub"]
         self.assertEqual([(c[0], c[1], c[3]) for c in subs], [("transcribe", "POST", {"id": "000000000001", "styles": self.STYLES})])
         detail = next(s for s in run["steps"] if s["key"] == "diarize")["detail"]
@@ -1823,7 +1824,7 @@ class TestRequests(Base):
         media = os.path.join(self.tmp, "古い編集.mp4")
         open(media, "wb").close()
         run = self.wait(self.r.start_file(media, speakers=dict(self.SPEAKERS), flow="auto", deliver_dir=os.path.join(self.tmp, "出力")))
-        self.assertEqual((run["state"], list(self.states(run))), ("done", ["transcribe", "diarize", "pack", "deliver"]), run)
+        self.assertEqual((run["state"], list(self.states(run))), ("done", ["normalize", "transcribe", "diarize", "pack", "deliver"]), run)
         self.assertEqual(self.states(run)["diarize"], "done")
         self.assertIn("字幕の色を覚えられませんでした", next(s for s in run["steps"] if s["key"] == "diarize")["detail"])
         self.assertEqual(self.tools.c2r["body"]["output"]["speakerStyles"], self.STYLES, "パックには色を渡す")

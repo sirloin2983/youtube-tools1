@@ -399,6 +399,19 @@ def _unit(v):
     return [x / s for x in v] if s > 0 else None
 
 
+BLEND_MAX_SEC = 3600.0   # 前に覚えた声の重みに数える長さの上限(秒。1 時間まで)
+
+
+def blend_voice(old_vec, old_sec, vec, sec):
+    """覚えた声の混ぜ方の計算だけ。前の声 old_vec(長さ old_sec 秒ぶん)と新しい声 vec(sec 秒ぶん)を、長さで重みを付けて平均し長さ 1 にする。
+    -> (混ぜた特徴, 合計の秒)。前の声が無いか次元が違えば (vec, sec) のまま。混ぜた結果が 0 になれば新しい vec を使う。
+    前の重みは BLEND_MAX_SEC まで(配信ごとの揺れをならす)。どの文書から覚えたか・行の控えは ② の flow/diar が持つ"""
+    if not old_vec or len(old_vec) != len(vec):
+        return vec, sec
+    w0 = min(float(old_sec or 0.0), BLEND_MAX_SEC)
+    return _unit([a * w0 + b * sec for a, b in zip(old_vec, vec)]) or vec, sec + w0
+
+
 def _cos(a, b):
     """どちらも長さ 1 の特徴どうしのコサイン類似度(次元が違えば -1 = 比べられない)"""
     return sum(x * y for x, y in zip(a, b)) if a and b and len(a) == len(b) else -1.0

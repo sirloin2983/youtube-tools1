@@ -3,11 +3,12 @@
 HTTP は serve.py が受け持つ。ここは素の関数だけを公開する:
   get_registry() / put_registry(obj) / resolve(agency) / import_official_channels(agency)
   start_search(obj) / get_search(id) / cancel_search(id)
-  live_list(agencies)(配信中・これからの予定。画面の「配信中」のタブ)
+  live_list(agencies)(配信中・これからの予定。画面の「配信中」のタブ。いつ探すか・覚える長さは ② flow/live_watch。ここは登録簿から事務所を選んで渡す)
   attach_board(board)(掲示板に検索のジョブを出す。board_jobs・board_cancel・board_retry は掲示板が呼ぶ引く形・取り消し・やり直し)
-STUDIO_FAKE=1 のときは疑似API(fake_yt.py。ネットワークなし)で動く。
+STUDIO_FAKE=1 のときは疑似API(fake_yt.py。ネットワークなし。起動時に ytt/ytapi へ差し込む)で動く。
+YouTube Data API を呼ぶ口は ytt/ytapi.get の 1 つ(失敗の対応表・数え・覚え)。ここの yt_get はその呼び手の名前(テストの差し替えの的)。
 中の部品は _ を付けた名前。_ なしで残すのは、外から呼ぶ上の口と、テストが使う load_registry・sanitize_registry・validate_search・run_search・
-parse_live_agencies・live_row・yt_get(テストの差し替えの的)。
+parse_live_agencies・live_row・yt_get。
 """
 import hashlib
 import json
@@ -16,96 +17,49 @@ import re
 import threading
 import time
 import unicodedata
-import urllib.error
 import urllib.parse
-import urllib.request
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 from ytt import yturl as _yturl  # noqa: E402  動画 ID の形・動画のページ
-from ytt import apikey as _key, fsio as _fsio, studio_env as _env  # noqa: E402  (src は studio/startup.py が sys.path に足してある)
+from ytt import fsio as _fsio, studio_env as _env, ytapi as _ytapi  # noqa: E402  (src は studio/startup.py が sys.path に足してある)
 from ytt.errors import ApiError, Cancelled  # noqa: E402
+from flow import live_watch as _live  # noqa: E402  ② 配信の見回り(いつ探すか)
 
 from . import fake_yt as _fake  # noqa: E402  疑似 API(STUDIO_FAKE=1)
 
-API_BASE = _yturl.YT_API_BASE
-NET_MSG = "YouTube の API に接続できません。インターネットの接続を確かめてから、もう一度試してください"
-CHID_RE = re.compile(r"^UC[\w-]{22}\Z", re.ASCII)
+NET_MSG = _ytapi.NET_MSG
+CHID_RE = _ytapi.CHID_RE
 HANDLE_RE = re.compile(r"^@[\w.\-]{3,60}\Z")
 SLUG_RE = re.compile(r"[^a-z0-9_-]")
 JST = timezone(timedelta(hours=9))
 MAX_AGENCIES, MAX_CHANNELS = 30, 400
 MAX_PAGES = 40            # 1チャンネルあたり、アップロード一覧を最大40ページ(=2000本)
 WORKERS = 4
-CACHE_TTL = 1800
+CACHE_TTL = _ytapi.CACHE_TTL
 SEED = os.path.join(os.path.dirname(os.path.abspath(__file__)), "seed.json")   # 事務所の初期の登録(このファイルの隣)
-FATAL = ("quota", "no_key", "key_invalid", "api_not_enabled", "api_permission")   # 1チャンネルの失敗として続けず、検索・取り込み全体を止める失敗
+FATAL = _ytapi.FATAL   # 1チャンネルの失敗として続けず、検索・取り込み全体を止める失敗
+LIVE_PAGE, LIVE_AHEAD, LIVE_TITLE_MAX = _live.LIVE_PAGE, _live.LIVE_AHEAD, _live.LIVE_TITLE_MAX   # テストが読む名前(本体は ② flow/live_watch)
 
-_quota = 0
-_quota_lock = threading.Lock()
 _reg_lock = threading.Lock()
-_cache = {}
-_cache_lock = threading.Lock()
+_cache = _ytapi.CACHE   # 覚えは ytt/ytapi の 1 か所(検索も「配信中」の見回りも使う)。テストが clear する名前
+_cache_lock = _ytapi.CACHE_LOCK
+_live_none = _live.none_ids   # テストが clear する名前
+_MISS = _ytapi.MISS
 
 
 def _registry_path():
     return _env.p("registry.json")
 
 
-def _count():
-    """YouTube Data API を 1 回呼ぶ数え(すべて 1 ユニット)。起動してからの累計で、検索の結果の「API の使用量」は前後の差。
-    実際に外へ出るとき(と疑似のとき)だけ数える = キーが無くて呼ばなかったときは数えない"""
-    global _quota
-    with _quota_lock:
-        _quota += 1
-
-
 def yt_get(path, params):
-    """YouTube Data API を1回呼ぶ(すべて1ユニット)。テスト用の疑似モードでは fake_yt.fake_get を使う。
-    キーは URL ではなく見出し X-goog-api-key で送る(失敗の文・ログに URL が出ても漏れないように)"""
-    if _env.fake():
-        _count()
-        return _fake.fake_get(path, params, LIVE_PAGE)
-    key, _ = _key.get_api_key()
-    if not key:
-        raise ApiError("no_key", "API キーが未設定です(設定の「YouTube Data API キー」で入れてください)", 400)
-    _count()
-    url = API_BASE + path + "?" + urllib.parse.urlencode(params)
-    req = urllib.request.Request(url, headers={"Accept": "application/json", "X-goog-api-key": key})
-    last = None
-    for attempt in range(2):
-        try:
-            with urllib.request.urlopen(req, timeout=20) as r:
-                return json.load(r)
-        except urllib.error.HTTPError as e:
-            try:
-                err = json.loads(e.read().decode("utf-8", "replace")).get("error", {})
-            except ValueError:
-                err = {}
-            reason = (err.get("errors") or [{}])[0].get("reason", "")
-            msg = str(err.get("message", ""))
-            if reason in ("quotaExceeded", "rateLimitExceeded", "dailyLimitExceeded"):
-                raise ApiError("quota", "YouTube APIの1日の利用上限に達しました(翌日、太平洋時間の0時にリセットされます)", 429)
-            if reason in ("keyInvalid", "badRequest") and "key" in msg.lower():
-                raise ApiError("key_invalid", "API キーが正しくありません(設定の「YouTube Data API キー」で入れ直してください)", 400)
-            if reason in ("accessNotConfigured", "forbidden", "permissionError", "ipRefererBlocked") and e.code == 403:
-                raise ApiError(
-                    "api_permission",
-                    "YouTube Data API の権限で拒否されました。Google Cloud で「YouTube Data API v3」を有効にし、この API キーのアプリケーション制限（IP アドレス・HTTP リファラー）と API 制限を確認してください",
-                    403,
-                )
-            if e.code == 404 or reason in ("playlistNotFound", "channelNotFound"):
-                raise ApiError("not_found", "見つかりません", 404)
-            if e.code >= 500 and attempt == 0:   # サーバー側の一時的な失敗は1回だけやり直す
-                time.sleep(1)
-                continue
-            raise ApiError("upstream", "YouTube の API がエラーを返しました。少し待ってから、もう一度試してください", 502, {"detail": "HTTP %d" % e.code})   # 番号は画面の「元のメッセージ」へ
-        except (urllib.error.URLError, TimeoutError, OSError):
-            last = ApiError("network", NET_MSG, 502)
-            if attempt == 0:
-                time.sleep(1)
-    raise last or ApiError("network", NET_MSG, 502)
+    """YouTube Data API を1回呼ぶ(本体は ytt/ytapi.get。失敗の対応表・数え・疑似はそちら)。検索・解決・「配信中」の呼び手はこの名前を通す = テストが差し替えられる"""
+    return _ytapi.get(path, params)
+
+
+# 疑似の差し込み(疑似の本体 fake_yt は ③ にあり、ytt は読めないので起動時にここから渡す。STUDIO_FAKE=1 のときだけ使われる)
+_ytapi.set_fake(lambda path, params: _fake.fake_get(path, params, _live.LIVE_PAGE))
 
 
 # ---------- 登録(事務所・所属チャンネル) ----------
@@ -204,17 +158,7 @@ def _save_registry(reg):
     _fsio.atomic_write(_registry_path(), json.dumps(reg, ensure_ascii=False, indent=1).encode("utf-8"))
 
 
-def _soft(fn, default, on_err=None):
-    """fn() の ApiError のうち、検索・取り込み全体を止めるもの(FATAL = 上限・キーなど)は投げ直し、
-    それ以外(1 チャンネルの失敗)は on_err(ex) を呼んで default を返す"""
-    try:
-        return fn()
-    except ApiError as ex:
-        if ex.code in FATAL:
-            raise
-        if on_err:
-            on_err(ex)
-        return default
+_soft = _ytapi.soft   # 1 チャンネルの失敗は続け、FATAL は投げ直す
 
 
 def _pending(ref):
@@ -312,16 +256,7 @@ def _parse_iso_dur(s):
     return d * 86400 + h * 3600 + mi * 60 + sec
 
 
-def _parse_dt(s):
-    if not s or not isinstance(s, str):
-        return None
-    try:
-        return datetime.strptime(s, "%Y-%m-%dT%H:%M:%S%z" if s.endswith("+00:00") else "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-    except (ValueError, TypeError):
-        try:
-            return datetime.fromisoformat(str(s).replace("Z", "+00:00"))
-        except ValueError:
-            return None
+_parse_dt = _ytapi.parse_dt
 
 
 def validate_search(req):
@@ -357,28 +292,8 @@ def validate_search(req):
             "minDur": min_dur, "agencies": ags, "req": dict(req)}
 
 
-_MISS = object()
-
-
-def _cache_get(key, ttl, now=None):
-    """_cache に覚えた値(ttl 秒以内のもの)。無ければ _MISS"""
-    now = time.time() if now is None else now
-    with _cache_lock:
-        hit = _cache.get(key)
-    return hit[1] if hit and now - hit[0] < ttl else _MISS
-
-
-def _cached(key, fn, ttl=CACHE_TTL):
-    now = time.time()
-    val = _cache_get(key, ttl, now)
-    if val is not _MISS:
-        return val
-    val = fn()
-    with _cache_lock:
-        if len(_cache) > 5000:
-            _cache.clear()
-        _cache[key] = (now, val)
-    return val
+_cache_get = _ytapi.cache_get
+_cached = _ytapi.cached
 
 
 def _list_candidates(job, ch, spec):
@@ -472,7 +387,7 @@ def run_search(job, spec):
     動画の詳しい情報を引く(0.5〜0.9)→ 配信を始めた時刻が期間に入る・アーカイブだけ・ショートを除く(61 秒以下。2024-10 からのショートは 3 分までだが、
     画面の既定「10分以上だけ」で落ちる)・最低の再生時間・再生数・ワードで絞り、事務所ごとに再生数の多い順の上位 N 本。
     scanned = 期間に入った数(絞る前)。1 チャンネルの失敗は警告に積んで続け、上限・キーの失敗(FATAL)は全体を止める"""
-    q0 = _quota
+    q0 = _ytapi.used()
     try:
         job["state"], job["phase"] = "running", "所属チャンネルを確認中"
         chans, unresolved = _ok_channels(spec["agencies"])
@@ -523,7 +438,7 @@ def run_search(job, spec):
                         "items": [{"id": r["id"], "title": r["title"], "channel": r["channel"], "channelId": r["channelId"], "views": r["views"], "likes": r["likes"], "comments": r["comments"],
                                    "at": r["at"].astimezone(JST).strftime("%Y-%m-%d %H:%M"), "dur": r["dur"], "url": _yturl.watch_url(r["id"]), "thumb": r["thumb"]}
                                   for r in rows[:spec["top"]]]})
-        job["result"] = {"agencies": out, "warnings": warns[:30], "unresolved": unresolved, "quota": _quota - q0, "videos": len(vids)}
+        job["result"] = {"agencies": out, "warnings": warns[:30], "unresolved": unresolved, "quota": _ytapi.used() - q0, "videos": len(vids)}
         job["state"], job["phase"], job["progress"] = "done", "完了", 1.0
     except Cancelled:
         job["state"], job["phase"] = "cancelled", "中止しました"
@@ -554,24 +469,8 @@ def _job_public(j):
     return dict({k: j[k] for k in ("id", "state", "phase", "progress", "error", "result")}, code=j.get("code", ""), detail=j.get("detail", ""))
 
 
-# ---------- 配信中・これからの予定(画面の「配信中」のタブ) ----------
-# 取得元は検索と同じ YouTube Data API と、登録した事務所のチャンネル(新しい鍵・外部サービスは足さない)。
-# search(eventType=live)は 1 回 100 ユニットと高いので使わない。代わりに:
-#   見回り: 各チャンネルのアップロード一覧の先頭 LIVE_PAGE 本(playlistItems。1 チャンネル 1 ユニット)。配信中・予定の枠もアップロード一覧に入る。
-#           LIVE_SCAN_TTL(20 分)覚える = 新しく立った枠(ゲリラ配信など)が一覧に出るまで最大 20 分かかる
-#   状態:   見回りで見つけた動画を videos.list(50 本で 1 ユニット)で聞く。一度「配信でない(none)」と分かった動画は聞き直さない
-#           (アーカイブ・投稿動画が配信中に戻ることはない)ので、2 回目からは配信中・予定の分だけ = ふつう 1 ユニット
-#   結果は LIVE_TTL(60 秒)覚える(画面の「更新」・2 分ごとの読み直しで外へ聞きすぎない)
-LIVE_TTL = 60
-LIVE_SCAN_TTL = 1200
-LIVE_PAGE = 15            # アップロード一覧の先頭から見る本数(枠を立ててから投稿が続いても拾えるように少し多め。何本でも 1 ユニット)
-LIVE_AHEAD = 24 * 3600    # これからの予定は、24 時間以内に始まるものだけ
-LIVE_LATE = 6 * 3600      # 予定の時刻を過ぎても始まらない枠は、6 時間で出さなくする(立てたまま使わなかった枠)
-LIVE_TITLE_MAX, LIVE_NAME_MAX = 200, 100
-# 録画できない印: メンバー限定は API に項目が無いので題から(録画の部品はログインしないので取れない)。年齢制限は contentRating から
-MEMBERS_RE = re.compile(r"メン限|メンシ限|メンバー(?:シップ)?限定|members?[\s_-]*only|members?[\s_-]*limited", re.I)
-_live_none = {}           # 配信でないと分かった動画 ID(聞き直さない)
-_live_lock = threading.Lock()
+# ---------- 配信中・これからの予定(画面の「配信中」のタブ。探し方・覚える長さは ② flow/live_watch) ----------
+live_row = _live.live_row   # テストが読む名前
 
 
 def parse_live_agencies(arg):
@@ -587,131 +486,12 @@ def parse_live_agencies(arg):
     return out[:MAX_AGENCIES]
 
 
-def _live_scan(ch):
-    """チャンネルのアップロード一覧の先頭 LIVE_PAGE 本の動画 ID(LIVE_SCAN_TTL 覚える)"""
-    def run():
-        r = yt_get("playlistItems", {"part": "contentDetails", "playlistId": ch["uploads"], "maxResults": LIVE_PAGE})
-        return [str(it.get("contentDetails", {}).get("videoId") or "") for it in r.get("items", [])][:LIVE_PAGE]
-    return _cached(("lv-pl", ch["uploads"]), run, LIVE_SCAN_TTL)
-
-
-def _ms(dt):
-    return int(dt.timestamp() * 1000) if dt else 0
-
-
-def live_row(it, now):
-    """videos.list の1件 → 一覧の1行(配信中・24 時間以内の予定でなければ None)。外から来る文字は長さを切る"""
-    vid = str(it.get("id") or "")
-    if not _yturl.VID_RE.match(vid):
-        return None
-    sn, ld = it.get("snippet") or {}, it.get("liveStreamingDetails") or {}
-    kind = sn.get("liveBroadcastContent")
-    if kind == "live" and not ld.get("actualEndTime"):
-        start = _parse_dt(ld.get("actualStartTime")) or _parse_dt(ld.get("scheduledStartTime"))
-        try:
-            viewers = max(0, int(ld.get("concurrentViewers")))
-        except (TypeError, ValueError):
-            viewers = None   # 視聴者数を隠している配信
-    elif kind == "upcoming":
-        start = _parse_dt(ld.get("scheduledStartTime"))
-        if start is None or not (now - LIVE_LATE <= start.timestamp() <= now + LIVE_AHEAD):
-            return None
-        viewers = None
-    else:
-        return None
-    title = str(sn.get("title") or "")[:LIVE_TITLE_MAX]
-    thumbs = sn.get("thumbnails") or {}
-    thumb = str((thumbs.get("medium") or thumbs.get("default") or {}).get("url") or "")
-    if not re.match(r"^https://([\w-]+\.)?ytimg\.com/[\w./%-]{1,300}\Z", thumb):   # 画面の CSP(img-src)に合うものだけ
-        thumb = ""
-    cid = str(sn.get("channelId") or "")
-    blocked = ""
-    if MEMBERS_RE.search(title):
-        blocked = "members"
-    elif ((it.get("contentDetails") or {}).get("contentRating") or {}).get("ytRating") == "ytAgeRestricted":
-        blocked = "age"
-    return {"id": vid, "title": title, "channel": str(sn.get("channelTitle") or "")[:LIVE_NAME_MAX], "channelId": cid if CHID_RE.match(cid) else "",
-            "state": "live" if kind == "live" else "upcoming", "start": _ms(start), "viewers": viewers, "thumb": thumb,
-            "url": _yturl.watch_url(vid), "blocked": blocked}
-
-
-def _live_fetch(ids):
-    """videos.list で状態を聞く(50 本ずつ)。配信でないと分かったものは _live_none に覚える"""
-    out = {}
-    for k in range(0, len(ids), 50):
-        part = ids[k:k + 50]
-        r = yt_get("videos", {"part": "snippet,contentDetails,liveStreamingDetails", "id": ",".join(part), "maxResults": 50})
-        got = set()
-        for it in r.get("items", []):
-            vid = str(it.get("id") or "")
-            got.add(vid)
-            ended = bool((it.get("liveStreamingDetails") or {}).get("actualEndTime"))
-            if (it.get("snippet") or {}).get("liveBroadcastContent") in ("live", "upcoming") and not ended:
-                out[vid] = it
-            else:
-                _live_none[vid] = True
-        for vid in part:
-            if vid not in got:   # 消えた・非公開になった動画も聞き直さない
-                _live_none[vid] = True
-    if len(_live_none) > 20000:
-        _live_none.clear()
-    return out
-
-
-def _live_build(ags, now):
-    q0 = _quota
-    chans, unresolved = _ok_channels(ags)
-    warns, fails = [], []
-
-    def one(item):
-        a, c = item
-
-        def failed(ex):
-            warns.append("%s: 一覧を読めませんでした(%s)" % (c["title"] or c["ref"], ex.message))
-            fails.append(ex)
-        return a, _soft(lambda: _live_scan(c), [], failed)
-    with ThreadPoolExecutor(WORKERS * 2) as ex:   # 1 チャンネル 1 回の軽い問い合わせなので、検索より多く並べる(最初の1回の待ち時間を短く)
-        results = list(ex.map(one, chans))
-    if fails and len(fails) == len(chans):   # 1つも読めない(つながらないなど)は、空の一覧ではなく失敗として返す
-        raise fails[0]
-    owner = {}
-    for a, ids in results:
-        for vid in ids:
-            if vid and vid not in _live_none:
-                owner.setdefault(vid, a)
-    got = _live_fetch(list(owner))
-    live, upcoming = [], []
-    for vid, it in got.items():
-        row = live_row(it, now)
-        if not row:
-            continue
-        a = owner[vid]
-        row["agency"], row["agencyName"] = a["id"], a["name"]
-        (live if row["state"] == "live" else upcoming).append(row)
-    live.sort(key=lambda r: (-(r["viewers"] or 0), -r["start"], r["id"]))   # 視聴者数の多い順(隠している配信は後ろ)
-    upcoming.sort(key=lambda r: (r["start"], r["id"]))                     # 始まる時刻の早い順
-    return {"live": live, "upcoming": upcoming, "agencies": [{"id": a["id"], "name": a["name"]} for a in ags],
-            "warnings": warns[:30], "unresolved": unresolved, "channels": len(chans), "quota": _quota - q0, "checkedAt": int(now * 1000)}
-
-
 def live_list(agencies=None, now=None):
     """配信中(視聴者数の多い順)と、24 時間以内に始まる予定(早い順)。agencies: 事務所 ID のリスト(None = 全部)。
-    LIVE_TTL 秒は同じ事務所の組み合わせの結果を返す(外へ聞かない)。同時に来たら1つずつ(2つの窓から開いても二重に聞かない)"""
+    登録簿から対象の事務所を選び、② flow/live_watch に渡す(この yt_get と _ok_channels も渡す)。事務所が 1 つも無ければ 400(no_agency)"""
     want = parse_live_agencies(agencies) if not isinstance(agencies, list) else parse_live_agencies(",".join(str(x) for x in agencies))
-    reg = load_registry()
-    ags = [a for a in reg["agencies"] if want is None or a["id"] in want]
-    if not ags:
-        raise ApiError("no_agency", "対象の事務所を選んでください", 400)
-    key = ("lv", tuple(sorted(a["id"] for a in ags)))
-    with _live_lock:
-        t = time.time() if now is None else now
-        hit = _cache_get(key, LIVE_TTL, t)
-        if hit is not _MISS:
-            return dict(hit, cached=True)
-        out = _live_build(ags, t)
-        with _cache_lock:
-            _cache[key] = (t, out)
-        return dict(out, cached=False)
+    ags = [a for a in load_registry()["agencies"] if want is None or a["id"] in want]
+    return _live.live_list(ags, yt_get, _ok_channels, now)
 
 
 # ---------- serve.py から呼ぶ公開関数 ----------

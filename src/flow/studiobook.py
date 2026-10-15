@@ -140,7 +140,7 @@ class StudioBook:
             return copy.deepcopy(self._full(row)) if row else None
 
     def internal(self, vid):
-        """書き出しの指定(exporter.build_spec)が読む形 = get"""
+        """書き出しの指定(flow/export.build_spec)が読む形 = get"""
         return self.get(vid)
 
     # ---- 書く ----
@@ -340,9 +340,9 @@ class LocalStudio:
         return r
 
     def export_start(self, body):
-        """書き出しを始める -> (HTTP の番号, 応答)。本文はスタジオの POST /api/export と同じ(exporter.build_spec が台帳から組む)"""
+        """書き出しを始める -> (HTTP の番号, 応答)。本文はスタジオの POST /api/export と同じ(flow/export.build_spec が台帳から組む)"""
         try:
-            spec = _exporter.build_spec(self.book, body)
+            spec = _export.build_spec(self.book, body)
 
             def on_done(vid, mid, rel, start, end, path=None):
                 recorded = self.book.mark_exported(vid, mid, rel, start, end, path)

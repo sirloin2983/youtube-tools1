@@ -106,6 +106,35 @@ class TestHeadRamp(unittest.TestCase):
         self.assertTrue(50 <= top0["peak"] <= 70, top0)
 
 
+class TestFetchComments(unittest.TestCase):
+    """fetch_comments は ytt/ytapi.get を通る(キーは URL に入れない)。失敗の文"""
+
+    def run_with(self, err_or_data):
+        def get(path, params):
+            self.seen = (path, dict(params))
+            if isinstance(err_or_data, Exception):
+                raise err_or_data
+            return err_or_data
+        with mock.patch.object(fetch._env, "fake", return_value=False), mock.patch.object(fetch._key, "get_api_key", return_value=("KEY", "env")), \
+                mock.patch.object(fetch._ytapi, "get", get):
+            return fetch.fetch_comments("v" * 11, 600)
+
+    def test_key_not_in_params(self):
+        st, why = self.run_with({"items": [{"snippet": {"topLevelComment": {"snippet": {"textOriginal": "1:00 ここ", "likeCount": 2}}}}]})
+        self.assertEqual((self.seen[0], "key" in self.seen[1], why), ("commentThreads", False, ""))
+        self.assertEqual(st, [(60, 2, 1.0)])
+
+    def test_quota_says_limit(self):
+        st, why = self.run_with(ApiError("quota", "YouTube APIの1日の利用上限に達しました", 429))
+        self.assertIsNone(st)
+        self.assertIn("上限", why)
+
+    def test_other_failures_keep_their_sentences(self):
+        self.assertEqual(self.run_with(ApiError("upstream", "x", 502, {"detail": "HTTP 403", "reason": "commentsDisabled"})), (None, "この動画はコメントが無効です"))
+        self.assertEqual(self.run_with(ApiError("upstream", "x", 502, {"detail": "HTTP 500", "reason": ""})), (None, "コメント欄を取得できませんでした(エラー / HTTP 500)"))
+        self.assertEqual(self.run_with(ApiError("network", "x", 502)), (None, "コメント欄を取得できませんでした(接続エラー)"))
+
+
 class TestComments(unittest.TestCase):
     def test_chapter_list_downweighted(self):
         chapters = "0:30 始まり\n10:00 雑談\n25:10 ゲーム\n40:00 終わり\n55:00 おまけ"

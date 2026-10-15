@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest import mock
@@ -23,10 +24,7 @@ for p in (HOME, ROOT):
 from human.friend import intake  # noqa: E402
 from human.friend import live_requests  # noqa: E402
 import prefs as prefs_mod  # noqa: E402
-from ytt import fsio, normalize, tools  # noqa: E402
-
-OK_30FPS = {"has_video": True, "has_audio": True, "vcodec": "h264", "bit_depth": 8, "pix_fmt": "yuv420p", "r_frame_rate": "30/1",
-            "avg_fps": 30.0, "acodec": "aac"}   # normalize.probe の結果の形(作り直しが要らない動画)
+from ytt import fsio, jobs, normalize, tools  # noqa: E402
 
 
 class FakeRunner:
@@ -66,16 +64,10 @@ class Base(unittest.TestCase):
         self.probes = {}
         self.it = intake.Intake(self.prefs, lambda: self.runner, self.data, clock=lambda: self.now,
                                 probe=lambda p: self.probes.get(os.path.basename(p), {"ok": True, "duration": 60.0, "reason": ""}),
-                                info=lambda vid: self.infos.get(vid, {"duration": 3600.0, "live": "not_live", "title": "題名 " + vid, "channel": "ch"}),
-                                norm_probe=lambda p: dict(OK_30FPS), norm_run=self.norm_run)   # 既定は 30fps 済み(作り直さない)。作り直しのテストは TestNormalize
-        self.norm_calls = []
+                                info=lambda vid: self.infos.get(vid, {"duration": 3600.0, "live": "not_live", "title": "題名 " + vid, "channel": "ch"}))
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
-
-    def norm_run(self, src, dst, **kw):
-        self.norm_calls.append((src, dst))
-        raise AssertionError("30fps 済みの動画を作り直そうとした")
 
     def put(self, name, data):
         p = os.path.join(self.folder, name)
@@ -460,6 +452,9 @@ class TestVideo(Base):
                                        {"start": True, "end": 2}, {"start": 10, "end": 20}])
         self.assertEqual((ok, len(bad)), ([(10, 20)], 5))
         self.assertEqual(len(intake.parse_ranges([{"start": i * 10, "end": i * 10 + 5} for i in range(12)])[0]), 10)
+        ok, bad = intake.parse_ranges([{"start": 0.01, "end": 0.04}, {"start": 1.26, "end": 2}])   # 丸めたあと長さ 0 は断る(9b-2)・丸めた値で渡す
+        self.assertEqual((ok, len(bad)), ([(1.3, 2.0)], 1))
+        self.assertIn("短すぎます", bad[0])
         self.assertEqual([intake.parse_cut(x) for x in ("none", "silence", "rows", None, 1)], ["none", "silence", None, None, None])
         self.assertEqual(intake.parse_weights({"audio": 1.5, "chat": 0, "comments": 3}), {"wAudio": 1.5, "wChat": 0.0, "wComments": 3.0})
         for badw in (None, {}, {"audio": 1, "chat": 1}, {"audio": 4, "chat": 1, "comments": 1}, {"audio": "1", "chat": 1, "comments": 1}, {"audio": True, "chat": 1, "comments": 1}):
@@ -611,14 +606,15 @@ class TestRequestFolder(Base):
         self.assertEqual(os.path.dirname(d), os.path.join(self.data, "intake", self.it._today()))
 
 
-class TestNormalize(Base):
-    """友人の動画を 30fps にそろえる(Q1。2026-10-04)。本物の ffmpeg で、lavfi の短い動画を「届いた動画」にする"""
+class TestVideoNoSlots(Base):
+    """届いた動画の確かめ(本物の ffprobe)と、受付が重い処理の枠を待たないこと(opt-human 9a-1)。lavfi の短い動画を「届いた動画」にする。
+    30fps にそろえるのはまとめて実行の段 normalize(10-16 に受付から移した。テストは src/flow/tests/test_run.py の TestStepNormalize)"""
 
     def setUp(self):
         super().setUp()
         self.logs = []
         self.it = intake.Intake(self.prefs, lambda: self.runner, self.data, clock=lambda: self.now, log=self.logs.append,
-                                probe=lambda p: {"ok": True, "duration": 2.0, "reason": ""}, info=lambda v: None)   # norm_probe・norm_run は本物
+                                probe=lambda p: {"ok": True, "duration": 2.0, "reason": ""}, info=lambda v: None)
 
     def make(self, name, fps, ext=".mp4", vcodec="libx264"):
         path = os.path.join(self.folder, name + ext)
@@ -626,10 +622,6 @@ class TestNormalize(Base):
                         "-f", "lavfi", "-i", "sine=frequency=440:duration=2", "-c:v", vcodec, "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", path],
                        check=True, stdin=subprocess.DEVNULL, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         return path
-
-    def copied(self):
-        f, = self.runner.files
-        return f["path"]
 
     def test_probe_video_needs_audio(self):
         """届いた動画の確かめ(probe_video。中は normalize.probe = 30fps の判定と同じ ffprobe の呼び方。2026-10-09 に寄せた):
@@ -646,64 +638,36 @@ class TestNormalize(Base):
         for p in (silent, bad, os.path.join(self.folder, "無い.mp4")):
             self.assertEqual(intake.probe_video(p), {"ok": False, "duration": None, "reason": "音声のある動画として読めませんでした"}, p)
 
-    def test_60fps_copy_is_replaced_with_30fps(self):
+    def test_scan_does_not_wait_for_heavy_slots(self):
+        """重い処理の枠を上限まで埋めた状態で 30fps でない動画を置いても、scan はすぐ返り、別の見回りが錠を取れる(9a-1 の再現。
+        前は scan が錠を持ったまま SLOTS.slot で待ち、枠が空くまでライブ配信の依頼・「要らない」・送り返しの見回りも止まっていた)。
+        受付は写して start_file に渡すだけ(写しは 60fps のまま。友人の元のファイルは受付済みへ移るだけ)"""
         src = self.make("【さくらみこ】にぇ", 60)
-        before = os.path.getsize(src)
-        self.scan2()
-        p = self.copied()
-        info = normalize.probe(p)
-        self.assertEqual(info["r_frame_rate"], "30/1")
-        self.assertEqual((info["vcodec"], info["acodec"]), ("h264", "aac"))
+        with open(src, "rb") as f:
+            original = f.read()
+        slots = jobs.HeavySlots(limit=1, reserved={})
+        token = slots.acquire("test", "枠を埋める")
+        try:
+            with mock.patch.object(jobs, "SLOTS", slots):
+                self.it.scan()
+                self.now += intake.SETTLE + 1
+                t = threading.Thread(target=self.it.scan, daemon=True)
+                t.start()
+                t.join(30)
+                self.assertFalse(t.is_alive(), "scan が重い処理の枠を待って止まった")
+                self.assertTrue(self.it.lock.acquire(timeout=1), "別の見回り(次の回・画面の snapshot)が錠を取れる")
+                self.it.lock.release()
+                self.assertEqual(slots.snapshot()["waiting"], [], "受付は枠を待たない")
+        finally:
+            slots.release(token)
+        p = self.runner.files[0]["path"]
+        with open(p, "rb") as f:
+            self.assertEqual(f.read(), original, "受付は写すだけ(30fps は実行の段 normalize)")
         self.assertTrue(p.startswith(os.path.join(self.data, "intake")))
-        self.assertEqual([n for n in os.listdir(os.path.dirname(p)) if normalize.PART in n or n.endswith(".copying")], [], "途中のファイルは残さない")
-        # 友人の元のファイルは受付済みへ移るだけで、作り直さない(60fps のまま)
-        moved = self.done("【さくらみこ】にぇ.mp4")
-        self.assertEqual(os.path.getsize(moved), before)
-        self.assertEqual(normalize.probe(moved)["r_frame_rate"], "60/1")
-        self.assertEqual(self.it.snapshot()["requests"][0]["state"], "accepted")
+        self.assertEqual(normalize.probe(self.done("【さくらみこ】にぇ.mp4"))["r_frame_rate"], "60/1")
+        rec = self.it.snapshot()["requests"][0]
+        self.assertEqual((rec["state"], rec["items"][0]["reason"]), ("accepted", ""))
         self.assertEqual(self.it.message, "")
-
-    def test_30fps_h264_aac_is_not_reencoded(self):
-        src = self.make("そのまま", 30)
-        with open(src, "rb") as f:
-            original = f.read()
-        self.scan2()
-        with open(self.copied(), "rb") as f:
-            self.assertEqual(f.read(), original, "30fps の H.264 + AAC はコピーのまま")
-
-    def test_mov_becomes_mp4_and_old_copy_removed(self):
-        self.make("めっきー", 60, ".mov")
-        self.scan2()
-        p = self.copied()
-        self.assertTrue(p.endswith(".mp4"))
-        self.assertEqual(normalize.probe(p)["r_frame_rate"], "30/1")
-        self.assertEqual([n for n in os.listdir(os.path.dirname(p)) if n.endswith(".mov")], [])
-
-    def test_failure_does_not_stop_request(self):
-        def boom(src, dst, **kw):
-            raise normalize.NormalizeError("作り直しに失敗しました: テスト")
-        self.it.norm_run = boom
-        src = self.make("失敗", 60)
-        with open(src, "rb") as f:
-            original = f.read()
-        self.scan2()
-        with open(self.copied(), "rb") as f:
-            self.assertEqual(f.read(), original, "写しのまま続ける")
-        r = self.it.snapshot()["requests"][0]
-        self.assertEqual(r["state"], "accepted")
-        self.assertIn("30fps にそろえられませんでした", r["items"][0]["reason"])
-        self.assertTrue(any("30fps にできませんでした" in m for m in self.logs))
-        with open(self.done("失敗.理由.txt"), encoding="utf-8-sig") as f:
-            self.assertIn("30fps にそろえられませんでした", f.read())   # 友人の Dropbox の受付済みにも理由が残る
-
-    def test_unexpected_error_also_continues(self):
-        def boom(src, dst, **kw):
-            raise RuntimeError("想定外")
-        self.it.norm_run = boom
-        self.make("想定外", 60)
-        self.scan2()
-        self.assertEqual(len(self.runner.files), 1)
-        self.assertEqual(self.it.snapshot()["requests"][0]["state"], "accepted")
 
 
 class TestFeedback(Base):

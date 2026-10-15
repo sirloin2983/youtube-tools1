@@ -21,6 +21,15 @@ KEEP = 20   # 終わったジョブを覚えておく数(画面の進み具合�
 BUSY_MSG = "別の書き出しが実行中です。完了または中止してから始めてください"
 
 
+def build_spec(book, req):
+    """書き出しの指定(束)を台帳から組む -> spec。book = 配信の台帳(スタジオの Store でも スタジオなしの StudioBook でも同じ。internal(id) を持つ)。
+    配信が無ければ 404。マーク・音量・高さ・ファイルの検査と組み立ては ① pipeline/export/exporter.spec_from_video(台帳を知らない)"""
+    v = book.internal(req.get("id"))
+    if not v:
+        raise ApiError("not_found", "配信が見つかりません", 404)
+    return _exporter.spec_from_video(v, req)
+
+
 def _admit(active, spec, kind):
     if active:
         raise ApiError("busy", BUSY_MSG, 409)
