@@ -35,7 +35,7 @@ TOOLS = (
       "settings.json", "settings-ui.json", "cache", "archive"),
      ("studio.log", "studio.old.log", "studio-errors.log", "studio-errors.old.log", "studio.crash.log", "studio.crash.old.log", "work")),
     ("transcribe", "transcribe-tool",
-     ("transcripts", "dataset", "evals", "models", "settings.json", "learn-feedback.json", "eval-baselines.json"),
+     ("transcripts", "dataset", "evals", "models", "settings.json", "learn-feedback.json"),   # eval-baselines.json は OPT-E1 で消した(編集の DATA_ITEMS と同じ)
      ("serve.log", "serve.log.1", "serve.log.2", "serve.crash.log", "worker.log", "worker.log.1", ".running.json")),
     ("cut2resolve", "cut2resolve", (), ("work",)),
     ("app", "app", (), ("logs",)),

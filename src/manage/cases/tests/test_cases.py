@@ -568,6 +568,17 @@ class TestAutoClips(Base):
                                                          "text": "10_自動.mp4: 文字起こしへ渡せませんでした: 止まっています"})
         self.assertIsNone(by["m2"]["review"]["failure"])
 
+    def test_deliver_passes_clip_for_the_delivery_record(self):
+        """手で届けるも届けた記録に切り抜き(mp4 のパス・マーク・動画)を渡す = 友人の「要らない」で mp4 も片付く(OPT-H1。Q16)"""
+        self.pack(self.auto1)
+        seen = {}
+        start = self.dl.start
+        self.dl.start = lambda d, title="", on_done=None, clip=None: seen.update(clip=clip) or start(d, title, on_done=on_done, clip=clip)
+        code, r = self.review("deliver", "m1")
+        self.assertEqual(code, 200)
+        self.wait_delivered(r["job"])
+        self.assertEqual(seen["clip"], {"path": self.auto1, "markId": "m1", "videoId": REC})
+
     def test_deliver_puts_zip_in_output_and_records_it(self):
         code, r = self.review("deliver", "m1")
         self.assertEqual((code, r["message"]), (409, "パックがまだありません(文字起こし → パックが済むと届けられます)"))   # パックが無ければ採用できない

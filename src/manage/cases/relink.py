@@ -124,9 +124,7 @@ def relink_check(obj):
 
 def _doc_busy(tid):
     """その文書を読み書きするジョブ(話者判別・再認識・声を覚える・比較・この文書に入れる文字起こし)が動いているか"""
-    with _heavy._jobs_lock:
-        return any(j["state"] in _heavy.ACTIVE_STATES and (j.get("tid") == tid or (j.get("spec") or {}).get("tid") == tid
-                                                    or (j.get("spec") or {}).get("intoDoc") == tid) for j in _heavy._jobs.values())
+    return _heavy.doc_busy(tid)   # ② の読み口(表 _jobs と錠を読まない = 設計原則のレビューの指摘 5)
 
 
 def relink_doc(obj):

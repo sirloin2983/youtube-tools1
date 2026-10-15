@@ -952,7 +952,8 @@ def _deliver(repo_root, c, cl, deliveries, feedback, env):
         if feedback:
             feedback(dict(row, delivered=job.get("name") or ""))
     try:
-        job = deliveries.start(pack["dir"], "", on_done=done)   # 題は空 = パックのフォルダの名前(友人のアプリの「受け取る」に出る)
+        job = deliveries.start(pack["dir"], "", on_done=done,   # 題は空 = パックのフォルダの名前(友人のアプリの「受け取る」に出る)
+                               clip={"path": cl.get("path") or "", "markId": mark_id, "videoId": case_id})   # 届けた記録に切り抜きも(友人の「要らない」で mp4 も片付く。Q16)
     except ValueError as e:   # Dropbox のフォルダが決まっていない・見つからない・届けている途中 など(文はそのまま画面へ)
         raise ReviewError(str(e))
     _remember(repo_root, case_id, mark_id, env)
