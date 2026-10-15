@@ -16,7 +16,7 @@
 - RS3-E6 の前に ed_alt・ed_ytcap・ed_retime が持っていた名前(data_ed_alt_names.txt ほか)は、human/proof の alt・ytcap・retime へ移しても
   S.名前 で読め、差し替えが持ち主に届く(疑似の行 _alt_fake は eval/fake/fake_asr)
 - RS3-E7 の前に ed_relink・ed_misc が持っていた名前(data_ed_relink_names.txt・data_ed_misc_names.txt)は、manage/cases/relink・manage/keep/evalfolders と
-  manage/cases/handoff_io・human/proof/batch に分けても S.名前 で読める(進行度 progress は 0.69.0 で消した)
+  manage/cases/handoff_io に分けても S.名前 で読める(進行度 progress は 0.69.0 で消した)
 - RS4-2 の前に ed_drill・ed_evalbatch が持っていた名前(data_ed_drill_names.txt・data_ed_evalbatch_names.txt)は、eval/drill の drill・evalbatch へ
   殻なしで移しても S.名前 で読め、差し替えが持ち主に届く
 """
@@ -373,39 +373,27 @@ class TestEdRelinkNames(unittest.TestCase):
 
 
 class TestEdMiscNames(unittest.TestCase):
-    """ed_misc を manage/cases/handoff_io(clip-marker・受け渡し)・human/proof/batch(フォルダの一括・文字起こし済みの範囲)
+    """ed_misc を manage/cases/handoff_io(受け渡し。clip-marker の読みと文字起こし済みの範囲は OPT-M1 で消した)
     に分けた(RS3-E7。進行度 human/proof/progress は 0.69.0 で消した。殻は RS5-A で消した)。.runtime の置き場所 runtime_path_dir は app の ed_state(serve の名前)"""
 
     @staticmethod
     def owners():
-        from human.proof import batch
         from manage.cases import handoff_io
-        return handoff_io, batch
+        return handoff_io
 
     def test_old_ed_misc_names_still_resolve(self):
         names = _old_names("data_ed_misc_names.txt")
-        self.assertEqual(len(names), 11)   # OTHER_JSON_MAX は ytt/studiodata.STUDIO_JSON_MAX に一本化(RS8 B3-1)・フォルダの一括の 5 つは OPT-H1 で消した
+        self.assertEqual(len(names), 6)   # OTHER_JSON_MAX は ytt/studiodata.STUDIO_JSON_MAX に一本化(RS8 B3-1)・フォルダの一括の 5 つは OPT-H1 で消した
         self.assertEqual([n for n in names if not hasattr(S, n)], [])
 
     def test_moved_owners(self):
         import ed_state
-        owners = self.owners()
-        for m in owners:
-            self.assertIn(m, S._ED_MODULES, m.__name__)
-        handoff_io, batch = owners
+        handoff_io = self.owners()
+        self.assertIn(handoff_io, S._ED_MODULES, handoff_io.__name__)
         self.assertIs(S.clip_info, handoff_io.clip_info)
-        self.assertIs(S.transcribed_ranges, batch.transcribed_ranges)
         self.assertFalse(hasattr(S, "progress_stats"))   # 0.69.0(段 D2)で消した
         self.assertFalse(hasattr(S, "scan_folder") or hasattr(S, "add_batch"))   # 汎用のフォルダの一括は消した(決定 3-47 の Q5)
         self.assertIs(S.runtime_path_dir, ed_state.runtime_path_dir)
-
-    def test_transcribed_ranges_patch_reaches_marker(self):
-        """S.transcribed_ranges の差し替え(test_backend・test_metrics の形)はマーカーの読みに届く(持ち主は batch)"""
-        handoff_io, batch = self.owners()
-        with mock.patch.object(S, "transcribed_ranges", lambda: [{"path": "k", "start": 0.0, "end": None, "whole": True, "tid": "t1"}]):
-            self.assertEqual(batch.transcribed_ranges()[0]["tid"], "t1")
-            self.assertIn("transcribed_ranges", vars(batch))
-        self.assertNotIn("transcribed_ranges", vars(handoff_io))   # マーカーは _batch.transcribed_ranges を呼ぶたびに読む
 
 
 class TestEdStateNames(unittest.TestCase):

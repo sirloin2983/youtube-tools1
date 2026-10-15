@@ -12,10 +12,12 @@
 - cache  … 「編集」の波形のキャッシュ(いつでも作り直せる)
 - log    … 回したログ(*.old.log・*.log.old・*.1・*.old)
 - intake … 依頼の受付の 受付済み\\<日付>\\ のうち KEEP_DAYS より古い日付のもの(受け取った動画。動画は 受付済み に残る決まり)と、
+  友人の送り返しの 送り返し\\受付済み\\<日付>\\ のうち KEEP_DAYS より古い日付のもの(同じ決まり。9g-2)と、
   友人の依頼の動画の置き場所 = 書き出し先の 依頼\\<日付>_<題>_<id6>\\(1 依頼 = 1 案件)・作業データの app\\intake\\<日付>\\<依頼 id>\\(書き出し先が固定ディスクでない PC)。
   届けた記録(logs/deliveries.jsonl)にその依頼があれば**最後に届けてから** KEEP_DAYS 日、手で置いた動画(依頼 id が無い)は受け付けた日から KEEP_DAYS 日
   (Q15。decisions 3-48)。届けていない依頼は日数がたっても出さない(文書・パックの元になる動画のため)。
   移すのは**動画とパックだけ**(作業用\\ の文書と履歴は残す = Q4。人が直した行を失わない・文書はバックアップの学習データに入る)
+- failed … 受付の 失敗\\ と 送り返しの 送り返し\\失敗\\ の中の物(ファイルもフォルダも更新日時から KEEP_DAYS 日。理由の .txt は一緒に。9g-2)
 """
 import hashlib
 import os
@@ -24,6 +26,7 @@ import time
 
 from flow import deliveries as _deliveries   # 届けた記録の読み口(持ち主は ②。7x-2)
 from flow import placement   # 依頼のフォルダの名前・案件の身分証 case.json・案件の根の置き場所の読み方(④ は ② を読める)
+from human.friend import returns as _returns   # 友人の送り返し(同期フォルダの 送り返し\\ と その 受付済み・失敗 の名前。持ち主は ③ human/friend/returns)
 from manage.cases import txindex
 from ytt import datadir, fsio, schemas
 
@@ -41,11 +44,13 @@ DELIVERIES_LOG = _deliveries.LOG      # 届けた記録(持ち主は ② flow/de
 ROOTS_FILE = "trash-roots.json"   # 作業データの外に作ったごみ箱フォルダの一覧(起動時の purge が見る)
 DRIVE_TRASH = "youtube-tools ごみ箱"   # 動画のドライブに書き出し先が無いときのごみ箱(<ドライブ>\youtube-tools ごみ箱\)
 SIDECARS = (".clip.json", ".edit.json", ".transcript.json", ".cut-plan.json", ".srt", "_edit.mp4", "_edit.clip.json")   # 元動画と一緒に片付ける途中のファイル
+REASON_SUFFIX = ".理由.txt"   # 失敗\\ の物に添える断った理由(受付・送り返しとも。returns._move と intake の決まり)
 KINDS = (("export", "スタジオの書き出しの元動画(パック済みで、案件が投稿済み/見送り か パックから %d 日)" % PACK_AGE_DAYS),
          ("work", "作業用の途中のファイル(元の動画が無い)"),
          ("cache", "波形のキャッシュ(作り直せる)"),
          ("log", "古いログ"),
-         ("intake", "受け付けた依頼の動画(届けてから・手で置いた物は受け付けてから %d 日。文書は残す)" % KEEP_DAYS))
+         ("intake", "受け付けた依頼の動画・友人の送り返しの受付済み(届けてから・手で置いた物は受け付けてから %d 日。文書は残す)" % KEEP_DAYS),
+         ("failed", "断って失敗\\ に置いた物(受付と送り返し。更新から %d 日・理由の .txt つき)" % KEEP_DAYS))
 DONE_STATUSES = ("posted", "skipped")
 VIDEO_EXTS = (".mp4", ".mkv", ".mov", ".webm", ".m4v", ".avi", ".ts")
 MAX_ITEMS = 500
@@ -189,6 +194,10 @@ class Cleanup:
             found["intake"] += self._app_intake()
         except Exception as e:
             self.log("片付けの候補(受付の写し)を調べられませんでした: %r" % (e,))
+        try:
+            found["failed"] = self._failed(intake_dir)
+        except Exception as e:
+            self.log("片付けの候補(失敗の物)を調べられませんでした: %r" % (e,))
         self._known = {}
         kinds, total = [], 0
         for k, label in KINDS:
@@ -317,12 +326,41 @@ class Cleanup:
         return out
 
     def _intake(self, intake_dir):
+        """受付済み\\<日付>\\ と 送り返し\\受付済み\\<日付>\\ の、受け取った日から keep_days 日たった日付のフォルダ"""
         if not intake_dir:
             return []
-        done = os.path.join(intake_dir, "受付済み")
-        if not os.path.isdir(done):
+        now, days = self.clock(), self.keep_days
+        out = [_item("intake", p, "受け付けた日 %s" % n[:10]) for n, p in _old_day_dirs(os.path.join(intake_dir, "受付済み"), days, now)]
+        back = os.path.join(intake_dir, _returns.IN_DIR, _returns.DONE_DIR)
+        out += [_item("intake", p, "友人の送り返しを受け取った日 %s" % n[:10]) for n, p in _old_day_dirs(back, days, now)]
+        return out
+
+    def _failed(self, intake_dir):
+        """受付の 失敗\\ と 送り返しの 送り返し\\失敗\\ の中の物(ファイルもフォルダも更新日時から keep_days 日たったもの)。
+        理由の .txt は一緒に移す(.txt だけの行は作らない)"""
+        if not intake_dir:
             return []
-        return [_item("intake", p, "受け付けた日 %s" % n[:10]) for n, p in _old_day_dirs(done, self.keep_days, self.clock())]
+        now, out = self.clock(), []
+        roots = ((os.path.join(intake_dir, "失敗"), "受付の失敗"),
+                 (os.path.join(intake_dir, _returns.IN_DIR, _returns.FAIL_DIR), "送り返しの失敗"))
+        for root, label in roots:
+            try:
+                names = sorted(os.listdir(root))
+            except OSError:
+                continue
+            for n in names:
+                p = os.path.join(root, n)
+                if n.endswith(REASON_SUFFIX):
+                    continue
+                try:
+                    mt = os.path.getmtime(p)
+                except OSError:
+                    continue
+                if now - mt <= self.keep_days * 86400:
+                    continue
+                out.append(_item("failed", p, "%s・更新から %d 日" % (label, int((now - mt) // 86400)),
+                                 [os.path.splitext(p)[0] + REASON_SUFFIX]))
+        return out
 
     def _delivered(self):
         """届けた記録(② flow/deliveries の読み口)-> {依頼 id: 最後に届けた時刻(秒)}。依頼 id は元の形と、英数字だけの末尾 6 文字の両方で引ける

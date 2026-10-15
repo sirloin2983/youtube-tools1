@@ -220,18 +220,11 @@ class TestPerformance(StoreDir):
             S._models.update(old[0])
             S._model_used[0], S.MODEL_IDLE_SEC, S.IN_WORKER = old[1], old[2], old[3]
 
-    def test_summary_cache_and_ranges_without_rereading(self):
+    def test_summary_cache_without_rereading(self):
         self.put_doc({"id": TID, "title": "一", "sourcePath": "/v/a.mp4", "start": 0, "end": 10, "whole": True, "segments": [], "createdAt": 1})
         items = S.list_transcripts()
         self.assertEqual((items[0]["title"], items[0]["hasClip"]), ("一", False))
         self.assertNotIn("_sourcePath", items[0])
-        old = S.read_transcript
-        S.read_transcript = lambda tid: (_ for _ in ()).throw(AssertionError("読み直さない"))
-        try:
-            r = S.transcribed_ranges()
-        finally:
-            S.read_transcript = old
-        self.assertEqual([(x["tid"], x["whole"]) for x in r], [(TID, True)])
         time.sleep(0.01)
         self.put_doc({"id": TID, "title": "二番目", "sourcePath": "/v/a.mp4", "clip": clip_obj(), "segments": [], "createdAt": 1})
         items = S.list_transcripts()

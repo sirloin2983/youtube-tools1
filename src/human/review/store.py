@@ -290,7 +290,7 @@ class Store:
             _warn("data.json の壊れた%sを読み飛ばしました。元のファイルは %s" % ("・".join(parts), name or "(退避に失敗)"))
 
     _load_live = staticmethod(_studiodata.load_live)     # 録画の live の検査(ytt/studiodata。flow/studiobook と同じ 1 つ)
-    _load_video = staticmethod(_studiodata.load_video)   # data.json の行 -> メモリの形(ytt/studiodata。manage/cases/markmove・eval_casebook もこの名前で読む = OPT-M1/E1 で ytt 直に)
+    _load_video = staticmethod(_studiodata.load_video)   # data.json の行 -> メモリの形(ytt/studiodata。外からこの名前で読む所は無い = 外は ytt を直に)
 
     @staticmethod
     def _load_group(gid, g):

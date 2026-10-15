@@ -24,20 +24,14 @@ import os
 import re
 import shutil
 import time
-import unicodedata
 
 from human.proof import learn as _learn
-from ytt import colors as _colors, dictfmt as _dictfmt, fsio as _fsio, workdata as _workdata
+from ytt import colors as _colors, dictfmt as _dictfmt, fsio as _fsio, textutil as _textutil, workdata as _workdata
 
 SCHEMA = "ytt-learning/v1"
 PACK_FILE, LATEST_FILE, RULES_FILE = "learning.json", "latest.json", "learned-rules.json"
 VERSION_RE = re.compile(r"^\d{8}-\d{6}-[0-9a-f]{8}$")
 KEEP = 3
-
-
-def _norm(name):
-    """名簿との照らし合わせ用の名前(NFKC・空白と区切りを除く)"""
-    return re.sub(r"[\s・･\-_.,、。'\"]+", "", unicodedata.normalize("NFKC", str(name))).lower()
 
 
 def _json_bytes(obj):
@@ -49,15 +43,15 @@ def roster_names(roster):
     out = set()
     for g in (roster or {}).get("groups") or []:
         for n in (g.get("names") if isinstance(g, dict) else None) or []:
-            if isinstance(n, str) and _norm(n):
-                out.add(_norm(n))
+            if isinstance(n, str) and _textutil.person_key(n):
+                out.add(_textutil.person_key(n))
     return out
 
 
 def filter_voices(emb, voices_obj, names):
     """覚えた声のファイルの中身 -> 名簿の名前に一致する人だけにした中身(いなければ None)"""
     v = voices_obj.get("voices") if isinstance(voices_obj, dict) else None
-    keep = {k: x for k, x in (v or {}).items() if isinstance(x, dict) and _norm(k) in names}
+    keep = {k: x for k, x in (v or {}).items() if isinstance(x, dict) and _textutil.person_key(k) in names}
     return {"schema": "ytt-voices/v1", "embedding": emb, "voices": keep} if keep else None
 
 

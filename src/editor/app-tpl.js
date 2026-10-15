@@ -232,11 +232,6 @@
 
   <details class="card side-pane" data-side-pane="start" id="newBox" open>
     <summary>新しく文字起こしする</summary>
-    <div class="seg-tabs" role="group" aria-label="入力の種類">
-      <button type="button" id="tabFile" aria-pressed="true" title="手元の動画・音声ファイルを 1 本">ファイル</button>
-      <button type="button" id="tabMarker" aria-pressed="false" title="切り抜きスタジオで付けたマーク(の区間)を文字起こし">スタジオの<wbr>マーク</button>
-    </div>
-
     <div id="paneFile">
       <div class="notice tt-mchoice" id="mediaChoice" hidden role="status"><b>この動画はまだ文字起こししていません。</b>
         <div class="row" style="margin-top:6px"><button type="button" class="btn small primary" id="mcTx">文字起こしをする</button></div></div>
@@ -247,20 +242,6 @@
       <div class="fld"><span class="l">範囲(空欄なら全体)</span>
         <div class="row"><input id="rStart" type="text" aria-label="開始" placeholder="開始 例: 1:23:45" style="width:130px" autocomplete="off"><span>〜</span><input id="rEnd" type="text" aria-label="終了" placeholder="終了 例: 1:30:00" style="width:130px" autocomplete="off"></div></div>
       <div class="fld"><label for="jTitle">タイトル(任意)</label><input id="jTitle" type="text" maxlength="120" placeholder="空欄ならファイル名"></div>
-    </div>
-
-    <div id="paneMarker" hidden>
-      <p class="hint" id="mStatus" style="margin:8px 0 4px"></p>
-      <div id="mSources"></div>
-      <div class="row"><button type="button" class="btn small" id="btnMarkerFile" title="スタジオ(古い切り抜きマーカー)の記録のファイル data.json を選びます">スタジオの記録を選ぶ</button><input type="file" id="markerFile" accept=".json,application/json" hidden></div>
-      <div class="fld"><label for="mVideo">動画</label><select id="mVideo"></select></div>
-      <div class="fld"><label for="mPath">元の動画・音声ファイルのパス</label><input id="mPath" type="text" autocomplete="off" spellcheck="false" placeholder="スタジオで動画のパスを入れてあれば自動で入ります">
-        <span class="hint" id="mFileHint"></span></div>
-      <div class="row" style="margin-top:10px"><label class="lag">対象 <select id="mFilter" style="width:auto"><option value="adopted">採用のみ</option><option value="all">すべて</option></select></label>
-        <label class="lag" title="このツールで、すでに文字起こし済みのポイント(同じ動画・同じ範囲。書き出し済みの切り抜きは、その mp4 が一度でも文字起こしされていれば)は、最初から選びません"><input type="checkbox" id="mSkip" checked>文字起こし済みはスキップ</label>
-        <label class="lag">前後の余裕 <select id="mPad" style="width:auto"><option value="0">0秒</option><option value="1" selected>1秒</option><option value="2">2秒</option><option value="3">3秒</option></select></label></div>
-      <div class="row" style="margin-top:8px"><label class="lag"><input type="checkbox" id="mAll">すべて選択</label><span class="hint" id="mCount"></span></div>
-      <div class="clist" id="mClips"></div>
     </div>
 
     <details class="tt-sub ui-disclosure" id="recogDetails"><summary>認識の設定</summary>

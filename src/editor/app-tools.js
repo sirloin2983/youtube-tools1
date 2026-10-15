@@ -434,17 +434,6 @@ function buildExport(kind){
 
 /* ---------- 左パネルのイベント ---------- */
 
-function coveredBy(entries, path, start, end){   // サーバーの _covered と同じ判定(元のファイルパス+範囲での重なり。9割以上で「済み」)。パスの正規化は簡易(大小文字とスラッシュの違いだけ)
-  const k = String(path).toLowerCase().replace(/\\/g, '/'), len = Math.max(0.0001, end - start);
-  for (const r of entries){
-    if (r.path !== k) continue;
-    if (r.whole) return r.tid;
-    const ov = Math.min(r.end != null ? r.end : end, end) - Math.max(r.start, start);
-    if (ov > 0 && ov / len >= 0.9) return r.tid;
-  }
-  return '';
-}
-
 /* ---------- 受け渡し(notes:docs/spec/pipeline.md 2・3・6): 元の配信(.clip.json)・URL で渡された動画・動画の隣に保存 ---------- */
 
 /* youtube-tools-clip/v1 の「元の配信: タイトル 12:34〜13:20」。中の文字列(配信タイトル・マークの名前・URL・パス)は外から来るので必ずエスケープし、
@@ -514,7 +503,7 @@ function takeUrlParams(){
   }
   return openByMedia();
   function openByMedia(){
-  setTab('file'); $('#newBox').open = true;
+  $('#newBox').open = true;
   if (media) $('#srcPath').value = media;
   const ask = () => {   // まだ文書の無い動画: 「文字起こしをする」を出す(自動では始めない)
     setSideTab('start'); showMediaChoice();

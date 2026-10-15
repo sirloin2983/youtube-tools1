@@ -93,6 +93,48 @@ class CleanupTest(unittest.TestCase):
         self.assertEqual([i["name"] for i in by["intake"]["items"]], [old_day])
         self.assertTrue(by["intake"]["items"][0]["dir"])
 
+    def test_send_back_done_days_are_intake_candidates(self):
+        """友人の送り返しの 送り返し\\受付済み\\<日付>\\ も、受け取った日から KEEP_DAYS(3 日)より古い物だけ候補(intake)"""
+        sync = os.path.join(self.tmp, "sync")
+        cl = C.Cleanup(self.app, env=self.env, clock=lambda: self.now[0])   # 既定の KEEP_DAYS(3)
+        old_day = time.strftime("%Y-%m-%d", time.localtime(self.now[0] - 5 * 86400))
+        new_day = time.strftime("%Y-%m-%d", time.localtime(self.now[0] - 1 * 86400))
+        touch(os.path.join(sync, "送り返し", "受付済み", old_day, "r.zip"), 30)
+        touch(os.path.join(sync, "送り返し", "受付済み", new_day, "r.zip"), 30)
+        by = {k["kind"]: k for k in cl.candidates([], intake_dir=sync)["kinds"]}
+        self.assertEqual([i["name"] for i in by["intake"]["items"]], [old_day])
+        self.assertTrue(by["intake"]["items"][0]["dir"])
+        self.assertIn("送り返し", by["intake"]["items"][0]["note"])
+
+    def test_send_back_failed_by_mtime(self):
+        """送り返しの 送り返し\\失敗\\ の物は更新日時から 3 日たったら候補(failed)。理由の .txt は一緒に。新しい物は出ない"""
+        sync = os.path.join(self.tmp, "sync")
+        cl = C.Cleanup(self.app, env=self.env, clock=lambda: self.now[0])
+        fail = os.path.join(sync, "送り返し", "失敗")
+        old = touch(os.path.join(fail, "old.zip"), 40, mtime=self.now[0] - 5 * 86400)
+        reason = touch(os.path.join(fail, "old.理由.txt"), 5, mtime=self.now[0] - 5 * 86400)
+        touch(os.path.join(fail, "new.zip"), 40, mtime=self.now[0] - 1 * 86400)
+        by = {k["kind"]: k for k in cl.candidates([], intake_dir=sync)["kinds"]}
+        items = by["failed"]["items"]
+        self.assertEqual([i["path"] for i in items], [old])
+        self.assertEqual(items[0]["extra"], [reason])
+        self.assertEqual(items[0]["bytes"], 45)
+        self.assertIn("送り返しの失敗", items[0]["note"])
+
+    def test_intake_failed_by_mtime(self):
+        """受付の 失敗\\ の物も、更新日時から 3 日たったら候補(failed)。フォルダの mtime でも数える。新しい物は出ない"""
+        sync = os.path.join(self.tmp, "sync")
+        cl = C.Cleanup(self.app, env=self.env, clock=lambda: self.now[0])
+        fail = os.path.join(sync, "失敗")
+        old_dir = os.path.join(fail, "bad-folder")
+        touch(os.path.join(old_dir, "a.mp4"), 20)
+        os.utime(old_dir, (self.now[0] - 5 * 86400, self.now[0] - 5 * 86400))
+        touch(os.path.join(fail, "new.mp4"), 20, mtime=self.now[0] - 1 * 86400)
+        touch(os.path.join(fail, "bad.mp4.理由.txt"), 5, mtime=self.now[0] - 1 * 86400)
+        by = {k["kind"]: k for k in cl.candidates([], intake_dir=sync)["kinds"]}
+        self.assertEqual([i["path"] for i in by["failed"]["items"]], [old_dir])
+        self.assertIn("受付の失敗", by["failed"]["items"][0]["note"])
+
     def write_case(self, folder, rid):
         from flow import placement
         p = placement.case_path(folder)

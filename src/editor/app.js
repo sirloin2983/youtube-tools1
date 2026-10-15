@@ -5,7 +5,7 @@ const EDIT_HOST = window.EditHost || null;
 const APP_VERSION = (document.querySelector('meta[name="ytt-version"]') || {}).content || '';   // 全体の版(ytt/version.py)。入口が画面を返すときに meta ytt-version へ入れる(JS に版の文字は書かない)。入口なしだと空 = 版の比べはしない
 const $ = s => document.querySelector(s);
 const esc = UIKit.esc;   // ui-kit の 1 か所(null・undefined は ''。0.60.1 まで自前で 'null' になっていた)
-const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
+const S = { tools: null, settings: {}, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
   undo: [], sel: new Set(), curIdx: -1, playEnd: null, seen: new Set(), pollT: null,
   navIdx: -1, conflict: false, forceNext: false, baseUpdatedAt: null, stripR: null, sess: { n: 0, activeMs: 0, lastBreak: 0, lastAct: Date.now() },
   eff: { id: null, ms: 0 } };   // eff = 操作中の知らせ(effortFlush = 文書の effort.lastAt)を送るまでの、たまった操作の時間
@@ -111,9 +111,6 @@ document.querySelectorAll('aside details.card[id]').forEach(d => {
   try { const v = localStorage.getItem('tx.fold.' + d.id); if (v === '0') d.open = false; else if (v === '1') d.open = true; } catch {}
   d.addEventListener('toggle', () => { try { localStorage.setItem('tx.fold.' + d.id, d.open ? '1' : '0'); } catch {} });
 });
-
-/* ---------- 新規ジョブ ---------- */
-let tab = 'file';
 
 /* ---------- ジョブの進捗 ---------- */
 const ACTIVE = new Set(['queued', 'extracting', 'loading', 'running']);
@@ -1101,26 +1098,6 @@ document.querySelectorAll('[data-ex]').forEach(b => b.addEventListener('click', 
 ['exBase', 'exWrap'].forEach(id => $('#' + id).addEventListener('change', readOpts));   // exSpk・exTs のチェックは下の SET_CHECKS の配線で
 
 /* ---------- 左パネルのイベント ---------- */
-$('#tabFile').addEventListener('click', () => setTab('file'));
-$('#tabMarker').addEventListener('click', () => setTab('marker'));
-$('#btnStart').addEventListener('click', onStart);
-$('#btnMarkerFile').addEventListener('click', () => $('#markerFile').click());
-$('#markerFile').addEventListener('change', async e => {
-  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
-  if (f.size > 64 * 1024 * 1024) return toast('ファイルが大きすぎます');
-  let vs; try { vs = parseMarker(JSON.parse(await f.text())); } catch { return toast('data.json を読み込めませんでした'); }
-  try {
-    const { items } = await api('/api/transcribed-ranges');
-    for (const v of vs) if (v.sourcePath) for (const c of v.clips) c.doneTid = coveredBy(items, v.sourcePath, c.start, c.end);
-  } catch {}
-  S.marker = { found: true, videos: vs, sources: [{ kind: 'file', path: f.name, videos: vs.length }] }; renderMarker(); if (!vs.length) toast('ポイントのある動画が見つかりませんでした');
-});
-$('#mVideo').addEventListener('change', () => { $('#mPath').value = ''; renderMarkerClips(); });
-$('#mFilter').addEventListener('change', () => { renderMarkerClips(); readOpts(); });
-$('#mSkip').addEventListener('change', renderMarkerClips);
-$('#mPad').addEventListener('change', readOpts);
-$('#mAll').addEventListener('change', e => { document.querySelectorAll('#mClips input').forEach(c => { c.checked = e.target.checked; }); updateMCount(); });
-$('#mClips').addEventListener('change', updateMCount);
 $('#diarNum').addEventListener('change', diarNumChanged);   // 文書ごとに覚える(段7 E-6)
 $('#diarEmb').addEventListener('change', () => { readOpts(); renderDiarSetup(); });
 // 設定のチェックは表(app-core.js の SET_CHECKS)から配線する。手で並べていたときは表に足したチェックが漏れた(0.58.1 まで #optAutoContext は、ほかの設定を変えるまで保存されなかった)
@@ -1278,7 +1255,7 @@ async function boot(){
   loadSiblings();
   try { const j = await api('/api/jobs'); for (const x of j.jobs) if (x.state === 'done' || x.state === 'error') S.seen.add(x.id); } catch {}   // 開く前に終わっていたものは知らせない
   UIKit.hide.onChange(l => { if (!l || l === 'transcripts') renderList(); }); UIKit.hide.load().then(() => renderList());
-  await Promise.all(EDIT_HOST ? [loadList(), pollJobs()] : [loadList(), loadMarker(), pollJobs(), loadLearned(), loadAcc(), loadDrillStat()]);   // 案件の画面ではメニューの中身(マーク・学習・精度・ドリル)を読まない
+  await Promise.all(EDIT_HOST ? [loadList(), pollJobs()] : [loadList(), pollJobs(), loadLearned(), loadAcc(), loadDrillStat()]);   // 案件の画面ではメニューの中身(マーク・学習・精度・ドリル)を読まない
   if (S.jobs.some(j => ACTIVE.has(j.state))) startPolling();
 }
 const BOOTED = boot();   // 案件の画面(src/app/ui/cases/edhost.js)が起動し終えるのを待つ

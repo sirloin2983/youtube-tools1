@@ -281,14 +281,7 @@ def snapshot(tid, force=True):
 
 def backup_doc(tid, kind):
     """機械が行を書き換える前に、いまの文書を履歴へ必ず 1 つ残す(「以前の版に戻す」で戻せる)。kind = 操作の名前(check・retranscribe・diarize・relink。
-    呼び手の目印。以前は .bak/<id>.pre-<kind>.json にも写していたが、読む所が無く履歴と二重なのでやめた = 決定 3-47 の 1b-1)。
-    仮: kind が relink のときだけ .bak のフォルダを作っておく(④ manage/cases/relink がカットの写し <id>.edit.pre-relink.json をそこへ置くため。
-    relink の写しを外したら(OPT-M1。notes:plan/opt-human.md の 2a-4)この 2 行も消す)"""
-    if kind == "relink":
-        try:
-            os.makedirs(_docloc.bak_dir(tid, for_write=True), exist_ok=True)
-        except ValueError:
-            pass
+    呼び手の目印。以前は .bak/<id>.pre-<kind>.json にも写していたが、読む所が無く履歴と二重なのでやめた = 決定 3-47 の 1b-1)"""
     snapshot(tid)
 
 

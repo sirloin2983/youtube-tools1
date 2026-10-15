@@ -414,7 +414,7 @@ function readOpts(){
   Object.assign(s, checksOf(SET_CHECKS));
   if ($('#rtModel').value){ s.rtModel = $('#rtModel').value; s.rtTarget = $('#rtTarget').value; }
   s.glossary = $('#optGloss').value.slice(0, 4000); s.replacements = $('#repDict').value.slice(0, 20000);
-  s.exBase = $('#exBase').value; s.exWrap = $('#exWrap').value; s.mPad = $('#mPad').value; s.mFilter = $('#mFilter').value; s.diarEmb = $('#diarEmb').value;   // 話者の人数は文書ごと(diarNumChanged。欄の値は開いている文書のもの)
+  s.exBase = $('#exBase').value; s.exWrap = $('#exWrap').value; s.diarEmb = $('#diarEmb').value;   // 話者の人数は文書ごと(diarNumChanged。欄の値は開いている文書のもの)
   saveSettings(); if (S.doc) renderTerms(); renderOptSummary();
   if (PACK) PACK.changed();   // 字幕の1段の文字数(subtitle.wrapChars)はパックの見積もりの鍵(段4 4-1。監査 07)
 }
@@ -443,7 +443,6 @@ function applySettings(){
   for (const [k, id, dv] of SET_CHECKS){ const el = $('#' + id); if (el) el.checked = dv === true ? s[k] !== false : dv === false ? s[k] === true : !!s[k]; }   // 0.66.0: 欄の無い鍵(設定の画面へ)は飛ばす
   $('#optGloss').value = s.glossary || ''; $('#repDict').value = s.replacements || ''; renderGlossFit();
   if (s.exBase) $('#exBase').value = s.exBase; if (s.exWrap) $('#exWrap').value = s.exWrap;
-  if (s.mPad) $('#mPad').value = s.mPad; if (s.mFilter) $('#mFilter').value = s.mFilter;
   fillDiarNum();   // 話者の人数: 開いている文書の人数(無ければ話者の数 → 全体の既定 s.diarNum。段7 E-6)
 }
 

@@ -696,7 +696,7 @@ class PortalHttpTest(Base):
         r, body = self.req("GET", "/api/cleanup")
         self.assertEqual(r.status, 200)
         d = json.loads(body)
-        self.assertEqual([k["kind"] for k in d["kinds"]], ["export", "work", "cache", "log", "intake"])
+        self.assertEqual([k["kind"] for k in d["kinds"]], ["export", "work", "cache", "log", "intake", "failed"])
         for k in ("bytes", "trash", "trashRoots", "keepDays", "packAgeDays"):
             self.assertIn(k, d)
         r, _ = self.post("/api/cleanup", body=json.dumps({"ids": []}).encode())

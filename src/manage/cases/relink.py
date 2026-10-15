@@ -1,21 +1,20 @@
 # -*- coding: utf-8 -*-
-"""③ 文書と動画の紐づけ: 動画を選び直す(付け替え)・まとめて付け替える・「参照…」・素材を 30fps にそろえる
+"""④ 文書と動画の紐づけ: 動画を選び直す(付け替え)・まとめて付け替える・「参照…」・素材を 30fps にそろえる
 (段10 で editor/serve.py から分けた ed_relink。役割で組み直す RS3-E7(2026-10-10)に manage/cases/relink.py へ移した。旧い名前 ed_relink は転送だけの殻 = RS5 で消す)。
 
 - 評価用のフォルダの整理(名前をそろえる・仮置き・外からの取り込み)は manage/keep/evalfolders.py(付け替えの書き込み _relink_write をここから読む = ④ → ③ の下向き)
 - 評価用のフォルダの判定(eval_dirs・in_eval_dir・eval_name_guard)は ytt/settings、別のドライブへの移動は ytt/fsio(RS3-1)
 名前は serve.py からも見える(serve.py の名前の受付 _ED_MODULES がこの部品へ転送する。テストの S.名前 = … もここに入る)。
-ほかの部品の名前は `モジュール.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。編集の ed_state・ed_jobs・ed_store は読まない(app と転送の殻)。
+ほかの部品の名前は `モジュール.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。編集の画面の部品(状態・ジョブ・文書の保存)は読まない。
 """
 import os
 import re
-import shutil
 import time
 
-from ytt import docloc as _docloc, errors as _errors, fsio as _fsio, normalize as _vnorm, schemas as _yschemas  # noqa: E402
+from ytt import errors as _errors, fsio as _fsio, normalize as _vnorm, schemas as _yschemas  # noqa: E402
 from flow import jobs as _heavy, normalize as _flownorm  # noqa: E402
 from ytt import settings as _settings  # noqa: E402   評価用のフォルダの判定 in_eval_dir・eval_name_guard(RS3-1 に ed_relink から ytt/settings へ)
-from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
+from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に編集の部品から移した)
 from ytt import txbase as _txbase  # noqa: E402   ロガー log・環境変数のスイッチ env_off・ジョブの注意 add_warning(RS3-E7 まで ed_state の別名で読んでいた)
 from human.proof import store as _store  # noqa: E402   文書の読み書き・保存のロック・控え・要約(呼ぶたびに _store.名前 で読む)
 
@@ -131,7 +130,7 @@ def relink_doc(obj):
     動画が 30fps でなければ、付け替えたあと裏のジョブで <名前>_30fps.mp4 を作って付け替え直す(応答の normalizing = ジョブの id・
     normNote = 作れない理由。"normalize": false なら作らない = まとめて付け替える。評価用は作らない)。
     書き換えるのは sourcePath・sourceName・updatedAt と記録 relinks だけ(行・校正・話者・original・clip・start/end・カットは変えない。
-    カットは秒で持っているので、fps が違っても読み込むときに合わせ直る)。書く前に .bak/<id>.pre-relink.json・履歴・.bak/<id>.edit.pre-relink.json を残す。
+    カットは秒で持っているので、fps が違っても読み込むときに合わせ直る)。書く前に履歴を残す。
     409: 先に更新された(conflict)・ジョブの最中(busy)・長さが違うのに acceptDiff が無い(duration_mismatch)"""
     tid = str(obj.get("id") or "")
     base = obj.get("baseUpdatedAt")
@@ -140,7 +139,7 @@ def relink_doc(obj):
     chk = relink_check(obj)   # 動画を調べるのは時間がかかるので、ロックの外で
     if chk["sameAsNow"]:
         raise _errors.ApiError("same_path", "今と同じ動画です(付け替える必要はありません)", 400)
-    with _store._save_lock:
+    with _store.saving():
         doc = _store.read_transcript(tid)
         if doc.get("updatedAt") and base != doc.get("updatedAt"):
             raise _errors.ApiError("conflict", "別の場所で先に更新されています。読み込み直してから、もう一度選んでください", 409)
@@ -162,13 +161,11 @@ def relink_doc(obj):
 
 
 def _relink_write(tid, doc, path, diff, why=None, bump=True):
-    """付け替えの書き込み(_save_lock の中で呼ぶ)。控え .bak/<id>.pre-relink.json・履歴を残し、sourcePath・sourceName・updatedAt・relinks を直す。
+    """付け替えの書き込み(store.saving() の中で呼ぶ)。履歴を残し、sourcePath・sourceName・updatedAt・relinks を直す。
     評価用のフォルダの中へ付け替えたら評価用の印も付ける(ユーザー決定 2026-10-01: フォルダの中は外せない)。-> 新しい updatedAt
     bump=False: updatedAt を変えない(30fps の写しへの自動の付け替え = 中身は同じ動画。開いている画面の次の保存を 409 にしないため。
     保存 save_transcript は sourcePath を画面から受け取らないので、画面の古い版で上書きされても付け替えは消えない)"""
-    _store.backup_doc(tid, "relink")   # 直前の状態を1世代だけ(話者判別の pre-diarize と同じ)・「以前の版に戻す」で元のパスへ戻せる
-    if os.path.isfile(_store.edit_path(tid)):
-        shutil.copy2(_store.edit_path(tid), os.path.join(_docloc.bak_dir(tid), tid + ".edit.pre-relink.json"))
+    _store.backup_doc(tid, "relink")   # 直前の状態を履歴へ(「以前の版に戻す」で元のパスへ戻せる)。カット(edit.json)は書き換えないので写さない(opt-human 2a-4)
     now = max(_yschemas.now_ms(), int(doc.get("updatedAt") or 0) + 1) if bump or not doc.get("updatedAt") else int(doc["updatedAt"])
     prev = [r for r in doc.get("relinks") or [] if isinstance(r, dict)]
     rec = {"from": str(doc.get("sourcePath") or ""), "at": max(now, _yschemas.now_ms()), "diffSec": diff}
@@ -197,7 +194,7 @@ NORM_WHY = "normalize30"                  # 付け替えの記録 relinks[].why
 
 def norm_swap(tid, src, dst):
     """作り直した写しへ文書を付け替える(文書の動画が src のままのときだけ)。-> None(付け替えた)か 付け替えなかった理由"""
-    with _store._save_lock:
+    with _store.saving():
         try:
             doc = _store.read_transcript(tid)
         except _errors.ApiError:

@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""③ 文字起こしの一覧と、元の動画・パックの有無・前回のパックの手順(役割で組み直す RS3-E5a。2026-10-10 に編集の ed_store から切り出した。中身は同じ)。
+"""④ 文字起こしの一覧と、元の動画・パックの有無・前回のパックの手順(役割で組み直す RS3-E5a。2026-10-10 に編集の文書の保存の部品から切り出した。中身は同じ)。
 
 - list_transcripts … GET /api/transcripts の items(文書の要約 + 編集・パックの状態 + 配信者 + 元の動画の有無とパック)
 - pack_readme … GET /api/edit/pack-readme(前回のパックの Resolve での手順)
-文書の読み書きと要約のキャッシュは ② の human/proof/store(呼ぶたびに store.名前 で読む)。パックの有無の規則は隣の txindex の 1 か所
+文書の読み書きと要約のキャッシュは ③ の human/proof/store(呼ぶたびに store.名前 で読む)。パックの有無の規則は隣の txindex の 1 か所
 (入口の案件の画面と同じ判定。txindex を読むのは編集ではここだけ)。スタジオの data.json は ytt/studiodata を読むだけ。
 名前は編集の serve.py からも見える(serve.py の名前の受付 _ED_MODULES。テストの S.PACK_CHECK_BUDGET = … もここに入る)。
 """
@@ -70,8 +70,7 @@ def list_transcripts():
             it["packStale"] = store.pack_stale(it)
             it.pop("_packDocAt", None)
             items.append(it)
-    store.prune_cache(store._summary_cache, seen)   # 消した文書の分は捨てる
-    store.prune_cache(store._edit_cache, seen)
+    store.prune_summaries(seen)   # 消した文書の分は捨てる
     studio = _studiodata.studio_videos()
     for it in items:
         sv = studio.get(it["videoId"]) if it["videoId"] else None

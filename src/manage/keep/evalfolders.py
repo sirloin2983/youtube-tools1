@@ -206,7 +206,7 @@ def _eval_adopt_copy(path, copies):
     tid = hits[0]["id"]
     if _relink._doc_busy(tid):
         return None, "文書が処理の最中です"
-    with _store._save_lock:
+    with _store.saving():
         doc = _store.read_transcript(tid)
         if _fsio.norm_path(str(doc.get("sourcePath") or "")) != _fsio.norm_path(hits[0]["_sourcePath"]):
             return None, None   # 調べている間に付け替えられた
@@ -441,7 +441,7 @@ def _eval_mark_docs(tids):
     """評価用のフォルダの中の動画なのに印の無い文書に、評価用の印を付ける(行・時刻は変えない)。-> 付けた数"""
     n = 0
     for tid in tids:
-        with _store._save_lock:
+        with _store.saving():
             doc = _store.read_transcript(tid)
             if doc.get("evalSet") is True or not _settings.in_eval_dir(doc.get("sourcePath")):
                 continue
@@ -461,7 +461,7 @@ def _eval_rename(old, new, tids, why="evalOrganize"):
     try:
         side = _rename_sidecars(old, new)
         for tid in tids:
-            with _store._save_lock:
+            with _store.saving():
                 doc = _store.read_transcript(tid)
                 if _fsio.norm_path(str(doc.get("sourcePath") or "")) != os.path.normcase(old):
                     continue
@@ -470,7 +470,7 @@ def _eval_rename(old, new, tids, why="evalOrganize"):
     except BaseException:
         for tid in done:   # 付け替えた文書も元の名前へ(控えと履歴は残る)
             try:
-                with _store._save_lock:
+                with _store.saving():
                     _relink._relink_write(tid, _store.read_transcript(tid), old, 0.0, why + "Undo")
             except (OSError, _errors.ApiError):
                 _txbase.log.exception("評価用の整理: 文書を元の名前へ戻せませんでした %s", tid)

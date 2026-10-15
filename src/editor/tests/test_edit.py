@@ -836,8 +836,7 @@ class TestRelinkStore(StoreDir):
             self.assertEqual(d[k], before[k], k)                                   # 行・校正・話者・元の出力・clip・範囲は変えない
         bak = os.path.join(self.tmp, ".bak")
         self.assertFalse(os.path.exists(os.path.join(bak, TID + ".pre-relink.json")))   # 1) 直前の文書は履歴だけ(.bak の控えはやめた = 決定 3-47 の 1b-1)
-        with open(os.path.join(bak, TID + ".edit.pre-relink.json"), encoding="utf-8") as f:
-            self.assertEqual(json.load(f)["rev"], 3)                               # 2) カット(④ relink の写し。OPT-M1 で外す = opt-human 2a-4)
+        self.assertFalse(os.path.exists(os.path.join(bak, TID + ".edit.pre-relink.json")))   # 2) カットの写しもやめた(付け替えはカットを書き換えない = opt-human 2a-4)
         stamps = S.hist_stamps(TID)                                                # 3) 履歴(「以前の版に戻す」)
         self.assertEqual(len(stamps), 1)
         S.restore_history(TID, stamps[0])

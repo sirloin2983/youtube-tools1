@@ -751,66 +751,6 @@ class TestRangeAndStudio(unittest.TestCase):
         self.assertEqual((out[0]["start"], out[0]["end"]), (10.0, 10.7))     # 開始は範囲の始まりまで切り上げる
         self.assertEqual(out[1]["end"], 20.0)
 
-    def test_marker_tolerant(self):
-        d = {"videos": [{"videoId": "a", "title": "T", "marks": [{"id": "1", "start": 1, "end": 5, "label": "L", "status": "adopted"}, {"start": 5, "end": 5}, "x"]},
-                        {"videoId": "b", "title": "none", "marks": []}, {"id": "demo", "demo": True, "clips": [{"start": 0, "end": 1}]}]}
-        vs = S.marker_videos(d)
-        self.assertEqual([(v["videoId"], len(v["clips"]), v["clips"][0]["title"]) for v in vs], [("a", 1, "L")])
-        old = {"videos": {"v": {"title": "旧", "clips": [{"id": "c", "start": 2, "end": 4, "title": "t", "status": "", "rating": 3}]}}}
-        self.assertEqual(S.marker_videos(old)[0]["clips"][0]["rating"], 3)
-        self.assertEqual(S.marker_videos([]), [])
-        self.assertEqual(S.marker_videos({"videos": 5}), [])
-
-
-class TestStudioExportDirectory(unittest.TestCase):
-    def test_default_exports_are_available_to_marker_import(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            data_path = os.path.join(tmp, "data.json")
-            clip_path = os.path.join(tmp, "exports", "video", "clip.mp4")
-            os.makedirs(os.path.dirname(clip_path))
-            with open(clip_path, "wb") as f:
-                f.write(b"test fixture")
-            data = {"videos": {"abcdefghijk": {"kind": "youtube", "marks": [
-                {"id": "m1", "start": 10, "end": 15, "status": "exported", "file": "video/clip.mp4"}]}}}
-            with open(data_path, "w", encoding="utf-8") as f:
-                json.dump(data, f)
-            with patch.object(S, "STUDIO_DATA", data_path), \
-                    patch.object(S, "MARKER_DATA", os.path.join(tmp, "missing.json")), \
-                    patch.object(S, "transcribed_ranges", return_value=[]):
-                result = S.read_marker()
-            self.assertEqual(result["outDir"], os.path.join(tmp, "exports"))
-            self.assertEqual(result["videos"][0]["clips"][0]["fileAbs"], os.path.realpath(clip_path))
-
-    def test_explicit_settings_and_legacy_config_keep_precedence(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            data_path = os.path.join(tmp, "data.json")
-            settings = os.path.join(tmp, "settings.json")
-            with open(os.path.join(tmp, "config.json"), "w", encoding="utf-8") as f:
-                json.dump({"settings": {"outDir": "legacy"}}, f)
-            self.assertEqual(S.studio_out_dir(data_path), os.path.join(tmp, "legacy"))
-            custom = os.path.join(tmp, "custom")
-            with open(settings, "w", encoding="utf-8") as f:
-                json.dump({"outDir": custom}, f)
-            self.assertEqual(S.studio_out_dir(data_path), custom)
-
-    def test_empty_or_broken_settings_fall_back_to_exports(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            for body in ('{}', '{"outDir": " "}', 'broken json'):
-                with self.subTest(body=body):
-                    with open(os.path.join(tmp, "settings.json"), "w", encoding="utf-8") as f:
-                        f.write(body)
-                    self.assertEqual(S.studio_out_dir(os.path.join(tmp, "data.json")), os.path.join(tmp, "exports"))
-
-
-class TestMarkerDone(unittest.TestCase):
-    def test_covered(self):
-        ranges = [{"path": os.path.normcase(os.path.abspath("/a/full.mp4")), "start": 0.0, "end": 60.0, "whole": True, "tid": "w1"},
-                  {"path": os.path.normcase(os.path.abspath("/a/vid.mp4")), "start": 100.0, "end": 130.0, "whole": False, "tid": "p1"}]
-        self.assertEqual(S._covered(ranges, "/a/full.mp4", 5.0, 9.0), "w1")     # 全体を処理した文字起こしがあれば、どの範囲でも「済み」
-        self.assertEqual(S._covered(ranges, "/a/vid.mp4", 101.0, 129.0), "p1")  # ほぼ重なる部分一致
-        self.assertEqual(S._covered(ranges, "/a/vid.mp4", 100.0, 200.0), "")    # 重なりが9割未満なら「済み」にしない
-        self.assertEqual(S._covered(ranges, "/a/other.mp4", 0.0, 10.0), "")     # 別ファイル
-
 
 # 2026-09-24 の見直しで足したテスト(test_backend.py)も、従来のコマンド(python -m unittest test_metrics test_resolve_export)で一緒に走らせる
 from test_backend import *  # noqa: E402,F401,F403

@@ -5,13 +5,6 @@
 
 /* ---------- 新規ジョブ ---------- */
 
-function setTab(t){
-  tab = t; $('#paneFile').hidden = t !== 'file'; $('#paneMarker').hidden = t !== 'marker';
-  $('#tabFile').setAttribute('aria-pressed', t === 'file'); $('#tabMarker').setAttribute('aria-pressed', t === 'marker');
-  $('#btnStart').textContent = t === 'file' ? '文字起こしを開始' : '選んだマークを文字起こし';
-  if (t === 'marker') renderMarker();
-}
-
 function jobOpts(){
   return { model: $('#optModel').value, language: $('#optLang').value, quality: $('#optQuality').value, device: $('#optDevice').value, vadMode: vadModeOf(),
     ...checksOf(OPT_CHECKS), ...subtitleReq(), glossary: $('#optGloss').value, evalSet: $('#optEvalStart').checked };   // チェックの表は app-core.js の OPT_CHECKS
@@ -44,99 +37,14 @@ async function askTxAgain(path){
   return !escaped;
 }
 
-async function startMarker(){
-  const v = S.marker.videos[Number($('#mVideo').value)];
-  if (!v) return toast('動画を選んでください');
-  const path = $('#mPath').value.trim();
-  const ids = [...document.querySelectorAll('#mClips input:checked')].map(x => Number(x.dataset.i));
-  if (!ids.length) return toast('文字起こしするポイントを選んでください');
-  if (!path){   // 元の動画が手元に無いときは、スタジオが書き出した切り抜き(mp4)を、そのまま文字起こしする
-    const files = ids.map(i => v.clips[i].fileAbs).filter(Boolean);
-    if (!files.length) return toast('元の動画・音声ファイルのパスを入力してください(書き出し済みの切り抜きが見つかったポイントは、パスなしでも文字起こしできます)');
-    let added = 0;   // 1 本ずつ別の文字起こしに(フォルダの一括 /api/transcribe-batch は消した。文字起こし済みは一覧の「文字起こし済みはスキップ」で外れている)
-    for (const f of [...new Set(files)]){
-      try { await api('/api/transcribe', { body: { sourcePath: f, title: '', ...jobOpts() } }); added++; }
-      catch (e){ toast(`${added}本追加したところで失敗: ${e.message}`); break; }
-    }
-    return toast(`書き出し済みの切り抜き ${added}本を待機列に追加しました` + (files.length < ids.length ? `。書き出されていない${ids.length - files.length}件は対象外` : ''), 6000);
-  }
-  const pad = Number($('#mPad').value) || 0;
-  let n = 0;
-  for (const i of ids){
-    const c = v.clips[i];
-    const start = Math.max(0, c.start - pad), end = c.end + pad;
-    try {
-      await api('/api/transcribe', { body: { sourcePath: path, start, end, title: c.title || `${v.title || v.videoId} ${fmtT(c.start)}-${fmtT(c.end)}`, ...jobOpts() } });
-      n++;
-    } catch (e){ toast(`${n}件追加したところで失敗: ${e.message}`); break; }
-  }
-  if (n) toast(`${n}件を待機列に追加しました`);
-}
-
 async function onStart(){
   readOpts();
   const btn = $('#btnStart'); btn.disabled = true;
   let ok = false;
-  try { await (tab === 'file' ? startFile() : startMarker()); await kickJobs(); ok = true; }
+  try { await startFile(); await kickJobs(); ok = true; }
   catch (e){ toast(e.message); }
   finally { btn.disabled = false; }
   if (ok){ const jb = $('#jobBadge'); if (!jb.hidden && jb.offsetParent) jb.focus(); }   // 始めたら処理中の札へ(押すと処理状況。S18)
-}
-
-/* ---------- 切り抜きスタジオ/マーカー連携 ---------- */
-
-function parseMarker(d){
-  const out = [];
-  let vids = d && typeof d === 'object' ? d.videos : null;
-  if (Array.isArray(vids)) vids = Object.fromEntries(vids.filter(v => v && typeof v === 'object').map((v, i) => [String(v.videoId || v.id || i), v]));
-  if (!vids || typeof vids !== 'object') return out;
-  for (const [vid, v] of Object.entries(vids).slice(0, 500)){
-    if (!v || typeof v !== 'object' || v.demo) continue;
-    const clips = [], raw = ['clips', 'marks', 'points'].map(k => v[k]).find(Array.isArray) || [];
-    for (const c of raw.slice(0, 500)){
-      if (!c || typeof c !== 'object') continue;
-      const a = Number(c && c.start), b = Number(c && c.end);
-      if (!Number.isFinite(a) || !Number.isFinite(b) || b <= a) continue;
-      clips.push({ start: a, end: b, title: String(c.title || c.label || '').slice(0, 120), src: String(c.src || '').slice(0, 8), score: Number.isFinite(Number(c.score)) && c.score !== null && c.score !== '' ? Number(c.score) : null, status: String(c.status || ''), file: String(c.file || '').slice(0, 500), rating: Math.round(Number(c.rating) || 0) });
-    }
-    if (clips.length) out.push({ videoId: String(vid).slice(0, 20), title: String(v.title || '').slice(0, 120), local: v.local === true,
-      fileName: String(v.fileName || '').slice(0, 200), sourcePath: String(v.sourcePath || '').slice(0, 500), clips });
-  }
-  return out;
-}
-
-function renderMarker(){
-  const vs = S.marker.videos, sel = $('#mVideo');
-  $('#mStatus').textContent = S.marker.found ? `${(S.marker.sources || []).map(x => (x.kind === 'studio' ? '切り抜きスタジオ' : x.kind === 'file' ? '選んだ記録' : '古い切り抜きマーカー') + x.videos + '本').join(' / ') || 'スタジオ'}のマークを読み込みました(${vs.length}本の動画)` : 'スタジオのマークの記録が見つかりません。下の「スタジオの記録を選ぶ」で記録のファイル(data.json)を選んでください。';   // 用語は「マーク」(S22)
-  const cur = sel.value;
-  const FROM = { studio: 'スタジオ', marker: '旧マーカー', file: '選んだ data.json' };
-  sel.innerHTML = vs.map((v, i) => `<option value="${i}">[${FROM[v.from || (S.marker.sources || [])[0]?.kind] || '?'}] ${esc((v.title || v.videoId) + (v.local ? '(ローカル)' : ''))} — ${v.clips.length}件</option>`).join('');
-  $('#mSources').innerHTML = (S.marker.sources || []).map(x => `<div class="src"><span class="pill ok">${FROM[x.kind] || esc(x.kind)}</span><span>${Number(x.videos) || 0}本</span><span class="mono">${esc(x.path)}</span></div>`).join('')
-    + (S.marker.outDir ? `<div class="src"><span class="pill">書き出し先</span><span class="mono">${esc(S.marker.outDir)}</span></div>` : '');
-  if (cur && vs[Number(cur)]) sel.value = cur;
-  renderMarkerClips();
-}
-
-function renderMarkerClips(){
-  const v = S.marker.videos[Number($('#mVideo').value)], box = $('#mClips');
-  if (!v){ box.innerHTML = '<p class="hint" style="padding:8px;margin:0">ポイントのある動画がありません</p>'; $('#mCount').textContent = ''; return; }
-  if (document.activeElement !== $('#mPath')) $('#mPath').value = v.sourcePath || '';
-  $('#mFileHint').textContent = v.sourcePath ? '' : v.clips.some(c => c.fileAbs) ? '元の動画のパスが空でも、書き出し済みの切り抜きは、そのまま文字起こしできます(パスを入れると、元の動画のその区間を文字起こしします)' : (v.fileName ? `切り抜きマーカーで開いたファイル名: ${v.fileName}(パスは入力が必要です)` : 'YouTube の動画は、手元にファイルがある場合だけ使えます');
-  const only = $('#mFilter').value === 'adopted', skip = $('#mSkip').checked;
-  const rows = v.clips.map((c, i) => ({ c, i })).filter(x => !only || x.c.status === 'adopted' || x.c.status === 'exported');
-  box.innerHTML = rows.length ? rows.map(({ c, i }) => `<label><input type="checkbox" data-i="${i}" ${skip && c.doneTid ? '' : 'checked'}>
-    <span class="mono">${fmtT(c.start)}–${fmtT(c.end)}</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.title || '無題')}</span>
-    ${c.src ? `<span class="pill" title="${c.src === 'auto' ? '自動で見つけた区間' : '自分でマークした区間'}${c.score != null ? '(点数 ' + esc(c.score) + ')' : ''}">${c.src === 'auto' ? '自動' + (c.score != null ? ' ' + esc(c.score) : '') : c.src === 'manual' ? '手動' : esc(c.src)}</span>` : ''}${c.fileAbs ? '<span class="pill ok" title="書き出し済みの切り抜き(mp4)が見つかりました">mp4あり</span>' : ''}${c.doneTid ? '<span class="pill" title="この範囲は、すでに文字起こし済みです">文字起こし済み</span>' : ''}
-    <span class="pill">${esc({ '': '候補', candidate: '候補', adopted: '採用', rejected: '不採用', exported: '書き出し済み' }[c.status] ?? c.status)}</span></label>`).join('')
-    : '<p class="hint" style="padding:8px;margin:0">条件に合うポイントがありません(「対象」を「すべて」にしてみてください)</p>';
-  $('#mAll').checked = true; updateMCount();
-}
-
-function updateMCount(){ const n = document.querySelectorAll('#mClips input:checked').length, t = document.querySelectorAll('#mClips input').length; $('#mCount').textContent = t ? `${n} / ${t} 件を選択` : ''; }
-
-async function loadMarker(){
-  try { S.marker = await api('/api/marker'); } catch { S.marker = { found: false, videos: [] }; }
-  renderMarker();
 }
 
 /* ---------- ジョブの進捗 ---------- */

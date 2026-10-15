@@ -270,10 +270,6 @@ REF_ALLOW = {
     ("ref-gone", "src/eval/tools/eval_timing.py"): "OPT-E1 で直す",
     ("ref-layer", "src/eval/__init__.py"): "OPT-E1 で直す",
     ("ref-layer", "src/eval/drill/metrics.py"): "OPT-E1 で直す",
-    ("ref-gone", "src/manage/cases/doclist.py"): "OPT-M1 で直す",
-    ("ref-gone", "src/manage/cases/handoff_io.py"): "OPT-M1 で直す",
-    ("ref-gone", "src/manage/cases/relink.py"): "OPT-M1 で直す",
-    ("ref-layer", "src/manage/__init__.py"): "OPT-M1 で直す",
 }
 
 
