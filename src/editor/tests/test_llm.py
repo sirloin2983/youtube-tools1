@@ -8,7 +8,7 @@
 - ジョブ(疑似の認識 TRANSCRIBE_BACKEND=fake + TRANSCRIBE_FAKE_LLM): 行が直り fill {by: llm} と印・記録 recognition.runs[].llm・<id>.llm.json・
   設定 autoLlm(既定オン・評価用はオフ)・選んだ所が無ければ LLM を読まない・失敗しても文字起こしは成功(警告)・文書の削除で llm.json も消える
 - 学習: 後処理が直した行(fill)を含むまとまりは learn_events の材料にしない
-- エンジン: LlamaText の登録(light・モデルの表・置き場所)・偽(FAKE_REPLY)・音声は認識しない・ワーカーの op complete
+- エンジン: LlamaText の登録(light・モデルの表・置き場所)・偽(⑤ fake_worker.fake_llama_text)・音声は認識しない・ワーカーの op complete
 """
 import json
 import os
@@ -32,6 +32,7 @@ from flow import jobs  # noqa: E402
 from pipeline.transcribe import llm  # noqa: E402  (RS2-9 から持ち主 pipeline/transcribe/llm.py を直に読む。旧 ed_llm)
 import ed_state  # noqa: E402
 from pipeline.transcribe import tx_engines as E  # noqa: E402
+from eval.fake import fake_worker  # noqa: E402  (SenseVoice・文字の LLM の偽物。OPT-E2 1a-1)
 from pipeline.transcribe import worker as W  # noqa: E402  (認識ワーカーの受け口。RS2-9 から pipeline/transcribe/worker.py。旧 tx_worker)
 
 HAVE_FF = bool(shutil.which("ffmpeg"))
@@ -215,8 +216,8 @@ class TestLlamaTextEngine(unittest.TestCase):
         self.assertEqual((E.LlamaText.MODEL_SUBDIR, E.LlamaQwen3.MODEL_SUBDIR), ("llm-gguf", "qwen3asr-gguf"))
 
     def test_fake_and_no_audio(self):
-        with mock.patch.object(E.LlamaText, "FAKE_REPLY", '{"edits": []}'):
-            e = E.LlamaText.create("qwen3-8b", "vulkan", "int8")
+        with mock.patch.dict(E.ENGINES, {E.LlamaText.id: fake_worker.fake_llama_text('{"edits": []}')}):   # 偽物は ⑤ fake_worker(OPT-E2 1a-1)
+            e = E.get("llama-text").create("qwen3-8b", "vulkan", "int8")
         self.assertEqual(e.complete([{"role": "user", "content": "x"}]), '{"edits": []}')
         with self.assertRaises(E.EngineError):
             e.transcribe("a.wav")

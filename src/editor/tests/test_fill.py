@@ -6,7 +6,7 @@
 
 - 純粋な関数: 文字の少ない行の見分け・窓の読みでの置き換え(3 倍の条件・印と元の文字)・末尾の重複・定型の幻覚と声の区間・名簿の呼び名の 1 字違い
 - ジョブ(疑似の認識 TRANSCRIBE_BACKEND=fake + TRANSCRIBE_FAKE_FILL): 行が置き換わり fill と印が付く・記録 recognition.runs[].fill・設定 autoFill(既定オン・評価用はオフ)・保存で fill が残る
-- エンジン: SenseVoice の登録(light)・トークンの時刻からの行・偽(FAKE_TEXT)・小さいモデルは主のモデルを手放さない
+- エンジン: SenseVoice の登録(light)・トークンの時刻からの行・偽(⑤ fake_worker.fake_sense_voice)・小さいモデルは主のモデルを手放さない
 """
 import json
 import os
@@ -30,6 +30,7 @@ from pipeline.transcribe import records  # noqa: E402
 from pipeline.transcribe import models  # noqa: E402
 from flow import jobs  # noqa: E402
 from pipeline.transcribe import tx_engines as E  # noqa: E402
+from eval.fake import fake_worker  # noqa: E402  (SenseVoice・文字の LLM の偽物。OPT-E2 1a-1)
 
 HAVE_FF = bool(shutil.which("ffmpeg"))
 LONG = "これは別の読みで埋めた長い文です"   # 16 字(テスト文n の 5 字の 3 倍以上)
@@ -244,21 +245,21 @@ class TestSenseVoiceEngine(unittest.TestCase):
         self.assertEqual(len(E.sv_rows(["あ", "い"] * 25, [i * 0.05 for i in range(50)], 0.0, 5.0)), 2)   # 40 字で分ける
 
     def test_fake_engine(self):
-        with mock.patch.object(E.SenseVoice, "FAKE_TEXT", "あいう"):
-            e = E.SenseVoice.create("sense-voice-small", "cpu", "int8", data_dir=tempfile.gettempdir())
+        with mock.patch.dict(E.ENGINES, {E.SenseVoice.id: fake_worker.fake_sense_voice("あいう")}):   # 偽物は ⑤ fake_worker(OPT-E2 1a-1)
+            e = E.get("sense-voice").create("sense-voice-small", "cpu", "int8", data_dir=tempfile.gettempdir())
             segs, info = e.transcribe([0.0] * 32000, language="ja")
             self.assertEqual([(s.start, s.end, s.text) for s in segs], [(0.0, 2.0, "あいう")])
             self.assertEqual((info.language, info.duration, e.params()), ("ja", 2.0, ["language", "vad_filter", "vad_parameters", "word_timestamps"]))
-        with mock.patch.object(E.SenseVoice, "FAKE_TEXT", ""):
-            e = E.SenseVoice.create("sense-voice-small", "cpu", "int8")
+        with mock.patch.dict(E.ENGINES, {E.SenseVoice.id: fake_worker.fake_sense_voice("")}):
+            e = E.get("sense-voice").create("sense-voice-small", "cpu", "int8")
             self.assertEqual(list(e.transcribe([0.0] * 16000)[0]), [])
-        with self.assertRaises(E.EngineError):
-            E.SenseVoice.create("large-v3", "cpu", "int8")
+            with self.assertRaises(E.EngineError):
+                E.get("sense-voice").create("large-v3", "cpu", "int8")
 
     def test_light_model_keeps_heavy_one(self):
         """小さいモデル(SenseVoice)を読んでも、主のモデル(faster-whisper など)は手放さない(文字起こしのたびに読み直さない)"""
         heavy = ("large-v3", "cpu", "faster-whisper")
-        with mock.patch.dict(models._models, {heavy: object()}, clear=True), mock.patch.object(E.SenseVoice, "FAKE_TEXT", "x"):
+        with mock.patch.dict(models._models, {heavy: object()}, clear=True), mock.patch.dict(E.ENGINES, {E.SenseVoice.id: fake_worker.fake_sense_voice("x")}):
             m, dev = models._load_model_local("sense-voice-small", {"cancel": False}, "cpu", engine="sense-voice")
             self.assertEqual((dev, set(models._models)), ("cpu", {heavy, ("sense-voice-small", "cpu", "sense-voice")}))
             self.assertIs(models._load_model_local("sense-voice-small", {"cancel": False}, "cpu", engine="sense-voice")[0], m)   # 2 回目は使い回す

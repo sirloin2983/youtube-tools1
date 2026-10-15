@@ -42,22 +42,23 @@
   n 本たまったら組で届ける。録画が終わって書き出しも実行も残っていなければ、最後に預けてから POOL_IDLE_SEC で残りを届ける(flush_pools。入口の src/home/live.py が見回りで呼ぶ)。
   溜めは logs/deliver-pool.json に残す(起動し直しても続く)。10-09 ユーザー決定 = decisions 3-20
 - 「あとから解析(測るため)」(友人の依頼が区間だけで終わった配信を、手が空いたときに解析する mode post_analyze)は RS4 で消した(入口 0.55.0)。
-  代わりは測る道具 `py -3.10 src/eval/tools/eval_marks.py --analyze-missing --wait`(未解析の友人の配信の解析をスタジオに頼む)。
+  代わりは区間だけの依頼の最後の段「解析(あとで)」(flow/run の analyze_later。届けたあとに解析を順番へ入れるだけで待たない。OPT-E2 = 決定 3-49 Q6。
+  それまでの測る道具 eval_marks.py --analyze-missing は消した)。
   以前の一覧 logs/autorun-deferred.json は読まない(残っていても害はない)
 """
 import http.client
 import json
 import os
-import re
 import urllib.parse
 import time
 
 from manage.cases import txindex
-from ytt import colors, datadir, fsio, settings as _settings
+from ytt import colors, datadir, settings as _settings
 from flow import spec as _spec  # noqa: E402  (指定の束の検査・既定値。RS1-6 で RANGE_MAX・clean_ranges・top_arg などをここへ移した。下で同じ名前で読み直す)
 from flow.spec import (CUTS, DEFAULT_TOP, LIVE_AUTO_CUT, MAX_MARKS, RANGE_MAX, RANGE_MAX_SEC, RANGE_PAD, TX_ENGINES, TX_MODEL_RE,  # noqa: E402,F401
                            WEIGHT_KEYS, clean_ranges, clean_weights, pad_range)
 from flow import machine as _machine  # noqa: E402  (この PC の設定 = 束に重ねる機械の都合。RS7-1 S1)
+from flow import lengthhint as _lengthhint  # noqa: E402  (友人の区間の長さの目安をその場で数える。OPT-E2 7f-1)
 from flow import run as run_mod  # noqa: E402  (① の経路 = Run・Runner・段の表。RS1-7 で移した。AutoRunner は Runner を継いで hook を埋める。下で同じ名前で読み直す)
 from flow.run import (BUSY_WAIT, CANCEL_WAIT, DOC_LABEL, DOC_MODE, DONE_STEPS, JOB_STATE_JA, MODE_STEPS, MODES, NOTHING_MESSAGE,  # noqa: E402,F401
                           REQUEST_MODES, REQUEST_URL_MODES, RUN_ID_RE, RUN_STATE_LABELS, STEP_LABELS, STEP_STATE_LABELS,
@@ -76,15 +77,8 @@ FLOW_MODES = {"url": {"auto": "request_auto", "check": "request"},
 MAX_NEW = 10           # ① 探す から一度に入れられる配信の数(① 探す で選べる最大と同じ)
 # 待ち行列と記録の数(MAX_KEEP・LOG_*・PAST_*・HISTORY_*・MAX_WAITING)は src/flow/runqueue.py(RS7-1 S5。上で読み直している)
 # 友人の区間の長さを、依頼の自動の候補の長さに使う(2026-10-05 ユーザーの要望。仮の決定 = まとめ役)。
-# 測る道具 src/eval/tools/eval_marks.py --json の結果(スタジオの作業データ evals\marks\<日時>.json。入口の夜の自動測定が流す)の clipLength を読むだけ
+# 数えるのは ② flow/lengthhint(使うときにその場で。OPT-E2 7f-1。10-15 まで測る道具 eval_marks の夜の結果のファイルを読んでいた)
 FRIEND_LENGTH_ENV = "YTT_FRIEND_LENGTH"   # off = 使わない(ホームの設定 autorun.friendLength が false でも使わない)
-FRIEND_LENGTH_MIN_SAMPLES = 20         # 友人の区間の見本の数(外れ値を除く)
-FRIEND_LENGTH_MIN_VIDEOS = 5           # その配信の数
-FRIEND_PRE_MIN_SAMPLES = 10            # 山の位置(preRatio)を使う見本の数
-FRIEND_LENGTH_MAX_AGE = 30 * 86400     # 結果のファイルの古さ(ファイル名の日時)
-FRIEND_LENGTH_RANGE, FRIEND_PRE_RANGE = (10, 120), (0.3, 0.9)   # スタジオの解析の設定 length・preRatio の範囲(src/pipeline/analyze/analyze.py の validate_settings)
-EVAL_MARKS_NAME_RE = re.compile(r"^(\d{8}-\d{6})(?:_auto)?\.json\Z")   # src/eval/drill/accuracy.py の RESULT_NAME_RE と同じ形
-EVAL_READ_MAX = 16 * 1024 * 1024
 # 入口の起動し直しで戻す(線 D の M5。2026-10-07)。待ちの記録 ACTIVE_FILE・RESTORE_MAX_AGE は src/flow/runqueue.py(RS7-1 S5)
 RESUME_WAIT = 120.0                  # 戻した実行は、使うツールが動くまでこれだけ待つ(入口の起動の直後はまだ準備中のことがある)
 # 指定の束を画面の設定から組む(RS6 b-0。build_spec)。段は GET /api/settings を読まず、実行を始めるときに組んだ束を読む
@@ -593,49 +587,25 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
             return False
 
     def _friend_length(self):
-        """友人の区間の長さの実績(src/eval/tools/eval_marks.py --json の結果のうち、いちばん新しいもの)-> 解析の設定に重ねる {"length", "preRatio"?} と出どころ。
-        使わない(止めてある・ファイルが無い・古い・壊れている・見本が足りない)ときは None(ログに1行。依頼は今までどおりスタジオの設定で進む)"""
+        """友人の区間の長さの目安(② flow/lengthhint がその場で数える = 入口の実行記録の友人が指定した区間)-> 解析の設定に重ねる
+        {"length", "preRatio"?} と出どころ・数。使わない(止めてある・見本が足りない・数えられない)ときは None(依頼は今までどおりスタジオの設定で進む)。
+        最初と、使う ⇄ 使わない・長さが変わったときにログに 1 行(切り替わりを見えるように。7f-2)"""
         if self._env_off(FRIEND_LENGTH_ENV):
             return None
         if self._pref("friendLength", True) is False:
             return None
-        folder = os.path.join(os.path.dirname(cases.locations(self.root, self.env)["studio"]), "evals", "marks")
+        loc = cases.locations(self.root, self.env)
         try:
-            names = sorted(n for n in os.listdir(folder) if EVAL_MARKS_NAME_RE.match(n))
-        except OSError:
-            names = []
-        if not names:
-            self.log("友人の区間の長さ: 測る道具の結果がまだ無いので、スタジオの設定の長さで解析します")
+            h = _lengthhint.compute(os.path.dirname(loc["studio"]), os.path.dirname(os.path.dirname(loc["runs"])))
+        except Exception as e:   # 数えられなくても依頼は止めない
+            self.log("友人の区間の長さ: 数えられないので使いません(%s)" % e.__class__.__name__)
             return None
-        name = names[-1]
-        try:
-            stamp = time.mktime(time.strptime(EVAL_MARKS_NAME_RE.match(name).group(1), "%Y%m%d-%H%M%S"))
-        except (ValueError, OverflowError):
-            stamp = 0
-        if self.clock() - stamp > FRIEND_LENGTH_MAX_AGE:
-            self.log("友人の区間の長さ: 測る道具の結果(%s)が %d 日より古いので使いません" % (name, FRIEND_LENGTH_MAX_AGE // 86400))
-            return None
-        try:
-            res = fsio.read_json_file(os.path.join(folder, name), EVAL_READ_MAX)
-            cl = res["clipLength"]
-            fr, pr = cl["samples"]["friend"], (cl.get("peakRatio") or {}).get("friend") or {}
-            n, videos, p50 = fr["n"], fr["videos"], fr["length"]["p50"]
-            if not all(isinstance(x, int) and not isinstance(x, bool) for x in (n, videos)) or not _num(p50) or p50 <= 0:
-                raise ValueError("数でない")
-        except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
-            self.log("友人の区間の長さ: 測る道具の結果(%s)を読めないので使いません(%s)" % (name, e.__class__.__name__))
-            return None
-        if n < FRIEND_LENGTH_MIN_SAMPLES or videos < FRIEND_LENGTH_MIN_VIDEOS:
-            self.log("友人の区間の長さ: 見本がまだ少ないので使いません(%d 個・配信 %d 本。%d 個・%d 本から)"
-                     % (n, videos, FRIEND_LENGTH_MIN_SAMPLES, FRIEND_LENGTH_MIN_VIDEOS))
-            return None
-        lo, hi = FRIEND_LENGTH_RANGE
-        out = {"length": int(min(hi, max(lo, int(float(p50) + 0.5)))), "file": name, "samples": n, "videos": videos}
-        pn, pm = pr.get("n") if isinstance(pr, dict) else None, pr.get("median") if isinstance(pr, dict) else None
-        if isinstance(pn, int) and not isinstance(pn, bool) and pn >= FRIEND_PRE_MIN_SAMPLES and _num(pm):
-            lo, hi = FRIEND_PRE_RANGE
-            out["preRatio"] = round(min(hi, max(lo, float(pm))), 2)
-        return out
+        prev = getattr(self, "_friend_hint", self)   # self = まだ一度も数えていない(最初は必ずログに出す)
+        changed, used = _lengthhint.change(None if prev is self else prev, h)
+        if changed or prev is self:
+            self._friend_hint = used
+            self.log("友人の区間の長さ: " + _lengthhint.describe(h))
+        return dict(used, file="flow/lengthhint", samples=h["samples"], videos=h["videos"]) if used else None
 
     def _remember_styles(self, tid, styles):
         """指定された字幕の色を、文書の話者(名前が合う人)に「字幕の見た目」として覚える(編集の POST /api/speakers/sub)。-> 成功したか。

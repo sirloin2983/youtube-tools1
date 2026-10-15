@@ -1885,7 +1885,7 @@ class TestRequests(Base):
         run = self.wait(self.r.start_request([{"id": VID, "top": 1, "title": "配信", "channel": "Pekora Ch. 兎田ぺこら", "ranges": [(50, 60)]}], request_id="rid1", flow="auto",
                                              deliver_dir=out, speakers=dict(self.SPEAKERS), streamer="さくらみこ")["runs"][0])
         self.assertEqual((run["state"], run["streamer"], run["streamerFrom"]), ("done", "さくらみこ", None), run)
-        self.assertEqual(list(self.states(run)), ["adopt", "export", "transcribe", "diarize", "pack", "deliver"])
+        self.assertEqual(list(self.states(run)), ["adopt", "export", "transcribe", "diarize", "pack", "deliver", "analyze_later"])
         out_body = self.tools.c2r["body"]["output"]
         self.assertEqual((out_body["streamer"], out_body["speakerStyles"]), ("さくらみこ", self.STYLES))
         self.assertTrue([c for c in self.tools.calls if c[2] == "/api/speakers/sub"])
@@ -1898,12 +1898,15 @@ class TestRequests(Base):
             self.assertNotIn("speakerStyles", self.tools.c2r["body"]["output"])
 
     def test_request_ranges_only_skips_analysis(self):
-        """区間が切り抜く数に足りている: 解析なしで、区間(前後に 2 秒の余白)だけを書き出し → 文字起こし"""
+        """区間が切り抜く数に足りている: 解析なしで、区間(前後に 2 秒の余白)だけを書き出し → 文字起こし。解析は最後に順番へ入れるだけ(待たない。決定 3-49 Q6)"""
         self.tools.known = False
         res = self.r.start_request([{"id": VID, "top": 2, "title": "配信", "channel": "ch", "ranges": [(100, 190), (1, 30)], "duration": 191.0}], request_id="rid")
         run = self.wait(res["runs"][0])
-        self.assertEqual((run["state"], list(self.states(run))), ("done", ["adopt", "export", "transcribe"]), run)
-        self.assertFalse(any(c[2] == "/api/queue/add" for c in self.tools.calls), "解析しない")
+        self.assertEqual((run["state"], list(self.states(run))), ("done", ["adopt", "export", "transcribe", "analyze_later"]), run)
+        adds = [i for i, c in enumerate(self.tools.calls) if c[2] == "/api/queue/add"]
+        self.assertEqual(len(adds), 1, "解析は最後に 1 回だけ順番へ")
+        self.assertGreater(adds[0], max(i for i, c in enumerate(self.tools.calls) if c[2] == "/api/video/request-marks"), "切り抜く前には解析しない")
+        self.assertIn("順番に入れました", next(s for s in run["steps"] if s["key"] == "analyze_later")["detail"])
         self.assertEqual(self.tools.request_marks, {"id": VID, "ranges": [[98.0, 191.0], [0.0, 32.0]], "top": 2, "title": "配信", "channel": "ch"})   # 余白は 0 と配信の長さで切る
         self.assertEqual(len(self.tools.export_body["markIds"]), 2)
         self.assertEqual(run["ranges"], [[100.0, 190.0], [1.0, 30.0]])
@@ -1932,7 +1935,7 @@ class TestRequests(Base):
         out = os.path.join(self.tmp, "Dropbox", "出力")
         item = {"id": VID, "top": 1, "title": "配信", "ranges": [(50, 60)]}
         run = self.wait(self.r.start_request([dict(item)], request_id="rid1", flow="auto", deliver_dir=out, cut="silence", video_tracks=2)["runs"][0])
-        self.assertEqual((run["state"], list(self.states(run))), ("done", ["adopt", "export", "transcribe", "pack", "deliver"]), run)
+        self.assertEqual((run["state"], list(self.states(run))), ("done", ["adopt", "export", "transcribe", "pack", "deliver", "analyze_later"]), run)
         self.assertEqual((self.tools.c2r["body"]["spec"]["mode"], self.tools.c2r["body"]["output"]["videoTracks"]), ("silence", 2))
         self.assertEqual(len(self.zips(out)), 1)
         jobs = len(self.tools.tx_jobs)
@@ -2025,8 +2028,8 @@ print(json.dumps({"rids": rids, "before": before, "after": after, "n": n, "analy
 
 
 class TestFriendLength(Base):
-    """友人の区間の長さを、依頼の自動の候補の長さに使う(2026-10-05): src/eval/tools/eval_marks.py --json の結果の clipLength(友人の区間)を読み、
-    依頼(URL)で足りない分を自動で埋めるために解析するときだけ、解析の設定 length・preRatio に重ねる"""
+    """友人の区間の長さを、依頼の自動の候補の長さに使う(2026-10-05): ② flow/lengthhint が入口の実行記録の友人の区間からその場で数え(OPT-E2 7f-1)、
+    依頼(URL)で足りない分を自動で埋めるために解析するときだけ、解析の設定 length に重ねる。数え方の細かい所は src/flow/tests/test_lengthhint.py"""
     marks = []
     analysis = False
 
@@ -2041,20 +2044,19 @@ class TestFriendLength(Base):
         self.tools.analyze = {"count": 12, "length": 45, "preRatio": 0.65}
         self.tools.known = False
         from manage.cases import cases
-        self.folder = os.path.join(os.path.dirname(cases.locations(self.r.root, self.env)["studio"]), "evals", "marks")
+        self.runs_log = cases.locations(self.r.root, self.env)["runs"]
 
     def tearDown(self):
         self.env_patch.stop()
         super().tearDown()
 
-    def write_eval(self, n=20, videos=5, p50=38.4, pre_n=10, pre_med=0.6123, age_days=0, raw=None):
-        os.makedirs(self.folder, exist_ok=True)
-        name = time.strftime("%Y%m%d-%H%M%S", time.localtime(time.time() - age_days * 86400)) + ".json"
-        res = {"clipLength": {"samples": {"friend": {"n": n, "videos": videos, "outliers": 0, "length": {"n": n, "p50": p50, "median": p50}}},
-                              "peakRatio": {"friend": {"n": pre_n, "median": pre_med}}}}
-        with open(os.path.join(self.folder, name), "w", encoding="utf-8") as f:
-            f.write(raw if raw is not None else json.dumps(res))
-        return name
+    def write_runs(self, n=20, videos=5, length=38.4):
+        """実行記録に友人の区間を n 個(配信 videos 本)。今の記録の後ろに足す"""
+        os.makedirs(os.path.dirname(self.runs_log), exist_ok=True)
+        with open(self.runs_log, "a", encoding="utf-8") as f:
+            for i in range(n):
+                f.write(json.dumps({"v": 1, "id": "past%d-%d" % (i, time.time_ns()), "state": "done", "steps": [], "kind": "video",
+                                    "videoId": "fv%d" % (i % videos), "ranges": [[i * 1000.0, i * 1000.0 + length]]}) + "\n")
 
     def run_request(self, **kw):
         res = self.r.start_request([{"id": VID, "top": 3, "ranges": [(50, 60)]}], request_id="rid", **kw)   # 区間が足りない = 解析あり
@@ -2071,53 +2073,35 @@ class TestFriendLength(Base):
         return adds[-1][3]["settings"] if adds else None
 
     def test_used_when_enough(self):
-        name = self.write_eval()
+        self.write_runs()
         run = self.run_request(weights={"wAudio": 1.5, "wChat": 1.0, "wComments": 1.0})
         self.assertEqual(run["state"], "done", run)
-        self.assertEqual(self.settings(), AN(count=12, length=38, preRatio=0.61, wAudio=1.5, wChat=1.0, wComments=1.0))
-        self.assertEqual(run["friendLength"], {"length": 38, "preRatio": 0.61, "file": name, "samples": 20, "videos": 5})
-        self.assertIn("長さ 38 秒・山の前 0.61(友人の区間の実績から)", next(s for s in run["steps"] if s["key"] == "analyze")["detail"])
+        self.assertEqual(self.settings(), AN(count=12, length=38, preRatio=0.65, wAudio=1.5, wChat=1.0, wComments=1.0))
+        self.assertEqual(run["friendLength"], {"length": 38, "file": "flow/lengthhint", "samples": 20, "videos": 5})
+        self.assertIn("長さ 38 秒(友人の区間の実績から)", next(s for s in run["steps"] if s["key"] == "analyze")["detail"])
+        self.assertIn("長さの目安を使います: 38 秒", self.logs[0])
 
     def test_not_enough(self):
-        for n, videos in ((19, 5), (20, 4)):
-            self.tools.calls.clear()
-            self.tools.queue.clear()
-            self.tools.video["analysis"] = None
-            for f in os.listdir(self.folder) if os.path.isdir(self.folder) else []:
-                os.remove(os.path.join(self.folder, f))
-            self.write_eval(n=n, videos=videos)
-            run = self.run_request()
-            self.assertEqual((self.settings(), run["friendLength"]), (AN(count=12, length=45, preRatio=0.65), None), (n, videos))
-        self.assertTrue(any("見本がまだ少ない" in x for x in self.logs), self.logs)
-
-    def test_clamp_and_no_pre(self):
-        self.write_eval(p50=150, pre_n=9)
-        self.assertEqual(self.r._friend_length()["length"], 120)
-        self.assertNotIn("preRatio", self.r._friend_length())
-        self.write_eval(p50=4.2, pre_n=30, pre_med=0.95)   # 新しいファイルを読む
-        fl = self.r._friend_length()
-        self.assertEqual((fl["length"], fl["preRatio"]), (10, 0.9))
-        self.write_eval(p50=37.5, pre_n=10, pre_med=0.1)
-        fl = self.r._friend_length()
-        self.assertEqual((fl["length"], fl["preRatio"]), (38, 0.3))   # 四捨五入・0.3〜0.9 に収める
-
-    def test_old_broken_missing(self):
-        self.assertIsNone(self.r._friend_length())   # まだ無い
-        self.write_eval(age_days=31)
-        self.assertIsNone(self.r._friend_length())
-        self.assertIn("古い", self.logs[-1])
-        for raw in ("{壊れた", json.dumps({"clipLength": {"samples": {"friend": {"n": "20", "videos": 5, "length": {"p50": 30}}}}}),
-                    json.dumps({"clipLength": {"samples": {"friend": {"n": 20, "videos": 5, "length": {"p50": "30"}}}}}), json.dumps([1])):
-            time.sleep(1.05)   # ファイル名は秒まで(いちばん新しいものを読む)
-            self.write_eval(raw=raw)
-            self.assertIsNone(self.r._friend_length(), raw)
-            self.assertIn("読めない", self.logs[-1])
+        self.write_runs(n=19, videos=5)
         run = self.run_request()
-        self.assertEqual((run["state"], self.settings()["length"]), ("done", 45))
+        self.assertEqual((self.settings(), run["friendLength"]), (AN(count=12, length=45, preRatio=0.65), None))
+        self.assertTrue(any("まだ少ない" in x for x in self.logs), self.logs)
+
+    def test_clamp_and_switch_log(self):
+        self.write_runs(length=300.0)
+        self.assertEqual(self.r._friend_length()["length"], 180)   # 上限 180 秒(決定 3-49 Q1)
+        n = len(self.logs)
+        self.r._friend_length()
+        self.assertEqual(len(self.logs), n)   # 変わらなければログに出さない
+        self.write_runs(n=40, length=4.0)   # 外れ値(5 秒未満)は数えない = 見本は 20 のまま・長さも同じ
+        self.assertEqual(self.r._friend_length()["length"], 180)
+        self.write_runs(n=21, length=20.0)   # 中央値が変わる = ログに 1 行
+        self.assertEqual(self.r._friend_length()["length"], 20)
+        self.assertEqual(len(self.logs), n + 1)
 
     def test_only_for_requests(self):
         """ユーザー自身のまとめて実行には効かない。解析済みなら使い回す(長さが違っても解析し直さない)"""
-        self.write_eval()
+        self.write_runs()
         self.tools.known = True
         run = self.run_one("full")
         self.assertEqual((run["state"], self.settings()), ("done", AN(count=12, length=45, preRatio=0.65)))
@@ -2129,7 +2113,7 @@ class TestFriendLength(Base):
         self.assertEqual((self.states(run)["analyze"], self.settings(), run["friendLength"]), ("skip", None, None))
 
     def test_off(self):
-        self.write_eval()
+        self.write_runs()
         os.environ[A.FRIEND_LENGTH_ENV] = "off"
         self.assertIsNone(self.r._friend_length())
         del os.environ[A.FRIEND_LENGTH_ENV]

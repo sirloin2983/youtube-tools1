@@ -65,6 +65,16 @@ class TestPostRecord(unittest.TestCase):
         with mock.patch.object(workdata, "SERVER_VERSION", "9.9.9"), mock.patch.object(postproc, "END_TRIM", 0.1):
             self.assertEqual(postproc.post_record(), {"version": "9.9.9", "endTrim": 0.1, "joinGap": postproc.JOIN_GAP})
 
+    def test_spec_values(self):
+        """測る道具は spec の endTrim・joinGap で渡す(モジュールの値を書き換えない。OPT-E2 5c-2)。範囲の外・数でなければ既定"""
+        self.assertEqual(postproc.post_values({"endTrim": 0.1, "joinGap": 0}), (0.1, 0.0))
+        self.assertEqual(postproc.post_values({"endTrim": 0.9, "joinGap": True}), (postproc.END_TRIM, postproc.JOIN_GAP))
+        self.assertEqual(postproc.post_record({"joinGap": 1.0})["joinGap"], 1.0)
+        gen = [_row(0.0, 1.0, "あ"), _row(1.3, 2.0, "い")]
+        self.assertEqual(list(postproc.expand_segments(gen, {"joinGap": 0.0}))[0]["end"], 1.0)   # つながない
+        with mock.patch.object(postproc, "trim_ends", lambda rows, sec: [dict(r, end=r["end"] - sec) for r in rows]):
+            self.assertEqual(list(postproc.expand_segments(gen, {"engine": "whisper.cpp", "endTrim": 0.2, "joinGap": 0.0}))[0]["end"], 0.8)
+
 
 class TestImportsAlone(unittest.TestCase):
     def test_no_native_app_or_eval(self):

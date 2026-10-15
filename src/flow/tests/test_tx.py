@@ -41,6 +41,9 @@ class _FakeEngine(backend.Backend):
     def engine_ids(self, spec, real):
         return "fake", ""
 
+    def engine_ready(self, engine, real):
+        return True, ""   # 疑似は常に使える(backend の口。OPT-E2 1a-2)
+
 
 class _Env(unittest.TestCase):
     def setUp(self):

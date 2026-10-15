@@ -1405,6 +1405,8 @@
     // エラーの件数
     var e = h.errors || {};
     ul.appendChild(healthRow(e.clientLast24h ? 'warn' : 'ok', '画面のエラー(24 時間)', (e.clientLast24h || 0) + ' 件', [e.clientLog]));
+    // 自動の切り抜きの長さの目安(友人の区間からその場で数える = flow/lengthhint。使う ⇄ 使わないが切り替わったら分かるように。OPT-E2)
+    if (h.lengthHint) ul.appendChild(healthRow(h.lengthHint.used ? 'ok' : 'info', '自動の切り抜きの長さ', h.lengthHint.text));
     ul.appendChild(healthRow(e.autorunFailedLast7d ? 'warn' : 'ok', 'まとめて実行の失敗(7 日)', (e.autorunFailedLast7d || 0) + ' 件' + (e.autorunFailedLast7d ? '(上の「まとめて実行の記録」に理由)' : ''), [e.autorunLog]));
     // 異常終了(見張り役。git の履歴(679ff01 以前)の docs/plan/stability-review-2026-10.md)。OS 側が増えたら PC の不安定、アプリ側だけならこのツールの不具合の目安
     var cr = h.crashes;

@@ -35,7 +35,7 @@ SRC =os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/app -> 
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 from flow import envelope as _envelope, keys as _keys, learning as _learning, machine as _machine, placement as _flow_placement, run as _run, spec as _spec, tools as _tools, wire as _wire  # noqa: E402
-from pipeline.transcribe import roster as _roster, worker_client as _worker_client  # noqa: E402
+from pipeline.transcribe import worker_client as _worker_client  # noqa: E402
 from flow import studiobook as _studiobook  # noqa: E402  スタジオなしの配信の台帳(URL を入口なしで。RS8)
 from ytt import datadir as _datadir, docloc as _docloc, fsio as _fsio, layout as _layout, runtime as _runtime, schemas as _schemas  # noqa: E402
 from ytt import studio_env as _studio_env, tools as _ytools, workdata as _workdata, yturl as _yturl  # noqa: E402
@@ -151,12 +151,10 @@ def use_data_dir(data_dir=None):
         os.environ["YTT_DATA_DIR"] = os.path.abspath(data_dir)
         for name in _datadir.ENV_OVERRIDE.values():
             os.environ.pop(name, None)
-    editor = _layout.tool_dir("transcribe")
-    _workdata.set_root(editor)
-    _workdata.set_data_dir(os.path.abspath(_datadir.locate("transcribe")))
-    _roster.ROSTER = os.path.join(editor, "hololive-roster.json")
-    if not os.environ.get("TRANSCRIBE_STUDIO_DATA"):   # 配信の文脈はこの作業データのスタジオの data.json(無ければ文脈なし。リポジトリの中の src/studio は読まない。RS7-1 F-k)
-        _workdata.STUDIO_DATA = _flow_placement.studio_data()
+    # 置き場所・名簿・スタジオの data.json は ② の準備 1 か所(flow/wire.setup_places。⑤ の道具・編集と同じ。OPT-E2 1c-1)。
+    # 配信の文脈はこの作業データのスタジオの data.json(無ければ文脈なし。リポジトリの中の src/studio は読まない。RS7-1 F-k)
+    _wire.setup_places(data_dir=_datadir.locate("transcribe"),
+                       studio_data=None if os.environ.get("TRANSCRIBE_STUDIO_DATA") else _flow_placement.studio_data())
     _learning.apply_places(learning_dir())   # 学習データが別の場所のとき: 置換辞書・採用の記録(学習の束なら名簿・声・色も)はそこから読む
     return _datadir.data_root()
 

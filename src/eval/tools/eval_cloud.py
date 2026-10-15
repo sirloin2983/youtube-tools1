@@ -47,6 +47,8 @@ if not __package__:   # スクリプトとして起動したとき(py -3.10 src/
 from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・保存・editor の読み込み)
 from eval.tools import eval_asr as E  # noqa: E402  文書の選び方・採点・まとめ・表示(同じ物差しで測るため)
 from ytt import fsio  # noqa: E402
+from pipeline.transcribe import recognize as _recognize  # noqa: E402
+from ytt import tools as _tools  # noqa: E402
 
 # 単価(USD / 分。2026-10-07 に公式の料金ページで確認。申し込みの前にもう 1 度見る)
 #   OpenAI: developers.openai.com/api/docs/pricing(gpt-4o-transcribe は音声トークン $2.50/M = 目安 $0.006/分。whisper-1 は $0.006/分)
@@ -229,9 +231,9 @@ def cache_dir(data, service, model):
     return os.path.join(data, "evals", "cloud", service, C.label_name(model, None))
 
 
-def audio_span(S, doc, data, boost):
+def audio_span(doc, data, boost):
     """文書の音声の出どころ(eval_asr.recognize_doc と同じ順: 元の動画 → 保管の full.flac。今ある保管データだけ。保管の書き手は 10-10 に消した)-> (extract_audio の spec, 行の時刻の基準の秒, 出どころの名前)"""
-    return C.audio_span(S, doc, data, boost=boost)
+    return C.audio_span(doc, data, boost=boost)
 
 
 def span_key(spec):
@@ -251,22 +253,22 @@ def save_cache(path, rec):
     fsio.write_json(path, rec, indent=1)
 
 
-def doc_seconds(S, spec):
+def doc_seconds(spec):
     """送る音声の長さの目安(秒)。文書に end があれば end − start、無ければ ffprobe で測った長さ − start(見積もりに使う。取り出さない)"""
     if spec["end"]:
         return max(0.0, float(spec["end"]) - float(spec["start"] or 0))
-    total = S.media_duration(spec["sourcePath"]) or 0.0
+    total = _tools.media_duration(spec["sourcePath"]) or 0.0
     return max(0.0, total - float(spec["start"] or 0))
 
 
-def extract_wav(S, spec):
+def extract_wav(spec):
     """音声を 16kHz モノラルの wav に取り出して bytes で返す(一時フォルダは消す)-> (bytes, 秒)"""
     job = C.fake_job()
     tmp = tempfile.mkdtemp(prefix="eval_cloud_wav_")
     wav = os.path.join(tmp, "a.wav")
     try:
-        S.extract_audio(job, spec, wav)
-        sec = S.media_duration(wav) or 0.0
+        _recognize.extract_audio(job, spec, wav)
+        sec = _tools.media_duration(wav) or 0.0
         with open(wav, "rb") as f:
             return f.read(), sec
     finally:
@@ -305,14 +307,14 @@ def plan_lines(svc, model, items, todo, price):
     return lines
 
 
-def send_all(S, svc, model, key, todo, keep_remote):
+def send_all(svc, model, key, todo, keep_remote):
     """送る本(todo)を順に送って控えに残す。失敗は本ごとに記録して続ける -> 失敗の一覧"""
     failed = []
     for n, it in enumerate(todo, 1):
         d = it["doc"]
         print("(%d/%d) %s 送信 …" % (n, len(todo), d["id"]), flush=True)
         try:
-            blob, sec = extract_wav(S, it["spec"])
+            blob, sec = extract_wav(it["spec"])
             if len(blob) > svc["maxBytes"]:
                 raise RuntimeError("音声が大きすぎます(%d MB。上限 %d MB)" % (len(blob) // 1048576, svc["maxBytes"] // 1048576))
             resp, wall = send_audio(svc, model, key, blob)
@@ -335,7 +337,7 @@ def send_all(S, svc, model, key, todo, keep_remote):
     return failed
 
 
-def score_all(S, svc, model, items, docs, terms, args, data, sel, failed):
+def score_all(svc, model, items, docs, terms, args, data, sel, failed):
     """控えのある本を採点して、eval_asr の run と同じ形の結果にまとめる"""
     groups, nosub, per_doc, audio_sec, wall_sec = [], {}, [], 0.0, 0.0
     kind = timing_kind(svc["id"], model)
@@ -345,8 +347,8 @@ def score_all(S, svc, model, items, docs, terms, args, data, sel, failed):
             continue
         d = it["doc"]
         rows = rows_from(svc["id"], model, c["response"], it["offset"], c.get("audioSec") or it["sec"])
-        groups += E.score_doc(S, d, rows, terms, flag_from="hyp")
-        nosub[d["id"]] = E.doc_nosub(S, d, rows)
+        groups += E.score_doc(d, rows, terms, flag_from="hyp")
+        nosub[d["id"]] = E.doc_nosub(d, rows)
         audio_sec += c.get("audioSec") or 0.0
         wall_sec += c.get("wallSec") or 0.0
         per_doc.append({"id": d["id"], "audioSec": c.get("audioSec"), "wallSec": c.get("wallSec"), "audio": it["where"], "rows": len(rows),
@@ -363,7 +365,7 @@ def score_all(S, svc, model, items, docs, terms, args, data, sel, failed):
     meta = E.base_meta("run", args, docs, data, sel)
     meta.update({"engine": engine, "audioSec": round(audio_sec, 2), "wallSec": round(wall_sec, 2), "loadSec": 0.0, "peakMemMB": None, "post": dict(POST_NONE),
                  "perDoc": per_doc, "failed": len(failed), "cloud": cloud})
-    summary = E.summarize(groups, [d for d in docs if d["id"] in done], S, {"engine": engine["engine"], "model": model}, None, nosub)
+    summary = E.summarize(groups, [d for d in docs if d["id"] in done], {"engine": engine["engine"], "model": model}, None, nosub)
     return {"meta": meta, "summary": summary, "groups": groups, "terms": terms}
 
 
@@ -384,21 +386,21 @@ def load_key(svc, key_file):
     return "", ""
 
 
-def collect_items(S, docs, cdir, data, boost):
+def collect_items(docs, cdir, data, boost):
     """文書ごとの送る単位(音声の範囲・控え・秒数)を組む -> (items, 音声が見つからず測れない文書の失敗の一覧)"""
     items, failed = [], []
     for d in docs:
         try:
-            spec, offset, where = audio_span(S, d, data, boost)
+            spec, offset, where = audio_span(d, data, boost)
         except RuntimeError as e:
             failed.append({"id": d["id"], "error": str(e)})
             continue
         path = os.path.join(cdir, d["id"] + ".json")
-        items.append({"doc": d, "spec": spec, "offset": offset, "where": where, "cache": path, "cached": load_cache(path, spec), "sec": doc_seconds(S, spec)})
+        items.append({"doc": d, "spec": spec, "offset": offset, "where": where, "cache": path, "cached": load_cache(path, spec), "sec": doc_seconds(spec)})
     return items, failed
 
 
-def cmd_run(S, args, data):
+def cmd_run(args, data):
     svc = dict(SERVICES[args.service], id=args.service)
     model = resolve_model(args.service, args.model)
     price = svc["models"].get(model)
@@ -412,7 +414,7 @@ def cmd_run(S, args, data):
     docs, sel = E.select_docs(data, args)
     if not docs:
         raise SystemExit("測れる文書がありません(校正済みの行がある評価用の文書)")
-    items, failed = collect_items(S, docs, cache_dir(data, svc["id"], model), data, boost)
+    items, failed = collect_items(docs, cache_dir(data, svc["id"], model), data, boost)
     todo = [i for i in items if not i["cached"]]
     for line in plan_lines(svc, model, items, todo, price):
         print(line)
@@ -427,11 +429,11 @@ def cmd_run(S, args, data):
         est = estimate_usd(todo, price)
         if est > args.max_usd:
             raise SystemExit("見積もり $%.3f が上限 --max-usd %.2f を超えています。送りません" % (est, args.max_usd))
-        failed += send_all(S, svc, model, key, todo, args.keep_remote)
+        failed += send_all(svc, model, key, todo, args.keep_remote)
     if not any(i["cached"] for i in items):
         raise SystemExit("採点できる応答がありません")
-    terms = E.name_terms(S, settings)
-    res = score_all(S, svc, model, items, docs, terms, args, data, sel, failed)
+    terms = E.name_terms(settings)
+    res = score_all(svc, model, items, docs, terms, args, data, sel, failed)
     if timing_kind(svc["id"], model) == "none":
         print("※ このモデルは時刻を返さないので文書全体を 1 行にしました。まとまりごとの内訳・重なりの数字は意味が無い。「時刻によらない CER」で比べること")
     if failed:
@@ -496,8 +498,8 @@ def main(argv=None):
         return cmd_list(data)
     args.model = resolve_model(args.service, args.model)   # 送り先と合わないモデルは、作業データを読む前に止める
     args.label = args.label or "cloud-%s-%s" % (args.service, args.model)
-    S = C.load_serve()
-    res = cmd_run(S, args, data)
+    C.prepare()
+    res = cmd_run(args, data)
     if res is None:
         print("送っていません(見積もりだけ)。")
         return None

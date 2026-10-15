@@ -25,6 +25,14 @@ sys.path.insert(0, REPO)
 from eval.tools import eval_asr as E  # noqa: E402
 from eval.fake import fake_asr  # noqa: E402
 from pipeline.transcribe import postproc  # noqa: E402
+from pipeline.transcribe import tx_engines as _tx_engines  # noqa: E402
+from pipeline.transcribe import worker_client as _worker_client  # noqa: E402
+from pipeline.transcribe import models as _txmodels  # noqa: E402
+from ytt import workdata as _workdata  # noqa: E402
+from pipeline.transcribe import backend as _backend  # noqa: E402
+from pipeline.transcribe import backend as _backend  # noqa: E402
+from ytt import txtext as _txtext  # noqa: E402
+from eval.drill import metrics as _metrics  # noqa: E402
 
 
 def seg(i, a, b, text, proofed=True, tags=None, flag=""):
@@ -105,9 +113,9 @@ class EvalAsrTest(unittest.TestCase):
 
     def test_doc_text_ignores_time_shift(self):
         """行の時刻がずれて文字が隣のまとまりへ移っても、時刻によらない数え方では誤りにならない"""
-        S = E.load_serve("fake")
+        E.C.prepare("fake")
         groups = [{"doc": "d", "start": 0.0, "ref": "あいう", "hyp": "あい"}, {"doc": "d", "start": 5.0, "ref": "えお", "hyp": "うえお"}]
-        dt = E.doc_text(S, groups)
+        dt = E.doc_text(groups)
         self.assertEqual((dt["refChars"], dt["sub"], dt["del"], dt["ins"], dt["cer"]), (5, 0, 0, 0, 0.0))
 
     @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg が無い")
@@ -159,22 +167,27 @@ class EvalAsrTest(unittest.TestCase):
         finally:
             os.environ.pop("TRANSCRIBE_BACKEND", None)
 
-    def test_load_serve_forwards_settings_to_the_parts(self):
-        """load_serve は serve を sys.modules に登録して読む = 「S.名前 = …」が持ち主の部品(ed_jobs・ed_state)に届く。
-        2026-10-07 まで届いていなかった(認識は認識ワーカーで動き・--context auto はスタジオの data.json を読めず・差し替えた END_TRIM などは後処理に効かない)"""
-        S = E.load_serve("fake")
-        J = S
-        self.assertIs(sys.modules[E.C.SERVE_NAME], S)
-        self.assertTrue(J.IN_WORKER)                                         # 認識はこのプロセスの中で(認識ワーカーを起動しない)
-        self.assertEqual(S.STUDIO_DATA, S.studio_data_path())      # スタジオの data.json は起動したツールと同じ決め方
-        before = (J.END_TRIM, J.JOIN_GAP)
-        with mock.patch.object(S, "END_TRIM", before[0] + 0.1), mock.patch.object(S, "JOIN_GAP", 0.0):
-            self.assertEqual((J.END_TRIM, J.JOIN_GAP), (before[0] + 0.1, 0.0))   # 差し替えは部品に届く
-        self.assertEqual((J.END_TRIM, J.JOIN_GAP), before)                       # 戻すのも部品へ
+    def test_prepare_uses_the_owner_modules(self):
+        """C.prepare は入口(編集の serve)を読まず、持ち主のモジュールを直に使う。認識はこのプロセスの中で、スタジオの data.json は
+        環境変数 TRANSCRIBE_STUDIO_DATA どおり、TRANSCRIBE_DATA_DIR は書き換えない(OPT-E2)"""
+        studio = os.path.join(self.tmp, "data.json")
+        data_dir = os.environ.get("TRANSCRIBE_DATA_DIR")
+        before_mods = set(sys.modules)
+        with mock.patch.dict(os.environ, {"TRANSCRIBE_STUDIO_DATA": studio}):
+            E.C.prepare("fake")
+            self.assertEqual(_workdata.STUDIO_DATA, studio)
+        self.assertTrue(_worker_client.IN_WORKER)                                         # 認識はこのプロセスの中で(認識ワーカーを起動しない)
+        self.assertEqual(os.environ.get("TRANSCRIBE_DATA_DIR"), data_dir)
+        self.assertNotIn("tx_serve_for_eval", sys.modules)
+        self.assertFalse({n for n in set(sys.modules) - before_mods if n.split(".")[-1] in ("serve", "ed_state")})
+        before = (postproc.END_TRIM, postproc.JOIN_GAP)
+        with mock.patch.object(postproc, "END_TRIM", before[0] + 0.1), mock.patch.object(postproc, "JOIN_GAP", 0.0):
+            self.assertEqual((postproc.END_TRIM, postproc.JOIN_GAP), (before[0] + 0.1, 0.0))   # 差し替えは持ち主の値に届く
+        self.assertEqual((postproc.END_TRIM, postproc.JOIN_GAP), before)                       # 戻すのも持ち主へ
 
     def test_wav_slice_reaches_the_model_in_this_process(self):
         """editor のサーバー側の書き方は WavSlice・WavRef(認識ワーカーへ渡す形)をモデルに渡す。道具はモデルをこのプロセスの中で読む(IN_WORKER)ので、
-        load_serve がワーカーの受け口と同じく範囲のサンプルに直して渡す(InProcessModel)。2026-10-07 夜に、1 秒丸めの聞き直し(quant_words_provider。
+        C.prepare の in_process_models がワーカーの受け口と同じく範囲のサンプルに直して渡す(InProcessModel)。2026-10-07 夜に、1 秒丸めの聞き直し(quant_words_provider。
         編集 0.65.0 で消した)で faster-whisper が読めずに落ちて分かった。モデルは偽物(本物は読まない)"""
         try:
             import numpy as np
@@ -202,25 +215,25 @@ class EvalAsrTest(unittest.TestCase):
                 row = types.SimpleNamespace(start=0.0, end=0.5, text="テスト", avg_logprob=-0.1, no_speech_prob=0.0, compression_ratio=1.0, words=[word])
                 return iter([row]), types.SimpleNamespace(duration=1.0, language="ja")
 
-        S = E.load_serve("fake")
-        S2 = E.load_serve("fake")   # 何回読んでも包むのは 1 回(部品は同じもの)
-        J = S
-        self.assertIs(J._load_model_local, S2._load_model_local)   # 持ち主(worker_client)は同じ
-        fw = J.tx_engines.FasterWhisper.id
+        E.C.prepare("fake")
+        local = _txmodels._load_model_local
+        E.C.prepare("fake")   # 何回呼んでも包むのは 1 回(部品は同じもの)
+        self.assertIs(_txmodels._load_model_local, local)
+        fw = _tx_engines.FasterWhisper.id
         job = {"cancel": False, "phase": ""}
-        with mock.patch.dict(J._models, {("small", "cpu", fw): Model()}, clear=True), mock.patch.object(S, "gpu_ready", lambda: False), \
-                mock.patch.object(S.ed_state, "backend_name", lambda: "faster-whisper"):
-            m, _dev = J.load_model("small", job, "cpu", engine=fw)
-            segs, _info = m.transcribe(S.WavSlice(wav, 8000, 24000), language="ja")
+        with mock.patch.dict(_txmodels._models, {("small", "cpu", fw): Model()}, clear=True), mock.patch.object(_worker_client, "gpu_ready", lambda: False), \
+                mock.patch.object(_backend, "is_fake", lambda: False):
+            m, _dev = _worker_client.load_model("small", job, "cpu", engine=fw)
+            segs, _info = m.transcribe(_worker_client.WavSlice(wav, 8000, 24000), language="ja")
             self.assertEqual([x.text for x in segs], ["テスト"])
             self.assertEqual(len(got), 1)
             self.assertIsInstance(got[0], np.ndarray)                                    # 範囲のサンプル(wav の 0.5〜1.5 秒)
             self.assertEqual(len(got[0]), 16000)
             self.assertAlmostEqual(float(got[0][0]) * 32768, 8000, places=3)
-            self.assertEqual(m.transcribe(S.WavRef(wav))[0].__next__().text, "テスト")
+            self.assertEqual(m.transcribe(_worker_client.WavRef(wav))[0].__next__().text, "テスト")
             self.assertEqual(got[-1], wav)                                                # WavRef = wav のパスのまま
             m.hooks = {"x": 1}
-            self.assertEqual(J._models[("small", "cpu", fw)].hooks, {"x": 1})             # 属性は中のモデルへ
+            self.assertEqual(_txmodels._models[("small", "cpu", fw)].hooks, {"x": 1})             # 属性は中のモデルへ
             self.assertIn("word_timestamps", m.params())
 
     @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg が無い")
@@ -245,9 +258,9 @@ class EvalAsrTest(unittest.TestCase):
 
         def no_worker(*a, **k):
             raise AssertionError("認識ワーカーを起動した(IN_WORKER が ed_jobs に届いていない)")
-        J = E.load_serve()   # main も同じ部品を使う
-        with mock.patch.dict(os.environ), mock.patch.object(J, "_load_model_local", lambda *a, **k: (Model(), "cpu")), \
-                mock.patch.object(J, "check_engine", lambda spec: None), mock.patch.object(J.WORKER, "call", no_worker), mock.patch.object(J.WORKER, "stream", no_worker):
+        E.C.prepare()   # main も同じ部品を使う
+        with mock.patch.dict(os.environ), mock.patch.object(_txmodels, "_load_model_local", lambda *a, **k: (Model(), "cpu")), \
+                mock.patch.object(_worker_client, "check_engine", lambda spec: None), mock.patch.object(_worker_client.WORKER, "call", no_worker), mock.patch.object(_worker_client.WORKER, "stream", no_worker):
             os.environ.pop("TRANSCRIBE_BACKEND", None)
             args = ["run", "--data", self.data, "--docs", "cccccccccc07", "--model", "small", "--vad", "off", "--no-save"]
             res = quiet(E.main, args + ["--temp0"])
@@ -261,7 +274,7 @@ class EvalAsrTest(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg が無い")
     def test_run_context_reads_studio_streams(self):
-        """--context auto はスタジオの data.json の配信のチャンネル名・コラボ相手から出る人を決める(load_serve が STUDIO_DATA を ed_state に届ける。
+        """--context auto はスタジオの data.json の配信のチャンネル名・コラボ相手から出る人を決める(STUDIO_DATA を workdata に入れる。
         2026-10-07 までは届かず以前の置き場所を見ていた = 題名・話者の名前からの文脈だけ)"""
         studio = os.path.join(self.tmp, "studio-data.json")
         with open(studio, "w", encoding="utf-8") as f:
@@ -280,7 +293,7 @@ class EvalAsrTest(unittest.TestCase):
         """本番(run_job)と同じ行の後処理を通す(0.52.1): 長さより後ろの行を捨てる・dur を expand_segments へ渡す(音の谷へ寄せる levels は編集 0.65.0 で消した)"""
         os.environ["TRANSCRIBE_BACKEND"] = "fake"
         try:
-            S = E.load_serve("fake")
+            E.C.prepare("fake")
             src = os.path.join(self.tmp, "clip.wav")
             silence_wav(src, 8.0)
             doc = {"id": "eeeeeeeeeee5", "sourcePath": src, "start": 0, "end": 8}
@@ -297,21 +310,21 @@ class EvalAsrTest(unittest.TestCase):
 
             def spec_of(engine):
                 a = types.SimpleNamespace(glossary=None, beam=0, model="small", engine=engine, vad=None, boost=None, device="auto", temp0=False)
-                return dict(E.run_spec(S, a, {}, True), context={"members": []})
+                return dict(E.run_spec(a, {}, True), context={"members": []})
             with mock.patch.object(postproc, "expand_segments", spy), mock.patch.object(fake_asr, "transcribe_fake", fake):
-                rows, audio_sec, _w, _where, _dev = E.recognize_doc(S, doc, spec_of("faster-whisper"), self.data)
+                rows, audio_sec, _w, _where, _dev = E.recognize_doc(doc, spec_of("faster-whisper"), self.data)
                 self.assertEqual([r["text"] for r in rows], ["中の行"])
                 self.assertAlmostEqual(calls[-1][0], audio_sec)
                 self.assertTrue(calls[-1][1])                                      # 本番と同じく続いている行をつなぐ
-                E.recognize_doc(S, doc, spec_of("whisper.cpp"), self.data)
+                E.recognize_doc(doc, spec_of("whisper.cpp"), self.data)
                 self.assertEqual(len(calls), 2)                                    # whisper.cpp も同じ整え方(0.64.0 までは音の大きさ WavLevels を渡した)
             # 行の後処理の印(meta.post)。joinGap = 続いている行をつなぐすき間(0.57.1。全エンジン)= editor の post_record と同じ値
-            self.assertEqual(E.post_meta(S, spec_of("faster-whisper")), {"clip": True, "mergeRepeats": True, "joinGap": 0.5})
+            self.assertEqual(E.post_meta(spec_of("faster-whisper")), {"clip": True, "mergeRepeats": True, "joinGap": 0.5})
             # whisper.cpp は endTrim(0.57.1 から 0)も印に残す。0.64.0 までの pullEnds・quantRetime の鍵は 0.65.0 から付けない(部品ごと消した)
-            self.assertEqual(E.post_meta(S, spec_of("whisper.cpp")), {"clip": True, "mergeRepeats": True, "endTrim": 0.0, "joinGap": 0.5})
-            with mock.patch.object(S, "END_TRIM", 0.1), mock.patch.object(S, "JOIN_GAP", 0.0):   # END_TRIM=0.1・JOIN_GAP=0(0.57.0 より前の形)
-                self.assertEqual(E.post_meta(S, spec_of("whisper.cpp")), {"clip": True, "mergeRepeats": True, "endTrim": 0.1, "joinGap": 0.0})
-                self.assertNotIn("endTrim", E.post_meta(S, spec_of("faster-whisper")))   # 終わりを早めるのは whisper.cpp だけ
+            self.assertEqual(E.post_meta(spec_of("whisper.cpp")), {"clip": True, "mergeRepeats": True, "endTrim": 0.0, "joinGap": 0.5})
+            with mock.patch.object(postproc, "END_TRIM", 0.1), mock.patch.object(postproc, "JOIN_GAP", 0.0):   # END_TRIM=0.1・JOIN_GAP=0(0.57.0 より前の形)
+                self.assertEqual(E.post_meta(spec_of("whisper.cpp")), {"clip": True, "mergeRepeats": True, "endTrim": 0.1, "joinGap": 0.0})
+                self.assertNotIn("endTrim", E.post_meta(spec_of("faster-whisper")))   # 終わりを早めるのは whisper.cpp だけ
         finally:
             os.environ.pop("TRANSCRIBE_BACKEND", None)
 
@@ -548,9 +561,9 @@ class EvalAsrSelectTest(unittest.TestCase):
             res = quiet(E.main, ["run", "--data", self.data, "--no-save", "--docs", "ffffffffff03"])
             self.assertEqual((res["meta"]["engine"]["glossary"], res["meta"]["engine"]["hintFree"], res["summary"]["draftBias"]), (["トワ", "スバル"], False, []))
             # 辞書(置換・学習)は常に使わない
-            S = E.load_serve("fake")
+            E.C.prepare("fake")
             args = type("A", (), dict(glossary=None, beam=None, model=None, engine="faster-whisper", vad=None, boost=None, device="auto", temp0=False))()
-            spec = E.run_spec(S, args, {"glossary": "トワ"}, hint_free=True)
+            spec = E.run_spec(args, {"glossary": "トワ"}, hint_free=True)
             self.assertEqual((spec["glossary"], spec["autoDict"], spec["autoLearned"]), ([], False, False))
         finally:
             os.environ.pop("TRANSCRIBE_BACKEND", None)
@@ -657,8 +670,8 @@ class EvalAsrReviewedTest(unittest.TestCase):
         self.assertTrue(self.by_doc(res)["aaaaaaaaaa01"]["reviewed"])
         self.assertTrue(all(g["whole"] for g in res["groups"]))
         # 時刻によらない CER も全体の文字で(ええと + こんにちは + ご視聴ありがとう と、こんにちは + 足した行)
-        S = E.load_serve("fake")
-        a, b, c = S.lev_counts(S.norm_cer("こんにちは足した行"), S.norm_cer("ええとこんにちはご視聴ありがとう"))
+        E.C.prepare("fake")
+        a, b, c = _metrics.lev_counts(_metrics.norm_cer("こんにちは足した行"), _metrics.norm_cer("ええとこんにちはご視聴ありがとう"))
         dt = res["summary"]["docText"]
         self.assertEqual((dt["refChars"], dt["sub"], dt["del"], dt["ins"]), (9, a, b, c))
         self.assertIn("確かめ済み 1 本", self.printed(res))
@@ -770,7 +783,7 @@ class EvalAsrGateRepeatTest(unittest.TestCase):
         """認識の偽物: 呼ばれた順に plan の要素(文字 = その文字を出す・Exception = 認識できない)を使う。呼ばれた文書の id を calls に残す"""
         calls = []
 
-        def fake(S, doc, spec, data):
+        def fake(doc, spec, data):
             item = plan[len(calls)]
             calls.append(doc["id"])
             if isinstance(item, Exception):
@@ -1327,11 +1340,11 @@ class EvalAsrRedoTest(unittest.TestCase):
 
     def test_reflag_and_targets_ignore_proofed(self):
         """original には印が無いので付け直す。本番の redo_targets に渡す行は機械の行(校正済みの印なし)= 確かめ済みの文書でも選べる"""
-        S = E.load_serve("fake")
-        rows = E.reflag_rows(S, [{"start": 0.0, "end": 8.0, "text": "え"}, {"start": 8.0, "end": 9.0, "text": "はい"}, {"start": 9.0, "end": 9.5, "text": ""}])
+        E.C.prepare("fake")
+        rows = E.reflag_rows([{"start": 0.0, "end": 8.0, "text": "え"}, {"start": 8.0, "end": 9.0, "text": "はい"}, {"start": 9.0, "end": 9.5, "text": ""}])
         self.assertEqual([r["id"] for r in rows], ["m1", "m2"])                       # 文字の無い行は外す
-        self.assertIn(S.SPARSE_FLAG, rows[0]["flag"])
-        self.assertNotIn(S.SPARSE_FLAG, rows[1]["flag"])
+        self.assertIn(_txtext.SPARSE_FLAG, rows[0]["flag"])
+        self.assertNotIn(_txtext.SPARSE_FLAG, rows[1]["flag"])
         self.assertFalse(any(r.get("proofed") for r in rows))
 
 

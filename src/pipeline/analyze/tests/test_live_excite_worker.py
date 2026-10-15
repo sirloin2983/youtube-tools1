@@ -835,25 +835,10 @@ class WorkerRestTest(unittest.TestCase):
         w.close()
 
     def test_length_hint_from_human_records(self):
-        """M10: 入口が src/eval/tools/eval_marks.py --json の結果(スタジオの作業データ evals/marks/)から目安を作る(length_hint)→ config.json の lengthHint →
-        見本が足りれば新しく受け持つ録画の長さ・前の割合をそれに(lengthFrom human)、足りなければスタジオの設定(45 秒)"""
-        env = {"YTT_DATA_DIR": os.path.join(self.tmp, "data")}
-        marks = os.path.join(self.tmp, "data", "studio", "evals", "marks")
-        os.makedirs(marks)
-
-        def result(name, **suggest):
-            s = dict({"length": 123, "preRatio": 0.55, "samples": 24, "videos": 6, "enough": True}, **suggest)
-            with open(os.path.join(marks, name), "w", encoding="utf-8") as f:
-                json.dump({"clipLength": {"suggest": s}}, f)
-        now = time.time()
-        self.assertIsNone(W.length_hint(env=env))   # 結果がまだ無い
-        result(time.strftime("%Y%m%d-%H%M%S", time.localtime(now - 40 * 86400)) + ".json")
-        self.assertIsNone(W.length_hint(env=env, now=now))   # 30 日より古い
-        result(time.strftime("%Y%m%d-%H%M%S", time.localtime(now - 3600)) + "_auto.json")
-        h = W.length_hint(env=env, now=now)
-        self.assertEqual((h["length"], h["preRatio"], h["samples"], h["videos"], h["enough"]), (123.0, 0.55, 24, 6, True))
-        self.assertIsNone(W.length_hint(env=dict(env, YTT_LIVE_LENGTH="off"), now=now))
-        self.assertEqual(W.clean_hint(h), {"length": 120.0, "preRatio": 0.55, "samples": 24, "videos": 6, "file": h["file"]})   # 120 秒に丸める
+        """M10: 入口が ② flow/lengthhint で数えた目安(config.json の lengthHint)→ 見本が足りれば新しく受け持つ録画の長さ・前の割合をそれに
+        (lengthFrom human)、足りなければスタジオの設定(45 秒)。数え方は src/flow/tests/test_lengthhint.py"""
+        h = {"length": 223, "preRatio": 0.55, "samples": 24, "videos": 6, "enough": True, "file": "flow/lengthhint"}
+        self.assertEqual(W.clean_hint(h), {"length": 180.0, "preRatio": 0.55, "samples": 24, "videos": 6, "file": h["file"]})   # 180 秒に丸める(決定 3-49 Q1)
         for bad in (dict(h, enough=False), dict(h, samples=19), dict(h, videos=4), dict(h, length="x"), dict(h, samples=True), None, [1]):
             self.assertIsNone(W.clean_hint(bad), bad)
         self.assertEqual(W.clean_hint(dict(h, length=3, preRatio=None)), {"length": 10.0, "samples": 24, "videos": 6, "file": h["file"]})
@@ -1095,16 +1080,16 @@ class WorkerRestTest(unittest.TestCase):
             self.assertEqual(W.clean_bundles(bad), {}, bad)
 
     def test_clean_requests(self):
-        """config.json の requests の検査: 鍵は「録画元/録画」の文字列・中身は辞書だけ。感度・枠は clean_detect と同じ、長さは 10〜120 秒(外は None = スタジオの長さ)"""
+        """config.json の requests の検査: 鍵は「録画元/録画」の文字列・中身は辞書だけ。感度・枠は clean_detect と同じ、長さは 10〜180 秒(外は None = スタジオの長さ。決定 3-49 Q1 で上限 120 → 180)"""
         k = "fake/" + REC
         self.assertEqual(W.clean_requests({k: {"sens": "high", "perHour": 3, "length": 30}}), {k: {"sens": "high", "perHour": 3, "length": 30.0}})
         for bad in (None, [], "x", 5, {"noslash": {"sens": "high"}}, {5: {"sens": "high"}}, {k: "x"}, {k: None}, {k: [1]}):
             self.assertEqual(W.clean_requests(bad), {}, bad)
-        got = W.clean_requests({"fake/a": {"sens": "max", "perHour": True, "length": 9.9}, "fake/b": {"perHour": 2.5, "length": 121},
-                                "fake/c": {"length": 10}, "fake/d": {"length": 120.0}, "fake/e": {"length": float("nan")}, "fake/f": {"length": "45"},
+        got = W.clean_requests({"fake/a": {"sens": "max", "perHour": True, "length": 9.9}, "fake/b": {"perHour": 2.5, "length": 181},
+                                "fake/c": {"length": 10}, "fake/d": {"length": 180.0}, "fake/e": {"length": float("nan")}, "fake/f": {"length": "45"},
                                 "fake/g": {"length": True}, "fake/h": {}})
         self.assertEqual(got, {"fake/a": {"sens": "normal", "perHour": 6, "length": None}, "fake/b": {"sens": "normal", "perHour": 6, "length": None},
-                               "fake/c": {"sens": "normal", "perHour": 6, "length": 10.0}, "fake/d": {"sens": "normal", "perHour": 6, "length": 120.0},
+                               "fake/c": {"sens": "normal", "perHour": 6, "length": 10.0}, "fake/d": {"sens": "normal", "perHour": 6, "length": 180.0},
                                "fake/e": {"sens": "normal", "perHour": 6, "length": None}, "fake/f": {"sens": "normal", "perHour": 6, "length": None},
                                "fake/g": {"sens": "normal", "perHour": 6, "length": None}, "fake/h": {"sens": "normal", "perHour": 6, "length": None}})
         cfg = write_config(self.dir, requests={k: {"sens": "low", "perHour": 1, "length": 200}, "broken": {"sens": "high"}})   # 読み込みでも通す

@@ -336,12 +336,12 @@ def note_vad(job, vad):
 def engine_ready(engine):
     """エンジンの準備 -> (使えるか, 使えない理由)。疑似は常に使える・faster-whisper は部品の有無・ほかは実行ファイルとモデル(① tx_engines の ready)。
     ② が足すこと = 本物と疑似の選び方と、エンジンごとの確かめ方の振り分け(/api/tools の alt の表示)"""
-    if _backend.is_fake():
-        return True, ""
-    if engine == tx_engines.FasterWhisper.id:
-        ok = worker_client.has_faster_whisper()
-        return ok, ("" if ok else "faster-whisper が入っていません")
-    return tx_engines.get(engine).ready(tx_engines.engine_home())
+    def real(eng):
+        if eng == tx_engines.FasterWhisper.id:
+            ok = worker_client.has_faster_whisper()
+            return ok, ("" if ok else "faster-whisper が入っていません")
+        return tx_engines.get(eng).ready(tx_engines.engine_home())
+    return _backend.select().engine_ready(engine, real)   # 疑似は常に使える(backend の口。OPT-E2 1a-2)
 
 
 def check_engine_ready(spec):

@@ -15,6 +15,7 @@ import time
 import xml.etree.ElementTree as ET
 
 from ytt import datadir, fsio, tools as ytools
+from flow import lengthhint
 
 CACHE_SEC = 600          # 作業データの大きさ・外部プログラムの版を数え直す間隔(秒)。「数え直す」で即
 TOP_ITEMS = 12           # ツールごとに出す直下の項目の数
@@ -368,6 +369,11 @@ class Health:
             "heavy": st.get("heavy"),
             "computing": computing,
         }
+        try:   # 自動の切り抜きの長さの目安(友人の区間から。flow/lengthhint。使う ⇄ 使わないを見えるように = OPT-E2 7f-2)。数えられなければ出さない
+            hint = lengthhint.compute(datadir.resolve("studio", self.repo_root), os.path.dirname(self.logs_dir))
+            out["lengthHint"] = dict(hint, used=lengthhint.usable(hint) is not None, text=lengthhint.describe(hint))
+        except Exception:
+            pass
         if self.live_probe is not None:   # リアルタイム切り抜き(線 D): オンのときだけ "live" を足す(オフなら今までと同じ形)
             lv = _try(self.live_probe)
             if lv is not None:

@@ -67,7 +67,7 @@ def validate_settings(req):
     sens = req.get("sensitivity") if req.get("sensitivity") in ("high", "normal", "low") else "normal"
     return {"useAudio": req.get("useAudio") is not False, "useChat": req.get("useChat") is not False,
             "useComments": req.get("useComments") is not False,
-            "count": int(num(req.get("count"), 1, 30, 8)), "length": num(req.get("length"), 10, 120, 45), "preRatio": num(req.get("preRatio"), 0.3, 0.9, excite.PRE_RATIO_DEFAULT),
+            "count": int(num(req.get("count"), 1, 30, 8)), "length": num(req.get("length"), 10, 180, 45), "preRatio": num(req.get("preRatio"), 0.3, 0.9, excite.PRE_RATIO_DEFAULT),
             "lag": num(req.get("lag"), 0, 30, 8), "lagAuto": req.get("lagAuto") is not False, "headSec": num(req.get("headSec"), 0, 600, HEAD_SEC_DEFAULT),
             "chatTimeout": int(num(req.get("chatTimeout"), 1, 120, 20)), "noCache": req.get("noCache") is True, "sensitivity": sens,
             "wAudio": num(req.get("wAudio"), 0, 3, 1.0), "wChat": num(req.get("wChat"), 0, 3, 1.0), "wComments": num(req.get("wComments"), 0, 3, 0.7)}

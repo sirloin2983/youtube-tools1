@@ -141,6 +141,12 @@ def problems_for(path, data):
     for label, rx in SECRET_PATTERNS:
         if rx.search(data):
             out.append("秘密情報らしい文字列(%s)" % label)
+    if path == "plan/data.js":   # 計画のデータ(保管庫)。カンマ抜けなどで読めないと計画のページが何も出ない
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import notes_tool
+        why = notes_tool.explain_data_js(data.decode("utf-8", "replace"), path)
+        if why:
+            out.append("JavaScript として読めない\n" + why)
     return out
 
 

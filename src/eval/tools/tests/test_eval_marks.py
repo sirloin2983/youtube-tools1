@@ -20,6 +20,7 @@ REPO = os.path.dirname(os.path.dirname(HERE))   # src(ツールと共通部品 y
 sys.path.insert(0, REPO)
 from eval.tools import eval_marks as M  # noqa: E402
 from manage.cases import txindex  # noqa: E402
+from flow import lengthhint  # noqa: E402
 
 V1, V2 = "v1aaaaaaaaa", "v2bbbbbbbbb"
 
@@ -729,105 +730,24 @@ class FriendRanges(unittest.TestCase):
         self.assertEqual(saved["friendRanges"]["overall"]["hit"], 1)
 
 
-def ranges_over(vid, n, ratio_pad=(10, 60), typ="歌枠", **kw):
-    """n 個の自動の候補(k 番目は 200k 秒から 45 秒・山は +30 秒)を持つ配信と、その山を含む友人の区間 n 個。ratio_pad = (山より前の秒, 区間の長さ)= 山の位置は 前 ÷ 長さ"""
-    dv = video(vid, [mark("p%d" % k, 200.0 * k, 200.0 * k + 45, 5.0 - k * 0.01, peak=200.0 * k + 30) for k in range(n)], typ=typ)
-    return dv, [[200.0 * k + 30 - ratio_pad[0], 200.0 * k + 30 - ratio_pad[0] + ratio_pad[1]] for k in range(n)]
-
-
 class ClipLength(unittest.TestCase):
-    """人が選んだ区間の長さ(clipLength)と、自動の長さの目安(suggest)"""
+    """友人が指定した区間の長さ(clipLength = src/flow/lengthhint の数。細かい式は src/flow/tests/test_lengthhint.py)"""
 
-    def cl(self, env, **kw):
-        return env.evaluate(**kw)["clipLength"]
+    def cl(self, env):
+        return env.evaluate()["clipLength"]
 
-    def test_sources_dedupe_outliers_and_median(self):
+    def test_friend_ranges_to_clip_length(self):
         env = Env(self)
-        marks = [
-            mark("mA", 105.0, 175.0, 5.0, "adopted", auto0=[100.0, 145.0], peak=130.0),     # 端を直した良い自動: 70 秒
-            mark("mK", 300.0, 345.0, 4.0, "adopted", peak=320.0),                          # 直さなかった良い自動: 45 秒(kept)
-            mark("mMa", 700.0, 745.0, 3.0, "adopted", adoptedBy="auto", peak=720.0),       # まとめて実行の自動採用: 見本にしない
-            mark("mO", 500.0, 502.0, 2.0, "adopted", auto0=[500.0, 545.0], peak=520.0),    # 直して 2 秒: 外れ値
-            mark("mF", 900.0, 945.0, 1.5, peak=930.0),                                      # 候補のまま(判定なし): 見本にしない
-            mark("mG", 1480.0, 1525.0, 1.0, peak=1510.0),
-            mark("rReq", 1498.0, 1542.0, None, "adopted", src="manual", adoptedBy="request")]   # 依頼のマーク(友人の区間 1500-1540 の余白つき)
-        env.data({V1: video(V1, marks)})
-        env.feedback([
-            fb("2026-09-01", "adopt", "good", 105.0, 175.0, 5.0, auto0=[100.0, 145.0]),
-            fb("2026-09-01", "adopt", "good", 300.0, 345.0, 4.0, auto0=[300.0, 345.0]),
-            fb("2026-09-01", "adopt", "good", 500.0, 502.0, 2.0, auto0=[500.0, 545.0]),
-            fb("2026-09-03", "manual_add", "miss", 900.0, 960.0, src="manual"),                           # 手で足した 60 秒
-            fb("2026-09-03", "manual_add", "miss", 1200.0, 1230.0, src="manual"),                         # 足して消した: 数えない
-            fb("2026-09-03", "manual_remove", "unmiss", 1200.0, 1230.0, src="manual"),
-            fb("2026-09-03", "manual_add", "miss", 2000.0, 2700.0, src="manual"),                         # 700 秒: 外れ値
-            fb("2026-09-03", "manual_add", "miss", 1500.0, 1540.0, src="manual", markId="x2"),            # 友人の区間と同じ: friend で数える
-            fb("2026-09-03", "manual_add", "miss", 1498.0, 1542.0, src="manual", markId="x3"),            # 友人の区間 + 余白と同じ
-            fb("2026-09-03", "manual_add", "miss", 1498.0, 1542.0, src="manual", markId="rReq"),          # 依頼のマークの id
-        ])
-        env.runs([run_row(V1, [[1500, 1540]]), run_row(V2, [[10, 100]])])   # V2 は解析していない配信(長さは使える)
+        env.data({V1: video(V1, [], typ="歌枠"), V2: video(V2, [], typ="雑談")})
+        env.runs([run_row(V1, [[100, 140], [300, 345], [500, 502], [900, 1600]]),
+                  run_row(V2, [[10, 70]], day="2026-09-06"), run_row(V2, [[10, 70]], day="2026-09-07")])   # 同じ区間は 1 つ
         cl = self.cl(env)
-        s = cl["samples"]
-        self.assertEqual((s["friend"]["n"], s["friend"]["videos"], s["friend"]["outliers"]), (2, 2, 0))
-        self.assertEqual((s["manual"]["n"], s["manual"]["outliers"]), (1, 1))
-        self.assertEqual((s["adjusted"]["n"], s["adjusted"]["outliers"]), (1, 1))
-        self.assertEqual((s["kept"]["n"], s["kept"]["outliers"]), (1, 0))
-        self.assertEqual(s["kept"]["length"]["p50"], 45.0)
-        self.assertEqual((s["all"]["n"], s["all"]["outliers"]), (5, 2))
-        self.assertEqual(s["used"]["n"], 4)                     # friend 2 + manual 1 + adjusted 1(kept は入れない)
-        self.assertEqual(s["used"]["length"]["min"], 40.0)
-        self.assertEqual(s["used"]["length"]["max"], 90.0)
-        sg = cl["suggest"]
-        self.assertEqual(sg["length"], 65)                     # 40・60・70・90 の中央値
-        self.assertEqual((sg["p25"], sg["p75"]), (55.0, 75.0))
-        self.assertEqual((sg["samples"], sg["videos"], sg["kept"]), (4, 2, 1))
-        self.assertFalse(sg["enough"])
-        self.assertIn("まだ少ない", sg["note"])
-        self.assertIsNone(sg["preRatio"])                      # 山の位置の見本が 10 未満
-        self.assertEqual(sg["preSamples"], 3)
-        # 山の位置: 直した自動 (130-105)/70・手で足した 900-960 の中の山 930 → 0.5・友人 1500-1540 の中の山 1510 → 0.25
-        pr = cl["peakRatio"]
-        self.assertEqual(pr["adjusted"]["median"], round(25 / 70, 2))
-        self.assertEqual(pr["manual"]["median"], 0.5)
-        self.assertEqual(pr["friend"]["median"], 0.25)
-        self.assertEqual(pr["kept"]["median"], round(20 / 45, 2))
-        self.assertEqual(pr["used"]["n"], 3)
-        self.assertEqual(cl["schema"], "youtube-tools-clip-length/v1")
-
-    def test_fixture_counts_and_old_metrics(self):
-        env = build(self)
-        r = env.evaluate()
-        self.assertEqual(set(r), {"meta", "overall", "byType", "byVideo", "friendRanges", "clipLength"})
-        s = r["clipLength"]["samples"]
-        self.assertEqual((s["adjusted"]["n"], s["adjusted"]["length"]["p50"]), (1, 38.0))   # mA: 102〜140
-        self.assertEqual((s["manual"]["n"], s["manual"]["length"]["p50"]), (1, 30.0))       # 900〜930(2000 の分は足して消した)
-        self.assertEqual((s["kept"]["n"], s["friend"]["n"]), (0, 0))
-        self.assertEqual(r["overall"]["top"]["top5"]["good"], 1)
-        self.assertEqual(r["friendRanges"]["overall"]["ranges"], 0)
-
-    def test_median_clamp_and_peak_ratio_clamp(self):
-        env = Env(self)
-        dv, rg = ranges_over(V1, 10, ratio_pad=(19, 20))      # 山の位置 0.95・長さ 20
-        env.data({V1: dv})
-        env.runs([run_row(V1, rg)])
-        cl = self.cl(env)
-        self.assertEqual(cl["suggest"]["length"], 20)
-        self.assertEqual(cl["suggest"]["preRatio"], 0.9)       # 0.95 → 上限 0.9 に収める
-        dv, rg = ranges_over(V1, 10, ratio_pad=(5, 50))        # 山の位置 0.1・長さ 50
-        env.data({V1: dv})
-        env.runs([run_row(V1, rg)])
-        self.assertEqual(self.cl(env)["suggest"]["preRatio"], 0.3)   # 0.1 → 下限 0.3
-        dv, rg = ranges_over(V1, 10, ratio_pad=(20, 50))       # 0.4
-        env.data({V1: dv})
-        env.runs([run_row(V1, rg)])
-        sg = self.cl(env)["suggest"]
-        self.assertEqual((sg["preRatio"], sg["preSamples"], sg["length"]), (0.4, 10, 50))
-        env.runs([run_row(V1, rg[:9])])                        # 山の位置の見本 9 個: 出さない
-        self.assertIsNone(self.cl(env)["suggest"]["preRatio"])
-        # 長さの収め方: 200 秒 → 120・8 秒 → 10
-        env.runs([run_row(V1, [[0, 200], [300, 400], [500, 800]])])
-        self.assertEqual(self.cl(env)["suggest"]["length"], 120)    # 200・100・300 の中央値 200 → 120
-        env.runs([run_row(V1, [[0, 8]])])
-        self.assertEqual(self.cl(env)["suggest"]["length"], 10)
+        self.assertEqual(cl["schema"], lengthhint.SCHEMA)
+        # 見本 40・45・60 秒(2 秒と 700 秒は外れ値で数だけ)
+        self.assertEqual((cl["length"], cl["p50"], cl["samples"], cl["videos"], cl["outliers"]), (45, 45.0, 3, 2, 2))
+        self.assertFalse(cl["enough"])
+        self.assertEqual(sorted(cl["byType"]), ["歌枠", "雑談"])
+        self.assertEqual((cl["byType"]["雑談"]["length"], cl["byType"]["歌枠"]["samples"]), (60, 2))
 
     def test_enough_boundary(self):
         def run(videos, per):
@@ -835,305 +755,29 @@ class ClipLength(unittest.TestCase):
             vids, rows = {}, []
             for i in range(videos):
                 vid = "vid%08d" % i
-                dv, rg = ranges_over(vid, per)
-                vids[vid] = dv
-                rows.append(run_row(vid, rg))
+                vids[vid] = video(vid, [])
+                rows.append(run_row(vid, [[k * 100, k * 100 + 60] for k in range(per)]))
             env.data(vids)
             env.runs(rows)
-            return self.cl(env)["suggest"]
-        sg = run(M.CL_ENOUGH_VIDEOS, 4)
-        self.assertEqual((sg["samples"], sg["videos"], sg["enough"]), (20, 5, True))
-        self.assertNotIn("まだ少ない", sg["note"])
-        self.assertFalse(run(M.CL_ENOUGH_VIDEOS, 3)["enough"])        # 15 個
-        self.assertFalse(run(M.CL_ENOUGH_VIDEOS - 1, 5)["enough"])    # 20 個だが配信 4 本
-        self.assertEqual(M.CL_ENOUGH_SAMPLES, 20)
+            return self.cl(env)
+        cl = run(5, 4)
+        self.assertEqual((cl["samples"], cl["videos"], cl["enough"], cl["length"]), (20, 5, True, 60))
+        self.assertFalse(run(5, 3)["enough"])      # 15 個
+        self.assertFalse(run(4, 5)["enough"])      # 20 個だが配信 4 本
+        self.assertEqual((lengthhint.ENOUGH_SAMPLES, lengthhint.ENOUGH_VIDEOS), (20, 5))
 
-    def test_peak_from_auto0_and_pre_ratio(self):
+    def test_print_and_no_write(self):
         env = Env(self)
-        # peak の項目が無い候補: 最初の自動区間 auto0 に preRatio を当てて戻す。解析の記録(analysis.spec)が無ければ 0.65
-        dv = video(V1, [mark("a", 100.0, 145.0, 5.0)])     # 100 + 45 × 0.65 = 129.25
-        env.data({V1: dv})
-        env.runs([run_row(V1, [[109.25, 159.25]])])
-        self.assertEqual(self.cl(env)["peakRatio"]["friend"]["median"], 0.4)
-        dv["analysis"]["spec"] = {"preRatio": 0.5}         # 100 + 45 × 0.5 = 122.5 → (122.5 − 102.5) ÷ 50
-        env.data({V1: dv})
-        env.runs([run_row(V1, [[102.5, 152.5]])])
-        self.assertEqual(self.cl(env)["peakRatio"]["friend"]["median"], 0.4)
-        # archive の解析の記録にだけ preRatio がある配信
-        os.makedirs(os.path.join(env.studio, "archive"), exist_ok=True)
-        with gzip.open(os.path.join(env.studio, "archive", V3 + ".json.gz"), "wt", encoding="utf-8") as f:
-            json.dump({"v": 1, "videoId": V3, "type": "歌枠", "runs": [{"at": ms("2026-09-02"), "spec": {"preRatio": 0.5}, "candidates": [{"start": 100.0, "end": 145.0, "score": 3.0}]}]}, f)
-        env.data({V1: video(V1, [mark("a", 100.0, 145.0, 5.0)]), V3: {"id": V3, "kind": "youtube", "title": "w", "analysis": None, "marks": []}})
-        env.runs([run_row(V3, [[102.5, 152.5]])])
-        self.assertEqual(self.cl(env)["peakRatio"]["friend"]["median"], 0.4)
-        env.runs([run_row(V3, [[200, 250]])])                # 区間の中に山が無い
-        self.assertEqual(self.cl(env)["peakRatio"]["friend"]["n"], 0)
-
-    def test_current_settings_read_only(self):
-        env = Env(self)
-        env.data({V1: video(V1, [mark("a", 100.0, 145.0, 5.0)])})
-        env.runs([run_row(V1, [[110, 160]])])
-        self.assertIsNone(self.cl(env)["suggest"]["current"])     # 設定のファイルが無い
-        path = os.path.join(env.studio, "settings-ui.json")
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump({"analyze": {"length": 45, "preRatio": 0.65, "count": 8}}, f)
-        def snap():
-            with open(path, "rb") as f:
-                return os.path.getmtime(path), f.read()
-        before = snap()
-        sg = self.cl(env)["suggest"]
-        self.assertEqual(sg["current"], {"length": 45.0, "preRatio": 0.65})
-        self.assertIn("いまの設定: 45 秒・0.65", sg["note"])
-        self.assertEqual(before, snap())    # 書き換えない
-        for bad in ("{broken", json.dumps({"analyze": {"length": 45}}), json.dumps({"review": {}}), json.dumps({"analyze": {"length": "x", "preRatio": 0.5}})):
-            with open(path, "w", encoding="utf-8") as f:
-                f.write(bad)
-            sg = self.cl(env)["suggest"]
-            self.assertIsNone(sg["current"])
-            self.assertIn("読めない", sg["note"])
-
-    def test_by_type_and_print(self):
-        env = Env(self)
-        d1, r1 = ranges_over(V1, 10, typ="歌枠")
-        d2, r2 = ranges_over(V2, 3, ratio_pad=(10, 80), typ="雑談")
-        env.data({V1: d1, V2: d2})
-        env.runs([run_row(V1, r1), run_row(V2, r2)])
-        cl = self.cl(env)
-        self.assertEqual(set(cl["byType"]), {"歌枠", "雑談"})
-        self.assertEqual(cl["byType"]["歌枠"]["suggest"]["length"], 60)
-        self.assertEqual(cl["byType"]["雑談"]["suggest"]["length"], 80)
-        self.assertEqual(cl["byType"]["雑談"]["samples"]["friend"], 3)
-        self.assertFalse(cl["byType"]["雑談"]["suggest"]["enough"])
-        self.assertIsNone(cl["byType"]["雑談"]["suggest"]["preRatio"])    # 見本 3 個
-        self.assertEqual(cl["suggest"]["samples"], 13)
+        env.data({V1: video(V1, [], typ="歌枠")})
+        env.runs([run_row(V1, [[100, 140]])])
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             M.main(["--data-dir", env.root])
         out = buf.getvalue()
-        self.assertIn("人が選んだ区間の長さ", out)
-        self.assertIn("目安:", out)
-        self.assertIn("[雑談]", out)
-        # 見本が無いとき
-        e2 = Env(self)
-        e2.data({V1: video(V1, [mark("a", 100.0, 145.0, 5.0)])})
-        c2 = self.cl(e2)
-        self.assertIsNone(c2["suggest"]["length"])
-        self.assertIsNone(c2["suggest"]["preRatio"])
-        self.assertEqual(c2["suggest"]["samples"], 0)
-        self.assertFalse(c2["suggest"]["enough"])
-        self.assertEqual(c2["byType"], {})
-
-    def test_since_until_and_json(self):
-        env = Env(self)
-        env.data({V1: video(V1, [mark("a", 100.0, 145.0, 5.0)])})
-        env.runs([run_row(V1, [[110, 160]], day="2026-09-05"), run_row(V1, [[300, 330]], day="2026-10-05")])
-        self.assertEqual(self.cl(env)["samples"]["friend"]["n"], 2)
-        self.assertEqual(self.cl(env, since="2026-10-01")["samples"]["friend"]["n"], 1)
-        self.assertEqual(self.cl(env, until="2026-09-30")["suggest"]["length"], 50)
-        with contextlib.redirect_stdout(io.StringIO()):
-            M.main(["--data-dir", env.root, "--json"])
-        d = os.path.join(env.studio, "evals", "marks")
-        with open(os.path.join(d, os.listdir(d)[0]), encoding="utf-8") as f:
-            saved = json.load(f)
-        self.assertEqual(saved["clipLength"]["suggest"]["samples"], 2)
-        self.assertEqual(sorted(saved["clipLength"]["suggest"]), sorted(["length", "preRatio", "samples", "videos", "enough", "p25", "p75", "kept", "preSamples", "current", "note"]))
-
-
-class FakeStudio:
-    """スタジオの API の偽物(ホームに取り込まれた形 = /studio/ の下・書き込みは合言葉が要る)。http.server をスレッドで立てる"""
-    TOKEN = "tok-123_abc"
-
-    def __init__(self, test, videos, base="/studio/", token=True):
-        import http.server
-        import threading
-        import urllib.parse as up
-        self.videos, self.base = videos, base   # {配信 ID: 公開の形の video}。無い ID は 404
-        self.saved = {"length": 45, "preRatio": 0.6}
-        self.added, self.gets, self.queue, self.reject = [], [], [], None
-        fake = self
-        need_token = token
-
-        class H(http.server.BaseHTTPRequestHandler):
-            def log_message(self, *a):
-                pass
-
-            def _send(self, code, obj=None, body=None, ctype="application/json"):
-                raw = body if body is not None else json.dumps(obj, ensure_ascii=False).encode("utf-8")
-                self.send_response(code)
-                self.send_header("Content-Type", ctype)
-                self.send_header("Content-Length", str(len(raw)))
-                self.end_headers()
-                self.wfile.write(raw)
-
-            def do_GET(self):
-                u = up.urlsplit(self.path)
-                if not u.path.startswith(fake.base):
-                    return self._send(404, {"message": "no"})
-                p = u.path[len(fake.base):]
-                if p in ("", "index.html"):
-                    meta = ('<meta name="ytt-token" content="%s">' % fake.TOKEN) if need_token else ""
-                    return self._send(200, body=("<html><head><title>s</title>%s</head><body></body></html>" % meta).encode("utf-8"), ctype="text/html")
-                if p == "api/ping":
-                    return self._send(200, {"app": "clip-studio", "version": "9.9.9"})
-                if p == "api/settings":
-                    return self._send(200, {"settings": {"analyze": fake.saved, "export": {}}})
-                if p == "api/video":
-                    vid = up.parse_qs(u.query).get("id", [""])[0]
-                    fake.gets.append(vid)
-                    if vid not in fake.videos:
-                        return self._send(404, {"message": "配信が見つかりません"})
-                    return self._send(200, {"video": fake.videos[vid], "series": None})
-                if p == "api/queue":
-                    items = [dict(it) for it in fake.queue]
-                    for it in fake.queue:   # 1 回見られるたびに進める(running → done)
-                        it["status"], it["marks"] = ("done", 3) if it["status"] == "running" else (it["status"], it["marks"])
-                    return self._send(200, {"items": items, "running": False, "max": 10})
-                return self._send(404, {"message": "no"})
-
-            def do_POST(self):
-                if self.path != fake.base + "api/queue/add":
-                    return self._send(404, {"message": "no"})
-                if need_token and self.headers.get("X-YTT-Token") != fake.TOKEN:
-                    return self._send(403, {"message": "合言葉が違います"})
-                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)).decode("utf-8"))
-                if fake.reject:
-                    return self._send(200, {"added": [], "rejected": [{"input": "x", "reason": fake.reject}]})
-                fake.added.append(body)
-                qid = "q%d" % len(fake.added)
-                fake.queue.append({"qid": qid, "videoId": body["items"][0].get("videoId"), "status": "running", "marks": 0, "error": ""})
-                return self._send(200, {"added": [{"qid": qid, "videoId": body["items"][0].get("videoId")}], "rejected": []})
-
-        self.srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
-        self.port = self.srv.server_address[1]
-        th = threading.Thread(target=self.srv.serve_forever, daemon=True)
-        th.start()
-        test.addCleanup(self.srv.server_close)
-        test.addCleanup(self.srv.shutdown)
-        rdir = tempfile.mkdtemp()
-        test.addCleanup(lambda: __import__("shutil").rmtree(rdir, ignore_errors=True))
-        info = {"tool": "studio", "port": self.port, "version": "9.9.9", "pid": 1}
-        if base != "/":
-            info["path"] = base
-        with open(os.path.join(rdir, "studio.json"), "w", encoding="utf-8") as f:
-            json.dump(info, f)
-        old = os.environ.get("YTT_RUNTIME_DIR")
-        os.environ["YTT_RUNTIME_DIR"] = rdir
-        test.addCleanup(lambda: os.environ.__setitem__("YTT_RUNTIME_DIR", old) if old is not None else os.environ.pop("YTT_RUNTIME_DIR", None))
-
-
-def unanalyzed(vid, title="u"):
-    return {"id": vid, "kind": "youtube", "title": title, "analysis": None, "duration": 3000.0, "marks": []}
-
-
-V3, V4 = "v3ccccccccc", "v4ddddddddd"
-
-
-class AnalyzeMissing(unittest.TestCase):
-    """--analyze-missing: 友人が区間を指定したのに解析していない配信の解析を、動いているスタジオに頼む(「あとから解析」の代わり。RS4)"""
-
-    def env4(self):
-        """V1 は解析済み・V2〜V4 は未解析(区間の新しい順は V3 → V4 → V2)"""
-        env = Env(self)
-        env.data({V1: video(V1, [mark("a", 100.0, 140.0, 5.0)]), V2: unanalyzed(V2), V3: unanalyzed(V3), V4: unanalyzed(V4)})
-        env.runs([run_row(V1, [[110, 130]], "2026-09-08"), run_row(V2, [[100, 140]], "2026-09-05"),
-                  run_row(V3, [[200, 240]], "2026-09-07"), run_row(V4, [[300, 340]], "2026-09-06")])
-        return env
-
-    def run_am(self, env, **kw):
-        lines = []
-        code, res = M.analyze_missing(env.root, out=lines.append, sleep=lambda s: None, poll=0, **kw)
-        return code, res, "\n".join(lines)
-
-    def test_missing_videos_newest_first(self):
-        env = self.env4()
-        self.assertEqual([v["videoId"] for v in M.missing_videos(env.root)], [V3, V4, V2])
-
-    def test_adds_only_unanalyzed_with_saved_settings_and_token(self):
-        env = self.env4()
-        # スタジオ側: V3 はもう解析済み(data.json を読んだあとに解析された)・V4 はスタジオに無い・V2 だけ入れる
-        st = FakeStudio(self, {V2: unanalyzed(V2), V3: video(V3, [])})
-        code, res, text = self.run_am(env)
-        self.assertEqual(code, 0)
-        self.assertEqual(st.gets, [V3, V4, V2])   # 新しい順に問い合わせる・V1(解析済み)は問い合わせない
-        self.assertEqual(st.added, [{"items": [{"kind": "youtube", "videoId": V2}], "settings": st.saved}])   # 保存した解析の設定だけ(友人の重みなし)
-        self.assertEqual([a["videoId"] for a in res["added"]], [V2])
-        self.assertEqual({s["videoId"]: s["reason"] for s in res["skipped"]}, {V3: "analyzed", V4: "missing"})
-        self.assertIn("解析を頼んだ 1 本", text)
-        self.assertIn("解析済み 1 本", text)
-        self.assertIn("スタジオに無い 1 本", text)
-
-    def test_token_is_needed(self):
-        env = self.env4()
-        st = FakeStudio(self, {V2: unanalyzed(V2)})
-        ep = M.API.find_studio()
-        self.assertEqual((ep["path"], ep["token"]), ("/studio/", FakeStudio.TOKEN))
-        self.assertEqual(M.API.call(dict(ep, token=None), "POST", "api/queue/add", {"items": []})[0], 403)   # 合言葉なしは通らない
-        code, res, _ = self.run_am(env, ep=ep)
-        self.assertEqual((code, len(st.added)), (0, 1))
-
-    def test_standalone_studio_without_token(self):
-        env = self.env4()
-        st = FakeStudio(self, {V2: unanalyzed(V2)}, base="/", token=False)
-        ep = M.API.find_studio()
-        self.assertEqual((ep["path"], ep["token"]), ("/", None))
-        code, res, _ = self.run_am(env)
-        self.assertEqual((code, [a["videoId"] for a in res["added"]]), (0, [V2]))
-        self.assertEqual(len(st.added), 1)
-
-    def test_limit(self):
-        env = self.env4()
-        st = FakeStudio(self, {V2: unanalyzed(V2), V3: unanalyzed(V3), V4: unanalyzed(V4)})
-        code, res, text = self.run_am(env, limit=2)
-        self.assertEqual([b["items"][0]["videoId"] for b in st.added], [V3, V4])
-        self.assertEqual([(s["videoId"], s["reason"]) for s in res["skipped"]], [(V2, "limit")])
-        self.assertIn("--limit を超えた分 1 本", text)
-
-    def test_queue_full_stops(self):
-        env = self.env4()
-        st = FakeStudio(self, {V2: unanalyzed(V2), V3: unanalyzed(V3), V4: unanalyzed(V4)})
-        st.reject = "一度に入れられるのは10本までです"
-        code, res, _ = self.run_am(env)
-        self.assertEqual((code, res["added"]), (0, []))
-        self.assertEqual([s["reason"] for s in res["skipped"]], ["full"] * 3)
-        self.assertEqual(st.gets, [V3])   # 満杯と分かったら残りは問い合わせない
-
-    def test_rejected_is_failure(self):
-        env = self.env4()
-        st = FakeStudio(self, {V2: unanalyzed(V2)})
-        st.reject = "yt-dlp が見つかりません"
-        code, res, text = self.run_am(env)
-        self.assertEqual(code, 1)
-        self.assertEqual([(f["videoId"], f["reason"]) for f in res["failed"]], [(V2, "yt-dlp が見つかりません")])
-
-    def test_wait_reports_results(self):
-        env = self.env4()
-        FakeStudio(self, {V2: unanalyzed(V2), V3: unanalyzed(V3)})
-        code, res, text = self.run_am(env, wait=True)
-        self.assertEqual(code, 0)
-        self.assertEqual(sorted((r["videoId"], r["status"], r["marks"]) for r in res["results"]), [(V2, "done", 3), (V3, "done", 3)])
-        self.assertIn("解析した 2 本", text)
-
-    def test_no_studio(self):
-        env = self.env4()
-        rdir = tempfile.mkdtemp()
-        self.addCleanup(lambda: __import__("shutil").rmtree(rdir, ignore_errors=True))
-        old = os.environ.get("YTT_RUNTIME_DIR")
-        os.environ["YTT_RUNTIME_DIR"] = rdir   # studio.json が無い
-        self.addCleanup(lambda: os.environ.__setitem__("YTT_RUNTIME_DIR", old) if old is not None else os.environ.pop("YTT_RUNTIME_DIR", None))
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf), self.assertRaises(SystemExit) as cm:
-            M.main(["--analyze-missing", "--data-dir", env.root])
-        self.assertEqual(cm.exception.code, M.EXIT_NO_STUDIO)
-        self.assertIn("ホームを起動してから", buf.getvalue())
-
-    def test_nothing_to_do(self):
-        env = Env(self)
-        env.data({V1: video(V1, [mark("a", 100.0, 140.0, 5.0)])})
-        env.runs([run_row(V1, [[110, 130]])])
-        st = FakeStudio(self, {})
-        code, res, text = self.run_am(env)
-        self.assertEqual((code, res["added"], st.gets), (0, [], []))
-        self.assertIn("未解析の友人の配信はありません", text)
+        self.assertIn("友人が指定した区間の長さ", out)
+        self.assertIn("まだ少ない(参考)", out)
+        self.assertIn("[歌枠] 長さ 40 秒", out)
+        self.assertFalse(os.path.exists(os.path.join(env.studio, "evals")))   # --json なしでは何も書かない
 
 
 if __name__ == "__main__":

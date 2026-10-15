@@ -31,11 +31,11 @@ def models_ready(auto=False):
     """判別の部品が使えるか(疑似のときは常に)。auto = 文字起こしのあとの自動の判別の問い(テスト用の worker-fake では使わない =
     判別は本物の経路でモデルの取得になるため)。サーバー側では sherpa-onnx を読み込まない(① の has_sherpa はワーカー側で調べる)。
     ② が足すこと: 疑似(backend の口)と worker-fake の決まりを ① の部品の有無に重ねる"""
-    if _backend.is_fake():
-        return True
-    if auto and _wc.worker_fake():
-        return False
-    return _calc.has_sherpa()
+    def real():
+        if auto and _wc.worker_fake():
+            return False
+        return _calc.has_sherpa()
+    return _backend.select().diar_ready(real)   # 疑似は常に使える(backend の口。OPT-E2 1a-2)
 
 
 def default_embedding():
@@ -140,9 +140,10 @@ def embed(job, spec, wav, groups, hints):
     if hints.get("sourcePath"):
         job["state"], job["phase"], job["device"] = "extracting", "音声を取り出し中", "cpu"
         _recognize.extract_audio(job, {"sourcePath": hints["sourcePath"], "start": hints["start"], "end": hints.get("end")}, wav)
-        if not _backend.is_fake():
-            job["state"] = "loading"
-            _calc.ensure_diar_models(job, spec["embedding"])
+        def fetch(j, emb):
+            j["state"] = "loading"
+            _calc.ensure_diar_models(j, emb)
+        _backend.select().diar_models(job, spec["embedding"], fetch)   # 疑似は取らない(backend の口。OPT-E2 1a-2)
         job["state"], job["phase"], job["progress"] = "running", "声の特徴を取り出し中(CPU)", 0.0
     return _calc.embed_groups(job, wav, spec["embedding"], groups, hints["start"])
 

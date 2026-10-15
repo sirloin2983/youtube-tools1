@@ -86,6 +86,18 @@ class Backend:
         (RS5-D。疑似は環境変数 TRANSCRIBE_FAKE_FILL の文字を窓いっぱいの 1 行に)"""
         return real(job, spec, wav)
 
+    def diar_ready(self, real):
+        """話者判別の部品が使えるか。real() = 部品の有無(OPT-E2 1a-2。② flow/diar の「疑似なら」をここへ。疑似は常に使える)"""
+        return real()
+
+    def diar_models(self, job, emb, real):
+        """判別のモデルを取る(声の特徴の前)。real(job, emb)(OPT-E2 1a-2。疑似は取らない)"""
+        return real(job, emb)
+
+    def engine_ready(self, engine, real):
+        """エンジンの準備 -> (使えるか, 使えない理由)。real(engine)(OPT-E2 1a-2。② flow/tx の「疑似なら」をここへ。疑似は常に使える)"""
+        return real(engine)
+
     def llm_ask(self, job, spec, real):
         """LLM の後処理 E の問い合わせの関数 messages -> 答えの文字。real(job, spec) = LLM をワーカーに読み込む
         (RS5-D。疑似は環境変数 TRANSCRIBE_FAKE_LLM の文字をそのまま返す)"""

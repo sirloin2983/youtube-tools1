@@ -65,7 +65,6 @@ check_source
 clear_mark
 duration_in
 env_off
-fake_sleep
 ffmpeg_info
 file_stamp
 find_ffmpeg

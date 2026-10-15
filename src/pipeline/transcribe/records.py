@@ -71,7 +71,7 @@ def _run_base(spec, pairs=None):
     return {"engine": eid, "engineVersion": ever, "model": str(spec.get("model") or ""), "language": str(spec.get("language") or ""),
             "settings": {"beam": spec.get("beam"), "vadMode": spec.get("vadMode"), "boost": bool(spec.get("boost")), "wordSplit": bool(spec.get("wordSplit")),
                          "dict": dict_version(spec) if pairs is None else dict_version(spec, pairs)},
-            "at": int(time.time() * 1000), "post": postproc.post_record()}
+            "at": int(time.time() * 1000), "post": postproc.post_record(spec)}
 
 
 def recognition_run(spec, job, audio_sec, wall_sec, pairs=None):

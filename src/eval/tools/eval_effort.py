@@ -20,7 +20,7 @@
                      人の判断で機械の話者判別の外れではないので数えない)。noSub の行は、人が印を付けた行として「直した行」に入れ、数を edits.noSub に別に出す
     直した行の割合 = (人が足した ∪ 文字を直した ∪ 時刻を直した ∪ 話者を直した 行の数 + 消した行) ÷ (文字のある行 + 消した行)。動画 1 分あたりの数も出す
   機械の CER = 終わった文書を、eval_asr.py と同じ採点(score_doc・total。機械の出力 original と人の最終 segments の文字の違い)で数えた値。--no-cer なら数えない
-  (eval_asr の load_serve で editor の採点の関数だけを読む。0.2 秒ほど)
+  (C.prepare("fake") で採点の部品だけを読む。0.2 秒ほど)
 - 組ごとの比べ(終わった文書の倍率の中央値・文書の数・途中の数): 最初の認識のエンジンとモデル(recognition.runs の kind の無い記録)・出どころ(編集前 / ショート = eval_asr.py の origin_of)・
   評価用かどうか・確かめ済みの付け方(evalReviewed.via = drill / editor)・2つ目のエンジンの候補の有無(<id>.alt.json)・週ごと(effort.lastAt)
 - 直しの量と倍率の関係: 終わった文書を直した行の割合で 4 つ(〜25% / 25〜50% / 50〜75% / 75%〜)に区切った組ごとの倍率(どの直しが時間を食うかの目安)
@@ -34,7 +34,6 @@ import bisect
 import datetime
 import os
 import re
-import shutil
 import sys
 import time
 
@@ -211,12 +210,12 @@ def doc_record(doc, diar_rows=None, has_alt=False):
             "lastAt": t, "week": week_of(t), "edits": edit_counts(doc, diar_rows), "cer": None}, ""
 
 
-def doc_cer(S, doc):
+def doc_cer(doc):
     """機械の出力 original と人の最終 segments の文字の違い(eval_asr.py と同じ採点) -> {"errs", "refChars", "cer"} か None(original が無い・数える所が無い)"""
     orig = [o for o in doc.get("original") or [] if isinstance(o, dict)]
     if not orig:
         return None
-    groups = eval_asr.score_doc(S, doc, orig, [], flag_from="ref")
+    groups = eval_asr.score_doc(doc, orig, [], flag_from="ref")
     t = eval_asr.total(groups)
     return {"errs": t["errs"], "refChars": t["refChars"], "cer": t["cer"]} if t["refChars"] else None
 
@@ -345,20 +344,15 @@ def evaluate(data_dir=None, since=None, until=None, include_eval=True, cer=True)
             docs[tid] = doc   # CER を数える文書(終わった文書)だけ持っておく
     cer_note = ""
     if cer and any(r["finished"] for r in recs):
-        S = None
         try:
-            S = eval_asr.load_serve("fake")
+            C.prepare("fake")
             for r in recs:
                 if r["finished"]:
-                    r["cer"] = doc_cer(S, docs[r["id"]])
+                    r["cer"] = doc_cer(docs[r["id"]])
         except Exception as e:   # 採点の部品が読めなくても、手間の集計は出す
             cer_note = "機械の CER は数えられませんでした(%s: %s)" % (type(e).__name__, e)
             for r in recs:
                 r["cer"] = None
-        finally:
-            tmp = os.environ.get("TRANSCRIBE_DATA_DIR", "")
-            if S is not None and tmp and os.path.basename(tmp).startswith("eval_asr_"):
-                shutil.rmtree(tmp, ignore_errors=True)   # load_serve が作った一時の置き場
     res = summarize(recs)
     nfin = res["finished"]["n"]
     notes = notes_for(res, skipped)

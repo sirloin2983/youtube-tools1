@@ -1,15 +1,14 @@
 """dev/ の測る道具(eval_asr.py・eval_speakers.py・eval_timing.py・eval_cut.py・eval_alt.py・eval_effort.py・eval_marks.py)の共通の部品
 (2026-10-07 ③ dev の見直しでまとめ、見直しの 2 周目で eval_asr・eval_speakers・eval_timing も使うようにした)。
 
-- 置き場所: TOP(リポジトリ直下 = git)・REPO(src = ツールと ytt)・EDITOR(src/editor)。読み込むと REPO を sys.path に足す
+- 置き場所: TOP(リポジトリ直下 = git)・REPO(src = ツールと ytt)。読み込むと REPO を sys.path に足す
 - 作業データの場所(ytt.datadir の 1 か所。--data-dir は全ツールの作業データの親フォルダ = テスト用)・JSON の読み方・
   時期(--since / --until)・率と分布・git の rev・結果の保存(<ツールの作業データ>/evals/<領域>/<日時>.json。
   入口の src/eval/drill/accuracy.py が、道具の最後の行「保存: <パス>」(前と中身が同じなら「変わらず: <前のパス>」)と名前の形 <日時>.json で読む = 形を変えない)
-- editor の部品をこのプロセスの中で使うときの読み込み(load_serve。eval_asr・eval_speakers の run・eval_effort・eval_alt。eval_timing は postproc を直に呼ぶので読まない)
+- ①②③ の部品をこのプロセスの中で使う準備(prepare。編集の serve は読まない = OPT-E2。eval_asr・eval_speakers の run・eval_effort・eval_alt・eval_cloud)
 """
 import atexit
 import datetime
-import importlib.util
 import os
 import re
 import shutil
@@ -21,17 +20,16 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))   # src/eval/tools
 REPO = os.path.dirname(os.path.dirname(HERE))      # src(ツールと共通部品 ytt の置き場所)
 TOP = os.path.dirname(REPO)                        # リポジトリ直下(git)
-EDITOR = os.path.join(REPO, "editor")
+EDITOR = os.path.join(REPO, "editor")              # 編集のフォルダ(作業データの以前の既定の場所を引くだけ。serve は読まない)
 if REPO not in sys.path:
     sys.path.insert(0, REPO)
-from ytt import datadir, fsio  # noqa: E402
+from ytt import datadir, fsio, schemas  # noqa: E402
 from ytt.fsio import read_json_or as read_json  # noqa: E402   read_json(path, default, limit) = JSON のファイル(BOM 可)。読めない・壊れている・NaN・limit バイト超は default
 
 DOC_BYTES = 64 * 1024 * 1024    # 文書・記録の JSON を読むときの上限(limit を渡さない呼び出しにも付ける。fsio の既定は 16MiB)
 SAVED_MARK = "保存: "            # 結果を残した最後の行の頭(入口の src/eval/drill/accuracy.py が SAVED_MARK として読む。形を変えない)
 SAME_MARK = "変わらず: "          # 前の結果と中身が同じで書かなかったときの最後の行の頭(入口の accuracy.py が SAME_MARK として読む)
 VOLATILE_KEYS = ("at", "git", "rev", "sec", "seconds", "elapsed")   # 「前と同じ」を見るときに除く、毎回変わる欄(時刻・git の版・かかった秒)
-SAME_EXEMPT = ("marks",)         # 前と同じでも書く領域(src/home/autorun.py が marks の最新ファイルの名前の日時で古さを見ている)
 
 
 # ---------------------------------------------------------------- 引数の定義(since / until / json / data-dir は全部の道具で同じ)
@@ -155,9 +153,7 @@ def _plain(x):
 
 def previous_same(res, root, area, suffix=""):
     """同じ置き場所(<root>/evals/<area>/)の最新の結果(同じ suffix のもの)と、毎回変わる欄を除いて中身が同じなら、その前のファイルのパス。違う・前が無い・読めないなら None。
-    marks(SAME_EXEMPT)は対象外 = いつも None(home/autorun.py が marks の最新ファイルの名前の日時で古さを見ているため)"""
-    if area in SAME_EXEMPT:
-        return None
+    marks も同じ(OPT-E2 まで本番が marks の最新ファイルの名前の日時で古さを見ていたので対象外だった。今は本番が結果のファイルを読まない)"""
     d = os.path.join(root, "evals", area)
     pat = re.compile(r"^\d{8}-\d{6}%s\.json\Z" % re.escape(suffix))
     try:
@@ -205,48 +201,35 @@ def utf8_stdout():
         pass
 
 
-# ---------------------------------------------------------------- editor の部品を読む(採点・認識・判別をこのプロセスの中で)
+# ---------------------------------------------------------------- ①②③ の部品をこのプロセスの中で使う準備(採点・認識・判別)
 
-SERVE_NAME = "tx_serve_for_eval"   # sys.modules に登録する名前(普通の import の serve とは別の名前)
+_PREPARED = {}   # この道具の部品の作業データ(一時フォルダ。1 プロセスで 1 つ)
 
 
-def load_serve(backend=None, prefix="eval_asr_", keep_env=True):
-    """src/editor/serve.py を読み込む(サーバーは起動しない)-> serve。名前は serve の名前の受付で、分けた部品(ed_jobs・ed_state など)の名前も読める。
-    - **sys.modules に登録してから読む**: serve の「S.名前 = …」は、登録して読んだときだけ持ち主の部品へ転送される(serve.py の名前の受付 = ytt/modfwd.py)。
-      2026-10-07 まで eval_asr.py は登録せずに読んでいたので、下の IN_WORKER・STUDIO_DATA と、道具やテストが「S.END_TRIM = …」のように
-      差し替えた値が部品に届いていなかった(serve の上に同じ名前ができるだけ。eval_asr.py の先頭の説明)
-    - 認識・判別はこのプロセスの中で動かす(IN_WORKER。認識ワーカーを起動しない。GPU の部品の場所はワーカーと同じに整える)
-    - スタジオの data.json は、起動したツールと同じ決め方(studio_data_path。--context auto がスタジオの配信のチャンネル名・コラボ相手を読む)
-    - serve 自身の作業データ(TRANSCRIBE_DATA_DIR)は一時フォルダ <prefix>…(本物の作業データの横に何も書かない。本物は道具が自分で読む)。
-      一時フォルダはこのプロセスの終わりに消す。keep_env = True なら環境変数は一時フォルダを指したまま(eval_effort はそれを見て先に消す)/
-      False なら読み込んだあと元に戻す(このあとの datadir.locate が一時フォルダを指さないように。eval_speakers)
-    backend = TRANSCRIBE_BACKEND(fake = 疑似の認識・判別。テストと、採点の関数だけを使うとき)"""
-    os.environ.setdefault("YTT_CORE_DIR", REPO)
-    old = os.environ.get("TRANSCRIBE_DATA_DIR")
-    tmp = tempfile.mkdtemp(prefix=prefix)
-    atexit.register(shutil.rmtree, tmp, True)
-    os.environ["TRANSCRIBE_DATA_DIR"] = tmp
+def prepare(backend=None, prefix="eval_"):
+    """入口(編集の serve)を読まずに、①②③ の部品をこのプロセスの中で使う準備 -> 部品の作業データ(一時フォルダ)。何度呼んでもよい。
+    OPT-E2(1c。設計原則のレビューの指摘 4)まで load_serve が編集の serve.py を別名で読み、その読み込みの副作用(置き場所・名簿・疑似の登録)と
+    名前の転送(S.名前)に頼っていた。今は要る物を ② flow/wire.setup_headless に明示して渡し、道具は持ち主のモジュールを直に読む:
+    - 部品の作業データ = 一時フォルダ <prefix>…(本物の作業データの横に何も書かない。本物は道具が自分で読む。このプロセスの終わりに消す)。
+      環境変数 TRANSCRIBE_DATA_DIR は書き換えない(このあとの locate は本物を指したまま)
+    - スタジオの data.json = 環境変数 TRANSCRIBE_STUDIO_DATA(テスト)か、置き場所の持ち主 flow/placement(--context auto が配信のチャンネル名・コラボ相手を読む)
+    - 本物と疑似の選び方 = ① backend.mode()(環境変数 TRANSCRIBE_BACKEND。backend = "fake" なら疑似の認識・判別 = テストと採点の関数だけを使うとき)
+    - 認識・判別はこのプロセスの中(① worker_client.IN_WORKER。GPU の部品の場所はワーカーと同じ)。モデルへ渡す音声は認識ワーカーの受け口と同じ形に(in_process_models)
+    - 辞書の版の材料の学習の記録 = ③ doc_jobs.dict_learned(編集の serve の登録と同じ)"""
+    from flow import placement, wire
+    from pipeline.transcribe import backend as txbackend
+    from eval.fake import fake_asr, fake_worker
+    from human.proof import doc_jobs
     if backend:
-        os.environ["TRANSCRIBE_BACKEND"] = backend
-    spec = importlib.util.spec_from_file_location(SERVE_NAME, os.path.join(EDITOR, "serve.py"))
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[SERVE_NAME] = mod
-    try:
-        spec.loader.exec_module(mod)
-    except BaseException:
-        sys.modules.pop(SERVE_NAME, None)
-        raise
-    finally:   # 部品は読み込んだときに置き場所を決め終えている
-        if not keep_env:
-            if old is None:
-                os.environ.pop("TRANSCRIBE_DATA_DIR", None)
-            else:
-                os.environ["TRANSCRIBE_DATA_DIR"] = old
-    mod.IN_WORKER = True                         # -> worker_client.IN_WORKER(serve の名前の受付が持ち主へ回す。RS2-6)
-    mod.STUDIO_DATA = mod.studio_data_path()     # -> ytt/workdata の STUDIO_DATA(読むだけ。RS3-0A まで ed_state)
-    mod.setup_cuda_paths()                       # 認識ワーカーの起動と同じ(pip の CUDA の部品の場所。無ければ何もしない)
-    in_process_models(mod)                       # モデルへ渡す音声を、認識ワーカーの受け口と同じ形に(InProcessModel)
-    return mod
+        os.environ[txbackend.ENV] = backend
+    if "tmp" not in _PREPARED:
+        _PREPARED["tmp"] = tempfile.mkdtemp(prefix=prefix)
+        atexit.register(shutil.rmtree, _PREPARED["tmp"], True)
+    wire.setup_headless(data_dir=_PREPARED["tmp"], studio_data=os.environ.get("TRANSCRIBE_STUDIO_DATA") or placement.studio_data(),
+                        in_process=True, backend_name=txbackend.mode, fake_backend=fake_asr.FAKE, fake_worker_module=fake_worker.__name__,
+                        dict_learned=lambda: doc_jobs.dict_learned())
+    in_process_models()
+    return _PREPARED["tmp"]
 
 
 def fake_job():
@@ -254,12 +237,12 @@ def fake_job():
     return {"cancel": False, "proc": None, "phase": "", "state": "", "device": "", "progress": 0.0}
 
 
-def audio_span(S, doc, data, doc_id=None, boost=None):
+def audio_span(doc, data, doc_id=None, boost=None):
     """文書の音声の出どころ(元の動画 → 保管データの dataset/docs/<id>/full.flac。今ある保管データだけ。保管の書き手は 10-10 に消した)-> (extract_audio の spec, 行の時刻の基準の秒, "動画" か "保管の音声")。
     どちらも無ければ RuntimeError。ネットワーク上の動画は読まない(存在を確かめるだけで資格情報を送ってしまう。eval_speakers にあった決まりを全部の道具に)。
     boost = None なら spec に boost を入れない(extract_audio は spec.get("boost") で見る = 無ければ偽)"""
     src = str(doc.get("sourcePath") or "")
-    start, end = S.num(doc.get("start"), 0.0) or 0.0, S.num(doc.get("end"))
+    start, end = schemas.num_or(doc.get("start"), 0.0) or 0.0, schemas.num_or(doc.get("end"))
     full = os.path.join(data, "dataset", "docs", doc_id or doc["id"], "full.flac")
     extra = {} if boost is None else {"boost": boost}
     if src and not fsio.is_network_path(src) and os.path.isfile(src):
@@ -290,22 +273,22 @@ class InProcessModel:
         return self._model.transcribe(self._audio_of(audio), **kw)
 
 
-def in_process_models(S):
-    """worker_client._load_model_local(このプロセスの中でモデルを読む本体。S._load_model_local で読み書きする)が返すモデルを InProcessModel で包む。
-    持ち主の部品(worker_client)は load_serve を何回呼んでも同じもの(普通の import)なので、包むのは 1 回だけ"""
-    J = S
-    if getattr(J._load_model_local, "in_process", False):
-        return
+def in_process_models():
+    """① models._load_model_local(このプロセスの中でモデルを読む本体)が返すモデルを InProcessModel で包む。
+    持ち主の部品は普通の import(何回 prepare しても同じもの)なので、包むのは 1 回だけ"""
+    from pipeline.transcribe import models, worker_client
     from pipeline.transcribe import worker as txw  # noqa: E402  認識ワーカーの受け口(読み込むだけでは何も起動しない。RS2-9 に editor/tx_worker から移した)
-    local = J._load_model_local
+    if getattr(models._load_model_local, "in_process", False):
+        return
+    local = models._load_model_local
 
     def audio_of(a):
-        if isinstance(a, S.WavSlice):
+        if isinstance(a, worker_client.WavSlice):
             return txw._audio({"wav": a.path, "from": a.a, "to": a.b})
-        return a.path if isinstance(a, S.WavRef) else a
+        return a.path if isinstance(a, worker_client.WavRef) else a
 
     def load_local(*a, **k):
         model, dev = local(*a, **k)
         return InProcessModel(model, audio_of), dev
     load_local.in_process = True
-    J._load_model_local = load_local
+    models._load_model_local = load_local

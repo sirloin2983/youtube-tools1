@@ -101,8 +101,8 @@ def doc_paths(dirpath):
     out = {n: os.path.join(dirpath, n) for n in os.listdir(dirpath)}
     ok, data_dir = _docloc_root(dirpath)
     if ok:
-        for tid in docloc.iter_tids(data_dir):
-            out[tid + ".json"] = docloc.doc_file(tid, ".json", data_dir)
+        for tid, p in docloc.doc_files(data_dir).items():   # 索引は一覧 1 回で 1 回だけ確かめる(PERF O15)
+            out[tid + ".json"] = p
     return out
 
 
@@ -116,7 +116,37 @@ def load(dirpath):
     paths = [found[n] for n in names]
     docs = [_cache.get(p, lambda p, n=n: _parse(fsio.read_json_or(p, None, MAX_DOC_BYTES), n[:-5])) for p, n in zip(paths, names)]
     _cache.prune(paths, dirpath)   # 消えた文書
-    return [d for d in docs if d is not None]
+    return Docs(d for d in docs if d is not None)
+
+
+class Docs(list):
+    """load の結果(ふつうのリスト)。pick が初めて呼ばれたときに逆引きを作って、この一覧の間だけ使う(PERF O5。
+    切り抜きごとに全文書を照らすと 切り抜きの数 × 文書の数 になる)。中身を足し引きすると(長さが変わると)作り直す"""
+    _rev = None
+
+    def reverse_index(self):
+        if self._rev is None or self._rev[0] != len(self):
+            self._rev = (len(self), _reverse(self))
+        return self._rev[1]
+
+
+def _reverse(docs):
+    """-> (正規化したパス -> [文書の通し番号], (videoId, markId) -> [文書の通し番号], [逆引きに入れられない文書の通し番号])。
+    番号は一覧の順(同じ id の別の文書も別に持つ)。videoId・markId がハッシュにできない値(JSON の配列・オブジェクト)の文書は、毎回 _match で照らす"""
+    by_path, by_mark, odd = {}, {}, []
+    for i, doc in enumerate(docs):
+        for p in doc["_paths"] if "_paths" in doc else _norm_paths(doc.get("sourcePath"), doc.get("aliases") or ()):
+            by_path.setdefault(p, []).append(i)
+        c = doc.get("clip") or {}
+        src = c.get("source") if isinstance(c.get("source"), dict) else {}
+        mk = c.get("mark") if isinstance(c.get("mark"), dict) else {}
+        v, m = src.get("videoId"), mk.get("id")
+        if v and m:   # 照らす側も両方が真のときだけ一致にする(_match)
+            try:
+                by_mark.setdefault((v, m), []).append(i)
+            except TypeError:
+                odd.append(i)
+    return by_path, by_mark, odd
 
 
 def summary(doc):
@@ -141,9 +171,25 @@ def matches(doc, video_id, mark_id, media_path):
 def pick(docs, video_id, mark_id, media_path):
     """-> (いちばん新しい文書 または None, 紐づいた文書の数, 紐づいた文書の id の一覧)"""
     media = norm(media_path)
-    hits = [d for d in docs if _match(d, video_id, mark_id, media)]
+    if isinstance(docs, Docs):
+        hits = _pick_rev(docs, video_id, mark_id, media)
+    else:
+        hits = [d for d in docs if _match(d, video_id, mark_id, media)]
     best = max(hits, key=lambda d: d["updatedAt"]) if hits else None
     return best, len(hits), [d["id"] for d in hits]
+
+
+def _pick_rev(docs, video_id, mark_id, media):
+    """逆引きで pick の hits を求める(全部を _match で照らしたのと同じ文書・同じ順)。パスの一致 または 配信とマークの一致の和を、一覧の順に"""
+    by_path, by_mark, odd = docs.reverse_index()
+    idx = set(by_path.get(media, ())) if media else set()
+    if video_id and mark_id:
+        try:
+            idx.update(by_mark.get((video_id, mark_id), ()))
+        except TypeError:   # 照らす側の id がハッシュにできない = 逆引きを使わず全部を照らす
+            return [d for d in docs if _match(d, video_id, mark_id, media)]
+        idx.update(i for i in odd if _match(docs[i], video_id, mark_id, media))
+    return [docs[i] for i in sorted(idx)]
 
 
 def offset(doc, video_id, media_path, fallback):

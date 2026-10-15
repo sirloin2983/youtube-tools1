@@ -445,6 +445,12 @@ def main():
     a = ap.parse_args()
     if a.plan:
         PLAN = os.path.abspath(a.plan)
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import notes_tool
+    broken = notes_tool.explain_data_js(read("data.js"), os.path.join(PLAN, "data.js"))
+    if broken:   # 並行の書き足しでカンマが抜けると計画のページが何も出ない = 公開ページを作らずに止める
+        print(broken, file=sys.stderr)
+        return 1
     sync_data_js(PLAN)
     if not a.no_index:
         write_index(PLAN)

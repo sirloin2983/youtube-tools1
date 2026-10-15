@@ -30,7 +30,7 @@ class NotesToolTest(unittest.TestCase):
         self.repo = os.path.join(self.tmp, "repo")
         put(self.v, "docs/spec/a.md", "[`plan/p.md`](../../plan/p.md) と [送る] (友人へ届ける)\n")
         put(self.v, "plan/p.md", "[`docs/spec/a.md`](../docs/spec/a.md)・[外](https://example.com)\n")
-        put(self.v, "plan/data.js", 'docs: ["p.md", "../docs/spec/a.md"] 文 plan/p.md(説明)\n')
+        put(self.v, "plan/data.js", '// docs: ["p.md", "../docs/spec/a.md"] 文 plan/p.md(説明)\n')
         put(self.repo, "src/x.py", '"""設計 notes:plan/p.md の 2 節・notes:docs/spec/a.md"""\n')
         subprocess.run(["git", "init", "-q", self.v], check=True)
         subprocess.run(["git", "-C", self.v, "config", "core.autocrlf", "false"], check=True)
@@ -58,7 +58,7 @@ class NotesToolTest(unittest.TestCase):
         notes_tool.mv([("plan/p.md", "plan/done/p.md")])
         self.assertEqual(get(self.v, "docs/spec/a.md"), "[`plan/done/p.md`](../../plan/done/p.md) と [送る] (友人へ届ける)\n")
         self.assertIn("[`docs/spec/a.md`](../../docs/spec/a.md)", get(self.v, "plan/done/p.md"))   # 動かした文書の中のリンク
-        self.assertEqual(get(self.v, "plan/data.js"), 'docs: ["done/p.md", "../docs/spec/a.md"] 文 plan/done/p.md(説明)\n')
+        self.assertEqual(get(self.v, "plan/data.js"), '// docs: ["done/p.md", "../docs/spec/a.md"] 文 plan/done/p.md(説明)\n')
         self.assertIn("notes:plan/done/p.md の 2 節", get(self.repo, "src/x.py"))
         self.assertEqual(notes_tool.check(), [])
 
@@ -77,7 +77,7 @@ class NotesToolTest(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(self.v, "docs", "spec", "a.md")))   # 旧は残す(消すのは呼び手)
 
     def test_drop_points_refs_to_git(self):
-        put(self.v, "plan/data.js", 'docs: ["p.md"] 文 docs/spec/a.md(説明)\n')
+        put(self.v, "plan/data.js", '// docs: ["p.md"] 文 docs/spec/a.md(説明)\n')
         notes_tool.drop(["docs/spec"], "abc1234")
         self.assertIn("[`git:abc1234:docs/spec/a.md`]".strip("[]"), get(self.v, "plan/p.md"))
         self.assertNotIn("](../docs/spec/a.md)", get(self.v, "plan/p.md"))
@@ -105,6 +105,41 @@ class NotesToolTest(unittest.TestCase):
         old, new = os.path.join(self.v, "docs", "W.md"), os.path.join(self.v, "docs", "worklog", "w1.md")
         out = notes_tool.relink_text("[`docs/spec/a.md`](spec/a.md#2)・[u](http://x)", old, new)
         self.assertEqual(out, "[`docs/spec/a.md`](../spec/a.md#2)・[u](http://x)")
+
+
+GOOD_JS = "window.PLAN = {\n  tasks: [\n    {id: 1},\n    {id: 2}, // 注\n  ],\n};\n"
+BAD_JS = "window.PLAN = {\n  tasks: [\n    {id: 1}\n    {id: 2},\n  ],\n};\n"
+
+
+class DataJsSyntaxTest(unittest.TestCase):
+    def test_good_passes(self):
+        for node in (True, False):
+            self.assertEqual(notes_tool.data_js_problems(GOOD_JS, node), [])
+            self.assertIsNone(notes_tool.explain_data_js(GOOD_JS, use_node=node))
+
+    def test_missing_comma_stops_with_line(self):
+        for node in (True, False):
+            probs = notes_tool.data_js_problems(BAD_JS, node)
+            self.assertEqual([ln for ln, _ in probs], [4], node)
+            why = notes_tool.explain_data_js(BAD_JS, use_node=node)
+            self.assertIn("4 行目", why)
+            self.assertIn(">    4|     {id: 2},", why)
+
+    def test_check_reports_broken_data_js(self):
+        tmp = tempfile.mkdtemp()
+        old = os.environ.get("YTT_NOTES_DIR")
+        os.environ["YTT_NOTES_DIR"] = tmp
+        try:
+            put(tmp, "plan/data.js", BAD_JS)
+            self.assertTrue(any(w == "plan/data.js" and "読めない" in p for w, _, p in notes_tool.check()))
+            put(tmp, "plan/data.js", GOOD_JS)
+            self.assertEqual([b for b in notes_tool.check() if b[0] == "plan/data.js"], [])
+        finally:
+            if old is None:
+                os.environ.pop("YTT_NOTES_DIR", None)
+            else:
+                os.environ["YTT_NOTES_DIR"] = old
+            shutil.rmtree(tmp, ignore_errors=True)
 
 
 if __name__ == "__main__":

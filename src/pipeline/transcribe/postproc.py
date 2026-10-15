@@ -6,9 +6,9 @@ split_segment・strip_punct・SPARSE_FLAG・text_chars・SPLIT_*・_squash の�
 
 役割で組み直す RS2-4b(2026-10-10)に移した(中身は同じ)。標準ライブラリ・ytt・同じパッケージの兄弟(txbase・tx_engines・roster)だけを読む
 = 編集のサーバー(serve)なしで ① から読める(post_record の編集の版だけは ytt/workdata の SERVER_VERSION = app が入れた値)。
-差し替えられる値(END_TRIM・JOIN_GAP)と、それを読む expand_segments・join_rows・post_record は同じこのモジュールにある。
-テストの S.END_TRIM = …・mock.patch.object(S, "expand_segments", …) は serve の名前の受付と転送(ytt/modfwd)でここに届くので、
-読む側は呼ぶたびに postproc.名前か S.名前(ほかの編集の部品)で読む(from … import で読み直さない)。
+後処理の既定の値(END_TRIM・JOIN_GAP)と、それを読む expand_segments・join_rows・post_record は同じこのモジュールにある(読む側は呼ぶたびに postproc.名前)。
+測る道具が違う値で当て直すときは、モジュールの値を書き換えずに後処理の指定(spec)の endTrim・joinGap で渡す(post_values。OPT-E2 5c-2 =
+① に実験用の口を置かない。10-15 まで道具が setattr で書き換え、測り直すとき用の環境変数 TRANSCRIBE_END_TRIM・TRANSCRIBE_JOIN_GAP もあった)。
 """
 import functools
 import math
@@ -137,7 +137,7 @@ def expand_segments(gen, spec, dur=None, join=True):
     句読点の除去(stripPunct、既定オン)は、単語分割が句読点を判断材料に使い終えたあとの、最後の1回だけにかける
     (分割の精度には影響させず、かつ text と original の両方に必ず同じ結果が入るよう、ここ1か所にまとめる)。
     2026-10-04: 分けたあとに、音声の長さ dur(秒。行と同じ基準)で切る(clip_rows)・同じ文字だけの行が続いたら1行にまとめる(merge_repeats)。
-    whisper.cpp の続いている行の終わりを END_TRIM 秒早める(trim_ends。0.57.1 から既定 0 = かけない)。
+    whisper.cpp の続いている行の終わりを END_TRIM 秒早める(trim_ends。0.57.1 から既定 0 = かけない。spec の endTrim・joinGap があればそれ = post_values)。
     2026-10-07(0.57.1。行の時刻の原則 notes:docs/spec/subtitles.md の ①): 最後に、続いている行(すき間 JOIN_GAP 以下)の終わりを次の行の始まりへ延ばす(join_rows。全エンジン)。
     join=False は時刻を使わない呼び出し(疑わしい所の認識し直し・2つ目のエンジンの候補)。
     0.65.0(2026-10-09)で、行の終わりを音の谷へ寄せる pull_ends(引数 levels・TRANSCRIBE_PULL_ENDS)を消した(既定オフのままだった)"""
@@ -147,10 +147,11 @@ def expand_segments(gen, spec, dur=None, join=True):
     if dur:
         rows = clip_rows(rows, dur)
     rows = merge_repeats(rows)
-    if spec.get("engine") == tx_engines.WhisperCpp.id and END_TRIM > 0:
-        rows = trim_ends(rows, END_TRIM)
-    if join and JOIN_GAP > 0:
-        rows = join_rows(rows, JOIN_GAP)
+    end_trim, join_gap = post_values(spec)
+    if spec.get("engine") == tx_engines.WhisperCpp.id and end_trim > 0:
+        rows = trim_ends(rows, end_trim)
+    if join and join_gap > 0:
+        rows = join_rows(rows, join_gap)
     for p in rows:
         yield {**p, "text": _txtext.strip_punct(p["text"])} if strip and p.get("text") else p
 
@@ -163,11 +164,23 @@ REP_CHAR_KEEP = 10    # 1行の中の同じ文字の続きは、ここまでに�
 # 行の終わりを音の谷へ寄せる pull_ends(0.51.0)は 2026-10-05 に既定でやめ、0.65.0(2026-10-09)で部品ごと消した(早めすぎて言葉の終わりが切れた。履歴 c2dde44 以前)
 # whisper.cpp の続いている行の終わりを早める秒(2026-10-05 ユーザーの目安 0.1 秒)。2026-10-07(0.57.1)に既定でやめた(0): 行の時刻の原則の ①
 # 「言葉の末を切らない」に反する(人は字幕の終わりを機械より平均 0.15 秒後ろへ直していた。10-05 の目安は「この行だけ再生」で聞くための値)。
-# TRANSCRIBE_END_TRIM=0.1 で戻せる(測り直すとき用。notes:plan/done/line-b-row-timing.md の 7-1)
-END_TRIM = tx_engines.env_num("TRANSCRIBE_END_TRIM", 0.0, lo=0.0, hi=0.5, cast=float)
+# 測り直すときは spec の endTrim で渡す(notes:plan/done/line-b-row-timing.md の 7-1)
+END_TRIM = 0.0
 # 続いている行の終わりを次の行の始まりへ延ばす、すき間の上限(秒。2026-10-07 = 0.57.1。原則の ①: 字幕が一瞬消えてまた出るのをやめ、言葉の末を切らない。
-# 確かめ済み 22 本の試算で ①末 34% → 20%・②次 6% → 10%。notes:plan/done/line-b-row-timing.md の 7-2)。TRANSCRIBE_JOIN_GAP=0 でやめる
-JOIN_GAP = tx_engines.env_num("TRANSCRIBE_JOIN_GAP", 0.5, lo=0.0, hi=2.0, cast=float)
+# 確かめ済み 22 本の試算で ①末 34% → 20%・②次 6% → 10%。notes:plan/done/line-b-row-timing.md の 7-2)。spec の joinGap 0 でつながない
+JOIN_GAP = 0.5
+POST_RANGES = {"endTrim": (0.0, 0.5), "joinGap": (0.0, 2.0)}   # spec で渡せる値の範囲(外・数でなければ既定)
+
+
+def post_values(spec=None):
+    """行の後処理の値 -> (終わりを早める秒, つなぐすき間の上限)。spec の endTrim・joinGap(測る道具の経緯の比べ。eval_timing --apply)が
+    範囲の中の数ならそれ、無ければこのモジュールの既定(END_TRIM・JOIN_GAP。呼ぶたびに読む)"""
+    out = []
+    for key, default in (("endTrim", END_TRIM), ("joinGap", JOIN_GAP)):
+        v = (spec or {}).get(key)
+        lo, hi = POST_RANGES[key]
+        out.append(float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and lo <= v <= hi else default)
+    return tuple(out)
 TRIM_GAP = 0.3        # trim_ends: 次の行の始まりとのすき間がこの秒以下の行(続いている行)だけ、終わりを早める(0.64.0 までの名前は PULL_GAP)
 TRIM_MIN = 0.3        # trim_ends: 早めたあとの行の長さの下限(秒。0.64.0 までの名前は PULL_MIN)
 _SAME_CHAR_RUN = re.compile(r"(.)\1{%d,}" % REP_CHAR_KEEP)
@@ -287,12 +300,13 @@ def machine_conf(s):
     return out
 
 
-def post_record():
+def post_record(spec=None):
     """recognition.runs[].post: この認識の行の後処理の設定(0.57.1 から。測る道具 src/eval/tools/eval_timing.py が「版ごと」に分ける。無い記録は 0.57.0 まで)。
-    version = 編集の版・endTrim = END_TRIM(whisper.cpp の続いている行の終わりを早める秒)・joinGap = JOIN_GAP(続いている行をつなぐすき間)。
+    version = 編集の版・endTrim(whisper.cpp の続いている行の終わりを早める秒)・joinGap(続いている行をつなぐすき間)= その spec で当てた値(post_values)。
     0.64.0 までは pullEnds(音の谷へ寄せるか)・retime(1 秒丸めの配り直しのモデル | False)も書いた(0.65.0 で部品ごと消した。古い記録の鍵は読むだけ)。
     同じく runs[].retimed(配り直しの数)も 0.65.0 から書かない"""
-    return {"version": str(_workdata.SERVER_VERSION or ""), "endTrim": END_TRIM, "joinGap": JOIN_GAP}
+    end_trim, join_gap = post_values(spec)
+    return {"version": str(_workdata.SERVER_VERSION or ""), "endTrim": end_trim, "joinGap": join_gap}
 
 
 def row_words(p, shift=0.0):

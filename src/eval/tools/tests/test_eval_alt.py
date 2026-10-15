@@ -21,6 +21,8 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/eval/
 REPO = os.path.dirname(os.path.dirname(HERE))   # src(ツールと共通部品 ytt の置き場所)
 sys.path.insert(0, REPO)
 from eval.tools import eval_alt as E  # noqa: E402
+from human.proof import ytcap as _ytcap  # noqa: E402
+from human.proof import alt as _alt  # noqa: E402
 
 
 def ms(day, hhmm="12:00:00"):
@@ -79,7 +81,7 @@ class Env:
         d.update(kw)
         self._write(tid + ".json", d)
         if alt is not None:
-            self._write(tid + ".alt.json", {"schema": E.get_serve().ALT_SCHEMA, "id": tid, "engine": engine, "model": model, "rows": alt})
+            self._write(tid + ".alt.json", {"schema": _alt.ALT_SCHEMA, "id": tid, "engine": engine, "model": model, "rows": alt})
 
     def feedback(self, acc, rej):
         self._write("learn-feedback.json", {"stat": {}, "dismissed": {}, "alt": {"acc": acc, "rej": rej}}, under=self.tx)
@@ -106,10 +108,10 @@ class TestJudge(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.S = E.get_serve()
+        E.C.prepare()
 
     def judge(self, segments, **kw):
-        return E.judge_doc(self.S, {"updatedAt": 1, "original": ORIG, "segments": segments}, {"rows": ALT}, **kw)
+        return E.judge_doc({"updatedAt": 1, "original": ORIG, "segments": segments}, {"rows": ALT}, **kw)
 
     def test_hit_miss_other_unknown(self):
         r = self.judge(human_a())
@@ -133,16 +135,16 @@ class TestJudge(unittest.TestCase):
         """比べるときの文字の寄せ方は alt_fold: 人が right を全角・カタカナで書いても、伸ばしや記号を足しても当たり"""
         orig = [row(0, 3, "私はカレーが好き")]
         alt = [row(0, 3, "私はカレパンが好き")]
-        r = E.judge_doc(self.S, {"updatedAt": 1, "original": orig, "segments": [seg(1, 0, 3, "私はかれぱんが、好き!")]}, {"rows": alt})
+        r = E.judge_doc({"updatedAt": 1, "original": orig, "segments": [seg(1, 0, 3, "私はかれぱんが、好き!")]}, {"rows": alt})
         self.assertEqual([c["status"] for c in r["cands"]], ["hit"])
 
     def test_adjacent_insert_counts_as_hit(self):
         """候補が隣の 1 文字を足した置き換えの形(足りない文字を足す)で、人がその文字を足したら当たり"""
         orig = [row(0, 3, "私は猫が好き")]
         alt = [row(0, 3, "私は猫だが好き")]   # 「が」の前に「だ」を足す候補
-        r = E.judge_doc(self.S, {"updatedAt": 1, "original": orig, "segments": [seg(1, 0, 3, "私は猫だが好き")]}, {"rows": alt})
+        r = E.judge_doc({"updatedAt": 1, "original": orig, "segments": [seg(1, 0, 3, "私は猫だが好き")]}, {"rows": alt})
         self.assertEqual([c["status"] for c in r["cands"]], ["hit"])
-        r = E.judge_doc(self.S, {"updatedAt": 1, "original": orig, "segments": [seg(1, 0, 3, "私は猫が好き")]}, {"rows": alt})
+        r = E.judge_doc({"updatedAt": 1, "original": orig, "segments": [seg(1, 0, 3, "私は猫が好き")]}, {"rows": alt})
         self.assertEqual([c["status"] for c in r["cands"]], ["miss"])
 
     def test_split_and_merged_rows(self):
@@ -150,17 +152,17 @@ class TestJudge(unittest.TestCase):
         orig = [row(0, 3, "私は猫が"), row(3, 6, "好きです")]
         alt = [row(0, 3, "私は犬が"), row(3, 6, "好きです")]
         merged = [seg(1, 0, 6, "私は犬が好きです")]
-        r = E.judge_doc(self.S, {"updatedAt": 1, "original": orig, "segments": merged}, {"rows": alt})
+        r = E.judge_doc({"updatedAt": 1, "original": orig, "segments": merged}, {"rows": alt})
         self.assertEqual([c["status"] for c in r["cands"]], ["hit"])
         split = [seg(1, 0, 2, "私は犬"), seg(2, 2, 6, "が好きです")]
-        r = E.judge_doc(self.S, {"updatedAt": 1, "original": orig, "segments": split}, {"rows": alt})
+        r = E.judge_doc({"updatedAt": 1, "original": orig, "segments": split}, {"rows": alt})
         self.assertEqual([c["status"] for c in r["cands"]], ["hit"])
 
     def test_deleted_text_is_other(self):
         """人がその所の文字を消した(wrong でも right でもない)= 別の直し"""
         orig = [row(0, 3, "私は猫が好き")]
         alt = [row(0, 3, "私は犬が好き")]
-        r = E.judge_doc(self.S, {"updatedAt": 1, "original": orig, "segments": [seg(1, 0, 3, "私はが好き")]}, {"rows": alt})
+        r = E.judge_doc({"updatedAt": 1, "original": orig, "segments": [seg(1, 0, 3, "私はが好き")]}, {"rows": alt})
         self.assertEqual([c["status"] for c in r["cands"]], ["other"])
 
     def test_time_range_by_group(self):
@@ -174,7 +176,7 @@ class TestJudge(unittest.TestCase):
         self.assertEqual(len(r["cands"]), 3)   # 校正済みのまとまり 3 つだけ(updatedAt = 1 の行は外)
 
     def test_no_candidates_without_alt_rows(self):
-        r = E.judge_doc(self.S, {"updatedAt": 1, "original": ORIG, "segments": human_a()}, {"rows": []})
+        r = E.judge_doc({"updatedAt": 1, "original": ORIG, "segments": human_a()}, {"rows": []})
         self.assertEqual(r["cands"], [])
 
     def test_answers_decide_and_are_not_double_counted(self):
@@ -205,7 +207,7 @@ class TestJudge(unittest.TestCase):
 class TestEvaluate(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        E.get_serve()
+        E.C.prepare()
 
     def setUp(self):
         self.env = Env()
@@ -368,10 +370,10 @@ class TestNoSub(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.S = E.get_serve()
+        E.C.prepare()
 
     def judge(self, segments):
-        return E.judge_doc(self.S, {"updatedAt": 1, "original": ORIG, "segments": segments}, {"rows": ALT})
+        return E.judge_doc({"updatedAt": 1, "original": ORIG, "segments": segments}, {"rows": ALT})
 
     def test_nosub_row_candidates_are_not_judged(self):
         segs = human_a()
@@ -421,7 +423,7 @@ class TestYtSource(unittest.TestCase):
 
     def setUp(self):
         self.env = Env()
-        self.S = E.get_serve()
+        E.C.prepare()
 
     def tearDown(self):
         self.env.close()
@@ -429,7 +431,7 @@ class TestYtSource(unittest.TestCase):
     def cache(self, vid=VID, kind="auto", cues=None):
         d = os.path.join(self.env.tx, "ytcaps")
         os.makedirs(d, exist_ok=True)
-        self.env._write(vid + ".json", {"schema": self.S.YTCAP_VIDEO_SCHEMA, "videoId": vid, "kind": kind, "lang": "ja-orig", "at": 1,
+        self.env._write(vid + ".json", {"schema": _ytcap.YTCAP_VIDEO_SCHEMA, "videoId": vid, "kind": kind, "lang": "ja-orig", "at": 1,
                                         "availability": "public", "cues": self.CUES if cues is None else cues}, under=d)
 
     def human(self):

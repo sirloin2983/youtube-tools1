@@ -840,14 +840,13 @@ def sv_rows(tokens, stamps, a, b, gap=SV_GAP, max_chars=SV_MAX_CHARS):
 class SenseVoice(_Qwen3Chunked):
     """SenseVoice-small(sherpa-onnx・CPU・int8)。文字の少ない行の窓・名簿の呼び名の確かめに使う 2 つ目のエンジン(pipeline/transcribe/fill.py)。小さいので主のモデルと一緒に持つ(light)。
     区切り方は Qwen3 と同じ(_Qwen3Chunked)。区切りの中の行はトークンの時刻で作る(_chunk_rows。時刻が無ければ Qwen3 と同じ割り振り)。
-    FAKE_TEXT(テスト用)が文字列なら、音声を読まずにその文字を 1 行にして返す(空なら行なし。認識ワーカーの疑似 eval/fake/fake_worker が環境変数 TRANSCRIBE_FAKE_FILL から入れる)"""
+    テスト用の偽物は ⑤ eval/fake/fake_worker.fake_sense_voice(このクラスを継いで ENGINES に差し替える。ここに疑似の分かれ道を置かない = OPT-E2 1a-1)"""
     id = "sense-voice"
     package = "sherpa-onnx"
     light = True
     PARAMS = ["language", "vad_filter", "vad_parameters", "word_timestamps"]   # language 以外は受け取るだけ
     DEFAULT_MODEL = "sense-voice-small"
     WHAT = "SenseVoice"
-    FAKE_TEXT = None
 
     @classmethod
     def device_order(cls, pref, cuda_ok):
@@ -862,8 +861,6 @@ class SenseVoice(_Qwen3Chunked):
         spec = SENSE_VOICE_MODELS.get(name)
         if spec is None:
             raise EngineError("bad_model", "SenseVoice で使えないモデルです: %s(使えるのは %s)" % (str(name)[:40], "・".join(SENSE_VOICE_MODELS)), 400)
-        if cls.FAKE_TEXT is not None:
-            return cls(name, "cpu", {"fake": cls.FAKE_TEXT})
         _need_sherpa("install-diarize.bat")
         e = cls(name, "cpu", {"dir": _ensure_tar_model(spec, sv_model_dir(data_dir), log, hooks or {}), "rec": {}})
         e._recognizer("ja")   # 読み込めるかをここで確かめる
@@ -885,11 +882,6 @@ class SenseVoice(_Qwen3Chunked):
         lang = str(kw.get("language") or "ja")
         return lang if lang in SV_LANGS else "auto"
 
-    def transcribe(self, audio, **kw):
-        if "fake" in self.model:
-            return self._fake(audio, self._lang(kw))
-        return super().transcribe(audio, **kw)
-
     def _setup(self, kw):
         """言語ごとの認識器(区切りを読む前に 1 回作る)"""
         lang = self._lang(kw)
@@ -907,14 +899,6 @@ class SenseVoice(_Qwen3Chunked):
             return sv_rows(toks, ts, a0, b0)
         floor = q3_floor(rms[c0:c1])   # 時刻が無ければ Qwen3 と同じ割り振り(声のあるコマに字数を比例)
         return q3_rows(q3_squash(str(r.text or "")), a0, b0, voiced=[v > floor for v in rms[c0:c1]])
-
-    def _fake(self, audio, lang):
-        """テスト用(FAKE_TEXT): 音声の長さ全体に 1 行(空なら行なし)"""
-        dur = _wav_seconds(audio) if isinstance(audio, str) else len(audio) / 16000.0
-        info = types.SimpleNamespace(language=lang, duration=dur, duration_after_vad=None)
-        text = self.model["fake"]
-        segs = [types.SimpleNamespace(start=0.0, end=dur, text=text, words=[], avg_logprob=None, no_speech_prob=None, compression_ratio=1.0)] if text else []
-        return iter(segs), info
 
 
 # 24 にすると、当時の PC(13900KF)では起動の途中でよく落ちた(2026-10-02)。GPU に載せるので CPU のスレッドはほぼ効かず、既定は 8 のまま。
@@ -1156,7 +1140,7 @@ class LlamaQwen3(_Qwen3Chunked):
 class LlamaText(LlamaQwen3):
     """文字の LLM(Qwen3-8B Q4_K_M)を同じ llama-server(Vulkan)で。LLM の後処理(提案 P18 = pipeline/transcribe/llm.py)が complete() で聞く。音声は認識しない。
     主の認識のモデルと一緒に持つ(light)= 認識のたびに読み直さない(VRAM 16GB に large-v3 と合わせて約 8GB)。使わなければ認識ワーカーのアイドル終了で手放す。
-    FAKE_REPLY(テスト用)が文字列なら、server を起動せずにその文字を答える(認識ワーカーの疑似 eval/fake/fake_worker が環境変数 TRANSCRIBE_FAKE_LLM から入れる)"""
+    テスト用の偽物は ⑤ eval/fake/fake_worker.fake_llama_text(server を起動せずに決まった文字を答える。OPT-E2 1a-1)"""
     id = "llama-text"
     DEFAULT_MODEL = "qwen3-8b"
     WHAT = "llama.cpp(文字の LLM)"
@@ -1164,25 +1148,12 @@ class LlamaText(LlamaQwen3):
     MODEL_SUBDIR = "llm-gguf"
     PARAMS = []
     light = True
-    FAKE_REPLY = None
-
-    @classmethod
-    def create(cls, name, device, compute_type, log=None, data_dir=None, hooks=None):
-        if cls.FAKE_REPLY is not None:
-            if name not in cls.MODELS:
-                raise EngineError("bad_model", "文字の LLM で使えないモデルです: %s" % str(name)[:40], 400)
-            e = cls(name, device, {"fake": cls.FAKE_REPLY})
-            e.proc = e.job = e.errlog = None
-            return e
-        return super().create(name, device, compute_type, log, data_dir, hooks)
 
     def transcribe(self, audio, **kw):
         raise EngineError("bad_engine", "文字の LLM は音声を認識しません", 400)
 
     def complete(self, messages, max_tokens=400):
         """chat の messages -> 答えの文字(温度 0・思考オフ。server が落ちていたら 1 回だけ起動し直す)"""
-        if "fake" in self.model:
-            return self.model["fake"]
         payload = {"messages": messages, "temperature": 0, "max_tokens": int(max_tokens), "cache_prompt": False,
                    "chat_template_kwargs": {"enable_thinking": False}}
         return self._retry(lambda: self._chat(payload))
