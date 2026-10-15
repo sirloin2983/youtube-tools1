@@ -8,14 +8,14 @@
 (文書・words.json・asr.json・llm.json を書くのは ② の flow/tx と ③)。名前は呼ぶたびに `モジュール.名前` で読む(S.extract_audio などの差し替えが届く)。
 名前は編集の serve の名前の受付(_ED_MODULES)に並ぶ(S._rows_to_doc はここ)。
 """
-from ytt import dictfmt as _dictfmt, jobs as _heavy, txbase as _txbase, txtext as _txtext
+from ytt import dictfmt as _dictfmt, jobs as _heavy, txbase as _txbase
 from . import fill, llm, postproc, recognize, replace, roster as _roster
 
 
 def make_doc_rows(job, spec, wav, pairs, learned=None):
     """文字起こしのジョブの機械の分(wav は呼ぶ側の一時ファイル。取り出しもここ)。pairs = 置換辞書の組 [(誤, 正)]・
     learned = 確度「高」の学習済み置換の選び方 find(文字) -> [{"i", "wrong", "right"}](autoLearned で規則があるときだけ。無ければ None)。
-    -> {"segs", "original", "words", "dictApplied", "learnApplied", "sparseLp"(_rows_to_doc)・"raw"(生出力 asr.json の segments)・"total"(音声の長さ)・
+    -> {"segs", "original", "words", "dictApplied", "learnApplied"・"raw"(生出力 asr.json の segments)・"total"(音声の長さ)・
         "t_rec"(認識を始めた time.monotonic())・"fill_rec"・"names_n"・"llm_rec"・"llm_items"}。取り消しは途中で Cancelled"""
     res = recognize.transcribe_rows(job, spec, wav)
     rows, total = res["rows"], res["total"]
@@ -35,8 +35,8 @@ def make_doc_rows(job, spec, wav, pairs, learned=None):
 
 def _rows_to_doc(job, spec, rows, pairs, learned=None):
     """整えた行 → 文書の行(要確認の印・学習した置換・置換辞書)・機械の出力 original・単語の時刻。
-    -> {"segs", "original", "words", "dictApplied", "learnApplied", "sparseLp"(「長い区間に文字が少ない」行の avg_logprob。認識し直したときに良くなったかを比べる。③-2)}"""
-    segs, prev, original, words, sparse_lp, dict_n, learn_n = [], [], [], [], {}, 0, 0
+    -> {"segs", "original", "words", "dictApplied", "learnApplied"}"""
+    segs, prev, original, words, dict_n, learn_n = [], [], [], [], 0, 0
     terms = _roster.prompt_terms(spec)
     for s in rows:
         if not s["text"]:
@@ -49,8 +49,6 @@ def _rows_to_doc(job, spec, rows, pairs, learned=None):
             mark = fill.FILL_SPK_FLAG if seg["fill"]["by"] == fill.FILL_SPK_BY else fill.FILL_FLAG   # B は話者名を外した印
             seg["flag"] = "、".join(x for x in (mark, seg["flag"]) if x)[:100]
         prev.append(seg["text"])
-        if _txtext.SPARSE_FLAG in seg["flag"] and s.get("avg_logprob") is not None:
-            sparse_lp[seg["id"]] = float(s["avg_logprob"])
         if learned is not None:   # 確度が高い学習済みの置換は、機械の出力側にも反映する(そうしないと自分の置換を「人が直した」と数えて自己強化してしまう)
             seg["text"], ln = replace.auto_learned_replace(seg["text"], learned)
             learn_n += ln
@@ -60,4 +58,4 @@ def _rows_to_doc(job, spec, rows, pairs, learned=None):
         dict_n += n
         segs.append(seg)
         job["segments"] = len(segs)
-    return {"segs": segs, "original": original, "words": words, "dictApplied": dict_n, "learnApplied": learn_n, "sparseLp": sparse_lp}
+    return {"segs": segs, "original": original, "words": words, "dictApplied": dict_n, "learnApplied": learn_n}

@@ -222,7 +222,6 @@ DEFAULTS = {
         "maxChars": {"vertical": 16, "horizontal": 28},
         "splitChars": 24,
         "autoDict": True, "autoGloss": True, "autoContext": False, "autoLearned": False,
-        "autoRedo": False,    # (kotoba のときの redoLarge は 0.58.0 で消した。旧い束にあれば merge が捨てる)
         "autoFill": True, "stripNames": True, "autoLlm": True,
         "llmModel": "qwen3-8b",   # LLM の後処理のモデル(src/pipeline/transcribe/llm.py の LLM_MODEL。この PC の設定 flow/machine.py が重ねる。RS7-1 S1)
         "diarSmooth": False,  # 試験中・既定オフ(src/ytt/settings.py の SETTINGS_PATCH_KEYS の説明)
@@ -271,7 +270,7 @@ def merge(spec):
     return out
 
 
-RETIRED_KEYS = {"post": ("redoLarge",)}   # 消した項目(0.58.0 = kotoba のときの redoLarge)。旧い束・保存した要求にあれば黙って捨てる
+RETIRED_KEYS = {"post": ("redoLarge", "autoRedo")}   # 消した項目(0.58.0 = kotoba のときの redoLarge・10-16 = autoRedo の入口ごと)。旧い束・保存した要求にあれば黙って捨てる
 
 
 def read_legacy_tx(field, value):
@@ -415,7 +414,7 @@ SCHEMA = {
              "maxChars": (_dict_of(**_CHARS_ORIENT), "{vertical, horizontal}(どちらも 4〜80 の整数)"),
              "splitChars": (_int_in(8, 80), "8〜80 の整数"),
              "autoDict": (_is_bool, "true か false"), "autoGloss": (_is_bool, "true か false"), "autoContext": (_is_bool, "true か false"),
-             "autoLearned": (_is_bool, "true か false"), "autoRedo": (_is_bool, "true か false"),
+             "autoLearned": (_is_bool, "true か false"),
              "autoFill": (_is_bool, "true か false"), "stripNames": (_is_bool, "true か false"), "autoLlm": (_is_bool, "true か false"),
              "llmModel": (_model_ok, "英数字と . _ - の 60 字までの名前"),
              "diarSmooth": (_is_bool, "true か false"),
@@ -472,7 +471,7 @@ def key_ok(sec, key, value):
 # ---------- 束 → 各ツールの API の本文(RS6 b-0) ----------
 # 5-4 の固定の 3 つ(切り出しの精密・画質の上限・パックの fps)は FIXED の値(RS7-1 S4 で画面だけの値 screen の口を消した = 決定 3-30 Q2)
 TX_TRANSCRIBE_KEYS = ("model", "language", "quality", "device", "vadMode", "boost")   # 文字起こしの要求に渡す transcribe 節の項目
-TX_POST_KEYS = ("autoDict", "wordSplit", "stripPunct", "autoGloss", "autoLearned", "autoRedo",
+TX_POST_KEYS = ("autoDict", "wordSplit", "stripPunct", "autoGloss", "autoLearned",
                 "autoFill", "stripNames", "autoLlm", "autoContext", "splitChars", "diarSmooth")   # 同じく post 節(編集の画面から始めるときと同じ。後ろの 6 つは RS7-1 S2 で足した = 要求にあれば受付が settings.json でなく要求を使う)
 
 

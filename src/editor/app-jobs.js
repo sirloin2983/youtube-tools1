@@ -81,8 +81,7 @@ async function pollJobs(){
       if (diar.kind === 'diarize'){ try { S.tools = await api('/api/tools'); renderDiarSetup(); } catch {} }
       loadLearned();
       if (diar.tid === S.docId) await openDoc(diar.tid, true);
-      toast(diar.kind === 'redo' ? `疑わしい所を認識し直しました: ${diar.phase || ''}` + (diar.segments ? '(前の版は「以前の版に戻す」に残っています)' : '')
-        : diar.kind === 'retranscribe' ? `${diar.segments}行を再認識しました。` + (diar.kept || diar.emptyKept ? [diar.kept ? `校正済み ${diar.kept} 行` : '', diar.emptyKept ? `文字が出なかった ${diar.emptyKept} 行` : ''].filter(Boolean).join('と') + 'は元のままです。' : '')
+      toast(diar.kind === 'retranscribe' ? `${diar.segments}行を再認識しました。` + (diar.kept || diar.emptyKept ? [diar.kept ? `校正済み ${diar.kept} 行` : '', diar.emptyKept ? `文字が出なかった ${diar.emptyKept} 行` : ''].filter(Boolean).join('と') + 'は元のままです。' : '')
           + (diar.loose ? `声が重なる所などを緩い条件で ${diar.loose} 行拾いました(要確認)。` : '') + (diar.unsure ? `まだ不確かな行が${diar.unsure}行あります。` : '') + (diar.vadNote ? diar.vadNote : '')
         : diar.autoSkipped ? `話者の自動判別: ${diar.phase || '判別しませんでした'}`
         : `${diar.auto ? '話者を自動で判別しました' : '話者を判別しました'}(${diar.speakers}人)。` + (namedBy(diar, false).length ? `覚えている声で名前を付けました: ${namedBy(diar, false).map(x => x.name).join('・')}。` : '')
@@ -133,13 +132,13 @@ function renderIntoState(){
 }
 
 /* 失敗の文(M9): 想定外の失敗(errorDetail がある)は決まった文 + 次の一手。原文は知らせ・カードの「詳しく」の中だけ */
-const JOB_KIND_NAME = { transcribe: '文字起こし', diarize: '話者の判別', retranscribe: '再認識', redo: '疑わしい所の認識し直し', 'voice-learn': '声を覚える処理', alt: '別のエンジンでの聞き直し', normalize: '30fps にそろえる処理' };
+const JOB_KIND_NAME = { transcribe: '文字起こし', diarize: '話者の判別', retranscribe: '再認識', 'voice-learn': '声を覚える処理', alt: '別のエンジンでの聞き直し', normalize: '30fps にそろえる処理' };
 /* 進み具合の文: 「n% か状態」(札・文字起こし中の 1 行)と「段階 + n%」(カード・別のエンジンの欄) */
 const jobProg = j => j.state === 'running' ? pctOf(j) + '%' : STATE_LABEL[j.state] || '';
 const jobPhase = j => (j.phase || '') + (j.state === 'running' ? ' ' + pctOf(j) + '%' : '');
 /* 終わったジョブのカードの 1 行(種類ごと。表に無い種類は行の数) */
 const JOB_DONE = { 'voice-learn': j => (j.learned || []).length + '人の声を覚えた', diarize: j => j.speakers + '人を判別' + ((j.named || []).length ? '(' + j.named.length + '人に名前)' : ''),
-  retranscribe: j => j.segments + '行を更新', redo: j => j.segments + 'か所を置き換え', normalize: j => j.normOk ? '30fps にそろえました' : '元の動画のまま', alt: j => '別のエンジンで ' + j.segments + '行' };
+  retranscribe: j => j.segments + '行を更新', normalize: j => j.normOk ? '30fps にそろえました' : '元の動画のまま', alt: j => '別のエンジンで ' + j.segments + '行' };
 const jobDoneText = j => (Object.hasOwn(JOB_DONE, j.kind) ? JOB_DONE[j.kind] : x => x.segments + '行')(j);
 function jobFailText(j){
   const t = j.title || '無題', k = JOB_KIND_NAME[j.kind] || '処理';
@@ -186,7 +185,7 @@ async function diarSmoothSave(on){
   if (!(await patchSettings({ diarSmooth: on }, '設定を保存できませんでした'))) $('#diarSmooth').checked = S.settings.diarSmooth === true;   // 失敗は元に戻したあとの値に合わせる
 }
 
-/* 編集を止めるジョブ: 話者判別・再認識・疑わしい所の認識し直しと、この動画の作り直し(1 本ずつ。文字起こしのジョブで tid は終わるまで空 = into で見る) */
+/* 編集を止めるジョブ: 話者判別・再認識と、この動画の作り直し(1 本ずつ。文字起こしのジョブで tid は終わるまで空 = into で見る) */
 function lockJob(){ return S.doc ? S.jobs.find(j => ACTIVE.has(j.state) && ((LOCK_KINDS.includes(j.kind) && j.tid === S.docId) || (j.redoOne && j.into === S.docId))) : null; }
 
 function applyLock(){

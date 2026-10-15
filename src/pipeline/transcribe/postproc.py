@@ -139,7 +139,7 @@ def expand_segments(gen, spec, dur=None, join=True):
     2026-10-04: 分けたあとに、音声の長さ dur(秒。行と同じ基準)で切る(clip_rows)・同じ文字だけの行が続いたら1行にまとめる(merge_repeats)。
     whisper.cpp の続いている行の終わりを END_TRIM 秒早める(trim_ends。0.57.1 から既定 0 = かけない。spec の endTrim・joinGap があればそれ = post_values)。
     2026-10-07(0.57.1。行の時刻の原則 notes:docs/spec/subtitles.md の ①): 最後に、続いている行(すき間 JOIN_GAP 以下)の終わりを次の行の始まりへ延ばす(join_rows。全エンジン)。
-    join=False は時刻を使わない呼び出し(疑わしい所の認識し直し・2つ目のエンジンの候補)。
+    join=False は時刻を使わない呼び出し(2つ目のエンジンの候補)。
     0.65.0(2026-10-09)で、行の終わりを音の谷へ寄せる pull_ends(引数 levels・TRANSCRIBE_PULL_ENDS)を消した(既定オフのままだった)"""
     strip = spec.get("stripPunct", True)
     mc = spec.get("splitChars") or _txtext.SPLIT_CHARS

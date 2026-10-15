@@ -634,7 +634,7 @@ class TestExclusive(StoreDir):
 
     def test_add_job_refuses_what_validate_refuses(self):
         # 声を覚える: 入口は再認識・疑わしい所の最中を断る。登録(add_job)も同じ組で断る(以前は判別と声を覚えるだけ)
-        for other in ("retranscribe", "redo"):
+        for other in ("retranscribe",):
             with self.active(other):
                 self.busy(lambda: S.add_job({"tid": TID, "title": "t"}, "voice-learn"))
         self.assertNotIn("voice-learn", [j.get("kind") for j in S._jobs.values() if j["spec"].get("tid") == TID])
@@ -642,29 +642,27 @@ class TestExclusive(StoreDir):
     def test_validate_refuses_what_add_job_refuses(self):
         self.put_doc(doc_with_speakers([("S1", "兎田ぺこら")], [(0, 5, "S1", ""), (6, 12, "S1", "")], proofed=True))
         with mock.patch.object(S, "check_source", lambda p: p):
-            for other in ("redo", "voice-learn"):   # 判別: 以前の入口は判別・再認識だけを見て、疑わしい所・声を覚えるは登録で断っていた
+            for other in ("voice-learn",):   # 判別: 以前の入口は判別・再認識だけを見て、声を覚えるは登録で断っていた
                 with self.active(other):
                     self.busy(lambda: S.validate_diarize({"tid": TID}))
-            with self.active("redo"):   # 再認識: 以前の入口は疑わしい所の最中を見ていなかった
-                self.busy(lambda: S.validate_retranscribe({"tid": TID, "ids": ["s1"]}))
             with self.active("diarize"):
                 self.busy(lambda: S.validate_voice_learn({"tid": TID, "names": ["兎田ぺこら"]}))
 
     def test_table_is_the_only_rule(self):
-        for kind in ("diarize", "voice-learn", "retranscribe", "redo"):
+        for kind in ("diarize", "voice-learn", "retranscribe"):
             for other in S.EXCLUSIVE[kind]:
                 self.assertIn(other, S.EXCLUSIVE, (kind, other))
-        self.assertEqual(set(S.EXCLUSIVE["voice-learn"]), {"diarize", "retranscribe", "redo", "voice-learn"})
+        self.assertEqual(set(S.EXCLUSIVE["voice-learn"]), {"diarize", "retranscribe", "voice-learn"})
 
     def test_table_is_symmetric(self):
-        """0.65.0(decisions (fp)): a が b を断るなら b も a を断る(表の全組)。再認識・疑わしい所も声を覚えるの最中は断る
+        """0.65.0(decisions (fp)): a が b を断るなら b も a を断る(表の全組)。再認識も声を覚えるの最中は断る
         (声を覚える途中で行の時刻が変わると、覚える区間がずれる)。サムネの案 thumb は文書を読むだけなので同じ種類どうしだけ(ほかと同時でよい)"""
         for a, others in S.EXCLUSIVE.items():
             for b in others:
                 self.assertIn(b, S.EXCLUSIVE, (a, b))
                 self.assertIn(a, S.EXCLUSIVE[b], "%s は %s を断るが、%s は %s を断らない" % (a, b, b, a))
         self.assertEqual(S.EXCLUSIVE["thumb"], ("thumb",))
-        for kind in ("retranscribe", "redo"):
+        for kind in ("retranscribe",):
             self.assertIn("voice-learn", S.EXCLUSIVE[kind])
             with self.active("voice-learn"):   # 登録(add_job)も声を覚えるの最中は断る
                 self.busy(lambda: S.add_job({"tid": TID, "title": "t"}, kind))

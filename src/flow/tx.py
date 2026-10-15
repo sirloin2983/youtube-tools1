@@ -9,11 +9,11 @@
 動詞(それぞれの docstring に「② が足すこと」):
   文字起こし    transcribe_clip(① clipjob → fields)・write_clip_records(words・asr・llm を書く)・write_machine_doc(③ なしで文書の機械の分を書く)・dict_pairs
   受付          check_model・request_engine・tx_spec(文字起こしの指定。③ の validate_job も使う)・new_doc(新しい文書の頭。③ の run_job も使う)
-  再認識        extract_span・redo_recognizer(+ redo_kwargs)・each_lines・recognize_range・end_whole・note_vad・replace_span_words(words.json の差し替え)
+  再認識        extract_span・each_lines・recognize_range・end_whole・note_vad・replace_span_words(words.json の差し替え)
   2 つ目のエンジン engine_ready・check_engine_ready・alt_lines(+ alt_engine_version)
   時刻の候補    word_retime
   名簿と学習    roster_listing・pick_glossary_terms
-名前は編集の serve の名前の受付(_ED_MODULES)に並ぶ(S._doc_fields・S.dict_pairs・S.redo_kwargs・S.alt_engine_version はここ)。
+名前は編集の serve の名前の受付(_ED_MODULES)に並ぶ(S._doc_fields・S.dict_pairs・S.alt_engine_version はここ)。
 受付に並ぶほかの部品と同じ名前を作らない(modfwd.duplicates)。① の名前は呼ぶたびに `モジュール.名前` で読む(S.extract_audio などの差し替えが届く)。
 ジョブの表は兄弟の flow/jobs、枠と取り消しの確かめ(check_cancel・Cancelled)は ytt/jobs(_slots)。
 """
@@ -92,7 +92,7 @@ def request_engine(req, model, ctx_doc, auto_context):
 def tx_spec(req, post, learning=None, *, src=None, dur=None):
     """要求と後処理の値 post -> 文字起こしのジョブの指定(動画 1 本を頭から終わりまで。評価用・入れる文書・2 つ目のエンジン・話者の自動の判別・LLM のモデルは入れない)。
     ② の CLI(flow/tools の transcribe_start)と ③ の受付(human/proof/doc_jobs の validate_job)が同じ形を使う = ③ は返した指定に自分の分(範囲・入れる文書・評価用・
-    2 つ目のエンジン・話者・LLM のモデル)を重ねる。post = 束の post の形(splitChars・autoRedo・autoFill・autoLlm・stripNames・autoLearned・autoContext・
+    2 つ目のエンジン・話者・LLM のモデル)を重ねる。post = 束の post の形(splitChars・autoFill・autoLlm・stripNames・autoLearned・autoContext・
     autoGloss・learning.version)。learning = 学習データの読み手(ユーザーの用語が先・自動の用語はその後ろ。無ければ自動の用語は入れない)。
     src・dur = 検査済みの動画のパスと長さ(③ が先に範囲を確かめるとき。無ければここで check_source・media_duration)。
     機器は auto・cuda・cpu・vulkan。要求の title(120 字まで)があれば題名に(無ければ動画のファイル名)"""
@@ -111,7 +111,7 @@ def tx_spec(req, post, learning=None, *, src=None, dur=None):
             "device": req.get("device") if req.get("device") in ("auto", "cuda", "cpu", "vulkan") else "auto",
             "vadMode": req.get("vadMode") if req.get("vadMode") in ("weak", "normal", "off") else "weak",
             "boost": req.get("boost") is True, "autoDict": req.get("autoDict") is not False, "wordSplit": req.get("wordSplit") is not False,
-            "splitChars": post["splitChars"], "autoRedo": post["autoRedo"], "autoAlt": False,
+            "splitChars": post["splitChars"], "autoAlt": False,
             "autoFill": post["autoFill"], "autoLlm": post["autoLlm"], "stripNames": post["stripNames"],
             "stripPunct": req.get("stripPunct") is not False, "glossary": glossary + gauto, "glossAuto": gauto,
             "learningVersion": post["learning"]["version"], "context": ctx, "evalSet": False, "autoLearned": post["autoLearned"], "clip": clip,
@@ -195,7 +195,7 @@ def write_clip_records(tid, clip, spec):
 
 
 def replace_span_words(tid, a, b, new_words, model="", keep_spans=()):
-    """再認識(③ human/proof/rerun の range・whole・redo)のあと、単語の時刻 <id>.words.json の範囲 [a, b] を認識し直した単語に差し替える
+    """再認識(③ human/proof/rerun の range・whole)のあと、単語の時刻 <id>.words.json の範囲 [a, b] を認識し直した単語に差し替える
     (真ん中が範囲に入る単語を消す。keep_spans の区間の単語は残す)。以前の単語が無い文書は、新しい単語だけを書く。
     ② が足すこと = 認識の記録 words.json の書き込み(③ は ytt/txwords を直に書かない)"""
     old = _txwords.read_words(tid) or []
@@ -269,7 +269,7 @@ def _write_mach(tid, fields):
         return None
 
 
-# ---------- 再認識(選んだ行・範囲・全体)と疑わしい所の認識し直し ----------
+# ---------- 再認識(選んだ行・範囲・全体) ----------
 def extract_span(job, src, spans, doc_start, doc_end, boost, wav):
     """再認識で取り出す音声の範囲を決めて(① recognize.audio_span。spans = [{"start", "end"}])取り出す -> 取り出した音声の先頭が元の動画の何秒か。
     ② が足すこと = ジョブの状態(extracting・音声を取り出し中)"""
@@ -277,39 +277,6 @@ def extract_span(job, src, spans, doc_start, doc_end, boost, wav):
     job["state"], job["phase"] = "extracting", "音声を取り出し中"
     recognize.extract_audio(job, {"sourcePath": src, "start": start, "end": end, "boost": boost}, wav)
     return start
-
-
-def redo_kwargs(spec):
-    """疑わしい所を認識し直すときの設定: VAD は普通の強さで、短い無音でも区切る(長い塊に単語1つ・途中を飛ばす、を減らす)"""
-    kw = worker_client.whisper_kwargs(spec)
-    kw["vad_filter"] = True
-    kw["vad_parameters"] = {"min_silence_duration_ms": 250, "speech_pad_ms": 200}
-    kw["chunk_length"] = 10
-    return kw
-
-
-def _redo_real(job, spec, wav, start):
-    """疑わしい所の認識し直しの本物の準備(エンジンを確かめてモデルと音声を読む)→ 行ごとに呼ぶ関数 f(sub, a, b) -> 行"""
-    worker_client.check_engine(spec)
-    job["state"] = "loading"
-    model, device = worker_client.load_model(spec["model"], job, spec["device"], engine=tx_engines.engine_of(spec))
-    job["device"] = device
-    audio = worker_client.read_wav_f32(wav)
-    kw = worker_client.filter_kwargs(model, redo_kwargs(spec))
-    return lambda sub, a, b: recognize.range_lines_real(job, model, kw, audio, sub, start)
-
-
-def _redo_finish(raw, sub, shift):
-    """疑わしい所の認識し直しの行の整え方(疑似の差し込み口が使う。文字を比べるだけなので続いている行をつながない)"""
-    return recognize.finish_range_lines(raw, sub, shift, join=False)
-
-
-def redo_recognizer(job, spec, wav, start):
-    """疑わしい所の認識し直しの、行ごとに呼ぶ関数 f(sub, a, b) -> 行(音声は取り出し済み。先頭 = 元の動画の start 秒)。
-    ② が足すこと = 本物と疑似の選び方(backend)・本物ならワーカーにモデルを読む(_redo_real)・ジョブの状態(loading → running)"""
-    f = _backend.select().redo_recognizer(job, spec, wav, start, _redo_real, _redo_finish)
-    job["state"] = "running"
-    return f
 
 
 def _each_real(job, spec, targets, wav, start):

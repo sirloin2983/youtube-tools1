@@ -206,7 +206,6 @@ class TestFlagsS3(unittest.TestCase):
         self.assertIn(S.LEAK_FLAG, S.make_flags(row(0, 10.0, "用語: スバル"), [], "ja", terms))    # ヒントの書き出しそのものは長さによらず
         self.assertNotIn(S.LEAK_FLAG, S.make_flags(row(0, 1.2, "スバルだよ"), [], "ja", terms))
         self.assertNotIn(S.LEAK_FLAG, S.make_flags(row(0, 1.2, "スバル"), [], "ja", []))           # ヒントを渡していなければ付けない
-        self.assertIn(S.LEAK_FLAG, S.REDO_BAD_FLAGS)                                               # 認識し直してこの印なら「良くなった」とみなさない
 
     def test_vad_fallback_treats_leak_as_empty(self):
         import types

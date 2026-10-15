@@ -32,8 +32,6 @@ class TestBackend(unittest.TestCase):
         self.assertEqual(b.range_main("j", 0.0, 1.0, (0.0, 1.0), lambda a, b_, share: [a, b_]), [0.0, 1.0])
         self.assertEqual(b.range_loose("j", [(0, 1)], lambda spans: spans), [(0, 1)])
         self.assertEqual(b.each_lines("j", "s", [], "w", 0.0, lambda *a: {"ok": 1}), {"ok": 1})
-        f = b.redo_recognizer("j", "s", "w", 0.0, lambda *a: (lambda sub, a_, b_: [a_, b_]), None)
-        self.assertEqual(f({}, 1.0, 2.0), [1.0, 2.0])
         # RS2-9: 話者判別の区間と声の特徴の口
         self.assertEqual(b.diarize("j", {"numSpeakers": 2}, "w", 3.0, lambda job, spec, wav: [(0.0, 1.0, spec["numSpeakers"])]), [(0.0, 1.0, 2)])
         self.assertEqual(b.embed("j", "w", "voxceleb", [[(0, 1)]], lambda job, wav, emb, groups: [emb, len(groups)]), ["voxceleb", 1])

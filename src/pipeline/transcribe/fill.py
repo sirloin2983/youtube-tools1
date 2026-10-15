@@ -50,7 +50,7 @@ FILL_AGREE_SLACK = 0.5   # D: 行と 2 つ目のエンジンの行の時間の�
 FILL_AGREE_MAX_SEC = 1800   # D: 全体を読むのはこの秒までの文書(CPU で音声の約 2% の時間)
 _FILL_REP3 = re.compile(r"(.)\1{2,}")
 FILL_SPK_BY = "name"       # B: 行の fill の by(話者名を外した)
-FILL_SPK_NOTE = "話者名を外した"   # 範囲・全体の再認識・疑わしい所の認識し直しの印(元の文字は残さない)
+FILL_SPK_NOTE = "話者名を外した"   # 範囲・全体の再認識の印(元の文字は残さない)
 FILL_SPK_FLAG = FILL_SPK_NOTE + "(元の文字は「別の読み」の札)"
 FILL_SPK_KANA_MAX = 8      # B: 名簿に無い名前は、かな・カタカナだけのこの字数まで
 _FILL_SPK_RE = re.compile(r"^\s*([^\s:：「」『』()（）\[\]【】]{1,16})\s*[:：]\s*(\S.*)$", re.S)
@@ -242,7 +242,7 @@ def fill_strip_names(spec, rows):
 
 
 def fill_head_stripper(spec):
-    """範囲・全体の再認識と疑わしい所の認識し直しで、行の頭の「名前:」を外す決まり(B。0.67.0)。recognize.finish_range_lines が使う
+    """範囲・全体の再認識で、行の頭の「名前:」を外す決まり(B。0.67.0)。recognize.finish_range_lines が使う
     (同じ ① の recognize が直に呼ぶ)。-> None(設定 stripNames が明示のオフ・評価用)か、split(文字) -> (本文, 外したときの印 FILL_SPK_NOTE か None)"""
     if spec.get("stripNames", True) is False or spec.get("evalSet"):
         return None

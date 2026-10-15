@@ -69,7 +69,6 @@ class TestMakeDocRows(unittest.TestCase):
         self.assertEqual(res["dictApplied"], 1)
         self.assertEqual(res["learnApplied"], 0)
         self.assertIn(txtext.SPARSE_FLAG, res["segs"][1]["flag"])   # 7 秒に 1 文字
-        self.assertEqual(res["sparseLp"], {"s2": -0.8})
         self.assertEqual(res["words"], [[100.0, 101.0, "こんにちは"], [101.0, 102.0, "ペコラです"]])
         self.assertEqual(res["total"], 10.0)
         self.assertEqual(len(res["raw"]), 3)   # 生出力は整える前の行

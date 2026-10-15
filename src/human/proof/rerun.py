@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-"""③ 人の操作の層 human/proof: 再認識(選んだ行 each・範囲 range・全体 whole)と疑わしい所の認識し直し(redo)のジョブの本体と、文書への反映・
+"""③ 人の操作の層 human/proof: 再認識(選んだ行 each・範囲 range・全体 whole)のジョブの本体と、文書への反映・
 再認識で差し替えた機械の出力の記録(recognition.runs)。
 
-受付(validate_retranscribe・redo_spec)・疑わしい行の選び方(redo_targets)・新しい行の id(_fresh_id)は doc_jobs にあり、ここから `doc_jobs.名前` で
+受付(validate_retranscribe)・新しい行の id(_fresh_id)は doc_jobs にあり、ここから `doc_jobs.名前` で
 呼ぶたびに読む(向きは rerun → doc_jobs だけ。doc_jobs はここを読まない)。
-① pipeline/transcribe は直に読まない: 音声の取り出し(extract_span)・認識器とワーカーのモデル(redo_recognizer・each_lines・recognize_range)・
+① pipeline/transcribe は直に読まない: 音声の取り出し(extract_span)・認識器とワーカーのモデル(each_lines・recognize_range)・
 全体の続きの記録の後始末(end_whole)・声の検出の知らせ(note_vad)・置換辞書の組(dict_pairs)・再認識の記録の共通項目(rerun_base)・
 単語の時刻 words.json の差し替え(replace_span_words)は ② の `flow/tx`(`_flowtx.名前`)。句読点・文字数・印の文は ytt/txtext、置換辞書の当て方は ytt/dictfmt。
 置き場所と元のファイルの検査は ytt の tools・ジョブの表は ② flow/jobs。S.名前 は serve の受付がここへ回す
@@ -15,11 +15,11 @@ import time
 from ytt import errors as _errors, schemas as _yschemas, tools as _tools  # noqa: E402
 from flow import jobs as _heavy  # noqa: E402
 from ytt import jobs as _slots  # noqa: E402
-from ytt import dictfmt as _dictfmt, txtext as _txtext  # noqa: E402   置換辞書を当てる apply_replacements・句読点 strip_punct・文字数 text_chars・印の文 SPARSE_FLAG
-from flow import tx as _flowtx  # noqa: E402   ② 再認識の動詞(extract_span・redo_recognizer・each_lines・recognize_range・end_whole・note_vad・dict_pairs・rerun_base・replace_span_words)
+from ytt import dictfmt as _dictfmt  # noqa: E402   置換辞書を当てる apply_replacements
+from flow import tx as _flowtx  # noqa: E402   ② 再認識の動詞(extract_span・each_lines・recognize_range・end_whole・note_vad・dict_pairs・rerun_base・replace_span_words)
 from ytt import txbase as _txbase  # noqa: E402
 from . import store  # noqa: E402   文書の読み書き・保存のロック・控え(呼ぶたびに store.名前 で読む)
-from . import doc_jobs  # noqa: E402   受付の側の _fresh_id・redo_targets(呼ぶたびに doc_jobs.名前 で読む)
+from . import doc_jobs  # noqa: E402   受付の側の _fresh_id(呼ぶたびに doc_jobs.名前 で読む)
 from . import layers as _layers  # noqa: E402   層が正のときの再認識 each(機械の層の差し替え・印 MACH_CHANGED)
 
 
@@ -46,14 +46,14 @@ def _replaced_rows(orig, spans, keep=()):
 
 def record_rerun(doc, spec, kind, spans, replaced, pairs=None):
     """再認識で original を差し替える前に、差し替えられる機械の出力を recognition.runs に1件足す(文書を書くのは呼び出し側。_save_lock の中)。
-    1件 = {"kind": "each" | "range" | "whole" | "redo" | "evalRedo"(⑤ eval/drill/evalbatch の評価用の作り直し), 新しい結果を出したエンジン・版・モデル・言語・設定(settings.dict = 辞書の版),
-           "range": [最初, 最後], "spans"?: 行ごとの範囲(each・redo で2つ以上のとき), "replaced": [差し替えられた original の行], "at"}。
+    1件 = {"kind": "each" | "range" | "whole" | "evalRedo"(⑤ eval/drill/evalbatch の評価用の作り直し), 新しい結果を出したエンジン・版・モデル・言語・設定(settings.dict = 辞書の版),
+           "range": [最初, 最後], "spans"?: 行ごとの範囲(each で2つ以上のとき), "replaced": [差し替えられた original の行], "at"}。
     original の無い文書(文字起こしせずに開いた)でも、いつ・何で認識し直したかは残す(replaced は空)。pairs = 作ってある _flowtx.dict_pairs(spec)"""
     spans = [[round(float(a), 3), round(float(b), 3)] for a, b in spans]
     if not spans:
         return
     # 機械が行を書き換えるので、「動画を全部聞いて確かめた」印(評価ドリル。eval/drill/drill)も外す。行の proofed を外すのと同じ時に。
-    # 再認識(each・range・whole)と疑わしい所の認識し直し(redo)は、どれも差し替える前にここを通る
+    # 再認識(each・range・whole)は、どれも差し替える前にここを通る
     doc.pop("evalReviewed", None)
     rep = replaced[:MAX_REPLACED_ROWS]
     run = dict(_flowtx.rerun_base(spec, pairs, kind), range=[min(a for a, _ in spans), max(b for _, b in spans)], replaced=rep)
@@ -219,111 +219,6 @@ def _apply_range(spec, lines, loose=()):
     except OSError as e:
         _txbase.log.warning("単語の時刻を保存できませんでした: %s %s", tid, e)
     return {"lines": len(mrows), "unsure": unsure, "kept": st["machChanged"], "emptyKept": st["emptyKept"], "loose": n_loose}
-
-
-# ---------- 疑わしい所だけ認識し直す(12 ③-2。ユーザー承認 2026-09-27: 設計どおり) ----------
-REDO_MAX_SEC = 600      # 時間の上限(秒)。超えたら残りの行はやめて、そこまでの結果で置き換える
-REDO_BAD_FLAGS = (_txtext.SPARSE_FLAG, "よくある誤認識の文", "同じ文の繰り返し", "繰り返しの可能性", "音声でない可能性", _txbase.LEAK_FLAG)
-
-
-# 疑わしい所を認識し直すときの設定 redo_kwargs は ② flow/tx(ワーカーに渡す設定 = 認識器の準備と一緒)
-
-
-def redo_better(row, lines, old_lp=None):
-    """認識し直した結果が良くなったか: 文字が増えた・まだ疑わしい印(文字が少ない・よくある誤認識・繰り返し・BGM)が無い・
-    avg_logprob が分かれば上がった。-> (良くなったか, 理由)"""
-    if not lines:
-        return False, "何も認識されない"
-    new_chars, old_chars = sum(_txtext.text_chars(x["raw"]) for x in lines), _txtext.text_chars(row.get("text"))
-    if new_chars <= old_chars:
-        return False, "文字が増えない"
-    flags = "、".join(str(x.get("flag") or "") for x in lines)
-    if any(f in flags for f in REDO_BAD_FLAGS):
-        return False, "まだ疑わしい"
-    lps = [float(x["lp"]) for x in lines if isinstance(x.get("lp"), (int, float))]
-    if old_lp is not None and lps and sum(lps) / len(lps) <= old_lp:
-        return False, "自信が上がらない"
-    return True, ""
-
-
-def apply_redo(spec, results):
-    """認識し直して良くなった行をまとめて置き換える(1回の保存。前の版は履歴に残す = 「以前の版に戻す」で戻せる)。
-    途中で人が直した・校正した行は置き換えない。-> 置き換えた行の数"""
-    if not results:
-        return 0
-    with store._save_lock:
-        tid = spec["tid"]
-        doc = store.read_transcript(tid)
-        segs = [g for g in doc.get("segments") or [] if isinstance(g, dict)]
-        by_id = {g["id"]: g for g in segs}
-        used = {g["id"] for g in segs}
-        n_rep, new_words, drop, spans, replaced = 0, [], set(), [], []
-        for rid, old_text, a, b, lines in results:
-            g = by_id.get(rid)
-            if not g or g.get("proofed") is True or g.get("text") != old_text:
-                continue
-            drop.add(rid)
-            n_rep += 1
-            k = 0
-            for x in lines:
-                sid, k = doc_jobs._fresh_id(used, lambda n: "%s-r%d" % (rid, n), k)
-                segs.append({"id": sid, "start": round(x["start"], 2), "end": round(x["end"], 2), "text": x["raw"][:_txbase.MAX_TEXT],
-                             "speaker": g.get("speaker", ""), "flag": _layers.join_flags(x.get("flag"))})
-            spans.append((a, b))
-            if isinstance(doc.get("original"), list):
-                replaced += _replaced_rows(doc["original"], [(a, b)])   # 差し替える前の機械の出力(下で recognition.runs に残す。Q2)
-                doc["original"] = replace_original_multi(doc["original"], a, b, lines)
-            new_words.append((a, b, [w for x in lines for w in x.get("words") or []]))
-        if not n_rep:
-            return 0
-        record_rerun(doc, spec, "redo", spans, replaced)
-        store.snapshot(tid)
-        doc["segments"] = sorted((g for g in segs if g["id"] not in drop), key=lambda g: (g["start"], g["end"]))
-        doc["updatedAt"] = int(time.time() * 1000)
-        doc["redo"] = {"model": spec["model"], "rows": n_rep, "at": doc["updatedAt"]}
-        store.apply_edit_cuts(tid, doc)
-        store.commit(tid, doc, why="redo")
-        for a, b, ws in new_words:
-            try:
-                _flowtx.replace_span_words(tid, a, b, ws, spec["model"])
-            except OSError as e:
-                _txbase.log.warning("単語の時刻を保存できませんでした: %s %s", tid, e)
-        return n_rep
-
-
-def run_redo(job):
-    """疑わしい所だけ認識し直す(12 ③-2)。行ごとに、前後の余白を足した範囲を今の範囲の再認識と同じ仕組みで認識し直し、良くなったものだけ最後にまとめて置き換える。
-    中止したら何も置き換えない。時間の上限(REDO_MAX_SEC)を超えたら残りの行はやめる"""
-    spec = job["spec"]
-    with _heavy.job_temp_wav(job, "中止しました(何も置き換えていません)", "疑わしい所の認識し直しで例外") as wav:
-        doc = store.read_transcript(spec["tid"])
-        src = _tools.check_source(doc.get("sourcePath"))
-        targets = doc_jobs.redo_targets(doc, set(spec["ids"]))
-        if not targets:
-            job["segments"] = 0
-            _heavy.job_done(job, spec["tid"], "完了(認識し直す行がありませんでした)")
-            return
-        start = _flowtx.extract_span(job, src, [{"start": a, "end": b} for _g, a, b in targets], _yschemas.num_or(doc.get("start"), 0.0) or 0.0,
-                                     _yschemas.num_or(doc.get("end")), spec["boost"], wav)
-        recognize_row = _flowtx.redo_recognizer(job, spec, wav, start)   # 本物ならワーカーにモデルを読む(状態 loading → running)
-        t0, results, tried, timed_out = time.monotonic(), [], 0, False
-        for n, (g, a, b) in enumerate(targets):
-            _slots.check_cancel(job)
-            if time.monotonic() - t0 > REDO_MAX_SEC:
-                timed_out = True
-                break
-            job["phase"] = "疑わしい所を認識し直し中(%d / %d)" % (n + 1, len(targets))
-            sub = dict(spec, range=[a, b])
-            lines = recognize_row(sub, a, b)
-            tried += 1
-            ok, _why = redo_better(g, lines, spec.get("oldLp", {}).get(g["id"]))
-            if ok:
-                results.append((g["id"], g["text"], a, b, lines))
-            job["progress"] = min(0.95, (n + 1) / len(targets))
-        _slots.check_cancel(job)
-        n_rep = apply_redo(spec, results)
-        job["segments"], job["unsure"] = n_rep, max(0, tried - n_rep)
-        _heavy.job_done(job, spec["tid"], "完了(%d か所のうち %d か所を置き換えました%s)" % (tried, n_rep, "。時間の上限で残りはやめました" if timed_out else ""))
 
 
 # ---------- 再認識のジョブの本体(each・range・whole) ----------

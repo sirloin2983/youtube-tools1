@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """③ 人の操作の層 human/proof: 文字起こしのジョブの本体(run_job)と書く先の決め方・受付(validate_job・
-validate_retranscribe・redo_spec と疑わしい行の選び方 redo_targets)・字幕の文字数の設定・人の直しの引き継ぎ carry_overrides・新しい行の id。
-再認識(each・range・whole)と疑わしい所の認識し直しのジョブの本体・文書への反映・再認識の記録は隣の rerun.py(rerun → doc_jobs の一方向 =
+validate_retranscribe と疑わしい行の選び方 redo_targets)・字幕の文字数の設定・人の直しの引き継ぎ carry_overrides・新しい行の id。
+再認識(each・range・whole)のジョブの本体・文書への反映・再認識の記録は隣の rerun.py(rerun → doc_jobs の一方向 =
 ここは rerun を読まない)。ジョブの表と器は ② flow/jobs・flow/wire(本体は入口 editor/serve.py が渡す)。
 名前は serve.py からも見える(serve.py が受け付けて、この部品へ転送する。テストの S.名前 = … もここに入る)。
 ほかの部品の名前は `store.名前`・`_flowtx.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
@@ -137,7 +137,6 @@ def validate_job(req):
             return req[key]
         return st.get(key) is not False if default_on else st.get(key) is True
     post = {"splitChars": split_chars_for(req, st),
-            "autoRedo": req.get("autoRedo") is True and not ev,   # 疑わしい所の認識し直し(評価用は redo_spec が断るので始めない)
             # 認識のあとの後処理(fill の A・C・D。既定オン。0.60.0)。要求に無ければ保存した設定 autoFill(明示の false だけオフ)。評価用には当てない
             "autoFill": pref("autoFill", default_on=True) and not ev,
             # LLM の後処理(llm。名簿の呼び名の聞き違いらしい所だけ。既定オン = decisions 3-17。0.61.0)。評価用には当てない
@@ -357,15 +356,6 @@ def _run_transcribe(job, spec):
         # 話者の自動判別(評価用だけ。決定 3-47 Q7)。「完了」にする前に足す = 判別の待ちの文書をドリルが開く間を作らない
         speakers.autodiar_after_transcribe(job, spec, tid)
         _heavy.job_done(job, tid)
-        # 疑わしい所を自動で認識し直す(設定。既定オフ。notes:docs/design/edit-tool-design.md の 12 ③-2)。ほかの続きの段と同じく、始められなくても文字起こしは成功のまま
-        if spec.get("autoRedo") and any(_txtext.SPARSE_FLAG in g["flag"] for g in clip["segs"]):
-            try:
-                _heavy.add_job(redo_spec(tid, {"oldLp": clip["sparseLp"]}), "redo")
-            except _errors.ApiError as e:
-                _txbase.add_warning(job, "疑わしい所の認識し直しを始められませんでした: " + e.message)
-            except Exception as e:   # 想定外の失敗でも、書き終えた文字起こしを失敗にしない
-                _txbase.log.warning("疑わしい所の認識し直しを始められませんでした %s: %s %s", tid, e.__class__.__name__, str(e)[:200])
-                _txbase.add_warning(job, "疑わしい所の認識し直しを始められませんでした(想定外のエラー)")
         alt.alt_after_transcribe(job, spec, tid)   # 設定 autoAlt: 2つ目のエンジンでも聞いて、食い違う所に候補を出す(既定オフ・評価用は除く)
 
 
@@ -420,10 +410,9 @@ def validate_retranscribe(req):
             "title": _heavy.job_title({"range": "範囲を再認識: ", "whole": "全体を再認識: "}.get(mode, "再認識: "), doc)}
 
 
-# ---------- 疑わしい所だけ認識し直す(notes:docs/design/edit-tool-design.md の 12 ③-2。ユーザー承認: 設計どおり) ----------
+# ---------- 疑わしい行の選び方(redo_targets。認識し直す本体は消した。呼び手は今は無い = あとで別の人が使う) ----------
 REDO_PAD = 1.0          # 行の前後に足す余白(秒)。ただし隣の行にはかからない(隣の行を消さないため)
 REDO_MAX_ROWS = 30      # 1回で認識し直す行の上限
-# 認識し直しの本体と反映(run_redo・apply_redo・redo_better・REDO_MAX_SEC・REDO_BAD_FLAGS)は rerun.py。ここは受付と行の選び方
 
 
 def redo_targets(doc, ids=None):
@@ -448,26 +437,3 @@ def redo_targets(doc, ids=None):
             b = min(b, hi_doc)
         out.append((g, round(min(a, float(g["start"])), 3), round(max(b, float(g["end"])), 3)))
     return out[:REDO_MAX_ROWS]
-
-
-def redo_spec(tid, req=None):
-    """疑わしい所を認識し直すジョブの指定。モデルは文字起こしと同じ(kotoba のとき large-v3 にする設定 redoLarge は 0.58.0 で消した)。VAD は普通の強さで短く区切る"""
-    req = req or {}
-    doc = store.read_transcript(tid)
-    if doc.get("evalSet") is True:
-        raise _errors.ApiError("eval_set", "評価用の文字起こしは認識し直せません(機械の出力=比べる基準が書き換わるため)", 400)
-    _tools.check_source(doc.get("sourcePath"))
-    targets = redo_targets(doc)
-    if not targets:
-        raise _errors.ApiError("empty", "認識し直す疑わしい行がありません(「長い区間に文字が少ない」の印があり、校正・手直ししていない行が対象です)", 400)
-    model = _flowtx.check_model(str(doc.get("model") or "large-v3"), fallback="large-v3")
-    if _heavy.tid_busy(tid, _heavy.EXCLUSIVE["redo"]):
-        raise _errors.ApiError("busy", "この文字起こしは、すでに別の処理(話者判別・再認識・声を覚える)の最中です", 409)
-    pr = doc.get("params") if isinstance(doc.get("params"), dict) else {}
-    old_lp = req.get("oldLp") if isinstance(req.get("oldLp"), dict) else {}
-    return {"tid": tid, "ids": [g["id"] for g, _a, _b in targets], "model": model, "language": doc.get("language") if doc.get("language") in _txbase.LANGS else "ja",
-            "beam": 5, "vadMode": "normal", "wordSplit": True, "splitChars": split_chars_for({}), "stripPunct": pr.get("stripPunct", True) is not False,
-            "stripNames": pr.get("stripNames", True) is not False,
-            "device": "auto", "boost": pr.get("boost") is True, "autoDict": False, "glossary": [], "glossAuto": [],
-            "oldLp": {k: float(v) for k, v in old_lp.items() if isinstance(v, (int, float)) and not isinstance(v, bool)},
-            "title": _heavy.job_title("疑わしい所を認識し直す: ", doc)}

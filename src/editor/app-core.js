@@ -105,7 +105,7 @@ async function saveFirst(){   // ジョブを始める前(話者判別・再認�
   if (S.dirty || S.saving){ toast('保存中です。少し待ってから、もう一度押してください'); return false; }
   return true;
 }
-async function saveDone(){   // サーバーが保存済みの文書で計算する操作の前(行の分け直し・疑わしい所の認識し直し・時刻の候補)
+async function saveDone(){   // サーバーが保存済みの文書で計算する操作の前(行の分け直し・時刻の候補)
   if (await saveDoc()) return true;
   toast('保存が終わっていません。少し待ってから、もう一度押してください', 5000, 'err'); return false;
 }
@@ -391,7 +391,7 @@ async function reloadSettings(){
    OPT_CHECKS = 「認識の設定」(文字起こしの要求にも付ける)。YouTube の字幕の候補 autoYtcap・評価用でない自動の判別 autoDiarize は OPT-H1 で消した(決定 3-47 Q7・Q10)。
    0.66.0: OPT_CHECKS の欄は 1 文字起こし から外して設定の画面へ(notes:docs/spec/data.md の 6)。表は鍵と既定の扱いのために残し、欄が無ければ S.settings を読む */
 const OPT_CHECKS = [['boost', 'optBoost', null], ['autoDict', 'optAutoDict', true], ['wordSplit', 'optWordSplit', true], ['stripPunct', 'optStripPunct', true],
-  ['autoGloss', 'optAutoGloss', true], ['autoContext', 'optAutoContext', false], ['autoLearned', 'optAutoLearned', false], ['autoRedo', 'optAutoRedo', false],
+  ['autoGloss', 'optAutoGloss', true], ['autoContext', 'optAutoContext', false], ['autoLearned', 'optAutoLearned', false],
   ['autoAlt', 'optAutoAlt', false],
   ['autoFill', 'optAutoFill', true],   // autoFill = 認識のあとの後処理(文字の少ない行を別の読みで埋める。既定オン。0.60.0)
   ['autoLlm', 'optAutoLlm', true],   // autoLlm = 名簿の呼び名の聞き違いらしい所だけを手元の LLM で直す(既定オン。0.61.0 のサーバー・画面のチェックは 0.63.0)

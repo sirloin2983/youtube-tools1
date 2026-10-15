@@ -119,7 +119,7 @@ class TestCarryOverrides(unittest.TestCase):
         fields = {"start": 0.0, "end": 20.0, "whole": True, "duration": 20.0, "model": "small", "language": "ja", "params": {}, "speakers": [],
                   "segments": segs, "original": [{"start": g["start"], "end": g["end"], "text": g["text"]} for g in segs], "updatedAt": 5000,
                   "recognition": {"runs": [{"engine": "fake"}]}}
-        clip = {"fields": fields, "segs": segs, "sparseLp": {}}
+        clip = {"fields": fields, "segs": segs}
 
         @contextlib.contextmanager
         def wav(job):

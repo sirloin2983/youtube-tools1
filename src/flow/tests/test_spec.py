@@ -228,12 +228,13 @@ class TestValidate(unittest.TestCase):
     def test_transcribe(self):
         spec.validate(spec.merge({"transcribe": {"engine": "whisper.cpp", "model": "large-v3", "language": "auto", "quality": "fast", "device": "vulkan",
                                                  "vadMode": "off", "boost": True, "diarize": 10}}))
-        # 0.58.0: 旧い値は断らずに読み替える(エンジン → whisper.cpp・機器 → vulkan・large-v3 でないモデルの名前 → large-v3)・消した項目 redoLarge は捨てる
+        # 0.58.0: 旧い値は断らずに読み替える(エンジン → whisper.cpp・機器 → vulkan・large-v3 でないモデルの名前 → large-v3)・消した項目 redoLarge・autoRedo は捨てる
         for eng, model, dev in (("faster-whisper", "small", "auto"), ("qwen3-asr", "qwen3-asr-0.6b", "cpu"), ("llama.cpp", "large-v3-turbo", "cuda"),
                                 ("faster-whisper", "kotoba-tech/kotoba-whisper-v2.0-faster", "cpu")):
-            b = spec.validate(spec.merge({"transcribe": {"engine": eng, "model": model, "device": dev}, "post": {"redoLarge": False}}))
+            b = spec.validate(spec.merge({"transcribe": {"engine": eng, "model": model, "device": dev}, "post": {"redoLarge": False, "autoRedo": True}}))
             self.assertEqual((b["transcribe"]["engine"], b["transcribe"]["model"], b["transcribe"]["device"]), ("whisper.cpp", "large-v3", "vulkan"))
             self.assertNotIn("redoLarge", b["post"])
+            self.assertNotIn("autoRedo", b["post"])
         self.assertEqual(spec.read_legacy_tx("language", "auto"), "auto")   # transcribe の 3 つの項目だけ
         # F1 F0-2: cuda = whisper.cpp の CUDA 版(エンジンは同じ whisper.cpp)。旧いエンジンと組の cuda だけ旧い意味(faster-whisper の CUDA)で vulkan に読む
         b = spec.validate(spec.merge({"transcribe": {"device": "cuda"}}))

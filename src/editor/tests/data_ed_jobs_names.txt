@@ -34,9 +34,7 @@ MAX_WORDS_BYTES
 MODEL_IDLE_SEC
 NO_RETRY
 ORIENTATIONS
-REDO_BAD_FLAGS
 REDO_MAX_ROWS
-REDO_MAX_SEC
 REDO_PAD
 REP_CHAR_KEEP
 REP_ROWS
@@ -116,7 +114,6 @@ _with_next
 _worker_priority
 add_job
 apply_range
-apply_redo
 apply_retranscribe
 asr_path
 audio_span
@@ -155,15 +152,11 @@ pkg_version
 post_record
 prompt_terms
 public_job
-range_lines_real
 read_resume
 read_words
 recognition_run
 recognize_chunk
 record_rerun
-redo_better
-redo_kwargs
-redo_spec
 redo_targets
 release_idle_models
 repeats_in_line
@@ -174,7 +167,6 @@ retry_job
 roster_hash
 row_words
 run_job
-run_redo
 run_retranscribe
 seg_to_dict
 set_cancelled

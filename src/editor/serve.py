@@ -19,7 +19,6 @@
                              校正済みの行だけ・評価用は断る・一般的な名前は覚えない・既にある名前は confirmSame に入れたときだけ足す。段1)
   POST /api/voices/delete    覚えている声を消す {embedding, name}
   POST /api/retranscribe     選んだ行だけを、別のモデルで再認識するジョブを追加
-  POST /api/redo             {"tid"}疑わしい所(「長い区間に文字が少ない」の行)だけ認識し直すジョブ(12 ③-2。良くなったときだけ置き換える)
   POST /api/retime           {"id", "rows": [行の id…]} 行の時刻を単語の時刻(words.json)に合わせる候補(読むだけ。文書は書き換えない。本体は human/proof/retime.py の包み + pipeline/transcribe/retime.py の計算)
   GET  /api/learned          修正から学習した「誤=>正」の候補
   GET  /api/suggest?id=      この文字起こしの各行への「修正の提案」(文脈つきの統計)
@@ -96,7 +95,7 @@ from ytt import jobs as _slots_jobs  # noqa: E402  重い処理の枠・Cancelle
 from flow import board as _flowboard  # noqa: E402  ② のジョブの掲示板(RS8 の ② の口)
 from flow import normalize as _flownorm  # noqa: E402  ② 30fps にそろえる 1 つの段(ジョブ normalize の本体。OPT-M2 5b-1)
 from flow import wire as _flowwire  # noqa: E402  ② 文字起こしの配線(ジョブの種類の登録・ジョブの表の設定・本物と疑似の選び方・① の口。RS6 a-5b)
-from flow import tx as _flowtx  # noqa: E402  ② 文字起こしの動詞(RS6 a-3。_doc_fields・dict_pairs・redo_kwargs と alt_engine_version はここ)
+from flow import tx as _flowtx  # noqa: E402  ② 文字起こしの動詞(RS6 a-3。_doc_fields・dict_pairs と alt_engine_version はここ)
 from pipeline.transcribe import clipjob as _txclipjob  # noqa: E402  ① 文字起こしのジョブの機械の文書の行(RS6 a-3 に doc_jobs.run_job から。_rows_to_doc はここ)
 from ytt import txwords as _txwords  # noqa: E402  単語の時刻 words.json の読み書き(RS6 a-5b に records から。S.read_words・S.words_path はここ)
 from ytt import txtext as _txtext  # noqa: E402  文字起こしの文字の語彙(RS6 a-3 に postproc・roster から。S.strip_punct・S.split_segment・S.SPARSE_FLAG・S.split_terms はここ)
@@ -119,7 +118,7 @@ from pipeline.transcribe import recognize as _txrecognize  # noqa: E402  (音声
 from pipeline.transcribe import fill as _txfill, llm as _txllm, retime as _txretime  # noqa: E402  (認識のあとの後処理 A・B・C・D と LLM の後処理 E と、読む速さと時刻の候補の計算を移した。RS2-9)
 from human.proof import doc_jobs as _docjobs  # noqa: E402  (文字起こしのジョブの本体・書く先・受付)
 from human.proof import overrides as _overrides  # noqa: E402  (校正の上書き over.json。文書の削除で一緒に消す。RS6 b-O1)
-from human.proof import rerun as _rerun  # noqa: E402  (再認識と疑わしい所の認識し直しの本体・反映・記録。RS2-8c に doc_jobs から割った)
+from human.proof import rerun as _rerun  # noqa: E402  (再認識の本体・反映・記録。RS2-8c に doc_jobs から割った)
 from pipeline.transcribe import diarize as _txdiarize  # noqa: E402  (話者判別の計算・判別の記録・声の特徴と照らし合わせ。RS2-9 に ed_speakers から分けた。ed_speakers は転送だけの殻)
 from flow import pack as _flowpack  # noqa: E402  (② パックの動詞。RS6 a-5a)
 from flow import machine as _machine  # noqa: E402  (② この PC の設定 machine.json。⚙ のデバイスはここへ書く・読む。RS7-1 S6b)
@@ -174,7 +173,7 @@ _ED_MODULES += (_flowpack,)   # RS6 a-5a: ② パックの動詞(カットのた
 # 下の層の部品が持ち主を呼ぶたびに直に読む(S.TX_DIR = …・patch.object(S, "check_source") は名前の受付が持ち主へ届ける)
 _flowwire.install(
     bodies={"transcribe": lambda job: _docjobs.run_job(job), "diarize": lambda job: _speakers.run_diarize(job), "voice-learn": lambda job: _speakers.run_voice_learn(job),
-            "retranscribe": lambda job: _rerun.run_retranscribe(job), "redo": lambda job: _rerun.run_redo(job),
+            "retranscribe": lambda job: _rerun.run_retranscribe(job),
             "normalize": lambda job: _flownorm.run_job(job, swap=lambda tid, src, dst: _relink.norm_swap(tid, src, dst)),   # 動画を選び直したあとの 30fps の作り直し(Q1。本体は ② flow/normalize・付け替えは ④)
             "alt": lambda job: _alt.run_alt(job), "thumb": lambda job: ed_thumb.run_thumb(job)},
     tool=ed_state.TOOL_ID, log=ed_state.log, tmp_dir=lambda: _workdata.TMP_DIR, max_queue=lambda: ed_state.MAX_QUEUE,
@@ -299,7 +298,6 @@ POST_API = {
     "/api/speakers/sub": lambda o: _speakers.speakers_sub_apply(o),   # 話者ごとの字幕の見た目(今は色)を名前で入れる(入口のまとめて実行が友人の指定を覚える。2026-10-05)
     "/api/voices/delete": _delete_voice,
     "/api/retranscribe": lambda o: _job(_docjobs.validate_retranscribe(o), "retranscribe"),
-    "/api/redo": lambda o: _job(_docjobs.redo_spec(str(o.get("tid") or ""), o), "redo"),
     "/api/alt": lambda o: _job(_alt.alt_spec(_id_of(o), o), "alt"),   # 2つ目のエンジンで聞く(D1-b)。文書は書き換えないので、編集は止めない
     "/api/thumb-ideas": lambda o: _job(ed_thumb.thumb_spec(_id_of(o), o), "thumb"),   # サムネの案を 1 枚に(P5)。文書は読むだけなので、編集は止めない
     "/api/settings/patch": lambda o: _settings.patch_settings(o),   # ほかの画面(ホーム・スタジオのまとめて実行の欄)から、決まった項目だけを直す

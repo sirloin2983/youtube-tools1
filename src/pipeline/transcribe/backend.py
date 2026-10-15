@@ -1,6 +1,6 @@
 """サーバー側の認識の本物と疑似の差し込み口(役割で組み直す RS2-2。2026-10-10)。
 
-認識の部品は「疑似なら …」の if を持たず、違う所(文字起こしの行・記録のエンジン名・疑わしい所の認識し直し・
+認識の部品は「疑似なら …」の if を持たず、違う所(文字起こしの行・記録のエンジン名・
 範囲と全体の再認識・選んだ行の再認識・全体の再認識の続きの目印。RS2-9 から話者判別の区間と声の特徴も)を `select()` が返す Backend のメソッドで呼ぶ。
 本物の処理は呼ぶ側が real に渡す(本物の Backend = REAL はそれをそのまま呼ぶ)。疑似は ④ の `eval/fake/fake_asr.py` の FakeBackend が上書きする。
 どちらを使うかは app(編集の serve.py)が set_selector で登録する(呼ぶたびに決める = テストの `S.backend_name` の差し替えが効く)。
@@ -36,11 +36,6 @@ class Backend:
     def transcribe(self, job, spec, wav, total, real):
         """文字起こしのジョブの行(faster-whisper の行と同じ形の辞書)の生成器。real(job, spec, wav, total)"""
         return real(job, spec, wav, total)
-
-    def redo_recognizer(self, job, spec, wav, start, real, finish):
-        """疑わしい所の認識し直しの準備(モデルを読む)→ 行ごとに呼ぶ関数 f(sub, a, b) -> 行。real(job, spec, wav, start)。
-        finish(raw, sub, shift) = 認識した行を範囲の行に整える(疑似が使う)"""
-        return real(job, spec, wav, start)
 
     def range_main(self, job, a, b, share, real):
         """範囲・全体の再認識の [a, b] の行。real(a, b, share)"""

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """① 音声の認識: 動画から音声を取り出す(extract_audio)・声の検出が捨てすぎたら緩めてやり直す(transcribe_vad_fallback)・文字起こしの行(transcribe_real)・
 文字起こしのジョブの「取り出し → 認識 → 整えた行」(transcribe_rows。RS2-8e)・
-選んだ行の 1 行ずつの認識(recognize_chunk・ChunkModel)・範囲の認識と行の整え方(range_lines_real・finish_range_lines・RangeRecognizer)・
+選んだ行の 1 行ずつの認識(recognize_chunk・ChunkModel)・範囲の認識と行の整え方(finish_range_lines・RangeRecognizer)・
 全体の再認識の区間分けと続きから(whole_parts・whole_key・read_resume・write_resume・drop_resume・whole_lines)。
 
 役割で組み直す RS2-7(2026-10-10)に移した(中身は同じ)。標準ライブラリ・ytt・同じパッケージの兄弟(backend・postproc・roster・tx_engines・
@@ -10,7 +10,7 @@ txbase・worker_client・records)だけを読む。ffmpeg(ytt/tools)・置き場
 OPT-H1 で差し込みの口 set_head_stripper をやめた = 同じ層どうしなので口は要らない)。
 差し替えられる名前(extract_audio・WHOLE_PART_SEC・RangeRecognizer.main など)と読み手は同じこのモジュール。テストの S.extract_audio = …・
 mock.patch.object(S.RangeRecognizer, "main", …) は serve の名前の受付と転送(ytt/modfwd)でここに届く。
-ジョブの本体(run_job・run_retranscribe・run_redo)と文書への反映(apply_range・thin_rows・_ov など)は文書の側(human/proof の doc_jobs・rerun)。
+ジョブの本体(run_job・run_retranscribe)と文書への反映(apply_range・thin_rows・_ov など)は文書の側(human/proof の doc_jobs・rerun)。
 run_job は transcribe_rows が返す行を受け取って、別の読み(fill)・LLM(llm)・置換辞書と学習した置換・文書の書き込みをする(計算 = ① / 文書への書き込み = ② の第 1 歩)。
 """
 import hashlib
@@ -264,29 +264,12 @@ class ChunkModel:
                             lambda: self._use(*worker_client.load_model(self.name, self.job, force_cpu=True, engine=self.engine)), retry=first)
 
 
-def range_lines_real(job, model, kw, audio, spec, offset):
-    """範囲の音声をひとまとまりで認識し、単語の時刻で整えた行の一覧を返す。"""
-    a, b = spec["range"]
-    lo, hi = max(0.0, a - offset - 0.3), b - offset + 0.3
-    chunk = audio[int(lo * 16000):int(hi * 16000)]
-    if len(chunk) < 1600:
-        return []
-    segs, _info = model.transcribe(chunk, **kw)
-    raw = []
-    for s in segs:
-        _heavy.check_cancel(job)
-        raw.append(seg_to_dict(s))
-        job["progress"] = min(0.95, 0.1 + float(s.end) / max(1e-6, hi - lo))
-    return finish_range_lines(raw, spec, lo + offset, join=False)   # 疑わしい所の認識し直し: 文字を比べるだけで時刻を使わない(続いている行をつながない)
-
-
-def finish_range_lines(raw, spec, shift, join=True):
-    """認識した行(チャンク内の秒)を、絶対の秒にして、範囲 [a,b] の内側に収め、要確認の印を付ける。
-    join = 続いている行をつなぐか(expand_segments の join。範囲・全体の再認識は行の時刻を使うのでつなぐ・疑わしい所の認識し直しはつながない)"""
+def finish_range_lines(raw, spec, shift):
+    """認識した行(チャンク内の秒)を、絶対の秒にして、範囲 [a,b] の内側に収め、要確認の印を付ける。"""
     a, b = spec["range"]
     out, prev, terms = [], [], _roster.prompt_terms(spec)
     split = _fill.fill_head_stripper(spec)   # 行の頭の「名前:」(0.67.0。fill の B。呼ぶたびに読む = テストの差し替えが効く)
-    for s in postproc.expand_segments(raw, spec, join=join):
+    for s in postproc.expand_segments(raw, spec):
         note = None
         if split is not None:
             s["text"], note = split(s["text"])

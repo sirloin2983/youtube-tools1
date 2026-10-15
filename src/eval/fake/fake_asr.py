@@ -125,16 +125,6 @@ class FakeBackend(_fa_backend.Backend):
     def transcribe(self, job, spec, wav, total, real):
         return transcribe_fake(job, spec, wav, total)   # 呼ぶたびにこのモジュールの名前を読む(テストの差し替え)
 
-    def redo_recognizer(self, job, spec, wav, start, real, finish):
-        job["device"] = "cpu"
-
-        def recognize(sub, a, b):   # 行の長さに見合う文字数の文
-            txt = "認識し直した文" * max(1, int((b - a) * 2 / 7) + 1)
-            lines = finish([{"start": 0.0, "end": b - a, "text": txt, "avg_logprob": -0.2, "no_speech_prob": 0.1, "compression_ratio": 1.2}], sub, a)
-            fake_wait()
-            return lines
-        return recognize
-
     def range_main(self, job, a, b, share, real):
         return fake_range_lines(job, a, b, False, share)
 

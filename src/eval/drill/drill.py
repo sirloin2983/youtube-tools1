@@ -14,7 +14,7 @@
 文書の印 `evalReviewed = {"at", "rows", "durationSec", "via"?}`(drill_is_reviewed で判定):
   - 付けるのは drill_reviewed だけ。画面の保存(sanitize_transcript)は base から引き継ぐだけで書き換えられない。評価用を外すと消える
   - 行の文字・時刻・話者を人が後から直しても残す(直したのは人なので)。機械が行を書いたら外す(human/proof/rerun の record_rerun = 再認識・
-    疑わしい所の認識し直し、human/proof/store の fill_doc = 行の無い文書への文字起こし)。以前の版に戻すと、その版の印のまま
+    human/proof/store の fill_doc = 行の無い文書への文字起こし)。以前の版に戻すと、その版の印のまま
 
 RS4-2(2026-10-10)に src/editor/ed_drill.py から移した(殻なし。決定 3-25 #7)。名前は serve.py からも見える(serve.py の _ED_MODULES の最後。
 ほかの部品と重ならないよう、名前は drill_ / DRILL_ で始める)。ほかの部品の名前は `_store.名前` などモジュールの属性として呼ぶたびに読む

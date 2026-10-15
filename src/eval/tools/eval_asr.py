@@ -8,12 +8,6 @@
         --repeat N = N 回認識して、全体の CER が中央の回を代表にする(温度のやり直しありは回ごとにぶれるので 3 回。既定 1。meta.repeat に各回の CER と幅)
         --context auto = 配信ごとの文脈(出る人の名前と呼び名。計画 段1-2)を文書ごとに作って渡す(既定 none = 渡さない = 基準)。
         --temp0 = 温度 0 に固定(雑音の多い音声で回ごとに結果が変わるのを抑える。比べるときは両方に付ける)
-    python src/eval/tools/eval_asr.py redo    [--engine whisper.cpp] [--device auto] [--data 写した作業データ] [--json]
-        疑わしい所の認識し直し(redo)を確かめ済みの文書で測る(OPT-E1 4h-1。お試し = 25 行ほどでは採否を決め切らない。決定 3-49 Q5)。
-        機械の出力 original に今の規則で印を付け直し → 本番の redo_targets と同じ選び方(校正済みかは見ない)で前後 1 秒 →
-        ② の redo_recognizer と ③ の redo_better をこの道具の中で通す → 置き換えた original を score_doc で採点。
-        前後の CER と、行ごとの「良くなった・同じ・悪くなった・作り話(人の行が無いのに文字が増えた)」。採否を見ずに全部置き換えた場合も並べる。
-        文書は書き換えない。結果は --json のときだけ <--data>/evals/asr/ に残す
     python src/eval/tools/eval_asr.py compare 結果A.json 結果B.json
         2つの結果を、同じ文書どうしで比べる(差と 95% の範囲。範囲が 0 をまたげば「差があるとは言えない」)
         両方の結果に出どころ別の小計(編集前・ショート。summary.origins)があれば、出どころごとの差も出し、全体の差と向きが食い違う出どころがあれば注意する(2 本の物差しが食い違ったら採らない。計画 3-3)
@@ -879,139 +873,6 @@ def pick_median(runs):
                   "wallSec": [round(r["wallSec"], 2) for r in runs], "docs": [len(i) for i in ids], "docIds": ids, "complete": complete}
 
 
-# ---------------------------------------------------------------- redo(疑わしい所の認識し直し)を確かめ済みの文書で測る(OPT-E1 4h-1・決定 3-49 Q5 = お試し)
-
-REDO_KINDS = (("better", "良くなった"), ("same", "同じ"), ("worse", "悪くなった"), ("invented", "作り話"))
-REDO_WCPP_NOTE = "whisper.cpp は redo の工夫(声の検出・短い区切り = flow/tx.py の redo_kwargs)を受け取らないので、今の redo は「切り出して同じ設定で認識」"
-REDO_ENGINE_NOTE = "本番の redo_spec(human/proof/doc_jobs.py)は engine を入れない = 既定の faster-whisper で動く。ここでは --engine のエンジンで測った"
-
-
-def reflag_rows(orig):
-    """機械の出力 original(印を持たない)に今の規則(make_flags)で印を付け直した行 -> 本番の redo_targets に渡す segments の形(校正済みの印は付けない)"""
-    rows, prev = [], []
-    for o in orig:
-        if not isinstance(o, dict) or not o.get("text"):
-            continue
-        rows.append({"id": "m%d" % (len(rows) + 1), "start": o["start"], "end": o["end"], "text": o["text"], "flag": _postproc.make_flags(dict(o), prev, "ja", []),
-                     "lp": o.get("avg_logprob")})
-        prev.append(o["text"])
-    return rows
-
-
-def redo_eval_spec(doc, args, settings):
-    """本番の redo_spec と同じ値(beam 5・VAD 普通・行を分ける・ヒントと辞書なし)。違いは engine・device を --engine・--device で選ぶこと(REDO_ENGINE_NOTE)"""
-    pr = doc.get("params") if isinstance(doc.get("params"), dict) else {}
-    return {"model": args.model or str(doc.get("model") or (settings or {}).get("model") or "large-v3"), "language": "ja", "beam": 5, "vadMode": "normal",
-            "wordSplit": True, "splitChars": _doc_jobs.split_chars_for({}, settings), "stripPunct": pr.get("stripPunct", True) is not False,
-            "stripNames": pr.get("stripNames", True) is not False, "device": args.device, "boost": pr.get("boost") is True, "autoDict": False,
-            "glossary": [], "glossAuto": [], "engine": args.engine}
-
-
-def _window(groups, a, b):
-    """a〜b にかかるまとまりの (誤り, 正解の字数)"""
-    gs = [g for g in groups if g["start"] < b and g["end"] > a]
-    return sum(g["sub"] + g["del"] + g["ins"] for g in gs), sum(g["refChars"] for g in gs)
-
-
-def redo_kind(before, after, row, a, b, new_text):
-    """行 1 つの判定: 人の行が無い(正解 0 字)のに文字が増えた = 作り話 / 誤りが減った・同じ・増えた"""
-    eb, ref = _window(before, a, b)
-    ea, _ref = _window(after, a, b)
-    if not ref and len(_metrics.norm_cer(new_text)) > len(_metrics.norm_cer(row["old"])):
-        return "invented", eb, ea, ref
-    return ("better" if ea < eb else "same" if ea == eb else "worse"), eb, ea, ref
-
-
-def redo_doc(d, spec, data, recognize):
-    """文書 1 本: 印を付け直す → 本番の redo_targets で選ぶ → 前後 1 秒を認識し直す → redo_better で採否。
-    -> (採った分で置き換えた original, 全部置き換えた original, 行ごとの記録)。音声は C.audio_span の出どころから行の範囲だけ取り出す"""
-    from flow import tx as flowtx   # noqa: E402  ② 音声の切り出し(本番の run_redo と同じ)
-    from human.proof import doc_jobs, rerun   # noqa: E402  ③ 行の選び方・採否・original の差し替え(呼ぶだけ)
-    orig = [o for o in d.get("original") or [] if isinstance(o, dict)]
-    targets = doc_jobs.redo_targets({"segments": reflag_rows(orig), "original": orig, "start": d.get("start"), "end": d.get("end"), "duration": d.get("duration")})
-    if not targets:
-        return orig, orig, []
-    a_spec, offset, where = C.audio_span(d, data, boost=spec["boost"])
-    sh = offset - (a_spec.get("start") or 0.0)   # 文書の秒 - 音声のファイルの秒(元の動画なら 0・保管の音声なら文書の始まり)
-    job = C.fake_job()
-    tmp = tempfile.mkdtemp(prefix="eval_asr_redo_")
-    picked, every, rows = orig, orig, []
-    try:
-        wav = os.path.join(tmp, "a.wav")
-        start = flowtx.extract_span(job, a_spec["sourcePath"], [{"start": a - sh, "end": b - sh} for _g, a, b in targets],
-                                    a_spec.get("start") or 0.0, a_spec.get("end"), spec["boost"], wav)
-        rec = recognize(job, spec, wav, start)
-        for g, a, b in targets:
-            t0 = time.monotonic()
-            lines = [dict(x, start=x["start"] + sh, end=x["end"] + sh) for x in rec(dict(spec, range=[a - sh, b - sh]), a - sh, b - sh)]
-            ok, why = rerun.redo_better(g, lines, g.get("lp"))
-            every = rerun.replace_original_multi(every, a, b, lines)
-            if ok:
-                picked = rerun.replace_original_multi(picked, a, b, lines)
-            rows.append({"doc": d["id"], "start": g["start"], "end": g["end"], "a": a, "b": b, "old": g["text"], "new": "".join(x["raw"] for x in lines),
-                         "newFlags": [str(x.get("flag") or "") for x in lines if x.get("flag")], "taken": ok, "why": why, "audio": where,
-                         "sec": round(time.monotonic() - t0, 2)})
-        return picked, every, rows
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
-
-
-def cmd_redo(args, data):
-    """--source eval の確かめ済みの文書(既定)で、redo の前と後を採点する。文書は書き換えない(original の差し替えはこのプロセスの中だけ)"""
-    from flow import tx as flowtx   # noqa: E402  ② redo の認識(redo_recognizer)
-    settings = read_json(os.path.join(data, "settings.json"), {}, kind=dict)
-    docs, sel = select_docs(data, args)
-    if not docs:
-        raise SystemExit("測れる文書がありません(確かめ済みの評価用の文書)")
-    terms = name_terms(settings)
-    if not _backend.is_fake():
-        os.environ["TRANSCRIBE_ENGINE_DIR"] = args.engine_dir   # whisper.cpp の実行ファイル・モデル(読むだけ)
-        try:
-            _worker_client.req_engine({"engine": args.engine}, args.model or "large-v3")
-        except _errors.ApiError as e:
-            raise SystemExit(e.message)
-    before, after, every, rows, failed, t0 = [], [], [], [], [], time.monotonic()
-    for n, d in enumerate(docs, 1):
-        spec = redo_eval_spec(d, args, settings)
-        try:
-            picked, all_rep, mine = redo_doc(d, spec, data, flowtx.redo_recognizer)
-        except Exception as e:
-            print("   とばしました %s: %s" % (d["id"], str(e)[:200]))
-            failed.append({"id": d["id"], "error": str(e)[:200]})
-            continue
-        orig = d.get("original") or []
-        gb, ga, ge = score_doc(d, orig, terms), score_doc(d, picked, terms), score_doc(d, all_rep, terms)
-        before, after, every = before + gb, after + ga, every + ge
-        for r in mine:
-            r["kind"], r["errBefore"], r["errAfter"], r["refChars"] = redo_kind(gb, ga if r["taken"] else gb, r, r["a"], r["b"], r["new"] if r["taken"] else r["old"])
-            r["kindAll"], _eb, r["errAll"], _ref = redo_kind(gb, ge, r, r["a"], r["b"], r["new"])
-        rows += mine
-        print("(%d/%d) %s 対象 %d 行・採った %d 行" % (n, len(docs), d["id"], len(mine), sum(1 for r in mine if r["taken"])), flush=True)
-    count = lambda key: {k: sum(1 for r in rows if r[key] == k) for k, _n in REDO_KINDS}
-    eng = _tx_engines.engine_of({"engine": args.engine})
-    notes = [REDO_ENGINE_NOTE] + ([REDO_WCPP_NOTE] if eng == _tx_engines.WhisperCpp.id else [])
-    meta = base_meta("redo", args, docs, data, sel)
-    meta.update({"engine": {"engine": eng, "model": args.model or "", "device": args.device}, "wallSec": round(time.monotonic() - t0, 2), "failed": failed, "notes": notes})
-    summary = {"before": total(before), "after": total(after), "afterAll": total(every), "rows": len(rows), "taken": sum(1 for r in rows if r["taken"]),
-               "kinds": count("kind"), "kindsAll": count("kindAll")}
-    return {"meta": meta, "summary": summary, "rows": rows, "groups": after}
-
-
-def print_redo(res):
-    s, m = res["summary"], res["meta"]
-    print("\n== redo  %s ==" % (m.get("label") or ""))
-    print("エンジン %s / 文書 %d 本(とばした %d 本)/ %.0f 秒" % (m["engine"]["engine"], len(m["docs"]), len(m["failed"]), m["wallSec"]))
-    for note in m["notes"]:
-        print("注意: " + note)
-    print("CER 前 %s → 後 %s(redo_better で採った分だけ置き換え)/ 全部置き換えたら %s" % (pct(s["before"]["cer"]), pct(s["after"]["cer"]), pct(s["afterAll"]["cer"])))
-    print("対象 %d 行・採った %d 行" % (s["rows"], s["taken"]))
-    for key, title in (("kinds", "採った分"), ("kindsAll", "全部置き換え")):
-        print("  [%s] " % title + "・".join("%s %d" % (name, s[key][k]) for k, name in REDO_KINDS))
-    for r in res["rows"]:
-        print("  %s %6.2f〜%6.2f %s %-4s 誤り %d→%d(正解 %d 字)「%s」→「%s」%s" % (r["doc"], r["start"], r["end"], "採" if r["taken"] else "  ", dict(REDO_KINDS)[r["kind"]],
-              r["errBefore"], r["errAfter"], r["refChars"], r["old"][:20], r["new"][:30], "" if r["taken"] else "(%s)" % r["why"]))
-
-
 def gate_verdict(g, lo, hi):
     """compare の関門の 1 行: 小さい方の関門と、差の 95% の範囲(lo〜hi。B − A)が 0 をまたぐか。またげば「この量では決められない」"""
     if hi < 0:
@@ -1181,7 +1042,7 @@ def add_select_args(p, label_help="結果に付ける名前", no_save_help="結�
 
 def main(argv=None):
     p = argparse.ArgumentParser(description="文字起こしの精度を評価用の校正済みデータで測る(作業データは読むだけ)")
-    p.add_argument("mode", choices=("stored", "run", "redo", "compare", "list"))
+    p.add_argument("mode", choices=("stored", "run", "compare", "list"))
     p.add_argument("files", nargs="*", help="compare の2つの結果")
     add_select_args(p)
     p.add_argument("--group-by", dest="group_by", choices=("engine", "model", "origin"),
@@ -1196,11 +1057,7 @@ def main(argv=None):
     p.add_argument("--context", choices=("none", "auto"), default="none", help="配信ごとの文脈(出る人の名前と呼び名)を渡すか(既定 none = 基準)")
     p.add_argument("--temp0", action="store_true", help="温度 0 に固定する(回ごとのぶれを抑える)")
     p.add_argument("--repeat", type=int, default=1, help="run を N 回繰り返し、全体の CER が中央の回を代表にする(既定 1 = 1 回。温度のやり直しありの認識は回ごとにぶれる。計画は 3 回)")
-    p.add_argument("--json", action="store_true", help="redo の結果を <--data>/evals/asr/ に残す(redo は既定で残さない。測りの本番は写した作業データを --data で)")
-    p.add_argument("--engine-dir", help="redo で whisper.cpp の実行ファイル・モデルを読む作業データ(既定 本物の作業データ。読むだけ)")
     args = p.parse_args(argv)
-    if args.mode == "redo" and not args.engine_dir:
-        args.engine_dir = real_data_dir()
     if args.repeat < 1:
         raise SystemExit("--repeat は 1 以上で指定してください")
     args.docs = C.split_ids(args.docs)
@@ -1212,11 +1069,6 @@ def main(argv=None):
     if args.mode == "list":
         return cmd_list(data)
     C.prepare()
-    if args.mode == "redo":
-        res = cmd_redo(args, data)
-        print_redo(res)
-        C.report_saved(res, args.json, data, "asr", "_" + C.label_name(res["meta"].get("label") or "redo"))
-        return res
     res = cmd_stored(args, data) if args.mode == "stored" else cmd_run(args, data)
     print_summary(res)
     # <日時>_<名前>.json(名前は --label か mode)

@@ -163,8 +163,8 @@ $('#txSearch').addEventListener('input', () => { txLimit.clear(); renderList(); 
 });
 
 /* ---------- 話者の自動判別 ---------- */
-const LOCK_KINDS = ['diarize', 'retranscribe', 'redo'];
-const LOCK_LABEL = { retranscribe: '再認識', redo: '疑わしい所を認識し直し', diarize: '話者を判別' };
+const LOCK_KINDS = ['diarize', 'retranscribe'];
+const LOCK_LABEL = { retranscribe: '再認識', diarize: '話者を判別' };
 /* ---------- 声を覚える(A-3。関数は app-jobs.js) ---------- */
 const DEFAULT_SPK = /^話者\d+$/;
 const EVAL_VOICE_MSG = '評価用の文字起こしでは声を覚えません(評価用のデータを、ほかの文書の話者の名前付けに使わないため)。評価用を外すと覚えられます';
@@ -267,14 +267,6 @@ const RANGE_MAX = 900;
 /* 動画全体(docs/design/whole-retranscribe-design.md の 3-1): 範囲・残す行・差し替える行・かかる時間の目安。
    目安は large-v3 の CPU で測った速さ(実時間の約 0.37 倍。2026-09-28 src/eval/tools/eval_asr.py)だけ。ほかのモデルは出さない(でたらめな数字を出さない) */
 const WHOLE_RTF = { 'large-v3': 0.37 };
-$('#redoGo').addEventListener('click', async () => {   // 疑わしい所だけ認識し直す(12 ③-2)
-  if (!S.docId || lockJob() || !(await saveDone())) return;
-  try {
-    await api('/api/redo', { body: { tid: S.docId } });   // 0.58.0: kotoba のときの設定 redoLarge は消した
-    $('#redoMsg').textContent = '認識し直しています(終わると読み込み直します)';
-    kickJobs();
-  } catch (e){ $('#redoMsg').textContent = ''; toast(e.message, 7000, 'err'); }
-});
 $('#rtGo').addEventListener('click', e => {
   const b = e.currentTarget, first = !b.dataset.armed;
   armDelete(b, async () => { b.disabled = true; try { await startRetranscribe(); } catch (er){ toast(er.message); } finally { updateRt(); } });   // 文字を上書きするので、2度押しにする

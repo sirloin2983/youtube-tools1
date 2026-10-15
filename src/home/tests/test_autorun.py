@@ -507,7 +507,7 @@ class TestModes(Base):
         tx = self.tools.tx_jobs["t1"]["body"]
         # 文字起こしの項目は束の値を全部(無い項目は編集の既定と同じ束の既定)。知らない設定(secret・goalHours)は渡さない
         self.assertEqual(tx, {"model": "large-v3", "language": "ja", "quality": "best", "device": "vulkan", "vadMode": "weak", "boost": True,
-                              "autoDict": True, "wordSplit": True, "stripPunct": True, "autoGloss": True, "autoLearned": False, "autoRedo": False,
+                              "autoDict": True, "wordSplit": True, "stripPunct": True, "autoGloss": True, "autoLearned": False,
                               "sourcePath": self.tools.clip_path("m1"), **NEW_TX_DEFAULTS})
         self.assertEqual(self.tools.c2r["body"]["spec"]["preset"], "transcript-rows")
         self.assertIs(self.tools.c2r["body"]["spec"]["rowEdge"], True)   # 設定が無ければ束の既定 = cut2resolve の既定(端を広げる)

@@ -353,14 +353,12 @@ class JoinRowsTest(unittest.TestCase):
         out = list(S.expand_segments(rows, {"wordSplit": False, "engine": "faster-whisper"}, join=False))
         self.assertEqual([r["end"] for r in out], [1.0, 2.0, 4.0])                         # 時刻を使わない呼び出し(2つ目のエンジンの候補)はつながない
 
-    def test_range_lines_join_but_redo_does_not(self):
+    def test_range_lines_join(self):
         raw = [{"start": 0.0, "end": 1.0, "text": "前の行"}, {"start": 1.2, "end": 2.0, "text": "次の行"}]
         spec = {"range": [10.0, 20.0], "language": "ja", "wordSplit": False, "engine": "whisper.cpp", "glossary": []}
         with mock.patch.object(S, "prompt_terms", lambda s: []):
             lines = S.finish_range_lines(raw, spec, 10.0)                                   # 範囲・全体の再認識(RangeRecognizer.main)はつなぐ
             self.assertEqual([(x["start"], x["end"]) for x in lines], [(10.0, 11.2), (11.2, 12.0)])
-            lines = S.finish_range_lines(raw, spec, 10.0, join=False)                       # 疑わしい所の認識し直し(range_lines_real)はつながない
-            self.assertEqual([(x["start"], x["end"]) for x in lines], [(10.0, 11.0), (11.2, 12.0)])
 
     def test_post_record(self):
         post = S.post_record()

@@ -141,10 +141,6 @@
           <label class="lag">対象 <select id="rtTarget" style="width:auto"><option value="text">文字の要確認の行</option><option value="sel">選択した行</option><option value="all">すべての行</option><option value="range">選択した行の最初〜最後を、まとめて(間の行も含む)</option><option value="whole">動画全体(校正済みの行は残す)</option></select></label>
           <button type="button" class="btn small primary" id="rtGo">再認識</button><span class="hint" id="rtHint"></span></div>
         <span class="hint">認識の失敗が多い行を、重いモデル(large-v3 など)で認識し直します。対象の行の音声だけを処理します(CPU では、行数に応じて時間がかかります)。BGM が大きい・声が重なった行は、直らないこともあります。対象の行の文字は上書きされます(直前の状態は「以前の版に戻す」に残ります)。判別中・再認識中は編集できません。</span></div>
-      <div class="fld"><span class="l">疑わしい所だけ認識し直す</span>
-        <div class="row"><button type="button" class="btn small" id="redoGo">疑わしい所を認識し直す</button><span class="hint" id="redoMsg"></span></div>
-        <span class="hint">「長い区間に文字が少ない(抜けの可能性)」の印があり、校正・手直ししていない行だけを、前後を少し広げて(隣の行にはかからない)認識し直します。
-          文字が増えて疑わしい印が消えたときだけ置き換え、それ以外はそのままです。前の版は「以前の版に戻す」に残ります。中止すると何も置き換えません。</span></div>
       <div class="fld"><span class="l">別のエンジンの候補(試験中)</span>
         <div class="row"><label class="lag keep">エンジン <select id="altEngine" style="width:auto;max-width:300px"></select></label>
           <button type="button" class="btn small" id="altGo">別のエンジンでも聞く</button></div>

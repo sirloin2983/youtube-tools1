@@ -126,13 +126,6 @@ class TestReplacedRuns(StoreDir):
                 self.assertEqual([o["text"] for o in r["replaced"]], ["まって", "あの", "それて"])   # s1(守った行)の機械の出力は差し替えないので入れない
                 self.assertEqual(r["replaced"][0], {"start": 3.2, "end": 5.3, "text": "まって"})
 
-    def test_redo(self):
-        self.put()
-        n = S.apply_redo({"tid": TID, "model": "large-v3"}, [("s3", "あのー", 5.8, 8.6, [{"start": 6.0, "end": 8.3, "raw": "あのですね", "flag": ""}])])
-        self.assertEqual(n, 1)
-        r = _rd()["recognition"]["runs"][-1]
-        self.assertEqual((r["kind"], r["range"], [o["text"] for o in r["replaced"]]), ("redo", [5.8, 8.6], ["あの"]))
-
     def test_doc_without_original_or_recognition(self):
         self.put_doc(doc_obj())   # 文字起こしせずに開いた文書(original・recognition が無い)
         S.apply_retranscribe({"tid": TID, "model": "m", "autoDict": False}, {"s1": ("A", "")})

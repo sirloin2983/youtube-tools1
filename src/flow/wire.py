@@ -4,7 +4,7 @@
 
 install は ① と ② だけを読む。③ の関数(doc_jobs.run_job・speakers.run_diarize など)と ⑤ の物(疑似の本体・疑似の認識ワーカー)は引数で受け取る
 (flow は ③⑤ を import できない)。引数を省いた種類は登録しない・省いた口は何もしない既定のまま = ③ なしでも呼べる(あとで CLI が使う)。
-二度呼んでも壊れない(登録は上書き)。ジョブの種類ごとの順序・同時に入れない組・やり直せるかはこの表が正(入口の検査 validate_*・redo_spec の tid_busy と
+二度呼んでも壊れない(登録は上書き)。ジョブの種類ごとの順序・同時に入れない組・やり直せるかはこの表が正(入口の検査 validate_* の tid_busy と
 登録の add_job の両方が ジョブの表 flow/jobs.EXCLUSIVE を使う)。
 
 差し込みの口はここ(① ← ② の 3 つ)と編集の serve.py の install の直後(③ ← ④⑤ の 2 つ)だけ。一覧は serve.py のその所(OPT-H1)。
@@ -26,13 +26,12 @@ ROSTER_FILE = "hololive-roster.json"   # 名簿のファイルの名前(置き�
 # ほかの種類(alt・thumb)は同じ種類どうしだけ(thumb は文書を読むだけ = ほかと同時でよい)。test_voices.TestExclusive が対称を確かめる。
 # 優先度は数値が小さいほど先(話者判別 0 = 待っている文字起こしを追い越す・alt 2 = 普通の文字起こしより後。D1-b)。
 # retry = [やり直す] で同じ指定のまま入れ直せる(文書を書き換える処理は、文書の画面のボタンから始め直す)
-DOC_LOCK = ("diarize", "retranscribe", "redo", "voice-learn")
+DOC_LOCK = ("diarize", "retranscribe", "voice-learn")
 JOB_KINDS = {
     "transcribe": dict(retry=True),
     "diarize": dict(priority=0, exclusive=DOC_LOCK, has_tid=True),
     "voice-learn": dict(exclusive=DOC_LOCK, has_tid=True),
     "retranscribe": dict(exclusive=DOC_LOCK, has_tid=True),
-    "redo": dict(exclusive=DOC_LOCK, has_tid=True),
     "normalize": dict(has_tid=True),   # 動画を選び直したあとの 30fps の作り直し(Q1)
     "alt": dict(priority=2, exclusive=("alt",), has_tid=True),   # 2つ目のエンジンで聞いて <id>.alt.json に(文書は書き換えない。D1-b)
     "thumb": dict(exclusive=("thumb",), has_tid=True),   # サムネの案を 1 枚に(文書は読むだけ。P5)
