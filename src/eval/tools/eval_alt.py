@@ -1,20 +1,27 @@
 #!/usr/bin/env python3
-"""「2つ目のエンジンとの食い違いの候補」(行に出る札「別」)が、校正を本当に速くしているかを数字で見る道具(精度改善の計画 第2版 D1-b の「印の当たり率」)。
+"""「2つ目のエンジンとの食い違いの候補」(行に出る札「別」)が、校正を本当に速くしているかを数字で見る道具(候補の当たり率)。
 
     python src/eval/tools/eval_alt.py [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--source alt|yt|both] [--include-eval] [--json] [--data-dir 作業データの親フォルダ]
 
-- 作業データは**読むだけ**(transcribe の transcripts/<id>.json・<id>.alt.json と、学習の記録 learn-feedback.json)。何も書き換えない。
-  --json のときだけ、結果を文字起こしの作業データの evals\\alt\\<日時>.json に残す(schema youtube-tools-alt-eval/v1。evals の置き場所は eval_cut.py・eval_speakers.py と同じ規則)。
-- 対象 = 評価用でない文書のうち、alt.json(2つ目のエンジンの認識結果)があるもの(評価用には候補を出さない決まり)。editor の部品は eval_asr.py と同じやり方で読み込む
-  (serve.py の alt_diffs・alt_fold・_groups を使う。作業データの場所はここで入口と同じ規則 ytt.datadir で決める。サーバーの DATA_DIR は一時フォルダ)。
+- 作業データは**読むだけ**(transcribe の transcripts/<id>.json・<id>.alt.json・学習の記録 learn-feedback.json と、
+  入口の作業データ app の check/answers.jsonl = 確かめるの答え。読み方は human/check/answerlog)。何も書き換えない。
+  --json のときだけ、結果を文字起こしの作業データの evals/alt/<日時>.json に残す(schema youtube-tools-alt-eval/v1。evals の置き場所は eval_cut.py・eval_speakers.py と同じ規則)。
+- 対象 = 評価用でない文書のうち、alt.json(2つ目のエンジンの認識結果)があるもの(評価用には候補を出さない決まり)。③ の部品は eval_asr.py と同じやり方で読み込む
+  (serve の名前の受付で human/proof/alt の alt_diffs・learn の _groups・ytt.txbase の alt_fold を使う。作業データの場所はここで入口と同じ規則 ytt.datadir で決める。サーバーの DATA_DIR は一時フォルダ)。
 - 指標:
-    採否の記録: 学習の記録の alt = {acc, rej}(画面で「別」の候補を採用・却下した数)→ 採用率。時期の指定は効かない(記録に時刻が無い)
+    採否の記録: 学習の記録の alt = {acc, rej}(画面で「別」の候補を採用・却下した数。確かめるの答えも入る)→ 採用率。時期の指定は効かない(記録に時刻が無い)
     当たり率(候補 → 人の最終): 機械の最初の出力(文書の original。人が直す前の行)に対して alt_diffs で候補を出し直し(今の行ではなく、直す前の行)、
-      候補ごとに、同じ時刻の重なりのまとまり(editor の _groups = 精度測定と同じ)の人の最終(segments)と比べて分ける。比べるときの文字の寄せ方は alt_fold(記号・伸ばし・空白・かな/カナ・全半角を無視)
+      候補ごとに、同じ時刻の重なりのまとまり(learn の _groups = 精度測定と同じ)の人の最終(segments)と比べて分ける。比べるときの文字の寄せ方は alt_fold(記号・伸ばし・空白・かな/カナ・全半角を無視)
         当たり … 人の最終がその所で候補の right になっている
         外れ(人はそのまま)… 人の最終に wrong がそのまま残っている
         別の直し … 人はその所を wrong でも right でもない文字に直した(隣に文字を足した・消した場合も、その所に触ったので数える)
         分からない … まとまりの人の行が校正済みでない・行が消された・まとまりが長すぎる(判定しない)。**率は校正済みのまとまりだけで出す**
+      確かめるの read:alt(yt は read:yt)の答えは人の判断の正: 2 = 候補を採った = 当たり / 1 = 今のまま(却下)= 外れ / 打った文字 = 別の直し
+      (human/check/read.py の do_apply と同じ意味。答えは行を校正済みにしないので、まとまりの規則では「分からない」のまま = 答えで決める)。
+      答えは 文書の id・行の id(カードの target)と、答えに残る採否の記録の候補(applied.feedback.items の wrong・right)で、出し直した候補と突き合わせる:
+        同じまとまりの人の行に答えた行があり、寄せた wrong・right が同じ候補 → その候補の判定を答えで置き換える(二重に数えない)
+        合う候補が無い(行の文字が original から変わった後に出た候補など)→ 答えを 1 件の候補として足す。答えのある候補の時刻は答えの時刻 at
+      結果の check = {answers(期間の中), hit, miss, other, matched(置き換えた), added(足した), notMeasured(測らない文書の答え = 数えない)}
       率 = 当たり ÷ (当たり + 外れ + 別の直し)。「当たり」は候補を採ったら正しかった割合の目安(人はつられて直さないこともある = 外れは甘く出る)
     拾えた率(人の直し → 候補): 校正済みのまとまり(機械の行も人の行もある)で、人が機械の文字を直した所(寄せた文字の食い違い。置き換え・足し・消し)のうち、
       同じ所に候補が出ていた割合と、そのうち候補が当たりだった割合。長い直し(寄せた文字で 12 字を超える)は候補の対象外なので、短い直し(12 字以下)だけの数も並べる
@@ -49,8 +56,10 @@ if not __package__:   # スクリプトとして起動したとき(py -3.10 src/
 from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・保存。src を sys.path に足す)
 from eval.tools._evalcommon import rate, read_json  # noqa: E402
 from ytt import docloc  # noqa: E402
+from human.check import answerlog  # noqa: E402  「確かめる」の答えの記録(読むだけ)
 
 SCHEMA = "youtube-tools-alt-eval/v1"
+ANSWER_STATUS = {"2": "hit", "1": "miss", "other": "other"}   # 確かめるの read:alt・read:yt の答え -> 判定(human/check/read.py の do_apply)
 FEW_CANDS = 100                    # 判定できた候補がこれより少ないときは「まだ少ない(参考)」
 MAX_DOC_BYTES = C.DOC_BYTES
 MAX_GROUP_CHARS = 4000             # まとまりの寄せた文字がこれを超えたら判定しない(比べる計算が重くなりすぎないように)
@@ -112,6 +121,33 @@ def read_feedback(S, root, key="alt"):
         return S.load_feedback().get(key)
     finally:
         S.FEEDBACK = old
+
+
+def read_answers(app_dir, source="alt"):
+    """入口の作業データ app の check/answers.jsonl の read:<source> の効いている答え -> {文書の id: [{id, seg, wrong, right, status, at}]}
+    (同じカードは後の答え。wrong・right は答えに残る採否の記録の候補。記録できなかった答えは None)。読めなければ {}"""
+    try:
+        rows = answerlog.state(app_dir).effective()
+    except Exception:
+        return {}
+    by_card = {}
+    for r in rows:
+        t, ans = r.get("target") or {}, r.get("answer")
+        if r.get("kind") != "read" or r.get("source") != source or not isinstance(ans, dict) or ans.get("choice") not in ANSWER_STATUS:
+            continue
+        if not isinstance(t, dict) or not isinstance(t.get("docId"), str) or t.get("row") is None:
+            continue
+        fb = (r.get("applied") or {}).get("feedback") if isinstance(r.get("applied"), dict) else None
+        items = fb.get("items") if isinstance(fb, dict) and isinstance(fb.get("items"), list) else []
+        it = items[0] if items and isinstance(items[0], dict) else {}
+        at = r.get("at") if isinstance(r.get("at"), (int, float)) and not isinstance(r.get("at"), bool) else None
+        by_card[(t["docId"], str(t["row"]))] = {"id": r.get("id"), "doc": t["docId"], "seg": str(t["row"]), "status": ANSWER_STATUS[ans["choice"]], "at": at,
+                                                "wrong": it.get("wrong") if isinstance(it.get("wrong"), str) else None,
+                                                "right": it.get("right") if isinstance(it.get("right"), str) else None}
+    out = {}
+    for a in by_card.values():
+        out.setdefault(a.pop("doc"), []).append(a)
+    return out
 
 
 # ---------------------------------------------------------------- 数の小道具
@@ -220,11 +256,22 @@ def judge_candidate(S, g, cand_k, cand):
     return "other", "", (a, b)
 
 
-def judge_doc(S, doc, alt, since_ms=None, until_ms=None, diff_fn=None, has_name=None):
+def match_answer(S, answers, used, seg_ids, cand):
+    """候補 cand と同じ所に答えた確かめるの答え(まとまりの人の行 seg_ids のどれかに答えていて、寄せた wrong・right が同じ。まだ使っていない物)か None"""
+    fw, fr = S.alt_fold(cand["wrong"]), S.alt_fold(cand["right"])
+    for a in answers or ():
+        if a["id"] not in used and a["seg"] in seg_ids and a["wrong"] is not None and a["right"] is not None \
+                and S.alt_fold(a["wrong"]) == fw and S.alt_fold(a["right"]) == fr:
+            return a
+    return None
+
+
+def judge_doc(S, doc, alt, since_ms=None, until_ms=None, diff_fn=None, has_name=None, answers=None):
     """1つの文書(評価用でない・original と segments がある)と alt.json から、候補の判定と人の直しの拾えた数を出す。ファイルには触らない
-    -> {"cands": [{"status", "why", "wrong", "right"}](時期の範囲の中のまとまりだけ), "fixes": [{"short", "covered", "hit"}], "stats": alt_diffs の数えた理由,
+    -> {"cands": [{"status", "why", "wrong", "right", "check"}](時期の範囲の中のまとまりだけ), "fixes": [{"short", "covered", "hit"}], "stats": alt_diffs の数えた理由,
         "outOfRange": 時期の外で数えなかった候補の数, "inRange": 範囲の中のまとまりが 1 つでもあったか, "noSub": {"rows": noSub の行の数, "candidates": その時間に出ていた候補の数(数えない)}}
-    diff_fn = 候補の出し方(既定 alt_diffs。yt は ytcap_diffs)。has_name = 文字に名簿の呼び名があるか(候補・直しの "name")。候補には機械の行の番号 row と位置 i も付ける(alt と yt の一致を見る)"""
+    diff_fn = 候補の出し方(既定 alt_diffs。yt は ytcap_diffs)。has_name = 文字に名簿の呼び名があるか(候補・直しの "name")。候補には機械の行の番号 row と位置 i も付ける(alt と yt の一致を見る)。
+    answers = この文書の確かめるの答え(read_answers の 1 文書分)。候補の check = "matched"(答えで置き換えた)・"added"(合う候補が無く足した)・None(答えなし)"""
     orig_all = clean_rows(doc.get("original"))
     segs = clean_rows(doc.get("segments"), with_text=False)
     # 候補は機械の行すべてで出す(alt_diffs は窓の境目の行を特別に扱うので、行を先に外すと別の行の候補が消える)。そのあとで、字幕に出さない行(noSub)の時間の機械の行の候補は
@@ -243,6 +290,7 @@ def judge_doc(S, doc, alt, since_ms=None, until_ms=None, diff_fn=None, has_name=
         return max(ts) if g.proofed and ts else doc_t
     in_time = [C.in_period(group_time(g), since_ms, until_ms) for g in groups]   # まとまりが時期の中か(候補ごとに数え直さない)
     out = {"cands": [], "fixes": [], "stats": dict(stats), "outOfRange": 0, "inRange": False, "noSub": {"rows": len(ns_segs), "candidates": 0}}
+    used = set()    # 使った答えの id
     by_group = {}   # まとまり -> [(a, b, 判定)]
     named = {}      # まとまり -> 名簿の呼び名があるか(人の最終。無ければ機械の文字)
 
@@ -262,14 +310,32 @@ def judge_doc(S, doc, alt, since_ms=None, until_ms=None, diff_fn=None, has_name=
         if gi is None:
             continue
         g = groups[gi]
-        if not in_time[gi]:
+        ans = match_answer(S, answers, used, {str(segs[i].get("id")) for i in g.ge}, cand) if answers else None
+        if ans is not None:
+            used.add(ans["id"])
+        if not (C.in_period(ans["at"], since_ms, until_ms) if ans is not None else in_time[gi]):
             out["outOfRange"] += 1
             continue
         out["inRange"] = True
         status, why, span = judge_candidate(S, g, k, cand)
-        out["cands"].append({"status": status, "why": why, "wrong": cand["wrong"], "right": cand["right"], "row": k, "i": cand["i"], "name": group_named(gi)})
+        if ans is not None:   # 確かめるの答えが正(まとまりが校正済みでなくても判定できる)
+            status, why = ans["status"], "check"
+        out["cands"].append({"status": status, "why": why, "wrong": cand["wrong"], "right": cand["right"], "row": k, "i": cand["i"], "name": group_named(gi),
+                             "check": "matched" if ans is not None else None})
         if span:
             by_group.setdefault(gi, []).append((span[0], span[1], status))
+    seg_by_id = {str(g.get("id")): g for g in segs}
+    for a in answers or ():   # 出し直した候補に合わなかった答え = 1 件の候補として足す
+        if a["id"] in used:
+            continue
+        if not C.in_period(a["at"], since_ms, until_ms):
+            out["outOfRange"] += 1
+            continue
+        out["inRange"] = True
+        g = seg_by_id.get(a["seg"])
+        named = bool(has_name(str(g.get("text") or ""))) if has_name is not None and g is not None else False
+        out["cands"].append({"status": a["status"], "why": "check", "wrong": a["wrong"] or "", "right": a["right"] or "", "row": None, "i": None,
+                             "name": named, "check": "added"})
     out["noSub"]["candidates"] = ns_cands
     # 人の直しのうち、候補が同じ所に出ていたもの(機械の行も人の行もある・校正済み・長すぎないまとまりだけ)
     for gi, g in enumerate(groups):
@@ -299,12 +365,16 @@ class Agg:
         self.fix = {"total": 0, "covered": 0, "coveredHit": 0, "short": 0, "shortCovered": 0, "shortHit": 0}
         self.nosub = {"docs": 0, "rows": 0, "candidates": 0}   # 字幕に出さない行(数に入れない。件数だけ)
         self.names = {"hit": 0, "miss": 0, "other": 0, "unknown": 0, "fixes": 0, "covered": 0, "coveredHit": 0}   # 名簿の呼び名がある所だけ
+        self.check = {"hit": 0, "miss": 0, "other": 0, "matched": 0, "added": 0}   # 確かめるの答えで決めた候補(上の数に入っている)
 
     def add(self, r):
         self.docs += 1
         for c in r["cands"]:
             self.cands += 1
             self.status[c["status"]] += 1
+            if c.get("check"):
+                self.check[c["status"]] += 1
+                self.check[c["check"]] += 1
             if c["status"] == "unknown":
                 self.why[c["why"]] = self.why.get(c["why"], 0) + 1
             if c.get("name"):
@@ -340,7 +410,8 @@ class Agg:
                            "coveredHit": f["coveredHit"], "hitRateOfCovered": rate(f["coveredHit"], f["covered"]),
                            "shortFixes": f["short"], "shortCovered": f["shortCovered"], "shortCoveredRate": rate(f["shortCovered"], f["short"]),
                            "shortHit": f["shortHit"], "shortHitRateOfCovered": rate(f["shortHit"], f["shortCovered"])},
-                "skipped": dict(self.stats), "noSub": dict(self.nosub), "names": self.names_result()}
+                "skipped": dict(self.stats), "noSub": dict(self.nosub), "names": self.names_result(),
+                "check": dict(self.check, answers=self.check["matched"] + self.check["added"])}
 
     def names_result(self):
         n = self.names
@@ -360,13 +431,14 @@ def evaluate(data_dir=None, since=None, until=None, source="alt", include_eval=F
     if source not in SOURCES:
         raise SystemExit("--source は %s のどれかです: %r" % ("・".join(SOURCES), source))
     root = locate(data_dir)       # serve.py を読み込む前に決める(読み込むと TRANSCRIBE_DATA_DIR が一時フォルダになる)
+    app = C.locate("app", data_dir, ENV0)   # 確かめるの答えの置き場所(入口の作業データ)
     S = get_serve()
     if source != "both":
-        res = evaluate_one(S, root, source, since, until, include_eval)
+        res = evaluate_one(S, root, source, since, until, include_eval, app)
         res.pop("_per")
         return res
-    a = evaluate_one(S, root, "alt", since, until, include_eval)
-    y = evaluate_one(S, root, "yt", since, until, include_eval)
+    a = evaluate_one(S, root, "alt", since, until, include_eval, app)
+    y = evaluate_one(S, root, "yt", since, until, include_eval, app)
     agree = Agg()
     for tid in sorted(set(a["_per"]) & set(y["_per"])):
         keys = {(c["row"], c["i"], c["wrong"], c["right"]) for c in y["_per"][tid]["cands"]}
@@ -377,10 +449,13 @@ def evaluate(data_dir=None, since=None, until=None, source="alt", include_eval=F
     return {"meta": meta, "alt": a, "yt": y, "agree": agree.result()}
 
 
-def evaluate_one(S, root, source, since=None, until=None, include_eval=False):
-    """1 つの出どころ(alt / yt)の測定。結果の _per = 文書ごとの judge_doc の結果(both の一致に使う。evaluate が外す)"""
+def evaluate_one(S, root, source, since=None, until=None, include_eval=False, app=None):
+    """1 つの出どころ(alt / yt)の測定。結果の _per = 文書ごとの judge_doc の結果(both の一致に使う。evaluate が外す)。
+    app = 入口の作業データ(確かめるの答え check/answers.jsonl。None なら答えを読まない)"""
     tdir = os.path.join(root, "transcripts")
     since_ms, until_ms = C.period(since, until)
+    answers = read_answers(app, source) if app else {}
+    measured = set()
     total, by_engine, by_doc, per = Agg(), {}, [], {}
     skipped = {"evalSet": 0, "noOriginal": 0, "broken": 0, "outOfRange": 0}
     if source == "yt":
@@ -419,7 +494,8 @@ def evaluate_one(S, root, source, since=None, until=None, include_eval=False):
         if not isinstance(doc.get("original"), list) or not doc["original"] or not isinstance(doc.get("segments"), list):
             skipped["noOriginal"] += 1
             continue
-        r = judge_doc(S, doc, alt, since_ms, until_ms, diff_fn, has_name)
+        r = judge_doc(S, doc, alt, since_ms, until_ms, diff_fn, has_name, answers.get(tid))
+        measured.add(tid)
         out_cands += r["outOfRange"]
         if not r["inRange"]:
             skipped["outOfRange"] += 1
@@ -433,6 +509,7 @@ def evaluate_one(S, root, source, since=None, until=None, include_eval=False):
         by_doc.append({"id": tid, "title": str(doc.get("title") or "")[:40], "engine": key, "candidates": o["candidates"], "judged": o["judged"], "hit": o["hit"],
                        "miss": o["miss"], "other": o["other"], "unknown": o["unknown"], "hitRate": o["hitRate"]})
     res = total.result()
+    res["check"]["notMeasured"] = sum(1 for tid, xs in answers.items() if tid not in measured for a in xs if C.in_period(a["at"], since_ms, until_ms))
     few = res["judged"] < FEW_CANDS
     fb = read_feedback(S, root, source)
     notes = []
@@ -448,7 +525,8 @@ def evaluate_one(S, root, source, since=None, until=None, include_eval=False):
         notes.append("読めない文書・alt.json が %d 件あります" % skipped["broken"])
     if since or until:
         notes.append("採否の記録(採用・却下の数)は時期で絞れません(記録に時刻が無い)")
-    notes.append("人は候補につられる(迷うと直さずに通す)ので、外れ・別の直しは少なめ(当たりは甘め)に出ます。校正済みでないまとまりは「分からない」にして率に入れていません")
+    notes.append("人は候補につられる(迷うと直さずに通す)ので、外れ・別の直しは少なめ(当たりは甘め)に出ます。"
+                 "校正済みでないまとまりは「分からない」にして率に入れていません(確かめるで答えた候補は答えで判定)")
     notes.append("機械の最初の出力(original)は、再認識のあとは再認識後のものです")
     meta = {"schema": SCHEMA, "source": source, "at": int(time.time() * 1000), "since": since, "until": until, "includeEval": include_eval, "git": C.git_rev(), "dataDir": root,
             "docs": total.docs, "noAlt" if source == "alt" else "noYt": no_alt, "candidates": res["candidates"], "judged": res["judged"], "few": few,
@@ -470,6 +548,11 @@ def print_agg(title, r, indent="  "):
     print("%s  当たり %d(%s)・外れ(人はそのまま)%d(%s)・別の直し %d(%s)  分からない %d%s"
           % (indent, r["hit"], pct(r["hitRate"]), r["miss"], pct(r["missRate"]), r["other"], pct(r["otherRate"]), r["unknown"],
              "(" + "・".join("%s %d" % (UNKNOWN_LABELS.get(k, k), n) for k, n in r["unknownWhy"].items()) + ")" if r["unknownWhy"] else ""))
+    ck = r.get("check") or {}
+    if ck.get("answers") or ck.get("notMeasured"):
+        print("%s  うち確かめるの答えで決めた %d 件: 採った(当たり)%d・今のまま(外れ)%d・打った(別の直し)%d(出し直した候補と合った %d・足した %d)%s"
+              % (indent, ck["answers"], ck["hit"], ck["miss"], ck["other"], ck["matched"], ck["added"],
+                 "  測らない文書の答え %d 件は数えていません" % ck["notMeasured"] if ck.get("notMeasured") else ""))
     p = r["pickup"]
     if p["fixes"]:
         print("%s  拾えた率: 人の直し %d か所のうち、候補が同じ所に出ていた %d(%s)・そのうち当たり %d(%s)   短い直し(12 字以下)だけ: %d か所 → 候補あり %d(%s)・当たり %d(%s)"

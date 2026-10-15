@@ -116,7 +116,7 @@ function create(h){
     return true;
   }
   function afterChange(){
-    M.pristine = false;
+    M.pristine = false; M.untouched = false;
     if (M.sel && M.sel.kind === 'clip' && M.sel.i >= M.clips.length) M.sel = null;
     if (M.sel && M.sel.kind === 'gap') M.sel = null;
     syncRowCuts(); render(); scheduleSave();
@@ -165,7 +165,7 @@ function create(h){
     if (!M.fps){ render(); h.onCutState(); return; }
     M.total = Math.max(1, Math.round(M.dur * M.fps[0] / M.fps[1]));
     if (e){
-      M.rev = ed.rev; M.origin = e.origin || 'manual'; M.pristine = false;
+      M.rev = ed.rev; M.origin = e.origin || 'manual'; M.pristine = false; M.untouched = !!e.draftUntouched;
       M.clips = norm(e.clips.map(c => [s2f(c.in), s2f(c.out)]));
       if (dr){   // 動画の長さが変わった(同じパスの動画を書き出し直した): 後ろの区間を切って知らせる
         const over = M.clips.some(([, b]) => b > M.total + 1);
@@ -191,7 +191,7 @@ function create(h){
   /* ---------- 保存(0.8 秒まとめて PUT・rev で競合を見る) ---------- */
   function scheduleSave(){ M.dirty = true; clearTimeout(M.saveT); if (!M.drag) M.saveT = setTimeout(save, SAVE_DELAY); renderSaveState(); }
   function body(baseRev){
-    return { baseRev, edit: { sources: [{ fps: M.fps, duration: Math.round(M.dur * 1000) / 1000 }], clips: M.clips.map(([a, b]) => ({ src: 0, in: sec3(a), out: sec3(b) })), origin: M.origin },
+    return { baseRev, edit: { sources: [{ fps: M.fps, duration: Math.round(M.dur * 1000) / 1000 }], clips: M.clips.map(([a, b]) => ({ src: 0, in: sec3(a), out: sec3(b) })), origin: M.origin, ...(M.untouched ? { draftUntouched: true } : {}) },
       ...(baseRev === 0 && M.draft ? { draft: M.draft } : {}) };   // 初めての保存だけ、始めたたき台を添える(サーバーが edit.json に一度だけ書く)
   }
   /* 始めたたき台の記録(マスタープラン Q2。機械の最初の結果 = たたき台と、人の最終 = 保存したカット・パックを並べて、たたき台の規則を直すため)。
@@ -898,7 +898,7 @@ function create(h){
         const before = M.clips.map(c => c.slice()), next = addRange(M.clips.map(c => c.slice()), p, q);
         if (JSON.stringify(next) !== JSON.stringify(before)){
           pushCutUndo(before, M.origin, seq);
-          M.clips = next; M.origin = 'manual'; widened = true;
+          M.clips = next; M.origin = 'manual'; M.untouched = false; widened = true;
           M.dirty = true; save();   // 編集の内容を先に保存(文書は h.rowChanged → 0.7 秒後。文書の保存で行の印を新しい区間から付け直す)
         }
       }
@@ -1196,7 +1196,7 @@ function create(h){
     async commit(){
       if (!ready()) return false;
       if (M.drag) endDrag();
-      if (M.pristine){ M.pristine = false; M.dirty = true; }
+      if (M.pristine){ M.pristine = false; M.untouched = true; M.dirty = true; }   // 手つかずのたたき台をそのまま保存する = 人が確かめた印にしない(draftUntouched。区間を触れば afterChange が消す)
       if (M.dirty || M.saving) await save();
       return !M.dirty && !M.conflict && M.rev > 0;
     },

@@ -7,7 +7,7 @@
 - 写すもの: 作り直せないもの(文字起こしと校正・カット・スタジオの data.json とマーク・採用の記録・設定・声の登録・パックの記録・案件)。
   写さないもの(SKIP_DIRS・SKIP_SUFFIX): キャッシュ・一時ファイル・ログ・モデル・実行ファイル・ブラウザのプロファイル・書き出した動画(取り直せる・大きい)。
   例外: `transcribe\\bin\\whisper.cpp-*`(作り直すのに Visual Studio が要るので写す。llama.cpp などダウンロードし直せるものは写さない)。
-  評価用の音声 `transcribe\\eval-audio\\` は写す(SKIP に入れない。作り直せない)
+  評価用の音声 `transcribe\\eval-audio\\` は写さない(元の配信の音声から作り直せるため。2026-10-15 に外した)
 - 写し方: 大きさか更新時刻が違うファイルだけ、一時的な名前へ写してから改名する。**写す先のファイルは消さない**
   (作業データで消したもの・壊れて空になったものに、バックアップを合わせて消さないため。古い分はたまる)。上書きされるファイルは、
   その日の最初の1回だけ `.prev` の名前で1つ前を残す(data.json などが壊れた形で上書きされても1つ前へ戻せる)
@@ -37,7 +37,7 @@ DEST_NAME = "youtube-tools-data"
 FIRST_WAIT = 90            # 起動してから最初に見るまで(秒。ツールの起動・以前の場所からのコピーとぶつけない)
 CHECK_EVERY = 180          # 時間が来たか・変わったかを見る間隔(秒)
 QUIET = 120                # 最後の変更からこの秒数たってから、変わった分を写す(校正の保存が続いている間は待つ)
-SKIP_DIRS = {"cache", "work", "logs", "models", "bin", "browser-profile", "exports", ".runtime", "__pycache__", "intake"}   # intake = app/intake の友人の依頼の動画の写し(元は友人の Dropbox。RS8 B3-7。(r8h))
+SKIP_DIRS = {"cache", "work", "logs", "models", "bin", "browser-profile", "exports", ".runtime", "__pycache__", "intake", "eval-audio"}   # intake = app/intake の友人の依頼の動画の写し(元は友人の Dropbox。RS8 B3-7。(r8h))
 SKIP_SUFFIX = (".log", ".tmp", ".lock")
 SKIP_MARK = ".part-"       # datadir.prepare・fsio の途中のファイル
 KEEP_BIN_PREFIX = "whisper.cpp-"   # transcribe\\bin の下で、これで始まるフォルダだけは写す(作り直しに Visual Studio が要る)

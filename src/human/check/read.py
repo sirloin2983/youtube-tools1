@@ -3,7 +3,7 @@
 答え = {choice: "1" | "2" | "other", text?: 打った正しい文字}。**文字だけの判定**: 行を校正済み(proofed)にしない・行の時刻には触れない(時刻の正解に使わない)。
   fill  1 = 何も変えない(後処理の札を残す)/ 2 = 認識のままに戻す(編集の「別の読み」の札と同じ。fill と後処理の印を外す)/ 3 = 打った文字(fill と印を外す)
   alt・yt  1 = 何も変えない・候補を却下 / 2 = 食い違う所を直す・候補を採る / 3 = 打った文字・候補を却下
-  採否は編集の「提案」と同じ記録(learn-feedback.json の alt / yt の数と dismissed)に残す = eval_alt が今までどおり読める。fill の残す / 戻すは eval_fill が文書から読む。
+  採否は編集の「提案」と同じ記録(learn-feedback.json の alt / yt の数と dismissed)に残す 。当たり率は ⑤ の eval_alt・eval_fill が答えの記録(answers.jsonl)を読んで数える(fill は 1 = 残した・2 = 戻した・打つ = 直した)。
 文書へは store.commit(why='check:read')(人の層)。Z は逆の commit(行がその後に変わっていたら断る)+ 記録の取り消し。
 ③ の層: 文書は human/proof/store と learn だけを読む(① は読まない)。
 """

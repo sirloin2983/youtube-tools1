@@ -142,9 +142,21 @@ class EvalMarks(unittest.TestCase):
         """上位 N は点数の高い順。N=1 なら削除した候補 E(6.0)だけ = 悪い"""
         env = build(self)
         _env, studio, _app = M.locate(env.root)
-        vids, _ = M.build_videos(studio, M.load_feedback(studio), M.load_runs(os.path.join(env.root, "app")), _env)
+        vids = M.build_videos(studio, M.load_feedback(studio), M.load_runs(os.path.join(env.root, "app")), _env)
         order = [(i["score"], i["verdict"]) for i in M.ranked(vids[V1]["auto"])]
         self.assertEqual(order, [(6.0, "bad"), (5.0, "good"), (4.0, "bad"), (3.0, "none"), (2.0, "machine")])
+
+    def test_rejected_without_human_row_is_none(self):
+        """OPT-E1 7c-1: 人の行(却下・削除)の無い rejected(マークの状態だけ)は「悪い」ではなく判定なし"""
+        env = build(self)
+        with open(os.path.join(env.studio, "data.json"), encoding="utf-8") as f:
+            d = json.load(f)
+        d["videos"][V1]["marks"].append(mark("mR", 1100.0, 1140.0, 1.0, "rejected"))
+        env.data(d["videos"])
+        _env, studio, _app = M.locate(env.root)
+        vids = M.build_videos(studio, M.load_feedback(studio), M.load_runs(os.path.join(env.root, "app")), _env)
+        by = {i["score"]: i["verdict"] for i in vids[V1]["auto"]}
+        self.assertEqual((by[1.0], by[4.0]), ("none", "bad"))   # 行のある mB(4.0)は今までどおり悪い
 
     def test_live_recording_not_counted(self):
         """ライブの録画(kind live。解析していない・手のマークだけ)は、data.json にも feedback の行にもあっても数字を変えない"""

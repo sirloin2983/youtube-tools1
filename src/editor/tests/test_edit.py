@@ -61,6 +61,9 @@ class TestEditStore(StoreDir):
         self.assertEqual(S.sanitize_edit(edit_obj(clips=((0, 12.03),)))["clips"][0]["out"], 12.03)   # 長さ + 1フレームまで
         self.assertEqual(S.sanitize_edit(edit_obj(origin="rows"))["origin"], "rows")
         self.assertEqual(S.sanitize_edit(edit_obj(origin="<b>"))["origin"], "manual")
+        self.assertIs(S.sanitize_edit(dict(edit_obj(), draftUntouched=True))["draftUntouched"], True)   # 手つかずの印は通す(OPT-E1 8a-1)
+        self.assertNotIn("draftUntouched", S.sanitize_edit(dict(edit_obj(), draftUntouched="yes")))     # true 以外は捨てる
+        self.assertNotIn("draftUntouched", S.sanitize_edit(edit_obj()))
         bad = [
             None, [], {"clips": []},
             edit_obj(fps=(0, 1)), edit_obj(fps=(30,)), edit_obj(fps=(True, 1)), edit_obj(fps=(30.0, 1)), edit_obj(fps=(1000, 1)),

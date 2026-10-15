@@ -728,8 +728,11 @@ def sanitize_edit(obj):
             raise _errors.ApiError("bad_edit", "区間が短すぎます", 400)
         out.append({"src": 0, "in": ra, "out": rb})
         prev = b
-    return {"sources": [{"fps": fps, "duration": round(dur, 3)}], "clips": out,
-            "origin": obj.get("origin") if obj.get("origin") in EDIT_ORIGINS else "manual"}
+    res = {"sources": [{"fps": fps, "duration": round(dur, 3)}], "clips": out,
+           "origin": obj.get("origin") if obj.get("origin") in EDIT_ORIGINS else "manual"}
+    if obj.get("draftUntouched") is True:   # 人が区間を 1 度も触らず、たたき台のまま保存した印(評価・学習は人の最終として数えない。OPT-E1 8a-1)
+        res["draftUntouched"] = True
+    return res
 
 
 DRAFT_ORIGINS = ("rows", "all", "whole", "silence", "list", "plan")   # 機械が作るたたき台(manual は人の操作なので入れない)

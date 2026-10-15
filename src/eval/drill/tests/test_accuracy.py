@@ -51,6 +51,11 @@ else:
     res = {"meta": meta, "accuracy": {"label": "カットの一致", "value": 1 - v, "docs": 5, "unit": "文書", "better": "higher"}}
 d = os.environ.get("FAKE_OUTSIDE_DIR", outdir) if on("FAKE_OUTSIDE") else outdir
 os.makedirs(d, exist_ok=True)
+if on("FAKE_SAME"):   # 前と中身が同じ = 書かずに「変わらず: <前のファイル>」(src/eval/tools/_evalcommon.py の report_saved)
+    last = sorted(n for n in os.listdir(d) if n.endswith(".json"))[-1]
+    print("結果の表示のあとに")
+    print("変わらず: " + os.path.join(d, last))
+    sys.exit(0)
 seq = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "seq_" + area)   # 本物と同じ名前の形(<日時>.json。asr だけ _auto 付き)。日時は呼ばれた回数で進める
 n = (int(open(seq).read()) if os.path.exists(seq) else 0) + 1
 open(seq, "w").write(str(n))
@@ -105,7 +110,7 @@ class AccuracyTest(unittest.TestCase):
         self.logs = []
         self.prefs = prefs_mod.Prefs(os.path.join(self.app, "prefs.json"), fsio.atomic_write)
         self.txdir = os.path.join(self.tmp, "transcripts")    # 入口の条件の「普段」を数える文字起こしの文書(無ければ 0)
-        env = mock.patch.dict(os.environ, {"FAKE_MARK": "引き継ぎ", "FAKE_FAIL": "", "FAKE_HANG": "", "FAKE_NOLINE": "", "FAKE_OUTSIDE": "",
+        env = mock.patch.dict(os.environ, {"FAKE_MARK": "引き継ぎ", "FAKE_FAIL": "", "FAKE_HANG": "", "FAKE_NOLINE": "", "FAKE_OUTSIDE": "", "FAKE_SAME": "",
                                            "FAKE_OUTSIDE_DIR": os.path.join(self.tmp, "outside"), "FAKE_VALUE": "0.2"})
         env.start()
         self.addCleanup(env.stop)
@@ -194,7 +199,7 @@ class AccuracyTest(unittest.TestCase):
         self.assertEqual(by["speakers"]["latest"]["summary"]["value"], 0.8)
         self.assertEqual(by["cut"]["latest"]["summary"]["label"], "カットの一致")
         self.assertEqual(snap["state"], "idle")
-        self.assertIs(snap["heavyEnabled"], False)       # 重い測定は入れていない
+        self.assertNotIn("heavyEnabled", snap)           # 重い測定の箱は無い
         self.assertEqual(self.acc.last["day"], "2026-10-05")
         self.clock.t = at(5, 4)
         self.assertIsNone(self.acc.tick())               # 同じ日の窓の中でも 2 回目は測らない
@@ -424,7 +429,7 @@ class AccuracyTest(unittest.TestCase):
 
     def test_snapshot_shape(self):
         snap = self.acc.snapshot()
-        for k in ("enabled", "nightFrom", "nightTo", "state", "stateLabel", "message", "heavyEnabled", "forced", "lastRun", "areas"):
+        for k in ("enabled", "nightFrom", "nightTo", "state", "stateLabel", "message", "forced", "lastRun", "areas"):
             self.assertIn(k, snap)
         self.assertEqual([a["id"] for a in snap["areas"]], ["asr", "marks", "speakers", "cut", "alt", "fill", "timing"])
         self.assertEqual([g["id"] for g in snap["goals"]], [g["id"] for g in accuracy.GOALS])
@@ -478,6 +483,36 @@ class AccuracyTest(unittest.TestCase):
         self.assertTrue(any("普段" in m for m in self.logs))
         self.assertEqual(accuracy.count_daily(os.path.join(self.tmp, "無い")), {"sec": 0.0, "docs": 0, "lines": 0})
 
+    def test_every_area_tool_exists(self):
+        """AREAS の道具はぜんぶ実在する(スクリプト名を変えると夜の測定が黙って「なし」になるのを防ぐ)。呼び方の引数も、道具の側で受けられる形"""
+        for a in accuracy.AREAS:
+            path = os.path.join(ROOT, "eval", "tools", a["script"])
+            self.assertTrue(os.path.isfile(path), "%s(領域 %s)が src/eval/tools/ に無い" % (a["script"], a["id"]))
+        real = accuracy.Accuracy(self.prefs, self.app, ROOT)
+        for a in accuracy.AREAS:
+            self.assertIsNotNone(real.commands(a), a["id"])
+        by = {a["id"]: a["args"] for a in accuracy.AREAS}
+        self.assertEqual(by["speakers"], ("run", "--or-stored", "--json"))   # 夜の話者 = 今の既定で判別し直す(モデルが無ければ stored)
+        self.assertIn("--apply", by["timing"])                                # 夜の時刻 = 今の既定の後処理を当て直す
+
+    def test_unchanged_result_keeps_latest_and_only_advances_at(self):
+        """道具が「変わらず: <前のファイル>」を出したら失敗にせず、latest はそのまま(ファイル名・要約)で at だけ進める。一覧に同じ名前を重ねない"""
+        self.assertEqual(self.acc.tick()["asr"], "ok")
+        e1 = dict(self.acc.last["areas"]["asr"])
+        self.clock.t = at(6, 3)
+        os.environ["FAKE_SAME"] = "asr,speakers"
+        r = self.acc.tick()
+        self.assertEqual((r["asr"], r["speakers"], r["marks"]), ("ok", "ok", "ok"))
+        e2 = self.acc.last["areas"]["asr"]
+        self.assertEqual(e2["latest"]["file"], e1["latest"]["file"])
+        self.assertEqual(e2["latest"]["summary"], e1["latest"]["summary"])
+        self.assertGreater(e2["latest"]["at"], e1["latest"]["at"])
+        self.assertNotIn("prev", e2)                     # 同じファイルなので「前回」にはならない
+        self.assertNotIn("error", e2)
+        self.assertEqual(e2["files"], e1["files"])        # 同じ名前を重ねない
+        self.assertEqual(len(os.listdir(self.edir({"id": "asr"}))), 1)   # 新しいファイルは増えない
+        self.assertEqual(len(os.listdir(self.edir({"id": "marks"}))), 2)  # 変わらずを出さない領域は今までどおり書く
+
     def test_goal_thresholds_match_the_tools(self):
         """しきい値は accuracy.py の GOALS の 1 か所。道具の「まだ少ない」の値(src/eval/tools/eval_*.py の定数)と食い違わない(道具は読むだけ。import しない)"""
         import ast
@@ -485,8 +520,7 @@ class AccuracyTest(unittest.TestCase):
 
         def const(script, name):
             path = os.path.join(tools_dir, script)
-            if not os.path.isfile(path):
-                self.skipTest("eval/tools/%s が無い" % script)
+            self.assertTrue(os.path.isfile(path), "eval/tools/%s が無い(AREAS の道具は実在する)" % script)
             with open(path, encoding="utf-8") as f:
                 tree = ast.parse(f.read())
             for node in tree.body:
@@ -502,6 +536,7 @@ class AccuracyTest(unittest.TestCase):
         self.assertEqual(by["alt"], const("eval_alt.py", "FEW_CANDS"))
         self.assertEqual(by["fill"], const("eval_fill.py", "FEW_ROWS"))      # V1 確かめる(V0)
         self.assertEqual(by["timing"], const("eval_timing.py", "FEW_ROWS"))
+        self.assertEqual(accuracy.TIMING_FEW_ROWS, const("eval_timing.py", "FEW_ROWS"))
 
     def test_summarize_fill_and_timing(self):
         fill = accuracy.summarize_fill({"a": {"docs": 4, "judged": 12, "keptRate": 0.75, "revertRate": 0.2, "editRate": 0.05, "few": True}})
@@ -511,6 +546,30 @@ class AccuracyTest(unittest.TestCase):
         self.assertEqual(accuracy.summarize_fill({"accuracy": {"label": "x", "value": 0.5}})["value"], 0.5)   # 形が違えば accuracy の鍵
         with self.assertRaises(ValueError):
             accuracy.summarize_timing({})
+
+    def test_summarize_timing_prefers_the_current_default_applied(self):
+        """--apply の結果があれば、先頭(今の既定の後処理を当て直した数字)を主にする。無い・当て直せた文書が 0 本なら保存してある機械の出力の数字"""
+        stored = {"meta": {"docs": 5, "few": False}, "overall": {"n": 255, "head": 0.19, "tail": 0.3, "prev": 0.01, "next": 0.02}}
+        now = {"key": "now", "overall": {"n": 90, "head": 0.14, "tail": 0.19, "prev": 0.0, "next": 0.03}}
+        old = {"key": "v0570", "overall": {"n": 90, "head": 0.3, "tail": 0.4, "prev": 0.0, "next": 0.0}}
+        tm = accuracy.summarize_timing(dict(stored, apply={"docs": 4, "variants": [now, old]}))
+        self.assertEqual((tm["value"], tm["rows"], tm["docs"], tm["lowData"]), (0.14, 90.0, 4, True))   # 90 行 < 100 = まだ少ない
+        self.assertEqual([e["value"] for e in tm["extra"]], [0.19, 0.0, 0.03])
+        self.assertIn("今の既定", tm["label"])
+        for ap in ({"docs": 0, "variants": [now]}, {"docs": 3, "variants": [{"key": "now", "overall": {"n": 0}}]}, {"docs": 3, "variants": []}, None):
+            tm = accuracy.summarize_timing(dict(stored, apply=ap))
+            self.assertEqual((tm["value"], tm["rows"]), (0.19, 255.0))
+
+    def test_summarize_speakers_run_and_stored(self):
+        """夜の話者 = run(bySetting の先頭 = 既定の 1 組)。stored に切り替わったとき(subsets.all)は今までの形"""
+        run = {"meta": {"mode": "run", "docs": 22, "rows": 410, "few": False},
+               "bySetting": [{"rate": 0.9, "docs": 22, "rows": 410, "speakerCount": {"exactRate": 0.7}}]}
+        sp = accuracy.summarize_speakers(run)
+        self.assertEqual((sp["value"], sp["docs"], sp["rows"], sp["better"], sp["lowData"]), (0.9, 22, 410.0, "higher", False))
+        self.assertEqual([(e["label"], e["value"]) for e in sp["extra"]], [("話者の数が合う", 0.7)])
+        self.assertEqual(accuracy.summarize_speakers({"meta": {"rows": 208}, "subsets": {"all": {"rate": 0.86}}})["value"], 0.86)
+        with self.assertRaises(ValueError):
+            accuracy.summarize_speakers({"meta": {}, "bySetting": []})
 
     def test_goals_add_check_answers(self):
         """「確かめる」の答え(app/check/answers.jsonl)を入口の条件に足す(V1 V0。数え方は src/eval/check/goals.py)"""

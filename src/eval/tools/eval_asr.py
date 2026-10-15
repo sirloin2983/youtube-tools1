@@ -8,6 +8,12 @@
         --repeat N = N 回認識して、全体の CER が中央の回を代表にする(温度のやり直しありは回ごとにぶれるので 3 回。既定 1。meta.repeat に各回の CER と幅)
         --context auto = 配信ごとの文脈(出る人の名前と呼び名。計画 段1-2)を文書ごとに作って渡す(既定 none = 渡さない = 基準)。
         --temp0 = 温度 0 に固定(雑音の多い音声で回ごとに結果が変わるのを抑える。比べるときは両方に付ける)
+    python src/eval/tools/eval_asr.py redo    [--engine whisper.cpp] [--device auto] [--data 写した作業データ] [--json]
+        疑わしい所の認識し直し(redo)を確かめ済みの文書で測る(OPT-E1 4h-1。お試し = 25 行ほどでは採否を決め切らない。決定 3-49 Q5)。
+        機械の出力 original に今の規則で印を付け直し → 本番の redo_targets と同じ選び方(校正済みかは見ない)で前後 1 秒 →
+        ② の redo_recognizer と ③ の redo_better をこの道具の中で通す → 置き換えた original を score_doc で採点。
+        前後の CER と、行ごとの「良くなった・同じ・悪くなった・作り話(人の行が無いのに文字が増えた)」。採否を見ずに全部置き換えた場合も並べる。
+        文書は書き換えない。結果は --json のときだけ <--data>/evals/asr/ に残す
     python src/eval/tools/eval_asr.py compare 結果A.json 結果B.json
         2つの結果を、同じ文書どうしで比べる(差と 95% の範囲。範囲が 0 をまたげば「差があるとは言えない」)
         両方の結果に出どころ別の小計(編集前・ショート。summary.origins)があれば、出どころごとの差も出し、全体の差と向きが食い違う出どころがあれば注意する(2 本の物差しが食い違ったら採らない。計画 3-3)
@@ -18,11 +24,11 @@
   計画 notes:plan/line-b-transcription.md の 3-2)を出す。compare は2つの結果のうち小さい方の関門で、差が 95% の範囲で 0 をまたげば「この量では決められない」と出す
 
   どのモードでも(マスタープラン Q3。notes:plan/line-bc-master-plan.md の 2 の原則 4・8 のリスク):
-    --source eval|daily|all|friend   測る文書の出どころ。eval = 評価用(既定。今までどおり)/ daily = 普段の校正済みの文書(評価用以外)/
-                                     friend = 友人の送る用 zip(src/eval/tools/eval_import.py で eval-intake/works/ に取り込んだもの。--intake で場所を変える)/
-                                     all = 評価用 + 普段 + 友人。--scope(eval|train|all。all = 自分の文書だけ)は今までどおり使える
+    --source eval|daily|all          測る文書の出どころ。eval = 評価用(既定。今までどおり)/ daily = 普段の校正済みの文書(評価用以外)/
+                                     all = 評価用 + 普段。--scope(eval|train|all)は今までどおり使える。
+                                     友人の送る用 zip の道(--source friend・--intake)は 10-15 に消した(OPT-E1 9d-1。使い道が無くなった)
     --since YYYY-MM-DD --until YYYY-MM-DD   時期で分ける(その日を含む)。文書の時刻 = 校正済みの行の proofedAt(初めて校正済みにした時刻)の最大。
-                                     無い文書は updatedAt(友人の zip は書き出した時刻)。どちらも無い文書は、時期を指定したときは数えない
+                                     無い文書は updatedAt。どちらも無い文書は、時期を指定したときは数えない
     --group-by engine|model|origin   文書ごとの下書きのエンジン・設定・辞書の版(recognition.runs)で分けて集計する(途中で変わった前後を混ぜない)。
                                      engine = エンジン・モデル・版・beam・VAD・ヒント・辞書の版まで / model = エンジン・モデル・版だけ。途中で変わった文書は「混在」の組。
                                      origin = 出どころ(編集前 = clip がある文書 / ショート = 無い文書。計画 3-3)で分ける。出どころ別の小計は --group-by なしでも summary.origins にいつも入る
@@ -30,9 +36,9 @@
                                      確かめ済みの文書は、校正した行の範囲ではなく**動画全体(0〜durationSec)**が正解 = 人の行の無い所に機械が出した文字は余分(幻覚)・
                                      人の行があるのに機械が出していない所は抜けとして数える。確かめ済みでない文書は今までどおり(校正済みの行の範囲だけ)。
                                      only = 確かめ済みの動画だけを測る(既定。ただし --source eval で --docs なしのとき。確かめ済みが 0 本なら今までどおりの選び方に戻して注意を出す)/
-                                     prefer = 確かめ済みは全体で、確かめ済みでない文書も今までどおり混ぜる(普段・友人・--docs のときの既定)/
+                                     prefer = 確かめ済みは全体で、確かめ済みでない文書も今までどおり混ぜる(普段・--docs のときの既定)/
                                      ignore = 印を見ない(今までどおりの測り方だけ)
-  普段の文書・友人の zip を run で認識し直すときは、用語のヒント・辞書を使わない(評価用と同じ条件。--glossary・--context auto を自分で付けたときだけ渡す)。
+  普段の文書を run で認識し直すときは、用語のヒント・辞書を使わない(評価用と同じ条件。--glossary・--context auto を自分で付けたときだけ渡す)。
   普段のデータは「下書きを作ったエンジン」に甘く出る(人は迷うと下書きを直さずに通す)ので、結果に下書きのエンジンを出し、比べるエンジンと同じなら注意する。
   校正済みが 15 分に届かないときは「まだ少ない(参考)」
 
@@ -60,7 +66,6 @@
   編集 0.64.0 までの結果にある pullEnds・quantRetime の鍵は 0.65.0 から付けない(部品ごと消した)。印が違う結果どうしを compare すると注意を出す
 """
 import argparse
-import datetime
 import hashlib
 import json
 import os
@@ -77,7 +82,6 @@ if not __package__:   # スクリプトとして起動したとき(py -3.10 src/
     sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
 from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・git の rev・保存・editor の読み込み。src を sys.path に足す)
 from eval.tools._evalcommon import is_reviewed, load_serve, read_json  # noqa: E402  load_serve・is_reviewed は eval_alt・eval_effort・eval_timing・テストも eval_asr.名前 で使う
-from eval.tools import evaldata as ev  # noqa: E402  友人の送る用 zip の形と規則(記号 [?]・[笑]・作業ID)
 from ytt import docloc, tools  # noqa: E402
 SCHEMA = "youtube-tools-asr-eval/v1"
 BOOT = 1000          # ブートストラップの回数(文書を選び直して、CER のぶれの範囲を出す)
@@ -147,107 +151,20 @@ def reviewed_sec(d):
     return max(0.0, max([num(g.get("end")) or 0.0 for g in d.get("segments") or [] if isinstance(g, dict)] or [0.0]) - a)
 
 
-# ---------------------------------------------------------------- 出どころ(評価用・普段・友人)・時期・下書きのエンジン
+# ---------------------------------------------------------------- 出どころ(評価用・普段)・時期・下書きのエンジン
 
-SCOPE_SOURCE = {"eval": "eval", "train": "daily", "all": "own"}          # 古い --scope -> 出どころ(own = 評価用 + 普段。友人は入れない = 今までの all)
-SOURCE_SCOPE = {"eval": "eval", "daily": "train", "own": "all", "all": "all", "friend": "friend"}   # 出どころ -> 結果の meta.scope(古い値のまま)
+SCOPE_SOURCE = {"eval": "eval", "train": "daily", "all": "own"}          # 古い --scope -> 出どころ(own = 評価用 + 普段)
+SOURCE_SCOPE = {"eval": "eval", "daily": "train", "own": "all", "all": "all"}   # 出どころ -> 結果の meta.scope(古い値のまま。all は今は own と同じ)
 
 
 def resolve_source(args):
     return getattr(args, "source", None) or SCOPE_SOURCE[args.scope]
 
 
-def default_intake():
-    """友人の zip の取り込み先(src/eval/tools/eval_import.py と同じ場所)"""
-    from eval.tools import eval_import
-    return eval_import.default_dest()
-
-
-def _iso_ms(text):
-    """ISO 8601 の時刻の文字(+0900 でも +09:00 でも)-> ミリ秒。読めなければ None"""
-    s = str(text or "").strip()
-    for fmt in ("%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%dT%H:%M:%S"):
-        try:
-            return int(datetime.datetime.strptime(s, fmt).timestamp() * 1000)
-        except ValueError:
-            pass
-    try:
-        return int(datetime.datetime.fromisoformat(s).timestamp() * 1000)
-    except ValueError:
-        return None
-
-
-def load_friend_docs(intake, only=None):
-    """友人の送る用 zip(src/eval/tools/eval_import.py が eval-intake/works/<作業ID>/ に展開したもの。形は src/eval/tools/evaldata.py)を、
-    文字起こしの文書と同じ形にして返す(読むだけ)-> (文書の一覧, 数えなかった作業 [{"id", "why"}])。
-    正解 = final.json の確認済みの行のうち check.json(無ければ evaldata.judge)が使える行だけ。形式違いの記号の行・未確認の行は校正済みにしない。
-    [?] の行と [笑] だけの行は「聞き取れない」(unclear)にして数えない。[笑] は取り除く。機械の出力 = asr_raw.json の行。作業ごと外れたものは数えない。
-    音声 = audio.flac(run で認識し直せる)"""
-    works = os.path.join(intake or "", "works")
-    docs, skipped = [], []
-    for wid in sorted(os.listdir(works)) if os.path.isdir(works) else []:
-        if not ev.WORK_ID.match(wid) or (only and wid not in only):
-            continue
-        base = os.path.join(works, wid)
-        final, raw = read_json(os.path.join(base, "final.json"), None, C.DOC_BYTES), read_json(os.path.join(base, "asr_raw.json"), None, C.DOC_BYTES)
-        meta, check = read_json(os.path.join(base, "meta.json"), {}, kind=dict), read_json(os.path.join(base, "check.json"), {}, kind=dict)
-        if not isinstance(final, dict) or not isinstance(raw, dict) or not isinstance(final.get("rows"), list):
-            skipped.append({"id": wid, "why": "final.json・asr_raw.json を読めない"})
-            continue
-        judged = check.get("judge") if isinstance(check.get("judge"), dict) and isinstance(check["judge"].get("rows"), list) else None
-        if judged is None:
-            try:
-                judged = ev.judge(final, raw)
-            except (TypeError, ValueError, AttributeError, KeyError) as e:
-                skipped.append({"id": wid, "why": "判定できない: %s" % e})
-                continue
-        if (judged.get("work") or {}).get("use") is False:
-            skipped.append({"id": wid, "why": "作業ごと外れている(" + "・".join((judged["work"].get("reasons") or [])[:2]) + ")"})
-            continue
-        use = {str(c.get("id")): c.get("use") is True for c in judged["rows"] if isinstance(c, dict)}
-        segs, names = [], []
-        for r in final["rows"]:
-            if not isinstance(r, dict):
-                continue
-            try:
-                a, b = float(r["start"]), float(r["end"])
-            except (TypeError, ValueError, KeyError):
-                continue
-            if b < a:
-                continue
-            text, rid = str(r.get("text") or ""), str(r.get("id") or "")
-            tags = [t for t in (r.get("tags") or []) if isinstance(t, str)]
-            plain = ev.strip_marks(text)
-            if ev.MARK_UNSURE in text or not plain:   # 聞き取れない行・[笑] だけの行は、文字の正しさを測れない
-                tags.append("unclear")
-            g = {"id": rid or "s%d" % (len(segs) + 1), "start": a, "end": b, "text": plain, "speaker": str(r.get("speaker") or ""), "tags": tags}
-            if r.get("checked") is True and use.get(rid):
-                g["proofed"] = True
-            if g["speaker"] and g["speaker"] not in names:
-                names.append(g["speaker"])
-            segs.append(g)
-        if not any(g.get("proofed") for g in segs):
-            continue
-        orig = [{k: v for k, v in o.items() if k != "words"} for o in raw.get("segments") or [] if isinstance(o, dict)]
-        run = raw.get("run") if isinstance(raw.get("run"), dict) else {}
-        audio = os.path.join(base, "audio.flac")
-        at, kind = _iso_ms(meta.get("exportedAt")), "exportedAt"
-        if at is None:
-            at, kind = _iso_ms(check.get("checkedAt")), "checkedAt"
-        title = ("%s %s" % (meta.get("streamer") or "", meta.get("sourceName") or "")).strip() or wid
-        docs.append({"schema": "transcribe/v1", "id": wid, "title": title, "sourcePath": audio if os.path.isfile(audio) else "", "start": 0, "end": None,
-                     "language": "ja", "speakers": [{"id": n, "name": n} for n in names], "segments": segs, "original": orig,
-                     "recognition": {"runs": [run]} if run else {}, "updatedAt": str(check.get("sha256") or "")[:12],
-                     "_source": "friend", "_basisAt": at, "_basisKind": kind if at is not None else ""})
-    return docs, skipped
-
-
 def doc_time(d):
     """文書の時期の基準の時刻 -> (ミリ秒, 何から決めたか)。校正済みの行の proofedAt の最大 → 無ければ updatedAt。
-    友人の zip は書き出した時刻(exportedAt。無ければ取り込みチェックの時刻)。どれも無ければ (None, "")。
+    どれも無ければ (None, "")。
     proofedAt は初めて校正済みにした時刻(human/proof/store.py の sanitize_transcript)。それより前に校正した行は時刻が無い(= 分からない)ので数えない"""
-    if d.get("_source") == "friend":
-        return d.get("_basisAt"), d.get("_basisKind") or ""
     ats = [g["proofedAt"] for g in d.get("segments") or []
            if isinstance(g, dict) and g.get("proofed") and isinstance(g.get("proofedAt"), (int, float)) and not isinstance(g.get("proofedAt"), bool) and g["proofedAt"] > 0]
     if ats:
@@ -258,19 +175,14 @@ def doc_time(d):
     return None, ""
 
 
-def select_docs(data, args, intake=None):
-    """測る文書を選ぶ(--source・--docs・--since・--until)-> (文書の一覧, 選び方の記録)。読むだけ。各文書に "_source"(eval・daily・friend)を付ける"""
+def select_docs(data, args):
+    """測る文書を選ぶ(--source・--docs・--since・--until)-> (文書の一覧, 選び方の記録)。読むだけ。各文書に "_source"(eval・daily)を付ける"""
     src, only = resolve_source(args), args.docs
     sel = {"source": src, "since": getattr(args, "since", None) or "", "until": getattr(args, "until", None) or "",
-           "excludedByTime": 0, "unknownTime": 0, "friendSkipped": [], "intake": ""}
-    own_scope = None if src == "friend" else SOURCE_SCOPE[src]
-    docs = load_docs(data, "all" if only else own_scope, only) if (only or own_scope) else []
+           "excludedByTime": 0, "unknownTime": 0}
+    docs = load_docs(data, "all" if only else SOURCE_SCOPE[src], only)
     for d in docs:
         d["_source"] = "eval" if d.get("evalSet") is True else "daily"
-    if only or src in ("friend", "all"):
-        sel["intake"] = intake or getattr(args, "intake", None) or default_intake()
-        friend, sel["friendSkipped"] = load_friend_docs(sel["intake"], only)
-        docs += friend
     lo, hi = C.period(*(str(x).strip() if x else None for x in (getattr(args, "since", None), getattr(args, "until", None))))   # until はその日を含む
     if lo is not None or hi is not None:
         keep = []
@@ -375,7 +287,7 @@ def source_of(d):
 
 
 def draft_bias(d, compared):
-    """普段・友人のデータは、下書きを作ったエンジンに甘く出る(計画 8)。注意の文(無ければ "")。
+    """普段のデータは、下書きを作ったエンジンに甘く出る(計画 8)。注意の文(無ければ "")。
     compared = STORED(保存してある出力を測る = 下書きそのもの)か、比べるエンジンの {"engine", "model"}。評価用の文書は丁寧に校正したので注意しない"""
     if source_of(d) == "eval":
         return ""
@@ -706,7 +618,7 @@ def recognize_doc(S, doc, spec, data):
 
 
 def run_spec(S, args, settings, hint_free=False):
-    """hint_free = 評価用以外(普段・友人)の文書を含むとき: 用語集を渡さない(--glossary を自分で付けたときだけ渡す)。辞書(置換・学習)は常に使わない"""
+    """hint_free = 評価用以外(普段)の文書を含むとき: 用語集を渡さない(--glossary を自分で付けたときだけ渡す)。辞書(置換・学習)は常に使わない"""
     st = settings or {}
     raw_glossary = args.glossary if args.glossary is not None else ("" if hint_free else str(st.get("glossary") or ""))
     glossary = [t.strip() for t in re.split(r"[\r\n,、]+", raw_glossary) if t.strip()]
@@ -739,12 +651,10 @@ def print_summary(res):
         print("音声 %.0f 秒 / 認識 %.0f 秒(実時間の %.2f 倍)/ モデルの読み込み %.0f 秒 / メモリの最大 %s MB"
               % (m["audioSec"], m["wallSec"], m["wallSec"] / m["audioSec"] if m["audioSec"] else 0, m.get("loadSec") or 0, m.get("peakMemMB")))
     sel = m.get("selection") or {}
-    src = {"eval": "評価用", "daily": "普段", "own": "評価用 + 普段", "all": "評価用 + 普段 + 友人", "friend": "友人の zip"}.get(m.get("source"), "")
+    src = {"eval": "評価用", "daily": "普段", "own": "評価用 + 普段", "all": "評価用 + 普段"}.get(m.get("source"), "")
     timed = bool(m.get("since") or m.get("until"))
     print("出どころ %s%s%s" % (src or m.get("scope"), "  期間 %s〜%s" % (m["since"], m["until"]) if timed else "",
                          "(時期で外した %d 本・時期が分からず外した %d 本)" % (sel.get("excludedByTime", 0), sel.get("unknownTime", 0)) if timed else ""))
-    for sk in sel.get("friendSkipped") or []:
-        print("  友人の zip を数えず: %s %s" % (sk["id"], sk["why"]))
     print("文書 %d 本・正解 %d 字・まとまり %d・校正済み %.1f 分" % (len(s["byDoc"]), o["refChars"], o["groups"], s.get("proofedSec", 0) / 60))
     rv, rsel = s.get("reviewed") or {}, (sel.get("reviewed") or {})
     if rsel.get("fallback"):
@@ -851,7 +761,7 @@ def cmd_stored(S, args, data):
         mine = score_doc(S, d, d.get("original") or [], terms, flag_from="ref")
         groups += mine
         nosub[d["id"]] = doc_nosub(S, d, d.get("original") or [])
-        ref = S.doc_metrics(d, False, terms)   # 画面の「認識精度の測定」と同じ数になるか(規則を二重に持っているので、ずれたら知らせる)
+        ref = S.doc_metrics(d, terms=terms)   # 画面の「認識精度の測定」と同じ数になるか(規則を二重に持っているので、ずれたら知らせる)
         # 確かめ済みの文書(動画全体で採点)は画面の測定(校正した行の範囲だけ)と数が違って当たり前なので、今までの規則で数え直した方と比べる
         t = total(score_doc(S, dict(d, _reviewed=False), d.get("original") or [], terms, flag_from="ref") if whole_video(d) else mine)
         want = (ref["sub"], ref["del"], ref["ins"], ref["refChars"]) if ref else (0, 0, 0, 0)
@@ -869,10 +779,10 @@ def cmd_run(S, args, data):
     docs, sel = select_docs(data, args)
     if not docs:
         raise SystemExit("測れる文書がありません(校正済みの行がある%s)" % ("評価用の文書" if resolve_source(args) == "eval" else "文書"))
-    hint_free = any(source_of(d) != "eval" for d in docs)   # 普段・友人の文書を認識し直すときは、ヒントなし(評価用と同じ条件)
+    hint_free = any(source_of(d) != "eval" for d in docs)   # 普段の文書を認識し直すときは、ヒントなし(評価用と同じ条件)
     spec = run_spec(S, args, settings, hint_free)
     if hint_free and args.glossary is None and str(settings.get("glossary") or "").strip():
-        print("用語集は渡しません(普段・友人の文書を含むため。ヒントなしの条件。渡すなら --glossary)")
+        print("用語集は渡しません(普段の文書を含むため。ヒントなしの条件。渡すなら --glossary)")
     terms = name_terms(S, settings)
     load_sec, device = 0.0, ""
     if S.backend_name() != "fake":
@@ -962,6 +872,139 @@ def pick_median(S, runs):
     real = [c for c in cers if c is not None]
     return pick, {"n": len(runs), "cers": cers, "docTextCers": texts, "median": pick, "spread": round(max(real) - min(real), 4) if real else None,
                   "wallSec": [round(r["wallSec"], 2) for r in runs], "docs": [len(i) for i in ids], "docIds": ids, "complete": complete}
+
+
+# ---------------------------------------------------------------- redo(疑わしい所の認識し直し)を確かめ済みの文書で測る(OPT-E1 4h-1・決定 3-49 Q5 = お試し)
+
+REDO_KINDS = (("better", "良くなった"), ("same", "同じ"), ("worse", "悪くなった"), ("invented", "作り話"))
+REDO_WCPP_NOTE = "whisper.cpp は redo の工夫(声の検出・短い区切り = flow/tx.py の redo_kwargs)を受け取らないので、今の redo は「切り出して同じ設定で認識」"
+REDO_ENGINE_NOTE = "本番の redo_spec(human/proof/doc_jobs.py)は engine を入れない = 既定の faster-whisper で動く。ここでは --engine のエンジンで測った"
+
+
+def reflag_rows(S, orig):
+    """機械の出力 original(印を持たない)に今の規則(make_flags)で印を付け直した行 -> 本番の redo_targets に渡す segments の形(校正済みの印は付けない)"""
+    rows, prev = [], []
+    for o in orig:
+        if not isinstance(o, dict) or not o.get("text"):
+            continue
+        rows.append({"id": "m%d" % (len(rows) + 1), "start": o["start"], "end": o["end"], "text": o["text"], "flag": S.make_flags(dict(o), prev, "ja", []),
+                     "lp": o.get("avg_logprob")})
+        prev.append(o["text"])
+    return rows
+
+
+def redo_eval_spec(S, doc, args, settings):
+    """本番の redo_spec と同じ値(beam 5・VAD 普通・行を分ける・ヒントと辞書なし)。違いは engine・device を --engine・--device で選ぶこと(REDO_ENGINE_NOTE)"""
+    pr = doc.get("params") if isinstance(doc.get("params"), dict) else {}
+    return {"model": args.model or str(doc.get("model") or (settings or {}).get("model") or "large-v3"), "language": "ja", "beam": 5, "vadMode": "normal",
+            "wordSplit": True, "splitChars": S.split_chars_for({}, settings), "stripPunct": pr.get("stripPunct", True) is not False,
+            "stripNames": pr.get("stripNames", True) is not False, "device": args.device, "boost": pr.get("boost") is True, "autoDict": False,
+            "glossary": [], "glossAuto": [], "engine": args.engine}
+
+
+def _window(groups, a, b):
+    """a〜b にかかるまとまりの (誤り, 正解の字数)"""
+    gs = [g for g in groups if g["start"] < b and g["end"] > a]
+    return sum(g["sub"] + g["del"] + g["ins"] for g in gs), sum(g["refChars"] for g in gs)
+
+
+def redo_kind(S, before, after, row, a, b, new_text):
+    """行 1 つの判定: 人の行が無い(正解 0 字)のに文字が増えた = 作り話 / 誤りが減った・同じ・増えた"""
+    eb, ref = _window(before, a, b)
+    ea, _ref = _window(after, a, b)
+    if not ref and len(S.norm_cer(new_text)) > len(S.norm_cer(row["old"])):
+        return "invented", eb, ea, ref
+    return ("better" if ea < eb else "same" if ea == eb else "worse"), eb, ea, ref
+
+
+def redo_doc(S, d, spec, data, recognize):
+    """文書 1 本: 印を付け直す → 本番の redo_targets で選ぶ → 前後 1 秒を認識し直す → redo_better で採否。
+    -> (採った分で置き換えた original, 全部置き換えた original, 行ごとの記録)。音声は C.audio_span の出どころから行の範囲だけ取り出す"""
+    from flow import tx as flowtx   # noqa: E402  ② 音声の切り出し(本番の run_redo と同じ)
+    from human.proof import doc_jobs, rerun   # noqa: E402  ③ 行の選び方・採否・original の差し替え(呼ぶだけ)
+    orig = [o for o in d.get("original") or [] if isinstance(o, dict)]
+    targets = doc_jobs.redo_targets({"segments": reflag_rows(S, orig), "original": orig, "start": d.get("start"), "end": d.get("end"), "duration": d.get("duration")})
+    if not targets:
+        return orig, orig, []
+    a_spec, offset, where = C.audio_span(S, d, data, boost=spec["boost"])
+    sh = offset - (a_spec.get("start") or 0.0)   # 文書の秒 - 音声のファイルの秒(元の動画なら 0・保管の音声なら文書の始まり)
+    job = C.fake_job()
+    tmp = tempfile.mkdtemp(prefix="eval_asr_redo_")
+    picked, every, rows = orig, orig, []
+    try:
+        wav = os.path.join(tmp, "a.wav")
+        start = flowtx.extract_span(job, a_spec["sourcePath"], [{"start": a - sh, "end": b - sh} for _g, a, b in targets],
+                                    a_spec.get("start") or 0.0, a_spec.get("end"), spec["boost"], wav)
+        rec = recognize(job, spec, wav, start)
+        for g, a, b in targets:
+            t0 = time.monotonic()
+            lines = [dict(x, start=x["start"] + sh, end=x["end"] + sh) for x in rec(dict(spec, range=[a - sh, b - sh]), a - sh, b - sh)]
+            ok, why = rerun.redo_better(g, lines, g.get("lp"))
+            every = rerun.replace_original_multi(every, a, b, lines)
+            if ok:
+                picked = rerun.replace_original_multi(picked, a, b, lines)
+            rows.append({"doc": d["id"], "start": g["start"], "end": g["end"], "a": a, "b": b, "old": g["text"], "new": "".join(x["raw"] for x in lines),
+                         "newFlags": [str(x.get("flag") or "") for x in lines if x.get("flag")], "taken": ok, "why": why, "audio": where,
+                         "sec": round(time.monotonic() - t0, 2)})
+        return picked, every, rows
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def cmd_redo(S, args, data):
+    """--source eval の確かめ済みの文書(既定)で、redo の前と後を採点する。文書は書き換えない(original の差し替えはこのプロセスの中だけ)"""
+    from flow import tx as flowtx   # noqa: E402  ② redo の認識(redo_recognizer)
+    settings = read_json(os.path.join(data, "settings.json"), {}, kind=dict)
+    docs, sel = select_docs(data, args)
+    if not docs:
+        raise SystemExit("測れる文書がありません(確かめ済みの評価用の文書)")
+    terms = name_terms(S, settings)
+    if S.backend_name() != "fake":
+        os.environ["TRANSCRIBE_ENGINE_DIR"] = args.engine_dir   # whisper.cpp の実行ファイル・モデル(読むだけ)
+        try:
+            S.req_engine({"engine": args.engine}, args.model or "large-v3")
+        except S.ApiError as e:
+            raise SystemExit(e.message)
+    before, after, every, rows, failed, t0 = [], [], [], [], [], time.monotonic()
+    for n, d in enumerate(docs, 1):
+        spec = redo_eval_spec(S, d, args, settings)
+        try:
+            picked, all_rep, mine = redo_doc(S, d, spec, data, flowtx.redo_recognizer)
+        except Exception as e:
+            print("   とばしました %s: %s" % (d["id"], str(e)[:200]))
+            failed.append({"id": d["id"], "error": str(e)[:200]})
+            continue
+        orig = d.get("original") or []
+        gb, ga, ge = score_doc(S, d, orig, terms), score_doc(S, d, picked, terms), score_doc(S, d, all_rep, terms)
+        before, after, every = before + gb, after + ga, every + ge
+        for r in mine:
+            r["kind"], r["errBefore"], r["errAfter"], r["refChars"] = redo_kind(S, gb, ga if r["taken"] else gb, r, r["a"], r["b"], r["new"] if r["taken"] else r["old"])
+            r["kindAll"], _eb, r["errAll"], _ref = redo_kind(S, gb, ge, r, r["a"], r["b"], r["new"])
+        rows += mine
+        print("(%d/%d) %s 対象 %d 行・採った %d 行" % (n, len(docs), d["id"], len(mine), sum(1 for r in mine if r["taken"])), flush=True)
+    count = lambda key: {k: sum(1 for r in rows if r[key] == k) for k, _n in REDO_KINDS}
+    eng = S.tx_engines.engine_of({"engine": args.engine})
+    notes = [REDO_ENGINE_NOTE] + ([REDO_WCPP_NOTE] if eng == S.tx_engines.WhisperCpp.id else [])
+    meta = base_meta("redo", args, docs, data, sel)
+    meta.update({"engine": {"engine": eng, "model": args.model or "", "device": args.device}, "wallSec": round(time.monotonic() - t0, 2), "failed": failed, "notes": notes})
+    summary = {"before": total(before), "after": total(after), "afterAll": total(every), "rows": len(rows), "taken": sum(1 for r in rows if r["taken"]),
+               "kinds": count("kind"), "kindsAll": count("kindAll")}
+    return {"meta": meta, "summary": summary, "rows": rows, "groups": after}
+
+
+def print_redo(res):
+    s, m = res["summary"], res["meta"]
+    print("\n== redo  %s ==" % (m.get("label") or ""))
+    print("エンジン %s / 文書 %d 本(とばした %d 本)/ %.0f 秒" % (m["engine"]["engine"], len(m["docs"]), len(m["failed"]), m["wallSec"]))
+    for note in m["notes"]:
+        print("注意: " + note)
+    print("CER 前 %s → 後 %s(redo_better で採った分だけ置き換え)/ 全部置き換えたら %s" % (pct(s["before"]["cer"]), pct(s["after"]["cer"]), pct(s["afterAll"]["cer"])))
+    print("対象 %d 行・採った %d 行" % (s["rows"], s["taken"]))
+    for key, title in (("kinds", "採った分"), ("kindsAll", "全部置き換え")):
+        print("  [%s] " % title + "・".join("%s %d" % (name, s[key][k]) for k, name in REDO_KINDS))
+    for r in res["rows"]:
+        print("  %s %6.2f〜%6.2f %s %-4s 誤り %d→%d(正解 %d 字)「%s」→「%s」%s" % (r["doc"], r["start"], r["end"], "採" if r["taken"] else "  ", dict(REDO_KINDS)[r["kind"]],
+              r["errBefore"], r["errAfter"], r["refChars"], r["old"][:20], r["new"][:30], "" if r["taken"] else "(%s)" % r["why"]))
 
 
 def gate_verdict(g, lo, hi):
@@ -1116,17 +1159,16 @@ def cmd_list(data):
 
 
 def add_select_args(p, label_help="結果に付ける名前", no_save_help="結果を保存しない"):
-    """測る文書の選び方(--data・--scope・--source・--reviewed・--since・--until・--intake・--docs)と --label・--no-save。eval_cloud も同じ"""
-    p.add_argument("--data", help="文字起こしの作業データのフォルダ(既定 %%LOCALAPPDATA%%\\youtube-tools\\transcribe)")
-    p.add_argument("--scope", choices=("eval", "train", "all"), default="eval", help="eval = 評価用(既定)/ train = 評価用以外 / all = 自分の文書すべて(友人の zip は入れない)。--source が優先")
-    p.add_argument("--source", choices=("eval", "daily", "all", "friend"),
-                   help="測る文書の出どころ(--scope より優先)。eval = 評価用(既定)/ daily = 普段の校正済み(評価用以外)/ friend = 友人の zip / all = 全部")
+    """測る文書の選び方(--data・--scope・--source・--reviewed・--since・--until・--docs)と --label・--no-save。eval_cloud も同じ"""
+    p.add_argument("--data", "--data-dir", dest="data", help="文字起こしの作業データのフォルダ(既定 %%LOCALAPPDATA%%\\youtube-tools\\transcribe)")
+    p.add_argument("--scope", choices=("eval", "train", "all"), default="eval", help="eval = 評価用(既定)/ train = 評価用以外 / all = 自分の文書すべて。--source が優先")
+    p.add_argument("--source", choices=("eval", "daily", "all"),
+                   help="測る文書の出どころ(--scope より優先)。eval = 評価用(既定)/ daily = 普段の校正済み(評価用以外)/ all = 全部")
     p.add_argument("--reviewed", choices=("only", "prefer", "ignore"),
                    help="確かめ済み(動画を全部聞いて直した評価用の文書)の扱い。確かめ済みは動画全体が正解(人の行の無い所の機械の文字 = 余分・機械の無い所の人の行 = 抜け)。"
                         "only = 確かめ済みだけ(--source eval で --docs なしの既定。0 本なら今までの選び方に戻す)/ prefer = 確かめ済みは全体で・ほかも混ぜる(それ以外の既定)/ ignore = 印を見ない")
     p.add_argument("--since", help="この日(YYYY-MM-DD。含む)以降のデータだけ。文書の時刻 = 校正済みの行の proofedAt の最大(無ければ updatedAt)")
     p.add_argument("--until", help="この日(YYYY-MM-DD。含む)までのデータだけ")
-    p.add_argument("--intake", help="友人の zip の取り込み先(--source friend・all のとき。既定は src/eval/tools/eval_import.py と同じ eval-intake)")
     p.add_argument("--docs", help="文書の id をカンマ区切りで(scope・source より優先。時期の指定は効く)")
     p.add_argument("--label", help=label_help)
     p.add_argument("--no-save", action="store_true", help=no_save_help)
@@ -1134,7 +1176,7 @@ def add_select_args(p, label_help="結果に付ける名前", no_save_help="結�
 
 def main(argv=None):
     p = argparse.ArgumentParser(description="文字起こしの精度を評価用の校正済みデータで測る(作業データは読むだけ)")
-    p.add_argument("mode", choices=("stored", "run", "compare", "list"))
+    p.add_argument("mode", choices=("stored", "run", "redo", "compare", "list"))
     p.add_argument("files", nargs="*", help="compare の2つの結果")
     add_select_args(p)
     p.add_argument("--group-by", dest="group_by", choices=("engine", "model", "origin"),
@@ -1149,7 +1191,11 @@ def main(argv=None):
     p.add_argument("--context", choices=("none", "auto"), default="none", help="配信ごとの文脈(出る人の名前と呼び名)を渡すか(既定 none = 基準)")
     p.add_argument("--temp0", action="store_true", help="温度 0 に固定する(回ごとのぶれを抑える)")
     p.add_argument("--repeat", type=int, default=1, help="run を N 回繰り返し、全体の CER が中央の回を代表にする(既定 1 = 1 回。温度のやり直しありの認識は回ごとにぶれる。計画は 3 回)")
+    p.add_argument("--json", action="store_true", help="redo の結果を <--data>/evals/asr/ に残す(redo は既定で残さない。測りの本番は写した作業データを --data で)")
+    p.add_argument("--engine-dir", help="redo で whisper.cpp の実行ファイル・モデルを読む作業データ(既定 本物の作業データ。読むだけ)")
     args = p.parse_args(argv)
+    if args.mode == "redo" and not args.engine_dir:
+        args.engine_dir = real_data_dir()   # load_serve が TRANSCRIBE_DATA_DIR を一時フォルダに替える前に決める
     if args.repeat < 1:
         raise SystemExit("--repeat は 1 以上で指定してください")
     args.docs = C.split_ids(args.docs)
@@ -1161,6 +1207,11 @@ def main(argv=None):
     if args.mode == "list":
         return cmd_list(data)
     S = load_serve()
+    if args.mode == "redo":
+        res = cmd_redo(S, args, data)
+        print_redo(res)
+        C.report_saved(res, args.json, data, "asr", "_" + C.label_name(res["meta"].get("label") or "redo"))
+        return res
     res = cmd_stored(S, args, data) if args.mode == "stored" else cmd_run(S, args, data)
     print_summary(res)
     # <日時>_<名前>.json(名前は --label か mode)

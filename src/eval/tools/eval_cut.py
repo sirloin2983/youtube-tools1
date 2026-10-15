@@ -20,7 +20,9 @@
   設定(draft.settings = 行から: on・after・before・padAfter / 無音: noise・min・pad)の組み合わせごと・1つの値ごとの集計
 - --since / --until(原則 4: 時期で分ける)は draft.at(無ければ edit.json の更新時刻 updatedAt)で絞る(until はその日を含む)。
   最終がパックの cutPlan の文書が 20 本未満のときは「まだ少ない(参考)」と出す(少ないデータで既定値を決めない)
-- 注意: 人はたたき台につられる(迷うと直さずに通す)ので「直さなかった割合」は甘く出る。パックにしていない文書の最終は、保存したカット(途中かもしれない)
+- 注意: 人はたたき台につられる(迷うと直さずに通す)ので「直さなかった割合」は甘く出る。パックにしていない文書の最終は、保存したカット(途中かもしれない)。
+  人が見ずにパックした分は数えない: 編集の画面が、区間を 1 度も触らないまま保存したカットには edit.json に draftUntouched を付ける(触る・手で保存し直すと消える)。
+  その印のある文書は測らず、「確かめていない」の件数(skipped.unreviewed)だけ出す。fromPack(最終がパックの文書数 = 入口の条件のパック数)にも入れない
 """
 import argparse
 import bisect
@@ -89,7 +91,8 @@ def read_edit(path):
             at = int(os.path.getmtime(path) * 1000)
         except OSError:
             at = 0
-    return {"fps": fps, "clips": clips, "origin": d.get("origin"), "updatedAt": at, "draft": read_draft(d.get("draft"))}
+    return {"fps": fps, "clips": clips, "origin": d.get("origin"), "updatedAt": at, "draft": read_draft(d.get("draft")),
+            "untouched": d.get("draftUntouched") is True}
 
 
 def read_draft(v):
@@ -277,7 +280,7 @@ def evaluate(data_dir=None, since=None, until=None):
     tdir = os.path.join(root, "transcripts")
     since_ms, until_ms = C.period(since, until)
     total, by_origin, by_sig, by_key, by_doc = Agg(), {}, {}, {}, []
-    skipped = {"broken": 0, "noDraft": 0, "outOfRange": 0}
+    skipped = {"broken": 0, "noDraft": 0, "outOfRange": 0, "unreviewed": 0}
     edit_tids = {m.group(1) for m in map(EDIT_RE.match, os.listdir(tdir) if os.path.isdir(tdir) else []) if m}
     for tid in sorted(edit_tids | set(docloc.iter_tids(root))):   # 案件の 作業用 に置いた文書も(索引があれば)
         ep = docloc.doc_file(tid, ".edit.json", root)
@@ -291,6 +294,9 @@ def evaluate(data_dir=None, since=None, until=None):
         t = dr["at"] if dr and dr["at"] else ed["updatedAt"]
         if not C.in_period(t, since_ms, until_ms):
             skipped["outOfRange"] += 1
+            continue
+        if ed["untouched"]:   # 人が区間を触らず、たたき台のまま保存・パックした分は「直さなかった = 合っていた」に数えない(OPT-E1 8a-1)
+            skipped["unreviewed"] += 1
             continue
         if dr is None:
             skipped["noDraft"] += 1
@@ -316,6 +322,8 @@ def evaluate(data_dir=None, since=None, until=None):
     notes = []
     if skipped["noDraft"]:
         notes.append("たたき台の記録(draft)が無い edit.json が %d 件あります(記録を入れる前に保存したもの。測っていません)" % skipped["noDraft"])
+    if skipped["unreviewed"]:
+        notes.append("人が区間を触らずに、たたき台のまま保存した edit.json が %d 件あります(確かめていない。測らず、パックの数にも入れていません)" % skipped["unreviewed"])
     if skipped["broken"]:
         notes.append("読めない edit.json が %d 件あります" % skipped["broken"])
     if total.from_edit:

@@ -439,13 +439,8 @@ $('#btnProofSel').addEventListener('click', () => {
 /* ---------- 認識精度の測定 ---------- */
 const pct = v => v == null ? '—' : (v * 100).toFixed(1) + '%';
 let accT = null;
-$('#blGo').addEventListener('click', e => busy(e.currentTarget, async () => {
-  try { const r = await api('/api/eval-baseline', { body: { label: $('#blLabel').value } }); $('#blLabel').value = ''; toast(`記録しました: CER ${pct(r.cer)}(正解 ${r.refChars}字)`); await loadBaselines(); }
-  catch (er){ toast(er.message); }
-}));
 $('#accScope').addEventListener('change', loadAcc);
 $('#accRefresh').addEventListener('click', loadAcc);
-$('#accLegacy').addEventListener('change', loadAcc);
 
 /* ---------- ホロライブの名簿 / 用語集の「認識に効く長さ」 ---------- */
 const GLOSS_PROMPT = 150;   // serve.py の whisper_kwargs と揃える(initial_prompt に渡る文字数)
@@ -1315,7 +1310,7 @@ async function boot(){
   loadSiblings();
   try { const j = await api('/api/jobs'); for (const x of j.jobs) if (x.state === 'done' || x.state === 'error') S.seen.add(x.id); } catch {}   // 開く前に終わっていたものは知らせない
   UIKit.hide.onChange(l => { if (!l || l === 'transcripts') renderList(); }); UIKit.hide.load().then(() => renderList());
-  await Promise.all(EDIT_HOST ? [loadList(), pollJobs()] : [loadList(), loadMarker(), pollJobs(), loadLearned(), loadAcc(), loadDrillStat(), loadBaselines()]);   // 案件の画面ではメニューの中身(マーク・学習・精度・ドリル)を読まない
+  await Promise.all(EDIT_HOST ? [loadList(), pollJobs()] : [loadList(), loadMarker(), pollJobs(), loadLearned(), loadAcc(), loadDrillStat()]);   // 案件の画面ではメニューの中身(マーク・学習・精度・ドリル)を読まない
   if (S.jobs.some(j => ACTIVE.has(j.state))) startPolling();
 }
 const BOOTED = boot();   // 案件の画面(src/app/ui/cases/edhost.js)が起動し終えるのを待つ

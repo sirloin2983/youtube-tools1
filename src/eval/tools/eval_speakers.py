@@ -9,7 +9,9 @@
         判別はこの道具のプロセスの中で動かす(eval_asr.py の run と同じ。サーバーではないので sherpa-onnx を読んでよい。認識ワーカーは起動しない)。
         モデルは作業データの models/diar のもの(無ければ取得せずに止める)。文書・diar.json は書かない(--json のときだけ evals/speakers/<日時>-run.json)。
         元の動画が無ければ保管データの full.flac(eval_asr.py と同じ。今ある保管データだけ。保管の書き手は 10-10 に消した)。TRANSCRIBE_BACKEND=fake なら疑似の判別(テスト用)
-    --smooth off,on(stored・run のどちらでも): 話者の細切れをならす(S2。src/pipeline/transcribe/diarize.py の smooth_labels・smooth_speakers。本番と同じ関数を読む)を、
+        --or-stored を付けると、モデルが無い・判別し直せる文書が 0 本のときは止めずに stored で測る。**夜の測定(src/eval/drill/accuracy.py)は run --or-stored --json**
+        = 確かめ済みの評価用を今の既定の設定(DIAR_CLUSTER_THRESHOLD など)で毎晩判別し直した数字(文書には書かない。CPU・22 本で約 51 秒)
+    --smooth off,on(stored・run のどちらでも): 話者の細切れをならす(S2。src/pipeline/transcribe/diarize.py の smooth_labels・smooth_speakers。本番と同じ関数を直に読む = serve は読まない)を、
         ならさない/ならすで比べる。stored は保存してある判別の記録(rows の label・ratio・overlaps)と文書の今の行の時刻で「ならしたら」を計算するだけ(判別し直さない)。
         run は 1 回の判別の結果を両方で採点する。行の正しさ・ならした行の数・ならした行のうち人が確かめた行で合った/外れた数・直った/壊れた数(ならさないと比べて)
 
@@ -565,11 +567,11 @@ def row_ok(rows, mapping):
     return {str(r["id"]): bool(r["label"]) and mapping.get(r["label"]) == r["human"] for r in rows}
 
 
-def stored_smooth_recs(S, doc, run):
-    """保存してある判別の記録で「ならしたら」を計算する(判別し直さない)-> (ならさない recs, ならした recs, ならした行 id の集まり)。
+def stored_smooth_recs(doc, run):
+    """保存してある判別の記録で「ならしたら」を計算する(判別し直さない。editor の serve は読まず、本番と同じ transcribe_diarize.smooth_labels・proof_speakers.diar_keep_row を直に呼ぶ)
+    -> (ならさない recs, ならした recs, ならした行 id の集まり)。
     行の時刻は文書の今の行(人が直したあと)・ラベルと割合は記録の rows(記録の無い行はラベル無し = 前後に数えるが、ならせない)。
     記録が「ならした回」なら、ならさない側は label(元のラベル)から labelMap で話者に戻す"""
-    E = S
     recs = run.get("rows") if isinstance(run.get("rows"), dict) else {}
     lmap = {str(k): v for k, v in (run.get("labelMap") or {}).items()} if isinstance(run.get("labelMap"), dict) else {}
     ids = {str(s.get("id")) for s in doc.get("speakers") or [] if isinstance(s, dict) and s.get("id")}
@@ -583,10 +585,10 @@ def stored_smooth_recs(S, doc, run):
             off[rid] = dict(rec, speaker=lmap.get(str(rec.get("label")), "") if rec.get("smoothed") else rec.get("speaker"))
         lb = rec.get("label") if isinstance(rec, dict) else None
         rows.append({"start": num(sg["start"]), "end": num(sg["end"]), "label": lb, "ratio": num((rec or {}).get("ratio")) or 0.0,
-                     "skip": E.diar_keep_row(sg, ids) or not str(sg.get("text") or "").strip()})
+                     "skip": proof_speakers.diar_keep_row(sg, ids) or not str(sg.get("text") or "").strip()})
         rids.append(rid)
     ovl = [(num(x[0]), num(x[1])) for x in run.get("overlaps") or [] if isinstance(x, (list, tuple)) and len(x) >= 2 and num(x[0]) is not None and num(x[1]) is not None]
-    sm = E.smooth_labels(rows, ovl)
+    sm = transcribe_diarize.smooth_labels(rows, ovl)
     on = dict(off)
     for i, lb in sm.items():
         if rids[i] in on:
@@ -596,7 +598,6 @@ def stored_smooth_recs(S, doc, run):
 
 def evaluate(data_dir=None, since=None, until=None, include_eval=True, include_draft=False, reviewed=None, only=None, smooth=None, exclude_learned=False):
     tdir_root = C.locate("transcribe", data_dir)
-    S_ = load_serve() if smooth else None   # ならしの計算は本番の関数(editor の ed_speakers)を使う。--smooth のときだけ読む
     tdir = os.path.join(tdir_root, "transcripts")
     since_ms, until_ms = C.period(since, until)
     subs = {k: {"counts": new_counts(), "voices": Voices()} for k, _ in SUBSETS}
@@ -621,7 +622,7 @@ def evaluate(data_dir=None, since=None, until=None, include_eval=True, include_d
         runrows = run.get("rows") if isinstance(run.get("rows"), dict) else {}
         conf = confirm_map(doc, run, whole)
         if sm_agg:   # ならす/ならさないの比べ(記録からの計算。下の本体の数には入れない)
-            recs_off, recs_on, sm_ids = stored_smooth_recs(S_, doc, run)
+            recs_off, recs_on, sm_ids = stored_smooth_recs(doc, run)
             r_off, _ = human_rows(doc, recs_off, since_ms, until_ms, include_draft, conf)
             before = row_ok(r_off, best_mapping(r_off))
             for a in sm_agg:
@@ -1102,11 +1103,30 @@ def main(argv=None):
     g.add_argument("--min-on", dest="min_on", help="声の区間の最短(秒。DIAR_MIN_ON)")
     g.add_argument("--min-off", dest="min_off", help="すき間の最短(秒。DIAR_MIN_OFF)")
     p.add_argument("--smooth", help="話者の細切れをならす(S2)を比べる: off・on の「,」区切り(例 off,on)。stored は記録から計算・run は同じ判別の結果を両方で採点")
+    p.add_argument("--or-stored", dest="or_stored", action="store_true",
+                   help="run のとき: 判別のモデルが無い・測れる文書が 0 本(音声が無い)なら、止めずに stored(保存してある記録)に切り替えて測る(夜の測定 = 入口の accuracy.py 用)")
     args = p.parse_args(argv)
     only = C.split_ids(args.docs)
     tune = {"threshold": args.threshold, "num_": args.num, "emb": args.emb, "min_on": args.min_on, "min_off": args.min_off}
     smooth = parse_smooth(args.smooth)
-    if args.mode == "stored":
+    mode = args.mode
+    res = None
+    if mode == "run" and args.or_stored:
+        try:
+            res = run_evaluate(args.data_dir, args.since, args.until, not args.no_eval, args.include_draft, args.reviewed, only, smooth=smooth, **tune)
+        except (SystemExit, Exception) as e:   # モデルが無い(check_models)・判別の部品を読めないなど。理由を出して stored に切り替える
+            print("判別し直せませんでした(%s)。保存してある記録(stored)で測ります" % str(e.code if isinstance(e, SystemExit) else e)[:200])
+        else:
+            if res["meta"]["docs"]:
+                print_run(res)
+            else:
+                print("判別し直せる文書がありません(確かめ済みの評価用が無い・音声が無い)。保存してある記録(stored)で測ります")
+                res = None
+        if res is None:
+            mode, tune = "stored", {k: None for k in tune}
+    if res is not None:
+        pass
+    elif mode == "stored":
         if any(v is not None for v in tune.values()):
             p.error("--threshold・--num・--emb・--min-on・--min-off は run のときだけ使えます")
         res = evaluate(args.data_dir, args.since, args.until, not args.no_eval, args.include_draft, args.reviewed, only, smooth, exclude_learned=args.exclude_learned)
@@ -1114,7 +1134,7 @@ def main(argv=None):
     else:
         res = run_evaluate(args.data_dir, args.since, args.until, not args.no_eval, args.include_draft, args.reviewed, only, smooth=smooth, **tune)
         print_run(res)
-    C.report_saved(res, args.json, res["meta"]["dataDir"], "speakers", "-run" if args.mode == "run" else "")
+    C.report_saved(res, args.json, res["meta"]["dataDir"], "speakers", "-run" if res["meta"].get("mode") == "run" else "")
     return res
 
 

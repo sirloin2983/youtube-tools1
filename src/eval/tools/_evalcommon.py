@@ -4,8 +4,8 @@
 - 置き場所: TOP(リポジトリ直下 = git)・REPO(src = ツールと ytt)・EDITOR(src/editor)。読み込むと REPO を sys.path に足す
 - 作業データの場所(ytt.datadir の 1 か所。--data-dir は全ツールの作業データの親フォルダ = テスト用)・JSON の読み方・
   時期(--since / --until)・率と分布・git の rev・結果の保存(<ツールの作業データ>/evals/<領域>/<日時>.json。
-  入口の src/eval/drill/accuracy.py が、道具の最後の行「保存: <パス>」と名前の形 <日時>.json で読む = 形を変えない)
-- editor の部品をこのプロセスの中で使うときの読み込み(load_serve。eval_asr・eval_speakers・eval_timing・eval_effort・eval_alt)
+  入口の src/eval/drill/accuracy.py が、道具の最後の行「保存: <パス>」(前と中身が同じなら「変わらず: <前のパス>」)と名前の形 <日時>.json で読む = 形を変えない)
+- editor の部品をこのプロセスの中で使うときの読み込み(load_serve。eval_asr・eval_speakers の run・eval_effort・eval_alt。eval_timing は postproc を直に呼ぶので読まない)
 """
 import atexit
 import datetime
@@ -29,6 +29,9 @@ from ytt.fsio import read_json_or as read_json  # noqa: E402   read_json(path, d
 
 DOC_BYTES = 64 * 1024 * 1024    # 文書・記録の JSON を読むときの上限(limit を渡さない呼び出しにも付ける。fsio の既定は 16MiB)
 SAVED_MARK = "保存: "            # 結果を残した最後の行の頭(入口の src/eval/drill/accuracy.py が SAVED_MARK として読む。形を変えない)
+SAME_MARK = "変わらず: "          # 前の結果と中身が同じで書かなかったときの最後の行の頭(入口の accuracy.py が SAME_MARK として読む)
+VOLATILE_KEYS = ("at", "git", "rev", "sec", "seconds", "elapsed")   # 「前と同じ」を見るときに除く、毎回変わる欄(時刻・git の版・かかった秒)
+SAME_EXEMPT = ("marks",)         # 前と同じでも書く領域(src/home/autorun.py が marks の最新ファイルの名前の日時で古さを見ている)
 
 
 # ---------------------------------------------------------------- 引数の定義(since / until / json / data-dir は全部の道具で同じ)
@@ -141,21 +144,57 @@ def git_rev(dirty=None):
         return ""
 
 
+def _plain(x):
+    """比べるための形: 毎回変わる欄(VOLATILE_KEYS。時刻・git の版・かかった秒)をどの深さからも除く"""
+    if isinstance(x, dict):
+        return {k: _plain(v) for k, v in x.items() if k not in VOLATILE_KEYS}
+    if isinstance(x, list):
+        return [_plain(v) for v in x]
+    return x
+
+
+def previous_same(res, root, area, suffix=""):
+    """同じ置き場所(<root>/evals/<area>/)の最新の結果(同じ suffix のもの)と、毎回変わる欄を除いて中身が同じなら、その前のファイルのパス。違う・前が無い・読めないなら None。
+    marks(SAME_EXEMPT)は対象外 = いつも None(home/autorun.py が marks の最新ファイルの名前の日時で古さを見ているため)"""
+    if area in SAME_EXEMPT:
+        return None
+    d = os.path.join(root, "evals", area)
+    pat = re.compile(r"^\d{8}-\d{6}%s\.json\Z" % re.escape(suffix))
+    try:
+        names = sorted(n for n in os.listdir(d) if pat.match(n))
+    except OSError:
+        return None
+    if not names:
+        return None
+    path = os.path.join(d, names[-1])
+    prev = read_json(path, None, DOC_BYTES)
+    return path if prev is not None and _plain(prev) == _plain(res) else None
+
+
 def save(res, root, area, suffix="", out=None):
     """結果を <root>/evals/<area>/<日時><suffix>.json に残す(書きかけを残さない)-> パス。
-    suffix = 名前の後ろ(eval_asr = "_<名前>"・eval_speakers の run = "-run")。out = 作業データではなくそのファイルに書く(eval_timing --out)"""
+    suffix = 名前の後ろ(eval_asr = "_<名前>"・eval_speakers の run = "-run")。out = 作業データではなくそのファイルに書く(eval_timing --out)。
+    out が無く、前の結果(previous_same)と中身が同じなら書かずに、その前のファイルのパスを返す(毎晩同じ結果が貯まらない)"""
     if out:
         path = os.path.abspath(out)
     else:
+        same = previous_same(res, root, area, suffix)
+        if same:
+            return same
         path = os.path.join(root, "evals", area, "%s%s.json" % (datetime.datetime.now().strftime("%Y%m%d-%H%M%S"), suffix))
     fsio.write_json(path, res, indent=1)   # フォルダも作る・Windows の一時的なロックは待ってやり直す
     return path
 
 
 def report_saved(res, enabled, root, area, suffix="", out=None):
-    """enabled なら save して、最後の行「保存: <パス>」を出す(入口の accuracy.py がこの行を読む)"""
+    """enabled なら save して、最後の行「保存: <パス>」を出す(入口の accuracy.py がこの行を読む)。
+    前と中身が同じで書かなかったときは、代わりに「変わらず: <前のファイル>」を出す(入口は latest を残して at だけ進める)"""
     if enabled:
-        print("\n" + SAVED_MARK + save(res, root, area, suffix, out))
+        same = None if out else previous_same(res, root, area, suffix)
+        if same:
+            print("\n" + SAME_MARK + same)
+        else:
+            print("\n" + SAVED_MARK + save(res, root, area, suffix, out))
 
 
 def utf8_stdout():
@@ -179,7 +218,7 @@ def load_serve(backend=None, prefix="eval_asr_", keep_env=True):
     - 認識・判別はこのプロセスの中で動かす(IN_WORKER。認識ワーカーを起動しない。GPU の部品の場所はワーカーと同じに整える)
     - スタジオの data.json は、起動したツールと同じ決め方(studio_data_path。--context auto がスタジオの配信のチャンネル名・コラボ相手を読む)
     - serve 自身の作業データ(TRANSCRIBE_DATA_DIR)は一時フォルダ <prefix>…(本物の作業データの横に何も書かない。本物は道具が自分で読む)。
-      一時フォルダはこのプロセスの終わりに消す。keep_env = True なら環境変数は一時フォルダを指したまま(eval_timing・eval_effort はそれを見て先に消す)/
+      一時フォルダはこのプロセスの終わりに消す。keep_env = True なら環境変数は一時フォルダを指したまま(eval_effort はそれを見て先に消す)/
       False なら読み込んだあと元に戻す(このあとの datadir.locate が一時フォルダを指さないように。eval_speakers)
     backend = TRANSCRIBE_BACKEND(fake = 疑似の認識・判別。テストと、採点の関数だけを使うとき)"""
     os.environ.setdefault("YTT_CORE_DIR", REPO)

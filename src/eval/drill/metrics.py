@@ -1,23 +1,20 @@
 # -*- coding: utf-8 -*-
 """④ テストと検証の層 eval/drill: 認識精度の測定(文字誤り率 CER。人が校正済みにした行を正解に、機械の出力 original と比べる)・
-「字幕に出さない」行(noSub)の別集計・同時にしゃべっている所(重なり)の数え方・評価用の基準の記録(eval-baselines.json)。
+「字幕に出さない」行(noSub)の別集計・同時にしゃべっている所(重なり)の数え方。
 
 役割で組み直す RS3-E5c(2026-10-10)に編集の ed_learn(段10 で editor/serve.py から分けた部品)から移した(中身は同じ)。
 機械と人の行の対応づけ(_groups・_prep・split_nosub・_norm)は human/proof/learn、置換辞書は pipeline/transcribe/replace を呼ぶたびに読む
-(④ から ②・① を読む向き。learn はここを読まない)。画面の API(/api/metrics・/api/eval-baselines・/api/eval-baseline)は serve が直に呼び、
+(④ から ②・① を読む向き。learn はここを読まない)。画面の API(/api/metrics)は serve が直に呼び、
 src/eval/tools/eval_asr.py・src/eval/tools/eval_alt.py は serve の名前(S.norm_cer・S.lev_counts・S.doc_metrics など)で読む。
 旧い名前 ed_learn.名前・S.名前 は editor/ed_learn.py(転送だけの殻。serve が _add_moved でここを足す = 殻は eval を読まない。RS5 で消す)と
 serve の受付がここへ回す(テストの S.MAX_LEV_CELLS = … もここに入る)。
 """
 import difflib
 import itertools
-import json
 import re
-import threading
-import time
 import unicodedata
 
-from ytt import errors as _errors, fsio as _fsio, settings as _settings, workdata as _workdata  # noqa: E402
+from ytt import errors as _errors, settings as _settings  # noqa: E402
 from ytt import dictfmt as _dictfmt  # noqa: E402   置換辞書の読み方 parse_replacements・wb_split・_bounded(RS6 a-1 に pipeline/transcribe/replace から)
 from ytt import txtext as _txtext  # noqa: E402   用語集の区切り split_terms(RS2-8a に ed_jobs から roster へ・RS6 a-3 に ytt へ)
 from human.proof import learn  # noqa: E402   機械と人の行の対応づけ(_groups・_prep・split_nosub・_norm。呼ぶたびに learn.名前 で読む)
@@ -109,6 +106,8 @@ def norm_cer(text):
 
 def lev_counts(ref, hyp):
     """(置換, 脱落, 挿入)。ref=正解、hyp=機械の出力。編集距離が最小になる組み合わせで数える。"""
+    if ref == hyp:   # 同じ中身なら編集距離の表を作らない(O4。空どうしもここ)
+        return (0, 0, 0)
     n, m = len(ref), len(hyp)
     if n == 0:
         return (0, 0, m)
@@ -210,8 +209,8 @@ def acc_finish(acc):
     return out
 
 
-def doc_metrics(doc, legacy=False, terms=()):
-    """1件の文字起こしの集計。校正済みの行が無ければ None(legacy=True なら、校正済みの印が無くても、修正のある文書は全行を校正済みとみなして仮計算)。
+def doc_metrics(doc, terms=()):
+    """1件の文字起こしの集計。校正済みの行が無ければ None。
     数える対象: ①機械と人の両方にある まとまり(全行が校正済み) ②機械だけにある まとまり(人が行を消した=挿入の誤り。校正した範囲の中だけ)
     ③人だけにある まとまり(人が足した行=脱落の誤り。全行が校正済み)"""
     terms = tuple(dict.fromkeys(n for n in (norm_cer(t) for t in terms) if n))   # 文字と同じ正規化に(カタカナのままの用語が当たらないため。済みの用語は変わらない)
@@ -226,12 +225,6 @@ def doc_metrics(doc, legacy=False, terms=()):
     if proofed:
         lo, hi = min(g["start"] for g in proofed), max(g["end"] for g in proofed)
         is_ok = lambda g: bool(g.get("proofed")) and "unclear" not in (g.get("tags") or [])
-    elif legacy:
-        if "".join(norm_cer(o.get("text", "")) for o in orig) == "".join(norm_cer(g.get("text", "")) for g in segs):
-            return None   # 修正が無い文書は、見直したのか分からないので数えない
-        basis = "legacy"
-        lo, hi = min(g["start"] for g in segs), max(g["end"] for g in segs)
-        is_ok = lambda g: "unclear" not in (g.get("tags") or [])
     else:
         return None
     acc = new_acc()
@@ -266,7 +259,7 @@ def config_key(d):
     return " / ".join(parts)
 
 
-def all_metrics(tid=None, legacy=False, scope="all"):
+def all_metrics(tid=None, scope="all"):
     terms = metric_terms()
     tids = [tid] if tid else sorted(store._tids())
     total, by_cfg, rows = new_acc(), {}, []
@@ -282,7 +275,7 @@ def all_metrics(tid=None, legacy=False, scope="all"):
         n = sum(1 for g in d.get("segments") or [] if isinstance(g, dict) and g.get("proofed"))
         proofed_lines += n
         docs_proofed += 1 if n else 0
-        m = doc_metrics(d, legacy, terms)
+        m = doc_metrics(d, terms)
         if not m:
             continue
         cfg = config_key(d)
@@ -294,33 +287,5 @@ def all_metrics(tid=None, legacy=False, scope="all"):
         row.update({"id": t, "title": str(d.get("title") or "")[:60], "config": cfg})
         row.pop("worst", None)
         rows.append(row)
-    return {"scope": scope if not tid else "doc", "legacy": bool(legacy), "docs": docs, "docsProofed": docs_proofed, "proofedLines": proofed_lines, "overall": acc_finish(total),
+    return {"scope": scope if not tid else "doc", "docs": docs, "docsProofed": docs_proofed, "proofedLines": proofed_lines, "overall": acc_finish(total),
             "byConfig": sorted(({"config": k, **acc_finish(v)} for k, v in by_cfg.items()), key=lambda x: x["config"]), "byDoc": rows, "termCount": len(terms)}
-
-
-# ---------- 評価用の基準の記録 ----------
-# 置き場所は ytt/workdata の EVAL_BASE(作業データの eval-baselines.json。RS3-0A に ed_learn から移した = serve.set_data_dir が作り直す)
-_base_lock = threading.Lock()
-
-
-def read_baselines():
-    return _fsio.read_json_or(_workdata.EVAL_BASE, [], kind=list)
-
-
-def record_baseline(label):
-    """評価用の文書の、いまの成績を記録する(施策の前後で比べるため)。評価用が無い・校正済みが無いときは断る。"""
-    m = all_metrics(None, False, "eval")
-    o = m["overall"]
-    if not m["docs"]:
-        raise _errors.ApiError("no_eval", "評価用の文字起こしがありません(画面の「評価用にする」で印を付けてください)", 400)
-    if not o.get("groups"):
-        raise _errors.ApiError("no_proofed", "評価用に校正済みの行がまだありません", 400)
-    st = _settings.load_settings()
-    rec = {"at": int(time.time() * 1000), "label": str(label or "")[:80], "docs": m["docs"], "cer": o["cer"], "refChars": o["refChars"], "sub": o["sub"], "del": o["del"], "ins": o["ins"],
-           "configs": [{"config": c["config"], "cer": c["cer"], "refChars": c["refChars"]} for c in m["byConfig"]][:6],
-           "dict": len(_dictfmt.parse_replacements(st.get("replacements"))), "glossaryChars": len(str(st.get("glossary") or ""))}
-    with _base_lock:
-        items = read_baselines()
-        items.append(rec)
-        _fsio.atomic_write(_workdata.EVAL_BASE, json.dumps(items[-100:], ensure_ascii=False, indent=1).encode("utf-8"), fsync_required=True)
-    return rec

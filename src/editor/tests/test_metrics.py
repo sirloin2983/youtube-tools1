@@ -79,6 +79,19 @@ class TestPure(unittest.TestCase):
             self.assertEqual(s + d + i, lev(a, b), (a, b))
             self.assertEqual(len(b), len(a) - d + i, (a, b))   # 正解 - 脱落 + 挿入 = 機械の長さ
 
+    def test_lev_counts_same_text_shortcut(self):
+        for t in ("", "a", "あいうえお", "ｱﾞ😀é", "x" * 5000):
+            self.assertEqual(S.lev_counts(t, t), (0, 0, 0))
+        self.assertEqual(S.lev_counts("あいう" * 3, "".join(["あ", "い", "う"] * 3)), (0, 0, 0))   # 別のオブジェクトの同じ中身
+        self.assertEqual(S.lev_counts("あいう", "あいえ"), (1, 0, 0))                                # 一字違いは表で数える
+        self.assertEqual(S.lev_counts("😀a", "😀b"), (1, 0, 0))
+        old = S.MAX_LEV_CELLS
+        S.MAX_LEV_CELLS = 1
+        try:
+            self.assertEqual(S.lev_counts("あいうえお", "あいうえお"), (0, 0, 0))                   # 近似の上限より長くても同じなら即返す
+        finally:
+            S.MAX_LEV_CELLS = old
+
     def test_lev_counts_approx_fallback(self):
         old = S.MAX_LEV_CELLS
         S.MAX_LEV_CELLS = 10
@@ -213,9 +226,7 @@ class TestPure(unittest.TestCase):
         orig = [{"start": 0, "end": 2, "text": "あ"}]
         self.assertIsNone(S.doc_metrics({"original": orig, "segments": [seg(1, 0, 2, "い")]}))                       # 校正済みなし
         self.assertIsNone(S.doc_metrics({"original": [], "segments": [seg(1, 0, 2, "い", True)]}))                 # 機械の出力なし
-        self.assertIsNone(S.doc_metrics({"original": orig, "segments": [seg(1, 0, 2, "あ")]}, legacy=True))        # 旧データで修正なし
-        m = S.doc_metrics({"original": orig, "segments": [seg(1, 0, 2, "い")]}, legacy=True)
-        self.assertEqual((m["basis"], m["sub"]), ("legacy", 1))
+        self.assertIsNone(S.doc_metrics({"original": orig, "segments": [seg(1, 0, 2, "い")]}))                       # 校正済みの印が無ければ、修正があっても数えない(旧データの仮計算は消した)
 
     def test_terms_hit_and_extra(self):
         orig = [{"start": 0, "end": 2, "text": "トゥー様とホロライブ"}, {"start": 2, "end": 4, "text": "陽キャだよ"}]

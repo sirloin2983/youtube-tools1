@@ -5,7 +5,7 @@
     py -3.10 -m unittest src/editor/tests/test_proof_api.py   # これだけ
 
 - 学習の候補 GET /api/learned(human/proof/learn.py。評価用は数えない・登録済みは出さない)  旧 e2e_eval_set.py
-- 精度の測定 all_metrics の scope と基準の記録(eval/drill/metrics.py)                        旧 e2e_eval_set.py
+- 精度の測定 all_metrics の scope(eval/drill/metrics.py)                        旧 e2e_eval_set.py
 - 範囲の再認識 mode=range(human/proof/rerun.py・doc_jobs.validate_retranscribe)               旧 e2e_folder_marker_range.py
 - 文書の削除で横のファイルが全部消える・配信ごとの ytcaps は残る(serve の _delete)            旧 e2e_ui_handoff.py ほか
 - 話者の色の整形(sanitize_transcript。CSS を差し込めない)                                   旧 e2e_ui_handoff.py
@@ -68,12 +68,11 @@ def start_serve(tmp, port, runtime):
 
 
 class _ProofStore(StoreDir):
-    """作業データを一時フォルダに。学習の記録・基準の記録・文書の要約のキャッシュもテストごとに空に"""
+    """作業データを一時フォルダに。学習の記録・文書の要約のキャッシュもテストごとに空に"""
 
     def setUp(self):
         super().setUp()
-        self.patches = [mock.patch.object(S, "FEEDBACK", os.path.join(self.tmp, "learn-feedback.json")),
-                        mock.patch.object(S, "EVAL_BASE", os.path.join(self.tmp, "eval-baselines.json"))]
+        self.patches = [mock.patch.object(S, "FEEDBACK", os.path.join(self.tmp, "learn-feedback.json"))]
         for p in self.patches:
             p.start()
         learn._info_cache.clear()
@@ -133,8 +132,8 @@ class TestLearnedCandidates(_ProofStore):
         self.assertEqual(len(S._learned(q("x"))["items"]), 1)   # 数でなければ 1
 
 
-class TestMetricsScopeAndBaseline(_ProofStore):
-    """旧 e2e_eval_set.py 110-119: 精度の測定の対象(評価用のみ / 学習用のみ)と基準の記録"""
+class TestMetricsScope(_ProofStore):
+    """旧 e2e_eval_set.py 110-119: 精度の測定の対象(評価用のみ / 評価用でない)"""
 
     def setUp(self):
         super().setUp()
@@ -153,29 +152,6 @@ class TestMetricsScopeAndBaseline(_ProofStore):
         self.assertEqual(S._metrics(q(scope="でたらめ"))["scope"], "all")                              # 知らない scope は all
         one = S._metrics(q(id=TID_A))                                                                  # id 指定は scope に関わらず 1 本
         self.assertEqual((one["scope"], one["docs"]), ("doc", 1))
-
-    def test_record_baseline_and_read_back(self):
-        self.assertEqual(S.read_baselines(), [])
-        b0 = S.record_baseline("基準")
-        self.assertIn("cer", b0)
-        self.assertEqual((b0["label"], b0["docs"]), ("基準", 1))
-        items = S.read_baselines()
-        self.assertEqual([i["label"] for i in items], ["基準"])
-        self.assertEqual(items[-1]["cer"], b0["cer"])
-        S.record_baseline("x" * 200)
-        self.assertEqual(len(S.read_baselines()), 2)
-        self.assertEqual(len(S.read_baselines()[-1]["label"]), 80)                  # ラベルは 80 字まで
-
-    def test_baseline_needs_eval_docs_and_proofed_rows(self):
-        self.put_doc(fixed_doc(TID_C), TID_C)                                       # 評価用の印を外す(フォルダの外なので外せる)
-        with self.assertRaises(S.ApiError) as c:
-            S.record_baseline("x")
-        self.assertEqual((c.exception.code, c.exception.status), ("no_eval", 400))
-        self.put_doc(fixed_doc(TID_C, eval_set=True, proofed=False), TID_C)        # 評価用はあるが校正済みの行が無い
-        with self.assertRaises(S.ApiError) as c:
-            S.record_baseline("x")
-        self.assertEqual((c.exception.code, c.exception.status), ("no_proofed", 400))
-        self.assertEqual(S.read_baselines(), [])                                    # 断ったときは記録しない
 
 
 class TestSanitizeSpeakerColor(unittest.TestCase):

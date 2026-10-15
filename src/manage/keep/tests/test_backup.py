@@ -46,11 +46,11 @@ class BackupTest(unittest.TestCase):
         put(os.path.join(self.src, "studio", "data.json"), '{"v": 1}')
         put(os.path.join(self.src, "studio", "config.json"), "{}")
         put(os.path.join(self.src, "cut2resolve", "packs", "p.json"), "{}")
-        # 写す(作り直しに Visual Studio が要る whisper.cpp と、作り直せない評価用の音声)
+        # 写す(作り直しに Visual Studio が要る whisper.cpp)
         put(os.path.join(self.src, "transcribe", "bin", "whisper.cpp-v1-vulkan", "whisper-cli.exe"), "exe")
         put(os.path.join(self.src, "transcribe", "bin", "whisper.cpp-v1-vulkan", "build", "bin", "x.dll"), "dll")
-        put(os.path.join(self.src, "transcribe", "eval-audio", "a.flac"), "flac")
         # 写さないもの
+        put(os.path.join(self.src, "transcribe", "eval-audio", "a.flac"), "flac")   # 評価用の音声は元の配信から作り直せる(2026-10-15 に外した)
         put(os.path.join(self.src, "studio", "cache", "chat", "big.json"), "x" * 100)
         put(os.path.join(self.src, "studio", "studio.log"), "log")
         put(os.path.join(self.src, "transcribe", "models", "diar", "m.onnx"), "model")
@@ -72,18 +72,17 @@ class BackupTest(unittest.TestCase):
         r = backup.run_once(self.src, self.dst)
         self.assertEqual(self.files(), ["cut2resolve/packs/p.json", "studio/config.json", "studio/data.json",
                                         "transcribe/bin/whisper.cpp-v1-vulkan/build/bin/x.dll", "transcribe/bin/whisper.cpp-v1-vulkan/whisper-cli.exe",
-                                        "transcribe/eval-audio/a.flac",
                                         "transcribe/transcripts/.hist/a/1.json", "transcribe/transcripts/a.json", "transcribe/voices/voxceleb.json"])
-        self.assertEqual((r["copied"], r["same"], r["errors"]), (9, 0, []))
+        self.assertEqual((r["copied"], r["same"], r["errors"]), (8, 0, []))
         self.assertEqual(read(os.path.join(self.dst, backup.DEST_NAME, "transcribe", "transcripts", "a.json")), "文書 1")
 
     def test_second_run_copies_only_changes_and_keeps_one_previous(self):
         backup.run_once(self.src, self.dst)
         r = backup.run_once(self.src, self.dst)
-        self.assertEqual((r["copied"], r["same"]), (0, 9))
+        self.assertEqual((r["copied"], r["same"]), (0, 8))
         put(os.path.join(self.src, "studio", "data.json"), '{"v": 2, "more": true}')
         r = backup.run_once(self.src, self.dst)
-        self.assertEqual((r["copied"], r["same"]), (1, 8))
+        self.assertEqual((r["copied"], r["same"]), (1, 7))
         d = os.path.join(self.dst, backup.DEST_NAME, "studio")
         self.assertEqual((read(os.path.join(d, "data.json")), read(os.path.join(d, "data.json.prev"))), ('{"v": 2, "more": true}', '{"v": 1}'))
         # 同じ日の2回目の上書きでは、1つ前(その日の最初の形)を残したまま
@@ -128,7 +127,7 @@ class BackupTest(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.src, "studio", backup.DEST_NAME)))
         self.assertTrue(backup._overlaps(os.path.join(self.src, "x"), self.src))
         self.assertFalse(backup._overlaps(self.src + "2", self.src))   # 名前の頭だけ同じ別のフォルダは重ならない
-        self.assertEqual(backup.run_once(self.src, self.dst)["copied"], 9)
+        self.assertEqual(backup.run_once(self.src, self.dst)["copied"], 8)
 
     def test_state_file_roundtrip_and_broken(self):
         """最後に写した記録(backup-state.json): 1 行の JSON で原子的に書く・壊れた・大きすぎる・dict でない記録は「記録なし」"""
@@ -164,16 +163,16 @@ class BackupTest(unittest.TestCase):
         self.assertEqual((b.state, b.snapshot()["enabled"]), ("off", False))
         self.prefs.patch("backup", {"enabled": True, "folder": self.dst, "everyHours": 24})
         r = b.tick()
-        self.assertEqual((r["copied"], b.state), (9, "idle"))
+        self.assertEqual((r["copied"], b.state), (8, "idle"))
         s = b.snapshot()
-        self.assertEqual((s["lastOk"], s["copied"], s["stateLabel"], s["folder"]), (1000000000, 9, "動いています", self.dst))
-        self.assertTrue(any("9 個を写しました" in m for m in logs))
+        self.assertEqual((s["lastOk"], s["copied"], s["stateLabel"], s["folder"]), (1000000000, 8, "動いています", self.dst))
+        self.assertTrue(any("8 個を写しました" in m for m in logs))
         now[0] += 3600
         self.assertIsNone(b.tick())               # まだ時間が来ていない
         b.run_now()
         self.assertEqual(b.tick()["copied"], 0)   # 「今すぐ」は時間によらない
         now[0] += 24 * 3600
-        self.assertEqual(b.tick()["same"], 9)
+        self.assertEqual(b.tick()["same"], 8)
         # 起動し直しても、最後に写した時刻を覚えている
         b2, _ = self.make(lambda: now[0] + 60)
         self.assertIsNone(b2.tick())
@@ -181,7 +180,7 @@ class BackupTest(unittest.TestCase):
         # 写す先を変えたら、時間によらず写す
         other = os.path.join(self.tmp, "別の先")
         self.prefs.patch("backup", {"folder": other})
-        self.assertEqual(b2.tick()["copied"], 9)
+        self.assertEqual(b2.tick()["copied"], 8)
 
     def test_tick_reports_bad_place_and_inplace(self):
         b, _ = self.make(lambda: 5.0)
@@ -226,7 +225,7 @@ class BackupTest(unittest.TestCase):
             put(path, text)
             os.utime(path, (at, at))
 
-        self.assertEqual(b.tick()["copied"], 9)
+        self.assertEqual(b.tick()["copied"], 8)
         now[0] += 60
         self.assertIsNone(b.tick())                       # 変わっていない
         touch(a_json, "校正 2", now[0] - 30)              # 30 秒前に保存
@@ -236,7 +235,7 @@ class BackupTest(unittest.TestCase):
         self.assertIsNone(b.tick())
         now[0] += backup.QUIET
         r = b.tick()                                      # 最後の保存から 120 秒以上 → 間隔(24 時間)の前でも写す
-        self.assertEqual((r["copied"], r["same"]), (1, 8))
+        self.assertEqual((r["copied"], r["same"]), (1, 7))
         self.assertEqual(read(os.path.join(self.dst, backup.DEST_NAME, "transcribe", "transcripts", "a.json")), "校正 3")
         self.assertIsNone(b.tick())                       # 写したあとは、また変わるまで写さない
         # 写すたびに書き換わる記録・対象外のファイルの更新では写さない
@@ -270,11 +269,11 @@ class BackupTest(unittest.TestCase):
         r = b.tick()                                      # 古い更新時刻のままでも、写せなかった分は静かになってからもう一度
         self.assertEqual((r["copied"], r["errors"]), (1, []))
 
-    def test_whisper_bin_only_and_eval_audio(self):
+    def test_whisper_bin_only_and_no_eval_audio(self):
         names = [rel.replace("\\", "/") for rel, _, _ in backup.plan(self.src)]
         self.assertIn("transcribe/bin/whisper.cpp-v1-vulkan/whisper-cli.exe", names)
         self.assertIn("transcribe/bin/whisper.cpp-v1-vulkan/build/bin/x.dll", names)
-        self.assertIn("transcribe/eval-audio/a.flac", names)
+        self.assertNotIn("transcribe/eval-audio/a.flac", names)
         self.assertFalse([n for n in names if n.startswith("transcribe/bin/") and "whisper.cpp-" not in n])
         self.assertFalse([n for n in names if "/models/" in n or n.startswith("studio/bin/")])
 
@@ -309,7 +308,7 @@ class BackupTest(unittest.TestCase):
         self.assertEqual(cases, ["cases/題名A/作業用/.bak/0123456789ab.pre-fill.json", "cases/題名A/作業用/.hist/0123456789ab/1700000000000.json",
                                  "cases/題名A/作業用/.studio-id", "cases/題名A/作業用/a.clip.json", "cases/題名A/作業用/a.edit.json",
                                  "cases/題名A/作業用/a.tx.key.json", "cases/題名A/作業用/runs/r1.json"])
-        self.assertEqual((r["copied"], r["errors"]), (9 + 7, []))
+        self.assertEqual((r["copied"], r["errors"]), (8 + 7, []))
         self.assertEqual(backup.run_once(self.src, self.dst, out_dir=out)["copied"], 0)
         self.assertEqual(backup.run_once(self.src, self.dst, out_dir=os.path.join(self.tmp, "無い"))["errors"], [])   # 無い outDir は何もしない
         self.assertEqual(backup.run_once(self.src, self.dst)["copied"], 0)

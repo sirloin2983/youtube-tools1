@@ -11,6 +11,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
@@ -73,6 +74,54 @@ class TestSave(unittest.TestCase):
             with open(out, encoding="utf-8") as f:
                 self.assertEqual(json.load(f), {"b": 1})
             self.assertEqual(os.listdir(os.path.join(root, "evals", "demo")), [os.path.basename(path)])   # enabled=False は書かない
+
+
+class TestSaveUnchanged(unittest.TestCase):
+    """前の結果と中身(時刻・git・かかった秒を除く)が同じなら書かずに「変わらず: <前のファイル>」(夜の測定が毎晩同じ結果を貯めない)"""
+
+    def res(self, v=1, at=1, git="aaa"):
+        return {"meta": {"at": at, "git": git, "n": [{"sec": 1.5, "x": v}]}, "v": v}
+
+    def test_same_content_is_not_written(self):
+        with tempfile.TemporaryDirectory() as root:
+            p1 = C.save(self.res(), root, "demo")
+            time.sleep(1.1)   # 名前は秒まで = 書くなら別の名前になる
+            self.assertEqual(C.save(self.res(at=2, git="bbb"), root, "demo"), p1)   # at・git・sec だけ違う = 同じ
+            self.assertEqual(len(os.listdir(os.path.dirname(p1))), 1)
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                C.report_saved(self.res(at=3), True, root, "demo")
+            self.assertEqual(buf.getvalue(), "\n" + C.SAME_MARK + p1 + "\n")
+            time.sleep(1.1)
+            p2 = C.save(self.res(v=2), root, "demo")                                  # 中身が違えば書く
+            self.assertNotEqual(p2, p1)
+            self.assertEqual(len(os.listdir(os.path.dirname(p1))), 2)
+            self.assertIsNone(C.previous_same(self.res(v=1), root, "demo"))           # 比べるのは最新(p2)だけ
+
+    def test_suffix_out_and_marks_are_not_deduped(self):
+        with tempfile.TemporaryDirectory() as root:
+            a = C.save(self.res(), root, "demo", "_x")
+            self.assertIsNone(C.previous_same(self.res(), root, "demo", "-run"))       # 別の suffix は別の系列
+            self.assertEqual(C.previous_same(self.res(), root, "demo", "_x"), a)
+            out = os.path.join(root, "o.json")
+            self.assertEqual(C.save(self.res(), root, "demo", "_x", out=out), os.path.abspath(out))   # --out は必ず書く
+            m1 = C.save(self.res(), root, "marks")
+            time.sleep(1.1)
+            m2 = C.save(self.res(), root, "marks")                                      # marks は対象外(home/autorun.py が最新の名前の日時を見る)
+            self.assertNotEqual(m1, m2)
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                C.report_saved(self.res(), True, root, "marks")
+            self.assertIn(C.SAVED_MARK, buf.getvalue())
+
+    def test_unreadable_previous_gets_a_new_file(self):
+        with tempfile.TemporaryDirectory() as root:
+            d = os.path.join(root, "evals", "demo")
+            os.makedirs(d)
+            with open(os.path.join(d, "20260101-000000.json"), "w") as f:
+                f.write("{壊れている")
+            self.assertTrue(C.save(self.res(), root, "demo").endswith(".json"))
+            self.assertEqual(len(os.listdir(d)), 2)
 
 
 class TestReadJson(unittest.TestCase):

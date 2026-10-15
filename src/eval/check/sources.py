@@ -128,7 +128,7 @@ class View:
         try:
             return bool(isinstance(src, str) and src and settings.in_eval_dir(src, self.eval_dirs()))
         except Exception:
-            return False
+            return True   # 判定が例外のときは評価用として扱う(出さない側。印の無い評価用の動画を、読みのカードの答えとして学習の記録へ入れない。OPT-E1 3e-1)
 
     # ---- 文字起こしの文書(評価用は外す)
     def docs(self):
