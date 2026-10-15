@@ -84,7 +84,7 @@ class TestBuild(Base):
         latest = rd(os.path.join(self.root, "latest.json"))
         self.assertEqual((latest["version"], latest["dir"]), (r["version"], r["version"]))
         settings = rd(os.path.join(r["dir"], "settings.json"))
-        self.assertEqual(settings, {"replacements": "a=>b", "glossary": "ぺこら"})   # 他の項目(モデル・評価用フォルダ)は入れない
+        self.assertEqual(settings, {"glossary": "ぺこら"})   # 他の項目(モデル・評価用フォルダ)と、今はオフの人の置換辞書(dictfmt.USER_DICT)は入れない
 
     def test_corrupt_file_is_detected(self):
         r = self.build()
@@ -113,7 +113,7 @@ class TestBuild(Base):
     def test_changed_makes_new_version_and_keeps_three(self):
         seen = [self.build()["version"]]
         for i in range(4):
-            jwrite(os.path.join(self.data, "settings.json"), {"replacements": "a=>b%d" % i})
+            jwrite(os.path.join(self.data, "settings.json"), {"glossary": "語%d" % i})
             r = self.build(now=1_800_000_000 + 100 * (i + 1))
             self.assertTrue(r["created"])
             seen.append(r["version"])

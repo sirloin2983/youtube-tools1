@@ -1396,6 +1396,11 @@
         return d.label + ' ' + fmtBytes(d.bytes) + '(' + d.files + ' ファイル' + (top ? '。' + top : '') + ')';
       });
       ul.appendChild(healthRow(h.data.bytes > 50 * GB ? 'warn' : 'ok', '作業データ ' + fmtBytes(h.data.bytes), h.data.root ? h.data.root : '(各ツールのフォルダの中)', subs));
+      // 作業データの外(書き出し先など)は別の行。注意の線は付けない(空き容量の行が警告する。opt-manage 8b-2)
+      (h.data.outside || []).forEach(function (d) {
+        var top = (d.items || []).slice(0, 6).map(function (i) { return i.name + ' ' + fmtBytes(i.bytes); });
+        ul.appendChild(healthRow('ok', d.label + ' ' + fmtBytes(d.bytes), d.path, top));
+      });
     } else ul.appendChild(healthRow('warn', '作業データ', '大きさを数えています…'));
     // エラーの件数
     var e = h.errors || {};

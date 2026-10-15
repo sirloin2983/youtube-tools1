@@ -23,7 +23,7 @@
       { "id": "backup", "title": "作業データのバックアップ", "hint": "作業データ(文字起こし・案件・設定)を別のドライブへ写します。「今すぐ写す」と最後に写した時刻はホームの「バックアップ」で。", "items": [
         { "key": "backup.enabled", "type": "bool", "label": "自動でバックアップする", "default": false, "hint": "写す先のフォルダを決めてからオンにします。" },
         { "key": "backup.folder", "type": "folder", "label": "写す先のフォルダ", "default": "", "placeholder": "例: D:\\backup", "maxlength": 260, "hint": "作業データとは別のドライブのフォルダ。その中の youtube-tools-data に写します。API キーの設定も写るので、共有のフォルダやクラウドのフォルダは避けてください。" },
-        { "key": "backup.everyHours", "type": "int", "label": "間隔", "default": 1, "min": 1, "max": 168, "unit": "時間" }
+        { "key": "backup.everyHours", "type": "int", "label": "間隔", "default": 24, "min": 1, "max": 168, "unit": "時間" }
       ] },
       { "id": "accuracy", "title": "精度の自動測定", "hint": "校正が済んだ文書で、文字起こしの精度を夜に 1 日 1 回測ります(読むだけで軽い)。結果はホームの「調子」。", "items": [
         { "key": "accuracy.enabled", "type": "bool", "label": "自動で測る", "default": true },

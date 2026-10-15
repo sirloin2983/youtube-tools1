@@ -27,7 +27,7 @@ class BackupPrefsTest(unittest.TestCase):
 
     def test_prefs_shape(self):
         p = prefs_mod.Prefs(os.path.join(self.tmp, "p.json"), fsio.atomic_write)
-        self.assertEqual(p.get(["backup"])["backup"], {"enabled": False, "folder": "", "everyHours": 1})
+        self.assertEqual(p.get(["backup"])["backup"], {"enabled": False, "folder": "", "everyHours": 24})
         for bad in ({"enabled": True}, {"folder": "\\\\srv\\share"}, {"folder": "rel"}, {"everyHours": 0}, {"everyHours": 1.5}, {"everyHours": True}):
             with self.assertRaises(prefs_mod.PrefsError, msg=bad):
                 p.patch("backup", bad)

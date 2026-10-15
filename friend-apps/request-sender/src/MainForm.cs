@@ -1,6 +1,6 @@
 // 画面(2.1.0。設計: notes:docs/spec/friend.md の 2-10・notes:docs/spec/friend.md)
 //   上の帯: 「送る」「受け取る ●n」・右上に配色の札(A〜D)
-//   送る: 左 = 01 送るもの(配信の URL のカード / 動画ファイル / ライブ配信(2.8.0))、右 = 02 仕上げ方(届け方も)・03 配信者とメモ(配信者 = 名前のプルダウン + 字幕の色)、下 = 要約・進み具合・「送る」
+//   送る: 左 = 01 送るもの(配信の URL のカード / 動画ファイル / ライブ配信(2.8.0))、右 = 02 仕上げ方(届け方も)・03 配信者(配信者 = 名前のプルダウン + 字幕の色)、下 = 要約・進み具合・「送る」
 //   受け取る: MainForm.Receive.cs
 //   この PC で処理する(F1 の F3a。② を子プロセスで・進み具合・× の 3 択・処理する PC の切り替え): Progress.cs・Backend.cs・Bundle.cs
 using System;
@@ -56,7 +56,7 @@ namespace RequestSender
         readonly Lbl fileNote = new Lbl("", Tone.Error);
         List<string> memberNames = new List<string>();
 
-        // 右: 仕上げ方・話す人・メモ
+        // 右: 仕上げ方・話す人
         readonly VStack right = new VStack { OnPanel = true, Border = true };
         readonly Lbl flowExplain = new Lbl("", Tone.Muted);
         readonly Lbl lCut = new Lbl("カット", Tone.Text), lTracks = new Lbl("映像トラックの数", Tone.Text), tracksHint = new Lbl("", Tone.Muted);
@@ -81,9 +81,6 @@ namespace RequestSender
         readonly Lbl speakerHint = new Lbl("配信者を入れると、PC が話者を分けて名前を付けます。色は 6 桁のカラーコード(# なし。例: FF00AA)。空ならメンバーカラー(一覧に無い名前は色なし)です。", Tone.Muted);
         readonly Lbl speakerProblem = new Lbl("", Tone.Error);
         bool speakerStrict;   // 「送る」を押したあとは、誤りを入力のたびに見直す(打っている途中は急かさない)
-        readonly Lbl lMemo = new Lbl("メモ(任意。送り先の人が読みます)", Tone.Muted);
-        readonly TextBox memo = new TextBox();
-        Field memoField;
 
         // 下の帯
         readonly Pane bottom = new Pane { OnPanel = true };
@@ -308,10 +305,10 @@ namespace RequestSender
             right.Add(weightsHint, 4, true);
         }
 
-        // 右: 03 配信者・メモ(配信者の数と行・メモ)
+        // 右: 03 配信者(配信者の数と行)
         void BuildSpeakerSection()
         {
-            right.Add(new SectionHead("03", "配信者・メモ"), 14, true);
+            right.Add(new SectionHead("03", "配信者"), 14, true);
             speakerCount = new Stepper(0, Speakers.MaxCount, 0, Ui.S(84), "配信者の数");
             speakerCount.Format = v => v == 0 ? "指定しない" : v + " 人";
             speakerCount.Show_();
@@ -342,25 +339,13 @@ namespace RequestSender
             }
             right.Add(namesPane, 6, true);
             namesPane.AutoScroll = true;
-            right.Shrink = namesPane;
-            right.ShrinkMin = SpeakerRowsHeight(2) + Ui.S(18);   // 2 行と 3 行目の半分(続きがあると分かる)
-            right.ShrinkSlack = Ui.S(15);                         // 行の半分より小さいはみ出しでは縮めない
+            right.Shrink = namesPane;   // 行の入れ物の高さは右の列が決める(Fill は無いので、縮めずに中身の高さにする)
             namesPane.Resize += (s, e) => { if (built) UpdateSpeakerView(); };
             speakerProblem.Font = Theme.Small;
             right.Add(speakerProblem, 4, true);
             right.SetShown(speakerProblem, false);
             speakerHint.Font = Theme.Small;
             right.Add(speakerHint, 4, true);
-            lMemo.Font = Theme.Small;
-            right.Add(lMemo, 10, false);
-            memo.Multiline = true;
-            memo.ScrollBars = ScrollBars.Vertical;
-            memo.AcceptsReturn = true;
-            memo.MaxLength = 2000;
-            memo.AccessibleName = "メモ";
-            memoField = new Field(memo);
-            right.Add(memoField, 4, true);
-            right.Fill = memoField;
         }
 
         // 下の帯: 要約・進み具合・「送る」
@@ -893,7 +878,7 @@ namespace RequestSender
         bool fakeBusy;   // 画面の確認(--state busy)
         bool Busy { get { return fakeBusy || (worker != null && worker.IsAlive); } }
 
-        // Ctrl+Enter = 「送る」(送るの画面で、送っている途中でないとき。どの欄からでも。メモの欄でも改行にしない)
+        // Ctrl+Enter = 「送る」(送るの画面で、送っている途中でないとき。どの欄からでも)
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
             if (keyData == (Keys.Control | Keys.Enter) && tabSend.On)
@@ -954,7 +939,6 @@ namespace RequestSender
             {
                 Videos = files.Items.Cast<string>().ToList(),
                 Items = items,
-                Memo = memo.Text.Trim(),
                 People = CurrentSpeakers(),
                 Flow = flow,
                 VideoTracks = tracks.Value,
@@ -992,7 +976,6 @@ namespace RequestSender
             var input = new SendInput
             {
                 Live = new LiveRequest { Url = YouTubeUrl.Normalize(liveCard.VideoId), Settings = liveCard.Settings },
-                Memo = memo.Text.Trim(),
                 People = CurrentSpeakers(),
                 Flow = Flow.Auto,
                 VideoTracks = tracks.Value,
@@ -1101,7 +1084,6 @@ namespace RequestSender
             {
                 files.Items.Clear();
                 fileNote.Text = "";
-                memo.Clear();
                 speakerCount.Value = 0;
                 foreach (var c in speakerNames) c.Text = "";
                 foreach (var c in speakerColors) c.Text = "";
@@ -1125,7 +1107,6 @@ namespace RequestSender
             addCard.Enabled = !busy && cards.Count < MaxCards;
             foreach (var c in cards) c.SetBusy(busy);
             liveCard.SetBusy(busy);
-            memo.ReadOnly = busy;
             foreach (var c in speakerNames) c.Enabled = !busy;   // プルダウンには ReadOnly が無い
             foreach (var c in speakerColors) c.ReadOnly = busy;
             speakerCount.Enabled = tracks.Enabled = deliver.Enabled = !busy;
@@ -1245,7 +1226,6 @@ namespace RequestSender
             speakerNames[0].Text = memberNames.Count > 0 ? memberNames[0] : "配信者 A";
             speakerNames[1].Text = "ゲストの人";
             speakerColors[1].Text = "19D3F3";
-            memo.Text = "2本目は後半の所をお願いします";
             SetArrived(1, false);
             ArrangeCards();
             UpdateAll();

@@ -65,6 +65,7 @@ def main():
     put(os.path.join(data, "studio", "data.json"), "{}")
     put(os.path.join(data, "studio", "cache", "chat.json"), "x" * 50)
     srv.backup.source = data          # inplace のテストでは None(写さない)なので、一時フォルダを作業データに見立てる
+    srv.backup.media_dirs = None      # 評価用・学習用の動画(編集の設定の本物のフォルダ)は写さない
     srv.backup.first_wait = 0.2
     srv.backup.start()
     th = threading.Thread(target=srv.serve_forever, daemon=True)

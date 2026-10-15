@@ -171,10 +171,15 @@ class TestDictVersion(StoreDir):
         self.assertTrue(a.get("roster"))
         with open(S.SETTINGS, "w", encoding="utf-8") as f:
             json.dump({"replacements": "ぺこら=>ぺこら\nとわ様=>トワ様"}, f, ensure_ascii=False)
-        r1 = S.dict_version({"autoDict": True})["replacements"]
+        from ytt import dictfmt
+        r0 = S.dict_version({"autoDict": True})["replacements"]
+        with patch.object(dictfmt, "USER_DICT", True):
+            r1 = S.dict_version({"autoDict": True})["replacements"]
         with open(S.SETTINGS, "w", encoding="utf-8") as f:
             json.dump({"replacements": "とわ様=>トワ様"}, f, ensure_ascii=False)
-        self.assertNotEqual(r1, S.dict_version({"autoDict": True})["replacements"])          # 辞書を変えたら版が変わる
+        self.assertEqual(r0, S.dict_version({"autoDict": True})["replacements"])             # 人の置換辞書が今はオフ(10-14)= 変えても版は同じ(名簿の表だけ)
+        with patch.object(dictfmt, "USER_DICT", True):
+            self.assertNotEqual(r1, S.dict_version({"autoDict": True})["replacements"])      # オンなら辞書を変えたら版が変わる
         self.assertIn("learned", S.dict_version({"autoLearned": True}))
 
     def test_recognition_run_has_dict(self):

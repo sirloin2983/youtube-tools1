@@ -127,7 +127,7 @@ from flow import machine as machine_mod  # noqa: E402  (この PC の設定。�
 from flow import runqueue as queue_mod  # noqa: E402  (② の待ち行列。submit の版違い・束の形の例外 = 400 spec_version・bad_spec。F1 F0-1)
 from flow import learning as learning_mod  # noqa: E402  (学習データの読み手。machine の learningDir があるとき入口の文字起こしもそこから読む。F1 F6a)
 from flow import outbox as outbox_mod  # noqa: E402  (送り返しの zip。画面なしで依頼の実行が終わるたびに組む・GET /api/flow/outbox。F1 F6a)
-from manage.keep import learnpack as learnpack_mod  # noqa: E402  (学習の束を <依頼の受付のフォルダ>/学習 に置く。起動時と 1 時間ごと。F1 F6a)
+from manage.keep import learnpack as learnpack_mod  # noqa: E402  (学習の束を <依頼の受付のフォルダ>/学習 に置く。起動時と 1 日ごと。F1 F6a)
 from ytt import colors as colors_mod, datadir, docloc, fsio, httpsec, jobs, layout, runtime, tools, version as _version  # noqa: E402
 import mount as mount_mod  # noqa: E402  (src/home/mount.py: 統合サーバーへのツールの取り込み)
 import autorun as autorun_mod
@@ -177,7 +177,7 @@ HEADLESS_NO_RESTART = "画面なしのホームは起動し直せません(起�
 PARENT_POLL = 2.0          # 親の見張り: Windows 以外で親の生死を見る間隔(秒。Windows は WaitForSingleObject で待つ)
 MACHINE_PUT_FIELDS = ("device", "llmModel", "caseRoot", "diskMinGB", "learningDir")   # PUT /api/flow/machine で変えられる項目(F1 の 1-2 の口)
 LEARNPACK_DIR = "学習"          # 学習の束の置き場所 <依頼の受付のフォルダ>/学習(F1 の 3 の (f1c))
-LEARNPACK_FIRST, LEARNPACK_EVERY = 60.0, 3600.0   # 起動のあと最初に置くまでの秒・置き直しを見る間隔(1 時間。中身が変わらなければ作らない)
+LEARNPACK_FIRST, LEARNPACK_EVERY = 60.0, 86400.0   # 起動のあと最初に置くまでの秒・置き直しを見る間隔(1 日。10-14 ユーザー「そんなに頻繁に送らなくていい」。中身が変わらなければ作らない)
 
 
 def _human_learn():
@@ -1136,7 +1136,7 @@ class PortalServer(httpsec.ExclusiveServer):
                                         defaults=prefs_mod.DEFAULTS["intake"])   # 設定が読めないときの既定は入口が渡す(intake は prefs を読まない)
         # 作業データのバックアップ(見張りは main で start。inplace = テストなどでは写さない)
         self.backup = backup_mod.Backup(self.prefs, datadir.data_root(), app_dir, log=sup.log, defaults=prefs_mod.DEFAULTS["backup"],
-                                     out_dir=lambda: datadir.studio_out_dir(sup.root))
+                                     out_dir=lambda: datadir.studio_out_dir(sup.root), media_dirs=backup_mod.default_media_dirs)   # 評価用・学習用の動画も(10-14)
         # 精度の自動測定(見張りは main で start。テストで作る入口では動かさない)。手が空いた判定は _accuracy_busy・_accuracy_last_edit
         self.accuracy = accuracy_mod.Accuracy(self.prefs, app_dir, sup.root, busy=self._accuracy_busy,
                                               last_edit=self._accuracy_last_edit, log=sup.log, defaults=prefs_mod.DEFAULTS["accuracy"])
@@ -1930,7 +1930,7 @@ def _main(opts, ready_out=None):
             srv.analytics.start()   # 分析と日報(連携の設定が無ければ何もしない。新しいデータが来たら日報を作って LINE へ)
         if not headless:
             threading.Thread(target=srv.purge_trash, daemon=True, name="trash-purge").start()   # 日数を過ぎたごみ箱フォルダ(段9 9-2)
-            threading.Thread(target=srv.learnpack_loop, daemon=True, name="learnpack").start()   # 学習の束を <依頼の受付のフォルダ>/学習 へ(起動の少しあとと 1 時間ごと。F1 F6a)
+            threading.Thread(target=srv.learnpack_loop, daemon=True, name="learnpack").start()   # 学習の束を <依頼の受付のフォルダ>/学習 へ(起動の少しあとと 1 日ごと。F1 F6a)
         if opts.parent_pid:   # 親の見張り(F1 F0-1): 親が終わる・標準入力が閉じられたら「すべて終了」と同じ後始末(待ちは次の起動で続く)
             watch_parent(opts.parent_pid, sys.stdin, lambda why: threading.Thread(target=srv.request_shutdown, daemon=True).start(), log)
         if headless:   # 待ち受けて ② を準備できた = 送るアプリに合言葉とポートを渡す(画面は開かない)

@@ -5,13 +5,17 @@
 候補として出していないパスは move で受け付けない(API に好きなパスを渡しても消せない)。
 
 候補の種類:
-- export … スタジオの書き出しの元動画のうち、パックができていて、案件の状態が「投稿済み」「見送り」のもの(案件は src/manage/cases/cases.snapshot の cases)
+- export … スタジオの書き出しの元動画のうち、パックができていて、案件の状態が「投稿済み」「見送り」か、Text+ のパック(動画のコピー入り)から PACK_AGE_DAYS 日
+  たったもの(案件は src/manage/cases/cases.snapshot の cases)。日数で出すのは**このパックだけで編集できるとき**だけ(txindex.pack_ready = 記録したファイルが
+  全部あって空でない・動画と Lua が入っている。部品 M1。移す直前にもう一度見る)
 - work   … 動画の「作業用」フォルダの途中のファイルのうち、元の動画がもう無いもの(記録から辿れない)
 - cache  … 「編集」の波形のキャッシュ(いつでも作り直せる)
 - log    … 回したログ(*.old.log・*.log.old・*.1・*.old)
 - intake … 依頼の受付の 受付済み\\<日付>\\ のうち KEEP_DAYS より古い日付のもの(受け取った動画。動画は 受付済み に残る決まり)と、
-  書き出し先の 依頼\\<日付>_<題>_<id6>\\(友人の依頼 1 件 = 1 案件。RS8 B3-7)のうち受付日が KEEP_DAYS より古く、届けた記録(logs/deliveries.jsonl)に
-  その依頼 id(の末尾 6 文字)があるもの = 届け済み。届けていない依頼は日数がたっても出さない(文書・パックの元になる動画のため)
+  友人の依頼の動画の置き場所 = 書き出し先の 依頼\\<日付>_<題>_<id6>\\(1 依頼 = 1 案件)・作業データの app\\intake\\<日付>\\<依頼 id>\\(書き出し先が固定ディスクでない PC)。
+  届けた記録(logs/deliveries.jsonl)にその依頼があれば**最後に届けてから** KEEP_DAYS 日、手で置いた動画(依頼 id が無い)は受け付けた日から KEEP_DAYS 日
+  (Q15。decisions 3-48)。届けていない依頼は日数がたっても出さない(文書・パックの元になる動画のため)。
+  移すのは**動画とパックだけ**(作業用\\ の文書と履歴は残す = Q4。人が直した行を失わない・文書はバックアップの学習データに入る)
 """
 import hashlib
 import json
@@ -19,6 +23,8 @@ import os
 import shutil
 import time
 
+from flow import placement   # 依頼のフォルダの名前・案件の身分証 case.json の読み方(④ は ② を読める)
+from manage.cases import txindex
 from ytt import datadir, fsio, schemas
 
 TRASH_DIR = "ごみ箱"
@@ -27,7 +33,8 @@ KEEP_DAYS = 3             # 受け付けた依頼の動画(受付済み。作業
 TRASH_DAYS = 3            # ごみ箱フォルダの日付のフォルダを起動時に消すまでの日数
 PACK_AGE_DAYS = 3         # パック(Text+ = 動画のコピー入り)を作ってからこの日数たった元動画も候補(案件の状態を変えなくても出る)
 MANIFEST = "manifest.jsonl"
-REQUEST_DIR = "依頼"       # 書き出し先の下の友人の依頼のフォルダ(flow/placement.REQUEST_DIR と同じ。test_cleanup が一致を確かめる)
+REQUEST_DIR = placement.REQUEST_DIR   # 書き出し先の下の友人の依頼のフォルダ(依頼)
+APP_INTAKE = "intake"     # 作業データ app の下の、友人の依頼の動画の写し(app\intake\<日付>\<依頼 id>\。書き出し先が固定ディスクでない PC)
 DELIVERIES_LOG = "deliveries.jsonl"   # 届けた記録(human/friend/friend_feedback.DELIVERIES_LOG と同じ。logs の中)
 DELIVERIES_MAX = 4 * 1024 * 1024      # 届けた記録を末尾から読む上限
 ROOTS_FILE = "trash-roots.json"   # 作業データの外に作ったごみ箱フォルダの一覧(起動時の purge が見る)
@@ -37,7 +44,7 @@ KINDS = (("export", "スタジオの書き出しの元動画(パック済みで�
          ("work", "作業用の途中のファイル(元の動画が無い)"),
          ("cache", "波形のキャッシュ(作り直せる)"),
          ("log", "古いログ"),
-         ("intake", "受け付けた依頼の動画(%d 日より前)" % KEEP_DAYS))
+         ("intake", "受け付けた依頼の動画(届けてから・手で置いた物は受け付けてから %d 日。文書は残す)" % KEEP_DAYS))
 DONE_STATUSES = ("posted", "skipped")
 VIDEO_EXTS = (".mp4", ".mkv", ".mov", ".webm", ".m4v", ".avi", ".ts")
 MAX_ITEMS = 500
@@ -64,6 +71,28 @@ def _item(kind, path, note="", extra=()):
     extra = [x for x in extra if os.path.isfile(x)]
     return {"id": _id(path), "kind": kind, "path": path, "name": os.path.basename(path.rstrip("\\/")), "bytes": _size(path) + sum(_size(x) for x in extra),
             "mtime": _mtime(path), "dir": os.path.isdir(path), "note": note, "extra": extra}
+
+
+def _id6(rid):
+    """依頼 id → 依頼のフォルダの名前の末尾に付く 6 文字(英数字だけの末尾。flow/placement.request_root と同じ)"""
+    return "".join(c for c in str(rid or "") if c.isalnum())[-6:]
+
+
+def _parts_item(kind, folder, note, parts=None):
+    """依頼の置き場所 folder の中の**動画とパックだけ**を移す候補(作業用\\ の文書と履歴は残す。Q4)。parts を渡さなければ folder の直下の動画と
+    <名前>_pack のフォルダ。移す物が無ければ None(もう片付けた)"""
+    if parts is None:
+        try:
+            names = sorted(os.listdir(folder))
+        except OSError:
+            return None
+        parts = [os.path.join(folder, n) for n in names
+                 if (os.path.isfile(os.path.join(folder, n)) and n.lower().endswith(VIDEO_EXTS))
+                 or (os.path.isdir(os.path.join(folder, n)) and n.lower().endswith("_pack"))]
+    if not parts:
+        return None
+    return {"id": _id(folder), "kind": kind, "path": folder, "name": os.path.basename(folder.rstrip("\\/")), "bytes": sum(_size(x) for x in parts),
+            "mtime": _mtime(folder), "dir": True, "note": note + "(動画とパックだけ。文書は残す)", "extra": [], "parts": parts}
 
 
 def _sidecars(video):
@@ -100,7 +129,7 @@ def append_manifest(day_dir, rows):
 
 
 class Cleanup:
-    def __init__(self, app_dir, repo_root=None, env=None, log=None, clock=time.time, keep_days=KEEP_DAYS, pack_finder=None, out_dirs=None,
+    def __init__(self, app_dir, repo_root=None, env=None, log=None, clock=time.time, keep_days=KEEP_DAYS, out_dirs=None,
                  trash_days=TRASH_DAYS):
         """out_dirs = スタジオの書き出し先など(呼ぶたびに読む関数でもよい)。作業データと別のドライブの物は、そのドライブのここ\\ごみ箱\\ へ移す。
         keep_days = 受け付けた依頼の動画を候補に出すまでの日数・trash_days = ごみ箱フォルダの日付のフォルダを消すまでの日数"""
@@ -109,7 +138,6 @@ class Cleanup:
         self.repo_root, self.env = repo_root, env
         self.log = log or (lambda m: None)
         self.clock, self.keep_days, self.trash_days = clock, keep_days, trash_days
-        self.pack_finder = pack_finder
         self._known = {}          # id → item(直前に出した候補だけ move できる)
 
     @property
@@ -169,6 +197,10 @@ class Cleanup:
             found["intake"] += self._requests()
         except Exception as e:
             self.log("片付けの候補(友人の依頼の案件)を調べられませんでした: %r" % (e,))
+        try:
+            found["intake"] += self._app_intake()
+        except Exception as e:
+            self.log("片付けの候補(受付の写し)を調べられませんでした: %r" % (e,))
         self._known = {}
         kinds, total = [], 0
         for k, label in KINDS:
@@ -193,7 +225,7 @@ class Cleanup:
                 p = cl.get("path") if isinstance(cl, dict) else None
                 if not p or not cl.get("exists") or not os.path.isfile(p):
                     continue
-                pk = cl.get("pack") or (self.pack_finder(p) if self.pack_finder else None)
+                pk = cl.get("pack")
                 if not pk:
                     # 自動の切り抜きで、届けたあとパックだけが片付いた物(友人の「要らない」はパックしか消さない = mp4 が残る。
                     # notes:plan/opt-manage.md の 2a-1)。届けてから PACK_AGE_DAYS 日で候補に出す
@@ -215,12 +247,26 @@ class Cleanup:
                 key = os.path.normcase(p)
                 if key in seen:
                     continue
+                pack_dir = pk.get("dir") if aged and not done else None
+                if pack_dir and not self._pack_ready(pack_dir):
+                    continue   # パックの動画などが欠けている = 元の素材がまだ要る(部品 M1)
                 seen.add(key)
                 title = str(c.get("title") or c.get("id") or "")[:40]
                 why = ("投稿済み" if c["status"] == "posted" else "見送り") if done else \
                     "パックから %d 日" % int((now - at / 1000.0) // 86400)
-                out.append(_item("export", p, "案件「%s」(%s)" % (title, why), _sidecars(p)))
+                it = _item("export", p, "案件「%s」(%s)" % (title, why), _sidecars(p))
+                if pack_dir:
+                    it["packDir"] = pack_dir   # move の直前にもう一度見る
+                out.append(it)
         return out
+
+    def _pack_ready(self, pack_dir):
+        """このパックだけで編集できるか(txindex.pack_ready。調べられなければ偽 = 元の素材を残す側)"""
+        try:
+            return txindex.pack_ready(pack_dir, self.env)[0]
+        except Exception as e:
+            self.log("片付け: パック %s を確かめられませんでした: %r" % (pack_dir, e))
+            return False
 
     def _work_orphans(self, cases):
         """案件の動画のフォルダにある 作業用\\ の中で、対応する動画が無いファイル"""
@@ -290,8 +336,9 @@ class Cleanup:
             return []
         return [_item("intake", p, "受け付けた日 %s" % n[:10]) for n, p in _old_day_dirs(done, self.keep_days, self.clock())]
 
-    def _delivered_ids(self):
-        """届けた記録に依頼 id が出ている依頼の id の末尾 6 文字の集まり(読めなければ空 = 何も候補に出さない)"""
+    def _delivered(self):
+        """届けた記録(deliveries.jsonl)-> {依頼 id: 最後に届けた時刻(秒)}。依頼 id は元の形と、英数字だけの末尾 6 文字の両方で引ける
+        (依頼のフォルダの名前は末尾 6 文字しか持たない)。読めなければ None(= 届けたかが分からないので、届けた依頼は何も出さない)"""
         p = os.path.join(self.app_dir, "logs", DELIVERIES_LOG)
         try:
             size = os.path.getsize(p)
@@ -300,29 +347,80 @@ class Cleanup:
                     f.seek(size - DELIVERIES_MAX)
                 text = f.read().decode("utf-8", "replace")
         except OSError:
-            return set()
-        out = set()
+            return None
+        out = {}
         for line in text.splitlines():
             try:
                 d = json.loads(line)
             except ValueError:
                 continue
             rid = d.get("requestId") if isinstance(d, dict) else None
-            if isinstance(rid, str) and rid:
-                out.add("".join(c for c in rid if c.isalnum())[-6:])
+            at = d.get("at") if isinstance(d, dict) else None
+            if not isinstance(rid, str) or not rid:
+                continue
+            sec = at / 1000.0 if isinstance(at, (int, float)) and not isinstance(at, bool) and at > 0 else 0.0   # 時刻の無い古い行 = ずっと前
+            for k in (rid, _id6(rid)):
+                out[k] = max(out.get(k, 0.0), sec)
         return out
 
+    def _due(self, rid, received_day, delivered, now):
+        """依頼の動画を片付けてよいか -> 理由の文か None。rid = 依頼 id("" = 手で置いた動画)。received_day = 受け付けた日 YYYY-MM-DD"""
+        days = self.keep_days * 86400
+        if rid:
+            sent = delivered.get(rid) if delivered else None
+            if sent is None:
+                return None   # まだ届けていない(届けた記録が読めない)= 文書・パックの元なので出さない
+            if now - sent <= days:
+                return None
+            return "届けてから %d 日" % int((now - sent) // 86400) if sent else "届け済み"
+        try:
+            day = time.mktime(time.strptime(received_day[:10], "%Y-%m-%d"))
+        except ValueError:
+            return None
+        return "手で置いた動画・受け付けてから %d 日" % int((now - day) // 86400) if now - day > days else None
+
     def _requests(self):
-        """書き出し先の 依頼\\<日付>_<題>_<id6>\\ のうち、受付日が keep_days より古く届け済みの案件(フォルダごと)。
-        名前の頭 10 文字が受付日・末尾 6 文字が依頼 id の末尾(placement.request_root)。届けた記録の無い依頼は出さない"""
-        delivered = self._delivered_ids()
-        if not delivered:
-            return []
-        out = []
+        """書き出し先の 依頼\\<日付>_<題>_<id6>\\ の案件の動画とパック(作業用の文書は残す)。依頼 id は 作業用\\case.json の requestId
+        (無ければ手で置いた動画 = 受け付けた日から数える)。case.json が無い・読めないフォルダは出さない(何の依頼か分からない)"""
+        delivered, now, out = self._delivered(), self.clock(), []
         for o in self._out_dirs():
-            for name, p in _old_day_dirs(os.path.join(o, REQUEST_DIR), self.keep_days, self.clock()):
-                if name[-6:] in delivered:
-                    out.append(_item("intake", p, "受け付けた日 %s・届け済み" % name[:10]))
+            root = os.path.join(o, REQUEST_DIR)
+            for name, p in _old_day_dirs(root, self.keep_days, now):
+                case = placement.read_case(p)
+                if not case:
+                    continue
+                rid = case.get("requestId") if isinstance(case.get("requestId"), str) else ""
+                why = self._due(rid, name, delivered, now)
+                it = _parts_item("intake", p, "受け付けた日 %s・%s" % (name[:10], why)) if why else None
+                if it:
+                    out.append(it)
+        return out
+
+    def _app_intake(self):
+        """作業データの app\\intake\\<日付>\\<依頼 id>\\(受付の写し。書き出し先が固定ディスクでない PC の置き場所)の動画とパック。
+        依頼 id が m で始まる(手で置いた動画)なら受け付けた日から、ほかは最後に届けてから数える。<日付>\\ の直下に以前から置いてある動画
+        (依頼 id の分からない形)は受け付けた日から"""
+        delivered, now, out = self._delivered(), self.clock(), []
+        base = os.path.join(self.app_dir, APP_INTAKE)
+        for day, dp in _old_day_dirs(base, self.keep_days, now):
+            try:
+                names = sorted(os.listdir(dp))
+            except OSError:
+                continue
+            loose = [os.path.join(dp, n) for n in names if os.path.isfile(os.path.join(dp, n)) and n.lower().endswith(VIDEO_EXTS)]
+            if loose:
+                why = self._due("", day, delivered, now)
+                if why:
+                    out.append(_parts_item("intake", dp, "受付の写し %s・%s" % (day[:10], why), loose))
+            for n in names:
+                p = os.path.join(dp, n)
+                if not os.path.isdir(p):
+                    continue
+                rid = "" if n.startswith("m") else n
+                why = self._due(rid, day, delivered, now)
+                it = _parts_item("intake", p, "受付の写し %s・%s" % (day[:10], why)) if why else None
+                if it:
+                    out.append(it)
         return out
 
     # ---------- 移す・消す ----------
@@ -338,6 +436,12 @@ class Cleanup:
             src = it["path"]
             root = self.trash_for(src)
             dest_dir = os.path.join(root, day, it["kind"])
+            if it.get("packDir") and not self._pack_ready(it["packDir"]):   # 候補を出したあとでパックの中身が欠けた(部品 M1)
+                failed.append({"id": it["id"], "path": src, "error": "パックの動画などが欠けているので、元の動画は移しませんでした"})
+                continue
+            if it.get("parts"):
+                self._move_parts(it, root, day, moved, failed)
+                continue
             try:
                 if it.get("extra"):   # 元動画と途中のファイルは <名前>\ にまとめる(作業用の物は その中の 作業用\)
                     dest_dir = free_path(os.path.join(dest_dir, os.path.splitext(it["name"])[0]))
@@ -363,6 +467,36 @@ class Cleanup:
             except (OSError, shutil.Error) as e:
                 failed.append({"id": it["id"], "path": src, "error": str(e)[:200]})
         return {"moved": moved, "failed": failed, "unknown": unknown, "trash": self.trash_dir}
+
+    def _move_parts(self, it, root, day, moved, failed):
+        """依頼の置き場所の動画とパックだけを ごみ箱\\<日付>\\<種類>\\<フォルダ名>\\ へ(フォルダと 作業用\\ は残す)。移せた物は manifest に 1 行ずつ。
+        1 つも移せなければ failed、一部でも移せたら moved(移せなかった物は次の候補にまた出る)"""
+        rows, errs = [], []
+        try:
+            dest_dir = free_path(os.path.join(root, day, it["kind"], it["name"]))
+            os.makedirs(dest_dir, exist_ok=True)
+            self.remember_root(root)
+        except OSError as e:
+            failed.append({"id": it["id"], "path": it["path"], "error": str(e)[:200]})
+            return
+        for x in it["parts"]:
+            try:
+                xt = free_path(os.path.join(dest_dir, os.path.basename(x.rstrip("\\/"))))
+                shutil.move(x, xt)
+                rows.append({"from": x, "to": xt})
+            except (OSError, shutil.Error) as e:
+                errs.append(e)
+                self.log("片付け: %s を移せませんでした: %r" % (x, e))
+        if rows:
+            try:
+                append_manifest(os.path.join(root, day), [dict(r, at=int(self.clock() * 1000), kind=it["kind"], bytes=_size(r["to"])) for r in rows])
+            except OSError as e:
+                self.log("片付け: ごみ箱の記録を書けませんでした: %r" % (e,))
+            moved.append(dict(it, to=dest_dir))
+            self._known.pop(it["id"], None)
+            self.log("片付け: %s の動画とパック %d 個 → %s" % (it["path"], len(rows), dest_dir))
+        else:
+            failed.append({"id": it["id"], "path": it["path"], "error": str(errs[0])[:200] if errs else "移す物がありません"})
 
     def purge(self):
         """TRASH_DAYS を過ぎた日付のフォルダを消す(起動時。どのドライブのごみ箱フォルダも)。-> 消した日付のフォルダの数"""
@@ -403,8 +537,9 @@ def _media_stem(name):
     """作業用の途中のファイル名 → 元の動画の名前(拡張子なし)。知らない形なら None。
     名前が文字起こしの文書の id(schemas.TID_RE。`<tid>.edit.json` など)なら None: 作業用に置く文字起こしの文書とその付き物(RS8 B2)は
     動画の付き物ではない(動画の名前と比べると、いつも「元の動画が無い」になって片付けの候補に出てしまう)。
-    名前が空(作業用/.studio-id = 案件の持ち主の印)も None"""
-    for suffix in (".transcript.json", ".clip.json", ".edit.json", ".cut-plan.json", ".studio-id", "_edit.mp4", ".srt"):
+    名前が空(作業用/.studio-id = 案件の持ち主の印)も None。
+    名前の終わりは長い物から比べる(X_edit.clip.json を .clip.json で先に切ると X_edit になり、元の X.mp4 があっても「無い」の候補に出た = 7d-1)"""
+    for suffix in ("_edit.clip.json", ".transcript.json", ".clip.json", ".edit.json", ".cut-plan.json", ".studio-id", "_edit.mp4", ".srt"):
         if name.endswith(suffix):
             stem = name[:-len(suffix)]
             return None if not stem or schemas.TID_RE.match(stem) else stem

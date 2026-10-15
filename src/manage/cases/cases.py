@@ -269,9 +269,16 @@ def _before_review(path):
 
 
 def _apply_review(cases, saved, failures):
-    """自動でできた切り抜きに、人の確認(案件ファイルの auto)と失敗の文を重ねる(clip["review"])"""
+    """自動でできた切り抜きに、人の確認(案件ファイルの auto)と失敗の文を重ねる(clip["review"])。
+    日数で片付けた(expiredAt)切り抜きで動画がもう無い物は一覧から外す(片付けはスタジオのマークを変えない = 10-14。マークは書き出し済みのまま残る)"""
     for c in cases:
         rec = _auto_records(saved.get(c["id"]))
+        gone = [cl for cl in c.get("clips") or [] if not cl.get("exists")   # .clip.json もごみ箱へ移ったので auto は付かない(記録で見分ける)
+                and isinstance(rec.get(cl.get("markId")), dict) and _int_ms(rec[cl.get("markId")].get("expiredAt"))]
+        if gone:
+            c["clips"] = [cl for cl in c["clips"] if cl not in gone]
+            if isinstance(c.get("marks"), dict):
+                c["marks"]["exported"] = len(c["clips"])
         for cl in c.get("clips") or []:
             if not cl.get("auto"):
                 continue
@@ -803,15 +810,20 @@ def relink_delivered_later(repo_root, logs_dir, log=None, delay=RELINK_DELAY, en
     return t
 
 
-EXPIRE_SEC = 3 * 86400   # 見ても届けてもいない自動の切り抜きを片付けるまで(切り抜きの動画を作ってから。10-09 ユーザー「3 日経ってもみなければ多分みない」)
+EXPIRE_SEC = 3 * 86400   # 自動の切り抜きを片付けるまで(見ても届けてもいない物は動画を作ってから・届けた物は届けてから。10-09・10-14 ユーザー)
+# 届けた自動の切り抜きも、届けてから EXPIRE_SEC で自動でごみ箱へ(10-14 ユーザー「どんどん消していい」= decisions 3-48 Q2)。
+# 本物の切り抜きを自動で動かすので、既定の入り方はユーザーの確認待ち(それまでオフ。オンにするとこの 1 か所)
+TRASH_DELIVERED = False
 
 
 def expire_unseen(repo_root, studio, feedback, trash, hide, deliveries, env=None, now=None, max_age=EXPIRE_SEC, is_request=None):
-    """見ても届けてもいない自動の切り抜き(clip.review.unconfirmed)で、動画を作ってから max_age たったものを片付ける(10-09 ユーザー決定)。
-    片付け方は「要らない」(_discard)と同じ = ごみ箱フォルダへ移す(cleanup の TRASH_DAYS でさらに消える)・スタジオのマークを不採用に・文字起こしを一覧で非表示に。
-    違うのは live_feedback.jsonl の行が event expire・人の判定なし(eval_marks の「悪い」に数えない)と、案件の記録の expiredAt。
-    片付けない: 見た・届けた・採用した切り抜き・人の切り抜き・友人の依頼の録画の切り抜き(.clip.json の live.deliver か、is_request(録画元, 録画) が真)・
-    届けている途中のパック・ネットワーク上のパス。-> 片付けた [(案件, マーク)]"""
+    """自動の切り抜きを日数で片付ける: 見ても届けてもいない物(clip.review.unconfirmed)は動画を作ってから max_age(10-09 ユーザー決定)・
+    届けた物は届けてから max_age(TRASH_DELIVERED がオンのとき。10-14 ユーザー決定)。
+    片付け方 = ごみ箱フォルダへ移す(cleanup の TRASH_DAYS でさらに消える)・文字起こしを一覧で非表示に(データは消さない)・案件の記録に expiredAt。
+    **スタジオのマークは不採用にしない・live_feedback.jsonl に判定の行を書かない**(片付けは評価と無関係 = 人が確認していない物を評価・学習に入れない。
+    10-14 ユーザー。feedback は使わない = 呼び手の形のため残す)。
+    片付けない: 見たが届けていない切り抜き・人の切り抜き・REVIEW_SINCE より前の物(pending)・届ける途中の物(.clip.json の live.deliver か、
+    is_request(録画元, 録画) が真で、まだ届けていない)・届けている途中のパック・ネットワーク上のパス。-> 片付けた [(案件, マーク)]"""
     if trash is None or studio is None:
         return []
     now = time.time() if now is None else now
@@ -826,14 +838,24 @@ def expire_unseen(repo_root, studio, feedback, trash, hide, deliveries, env=None
 def _expire_one(repo_root, c, cl, studio, feedback, trash, hide, deliveries, env, now, max_age, is_request):
     rv = cl.get("review") or {}
     path = cl.get("path") or ""
-    if not cl.get("auto") or not rv.get("unconfirmed") or not path or fsio.is_network_path(path) or not os.path.isfile(path):
+    if not cl.get("auto") or rv.get("pending") or not path or fsio.is_network_path(path) or not os.path.isfile(path):
         return False
-    age = now - os.path.getmtime(path)
+    sent = _int_ms(rv.get("deliveredAt"))
+    if sent:
+        if not TRASH_DELIVERED:
+            return False
+        age = now - sent / 1000.0
+    elif rv.get("unconfirmed"):
+        age = now - os.path.getmtime(path)
+    else:
+        return False   # 人が見た(届けていない)物は人の手に任せる
     if age < max_age:
         return False
     live, _m = clip_live(path)
-    if not live or live.get("deliver") or (is_request is not None and is_request(live.get("recorder"), live.get("recording"))):
-        return False   # 友人の依頼・自動で届ける切り抜きは片付けない(届けるのは まとめて実行。届けば「届けた」になる)
+    if not live:
+        return False
+    if not sent and (live.get("deliver") or (is_request is not None and is_request(live.get("recorder"), live.get("recording")))):
+        return False   # 友人の依頼・自動で届ける切り抜きは、届けるまで片付けない(届けるのは まとめて実行。届けば「届けた」になる)
     pack = txindex.pack_dir(path)
     if pack and deliveries is not None and deliveries.running(pack):
         return False
@@ -843,8 +865,7 @@ def _expire_one(repo_root, c, cl, studio, feedback, trash, hide, deliveries, env
             return False
         _busy.add(key)
     try:
-        row = _feedback_row(c, cl, event="expire", human=False, ageDays=round(age / 86400.0, 1))
-        _moved, where, _st = discard_clip(trash, studio, c["id"], cl["markId"], path, pack)
+        discard_clip(trash, studio, c["id"], "", path, pack)   # マーク "" = 移すだけ(マークは不採用にしない)
         tid = (cl.get("transcript") or {}).get("id") or ""
         if tid and hide:
             try:
@@ -852,8 +873,6 @@ def _expire_one(repo_root, c, cl, studio, feedback, trash, hide, deliveries, env
             except (OSError, ValueError):
                 pass
         _remember(repo_root, c["id"], cl["markId"], env, discarded=tid, expired=True)
-        if feedback:
-            feedback(dict(row, trash=where))
         return True
     except (ReviewError, OSError):   # 動かせない・マークを不採用にできない(元に戻してある): 次の見回りでまた試す
         return False

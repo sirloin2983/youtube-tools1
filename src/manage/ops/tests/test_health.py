@@ -56,6 +56,21 @@ class SizesTest(unittest.TestCase):
         self.assertTrue(all(os.path.isdir(x["path"]) for x in d["dirs"]))
         self.assertEqual(d["bytes"], sum(x["bytes"] for x in d["dirs"]))
 
+    def test_data_sizes_counts_every_folder_and_outside_separately(self):
+        """作業データの直下のフォルダは全部数える(固定の一覧の外も)。書き出し先は別の行で、合計に足さない(opt-manage 8b)"""
+        tmp = tempfile.mkdtemp(prefix="ytt-health-")
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        root, out = os.path.join(tmp, "data"), os.path.join(tmp, "out")
+        for rel, n in ((("app", "a.json"), 10), (("analytics", "s.json"), 20), (("新しい部品", "x.bin"), 30), (("題名", "v.mp4"), 1000)):
+            p = os.path.join(out if rel[0] == "題名" else root, *rel)
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, "wb") as f:
+                f.write(b"x" * n)
+        d = H.data_sizes(env={"YTT_DATA_DIR": root}, outside=[("書き出し先", out), ("無い", os.path.join(tmp, "無い"))])
+        self.assertEqual([(x["tool"], x["label"], x["bytes"]) for x in d["dirs"]], [("新しい部品", "新しい部品", 30), ("analytics", "分析", 20), ("app", "ホーム", 10)])
+        self.assertEqual(d["bytes"], 60)
+        self.assertEqual([(x["label"], x["bytes"]) for x in d["outside"]], [("書き出し先", 1000)])
+
 
 class ToolsTest(unittest.TestCase):
     def test_parse_version_line(self):

@@ -37,7 +37,8 @@ def dict_pairs(spec):
     ② が足すこと = 学習データ(設定の辞書と名簿のファイル)を読んで ① の表記ゆれの表と合わせる(RS6 a-3 に human/proof/doc_jobs から)"""
     if not spec.get("autoDict"):
         return []
-    pairs = _dictfmt.parse_replacements(_settings.load_settings().get("replacements"))
+    # 人の置換辞書は今はオフ(ytt/dictfmt.USER_DICT。10-14 ユーザー)= 名簿の表だけ
+    pairs = _dictfmt.parse_replacements(_settings.load_settings().get("replacements")) if _dictfmt.USER_DICT else []
     try:
         pairs += _roster.variant_pairs(_roster.load(_roster.ROSTER))
     except (OSError, ValueError, TypeError, KeyError) as e:   # 名簿の表は補助なので、作れなくても認識は止めない

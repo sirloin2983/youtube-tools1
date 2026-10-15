@@ -323,7 +323,7 @@ namespace RequestSender
             {
                 if (updateInfo != null && Sync.UpdateHandler != null) Sync.UpdateHandler(updateInfo);
             };
-            int at = right.IndexOf(lMemo);
+            int at = int.MaxValue;   // 右の列の終わり
             right.Insert(at, updateLbl, 6, true);
             syncTimer.Interval = SyncFirstMs;
             syncTimer.Tick += (s, e) => { syncTimer.Interval = SyncEveryMs; StartSync(); };
