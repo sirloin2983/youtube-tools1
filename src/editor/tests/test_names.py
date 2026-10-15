@@ -15,7 +15,7 @@
   S.名前 で読め、差し替えが持ち主に届く
 - RS3-E6 の前に ed_alt・ed_ytcap・ed_retime が持っていた名前(data_ed_alt_names.txt ほか)は、human/proof の alt・ytcap・retime へ移しても
   S.名前 で読め、差し替えが持ち主に届く(疑似の行 _alt_fake は eval/fake/fake_asr)
-- RS3-E7 の前に ed_relink・ed_misc が持っていた名前(data_ed_relink_names.txt・data_ed_misc_names.txt)は、manage/cases/relink・eval/drill/folders と
+- RS3-E7 の前に ed_relink・ed_misc が持っていた名前(data_ed_relink_names.txt・data_ed_misc_names.txt)は、manage/cases/relink・manage/keep/evalfolders と
   manage/cases/handoff_io・human/proof/batch に分けても S.名前 で読める(進行度 progress は 0.69.0 で消した)
 - RS4-2 の前に ed_drill・ed_evalbatch が持っていた名前(data_ed_drill_names.txt・data_ed_evalbatch_names.txt)は、eval/drill の drill・evalbatch へ
   殻なしで移しても S.名前 で読め、差し替えが持ち主に届く
@@ -326,13 +326,13 @@ class TestEdAltYtcapRetimeNames(unittest.TestCase):
 
 
 class TestEdRelinkNames(unittest.TestCase):
-    """ed_relink を manage/cases/relink(付け替え・まとめて付け替える・30fps)と eval/drill/folders(評価用のフォルダの整理)に分けた(RS3-E7。殻は RS5-A で消した)。
+    """ed_relink を manage/cases/relink(付け替え・まとめて付け替える・30fps)と manage/keep/evalfolders(評価用のフォルダの整理)に分けた(RS3-E7。殻は RS5-A で消した。evalfolders は OPT-M2 で ④ へ)。
     旧い名前は S で読め、差し替えは持ち主に届き、folders は付け替えの書き込みを relink から呼ぶたびに読む(④ → ③)"""
 
     @staticmethod
     def owners():
-        from eval.drill import folders
         from manage.cases import relink
+        from manage.keep import evalfolders as folders
         return relink, folders
 
     def test_old_ed_relink_names_still_resolve(self):

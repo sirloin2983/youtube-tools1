@@ -31,7 +31,7 @@ from ytt import tools as _tools  # noqa: E402   (動画と音声の小道具。R
 from pipeline.transcribe import diarize as _diarize, roster as _roster  # noqa: E402   判別の記録 read_diar・名簿の呼び名と配信の文脈 stream_context・ロガー log
 from ytt import txbase as _txbase  # noqa: E402
 from human.proof import speakers as _speakers, store as _store  # noqa: E402   話者の名前の小道具・声の登録簿・1 人指定 / 文書の読み書き・保存のロック・要約(呼ぶたびに 名前 で読む)
-from . import folders as _evfolders  # noqa: E402   評価用のフォルダの仮置き・メンバーのフォルダの形(RS3-E7 に ed_relink から。隣の部品 = 呼ぶたびに _evfolders.名前 で読む)
+from manage.keep import evalfolders as _evfolders  # noqa: E402   評価用のフォルダの仮置き・メンバーのフォルダの形(RS3-E7 に ed_relink から。OPT-M2 で ④ manage/keep/evalfolders へ。呼ぶたびに _evfolders.名前 で読む)
 
 DRILL_RECENT_SEC = 600       # 直近これだけの間に更新した文書は選ばない(編集の画面で開いている可能性)
 DRILL_GOAL_SEC = 900         # 定点 = 確かめ済みの評価用の動画 15 分(マスタープラン Q4)

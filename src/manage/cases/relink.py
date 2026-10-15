@@ -2,7 +2,7 @@
 """③ 文書と動画の紐づけ: 動画を選び直す(付け替え)・まとめて付け替える・「参照…」・素材を 30fps にそろえる
 (段10 で editor/serve.py から分けた ed_relink。役割で組み直す RS3-E7(2026-10-10)に manage/cases/relink.py へ移した。旧い名前 ed_relink は転送だけの殻 = RS5 で消す)。
 
-- 評価用のフォルダの整理(名前をそろえる・仮置き・外からの取り込み)は eval/drill/folders.py(付け替えの書き込み _relink_write をここから読む = ④ → ③ の下向き)
+- 評価用のフォルダの整理(名前をそろえる・仮置き・外からの取り込み)は manage/keep/evalfolders.py(付け替えの書き込み _relink_write をここから読む = ④ → ③ の下向き)
 - 評価用のフォルダの判定(eval_dirs・in_eval_dir・eval_name_guard)は ytt/settings、別のドライブへの移動は ytt/fsio(RS3-1)
 名前は serve.py からも見える(serve.py の名前の受付 _ED_MODULES がこの部品へ転送する。テストの S.名前 = … もここに入る)。
 ほかの部品の名前は `モジュール.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。編集の ed_state・ed_jobs・ed_store は読まない(app と転送の殻)。

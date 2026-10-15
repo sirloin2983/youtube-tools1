@@ -143,7 +143,7 @@ from human.proof import machpick as _machpick  # noqa: E402  (3 択の口: 機�
 from human.proof import store as _store  # noqa: E402  (文書の読み書き・履歴・整形・手間・要約のキャッシュ・編集の内容・文字起こしせずに開く。RS3-E5a に ed_store から移した。ed_store は転送だけの殻)
 from manage.cases import doclist as _doclist  # noqa: E402  (一覧と元の動画・パックの有無・前回のパックの手順。RS3-E5a に ed_store から切り出した)
 from manage.cases import relink as _relink  # noqa: E402  (付け替え・まとめて付け替える・「参照…」・素材を 30fps にそろえる。RS3-E7 に ed_relink から移した。ed_relink は転送だけの殻)
-from eval.drill import folders as _evfolders  # noqa: E402  (評価用のフォルダの整理・仮置き・外からの取り込み。RS3-E7 に ed_relink から切り出した)
+from manage.keep import evalfolders as _evfolders  # noqa: E402  (評価用のフォルダの整理・仮置き・外からの取り込み。RS3-E7 に ed_relink から切り出し、OPT-M2 で ④ manage/keep へ)
 from manage.cases import handoff_io as _handoff_io  # noqa: E402  (clip-marker との連携・受け渡しの API。RS3-E7 に ed_misc から移した。ed_misc は転送だけの殻)
 from human.proof import batch as _batch  # noqa: E402  (フォルダの一括読み込みと文字起こし済みの範囲。RS3-E7 に ed_misc から切り出した。進行度 progress は 0.69.0(段 D2)で消した)
 from eval.drill import drill as _drill  # noqa: E402  (評価ドリルと定点の「あと何分」。マスタープラン Q4。RS4-2 に ed_drill から移した = 殻なし)
