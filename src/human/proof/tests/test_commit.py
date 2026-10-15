@@ -43,7 +43,7 @@ class CommitTest(unittest.TestCase):
             store.commit(TID, {"id": TID}, why="nope")
 
     def test_hum_only_when_primary(self):
-        with mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": ""}), self.assertRaises(ValueError):
+        with mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": "shadow"}), self.assertRaises(ValueError):
             store.commit(TID, {"id": TID}, why="save", hum={})
 
     def test_commit_resets_cut_flags_from_edit(self):
@@ -102,7 +102,7 @@ class ShadowTest(unittest.TestCase):
 
     def setUp(self):
         self.tmp = temporary_workdata(self, "shadow-")
-        p = mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": ""})
+        p = mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": "shadow"})
         p.start()
         self.addCleanup(p.stop)
 
@@ -254,7 +254,7 @@ class PrimaryTest(ShadowTest.__base__):
 
     def test_switch_values(self):
         from ytt import txbase
-        for v, want in (("", "shadow"), ("shadow", "shadow"), ("off", "off"), ("0", "off"), ("primary", "primary"), (" Primary ", "primary"), ("x", "shadow")):
+        for v, want in (("", "primary"), ("shadow", "shadow"), ("off", "off"), ("0", "off"), ("primary", "primary"), (" Primary ", "primary"), ("x", "primary")):   # 空・知らない値は既定 primary(10-16 決定 3-61 pp1)
             with mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": v}):
                 self.assertEqual(txbase.layers_mode(), want, v)
                 self.assertEqual(txbase.layers_on(), want != "off", v)
