@@ -31,6 +31,7 @@ HTML = ('<!doctype html><html><head><title>t</title><link rel="stylesheet" href=
 
 HAND_BEGIN = "<!-- 自動: ここから(dev/plan_artifact.py が書く。手で直さない) -->\n"
 HAND_END = "<!-- 自動: ここまで -->\n"
+LINKS = "[r](../design/r.md#a) [w](2026-10-05週.md) [u](https://x.jp/a) [o](../../../外.md) [p](#まとめ)"
 
 
 def make_vault(root):
@@ -112,7 +113,7 @@ class PlanArtifactTest(unittest.TestCase):
             wl = os.path.join(tmp, "vault", "docs", "worklog")
             os.makedirs(wl)
             for name, body in (("2026-10-05週.md", "# 古い\n## まとめ\n古い話\n"),
-                               ("2026-10-12週.md", "# 新\n## まとめ\n新しい話\n- 点\n\n---\n後ろ\n"),
+                               ("2026-10-12週.md", "# 新\n## まとめ\n新しい話 " + LINKS + "\n- 点\n\n---\n後ろ\n"),
                                ("メモ.md", "x")):
                 with open(os.path.join(wl, name), "w", encoding="utf-8", newline="") as f:
                     f.write(body)
@@ -127,10 +128,37 @@ class PlanArtifactTest(unittest.TestCase):
             self.assertIn("- 進行中(1 件)\n  - 線 A・B: T2 仕事 2", home)
             self.assertIn("- ユーザー待ち(1 件)", home)
             self.assertIn("## 確認待ちの仮決め: 2 件", home)
-            self.assertIn("新しい話\n- 点", home)
+            # 週の記録からの相対リンクを、ホーム(保管庫の直下)から見たパスに直して転記する
+            self.assertIn("新しい話 [r](docs/design/r.md#a) [w](docs/worklog/2026-10-05週.md) "
+                          "[u](https://x.jp/a) [o](../../../外.md) [p](#まとめ)\n- 点", home)
             self.assertNotIn("古い話", home)
             self.assertNotIn("後ろ", home)
             self.assertIn("[詳しく](docs/worklog/2026-10-12週.md)", home)
+
+    def test_version_and_refs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan = make_vault(os.path.join(tmp, "vault"))
+            js = os.path.join(plan, "data.js")
+            with open(js, encoding="utf-8") as f:
+                body = f.read()
+            body = body.replace('updated: "2026-10-12",',
+                                'updated: "2026-10-12",\r\n  versions: [\r\n    ["全体(仮)", "0.0.1"], ["ui-kit", "v1"]\r\n  ],')
+            body = body.replace('summary: "一文目。', 'summary: "仮決め 9 件。消した git:cbe1a64:docs/spec/gone.md を読む。一文目。')
+            body = body.replace('docs: ["x.md", "../docs/spec/a.md"]', 'docs: ["x.md", "../docs/spec/a.md", "../dev/plan_artifact.py"]')
+            with open(js, "w", encoding="utf-8", newline="") as f:
+                f.write(body)
+            r = run(plan, os.path.join(tmp, "out"))
+            self.assertEqual(r.returncode, 0, r.stderr)
+            sys.path.insert(0, os.path.join(REPO, "src"))
+            from ytt.version import VERSION
+            with open(js, encoding="utf-8", newline="") as f:
+                after = f.read()
+            self.assertIn('["全体(仮)", "%s"], ["ui-kit", "v1"]' % VERSION, after)   # 全体の版だけ version.py から
+            self.assertIn("\r\n  versions:", after)   # 改行は変えない
+            self.assertIn("「仮決め 9 件」が provisional の数 2 と違う", r.stderr)
+            self.assertNotIn("gone.md", r.stderr)   # git:<コミット>: の後ろは消した資料 = 警告しない
+            self.assertNotIn("plan_artifact.py", r.stderr)
+            self.assertIn("`dev/plan_artifact.py`(リポジトリ)", read(plan, "線A.md"))
 
     def test_home_without_worklog(self):
         with tempfile.TemporaryDirectory() as tmp:

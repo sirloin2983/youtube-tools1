@@ -6,6 +6,7 @@
 
 あわせて、保管庫の plan/data.js から計画の索引 <plan>/計画の索引.md・線ごとのまとめ <plan>/線*.md・ホームの自動の部分 <保管庫>/ホーム.md を書き出す
 (Obsidian で読む用。--no-index で止める)。--graph で保管庫の根の ホーム.md(無いとき)と .obsidian/graph.json の colorGroups・search も書く。
+data.js の全体の版(versions の「全体」)は毎回 src/ytt/version.py の VERSION に書き直す(手で書かない)。
 data.js は JSON ではない JS なので、コメントと引用符なしのキーを外して Python だけで読む(node は使わない)。
 
 Artifact は外部の CSS・JS を読めない(CDN 以外)ので、plan.css・data.js・plan.js(2 ページ共通の表示部品)を各ページに埋め込む。
@@ -18,6 +19,7 @@ md は Artifact に無いので、上のページ切り替えの md(決めたこ
 import argparse
 import json
 import os
+import posixpath
 import re
 import shutil
 import sys
@@ -32,6 +34,10 @@ HOME_NAME = "ホーム.md"
 STATE_JA = {"done": "済み", "doing": "進行中", "next": "次(今できる)", "todo": "あと",
             "wait": "ユーザー待ち", "cont": "継続"}
 DOC_PATH = re.compile(r"(?:docs|plan)/[\w./-]*?\.(?:md|html)")
+GIT_REF = re.compile(r"git:[0-9a-f]{7,40}:$")
+MD_LINK = re.compile(r"(\]\()(<[^>]+>|[^)\s]+)(\))")
+WHOLE_VERSION = re.compile(r'(versions:\s*\[\s*\[\s*"全体[^"]*",\s*")([^"]*)(")')
+PROV_COUNT = re.compile(r"仮決め[^。]{0,10}?(\d+) *件")
 
 
 def read(name):
@@ -96,6 +102,8 @@ def link_paths(text, notes, name, warn):
     保管庫に無いパスは文字のまま残して warn(path, name)"""
     def sub(m):
         path = m.group(0)
+        if GIT_REF.search(text, 0, m.start()):   # git:<コミット>:<パス> = 消した資料(git の履歴で読む)。文字のまま
+            return path
         if not os.path.isfile(os.path.join(notes, *path.split("/"))):
             warn(path, name)
             return path
@@ -132,6 +140,9 @@ class Linker:
             return self.text(d, name)
         if os.path.isfile(os.path.normpath(os.path.join(self.plan_dir, d))):
             return "[`%s`](%s)" % (d, d)
+        code = re.sub(r"^(?:\.\./)+", "", d)   # リポジトリの物(README.txt など)は保管庫の外 = 文字だけ
+        if os.path.isfile(os.path.join(REPO, *code.split("/"))):
+            return "`%s`(リポジトリ)" % code
         self.w(d, name)
         return d
 
@@ -292,8 +303,49 @@ def build_home_auto(plan, plan_dir):
     if name is None:
         out.append("(まだ無い)")
     else:
-        out += [summary, "", "[詳しく](docs/worklog/%s)" % name]
+        out += [rebase_links(summary, "docs/worklog"), "", "[詳しく](docs/worklog/%s)" % name]
     return "\n".join(out).rstrip("\n") + "\n"
+
+
+def rebase_links(text, src_dir):
+    """src_dir(保管庫の直下からの相対)にあった Markdown の相対リンクを、保管庫の直下(ホーム)から見たパスに直す。
+    URL・ページ内の # ・保管庫の外へ出るリンクはそのまま"""
+    def sub(m):
+        target = m.group(2)
+        angle = target.startswith("<")
+        path, frag = (target[1:-1] if angle else target), ""
+        if "#" in path:
+            path, frag = path.split("#", 1)
+            frag = "#" + frag
+        if not path or re.match(r"[A-Za-z][\w+.-]*:", path) or path.startswith("/"):
+            return m.group(0)
+        new = posixpath.normpath(posixpath.join(src_dir, path))
+        if new.startswith(".."):
+            return m.group(0)
+        new += frag
+        return m.group(1) + ("<%s>" % new if angle else new) + m.group(3)
+    return MD_LINK.sub(sub, text)
+
+
+def sync_data_js(plan_dir):
+    """data.js の全体の版を src/ytt/version.py の VERSION に合わせて書き直す(手で書かない)。
+    文中の「仮決め N 件」が provisional の数と違えば警告。直したら True"""
+    path = os.path.join(plan_dir, "data.js")
+    with open(path, encoding="utf-8", newline="") as f:
+        text = f.read()
+    from ytt.version import VERSION
+    new = WHOLE_VERSION.sub(lambda m: m.group(1) + VERSION + m.group(3), text, count=1)
+    if new != text:
+        with open(path, "w", encoding="utf-8", newline="") as f:
+            f.write(new)
+        print("data.js の全体の版を %s に" % VERSION, file=sys.stderr)
+    plan = parse_plan_js(new)
+    n = len(plan.get("userTasks", {}).get("provisional", []))
+    notes = [plan.get("summary", "")] + list(plan.get("userTasks", {}).get("notes", []))
+    for m in (m for s in notes for m in PROV_COUNT.finditer(s)):
+        if int(m.group(1)) != n:
+            print("data.js の文の「%s」が provisional の数 %d と違う(件数は書かない)" % (m.group(0), n), file=sys.stderr)
+    return new != text
 
 
 def merge_home(existing, auto):
@@ -393,6 +445,7 @@ def main():
     a = ap.parse_args()
     if a.plan:
         PLAN = os.path.abspath(a.plan)
+    sync_data_js(PLAN)
     if not a.no_index:
         write_index(PLAN)
     if a.graph:
