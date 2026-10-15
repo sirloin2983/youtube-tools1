@@ -46,6 +46,7 @@ SCHEMA = "youtube-tools-machine/v1"
 FILE_ENV = "YTT_MACHINE_FILE"            # machine.json の場所を直に決める(テスト・別の置き場所)
 FILE_MAX = 64 * 1024
 FIELDS = ("engine", "device", "llmModel", "caseRoot", "diskMinGB", "learningDir")
+RETIRED = ("docMove", "markMove")        # 消した項目(移行のスイッチ。OPT-M2)。残っていても黙って読み飛ばす(起動のたびに注意を出さない)・書き直すときに落とす
 DEVICES = _spec.TX_DEVICES               # spec.SCHEMA の transcribe.device と同じ(旧い値は check が spec.read_legacy_tx で読み替える)
 LLM_MODEL = "qwen3-8b"                   # pipeline/transcribe/llm.py の LLM_MODEL(入口のプロセスで llm を読まないので値を持つ。test_machine が同じことを確かめる)
 LLM_NONE = "none"                        # LLM の後処理を飛ばす(llm.py の LLM_NONE と同じ)
@@ -123,7 +124,7 @@ def read_file(p=None, env=None):
         log.warning("この PC の設定(%s)を読めないので既定で動きます", p)
     out = {}
     for k, v in d.items():
-        if k == "schema":
+        if k == "schema" or k in RETIRED:
             continue
         try:
             out[k] = check(k, v)

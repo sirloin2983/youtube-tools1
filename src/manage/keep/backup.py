@@ -17,7 +17,7 @@
 - シンボリックリンクはたどらない。写す先が作業データの中・作業データが写す先の中のときは断る
 - 写す時: 間隔(everyHours)が来たとき(変わっていなくても。検証の意味)と「今すぐ」だけ(10-14 に「変わったらすぐ写す」をやめた)。
   **読めなかったフォルダ・調べられなかったファイル・写せなかったファイルが 1 つでもあれば「完全に写せた」にしない**(部品 M3): 読める物は写し続け、
-  完全に写せた時刻 ok は進めず、RETRY_SEC のあとでもう一度試す(ok を見る docmove.backup_done も、完全に写せたときだけ真)
+  完全に写せた時刻 ok は進めず、RETRY_SEC のあとでもう一度試す
 - 写し戻し: `restore_once`(コマンド `py -3.10 src/manage/keep/backup.py --restore <folder>`)。手順は notes:docs/spec/data.md の「写し戻しの手順」。
   写すときと同じ決まりを通す(写さない場所の物 = 以前に写った受付の写しなどは戻さない)。
   案件の 作業用 の写し(cases/)は作業データの根へは戻さず、案件の根(--out-dir。既定はスタジオの設定の書き出し先)へ戻す。既にあるファイルは上書きしない。
@@ -443,7 +443,7 @@ class Backup:
                 self.log("バックアップ: " + str(e))
                 return None
             now = self.clock()
-            # ok = 完全に写せた時刻(読めないフォルダ・写せないファイルがあれば進めない = 部品 M3。docmove.backup_done もこれを見る)。
+            # ok = 完全に写せた時刻(読めないフォルダ・写せないファイルがあれば進めない = 部品 M3)。
             # 写す先を変えたのに完全でなければ、前の先の ok は持ち越さない(新しい先にはまだ全部が無い)
             same_folder = self.last.get("folder") == cfg.get("folder")
             ok = now if r["complete"] else (self.last.get("ok") if same_folder else None)

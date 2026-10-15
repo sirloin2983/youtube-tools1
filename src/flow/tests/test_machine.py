@@ -149,6 +149,10 @@ class TestSave(Base):
         self.assertNotIn("markMove", M.FIELDS)
         with self.assertRaises(ValueError):
             M.check("docMove", True)
+        self.write({"docMove": True, "markMove": False, "engine": "whisper.cpp"})   # 本物の machine.json に残っている = 黙って読み飛ばす
+        with self.assertNoLogs(M.log, "WARNING"):
+            self.assertEqual(M.read_file(env=self.env), {"engine": "whisper.cpp"})
+        self.assertEqual(M.save({"diskMinGB": 5}, env=self.env), {"engine": "whisper.cpp", "diskMinGB": 5, "schema": M.SCHEMA})   # 書き直すときに落とす
 
     def test_check_paths_and_numbers(self):
         p = os.path.abspath(self.tmp)
