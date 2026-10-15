@@ -3,7 +3,7 @@
     py -3.10 -m unittest src/eval/tools/tests/test_eval_effort.py
 
 作業データは一時フォルダに作る(本物の作業データは読まない・書かない)。サーバー・ネットワーク・ffmpeg は使わない
-(CER の 1 件だけ、eval_asr.load_serve("fake") で採点の関数を読む)。
+(CER の 1 件だけ、C.prepare("fake") で採点の関数を読む)。
 """
 import contextlib
 import io

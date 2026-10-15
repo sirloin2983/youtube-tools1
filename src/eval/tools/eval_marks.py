@@ -3,12 +3,8 @@
 
     python src/eval/tools/eval_marks.py [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--json] [--data-dir 作業データの親フォルダ] [--status-fallback]
     python src/eval/tools/eval_marks.py --live [--since …] [--until …] [--json]     配信ごと(線 D の D-12。下の「--live」)
-    python src/eval/tools/eval_marks.py --analyze-missing [--wait] [--limit N]     未解析の友人の配信の解析をスタジオに頼む(下の「--analyze-missing」)
 
-- --analyze-missing(役割で組み直す計画 RS4。入口の「あとから解析」の代わり): 作業データは読むだけ。**この口だけは、動いているスタジオに解析を頼む**
-  (書くのはスタジオ)。友人が区間を指定したのに解析していない配信(下の friendRanges の「未解析」)を区間の新しい順に N 本(既定 10 = スタジオの解析のキューの上限)、
-  スタジオの画面で保存した解析の設定で解析のキューに入れる(解析済み・スタジオに無い配信は飛ばす。友人の重み・区間の長さは使わない)。
-  スタジオの場所は src/.runtime/studio.json、書き込みの合言葉は画面の HTML から読む(src/eval/tools/_studioapi.py)。スタジオが動いていなければ終了コード 2
+- 未解析の友人の配信の解析は ② が依頼のあとに行う(この道具は数えるだけ: friendRanges の unanalyzed)。
 - 作業データは**読むだけ**(どの口も。スタジオの data.json・feedback.jsonl(と .old)・archive/<動画ID>.json.gz・入口の logs/autorun-runs.jsonl・
   cut2resolve の packs/)。何も書き換えない。--json のときだけ、結果を スタジオの作業データの evals\\marks\\<日時>.json に残す(原則 3: 機械の最初の結果と人の最終を並べる)
 - feedback の行は markId(あれば)で突き合わせる。無い以前の行は区間(auto0)で突き合わせる。
@@ -31,11 +27,7 @@
   (前後の余白 FRIEND_PAD を引いて戻す。人が状態を変えると印が外れるので取りこぼす)。同じ配信・同じ区間(±0.6 秒)は 1 つにまとめる。
   自動の候補(上の「自動マークの集まり」。点数の高い順)と比べ、当たり(区間と時間が重なる候補。定数 HIT_OVERLAP)・上位 N で拾えた率・見逃し・長さごとの拾えた率などを出す。
   解析していない配信(自動の候補も解析の記録も無い)の区間は「未解析」として別に数え、見逃しに入れない
-- 人が選んだ区間の長さ(結果の `clipLength`・表示の最後の節): 自動マークの長さは解析の設定 length・preRatio の固定なので、人が実際に選んだ長さから目安を出す。
-  見本 = friend(友人の区間。未解析の配信も長さは使う)/ manual(手で足したマーク。依頼のマーク・友人の区間と同じものは数えない)/
-  adjusted(人が良いにして端を 0.5 秒以上直した自動マークの、直したあとの長さ)/ kept(良いにして直さなかった自動マーク = 今の設定の長さのまま)。
-  5 秒未満・600 秒超は外れ値(数だけ別に)。suggest = friend・manual・adjusted の長さの中央値(10〜120 に収める。kept は中央値に入れず数だけ添える)と、
-  見本の区間の中にある候補の山の位置の割合(山 − 開始)÷ 長さ の中央値(0.3〜0.9)。見本 20 個・配信 5 本以上で enough。設定は書き換えない(読むだけ。入口が --json の結果の clipLength.suggest を読む)
+- 自動の長さの目安(結果の `clipLength`・表示の最後の節): 数えるのは src/flow/lengthhint.py(本番と同じ式・友人が指定した区間だけ・上限 180 秒)。見本 = 入口の実行記録の ranges(同じ区間は 1 つ・5 秒未満と 600 秒超は数だけ)。長さ = 中央値を 10〜180 秒に収める・山の前の割合 = 区間の中の候補の山の位置の中央値(0.3〜0.9)。enough = 見本 20 個・配信 5 本以上。本番は src/flow/lengthhint が使うときに数える(このツールの結果ファイルは読まない)。
 - --since / --until(原則 4: 時期で分ける)は、マークの作られた日時(data.json は createdAt・archive は解析の日時・feedback だけのものは最初の行の日時)と
   手で足した・取り消した行の日時で絞る(until はその日を含む)。配信が 10 本未満のときは「まだ少ない(参考)」と出す(少ないデータで決めすぎない)。
   friendRanges は実行の記録の時刻(出どころ 2 はマークの作られた時刻)で絞る。解析済みの区間が 20 未満・配信が 5 本未満のときは「まだ少ない(参考)」
@@ -57,17 +49,16 @@ import os
 import re
 import sys
 import time
-import urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.dirname(os.path.dirname(HERE))   # tools -> eval -> src
 if not __package__:   # スクリプトとして起動したとき(py -3.10 src/eval/tools/eval_marks.py)だけ。src を先頭に・この道具のフォルダは外す(兄弟は絶対 import で読む。見本 pipeline/transcribe/worker.py)
     sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
-from eval.tools import _studioapi as API  # noqa: E402  スタジオの API を呼ぶ(--analyze-missing だけ)
 from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・分布・保存。src を sys.path に足す)
 from eval.tools._evalcommon import pct, rate, read_json  # noqa: E402
 from manage.cases import txindex  # noqa: E402
 from ytt import studiodata  # noqa: E402  スタジオの data.json の読み口
+from flow import lengthhint  # noqa: E402  自動の長さの目安(人が指定した区間の長さ。本番と同じ式)
 from pipeline.analyze import excite  # noqa: E402
 
 SCHEMA = "youtube-tools-marks-eval/v1"
@@ -85,12 +76,6 @@ HIT_OVERLAP = 0.5        # friendRanges の当たり: 候補の真ん中が区�
 FRIEND_PAD = 2.0         # 依頼で自動で足される前後の余白(src/flow/spec.py の RANGE_PAD と同じ値。出どころ 2 で引く)
 FRIEND_SHORT, FRIEND_LONG = 30.0, 120.0   # 区間の長さの区切り(30 秒未満 / 30〜120 秒 / 120 秒以上)。端のずれは 120 秒未満の区間だけ
 PART_ON = excite.PART_ON              # 点数の内訳が「効いた」とみなす値(候補の理由の付け方と同じ 1 か所 = src/pipeline/analyze/excite.py)
-DEFAULT_PRE = excite.PRE_RATIO_DEFAULT   # clipLength: 山の位置の既定(解析の記録に preRatio が無いとき)
-CL_OUTLIER_MIN, CL_OUTLIER_MAX = 5.0, 600.0   # 人が選んだ区間の長さの外れ値(この外は数だけ別に出して、目安に入れない)
-CL_LENGTH_MIN, CL_LENGTH_MAX = 10, 120        # 目安の長さの範囲(スタジオの解析の設定 length の範囲)
-CL_PRE_MIN, CL_PRE_MAX = 0.3, 0.9             # 目安の preRatio の範囲(同 preRatio の範囲)
-CL_PRE_MIN_SAMPLES = 10   # 山の位置の見本がこれ未満なら preRatio の目安は出さない(None)
-CL_ENOUGH_SAMPLES, CL_ENOUGH_VIDEOS = 20, 5   # 目安の enough: 見本 20 以上かつ配信 5 本以上
 ARCHIVE_ID_RE = re.compile(r"^[\w-]{1,40}\Z", re.ASCII)
 
 
@@ -644,7 +629,7 @@ def friend_ranges(studio, app, vmap, since_ms=None, until_ms=None, dvideos=None,
         g = friend_group(rs)
         ts = [r["t"] for r in rgs if r.get("t") is not None]
         g.update(videoId=vid, title=str(dv.get("title") or "")[:80], type=typ, analyzed=analyzed, candidates=len(cands),
-                 latest=max(ts) if ts else None,   # 区間のいちばん新しい時刻(ms。--analyze-missing が新しい順に並べる)
+                 latest=max(ts) if ts else None,   # 区間のいちばん新しい時刻(ms)
                  items=[{k: r[k] for k in ("source", "start", "end", "length", "hit", "rank", "score", "hits", "dStart", "dEnd", "nearDistance", "nearScore", "nearRank")} for r in rs])
         by_video.append(g)
     overall = friend_group(results)
@@ -660,143 +645,6 @@ def friend_ranges(studio, app, vmap, since_ms=None, until_ms=None, dvideos=None,
             "fewNote": "まだ少ない(参考): 解析済みの区間が %d 個・配信が %d 本(解析済みの区間 %d 個・配信 %d 本のどちらかがこれ未満)。これで既定値を決めない"
                        % (overall["analyzedRanges"], overall["analyzedVideos"], FRIEND_FEW_RANGES, FRIEND_FEW_VIDEOS) if few else "",
             "notes": notes, "overall": overall, "byVideo": by_video}
-
-
-# ---------------------------------------------------------------- 人が選んだ区間の長さ(clipLength)と自動の長さの目安
-
-def len_dist(values):
-    """長さのそろい -> dist + p50(= median)"""
-    d = dist(values)
-    if d["n"]:
-        d["p50"] = d["median"]
-    return d
-
-
-def clip_samples(videos, allv, friend):
-    """人が選んだ区間の見本 -> [{"src": friend / manual / adjusted / kept, "videoId", "type", "start", "end", "length", "ratio"(山の位置の割合か None)}]
-    videos = 日付で絞った build_videos / allv = 絞らない build_videos(自動の候補の山を引く)/ friend = friend_ranges の結果"""
-    out = []
-
-    def cands_of(vid):
-        V = allv.get(vid)
-        return (ranked(V["auto"]) if V else []), ((V or {}).get("pre") or DEFAULT_PRE)
-
-    def add(src, vid, typ, s, e, own=None):
-        cands, pre = cands_of(vid)
-        out.append({"src": src, "videoId": vid, "type": typ, "start": s, "end": e, "length": round(e - s, 2), "ratio": peak_ratio(s, e, cands, pre, own)})
-
-    for v in friend["byVideo"]:
-        for it in v["items"]:
-            add("friend", v["videoId"], v["type"], it["start"], it["end"])
-    friend_by_vid = {v["videoId"]: v["items"] for v in friend["byVideo"]}
-    for vid in sorted(videos):
-        V = videos[vid]
-        # 手で足したマーク(manual_add)。依頼のマーク(adoptedBy が request)・友人の区間と同じ区間は friend で数えているので、ここでは数えない
-        req_ids = {m["markId"] for m in V["manual"] if m.get("adoptedBy") == "request" and m["markId"]}
-        finals = {m["markId"]: m for m in V["manual"] if m["markId"]}
-        frs = friend_by_vid.get(vid, [])
-        for ad in V["adds"]:
-            if ad["cancelled"] or ad["start"] is None or ad["end"] is None or (ad["markId"] and ad["markId"] in req_ids):
-                continue
-            s, e = ad["start"], ad["end"]
-            fin = finals.get(ad["markId"]) if ad["markId"] else None
-            if fin is not None:
-                s, e = fin["start"], fin["end"]   # 残っているマークは、人が直したあとの区間
-            if any(same((s, e), (f["start"], f["end"])) or same((s, e), (max(0.0, f["start"] - FRIEND_PAD), f["end"] + FRIEND_PAD)) for f in frs):
-                continue
-            if e > s:
-                add("manual", vid, V["type"], s, e)
-        # 自動マークを人が「良い」にしたもの: 端を 0.5 秒以上直した = adjusted(直したあとの長さ)/ 直さなかった = kept
-        for it in V["auto"]:
-            if it["verdict"] != "good" or it["dStart"] is None or it["dEnd"] is None or it["start"] is None or it["end"] is None or it["end"] <= it["start"]:
-                continue
-            edited = abs(it["dStart"]) >= EDIT_SEC or abs(it["dEnd"]) >= EDIT_SEC
-            add("adjusted" if edited else "kept", vid, V["type"], it["start"], it["end"], it)
-    return out
-
-
-def peak_of(it, pre):
-    """候補の山の時刻(秒)。項目 peak があればそれ。無ければ最初の自動区間 auto0 に preRatio を当てて戻す(開始 = 山 − 長さ × preRatio)"""
-    p = num(it.get("peak"))
-    if p is not None:
-        return p
-    a = it["a0"]
-    return a[0] + (a[1] - a[0]) * pre
-
-
-def peak_ratio(s, e, cands, pre, own=None):
-    """区間 (s, e) の中にある自動の候補の山(点数の高いものを優先。own があればそれを先に)の位置 = (山 − 開始) ÷ 長さ。無ければ None"""
-    if e <= s:
-        return None
-    for it in ([own] if own is not None else []) + cands:
-        p = peak_of(it, pre)
-        if s <= p <= e:
-            return round((p - s) / (e - s), 4)
-    return None
-
-
-def read_analyze_settings(studio):
-    """スタジオの保存した解析の設定(settings-ui.json の analyze)-> {"length", "preRatio"} か None(読めない・数でない)。読むだけ"""
-    d = read_json(os.path.join(studio, "settings-ui.json"), {})
-    a = d.get("analyze") if isinstance(d, dict) else None
-    if not isinstance(a, dict):
-        return None
-    length, pre = num(a.get("length")), num(a.get("preRatio"))
-    if length is None or pre is None:
-        return None
-    return {"length": length, "preRatio": pre}
-
-
-def clip_suggest(samples, kept_n, current):
-    """見本(friend・manual・adjusted。外れ値を除いたもの)-> 目安 suggest。kept は「今の設定のまま」の票なので中央値に入れず、数だけ添える"""
-    lens = [s["length"] for s in samples]
-    ratios = [s["ratio"] for s in samples if s["ratio"] is not None]
-    vids = {s["videoId"] for s in samples}
-    ld = dist(lens)
-    length = int(round(min(CL_LENGTH_MAX, max(CL_LENGTH_MIN, ld["median"])))) if lens else None
-    pre = round(min(CL_PRE_MAX, max(CL_PRE_MIN, dist(ratios)["median"])), 2) if len(ratios) >= CL_PRE_MIN_SAMPLES else None
-    enough = len(samples) >= CL_ENOUGH_SAMPLES and len(vids) >= CL_ENOUGH_VIDEOS
-    out = {"length": length, "preRatio": pre, "samples": len(samples), "videos": len(vids), "enough": enough,
-           "p25": ld.get("p25"), "p75": ld.get("p75"), "kept": kept_n, "preSamples": len(ratios), "current": current, "note": ""}
-    if not lens:
-        out["note"] = "人が選んだ長さの見本がまだありません(友人の区間・手で足したマーク・端を直した自動マーク)"
-        return out
-    out["note"] = "%s見本 %d 個(配信 %d 本): 長さの中央値 %d 秒(四分位 %s〜%s)・山の位置: %s%s%s" % (
-        "" if enough else "まだ少ない(参考): ", len(samples), len(vids), length, ld["p25"], ld["p75"],
-        "山の前 %.2f" % pre if pre is not None else "見本が %d 個未満で出せない" % CL_PRE_MIN_SAMPLES,
-        "。いまの設定: %g 秒・%g" % (current["length"], current["preRatio"]) if current else "。いまの設定は読めない",
-        "。直さずに良いにした自動マーク %d 個は含めていない" % kept_n if kept_n else "")
-    return out
-
-
-def clip_length(studio, videos, allv, friend):
-    """-> clipLength(結果の新しいまとまり)。作業データ・設定は読むだけ"""
-    samples = clip_samples(videos, allv, friend)
-    current = read_analyze_settings(studio)
-
-    def ok(s):
-        return CL_OUTLIER_MIN <= s["length"] <= CL_OUTLIER_MAX
-
-    def block(lst):
-        good = [s for s in lst if ok(s)]
-        return {"n": len(good), "videos": len({s["videoId"] for s in good}), "outliers": len(lst) - len(good), "length": len_dist([s["length"] for s in good])}
-
-    srcs = ("friend", "manual", "adjusted", "kept")
-    used = [s for s in samples if s["src"] != "kept"]
-    out = {"schema": "youtube-tools-clip-length/v1", "outlier": {"min": CL_OUTLIER_MIN, "max": CL_OUTLIER_MAX}, "editSec": EDIT_SEC,
-           "samples": dict({k: block([s for s in samples if s["src"] == k]) for k in srcs}, all=block(samples), used=block(used)),
-           "peakRatio": dict({k: dist([s["ratio"] for s in samples if s["src"] == k and ok(s)]) for k in srcs}, used=dist([s["ratio"] for s in used if ok(s)]))}
-    kept_n = sum(1 for s in samples if s["src"] == "kept" and ok(s))
-    out["suggest"] = clip_suggest([s for s in used if ok(s)], kept_n, current)
-    by_type = {}
-    for s in samples:
-        by_type.setdefault(s["type"], []).append(s)
-    out["byType"] = {}
-    for typ, lst in sorted(by_type.items()):
-        u = [s for s in lst if s["src"] != "kept" and ok(s)]
-        out["byType"][typ] = {"samples": {k: block([s for s in lst if s["src"] == k])["n"] for k in srcs},
-                              "suggest": clip_suggest(u, sum(1 for s in lst if s["src"] == "kept" and ok(s)), current)}
-    return out
 
 
 def evaluate(data_dir=None, since=None, until=None, status_fallback=False):
@@ -835,7 +683,7 @@ def evaluate(data_dir=None, since=None, until=None, status_fallback=False):
     # 友人が時刻で指定した区間: 自動の候補は日付で絞らない(絞るのは区間の時刻。時期の指定が無ければ上と同じなので作り直さない)
     allv = videos if since_ms is None and until_ms is None else build(None, None)
     friend = friend_ranges(studio, app, allv, since_ms, until_ms, dvideos=dvideos, records=records, archive=archive)
-    clip = clip_length(studio, videos, allv, friend)
+    clip = lengthhint.compute(studio, app, by_type=True)
     return {"meta": meta, "overall": overall, "byType": {k: group_metrics(v) for k, v in sorted(types.items())}, "byVideo": by_video, "friendRanges": friend, "clipLength": clip}
 
 
@@ -1131,27 +979,24 @@ def print_friend(fr):
 
 
 def print_clip_length(cl):
-    """人が選んだ区間の長さと、自動の長さの目安の節"""
+    """友人が指定した区間の長さと、自動の長さの目安の節(数えるのは src/flow/lengthhint)"""
     print("")
-    print("人が選んだ区間の長さ(自動の長さの目安。%g 秒未満・%g 秒超は外れ値で数に入れない)" % (CL_OUTLIER_MIN, CL_OUTLIER_MAX))
-    names = (("friend", "友人の区間"), ("manual", "手で足した"), ("adjusted", "端を直した自動"), ("kept", "直さなかった自動(今の設定のまま)"), ("used", "目安に使う分(上の3つ)"))
-    if not cl["samples"]["all"]["n"] and not cl["samples"]["all"]["outliers"]:
-        print("  (見本がまだありません)")
+    print("友人が指定した区間の長さ(自動の長さの目安。本番は src/flow/lengthhint が使うときに数える)")
+    if cl.get("length") is None:
+        print("  目安: 友人の区間の見本がまだありません")
     else:
-        print("    %-26s %5s %5s %5s %7s %7s %7s %6s" % ("出どころ", "個", "配信", "外れ", "25%", "中央値", "75%", "山の位置"))
-        for k, label in names:
-            b = cl["samples"][k]
-            d = b["length"]
-            pr = cl["peakRatio"][k]
-            print("    %-24s %5d %5d %5d %7s %7s %7s %6s" % (label, b["n"], b["videos"], b["outliers"], d.get("p25", "-"), d.get("p50", "-"), d.get("p75", "-"), pr.get("median", "-")))
-    s = cl["suggest"]
-    if s["enough"] is False and s["samples"]:
-        print("★ まだ少ない(参考): 見本 %d 個・配信 %d 本(%d 個・%d 本以上で目安にする)" % (s["samples"], s["videos"], CL_ENOUGH_SAMPLES, CL_ENOUGH_VIDEOS))
-    print("  目安: " + s["note"])
-    for typ, t in cl["byType"].items():
-        ts = t["suggest"]
-        if ts["samples"]:
-            print("    [%s] 長さ %s 秒・山の前 %s(見本 %d 個・配信 %d 本%s)" % (typ, ts["length"], ts["preRatio"] if ts["preRatio"] is not None else "-", ts["samples"], ts["videos"], "" if ts["enough"] else "・まだ少ない"))
+        pre = "山の前 %.2f" % cl["preRatio"] if cl.get("preRatio") is not None else "山の前は見本が少なく出せない"
+        print("  目安: 長さ %d 秒・%s(見本 %d 個・配信 %d 本。25%% %s・中央値 %s・75%% %s。外れ値 %d 個は数だけ)" % (
+            cl["length"], pre, cl["samples"], cl["videos"], cl.get("p25"), cl.get("p50"), cl.get("p75"), cl.get("outliers") or 0))
+        if not cl.get("enough"):
+            print("  ★ まだ少ない(参考): 見本 %d 個・配信 %d 本(%d 個・%d 本以上で目安にする)" % (
+                cl["samples"], cl["videos"], lengthhint.ENOUGH_SAMPLES, lengthhint.ENOUGH_VIDEOS))
+    for typ, t in (cl.get("byType") or {}).items():
+        if t.get("length") is None:
+            continue
+        pre = "%.2f" % t["preRatio"] if t.get("preRatio") is not None else "-"
+        print("    [%s] 長さ %d 秒・山の前 %s(見本 %d 個・配信 %d 本%s)" % (
+            typ, t["length"], pre, t["samples"], t["videos"], "" if t.get("enough") else "・まだ少ない"))
 
 
 def print_report(res):
@@ -1182,164 +1027,13 @@ def print_report(res):
     print_clip_length(res["clipLength"])
 
 
-# ---------------------------------------------------------------- 未解析の友人の配信の解析をスタジオに頼む(--analyze-missing。RS4)
-
-ANALYZE_LIMIT = 10       # 一度に頼む本数の既定(スタジオの解析のキューの上限 src/flow/batch.py の MAX_ACTIVE と同じ)
-WAIT_POLL = 5.0          # --wait でキューを見る間隔(秒)
-QUEUE_END = ("done", "error", "cancelled", "skipped")   # スタジオの解析のキューの終わった状態(src/flow/batch.py の FINISHED)
-EXIT_NO_STUDIO = 2
-SKIP_LABELS = {"analyzed": "解析済み", "missing": "スタジオに無い", "queued": "すでに順番待ち", "full": "キューが満杯", "limit": "--limit を超えた分",
-               "kind": "解析しない種類(ライブの録画など)"}
-
-
-def missing_videos(data_dir=None):
-    """友人が区間を指定したのに解析していない配信(friendRanges の analyzed が False)-> [{"videoId", "title", "latest", "kind", "path"}]。
-    区間の新しい順(時刻の無いものは最後)。kind・path はスタジオの data.json の値(動画ファイルの解析は元の場所を渡すため。読むだけ)"""
-    res = evaluate(data_dir)
-    dvideos = studio_videos(locate(data_dir)[1])
-    out = []
-    for v in sorted((v for v in res["friendRanges"]["byVideo"] if not v["analyzed"]), key=lambda v: -(v.get("latest") or 0)):
-        dv = dvideos.get(v["videoId"]) if isinstance(dvideos.get(v["videoId"]), dict) else {}
-        out.append({"videoId": v["videoId"], "title": v["title"], "latest": v.get("latest"), "kind": dv.get("kind"), "path": dv.get("path")})
-    return out
-
-
-def _queue_item(v, video):
-    """スタジオの /api/queue/add に渡す 1 件(src/flow/run.py の _step_analyze と同じ形)。解析しない種類は None"""
-    kind = video.get("kind") or v.get("kind") or "youtube"
-    if kind == "youtube":
-        return {"kind": "youtube", "videoId": v["videoId"]}
-    if kind == "file" and isinstance(v.get("path"), str) and v["path"]:
-        return {"kind": "file", "path": v["path"]}
-    return None
-
-
-def analyze_missing(data_dir=None, limit=ANALYZE_LIMIT, wait=False, ep=None, poll=WAIT_POLL, sleep=time.sleep, out=print):
-    """未解析の友人の配信の解析を、動いているスタジオに頼む(書くのはスタジオ。この道具は作業データを読むだけ)。
-    解析の設定はスタジオの画面で保存したもの(/api/settings の settings.analyze)だけ(友人の重み・友人の区間の長さは使わない =
-    消した「あとから解析」と同じ条件)。-> (終了コード, {"added", "skipped", "failed", "results"})。スタジオが動いていなければ終了コード 2"""
-    ep = ep or API.find_studio()
-    if not ep:
-        out("スタジオが動いていません。ホームを起動してから(start.bat)、もう一度実行してください")
-        return EXIT_NO_STUDIO, None
-    res = {"added": [], "skipped": [], "failed": [], "results": []}
-    todo = missing_videos(data_dir)
-    if not todo:
-        out("未解析の友人の配信はありません")
-        return 0, res
-    try:
-        st, obj = API.call(ep, "GET", "api/settings")
-    except API.StudioError as e:
-        out(str(e))
-        return EXIT_NO_STUDIO, None
-    saved = (obj.get("settings") or {}).get("analyze") if st == 200 and isinstance(obj.get("settings"), dict) else None
-    saved = saved if isinstance(saved, dict) else {}
-    for i, v in enumerate(todo):
-        def skip(why, v=v):
-            res["skipped"].append(dict(v, reason=why))
-        if len(res["added"]) >= limit:
-            skip("limit")
-            continue
-        try:
-            st, obj = API.call(ep, "GET", "api/video?id=" + urllib.parse.quote(v["videoId"], safe=""))
-            if st == 404:
-                skip("missing")
-                continue
-            if st != 200:
-                res["failed"].append(dict(v, reason=obj.get("message") or "HTTP %s" % st))
-                continue
-            video = obj.get("video") if isinstance(obj.get("video"), dict) else {}
-            if video.get("analysis"):
-                skip("analyzed")
-                continue
-            item = _queue_item(v, video)
-            if item is None:
-                skip("kind")
-                continue
-            st, obj = API.call(ep, "POST", "api/queue/add", {"items": [item], "settings": saved})
-        except API.StudioError as e:
-            res["failed"].append(dict(v, reason=str(e)))
-            break
-        added = obj.get("added") if st == 200 and isinstance(obj.get("added"), list) else []
-        if added and isinstance(added[0], dict) and added[0].get("qid"):
-            res["added"].append(dict(v, qid=added[0]["qid"]))
-            continue
-        rej = obj.get("rejected") if isinstance(obj.get("rejected"), list) and obj.get("rejected") else [{}]
-        why = str((rej[0] if isinstance(rej[0], dict) else {}).get("reason") or obj.get("message") or ("HTTP %s" % st if st != 200 else "理由不明"))
-        if "一度に入れられる" in why:   # キューが満杯(FULL_MSG): 残りも入らないので、ここで止める
-            for w in todo[i:]:
-                res["skipped"].append(dict(w, reason="full"))
-            break
-        if "すでに解析の順番待ち" in why:   # DUP_MSG
-            skip("queued")
-            continue
-        res["failed"].append(dict(v, reason=why))
-    print_analyze_missing(res, out)
-    if wait and res["added"]:
-        res["results"] = wait_queue(ep, res["added"], poll, sleep, out)
-    return (1 if res["failed"] else 0), res
-
-
-def wait_queue(ep, added, poll=WAIT_POLL, sleep=time.sleep, out=print):
-    """入れた解析が終わるまでキュー(/api/queue)を見る -> [{"videoId", "qid", "status", "marks", "error"}]"""
-    left = {a["qid"]: a for a in added}
-    results = []
-    out("解析が終わるのを待ちます(%g 秒ごとに見ます。Ctrl+C で待つのをやめても解析は続きます)" % poll)
-    while left:
-        try:
-            st, obj = API.call(ep, "GET", "api/queue")
-        except API.StudioError as e:
-            out(str(e))
-            break
-        items = obj.get("items") if st == 200 and isinstance(obj.get("items"), list) else []
-        by_q = {it.get("qid"): it for it in items if isinstance(it, dict)}
-        for qid in list(left):
-            it = by_q.get(qid)
-            if it is None or it.get("status") in QUEUE_END:
-                a = left.pop(qid)
-                r = {"videoId": a["videoId"], "qid": qid, "status": it.get("status") if it else "gone",
-                     "marks": it.get("marks") if it else None, "error": (it.get("error") if it else "") or ""}
-                results.append(r)
-                out("  %s %s%s" % (a["videoId"], {"done": "解析しました(候補 %s 件)" % r["marks"], "gone": "キューから消えました(スタジオで取り消したかもしれません)"}.get(
-                    r["status"], r["status"]), ": " + r["error"] if r["error"] else ""))
-        if left:
-            sleep(poll)
-    done = sum(1 for r in results if r["status"] == "done")
-    out("待ち終わり: 解析した %d 本・終わらなかった %d 本" % (done, len(results) - done))
-    return results
-
-
-def print_analyze_missing(res, out=print):
-    out("未解析の友人の配信: 解析を頼んだ %d 本・飛ばした %d 本・失敗 %d 本" % (len(res["added"]), len(res["skipped"]), len(res["failed"])))
-    for a in res["added"]:
-        out("  入れた   %s %s" % (a["videoId"], a["title"][:40]))
-    counts = {}
-    for s in res["skipped"]:
-        counts[s["reason"]] = counts.get(s["reason"], 0) + 1
-    for k, n in counts.items():
-        out("  飛ばした %s %d 本" % (SKIP_LABELS.get(k, k), n))
-    for f in res["failed"]:
-        out("  失敗     %s %s" % (f["videoId"], f["reason"][:200]))
-    if res["added"]:
-        out("解析が済んだら、もう一度この道具(--analyze-missing なし)で友人の区間と自動の候補を比べられます")
-
-
 def main(argv=None):
     p = argparse.ArgumentParser(description="盛り上がり検出の当たり具合を人の判定の記録で測る(作業データは読むだけ)")
     C.add_period_args(p, "この日(YYYY-MM-DD)以後のものだけ", "この日(YYYY-MM-DD。この日を含む)までのものだけ",
                       "同じ形の JSON を スタジオの作業データの evals/marks/<日時>.json に残す")
     p.add_argument("--status-fallback", action="store_true", help="行も実行記録も無い採用・書き出しの状態を、人の判定として数える")
     p.add_argument("--live", action="store_true", help="配信ごとの記録(入口の live/reports/ と live_feedback.jsonl。線 D の D-12)を並べる")
-    p.add_argument("--analyze-missing", action="store_true",
-                   help="友人が区間を指定したのに解析していない配信の解析を、動いているスタジオに頼む(書くのはスタジオ。ホームを起動しておく)")
-    p.add_argument("--wait", action="store_true", help="--analyze-missing で頼んだ解析が終わるまで待って結果を出す")
-    p.add_argument("--limit", type=int, default=ANALYZE_LIMIT, help="--analyze-missing で一度に頼む本数(既定 %d = スタジオの解析のキューの上限)" % ANALYZE_LIMIT)
     args = p.parse_args(argv)
-    if args.analyze_missing:
-        code, res = analyze_missing(args.data_dir, max(1, args.limit), args.wait)
-        if code:
-            sys.exit(code)
-        return res
     if args.live:
         res = evaluate_live(args.data_dir, args.since, args.until)
         print_live(res)

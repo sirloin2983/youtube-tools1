@@ -42,7 +42,7 @@
   普段のデータは「下書きを作ったエンジン」に甘く出る(人は迷うと下書きを直さずに通す)ので、結果に下書きのエンジンを出し、比べるエンジンと同じなら注意する。
   校正済みが 15 分に届かないときは「まだ少ない(参考)」
 
-- 比べ方は文字起こしの画面の「認識精度の測定」と同じ(serve.py の _groups・norm_cer・lev_counts。句読点・空白・記号・全角半角は数えない)。
+- 比べ方は文字起こしの画面の「認識精度の測定」と同じ(learn の _groups・metrics の norm_cer・lev_counts。句読点・空白・記号・全角半角は数えない)。
   機械の出力と人の行を時刻の重なりでまとめ、全部の行が校正済みのまとまりだけを数える。人が消した行 = 余分、人が足した行 = 抜け
 - 「字幕に出さない」行 noSub(ゲームのキャラ・NPC の声など。行の印 noSub: true)は正解に入れない。その時間(行の半分以上が noSub の行の時間に入る)に機械が書いた文字も本体の数え方から外し、
   結果の summary.noSub = {docs, rows, sec, machineChars, byDoc} に別に出す(確かめ済みの文書で「何も話していない所の機械の文字 = 余分」に数えられないように。判定は src/human/proof/learn.py の split_nosub)。
@@ -54,14 +54,8 @@
 - 作業データ(%LOCALAPPDATA%/youtube-tools/transcribe)は**読むだけ**。文字起こしの文書は書き換えない。
   結果は作業データの evals/asr/ に JSON で残す(文章を含むのでリポジトリには入れない。数字のまとめだけを docs/accuracy に書く)
 - run はこのプロセスの中で faster-whisper を動かす(サーバーの外の道具なので、ネイティブの部品を読んでよい)。起動中のツールとは別に動く。
-  editor の読み込みは _evalcommon.load_serve(serve を sys.modules に登録して読む = 「S.名前 = …」が持ち主の部品へ届く)。
-  2026-10-07 の直し(見直し 2 周目): それまでは登録せずに読んでいたので届いていなかった。
-  ① IN_WORKER = True が ed_jobs に届かず、認識は認識ワーカー(別プロセス)で動いていた。--temp0・beam・VAD などの設定は要求の引数で渡るので効いていたが、
-     meta.peakMemMB はこのプロセスだけ(モデルの分が入っていない)だった
-  ② STUDIO_DATA が ed_state に届かず、--context auto はスタジオの data.json(今の置き場所)を読めなかった = 配信のチャンネル名・コラボ相手を使わず、
-     題名・話者の名前からの文脈だけだった
-  ③ 道具の外から「S.QUANT_ON = False」のように差し替えても後処理は変わらず、meta.post の印だけが変わっていた(10-07 の「配り直し なし / あり」の比べは両方あり。
-     配り直し QUANT_ON は編集 0.65.0 で消した)
+  部品は C.prepare(持ち主のモジュールを直に読む。入口の編集の serve は読まない = OPT-E2)。認識はこのプロセスの中で(IN_WORKER)、
+  --context auto はスタジオの data.json(STUDIO_DATA)を読む。後処理の差し替えは持ち主(postproc)の値を直に書き換える。
 - meta.post(行の後処理の印)は 2 周目から endTrim・joinGap(editor の post_record と同じ値。0.57.1 で変わった)も持つ。
   編集 0.64.0 までの結果にある pullEnds・quantRetime の鍵は 0.65.0 から付けない(部品ごと消した)。印が違う結果どうしを compare すると注意を出す
 """
@@ -81,8 +75,21 @@ SRC = os.path.dirname(os.path.dirname(HERE))   # tools -> eval -> src
 if not __package__:   # スクリプトとして起動したとき(py -3.10 src/eval/tools/eval_asr.py)だけ。src を先頭に・この道具のフォルダは外す(兄弟は絶対 import で読む。見本 pipeline/transcribe/worker.py)
     sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
 from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・git の rev・保存・editor の読み込み。src を sys.path に足す)
-from eval.tools._evalcommon import is_reviewed, load_serve, read_json  # noqa: E402  load_serve・is_reviewed は eval_alt・eval_effort・eval_timing・テストも eval_asr.名前 で使う
+from eval.tools._evalcommon import is_reviewed, read_json  # noqa: E402  is_reviewed は eval_alt・eval_effort・eval_timing・テストも eval_asr.名前 で使う
 from ytt import docloc, tools  # noqa: E402
+from pipeline.transcribe import postproc as _postproc  # noqa: E402
+from pipeline.transcribe import tx_engines as _tx_engines  # noqa: E402
+from pipeline.transcribe import roster as _roster  # noqa: E402
+from pipeline.transcribe import worker_client as _worker_client  # noqa: E402
+from pipeline.transcribe import recognize as _recognize  # noqa: E402
+from pipeline.transcribe import records as _records  # noqa: E402
+from pipeline.transcribe import backend as _backend  # noqa: E402
+from human.proof import learn as _learn  # noqa: E402
+from human.proof import doc_jobs as _doc_jobs  # noqa: E402
+from eval.drill import metrics as _metrics  # noqa: E402
+from eval.fake import fake_asr as _fake_asr  # noqa: E402
+from ytt import errors as _errors  # noqa: E402
+from ytt import txbase as _txbase  # noqa: E402
 SCHEMA = "youtube-tools-asr-eval/v1"
 BOOT = 1000          # ブートストラップの回数(文書を選び直して、CER のぶれの範囲を出す)
 LOW_DATA_SEC = 15 * 60   # 校正済みがこれに届かなければ「まだ少ない(参考)」(マスタープラン Q4: 定点は 15 分前後)
@@ -335,14 +342,14 @@ def peak_mem():
     return None if mb is None else round(mb)
 
 
-def name_terms(S, settings):
+def name_terms(settings):
     """「名前が正しく出たか」を数える語: 用語集・置換辞書の「正」(画面の測定と同じ)+ 名簿の名前と呼び名(段1-1)"""
-    terms = list(S.metric_terms(settings))
-    r = S._roster.load(S.ROSTER)
+    terms = list(_metrics.metric_terms(settings))
+    r = _roster.load(_roster.ROSTER)
     for n in r["people"]:
         m = r["members"].get(n)
         for x in [n] + (m["aliases"] if m else []):
-            t = S.norm_cer(x)
+            t = _metrics.norm_cer(x)
             if len(t) >= 2 and t not in terms:
                 terms.append(t)
     return terms
@@ -350,12 +357,12 @@ def name_terms(S, settings):
 
 # ---------------------------------------------------------------- 採点(画面の doc_metrics と同じ規則。まとまりごとの内訳も残す)
 
-def score_doc(S, doc, hyp, terms, flag_from="hyp"):
+def score_doc(doc, hyp, terms, flag_from="hyp"):
     """文書1件: 正解 = 校正済みの行、機械 = hyp(時刻は元の動画の秒)。まとまりの一覧を返す(数えないまとまりは入れない)。
     flag_from: 要確認の印を、機械の行(hyp。認識し直したとき)と人の行(ref。保存してある出力。original には印が無い)のどちらから読むか"""
     vdoc = dict(doc, original=hyp)
-    orig, segs = S._prep(vdoc)
-    orig, segs, _ns_o, _ns_s = S.split_nosub(orig, segs)   # noSub(字幕に出さない)の行とその時間の機械の行は本体から外す(別集計は doc_nosub)
+    orig, segs = _learn._prep(vdoc)
+    orig, segs, _ns_o, _ns_s = _learn.split_nosub(orig, segs)   # noSub(字幕に出さない)の行とその時間の機械の行は本体から外す(別集計は doc_nosub)
     proofed = [g for g in segs if g.get("proofed")]
     whole = whole_video(doc)   # 確かめ済み = 動画全体が正解。人の行の無い所の機械の文字は余分・機械の無い所の人の行は抜け(範囲の外でも捨てない)
     if not whole and (not orig or not proofed):
@@ -363,7 +370,7 @@ def score_doc(S, doc, hyp, terms, flag_from="hyp"):
     lo, hi = (min(g["start"] for g in proofed), max(g["end"] for g in proofed)) if proofed else (0.0, 0.0)
     ok = lambda g: bool(g.get("proofed")) and "unclear" not in (g.get("tags") or [])
     out = []
-    for go, ge in S._groups(orig, segs):
+    for go, ge in _learn._groups(orig, segs):
         if ge and not all(ok(segs[i]) for i in ge):
             continue
         if go and ge:
@@ -378,15 +385,15 @@ def score_doc(S, doc, hyp, terms, flag_from="hyp"):
         else:
             kind = "humanOnly"
             a, b = min(segs[i]["start"] for i in ge), max(segs[i]["end"] for i in ge)
-        raw_ref = S._norm(segs, ge) if ge else ""
-        raw_hyp = S._norm(orig, go) if go else ""
-        ref, hyp_n = S.norm_cer(raw_ref), S.norm_cer(raw_hyp)
+        raw_ref = _learn._norm(segs, ge) if ge else ""
+        raw_hyp = _learn._norm(orig, go) if go else ""
+        ref, hyp_n = _metrics.norm_cer(raw_ref), _metrics.norm_cer(raw_hyp)
         if not ref and not hyp_n:
             continue
-        s, d, i = S.lev_counts(ref, hyp_n)
+        s, d, i = _metrics.lev_counts(ref, hyp_n)
         tags = sorted({t for j in ge for t in (segs[j].get("tags") or []) if t in ("overlap", "bgm")})
         flag_rows = [orig[j] for j in go] if flag_from == "hyp" else [segs[j] for j in ge]
-        flags = sorted({f for r in flag_rows for f in str(r.get("flag") or "").split("、") if f and f not in S.SPK_FLAGS})
+        flags = sorted({f for r in flag_rows for f in str(r.get("flag") or "").split("、") if f and f not in _txbase.SPK_FLAGS})
         lps = [orig[j]["avg_logprob"] for j in go if isinstance(orig[j].get("avg_logprob"), (int, float))]
         th = sum(min(ref.count(t), hyp_n.count(t)) for t in terms)
         out.append({"doc": doc.get("id"), "start": round(a, 2), "end": round(b, 2), "kind": kind, "ref": raw_ref, "hyp": raw_hyp,
@@ -398,17 +405,17 @@ def score_doc(S, doc, hyp, terms, flag_from="hyp"):
             out[-1]["whole"] = True
             if kind == "machineOnly" and outside:
                 out[-1]["outside"] = True   # 今までなら捨てていた(校正した行の範囲の外)余分
-        if ge and S.is_overlap_group(segs, ge):   # 重なりのまとまり(別にも出す。主な数字には今までの数え方のまま入る)
-            bs, bd, bi = S.overlap_best_counts(segs, ge, hyp_n)
+        if ge and _metrics.is_overlap_group(segs, ge):   # 重なりのまとまり(別にも出す。主な数字には今までの数え方のまま入る)
+            bs, bd, bi = _metrics.overlap_best_counts(segs, ge, hyp_n)
             out[-1]["ovl"] = {"sub": bs, "del": bd, "ins": bi}
     return out
 
 
-def doc_nosub(S, doc, hyp):
+def doc_nosub(doc, hyp):
     """文書 1 件の noSub の別集計 {rows, sec, machineChars}(noSub の行が無ければ None)。hyp = 機械の行(score_doc と同じ)"""
-    orig, segs = S._prep(dict(doc, original=hyp))
-    _o, _s, ns_o, ns_s = S.split_nosub(orig, segs)
-    return S.nosub_stats(ns_o, ns_s) if ns_s else None
+    orig, segs = _learn._prep(dict(doc, original=hyp))
+    _o, _s, ns_o, ns_s = _learn.split_nosub(orig, segs)
+    return _metrics.nosub_stats(ns_o, ns_s) if ns_s else None
 
 
 def nosub_summary(per_doc):
@@ -472,7 +479,7 @@ def lp_bin(lp):
     return LP_BINS[-1][1]
 
 
-def doc_text(S, groups):
+def doc_text(groups):
     """時刻によらない数え方: 文書ごとに、数えたまとまりの正解と機械の文字を時刻の順に通しでつないで比べる。
     行の時刻が目安のエンジン(Qwen3-ASR。段2-3)は、まとまりごとの数え方だと文字が隣のまとまりへずれて抜けと余分が二重に出るので、文字の正しさはこちらで比べる"""
     t = {"refChars": 0, "sub": 0, "del": 0, "ins": 0}
@@ -481,8 +488,8 @@ def doc_text(S, groups):
         by.setdefault(g["doc"], []).append(g)
     for gs in by.values():
         gs = sorted(gs, key=lambda g: g["start"])
-        ref, hyp = S.norm_cer("".join(g["ref"] for g in gs)), S.norm_cer("".join(g["hyp"] for g in gs))
-        a, b, c = S.lev_counts(ref, hyp)
+        ref, hyp = _metrics.norm_cer("".join(g["ref"] for g in gs)), _metrics.norm_cer("".join(g["hyp"] for g in gs))
+        a, b, c = _metrics.lev_counts(ref, hyp)
         t["refChars"] += len(ref)
         t["sub"], t["del"], t["ins"] = t["sub"] + a, t["del"] + b, t["ins"] + c
     t["cer"] = round((t["sub"] + t["del"] + t["ins"]) / t["refChars"], 4) if t["refChars"] else None
@@ -523,9 +530,9 @@ def gate_line(g):
     return head + ("・次の %s まであと %s 分" % (g["next"], _min(g["nextSec"])) if g["next"] and (g["gate"] or g["sec"] > 0) else "")
 
 
-def origin_summary(groups, docs, S=None):
+def origin_summary(groups, docs):
     """出どころ別の小計(編集前・ショート。文書がある出どころだけ)。全体の集計と同じ関数で出す: total の鍵 + docs(文書の数)・ids・
-    reviewedSec(確かめ済みの秒 = 定点の量)・proofedSec・ci95、S があれば docText(時刻によらない CER)"""
+    reviewedSec(確かめ済みの秒 = 定点の量)・proofedSec・ci95、docText(時刻によらない CER)"""
     out = {}
     for o, _name in ORIGINS:
         ds = [d for d in docs if origin_of(d) == o]
@@ -534,13 +541,12 @@ def origin_summary(groups, docs, S=None):
         ids = {d["id"] for d in ds}
         mine = [g for g in groups if g["doc"] in ids]
         t = dict(total(mine), docs=len(ds), ids=sorted(ids), reviewedSec=reviewed_summary(mine, ds)["sec"], proofedSec=proofed_sec(mine, ds), ci95=boot_ci(mine))
-        if S is not None:
-            t["docText"] = doc_text(S, mine)
+        t["docText"] = doc_text(mine)
         out[o] = t
     return out
 
 
-def summarize(groups, docs, S=None, compared=STORED, group=None, nosub=None):
+def summarize(groups, docs, compared=STORED, group=None, nosub=None):
     """結果のまとめ。compared = 比べるエンジン(STORED = 保存してある出力)。下書きのエンジンとの注意(draftBias)に使う。
     group = (見出し, 文書 -> 組の名前)。--group-by のとき、組ごとの集計 byGroup を足す。nosub = {文書 id: doc_nosub の結果}"""
     s = {"overall": total(groups), "ci95": boot_ci(groups)}
@@ -549,10 +555,9 @@ def summarize(groups, docs, S=None, compared=STORED, group=None, nosub=None):
     s["proofedSec"] = proofed_sec(groups, docs)
     s["reviewed"] = reviewed_summary(groups, docs)
     s["gate"] = gate_of(s["reviewed"]["sec"])        # 量の関門(定点 = 確かめ済みの文書の長さの合計)
-    s["origins"] = origin_summary(groups, docs, S)   # 出どころ別(編集前・ショート)。いつも入れる(片方しか無ければある方だけ)
+    s["origins"] = origin_summary(groups, docs)   # 出どころ別(編集前・ショート)。いつも入れる(片方しか無ければある方だけ)
     s["lowData"] = s["proofedSec"] < LOW_DATA_SEC   # 校正済みが少ない間は「まだ少ない(参考)」(結果は出すが、決めるのに使わない)
-    if S is not None:
-        s["docText"] = doc_text(S, groups)
+    s["docText"] = doc_text(groups)
     s["byTag"] = {TAG_NAMES[k]: total([g for g in groups if ((k in g["tags"]) if k != "none" else not g["tags"])]) for k in ("overlap", "bgm", "none")}
     # 人が足した行(機械の行が無い = 抜け)は、印・自信の度合いを持たないので別の欄に(「印なし」「不明」に混ぜると、印の当たり方を読み違える)
     NO_HYP = "機械の行なし(抜け)"
@@ -591,25 +596,25 @@ def summarize(groups, docs, S=None, compared=STORED, group=None, nosub=None):
 
 # ---------------------------------------------------------------- 認識し直す
 
-def recognize_doc(S, doc, spec, data):
+def recognize_doc(doc, spec, data):
     """文書の範囲の音声を認識し直して、機械の行(元の動画の秒・印・自信の度合いつき)を返す。-> (行, 音声の秒, かかった秒, 音声の出どころ)"""
-    a_spec, offset, where = C.audio_span(S, doc, data, boost=spec["boost"])
+    a_spec, offset, where = C.audio_span(doc, data, boost=spec["boost"])
     job = C.fake_job()
     tmp = tempfile.mkdtemp(prefix="eval_asr_wav_")
     wav = os.path.join(tmp, "a.wav")
     try:
-        S.extract_audio(job, a_spec, wav)
-        audio_sec = S.media_duration(wav) or 0.0
+        _recognize.extract_audio(job, a_spec, wav)
+        audio_sec = tools.media_duration(wav) or 0.0
         t0 = time.monotonic()
-        gen = S.transcribe_fake(job, spec, wav, audio_sec) if S.backend_name() == "fake" else S.transcribe_real(job, spec, wav, audio_sec)
+        gen = _fake_asr.transcribe_fake(job, spec, wav, audio_sec) if _backend.is_fake() else _recognize.transcribe_real(job, spec, wav, audio_sec)
         rows, prev = [], []
         # 文字起こしのジョブ(run_job)と同じ整え方(長さより後ろの行を捨てる・繰り返しをまとめる・続いている行をつなぐ)。
         # 編集 0.65.0 で、行の終わりを音の谷へ寄せる(TRANSCRIBE_PULL_ENDS)と 1 秒丸めの配り直し(TRANSCRIBE_RETIME)を消した(どちらも既定オフだった)
-        for s in S.expand_segments(gen, spec, audio_sec):
+        for s in _postproc.expand_segments(gen, spec, audio_sec):
             if not s["text"]:
                 continue
-            row = {"start": round(s["start"] + offset, 2), "end": round(s["end"] + offset, 2), "text": s["text"][:S.MAX_TEXT], **S.machine_conf(s)}
-            row["flag"] = S.make_flags({**s, "text": row["text"], "start": row["start"], "end": row["end"]}, prev, spec["language"], S.prompt_terms(spec))
+            row = {"start": round(s["start"] + offset, 2), "end": round(s["end"] + offset, 2), "text": s["text"][:_txbase.MAX_TEXT], **_postproc.machine_conf(s)}
+            row["flag"] = _postproc.make_flags({**s, "text": row["text"], "start": row["start"], "end": row["end"]}, prev, spec["language"], _roster.prompt_terms(spec))
             prev.append(row["text"])
             rows.append(row)
         return rows, audio_sec, time.monotonic() - t0, where, job.get("device", "")
@@ -617,20 +622,20 @@ def recognize_doc(S, doc, spec, data):
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def run_spec(S, args, settings, hint_free=False):
+def run_spec(args, settings, hint_free=False):
     """hint_free = 評価用以外(普段)の文書を含むとき: 用語集を渡さない(--glossary を自分で付けたときだけ渡す)。辞書(置換・学習)は常に使わない"""
     st = settings or {}
     raw_glossary = args.glossary if args.glossary is not None else ("" if hint_free else str(st.get("glossary") or ""))
     glossary = [t.strip() for t in re.split(r"[\r\n,、]+", raw_glossary) if t.strip()]
     beam = args.beam if args.beam else (1 if st.get("quality") == "fast" else 5)
     model = args.model or st.get("model") or "large-v3"
-    eng = S.tx_engines.get(args.engine)
+    eng = _tx_engines.get(args.engine)
     if not args.model and not eng.valid_model(model) and getattr(eng, "DEFAULT_MODEL", ""):
         model = eng.DEFAULT_MODEL   # 設定のモデル(whisper の名前)は Qwen3-ASR のエンジンでは使えない
     return {"model": model, "language": "ja", "beam": beam,
             "vadMode": args.vad or (st.get("vadMode") if st.get("vadMode") in ("weak", "normal", "off") else "normal"),
             "boost": (st.get("boost") is True) if args.boost is None else args.boost == "on",
-            "wordSplit": st.get("wordSplit") is not False, "splitChars": S.split_chars_for({}, st),
+            "wordSplit": st.get("wordSplit") is not False, "splitChars": _doc_jobs.split_chars_for({}, st),
             "stripPunct": st.get("stripPunct") is not False, "glossary": glossary, "device": args.device, "temp0": bool(args.temp0),
             "engine": args.engine, "autoDict": False, "autoLearned": False}
 
@@ -724,14 +729,14 @@ def base_meta(mode, args, docs, data, sel=None):
             "docs": [d["id"] for d in docs], "dataFingerprint": fingerprint(docs), "dataDir": data}
 
 
-def post_meta(S, spec):
+def post_meta(spec):
     """行の後処理の印(meta.post。compare が、違う結果どうしに注意を出す)。0.51.0 から clip_rows・merge_repeats、
     2 周目から editor の post_record()(recognition.runs[].post と同じ値)の endTrim・joinGap も。
     endTrim は whisper.cpp のときだけ・joinGap は全エンジン。編集の版(version)は入れない(後処理が同じなら、版が違っても注意を出さない。版は meta.git で分かる)。
     編集 0.64.0 までの結果は pullEnds(音の谷へ寄せたか)・quantRetime(1 秒丸めの配り直しのモデル | False)の鍵も持つ = 0.65.0 で部品ごと消したので、
     それより前の結果と compare すると印が違うので注意が出る(どちらも既定オフだったので、注意が出ても後処理は同じことが多い)"""
-    rec = S.post_record()
-    wcpp = S.engine_of(spec) == S.tx_engines.WhisperCpp.id
+    rec = _postproc.post_record(spec)
+    wcpp = _tx_engines.engine_of(spec) == _tx_engines.WhisperCpp.id
     post = {"clip": True, "mergeRepeats": True}
     if wcpp:
         post["endTrim"] = rec["endTrim"]
@@ -752,70 +757,70 @@ def group_spec(args, mode):
     return ("下書きを作ったエンジンごと(--group-by %s)" % gb, lambda d: run_label(draft_run(d), gb) if draft_run(d) else DRAFT_NONE)
 
 
-def cmd_stored(S, args, data):
+def cmd_stored(args, data):
     settings = read_json(os.path.join(data, "settings.json"), {}, kind=dict)
     docs, sel = select_docs(data, args)
-    terms = name_terms(S, settings)
+    terms = name_terms(settings)
     groups, mismatch, nosub = [], [], {}
     for d in docs:
-        mine = score_doc(S, d, d.get("original") or [], terms, flag_from="ref")
+        mine = score_doc(d, d.get("original") or [], terms, flag_from="ref")
         groups += mine
-        nosub[d["id"]] = doc_nosub(S, d, d.get("original") or [])
-        ref = S.doc_metrics(d, terms=terms)   # 画面の「認識精度の測定」と同じ数になるか(規則を二重に持っているので、ずれたら知らせる)
+        nosub[d["id"]] = doc_nosub(d, d.get("original") or [])
+        ref = _metrics.doc_metrics(d, terms=terms)   # 画面の「認識精度の測定」と同じ数になるか(規則を二重に持っているので、ずれたら知らせる)
         # 確かめ済みの文書(動画全体で採点)は画面の測定(校正した行の範囲だけ)と数が違って当たり前なので、今までの規則で数え直した方と比べる
-        t = total(score_doc(S, dict(d, _reviewed=False), d.get("original") or [], terms, flag_from="ref") if whole_video(d) else mine)
+        t = total(score_doc(dict(d, _reviewed=False), d.get("original") or [], terms, flag_from="ref") if whole_video(d) else mine)
         want = (ref["sub"], ref["del"], ref["ins"], ref["refChars"]) if ref else (0, 0, 0, 0)
         if want != (t["sub"], t["del"], t["ins"], t["refChars"]):
             mismatch.append(d["id"])
     if mismatch:
         print("注意: 画面の測定と数が合わない文書があります(この道具の採点の規則を直す必要があります): " + ", ".join(mismatch))
-    res = {"meta": base_meta("stored", args, docs, data, sel), "summary": summarize(groups, docs, S, STORED, group_spec(args, "stored"), nosub), "groups": groups, "terms": terms}
+    res = {"meta": base_meta("stored", args, docs, data, sel), "summary": summarize(groups, docs, STORED, group_spec(args, "stored"), nosub), "groups": groups, "terms": terms}
     res["meta"]["mismatch"] = mismatch
     return res
 
 
-def cmd_run(S, args, data):
+def cmd_run(args, data):
     settings = read_json(os.path.join(data, "settings.json"), {}, kind=dict)
     docs, sel = select_docs(data, args)
     if not docs:
         raise SystemExit("測れる文書がありません(校正済みの行がある%s)" % ("評価用の文書" if resolve_source(args) == "eval" else "文書"))
     hint_free = any(source_of(d) != "eval" for d in docs)   # 普段の文書を認識し直すときは、ヒントなし(評価用と同じ条件)
-    spec = run_spec(S, args, settings, hint_free)
+    spec = run_spec(args, settings, hint_free)
     if hint_free and args.glossary is None and str(settings.get("glossary") or "").strip():
         print("用語集は渡しません(普段の文書を含むため。ヒントなしの条件。渡すなら --glossary)")
-    terms = name_terms(S, settings)
+    terms = name_terms(settings)
     load_sec, device = 0.0, ""
-    if S.backend_name() != "fake":
+    if not _backend.is_fake():
         os.environ["TRANSCRIBE_ENGINE_DIR"] = data   # whisper.cpp の実行ファイル・モデルは本物の作業データの bin・models(serve の DATA_DIR は一時フォルダ。認識ワーカーにも届く)
         try:
-            S.req_engine({"engine": spec["engine"]}, spec["model"])
-            S.check_engine(spec)
-        except S.ApiError as e:
+            _worker_client.req_engine({"engine": spec["engine"]}, spec["model"])
+            _worker_client.check_engine(spec)
+        except _errors.ApiError as e:
             raise SystemExit(e.message)
         t0 = time.monotonic()
-        _m, device = S.load_model(spec["model"], {"phase": "", "cancel": False}, spec["device"], engine=spec["engine"])
+        _m, device = _worker_client.load_model(spec["model"], {"phase": "", "cancel": False}, spec["device"], engine=spec["engine"])
         load_sec = time.monotonic() - t0
     repeat = max(1, int(getattr(args, "repeat", 1) or 1))
     if repeat >= 2 and args.temp0:
         print("注意: --temp0 は温度 0 に固定してぶれないので、--repeat %d は意味が薄い(止めずに続けます)" % repeat)
     runs = []
     for k in range(repeat):
-        runs.append(run_docs(S, docs, spec, args, data, terms, device, "[%d/%d 回目] " % (k + 1, repeat) if repeat >= 2 else ""))
+        runs.append(run_docs(docs, spec, args, data, terms, device, "[%d/%d 回目] " % (k + 1, repeat) if repeat >= 2 else ""))
         device = runs[-1]["device"]
     pick, rep = 0, None
     if repeat >= 2:
-        pick, rep = pick_median(S, runs)
+        pick, rep = pick_median(runs)
     groups, audio_sec, wall_sec, per_doc = (runs[pick][k] for k in ("groups", "audioSec", "wallSec", "perDoc"))
     nosub = runs[pick]["noSub"]
     failed = [p for p in per_doc if p.get("error")]
     meta = base_meta("run", args, docs, data, sel)
-    run_rec = S.recognition_run(spec, {"device": device}, 0, 0)   # エンジンの名前と版(文字起こしの記録と同じ決め方)
+    run_rec = _records.recognition_run(spec, {"device": device}, 0, 0)   # エンジンの名前と版(文字起こしの記録と同じ決め方)
     meta.update({"engine": {"engine": run_rec["engine"], "engineVersion": run_rec["engineVersion"],
                             "model": spec["model"], "device": device,
                             "settings": {k: spec[k] for k in ("language", "beam", "vadMode", "boost", "wordSplit", "splitChars", "stripPunct", "temp0")},
                             "glossary": spec["glossary"][:50], "context": args.context, "hintFree": hint_free},
                  "audioSec": round(audio_sec, 2), "wallSec": round(wall_sec, 2), "loadSec": round(load_sec, 2), "peakMemMB": peak_mem(),
-                 "post": post_meta(S, spec), "perDoc": per_doc, "failed": len(failed)})
+                 "post": post_meta(spec), "perDoc": per_doc, "failed": len(failed)})
     if rep:
         meta["repeat"] = rep   # 付くのは --repeat 2 以上のときだけ(1 回なら今までと同じ出力)
         if not rep["complete"]:
@@ -824,20 +829,20 @@ def cmd_run(S, args, data):
     if failed:
         print("注意: %d 本は認識できず、数に入っていません(比べるときは同じ文書で比べること)" % len(failed))
     done = {p["id"] for p in per_doc if not p.get("error")}   # 認識できなかった文書は、確かめ済みの秒にも入れない
-    summary = summarize(groups, [d for d in docs if d["id"] in done], S, {"engine": run_rec["engine"], "model": spec["model"]}, group_spec(args, "run"), nosub)
+    summary = summarize(groups, [d for d in docs if d["id"] in done], {"engine": run_rec["engine"], "model": spec["model"]}, group_spec(args, "run"), nosub)
     return {"meta": meta, "summary": summary, "groups": groups, "terms": terms}
 
 
-def run_docs(S, docs, spec, args, data, terms, device, tag=""):
+def run_docs(docs, spec, args, data, terms, device, tag=""):
     """文書すべてを 1 回認識して採点する(--repeat のときは回の数だけ呼ぶ)。認識できなかった文書は per_doc に error で残して数えない"""
     groups, audio_sec, wall_sec, per_doc, nosub = [], 0.0, 0.0, [], {}
     for n, d in enumerate(docs, 1):
         print("%s(%d/%d) %s %s …" % (tag, n, len(docs), d["id"], str(d.get("title") or "")[:30]), flush=True)
-        ctx = S.stream_context(d, args.context == "auto")   # 配信ごとの文脈(段1-2。文書の題名・チャンネル名・コラボ相手・話者の名前から)
+        ctx = _roster.stream_context(d, args.context == "auto")   # 配信ごとの文脈(段1-2。文書の題名・チャンネル名・コラボ相手・話者の名前から)
         if ctx["members"]:
             print("   文脈: %s" % "、".join(m["name"] for m in ctx["members"]))
         try:
-            rows, a, w, where, dev = recognize_doc(S, d, dict(spec, context=ctx), data)
+            rows, a, w, where, dev = recognize_doc(d, dict(spec, context=ctx), data)
         except Exception as e:
             print("   とばしました: %s" % str(e)[:200])
             per_doc.append({"id": d["id"], "error": str(e)[:200]})
@@ -847,12 +852,12 @@ def run_docs(S, docs, spec, args, data, terms, device, tag=""):
         wall_sec += w
         per_doc.append({"id": d["id"], "audioSec": round(a, 2), "wallSec": round(w, 2), "audio": where, "rows": len(rows),
                         "context": [m["name"] for m in ctx["members"]]})
-        groups += score_doc(S, d, rows, terms, flag_from="hyp")
-        nosub[d["id"]] = doc_nosub(S, d, rows)
+        groups += score_doc(d, rows, terms, flag_from="hyp")
+        nosub[d["id"]] = doc_nosub(d, rows)
     return {"groups": groups, "audioSec": audio_sec, "wallSec": wall_sec, "perDoc": per_doc, "device": device, "noSub": nosub}
 
 
-def pick_median(S, runs):
+def pick_median(runs):
     """N 回の認識の中から、全体の CER(今の主な数字)が中央の回を選ぶ -> (代表の回の番号(0 始まり), 結果に入れる repeat の要約)。
     偶数回は中央の 2 つのうち小さい方(CER が同じなら早い回が先)。回ごとに数えた文書がそろっていないときは、全部の回にある文書だけで CER を出して選ぶ
     (落ちた文書は数に入らない。そろっていない結果どうしは、そのままでは比べられない = complete: False)"""
@@ -863,7 +868,7 @@ def pick_median(S, runs):
     for r in runs:
         gs = r["groups"] if complete else [g for g in r["groups"] if g["doc"] in common]
         cers.append(total(gs)["cer"])
-        texts.append(doc_text(S, gs)["cer"])
+        texts.append(doc_text(gs)["cer"])
     if all(c is None for c in cers):   # 数えられた文書が 1 本も無い(= 比べられない)。文書が一番多い回を代表にする
         pick = max(range(len(runs)), key=lambda i: (len(ids[i]), -i))
     else:
@@ -881,23 +886,23 @@ REDO_WCPP_NOTE = "whisper.cpp は redo の工夫(声の検出・短い区切り 
 REDO_ENGINE_NOTE = "本番の redo_spec(human/proof/doc_jobs.py)は engine を入れない = 既定の faster-whisper で動く。ここでは --engine のエンジンで測った"
 
 
-def reflag_rows(S, orig):
+def reflag_rows(orig):
     """機械の出力 original(印を持たない)に今の規則(make_flags)で印を付け直した行 -> 本番の redo_targets に渡す segments の形(校正済みの印は付けない)"""
     rows, prev = [], []
     for o in orig:
         if not isinstance(o, dict) or not o.get("text"):
             continue
-        rows.append({"id": "m%d" % (len(rows) + 1), "start": o["start"], "end": o["end"], "text": o["text"], "flag": S.make_flags(dict(o), prev, "ja", []),
+        rows.append({"id": "m%d" % (len(rows) + 1), "start": o["start"], "end": o["end"], "text": o["text"], "flag": _postproc.make_flags(dict(o), prev, "ja", []),
                      "lp": o.get("avg_logprob")})
         prev.append(o["text"])
     return rows
 
 
-def redo_eval_spec(S, doc, args, settings):
+def redo_eval_spec(doc, args, settings):
     """本番の redo_spec と同じ値(beam 5・VAD 普通・行を分ける・ヒントと辞書なし)。違いは engine・device を --engine・--device で選ぶこと(REDO_ENGINE_NOTE)"""
     pr = doc.get("params") if isinstance(doc.get("params"), dict) else {}
     return {"model": args.model or str(doc.get("model") or (settings or {}).get("model") or "large-v3"), "language": "ja", "beam": 5, "vadMode": "normal",
-            "wordSplit": True, "splitChars": S.split_chars_for({}, settings), "stripPunct": pr.get("stripPunct", True) is not False,
+            "wordSplit": True, "splitChars": _doc_jobs.split_chars_for({}, settings), "stripPunct": pr.get("stripPunct", True) is not False,
             "stripNames": pr.get("stripNames", True) is not False, "device": args.device, "boost": pr.get("boost") is True, "autoDict": False,
             "glossary": [], "glossAuto": [], "engine": args.engine}
 
@@ -908,25 +913,25 @@ def _window(groups, a, b):
     return sum(g["sub"] + g["del"] + g["ins"] for g in gs), sum(g["refChars"] for g in gs)
 
 
-def redo_kind(S, before, after, row, a, b, new_text):
+def redo_kind(before, after, row, a, b, new_text):
     """行 1 つの判定: 人の行が無い(正解 0 字)のに文字が増えた = 作り話 / 誤りが減った・同じ・増えた"""
     eb, ref = _window(before, a, b)
     ea, _ref = _window(after, a, b)
-    if not ref and len(S.norm_cer(new_text)) > len(S.norm_cer(row["old"])):
+    if not ref and len(_metrics.norm_cer(new_text)) > len(_metrics.norm_cer(row["old"])):
         return "invented", eb, ea, ref
     return ("better" if ea < eb else "same" if ea == eb else "worse"), eb, ea, ref
 
 
-def redo_doc(S, d, spec, data, recognize):
+def redo_doc(d, spec, data, recognize):
     """文書 1 本: 印を付け直す → 本番の redo_targets で選ぶ → 前後 1 秒を認識し直す → redo_better で採否。
     -> (採った分で置き換えた original, 全部置き換えた original, 行ごとの記録)。音声は C.audio_span の出どころから行の範囲だけ取り出す"""
     from flow import tx as flowtx   # noqa: E402  ② 音声の切り出し(本番の run_redo と同じ)
     from human.proof import doc_jobs, rerun   # noqa: E402  ③ 行の選び方・採否・original の差し替え(呼ぶだけ)
     orig = [o for o in d.get("original") or [] if isinstance(o, dict)]
-    targets = doc_jobs.redo_targets({"segments": reflag_rows(S, orig), "original": orig, "start": d.get("start"), "end": d.get("end"), "duration": d.get("duration")})
+    targets = doc_jobs.redo_targets({"segments": reflag_rows(orig), "original": orig, "start": d.get("start"), "end": d.get("end"), "duration": d.get("duration")})
     if not targets:
         return orig, orig, []
-    a_spec, offset, where = C.audio_span(S, d, data, boost=spec["boost"])
+    a_spec, offset, where = C.audio_span(d, data, boost=spec["boost"])
     sh = offset - (a_spec.get("start") or 0.0)   # 文書の秒 - 音声のファイルの秒(元の動画なら 0・保管の音声なら文書の始まり)
     job = C.fake_job()
     tmp = tempfile.mkdtemp(prefix="eval_asr_redo_")
@@ -951,40 +956,40 @@ def redo_doc(S, d, spec, data, recognize):
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def cmd_redo(S, args, data):
+def cmd_redo(args, data):
     """--source eval の確かめ済みの文書(既定)で、redo の前と後を採点する。文書は書き換えない(original の差し替えはこのプロセスの中だけ)"""
     from flow import tx as flowtx   # noqa: E402  ② redo の認識(redo_recognizer)
     settings = read_json(os.path.join(data, "settings.json"), {}, kind=dict)
     docs, sel = select_docs(data, args)
     if not docs:
         raise SystemExit("測れる文書がありません(確かめ済みの評価用の文書)")
-    terms = name_terms(S, settings)
-    if S.backend_name() != "fake":
+    terms = name_terms(settings)
+    if not _backend.is_fake():
         os.environ["TRANSCRIBE_ENGINE_DIR"] = args.engine_dir   # whisper.cpp の実行ファイル・モデル(読むだけ)
         try:
-            S.req_engine({"engine": args.engine}, args.model or "large-v3")
-        except S.ApiError as e:
+            _worker_client.req_engine({"engine": args.engine}, args.model or "large-v3")
+        except _errors.ApiError as e:
             raise SystemExit(e.message)
     before, after, every, rows, failed, t0 = [], [], [], [], [], time.monotonic()
     for n, d in enumerate(docs, 1):
-        spec = redo_eval_spec(S, d, args, settings)
+        spec = redo_eval_spec(d, args, settings)
         try:
-            picked, all_rep, mine = redo_doc(S, d, spec, data, flowtx.redo_recognizer)
+            picked, all_rep, mine = redo_doc(d, spec, data, flowtx.redo_recognizer)
         except Exception as e:
             print("   とばしました %s: %s" % (d["id"], str(e)[:200]))
             failed.append({"id": d["id"], "error": str(e)[:200]})
             continue
         orig = d.get("original") or []
-        gb, ga, ge = score_doc(S, d, orig, terms), score_doc(S, d, picked, terms), score_doc(S, d, all_rep, terms)
+        gb, ga, ge = score_doc(d, orig, terms), score_doc(d, picked, terms), score_doc(d, all_rep, terms)
         before, after, every = before + gb, after + ga, every + ge
         for r in mine:
-            r["kind"], r["errBefore"], r["errAfter"], r["refChars"] = redo_kind(S, gb, ga if r["taken"] else gb, r, r["a"], r["b"], r["new"] if r["taken"] else r["old"])
-            r["kindAll"], _eb, r["errAll"], _ref = redo_kind(S, gb, ge, r, r["a"], r["b"], r["new"])
+            r["kind"], r["errBefore"], r["errAfter"], r["refChars"] = redo_kind(gb, ga if r["taken"] else gb, r, r["a"], r["b"], r["new"] if r["taken"] else r["old"])
+            r["kindAll"], _eb, r["errAll"], _ref = redo_kind(gb, ge, r, r["a"], r["b"], r["new"])
         rows += mine
         print("(%d/%d) %s 対象 %d 行・採った %d 行" % (n, len(docs), d["id"], len(mine), sum(1 for r in mine if r["taken"])), flush=True)
     count = lambda key: {k: sum(1 for r in rows if r[key] == k) for k, _n in REDO_KINDS}
-    eng = S.tx_engines.engine_of({"engine": args.engine})
-    notes = [REDO_ENGINE_NOTE] + ([REDO_WCPP_NOTE] if eng == S.tx_engines.WhisperCpp.id else [])
+    eng = _tx_engines.engine_of({"engine": args.engine})
+    notes = [REDO_ENGINE_NOTE] + ([REDO_WCPP_NOTE] if eng == _tx_engines.WhisperCpp.id else [])
     meta = base_meta("redo", args, docs, data, sel)
     meta.update({"engine": {"engine": eng, "model": args.model or "", "device": args.device}, "wallSec": round(time.monotonic() - t0, 2), "failed": failed, "notes": notes})
     summary = {"before": total(before), "after": total(after), "afterAll": total(every), "rows": len(rows), "taken": sum(1 for r in rows if r["taken"]),
@@ -1195,7 +1200,7 @@ def main(argv=None):
     p.add_argument("--engine-dir", help="redo で whisper.cpp の実行ファイル・モデルを読む作業データ(既定 本物の作業データ。読むだけ)")
     args = p.parse_args(argv)
     if args.mode == "redo" and not args.engine_dir:
-        args.engine_dir = real_data_dir()   # load_serve が TRANSCRIBE_DATA_DIR を一時フォルダに替える前に決める
+        args.engine_dir = real_data_dir()
     if args.repeat < 1:
         raise SystemExit("--repeat は 1 以上で指定してください")
     args.docs = C.split_ids(args.docs)
@@ -1206,13 +1211,13 @@ def main(argv=None):
     data = real_data_dir(args.data)
     if args.mode == "list":
         return cmd_list(data)
-    S = load_serve()
+    C.prepare()
     if args.mode == "redo":
-        res = cmd_redo(S, args, data)
+        res = cmd_redo(args, data)
         print_redo(res)
         C.report_saved(res, args.json, data, "asr", "_" + C.label_name(res["meta"].get("label") or "redo"))
         return res
-    res = cmd_stored(S, args, data) if args.mode == "stored" else cmd_run(S, args, data)
+    res = cmd_stored(args, data) if args.mode == "stored" else cmd_run(args, data)
     print_summary(res)
     # <日時>_<名前>.json(名前は --label か mode)
     C.report_saved(res, not args.no_save, data, "asr", "_" + C.label_name(res["meta"].get("label") or res["meta"]["mode"]))

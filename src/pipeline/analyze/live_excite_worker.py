@@ -10,7 +10,7 @@ queued と worker.json の queued)で、受け持っている録画の検出が�
 入口とは**ファイルだけ**で話す(stdin/stdout の常駐の約束は作らない。仮決め (bk)):
   config.json    入口が書く。{"v":1, "dir", "recorders": [{"id","url","token"}], "detect": {"sens","perHour"}, "spec": {"length","preRatio","lag","lagAuto",
                  "wAudio","wChat","headSec"}, "ffmpeg", "ytdlp", "chatLimitBytes", "chatStallSec", "lengthHint"?, "provisional"?}。30 秒ごとに更新の時刻を見て読み直す。
-                 lengthHint = M10 の人が選んだ長さの目安(入口が length_hint() で src/eval/tools/eval_marks.py --json の結果から作る。enough のときだけ、新しく受け持つ
+                 lengthHint = M10 の人が選んだ長さの目安(入口が ② flow/lengthhint でその場で数える。enough のときだけ、新しく受け持つ
                  録画の長さ・前の割合に使う。無い・足りない = スタジオの解析の設定)。provisional = 仮の候補(既定オン。false で出さない)
                  bundles?(RS7-2 G2b)= 束のある録画ごとの {"<録画元>/<録画>": {spec, sens, perHour}}(録画を始めたときの束。新しく受け持つ録画の spec と
                  感度・枠に使う。友人の依頼の録画は requests の感度・枠・長さが先)
@@ -97,16 +97,11 @@ STATE_MAX = 64 * 1024 * 1024
 SPEC_DEFAULT = {"length": 45.0, "preRatio": excite.PRE_RATIO_DEFAULT, "lag": 8.0, "lagAuto": True, "wAudio": 1.0, "wChat": 1.0, "headSec": 180.0}
 MAX_ACTIVE = 2             # 同時に測る録画の数(0-10-4)。3 本目からは「順番待ち」(前の録画の検出が終わったら、古い順に始める)
 QUEUED_EVERY = 60.0        # 順番待ちの録画の peaks.json を書き直す間隔(文が変わったときはすぐ)
-# M10: 自動の候補の長さを人の記録から(notes:plan/line-d-auto-pack.md の M10・6 の決定 4)。src/eval/tools/eval_marks.py --json の結果(スタジオの作業データ
-# evals/marks/<日時>.json。入口の夜の自動測定 accuracy.py が流す)の clipLength.suggest を入口が読み(length_hint)、config.json の lengthHint に入れる。
-# ワーカーは読むだけ(clean_hint)。足りない(enough でない)ときはスタジオの解析の設定のまま。dev/ は import しない(結果のファイルを読むだけ)
-LENGTH_HINT_ENV = "YTT_LIVE_LENGTH"        # off = 使わない(スタジオの解析の設定の長さのまま)
-LENGTH_HINT_MAX_AGE = 30 * 86400           # 結果のファイルの古さ(ファイル名の日時。src/home/autorun.py の FRIEND_LENGTH_MAX_AGE と同じ)
-LENGTH_HINT_MIN_SAMPLES, LENGTH_HINT_MIN_VIDEOS = 20, 5   # enough の条件(src/eval/tools/eval_marks.py の CL_ENOUGH_SAMPLES・CL_ENOUGH_VIDEOS と同じ値。ワーカーでも確かめ直す)
+# M10: 自動の候補の長さの目安。入口が ② flow/lengthhint でその場で数え(友人が依頼で指定した区間の長さ。OPT-E2 7f-1)、config.json の lengthHint に入れる。
+# ワーカーは読むだけ(clean_hint)。足りない(enough でない)ときはスタジオの解析の設定のまま
+LENGTH_HINT_MIN_SAMPLES, LENGTH_HINT_MIN_VIDEOS = 20, 5   # enough の条件(flow/lengthhint の ENOUGH_SAMPLES・ENOUGH_VIDEOS と同じ値。ワーカーでも確かめ直す)
 # スタジオの解析の設定(spec)の範囲(src/pipeline/analyze/analyze.py の validate_settings と同じ)。入口の live_detect.clean_spec と、ここの clean_hint が読む
-SPEC_RANGES = {"length": (10.0, 120.0), "preRatio": (0.3, 0.9), "lag": (0.0, 30.0), "wAudio": (0.0, 3.0), "wChat": (0.0, 3.0), "headSec": (0.0, 600.0)}
-EVAL_MARKS_RE = re.compile(r"^(\d{8}-\d{6})(?:_auto)?\.json\Z")   # src/home/autorun.py の EVAL_MARKS_NAME_RE と同じ形
-EVAL_READ_MAX = 16 * 1024 * 1024
+SPEC_RANGES = {"length": (10.0, 180.0), "preRatio": (0.3, 0.9), "lag": (0.0, 30.0), "wAudio": (0.0, 3.0), "wChat": (0.0, 3.0), "headSec": (0.0, 600.0)}
 # 録画元との約束(録画元・録画・セグメントの id の形、時刻の書き方、動画の id)は ytt/recproto.py の 1 か所(入口の live_export と同じ物)
 ID_RE, REC_RE, SEG_URI_RE = recproto.RECORDER_ID_RE, recproto.REC_ID_RE, recproto.SEG_URI_RE
 iso_epoch, epoch_iso, video_id = recproto.iso_epoch, recproto.epoch_iso, recproto.video_id_of
@@ -243,54 +238,9 @@ def parse_chat_line(line):
 
 
 # ---------------------------------------------------------------- 候補の長さの目安(M10)
-_HINT_CACHE = {}
-
-
-def length_hint(root=None, env=None, now=None):
-    """**入口の側**(src/flow/live_detect.py の Detector.config が呼んで config.json の lengthHint に入れる): 人が選んだ区間の長さの目安
-    -> {"length", "preRatio"(無ければ None), "samples", "videos", "enough", "file"} か None(止めてある・結果が無い・古い・壊れている)。
-    読むのはスタジオの作業データ evals/marks/ のいちばん新しい src/eval/tools/eval_marks.py --json の結果の clipLength.suggest(置き場所は ytt.datadir の
-    resolve = 入口のプロセスでスタジオが登録した場所)。同じファイルは読み直さない(名前と更新の時刻で覚える)。enough の判定はワーカーの clean_hint がする"""
-    e = os.environ if env is None else env
-    if str(e.get(LENGTH_HINT_ENV) or "").strip().lower() in ("off", "0", "false", "no"):
-        return None
-    folder = os.path.join(datadir.resolve("studio", root or ROOT, env), "evals", "marks")
-    try:
-        names = sorted(n for n in os.listdir(folder) if EVAL_MARKS_RE.match(n))
-    except OSError:
-        return None
-    if not names:
-        return None
-    name = names[-1]
-    try:
-        stamp = time.mktime(time.strptime(EVAL_MARKS_RE.match(name).group(1), "%Y%m%d-%H%M%S"))
-    except (ValueError, OverflowError):
-        return None
-    if (time.time() if now is None else now) - stamp > LENGTH_HINT_MAX_AGE:
-        return None
-    path = os.path.join(folder, name)
-    try:
-        st = os.stat(path)
-    except OSError:
-        return None
-    key = (path, st.st_mtime_ns, st.st_size)
-    if _HINT_CACHE.get("key") == key:
-        return dict(_HINT_CACHE["value"]) if _HINT_CACHE["value"] else None
-    out = None
-    try:
-        s = fsio.read_json_file(path, EVAL_READ_MAX)["clipLength"]["suggest"]
-        if isinstance(s, dict) and schemas.is_num(s.get("length")) and schemas.is_int(s.get("samples")) and schemas.is_int(s.get("videos")):
-            out = {"length": float(s["length"]), "preRatio": float(s["preRatio"]) if schemas.is_num(s.get("preRatio")) else None,
-                   "samples": s["samples"], "videos": s["videos"], "enough": s.get("enough") is True, "file": name}
-    except (OSError, ValueError, KeyError, TypeError):
-        out = None
-    _HINT_CACHE.update(key=key, value=out)
-    return dict(out) if out else None
-
-
 def clean_hint(h):
     """config.json の lengthHint -> 使ってよい目安 {"length", "preRatio"?, "samples", "videos", "file"} か None。
-    使うのは enough(見本 LENGTH_HINT_MIN_SAMPLES 以上かつ配信 LENGTH_HINT_MIN_VIDEOS 本以上)のときだけ。長さは 10〜120 秒・前の割合は 0.3〜0.9 に丸める"""
+    使うのは enough(見本 LENGTH_HINT_MIN_SAMPLES 以上かつ配信 LENGTH_HINT_MIN_VIDEOS 本以上)のときだけ。長さは 10〜180 秒・前の割合は 0.3〜0.9 に丸める"""
     if not isinstance(h, dict) or h.get("enough") is not True or not schemas.is_num(h.get("length")):
         return None
     n, v = h.get("samples"), h.get("videos")

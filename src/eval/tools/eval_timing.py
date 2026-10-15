@@ -53,7 +53,8 @@ from eval.tools._evalcommon import rate, read_json  # noqa: E402
 from ytt import docloc, txtext  # noqa: E402
 from ytt.schemas import num  # noqa: E402  有限の数(bool は除く)なら float、それ以外は None
 from human.check import answerlog  # noqa: E402  「確かめる」の答えの記録(--check が読むだけ)
-from eval.tools import eval_asr  # noqa: E402  確かめ済みの条件(is_reviewed)・最初の認識(draft_run)・後処理を当て直す editor の読み込み(load_serve)は eval_asr.py と同じ
+from eval.tools import eval_asr  # noqa: E402  確かめ済みの条件(is_reviewed)・最初の認識(draft_run)・後処理を当て直す部品は eval_asr.py と同じ
+from pipeline.transcribe import postproc as _postproc  # noqa: E402
 
 SCHEMA = "youtube-tools-timing-eval/v1"
 ASR_SCHEMA = "youtube-tools-asr-raw/v1"   # src/pipeline/transcribe/records.py の ASR_SCHEMA(editor は --apply のときだけ読み込む)
@@ -77,8 +78,7 @@ VARIANTS = (("v0570", "0.57.0 の後処理(END_TRIM 0.1 秒・つながない)",
 
 def current_variant():
     """今の既定の後処理 -> (key, 見出し, 設定)。値は持ち主の部品の今の値(postproc.END_TRIM・JOIN_GAP と txtext.SPLIT_CHARS)から作る = 既定を変えても固定の表が古くならない"""
-    from pipeline.transcribe import postproc as J  # noqa: E402
-    st = {"END_TRIM": J.END_TRIM, "JOIN_GAP": J.JOIN_GAP, "splitChars": txtext.SPLIT_CHARS}
+    st = {"END_TRIM": _postproc.END_TRIM, "JOIN_GAP": _postproc.JOIN_GAP, "splitChars": txtext.SPLIT_CHARS}
     return (NOW_KEY, "今の既定(END_TRIM %g 秒・すき間 %g 秒以下をつなぐ・行を分ける文字数 %d)" % (st["END_TRIM"], st["JOIN_GAP"], st["splitChars"]), st)
 
 
@@ -273,9 +273,8 @@ def asr_raw(doc, asr):
 
 def reapply(raw, spec, dur, start):
     """後処理(pipeline/transcribe/postproc.expand_segments。editor の serve は読まず直に呼ぶ)を当て直した機械の行(元の動画の秒・文字のある行だけ)"""
-    from pipeline.transcribe import postproc as J  # noqa: E402
     return [{"start": round(s["start"] + start, 2), "end": round(s["end"] + start, 2), "text": s["text"]}
-            for s in J.expand_segments([dict(r) for r in raw], spec, dur) if s.get("text")]
+            for s in _postproc.expand_segments([dict(r) for r in raw], spec, dur) if s.get("text")]
 
 
 def reproduced(rows, original):
@@ -288,47 +287,44 @@ def reproduced(rows, original):
     return rate(same, len(orig))
 
 
+def variant_spec(spec, st):
+    """経緯の比べの設定 st(END_TRIM・JOIN_GAP・splitChars)-> 後処理の指定(spec に endTrim・joinGap・splitChars を重ねる)"""
+    keys = {"END_TRIM": "endTrim", "JOIN_GAP": "joinGap", "splitChars": "splitChars"}
+    return dict(spec, **{keys[k]: v for k, v in st.items()})
+
+
 def apply_variants(docs, tdir):
     """--apply: 文書ごとに生出力へ「今の既定」(current_variant。先頭)と VARIANTS(経緯の比べ)の後処理を当て直して測る。editor の serve は読まず postproc.expand_segments を直に呼ぶ
     -> {"variants": [{"key", "label", "settings", "overall", "byDoc": [{"id", "n", "head"…, "reproduced"?}]}], "docs", "skipped": {"noAsr", "badAsr"}}"""
-    # 値は持ち主の部品(pipeline/transcribe/postproc)に直接入れる。"splitChars" だけは postproc の値ではなく後処理の spec に入れる(行を分ける文字数。0.59.5)
-    from pipeline.transcribe import postproc as J  # noqa: E402
-    variants = (current_variant(),) + VARIANTS      # 今の値を、差し替える前に読む
-    saved = {k: getattr(J, k) for _key, _label, st in variants for k in st if k != "splitChars"}
+    # 値は後処理の指定(spec)で渡す(END_TRIM → endTrim・JOIN_GAP → joinGap・splitChars。postproc の値は書き換えない = OPT-E2 5c-2)
+    variants = (current_variant(),) + VARIANTS
     res = {"variants": [{"key": key, "label": label, "settings": dict(st), "rows": [], "bnd": [], "byDoc": []} for key, label, st in variants],
            "docs": 0, "skipped": {"noAsr": 0, "badAsr": 0}}
-    try:
-        for doc in docs:
-            tid = str(doc.get("id") or "")
-            asr = read_json(docloc.doc_file(tid, ".asr.json", os.path.dirname(tdir)), None, MAX_BYTES)
-            if asr is None:
-                res["skipped"]["noAsr"] += 1
-                continue
-            got = asr_raw(doc, asr)
-            if got is None:
-                res["skipped"]["badAsr"] += 1
-                continue
-            raw, spec, dur, start = got
-            human = text_rows(doc.get("segments"))
-            res["docs"] += 1
-            for v, (key, _label, st) in zip(res["variants"], variants):
-                for k, val in st.items():
-                    if k != "splitChars":
-                        setattr(J, k, val)
-                rows = reapply(raw, dict(spec, splitChars=st["splitChars"]) if "splitChars" in st else spec, dur, start)
-                mrows = text_rows(rows)
-                m = measure_rows(human, mrows)
-                v["rows"] += m["rows"]
-                b = boundary_agreement(human, mrows)
-                v["bnd"].append(b)
-                d = {"id": tid, **summarize(m["rows"]), "boundary": b}
-                d.pop("counts", None)
-                if key == "v0570":
-                    d["reproduced"] = reproduced(rows, doc.get("original"))
-                v["byDoc"].append(d)
-    finally:
-        for k, val in saved.items():
-            setattr(J, k, val)
+    for doc in docs:
+        tid = str(doc.get("id") or "")
+        asr = read_json(docloc.doc_file(tid, ".asr.json", os.path.dirname(tdir)), None, MAX_BYTES)
+        if asr is None:
+            res["skipped"]["noAsr"] += 1
+            continue
+        got = asr_raw(doc, asr)
+        if got is None:
+            res["skipped"]["badAsr"] += 1
+            continue
+        raw, spec, dur, start = got
+        human = text_rows(doc.get("segments"))
+        res["docs"] += 1
+        for v, (key, _label, st) in zip(res["variants"], variants):
+            rows = reapply(raw, variant_spec(spec, st), dur, start)
+            mrows = text_rows(rows)
+            m = measure_rows(human, mrows)
+            v["rows"] += m["rows"]
+            b = boundary_agreement(human, mrows)
+            v["bnd"].append(b)
+            d = {"id": tid, **summarize(m["rows"]), "boundary": b}
+            d.pop("counts", None)
+            if key == "v0570":
+                d["reproduced"] = reproduced(rows, doc.get("original"))
+            v["byDoc"].append(d)
     for v in res["variants"]:
         v["overall"] = summarize(v.pop("rows"))
         v["boundary"] = boundary_sum(v.pop("bnd"))

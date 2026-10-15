@@ -182,5 +182,15 @@ class FakeBackend(_fa_backend.Backend):
         reply = os.environ.get("TRANSCRIBE_FAKE_LLM", "")
         return lambda messages: reply
 
+    # OPT-E2 1a-2: ② flow/diar・flow/tx に残っていた「疑似なら」をここへ
+    def diar_ready(self, real):
+        return True
+
+    def diar_models(self, job, emb, real):
+        return None   # 疑似はモデルを取らない
+
+    def engine_ready(self, engine, real):
+        return True, ""
+
 
 FAKE = FakeBackend()

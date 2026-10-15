@@ -52,12 +52,15 @@ from . import spec as _spec   # 採用の数・待ちの既定は束の 1 か所
 from . import live_failures
 from . import live_export as LX
 from . import livehost   # 親の口の型(RS7-2 G0)
+from . import lengthhint as _lengthhint   # 長さの目安を使うときに数える(OPT-E2 7f-1)
+from ytt import datadir as _datadir
 from pipeline.analyze import excite
 from pipeline.analyze import live_excite_worker as EW   # ファイルの形・定数・設定の検査はワーカーと 1 か所。numpy などは読まない
 
 CODE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pipeline", "analyze")   # 子プロセスの道具は ① の置き場(pipeline/analyze)
 WORKER = os.path.join(CODE_DIR, "live_excite_worker.py")
 STALE_SEC = 120.0          # 心拍(worker.json)がこれだけ止まったら起動し直す
+LENGTH_HINT_ENV = "YTT_LIVE_LENGTH"   # off = 長さの目安を使わない(スタジオの解析の設定の長さのまま)
 SETTINGS_EVERY = 300.0     # スタジオの解析の設定を読み直す間隔
 RESTART_WARN = 3           # 起動し直しがこれを超えたら「調子」に失敗として出す
 AUTO_TRIES = 5             # 自動の採用を 1 候補で試す回数
@@ -131,6 +134,7 @@ class Detector:
         self._fails = None                 # 自動の採用を諦めた候補(auto_failures.json)
         self._series = fsio.StampCache()   # series.jsonl の読み取りの覚え(更新日時と大きさが変わったときだけ読み直す)
         self._capped_said = set()          # D-13: 上限に達した録画(記録に 1 回だけ出す)
+        self._hint_used = None             # 前に使った長さの目安(flow/lengthhint.usable の形。切り替わったら記録に 1 行)
 
     # ---- 設定
     @property
@@ -220,12 +224,20 @@ class Detector:
                 **({"bundles": bc} if bc else {})}   # 束のある録画(RS7-2 G2b。無ければ書かない = 今までの config.json のまま)
 
     def _length_hint(self):
-        """M10: 人が選んだ区間の長さの目安(夜の自動測定 src/eval/tools/eval_marks.py --json の結果。enough のときだけワーカーが使う)。読めなければ None"""
-        try:
-            return EW.length_hint(self.host.root)
-        except Exception as e:
-            self.host.note("盛り上がりの検出: 長さの目安を読めませんでした: %r" % (e,))
+        """M10: 人が選んだ区間の長さの目安(② flow/lengthhint がその場で数える = 友人が依頼で指定した区間。enough のときだけワーカーが使う)。
+        止めてある(環境変数 YTT_LIVE_LENGTH=off)・数えられなければ None。使う ⇄ 使わない・長さが変わったら記録と調子に 1 行(7f-2)"""
+        if str(os.environ.get(LENGTH_HINT_ENV) or "").strip().lower() in ("off", "0", "false", "no"):
             return None
+        try:
+            h = _lengthhint.compute(_datadir.resolve("studio", self.host.root), _datadir.resolve("app", self.host.root))
+        except Exception as e:
+            self.host.note("盛り上がりの検出: 長さの目安を数えられませんでした: %r" % (e,))
+            return None
+        changed, used = _lengthhint.change(self._hint_used, h)
+        if changed:
+            self._hint_used = used
+            self.host.note("盛り上がりの検出: " + _lengthhint.describe(h))
+        return {"length": h["length"], "preRatio": h["preRatio"], "samples": h["samples"], "videos": h["videos"], "enough": h["enough"], "file": "flow/lengthhint"}
 
     def write_config(self):
         """config.json(変わったときだけ書く。ワーカーは更新の時刻を見て読み直す)"""

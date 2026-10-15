@@ -340,7 +340,7 @@ SCHEMA = {
     "analyze": {"useAudio": (_is_bool, "true か false"), "useChat": (_is_bool, "true か false"), "useComments": (_is_bool, "true か false"),
                 "wAudio": (_weight_ok, "0〜3 の数"), "wChat": (_weight_ok, "0〜3 の数"), "wComments": (_weight_ok, "0〜3 の数"),
                 "sensitivity": (_one_of("high", "normal", "low"), "high・normal・low のどれか"),
-                "count": (_int_in(1, 30), "1〜30 の整数"), "length": (_num_in(10, 120), "10〜120 の数(秒)"),
+                "count": (_int_in(1, 30), "1〜30 の整数"), "length": (_num_in(10, 180), "10〜180 の数(秒)"),
                 "preRatio": (_num_in(0.3, 0.9), "0.3〜0.9 の数"), "headSec": (_num_in(0, 600), "0〜600 の数(秒)"),
                 "lagAuto": (_is_bool, "true か false"), "lag": (_num_in(0, 30), "0〜30 の数(秒)"),
                 "chatTimeout": (_int_in(1, 120), "1〜120 の整数(秒)")},

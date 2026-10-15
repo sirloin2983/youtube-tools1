@@ -260,7 +260,7 @@ class ApplyTest(unittest.TestCase):
         self.env.write("aaaaaaaaaaaa.asr.json", {"schema": T.ASR_SCHEMA, "run": run, "segments": raw})
         self.env.doc("bbbbbbbbbbbb", FIVE_SEGS, FIVE_ORIG)                                      # 生出力が無い文書は --apply では数えない
         before = (postproc.END_TRIM, postproc.JOIN_GAP)
-        with mock.patch.object(T.eval_asr, "load_serve", side_effect=AssertionError("serve を読んだ")):   # editor の serve は読まない(postproc を直に呼ぶ)
+        with mock.patch.object(T.eval_asr.C, "prepare", side_effect=AssertionError("serve を読んだ")):   # editor の serve は読まない(postproc を直に呼ぶ)
             res = T.evaluate(self.env.root, apply=True)
         self.assertEqual((postproc.END_TRIM, postproc.JOIN_GAP), before)          # 差し替えた値は戻す
         ap = res["apply"]

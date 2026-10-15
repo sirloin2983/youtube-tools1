@@ -228,6 +228,8 @@ class HealthTest(unittest.TestCase):
         self.assertEqual(s["worker"], {"alive": True, "pid": 1})
         self.assertEqual(s["errors"]["clientLast24h"], 0)
         self.assertEqual(s["heavy"]["limit"], 1)
+        self.assertEqual((s["lengthHint"]["used"], s["lengthHint"]["samples"]), (False, 0))   # 長さの目安(友人の区間がまだ無い = 使わない。OPT-E2 7f-2)
+        self.assertIn("まだ少ない", s["lengthHint"]["text"])
         self.assertTrue(s["disk"] and s["disk"][0]["totalBytes"] > 0)
         for _ in range(50):   # 重い物は別のスレッド(1.5 秒は待つ)。終わっていれば data・tools が入る
             if s["data"] is not None:

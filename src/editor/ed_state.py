@@ -14,10 +14,9 @@ import threading
 import time
 
 from ytt import errors as _errors, fsio as _fsio, runtime as _runtime, schemas as _yschemas, tools as _tools, workdata as _workdata  # noqa: E402
-from pipeline.transcribe import roster as _txroster  # noqa: E402
+from flow import wire as _flowwire  # noqa: E402   置き場所と名簿の準備 setup_places(OPT-E2 1c-1)
 from ytt import txbase as _txbase  # noqa: E402
 from pipeline.transcribe import backend as _txbackend  # noqa: E402   疑似の切り替えの環境変数の読み mode()(RS5-D)
-from eval.fake import fake_asr as _fake_asr  # noqa: E402   (疑似の待ち fake_sleep の正。RS2-2)
 
 
 APP_ID = _runtime.TOOL_APPS["transcribe"]   # /api/ping の app 名(互換のため値は変えない。正は ytt.runtime.TOOL_APPS)
@@ -25,11 +24,10 @@ APP_ID = _runtime.TOOL_APPS["transcribe"]   # /api/ping の app 名(互換のた
 # スタジオと clip-marker の data.json(STUDIO_DATA・MARKER_DATA)の今の値の持ち主は ytt/workdata(RS3-0A。下の層の部品も同じ名前を直に読むため。
 # ここに同じ名前を残さない = S.TX_DIR = … は serve の名前の受付が workdata へ届ける)。起動時に prepare() が ytt.datadir で決めて
 # serve.set_data_dir() で切り替え、認識ワーカーにも環境変数 TRANSCRIBE_DATA_DIR で渡す。import した直後はこのフォルダ(テスト用)= 下の set_root
-_workdata.set_root(os.path.dirname(os.path.abspath(__file__)))
+_flowwire.setup_places(root=os.path.dirname(os.path.abspath(__file__)))   # 置き場所の既定(ytt/workdata の set_root)と名簿のファイル(① roster.ROSTER)を ② の準備 1 か所で(OPT-E2 1c-1)
 APP_JS = os.path.join(_workdata.ROOT, "app.js")      # 画面の部品の JS(案件の画面の校正のパネルが読む。RS8 C4 で編集の画面のページ index.html と ui-kit の写しは消した)
 PROOF_CSS = os.path.join(_workdata.ROOT, "proof.css")     # 校正のパネルの CSS(RS8 C2b-0 で index.html から外に出した)
 PAGE_JS = ("cut.js", "pack-tab.js", "app-tpl.js", "app-core.js", "app-jobs.js", "app-list.js", "app-learn.js", "app-rows.js", "app-tools.js")          # 「編集」のタブの JS(notes:docs/design/edit-tool-design.md の 7。app.js より先に読む。無いものは 404)
-_txroster.ROSTER = os.path.join(_workdata.ROOT, "hololive-roster.json")   # ホロライブの名簿(用語集に足すための一覧)の場所の既定。持ち主は pipeline/transcribe/roster の ROSTER(RS3-0A。JSON は編集のフォルダのまま)
 PORT = 8775
 ALLOWED_HOSTS = set()
 BASE_PATH = "/"   # 画面の場所。入口の統合サーバーに取り込まれたときは "/transcribe/"(home/mount.py が prepare() で入れる)
@@ -101,7 +99,6 @@ def now_ms():
 env_off = _txbase.env_off   # lint: keep 別名(RS2-9)= 環境変数が「止める」の値(off・0・no・false)か(裏の処理を止めるスイッチ)
 
 
-fake_sleep = _fake_asr.fake_wait   # lint: keep 別名(RS2-2)= 疑似のバックエンド(テスト)の 1 行ごとの待ち(環境変数 TRANSCRIBE_FAKE_DELAY 秒)
 
 
 # ---------- 記録(落ちたときの手がかり) ----------

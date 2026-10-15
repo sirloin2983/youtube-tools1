@@ -186,7 +186,7 @@ class TestValidate(unittest.TestCase):
     def test_analyze(self):
         spec.validate(spec.merge({"analyze": {"wAudio": 3, "wChat": 0, "count": 30, "length": 10, "preRatio": 0.9, "lag": 0, "sensitivity": "low"}}))
         for kw in ({"wAudio": 3.1}, {"wChat": -1}, {"wComments": True}, {"wAudio": "1"}, {"sensitivity": "mid"}, {"count": 0}, {"count": 31}, {"count": 8.0},
-                   {"length": 9}, {"length": 121}, {"preRatio": 0.2}, {"headSec": 601}, {"lag": 31}, {"lagAuto": 1}, {"chatTimeout": 0}, {"useChat": None}):
+                   {"length": 9}, {"length": 181}, {"preRatio": 0.2}, {"headSec": 601}, {"lag": 31}, {"lagAuto": 1}, {"chatTimeout": 0}, {"useChat": None}):
             self.bad("analyze", **kw)
 
     def test_adopt_export(self):

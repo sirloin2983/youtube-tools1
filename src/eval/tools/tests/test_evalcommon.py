@@ -26,14 +26,6 @@ def put(path, data, mode="wb"):
         f.write(data)
 
 
-class FakeServe:
-    """audio_span が使う editor の部品(num)だけを持つ偽の serve"""
-
-    @staticmethod
-    def num(x, default=None):
-        return float(x) if isinstance(x, (int, float)) and not isinstance(x, bool) else default
-
-
 class TestArgs(unittest.TestCase):
     def test_add_period_args(self):
         p = argparse.ArgumentParser()
@@ -107,12 +99,12 @@ class TestSaveUnchanged(unittest.TestCase):
             self.assertEqual(C.save(self.res(), root, "demo", "_x", out=out), os.path.abspath(out))   # --out は必ず書く
             m1 = C.save(self.res(), root, "marks")
             time.sleep(1.1)
-            m2 = C.save(self.res(), root, "marks")                                      # marks は対象外(home/autorun.py が最新の名前の日時を見る)
-            self.assertNotEqual(m1, m2)
+            m2 = C.save(self.res(), root, "marks")                                      # marks も同じ(OPT-E2 で本番が結果のファイルを読まなくなった)
+            self.assertEqual(m1, m2)
             buf = io.StringIO()
             with contextlib.redirect_stdout(buf):
                 C.report_saved(self.res(), True, root, "marks")
-            self.assertIn(C.SAVED_MARK, buf.getvalue())
+            self.assertIn(C.SAME_MARK, buf.getvalue())
 
     def test_unreadable_previous_gets_a_new_file(self):
         with tempfile.TemporaryDirectory() as root:
@@ -155,25 +147,25 @@ class TestAudioSpan(unittest.TestCase):
 
     def test_video_first_then_stored_audio(self):
         doc = {"id": "d1", "sourcePath": self.video, "start": 10, "end": 50}
-        spec, offset, where = C.audio_span(FakeServe, doc, self.data, boost=True)
+        spec, offset, where = C.audio_span(doc, self.data, boost=True)
         self.assertEqual((spec, offset, where), ({"sourcePath": self.video, "start": 10.0, "end": 50.0, "boost": True}, 10.0, "動画"))
         doc["sourcePath"] = os.path.join(self.data, "無い.mp4")   # 動画が無ければ保管の音声(範囲の先頭 = 0 秒・行の時刻の基準は start のまま)
-        spec, offset, where = C.audio_span(FakeServe, doc, self.data, boost=False)
+        spec, offset, where = C.audio_span(doc, self.data, boost=False)
         self.assertEqual((spec, offset, where), ({"sourcePath": self.full, "start": 0.0, "end": None, "boost": False}, 10.0, "保管の音声"))
 
     def test_boost_none_has_no_key_and_doc_id(self):
-        spec, _o, _w = C.audio_span(FakeServe, {"sourcePath": self.video}, self.data, doc_id="d1")
+        spec, _o, _w = C.audio_span({"sourcePath": self.video}, self.data, doc_id="d1")
         self.assertNotIn("boost", spec)
         self.assertEqual((spec["start"], spec["end"]), (0.0, None))
 
     def test_network_path_is_not_touched(self):
         # ネットワーク上の動画は存在を確かめない(資格情報を送らない)。保管の音声があればそちら・無ければ RuntimeError
         for src in ("\\\\server\\share\\v.mp4", "//server/share/v.mp4"):
-            spec, _o, where = C.audio_span(FakeServe, {"id": "d1", "sourcePath": src}, self.data)
+            spec, _o, where = C.audio_span({"id": "d1", "sourcePath": src}, self.data)
             self.assertEqual((spec["sourcePath"], where), (self.full, "保管の音声"))
         os.unlink(self.full)
         with self.assertRaises(RuntimeError):
-            C.audio_span(FakeServe, {"id": "d1", "sourcePath": "\\\\server\\share\\v.mp4"}, self.data)
+            C.audio_span({"id": "d1", "sourcePath": "\\\\server\\share\\v.mp4"}, self.data)
 
     def test_fake_job_is_new_each_time(self):
         a, b = C.fake_job(), C.fake_job()

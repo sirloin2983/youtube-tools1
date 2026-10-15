@@ -56,7 +56,7 @@ from .spec import (CUTS, LIVE_AUTO_CUT, MAX_MARKS, TX_ENGINES, TX_MODELS, WEIGHT
 
 MODES ={"full": "解析から全部", "adopted": "採用後を全部", "transcribe": "文字起こしまで"}
 STEP_LABELS = {"analyze": "解析", "adopt": "採用(自動)", "export": "書き出し", "transcribe": "文字起こし", "pack": "パック",
-               "deliver": "Dropbox へ届ける", "diarize": "話者分離"}
+               "deliver": "Dropbox へ届ける", "diarize": "話者分離", "analyze_later": "解析(あとで)"}
 MODE_STEPS = {"full": ("analyze", "adopt", "export", "transcribe", "pack"), "adopted": ("export", "transcribe", "pack"),
               "transcribe": ("export", "transcribe"), "doc": ("transcribe", "pack"),
               "request": ("analyze", "adopt", "export", "transcribe"), "file": ("transcribe",),
@@ -81,7 +81,7 @@ PACK_DIFFER = "字幕か設定が変わったので作り直しました"   # �
 DOC_MODE = "doc"
 DOC_LABEL = "文字起こし → パック"
 BUSY_WAIT = 5.0        # スタジオの書き出しが別の書き出しで塞がっているときの待ち間隔
-# あとから解析(mode post_analyze。測るため)は RS4 で消した(代わりは src/eval/tools/eval_marks.py --analyze-missing)。
+# あとから解析(mode post_analyze。測るため)は RS4 で消した(代わりは区間だけの依頼の最後の段 analyze_later。OPT-E2)。
 # 以前の待ちの記録に mode post_analyze が残っていても、MODE_STEPS に無いので restore が読み飛ばす
 CANCEL_WAIT = 30.0                   # 取り消したスタジオの解析が止まるのを待つ秒(次の実行が同じ配信の解析を始められるように)
 DONE_STEPS = ("done", "skip", "warn")   # 済んだ段(戻した実行では飛ばす)
@@ -261,6 +261,7 @@ class Run:
         keys = list(MODE_STEPS[mode])
         if mode in REQUEST_URL_MODES and self.ranges and len(self.ranges) >= (top or 0):
             keys.remove("analyze")   # 区間が切り抜く数に足りている: 解析なしで、その区間だけを取りに行く
+            keys.append("analyze_later")   # 解析は最後(届けたあと)に順番へ入れるだけ = 友人の区間と自動の候補を比べる材料(決定 3-49 Q6。OPT-E2)
         if self.asked.get("transcribe", {}).get("diarize") and "transcribe" in keys:   # 話す人の人数がある(欄 speakers → 束の transcribe.diarize)
             keys.insert(keys.index("transcribe") + 1, "diarize")
         self.steps = [{"key": k, "label": STEP_LABELS[k], "state": "wait", "detail": ""} for k in keys]
@@ -786,6 +787,25 @@ class Runner:
                 raise StepError("元の動画ファイルの場所が分かりません")
             item = {"kind": "file", "path": path}
         self._analyze_item(run, st, item, run.video_id)
+        return None
+
+    def _step_analyze_later(self, run, st, v):
+        """区間だけの依頼(解析の段なし)の最後: 配信の解析をスタジオの順番に入れるだけで、終わりを待たない(友人へ届くのを遅らせない。決定 3-49 Q6)。
+        解析が済めば測る道具(eval_marks の friendRanges)が友人の区間と自動の候補を比べられる(10-15 まで ⑤ eval_marks --analyze-missing が頼んでいた口)。
+        解析済みなら飛ばす。入れられなくても実行は失敗にしない(飛ばしたと書く)。設定は束の analyze(依頼の重みがあればそれ)"""
+        if v.get("analysis"):
+            st["state"], st["detail"] = "skip", "解析済み"
+            return None
+        try:
+            res = self.tools.analyze_add({"kind": v.get("kind") or "youtube", "videoId": run.video_id}, dict(self._bundle(run)["analyze"]))
+        except Exception as e:   # スタジオが止まっている・断られた = 次の機会に(友人へはもう届いている)
+            st["state"], st["detail"] = "skip", "解析を順番に入れられませんでした(%s)" % e.__class__.__name__
+            return None
+        if res.get("added"):
+            st["detail"] = "解析を順番に入れました(終わりは待ちません)"
+        else:
+            rej = (res.get("rejected") or [{}])[0].get("reason") or "理由不明"
+            st["state"], st["detail"] = "skip", ("解析はもう順番に入っています" if "すでにキュー" in rej else "解析を順番に入れられませんでした: %s" % rej)
         return None
 
     def _analyze_item(self, run, st, item, video_id):

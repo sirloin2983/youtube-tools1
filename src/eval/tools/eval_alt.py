@@ -7,7 +7,7 @@
   入口の作業データ app の check/answers.jsonl = 確かめるの答え。読み方は human/check/answerlog)。何も書き換えない。
   --json のときだけ、結果を文字起こしの作業データの evals/alt/<日時>.json に残す(schema youtube-tools-alt-eval/v1。evals の置き場所は eval_cut.py・eval_speakers.py と同じ規則)。
 - 対象 = 評価用でない文書のうち、alt.json(2つ目のエンジンの認識結果)があるもの(評価用には候補を出さない決まり)。③ の部品は eval_asr.py と同じやり方で読み込む
-  (serve の名前の受付で human/proof/alt の alt_diffs・learn の _groups・ytt.txbase の alt_fold を使う。作業データの場所はここで入口と同じ規則 ytt.datadir で決める。サーバーの DATA_DIR は一時フォルダ)。
+  (human/proof/alt の alt_diffs・learn の _groups・ytt.txbase の alt_fold を使う。作業データの場所はここで入口と同じ規則 ytt.datadir で決める)。
 - 指標:
     採否の記録: 学習の記録の alt = {acc, rej}(画面で「別」の候補を採用・却下した数。確かめるの答えも入る)→ 採用率。時期の指定は効かない(記録に時刻が無い)
     当たり率(候補 → 人の最終): 機械の最初の出力(文書の original。人が直す前の行)に対して alt_diffs で候補を出し直し(今の行ではなく、直す前の行)、
@@ -57,70 +57,63 @@ from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業デ
 from eval.tools._evalcommon import rate, read_json  # noqa: E402
 from ytt import docloc  # noqa: E402
 from human.check import answerlog  # noqa: E402  「確かめる」の答えの記録(読むだけ)
+from pipeline.transcribe import roster as _roster  # noqa: E402
+from ytt import workdata as _workdata  # noqa: E402
+from human.proof import learn as _learn  # noqa: E402
+from human.proof import alt as _alt  # noqa: E402
+from human.proof import ytcap as _ytcap  # noqa: E402
+from ytt import errors as _errors  # noqa: E402
 
 SCHEMA = "youtube-tools-alt-eval/v1"
 ANSWER_STATUS = {"2": "hit", "1": "miss", "other": "other"}   # 確かめるの read:alt・read:yt の答え -> 判定(human/check/read.py の do_apply)
 FEW_CANDS = 100                    # 判定できた候補がこれより少ないときは「まだ少ない(参考)」
 MAX_DOC_BYTES = C.DOC_BYTES
 MAX_GROUP_CHARS = 4000             # まとまりの寄せた文字がこれを超えたら判定しない(比べる計算が重くなりすぎないように)
-ENV0 = dict(os.environ)            # 作業データの場所を決めるための環境変数(serve.py を読み込むと TRANSCRIBE_DATA_DIR が一時フォルダになるので、その前の値)
 UNKNOWN_LABELS = {"removed": "人の行が消された", "notProofed": "校正済みでない", "tooLong": "まとまりが長すぎる", "misaligned": "位置が合わない"}
 STAT_KEYS = ("long", "cross", "mostly", "notation", "edge")
 STAT_LABELS = {"long": "長すぎる", "cross": "行をまたぐ", "mostly": "行の半分以上が違う", "notation": "表記だけの違い", "edge": "窓の境目", "clipEdge": "切り抜きの境目"}
 SOURCES = ("alt", "yt", "both")
 SOURCE_LABELS = {"alt": "2つ目のエンジンの候補(札「別」)", "yt": "YouTube の字幕の候補(札「YT」)"}
 
-_SERVE = None
-
-
 # ---------------------------------------------------------------- 準備・読み込み(読むだけ)
-
-def get_serve():
-    """editor の serve.py(部品の名前の受付)。eval_asr.py と同じ読み込み方。書き込みは一時フォルダ。1プロセスで1回だけ"""
-    global _SERVE
-    if _SERVE is None:
-        from eval.tools import eval_asr
-        _SERVE = eval_asr.load_serve()
-    return _SERVE
-
 
 def locate(data_dir=None):
     """-> 文字起こしの作業データのフォルダ。置き場所の規則は ytt.datadir の1か所(data_dir はテスト用。そこを全ツールの作業データの親フォルダとして使う)"""
-    return C.locate("transcribe", data_dir, ENV0)
+    return C.locate("transcribe", data_dir)
 
 
-def read_ytcache(S, root, vid):
+def read_ytcache(root, vid):
     """作業データの ytcaps/<配信の ID>.json(配信ごとの YouTube の字幕。形が違えば None)。editor の ytcap_load は DATA_DIR(一時フォルダ)を見るので、ここで読む"""
-    if not S.YTCAP_VID_RE.match(str(vid or "")):
+    if not _ytcap.YTCAP_VID_RE.match(str(vid or "")):
         return None
-    d = read_json(os.path.join(root, "ytcaps", vid + ".json"), None, S.YTCAP_MAX_CACHE_BYTES)
-    return d if S.ytcap_valid_cache(d, vid) else None
+    d = read_json(os.path.join(root, "ytcaps", vid + ".json"), None, _ytcap.YTCAP_MAX_CACHE_BYTES)
+    return d if _ytcap.ytcap_valid_cache(d, vid) else None
 
 
-def name_checker(S):
+def name_checker():
     """名簿の呼び名が文字にあるか(src/pipeline/transcribe/roster.py の find_in_text。正式な名前か、普通の言葉と重ならない 3 文字以上の呼び名)"""
     from pipeline.transcribe import roster
-    r = roster.load(S.ROSTER)
+    r = roster.load(_roster.ROSTER)
     return lambda text: bool(roster.find_in_text(text, r))
 
 
-def read_alt(S, tdir, tid):
+def read_alt(tdir, tid):
     """<id>.alt.json(形が違えば None)。editor の read_alt は DATA_DIR(一時フォルダ)を見るので、ここで読む(tdir = 作業データ/transcripts)"""
-    d = read_json(docloc.doc_file(tid, ".alt.json", os.path.dirname(tdir)), None, S.MAX_ALT_BYTES)
-    if not isinstance(d, dict) or d.get("schema") != S.ALT_SCHEMA or not isinstance(d.get("rows"), list):
+    d = read_json(docloc.doc_file(tid, ".alt.json", os.path.dirname(tdir)), None, _alt.MAX_ALT_BYTES)
+    if not isinstance(d, dict) or d.get("schema") != _alt.ALT_SCHEMA or not isinstance(d.get("rows"), list):
         return None
     return d
 
 
-def read_feedback(S, root, key="alt"):
-    """学習の記録(learn-feedback.json)の alt(yt)= {acc, rej} か None。読み方は editor の load_feedback(置き場所 S.FEEDBACK を一時的に差し替えて呼ぶ。
-    持ち主は ytt/workdata = serve の名前の受付が届ける。RS3-0A まで ed_state に直に代入していた)"""
-    old = S.FEEDBACK
-    S.FEEDBACK = os.path.join(root, "learn-feedback.json")
+def read_feedback(root, key="alt"):
+    """学習の記録(learn-feedback.json)の alt(yt)= {acc, rej} か None。読み方は editor の load_feedback(置き場所 _workdata.FEEDBACK を一時的に差し替えて呼ぶ。
+    """
+    old = _workdata.FEEDBACK
+    _workdata.FEEDBACK = os.path.join(root, "learn-feedback.json")
     try:
-        return S.load_feedback().get(key)
+        return _learn.load_feedback().get(key)
     finally:
-        S.FEEDBACK = old
+        _workdata.FEEDBACK = old
 
 
 def read_answers(app_dir, source="alt"):
@@ -170,11 +163,11 @@ def clean_rows(items, with_text=True):
     return sorted(out, key=lambda g: g["start"])
 
 
-def fold_text(S, text):
+def fold_text(text):
     """寄せた文字(alt_fold)の並びと、それぞれの元の位置 -> (str, [位置])"""
     cs, ps = [], []
     for p, ch in enumerate(text):
-        for c in S.alt_fold(ch):
+        for c in _alt.alt_fold(ch):
             cs.append(c)
             ps.append(p)
     return "".join(cs), ps
@@ -183,8 +176,8 @@ def fold_text(S, text):
 class Group:
     """時刻の重なりのまとまり 1 つ(機械の行 go・人の行 ge)。比べる計算は呼ばれたときに 1 回だけ"""
 
-    def __init__(self, S, orig, segs, go, ge):
-        self.S, self.go, self.ge = S, go, ge
+    def __init__(self, orig, segs, go, ge):
+        self.go, self.ge = go, ge
         self.orig_text, self.offsets = "", {}
         for k in go:
             self.offsets[k] = len(self.orig_text)
@@ -199,8 +192,8 @@ class Group:
     def ops(self):
         """(寄せた機械の文字, その位置, 寄せた人の文字, [opcodes])"""
         if self._ops is None:
-            fo, po = fold_text(self.S, self.orig_text)
-            fh, _ph = fold_text(self.S, self.final_text)
+            fo, po = fold_text(self.orig_text)
+            fh, _ph = fold_text(self.final_text)
             self._ops = (fo, po, fh, difflib.SequenceMatcher(None, fo, fh, autojunk=False).get_opcodes())
         return self._ops
 
@@ -223,7 +216,7 @@ def map_span(ops, a, b, inclusive):
     return c, d
 
 
-def judge_candidate(S, g, cand_k, cand):
+def judge_candidate(g, cand_k, cand):
     """候補 1 つ(機械の行 cand_k の中の位置 cand["i"]・wrong・right)を、そのまとまり g の人の最終で判定する
     -> ("hit" | "miss" | "other" | "unknown", 理由, 機械の寄せた文字の区間 (a, b) か None)"""
     if not g.ge:
@@ -241,7 +234,7 @@ def judge_candidate(S, g, cand_k, cand):
     a, b = bisect.bisect_left(po, p0), bisect.bisect_left(po, p1)
     if a >= b:
         return "unknown", "misaligned", None
-    fw, fr = S.alt_fold(wrong), S.alt_fold(right)
+    fw, fr = _alt.alt_fold(wrong), _alt.alt_fold(right)
     spans = []
     for inclusive in (False, True):
         c, d = map_span(ops, a, b, inclusive)
@@ -256,17 +249,17 @@ def judge_candidate(S, g, cand_k, cand):
     return "other", "", (a, b)
 
 
-def match_answer(S, answers, used, seg_ids, cand):
+def match_answer(answers, used, seg_ids, cand):
     """候補 cand と同じ所に答えた確かめるの答え(まとまりの人の行 seg_ids のどれかに答えていて、寄せた wrong・right が同じ。まだ使っていない物)か None"""
-    fw, fr = S.alt_fold(cand["wrong"]), S.alt_fold(cand["right"])
+    fw, fr = _alt.alt_fold(cand["wrong"]), _alt.alt_fold(cand["right"])
     for a in answers or ():
         if a["id"] not in used and a["seg"] in seg_ids and a["wrong"] is not None and a["right"] is not None \
-                and S.alt_fold(a["wrong"]) == fw and S.alt_fold(a["right"]) == fr:
+                and _alt.alt_fold(a["wrong"]) == fw and _alt.alt_fold(a["right"]) == fr:
             return a
     return None
 
 
-def judge_doc(S, doc, alt, since_ms=None, until_ms=None, diff_fn=None, has_name=None, answers=None):
+def judge_doc(doc, alt, since_ms=None, until_ms=None, diff_fn=None, has_name=None, answers=None):
     """1つの文書(評価用でない・original と segments がある)と alt.json から、候補の判定と人の直しの拾えた数を出す。ファイルには触らない
     -> {"cands": [{"status", "why", "wrong", "right", "check"}](時期の範囲の中のまとまりだけ), "fixes": [{"short", "covered", "hit"}], "stats": alt_diffs の数えた理由,
         "outOfRange": 時期の外で数えなかった候補の数, "inRange": 範囲の中のまとまりが 1 つでもあったか, "noSub": {"rows": noSub の行の数, "candidates": その時間に出ていた候補の数(数えない)}}
@@ -276,13 +269,13 @@ def judge_doc(S, doc, alt, since_ms=None, until_ms=None, diff_fn=None, has_name=
     segs = clean_rows(doc.get("segments"), with_text=False)
     # 候補は機械の行すべてで出す(alt_diffs は窓の境目の行を特別に扱うので、行を先に外すと別の行の候補が消える)。そのあとで、字幕に出さない行(noSub)の時間の機械の行の候補は
     # 当たり率にも拾えた率にも入れない(その行は字幕に出ない = 直す必要がない。editor の split_nosub)。数だけ別に数える
-    orig, segs, ns_orig, ns_segs = S.split_nosub(orig_all, segs)
+    orig, segs, ns_orig, ns_segs = _learn.split_nosub(orig_all, segs)
     rows = [{"id": "o%d" % k, "start": o["start"], "end": o["end"], "text": o["text"], "proofed": False} for k, o in enumerate(orig_all)]
-    cands, stats = (diff_fn or S.alt_diffs)(rows, alt.get("rows") or [])
+    cands, stats = (diff_fn or _alt.alt_diffs)(rows, alt.get("rows") or [])
     main_idx = {id(o): j for j, o in enumerate(orig)}      # 全部の行の番号 → 本体の行の番号(noSub の時間の行は無い)
     ns_cands = 0
     doc_t = num(doc.get("updatedAt")) or 0
-    groups = [Group(S, orig, segs, go, ge) for go, ge in S._groups(orig, segs)]
+    groups = [Group(orig, segs, go, ge) for go, ge in _learn._groups(orig, segs)]
     grp_of = {k: gi for gi, g in enumerate(groups) for k in g.go}
 
     def group_time(g):
@@ -310,14 +303,14 @@ def judge_doc(S, doc, alt, since_ms=None, until_ms=None, diff_fn=None, has_name=
         if gi is None:
             continue
         g = groups[gi]
-        ans = match_answer(S, answers, used, {str(segs[i].get("id")) for i in g.ge}, cand) if answers else None
+        ans = match_answer(answers, used, {str(segs[i].get("id")) for i in g.ge}, cand) if answers else None
         if ans is not None:
             used.add(ans["id"])
         if not (C.in_period(ans["at"], since_ms, until_ms) if ans is not None else in_time[gi]):
             out["outOfRange"] += 1
             continue
         out["inRange"] = True
-        status, why, span = judge_candidate(S, g, k, cand)
+        status, why, span = judge_candidate(g, k, cand)
         if ans is not None:   # 確かめるの答えが正(まとまりが校正済みでなくても判定できる)
             status, why = ans["status"], "check"
         out["cands"].append({"status": status, "why": why, "wrong": cand["wrong"], "right": cand["right"], "row": k, "i": cand["i"], "name": group_named(gi),
@@ -347,7 +340,7 @@ def judge_doc(S, doc, alt, since_ms=None, until_ms=None, diff_fn=None, has_name=
             if tag == "equal":
                 continue
             hits = [st for a, b, st in by_group.get(gi, []) if (a < i2 and i1 < b) or (i1 == i2 and a <= i1 <= b)]
-            out["fixes"].append({"short": (i2 - i1) <= S.ALT_MAX_CHARS and (j2 - j1) <= S.ALT_MAX_CHARS,
+            out["fixes"].append({"short": (i2 - i1) <= _alt.ALT_MAX_CHARS and (j2 - j1) <= _alt.ALT_MAX_CHARS,
                                  "covered": bool(hits), "hit": "hit" in hits, "name": group_named(gi)})
     return out
 
@@ -430,15 +423,15 @@ def evaluate(data_dir=None, since=None, until=None, source="alt", include_eval=F
     """source = alt(既定。今までと同じ結果)・yt・both(alt と yt を別々に + 2 つが同じ候補を出した所 agree)"""
     if source not in SOURCES:
         raise SystemExit("--source は %s のどれかです: %r" % ("・".join(SOURCES), source))
-    root = locate(data_dir)       # serve.py を読み込む前に決める(読み込むと TRANSCRIBE_DATA_DIR が一時フォルダになる)
-    app = C.locate("app", data_dir, ENV0)   # 確かめるの答えの置き場所(入口の作業データ)
-    S = get_serve()
+    root = locate(data_dir)
+    app = C.locate("app", data_dir)   # 確かめるの答えの置き場所(入口の作業データ)
+    C.prepare()   # 名簿(呼び名の確かめ)・学習の記録の読み方の部品を使う
     if source != "both":
-        res = evaluate_one(S, root, source, since, until, include_eval, app)
+        res = evaluate_one(root, source, since, until, include_eval, app)
         res.pop("_per")
         return res
-    a = evaluate_one(S, root, "alt", since, until, include_eval, app)
-    y = evaluate_one(S, root, "yt", since, until, include_eval, app)
+    a = evaluate_one(root, "alt", since, until, include_eval, app)
+    y = evaluate_one(root, "yt", since, until, include_eval, app)
     agree = Agg()
     for tid in sorted(set(a["_per"]) & set(y["_per"])):
         keys = {(c["row"], c["i"], c["wrong"], c["right"]) for c in y["_per"][tid]["cands"]}
@@ -449,7 +442,7 @@ def evaluate(data_dir=None, since=None, until=None, source="alt", include_eval=F
     return {"meta": meta, "alt": a, "yt": y, "agree": agree.result()}
 
 
-def evaluate_one(S, root, source, since=None, until=None, include_eval=False, app=None):
+def evaluate_one(root, source, since=None, until=None, include_eval=False, app=None):
     """1 つの出どころ(alt / yt)の測定。結果の _per = 文書ごとの judge_doc の結果(both の一致に使う。evaluate が外す)。
     app = 入口の作業データ(確かめるの答え check/answers.jsonl。None なら答えを読まない)"""
     tdir = os.path.join(root, "transcripts")
@@ -460,14 +453,14 @@ def evaluate_one(S, root, source, since=None, until=None, include_eval=False, ap
     skipped = {"evalSet": 0, "noOriginal": 0, "broken": 0, "outOfRange": 0}
     if source == "yt":
         skipped.update(noClip=0, noCaptions=0)
-    has_name = name_checker(S)
+    has_name = name_checker()
     no_alt = out_cands = 0
     for tid in docloc.iter_tids(root):   # 案件の 作業用 に置いた文書も(索引があれば)
         if source == "alt" and not os.path.isfile(docloc.doc_file(tid, ".alt.json", root)):
             no_alt += 1
             continue
         doc = read_json(docloc.doc_file(tid, ".json", root), None, MAX_DOC_BYTES)
-        alt = read_alt(S, tdir, tid) if source == "alt" else None
+        alt = read_alt(tdir, tid) if source == "alt" else None
         if not isinstance(doc, dict) or (source == "alt" and alt is None):
             skipped["broken"] += 1
             continue
@@ -475,26 +468,26 @@ def evaluate_one(S, root, source, since=None, until=None, include_eval=False, ap
             key, diff_fn = engine_key(alt), None
         else:   # yt: 文書の clip の配信の、保存してある字幕(通信しない)
             try:
-                vid = S.ytcap_doc_range(doc)["videoId"]
-            except S.ApiError:
+                vid = _ytcap.ytcap_doc_range(doc)["videoId"]
+            except _errors.ApiError:
                 skipped["noClip"] += 1
                 continue
-            cache = read_ytcache(S, root, vid)
+            cache = read_ytcache(root, vid)
             if cache is None:
                 no_alt += 1
                 continue
             if cache["kind"] == "none":
                 skipped["noCaptions"] += 1
                 continue
-            alt = {"rows": S.ytcap_doc_rows(doc, cache)[0]}
-            key, diff_fn = "youtube / %s" % cache["kind"], S.ytcap_diffs
+            alt = {"rows": _ytcap.ytcap_doc_rows(doc, cache)[0]}
+            key, diff_fn = "youtube / %s" % cache["kind"], _ytcap.ytcap_diffs
         if doc.get("evalSet") is True and not include_eval:
             skipped["evalSet"] += 1
             continue
         if not isinstance(doc.get("original"), list) or not doc["original"] or not isinstance(doc.get("segments"), list):
             skipped["noOriginal"] += 1
             continue
-        r = judge_doc(S, doc, alt, since_ms, until_ms, diff_fn, has_name, answers.get(tid))
+        r = judge_doc(doc, alt, since_ms, until_ms, diff_fn, has_name, answers.get(tid))
         measured.add(tid)
         out_cands += r["outOfRange"]
         if not r["inRange"]:
@@ -511,7 +504,7 @@ def evaluate_one(S, root, source, since=None, until=None, include_eval=False, ap
     res = total.result()
     res["check"]["notMeasured"] = sum(1 for tid, xs in answers.items() if tid not in measured for a in xs if C.in_period(a["at"], since_ms, until_ms))
     few = res["judged"] < FEW_CANDS
-    fb = read_feedback(S, root, source)
+    fb = read_feedback(root, source)
     notes = []
     if skipped["noOriginal"]:
         notes.append("機械の最初の出力(original)が無い文書が %d 件あります(測っていません)" % skipped["noOriginal"])

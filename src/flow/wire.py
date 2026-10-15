@@ -15,6 +15,10 @@ import os
 from ytt import workdata as _workdata
 from . import jobs as _jobs, tx as _tx
 from pipeline.transcribe import backend as _backend, fill as _fill, models as _models, recognize as _recognize, records as _records, worker_client as _worker_client
+from ytt import layout as _layout
+from pipeline.transcribe import roster as _roster
+
+ROSTER_FILE = "hololive-roster.json"   # 名簿のファイルの名前(置き場所は編集のフォルダ。持ち主は ① roster.ROSTER)
 
 # 同じ文字起こしに同時に入れない組み合わせ(exclusive)。10-09: 声を覚える(voice-learn)は入口だけが再認識・疑わしい所の最中を断り、判別・再認識は入口と登録で見る組が違っていたのをそろえた。
 # 0.65.0(10-09): 表を対称に(a が b を断るなら b も a を断る)= 再認識・疑わしい所も声を覚えるの最中は断る(声を覚える途中で行の時刻が変わると、覚える区間がずれる)。
@@ -60,3 +64,30 @@ def install(*, bodies=None, tool=None, log=None, tmp_dir=None, max_queue=None, m
         _worker_client.FAKES_MODULE = fake_worker_module
     # 範囲・全体の再認識と疑わしい所の行の頭の「名前:」を外す決まり(fill の B を ① の recognize へ。呼ぶたびに読む)
     _recognize.set_head_stripper(lambda spec: _fill.fill_head_stripper(spec))
+
+
+def setup_places(*, root=None, data_dir=None, studio_data=None, roster=None):
+    """作業データの置き場所・スタジオの data.json・名簿のファイルを、持ち主(ytt/workdata・① roster.ROSTER)へ明示して入れる(OPT-E2 1c-1)。
+    編集の ed_state の読み込み・CLI(app/cli.use_data_dir)・⑤ の道具(setup_headless)の 3 つが同じこれを呼ぶ(読み込みの副作用に頼らない)。
+    root = 編集のフォルダ(既定 layout の transcribe。ytt/workdata の ROOT と MARKER_DATA・名簿の置き場所)・
+    data_dir = 作業データ(省けば set_root の既定 = 環境変数 TRANSCRIBE_DATA_DIR か root)・studio_data = スタジオの data.json(省けば set_root の既定)・
+    roster = 名簿の JSON(省けば <root>/hololive-roster.json)。サーバーの記録・環境変数・datadir の登録はしない(それは編集の serve.set_data_dir)"""
+    root = root or _layout.tool_dir("transcribe")
+    _workdata.set_root(root)
+    if data_dir:
+        _workdata.set_data_dir(os.path.abspath(data_dir))
+    if studio_data:
+        _workdata.STUDIO_DATA = studio_data
+    _roster.ROSTER = roster or os.path.join(root, ROSTER_FILE)
+
+
+def setup_headless(*, data_dir, studio_data=None, roster=None, in_process=False, **install_kw):
+    """入口(編集の serve)を読まずに、①② の認識・判別の部品をこのプロセスで使う準備(⑤ の道具。OPT-E2 1c-1。設計原則のレビューの指摘 4)。
+    要る物を全部ここで明示して渡す: setup_places(置き場所)→ install(install_kw = 本物と疑似の選び方・疑似のワーカーの部品・辞書の版の材料)→
+    in_process なら認識・判別をこのプロセスの中で(① worker_client.IN_WORKER。GPU の部品の場所はワーカーの起動と同じ = models.setup_cuda_paths)。
+    環境変数は書き換えない(認識ワーカーへは worker_client が作業データの場所を渡す)。何度呼んでもよい"""
+    setup_places(data_dir=data_dir, studio_data=studio_data, roster=roster)
+    install(**install_kw)
+    if in_process:
+        _worker_client.IN_WORKER = True
+        _models.setup_cuda_paths()

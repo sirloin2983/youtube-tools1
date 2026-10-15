@@ -66,6 +66,11 @@ from eval.tools._evalcommon import dist, is_reviewed, pct, rate, read_json  # no
 from ytt import docloc, fsio  # noqa: E402
 from human.proof import speakers as proof_speakers  # noqa: E402
 from pipeline.transcribe import diarize as transcribe_diarize  # noqa: E402
+from pipeline.transcribe import recognize as _recognize  # noqa: E402
+from pipeline.transcribe import backend as _backend  # noqa: E402
+from ytt import tools as _tools  # noqa: E402
+from eval.fake import fake_asr as _fake_asr  # noqa: E402
+from ytt import schemas as _schemas  # noqa: E402
 
 SCHEMA = "youtube-tools-speakers-eval/v1"
 DIAR_SCHEMA = "youtube-tools-diar/v1"     # src/pipeline/transcribe/diarize.py の DIAR_SCHEMA と同じ(editor は読み込まない)
@@ -710,17 +715,6 @@ def evaluate(data_dir=None, since=None, until=None, include_eval=True, include_d
 
 # ---------------------------------------------------------------- 判別し直して測る(run)
 
-_SERVE = []
-
-
-def load_serve():
-    """src/editor/serve.py(_evalcommon.load_serve。1 プロセスで 1 回だけ)。serve 自身の作業データは一時フォルダ eval_speakers_…で、
-    読み込んだあと環境変数を戻す(戻さないと、このあとの locate(本物の作業データ)が一時フォルダを指す)。判別はこのプロセスの中で動かす(worker_client.IN_WORKER)"""
-    if not _SERVE:
-        _SERVE.append(C.load_serve(prefix="eval_speakers_", keep_env=False))
-    return _SERVE[0]
-
-
 def parse_list(text, conv, what):
     out = []
     for x in str(text).split(","):
@@ -754,17 +748,17 @@ def _conv_sec(x):
     return v
 
 
-def run_grid(S, threshold=None, num=None, emb=None, min_on=None, min_off=None, smooth=None):
+def run_grid(threshold=None, num=None, emb=None, min_on=None, min_off=None, smooth=None):
     """設定の組(どれも「,」区切り。指定しない項目は本番の既定の値)-> [{"threshold", "num", "emb", "minOn", "minOff", "smooth"}]。
     smooth = [False, True] など(ならす/ならさない。判別は 1 回で、採点だけ両方。指定しなければ ならさない だけ)"""
-    ths = parse_list(threshold, _conv_sec, "--threshold") if threshold else [S.DIAR_CLUSTER_THRESHOLD]
+    ths = parse_list(threshold, _conv_sec, "--threshold") if threshold else [transcribe_diarize.DIAR_CLUSTER_THRESHOLD]
     nums = parse_list(num, _conv_num, "--num") if num else [0]
-    embs = parse_list(emb, str, "--emb") if emb else [S.DIAR_EMB_DEFAULT]
-    bad = [e for e in embs if e not in S.DIAR_EMBS]
+    embs = parse_list(emb, str, "--emb") if emb else [transcribe_diarize.DIAR_EMB_DEFAULT]
+    bad = [e for e in embs if e not in transcribe_diarize.DIAR_EMBS]
     if bad:
-        raise SystemExit("--emb は %s のどれかです: %s" % ("・".join(S.DIAR_EMBS), ", ".join(bad)))
-    ons = parse_list(min_on, _conv_sec, "--min-on") if min_on else [S.DIAR_MIN_ON]
-    offs = parse_list(min_off, _conv_sec, "--min-off") if min_off else [S.DIAR_MIN_OFF]
+        raise SystemExit("--emb は %s のどれかです: %s" % ("・".join(transcribe_diarize.DIAR_EMBS), ", ".join(bad)))
+    ons = parse_list(min_on, _conv_sec, "--min-on") if min_on else [transcribe_diarize.DIAR_MIN_ON]
+    offs = parse_list(min_off, _conv_sec, "--min-off") if min_off else [transcribe_diarize.DIAR_MIN_OFF]
     sms = smooth or [False]
     return [{"threshold": t, "num": n, "emb": e, "minOn": a, "minOff": b, "smooth": sm} for e in embs for n in nums for t in ths for a in ons for b in offs for sm in sms]
 
@@ -774,10 +768,10 @@ def setting_key(st):
                                                               " / ならす" if st.get("smooth") else "")
 
 
-def check_models(S, root, grid):
-    """本物の判別のモデルが作業データの models/diar にあるか(無ければ取得せずに止める)。S の DIAR_DIR を本物の場所にする"""
+def check_models(root, grid):
+    """本物の判別のモデルが作業データの models/diar にあるか(無ければ取得せずに止める)。DIAR_DIR を本物の場所にする"""
     d = os.path.join(root, "models", "diar")
-    need = [S.DIAR_SEG["file"]] + sorted({S.DIAR_EMBS[st["emb"]]["file"] for st in grid})
+    need = [transcribe_diarize.DIAR_SEG["file"]] + sorted({transcribe_diarize.DIAR_EMBS[st["emb"]]["file"] for st in grid})
     missing = [f for f in need if not (os.path.isfile(os.path.join(d, f)) and os.path.getsize(os.path.join(d, f)) > 1000)]
     if missing:
         raise SystemExit("話者判別のモデルがありません(この道具は取得しません。編集の画面で一度判別すると取得されます): %s の %s" % (d, "・".join(missing)))
@@ -788,28 +782,28 @@ def check_models(S, root, grid):
     transcribe_diarize.DIAR_DIR = d
 
 
-def doc_audio(S, tid, doc, root, wav, job):
+def doc_audio(tid, doc, root, wav, job):
     """文書の範囲の音声を wav に取り出す(本番の run_diarize と同じ extract_audio)-> (offset = 音声の先頭が元の動画の何秒か, 音声の秒, 出どころ)。
     元の動画が無ければ保管データの full.flac(eval_asr.py と同じ。今ある保管データだけ。保管の書き手は 10-10 に消した)。ネットワーク上の動画は読まない(資格情報を送らない)"""
-    spec, start, where = C.audio_span(S, doc, root, doc_id=tid)
-    end = S.num(doc.get("end"))
-    S.extract_audio(job, spec, wav)
-    return start, S.media_duration(wav) or max(0.0, (end or 0.0) - start), where
+    spec, start, where = C.audio_span(doc, root, doc_id=tid)
+    end = _schemas.num_or(doc.get("end"))
+    _recognize.extract_audio(job, spec, wav)
+    return start, _tools.media_duration(wav) or max(0.0, (end or 0.0) - start), where
 
 
-def diarize_once(S, job, wav, total, st):
+def diarize_once(job, wav, total, st):
     """設定 st で 1 回判別する -> [(開始, 終了, 話者番号)](音声の先頭からの秒)。疑似(TRANSCRIBE_BACKEND=fake)は diarize_fake"""
-    if S.backend_name() == "fake":
-        return S.diarize_fake(job, total, st["num"], st["threshold"])
-    return S.diarize_real(job, wav, st["num"], st["emb"], threshold=st["threshold"], min_on=st["minOn"], min_off=st["minOff"])
+    if _backend.is_fake():
+        return _fake_asr.diarize_fake(job, total, st["num"], st["threshold"])
+    return transcribe_diarize.diarize_real(job, wav, st["num"], st["emb"], threshold=st["threshold"], min_on=st["minOn"], min_off=st["minOff"])
 
 
-def score_turns(S, doc, turns, offset, since_ms, until_ms, include_draft, conf, whole, smooth=False):
+def score_turns(doc, turns, offset, since_ms, until_ms, include_draft, conf, whole, smooth=False):
     """判別の結果を本番と同じ assign_speakers で行に割り当てて採点する -> (行, 数, 機械の話者の数, 重なりの行, ならした行 id, ならさないときの {行 id: 合ったか} or None)。
     smooth なら本番と同じ smooth_speakers で細切れをならしてから採点する(守る行は diar_keep_row・文字の無い行は前後に数えない)"""
     segs = [sg for sg in doc.get("segments") or [] if isinstance(sg, dict) and num(sg.get("start")) is not None and num(sg.get("end")) is not None]
     plain = [{"start": num(sg.get("start")), "end": num(sg.get("end")), "text": sg.get("text")} for sg in segs]
-    res = S.assign_speakers(plain, turns, offset)
+    res = transcribe_diarize.assign_speakers(plain, turns, offset)
     recs = {str(sg.get("id")): {"speaker": "L%d" % sp if sp is not None else "", "mixed": bool(mixed), "weak": bool(weak)}
             for sg, (sp, mixed, weak) in zip(segs, res)}
     sm_ids, before = set(), None
@@ -825,7 +819,7 @@ def score_turns(S, doc, turns, offset, since_ms, until_ms, include_draft, conf, 
             recs[rid] = dict(recs[rid], speaker="L%d" % lb, weak=True)
             sm_ids.add(rid)
     rows, cnt = human_rows(doc, recs, since_ms, until_ms, include_draft, conf)
-    overlaps = S._turn_overlaps(sorted((a + offset, b + offset, s) for a, b, s in turns))
+    overlaps = transcribe_diarize._turn_overlaps(sorted((a + offset, b + offset, s) for a, b, s in turns))
     return rows, cnt, len({sp for sp, _, _ in res if sp is not None}), overlap_rows(doc, recs, overlaps, since_ms, until_ms, whole), sm_ids, before
 
 
@@ -833,13 +827,13 @@ def run_evaluate(data_dir=None, since=None, until=None, include_eval=True, inclu
                  threshold=None, num_=None, emb=None, min_on=None, min_off=None, log=print, smooth=None):
     """文書の音声をもう一度判別して(設定の組ごと)人の最終と比べる。文書・diar.json は書かない。smooth = [False, True] など(--smooth)"""
     root = C.locate("transcribe", data_dir)
-    S = load_serve()
+    C.prepare(prefix="eval_speakers_")   # 判別はこのプロセスの中で動かす(worker_client.IN_WORKER)
     tdir = os.path.join(root, "transcripts")
     since_ms, until_ms = C.period(since, until)
-    grid = run_grid(S, threshold, num_, emb, min_on, min_off, smooth)
-    real = S.backend_name() != "fake"
+    grid = run_grid(threshold, num_, emb, min_on, min_off, smooth)
+    real = not _backend.is_fake()
     if real:
-        check_models(S, root, grid)
+        check_models(root, grid)
     mode = resolve_reviewed(reviewed, only)
     loaded, sk = load_docs(tdir, include_eval, set(only) if only else None)
     picked, rinfo = pick_reviewed(loaded, mode)
@@ -869,7 +863,7 @@ def run_evaluate(data_dir=None, since=None, until=None, include_eval=True, inclu
             job = C.fake_job()
             wav = os.path.join(tmp, "%s.wav" % tid)
             try:
-                offset, total, where = doc_audio(S, tid, doc, root, wav, job)
+                offset, total, where = doc_audio(tid, doc, root, wav, job)
             except Exception as e:   # 音声が無い・取り出せない文書は数えない(理由を出す)
                 log("   とばしました: %s" % str(getattr(e, "message", "") or e)[:200])
                 skipped["noAudio"] += 1
@@ -893,7 +887,7 @@ def run_evaluate(data_dir=None, since=None, until=None, include_eval=True, inclu
                 t0 = time.monotonic()
                 try:
                     if base not in cache:
-                        cache[base] = diarize_once(S, job, wav, total, st)
+                        cache[base] = diarize_once(job, wav, total, st)
                     turns = cache[base]
                 except Exception as e:   # 1 つの設定で落ちても、ほかの設定・文書は続ける
                     msg = str(getattr(e, "message", "") or e)[:200]
@@ -902,7 +896,7 @@ def run_evaluate(data_dir=None, since=None, until=None, include_eval=True, inclu
                     one["bySetting"].append({"key": a["key"], "error": msg})
                     continue
                 sec = time.monotonic() - t0
-                rows, _c, found, orows, sm_ids, before = score_turns(S, doc, turns, offset, since_ms, until_ms, include_draft, conf, whole, st["smooth"])
+                rows, _c, found, orows, sm_ids, before = score_turns(doc, turns, offset, since_ms, until_ms, include_draft, conf, whole, st["smooth"])
                 mapping = best_mapping(rows)
                 a["smooth"].add(rows, mapping, sm_ids, before)
                 c = new_counts()
@@ -935,11 +929,11 @@ def run_evaluate(data_dir=None, since=None, until=None, include_eval=True, inclu
     if skipped["noAudio"]:
         notes.append("音声が無い・取り出せない文書 %d 件は測っていません" % skipped["noAudio"])
     meta = {"schema": SCHEMA, "mode": "run", "at": int(time.time() * 1000), "git": C.git_rev(), "dataDir": root, "backend": "sherpa-onnx" if real else "fake",
-            "threads": S.diar_threads() if real else None, "since": since, "until": until, "includeEval": bool(include_eval), "includeDraft": bool(include_draft),
+            "threads": transcribe_diarize.diar_threads() if real else None, "since": since, "until": until, "includeEval": bool(include_eval), "includeDraft": bool(include_draft),
             "only": sorted(only) if only else None, "reviewed": rinfo, "docs": totals["docs"], "evalDocs": totals["evalDocs"], "reviewedDocs": totals["reviewedDocs"],
             "audioSec": round(totals["audioSec"], 1), "rows": nrows, "few": few,
             "fewNote": "まだ少ない(参考): 人が確かめた話者つきの行が %d 行(%d 行未満)。これで判別の既定の値(しきい値 %.2f など)を決めない"
-                       % (nrows, FEW_ROWS, S.DIAR_CLUSTER_THRESHOLD) if few else "",
+                       % (nrows, FEW_ROWS, transcribe_diarize.DIAR_CLUSTER_THRESHOLD) if few else "",
             "draftRows": totals["drafts"], "machineDraftRows": totals["machineDraft"], "unverifiedRows": totals["unverified"], "noSubRows": totals["noSub"], "confirmRule": CONFIRM_RULE,
             "skipped": skipped, "settings": grid, "notes": notes}
     out = []

@@ -64,7 +64,7 @@
         { "key": "analyze.useChat", "type": "bool", "label": "材料: チャットのリプレイ(量・「草」など)", "default": true },
         { "key": "analyze.useComments", "type": "bool", "label": "材料: コメント欄の時刻(「12:34 ここ最高」)", "default": true },
         { "key": "analyze.count", "type": "int", "label": "本数(最大)", "default": 8, "min": 1, "max": 30, "unit": "本" },
-        { "key": "analyze.length", "type": "number", "label": "1 本の長さ", "default": 45, "min": 10, "max": 120, "step": 1, "unit": "秒" },
+        { "key": "analyze.length", "type": "number", "label": "1 本の長さ", "default": 45, "min": 10, "max": 180, "step": 1, "unit": "秒" },
         { "key": "analyze.sensitivity", "type": "enum", "label": "感度", "default": "normal", "options": [["high", "高(多めに拾う)"], ["normal", "標準"], ["low", "低(強い場面だけ)"]] },
         { "key": "analyze.preRatio", "type": "number", "label": "ピークより前に置く割合", "default": 0.65, "min": 0.3, "max": 0.9, "scale": 100, "step": 1, "unit": "%", "hint": "区間のどこに山を置くか。" },
         { "key": "analyze.headSec", "type": "number", "label": "冒頭の減点", "default": 180, "min": 0, "max": 600, "step": 1, "unit": "秒", "hint": "0 で無効。冒頭は挨拶や BGM で誤検出しやすいため、この秒数かけて少しずつ通常の点数に戻します。" },

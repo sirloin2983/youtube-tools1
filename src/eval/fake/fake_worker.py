@@ -84,5 +84,44 @@ def install():
     E = tx_engines
     E.WhisperCpp.COMMAND = [sys.executable, os.path.join(layout.tool_dir("transcribe"), "tests", "fake_whisper_cli.py")]
     E.fetch_file = lambda spec, folder, *a, **k: os.path.join(folder, spec["file"])
-    E.SenseVoice.FAKE_TEXT = os.environ.get("TRANSCRIBE_FAKE_FILL", "")   # 2 つ目の読み(後処理 A)は環境変数の文字を 1 行に(空 = 行なし。モデルは取らない)
-    E.LlamaText.FAKE_REPLY = os.environ.get("TRANSCRIBE_FAKE_LLM", "")   # 文字の LLM(後処理 E)は環境変数の文字をそのまま答える(server を起動しない)
+    E.ENGINES[E.SenseVoice.id] = fake_sense_voice(os.environ.get("TRANSCRIBE_FAKE_FILL", ""))   # 2 つ目の読み(後処理 A)は環境変数の文字を 1 行に(空 = 行なし。モデルは取らない)
+    E.ENGINES[E.LlamaText.id] = fake_llama_text(os.environ.get("TRANSCRIBE_FAKE_LLM", ""))   # 文字の LLM(後処理 E)は環境変数の文字をそのまま答える(server を起動しない)
+
+
+# ---------- 2 つ目の読み・文字の LLM の偽物(OPT-E2 1a-1 に ① tx_engines の疑似の分かれ道 FAKE_TEXT・FAKE_REPLY から移した)。
+# 本物のクラスを継いで、モデルを読む所(create)と答える所だけを差し替える。エンジンの表 tx_engines.ENGINES に入れると、本物の _load_model_local の流れで使われる
+def fake_sense_voice(text):
+    """SenseVoice の偽物のクラス: 音声を読まずに、音声の長さ全体に text を 1 行(空なら行なし)"""
+    E = tx_engines
+
+    class FakeSenseVoice(E.SenseVoice):
+        @classmethod
+        def create(cls, name, device, compute_type, log=None, data_dir=None, hooks=None):
+            if name not in E.SENSE_VOICE_MODELS:
+                raise E.EngineError("bad_model", "SenseVoice で使えないモデルです: %s(使えるのは %s)" % (str(name)[:40], "・".join(E.SENSE_VOICE_MODELS)), 400)
+            return cls(name, "cpu", {"fake": text})
+
+        def transcribe(self, audio, **kw):
+            dur = E._wav_seconds(audio) if isinstance(audio, str) else len(audio) / 16000.0
+            info = types.SimpleNamespace(language=self._lang(kw), duration=dur, duration_after_vad=None)
+            segs = [types.SimpleNamespace(start=0.0, end=dur, text=text, words=[], avg_logprob=None, no_speech_prob=None, compression_ratio=1.0)] if text else []
+            return iter(segs), info
+    return FakeSenseVoice
+
+
+def fake_llama_text(reply):
+    """文字の LLM の偽物のクラス: server を起動せずに reply を答える(モデルの名前は本物と同じ表で確かめる)"""
+    E = tx_engines
+
+    class FakeLlamaText(E.LlamaText):
+        @classmethod
+        def create(cls, name, device, compute_type, log=None, data_dir=None, hooks=None):
+            if name not in cls.MODELS:
+                raise E.EngineError("bad_model", "文字の LLM で使えないモデルです: %s" % str(name)[:40], 400)
+            e = cls(name, device, {"fake": reply})
+            e.proc = e.job = e.errlog = None
+            return e
+
+        def complete(self, messages, max_tokens=400):
+            return reply
+    return FakeLlamaText

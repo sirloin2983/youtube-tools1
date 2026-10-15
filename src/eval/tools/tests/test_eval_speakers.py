@@ -23,6 +23,8 @@ REPO = os.path.dirname(os.path.dirname(HERE))   # src(ツールと共通部品 y
 sys.path.insert(0, REPO)
 from eval.tools import eval_speakers as E  # noqa: E402
 from pipeline.transcribe import worker_client  # noqa: E402
+from pipeline.transcribe import diarize as _diarize  # noqa: E402
+from ytt import errors as _errors  # noqa: E402
 
 
 def ms(day, hhmm="12:00:00"):
@@ -543,7 +545,7 @@ class TestDiarizeTune(unittest.TestCase):
 
     def test_worker_request_shape(self):
         with mock.patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "fake"}):
-            S = E.load_serve()
+            E.C.prepare()
         calls = []
 
         class W:
@@ -553,17 +555,17 @@ class TestDiarizeTune(unittest.TestCase):
         saved = (worker_client.IN_WORKER, worker_client.WORKER)
         worker_client.IN_WORKER, worker_client.WORKER = False, W()
         try:
-            self.assertEqual(S.diarize_real({}, "a.wav", 0, "voxceleb"), [(0.0, 1.0, 0)])
-            S.diarize_real({}, "a.wav", 2, "voxceleb", threshold=0.7, min_off=0.5)
-            with self.assertRaises(S.ApiError):
-                S.diarize_real({}, "a.wav", 0, "voxceleb", threshold=-1)
+            self.assertEqual(_diarize.diarize_real({}, "a.wav", 0, "voxceleb"), [(0.0, 1.0, 0)])
+            _diarize.diarize_real({}, "a.wav", 2, "voxceleb", threshold=0.7, min_off=0.5)
+            with self.assertRaises(_errors.ApiError):
+                _diarize.diarize_real({}, "a.wav", 0, "voxceleb", threshold=-1)
         finally:
             worker_client.IN_WORKER, worker_client.WORKER = saved
         self.assertEqual(calls[0], ("diarize", {"wav": "a.wav", "num": 0, "emb": "voxceleb"}))
         self.assertEqual(calls[1], ("diarize", {"wav": "a.wav", "num": 2, "emb": "voxceleb", "threshold": 0.7, "minOff": 0.5}))
         self.assertEqual(len(calls), 2)
-        self.assertEqual(S.diar_tune(), {})
-        self.assertEqual(S.diar_tune("0.6", None, 0), {"threshold": 0.6, "min_off": 0.0})
+        self.assertEqual(_diarize.diar_tune(), {})
+        self.assertEqual(_diarize.diar_tune("0.6", None, 0), {"threshold": 0.6, "min_off": 0.0})
 
 
 class TestSmooth(unittest.TestCase):
@@ -602,7 +604,7 @@ class TestSmooth(unittest.TestCase):
         self.assertIn("話者の細切れをならす", buf.getvalue())
         self.assertIn("直った 1・壊れた 1", buf.getvalue())
         self.assertNotIn("smooth", E.evaluate(self.env.root))   # 指定しなければ今までどおり
-        with mock.patch.object(E, "load_serve", side_effect=AssertionError("serve を読んだ")):
+        with mock.patch.object(E.C, "prepare", side_effect=AssertionError("serve を読んだ")):
             self.assertEqual(len(E.evaluate(self.env.root, smooth=[False, True])["smooth"]), 2)   # stored のならしは serve を読まない(本番の関数を直に呼ぶ)
 
     def test_stored_record_already_smoothed(self):
