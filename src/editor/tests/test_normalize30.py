@@ -237,7 +237,8 @@ class TestFlowNormalize(_Base):
     def test_swap_skipped_when_doc_moved(self):
         """④ norm_swap: 作り直しの間に文書の動画が変わった(以前の版に戻した など)ら付け替えない"""
         src = self.copy(self.v60, "i.mp4")
-        tid = store.open_video({"path": src})["id"]
+        from test_edit import put_empty_doc   # 行の無い文書(「文字起こしせずに開く」は消した)
+        tid = put_empty_doc(store._workdata.TX_DIR, src)
         before = self.doc(tid)["updatedAt"]
         self.assertIsNotNone(RL.norm_swap(tid, os.path.join(self.media, "other.mp4"), os.path.join(self.media, "x.mp4")))
         self.assertEqual(self.doc(tid)["updatedAt"], before)
