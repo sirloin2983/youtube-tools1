@@ -1143,11 +1143,12 @@ class TestTools(unittest.TestCase):
 
     def test_no_window_flags_priority(self):
         with self.assertRaises(ValueError):
-            tools.no_window_flags(priority="idle")
+            tools.no_window_flags(priority="realtime")
         if os.name != "nt":
             self.assertEqual((tools.no_window_flags(priority="low"), tools.no_window_flags(True, "high")), (0, 0))
             return
         self.assertEqual(tools.no_window_flags(priority="low"), subprocess.CREATE_NO_WINDOW | subprocess.BELOW_NORMAL_PRIORITY_CLASS)
+        self.assertEqual(tools.no_window_flags(priority="idle"), subprocess.CREATE_NO_WINDOW | subprocess.IDLE_PRIORITY_CLASS)   # 後回しの仕事(PRIO)
         self.assertEqual(tools.no_window_flags(new_group=True, priority="high"),
                          subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.ABOVE_NORMAL_PRIORITY_CLASS)
 

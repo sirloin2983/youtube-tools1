@@ -11,6 +11,11 @@
 普通の枠が空いていれば、先に来た順のまま普通の枠を使う(用途つきの枠は、普通の枠が埋まっているときだけ・同じ用途の中では先に来た順)。
 値は仮(U4 = 本物の 3 時間の配信の値が出たら決め直す。notes:plan/line-d-auto-pack.md の M6)。snapshot の active の行には、用途つきの枠なら extra: true が付く
 
+順番(PRIO。決定 3-49): 待ちは rank の小さい順・同じなら先に来た順(rank の既定 DEFAULT_RANK)。idle_only の待ちは、ほかの待ちが無く・
+idle_only でない処理が動いておらず・set_idle_check の関数が真のときだけ枠を取る(後回しの仕事 = 空いているときだけ)。
+rank と idle_only の値の意味(録画中のライブ > 友人の依頼 > 自分の配信のまとめて実行 > 後回しの仕事)は ② の flow/prio.py の表が持つ(ここは数だけ)。
+動いている処理は止めない(枠は取った物が返すまで持つ)
+
 ここは ① 道具の部品も使う物だけ(枠・中止の例外・中止の確かめ・① の関数への手渡し Ctl)。ジョブの表・待機列・種類の登録・ワーカーの繰り返し・取り消しの受付は ② の src/flow/jobs.py(RS6 a-2。2026-10-10 に移した)。
 
 使い方:
@@ -31,6 +36,7 @@ DEFAULT_LIMIT = 2
 MAX_LIMIT = 8
 WAIT_MESSAGE = "他のツールの処理が終わるのを待っています"
 RESERVED = {"live": 1}   # 用途つきの枠(M6。仮の値): 録画中のライブの書き出しに、上限とは別に 1 つ
+DEFAULT_RANK = 2         # rank を渡さない処理の順番(flow/prio.py の「自分の配信のまとめて実行」と同じ数)
 
 
 def limit_from_env(env=None):
@@ -50,37 +56,81 @@ class HeavySlots:
         self.reserved = {str(k): min(MAX_LIMIT, max(0, int(v))) for k, v in src.items()}
         self._cv = threading.Condition()
         self._seq = itertools.count(1)
-        self._active = {}    # token -> {"tool", "label", "since", "extra"(用途つきの枠)}
-        self._waiting = []   # [token](先に来た順)
-        self._info = {}      # token -> {"tool", "label", "since", "reserved"(用途つきの枠を使ってよい)}(待っている間)
+        self._active = {}    # token -> {"tool", "label", "since", "extra"(用途つきの枠), "rank", "idle"(idle_only)}
+        self._waiting = []   # [token](先に来た順。動かす順は _order)
+        self._info = {}      # token -> {"tool", "label", "since", "reserved"(用途つきの枠を使ってよい), "rank", "idle_only"}(待っている間)
+        self._idle_check = None   # 後回しの仕事を始めてよいか -> bool(set_idle_check。② が入れる。None = いつでも空いている)
+
+    def set_idle_check(self, fn):
+        """後回しの仕事(idle_only)を始めてよいかの関数 fn() -> bool を入れる(② の入口が 1 回。None で外す)。
+        fn は枠の錠の外で呼ぶ(待ち行列・録画の状態を読んでよい。SLOTS を取ってはいけない)"""
+        self._idle_check = fn
+
+    def _idle_now(self):
+        """set_idle_check の関数の答え(無ければ真・例外は偽 = 分からないときは後回しの仕事を始めない)。錠の外で呼ぶ"""
+        fn = self._idle_check
+        if fn is None:
+            return True
+        try:
+            return bool(fn())
+        except Exception:   # noqa: BLE001  (読めない = 空いていない側に倒す)
+            return False
+
+    def idle_now(self):
+        """後回しの仕事を今始めてよいか: ほかの処理が枠を持っておらず・待っておらず・set_idle_check の関数が真(② の器が待ちを選ぶときに読む)"""
+        with self._cv:
+            busy = any(not a.get("idle") for a in self._active.values()) or any(not self._info[t].get("idle_only") for t in self._waiting if t in self._info)
+        return not busy and self._idle_now()
+
+    def _order(self):
+        """待ちを動かす順に(rank の小さい順・同じなら先に来た順)。呼ぶのは self._cv を持っている間"""
+        return sorted(self._waiting, key=lambda t: (self._info[t]["rank"], t))
 
     def _grant(self, token, info):
         """-> "normal"(上限の中の枠)・"extra"(用途つきの枠)・None(まだ待つ)。呼ぶのは self._cv を持っている間"""
         normal = sum(1 for a in self._active.values() if not a.get("extra"))
-        if self._waiting[0] == token and normal < self.limit:
+        order = self._order()
+        if info.get("idle_only"):   # 後回しの仕事: ほかの待ちが無く・ほかの処理が動いておらず・空いている(info["idleNow"] は錠の外で読んだ答え)
+            if (normal < self.limit and info.get("idleNow") and next((t for t in order if self._info[t].get("idle_only")), None) == token
+                    and not any(not self._info[t].get("idle_only") for t in order)
+                    and not any(not a.get("idle") for a in self._active.values())):
+                return "normal"
+            return None
+        head = next((t for t in order if not self._info[t].get("idle_only")), None)
+        if head == token and normal < self.limit:
             return "normal"
         if info.get("reserved"):
             tool = info["tool"]
             used = sum(1 for a in self._active.values() if a.get("extra") and a["tool"] == tool)
-            first = next((t for t in self._waiting if self._info.get(t, {}).get("reserved") and self._info[t]["tool"] == tool), None)
-            if used < self.reserved.get(tool, 0) and first == token:   # 同じ用途の中では先に来た順
+            first = next((t for t in order if self._info[t].get("reserved") and self._info[t]["tool"] == tool), None)
+            if used < self.reserved.get(tool, 0) and first == token:   # 同じ用途の中では順番どおり
                 return "extra"
         return None
 
-    def acquire(self, tool, label="", cancelled=None, on_wait=None, poll=0.5, reserved=False):
+    def acquire(self, tool, label="", cancelled=None, on_wait=None, poll=0.5, reserved=False, rank=None, idle_only=False):
         """空くまで待って番号(token)を返す。待っている間に cancelled() が真になれば None。
         on_wait: 待ち始めたときに1回だけ呼ぶ(画面に「待っています」を出す用)。
-        reserved: True なら、普通の枠が埋まっているとき tool の用途つきの枠(RESERVED)も使う(M6。ライブの書き出しの録画中だけ)"""
+        reserved: True なら、普通の枠が埋まっているとき tool の用途つきの枠(RESERVED)も使う(M6。ライブの書き出しの録画中だけ)。
+        rank: 順番(小さいほど先。None = DEFAULT_RANK)。idle_only: 空いているときだけ枠を取る(後回しの仕事。値は ② の flow/prio.py の表)"""
         cancelled = cancelled or (lambda: False)
         token = next(self._seq)
         info = {"tool": str(tool), "label": str(label)[:80], "since": time.time(),
-                "reserved": bool(reserved) and self.reserved.get(str(tool), 0) > 0}
+                "reserved": bool(reserved) and self.reserved.get(str(tool), 0) > 0,
+                "rank": DEFAULT_RANK if rank is None else int(rank), "idle_only": bool(idle_only)}
+        if info["idle_only"]:
+            poll = max(poll, 2.0)   # 空いているかの答え(待ち行列・録画)を読む間隔
         waited = False
         with self._cv:
             self._waiting.append(token)
             self._info[token] = info
             try:
                 while True:
+                    if info["idle_only"]:
+                        self._cv.release()   # 空いているかは錠の外で読む(② の待ち行列の錠を取るため)
+                        try:
+                            info["idleNow"] = self._idle_now()
+                        finally:
+                            self._cv.acquire()
                     kind = self._grant(token, info)
                     if kind:
                         break
@@ -94,7 +144,8 @@ class HeavySlots:
                             except Exception:
                                 pass
                     self._cv.wait(poll)
-                self._active[token] = {"tool": info["tool"], "label": info["label"], "since": time.time(), "extra": kind == "extra"}
+                self._active[token] = {"tool": info["tool"], "label": info["label"], "since": time.time(), "extra": kind == "extra",
+                                       "rank": info["rank"], "idle": info["idle_only"]}
                 return token
             finally:
                 self._waiting.remove(token)
@@ -109,21 +160,24 @@ class HeavySlots:
             self._cv.notify_all()
 
     @contextlib.contextmanager
-    def slot(self, tool, label="", cancelled=None, on_wait=None, poll=0.5, reserved=False):
-        token = self.acquire(tool, label, cancelled, on_wait, poll, reserved)
+    def slot(self, tool, label="", cancelled=None, on_wait=None, poll=0.5, reserved=False, rank=None, idle_only=False):
+        token = self.acquire(tool, label, cancelled, on_wait, poll, reserved, rank, idle_only)
         try:
             yield token is not None
         finally:
             self.release(token)
 
     def snapshot(self):
-        """{"limit", "active": [{"tool", "label", "seconds", "extra"?}], "waiting": [...]}(入口の画面用。extra: true = 用途つきの枠を使っている)"""
+        """{"limit", "active": [{"tool", "label", "seconds", "extra"?, "later"?}], "waiting": [...](動かす順)}(入口の画面用。
+        extra: true = 用途つきの枠を使っている・later: true = 後回しの仕事(空いているときだけ))"""
         now = time.time()
+
+        def row(i, since):
+            return dict(tool=i["tool"], label=i["label"], seconds=int(now - since),
+                        **({"extra": True} if i.get("extra") else {}), **({"later": True} if i.get("idle") or i.get("idle_only") else {}))
         with self._cv:
-            act = [dict(tool=i["tool"], label=i["label"], seconds=int(now - i["since"]), **({"extra": True} if i.get("extra") else {}))
-                   for i in self._active.values()]
-            wait = [dict(tool=self._info[t]["tool"], label=self._info[t]["label"], seconds=int(now - self._info[t]["since"]))
-                    for t in self._waiting if t in self._info]
+            act = [row(i, i["since"]) for i in self._active.values()]
+            wait = [row(self._info[t], self._info[t]["since"]) for t in self._order() if t in self._info]
         return {"limit": self.limit, "active": act, "waiting": wait}
 
 
@@ -153,6 +207,7 @@ class Ctl:
         self.cancel_event = cancel_event or threading.Event()
         self.exc = exc or Cancelled
         self.flags = set()
+        self.os_priority = None   # 子プロセスの OS の優先度(ytt/tools.no_window_flags の priority。None = 呼ぶ所の既定。器が ② の flow/prio.py の表から入れる)
 
     @property
     def cancelled(self):
@@ -199,6 +254,7 @@ class Ctl:
             self.report(None if frac is None else lo + (hi - lo) * max(0.0, min(1.0, frac)), message)
         child = Ctl(on, self.cancel_event, self._on_note, self.exc)
         child.flags = self.flags
+        child.os_priority = self.os_priority
         return child
 
     def timer(self, dur):

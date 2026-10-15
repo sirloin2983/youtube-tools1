@@ -15,6 +15,10 @@ import uuid
 from ytt import errors, fsio, tools
 from ytt import jobs as _slots
 
+from . import prio as _prio
+
+LATER_POLL = 5.0   # 後回しの仕事(flow/prio.py の later)だけが待っているとき、空いたかを見直す間隔(秒)
+
 # ---------- ジョブの表・待機列・ワーカーの繰り返し・取り消し・登録の口(RS6 a-2 で flow へ) ----------
 # 1 つのプロセスに 1 つの表 = 下の Table の既定インスタンス TX_TABLE(OPT2 後半 J8。ファイルの末尾で作る。_jobs・_jobs_lock はその表と錠の別名)。
 # 種類(kind)ごとの本体・優先度・同時に入れない組・文書の id を持つか・やり直せるかは register で登録する(登録するのは app = 編集の serve.py。下の層は自分で登録しない)。
@@ -332,6 +336,8 @@ class Table:
     drop_state: 待ちの記録を取り消したときの状態。interrupt_phase: 終了の流れで止めたときの phase。retryable: やり直せる状態。
     board_job(rec) -> 掲示板の Job の辞書。log(text): 想定外の失敗の記録。
     (J8)active_states: 待ち・動いている状態(既定 queued・running。編集は loading・extracting も)。priority(rec): 小さいほど先に動かす(同じなら入れた順)。
+    prio(rec) -> 優先度の表(flow/prio.py)の名前(既定 = spec の "prio"・評価用の一括は later・ほかは batch)。待ちは 表の順 → priority → 入れた順。
+    後回しの仕事(later)は空いているとき(prio.idle_now)だけ選び、枠も idle_only で取る。Ctl.os_priority も表から(PRIO)。
     run_state: 糸が動かし始めるときに入れる状態(None なら変えない = 走らせる本体が自分で入れる。編集)。autostart: add・retry で糸を起こすか(False なら lane() を呼ぶ側が起こす)。
     after(rec): 1 つ動かし終えるごと(cv の外)。idle_after 秒 待ちが無ければ on_idle()。kinds が空なら種類は縛らない"""
 
@@ -339,8 +345,9 @@ class Table:
                  on_progress=None, fail=None, cancelled_exc=(errors.Cancelled,), before=None, on_start=None, on_finish=None,
                  phases=None, drop_state="cancelled", interrupt_phase=None, retryable=(), board_job=None, log=None,
                  messages=None, active_states=TABLE_ACTIVE, priority=None, run_state="running", autostart=True, after=None,
-                 idle_after=None, on_idle=None):
+                 idle_after=None, on_idle=None, prio=None):
         self.prefix, self.tool, self.kinds = prefix, tool, tuple(kinds)
+        self.prio_of = prio or (lambda rec: _prio.of_spec(rec.get("spec")))
         self.active_states, self.priority, self.run_state, self.autostart = tuple(active_states), priority, run_state, autostart
         self.after, self.idle_after, self.on_idle = after, idle_after, on_idle
         self.run, self.admit, self.title_of = run, admit, title
@@ -394,17 +401,38 @@ class Table:
             rec["state"] = self.run_state
         rec["startedAt"] = _now_ms()
 
-    def queue_order(self):
-        """待ちの記録を動かす順に(priority の小さい順・同じなら入れた順)"""
+    def _prio_name(self, rec):
+        try:
+            name = self.prio_of(rec)
+        except Exception:   # noqa: BLE001  (級を決められない記録はふつうの順番で)
+            name = None
+        return name if _prio.name_ok(name) else _prio.DEFAULT
+
+    def queue_order(self, idle=None):
+        """待ちの記録を動かす順に(優先度の表の順 → priority の小さい順 → 入れた順)。
+        後回しの仕事(idle_only の級)は idle(None = prio.idle_now() を読む)が真のときだけ入れる"""
         with self.cv:
             queued = [r for r in self.jobs.values() if r["state"] == "queued"]
-            return sorted(queued, key=self.priority) if self.priority else queued
+            names = {id(r): self._prio_name(r) for r in queued}
+            if any(_prio.idle_only(n) for n in names.values()):
+                if idle is None:
+                    idle = _prio.idle_now()
+                if not idle:
+                    queued = [r for r in queued if not _prio.idle_only(names[id(r)])]
+            return sorted(queued, key=lambda r: (_prio.rank(names[id(r)]), self.priority(r) if self.priority else 0))
+
+    def _later_waiting(self):
+        """後回しの仕事が待っているか(cv の中)"""
+        return any(r["state"] == "queued" and _prio.idle_only(self._prio_name(r)) for r in self.jobs.values())
 
     def _next_locked(self):
         """次に動かす記録(cv の中)。idle_after 秒 待っても無ければ None"""
         while True:
             order = [] if self.closing else self.queue_order()
             if not order:
+                if not self.closing and self._later_waiting():   # 後回しの仕事だけが待っている: 空くまで間をおいて見直す
+                    self.cv.wait(LATER_POLL)
+                    continue
                 if self.idle_after:
                     if not self.cv.wait(self.idle_after):
                         return None
@@ -444,7 +472,7 @@ class Table:
             else:
                 prev = rec.get("phase", "")
                 with _slots.SLOTS.slot(self.tool, label, cancelled=ctl.is_cancelled,
-                                       on_wait=lambda: rec.update(waiting=True, phase=_slots.WAIT_MESSAGE)) as ok:
+                                       on_wait=lambda: rec.update(waiting=True, phase=_slots.WAIT_MESSAGE), **_prio.slot_kw(self._prio_name(rec))) as ok:
                     if rec.get("waiting"):
                         rec.update(waiting=False, phase=prev)
                     if ok:
@@ -484,6 +512,11 @@ class Table:
             ctl = rec["ctl"] = self.make_ctl(lambda frac, msg: self.on_progress(rec, frac, msg), rec.setdefault("notes", {}).__setitem__)
             if hasattr(ctl, "bind"):
                 ctl.bind(rec)
+            if getattr(ctl, "os_priority", None) is None:   # 子プロセスの OS の優先度(後回しの仕事 = idle。PRIO)
+                try:
+                    ctl.os_priority = _prio.os_priority(self._prio_name(rec))
+                except AttributeError:   # 差し替えの Ctl(属性を足せない物)はそのまま
+                    pass
         return ctl
 
     def _put(self, rec):

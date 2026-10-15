@@ -13,7 +13,7 @@
   HTTP の口は入口の POST /api/flow/submit・GET /api/flow/status(src/app/server.py。RS7-1 S4)
 - 束は受けたときに組む(RS7-1 S4): submit は受けた束、入口の受付(AutoRunner.start*)は hook の _accept(画面の設定 + この PC の設定 = build_spec と、
   友人の区間の長さ・配信者・届け方の n 本)。待ちの間に設定を変えても、その実行の中身は変わらない
-- 糸 _loop: 待ちを 1 本ずつ _execute(Run の束で流す。束の無い Run = 直に積んだ物だけ、ここで hook の build_spec で組む)
+- 糸 _loop: 待ちを 1 本ずつ、優先度の表(flow/prio.py。録画中のライブ > 友人の依頼 > 自分の配信のまとめて実行・同じなら入れた順。PRIO)の順で _execute(Run の束で流す。束の無い Run = 直に積んだ物だけ、ここで hook の build_spec で組む)
 - 待ちの記録(起動し直しで戻す。線 D の M5): 待ち・実行中の実行を log_dir/autorun-active.json に Run.saved()(封筒 + 束 + 状態)で残し
   (入れたとき・始めたとき・段が済むたび・終わったとき。一時ファイルから置き換える)、作るときに読んで同じ id のまま「待ち」に戻す。
   版 2(RS7-1 S4)= 束と受付で決めた物が入っている。それより前の版(1)の記録は読まずに捨てる(戻さない。知らせを 1 行)。
@@ -35,7 +35,7 @@ import urllib.parse
 import uuid
 
 from ytt import colors as _colors, fsio, jobs as _yjobs, schemas as _schemas, tools as _ytools
-from . import board as _board, envelope as _envelope, learning as _learning, machine as _machine, placement as _placement, run as run_mod, runlog, spec as _spec
+from . import board as _board, envelope as _envelope, learning as _learning, machine as _machine, placement as _placement, prio as _prio, run as run_mod, runlog, spec as _spec
 from .run import (DOC_MODE, MODE_STEPS, MODES, RUN_STATE_LABELS, STEP_LABELS, Cancelled, Run, StepError,
                   adopted_ids, analyze_verdict, pack_verdict, tx_verdict)
 
@@ -698,6 +698,27 @@ class Queue(run_mod.Runner):
                         r.message = "ホームを終了したので、次の起動で続けます"
                 self.cv.notify_all()
 
+    def _next_queued(self):
+        """次に始める待ちの実行(呼ぶのは self.cv を持っている間): 優先度の表(flow/prio.py)の順 = 録画中のライブ(組の溜め)> 友人の依頼 >
+        自分の配信のまとめて実行、同じなら入れた順(PRIO。動いている実行は止めない)"""
+        queued = [r for r in self.runs if r.state == "queued"]
+        return min(queued, key=lambda r: _prio.rank(_prio.of_run(r))) if queued else None
+
+    def idle_for_later(self):
+        """後回しの仕事(flow/prio.py の later)を始めてよいか: 待ち・実行中の実行が無く、録画中の録画が無い(status の hook の recording)。
+        prio.watch が重い処理の枠に入れる(枠の錠の外で呼ばれる)。録画の状態を読めなければ偽"""
+        with self.cv:
+            if self.closed or self._active_runs():
+                return False
+        fn = self._status_hook
+        if fn is None:
+            return True
+        try:
+            live = fn() or {}
+        except Exception:   # noqa: BLE001  (読めない = 空いていない側に倒す)
+            return False
+        return not live.get("recording")
+
     def _trim(self):
         done = [r for r in self.runs if r.state not in ACTIVE_STATES]
         for r in done[:-MAX_KEEP] if len(done) > MAX_KEEP else []:
@@ -723,7 +744,7 @@ class Queue(run_mod.Runner):
                     continue
                 if self.closed:
                     return
-                run = next((r for r in self.runs if r.state == "queued"), None)
+                run = self._next_queued()
                 if run is None:   # 見ている間に中止された
                     continue
                 run.state, run.message = "running", ""
