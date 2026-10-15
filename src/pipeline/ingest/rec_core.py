@@ -792,7 +792,7 @@ class Recorder:
         return rec.summary()
 
     def delete(self, rid):
-        """録画を消す(線 D の P4「録画を自動で消す」。入口の home/live_cleanup.py だけが呼ぶ。入口の中継 /live/r/… は delete を通さない)。
+        """録画を消す(線 D の P4「録画を自動で消す」。入口の manage/keep/live_cleanup.py だけが呼ぶ。入口の中継 /live/r/… は delete を通さない)。
         消すのは置き場所の直下の <録画の id>\\ で、recording.json があるものだけ(id は REC_ID_RE の形・realpath で置き場所の直下か確かめる・
         リンク / ジャンクションの先はたどらない)。録画中・配信待ち・つなぎ直し中は 409。
         使用中で消せないファイルが残ったら 409(recording.json は最後に消すので、同じ要求をあとでまた呼べる)。-> 消した録画の id"""

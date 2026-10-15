@@ -13,7 +13,7 @@ API(/api/ping 以外は合言葉 `Authorization: Bearer <token>` が要る。tok
   GET  /live/list                         置き場所・空き容量・streamlink の有無・録画の一覧
   POST /live/start  {url, quality?, title?}  録画を始める(配信の前でも、始まるまで待つ)。quality: best|1080p|720p(省略は 1080p)
   POST /live/<id>/stop  {}                 手で止める
-  POST /live/<id>/delete  {}               録画のフォルダを消して一覧から外す(P4 の「録画を自動で消す」。入口の home/live_cleanup.py だけが呼ぶ。
+  POST /live/<id>/delete  {}               録画のフォルダを消して一覧から外す(P4 の「録画を自動で消す」。入口の manage/keep/live_cleanup.py だけが呼ぶ。
                                            録画中・配信待ち・つなぎ直し中は 409・使用中のファイルが残ったら 409 = あとでまた呼べる)
   GET  /live/<id>/status?since=N           録画の状態・セッション・セグメント(N 個目から)
   GET  /live/<id>/segments?start=&end=    区間(UTC の時刻)にかかるセグメント(uri・pdt・dur)と欠け・録画済みの最後の時刻(P2 の書き出し)

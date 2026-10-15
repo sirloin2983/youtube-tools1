@@ -12,7 +12,7 @@
              録画元の一覧 recorders(空 = 手元の1つ。[{id, name, url, token}]。token が空の手元の録画元は録画の部品の token.txt を読む)・
              録画の画質 quality(best|1080p|720p。既定 1080p。スタジオの URL の欄から始める録画 = POST /live/api/begin)・
              配信が終わったら自動で本番版に作り直す autoArchive(**既定オン**。src/flow/live_archive.py。P4)・
-             本番版に入れ替えたら録画を消す(マークの無い録画は 1 日で・退避した速報版は 7 日で)autoDelete(**既定オン**。src/manage/keep/live_cleanup.py。P4)・
+             本番版に入れ替えたら録画を消す(マークの無い録画は 1 日で・退避した速報版は 3 日で・本番版に置き換わらない録画は終わって 3 日で)autoDelete(**既定オン**。src/manage/keep/live_cleanup.py。P4)・
              書き出したあとの自動の流れ auto {after: none|check|auto(既定 check)・cut: ""(ホームの autorun.cut)|none|silence・
              engine: ""(編集の設定)|whisper.cpp・model: ""(編集の設定)|large-v3}(線 D の M2。入口 0.39.0。選択肢は 0.58.0 で絞った)。
              after は画面・API が書き出したあとを指定しないとき(POST /live/api/adopt など)の既定。cut・engine・model は書き出しを頼んだときに覚えてまとめて実行へ渡す・

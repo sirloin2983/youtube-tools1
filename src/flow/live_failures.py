@@ -106,7 +106,7 @@ def detect_failure(what, reason, recorder="", recording="", at="", span=None):
 
 def keep_failure(recording, days, why, title="", at=""):
     """終わっても消せない録画(D-14。src/manage/keep/live_cleanup.py)-> collect と同じ形の 1 件。文はここだけで作る。
-    days: 終わってからの日数。why: 消せない理由(live_cleanup の _replaced_why などの文)"""
+    days: 終わってからの日数。why: 消せない理由(flow/live_retire の Retire.verdict などの文)"""
     name = "「%s」" % str(title)[:80] if title else "録画 %s" % (recording or "?")
     text = ("%s: 終わって %d 日たちましたが、%sので録画は自動では消えません(本番版に作り直せない録画は置き場所に残り続けます。"
             "要らなければ「すべて終了」のあと、録画の置き場所の %s のフォルダを手で消してください)") % (name, int(days), _reason(why) or "理由が分かりません", recording or "?")
