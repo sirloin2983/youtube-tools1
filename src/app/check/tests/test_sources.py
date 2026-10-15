@@ -1,7 +1,7 @@
-"""「確かめる」のカードの出どころ(src/eval/check/sources.py)と組み立て(deck.py)の単体テスト。一時フォルダの文書・.diar.json・スタジオの data.json だけを使う。
+"""「確かめる」のカードの出どころ(src/app/check/sources.py)と組み立て(deck.py)の単体テスト。一時フォルダの文書・.diar.json・スタジオの data.json だけを使う。
 評価用の文書(evalSet・評価用のフォルダの動画)が 1 枚でも出たら落ちる。
 
-実行(リポジトリ直下から): py -3.10 -m unittest src/eval/check/tests/test_sources.py -v
+実行(リポジトリ直下から): py -3.10 -m unittest src/app/check/tests/test_sources.py -v
 """
 import json
 import os
@@ -15,7 +15,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.a
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from eval.check import deck, lineup, sources  # noqa: E402
+from app.check import deck, lineup, sources  # noqa: E402
 from human.check import answerlog, apply  # noqa: E402
 
 DOC, EVAL_DOC, EVAL_DIR_DOC = "aaaaaaaaaaaa", "bbbbbbbbbbbb", "cccccccccccc"

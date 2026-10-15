@@ -23,7 +23,7 @@ sys.path.insert(0, TESTS)   # 土台 _pagetest.py(入口を立てる共通の準
 from _pagetest import PageServerTest, L  # noqa: E402
 
 UI = os.path.join(SRC, "app", "ui", "check")
-CARDS = ("value", "read", "voice", "time")
+CARDS = ("value", "read", "voice", "time", "speech", "section")   # speech・section = C-EVAL
 
 
 def read(path):

@@ -379,16 +379,6 @@
   <div class="fld"><label for="evDirs">フォルダ(1行に1つ・10個まで)</label><textarea id="evDirs" rows="2" class="mono" spellcheck="false" autocomplete="off" placeholder="例: E:\\動画\\評価用データ"></textarea></div>
   <div class="row" style="margin-top:6px;gap:6px"><button type="button" class="btn small" id="evSave">保存</button><button type="button" class="btn small" id="evRun" title="名前をそろえて、文書を付け替えます(処理中の動画・開いている動画は飛ばします)">今すぐ整理</button></div>
   <p class="hint" id="evNote" style="margin:6px 0 0" role="status"></p>
-  <div id="evbRow">
-    <p class="hint" style="margin:10px 0 6px">「評価用_仮置き」と、名前が「…_未文字起こし」の動画のうち、まだ文字起こしの無いものを、PC が空いているとき少しずつ文字起こしします(評価用・ヒントなし。処理方式・モデルは編集の設定のまま)。
-      待ちは 2 件までしか入れないので、ほかの操作が割り込めます。止めるまで続きます(編集を起動し直しても続きます)。360 本なら CPU で数時間かかります。
-      文字起こしのあと、話者も自動で判別します(覚えている声・動画の入ったメンバーのフォルダ・配信から名前も付けます。文字起こし済みで話者の無い動画も少しずつ判別します)。</p>
-    <div class="row" style="gap:6px"><button type="button" class="btn small" id="evbStart" title="評価用の動画を、手が空いたとき少しずつ文字起こしします">仮置きをまとめて文字起こし(手が空いたとき少しずつ)</button><button type="button" class="btn small" id="evbStop" hidden title="新しく入れるのをやめ、まだ始まっていない分を取り消します(動いている 1 本は最後まで動きます)">止める</button></div>
-    <p class="hint" id="evbNote" style="margin:6px 0 0" role="status"></p>
-    <p class="hint" style="margin:10px 0 6px">確かめ済みでない評価用の文書のうち、人が手を入れていないもの(校正済みの行・文字や時刻の直し・人が選んだ話者が無く、直近 10 分に開いていない)を、
-      同じ文書のまま今の設定で文字起こしし直します(上と同じく少しずつ。話者も自動で判別し直します)。前の文字起こしは「以前の版に戻す」で戻せます。</p>
-    <div class="row" style="gap:6px"><button type="button" class="btn small" id="evbRedo" title="押すと、作り直す本数と残す本数を数えてから確かめます">未確認の評価用を作り直す(手を入れていないものだけ)</button></div>
-  </div>
   <h3 style="margin-top:18px">キー配置</h3>
   <p class="hint" style="margin:0 0 6px">キーを変えるのは、キー操作の一覧(?)の中です。</p>
   <button type="button" class="btn small" id="setKeysOpen">キー配置を変える(?)</button>

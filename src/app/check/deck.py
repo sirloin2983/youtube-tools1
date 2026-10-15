@@ -9,7 +9,9 @@ import threading
 import time
 
 from human.check import answerlog
-from . import goals as goals_mod, lineup, sources   # 同じ eval/check の兄弟
+from eval.check import goals as goals_mod   # ⑤ の確かめるの数え方(goals は eval/check に残る)
+from human.check import section as section_mod   # 区間カードのスイッチ(評価のレーンの帯に出す。C-EVAL)
+from . import lineup, sources   # 同じ app/check の兄弟
 
 CACHE_SEC = 3.0
 MAX_SKIP_PARAM = 200
@@ -47,45 +49,57 @@ def _goals(ctx):
     return got if isinstance(got, list) else []
 
 
-def check_args(case=None, kind=None, n=None, skip=None):
-    """GET の引数を検査して整える。-> (case, kind, n, skip の集合)。違えば ValueError(400)"""
+def check_args(case=None, kind=None, n=None, skip=None, lane=None):
+    """GET の引数を検査して整える。-> (case, kind, n, skip の集合, lane)。違えば ValueError(400)。
+    lane = normal(普段のレーン。既定)| eval(評価のレーン = 評価用の文書の区間カード。C-EVAL)。kind はそのレーンの種類だけ"""
+    lane = lane or "normal"
+    if lane not in lineup.LANES:
+        raise ValueError("lane は %s のどれかです" % "・".join(lineup.LANES))
     if case in ("", None):
         case = None
     elif not isinstance(case, str) or not CASE_RE.match(case):
         raise ValueError("c は案件の id にしてください")
     if kind in ("", None):
         kind = None
-    elif kind not in lineup.KINDS:
-        raise ValueError("kind は %s のどれかです" % "・".join(lineup.KINDS))
+    elif kind not in lineup.LANES[lane]:
+        raise ValueError("kind は %s のどれかです" % "・".join(lineup.LANES[lane]))
     n = lineup.check_n(n)
     if isinstance(skip, str):
         skip = [x for x in skip.split(",") if x]
     skip = [x for x in (skip or ()) if isinstance(x, str) and lineup.parse_id(x)][:MAX_SKIP_PARAM]
-    return case, kind, n, set(skip)
+    return case, kind, n, set(skip), lane
 
 
-def next_cards(ctx, case=None, kind=None, n=None, skip=None):
-    """-> {rev, cards, counts: {today, perKind, failed}, goal, goals, total, held, failed, errors}。引数の誤りは ValueError"""
-    case, kind, n, skipset = check_args(case, kind, n, skip)
+def next_cards(ctx, case=None, kind=None, n=None, skip=None, lane=None):
+    """-> {rev, lane, cards, counts: {today, perKind, failed}, goal, goals, total, held, failed, errors}。引数の誤りは ValueError。
+    lane のカードの種類だけを出す(評価のレーンの区間カードは普段のレーンに出ない・その逆も)"""
+    case, kind, n, skipset, lane = check_args(case, kind, n, skip, lane)
+    kinds = lineup.LANES[lane]
     st = answerlog.state(ctx.app_dir)
     cards, errors = _collect(ctx, st)
     answered = set(st.by_card)
     pool = [c for c in cards if c["id"] not in answered and (case is None or (c.get("case") or {}).get("id") == case)
-            and (kind is None or c.get("kind") == kind)]
+            and c.get("kind") in kinds and (kind is None or c.get("kind") == kind)]
     gk = goals_mod.by_kind(_goals(ctx))
-    ordered = lineup.order(pool, gk, answerlog.read_skips(ctx.app_dir))
-    rest = [c for c in ordered if c["id"] not in skipset]
-    first = kind or (rest[0]["kind"] if rest else None)
+    later = answerlog.read_skips(ctx.app_dir)
+    if n:
+        rest = [c for c in lineup.order(pool, gk, later) if c["id"] not in skipset]
+        head = rest[0] if rest else None
+    else:   # 数だけ(ホーム・案件の画面が 15 秒ごと): 全部を並べず先頭だけ求める(O14)
+        rest = []
+        head = lineup.first([c for c in pool if c["id"] not in skipset], gk, later)
+    first = kind or (head["kind"] if head else None)
     failed = st.failed()
     _remember(rest[:n])
-    return {"rev": st.rev, "cards": [lineup.public(c) for c in rest[:n]],
-            "counts": {"today": st.today(), "perKind": lineup.per_kind(pool), "failed": len(failed)},
+    return {"rev": st.rev, "lane": lane, "cards": [lineup.public(c) for c in rest[:n]],
+            "counts": {"today": st.today(), "perKind": lineup.per_kind(pool, kinds), "failed": len(failed)},
             "goal": goals_mod.view(gk.get(first), first) if first else None,
             "goals": {k: goals_mod.view(g, k) for k, g in gk.items()},
             "total": len(pool),
             "held": [{"answer": r["id"], "card": r.get("card"), "kind": r.get("kind"), "source": r.get("source"), "at": r.get("at")} for r in st.held()],
             "failed": [{"answer": r["id"], "card": r.get("card"), "kind": r.get("kind"), "failed": r.get("failed"), "at": r.get("at")} for r in failed[:5]],
-            "errors": list(errors or ())}
+            "errors": list(errors or ()),
+            **({"sectionCards": section_mod.enabled()} if lane == "eval" else {})}
 
 
 def _remember(cards):

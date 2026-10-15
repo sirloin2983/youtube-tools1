@@ -94,9 +94,7 @@ def period_label(since, until):
     return "%s 〜 %s" % (since or "最初", until or "今") if (since or until) else "全期間"
 
 
-def is_reviewed(d):
-    """動画を全部聞いて確かめた文書か(src/eval/drill/drill.py の drill_is_reviewed と同じ条件。ここで二重に持つのは、測る道具がサーバーを読まずに選ぶため)"""
-    return isinstance(d, dict) and d.get("evalSet") is True and isinstance(d.get("evalReviewed"), dict)
+is_reviewed = schemas.is_eval_reviewed   # lint: keep 動画を全部聞いて確かめた文書か(正は ytt/schemas。C-EVAL 2a-1 で写しを寄せた)
 
 
 # ---------------------------------------------------------------- 数の小道具

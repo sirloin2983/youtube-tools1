@@ -9,7 +9,7 @@ import os
 
 from human.proof import alt, learn, ytcap
 from ytt import fsio
-from . import sources   # 同じ eval/check の兄弟
+from . import sources   # 同じ app/check の兄弟
 
 MAX_BYTES = 32 * 1024 * 1024
 _ALT_SUFFIX, _YT_SUFFIX = ".alt.json", ".ytcap.json"

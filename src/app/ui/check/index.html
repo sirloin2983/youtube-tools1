@@ -16,6 +16,8 @@
 <script src="check-cards/read.js" defer></script>
 <script src="check-cards/voice.js" defer></script>
 <script src="check-cards/time.js" defer></script>
+<script src="check-cards/speech.js" defer></script>
+<script src="check-cards/section.js" defer></script>
 </head>
 <body>
 <header class="ui-header">
@@ -30,6 +32,11 @@
 <main class="chk-main" id="main">
   <nav class="chk-crumb" aria-label="場所"><a href="./">ホーム</a> › 確かめる</nav>
   <h1 class="chk-title">確かめる</h1>
+  <nav class="ui-tabs chk-lanes" id="chkLanes" aria-label="レーン">
+    <a class="ui-tab" href="check" data-chk-lane="normal">普段</a>
+    <a class="ui-tab" href="check?lane=eval" data-chk-lane="eval" title="評価用の動画の正解づくり(区間を聞いて直す)。ここで直した物は正解になります">評価</a>
+  </nav>
+  <section class="card chk-evalhead" id="chkEvalHead" aria-label="評価用の動画" hidden></section>
   <div class="chk-band" id="chkBand" aria-live="polite">
     <span>今日 <b id="chkToday">0</b> 件</span>
     <span class="chk-goal" id="chkGoal"></span>

@@ -2,7 +2,7 @@
 """③ 人の操作の層 human/proof: 元の配信の YouTube の字幕の候補の、比べ方の部品だけ(読むだけ・通信しない)。
 
 YouTube の字幕の候補(取得・ジョブ・API・画面の欄・設定 autoYtcap・編集の提案の yt)は消した(OPT-H1。決定 notes:plan/decisions.md の 3-47 Q10)。
-ここに残るのは ⑤ が読む部品だけ = 「確かめる」の読みのカード read:yt(src/eval/check/read_sources.py の YTCAP_SCHEMA・ytcap_diffs)と
+ここに残るのは ⑤ が読む部品だけ = 「確かめる」の読みのカード read:yt(src/app/check/read_sources.py の YTCAP_SCHEMA・ytcap_diffs)と
 測る道具 src/eval/tools/eval_alt.py の --source yt(ytcap_doc_range・ytcap_doc_rows・ytcap_diffs・ytcap_valid_cache ほか。serve の名前 S.名前 で読む)。
 ⑤ の呼び手を消したら、このファイルごと消す(OPT-E1)。
 

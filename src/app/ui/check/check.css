@@ -66,3 +66,23 @@
   .chk-card{padding:12px}
   .chk-foot{justify-content:flex-start}
 }
+
+/* レーン(普段 / 評価。C-EVAL)と評価のレーンの頭(評価用の一括・定点) */
+.chk-lanes{display:inline-flex;margin:0 0 10px}
+.chk-evalhead{margin:0 0 12px;padding:12px 14px}
+.chk-evalhead p{margin:4px 0}
+.chk-evalbatch{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.chk-evalbatch .hint{flex:1 1 260px;min-width:0}
+
+/* 区間カード(cards/section.js): 持ち主の行は直せる・隣の区間の行は薄く */
+.chk-sec-list{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:6px}
+.chk-sec-row{display:flex;align-items:center;gap:6px 8px;flex-wrap:wrap;padding:6px 8px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel-2)}
+.chk-sec-other{opacity:.6;background:transparent;border-style:dashed}
+.chk-sec-t{font:600 12px/1.3 var(--mono);color:var(--ink-3);min-width:92px}
+.chk-sec-txt{flex:1 1 200px;min-width:0}
+.chk-sec-text{flex:1 1 260px;min-width:0}
+.chk-sec-spk{flex:0 1 180px;min-width:0}
+.chk-sec-name{flex:0 1 140px;min-width:0}
+.chk-sec-num{width:84px}
+.chk-sec-drop{display:inline-flex;align-items:center;gap:4px;font-size:13px;min-height:28px}
+.chk-sec-add{border-color:var(--accent)}

@@ -1,6 +1,6 @@
-"""「確かめる」の待ち行列の順と数え方(src/eval/check/lineup.py・goals.py)の単体テスト。純粋な関数だけ。
+"""「確かめる」の待ち行列の順と数え方(src/app/check/lineup.py・goals.py)の単体テスト。純粋な関数だけ。
 
-実行(リポジトリ直下から): py -3.10 -m unittest src/eval/check/tests/test_lineup.py -v
+実行(リポジトリ直下から): py -3.10 -m unittest src/app/check/tests/test_lineup.py -v
 """
 import os
 import sys
@@ -11,7 +11,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.a
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from eval.check import goals, lineup  # noqa: E402
+from eval.check import goals  # noqa: E402
+from app.check import lineup  # noqa: E402
 from eval.drill import accuracy  # noqa: E402
 
 
@@ -65,8 +66,16 @@ class OrderTest(unittest.TestCase):
         self.assertEqual(len(lineup.order(cards, {"read": "not a goal"})), 3)
 
     def test_per_kind_and_public(self):
-        self.assertEqual(lineup.per_kind([card("read", "a"), card("read", "b"), card("time", "c")]), {"value": 0, "read": 2, "voice": 0, "time": 1})
+        self.assertEqual(lineup.per_kind([card("read", "a"), card("read", "b"), card("time", "c")]), {"value": 0, "read": 2, "voice": 0, "time": 1, "speech": 0})
+        self.assertEqual(lineup.per_kind([card("section", "a")], lineup.EVAL_KINDS), {"section": 1})   # 評価のレーン(C-EVAL)
         self.assertNotIn("_order", lineup.public(card("read", "a")))
+
+    def test_first_is_the_head_of_order(self):
+        """件数だけの問い合わせは並べずに先頭だけ(O14)= order の先頭と同じ"""
+        cards = [card("time", "t"), card("read", "r2", (2,)), card("read", "r1", (1,)), card("value", "v")]
+        for later in ((), ("value:x:v",)):
+            self.assertEqual(lineup.first(cards, {}, later), lineup.order(cards, {}, later)[0])
+        self.assertIsNone(lineup.first([]))
 
 
 class GoalsTest(unittest.TestCase):
@@ -96,8 +105,10 @@ class GoalsTest(unittest.TestCase):
 
     def test_every_kind_has_a_goal(self):
         ids = {g["id"] for g in accuracy.GOALS}
-        for kind in lineup.KINDS:
+        for kind in ("value", "read", "voice", "time"):
             self.assertIn(goals.goal_of(kind), ids)
+        for kind in ("speech", "section"):   # 目標の無い種類(C-EVAL。並びは目標の無い種類の場所)
+            self.assertIsNone(goals.goal_of(kind))
         for (_k, _s), gid in goals.KIND_GOAL.items():
             self.assertIn(gid, ids)
             self.assertIn(gid, goals.COUNT)

@@ -562,6 +562,9 @@ def default_scenes(base):
         {"name": "check-read", "url": base + "/check?kind=read", "actions": [("wait", 800)]},   # 2 つの読みの比較(.ui-pair)
         {"name": "check-voice", "url": base + "/check?kind=voice", "actions": [("wait", 800)]},   # 誰の声(名前の選択肢)
         {"name": "check-time", "url": base + "/check?kind=time", "actions": [("wait", 1500)]},   # 行の時刻(波形と頭・末の印)
+        {"name": "check-speech", "url": base + "/check?kind=speech", "actions": [("wait", 800)]},   # この行は声ですか(C-EVAL)
+        {"name": "check-eval", "url": base + "/check?lane=eval", "wide": True, "actions": [("wait", 1500)]},   # 評価のレーン(頭と区間カード。C-EVAL)
+        {"name": "check-eval-add", "url": base + "/check?lane=eval", "actions": [("wait", 1500), ("click", "[data-sec-addrow]"), ("wait", 300)]},   # 区間カードで行を足した形
         {"name": "check-empty", "url": base + "/check?c=zz-no-such-case&back=cases", "actions": [("wait", 800)]},   # 空の状態(この案件に確かめる物が無い・案件へ戻る)
         {"name": "styleguide", "url": styleguide},
     ]

@@ -1,7 +1,7 @@
-"""「確かめる」の読みのカードの出どころ read:alt・read:yt(src/eval/check/read_sources.py。V2b)の単体テスト。一時フォルダの文書・alt.json・ytcap.json だけを使う。
+"""「確かめる」の読みのカードの出どころ read:alt・read:yt(src/app/check/read_sources.py。V2b)の単体テスト。一時フォルダの文書・alt.json・ytcap.json だけを使う。
 評価用の文書・校正済みの行・却下した候補は出ない。
 
-実行(リポジトリ直下から): py -3.10 -m unittest src/eval/check/tests/test_read_sources.py -v
+実行(リポジトリ直下から): py -3.10 -m unittest src/app/check/tests/test_read_sources.py -v
 """
 import json
 import os
@@ -16,7 +16,7 @@ for _p in (os.path.join(ROOT, "editor"), ROOT):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from eval.check import deck, read_sources, sources  # noqa: E402
+from app.check import deck, read_sources, sources  # noqa: E402
 from human.check import apply  # noqa: E402
 from human.proof import alt, learn, ytcap  # noqa: E402
 from ytt import workdata  # noqa: E402

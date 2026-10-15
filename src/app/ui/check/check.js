@@ -1,7 +1,9 @@
 /* 確かめる(/check = 入口の直下の 1 枚。部品は src/app/ui/check/。RS8 V1 = 殻。作り方 notes:docs/design/v1-check-build.md・何を作るか notes:docs/design/briefs/rs8-cases/DESIGN_BRIEF.md 2-3・3)。
    案件をまたいだ軽い確認の待ち行列を 1 枚ずつカードで出し、答えたらすぐ次へ。Z で 1 つ前に戻す・[飛ばす](N)はその日は後ろへ・10 件ごとに小さなまとめ。
-   URL: /check?c=<案件 id>(その案件だけ)&kind=value|read|voice|time(この種類だけ)&back=cases(終わったら案件へ戻るボタン)。URL を開いただけでは何も書かない。
-   読む口・書く口(入口。⑤ src/eval/check/ が数えて並べ、③ src/human/check/apply.py が実物に反映する。V0):
+   URL: /check?c=<案件 id>(その案件だけ)&kind=value|read|voice|time|speech(この種類だけ)&back=cases(終わったら案件へ戻るボタン)。URL を開いただけでは何も書かない。
+   レーン(C-EVAL): 普段(既定)/ 評価(?lane=eval = 評価用の動画の区間カード section だけ。頭に評価用の一括の 始める / 止める / 進み具合・定点の「あと何分」・
+   未確認の本数。transcribe/api/eval-batch・transcribe/api/drill/status を直に読む = 編集の ⚙ にあったボタンを移した)。評価のカードは普段に出ない・その逆も。
+   読む口・書く口(入口。入口 src/app/check/ が数えて並べ、③ src/human/check/apply.py が実物に反映する。V0):
      GET  api/check/next?c=&kind=&n=<枚数。0 = 数だけ>&skip=<id,…>  → {cards: [カード], counts: {today, perKind, failed}, goal, goals: {種類: {label, left, unit, opens, reached}}, total}
      POST api/check/answer {card, answer, ms, skip(待っている id), page} → {ok, answer(答えの id = Z で戻すときに使う), applied, held, flushed, next}
      POST api/check/answer {undo: <答えの id>}                       → {ok, answer, card, reverted}
@@ -87,8 +89,9 @@
     btn: answerBtn, keyOf: keyOf, simple: simple
   };
 
-  var KIND_TEXT = { value: '切り抜く価値があるか', read: 'どちらの読みが正しいか', voice: 'これは誰の声?', time: '行の時刻が合っているか' };
-  var SOURCE_TEXT = { auto: '自動で採った', cand: '候補のまま', fill: '後処理', alt: '別のエンジン', yt: 'YouTube の字幕', diar: '話者の判別', row: '文字が決まった行' };
+  var KIND_TEXT = { value: '切り抜く価値があるか', read: 'どちらの読みが正しいか', voice: 'これは誰の声?', time: '行の時刻が合っているか',
+    speech: 'この行は声ですか?', section: '区間を聞いて直す(評価用)' };
+  var SOURCE_TEXT = { auto: '自動で採った', cand: '候補のまま', fill: '後処理', alt: '別のエンジン', yt: 'YouTube の字幕', diar: '話者の判別', row: '文字が決まった行', eval: '評価用の動画' };
   var KEEP = 10, LOW = 3, SUM_EVERY = 10;
   var ID_RE = /^[\w:.#|\/-]{1,200}$/;
   var LOAD_TEXT = { offline: 'ホームにつながりませんでした(start.bat の黒い画面が閉じていないか確かめてください)' };
@@ -96,7 +99,7 @@
   var GONE_UNDO = { cannot_undo: 1, changed: 1, undone: 1, not_found: 1 };   // Z を断られた答えは履歴から外す(次の Z は 1 つ前へ)
 
   var S = {
-    want: { c: '', kind: '', back: '' },
+    want: { c: '', kind: '', back: '', lane: '' },
     queue: [], seen: {}, cur: null, view: null, players: [], shownAt: 0,
     hist: [],            // 答えたカード [{card, p: 答えの id の Promise}](Z で新しい方から戻す)
     today: 0, answered: 0, goal: null, goals: {}, failedCount: 0, sum: false,
@@ -110,15 +113,18 @@
   function sourceLabel(card) { return card.sourceLabel || SOURCE_TEXT[card.source] || card.source || ''; }
 
   /* ---- URL(読むだけ。書き換えない)---- */
+  var EVAL_KINDS = { section: 1 };
   function readUrl() {
-    var q = new URLSearchParams(location.search), c = q.get('c') || '', kind = q.get('kind') || '';
-    return { c: /^[A-Za-z0-9_-]{1,64}$/.test(c) ? c : '', kind: KIND_TEXT[kind] ? kind : '', back: q.get('back') === 'cases' ? 'cases' : '' };
+    var q = new URLSearchParams(location.search), c = q.get('c') || '', kind = q.get('kind') || '', lane = q.get('lane') === 'eval' ? 'eval' : '';
+    if (KIND_TEXT[kind] && !!EVAL_KINDS[kind] !== (lane === 'eval')) kind = '';   // レーンの種類だけ(違えば種類の指定を捨てる)
+    return { c: lane ? '' : (/^[A-Za-z0-9_-]{1,64}$/.test(c) ? c : ''), kind: KIND_TEXT[kind] ? kind : '', back: !lane && q.get('back') === 'cases' ? 'cases' : '', lane: lane };
   }
   function backHref() { return S.want.back === 'cases' && S.want.c ? 'cases?c=' + encodeURIComponent(S.want.c) : ''; }
   function nextQuery(n) {
     var q = new URLSearchParams();
     if (S.want.c) q.set('c', S.want.c);
     if (S.want.kind) q.set('kind', S.want.kind);
+    if (S.want.lane) q.set('lane', S.want.lane);
     q.set('n', String(n));
     var skip = Object.keys(S.seen).concat(S.queue.map(function (c) { return c.id; }));
     if (n && skip.length) q.set('skip', skip.slice(-200).join(','));
@@ -152,6 +158,7 @@
     if (j.counts && typeof j.counts.failed === 'number') S.failedCount = j.counts.failed;
     if ('goal' in j) S.goal = j.goal && typeof j.goal === 'object' ? j.goal : null;
     if (j.goals && typeof j.goals === 'object') S.goals = j.goals;
+    if ('sectionCards' in j) S.sectionCards = j.sectionCards === true;
     renderBand();
   }
 
@@ -245,6 +252,16 @@
   }
   function showEmpty() {
     var e = $('#chkEmpty');
+    if (S.want.lane === 'eval') {   // 評価のレーン: スイッチが切れている / 全部聞いた
+      e.innerHTML = S.sectionCards === false ?
+        emptyBox('区間カードは試験中で止めてあります', '設定 → 編集(文字起こし)の「確かめるの評価のレーンに区間カードを出す」をオンにすると、ここに出ます。それまでは編集の画面の評価ドリルで確かめてください。',
+          '<a class="btn primary" href="settings">設定へ</a><a class="btn" href="check">普段のレーンへ</a>') :
+        emptyBox('いま確かめる評価用の動画はありません', '評価用の動画を文字起こしすると(上の「まとめて文字起こし」)、ここに区間カードが出ます。' + (S.answered ? '(この画面で ' + S.answered + ' 件答えました)' : ''),
+          '<a class="btn primary" href="check">普段のレーンへ</a><a class="btn" href="./">ホームへ</a>');
+      e.hidden = false;
+      renderUndo(); renderQueue(); renderKeys();
+      return;
+    }
     e.innerHTML = emptyBox(S.answered ? '今日の分は終わりです' : 'いま確かめる物はありません',
       '新しい切り抜き・文字起こしができると、ここに確認が出ます。' + (S.answered ? '(この画面で ' + S.answered + ' 件答えました)' : ''), endActs());
     e.hidden = false;
@@ -271,6 +288,45 @@
     renderUndo(); renderQueue(); renderKeys();
     clearTimeout(countsTimer);
     api(nextQuery(0)).then(function (j) { takeCounts(j); if (S.sum && !$('#chkSum').hidden) paintSummary(); }, function () { /* 数が古いだけ */ });
+  }
+
+  /* ---- 評価のレーンの頭(C-EVAL。評価用の一括 = 編集の ⑤ eval/drill/evalbatch・定点 = eval/drill/drill.drill_status。編集を取り込んだ入口の transcribe/ を直に読む)---- */
+  var evalTimer = 0, evalBusy = false;
+  function evalHeadHtml(st, eb) {
+    var left = st && isFinite(+st.leftSec) ? Math.ceil(+st.leftSec / 60) : null;
+    var fixed = st ? (st.ready ? '定点(確かめ済みの評価用 ' + Math.round((+st.goalSec || 0) / 60) + ' 分)に届きました' :
+      '定点まで あと <b>' + (left == null ? '?' : left) + '</b> 分(確かめ済み ' + (+st.reviewedDocs || 0) + ' 本・未確認 ' + (+st.pendingDocs || 0) + ' 本' +
+      ((+st.untranscribed || 0) ? '・まだ文字起こししていない ' + st.untranscribed + ' 本' : '') + ')') : '定点の数を読めませんでした';
+    var run = eb && eb.enabled, line = !eb ? '評価用の一括の状態を読めませんでした(編集が動いていないかもしれません)' :
+      run ? 'まとめて文字起こし中: 入れた ' + (+eb.enqueued || 0) + ' 本・済み ' + (+eb.done || 0) + ' 本' + (eb.remaining != null ? '・残り ' + eb.remaining + ' 本' : '') +
+        ((+eb.failed || 0) ? '・失敗 ' + eb.failed + ' 本' : '') + (eb.titles && eb.titles.length ? '(' + eb.titles.slice(0, 2).join('・') + ')' : '') :
+      (eb.finished ? 'まとめて文字起こしは終わりました' : 'まとめて文字起こしは止まっています') + ((+eb.done || 0) ? '(済み ' + eb.done + ' 本)' : '');
+    return '<div class="card-title">評価用の動画</div><p>' + fixed + '</p>' +
+      '<div class="row chk-evalbatch"><span class="hint" role="status">' + esc(line) + '</span>' +
+      (eb ? (run ? '<button type="button" class="btn" data-chk-eb="stop">止める</button>' :
+        '<button type="button" class="btn" data-chk-eb="start" title="評価用のフォルダの動画を、文字起こししていない物から順にまとめて文字起こしします">まとめて文字起こし</button>') : '') +
+      '</div>' + (eb && eb.lastError ? '<p class="notice err">' + esc(String(eb.lastError).slice(0, 200)) + '</p>' : '') +
+      '<p class="hint">区間を聞いて直した行は正解(校正済み)になります。機械の予想・覚えた声の候補は出しません。評価用の動画からは学習しません。</p>';
+  }
+  function loadEvalHead() {
+    clearTimeout(evalTimer);
+    var box = $('#chkEvalHead');
+    if (S.want.lane !== 'eval' || document.hidden) return;
+    var soft = function (p) { return p.then(function (j) { return j; }, function () { return null; }); };
+    Promise.all([soft(api('transcribe/api/drill/status', { timeout: 15000 })), soft(api('transcribe/api/eval-batch', { timeout: 15000 }))]).then(function (r) {
+      box.innerHTML = evalHeadHtml(r[0], r[1]);
+      box.hidden = false;
+      evalTimer = setTimeout(loadEvalHead, r[1] && r[1].enabled ? 5000 : 30000);   // 動いている間は 5 秒ごと
+    });
+  }
+  function evalBatch(op) {
+    if (evalBusy) return;
+    evalBusy = true;
+    api('transcribe/api/eval-batch/' + op, { body: {} }).then(function () {
+      UIKit.toast(op === 'start' ? 'まとめての文字起こしを始めました' : 'まとめての文字起こしを止めました', { ms: 2500 });
+    }, function (e) {
+      UIKit.toast((op === 'start' ? '始められませんでした: ' : '止められませんでした: ') + e.message, { kind: 'err', detail: e.detail });
+    }).then(function () { evalBusy = false; loadEvalHead(); });
   }
 
   /* ---- 答える・戻す・飛ばす ---- */
@@ -415,6 +471,14 @@
       if (j && j.version) { $('#ver').textContent = 'v' + j.version; if (UIKit.appnav && UIKit.appnav.setVersion) UIKit.appnav.setVersion('v' + j.version); }
     }, function () { /* 版が出ないだけ */ });
     S.want = readUrl();
+    Array.prototype.forEach.call(document.querySelectorAll('[data-chk-lane]'), function (a) {
+      if ((a.getAttribute('data-chk-lane') === 'eval') === (S.want.lane === 'eval')) a.setAttribute('aria-current', 'page');
+    });
+    if (S.want.lane === 'eval') {
+      $('#chkEvalHead').addEventListener('click', function (e) { var b = e.target.closest && e.target.closest('[data-chk-eb]'); if (b) evalBatch(b.getAttribute('data-chk-eb')); });
+      UIKit.life.onReturn(loadEvalHead);   // 隠していた間は止めて、戻ったら読み直す
+      loadEvalHead();
+    }
     S.keys = UIKit.keys.playback({ media: curMedia, enabled: function () { return !!S.cur; } });
     document.addEventListener('keydown', onKey);
     $('#chkBody').addEventListener('click', function (e) {   // 答えのボタン = キーと同じ道(描き手の keys)

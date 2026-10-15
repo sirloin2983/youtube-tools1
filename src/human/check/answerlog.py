@@ -14,7 +14,7 @@
     カードは答えたまま(by_card に残す)。やりかけの確定の答えは held に出さない(もう一度確定しない)。
     回すと(MAX_LOG_BYTES)前の答え・保留・やりかけを忘れる(今のファイルだけを読む。1 日 200 件で 1 年以上先)
   - skip.json: {day: "YYYY-MM-DD", ids: [カードの id]}(その日の間だけ後ろへ回すカード。日が変わったら空と同じ)
-読み書きはここだけ(⑤ eval/check の待ち行列は読むだけ・③ human/check/apply が書く)。標準ライブラリと ytt だけを読む。
+読み書きはここだけ(入口 app/check の待ち行列は読むだけ・③ human/check/apply が書く)。標準ライブラリと ytt だけを読む。
 """
 import datetime
 import json

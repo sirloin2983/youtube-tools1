@@ -92,7 +92,7 @@ def _r3(x):
 # ---------- 文字起こしの文書の形の小道具(役割で組み直す RS2-9 に編集の ed_state から移した。ed_state には同じ物の別名がある) ----------
 TID_RE = re.compile(r"^[0-9a-f]{12}$")   # 文書の id の形(12 文字の 16 進)
 MAX_SEGMENTS = 20000   # 文書の行の数の上限(画面から保存できる行。RS3-E5a に ed_state から。文書の置き場 human/proof/store が読む)
-ROW_TAGS = ("unclear", "overlap", "bgm")   # 行に付ける音のメモ(聞き取れない・声が重なる・BGMが大きい)。unclear の行は精度測定・学習の正解に使わない(RS3-E5a に ed_state の TAGS から)
+ROW_TAGS = ("unclear", "overlap", "bgm", "novoice")   # 行に付ける音のメモ(聞き取れない・声が重なる・BGMが大きい・novoice = 声の区間と重ならない行(確かめるの「この行は声ですか?」で消すと答えた。C-EVAL))。unclear の行は精度測定・学習の正解に使わない(RS3-E5a に ed_state の TAGS から)
 # 組み込みの話者「ゲーム音声など」(ゲームのキャラ・NPC・動画の音声など、その場かぎりの声。2026-10-05。notes:plan/done/line-b-overlap.md の 6)。
 # 文書の speakers に {"id": OTHER_SPK_ID, "name": OTHER_SPK_NAME, "builtin": OTHER_SPK_BUILTIN} で 1 つだけ入る(選んだときに画面が足す)。
 # 名前は変えない・声を覚えない・判別のやり直しで上書きしない。画面の app.js の OTHER_SP と同じ値(変えるときは両方)
@@ -116,6 +116,12 @@ def no_sub_row(g):
 # "overlap" = 声があるのに行の無い所に置いた空の行(重なりの下書き)。文字を打ったら画面が外す。文字の無い行なので字幕・カット・パックには出ない
 # "missing" = 主の話者も含めて、声があるのにどの行も無い所(抜けの下書き。音のメモ overlap は付けない。決まりは overlap と同じ)
 ROW_DRAFT_KINDS = ("overlap", "missing")
+
+
+def is_eval_reviewed(doc):
+    """評価用で、動画を全部聞いて確かめた文書か(文書の印 evalSet が True で evalReviewed が dict)。定点に数える・測る道具が「確かめ済みだけ」を選ぶ・
+    確かめるの評価のレーン(③ human/check)が区間カードを出すかの判定の 1 か所(C-EVAL 2a-1。⑤ drill と _evalcommon の写しを寄せた)"""
+    return isinstance(doc, dict) and doc.get("evalSet") is True and isinstance(doc.get("evalReviewed"), dict)
 
 
 def blank_draft_row(g):

@@ -46,7 +46,7 @@
   POST /api/backup/run                    {} 今すぐ写す(裏で。応答は今の状態)
   GET  /api/accuracy                      精度の自動測定の状態・領域ごとの直近と前回・入口の条件 goals(今 / 目標 / あと。0.38.0)(src/eval/drill/accuracy.py。git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md の (a))
   POST /api/accuracy/run                  {} 今すぐ測る(裏で。手が空くまで待つ。オフなら 409。応答は今の状態)
-  GET  /api/check/next?c=&kind=&n=&skip=  「確かめる」(V1)の待ち行列(src/eval/check/deck.py。読むだけ)。c = 案件の id・kind = value|read|voice|time・
+  GET  /api/check/next?c=&kind=&n=&skip=  「確かめる」(V1)の待ち行列(src/app/check/deck.py。読むだけ)。c = 案件の id・kind = value|read|voice|time・
                                           n = 0〜50(既定 10。0 = 数だけ)・skip = 画面が持っているカードの id(カンマ区切り。外す)
                                           → {rev, cards, counts: {today, perKind, failed}, goal, goals, total, held, failed, errors}
   POST /api/check/answer                  {card, answer, ms?, skip?} カードに答える(カードはサーバーが引き直す。反映は src/human/check/apply.py に登録した部品)
@@ -136,11 +136,13 @@ import autorun as autorun_mod
 from human.friend import intake as intake_mod  # noqa: E402  (src/human/friend/intake.py: 友人からの依頼の受付)
 from manage.keep import backup as backup_mod  # noqa: E402  (src/manage/keep/backup.py: 作業データのバックアップ)
 from eval.drill import accuracy as accuracy_mod  # noqa: E402  (src/eval/drill/accuracy.py: 精度の自動測定 = src/eval/tools/eval_*.py を手が空いた夜に子プロセスで)
-from eval.check import deck as check_deck, lineup as check_lineup  # noqa: E402  (src/eval/check: 「確かめる」の待ち行列。V1)
+from app.check import deck as check_deck, lineup as check_lineup  # noqa: E402  (src/app/check: 「確かめる」の待ち行列。V1)
 from human.check import apply as check_apply  # noqa: E402  (src/human/check/apply.py: 「確かめる」の答えの記録と反映。V1)
 from human.check import read as check_read  # noqa: E402,F401  (読みのカードの反映を apply に登録する。V2b)
 from human.check import timerow as _check_timerow  # noqa: E402,F401  (時刻のカードの反映を apply に登録する。V2d)
 from human.check import value as check_value  # noqa: E402, F401  (src/human/check/value.py: 価値のカードの反映を apply に登録する。V2a)
+from human.check import speech as _check_speech  # noqa: E402,F401  (「この行は声ですか?」の反映を apply に登録する。C-EVAL)
+from human.check import section as _check_section  # noqa: E402,F401  (評価のレーンの区間カードの反映を apply に登録する。C-EVAL)
 from human.check import voice as _check_voice  # noqa: E402,F401  (誰の声のカードの反映と声の覚え直し。読み込みで apply に登録する。V2c)
 from human.friend import deliver as deliver_mod  # noqa: E402 (src/human/friend/deliver.py: パックを友人へ届ける = Dropbox の 出力 に zip で置く)
 from manage.cases import cases as cases_mod  # noqa: E402  (src/manage/cases/cases.py: 案件(配信1本)ごとの紐づけ)
@@ -629,7 +631,7 @@ STATIC.update({"/cases-panels/proof.css": (os.path.join("panels", "proof.css"), 
 # 確かめる(/check。RS8 V1。notes:docs/design/v1-check-build.md)。案件をまたぐ軽い確認のカード。/cases と同じく入口の直下の 1 枚・完全一致の表だけ。
 # カードの描き方は /check-cards/<種類>.js(V2 の 4 本が中身を足す)・カード用の軽い再生部品は /check-player.js
 CHECK_DIR = os.path.join(ROOT, "app", "ui", "check")
-CHECK_CARDS = ("value", "read", "voice", "time")   # 切り抜く価値・どちらの読み・誰の声・行の時刻
+CHECK_CARDS = ("value", "read", "voice", "time", "speech", "section")   # 切り抜く価値・どちらの読み・誰の声・行の時刻・この行は声ですか(C-EVAL)・評価の区間(C-EVAL)
 STATIC.update({"/check": ("index.html", CHECK_DIR), "/check.js": ("check.js", CHECK_DIR), "/check.css": ("check.css", CHECK_DIR),
                "/check-player.js": ("player.js", CHECK_DIR)})
 STATIC.update({"/check-cards/%s.js" % n: (os.path.join("cards", n + ".js"), CHECK_DIR) for n in CHECK_CARDS})
@@ -822,10 +824,10 @@ class PortalHandler(BaseHTTPRequestHandler):
         if u.path in ("/api/autorun/history", "/api/flow/history"):   # 終わった実行の記録(段2 B-6。ホームの「まとめて実行の記録」を開いたときだけ読む)
             return self._json(200, self.server.autorun.history(query_int(q, "limit", autorun_mod.HISTORY_DEFAULT), query_int(q, "offset", 0),
                                                                case=case))
-        if u.path == "/api/check/next":   # 「確かめる」の待ち行列(V1。src/eval/check/deck.py。読むだけ = 開いただけでは何も書かない)
-            c, kind, n, skip = ((q.get(k) or [None])[0] for k in ("c", "kind", "n", "skip"))
+        if u.path == "/api/check/next":   # 「確かめる」の待ち行列(V1。src/app/check/deck.py。読むだけ = 開いただけでは何も書かない)
+            c, kind, n, skip, lane = ((q.get(k) or [None])[0] for k in ("c", "kind", "n", "skip", "lane"))   # lane = normal | eval(評価のレーン。C-EVAL)
             try:
-                return self._json(200, check_deck.next_cards(self.server.check_ctx(), c, kind, n, skip))
+                return self._json(200, check_deck.next_cards(self.server.check_ctx(), c, kind, n, skip, lane))
             except ValueError as e:
                 return self._fail(400, "bad_request", str(e))
         if u.path == "/api/cases":   # 案件の一覧(各ツールのデータを読んで組み立て直す。src/manage/cases/cases.py)
@@ -918,7 +920,7 @@ class PortalHandler(BaseHTTPRequestHandler):
         return self._json(*self.server.auto_review(body))
 
     def _post_check(self, path, body):
-        """「確かめる」(V1): answer {card, answer, ms?, skip?, page?} か {undo} / skip {card, page?} / flush {page?}。カードは src/eval/check/deck.py で引き直し、
+        """「確かめる」(V1): answer {card, answer, ms?, skip?, page?} か {undo} / skip {card, page?} / flush {page?}。カードは src/app/check/deck.py で引き直し、
         記録と反映は src/human/check/apply.py(種類ごとの反映の部品が登録する。無い種類は 409 not_ready)。page = 画面の印(確定はその画面の保留だけ)"""
         op, ctx = path.rsplit("/", 1)[1], self.server.check_ctx()
         try:
@@ -942,7 +944,8 @@ class PortalHandler(BaseHTTPRequestHandler):
                 out = check_apply.answer(ctx, card, body)
                 check_deck.invalidate()
                 held = body.get("skip") if isinstance(body.get("skip"), list) else []
-                nxt = check_deck.next_cards(ctx, n=1, skip=[x for x in held if isinstance(x, str)][:check_deck.MAX_SKIP_PARAM - 1] + [card["id"]])
+                lane = "eval" if card.get("kind") in check_lineup.EVAL_KINDS else "normal"   # 次の 1 枚は答えたカードと同じレーンから
+                nxt = check_deck.next_cards(ctx, n=1, skip=[x for x in held if isinstance(x, str)][:check_deck.MAX_SKIP_PARAM - 1] + [card["id"]], lane=lane)
                 out["next"] = nxt["cards"][0] if nxt["cards"] else None
         except check_apply.Refused as e:
             return self._fail(e.code, e.error, e.message)

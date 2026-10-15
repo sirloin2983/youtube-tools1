@@ -20,7 +20,7 @@ import threading
 from human.check import voice as voice_mod
 from manage.cases import cases as cases_mod, txindex
 from ytt import fsio, settings
-from . import lineup   # 同じ eval/check の兄弟
+from . import lineup   # 同じ app/check の兄弟
 
 DOC_NAME_RE = re.compile(r"^([0-9a-f]{12})\.json\Z")
 MAX_DOC_BYTES = 64 * 1024 * 1024
@@ -152,6 +152,28 @@ class View:
             out.sort(key=lambda x: -_num(x[2].get("updatedAt")))
             self._docs = out
         return self._docs
+
+    def eval_docs(self):
+        """[(tid, 文書のパス, 文書)] 評価用の文書だけ(evalSet が True。評価のレーンの区間カード = C-EVAL だけが使う)。新しい順。
+        普段の出どころは docs() だけを使う(評価用を外す 1 か所はそのまま)"""
+        if getattr(self, "_eval_docs", None) is None:
+            out = []
+            try:
+                folder = txindex.folder(self.root, self.env)
+                paths = txindex.doc_paths(folder) if os.path.isdir(folder) else {}
+            except Exception as e:
+                self.errors.append("docs: %s" % e.__class__.__name__)
+                paths = {}
+            for name in sorted(paths):
+                m = DOC_NAME_RE.match(name)
+                if not m or not os.path.isfile(paths[name]):
+                    continue
+                d = _docs.get(paths[name], _load_doc)
+                if d is not None and d.get("evalSet") is True:
+                    out.append((m.group(1), paths[name], d))
+            out.sort(key=lambda x: -_num(x[2].get("updatedAt")))
+            self._eval_docs = out
+        return self._eval_docs
 
     def doc_ids(self):
         """評価用でない文書の id の集合(文書を指すカードはここに無い文書を出さない)"""
@@ -336,3 +358,4 @@ def collect(ctx, state=None, kinds=None):
             continue
         cards.extend(c for c in got if isinstance(c, dict) and lineup.parse_id(c.get("id")) and c.get("kind") == kind)
     return cards, view
+from . import speech_sources, eval_sources   # noqa: E402,F401  「この行は声ですか?」(普段)と区間カード(評価)を足す(C-EVAL。register)

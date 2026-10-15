@@ -6,16 +6,20 @@
   (1) 種類ごとの「あと / 目標」(goals.py が種類 → 入口の条件 GOALS の 1 行を引く)。届いた種類は後ろ・まだ測っていない(now が無い)種類は
       測った種類の後ろ・それ以外は あと / 目標 の小さい種類から(もう少しで決まる物を先に)
   (2) 種類の中は出どころが付けた `_order`
-  (3) 同率なら軽い物から value → read → voice → time(押す数が少ない順)
+  (3) 同率なら軽い物から value → read → voice → time → speech(押す数が少ない順)
+レーン(C-EVAL): 普段のレーン = NORMAL_KINDS(評価用の文書は出どころ sources.View が外す)・評価のレーン = EVAL_KINDS(評価用の文書の区間カードだけ)。
   その日に飛ばしたカード(later)は全部の後ろ(飛ばした順)。
 """
 import math
 import re
 
-KINDS = ("value", "read", "voice", "time")
+NORMAL_KINDS = ("value", "read", "voice", "time", "speech")   # 普段のレーン(speech = 「この行は声ですか?」C-EVAL (3))
+EVAL_KINDS = ("section",)   # 評価のレーン(評価用の文書の区間カード。C-EVAL (2))
+KINDS = NORMAL_KINDS + EVAL_KINDS
+LANES = {"normal": NORMAL_KINDS, "eval": EVAL_KINDS}
 LIGHT = {k: i for i, k in enumerate(KINDS)}
 # カードの id = <種類>:<出どころ>:<対象の鍵>(同じ対象を 2 回出さない鍵。対象の鍵は文書の id・行の id・配信・マークを # でつなぐ)
-CARD_ID_RE = re.compile(r"^(value|read|voice|time):([a-z]{1,12}):([A-Za-z0-9_#.-]{1,160})\Z")
+CARD_ID_RE = re.compile(r"^(value|read|voice|time|speech|section):([a-z]{1,12}):([A-Za-z0-9_#.-]{1,160})\Z")
 DEFAULT_N, MAX_N = 10, 50
 
 
@@ -50,20 +54,29 @@ def _order_key(card):
     return tuple(x if _finite(x) else 0 for x in o) if isinstance(o, (list, tuple)) else ()
 
 
-def order(cards, goals_by_kind=None, later=()):
-    """cards を出す順に並べた新しい一覧。goals_by_kind = {種類: 入口の条件の 1 行}・later = 今日飛ばしたカードの id(順に)"""
+def _sort_key(goals_by_kind, later):
     goals_by_kind = goals_by_kind or {}
     later_pos = {cid: i for i, cid in enumerate(later)}
 
     def key(c):
         lp = later_pos.get(c.get("id"))
         return (0 if lp is None else 1, lp or 0, kind_rank(goals_by_kind.get(c.get("kind"))), LIGHT.get(c.get("kind"), 9), _order_key(c), c.get("id") or "")
-    return sorted(cards, key=key)
+    return key
 
 
-def per_kind(cards):
-    """{種類: 枚数}(4 種類とも出す)"""
-    out = {k: 0 for k in KINDS}
+def order(cards, goals_by_kind=None, later=()):
+    """cards を出す順に並べた新しい一覧。goals_by_kind = {種類: 入口の条件の 1 行}・later = 今日飛ばしたカードの id(順に)"""
+    return sorted(cards, key=_sort_key(goals_by_kind, later))
+
+
+def first(cards, goals_by_kind=None, later=()):
+    """order の先頭だけ(並べない = 件数だけの問い合わせ n=0 で全部を並べない。O14)。空なら None"""
+    return min(cards, key=_sort_key(goals_by_kind, later)) if cards else None
+
+
+def per_kind(cards, kinds=NORMAL_KINDS):
+    """{種類: 枚数}(kinds の種類は 0 でも出す。既定は普段のレーンの種類)"""
+    out = {k: 0 for k in kinds}
     for c in cards:
         if c.get("kind") in out:
             out[c["kind"]] += 1

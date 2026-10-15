@@ -1,5 +1,5 @@
 """入口の「確かめる」の口(GET api/check/next・POST api/check/answer(undo も)・skip・flush。V1 の V0)のつなぎ。
-待ち行列の中身のテストは src/eval/check/tests/、記録と反映は src/human/check/tests/test_apply.py。
+待ち行列の中身のテストは src/app/check/tests/、記録と反映は src/human/check/tests/test_apply.py。
 
 実行(リポジトリ直下から): py -3.10 -m unittest src/home/tests/test_check_api.py -v
 """
@@ -17,7 +17,7 @@ for p in (HOME, ROOT, os.path.dirname(os.path.abspath(__file__))):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from eval.check import deck, lineup, sources  # noqa: E402
+from app.check import deck, lineup, sources  # noqa: E402
 from human.check import answerlog, apply  # noqa: E402
 from app import server as L  # noqa: E402
 import test_launch as TL  # noqa: E402  (入口を一時フォルダで動かす道具を借りる。テストそのものは集めない)

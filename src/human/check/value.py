@@ -1,6 +1,6 @@
 """「確かめる」の価値のカード(切り抜く価値があるか = 70 点以上か)の反映(notes:docs/design/v1-check-build.md・決定 3-41)。
 
-出どころ 2 つ(カードは src/eval/check/sources.py の value_auto・value_cand):
+出どころ 2 つ(カードは src/app/check/sources.py の value_auto・value_cand):
   value:auto  自動で採ってもう作った切り抜き。答え {choice: "send"} = 友人へ届ける / {choice: "drop"} = 要らない(どちらも 1 枚遅れで確定 = defer)
               どちらもホームの「続けて確認」と同じ口(ctx.hook("auto_review") = POST /api/cases/auto と同じ body)を呼ぶ。
               記録(live_feedback.jsonl の deliver / reject)はその口が残す。保留のうち(次のカードに答える・飛ばす・タブを閉じる / 隠すまで)に Z で戻せば何も起きない。

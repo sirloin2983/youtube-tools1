@@ -170,17 +170,20 @@ def seed(tmp, rnd, streams, samples):
 
 CHECK_LIVE = "20261010-200000-demo"   # 確かめるの見本: 自分の配信の録画(kind live。録画の id の形 = ytt/yturl.LIVE_ID_RE)
 CHECK_CAND = "democand001"            # 確かめるの見本: まだ 1 本も選んでいない YouTube の配信(候補のまま)
-CHECK_DOC = "c4ec0000000a"            # 確かめるの見本: 自動でできた切り抜きの文字起こし(読み・誰の声・時刻のカード)
+CHECK_DOC = "c4ec0000000a"            # 確かめるの見本: 自動でできた切り抜きの文字起こし(読み・誰の声・時刻・声ですか のカード)
+CHECK_EVAL_DOC = "c4ec0000000e"       # 確かめるの見本: 評価用の文書(評価のレーンの区間カード。C-EVAL)
 
 
 def seed_check(tmp, txdir, samples, videos, write_tx, now):
-    """確かめる(/check。RS8 V1)の 4 種類のカードが少なくとも 1 枚ずつ出る見本(src/eval/check/sources.py の出どころの条件に合わせる)。
+    """確かめる(/check。RS8 V1)の 4 種類のカードが少なくとも 1 枚ずつ出る見本(src/app/check/sources.py の出どころの条件に合わせる)。
     乱数を使わない(上の見本の並び = 画面の検査の場面が使う配信・文書を変えない)。
       value:auto  録画の配信の自動でできた切り抜き(.clip.json の source.live.origin = auto・届けていない)
       value:cand  候補のまま(選び始めていない YouTube の配信の、状態が空のマーク)
       read:fill   後処理(fill)が直した行(校正していない)
       voice:diar  話者の判別(.diar.json)の行(1 秒以上・混ざり無し・校正していない)
-      time:row    校正済みの行"""
+      time:row    校正済みの行
+      speech:diar 声の区間(.diar.json の turns)と重ならない行(C-EVAL)
+      section:eval 評価用の文書の区間(評価のレーン。見本ではスイッチをオンにする = main の YTT_CHECK_SECTION。C-EVAL)"""
     from manage.cases import cases as cases_mod
     from ytt import schemas
     created = int((now - 86400) * 1000)
@@ -222,9 +225,16 @@ def seed_check(tmp, txdir, samples, videos, write_tx, now):
     diar = {"schema": "youtube-tools-diar/v1", "history": [],   # src/pipeline/transcribe/diarize.py の DIAR_SCHEMA
             "latest": {"rows": {"s1": {"speaker": "S1", "ratio": 0.92}, "s2": {"speaker": "S1", "ratio": 0.88},
                                 "s3": {"speaker": "S2", "ratio": 0.55, "weak": True}, "s4": {"speaker": "S1", "ratio": 0.71}},
-                       "voices": {"speakers": {"S2": {"score": 0.52, "secondScore": 0.47, "reason": "margin"}}}}}
+                       "voices": {"speakers": {"S2": {"score": 0.52, "secondScore": 0.47, "reason": "margin"}}},
+                       "turns": [{"start": 0.0, "end": 10.6, "label": 0}, {"start": 14.0, "end": 22.0, "label": 0}]}}   # 10.6〜14 に声が無い = s4 が「声ですか」
     with open(os.path.join(txdir, CHECK_DOC + ".diar.json"), "w", encoding="utf-8") as f:
         json.dump(diar, f, ensure_ascii=False)
+    ev_rows = [{"id": "e%d" % i, "start": s, "end": s + 3.5, "text": t, "speaker": "S1"} for i, (s, t) in enumerate(
+        ((1.0, "はいどうもこんにちは"), (5.0, "今日は評価用の見本です"), (12.0, "ちょっと聞いてみてください"), (24.0, "ここで少し間があります"),
+         (33.0, "次の区間の行です"), (40.0, "おしまい")), 1)]
+    write_tx({"schema": "transcribe/v1", "id": CHECK_EVAL_DOC, "title": "評価用の見本(区間カード)", "sourcePath": clip, "sourceName": os.path.basename(clip),
+              "start": 0, "end": 45.0, "duration": 45.0, "model": "large-v3", "language": "ja", "evalSet": True,
+              "speakers": [{"id": "S1", "name": "話者 1"}], "segments": ev_rows, "createdAt": created, "updatedAt": created})
 
 
 def main(argv=None):
@@ -237,7 +247,8 @@ def main(argv=None):
     tmp = os.path.abspath(a.dir) if a.dir else tempfile.mkdtemp(prefix="ytt-demo-")
     keep = bool(a.dir)
     os.environ.update({"YTT_DATA_DIR": "inplace", "YTT_RUNTIME_DIR": os.path.join(tmp, ".runtime"), "STUDIO_FAKE": "1",
-                       "TRANSCRIBE_BACKEND": "fake", "STUDIO_HOME": os.path.join(tmp, "studio-home")})
+                       "TRANSCRIBE_BACKEND": "fake", "STUDIO_HOME": os.path.join(tmp, "studio-home"),
+                       "YTT_CHECK_SECTION": "on"})   # 見本では評価のレーンの区間カードを出す(既定はオフ。human/check/section.enabled)
     from app import server as L   # noqa: E402  (環境変数を決めてから読む)
     import mount as M    # noqa: E402
     from test_launch import _copy_tool  # noqa: E402

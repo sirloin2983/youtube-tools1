@@ -300,5 +300,44 @@ class TestDrillCandidates(DrillBase):
         self.assertEqual((r["eval"], r["rows"], r["noSpeaker"], r["suggest"]), (True, 2, 1, "星街すいせい"))
 
 
+class TestDrillDecodeOnce(DrillBase):
+    """O13: 冷時は文書を 1 回だけデコード(通常要約とドリルで共有)・温時は 0 回・名簿だけ変わったときは文書を読まない"""
+
+    def _count(self):
+        import json as _json
+        from human.proof import store as _st
+        real = _json.load
+        calls = []
+
+        def counting(f, *a, **k):
+            calls.append(getattr(f, "name", ""))
+            return real(f, *a, **k)
+        return calls, patch.object(_st.json, "load", side_effect=counting)
+
+    def test_cold_decodes_once_warm_zero_roster_only_zero(self):
+        self.doc(1, [_seg(1, 0, 1, "あ"), _seg(2, 1, 2, "い", proofed=True)])
+        S._summary_cache.clear()
+        DR._drill_cache.clear()
+        roster = os.path.join(self.tmp, "roster.json")
+        with open(roster, "w", encoding="utf-8") as f:
+            f.write("{}")
+        with patch.object(DR._roster, "ROSTER", roster):
+            calls, p = self._count()
+            with p:
+                out = DR.drill_docs()
+            self.assertEqual(len(calls), 1)
+            self.assertEqual([t for t, _ in out], [tid_of(1)])
+            calls, p = self._count()
+            with p:
+                DR.drill_docs()
+            self.assertEqual(len(calls), 0)   # 温時は文書を読まない
+            with open(roster, "w", encoding="utf-8") as f:
+                f.write('{"changed": true, "pad": "xxxxxxxxxxxxxxxx"}')   # 名簿だけ変わる
+            calls, p = self._count()
+            with p:
+                DR.drill_docs()
+            self.assertEqual(len(calls), 0)   # 名簿だけの変更では文書を読み直さない
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -59,7 +59,7 @@ def write_doc(tid, doc, folder=None):
 # fill = 行の無い文書へ文字起こしの結果を入れる(fill_doc)= 機械・drill = 評価ドリルの「全部聞いて直した」の印と行の校正済み = 人・mach_pick = 3 択(machpick)・
 # check:time・check:read・check:voice = 確かめるのカード(human/check の timerow・read・voice。行の時刻・文字・話者と混ざりの印。Z の戻しも同じ why)
 HUMAN_WHYS = frozenset({"save", "restore", "effort", "diar_num", "edit_cutstate", "single_speaker", "speaker_sub", "relink", "eval_mark", "drill", "mach_pick",
-                        "check:time", "check:read", "check:voice"})
+                        "check:time", "check:read", "check:voice", "check:section", "check:speech"})   # section = 評価のレーンの区間カード・speech = 「この行は声ですか?」(C-EVAL)
 MACHINE_WHYS = frozenset({"whole", "fill", "rerun_each", "rerun_range", "redo", "diar", "diar_context", "diar_voices", "eval_rebuild"})
 FULL_WHYS = frozenset({"whole", "fill", "eval_rebuild"})   # 機械が文書の行を丸ごと書いた操作: 機械の層 = 文書の行(呼び手が mach を渡せばそれ)
 DIAR_WHYS = frozenset({"diar", "diar_context", "diar_voices"})   # 話者の判別: 機械の層の話者と話者の表も文書から写す
@@ -448,18 +448,24 @@ def _load_doc(path):
 
 def transcript_summary(tid):
     """文書1件の要約(一覧の1行 + 元ファイル・範囲)。評価ドリルの要約は ⑤ eval/drill/drill.drill_docs が自前で足す(③ が ⑤ を読まない)。ファイルの更新日時と大きさが同じなら、前に読んだ結果を使う。読めなければ None。"""
+    return transcript_summary_doc(tid)[0]
+
+
+def transcript_summary_doc(tid):
+    """transcript_summary と同じ。加えて今の回に読んだ文書を (要約, 文書) で返す。覚えた要約を使ったときは文書は None(読んでいない)。
+    ドリル(⑤)が同じ世代の文書を二度デコードしないために使う(O13)。戻り値の文書は呼び側が書き換えないこと。"""
     path = tx_path(tid)
     st = _fsio.stamp(path)
     if st is None:
-        return None
+        return None, None
     key = (path,) + st
     with _summary_lock:
         hit = _summary_cache.get(tid)
     if hit and hit[0] == key:
-        return hit[1]
+        return hit[1], None
     d = _load_doc(path)
     if d is None:
-        return None   # 読めない(書きかけ・ほかのアプリが開いている)ものは覚えない = 次にもう一度読む
+        return None, None   # 読めない(書きかけ・ほかのアプリが開いている)ものは覚えない = 次にもう一度読む
     segs = [s for s in (d.get("segments") or []) if isinstance(s, dict)]
     text_rows = sum(1 for s in segs if str(s.get("text") or "").strip())
     proofed = sum(1 for s in segs if s.get("proofed") is True and str(s.get("text") or "").strip())
@@ -482,7 +488,7 @@ def transcript_summary(tid):
           "_key": key}
     with _summary_lock:
         _summary_cache[tid] = (key, sm)
-    return sm
+    return sm, d
 
 
 def _tids():

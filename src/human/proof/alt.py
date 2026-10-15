@@ -372,7 +372,7 @@ def _alt_doc_diffs(tid, doc):
 def alt_doc_candidates(tid, doc, dismissed=None):
     """文書 1 本の 2つ目のエンジンの候補 [{seg, i, wrong, right, tier: "alt", pos, neg}](読むだけ)。却下した候補は外す
     (dismissed = {"seg|誤=>正"}。None なら採否の記録 learn-feedback.json から読む)。評価用・alt.json が無い文書は []。
-    編集の提案(alt_suggest)と「確かめる」の読みのカード(⑤ eval/check/read_sources の read:alt)が同じ物を読むための口"""
+    編集の提案(alt_suggest)と「確かめる」の読みのカード(入口 app/check/read_sources の read:alt)が同じ物を読むための口"""
     got = _alt_doc_diffs(tid, doc)
     if got is None:
         return []

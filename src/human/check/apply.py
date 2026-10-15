@@ -14,7 +14,7 @@
       数を減らすような二度目で壊れる後始末は、again で実物がもう戻っていたら済んでいると見る)。
       答えのあとに別の値へ直されていたら Refused(changed)
     defer(answer) -> True なら 1 枚遅れで確定する(決定 3-41: [送る] = 友人へ届ける。次のカードに答えた時・飛ばした時・タブを閉じた / 隠した時に apply を呼ぶ)
-card は ⑤ eval/check の待ち行列がサーバーの側で組み直した物(画面の送った target は信じない)。反映が使うのは id・kind・source・case・target と、
+card は 入口 app/check の待ち行列がサーバーの側で組み直した物(画面の送った target は信じない)。反映が使うのは id・kind・source・case・target と、
 読みのカードだけ card["_cand"](候補の位置と文字)。保留の確定は記録の行から card を組み直す(_cand は無い)ので、defer にできるのは前の 5 つだけで反映できる種類だけ。
 書く順(実物と記録を食い違わせない。部品 H2):
   答え = 反映 → 答えの行。行が書けなければ revert で戻す(戻せなかったら実物だけが変わったまま = 記録の外。編集の画面で直す)
@@ -65,15 +65,16 @@ class Context:
 
 
 class _Applier:
-    def __init__(self, kind, source, apply, revert=None, check=None, defer=None):
+    def __init__(self, kind, source, apply, revert=None, check=None, defer=None, max_bytes=None):
         self.kind, self.source, self.apply, self.revert, self.check, self.defer = kind, source, apply, revert, check, defer
+        self.max_bytes = max_bytes or MAX_ANSWER_BYTES
 
 
-def register(kind, source, apply, revert=None, check=None, defer=None):
-    """種類と出どころの反映の関数を登録する(同じ組は上書き)。-> 登録した物"""
+def register(kind, source, apply, revert=None, check=None, defer=None, max_bytes=None):
+    """種類と出どころの反映の関数を登録する(同じ組は上書き)。max_bytes = 答えの大きさの上限(既定 MAX_ANSWER_BYTES。区間カードは行の直しを何行も送る = C-EVAL)。-> 登録した物"""
     if not callable(apply):
         raise TypeError("apply は関数にしてください")
-    ap = _Applier(kind, source, apply, revert, check, defer)
+    ap = _Applier(kind, source, apply, revert, check, defer, max_bytes)
     _REG[(kind, source)] = ap
     return ap
 
@@ -89,7 +90,7 @@ def _registered(kind=None, source=None):
     return sorted(_REG)
 
 
-def _check_body(body):
+def _check_body(body, limit=MAX_ANSWER_BYTES):
     answer = body.get("answer")
     if answer is None:
         raise Refused("答え(answer)がありません", 400, "bad_request")
@@ -97,7 +98,7 @@ def _check_body(body):
         size = len(json.dumps(answer, ensure_ascii=False, allow_nan=False).encode("utf-8"))
     except (TypeError, ValueError):
         raise Refused("答え(answer)の形が正しくありません", 400, "bad_request")
-    if size > MAX_ANSWER_BYTES:
+    if size > limit:
         raise Refused("答え(answer)が大きすぎます", 413, "size")
     ms = body.get("ms")
     ms = int(ms) if isinstance(ms, (int, float)) and not isinstance(ms, bool) and 0 <= ms <= MAX_MS else None
@@ -217,9 +218,10 @@ def flush(ctx, page=None):
 def answer(ctx, card, body):
     """カード card に答える。body = {answer, ms?, guess?, page?}。-> {ok, answer: 答えの id, card, applied, held, flushed}。断るときは Refused"""
     body = body if isinstance(body, dict) else {}
-    ans, ms = _check_body(body)
-    page = _page(body.get("page"))
     kind, source = card.get("kind"), card.get("source")
+    reg = _REG.get((kind, source))
+    ans, ms = _check_body(body, reg.max_bytes if reg is not None else MAX_ANSWER_BYTES)
+    page = _page(body.get("page"))
     with _lock:
         st = _resume_locked(ctx, answerlog.state(ctx.app_dir))
         if card["id"] in st.by_card:

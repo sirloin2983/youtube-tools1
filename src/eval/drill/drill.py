@@ -45,9 +45,7 @@ _drill_cache = {}            # tid -> ((文書の要約の鍵, 名簿の版), �
 _drill_cache_lock = threading.Lock()
 
 
-def drill_is_reviewed(doc):
-    """評価用で、動画を全部聞いて確かめた文書か(定点に数える判定。src/eval/tools/eval_asr.py などの測る道具が「確かめ済みだけ」を選ぶときも、この条件で選ぶ)"""
-    return isinstance(doc, dict) and doc.get("evalSet") is True and isinstance(doc.get("evalReviewed"), dict)
+drill_is_reviewed = _yschemas.is_eval_reviewed   # lint: keep 別名(定点に数える判定。正は ytt/schemas = C-EVAL 2a-1)
 
 
 def drill_reviewed_sec(doc):
@@ -113,16 +111,20 @@ def _with_calls(s):
     return out
 
 
-def _drill_part(path):
-    """文書のファイル → ドリルの要約(drill_doc_summary)。読めない・形の崩れた文書は None(ドリルに数えない。一覧は止めない)"""
-    d = _store._load_doc(path)
+def _drill_of_doc(d):
+    """読んだ文書 → ドリルの要約。形の崩れた文書(手で書き換えたなど)は None(ドリルに数えない。一覧は止めない)"""
     if d is None:
         return None
     try:
         return drill_doc_summary(d)
-    except Exception as e:   # 形の崩れた文書(手で書き換えたなど)でもドリルの一覧を止めない
+    except Exception as e:
         _txbase.log.warning("文書の要約(ドリル)を作れませんでした: %s", e.__class__.__name__)
         return None
+
+
+def _drill_part(path):
+    """文書のファイル → ドリルの要約(drill_doc_summary)。読めない・形の崩れた文書は None(ドリルに数えない。一覧は止めない)"""
+    return _drill_of_doc(_store._load_doc(path))
 
 
 def drill_docs():
@@ -132,7 +134,7 @@ def drill_docs():
     out, seen, rs = [], set(), _fsio.stamp(_roster.ROSTER)
     for tid in sorted(_store._tids()):
         seen.add(tid)
-        sm = _store.transcript_summary(tid)
+        sm, fresh = _store.transcript_summary_doc(tid)   # 今の回に読んだ文書(fresh)は通常要約と共有 = 冷時も 1 回だけデコード(O13)
         if not sm:
             continue
         key = (sm["_key"], rs)
@@ -141,7 +143,12 @@ def drill_docs():
         if hit and hit[0] == key:
             out.append((tid, hit[1]))
             continue
-        raw = hit[2] if hit and hit[0][0] == sm["_key"] else _drill_part(sm["_key"][0])   # 名簿だけ変わったときは文書を読み直さない
+        if hit and hit[0][0] == sm["_key"]:
+            raw = hit[2]   # 名簿だけ変わったときは文書を読み直さない
+        elif fresh is not None:
+            raw = _drill_of_doc(fresh)
+        else:
+            raw = _drill_part(sm["_key"][0])
         if raw is None:
             continue
         s = _with_calls(raw)

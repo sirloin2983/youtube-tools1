@@ -287,7 +287,7 @@ def _autodiar_why_not(doc):
     rows = [g for g in doc.get("segments") or [] if isinstance(g, dict) and str(g.get("text") or "").strip()]
     if not rows:
         return "empty"
-    if doc.get("evalSet") is True and isinstance(doc.get("evalReviewed"), dict):
+    if _yschemas.is_eval_reviewed(doc):
         return "reviewed"
     if any(g.get("speaker") in ids and not diar_keep_row(g, ids) for g in rows):   # 守る行(ゲーム音声など・字幕に出さない・重なりのメモ)は判別で変わらないので数えない
         return "has_speakers"

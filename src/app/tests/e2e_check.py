@@ -74,6 +74,7 @@ class FakeQueue:
         self.fail_answer = 0
         self.failed = 0        # counts.failed(前に答えたのに反映できなかった数)
         self.flushed = 0
+        self.section_cards = None   # 評価のレーンの next に付ける sectionCards(None = 付けない)
         self.lock = threading.RLock()   # 経路の処理は同じ糸の中で入れ子に呼ばれることがある(fulfill の待ちの間に次の要求)= 入れ子でも止まらない鍵
 
     def live_answers(self):
@@ -106,6 +107,8 @@ class FakeQueue:
                                   "time": {"kind": "time", "id": "timing", "label": "行の時刻の判定 100 行", "left": 0, "target": 100, "unit": "行",
                                            "opens": "B1 行の時刻", "now": 100, "reached": True}},
                         "held": [], "failed": [], "errors": []}
+                if self.section_cards is not None:
+                    body["sectionCards"] = self.section_cards
                 return route.fulfill(status=200, content_type="application/json", body=json.dumps(body, ensure_ascii=False))
             body = json.loads(req.post_data or "{}")
             if req.headers.get("x-ytt-token", "") == "":
@@ -294,7 +297,7 @@ def _scene_read_type(cx):
 
 
 def _scene_real_api(cx):
-    """偽物を外して本物の入口の口(V0 の src/eval/check/deck.py)で開く: 作業データが空なら「いま確かめる物はありません」・帯の目標は ⑤ の goals"""
+    """偽物を外して本物の入口の口(V0 の src/app/check/deck.py)で開く: 作業データが空なら「いま確かめる物はありません」・帯の目標は ⑤ の goals"""
     pg, check = cx.pg, cx.check
     cx.ctx.unroute(re.compile(r".*/api/check/.*"))
     pg.goto(cx.base + "check")
@@ -330,6 +333,156 @@ def _scene_voice(cx):
     finally:
         cx.ctx.unroute(re.compile(r".*/api/check/.*"))
         cx.ctx.route(re.compile(r".*/api/check/.*"), cx.fq.handle)
+
+
+def _swap_queue(cx, fq2, eval_routes=None):
+    """api/check/ の偽物を fq2 に差し替える(戻すのは _restore_queue)。eval_routes = transcribe/api/drill/status・eval-batch の偽物(あれば)"""
+    cx.ctx.unroute(re.compile(r".*/api/check/.*"))
+    cx.ctx.route(re.compile(r".*/api/check/.*"), fq2.handle)
+    if eval_routes:
+        cx.ctx.route(EVAL_ROUTE_RE, eval_routes)
+
+
+def _restore_queue(cx, eval_routes=None):
+    cx.ctx.unroute(re.compile(r".*/api/check/.*"))
+    cx.ctx.route(re.compile(r".*/api/check/.*"), cx.fq.handle)
+    if eval_routes:
+        cx.ctx.unroute(EVAL_ROUTE_RE, eval_routes)
+
+
+EVAL_ROUTE_RE = re.compile(r".*/transcribe/api/(drill/status|eval-batch).*")
+
+
+def _scene_speech(cx):
+    """この行は声ですか?(speech): A = 残す {choice: keep}・X(ボタン)= 消す {choice: drop}"""
+    pg, check = cx.pg, cx.check
+    fs = FakeQueue([card(60 + i, "speech", source="diar", options=["keep", "drop"], text="声かどうか怪しい行 %d" % i) for i in (1, 2)])
+    _swap_queue(cx, fs)
+    try:
+        pg.goto(cx.base + "check?kind=speech")
+        check(wait_js(pg, "CheckShell.state().cur === 'speech:e2e:61'"), "speech のカードが出る: %s" % state(pg))
+        check("この行は声ですか?" in pg.text_content("#chkBody") and "声かどうか怪しい行 1" in pg.text_content("#chkBody"), "問いと行の字幕")
+        check(pg.evaluate("[...document.querySelectorAll('#chkBody [data-chk-k]')].map(b => b.dataset.chkK).join()") == "A,X", "ボタンは A(残す)と X(消す)")
+        press(pg, "a")
+        check(wait_js(pg, "CheckShell.state().cur === 'speech:e2e:62'") and fs.answers[-1]["body"]["answer"] == {"choice": "keep"}, "A = 残す: %s" % fs.answers[-1:])
+        pg.click("#chkBody [data-chk-k='X']")
+        check(wait_js(pg, "CheckShell.state().empty") and fs.answers[-1]["body"]["answer"] == {"choice": "drop"}, "X のボタン = 消す: %s" % fs.answers[-1:])
+        check(all("lane" not in q for q in fs.next_q), "普段のレーンは lane を渡さない: %s" % fs.next_q[:2])
+    finally:
+        _restore_queue(cx)
+
+
+def _section_card(i, rows=None, **extra):
+    rows = rows if rows is not None else [
+        {"id": "r1", "start": 1.0, "end": 3.0, "text": "もとの字幕", "speaker": "ぺこら", "owned": True, "novoice": False, "proofed": False},
+        {"id": "r2", "start": 4.0, "end": 6.0, "text": "消す予定の行", "speaker": "", "owned": True, "novoice": True, "proofed": False},
+        {"id": "r3", "start": 31.0, "end": 33.0, "text": "隣の区間の行", "speaker": "", "owned": False, "novoice": False, "proofed": False}]
+    return card(i, "section", source="eval", options=["ぺこら", "みこ"], rows=rows, note="評価用 テスト動画の 0:00 〜 0:30",
+                target={"docId": "a0000000000d", "from": 0.0, "to": 30.0, "rows": ["r1", "r2"], "updatedAt": 1, "last": False, "index": 0},
+                progress={"index": 0, "fromSec": 0.0, "totalSec": 90.0},
+                media={"url": "transcribe/media?id=a0000000000d", "start": 0.0, "end": 30.0, "pad": 0.0}, **extra)
+
+
+def _scene_eval_lane(cx):
+    """評価のレーン: タブ・頭(定点 + まとめて文字起こし)・区間カード(合っている = {}・直して答える = 変えた行と足す行)"""
+    pg, check = cx.pg, cx.check
+    fe = FakeQueue([_section_card(71), _section_card(72)])
+    fe.section_cards = True
+    hits = {"start": [], "stop": [], "get": 0, "running": False}
+
+    def eval_routes(route):
+        u = route.request.url
+        if "/drill/status" in u:
+            return route.fulfill(status=200, content_type="application/json", body=json.dumps(
+                {"goalSec": 3600, "reviewedSec": 3000, "leftSec": 600, "docs": 9, "reviewedDocs": 3, "pendingDocs": 4, "untranscribed": 2, "ready": False}))
+        if "/eval-batch/start" in u:
+            hits["start"].append(json.loads(route.request.post_data or "{}"))
+            hits["running"] = True
+            return route.fulfill(status=200, content_type="application/json", body='{"ok": true}')
+        if "/eval-batch/stop" in u:
+            hits["stop"].append(json.loads(route.request.post_data or "{}"))
+            hits["running"] = False
+            return route.fulfill(status=200, content_type="application/json", body='{"ok": true}')
+        hits["get"] += 1
+        return route.fulfill(status=200, content_type="application/json", body=json.dumps(
+            {"enabled": hits["running"], "enqueued": 5, "done": 2, "failed": 0, "remaining": 3, "finished": False, "titles": ["動画 A"], "lastError": ""}))
+
+    _swap_queue(cx, fe, eval_routes)
+    try:
+        pg.goto(cx.base + "check?lane=eval")
+        check(wait_js(pg, "CheckShell.state().cur === 'section:e2e:71'"), "評価のレーンの区間カードが出る: %s" % state(pg))
+        lanes = pg.evaluate("[...document.querySelectorAll('#chkLanes [data-chk-lane]')].map(a => [a.dataset.chkLane, a.getAttribute('aria-current')])")
+        cur_lanes = [l[0] for l in lanes if l[1] == "page"]
+        check(cur_lanes == ["eval"] and len(lanes) == 2, "レーンのタブ: 評価だけが今の場所: %s" % lanes)
+        check(fe.next_q and all(q.get("lane") == ["eval"] for q in fe.next_q), "評価のレーンは lane=eval を渡す: %s" % fe.next_q[:2])
+        check(wait_js(pg, "!document.querySelector('#chkEvalHead').hidden"), "評価の頭が出る")
+        head = pg.text_content("#chkEvalHead")
+        check("あと 10 分" in head and "確かめ済み 3 本" in head and "未確認 4 本" in head and "まだ文字起こししていない 2 本" in head, "頭: 定点の数: %r" % head)
+        check("入れた 5 本" in head and "済み 2 本" in head and "残り 3 本" in head or "まとめて文字起こしは止まっています" in head, "頭: 一括の状態: %r" % head)
+        pg.click("#chkEvalHead [data-chk-eb=start]")
+        check(wait_js(pg, "!!document.querySelector('#chkEvalHead [data-chk-eb=stop]')") and hits["start"] == [{}], "まとめて文字起こし = POST eval-batch/start {}: %s" % hits["start"])
+        check(wait_js(pg, "document.querySelector('#chkEvalHead').textContent.includes('まとめて文字起こし中')"), "動き出したら 止める に変わる: %r" % pg.text_content("#chkEvalHead")[:120])
+        # 区間カード
+        body = "#chkBody"
+        enter = "#chkBody [data-chk-k='Enter']"
+        check(pg.evaluate("document.querySelectorAll('#chkBody li[data-sec-row]').length") == 2, "持ち主の行 2 本が直せる形で出る")
+        check(pg.evaluate("(() => { const o = document.querySelector('#chkBody .chk-sec-other'); return !!o && o.textContent.includes('隣の区間の行') && !o.querySelector('input,select,textarea,button'); })()"),
+              "隣の区間の行は見せるだけ(入力欄なし)")
+        check(pg.evaluate("document.querySelectorAll('#chkBody [data-sec-text]').length") == 2, "文字の欄は持ち主の行の分だけ")
+        check("合っている" in pg.text_content(enter), "何も変えないときのボタン: %r" % pg.text_content(enter))
+        press(pg, "Enter")
+        check(wait_js(pg, "CheckShell.state().cur === 'section:e2e:72'") and fe.answers[-1]["body"]["answer"] == {}, "何も変えず Enter = {}: %s" % fe.answers[-1:])
+        # 2 枚目: 直す
+        pg.fill("#chkBody li[data-sec-row=r1] [data-sec-text]", "直した字幕")
+        check("直して答える" in pg.text_content(enter), "直すとボタンが 直して答える に変わる: %r" % pg.text_content(enter))
+        pg.select_option("#chkBody li[data-sec-row=r1] [data-sec-spk]", "みこ")
+        pg.check("#chkBody li[data-sec-row=r2] [data-sec-drop]")
+        pg.evaluate("document.activeElement && document.activeElement.blur()")
+        press(pg, "a")
+        check(pg.evaluate("document.querySelectorAll('#chkBody li[data-sec-add]').length") == 1, "A で足す行の欄が増える")
+        check(pg.evaluate("document.activeElement.matches('[data-sec-add] [data-sec-text]')"), "足す行の文字の欄に入る")
+        pg.fill("#chkBody li[data-sec-add] [data-sec-a]", "7")
+        pg.fill("#chkBody li[data-sec-add] [data-sec-b]", "9.5")
+        pg.fill("#chkBody li[data-sec-add] [data-sec-text]", "足した言葉")
+        pg.focus("#chkBody li[data-sec-add] [data-sec-text]")
+        press(pg, "Enter")
+        check(state(pg)["cur"] == "section:e2e:72", "入力中の Enter だけでは答えない")
+        press(pg, "Control+Enter")
+        check(wait_js(pg, "CheckShell.state().empty"), "Ctrl+Enter で答える: %s" % state(pg))
+        want = {"rows": [{"id": "r1", "text": "直した字幕", "speaker": "みこ"}, {"id": "r2", "drop": True}], "add": [{"start": 7, "end": 9.5, "text": "足した言葉"}]}
+        check(fe.answers[-1]["body"]["answer"] == want, "直した答えの中身: %s" % fe.answers[-1]["body"]["answer"])
+        pg.click("#chkEvalHead [data-chk-eb=stop]")
+        check(wait_for(lambda: hits["stop"] == [{}]), "止める = POST eval-batch/stop {}: %s" % hits["stop"])
+    finally:
+        _restore_queue(cx, eval_routes)
+
+
+def _scene_eval_empty(cx):
+    """評価のレーンが空: スイッチが切れているとき(sectionCards false)は「試験中」の文 + 設定へ"""
+    pg, check = cx.pg, cx.check
+    fe = FakeQueue([])
+    fe.section_cards = False
+    _swap_queue(cx, fe)
+    try:
+        pg.goto(cx.base + "check?lane=eval")
+        check(wait_js(pg, "CheckShell.state().empty"), "空の状態: %s" % state(pg))
+        check("区間カードは試験中" in pg.text_content("#chkEmpty") and pg.get_attribute("#chkEmpty a.btn.primary", "href") == "settings",
+              "スイッチが切れていれば 試験中 の文と設定へ: %r" % pg.text_content("#chkEmpty")[:80])
+        fe.section_cards = True
+        pg.goto(cx.base + "check?lane=eval")
+        check(wait_js(pg, "CheckShell.state().empty") and "区間カードは試験中" not in pg.text_content("#chkEmpty") and "評価用の動画はありません" in pg.text_content("#chkEmpty"),
+              "スイッチが入っていて空なら 別の文: %r" % pg.text_content("#chkEmpty")[:80])
+    finally:
+        _restore_queue(cx)
+
+
+def wait_for(fn, timeout=8):
+    end = time.time() + timeout
+    while time.time() < end:
+        if fn():
+            return True
+        time.sleep(0.1)
+    return False
 
 
 def _scene_narrow(cx):
@@ -404,6 +557,10 @@ def main():
                 _scene_narrow(cx)
                 _scene_read_type(cx)
                 _scene_voice(cx)
+                _scene_speech(cx)
+                _scene_eval_lane(cx)
+                _scene_eval_empty(cx)
+                check(all("lane" not in q for q in fq.next_q), "普段のレーンは lane=eval を渡さない")
                 _scene_real_api(cx)
                 unexpected = [s for s in bad_status if not s.startswith("500 ")]
                 check(not unexpected, "4xx/5xx が出ない(試しに起こした 500 を除く): %s" % unexpected[:5])
