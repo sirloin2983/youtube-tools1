@@ -178,12 +178,14 @@ def run_capture(job, cmd, on_line=None, timeout=None, slot="proc", idle_timeout=
     cwd: 子の作業フォルダ(None = このプロセスと同じ)。中身は ytt.tools.run_progress(spawn で起動 = 終了の流れで止まる。OPT2)"""
     is_ctl = not isinstance(job, dict)
     cancelled = job.is_cancelled if is_ctl else (lambda: job["cancel"])
+    prio = getattr(job, "os_priority", None) if is_ctl else None   # 器が表から入れた OS の優先度(後回しの仕事 = idle。PRIO)
+    flags = _tools.no_window_flags(priority=prio) if prio else None
 
     def started(p_):
         if not is_ctl:
             job[slot] = p_
     try:
-        code, err, why = _tools.run_progress(cmd, cancelled=cancelled, idle_sec=idle_timeout, on_time=on_time, tail=40, timeout=timeout,
+        code, err, why = _tools.run_progress(cmd, flags, cancelled=cancelled, idle_sec=idle_timeout, on_time=on_time, tail=40, timeout=timeout,
                                              split=True, on_line=on_line, spawn=True, cwd=cwd, on_start=started)
     finally:
         if not is_ctl:

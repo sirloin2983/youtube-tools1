@@ -127,6 +127,7 @@ from flow import machine as machine_mod  # noqa: E402  (この PC の設定。�
 from flow import runqueue as queue_mod  # noqa: E402  (② の待ち行列。submit の版違い・束の形の例外 = 400 spec_version・bad_spec。F1 F0-1)
 from flow import learning as learning_mod  # noqa: E402  (学習データの読み手。machine の learningDir があるとき入口の文字起こしもそこから読む。F1 F6a)
 from flow import outbox as outbox_mod  # noqa: E402  (送り返しの zip。画面なしで依頼の実行が終わるたびに組む・GET /api/flow/outbox。F1 F6a)
+from flow import prio as prio_mod  # noqa: E402  (処理の優先度の表。後回しの仕事を始めてよいかを重い処理の枠へ。PRIO)
 from manage.keep import learnpack as learnpack_mod  # noqa: E402  (学習の束を <依頼の受付のフォルダ>/学習 に置く。起動時と 1 日ごと。F1 F6a)
 from ytt import colors as colors_mod, datadir, docloc, fsio, httpsec, jobs, layout, runtime, tools, version as _version  # noqa: E402
 import mount as mount_mod  # noqa: E402  (src/home/mount.py: 統合サーバーへのツールの取り込み)
@@ -1429,6 +1430,7 @@ class PortalServer(httpsec.ExclusiveServer):
                 self._autorun.attach_board(self.board)   # ② の Run を掲示板へ(引く形・頭 run。取り消し・やり直しも。RS8 の ② の口 S3)
                 self._autorun.learning = self.learning   # 学習の束の版を束の post.learning.version に(F1 F6a)
                 self._autorun.set_finished_hook(self.after_run)   # 画面なしの送り返しの zip(F1 F6a)
+                prio_mod.watch(self._autorun)   # 後回しの仕事(評価用の一括など)は、まとめて実行と録画が無いときだけ重い処理の枠を取る(PRIO)
             return self._autorun
 
     def wire_learning(self):

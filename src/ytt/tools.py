@@ -21,7 +21,7 @@ import time
 
 from . import errors as _errors, fsio as _fsio
 
-PRIORITY = {"low": "BELOW_NORMAL_PRIORITY_CLASS", "high": "ABOVE_NORMAL_PRIORITY_CLASS"}   # no_window_flags の priority
+PRIORITY = {"low": "BELOW_NORMAL_PRIORITY_CLASS", "high": "ABOVE_NORMAL_PRIORITY_CLASS", "idle": "IDLE_PRIORITY_CLASS"}   # no_window_flags の priority(idle = 後回しの仕事。PRIO)
 KILL_TREE_TIMEOUT = 15   # taskkill /T /F を待つ秒数
 OUT_TIME = re.compile(r"^out_time_(?:us|ms)=(\d+)$")    # ffmpeg の -progress の進み具合の行(us も ms もマイクロ秒)
 
@@ -163,10 +163,10 @@ def probe_media(path):
 def no_window_flags(new_group=False, priority=None):
     """子プロセスの creationflags: Windows では黒い窓を出さない(CREATE_NO_WINDOW)。Windows 以外は 0。
     new_group=True は CREATE_NEW_PROCESS_GROUP も足す(Ctrl+C・CTRL_BREAK を親と分ける)。
-    priority: None(親と同じ)・"low"(通常より下。書き出し・作り直し・文字起こしなど、画面の操作に CPU を譲る)・"high"(通常より上。録画)。
-    それ以外の値は ValueError"""
+    priority: None(親と同じ)・"low"(通常より下。書き出し・作り直し・文字起こしなど、画面の操作に CPU を譲る)・"high"(通常より上。録画)・
+    "idle"(アイドル。後回しの仕事 = ② の flow/prio.py の表)。それ以外の値は ValueError"""
     if priority is not None and priority not in PRIORITY:
-        raise ValueError("priority は low か high です: %r" % (priority,))
+        raise ValueError("priority は low・high・idle のどれかです: %r" % (priority,))
     if os.name != "nt":
         return 0
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | (getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if new_group else 0)

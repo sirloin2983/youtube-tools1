@@ -21,6 +21,7 @@ import time
 
 from pipeline.transcribe import recognize as _recognize   # wav の引数を組む所は ① の 1 か所(OPT2)
 from ytt import datadir, fsio, jobs, tools, txbase as _txbase
+from . import prio as _prio   # 優先度の表(PRIO。配信中の文字起こしは録画中のライブ)
 from . import live_export as LX, livehost, machine as _machine, spec as _spec
 
 WORKER = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pipeline", "transcribe", "live_tx_worker.py")   # 子プロセスの道具は ① の置き場
@@ -408,7 +409,8 @@ class LiveTx(LX.Patrol):
             self.slot_wait = True
             self.log("配信中の文字起こし: %s の認識は、他の重い処理が終わるのを待っています" % rec)
         try:
-            with self.slots.slot("live-tx", "配信中の文字起こし %s" % rec, cancelled=self._halt.is_set, on_wait=on_wait) as ok:
+            with self.slots.slot("live-tx", "配信中の文字起こし %s" % rec, cancelled=self._halt.is_set, on_wait=on_wait,
+                                 **_prio.slot_kw("live")) as ok:
                 self.slot_wait = False
                 if not ok:
                     return None

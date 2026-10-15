@@ -12,6 +12,7 @@ from pipeline.analyze import fetch   # 解析の材料の取得と先読み(OPT2
 from pipeline.analyze import analyze   # 解析(隣のパッケージ。RS3-5 でスタジオから pipeline へ)
 from ytt.errors import ApiError
 
+from . import prio as _prio
 from .jobs import Table
 
 MAX_ACTIVE = 10
@@ -97,8 +98,11 @@ class Batch:
             def prepare(src=src, title=title, channel=channel):
                 v = self.store.ensure(src, title, channel)   # 受け入れの検査のあと・同じロックの中(入れられない配信は store に足さない)
                 return {"title": v["title"], "channel": v["channel"], "marks": 0, "chatSnap": None}
+            spec = {"src": src, "settings": settings}
+            if _prio.name_ok(raw.get("prio")):   # 優先度の表の名前(後回しの仕事 = later は空いているときだけ。flow/prio.py。PRIO)
+                spec["prio"] = raw["prio"]
             try:
-                rec = self.table.add({"src": src, "settings": settings}, prepare=prepare)
+                rec = self.table.add(spec, prepare=prepare)
             except ApiError as e:
                 rejected.append({"input": label, "reason": e.message})
                 continue

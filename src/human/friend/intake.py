@@ -31,6 +31,7 @@ import time
 import uuid
 
 from flow import placement
+from flow import prio as _prio   # 優先度の表(PRIO。受付の 30fps の作り直しは友人の依頼)
 from ytt import colors, fsio, jobs, names as ytt_names, normalize, studio_env, tools
 from . import friend_feedback  # noqa: E402  (友人のアプリの「要らない」<zip の名前>.feedback.json の読み取り。片付けは入口が feedback= で渡す)
 from . import live_requests  # noqa: E402  (ライブ配信の依頼の設定の検査と一覧の文。結びつきは入口が live_begin= で渡す Live.begin_request が書く。2-15)
@@ -824,7 +825,7 @@ class Intake:
         self.message = "30fps にそろえています: %s" % label[:60]
         self.log("依頼の受付: %s を 30fps にそろえます(%s)" % (label, " / ".join(why)))
         try:
-            with jobs.SLOTS.slot("intake", "30fps にそろえる: " + label, cancelled=lambda: self.closed) as ok:
+            with jobs.SLOTS.slot("intake", "30fps にそろえる: " + label, cancelled=lambda: self.closed, **_prio.slot_kw("friend")) as ok:
                 if not ok:
                     raise normalize.Cancelled("取り消しました")
                 self.norm_run(dest, target, cancelled=lambda: self.closed, on_progress=progress)

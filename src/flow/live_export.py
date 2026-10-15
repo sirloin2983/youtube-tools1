@@ -63,6 +63,7 @@ import urllib.parse
 
 from ytt import colors, fsio, jobs, loudness, marks as _marks, names, normalize, recproto, schemas, tools, version as _version
 from . import keys as _keys   # 成果物の鍵(RS6 b-K1)
+from . import prio as _prio   # 優先度の表(PRIO。リアルタイム切り抜きは録画中のライブ)
 from . import live_failures   # 失敗の文は 1 か所。M3
 from . import livehost   # 親の口の型(RS7-2 G0)
 from .live_patrol import Cancelled, Halted, Patrol   # 見回りの糸の骨組みと中止の例外 1 組(OPT2。live_archive・live_tx は LX.Cancelled・LX.Halted で読む)
@@ -983,7 +984,7 @@ class Exporter(Patrol):
             with self.slots.slot("live", "リアルタイム切り抜き %s" % (job.get("label") or job["id"]),
                                  cancelled=self._stopper(job),
                                  on_wait=lambda: self._set(job, message="ほかの重い処理が終わるのを待っています"),
-                                 reserved=bool(d.get("active"))) as ok:   # 録画中は用途つきの枠も使う(M6。文字起こしで上限が埋まっていても待たない)
+                                 reserved=bool(d.get("active")), **_prio.slot_kw("live")) as ok:   # 録画中は用途つきの枠も使う(M6。文字起こしで上限が埋まっていても待たない)
                 self._check(job, stopped=not ok)
                 self._set(job, state="encode", message="30fps に作り直しています")
                 out, tmp = self._encode(job, rc, rec, d, segs, files, a, b, wdir)
