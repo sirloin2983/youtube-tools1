@@ -3,7 +3,7 @@
 
 ねらい: 校正を速くする。主のエンジンの文字起こしとは別に、2つ目のエンジンで同じ音声を認識し、2つの結果が食い違う所を
 行の「候補」(学習の提案と同じ形。tier = "alt")として出す。人が 1 押しで採る。**自動では書き換えない**。
-  POST /api/alt {id, engine?}   ジョブ(kind "alt")を足す。文書の範囲の音声を 2つ目のエンジンで認識して、文書の隣の <id>.alt.json に書く
+  POST /api/rerun {tid, target: whole, engine: alt, result: propose, altEngine?}   ジョブ(kind "alt")を足す(受付は rerun.validate_rerun)。文書の範囲の音声を 2つ目のエンジンで認識して、文書の隣の <id>.alt.json に書く
                                 (置き場所は ytt/docloc.doc_file = 案件の 作業用 に置いた文書ならそこ)
   GET  /api/suggest?id=          学習の提案に alt の候補を足す(learn.suggest_for_doc → alt_suggest)
   文書 1 本の候補(却下済みを外す)は alt_doc_candidates が 1 つの口(編集の提案と「確かめる」の読みのカード read:alt が同じ物を読むため)

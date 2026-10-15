@@ -270,7 +270,7 @@ const WHOLE_RTF = { 'large-v3': 0.37 };
 $('#rtGo').addEventListener('click', e => {
   const b = e.currentTarget, first = !b.dataset.armed;
   armDelete(b, async () => { b.disabled = true; try { await startRetranscribe(); } catch (er){ toast(er.message); } finally { updateRt(); } });   // 文字を上書きするので、2度押しにする
-  if (first && $('#rtTarget').value === 'whole') b.textContent = 'もう一度押す(校正済み以外の行が書き換わります)';
+  if (first && $('#rtTarget').value === 'whole') b.textContent = 'もう一度押す(直した行は残り、ほかの行が書き換わります)';
 });
 $('#rtTarget').addEventListener('change', updateRt);
 $('#rtModel').addEventListener('change', updateRt);   // 動画全体の目安はモデルで変わる
@@ -334,7 +334,7 @@ S.alt = null;
 $('#altGo').addEventListener('click', async () => {
   if (!S.docId || altJob()) return;
   try {
-    await api('/api/alt', { body: { id: S.docId, engine: $('#altEngine').value } });
+    await api('/api/rerun', { body: { tid: S.docId, target: 'whole', engine: 'alt', result: 'propose', altEngine: $('#altEngine').value } });
     kickJobs();
   } catch (e){ toast(e.message, 7000, 'err'); }
 });

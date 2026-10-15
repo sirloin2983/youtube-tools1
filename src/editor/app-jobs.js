@@ -81,7 +81,7 @@ async function pollJobs(){
       if (diar.kind === 'diarize'){ try { S.tools = await api('/api/tools'); renderDiarSetup(); } catch {} }
       loadLearned();
       if (diar.tid === S.docId) await openDoc(diar.tid, true);
-      toast(diar.kind === 'retranscribe' ? `${diar.segments}行を再認識しました。` + (diar.kept || diar.emptyKept ? [diar.kept ? `校正済み ${diar.kept} 行` : '', diar.emptyKept ? `文字が出なかった ${diar.emptyKept} 行` : ''].filter(Boolean).join('と') + 'は元のままです。' : '')
+      toast(diar.kind === 'retranscribe' ? `${diar.segments}行を再認識しました。` + (diar.kept || diar.emptyKept ? [diar.kept ? `直した ${diar.kept} 行は元のまま(機械が変わった行には印)` : '', diar.emptyKept ? `文字が出なかった ${diar.emptyKept} 行は元のまま` : ''].filter(Boolean).join('。') + '。' : '')
           + (diar.loose ? `声が重なる所などを緩い条件で ${diar.loose} 行拾いました(要確認)。` : '') + (diar.unsure ? `まだ不確かな行が${diar.unsure}行あります。` : '') + (diar.vadNote ? diar.vadNote : '')
         : diar.autoSkipped ? `話者の自動判別: ${diar.phase || '判別しませんでした'}`
         : `${diar.auto ? '話者を自動で判別しました' : '話者を判別しました'}(${diar.speakers}人)。` + (namedBy(diar, false).length ? `覚えている声で名前を付けました: ${namedBy(diar, false).map(x => x.name).join('・')}。` : '')
@@ -345,7 +345,7 @@ function renderRtSetup(){
   sel.innerHTML = t.models.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('');
   const want = S.settings.rtModel && t.models.some(m => m[0] === S.settings.rtModel) ? S.settings.rtModel : (t.models.some(m => m[0] === 'large-v3') ? 'large-v3' : t.models[0][0]);
   sel.value = want;
-  if (['text', 'sel', 'all', 'range', 'whole'].includes(S.settings.rtTarget)) $('#rtTarget').value = S.settings.rtTarget;
+  if (['text', 'flagged', 'sel', 'all', 'range', 'whole'].includes(S.settings.rtTarget)) $('#rtTarget').value = S.settings.rtTarget;
 }
 
 function rtRange(){   // 選んだ行の最初〜最後(間の行も含む)
@@ -358,7 +358,8 @@ function rtIds(){
   if (!S.doc) return [];
   const k = $('#rtTarget').value, segs = S.doc.segments;
   if (k === 'range'){ const r = rtRange(); return r ? r.ids.slice(0, 2000) : []; }
-  if (k === 'whole') return segs.filter(s => !s.proofed).map(s => s.id);   // 数えるだけ(送らない。サーバーが校正済みでない行を選ぶ)
+  if (k === 'flagged') return [];   // サーバーが疑わしい行を選ぶ(送らない。数もサーバーが決める)
+  if (k === 'whole') return segs.filter(s => !s.proofed).map(s => s.id);   // 数えるだけ(送らない。サーバーが直した行以外を選ぶ)
   return segs.filter(s => k === 'all' || (k === 'sel' ? S.sel.has(s.id) : flagMatch(s, 'text'))).map(s => s.id).slice(0, 2000);
 }
 
@@ -367,6 +368,11 @@ function updateRt(){
   const ids = new Set(rtIds()), sec = S.doc.segments.filter(s => ids.has(s.id)).reduce((a, s) => a + (s.end - s.start), 0);
   $('#rtHint').textContent = `対象: ${ids.size}行(音声 約${approxLen(sec)})`;
   $('#rtGo').disabled = !ids.size;
+  if ($('#rtTarget').value === 'flagged'){
+    $('#rtHint').textContent = '疑わしい行をサーバーが選びます(文字が少ない = 抜けの可能性のある行)';
+    $('#rtGo').disabled = !!S.doc.evalSet;   // 評価用の文字起こしは再認識できません
+    return;
+  }
   if ($('#rtTarget').value === 'whole'){ rtWholeHint(); return; }
   if ($('#rtTarget').value === 'range'){
     const r = rtRange();
@@ -385,17 +391,18 @@ function rtWholeHint(){
   const { a, b } = docSpan(), kept = S.doc.segments.filter(s => s.proofed).length, rest = S.doc.segments.length - kept;
   const rtf = WHOLE_RTF[$('#rtModel').value], min = rtf ? Math.max(1, Math.round((b - a) * rtf / 60)) : 0;
   const tooLong = b - a > 6 * 3600;
-  $('#rtHint').textContent = `動画全体 ${fmtT(a)}〜${fmtT(b)} を認識し直します。` + (kept ? `校正済みの ${kept} 行は残し、` : '') + `残り ${rest} 行を新しい行に差し替えます(行の数は変わります。文字が出なかった所は元の行を残します)。`
+  $('#rtHint').textContent = `動画全体 ${fmtT(a)}〜${fmtT(b)} を認識し直します。` + (kept ? `直した ${kept} 行は残し、` : '') + `残り ${rest} 行を新しい行に差し替えます(行の数は変わります。文字が出なかった所は元の行を残します)。`
     + (min ? `目安 約${min}分(CPU・large-v3)。` : '') + (S.doc.evalSet ? ' — 評価用の文字起こしは再認識できません' : '') + (tooLong ? ' — 長すぎます(最大6時間)' : '');
   $('#rtGo').disabled = !(b > a) || tooLong || !!S.doc.evalSet;
 }
 
 async function startRetranscribe(){
   if (!S.doc) return;
-  const whole = $('#rtTarget').value === 'whole';
-  const ids = whole ? [] : rtIds(); if (!ids.length && !whole) return toast('再認識する行がありません');
+  const k = $('#rtTarget').value, whole = k === 'whole', flagged = k === 'flagged';
+  const ids = whole || flagged ? [] : rtIds(); if (!ids.length && !whole && !flagged) return toast('再認識する行がありません');
+  const target = { text: 'rows', sel: 'rows', all: 'rows', range: 'span', whole: 'whole', flagged: 'flagged' }[k] || 'rows';   // サーバーの受付 POST /api/rerun の対象(flagged の ids はサーバーが選ぶ)
   if (!(await saveFirst())) return;
-  await api('/api/retranscribe', { body: { tid: S.docId, ids, mode: whole ? 'whole' : $('#rtTarget').value === 'range' ? 'range' : 'each', vadMode: vadModeOf(), wordSplit: optCheck('wordSplit'), ...subtitleReq(), stripPunct: optCheck('stripPunct'), model: $('#rtModel').value, language: $('#optLang').value, device: $('#optDevice').value,
+  await api('/api/rerun', { body: { tid: S.docId, target, engine: 'main', result: 'replace', ids, vadMode: vadModeOf(), wordSplit: optCheck('wordSplit'), ...subtitleReq(), stripPunct: optCheck('stripPunct'), model: $('#rtModel').value, language: $('#optLang').value, device: $('#optDevice').value,
     boost: optCheck('boost'), glossary: $('#optGloss').value, autoDict: optCheck('autoDict'), autoGloss: optCheck('autoGloss'), autoContext: optCheck('autoContext') } });   // 0.66.0: チェックは設定の画面へ(保存した設定から)
-  await kickJobs(); toast(whole ? '動画全体の再認識を待機列に追加しました(終わると読み込み直します)' : `${ids.length}行の再認識を待機列に追加しました`);
+  await kickJobs(); toast(whole ? '動画全体の再認識を待機列に追加しました(終わると読み込み直します)' : flagged ? '疑わしい行の再認識を待機列に追加しました' : `${ids.length}行の再認識を待機列に追加しました`);
 }

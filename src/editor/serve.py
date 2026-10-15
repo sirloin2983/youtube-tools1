@@ -18,13 +18,11 @@
   POST /api/voices/learn     {tid, embedding, names, confirmSame} 名前を付けた話者の声を覚えるジョブを追加(A-3。作業データの voices/ に保存。
                              校正済みの行だけ・評価用は断る・一般的な名前は覚えない・既にある名前は confirmSame に入れたときだけ足す。段1)
   POST /api/voices/delete    覚えている声を消す {embedding, name}
-  POST /api/retranscribe     選んだ行だけを、別のモデルで再認識するジョブを追加
+  POST /api/rerun            認識し直し(X-RERUN): {tid, target: rows|span|whole|flagged, engine: main|alt, result: replace|propose, ids?, 設定} = human/proof/rerun.validate_rerun
   POST /api/retime           {"id", "rows": [行の id…]} 行の時刻を単語の時刻(words.json)に合わせる候補(読むだけ。文書は書き換えない。本体は human/proof/retime.py の包み + pipeline/transcribe/retime.py の計算)
   GET  /api/learned          修正から学習した「誤=>正」の候補
   GET  /api/suggest?id=      この文字起こしの各行への「修正の提案」(文脈つきの統計)
   POST /api/suggest/feedback 提案の採用・却下を記録(項目の tier "alt" = 2つ目のエンジンの候補は学習の統計に入れず、数だけ数える)
-  POST /api/alt              {"id", "engine"?} 2つ目のエンジンで同じ音声を聞くジョブ(結果は transcripts/<id>.alt.json。文書は書き換えない。
-                             食い違う所が GET /api/suggest に tier "alt" の候補として出る。評価用・最初の認識と同じエンジンとモデルは断る。D1-b。本体は human/proof/alt.py)
   GET  /api/metrics?id=&scope=  校正済みの行を正解とした文字誤り率(CER)。id 省略で全件
   GET  /api/transcripts      保存済みの文字起こし一覧
   GET/PUT/DELETE /api/transcript?id=   1件の取得・保存・削除
@@ -297,8 +295,7 @@ POST_API = {
     "/api/voices/learn": lambda o: _job(_speakers.validate_voice_learn(o), "voice-learn"),   # A-3: 名前を付けた話者の声を覚える(ジョブ)
     "/api/speakers/sub": lambda o: _speakers.speakers_sub_apply(o),   # 話者ごとの字幕の見た目(今は色)を名前で入れる(入口のまとめて実行が友人の指定を覚える。2026-10-05)
     "/api/voices/delete": _delete_voice,
-    "/api/retranscribe": lambda o: _job(_docjobs.validate_retranscribe(o), "retranscribe"),
-    "/api/alt": lambda o: _job(_alt.alt_spec(_id_of(o), o), "alt"),   # 2つ目のエンジンで聞く(D1-b)。文書は書き換えないので、編集は止めない
+    "/api/rerun": lambda o: _job(*_rerun.validate_rerun(o)),   # 認識し直しの受付は 1 つ(X-RERUN。対象 × エンジン × 結果の扱い)
     "/api/thumb-ideas": lambda o: _job(ed_thumb.thumb_spec(_id_of(o), o), "thumb"),   # サムネの案を 1 枚に(P5)。文書は読むだけなので、編集は止めない
     "/api/settings/patch": lambda o: _settings.patch_settings(o),   # ほかの画面(ホーム・スタジオのまとめて実行の欄)から、決まった項目だけを直す
     "/api/restore": lambda o: {"ok": True, "updatedAt": _store.restore_history(str(o.get("id", "")), o.get("ts"))["updatedAt"]},

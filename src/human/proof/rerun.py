@@ -266,3 +266,38 @@ def _retranscribe_each(job, spec, targets, wav, start):
     """選んだ行を 1 行ずつ認識する(run_retranscribe の each。音声は取り出し済み)。-> {行の id: (文章, 要確認の理由)}。
     本物と疑似の選び方・ワーカーでの行ごとの認識は ② flow/tx.each_lines(本物の処理 _each_real もそこ)"""
     return _flowtx.each_lines(job, spec, targets, wav, start)
+
+
+# ---------- 認識し直しの受付を 1 つに(X-RERUN。ユーザー決定 10-13 = 対象 × エンジン × 結果の扱い) ----------
+RERUN_TARGETS = ("rows", "span", "whole", "flagged")   # 選んだ行・選んだ行の最初〜最後の範囲・文書の全体・印の付いた所(疑わしい行 = doc_jobs.redo_targets)
+RERUN_ENGINES = ("main", "alt")                         # いつものエンジン(文書の設定)・2 つ目のエンジン(alt)
+RERUN_RESULTS = ("replace", "propose")                  # 機械の結果を差し替える(機械の層だけ。人の行は残る)・候補として出す(文書は書かない)
+
+
+def validate_rerun(req):
+    """POST /api/rerun {tid, target, engine, result, ids?, 認識の設定(model・language・vadMode…)} -> (spec, ジョブの種類)。
+    決まった組だけ受ける: いつものエンジン × 差し替える(rows = 行ごと・span = 範囲・whole = 全体・flagged = 印の付いた行ごと)/
+    2 つ目のエンジン × 候補(whole だけ。<id>.alt.json に書く)。2 つ目のエンジンで差し替える・いつものエンジンで候補 は断る(400 bad_combo)。
+    評価用の文書は断る(評価用の作り直しは ⑤ の見回りが全体を入れ直す道だけ = ユーザー決定 10-16 Q-A)"""
+    req = req if isinstance(req, dict) else {}
+    target = req.get("target") if req.get("target") in RERUN_TARGETS else "rows"
+    engine = req.get("engine") if req.get("engine") in RERUN_ENGINES else "main"
+    result = req.get("result") if req.get("result") in RERUN_RESULTS else ("propose" if engine == "alt" else "replace")
+    tid = str(req.get("tid") or req.get("id") or "")
+    if engine == "alt":
+        if result != "propose":
+            raise _errors.ApiError("bad_combo", "2 つ目のエンジンの結果は候補として出すだけです(文書は差し替えません)", 400)
+        if target != "whole":
+            raise _errors.ApiError("bad_combo", "2 つ目のエンジンで聞くのは、今は文書の全体だけです", 400)
+        from . import alt as _alt   # alt は doc_jobs を読む(向き: rerun → alt → doc_jobs)
+        return _alt.alt_spec(tid, dict(req, engine=req.get("altEngine") or req.get("engineKey"))), "alt"
+    if result != "replace":
+        raise _errors.ApiError("bad_combo", "いつものエンジンの結果は機械の結果を差し替えます(候補として出すのは 2 つ目のエンジンだけ)", 400)
+    mode = {"rows": "each", "span": "range", "whole": "whole", "flagged": "each"}[target]
+    ids = req.get("ids")
+    if target == "flagged":
+        doc = store.read_transcript(tid)
+        ids = [g["id"] for g, _a, _b in doc_jobs.redo_targets(doc)]
+        if not ids:
+            raise _errors.ApiError("empty", "印の付いた(疑わしい)行がありません", 400)
+    return doc_jobs.validate_retranscribe(dict(req, tid=tid, ids=ids, mode=mode)), "retranscribe"

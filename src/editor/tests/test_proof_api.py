@@ -30,6 +30,7 @@ from test_backend import HERE, S, StoreDir, free_port, write_json  # noqa: E402
 from test_voices import doc_with_speakers, unit
 from human.proof import learn  # noqa: E402
 from ytt import docloc  # noqa: E402
+from ytt import txtext as _txtext  # noqa: E402
 
 TID_A, TID_B, TID_C = "aaaaaaaaaaaa", "bbbbbbbbbbbb", "cccccccccccc"
 HAVE_FF = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
@@ -415,6 +416,55 @@ class TestVoiceChain(_ProofStore):
         j, d = self.rediarize()
         self.assertFalse(j.get("named"))
         self.assertEqual([s["name"] for s in d["speakers"]], ["話者1", "話者2"])
+
+
+class TestRerunReceive(_ProofStore):
+    """POST /api/rerun の受付(human/proof/rerun.validate_rerun)。断る組・疑わしい行の選び方・評価用は断る(ジョブの中身は見ない)"""
+
+    def put(self, segs, **extra):
+        d = fixed_doc(TID_A, proofed=False)
+        d.update(segments=segs, original=[{"start": g["start"], "end": g["end"], "text": g["text"]} for g in segs], end=10.0, **extra)
+        self.put_doc(d, TID_A)
+
+    def sparse_rows(self):
+        """f1 = 長い区間に文字が少ない印つきで、機械の出力のまま(疑わしい)。f2 = 印なし"""
+        return [{"id": "f1", "start": 0.0, "end": 4.0, "text": "あ", "speaker": "", "flag": _txtext.SPARSE_FLAG},
+                {"id": "f2", "start": 4.0, "end": 8.0, "text": "いい", "speaker": "", "flag": ""}]
+
+    def rerun(self, **req):
+        return S._rerun.validate_rerun(dict({"tid": TID_A, "model": "small"}, **req))
+
+    def test_refused_combinations(self):
+        self.put(self.sparse_rows())
+        cases = [dict(engine="alt", result="replace", target="whole"),     # 2つ目のエンジンで差し替える
+                 dict(engine="alt", result="replace", target="rows", ids=["f1"]),
+                 dict(engine="main", result="propose", target="rows", ids=["f1"])]   # いつものエンジンで候補
+        for req in cases:
+            with self.subTest(req=req), self.assertRaises(S.ApiError) as c:
+                self.rerun(**req)
+            self.assertEqual((c.exception.code, c.exception.status), ("bad_combo", 400))
+
+    def test_flagged_without_suspect_rows_is_empty(self):
+        rows = self.sparse_rows()
+        rows[0]["flag"] = ""                                               # 印が無い = 疑わしい行は無い
+        self.put(rows)
+        with self.assertRaises(S.ApiError) as c:
+            self.rerun(target="flagged")
+        self.assertEqual((c.exception.code, c.exception.status), ("empty", 400))
+
+    def test_flagged_picks_the_suspect_rows_not_the_sent_ids(self):
+        self.put(self.sparse_rows())
+        with mock.patch("ytt.tools.check_source", lambda p: p):
+            spec, kind = self.rerun(target="flagged", ids=["f2"])          # 送った ids は無視し、サーバーが疑わしい行を選ぶ
+        self.assertEqual(kind, "retranscribe")
+        self.assertEqual(spec["mode"], "each")
+        self.assertEqual(spec["ids"], ["f1"])
+
+    def test_eval_set_is_refused(self):
+        self.put(self.sparse_rows(), evalSet=True)
+        with self.assertRaises(S.ApiError) as c:
+            self.rerun(target="flagged")
+        self.assertEqual((c.exception.code, c.exception.status), ("eval_set", 400))
 
 
 if __name__ == "__main__":
