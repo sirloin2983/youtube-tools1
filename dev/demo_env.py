@@ -183,7 +183,8 @@ def seed_check(tmp, txdir, samples, videos, write_tx, now):
       voice:diar  話者の判別(.diar.json)の行(1 秒以上・混ざり無し・校正していない)
       time:row    校正済みの行
       speech:diar 声の区間(.diar.json の turns)と重ならない行(C-EVAL)
-      section:eval 評価用の文書の区間(評価のレーン。見本ではスイッチをオンにする = main の YTT_CHECK_SECTION。C-EVAL)"""
+      section:eval 評価用の文書の区間(評価のレーン。見本ではスイッチをオンにする = main の YTT_CHECK_SECTION。C-EVAL)
+      cut:edge・gap・whole 自動カットのたたき台(edit.json の draft.keepsSec。見本ではスイッチをオン = YTT_CHECK_CUT。CUT-CARD)"""
     from manage.cases import cases as cases_mod
     from ytt import schemas
     created = int((now - 86400) * 1000)
@@ -229,6 +230,12 @@ def seed_check(tmp, txdir, samples, videos, write_tx, now):
                        "turns": [{"start": 0.0, "end": 10.6, "label": 0}, {"start": 14.0, "end": 22.0, "label": 0}]}}   # 10.6〜14 に声が無い = s4 が「声ですか」
     with open(os.path.join(txdir, CHECK_DOC + ".diar.json"), "w", encoding="utf-8") as f:
         json.dump(diar, f, ensure_ascii=False)
+    keeps = [[0.4, 3.2], [3.4, 10.5], [13.0, 22.0], [25.0, 38.0]]   # 自動カット(無音で削る)のたたき台 = すき間 0.2・2.5・3 秒
+    edit_doc = {"schema": "youtube-tools-edit/v1", "rev": 1, "updatedAt": created, "packRev": 0, "origin": "silence",
+                "sources": [{"fps": [30, 1], "duration": 40.0}], "clips": [{"src": 0, "in": a, "out": b} for a, b in keeps],
+                "draft": {"origin": "silence", "settings": {}, "keepsSec": keeps, "at": created}}
+    with open(os.path.join(txdir, CHECK_DOC + ".edit.json"), "w", encoding="utf-8") as f:
+        json.dump(edit_doc, f, ensure_ascii=False)
     ev_rows = [{"id": "e%d" % i, "start": s, "end": s + 3.5, "text": t, "speaker": "S1"} for i, (s, t) in enumerate(
         ((1.0, "はいどうもこんにちは"), (5.0, "今日は評価用の見本です"), (12.0, "ちょっと聞いてみてください"), (24.0, "ここで少し間があります"),
          (33.0, "次の区間の行です"), (40.0, "おしまい")), 1)]
@@ -248,7 +255,7 @@ def main(argv=None):
     keep = bool(a.dir)
     os.environ.update({"YTT_DATA_DIR": "inplace", "YTT_RUNTIME_DIR": os.path.join(tmp, ".runtime"), "STUDIO_FAKE": "1",
                        "TRANSCRIBE_BACKEND": "fake", "STUDIO_HOME": os.path.join(tmp, "studio-home"),
-                       "YTT_CHECK_SECTION": "on"})   # 見本では評価のレーンの区間カードを出す(既定はオフ。human/check/section.enabled)
+                       "YTT_CHECK_SECTION": "on", "YTT_CHECK_CUT": "on"})   # 見本では評価のレーンの区間カードを出す(既定はオフ。human/check/section.enabled)
     from app import server as L   # noqa: E402  (環境変数を決めてから読む)
     import mount as M    # noqa: E402
     from test_launch import _copy_tool  # noqa: E402

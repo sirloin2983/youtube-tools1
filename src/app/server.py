@@ -142,6 +142,7 @@ from human.check import read as check_read  # noqa: E402,F401  (読みのカー�
 from human.check import timerow as _check_timerow  # noqa: E402,F401  (時刻のカードの反映を apply に登録する。V2d)
 from human.check import value as check_value  # noqa: E402, F401  (src/human/check/value.py: 価値のカードの反映を apply に登録する。V2a)
 from human.check import speech as _check_speech  # noqa: E402,F401  (「この行は声ですか?」の反映を apply に登録する。C-EVAL)
+from human.check import cutcard as _check_cutcard  # noqa: E402,F401  (自動カットのカードの答えを apply に登録する。CUT-CARD)
 from human.check import section as _check_section  # noqa: E402,F401  (評価のレーンの区間カードの反映を apply に登録する。C-EVAL)
 from human.check import voice as _check_voice  # noqa: E402,F401  (誰の声のカードの反映と声の覚え直し。読み込みで apply に登録する。V2c)
 from human.friend import deliver as deliver_mod  # noqa: E402 (src/human/friend/deliver.py: パックを友人へ届ける = Dropbox の 出力 に zip で置く)
@@ -631,7 +632,7 @@ STATIC.update({"/cases-panels/proof.css": (os.path.join("panels", "proof.css"), 
 # 確かめる(/check。RS8 V1。notes:docs/design/v1-check-build.md)。案件をまたぐ軽い確認のカード。/cases と同じく入口の直下の 1 枚・完全一致の表だけ。
 # カードの描き方は /check-cards/<種類>.js(V2 の 4 本が中身を足す)・カード用の軽い再生部品は /check-player.js
 CHECK_DIR = os.path.join(ROOT, "app", "ui", "check")
-CHECK_CARDS = ("value", "read", "voice", "time", "speech", "section")   # 切り抜く価値・どちらの読み・誰の声・行の時刻・この行は声ですか(C-EVAL)・評価の区間(C-EVAL)
+CHECK_CARDS = ("value", "read", "voice", "time", "speech", "cut", "section")   # 切り抜く価値・どちらの読み・誰の声・行の時刻・この行は声ですか(C-EVAL)・評価の区間(C-EVAL)
 STATIC.update({"/check": ("index.html", CHECK_DIR), "/check.js": ("check.js", CHECK_DIR), "/check.css": ("check.css", CHECK_DIR),
                "/check-player.js": ("player.js", CHECK_DIR)})
 STATIC.update({"/check-cards/%s.js" % n: (os.path.join("cards", n + ".js"), CHECK_DIR) for n in CHECK_CARDS})

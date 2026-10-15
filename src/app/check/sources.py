@@ -358,4 +358,4 @@ def collect(ctx, state=None, kinds=None):
             continue
         cards.extend(c for c in got if isinstance(c, dict) and lineup.parse_id(c.get("id")) and c.get("kind") == kind)
     return cards, view
-from . import speech_sources, eval_sources   # noqa: E402,F401  「この行は声ですか?」(普段)と区間カード(評価)を足す(C-EVAL。register)
+from . import speech_sources, eval_sources, cut_sources   # noqa: E402,F401  「この行は声ですか?」(普段)と区間カード(評価)を足す(C-EVAL。register)

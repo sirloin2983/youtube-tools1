@@ -372,6 +372,54 @@ def _scene_speech(cx):
         _restore_queue(cx)
 
 
+def _scene_cut(cx):
+    """自動カットの確認(cut): edge / gap / whole の問い・ボタン・キーの答え・消した所を飛ばす"""
+    pg, check = cx.pg, cx.check
+    vurl = "transcribe/media?id=a0000000000e"
+
+    def cc(i, source, target, media):
+        return card(i, "cut", source=source, target=dict(target, docId="a0000000000e"), media=media, text="", note="自動カットのテスト")
+    edge_m = {"url": vurl, "start": 0.0, "end": 4.0, "pad": 0.0}
+    cut = {"cut": [1.0, 2.5]}
+    keeps = {"keeps": [[0.0, 1.0], [2.5, 3.5]]}
+    fc = FakeQueue([cc(91, "edge", cut, edge_m), cc(92, "edge", cut, edge_m), cc(93, "edge", cut, edge_m),
+                    cc(94, "gap", cut, edge_m), cc(95, "gap", cut, edge_m),
+                    cc(96, "whole", keeps, edge_m), cc(97, "whole", keeps, edge_m)])
+    _swap_queue(cx, fc)
+    keys = "[...document.querySelectorAll('#chkBody [data-chk-k]')].map(b => b.dataset.chkK).join()"
+    try:
+        pg.goto(cx.base + "check?kind=cut")
+        check(wait_js(pg, "CheckShell.state().cur === 'cut:e2e:91'"), "cut の edge カードが出る: %s" % state(pg))
+        check("切れ目はちょうどいい?" in pg.text_content("#chkBody"), "edge の問い")
+        check(pg.evaluate(keys) == "Enter,E,L,K", "edge のボタンは Enter・E・L・K: %s" % pg.evaluate(keys))
+        # 消した所を飛ばす(本物の動画のとき。飛ばなければ失敗にせず注記だけ)
+        if wait_js(pg, "(() => { const v = document.querySelector('#chkBody video'); return !!v && v.readyState >= 1; })()", 8000):
+            pg.evaluate("document.querySelector('#chkBody video').currentTime = 1.5")
+            jumped = wait_js(pg, "document.querySelector('#chkBody video').currentTime >= 2.5", 3000)
+            # 偽の動画は Range 無しで返すので、シークが戻される(再生位置が揺れる)= 飛んだときだけ確かめ、飛ばなければ注記だけ(不安定にしない)
+            print(("OK   " if jumped else "SKIP ") + "edge: 消した所の中へ動かすと 2.5 へ飛ぶ(偽の動画ではシークが効かないことがある): %s" % pg.evaluate("document.querySelector('#chkBody video').currentTime"), flush=True)
+        else:
+            print("SKIP edge の飛ばし: video が準備できない", flush=True)
+        press(pg, "Enter")
+        check(wait_js(pg, "CheckShell.state().cur === 'cut:e2e:92'") and fc.answers[-1]["body"]["answer"] == {"choice": "good"}, "edge: Enter = good: %s" % fc.answers[-1:])
+        press(pg, "e")
+        check(wait_js(pg, "CheckShell.state().cur === 'cut:e2e:93'") and fc.answers[-1]["body"]["answer"] == {"choice": "early"}, "edge: E = early: %s" % fc.answers[-1:])
+        pg.click("#chkBody [data-chk-k='L']")
+        check(wait_js(pg, "CheckShell.state().cur === 'cut:e2e:94'") and fc.answers[-1]["body"]["answer"] == {"choice": "late"}, "edge: L のボタン = late: %s" % fc.answers[-1:])
+        check("消してよい?" in pg.text_content("#chkBody") and pg.evaluate(keys) == "A,K", "gap の問いとボタン A・K: %s" % pg.evaluate(keys))
+        press(pg, "a")
+        check(wait_js(pg, "CheckShell.state().cur === 'cut:e2e:95'") and fc.answers[-1]["body"]["answer"] == {"choice": "ok"}, "gap: A = ok: %s" % fc.answers[-1:])
+        pg.click("#chkBody [data-chk-k='K']")
+        check(wait_js(pg, "CheckShell.state().cur === 'cut:e2e:96'") and fc.answers[-1]["body"]["answer"] == {"choice": "keep"}, "gap: K のボタン = keep: %s" % fc.answers[-1:])
+        check("自動で切った 1 本は自然?" in pg.text_content("#chkBody") and pg.evaluate(keys) == "Enter,T,U", "whole の問いとボタン Enter・T・U: %s" % pg.evaluate(keys))
+        press(pg, "u")
+        check(wait_js(pg, "CheckShell.state().cur === 'cut:e2e:97'") and fc.answers[-1]["body"]["answer"] == {"choice": "unnatural"}, "whole: U = unnatural: %s" % fc.answers[-1:])
+        pg.click("#chkBody [data-chk-k='T']")
+        check(wait_js(pg, "CheckShell.state().empty") and fc.answers[-1]["body"]["answer"] == {"choice": "tempo"}, "whole: T のボタン = tempo: %s" % fc.answers[-1:])
+    finally:
+        _restore_queue(cx)
+
+
 def _section_card(i, rows=None, **extra):
     rows = rows if rows is not None else [
         {"id": "r1", "start": 1.0, "end": 3.0, "text": "もとの字幕", "speaker": "ぺこら", "owned": True, "novoice": False, "proofed": False},
@@ -558,6 +606,7 @@ def main():
                 _scene_read_type(cx)
                 _scene_voice(cx)
                 _scene_speech(cx)
+                _scene_cut(cx)
                 _scene_eval_lane(cx)
                 _scene_eval_empty(cx)
                 check(all("lane" not in q for q in fq.next_q), "普段のレーンは lane=eval を渡さない")

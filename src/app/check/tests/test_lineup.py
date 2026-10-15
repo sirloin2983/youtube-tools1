@@ -66,7 +66,7 @@ class OrderTest(unittest.TestCase):
         self.assertEqual(len(lineup.order(cards, {"read": "not a goal"})), 3)
 
     def test_per_kind_and_public(self):
-        self.assertEqual(lineup.per_kind([card("read", "a"), card("read", "b"), card("time", "c")]), {"value": 0, "read": 2, "voice": 0, "time": 1, "speech": 0})
+        self.assertEqual(lineup.per_kind([card("read", "a"), card("read", "b"), card("time", "c")]), {"value": 0, "read": 2, "voice": 0, "time": 1, "speech": 0, "cut": 0})
         self.assertEqual(lineup.per_kind([card("section", "a")], lineup.EVAL_KINDS), {"section": 1})   # 評価のレーン(C-EVAL)
         self.assertNotIn("_order", lineup.public(card("read", "a")))
 
@@ -107,7 +107,7 @@ class GoalsTest(unittest.TestCase):
         ids = {g["id"] for g in accuracy.GOALS}
         for kind in ("value", "read", "voice", "time"):
             self.assertIn(goals.goal_of(kind), ids)
-        for kind in ("speech", "section"):   # 目標の無い種類(C-EVAL。並びは目標の無い種類の場所)
+        for kind in ("speech", "cut", "section"):   # 目標の無い種類(C-EVAL。並びは目標の無い種類の場所)
             self.assertIsNone(goals.goal_of(kind))
         for (_k, _s), gid in goals.KIND_GOAL.items():
             self.assertIn(gid, ids)

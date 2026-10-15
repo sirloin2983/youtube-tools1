@@ -13,13 +13,13 @@
 import math
 import re
 
-NORMAL_KINDS = ("value", "read", "voice", "time", "speech")   # 普段のレーン(speech = 「この行は声ですか?」C-EVAL (3))
+NORMAL_KINDS = ("value", "read", "voice", "time", "speech", "cut")   # 普段のレーン(speech = 「この行は声ですか?」C-EVAL (3)・cut = 自動カットのカード CUT-CARD)
 EVAL_KINDS = ("section",)   # 評価のレーン(評価用の文書の区間カード。C-EVAL (2))
 KINDS = NORMAL_KINDS + EVAL_KINDS
 LANES = {"normal": NORMAL_KINDS, "eval": EVAL_KINDS}
 LIGHT = {k: i for i, k in enumerate(KINDS)}
 # カードの id = <種類>:<出どころ>:<対象の鍵>(同じ対象を 2 回出さない鍵。対象の鍵は文書の id・行の id・配信・マークを # でつなぐ)
-CARD_ID_RE = re.compile(r"^(value|read|voice|time|speech|section):([a-z]{1,12}):([A-Za-z0-9_#.-]{1,160})\Z")
+CARD_ID_RE = re.compile(r"^(value|read|voice|time|speech|cut|section):([a-z]{1,12}):([A-Za-z0-9_#.-]{1,160})\Z")
 DEFAULT_N, MAX_N = 10, 50
 
 

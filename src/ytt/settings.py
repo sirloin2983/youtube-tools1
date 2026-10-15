@@ -210,6 +210,8 @@ SETTINGS_PATCH_KEYS = {"packLoudness": lambda v: not isinstance(v, bool) and v i
                        "diarSmooth": lambda v: isinstance(v, bool),
                        # 確かめるの評価のレーンに区間カードを出す(C-EVAL。試験中・既定オフ = human/check/section.enabled)
                        "checkSectionCards": lambda v: isinstance(v, bool),
+                       # 確かめるに自動カットのカードを出す(CUT-CARD。試験中・既定オフ = human/check/cutcard.enabled)
+                       "checkCutCards": lambda v: isinstance(v, bool),
                        # 2 カット の「無音 ▾」の値(気が利く画面へ 段7 E-5)。まとめて実行(flow/run.py の _pack_settings)も同じ鍵を読む
                        "cutSilence": lambda v: _cut_silence_ok(v),
                        # サムネの案の切り取り(パックの所の「サムネの案」。alt = 中央と右下を交互。P5。ed_thumb.THUMB_CROPS)
