@@ -24,9 +24,9 @@ from pathlib import Path
 
 from pipeline.pack import cut2resolve_core as _core, pack as _pack, request as _packreq
 from ytt import docloc as _docloc, errors as _errors, fsio as _fsio, jobs as _slots, schemas as _yschemas, tools as _ytools
-from ytt import txbase as _txbase, txtext as _txtext, workdata as _workdata
+from ytt import txbase as _txbase, txtext as _txtext, version as _version, workdata as _workdata
 
-from . import jobs as _jobs, keys as _keys, pack as _flowpack, tx as _tx
+from . import jobs as _jobs, pack as _flowpack, packrec as _packrec, tx as _tx
 from . import machine as _machine, placement as _placement, spec as _spec
 
 
@@ -452,8 +452,13 @@ class LocalTools:
                 job.update(state="cancelled")
                 return 200, {"job": dict(job)}
             try:
-                job.update(state="done", result=_build(req, out_dir, out))
-                _keys.write_pack(job["result"]["outDir"], sp, o)   # <パック>/pack.key.json(cut2resolve の API と同じ。書けなくてもログだけ。RS6 b-K2)
+                res = _build(req, out_dir, out)
+                view = {"outDir": str(res["out_dir"]), "files": [{"kind": k, "name": Path(p).name, "path": str(p)} for k, p in res["files"]],
+                        "warnings": list(res["warnings"])}
+                # 作れたあとの記録(パックを作った記録 + pack.key.json)は cut2resolve の API と同じ口(設計原則の指摘 3。書けなくても注意だけ)
+                view["warnings"] += _packrec.after_build(res, req.video, sp, o, out["textplus"], out["backup"], out["textplusColor"],
+                                                         tool={"name": "flow", "version": _version.VERSION})
+                job.update(state="done", result=view)
             except (_core.ToolError, ValueError, OSError) as e:
                 job.update(state="error", error={"message": str(e)})
         return 200, {"job": dict(job)}
@@ -476,12 +481,11 @@ def _read_doc(path):
 
 
 def _build(req, out_dir, out):
-    """① plan_cut → build_pack -> 段が読む結果 {"outDir", "files", "warnings"}"""
+    """① plan_cut → build_pack -> build_pack の結果(out_dir・files・warnings・plan・editMedia・videoCopy)"""
     plan = _pack.plan_cut(req)
     spk_map, _shown = _packreq.speaker_colors_for(plan, out)
     res = _pack.build_pack(plan, out_dir, render=out["render"], copy_video=out["copyVideo"], textplus=out["textplus"], textplus_target=out["textplusTarget"],
                            force=out["force"], backup=out["backup"], plan_file=False, readme_file=False, textplus_wrap=out["textplusWrap"],
                            textplus_color=out["textplusColor"], speaker_colors=spk_map or None,
                            loudness=out["loudness"], volume=out["volume"], video_tracks=out["videoTracks"])
-    return {"outDir": str(res["out_dir"]), "files": [{"kind": k, "name": Path(p).name, "path": str(p)} for k, p in res["files"]],
-            "warnings": res["warnings"]}
+    return res

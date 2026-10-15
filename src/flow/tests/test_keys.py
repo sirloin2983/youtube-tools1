@@ -18,7 +18,7 @@ from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
 sys.path.insert(0, SRC)
-from flow import keys, live_archive  # noqa: E402
+from flow import keys, live_archive, packrec  # noqa: E402
 from ytt import schemas, workdata  # noqa: E402
 
 TID = "abc123def456"
@@ -36,9 +36,21 @@ class _Env(unittest.TestCase):
         os.makedirs(os.path.dirname(self.media))
         with open(self.media, "wb") as f:
             f.write(b"movie-bytes")
+        packs = os.path.join(self.tmp, "packs")
+        p = mock.patch.object(packrec, "packs_dir", lambda env=None, c2r_dir=None: packs)   # パックを作った記録は一時フォルダへ
+        p.start()
+        self.addCleanup(p.stop)
 
     def tearDown(self):
         shutil.rmtree(self.tmp, True)
+
+    def built(self, out):
+        """out にパックの中身(動画 1 つ)と、パックを作った記録を置く(作り終えたパックの形 = keys.pack_state の same の条件)"""
+        os.makedirs(out, exist_ok=True)
+        v = os.path.join(out, "a_0001.mp4")
+        with open(v, "wb") as f:
+            f.write(b"pack-movie")
+        packrec.write_record({"out_dir": out, "files": [("video", v)]}, self.media, False, False)
 
 
 class TestKeysIgnoreAdopt(unittest.TestCase):
@@ -238,7 +250,13 @@ class TestReadK2(_Env):
         out = str(keys._pack.default_out_dir(self.media))
         os.makedirs(out)
         self.assertTrue(keys.write_pack(out, body["spec"], body["output"]))
+        self.assertEqual(keys.pack_state(self.media, make)[0], "differ")   # 鍵は同じでもパックを作った記録・中身が無い = 作り直す(部品 F3)
+        self.built(out)
         self.assertEqual(keys.pack_state(self.media, make)[0], "same")
+        with open(os.path.join(out, "a_0001.mp4"), "wb"):
+            pass   # 中身の動画が空になった
+        self.assertEqual(keys.pack_state(self.media, make)[0], "differ")
+        self.built(out)
         same = {"spec": dict(body["spec"]), "output": {"textplus": True, "volume": 100, "speakerColors": True}}   # 既定の値・省略の違いはそろえる
         self.assertEqual(keys.pack_state(self.media, lambda: same)[0], "same")
         other = {"spec": body["spec"], "output": dict(body["output"], textplusWrap=8)}
@@ -255,6 +273,7 @@ class TestReadK2(_Env):
         write_tr("あ", "1")
         body = {"spec": {"video": self.media, "transcript": tr, "preset": "transcript-rows"}, "output": {"textplus": True}}
         out = str(keys._pack.default_out_dir(self.media))
+        self.built(out)
         keys.write_pack(out, body["spec"], body["output"])
         write_tr("あ", "2")   # 作り直しただけ(作った日時が違う)= 同じ
         self.assertEqual(keys.pack_state(self.media, lambda: body)[0], "same")
@@ -289,6 +308,41 @@ class TestArchiveSwap(_Env):
         with mock.patch.object(keys, "write_export", return_value=False):
             live_archive.Archiver._archive_key(self.media, {"videoId": "vid12345678", "start": 1.0, "end": 2.0})
         self.assertIsNone(keys.read(keys.media_key_path(self.media, "export"), "export"))
+
+
+class TestPackRecord(_Env):
+    """パックを作った記録(② flow/packrec)。API と CLI が同じ after_build を呼ぶ(設計原則の指摘 3)"""
+
+    def test_after_build_writes_record_and_key(self):
+        out = str(keys._pack.default_out_dir(self.media))
+        os.makedirs(out)
+        v = os.path.join(out, "a_0001.mp4")
+        with open(v, "wb") as f:
+            f.write(b"pack-movie")
+        res = {"out_dir": out, "files": [("video", v)], "plan": {"cuts": 1}, "editMedia": None}
+        body = {"spec": {"video": self.media, "keeps": [[0, 1]]}, "output": {"textplus": False}}
+        self.assertEqual(packrec.after_build(res, self.media, body["spec"], body["output"], False, False, tool={"name": "flow"}), [])
+        rec = packrec.read_record(out)
+        self.assertEqual((rec["tool"], rec["files"], rec["cutPlan"]), ({"name": "flow"}, ["a_0001.mp4"], {"cuts": 1}))
+        self.assertEqual(packrec.ready(out), (True, ""))
+        self.assertEqual(keys.pack_state(self.media, lambda: body)[0], "same")   # 鍵も同じ口で書いた
+        os.unlink(v)
+        self.assertIsNone(packrec.read_record(out))   # 中身が 1 つも無い = 記録は無効
+        self.assertEqual(keys.pack_state(self.media, lambda: body)[0], "differ")
+
+    def test_ready_needs_lua_for_textplus(self):
+        out = os.path.join(self.tmp, "p")
+        os.makedirs(out)
+        v = os.path.join(out, "a.mp4")
+        with open(v, "wb") as f:
+            f.write(b"x")
+        packrec.write_record({"out_dir": out, "files": [("video", v)]}, self.media, True, False)
+        self.assertEqual(packrec.ready(out)[0], False)
+
+    def test_write_failure_is_a_warning(self):
+        with mock.patch.object(packrec, "write_record", side_effect=OSError("書けない")):
+            w = packrec.after_build({"out_dir": self.tmp, "files": []}, self.media, {"video": self.media}, {}, False, False)
+        self.assertEqual(len(w), 1)
 
 
 if __name__ == "__main__":

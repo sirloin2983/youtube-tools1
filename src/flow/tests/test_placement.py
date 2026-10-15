@@ -534,5 +534,32 @@ class TestLock(_Tmp):
         self.assertEqual(placement.lock_path(os.path.join(self.tmp, "x")), os.path.join(self.tmp, "x", ".flow.lock"))
 
 
+class TestCaseRootsAndDeliveries(unittest.TestCase):
+    """案件の根の一覧(placement.case_roots)と届けた記録の読み口(flow/deliveries)。OPT-M2"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="flowroots_")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def test_case_roots(self):
+        for d in ("b題", "a題", os.path.join(placement.REQUEST_DIR, "2026-10-01_x_abc123")):
+            os.makedirs(os.path.join(self.tmp, d))
+        with open(os.path.join(self.tmp, "file.mp4"), "w"):
+            pass
+        got = [os.path.relpath(p, self.tmp) for p in placement.case_roots(self.tmp)]
+        self.assertEqual(got, ["a題", "b題", os.path.join(placement.REQUEST_DIR, "2026-10-01_x_abc123")])   # 依頼 そのものは根でない
+        self.assertEqual(list(placement.case_roots(os.path.join(self.tmp, "無い"))), [])
+        self.assertEqual(list(placement.case_roots("")), [])
+
+    def test_delivered_requests(self):
+        from flow import deliveries
+        self.assertIsNone(deliveries.delivered_requests(self.tmp))   # 記録が無い = 分からない
+        with open(os.path.join(self.tmp, deliveries.LOG), "w", encoding="utf-8") as f:
+            f.write(json.dumps({"requestId": "r1", "at": 2000}) + "\n{broken\n" + json.dumps({"requestId": "r1", "at": 1000}) + "\n")
+            f.write(json.dumps({"requestId": "r2"}) + "\n" + json.dumps({"requestId": ""}) + "\n")
+        self.assertEqual(deliveries.delivered_requests(self.tmp), {"r1": 2.0, "r2": 0.0})
+        self.assertEqual(len(deliveries.rows(self.tmp)), 4)
+
+
 if __name__ == "__main__":
     unittest.main()

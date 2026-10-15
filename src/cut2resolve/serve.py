@@ -12,7 +12,8 @@ API(「編集」の cut.js・pack-tab.js・app-tools.js と、入口の「まと
   POST /api/plan                 {spec} → ジョブ(試算。ファイルは作らない。無音の検出が要る試算は、build と同じく他のツールの重い処理と順番を待つ。0.22.3)。結果の warnings と同じ順番・同じ長さの warningLevels("warn"|"info")付き(問題5)
   POST /api/build                {spec, output: {dir?, render, copyVideo, textplus, textplusFps?, textplusSize?, backup?, force}} → ジョブ。既存の出力があれば 409 exists。
                                   パックは最小限(Text+ パックは media の動画・Lua・雛形・登録用の ps1/bat・友人へ.txt。backup: true で EDL・予備の手順書・SRT も)。
-                                  cut-plan.json はフォルダに置かず、作業データの packs/ に「パックを作った記録」を残す(manage.cases.txindex が読む。④)
+                                  cut-plan.json はフォルダに置かず、作業データの packs/ に「パックを作った記録」を残す(書くのは ② flow/packrec.after_build =
+                                  入口なしの CLI と同じ口。④ manage.cases.txindex が読む)
                                   spec.keeps = 残す区間の秒 [[a, b], …](「編集」のカットのとおり。pack.EDIT_KEEPS。preset とは一緒に使えない)
                                   spec.rowEdge = 行から作るとき(preset transcript-rows・keepSource transcript)に端を広げるか(省略 = 既定・false = 広げない)
                                   output.textplusWrap = Text+ 字幕の1段の文字数(省略 = 縦 8・横 14 = 2段、0 = 改行しない)
@@ -65,7 +66,7 @@ def _load_core():
 
 _load_core()
 from manage.cases import txindex as _txi  # noqa: E402
-from flow import keys as _flowkeys  # noqa: E402  成果物の鍵(RS6 b-K1)
+from flow import packrec as _packrec  # noqa: E402  パックを作った記録と鍵(作れたあとの記録。OPT-M2)
 from flow import board as _flowboard  # noqa: E402  ② のジョブの掲示板(RS8 の ② の口 S2)
 from flow.packjobs import PackJobs  # noqa: E402  パックのジョブの器(OPT2 J3)
 from flow import tools as _flowtools  # noqa: E402  入口のまとめて実行が直に呼ぶ口 PackHost(OPT2 後半 J7)
@@ -206,35 +207,6 @@ def is_pack_dir(path):
     """cut2resolve が作ったパックのフォルダか(パックを作った記録があるか、以前のパックなら中の cut-plan.json が cut2resolve の書いたもの。
     規則は manage.cases.txindex.is_pack_dir)。「編集」の前回のパックは、入口を起動し直したあとでも「フォルダを開く」で開けるようにする"""
     return _txi.is_pack_dir(str(path), c2r_dir=CODE_DIR)
-
-
-MAX_PACK_RECORDS = 1000   # 記録がこれを超えたら、フォルダが無くなったものから古い順に消す
-
-
-def write_pack_record(res, plan, textplus, backup, color=None):
-    """パックを作った記録(作業データの packs/<フォルダのハッシュ>.json)。中身は以前パックに入れていた cut-plan.json と、フォルダ・動画・日時・中身のファイル。
-    「パック済み」「前回のパックのフォルダを開く・手順書を読む」はこれを見る(manage.cases.txindex)。隠しファイルにしてパックに置かないのは、
-    Windows で上書きに失敗することがあるため(ユーザー決定 2026-09-26)。書けなくてもパックはできているので、呼び出し側は注意を出すだけ"""
-    out_dir = Path(res["out_dir"])
-    d = _txi.packs_dir(c2r_dir=CODE_DIR)
-    os.makedirs(d, exist_ok=True)
-    rec = {"schema": _txi.PACK_RECORD_SCHEMA, "tool": {"name": "cut2resolve", "version": SERVER_VERSION},
-           "dir": str(out_dir), "video": str(plan.video), "textplus": bool(textplus), "backup": bool(backup),
-           "builtAt": int(time.time() * 1000), "files": [p.relative_to(out_dir).as_posix() for _, p in res["files"]],
-           "editMedia": res["editMedia"], "cutPlan": res["plan"],
-           "videoCopy": res.get("videoCopy"),   # 音量をかけて写した動画の条件(C.gain_copy_record)。次のパックで同じなら作り直さない(E-15 の続き)
-           "textColor": (color or {}).get("hex"), "streamer": (color or {}).get("who")}   # 字幕の文字の色(配信者の名前を入れたとき)
-    fsio.write_json(os.path.join(d, _txi.pack_key(out_dir)), rec, indent=1)
-    try:
-        names = [os.path.join(d, n) for n in os.listdir(d) if n.endswith(".json")]
-        if len(names) > MAX_PACK_RECORDS:
-            names.sort(key=os.path.getmtime)
-            for n in names[:len(names) - MAX_PACK_RECORDS]:
-                folder = fsio.read_json_or(n, {}, kind=dict).get("dir")   # 読めない・形の違う記録は、フォルダが無いものとして消す
-                if not (isinstance(folder, str) and os.path.isdir(folder)):
-                    os.unlink(n)
-    except OSError:
-        pass
 
 
 def open_folder(path):
@@ -466,7 +438,7 @@ def start_build(app, o):
         plan = pack.plan_cut(req, task=task, cache=app.cache)
         # 字幕の文字の色の決まり方: 話者ごとの指定(speakerStyles)→ メンバーカラー(speakerColors が真)→ 配信者の色(textplusColor)→ 黒
         spk_map, spk_shown = speaker_colors_for(plan, out)
-        prev = _txi.read_pack_record(str(out["dir"]), c2r_dir=CODE_DIR) or {}   # 前にこのフォルダへ作ったパックの記録(音量をかけた写しを比べる)
+        prev = _packrec.read_record(str(out["dir"]), c2r_dir=CODE_DIR) or {}   # 前にこのフォルダへ作ったパックの記録(音量をかけた写しを比べる)
         res = pack.build_pack(plan, out["dir"], render=out["render"], copy_video=out["copyVideo"],
                               textplus=out["textplus"], textplus_target=out["textplusTarget"],
                               force=out["force"], task=task, backup=out["backup"], plan_file=False,
@@ -474,12 +446,9 @@ def start_build(app, o):
                               speaker_colors=spk_map or None, loudness=out["loudness"], volume=out["volume"],
                               video_tracks=out["videoTracks"], prev_copy=prev.get("videoCopy"), cache=app.cache)   # 余白つき素材の probe も覚える(O2)
         app.allow_out_dir(res["out_dir"])
-        try:
-            write_pack_record(res, plan, out["textplus"], out["backup"], out["textplusColor"])
-        except (OSError, ValueError) as e:
-            log("warn: パックの記録を書けません: %s" % e)
-            res["warnings"].append("パックを作った記録を残せませんでした(一覧の「パック済み」が出ないことがあります): %s" % e)
-        _flowkeys.write_pack(res["out_dir"], o.get("spec") or {}, o.get("output") or {})   # <パック>/pack.key.json(要求の本文から。書けなくてもログだけ。RS6 b-K1・K2)
+        # 作れたあとの記録(パックを作った記録 + <パック>/pack.key.json)は入口なしの CLI(flow/tools)と同じ ② の口(設計原則の指摘 3)
+        res["warnings"].extend(_packrec.after_build(res, plan.video, o.get("spec") or {}, o.get("output") or {}, out["textplus"], out["backup"],
+                                                    out["textplusColor"], tool={"name": "cut2resolve", "version": SERVER_VERSION}, c2r_dir=CODE_DIR))
         files = [file_info(k, p) for k, p in res["files"]]
         r = {"outDir": str(res["out_dir"]), "files": files, "readme": res["readme"], "warnings": res["warnings"],
              "warningLevels": classify_warnings(res["warnings"]),

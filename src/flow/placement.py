@@ -157,6 +157,33 @@ def request_root(day, title, request_id, out_dir=None):
         return None
 
 
+def case_parents(out_dir):
+    """案件の根を置くフォルダ = 書き出し先の直下と <書き出し先>/依頼(友人の依頼の案件は 1 段下)。-> [(フォルダ, 依頼か)]。あるかどうかは見ない。
+    案件の置き場所を足すとき(コラボの別フォルダなど)はここ 1 か所(OPT-M2。④ cases・backup・cleanup が読む = opt-manage 6a-2)"""
+    return [(out_dir, False), (os.path.join(out_dir, REQUEST_DIR), True)] if out_dir else []
+
+
+def case_roots(out_dir, on_error=None):
+    """案件の根になりうるフォルダを名前順に返す(case_parents の直下のフォルダ。<書き出し先>/依頼 そのものは除く・リンクはたどらない)。
+    案件か(作業用/case.json・採用.json があるか)は読み手が決める。読めない親は飛ばし、on_error(親, 例外) があれば知らせる(無い親は黙って飛ばす)"""
+    for parent, is_req in case_parents(out_dir):
+        try:
+            entries = sorted(os.scandir(parent), key=lambda e: e.name)
+        except FileNotFoundError:
+            continue
+        except OSError as e:
+            if on_error:
+                on_error(parent, e)
+            continue
+        for e in entries:
+            try:
+                if (is_req or e.name != REQUEST_DIR) and not e.is_symlink() and e.is_dir(follow_symlinks=False):
+                    yield e.path
+            except OSError as ex:
+                if on_error:
+                    on_error(e.path, ex)
+
+
 def find_request_dir(request_id, out_dir=None):
     """この依頼 id のフォルダが <書き出し先>/依頼/ の下に既にあれば、そのパス(無ければ None)。名前が _<id6> で終わるフォルダのうち、
     作業用/case.json の requestId が一致する物(id6 が重なっても取り違えない)。入口を起こし直した後に同じ依頼の動画を同じフォルダへ入れるため"""

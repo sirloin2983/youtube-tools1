@@ -153,14 +153,10 @@ CASE_SUBDIRS = {placement.RUNS_DIR.lower(): "runs", docloc.HIST_DIR.lower(): "hi
 
 
 def _cases_enter(r, name, mode):
-    """案件の根(outDir)の入り方: "" = outDir 直下 / "case" = 題名のフォルダ / "req" = 依頼 フォルダ(下は case) / "work" = 作業用 / "runs"・"bak" = その中(下には入らない) /
+    """案件の根(placement.case_roots の 1 つ)の下の入り方: "" = 根の直下 / "work" = 作業用 / "runs"・"bak" = その中(下には入らない) /
     "hist" = .hist(下の <tid> のフォルダへは "histdoc" で入り、その下には入らない)。動画・パック・その他は入らない"""
     if mode == "":
-        return "req" if name == REQUEST_DIR else "case"
-    if mode == "case":
         return "work" if name == CASE_WORK else None
-    if mode == "req":
-        return "case"   # 依頼/<日付>_<題>_<id6>/ も案件(友人の依頼。RS8 B3-7)
     if mode == "work":
         return CASE_SUBDIRS.get(name.lower())
     if mode == "hist":
@@ -170,7 +166,7 @@ def _cases_enter(r, name, mode):
 
 def _cases_keep(name, mode):
     """案件の 作業用 の下で写すファイル: *.json(途中のファイル `.part-` を除く)と、作業用の直下の .studio-id"""
-    if mode in ("", "case") or skip(name, False):
+    if mode == "" or skip(name, False):
         return False
     return name.lower().endswith(".json") or (mode == "work" and name == CASE_STUDIO_ID)
 
@@ -182,7 +178,18 @@ def plan_cases(out_dir, errors=None):
     写し戻し(restore_once の out_dir)も、バックアップの cases/ をこの決まりで歩く(cases/ の下は outDir と同じ形)"""
     if not out_dir or not os.path.isdir(out_dir):
         return iter(())
-    return _scan(out_dir, _cases_enter, _cases_keep, errors)
+    return _plan_cases(out_dir, errors)
+
+
+def _plan_cases(out_dir, errors):
+    """案件の根ごとに 作業用 の下を歩く(根の一覧 = ② placement.case_roots。outDir 直下と 依頼 の 1 段下)"""
+    def fail(where, e):
+        if errors is not None:
+            errors.append("読めないフォルダ: %s: %s" % (os.path.relpath(where, out_dir), tools.why(e)))
+    for root in placement.case_roots(out_dir, fail):
+        base = os.path.relpath(root, out_dir)
+        for r, size, mtime in _scan(root, _cases_enter, _cases_keep, errors):
+            yield os.path.join(base, r), size, mtime
 
 
 def _excite_chat(rel):

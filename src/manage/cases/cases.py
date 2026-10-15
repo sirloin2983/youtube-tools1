@@ -46,18 +46,18 @@
     「単体の文字起こし」に出さない)
 """
 import datetime
-import json
 import os
 import re
-import shutil
 import threading
 import time
 import urllib.parse
 
 from . import txindex   # 同じ manage/cases の兄弟
 from ytt import casefiles, datadir, errors, fsio, schemas, studiodata, tools
+from manage.keep import trash as _trash   # ごみ箱へ移す・戻す・戻せなかった物の記録の 1 か所(OPT-M2)
 from manage.keep import cleanup  # noqa: E402  (ごみ箱フォルダの場所・名前の付け方・manifest・一緒に片付ける途中のファイルの決まりは片付けと同じ)
 from flow import casebook, live_failures   # 失敗の文は 1 か所。線 D の M3 / 案件の採用.json を書く口(RS8 B3-6)
+from flow import deliveries as _deliveries   # 届けた記録の読み口(持ち主は ②。OPT-M2)
 from flow import placement   # 置き場所の持ち主(スタジオの data.json。RS6 b-B0)
 
 SCHEMA = "youtube-tools-cases/v1"
@@ -456,17 +456,8 @@ def _scan_roots(repo_root, env=None):
         out = datadir.studio_out_dir(repo_root, env)
         if not os.path.isabs(out) or casefiles.is_remote(out) or not fsio.is_fixed_drive(out) or not os.path.isdir(out):
             return []
-        parents = [out]
-        req = os.path.join(out, placement.REQUEST_DIR)   # 友人の依頼の案件 <outDir>/依頼/<日付>_<題>_<id6>(1 階層)
-        if os.path.isdir(req):
-            parents.append(req)
-        found = []
-        for par in parents:
-            for n in sorted(os.listdir(par)):
-                d = os.path.join(par, n)
-                if os.path.isfile(casefiles.work_path(d, casefiles.ADOPTIONS_NAME)):
-                    found.append(d)
-        return found
+        # 根の置き場所(outDir 直下・友人の依頼 <outDir>/依頼/<日付>_<題>_<id6>)は ② placement.case_roots の 1 か所
+        return [d for d in placement.case_roots(out) if os.path.isfile(casefiles.work_path(d, casefiles.ADOPTIONS_NAME))]
     except OSError:
         return []
 
@@ -711,25 +702,8 @@ _relinked, _relinked_lock = set(), threading.Lock()   # このプロセスで付
 
 
 def _delivery_rows(logs_dir):
-    """届けた記録(logs/deliveries.jsonl。書くのは src/human/friend/friend_feedback.record_delivery)の行。末尾から cleanup.DELIVERIES_MAX まで"""
-    p = os.path.join(logs_dir, cleanup.DELIVERIES_LOG)
-    try:
-        size = os.path.getsize(p)
-        with open(p, "rb") as f:
-            if size > cleanup.DELIVERIES_MAX:
-                f.seek(size - cleanup.DELIVERIES_MAX)
-            text = f.read().decode("utf-8", "replace")
-    except OSError:
-        return []
-    out = []
-    for line in text.splitlines():
-        try:
-            d = json.loads(line)
-        except ValueError:
-            continue
-        if isinstance(d, dict):
-            out.append(d)
-    return out
+    """届けた記録の行(持ち主は ② flow/deliveries の読み口。書くのは今 src/human/friend/friend_feedback.record_delivery)。読めなければ []"""
+    return _deliveries.rows(logs_dir) or []
 
 
 def _media_of_pack(pack_dir):
@@ -995,71 +969,37 @@ def _discard(repo_root, c, cl, studio, feedback, trash, hide, deliveries, env):
 
 def discard_clip(trash, studio, video_id, mark_id, media, pack=None):
     """切り抜き 1 本ぶん(動画・パック・途中のファイル)を ごみ箱フォルダ へ移し、スタジオのマークを不採用に(画面と同じ PUT /api/video)。
-    マークを不採用にできなければ移したものを元に戻す(パックだけ消えてマークが残る、を作らない)。mark_id が空(スタジオのマークが無い
-    = 友人の動画の依頼のパック)なら移すだけ。-> (移したもの [(元, 先)], ごみ箱の場所, スタジオの返事 "rejected"/"gone"/None)。
-    M9 の「要らない」(_discard)はマークも不採用に。友人の「要らない」(src/human/friend/friend_feedback.py)は mark_id を空で呼んでマークを変えない
-    (友人の採用の基準はこちらの送る基準と別。2026-10-08 ユーザー決定)"""
+    マークを不採用にできなければ移したものを元に戻す(パックだけ消えてマークが残る、を作らない)。mark_id が空(スタジオのマークを変えない)なら移すだけ。
+    -> (移したもの [(元, 先)], ごみ箱の場所, スタジオの返事 "rejected"/"gone"/None)。
+    M9 の「要らない」(_discard)はマークも不採用に。友人の「要らない」(src/human/friend/friend_feedback.py)はマークがあっても mark_id を空で呼んで
+    マークを変えない(友人の採用の基準はこちらの送る基準と別。2026-10-08 ユーザー決定)。
+    移す・戻すは ④ keep/trash の 1 か所(設計原則の指摘 1): 戻せずにごみ箱に残った物は manifest に元の場所を書き、ReviewError の文で知らせる"""
     pack = pack if pack is not None else (txindex.pack_dir(media) if media else "")
-    moved, where = _to_trash(trash, media, pack)
+    extra = [p for suf in cleanup.SIDECARS for p in schemas.sidecar_candidates(media, suf)] if media else []
+    files = [p for p in [media, pack] + extra if p and os.path.exists(p)]
+    stem = os.path.splitext(os.path.basename(media or pack))[0] or "clip"
+    res = _trash.to_trash(trash, files, DISCARD_KIND, stem, all_or_nothing=True, record=False)
+    if res["failed"]:   # 1 つでも移せなかった(Resolve・エクスプローラーで開いていると移せない)= 移した分は戻した
+        raise ReviewError("ファイルを ごみ箱フォルダ へ移せなかったので、片付けませんでした(Resolve やエクスプローラーで開いていれば閉じて、もう一度): %s%s"
+                          % (res["failed"][0][1][:120], _left_note(res)))
     st = None
     if mark_id and video_id:
         try:
             st = _studio_reject(studio, video_id, mark_id)
-        except ReviewError:
-            _put_back(moved)
+        except ReviewError as e:
+            _trash.put_back(res)
+            if res["left"]:
+                raise ReviewError(str(e) + _left_note(res), e.code, e.error) from e
             raise
-    _write_manifest(where, moved)
-    return moved, where, st
+    _trash.record(res)
+    return res["moved"], res["dest"], st
 
 
-def _to_trash(trash, media, pack):
-    """切り抜き 1 本ぶんのファイルを ごみ箱/<日付>/discard/<名前>/ へ移す(作業用 の物は その中の 作業用/)。-> ([(元, 先)], 移した先のフォルダ)。
-    1 つでも移せなければ、移した分を戻して ReviewError(Resolve・エクスプローラーで開いていると移せない)"""
-    extra = [p for suf in cleanup.SIDECARS for p in schemas.sidecar_candidates(media, suf)] if media else []
-    files = [p for p in [media, pack] + extra if p and os.path.exists(p)]
-    if not files:
-        return [], ""
-    day = time.strftime("%Y-%m-%d")
-    root = trash.trash_for(files[0])
-    dest = cleanup.free_path(os.path.join(root, day, DISCARD_KIND, os.path.splitext(os.path.basename(media or pack))[0] or "clip"))
-    moved = []
-    try:
-        for p in files:
-            sub = schemas.WORK_DIR if os.path.basename(os.path.dirname(p)) == schemas.WORK_DIR else ""
-            d = os.path.join(dest, sub) if sub else dest
-            os.makedirs(d, exist_ok=True)
-            to = cleanup.free_path(os.path.join(d, os.path.basename(p.rstrip("\\/"))))
-            shutil.move(p, to)   # 同じドライブなら改名、別のドライブなら写して消す
-            moved.append((p, to))
-    except (OSError, shutil.Error) as e:
-        _put_back(moved)
-        raise ReviewError("ファイルを ごみ箱フォルダ へ移せなかったので、片付けませんでした(Resolve やエクスプローラーで開いていれば閉じて、もう一度): %s"
-                          % (getattr(e, "strerror", None) or str(e)[:120]))
-    try:   # 作業データ・書き出し先の外のごみ箱フォルダも、起動時に消す一覧へ(片付けの move と同じ)
-        trash.remember_root(root)
-    except OSError:
-        pass
-    return moved, dest
-
-
-def _put_back(moved):
-    """移した物を元の場所へ戻す(新しい順に。戻せなかった物はごみ箱フォルダに残る = 消えはしない)"""
-    for src, to in reversed(moved):
-        try:
-            shutil.move(to, src)
-        except (OSError, shutil.Error):
-            pass
-
-
-def _write_manifest(where, moved):
-    """ごみ箱/<日付>/manifest.jsonl に元の場所を残す(where = ごみ箱/<日付>/discard/<名前>。書き方は片付けと同じ cleanup.append_manifest。戻したいときに見る)"""
-    if not moved:
-        return
-    now = int(time.time() * 1000)
-    try:
-        cleanup.append_manifest(os.path.dirname(os.path.dirname(where)), [{"from": src, "to": to, "at": now, "kind": DISCARD_KIND} for src, to in moved])
-    except OSError:   # 書けなくても、移した物は ごみ箱フォルダ の中にある
-        pass
+def _left_note(res):
+    """戻せずにごみ箱に残った物の知らせ(元の場所は manifest に書いてある)。無ければ空"""
+    if not res.get("left"):
+        return ""
+    return "。%d 個は元へ戻せず、ごみ箱フォルダ(%s)に残っています(元の場所は同じ日付のフォルダの manifest.jsonl)" % (len(res["left"]), res["dest"])
 
 
 def _studio_ok(code, d):

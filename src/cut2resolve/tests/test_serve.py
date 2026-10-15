@@ -224,8 +224,7 @@ class TestPaths(ServerBase):
         self.assertEqual(self.opened, [])
 
     def test_pack_record_prune_removes_missing_folders_and_broken_records_first(self):
-        """パックを作った記録が MAX_PACK_RECORDS を超えたら、古い順に見て フォルダの無いもの・読めないもの・形の違うものを消す(フォルダが残っているものは残す)"""
-        import types
+        """パックを作った記録(② flow/packrec)が MAX_RECORDS を超えたら、古い順に見て フォルダの無いもの・読めないもの・形の違うものを消す(フォルダが残っているものは残す)"""
         recs = self.dir / "recs"
         recs.mkdir()
         alive, alive2 = self.dir / "alive_pack", self.dir / "alive2_pack"
@@ -236,9 +235,8 @@ class TestPaths(ServerBase):
             (recs / name).write_text(text, encoding="utf-8")
             os.utime(recs / name, (1000 * i, 1000 * i))
         res = {"out_dir": alive2, "files": [("edl", alive2 / "x.edl")], "editMedia": None, "plan": {}}
-        plan = types.SimpleNamespace(video=self.dir / "v.mp4")
-        with mock.patch.object(serve._txi, "packs_dir", return_value=str(recs)), mock.patch.object(serve, "MAX_PACK_RECORDS", 2):
-            serve.write_pack_record(res, plan, True, False)
+        with mock.patch.object(serve._packrec, "packs_dir", return_value=str(recs)), mock.patch.object(serve._packrec, "MAX_RECORDS", 2):
+            serve._packrec.write_record(res, self.dir / "v.mp4", True, False)
         left = sorted(p.name for p in recs.iterdir())
         self.assertEqual(len(left), 3, left)              # 新しい記録 + 残したもの a(フォルダがある)・d(最後まで古い順の外)
         self.assertIn("a.json", left)

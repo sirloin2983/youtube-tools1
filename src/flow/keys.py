@@ -341,6 +341,7 @@ def write_pack(out_dir, spec, output):
 
 def pack_state(video, make_body):
     """動画の既定のパックの鍵と、今作ったときの材料を比べる(RS6 b-K2)。-> ("same" | "differ" | "none", 作った本文 か None)。
+    鍵が同じでも、パックの中身が揃っていなければ(記録が無い・動画や手順書が欠けた・空)differ = 上書きで作り直す(部品 F3)。
     鍵が無い・壊れていれば ("none", None)(make_body は呼ばない = 鍵の無い今のパックは今のまま)。make_body() -> {"spec", "output", ...}(段が送る本文。
     "contents" があれば書いていない材料の中身 = pack_body_inputs の contents)。
     make_body が上げる例外(段の StepError)はそのまま上げる。材料の形が違えば none"""
@@ -356,7 +357,11 @@ def pack_state(video, make_body):
         now = _schemas.make_key("pack", pack_body_inputs(body["spec"], body["output"], body.get("contents")))
     except (TypeError, ValueError, KeyError):
         return "none", built
-    return ("same" if now["hash"] == have["hash"] else "differ"), built
+    if now["hash"] != have["hash"]:
+        return "differ", built
+    # 鍵が同じでも中身が欠けていれば作り直す(部品 F3: 「材料が同じ」と「成果物がある」は別の条件。準備の確かめは flow/packrec.ready)
+    from . import packrec as _packrec
+    return ("same" if _packrec.ready(pack_dir(video))[0] else "differ"), built
 
 
 def _same_with(key, stage, **changes):
