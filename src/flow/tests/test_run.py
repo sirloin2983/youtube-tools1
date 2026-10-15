@@ -191,6 +191,27 @@ class TestRun(unittest.TestCase):
                                           "speakerColors": True, "volume": 50})
         self.assertEqual(r.packs, [os.path.normpath("/x/clip_pack")])
 
+    def test_doc_pack_sets_hint(self):
+        """文書 → パックも届けた先(切り抜きの動画・スタジオのマーク)を pack_marks に残す(opt-manage 2a-1。無いと届けた印が案件に残らない)"""
+        media = self.media
+        clip = {"source": {"kind": "live", "live": {"studio": {"video": "rec1", "mark": "s1"}}}}
+
+        class Docs(R.Runner):
+            def _docs(self):
+                return [{"id": "d1", "title": "題", "count": 1, "sourcePath": media, "clip": clip,
+                         "segments": [{"start": 0, "end": 1, "text": "あ"}]}]
+        c = FakeClient()
+        r = R.run(c, R.Run.from_input({"docId": "d1"}), hooks=Docs(c, poll=0, sleep=lambda s: None))
+        self.assertEqual(r.step("pack")["state"], "done", r.steps)
+        self.assertEqual(r.pack_marks, {os.path.normpath("/x/clip_pack"): {"path": media, "markId": "s1"}})
+        self.assertIsNone(r.pack_hint)
+
+    def test_doc_pack_hint_shapes(self):
+        """届けた先の形: ライブでない文書・壊れた clip でも path は残し、markId は ""(友人の動画の依頼はスタジオのマークが無い)"""
+        self.assertEqual(R.doc_pack_hint({"sourcePath": "/x/a.mp4"}), {"path": "/x/a.mp4", "markId": ""})
+        self.assertEqual(R.doc_pack_hint({"sourcePath": "/x/a.mp4", "clip": {"source": "x"}}), {"path": "/x/a.mp4", "markId": ""})
+        self.assertEqual(R.doc_pack_hint({"clip": {"source": {"live": {"studio": {"mark": 3}}}}}), {"path": "", "markId": ""})
+
     def test_tools_are_injected(self):
         """段は self.tools に頼む(既定は HttpTools(client)。tools を渡せば client は使わない)"""
         self.assertIsInstance(R.Runner(None).tools, T.HttpTools)

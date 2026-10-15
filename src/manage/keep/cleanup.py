@@ -195,6 +195,17 @@ class Cleanup:
                     continue
                 pk = cl.get("pack") or (self.pack_finder(p) if self.pack_finder else None)
                 if not pk:
+                    # 自動の切り抜きで、届けたあとパックだけが片付いた物(友人の「要らない」はパックしか消さない = mp4 が残る。
+                    # notes:plan/opt-manage.md の 2a-1)。届けてから PACK_AGE_DAYS 日で候補に出す
+                    rv = cl.get("review") if cl.get("auto") else None
+                    sent = rv.get("deliveredAt") if isinstance(rv, dict) else 0
+                    if isinstance(sent, (int, float)) and sent > 0 and now - sent / 1000.0 > PACK_AGE_DAYS * 86400:
+                        key = os.path.normcase(p)
+                        if key not in seen:
+                            seen.add(key)
+                            title = str(c.get("title") or c.get("id") or "")[:40]
+                            out.append(_item("export", p, "案件「%s」(届けてから %d 日・パックなし)" % (
+                                title, int((now - sent / 1000.0) // 86400)), _sidecars(p)))
                     continue
                 at = pk.get("updatedAt") if isinstance(pk, dict) else 0
                 aged = isinstance(pk, dict) and pk.get("textplus") is True and isinstance(at, (int, float)) and at > 0 \

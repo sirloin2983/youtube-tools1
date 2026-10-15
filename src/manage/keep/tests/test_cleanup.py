@@ -177,6 +177,24 @@ class CleanupTest(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(base, "a.mp4")))
         self.assertTrue(os.path.isfile(os.path.join(base, "作業用", "a_edit.mp4")) and os.path.isfile(os.path.join(base, "作業用", "a.clip.json")))
         self.assertFalse(any(os.path.exists(x) for x in (a, ed, cj)))
+
+    def test_export_delivered_auto_clip_without_pack(self):
+        """自動の切り抜きで届けたあとパックだけが片付いた物(友人の「要らない」)は、届けてから 3 日で候補(opt-manage 2a-1)。
+        人の切り抜き・届けていない・届けたばかりの物は出さない"""
+        v = os.path.join(self.tmp, "vid")
+        a = touch(os.path.join(v, "a.mp4"), 100)
+        b = touch(os.path.join(v, "b.mp4"), 100)
+        c = touch(os.path.join(v, "c.mp4"), 100)
+        d = touch(os.path.join(v, "d.mp4"), 100)
+        old, new = int((self.now[0] - 5 * 86400) * 1000), int(self.now[0] * 1000)
+        cases = [{"id": "1", "title": "配信", "status": "", "clips": [
+            {"path": a, "exists": True, "pack": None, "auto": {"origin": "auto"}, "review": {"deliveredAt": old}},
+            {"path": b, "exists": True, "pack": None, "auto": {"origin": "auto"}, "review": {"deliveredAt": new}},
+            {"path": c, "exists": True, "pack": None, "auto": {"origin": "auto"}, "review": {"deliveredAt": 0}},
+            {"path": d, "exists": True, "pack": None, "auto": None, "review": {"deliveredAt": old}}]}]
+        exp = next(k for k in self.cl.candidates(cases)["kinds"] if k["kind"] == "export")
+        self.assertEqual([i["path"] for i in exp["items"]], [a])
+        self.assertIn("届けてから 5 日", exp["items"][0]["note"])
         self.assertTrue(os.path.exists(b) and os.path.exists(c))
 
     def test_trash_on_the_same_drive(self):

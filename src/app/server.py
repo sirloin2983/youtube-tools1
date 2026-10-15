@@ -1145,7 +1145,7 @@ class PortalServer(httpsec.ExclusiveServer):
         self.deliveries.attach_board(self.board)   # 届ける(頭 dl)を掲示板へ(RS8 の ② の口 S2)
         # リアルタイム切り抜き(線 D。既定はオフ。見回り = 録画の部品を起こすのは main で start。テストで作る入口では動かさない)
         self.live = live_mod.Live(self.prefs, sup.root, sup.logs_dir, log=sup.log, server=self)   # server: P4 の作り直しがスタジオの API を呼ぶ
-        self.live.unconfirmed = lambda: cases_mod.snapshot(sup.root)["auto"]["unconfirmed"]   # 自動の切り抜きの未確認の数(D-13: 20 本で自動の採用を休む)
+        cases_mod.relink_delivered_later(sup.root, sup.logs_dir, log=sup.log)   # 届けた印の付け直し(起動の少しあとに 1 回・裏で。opt-manage 2a-1。inplace では走らない)
         self.health = health_mod.Health(sup, sup.logs_dir, sup.root, worker_probe=self._worker_probe, extra_dirs=self._extra_dirs,
                                         live_probe=self.live.health, accuracy_probe=self.accuracy.snapshot,
                                         docs_probe=self._docs_probe, marks_probe=self._marks_probe)   # 「調子」(段9 9-1。録画の行はオンのときだけ・精度の行・文書と配信の記録の置き場所の行)
@@ -1434,9 +1434,12 @@ class PortalServer(httpsec.ExclusiveServer):
     def wire_learning(self):
         """machine の learningDir があれば、入口の文字起こし(編集のジョブ = human/proof/doc_jobs)も学習データを flow/learning で読む(F1 F6a。
         CLI の prepare と同じ: 置き場所を ytt/workdata・名簿・声・色に入れ、学習した用語・置換・辞書の版はその読み手から)。
-        取り込みのあと(編集の set_data_dir が置き場所を決めたあと)・まとめて実行を作る前に 1 回。既定(learningDir = 作業データの根)なら何もしない
+        取り込みのあと(編集の set_data_dir が置き場所を決めたあと)・まとめて実行を作る前に 1 回。既定(learningDir = 作業データの根)なら何もしない。
+        学習の束を作る側の PC(flow/learning.maker_pc)では束を読まずにログに 1 行(友人のアプリが向けても効かない。6d-1)
         -> 学習データの読み手か None"""
-        ld = learning_mod.learning_dir()
+        ld, skipped = learning_mod.learning_dir_checked()
+        if skipped:
+            self.sup.log(skipped)
         if not ld:
             return None
         learning_mod.apply_places(ld)
@@ -1884,7 +1887,7 @@ def _main(opts, ready_out=None):
         srv.server_close()
         return EXIT_RUNNING if headless else 1
     srv.headless = headless
-    if headless:   # ライブ係を友人の PC の形に(スタジオなしの採用・届けない・D-13 なし・束の adopt.top・空き容量の下限。RS7-2 G2b)
+    if headless:   # ライブ係を友人の PC の形に(スタジオなしの採用・届けない・6 時間の見回りなし・束の adopt.top・空き容量の下限。RS7-2 G2b)
         srv.live.use_headless(headless_disk_min(log))
     try:
         install_stop_signals()

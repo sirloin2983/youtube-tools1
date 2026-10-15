@@ -1982,6 +1982,31 @@ static class CoreTests
         Eq("/api/flow/machine " + Path.Combine(root, v), puts[0], "learningDir は版のフォルダ");
         True(Sync.ApplyLearning(root, v, okPut, s => { }) && puts.Count == 1, "向け済みなら PUT しない");
         True(!Sync.ApplyLearning(root, "20261013-000000-abcdef03", (p, bd) => new FlowReply { Status = 400 }, s => { }), "断られたら向けていない印のまま");
+
+        // 作る側の PC(<data>\app\prefs.json の intake.folder がある = ユーザーの PC)では取らず・向けない(6d-1)。友人の PC では今まで通り
+        var io2 = new FakeIo();
+        io2.Remote["/学習/latest.json"] = Encoding.UTF8.GetBytes("{\"version\":\"" + v + "\"}");
+        io2.Remote["/学習/" + v + "/learning.json"] = Encoding.UTF8.GetBytes(pack);
+        io2.Remote["/学習/" + v + "/settings.json"] = a;
+        io2.Remote["/学習/" + v + "/voices/m.json"] = b;
+        string maker = TempDir();
+        Directory.CreateDirectory(Path.Combine(maker, "app"));
+        File.WriteAllText(Path.Combine(maker, "app", "prefs.json"), "{\"intake\":{\"enabled\":true,\"folder\":\"C:\\\\Dropbox\\\\受付\"}}", new UTF8Encoding(false));
+        True(Sync.MakerPc(maker), "受付のフォルダがある = 作る側");
+        var puts2 = new List<string>();
+        Func<string, object, FlowReply> put2 = (p, body) => { puts2.Add(p); return new FlowReply { Status = 200 }; };
+        var rm = Sync.RunAll(io2, null, put2, maker, "0.58.0", s => { });
+        True(rm.LearningSkipped && !rm.LearningApplied && rm.LearningVersion == null, "作る側: 取らない・向けない");
+        Eq(0, puts2.Count, "作る側: machine へ PUT しない");
+        True(!Directory.Exists(Sync.LearningRoot(maker)), "作る側: learning フォルダを作らない");
+        string friend = TempDir();
+        True(!Sync.MakerPc(friend), "prefs.json が無い = 友人の PC");
+        Directory.CreateDirectory(Path.Combine(friend, "app"));
+        File.WriteAllText(Path.Combine(friend, "app", "prefs.json"), "{\"intake\":{\"folder\":\" \"}}", new UTF8Encoding(false));
+        True(!Sync.MakerPc(friend), "受付のフォルダが空 = 友人の PC");
+        var rf = Sync.RunAll(io2, null, put2, friend, "0.58.0", s => { });
+        True(!rf.LearningSkipped && rf.LearningApplied && rf.LearningVersion == v, "友人の PC: 取って向ける");
+        Eq(1, puts2.Count, "友人の PC: machine へ PUT 1 回");
     }
 
     static void SyncReturnsAndUpdate()

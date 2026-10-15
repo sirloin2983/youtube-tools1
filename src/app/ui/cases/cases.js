@@ -86,6 +86,7 @@
     want: null,          // URL で頼まれた物 {c, d, m, tab}
     data: null,          // ④ の応答
     kase: null,          // 今の案件の行
+    sw: 0,               // 案件を切り替えた回数(別の案件・案件なしへ変わるたびに +1。同じ案件の読み直しでは増えない)
     items: [],           // 左の一覧
     sel: '',             // 選んだ行の key
     tab: '',
@@ -428,17 +429,18 @@
       var c = pickCase(allCases(j), w);
       if (!c && w.last) {   // 覚えていた案件が無くなった = 引数なしで開いたのと同じ(覚えを捨てる)
         rememberCase(''); S.want = { c: '', d: '', m: '', tab: '' };
-        S.kase = null;
+        S.kase = null; S.sw++;
         renderHead();
         return showEmpty(emptyBox('案件が選ばれていません', 'ホームの案件の一覧から開くと、ここに候補と切り抜きが出ます。', HOME_BTN));
       }
       if (!c) {
-        S.kase = null;
+        S.kase = null; S.sw++;
         renderHead();
         return showEmpty(emptyBox('この案件は見つかりません', '消えたか、別の案件へ移った可能性があります。ホームの案件の一覧から開き直してください。', HOME_BTN));
       }
       var same = S.kase && S.kase.id === c.id;
       S.kase = c;
+      if (!same) S.sw++;
       S.items = itemsOf(c);
       if (!same) { S.status = { rev: null, all: [] }; S.railHtml = ''; S.checkN = 0; S.checkAt = 0; }
       $('#csEmpty').hidden = true;
@@ -475,9 +477,12 @@
     clearTimeout(S.timer);
     S.timer = 0;
     if (!S.kase || UIKit.life.isAway()) return;
-    var kase = S.kase, root = kase.root && !S.noCaseFilter ? kase.root : '';
+    // 古い応答かどうかは「案件の ID と切り替えの番号」で比べる。同じ案件の読み直し(load(true))は S.kase を新しい物に入れ替えるので、
+    // 物の同一性で比べると応答を捨てて schedule を呼ばず、自動の更新が止まる(GPT レビュー A1)。
+    var kase = S.kase, id = kase.id, sw = S.sw, root = kase.root && !S.noCaseFilter ? kase.root : '';
+    function stale() { return !S.kase || S.kase.id !== id || S.sw !== sw; }
     api('home', 'api/flow/status' + (root ? '?case=' + encodeURIComponent(root) : ''), { timeout: 15000 }).then(function (st) {
-      if (S.kase !== kase) return;
+      if (stale()) return;
       var jobs = Array.isArray(st.jobs) ? st.jobs.filter(function (j) { return j && typeof j === 'object'; }) : [];
       if (!root) jobs = jobs.filter(mine);
       var active = jobs.some(function (j) { return ACTIVE[j.state]; });
@@ -493,7 +498,7 @@
       if (Date.now() - S.checkAt >= CHECK_EVERY_MS) loadCheckCount();
       schedule(active ? POLL_ACTIVE : POLL_IDLE);
     }, function (e) {
-      if (S.kase !== kase) return;
+      if (stale()) return;
       if (e && e.status === 400 && root) S.noCaseFilter = true;   // 根の形を断られた = 絞らずに読んで画面で絞る
       schedule(POLL_IDLE);
     });

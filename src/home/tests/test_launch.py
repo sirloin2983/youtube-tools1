@@ -1059,8 +1059,15 @@ class PortalHttpTest(Base):
         """F1 F6a: machine の learningDir が学習の束なら、入口の文字起こし(doc_jobs)とまとめて実行(束の版)がその読み手を使う。既定なら何もしない"""
         from human.proof import doc_jobs
         self.addCleanup(doc_jobs.set_learning, None)
-        with mock.patch.object(L.learning_mod, "learning_dir", return_value=None):
+        with mock.patch.object(L.learning_mod, "learning_dir_checked", return_value=(None, "")):
             self.assertIsNone(self.srv.wire_learning())
+        self.assertIsNone(doc_jobs._learning[0])
+        logs = []   # 作る側の PC: 束を読まずにログに 1 行(6d-1)
+        with mock.patch.object(L.learning_mod, "learning_dir_checked", return_value=(None, "読みません")), \
+                mock.patch.object(self.srv.sup, "log", side_effect=logs.append), mock.patch.object(L.learning_mod, "apply_places") as ap0:
+            self.assertIsNone(self.srv.wire_learning())
+        ap0.assert_not_called()
+        self.assertEqual(logs, ["読みません"])
         self.assertIsNone(doc_jobs._learning[0])
         pack = os.path.join(self.tmp, "学習", "v9")
         os.makedirs(pack)
@@ -1069,7 +1076,7 @@ class PortalHttpTest(Base):
         with open(os.path.join(pack, "learned-rules.json"), "w", encoding="utf-8") as f:
             json.dump({"high": [], "glossary": ["星街すいせい"], "dictLearned": "d1"}, f)
         self.srv.autorun   # 先に作ってあっても読み手が入る
-        with mock.patch.object(L.learning_mod, "learning_dir", return_value=pack), mock.patch.object(L.learning_mod, "apply_places") as ap:
+        with mock.patch.object(L.learning_mod, "learning_dir_checked", return_value=(pack, "")), mock.patch.object(L.learning_mod, "apply_places") as ap:
             lr = self.srv.wire_learning()
         ap.assert_called_once_with(pack)
         self.assertEqual(lr.version, "v9")

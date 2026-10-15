@@ -96,6 +96,50 @@ class TestPlaces(Base):
         with mock.patch.dict(os.environ, {"YTT_MACHINE_LEARNING_DIR": self.pack}):
             self.assertEqual(learning.learning_dir(), os.path.abspath(self.pack))
 
+    def _data_root(self, folder):
+        """一時の作業データの根(<根>/app/prefs.json の intake.folder = folder。None なら prefs.json を置かない)"""
+        root = os.path.join(self.tmp, "root-%s" % (folder is None and "none" or len(folder)))
+        os.makedirs(os.path.join(root, "app"), exist_ok=True)
+        if folder is not None:
+            jwrite(os.path.join(root, "app", "prefs.json"), {"intake": {"enabled": True, "folder": folder}})
+        return root
+
+    def test_maker_pc_does_not_read_pack(self):
+        """6d-1: 作る側の PC(受付のフォルダの設定がある)では、learningDir が束でも読まない = 理由の 1 行。CLI の learning_dir も同じ"""
+        root = self._data_root(os.path.join(self.tmp, "受付"))
+        with mock.patch.dict(os.environ, {"YTT_DATA_DIR": root, "YTT_MACHINE_LEARNING_DIR": self.pack}):
+            self.assertTrue(learning.maker_pc())
+            ld, why = learning.learning_dir_checked()
+            self.assertIsNone(ld)
+            self.assertIn("作る側", why)
+            self.assertIn(self.pack, why)
+            self.assertIsNone(learning.learning_dir())
+
+    def test_friend_pc_reads_pack(self):
+        """友人の PC(prefs.json が無い・受付のフォルダが空)では今まで通り束を読む"""
+        for folder in (None, "", "  "):
+            root = self._data_root(folder)
+            with mock.patch.dict(os.environ, {"YTT_DATA_DIR": root, "YTT_MACHINE_LEARNING_DIR": self.pack}):
+                self.assertFalse(learning.maker_pc(), folder)
+                self.assertEqual(learning.learning_dir_checked(), (os.path.abspath(self.pack), ""))
+
+    def test_maker_pc_keeps_default_and_legacy(self):
+        """作る側でも束でない learningDir(既定・作業データの置き方)は今まで通り(守るのは束だけ)"""
+        root = self._data_root(os.path.join(self.tmp, "受付"))
+        legacy = os.path.join(self.tmp, "legacy-data")
+        with mock.patch.dict(os.environ, {"YTT_DATA_DIR": root, "YTT_MACHINE_LEARNING_DIR": root}):
+            self.assertEqual(learning.learning_dir_checked(), (None, ""))
+        with mock.patch.dict(os.environ, {"YTT_DATA_DIR": root, "YTT_MACHINE_LEARNING_DIR": legacy}):
+            self.assertEqual(learning.learning_dir_checked(), (os.path.join(legacy, "transcribe"), ""))
+
+    def test_broken_prefs_is_not_maker(self):
+        root = self._data_root(None)
+        with open(os.path.join(root, "app", "prefs.json"), "w", encoding="utf-8") as f:
+            f.write("{broken")
+        self.assertFalse(learning.maker_pc(env={"YTT_DATA_DIR": root}))
+        jwrite(os.path.join(root, "app", "prefs.json"), {"intake": "x"})
+        self.assertFalse(learning.maker_pc(env={"YTT_DATA_DIR": root}))
+
     def test_is_pack_and_version(self):
         self.assertTrue(learning.is_pack(self.pack))
         self.assertFalse(learning.is_pack(os.path.join(self.tmp, "nothing")))

@@ -32,10 +32,13 @@
     mark.score → スタジオのマークの score の順(今は書き手が無いことが多い。無ければ None = 画面に出さない)。
     bench = 1 時間の枠から外れた候補(「控え」。M13: 書き出し済みなら取り消さない。ワーカーが付けたら出すだけ)
   - clip["review"] = {seenAt, deliveredAt, delivered, failure, unconfirmed}: 人が見たか・届けたか(案件ファイルの auto)・失敗の文
-    (M3。src/pipeline/live_failures.failure_of だけが作る。<作業データ>/app/live/exports.json の書き出しのジョブをスタジオのマークで引く。読むだけ)。
+    (M3。src/flow/live_failures.failure_of だけが作る。<作業データ>/app/live/exports.json の書き出しのジョブをスタジオのマークで引く。読むだけ)。
     unconfirmed = 見ても・届けてもいない(「自動の切り抜き: 未確認 n 件」の数)。案件の autoClips {total, unconfirmed}・一覧全体の auto も同じ数。
+    届ける印つき(.clip.json の live.deliver = 友人の依頼・live.autoDeliver。clip["auto"]["deliver"])は届けるのが決まりなので数えない(opt-manage 2a-2)。
     pending = REVIEW_SINCE より前に動画を作った切り抜きで、見ても届けてもいない物(10-11 ユーザー「今あるものはすべて未定のままでいい・次回以降の
-    動画からこの機能の対象にして」)= unconfirmed に数えない(D-13 の休む数・続けて確認・3 日の片付けの対象外)。一覧には今までどおり出て、手で決められる
+    動画からこの機能の対象にして」)= unconfirmed に数えない(続けて確認・3 日の片付けの対象外)。一覧には今までどおり出て、手で決められる
+  - 届けた印の付け直し(relink_delivered。opt-manage 2a-1): 文書単位のパックが届けた先を渡していなかった間の届けた記録(deliveries.jsonl の path が空の行)を、
+    パックのフォルダの名前から切り抜きに結び直して「届けた」を付ける。入口の起動の少しあとに 1 回(relink_delivered_later)。何度走っても同じ結果
   - 操作は auto_review(POST /api/cases/auto): seen = 見た / deliver = 採用 = パックを zip にして Dropbox の 出力 へ(src/human/friend/deliver.py。
     全自動では届けない = 10-06 ユーザー決定)/ discard = 要らない = パック・切り抜きの mp4・.clip.json などを ごみ箱フォルダ へ移す(片付けと同じ場所。
     片付けの TRASH_DAYS で起動時に消える)+ スタジオのマークを不採用に + live_feedback.jsonl に誤検出の記録 + その文字起こしを一覧で非表示に(データは消さない)
@@ -43,6 +46,7 @@
     「単体の文字起こし」に出さない)
 """
 import datetime
+import json
 import os
 import re
 import shutil
@@ -214,7 +218,8 @@ def auto_info(mark, media_path):
     if origin not in AUTO_ORIGINS:
         return None
     score = next((x for x in (schemas.num(live.get("score")), schemas.num(cmark.get("score")), schemas.num(mark.get("score"))) if x is not None), None)
-    return {"origin": origin, "originLabel": AUTO_ORIGINS[origin], "score": None if score is None else round(score, 2), "bench": live.get("bench") is True}
+    return {"origin": origin, "originLabel": AUTO_ORIGINS[origin], "score": None if score is None else round(score, 2), "bench": live.get("bench") is True,
+            "deliver": bool(live.get("deliver"))}   # 届ける印つき(友人の依頼・live.autoDeliver)= まとめて実行が届ける物。未確認に数えない(opt-manage 2a-2)
 
 
 def live_failures_by_mark(loc):
@@ -273,8 +278,9 @@ def _apply_review(cases, saved, failures):
             r = rec.get(cl.get("markId")) if isinstance(rec.get(cl.get("markId")), dict) else {}
             seen, done = _int_ms(r.get("seenAt")), _int_ms(r.get("deliveredAt"))
             pending = not (seen or done) and _before_review(cl.get("path"))
+            to_deliver = cl["auto"].get("deliver") is True   # 届けるのが決まりの物(友人の依頼など)は人が見なくてよい = 未確認に数えない(2a-2)
             cl["review"] = {"seenAt": seen, "deliveredAt": done, "delivered": str(r.get("delivered") or "")[:200],
-                            "failure": failures.get((c["id"], cl.get("markId"))), "unconfirmed": not (seen or done) and not pending,
+                            "failure": failures.get((c["id"], cl.get("markId"))), "unconfirmed": not (seen or done) and not pending and not to_deliver,
                             "pending": pending}
 
 
@@ -672,15 +678,129 @@ def _find_auto(repo_root, case_id, mark_id, env):
     return c, cl
 
 
-def remember_delivered(repo_root, media_path, zip_name, env=None):
-    """まとめて実行が自動で届けた(live.autoDeliver・友人のライブ配信の依頼)切り抜きに「届けた」を残す(src/home/autorun.py の _record_delivery から)。
+def remember_delivered(repo_root, media_path, zip_name, env=None, at=None):
+    """まとめて実行が自動で届けた(live.autoDeliver・友人のライブ配信の依頼)切り抜きに「届けた」を残す
+    (src/human/friend/delivery.py の _record_delivery → src/home/autorun.py の _remember_delivered から)。
+    at: 届けた時刻(ms。付け直しの relink_delivered が届けた記録の at を渡す。既に「届けた」があれば変えない)。
     ライブの切り抜きでなければ何もしない。-> 残したか"""
+    key = _studio_key(media_path)
+    if not key:
+        return False
+    _remember(repo_root, key[0], key[1], env, delivered=str(zip_name or ""), at=at)
+    return True
+
+
+def _studio_key(media_path):
+    """ライブの切り抜きの .clip.json の live.studio -> (スタジオの配信, マーク) か None"""
     live, _m = clip_live(media_path)
     st = (live or {}).get("studio") if isinstance(live, dict) else None
     if not isinstance(st, dict) or not st.get("video") or not st.get("mark"):
-        return False
-    _remember(repo_root, str(st["video"]), str(st["mark"]), env, delivered=str(zip_name or ""))
-    return True
+        return None
+    return str(st["video"]), str(st["mark"])
+
+
+RELINK_DELAY = 60.0   # 入口の起動からこれだけ待って付け直す(文書・配信の記録の移行・ツールの取り込みが済んでから)
+_relinked, _relinked_lock = set(), threading.Lock()   # このプロセスで付け直しを始めた logs(1 回だけ)
+
+
+def _delivery_rows(logs_dir):
+    """届けた記録(logs/deliveries.jsonl。書くのは src/human/friend/friend_feedback.record_delivery)の行。末尾から cleanup.DELIVERIES_MAX まで"""
+    p = os.path.join(logs_dir, cleanup.DELIVERIES_LOG)
+    try:
+        size = os.path.getsize(p)
+        with open(p, "rb") as f:
+            if size > cleanup.DELIVERIES_MAX:
+                f.seek(size - cleanup.DELIVERIES_MAX)
+            text = f.read().decode("utf-8", "replace")
+    except OSError:
+        return []
+    out = []
+    for line in text.splitlines():
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(d, dict):
+            out.append(d)
+    return out
+
+
+def _media_of_pack(pack_dir):
+    """パックのフォルダ <名前>_pack(cut2resolve の既定の出力先 = txindex.pack_dir の逆)-> 隣の切り抜きの動画か None"""
+    if not isinstance(pack_dir, str) or not pack_dir or fsio.is_network_path(pack_dir):
+        return None
+    d = pack_dir.rstrip("\\/")
+    name = os.path.basename(d)
+    if not name.endswith("_pack") or len(name) <= len("_pack"):
+        return None
+    stem, folder = name[:-len("_pack")], os.path.dirname(d)
+    return next((p for p in (os.path.join(folder, stem + ext) for ext in cleanup.VIDEO_EXTS) if os.path.isfile(p)), None)
+
+
+def relink_delivered(repo_root, logs_dir, env=None):
+    """届けた印の付け直し(opt-manage 2a-1): 届けた記録のうち切り抜きの path が空のパック(文書単位のパックが届けた先を渡していなかった分)を、
+    パックのフォルダの名前から切り抜きの動画に結び直し、ライブの切り抜きなら案件に「届けた」を付ける(時刻は届けた記録の at)。
+    もう「届けた」がある切り抜きは触らない = 何度走っても同じ結果。届けた記録は書き換えない。
+    -> {"rows": path が空のパックの数, "linked": 付けた, "already": もう付いていた, "notLive": ライブの切り抜きでない(友人の動画の依頼。案件の印は無い),
+        "unlinked": 切り抜きの動画が見つからない}"""
+    out = {"rows": 0, "linked": 0, "already": 0, "notLive": 0, "unlinked": 0}
+    todo = {}
+    for row in _delivery_rows(logs_dir):
+        for p in row.get("packs") or []:
+            if not isinstance(p, dict) or p.get("path"):
+                continue
+            out["rows"] += 1
+            media = _media_of_pack(p.get("dir"))
+            key = _studio_key(media) if media else None
+            if not media:
+                out["unlinked"] += 1
+            elif not key:
+                out["notLive"] += 1
+            elif key in todo:
+                out["already"] += 1   # 同じ切り抜きを二度届けた: 最初の記録で付ける
+            else:
+                todo[key] = (str(row.get("zip") or ""), _int_ms(row.get("at")) or None)
+    if not todo:
+        return out
+    done = set()
+    for c in snapshot(repo_root, env)["cases"]:
+        for cl in c.get("clips") or []:
+            if _int_ms((cl.get("review") or {}).get("deliveredAt")):
+                done.add((c["id"], cl.get("markId")))
+    for key, (zip_name, at) in todo.items():
+        if key in done:
+            out["already"] += 1
+            continue
+        _remember(repo_root, key[0], key[1], env, delivered=zip_name, at=at)
+        out["linked"] += 1
+    return out
+
+
+def relink_delivered_later(repo_root, logs_dir, log=None, delay=RELINK_DELAY, env=None):
+    """入口の起動のとき(src/app/server.py の PortalServer)に呼ぶ: delay 秒あとに裏で relink_delivered を 1 回走らせ、結果をログに 1 行。
+    作業データが inplace(テスト)なら何もしない・同じ logs はこのプロセスで 1 回だけ。-> 糸か None"""
+    log = log or (lambda m: None)
+    if not logs_dir or datadir.data_root(env) is None:
+        return None
+    key = os.path.normcase(os.path.abspath(logs_dir))
+    with _relinked_lock:
+        if key in _relinked:
+            return None
+        _relinked.add(key)
+
+    def go():
+        time.sleep(delay)
+        try:
+            r = relink_delivered(repo_root, logs_dir, env)
+        except Exception as e:   # noqa: BLE001  (付け直せなくても入口は動かす。次の起動でまた試す)
+            log("届けた印の付け直し: できませんでした(%s)" % (str(e)[:120] or e.__class__.__name__))
+            return
+        if r["rows"]:
+            log("届けた印の付け直し: 切り抜きの無い届けた記録 %(rows)d 本 → 付けた %(linked)d・もう付いていた %(already)d・"
+                "ライブの切り抜きでない %(notLive)d・結べない %(unlinked)d" % r)
+    t = threading.Thread(target=go, daemon=True, name="relink-delivered")
+    t.start()
+    return t
 
 
 EXPIRE_SEC = 3 * 86400   # 見ても届けてもいない自動の切り抜きを片付けるまで(切り抜きの動画を作ってから。10-09 ユーザー「3 日経ってもみなければ多分みない」)
@@ -742,10 +862,11 @@ def _expire_one(repo_root, c, cl, studio, feedback, trash, hide, deliveries, env
             _busy.discard(key)
 
 
-def _remember(repo_root, case_id, mark_id, env=None, delivered=None, discarded=None, expired=False):
+def _remember(repo_root, case_id, mark_id, env=None, delivered=None, discarded=None, expired=False, at=None):
     """案件ファイルに確認を残す(見た = seenAt。届けた・要らないも「見た」に数える)。delivered: 置いた zip の名前・discarded: 文字起こしの id("" = 無い)。
+    at: 付け直し(relink_delivered)の届けた時刻(ms)。渡したときは、もう「届けた」がある記録の届けたは変えない。
     -> その記録 {seenAt, deliveredAt?, delivered?, discardedAt?, tx?}"""
-    now = int(time.time() * 1000)
+    now = _int_ms(at) or int(time.time() * 1000)
     loc = locations(repo_root, env)
 
     def remember(s):
@@ -753,7 +874,7 @@ def _remember(repo_root, case_id, mark_id, env=None, delivered=None, discarded=N
         r = dict(recs.get(mark_id)) if isinstance(recs.get(mark_id), dict) else {}
         if not _int_ms(r.get("seenAt")):
             r["seenAt"] = now
-        if delivered is not None:
+        if delivered is not None and not (at is not None and _int_ms(r.get("deliveredAt"))):
             r.update(deliveredAt=now, delivered=str(delivered)[:200])
         if discarded is not None:
             r.update(discardedAt=now, tx=str(discarded)[:64])

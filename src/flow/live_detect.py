@@ -33,11 +33,11 @@ API(src/home/live.py の handle_get / _api_post から。書き込みは入口�
 配信の終わり(D-14。10-08 決定): 録画が終わっても、ワーカーが帳簿を締めた(peaks.json の ended)あと END_GRACE_SEC の間は、待ち中だった候補(waitMin がまだ・
 終わり待ちだった候補が締めで確定したもの)を同じ待ちで採用する(終わった瞬間に待ち中だった候補を取りこぼさない)。
 安全弁(D-13。10-08 決定。仮の数 = 使いながら直す): 1 つの録画の自動の採用は AUTO_MAX_PER_REC 本まで(decisions.json の adopted/auto を数える。
-友人の依頼の録画・live.autoDeliver で確認なしに届く分にも効く)。ホームの「自動の切り抜き: 未確認」(src/manage/cases/cases.py の auto.unconfirmed。Live.unconfirmed)が
-UNCONFIRMED_PAUSE 本以上なら、依頼の無い録画の自動の採用を休む(人が見ていないのに増やさない。友人の依頼の録画は届けるのでそのまま)。休んでいる間は「調子」の
-detect の行(autoAdopt.paused)に理由を出す。
+友人の依頼の録画・live.autoDeliver で確認なしに届く分にも効く)。
+(以前あった「ホームの未確認の自動の切り抜きが 20 本以上なら依頼の無い録画の自動の採用を休む」は 2026-10-15 にやめた = opt-manage Q1。
+採用は全部届けると決めたので「人が見ていない」は休む理由にならない。休み続けていたのはほぼ数え違い = 2a-1・2a-2)
 上限の数は親の hook auto_max(rc, rec)で変えられる(RS7-2 G1b。flow/livehost.py の LiveHost。持っていなくてもよい。友人の PC = 束の adopt.top = live_adopt.top_of)。
-親が持たない・None(ユーザーの PC = Live)なら AUTO_MAX_PER_REC のまま。未確認の数で休むのは親の unconfirmed が None なら無い(友人の PC)。
+親が持たない・None(ユーザーの PC = Live)なら AUTO_MAX_PER_REC のまま。
 """
 import json
 import os
@@ -105,8 +105,6 @@ def overlay(pk, item):
 SEEN_KEEP_SEC = 3600       # M11 の「最初に見た時刻」(_seen)を、見回りで見かけなくなってから残す秒(繋ぎ直しで同じ候補が戻る分は残す)
 END_GRACE_SEC = 6 * 3600   # D-14: 録画が終わってからこの秒数の間は、締めで確定した候補も待ち中の候補も採用する(それより古い録画の候補はまとめて採用しない)
 AUTO_MAX_PER_REC = 10      # D-13(仮の数): 1 つの録画で自動で採用する本数の上限(人のマーク・配信後の解析 archive は数えない)
-UNCONFIRMED_PAUSE = 20     # D-13(仮の数): ホームの「自動の切り抜き: 未確認」がこれ以上なら、依頼の無い録画の自動の採用を休む
-UNCONFIRMED_EVERY = 120.0  # 未確認の数を聞き直す間隔(案件の一覧を組み立て直すので、見回りのたびには聞かない)
 
 
 class Detector:
@@ -132,8 +130,6 @@ class Detector:
         self._seen_at = {}                 # (録画元, 録画, 候補) -> 見回りで最後に見た時刻(_seen を消す判断)
         self._fails = None                 # 自動の採用を諦めた候補(auto_failures.json)
         self._series = fsio.StampCache()   # series.jsonl の読み取りの覚え(更新日時と大きさが変わったときだけ読み直す)
-        self._unconf, self._unconf_at, self._unconf_err = 0, -1e18, False   # D-13: 未確認の自動の切り抜きの数(UNCONFIRMED_EVERY 秒ごとに聞く)
-        self._paused_said = ""             # D-13: 休む理由を記録に出したか(変わったときだけ出す)
         self._capped_said = set()          # D-13: 上限に達した録画(記録に 1 回だけ出す)
 
     # ---- 設定
@@ -521,26 +517,6 @@ class Detector:
                 pass
         self.host.log("盛り上がりの検出: 候補 %s(%s)を自動で採用できなかったので諦めました: %s" % (pk.get("id"), rec, why))
 
-    def unconfirmed(self):
-        """ホームの「自動の切り抜き: 未確認」の数(D-13 の休む判断。Live.unconfirmed = 入口が cases の数を渡す。UNCONFIRMED_EVERY 秒は前の値)。
-        数えられなければ 0(休まない = 数えられない不具合で自動を止めない。記録には 1 回だけ出す)"""
-        now = self.clock()
-        if now - self._unconf_at < UNCONFIRMED_EVERY:
-            return self._unconf
-        fn = getattr(self.host, "unconfirmed", None)
-        n = 0
-        try:
-            if fn is not None:
-                v = fn()
-                n = int(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else 0
-            self._unconf_err = False
-        except Exception as e:   # noqa: BLE001
-            if not self._unconf_err:
-                self.host.note("リアルタイム切り抜き: 未確認の自動の切り抜きの数を読めませんでした(安全弁は効きません): %r" % (e,))
-            self._unconf_err = True
-        self._unconf, self._unconf_at = max(0, n), now
-        return self._unconf
-
     def auto_max(self, rc, rec):
         """D-13: その録画の自動の採用の上限(本数)。親の auto_max(rc, rec)(友人の PC = 束の adopt.top)があればその値、無い・None・形が違えば AUTO_MAX_PER_REC"""
         fn = getattr(self.host, "auto_max", None)
@@ -556,13 +532,6 @@ class Detector:
     def auto_count(self, rc, rec):
         """その録画で自動(origin auto)で採用した数(decisions.json。D-13 の上限の分母)"""
         return sum(1 for x in self._decisions(self.folder(rc, rec))["items"] if x.get("state") == "adopted" and x.get("origin") == "auto")
-
-    def paused_why(self):
-        """D-13: 依頼の無い録画の自動の採用を休む理由("" = 休まない)"""
-        n = self.unconfirmed()
-        if n >= UNCONFIRMED_PAUSE:
-            return "未確認の自動の切り抜きが %d 本あるので、自動の採用を休んでいます(ホームで %d 本未満になるまで見るか要らないにしてください)" % (n, UNCONFIRMED_PAUSE)
-        return ""
 
     def _target_recordings(self, now):
         """自動の採用の対象の録画 -> [(録画, 終わったか)]: 録画中(firstPdt・lastPdt あり)と、終わって END_GRACE_SEC 以内でワーカーが帳簿を締めたもの(D-14)"""
@@ -582,7 +551,7 @@ class Detector:
     def auto_tick(self):
         """M11: 録画中の録画の候補のうち、枠の中で入口が最初に見てから waitMin 分たったものを自動で採用する -> 採用した数。
         D-14: 録画が終わって END_GRACE_SEC 以内でワーカーが締めた録画の、待ち中だった候補も同じ待ちで採用する。
-        D-13: 1 録画 auto_max 本まで(既定 AUTO_MAX_PER_REC)・未確認 UNCONFIRMED_PAUSE 本で依頼の無い録画は休む"""
+        D-13: 1 録画 auto_max 本まで(既定 AUTO_MAX_PER_REC)"""
         a = self.adopt_cfg()
         now = self.clock()
         for key in [k for k, t in self._seen_at.items() if now - t > SEEN_KEEP_SEC]:   # 採用した・録画が終わった候補の分は残さない(録画のたびに増え続けない)
@@ -594,16 +563,12 @@ class Detector:
         home = a["enabled"] and self.detect_cfg().get("enabled") is True
         if not home and not self.requests_cfg():   # 採用する録画が無い(録画元に聞かない)
             return 0
-        paused = self.paused_why() if home else ""
-        if paused and paused != self._paused_said:
-            self.host.log("盛り上がりの検出: " + paused)
-        self._paused_said = paused
         done = 0
         given = {(x.get("recorder"), x.get("recording"), x.get("id")) for x in self._load_fails()}
         for r, ended in self._target_recordings(now):
             rc, rec = r["recorder"], r["id"]
             req = self.host.requests.get(rc, rec)   # 友人のライブ配信の依頼の録画は、自動採用のスイッチがオフでも採用する(待ちは依頼の設定。2-15)
-            if req is None and (not home or paused):
+            if req is None and not home:
                 continue
             wait_min = self.adopt_for(req, rc, rec)["waitMin"]
             doc, peaks, _pending = self.view(rc, rec)
@@ -698,12 +663,11 @@ class Detector:
                          "lag": (doc or {}).get("lag"), "chat": ch, "behindSec": (doc or {}).get("behindSec"),
                          "auto": auto_n, "autoCapped": auto_n >= self.auto_max(x["recorder"], x["id"])})   # D-13: 自動で採用した数と上限に達したか
         chat = next((c for c in CHAT_ORDER if c in chats), "off")
-        paused = self._paused_said   # D-13: 休んでいる理由(auto_tick が決める。見回りの間の値 = ここで案件を数え直さない)
         return {"running": self.running(hb), "pid": hb.get("pid"), "behindSec": hb.get("behindSec"), "memMB": hb.get("memMB"),
                 "restarts": self.restarts, "chat": chat, "chatRestarts": hb.get("chatRestarts") or 0, "recordings": recs,
                 "message": hb.get("message") or ("ワーカーを起動しています" if self.proc is not None else "ワーカーは動いていません"),
                 "error": hb.get("error") or "",
-                "autoAdopt": dict(self.adopt_cfg(), maxPerRecording=AUTO_MAX_PER_REC, pauseUnconfirmed=UNCONFIRMED_PAUSE, paused=paused)}
+                "autoAdopt": dict(self.adopt_cfg(), maxPerRecording=AUTO_MAX_PER_REC)}
 
     def failures(self, now=None):
         """「調子」の失敗(kind detect。文は src/flow/live_failures.py の detect_failure)"""

@@ -3,7 +3,7 @@
 
 - 入口の Live を使わず、偽の録画元・偽の まとめて実行で: ② の口(Queue.submit の kind live)→ submit → 録画を始める → live/bundles.json →
   束から検出の設定(config.json の bundles)・自動の採用の待ち・配信後の解析の設定・書き出したあとの設定
-- 画面なしの形(どの封筒も依頼の決まり・D-13 なし・上限は束の adopt.top): 採用(LocalMarks)→ 書き出しのジョブ → まとめて実行へ
+- 画面なしの形(どの封筒も依頼の決まり・6 時間の見回りなし・上限は束の adopt.top): 採用(LocalMarks)→ 書き出しのジョブ → まとめて実行へ
   封筒 kind file + 録画の束(submit。欄は以前の start_file と同じ実行)・書き出しの音量は束から
 - 自分の配信(begin_own。RS8): 録画を始めたときに束を組み(ホームの設定 + スタジオの解析の設定・書き出しの音量)、録画中に設定を変えても束の値
 - 空き容量の下限(disk_min_gb)を下回ったら録画を始めない
@@ -229,7 +229,7 @@ class OwnStreamTest(Base):
 
 
 class HeadlessTest(Base):
-    """画面なしの形(入口の Live.use_headless と同じ値をライブ係に置く): どの封筒も依頼の決まり・D-13 なし・上限は束の adopt.top"""
+    """画面なしの形(入口の Live.use_headless と同じ値をライブ係に置く): どの封筒も依頼の決まり・6 時間の見回りなし・上限は束の adopt.top"""
 
     SPEC = {"adopt": {"top": 2, "pad": 1.0, "waitMin": 2, "afterStream": False}, "analyze": {"length": 40},
             "pack": {"cut": "silence", "videoTracks": 3}, "run": {"pinned": ["cut", "videoTracks"]},
@@ -248,8 +248,8 @@ class HeadlessTest(Base):
         self.assertEqual((req["rid"], req["deliverDir"], req["cut"], req["videoTracks"], req["streamer"]), ("req-1", "", "silence", 3, ""))
         self.assertEqual(req["settings"], {"sens": "normal", "perHour": 6, "length": 40, "waitMin": 2, "pad": 1.0, "afterStream": False})
         self.assertEqual(req["speakers"], {"count": 2, "names": ["兎田ぺこら"], "styles": {"兎田ぺこら": {"color": "#FF0000"}}})
-        # D-13 なし: 未確認で休まない・上限は束の adopt.top
-        self.assertEqual((self.s.detector.auto_max("local", REC), self.s.detector.paused_why()), (2, ""))
+        # 上限は束の adopt.top(未確認の数で休む仕組みは 2026-10-15 にやめた = どちらの形にも無い)
+        self.assertEqual(self.s.detector.auto_max("local", REC), 2)
         self.assertEqual(self.s.detector.auto_max("local", "20261011-210000-x"), D.AUTO_MAX_PER_REC)   # 束の無い録画は今の上限
         # 採用(LocalMarks = スタジオなし)→ 書き出しのジョブ(依頼の録画 = after auto・余白は依頼の 1 秒)
         self.assertIsInstance(self.s.marks, LA.LocalMarks)
@@ -344,7 +344,7 @@ class LiveAppTest(unittest.TestCase):
         lv.use_headless(20)
         self.assertTrue(lv.enabled())   # 設定はオフのままでも動く
         self.assertIsInstance(lv.marks, LA.LocalMarks)
-        self.assertEqual((lv.adopter.deliver_for, lv.unconfirmed, lv._request_limit(), lv.disk_min_gb, lv.request_all), (None, None, None, 20, True))
+        self.assertEqual((lv.adopter.deliver_for, lv._request_limit(), lv.disk_min_gb, lv.request_all), (None, None, 20, True))
         self.assertEqual(lv.auto_max, lv.bundle_top)
         steps = [w for w, _f in lv._watch_steps()]
         self.assertFalse(any("上限" in w or "届け方" in w or "見ていない" in w for w in steps), steps)

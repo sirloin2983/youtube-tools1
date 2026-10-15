@@ -65,12 +65,12 @@ P3(2026-10-05。計画の 0-8): 録画と再生・マークは**スタジオの�
 
 役割で組み直す RS7-2 G2b(2026-10-11): app でない部分(録画元のクライアント・録画を始める begin/begin_request・受付 submit・見回りの列・子プロセス・「調子」・採用の口)は
 src/flow/livesession.py の LiveSession(ライブ係)へ移した。Live はそれを継ぎ、ここに残すのは app の物だけ: HTTP の受け口(handle_get・handle_post)・
-中継(_relay)・札(ytt)・スタジオ(studio_call・StudioMarks・書き出しの音量の settings-ui.json)・友人へ届ける(_auto_deliver_for)・D-13(stop_long_requests・
-unconfirmed)・組の溜め(flush_pools)・見ていない自動の切り抜きの片付け(expire_unseen)・ホームの設定(prefs)・片付けの部品(Cleaner)・依頼の録画の束(live_bundle)。
+中継(_relay)・札(ytt)・スタジオ(studio_call・StudioMarks・書き出しの音量の settings-ui.json)・友人へ届ける(_auto_deliver_for)・6 時間の上限(stop_long_requests)・
+組の溜め(flush_pools)・見ていない自動の切り抜きの片付け(expire_unseen)・ホームの設定(prefs)・片付けの部品(Cleaner)・依頼の録画の束(live_bundle)。
 自分の配信(スタジオの URL の欄 POST /live/api/begin)も RS8 から録画を始めたときに束を組む(livesession.begin_own。封筒 kind live + own_bundle =
 画面の設定の束 + ホームの設定 live + 今のスタジオの解析の設定・書き出しの音量)。録画中に設定を変えても、その録画の検出の感度・枠・採用の待ち・余白・
 配信後の解析・書き出しの音量・書き出したあとのエンジン・モデル・カットには効かない(決定 3-31 の b1・b2)。封筒にできない URL(テストの手元の録画元)は束なし。
-画面なし(--headless)は use_headless: スタジオなしの採用(LocalMarks)・届けない・D-13 なし・上限は束の adopt.top・空き容量の下限(machine.json の diskMinGB)。
+画面なし(--headless)は use_headless: スタジオなしの採用(LocalMarks)・届けない・6 時間で止めない・上限は束の adopt.top・空き容量の下限(machine.json の diskMinGB)。
 """
 import http.client
 import os
@@ -169,14 +169,13 @@ class Live(livesession.LiveSession):
 
     def use_headless(self, disk_min_gb=None):
         """画面なし(server.py --headless。notes:plan/f1-friend-pc.md の決めたこと 6・7): 設定に関わらずオン・どの封筒も依頼の決まりで(検出・採用・パックまで)・
-        スタジオなしの採用(LocalMarks)・友人へ届けない・D-13 なし(未確認で休まない・6 時間で止めない・同時の上限なし)・自動の採用の上限は束の adopt.top・
+        スタジオなしの採用(LocalMarks)・友人へ届けない・6 時間で止めない・同時の上限なし・自動の採用の上限は束の adopt.top・
         空き容量が disk_min_gb(GB)より少なければ新しい録画を始めない"""
         self.headless = True
         self.always_on = self.request_all = True
         self.disk_min_gb = disk_min_gb
         self.marks = live_adopt.LocalMarks(lambda: self.exporter)
         self.adopter.deliver_for = None
-        self.unconfirmed = None
         self.auto_max = self.bundle_top
 
     # --- 設定 ---

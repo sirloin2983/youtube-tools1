@@ -429,8 +429,8 @@ class TestAutoClips(Base):
         res = cases.snapshot(self.root, self.env)
         c = next(x for x in res["cases"] if x["id"] == REC)
         by = {cl["markId"]: cl for cl in c["clips"]}
-        self.assertEqual(by["m1"]["auto"], {"origin": "auto", "originLabel": "配信中の候補", "score": None, "bench": False})
-        self.assertEqual(by["m2"]["auto"], {"origin": "archive", "originLabel": "配信後の解析", "score": 0.88, "bench": True})   # 点数はスタジオのマークから
+        self.assertEqual(by["m1"]["auto"], {"origin": "auto", "originLabel": "配信中の候補", "score": None, "bench": False, "deliver": False})
+        self.assertEqual(by["m2"]["auto"], {"origin": "archive", "originLabel": "配信後の解析", "score": 0.88, "bench": True, "deliver": False})   # 点数はスタジオのマークから
         self.assertIsNone(by["m3"]["auto"])   # 人の切り抜きは今までどおり
         self.assertNotIn("review", by["m3"])
         self.assertEqual(by["m1"]["review"], {"seenAt": 0, "deliveredAt": 0, "delivered": "", "failure": None, "unconfirmed": True, "pending": False})
@@ -458,6 +458,70 @@ class TestAutoClips(Base):
         self.review("seen", "m1")
         m1 = next(cl for cl in self.case()["clips"] if cl["markId"] == "m1")
         self.assertEqual((m1["review"]["pending"], m1["review"]["unconfirmed"]), (False, False))
+
+    def test_clips_to_deliver_are_not_unconfirmed(self):
+        """届ける印つき(友人の依頼・live.autoDeliver)の自動の切り抜きは、届けるのが決まりなので未確認に数えない(opt-manage 2a-2)"""
+        self.live_clip("10_自動.mp4", "auto", markId="lm-aaaaaaaaaaaa", deliver={"rid": "20261009-120000-abcdef", "auto": False})
+        c = self.case()
+        m1 = next(cl for cl in c["clips"] if cl["markId"] == "m1")
+        self.assertEqual((m1["auto"]["deliver"], m1["review"]["unconfirmed"], m1["review"]["pending"]), (True, False, False))
+        self.assertEqual(c["autoClips"], {"total": 2, "unconfirmed": 1})   # m2(印なし)だけ
+
+    def test_relink_delivered_from_pack_dirs(self):
+        """届けた印の付け直し(opt-manage 2a-1): 届けた記録の path が空の行を、パックのフォルダの名前から切り抜きに結んで「届けた」を付ける(時刻は記録の at)。
+        何度走っても同じ・もう届けた物は変えない・結べない行は触らずに数だけ・ライブでない切り抜きは案件の印が無いので数えるだけ"""
+        logs = os.path.join(self.data, "app", "logs")
+        self.live_clip("10_自動.mp4", "auto", studio={"video": REC, "mark": "m1"})
+        self.live_clip("11_アーカイブ.mp4", "archive", bench=True, studio={"video": REC, "mark": "m2"})
+        pk1, pk2 = txindex.pack_dir(self.auto1), txindex.pack_dir(self.auto2)   # m1 のパックは友人の「要らない」でもう無い(フォルダの名前だけで結ぶ)
+        plain = self.touch(os.path.join(self.exports, "依頼の動画.mp4"))
+        at = 1760000000000
+        rows = [{"at": at, "zip": "r1__10_自動.zip", "packs": [{"dir": pk1, "path": "", "markId": ""}]},
+                {"at": at + 1, "zip": "r1__11.zip", "packs": [{"dir": pk2, "path": "", "markId": ""}, {"dir": txindex.pack_dir(plain), "path": "", "markId": ""}]},
+                {"at": at + 2, "zip": "r1__無い.zip", "packs": [{"dir": os.path.join(self.exports, "無い_pack"), "path": "", "markId": ""},
+                                                             {"dir": os.path.join(self.exports, "名前違い"), "path": "", "markId": ""}]},
+                {"at": at + 3, "zip": "r1__済.zip", "packs": [{"dir": pk1, "path": self.auto1, "markId": "m1"}]}]   # path がある行は前から届けた印が付く
+        self.touch(os.path.join(logs, cleanup.DELIVERIES_LOG), "\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\nこわれた行\n")
+        self.review("seen", "m2")   # 見ただけ(届けたはまだ)
+        r = cases.relink_delivered(self.root, logs, self.env)
+        self.assertEqual(r, {"rows": 5, "linked": 2, "already": 0, "notLive": 1, "unlinked": 2})
+        by = {cl["markId"]: cl["review"] for cl in self.case()["clips"] if cl.get("auto")}
+        self.assertEqual((by["m1"]["deliveredAt"], by["m1"]["delivered"], by["m1"]["seenAt"], by["m1"]["unconfirmed"]), (at, "r1__10_自動.zip", at, False))
+        self.assertEqual((by["m2"]["deliveredAt"], by["m2"]["delivered"]), (at + 1, "r1__11.zip"))
+        self.assertTrue(0 < by["m2"]["seenAt"] != at + 1)   # 見た時刻はそのまま
+        before = cases.load_saved(os.path.join(self.data, "app", "cases.json"))
+        r = cases.relink_delivered(self.root, logs, self.env)   # 2 回目: 何も変えない
+        self.assertEqual(r, {"rows": 5, "linked": 0, "already": 2, "notLive": 1, "unlinked": 2})
+        self.assertEqual(cases.load_saved(os.path.join(self.data, "app", "cases.json")), before)
+        with open(os.path.join(logs, cleanup.DELIVERIES_LOG), encoding="utf-8") as f:
+            self.assertEqual(len(f.read().splitlines()), 5)   # 届けた記録は書き換えない
+        # 記録が無い・読めない logs は何もしない
+        self.assertEqual(cases.relink_delivered(self.root, os.path.join(self.tmp, "無い"), self.env)["rows"], 0)
+
+    def test_remember_delivered_at_keeps_first(self):
+        """付け直し(at あり)は、もう「届けた」がある記録を変えない。いつもの届けた(at なし)は今までどおり新しい zip で上書き"""
+        self.live_clip("10_自動.mp4", "auto", studio={"video": REC, "mark": "m1"})
+        self.assertTrue(cases.remember_delivered(self.root, self.auto1, "a.zip", self.env))
+        first = next(cl for cl in self.case()["clips"] if cl["markId"] == "m1")["review"]
+        self.assertTrue(cases.remember_delivered(self.root, self.auto1, "b.zip", self.env, at=1))
+        self.assertEqual(next(cl for cl in self.case()["clips"] if cl["markId"] == "m1")["review"], first)
+        self.assertTrue(cases.remember_delivered(self.root, self.auto1, "c.zip", self.env))
+        self.assertEqual(next(cl for cl in self.case()["clips"] if cl["markId"] == "m1")["review"]["delivered"], "c.zip")
+        self.assertFalse(cases.remember_delivered(self.root, self.manual, "d.zip", self.env))   # studio の無い切り抜きは何もしない
+
+    def test_relink_later_runs_once_and_not_inplace(self):
+        """起動のときの付け直し: inplace(テスト)では走らない・同じ logs はプロセスで 1 回・結果をログに 1 行"""
+        logs = os.path.join(self.data, "app", "logs")
+        self.assertIsNone(cases.relink_delivered_later(self.root, logs, delay=0, env={"YTT_DATA_DIR": "inplace"}))
+        self.touch(os.path.join(logs, cleanup.DELIVERIES_LOG),
+                   json.dumps({"at": 1, "zip": "z.zip", "packs": [{"dir": os.path.join(self.exports, "無い_pack"), "path": ""}]}) + "\n")
+        said = []
+        self.addCleanup(cases._relinked.discard, os.path.normcase(os.path.abspath(logs)))
+        t = cases.relink_delivered_later(self.root, logs, log=said.append, delay=0, env=self.env)
+        t.join(10)
+        self.assertIsNone(cases.relink_delivered_later(self.root, logs, log=said.append, delay=0, env=self.env))
+        self.assertEqual(len(said), 1)
+        self.assertIn("結べない 1", said[0])
 
     def test_clip_live_reads_only_live_clips(self):
         """.clip.json の読み方(まとめて実行の M8 = autorun.live_auto_origin も同じ): ライブの書き出しだけ。無い・ライブでないものは (None, None)"""

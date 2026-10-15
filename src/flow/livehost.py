@@ -7,7 +7,7 @@
 親は 1 つ(LiveSession)なので口も LiveHost の 1 つにまとめた(採用 flow/live_adopt.py の Adopter。RS7-2 G1b も同じ口)。
 親とは別の物の口: 友人の依頼の結びつき RequestBook・マークの置き場 MarkBook(実装が 2 つ = live_adopt の StudioMarks・LocalMarks)。
 
-親が持っていなくてもよい物(子が getattr で読み、無ければ飛ばす): _halt・unconfirmed・auto_max・bundles(Detector)、
+親が持っていなくてもよい物(子が getattr で読み、無ければ飛ばす): _halt・auto_max・bundles(Detector)、
 studio_call・bundles(Exporter)。Archiver(live_archive)・Cleaner(manage/keep/live_cleanup)は関数で受けるのでここには無い
 (ただし Archiver は Exporter の host.find を読む)。
 """
@@ -56,7 +56,6 @@ class LiveHost(Protocol):
     livetx: "LiveTx"
     exporter: "Exporter"
     _halt: threading.Event                         # 入口の終了の途中ならワーカーを起こさない
-    unconfirmed: Optional[Callable[[], int]]       # D-13 の未確認の数。None なら休まない
     auto_max: Optional[Callable[[str, str], int]]  # (rc, rec) -> 1 録画の自動の採用の上限(D-13)。None なら live_detect.AUTO_MAX_PER_REC。友人の PC は束の adopt.top
     bundles: Any   # 録画ごとの封筒 + 束(flow/livesession.py の BundleBook。spec(rc, rec)・specs())。無い・束の無い録画は今までの読み方
 

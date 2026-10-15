@@ -22,6 +22,8 @@ RULES_FILE = "learned-rules.json"    # 計算済みの規則
 SETTINGS_FILE, FEEDBACK_FILE = "settings.json", "learn-feedback.json"
 ROSTER_FILE, MEMBERS_FILE, VOICES_DIRNAME = "hololive-roster.json", "members.json", "voices"
 MAX_RULES = 5000
+PREFS_FILE = "prefs.json"            # ホームの設定(<作業データ>/app。src/home/prefs.py)。作る側の見分けに intake.folder だけ読む
+MAKER_SKIP = "学習の束を作る側の PC なので、machine の learningDir(%s)は読みません(今の置き場所のまま)"
 
 
 def is_pack(ld):
@@ -36,13 +38,38 @@ def pack_version(ld):
     return v if isinstance(v, str) else ""
 
 
-def learning_dir():
-    """machine の learningDir から -> 学習データの置き場所。
-    束(learning.json がある)ならそのフォルダ。既定(作業データの根)なら None(今の置き場所のまま)。
-    それ以外はその下の編集の作業データのフォルダ(作業データの置き方)"""
+def maker_pc(env=None):
+    """この PC は学習の束を作る側(ユーザーの PC)か = ホームの設定 <作業データ>/app/prefs.json の intake.folder(依頼の受付のフォルダ)が空でない。
+    束は入口が <intake.folder>/学習 に作るので、この設定がある PC だけが作る側。友人の PC は Dropbox を API で読み(友人のアプリ)、② は画面なしで
+    受付の設定を持たないので真にならない。文字起こしの文書(transcribe/transcripts)は友人の PC の ② も書くので見分けに使わない
+    (友人のアプリ friend-apps/request-sender/src/Sync.cs の Sync.MakerPc も同じ条件。6d-1)"""
+    p = os.path.join(_datadir.locate("app", env=env), PREFS_FILE)
+    d = _fsio.read_json_or(p, None, kind=dict)
+    intake = d.get("intake") if d else None
+    folder = intake.get("folder") if isinstance(intake, dict) else None
+    return isinstance(folder, str) and bool(folder.strip())
+
+
+def learning_dir_checked():
+    """machine の learningDir から -> (学習データの置き場所か None, 読まなかった理由の 1 行か空)。
+    束(learning.json がある)ならそのフォルダ。ただし束を作る側の PC(maker_pc)では束を読まない = None と理由(10-11 に友人のアプリの同期が
+    ユーザーの PC で learningDir を自分の束へ向け、入口のプロセスの設定が束の物に差し替わった。6d-1・Q9)。
+    既定(作業データの根)なら None(今の置き場所のまま)。それ以外はその下の編集の作業データのフォルダ(作業データの置き方)"""
     ld = _machine.get("learningDir")
     if is_pack(ld):
-        return os.path.abspath(ld)
+        if maker_pc():
+            return None, MAKER_SKIP % ld
+        return os.path.abspath(ld), ""
+    return _plain_dir(ld), ""
+
+
+def learning_dir():
+    """machine の learningDir から -> 学習データの置き場所か None(learning_dir_checked の理由を捨てた形。CLI の prepare・LocalTools もここを通る)"""
+    return learning_dir_checked()[0]
+
+
+def _plain_dir(ld):
+    """束でない learningDir -> 既定なら None・それ以外は編集の作業データのフォルダ"""
     if os.path.normcase(os.path.normpath(ld)) == os.path.normcase(os.path.normpath(_machine.root())):
         return None
     return _datadir.locate("transcribe", env=dict(os.environ, YTT_DATA_DIR=ld))

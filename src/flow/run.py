@@ -193,6 +193,18 @@ def pack_verdict(force, state, pack_exists):
     return "skip"
 
 
+def doc_pack_hint(doc):
+    """文書 1 本のパック(_doc_pack。依頼の動画・ライブの切り抜き)の届けた先 {"path": 切り抜きの動画, "markId": スタジオのマーク}。
+    _step_pack の hint と同じ形(path が無いと、届けたときに案件へ「届けた」が残らない = opt-manage 2a-1)。
+    markId は文書に入っている .clip.json のライブの studio.mark(ライブの切り抜きでなければ "" = 友人の動画の依頼はスタジオのマークが無い)"""
+    clip = doc.get("clip") if isinstance(doc.get("clip"), dict) else {}
+    src = clip.get("source") if isinstance(clip.get("source"), dict) else {}
+    live = src.get("live") if isinstance(src.get("live"), dict) else {}
+    studio = live.get("studio") if isinstance(live.get("studio"), dict) else {}
+    mark = studio.get("mark")
+    return {"path": doc.get("sourcePath") or "", "markId": str(mark) if isinstance(mark, str) else ""}
+
+
 class Run:
     """1 回の実行(配信・文書・動画ファイル 1 つぶん)の状態。段の並びは MODE_STEPS[mode]"""
 
@@ -1164,6 +1176,7 @@ class Runner:
         if not _has_captions(doc) and not self._edit_keeps(doc)[0]:
             st["state"], st["detail"] = "skip", "残す字幕の行もカットも無いので、パックを作れません(2 カット のタブで区間を決めると作れます)"
             return None
+        run.pack_hint = doc_pack_hint(doc)   # 届けた先(_step_pack と同じ形。無いと届けた印が案件に残らない = opt-manage 2a-1)
         res, cut = self._pack_one(run, st, doc, doc["sourcePath"], opts, force=force or state == "differ", built=built)
         if res == "exists":   # find_pack で見つからない名前違いのパック(以前の版で作ったもの)など
             self._keep_pack(run, doc["sourcePath"])

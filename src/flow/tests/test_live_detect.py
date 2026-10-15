@@ -9,7 +9,7 @@ src/pipeline/analyze/tests/test_live_excite_worker.py、設定(prefs)の検査�
   - GET /live/api/peaks の中身(Detector.api_get。since の差分・series・重ねた決定・無い録画・形の悪い id)/ POST adopt・dismiss・restore
     (マークと decisions.json)/「調子」の detect の行と失敗(kind detect)/ ワーカーの起動・心拍が止まったら起動し直す・止める
   - M11: 確定から waitMin 後に 1 回だけ採用(origin auto・after auto・live_feedback の human false)・見送り・控えは採用しない・スタジオ不通は 5 回で諦めて失敗の文
-  - D-13(1 録画の上限・未確認で休む)・D-14(終わったあとの採用)・D-12(配信ごとの記録)・0-10-6(アーカイブとの比べ)・config.json(スタジオの解析の設定)
+  - D-13(1 録画の上限。未確認で休むのは 10-15 にやめた)・D-14(終わったあとの採用)・D-12(配信ごとの記録)・0-10-6(アーカイブとの比べ)・config.json(スタジオの解析の設定)
   - 友人のライブ配信の依頼(notes:docs/spec/friend.md の 2-15): ホームの検出・自動採用がオフでも結びついた録画は動く・依頼の waitMin・pad で自動の採用
   - 配信中の候補の文字起こし(D-11 案 b。本体は test_live_tx.py): 候補の text・textAt・since の差分・応答の tx・採用の記録 live_feedback.jsonl の text
 作業データはテストの一時フォルダだけ(YTT_DATA_DIR=inplace)。
@@ -380,55 +380,25 @@ class DetectApiTest(unittest.TestCase):
         self.det.auto_tick()
         self.assertEqual(sum(1 for m in self.logs if "上限の %d 本" % D.AUTO_MAX_PER_REC in m), 1)   # 記録は 1 回
         h = self.live.health()["detect"]
-        self.assertEqual((h["recordings"][0]["auto"], h["recordings"][0]["autoCapped"], h["autoAdopt"]["maxPerRecording"], h["autoAdopt"]["pauseUnconfirmed"]),
-                         (D.AUTO_MAX_PER_REC, True, D.AUTO_MAX_PER_REC, D.UNCONFIRMED_PAUSE))
+        self.assertEqual((h["recordings"][0]["auto"], h["recordings"][0]["autoCapped"], h["autoAdopt"]["maxPerRecording"]),
+                         (D.AUTO_MAX_PER_REC, True, D.AUTO_MAX_PER_REC))
         a = self.post("adopt", pks[-1]["id"])   # 人の採用は上限に関係なく通る
         self.assertEqual((a["ok"], self.decisions()["items"][-1]["origin"]), (True, "manual"))
         self.assertEqual(self.det.auto_count("fake", REC), D.AUTO_MAX_PER_REC)   # 人の採用は数えない
 
-    def test_d13_pause_when_unconfirmed(self):
-        """D-13: ホームの未確認の自動の切り抜きが UNCONFIRMED_PAUSE 本以上なら、依頼の無い録画の自動の採用を休む(「調子」に理由・記録は 1 回)。
-        数は UNCONFIRMED_EVERY 秒ごとに聞き直す。友人の依頼の録画は休まない。数えられなければ休まない(記録に 1 回)"""
+    def test_no_pause_on_unconfirmed(self):
+        """未確認の数で自動の採用を休む仕組み(以前の D-13 の UNCONFIRMED_PAUSE)は 2026-10-15 にやめた(opt-manage Q1)。
+        親が未確認の数を持っていても読まずに採用する。「調子」にも休む欄は無い(1 録画の上限は test_d13_auto_cap_per_recording)"""
         LF.patch_cfg(self.cfg, {"autoAdopt": {"enabled": True, "waitMin": 1}})
-        n = [D.UNCONFIRMED_PAUSE]
-        self.live.unconfirmed = lambda: n[0]
+        self.live.unconfirmed = lambda: 999   # 以前の入口が置いていた口(今は誰も読まない)
         self.rec.rel = 5000
         t = self.worker_alive()
         self.assertEqual(self.det.auto_tick(), 0)
         t[0] += 61
-        self.assertEqual(self.det.auto_tick(), 0)   # 休む
-        self.assertIn("自動の採用を休んでいます", self.live.health()["detect"]["autoAdopt"]["paused"])
-        self.det.auto_tick()
-        self.assertEqual(sum(1 for m in self.logs if "休んでいます" in m), 1)
-        n[0] = D.UNCONFIRMED_PAUSE - 1
-        self.assertEqual(self.det.auto_tick(), 0)   # UNCONFIRMED_EVERY 秒は前の数のまま
-        t[0] += D.UNCONFIRMED_EVERY + 1
-        self.assertEqual(self.det.auto_tick(), 0)   # 休みが明けた: ここから待ちを数える(休んでいる間は「最初に見た」にしない)
-        self.assertEqual(self.live.health()["detect"]["autoAdopt"]["paused"], "")
-        t[0] += 61
-        self.assertEqual(self.det.auto_tick(), 2)   # p0・p1
-        # 友人の依頼の録画は、休んでいても採用する
-        n[0] = D.UNCONFIRMED_PAUSE + 5
-        t[0] += D.UNCONFIRMED_EVERY + 1
-        self.put_peaks(self.peaks3() + [peak("p3-4000", 3970, 4000, 9.0, "frame", 4010, hour=1)], seq=7, changes=[])   # p0・p1 は決定(adopted)を重ねて見える
-        self.assertEqual(self.det.auto_tick(), 0)
-        t[0] += 61
-        self.assertEqual(self.det.auto_tick(), 0)   # 休んでいる
-        self.live.requests.put("fake", REC, {"rid": "20261008-200000-abc123", "deliverDir": self.tmp, "settings": {"waitMin": 1}})
-        self.assertEqual(self.det.auto_tick(), 0)   # 依頼の録画になった: ここから待ちを数える
-        t[0] += 61
-        self.assertEqual(self.det.auto_tick(), 1)   # p3(依頼の録画)
-        self.live.requests.remove("fake", REC)
-
-        def boom():
-            raise RuntimeError("x")
-        self.live.unconfirmed = boom   # 数えられない → 休まない
-        t[0] += D.UNCONFIRMED_EVERY + 1
-        self.assertEqual(self.det.paused_why(), "")
-        self.assertEqual(sum(1 for m in self.logs if "安全弁は効きません" in m), 1)
-        t[0] += D.UNCONFIRMED_EVERY + 1
-        self.assertEqual(self.det.paused_why(), "")
-        self.assertEqual(sum(1 for m in self.logs if "安全弁は効きません" in m), 1)
+        self.assertEqual(self.det.auto_tick(), 2)   # p0・p1(休まない)
+        self.assertFalse(hasattr(D, "UNCONFIRMED_PAUSE") or hasattr(self.det, "paused_why"))
+        self.assertNotIn("paused", self.live.health()["detect"]["autoAdopt"])
+        self.assertFalse(any("休んでいます" in m for m in self.logs))
 
     def test_d14_adopt_after_end(self):
         """D-14: 録画が終わっても、ワーカーが帳簿を締めた(peaks.json の ended)あと END_GRACE_SEC の間は、待ち中だった候補を同じ待ちで採用する。

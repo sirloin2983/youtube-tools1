@@ -76,6 +76,7 @@ namespace RequestSender
     {
         public string LearningVersion;    // 取った(または既にあった)最新の版。null = 変わらず
         public bool LearningApplied;      // machine の learningDir を向けた
+        public bool LearningSkipped;      // 束を作る側の PC なので取らず・向けなかった(Sync.MakerPc)
         public int Uploaded, UploadFailed;
         public UpdateInfo Update;         // 自分より新しい版があるとき
         public List<string> Problems = new List<string>();
@@ -125,6 +126,15 @@ namespace RequestSender
         }
 
         public static string LearningRoot(string dataRoot) { return Path.Combine(dataRoot, "learning"); }
+
+        // 学習の束を作る側の PC(ユーザーの PC)か = <dataRoot>\app\prefs.json の intake.folder(依頼の受付のフォルダ)が空でない。
+        // 束はその PC の入口が <intake.folder>\学習 に作る。友人の PC の ② は画面なしで受付の設定を持たないので真にならない(② flow/learning.maker_pc と同じ条件。6d-1)
+        public static bool MakerPc(string dataRoot)
+        {
+            if (string.IsNullOrEmpty(dataRoot)) return false;
+            string f = Json.Str(Json.Dict(Json.ReadFileOrNull(Path.Combine(dataRoot, "app", "prefs.json")), "intake"), "folder");
+            return f != null && f.Trim().Length > 0;
+        }
 
         // ---- 学習の束 ----
         // latest.json の版が新しければ取る。-> 最新の版(取った・既にあった)。Dropbox に無ければ null。完全に取れなければ例外
@@ -269,7 +279,8 @@ namespace RequestSender
         {
             var r = new SyncResult();
             string learnRoot = LearningRoot(dataRoot);
-            try
+            if (MakerPc(dataRoot)) { r.LearningSkipped = true; log("learning: maker PC (intake.folder is set), not fetched or applied"); }   // 自分の束を自分の ② に向けない(二重の守りの片方)
+            else try
             {
                 string v = FetchLearning(io, learnRoot, log);
                 if (v != null) { r.LearningVersion = v; r.LearningApplied = ApplyLearning(learnRoot, v, put, log); }

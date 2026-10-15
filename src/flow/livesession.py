@@ -5,7 +5,7 @@
 見回りの列(tick)・子プロセス(録画の部品の起動と後始末・検出のワーカー)・「調子」・採用の口(adopt)をここに置き、4 つの子(Detector・LiveTx・Reporter・
 Exporter)と Archiver・Adopter の親になる(flow/livehost.py の LiveHost を満たす)。入口の Live は LiveSession を継いで、HTTP の受け口・中継・札・
 スタジオ(studio_call・StudioMarks)・友人へ届ける・D-13・ホームの設定(prefs)だけを足す(app の殻)。画面なし(--headless)も同じ Live を使い、
-use_headless でスタジオなしの採用(LocalMarks)・届けない・D-13 なし・上限は束の adopt.top・空き容量の下限にする。
+use_headless でスタジオなしの採用(LocalMarks)・届けない・D-13 の 6 時間の見回りなし・上限は束の adopt.top・空き容量の下限にする。
 
 受付 = submit(封筒, 束)(② の口 Queue.submit が kind live を回す = 入口が Queue.set_live_hook で登録する):
   封筒 kind live(flow/envelope.py)を受けて録画を始め、録画ごとに封筒 + 束を live/bundles.json に残す(BundleBook)。
@@ -448,7 +448,6 @@ class LiveSession:
         self.livetx = live_tx.LiveTx(self, log=self.log, python=self.python)   # 配信中の候補の文字起こし(D-11 案 b。whisper.cpp の GPU)
         self.livetx.attach_board(self.board)
         self.reporter = live_report.Reporter(self)   # 配信ごとの結果の記録(D-12。live/reports/)
-        self.unconfirmed = None            # () -> 「自動の切り抜き: 未確認」の数(D-13 の休む判断。入口が渡す。None = 休まない)
         self.auto_max = None               # (録画元, 録画) -> 1 録画の自動の採用の上限(D-13)。None = live_detect.AUTO_MAX_PER_REC
         # 採用(M1)のマークの置き場(既定 = マークの正本 LocalMarks。入口はスタジオ = StudioMarks)
         self.marks = marks if marks is not None else live_adopt.LocalMarks(lambda: self.exporter)
