@@ -133,6 +133,74 @@ class BookTest(Base):
         with open(self.data, encoding="utf-8") as f:
             self.assertEqual(f.read(), "{壊れた")
 
+    def test_reads_what_studio_wrote(self):
+        """逆の向き: スタジオの Store が書いた data.json と案件のファイルを、台帳が同じ形で読んで続きを書ける(入口を止めて CLI で続ける)"""
+        folder, clip = self.case_folder()
+        with mock.patch.object(studio_env, "get_out_dir", lambda: self.out), mock.patch.object(store_mod.feedback, "feedback_for_mark"):
+            st = store_mod.Store(self.data)
+            st.ensure({"kind": "youtube", "videoId": VID}, "題", "ch")
+            st.replace_auto(VID, [{"start": 10, "end": 40, "score": 5}, {"start": 100, "end": 130, "score": 9}], {"at": 1}, 300.0, {"n": 2})
+            mid = st.adopt_marks(VID, [], 1)["autoIds"][0]
+            self.assertTrue(st.mark_exported(VID, mid, "題/01_clip.mp4", 100.0, 130.0, clip))
+            want = st.internal(VID)
+        self.assertEqual(os.path.normcase(self.raw()["videos"][VID]["case"]), os.path.normcase(folder))
+        v = self.book.get(VID)
+        self.assertEqual({k: v[k] for k in want}, want, "台帳もスタジオと同じ全部の形を読む")
+        other = next(m for m in v["marks"] if m["status"] == "")
+        self.book.adopt_marks(VID, [], 2)
+        self.assertTrue(self.book.mark_exported(VID, other["id"], "題/02.mp4", other["start"], other["end"]))
+        sv, _series = self.studio().get(VID)
+        self.assertEqual(sorted(m["status"] for m in sv["marks"]), ["exported", "exported"], "台帳が続けて書いた物をスタジオがまた読める")
+        self.assertEqual(sv["rev"], self.book.get(VID)["rev"])
+
+
+class LedgerTest(unittest.TestCase):
+    """Ledger の口(行の置き方を差し替える): メモリに行を持つ台帳でも同じ書き方になり、継ぐ側の口が呼ばれる(スタジオの Store が継ぐときの形)"""
+
+    class Mem(SB.Ledger):
+        def __init__(self, out):
+            self.rows, self.calls = {}, []
+            self.lock = SB.threading.RLock()
+            self.out_dir = lambda: out
+
+        def _row(self, vid):
+            return self.rows.get(vid)
+
+        def _commit(self, vid, row):
+            self.rows[vid] = row
+
+        def _after_put(self, root, body):
+            self.calls.append(("after_put", body["id"]))
+
+        def _on_exported(self, v, mark):
+            self.calls.append(("exported", mark["id"], mark["status"]))
+
+        def _save_series(self, vid, series):
+            self.calls.append(("series", vid))
+
+    def test_hooks(self):
+        tmp = tempfile.mkdtemp(prefix="ytt_ledger_")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        folder = os.path.join(tmp, "題")
+        os.makedirs(folder)
+        names.write_owner(folder, VID)
+        led = self.Mem(tmp)
+        self.assertEqual(led.ensure({"kind": "youtube", "videoId": VID}, "題")["rev"], 1)
+        self.assertEqual(led.replace_auto(VID, [{"start": 10, "end": 40, "score": 5}], None, 300.0, {"n": 1}), 1)
+        self.assertIsNone(led.replace_auto("zzzzzzzzzzz", [], None, 0, {}), "無い配信は反映しない")
+        mid = led.adopt_marks(VID, [], 1)["autoIds"][0]
+        clip = os.path.join(folder, "01.mp4")
+        self.assertTrue(led.mark_exported(VID, mid, "題/01.mp4", 10.0, 40.0, clip))
+        self.assertTrue(led.mark_exported(VID, mid, "題/01.mp4", 10.0, 40.0, clip))   # 2 度目は初めてでない
+        self.assertEqual(led.calls, [("series", VID), ("after_put", VID), ("exported", mid, "exported"), ("after_put", VID)],
+                         "初めて書き出したとき案件にして(案件に書いたあとの口)・初めてのマークだけ知らせる・2 度目の保存も案件へ")
+        self.assertEqual(sorted(led.rows[VID]), sorted(CF.INDEX_KEYS + ("case",)), "1 行の口には索引の行")
+        with self.assertRaises(errors.ApiError) as cm:
+            led.adopt_marks("zzzzzzzzzzz", [], 1)
+        self.assertEqual(cm.exception.status, 404)
+        with self.assertRaises(errors.ApiError):
+            led.ensure({"kind": "file", "videoId": VID, "path": "x.mp4"})   # 同じ ID の別の種類
+
 
 def _fake_run_analyze(spec, ctl=None):
     """① の解析の代わり(ネットワーク・ffmpeg に出ない): 候補 2 つ"""
