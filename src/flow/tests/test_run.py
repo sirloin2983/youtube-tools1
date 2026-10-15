@@ -6,6 +6,7 @@
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしないが、ほかのテストとそろえる
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -322,6 +323,7 @@ class TestKeys(unittest.TestCase):
 
     def runner(self, c, tx_state="same", pack_state="none", have_pack=False):
         doc = self.doc
+        c.full = c.full or [doc]   # 鍵の比べは字幕を書かずに中身を読む(GET /api/transcript。指摘 2)
 
         class Rn(R.Runner):
             def _docs(self):
@@ -384,6 +386,28 @@ class TestKeys(unittest.TestCase):
         st, _run = self.step(self.runner(c, pack_state="none"), "pack")   # 鍵なし + パックなし = 作る(上書きはしない)
         self.assertEqual(st["state"], "run")
         self.assertNotIn("force", c.bodies["/api/build"]["output"])
+
+    def test_pack_state_writes_nothing_and_matches_written_key(self):
+        """指摘 2: 鍵の比べ(見積もりも同じ関数)は字幕の受け渡しの JSON を書かない。書かずに作った材料の鍵は、書いたファイルから作った鍵と同じ"""
+        c = FakeClient(full=[self.doc])
+        rn = R.Runner(c, poll=0, sleep=lambda s: None)
+        run = R.Run("abcdefghijk", "配信", "adopted", 3)
+        run.spec = SP.validate(SP.merge(None))
+        opts = rn._pack_settings(run)
+        body, _keeps, _rev = rn._pack_body(run, self.doc, self.media, opts, dry=True)
+        self.assertNotIn(("transcribe", "POST", "/api/export-file"), c.calls)
+        tr = os.path.join(tempfile.mkdtemp(), "t.transcript.json")
+        self.addCleanup(shutil.rmtree, os.path.dirname(tr), True)
+        with open(tr, "w", encoding="utf-8") as f:   # 書いたファイル(作った日時と道具は版に入らない)
+            json.dump(dict(body["contents"]["transcript"], createdAt="2026-10-15T00:00:00Z"), f, ensure_ascii=False, indent=1)
+        pack = R._keys.pack_dir(self.media)
+        os.makedirs(pack)
+        self.addCleanup(shutil.rmtree, pack, True)
+        self.assertTrue(R._keys.write_pack(pack, dict(body["spec"], transcript=tr), body["output"]))
+        state, built = rn._pack_state(run, self.doc, self.media, opts)
+        self.assertEqual(state, "same")
+        self.assertIn("contents", built[0])
+        self.assertNotIn(("transcribe", "POST", "/api/export-file"), c.calls)
 
     def test_skipped_by_key_still_lists_existing_outputs(self):
         """鍵で飛ばした段でも、前のパックと文書を結果(public・結果の束)の packs・docs に載せる。作った物(run.packs)には混ぜない"""
@@ -593,6 +617,44 @@ class TestFieldsToBundle(unittest.TestCase):
         rn.have = [doc]
         rn._file_transcribe(r, {"state": "run", "detail": ""})
         self.assertIn("/api/transcribe", c.bodies)
+
+    def test_resume_after_child_saved_doc_keeps_diarize_target(self):
+        """F2: 子が文書を保存した直後・親が結果を見る前に終了しても、再開でその文書を「この実行が作った文書」(new_docs)にする。
+        前からある文書は new_docs に入れない(人の話者の直しを守る)。終了の前に頼んだ記録は待ちの記録(saved)に入っている"""
+        class Gone(Exception):
+            pass
+        made = {"id": "t5", "title": "題", "count": 3, "sourcePath": self.media, "segments": [{"start": 0, "end": 1, "text": "あ"}]}
+        saved = []
+
+        class Docs(R.Runner):
+            def _docs(self):
+                return list(self.have)
+
+            def _checkpoint(self, run):
+                saved.append(run.saved())
+
+        class Dies(FakeClient):
+            def call(self, tool, method, path, body=None):
+                if path == "/api/jobs":   # 子は文書を保存した(have に入れる)が、親は結果を見る前に終了
+                    rn.have = [made]
+                    raise Gone()
+                return super().call(tool, method, path, body)
+        env = {"id": "0123456789", "kind": "file", "input": {"path": self.media}}
+        rn = Docs(Dies(), poll=0, sleep=lambda s: None)
+        rn.have = []
+        with self.assertRaises(Gone):
+            rn._file_transcribe(R.Run.from_envelope(env), {"state": "run", "detail": ""})
+        r = R.Run.restore(saved[-1])
+        c = FakeClient()
+        rn2 = Docs(c, poll=0, sleep=lambda s: None)
+        rn2.have = [made]
+        st = {"state": "run", "detail": ""}
+        rn2._file_transcribe(r, st)
+        self.assertEqual((st["state"], r.new_docs, r.doc_id, "/api/transcribe" in c.bodies), ("skip", ["t5"], "t5", False))
+        # 頼んでいない実行(前からある文書)は new_docs に入れない
+        r = R.Run.from_envelope(env)
+        rn2._file_transcribe(r, {"state": "run", "detail": ""})
+        self.assertEqual(r.new_docs, [])
 
     def test_run_keeps_spec_of_envelope_run(self):
         """封筒 + 束で作った Run は、run(spec=None) でもその束のまま(既定に戻さない)"""

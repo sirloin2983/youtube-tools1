@@ -6,6 +6,11 @@ RS6 a-3 に当て方 apply_replacements を移した(③ 人の再認識の反�
 """
 from ytt import txbase as _txbase
 
+# 人が登録する置換辞書(設定の replacements)を当てるか(10-14 ユーザー「使い始める時にしっかり置換規則を再定義する」= decisions 3-48 Q10)。
+# 今はオフ: 登録があっても文字起こし・再認識の結果に当てない(② flow/tx.dict_pairs が組に入れない)・学習の束にも入れない(④ keep/learnpack)。
+# 名簿の呼び名の表記ゆれの表(roster.variant_pairs)はこれと別で、今までどおり当てる。読み方(parse_replacements など)と設定の欄は残す
+USER_DICT = False
+
 
 def parse_replacements(text):
     """「誤=>正」を1行に1つ書いた文字列 → [(誤, 正)](長い誤りから先に置換する)。"""

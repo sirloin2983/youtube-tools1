@@ -15,7 +15,6 @@ import tempfile
 import types
 import unittest
 import wave
-import zipfile
 from contextlib import redirect_stdout
 from unittest import mock
 
@@ -24,7 +23,6 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/eval/
 REPO = os.path.dirname(os.path.dirname(HERE))   # src(ツールと共通部品 ytt の置き場所)
 sys.path.insert(0, REPO)
 from eval.tools import eval_asr as E  # noqa: E402
-from eval.tools import eval_import as EI  # noqa: E402
 from eval.fake import fake_asr  # noqa: E402
 from pipeline.transcribe import postproc  # noqa: E402
 
@@ -407,13 +405,12 @@ def run_rec(engine="faster-whisper", model="large-v3", dict_=None, kind=None, be
 
 
 class EvalAsrSelectTest(unittest.TestCase):
-    """マスタープラン Q3: 時期で分ける・出どころ(評価用・普段・友人)・下書きのエンジンの注意・エンジン別の集計・少ないデータ"""
+    """マスタープラン Q3: 時期で分ける・出どころ(評価用・普段)・下書きのエンジンの注意・エンジン別の集計・少ないデータ"""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="test_eval_asr_sel_")
         self.data = os.path.join(self.tmp, "data")
         os.makedirs(os.path.join(self.data, "transcripts"))
-        self.intake = os.path.join(self.tmp, "intake")
         os.environ["TRANSCRIBE_FAKE_DELAY"] = "0"
         orig = [{"start": 0.0, "end": 4.0, "text": "あいくお"}, {"start": 4.0, "end": 8.0, "text": "えお"}]   # 1 行目は「あいう」を聞き違えた
         # 評価用: 行ごとの proofedAt の最大が 09-10(最初の行は 09-01)/ proofedAt なしで updatedAt = 10-02
@@ -440,7 +437,7 @@ class EvalAsrSelectTest(unittest.TestCase):
             json.dump(doc, f, ensure_ascii=False)
 
     def stored(self, *argv):
-        return quiet(E.main, ["stored", "--data", self.data, "--intake", self.intake, "--no-save", *argv])
+        return quiet(E.main, ["stored", "--data", self.data, "--no-save", *argv])
 
     def ids(self, res):
         return sorted(res["meta"]["docs"])
@@ -490,60 +487,13 @@ class EvalAsrSelectTest(unittest.TestCase):
         daily = ["dddddddddd01", "dddddddddd02", "dddddddddd03", "dddddddddd04"]
         self.assertEqual(self.ids(self.stored("--source", "daily")), daily)
         self.assertEqual(self.ids(self.stored("--scope", "train")), daily)                                             # 古い --scope も同じ
-        self.assertEqual(self.ids(self.stored("--source", "all")), sorted(daily + ["eeeeeeeeee01", "eeeeeeeeee02"]))   # 友人の zip が無ければ自分の文書だけ
-        self.assertEqual(self.ids(self.stored("--source", "friend")), [])
+        self.assertEqual(self.ids(self.stored("--source", "all")), sorted(daily + ["eeeeeeeeee01", "eeeeeeeeee02"]))
+        with self.assertRaises(SystemExit):   # 友人の zip の道(--source friend)は 10-15 に消した
+            quiet(E.main, ["stored", "--data", self.data, "--no-save", "--source", "friend"])
         res = self.stored("--source", "daily", "--docs", "eeeeeeeeee01")                                              # --docs は出どころより優先
         self.assertEqual(self.ids(res), ["eeeeeeeeee01"])
         src = {d["id"]: d["source"] for d in self.stored("--source", "all")["summary"]["byDoc"]}
         self.assertEqual((src["dddddddddd01"], src["eeeeeeeeee01"]), ("daily", "eval"))
-
-    def make_zip(self, name, wid, rows, raw_segments, exported="2026-10-02T10:00:00+0900"):
-        """友人の送る用 zip(形は src/eval/tools/evaldata.py)を作って eval_import で取り込む"""
-        common = {"format": EI.ev.FORMAT, "formatVersion": EI.ev.FORMAT_VERSION, "workId": wid}
-        parts = {"final.json": dict(common, rows=rows),
-                 "asr_raw.json": dict(common, run=run_rec(), segments=raw_segments),
-                 "meta.json": dict(common, rulesVersion=EI.ev.RULES_VERSION, streamer="テスト配信者", performers=[], sourceName="clip.mp4", exportedAt=exported)}
-        path = os.path.join(self.tmp, name)
-        with zipfile.ZipFile(path, "w") as z:
-            for fn, obj in parts.items():
-                z.writestr(fn, json.dumps(obj, ensure_ascii=False))
-            z.writestr("audio.flac", b"fLaC")
-            z.writestr("edits.jsonl", b"")
-        res = EI.import_zip(path, self.intake, no_train=set())
-        self.assertEqual(res["result"], "imported", res)
-
-    def friend_fixture(self):
-        def row(i, a, b, text, checked=True):
-            return {"id": "r%d" % i, "start": a, "end": b, "text": text, "speaker": "", "checked": checked, "tags": [], "raw": [i - 1]}
-        rows = [row(1, 0, 4, "こんにちは"), row(2, 4, 6, "[笑]"), row(3, 6, 9, "未確認の行", checked=False), row(4, 9, 12, "【笑】あ"), row(5, 12, 15, "これはテスト[?]")]
-        raw = [{"start": 0, "end": 4, "text": "こんにちわ"}, {"start": 4, "end": 6, "text": "あはは"}, {"start": 6, "end": 9, "text": "みかくにん"},
-               {"start": 9, "end": 12, "text": "あ"}, {"start": 12, "end": 15, "text": "これはてすと"}]
-        self.make_zip("2026-10-01_配信者_abcdef012345.zip", "abcdef012345", rows, raw)
-        # 確認済みの行が 1 つも無い作業 = 作業ごと外れる(数えない)
-        self.make_zip("2026-10-01_配信者_abcdef012346.zip", "abcdef012346", [row(1, 0, 4, "あ", checked=False)], raw[:1])
-
-    def test_friend_zip(self):
-        self.friend_fixture()
-        res = self.stored("--source", "friend")
-        self.assertEqual(self.ids(res), ["abcdef012345"])
-        self.assertEqual(res["meta"]["mismatch"], [])
-        self.assertEqual([x["id"] for x in res["meta"]["selection"]["friendSkipped"]], ["abcdef012346"])
-        self.assertIn("作業ごと", res["meta"]["selection"]["friendSkipped"][0]["why"])
-        o = res["summary"]["overall"]
-        # 数えるのは「こんにちは」だけ: 形式違いの記号の行・未確認の行は校正済みにしない。[笑] だけ・[?] の行は聞き取れない扱いで数えない
-        self.assertEqual((o["refChars"], o["sub"], o["del"], o["ins"]), (5, 1, 0, 0))
-        d = res["summary"]["byDoc"][0]
-        self.assertEqual((d["source"], d["draft"], d["timeBasis"]), ("friend", "faster-whisper large-v3 v1.0", "exportedAt"))
-        self.assertTrue(d["draftBias"])
-        # 友人の zip は all に入る・時期は書き出した時刻(10-02)で分ける
-        self.assertIn("abcdef012345", self.ids(self.stored("--source", "all")))
-        self.assertEqual(self.ids(self.stored("--source", "friend", "--since", "2026-10-03")), [])
-        self.assertEqual(self.ids(self.stored("--source", "friend", "--until", "2026-10-02")), ["abcdef012345"])
-        # 友人の zip は --scope all(自分の文書だけ)には入らない
-        self.assertNotIn("abcdef012345", self.ids(self.stored("--scope", "all")))
-        docs, skipped = E.load_friend_docs(self.intake)
-        self.assertTrue(docs[0]["sourcePath"].endswith("audio.flac"))      # run で認識し直す音声(作業ごとの audio.flac)
-        self.assertEqual(len(skipped), 1)
 
     # ---------------- 下書きのエンジン
 
@@ -681,7 +631,7 @@ class EvalAsrReviewedTest(unittest.TestCase):
             json.dump(doc, f, ensure_ascii=False)
 
     def stored(self, *argv):
-        return quiet(E.main, ["stored", "--data", self.data, "--intake", os.path.join(self.tmp, "intake"), "--no-save", *argv])
+        return quiet(E.main, ["stored", "--data", self.data, "--no-save", *argv])
 
     def by_doc(self, res):
         return {d["id"]: d for d in res["summary"]["byDoc"]}
@@ -832,11 +782,11 @@ class EvalAsrGateRepeatTest(unittest.TestCase):
     def run_cmd(self, *argv):
         buf = io.StringIO()
         with redirect_stdout(buf):
-            res = E.main(["run", "--data", self.data, "--intake", os.path.join(self.tmp, "intake"), "--no-save", *argv])
+            res = E.main(["run", "--data", self.data, "--no-save", *argv])
         return res, buf.getvalue()
 
     def stored(self):
-        return quiet(E.main, ["stored", "--data", self.data, "--intake", os.path.join(self.tmp, "intake"), "--no-save"])
+        return quiet(E.main, ["stored", "--data", self.data, "--no-save"])
 
     def printed(self, res):
         out = io.StringIO()
@@ -1038,7 +988,7 @@ class EvalAsrOriginTest(unittest.TestCase):
             json.dump(doc, f, ensure_ascii=False)
 
     def stored(self, *argv):
-        return quiet(E.main, ["stored", "--data", self.data, "--intake", os.path.join(self.tmp, "intake"), "--no-save", *argv])
+        return quiet(E.main, ["stored", "--data", self.data, "--no-save", *argv])
 
     def printed(self, res):
         out = io.StringIO()
@@ -1192,7 +1142,7 @@ class EvalAsrNoSubOverlapTest(unittest.TestCase):
             json.dump(doc, f, ensure_ascii=False)
 
     def stored(self, *argv):
-        return quiet(E.main, ["stored", "--data", self.data, "--intake", os.path.join(self.tmp, "intake"), "--no-save", "--reviewed", "ignore", *argv])
+        return quiet(E.main, ["stored", "--data", self.data, "--no-save", "--reviewed", "ignore", *argv])
 
     def test_no_nosub_no_overlap_is_zero_and_numbers_unchanged(self):
         self.write("aaaaaaaaaa01", segments=[sg(1, 0.0, 4.0, "まつりが来た")], original=[{"start": 0.0, "end": 4.0, "text": "祭りが来た"}])
@@ -1211,7 +1161,7 @@ class EvalAsrNoSubOverlapTest(unittest.TestCase):
         self.write("aaaaaaaaaa01", evalReviewed={"at": 5, "rows": 1, "durationSec": 60.0, "via": "drill"}, segments=base, original=machine)       # noSub の行なし
         self.write("bbbbbbbbbb01", evalReviewed={"at": 5, "rows": 2, "durationSec": 60.0, "via": "drill"},
                    segments=base + [sg(2, 10.0, 14.0, "ゲームのセリフ", speaker="S2", noSub=True)], original=machine)
-        res = quiet(E.main, ["stored", "--data", self.data, "--intake", os.path.join(self.tmp, "intake"), "--no-save"])
+        res = quiet(E.main, ["stored", "--data", self.data, "--no-save"])
         by = {d["id"]: d for d in res["summary"]["byDoc"]}
         self.assertEqual(res["meta"]["mismatch"], [])
         # 余分: noSub の行が無い文書は「ゲームのセリフです」+「ご視聴」、ある文書は「ご視聴」だけ
@@ -1302,6 +1252,87 @@ class EvalAsrNoSubOverlapTest(unittest.TestCase):
         res = self.stored("--group-by", "origin")
         self.assertEqual(list(res["summary"]["byGroup"]), ["ショート"])
         self.assertEqual(res["summary"]["overlap"]["groups"], 1)
+
+
+@unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg が無い")
+class EvalAsrRedoTest(unittest.TestCase):
+    """redo(疑わしい所の認識し直し)を確かめ済みの文書で測る(OPT-E1 4h-1)。偽の認識は行の長さに見合う「認識し直した文」の繰り返しを返す"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="test_eval_asr_redo_")
+        self.data = os.path.join(self.tmp, "data")
+        os.makedirs(os.path.join(self.data, "transcripts"))
+        self.env = mock.patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "fake", "TRANSCRIBE_FAKE_DELAY": "0"})
+        self.env.start()
+        self.src = os.path.join(self.tmp, "clip.wav")
+        silence_wav(self.src, 30.0)
+        self.new = "認識し直した文" * 3   # 0〜9 秒の範囲(前後 1 秒。0 より前は無い)に偽の認識が出す文
+        # 0〜8 秒: 長い区間に「え」だけ(印が付く)・人の行は偽の認識の文と同じ = 良くなる
+        # 12〜19 秒: 長い区間に「あ」だけ・人の行が無い(確かめ済み = 何も話していない)= 文字が増えれば作り話
+        # 22〜23 秒: 短い普通の行(印が付かない = 対象にならない)
+        orig = [{"start": 0.0, "end": 8.0, "text": "え", "avg_logprob": -0.9}, {"start": 12.0, "end": 19.0, "text": "あ", "avg_logprob": -0.9},
+                {"start": 22.0, "end": 23.0, "text": "はい", "avg_logprob": -0.2},
+                {"start": 25.0, "end": 29.5, "text": "う", "avg_logprob": 0.0}]   # 25〜29.5 秒: 元の自信が高い = redo_better が採らない(自信が上がらない)
+        segs = [seg(1, 0.0, 8.0, self.new), seg(2, 22.0, 23.0, "はい")]
+        self.write("cafe00000001", evalSet=True, evalReviewed={"at": 5, "rows": 2, "durationSec": 30.0}, sourcePath=self.src, start=0, end=30,
+                   segments=segs, original=orig)
+        self.write("cafe00000002", segments=[seg(1, 0.0, 8.0, "普段")], original=[{"start": 0.0, "end": 8.0, "text": "え"}], sourcePath=self.src)   # 普段の文書は測らない
+
+    def tearDown(self):
+        self.env.stop()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def write(self, tid, **kw):
+        doc = {"schema": "transcribe/v1", "id": tid, "title": tid, "sourcePath": "", "start": 0, "end": None, "language": "ja", "speakers": [], "updatedAt": 1, **kw}
+        with open(os.path.join(self.data, "transcripts", tid + ".json"), "w", encoding="utf-8") as f:
+            json.dump(doc, f, ensure_ascii=False)
+
+    def snapshot(self):
+        d, out = os.path.join(self.data, "transcripts"), {}
+        for n in sorted(os.listdir(d)):
+            with open(os.path.join(d, n), "rb") as f:
+                out[n] = f.read()
+        return out
+
+    def test_redo_before_after_and_rows(self):
+        before = self.snapshot()
+        res = quiet(E.main, ["redo", "--data", self.data, "--label", "t"])
+        self.assertEqual(res["meta"]["docs"], ["cafe00000001"])                       # 確かめ済みの評価用だけ
+        rows = {r["start"]: r for r in res["rows"]}
+        self.assertEqual(sorted(rows), [0.0, 12.0, 25.0])                             # 印の付いた 3 行(普通の行は対象にしない)
+        self.assertEqual((rows[0.0]["a"], rows[0.0]["b"]), (0.0, 9.0))                 # 前後 1 秒(0 秒より前は無い)
+        self.assertEqual(rows[0.0]["new"], self.new)
+        self.assertTrue(rows[0.0]["taken"])
+        self.assertEqual(rows[0.0]["kind"], "better")
+        self.assertEqual(rows[0.0]["errAfter"], 0)
+        self.assertEqual((rows[12.0]["taken"], rows[12.0]["kind"]), (True, "invented"))   # 人の行が無いのに文字が増えた
+        self.assertEqual((rows[25.0]["taken"], rows[25.0]["why"], rows[25.0]["kind"]), (False, "自信が上がらない", "same"))   # 採らなければ元のまま
+        self.assertEqual(rows[25.0]["kindAll"], "invented")                           # 全部置き換えたら作り話
+        s = res["summary"]
+        self.assertLess(s["after"]["cer"], s["before"]["cer"])
+        self.assertEqual((s["rows"], s["taken"]), (3, 2))
+        self.assertEqual(s["kinds"], {"better": 1, "same": 1, "worse": 0, "invented": 1})
+        self.assertEqual(s["kindsAll"], {"better": 1, "same": 0, "worse": 0, "invented": 2})
+        self.assertGreater(s["afterAll"]["ins"], s["after"]["ins"])
+        self.assertEqual(self.snapshot(), before)                                     # 文書は書き換えない
+        self.assertFalse(os.path.exists(os.path.join(self.data, "evals")))           # --json が無ければ残さない
+        out = io.StringIO()
+        with redirect_stdout(out):
+            E.print_redo(res)
+        self.assertIn("作り話", out.getvalue())
+        self.assertIn(E.REDO_ENGINE_NOTE, res["meta"]["notes"])
+        self.assertNotIn(E.REDO_WCPP_NOTE, res["meta"]["notes"])                      # 偽の認識(faster-whisper の名前)では出さない
+        quiet(E.main, ["redo", "--data", self.data, "--json"])
+        self.assertEqual(len(os.listdir(os.path.join(self.data, "evals", "asr"))), 1)
+
+    def test_reflag_and_targets_ignore_proofed(self):
+        """original には印が無いので付け直す。本番の redo_targets に渡す行は機械の行(校正済みの印なし)= 確かめ済みの文書でも選べる"""
+        S = E.load_serve("fake")
+        rows = E.reflag_rows(S, [{"start": 0.0, "end": 8.0, "text": "え"}, {"start": 8.0, "end": 9.0, "text": "はい"}, {"start": 9.0, "end": 9.5, "text": ""}])
+        self.assertEqual([r["id"] for r in rows], ["m1", "m2"])                       # 文字の無い行は外す
+        self.assertIn(S.SPARSE_FLAG, rows[0]["flag"])
+        self.assertNotIn(S.SPARSE_FLAG, rows[1]["flag"])
+        self.assertFalse(any(r.get("proofed") for r in rows))
 
 
 if __name__ == "__main__":

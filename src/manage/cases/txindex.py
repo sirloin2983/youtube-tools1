@@ -206,6 +206,30 @@ def read_pack_record(dirpath, env=None, c2r_dir=None):
     return rec
 
 
+PACK_VIDEO_EXTS = (".mp4", ".mov", ".mkv", ".m4v", ".webm")
+
+
+def pack_ready(dirpath, env=None, c2r_dir=None):
+    """このパックだけで編集できるか(部品 M1。片付けが元の素材を候補にする・移す直前に見る)-> (真偽, 理由)。
+    read_pack_record は記録したファイルが 1 つでもあれば有効にするので、ここは記録したファイルが**全部**あって空でないこと・動画が入っていること・
+    Text+ パックなら Lua の手順書が入っていることを見る(ハッシュは取らない = 重い)。記録の無い以前のパックは偽(元の素材を残す側)"""
+    rec = read_pack_record(dirpath, env, c2r_dir)
+    if not rec:
+        return False, "パックを作った記録が無い"
+    files = [f for f in rec.get("files") or [] if isinstance(f, str) and f and not os.path.isabs(f) and ".." not in f.replace("\\", "/").split("/")]
+    for f in files:
+        try:
+            if os.path.getsize(os.path.join(str(dirpath), f)) <= 0:
+                return False, "パックの中の %s が空" % f
+        except OSError:
+            return False, "パックの中の %s が無い" % f
+    if not any(f.lower().endswith(PACK_VIDEO_EXTS) for f in files):
+        return False, "パックに動画が入っていない"
+    if rec.get("textplus") is True and not any(f.lower().endswith(".lua") for f in files):
+        return False, "パックに Text+ の手順書(Lua)が無い"
+    return True, ""
+
+
 def _old_cut_plan(dirpath):
     """以前のパック(2026-09-26 まで。フォルダの中の cut-plan.json)。-> (更新日時 ms, 中身 or None) か None"""
     p = os.path.join(str(dirpath), "cut-plan.json")

@@ -15,7 +15,11 @@
   自分が作った分の見分け方 = 入口が覚えた「自分が作ったファイルの一覧」(state の areas.<領域>.files)。marks・speakers・cut の道具には --label が無く、
   名前が手で流した分と同じ形(<日時>.json)なので、名前の印では見分けられない。asr だけは `_auto` の印でも見分けられる(一覧が失われても拾える)。
   消すのは各道具の evals/<領域>/ の中の、名前の形が厳しく合う普通のファイルだけ(シンボリックリンクはたどらない)
-- 重い測定(認識し直しての比較)は入れない(heavy_enabled = False の箱と分岐だけ。git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md の (a) に入れるときの条件)
+- 重い測定(認識し直しての比較)は入れない(箱も無い。入れるときの条件は git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md の (a))。
+  ただし「保存してある出力を今の既定で当て直す・判別し直す」測定は軽い(CPU・数十秒)ので夜に入れる: 行の時刻 = eval_timing --apply(今の既定の後処理を保存してある生出力に当て直す)・
+  話者 = eval_speakers run --or-stored(確かめ済みの評価用を今の既定の設定で判別し直す。モデルや音声が無ければ保存してある記録に切り替える)。文書には書かない
+- 前と中身が同じ結果は書かない: 道具の保存(src/eval/tools/_evalcommon.py の save)が、前の結果と時刻・git を除いて同じなら書かずに最後の行「変わらず: <前のファイル>」を出す。
+  入口はその行も「保存: 」と同じに読む(前のファイルを読み直して latest の at だけ進める。失敗にしない。marks は対象外 = 毎回書く)
 - 設定(src/home/prefs.py の節 accuracy): enabled(既定オン。読むだけで軽い)・nightFrom・nightTo
 - 入口の条件(「あと何本・何分」。入口 0.38.0。plan/README.md の 7): 各工程を始めてよい量(G1・G2・学習用・話者の行・採用の記録・パック・「別」の候補)の
   今の値 / 目標 / あと を snapshot の goals に出す。しきい値は GOALS の 1 か所(道具の「まだ少ない」の値と同じ。test_accuracy が食い違いを検査)。
@@ -43,10 +47,12 @@ TOOL_TIMEOUT = 20 * 60     # 道具1つあたりの時間切れ(秒)
 FEW_DOCS = 2               # これより少ない文書(配信)数のときは「まだ少ない」
 MAX_RESULT_BYTES = 64 * 1024 * 1024
 SAVED_MARK = "保存: "       # 道具が結果のファイルを書いたとき、最後に標準出力へ出す行の頭(src/eval/tools/eval_*.py)
+SAME_MARK = "変わらず: "     # 前の結果と中身が同じで書かなかったとき、最後に出す行の頭(src/eval/tools/_evalcommon.py の SAME_MARK)
 ERR_TAIL = 200
+TIMING_FEW_ROWS = 100      # 行の時刻の「文字が合う行」がこれより少ないときは「まだ少ない」(src/eval/tools/eval_timing.py の FEW_ROWS と同じ。GOALS の timing の目標も同じ値)
 KEEP_FILES = 30            # 自動の測定が作った結果ファイルは、領域ごとに新しい分をこれだけ残して古いものを消す
-# 消してよい名前の形(道具の save の形: <日時>.json。asr は --label auto の <日時>_auto.json)。これに合わないファイルは数えもしない・消さない
-RESULT_NAME_RE = re.compile(r"^\d{8}-\d{6}(?:_auto)?\.json\Z")
+# 消してよい名前の形(道具の save の形: <日時>.json。asr は --label auto の <日時>_auto.json・話者の run は <日時>-run.json)。これに合わないファイルは数えもしない・消さない
+RESULT_NAME_RE = re.compile(r"^\d{8}-\d{6}(?:_auto|-run)?\.json\Z")
 STATE_LABELS = {"off": "オフ", "idle": "動いています", "waiting": "手が空くのを待っています", "running": "測っています…"}
 STATE_MAX = 1024 * 1024    # 記録(accuracy-state.json)を読む上限(これより大きければ読めない扱い = 記録なし)
 MAX_DOC_BYTES = 64 * 1024 * 1024   # 普段の校正済みの秒を数えるとき、これより大きい文書は読まない
@@ -118,9 +124,19 @@ def summarize_marks(res):
 
 
 def summarize_speakers(res):
+    """src/eval/tools/eval_speakers.py: 夜は run(確かめ済みの評価用を今の既定の設定で判別し直した結果。bySetting の先頭 = 既定の 1 組)。
+    モデルや音声が無くて stored に切り替わったとき(subsets.all)は保存してある記録の結果"""
+    bs = res.get("bySetting")
+    if isinstance(bs, list) and bs and isinstance(bs[0], dict):
+        s0, m = bs[0], res.get("meta") or {}
+        count = s0.get("speakerCount") or {}
+        out = _summary("行ごとの話者の正しさ(判別し直し)", s0.get("rate"), s0.get("docs"), "文書", "higher", m.get("few"),
+                       extra=[{"label": "話者の数が合う", "value": _num(count.get("exactRate")), "better": "higher"}])
+        out["rows"] = _num(m.get("rows"))   # 人が確かめた話者つきの行(入口の条件)
+        return out
     sub = ((res.get("subsets") or {}).get("all"))
     if not isinstance(sub, dict):
-        raise ValueError("結果の形が想定と違います(subsets.all が無い)")
+        raise ValueError("結果の形が想定と違います(bySetting も subsets.all も無い)")
     voices = sub.get("voices") or {}
     count = res.get("speakerCount") or {}
     m = res.get("meta") or {}
@@ -132,7 +148,8 @@ def summarize_speakers(res):
 
 
 def summarize_cut(res):
-    """src/eval/tools/eval_cut.py: たたき台のカットを人が直さなかった文書の割合(甘く出る = 人はたたき台につられる)と、端がそのままだった割合"""
+    """src/eval/tools/eval_cut.py: たたき台のカットを人が直さなかった文書の割合(甘く出る = 人はたたき台につられる)と、端がそのままだった割合。
+    人が見ずにパックした文書(edit.json の draftUntouched)は道具が数えない(fromPack にも入らない)"""
     t = res.get("total")
     if not isinstance(t, dict):
         return summarize_generic(res)      # 道具が accuracy の鍵を足していれば、それを使う
@@ -159,24 +176,35 @@ def summarize_alt(res):
 
 
 def summarize_fill(res):
-    """src/eval/tools/eval_fill.py: 認識のあとの後処理(札)を人が残した割合。judged = 残した・直した・戻した・消した行の数(入口の条件)"""
+    """src/eval/tools/eval_fill.py: 認識のあとの後処理(札)を人が残した割合。judged = 残した・直した・戻した・消した行の数(入口の条件)。
+    judged は A(別の読みで埋めた行)と E(LLM の名前直し)の両方を足す = 確かめるの read:fill の答えはどちらの行にも付くので、
+    片方だけだと E の答えが次の夜の測定のあと入口の数から消える(goals の fill は since)"""
     a = res.get("a")
     if not isinstance(a, dict):
         return summarize_generic(res)      # 道具が accuracy の鍵を足していれば、それを使う
     out = _summary("後処理を残した行", a.get("keptRate"), a.get("docs"), "文書", "higher", a.get("few"),
                    extra=[{"label": "戻した行", "value": _num(a.get("revertRate")), "better": "lower"},
                           {"label": "直した行", "value": _num(a.get("editRate")), "better": "lower"}])
-    out["judged"] = _num(a.get("judged"))
+    e = res.get("e") if isinstance(res.get("e"), dict) else {}
+    out["judged"] = _int(a.get("judged")) + _int(e.get("judged"))
     return out
 
 
 def summarize_timing(res):
-    """src/eval/tools/eval_timing.py: 行の頭が遅れた割合(①頭)。rows = 文字が合う行の数(入口の条件)"""
+    """src/eval/tools/eval_timing.py: 行の頭が遅れた割合(①頭)。rows = 文字が合う行の数(入口の条件)。
+    --apply の結果(apply.variants の先頭 = 今の既定の後処理を保存してある生出力に当て直した数字)があればそれを主にする(夜の測定。今の ① を測る)。
+    無い・当て直せた文書が 0 本のときは、保存してある機械の出力(古い後処理の物)の数字"""
     o, m = res.get("overall"), res.get("meta")
     if not isinstance(o, dict):
         return summarize_generic(res)
     m = m if isinstance(m, dict) else {}
-    out = _summary("頭が遅れた行", o.get("head"), m.get("docs"), "文書", "lower", m.get("few"),
+    docs, few, label = m.get("docs"), m.get("few"), "頭が遅れた行"
+    ap = res.get("apply") if isinstance(res.get("apply"), dict) else {}
+    vs = ap.get("variants") if isinstance(ap.get("variants"), list) else []
+    now = vs[0] if vs and isinstance(vs[0], dict) and isinstance(vs[0].get("overall"), dict) else None
+    if now is not None and _int(ap.get("docs")) > 0 and _int(now["overall"].get("n")) > 0:
+        o, docs, few, label = now["overall"], ap.get("docs"), _int(now["overall"].get("n")) < TIMING_FEW_ROWS, "頭が遅れた行(今の既定の後処理)"
+    out = _summary(label, o.get("head"), docs, "文書", "lower", few,
                    extra=[{"label": "末が早く切れた行", "value": _num(o.get("tail")), "better": "lower"},
                           {"label": "前の行に食い込んだ", "value": _num(o.get("prev")), "better": "lower"},
                           {"label": "次の行に食い込んだ", "value": _num(o.get("next")), "better": "lower"}])
@@ -199,11 +227,11 @@ def summarize_generic(res):
 AREAS = (
     {"id": "asr", "label": "文字起こし", "script": "eval_asr.py", "args": ("stored", "--label", "auto"), "tool": "transcribe", "sub": "asr", "summarize": summarize_asr},
     {"id": "marks", "label": "盛り上がり", "script": "eval_marks.py", "args": ("--json",), "tool": "studio", "sub": "marks", "summarize": summarize_marks},
-    {"id": "speakers", "label": "話者", "script": "eval_speakers.py", "args": ("--json",), "tool": "transcribe", "sub": "speakers", "summarize": summarize_speakers},
+    {"id": "speakers", "label": "話者", "script": "eval_speakers.py", "args": ("run", "--or-stored", "--json"), "tool": "transcribe", "sub": "speakers", "summarize": summarize_speakers},
     {"id": "cut", "label": "カット", "script": "eval_cut.py", "args": ("--json",), "tool": "transcribe", "sub": "cut", "summarize": summarize_cut},   # src/eval/tools/eval_cut.py(無ければ飛ばす)
     {"id": "alt", "label": "「別」の候補", "script": "eval_alt.py", "args": ("--json",), "tool": "transcribe", "sub": "alt", "summarize": summarize_alt},   # 入口 0.38.0 から
     {"id": "fill", "label": "後処理の札", "script": "eval_fill.py", "args": ("--json",), "tool": "transcribe", "sub": "fill", "summarize": summarize_fill},   # V1 確かめる(V0)
-    {"id": "timing", "label": "行の時刻", "script": "eval_timing.py", "args": ("--json",), "tool": "transcribe", "sub": "timing", "summarize": summarize_timing},
+    {"id": "timing", "label": "行の時刻", "script": "eval_timing.py", "args": ("--json", "--apply"), "tool": "transcribe", "sub": "timing", "summarize": summarize_timing},
 )
 
 
@@ -286,7 +314,7 @@ def day_of(now):
 
 class Accuracy:
     def __init__(self, prefs, data_dir, repo_root, busy=None, last_edit=None, log=None, clock=None, commands=None, evals_dir=None,
-                 timeout=TOOL_TIMEOUT, first_wait=FIRST_WAIT, check_every=CHECK_EVERY, heavy_enabled=False, keep=KEEP_FILES, transcripts_dir=None,
+                 timeout=TOOL_TIMEOUT, first_wait=FIRST_WAIT, check_every=CHECK_EVERY, keep=KEEP_FILES, transcripts_dir=None,
                  defaults=None):
         """prefs: src/home/prefs.py の Prefs(節 accuracy)。defaults: 設定が読めないときに使う節の既定(入口が prefs.DEFAULTS["accuracy"] を渡す。
         prefs を読み込まない = app の部品に依存しない。None = 空 = オフ扱い)。data_dir: ホームの作業データ(app。記録を置く)。repo_root: ツールの親のフォルダ(src。作業データの場所の既定。測る道具は repo_root/eval/tools/)。
@@ -305,7 +333,6 @@ class Accuracy:
         self.timeout = timeout
         self.keep = keep
         self.first_wait, self.check_every = first_wait, check_every
-        self.heavy_enabled = heavy_enabled     # 重い測定(認識し直し)。今回は入れない(false 固定)
         self.state_path = os.path.join(data_dir, STATE_FILE)
         self.lock = threading.Lock()           # 測る処理を1つずつ
         self.wake = threading.Event()
@@ -379,12 +406,13 @@ class Accuracy:
         return r.out.decode("utf-8", "replace")
 
     def _result_path(self, out, edir, t0):
-        """道具が結果を書いたファイル。標準出力の「保存: <パス>」を優先し、無ければ置き場所の中で今回の測定のあとに書かれた最新のファイル。
+        """道具が結果を書いたファイル。標準出力の「保存: <パス>」か「変わらず: <前のパス>」(前と中身が同じで書かなかった)を優先し、無ければ置き場所の中で今回の測定のあとに書かれた最新のファイル。
         置き場所の外のファイルは読まない"""
         cand = None
         for line in reversed(out.splitlines()):
-            if line.startswith(SAVED_MARK):
-                cand = line[len(SAVED_MARK):].strip()
+            mark = SAVED_MARK if line.startswith(SAVED_MARK) else SAME_MARK if line.startswith(SAME_MARK) else None
+            if mark:
+                cand = line[len(mark):].strip()
                 break
         if cand is None and edir and os.path.isdir(edir):
             best = None
@@ -542,8 +570,8 @@ class Accuracy:
                     if isinstance(cur, dict) and cur.get("file") != got["file"]:
                         entry["prev"] = cur          # 直近 → 前回
                     entry["latest"] = got
-                    if RESULT_NAME_RE.match(got["file"]):
-                        entry["files"] = list(entry.get("files") or []) + [got["file"]]   # 自分が作った分の一覧(整理の対象)
+                    if RESULT_NAME_RE.match(got["file"]) and got["file"] not in (entry.get("files") or []):
+                        entry["files"] = list(entry.get("files") or []) + [got["file"]]   # 自分が作った分の一覧(整理の対象。「変わらず」で同じ名前が続くときは足さない)
                     try:
                         self._prune(area, entry)
                     except Exception as e:   # 整理に失敗しても測定は成功(次の回でやり直す)
@@ -555,8 +583,6 @@ class Accuracy:
                 self.last["areas"][area["id"]] = entry
         if not self.closed:
             self._count_daily()                 # 入口の条件の「普段」「学習用」(道具の結果に無いので入口が数える)
-        if self.heavy_enabled and not self.closed:
-            self._heavy()
         now = self.clock()
         self.last.update(ran=now, seconds=round(now - t0, 1))
         if done:
@@ -565,11 +591,6 @@ class Accuracy:
         self.state, self.message = "idle", ""
         self.log("精度の測定: 終わりました(%s)" % "・".join("%s %s" % (a["label"], "ok" if result.get(a["id"]) == "ok" else "なし" if result.get(a["id"]) is None else "失敗") for a in AREAS))
         return result
-
-    def _heavy(self):
-        """重い測定(認識し直しての比較)。今回は入れない(heavy_enabled は false のまま)。
-        入れるときの条件(git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md の (a)): 入口が SLOTS を 1 つ持って子プロセス・前回から評価用の校正済みの秒が +5 分・whisper.cpp が使える"""
-        return None
 
     def snapshot(self):
         cfg = self._cfg()
@@ -584,7 +605,7 @@ class Accuracy:
                           "error": e.get("error") or "", "errorAt": e.get("errorAt")})
         ran = self.last.get("ran")
         state = "off" if not cfg.get("enabled") else self.state
-        return dict(cfg, state=state, stateLabel=STATE_LABELS[state], message=self.message if state != "off" else "", heavyEnabled=self.heavy_enabled,
+        return dict(cfg, state=state, stateLabel=STATE_LABELS[state], message=self.message if state != "off" else "",
                     forced=bool(self.force), lastRun=int(ran * 1000) if isinstance(ran, (int, float)) else None, areas=areas,
                     goals=goals_of(self.last, extra=self._check_extra()))
 

@@ -3,17 +3,17 @@
     py -3.10 -m unittest src/eval/tools/tests/test_eval_timing.py
 
 作業データは一時フォルダに作る(本物の作業データは読まない・書かない)。サーバー・ネットワーク・ffmpeg は使わない
-(--apply の 1 件だけ、eval_asr.load_serve("fake") で editor の後処理 expand_segments を読む)。
+(--apply は editor の serve を読まず、pipeline/transcribe/postproc.expand_segments を直に呼ぶ)。
 """
 import contextlib
 import io
 import json
 import os
-import shutil
 import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/eval/tools (道具の置き場所)
@@ -244,16 +244,6 @@ class CheckTest(unittest.TestCase):
 class ApplyTest(unittest.TestCase):
     """--apply: 保存してある生出力(asr.json)に後処理(0.57.0 / 7-1 だけ / 0.57.1)を当て直す。editor の expand_segments をそのまま使う"""
 
-    @classmethod
-    def setUpClass(cls):
-        cls.S = T.eval_asr.load_serve("fake")
-        cls.tmp_data = os.environ.get("TRANSCRIBE_DATA_DIR", "")
-
-    @classmethod
-    def tearDownClass(cls):
-        if cls.tmp_data and os.path.basename(cls.tmp_data).startswith("eval_asr_"):
-            shutil.rmtree(cls.tmp_data, ignore_errors=True)
-
     def setUp(self):
         self.env = Env()
 
@@ -270,12 +260,15 @@ class ApplyTest(unittest.TestCase):
         self.env.write("aaaaaaaaaaaa.asr.json", {"schema": T.ASR_SCHEMA, "run": run, "segments": raw})
         self.env.doc("bbbbbbbbbbbb", FIVE_SEGS, FIVE_ORIG)                                      # 生出力が無い文書は --apply では数えない
         before = (postproc.END_TRIM, postproc.JOIN_GAP)
-        res = T.evaluate(self.env.root, apply=True, serve=self.S)
+        with mock.patch.object(T.eval_asr, "load_serve", side_effect=AssertionError("serve を読んだ")):   # editor の serve は読まない(postproc を直に呼ぶ)
+            res = T.evaluate(self.env.root, apply=True)
         self.assertEqual((postproc.END_TRIM, postproc.JOIN_GAP), before)          # 差し替えた値は戻す
         ap = res["apply"]
         self.assertEqual((ap["docs"], ap["skipped"]), (1, {"noAsr": 1, "badAsr": 0}))
         by = {v["key"]: v for v in ap["variants"]}
-        self.assertEqual([v["key"] for v in ap["variants"]], ["v0570", "trim0", "v0571", "split40", "split24"])
+        self.assertEqual([v["key"] for v in ap["variants"]], ["now", "v0570", "trim0", "v0571", "split40", "split24"])   # 先頭 = 今の既定
+        self.assertEqual(by["now"]["settings"], {"END_TRIM": postproc.END_TRIM, "JOIN_GAP": postproc.JOIN_GAP, "splitChars": T.txtext.SPLIT_CHARS})   # 今の値から作る(固定ではない)
+        self.assertEqual(by["now"]["overall"]["counts"]["tail"], by["split24"]["overall"]["counts"]["tail"])   # 今の既定 = 0.59.6 と同じ後処理(いまは)
         self.assertEqual(by["split40"]["overall"]["counts"]["tail"], 0)                        # 0.57.1 と同じ後処理 + 分ける文字数 40(短い行は変わらない)
         self.assertEqual(by["split40"]["boundary"], {"machine": 1, "human": 1, "hit": 1, "rec": 1, "precision": 1.0, "recall": 1.0})   # 境目 1 つが人と同じ
         self.assertEqual(by["v0570"]["overall"]["counts"]["tail"], 1)                          # 10.9 < 11.2 − 0.1 = 末が切れる
@@ -288,6 +281,15 @@ class ApplyTest(unittest.TestCase):
         with contextlib.redirect_stdout(buf):
             T.print_report(res)
         self.assertIn("0.57.1 の後処理", buf.getvalue())
+
+    def test_now_follows_the_current_values(self):
+        """「今の既定」は postproc・txtext の今の値で作る = 値を変えると変わる(VARIANTS の固定の表を見ない)"""
+        with mock.patch.object(postproc, "END_TRIM", 0.3), mock.patch.object(postproc, "JOIN_GAP", 0.0), mock.patch.object(T.txtext, "SPLIT_CHARS", 30):
+            key, label, st = T.current_variant()
+        self.assertEqual((key, st), ("now", {"END_TRIM": 0.3, "JOIN_GAP": 0.0, "splitChars": 30}))
+        self.assertIn("0.3 秒", label)
+        self.assertIn("30", label)
+        self.assertNotIn("now", [k for k, _l, _s in T.VARIANTS])
 
     def test_asr_raw_shapes(self):
         doc = {"start": 5.0, "params": {"wordSplit": False, "stripPunct": False}}

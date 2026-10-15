@@ -380,7 +380,7 @@ namespace RequestSender
     public static class RequestJson
     {
         // 動画の依頼。"streamer" は 1 人目の名前(無ければ空文字)。speakers には names と people(名前と style.color)が入る。cut は ① のときだけ書く
-        public static string Video(string id, IList<string> uploadedNames, string memo, string flow, DateTimeOffset sentAt, SpeakerSet speakers, int videoTracks, string cut, int deliverBatch = 0)
+        public static string Video(string id, IList<string> uploadedNames, string flow, DateTimeOffset sentAt, SpeakerSet speakers, int videoTracks, string cut, int deliverBatch = 0)
         {
             string f = FlowOrDefault(flow);
             var sb = new StringBuilder();
@@ -388,7 +388,6 @@ namespace RequestSender
             sb.Append(",\"flow\":").Append(JsonText.Quote(f, false));
             sb.Append(",\"files\":[").Append(string.Join(",", uploadedNames.Select(n => JsonText.Quote(n, false)))).Append(']');
             sb.Append(",\"streamer\":").Append(JsonText.Quote(Speakers.StreamerName(speakers), false));
-            sb.Append(",\"memo\":").Append(JsonText.Quote(memo ?? "", false));
             sb.Append(Speakers.JsonPart(speakers));
             sb.Append(VideoTracks.JsonPart(f, videoTracks));
             sb.Append(Cut.JsonPart(f, cut));
@@ -397,8 +396,8 @@ namespace RequestSender
         }
 
         // URL の依頼。配信ごとの切り抜く数と区間・カット(① のときだけ)・解析の重み(指定したときだけ)。
-        // 1 人目の名前があれば "streamer" も書く(items の後・memo の前。無ければ書かない)
-        public static string Url(string id, IList<UrlItem> items, string memo, string flow, DateTimeOffset sentAt, SpeakerSet speakers, int videoTracks, string cut, Weights weights, int deliverBatch = 0)
+        // 1 人目の名前があれば "streamer" も書く(items の後。無ければ書かない)
+        public static string Url(string id, IList<UrlItem> items, string flow, DateTimeOffset sentAt, SpeakerSet speakers, int videoTracks, string cut, Weights weights, int deliverBatch = 0)
         {
             string f = FlowOrDefault(flow);
             string streamer = Speakers.StreamerName(speakers);
@@ -408,7 +407,6 @@ namespace RequestSender
             sb.Append(",\"items\":[").Append(string.Join(",", items.Select(u =>
                 "{\"url\":" + JsonText.Quote(u.Url, false) + ",\"top\":" + u.EffectiveTop(f).ToString(CultureInfo.InvariantCulture) + Ranges.JsonPart(f, u.Ranges) + "}"))).Append(']');
             if (streamer.Length > 0) sb.Append(",\"streamer\":").Append(JsonText.Quote(streamer, false));
-            sb.Append(",\"memo\":").Append(JsonText.Quote(memo ?? "", false));
             sb.Append(Speakers.JsonPart(speakers));
             sb.Append(VideoTracks.JsonPart(f, videoTracks));
             sb.Append(Cut.JsonPart(f, cut));
@@ -418,15 +416,14 @@ namespace RequestSender
         }
 
         // ライブ配信の依頼(2.8.0。notes:docs/spec/friend.md の 2-15): 配信の URL 1 本(正規化済み)・flow は auto 固定・友人のベータの設定 live。
-        // 鍵の順: v kind id flow url streamer memo [speakers] videoTracks cut live sentAt。streamer は 1 人目の名前(無ければ空文字)。届け方 deliverBatch は live の後・sentAt の直前(2.9.0。1〜10 のときだけ。0 や範囲の外は書かない = PC の設定)
-        public static string Live(string id, string url, string memo, DateTimeOffset sentAt, SpeakerSet speakers, int videoTracks, string cut, LiveSettings live, int deliverBatch = 0)
+        // 鍵の順: v kind id flow url streamer [speakers] videoTracks cut live sentAt。streamer は 1 人目の名前(無ければ空文字)。届け方 deliverBatch は live の後・sentAt の直前(2.9.0。1〜10 のときだけ。0 や範囲の外は書かない = PC の設定)
+        public static string Live(string id, string url, DateTimeOffset sentAt, SpeakerSet speakers, int videoTracks, string cut, LiveSettings live, int deliverBatch = 0)
         {
             var sb = new StringBuilder();
             sb.Append("{\"v\":1,\"kind\":\"live\",\"id\":").Append(JsonText.Quote(id, false));
             sb.Append(",\"flow\":").Append(JsonText.Quote(Flow.Auto, false));
             sb.Append(",\"url\":").Append(JsonText.Quote(url, false));
             sb.Append(",\"streamer\":").Append(JsonText.Quote(Speakers.StreamerName(speakers), false));
-            sb.Append(",\"memo\":").Append(JsonText.Quote(memo ?? "", false));
             sb.Append(Speakers.JsonPart(speakers));
             sb.Append(VideoTracks.JsonPart(Flow.Auto, videoTracks));
             sb.Append(Cut.JsonPart(Flow.Auto, cut));

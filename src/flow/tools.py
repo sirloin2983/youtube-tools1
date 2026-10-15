@@ -91,6 +91,11 @@ class HttpTools:
         """文書の受け渡しの JSON(transcript-v1)を書く -> {"path"}"""
         return self.client.ok("transcribe", "POST", "/api/export-file", {"id": tid, "format": "transcript-v1"})
 
+    def transcript_data(self, tid):
+        """transcript_file が書く中身(transcript-v1)を書かずに作る(鍵の比べと見積もり用。指摘 2)-> dict か None(読めない・文字のある行が無い)"""
+        st, obj = self.client.call("transcribe", "GET", "/api/transcript?id=" + urllib.parse.quote(str(tid)))
+        return _transcript_v1(obj) if st == 200 and isinstance(obj, dict) else None
+
     def record_pack(self, body):
         """作ったパックを「編集」に残す(カット・字幕を直したら作り直しと知らせるため)。残せなくても上げない"""
         self.client.call("transcribe", "POST", "/api/edit/pack", body)
@@ -213,6 +218,15 @@ class PackHost:
     def pack_free(self, timeout):
         t = self.jobs.table
         return t.wait(lambda: not t.active(), timeout)
+
+
+def _transcript_v1(doc):
+    """文書 -> 受け渡しの transcript-v1 の中身(書かない)か None(文字のある行が無い)。transcript_file・/api/export-file と同じ作り方"""
+    try:
+        obj, count = _flowpack.handoff_files(doc, "transcript-v1")
+    except (TypeError, ValueError, KeyError, AttributeError):   # 形の崩れた文書(読むだけの口は上げない)
+        return None
+    return obj if count else None
 
 
 def _step_error(msg):
@@ -401,6 +415,13 @@ class LocalTools:
         path = os.path.join(_workdata.TMP_DIR, tid + ".transcript.json")
         _fsio.write_json(path, obj, indent=1)
         return {"path": path}
+
+    def transcript_data(self, tid):
+        """transcript_file の中身を書かずに -> dict か None(HttpTools と同じ)"""
+        try:
+            return _transcript_v1(_read_doc(_docloc.doc_file(tid, ".json")))
+        except (_errors.ApiError, TypeError, ValueError):
+            return None
 
     def record_pack(self, body):
         """カットのとおりのパックの記録(③)は残さない(人のカットを読まないので呼ばれない)"""

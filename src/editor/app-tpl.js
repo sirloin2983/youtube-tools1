@@ -331,13 +331,9 @@
     <div id="txList"><p class="hint" style="margin:6px 0 0">まだありません</p></div></details>
   <details class="card side-pane" data-side-pane="quality" id="accCard" open><summary>認識精度の測定</summary>
     <p class="hint" style="margin:6px 0 0">行の「校正済み」(聞いて確認して、文字が正しいと判断した印<span data-key="proof" data-key-fmt="。{k}">。Shift+Space</span>)を正解として、機械の出力との文字誤り率(<abbr class="ui-term" title="Character Error Rate。正解の文字数に対する、間違えた文字(別の字・聞き逃し・余計な字)の割合。低いほど良い">CER</abbr>)を出します。句読点・空白・記号・全角半角の違いは数えません。校正した行が増えるほど、数値が安定します。</p>
-    <div class="row" style="margin-top:8px"><label class="lag">対象 <select id="accScope" style="width:auto"><option value="all">すべて</option><option value="eval">評価用のみ</option><option value="train">学習用のみ</option></select></label><button type="button" class="btn small" id="accRefresh">測定を更新</button>
-      <label class="lag" title="校正済みの印がない文書のうち、修正のあるものを全行校正済みとして仮計算します(見直していない行が混じると数値が甘くなります)"><input type="checkbox" id="accLegacy">印のない旧データも含める(仮)</label></div>
+    <div class="row" style="margin-top:8px"><label class="lag">対象 <select id="accScope" style="width:auto"><option value="all">すべて</option><option value="eval">評価用のみ</option><option value="train">評価用でない</option></select></label><button type="button" class="btn small" id="accRefresh">測定を更新</button></div>
     <div id="accOut"></div>
-    <div class="fld" style="margin-top:10px"><span class="l">評価用の基準の記録</span>
-      <span class="hint">施策(辞書・名簿・前処理・モデル・追加学習)を入れる前後で、評価用の成績を残して比べます。記録するのは「評価用のみ」の成績です。</span>
-      <div class="row"><input id="blLabel" type="text" maxlength="80" placeholder="メモ(例: 基準・large-v3・用語集なし)" style="flex:1;min-width:160px"><button type="button" class="btn small primary" id="blGo">基準を記録</button></div>
-      <div id="blOut"></div></div></details>
+</details>
   <details class="card side-pane" data-side-pane="data" id="learnCard" open><summary>修正から学習した候補</summary>
     <p class="hint" style="margin:6px 0 0">直した文章と、元の認識結果の違いから「誤=>正」の候補を集めます。「登録」すると置換辞書に入り、次の文字起こしから自動で直ります。同じ間違いが何度も出るものから登録すると効果的です。1文字だけの修正は、前後の1文字を含めた形で候補に出ます。<br>登録しなくても、直した回数が多い間違いは、文字起こしの各行に「候補」として出ます(採用・却下できます。却下すると出にくくなります)。</p>
     <p class="hint" id="lnStat" style="margin:4px 0 0"></p>

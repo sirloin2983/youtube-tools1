@@ -1,9 +1,10 @@
-"""src/eval/tools/eval_alt.py(2つ目のエンジンとの食い違いの候補の当たり率を測る道具。計画 第2版 D1-b)のテスト。リポジトリ直下で:
+"""src/eval/tools/eval_alt.py(2つ目のエンジンとの食い違いの候補の当たり率を測る道具)のテスト。リポジトリ直下で:
 
     py -3.10 -m unittest src/eval/tools/tests/test_eval_alt.py
 
 作業データは一時フォルダに作る(本物の作業データは読まない・書かない)。ネットワーク・ffmpeg・本物のエンジンは使わない。
-editor の部品(serve.py)を読み込むので、test_eval_asr.py と同じ環境変数の決まり(YTT_DATA_DIR = inplace)に従う。
+③ の部品を serve の名前の受付で読み込むので、test_eval_asr.py と同じ環境変数の決まり(YTT_DATA_DIR = inplace)に従う。
+確かめるの答えは app/check/answers.jsonl を一時フォルダに書いて読ませる。
 """
 import contextlib
 import hashlib
@@ -176,6 +177,30 @@ class TestJudge(unittest.TestCase):
         r = E.judge_doc(self.S, {"updatedAt": 1, "original": ORIG, "segments": human_a()}, {"rows": []})
         self.assertEqual(r["cands"], [])
 
+    def test_answers_decide_and_are_not_double_counted(self):
+        """5a-2: 確かめるの答え(2 = 採った = 当たり・1 = 却下 = 外れ・打った = 別の直し)が正。同じ候補は置き換え、合わなければ足す"""
+        def ans(i, seg_id, status, wrong, right, at=T1):
+            return {"id": "a%d" % i, "seg": seg_id, "status": status, "wrong": wrong, "right": right, "at": at}
+        answers = [ans(1, "s5", "hit", "花", "鳥"),            # 校正済みでない(分からない)まとまり → 答えで当たり
+                   ans(2, "s2", "other", "晴れ", "雨"),         # 校正済みで外れの候補 → 答えが正(別の直し)
+                   ans(3, "s1", "miss", "好き", "嫌い"),       # 出し直した候補に無い → 1 件足す
+                   ans(4, "s6", "hit", None, None),            # 採否の記録が無い答え → 突き合わせられないので足す
+                   ans(5, "s3", "hit", "蕎麦", "饂飩", at=ms("2026-09-01"))]   # 時期の外(答えの時刻)
+        r = self.judge(human_a(), since_ms=ms("2026-10-01"), answers=answers)
+        by = {(c["wrong"], c["right"]): c for c in r["cands"]}
+        self.assertEqual((by[("花", "鳥")]["status"], by[("花", "鳥")]["check"]), ("hit", "matched"))
+        self.assertEqual((by[("晴れ", "雨")]["status"], by[("晴れ", "雨")]["check"]), ("other", "matched"))
+        self.assertEqual((by[("好き", "嫌い")]["status"], by[("好き", "嫌い")]["check"]), ("miss", "added"))
+        self.assertEqual((by[("", "")]["status"], by[("", "")]["check"]), ("hit", "added"))
+        self.assertNotIn(("蕎麦", "饂飩"), by)   # 答えの時刻が範囲の外 = 候補ごと数えない(二重に数えない)
+        self.assertIsNone(by[("猫", "犬")]["check"])
+        self.assertEqual(len(r["cands"]), 5)    # 出し直した 5 - 範囲の外 2(答えの時刻・消した行のまとまりの文書の時刻)+ 足した 2
+        self.assertEqual(r["outOfRange"], 2)
+        a = E.Agg()
+        a.add(r)
+        ck = a.result()["check"]
+        self.assertEqual((ck["answers"], ck["hit"], ck["miss"], ck["other"], ck["matched"], ck["added"]), (4, 2, 1, 1, 2, 2))
+
 
 class TestEvaluate(unittest.TestCase):
     @classmethod
@@ -295,6 +320,47 @@ class TestEvaluate(unittest.TestCase):
             saved = json.load(f)
         self.assertEqual(saved["meta"]["schema"], "youtube-tools-alt-eval/v1")
         self.assertEqual(saved["total"]["judged"], 3)
+
+    def write_answers(self, rows):
+        d = os.path.join(self.env.root, "app", "check")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "answers.jsonl"), "w", encoding="utf-8") as f:
+            for r in rows:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+    def test_check_answers_are_counted(self):
+        """5a-2: answers.jsonl の read:alt の答え(human/check/apply の形)を読む。戻した答え・別の出どころ・測らない文書は数えない"""
+        n = [0]
+
+        def answer(tid, row_id, choice, wrong, right, source="alt", text=None, at=T1):
+            n[0] += 1
+            a = {"choice": choice}
+            if text:
+                a["text"] = text
+            fb = {"tid": tid, "action": "accept" if choice == "2" else "reject", "items": [{"seg": row_id, "wrong": wrong, "right": right, "tier": source}]}
+            return {"id": "a%013d-%06x" % (at, n[0]), "at": at, "kind": "read", "source": source, "card": "read:%s:%s#%s" % (source, tid, row_id),
+                    "case": {"id": "", "title": ""}, "target": {"docId": tid, "row": row_id}, "guess": None, "answer": a, "ms": 900,
+                    "applied": {"docId": tid, "row": row_id, "source": source, "choice": choice, "feedback": fb}}
+        self.env.doc("aaaaaaaaaaa1", human_a())
+        self.env.doc("bbbbbbbbbbb2", human_a(), evalSet=True)
+        undone = answer("aaaaaaaaaaa1", "s2", "2", "晴れ", "雨")
+        rows = [answer("aaaaaaaaaaa1", "s5", "2", "花", "鳥"),                     # 校正済みでない → 当たり
+                undone, {"id": "a%013d-ffffff" % (T1 + 1), "at": T1 + 1, "undo": undone["id"], "reverted": {}},
+                answer("aaaaaaaaaaa1", "s3", "other", "蕎麦", "饂飩", text="昼はパンを食べる"),   # 校正済みで別の直し → 答えでも別の直し(1 件のまま)
+                answer("aaaaaaaaaaa1", "s1", "1", "猫", "犬", source="yt"),         # 別の出どころ(alt では数えない)
+                answer("bbbbbbbbbbb2", "s1", "2", "猫", "犬")]                      # 測らない文書(評価用)
+        self.write_answers(rows)
+        before = self.env.snapshot()
+        res = self.env.run()
+        self.assertEqual(self.env.snapshot(), before)
+        t = res["total"]
+        self.assertEqual((t["candidates"], t["judged"], t["hit"], t["miss"], t["other"], t["unknown"]), (5, 4, 2, 1, 1, 1))
+        ck = t["check"]
+        self.assertEqual((ck["answers"], ck["hit"], ck["other"], ck["matched"], ck["added"], ck["notMeasured"]), (2, 1, 1, 2, 0, 1))
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            E.print_report(res)
+        self.assertIn("確かめるの答えで決めた 2 件", buf.getvalue())
 
 
 class TestNoSub(unittest.TestCase):

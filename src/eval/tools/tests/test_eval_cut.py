@@ -46,10 +46,12 @@ class Env:
     def close(self):
         self._tmp.cleanup()
 
-    def edit(self, tid, clips, draft=None, fps=FPS30, origin="manual", updated=None, source=None, relink_from=None, title="t", doc=True):
+    def edit(self, tid, clips, draft=None, fps=FPS30, origin="manual", updated=None, source=None, relink_from=None, title="t", doc=True, untouched=False):
         """clips / draft の keepsSec は秒の組。draft = {"origin", "settings", "keeps", "at"}"""
         d = {"schema": E.EDIT_SCHEMA, "rev": 1, "updatedAt": updated or ms("2026-10-05"), "packRev": 0, "origin": origin,
              "sources": [{"fps": fps, "duration": 600.0}], "clips": [{"src": 0, "in": a, "out": b} for a, b in clips]}
+        if untouched:
+            d["draftUntouched"] = True
         if draft:
             d["draft"] = {"origin": draft["origin"], "settings": draft.get("settings", {}), "keepsSec": [list(k) for k in draft["keeps"]], "at": draft.get("at", ms("2026-10-05"))}
         self._write(tid + ".edit.json", d)
@@ -227,6 +229,17 @@ class TestEvaluate(unittest.TestCase):
         self.assertEqual(res["meta"]["docs"], 1)
         self.assertEqual(res["meta"]["skipped"]["noDraft"], 1)
         self.assertTrue(any("draft" in n for n in res["meta"]["notes"]))
+
+    def test_untouched_draft_is_not_measured_nor_counted_as_pack(self):
+        draft = {"origin": "rows", "settings": {}, "keeps": fr((0, 90))}
+        self.env.edit("aaaaaaaaaaaa", fr((0, 90)), draft, untouched=True)      # 人が触らずパックまで進めた分
+        self.env.pack("C:\\clips\\aaaaaaaaaaaa.mp4", segments=fr((0, 90)))
+        self.env.edit("bbbbbbbbbbbb", fr((0, 90)), draft)                       # 印の無い分は今までどおり測る
+        self.env.pack("C:\\clips\\bbbbbbbbbbbb.mp4", segments=fr((0, 90)))
+        res = self.env.run()
+        self.assertEqual((res["meta"]["docs"], res["meta"]["fromPack"], res["meta"]["skipped"]["unreviewed"]), (1, 1, 1))
+        self.assertEqual([d["id"] for d in res["byDoc"]], ["bbbbbbbbbbbb"])
+        self.assertTrue(any("確かめていない" in n for n in res["meta"]["notes"]))
 
     def test_broken_edit_is_skipped(self):
         with open(os.path.join(self.env.tdir, "ffffffffffff.edit.json"), "w", encoding="utf-8") as f:

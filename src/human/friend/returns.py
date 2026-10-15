@@ -5,7 +5,7 @@
 - `<requestId>__<runId>.zip`            ② が組んだ 1 実行の結果(flow/outbox。動画なし)
 - `<requestId>__<パック名>.verdict.json`  友人の採否 {"verdict": "keep"|"reject"|"made_video", "at": ミリ秒}(アプリが直に書く)
 受け取ると `app\\friend-returns\\<YYYY-MM>\\<requestId>\\` に並べ(zip は `<runId>\\` へ展開・採否は `verdicts\\` へ)、元は `送り返し\\受付済み\\<日付>\\` へ移す
-(消さない。受付の 受付済み と同じ日付のフォルダ。形が違う・壊れた物・扱えなかった物は `送り返し\\失敗\\` へ理由の .txt つき)。読むのは eval/tools/eval_friend.py。
+(消さない。受付の 受付済み と同じ日付のフォルダ。形が違う・壊れた物・扱えなかった物は `送り返し\\失敗\\` へ理由の .txt つき)。読む道具は今は無い(⑤ の eval_friend は OPT-E1 で消した)。
 zip の中のパスは展開先の中だけ(zip slip を断る。Windows の予約名・: を含む名前も断る)。部品を壊す物・大きすぎる物は zip ごと断る。intake.scan から scan が 1 行で呼ばれる。
 標準ライブラリと ytt・flow だけ。
 """
@@ -237,7 +237,7 @@ def _rmtree(path):
 
 def iter_requests(app_dir):
     """並べた依頼の一覧 -> [{"month", "requestId", "dir", "runs": [{"runId", "dir", "manifest", "result"}], "verdicts": {パック名: {verdict, at}}}]。
-    読むだけ(eval_friend が使う)。壊れた JSON は飛ばす"""
+    読むだけ。壊れた JSON は飛ばす"""
     out = []
     root = returns_dir(app_dir)
     try:

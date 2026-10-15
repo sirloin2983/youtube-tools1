@@ -600,18 +600,19 @@ def edit_media_path(video, req=None, include_video=True):
     return em["path"] if em else None
 
 
-def media_for_pack(plan, include_video):
+def media_for_pack(plan, include_video, cache=None):
     """同梱する動画と、それに合わせた残す区間。-> dict(video, meta, keeps, src_start, edit, warnings)。
     スタジオの余白つき素材(前後に余白のある動画)があれば、それを入れて、残す区間を余白の分だけ後ろへずらす。
     Resolve でクリップの端を外へ延ばせる(カットで削った所・余白を後から戻せる)。字幕はタイムラインの位置なので変わらない。
-    使えない(fps・大きさが違う・短すぎる)ときは、元の動画のままにして理由を警告に出す"""
+    使えない(fps・大きさが違う・短すぎる)ときは、元の動画のままにして理由を警告に出す。
+    cache: 画面用の Cache があれば、余白つき素材の媒体情報(probe)をそこで使い回す(鍵は Cache の決まり)。無ければ毎回調べる"""
     base = {"video": plan.video, "meta": plan.meta, "keeps": plan.keeps, "src_start": plan.src_start, "edit": None, "warnings": []}
     em = C.find_edit_media(plan.video) if include_video and plan.req.edit_media else None
     if not em:
         return base
     name = em["path"].name
     try:
-        meta = S.probe(em["path"])
+        meta = (cache.probe if cache is not None else S.probe)(em["path"])
     except ToolError as e:
         base["warnings"].append(f"余白つき素材 {name} を調べられないため、元の動画を入れました({e})。")
         return base
@@ -654,7 +655,7 @@ def planned_outputs(plan, out_dir=None, render=False, copy_video=False, fcpxml=F
 def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False, textplus=False, force=False, crf=C.DEFAULT_CRF,
                task=None, log=None, textplus_target=None, backup=True, plan_file=True, textplus_wrap=None, readme_file=True,
                textplus_color=None, speaker_colors=None, loudness=None, volume=None, textplus_style="default", speaker_outlines=None,
-               video_tracks=1, prev_copy=None):
+               video_tracks=1, prev_copy=None, cache=None):
     """パックを作る。-> {"out_dir", "files": [(種類, パス)], "readme": 手順書の中身(書かなくても返す。画面の「手順を見る」),
     "warnings", "plan": cut-plan の中身(書かなくても返す), "videoCopy": 音量をかけて写した動画の記録(C.gain_copy_record。それ以外は None)}。
     backup・plan_file・readme_file は pack_paths(画面・API の既定は最小限: backup=False・plan_file=False・readme_file=False。④)。
@@ -668,6 +669,7 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
     volume: 音量(%。元 = 100)。loudness が無いときだけ、測らずにその量をかける(LUFS が分からない人向け。スタジオの書き出しの「音量 %」と同じ)
     prev_copy: 前にこのフォルダへ作ったパックの記録の videoCopy(serve.py が作業データの packs/ から読んで渡す。コマンドは渡さない = 毎回作り直す)。
     音量をかけて写すとき、これと今の条件(元の動画・かける量・書き出しの設定)が同じで、置き場所の動画も記録のままなら作り直さない(E-15 の続き。_stage_video)
+    cache: 画面用の Cache(余白つき素材の媒体情報を覚えた物)。media_for_pack に渡す。None = 毎回調べる
     重いもの(粗編集の mp4・元動画のコピー)は出力フォルダの中の一時的な名前で作り、最後に名前を付け替える
     (途中で失敗・取り消したとき、以前のパックを半端に壊さない・書きかけを残さない)"""
     if isinstance(crf, bool) or not isinstance(crf, int) or not 0 <= crf <= 51:
@@ -685,7 +687,7 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
     if out_dir.exists() and not out_dir.is_dir():
         raise ToolError(f"出力先がフォルダではありません: {out_dir}")
     copy_video, fcpxml = normalize_outputs(copy_video, fcpxml, textplus)
-    m = media_for_pack(plan, copy_video)   # 同梱する動画(余白つき素材なら、残す区間もそれに合わせる)
+    m = media_for_pack(plan, copy_video, cache)   # 同梱する動画(余白つき素材なら、残す区間もそれに合わせる)。cache は画面用(probe を覚える)
     mvideo, mmeta, mkeeps = m["video"], m["meta"], m["keeps"]
     paths = pack_paths(video, out_dir, plan.cues_out is not None, render, copy_video, fcpxml, textplus, mvideo, backup, plan_file,
                        readme_file)

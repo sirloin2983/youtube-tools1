@@ -2,7 +2,7 @@
 // 封筒 = src/flow/envelope.py・束 = src/flow/spec.py)。アプリは束の形を知らずに重ねるだけ(検査は ② = 断られたら理由を出す)。
 //   - URL は 1 本ごとに封筒 + 束を 1 つ(1 本ごとの切り抜く数・区間はその束の adopt.top・hints.ranges)
 //   - 動画ファイルは 1 本ごとに kind file(パスをそのまま渡す = 送らない)・ライブ配信は kind live 1 つ
-//   - 今の依頼の JSON の欄の行き先: memo → 封筒 note・deliverBatch → 封筒 deliver.batch・1 人目の配信者 → 封筒 legacy.streamer(今の形。RV で正式な欄に)・
+//   - 今の依頼の JSON の欄の行き先: deliverBatch → 封筒 deliver.batch・1 人目の配信者 → 封筒 legacy.streamer(今の形。RV で正式な欄に)・
 //     配信者の行 → 束 hints.people(色は #RRGGBB)と transcribe.diarize(人数)・カット / 映像トラック → pack.cut・pack.videoTracks(依頼が決めた印 run.pinned)・
 //     重み(指定したときだけ)→ analyze.wAudio・wChat・wComments(+ pinned weights)・ライブの設定 → adopt(sens・perHour・waitMin・pad・afterStream)と analyze.length
 //   - 段の並び(legacy.mode)は今の友人の受付と同じ: URL = request_auto(採用した所だけ書き出す・区間が足りていれば解析しない)・動画 = file_auto。
@@ -99,7 +99,7 @@ namespace RequestSender
 
     public static class FlowBundle
     {
-        public const int NoteMax = 1000, TitleMax = 120, PeopleNameMax = 40;   // flow/envelope.py の NOTE_MAX・TITLE_MAX・flow/spec.py の名前の長さ
+        public const int TitleMax = 120, PeopleNameMax = 40;   // flow/envelope.py の TITLE_MAX・flow/spec.py の名前の長さ
         public const string UrlMode = "request_auto", FileMode = "file_auto";
 
         // 封筒の id = 実行の id にもなる 10 桁の 16 進(flow/run.py の RUN_ID_RE)
@@ -199,7 +199,6 @@ namespace RequestSender
             var env = new Dictionary<string, object> { { "id", id }, { "kind", kind }, { "input", inp } };
             if (!string.IsNullOrEmpty(requestId)) env["requestId"] = requestId;
             if (DeliverBatch.InRange(input.DeliverBatch)) env["deliver"] = new Dictionary<string, object> { { "batch", input.DeliverBatch } };
-            env["note"] = Cut_((input.Memo ?? "").Trim(), NoteMax);
             env["createdAt"] = at;
             var legacy = new Dictionary<string, object>();
             if (mode != null) legacy["mode"] = mode;

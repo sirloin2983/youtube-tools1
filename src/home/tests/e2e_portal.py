@@ -721,9 +721,9 @@ def _mounted_new_case_and_ops(cx):
     check(r.evaluate("document.getElementById('accOut').textContent === '' && document.getElementById('lnList').textContent === ''"), "[A] 2j: 精度と学習は開くまで読まない")
     r.evaluate("document.getElementById('editOpsBox').open = true")
     check(wait_js(r, "document.getElementById('opsBox').open === true", 5000), "[A] 2j: 中の欄を開くと運用の枠も開く")
-    check(wait_js(r, "/校正済みの行がまだありません|文字誤り率/.test(document.getElementById('accOut').textContent) && /記録がありません|CER/.test(document.getElementById('blOut').textContent)"
+    check(wait_js(r, "/校正済みの行がまだありません|文字誤り率/.test(document.getElementById('accOut').textContent)"
                      " && /候補はありません|学習します|誤/.test(document.getElementById('lnList').textContent) && !document.querySelector('#editOpsBox .pt-edit-err')", 20000),
-          "[A] 2j: 認識精度の測定・基準の記録・修正から学習した候補が読めた: %s" % r.evaluate("[document.getElementById('accOut').textContent.slice(0, 60), document.getElementById('blOut').textContent.slice(0, 40), document.getElementById('lnList').textContent.slice(0, 60)]"))
+          "[A] 2j: 認識精度の測定・修正から学習した候補が読めた: %s" % r.evaluate("[document.getElementById('accOut').textContent.slice(0, 60), document.getElementById('lnList').textContent.slice(0, 60)]"))
     r.select_option("#accScope", "eval")
     check(wait_js(r, "/校正済みの行がまだありません|文字誤り率/.test(document.getElementById('accOut').textContent) && !document.querySelector('#editOpsBox .pt-edit-err')", 10000), "[A] 2j: 対象を変えて測り直せる")
     r.close()

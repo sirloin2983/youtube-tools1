@@ -222,7 +222,7 @@ def pair(v):
 # ---------------------------------------------------------------- 自動マークの集まりを作る
 
 def build_videos(studio, rows, runs, packs, since=None, until=None, status_fallback=False, dvideos=None, archive=None):
-    """-> ({動画 ID: video}, 注意の一覧)。video = {"id", "title", "type", "auto": [item], "manual": [item], "adds": [...], "retracts": n}
+    """-> {動画 ID: video}。video = {"id", "title", "type", "auto": [item], "manual": [item], "adds": [...], "retracts": n}
     item(自動マーク)= {"a0", "score", "start", "end", "t", "src"(data / archive / feedback), "status", "path", "markId", "events", "verdict", "origin", ...}
     dvideos = studio_videos(studio)・archive = archive_reader(studio) を読んであれば渡す(無ければここで読む)"""
     machine, delivered, _unknown = runs
@@ -235,7 +235,6 @@ def build_videos(studio, rows, runs, packs, since=None, until=None, status_fallb
             continue
         by_row.setdefault(r["videoId"], []).append(r)
     videos = {}
-    notes = []
 
     def in_range(t):
         return C.in_period(t, since, until)   # 日時が分からないものは落とさない
@@ -345,7 +344,7 @@ def build_videos(studio, rows, runs, packs, since=None, until=None, status_fallb
                 it["packed"] = it["delivered"] = False
         if V["auto"] or V["manual"] or V["adds"] or V["retracts"]:
             videos[vid] = V
-    return videos, notes
+    return videos
 
 
 def judge(it, machine_video, status_fallback):
@@ -384,7 +383,7 @@ def judge(it, machine_video, status_fallback):
             verdict = "unrecorded"
         exported = st == "exported" and verdict in ("good",)
     elif st == "rejected":
-        verdict, exported = "bad", False
+        verdict, exported = ("bad" if state == "bad" else "none"), False   # 人の行(却下・削除)の無い rejected は、人が悪いと判定した物ではない = 判定なし(OPT-E1 7c-1)
     else:
         verdict, exported = "none", False
     it["verdict"], it["exported"] = verdict, bool(exported and verdict == "good")
@@ -809,7 +808,7 @@ def evaluate(data_dir=None, since=None, until=None, status_fallback=False):
 
     def build(s, u):
         return build_videos(studio, feedback, runs, env, s, u, status_fallback, dvideos=dvideos, archive=archive)
-    videos, notes = build(since_ms, until_ms)
+    videos, notes = build(since_ms, until_ms), []
     vlist = [videos[k] for k in sorted(videos)]
     types = {}
     for V in vlist:
@@ -834,7 +833,7 @@ def evaluate(data_dir=None, since=None, until=None, status_fallback=False):
         g = group_metrics([V])
         by_video.append(dict(g, videoId=V["id"], title=V["title"], type=V["type"]))
     # 友人が時刻で指定した区間: 自動の候補は日付で絞らない(絞るのは区間の時刻。時期の指定が無ければ上と同じなので作り直さない)
-    allv = videos if since_ms is None and until_ms is None else build(None, None)[0]
+    allv = videos if since_ms is None and until_ms is None else build(None, None)
     friend = friend_ranges(studio, app, allv, since_ms, until_ms, dvideos=dvideos, records=records, archive=archive)
     clip = clip_length(studio, videos, allv, friend)
     return {"meta": meta, "overall": overall, "byType": {k: group_metrics(v) for k, v in sorted(types.items())}, "byVideo": by_video, "friendRanges": friend, "clipLength": clip}

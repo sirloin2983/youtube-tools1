@@ -13,7 +13,6 @@ _LONG_MARKS
 _RUNS
 _SMALL_VOWELS
 _all_infos
-_base_lock
 _bounded
 _doc_info
 _fb_lock
@@ -53,8 +52,6 @@ nosub_stats
 overlap_best_counts
 overlap_orders
 parse_replacements
-read_baselines
-record_baseline
 record_feedback
 split_nosub
 suggest_for_doc

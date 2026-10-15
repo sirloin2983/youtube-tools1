@@ -1,7 +1,7 @@
 /* ホームの運用の中の「編集の精度と学習」(src/home/portal.html の #editOpsBox。RS8 C3)。
    編集の左メニューにあった「精度」(認識精度の測定・評価用の基準の記録)と「学習」(修正から学習した候補 → 置換辞書への登録)を、
    古い編集の画面(C4 で消える)を開かなくても使えるようにここへ写した物。毎日は見ない物なので、ホームの運用に畳んで、開いたときに初めて読む。
-   使う API は編集の今の口そのまま(transcribe/api/metrics・eval-baselines・eval-baseline・learned・settings)。値の出し方・登録の規則は
+   使う API は編集の今の口そのまま(transcribe/api/metrics・learned・settings)。値の出し方・登録の規則は
    編集の app-learn.js・app.js と同じ(置換辞書 replacements の「誤=>正」の 1 行・カタカナ/漢字/英数字だけの語は |語| で単語の途中に当てない・用語集 glossary は 2〜15 字だけ)。
    違い: 設定の保存は編集の画面の設定の欄を通さず、PUT transcribe/api/settings {patch:{…}}(最上位のキーだけ合わせる。別の窓の変更を消さない)。
    ツール名・文字・数はすべて esc / textContent で入れる。CSP script-src 'self' のため、インラインのスクリプト・on〇〇= は使わない。 */
@@ -31,19 +31,9 @@
   function errLine(e) { return '<p class="hint pt-edit-err" role="alert">' + esc(e && e.message ? e.message : String(e)) + '</p>'; }
 
   /* ================= 認識精度の測定 ================= */
-  function loadBaselines() {
-    return api('api/eval-baselines').then(function (j) {
-      var items = (j && j.items) || [], out = $('#blOut');
-      out.innerHTML = items.length ? '<table class="acct"><tr><th>日時</th><th>メモ</th><th>CER</th><th>正解字</th><th>置換/脱落/挿入</th></tr>' + items.slice().reverse().slice(0, 12).map(function (x, i, a) {
-        var prev = a[i + 1], d = prev ? (x.cer - prev.cer) * 100 : null;
-        return '<tr><td>' + esc(new Date(x.at).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })) + '</td><td>' + esc(x.label || '') + '</td><td><b>' + pct(x.cer) + '</b>' +
-          (d === null ? '' : '<br><span class="hint">' + (d <= 0 ? '' : '+') + d.toFixed(1) + 'pt</span>') + '</td><td>' + (Number(x.refChars) || 0) + '</td><td>' + (Number(x.sub) || 0) + '/' + (Number(x.del) || 0) + '/' + (Number(x.ins) || 0) + '</td></tr>';
-      }).join('') + '</table><p class="hint">pt = 1つ前の記録との差(マイナスがよくなった)。正解が1000字未満のうちは、差は誤差の範囲かもしれません。</p>' : '<p class="hint">まだ記録がありません</p>';
-    }, function (e) { $('#blOut').innerHTML = errLine(e); });
-  }
   function loadAcc() {
-    var legacy = $('#accLegacy').checked ? 1 : 0, scope = encodeURIComponent($('#accScope').value);
-    return api('api/metrics?legacy=' + legacy + '&scope=' + scope).then(renderAcc, function (e) { $('#accOut').innerHTML = errLine(e); });
+    var scope = encodeURIComponent($('#accScope').value);
+    return api('api/metrics?scope=' + scope).then(renderAcc, function (e) { $('#accOut').innerHTML = errLine(e); });
   }
   function renderAcc(m) {
     var o = m.overall, out = $('#accOut');
@@ -58,7 +48,7 @@
     out.innerHTML = '<div class="accmain">文字誤り率(CER) <b>' + pct(o.cer) + '</b> <span class="hint">誤り ' + errs + '字 ÷ 正解 ' + (Number(o.refChars) || 0) + '字</span></div>' +
       '<p class="hint">内訳: 置換(別の字に間違い) ' + (Number(o.sub) || 0) + '字(' + share(o.sub) + ') ・ 脱落(聞き逃し) ' + (Number(o.del) || 0) + '字(' + share(o.del) + ') ・ 挿入(余計な字。幻覚など) ' + (Number(o.ins) || 0) + '字(' + share(o.ins) + ')<br>' +
       '機械が出したが人が消した行: ' + (Number(o.machineOnly) || 0) + '行(' + (Number(o.machineOnlyChars) || 0) + '字) ・ 用語が正しく出た率: ' + (o.termRef ? (Number(o.termHit) || 0) + '/' + o.termRef + '(' + pct(o.termRate) + ')' : '—') + ' ・ 用語の誤挿入: ' + (Number(o.termExtra) || 0) + '回</p>' +
-      '<p class="hint">' + (m.legacy ? '※ 校正済みの印がない旧データを仮計算に含んでいます。' : '') + (o.refChars < 1000 ? '※ 正解が1000字未満なので、数値は目安です(同じ動画を何度も文字起こしした分は、重複して数えられます)。' : '') + '校正済み ' + (Number(m.proofedLines) || 0) + '行 ・ 対象 ' + ((m.byDoc || []).length) + '件</p>' +
+      '<p class="hint">' + (o.refChars < 1000 ? '※ 正解が1000字未満なので、数値は目安です(同じ動画を何度も文字起こしした分は、重複して数えられます)。' : '') + '校正済み ' + (Number(m.proofedLines) || 0) + '行 ・ 対象 ' + ((m.byDoc || []).length) + '件</p>' +
       '<table class="acct"><tr><th>設定</th><th>行数</th><th>正解字</th><th>CER</th><th>置換/脱落/挿入</th></tr>' + rows(m.byConfig || []) + '</table>' +
       '<details class="ui-disclosure"><summary class="hint">文字起こしごと</summary><table class="acct"><tr><th>文字起こし</th><th>行数</th><th>正解字</th><th>CER</th><th>置換/脱落/挿入</th></tr>' + rows(m.byDoc || []) + '</table></details>' +
       '<details class="ui-disclosure"><summary class="hint">誤りが多い場所(上位)</summary>' + (o.worst || []).map(function (w) {
@@ -138,14 +128,6 @@
   function wire() {
     $('#accScope').addEventListener('change', loadAcc);
     $('#accRefresh').addEventListener('click', loadAcc);
-    $('#accLegacy').addEventListener('change', loadAcc);
-    $('#blGo').addEventListener('click', function (e) {
-      busy(e.currentTarget, function () {
-        return api('api/eval-baseline', { method: 'POST', body: { label: $('#blLabel').value } }).then(function (r) {
-          $('#blLabel').value = ''; toast('記録しました: CER ' + pct(r.cer) + '(正解 ' + (Number(r.refChars) || 0) + '字)', 'ok'); return loadBaselines();
-        });
-      }).catch(function (er) { toast(er.message, 'err'); });
-    });
     $('#lnRefresh').addEventListener('click', loadLearned);
     $('#lnMin').addEventListener('change', function () { showAll = false; loadLearned(); });
     $('#lnSearch').addEventListener('input', function () { showAll = false; renderLearned(); });
@@ -170,7 +152,7 @@
     if (started) return;
     started = true;
     wire();
-    loadAcc(); loadBaselines(); loadLearned();
+    loadAcc(); loadLearned();
   }
   /* 開いたときに初めて読む(毎日は見ない物なので、ホームを開くたびには聞かない)。#edit-acc・#edit-learn のハッシュで直に開ける */
   box.addEventListener('toggle', function () { if (box.open) start(); });

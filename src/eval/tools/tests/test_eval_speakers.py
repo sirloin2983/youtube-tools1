@@ -601,16 +601,17 @@ class TestSmooth(unittest.TestCase):
                          (5, 6, 2, 2, 1, 1, 1, 1))
         self.assertIn("話者の細切れをならす", buf.getvalue())
         self.assertIn("直った 1・壊れた 1", buf.getvalue())
-        self.assertNotIn("smooth", E.evaluate(self.env.root))   # 指定しなければ今までどおり(editor を読まない)
+        self.assertNotIn("smooth", E.evaluate(self.env.root))   # 指定しなければ今までどおり
+        with mock.patch.object(E, "load_serve", side_effect=AssertionError("serve を読んだ")):
+            self.assertEqual(len(E.evaluate(self.env.root, smooth=[False, True])["smooth"]), 2)   # stored のならしは serve を読まない(本番の関数を直に呼ぶ)
 
     def test_stored_record_already_smoothed(self):
         """ならした回の記録: ならさない側は元のラベル(label)から話者に戻す"""
         self.put("aaaaaaaaaaaa", "A", smoothed_rec=True)
-        S = E.load_serve()
         with open(os.path.join(self.env.tdir, "aaaaaaaaaaaa.json"), encoding="utf-8") as f:
             doc = json.load(f)
         run = E.read_diar(self.env.tdir, "aaaaaaaaaaaa")["latest"]
-        off, on, ids = E.stored_smooth_recs(S, doc, run)
+        off, on, ids = E.stored_smooth_recs(doc, run)
         self.assertEqual((off["r1"]["speaker"], on["r1"]["speaker"], ids), ("S2", "S1", {"r1"}))
 
     def test_run_off_on_diarizes_once(self):
@@ -630,6 +631,67 @@ class TestSmooth(unittest.TestCase):
         self.assertEqual([s["smooth"]["on"] for s in res["bySetting"]], [False, True])
         self.assertEqual(res["bySetting"][0]["correct"], res["bySetting"][1]["correct"])   # 10 秒ごとの入れ替わりには、ならす行が無い
         self.assertIn("ならした行 0", buf.getvalue())
+
+
+class TestOrStored(unittest.TestCase):
+    """夜の測定(src/eval/drill/accuracy.py)の呼び方 run --or-stored: 確かめ済みの評価用を今の既定で判別し直す。モデルが無い・測れる文書が 0 本なら stored に切り替える"""
+
+    def setUp(self):
+        self.env = Env()
+        self.addCleanup(self.env.close)
+        self.media = os.path.join(self.env.root, "media")
+        os.makedirs(self.media)
+        patch = mock.patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "fake", "TRANSCRIBE_FAKE_DELAY": "0"})
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def put_reviewed(self):
+        write_silence(os.path.join(self.media, "a.wav"), 25)
+        self.env.doc("cccccccccccc", {"S1": "A"}, [("c%d" % i, "S1", "S1", {}) for i in range(12)], diar={}, reviewed=True, source=os.path.join(self.media, "a.wav"))
+
+    def saved(self):
+        d = os.path.join(self.env.root, "transcribe", "evals", "speakers")
+        return sorted(os.listdir(d)) if os.path.isdir(d) else []
+
+    def test_run_when_it_can(self):
+        self.put_reviewed()
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            res = E.main(["run", "--or-stored", "--json", "--data-dir", self.env.root])
+        self.assertEqual(res["meta"]["mode"], "run")
+        self.assertEqual(len(res["bySetting"]), 1)                      # 既定の 1 組
+        self.assertEqual([f.endswith("-run.json") for f in self.saved()], [True])
+        self.assertIn(E.C.SAVED_MARK, buf.getvalue())
+
+    def test_unchanged_run_is_not_written_again(self):
+        self.put_reviewed()
+        for _ in range(2):
+            with contextlib.redirect_stdout(io.StringIO()) as buf:
+                E.main(["run", "--or-stored", "--json", "--data-dir", self.env.root])
+            time.sleep(1.1)
+        self.assertEqual(len(self.saved()), 1)                           # 2 回目は中身が同じ(かかった秒 sec だけ違う)= 書かない
+        self.assertIn(E.C.SAME_MARK, buf.getvalue())
+        self.assertNotIn(E.C.SAVED_MARK, buf.getvalue())
+
+    def test_falls_back_to_stored_without_models(self):
+        self.put_reviewed()
+        with mock.patch.object(E, "run_evaluate", side_effect=SystemExit("話者判別のモデルがありません")), contextlib.redirect_stdout(io.StringIO()) as buf:
+            res = E.main(["run", "--or-stored", "--json", "--data-dir", self.env.root])
+        self.assertIn("subsets", res)                                    # stored の形
+        self.assertIn("保存してある記録(stored)で測ります", buf.getvalue())
+        self.assertEqual([f.endswith("-run.json") for f in self.saved()], [False])
+
+    def test_falls_back_to_stored_when_nothing_to_diarize(self):
+        # 音声の無い確かめ済みの文書だけ -> 判別し直せる文書が 0 本
+        self.env.doc("dddddddddddd", {"S1": "A"}, [("d%d" % i, "S1", "S1", {}) for i in range(3)], diar={}, reviewed=True)
+        with contextlib.redirect_stdout(io.StringIO()) as buf:
+            res = E.main(["run", "--or-stored", "--data-dir", self.env.root])
+        self.assertIn("subsets", res)
+        self.assertIn("判別し直せる文書がありません", buf.getvalue())
+
+    def test_without_the_flag_run_still_stops(self):
+        with mock.patch.object(E, "run_evaluate", side_effect=SystemExit("モデルが無い")), self.assertRaises(SystemExit):
+            E.main(["run", "--data-dir", self.env.root])
 
 
 class TestNoSub(unittest.TestCase):

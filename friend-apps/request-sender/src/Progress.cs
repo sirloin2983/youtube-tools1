@@ -302,7 +302,7 @@ namespace RequestSender
             if (friendDefaults.Problem != null) Log.Write("friend-defaults: " + friendDefaults.Problem);
         }
 
-        // 右の列: 03 の下・メモの上に「処理する PC」(切り替えられないときは出さない)
+        // 右の列: 03 の下に「処理する PC」(切り替えられないときは出さない)
         void BuildPcRow()
         {
             lPc.AutoSize = false;
@@ -314,7 +314,7 @@ namespace RequestSender
             pcRemote.AccessibleName = "送り先の人の PC に Dropbox で頼む";
             pcRow.Add(lPc, 0).Add(pcSelf, 0).Add(pcRemote, 4);
             pcHint.Font = Theme.Small;
-            int at = right.IndexOf(lMemo);
+            int at = int.MaxValue;   // 右の列の終わり
             right.Insert(at, pcRow, 14, false);
             right.Insert(at + 1, pcHint, 2, true);
             SetPcTarget(PcTarget.Self);

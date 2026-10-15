@@ -3,8 +3,11 @@
 - 種類(と出どころ)→ 目標の id: value → marks(配信 10 本)・read 後処理 → fill(30 行)・read 別 / YouTube の字幕 → alt(100 件)・
   voice → speakers(200 行)・time → timing(100 行)。出どころが表に無ければ種類の既定(DEFAULT)
 - 答えの数え方(COUNT): unit = "card"(答え 1 件 = 1)/ "case"(配信の単位 = 同じ配信の答えは 1 本)、mode = "since"(測る道具が次の測定で
-  答えの副産物(feedback・文書の行)を数えるので、直近の測定より後の答えだけ足す)/ "all"(道具が答えを見ない = 全部足す。
-  話者は道具が評価用の文書しか数えず、確かめるは評価用を出さない・行の時刻は道具の --check が V2d で入るまで)
+  答えを数えるので、直近の測定より後の答えだけ足す)/ "all"(道具が答えを見ない = 全部足す)。
+  since の 3 つ: marks は答えの副産物(スタジオの判定)を数える・fill と alt は道具が answers.jsonl の read:fill・read:alt・read:yt を直に読む
+  (src/eval/tools/eval_fill.py・eval_alt.py。答えを人の判断の正として判定できた数 judged に入れる。ただし入口の fill は A の行の judged だけなので、
+  E(LLM)・D(名簿)の行への答えは次の測定で入口の数から消える)。
+  all の 2 つ: 話者は道具が評価用の文書しか数えず、確かめるは評価用を出さない・行の時刻は道具の --check が夜の測定に入っていない
 足すのは accuracy.goals_of(extra=)(入口の「調子」と /api/check/next の帯が同じ数を出す)。V2 の 4 本は register で組を足し・直してよい。
 """
 from human.check import answerlog

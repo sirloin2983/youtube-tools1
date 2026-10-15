@@ -6,12 +6,11 @@
 鍵は (パス・更新日時 ns・大きさ)(ytt.fsio.StampCache)。書き出しは一時の名前に書いてから置き換えるので、中身が変われば鍵も変わる。
 時間では覚えない(テストが作り直した直後に測る)。ffmpeg を動かせなかったとき(例外)は覚えない。道具を差し替えたら全部忘れる。
 ffmpeg の場所はスタジオの決まり(studio_env.find_tool = 環境変数 STUDIO_FFMPEG → YTT_FFMPEG → PATH → winget)、動かすのは procs.run_short(終了の流れで止められる)。
-編集の動画・音声の小道具(ytt/tools の ffmpeg_info・probe_media)は別の決まり(TRANSCRIBE_FFMPEG・覚えない)なので、ここには寄せていない。
+読み方(-i の出力 → 長さ・映像・音声・映像の行)は ytt/tools.parse_ffmpeg_info の 1 か所(編集の動画の小道具 probe_media と同じ。カバー画像は映像に数えない)。
 """
-import re
 import subprocess
 
-from . import fsio as _fsio, procs as _procs, studio_env as _env
+from . import fsio as _fsio, procs as _procs, studio_env as _env, tools as _tools
 
 MEDIA_CACHE_MAX = 256
 _media_cache = _fsio.StampCache()
@@ -21,11 +20,7 @@ _NO_MEDIA = (None, False, False, "")
 
 def _probe_media(ff, path):
     pr = _procs.run_short([ff, "-hide_banner", "-nostdin", "-protocol_whitelist", "file,pipe", "-i", path], timeout=60, merge_stderr=True)
-    out = pr.stdout or ""
-    m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", out)
-    dur = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3)) if m else None
-    vm = re.search(r"Stream #.*Video:.*", out)
-    return dur, bool(vm), bool(re.search(r"Stream #.*Audio:", out)), (vm.group(0).strip()[:300] if vm else "")
+    return _tools.parse_ffmpeg_info(pr.stdout or "")
 
 
 def media_info(path):

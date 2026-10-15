@@ -625,18 +625,19 @@ class TestAutoClips(Base):
         self.assertEqual(self.review("discard", "m1")[0], 404)   # もう一覧に無い
 
     def test_expire_unseen_after_three_days(self):
-        """10-09 ユーザー決定: 見ても届けてもいない自動の切り抜きは、作ってから EXPIRE_SEC で「要らない」と同じくごみ箱へ(人の判定なしの expire の行)。
-        新しい・見た・人の切り抜き・友人の依頼(live.deliver か結びつき)・届けている途中は片付けない"""
+        """10-09 ユーザー決定: 見ても届けてもいない自動の切り抜きは、作ってから EXPIRE_SEC でごみ箱へ。10-14: マークは不採用にせず、判定の行も書かない
+        (片付けは評価と無関係)。新しい・見た・人の切り抜き・友人の依頼(live.deliver か結びつき)・届けている途中は片付けない"""
         old = time.time() - cases.EXPIRE_SEC - 60
         for p in (self.auto1, self.auto2, self.manual):
             os.utime(p, (old, old))
         kw = {"studio": self.fs, "feedback": self.rows.append, "trash": self.trash, "hide": self.hidden.append, "deliveries": self.dl, "env": self.env}
         self.review("seen", "m2")   # 見た → 片付けない
+        self.fs.calls.clear()
         self.assertEqual(cases.expire_unseen(self.root, is_request=lambda rc, rec: False, **kw), [(REC, "m1")])
         self.assertFalse(os.path.exists(self.auto1))
         self.assertTrue(os.path.isfile(self.auto2) and os.path.isfile(self.manual))
-        self.assertEqual([{k: x.get(k) for k in ("event", "human", "verdict", "markId")} for x in self.rows],
-                         [{"event": "expire", "human": False, "verdict": None, "markId": "lm-aaaaaaaaaaaa"}])   # 人の「悪い」ではない
+        self.assertEqual(self.rows, [])                                       # 判定の行を書かない
+        self.assertEqual([c for c in self.fs.calls if c[0] == "PUT"], [])     # マークを不採用にしない
         rec = cases.load_saved(os.path.join(self.data, "app", "cases.json"))[REC]["auto"]["m1"]
         self.assertTrue(rec.get("expiredAt") and rec.get("discardedAt") and not rec.get("seenAt"))
         self.assertEqual([cl["markId"] for cl in self.case()["clips"]], ["m2", "m3"])
@@ -653,6 +654,20 @@ class TestAutoClips(Base):
         os.utime(new_auto, (old, old))
         self.assertEqual(cases.expire_unseen(self.root, is_request=lambda rc, rec: True, **kw), [])   # 録画が友人の依頼に結びついている
         self.assertEqual(cases.expire_unseen(self.root, is_request=lambda rc, rec: False, **kw), [(REC, "m5")])
+        # 届けた物(友人の依頼も)は、届けてから EXPIRE_SEC で片付ける(既定オン = 10-15 ユーザー)。スイッチ TRASH_DELIVERED がオフなら片付けない
+        self.assertTrue(cases.TRASH_DELIVERED)
+        sent_old = int((time.time() - cases.EXPIRE_SEC - 60) * 1000)
+        cases._remember(self.root, REC, "m6", self.env, delivered="z.zip", at=sent_old)
+        cases._remember(self.root, REC, "m2", self.env, delivered="y.zip", at=int(time.time() * 1000))   # 届けたばかり
+        self.addCleanup(setattr, cases, "TRASH_DELIVERED", True)
+        cases.TRASH_DELIVERED = False
+        self.assertEqual(cases.expire_unseen(self.root, is_request=lambda rc, rec: True, **kw), [])
+        cases.TRASH_DELIVERED = True
+        self.fs.calls.clear()
+        self.assertEqual(cases.expire_unseen(self.root, is_request=lambda rc, rec: True, **kw), [(REC, "m6")])
+        self.assertFalse(os.path.exists(friend))
+        self.assertTrue(os.path.isfile(self.auto2))
+        self.assertEqual((self.rows, [c for c in self.fs.calls if c[0] == "PUT"]), ([], []))
 
     def test_discard_puts_files_back_when_studio_fails(self):
         pk = self.pack(self.auto2)

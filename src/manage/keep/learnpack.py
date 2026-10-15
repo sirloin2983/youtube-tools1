@@ -27,7 +27,7 @@ import time
 import unicodedata
 
 from human.proof import learn as _learn
-from ytt import colors as _colors, fsio as _fsio, workdata as _workdata
+from ytt import colors as _colors, dictfmt as _dictfmt, fsio as _fsio, workdata as _workdata
 
 SCHEMA = "ytt-learning/v1"
 PACK_FILE, LATEST_FILE, RULES_FILE = "learning.json", "latest.json", "learned-rules.json"
@@ -65,7 +65,8 @@ def collect(data_dir, roster_path, members_path, rules):
     """束に入れる中身 -> {束の中のパス: bytes}(元のファイルが無い物は入れない)。data_dir = 編集の作業データ(settings.json・learn-feedback.json・voices/)"""
     files = {}
     settings = _fsio.read_json_or(os.path.join(data_dir, "settings.json"), None, kind=dict) or {}
-    picked = {k: settings[k] for k in ("replacements", "glossary") if k in settings}
+    keys = ("replacements", "glossary") if _dictfmt.USER_DICT else ("glossary",)   # 人の置換辞書は今はオフ = 束に入れない(10-14 ユーザー)
+    picked = {k: settings[k] for k in keys if k in settings}
     if picked:
         files["settings.json"] = _json_bytes(picked)
     fb = _fsio.read_json_or(os.path.join(data_dir, "learn-feedback.json"), None, kind=dict)

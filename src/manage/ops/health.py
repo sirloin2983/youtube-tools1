@@ -27,7 +27,8 @@ CRASH_MAX_EVENTS = 500           # ログごとに読む件数の上限(新し�
 # アプリの異常終了(Application Error 1000)を個別に数える exe(小文字)。それ以外は "other" に合算
 CRASH_APPS = ("python.exe", "pythonw.exe", "ffmpeg.exe", "ffprobe.exe", "msedge.exe", "chrome.exe", "whisper-cli.exe", "llama-server.exe")
 _EVT_NS = "{http://schemas.microsoft.com/win/2004/08/events/event}"
-DATA_TOOLS = (("app", "ホーム"), ("studio", "スタジオ"), ("transcribe", "編集"), ("cut2resolve", "cut2resolve"), ("holo-colors", "ホロカラー"))
+DATA_TOOLS = (("app", "ホーム"), ("studio", "スタジオ"), ("transcribe", "編集"), ("cut2resolve", "cut2resolve"),
+              ("learning", "学習の束"), ("analytics", "分析"), ("recorder", "録画の部品"))   # 名前の札(作業データの直下はこれ以外も数える)
 
 
 # ---------- フォルダの大きさ(数えるのは ytt.fsio.dir_size = (バイト数, ファイル数)。リンクはたどらない) ----------
@@ -46,21 +47,39 @@ def top_items(path, limit=TOP_ITEMS):
     return out[:limit]
 
 
-def data_sizes(repo_root=None, env=None):
-    """作業データの置き場所ごとの大きさ。-> {"root", "dirs": [{tool, label, path, bytes, files, items}], "bytes"}"""
+def _size_row(tool, label, path):
+    b, c = fsio.dir_size(path)
+    return {"tool": tool, "label": label, "path": path, "bytes": b, "files": c, "items": top_items(path)}
+
+
+def data_sizes(repo_root=None, env=None, outside=()):
+    """作業データの置き場所ごとの大きさ。-> {"root", "dirs": [{tool, label, path, bytes, files, items}], "bytes", "outside": [同じ形]}。
+    作業データの親(data_root)があれば、その直下のフォルダを**全部**数える(固定の一覧だと、無いツールの項目が黙って飛ばされ・
+    learning・analytics・recorder などが数えられなかった = 10-14 の調べで画面は実際の約 19%。opt-manage 8b-1)。inplace なら各ツールのフォルダ。
+    outside = [(名前, パス)](書き出し先など作業データの外)。別の行で出し、bytes(注意の線を引く合計)には足さない(8b-2)"""
     root = datadir.data_root(env)
-    dirs, total = [], 0
-    for tool, label in DATA_TOOLS:
+    dirs = []
+    if root and os.path.isdir(root):
+        labels = dict(DATA_TOOLS)
         try:
-            path = datadir.resolve(tool, repo_root, env)
-        except Exception:
-            continue
-        if not os.path.isdir(path):
-            continue
-        b, c = fsio.dir_size(path)
-        total += b
-        dirs.append({"tool": tool, "label": label, "path": path, "bytes": b, "files": c, "items": top_items(path)})
-    return {"root": root, "dirs": dirs, "bytes": total}
+            names = sorted(os.listdir(root))
+        except OSError:
+            names = []
+        for n in names:
+            p = os.path.join(root, n)
+            if os.path.isdir(p) and not os.path.islink(p):
+                dirs.append(_size_row(n, labels.get(n, n), p))
+    else:
+        for tool, label in DATA_TOOLS:
+            try:
+                path = datadir.resolve(tool, repo_root, env)
+            except Exception:
+                continue
+            if os.path.isdir(path):
+                dirs.append(_size_row(tool, label, path))
+    dirs.sort(key=lambda x: -x["bytes"])
+    out = [_size_row("outside", label, p) for label, p in outside if isinstance(p, str) and p and os.path.isdir(p)]
+    return {"root": root, "dirs": dirs, "bytes": sum(x["bytes"] for x in dirs), "outside": out}
 
 
 # ---------- 空き容量 ----------
@@ -296,7 +315,7 @@ class Health:
 
     def _compute_slow(self):
         try:
-            data = data_sizes(self.repo_root)
+            data = data_sizes(self.repo_root, outside=[("書き出し先", p) for p in self.extra_dirs() if p])
             tools = tool_versions()
             with self._lock:
                 self._slow = {"data": data, "tools": tools, "crashes": None, "at": self.clock()}   # 先に出せる物を出す

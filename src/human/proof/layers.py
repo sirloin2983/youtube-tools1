@@ -18,7 +18,7 @@
     (付け直さない)、判別し直して当たらない話者だけ新しい H…(assign_speakers)
 - 案 A: 組み立てるとき、人の文字の行の base(覆ったときの機械)と今の機械の文字が違えば印 MACH_CHANGED。話者だけの変化は弱い印 SPK_CHANGED
   (人が話者を決めた行で機械の話者が前と変わったとき・自動で新しく作った話者の行。spkMap で自動に当たった行は印なし)
-- 往復: compose(mach, diff(mach, doc), split_meta(doc)) == doc(compare_docs で比べる。測る道具は src/eval/tools/eval_layers.py)
+- 往復: compose(mach, diff(mach, doc), split_meta(doc)) == doc(compare_docs で比べる)
 """
 import bisect
 import copy

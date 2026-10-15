@@ -23,8 +23,9 @@
   無い記録は「後処理の記録なし(0.57.0 まで)」・1 秒丸めの配り直しの記録 retimed(0.64.0 まで)があればそう書く)
 - 行の境目の一致率(I-5 字幕の分け方。2026-10-08。notes:plan/done/line-b-row-split.md): 人の行と機械の行の境目を文字の位置で突き合わせ、的中(機械の境目のうち人も境目にした割合)と
   再現(人の境目のうち機械にもあった割合)。人の境目は両側が校正済みで話者が同じ所だけ(boundary_agreement)。全体・組ごと・文書ごと・--apply の当て直しにも出す
-- --apply: 保存してある生出力 <id>.asr.json(分ける前の認識の行と単語)に、行の後処理を当て直したときの数字も出す(VARIANTS: 0.57.0 の後処理 /
-  7-1 だけ / 0.57.1 / 0.59.5 = 0.57.1 + 行を分ける文字数 40 / 0.59.6 = 24(splitChars は spec に入れる))。後処理は editor の ed_jobs.expand_segments をそのまま使う(eval_asr.load_serve。serve の作業データは一時の置き場で、最後に消す)。
+- --apply: 保存してある生出力 <id>.asr.json(分ける前の認識の行と単語)に、行の後処理を当て直したときの数字も出す。先頭 = **今の既定**(current_variant: postproc.END_TRIM・JOIN_GAP と
+  txtext.SPLIT_CHARS の今の値。固定の表ではない。夜の測定 = 入口の accuracy.py が主にする数字)。続けて経緯の比べ(VARIANTS: 0.57.0 の後処理 /
+  7-1 だけ / 0.57.1 / 0.59.5 = 0.57.1 + 行を分ける文字数 40 / 0.59.6 = 24(splitChars は spec に入れる))。後処理は pipeline/transcribe/postproc.expand_segments を直に呼ぶ(editor の serve は読まない)。
   音声を聞き直す 1 秒丸めの配り直し(quant_retime。編集 0.65.0 で消した)はかけない(音声を聞き直さない = 認識し直さない)。
   「0.57.0 の後処理」を当て直した行が保存してある original と同じか(reproduced。始まり・終わりが REPRO_TOL 以内の行の割合)も出す
   (低い文書は、original を作ったときの後処理がそれと違う = 0.53.1 より前の文書・配り直しのあった文書・人が分け直した文書)
@@ -49,7 +50,7 @@ if not __package__:   # スクリプトとして起動したとき(py -3.10 src/
     sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
 from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・git の rev・保存。src を sys.path に足す)
 from eval.tools._evalcommon import rate, read_json  # noqa: E402
-from ytt import docloc  # noqa: E402
+from ytt import docloc, txtext  # noqa: E402
 from ytt.schemas import num  # noqa: E402  有限の数(bool は除く)なら float、それ以外は None
 from human.check import answerlog  # noqa: E402  「確かめる」の答えの記録(--check が読むだけ)
 from eval.tools import eval_asr  # noqa: E402  確かめ済みの条件(is_reviewed)・最初の認識(draft_run)・後処理を当て直す editor の読み込み(load_serve)は eval_asr.py と同じ
@@ -64,12 +65,21 @@ REPRO_TOL = 0.011              # --apply の reproduced: 当て直した行と o
 MAX_BYTES = C.DOC_BYTES
 KEYS = (("head", "①頭"), ("tail", "①末"), ("prev", "②前"), ("next", "②次"))
 POST_NONE = "後処理の記録なし(0.57.0 まで)"
-# --apply で当て直す後処理(editor の ed_jobs の値を一時的に差し替える)。0.57.1 の既定 = END_TRIM 0・JOIN_GAP 0.5
+# --apply で当て直す後処理の経緯の比べ(pipeline/transcribe/postproc の値を一時的に差し替える)。0.57.1 の既定 = END_TRIM 0・JOIN_GAP 0.5。
+# **今の既定**(NOW_KEY)はここに固定で書かず current_variant() が postproc.END_TRIM・JOIN_GAP・txtext.SPLIT_CHARS の今の値で作って先頭に置く(夜の測定はそれを主にする)
+NOW_KEY = "now"
 VARIANTS = (("v0570", "0.57.0 の後処理(END_TRIM 0.1 秒・つながない)", {"END_TRIM": 0.1, "JOIN_GAP": 0.0}),
             ("trim0", "7-1 だけ(END_TRIM 0・つながない)", {"END_TRIM": 0.0, "JOIN_GAP": 0.0}),
             ("v0571", "0.57.1 の後処理(END_TRIM 0・すき間 0.5 秒以下をつなぐ)", {"END_TRIM": 0.0, "JOIN_GAP": 0.5}),
             ("split40", "0.59.5(0.57.1 の後処理 + 行を分ける文字数 40)", {"END_TRIM": 0.0, "JOIN_GAP": 0.5, "splitChars": 40}),   # splitChars は spec に入れる(ed_jobs の値ではない)
             ("split24", "0.59.6(0.57.1 の後処理 + 行を分ける文字数 24 = 今の既定)", {"END_TRIM": 0.0, "JOIN_GAP": 0.5, "splitChars": 24}))
+
+
+def current_variant():
+    """今の既定の後処理 -> (key, 見出し, 設定)。値は持ち主の部品の今の値(postproc.END_TRIM・JOIN_GAP と txtext.SPLIT_CHARS)から作る = 既定を変えても固定の表が古くならない"""
+    from pipeline.transcribe import postproc as J  # noqa: E402
+    st = {"END_TRIM": J.END_TRIM, "JOIN_GAP": J.JOIN_GAP, "splitChars": txtext.SPLIT_CHARS}
+    return (NOW_KEY, "今の既定(END_TRIM %g 秒・すき間 %g 秒以下をつなぐ・行を分ける文字数 %d)" % (st["END_TRIM"], st["JOIN_GAP"], st["splitChars"]), st)
 
 
 # ---------------------------------------------------------------- 読み込み(読むだけ)
@@ -261,10 +271,11 @@ def asr_raw(doc, asr):
     return raw, spec, dur, start
 
 
-def reapply(S, raw, spec, dur, start):
-    """後処理(S.expand_segments)を当て直した機械の行(元の動画の秒・文字のある行だけ)"""
+def reapply(raw, spec, dur, start):
+    """後処理(pipeline/transcribe/postproc.expand_segments。editor の serve は読まず直に呼ぶ)を当て直した機械の行(元の動画の秒・文字のある行だけ)"""
+    from pipeline.transcribe import postproc as J  # noqa: E402
     return [{"start": round(s["start"] + start, 2), "end": round(s["end"] + start, 2), "text": s["text"]}
-            for s in S.expand_segments([dict(r) for r in raw], spec, dur) if s.get("text")]
+            for s in J.expand_segments([dict(r) for r in raw], spec, dur) if s.get("text")]
 
 
 def reproduced(rows, original):
@@ -277,15 +288,14 @@ def reproduced(rows, original):
     return rate(same, len(orig))
 
 
-def apply_variants(docs, tdir, S=None):
-    """--apply: 文書ごとに生出力へ VARIANTS の後処理を当て直して測る。S = 読み込んだ serve(テストで渡す。無ければ eval_asr.load_serve("fake"))
+def apply_variants(docs, tdir):
+    """--apply: 文書ごとに生出力へ「今の既定」(current_variant。先頭)と VARIANTS(経緯の比べ)の後処理を当て直して測る。editor の serve は読まず postproc.expand_segments を直に呼ぶ
     -> {"variants": [{"key", "label", "settings", "overall", "byDoc": [{"id", "n", "head"…, "reproduced"?}]}], "docs", "skipped": {"noAsr", "badAsr"}}"""
-    S = S or eval_asr.load_serve("fake")
-    # 値は持ち主の部品(pipeline/transcribe/postproc)に直接入れる(load_serve は serve を登録して読むので S.名前 = … でも届くが、登録せずに読んだ serve を渡されても効くように)。
-    # "splitChars" だけは postproc の値ではなく後処理の spec に入れる(行を分ける文字数。0.59.5)
+    # 値は持ち主の部品(pipeline/transcribe/postproc)に直接入れる。"splitChars" だけは postproc の値ではなく後処理の spec に入れる(行を分ける文字数。0.59.5)
     from pipeline.transcribe import postproc as J  # noqa: E402
-    saved = {k: getattr(J, k) for _key, _label, st in VARIANTS for k in st if k != "splitChars"}
-    res = {"variants": [{"key": key, "label": label, "settings": dict(st), "rows": [], "bnd": [], "byDoc": []} for key, label, st in VARIANTS],
+    variants = (current_variant(),) + VARIANTS      # 今の値を、差し替える前に読む
+    saved = {k: getattr(J, k) for _key, _label, st in variants for k in st if k != "splitChars"}
+    res = {"variants": [{"key": key, "label": label, "settings": dict(st), "rows": [], "bnd": [], "byDoc": []} for key, label, st in variants],
            "docs": 0, "skipped": {"noAsr": 0, "badAsr": 0}}
     try:
         for doc in docs:
@@ -301,11 +311,11 @@ def apply_variants(docs, tdir, S=None):
             raw, spec, dur, start = got
             human = text_rows(doc.get("segments"))
             res["docs"] += 1
-            for v, (key, _label, st) in zip(res["variants"], VARIANTS):
+            for v, (key, _label, st) in zip(res["variants"], variants):
                 for k, val in st.items():
                     if k != "splitChars":
                         setattr(J, k, val)
-                rows = reapply(S, raw, dict(spec, splitChars=st["splitChars"]) if "splitChars" in st else spec, dur, start)
+                rows = reapply(raw, dict(spec, splitChars=st["splitChars"]) if "splitChars" in st else spec, dur, start)
                 mrows = text_rows(rows)
                 m = measure_rows(human, mrows)
                 v["rows"] += m["rows"]
@@ -327,7 +337,7 @@ def apply_variants(docs, tdir, S=None):
 
 # ---------------------------------------------------------------- 全体
 
-def evaluate(data_dir=None, since=None, until=None, apply=False, serve=None):
+def evaluate(data_dir=None, since=None, until=None, apply=False):
     root = C.locate("transcribe", data_dir)
     tdir = os.path.join(root, "transcripts")
     since_ms, until_ms = C.period(since, until)
@@ -368,7 +378,7 @@ def evaluate(data_dir=None, since=None, until=None, apply=False, serve=None):
             "skipped": skipped, "tol": TOL, "matchChars": MATCH_CHARS, "apply": bool(apply)}
     res = {"meta": meta, "overall": overall, "groups": groups, "byDoc": sorted(recs, key=lambda r: r["id"])}
     if apply:
-        res["apply"] = apply_variants(docs, tdir, serve)
+        res["apply"] = apply_variants(docs, tdir)
     return res
 
 
@@ -468,9 +478,10 @@ def print_report(res):
             ap["docs"], ap["skipped"]["noAsr"], ap["skipped"]["badAsr"]))
         for v in ap["variants"]:
             print("    %-46s %s  %s" % (v["label"], line(v["overall"]), bline(v.get("boundary"))))
-        rp = [d["reproduced"] for d in ap["variants"][0]["byDoc"] if d.get("reproduced") is not None]
+        v0570 = next((v for v in ap["variants"] if v["key"] == "v0570"), None) or {"byDoc": []}
+        rp = [d["reproduced"] for d in v0570["byDoc"] if d.get("reproduced") is not None]
         if rp:
-            low = [d["id"] for d in ap["variants"][0]["byDoc"] if d.get("reproduced") is not None and d["reproduced"] < 0.9]
+            low = [d["id"] for d in v0570["byDoc"] if d.get("reproduced") is not None and d["reproduced"] < 0.9]
             print("    0.57.0 の後処理で保存してある original を再現できた行の割合: 中央値 %s(9 割未満の文書 %d 本%s)" % (
                 pct(round(statistics.median(rp), 3)), len(low), (": " + ", ".join(low[:8])) if low else ""))
     print("  [文書ごと]")
@@ -484,7 +495,7 @@ def main(argv=None):
     C.add_period_args(p, "この日(YYYY-MM-DD)以後に作った機械の出力だけ(最初の認識の at、無ければ updatedAt)",
                       json_help="同じ形の JSON を 文字起こしの作業データの evals/timing/<日時>.json に残す")
     p.add_argument("--out", help="JSON をこのファイルに書く(作業データには書かない。--json を付けなくてよい)")
-    p.add_argument("--apply", action="store_true", help="保存してある生出力(asr.json)に後処理(0.57.0 / 7-1 だけ / 0.57.1)を当て直した数字も出す")
+    p.add_argument("--apply", action="store_true", help="保存してある生出力(asr.json)に今の既定の後処理と経緯の 5 本(0.57.0 など)を当て直した数字も出す(夜の測定 = 入口の accuracy.py は今の既定の数字を主にする)")
     p.add_argument("--check", action="store_true", help="「確かめる」の時刻のカードの答え(app の check/answers.jsonl)の数も並べる")
     args = p.parse_args(argv)
     res = evaluate(args.data_dir, args.since, args.until, args.apply)

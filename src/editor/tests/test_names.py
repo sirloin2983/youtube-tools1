@@ -570,12 +570,12 @@ class TestSettingsMoved(unittest.TestCase):
 
 
 class TestEdLearnNames(unittest.TestCase):
-    """ed_learn の残りを pipeline/transcribe/replace(置換辞書)・human/proof/learn(学習と提案)・eval/drill/metrics(精度と基準)に分けた(RS3-E5c。殻は RS5-A で消した)。
+    """ed_learn の残りを pipeline/transcribe/replace(置換辞書)・human/proof/learn(学習と提案)・eval/drill/metrics(精度)に分けた(RS3-E5c。殻は RS5-A で消した)。
     旧い名前は S で読め、差し替えは持ち主に届き、learn は metrics を読まない(② から ④ を読まない)"""
 
     def test_old_ed_learn_names_still_resolve(self):
         names = _old_names("data_ed_learn_names.txt")
-        self.assertEqual(len(names), 60)
+        self.assertEqual(len(names), 57)
         missing = [n for n in names if not hasattr(S, n)]
         self.assertEqual(missing, [])
 

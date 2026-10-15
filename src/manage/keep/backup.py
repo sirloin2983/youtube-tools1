@@ -4,18 +4,24 @@
 2026-10-03 に Windows の入れ直しで失ったので、入口が動いている間に、決めた間隔で別のドライブのフォルダへ写す。
 
 - 写す先: 設定(src/home/prefs.py の節 backup)の folder の下の `youtube-tools-data\\<ツールID>\\…`(作業データと同じ形。戻すときはそのまま写し戻す)
-- 写すもの: 作り直せないもの(文字起こしと校正・カット・スタジオの data.json とマーク・採用の記録・設定・声の登録・パックの記録・案件)。
-  写さないもの(SKIP_DIRS・SKIP_SUFFIX): キャッシュ・一時ファイル・ログ・モデル・実行ファイル・ブラウザのプロファイル・書き出した動画(取り直せる・大きい)。
+- 守る物(ユーザー 10-14。decisions 3-48): 作業データそのものではなく**学習データ・ツール・関連資料**。だから頻繁でなくてよい = 間隔(everyHours。既定 24 時間)と「今すぐ」だけ
+- 写すもの: 作り直せないもの(文字起こしと校正・カット・スタジオの data.json とマーク・採用の記録・設定・声の登録・パックの記録・案件)と、
+  **評価用データ・学習用データの動画**(settings.evalDirs のフォルダと、その隣の 学習用データ。YouTube の元は消える・非公開になりうる・正解の時刻はその動画に
+  合わせてある。写す先の media\\<ドライブ>\\<パス> に元と同じ形で。動画は変わらないので写すのは最初の 1 回。スイッチ COPY_MEDIA)。
+  写さないもの(SKIP_DIRS・SKIP_SUFFIX・SKIP_TOP): キャッシュ・一時ファイル・ログ・分析(analytics)・モデル・実行ファイル・ブラウザのプロファイル・書き出した動画(取り直せる・大きい)。
   例外: `transcribe\\bin\\whisper.cpp-*`(作り直すのに Visual Studio が要るので写す。llama.cpp などダウンロードし直せるものは写さない)。
-  評価用の音声 `transcribe\\eval-audio\\` は写す(SKIP に入れない。作り直せない)
+  評価用の音声 `transcribe\\eval-audio\\` は写さない(元の配信の音声から作り直せるため。2026-10-15 に外した)
 - 写し方: 大きさか更新時刻が違うファイルだけ、一時的な名前へ写してから改名する。**写す先のファイルは消さない**
   (作業データで消したもの・壊れて空になったものに、バックアップを合わせて消さないため。古い分はたまる)。上書きされるファイルは、
   その日の最初の1回だけ `.prev` の名前で1つ前を残す(data.json などが壊れた形で上書きされても1つ前へ戻せる)
 - シンボリックリンクはたどらない。写す先が作業データの中・作業データが写す先の中のときは断る
-- 間隔(everyHours)が来たとき(変わっていなくても。検証の意味)のほかに、**変わったらすぐ写す**: 写す対象のファイルが前回の写し始めより新しく更新され、
-  最後の変更から QUIET 秒(保存が続いている間は待つ)たっていれば、間隔を待たずに写す(CHECK_EVERY ごとに見る)
+- 写す時: 間隔(everyHours)が来たとき(変わっていなくても。検証の意味)と「今すぐ」だけ(10-14 に「変わったらすぐ写す」をやめた)。
+  **読めなかったフォルダ・調べられなかったファイル・写せなかったファイルが 1 つでもあれば「完全に写せた」にしない**(部品 M3): 読める物は写し続け、
+  完全に写せた時刻 ok は進めず、RETRY_SEC のあとでもう一度試す(ok を見る docmove.backup_done も、完全に写せたときだけ真)
 - 写し戻し: `restore_once`(コマンド `py -3.10 src/manage/keep/backup.py --restore <folder>`)。手順は notes:docs/spec/data.md の「写し戻しの手順」。
-  案件の 作業用 の写し(cases/)は作業データの根へは戻さず、案件の根(--out-dir。既定はスタジオの設定の書き出し先)へ戻す。既にあるファイルは上書きしない
+  写すときと同じ決まりを通す(写さない場所の物 = 以前に写った受付の写しなどは戻さない)。
+  案件の 作業用 の写し(cases/)は作業データの根へは戻さず、案件の根(--out-dir。既定はスタジオの設定の書き出し先)へ戻す。既にあるファイルは上書きしない。
+  評価用・学習用の動画(media/)は元の場所へ戻す(既にあるファイルは上書きしない・そのドライブが無ければ戻さない)
 - 鍵(studio\\config.json の YouTube の API キー)も写る。写す先は自分の PC のドライブにする(共有のフォルダ・クラウドに置かない)
 """
 import argparse
@@ -30,18 +36,24 @@ import time
 _SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # keep -> manage -> src
 if _SRC not in sys.path:   # コマンドで単独に動かす(--restore)ときも ytt を読めるように(入口から読むときは入っている)
     sys.path.insert(0, _SRC)
-from ytt import fsio, schemas, tools  # noqa: E402
+from flow import placement  # noqa: E402   案件の置き場所の名前(依頼・runs)を元から読む(④ は ② を読める)
+from ytt import docloc, fsio, names, schemas, settings, tools  # noqa: E402
 
 STATE_FILE = "backup-state.json"
 DEST_NAME = "youtube-tools-data"
 FIRST_WAIT = 90            # 起動してから最初に見るまで(秒。ツールの起動・以前の場所からのコピーとぶつけない)
-CHECK_EVERY = 180          # 時間が来たか・変わったかを見る間隔(秒)
-QUIET = 120                # 最後の変更からこの秒数たってから、変わった分を写す(校正の保存が続いている間は待つ)
-SKIP_DIRS = {"cache", "work", "logs", "models", "bin", "browser-profile", "exports", ".runtime", "__pycache__", "intake"}   # intake = app/intake の友人の依頼の動画の写し(元は友人の Dropbox。RS8 B3-7。(r8h))
+CHECK_EVERY = 180          # 時間が来たかを見る間隔(秒)
+RETRY_SEC = 3600           # 完全に写せなかった(読めないフォルダ・写せないファイルがあった)ときに、もう一度試すまで(秒)
+SKIP_DIRS = {"cache", "work", "logs", "models", "bin", "browser-profile", "exports", ".runtime", "__pycache__", "intake",   # intake = app/intake の友人の依頼の動画の写し(元は友人の Dropbox)
+             "eval-audio",   # 評価用の音声(元の配信の音声から作り直せる。10-15 OPT-E1 で外した)
+             "friend-build-cache", ".tmp"}   # friend-build-cache = dev/build_friend_zip.py がダウンロードした zip(取り直せる)・.tmp = 一時ファイル
+SKIP_TOP = {"analytics"}   # 作業データの直下で写さないフォルダ(分析の記録 = 守る物の外。10-14 ユーザー「ログと分析は外す」)
 SKIP_SUFFIX = (".log", ".tmp", ".lock")
 SKIP_MARK = ".part-"       # datadir.prepare・fsio の途中のファイル
 KEEP_BIN_PREFIX = "whisper.cpp-"   # transcribe\\bin の下で、これで始まるフォルダだけは写す(作り直しに Visual Studio が要る)
-NOISY = (STATE_FILE, ".running.json")   # 写す対象だが「変わった」の判定には使わない(写すたびに・ジョブのたびに書き換わる)
+COPY_MEDIA = True          # 評価用・学習用の動画を写す(スイッチ。False = 今までどおり作業データと案件の 作業用 だけ)
+MEDIA_DIR = "media"        # 写す先の下の、評価用・学習用の動画を置くフォルダ(<写す先>/youtube-tools-data/media/<ドライブ>/<パス>)
+LEARN_NAME = "学習用データ"   # 評価用のフォルダの隣の学習用のフォルダ(src/eval/tools/eval_split.py の --train の既定と同じ)
 PREV_SUFFIX = ".prev"
 MAX_ERRORS = 20
 STATE_MAX = 64 * 1024     # backup-state.json を読む上限(これより大きければ読めない扱い = 記録なし)
@@ -63,23 +75,33 @@ def skip(name, is_dir):
     return low in SKIP_DIRS if is_dir else low.endswith(SKIP_SUFFIX)
 
 
-def _scan(root, enter, keep):
+def _scan(root, enter, keep, errors=None):
     """root の下のファイルを順に返す: (root からの相対パス, 大きさ, 更新時刻)。plan(写す側)と _walk_backup(写し戻す側)の歩き方。
     scandir を名前順・シンボリックリンクはたどらない・読めないものは飛ばす(安全の決まりはここ 1 か所)。
     enter(相対パス, 名前, 親の入り方) -> そのフォルダの入り方(None = 入らない)。keep(名前, 入り方) -> そのファイルを返すか。
+    errors(リスト)を渡すと、飛ばしたものを足す(「読めないフォルダ: …」「調べられないファイル: …」。部品 M3 = 読めない物があれば完全に写せたにしない)。
+    root そのものが無いのは失敗にしない(案件の根・評価用のフォルダがまだ無い)。
     os.walk にしない(Windows では DirEntry がフォルダを読んだときの stat を持っているので、ファイルごとの stat が増えない)"""
+    def fail(what, rel, e):
+        if errors is not None:
+            errors.append("%s: %s: %s" % (what, rel or ".", tools.why(e)))
     stack = [("", "")]   # (相対パス, 入り方)
     while stack:
         rel, mode = stack.pop()
         try:
             entries = sorted(os.scandir(os.path.join(root, rel)), key=lambda e: e.name)
-        except OSError:
+        except FileNotFoundError:
+            if rel:   # 歩いている間に消えたフォルダ(写す物も無い)
+                continue
+            return
+        except OSError as e:
+            fail("読めないフォルダ", rel, e)
             continue
         for e in entries:
+            r = os.path.join(rel, e.name)
             try:
                 if e.is_symlink():
                     continue
-                r = os.path.join(rel, e.name)
                 if e.is_dir(follow_symlinks=False):
                     sub = enter(r, e.name, mode)
                     if sub is not None:
@@ -87,8 +109,10 @@ def _scan(root, enter, keep):
                 elif e.is_file(follow_symlinks=False) and keep(e.name, mode):
                     st = e.stat(follow_symlinks=False)
                     yield r, st.st_size, st.st_mtime
-            except OSError:
-                continue
+            except FileNotFoundError:
+                continue   # 歩いている間に消えた(写す物が無い = 失敗ではない)
+            except OSError as ex:
+                fail("調べられないファイル", r, ex)
 
 
 def _plan_enter(r, name, mode):
@@ -102,22 +126,30 @@ def _plan_enter(r, name, mode):
         return "bin"
     if _excite_chat(r):
         return None   # 配信中の検出の生のチャット(他の視聴者の発言。64MB まで)は写さない(写すと、配信のあとワーカーが消しても写しに残る)
+    if not os.path.dirname(r) and low in SKIP_TOP:
+        return None
     return None if skip(name, True) else ""
 
 
-def plan(source):
+def _plan_keep(name, mode):
+    return mode != "bin" and not skip(name, False)
+
+
+def plan(source, errors=None):
     """写す候補を順に返す: (作業データからの相対パス, 大きさ, 更新時刻)。シンボリックリンクはたどらない。
-    transcribe\\bin の下は whisper.cpp- で始まるフォルダだけ入り、その中はフォルダ名で除かない(build の bin\\Release などの名前でも写す)"""
-    return _scan(source, _plan_enter, lambda name, mode: mode != "bin" and not skip(name, False))
+    transcribe\\bin の下は whisper.cpp- で始まるフォルダだけ入り、その中はフォルダ名で除かない(build の bin\\Release などの名前でも写す)。
+    errors = _scan と同じ(読めなかった物を足すリスト)"""
+    return _scan(source, _plan_enter, _plan_keep, errors)
 
 
 CASES_DIR = "cases"        # 写す先の下の、案件の 作業用 を置くフォルダ(<写す先>/youtube-tools-data/cases/<題名>/作業用/…)
 CASE_WORK = schemas.WORK_DIR
-CASE_STUDIO_ID = ".studio-id"
-REQUEST_DIR = "依頼"        # 友人の依頼の案件を置く outDir の下のフォルダ(flow/placement.REQUEST_DIR と同じ。manage は flow を読めるが定数だけなので写す)
-# 作業用の下で入るフォルダ → 入り方(RS8 B2-0。文字起こしの文書を案件へ移す前に、文書の履歴 .hist と機械の書き換え前の控え .bak も写す)。
-# ここに無い名前(速報版・.tmp・.resume など)には入らない。.hist だけは <tid> のフォルダの 1 段下まで入る
-CASE_SUBDIRS = {"runs": "runs", ".hist": "hist", ".bak": "bak"}
+CASE_STUDIO_ID = names.OWNER_FILE   # 作業用/.studio-id(案件の持ち主の印)
+REQUEST_DIR = placement.REQUEST_DIR   # 友人の依頼の案件を置く outDir の下のフォルダ(依頼)
+# 作業用の下で入るフォルダ → 入り方(RS8 B2-0。結果の束 runs・文書の履歴 .hist・機械の書き換え前の控え .bak)。名前は持ち主(② placement・ytt docloc)から読む。
+# ここに無い名前(速報版・.tmp・.resume など)には入らない。.hist だけは <tid> のフォルダの 1 段下まで入る。
+# 案件の中で写すのは .json だけ(採用.json.bak = ② casebook の 1 世代の控えは写さない。写す先の .prev が同じ役をする)
+CASE_SUBDIRS = {placement.RUNS_DIR.lower(): "runs", docloc.HIST_DIR.lower(): "hist", docloc.BAK_DIR.lower(): "bak"}
 
 
 def _cases_enter(r, name, mode):
@@ -143,14 +175,14 @@ def _cases_keep(name, mode):
     return name.lower().endswith(".json") or (mode == "work" and name == CASE_STUDIO_ID)
 
 
-def plan_cases(out_dir):
+def plan_cases(out_dir, errors=None):
     """案件の根 <outDir>/<題名>/作業用/ の *.json(runs の結果の束・.clip.json・.edit.json・鍵を含む)と .studio-id、
     作業用の下の .hist/<tid>/*.json(文書の履歴)・.bak/*.json(機械の書き換え前の控え)を順に返す: (outDir からの相対パス, 大きさ, 更新時刻)。
     動画・_edit.mp4・*_pack・速報版・.tmp・.resume は写さない。outDir が無い・未設定なら何も返さない。
     写し戻し(restore_once の out_dir)も、バックアップの cases/ をこの決まりで歩く(cases/ の下は outDir と同じ形)"""
     if not out_dir or not os.path.isdir(out_dir):
         return iter(())
-    return _scan(out_dir, _cases_enter, _cases_keep)
+    return _scan(out_dir, _cases_enter, _cases_keep, errors)
 
 
 def _excite_chat(rel):
@@ -158,20 +190,43 @@ def _excite_chat(rel):
     return rel.replace(os.sep, "/").lower().endswith("live/excite/chat")
 
 
-def _excite_noisy(rel):
-    """<ツール>/live/excite/ の下(worker.json は 30 秒ごと・peaks.json/state.json/series.jsonl は 1 分ごとに書き換わる)。写すが「変わった」の判定には使わない"""
-    return "/live/excite/" in rel.replace(os.sep, "/").lower()
+# ---------- 評価用・学習用の動画(media/。10-14 ユーザー「評価用と学習用の動画を足す」)----------
+def default_media_dirs():
+    """写す評価用・学習用のフォルダ: 編集の設定の評価用のフォルダ(ytt/settings.eval_dirs = あるもの・ネットワークでない・作業データの外)と、
+    それぞれの隣の 学習用データ(あれば)。COPY_MEDIA が False なら []"""
+    if not COPY_MEDIA:
+        return []
+    out = []
+    for d in settings.eval_dirs():
+        out.append(d)
+        learn = os.path.join(os.path.dirname(os.path.normpath(d)), LEARN_NAME)
+        if os.path.isdir(learn) and not fsio.is_remote_drive(learn):
+            out.append(learn)
+    return list(dict.fromkeys(os.path.abspath(p) for p in out))
 
 
-def latest_change(source, out_dir=None):
-    """写す対象のファイルの、いちばん新しい更新時刻(無ければ None)。NOISY の名前は数えない。out_dir = 案件の根(runs が変わったら写す)"""
-    newest = None
-    for rel, _size, mtime in itertools.chain(plan(source), plan_cases(out_dir)):
-        if os.path.basename(rel).lower() in NOISY or _excite_noisy(rel):
-            continue
-        if newest is None or mtime > newest:
-            newest = mtime
-    return newest
+def media_rel(path):
+    """評価用・学習用のフォルダの絶対パス → 写す先の media/ の下の相対パス(media\\<ドライブの文字>\\<パス>。元へ戻せる形)。ドライブの文字が無ければ None"""
+    drive, rest = os.path.splitdrive(os.path.abspath(path))
+    letter = drive.rstrip(":")
+    if len(letter) != 1 or not letter.isalpha():
+        return None   # ネットワーク上のパスなどは写さない
+    return os.path.join(MEDIA_DIR, letter.upper(), rest.strip("\\/"))
+
+
+def _media_enter(r, name, mode):
+    return None if skip(name, True) else ""
+
+
+def _media_keep(name, mode):
+    return not skip(name, False)
+
+
+def plan_media(folder, errors=None):
+    """評価用・学習用のフォルダの下のファイル(動画・作業用の .clip.json など。キャッシュ・ログ・途中のファイルは除く)を順に返す: (folder からの相対パス, 大きさ, 更新時刻)"""
+    if not folder or not os.path.isdir(folder):
+        return iter(())
+    return _scan(folder, _media_enter, _media_keep, errors)
 
 
 def same(dst, size, mtime):
@@ -208,9 +263,17 @@ def copy_one(src, dst, day=None):
         fsio.unlink_quiet(tmp)   # 写しきれなかった一時ファイル(置き換えたあとは無い)
 
 
-def run_once(source, folder, day=None, stop=None, on_file=None, out_dir=None):
-    """作業データ source を folder\\youtube-tools-data へ写す。out_dir(案件の根)があれば、その作業用の json を cases の下へも写す。-> {"copied", "same", "bytes", "errors": [..], "dest"}
-    断るとき(場所が正しくない・ドライブが無い)は ValueError"""
+def _media_items(folder, mrel, errors):
+    """run_once の写す物の並び(写す先の相対パス, 元の根, 元の相対パス, 大きさ, 更新時刻)のうち、評価用・学習用のフォルダ 1 つ分"""
+    for rel, size, mtime in plan_media(folder, errors):
+        yield os.path.join(mrel, rel), folder, rel, size, mtime
+
+
+def run_once(source, folder, day=None, stop=None, on_file=None, out_dir=None, media_dirs=()):
+    """作業データ source を folder\\youtube-tools-data へ写す。out_dir(案件の根)があれば、その作業用の json を cases の下へも写す。
+    media_dirs(評価用・学習用のフォルダの絶対パス)の中身は media の下へ(元の場所と同じ形)。
+    -> {"copied", "same", "bytes", "errors": [写せなかったファイル], "scanErrors": [読めなかったフォルダ・調べられなかったファイル], "dest", "complete"}。
+    complete = どちらの失敗も無く、途中で止めなかった。断るとき(場所が正しくない・ドライブが無い)は ValueError"""
     if not source or not os.path.isdir(source):
         raise ValueError("作業データのフォルダが見つかりません")
     if not folder or not os.path.isabs(folder):
@@ -223,12 +286,18 @@ def run_once(source, folder, day=None, stop=None, on_file=None, out_dir=None):
         raise ValueError("バックアップ先を作業データの中(または外側)にはできません。別のドライブのフォルダを指定してください")
     os.makedirs(dest, exist_ok=True)
     day = day or datetime.date.today().isoformat()
-    out = {"copied": 0, "same": 0, "bytes": 0, "errors": [], "dest": dest}
+    out = {"copied": 0, "same": 0, "bytes": 0, "failed": 0, "errors": [], "scanFailed": 0, "scanErrors": [], "dest": dest, "complete": False}
+    scan_errors = []
     with_cases = bool(out_dir) and os.path.isdir(out_dir) and not _overlaps(out_dir, dest) and not _overlaps(dest, out_dir)
-    items = itertools.chain(((rel, source, rel, size, mtime) for rel, size, mtime in plan(source)),
-                            ((os.path.join(CASES_DIR, rel), out_dir, rel, size, mtime) for rel, size, mtime in plan_cases(out_dir)) if with_cases else ())
+    media = [(m, media_rel(m)) for m in media_dirs or ()
+             if isinstance(m, str) and os.path.isabs(m) and not _overlaps(m, dest) and not _overlaps(dest, m) and not _overlaps(m, source)]
+    items = itertools.chain(((rel, source, rel, size, mtime) for rel, size, mtime in plan(source, scan_errors)),
+                            ((os.path.join(CASES_DIR, rel), out_dir, rel, size, mtime) for rel, size, mtime in plan_cases(out_dir, scan_errors)) if with_cases else (),
+                            *(_media_items(m, mrel, scan_errors) for m, mrel in media if mrel))
+    stopped = False
     for rel, root, src_rel, size, mtime in items:
         if stop is not None and stop():
+            stopped = True
             break
         dst = os.path.join(dest, rel)
         if same(dst, size, mtime):
@@ -241,20 +310,27 @@ def run_once(source, folder, day=None, stop=None, on_file=None, out_dir=None):
             if on_file:
                 on_file(rel)
         except OSError as e:   # 使用中・読めないファイルは飛ばして続ける(次の回でもう一度)
+            out["failed"] += 1
             if len(out["errors"]) < MAX_ERRORS:
                 out["errors"].append("%s: %s" % (rel, tools.why(e)))
+    out["scanErrors"] = scan_errors[:MAX_ERRORS]
+    out["scanFailed"] = len(scan_errors)
+    out["complete"] = not stopped and not out["failed"] and not scan_errors
     return out
 
 
 class Backup:
-    def __init__(self, prefs, source, data_dir, log=None, clock=None, first_wait=FIRST_WAIT, check_every=CHECK_EVERY, defaults=None, out_dir=None):
+    def __init__(self, prefs, source, data_dir, log=None, clock=None, first_wait=FIRST_WAIT, check_every=CHECK_EVERY, defaults=None, out_dir=None,
+                 media_dirs=None):
         """prefs: src/home/prefs.py の Prefs(節 backup)。defaults: 設定が読めないときに使う節の既定(入口が prefs.DEFAULTS["backup"] を渡す。
         prefs を読み込まない = app の部品に依存しない。None = 空 = オフ扱い)。source: 作業データの親フォルダ(datadir.data_root()。None = inplace なので写さない)。
         data_dir: ホームの作業データ(app。最後に写した時刻の記録を置く)。
-        out_dir: 案件の根(スタジオの書き出し先)。文字列か、呼ぶたびに返す関数(設定で変わるので)。None・無いフォルダ = 案件の 作業用 は写さない"""
+        out_dir: 案件の根(スタジオの書き出し先)。文字列か、呼ぶたびに返す関数(設定で変わるので)。None・無いフォルダ = 案件の 作業用 は写さない。
+        media_dirs: 評価用・学習用のフォルダの一覧か、呼ぶたびに返す関数(入口が default_media_dirs を渡す)。None = 写さない(テスト)"""
         self.prefs, self.source, self.data_dir = prefs, source, data_dir
         self.defaults = defaults
         self.out_dir = out_dir
+        self.media_dirs = media_dirs
         self.log = log or (lambda msg: None)
         self.clock = clock or time.time
         self.first_wait, self.check_every = first_wait, check_every
@@ -283,6 +359,14 @@ class Backup:
         except OSError:
             return None
         return v if isinstance(v, str) and os.path.isabs(v) else None
+
+    def _media_dirs(self):
+        try:
+            v = self.media_dirs() if callable(self.media_dirs) else self.media_dirs
+        except (OSError, ValueError) as e:   # 設定が読めなくても、作業データと案件は写す
+            self.log("バックアップ: 評価用のフォルダの設定を読めませんでした(%s)" % tools.why(e))
+            return []
+        return [p for p in v or [] if isinstance(p, str) and os.path.isabs(p)]
 
     def _cfg(self):
         try:
@@ -315,18 +399,16 @@ class Backup:
                 self.log("バックアップ: 内部エラー: %s %s" % (e.__class__.__name__, str(e)[:200]))
             self.wake.wait(self.check_every)
 
-    def changed(self, cfg):
-        """前回の写し始めより新しく更新された対象があり、最後の変更から QUIET 秒たっているか(まだ写したことが無いときは due が決める)"""
-        base = self.last.get("started", self.last.get("ok"))
-        if not isinstance(base, (int, float)) or self.last.get("folder") != cfg.get("folder"):
-            return False
-        newest = latest_change(self.source, self._out_dir())
-        return newest is not None and newest > base and self.clock() - newest >= QUIET
-
     def due(self, cfg):
-        ok = self.last.get("ok")
-        return not isinstance(ok, (int, float)) or self.clock() - ok >= float(cfg.get("everyHours") or 1) * 3600 \
-            or self.last.get("folder") != cfg.get("folder")
+        """写す時が来たか: 写す先を変えた・まだ完全に写せたことが無い・完全に写せてから間隔がたった。
+        ただし前の回が完全に写せなかった(partial)なら、その試しから RETRY_SEC は待つ(読めないフォルダを 3 分ごとに歩き直さない)"""
+        if self.last.get("folder") != cfg.get("folder"):
+            return True
+        ok, now = self.last.get("ok"), self.clock()
+        if isinstance(ok, (int, float)) and now - ok < float(cfg.get("everyHours") or 24) * 3600:
+            return False
+        tried = self.last.get("tried")
+        return not (self.last.get("partial") and isinstance(tried, (int, float)) and now - tried < RETRY_SEC)
 
     def tick(self):
         """時間が来ていれば(または「今すぐ」なら)写す"""
@@ -338,7 +420,7 @@ class Backup:
         if not cfg.get("enabled"):
             self.state, self.message = "off", "" if cfg.get("folder") else "バックアップ先のフォルダを決めて、オンにしてください"
             return None
-        if not force and not self.due(cfg) and not self.changed(cfg):
+        if not force and not self.due(cfg):
             if self.state != "error":
                 self.state = "idle"
             return None
@@ -346,7 +428,7 @@ class Backup:
             self.state, self.message = "running", ""
             t0 = self.clock()
             try:
-                r = run_once(self.source, cfg.get("folder") or "", stop=lambda: self.closed, out_dir=self._out_dir())
+                r = run_once(self.source, cfg.get("folder") or "", stop=lambda: self.closed, out_dir=self._out_dir(), media_dirs=self._media_dirs())
             except ValueError as e:
                 self.state, self.message = "error", str(e)
                 self.last = dict(self.last, tried=self.clock(), error=str(e))
@@ -354,15 +436,24 @@ class Backup:
                 self.log("バックアップ: " + str(e))
                 return None
             now = self.clock()
-            # started: 次の「変わった」の基準。写せなかったファイルがあれば進めない(静かになってから、もう一度写す)
-            started = t0 if not r["errors"] else self.last.get("started", 0.0)
-            self.last = {"ok": now, "tried": now, "started": started, "folder": cfg.get("folder"), "dest": r["dest"], "copied": r["copied"], "same": r["same"],
-                         "bytes": r["bytes"], "errors": r["errors"], "seconds": round(now - t0, 1)}
+            # ok = 完全に写せた時刻(読めないフォルダ・写せないファイルがあれば進めない = 部品 M3。docmove.backup_done もこれを見る)。
+            # 写す先を変えたのに完全でなければ、前の先の ok は持ち越さない(新しい先にはまだ全部が無い)
+            same_folder = self.last.get("folder") == cfg.get("folder")
+            ok = now if r["complete"] else (self.last.get("ok") if same_folder else None)
+            self.last = {"ok": ok, "tried": now, "partial": not r["complete"], "folder": cfg.get("folder"), "dest": r["dest"], "copied": r["copied"],
+                         "same": r["same"], "bytes": r["bytes"], "errors": r["errors"], "scanErrors": r["scanErrors"], "seconds": round(now - t0, 1)}
             self._save_state()
             self.state = "idle"
-            self.message = "写せなかったファイルが %d 個あります(使用中など。次の回でもう一度写します)" % len(r["errors"]) if r["errors"] else ""
+            why = []
+            if r["failed"]:
+                why.append("写せなかったファイルが %d 個(使用中など)" % r["failed"])
+            if r["scanFailed"]:
+                why.append("読めなかったフォルダ・ファイルが %d 個" % r["scanFailed"])
+            self.message = ("%s あります。読める物は写しました。%d 分後にもう一度試します" % ("・".join(why), RETRY_SEC // 60)) if why else ""
             self.log("バックアップ: %d 個を写しました(変わりなし %d 個・%.1f MB・%s)%s" % (
-                r["copied"], r["same"], r["bytes"] / 1048576.0, r["dest"], " 写せなかった %d 個" % len(r["errors"]) if r["errors"] else ""))
+                r["copied"], r["same"], r["bytes"] / 1048576.0, r["dest"], " %s" % "・".join(why) if why else ""))
+            for m in (r["scanErrors"] + r["errors"])[:5]:
+                self.log("バックアップ:   " + m)
             return r
 
     def snapshot(self):
@@ -370,15 +461,53 @@ class Backup:
         ok = self.last.get("ok")
         return dict(cfg, state=self.state, stateLabel=STATE_LABELS[self.state], message=self.message, source=self.source,
                     lastOk=int(ok * 1000) if isinstance(ok, (int, float)) else None, dest=self.last.get("dest"),
-                    copied=self.last.get("copied"), same=self.last.get("same"), bytes=self.last.get("bytes"),
-                    errors=list(self.last.get("errors") or [])[:MAX_ERRORS])
+                    copied=self.last.get("copied"), same=self.last.get("same"), bytes=self.last.get("bytes"), partial=bool(self.last.get("partial")),
+                    errors=(list(self.last.get("scanErrors") or []) + list(self.last.get("errors") or []))[:MAX_ERRORS])
+
+
+def _walk_enter(r, name, mode):
+    """写し戻す側の入り方: 直下の cases/・media/ には入らない(作業データの根へ戻す物ではない。_restore_cases・_restore_media が戻す)。
+    ほかは写す側(_plan_enter)と同じ決まり = 写さない場所の物(以前の決まりで写った app/intake の動画・analytics など)は戻さない(6c-1)"""
+    if not os.path.dirname(r) and name.lower() in (CASES_DIR, MEDIA_DIR):
+        return None
+    return _plan_enter(r, name, mode)
 
 
 def _walk_backup(root):
     """バックアップ側の (相対パス, 大きさ, 更新時刻)。`.prev`(1つ前の控え)と途中のファイルは数えない。シンボリックリンクはたどらない。
-    直下の cases/(案件の 作業用 の写し)には入らない(作業データの根へ戻す物ではない。_restore_cases が outDir へ戻す)"""
-    return _scan(root, lambda r, name, mode: None if r.lower() == CASES_DIR else "",
-                 lambda name, mode: not name.lower().endswith(PREV_SUFFIX) and SKIP_MARK not in name.lower())
+    写す側と同じ決まり(_walk_enter・_plan_keep)を通す"""
+    return _scan(root, _walk_enter, lambda name, mode: not name.lower().endswith(PREV_SUFFIX) and _plan_keep(name, mode))
+
+
+def _restore_media(src_root, out, stop=None, dry_run=False):
+    """バックアップの media/<ドライブ>/<パス> を元の場所(<ドライブ>:\\<パス>)へ写し戻す。既にあるファイルは上書きしない(数は mediaKept)。
+    そのドライブが無いときは戻さない(数は mediaSkipped)。out の media* に数を足す"""
+    base = os.path.join(src_root, MEDIA_DIR)
+    for rel, size, mtime in _scan(base, _media_enter, lambda name, mode: not name.lower().endswith(PREV_SUFFIX) and _media_keep(name, mode)):
+        if stop is not None and stop():
+            break
+        parts = rel.split(os.sep, 1)
+        if len(parts) != 2 or len(parts[0]) != 1 or not parts[0].isalpha():
+            continue
+        drive = parts[0].upper() + ":" + os.sep
+        if not os.path.isdir(drive):
+            out["mediaSkipped"] += 1
+            continue
+        dst = os.path.join(drive, parts[1])
+        try:
+            if same(dst, size, mtime):
+                out["mediaSame"] += 1
+                continue
+            if os.path.lexists(dst):
+                out["mediaKept"] += 1
+                continue
+            if not dry_run:
+                copy_one(os.path.join(base, rel), dst, None)
+            out["mediaCopied"] += 1
+            out["bytes"] += size
+        except OSError as e:
+            if len(out["errors"]) < MAX_ERRORS:
+                out["errors"].append("%s: %s" % (os.path.join(MEDIA_DIR, rel), tools.why(e)))
 
 
 def _restore_cases(src_root, out_dir, out, stop=None, dry_run=False):
@@ -418,11 +547,13 @@ def _check_out_dir(out_dir, src_root):
     return out_dir
 
 
-def restore_once(folder, target, stop=None, dry_run=False, out_dir=None):
+def restore_once(folder, target, stop=None, dry_run=False, out_dir=None, media=True):
     """`<folder>\\youtube-tools-data\\` から target(作業データ)へ、無い・違うファイルを写し戻す。
     out_dir(案件の根。入口がスタジオの設定から渡す値と同じ)を渡すと、バックアップの cases/<題名>/作業用/ をそこへも写し戻す
     (こちらは既にあるファイルを上書きしない)。渡さなければ cases/ は戻さず、数だけ casesSkipped に出す。
-    -> {"copied", "same", "newer", "bytes", "errors": [..], "source", "outDir", "casesCopied", "casesSame", "casesKept", "casesSkipped"}。
+    media = 評価用・学習用の動画(media/)も元の場所へ戻す(既にあるファイルは上書きしない)。
+    -> {"copied", "same", "newer", "bytes", "errors": [..], "source", "outDir", "casesCopied", "casesSame", "casesKept", "casesSkipped",
+    "mediaCopied", "mediaSame", "mediaKept", "mediaSkipped"}。
     newer = target のほうが新しいので上書きしなかった数。casesKept = 案件の根に既にあるので上書きしなかった数。
     `.prev` は写さない・シンボリックリンクはたどらない・target のファイルは消さない。dry_run なら写さずに数だけ(copied・casesCopied = 写すことになる数)。
     場所が正しくないときは ValueError"""
@@ -438,11 +569,13 @@ def restore_once(folder, target, stop=None, dry_run=False, out_dir=None):
         raise ValueError("バックアップと写し戻す先が重なっています")
     out_dir = _check_out_dir(out_dir, src_root) if out_dir else None
     out = {"copied": 0, "same": 0, "newer": 0, "bytes": 0, "errors": [], "source": src_root, "outDir": out_dir,
-           "casesCopied": 0, "casesSame": 0, "casesKept": 0, "casesSkipped": 0}
+           "casesCopied": 0, "casesSame": 0, "casesKept": 0, "casesSkipped": 0, "mediaCopied": 0, "mediaSame": 0, "mediaKept": 0, "mediaSkipped": 0}
     if out_dir:
         _restore_cases(src_root, out_dir, out, stop, dry_run)
     else:
         out["casesSkipped"] = sum(1 for _ in plan_cases(os.path.join(src_root, CASES_DIR)))
+    if media:
+        _restore_media(src_root, out, stop, dry_run)
     for rel, size, mtime in _walk_backup(src_root):
         if stop is not None and stop():
             break
@@ -505,18 +638,21 @@ def main(argv=None):
         print("案件の 作業用(%s): 写す %d 個・同じ %d 個・既にあるので上書きしない %d 個" % (r["outDir"], r["casesCopied"], r["casesSame"], r["casesKept"]))
     elif r["casesSkipped"]:
         print("案件の 作業用 %d 個は写し戻しません(--out-dir で案件の根を指定すると戻します)" % r["casesSkipped"])
+    if r["mediaCopied"] or r["mediaSame"] or r["mediaKept"] or r["mediaSkipped"]:
+        print("評価用・学習用の動画(元の場所へ): 写す %d 個・同じ %d 個・既にあるので上書きしない %d 個・ドライブが無いので戻さない %d 個" % (
+            r["mediaCopied"], r["mediaSame"], r["mediaKept"], r["mediaSkipped"]))
     print("合わせて %.1f MB" % (r["bytes"] / 1048576.0))
     for m in r["errors"]:
         print("  読めない: " + m)
-    if not r["copied"] and not r["casesCopied"]:
+    if not r["copied"] and not r["casesCopied"] and not r["mediaCopied"]:
         print("写すものはありません。")
         return 0
     if not a.yes and input("入口を止めてありますか。写し戻しますか? [y/N] ").strip().lower() not in ("y", "yes"):
         print("やめました。")
         return 1
     r = restore_once(a.restore, target, out_dir=out_dir)
-    print("写し戻しました: %d 個(%.1f MB)・上書きしなかった %d 個・失敗 %d 個" % (r["copied"] + r["casesCopied"], r["bytes"] / 1048576.0,
-                                                                     r["newer"] + r["casesKept"], len(r["errors"])))
+    print("写し戻しました: %d 個(%.1f MB)・上書きしなかった %d 個・失敗 %d 個" % (r["copied"] + r["casesCopied"] + r["mediaCopied"], r["bytes"] / 1048576.0,
+                                                                     r["newer"] + r["casesKept"] + r["mediaKept"], len(r["errors"])))
     for m in r["errors"]:
         print("  失敗: " + m)
     return 0 if not r["errors"] else 3

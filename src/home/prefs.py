@@ -64,7 +64,7 @@ DEFAULTS = {"autorun": {"mode": None, "top": 3, "cut": "none", "friendLength": T
             "keymap": {"playback": {}},
             "intake": {"enabled": False, "folder": "", "top": 3, "maxHours": 8, "maxGB": 20, "interval": 30,   # 知らないキー(古い dailyMax など)は _clean_intake が捨てる
                        "deliverBatch": 5},   # ① 全自動のパックを n 本ごとにまとめて届ける(1 = 1 本ずつ)
-            "backup": {"enabled": False, "folder": "", "everyHours": 1},
+            "backup": {"enabled": False, "folder": "", "everyHours": 24},   # 守る物は学習データ・ツール・関連資料 = 1 日 1 回で足りる(10-14 ユーザー)
             "hidden": {k: {} for k in HIDE_LISTS},
             "live": {"enabled": False, "folder": "", "recorders": [], "quality": "1080p", "autoArchive": True, "autoDelete": True,
                      "auto": {"after": "check", "cut": "", "engine": "", "model": "", "pad": _ADOPT["pad"]}, "autoAfterStream": False, "afterStreamPerHour": _ADOPT["perHour"],

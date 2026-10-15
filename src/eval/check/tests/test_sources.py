@@ -90,6 +90,22 @@ class SourcesTest(unittest.TestCase):
             self.assertNotIn(EVAL_DIR_DOC, c["id"])
             self.assertNotIn((c.get("target") or {}).get("docId"), (EVAL_DOC, EVAL_DIR_DOC))
 
+    def test_is_eval_failure_leans_to_eval(self):
+        """OPT-E1 3e-1: 評価用のフォルダの判定が例外を出したら評価用として扱う(出さない側)"""
+        view = sources.View(self.ctx)
+        plain = doc(1, src=os.path.join(self.tmp, "ふつう", "y.mp4"))
+        self.assertFalse(view.is_eval(plain))
+        self.assertTrue(view.is_eval(doc(1, src=os.path.join(self.evaldir, "x.mp4"))))
+        orig = sources.settings.in_eval_dir
+
+        def boom(*a, **k):
+            raise RuntimeError("x")
+        sources.settings.in_eval_dir = boom
+        try:
+            self.assertTrue(view.is_eval(plain))
+        finally:
+            sources.settings.in_eval_dir = orig
+
     def test_v0_sources(self):
         by = {c["id"]: c for c in self.collect()}
         fill = by["read:fill:%s#s1" % DOC]

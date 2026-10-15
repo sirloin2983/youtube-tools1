@@ -6,7 +6,7 @@
 - run … 子プロセスを最後まで動かして出力を集める(取り消し・時間切れで止める)。run_progress … ffmpeg・yt-dlp の出力(-progress の進み具合)を 1 行ずつ読みながら動かす(取り消し・時間切れ・無出力で止める。窓なし・優先度「低」。ffmpeg を動かす形はこの 1 つ)
 - kill_quiet … 止める(上げない)。kill_tree … 孫ごと止める。KillJob … 親が落ちても子を残さない
 - process_memory_mb … このプロセスのメモリ。why … 例外 → 画面に出せる短い理由
-- MEDIA_TYPES・find_ffmpeg・ffmpeg_info・duration_in・media_duration・check_source・probe_media … 編集の動画・音声のファイルの小道具(拡張子・ffmpeg の場所と -i の出力・長さ・元のファイルの検査・映像と音声の有無。RS3-0A に編集の ed_state から)
+- MEDIA_TYPES・find_ffmpeg・ffmpeg_info・parse_ffmpeg_info・duration_in・media_duration・check_source・probe_media … 編集の動画・音声のファイルの小道具(拡張子・ffmpeg の場所と -i の出力・-i の読み方(parse_ffmpeg_info。mediainfo も使う)・長さ・元のファイルの検査・映像と音声の有無)
 """
 import collections
 import glob
@@ -115,10 +115,20 @@ def ffmpeg_info(path, ff=None):
     return p.stdout or ""
 
 
+def parse_ffmpeg_info(text):
+    """ffmpeg -i の出力の読み方(ここが 1 か所。ffmpeg は動かさない)。-> (長さ秒 or None, 映像あり, 音声あり, 映像ストリームの行)。
+    映像はカバー画像(音声ファイルに付いた attached pic)を数えない。映像の行はカバー画像でない最初の Video の行(前後の空白を除いて 300 字まで。無ければ "")"""
+    text = text or ""
+    m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", text)
+    dur = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3)) if m else None
+    streams = [l for l in text.splitlines() if re.match(r"\s*Stream #\d+:\d+", l)]
+    vline = next((l.strip()[:300] for l in streams if ": Video:" in l and "attached pic" not in l), "")
+    return dur, bool(vline), any(": Audio:" in l for l in streams), vline
+
+
 def duration_in(text):
-    """ffmpeg -i の出力の Duration(秒)。無ければ None"""
-    m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", text or "")
-    return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3)) if m else None
+    """ffmpeg -i の出力の Duration(秒)。無ければ None(読み方は parse_ffmpeg_info)"""
+    return parse_ffmpeg_info(text)[0]
 
 
 def media_duration(path):
@@ -146,10 +156,7 @@ def probe_media(path):
     out = ffmpeg_info(path, ff)
     if out is None:
         return None, False, False
-    dur = duration_in(out)
-    streams = [l for l in out.splitlines() if re.match(r"\s*Stream #\d+:\d+", l)]
-    has_v = any(": Video:" in l and "attached pic" not in l for l in streams)
-    has_a = any(": Audio:" in l for l in streams)
+    dur, has_v, has_a, _line = parse_ffmpeg_info(out)
     return dur, has_v, has_a
 
 

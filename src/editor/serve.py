@@ -27,7 +27,7 @@
   POST /api/suggest/feedback 提案の採用・却下を記録(項目の tier "alt" = 2つ目のエンジンの候補は学習の統計に入れず、数だけ数える)
   POST /api/alt              {"id", "engine"?} 2つ目のエンジンで同じ音声を聞くジョブ(結果は transcripts/<id>.alt.json。文書は書き換えない。
                              食い違う所が GET /api/suggest に tier "alt" の候補として出る。評価用・最初の認識と同じエンジンとモデルは断る。D1-b。本体は human/proof/alt.py)
-  GET  /api/metrics?id=&legacy=1  校正済みの行を正解とした文字誤り率(CER)。id 省略で全件
+  GET  /api/metrics?id=&scope=  校正済みの行を正解とした文字誤り率(CER)。id 省略で全件
   GET  /api/transcripts      保存済みの文字起こし一覧
   GET/PUT/DELETE /api/transcript?id=   1件の取得・保存・削除
   GET  /media?id=            文字起こしの元ファイルを再生用に配信(Range対応)
@@ -236,7 +236,7 @@ def _learned(a):
 
 def _metrics(a):
     sc = a("scope", "all")
-    return _evmetrics.all_metrics(_tid_arg(a("id"), False) or None, a("legacy", "0") == "1", sc if sc in ("all", "eval", "train") else "all")
+    return _evmetrics.all_metrics(_tid_arg(a("id"), False) or None, sc if sc in ("all", "eval", "train") else "all")
 
 
 def _transcript(tid):
@@ -261,7 +261,6 @@ GET_API = {
     "/api/learned": _learned,
     "/api/suggest": lambda a: _learn.suggest_for_doc(_tid_arg(a("id"))),
     "/api/metrics": _metrics,
-    "/api/eval-baselines": lambda a: {"items": _evmetrics.read_baselines()},
     "/api/drill/status": lambda a: _drill.drill_status(),   # 評価ドリル(Q4): 定点の「あと何分」と条件
     "/api/drill/next": lambda a: _drill.drill_next(a("skip")),   # 次の評価用の動画 1 本(読むだけ。skip = このドリルで飛ばした文書)
     "/api/drill/candidates": lambda a: _drill.drill_candidates(a("id")),   # 話者の候補(ドリル・話者のカードの「全行をこの人に」)
@@ -308,7 +307,6 @@ POST_API = {
     "/api/alt": lambda o: _job(_alt.alt_spec(_id_of(o), o), "alt"),   # 2つ目のエンジンで聞く(D1-b)。文書は書き換えないので、編集は止めない
     "/api/thumb-ideas": lambda o: _job(ed_thumb.thumb_spec(_id_of(o), o), "thumb"),   # サムネの案を 1 枚に(P5)。文書は読むだけなので、編集は止めない
     "/api/settings/patch": lambda o: _settings.patch_settings(o),   # ほかの画面(ホーム・スタジオのまとめて実行の欄)から、決まった項目だけを直す
-    "/api/eval-baseline": lambda o: _evmetrics.record_baseline(o.get("label")),
     "/api/restore": lambda o: {"ok": True, "updatedAt": _store.restore_history(str(o.get("id", "")), o.get("ts"))["updatedAt"]},
     "/api/suggest/feedback": lambda o: {"ok": True, "n": _learn.record_feedback(o)},
     "/api/export-file": lambda o: _handoff_io.export_file(o),
@@ -695,7 +693,7 @@ _started = []
 
 # 以前の場所(このフォルダ)から新しい置き場へ写す名前。ログ・起動中の印・一時ファイル(transcripts/.tmp も)は写さなくてよいが、
 # transcripts はフォルダごと写す(.bak・.hist の控えも含めて)
-DATA_ITEMS = ("transcripts", "dataset", "evals", "models", "settings.json", "learn-feedback.json", "eval-baselines.json")
+DATA_ITEMS = ("transcripts", "dataset", "evals", "models", "settings.json", "learn-feedback.json")
 
 
 def set_data_dir(d):
