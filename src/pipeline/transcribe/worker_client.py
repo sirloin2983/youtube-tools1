@@ -494,7 +494,8 @@ def req_engine(req, model):
 def engines_info():
     """画面に出すエンジンの準備(/api/tools)。whisper.cpp は作ってあるときだけ「処理方式」に出す"""
     ok, why = tx_engines.WhisperCpp.ready(tx_engines.engine_home())
-    return {"wcpp": {"ready": bool(ok), "why": why, "models": list(tx_engines.WCPP_MODELS), "version": tx_engines.WHISPER_CPP["version"]}}
+    return {"wcpp": {"ready": bool(ok), "why": why, "models": list(tx_engines.WCPP_MODELS), "version": tx_engines.WHISPER_CPP["version"],
+                     "caps": sorted(tx_engines.WhisperCpp.CAPS)}}
 
 
 def check_engine(spec):

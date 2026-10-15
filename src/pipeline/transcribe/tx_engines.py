@@ -95,6 +95,7 @@ class Engine:
     id = ""
     package = ""
     light = False   # True = 小さいモデル(SenseVoice)。models._load_model_local が、別のモデルを読むときも手放さない(主のモデルと一緒に持つ)
+    CAPS = frozenset()   # 意味として効く能力: "vad"(声の検出の設定)・"chunk"(区切りの長さ chunk_length)・"hotwords"(用語のヒント)・"word_timestamps"(単語の時刻)。持たない能力は入れない
 
     def __init__(self, name, device, model):
         self.name, self.device, self.model = name, device, model
@@ -146,6 +147,7 @@ class FasterWhisper(Engine):
     """faster-whisper(CTranslate2)。CPU は int8、GPU(CUDA)は compute_type。ダウンロード済みなら手元のファイルだけで読む(計画 段0-4)"""
     id = "faster-whisper"
     package = "faster-whisper"
+    CAPS = frozenset({"vad", "chunk", "hotwords", "word_timestamps"})   # vad_filter・chunk_length・hotwords・word_timestamps を faster-whisper がそのまま使う
 
     @classmethod
     def create(cls, name, device, compute_type, log=None, data_dir=None, hooks=None):
@@ -353,6 +355,7 @@ class WhisperCpp(Engine):
     PARAMS = ["beam_size", "condition_on_previous_text", "initial_prompt", "language", "no_speech_threshold", "temperature",
               "vad_filter", "vad_parameters", "word_timestamps"]   # hotwords・chunk_length は無い(渡されても使わない)。vad_* は受け取るだけ(0.65.0 から使わない)
     COMMAND = None   # テスト用: [python, 偽の whisper-cli] に差し替える
+    CAPS = frozenset({"word_timestamps"})   # 単語の時刻: -ojf の結果の文字のトークンの時刻を parse_json が単語にする。声の検出(vad)は args が使わない(0.65.0 から)・chunk_length・hotwords は無い
 
     @classmethod
     def device_order(cls, pref, cuda_ok):
@@ -728,6 +731,7 @@ class _Qwen3Chunked(Engine):
     無音の区切りは読まず、区切りの中の行は _chunk_rows で作る(Qwen3 = _decode の文章 → q3_rows / SenseVoice = トークンの時刻 → sv_rows)。
     自信の度合いを出さないので avg_logprob は無い。温度は 0 相当(faster-whisper の温度のやり直しは使わない)"""
     PARAMS = ["hotwords", "language", "vad_filter", "vad_parameters", "word_timestamps"]   # language は区切りごとに指定・vad と単語の時刻は受け取るだけ
+    CAPS = frozenset()   # 区切りは音の小さい所で決める(q3_chunks)・単語の時刻は出さない(words は空)。hotwords は子(LlamaQwen3)だけが使う
     DEFAULT_MODEL = ""
     WHAT = "Qwen3-ASR"
 
@@ -845,6 +849,7 @@ class SenseVoice(_Qwen3Chunked):
     package = "sherpa-onnx"
     light = True
     PARAMS = ["language", "vad_filter", "vad_parameters", "word_timestamps"]   # language 以外は受け取るだけ
+    CAPS = frozenset()   # トークンの時刻は行を作るのに使うが、kw の word_timestamps・vad_filter・hotwords は読まない(words は空)
     DEFAULT_MODEL = "sense-voice-small"
     WHAT = "SenseVoice"
 
@@ -947,6 +952,7 @@ class LlamaQwen3(_Qwen3Chunked):
     用語のヒントは system の文(Qwen3-ASR の文脈)に入れる。言語は答えの頭「language Japanese<asr_text>」を先に書いておく"""
     id = "llama.cpp"
     package = ""
+    CAPS = frozenset({"hotwords"})   # 用語のヒントは system の文に入れる(_ask)。区切りの音量で声を決める(vad_filter は読まない)・単語の時刻は出さない
     DEFAULT_MODEL = "qwen3-asr-1.7b"
     WHAT = "llama.cpp"
     COMMAND = None   # テスト用: 偽の server に差し替える
@@ -1142,6 +1148,7 @@ class LlamaText(LlamaQwen3):
     主の認識のモデルと一緒に持つ(light)= 認識のたびに読み直さない(VRAM 16GB に large-v3 と合わせて約 8GB)。使わなければ認識ワーカーのアイドル終了で手放す。
     テスト用の偽物は ⑤ eval/fake/fake_worker.fake_llama_text(server を起動せずに決まった文字を答える。OPT-E2 1a-1)"""
     id = "llama-text"
+    CAPS = frozenset()   # 音声は認識しない(transcribe は EngineError)
     DEFAULT_MODEL = "qwen3-8b"
     WHAT = "llama.cpp(文字の LLM)"
     MODELS = LLAMA_TEXT_MODELS
@@ -1161,6 +1168,15 @@ class LlamaText(LlamaQwen3):
 
 ENGINES = {FasterWhisper.id: FasterWhisper, WhisperCpp.id: WhisperCpp, LlamaQwen3.id: LlamaQwen3, SenseVoice.id: SenseVoice,
            LlamaText.id: LlamaText}
+
+
+def caps_of(engine):
+    """エンジンの能力の集まり(CAPS)。engine = Engine のクラス・インスタンス、またはエンジンの名前。分からない物(名前が一覧に無い・CAPS を持たない偽物)は None"""
+    if isinstance(engine, str):
+        cls = ENGINES.get(engine or DEFAULT)
+        return None if cls is None else cls.CAPS
+    caps = getattr(engine, "CAPS", None)
+    return None if caps is None else frozenset(caps)
 
 
 def get(engine_id):

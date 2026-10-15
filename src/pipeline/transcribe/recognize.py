@@ -120,12 +120,21 @@ def vad_note(vad):
     return "声の検出で大部分が「声ではない」と判断されたので、検出を緩めて認識しました(声の検出: %s)" % steps
 
 
+def _model_caps(model):
+    """使っているモデルのエンジンの能力(tx_engines.caps_of)。認識ワーカーの代理(RemoteModel)は engine の名前から引く。分からない物(テストの偽物)は None"""
+    name = getattr(model, "engine", None)
+    return tx_engines.caps_of(name if isinstance(name, str) else model)
+
+
 def transcribe_vad_fallback(job, model, audio, spec, on_seg=None):
     """声の検出を spec["vadMode"] から始め、捨てすぎ・文字が 0 なら緩めてやり直す。-> (行の辞書の一覧, 声の検出の記録)。
     記録 = {"requested", "used", "removedSec"(使った設定で捨てた秒), "retries": [{"mode", "kept", "removedSec", "why": "kept"|"empty"}]}。
+    声の検出の設定を受け取らないエンジン(CAPS に "vad" が無い。whisper.cpp)は、頼まれた段で 1 回だけ認識する = 記録 {"used": "none", "unsupported": True, "retries": []}。
     よくある誤認識の文(HALLUC)しか出なかったときも「文字が 0」とみなす(2026-09-28 白上フブキ03: 標準で 22 秒捨て、残りから「ご視聴ありがとうございました」だけ)"""
     mode0 = spec.get("vadMode", "weak")
-    ladder = VAD_LADDER.get(mode0, (mode0,))
+    caps = _model_caps(model)
+    unsupported = caps is not None and "vad" not in caps
+    ladder = (mode0,) if unsupported else VAD_LADDER.get(mode0, (mode0,))
     retries, terms = [], _roster.prompt_terms(spec)
     for i, mode in enumerate(ladder):
         last = i == len(ladder) - 1
@@ -150,6 +159,8 @@ def transcribe_vad_fallback(job, model, audio, spec, on_seg=None):
             retries.append({"mode": mode, "kept": None if kept is None else round(kept, 3), "removedSec": removed, "why": "empty"})
             _txbase.log.info("文字が出なかったので、声の検出を緩めてやり直します(%s)", mode)
             continue
+        if unsupported:   # 声の検出の設定は効かなかった(やり直しも無い)。記録は「使わなかった」と書く
+            return raw, {"requested": mode0, "used": "none", "unsupported": True, "removedSec": 0.0, "retries": []}
         return raw, {"requested": mode0, "used": mode, "removedSec": removed, "retries": retries}
     return [], {"requested": mode0, "used": ladder[-1], "removedSec": 0.0, "retries": retries}
 

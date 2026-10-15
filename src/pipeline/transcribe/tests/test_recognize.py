@@ -11,12 +11,13 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書
 import shutil
 import sys
 import tempfile
+import types
 import unittest
 from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> transcribe -> pipeline -> src
 sys.path.insert(0, SRC)
-from pipeline.transcribe import backend, fill, recognize  # noqa: E402
+from pipeline.transcribe import backend, fill, recognize, tx_engines  # noqa: E402
 from ytt import errors, tools, workdata  # noqa: E402
 
 SPEC = {"range": [10.0, 20.0], "language": "ja", "wordSplit": False}
@@ -150,6 +151,114 @@ class TestAudio(_Env):
         tail = ["-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", wav]
         self.assertEqual(cmds, [head + ["-i", "x.mp4", "-vn"] + tail,
                                 head + ["-ss", "5.000", "-i", "x.mp4", "-t", "7.500", "-vn", "-af", "highpass=f=70,dynaudnorm=f=200:g=15:m=15"] + tail])
+
+
+class _Segs(list):
+    """faster-whisper の行の生成器の代わり(for で読める・close できる)"""
+
+    def close(self):
+        pass
+
+
+def _seg(text, start=0.0, end=2.0):
+    return types.SimpleNamespace(start=start, end=end, text=text, words=[], avg_logprob=-0.2, no_speech_prob=0.1, compression_ratio=1.1)
+
+
+class _VadFake:
+    """声の検出の設定(vad_filter・vad_parameters)を読むエンジンの偽物。normal は 9 割捨てる・weak は残るが文字が出ない・off は文字が出る"""
+    CAPS = tx_engines.FasterWhisper.CAPS
+    params = {"vad_filter", "vad_parameters", "language", "beam_size", "condition_on_previous_text", "no_speech_threshold", "word_timestamps"}   # 受け付ける引数(worker が調べる一覧の代わり)
+
+    def __init__(self):
+        self.calls = []
+
+    def transcribe(self, audio, **kw):
+        mode = "off" if not kw.get("vad_filter") else ("weak" if kw.get("vad_parameters", {}).get("threshold") == 0.3 else "normal")
+        self.calls.append(mode)
+        if mode == "normal":
+            return _Segs([_seg("こんにちは")]), types.SimpleNamespace(duration=10.0, duration_after_vad=1.0)
+        if mode == "weak":
+            return _Segs([_seg("")]), types.SimpleNamespace(duration=10.0, duration_after_vad=8.0)
+        return _Segs([_seg("こんにちは")]), types.SimpleNamespace(duration=10.0, duration_after_vad=10.0)
+
+
+class _CapsFake:
+    """声の検出の設定を受け取らない(CAPS に vad が無い)エンジンの偽物。文字が 1 つも出なくても 1 回しか認識しない"""
+    CAPS = frozenset({"word_timestamps"})
+
+    def __init__(self, engine=None):
+        self.calls = []
+        if engine is not None:
+            self.engine = engine   # 認識ワーカーの代理(RemoteModel)と同じ形: エンジンの名前だけ持つ
+
+    def transcribe(self, audio, **kw):
+        self.calls.append(dict(kw))
+        return _Segs([]), types.SimpleNamespace(duration=10.0, duration_after_vad=None)
+
+
+class TestVadFallbackCaps(_Env):
+    SPEC = dict(SPEC, vadMode="normal", beam=5)
+
+    def test_caps_table(self):
+        """エンジンごとの能力(CAPS)の表。根拠は tx_engines の各クラスのコメント(コードを読んで確かめた物だけ)"""
+        self.assertEqual(tx_engines.FasterWhisper.CAPS, {"vad", "chunk", "hotwords", "word_timestamps"})
+        self.assertEqual(tx_engines.WhisperCpp.CAPS, {"word_timestamps"})
+        for cls in (tx_engines.SenseVoice, tx_engines.LlamaText, tx_engines._Qwen3Chunked, tx_engines.Engine):
+            self.assertEqual(cls.CAPS, frozenset(), cls.__name__)
+        self.assertEqual(tx_engines.LlamaQwen3.CAPS, {"hotwords"})
+        self.assertEqual(tx_engines.caps_of("faster-whisper"), tx_engines.FasterWhisper.CAPS)
+        self.assertEqual(tx_engines.caps_of(""), tx_engines.FasterWhisper.CAPS)   # 名前が空 = 既定
+        self.assertIsNone(tx_engines.caps_of("no-such-engine"))
+        self.assertIsNone(tx_engines.caps_of(object()))   # CAPS を持たない偽物は分からない扱い
+
+    def test_faster_whisper_ladder_still_steps(self):
+        """faster-whisper(CAPS に vad がある)では今までどおり、捨てすぎなら「標準→弱め」と段が進む"""
+        model = _VadFake()
+        raw, vad = recognize.transcribe_vad_fallback({"cancel": False}, model, "a.wav", dict(self.SPEC, vadMode="normal"))
+        self.assertEqual(model.calls, ["normal", "weak", "off"])   # 標準は 9 割捨てる → 弱めは文字が 0 → なし
+        self.assertEqual(vad["used"], "off")
+        self.assertEqual([r["mode"] for r in vad["retries"]], ["normal", "weak"])
+        self.assertIn("検出を緩めて", recognize.vad_note(vad))
+
+    def test_object_without_caps_still_ladders(self):
+        """CAPS を持たない物(能力が分からない)は今までどおり段を進める"""
+        class Plain:
+            params = {"vad_filter", "vad_parameters", "language", "beam_size", "condition_on_previous_text", "no_speech_threshold"}
+
+            def __init__(self):
+                self.calls = []
+
+            def transcribe(self, audio, **kw):
+                self.calls.append(kw.get("vad_filter"))
+                return _Segs([_seg("こんにちは")]), types.SimpleNamespace(duration=10.0, duration_after_vad=None)
+        model = Plain()
+        raw, vad = recognize.transcribe_vad_fallback({"cancel": False}, model, "a.wav", dict(self.SPEC, vadMode="normal"))
+        self.assertEqual(vad["used"], "normal")
+        self.assertEqual(vad["retries"], [])
+        self.assertEqual(model.calls, [True])
+
+    def test_engine_without_vad_runs_once(self):
+        """CAPS に vad が無いエンジンは、頼まれた段で 1 回だけ。文字が 0 でも緩めず、記録は unsupported・知らせは出ない"""
+        model = _CapsFake()
+        with mock.patch.object(recognize._txbase.log, "info") as info:
+            raw, vad = recognize.transcribe_vad_fallback({"cancel": False}, model, "a.wav", dict(self.SPEC, vadMode="normal"))
+        self.assertEqual(len(model.calls), 1)
+        self.assertEqual(raw, [])
+        self.assertEqual(vad, {"requested": "normal", "used": "none", "unsupported": True, "removedSec": 0.0, "retries": []})
+        self.assertEqual(recognize.vad_note(vad), "")
+        info.assert_not_called()
+
+    def test_remote_model_uses_engine_name(self):
+        """認識ワーカーの代理(engine の名前だけ持つ)は、名前から能力を引く: whisper.cpp は 1 回だけ、faster-whisper は段を進める"""
+        model = _CapsFake(engine="whisper.cpp")
+        raw, vad = recognize.transcribe_vad_fallback({"cancel": False}, model, "a.wav", dict(self.SPEC, vadMode="weak"))
+        self.assertEqual(len(model.calls), 1)
+        self.assertTrue(vad["unsupported"])
+        self.assertEqual(vad["requested"], "weak")
+        ladder = _VadFake()
+        ladder.engine = "faster-whisper"
+        recognize.transcribe_vad_fallback({"cancel": False}, ladder, "a.wav", dict(self.SPEC, vadMode="normal"))
+        self.assertEqual(ladder.calls, ["normal", "weak", "off"])
 
 
 if __name__ == "__main__":
