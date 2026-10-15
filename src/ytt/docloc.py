@@ -149,20 +149,36 @@ def bak_dir(tid, data_dir=None, for_write=False):
 def iter_tids(data_dir=None):
     """文書の id の一覧(並べ替え済み・重複なし): 根の <id>.json と、使える索引の和。
     索引はあるが使えない(ドライブが外れているなど)文書は、根に文書があるときだけ出す(読めない id を一覧に出さない)"""
+    return list(doc_files(data_dir))
+
+
+def doc_files(data_dir=None):
+    """{文書の id: <id>.json のパス}(iter_tids の id ごとの doc_file(id, ".json") と同じ中身。読む側 = 使えない索引は根に落ちる)。
+    根の一覧を 1 回だけ取り、索引は 1 本につき 1 回だけ確かめる(PERF O15。id ごとに doc_file を呼ぶと、索引の無い文書にも
+    索引のファイルを stat し、索引のある文書は iter_tids と doc_file で 2 回読んで確かめていた)。一覧 1 回の間だけ使う(覚えない)"""
     root = tx_root(data_dir)
     try:
         names = os.listdir(root) if root else []
     except OSError:
         names = []
-    out = set()
+    plain, locs = set(), set()
     for n in names:
         if n.endswith(LOC_SUFFIX):
             tid = n[:-len(LOC_SUFFIX)]
-            if _schemas.TID_RE.match(tid) and placed(tid, data_dir):
-                out.add(tid)
+            if _schemas.TID_RE.match(tid):
+                locs.add(tid)
         elif n.endswith(".json") and _schemas.TID_RE.match(n[:-5]):
-            out.add(n[:-5])
-    return sorted(out)
+            plain.add(n[:-5])
+    out = {}
+    for tid in locs:
+        got, why = _loc_state(tid, data_dir)
+        if why:
+            _fall_back(root, tid, why)
+        if got:
+            out[tid] = os.path.join(got, tid + ".json")
+    for tid in plain - set(out):
+        out[tid] = os.path.join(root, tid + ".json")
+    return dict(sorted(out.items()))
 
 
 def unseen(data_dir=None):
