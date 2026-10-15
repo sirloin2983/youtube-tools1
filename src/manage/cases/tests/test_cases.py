@@ -654,13 +654,15 @@ class TestAutoClips(Base):
         os.utime(new_auto, (old, old))
         self.assertEqual(cases.expire_unseen(self.root, is_request=lambda rc, rec: True, **kw), [])   # 録画が友人の依頼に結びついている
         self.assertEqual(cases.expire_unseen(self.root, is_request=lambda rc, rec: False, **kw), [(REC, "m5")])
-        # 届けた物(友人の依頼も)は、届けてから EXPIRE_SEC で片付ける。スイッチ TRASH_DELIVERED がオフなら片付けない(10-14。既定はユーザーの確認待ち)
+        # 届けた物(友人の依頼も)は、届けてから EXPIRE_SEC で片付ける(既定オン = 10-15 ユーザー)。スイッチ TRASH_DELIVERED がオフなら片付けない
+        self.assertTrue(cases.TRASH_DELIVERED)
         sent_old = int((time.time() - cases.EXPIRE_SEC - 60) * 1000)
         cases._remember(self.root, REC, "m6", self.env, delivered="z.zip", at=sent_old)
         cases._remember(self.root, REC, "m2", self.env, delivered="y.zip", at=int(time.time() * 1000))   # 届けたばかり
+        self.addCleanup(setattr, cases, "TRASH_DELIVERED", True)
+        cases.TRASH_DELIVERED = False
         self.assertEqual(cases.expire_unseen(self.root, is_request=lambda rc, rec: True, **kw), [])
         cases.TRASH_DELIVERED = True
-        self.addCleanup(setattr, cases, "TRASH_DELIVERED", False)
         self.fs.calls.clear()
         self.assertEqual(cases.expire_unseen(self.root, is_request=lambda rc, rec: True, **kw), [(REC, "m6")])
         self.assertFalse(os.path.exists(friend))

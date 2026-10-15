@@ -812,13 +812,13 @@ def relink_delivered_later(repo_root, logs_dir, log=None, delay=RELINK_DELAY, en
 
 EXPIRE_SEC = 3 * 86400   # 自動の切り抜きを片付けるまで(見ても届けてもいない物は動画を作ってから・届けた物は届けてから。10-09・10-14 ユーザー)
 # 届けた自動の切り抜きも、届けてから EXPIRE_SEC で自動でごみ箱へ(10-14 ユーザー「どんどん消していい」= decisions 3-48 Q2)。
-# 本物の切り抜きを自動で動かすので、既定の入り方はユーザーの確認待ち(それまでオフ。オンにするとこの 1 か所)
-TRASH_DELIVERED = False
+# スイッチ(既定オン = 10-15 ユーザー「既定でオンにして」。止めるならこの 1 か所を False に)
+TRASH_DELIVERED = True
 
 
 def expire_unseen(repo_root, studio, feedback, trash, hide, deliveries, env=None, now=None, max_age=EXPIRE_SEC, is_request=None):
     """自動の切り抜きを日数で片付ける: 見ても届けてもいない物(clip.review.unconfirmed)は動画を作ってから max_age(10-09 ユーザー決定)・
-    届けた物は届けてから max_age(TRASH_DELIVERED がオンのとき。10-14 ユーザー決定)。
+    届けた物は届けてから max_age(TRASH_DELIVERED がオンのとき = 既定。10-14・10-15 ユーザー決定)。
     片付け方 = ごみ箱フォルダへ移す(cleanup の TRASH_DAYS でさらに消える)・文字起こしを一覧で非表示に(データは消さない)・案件の記録に expiredAt。
     **スタジオのマークは不採用にしない・live_feedback.jsonl に判定の行を書かない**(片付けは評価と無関係 = 人が確認していない物を評価・学習に入れない。
     10-14 ユーザー。feedback は使わない = 呼び手の形のため残す)。
