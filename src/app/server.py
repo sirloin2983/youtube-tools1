@@ -932,9 +932,12 @@ class PortalHandler(BaseHTTPRequestHandler):
             else:
                 if not check_lineup.parse_id(body.get("card")):
                     return self._fail(400, "bad_request", "カード(card)の指定が正しくありません")
-                card = check_deck.find(ctx, body["card"])
+                why = []
+                card = check_deck.find(ctx, body["card"], why)
                 if card is None:
-                    return self._fail(404, "gone", "そのカードはもう確かめる物ではありません(読み込み直してください)")
+                    if why:   # 集めたときの失敗(出どころ・文書の読み)。見つからない理由を後で追えるように記録へ
+                        self.server.sup.log("確かめる: %s が見つかりません(集めたときの失敗: %s)" % (body["card"], "・".join(why[:5])))
+                    return self._fail(404, "gone", "そのカードはもう確かめる物ではありません(読み込み直してください)" + ("(読めなかった物: %s)" % "・".join(why[:3]) if why else ""))
                 out = check_apply.answer(ctx, card, body)
                 check_deck.invalidate()
                 held = body.get("skip") if isinstance(body.get("skip"), list) else []

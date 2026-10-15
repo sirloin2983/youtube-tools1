@@ -14,8 +14,11 @@ from . import goals as goals_mod, lineup, sources   # 同じ eval/check の兄�
 CACHE_SEC = 3.0
 MAX_SKIP_PARAM = 200
 CASE_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}\Z")
+SERVED_SEC = 30 * 60   # 画面へ出したカードを、読みの失敗のときの控えとして覚える長さ(find)
+MAX_SERVED = 500
 _cache = {"key": None, "at": 0.0, "cards": None, "errors": None}
 _cache_lock = threading.Lock()
+_served = {}   # 画面へ出したカード id -> (時刻, カード)。古い順
 
 
 def invalidate():
@@ -74,6 +77,7 @@ def next_cards(ctx, case=None, kind=None, n=None, skip=None):
     rest = [c for c in ordered if c["id"] not in skipset]
     first = kind or (rest[0]["kind"] if rest else None)
     failed = st.failed()
+    _remember(rest[:n])
     return {"rev": st.rev, "cards": [lineup.public(c) for c in rest[:n]],
             "counts": {"today": st.today(), "perKind": lineup.per_kind(pool), "failed": len(failed)},
             "goal": goals_mod.view(gk.get(first), first) if first else None,
@@ -84,10 +88,38 @@ def next_cards(ctx, case=None, kind=None, n=None, skip=None):
             "errors": list(errors or ())}
 
 
-def find(ctx, card_id):
-    """カードの id -> 今の出どころから組み直したカード(内側の鍵も持つ)か None(もう出ない・形が違う)。答える前に必ず引き直す(画面の target は信じない)"""
-    got = lineup.parse_id(card_id)
-    if not got:
+def _remember(cards):
+    """next で画面へ出したカード(サーバーが組んだ物。内側の鍵も持つ)を覚える。find が集め直しで読みに失敗したときだけ使う"""
+    now = time.monotonic()
+    with _cache_lock:
+        for c in cards:
+            _served.pop(c["id"], None)
+            _served[c["id"]] = (now, c)
+        while len(_served) > MAX_SERVED:
+            _served.pop(next(iter(_served)))
+
+
+def find(ctx, card_id, why=None):
+    """カードの id -> 今の出どころから組み直したカード(内側の鍵も持つ)か None(もう出ない・形が違う)。答える前に必ず引き直す(画面の target は信じない)。
+    集め方は next と同じ(全種類・同じキャッシュ。出どころが view を共有するので 1 種類だけ集めると next と食い違う)。覚えた一覧に無ければ 1 回だけ集め直す。
+    集め直しで出どころ・文書の読みが失敗していて、そのカードを SERVED_SEC 以内に画面へ出していたら、出したときのカードを使う
+    (一度きりの読みの失敗で「もう確かめる物ではありません」にしない。10-16 CK-1。実物の反映は種類ごとの部品が実物を読み直して断る)。
+    why にリストを渡すと、見つからないときの理由(集めたときの失敗)を足す"""
+    if not lineup.parse_id(card_id):
         return None
-    cards, _view = sources.collect(ctx, answerlog.state(ctx.app_dir), kinds=(got[0],))
-    return next((c for c in cards if c["id"] == card_id), None)
+    st = answerlog.state(ctx.app_dir)
+    cards, errors = _collect(ctx, st)
+    hit = next((c for c in cards if c["id"] == card_id), None)
+    if hit is None:
+        invalidate()
+        cards, errors = _collect(ctx, st)
+        hit = next((c for c in cards if c["id"] == card_id), None)
+    kind, source, _key = lineup.parse_id(card_id)
+    if hit is None and any(e.startswith("%s:%s:" % (kind, source)) or e.split(":", 1)[0] in ("docs", "cases") for e in errors or ()):
+        with _cache_lock:
+            at, card = _served.get(card_id) or (None, None)
+        if card is not None and time.monotonic() - at <= SERVED_SEC:
+            return card
+    if hit is None and why is not None:
+        why.extend(errors or ())
+    return hit
