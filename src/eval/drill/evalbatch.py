@@ -39,7 +39,8 @@ from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き�
 from pipeline.transcribe import diarize as _diarize  # noqa: E402   判別の記録 read_diar・diar_path・ロガー log・スイッチ env_off
 from ytt import txbase as _txbase  # noqa: E402
 from human.proof import doc_jobs as _docjobs, rerun as _rerun, speakers as _speakers, store as _store  # noqa: E402   文字起こしの受付 validate_job・public_job / 再認識の記録 record_rerun / 自動の判別 autodiar_* / 文書の読み書き(呼ぶたびに 名前 で読む)
-from . import drill as _drill, folders as _evfolders  # noqa: E402   評価ドリルの要約・処理中の文書・動画の有無 / 評価用のフォルダの仮置き・動画の一覧・整理のロック(隣の部品 = 呼ぶたびに 名前 で読む)
+from . import drill as _drill  # noqa: E402   評価ドリルの要約・処理中の文書・動画の有無(隣の部品 = 呼ぶたびに 名前 で読む)
+from manage.keep import evalfolders as _evfolders  # noqa: E402   評価用のフォルダの仮置き・動画の一覧・整理のロック(OPT-M2 で ④ manage/keep/evalfolders へ。呼ぶたびに 名前 で読む)
 
 EB_SCHEMA = "ytt-eval-batch/v1"
 EB_FILE = "eval-batch.json"

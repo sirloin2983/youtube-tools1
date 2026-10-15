@@ -29,9 +29,9 @@ from . import store  # noqa: E402   文書の読み書き・行の無い文書�
 from . import overrides as _overrides  # noqa: E402   校正の上書き(人の行を新しい文書へ引き継ぐ・<id>.over.json)
 from . import speakers  # noqa: E402   話者の自動判別 autodiar_after_transcribe(呼ぶたびに speakers.名前 で読む)
 
-# ---------- serve が登録する口(④ manage の relink・⑤ eval の evalbatch をここから読まない = ③ から ④・⑤ を読まない) ----------
+# ---------- serve が登録する口(⑤ eval の evalbatch をここから読まない = ③ から ⑤ を読まない。30fps の作り直しは ② flow/normalize) ----------
 # 評価用のフォルダの判定(eval_name_guard・in_eval_dir)は ytt/settings を直に呼ぶたびに読む
-_HOOK_KEYS = ("redo_skip", "redo_fill", "norm_after")
+_HOOK_KEYS = ("redo_skip", "redo_fill")
 _hooks = {}
 
 
@@ -39,7 +39,6 @@ def set_hooks(**hooks):
     """編集の serve.py が読み込みのときに登録する口(どれも関数。serve は呼ぶたびに持ち主のモジュールの属性を読む lambda を渡す = テストの差し替えが届く)。
     redo_skip(job) -> bool: 未確認の評価用の作り直しを動き出す直前に確かめ直し、手が入っていれば True = 認識しない(evalbatch.eb_redo_skip_at_start。run_job)
     redo_fill(job, spec, fields) -> 文書の id か None: 評価用の作り直しの書き込み(None = 書かなかった。evalbatch.eb_redo_fill。run_job)
-    norm_after(job, spec, tid) -> None: 文字起こしのあとの 30fps の作り直しと付け替え(④ manage/cases/relink.py の norm_after_transcribe。run_job)
     知らない鍵・関数でない値は TypeError"""
     bad = sorted(k for k in hooks if k not in _HOOK_KEYS)
     if bad:
@@ -194,7 +193,7 @@ def public_job(j):
         out["warnings"].append(j["voiceError"])
     out["warnings"] += [w for w in (j.get("warnings") or []) if w not in out["warnings"]]   # ジョブの中で足した注意(以前は画面に届いていなかった)
     out["vadNote"] = j.get("vadNote") or ""          # 声の検出を緩めてやり直した(4-2)
-    out["normNote"] = j.get("normNote") or ""        # 30fps にそろえた・そろえられなかった理由(Q1。manage/cases/relink.py の norm_run)
+    out["normNote"] = j.get("normNote") or ""        # 30fps にそろえた・そろえられなかった理由(Q1。flow/normalize の run_job)
     out["normOk"] = bool(j.get("normOk"))
     out["kept"], out["emptyKept"], out["loose"] = j.get("kept", 0), j.get("emptyKept", 0), j.get("loose", 0)   # 全体の再認識で残した行(3-4)
     return out
@@ -371,9 +370,6 @@ def _run_transcribe(job, spec):
             if carried:
                 _overrides.save_after(tid, doc)
         _flowtx.write_clip_records(tid, clip, spec)   # 単語の時刻・生出力・LLM の生の提案(② が文書の横に書く。書けなくても文書は残す)
-        # 30fps でなければ、同じジョブの続きで <名前>_30fps.mp4 を作って付け替える(notes:plan/line-bc-master-plan.md の Q1。SLOTS はこのジョブが持っている。
-        # 文書はもう書いてあるので、失敗・取り消しでも元の動画のまま残る = 文字起こしの結果は失わない。評価用は作らない)
-        _hook("norm_after")(job, spec, tid)
         # 話者の自動判別(評価用だけ。決定 3-47 Q7)。「完了」にする前に足す = 判別の待ちの文書をドリルが開く間を作らない
         speakers.autodiar_after_transcribe(job, spec, tid)
         _heavy.job_done(job, tid)

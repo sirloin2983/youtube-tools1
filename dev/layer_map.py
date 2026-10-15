@@ -34,8 +34,7 @@ FILES = {
     "src/ytt/marks.py": ("ytt", "ytt", "マークの純粋な語彙(RS8 B3-2。検査・整形 build_mark・読み込み load_marks・同じ区間 same/near・手を入れたか touched。human/review/store から下ろした。ファイルにもロックにも触らない)"),
     "src/pipeline/analyze/adopt.py": ("pipeline", "pipeline/analyze", "採用の規則 F-5 の純粋な関数(RS8 B3-2 の G1a。human/review/store の Store.adopt_marks から出した。入力 = マークの一覧・区間・上限 → 出力 = 採る印をつけた一覧)"),
     "src/flow/adopt.py": ("flow", "flow", "② 採用の口(RS8 B3-2 の G1a。③ の Store.adopt_marks が ① pipeline/analyze/adopt を直に読まずに済む動詞。② が足すこと = kind live を通さない・配信の長さ・ApiError 400)"),
-    "src/manage/cases/docmove.py": ("manage", "manage/cases", "文書を案件の 作業用 へ移す・戻す(RS8 B2-3。入口の起動のときと、コマンド --back・--resume・--now・--purge-migrated。ytt・flow/placement・manage/keep を読む)"),
-    "src/manage/cases/markmove.py": ("manage", "manage/cases", "data.json の配信と cases.json の状態を案件の 採用.json・候補.json へ移す・戻す・繋ぎ直す(RS8 B3-8。入口の起動のときと、コマンド --now・--back・--resume・--relink。ytt・flow/casebook・human/review/store の読み方を読む)"),
+    "src/manage/cases/outdirs.py": ("manage", "manage/cases", "書き出し先を変えたあとの案件の繋ぎ直し・「調子」の置き場所の数(RS8 B3-8 の残り。入口の起動のときと、コマンド --relink。ytt・flow/casebook・flow/studiobook・flow/placement を読む)"),
     "src/human/proof/layers.py": ("human", "human/proof", "文書を機械の層 + 人の層から組み立てる純粋な関数(RS8 O2-1。compose・diff・案 A の印・話者の対応表。ファイルを触らない。ytt だけを読む)"),
     "src/human/proof/machpick.py": ("human", "human/proof", "3 択の口(RS8 O2-4。機械の結果が変わった人の行の 前の機械・今の機械・人の直しと、自分の直しのまま / 今の機械にする。層が正のときだけ)"),
     "src/flow/packjobs.py": ("flow", "flow", "パックのジョブの器(OPT2 J3。cut2resolve/serve の Job・AppState のジョブを移した。同時 1 本・履歴 20・糸・SLOTS(build は必ず・plan は heavy() のとき)・Task を作って fn(task)・掲示板の頭 pk。pipeline の cut2resolve_core と ytt を読む)"),
@@ -100,13 +99,13 @@ FILES = {
     "src/flow/livesession.py": ("flow", "flow", "ライブ係(RS7-2 G2b。Live から app でない部分 = 録画元のクライアント・録画を始める・受付 submit(封筒 kind live + 束 → live/bundles.json)・"
                                 "見回り・子プロセス・調子・採用の口。入口の home/live.py の Live はこれを継ぐ app の殻)"),
     # ---- analytics → manage/ops/analytics(別件。中身は変えない)
-    "src/analytics/__init__.py": ("manage", "manage/ops/analytics", ""),
-    "src/analytics/bridge.py": ("manage", "manage/ops/analytics", ""),
-    "src/analytics/calc.py": ("manage", "manage/ops/analytics", ""),
-    "src/analytics/data.py": ("manage", "manage/ops/analytics", ""),
-    "src/analytics/render.py": ("manage", "manage/ops/analytics", ""),
-    "src/analytics/service.py": ("manage", "manage/ops/analytics", ""),
-    "src/analytics/timeutil.py": ("manage", "manage/ops/analytics", ""),
+    "src/manage/ops/analytics/__init__.py": ("manage", "manage/ops/analytics", ""),
+    "src/manage/ops/analytics/bridge.py": ("manage", "manage/ops/analytics", ""),
+    "src/manage/ops/analytics/calc.py": ("manage", "manage/ops/analytics", ""),
+    "src/manage/ops/analytics/data.py": ("manage", "manage/ops/analytics", ""),
+    "src/manage/ops/analytics/render.py": ("manage", "manage/ops/analytics", ""),
+    "src/manage/ops/analytics/service.py": ("manage", "manage/ops/analytics", ""),
+    "src/manage/ops/analytics/timeutil.py": ("manage", "manage/ops/analytics", ""),
 }
 
 # 新しいフォルダ(RS1 以降に移した先)。フォルダ名 → 層。ここにある物は FILES に書かなくてよい

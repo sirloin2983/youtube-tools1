@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""分析と日報(src/analytics)のテスト。本物のチャンネルの数字は使わない(リポジトリは Public)。make_raw が規則どおりに伸びる架空のチャンネルを作る。
+"""分析と日報(src/manage/ops/analytics)のテスト。本物のチャンネルの数字は使わない(リポジトリは Public)。make_raw が規則どおりに伸びる架空のチャンネルを作る。
 
-    py -3.10 -m unittest src/analytics/tests/test_analytics.py
+    py -3.10 -m unittest src/manage/ops/analytics/tests/test_analytics.py
 """
 import datetime
 import json
@@ -15,11 +15,11 @@ import unittest
 import urllib.parse
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
-from analytics import bridge, calc, data, render, service, timeutil as T  # noqa: E402
+from manage.ops.analytics import bridge, calc, data, render, service, timeutil as T  # noqa: E402
 
 UTC = T.UTC
 DAY = datetime.timedelta(days=1)

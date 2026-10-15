@@ -404,7 +404,15 @@ class TestKeys(unittest.TestCase):
         os.makedirs(pack)
         self.addCleanup(shutil.rmtree, pack, True)
         self.assertTrue(R._keys.write_pack(pack, dict(body["spec"], transcript=tr), body["output"]))
-        state, built = rn._pack_state(run, self.doc, self.media, opts)
+        from flow import packrec
+        recs = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, recs, True)
+        v = os.path.join(pack, "a.mp4")
+        with open(v, "wb") as f:
+            f.write(b"x")
+        with mock.patch.object(packrec, "packs_dir", lambda env=None, c2r_dir=None: recs):   # 作り終えたパック(記録と中身)= 鍵が同じなら same(部品 F3)
+            packrec.write_record({"out_dir": pack, "files": [("video", v)]}, self.media, False, False)
+            state, built = rn._pack_state(run, self.doc, self.media, opts)
         self.assertEqual(state, "same")
         self.assertIn("contents", built[0])
         self.assertNotIn(("transcribe", "POST", "/api/export-file"), c.calls)

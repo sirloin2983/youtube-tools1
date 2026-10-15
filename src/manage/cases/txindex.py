@@ -10,12 +10,12 @@ ytt.schemas.clip_offset)。.clip.json が無ければマークの開始を使う
 文書は大きい(数百行)ので、ファイルの更新日時・大きさが変わったときだけ読み直す。
 
 パックの有無(pack_info・is_pack_dir)もここ1か所で決める。2026-09-26(④)から cut2resolve の画面・API のパックはフォルダに cut-plan.json を置かず、
-cut2resolve の作業データ packs/ に「パックを作った記録」を残す(書くのは cut2resolve の serve.py。ここは読むだけ)。
-記録が無ければ、以前のパック(フォルダの中の cut-plan.json)を見る。
+cut2resolve の作業データ packs/ に「パックを作った記録」を残す(記録の形・置き場所・書くのは ② flow/packrec。cut2resolve の API も
+入口なしの CLI も同じ after_build を呼ぶ = OPT-M2。ここは ② の読み口を使うだけ)。記録が無ければ、以前のパック(フォルダの中の cut-plan.json)を見る。
 """
-import hashlib
 import os
 
+from flow import packrec as _packrec
 from ytt import datadir, docloc, fsio, layout, schemas
 
 NORM_WHY = "normalize30"   # 「編集」が 30fps の写しへ付け替えたときの relinks[].why(manage/cases/relink.py の NORM_WHY と同じ)
@@ -23,8 +23,7 @@ NORM_WHY = "normalize30"   # 「編集」が 30fps の写しへ付け替えた�
 MAX_DOC_BYTES = 32 * 1024 * 1024
 MAX_TEXT = 500
 REPO_ROOT = layout.src_root()   # ツールの親(src)
-PACK_RECORD_SCHEMA = "youtube-tools-pack-record/v1"
-MAX_PACK_RECORD_BYTES = 16 * 1024 * 1024
+PACK_RECORD_SCHEMA = _packrec.SCHEMA   # パックを作った記録の形の持ち主は ② flow/packrec(読み手のテスト・⑤ が名前で読む)
 TEXTPLUS_SCRIPT = "create_resolve_textplus_project.lua"
 OLD_TEXTPLUS_PLAN = "textplus-import.json"
 MAX_OLD_CUT_PLAN_BYTES = 4 * 1024 * 1024
@@ -223,57 +222,25 @@ def pack_dir(media_path):
 
 
 def packs_dir(env=None, c2r_dir=None):
-    """パックを作った記録のフォルダ(cut2resolve の作業データの packs。YTT_DATA_DIR=inplace なら cut2resolve のフォルダの中)。
-    置き場所の規則は ytt.datadir.resolve の1か所(起動した cut2resolve が登録した場所。env を渡したときは使わない = テスト)。
-    c2r_dir: cut2resolve のコードのフォルダ(serve.py が自分の場所を渡す。無ければ環境変数 YTT_CUT2RESOLVE_DIR → リポジトリの cut2resolve)"""
-    legacy = c2r_dir or (os.environ if env is None else env).get("YTT_CUT2RESOLVE_DIR") or None
-    return os.path.join(datadir.resolve("cut2resolve", REPO_ROOT, env, legacy), "packs")
+    """パックを作った記録のフォルダ(規則は ② flow/packrec.packs_dir)"""
+    return _packrec.packs_dir(env, c2r_dir)
 
 
 def pack_key(dirpath):
-    """パックのフォルダ → 記録のファイル名(フォルダのパスの大文字小文字をそろえたハッシュ)"""
-    return hashlib.sha1(norm(str(dirpath)).encode("utf-8")).hexdigest()[:20] + ".json"
+    """パックのフォルダ → 記録のファイル名(規則は ② flow/packrec.record_name)"""
+    return _packrec.record_name(dirpath)
 
 
 def read_pack_record(dirpath, env=None, c2r_dir=None):
-    """パックを作った記録(cut2resolve の packs/)。フォルダがあり、記録した中身のファイルが1つでも残っているときだけ返す
+    """パックを作った記録(② flow/packrec.read_record)。フォルダがあり、記録した中身のファイルが1つでも残っているときだけ返す
     (フォルダを消した・作り直した後の古い記録で「パック済み」にしない)。-> 記録 か None"""
-    if not dirpath:
-        return None
-    try:
-        rec = fsio.read_json_file(os.path.join(packs_dir(env, c2r_dir), pack_key(dirpath)), MAX_PACK_RECORD_BYTES)
-    except (OSError, UnicodeError, ValueError):
-        return None
-    if not isinstance(rec, dict) or rec.get("schema") != PACK_RECORD_SCHEMA or norm(rec.get("dir")) != norm(str(dirpath)):
-        return None
-    files = [f for f in rec.get("files") or [] if isinstance(f, str) and f and not os.path.isabs(f) and ".." not in f.replace("\\", "/").split("/")]
-    if not any(os.path.isfile(os.path.join(str(dirpath), f)) for f in files):
-        return None
-    return rec
-
-
-PACK_VIDEO_EXTS = (".mp4", ".mov", ".mkv", ".m4v", ".webm")
+    return _packrec.read_record(dirpath, env, c2r_dir)
 
 
 def pack_ready(dirpath, env=None, c2r_dir=None):
     """このパックだけで編集できるか(部品 M1。片付けが元の素材を候補にする・移す直前に見る)-> (真偽, 理由)。
-    read_pack_record は記録したファイルが 1 つでもあれば有効にするので、ここは記録したファイルが**全部**あって空でないこと・動画が入っていること・
-    Text+ パックなら Lua の手順書が入っていることを見る(ハッシュは取らない = 重い)。記録の無い以前のパックは偽(元の素材を残す側)"""
-    rec = read_pack_record(dirpath, env, c2r_dir)
-    if not rec:
-        return False, "パックを作った記録が無い"
-    files = [f for f in rec.get("files") or [] if isinstance(f, str) and f and not os.path.isabs(f) and ".." not in f.replace("\\", "/").split("/")]
-    for f in files:
-        try:
-            if os.path.getsize(os.path.join(str(dirpath), f)) <= 0:
-                return False, "パックの中の %s が空" % f
-        except OSError:
-            return False, "パックの中の %s が無い" % f
-    if not any(f.lower().endswith(PACK_VIDEO_EXTS) for f in files):
-        return False, "パックに動画が入っていない"
-    if rec.get("textplus") is True and not any(f.lower().endswith(".lua") for f in files):
-        return False, "パックに Text+ の手順書(Lua)が無い"
-    return True, ""
+    中身の確かめは ② flow/packrec.ready(鍵が同じパックを飛ばす前の確かめ = 部品 F3 と同じ口)。記録の無い以前のパックは偽(元の素材を残す側)"""
+    return _packrec.ready(dirpath, env, c2r_dir)
 
 
 def _old_cut_plan(dirpath):

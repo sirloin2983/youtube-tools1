@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """④ 評価用のフォルダの整理: 動画の名前を「フォルダ名_番号_状態」にそろえる・仮置きからメンバーのフォルダへ移す・評価用にした文書の動画を外から取り込む
-(notes:docs/spec/data.md。段10 で editor/serve.py から分けた ed_relink の後半。役割で組み直す RS3-E7(2026-10-10)に eval/drill/folders.py へ切り出した)。
+(notes:docs/spec/data.md。OPT-M2(2026-10-16)で ⑤ の eval から ④ へ移した)。
 
-- 文書を付け替える書き込みは ③ の manage/cases/relink(_relink_write・_doc_busy。④ → ③ の下向き = 呼ぶたびに _relink.名前 で読む = S._relink_write = … が届く)
+- 文書を付け替える書き込みは ④ の manage/cases/relink(_relink_write・_doc_busy。同じ層の中の呼び出し = 呼ぶたびに _relink.名前 で読む = S._relink_write = … が届く)
 - 評価用のフォルダの判定(eval_dirs・in_eval_dir)は ytt/settings、別のドライブへの移動 move_file は ytt/fsio(RS3-1)
 - 起動の 5 秒後に 1 回の整理(_evalorg_startup)は serve.prepare が裏のスレッドで呼ぶ
 名前は serve.py からも見える(serve.py の名前の受付 _ED_MODULES がこの部品へ転送する。テストの S.名前 = … もここに入る)。
@@ -15,11 +15,12 @@ import unicodedata
 
 from ytt import errors as _errors, fsio as _fsio, schemas as _yschemas  # noqa: E402
 from flow import jobs as _heavy  # noqa: E402
-from ytt import settings as _settings  # noqa: E402   評価用のフォルダの判定と設定の読み load_settings(RS3-1 に ed_relink・ed_learn から ytt/settings へ)
+from ytt import settings as _settings  # noqa: E402   評価用のフォルダの判定と設定の読み load_settings(ytt/settings)
 from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所の今の値・動画と音声の拡張子)
 from ytt import txbase as _txbase  # noqa: E402   ロガー log(RS3-E7 まで ed_state の別名で読んでいた)
 from human.proof import store as _store  # noqa: E402   文書の読み書き・保存のロック・履歴・要約(呼ぶたびに _store.名前 で読む)
 from manage.cases import relink as _relink  # noqa: E402   付け替えの書き込み _relink_write・文書が処理中か _doc_busy(呼ぶたびに _relink.名前 で読む)
+from manage.keep import cleanup as _cleanup  # noqa: E402   空いている名前 free_path(仮置きの名前も同じ関数を 2 から・exists で使う)
 
 
 # ---------- 評価用のフォルダ(2026-10-01 ユーザー決定。notes:docs/spec/data.md) ----------
@@ -31,7 +32,7 @@ from manage.cases import relink as _relink  # noqa: E402   付け替えの書き
 EVAL_STATES = ("済", "未", "未文字起こし")
 EVAL_WALK_DEPTH = 4         # 評価用のフォルダから下へ何段まで(評価用データ\1_JP\01_0期生\評価用データ01_ときのそら = 3段)
 EVAL_WALK_MAX = 20000       # 見るファイルとフォルダの数の上限
-EVAL_SIDECARS = (".clip.json", ".edit.json", ".transcript.json", ".cut-plan.json", ".srt", "_edit.mp4")   # 動画と同じ名前で持つ途中のファイル(home/cleanup.py と同じ)
+EVAL_SIDECARS = (".clip.json", ".edit.json", ".transcript.json", ".cut-plan.json", ".srt", "_edit.mp4")   # 動画と同じ名前で持つ途中のファイル(manage/keep/cleanup.SIDECARS と同じ。ただし _edit.clip.json は無い。7d-2 で ytt/schemas に寄せる)
 # 仮置き(2026-10-01 ユーザー決定): 評価用のフォルダの直下の「評価用_仮置き」で作業し、全行に話者が付いて全行が校正済みになったら、
 # 話した時間が最も長いメンバーのフォルダ(名前が「…数字_メンバー名」のフォルダ)へ「フォルダ名_番号_済」で移す。仮置きの中は名前を変えない
 EVAL_STAGING = "評価用_仮置き"
@@ -270,12 +271,8 @@ def _eval_outside_docs(dirs, only=None):
 
 
 def _eval_free_name(folder, name):
-    """folder の中で使われていない名前(同じ名前があれば「名前 (2).拡張子」…)"""
-    stem, ext = os.path.splitext(name)
-    p, n = os.path.join(folder, name), 2
-    while os.path.exists(p):
-        p, n = os.path.join(folder, "%s (%d)%s" % (stem, n, ext)), n + 1
-    return p
+    """folder の中で使われていない名前(同じ名前があれば「名前 (2).拡張子」…。付け方は cleanup.free_path と同じ関数を 2 から・exists で)"""
+    return _cleanup.free_path(os.path.join(folder, name), first=2, check=os.path.exists)
 
 
 def _eval_intake_one(path, sms, root):

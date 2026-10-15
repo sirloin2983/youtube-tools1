@@ -464,66 +464,24 @@ class HelpersTest(unittest.TestCase):
             with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
                 L.parse_args(bad)
 
-    def test_move_docs_on_start(self):
-        """RS8 B2-3: 起動のときの文書の移行。inplace(テスト)は何もしない・バックアップが済んでいなければ移さない・失敗しても上げない"""
+    def test_relink_out_dirs_on_start(self):
+        """書き出し先を変えたあとの案件の繋ぎ直し(起動のとき)。inplace(テスト)は何もしない・書き出し先は起動のたびに覚える・失敗しても上げない"""
         from types import SimpleNamespace
-        tmp = tempfile.mkdtemp(prefix="movedocs-")
-        self.addCleanup(shutil.rmtree, tmp, True)
-        tx = os.path.join(tmp, "transcribe", "transcripts")
-        os.makedirs(tx)
-        with open(os.path.join(tx, "0123456789ab.json"), "w", encoding="utf-8") as f:
-            json.dump({"id": "0123456789ab", "sourcePath": os.path.join(tmp, "desktop", "a.mp4")}, f)
-        srv = SimpleNamespace(sup=SimpleNamespace(root=tmp), backup=SimpleNamespace(last={}))
-        logs = []
-        self.assertIsNone(L.move_docs(srv, logs.append))   # inplace
-        with mock.patch.object(L.datadir, "data_root", return_value=tmp), mock.patch.object(L.txindex, "folder", return_value=tx), \
-                mock.patch.object(L.datadir, "studio_out_dir", return_value=os.path.join(tmp, "exports")):
-            with mock.patch.object(L.machine_mod, "get", return_value=False):   # この PC の設定 docMove の既定 = オフ
-                self.assertEqual(L.move_docs(srv, logs.append), {"state": "off", "moved": 0})
-            on = mock.patch.object(L.machine_mod, "get", side_effect=lambda f: True if f == "docMove" else None)
-            on.start()
-            self.addCleanup(on.stop)
-            self.assertEqual(L.move_docs(srv, logs.append)["state"], "waitBackup")
-            self.assertTrue(os.path.isfile(os.path.join(tx, "0123456789ab.json")))
-            srv.backup.last = {"ok": 1700000000.0}
-            r = L.move_docs(srv, logs.append)
-            self.assertEqual((r["state"], r["moved"], r["kept"]), ("done", 0, {"noHome": 1}))
-            self.assertTrue(os.path.isfile(os.path.join(tx, "0123456789ab.json")))
-            with mock.patch.object(L.docmove_mod, "run", side_effect=OSError("x")):
-                self.assertIsNone(L.move_docs(srv, logs.append))
-        self.assertTrue(any("移せませんでした" in x for x in logs))
-
-    def test_move_marks_on_start(self):
-        """RS8 B3-8: 起動のときの配信の記録の移行。inplace は何もしない・スイッチ markMove がオフなら移さない(書き出し先の繋ぎ直しは毎回)・
-        バックアップが済んでいなければ移さない・失敗しても上げない"""
-        from types import SimpleNamespace
-        tmp = tempfile.mkdtemp(prefix="movemarks-")
+        tmp = tempfile.mkdtemp(prefix="relinkout-")
         self.addCleanup(shutil.rmtree, tmp, True)
         data = os.path.join(tmp, "studio", "data.json")
         os.makedirs(os.path.dirname(data))
         with open(data, "w", encoding="utf-8") as f:
-            json.dump({"schema": "clip-studio/v1", "videos": {"abcdefghijk": {"id": "abcdefghijk", "kind": "youtube", "marks": []}}, "groups": {}}, f)
-        srv = SimpleNamespace(sup=SimpleNamespace(root=tmp), backup=SimpleNamespace(last={}))
+            json.dump({"schema": "clip-studio/v1", "videos": {}, "groups": {}}, f)
+        srv = SimpleNamespace(sup=SimpleNamespace(root=tmp))
         logs = []
-        self.assertIsNone(L.move_marks(srv, logs.append))   # inplace
+        self.assertIsNone(L.relink_out_dirs(srv, logs.append))   # inplace
         with mock.patch.object(L.datadir, "data_root", return_value=tmp), mock.patch.object(L.placement, "studio_data", return_value=data), \
-                mock.patch.object(L.cases_mod, "locations", return_value={"cases": os.path.join(tmp, "app", "cases.json")}), \
                 mock.patch.object(L.datadir, "studio_out_dir", return_value=os.path.join(tmp, "exports")):
-            with mock.patch.object(L.machine_mod, "get", return_value=False):   # この PC の設定 markMove の既定 = オフ
-                self.assertEqual(L.move_marks(srv, logs.append), {"state": "off", "moved": 0, "relinked": 0})
-            self.assertEqual(L.markmove_mod.read_result(data)["outDirs"], [os.path.join(tmp, "exports")], "オフでも書き出し先は覚える")
-            on = mock.patch.object(L.machine_mod, "get", side_effect=lambda f: True if f == "markMove" else None)
-            on.start()
-            self.addCleanup(on.stop)
-            self.assertEqual(L.move_marks(srv, logs.append)["state"], "waitBackup")
-            srv.backup.last = {"ok": 1700000000.0}
-            r = L.move_marks(srv, logs.append)
-            self.assertEqual((r["state"], r["moved"], r["kept"]), ("done", 0, {}))   # 書き出したマークの無い配信は対象でない
-            with mock.patch.object(L.markmove_mod, "run", side_effect=OSError("x")):
-                self.assertIsNone(L.move_marks(srv, logs.append))
-            with mock.patch.object(L.markmove_mod, "relink_out_dir", side_effect=OSError("y")):
-                self.assertEqual(L.move_marks(srv, logs.append)["relinked"], 0)
-        self.assertTrue(any("移せませんでした" in x for x in logs))
+            self.assertEqual(L.relink_out_dirs(srv, logs.append), 0)
+            self.assertEqual(L.outdirs_mod.read_state(data)["outDirs"], [os.path.join(tmp, "exports")])
+            with mock.patch.object(L.outdirs_mod, "relink_out_dir", side_effect=OSError("y")):
+                self.assertIsNone(L.relink_out_dirs(srv, logs.append))
         self.assertTrue(any("繋ぎ直しができませんでした" in x for x in logs))
 
     def test_logger_does_not_block_when_console_is_stuck(self):
@@ -1419,20 +1377,6 @@ class MainShutdownTest(unittest.TestCase):
         for t in threads:
             t.join(5)
         self.assertEqual(len(got), 1)
-
-    def test_headless_does_not_move_docs_without_backup(self):
-        """RS8 B2-3: 画面なしも同じ位置で移行を呼ぶが、バックアップが動かない = 記録が無ければ移さない(backup_ok が偽)"""
-        calls, real = [], L.move_docs
-
-        def spy(srv, log):
-            calls.append(srv.backup.last)
-            with mock.patch.object(L.datadir, "data_root", return_value=self.tmp), mock.patch.object(L.machine_mod, "get", return_value=True), \
-                    mock.patch.object(L.docmove_mod, "run", side_effect=lambda *a, **k: {"state": "waitBackup", "backup_ok": k["backup_ok"]}):
-                return real(srv, log)
-        with mock.patch.object(L, "move_docs", spy):
-            code, srv, out, started, opened, _ = self.run_headless(["--headless", "--port", "0", "--no-mount"], lambda srv, ready: None)
-        self.assertEqual((code, len(calls)), (0, 1))
-        self.assertEqual(srv.docs_moved, {"state": "waitBackup", "backup_ok": False})
 
     def test_normal_start_still_starts_watchers(self):
         """画面ありの起動は今までどおり(見張りを起こす・ready の行を出さない)"""

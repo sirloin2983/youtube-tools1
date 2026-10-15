@@ -143,31 +143,16 @@ class TestSave(Base):
         self.write({"device": "gpu", "other": 1, "engine": "whisper.cpp"})
         self.assertEqual(M.save({"diskMinGB": 5}, env=self.env), {"engine": "whisper.cpp", "diskMinGB": 5, "schema": M.SCHEMA})
 
-    def test_doc_move_switch(self):
-        """RS8 B2-3: 起動のときの文書の移行のスイッチ docMove(既定 false = 移さない)。ファイルは真偽・環境変数は 1/0・true/false・on/off"""
-        m = M.load(env=self.env)
-        self.assertEqual((m["docMove"], m["sources"]["docMove"]), (False, "default"))
-        self.write({"docMove": True})
-        self.assertEqual((M.get("docMove", env=self.env), M.load(env=self.env)["sources"]["docMove"]), (True, "file"))
-        self.assertIs(M.get("docMove", env=dict(self.env, YTT_MACHINE_DOC_MOVE="off")), False)
-        self.write({"docMove": "はい"})   # 合わない値は使わない = 既定
-        self.assertEqual(M.load(env=self.env)["sources"]["docMove"], "default")
-        self.assertIs(M.get("docMove", env=dict(self.env, YTT_MACHINE_DOC_MOVE="1")), True)
-        for bad in ("x", 1, None):
-            with self.assertRaises(ValueError):
-                M.check("docMove", bad)
-        self.assertEqual(M.save({"docMove": True}, p=self.file)["docMove"], True)
-
-    def test_mark_move_switch(self):
-        """RS8 B3-8: 起動のときの配信の記録の移行のスイッチ markMove(既定 false)。docMove とは別に決まる"""
-        m = M.load(env=self.env)
-        self.assertEqual((m["markMove"], m["sources"]["markMove"]), (False, "default"))
-        self.write({"markMove": True})
-        self.assertEqual((M.get("markMove", env=self.env), M.get("docMove", env=self.env)), (True, False))
-        self.assertIs(M.get("markMove", env=dict(self.env, YTT_MACHINE_MARK_MOVE="off")), False)
+    def test_migration_switches_are_gone(self):
+        """移行の道具(docMove・markMove のスイッチ)は消した。知らない項目として断る(opt-manage 役割 4)"""
+        self.assertNotIn("docMove", M.FIELDS)
+        self.assertNotIn("markMove", M.FIELDS)
         with self.assertRaises(ValueError):
-            M.check("markMove", "x")
-        self.assertEqual(M.save({"markMove": False}, p=self.file)["markMove"], False)
+            M.check("docMove", True)
+        self.write({"docMove": True, "markMove": False, "engine": "whisper.cpp"})   # 本物の machine.json に残っている = 黙って読み飛ばす
+        with self.assertNoLogs(M.log, "WARNING"):
+            self.assertEqual(M.read_file(env=self.env), {"engine": "whisper.cpp"})
+        self.assertEqual(M.save({"diskMinGB": 5}, env=self.env), {"engine": "whisper.cpp", "diskMinGB": 5, "schema": M.SCHEMA})   # 書き直すときに落とす
 
     def test_check_paths_and_numbers(self):
         p = os.path.abspath(self.tmp)

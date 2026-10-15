@@ -72,6 +72,25 @@ class StudioBook:
         """data.json の 1 行だけを row に置き換えて書く(ほかの行・コラボのまとまりは読んだまま。1 つ前を .bak・原子的 = スタジオの Store と同じ)"""
         d = self._load()
         d["videos"][vid] = row
+        self._write(d)
+
+    def set_cases(self, roots):
+        """案件の根だけを付け替える(書き出し先を変えたあとの繋ぎ直し・手の繋ぎ直し)。roots = {配信の id: 案件の根}。
+        行が無い id は飛ばす。data.json は 1 回だけ書く(ほかの行・コラボのまとまりは読んだまま)。-> 付け替えた本数"""
+        with self.lock:
+            d = self._load()
+            n = 0
+            for vid, root in roots.items():
+                row = d["videos"].get(vid)
+                if isinstance(row, dict):
+                    d["videos"][vid] = dict(row, case=root)
+                    n += 1
+            if n:
+                self._write(d)
+            return n
+
+    def _write(self, d):
+        """data.json を d(videos・groups)の形で書く(1 つ前を .bak・原子的)"""
         data = json.dumps({"schema": SCHEMA, "videos": d["videos"], "groups": d.get("groups") if isinstance(d.get("groups"), dict) else {}},
                           ensure_ascii=False).encode("utf-8")
         try:

@@ -27,7 +27,7 @@ from eval.drill import evalbatch as EB  # noqa: E402   (RS4-2 に editor/ed_eval
 from human.proof import doc_jobs  # noqa: E402
 from human.proof import store  # noqa: E402
 from flow import jobs as ytt_jobs  # noqa: E402
-from eval.drill import folders as EF  # noqa: E402   評価用のフォルダの整理(RS3-E7 に ed_relink から)
+from manage.keep import evalfolders as EF  # noqa: E402   評価用のフォルダの整理(RS3-E7 に ed_relink から。OPT-M2 で manage/keep/evalfolders へ)
 
 FFMPEG = shutil.which("ffmpeg")
 MEMBER = "評価用データ01_ときのそら"

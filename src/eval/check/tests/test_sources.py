@@ -170,6 +170,55 @@ class SourcesTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 deck.next_cards(self.ctx, **bad)
 
+    def _card(self, kind, source, row):
+        return {"id": lineup.card_id(kind, source, DOC, row), "kind": kind, "source": source, "case": {"id": "", "title": "t"},
+                "target": {"docId": DOC, "row": row}, "media": {}, "text": row, "guess": None, "options": [], "score": None, "note": "", "_order": [-1]}
+
+    def test_find_sees_every_listed_card(self):
+        """一覧(next)に出たカードは必ず find で見つかる(10-16 CK-1: 読みのカードに答えると「もう確かめる物ではありません」で記録できなかった)"""
+        calls = []
+
+        def flaky(view):   # 1 回目だけ読める出どころ(E: の文書が一瞬読めない・書き換え中など、一度きりの読みの失敗)
+            calls.append(1)
+            if len(calls) > 1:
+                raise OSError("一度だけ読めない")
+            return [self._card("read", "flk", "s1")]
+
+        def mark(view):   # 別の種類の出どころが view に残す物に寄るカード(find が 1 種類だけ集め直すと出ない)
+            view.__dict__["_mark_seen"] = True
+            return []
+
+        def dep(view):
+            return [self._card("value", "dep", "s1")] if view.__dict__.get("_mark_seen") else []
+        for k, s, f in (("read", "flk", flaky), ("read", "mrk", mark), ("value", "dep", dep)):
+            sources.register(k, s, f)
+            self.addCleanup(sources.unregister, k, s)
+        deck.invalidate()
+        listed = [c["id"] for c in deck.next_cards(self.ctx, n=50)["cards"]]
+        self.assertIn("read:flk:%s#s1" % DOC, listed)
+        self.assertIn("value:dep:%s#s1" % DOC, listed)
+        for cid in listed:
+            self.assertEqual((deck.find(self.ctx, cid) or {}).get("id"), cid, cid)
+        deck.invalidate()   # 覚えた一覧が切れたあと(答えるまでに 3 秒より長くかかる)でも
+        for cid in listed:
+            self.assertEqual((deck.find(self.ctx, cid) or {}).get("id"), cid, cid)
+        why = []
+        self.assertIsNone(deck.find(self.ctx, "read:fill:%s#s9" % DOC, why))   # 出していないカードは今までどおり None
+        self.assertTrue(why and any("read:flk" in w for w in why), why)        # 見つからない理由に、集めたときの失敗を添える
+
+    def test_find_does_not_bring_back_a_settled_card(self):
+        """一覧に出たあと本当に確かめる物でなくなったカード(行を校正した)は、読みの失敗が無ければ find で出さない"""
+        cid = "read:fill:%s#s1" % DOC
+        self.assertIn(cid, [c["id"] for c in deck.next_cards(self.ctx, n=50)["cards"]])
+        path = os.path.join(self.tmp, "transcribe", "transcripts", DOC + ".json")
+        with open(path, encoding="utf-8") as f:
+            d = json.load(f)
+        d["segments"][0]["proofed"] = True
+        d["updatedAt"] = d.get("updatedAt", 0) + 1
+        write(path, d)
+        deck.invalidate()
+        self.assertIsNone(deck.find(self.ctx, cid))
+
     def test_deck_hides_answered_and_moves_skipped(self):
         cid = "read:fill:%s#s1" % DOC
         answerlog.append(self.app, {"id": answerlog.new_id(), "at": answerlog.now_ms(), "kind": "read", "source": "fill", "card": cid,

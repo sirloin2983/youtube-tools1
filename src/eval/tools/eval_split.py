@@ -34,7 +34,7 @@ from pipeline.transcribe.roster import fold  # noqa: E402,F401  照らし合わ�
 
 SCHEMA = "youtube-tools-eval-split/v1"
 PLAN_NAME = "split-plan.json"
-STAGING = "評価用_仮置き"                    # src/eval/drill/folders.py の EVAL_STAGING と同じ(editor は読み込まない)
+STAGING = "評価用_仮置き"                    # src/manage/keep/evalfolders.py の EVAL_STAGING と同じ(editor は読み込まない)
 VIDEO_EXT = (".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi", ".ts", ".flv")
 ROSTER = os.path.join(REPO, "editor", "hololive-roster.json")
 ALIAS_MIN = 3                                # 名前が無いときに呼び名で決める最短の長さ(短い呼び名は別の語に紛れる)

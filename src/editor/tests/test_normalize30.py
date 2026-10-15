@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""素材を 30fps にそろえる(マスタープラン Q1)の「編集」の側のテスト: 単体の文字起こし・動画を選び直す。
+"""素材を 30fps にそろえる(マスタープラン Q1)のテスト: ② flow/normalize の段・動画を選び直す(④ の付け替え)。
 
     py -3.10 -m unittest src/editor/tests/test_metrics.py        # test_metrics がこのファイルのテストも読み込む
     py -3.10 -m unittest src/editor/tests/test_normalize30.py    # これだけ
@@ -23,6 +23,7 @@ from test_backend import S, StoreDir  # noqa: F401  (S = serve)
 from human.proof import doc_jobs  # noqa: E402
 from human.proof import store  # noqa: E402
 from flow import jobs  # noqa: E402
+from flow import normalize as FN  # noqa: E402   ② 30fps にそろえる段(OPT-M2 5b-1)
 from manage.cases import relink as RL  # noqa: E402   付け替えと 30fps(RS3-E7 に ed_relink から)
 from ytt import normalize as N  # noqa: E402
 
@@ -92,165 +93,161 @@ class _Base(StoreDir):
         self.assertEqual(N.needs_normalize(info), (False, []))
 
 
-class TestTranscribeNormalize(_Base):
-    def test_60fps_makes_sibling_and_relinks(self):
-        """文字起こしのあと、隣に <名前>_30fps.mp4 を作って文書をそれに付け替える。元は残る。行は元の動画で作ったまま"""
-        src = self.copy(self.v60, "配信 60.mp4")
-        seen = []
-        real = N.normalize
+class TestFlowNormalize(_Base):
+    """② flow/normalize の plan・run(30fps にそろえる 1 つの段。OPT-M2 5b-1)。文字起こしの続きの口 norm_after は 5b-2 で消えた"""
 
-        def spy(*a, **kw):
-            seen.append((job["state"], job["phase"], job.get("tid")))
-            return real(*a, **kw)
-        spec = doc_jobs.validate_job({"sourcePath": src, "model": "small"})
-        job = jobs.add_job(spec)
-        with mock.patch.object(RL._vnorm, "normalize", side_effect=spy):
-            self.run_job(job)
+    def make_run(self, src, **kw):
+        p = FN.plan(src, **kw)
+        self.assertTrue(p)
+        return p, FN.run(p)
+
+    def test_60fps_makes_sibling(self):
+        """隣に <名前>_30fps.mp4 を作る。元は残る。進み具合の知らせと、書きかけが残らないこと"""
+        src = self.copy(self.v60, "配信 60.mp4")
+        seen, prog = [], []
+        p = FN.plan(src)
         dst = os.path.join(self.media, "配信 60_30fps.mp4")
-        self.assertEqual(seen, [("running", RL.NORM_PHASE, job["tid"])])   # 進み具合は「30fps にそろえています… n%」・作り直しの間は文書を止める
-        self.assertEqual(job["progress"], 1.0)
-        d = self.doc(job["tid"])
-        self.assertEqual((os.path.normcase(d["sourcePath"]), d["sourceName"]), (os.path.normcase(dst), "配信 60_30fps.mp4"))
-        self.assertEqual(len(d["segments"]), 2)
-        self.assertEqual(d["relinks"][-1]["why"], RL.NORM_WHY)
-        self.assertEqual(os.path.normcase(d["relinks"][-1]["from"]), os.path.normcase(src))
-        self.assertTrue(os.path.isfile(src))   # 元は消さない
+        self.assertEqual((os.path.normcase(p["dst"]), p["reuse"], p["replace"]), (os.path.normcase(dst), False, False))
+        path, note = FN.run(p, on_progress=prog.append, on_start=lambda: seen.append("start"))
+        self.assertEqual(os.path.normcase(path), os.path.normcase(dst))
+        self.assertEqual(seen, ["start"])
+        self.assertEqual(prog[-1], 1.0)
+        self.assertIn("30fps", note)
+        self.assertTrue(os.path.isfile(src))
         self.assert_30(dst)
-        self.assertTrue(doc_jobs.public_job(job)["normOk"])
-        self.assertIn("30fps", doc_jobs.public_job(job)["normNote"])
         self.assertEqual([n for n in os.listdir(self.media) if N.PART in n], [])
-        self.assertEqual(store.find_doc_for_media(src)["id"], job["tid"])   # 付け替える前のパスからも見つかる(?media=・スタジオから開く)
-        self.assertEqual(store.find_doc_for_media(dst)["id"], job["tid"])
 
     def test_30fps_is_not_remade(self):
-        src = self.copy(self.v30, "そのまま.mp4")
-        with mock.patch.object(RL._vnorm, "normalize", side_effect=AssertionError("作り直さない")):
-            job = self.transcribe(src)
-        d = self.doc(job["tid"])
-        self.assertEqual(os.path.normcase(d["sourcePath"]), os.path.normcase(src))
-        self.assertNotIn("relinks", d)
-        self.assertEqual(sorted(os.listdir(self.media)), ["そのまま.mp4"])
-        self.assertEqual(doc_jobs.public_job(job)["normNote"], "")
+        self.assertIsNone(FN.plan(self.copy(self.v30, "そのまま.mp4")))
 
     def test_existing_30fps_copy_is_reused(self):
         src = self.copy(self.v60, "a.mp4")
         made = self.copy(self.v30, "a_30fps.mp4")   # 前に作った 30fps の写し(長さも同じ)
-        with mock.patch.object(RL._vnorm, "normalize", side_effect=AssertionError("作り直さない")):
-            job = self.transcribe(src)
-        self.assertEqual(os.path.normcase(self.doc(job["tid"])["sourcePath"]), os.path.normcase(made))
-        self.assertIn("があったので", job["normNote"])
+        p = FN.plan(src)
+        self.assertTrue(p["reuse"])
+        with mock.patch.object(N, "normalize", side_effect=AssertionError("作り直さない")):
+            path, note = FN.run(p)
+        self.assertEqual(os.path.normcase(path), os.path.normcase(made))
+        self.assertIn("があったので", note)
 
     def test_unusable_existing_name_is_not_overwritten(self):
         """同じ名前があっても 30fps でない(別の動画)なら上書きせず、次の名前に作る"""
         src = self.copy(self.v60, "b.mp4")
         other = self.copy(self.v60, "b_30fps.mp4")
         size = os.path.getsize(other)
-        job = self.transcribe(src)
+        p, (path, note) = self.make_run(src)
         dst = os.path.join(self.media, "b_30fps_2.mp4")
-        self.assertEqual(os.path.normcase(self.doc(job["tid"])["sourcePath"]), os.path.normcase(dst))
+        self.assertEqual(os.path.normcase(path), os.path.normcase(dst))
         self.assertEqual(os.path.getsize(other), size)
         self.assert_30(dst)
 
-    def test_eval_is_not_remade(self):
-        """評価用(evalSet)は作り直さない(パックを作らない・評価用のフォルダの整理が動画の数を数えるため)"""
-        src = self.copy(self.v60, "評価.mp4")
-        with mock.patch.object(RL._vnorm, "normalize", side_effect=AssertionError("作り直さない")):
-            job = self.transcribe(src, evalSet=True)
-        d = self.doc(job["tid"])
-        self.assertTrue(d["evalSet"])
-        self.assertEqual(os.path.normcase(d["sourcePath"]), os.path.normcase(src))
-        self.assertEqual(os.listdir(self.media), ["評価.mp4"])
+    def test_names_all_taken_gives_note(self):
+        src = self.copy(self.v60, "n.mp4")
+        for nm in ["n_30fps.mp4"] + ["n_30fps_%d.mp4" % i for i in range(2, 10)]:
+            self.copy(self.v60, nm)
+        p = FN.plan(src)
+        self.assertIsNone(p["dst"])
+        self.assertIn("空いていない", p["note"])
+        self.assertEqual(FN.run(p), (None, p["note"]))
 
-    def test_eval_dir_is_not_remade(self):
-        """評価用のフォルダ(設定 evalDirs)の中の動画も、画面のチェックが無くても作り直さない"""
-        root = os.path.join(self.tmp, "評価用データ")
-        os.makedirs(os.path.join(root, "01_ときのそら"))
-        src = os.path.join(root, "01_ときのそら", "x.mp4")
-        shutil.copy(self.v60, src)
-        with open(S.SETTINGS, "w", encoding="utf-8") as f:
-            json.dump({"evalDirs": [root]}, f)
-        with mock.patch.object(RL._vnorm, "normalize", side_effect=AssertionError("作り直さない")):
-            job = self.transcribe(src)
-        self.assertEqual(os.path.normcase(self.doc(job["tid"])["sourcePath"]), os.path.normcase(src))
-        self.assertEqual(os.listdir(os.path.join(root, "01_ときのそら")), ["x.mp4"])
-
-    def test_failure_keeps_doc(self):
-        """作り直しに失敗しても文書(文字起こしの結果)は残り、元の動画を指す。知らせに理由"""
+    def test_failure_gives_reason(self):
         src = self.copy(self.v60, "c.mp4")
-        with mock.patch.object(RL._vnorm, "normalize", side_effect=N.NormalizeError("こわれた")):
-            job = self.transcribe(src)
-        d = self.doc(job["tid"])
-        self.assertEqual(os.path.normcase(d["sourcePath"]), os.path.normcase(src))
-        self.assertEqual(len(d["segments"]), 2)
-        pj = doc_jobs.public_job(job)
-        self.assertFalse(pj["normOk"])
-        self.assertIn("こわれた", pj["normNote"])
-        self.assertTrue(any("こわれた" in w for w in pj["warnings"]))
+        with mock.patch.object(N, "normalize", side_effect=N.NormalizeError("こわれた")):
+            path, note = FN.run(FN.plan(src))
+        self.assertIsNone(path)
+        self.assertIn("こわれた", note)
 
-    def test_real_ffmpeg_failure_keeps_doc(self):
+    def test_real_ffmpeg_failure(self):
         src = self.copy(self.v60, "d.mp4")
         with mock.patch.object(N, "encode_args", return_value=["-no_such_option_xyz", "1"]):
-            job = self.transcribe(src)
-        self.assertEqual(os.path.normcase(self.doc(job["tid"])["sourcePath"]), os.path.normcase(src))
-        self.assertIn("30fps にそろえられませんでした", job["normNote"])
+            path, note = FN.run(FN.plan(src))
+        self.assertIsNone(path)
+        self.assertIn("30fps にそろえられませんでした", note)
         self.assertEqual(os.listdir(self.media), ["d.mp4"])   # 書きかけは残らない
 
-    def test_cancel_during_normalize_keeps_doc(self):
+    def test_cancel(self):
         src = self.copy(self.v60, "e.mp4")
-        spec = doc_jobs.validate_job({"sourcePath": src, "model": "small"})
-        job = jobs.add_job(spec)
-        real = N.normalize
-
-        def cancel_then_run(*a, **kw):
-            job["cancel"] = True   # 「中止」が押された
-            return real(*a, **kw)
-        with mock.patch.object(RL._vnorm, "normalize", side_effect=cancel_then_run):
-            self.run_job(job)
-        self.assertEqual(os.path.normcase(self.doc(job["tid"])["sourcePath"]), os.path.normcase(src))
-        self.assertIn("取り消しました", job["normNote"])
+        path, note = FN.run(FN.plan(src), cancelled=lambda: True)
+        self.assertIsNone(path)
+        self.assertIn("取り消しました", note)
         self.assertEqual(os.listdir(self.media), ["e.mp4"])
 
-    def test_no_room_keeps_doc(self):
-        """空きが足りない・書き込めないときは作らずに知らせる"""
+    def test_no_room(self):
+        """空きが足りない・書き込めないときは作らずに理由を返す"""
         src = self.copy(self.v60, "f.mp4")
-        with mock.patch.object(RL.shutil, "disk_usage", return_value=shutil._ntuple_diskusage(100, 99, 1)):
-            job = self.transcribe(src)
-        self.assertIn("空きが足りない", job["normNote"])
-        self.assertEqual(os.path.normcase(self.doc(job["tid"])["sourcePath"]), os.path.normcase(src))
+        with mock.patch.object(FN.shutil, "disk_usage", return_value=shutil._ntuple_diskusage(100, 99, 1)):
+            path, note = FN.run(FN.plan(src))
+        self.assertIsNone(path)
+        self.assertIn("空きが足りない", note)
         src2 = self.copy(self.v60, "g.mp4")
         real = tempfile.mkstemp
 
-        def mkstemp(*a, **kw):   # 動画のフォルダにだけ書けない(読み取り専用のふり。ほかの一時ファイルは今までどおり)
+        def mkstemp(*a, **kw):   # 動画のフォルダにだけ書けない(読み取り専用のふり)
             if os.path.normcase(str(kw.get("dir") or "")) == os.path.normcase(self.media):
                 raise PermissionError("読み取り専用")
             return real(*a, **kw)
-        with mock.patch.object(RL.tempfile, "mkstemp", side_effect=mkstemp):
-            job = self.transcribe(src2)
-        self.assertIn("書き込めない", job["normNote"])
-        self.assertEqual(os.path.normcase(self.doc(job["tid"])["sourcePath"]), os.path.normcase(src2))
+        with mock.patch.object(FN.tempfile, "mkstemp", side_effect=mkstemp):
+            path, note = FN.run(FN.plan(src2))
+        self.assertIsNone(path)
+        self.assertIn("書き込めない", note)
 
     def test_switch_off(self):
         src = self.copy(self.v60, "h.mp4")
         with mock.patch.dict(os.environ, {"TRANSCRIBE_NORMALIZE": "off"}):
-            job = self.transcribe(src)
-        self.assertEqual(os.path.normcase(self.doc(job["tid"])["sourcePath"]), os.path.normcase(src))
+            self.assertIsNone(FN.plan(src))
 
     def test_audio_only_is_skipped(self):
         wav = os.path.join(self.media, "声.wav")
         subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=6", wav], check=True)
-        job = self.transcribe(wav)
-        self.assertEqual(job["normNote"] if "normNote" in job else "", "")
-        self.assertEqual(os.listdir(self.media), ["声.wav"])
+        self.assertIsNone(FN.plan(wav))
+
+    def test_replace_mode_swaps_the_copy(self):
+        """replace=True(③ 受付の写し用): 同じ名前の .mp4 に作って、拡張子が違えば古い写しを消す。mp4 なら同じ名前のまま上書き"""
+        mov = self.copy(self.v60, "写し.mov")   # 中身は mp4 でも拡張子は .mov の写し
+        p = FN.plan(mov, replace=True)
+        self.assertEqual((os.path.basename(p["dst"]), p["replace"], p["reuse"]), ("写し.mp4", True, False))
+        path, note = FN.run(p)
+        self.assertEqual(os.listdir(self.media), ["写し.mp4"])
+        self.assert_30(path)
+        mp4 = self.copy(self.v60, "同じ.mp4")
+        p2 = FN.plan(mp4, replace=True)
+        self.assertEqual(os.path.normcase(p2["dst"]), os.path.normcase(mp4))
+        path2, _ = FN.run(p2)
+        self.assertEqual(os.listdir(self.media), sorted(["写し.mp4", "同じ.mp4"], key=str))
+        self.assert_30(path2)
+        taken = self.copy(self.v60, "かぶる.mov")
+        self.copy(self.v30, "かぶる.mp4")   # 同じ名前の .mp4 が別にある → 乱数つき
+        p3 = FN.plan(taken, replace=True)
+        self.assertNotEqual(os.path.basename(p3["dst"]), "かぶる.mp4")
+
+    def test_job_body_swaps_and_notes(self):
+        """ジョブ normalize の本体: 進み具合・付け替え(swap)・知らせ。付け替えなかったら元の動画のまま"""
+        src = self.copy(self.v60, "j.mp4")
+        calls = []
+        job = {"spec": {"tid": "t1", "plan": FN.plan(src)}, "state": "queued"}
+        FN.run_job(job, swap=lambda tid, s, d: calls.append((tid, os.path.normcase(s), os.path.normcase(d))))
+        self.assertEqual(calls, [("t1", os.path.normcase(os.path.abspath(src)), os.path.normcase(os.path.join(self.media, "j_30fps.mp4")))])
+        self.assertEqual((job["state"], job["phase"], job["progress"], job["normOk"]), ("done", "完了", 1.0, True))
+        src2 = self.copy(self.v60, "k.mp4")
+        job2 = {"spec": {"tid": "t2", "plan": FN.plan(src2)}, "state": "queued"}
+        FN.run_job(job2, swap=lambda tid, s, d: "動いたので付け替えません")
+        self.assertEqual((job2["phase"], job2["normOk"], job2["normNote"]), ("元の動画のまま", False, "動いたので付け替えません"))
+        self.assertTrue(job2["warnings"])
 
     def test_swap_skipped_when_doc_moved(self):
-        """作り直しの間に文書の動画が変わった(以前の版に戻した など)ら付け替えない"""
+        """④ norm_swap: 作り直しの間に文書の動画が変わった(以前の版に戻した など)ら付け替えない"""
         src = self.copy(self.v60, "i.mp4")
-        job = self.transcribe(src)
-        tid = job["tid"]
+        tid = store.open_video({"path": src})["id"]
+        before = self.doc(tid)["updatedAt"]
+        self.assertIsNotNone(RL.norm_swap(tid, os.path.join(self.media, "other.mp4"), os.path.join(self.media, "x.mp4")))
+        self.assertEqual(self.doc(tid)["updatedAt"], before)
+        dst = self.copy(self.v30, "i_30fps.mp4")
+        self.assertIsNone(RL.norm_swap(tid, src, dst))
         d = self.doc(tid)
-        before = d["updatedAt"]
-        self.assertEqual(RL.norm_swap(tid, src, os.path.join(self.media, "x.mp4")) is not None, True)
-        self.assertEqual(self.doc(tid)["updatedAt"], before)   # 付け替え(bump=False)は更新日時を変えない = 開いている画面の保存が 409 にならない
+        self.assertEqual(d["updatedAt"], before)   # 付け替え(bump=False)は更新日時を変えない = 開いている画面の保存が 409 にならない
+        self.assertEqual(os.path.normcase(d["sourcePath"]), os.path.normcase(dst))
+        self.assertEqual(d["relinks"][-1]["why"], RL.NORM_WHY)
+        self.assertEqual(store.find_doc_for_media(src)["id"], tid)   # 付け替える前のパスからも見つかる(?media=・スタジオから開く)
 
 
 class TestRelinkNormalize(_Base):

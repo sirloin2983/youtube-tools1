@@ -95,6 +95,7 @@ from flow import placement as _placement  # noqa: E402  (② 置き場所の持�
 from flow import jobs as _heavy_jobs  # noqa: E402
 from ytt import jobs as _slots_jobs  # noqa: E402  重い処理の枠・Cancelled・check_cancel(① の部品も使う物。RS6 a-2 で flow/jobs と分けた)
 from flow import board as _flowboard  # noqa: E402  ② のジョブの掲示板(RS8 の ② の口)
+from flow import normalize as _flownorm  # noqa: E402  ② 30fps にそろえる 1 つの段(ジョブ normalize の本体。OPT-M2 5b-1)
 from flow import wire as _flowwire  # noqa: E402  ② 文字起こしの配線(ジョブの種類の登録・ジョブの表の設定・本物と疑似の選び方・① の口。RS6 a-5b)
 from flow import tx as _flowtx  # noqa: E402  ② 文字起こしの動詞(RS6 a-3。_doc_fields・dict_pairs・redo_kwargs と alt_engine_version はここ)
 from pipeline.transcribe import clipjob as _txclipjob  # noqa: E402  ① 文字起こしのジョブの機械の文書の行(RS6 a-3 に doc_jobs.run_job から。_rows_to_doc はここ)
@@ -137,7 +138,7 @@ from human.proof import machpick as _machpick  # noqa: E402  (3 択の口: 機�
 from human.proof import store as _store  # noqa: E402  (文書の読み書き・層・履歴・消す・整形・校正の行の数と作業中の印・要約のキャッシュ・編集の内容)
 from manage.cases import doclist as _doclist  # noqa: E402  (一覧と元の動画・パックの有無・前回のパックの手順。RS3-E5a に切り出した)
 from manage.cases import relink as _relink  # noqa: E402  (付け替え・まとめて付け替える・「参照…」・素材を 30fps にそろえる。RS3-E7 に ed_relink から移した。ed_relink は転送だけの殻)
-from eval.drill import folders as _evfolders  # noqa: E402  (評価用のフォルダの整理・仮置き・外からの取り込み。RS3-E7 に ed_relink から切り出した)
+from manage.keep import evalfolders as _evfolders  # noqa: E402  (評価用のフォルダの整理・仮置き・外からの取り込み。RS3-E7 に ed_relink から切り出し、OPT-M2 で ④ manage/keep へ)
 from manage.cases import handoff_io as _handoff_io  # noqa: E402  (clip-marker との連携・受け渡しの API。RS3-E7 に ed_misc から移した。ed_misc は転送だけの殻)
 from human.proof import batch as _batch  # noqa: E402  (文字起こし済みの範囲 transcribed_ranges だけ。汎用のフォルダの一括は消した。OPT-M1 で read_marker と一緒に消す)
 from eval.drill import drill as _drill  # noqa: E402  (評価ドリルと定点の「あと何分」。マスタープラン Q4。RS4-2 に ed_drill から移した = 殻なし)
@@ -176,7 +177,7 @@ _ED_MODULES += (_flowpack,)   # RS6 a-5a: ② パックの動詞(カットのた
 _flowwire.install(
     bodies={"transcribe": lambda job: _docjobs.run_job(job), "diarize": lambda job: _speakers.run_diarize(job), "voice-learn": lambda job: _speakers.run_voice_learn(job),
             "retranscribe": lambda job: _rerun.run_retranscribe(job), "redo": lambda job: _rerun.run_redo(job),
-            "normalize": lambda job: _relink.run_normalize(job),   # 動画を選び直したあとの 30fps の作り直し(Q1)
+            "normalize": lambda job: _flownorm.run_job(job, swap=lambda tid, src, dst: _relink.norm_swap(tid, src, dst)),   # 動画を選び直したあとの 30fps の作り直し(Q1。本体は ② flow/normalize・付け替えは ④)
             "alt": lambda job: _alt.run_alt(job), "thumb": lambda job: ed_thumb.run_thumb(job)},
     tool=ed_state.TOOL_ID, log=ed_state.log, tmp_dir=lambda: _workdata.TMP_DIR, max_queue=lambda: ed_state.MAX_QUEUE,
     mark=lambda info: ed_state.write_mark(info), no_retry=lambda: _docjobs.NO_RETRY,
@@ -186,11 +187,10 @@ _flowwire.install(
 _heavy_jobs.attach_board(_flowboard.default())   # ② のジョブの掲示板に頭 tx で見せる(引く形・取り消し・やり直し。表と /api/jobs は今のまま。RS8 の ② の口 S2)
 # ---- 差し込みの口(import の向きを守るため、上の層の関数を起動時に渡す)はここと flow/wire.install の 2 つだけ(OPT-H1) ----
 # ① ← ②(flow/wire.install の中): jobs.configure・backend.set_selector・records.set_dict_inputs
-# ③ ← ④⑤(下の 2 つ): doc_jobs.set_hooks(評価用の作り直し = ⑤ evalbatch・30fps の作り直し = ④ relink)・speakers.set_context_namer(⑤ drill の名前の候補)
+# ③ ← ⑤(下の 2 つ): doc_jobs.set_hooks(評価用の作り直し = ⑤ evalbatch)・speakers.set_context_namer(⑤ drill の名前の候補)。30fps の作り直しは ② flow/normalize(OPT-M2)
 # 例外: 学習データの読み手 doc_jobs.set_learning は機械の設定(learningDir)が要るので入口 app/server.py が入れる
 # 呼ぶたびに持ち主のモジュールの属性を読む(test_evalbatch の patch.object(EB, "eb_redo_skip_at_start") が届く)。呼ぶ順は run_job のまま
-_docjobs.set_hooks(redo_skip=lambda job: _evalbatch.eb_redo_skip_at_start(job), redo_fill=lambda job, spec, fields: _evalbatch.eb_redo_fill(job, spec, fields),
-                   norm_after=lambda job, spec, tid: _relink.norm_after_transcribe(job, spec, tid))
+_docjobs.set_hooks(redo_skip=lambda job: _evalbatch.eb_redo_skip_at_start(job), redo_fill=lambda job, spec, fields: _evalbatch.eb_redo_fill(job, spec, fields))
 _docjobs.check_hooks()
 _speakers.set_context_namer(lambda tid: _drill.drill_candidates(tid).get("suggest"))
 _speakers.check_context_namer()

@@ -15,7 +15,7 @@
   S.名前 で読め、差し替えが持ち主に届く
 - RS3-E6 の前に ed_alt・ed_ytcap・ed_retime が持っていた名前(data_ed_alt_names.txt ほか)は、human/proof の alt・ytcap・retime へ移しても
   S.名前 で読め、差し替えが持ち主に届く(疑似の行 _alt_fake は eval/fake/fake_asr)
-- RS3-E7 の前に ed_relink・ed_misc が持っていた名前(data_ed_relink_names.txt・data_ed_misc_names.txt)は、manage/cases/relink・eval/drill/folders と
+- RS3-E7 の前に ed_relink・ed_misc が持っていた名前(data_ed_relink_names.txt・data_ed_misc_names.txt)は、manage/cases/relink・manage/keep/evalfolders と
   manage/cases/handoff_io・human/proof/batch に分けても S.名前 で読める(進行度 progress は 0.69.0 で消した)
 - RS4-2 の前に ed_drill・ed_evalbatch が持っていた名前(data_ed_drill_names.txt・data_ed_evalbatch_names.txt)は、eval/drill の drill・evalbatch へ
   殻なしで移しても S.名前 で読め、差し替えが持ち主に届く
@@ -326,18 +326,18 @@ class TestEdAltYtcapRetimeNames(unittest.TestCase):
 
 
 class TestEdRelinkNames(unittest.TestCase):
-    """ed_relink を manage/cases/relink(付け替え・まとめて付け替える・30fps)と eval/drill/folders(評価用のフォルダの整理)に分けた(RS3-E7。殻は RS5-A で消した)。
+    """ed_relink を manage/cases/relink(付け替え・まとめて付け替える・30fps)と manage/keep/evalfolders(評価用のフォルダの整理)に分けた(RS3-E7。殻は RS5-A で消した。evalfolders は OPT-M2 で ④ へ)。
     旧い名前は S で読め、差し替えは持ち主に届き、folders は付け替えの書き込みを relink から呼ぶたびに読む(④ → ③)"""
 
     @staticmethod
     def owners():
-        from eval.drill import folders
         from manage.cases import relink
+        from manage.keep import evalfolders as folders
         return relink, folders
 
     def test_old_ed_relink_names_still_resolve(self):
         names = _old_names("data_ed_relink_names.txt")
-        self.assertEqual(len(names), 68)
+        self.assertEqual(len(names), 56)
         missing = [n for n in names if not hasattr(S, n)]
         self.assertEqual(missing, [])
 
@@ -365,11 +365,11 @@ class TestEdRelinkNames(unittest.TestCase):
             relink.FIND_MAX_DEPTH = saved
         self.assertNotIn("FIND_MAX_DEPTH", vars(S))
 
-    def test_norm_after_hook_points_to_relink(self):
-        """doc_jobs の口 norm_after は relink.norm_after_transcribe を呼ぶたびに読む(S の差し替えが届く)"""
-        doc_jobs.check_hooks()
-        with mock.patch.object(S, "norm_after_transcribe", lambda job, spec, tid: "norm:" + tid):
-            self.assertEqual(doc_jobs._hook("norm_after")({}, {}, "t1"), "norm:t1")
+    def test_norm_after_hook_is_gone(self):
+        """文字起こしの続きの 30fps の口 norm_after は無い(OPT-M2 5b-2。受付の段 ② flow/normalize が先にそろえる)"""
+        self.assertNotIn("norm_after", doc_jobs._HOOK_KEYS)
+        relink, _ = self.owners()
+        self.assertFalse(hasattr(relink, "norm_after_transcribe"))
 
 
 class TestEdMiscNames(unittest.TestCase):

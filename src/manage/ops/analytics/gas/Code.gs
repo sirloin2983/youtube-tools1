@@ -2,7 +2,7 @@
  * Youtube分析 連携 (Google Apps Script)
  *
  * 何のためのプロジェクトか
- *   PC のローカルのツール(src/analytics/。Python)が YouTube チャンネルの日次分析をして LINE に送る形にするための、
+ *   PC のローカルのツール(src/manage/ops/analytics/。Python)が YouTube チャンネルの日次分析をして LINE に送る形にするための、
  *   Google 側の窓口。PC は iPhone から直接データを受け取れないので、Drive を間に挟む。
  *     (1) iPhone のブックマーク → 既存の「Youtube日次」プロジェクトが Drive の raw/<日付>.json に書く(このプロジェクトは触らない)
  *         → このプロジェクトが、その raw をツールに渡す(list / get)

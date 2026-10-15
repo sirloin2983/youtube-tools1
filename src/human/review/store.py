@@ -63,7 +63,7 @@ def _warn(msg):
     _log.warning(msg)
 
 
-_index_row = _casefiles.index_row   # 全部の形 -> data.json の索引の行(ytt/casefiles。manage/cases/markmove もこの名前で読む)
+_index_row = _casefiles.index_row   # 全部の形 -> data.json の索引の行(ytt/casefiles)
 _stored = _casefiles.stored         # 全部の形 -> 案件のファイルに分ける形(印 case・caseUnseen を外す)
 
 
@@ -289,6 +289,7 @@ class Store:
             self.warning = "作業データ(マークの記録)の一部(%s)が壊れていたので、読み飛ばしました。" % "・".join(parts) + (RESTORE_STEPS if name else "")
             _warn("data.json の壊れた%sを読み飛ばしました。元のファイルは %s" % ("・".join(parts), name or "(退避に失敗)"))
 
+    _load_live = staticmethod(_studiodata.load_live)     # 録画の live の検査(ytt/studiodata。flow/studiobook と同じ 1 つ)
     _load_video = staticmethod(_studiodata.load_video)   # data.json の行 -> メモリの形(ytt/studiodata。manage/cases/markmove・eval_casebook もこの名前で読む = OPT-M1/E1 で ytt 直に)
 
     @staticmethod

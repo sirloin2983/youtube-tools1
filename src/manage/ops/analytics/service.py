@@ -7,7 +7,7 @@
 4. 週報は確定した週が変わったら・月報は確定した月が変わったら、同じ流れで送る
 5. 画面の「今すぐ」でも同じこと(手動)。PC が止まっていた日は、起動したときに最新の分だけ送る
 
-作業データ(%LOCALAPPDATA%/youtube-tools/analytics/。YTT_DATA_DIR=inplace なら src/analytics/data/):
+作業データ(%LOCALAPPDATA%/youtube-tools/analytics/。YTT_DATA_DIR=inplace なら src/manage/ops/analytics/data/):
 - config.json: {"url", "secret", "enabled"}(合言葉は画面へ返さない)
 - raw/<名前>__<ファイルID>.json: 受け取った raw(そのまま)
 - reports/<kind>/<期間>.json・.html・.txt: 作った報告(画面で見る)
@@ -21,7 +21,8 @@ import threading
 import time
 import traceback
 
-from . import VERSION, bridge as bridge_mod, calc, data, render
+from ytt.version import VERSION  # 全体の版(ytt/version.py。パッケージの __init__ には import を置かない = test_layering)
+from . import bridge as bridge_mod, calc, data, render
 
 CHECK_EVERY = 300        # 新しい raw を見る間隔(秒)
 FIRST_WAIT = 45          # 起動してから最初に見るまで(秒。ツールの起動とぶつけない)
@@ -43,7 +44,7 @@ KIND_NAMES = {"daily": "日報", "weekly": "週報", "monthly": "月報"}
 
 
 def data_dir(legacy=None):
-    """作業データのフォルダ(ytt.datadir の規則。inplace なら src/analytics/data)"""
+    """作業データのフォルダ(ytt.datadir の規則。inplace なら src/manage/ops/analytics/data)"""
     from ytt import datadir
     legacy = legacy or os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
     return datadir.tool_dir("analytics", legacy)

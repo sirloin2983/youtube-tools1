@@ -150,7 +150,7 @@ class Live(livesession.LiveSession):
         audio(): 束の無い録画の書き出しの音量の設定 {"volume", "loudness"}(既定 スタジオの書き出しの設定 = studio_audio)。
         server: 入口のサーバー(取り込んだスタジオの API を呼ぶ = P4 の作り直し。画面の要求が来る前の自動の作り直しでも使えるように、入口が渡す)。
         archive_opts: src/flow/live_archive.py の Archiver へ渡す引数(テスト用: studio・probe・fetch・間隔)。
-        cleanup_opts: src/manage/keep/live_cleanup.py の Cleaner へ渡す引数(テスト用: 24 時間・7 日・見回りの間隔を縮める)"""
+        cleanup_opts: src/manage/keep/live_cleanup.py の Cleaner へ渡す引数(テスト用: 24 時間・3 日・見回りの間隔を縮める)"""
         self.prefs = prefs
         self._server = server
         self.headless = False              # 画面なし(use_headless)

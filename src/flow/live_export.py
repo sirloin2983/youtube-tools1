@@ -140,13 +140,20 @@ def rec_list(call, rc, timeout=5.0):
 
 
 def latest_per_mark(js):
-    """マークごとの最新のジョブ(作った時刻の新しいもの)。本番版への作り直しの対象(live_archive)と、録画を消すか(live_cleanup)で同じ決め方"""
+    """マークごとの最新のジョブ(作った時刻の新しいもの)。本番版への作り直しの対象(live_archive)と、録画を消すか(live_retire)で同じ決め方"""
     last = {}
     for j in js:
         p = last.get(j.get("markId"))
         if p is None or str(j.get("created") or "") >= str(p.get("created") or ""):
             last[j.get("markId")] = j
     return list(last.values())
+
+
+def cleaned_up(job):
+    """録画の片付け(src/flow/live_retire.py の口。④ live_cleanup が記す)が済んだジョブか: 録画を消した(recordingDeleted)うえで、
+    退避した速報版が無いか消した(archive.keepDeleted)。済んだ物から記録を切ってよい(Exporter._trim。7e-3)"""
+    a = job.get("archive") if isinstance(job.get("archive"), dict) else {}
+    return bool(job.get("recordingDeleted")) and (not a.get("keep") or bool(a.get("keepDeleted")))
 
 
 # ---------- マーク(正本) ----------
@@ -569,8 +576,13 @@ class Exporter(Patrol):
         self._publish(job)
 
     def _trim(self):
+        """終わったジョブを KEEP_JOBS 件までに切る。録画の片付け(src/flow/live_retire.py)が済んだ物(cleaned_up)から古い順に切り、
+        足りなければ残りを古い順に(7e-3: 片付けの済んでいないジョブを先に切ると、退避した速報版を誰も消さなくなる)"""
         done = [j for j in self.jobs if j["state"] not in ACTIVE]
-        for j in done[:max(0, len(done) - KEEP_JOBS)]:
+        n = len(done) - KEEP_JOBS
+        if n <= 0:
+            return
+        for j in ([j for j in done if cleaned_up(j)] + [j for j in done if not cleaned_up(j)])[:n]:
             self.jobs.remove(j)
 
     # --- 画面から ---
