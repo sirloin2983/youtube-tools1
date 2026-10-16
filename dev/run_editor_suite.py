@@ -21,7 +21,7 @@ UNIT = [
     ("home test_mount", [PY, "-m", "unittest", "src/home/tests/test_mount.py"], False),
     ("契約テスト", [PY, "-m", "unittest", "dev/tests/test_resolve_pack_contract.py"], False),
     ("eval_asr", [PY, "-m", "unittest", "src/eval/tools/tests/test_eval_asr.py"], False),
-    ("eval_alt", [PY, "-m", "unittest", "src/eval/tools/tests/test_eval_alt.py"], False),   # 候補の当たり率(alt・YouTube の字幕 yt)
+    ("eval_alt", [PY, "-m", "unittest", "src/eval/tools/tests/test_eval_alt.py"], False),   # 候補の当たり率(alt)
 ]
 def find_node():
     """node(PATH に無ければ Playwright に入っている node.exe)。無ければ None"""

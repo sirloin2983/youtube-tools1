@@ -1,11 +1,11 @@
 /* 確かめるのカード「どちらの読みが正しいか」(/check-cards/read.js。V2b)。比べる欄は ui-kit の .ui-pair(3 択と共用)・口は check.js の先頭。
-   カード: options = [{id: "1", text}, {id: "2", text}]。read:fill は 1 = 後処理のあと・2 = 認識のまま / read:alt・read:yt は 1 = 今の字幕・2 = その読みを入れた行。
+   カード: options = [{id: "1", text}, {id: "2", text}]。read:fill は 1 = 後処理のあと・2 = 認識のまま / read:alt は 1 = 今の字幕・2 = その読みを入れた行。
    答え = {choice: "1" | "2"} か {choice: "other", text: 打った正しい文字}(1 / 2 / 3 で答える。3 = どちらも違う = 入力欄が開き、Enter で決める・Esc でやめる)。
    **文字だけの判定**: 行を校正済みにしない・行の時刻の正解には使わない(反映は src/human/check/read.py)。 */
 (function () {
   'use strict';
   var esc = UIKit.esc;
-  var LABELS = { fill: ['後処理のあと', '認識のまま'], alt: ['今の字幕', '2 つ目のエンジン'], yt: ['今の字幕', 'YouTube の字幕'] };
+  var LABELS = { fill: ['後処理のあと', '認識のまま'], alt: ['今の字幕', '2 つ目のエンジン'] };
   var MAX_TEXT = 1000;
 
   function opts(card) {

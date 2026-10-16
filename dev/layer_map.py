@@ -47,7 +47,7 @@ FILES = {
     "src/app/check/sources.py": ("app", "app/check", "カードの出どころの登録と V0 の 5 つ(value:auto・value:cand・read:fill・voice:diar・time:row。読むだけ。評価用はここ 1 か所で外す。manage/cases を読む)"),
     "src/app/check/deck.py": ("app", "app/check", "GET /api/check/next の組み立てと、答える前にカードを引き直す find(sources + lineup + goals + 答えの記録)"),
     "src/human/check/answerlog.py": ("human", "human/check", "確かめるの答えの記録 app/check/answers.jsonl(答え・確定・戻す)と skip.json の読み書き(ytt だけを読む)"),
-    "src/app/check/read_sources.py": ("app", "app/check", "読みのカードの出どころ read:alt・read:yt(V2b。2 つ目のエンジン / YouTube の字幕の食い違いを 1 行 1 枚に。読むだけ。human/proof の alt_diffs・ytcap_diffs・learn を読む)"),
+    "src/app/check/read_sources.py": ("app", "app/check", "読みのカードの出どころ read:alt(V2b。2 つ目のエンジンの食い違いを 1 行 1 枚に。読むだけ。human/proof の alt_diffs・learn を読む)"),
     "src/human/check/read.py": ("human", "human/check", "読みのカードの反映(V2b。fill・alt・yt の 1 / 2 / 打つ。文書は store.commit(why=check:read)・採否は learn-feedback。行を校正済みにしない・時刻に触れない)"),
     "src/human/check/timerow.py": ("human", "human/check", "時刻のカードの反映(行の start / end を ← → で動かした量だけ変える・動かさなければ記録だけ・Z で戻す。store.commit why='check:time')"),
     "src/human/check/value.py": ("human", "human/check", "価値のカード(value:auto = 届ける・要らない(auto_review の口)/ value:cand = 採用 + 書き出しを頼む・不採用(studio の口))の反映の登録(V2a)"),

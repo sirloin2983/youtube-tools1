@@ -11,7 +11,7 @@ V0 で入れた出どころ(細部は V2 で直す):
   voice:diar  話者の判別(.diar.json の latest.rows)の行で、1 秒以上・混ざり無し・校正していない物。自信の低い順(照合の弱い話者 → 弱い行 → 声の無い人)。
               選択肢と機械の予想は ③ human/check/voice(答えの形の持ち主。V2c)が組む = 文書の話者 + 覚えた声の登録簿にいて文書にいない人 + その他 + 混ざり
   time:row    文字が決まった行(校正済みか、読みのカードで答えた行)で、時刻のカードにまだ答えていない物
-read の「別のエンジン / YouTube の字幕」(alt / yt)は read_sources.py(V2b)が register で足す。
+read の「別のエンジン」(alt)は read_sources.py(V2b)が register で足す。
 """
 import os
 import re
@@ -339,7 +339,7 @@ for _k, _s, _f in (("value", "auto", value_auto), ("value", "cand", value_cand),
                    ("voice", "diar", voice_diar), ("time", "row", time_row)):
     register(_k, _s, _f)
 
-from . import read_sources   # noqa: E402,F401  read:alt・read:yt を足す(V2b。read_sources は上の register・_doc_card を読む)
+from . import read_sources   # noqa: E402,F401  read:alt を足す(V2b。read_sources は上の register・_doc_card を読む)
 
 
 def collect(ctx, state=None, kinds=None):

@@ -21,7 +21,6 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/eval/
 REPO = os.path.dirname(os.path.dirname(HERE))   # src(ツールと共通部品 ytt の置き場所)
 sys.path.insert(0, REPO)
 from eval.tools import eval_alt as E  # noqa: E402
-from human.proof import ytcap as _ytcap  # noqa: E402
 from human.proof import alt as _alt  # noqa: E402
 
 
@@ -349,7 +348,7 @@ class TestEvaluate(unittest.TestCase):
         rows = [answer("aaaaaaaaaaa1", "s5", "2", "花", "鳥"),                     # 校正済みでない → 当たり
                 undone, {"id": "a%013d-ffffff" % (T1 + 1), "at": T1 + 1, "undo": undone["id"], "reverted": {}},
                 answer("aaaaaaaaaaa1", "s3", "other", "蕎麦", "饂飩", text="昼はパンを食べる"),   # 校正済みで別の直し → 答えでも別の直し(1 件のまま)
-                answer("aaaaaaaaaaa1", "s1", "1", "猫", "犬", source="yt"),         # 別の出どころ(alt では数えない)
+                answer("aaaaaaaaaaa1", "s1", "1", "猫", "犬", source="yt"),         # 消した yt の答え(alt では数えない)
                 answer("bbbbbbbbbbb2", "s1", "2", "猫", "犬")]                      # 測らない文書(評価用)
         self.write_answers(rows)
         before = self.env.snapshot()
@@ -404,84 +403,6 @@ class TestNoSub(unittest.TestCase):
         with contextlib.redirect_stdout(out):
             E.print_report(res)
         self.assertIn("noSub", out.getvalue())
-
-
-VID = "AbCdEfGh_-1"
-
-
-def yt_clip(vid=VID, start=100.0, end=160.0, kind="youtube"):
-    return {"schema": "youtube-tools-clip/v1", "media": {"durationSec": end - start}, "source": {"kind": kind, "videoId": vid},
-            "range": {"start": start, "end": end}, "mark": {}, "export": {"mode": "precise"}}
-
-
-class TestYtSource(unittest.TestCase):
-    """--source yt|both(元の配信の YouTube の字幕の候補。案 A1): 保存してある ytcaps/ だけを使う(通信しない)・名簿の呼び名の所・alt との一致"""
-
-    # 機械の最初の出力と、配信の字幕(切り抜きは配信の 100 秒目から)。1 行目 = 名前の所(白上 → 白神)・2 行目 = 晴れ → 雨
-    ORIG = [row(0, 3, "白上フブキです"), row(10, 13, "今日は晴れですね")]
-    CUES = [[[100000, 103000, "白神フブキです"]], [[110000, 113000, "今日は雨ですね"]]]
-
-    def setUp(self):
-        self.env = Env()
-        E.C.prepare()
-
-    def tearDown(self):
-        self.env.close()
-
-    def cache(self, vid=VID, kind="auto", cues=None):
-        d = os.path.join(self.env.tx, "ytcaps")
-        os.makedirs(d, exist_ok=True)
-        self.env._write(vid + ".json", {"schema": _ytcap.YTCAP_VIDEO_SCHEMA, "videoId": vid, "kind": kind, "lang": "ja-orig", "at": 1,
-                                        "availability": "public", "cues": self.CUES if cues is None else cues}, under=d)
-
-    def human(self):
-        """1 行目 = そのまま(YouTube の候補は外れ)・2 行目 = 候補どおり(当たり)"""
-        return [seg(1, 0, 3, "白上フブキです"), seg(2, 10, 13, "今日は雨ですね")]
-
-    def test_yt_counts_names_and_read_only(self):
-        self.env.doc("aaaaaaaaaaa1", self.human(), original=self.ORIG, alt=None, clip=yt_clip())
-        self.env.doc("bbbbbbbbbbb2", self.human(), original=self.ORIG, alt=None, clip=yt_clip(vid="ZZZZZZZZZZZ"))   # 字幕を保存していない
-        self.env.doc("ccccccccccc3", self.human(), original=self.ORIG, alt=None)                                     # 元の配信が分からない
-        self.env.doc("ddddddddddd4", self.human(), original=self.ORIG, alt=None, clip=yt_clip(vid="NoCaption01"))
-        self.env.doc("eeeeeeeeeee5", self.human(), original=self.ORIG, alt=None, clip=yt_clip(), evalSet=True)
-        self.cache()
-        self.cache("NoCaption01", kind="none", cues=[])
-        before = self.env.snapshot()
-        res = self.env.run(source="yt")
-        self.assertEqual(self.env.snapshot(), before)                      # 作業データは書き換えない
-        m, t = res["meta"], res["total"]
-        self.assertEqual((m["source"], m["docs"], m["noYt"]), ("yt", 1, 1))
-        self.assertEqual((m["skipped"]["noClip"], m["skipped"]["noCaptions"], m["skipped"]["evalSet"]), (1, 1, 1))
-        self.assertEqual((t["candidates"], t["hit"], t["miss"]), (2, 1, 1))
-        self.assertIn("clipEdge", t["skipped"])
-        self.assertEqual(list(res["byEngine"]), ["youtube / auto"])
-        nm = t["names"]                                                    # 名簿の呼び名(白上フブキ)がある所 = 1 行目だけ
-        self.assertEqual((nm["candidates"], nm["hit"], nm["miss"], nm["hitRate"]), (1, 0, 1, 0.0))
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out):
-            E.print_report(res)
-        self.assertIn("YouTube の字幕の候補", out.getvalue())
-        self.assertIn("名簿の呼び名がある所", out.getvalue())
-        # 評価用も測る(読むだけ)
-        self.assertEqual(self.env.run(source="yt", include_eval=True)["meta"]["docs"], 2)
-
-    def test_alt_default_is_unchanged_and_both_has_agreement(self):
-        alt = [row(0, 3, "白神フブキです"), row(10, 13, "今日は曇りですね")]   # 1 行目は YouTube と同じ候補・2 行目は違う
-        self.env.doc("aaaaaaaaaaa1", self.human(), original=self.ORIG, alt=alt, clip=yt_clip())
-        self.cache()
-        a = self.env.run()
-        self.assertEqual((a["meta"]["source"], a["meta"]["docs"], a["total"]["candidates"]), ("alt", 1, 2))
-        self.assertNotIn("clipEdge", a["total"]["skipped"])
-        res = self.env.run(source="both")
-        self.assertEqual(res["meta"]["source"], "both")
-        self.assertEqual((res["alt"]["total"]["candidates"], res["yt"]["total"]["candidates"]), (2, 2))
-        ag = res["agree"]
-        self.assertEqual((ag["docs"], ag["candidates"], ag["miss"]), (1, 1, 1))   # 一致した 1 件(白上 → 白神。人はそのまま)
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out):
-            E.print_report(res)
-        self.assertIn("2 つが同じ候補", out.getvalue())
-        quiet(E.main, ["--data-dir", self.env.root, "--source", "yt"])
 
 
 if __name__ == "__main__":

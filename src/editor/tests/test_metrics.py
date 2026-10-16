@@ -745,7 +745,6 @@ from test_alt import *  # noqa: E402,F401,F403   2つ目のエンジンとの食
 from test_fill import *  # noqa: E402,F401,F403   認識のあとの後処理 A・C・D(10-08 の実験ループ。pipeline/transcribe/fill.py。0.60.0)
 from test_llm import *  # noqa: E402,F401,F403   LLM の後処理 E(提案 P18。pipeline/transcribe/llm.py・tx_engines.LlamaText・ワーカーの op complete。0.61.0)
 from test_thumb_job import *  # noqa: E402,F401,F403   サムネの案のジョブ(提案 P5。ed_thumb.py → thumb_ideas.py。0.64.0)
-from test_ytcap import *  # noqa: E402,F401,F403   元の配信の YouTube の字幕の候補の比べ方の部品(⑤ が読む分だけ。human/proof/ytcap.py)
 from test_autodiar import *  # noqa: E402,F401,F403   評価用の文書の文字起こしのあとの話者の自動判別(human/proof/speakers の autodiar_)
 from test_nosub_metrics import *  # noqa: E402,F401,F403   字幕に出さない行(noSub)と重なりの数え方・学習(eval/drill/metrics・human/proof/learn。RS3-E5c まで ed_learn.py)
 from test_smooth import *  # noqa: E402,F401,F403   話者の細切れをならす(S2。ed_speakers の smooth_・設定 diarSmooth)

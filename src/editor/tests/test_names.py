@@ -266,30 +266,30 @@ class TestEdStoreNames(unittest.TestCase):
         self.assertNotIn('"_drill"', inspect.getsource(store.transcript_summary))
 
 
-class TestEdAltYtcapRetimeNames(unittest.TestCase):
-    """ed_alt・ed_ytcap・ed_retime を human/proof の alt・ytcap・retime へ移した(RS3-E6。殻は RS5-A で消した)。旧い名前は S で読め、差し替えは持ち主に届く。
-    alt・ytcap・retime は編集の ed_state・ed_jobs・ed_store・ed_relink・ed_learn を読まない(疑似の行は Backend.alt_rows)"""
+class TestEdAltRetimeNames(unittest.TestCase):
+    """ed_alt・ed_retime を human/proof の alt・retime へ移した(RS3-E6。殻は RS5-A で消した)。旧い名前は S で読め、差し替えは持ち主に届く。
+    ed_ytcap の名前は YouTube の字幕の候補の消去(2026-10-16)で一緒に消した。
+    alt・retime は編集の ed_state・ed_jobs・ed_store・ed_relink・ed_learn を読まない(疑似の行は Backend.alt_rows)"""
 
     @staticmethod
     def owners():
-        from human.proof import alt, retime, ytcap
-        return alt, ytcap, retime
+        from human.proof import alt, retime
+        return alt, retime
 
     def test_old_names_still_resolve(self):
-        for fname, n in (("data_ed_alt_names.txt", 31), ("data_ed_ytcap_names.txt", 12), ("data_ed_retime_names.txt", 2)):
+        for fname, n in (("data_ed_alt_names.txt", 31), ("data_ed_retime_names.txt", 2)):
             names = _old_names(fname)
             self.assertEqual(len(names), n, fname)
             missing = [k for k in names if not hasattr(S, k)]
             self.assertEqual(missing, [], fname)
 
     def test_moved_owners(self):
-        alt, ytcap, retime = self.owners()
+        alt, retime = self.owners()
         from eval.fake import fake_asr
-        for m in (alt, ytcap, retime):
+        for m in (alt, retime):
             self.assertIn(m, S._ED_MODULES, m.__name__)
         self.assertIs(S.alt_diffs, alt.alt_diffs)
         self.assertIs(S._alt_fake, fake_asr._alt_fake)
-        self.assertIs(S.ytcap_diffs, ytcap.ytcap_diffs)
         self.assertIs(S.retime_doc, retime.retime_doc)
 
     def test_owners_do_not_read_editor_parts(self):
@@ -298,21 +298,15 @@ class TestEdAltYtcapRetimeNames(unittest.TestCase):
                 self.assertNotIn(name, vars(m), "%s.%s" % (m.__name__, name))
 
     def test_retime_wrapper_keeps_only_the_wrapper(self):
-        _alt, _ytcap, retime = self.owners()
+        _alt, retime = self.owners()
         own = sorted(k for k, v in vars(retime).items() if not k.startswith("__") and not isinstance(v, type(os)))
         self.assertEqual(own, ["retime_doc", "retime_engine"])
 
     def test_patches_reach_owner(self):
-        alt, ytcap, _retime = self.owners()
+        alt, _retime = self.owners()
         with mock.patch.object(S, "alt_spec", lambda tid, req=None: {"tid": tid}):
             self.assertEqual(alt.alt_spec("a"), {"tid": "a"})
             self.assertEqual(S.alt_spec("b"), {"tid": "b"})
-        saved = ytcap.YTCAP_MAX_CACHE_BYTES
-        try:
-            S.YTCAP_MAX_CACHE_BYTES = 8
-            self.assertEqual(ytcap.YTCAP_MAX_CACHE_BYTES, 8)
-        finally:
-            ytcap.YTCAP_MAX_CACHE_BYTES = saved
 
     def test_fake_rows_come_from_the_backend_slot(self):
         """疑似の行は Backend.alt_rows(疑似は eval/fake/fake_asr)。本物の Backend は real をそのまま呼ぶ"""
@@ -406,7 +400,7 @@ class TestEdStateNames(unittest.TestCase):
 
 class TestPipelineMovedWithoutShell(unittest.TestCase):
     """RS2-9c: ed_fill・ed_llm は pipeline/transcribe の fill・llm へ、ed_retime の計算は retime へ移した(殻・別名なし)。
-    S.名前 で読め、S.名前 = … の差し替えが持ち主に届く(ed_retime の包みは RS3-E6 から human/proof/retime。検査は TestEdAltYtcapRetimeNames)"""
+    S.名前 で読め、S.名前 = … の差し替えが持ち主に届く(ed_retime の包みは RS3-E6 から human/proof/retime。検査は TestEdAltRetimeNames)"""
 
     def test_moved_names_read_through_serve(self):
         from pipeline.transcribe import fill, llm, retime

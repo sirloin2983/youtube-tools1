@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """「2つ目のエンジンとの食い違いの候補」(行に出る札「別」)が、校正を本当に速くしているかを数字で見る道具(候補の当たり率)。
 
-    python src/eval/tools/eval_alt.py [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--source alt|yt|both] [--include-eval] [--json] [--data-dir 作業データの親フォルダ]
+    python src/eval/tools/eval_alt.py [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--source alt] [--include-eval] [--json] [--data-dir 作業データの親フォルダ]
 
 - 作業データは**読むだけ**(transcribe の transcripts/<id>.json・<id>.alt.json・学習の記録 learn-feedback.json と、
   入口の作業データ app の check/answers.jsonl = 確かめるの答え。読み方は human/check/answerlog)。何も書き換えない。
@@ -16,7 +16,7 @@
         外れ(人はそのまま)… 人の最終に wrong がそのまま残っている
         別の直し … 人はその所を wrong でも right でもない文字に直した(隣に文字を足した・消した場合も、その所に触ったので数える)
         分からない … まとまりの人の行が校正済みでない・行が消された・まとまりが長すぎる(判定しない)。**率は校正済みのまとまりだけで出す**
-      確かめるの read:alt(yt は read:yt)の答えは人の判断の正: 2 = 候補を採った = 当たり / 1 = 今のまま(却下)= 外れ / 打った文字 = 別の直し
+      確かめるの read:alt の答えは人の判断の正: 2 = 候補を採った = 当たり / 1 = 今のまま(却下)= 外れ / 打った文字 = 別の直し
       (human/check/read.py の do_apply と同じ意味。答えは行を校正済みにしないので、まとまりの規則では「分からない」のまま = 答えで決める)。
       答えは 文書の id・行の id(カードの target)と、答えに残る採否の記録の候補(applied.feedback.items の wrong・right)で、出し直した候補と突き合わせる:
         同じまとまりの人の行に答えた行があり、寄せた wrong・right が同じ候補 → その候補の判定を答えで置き換える(二重に数えない)
@@ -33,11 +33,7 @@
   その時間に出ていた候補の数と noSub の行の数だけ、結果の noSub に別に出す。noSub が無い文書の数は今までと同じ
 - 判定できた候補が 100 件未満のときは「まだ少ない(参考)」と出す(少ないデータでエンジンや既定を決めない)
 - 注意: original(機械の最初の出力)は、再認識(範囲・全体・疑わしい所)のあとは再認識後のものに替わる。alt.json は最初の文字起こしの範囲の音声に対するもの
-- --source(候補の出どころ。既定 alt = 今までどおり): yt = 元の配信の YouTube の字幕の候補(案 A1。行の札「YT」。src/human/proof/ytcap.py)。
-  保存してある配信ごとの字幕(作業データの ytcaps/<配信の ID>.json)を、文書の clip(スタジオの切り抜き)の範囲で切り出し(ytcap_doc_rows)、
-  editor の ytcap_diffs(alt_diffs + 切り抜きの境目を出さない)で候補を出し直す。**道具は通信しない**(字幕が保存されていない文書は数えない = noYt)。
-  エンジンごとの表は「youtube / auto(自動字幕)・manual(配信者の字幕)」。採否の記録は学習の記録の yt。
-  both = alt と yt を別々に出し、両方がある文書で 2 つが同じ候補(同じ行・同じ位置・同じ直し)を出した所の当たり率(一致)も出す(一致は当たりやすいかを見るため)
+- --source は alt だけ(既定。今までどおり)。YouTube の字幕の候補 yt(旧 --source yt・both)は消した
 - 名簿の呼び名(名前に強いかを見る): まとまりの人の最終(無ければ機械)の文字に名簿の名前・呼び名(src/pipeline/transcribe/roster.py の find_in_text)がある所の、
   候補の当たり / 外れ / 別の直しと、人の直しの拾えた率を、全体とは別に出す(names)
 - --include-eval: 評価用の文書も測る(読むだけ。候補は画面に出さない決まりのまま・測るだけなら定点の正解は寄らない。評価用でしか確かめ済みの文書が無いときに)
@@ -61,33 +57,24 @@ from pipeline.transcribe import roster as _roster  # noqa: E402
 from ytt import workdata as _workdata  # noqa: E402
 from human.proof import learn as _learn  # noqa: E402
 from human.proof import alt as _alt  # noqa: E402
-from human.proof import ytcap as _ytcap  # noqa: E402
 from ytt import errors as _errors  # noqa: E402
 
 SCHEMA = "youtube-tools-alt-eval/v1"
-ANSWER_STATUS = {"2": "hit", "1": "miss", "other": "other"}   # 確かめるの read:alt・read:yt の答え -> 判定(human/check/read.py の do_apply)
+ANSWER_STATUS = {"2": "hit", "1": "miss", "other": "other"}   # 確かめるの read:alt の答え -> 判定(human/check/read.py の do_apply)
 FEW_CANDS = 100                    # 判定できた候補がこれより少ないときは「まだ少ない(参考)」
 MAX_DOC_BYTES = C.DOC_BYTES
 MAX_GROUP_CHARS = 4000             # まとまりの寄せた文字がこれを超えたら判定しない(比べる計算が重くなりすぎないように)
 UNKNOWN_LABELS = {"removed": "人の行が消された", "notProofed": "校正済みでない", "tooLong": "まとまりが長すぎる", "misaligned": "位置が合わない"}
 STAT_KEYS = ("long", "cross", "mostly", "notation", "edge")
 STAT_LABELS = {"long": "長すぎる", "cross": "行をまたぐ", "mostly": "行の半分以上が違う", "notation": "表記だけの違い", "edge": "窓の境目", "clipEdge": "切り抜きの境目"}
-SOURCES = ("alt", "yt", "both")
-SOURCE_LABELS = {"alt": "2つ目のエンジンの候補(札「別」)", "yt": "YouTube の字幕の候補(札「YT」)"}
+SOURCES = ("alt",)
+SOURCE_LABELS = {"alt": "2つ目のエンジンの候補(札「別」)"}
 
 # ---------------------------------------------------------------- 準備・読み込み(読むだけ)
 
 def locate(data_dir=None):
     """-> 文字起こしの作業データのフォルダ。置き場所の規則は ytt.datadir の1か所(data_dir はテスト用。そこを全ツールの作業データの親フォルダとして使う)"""
     return C.locate("transcribe", data_dir)
-
-
-def read_ytcache(root, vid):
-    """作業データの ytcaps/<配信の ID>.json(配信ごとの YouTube の字幕。形が違えば None)。editor の ytcap_load は DATA_DIR(一時フォルダ)を見るので、ここで読む"""
-    if not _ytcap.YTCAP_VID_RE.match(str(vid or "")):
-        return None
-    d = read_json(os.path.join(root, "ytcaps", vid + ".json"), None, _ytcap.YTCAP_MAX_CACHE_BYTES)
-    return d if _ytcap.ytcap_valid_cache(d, vid) else None
 
 
 def name_checker():
@@ -106,7 +93,7 @@ def read_alt(tdir, tid):
 
 
 def read_feedback(root, key="alt"):
-    """学習の記録(learn-feedback.json)の alt(yt)= {acc, rej} か None。読み方は editor の load_feedback(置き場所 _workdata.FEEDBACK を一時的に差し替えて呼ぶ。
+    """学習の記録(learn-feedback.json)の alt = {acc, rej} か None。読み方は editor の load_feedback(置き場所 _workdata.FEEDBACK を一時的に差し替えて呼ぶ。
     """
     old = _workdata.FEEDBACK
     _workdata.FEEDBACK = os.path.join(root, "learn-feedback.json")
@@ -259,11 +246,11 @@ def match_answer(answers, used, seg_ids, cand):
     return None
 
 
-def judge_doc(doc, alt, since_ms=None, until_ms=None, diff_fn=None, has_name=None, answers=None):
+def judge_doc(doc, alt, since_ms=None, until_ms=None, has_name=None, answers=None):
     """1つの文書(評価用でない・original と segments がある)と alt.json から、候補の判定と人の直しの拾えた数を出す。ファイルには触らない
     -> {"cands": [{"status", "why", "wrong", "right", "check"}](時期の範囲の中のまとまりだけ), "fixes": [{"short", "covered", "hit"}], "stats": alt_diffs の数えた理由,
         "outOfRange": 時期の外で数えなかった候補の数, "inRange": 範囲の中のまとまりが 1 つでもあったか, "noSub": {"rows": noSub の行の数, "candidates": その時間に出ていた候補の数(数えない)}}
-    diff_fn = 候補の出し方(既定 alt_diffs。yt は ytcap_diffs)。has_name = 文字に名簿の呼び名があるか(候補・直しの "name")。候補には機械の行の番号 row と位置 i も付ける(alt と yt の一致を見る)。
+    has_name = 文字に名簿の呼び名があるか(候補・直しの "name")。候補には機械の行の番号 row と位置 i も付ける。
     answers = この文書の確かめるの答え(read_answers の 1 文書分)。候補の check = "matched"(答えで置き換えた)・"added"(合う候補が無く足した)・None(答えなし)"""
     orig_all = clean_rows(doc.get("original"))
     segs = clean_rows(doc.get("segments"), with_text=False)
@@ -271,7 +258,7 @@ def judge_doc(doc, alt, since_ms=None, until_ms=None, diff_fn=None, has_name=Non
     # 当たり率にも拾えた率にも入れない(その行は字幕に出ない = 直す必要がない。editor の split_nosub)。数だけ別に数える
     orig, segs, ns_orig, ns_segs = _learn.split_nosub(orig_all, segs)
     rows = [{"id": "o%d" % k, "start": o["start"], "end": o["end"], "text": o["text"], "proofed": False} for k, o in enumerate(orig_all)]
-    cands, stats = (diff_fn or _alt.alt_diffs)(rows, alt.get("rows") or [])
+    cands, stats = _alt.alt_diffs(rows, alt.get("rows") or [])
     main_idx = {id(o): j for j, o in enumerate(orig)}      # 全部の行の番号 → 本体の行の番号(noSub の時間の行は無い)
     ns_cands = 0
     doc_t = num(doc.get("updatedAt")) or 0
@@ -372,7 +359,7 @@ class Agg:
                 self.why[c["why"]] = self.why.get(c["why"], 0) + 1
             if c.get("name"):
                 self.names[c["status"]] += 1
-        for k, v in r["stats"].items():   # yt は切り抜きの境目 clipEdge も
+        for k, v in r["stats"].items():
             self.stats[k] = self.stats.get(k, 0) + v
         ns = r.get("noSub") or {}
         if ns.get("rows"):
@@ -420,30 +407,19 @@ def engine_key(alt):
 # ---------------------------------------------------------------- 全体
 
 def evaluate(data_dir=None, since=None, until=None, source="alt", include_eval=False):
-    """source = alt(既定。今までと同じ結果)・yt・both(alt と yt を別々に + 2 つが同じ候補を出した所 agree)"""
+    """source = alt(既定。今までと同じ結果)"""
     if source not in SOURCES:
         raise SystemExit("--source は %s のどれかです: %r" % ("・".join(SOURCES), source))
     root = locate(data_dir)
     app = C.locate("app", data_dir)   # 確かめるの答えの置き場所(入口の作業データ)
     C.prepare()   # 名簿(呼び名の確かめ)・学習の記録の読み方の部品を使う
-    if source != "both":
-        res = evaluate_one(root, source, since, until, include_eval, app)
-        res.pop("_per")
-        return res
-    a = evaluate_one(root, "alt", since, until, include_eval, app)
-    y = evaluate_one(root, "yt", since, until, include_eval, app)
-    agree = Agg()
-    for tid in sorted(set(a["_per"]) & set(y["_per"])):
-        keys = {(c["row"], c["i"], c["wrong"], c["right"]) for c in y["_per"][tid]["cands"]}
-        agree.add({"cands": [c for c in a["_per"][tid]["cands"] if (c["row"], c["i"], c["wrong"], c["right"]) in keys], "fixes": [], "stats": {}})
-    a.pop("_per")
-    y.pop("_per")
-    meta = {"schema": SCHEMA, "source": "both", "at": int(time.time() * 1000), "since": since, "until": until, "includeEval": include_eval, "git": C.git_rev(), "dataDir": root}
-    return {"meta": meta, "alt": a, "yt": y, "agree": agree.result()}
+    res = evaluate_one(root, source, since, until, include_eval, app)
+    res.pop("_per")
+    return res
 
 
 def evaluate_one(root, source, since=None, until=None, include_eval=False, app=None):
-    """1 つの出どころ(alt / yt)の測定。結果の _per = 文書ごとの judge_doc の結果(both の一致に使う。evaluate が外す)。
+    """1 つの出どころ(alt)の測定。結果の _per = 文書ごとの judge_doc の結果(evaluate が外す)。
     app = 入口の作業データ(確かめるの答え check/answers.jsonl。None なら答えを読まない)"""
     tdir = os.path.join(root, "transcripts")
     since_ms, until_ms = C.period(since, until)
@@ -451,43 +427,25 @@ def evaluate_one(root, source, since=None, until=None, include_eval=False, app=N
     measured = set()
     total, by_engine, by_doc, per = Agg(), {}, [], {}
     skipped = {"evalSet": 0, "noOriginal": 0, "broken": 0, "outOfRange": 0}
-    if source == "yt":
-        skipped.update(noClip=0, noCaptions=0)
     has_name = name_checker()
     no_alt = out_cands = 0
     for tid in docloc.iter_tids(root):   # 案件の 作業用 に置いた文書も(索引があれば)
-        if source == "alt" and not os.path.isfile(docloc.doc_file(tid, ".alt.json", root)):
+        if not os.path.isfile(docloc.doc_file(tid, ".alt.json", root)):
             no_alt += 1
             continue
         doc = read_json(docloc.doc_file(tid, ".json", root), None, MAX_DOC_BYTES)
-        alt = read_alt(tdir, tid) if source == "alt" else None
-        if not isinstance(doc, dict) or (source == "alt" and alt is None):
+        alt = read_alt(tdir, tid)
+        if not isinstance(doc, dict) or alt is None:
             skipped["broken"] += 1
             continue
-        if source == "alt":
-            key, diff_fn = engine_key(alt), None
-        else:   # yt: 文書の clip の配信の、保存してある字幕(通信しない)
-            try:
-                vid = _ytcap.ytcap_doc_range(doc)["videoId"]
-            except _errors.ApiError:
-                skipped["noClip"] += 1
-                continue
-            cache = read_ytcache(root, vid)
-            if cache is None:
-                no_alt += 1
-                continue
-            if cache["kind"] == "none":
-                skipped["noCaptions"] += 1
-                continue
-            alt = {"rows": _ytcap.ytcap_doc_rows(doc, cache)[0]}
-            key, diff_fn = "youtube / %s" % cache["kind"], _ytcap.ytcap_diffs
+        key = engine_key(alt)
         if doc.get("evalSet") is True and not include_eval:
             skipped["evalSet"] += 1
             continue
         if not isinstance(doc.get("original"), list) or not doc["original"] or not isinstance(doc.get("segments"), list):
             skipped["noOriginal"] += 1
             continue
-        r = judge_doc(doc, alt, since_ms, until_ms, diff_fn, has_name, answers.get(tid))
+        r = judge_doc(doc, alt, since_ms, until_ms, has_name, answers.get(tid))
         measured.add(tid)
         out_cands += r["outOfRange"]
         if not r["inRange"]:
@@ -509,11 +467,7 @@ def evaluate_one(root, source, since=None, until=None, include_eval=False, app=N
     if skipped["noOriginal"]:
         notes.append("機械の最初の出力(original)が無い文書が %d 件あります(測っていません)" % skipped["noOriginal"])
     if skipped["evalSet"]:
-        notes.append(("評価用なのに alt.json がある文書が %d 件あります(測っていません)" if source == "alt" else
-                      "評価用の文書 %d 件は測っていません(--include-eval で測れます。読むだけ)") % skipped["evalSet"])
-    if source == "yt":
-        notes.append("YouTube の字幕は、道具からは取りません(画面の「字幕を取って比べる」で保存した ytcaps/ だけ)。保存が無い文書 %d 件・元の配信が分からない文書 %d 件・字幕が無い配信の文書 %d 件"
-                     % (no_alt, skipped["noClip"], skipped["noCaptions"]))
+        notes.append("評価用なのに alt.json がある文書が %d 件あります(測っていません)" % skipped["evalSet"])
     if skipped["broken"]:
         notes.append("読めない文書・alt.json が %d 件あります" % skipped["broken"])
     if since or until:
@@ -522,7 +476,7 @@ def evaluate_one(root, source, since=None, until=None, include_eval=False, app=N
                  "校正済みでないまとまりは「分からない」にして率に入れていません(確かめるで答えた候補は答えで判定)")
     notes.append("機械の最初の出力(original)は、再認識のあとは再認識後のものです")
     meta = {"schema": SCHEMA, "source": source, "at": int(time.time() * 1000), "since": since, "until": until, "includeEval": include_eval, "git": C.git_rev(), "dataDir": root,
-            "docs": total.docs, "noAlt" if source == "alt" else "noYt": no_alt, "candidates": res["candidates"], "judged": res["judged"], "few": few,
+            "docs": total.docs, "noAlt": no_alt, "candidates": res["candidates"], "judged": res["judged"], "few": few,
             "fewNote": "まだ少ない(参考): 判定できた候補が %d 件(%d 件未満)。これでエンジンや既定を決めない" % (res["judged"], FEW_CANDS) if few and total.docs else "",
             "skipped": skipped, "outOfRangeCandidates": out_cands, "notes": notes}
     feedback = None
@@ -565,34 +519,22 @@ def print_agg(title, r, indent="  "):
 
 def print_report(res):
     m = res["meta"]
-    if m.get("source") == "both":
-        for k in ("alt", "yt"):
-            print_report(res[k])
-            print()
-        a = res["agree"]
-        print("[2 つが同じ候補を出した所(alt と yt の一致。両方がある文書 %d 件)]" % a["docs"])
-        print_agg("一致", a)
-        return
     src = m.get("source") or "alt"
-    tag = "「別」" if src == "alt" else "「YT」"
     rng = C.period_label(m["since"], m["until"])
     print("%sの当たり率の測定(%s)  文書 %d 件・候補 %d 件(判定できた %d 件)  作業データ: %s" % (SOURCE_LABELS[src], rng, m["docs"], m["candidates"], m["judged"], m["dataDir"]))
     fb = res["feedback"]
     if fb:
-        print("採否の記録(画面で%sの候補を採用・却下した数): 採用 %d・却下 %d  採用率 %s" % (tag, fb["accepted"], fb["rejected"], pct(fb["acceptRate"])))
+        print("採否の記録(画面で「別」の候補を採用・却下した数): 採用 %d・却下 %d  採用率 %s" % (fb["accepted"], fb["rejected"], pct(fb["acceptRate"])))
     else:
-        print("採否の記録(画面で%sの候補を採用・却下した数): まだありません" % tag)
+        print("採否の記録(画面で「別」の候補を採用・却下した数): まだありません")
     if m["fewNote"]:
         print("★ " + m["fewNote"])
     if not m["docs"]:
-        if src == "alt":
-            print("(対象なし: 評価用でない文書で、2つ目のエンジンで聞いた結果(alt.json)がある文書がありません。alt.json なしの文書 %d 件)" % m["noAlt"])
-        else:
-            print("(対象なし: 元の配信の YouTube の字幕を保存してある文書がありません。保存なしの文書 %d 件)" % m["noYt"])
+        print("(対象なし: 評価用でない文書で、2つ目のエンジンで聞いた結果(alt.json)がある文書がありません。alt.json なしの文書 %d 件)" % m["noAlt"])
     else:
         print_agg("全部", res["total"])
         if len(res["byEngine"]) > 0:
-            print("\n  [2つ目のエンジンごと]" if src == "alt" else "\n  [字幕の種類ごと(auto = 自動字幕・manual = 配信者の字幕)]")
+            print("\n  [2つ目のエンジンごと]")
             for k, r in res["byEngine"].items():
                 print_agg(k, r, "   ")
         print("\n  [文書ごと(当たり率が低い順に10件)]")
@@ -607,7 +549,7 @@ def main(argv=None):
     p = argparse.ArgumentParser(description="2つ目のエンジンとの食い違いの候補の当たり率を、人の最終で測る(作業データは読むだけ)")
     C.add_period_args(p, "この日(YYYY-MM-DD)以後だけ(まとまりの時刻 = 人の行の proofedAt の最大、無ければ文書の更新時刻)",
                       json_help="同じ形の JSON を 文字起こしの作業データの evals/alt/<日時>.json に残す")
-    p.add_argument("--source", choices=SOURCES, default="alt", help="候補の出どころ: alt(既定。2つ目のエンジン)・yt(元の配信の YouTube の字幕。保存してある ytcaps/ だけ・通信しない)・both")
+    p.add_argument("--source", choices=SOURCES, default="alt", help="候補の出どころ: alt だけ(既定。2つ目のエンジン)")
     p.add_argument("--include-eval", action="store_true", help="評価用の文書も測る(読むだけ)")
     args = p.parse_args(argv)
     res = evaluate(args.data_dir, args.since, args.until, args.source, args.include_eval)

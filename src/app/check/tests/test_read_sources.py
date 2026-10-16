@@ -1,4 +1,4 @@
-"""「確かめる」の読みのカードの出どころ read:alt・read:yt(src/app/check/read_sources.py。V2b)の単体テスト。一時フォルダの文書・alt.json・ytcap.json だけを使う。
+"""「確かめる」の読みのカードの出どころ read:alt(src/app/check/read_sources.py。V2b)の単体テスト。一時フォルダの文書・alt.json だけを使う。
 評価用の文書・校正済みの行・却下した候補は出ない。
 
 実行(リポジトリ直下から): py -3.10 -m unittest src/app/check/tests/test_read_sources.py -v
@@ -18,7 +18,7 @@ for _p in (os.path.join(ROOT, "editor"), ROOT):
 
 from app.check import deck, read_sources, sources  # noqa: E402
 from human.check import apply  # noqa: E402
-from human.proof import alt, learn, ytcap  # noqa: E402
+from human.proof import alt, learn  # noqa: E402
 from ytt import workdata  # noqa: E402
 
 DOC, EVAL_DOC = "aaaaaaaaaaaa", "bbbbbbbbbbbb"
@@ -62,7 +62,6 @@ class ReadSourcesTest(unittest.TestCase):
         for t, e in ((DOC, False), (EVAL_DOC, True)):
             write(os.path.join(self.tx, t + ".json"), doc(e))
             write(os.path.join(self.tx, t + ".alt.json"), {"schema": alt.ALT_SCHEMA, "rows": engine_rows()})
-        write(os.path.join(self.tx, DOC + ".ytcap.json"), {"schema": ytcap.YTCAP_SCHEMA, "rows": engine_rows()})
         self.ctx = Ctx(os.path.join(self.tmp, "app"), ROOT, env=self.env, eval_dirs=[])
         deck.invalidate()
 
@@ -76,16 +75,7 @@ class ReadSourcesTest(unittest.TestCase):
         self.assertEqual([o["text"] for o in c["options"]], ["今日は晴れです", "今日は腫れです"])
         self.assertEqual((c["target"]["docId"], c["target"]["row"], c["media"]["url"]), (DOC, "s1", "transcribe/media?id=" + DOC))
         self.assertEqual((c["_cand"]["wrong"], c["_cand"]["right"], c["_cand"]["i"]), ("晴", "腫", 3))
-        self.assertIn("YouTube の字幕も同じ", c["note"])
-
-    def test_yt_card_is_left_to_alt_when_same_fix(self):
-        self.assertEqual(self.cards("yt"), [])   # alt と同じ直しは alt のカードに任せる
-        write(os.path.join(self.tx, DOC + ".ytcap.json"), {"schema": ytcap.YTCAP_SCHEMA, "rows": [
-            {"start": 0.0, "end": 4.0, "text": "今日は晴れです"}, {"start": 4.0, "end": 8.0, "text": "明日は飴でしょう"}]})
-        got = self.cards("yt")
-        self.assertEqual([c["id"] for c in got], ["read:yt:%s#s2" % DOC])
-        self.assertEqual([o["text"] for o in got[0]["options"]], ["明日は雨でしょう", "明日は飴でしょう"])
-        self.assertEqual(got[0]["_cand"]["tier"], "yt")
+        self.assertEqual(c["_cand"]["tier"], "alt")
 
     def test_dismissed_candidate_is_not_shown(self):
         learn.record_feedback({"tid": DOC, "action": "reject", "items": [{"seg": "s1", "wrong": "晴", "right": "腫", "tier": "alt"}]})
@@ -101,12 +91,12 @@ class ReadSourcesTest(unittest.TestCase):
 
     def test_registered_and_find(self):
         self.assertIn(("read", "alt"), sources.registered())
-        self.assertIn(("read", "yt"), sources.registered())
+        self.assertNotIn(("read", "yt"), sources.registered())
         card = deck.find(self.ctx, "read:alt:%s#s1" % DOC)
         self.assertEqual(card["_cand"]["right"], "腫")   # 答える前の引き直しは内側の鍵も持つ
 
     def test_module_registers_on_import(self):
-        self.assertTrue(callable(read_sources.read_alt) and callable(read_sources.read_yt))
+        self.assertTrue(callable(read_sources.read_alt))
 
 
 if __name__ == "__main__":

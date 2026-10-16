@@ -7,7 +7,6 @@
 - 学習の候補 GET /api/learned(human/proof/learn.py。評価用は数えない・登録済みは出さない)  旧 e2e_eval_set.py
 - 精度の測定 all_metrics の scope(eval/drill/metrics.py)                        旧 e2e_eval_set.py
 - 範囲の再認識 mode=range(human/proof/rerun.py・doc_jobs.validate_retranscribe)               旧 e2e_folder_marker_range.py
-- 文書の削除で横のファイルが全部消える・配信ごとの ytcaps は残る(serve の _delete)            旧 e2e_ui_handoff.py ほか
 - 話者の色の整形(sanitize_transcript。CSS を差し込めない)                                   旧 e2e_ui_handoff.py
 - GET /api/transcript の evalLocked                                                           旧 e2e_eval_set.py
 - 声を覚える -> 判別し直すと名前が付く鎖(recognize の有無・忘れたあと)                       旧 e2e_edit_voices.py
@@ -289,7 +288,7 @@ class TestRangeRetranscribe(_ProofStore):
 
 
 class TestDeleteRemovesSideFiles(unittest.TestCase):
-    """文書の削除(DELETE /api/transcript = serve の _delete)で、横のファイルが全部消える。配信ごとの ytcaps は残る(別の文書も使う)"""
+    """文書の削除(DELETE /api/transcript = serve の _delete)で、横のファイルが全部消える(別の文書も使う)"""
 
     @classmethod
     def setUpClass(cls):
@@ -312,7 +311,7 @@ class TestDeleteRemovesSideFiles(unittest.TestCase):
         except urllib.error.HTTPError as e:
             return e.code, json.loads(e.read() or b"{}")
 
-    def test_delete_removes_every_side_file_but_keeps_ytcaps(self):
+    def test_delete_removes_every_side_file(self):
         txdir = os.path.join(self.tmp, "transcripts")
         os.makedirs(txdir, exist_ok=True)
         write_json(os.path.join(txdir, TID_A + ".json"), fixed_doc(TID_A))
@@ -322,11 +321,7 @@ class TestDeleteRemovesSideFiles(unittest.TestCase):
             write_json(os.path.join(txdir, n), {"x": 1})
         other = TID_B + ".alt.json"                                                  # 別の文書の横のファイルは触らない
         write_json(os.path.join(txdir, other), {"x": 1})
-        ycap = os.path.join(self.tmp, "ytcaps", "dQw4w9WgXcQ.json")                  # 配信ごと(文書ごとではない)の字幕
-        os.makedirs(os.path.dirname(ycap), exist_ok=True)
-        write_json(ycap, {"videoId": "dQw4w9WgXcQ", "rows": []})
         self.assertIn(".alt.json", "".join(sides))
-        self.assertIn(".ytcap.json", "".join(sides))
         self.assertIn(".words.json", "".join(sides))
         self.assertIn(".asr.json", "".join(sides))
         self.assertEqual(self.delete(TID_A), (200, {"ok": True}))
@@ -334,7 +329,6 @@ class TestDeleteRemovesSideFiles(unittest.TestCase):
         self.assertEqual(left, [])                                                   # .json も横のファイルも全部
         self.assertTrue(os.path.isfile(os.path.join(txdir, TID_B + ".json")))
         self.assertTrue(os.path.isfile(os.path.join(txdir, other)))
-        self.assertTrue(os.path.isfile(ycap))                                        # 配信ごとの字幕は残る
         st, body = self.delete(TID_A)                                                # もう無い文書は 404
         self.assertEqual(st, 404, body)
 

@@ -1173,7 +1173,7 @@ def pack_stale(item):
 
 
 def doc_has_rows(doc):
-    """文字のある行が 1 つでもあるか(行の無い文書へ入れる intoDoc の確かめ・alt・ytcap が使う。カットとは関係ない)"""
+    """文字のある行が 1 つでもあるか(行の無い文書へ入れる intoDoc の確かめ・alt が使う。カットとは関係ない)"""
     return any(isinstance(s, dict) and str(s.get("text") or "").strip() for s in doc.get("segments") or [])
 
 

@@ -1,10 +1,10 @@
 """「確かめる」の読みのカード(どちらの読みが正しいか)の反映(notes:docs/design/v1-check-build.md の 2-2・3-2。import で apply に登録する)。
-出どころ: fill = 後処理が直した行(1 = 今の文字・2 = 認識のまま)/ alt = 2 つ目のエンジンの読み / yt = YouTube の字幕の読み(1 = 今の字幕・2 = その読みを入れた行)。
+出どころ: fill = 後処理が直した行(1 = 今の文字・2 = 認識のまま)/ alt = 2 つ目のエンジンの読み(1 = 今の字幕・2 = その読みを入れた行)。yt(YouTube の字幕)は消した。
 答え = {choice: "1" | "2" | "other", text?: 打った正しい文字}(other = 画面の 3 のキー)。**文字だけの判定**: 行を校正済み(proofed)にしない・行の時刻には触れない(時刻の正解に使わない)。
   fill  1 = 何も変えない(後処理の札を残す)/ 2 = 認識のままに戻す(編集の「別の読み」の札と同じ。fill と後処理の印を外す)/ other = 打った文字(fill と印を外す)
-  alt・yt  1 = 何も変えない・候補を却下 / 2 = 食い違う所を直す・候補を採る / other = 打った文字・候補を却下
-  採否は編集の「提案」と同じ記録(learn-feedback.json の alt / yt の数と dismissed)に残す。当たり率は ⑤ の eval_alt・eval_fill が答えの記録(answers.jsonl)を読んで数える(fill は 1 = 残した・2 = 戻した・打つ = 直した)。
-  alt・yt の反映は card["_cand"](候補の位置と文字)を使う = 記録の行からカードを組み直せないので defer(1 枚遅れ)にはできない。
+  alt  1 = 何も変えない・候補を却下 / 2 = 食い違う所を直す・候補を採る / other = 打った文字・候補を却下
+  採否は編集の「提案」と同じ記録(learn-feedback.json の alt の数と dismissed)に残す。当たり率は ⑤ の eval_alt・eval_fill が答えの記録(answers.jsonl)を読んで数える(fill は 1 = 残した・2 = 戻した・打つ = 直した)。
+  alt の反映は card["_cand"](候補の位置と文字)を使う = 記録の行からカードを組み直せないので defer(1 枚遅れ)にはできない。
 文書へは _doc.edit_row(why='check:read'。人の層・履歴は 10 分に 1 つ・処理中と評価用は断る)。
 Z = 行の文字・fill・印の 3 つが答えたあとのままのときだけ答える前に戻す(どれかがその後に変わっていたら断る)+ 採否の記録の取り消し。
 ③ の層: 文書は human/check/_doc(human/proof/store)と learn だけを読む(① は読まない)。
@@ -17,7 +17,7 @@ from human.proof import learn
 
 CHOICES = ("1", "2", "other")
 FILL_FLAG_RE = re.compile(r"^(別の読みで埋めた|名簿の呼び名に直した|話者名を外した)")   # 編集の「別の読み」の札が外す印(src/editor/app.js の unfill と同じ)
-TIERS = ("alt", "yt")
+TIERS = ("alt",)
 
 
 def _check(ans):
@@ -51,7 +51,7 @@ def _row_state(seg):
 
 
 def _feedback(tid, row_id, cand, action):
-    """alt・yt の候補の採否を編集の「提案」と同じ記録に。記録できなくても文書の反映は成功(戻り値が None)"""
+    """alt の候補の採否を編集の「提案」と同じ記録に。記録できなくても文書の反映は成功(戻り値が None)"""
     item = {"seg": str(row_id), "wrong": cand["wrong"], "right": cand["right"], "tier": cand["tier"]}
     if cand.get("also"):
         item["also"] = list(cand["also"])
@@ -144,5 +144,5 @@ def _revert(ctx, row):
     return {"docId": a.get("docId"), "row": a.get("row"), "changed": changed}
 
 
-for _src in ("fill", "alt", "yt"):
+for _src in ("fill", "alt"):
     apply.register("read", _src, _apply, _revert, check=_check)

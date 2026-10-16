@@ -56,7 +56,7 @@ ALT_DROP_CHARS = "ー〜～~"   # alt_fold で無視する字(伸ばし。表記
 
 def alt_fold(ch):
     """比べるときだけの寄せ方: NFKC・小文字・カタカナ → ひらがな・伸ばしと記号と空白は捨てる(文字でも数字でもないもの)。
-    2 つ目のエンジンの食い違い(human/proof/alt)・YouTube の字幕(human/proof/ytcap)・行の時刻の候補(pipeline/transcribe/retime)・src/eval/tools/eval_alt が同じ寄せ方を使う
+    2 つ目のエンジンの食い違い(human/proof/alt)・行の時刻の候補(pipeline/transcribe/retime)・src/eval/tools/eval_alt が同じ寄せ方を使う
     (RS2-9 に移した。human/proof/alt には別名がある)"""
     out = []
     for c in unicodedata.normalize("NFKC", ch).lower():

@@ -37,7 +37,7 @@ def card(source, row, cand=None):
     return c
 
 
-CAND = {"i": 3, "wrong": "晴", "right": "腫", "tier": "alt", "also": ["yt"]}
+CAND = {"i": 3, "wrong": "晴", "right": "腫", "tier": "alt", "also": []}
 
 
 class ReadTest(unittest.TestCase):
@@ -56,8 +56,9 @@ class ReadTest(unittest.TestCase):
         return learn.load_feedback()
 
     def test_registered_for_three_sources(self):
-        for s in ("fill", "alt", "yt"):
+        for s in ("fill", "alt"):
             self.assertTrue(apply._registered("read", s))
+        self.assertFalse(apply._registered("read", "yt"))   # YouTube の字幕の候補は消した(古い yt の札は 409 で断る)
 
     def test_check_answer_shape(self):
         self.assertEqual(read._check({"choice": "2", "x": 1}), {"choice": "2"})
@@ -96,12 +97,12 @@ class ReadTest(unittest.TestCase):
         got = apply.answer(self.ctx, card("alt", "s2", CAND), {"answer": {"choice": "2"}})
         self.assertEqual(self.seg("s2")["text"], "今日は腫れです")
         fb = self.fb()
-        self.assertEqual((fb["alt"], fb["yt"]), ({"acc": 1, "rej": 0}, {"acc": 1, "rej": 0}))   # also の yt にも数える(編集の提案と同じ)
+        self.assertEqual(fb["alt"], {"acc": 1, "rej": 0})
         self.assertEqual(fb["dismissed"], {})
         self.assertNotIn("proofed", self.seg("s2"))
         apply.undo(self.ctx, got["answer"])
         self.assertEqual(self.seg("s2")["text"], "今日は晴れです")
-        self.assertEqual((self.fb()["alt"], self.fb()["yt"]), ({"acc": 0, "rej": 0}, {"acc": 0, "rej": 0}))
+        self.assertEqual(self.fb()["alt"], {"acc": 0, "rej": 0})
 
     def test_alt_keep_dismisses_candidate(self):
         got = apply.answer(self.ctx, card("alt", "s2", dict(CAND, also=[])), {"answer": {"choice": "1"}})
@@ -111,12 +112,6 @@ class ReadTest(unittest.TestCase):
         self.assertEqual(fb["dismissed"], {TID: ["s2|晴=>腫"]})
         apply.undo(self.ctx, got["answer"])
         self.assertEqual((self.fb()["alt"], self.fb()["dismissed"]), ({"acc": 0, "rej": 0}, {}))
-
-    def test_yt_neither_types_text_and_rejects(self):
-        cand = {"i": 3, "wrong": "晴", "right": "春", "tier": "yt", "also": []}
-        apply.answer(self.ctx, card("yt", "s2", cand), {"answer": {"choice": "other", "text": "今日は晴れでした"}})
-        self.assertEqual(self.seg("s2")["text"], "今日は晴れでした")
-        self.assertEqual(self.fb()["yt"], {"acc": 0, "rej": 1})
 
     def test_stale_row_is_refused(self):
         d = doc()

@@ -233,7 +233,7 @@ def load_feedback():
     if d is None:
         return {"stat": {}, "dismissed": {}}
     out = {"stat": d.get("stat") if isinstance(d.get("stat"), dict) else {}, "dismissed": d.get("dismissed") if isinstance(d.get("dismissed"), dict) else {}}
-    for src in ("alt", "yt"):   # 2つ目のエンジン(D1-b)・YouTube の字幕(案 A1)の候補の採用・却下の数(学習の統計とは別)
+    for src in ("alt", "yt"):   # 2つ目のエンジン(D1-b)の候補の採用・却下の数(学習の統計とは別)。yt は消した字幕の候補の古い数を読み飛ばさないために残す
         a = d.get(src)
         if isinstance(a, dict):
             out[src] = {k: int(a[k]) if isinstance(a.get(k), int) and not isinstance(a.get(k), bool) and a[k] >= 0 else 0 for k in ("acc", "rej")}

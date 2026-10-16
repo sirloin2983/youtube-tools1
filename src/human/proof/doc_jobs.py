@@ -210,7 +210,7 @@ def learned_finder(lrules, lfb):
 
 
 def dict_learned():
-    """辞書の版(records.dict_version)の learned の元の文字: 学習済みの置換の規則と採用・却下の記録(別のエンジン alt・YouTube の字幕 yt の数は除く)。
+    """辞書の版(records.dict_version)の learned の元の文字: 学習済みの置換の規則と採用・却下の記録(別のエンジン alt の数は除く)。
     学習(learn)を読むのは文書の側のここだけ(① の records は learn を読まない。serve が records.set_dict_inputs で登録する)。
     学習データの読み手(set_learning)があればそこから"""
     lr = _learning[0]

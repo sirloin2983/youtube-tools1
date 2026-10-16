@@ -83,7 +83,7 @@ plain_int = _yschemas.plain_int     # lint: keep 別名 = JSON の整数(真偽�
 rss_mb = _tools.process_memory_mb   # lint: keep 別名 = このプロセスが使っているメモリ(MB)。取れなければ None
 
 
-read_schema_json = _fsio.read_schema_json   # lint: keep 別名(RS2-1a)= 付き物の JSON(words・asr・diar・alt・ytcap)を読む。形が違えば None
+read_schema_json = _fsio.read_schema_json   # lint: keep 別名(RS2-1a)= 付き物の JSON(words・asr・diar・alt)を読む。形が違えば None
 union_spans = _yschemas.union_spans         # lint: keep 別名(RS2-1a)= 区間をつなぐ
 add_warning = _txbase.add_warning           # lint: keep 別名(RS2-1a)= ジョブの注意を付け直す
 

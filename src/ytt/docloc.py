@@ -34,7 +34,7 @@ BAK_DIR = ".bak"           # 機械が書き換える前の控え <置き場所>
 
 # 文書と同じ id で持つファイルの名前の終わり(文書を消す・移すときはこの全部を一緒に)。先頭が文書そのもの。
 # 持ち主: .edit・.edit.broken = human/proof/store・.words = ytt/txwords・.asr = pipeline/transcribe/records・.diar = pipeline/transcribe/diarize・
-# .alt = human/proof/alt・.ytcap = human/proof/ytcap・.llm = pipeline/transcribe/llm・.over = human/proof/overrides・
+# .alt = human/proof/alt・.ytcap = 消した字幕の旧い横のファイル(消すだけ。もう書かない)・.llm = pipeline/transcribe/llm・.over = human/proof/overrides・
 # .<段>.key = flow/keys(文書の段 transcribe・post・diar)・.mach・.hum = 機械の層・人の層(human/proof/store.commit と flow/tx.write_machine_doc。RS8 O2-2)。
 # 名前を足したら、ここと文書を消す所(editor/serve の _delete)の両方へ
 DOC_KEY_STAGES = ("transcribe", "post", "diar")

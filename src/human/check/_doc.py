@@ -14,7 +14,7 @@ from flow import jobs as _heavy
 from human.proof import layers as _layers, store as _store
 from . import apply as _apply   # 同じ human/check の兄弟
 
-# この文書を書き換えないジョブ(2 つ目のエンジン・YouTube の字幕・サムネの案・30fps の作り直し)と、確かめるが自分で足す声の覚え直しは「最中」に数えない。
+# この文書を書き換えないジョブ(2 つ目のエンジン・サムネの案・30fps の作り直し)と、確かめるが自分で足す声の覚え直しは「最中」に数えない。
 # ほかの種類(文字起こし・話者判別・再認識・疑わしい所・これから足す種類)の最中は、答えが結果で消えるので断る
 NOT_BUSY_KINDS = ("alt", "thumb", "normalize", "voice-learn")
 
