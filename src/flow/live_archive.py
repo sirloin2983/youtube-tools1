@@ -1335,14 +1335,20 @@ class Archiver(LX.Patrol):
             off, how = self._job_offset(job, vid, t0, a, b)
             ast = est + off
             self._aset(job, offset=round(off, 3), offsetFrom=how)
-            out = self._build(job, vid, ast, dur, tmp)
+            m = self.ex.margin(job)   # 余白(LD-2f。録画から書き出すときと同じ束の export.margin)。アーカイブの 0 秒より前へは出さない
+            rb = self.ex._base(d, a)   # .clip.json の秒の 0 = 録画の頭。余白はそれより前へは出さない(actualStart が負になる)
+            before = min(m, max(0.0, ast), max(0.0, a - rb))
+            vlen = info.get("duration")   # アーカイブの長さ(分かれば)より後へも出さない(長さの確かめで落ちないように)
+            after = min(m, max(0.0, vlen - ast - dur)) if isinstance(vlen, (int, float)) and vlen > 0 else m
+            out = self._build(job, vid, ast - before, dur + before + after, tmp)
+            span = (a - before, a - before + (out.get("duration") or dur + before + after)) if before + after > 0 else None
             meta = {"videoId": vid, "start": round(ast, 3), "end": round(ast + dur, 3), "offset": round(off, 3), "at": LX.now_iso()}
             self._aset(job, archiveStart=meta["start"], archiveEnd=meta["end"])
             final = os.path.join(folder, LX.unique_base(base, folder) + ".mp4")
             self._aset(job, state="verify", message="書き出した動画を置いています")
             fsio.replace_retry(tmp, final)
             self.ex._finish(job, {"id": rc}, rec, d, dict(out, path=final, title=title or self.ex._title(job, d)), a, b,
-                            archive=meta, message="アーカイブから書き出しました")
+                            archive=meta, message="アーカイブから書き出しました", clip_span=span)
             with self.ex.lock:
                 job.update(needsArchive=False, error="")
             self._aset(job, state="done", message="アーカイブから書き出しました", progress=1.0, at=meta["at"])

@@ -97,6 +97,12 @@ class TestApplyVolume(unittest.TestCase):
             with self.assertRaises(errors.ApiError):
                 _fexport.build_spec(store, {"id": "v1", "markIds": ["m1"], "volume": bad})
 
+    def test_margin_is_checked_and_kept_out_of_combine(self):
+        self.assertEqual(_fexport.build_spec(self._fake_store(), {"id": "v1", "markIds": ["m1"], "margin": 10}).get("margin"), 10.0)
+        self.assertNotIn("margin", _fexport.build_spec(self._fake_store(), {"id": "v1", "markIds": ["m1"]}))
+        with self.assertRaises(errors.ApiError):
+            _fexport.build_spec(self._fake_store(), {"id": "v1", "markIds": ["m1"], "margin": 99})
+
     def test_volume_missing_defaults_to_75(self):
         spec = _fexport.build_spec(self._fake_store(), {"id": "v1", "markIds": ["m1"]})
         self.assertEqual(spec["volume"], exporter.DEFAULT_EXPORT_VOLUME)
@@ -221,6 +227,28 @@ class TestClipManifestExport(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         leftovers = [n for d in (os.path.dirname(it["path"]), work) for n in os.listdir(d) if n.endswith((".part", ".vol.mp4")) or n.startswith(".tmp-")]
         self.assertEqual(leftovers, [])
+
+    def test_margin_pads_clip_and_marks_actual_start(self):
+        # LD-2f: 余白 3 秒。動画は 4〜15 秒(前は 0 秒の手前で止まらない範囲・後は元の長さの中)・range はマークのまま・actualStart と margin が印
+        clip = {"id": "m4", "start": 7.0, "end": 12.0, "title": "x", "label": "", "src": "auto", "markStatus": "adopted"}
+        spec = dict(_spec(self.src, [clip]), margin=3.0)
+        job, calls = _job([clip], studio_env.get_out_dir()), []
+        _run(job, spec, lambda *a, **k: calls.append((a, k)) or True)
+        it = job["items"][0]
+        self.assertEqual((it["status"], it["start"], it["end"]), ("done", 7.0, 12.0))   # 画面へ返す区間はマークのまま
+        d = _read(it["manifest"])
+        self.assertEqual(d["range"], {"start": 7.0, "end": 12.0})
+        self.assertAlmostEqual(d["media"]["durationSec"], 11.0, delta=0.3)
+        self.assertEqual(d["export"]["actualStart"], 4.0)
+        self.assertEqual(d["export"]["margin"]["before"], 3.0)
+        self.assertAlmostEqual(d["export"]["margin"]["after"], 3.0, delta=0.3)
+        self.assertEqual(schemas.clip_offset(d), 4.0)
+        self.assertEqual(schemas.clip_mark_span(d), (3.0, 8.0))
+        (args, kw), = calls
+        self.assertEqual(args[3:5], (7.0, 12.0))
+        self.assertEqual(kw["clip"][0], 4.0)
+        self.assertAlmostEqual(kw["clip"][1], 15.0, delta=0.3)
+        self.assertEqual(_read(it["editManifest"])["range"]["start"], 0.0)   # 編集用素材 = 余白つきの動画の前後 10 秒
 
     def test_status_when_mark_changed_during_export(self):
         clip = {"id": "m2", "start": 1.0, "end": 3.0, "title": "x", "label": "", "src": "auto", "markStatus": "adopted"}

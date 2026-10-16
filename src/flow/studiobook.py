@@ -217,7 +217,7 @@ class Ledger:
                 r["video"] = self._pub(nv)
                 return r
 
-    def mark_exported(self, vid, mark_id, relfile, expected_start, expected_end, abspath=None, archived=None):
+    def mark_exported(self, vid, mark_id, relfile, expected_start, expected_end, abspath=None, archived=None, clip=None):
         """書き出した区間が今のマークと同じときだけ書き出し済みにする(ytt/marks.exported_mark。archived は録画の本番版の印 = 同じ所の説明)。
         初めて書き出した配信は、案件の根が引けたら案件にする(flow/casebook.case_of。(r8j))。
         初めて書き出したマークはロックの外で _on_exported へ。-> 記録したか"""
@@ -231,7 +231,7 @@ class Ledger:
                     return False   # 書き出し中に区間が変わった: 古い区間の動画は結びつけない
                 first = m["status"] != "exported"
                 nv = copy.deepcopy(v)
-                nm = _marks.exported_mark(m, relfile, abspath, archived, live=v["kind"] == "live")
+                nm = _marks.exported_mark(m, relfile, abspath, archived, live=v["kind"] == "live", clip=clip)
                 nv["marks"] = [copy.deepcopy(nm) if x["id"] == mark_id else x for x in nv["marks"]]
                 root = None
                 if prev is None and not any(x["status"] == "exported" for x in v["marks"]):
@@ -409,8 +409,8 @@ class LocalStudio:
         try:
             spec = _export.build_spec(self.book, body)
 
-            def on_done(vid, mid, rel, start, end, path=None):
-                recorded = self.book.mark_exported(vid, mid, rel, start, end, path)
+            def on_done(vid, mid, rel, start, end, path=None, clip=None):
+                recorded = self.book.mark_exported(vid, mid, rel, start, end, path, clip=clip)   # clip = 余白つきの動画の実際の始まり・終わり(LD-2f)
                 _keys.write_studio_export(spec, path, start, end)   # 切り抜きの横に export の鍵(スタジオの serve と同じ。RS6 b-K1)
                 return recorded
             exports = _export.default()   # 書き出しの器(② の flow/export。スタジオの serve と同じ物 = 同時 1 本。OPT2 の J2)

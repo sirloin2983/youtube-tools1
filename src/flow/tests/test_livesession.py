@@ -182,7 +182,7 @@ class OwnStreamTest(Base):
         self.assertEqual((sp["adopt"]["sens"], sp["adopt"]["perHour"], sp["adopt"]["waitMin"], sp["adopt"]["pad"]), ("low", 4, 9, 1.0))
         self.assertEqual((sp["analyze"]["length"], sp["analyze"]["headSec"], sp["analyze"]["count"], sp["analyze"]["wChat"]), (20, 0, 12, 2.5))
         self.assertNotIn("nope", sp["analyze"])
-        self.assertEqual(sp["export"], {"volume": 100, "loudness": -16})
+        self.assertEqual(sp["export"], {"volume": 100, "loudness": -16, "margin": 10.0})   # 余白(LD-2f)は束の既定
         self.assertEqual(sorted(sp["run"]["requested"]), ["engine", "model"])
         self.assertEqual(self.s.requests.all(), {}, "自分の配信は依頼の結びつきを作らない")
         # 録画中に設定を変える(ホームの設定・スタジオの解析の設定・書き出しの音量)
@@ -414,7 +414,7 @@ class LiveAppTest(unittest.TestCase):
         out = self.live.begin_own(URL)
         self.assertEqual((out["live"], out["recording"]["id"]), (True, REC))
         sp = self.live.bundle("local", REC)
-        self.assertEqual((sp["adopt"]["waitMin"], sp["adopt"]["pad"], sp["export"]), (7, 1.0, {"volume": 75, "loudness": -14}))   # 音量はスタジオの既定(studio_audio)
+        self.assertEqual((sp["adopt"]["waitMin"], sp["adopt"]["pad"], sp["export"]), (7, 1.0, {"volume": 75, "loudness": -14, "margin": 10.0}))   # 音量はスタジオの既定(studio_audio)
         self.assertEqual(self.live.requests.all(), {})
         self.prefs.patch("live", {"autoAdopt": {"enabled": True, "waitMin": 60}, "auto": {"pad": 4.0}})
         self.assertEqual(self.live.detector.adopt_for(None, "local", REC), {"enabled": True, "waitMin": 7})

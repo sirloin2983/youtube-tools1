@@ -35,6 +35,7 @@ from pipeline.export import exporter  # noqa: E402
 from ytt import yturl as _yturl  # noqa: E402
 from ytt import apikey as _key, datadir, fsio as _fsio, httpsec, procs as _procs, runtime as ytt_runtime, studio_env as _env, tools as _tools  # noqa: E402  (startup が ytt を読めるようにしてある)
 from ytt import version as _version  # noqa: E402
+from ytt import marks as _marks, schemas as _schemas  # noqa: E402  (/api/live/exported の clip の検査。LD-2f)
 from ytt.errors import ApiError  # noqa: E402
 from ytt.textutil import permission_message, redact  # noqa: E402  純粋な関数
 
@@ -326,6 +327,10 @@ def _live_exported(o):
     archived = o.get("archived")
     if archived is not None and not isinstance(archived, bool):
         raise ApiError("bad_request", "archived が正しくありません", 400)
+    clip = o.get("clip")   # 余白つき(LD-2f)の動画の実際の始まり・終わり(マークと同じ秒)。無ければ余白なし
+    if clip is not None and not (isinstance(clip, list) and len(clip) == 2 and all(_schemas.is_num(x) and 0 <= x <= _marks.MAX_TIME for x in clip)
+                                 and clip[0] < clip[1]):
+        raise ApiError("bad_request", "clip が正しくありません", 400)
     v, _s = STORE.get(vid)   # 無ければ 404
     if v["kind"] != "live":
         raise ApiError("bad_request", "ライブの録画の配信だけです", 400)
@@ -334,7 +339,7 @@ def _live_exported(o):
         return {"ok": False, "video": v}
     real, root = os.path.realpath(raw), os.path.realpath(_env.get_out_dir())
     rel = os.path.relpath(real, root).replace("\\", "/")
-    recorded = STORE.mark_exported(vid, mid, rel, m["start"], m["end"], os.path.abspath(raw), archived)
+    recorded = STORE.mark_exported(vid, mid, rel, m["start"], m["end"], os.path.abspath(raw), archived, clip=tuple(clip) if clip else None)
     return {"ok": bool(recorded), "video": STORE.get(vid)[0]}
 
 
@@ -397,8 +402,8 @@ def _settings(o):
 def _export(o):
     spec = _flowexport.build_spec(STORE, o)
 
-    def on_done(vid, mid, rel, start, end, path=None):
-        recorded = STORE.mark_exported(vid, mid, rel, start, end, path)
+    def on_done(vid, mid, rel, start, end, path=None, clip=None):
+        recorded = STORE.mark_exported(vid, mid, rel, start, end, path, clip=clip)   # clip = 余白つきの動画の実際の始まり・終わり(LD-2f)
         _flowkeys.write_studio_export(spec, path, start, end)   # 切り抜きの横に export の鍵(書けなくてもログだけ。RS6 b-K1)
         return recorded
     return EXPORTS.public_of(EXPORTS.start(spec, on_done))

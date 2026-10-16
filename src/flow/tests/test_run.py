@@ -358,6 +358,25 @@ class TestRun(unittest.TestCase):
                                           "speakerColors": True, "volume": 50})
         self.assertEqual(r.packs, [os.path.normpath("/x/clip_pack")])
 
+    def test_doc_pack_sends_clip_range(self):
+        """LD-2f: 余白つきの切り抜き(.clip.json の export.margin・actualStart)なら、パックへ動画の中のマークの区間 clipRange を送る"""
+        media = self.media
+        from ytt import schemas as S
+        cp = S.clip_path_for(media)
+        os.makedirs(os.path.dirname(cp), exist_ok=True)
+        self.addCleanup(os.remove, cp)
+        with open(cp, "w", encoding="utf-8") as f:
+            json.dump(S.build_clip(media, 50.0, {"kind": "youtube", "videoId": "abcdefghijk"}, (110.0, 140.0), {"id": "m1"},
+                                   {"mode": "precise", "actualStart": 100.0, "margin": {"before": 10.0, "after": 10.0}}, {"name": "t"}), f)
+
+        class Docs(R.Runner):
+            def _docs(self):
+                return [{"id": "d1", "title": "題", "count": 1, "sourcePath": media, "segments": [{"start": 0, "end": 1, "text": "あ"}]}]
+        c = FakeClient()
+        r = R.run(c, R.Run.from_input({"docId": "d1"}), spec={"pack": {"cut": "silence"}}, hooks=Docs(c, poll=0, sleep=lambda s: None))
+        self.assertEqual(r.step("pack")["state"], "done", r.steps)
+        self.assertEqual(c.bodies["/api/build"]["spec"]["clipRange"], [10.0, 40.0])
+
     def test_doc_pack_sets_hint(self):
         """文書 → パックも届けた先(切り抜きの動画・スタジオのマーク)を pack_marks に残す(opt-manage 2a-1。無いと届けた印が案件に残らない)"""
         media = self.media

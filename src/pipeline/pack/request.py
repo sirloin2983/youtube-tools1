@@ -10,7 +10,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-from ytt import colors as _colors, loudness as _loud
+from ytt import colors as _colors, loudness as _loud, schemas as _schemas
 from ytt.errors import ApiError
 
 from . import cut2resolve_core as C
@@ -121,7 +121,7 @@ def request_from_spec(spec):
         if tr is None:
             raise ApiError("no_transcript", "文字起こしのファイルを入れてください")
         return pack.Request(video=video, transcript=tr, snap_edges=spec.get("snapEdges") is True,   # 両端を話の切れ目へ詰める(LD-2c。② が送る)
-                            **dict(pack.TRANSCRIPT_ROWS, row_edge=row_edge_from_spec(spec)))
+                            clip_range=clip_range_from_spec(spec), **dict(pack.TRANSCRIPT_ROWS, row_edge=row_edge_from_spec(spec)))
     if spec.get("preset") not in (None, ""):
         raise ApiError("bad_value", "preset が正しくありません")
     if spec.get("keeps") is not None:
@@ -167,7 +167,18 @@ def request_from_spec(spec):
         silence=mode == "silence", noise=noise, silence_min=smin, silence_pad=spad,
         drop_cut_rows=spec.get("dropCutRows") is not False,
         min_len=_num(spec.get("minLen"), "最短の長さ", 0, 3600, DEFAULTS["minLen"]),
-        row_edge=row_edge_from_spec(spec) if base == "rows" else None, snap_edges=spec.get("snapEdges") is True, **advanced_from_spec(spec))
+        row_edge=row_edge_from_spec(spec) if base == "rows" else None, snap_edges=spec.get("snapEdges") is True,
+        clip_range=clip_range_from_spec(spec), **advanced_from_spec(spec))
+
+
+def clip_range_from_spec(spec):
+    """spec.clipRange(余白つきの動画の中のマークの区間 [始まり, 終わり] 秒。LD-2f。② が .clip.json の export.actualStart・range から作る)-> (a, b) か None"""
+    v = spec.get("clipRange")
+    if v is None:
+        return None
+    if not (isinstance(v, list) and len(v) == 2 and all(_schemas.is_num(x) and 0 <= x <= 1e7 for x in v) and v[0] < v[1]):
+        raise ApiError("bad_value", "clipRange(余白つきの動画の中のマークの区間)が正しくありません")
+    return float(v[0]), float(v[1])
 
 
 def row_edge_from_spec(spec):

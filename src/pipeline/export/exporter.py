@@ -19,6 +19,7 @@ import time
 from ytt import yturl as _yturl   # URL・動画 ID の形と入力の判定(sources.py を畳んだ)
 from ytt import fsio as _fsio, jobs, loudness as _loud, names as _names, normalize as _norm, runtime as _runtime, schemas, tools as _tools
 from ytt import mediainfo as _media, procs as _procs, studio_env as _env   # RS3-4 にスタジオの common から(呼ぶたびに持ち主から読む)
+from ytt import marks as _marks   # 余白の上限(LD-2f)
 from ytt.errors import ApiError
 from ytt.textutil import fmt_ts, permission_message, redact   # 純粋な関数(差し替えない)
 
@@ -177,6 +178,16 @@ def _parse_opts(req):
     return prec, vol, loud
 
 
+def _margin(req):
+    """margin(切り抜きの動画の前後に足す余白の秒。LD-2f。② の束の export.margin が送る)。無い = 0(今までどおり)。形が違えば 400"""
+    v = req.get("margin")
+    if v is None:
+        return 0.0
+    if not schemas.is_num(v) or not 0 <= v <= _marks.CLIP_MARGIN_MAX:
+        raise _bad_opt("margin: 0〜%g" % _marks.CLIP_MARGIN_MAX)
+    return float(v)
+
+
 def _max_height(req):
     """maxHeight(画質の上限)。決まった値以外は 0 = 上限なし"""
     try:
@@ -283,6 +294,9 @@ def spec_from_video(v, req):
             # .clip.json 用(元の配信の情報)。元のファイルのパスは file のときだけ入れる
             "kind": v["kind"], "sourceTitle": v["title"] or v.get("fileName") or "", "sourceFile": v["path"] if v["kind"] == "file" else None,
             "sourceDuration": v.get("duration") or 0, "combine": combine}
+    margin = _margin(req)
+    if margin and not combine:   # 余白(LD-2f)。つないで 1 本にするときは足さない(つなぎ目に余白が入る)
+        spec["margin"] = margin
     if v["kind"] == "file":
         if not os.path.isfile(v["path"]):
             raise ApiError("no_file", "元の動画ファイルが見つかりません(移動・削除されていないか確認してください)", 400)
@@ -731,7 +745,8 @@ def export_edit_media(ctl, spec, it, base, runner):
 # ---------- youtube-tools-clip/v1(.clip.json) ----------
 def _clip_export_info(spec, method, loudness=None):
     """.clip.json の export。mode は fast(高速の設定で作り直した)/ precise。どちらも位置ちょうど(range.start が 0 秒)なので actualStart は付けない
-    (以前の「高速」= コピーはキーフレームへずれたので actualStart を付けていた。2026-10-04 Q1 で作り直しに変えた)"""
+    (以前の「高速」= コピーはキーフレームへずれたので actualStart を付けていた。2026-10-04 Q1 で作り直しに変えた)。
+    余白つき(LD-2f)の actualStart・margin は write_manifests が足す"""
     info = {"mode": "fast" if method in ("fast", "copy") else "precise"}
     if spec.get("loudness"):
         info["loudness"] = loudness or {"target": spec["loudness"]}   # そろえたラウドネス(音量(%)は使っていない)
@@ -764,8 +779,12 @@ def write_manifests(spec, it, mark_status):
         return min(end, lim) if lim and lim > 0 else end
     media = it["path"]
     dur = _media.media_info(media)[0]
-    it["manifest"] = write_clip(media, dur, source, (it["start"], end_of(it["end"], it.get("srcLen"))), mark,
-                                _clip_export_info(spec, it.get("method"), it.get("loudness")))
+    ex = _clip_export_info(spec, it.get("method"), it.get("loudness"))
+    end = end_of(it["end"], it.get("srcLen"))
+    if it.get("clipRange"):   # 余白つき(LD-2f): range はマークのまま・動画の 0 秒 = actualStart(schemas.clip_offset が読む)・margin = 実際に足せた前後の秒(印)
+        cf, ct = it["clipRange"]
+        ex.update(actualStart=cf, margin={"before": round(it["start"] - cf, 3), "after": round(max(0.0, ct - end), 3)})
+    it["manifest"] = write_clip(media, dur, source, (it["start"], end), mark, ex)
     if it.get("editPath") and it.get("editRange"):
         es, ee = it["editRange"]
         edur = _media.media_info(it["editPath"])[0]
@@ -846,23 +865,46 @@ def _run_job(res, ctl, spec, on_done=None):
     res["state"] = "cancelled" if ctl.cancelled else ("error" if any(i["status"] == "error" for i in res["items"]) else "done")
 
 
+def _pad_item(spec, it):
+    """余白(spec の margin。LD-2f)があれば it の start・end を前後に広げる(0 より前・分かっている元の長さより後へは出さない)。
+    -> 広げた始まり(元の秒)か None(余白なし = 何もしない)。戻すのは呼び出し側"""
+    margin = float(spec.get("margin") or 0)
+    if margin <= 0:
+        return None
+    lim = spec.get("sourceDuration") or 0
+    a = max(0.0, float(it["start"]) - margin)
+    b = float(it["end"]) + margin
+    if lim and lim > it["end"]:
+        b = min(b, float(lim))
+    it["start"], it["end"] = round(a, 3), round(b, 3)
+    return it["start"]
+
+
 def _export_clip(ctl, spec, it, idx, on_done):
     """_run_job の1本ぶん: 切り出し(音量も)→ 編集用素材 → ラウドネス → 本当の名前へ → マークへの記録・.clip.json。
     失敗は例外で返す(状態と書きかけの片付けは呼び出し側)"""
     # <番号>_<開始>-<終わり>_<ラベル>(パスの長さに収まる分)。unique はここの名前を通す(テストが exporter.unique_base を差し替える)
     base = _names.clip_base(spec["outDir"], idx, it["start"], it["end"], it["label"], unique=unique_base)
     runner = _runner(spec)
-    it["file"] = runner(ctl, spec, it, base)   # 書きかけ(<base>.partial.mp4)
-    it["path"] = os.path.join(spec["outDir"], os.path.basename(it["file"]))
     warnings = []
+    mark = (it["start"], it["end"])
+    clip_from = _pad_item(spec, it)   # 余白(LD-2f): 切り出し・編集用素材の間だけ it の区間を広げる(名前・マーク・.clip.json の range はマークのまま)
     try:
-        it["editFile"] = export_edit_media(ctl, spec, it, base, runner)
-    except Exception as e:
-        _drop_edit(it)
-        if ctl.cancelled:   # 中止(終了の流れを含む)なら、本体も仕上げずに止める(書きかけは _run_job の finally で消える)
-            raise ExportError("中止しました")
-        _env.log_failure("Resolve edit media", e)
-        warnings.append("Resolve用の前後10秒素材を作れませんでした: %s" % str(e)[:180])
+        it["file"] = runner(ctl, spec, it, base)   # 書きかけ(<base>.partial.mp4)
+        it["path"] = os.path.join(spec["outDir"], os.path.basename(it["file"]))
+        if clip_from is not None:
+            got = _media.media_info(it["path"])[0]
+            it["clipRange"] = (clip_from, round(clip_from + (got if got else it["end"] - it["start"]), 3))
+        try:
+            it["editFile"] = export_edit_media(ctl, spec, it, base, runner)
+        except Exception as e:
+            _drop_edit(it)
+            if ctl.cancelled:   # 中止(終了の流れを含む)なら、本体も仕上げずに止める(書きかけは _run_job の finally で消える)
+                raise ExportError("中止しました")
+            _env.log_failure("Resolve edit media", e)
+            warnings.append("Resolve用の前後10秒素材を作れませんでした: %s" % str(e)[:180])
+    finally:
+        it["start"], it["end"] = mark
     apply_loudness(ctl, spec, it)   # 編集用素材ができてから、両方に同じ量をかける
     # 仕上がったので本当の名前へ(ここまでに止まったら、書きかけは _run_job の finally で消える)。切り抜き本体 → 編集用素材の順
     it["path"] = promote(it["path"])
@@ -878,7 +920,8 @@ def _export_clip(ctl, spec, it, idx, on_done):
     recorded = False
     if on_done:
         try:
-            recorded = bool(on_done(spec["videoId"], it["id"], it["file"], it["start"], it["end"], it.get("path")))
+            clip = {"clip": it["clipRange"]} if it.get("clipRange") else {}   # 余白つき(LD-2f)のときだけ = 余白なしは今までと同じ呼び方
+            recorded = bool(on_done(spec["videoId"], it["id"], it["file"], it["start"], it["end"], it.get("path"), **clip))
         except Exception as e:   # 動画はできているが、マークへの記録失敗は通知する
             _env.log_failure("書き出し済みマークの保存", e)
             warnings.append("動画は保存できましたが、書き出し済みの記録に失敗しました。再実行前に出力ファイルを確認してください。")

@@ -165,7 +165,7 @@ class LocalMarks:
         rel = _rel_file(media, ex.out_dir)
         try:
             with ms.lock:
-                ms.mark_exported(rc, rec, job["markId"], media, file=rel)
+                ms.mark_exported(rc, rec, job["markId"], media, file=rel, clip=job.get("clip"))   # 余白つき(LD-2f)なら clipFrom・clipTo
                 root = ms.case(rc, rec)
                 if root:
                     if not _casebook.live_exported(root, rec, job["studio"].get("mark"), rel, media, archived):

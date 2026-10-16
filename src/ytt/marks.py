@@ -6,7 +6,8 @@
 MarkStore)・束の検査(flow/spec.py)も、同じ区間の幅・長さの上限をここから読む(前は値を写していた)。
 
 - マークの形: id・start・end(秒。小数 1 桁)・label・src(auto|manual|collab)・score・reasons・parts・peak・live・
-  status(""|adopted|rejected|exported)・file・path・archived・createdAt・auto0・auto0Orig・collabFrom・adoptedBy
+  status(""|adopted|rejected|exported)・file・path・archived・clipFrom・clipTo・createdAt・auto0・auto0Orig・collabFrom・adoptedBy
+  (clipFrom・clipTo = 書き出した動画が実際に始まる・終わる元の秒。余白(LD-2f)を足して書き出したときだけ。切り抜きの中の t は元の配信の clipFrom + t)
 - 同じ区間 = 開始・終了の差がどちらも DUP_TOL(0.5 秒)以内(same・near)。少しでも重なる = overlaps。
   同じ場所 = ±SPOT_TOL(5 秒)以内で重なりが短いほうの半分以上(similar。人が消した候補の印の当て方。B3-3)
 - 手を入れた自動マーク = 判定した・ラベルあり・時刻を EDIT_TOL より動かした(touched。再解析で残す境目)
@@ -32,6 +33,8 @@ DUP_TOL = 0.5           # 自動マークが既存マークとこれ以内のず
 EDIT_TOL = 0.05         # 書き出し済みマークの時刻がこれより動いたら「書き出し済み」を外す
 SPOT_TOL = 5.0          # 「同じ場所」(similar)の開始・終了の差の上限(秒。人が消した候補の印を再解析のずれにも当てる)
 SPOT_RATIO = 0.5        # 「同じ場所」の重なりの率の下限(重なり / 短いほうの長さ)
+CLIP_MARGIN_DEFAULT = 10.0   # 切り抜きの動画の前後に足す余白の既定(秒。LD-2f。束の export.margin。マークの区間は変えない)
+CLIP_MARGIN_MAX = 30.0       # 余白の上限(秒)
 
 
 def pos_int(x):
@@ -334,12 +337,17 @@ def replace_auto(marks, cands, hide=None):
     return sorted(kept + autos, key=by_time)[:MAX_MARKS], len(autos)
 
 
-def exported_mark(m, relfile, abspath=None, archived=None, live=False):
+def exported_mark(m, relfile, abspath=None, archived=None, live=False, clip=None):
     """マーク m を「書き出し済み」にした新しいマーク(m は変えない。スタジオの Store.mark_exported と flow/studiobook で同じ 1 つ)。
     relfile = 書き出し先からの相対(区切り /)・abspath = 書き出した mp4 の絶対パス(あれば)。
     archived(live の配信だけ = live が真。線 D の P4): True = 本番版に入れ替え済みの印を立てる / False = 外す /
-    None = ファイルが同じ(file・path が同じ)なら今の印のまま、違うファイルになったら外す"""
+    None = ファイルが同じ(file・path が同じ)なら今の印のまま、違うファイルになったら外す。
+    clip = 余白つきで書き出したときの動画の実際の始まり・終わり (clipFrom, clipTo)(元の秒。LD-2f)。None = 余白なし(印を外す)"""
     nm = dict(m)
+    nm.pop("clipFrom", None)
+    nm.pop("clipTo", None)
+    if clip and all(schemas.is_num(x) for x in clip) and clip[0] < clip[1]:
+        nm["clipFrom"], nm["clipTo"] = round(float(clip[0]), 3), round(float(clip[1]), 3)
     old_file, old_path = m.get("file") if m["status"] == "exported" else None, m.get("path")
     nm["status"], nm["file"] = "exported", str(relfile)[:300]
     if isinstance(abspath, str) and abspath and len(abspath) <= 600 and os.path.isabs(abspath):

@@ -125,6 +125,15 @@ def wait_js(pg, expr, timeout=20000):
     return False
 
 
+def clip_len(job):
+    """書き出したジョブの動画の長さの見込み: 余白つき(LD-2f。ジョブの clip {from, to})ならその長さ、無ければマークの長さ"""
+    from flow import live_export as LX   # noqa: E402  (起動の順で src を sys.path に足したあと)
+    c = job.get("clip") or {}
+    if c.get("from") and c.get("to"):
+        return LX.iso_epoch(c["to"]) - LX.iso_epoch(c["from"])
+    return job["studio"]["end"] - job["studio"]["start"]
+
+
 def wait_for(fn, timeout=30.0, step=0.3):
     end = time.time() + timeout
     while time.time() < end:
@@ -592,7 +601,7 @@ def _scene_rebuild_by_hand(cx):
     ba = b.get("archive") or {}
     info = normalize.probe(b.get("path") or "") if b.get("path") else None
     check(b.get("state") == "done" and not b.get("needsArchive") and info and normalize.is_30fps(info)
-          and abs(info.get("duration", 0) - (b["studio"]["end"] - b["studio"]["start"])) <= LX.LEN_TOL,
+          and abs(info.get("duration", 0) - clip_len(b)) <= LX.LEN_TOL,
           "3 欠けのマーク B はアーカイブから新しく書き出した(done・30fps・長さ): %s" % ((b.get("path") or "")[-60:]))
     check(ba.get("state") == "done" and ba.get("aligned") and ba.get("offsetFrom") == "マークの手前の録画の音を照合" and isinstance(ba.get("offset"), (int, float)),
           "3 B のずれはマークの手前の録画の音で照合した(archive.aligned・offsetFrom): %s / %s" % (ba.get("aligned"), ba.get("offsetFrom")))

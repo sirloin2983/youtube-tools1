@@ -203,7 +203,10 @@ def studio_media(spec):
 
 def studio_export_settings(spec):
     """スタジオの書き出しの設定のうち、出来上がりの映像・音に効くもの"""
-    return {"fast": bool(spec.get("fast")), "maxHeight": spec.get("maxHeight"), "volume": spec.get("volume"), "loudness": spec.get("loudness")}
+    out = {"fast": bool(spec.get("fast")), "maxHeight": spec.get("maxHeight"), "volume": spec.get("volume"), "loudness": spec.get("loudness")}
+    if spec.get("margin"):   # 余白(LD-2f)は足したときだけ(余白なしの鍵は今までと同じ)
+        out["margin"] = spec["margin"]
+    return out
 
 
 def write_studio_export(spec, clip_path, start, end):

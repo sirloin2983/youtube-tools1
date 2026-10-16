@@ -2,7 +2,9 @@
 
 配信中の検出(src/flow/live_detect.py)の候補が確定するたびに、その区間の音を録画元から取り(書き出し src/flow/live_export.py と同じセグメント)、
 16kHz モノラルの wav にして子プロセス src/pipeline/transcribe/live_tx_worker.py(編集の whisper.cpp・Vulkan = GPU)で認識し、
-live/excite/<録画元>/<録画>/tx.json に残す({"v": 1, "items": {候補の id: {"text", "rows", "sec", "gpu", "model", "at"} か {"error", "at", "tries"}}})。
+live/excite/<録画元>/<録画>/tx.json に残す({"v": 1, "items": {候補の id: {"text", "rows", "pad", "sec", "gpu", "model", "at"} か {"error", "at", "tries"}}})。
+音は候補の区間の前後に余白(録画の束の export.margin。書き出しと同じ。LD-2f)を足して取る。rows の時刻は候補の始まり = 0 秒(余白の行は負・区間の長さより後)・
+pad = 実際に足せた前後の秒 [前, 後]・text は候補の区間にかかる行だけ(今までと同じ意味)。
 候補の API(GET /live/api/peaks。live_detect.Detector.api_get)が候補に text を足してスタジオの帯に出し、採用の記録(live_feedback.jsonl)にも text を残す(C2 の材料)。
 **字幕の正本は今までどおり書き出したあとの文字起こし**(短い区切りは精度が落ちる。ここは候補を見て決めるための文字)。
 
@@ -33,15 +35,39 @@ DEFAULT_MODEL = "large-v3"
 LIVE_ENGINE = "whisper.cpp"           # 配信中の文字起こしのエンジン(whisper.cpp だけ)
 LIVE_DEVICES = ("vulkan", "cuda")    # whisper.cpp の機器 = GPU だけ(0.58.0。cuda は F1 F0-2 の CUDA 版。この PC の設定の cpu などは machine が vulkan に読み替える)
 TX_STATES = ("frame", "bench", "adopted")   # 文字を付ける候補の状態(仮の候補・終わり待ち・見送りは付けない)
-TX_TIMEOUT = 240.0        # 子プロセス 1 本の上限(秒。45〜120 秒の音は GPU で 10〜20 秒)
+TX_TIMEOUT = 240.0        # 子プロセス 1 本の上限(秒。45〜120 秒の音は GPU で 10〜20 秒 = 区間の上限 300 秒 + 余白 2 × 30 秒でも 1 分ほど。LD-2f で見直して据え置き)
 WAV_TIMEOUT = 120          # 候補の区間の wav を作る ffmpeg 1 本の上限(秒)
 TX_TRIES = 2              # 同じ候補を試す回数
 FAIL_PAUSE_AFTER = 3      # 続けてこの回数失敗したら休む
 PAUSE_SEC = 600.0         # 休む秒
 RECENT_SEC = 120.0        # API の差分(changes)に「文字が付いた候補」として入れる、付けてからの秒
-TEXT_MAX = 2000
-DOC_MAX = 2 * 1024 * 1024
+TEXT_MAX = 4000           # 候補の文字の上限(区間の上限 300 秒 × 話す速さ 1 秒 8 字ほど。LD-2f で 2000 から)
+ROWS_MAX = 400            # 候補の行の上限(360 秒の音 ÷ 1 行 1〜3 秒。LD-2f で 200 から)
+DOC_MAX = 8 * 1024 * 1024  # tx.json の上限(長い配信の候補 50 本ほど × 行 400。超えると読めず全部やり直しになるので広め。LD-2f で 2MB から)
 BOARD_META_MAX = 500     # 掲示板に載せた候補の覚え(区間・載せた時刻)の上限
+
+
+def _session_at(segs, t):
+    """候補の始まり t(epoch 秒)を含むセグメントのセッション(無ければ t より後の最初・それも無ければ最初のセグメント)"""
+    for s in segs:
+        p = LX.iso_epoch(s.get("pdt"))
+        if p is not None and p + float(s.get("dur") or 0) > t:
+            return s.get("session")
+    return segs[0].get("session")
+
+
+def shift_rows(rows, before, length):
+    """余白つきの wav の行(wav の頭 = 0 秒)-> (候補の始まり = 0 秒にずらした行, 候補の区間 [0, length] にかかる行の文字)(LD-2f)"""
+    out = []
+    for r in rows or []:
+        if not isinstance(r, dict):
+            continue
+        try:
+            s, e = float(r.get("start")), float(r.get("end"))
+        except (TypeError, ValueError):
+            continue
+        out.append(dict(r, start=round(s - before, 2), end=round(e - before, 2)))
+    return out, "".join(str(r.get("text") or "") for r in out if r["end"] > 0 and r["start"] < length)
 
 
 class LiveTx(LX.Patrol):
@@ -170,12 +196,14 @@ class LiveTx(LX.Patrol):
         with self.lock:
             return [k for k, v in self._load(rc, rec).items() if v.get("text") and isinstance(v.get("atEpoch"), (int, float)) and now - v["atEpoch"] <= within]
 
-    def record(self, rc, rec, pid, text, rows=None, sec=None, gpu="", model=""):
-        """文字を残す(テスト・画面の確認でも使う)"""
+    def record(self, rc, rec, pid, text, rows=None, sec=None, gpu="", model="", pad=None):
+        """文字を残す(テスト・画面の確認でも使う)。pad = 余白 [前, 後](秒。LD-2f。足したときだけ)"""
         with self.lock:
             items = self._load(rc, rec)
-            items[pid] = {"text": str(text)[:TEXT_MAX], "rows": list(rows or [])[:200], "sec": sec, "gpu": gpu or "", "model": model or self.cfg()["model"],
+            items[pid] = {"text": str(text)[:TEXT_MAX], "rows": list(rows or [])[:ROWS_MAX], "sec": sec, "gpu": gpu or "", "model": model or self.cfg()["model"],
                           "at": LX.now_iso(), "atEpoch": self.clock()}
+            if pad:
+                items[pid]["pad"] = [round(float(pad[0]), 2), round(float(pad[1]), 2)]
             self._save(rc, rec)
             return dict(items[pid])
 
@@ -357,14 +385,18 @@ class LiveTx(LX.Patrol):
         if rco is None:
             return self._after(rc, rec, pid, False, "録画元がありません")
         a, b = first + float(pk["start"]), first + float(pk["end"])
-        code, d = ex._query(rc, rec, a, b)
+        m = ex.margin({"recorder": rc, "recording": rec})   # 余白(LD-2f。書き出しと同じ束の export.margin)
+        if m > 0:   # 余白の所が録画の前・まだ録れていないときは録れている所まで(欠けを見ない = 取れた分だけ)
+            code, d = ex._query(rc, rec, a - m, b + m)
+        else:
+            code, d = ex._query(rc, rec, a, b)
         if code != 200 or not isinstance(d, dict):
             return self._after(rc, rec, pid, False, "録画のセグメントを読めません(HTTP %s)" % code)
         segs = [s for s in d.get("segments") or [] if isinstance(s, dict) and LX.SEG_URI_RE.match(str(s.get("uri") or ""))]
         if not segs:
             return self._after(rc, rec, pid, False, "その区間の音がまだありません")
-        sess = segs[0].get("session")
-        segs = [s for s in segs if s.get("session") == sess]   # つなぎ直しをまたがない(最初のセッションの分だけ)
+        sess = _session_at(segs, a)
+        segs = [s for s in segs if s.get("session") == sess]   # つなぎ直しをまたがない(候補の始まりのセッションの分だけ。余白はそのセッションの中だけ)
         wdir = os.path.join(ex.work, "tx-%s-%s" % (rec, pid))
         job = {"id": "tx-" + pid, "recorder": rc, "recording": rec}
         try:
@@ -375,10 +407,15 @@ class LiveTx(LX.Patrol):
             if not files:
                 return self._after(rc, rec, pid, False, "セグメントを取れませんでした")
             s0 = LX.iso_epoch(segs[0].get("pdt"))
-            ss = max(0.0, a - s0) if s0 is not None else 0.0
+            wa = min(a, max(a - m, s0)) if s0 is not None and m > 0 else a   # 余白の始まり(録画の頭より前へは出ない。余白なしは今までどおり)
+            ss = max(0.0, wa - s0) if s0 is not None else 0.0
+            wb = b + m
+            last = LX.iso_epoch(segs[-1].get("pdt"))
+            if m > 0 and last is not None:   # 録れている所まで(最後のセグメントの終わり)
+                wb = max(b, min(wb, last + float(segs[-1].get("dur") or 0)))
             wav = os.path.join(wdir, "in.wav")
-            # セグメントをつないだ .ts から候補の区間の 16kHz モノラルの wav(whisper の入力)。引数は ① の recognize.wav_args
-            cmd = _recognize.wav_args(self._ffmpeg(), files[0][0], wav, max(0.0, ss), max(0.5, b - a), opts=("-loglevel", "error", "-y"),
+            # セグメントをつないだ .ts から候補の区間(+ 余白)の 16kHz モノラルの wav(whisper の入力)。引数は ① の recognize.wav_args
+            cmd = _recognize.wav_args(self._ffmpeg(), files[0][0], wav, max(0.0, ss), max(0.5, wb - wa), opts=("-loglevel", "error", "-y"),
                                       drop=("-vn", "-sn", "-dn"), fmt="wav")
             try:   # 入口の終了(_halt)で止まる・120 秒で止める(ytt/tools.run)
                 p = tools.run(cmd, timeout=WAV_TIMEOUT, cancelled=self._halt.is_set, flags=tools.no_window_flags(priority="low"), stdout=False, err_tail=20)
@@ -395,7 +432,11 @@ class LiveTx(LX.Patrol):
                 return None
             if not isinstance(res, dict) or not res.get("ok"):
                 return self._after(rc, rec, pid, False, (res.get("reason") or "認識に失敗しました") if isinstance(res, dict) else "答えがありません")
-            self.record(rc, rec, pid, res.get("text") or "", res.get("rows"), res.get("sec"), res.get("gpu") or "", res.get("model") or "")
+            text, rows, pad = res.get("text") or "", res.get("rows"), None
+            if wa < a or wb > b:   # 余白つき: 行の時刻を候補の始まり = 0 秒に・文字は候補の区間にかかる行だけ
+                rows, text = shift_rows(rows, a - wa, b - a)
+                pad = (a - wa, max(0.0, wb - b))
+            self.record(rc, rec, pid, text, rows, res.get("sec"), res.get("gpu") or "", res.get("model") or "", pad=pad)
             self.log("配信中の文字起こし: %s の候補 %s に文字を付けました(%.1f 秒・%s)" % (rec, pid, float(res.get("sec") or 0), res.get("gpu") or "GPU"))
             self._after(rc, rec, pid, True)
         except (LX.Cancelled, LX.Halted):

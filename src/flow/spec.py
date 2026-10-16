@@ -22,6 +22,7 @@ from ytt import marks as _marks, schemas
 # ---------- 区間・マーク・採用数・重みの検査(autorun.py から移した) ----------
 RANGE_MAX = _marks.MAX_REQUEST_RANGES   # 1本の配信の区間の数(スタジオと同じ = ytt/marks)
 RANGE_MAX_SEC = _marks.MAX_MARK_SEC     # 1つの区間の長さ(スタジオと同じ = ytt/marks)
+MARGIN_DEFAULT, MARGIN_MAX = _marks.CLIP_MARGIN_DEFAULT, _marks.CLIP_MARGIN_MAX   # 切り抜きの前後の余白(LD-2f。ytt/marks)
 RANGE_TIME_MAX = 360000  # 区間の時刻の上限(秒 = 100 時間。これより後は形が違う扱い。友人の受付の検査から)
 RANGE_PAD = 2.0          # 区間の前後に足す秒(ぴったり指定すると頭の一言が欠けやすいため。2026-10-02 ユーザー決定: 自動で付ける。RS1-7 で autorun.py から)
 CUTS = ("none", "silence")          # 友人が選べるカットの方法(① 全自動のパック)
@@ -211,6 +212,7 @@ DEFAULTS = {
     "export": {               # 書き出し(run.py の _export_body。exporter.py の DEFAULT_EXPORT_VOLUME)
         "loudness": -14,      # 聞こえ方をそろえる目標(LUFS)。None = そろえない(volume を使う)
         "volume": 75,         # そろえないときの音量(%)
+        "margin": MARGIN_DEFAULT,   # 切り抜きの動画の前後に足す余白(秒。LD-2f。マークの区間は変えない = パックの段が話の切れ目で両端を決める。0 = 今までどおり = スイッチ)
     },
     "transcribe": {           # 認識(重い。src/human/proof/doc_jobs.py の validate_job(文字起こしの要求))。0.58.0 から GPU の whisper.cpp + large-v3(0.57.0 まで faster-whisper・small・auto)
         "engine": "whisper.cpp", "model": "large-v3", "language": "ja",
@@ -431,7 +433,8 @@ SCHEMA = {
               "perHour": (_int_in(1, 30), "1〜30 の整数"), "waitMin": (_int_in(1, 60), "1〜60 の整数(分)"),
               "sens": (_one_of("high", "normal", "low"), "high・normal・low のどれか"), "afterStream": (_is_bool, "true か false")},
     "export": {"loudness": (_or_none(_one_of(*_LUFS)), "null か %s のどれか" % "・".join(map(str, _LUFS))),
-               "volume": (_int_in(1, 200), "1〜200 の整数(%)")},
+               "volume": (_int_in(1, 200), "1〜200 の整数(%)"),
+               "margin": (_num_in(0, MARGIN_MAX), "0〜%d の数(秒)" % MARGIN_MAX)},
     "transcribe": {"engine": (_one_of(*TX_ENGINES), "%s のどれか" % "・".join(TX_ENGINES)),
                    "model": (_one_of(*TX_MODELS), "%s のどれか" % "・".join(TX_MODELS)),
                    "language": (_one_of("ja", "en", "ko", "zh", "auto"), "ja・en・ko・zh・auto のどれか"),
@@ -541,8 +544,19 @@ def implied_engine(device):
 def export_body(bundle, video_id, ids):
     """スタジオの書き出しの要求(POST /api/export)の本文。音量は束の export 節・精密と画質の上限は固定(FIXED = 精密・上限なし)"""
     ex = bundle["export"]
-    return {"id": video_id, "markIds": list(ids), "precision": "accurate" if FIXED["precise"] else "fast",
+    body = {"id": video_id, "markIds": list(ids), "precision": "accurate" if FIXED["precise"] else "fast",
             "maxHeight": FIXED["maxHeight"], "volume": ex["volume"], "loudness": ex["loudness"]}
+    margin = export_margin(bundle)
+    if margin:   # 余白(LD-2f)は 0 でないときだけ書く(0 = 今までと同じ本文)
+        body["margin"] = margin
+    return body
+
+
+def export_margin(bundle):
+    """束の export.margin(切り抜きの前後の余白の秒。LD-2f)。無い・形が違う(余白を足す前の束)なら 0 = 今までどおり"""
+    ex = bundle.get("export") if isinstance(bundle, dict) else None
+    v = ex.get("margin") if isinstance(ex, dict) else None
+    return float(v) if schemas.is_num(v) and 0 < v <= MARGIN_MAX else 0.0
 
 
 def tx_opts(bundle):

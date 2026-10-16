@@ -49,7 +49,7 @@ import sys
 import time
 import uuid
 
-from ytt import colors, jobs as _slots
+from ytt import colors, fsio as _fsio, jobs as _slots, schemas as _schemas
 from . import envelope as _envelope, keys as _keys, order as _order, normalize as _norm, placement as _placement, prio as _prio, spec as _spec, tools as _tools
 from .envelope import clean_pool  # noqa: F401  (src/app/autorun.py が同じ名前で読む。RS7-1 S3 で envelope へ移した)
 from .spec import (CUTS, LIVE_AUTO_CUT, WEIGHT_KEYS)
@@ -99,6 +99,19 @@ _num = _spec.num_ok   # 扱ってよい大きさの数か(src/flow/spec.py)
 def _has_captions(doc):
     """文書に残す字幕の行(文字があってカットしていない行)があるか"""
     return any(s.get("text", "").strip() and not s.get("cut") for s in doc.get("segments") or [])
+
+
+def _clip_span(media):
+    """余白つき(LD-2f)で書き出した切り抜きの、動画の中のマークの区間(.clip.json の export.actualStart・range。作業用/ か隣)。
+    -> (始まり, 終わり)(秒)か None(余白なし・.clip.json が無い・読めない・ネットワーク上のパス)"""
+    if not isinstance(media, str) or not media or _fsio.is_network_path(media):
+        return None
+    try:
+        cp = _schemas.find_clip_path(media)
+        clip, _ = _schemas.load_clip_file(cp) if cp else (None, None)
+    except (OSError, ValueError):
+        return None
+    return _schemas.clip_mark_span(clip) if clip else None
 
 
 class Cancelled(Exception):
@@ -1085,6 +1098,9 @@ class Runner:
                     spec["rowEdge"] = row_edge
             if self._bundle(run)["pack"].get("snapEdges") is True:   # 両端を話の切れ目へ詰める(LD-2c。束の pack.snapEdges = スイッチ。「編集」のカットには付けない)
                 spec["snapEdges"] = True
+            span = _clip_span(media)
+            if span:   # 余白つきの動画(LD-2f): タイムラインはマークの区間から(snapEdges なら余白の中の切れ目へ外へも寄せる)。「編集」のカットには付けない
+                spec["clipRange"] = list(span)
             body = {"spec": spec, "output": dict({"textplus": True}, **wrap_out)}
         b = self._bundle(run)
         if "videoTracks" in _pins(b):   # 友人が選んだ映像トラックの数(字幕はその上のトラック。1 でも書く = 今の要求の本文のまま)

@@ -409,7 +409,7 @@ class OneTest(LiveTxBase):
         self.assertFalse(os.path.exists(os.path.join(self.live.exporter.work, "tx-%s-p0-12" % REC)))   # 取ったセグメントと wav は消す
         again = TX.LiveTx(self.live)   # 入口を起動し直しても tx.json から読む
         self.assertEqual(again.text_for("fake", REC, "p0-12"), "ここで大きな声")
-        self.assertEqual(len(self.tx.record("fake", REC, "p1-22", "あ" * 2500)["text"]), TX.TEXT_MAX)
+        self.assertEqual(len(self.tx.record("fake", REC, "p1-22", "あ" * (TX.TEXT_MAX + 500))["text"]), TX.TEXT_MAX)
         self.assertEqual(self.tx.view("fake", REC_ENDED), {})
 
     def test_one_waits_for_heavy_slot(self):
@@ -554,6 +554,21 @@ class OneTest(LiveTxBase):
         self.tx.close()
         t.join(10)
         self.assertFalse(t.is_alive())
+
+
+class ShiftRowsTest(unittest.TestCase):
+    """LD-2f: 余白つきの wav の行を候補の始まり = 0 秒へずらし、文字は候補の区間にかかる行だけ"""
+
+    def test_shift(self):
+        rows = [{"start": 1.0, "end": 4.0, "text": "まえ"}, {"start": 9.0, "end": 12.0, "text": "なか"}, {"start": 26.0, "end": 28.0, "text": "あと"}, "x"]
+        out, text = TX.shift_rows(rows, 10.0, 15.0)
+        self.assertEqual([(r["start"], r["end"]) for r in out], [(-9.0, -6.0), (-1.0, 2.0), (16.0, 18.0)])
+        self.assertEqual(text, "なか")
+
+    def test_session_at(self):
+        segs = [{"session": "s1", "pdt": "2026-10-04T05:59:50.000Z", "dur": 4.0}, {"session": "s2", "pdt": "2026-10-04T06:00:00.000Z", "dur": 10.0}]
+        self.assertEqual(TX._session_at(segs, LX.iso_epoch("2026-10-04T06:00:02Z")), "s2")   # 余白が前のセッションにかかっても候補のセッション
+        self.assertEqual(TX._session_at(segs, LX.iso_epoch("2026-10-04T05:59:51Z")), "s1")
 
 
 class RunWorkerTest(LiveTxBase):

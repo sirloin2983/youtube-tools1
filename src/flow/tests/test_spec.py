@@ -316,7 +316,11 @@ class TestBodies(unittest.TestCase):
 
     def test_export_body(self):
         b = spec.merge({"export": {"volume": 60, "loudness": None}})
+        self.assertEqual(spec.export_body(b, "v", ("m1",))["margin"], spec.MARGIN_DEFAULT)   # 余白(LD-2f)の既定
+        b = spec.merge({"export": {"volume": 60, "loudness": None, "margin": 0}})
         self.assertEqual(spec.export_body(b, "v", ("m1",)), {"id": "v", "markIds": ["m1"], "precision": "accurate", "maxHeight": 0, "volume": 60, "loudness": None})
+        self.assertEqual(spec.export_margin({"export": {"volume": 60}}), 0.0)   # 余白を足す前の束 = 今までどおり
+        self.assertEqual(spec.export_margin(None), 0.0)
 
     def test_tx_opts(self):
         o = spec.tx_opts(spec.merge(None))

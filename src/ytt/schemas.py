@@ -307,6 +307,19 @@ def clip_offset(clip):
     return v if v is not None and v >= 0 else float(clip["range"]["start"])
 
 
+def clip_mark_span(clip):
+    """余白つき(LD-2f。export.margin の印がある)切り抜きの、動画の中のマークの区間 (始まり, 終わり)(秒)。余白なし・形が違えば None
+    (以前の高速書き出しの actualStart = キーフレームのずれには margin が無いので当てない)"""
+    ex = clip.get("export") if isinstance(clip, dict) else None
+    rng = clip.get("range") if isinstance(clip, dict) else None
+    if not isinstance(ex, dict) or not isinstance(ex.get("margin"), dict) or not isinstance(rng, dict):
+        return None
+    off, a, b = num(ex.get("actualStart")), num(rng.get("start")), num(rng.get("end"))
+    if off is None or a is None or b is None or b <= a or a < off:
+        return None
+    return round(a - off, 3), round(b - off, 3)
+
+
 def load_clip_file(path, max_bytes=MAX_CLIP_BYTES):
     """(clip, 警告)。読めない・壊れている・別の版なら (None, 理由)。"""
     try:

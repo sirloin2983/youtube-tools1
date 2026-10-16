@@ -154,6 +154,9 @@ class TestReplaceAndExported(unittest.TestCase):
         self.assertTrue(M.exported_mark(arch, nm["file"], nm["path"], None, live=True).get("archived"))   # 同じファイル = 印のまま
         self.assertNotIn("archived", M.exported_mark(arch, "題/02.mp4", nm["path"], None, live=True))   # 違うファイル = 外す
         self.assertNotIn("archived", M.exported_mark(arch, nm["file"], nm["path"], True, live=False))   # live でなければ立てない
+        pad = M.exported_mark(m, "題/01.mp4", None, clip=(0.0, 50.5))   # 余白つき(LD-2f)の動画の実際の始まり・終わり
+        self.assertEqual((pad["clipFrom"], pad["clipTo"]), (0.0, 50.5))
+        self.assertNotIn("clipFrom", M.exported_mark(pad, "題/01.mp4", None))   # 余白なしで書き出し直したら外す
 
 
 if __name__ == "__main__":

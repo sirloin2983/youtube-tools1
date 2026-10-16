@@ -263,6 +263,9 @@ def studio_exported(call, job, media, archived=False):
     body = {"id": st["video"], "markId": st["mark"], "path": media}
     if archived:
         body["archived"] = True
+    span = clip_secs(job, st)
+    if span:   # 余白つき(LD-2f): スタジオのマークの秒(録画の頭から)での動画の実際の始まり・終わり
+        body["clip"] = list(span)
     try:
         code, d = call("POST", "/api/live/exported", body)
     except Exception as e:
@@ -270,6 +273,17 @@ def studio_exported(call, job, media, archived=False):
     if code is None or code == 200:
         return ""
     return "スタジオのマークを「書き出し済み」にできませんでした: %s" % str((d or {}).get("message") or "HTTP %s" % code)[:160]
+
+
+def clip_secs(job, st):
+    """ジョブの clip {from, to}(余白つきの動画の実際の始まり・終わり。絶対時刻。LD-2f)を、スタジオのマーク st {start, end}(録画の頭からの秒)
+    と同じ物差しの秒にする。-> (clipFrom, clipTo) か None(余白なし・形が違う)"""
+    c = job.get("clip") if isinstance(job.get("clip"), dict) else None
+    a, b = iso_epoch(job.get("start")), iso_epoch(job.get("end"))
+    cf, ct = (iso_epoch(c.get("from")), iso_epoch(c.get("to"))) if c else (None, None)
+    if None in (a, b, cf, ct) or not schemas.is_num(st.get("start")) or not schemas.is_num(st.get("end")):
+        return None
+    return round(max(0.0, st["start"] - (a - cf)), 3), round(st["end"] + (ct - b), 3)
 
 
 class MarkStore:
@@ -385,9 +399,10 @@ class MarkStore:
             self._save_or_raise(d)
             return dict(m), m["n"]
 
-    def mark_exported(self, rc, rec, mid, path, file=None):
+    def mark_exported(self, rc, rec, mid, path, file=None, clip=None):
         """採用の印(adopt)を「書き出し済み」に(書き出しが済んだとき。Exporter の exported hook から)。file = 書き出し先からの相対(区切り /。
-        案件へ写すときのマークの file)。-> 変えたか(そのマークが無ければ False)"""
+        案件へ写すときのマークの file)。clip = 余白つき(LD-2f)の動画の実際の始まり・終わり {from, to}(絶対時刻の文字列)= clipFrom・clipTo(印)。
+        -> 変えたか(そのマークが無ければ False)"""
         with self.lock:
             d = self.load(rc, rec)
             m = next((x for x in d["marks"] if x["id"] == mid), None)
@@ -396,6 +411,10 @@ class MarkStore:
             m.update(status="exported", path=str(path or ""), updated=now_iso())
             if isinstance(file, str) and file:
                 m["file"] = file[:300]
+            m.pop("clipFrom", None)
+            m.pop("clipTo", None)
+            if isinstance(clip, dict) and iso_epoch(clip.get("from")) is not None and iso_epoch(clip.get("to")) is not None:
+                m["clipFrom"], m["clipTo"] = clip["from"], clip["to"]
             self._save_or_raise(d)
             return True
 
@@ -904,7 +923,9 @@ class Exporter(Patrol):
                 self._set(job, state="error", error="録画元から思わぬ応答がありました(HTTP %s)" % code, message="")
                 continue
             last = iso_epoch(d.get("lastPdt"))
-            if last is not None and last >= b + READY_PAD:
+            if last is not None and last >= b + self.margin(job) + READY_PAD:   # 余白(LD-2f)の分も録れるまで待つ
+                return job
+            if not d.get("active") and last is not None and last >= b + READY_PAD:   # 録画が終わった・マークは録れている: 余白は録れた所まで(LD-2f)
                 return job
             if not d.get("active"):   # 録画が終わった: 録れた所までで切る
                 if last is not None and last - a >= 1.0:
@@ -964,6 +985,15 @@ class Exporter(Patrol):
     def _job_cancelled(self, job):
         return job.get("cancel")
 
+    def margin(self, job):
+        """ジョブの録画の束の export.margin(切り抜きの前後の余白の秒。LD-2f)。束の無い録画・余白を足す前の束は 0 = 今までどおり"""
+        return _spec.export_margin(self._bundle_of(job))
+
+    def _windows(self, job, a, b):
+        """取りに行く区間の順: 余白つき(LD-2f)→ 余白なし(余白の所が録画の前・欠け・まだ録れていないときはマークの区間だけで書き出す)"""
+        m = self.margin(job)
+        return [(a - m, b + m), (a, b)] if m > 0 else [(a, b)]
+
     def _process(self, job):
         a, b = iso_epoch(job["start"]), iso_epoch(job["end"])
         wdir = os.path.join(self.work, job["id"])
@@ -971,26 +1001,19 @@ class Exporter(Patrol):
         tmp = None
         try:
             got, why = None, []
-            for rc, rec, d in self._sources(job, a, b):
-                self._check(job)
-                if not job.get("recBase") and iso_epoch(d.get("firstPdt")) is not None:   # 録画の頭の時刻(P4 で欠けのマークをアーカイブから作るときの名前・range に使う)
-                    job["recBase"] = epoch_iso(iso_epoch(d["firstPdt"]))
-                name = (rc or {}).get("name") or "?"
-                if d.get("gaps"):
-                    g = d["gaps"][0]
-                    why.append("「%s」の録画は %s〜%s の %.0f 秒が欠けています" % (name, g["from"][11:19], g["to"][11:19], g["sec"]))
-                    continue
-                segs = d.get("segments") or []
-                if not segs or not all(SEG_URI_RE.match(str(s.get("uri") or "")) for s in segs):
-                    why.append("「%s」に区間の録画のデータがありません" % name)
-                    continue
-                try:
-                    files = self._fetch(job, rc, rec, segs, wdir)
-                except OSError as e:
-                    why.append("「%s」から取れませんでした(%s)" % (name, e))
-                    continue
-                got = (rc, rec, d, segs, files)
-                break
+            for wa, wb in self._windows(job, a, b):
+                if got is None:
+                    why = []
+                    got = self._pick_source(job, wa, wb, wdir, why)
+                    if got is not None:
+                        ca, cb = wa, wb
+                        if (wa, wb) != (a, b):   # 余白は取れたセグメントの中まで(欠けの許し GAP_TOL の分だけ短いことがある = 長さの確かめで落ちないように)
+                            segs = got[3]
+                            s0, s1 = iso_epoch(segs[0]["pdt"]), iso_epoch(segs[-1]["pdt"])
+                            if s0 is not None and s1 is not None:
+                                ca, cb = max(ca, s0), min(cb, s1 + float(segs[-1].get("dur") or 0))
+                            if ca > a or cb < b:   # マークまで欠けている: 余白なしで取り直す
+                                got = None
             if got is None:
                 gap = any("欠けて" in w for w in why)
                 self._set(job, state="error", needsArchive=gap, message="",
@@ -1005,9 +1028,12 @@ class Exporter(Patrol):
                                  reserved=bool(d.get("active")), **_prio.slot_kw("live")) as ok:   # 録画中は用途つきの枠も使う(M6。文字起こしで上限が埋まっていても待たない)
                 self._check(job, stopped=not ok)
                 self._set(job, state="encode", message="30fps に作り直しています")
-                out, tmp = self._encode(job, rc, rec, d, segs, files, a, b, wdir)
+                out, tmp = self._encode(job, rc, rec, d, segs, files, ca, cb, wdir, **({"mark": (a, b)} if (ca, cb) != (a, b) else {}))
             tmp = None
-            self._finish(job, rc, rec, d, out, a, b)
+            span = None
+            if (ca, cb) != (a, b):   # 余白つきで取れた(LD-2f): 動画の実際の始まり・終わり(絶対時刻)
+                span = (ca, ca + (out.get("duration") or cb - ca))
+            self._finish(job, rc, rec, d, out, a, b, clip_span=span)
         except Cancelled:
             self._set(job, state="cancelled", message="取り消しました", progress=0)
         except Halted:
@@ -1024,6 +1050,29 @@ class Exporter(Patrol):
                 fsio.unlink_quiet(tmp)
             shutil.rmtree(wdir, ignore_errors=True)
             job.pop("cancel", None)
+
+    def _pick_source(self, job, a, b, wdir, why):
+        """区間 (a, b) を、欠けの無い最初の録画元から取る。-> (rc, rec, 区間の答え, セグメント, ファイル) か None(理由は why へ)"""
+        for rc, rec, d in self._sources(job, a, b):
+            self._check(job)
+            if not job.get("recBase") and iso_epoch(d.get("firstPdt")) is not None:   # 録画の頭の時刻(P4 で欠けのマークをアーカイブから作るときの名前・range に使う)
+                job["recBase"] = epoch_iso(iso_epoch(d["firstPdt"]))
+            name = (rc or {}).get("name") or "?"
+            if d.get("gaps"):
+                g = d["gaps"][0]
+                why.append("「%s」の録画は %s〜%s の %.0f 秒が欠けています" % (name, g["from"][11:19], g["to"][11:19], g["sec"]))
+                continue
+            segs = d.get("segments") or []
+            if not segs or not all(SEG_URI_RE.match(str(s.get("uri") or "")) for s in segs):
+                why.append("「%s」に区間の録画のデータがありません" % name)
+                continue
+            try:
+                files = self._fetch(job, rc, rec, segs, wdir)
+            except OSError as e:
+                why.append("「%s」から取れませんでした(%s)" % (name, e))
+                continue
+            return rc, rec, d, segs, files
+        return None
 
     def _fetch(self, job, rc, rec, segs, wdir):
         """セグメントをセッションごとに1つの .ts へつなぐ(同じセッションの TS は時刻が続いているので、そのままつなげる)。-> [(ファイル, セッション)]"""
@@ -1056,13 +1105,14 @@ class Exporter(Patrol):
                 f.close()
         return files
 
-    def _encode(self, job, rc, rec, d, segs, files, a, b, wdir):
+    def _encode(self, job, rc, rec, d, segs, files, a, b, wdir, mark=None):
+        """(a, b) = 切り出す区間(余白つきなら余白を含む。LD-2f)。mark = マークの区間(名前に使う。省略 = (a, b))"""
         ff = self.ffmpeg or tools.find_tool("ffmpeg")
         if not ff:
             raise LiveError("ffmpeg が見つかりません")
         first = iso_epoch(segs[0]["pdt"])
         ss, dur = max(0.0, a - first), b - a
-        folder, base, title = self.target(job, d, rec, a, b)
+        folder, base, title = self.target(job, d, rec, *(mark or (a, b)))
         tmp = names.partial_path(folder, base)
         flags = tools.no_window_flags(priority="low")   # 書き出しは「通常より下」(録画は「通常より上」)
         # 切り出し・30fps・繋ぎ直しをまたぐ(欠けは無い)ときのセッションごとのファイルの concat は ① の ytt/normalize(OPT2)。ここは動かし方だけ
@@ -1199,8 +1249,10 @@ class Exporter(Patrol):
         except (KeyError, TypeError, ValueError):
             pass
 
-    def _finish(self, job, rc, rec, d, out, a, b, archive=None, message="書き出しました"):
-        """archive: アーカイブから新しく作った(P4。src/flow/live_archive.py の欠けのマーク)ときの source.live.archive {videoId, start, end, offset, residual, at}"""
+    def _finish(self, job, rc, rec, d, out, a, b, archive=None, message="書き出しました", clip_span=None):
+        """archive: アーカイブから新しく作った(P4。src/flow/live_archive.py の欠けのマーク)ときの source.live.archive {videoId, start, end, offset, residual, at}。
+        clip_span: 余白つき(LD-2f)で書き出した動画の実際の始まり・終わり(絶対時刻)。.clip.json の export.actualStart・margin(印)と
+        ジョブの clip {from, to}(マークの置き場が clipFrom・clipTo を残す)へ。None = 余白なし"""
         base = self._base(d, a)
         media = out["path"]
         vid = video_id_of(d.get("url"), rec)
@@ -1210,6 +1262,11 @@ class Exporter(Patrol):
                                                          "src": "manual" if origin == "manual" else "auto"},   # 自動の採用(auto・archive)は機械が選んだ区間
                                   dict({"mode": "precise", "fps": "30/1", "from": "youtube-archive" if archive else "live-recording"},
                                        **(out.get("audio") or {"volume": 100})), TOOL)   # 音量は実際にかけた値(スタジオの _clip_export_info と同じ形)
+        job.pop("clip", None)
+        if clip_span:   # 余白つき(LD-2f): range はマークのまま・動画の 0 秒 = actualStart(schemas.clip_offset が読む)・margin = 足せた前後の秒(印)
+            cf, ct = clip_span
+            clip["export"].update(actualStart=round(cf - base, 3), margin={"before": round(a - cf, 3), "after": round(max(0.0, ct - b), 3)})
+            job["clip"] = {"from": epoch_iso(cf), "to": epoch_iso(ct)}
         clip["source"] = {"kind": "live", "videoId": vid, "url": None, "title": out["title"], "path": None,
                           "live": {"url": d.get("url") or "", "recorder": rc["id"], "recording": rec, "base": epoch_iso(base),
                                    "start": epoch_iso(a), "end": epoch_iso(b), "markId": job["markId"], "origin": origin}}

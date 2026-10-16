@@ -1837,6 +1837,37 @@ class TestSnapEdges(unittest.TestCase):
         cut = self.rows((0.0, 3.0, "だから", True), (4.0, 9.0, "本題", False))
         self.assertEqual(pack.snap_base([(0, 270)], cut, FPS30, 270, []), pack.snap_base([(0, 270)], cut[1:], FPS30, 270, []))   # カット済の行は見ない
 
+    def test_margin_span_snaps_outward(self):
+        # LD-2f: 余白つきの動画(60 秒・マーク 10〜50 秒)。端の言葉の途中を、余白の中の切れ目へ外へ伸ばす
+        rows = self.rows((2.0, 6.5, "はい。", False), (8.0, 12.0, "これは", False), (12.5, 40.0, "本題", False), (40.5, 44.5, "でね", False),
+                         (45.0, 52.0, "最後まで", False), (53.0, 57.0, "おわり。", False))
+        warns = []
+        base = pack.snap_base([(0, 1800)], rows, FPS30, 1800, warns, span=(10.0, 50.0))
+        self.assertLess(base[0][0], 300)       # 始まりは 10 秒より前(7.25 秒の切れ目)
+        self.assertGreater(base[-1][1], 1500)  # 終わりは 50 秒より後
+        self.assertTrue(any("伸ばした" in w and "余白" in w for w in warns), warns)
+
+    def test_margin_span_without_speech_or_snap_keeps_mark(self):
+        rows = self.rows((12.0, 20.0, "はい。", False), (30.0, 40.0, "どうも。", False))
+        warns = []
+        self.assertEqual(pack.snap_base([(0, 1800)], rows, FPS30, 1800, warns, span=(10.0, 50.0)), [(300, 1500)])   # 端に声が無い = マークのまま
+        self.assertEqual(len(warns), 1)
+        self.assertIn("余白", warns[0])
+        warns = []
+        self.assertEqual(pack.clip_base([(0, 1800)], FPS30, 1800, (10.0, 50.0), warns), [(300, 1500)])   # 寄せないとき = マークの区間だけ
+        self.assertIn("余白", warns[0])
+
+    def test_request_reads_clip_range(self):
+        from pipeline.pack import request as R
+        with tempfile.TemporaryDirectory() as d:
+            v = write(os.path.join(d, "a.mp4"), "x")
+            t = write(os.path.join(d, "a.transcript.json"), json.dumps(transcript_doc([(0, 1, "a", False)])))
+            self.assertEqual(R.request_from_spec({"video": str(v), "transcript": str(t), "preset": "transcript-rows", "clipRange": [10, 50]}).clip_range,
+                             (10.0, 50.0))
+            self.assertIsNone(R.request_from_spec({"video": str(v), "transcript": str(t), "mode": "silence"}).clip_range)
+            with self.assertRaises(Exception):
+                R.request_from_spec({"video": str(v), "transcript": str(t), "mode": "silence", "clipRange": [50, 10]})
+
     def test_request_reads_snap_edges(self):
         from pipeline.pack import request as R
         with tempfile.TemporaryDirectory() as d:

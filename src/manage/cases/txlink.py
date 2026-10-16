@@ -30,7 +30,7 @@ def for_video(video, folder=None):
         doc, n, _ = txindex.pick(docs, vid, m.get("id"), path)
         if not doc:
             continue
-        off, basis = txindex.offset(doc, vid, path, m.get("start"))
+        off, basis = txindex.offset(doc, vid, path, m.get("clipFrom", m.get("start")))   # 余白つき(LD-2f)の動画の 0 秒 = clipFrom
         out[m["id"]] = dict(txindex.summary(doc), others=n - 1, offset=round(off, 3), offsetFrom=basis,
                             lines=txindex.lines(doc, off, MAX_LINES), truncated=doc["count"] > MAX_LINES)
     return {"marks": out, "linked": len(out)}

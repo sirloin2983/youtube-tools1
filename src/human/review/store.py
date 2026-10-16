@@ -765,25 +765,26 @@ class Store:
         self.series[vid] = series
         return n
 
-    def mark_exported(self, vid, mark_id, relfile, expected_start, expected_end, abspath=None, archived=None):
+    def mark_exported(self, vid, mark_id, relfile, expected_start, expected_end, abspath=None, archived=None, clip=None):
         """書き出した区間が今のマークと一致するときだけ、exported にして保存する。abspath: 書き出した mp4 の絶対パス(あれば)。
         archived(live の配信だけ。線 D の P4): True = 本番版に入れ替え済みの印を立てる(既に書き出し済みで path が同じでも立てられる)/
         False = 外す / None = ファイルが同じ(file・path が同じ)なら今の印のまま、違うファイルになったら外す。
         初めて書き出した配信(それまで書き出したマークが無い・まだ案件でない)は、flow/casebook.case_of で案件の根が引けたら案件にする((r8j)。
-        書き出し先はスタジオのメモリの値 = settings.json を読み直さない)。案件が見えなければ ApiError 503(case_unseen)"""
+        書き出し先はスタジオのメモリの値 = settings.json を読み直さない)。案件が見えなければ ApiError 503(case_unseen)。
+        clip: 余白つき(LD-2f)で書き出した動画の実際の始まり・終わり (clipFrom, clipTo)(元の秒)。None = 余白なし"""
         with self.lock:
             row = self.videos.get(vid)
             if not row:
                 return False
             with self._writing(row) as (v, prev):
-                fb = self._mark_exported(v, prev, mark_id, relfile, expected_start, expected_end, abspath, archived)
+                fb = self._mark_exported(v, prev, mark_id, relfile, expected_start, expected_end, abspath, archived, clip)
         if fb is None:
             return False
         if fb:   # 自動・手動どちらも、初めて書き出したときに「よかった」(最終の区間と、手で直した量つき)。ロックの外で書く
             feedback.feedback_for_mark(fb[0], fb[1], "good", "export")
         return True
 
-    def _mark_exported(self, v, prev, mark_id, relfile, expected_start, expected_end, abspath, archived):
+    def _mark_exported(self, v, prev, mark_id, relfile, expected_start, expected_end, abspath, archived, clip=None):
         """mark_exported の本体(self.lock と、案件なら案件のロックを取っていること)。
         -> None(記録しない)/ ()(記録した)/ (公開用の動画, マーク)(初めて書き出した = feedback を書く)"""
         m = next((x for x in v["marks"] if x["id"] == mark_id), None)
@@ -793,7 +794,7 @@ class Store:
             return None   # 書き出し中の編集を保持する。古い区間の動画は関連付けない
         first = m["status"] != "exported"
         nv = copy.deepcopy(v)
-        nm = _marks.exported_mark(m, relfile, abspath, archived, live=v["kind"] == "live")   # 状態・ファイル・本番版の印(ytt/marks。flow/studiobook と同じ 1 つ)
+        nm = _marks.exported_mark(m, relfile, abspath, archived, live=v["kind"] == "live", clip=clip)   # 状態・ファイル・本番版の印(ytt/marks。flow/studiobook と同じ 1 つ)
         nv["marks"] = [copy.deepcopy(nm) if x["id"] == mark_id else x for x in nv["marks"]]
         root = None
         if prev is None and not any(x["status"] == "exported" for x in v["marks"]):   # 初めて書き出した配信だけ案件にする(既存は B3-8 の移行まで)

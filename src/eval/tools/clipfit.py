@@ -30,6 +30,7 @@ from flow import lengthhint  # noqa: E402  友人の区間の読み方と、長�
 from flow import runlog  # noqa: E402
 from pipeline.analyze import breaks, excite  # noqa: E402
 from pipeline.pack import pack  # noqa: E402  話の切れ目へ詰める規則(本番と同じ関数)
+from ytt import schemas  # noqa: E402  余白つきの切り抜きの印(LD-2f)
 
 SCHEMA = "youtube-tools-clip-fit/v1"
 ARCHIVE_MAX = 256 * 1024 * 1024   # archive の 1 本の上限(展開後)
@@ -163,10 +164,12 @@ DOC_MAX = 16 * 1024 * 1024   # 文書 1 本の上限
 EDGE_FPS = (30, 1)            # 詰めた量を測るときのフレーム(パックの既定と同じ 30fps)
 
 
-def edge_speech(tx_root):
-    """文字起こしの作業データの切り抜きの文書 -> 端が話にかかっている割合(詰める前・後)と落とした秒(LD-2c)"""
-    n = touch_in = touch_out = after_in = after_out = 0
-    cut_sec, evalset = [], 0
+SIM_MARGIN = 10.0            # 余白の物差し(LD-2f)で、文書の両端から内側へこの秒をマークの区間とみなす(= 書き出しの余白の既定)
+
+
+def _docs(tx_root):
+    """文字起こしの作業データの切り抜きの文書(動画まるごと・長さのあるもの)-> [(文書, 長さ, 声の行)]"""
+    out = []
     for f in sorted(glob.glob(os.path.join(tx_root, "transcripts", "*.json"))):
         if os.path.basename(f).count(".") != 1:   # <id>.json だけ(.words.json・.loc.json は飛ばす)
             continue
@@ -182,13 +185,32 @@ def edge_speech(tx_root):
             continue
         rows = [g for g in d.get("segments") or [] if isinstance(g, dict) and str(g.get("text") or "").strip()
                 and isinstance(g.get("start"), (int, float)) and isinstance(g.get("end"), (int, float)) and g.get("cutState") != "cut"]
-        if not rows:
+        if rows:
+            out.append((d, float(dur), rows))
+    return out
+
+
+def _touch(x, rows, lo, hi):
+    """x の近く(breaks.MIN_GAP 秒)まで声の行がある = 言葉の途中で切れている(動画の外 [lo, hi] の外は見ない)"""
+    near = breaks.MIN_GAP
+    return any(r["start"] < min(hi, x + near) and r["end"] > max(lo, x - near) for r in rows)
+
+
+def edge_speech(tx_root):
+    """文字起こしの作業データの切り抜きの文書 -> 端が話にかかっている割合(詰める前・後)と落とした秒(LD-2c)。
+    余白つき(LD-2f。.clip.json の export.margin)の文書は数えない(評価に余白を当てない = 今までの数と比べられるように。数は margined)。
+    sim = 余白の見積もり(LD-2f): 余白つきでない文書の両端から SIM_MARGIN 秒内側をマークとみなし、詰めるだけ(マークだけの動画 = 今)と
+    余白の中の切れ目へ外へも寄せる(LD-2f)の端が話にかかっている割合・落とした秒・足した秒を比べる"""
+    n = touch_in = touch_out = after_in = after_out = 0
+    cut_sec, evalset, margined = [], 0, 0
+    sim = {"docs": 0, "touchIn": 0, "touchOut": 0, "nowIn": 0, "nowOut": 0, "marginIn": 0, "marginOut": 0, "nowCut": [], "marginCut": [], "marginAdd": []}
+    for d, dur, rows in _docs(tx_root):
+        if schemas.clip_mark_span(d.get("clip")):
+            margined += 1
             continue
         n += 1
         evalset += d.get("evalSet") is True
-        near = breaks.MIN_GAP
-        ti = any(r["start"] < near and r["end"] > 0 for r in rows)
-        to = any(r["end"] > dur - near and r["start"] < dur for r in rows)
+        ti, to = _touch(0.0, rows, 0.0, dur), _touch(dur, rows, 0.0, dur)
         total = int(round(dur * EDGE_FPS[0]))
         base = pack.snap_base([(0, total)], rows, EDGE_FPS, total, [])
         a, b = base[0][0], base[-1][1]
@@ -196,8 +218,40 @@ def edge_speech(tx_root):
         after_in += ti and a == 0
         after_out += to and b == total
         cut_sec.append(round((a + total - b) / EDGE_FPS[0], 1))
-    return {"docs": n, "evalSet": evalset, "touchIn": C.rate(touch_in, n), "touchOut": C.rate(touch_out, n),
-            "afterIn": C.rate(after_in, n), "afterOut": C.rate(after_out, n), "cutSec": C.dist(cut_sec, p90=True)}
+        if dur >= 2 * SIM_MARGIN + 20:
+            _simulate(sim, dur, rows)
+    k = sim["docs"]
+    out_sim = {"margin": SIM_MARGIN, "docs": k, "touchIn": C.rate(sim["touchIn"], k), "touchOut": C.rate(sim["touchOut"], k),
+               "nowIn": C.rate(sim["nowIn"], k), "nowOut": C.rate(sim["nowOut"], k), "marginIn": C.rate(sim["marginIn"], k), "marginOut": C.rate(sim["marginOut"], k),
+               "nowCut": C.dist(sim["nowCut"], p90=True), "marginCut": C.dist(sim["marginCut"], p90=True), "marginAdd": C.dist(sim["marginAdd"], p90=True)}
+    return {"docs": n, "evalSet": evalset, "margined": margined, "touchIn": C.rate(touch_in, n), "touchOut": C.rate(touch_out, n),
+            "afterIn": C.rate(after_in, n), "afterOut": C.rate(after_out, n), "cutSec": C.dist(cut_sec, p90=True), "sim": out_sim}
+
+
+def _simulate(sim, dur, rows):
+    """余白の見積もり 1 本(edge_speech の sim)。マーク = [SIM_MARGIN, dur − SIM_MARGIN]。端が話にかかっているかは文書の全部の行で見る"""
+    m = SIM_MARGIN
+    x0, x1 = m, dur - m
+    fps = EDGE_FPS[0]
+    sim["docs"] += 1
+    sim["touchIn"] += _touch(x0, rows, 0.0, dur)
+    sim["touchOut"] += _touch(x1, rows, 0.0, dur)
+    # 今 = マークだけの動画(行は動画の中だけ・0 秒 = マークの始まり)を詰めるだけ
+    crop = [dict(r, start=max(r["start"], x0) - x0, end=min(r["end"], x1) - x0) for r in rows if r["end"] > x0 and r["start"] < x1]
+    t1 = int(round((x1 - x0) * fps))
+    nb = pack.snap_base([(0, t1)], crop, EDGE_FPS, t1, [])
+    na, nb_ = x0 + nb[0][0] / fps, x0 + nb[-1][1] / fps
+    # LD-2f = 余白つきの動画で、余白の中の切れ目へ外へも寄せる
+    total = int(round(dur * fps))
+    mb = pack.snap_base([(0, total)], rows, EDGE_FPS, total, [], span=(x0, x1))
+    ma, mb_ = mb[0][0] / fps, mb[-1][1] / fps
+    sim["nowIn"] += _touch(na, rows, 0.0, dur)
+    sim["nowOut"] += _touch(nb_, rows, 0.0, dur)
+    sim["marginIn"] += _touch(ma, rows, 0.0, dur)
+    sim["marginOut"] += _touch(mb_, rows, 0.0, dur)
+    sim["nowCut"].append(round((na - x0) + (x1 - nb_), 1))
+    sim["marginCut"].append(round(max(0.0, ma - x0) + max(0.0, x1 - mb_), 1))
+    sim["marginAdd"].append(round(max(0.0, x0 - ma) + max(0.0, mb_ - x1), 1))
 
 
 def scene_only(total, full, m, peaks_, params):
@@ -263,6 +317,16 @@ def print_fit(res):
         print("  端が話にかかっている(言葉の途中で切れている)切り抜きの文書 %d 本(うち評価用 %d): 始まり %s → 詰めたあと %s・終わり %s → %s / 落とした秒 中央値 %s・90%% %s" % (
             e["docs"], e["evalSet"], C.pct(e["touchIn"]).strip(), C.pct(e["afterIn"]).strip(), C.pct(e["touchOut"]).strip(), C.pct(e["afterOut"]).strip(),
             e["cutSec"].get("median"), e["cutSec"].get("p90")))
+        if e.get("margined"):
+            print("  (余白つきの文書 %d 本は数えていません)" % e["margined"])
+        sm = e.get("sim") or {}
+        if sm.get("docs"):
+            print("  余白 %g 秒の見積もり(LD-2f。文書 %d 本の両端から %g 秒内側をマークとみなす): 端が話にかかっている 始まり %s → 詰めるだけ %s・余白の中へも寄せる %s /"
+                  " 終わり %s → %s・%s / 落とした秒 中央値 %s → %s・90%% %s → %s / 足した秒 中央値 %s・90%% %s" % (
+                      sm["margin"], sm["docs"], sm["margin"], C.pct(sm["touchIn"]).strip(), C.pct(sm["nowIn"]).strip(), C.pct(sm["marginIn"]).strip(),
+                      C.pct(sm["touchOut"]).strip(), C.pct(sm["nowOut"]).strip(), C.pct(sm["marginOut"]).strip(),
+                      sm["nowCut"].get("median"), sm["marginCut"].get("median"), sm["nowCut"].get("p90"), sm["marginCut"].get("p90"),
+                      sm["marginAdd"].get("median"), sm["marginAdd"].get("p90")))
 
 
 def main(argv=None):

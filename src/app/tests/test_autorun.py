@@ -589,7 +589,8 @@ class TestModes(Base):
         self.assertEqual(run["state"], "done", run)
         self.assertEqual(self.states(run), {"export": "done", "transcribe": "done", "pack": "done"})
         # 音量はスタジオの設定を使う。精密・画質の上限は固定(精密・上限なし。画面の値は読まない = RS7-1 S4・決定 3-30 Q2)
-        self.assertEqual(self.tools.export_body, {"id": VID, "markIds": ["m1"], "precision": "accurate", "maxHeight": 0, "volume": 60, "loudness": -16})
+        self.assertEqual(self.tools.export_body, {"id": VID, "markIds": ["m1"], "precision": "accurate", "maxHeight": 0, "volume": 60, "loudness": -16,
+                                                  "margin": 10.0})   # 余白(LD-2f。束の export.margin の既定)
         tx = self.tools.tx_jobs["t1"]["body"]
         # 文字起こしの項目は束の値を全部(無い項目は編集の既定と同じ束の既定)。知らない設定(secret・goalHours)は渡さない
         self.assertEqual(tx, {"model": "large-v3", "language": "ja", "quality": "best", "device": "vulkan", "vadMode": "weak", "boost": True,

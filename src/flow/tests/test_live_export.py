@@ -750,6 +750,56 @@ class ExportPiecesTest(unittest.TestCase):
         again = LX.Exporter(mock.Mock(), os.path.join(self.tmp, "live"), lambda: os.path.join(self.tmp, "out"))   # 記録に残る
         self.assertEqual([x.get("request", {}).get("rid") for x in again.jobs][:2], [req["rid"], req["rid"]])
 
+    def test_margin_window_and_fallback(self):
+        """LD-2f: 束の余白があれば前後に余白つきで取り(名前はマーク)・_finish に実際の始まり・終わり。余白の所に欠けがあればマークの区間だけで書き出す"""
+        ex, _logs = self._pieces_exporter({"v": 50 * LX.GB})
+        rec = "20261004-000000-a"
+        got = {}
+
+        def encode(job, rc, rec_, d, segs, files, a, b, wdir, mark=None):
+            got.update(window=(a, b), mark=mark)
+            return {"path": os.path.join(self.tmp, "x.mp4"), "duration": b - a, "title": "t"}, None
+
+        def finish(job, *a, **k):
+            got["span"] = k.get("clip_span")
+            ex._set(job, state="done")
+        gaps = {"pad": []}
+
+        def sources(job, a, b):
+            pad = b - a > 6
+            return [({"id": "local", "name": "この PC"}, rec, {"active": False, "firstPdt": "2026-10-04T05:00:00.000Z", "gaps": gaps["pad"] if pad else [],
+                     "segments": [{"uri": "session_001/seg_000000.ts", "session": "session_001", "pdt": "2026-10-04T05:59:40.000Z", "dur": 40.0}]})]
+        with mock.patch.object(ex, "margin", return_value=10.0), mock.patch.object(ex, "_sources", side_effect=sources),                 mock.patch.object(ex, "_fetch", return_value=[("part.ts", "session_001")]),                 mock.patch.object(ex, "_encode", side_effect=encode), mock.patch.object(ex, "_finish", side_effect=finish):
+            for k, gap in enumerate(([], [{"from": "2026-10-04T05:59:50.000Z", "to": "2026-10-04T05:59:55.000Z", "sec": 5}])):
+                gaps["pad"] = gap
+                m, _ = ex.marks.apply("local", rec, {"op": "add", "start": "2026-10-04T06:00:0%dZ" % k, "end": "2026-10-04T06:00:0%dZ" % (k + 5)})
+                job = ex.add("local", rec, m["id"], after="none")
+                j = next(x for x in ex.jobs if x["id"] == job["id"])
+                ex._process(j)
+                a = LX.iso_epoch(j["start"])
+                if not gap:
+                    self.assertEqual((got["window"], got["mark"]), ((a - 10, a + 15), (a, a + 5)))
+                    self.assertEqual(got["span"], (a - 10, a + 15))
+                else:   # 余白の所に欠け = マークの区間だけ(今までと同じ呼び方)
+                    self.assertEqual((got["window"], got["mark"], got["span"]), ((a, a + 5), None, None))
+                self.assertEqual(j["state"], "done")
+
+    def test_clip_marks(self):
+        """LD-2f: 余白つきの動画の実際の始まり・終わりを、スタジオのマークの秒(clip_secs)と正本のマーク(clipFrom・clipTo)へ"""
+        job = {"start": "2026-10-04T06:00:10.000Z", "end": "2026-10-04T06:00:40.000Z",
+               "clip": {"from": "2026-10-04T06:00:00.000Z", "to": "2026-10-04T06:00:50.000Z"}}
+        self.assertEqual(LX.clip_secs(job, {"start": 610.0, "end": 640.0}), (600.0, 650.0))
+        self.assertEqual(LX.clip_secs(job, {"start": 5.0, "end": 35.0})[0], 0.0)   # 0 秒より前へは出さない
+        self.assertIsNone(LX.clip_secs(dict(job, clip=None), {"start": 610.0, "end": 640.0}))
+        ex, _logs = self._pieces_exporter({"v": 50 * LX.GB})
+        rec = "20261004-000000-a"
+        m, _ = ex.marks.apply("local", rec, {"op": "add", "start": job["start"], "end": job["end"]})
+        self.assertTrue(ex.marks.mark_exported("local", rec, m["id"], "C:/x.mp4", clip=job["clip"]))
+        got = ex.marks.get("local", rec, m["id"])
+        self.assertEqual((got["clipFrom"], got["clipTo"], got["start"]), (job["clip"]["from"], job["clip"]["to"], job["start"]))   # マークの区間は変えない
+        self.assertTrue(ex.marks.mark_exported("local", rec, m["id"], "C:/x.mp4"))
+        self.assertNotIn("clipFrom", ex.marks.get("local", rec, m["id"]))
+
     def test_reserved_slot_while_recording(self):
         """M6: 録画中のライブの書き出しは用途つきの枠も使う = 文字起こし 2 本で上限が埋まっていても待たない。録画が終わったあとは普通の枠で待つ"""
         slots = jobs.HeavySlots(2)

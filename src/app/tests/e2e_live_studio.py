@@ -115,6 +115,15 @@ def wait_js(pg, expr, timeout=20000):
     return False
 
 
+def clip_len(job):
+    """書き出したジョブの動画の長さの見込み: 余白つき(LD-2f。ジョブの clip {from, to})ならその長さ、無ければマークの長さ"""
+    from flow import live_export as LX   # noqa: E402  (起動の順で src を sys.path に足したあと)
+    c = job.get("clip") or {}
+    if c.get("from") and c.get("to"):
+        return LX.iso_epoch(c["to"]) - LX.iso_epoch(c["from"])
+    return job["studio"]["end"] - job["studio"]["start"]
+
+
 def wait_for(fn, timeout=30.0, step=0.3):
     end = time.time() + timeout
     while time.time() < end:
@@ -435,7 +444,7 @@ def _scene_begin_and_play(cx):
     check(starts and starts[0]["quality"] == "1080p" and starts[0]["title"] == TITLE, "2 録画元へ既定の画質 1080p と題で頼む: %s" % starts[:1])
     check(lv and lv[0].get("channel") == CHANNEL, "15 begin のチャンネル名がスタジオの配信の channel に入る: %s" % (lv[0].get("channel") if lv else None))
     bd = cx.live.bundles.get("local", rid) if rid else None
-    check(bd and bd["envelope"]["kind"] == "live" and bd["envelope"]["requestId"] is None and bd["spec"]["export"] == {"volume": 100, "loudness": None}
+    check(bd and bd["envelope"]["kind"] == "live" and bd["envelope"]["requestId"] is None and bd["spec"]["export"] == {"volume": 100, "loudness": None, "margin": 10.0}
           and sorted(bd["spec"]["run"]["requested"]) == ["engine", "model"],
           "RS8 自分の配信も録画を始めたときに束を組む(live/bundles.json。書き出しの音量・書き出したあとのエンジン・モデルはその時点の値): %s"
           % ((bd or {}).get("spec") or {}).get("export"))
@@ -510,7 +519,7 @@ def _scene_mark_and_export(cx):
     mk = ((vv or {}).get("video") or {}).get("marks") or []
     if job and job["state"] == "done":
         info = normalize.probe(job["path"])
-        want = mk[0]["end"] - mk[0]["start"] if mk else 0
+        want = clip_len(job) if job.get("clip") else (mk[0]["end"] - mk[0]["start"] if mk else 0)   # 余白つき(LD-2f)は余白の分も
         check(normalize.is_30fps(info), "4 書き出した mp4 は 30fps: %s" % (info or {}).get("r_frame_rate"))
         check(abs((info or {}).get("duration", 0) - want) <= 0.15, "4 長さが区間と合う: %.2f 秒(区間 %.2f 秒)" % ((info or {}).get("duration", 0), want))
         clip, warn = schemas.load_clip_file(schemas.find_clip_path(job["path"]))
@@ -646,7 +655,7 @@ def _scene_gap(cx):
                 d_in, d_out = LX.iso_epoch(jg["start"]) - a_in / 1000, LX.iso_epoch(jg["end"]) - a_out / 1000
                 check(abs(d_in) <= 0.3 and abs(d_out) <= 0.3, "5 欠けのあとでも、書き出した区間の絶対時刻 = playingDate ± 0.3 秒(開始 %+.3f 秒・終了 %+.3f 秒)" % (d_in, d_out))
                 info = normalize.probe(jg["path"])
-                check(normalize.is_30fps(info) and abs(info.get("duration", 0) - (jg["studio"]["end"] - jg["studio"]["start"])) <= 0.15,
+                check(normalize.is_30fps(info) and abs(info.get("duration", 0) - clip_len(jg)) <= 0.15,
                       "欠け: 欠けのあとの書き出しも 30fps・長さが区間と合う: %.2f 秒" % info.get("duration", 0))
     else:
         skip("欠けをまたぐ seek・欠けのあとのマークの位置(再生できない)")
@@ -814,7 +823,7 @@ def _scene_after_end(cx):
     if done2:
         j2 = next(j for j in done2 if abs(j["studio"]["start"] - 5) < 1)
         info = normalize.probe(j2["path"])
-        check(normalize.is_30fps(info) and abs(info.get("duration", 0) - (j2["studio"]["end"] - j2["studio"]["start"])) <= 0.15,
+        check(normalize.is_30fps(info) and abs(info.get("duration", 0) - clip_len(j2)) <= 0.15,
               "10 2本目も 30fps・長さが区間と合う: %.2f 秒" % (info or {}).get("duration", 0))
     pg.click("#rvExpClose")
 

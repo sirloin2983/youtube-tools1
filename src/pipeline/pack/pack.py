@@ -103,6 +103,7 @@ class Request:
     warn_short: float = 0.0               # これより短い残す区間を注意に出す(秒。0 = 出さない。EDIT_KEEPS で使う)
     row_edge: Optional[RowEdge] = None    # base "rows" の区間の端を声の止まる所まで広げる(None = 広げない。TRANSCRIPT_ROWS は ROW_EDGE)
     snap_edges: bool = False              # 土台の両端を話の切れ目へ詰める(LD-2c。言葉の途中で始まる・終わる所を落とす。文字起こしがあるときだけ)
+    clip_range: Optional[tuple] = None    # 余白つきの動画(LD-2f)の中のマークの区間 (始まり, 終わり)(秒)。土台をここに・snap_edges なら余白の中の切れ目へ外へも寄せる
 
     def inputs(self):
         return tuple(Path(p) for p in (self.video, self.sub, self.transcript, self.plan) + tuple(self.extra_inputs) if p)
@@ -331,7 +332,9 @@ def plan_cut(req, task=None, cache=None, log=None):
     cues, sub_source, cue_names, no_sub = _subtitles(req, tr, warns)
     base, selected_records, handles = _base_spans(req, meta, tr, cp, warns, task, cache, log)
     if req.snap_edges and tr:
-        base = snap_base(base, tr["rows"], fps, meta["total"], warns)
+        base = snap_base(base, tr["rows"], fps, meta["total"], warns, req.clip_range)
+    elif req.clip_range:   # 余白つきの動画(LD-2f)で寄せないとき: マークの区間だけ
+        base = clip_base(base, fps, meta["total"], req.clip_range, warns)
     drops = _drop_spans(req, meta, cues, tr, warns, task, cache, log)
 
     keeps = C.subtract(base, [x for v in drops.values() for x in v])
@@ -402,27 +405,67 @@ def _subtitles(req, tr, warns):
     return None, None, None, no_sub
 
 
-def snap_base(base, rows, fps, total, warns):
-    """LD-2c: 土台(フレームの区間)を、動画の両端から前後 breaks.RADIUS 秒の中の話の切れ目(① breaks。行の間・句読点)の内側だけにする
-    = 言葉の途中で始まる・終わる所を落とす(話が端にかかっている端だけ。書き出しに余白が無い今は詰めるだけ)。詰めたら注意に 1 行(印。元の動画は全部パックに入るので
-    Resolve で戻せる)。何も残らなければ詰めない"""
+def _clamp(base, fa, fb):
+    """土台(フレームの区間)を [fa, fb] の中だけにする"""
+    return [(max(x, fa), min(y, fb)) for x, y in base if min(y, fb) > max(x, fa)]
+
+
+def _moved(x, x2, inward):
+    """端の動き(秒)の文。inward = 区間の内へ動いたら正"""
+    d = (x2 - x) if inward else (x - x2)
+    if abs(d) <= SNAP_MIN:
+        return "そのまま"
+    return "%.1f 秒詰めた" % d if d > 0 else "%.1f 秒伸ばした" % -d
+
+
+def snap_base(base, rows, fps, total, warns, span=None):
+    """LD-2c・LD-2f: 土台(フレームの区間)を、区間の両端から前後 breaks.RADIUS 秒の中の話の切れ目(① breaks。行の間・句読点)の内側だけにする
+    = 言葉の途中で始まる・終わる所を落とす(話が端にかかっている端だけ)。
+    span = 動画の中のマークの区間(秒。余白つきの動画 = LD-2f)。None = 動画の全体(余白なし = 詰めるだけ)。
+    余白つきなら、端を余白の中の切れ目へ外へも寄せられる(動画の外へは出ない)。詰めた・伸ばしたら注意に 1 行(印。元の動画は全部パックに入るので
+    Resolve で戻せる)。何も残らなければ寄せない"""
     dur = C.frames_to_sec(total, fps)
+    x0, x1 = (0.0, dur) if span is None else (max(0.0, float(span[0])), min(dur, float(span[1])))
     kept = [r for r in rows if not r.get("cut")]
-    if not kept or dur <= 0:
-        return base
-    near = breaks.MIN_GAP   # 話が端にかかっている(端の近くまで声がある)端だけ詰める。端の前後が静かなら動かさない
+    if not kept or dur <= 0 or x1 <= x0:
+        return base if span is None else (_clamp(base, C.sec_to_frames(x0, fps), C.sec_to_frames(x1, fps)) or base)
+    near = breaks.MIN_GAP   # 話が端にかかっている(端の近くまで声がある)端だけ寄せる。端の前後が静かなら動かさない
     cs = [c for c in breaks.cuts(kept) if near <= c["t"] <= dur - near]   # 動画の外の「話の前後」は切れ目にしない(端で話が切れている)
-    a, b, info = breaks.snap(0.0, dur, cs)
-    a = max(0.0, a) if any(r["start"] < near and r["end"] > 0 for r in kept) else 0.0
-    b = min(dur, b) if any(r["end"] > dur - near and r["start"] < dur for r in kept) else dur
-    if a <= SNAP_MIN and b >= dur - SNAP_MIN:
-        return base
-    fa, fb = C.sec_to_frames(a, fps), C.sec_to_frames(b, fps)
-    out = [(max(x, fa), min(y, fb)) for x, y in base if min(y, fb) > max(x, fa)]
+    a, b, info = breaks.snap(x0, x1, cs)
+    a = max(0.0, a) if any(r["start"] < x0 + near and r["end"] > max(0.0, x0 - near) for r in kept) else x0
+    b = min(dur, b) if any(r["end"] > x1 - near and r["start"] < min(dur, x1 + near) for r in kept) else x1
+    whole = (C.sec_to_frames(x0, fps), C.sec_to_frames(x1, fps))
+    if abs(a - x0) <= SNAP_MIN and abs(b - x1) <= SNAP_MIN:
+        if span is None:
+            return base
+        out = _clamp(base, *whole) or base
+        warns.append(margin_note(x0, dur - x1))
+        return out
+    out = _clamp(base, C.sec_to_frames(a, fps), C.sec_to_frames(b, fps))
+    if not out:
+        return base if span is None else (_clamp(base, *whole) or base)
+    if span is None:
+        warns.append("話の切れ目に合わせて両端を詰めました(始まり %.1f 秒・終わり %.1f 秒を落とした。切れ目: %s / %s)" % (
+            a, dur - b, info["in"][2] or "なし", info["out"][2] or "なし"))
+    else:
+        warns.append("話の切れ目に合わせて両端を決めました(マークより始まり %s・終わり %s。切れ目: %s / %s)。%s" % (
+            _moved(x0, a, True), _moved(x1, b, False), info["in"][2] or "なし", info["out"][2] or "なし", margin_note(x0, dur - x1)))
+    return out
+
+
+def margin_note(before, after):
+    """余白つきの動画(LD-2f)の注意の 1 行(印)"""
+    return "切り抜きの動画には前 %.1f 秒・後 %.1f 秒の余白があります(タイムラインはマークの区間から。Resolve で伸ばせます)" % (before, after)
+
+
+def clip_base(base, fps, total, span, warns):
+    """余白つきの動画(LD-2f)で話の切れ目に寄せないとき: 土台をマークの区間 span(秒)だけにする + 注意に 1 行"""
+    dur = C.frames_to_sec(total, fps)
+    x0, x1 = max(0.0, float(span[0])), min(dur, float(span[1]))
+    out = _clamp(base, C.sec_to_frames(x0, fps), C.sec_to_frames(x1, fps)) if x1 > x0 else []
     if not out:
         return base
-    warns.append("話の切れ目に合わせて両端を詰めました(始まり %.1f 秒・終わり %.1f 秒を落とした。切れ目: %s / %s)" % (
-        a, dur - b, info["in"][2] or "なし", info["out"][2] or "なし"))
+    warns.append(margin_note(x0, dur - x1))
     return out
 
 
