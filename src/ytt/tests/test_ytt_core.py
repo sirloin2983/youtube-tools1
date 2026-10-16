@@ -469,6 +469,9 @@ class TestRuntime(unittest.TestCase):
             self.assertEqual(runtime.runtime_dir("/a/b/studio"), os.path.join(os.path.abspath("/a/b"), ".runtime"))
             os.environ["YTT_RUNTIME_DIR"] = "rel"
             self.assertEqual(runtime.runtime_dir("/a/b/studio"), os.path.abspath("rel"))
+        self.assertEqual(runtime.runtime_dir("/a/src/studio"), os.path.join(os.path.abspath("/a"), ".data", ".runtime"))   # src の下のツール = リポジトリ直下の .data/.runtime(全ツール同じ)
+        self.assertEqual(runtime.runtime_dir(layout.tool_dir("app")), runtime.runtime_dir(layout.tool_dir("studio")))
+        self.assertEqual(runtime.runtime_dir(layout.tool_dir("app")), os.path.join(TOP, ".data", ".runtime"))
 
     def test_write_read_remove_only_own(self):
         p = runtime.write_runtime(self.dir, "studio", 8801, "0.2.0")
@@ -1447,7 +1450,10 @@ class TestDatadir(unittest.TestCase):
         self.assertEqual(datadir.data_root({"XDG_DATA_HOME": "/x"}, "linux", "/h"), os.path.join("/x", "youtube-tools"))
         self.assertEqual(datadir.data_root({}, "darwin", "/h"), os.path.join("/h", "Library", "Application Support", "youtube-tools"))
         self.assertIsNone(datadir.data_root({"YTT_DATA_DIR": "InPlace"}, "win32"))
-        self.assertEqual(datadir.tool_dir("studio", "/r/studio", {"YTT_DATA_DIR": "inplace"}), os.path.abspath("/r/studio"))
+        self.assertEqual(datadir.tool_dir("studio", "/r/studio", {"YTT_DATA_DIR": "inplace"}), os.path.abspath("/r/studio"))   # src でない親(一時フォルダに写したテスト)は以前と同じツールのフォルダの中
+        self.assertEqual(datadir.tool_dir("studio", "/r/src/studio", {"YTT_DATA_DIR": "inplace"}), os.path.abspath("/r/.data/studio"))   # src の下 = リポジトリ直下の .data/<ID>
+        self.assertEqual(datadir.tool_dir("studio", "/x/y", {"YTT_DATA_DIR": "inplace"}, root="/r/src"), os.path.abspath("/r/.data/studio"))
+        self.assertEqual(datadir.prepare("studio", "/r/src/studio", [], {"YTT_DATA_DIR": "inplace"})["dir"], os.path.abspath("/r/.data/studio"))
 
     def test_copy_once_and_keep_original(self):
         logs = []
@@ -1610,7 +1616,7 @@ class TestLayout(unittest.TestCase):
         self.assertEqual(os.path.basename(REPO), layout.SRC_DIR)
         self.assertTrue(os.path.isfile(os.path.join(layout.src_root(), "ytt", "layout.py")))
         self.assertTrue(os.path.isfile(os.path.join(TOP, "start.bat")))
-        want = {"app": "home", "studio": "studio", "transcribe": "editor", "cut2resolve": "cut2resolve"}
+        want = {"app": "app", "studio": "studio", "transcribe": "editor", "cut2resolve": "cut2resolve"}
         for tool, name in want.items():
             self.assertEqual(layout.tool_dir(tool), os.path.join(REPO, name))
             self.assertEqual(layout.tool_dir(tool, "/r"), os.path.join("/r", name))

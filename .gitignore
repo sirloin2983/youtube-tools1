@@ -12,7 +12,6 @@ __pycache__/
 **/cache/
 **/archive/
 **/work/
-src/cut2resolve/packs/
 **/exports/
 **/clips/
 **/dataset/
@@ -63,8 +62,8 @@ _recovered/
 Thumbs.db
 .DS_Store
 
-# 実行中のサーバーのポート(docs/pipeline.md の 4)
-.runtime/
+# YTT_DATA_DIR=inplace のときの作業データ(<ツールの ID>/)と、実行中のサーバーのポート(.runtime/)。src はコードだけ(2026-10-16)
+.data/
 # Claude(Cowork)が納品する確認用フォルダ
 _new/
 # 古い名前のログの控え・壊れた登録ファイルの退避(studio。旧 clip-studio)
@@ -94,12 +93,6 @@ docs/design/briefs/*/screenshots/
 **/Resolve用ファイル/
 **/eval-intake/
 
-# テストを YTT_DATA_DIR=inplace で動かしたときのホームの設定(2026-10-04)
-src/home/prefs.json
-# 同じく、リアルタイム切り抜き(線 D)をオンにしたときのマーク・書き出しの記録(2026-10-04)
-src/home/live/
-# 分析と日報の作業データ(YTT_DATA_DIR=inplace のとき。受け取った raw・合言葉・報告。2026-10-09)
-src/manage/ops/analytics/data/
 .artifact-build/
 
 # 資料は保管庫 D:/Obsidian保管庫/youtube-tools へ移した(2026-10-12)。リポジトリに作り直してもコミットしない

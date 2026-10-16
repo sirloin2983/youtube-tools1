@@ -84,7 +84,7 @@ class RuntimeDir(unittest.TestCase):
 class TestRuntimeFile(RuntimeDir):
     def test_runtime_dir_default_is_parent_of_tool_folder(self):
         with patch.dict(os.environ, {"YTT_RUNTIME_DIR": ""}):
-            self.assertEqual(handoff.runtime_dir(), os.path.join(os.path.dirname(startup.CODE_DIR), ".runtime"))
+            self.assertEqual(handoff.runtime_dir(), os.path.join(os.path.dirname(os.path.dirname(startup.CODE_DIR)), ".data", ".runtime"))   # リポジトリ直下の .data/.runtime
         self.assertEqual(handoff.runtime_dir(), os.path.abspath(self.rt))   # 環境変数が優先
 
     def test_write_and_remove_own_file(self):

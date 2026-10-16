@@ -31,11 +31,12 @@ def norm(p):
 
 
 def packs_dir(env=None, c2r_dir=None):
-    """記録のフォルダ(cut2resolve の作業データの packs。YTT_DATA_DIR=inplace なら cut2resolve のフォルダの中)。
+    """記録のフォルダ(cut2resolve の作業データの packs。YTT_DATA_DIR=inplace ならリポジトリ直下の .data/cut2resolve)。
     置き場所の規則は ytt.datadir.resolve の 1 か所(起動した cut2resolve が登録した場所。env を渡したときは使わない = テスト)。
     c2r_dir: cut2resolve のコードのフォルダ(serve.py が自分の場所を渡す。無ければ環境変数 YTT_CUT2RESOLVE_DIR → リポジトリの cut2resolve)"""
     legacy = c2r_dir or (os.environ if env is None else env).get("YTT_CUT2RESOLVE_DIR") or None
-    return os.path.join(_datadir.resolve("cut2resolve", REPO_ROOT, env, legacy), "packs")
+    root = os.path.dirname(os.path.abspath(legacy)) if legacy else REPO_ROOT   # inplace の .data は cut2resolve のフォルダの隣(テストが一時フォルダに写したときもその中)
+    return os.path.join(_datadir.resolve("cut2resolve", root, env, legacy), "packs")
 
 
 def record_name(dirpath):

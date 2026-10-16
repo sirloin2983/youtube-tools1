@@ -16,8 +16,9 @@ dev/・setup/・friend-apps/ のようにリポジトリ直下にあるものを
 import os
 
 SRC_DIR = "src"                     # 動くコードの置き場所(リポジトリ直下からの相対)
+DATA_DIR_NAME = ".data"             # YTT_DATA_DIR=inplace のときの作業データと .runtime の置き場所(リポジトリ直下。src の隣。.gitignore は 1 行)
 FRIEND_APPS_DIR = "friend-apps"     # 友人用の Windows アプリの置き場所(同上)
-TOOL_DIRS = {"app": "home", "studio": "studio", "transcribe": "editor", "cut2resolve": "cut2resolve"}   # src/ の中のフォルダ名
+TOOL_DIRS = {"app": "app", "studio": "studio", "transcribe": "editor", "cut2resolve": "cut2resolve"}   # src/ の中のフォルダ名
 RECORDER_DIR = os.path.join("pipeline", "ingest")   # src/ の中(録画の部品の作業データ inplace の data/・AGENTS.md・README.txt のフォルダ。旧い src/recorder/ は寄せた。コードは RECORDER_SCRIPT)
 RECORDER_SCRIPT = os.path.join("pipeline", "ingest", "recorder.py")   # src からの相対(録画の部品。入口と別のプロセス。パスで起動する)
 UI_KIT_DIR = "ui-kit"               # src/ の中(共通の見た目の正本)
@@ -37,6 +38,14 @@ def src_root():
 def repo_root(root=None):
     """リポジトリ直下(src の1つ上)。root を渡したら、それを src_root とみなしてその1つ上"""
     return os.path.dirname(os.path.abspath(root)) if root else os.path.dirname(src_root())
+
+
+def inplace_root(root=None):
+    """YTT_DATA_DIR=inplace のときの作業データの親のフォルダ(<リポジトリ直下>/.data。ここの下に <ツールの ID>/ と .runtime/)。
+    root は src_root とみなす(既定はこのコードの src)。src という名前でないとき(テストがツールを一時フォルダに平らに写したとき)は None
+    = 呼ぶ側は以前と同じ「写したフォルダの中」を使う(一時フォルダの外に .data を作らない)"""
+    r = os.path.abspath(root) if root else src_root()
+    return os.path.join(os.path.dirname(r), DATA_DIR_NAME) if os.path.basename(r).lower() == SRC_DIR else None
 
 
 def tool_dir(tool, root=None):

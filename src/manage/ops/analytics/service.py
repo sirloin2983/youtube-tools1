@@ -44,10 +44,11 @@ KIND_NAMES = {"daily": "日報", "weekly": "週報", "monthly": "月報"}
 
 
 def data_dir(legacy=None):
-    """作業データのフォルダ(ytt.datadir の規則。inplace なら src/manage/ops/analytics/data)"""
+    """作業データのフォルダ(ytt.datadir の規則。inplace ならリポジトリ直下の .data/analytics)"""
     from ytt import datadir
-    legacy = legacy or os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
-    return datadir.tool_dir("analytics", legacy)
+    here = os.path.dirname(os.path.abspath(__file__))
+    legacy = legacy or os.path.join(here, "data")
+    return datadir.tool_dir("analytics", legacy, root=os.path.dirname(os.path.dirname(os.path.dirname(here))))   # src = service.py の 3 つ上
 
 
 class Service:

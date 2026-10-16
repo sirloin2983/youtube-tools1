@@ -112,7 +112,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src(このファイルは src/app/server.py。RS7-2 G5b で旧 launch.py から移し、RV C1 で旧 launch.py の転送は消した)
-CODE_DIR = os.path.join(ROOT, "app")   # 入口の部品(mount・autorun・prefs・live・appwindow)の置き場所(画面は ui/home・ui/settings・ui/cases・ui/check)。作業データの inplace の置き場所 layout.TOOL_DIRS["app"] とは別(そちらは次の作業で揃える)
+CODE_DIR = os.path.join(ROOT, "app")   # 入口の部品(mount・autorun・prefs・live・appwindow)の置き場所(画面は ui/home・ui/settings・ui/cases・ui/check)。layout.TOOL_DIRS["app"] と同じフォルダ(コードだけ。inplace の作業データは <リポジトリ直下>/.data/app)
 HOME_UI_DIR = os.path.join(CODE_DIR, "ui", "home")   # ホームの画面(portal.html・portal.js・portal.css・portal-edit.js)
 if ROOT not in sys.path:   # 役割の層・共通部品 ytt(src)
     sys.path.append(ROOT)
@@ -341,14 +341,14 @@ class Tool:
 
 # ---------- まとめて管理 ----------
 def app_data_dir(root):
-    """入口の作業データの置き場所(%LOCALAPPDATA%\\youtube-tools\\app。inplace なら home フォルダ)。設定(settings.json)・窓の専用のプロファイル・記録。
+    """入口の作業データの置き場所(%LOCALAPPDATA%\\youtube-tools\\app。inplace ならリポジトリ直下の .data/app)。設定(settings.json)・窓の専用のプロファイル・記録。
     入口自身が決める側なので、登録(datadir.register)は見ない(規則は ytt.datadir.locate の1か所。main() が登録し、案件などは resolve で読む)"""
     return datadir.locate("app", root)
 
 
 def logs_dir_for(root):
     """入口とツールの出力の記録の置き場所: 作業データの置き場所(ytt.datadir。%LOCALAPPDATA%\\youtube-tools\\app\\logs)。
-    YTT_DATA_DIR=inplace(テスト)なら src\\home\\logs。記録だけなので、以前の場所からは写さない"""
+    YTT_DATA_DIR=inplace(テスト)なら .data/app/logs。記録だけなので、以前の場所からは写さない"""
     return os.path.join(app_data_dir(root), "logs")
 
 

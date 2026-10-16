@@ -55,10 +55,10 @@ TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{20,128}\Z")
 
 
 def data_dir(arg=None):
-    """作業データの置き場所(token・設定・記録)。ytt.datadir の規則(YTT_DATA_DIR=inplace なら pipeline\\ingest\\data)"""
+    """作業データの置き場所(token・設定・記録)。ytt.datadir の規則(YTT_DATA_DIR=inplace ならリポジトリ直下の .data/recorder)"""
     if arg:
         return os.path.abspath(arg)
-    return datadir.locate("recorder", legacy_dir=os.path.join(ROOT, layout.RECORDER_DIR, "data"))
+    return datadir.locate("recorder", ROOT, legacy_dir=os.path.join(ROOT, layout.RECORDER_DIR, "data"))
 
 
 def load_token(ddir):

@@ -35,7 +35,7 @@ sys.path.insert(0, os.path.join(SRC, "app"))
 if SRC not in sys.path:
     sys.path.append(SRC)
 import startup  # noqa: E402,F401  (src を sys.path に足し、スタジオのフォルダを ytt/studio_env に知らせる)
-from ytt import studio_env  # noqa: E402
+from ytt import datadir, studio_env  # noqa: E402
 import serve  # noqa: E402
 from app import server as L  # noqa: E402
 from app import mount  # noqa: E402
@@ -144,7 +144,7 @@ def main():
     srv, port = start_portal()
     base = "http://127.0.0.1:%d/" % port
     errors, bad_status = [], []
-    hp = os.path.join(SRC, "home", "prefs.json")
+    hp = os.path.join(datadir.locate("app", SRC), "prefs.json")   # inplace = .data/app/prefs.json
     had_prefs = os.path.isfile(hp)
 
     def marks():
@@ -483,7 +483,7 @@ def main():
             pass
         for p in patches:
             p.stop()
-        if not had_prefs and os.path.isfile(hp):   # 入口の設定(inplace = src/home/prefs.json)は最初から無かったときだけ片付ける
+        if not had_prefs and os.path.isfile(hp):   # 入口の設定(inplace = .data/app/prefs.json)は最初から無かったときだけ片付ける
             os.remove(hp)
         shutil.rmtree(tmp, ignore_errors=True)
     print("ALL OK" if ok else "SOME FAILED")

@@ -4,7 +4,7 @@
   Windows  … %LOCALAPPDATA%\\youtube-tools\\<ツールID>\\   (OneDrive で同期されない、アプリのデータの定番の場所)
   それ以外 … $XDG_DATA_HOME/youtube-tools/<ツールID>/(無ければ ~/.local/share/…)。macOS は ~/Library/Application Support/…
   環境変数 YTT_DATA_DIR があればそちらを使う(<YTT_DATA_DIR>\\<ツールID>)。
-  YTT_DATA_DIR=inplace は以前と同じ「各ツールのフォルダの中」(テスト・元に戻したいとき用)。
+  YTT_DATA_DIR=inplace はリポジトリ直下の .data/<ツールID>/(テスト用。src はコードだけ。.runtime も .data の下。2026-10-16 ユーザー決定)。
 
 以前の場所(各ツールのフォルダの中)にデータがあれば、最初の起動で新しい場所へ**コピー**する(元は消さない。消すのはユーザーが確かめてから)。
   - 項目ごとに「一時的な名前へコピー → 大きさと数を確かめる → 本来の名前へ改名」。途中で止まっても、半端なものを本物として使わない
@@ -60,10 +60,18 @@ def data_root(env=None, platform=None, home=None):
     return os.path.join(base, APP_DIR_NAME)
 
 
-def tool_dir(tool, legacy_dir, env=None):
-    """そのツールのデータのフォルダ(移行はしない。inplace なら legacy_dir)。"""
-    root = data_root(env)
-    return os.path.abspath(legacy_dir) if root is None else os.path.join(root, tool)
+def inplace_dir(tool, legacy_dir, root=None):
+    """YTT_DATA_DIR=inplace のときのデータのフォルダ = <リポジトリ直下>/.data/<ツールの ID>(コードの src の中には作らない)。
+    root = src とみなすフォルダ。無ければ legacy_dir(ツールのフォルダ)の 1 つ上。それが src でなければ(テストがツールを一時フォルダに
+    写したとき)以前と同じ legacy_dir"""
+    base = layout.inplace_root(root or os.path.dirname(os.path.abspath(legacy_dir)))
+    return os.path.abspath(legacy_dir) if base is None else os.path.join(base, tool)
+
+
+def tool_dir(tool, legacy_dir, env=None, root=None):
+    """そのツールのデータのフォルダ(移行はしない。inplace なら <リポジトリ直下>/.data/<ID>。legacy_dir は root の既定を決めるだけ)。"""
+    base = data_root(env)
+    return inplace_dir(tool, legacy_dir, root) if base is None else os.path.join(base, tool)
 
 
 def override(tool, env=None):
@@ -96,7 +104,7 @@ def locate(tool, repo_root=None, env=None, legacy_dir=None):
     o = override(tool, env)
     if o:
         return o
-    return tool_dir(tool, legacy_dir or layout.tool_dir(tool, repo_root), env)
+    return tool_dir(tool, legacy_dir or layout.tool_dir(tool, repo_root), env, repo_root)
 
 
 def resolve(tool, repo_root=None, env=None, legacy_dir=None):
@@ -204,7 +212,7 @@ def _prepare(tool, legacy_dir, items, env, log, free_bytes):
         return result(o, "override")
     root = data_root(env)
     if root is None:
-        return result(legacy_dir, "inplace")
+        return result(inplace_dir(tool, legacy_dir), "inplace")
     new = os.path.join(root, tool)
     if os.path.normcase(new) == os.path.normcase(legacy_dir):
         return result(new, "inplace")

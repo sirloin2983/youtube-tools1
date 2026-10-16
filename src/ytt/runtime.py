@@ -14,7 +14,7 @@ import sys
 import threading
 import time
 
-from . import fsio
+from . import fsio, layout
 from .schemas import iso_now
 
 # ツールID → /api/ping の app。/api/siblings で問い合わせるのはこの3つだけ(.runtime に置かれた他のファイルは読まない)
@@ -31,9 +31,13 @@ def valid_port(p):
 
 
 def runtime_dir(tool_dir):
-    """<ツールのフォルダの1つ上>/.runtime。環境変数 YTT_RUNTIME_DIR があればそちら(テスト用)。"""
+    """<リポジトリ直下>/.data/.runtime(全ツールが同じ場所。tool_dir はツールのフォルダで、その 1 つ上を src とみなす = layout.inplace_root。src でなければ <1 つ上>/.runtime)。
+    環境変数 YTT_RUNTIME_DIR があればそちら(テスト用)。"""
     d = os.environ.get("YTT_RUNTIME_DIR")
-    return os.path.abspath(d) if d else os.path.join(os.path.dirname(os.path.abspath(tool_dir)), ".runtime")
+    if d:
+        return os.path.abspath(d)
+    parent = os.path.dirname(os.path.abspath(tool_dir))
+    return os.path.join(layout.inplace_root(parent) or parent, ".runtime")   # src でない親(テストが一時フォルダに写したとき)は以前と同じ <親>/.runtime
 
 
 def runtime_path(rdir, tool):

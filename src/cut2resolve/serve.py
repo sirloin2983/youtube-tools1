@@ -522,8 +522,7 @@ def _choose_work_dir():
     r = datadir.prepare(TOOL_ID, CODE_DIR, (), log=lambda m: print(m, flush=True))
     for w in r["warnings"]:
         print("※ " + w, flush=True)
-    base = r["dir"] if r["state"] != "inplace" else CODE_DIR
-    WORK_DIR = os.path.join(base, "work")
+    WORK_DIR = os.path.join(r["dir"], "work")
     LOG_PATH = os.path.join(WORK_DIR, "serve.log")
 
 

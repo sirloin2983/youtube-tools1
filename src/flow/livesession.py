@@ -149,7 +149,7 @@ def _same_stream(a_url, b_url, b_id=""):
 
 def recorder_data_dir(root):
     """録画の部品の作業データ(token.txt)。src/pipeline/ingest/recorder.py の data_dir() と同じ規則"""
-    return datadir.locate("recorder", legacy_dir=os.path.join(root, layout.RECORDER_DIR, "data"))
+    return datadir.locate("recorder", root, legacy_dir=os.path.join(root, layout.RECORDER_DIR, "data"))
 
 
 def _read_token(path):
