@@ -193,6 +193,30 @@ class TestVerdict(Base):
         with open(os.path.splitext(failed)[0] + ".理由.txt", encoding="utf-8-sig") as f:
             self.assertIn("OverflowError", f.read())
 
+    def test_reject_of_dropbox_pack_discards_like_feedback(self):
+        """新しい友人のアプリ(F2-3)は Dropbox で届けたパックの要らないも .verdict.json(zip = Dropbox の zip の名前)で返す
+        = .feedback.json と同じ片付け(feedback)へ。keep・zip の無い物(友人の PC で作った物)・片付けの失敗は採否の受け取りを止めない"""
+        seen = []
+
+        def fb(d):
+            seen.append(d)
+            if d["zip"] == "boom.zip":
+                raise OSError("busy")
+            return {"ok": True, "summary": "片付けた"}
+        bodies = {"a": '{"verdict":"reject","at":5,"zip":"%s__a.zip","origin":"auto"}' % RID, "b": '{"verdict":"keep","at":5,"zip":"x.zip"}',
+                  "c": '{"verdict":"reject","at":5,"zip":"p_pack"}', "d": '{"verdict":"reject","at":5}', "e": '{"verdict":"reject","at":5,"zip":"boom.zip"}'}
+        for name, body in bodies.items():
+            vp = os.path.join(self.inbox, "%s__%s.verdict.json" % (RID, name))
+            with open(vp, "w", encoding="utf-8") as f:
+                f.write(body)
+            os.utime(vp, (time.time() - 600,) * 2)
+        res = R.scan(self.sync, self.app, log=self.msgs.append, feedback=fb)
+        self.assertEqual(sorted(r["state"] for r in res), ["accepted"] * 5)
+        self.assertEqual([d["zip"] for d in seen], ["%s__a.zip" % RID, "boom.zip"])
+        self.assertEqual((seen[0]["verdict"], seen[0]["requestId"], seen[0]["origin"]), ("reject", RID, "auto"))
+        self.assertTrue(any("片付けませんでした" in m and "busy" in m for m in self.msgs))
+        self.assertEqual(R.scan(self.sync, self.app), [], "feedback なし(古い呼び方)でも動く")
+
 
 class TestRoundTrip(Base):
     def test_outbox_zip_to_returns(self):

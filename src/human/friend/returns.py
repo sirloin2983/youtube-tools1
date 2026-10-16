@@ -31,7 +31,8 @@ VERDICT_WHAT = {"keep": "adopt", "reject": "reject", "made_video": "made_video"}
 VERDICTS = ("keep", "reject", "made_video")
 ORIGINS = ("request", "auto")       # 採否の任意の origin(D-SEND 2-7。友人に見せる出どころ = flow/deliver.face_origin と同じ 2 つ)
 VERDICT_RE = re.compile(r"^([0-9A-Za-z_-]{1,64})__([^\\/:*?\"<>|\x00-\x1f]{1,120})" + re.escape(VERDICT_SUFFIX) + r"\Z")
-MAX_FILES = 2000                    # zip の中の数
+ZIP_NAME_RE = re.compile(r'^[^\\/:*?"<>|\x00-\x1f]{1,200}\Z')   # verdict の zip(friend_feedback.NAME_RE と同じ)
+MAX_FILES = 2000                   # zip の中の数
 MAX_TOTAL = 400 * 1024 * 1024       # 展開後の合計(zip 爆弾を断る)
 MAX_VERDICT = 64 * 1024
 SETTLE_SEC = 5                      # 更新から何秒たった物を受け取るか(同期の途中を触らない)
@@ -133,6 +134,9 @@ def parse_verdict(raw):
         out["origin"] = d["origin"]
     if d.get("by") == "auto":   # 友人のアプリが 3 日で自動で要らないにした物(人の判断ではない。人の判断の記録には書かない)
         out["by"] = "auto"
+    z = d.get("zip")
+    if isinstance(z, str) and ZIP_NAME_RE.match(z) and z.lower().endswith(".zip") and z not in (".", ".."):   # Dropbox で届けたパックの zip の名前(F2-3)
+        out["zip"] = z
     return out
 
 
@@ -152,9 +156,11 @@ def _move(folder, name, state, why="", now=None):
             f.write(why + "\r\n")
 
 
-def scan(sync_folder, app_dir, clock=None, log=None):
+def scan(sync_folder, app_dir, clock=None, log=None, feedback=None):
     """同期フォルダの 送り返し\\ を見て、届いた物を並べる -> [{"name", "kind"("run"|"verdict"), "state"("accepted"|"rejected"|"wait"), "reason"}]。
-    何があっても上げない(受付の見回りを止めない)。フォルダが無ければ空"""
+    何があっても上げない(受付の見回りを止めない)。フォルダが無ければ空。
+    feedback: 友人の「要らない」を片付ける関数(入口の friend_feedback.apply。受付が渡す)。Dropbox で届けたパック(verdict の zip が .zip の名前)の
+    reject は .feedback.json と同じく片付ける(新しい友人のアプリは要らないを .verdict.json だけで返す = 8b 章の 3 → 4。F2-3)"""
     log = log or (lambda msg: None)
     clock = clock or time.time
     folder = os.path.join(sync_folder, IN_DIR)
@@ -171,7 +177,7 @@ def scan(sync_folder, app_dir, clock=None, log=None):
                 continue
             if clock() - os.path.getmtime(p) < SETTLE_SEC:
                 continue
-            res = _one(folder, app_dir, n, p, clock, log)
+            res = _one(folder, app_dir, n, p, clock, log, feedback)
             if res:
                 results.append(res)
         except OSError as e:   # 読めない・使用中など(同期の途中かもしれない)= 次の見回りでもう一度。1 つのファイルで見回り全体を止めない
@@ -187,7 +193,7 @@ def scan(sync_folder, app_dir, clock=None, log=None):
     return results
 
 
-def _one(folder, app_dir, n, p, clock, log):
+def _one(folder, app_dir, n, p, clock, log, feedback=None):
     if n.lower().endswith(VERDICT_SUFFIX):
         m = VERDICT_RE.match(n)
         if not m:
@@ -208,6 +214,8 @@ def _one(folder, app_dir, n, p, clock, log):
         os.makedirs(out, exist_ok=True)
         fsio.write_json(os.path.join(out, pack + VERDICT_SUFFIX), dict(v, requestId=rid, pack=pack))
         _judge_verdict(app_dir, v, rid, pack, clock, log)
+        if v["verdict"] == "reject" and v.get("zip") and feedback is not None:
+            _discard(feedback, v, rid, log)
         _move(folder, n, "accepted", "", clock())
         return {"name": n, "kind": "verdict", "state": "accepted", "reason": ""}
     m = outbox.NAME_RE.match(n)
@@ -241,6 +249,18 @@ def _one(folder, app_dir, n, p, clock, log):
         log("送り返し: %s の中の requestId が名前と違います" % n)
     _move(folder, n, "accepted", "", clock())
     return {"name": n, "kind": "run", "state": "accepted", "reason": ""}
+
+
+def _discard(feedback, v, rid, log):
+    """Dropbox で届けたパックの「要らない」を .feedback.json と同じく片付ける(届けた記録に無ければ何もしない。失敗は記録に 1 行 = 採否は受け取る)"""
+    fb = {"zip": v["zip"], "verdict": "reject", "requestId": rid, "title": ""}
+    if v.get("origin"):
+        fb["origin"] = v["origin"]
+    try:
+        res = feedback(fb) or {}
+    except (OSError, ValueError, RuntimeError) as e:
+        res = {"ok": False, "reason": "%s: %s" % (e.__class__.__name__, str(e)[:120])}
+    log("送り返し: 要らない %s を%s" % (v["zip"], "片付けました" if res.get("ok") else "片付けませんでした(%s)" % (res.get("reason") or "")[:160]))
 
 
 def _delivered_pack(logs_dir, rid, pack):

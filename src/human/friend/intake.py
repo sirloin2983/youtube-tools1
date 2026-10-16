@@ -579,7 +579,7 @@ class Intake:
                 else:
                     self._record(folder, "video", "manual", n, [n], "", "", [], [{"label": n, "state": "rejected",
                                  "reason": "受け付けない種類のファイルです(動画 %s か、URL を書いた .txt)" % " ".join(VIDEO_EXT)}])
-            returns.scan(folder, self.data_dir, self.clock, self.log)   # 送り返し\(友人の PC の ② の結果と採否。F1 の F2。失敗しても見回りは止めない)
+            returns.scan(folder, self.data_dir, self.clock, self.log, feedback=self.feedback)   # 送り返し\(友人の PC の ② の結果と採否。F1 の F2。失敗しても見回りは止めない)
 
     def _settled(self, p):
         try:
