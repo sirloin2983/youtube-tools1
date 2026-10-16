@@ -69,7 +69,8 @@ def notes_root():
 
 def copy_shared_code(dst, ignore=None, root=None):
     """共通のコード(SHARED_CODE_DIRS)を dst の直下に写す(ツールを一時フォルダに写すテスト用。本物と同じ並びにする)。
-    root の既定は src_root()。ignore は shutil.copytree の ignore"""
+    root の既定は src_root()。ignore は shutil.copytree の ignore。
+    app は入口のツールのフォルダ(TOOL_DIRS)でもあるので、先にツールとして写してあれば重ねて写す(同じ元から)"""
     import shutil
     for d in SHARED_CODE_DIRS:
-        shutil.copytree(os.path.join(root or src_root(), d), os.path.join(dst, d), ignore=ignore)
+        shutil.copytree(os.path.join(root or src_root(), d), os.path.join(dst, d), ignore=ignore, dirs_exist_ok=True)
