@@ -60,14 +60,18 @@ ffmpeg で 8kHz の音にする(数秒)・照合(子プロセスで 1〜2 秒)�
              無ければ録画の真ん中あたりの REF_SEC(60 秒)の音を録画元から取って、アーカイブの丸ごとの音と照合する(P4 と同じ窓・同じしきい値・同じ子プロセス)
   analyze  … アーカイブ(kind youtube・videoId)をスタジオの今の解析にかける(POST /studio/api/queue/add。設定はスタジオで保存した解析の設定、
              候補の数 count は N の 2 倍まで増やす)。スタジオで解析済みならそれを使う。進み具合は GET /studio/api/queue
-  (比べる) … 配信中の候補とアーカイブの候補を比べて live_feedback.jsonl へ(compare。src/flow/live_detect.py)
+  (比べる) … 配信中の候補とアーカイブの候補を比べて live_feedback.jsonl へ(compare。src/flow/live_detect.py。EV-1: 録画の欠け(録画元の /segments の gaps)と
+             検出が測っていない所は外して数える = _rec_holes が欠けを渡す)
   (採用)   … 候補(自動のマーク・判定前)を点数の高い順に、録画の頭から配信の終わり(end = アーカイブの終わり。2026-10-16 に録画の終わりから広げた)に
              入る(半分以上入るものは範囲に切り詰める)・録画の採用済みのマーク(マークの置き場から = taken)と重ならない上位 N を選び
              (N = 録画の長さ(時間)× 1 時間あたりの数。1〜30)、M1 の採用(src/app/live.py の Live.adopt。origin archive・after auto = 文字起こし → パック・
              hold archive = 録画からは書き出さず、最初からアーカイブから書き出す)を 1 本ずつ呼ぶ
   export   … 採用したジョブをアーカイブからの書き出しに入れ、全部が済む(渡した・失敗した)と done(n 本のうち渡した数・失敗の数)
-  done・none(採用する候補が無かった)・error(理由。「調子」の失敗に出す = src/flow/live_failures.py の after_stream_failure)
-録画を自動で消す(src/manage/keep/live_cleanup.py)は、afterStream が済むまで(AFTER_MAX_AGE まで)その録画を消さない(after_stream_hold)。
+  done・none(採用する候補が無かった)・measured(測るだけ = 下)・error(理由。「調子」の失敗に出す = src/flow/live_failures.py の after_stream_failure)
+測るだけ(EV-1。2026-10-16。afterStream.mode "measure"): 配信後の全自動がオフの録画(友人の依頼の afterStream が偽も)でも、配信中の検出の記録
+(peaks.json)がある録画は、アーカイブを解析して比べるところまで進めて measured にする(採用しない)。配信中の検出の精度を、配信後の追加が
+オフの依頼でも測るため。止めるスイッチは環境変数 YTT_LIVE_MEASURE=off(解析の重さを避けたいとき)。
+録画を自動で消す(src/manage/keep/live_cleanup.py)は、afterStream(測るだけも = 配信中の候補のファイルは録画と一緒に消える)が済むまで(AFTER_MAX_AGE まで)その録画を消さない(after_stream_hold)。
 """
 import json
 import os
@@ -125,11 +129,12 @@ AFTER_INSIDE = 0.5           # 候補の区間のうち、これだけ(割合)�
 AFTER_FLOW = "auto"          # 自動で採用した切り抜きの書き出したあと = 文字起こし → パック(M7 の決まり。live.auto.after に関係なく)
 REF_SEC = 60.0               # 録画とアーカイブの時刻を合わせるときに、録画から取る音の長さ(秒)
 AFTER_LABELS = {"wait": "アーカイブの用意を待っています", "analyze": "アーカイブを解析しています", "export": "アーカイブから書き出し → パック",
-                "done": "済み", "none": "採用する候補がありませんでした", "error": "失敗"}
-AFTER_END = ("done", "none", "error")
+                "done": "済み", "none": "採用する候補がありませんでした", "measured": "配信中の検出を測りました", "error": "失敗"}
+AFTER_END = ("done", "none", "measured", "error")
+HOLE_CHUNK = 2 * 3600.0     # 録画の欠けを録画元に聞くときの 1 回の幅(録画の部品の /segments は 3 時間・5000 本まで)
 # 掲示板(flow/board.py。RS8 の ② の口 S2): アーカイブからの書き出し・配信後の全自動の state -> 掲示板の state
 BOARD_STATES = dict({s: "running" for s in RUN}, wait="queued", done="done", error="error", cancelled="cancelled")
-AFTER_BOARD = {"wait": "queued", "analyze": "running", "export": "running", "done": "done", "none": "skipped", "error": "error"}
+AFTER_BOARD = {"wait": "queued", "analyze": "running", "export": "running", "done": "done", "none": "skipped", "measured": "done", "error": "error"}
 AFTER_PREFIX = "as-"   # 掲示板の id「la:as-<録画元>.<録画>」= 配信後の全自動(録画 1 本)。それ以外の la: は書き出しのジョブの id
 SPEED_DIR = "速報版"                      # 作業用/速報版/(前の版で入れ替えのときに退避した速報版。片付けは live_cleanup)
 BUILD_DIR = "本番版の作りかけ"            # 作業用/本番版の作りかけ/<ジョブ>/(スタジオが書く先。済んだら消す。名前は前の版のまま)
@@ -404,7 +409,7 @@ class Archiver(LX.Patrol):
                  slots=None, python=None, ffmpeg=None, ffprobe=None, log=None, first_delay=FIRST_DELAY, interval=INTERVAL,
                  give_up=GIVE_UP, poll=POLL, retry_sec=RETRY_SEC, step=STEP, after=None,
                  after_stream=None, per_hour=None, recordings=None, adopt=None, after_max_age=AFTER_MAX_AGE, compare=None, request=None,
-                 settings_for=None, taken=None, exports=None, section_spec=None, queue=None):
+                 settings_for=None, taken=None, exports=None, section_spec=None, queue=None, measure=None):
         """exporter: src/flow/live_export.py の Exporter(ジョブ・マーク・書き出し先・音量)。
         studio(method, path, body) -> (HTTP の番号 か None(つながらない), JSON): 取り込んだスタジオの API(src/app/live.py が autorun と同じ形で呼ぶ)。
         enabled(): リアルタイム切り抜きがオンか。recording_state(録画元, 録画) -> {"active", "endedAt"(epoch)} か None。
@@ -421,6 +426,7 @@ class Archiver(LX.Patrol):
         exports: 本番版の書き出しを頼む器(既定 flow/export.default() = スタジオの書き出しと同じ物 = 同時 1 本)。section_spec(依頼) -> 書き出しの束
         (既定 ① の exporter.build_section_spec)。queue() -> 解析の順番待ち(flow/batch の Batch.snapshot の形)か None(直に読めない =
         スタジオの GET /api/queue。入口の Live が取り込んだスタジオの Batch を渡す。OPT2 の J5)。
+        measure(録画元, 録画) -> 配信後の全自動がオフでも、配信中の検出を測るか(EV-1。livesession: 検出の記録 peaks.json がある録画)。
         テストは probe・audio・studio を偽物に、間隔を短くする(本物の YouTube へ繋がない)"""
         super().__init__()
         self.ex, self.studio = exporter, studio
@@ -436,7 +442,8 @@ class Archiver(LX.Patrol):
         self.recordings = recordings or (lambda: [])
         self.adopt = adopt
         self.after_max_age = after_max_age
-        self.compare = compare   # compare(録画元, 録画, afterStream, アーカイブの候補): 配信中の候補と比べて記録する(0-10-6。src/flow/live_detect.py)
+        self.compare = compare   # compare(録画元, 録画, afterStream, アーカイブの候補, holes=録画の欠け): 配信中の候補と比べて記録する(0-10-6・EV-1。src/flow/live_detect.py)
+        self.measure = measure or (lambda rc, rec: False)
         self.settings_for = settings_for or (lambda rc, rec: None)
         self.enabled = enabled or (lambda: True)
         self.recording_state = recording_state or (lambda rc, rec: None)
@@ -881,9 +888,11 @@ class Archiver(LX.Patrol):
             if not isinstance(rc, str) or not isinstance(rec, str) or not LX.ID_RE.match(rc) or not LX.REC_RE.match(rec) or r.get("active"):
                 continue
             seen.add((rc, rec))
-            if not self._after_on(rc, rec, every):
-                continue
             a = self._after_get(rc, rec)
+            if not a and not self._after_on(rc, rec, every) and not self._measure_on(rc, rec):   # 始めたあとは切り替えても続ける(mode は始めたときの物)
+                continue
+            if a and a.get("mode") != "measure" and not self._after_on(rc, rec, every):
+                continue
             if a.get("state") in AFTER_END:
                 continue
             ended = ended_at(r)
@@ -934,6 +943,15 @@ class Archiver(LX.Patrol):
             return self._request_after(rc, rec)
         return self.after_stream() if every is None else bool(every)
 
+    def _measure_on(self, rc, rec):
+        """配信後の全自動がオフでも、配信中の検出を測るか(EV-1): 環境変数 YTT_LIVE_MEASURE が off でなく、measure(録画元, 録画) が真。確かめられなければ偽"""
+        if os.environ.get("YTT_LIVE_MEASURE", "").strip().lower() == "off":
+            return False
+        try:
+            return bool(self.measure(rc, rec))
+        except Exception:   # noqa: BLE001
+            return False
+
     def _per_hour_for(self, rc, rec):
         """配信後の 1 時間あたりの本数: 友人の依頼の録画は依頼の設定、ほかはホームの設定"""
         req = self.friend_request(rc, rec)
@@ -978,8 +996,9 @@ class Archiver(LX.Patrol):
         n = after_count(last - first, self._per_hour_for(rc, rec))
         dur = i.get("duration")
         end = max(last, t0 + dur - offset) if schemas.is_num(dur) else last   # 採用の範囲の終わり = 配信の終わり(アーカイブの終わり。録画の後で止めた分も)
+        mode = a.get("mode") or ("after" if self._after_on(rc, rec) else "measure")   # 測るだけ(EV-1)は採用しない
         base = dict(vid=vid, t0=t0, offset=round(offset, 3), offsetFrom=how, first=first, last=last, end=round(end, 3), n=n,
-                    title=str(r.get("title") or "")[:LX.TITLE_MAX], retryAt=None)
+                    title=str(r.get("title") or "")[:LX.TITLE_MAX], retryAt=None, mode=mode)
         _code, v = self._studio_video(vid)
         if v is not None and v.get("analysis"):   # 人がもう解析した: それを使う
             a = self._after_set(rc, rec, state="analyze", qid=None, message="スタジオで解析済みの結果を使います", **base)
@@ -1000,7 +1019,8 @@ class Archiver(LX.Patrol):
         if code != 200 or (not added and "すでにキュー" not in rej):
             raise ArchiveError("アーカイブの解析を始められませんでした: %s" % (rej or d.get("message") or "HTTP %s" % code))
         self._after_set(rc, rec, state="analyze", qid=added[0].get("qid") if added else None,
-                        message="アーカイブを解析しています(上位 %d 本を採用します。ずれ %.1f 秒・%s)" % (n, offset, how), **base)
+                        message=("アーカイブを解析しています(配信中の検出を測ります。ずれ %.1f 秒・%s)" % (offset, how)) if mode == "measure" else
+                        "アーカイブを解析しています(上位 %d 本を採用します。ずれ %.1f 秒・%s)" % (n, offset, how), **base)
         self.log("リアルタイム切り抜き: 配信後の自動の切り抜き: %s のアーカイブ(%s)を解析します(上位 %d 本)" % (rec, vid, n))
         return True
 
@@ -1103,17 +1123,30 @@ class Archiver(LX.Patrol):
 
     def _after_adopt(self, rc, rec, a):
         """候補から上位 N を選び、M1 の採用(origin archive)を 1 本ずつ頼む"""
-        if self.adopt is None:
+        measure = a.get("mode") == "measure"
+        if self.adopt is None and not measure:
             raise ArchiveError("採用の仕組み(M1)が使えません")
         code, v = self._studio_video(a["vid"])
         if v is None:
             raise Later("スタジオからアーカイブの解析の結果を読めませんでした(HTTP %s)" % code, self.retry_sec)
         marks = v.get("marks") or []
-        if self.compare is not None:   # 配信中の候補(L2)とアーカイブの候補を比べて live_feedback.jsonl へ(0-10-6。失敗しても採用は続ける)
+        row = None
+        if self.compare is not None:   # 配信中の候補(L2)とアーカイブの候補を比べて live_feedback.jsonl へ(0-10-6・EV-1。失敗しても採用は続ける)
             try:
-                self.compare(rc, rec, a, marks)
+                row = self.compare(rc, rec, a, marks, holes=self._rec_holes(rc, rec, a))
             except Exception as e:
                 self.log("リアルタイム切り抜き: 配信中の候補とアーカイブの候補を比べられませんでした: %r" % (e,))
+        if measure:   # 測るだけ(EV-1): 採用しない
+            got = ("アーカイブの候補 %d 件のうち配信中にも出た %d 件(穴で外した %d 件)" % (row.get("archive") or 0, row.get("hit") or 0, row.get("excluded") or 0)
+                   if isinstance(row, dict) else "配信中の候補が無かったので比べませんでした")
+            self._after_set(rc, rec, state="measured", jobs=[], picked=[], message=got)
+            self.log("リアルタイム切り抜き: 配信中の検出を測りました %s(%s)" % (rec, got))
+            if self.after:
+                try:
+                    self.after(rc, rec)   # 消してよければ録画を消す(測り終えるのを待っていた)
+                except Exception:
+                    pass
+            return True
         try:   # 録画の、もう採用・書き出し済みのマーク(人が付けたもの・配信中の自動)と重ねない。置き場から読む(G3。読めなければ重ねる物なし = 今までどおり)
             got = self.taken(rc, rec)
         except Exception as e:   # noqa: BLE001
@@ -1194,16 +1227,41 @@ class Archiver(LX.Patrol):
         if not self.enabled() or not isinstance(r, dict):
             return ""
         rec = str(r.get("id") or "")
-        if not self._after_on(rc, rec):
+        a = self._after_get(rc, rec)
+        if not self._after_on(rc, rec) and not (self._measure_on(rc, rec) or a.get("mode") == "measure"):
             return ""
-        if self._after_get(rc, rec).get("state") in AFTER_END:
+        if a.get("state") in AFTER_END:
             return ""
         ended = ended_at(r)
         if ended is not None and time.time() - ended > self.after_max_age:
             return ""
         if not LX.video_id_of(str(r.get("url") or ""), rec):
             return ""
+        if not self._after_on(rc, rec):
+            return "配信中の検出の測り直し(アーカイブの解析)がまだです"
         return "配信後の自動の切り抜き(アーカイブの解析)がまだです"
+
+    def _rec_holes(self, rc, rec, a):
+        """録画の欠け(つなぎ直しの間・止めていた間)-> [(から, まで)](録画の頭からの秒。EV-1 の compare が外して数える)。
+        録画元の /segments を HOLE_CHUNK ずつ聞いて gaps を集める。つながらない・読めない・録画が無ければ None(compare は欠けを知らないまま数える)"""
+        first, last = a.get("first"), a.get("last")
+        if not schemas.is_num(first) or not schemas.is_num(last) or last <= first:
+            return None
+        out, t = [], first
+        while t < last:
+            u = min(last, t + HOLE_CHUNK)
+            try:
+                code, d = self.ex._query(rc, rec, t, u)
+            except Exception:   # noqa: BLE001
+                return None
+            if code != 200 or not isinstance(d, dict):
+                return None
+            for g in d.get("gaps") or []:
+                x, y = LX.iso_epoch((g or {}).get("from")), LX.iso_epoch((g or {}).get("to"))
+                if x is not None and y is not None and y > x:
+                    out.append((round(max(0.0, x - first), 3), round(min(last, y) - first, 3)))
+            t = u
+        return out
 
     def after_failures(self, now=None):
         """配信後の全自動の失敗(「調子」の失敗の一覧に足す。文は src/flow/live_failures.py の after_stream_failure)"""

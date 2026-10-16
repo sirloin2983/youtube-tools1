@@ -944,7 +944,7 @@ def evaluate_live(data_dir=None, since=None, until=None):
             if row["state"] == "feedback" and origin in ("auto", "manual"):   # 記録の無い録画は行から数える
                 row["adopt"][origin] += 1
         elif ev == "detect_compare":
-            row["compare"] = {k: r.get(k) for k in ("archive", "hit", "ratio", "medianAbsDiff", "liveFrame", "liveBench", "liveUnmatched")}
+            row["compare"] = {k: r.get(k) for k in ("archive", "hit", "ratio", "medianAbsDiff", "liveFrame", "liveBench", "liveUnmatched", "excluded", "mode")}   # excluded = EV-1 の穴で外した数
     for j in live_human(app, since_ms, until_ms):   # 人の判断は judgments から(自動の採用の行のある物だけ数える)
         rc, rec = live_key(j)
         key = "%s/%s" % (rc, rec)
@@ -985,11 +985,12 @@ def _live_totals(recs):
     good, bad = s(("adopt", "good")), s(("adopt", "bad"))
     comp = [r["compare"] for r in recs if isinstance(r.get("compare"), dict)]
     arch, hit = sum(c.get("archive") or 0 for c in comp), sum(c.get("hit") or 0 for c in comp)
+    excl = sum(c.get("excluded") or 0 for c in comp)
     waits = [r["exports"]["waitSecMedian"] for r in recs if num(r["exports"].get("waitSecMedian"))]
     return {"recordings": len(recs), "hours": round(s(("hours",)), 1), "peaks": s(("peaks", "frame")) + s(("peaks", "adopted")), "bench": s(("peaks", "bench")),
             "dismissed": s(("peaks", "dismissed")), "adoptAuto": s(("adopt", "auto")), "adoptManual": s(("adopt", "manual")), "adoptArchive": s(("adopt", "archive")),
             "good": good, "bad": bad, "unjudged": s(("adopt", "unjudged")), "adoptRate": rate(good, good + bad), "givenUp": s(("peaks", "givenUp")),
-            "compare": {"recordings": len(comp), "archive": arch, "hit": hit, "ratio": rate(hit, arch),
+            "compare": {"recordings": len(comp), "archive": arch, "hit": hit, "ratio": rate(hit, arch), "excluded": excl,
                         "medianAbsDiff": dist([c["medianAbsDiff"] for c in comp if num(c.get("medianAbsDiff"))])["median"] if comp else None},
             "behindMax": mx(("worker", "behindMax")), "lagMax": mx(("worker", "lagMax")), "memMaxMB": mx(("worker", "memMaxMB")),
             "restarts": s(("worker", "restarts")), "chatRestarts": s(("worker", "chatRestarts")),
@@ -1017,8 +1018,8 @@ def print_live(res):
     print("  候補 %d(控え %d・見送り %d)  採用 自動 %d・人 %d・アーカイブ %d  自動の判定 良い %d / 悪い %d(採用率 %s。未判定 %d)  諦め %d" % (
         t["peaks"], t["bench"], t["dismissed"], t["adoptAuto"], t["adoptManual"], t["adoptArchive"], t["good"], t["bad"], pct(t["adoptRate"]), t["unjudged"], t["givenUp"]))
     c = t["compare"]
-    print("  配信中 vs アーカイブ(detect_compare %d 本): アーカイブの候補 %d のうち配信中にも出た %d(%s)。時刻の差の中央値 %s 秒" % (
-        c["recordings"], c["archive"], c["hit"], pct(c["ratio"]), _v(c["medianAbsDiff"])))
+    print("  配信中 vs アーカイブ(detect_compare %d 本): アーカイブの候補 %d のうち配信中にも出た %d(%s)。時刻の差の中央値 %s 秒。測れなかった所(録画の欠け・飛ばした所)で外した %d" % (
+        c["recordings"], c["archive"], c["hit"], pct(c["ratio"]), _v(c["medianAbsDiff"]), c.get("excluded") or 0))
     print("  ワーカー: 遅れ最大 %s 秒・lag 最大 %s・メモリ最大 %s MB・起動し直し %d・チャットの起動し直し %d" % (
         _v(t["behindMax"]), _v(t["lagMax"]), _v(t["memMaxMB"]), t["restarts"], t["chatRestarts"]))
     print("  配信中の文字起こし: 付いた %d・空 %d・失敗 %d    書き出し: %d 本(失敗 %d)。作ってから済むまで 中央値 %s 秒・最大 %s 秒" % (

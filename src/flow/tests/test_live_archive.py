@@ -617,6 +617,47 @@ class AfterStreamTest(unittest.TestCase):
         self.assertEqual(a.after_tick(), 0)                                    # 済んだ録画はもう触らない
         self.assertEqual(len(self.calls), n)
 
+    def test_measure_only(self):
+        """EV-1: 配信後の全自動がオフでも、配信中の検出の記録がある録画(measure)はアーカイブを解析して比べる(採用しない)→ measured。
+        比べるときに録画の欠け(録画元の /segments の gaps を 2 時間ずつ)を渡す。測り終えるまで録画を消さない。YTT_LIVE_MEASURE=off で止める"""
+        self.on, self.status = False, "was_live"
+        compared, queried = [], []
+
+        def query(rc, rec, a, b):
+            queried.append(round(b - a))
+            gaps = [{"from": LX.epoch_iso(self.first + 100), "to": LX.epoch_iso(self.first + 160), "sec": 60}] if a == self.first else []
+            return 200, {"segments": [], "gaps": gaps}
+        self.ex._query = query
+        a = self.archiver(compare=lambda rc, rec, af, marks, holes=None: compared.append((af.get("mode"), holes)) or {"archive": 5, "hit": 3, "excluded": 1},
+                          measure=lambda rc, rec: True)
+        rec = dict(self.rec, endedAt=LX.epoch_iso(self.rec["endedAt"]))
+        self.assertIn("測り直し", a.after_stream_hold("local", rec))          # 測り終えるまで録画を消さない
+        with mock.patch.dict(os.environ, {"YTT_LIVE_MEASURE": "off"}):
+            self.assertEqual(a.after_tick(), 0)                                # 止めるスイッチ
+            self.assertEqual(a.after_stream_hold("local", rec), "")
+        self.assertEqual(a.after_tick(), 1)                                    # 用意できた → 解析を頼む
+        st = a.info_view("local", REC)["afterStream"]
+        self.assertEqual(st["state"], "analyze")
+        self.assertIn("配信中の検出を測ります", st["message"])
+        self.queue[0]["status"], self.analysis = "done", {"at": 1}
+        a.after_tick()
+        st = a.info_view("local", REC)["afterStream"]
+        self.assertEqual(st["state"], "measured", st)
+        self.assertIn("配信中にも出た 3 件(穴で外した 1 件)", st["message"])
+        self.assertEqual(self.adopted, [])                                     # 採用しない
+        self.assertEqual(compared, [("measure", [(100.0, 160.0)])])            # 録画の欠けを渡した(録画の頭からの秒)
+        self.assertEqual(queried, [7200, 3600])                                # 3 時間の録画を 2 時間ずつ聞いた
+        self.assertEqual(a.after_stream_hold("local", rec), "")               # 済んだので消してよい
+        self.assertEqual(a.after_tick(), 0)
+        # 測るものが無い録画(検出の記録が無い)は何もしない
+        b = self.archiver(measure=lambda rc, rec: False)
+        b.info.clear()
+        self.assertEqual(b.after_tick(), 0)
+        self.assertEqual(b.after_stream_hold("local", rec), "")
+        # 録画元につながらない: 欠けは分からない(None)まま比べる
+        self.ex._query = lambda rc, rec, a_, b_: (None, None)
+        self.assertIsNone(a._rec_holes("local", REC, {"first": self.first, "last": self.first + 10}))
+
     def test_old_hold_is_released(self):
         """前の版で速報版を書き出して本番版を待っていたジョブ(done + handoffWait archive)は、そのまま まとめて実行へ渡す"""
         a = self.archiver()

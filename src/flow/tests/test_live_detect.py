@@ -488,6 +488,28 @@ class DetectApiTest(unittest.TestCase):
         self.det.forget("..", "x")   # 形の悪い id は何もしない
         self.assertTrue(os.path.isdir(os.path.join(self.tmp, "live")))
 
+    def test_compare_leaves_out_holes(self):
+        """EV-1: 配信中に測れなかった所(録画の欠け = holes・検出の頭より前・measuredSec より後・飛ばした skipped)にあるアーカイブの候補は、
+        「拾えなかった」に数えない(分母から外して excluded)。穴が分からない(holes None)ときは gapsKnown 偽で今までどおり"""
+        self.put_peaks([peak("p0-302", 272, 302, 12.0, "frame", 336)], seq=1, changes=[[1, "p0-302", "frame"]],
+                       first=iso(T0), measuredSec=3000, skipped=[{"from": 1990, "to": 2100, "done": True, "capped": False}])
+        a = {"t0": T0 - 100.0, "offset": 0.0, "first": T0, "last": T0 + 3600, "mode": "measure"}   # アーカイブの秒 s = 録画の秒 + 100
+        marks = [{"src": "auto", "start": 372, "end": 417, "peak": 404},     # 録画の 272〜317 = 拾えた
+                 {"src": "auto", "start": 1500, "end": 1545},                # 録画の 1400〜1445 = 録画の欠け(holes)の中
+                 {"src": "auto", "start": 2100, "end": 2145},                # 録画の 2000〜2045 = 飛ばした区間の中
+                 {"src": "auto", "start": 3200, "end": 3245},                # 録画の 3100〜3145 = 検出が測っていない後ろ
+                 {"src": "auto", "start": 1100, "end": 1145}]                # 録画の 1000〜1045 = 拾えなかった
+        row = self.det.compare("fake", REC, a, marks, holes=[(1390.0, 1460.0)])
+        self.assertEqual((row["archive"], row["hit"], row["ratio"], row["excluded"], row["gapsKnown"], row["mode"]), (2, 1, 0.5, 3, True, "measure"))
+        self.assertEqual(row["holes"], [[1390.0, 1460.0], [1990.0, 2100.0], [3000.0, 3600.0]])
+        row = self.det.compare("fake", REC, a, marks)   # 録画の欠けが分からない: 録画の欠けの中の候補は数える(検出の穴は外す)
+        self.assertEqual((row["archive"], row["excluded"], row["gapsKnown"]), (3, 2, False))
+        # 部品: 重なりをまとめる・検出の頭が録画の頭より後なら、その間も穴
+        self.assertEqual(D.merge_spans([(5.0, 9.0), (0.0, 2.0), (1.0, 3.0), (9.0, 10.0)]), [(0.0, 3.0), (5.0, 10.0)])
+        self.assertEqual(D.measured_holes({"first": iso(T0 + 10), "measuredSec": 50, "skipped": [{"from": 5, "to": 8}, {"from": "x"}]}, T0, 100.0),
+                         [(0.0, 10.0), (60.0, 100.0), (15.0, 18.0)])
+        self.assertEqual(D.measured_holes({}, T0, 100.0), [])   # 欄が無ければ穴にしない
+
     def test_config_and_spec_from_studio(self):
         """config.json: 録画元(合言葉つき)・感度・1 時間の本数・スタジオの解析の設定(範囲外は丸める)。変わったときだけ書く"""
         settings = {"settings": {"analyze": {"length": 300, "preRatio": 0.5, "lag": "x", "wChat": 1.4, "lagAuto": False}}}

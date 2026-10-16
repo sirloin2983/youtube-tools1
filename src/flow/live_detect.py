@@ -110,6 +110,37 @@ END_GRACE_SEC = 6 * 3600   # D-14: 録画が終わってからこの秒数の間
 AUTO_MAX_PER_REC = 10      # D-13(仮の数): 1 つの録画で自動で採用する本数の上限(人のマーク・配信後の解析 archive は数えない)
 
 
+def merge_spans(spans):
+    """[(から, まで)] を時刻の順に並べて、重なり・接するものを 1 つにまとめる(EV-1 の穴)"""
+    out = []
+    for x, y in sorted(spans):
+        if out and x <= out[-1][1]:
+            out[-1] = (out[-1][0], max(out[-1][1], y))
+        else:
+            out.append((x, y))
+    return out
+
+
+def measured_holes(doc, first, span):
+    """peaks.json(doc)から、配信中の検出が測っていない所 [(から, まで)](録画の頭からの秒。EV-1):
+    検出の頭(doc の first)が録画の頭より後ならその間・measuredSec が録画の長さより短ければその後ろ・遅れて飛ばした区間(skipped の from〜to。検出の頭からの秒)。
+    読めない欄は飛ばす(穴にしない)"""
+    def num(x):
+        return isinstance(x, (int, float)) and not isinstance(x, bool)
+    d0 = LX.iso_epoch(doc.get("first")) if isinstance(doc.get("first"), str) else (doc.get("first") if num(doc.get("first")) else None)
+    d0 = (d0 - first) if d0 is not None else 0.0
+    out = []
+    if d0 > 1.0:
+        out.append((0.0, min(span, d0)))
+    m = doc.get("measuredSec")
+    if num(m) and d0 + m < span - 1.0:
+        out.append((max(0.0, d0 + m), span))
+    for sk in doc.get("skipped") or []:
+        if isinstance(sk, dict) and num(sk.get("from")) and num(sk.get("to")) and sk["to"] > sk["from"]:
+            out.append((max(0.0, d0 + sk["from"]), min(span, d0 + sk["to"])))
+    return [(x, y) for x, y in out if y > x]
+
+
 class Detector:
     def __init__(self, host: "livehost.LiveHost", python=None, spawn=True, worker=WORKER, stale_sec=STALE_SEC, clock=time.time):
         """host: 親(flow/livehost.py の LiveHost。flow/livesession.py の LiveSession。設定・録画元・adopt・list_recordings・studio_call・store_dir・logs_dir)。
@@ -617,15 +648,19 @@ class Detector:
         return done
 
     # ---- 配信が終わったあと(0-10-6。L5 の材料。人の手は要らない)
-    def compare(self, rc, rec, a, marks):
-        """配信後の全自動(M7。src/flow/live_archive.py)がアーカイブの解析の結果を読んだとき: アーカイブの候補(自動のマーク)のうち、配信中にも
-        候補(見送り以外)が出ていた割合と時刻の差を live_feedback.jsonl に 1 行({"event": "detect_compare"})。配信中の候補が無い録画は何もしない。
-        a: afterStream の記録(t0・offset・first・last)。アーカイブの秒 s → 録画の頭からの秒 = t0 + s − offset − first(pick_candidates と同じ向き)-> 書いた行か None"""
+    def compare(self, rc, rec, a, marks, holes=None):
+        """配信後の全自動(M7。src/flow/live_archive.py。測るだけの録画も = EV-1)がアーカイブの解析の結果を読んだとき: アーカイブの候補(自動のマーク)のうち、
+        配信中にも候補(見送り以外)が出ていた割合と時刻の差を live_feedback.jsonl に 1 行({"event": "detect_compare"})。配信中の候補が無い録画は何もしない。
+        a: afterStream の記録(t0・offset・first・last)。アーカイブの秒 s → 録画の頭からの秒 = t0 + s − offset − first(pick_candidates と同じ向き)。
+        EV-1(2026-10-16): 配信中に測れなかった所(holes)にあるアーカイブの候補は「拾えなかった」に数えない(分母から外して excluded に数える):
+          holes(呼ぶ側から。録画の頭からの秒 [(から, まで)]。None = 分からない)= 録画の欠け(つなぎ直しの間・止めていた間。録画元の /segments の gaps)
+          + 検出が測っていない所(peaks.json の first より前・measuredSec より後・遅れて飛ばした skipped。飛ばした所は測り直しても候補は作り直さない)。
+          候補の区間の半分以上が穴か、山(peak・無ければまん中)が穴の中なら外す。-> 書いた行か None"""
         doc, peaks, _p = self.view(rc, rec)
         if doc is None or not all(isinstance(a.get(k), (int, float)) for k in ("t0", "offset", "first", "last")):
             return None
         def num(x):
-            return isinstance(x, (int, float))
+            return isinstance(x, (int, float)) and not isinstance(x, bool)
 
         def rel(s):   # アーカイブの秒 → 録画の頭からの秒
             return a["t0"] + s - a["offset"] - a["first"]
@@ -634,14 +669,26 @@ class Detector:
             return p["peak"] if num(p.get("peak")) else (p["start"] + p["end"]) / 2.0
 
         span = a["last"] - a["first"]
+        gaps = sorted((float(x), float(y)) for x, y in holes or [] if num(x) and num(y) and y > x)
+        not_measured = measured_holes(doc, a["first"], span)
+        hs = merge_spans(gaps + not_measured)
+
+        def in_hole(s0, s1, at):
+            cut = sum(max(0.0, min(s1, y) - max(s0, x)) for x, y in hs)
+            return cut >= (s1 - s0) * 0.5 or any(x <= at < y for x, y in hs)
+
         live = [p for p in peaks if p.get("state") != "dismissed" and num(p.get("start")) and num(p.get("end"))]
-        arch = []   # [(開始, 終わり, 山)](録画の頭からの秒)
+        arch, excluded = [], 0   # [(開始, 終わり, 山)](録画の頭からの秒)
         for m in marks or []:
             if not isinstance(m, dict) or m.get("src") != "auto" or not num(m.get("start")) or not num(m.get("end")):
                 continue
             s0, s1 = rel(m["start"]), rel(m["end"])
             if s1 > 0 and s0 < span:
-                arch.append((s0, s1, rel(m["peak"]) if num(m.get("peak")) else (s0 + s1) / 2.0))
+                at = rel(m["peak"]) if num(m.get("peak")) else (s0 + s1) / 2.0
+                if in_hole(s0, s1, at):
+                    excluded += 1
+                    continue
+                arch.append((s0, s1, at))
         hits, diffs = 0, []
         for s0, s1, at in arch:
             near = [p for p in live if p["start"] < s1 and s0 < p["end"]]
@@ -653,7 +700,9 @@ class Detector:
         row = {"event": "detect_compare", "recorder": rc, "recording": rec, "archive": len(arch), "hit": hits,
                "ratio": round(hits / len(arch), 3) if arch else None, "medianAbsDiff": ds[len(ds) // 2] if ds else None, "diffs": diffs[:200],
                "liveFrame": sum(1 for p in live if p.get("state") in ("frame", "adopted")), "liveBench": sum(1 for p in live if p.get("state") == "bench"),
-               "liveUnmatched": unmatched, "lag": doc.get("lag"), "chat": doc.get("chat"), "gaps": doc.get("gaps"), "offset": a.get("offset")}
+               "liveUnmatched": unmatched, "lag": doc.get("lag"), "chat": doc.get("chat"), "gaps": doc.get("gaps"), "offset": a.get("offset"),
+               "excluded": excluded, "holesSec": round(sum(y - x for x, y in hs), 1), "holes": [[round(x, 1), round(y, 1)] for x, y in hs[:50]],
+               "gapsKnown": holes is not None, "mode": a.get("mode") or "after"}
         self.host.exporter.feedback(row)
         return row
 
