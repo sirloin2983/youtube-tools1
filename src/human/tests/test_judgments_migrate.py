@@ -108,8 +108,10 @@ class MigrateTest(unittest.TestCase):
         self.assertEqual(sum(1 for r in self.written() if r["markId"] == "m7"), 1)
         self.assertEqual(got["stats"]["auto_discard"]["copy"], 0)
 
-    def test_switch_off_by_default(self):
-        self.assertFalse(M.ENABLED)
+    def test_switch_off_writes_nothing(self):
+        """スイッチがオフなら --apply でも書かない(10-16 にユーザーの確認でオンにした。オフに戻したときの守り)"""
+        self.addCleanup(setattr, M, "ENABLED", M.ENABLED)
+        M.ENABLED = False
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             self.assertEqual(M.main(["--data-dir", self.d, "--apply"]), 0)
