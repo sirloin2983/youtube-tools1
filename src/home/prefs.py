@@ -1,4 +1,4 @@
-"""ホームの設定(画面の直し「気が利く画面へ」の土台。notes:docs/design/briefs/ux-consistency/REQUEST.md の 1)。
+"""ホームの設定(画面の直し「気が利く画面へ」の土台。notes:docs/design/briefs/ux-consistency/DESIGN_BRIEF.md)。
 
 どの入口から変えても全部の入口の既定になる値を、ホームの作業データの prefs.json に1つだけ持つ:
   autorun  … まとめて実行の形・採用数・カットの方法・上書き・失敗したとき

@@ -250,7 +250,7 @@ class Delivery:
             self._pools_save()
             self._mark_delivered(run, pending)
         st["state"] = "warn"
-        st["detail"] = "Dropbox へ置けなかったので %d 本を預けました。次に入口が動いたときに送り直します(配信が終わってから %d 時間まで): %s" % (
+        st["detail"] = "Dropbox へ置けなかったので %d 本を預けました。次にホームが動いたときに送り直します(配信が終わってから %d 時間まで): %s" % (
             len(pending), sendpolicy.FRESH_SEC // 3600, str(err)[:160])
         self.log("まとめて実行: %s を友人へ届けられませんでした(%s)。%d 本を預けて、あとで送り直します" % (run.title or run.id, str(err)[:160], len(pending)))
         return None

@@ -1337,8 +1337,11 @@ def _auto_deliver(cx, row):
     pg.click(btn)
     check(wait_js(pg, "[...document.querySelectorAll('.ui-toast')].some(t => t.textContent.indexOf('友人へ届けました') >= 0)", 20000), "[A] M12: 届けたと知らせる")
     out = os.path.join(box, "出力")
-    zips = os.listdir(out) if os.path.isdir(out) else []
-    check(len(zips) == 1 and zips[0].endswith("__01_自動.zip"), "[A] M12: zip が Dropbox の 出力 に置かれた: %s" % zips)
+    names = sorted(os.listdir(out)) if os.path.isdir(out) else []
+    zips = [n for n in names if n.endswith(".zip")]
+    check(len(zips) == 1 and zips[0].endswith("__01_自動.zip"), "[A] M12: zip が Dropbox の 出力 に置かれた: %s" % names)
+    check(names == sorted([zips[0], zips[0][:-4] + ".meta.json"]) if zips else False,
+          "[A] D-SEND: 手で届けた 1 本も出どころの印 .meta.json を隣に置く(友人のアプリの札「依頼なし」): %s" % names)
     check(wait_js(pg, "!!document.querySelector('%s .pt-ac-done') && document.querySelectorAll('%s .pt-ac-deliver').length === 1" % (row, row), 10000),
           "[A] M12: 届けた切り抜きは「届けた」の札になり、「採用」は消える(二度は届けない)")
     fb = _live_feedback(cx)

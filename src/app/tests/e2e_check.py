@@ -166,7 +166,7 @@ def _scene_answer_undo_skip(cx):
     check(state(pg)["cur"] == "value:e2e:02", "A で答えるとすぐ次へ: %s" % state(pg)["cur"])
     check(wait_js(pg, "CheckShell.state().hist === 1") and len(fq.answers) == 1, "答えを 1 件送った")
     a = fq.answers[0]["body"]
-    check(a["card"] == "value:e2e:01" and a["answer"] == {"choice": "send"} and isinstance(a["ms"], int) and "value:e2e:02" in a["skip"],
+    check(a["card"] == "value:e2e:01" and a["answer"] == {"choice": "good"} and isinstance(a["ms"], int) and "value:e2e:02" in a["skip"],
           "送った中身(card・answer・ms・待っている id): %s" % a)
     check(pg.text_content("#chkToday") == "1", "帯: 今日 1 件")
     press(pg, "n")
@@ -175,9 +175,11 @@ def _scene_answer_undo_skip(cx):
     check(wait_js(pg, "CheckShell.state().cur === 'value:e2e:01'"), "Z で最後に答えたカードへ戻る(飛ばしたカードは戻さない): %s" % state(pg))
     check(fq.undone == ["ans001"] and pg.text_content("#chkToday") == "0", "undo に答えの id を送り、今日の数も戻る: %s" % fq.undone)
     check(state(pg)["queue"][:1] == ["value:e2e:03"], "戻る前のカードは次に回る: %s" % state(pg)["queue"][:3])
-    pg.click("#chkBody [data-chk-k='X']")
+    pg.click("#chkBody [data-chk-k='X']")   # 悪い = 理由の札の段へ(まだ答えない)
+    check(state(pg)["cur"] == "value:e2e:01" and wait_js(pg, "!!document.querySelector(\"#chkBody [data-chk-k='1']\")"), "X(悪い)は理由の札を出すだけ: %s" % state(pg)["cur"])
+    pg.click("#chkBody [data-chk-k='1']")
     check(wait_js(pg, "CheckShell.state().cur === 'value:e2e:03'") and wait_js(pg, "CheckShell.state().hist === 1"), "答えのボタン = キーと同じ道")
-    check(fq.answers[-1]["body"]["answer"] == {"choice": "drop"}, "X(要らない)の答え: %s" % fq.answers[-1]["body"]["answer"])
+    check(fq.answers[-1]["body"]["answer"] == {"choice": "bad", "reason": "boring"}, "悪い + 理由の札の答え: %s" % fq.answers[-1]["body"]["answer"])
     check(not pg.is_disabled("#chkUndo"), "答えたあとは戻せる")
 
 
@@ -544,7 +546,8 @@ def _scene_narrow(cx):
 
 def fixture_cards():
     vid = {"url": "transcribe/media?id=a0000000000b", "start": 0.5, "end": 1.5, "pad": 0.2}
-    cards = [card(i, "value", options=["send", "drop"], score=82.4 if i == 1 else None) for i in (1, 2, 3)]
+    cards = [card(i, "value", options=["good", "bad"], reasons=[{"id": "boring", "text": "場面がつまらない"}, {"id": "long", "text": "長すぎる"}],
+                  score=82.4 if i == 1 else None) for i in (1, 2, 3)]   # 自動の切り抜き = 送った後の品質の確認(良い / 悪い + 理由の札。D-SEND)
     cards.append(card(4, "read", source="fill", guess="1", note="llm", options=[{"id": "1", "text": "負けないからね"}, {"id": "2", "text": "まけないからね"}]))
     cards.append(card(5, "voice", source="diar", media=vid, guess={"id": "B", "name": "配信者 B"},
                       options=[{"id": "A", "name": "配信者 A"}, {"id": "B", "name": "配信者 B"}, {"id": "other", "name": "その他"}, {"id": "mixed", "name": "混ざり"}]))
