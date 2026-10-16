@@ -38,7 +38,7 @@ class TestSuiteList(unittest.TestCase):
     def test_no_duplicates_and_known_groups(self):
         names = [run_e2e.label(s, a) for _g, s, a, _w in run_e2e.SUITE]
         self.assertEqual(len(names), len(set(names)))
-        self.assertEqual({g for g, _s, _a, _w in run_e2e.SUITE}, {"cases", "home", "studio", "dev", "ui-kit"})
+        self.assertEqual({g for g, _s, _a, _w in run_e2e.SUITE}, {"cases", "home", "studio", "dev", "ui-kit", "friend"})
 
     def test_only_filters_by_group_or_name(self):
         cases = run_e2e.selected(["cases"])
