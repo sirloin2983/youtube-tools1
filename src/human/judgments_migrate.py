@@ -253,17 +253,20 @@ def _verdict(plan, app, by_req):
             vd = os.path.join(mp, rid, "verdicts")
             for n in sorted(os.listdir(vd)) if os.path.isdir(vd) else ():
                 if n.endswith(_returns.VERDICT_SUFFIX):
-                    found.append((os.path.join(vd, n), n))
-    for path, n in found:
+                    found.append((os.path.join(vd, n), n, rid))
+    for path, n, folder_rid in found:
+        # 受け取った後の置き場所は <依頼 id>\verdicts\<パック>.verdict.json(送る前の <依頼 id>__<パック> の形でない)。
+        # 依頼 id はフォルダ・パック名は中身(無ければファイル名)から。古い形の名前も読める
         m = _returns.VERDICT_RE.match(n)
         v = _fsio.read_json_or(path, None, kind=dict)
-        if not m or not v or v.get("verdict") not in _returns.VERDICTS:
+        if not v or v.get("verdict") not in _returns.VERDICTS:
             plan.no("verdict", "形が違う")
             continue
         if v.get("by") == "auto":
             plan.no("verdict", "友人のアプリが自動で要らないにした(by auto)")
             continue
-        rid, pack = m.group(1), m.group(2)
+        rid = _s(v.get("requestId")) or (m.group(1) if m else folder_rid)
+        pack = _s(v.get("pack")) or (m.group(2) if m else n[:-len(_returns.VERDICT_SUFFIX)])
         d = next((x for x in by_req.get(rid, []) for p in x.get("packs") or [] if _pack_name(p) == pack), None)
         d = d or (by_req.get(rid) or [None])[-1] or {}
         hit = next((p for p in d.get("packs") or [] if _pack_name(p) == pack), None)

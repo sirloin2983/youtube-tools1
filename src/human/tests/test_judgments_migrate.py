@@ -68,7 +68,7 @@ class MigrateTest(unittest.TestCase):
             {"at": 1760200001000, "zip": "REQ1__t.zip", "verdict": "made_video", "requestId": "REQ1", "videoId": "V1", "runId": "run1", "packs": pk}])
         vd = os.path.join(self.app, "friend-returns", "2026-10", "REQ1", "verdicts")
         os.makedirs(vd)
-        for name, body in (("REQ1__pack1.verdict.json", {"verdict": "keep", "at": 1760300000000}),
+        for name, body in (("pack1.verdict.json", {"verdict": "keep", "at": 1760300000000, "requestId": "REQ1", "pack": "pack1"}),   # 受け取った後の本物の形(returns が並べる)
                            ("REQ1__pack2.verdict.json", {"verdict": "reject", "at": 1760300001000, "by": "auto"})):
             with open(os.path.join(vd, name), "w", encoding="utf-8") as f:
                 json.dump(body, f)
