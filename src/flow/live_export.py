@@ -1277,7 +1277,8 @@ class Exporter(Patrol):
             req = job.get("request") if isinstance(job.get("request"), dict) and job["request"].get("rid") else None
             if req:   # 友人のライブ配信の依頼の録画(2-15): 依頼 id・届け先・配信者の設定を渡す = パックを 1 本ずつ友人へ届ける
                 kw.update(request_id=req["rid"], deliver_dir=req.get("deliverDir") or None, speakers=req.get("speakers"), video_tracks=req.get("videoTracks"),
-                          deliver_batch=req.get("deliverBatch"), pool=deliver_pool(job, req))   # 届け方は依頼の指定(無ければホームの設定)・n 本の組は録画をまたいで溜める
+                          deliver_batch=req.get("deliverBatch"), pool=deliver_pool(job, req),   # 届け方は依頼の指定(無ければホームの設定)・n 本の組は録画をまたいで溜める
+                          deliver_origin="auto" if req.get("autoDeliver") is True else "request")   # 出どころ(D-SEND 2-7。自分の配信の自動 = 友人の札「依頼なし」)
                 if req.get("cut"):
                     kw["cut"] = req["cut"]
             base = self._bundle_of(job)

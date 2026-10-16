@@ -144,6 +144,19 @@ class TestVerdict(Base):
         with self.assertRaises(ValueError):
             R.parse_verdict(b"[]")
 
+    def test_verdict_origin(self):
+        """D-SEND 2-7: 採否の任意の origin(request・auto)を受けて並べた verdicts\\ と一覧に残す。知らない値・無い = 鍵ごと無し(古い形)"""
+        self.assertEqual(R.parse_verdict(b'{"verdict":"reject","at":5,"origin":"auto"}'), {"verdict": "reject", "at": 5, "origin": "auto"})
+        self.assertNotIn("origin", R.parse_verdict(b'{"verdict":"reject","at":5,"origin":"x"}'))
+        for name, origin in (("p1", "auto"), ("p2", None)):
+            vp = os.path.join(self.inbox, "%s__%s.verdict.json" % (RID, name))
+            with open(vp, "w", encoding="utf-8") as f:
+                json.dump(dict({"verdict": "keep", "at": 1760000000000}, **({"origin": origin} if origin else {})), f)
+            os.utime(vp, (time.time() - 600,) * 2)
+        self.scan()
+        self.assertEqual(R.iter_requests(self.app)[0]["verdicts"], {"p1": {"verdict": "keep", "at": 1760000000000, "origin": "auto"},
+                                                                    "p2": {"verdict": "keep", "at": 1760000000000}})
+
     def test_parse_verdict_odd_at_is_none(self):
         """at が大きすぎる・無限・NaN・0 以下・数でない = 時刻なし(前は大きすぎる at で OSError / OverflowError になり、送り返し\\ に残り続けた。9e-1)"""
         for raw in ('1e15', '1000000000000000', 'Infinity', '-Infinity', 'NaN', '0', '-5', '"5"', 'true', 'null'):
@@ -194,6 +207,24 @@ class TestRoundTrip(Base):
         self.assertEqual(self.scan()[0]["state"], "accepted")
         run = R.iter_requests(self.app)[0]["runs"][0]
         self.assertEqual((run["runId"], run["manifest"]["schema"], run["result"]["state"]), ("r9", outbox.SCHEMA, "done"))
+        self.assertEqual(R.requested_videos(self.app), {}, "封筒に配信の id が無い実行は数えない")
+
+    def test_requested_videos(self):
+        """D-SEND 2-9: 友人の PC で処理した依頼の配信(送り返しの run.json の封筒 input.videoId)-> {配信: 受け取った時刻(秒)}"""
+        work = os.path.join(self.tmp, "case", "作業用")
+        os.makedirs(os.path.join(work, "runs"))
+        from flow import runlog
+        rp = os.path.join(work, "runs", "r8.json")
+        with open(rp, "w", encoding="utf-8") as f:
+            json.dump({"schema": runlog.RESULT_SCHEMA, "id": "r8", "envelope": {"requestId": RID, "input": {"videoId": "abcdefghijk"}},
+                       "state": "done", "outputs": {}, "packs": []}, f)
+        z = outbox.build(rp, self.app, now=1760000000)
+        dst = os.path.join(self.inbox, os.path.basename(z))
+        shutil.copy(z, dst)
+        os.utime(dst, (time.time() - 600,) * 2)
+        self.scan()
+        self.assertEqual(R.requested_videos(self.app), {"abcdefghijk": 1760000000.0})
+        self.assertEqual(R.requested_videos(os.path.join(self.tmp, "無い")), {})
 
     def test_no_folder_is_quiet(self):
         shutil.rmtree(self.inbox)

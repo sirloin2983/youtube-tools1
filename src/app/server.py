@@ -15,8 +15,9 @@
                                           要らない = ごみ箱フォルダへ(src/manage/cases/cases.py の auto_review。deliver の応答の job は api/ytt/deliver の status で聞き直す)
   GET  /api/autorun                       まとめて実行の状態(src/home/autorun.py)。runs = この起動の実行・past = 配信・文書ごとの前回の結果(記録のファイルから)
   GET  /api/autorun/history?limit=&offset=  終わった実行の記録(<作業データ>/app/logs/autorun-runs.jsonl と .1。新しい順。limit は既定 50・最大 200)
-  POST /api/autorun/start                 {id, mode: full|adopted|transcribe, top?, streamer?, marks?, overwrite?} 配信1本ぶんを順に自動で(marks: そのマークだけ・overwrite: パックがあれば作り直す)
-  POST /api/autorun/estimate              {id, mode, marks?, top?, overwrite?} か {ids, overwrite?} 実行と同じ規則の見積もり(段ごとの本数と飛ばす理由。書き込まない)
+  POST /api/autorun/start                 {id, mode: full|adopted|transcribe, top?, streamer?, marks?, overwrite?, autoSend?} 配信1本ぶんを順に自動で(marks: そのマークだけ・overwrite: パックがあれば作り直す・
+                                          autoSend: 友人へ自動で送る。無ければ mode full のときだけオン。D-SEND)
+  POST /api/autorun/estimate              {id, mode, marks?, top?, overwrite?, autoSend?} か {ids, overwrite?} 実行と同じ規則の見積もり(段ごとの本数と飛ばす理由。書き込まない)
   POST /api/autorun/cancel                {runId}
   POST /api/autorun/start-docs            {ids: [文書の id], overwrite?} 「編集」の履歴で選んだ文書を、行が無ければ文字起こし → パック(12 ⑦(b))
   POST /api/flow/submit                   {envelope, spec?} ② の口(RS7-1 S4): 封筒(src/flow/envelope.py)+ 束(src/flow/spec.py)を待ち行列に積む → {run}。
@@ -52,7 +53,7 @@
   POST /api/check/answer                  {card, answer, ms?, skip?} カードに答える(カードはサーバーが引き直す。反映は src/human/check/apply.py に登録した部品)
                                           → {ok, answer, card, applied, held, flushed, next} / {undo: 答えの id} Z で戻す → {ok, answer, card, reverted}
   POST /api/check/skip                    {card} 今日の間だけ後ろへ(保留を先に確定)・POST /api/check/flush {} 保留(1 枚遅れの [送る])を確定(画面を離れたとき)
-  POST /api/autorun/start-new             {items: [{id, title, channel}], top?, streamer?} スタジオの ① 探す で選んだ配信を「解析から全部」で
+  POST /api/autorun/start-new             {items: [{id, title, channel}], top?, streamer?, autoSend?} スタジオの ① 探す で選んだ配信を「解析から全部」で(autoSend の既定はオン)
   GET  /api/status                        {"app", "version", "tools": [...], "dataDir"}(ツールごとの状態・作業データの置き場所)
   GET  /api/health[?refresh=1]            「調子」(段9 9-1。src/manage/ops/health.py): 版の期待と実際・認識ワーカー・ffmpeg/ffprobe/yt-dlp・空き容量・作業データの大きさ・エラーの件数
   GET  /api/cleanup                       片付けの候補(段9 9-2。src/manage/keep/cleanup.py)。POST /api/cleanup {ids} で候補に出した物だけをごみ箱フォルダへ移す(TRASH_DAYS 日で起動時に消える)
@@ -963,19 +964,22 @@ class PortalHandler(BaseHTTPRequestHandler):
     def _post_autorun(self, path, body):
         """まとめて実行(配信1本ぶん・選んだ文書を順に自動で)。/api/autorun/<start|cancel|start-docs|start-new|estimate>"""
         op, overwrite = path.rsplit("/", 1)[1], body.get("overwrite") is True
+        # 友人へ自動で送る(D-SEND): 本文の autoSend(true・false)。無ければ既定(mode full ならオン = autorun の _send_plan)。文書単位(start-docs)は送らない
+        auto_send = body.get("autoSend") if isinstance(body.get("autoSend"), bool) else None
         try:
             ar = self.server.autorun
-            if op == "estimate":   # 見積もり(書き込まない。段4): {ids, overwrite} か {id, mode, marks, top, overwrite}
+            if op == "estimate":   # 見積もり(書き込まない。段4): {ids, overwrite} か {id, mode, marks, top, overwrite, autoSend?}
                 if isinstance(body.get("ids"), list):
                     return self._json(200, ar.estimate(doc_ids=body["ids"], overwrite=overwrite))
-                return self._json(200, ar.estimate(body.get("id"), body.get("mode"), body.get("marks"), body.get("top"), overwrite=overwrite))
+                deliver = body.get("mode") == "full" and auto_send is not False and bool(ar.send_folder())   # 届ける段の行(受付のフォルダが決まっているときだけ)
+                return self._json(200, ar.estimate(body.get("id"), body.get("mode"), body.get("marks"), body.get("top"), overwrite=overwrite, deliver=deliver))
             if op == "start-new":   # ① 探す で選んだ配信(git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 5)
-                return self._json(200, ar.start_new(body.get("items"), body.get("top"), body.get("streamer")))
+                return self._json(200, ar.start_new(body.get("items"), body.get("top"), body.get("streamer"), auto_send=auto_send))
             if op == "start-docs":
                 return self._json(200, ar.start_docs(body.get("ids"), overwrite, body.get("streamer")))
             if op == "start":
                 return self._json(200, {"run": ar.start(body.get("id"), body.get("mode"), body.get("top"), body.get("streamer"), body.get("marks"),
-                                                        overwrite=overwrite)})
+                                                        overwrite=overwrite, auto_send=auto_send)})
             return self._json(200, {"run": ar.cancel(body.get("runId"))})
         except ValueError as e:
             return self._fail(400, "bad_request", str(e))
@@ -1141,7 +1145,8 @@ class PortalServer(httpsec.ExclusiveServer):
                                         feedback=lambda fb: friend_feedback_mod.apply(sup.logs_dir, fb, trash=self.cleanup, log=sup.log,
                                                                                       discard=cases_mod.discard_clip),   # 片付ける部品は入口が渡す(friend_feedback は cases を読まない)
                                         live_begin=lambda url, ctx: self.live.submit_request(url, ctx),   # ライブ配信の依頼(2-15。封筒 + 束でライブ係の submit へ = RS7-2 G2b。live は下で作る)
-                                        defaults=prefs_mod.DEFAULTS["intake"])   # 設定が読めないときの既定は入口が渡す(intake は prefs を読まない)
+                                        defaults=prefs_mod.DEFAULTS["intake"],   # 設定が読めないときの既定は入口が渡す(intake は prefs を読まない)
+                                        flush=self.flush_sends)   # 見回りの終わりに、届けられなかった自動の分を送り直す(D-SEND 2-6)
         # 作業データのバックアップ(見張りは main で start。inplace = テストなどでは写さない)
         self.backup = backup_mod.Backup(self.prefs, datadir.data_root(), app_dir, log=sup.log, defaults=prefs_mod.DEFAULTS["backup"],
                                      out_dir=lambda: datadir.studio_out_dir(sup.root), media_dirs=backup_mod.default_media_dirs)   # 評価用・学習用の動画も(10-14)
@@ -1428,8 +1433,18 @@ class PortalServer(httpsec.ExclusiveServer):
                 self._autorun.attach_board(self.board)   # ② の Run を掲示板へ(引く形・頭 run。取り消し・やり直しも。RS8 の ② の口 S3)
                 self._autorun.learning = self.learning   # 学習の束の版を束の post.learning.version に(F1 F6a)
                 self._autorun.set_finished_hook(self.after_run)   # 画面なしの送り返しの zip(F1 F6a)
+                self._autorun.requested_hook = self.intake.requested_at   # 友人が依頼済みの配信は自動で送らない(受付の覚え。D-SEND 2-9)
                 prio_mod.watch(self._autorun)   # 後回しの仕事(評価用の一括など)は、まとめて実行と録画が無いときだけ重い処理の枠を取る(PRIO)
             return self._autorun
+
+    def flush_sends(self):
+        """届けられなかった自動の分を送り直す(受付の見回りの終わり = Intake の flush。D-SEND 2-6)。画面なしでは届けない。-> 届けた本数"""
+        if self.headless:
+            return 0
+        ar = self.autorun
+        if not ar.pools():
+            return 0
+        return ar.flush_pools(lambda meta: False)   # ライブの組の溜めは録画が終わったかを live の見回りが決める(ここでは古すぎる物だけ)
 
     def wire_learning(self):
         """machine の learningDir があれば、入口の文字起こし(編集のジョブ = human/proof/doc_jobs)も学習データを flow/learning で読む(F1 F6a。

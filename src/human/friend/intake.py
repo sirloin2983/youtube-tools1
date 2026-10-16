@@ -91,6 +91,35 @@ def out_dir_of(folder):
     return os.path.join(folder, OUT_DIR) if folder else None
 
 
+SETTINGS_DIR, DELIVERY_PREFS = "設定", "届け方.json"   # 友人のアプリが置く「届け方」(D-SEND 2-4。受付は下のフォルダを依頼として見ない)
+_delivery_prefs = {}   # パス -> (更新時刻, 大きさ, 読んだ値)(変わったときだけ読み直す)
+
+
+def read_delivery_prefs(folder):
+    """友人のアプリの「届け方」<受付のフォルダ>/設定/届け方.json = {"v":1,"deliverBatch":n,"at":…} -> n(1〜10)か None
+    (無い・読めない・形が違う・範囲の外。呼び手はホームの設定 intake.deliverBatch にする)。更新時刻と大きさで覚える"""
+    if not folder or not isinstance(folder, str) or fsio.is_network_path(folder):
+        return None
+    path = os.path.join(folder, SETTINGS_DIR, DELIVERY_PREFS)
+    try:
+        st = os.stat(path)
+    except OSError:
+        _delivery_prefs.pop(path, None)
+        return None
+    got = _delivery_prefs.get(path)
+    if got and got[0] == st.st_mtime and got[1] == st.st_size:
+        return got[2]
+    val = None
+    try:
+        d = fsio.read_json_file(path, 64 * 1024)
+        n = d.get("deliverBatch") if isinstance(d, dict) and d.get("v") == 1 else None
+        val = n if envelope.batch_ok(n) else None
+    except (OSError, ValueError, UnicodeError):
+        val = None
+    _delivery_prefs[path] = (st.st_mtime, st.st_size, val)
+    return val
+
+
 def youtube_id(url):
     """YouTube の配信・動画の URL -> 11 文字の ID(ほかは None)。watch?v= / youtu.be/ / live/ / shorts/ / embed/。
     読み方は ytt/yturl.parse_video_id の strict(素の ID は受けない・/watch は完全一致)"""
@@ -318,16 +347,19 @@ def _streamer(name):
 
 class Intake:
     def __init__(self, prefs, runner, data_dir, log=None, clock=None, probe=None, info=None, interval=INTERVAL, settle=SETTLE,
-                 feedback=None, live_begin=None, defaults=None):
+                 feedback=None, live_begin=None, defaults=None, flush=None):
         """prefs: src/home/prefs.py の Prefs(節 intake)。defaults: 設定が読めないときに使う節の既定(入口が prefs.DEFAULTS["intake"] を渡す。
         prefs を読み込まない = app の部品に依存しない。None = 空 = オフ扱い)。runner: まとめて実行を返す関数(AutoRunner)。data_dir: ホームの作業データ(app)。
         probe・info: 動画・配信を調べる関数(テストで差し替える)。30fps にそろえるのはまとめて実行の段 normalize(opt-human 9a-1)。
         feedback: 友人の「要らない」(friend_feedback.parse の dict)を片付ける関数 -> {"ok", "summary"/"reason"}(入口が friend_feedback.apply を渡す。None = 断る)。
         live_begin(url, ctx): ライブ配信の依頼で録画を始めて結びつける関数 -> {"recorder", "recording", "existing"}(入口が Live.submit_request を渡す。
-        だめなら ValueError か live_export.LiveError。None = ライブ配信の依頼を断る)"""
+        だめなら ValueError か live_export.LiveError。None = ライブ配信の依頼を断る)。
+        flush(): 見回りの終わりに呼ぶ = 届けられなかった自動の分の送り直し(D-SEND 2-6。入口がまとめて実行の flush_pools を渡す。
+        受付のフォルダがあるときだけ・受付がオフでも呼ぶ。None = 呼ばない)"""
         self.prefs, self.runner, self.data_dir = prefs, runner, data_dir
         self.defaults = defaults
         self.feedback = feedback
+        self.flush = flush
         self.live_begin = live_begin
         self.log = log or (lambda msg: None)
         self.clock = clock or time.time
@@ -426,8 +458,31 @@ class Intake:
         """受付のフォルダの 出力\\(友人のアプリの「受け取る」が読む)。フォルダが決まっていなければ None"""
         return out_dir_of(self.folder())
 
+    def requested_at(self, vid):
+        """その配信を友人の依頼で受け付けた時刻(秒)か None(D-SEND 2-9 = 依頼済みの配信は自動で送らない。まとめて実行の届ける段が読む)"""
+        v = self.st["videos"].get(vid) if isinstance(vid, str) and vid else None
+        return v if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0 else None
+
     # ------------------------------------------------------------ 見る
     def scan(self):
+        try:
+            self._scan()
+        finally:
+            self._after_scan()
+
+    def _after_scan(self):
+        """見回りの終わり: 届けられなかった自動の分を送り直す(flush。受付のフォルダがあるときだけ。失敗しても見回りは止めない)"""
+        if self.flush is None:
+            return
+        folder = self.folder()
+        if not folder or fsio.is_network_path(folder) or not os.path.isdir(folder):
+            return
+        try:
+            self.flush()
+        except Exception as e:   # noqa: BLE001  (送り直せなくても次の見回りでまた試す)
+            self.log("依頼の受付: 自動で届ける分の送り直しでエラー: %s %s" % (e.__class__.__name__, str(e)[:160]))
+
+    def _scan(self):
         with self.lock:
             cfg = self._cfg()
             self.last_scan = self.clock()

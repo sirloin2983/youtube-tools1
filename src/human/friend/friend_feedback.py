@@ -1,12 +1,13 @@
 """友人の「要らない」を PC 側に戻す(送るアプリ 2.6.0。notes:docs/spec/friend.md の 2-14。2026-10-08 ユーザー「不採用の場合こちらにフィードバック」)。
 
 アプリは届いたパックを受け取らずに消すとき、受付のフォルダ(Dropbox の 切り抜き依頼\\)の直下に <zip の名前(.zip 抜き)>.feedback.json を置く:
-  {"v": 1, "kind": "feedback", "verdict": "reject", "zip": "<依頼 id>__<題> 1-5.zip", "requestId": "...", "title": "...", "sentAt": "..."}
+  {"v": 1, "kind": "feedback", "verdict": "reject", "zip": "<依頼 id>__<題> 1-5.zip", "requestId": "...", "title": "...", "sentAt": "...", "origin"?: "request"|"auto"}
 入口の受付(src/human/friend/intake.py)がそれを読んで apply を呼ぶ。apply は、届けた記録 logs/deliveries.jsonl(まとめて実行が zip を置くたびに
 record_delivery で 1 行: zip の名前・依頼・配信・入っていたパックとスタジオのマーク)からその zip の中身を引き、M9 の「要らない」と同じ道
 (cases.discard_clip。ただし mark_id は空)で切り抜きの動画・パック・途中のファイルを ごみ箱フォルダ へ(3 日で消える)。
 スタジオのマークは変えない(2026-10-08 ユーザー決定: こちらが友人へ送る基準と友人が実際に採用する基準は別。マークの採用の記録は
-見どころ検出の精度に使うので混ぜない)。不採用の記録は logs/friend_feedback.jsonl に 1 行(配信 id・マーク id・zip・パック。あとで精度の道具が読める)。
+見どころ検出の精度に使うので混ぜない)。不採用の記録は logs/friend_feedback.jsonl に 1 行(配信 id・マーク id・zip・パック・出どころ origin。あとで精度の道具が読める)。
+出どころ origin(D-SEND 2-7)は request か auto: .feedback.json の任意の origin、無ければ届けた記録の出どころ(手で届けるは auto)、それも無ければ null。
 文字起こしは消さない(精度のデータ)。
 """
 import json
@@ -24,6 +25,7 @@ SUFFIX = ".feedback.json"
 # 名前は送り返しの採否 returns.VERDICTS(keep・reject・made_video)と同じ(数え方をそろえる。keep は .feedback.json では送らない)
 VERDICTS = ("reject", "made_video")
 LABELS = {"reject": "要らない", "made_video": "動画にした"}
+ORIGINS = ("request", "auto")   # 届いた物の出どころ(D-SEND 2-7。送り返しの returns.ORIGINS と同じ)
 MAX_BYTES = 64 * 1024
 MAX_SCAN = 4 * 1024 * 1024                # 届けた記録を末尾から読む上限
 NAME_RE = re.compile(r'^[^\\/:*?"<>|\x00-\x1f]{1,200}$')
@@ -75,7 +77,19 @@ def parse(text):
     z = d.get("zip")
     if not isinstance(z, str) or not NAME_RE.match(z) or z in (".", "..") or not z.lower().endswith(".zip"):
         raise ValueError("zip の名前が正しくありません")
-    return {"zip": z, "verdict": d["verdict"], "requestId": str(d.get("requestId") or "")[:64], "title": str(d.get("title") or "")[:200]}
+    out = {"zip": z, "verdict": d["verdict"], "requestId": str(d.get("requestId") or "")[:64], "title": str(d.get("title") or "")[:200]}
+    if d.get("origin") in ORIGINS:   # 届いた物の出どころ(D-SEND 2-7。任意。無い・知らない値は鍵ごと無し)
+        out["origin"] = d["origin"]
+    return out
+
+
+def _origin(fb, row):
+    """記録に残す出どころ(友人に見せる形 request か auto): 友人のアプリが書いた origin → 届けた記録の出どころ(手で届けるは auto)→ 分からなければ None"""
+    if fb.get("origin") in ORIGINS:
+        return fb["origin"]
+    if row:
+        return "request" if deliveries.origin_of(row) == "request" else "auto"
+    return None
 
 
 def apply(log_dir, fb, trash=None, log=None, discard=None):
@@ -108,7 +122,8 @@ def apply(log_dir, fb, trash=None, log=None, discard=None):
             continue
         results.append({"dir": d, "markId": mid, "moved": len(moved), "trash": where})
     rec = {"at": int(time.time() * 1000), "zip": fb["zip"], "verdict": fb["verdict"], "requestId": fb.get("requestId") or row.get("requestId") or "",
-           "title": fb.get("title") or row.get("title") or "", "videoId": row.get("videoId") or "", "runId": row.get("runId") or "", "packs": results}
+           "title": fb.get("title") or row.get("title") or "", "videoId": row.get("videoId") or "", "runId": row.get("runId") or "", "packs": results,
+           "origin": _origin(fb, row)}
     try:
         _append(log_dir, FEEDBACK_LOG, rec)
     except OSError as e:
@@ -126,7 +141,8 @@ def _record_made(log_dir, fb, row, log):
     row = row or {}
     packs = [{"dir": str(p.get("dir") or ""), "markId": str(p.get("markId") or "")} for p in row.get("packs") or [] if isinstance(p, dict)]
     rec = {"at": int(time.time() * 1000), "zip": fb["zip"], "verdict": "made_video", "requestId": fb.get("requestId") or row.get("requestId") or "",
-           "title": fb.get("title") or row.get("title") or "", "videoId": row.get("videoId") or "", "runId": row.get("runId") or "", "packs": packs}
+           "title": fb.get("title") or row.get("title") or "", "videoId": row.get("videoId") or "", "runId": row.get("runId") or "", "packs": packs,
+           "origin": _origin(fb, row)}
     try:
         _append(log_dir, FEEDBACK_LOG, rec)
     except OSError as e:

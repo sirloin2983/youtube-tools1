@@ -131,6 +131,62 @@ class TestState(Base):
         self.assertEqual(self.it.snapshot()["stateLabel"], "見張り中")
 
 
+class TestSend(Base):
+    """D-SEND: 友人のアプリの「届け方」(2-4)・依頼済みの配信の引き方(2-9)・見回りの終わりの送り直し(2-6)"""
+
+    def test_read_delivery_prefs(self):
+        path = os.path.join(self.folder, intake.SETTINGS_DIR, intake.DELIVERY_PREFS)
+        self.assertIsNone(intake.read_delivery_prefs(self.folder), "無い = ホームの設定のまま")
+        os.makedirs(os.path.dirname(path))
+        for body, want in (('{"v":1,"deliverBatch":3,"at":"2026-10-16T21:00:00+09:00"}', 3), ('﻿{"v":1,"deliverBatch":1}', 1),
+                           ('{"v":1,"deliverBatch":11}', None), ('{"v":1,"deliverBatch":0}', None), ('{"v":2,"deliverBatch":3}', None),
+                           ('{"v":1,"deliverBatch":"3"}', None), ('{"v":1,"deliverBatch":true}', None), ("壊れた", None), ('{"v":1,"deliverBatch":10}', 10)):
+            n = getattr(self, "_n", 0) + 1
+            self._n = n
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(body)
+            os.utime(path, (1760000000 + n, 1760000000 + n))   # 書くたびに更新時刻を変える(更新時刻と大きさで覚える)
+            self.assertEqual(intake.read_delivery_prefs(self.folder), want, body)
+        self.assertIsNone(intake.read_delivery_prefs(""))
+        os.unlink(path)
+        self.assertIsNone(intake.read_delivery_prefs(self.folder))
+
+    def test_settings_folder_is_not_a_request(self):
+        """友人のアプリが置く 設定\\届け方.json は依頼として読まない(下のフォルダは見ない)"""
+        os.makedirs(os.path.join(self.folder, intake.SETTINGS_DIR))
+        with open(os.path.join(self.folder, intake.SETTINGS_DIR, intake.DELIVERY_PREFS), "w", encoding="utf-8") as f:
+            f.write('{"v":1,"deliverBatch":3}')
+        self.scan2()
+        self.assertEqual((self.runner.requests, self.runner.files, self.it.snapshot()["requests"]), ([], [], []))
+
+    def test_requested_at(self):
+        self.put("依頼.txt", "https://youtu.be/abcdefghijk 5\n")
+        self.scan2()
+        self.assertEqual(self.it.requested_at("abcdefghijk"), int(self.now))
+        for bad in ("bbbbbbbbbbb", "", None, 3):
+            self.assertIsNone(self.it.requested_at(bad), bad)
+
+    def test_flush_at_end_of_scan(self):
+        """見回りの終わりに flush(受付がオフでも・依頼の処理で例外が出ても)。受付のフォルダが無ければ呼ばない。flush の失敗はログだけ"""
+        calls, logs = [], []
+        self.it.flush, self.it.log = lambda: calls.append(1), logs.append
+        self.it.scan()
+        self.assertEqual(len(calls), 1)
+        self.prefs.patch("intake", {"enabled": False})
+        self.it.scan()
+        self.assertEqual(len(calls), 2, "オフでも送り直す(自動で送るのは受付のフォルダがあれば効く = 2-10)")
+        self.prefs.patch("intake", {"enabled": True, "folder": os.path.join(self.tmp, "nai")})
+        self.it.scan()
+        self.assertEqual(len(calls), 2, "フォルダが無ければ呼ばない(Dropbox でない所に作らない)")
+        self.prefs.patch("intake", {"folder": self.folder})
+
+        def boom():
+            raise OSError("x")
+        self.it.flush = boom
+        self.it.scan()
+        self.assertTrue(any("送り直し" in m for m in logs), logs)
+
+
 class TestText(Base):
     def test_txt_urls(self):
         self.put("依頼.txt", "https://youtu.be/abcdefghijk 5\nhttps://example.com/x\n")

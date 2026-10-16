@@ -113,6 +113,22 @@ class TestApply(Base):
         self.assertEqual([(r["verdict"], r["videoId"]) for r in recs], [("made_video", "VID"), ("made_video", "")])
         self.assertEqual(recs[0]["packs"], [{"dir": self.pack1, "markId": "m1"}])
 
+    def test_origin_is_recorded(self):
+        """D-SEND 2-7: 友人の返事の記録に出どころ(request・auto)。.feedback.json の任意の origin → 無ければ届けた記録の出どころ(手で届けるは auto)→ 無ければ null"""
+        self.assertNotIn("origin", self.fb(), "古い形(origin 無し)も読める")
+        z_auto, z_req, z_man = "20261002-120000-0a1b2c__自動.zip", "20261002-120000-0a1b2c__依頼.zip", "20261002-120000-0a1b2c__手.zip"
+        F.record_delivery(self.logs, os.path.join(self.tmp, "出力", z_auto), self.run, [self.pack1], {}, "auto", 1000)
+        F.record_delivery(self.logs, os.path.join(self.tmp, "出力", z_req), self.run, [self.pack1], {})
+        F.record_delivery(self.logs, os.path.join(self.tmp, "出力", z_man), self.run, [self.pack1], {}, "manual")
+        made = lambda z, extra="": F.parse('{"v":1,"kind":"feedback","verdict":"made_video","zip":"%s"%s}' % (z, extra))
+        self.assertEqual(made(z_req, ',"origin":"auto"')["origin"], "auto")
+        self.assertNotIn("origin", made(z_req, ',"origin":"weird"'), "知らない値は鍵ごと無し")
+        for fb in (made(z_auto), made(z_req), made(z_man), made(z_req, ',"origin":"auto"'), made("無い.zip")):
+            F.apply(self.logs, fb, log=self.lines.append)
+        with open(os.path.join(self.logs, F.FEEDBACK_LOG), encoding="utf-8") as f:
+            recs = [json.loads(l) for l in f if l.strip()]
+        self.assertEqual([r["origin"] for r in recs], ["auto", "request", "auto", "auto", None])
+
     def test_no_record_or_no_parts(self):
         res = F.apply(self.logs, self.fb(), trash=self.trash, discard=cases.discard_clip)
         self.assertFalse(res["ok"])

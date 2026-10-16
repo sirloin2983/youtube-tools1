@@ -41,6 +41,11 @@
   ライブの切り抜き(友人のライブ配信の依頼・live.autoDeliver)は 1 本ごとに別の実行なので、実行をまたいで「組の溜め」(run.pool。依頼 × 配信中 / 配信後の追加)に預け、
   n 本たまったら組で届ける。録画が終わって書き出しも実行も残っていなければ、最後に預けてから POOL_IDLE_SEC で残りを届ける(flush_pools。入口の src/home/live.py が見回りで呼ぶ)。
   溜めは logs/deliver-pool.json に残す(起動し直しても続く)。10-09 ユーザー決定 = decisions 3-20
+- 友人へ自動で送る(D-SEND。notes:plan/d-send-requirements.md): 画面の「友人へ自動で送る」(受付の autoSend。既定 = mode full のときだけオン・保存しない)。
+  受付(_send_plan)で、mode full かつ依頼の受付の Dropbox のフォルダが決まっていれば出どころ auto・名前の頭 deliver_tag(友人のアプリの依頼 id の形)を置き、
+  チェックが入っていれば届け先(出力)も置く(段 deliver が付く)。チェックを外した実行も段 deliver を付けて(_ensure_send_step)、
+  そこで「チェックを外したので送りません」と切り抜きごとの notSent を残す(品質のカードに出す = 2-8)。送るかの判定・溜め・送り直しは src/human/friend/delivery.py。
+  まとめて実行の文書単位(start_docs)・full 以外・CLI・/api/flow/submit は届けない
 - 「あとから解析(測るため)」(友人の依頼が区間だけで終わった配信を、手が空いたときに解析する mode post_analyze)は RS4 で消した(入口 0.55.0)。
   代わりは区間だけの依頼の最後の段「解析(あとで)」(flow/run の analyze_later。届けたあとに解析を順番へ入れるだけで待たない。OPT-E2 = 決定 3-49 Q6。
   それまでの測る道具 eval_marks.py --analyze-missing は消した)。
@@ -68,6 +73,8 @@ from flow.runqueue import (ACTIVE_FILE, ACTIVE_VERSION, HISTORY_DEFAULT, HISTORY
                         RESTORE_MAX_AGE, busy_reason as _busy_reason, doc_id_ok as _doc_id_ok)
 from manage.cases import cases  # noqa: E402  (src/manage/cases/cases.py: パックの有無・.clip.json の読み方・スタジオの一覧を案件の画面とそろえる。friend_feedback も先頭で読む = 循環しない)
 from human.friend import delivery as delivery_mod  # noqa: E402  (友人へ届ける段と組の溜め = AutoRunner が継ぐ Delivery。RS3-3 で切り出した)
+from human.friend import deliver as deliver_mod  # noqa: E402  (自動で送る分の名前の頭 = 友人のアプリの依頼 id の形。D-SEND)
+from human.friend import intake as intake_mod  # noqa: E402  (受付のフォルダの読み方の 1 か所。D-SEND の届け先)
 import prefs as prefs_mod  # noqa: E402  (ホームの設定の既定値と範囲。読み書きは渡された Prefs で)
 
 # RANGE_MAX・RANGE_MAX_SEC・RANGE_PAD・pad_range・CUTS・TX_ENGINES・TX_MODEL_RE・WEIGHT_KEYS は src/flow/spec.py へ、
@@ -298,7 +305,8 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
             v = None
         return default if v is None else v
 
-    def start(self, video_id, mode, top=None, streamer=None, marks=None, overwrite=False):
+    def start(self, video_id, mode, top=None, streamer=None, marks=None, overwrite=False, auto_send=None):
+        """auto_send = 友人へ自動で送る(D-SEND。True・False・None = 既定 = mode full ならオン)。full 以外では使わない"""
         if not isinstance(video_id, str) or not (1 <= len(video_id) <= 64) or not all(c.isalnum() or c in "-_" for c in video_id):
             raise ValueError("配信の指定が正しくありません")
         if mode not in MODES:
@@ -309,13 +317,44 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
         if mk and mode == "full":
             raise ValueError("マークを選んだまとめて実行は「採用後を全部」「文字起こしまで」だけです")
         self._push_accepted(lambda r: r.video_id == video_id, "この配信は", None)   # 先に断る物を断る(束を組む前)
-        run = Run(video_id, "", mode, top, streamer=who, marks=mk, overwrite=overwrite, on_fail=self._pref("onFail", "next"))
+        run = Run(video_id, "", mode, top, streamer=who, marks=mk, overwrite=overwrite, on_fail=self._pref("onFail", "next"),
+                  **self._send_plan(mode, auto_send))
         self._accept(run)   # 束は受けたときに組む(RS7-1 S4)
         return self._push_accepted(lambda r: r.video_id == video_id, "この配信は", run)
 
-    def start_new(self, items, top=None, streamer=None):
+    def send_folder(self):
+        """友人へ自動で送る届け先の元 = 依頼の受付の Dropbox のフォルダ(ホームの設定 intake.folder。読み方は受付と同じ 1 か所)。決まっていなければ空の文字"""
+        return intake_mod.configured_folder(self.prefs, prefs_mod.DEFAULTS["intake"]) if self.prefs else ""
+
+    def _send_plan(self, mode, auto_send):
+        """受付で決める、友人へ自動で送る形(D-SEND)-> Run の欄 {deliver_dir, deliver_origin, deliver_tag}(送らない形なら {})。
+        mode full で、依頼の受付のフォルダが決まっているときだけ(2-10)。auto_send: None = 既定 = オン。False = チェックを外した = 届け先なし
+        (段 deliver は _ensure_send_step が付け、そこで「チェックを外したので送りません」)。名前の頭は友人のアプリの依頼 id の形(_deliver_name)"""
+        if mode != "full":
+            return {}
+        folder = self.send_folder()
+        if not folder:
+            return {}
+        plan = {"deliver_origin": "auto", "deliver_tag": deliver_mod.request_id(self.clock())}
+        if auto_send is not False:
+            plan["deliver_dir"] = intake_mod.out_dir_of(folder)
+        return plan
+
+    @staticmethod
+    def _ensure_send_step(run):
+        """自動で送る形の full の実行(出どころ auto)に段 deliver が無ければ末尾に足す(チェックを外した実行 = 届け先なし。Run は届け先があるときだけ段を足す)。
+        待ちの記録から戻したときも(段の並びは Run が作り直すので、ここで足し直す。もう一度決めても同じ答え・同じ印)"""
+        if run.mode == "full" and run.deliver_origin == "auto" and not any(s["key"] == "deliver" for s in run.steps):
+            run.steps.append({"key": "deliver", "label": STEP_LABELS["deliver"], "state": "wait", "detail": ""})
+
+    def _execute(self, run):
+        self._ensure_send_step(run)
+        return super()._execute(run)
+
+    def start_new(self, items, top=None, streamer=None, auto_send=None):
         """スタジオの ① 探す で選んだ配信を「解析から全部」で(git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 5)。まだスタジオに無い配信でもよい。
         items = [{"id": YouTube の配信 ID, "title", "channel"}]。配信ごとに1つの実行。すでに実行中・順番待ちの配信は飛ばす。
+        auto_send = 友人へ自動で送る(D-SEND。None = 既定 = オン)。
         -> {"runs": [作った実行], "skipped": [{"id", "title", "reason"}]}"""
         if not isinstance(items, list) or not items or len(items) > MAX_NEW:
             raise ValueError("配信は 1〜%d 本で選んでください" % MAX_NEW)
@@ -332,7 +371,8 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
             why = _busy_reason(active, lambda r: r.video_id == vid)   # 同じ要求の中の重なりも(作った実行は active に入る)
             if why:
                 return {"id": vid, "title": title, "reason": why}
-            run = Run(vid, title or vid, "full", top, streamer=who, fresh={"title": title, "channel": channel}, on_fail=self._pref("onFail", "next"))
+            run = Run(vid, title or vid, "full", top, streamer=who, fresh={"title": title, "channel": channel}, on_fail=self._pref("onFail", "next"),
+                      **self._send_plan("full", auto_send))
             self._accept(run, base=base, studio=studio)
             return run
         return self._enqueue(items, make)
@@ -530,6 +570,7 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
             self._accept_streamer(run, studio)
         if run.deliver_batch is None and (run.deliver_dir or run.pool):
             run.deliver_batch = self._batch_size(run)
+        self._ensure_send_step(run)   # チェックを外した自動で送る形の full にも段 deliver(D-SEND)
 
     def _accept_streamer(self, run, studio=None):
         """受付で配信者を決める(_auto_streamer と同じ規則 = prefs.guess_streamer)。実行中と同じ答えになるときだけ決める:
@@ -574,9 +615,17 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
         lo, hi, _label = prefs_mod.INTAKE_RANGES["deliverBatch"]
         return prefs_mod.DEFAULTS["intake"]["deliverBatch"], lo, hi
 
-    def _remember_delivered(self, clip_path, zip_name):
-        """Delivery が届けたライブの自動の切り抜きを、案件の一覧に「届けた」と残す(二重に届けない。cases.remember_delivered)"""
+    def _remember_delivered(self, clip_path, zip_name, video_id=None, mark_id=None):
+        """Delivery が届けたライブの自動の切り抜きを、案件の一覧に「届けた」と残す(二重に届けない。cases.remember_delivered)。
+        まとめて実行の自動で送った分(video_id・mark_id。D-SEND)は案件の auto[マーク] に「まとめて実行」の印と「届けた」(cases.remember_auto)"""
+        if video_id and mark_id:
+            cases.remember_auto(self.root, video_id, mark_id, self.env, delivered=zip_name)
+            return
         cases.remember_delivered(self.root, clip_path, zip_name, self.env)
+
+    def _remember_not_sent(self, video_id, mark_id, code, text):
+        """Delivery が送らなかったまとめて実行の切り抜きを案件に残す(auto[マーク].notSent = {code, text, at}。案件の札・品質のカード。D-SEND)"""
+        cases.remember_auto(self.root, video_id, mark_id, self.env, not_sent={"code": code, "text": text})
 
     def _remember_doc_streamer(self, tid, name):
         """依頼で選んだ配信者を、この文書の配信者として覚える(パックのときの字幕の色。段5 の記憶と同じ)。-> 覚えたか"""

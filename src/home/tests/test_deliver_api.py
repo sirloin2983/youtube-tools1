@@ -62,5 +62,83 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(code, 404)
 
 
+class AutoSendApiTest(unittest.TestCase):
+    """D-SEND: /api/autorun/<start|start-new|estimate> の autoSend の受け渡し(既定 = 無ければ None = autorun が mode full ならオン)と、
+    受付の見回りの終わりの送り直し(PortalServer.flush_sends)"""
+
+    def setUp(self):
+        from app import server
+        import types
+        calls = self.calls = []
+
+        class AR:
+            folder = "D:/Dropbox/切り抜き依頼"
+
+            def send_folder(self):
+                return self.folder
+
+            def start(self, *a, **k):
+                calls.append(("start", a, k))
+                return {"id": "r1"}
+
+            def start_new(self, *a, **k):
+                calls.append(("start_new", a, k))
+                return {"runs": [], "skipped": []}
+
+            def start_docs(self, *a, **k):
+                calls.append(("start_docs", a, k))
+                return {"runs": [], "skipped": []}
+
+            def estimate(self, *a, **k):
+                calls.append(("estimate", a, k))
+                return {"steps": []}
+
+            def pools(self):
+                return {"k": {}}
+
+            def flush_pools(self, is_done):
+                calls.append(("flush", is_done({})))
+                return 2
+        self.ar = AR()
+
+        class H:
+            _post_autorun = server.PortalHandler._post_autorun
+
+            def _json(self, code, obj):
+                self.out = (code, obj)
+
+            def _fail(self, code, err, msg):
+                self.out = (code, {"error": err, "message": msg})
+        self.h = H()
+        self.h.server = types.SimpleNamespace(autorun=self.ar)
+        self.server = server
+
+    def post(self, op, body):
+        self.h._post_autorun("/api/autorun/" + op, body)
+        return self.calls[-1]
+
+    def test_auto_send_passes_through(self):
+        self.assertIsNone(self.post("start", {"id": "abcdefghijk", "mode": "full"})[2]["auto_send"])   # 無ければ既定(autorun が決める)
+        self.assertIs(self.post("start", {"id": "abcdefghijk", "mode": "full", "autoSend": False})[2]["auto_send"], False)
+        self.assertIsNone(self.post("start", {"id": "abcdefghijk", "mode": "full", "autoSend": "yes"})[2]["auto_send"], "bool でない値は無視")
+        self.assertIs(self.post("start-new", {"items": [], "autoSend": True})[2]["auto_send"], True)
+        self.assertNotIn("auto_send", self.post("start-docs", {"ids": ["x"], "autoSend": True})[2], "文書単位は送らない")
+
+    def test_estimate_deliver(self):
+        self.assertIs(self.post("estimate", {"id": "abcdefghijk", "mode": "full"})[2]["deliver"], True)
+        self.assertIs(self.post("estimate", {"id": "abcdefghijk", "mode": "full", "autoSend": False})[2]["deliver"], False)
+        self.assertIs(self.post("estimate", {"id": "abcdefghijk", "mode": "adopted", "autoSend": True})[2]["deliver"], False)
+        self.ar.folder = ""
+        self.assertIs(self.post("estimate", {"id": "abcdefghijk", "mode": "full"})[2]["deliver"], False, "受付のフォルダが無ければ届けない")
+
+    def test_flush_sends(self):
+        import types
+        srv = types.SimpleNamespace(headless=False, autorun=self.ar)
+        self.assertEqual(self.server.PortalServer.flush_sends(srv), 2)
+        self.assertEqual(self.calls[-1], ("flush", False), "ライブの組は録画が終わったかを live の見回りが決める")
+        srv.headless = True
+        self.assertEqual(self.server.PortalServer.flush_sends(srv), 0, "画面なし(友人の PC)では届けない")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -664,7 +664,7 @@
       if (mode.value === 'full') body.top = Math.round(Number(top.value) || 3);
       body.autoSend = mode.value === 'full' && send.checked;   // 友人へ自動で送る(full だけ。それ以外は false = 届けない)
       var chk = UIKit.streamer.check(who);
-      var estBody = { id: c.id, mode: body.mode, top: body.top, overwrite: body.overwrite };
+      var estBody = { id: c.id, mode: body.mode, top: body.top, overwrite: body.overwrite, autoSend: body.autoSend };   // 届けるかで見積もりの段が変わる(D-SEND)
       chk.then(function (name) {
         if (name === null) return null;   // 見つからない名前で「やめる」を選んだ
         body.streamer = name;   // 欄の名前(空 = 色なし。欄は自動で入るので、空は「色なし」の意味)

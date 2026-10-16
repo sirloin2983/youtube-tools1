@@ -136,11 +136,15 @@ class SourcesTest(unittest.TestCase):
             {"markId": "a3", "auto": {}, "review": {"pending": True}, "transcript": {"id": DOC}},
             {"markId": "a4", "auto": {}, "review": {}, "transcript": {"id": EVAL_DOC}},
             {"markId": "a5", "auto": None, "review": {}, "transcript": {"id": DOC}},
-            {"markId": "a6", "auto": {}, "review": {}, "exists": False, "transcript": {"id": DOC}}]}], "virtual": []}   # 要らないでごみ箱へ
+            {"markId": "a6", "auto": {}, "review": {}, "exists": False, "transcript": {"id": DOC}},   # 要らないでごみ箱へ
+            # まとめて実行の自動で送る形で送らなかった物(D-SEND。案件の auto[マーク].origin full → clip.auto)も出す(2-8)
+            {"markId": "a7", "auto": {"origin": "full", "originLabel": "まとめて実行", "score": None}, "review": {"notSent": {"code": "stale"}},
+             "transcript": {"id": DOC}}]}], "virtual": []}
         view = sources.View(self.ctx)
         view._cases = snap
         got = sources.value_auto(view)
-        self.assertEqual([c["id"] for c in got], ["value:auto:%s#a1" % VID, "value:auto:%s#a2" % VID])
+        self.assertEqual([c["id"] for c in got], ["value:auto:%s#a1" % VID, "value:auto:%s#a2" % VID, "value:auto:%s#a7" % VID])
+        self.assertEqual(got[2]["note"], "まとめて実行")
         self.assertEqual((got[0]["target"]["markId"], got[0]["options"], got[0]["note"]), ("a1", ["good", "bad"], "配信中の候補"))
         self.assertEqual([r["id"] for r in got[0]["reasons"]], ["boring", "long", "short", "edge", "subtitle", "audio", "other_person"])
 

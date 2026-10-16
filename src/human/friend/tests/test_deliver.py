@@ -88,6 +88,69 @@ class ZipPackTest(unittest.TestCase):
         self.assertRegex(deliver.request_id(), r"^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$")
 
 
+class OriginTest(unittest.TestCase):
+    """D-SEND 2-7: 出どころ。1 本(組でない)で依頼でなければ zip より先に <zip の名前>.meta.json。依頼・組の中の 1 本には置かない。届けた記録に origin・endedAt"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="ytt-deliver-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.pack = os.path.join(self.tmp, "clip_pack")
+        put(os.path.join(self.pack, "clip.mp4"), b"v")
+        self.out = os.path.join(self.tmp, "Dropbox", deliver.OUT_DIR)
+        self.logs = os.path.join(self.tmp, "logs")
+        p = mock.patch.object(deliver, "batch_preview", lambda dirs, check=None, log=None: None)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def run_(self, rid="rid"):
+        import types
+        return types.SimpleNamespace(request_id=rid, id="run1", video_id="abcdefghijk", title="題")
+
+    def test_face_origin(self):
+        self.assertEqual([deliver.face_origin(o) for o in ("request", None, "", "auto", "manual")], ["request"] * 3 + ["auto"] * 2)
+        self.assertEqual(deliver.META_SUFFIX, ".meta.json")
+
+    def test_auto_one_places_meta_before_zip(self):
+        seen = []
+        real = deliver.zip_packs
+
+        def zip_packs(*a, **k):   # zip を置く時点で、印はもう隣にある(友人のアプリは zip が見えたらそろっているとみなす)
+            seen.append(sorted(os.listdir(self.out)))
+            return real(*a, **k)
+        with mock.patch.object(deliver, "zip_packs", zip_packs):
+            dest = deliver.deliver_one(self.pack, self.out, "20261016-120000-abcdef__題", log_dir=self.logs, run=self.run_(), origin="auto", ended_at=1000)
+        meta = deliver.meta_path_for(dest)
+        self.assertEqual(seen, [[os.path.basename(meta)]])
+        with open(meta, "rb") as f:
+            raw = f.read()
+        self.assertFalse(raw.startswith(b"\xef\xbb\xbf"))
+        doc = json.loads(raw.decode("utf-8"))
+        self.assertEqual((doc["v"], doc["origin"]), (1, "auto"))
+        self.assertRegex(doc["sentAt"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d$")
+        from flow import deliveries
+        row = deliveries.rows(self.logs)[-1]
+        self.assertEqual((row["origin"], row["endedAt"], row["zip"]), ("auto", 1000000, os.path.basename(dest)))
+
+    def test_request_and_group_member_have_no_meta(self):
+        dest = deliver.deliver_one(self.pack, self.out, "rid__依頼", origin="request")
+        dest2 = deliver.deliver_one(self.pack, self.out, "rid__組の 1 本", origin="auto", with_preview=False)
+        self.assertEqual(sorted(os.listdir(self.out)), sorted([os.path.basename(dest), os.path.basename(dest2)]))
+
+    def test_failure_removes_meta(self):
+        with mock.patch.object(deliver, "zip_packs", side_effect=OSError(28, "no space")):
+            with self.assertRaises(OSError):
+                deliver.deliver_one(self.pack, self.out, "rid__題", origin="auto")
+        self.assertEqual(os.listdir(self.out), [], "書きかけの印を残さない")
+
+    def test_group_json_origin(self):
+        os.makedirs(self.out)
+        p = os.path.join(self.out, "g.group.json")
+        self.assertEqual(deliver.write_group_json(p, "t", "1-2", None, [], origin="auto")["origin"], "auto")
+        with open(p, encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["origin"], "auto")
+        self.assertNotIn("origin", deliver.write_group_json(p, "t", "1-2", None, []), "渡さなければ古い形のまま")
+
+
 class ZipPacksTest(unittest.TestCase):
     """n 本をまとめる zip(① 全自動の n 本ごとの届け方)とパックの中の動画の見つけ方"""
 
@@ -385,7 +448,8 @@ class DeliveriesTest(unittest.TestCase):
         j = wait(self.dl, self.dl.start(self.pack, "【雑談】校正済み/1"))
         self.assertEqual(j["state"], "done")
         self.assertRegex(j["name"], r"^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}__【雑談】校正済み_1\.zip$")
-        self.assertEqual(os.listdir(os.path.join(self.folder, deliver.OUT_DIR)), [j["name"]])
+        # 手で届けるも出どころの印 <zip の名前>.meta.json(友人には「依頼なし」= origin auto。D-SEND 2-7・2-8)
+        self.assertEqual(sorted(os.listdir(os.path.join(self.folder, deliver.OUT_DIR))), sorted([j["name"], j["name"][:-4] + deliver.META_SUFFIX]))
         self.assertTrue(self.logs)
 
     def test_same_as_auto_preview_zip_and_record(self):
@@ -401,10 +465,13 @@ class DeliveriesTest(unittest.TestCase):
             j = wait(self.dl, self.dl.start(self.pack, "題", clip={"path": clip, "markId": "m1", "videoId": "abcdefghijk"}))
         self.assertEqual(j["state"], "done")
         out = os.path.join(self.folder, deliver.OUT_DIR)
-        self.assertEqual(sorted(os.listdir(out)), sorted([j["name"], j["name"][:-4] + deliver.PREVIEW_SUFFIX]))
+        self.assertEqual(sorted(os.listdir(out)), sorted([j["name"], j["name"][:-4] + deliver.PREVIEW_SUFFIX, j["name"][:-4] + deliver.META_SUFFIX]))
         self.assertFalse(os.path.exists(tmp_preview), "一時のまとめ動画は消す")
+        with open(os.path.join(out, j["name"][:-4] + deliver.META_SUFFIX), "rb") as f:
+            meta = json.loads(f.read().decode("utf-8"))
+        self.assertEqual((meta["v"], meta["origin"]), (1, "auto"))
         row = friend_feedback.find_delivery(self.log_dir, j["name"])
-        self.assertEqual((row["requestId"], row["videoId"], row["title"]), (j["name"].split("__")[0], "abcdefghijk", "題"))
+        self.assertEqual((row["requestId"], row["videoId"], row["title"], row["origin"]), (j["name"].split("__")[0], "abcdefghijk", "題", "manual"))
         self.assertEqual(row["packs"], [{"dir": os.path.normpath(self.pack), "path": clip, "markId": "m1"}])
         j2 = wait(self.dl, self.dl.start(self.pack, ""))   # 切り抜きが分からなければパックだけ
         self.assertEqual(friend_feedback.find_delivery(self.log_dir, j2["name"])["packs"], [{"dir": os.path.normpath(self.pack), "path": "", "markId": ""}])

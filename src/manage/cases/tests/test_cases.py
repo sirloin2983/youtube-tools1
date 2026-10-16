@@ -106,6 +106,30 @@ class TestBuild(Base):
         self.assertEqual(cases.snapshot(self.root, self.env)["cases"], [])
 
 
+class TestFullAuto(Base):
+    """D-SEND: まとめて実行の自動で送る形(remember_auto)= 案件の auto[マーク].origin "full"。ライブでなくても clip["auto"](品質のカードの対象)・
+    notSent は届けていない間だけ review に出る・未確認に数えない・手で届けると notSent は消える"""
+
+    def test_remember_auto_and_build(self):
+        self.studio({VID: {"kind": "youtube", "title": "配信A", "marks": [mark("m1", "exported", self.clip1, label="一"), mark("m2", "exported", self.clip2, 50, 80),
+                                                                         mark("m3", "exported", self.clip2, 90, 99)]}})
+        r = cases.remember_auto(self.root, VID, "m1", self.env, not_sent={"code": "stale", "text": "古い配信なので送りません(終わってから 50 時間)"})
+        self.assertEqual((r["origin"], r["notSent"]["code"], "seenAt" in r), ("full", "stale", False))
+        cases.remember_auto(self.root, VID, "m2", self.env, delivered="t__z.zip")
+        c = cases.snapshot(self.root, self.env)["cases"][0]
+        m1, m2, m3 = c["clips"]
+        self.assertEqual((m1["auto"]["origin"], m1["auto"]["originLabel"], m1["review"]["notSent"]["text"], m1["review"]["unconfirmed"]),
+                         ("full", "まとめて実行", "古い配信なので送りません(終わってから 50 時間)", False))
+        self.assertEqual((m2["auto"]["origin"], m2["review"]["delivered"], "notSent" in m2["review"]), ("full", "t__z.zip", False))
+        self.assertIsNone(m3["auto"], "印の無い切り抜きは今までどおり人の切り抜き")
+        self.assertEqual(c["autoClips"], {"total": 2, "unconfirmed": 0})
+        cases.remember_auto(self.root, VID, "m1", self.env, delivered="t__手.zip")   # 手で届けた = 送らなかった理由は消える
+        self.assertNotIn("notSent", cases.snapshot(self.root, self.env)["cases"][0]["clips"][0]["review"])
+        for bad in (("../x", "m1"), (VID, "../m"), (VID, None)):
+            with self.assertRaises(ValueError):
+                cases.remember_auto(self.root, bad[0], bad[1], self.env, delivered="z")
+
+
 class TestCaseFile(Base):
     def test_snapshot_reads_case_json_but_never_writes(self):
         from flow import placement
@@ -590,9 +614,11 @@ class TestAutoClips(Base):
         self.assertEqual(code, 200)
         j = self.wait_delivered(r["job"])
         self.assertEqual(j["state"], "done")
-        zips = os.listdir(os.path.join(self.box, deliver.OUT_DIR))
+        names = os.listdir(os.path.join(self.box, deliver.OUT_DIR))
+        zips = [n for n in names if n.endswith(".zip")]
         self.assertEqual(len(zips), 1)
         self.assertTrue(zips[0].endswith("__10_自動.zip"), zips)
+        self.assertEqual(sorted(names), sorted([zips[0], zips[0][:-4] + deliver.META_SUFFIX]), "手で届けるも出どころの印(友人には「依頼なし」。D-SEND 2-8)")
         m1 = next(cl for cl in self.case()["clips"] if cl["markId"] == "m1")
         self.assertTrue(m1["review"]["deliveredAt"] > 0 and m1["review"]["seenAt"] > 0)
         self.assertEqual((m1["review"]["delivered"], m1["review"]["unconfirmed"]), (zips[0], False))

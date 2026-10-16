@@ -3,7 +3,8 @@
 
 友人の PC のアプリが Dropbox の `/送り返し/` へ上げた物が、ユーザーの PC では同期フォルダ(intake.folder)の `送り返し\\` に届く:
 - `<requestId>__<runId>.zip`            ② が組んだ 1 実行の結果(flow/outbox。動画なし)
-- `<requestId>__<パック名>.verdict.json`  友人の採否 {"verdict": "keep"|"reject"|"made_video", "at": ミリ秒}(アプリが直に書く)
+- `<requestId>__<パック名>.verdict.json`  友人の採否 {"verdict": "keep"|"reject"|"made_video", "at": ミリ秒, "origin"?: "request"|"auto"}
+  (アプリが直に書く。origin は D-SEND 2-7 の出どころ = 任意。並べた verdicts\\ にもそのまま残す)
 受け取ると `app\\friend-returns\\<YYYY-MM>\\<requestId>\\` に並べ(zip は `<runId>\\` へ展開・採否は `verdicts\\` へ)、元は `送り返し\\受付済み\\<日付>\\` へ移す
 (消さない。受付の 受付済み と同じ日付のフォルダ。形が違う・壊れた物・扱えなかった物は `送り返し\\失敗\\` へ理由の .txt つき)。読む道具は今は無い(⑤ の eval_friend は OPT-E1 で消した)。
 zip の中のパスは展開先の中だけ(zip slip を断る。Windows の予約名・: を含む名前も断る)。部品を壊す物・大きすぎる物は zip ごと断る。intake.scan から scan が 1 行で呼ばれる。
@@ -25,6 +26,7 @@ RETURNS_DIR = "friend-returns"      # <app>/friend-returns/<YYYY-MM>/<requestId>
 IN_DIR, DONE_DIR, FAIL_DIR = "送り返し", "受付済み", "失敗"
 VERDICT_SUFFIX = ".verdict.json"
 VERDICTS = ("keep", "reject", "made_video")
+ORIGINS = ("request", "auto")       # 採否の任意の origin(D-SEND 2-7。友人に見せる出どころ = human/friend/deliver.face_origin と同じ 2 つ)
 VERDICT_RE = re.compile(r"^([0-9A-Za-z_-]{1,64})__([^\\/:*?\"<>|\x00-\x1f]{1,120})" + re.escape(VERDICT_SUFFIX) + r"\Z")
 MAX_FILES = 2000                    # zip の中の数
 MAX_TOTAL = 400 * 1024 * 1024       # 展開後の合計(zip 爆弾を断る)
@@ -112,8 +114,9 @@ def extract(zip_path, dest_root):
 
 
 def parse_verdict(raw):
-    """verdict.json の中身(bytes) -> {"verdict", "at"}。形が違えば ValueError(理由)。
-    at は 0 < at < AT_MAX の数(ミリ秒。整数にそろえる)だけ。ほか(無限・NaN・大きすぎ・0 以下・数でない)は None = 受け取った時刻の月に並べる"""
+    """verdict.json の中身(bytes) -> {"verdict", "at", "origin"}。形が違えば ValueError(理由)。
+    at は 0 < at < AT_MAX の数(ミリ秒。整数にそろえる)だけ。ほか(無限・NaN・大きすぎ・0 以下・数でない)は None = 受け取った時刻の月に並べる。
+    origin = 届いた物の出どころ request・auto(D-SEND 2-7。友人のアプリが任意で書く)。無い・知らない値は鍵ごと無し(古い形 = 依頼として読む)"""
     try:
         d = json.loads(raw.decode("utf-8-sig"))
     except (UnicodeDecodeError, ValueError):
@@ -122,7 +125,10 @@ def parse_verdict(raw):
         raise ValueError("verdict は %s のどれかにしてください" % " / ".join(VERDICTS))
     at = d.get("at")
     ok = isinstance(at, (int, float)) and not isinstance(at, bool) and 0 < at < AT_MAX   # NaN・無限は比べると偽
-    return {"verdict": d["verdict"], "at": int(at) if ok else None}
+    out = {"verdict": d["verdict"], "at": int(at) if ok else None}
+    if d.get("origin") in ORIGINS:
+        out["origin"] = d["origin"]
+    return out
 
 
 def _move(folder, name, state, why="", now=None):
@@ -260,9 +266,27 @@ def iter_requests(app_dir):
                         if vn.endswith(VERDICT_SUFFIX):
                             v = fsio.read_json_or(os.path.join(sp, vn), None, kind=dict)
                             if v and v.get("verdict") in VERDICTS:
-                                verdicts[vn[:-len(VERDICT_SUFFIX)]] = {"verdict": v["verdict"], "at": v.get("at")}
+                                verdicts[vn[:-len(VERDICT_SUFFIX)]] = dict({"verdict": v["verdict"], "at": v.get("at")},
+                                                                           **({"origin": v["origin"]} if v.get("origin") in ORIGINS else {}))
                 elif os.path.isdir(sp) and not sub.endswith(".part"):
                     runs.append({"runId": sub, "dir": sp, "manifest": fsio.read_json_or(os.path.join(sp, "manifest.json"), {}, kind=dict),
                                  "result": fsio.read_json_or(os.path.join(sp, "run.json"), {}, kind=dict)})
             out.append({"month": mo, "requestId": rid, "dir": rp, "runs": runs, "verdicts": verdicts})
+    return out
+
+
+def requested_videos(app_dir):
+    """友人の PC で処理した依頼(送り返しの実行の結果 run.json の封筒 input.videoId)-> {配信 id: 受け取った時刻(秒。分からなければ 0)}。
+    D-SEND 2-9(依頼済みの配信は自動で送らない)の 3 つ目の引き方(ユーザーの PC の受付を通らない依頼は、送り返しが届いてから分かる)。読むだけ"""
+    out = {}
+    for req in iter_requests(app_dir):
+        for r in req["runs"]:
+            env = (r.get("result") or {}).get("envelope")
+            inp = env.get("input") if isinstance(env, dict) else None
+            vid = inp.get("videoId") if isinstance(inp, dict) else None
+            if not isinstance(vid, str) or not vid:
+                continue
+            at = (r.get("manifest") or {}).get("at")
+            sec = at / 1000.0 if isinstance(at, (int, float)) and not isinstance(at, bool) and 0 < at < AT_MAX else 0.0
+            out[vid] = max(out.get(vid, 0.0), sec)
     return out

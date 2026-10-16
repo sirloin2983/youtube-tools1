@@ -117,16 +117,16 @@ class CheckApiTest(TL.Base):
         orig = dict(sources._SOURCES)
         sources.register("value", "auto", lambda view: [{"id": "value:auto:abcdefghijk#a1", "kind": "value", "source": "auto", "case": {"id": "abcdefghijk", "title": "t"},
                                                          "target": {"videoId": "abcdefghijk", "markId": "a1", "docId": None, "row": None}, "media": {}, "text": "", "guess": None,
-                                                         "options": ["send", "drop"], "score": 80, "note": "", "_order": [0]}])
+                                                         "options": ["good", "bad"], "score": 80, "note": "", "_order": [0]}])
         self.addCleanup(lambda: (sources._SOURCES.clear(), sources._SOURCES.update(orig), deck.invalidate()))
         deck.invalidate()
-        st, j = self.post("/api/check/answer", {"card": "value:auto:abcdefghijk#a1", "answer": {"choice": "adopt"}})
-        self.assertEqual((st, j["error"]), (400, "bad_request"))
         st, j = self.post("/api/check/answer", {"card": "value:auto:abcdefghijk#a1", "answer": {"choice": "drop"}})
-        self.assertEqual((st, j["held"]), (200, True))   # 要らないも 1 枚遅れ(まとめ役 10-11)
-        st, j = self.post("/api/check/flush", {})
+        self.assertEqual((st, j["error"]), (400, "bad_request"))   # D-SEND: 自動の切り抜きのカードは品質の確認(良い / 悪い)= 送る・要らないは受けない
+        st, j = self.post("/api/check/answer", {"card": "value:auto:abcdefghijk#a1", "answer": {"choice": "bad", "reason": "boring"}})
         self.assertEqual(st, 200)
-        self.assertTrue(j["flushed"][0].get("failed"))   # 一覧に無い切り抜き = 確定の失敗は記録に残す
+        self.assertFalse(j.get("held"))   # 記録だけなので 1 枚遅れにしない(送るかに効かせない = 要件 1-2)
+        st, j = self.post("/api/check/flush", {})
+        self.assertEqual((st, j["flushed"]), (200, []))
 
     def test_not_ready(self):
         sources.register("time", "tst", lambda view: [dict(c, id=c["id"].replace("read:", "time:"), kind="time") for c in fake_cards(view)])

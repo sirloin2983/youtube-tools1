@@ -70,6 +70,7 @@ class FakeRunner:
 
     def submit(self, env, spec=None, accept=False):
         self.accepts.append(accept)
+        self.envs = getattr(self, "envs", []) + [env]
         path, title, flow, streamer, kw = handed(env, spec)
         return self.start_file(path, title, flow, streamer, **kw)
 
@@ -727,6 +728,7 @@ class ExportPiecesTest(unittest.TestCase):
             return j
         j = run("2026-10-04T06:00:00Z", req)
         self.assertEqual(j["request"], {"rid": req["rid"], "deliverDir": deliver, "speakers": req["speakers"], "videoTracks": 2, "cut": "silence"})   # 要るものだけ
+        self.assertEqual(runner.envs[-1]["deliver"]["origin"], "request")   # 出どころ(D-SEND 2-7): 友人の依頼
         self.assertEqual((j["state"], j["runId"], j["handoffError"]), ("done", "run-1", ""))
         self.assertEqual((runner.files[-1][0], runner.files[-1][2], runner.streamers[-1]), (media, "auto", "兎田ぺこら"))
         self.assertEqual(runner.kws[-1], {"cut": "silence", "engine": "whisper.cpp", "model": "large-v3", "request_id": req["rid"], "deliver_dir": deliver,
@@ -742,6 +744,8 @@ class ExportPiecesTest(unittest.TestCase):
             self.assertNotIn("request", j)
             self.assertEqual(runner.kws[-1], auto)
         self.assertEqual(len(runner.files), 5)
+        run("2026-10-04T06:09:00Z", dict(req, autoDeliver=True))   # 自分の配信の自動の切り抜き(live.autoDeliver)= 出どころ auto(友人の札「依頼なし」)
+        self.assertEqual(runner.envs[-1]["deliver"]["origin"], "auto")
         again = LX.Exporter(mock.Mock(), os.path.join(self.tmp, "live"), lambda: os.path.join(self.tmp, "out"))   # 記録に残る
         self.assertEqual([x.get("request", {}).get("rid") for x in again.jobs][:2], [req["rid"], req["rid"]])
 

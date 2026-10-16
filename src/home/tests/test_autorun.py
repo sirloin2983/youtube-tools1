@@ -1196,7 +1196,7 @@ class TestRestartInfo(Base):
         os.makedirs(pack)
         open(os.path.join(pack, "cut-plan.json"), "w").close()
         out = os.path.join(self.tmp, "出力")
-        run = A.Run(VID, "配信", "request_auto", 1, deliver_dir=out)
+        run = A.Run(VID, "配信", "request_auto", 1, deliver_dir=out, request_id="20261001-120000-abc123")   # 依頼(出どころ request = 出どころの印 .meta.json は置かない)
         run.state = "running"
         with self.r.cv:
             self.r.runs.append(run)
@@ -2168,6 +2168,255 @@ class TestToolSettingsFiles(Base):
         self.assertEqual(self.r.build_spec()[0]["pack"]["cut"], "silence")
         self.r.prefs = None
         self.assertEqual(self.r.build_spec()[0]["pack"]["cut"], "none")
+
+
+class TestAutoSend(Base):
+    """D-SEND(notes:plan/d-send-requirements.md): まとめて実行(full)で友人へ自動で送る。届け先は一時フォルダだけ(本物の Dropbox は使わない)"""
+    marks = []
+    analysis = False
+    TAG_RE = r"^\d{8}-\d{6}-[0-9a-f]{6}__"
+
+    def setUp(self):
+        super().setUp()
+        from manage.cases import cases
+        self.cases = cases
+        self.r.close()
+        self.logs = os.path.join(self.tmp, "logs")
+        self.folder = os.path.join(self.tmp, "Dropbox", "切り抜き依頼")
+        os.makedirs(self.folder)
+        self.out = os.path.join(self.folder, "出力")
+        self.prefs = prefs_mod.Prefs(os.path.join(self.tmp, "prefs.json"), fsio.atomic_write)
+        self.prefs.patch("intake", {"folder": self.folder})
+        self.stream = self.info(1)   # 1 時間前に終わった配信(新しい)
+        queue = self.tools.h_studio_GET_api_queue
+
+        def with_stream(path, body):   # 解析が済んだら、配信の始まり・長さ(D-SEND の鮮度)を analysis に
+            st, obj = queue(path, body)
+            if self.tools.video.get("analysis"):
+                self.tools.video["analysis"].update(self.stream)
+            return st, obj
+        self.tools.h_studio_GET_api_queue = with_stream
+        self.msgs = []
+        self.r = self.runner()
+
+    def runner(self):
+        return A.AutoRunner(self.tools, os.path.join(self.tmp, "repo"), self.env, poll=0, sleep=lambda s: None, find_pack=self.cases.find_pack,
+                            prefs=self.prefs, log_dir=self.logs, log=self.msgs.append)
+
+    @staticmethod
+    def info(hours_ago, live="was_live"):
+        return {"liveStatus": live, "releaseTs": int(time.time() - hours_ago * 3600 - 7200), "duration": 7200}
+
+    def go(self, mode="full", auto_send=None, timeout=10):
+        run = self.r.start(VID, mode, 2, auto_send=auto_send)
+        end = time.time() + timeout
+        while time.time() < end:
+            cur = next(x for x in self.r.snapshot()["runs"] if x["id"] == run["id"])
+            if cur["state"] not in ("queued", "running"):
+                return cur
+            time.sleep(0.01)
+        self.fail("終わらない")
+
+    def step(self, run, key="deliver"):
+        return next(s for s in run["steps"] if s["key"] == key)
+
+    def recs(self):
+        return self.cases.load_saved(self.cases.locations(os.path.join(self.tmp, "repo"), self.env)["cases"]).get(VID, {}).get("auto", {})
+
+    def outs(self):
+        return sorted(os.listdir(self.out)) if os.path.isdir(self.out) else []
+
+    def rows(self):
+        from flow import deliveries
+        return deliveries.rows(self.logs) or []
+
+    def test_full_sends_group_with_origin_auto(self):
+        run = self.go()
+        self.assertEqual((run["state"], self.step(run)["state"]), ("done", "done"), run)
+        names = self.outs()
+        zips = [n for n in names if n.endswith(".zip")]
+        groups = [n for n in names if n.endswith(".group.json")]
+        self.assertEqual((len(zips), len(groups)), (2, 1), names)   # 既定の 5 本ごと = 2 本の組(まとめ動画 + 1 本ずつの zip + 一覧)
+        self.assertTrue(all(re.match(self.TAG_RE, n) for n in names), names)   # 名前の頭は友人のアプリの依頼 id の形(deliver_tag)
+        self.assertFalse([n for n in names if n.endswith(".meta.json")], "組の中の 1 本には印を置かない(組の一覧が持つ)")
+        with open(os.path.join(self.out, groups[0]), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["origin"], "auto")
+        rows = self.rows()
+        self.assertEqual({(r["origin"], r["videoId"]) for r in rows}, {("auto", VID)})
+        self.assertTrue(all(r["endedAt"] == (self.stream["releaseTs"] + self.stream["duration"]) * 1000 for r in rows), rows)
+        recs = self.recs()   # 案件に「まとめて実行」の印と「届けた」(品質のカードに出る)
+        self.assertEqual(sorted(recs), ["a2", "a3"])
+        self.assertTrue(all(r["origin"] == "full" and r["deliveredAt"] and "notSent" not in r for r in recs.values()), recs)
+        self.assertFalse([n for n in names if n.endswith(".失敗.txt")])
+
+    def test_friend_delivery_prefs_one_by_one(self):
+        """友人のアプリの「届け方」(<受付のフォルダ>/設定/届け方.json。2-4)が 1 本ずつなら、1 本の zip + 出どころの印 .meta.json"""
+        os.makedirs(os.path.join(self.folder, "設定"))
+        with open(os.path.join(self.folder, "設定", "届け方.json"), "w", encoding="utf-8") as f:
+            f.write('{"v":1,"deliverBatch":1,"at":"2026-10-16T21:00:00+09:00"}')
+        run = self.go()
+        self.assertEqual(self.step(run)["state"], "done", run)
+        names = self.outs()
+        zips = [n for n in names if n.endswith(".zip")]
+        self.assertEqual(len(zips), 2)
+        for z in zips:
+            self.assertIn(z[:-4] + ".meta.json", names)
+            with open(os.path.join(self.out, z[:-4] + ".meta.json"), encoding="utf-8") as f:
+                self.assertEqual(json.load(f)["origin"], "auto")
+        self.assertFalse([n for n in names if n.endswith(".group.json")])
+
+    def test_not_sent_reasons(self):
+        """送らない 4 つ(チェックを外した・友人の依頼あり・終わった時刻が分からない・48 時間を過ぎた): 段は飛ばして理由の文(flow/sendpolicy.REASONS)・
+        切り抜きごとに notSent(案件の札・品質のカード)。何も置かない"""
+        from flow import sendpolicy
+        run = self.go(auto_send=False)   # 1 本目で解析・採用・書き出し・パックまで済ませる(チェックを外した)
+        self.assertEqual((run["state"], self.step(run)["state"], self.step(run)["detail"]), ("done", "skip", sendpolicy.REASONS["unchecked"]), run)
+        cases = [("requested", None, lambda: setattr(self.r, "requested_hook", lambda vid: 1760000000 if vid == VID else None)),
+                 ("unknown_end", sendpolicy.REASONS["unknown_end"], lambda: self.tools.video["analysis"].update(liveStatus="not_live")),
+                 ("stale", "古い配信なので送りません(終わってから 49 時間)", lambda: self.tools.video["analysis"].update(self.info(49)))]
+        for code, text, prep in cases:
+            self.r.requested_hook = None
+            self.tools.video["analysis"].update(self.info(1))
+            prep()
+            run = self.go()
+            want = text or sendpolicy.REASONS[code]
+            self.assertEqual((run["state"], self.step(run)["state"], self.step(run)["detail"]), ("done", "skip", want), (code, run))
+            recs = self.recs()
+            self.assertEqual({k: (r["origin"], r["notSent"]["code"], r["notSent"]["text"]) for k, r in recs.items()},
+                             {k: ("full", code, want) for k in ("a2", "a3")}, code)
+            self.assertFalse(any(r.get("seenAt") for r in recs.values()), "人は見ていない")
+        self.assertEqual(self.outs(), [])
+        self.assertEqual(self.rows(), [])
+        # 案件の画面: 送らなかった札(review.notSent)・自動の印(品質のカードの対象)。未確認には数えない
+        saved = self.cases.load_saved(self.cases.locations(os.path.join(self.tmp, "repo"), self.env)["cases"])
+        built = self.cases.build({VID: json.loads(json.dumps(self.tools.video))}, [], saved)
+        c = next(x for x in built["cases"] if x["id"] == VID)
+        got = {cl["markId"]: cl for cl in c["clips"]}
+        self.assertEqual({k: (cl["auto"]["origin"], cl["review"]["notSent"]["code"], cl["review"]["unconfirmed"]) for k, cl in got.items()},
+                         {"a2": ("full", "stale", False), "a3": ("full", "stale", False)})
+
+    def test_requested_by_delivery_log_or_returns(self):
+        """友人の依頼済み(2-9)は受付の覚えのほか、届けた記録の origin request の配信・送り返し(友人の PC で処理した依頼)でも分かる"""
+        from human.friend import friend_feedback
+        import types
+        friend_feedback.record_delivery(self.logs, "x.zip", types.SimpleNamespace(request_id="rid", id="r", video_id=VID, title=""), [])
+        self.assertTrue(self.r._requested(VID))
+        self.assertFalse(self.r._requested("bbbbbbbbbbb"))
+        from human.friend import returns
+        with mock.patch.object(returns, "requested_videos", lambda app: {"bbbbbbbbbbb": 1.0}):
+            self.assertTrue(self.r._requested("bbbbbbbbbbb"))
+
+    def test_park_then_flush_and_expire(self):
+        """置けない(受付の Dropbox のフォルダが無い)→ 実行は失敗にせず溜めに預ける(段は warn・友人に .失敗.txt を置かない)→ フォルダが戻れば flush で届く。
+        48 時間を過ぎた溜めは送らずに消して notSent expired"""
+        shutil.rmtree(self.folder)
+        run = self.go()
+        self.assertEqual((run["state"], self.step(run)["state"]), ("done", "warn"), run)
+        self.assertIn("送り直します", self.step(run)["detail"])
+        self.assertFalse(os.path.exists(self.folder), "Dropbox でない所にフォルダを作らない")
+        pools = self.r.pools()
+        (key, p), = pools.items()
+        self.assertTrue(key.startswith("full|") and key.endswith("|" + VID), key)
+        self.assertEqual((p["waiting"], p["meta"]["origin"], p["meta"]["parked"]), (2, "auto", True))
+        self.assertEqual(self.r.flush_pools(lambda m: False), 0, "フォルダが無い間は待つ")
+        # 起動し直しても溜めは残る(logs/deliver-pool.json)
+        self.r.close()
+        self.r = self.runner()
+        self.assertEqual(list(self.r.pools()), [key])
+        os.makedirs(self.folder)
+        self.assertEqual(self.r.flush_pools(lambda m: False), 2)
+        self.assertEqual(self.r.pools(), {})
+        names = self.outs()
+        self.assertEqual(len([n for n in names if n.endswith(".zip")]), 2, names)
+        self.assertTrue(all(re.match(self.TAG_RE, n) for n in names), names)
+        self.assertEqual({r["origin"] for r in self.rows()}, {"auto"})
+        self.assertTrue(all(r.get("deliveredAt") and r["origin"] == "full" for r in self.recs().values()), self.recs())
+        # 48 時間を過ぎた溜め
+        with self.r._pool_lock:
+            self.r._pools_load()["full|x|" + VID] = {"rid": "x", "tag": None, "origin": "auto", "mode": "full", "title": "古い", "deliverDir": self.out,
+                                                      "batch": None, "meta": {"origin": "auto", "videoId": VID, "endedAt": time.time() - 49 * 3600, "parked": True},
+                                                      "packs": [os.path.join(self.tmp, "out", "a2_pack")], "delivered": [],
+                                                      "marks": {os.path.join(self.tmp, "out", "a2_pack"): {"path": "", "markId": "zz"}}, "created": 0, "updated": 0}
+        before = self.outs()
+        self.assertEqual(self.r.flush_pools(lambda m: False), 0)
+        self.assertEqual((self.r.pools(), self.outs()), ({}, before))
+        from flow import sendpolicy
+        self.assertEqual((self.recs()["zz"]["origin"], self.recs()["zz"]["notSent"]["code"], self.recs()["zz"]["notSent"]["text"]),
+                         ("full", "expired", sendpolicy.REASONS["expired"]))
+        self.assertTrue(any("送りませんでした" in m for m in self.msgs), self.msgs)
+
+    def test_no_double_on_resume_or_rerun(self):
+        """再開(待ちの記録から戻す)でも、同じ配信をもう一度 full で流しても、届けたパックを二度置かない"""
+        run = self.go()
+        first = self.outs()
+        real = next(r for r in self.r.runs if r.id == run["id"])
+        back = A.Run.restore(json.loads(json.dumps(real.saved())))
+        self.assertEqual((back.deliver_origin, back.delivered), ("auto", real.delivered))
+        self.assertTrue(re.match(r"^\d{8}-\d{6}-[0-9a-f]{6}$", back.deliver_tag), back.deliver_tag)
+        st = {"state": "run", "detail": ""}
+        self.r._step_deliver(back, st, self.tools.video)
+        self.assertEqual(self.outs(), first)
+        run2 = self.go()
+        self.assertEqual((self.step(run2)["state"], self.step(run2)["detail"]), ("skip", "パックはもう友人へ届けてあります"), run2)
+        self.assertEqual(self.outs(), first)
+
+    def test_old_records_are_readable(self):
+        """古い待ちの記録(deliverTag・deliverOrigin が無い)と古い溜め(tag・origin・mode が無い)も読める"""
+        old = A.Run(VID, "配信", "full", 2).saved()
+        for k in ("deliverTag", "deliverOrigin"):
+            old.pop(k)
+        back = A.Run.restore(old)
+        self.assertEqual((back.deliver_tag, back.deliver_origin), (None, None))
+        pack = os.path.join(self.tmp, "p_pack")
+        os.makedirs(pack)
+        with open(os.path.join(pack, "p.mp4"), "wb") as f:
+            f.write(b"v")
+        os.makedirs(self.logs, exist_ok=True)
+        with open(os.path.join(self.logs, DL.POOL_FILE), "w", encoding="utf-8") as f:
+            json.dump({"schema": DL.POOL_SCHEMA, "pools": {"live|rid9|local/rec": {"rid": "20261001-120000-abc123", "title": "t", "deliverDir": self.out, "batch": 2,
+                                                                                    "meta": {"recorder": "local", "recording": "rec", "phase": "live"},
+                                                                                    "packs": [pack], "delivered": [], "marks": {}, "created": 0, "updated": 0}}}, f)
+        self.r.close()
+        self.r = self.runner()
+        self.assertEqual(self.r.flush_pools(lambda m: True), 1)
+        names = self.outs()
+        self.assertEqual([n for n in names if n.endswith(".zip")], ["20261001-120000-abc123__p.zip"])
+        self.assertFalse([n for n in names if n.endswith(".meta.json")], "古い溜め(依頼の id)は依頼として届ける")
+
+    def test_only_full_with_folder_sends(self):
+        """届けるのは full だけ・受付のフォルダが決まっているときだけ(2-10)。文書単位(start_docs)・adopted などは届けない"""
+        self.assertEqual(self.r._send_plan("adopted", True), {})
+        self.assertEqual(self.r._send_plan("transcribe", None), {})
+        plan = self.r._send_plan("full", None)
+        self.assertEqual((plan["deliver_origin"], plan["deliver_dir"]), ("auto", self.out))
+        self.assertNotIn("deliver_dir", self.r._send_plan("full", False))
+        self.prefs.patch("intake", {"folder": ""})
+        self.assertEqual(self.r._send_plan("full", True), {})
+        run = self.go(auto_send=True)
+        self.assertNotIn("deliver", [s["key"] for s in run["steps"]])
+        self.prefs.patch("intake", {"folder": self.folder})
+        run = self.go("adopted", auto_send=True)
+        self.assertNotIn("deliver", [s["key"] for s in run["steps"]])
+        self.assertEqual(self.outs(), [])
+
+    def test_switch_off(self):
+        """開発機の守り YTT_AUTO_SEND=off: 自動の分は届けない(印も残さない)"""
+        with mock.patch.dict(os.environ, {"YTT_AUTO_SEND": "off"}):
+            run = self.go()
+        self.assertEqual(self.step(run)["state"], "skip", run)
+        self.assertIn("YTT_AUTO_SEND", self.step(run)["detail"])
+        self.assertEqual((self.outs(), self.rows()), ([], []))
+
+    def test_failure_note_only_for_requests(self):
+        """友人に失敗の知らせ(.失敗.txt)を置くのは依頼だけ(2-6)"""
+        auto = A.Run(VID, "配信", "full", 2, deliver_dir=self.out, deliver_origin="auto", deliver_tag="20261016-120000-abcdef")
+        auto.error = "わざと"
+        self.r._deliver_failure(auto)
+        self.assertEqual(self.outs(), [])
+        req = A.Run(VID, "配信", "request_auto", 2, deliver_dir=self.out, request_id="20261016-120000-abcdef")
+        req.error = "わざと"
+        self.r._deliver_failure(req)
+        self.assertEqual([n for n in self.outs() if n.endswith(".失敗.txt")], ["20261016-120000-abcdef__配信.失敗.txt"])
 
 
 if __name__ == "__main__":

@@ -8,6 +8,9 @@ notes:docs/spec/friend.md の 2-7・2-16。
 - make_preview / batch_preview: n 本の切り抜きをつなげた確認用の動画(480p・等速・各クリップに「i/N 題」の札。字幕なし)。友人が受け取る前に見るためのもの。
   place_preview が zip の隣に <zip の名前>.preview.mp4 で置く
 - 名前: zip は <依頼 id>__<題>(delivery_name)。同じ名前があれば末尾に 4 文字足す(unique_zip)
+- 出どころ(D-SEND 2-7。notes:plan/d-send-requirements.md): 届けた記録の origin は request(友人の依頼)・auto(自分の配信から自動で)・manual(手で届ける)。
+  友人に見せる出どころ(face_origin)は request か auto(手で届けるも auto = 札「依頼なし」)。組は .group.json の上段 "origin"、
+  1 本(組でない)で依頼でないときは zip より先に隣へ <zip の名前(.zip 抜き)>.meta.json {"v":1,"origin":"auto","sentAt":…}(write_meta_json)
 - Deliveries: 手で「友人へ届ける」(画面の api/ytt/deliver)の裏の仕事。数 GB の zip は時間がかかるので、画面は状態を聞き直す
 送れるのは cut2resolve が作ったパックのフォルダだけ(manage.cases.txindex.is_pack_dir。画面から任意のフォルダを Dropbox へ出させない)。
 zip は動画を圧縮しない(ZIP_STORED)ので CPU はほとんど使わない → 重い処理の枠(jobs.SLOTS)は通さない(文字起こしの後ろで何時間も待たせないため)。
@@ -34,6 +37,7 @@ PREVIEW_CRF = 28               # まとめ動画の画質(本番より落とす�
 PREVIEW_LABEL_SEC = 0          # 各クリップの「i/N 題」の札を出す秒数(0 = ずっと出す。2026-10-08 ユーザー決定)
 PREVIEW_TIMEOUT = 600          # まとめ動画を作る ffmpeg の上限(秒)
 PREVIEW_SUFFIX = ".preview.mp4"        # zip の隣の名前(<zip の名前>.preview.mp4。友人のアプリが先にこれだけ取ってきて見る。zip の中には入れない)
+META_SUFFIX = ".meta.json"             # 1 本のパックの出どころ(<zip の名前>.meta.json。D-SEND 2-7。友人のアプリの OutputFolder.MetaSuffix と同じ)
 FONT_CANDIDATES = ("meiryo.ttc", "YuGothM.ttc", "msgothic.ttc")   # 札の文字(Windows の日本語フォント。無ければ札を付けない)
 BAD_CHARS = BAD_NAME_CHARS   # ファイル名に使えない文字(受付と同じ決まり。intake.BAD_NAME_CHARS)
 KEEP_JOBS = 20
@@ -51,6 +55,28 @@ def request_id(now=None):
 def delivery_name(rid, title):
     """出力 フォルダに置くものの名前(拡張子なし): <依頼 id>__<題>(友人のアプリはこの形から依頼 id と題を読む)"""
     return safe_name("%s__%s" % (rid, title))
+
+
+def face_origin(origin):
+    """届けた記録の出どころ(request・auto・manual)-> 友人に見せる出どころ(request か auto。手で届けるも auto = 札「依頼なし」。D-SEND 2-7・2-8)"""
+    return "request" if origin in (None, "", "request") else "auto"
+
+
+def _local_iso(when=None):
+    """その時刻の地方時 + UTC とのずれ(2026-10-09T12:00:00+09:00 の形)"""
+    return datetime.datetime.fromtimestamp(time.time() if when is None else when).astimezone().isoformat(timespec="seconds")
+
+
+def meta_path_for(zip_path):
+    """zip の隣に置く出どころの印の名前(<zip の名前(.zip 抜き)>.meta.json)"""
+    return os.path.splitext(zip_path)[0] + META_SUFFIX
+
+
+def write_meta_json(path, origin, now=None):
+    """1 本のパックの出どころの印を書く(D-SEND 2-7)。UTF-8・BOM なし・1 行・原子的に(一時ファイルは友人のアプリの一覧に出ない)。-> 書いた中身"""
+    doc = {"v": 1, "origin": origin, "sentAt": _local_iso(now)}
+    fsio.write_json(path, doc, indent=None)
+    return doc
 
 
 def pack_title(d):
@@ -247,28 +273,36 @@ def batch_preview(dirs, check=None, log=None):
     return None
 
 
-def deliver_one(d, out_dir, name, log_dir=None, run=None, marks=None, with_preview=True, check=None, progress=None, log=None):
+def deliver_one(d, out_dir, name, log_dir=None, run=None, marks=None, with_preview=True, check=None, progress=None, log=None, origin="request",
+                ended_at=None):
     """1 本のパックを友人へ届ける(notes:docs/spec/friend.md の 2-7・2-16。まとめて実行の 1 本ずつ・組の中の 1 本・手で届ける の 1 か所):
     ① with_preview なら、その切り抜きだけのまとめ動画 <zip の名前>.preview.mp4 を zip より先に隣へ(作れなければ zip だけ。組の中では組のものを使うので付けない)
+    ①' 組でない 1 本(with_preview)で依頼でない(origin auto・manual)なら、出どころの印 <zip の名前>.meta.json を zip より先に隣へ(D-SEND 2-7。組の中は組の一覧が持つ)
     ② zip <name>.zip(同じ名前があれば末尾に 4 文字)③ 届けた記録 deliveries.jsonl に 1 行(log_dir と run があるとき。友人の「要らない」が引く。書けなくても止めない)。
     run = request_id・id・video_id・title を持つ物(まとめて実行の実行か、手で届けるときの代わり)・marks = {パックのフォルダ: {"path", "markId"}}。
-    -> 置いた zip のパス。途中で失敗したら置いたまとめ動画を消して例外をそのまま上げる(一時のまとめ動画はいつも消す)"""
+    origin = 届けた記録の出どころ(request・auto・manual)・ended_at = 配信が終わった時刻(秒。分からなければ None)。
+    -> 置いた zip のパス。途中で失敗したら置いたまとめ動画・印を消して例外をそのまま上げる(一時のまとめ動画はいつも消す)"""
     preview = batch_preview([d], check=check, log=log) if with_preview else None
-    placed = None
+    placed, meta = None, None
+    face = face_origin(origin)
     try:
         os.makedirs(out_dir, exist_ok=True)
         dest = unique_zip(out_dir, name)
         if preview:
             placed = preview_path_for(dest)   # place_preview の途中で止まっても書きかけを残さないように先に控える
             place_preview(preview, dest)
+        if with_preview and face != "request":
+            meta = meta_path_for(dest)
+            write_meta_json(meta, face)
         zip_packs([d], out_dir, name, check=check, progress=progress, dest=dest)
     except BaseException:
         remove_quiet(placed)
+        remove_quiet(meta)
         raise
     finally:
         remove_quiet(preview)
     if log_dir and run is not None:
-        friend_feedback.record_delivery(log_dir, dest, run, [d], marks)
+        friend_feedback.record_delivery(log_dir, dest, run, [d], marks, origin or "request", ended_at)
     return dest
 
 
@@ -305,13 +339,15 @@ def group_members(zips, titles, seconds):
     return out
 
 
-def write_group_json(path, title, rng, preview_path, members, now=None):
+def write_group_json(path, title, rng, preview_path, members, now=None, origin=None):
     """組の一覧を書く(最後に置く = 友人のアプリは一覧が見えたら組がそろっているとみなす)。UTF-8・BOM なし・1 行。
     原子的に書く(一時ファイルから置き換える = 書きかけの一覧を Dropbox に乗せない。一時ファイル .tmp-*.part は友人のアプリの一覧に出ない)。
-    sentAt は その時刻の地方時 + UTC とのずれ(2026-10-09T12:00:00+09:00 の形)"""
-    when = now if now is not None else time.time()
+    sentAt は その時刻の地方時 + UTC とのずれ(2026-10-09T12:00:00+09:00 の形)。origin = 友人に見せる出どころ request か auto(D-SEND 2-7。
+    None = 書かない = 古い形。友人のアプリは無ければ依頼として読む)"""
     doc = {"v": 1, "title": title, "range": rng, "preview": os.path.basename(preview_path) if preview_path else None, "packs": list(members),
-           "sentAt": datetime.datetime.fromtimestamp(when).astimezone().isoformat(timespec="seconds")}
+           "sentAt": _local_iso(now)}
+    if origin is not None:
+        doc["origin"] = origin
     fsio.write_json(path, doc, indent=None)
     return doc
 
@@ -348,8 +384,8 @@ class Deliveries:
         job = {"id": uuid.uuid4().hex[:10], "state": "running", "message": "zip にしています", "progress": 0.0,
                "dir": d, "name": name + ".zip", "error": "", "startedAt": int(self.clock() * 1000)}
         clip = clip if isinstance(clip, dict) else {}
-        # 届けた記録の行の「実行」の代わり(依頼 id = zip の名前の頭・実行 id = 仕事の id)
-        run = types.SimpleNamespace(request_id=rid, id="dl" + job["id"], video_id=str(clip.get("videoId") or ""), title=title)
+        # 届けた記録の行の「実行」の代わり(依頼 id = zip の名前の頭・実行 id = 仕事の id)。出どころは manual(友人には「依頼なし」= D-SEND 2-8)
+        run = types.SimpleNamespace(request_id=rid, id="dl" + job["id"], video_id=str(clip.get("videoId") or ""), title=title, deliver_origin="manual")
         marks = {d: {"path": str(clip.get("path") or ""), "markId": str(clip.get("markId") or "")}}
         with self.lock:
             if self._running_locked(d):
@@ -380,7 +416,8 @@ class Deliveries:
             self.busy.acquire()
         try:
             job["message"] = "まとめ動画を作っています"
-            dest = deliver_one(job["dir"], out_dir, job["name"][:-4], log_dir=self.log_dir, run=run, marks=marks, progress=prog, log=self.log)
+            dest = deliver_one(job["dir"], out_dir, job["name"][:-4], log_dir=self.log_dir, run=run, marks=marks, progress=prog, log=self.log,
+                               origin=getattr(run, "deliver_origin", None) or "manual")
             done = dict(state="done", progress=1.0, name=os.path.basename(dest),
                         message="Dropbox の 出力 に置きました。同期が終わると友人のアプリの「受け取る」に出ます")
             self.log("友人へ届ける: %s を 出力 に置きました" % os.path.basename(dest))
