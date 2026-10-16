@@ -16,7 +16,7 @@ for p in (HOME, ROOT):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from human.friend import deliver  # noqa: E402
+from flow import deliver  # noqa: E402
 
 
 def put(path, data=b"x"):

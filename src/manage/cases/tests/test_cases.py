@@ -16,7 +16,7 @@ if SRC not in sys.path:
     sys.path.insert(0, SRC)
 from manage.cases import cases  # noqa: E402
 from manage.keep import cleanup  # noqa: E402
-from human.friend import deliver  # noqa: E402
+from flow import deliver  # noqa: E402
 from manage.cases import txindex  # noqa: E402
 from flow import casebook  # noqa: E402
 from ytt import casefiles, schemas  # noqa: E402
@@ -107,8 +107,9 @@ class TestBuild(Base):
 
 
 class TestFullAuto(Base):
-    """D-SEND・MARKS-3: まとめて実行の自動で送る形。送らなかった物 = 案件の auto[マーク].origin "full" と notSent(remember_auto)・送った物 = 届けた記録の
-    mode full・origin auto。どちらもライブでなくても clip["auto"](品質のカードの対象)・notSent は届けていない間だけ review に出る・届けたは案件に写さない"""
+    """D-SEND・MARKS-3・ds1: まとめて実行の自動で送る形。送らなかった物 = ② の送らなかった記録 logs/not-sent.jsonl(前の版は案件の auto[マーク].origin "full" と
+    notSent = 読むだけ)・送った物 = 届けた記録の mode full・origin auto。どちらもライブでなくても clip["auto"](品質のカードの対象)・notSent は届けていない間だけ
+    review に出る・届けた・送らなかったは案件に写さない"""
 
     def test_not_sent_and_sent_full_clips(self):
         import types
@@ -116,9 +117,10 @@ class TestFullAuto(Base):
         clip3 = self.touch(os.path.join(self.exports, "03_三.mp4"))
         self.studio({VID: {"kind": "youtube", "title": "配信A", "marks": [mark("m1", "exported", self.clip1, label="一"), mark("m2", "exported", self.clip2, 50, 80),
                                                                          mark("m3", "exported", clip3, 90, 99)]}})
-        r = cases.remember_auto(self.root, VID, "m1", self.env, not_sent={"code": "stale", "text": "古い配信なので送りません(終わってから 50 時間)"})
-        self.assertEqual((r["origin"], r["notSent"]["code"], "seenAt" in r), ("full", "stale", False))
         logs = cases.locations(self.root, self.env)["logs"]
+        deliveries.record_not_sent(logs, VID, "m1", "stale", "前の理由")
+        r = deliveries.record_not_sent(logs, VID, "m1", "stale", "古い配信なので送りません(終わってから 50 時間)")   # 同じ切り抜きは新しい方
+        self.assertEqual((r["code"], r["markId"]), ("stale", "m1"))
 
         def send(clip, mid, zip_name, origin, mode="full", rid=""):
             d = txindex.pack_dir(clip)
@@ -133,17 +135,21 @@ class TestFullAuto(Base):
         self.assertEqual((m2["auto"]["origin"], m2["review"]["delivered"], m2["review"]["deliveredAt"] > 0, "notSent" in m2["review"]), ("full", "t__z.zip", True, False))
         self.assertIsNone(m3["auto"], "印の無い切り抜きは今までどおり人の切り抜き")
         self.assertEqual(c["autoClips"], {"total": 2})
-        self.assertNotIn("m2", cases.load_saved(cases.locations(self.root, self.env)["cases"])[VID]["auto"], "届けたは案件に写さない")
-        send(self.clip1, "m1", "t__手.zip", "manual", mode="")   # 手で届けた = 送らなかった理由は出さない(印 full は案件の記録のまま)
+        self.assertEqual((cases.load_saved(cases.locations(self.root, self.env)["cases"]).get(VID) or {}).get("auto") or {}, {}, "届けた・送らなかったは案件に写さない")
+        send(self.clip1, "m1", "t__手.zip", "manual", mode="")   # 手で届けた = 送らなかった理由は出さない(印 full は送らなかった記録のまま)
         m1 = cases.snapshot(self.root, self.env)["cases"][0]["clips"][0]
         self.assertEqual((m1["auto"]["origin"], m1["review"]["delivered"], "notSent" in m1["review"]), ("full", "t__手.zip", False))
         send(clip3, "m3", "rid__依頼.zip", "request", rid="rid")   # 友人の依頼で届けた mode full は「まとめて実行の自動」ではない
         self.assertIsNone(cases.snapshot(self.root, self.env)["cases"][0]["clips"][2]["auto"])
-        for bad in (("../x", "m1"), (VID, "../m"), (VID, None)):
-            with self.assertRaises(ValueError):
-                cases.remember_auto(self.root, bad[0], bad[1], self.env, not_sent={"code": "x", "text": "x"})
-        with self.assertRaises(TypeError):   # 届けたを写す口は消した(MARKS-3)
-            cases.remember_auto(self.root, VID, "m1", self.env, delivered="z")
+        self.assertFalse(hasattr(cases, "remember_auto"), "案件へ写す口は消した(ds1)")
+
+    def test_old_case_marks_still_read(self):
+        """前の版が案件の auto[マーク] に書いた origin "full"・notSent は読むだけで今までどおり出る(ds1)"""
+        self.studio({VID: {"kind": "youtube", "title": "配信A", "marks": [mark("m1", "exported", self.clip1)]}})
+        cases._write(cases.locations(self.root, self.env)["cases"],
+                     {VID: {"auto": {"m1": {"origin": "full", "notSent": {"code": "stale", "text": "古い", "at": 5}}}}})
+        m1 = cases.snapshot(self.root, self.env)["cases"][0]["clips"][0]
+        self.assertEqual((m1["auto"]["origin"], m1["review"]["notSent"]), ("full", {"code": "stale", "text": "古い", "at": 5}))
 
 
 class TestCaseFile(Base):
@@ -738,8 +744,9 @@ class TestAutoClips(Base):
         for p in clips.values():
             os.utime(p, (old, old))
         self.studio({VID: {"kind": "youtube", "title": "配信", "rev": 1, "marks": [mark(n, "exported", clips[n], 10 * i, 10 * i + 5) for i, n in enumerate(names)]}})
+        from flow import deliveries
         for n in ("f1", "f5"):
-            cases.remember_auto(self.root, VID, n, self.env, not_sent={"code": "stale", "text": "古い"})
+            deliveries.record_not_sent(cases.locations(self.root, self.env)["logs"], VID, n, "stale", "古い")
         self.sent(txindex.pack_dir(clips["f2"]), int(old * 1000), "f2.zip", vid=VID, mid="f2", path=clips["f2"], mode="full", origin="auto")
         self.sent(txindex.pack_dir(clips["f3"]), int(time.time() * 1000), "f3.zip", vid=VID, mid="f3", path=clips["f3"], mode="full", origin="auto")
         self.assertEqual([cl["markId"] for cl in self.case(VID)["clips"] if cl["auto"]], ["f1", "f2", "f3", "f5"])
@@ -850,10 +857,10 @@ class TestCaseRoot(Base):
         with open(loc["cases"], "rb") as f:
             before = f.read()
         self.assertEqual(cases.snapshot(self.root, self.env)["cases"][0]["autoClips"], {"total": 0})
-        cases._remember(self.root, VID, "m1", self.env, origin="full", not_sent={"code": "stale", "text": "古い"})
+        cases._remember(self.root, VID, "m1", self.env, expired=True)
         a = self.adopts()
         self.assertEqual(sorted(a["auto"]), ["m0", "m1"])   # 採用.json に auto が無い間は cases.json の auto を引き継いで書く
-        self.assertEqual((a["status"], a["memo"], a["auto"]["m1"]["origin"]), ("", "", "full"))   # 状態・メモは引き継がない(読み飛ばす)
+        self.assertEqual((a["status"], a["memo"], bool(a["auto"]["m1"]["expiredAt"])), ("", "", True))   # 状態・メモは引き継がない(読み飛ばす)
         with open(loc["cases"], "rb") as f:
             self.assertEqual(f.read(), before, "cases.json は書き換えない(以後は採用.json が勝つ)")
 

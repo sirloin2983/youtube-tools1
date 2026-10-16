@@ -85,7 +85,7 @@ from flow import live_export   # マークと書き出し。P2
 from flow import livesession   # ライブ係(RS7-2 G2b。Live はこれを継ぐ app の殻)
 from manage.keep import live_cleanup   # 録画を自動で消す。P4
 from human.friend import live_requests  # noqa: E402  (友人のライブ配信の依頼と録画の結びつき。notes:docs/spec/friend.md の 2-15)
-from human.friend import deliver as deliver_mod  # noqa: E402  (自動の切り抜きを友人へ届けるときの依頼 id の形)
+from flow import deliver as deliver_mod  # noqa: E402  (自動の切り抜きを友人へ届けるときの依頼 id の形。ds1 で ② へ)
 from human.friend import intake as intake_mod  # noqa: E402  (受付のフォルダと 出力\ の読み方 configured_folder・out_dir_of = 受付と同じ 1 か所)
 
 CODE_DIR = os.path.dirname(os.path.abspath(__file__))

@@ -29,7 +29,7 @@ from .run import RUN_STATE_LABELS
 # id の頭 -> 器(id = "<頭>:<器の中の id>"。器をまたいで衝突しない・取り消しの振り分けの鍵)
 PREFIXES = {"run": "② の実行(flow/runqueue)", "tx": "編集のジョブ(文字起こし・話者・再認識。flow/jobs)", "an": "解析(flow/batch)",
             "ex": "書き出し(pipeline/export/exporter)", "pk": "パック(pipeline/pack/cut2resolve_core)", "lx": "ライブの書き出し(flow/live_export)",
-            "la": "ライブの作り直し(flow/live_archive)", "lt": "配信中の候補の文字起こし(flow/live_tx)", "dl": "届ける(human/friend/deliver)",
+            "la": "ライブの作り直し(flow/live_archive)", "lt": "配信中の候補の文字起こし(flow/live_tx)", "dl": "届ける(flow/deliver)",
             "se": "配信の検索(human/find/rank)"}
 # Run.owned のツールの ID -> 頼んだ器の id の頭(親子の印。runqueue が使う)
 OWNED_PREFIX = {"transcribe": "tx", "studio": "an", "cut2resolve": "pk", "export": "ex"}

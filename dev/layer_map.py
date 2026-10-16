@@ -74,14 +74,14 @@ FILES = {
     "src/app/mount.py": ("app", "app", ""),
     "src/app/appwindow.py": ("app", "app", ""),
     "src/app/prefs.py": ("app", "app", "設定の既定値と検査(ytt/settings に寄せる)"),
-    "src/app/autorun.py": ("app", "app", "計画 7 節は pipeline/run だったが app に残す(RS3-0B・仮決め #4。AutoRunner は受付と、Runner・Queue の hook を案件・設定で埋める合成の役(待ち行列と糸は RS7-1 S5 で flow/runqueue.py へ)。① の経路は RS1-7 で pipeline/run.py へ済み。友人の届け約 275 行は RS3-3 で human/friend/delivery.py の Delivery(mixin)へ出して継ぐ)"),
+    "src/app/autorun.py": ("app", "app", "計画 7 節は pipeline/run だったが app に残す(RS3-0B・仮決め #4。AutoRunner は受付と、Runner・Queue の hook を案件・設定で埋める合成の役(待ち行列と糸は RS7-1 S5 で flow/runqueue.py へ)。① の経路は RS1-7 で pipeline/run.py へ済み。友人の届け約 275 行は RS3-3 で Delivery(mixin)へ出して継ぐ。ds1 で ② flow/delivery.py へ = ③ の受付・送り返しは _friend_batch・_returned_request で渡す)"),
     "src/app/live.py": ("app", "app", "計画 7 節は pipeline/run だったが app に残す(RS3-0B・仮決め #4。Live は録画元・中継・友人・片付け・見回り _tick を束ねる玄関 = 合成の役。葉の live_* だけ層へ移す = RS3-1)"),
     # ---- ライブの葉は RS3-1 で移した(DIRS で読む): live_export → pipeline/export・live_detect と live_excite_worker → pipeline/analyze・
     #      live_archive と live_align_worker → pipeline/ingest(計画は pipeline/run だが run.py がファイルなので)・live_tx と live_tx_worker → pipeline/transcribe・
     #      live_failures → pipeline(計画は manage/ops。RS3-0B・仮決め #5)・live_report → pipeline(計画は eval/tools。決定 3-25 の c)・live_cleanup → manage/keep。
     #      旧い場所の起動用の転送は RS5-G で消した
     # ---- 案件と友人の部品は RS3-3 で移した(DIRS で読む): cases → manage/cases(丸ごと。決定 3-25 の d)・intake・deliver・live_requests・
-    #      friend_feedback → human/friend。AutoRunner の友人へ届ける段と組の溜めは human/friend/delivery.py の Delivery(mixin。autorun は app に残る)
+    #      friend_feedback → human/friend。AutoRunner の友人へ届ける段と組の溜めは flow/delivery.py の Delivery(mixin。autorun は app に残る。ds1 で ② へ)
     # ---- 精度の自動測定 accuracy と測る道具(dev/eval_*.py 13 本・_evalcommon)は RS4-4 で eval/drill・eval/tools へ移した(DIRS で読む)。旧い dev/eval_*.py の転送は RS5-G で消した(dev/ は test_layering の外)
     # ---- flow(② 管理)は DIRS で読む。RS7-1 で足した物も明示しておく
     "src/flow/machine.py": ("flow", "flow", "この PC の設定(machine.json・環境変数・既定。束に重ねる overlay。RS7-1 S1)"),

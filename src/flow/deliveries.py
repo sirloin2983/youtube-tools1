@@ -155,3 +155,47 @@ def delivered_marks(log_dir):
     with _marks_lock:
         _marks_cache[key] = (sig, res)
     return res
+
+
+# ---- 送らなかった記録(ds1・3-71 m3e。前は ④ 案件の 採用.json の auto[マーク].notSent・origin "full" に写していた)
+NOT_SENT_LOG = "not-sent.jsonl"   # まとめて実行の自動で送る形(D-SEND)で送らなかった切り抜き(届けた記録の隣)
+
+
+def record_not_sent(log_dir, video_id, mark_id, code, text, run_id=""):
+    """送らなかった切り抜きを 1 行足す(段 deliver の判定 = flow/sendpolicy の理由の鍵 code と文 text・預けた分の 48 時間切れ expired)。
+    ④ 案件はこれを not_sent_marks で引き、送らなかった理由の札と「まとめて実行の切り抜き」(品質のカード)を出す。
+    書けなければ OSError(呼び手 flow/delivery が段を止めずにログへ)。-> 書いた行"""
+    row = {"at": int(time.time() * 1000), "videoId": str(video_id or ""), "markId": str(mark_id or ""), "code": str(code or "")[:40],
+           "text": str(text or "")[:200], "runId": str(run_id or "")}
+    fsio.append_line(os.path.join(log_dir, NOT_SENT_LOG), json.dumps(row, ensure_ascii=False) + "\n", None)
+    return row
+
+
+def not_sent_marks(log_dir):
+    """-> {(配信, スタジオのマーク): {"code", "text", "at" ミリ秒}}(同じ切り抜きは新しい方)。無い・読めなければ {}(札が出ないだけ)。
+    末尾から MAX_SCAN まで。届けたあとに出さないのは読み手(④ 案件)が届けた記録と重ねて決める"""
+    p = os.path.join(log_dir, NOT_SENT_LOG) if log_dir else ""
+    try:
+        size = os.path.getsize(p)
+        with open(p, "rb") as f:
+            if size > MAX_SCAN:
+                f.seek(size - MAX_SCAN)
+            text = f.read().decode("utf-8", "replace")
+    except (OSError, ValueError):
+        return {}
+    out = {}
+    for line in text.splitlines():
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(d, dict) or not isinstance(d.get("code"), str) or not d["code"]:
+            continue
+        vid, mid = d.get("videoId"), d.get("markId")
+        if not (isinstance(vid, str) and vid and isinstance(mid, str) and mid):
+            continue
+        at = d.get("at")
+        at = int(at) if isinstance(at, (int, float)) and not isinstance(at, bool) and at > 0 else 0
+        if at >= (out.get((vid, mid)) or {}).get("at", -1):
+            out[(vid, mid)] = {"code": d["code"][:40], "text": str(d.get("text") or "")[:200], "at": at}
+    return out

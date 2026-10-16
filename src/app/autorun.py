@@ -12,7 +12,7 @@
   Runner・Queue の hook(案件・ホームの設定・届けることを読む所)の中身。移した名前は同じ名前で読み直している。
   RS7-1 S4: 受付で束を組む(_accept = build_spec + 友人の区間の長さ・配信者・届け方の n 本)。待ちの間に画面の設定を変えても、その実行の中身は変わらない。
   切り出しの精密・画質の上限・パックの fps は固定(決定 3-30 Q2)・用語集は編集の受付が自分の設定から読む。
-  届けることと組の溜めは RS3-3 で src/human/friend/delivery.py の Delivery(mixin)へ切り出した(AutoRunner が継ぐ)
+  届けることと組の溜めは RS3-3 で Delivery(mixin)へ切り出した(AutoRunner が継ぐ。ds1 で ② src/flow/delivery.py へ)
 - 各ツールの**公開している API を HTTP で呼ぶ**(入口と同じ 127.0.0.1。取り込んだツールは入口のポートの /studio/ など、子プロセスのツールはそのポート)。
   ツールの中の関数を直接呼ばないのは、画面から使うときと同じ検査・同じジョブ管理(重い処理の順番待ち ytt.jobs を含む)を通すため。
 - どの段も「まだ無いものだけ」作る(書き出し済み・文字起こし済み・パック済みは飛ばす)。途中で止めても、もう一度押せば続きから進む。
@@ -36,15 +36,15 @@
   (LIVE_AUTO_CUT。線 D の M8。区間は検出が静かな所に合わせて絞ってある)。ホームの設定 live.auto.cut(none・silence)を選べばそれ(M2)。
 - ① 全自動の Dropbox へ届ける段: パックを n 本(依頼ごとの deliver_batch。無ければホームの設定 intake.deliverBatch)たまるごとに、組 = まとめ動画 1 本 +
   1 本ずつの zip + 組の一覧(.group.json)で Dropbox の 出力 へ置く(実行の終わりには n 本に満たない残りも)。n=1 か 1 本だけのときは
-  1 本の zip + その隣のまとめ動画(<同じ名前>.preview.mp4)。友人は 1 本ずつ受け取る・要らないを選べる(notes:docs/spec/friend.md の 2-16)。作り方・名前は src/human/friend/deliver.py、
-  届ける段と組の溜めの中身は src/human/friend/delivery.py(RS3-3)
+  1 本の zip + その隣のまとめ動画(<同じ名前>.preview.mp4)。友人は 1 本ずつ受け取る・要らないを選べる(notes:docs/spec/friend.md の 2-16)。作り方・名前は src/flow/deliver.py(まとめ動画は ① src/pipeline/pack/preview.py)、
+  届ける段と組の溜めの中身は src/flow/delivery.py(RS3-3 で human/friend へ出し、ds1 で ② へ移した)
   ライブの切り抜き(友人のライブ配信の依頼・live.autoDeliver)は 1 本ごとに別の実行なので、実行をまたいで「組の溜め」(run.pool。依頼 × 配信中 / 配信後の追加)に預け、
   n 本たまったら組で届ける。録画が終わって書き出しも実行も残っていなければ、最後に預けてから POOL_IDLE_SEC で残りを届ける(flush_pools。入口の src/app/live.py が見回りで呼ぶ)。
   溜めは logs/deliver-pool.json に残す(起動し直しても続く)。10-09 ユーザー決定 = decisions 3-20
 - 友人へ自動で送る(D-SEND。notes:plan/d-send-requirements.md): 画面の「友人へ自動で送る」(受付の autoSend。既定 = mode full のときだけオン・保存しない)。
   受付(_send_plan)で、mode full かつ依頼の受付の Dropbox のフォルダが決まっていれば出どころ auto・名前の頭 deliver_tag(友人のアプリの依頼 id の形)を置き、
   チェックが入っていれば届け先(出力)も置く(段 deliver が付く)。チェックを外した実行も段 deliver を付けて(_ensure_send_step)、
-  そこで「チェックを外したので送りません」と切り抜きごとの notSent を残す(品質のカードに出す = 2-8)。送るかの判定・溜め・送り直しは src/human/friend/delivery.py。
+  そこで「チェックを外したので送りません」と切り抜きごとの送らなかった記録(② logs/not-sent.jsonl)を残す(品質のカードに出す = 2-8)。送るかの判定・溜め・送り直しは src/flow/delivery.py。
   まとめて実行の文書単位(start_docs)・full 以外・CLI・/api/flow/submit は届けない
 - 「あとから解析(測るため)」(友人の依頼が区間だけで終わった配信を、手が空いたときに解析する mode post_analyze)は RS4 で消した(入口 0.55.0)。
   代わりは区間だけの依頼の最後の段「解析(あとで)」(flow/run の analyze_later。届けたあとに解析を順番へ入れるだけで待たない。OPT-E2 = 決定 3-49 Q6。
@@ -72,9 +72,10 @@ from flow import runqueue as queue_mod  # noqa: E402  (② の待ち行列と糸
 from flow.runqueue import (ACTIVE_FILE, ACTIVE_VERSION, HISTORY_DEFAULT, HISTORY_MAX, LOG_MAX_BYTES, LOG_READ_BYTES, MAX_WAITING, PAST_MAX,  # noqa: E402,F401
                         RESTORE_MAX_AGE, busy_reason as _busy_reason, doc_id_ok as _doc_id_ok)
 from manage.cases import cases  # noqa: E402  (src/manage/cases/cases.py: パックの有無・.clip.json の読み方・スタジオの一覧を案件の画面とそろえる。friend_feedback も先頭で読む = 循環しない)
-from human.friend import delivery as delivery_mod  # noqa: E402  (友人へ届ける段と組の溜め = AutoRunner が継ぐ Delivery。RS3-3 で切り出した)
-from human.friend import deliver as deliver_mod  # noqa: E402  (自動で送る分の名前の頭 = 友人のアプリの依頼 id の形。D-SEND)
-from human.friend import intake as intake_mod  # noqa: E402  (受付のフォルダの読み方の 1 か所。D-SEND の届け先)
+from flow import delivery as delivery_mod  # noqa: E402  (友人へ届ける段と組の溜め = AutoRunner が継ぐ Delivery。RS3-3 で切り出し、ds1 で ② へ)
+from flow import deliver as deliver_mod  # noqa: E402  (自動で送る分の名前の頭 = 友人のアプリの依頼 id の形。D-SEND)
+from human.friend import intake as intake_mod  # noqa: E402  (受付のフォルダの読み方の 1 か所。D-SEND の届け先・友人のアプリの届け方)
+from human.friend import returns as returns_mod  # noqa: E402  (友人の PC で処理した依頼の配信 = 依頼済みの 3 つ目の引き方。D-SEND 2-9)
 from app import prefs as prefs_mod  # noqa: E402  (ホームの設定の既定値と範囲。読み書きは渡された Prefs で)
 
 # RANGE_MAX・RANGE_MAX_SEC・RANGE_PAD・pad_range・CUTS・TX_ENGINES・TX_MODEL_RE・WEIGHT_KEYS は src/flow/spec.py へ、
@@ -223,9 +224,9 @@ _top_arg = _spec.top_arg   # 採用する数(src/flow/spec.py)
 class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
     """入口のまとめて実行: 受付(start*。画面・友人の依頼の欄から Run を作って ② の待ち行列に積む)と hook(案件・ホームの設定・友人へ届ける)。
     待ち行列・糸・中止・状態と記録・起動し直しで戻す・見積もりは src/flow/runqueue.py の Queue(RS7-1 S5)、段の中身は src/flow/run.py の Runner。
-    友人へ届ける段と組の溜めは src/human/friend/delivery.py の Delivery(RS3-3)を継ぎ、そこが要る入口と案件の物
-    (届ける本数の既定と範囲・送らなかった理由)は下の _deliver_batch_limits・_remember_not_sent で渡す。届けたは案件に写さない
-    (② flow/deliveries の届けた記録を案件が読む。MARKS-3)"""
+    友人へ届ける段と組の溜めは src/flow/delivery.py の Delivery(RS3-3・ds1)を継ぎ、そこが要る入口と ③ の物
+    (届ける本数の既定と範囲・友人のアプリの届け方・送り返しの依頼)は下の _deliver_batch_limits・_friend_batch・_returned_request で渡す。
+    届けた・送らなかったは案件に写さない(② flow/deliveries の届けた記録・送らなかった記録を案件が読む。MARKS-3・ds1)"""
 
     def __init__(self, client, repo_root, env=None, poll=1.0, sleep=None, find_pack=None, prefs=None, log_dir=None, log_max=LOG_MAX_BYTES,
                  clock=None, log=None, tools=None):
@@ -235,7 +236,7 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
         # hook が使う値は Queue の __init__ の前に置く(前の起動の待ちを戻すと、すぐに糸が段を進める)
         self.root = repo_root
         self.prefs = prefs   # ホームの設定(src/app/prefs.py)。カットの無い文書のカットの方法 autorun.cut
-        self._delivery_init(log_dir)   # ライブの切り抜きの組の溜めの置き場所とロック(src/human/friend/delivery.py の Delivery)
+        self._delivery_init(log_dir)   # ライブの切り抜きの組の溜めの置き場所とロック(src/flow/delivery.py の Delivery)
         # パックの有無の見方は案件の画面とそろえる(cases.find_pack)。client・env・poll・sleep・log(入口のログ launcher.log に1行)・clock・closed は Runner、
         # 待ち行列・記録・待ちの記録(log_dir の autorun-runs.jsonl・autorun-active.json)は Queue が持つ
         super().__init__(client, env=env, poll=poll, sleep=sleep, log=log, clock=clock, find_pack=cases.find_pack if find_pack is None else find_pack,
@@ -616,9 +617,15 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
         lo, hi, _label = prefs_mod.INTAKE_RANGES["deliverBatch"]
         return prefs_mod.DEFAULTS["intake"]["deliverBatch"], lo, hi
 
-    def _remember_not_sent(self, video_id, mark_id, code, text):
-        """Delivery が送らなかったまとめて実行の切り抜きを案件に残す(auto[マーク].notSent = {code, text, at}。案件の札・品質のカード。D-SEND)"""
-        cases.remember_auto(self.root, video_id, mark_id, self.env, not_sent={"code": code, "text": text})
+    def _friend_batch(self):
+        """Delivery の組の本数の 2 つ目: 友人のアプリの「届け方」(③ 受付の <受付のフォルダ>/設定/届け方.json。D-SEND 2-4)か None"""
+        return intake_mod.read_delivery_prefs(intake_mod.configured_folder(self.prefs))
+
+    def _returned_request(self, video_id):
+        """Delivery の依頼済みの 3 つ目の引き方: 友人の PC で処理した依頼の配信か(③ 送り返し。D-SEND 2-9)。読めなければ OSError"""
+        if not self.log_path:
+            return False
+        return video_id in returns_mod.requested_videos(os.path.dirname(os.path.dirname(self.log_path)))
 
     def _remember_doc_streamer(self, tid, name):
         """依頼で選んだ配信者を、この文書の配信者として覚える(パックのときの字幕の色。段5 の記憶と同じ)。-> 覚えたか"""

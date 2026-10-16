@@ -35,13 +35,14 @@
   - clip["review"] = {deliveredAt, delivered, failure, notSent?}: 届けたか(② flow/deliveries.delivered_marks = 届けた記録から毎回引く。案件には写さない。
     マークの空の古い行はパックのフォルダの名前で引く)・失敗の文(M3。src/flow/live_failures.failure_of だけが作る。<作業データ>/app/live/exports.json の
     書き出しのジョブをスタジオのマークで引く。読むだけ)。案件の autoClips {total}・一覧全体の auto も同じ数
-  - 操作は auto_review(POST /api/cases/auto): deliver = 採用 = パックを zip にして Dropbox の 出力 へ(src/human/friend/deliver.py)/ discard = 要らない =
+  - 操作は auto_review(POST /api/cases/auto): deliver = 採用 = パックを zip にして Dropbox の 出力 へ(src/flow/deliver.py)/ discard = 要らない =
     パック・切り抜きの mp4・.clip.json などを ごみ箱フォルダ へ移す(片付けと同じ場所。片付けの TRASH_DAYS で起動時に消える)+ スタジオのマークを不採用に +
     その文字起こしを一覧で非表示に(データは消さない)。どちらも人の判断を ③ human/judgments に 1 行(who self・adopt / reject・via cases)
-  - 案件ファイルには cases[配信]["auto"][スタジオのマーク] = {discardedAt, tx, expiredAt, origin, notSent} を持つ(要らないにした文字起こし tx は
-    「単体の文字起こし」に出さない)
-  - まとめて実行で友人へ自動で送る形(D-SEND。notes:plan/d-send-requirements.md の 2-8): 送らなかったら届ける段が auto[マーク] に origin "full" と
-    notSent = {code, text, at}(理由の鍵と文は ② flow/sendpolicy.REASONS)を書く(remember_auto)。送った物は届けた記録の mode full・origin auto で見分ける。
+  - 案件ファイルには cases[配信]["auto"][スタジオのマーク] = {discardedAt, tx, expiredAt} を持つ(要らないにした文字起こし tx は
+    「単体の文字起こし」に出さない。前の版が書いた origin・notSent は読むだけ)
+  - まとめて実行で友人へ自動で送る形(D-SEND。notes:plan/d-send-requirements.md の 2-8): 送らなかったら届ける段が ② の送らなかった記録 logs/not-sent.jsonl に
+    {配信, マーク, code, text, at}(理由の鍵と文は ② flow/sendpolicy.REASONS)を書く(flow/deliveries.record_not_sent。ds1 = 3-71 m3e。前は案件の auto[マーク] に
+    origin "full" と notSent)。送った物は届けた記録の mode full・origin auto で見分ける。
     どちらかがある切り抜きはライブでなくても clip["auto"] = {origin "full", originLabel "まとめて実行"}(品質のカードに出る)。
     clip["review"]["notSent"] は届けていない間だけ(案件の画面の札)
   - 日数の片付け(expire_unseen。10-16 ユーザー): 届けた自動の切り抜きは届けてから・届けていない物は作ってから EXPIRE_SEC でごみ箱へ。
@@ -71,7 +72,7 @@ TODO_ORDER = ("proof", "pack", "transcribe", "export", "review")
 TODO_LABEL = {"proof": "校正", "pack": "パックを作る", "transcribe": "文字起こし", "export": "書き出し", "review": "候補の確認"}
 # 自動でできた切り抜き(線 D の M9)。.clip.json の source.live.origin(src/flow/live_export.py の ORIGINS の auto・archive)→ 画面に出す出どころ
 AUTO_ORIGINS = {"auto": "配信中の候補", "archive": "配信後の解析"}
-# まとめて実行(mode full)で自動で採用して友人へ自動で送る形の切り抜き(D-SEND)。.clip.json はライブでないので、案件の auto[マーク].origin が "full" で見分ける
+# まとめて実行(mode full)で自動で採用して友人へ自動で送る形の切り抜き(D-SEND)。.clip.json はライブでないので、② の送らなかった記録・届けた記録(と前の版の案件の auto[マーク].origin "full")で見分ける
 FULL_ORIGIN, FULL_LABEL = "full", "まとめて実行"
 AUTO_OPS = ("deliver", "discard")   # 「見た」(seen)は MARKS-3 で消した(古い画面から来たら 400)
 AUTO_KEEP = 2000                   # 案件 1 件で覚えておく確認の数(古いものから捨てる)
@@ -286,8 +287,9 @@ def _sent_full(dm):
     return bool(dm) and dm.get("mode") == "full" and dm.get("origin") == "auto"
 
 
-def _apply_review(cases, saved, failures, delivered):
-    """自動でできた切り抜きに、届けた(② の届けた記録)と失敗の文と送らなかった理由を重ねる(clip["review"])。
+def _apply_review(cases, saved, failures, delivered, not_sent=None):
+    """自動でできた切り抜きに、届けた(② の届けた記録)と失敗の文と送らなかった理由(② の送らなかった記録 not_sent。無ければ案件の古い auto[マーク].notSent)を
+    重ねる(clip["review"])。
     日数で片付けた(expiredAt)切り抜きで動画がもう無い物は一覧から外す(片付けはスタジオのマークを変えない = 10-14。マークは書き出し済みのまま残る)"""
     for c in cases:
         rec = _auto_records(saved.get(c["id"]))
@@ -304,7 +306,7 @@ def _apply_review(cases, saved, failures, delivered):
             dm = delivered_of(delivered, c["id"], cl.get("markId"), cl.get("path"))
             done = _int_ms((dm or {}).get("at")) or (1 if dm else 0)   # 時刻の無い古い行も「届けた」(ずっと前)
             cl["review"] = {"deliveredAt": done, "delivered": (dm or {}).get("zip") or "", "failure": failures.get((c["id"], cl.get("markId")))}
-            ns = r.get("notSent")
+            ns = (not_sent or {}).get((c["id"], cl.get("markId"))) or r.get("notSent")   # ② の記録(ds1)・無ければ前の版が案件に書いた物
             if not done and isinstance(ns, dict) and isinstance(ns.get("code"), str):   # 送らなかった理由(D-SEND。届けたあとは出さない)
                 cl["review"]["notSent"] = {"code": ns["code"][:40], "text": str(ns.get("text") or "")[:200], "at": _int_ms(ns.get("at"))}
 
@@ -400,10 +402,12 @@ def _todo_first(cases):
     return out
 
 
-def build(videos, transcripts, saved=None, pack_finder=find_pack, failures=None, case_finder=_file_case, delivered=None):
+def build(videos, transcripts, saved=None, pack_finder=find_pack, failures=None, case_finder=_file_case, delivered=None, not_sent=None):
     """-> {"cases": [...], "unlinked": [文字起こし], "todoOrder", "auto": {total}}。saved: cases.json の中身(自動でできた切り抜きの記録 auto)。
-    failures: live_failures_by_mark の結果(線 D の書き出し・文字起こし・パックの失敗の文)。delivered: ② flow/deliveries.delivered_marks の結果(None = 届けたは無し)"""
+    failures: live_failures_by_mark の結果(線 D の書き出し・文字起こし・パックの失敗の文)。delivered: ② flow/deliveries.delivered_marks の結果(None = 届けたは無し)。
+    not_sent: ② flow/deliveries.not_sent_marks の結果(送らなかった切り抜き。ds1。None = 無し)"""
     saved = saved or {}
+    not_sent = not_sent or {}
     used = set()
     cases = []
     for vid, v in videos.items():
@@ -418,7 +422,8 @@ def build(videos, transcripts, saved=None, pack_finder=find_pack, failures=None,
             used.update(ids)
             auto = auto_info(m, path) if v.get("kind") == "live" else None   # 自動でできた切り抜き(線 D の M9。ライブの録画だけ)
             mid = str(m.get("id") or "")
-            if auto is None and ((recs.get(mid) or {}).get("origin") == FULL_ORIGIN or _sent_full(delivered_of(delivered, vid, mid, path))):
+            if auto is None and ((vid, mid) in not_sent or (recs.get(mid) or {}).get("origin") == FULL_ORIGIN   # 送らなかった(② の記録・前の版の案件の印)
+                                 or _sent_full(delivered_of(delivered, vid, mid, path))):
                 auto = _full_info(m)   # まとめて実行の自動で送る形(D-SEND。送った物も送らなかった物も = 品質のカードに出る)
             clips.append({"markId": str(m.get("id") or ""), "label": str(m.get("label") or "")[:80], "start": m.get("start"), "end": m.get("end"),
                           "file": str(m.get("file") or ""), "path": path, "exists": bool(path) and os.path.isfile(path),
@@ -430,7 +435,7 @@ def build(videos, transcripts, saved=None, pack_finder=find_pack, failures=None,
                                 "exported": len(clips), "candidates": sum(1 for m in marks if not m.get("status"))},
                       "clips": clips, "updatedAt": v.get("updatedAt") or 0, "streamedAt": _stream_time(v), "gone": False})
     # スタジオから消えた配信の行は出さない(MARKS-3。cases.json に残る最後に見えた紐づけ last は読み飛ばす = データは消さない)
-    _apply_review(cases, saved, failures or {}, delivered)
+    _apply_review(cases, saved, failures or {}, delivered, not_sent)
     _apply_state(cases)
     for c in cases:
         c.update(_case_extras(c))
@@ -556,7 +561,7 @@ def snapshot(repo_root, env=None):
         videos, roots = _studio_view(repo_root, env, loc)
         fails = live_failures_by_mark(loc) if any(isinstance(v, dict) and v.get("kind") == "live" for v in videos.values()) else {}
         res = build(videos, read_transcripts(loc["transcripts"]), _saved_view(saved, roots), failures=fails,
-                    delivered=_deliveries.delivered_marks(loc["logs"]))
+                    delivered=_deliveries.delivered_marks(loc["logs"]), not_sent=_deliveries.not_sent_marks(loc["logs"]))
     for c in res["cases"]:   # 案件のフォルダの case.json(読むだけ。無い案件は今までどおり。書くのは flow/placement.ensure_case だけ)
         c["caseFile"] = _case_file(c)
         c["root"] = roots.get(c["id"], "")   # ② の status?case= の鍵(案件にした配信だけ。無ければ "")。URL には出さない
@@ -631,16 +636,6 @@ def _find_auto(repo_root, case_id, mark_id, env):
     if not cl.get("auto"):
         raise ReviewError("自動でできた切り抜きではありません(人が書き出した切り抜きは「編集」の 3 パック から届けます)")
     return c, cl
-
-
-def remember_auto(repo_root, video_id, mark_id, env=None, not_sent=None):
-    """まとめて実行の自動で送る形(D-SEND)の送らなかった切り抜きを案件に残す: auto[マーク] に origin "full"(= clip["auto"] が付き、品質のカードに出る)と、
-    not_sent = {code, text} の送らなかった理由 notSent = {code, text, at}。src/app/autorun.py の _remember_not_sent から。
-    送った物は案件に写さない(届けた記録の mode full で見分ける。MARKS-3)。-> その記録"""
-    _check_case_id(video_id)
-    if not isinstance(mark_id, str) or not MARK_RE.match(mark_id):
-        raise ValueError("切り抜きの指定(markId)が正しくありません")
-    return _remember(repo_root, video_id, mark_id, env, origin=FULL_ORIGIN, not_sent=not_sent)
 
 
 EXPIRE_SEC = 3 * 86400   # 自動の切り抜きを片付けるまで(届けていない物は動画を作ってから・届けた物は届けてから。10-09・10-14・10-16 ユーザー)
@@ -734,20 +729,16 @@ def _expire_one(repo_root, c, cl, studio, trash, hide, deliveries, env, now, max
             _busy.discard(key)
 
 
-def _remember(repo_root, case_id, mark_id, env=None, discarded=None, expired=False, origin=None, not_sent=None):
+def _remember(repo_root, case_id, mark_id, env=None, discarded=None, expired=False):
     """案件ファイルに自動でできた切り抜きの記録を残す。discarded: 要らない・日数の片付けで移した文字起こしの id("" = 無い)・
-    expired: 日数で片付けた(人の「要らない」ではない)・origin: 切り抜きの出どころの印(D-SEND の "full")・not_sent: 送らなかった理由 {code, text}。
-    古い欄(seenAt・deliveredAt・delivered)は読み飛ばし、書き換えない。-> その記録 {discardedAt?, tx?, expiredAt?, origin?, notSent?}"""
+    expired: 日数で片付けた(人の「要らない」ではない)。
+    古い欄(seenAt・deliveredAt・delivered・origin・notSent)は読み飛ばし、書き換えない。-> その記録 {discardedAt?, tx?, expiredAt?}"""
     now = int(time.time() * 1000)
     loc = locations(repo_root, env)
 
     def remember(s):
         recs = _auto_records(s)
         r = dict(recs.get(mark_id)) if isinstance(recs.get(mark_id), dict) else {}
-        if origin is not None:
-            r["origin"] = origin
-        if not_sent is not None:
-            r["notSent"] = {"code": str(not_sent.get("code") or "")[:40], "text": str(not_sent.get("text") or "")[:200], "at": now}
         if discarded is not None:
             r.update(discardedAt=now, tx=str(discarded)[:64])
         if expired:

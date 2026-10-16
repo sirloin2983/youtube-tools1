@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """flow/sendpolicy.py(友人へ自動で送る判定。D-SEND の段 1)と flow/deliveries.py の書き口・読み口のテスト。
 py -3.10 -m unittest src/flow/tests/test_sendpolicy.py -v"""
+import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 import shutil
@@ -133,6 +134,18 @@ class TestDeliveries(unittest.TestCase):
         from unittest import mock
         with mock.patch.object(D.os, "stat", side_effect=PermissionError("x")):
             self.assertIsNone(D.delivered_marks(self.tmp), "読めない = 届けたかが分からない")
+
+    def test_not_sent_marks(self):
+        """送らなかった記録(ds1。前は案件の auto[マーク].notSent): 同じ切り抜きは新しい方・壊れた行と配信 / マーク / 理由の無い行は読み飛ばす・無ければ {}"""
+        self.assertEqual(D.not_sent_marks(self.tmp), {})
+        self.assertEqual(D.not_sent_marks(None), {})
+        D.record_not_sent(self.tmp, "v1", "m1", "stale", "古い", run_id="r1")
+        with open(os.path.join(self.tmp, D.NOT_SENT_LOG), "a", encoding="utf-8") as f:
+            f.write("{壊れた\n" + json.dumps({"at": 1, "videoId": "", "markId": "m2", "code": "x"}) + "\n" + json.dumps({"at": 1, "videoId": "v1", "markId": "m3"}) + "\n")
+        D.record_not_sent(self.tmp, "v1", "m1", "expired", "切れた")
+        got = D.not_sent_marks(self.tmp)
+        self.assertEqual(list(got), [("v1", "m1")])
+        self.assertEqual((got[("v1", "m1")]["code"], got[("v1", "m1")]["text"]), ("expired", "切れた"))
 
 
 if __name__ == "__main__":

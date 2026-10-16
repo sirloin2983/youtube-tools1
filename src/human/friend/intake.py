@@ -38,6 +38,7 @@ import time
 import uuid
 
 from flow import envelope, placement
+from flow.deliver import BAD_NAME_CHARS, OUT_DIR   # ファイル名に使えない文字・出力\ の名前(届ける側 ② と同じ 1 か所。ds1)
 from flow import spec as _spec   # 区間・重みの理由つきの検査(まとめて実行と同じ。opt-human 9b-2)
 from ytt import colors, fsio, names as ytt_names, normalize, studio_env, tools, yturl
 from . import friend_feedback  # noqa: E402  (友人のアプリの「要らない」<zip の名前>.feedback.json の読み取り。片付けは入口が feedback= で渡す)
@@ -47,12 +48,11 @@ from . import returns  # noqa: E402  (友人の送り返し 送り返し\ の zi
 VIDEO_EXT = (".mp4", ".mov", ".mkv", ".webm", ".m4v")
 TEXT_EXT = (".txt", ".url")
 REQ_SUFFIX = ".request.json"
-DONE_DIR, FAIL_DIR, OUT_DIR = "受付済み", "失敗", "出力"   # 出力\ = ① 全自動のパック(友人のアプリの「受け取る」が読む)
+DONE_DIR, FAIL_DIR = "受付済み", "失敗"   # 出力\(OUT_DIR = ① 全自動のパック。友人のアプリの「受け取る」が読む)は届ける側 ② flow/deliver の 1 か所
 FLOW_LABELS = {"auto": "① 全自動", "check": "② 軽く確認"}   # 友人の依頼は RS5-F(2026-10-10)から常に ①・手で置いた物は ②
 OLD_FLOWS = ("auto", "check", "manual")   # 古いアプリが送る flow の値(① に読み替え、元の値は記録の flowOrig に残すだけ)
 REQ_KINDS = ("video", "url", "live")   # 依頼の種類(live = ライブ配信。2-15。2.8.0 のアプリ)
 NOTE_LABELS = ("配信者", "ライブ配信")   # 受け付けた・断ったの数に入れない知らせの行
-BAD_NAME_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f]')   # ファイル名に使えない文字(_ に置き換える。届ける側 deliver.py も使う)
 REQ_DIRS_MAX = 64   # 依頼 id -> 置き場所の覚えの数(古い物から忘れる。速さのためだけ = 忘れても placement.find_request_dir で同じフォルダを引く)
 REQ_ID_RE = re.compile(r"^\d{8}-\d{6}-[0-9a-f]{6}$")
 APP_FILE_RE = re.compile(r"^(\d{8}-\d{6}-[0-9a-f]{6})__(.+)$")   # 友人のプログラムが送った動画の名前
@@ -890,7 +890,7 @@ class Intake:
 
     def _notify_rejected(self, folder, rid, title, items):
         """友人のアプリの依頼で、受け付けなかった物があれば 出力/<依頼 id>__<題>.失敗.txt に理由を置く(アプリの「受け取る」に出る。段9 9-4)。
-        処理が始まってから止まったときは human/friend/delivery.py の _deliver_failure が同じ形で置く"""
+        処理が始まってから止まったときは ② flow/delivery.py の _deliver_failure が同じ形で置く"""
         bad = [i for i in items if i["state"] == "rejected"]
         if not bad or not rid or not REQ_ID_RE.match(str(rid)):
             return

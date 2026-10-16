@@ -16,11 +16,12 @@ import zipfile
 from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> friend -> human -> src
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from human.friend import deliver  # noqa: E402
+from flow import deliver  # noqa: E402
+from pipeline.pack import preview as pv  # noqa: E402  (まとめ動画は ① へ分けた。ds1)
 
 
 def put(path, data=b"x"):
@@ -98,7 +99,7 @@ class OriginTest(unittest.TestCase):
         put(os.path.join(self.pack, "clip.mp4"), b"v")
         self.out = os.path.join(self.tmp, "Dropbox", deliver.OUT_DIR)
         self.logs = os.path.join(self.tmp, "logs")
-        p = mock.patch.object(deliver, "batch_preview", lambda dirs, check=None, log=None: None)
+        p = mock.patch.object(pv, "batch_preview", lambda dirs, check=None, log=None: None)
         p.start()
         self.addCleanup(p.stop)
 
@@ -178,11 +179,11 @@ class ZipPacksTest(unittest.TestCase):
         self.assertEqual([n for n in os.listdir(self.tmp) if n.startswith(".deliver-")], [])
 
     def test_pack_video_and_title(self):
-        self.assertEqual(deliver.pack_video(self.a), os.path.join(self.a, "配信 A.mp4"))   # いちばん大きくても _roughcut は選ばない
-        self.assertEqual(deliver.pack_video(self.b), os.path.join(self.b, "配信 B.mp4"))
-        self.assertIsNone(deliver.pack_video(os.path.join(self.tmp, "無い")))
-        self.assertEqual(deliver.pack_title(self.a), "配信 A")
-        self.assertEqual(deliver.pack_title(os.path.join(self.tmp, "そのまま")), "そのまま")
+        self.assertEqual(pv.pack_video(self.a), os.path.join(self.a, "配信 A.mp4"))   # いちばん大きくても _roughcut は選ばない
+        self.assertEqual(pv.pack_video(self.b), os.path.join(self.b, "配信 B.mp4"))
+        self.assertIsNone(pv.pack_video(os.path.join(self.tmp, "無い")))
+        self.assertEqual(pv.pack_title(self.a), "配信 A")
+        self.assertEqual(pv.pack_title(os.path.join(self.tmp, "そのまま")), "そのまま")
 
     def test_names_and_place_preview(self):
         """名前 <依頼 id>__<題>(使えない文字は _)・まとめ動画を zip の隣に写す(元の一時ファイルは呼ぶ側が消す)・動画の無いパックがあれば作らない"""
@@ -197,7 +198,7 @@ class ZipPacksTest(unittest.TestCase):
         self.assertTrue(os.path.isfile(preview))
         empty = os.path.join(self.tmp, "空_pack")
         os.makedirs(empty)
-        self.assertIsNone(deliver.batch_preview([self.a, empty]))   # ffmpeg を呼ばない
+        self.assertIsNone(pv.batch_preview([self.a, empty]))   # ffmpeg を呼ばない
         self.assertEqual([n for n in os.listdir(self.tmp) if n.startswith(".deliver-")], [])
 
 
@@ -311,14 +312,14 @@ class GroupFilesTest(unittest.TestCase):
         def probe(path, ffprobe=None, **_k):
             asked.append((path, ffprobe))
             return infos.get(path)
-        with mock.patch.object(deliver.normalize, "probe", probe):
-            self.assertEqual(deliver.clip_seconds([a, b, c, d], ffprobe="FFPROBE"), [48.25, None, None, None])
-            self.assertEqual(deliver.clip_seconds([]), [])
+        with mock.patch.object(pv.normalize, "probe", probe):
+            self.assertEqual(pv.clip_seconds([a, b, c, d], ffprobe="FFPROBE"), [48.25, None, None, None])
+            self.assertEqual(pv.clip_seconds([]), [])
             infos[os.path.join(c, "c.mp4")] = {"duration": 7}
             infos[os.path.join(b, "b.mp4")] = {"duration": -3.0}
-            self.assertEqual(deliver.clip_seconds([b, c]), [None, 7.0])
-            self.assertIsInstance(deliver.clip_seconds([c])[0], float)
-            self.assertEqual(deliver.clip_seconds([os.path.join(self.tmp, "無い_pack")]), [None])   # フォルダが無い
+            self.assertEqual(pv.clip_seconds([b, c]), [None, 7.0])
+            self.assertIsInstance(pv.clip_seconds([c])[0], float)
+            self.assertEqual(pv.clip_seconds([os.path.join(self.tmp, "無い_pack")]), [None])   # フォルダが無い
         self.assertEqual(asked[0], (os.path.join(a, "a.mp4"), "FFPROBE"), "いちばん大きい動画(_roughcut でない)を調べる")
         self.assertNotIn(os.path.join(d, "cut-plan.json"), [p for p, _f in asked])
         self.assertEqual(len([1 for p, _f in asked if p.startswith(d)]), 0, "動画の無いパックは ffprobe を呼ばない")
@@ -328,8 +329,8 @@ class PreviewArgsTest(unittest.TestCase):
     """まとめ動画の ffmpeg の引数(ffmpeg は要らない): 等速だけ(setpts/atempo を入れない)・札はずっと(2026-10-08 ユーザー決定)"""
 
     def test_normal_speed_and_label_always(self):
-        self.assertEqual(deliver.PREVIEW_LABEL_SEC, 0)
-        args = deliver._preview_args("ffmpeg", ["a.mp4", "b.mp4"], "out.mp4", 480, True, label_files=["l1.txt", "l2.txt"], font="C:/Windows/Fonts/meiryo.ttc")
+        self.assertEqual(pv.PREVIEW_LABEL_SEC, 0)
+        args = pv._preview_args("ffmpeg", ["a.mp4", "b.mp4"], "out.mp4", 480, True, label_files=["l1.txt", "l2.txt"], font="C:/Windows/Fonts/meiryo.ttc")
         fc = args[args.index("-filter_complex") + 1]
         self.assertNotIn("setpts", fc)
         self.assertNotIn("atempo", fc)
@@ -339,7 +340,7 @@ class PreviewArgsTest(unittest.TestCase):
         self.assertIn("concat=n=2:v=1:a=1[v][a]", fc)
 
     def test_without_labels_or_audio(self):
-        args = deliver._preview_args("ffmpeg", ["a.mp4"], "out.mp4", 480, False)
+        args = pv._preview_args("ffmpeg", ["a.mp4"], "out.mp4", 480, False)
         fc = args[args.index("-filter_complex") + 1]
         self.assertNotIn("drawtext", fc)
         self.assertIn("concat=n=1:v=1:a=0[v]", fc)
@@ -374,7 +375,7 @@ class PreviewTest(unittest.TestCase):
         from ytt import normalize
         a, b = self.clip("一本目_pack/一本目.mp4", 2), self.clip("二本目_pack/二本目.mp4", 2)
         out = os.path.join(self.tmp, "preview.mp4")
-        self.assertTrue(deliver.make_preview([a, b], out, ["一本目", "二本目"], ffmpeg=self.ffmpeg, ffprobe=self.ffprobe, log=self.logs.append), self.logs)
+        self.assertTrue(pv.make_preview([a, b], out, ["一本目", "二本目"], ffmpeg=self.ffmpeg, ffprobe=self.ffprobe, log=self.logs.append), self.logs)
         info = normalize.probe(out, ffprobe=self.ffprobe)
         self.assertEqual((info["height"], info["has_audio"]), (480, True))
         self.assertAlmostEqual(info["duration"], 4.0, delta=0.5)   # 等速: 2 秒 × 2 本 = 4 秒(2026-10-08 ユーザー決定)
@@ -384,15 +385,15 @@ class PreviewTest(unittest.TestCase):
         from ytt import normalize
         a, b = self.clip("a_pack/a.mp4", 1), self.clip("b_pack/b.mp4", 1, audio=False)
         out = os.path.join(self.tmp, "preview.mp4")
-        self.assertTrue(deliver.make_preview([a, b], out, ["A", "B"], ffmpeg=self.ffmpeg, ffprobe=self.ffprobe, log=self.logs.append), self.logs)
+        self.assertTrue(pv.make_preview([a, b], out, ["A", "B"], ffmpeg=self.ffmpeg, ffprobe=self.ffprobe, log=self.logs.append), self.logs)
         self.assertFalse(normalize.probe(out, ffprobe=self.ffprobe)["has_audio"])
 
     def test_broken_input_fails_quietly(self):
         bad = os.path.join(self.tmp, "x_pack", "x.mp4")
         put(bad, os.urandom(3000))   # 文字だけのファイルは ffmpeg が「文字の動画」として読めてしまうので、でたらめなバイト列で
-        self.assertFalse(deliver.make_preview([bad], os.path.join(self.tmp, "p.mp4"), ffmpeg=self.ffmpeg, ffprobe=self.ffprobe, log=self.logs.append))
+        self.assertFalse(pv.make_preview([bad], os.path.join(self.tmp, "p.mp4"), ffmpeg=self.ffmpeg, ffprobe=self.ffprobe, log=self.logs.append))
         self.assertTrue(self.logs and "まとめ動画を作れませんでした" in self.logs[-1], self.logs)
-        self.assertFalse(deliver.make_preview([], os.path.join(self.tmp, "p.mp4")))
+        self.assertFalse(pv.make_preview([], os.path.join(self.tmp, "p.mp4")))
 
     def test_run_ffmpeg_stops_on_check_and_timeout(self):
         """まとめ動画の ffmpeg: check() が例外を投げたら止めて投げ直す・時間切れは (1, "timeout")・普通に終われば (0, 標準エラーの末尾)"""
@@ -408,10 +409,10 @@ class PreviewTest(unittest.TestCase):
                 raise Stop()
         t0 = time.time()
         with self.assertRaises(Stop):
-            deliver._run_ffmpeg(slow, 60, check)
-        self.assertEqual(deliver._run_ffmpeg(slow, 1, None), (1, "timeout"))
+            pv._run_ffmpeg(slow, 60, check)
+        self.assertEqual(pv._run_ffmpeg(slow, 1, None), (1, "timeout"))
         self.assertLess(time.time() - t0, 15)
-        code, err = deliver._run_ffmpeg([self.ffmpeg, "-hide_banner", "-loglevel", "error", "-i", os.path.join(self.tmp, "無い.mp4"), "-f", "null", "-"], 30, None)
+        code, err = pv._run_ffmpeg([self.ffmpeg, "-hide_banner", "-loglevel", "error", "-i", os.path.join(self.tmp, "無い.mp4"), "-f", "null", "-"], 30, None)
         self.assertNotEqual(code, 0)
         self.assertTrue(err)
 
@@ -422,7 +423,7 @@ class PreviewTest(unittest.TestCase):
         put(bad, os.urandom(3000))
         empty = os.path.join(self.tmp, "空_pack")
         os.makedirs(empty)
-        got = deliver.clip_seconds([os.path.dirname(a), os.path.dirname(bad), empty], ffprobe=self.ffprobe)
+        got = pv.clip_seconds([os.path.dirname(a), os.path.dirname(bad), empty], ffprobe=self.ffprobe)
         self.assertAlmostEqual(got[0], 2.0, delta=0.5)
         self.assertEqual(got[1:], [None, None])
 
@@ -440,7 +441,7 @@ class DeliveriesTest(unittest.TestCase):
         self.logs = []
         self.log_dir = os.path.join(self.tmp, "logs")
         self.dl = deliver.Deliveries(lambda: self.cfg["folder"], lambda d: os.path.normpath(d) in self.packs, log=self.logs.append, log_dir=self.log_dir)
-        p = mock.patch.object(deliver, "batch_preview", lambda dirs, check=None, log=None: None)   # まとめ動画は作らない(ffmpeg を呼ばない)。作るときは各テストで
+        p = mock.patch.object(pv, "batch_preview", lambda dirs, check=None, log=None: None)   # まとめ動画は作らない(ffmpeg を呼ばない)。作るときは各テストで
         p.start()
         self.addCleanup(p.stop)
 
@@ -461,7 +462,7 @@ class DeliveriesTest(unittest.TestCase):
             put(tmp_preview, b"PV")
             return tmp_preview
         clip = os.path.join(self.tmp, "clip.mp4")
-        with mock.patch.object(deliver, "batch_preview", fake_preview):
+        with mock.patch.object(pv, "batch_preview", fake_preview):
             j = wait(self.dl, self.dl.start(self.pack, "題", clip={"path": clip, "markId": "m1", "videoId": "abcdefghijk"}))
         self.assertEqual(j["state"], "done")
         out = os.path.join(self.folder, deliver.OUT_DIR)

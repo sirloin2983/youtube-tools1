@@ -74,7 +74,7 @@
                                           archiveInfo.afterStream(配信後の全自動 = 設定 live.autoAfterStream)。まとめて実行の待ち・実行中は起動し直しで戻る
   POST api/ytt/live                       {op: "status"} → 録画中の録画(全ツールのヘッダーの札。オフなら {enabled: false})/ {op: "stop", recorder, recording}
   POST api/ytt/deliver                    {op: "start", dir, title} → {"job"} / {op: "status", job} → {"job"}。パックを友人へ届ける
-                                          (Dropbox の見張るフォルダの 出力 に zip で置く。src/human/friend/deliver.py。2026-10-04)
+                                          (Dropbox の見張るフォルダの 出力 に zip で置く。src/flow/deliver.py。2026-10-04)
 
 設計の要点
 - 子プロセスの出力は <作業データ>/app/logs/<ID>.log に書く(1つの黒い画面に3つのツールの出力が混ざらないように)
@@ -147,7 +147,7 @@ from human.check import speech as _check_speech  # noqa: E402,F401  (「この�
 from human.check import cutcard as _check_cutcard  # noqa: E402,F401  (自動カットのカードの答えを apply に登録する。CUT-CARD)
 from human.check import section as _check_section  # noqa: E402,F401  (評価のレーンの区間カードの反映を apply に登録する。C-EVAL)
 from human.check import voice as _check_voice  # noqa: E402,F401  (誰の声のカードの反映と声の覚え直し。読み込みで apply に登録する。V2c)
-from human.friend import deliver as deliver_mod  # noqa: E402 (src/human/friend/deliver.py: パックを友人へ届ける = Dropbox の 出力 に zip で置く)
+from flow import deliver as deliver_mod  # noqa: E402 (src/flow/deliver.py: パックを友人へ届ける = Dropbox の 出力 に zip で置く。ds1 で ② へ)
 from manage.cases import cases as cases_mod  # noqa: E402  (src/manage/cases/cases.py: 案件(配信1本)ごとの紐づけ)
 from manage.cases import outdirs as outdirs_mod  # noqa: E402  (src/manage/cases/outdirs.py: 書き出し先を変えたあとの案件の繋ぎ直し・「調子」の置き場所の行。RS8 B3-8 の残り)
 from human.friend import friend_feedback as friend_feedback_mod  # noqa: E402  (src/human/friend/friend_feedback.py: 友人の「要らない」= 切り抜きとパックを ごみ箱 へ・記録を残す。マークは変えない)

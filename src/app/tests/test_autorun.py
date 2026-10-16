@@ -19,8 +19,9 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 sys.path.insert(0, os.path.dirname(HERE))
 import autorun as A  # noqa: E402
-from human.friend import deliver as deliver_mod  # noqa: E402  (届ける部品。RS3-3 で AutoRunner の届けは human/friend/delivery.py の Delivery へ)
-from human.friend import delivery as DL  # noqa: E402
+from flow import deliver as deliver_mod  # noqa: E402  (届ける部品。RS3-3 で AutoRunner の届けは Delivery へ・ds1 で ② flow/delivery.py へ)
+from flow import delivery as DL  # noqa: E402
+from pipeline.pack import preview as pv  # noqa: E402  (まとめ動画は ① へ分けた。ds1)
 from human.friend import friend_feedback  # noqa: E402
 import prefs as prefs_mod  # noqa: E402
 from flow import runlog  # noqa: E402
@@ -264,8 +265,8 @@ class Base(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
-        self.addCleanup(setattr, deliver_mod, "make_preview", deliver_mod.make_preview)
-        deliver_mod.make_preview = _fake_preview
+        self.addCleanup(setattr, pv, "make_preview", pv.make_preview)
+        pv.make_preview = _fake_preview
         self.tools = FakeTools(self.tmp, json.loads(json.dumps(self.marks)), self.analysis)
         self.env = {"TRANSCRIBE_DATA_DIR": os.path.join(self.tmp, "txdata"), "YTT_DATA_DIR": os.path.join(self.tmp, "data")}
         from manage.cases import cases
@@ -1341,8 +1342,8 @@ class TestRequests(Base):
 
     def fake_seconds(self, *secs):
         """各パックの切り抜きの長さ(ffprobe の結果)を決めた値にする。偽の動画は読めないので、そのままだと長さは None"""
-        self.addCleanup(setattr, deliver_mod, "clip_seconds", deliver_mod.clip_seconds)
-        deliver_mod.clip_seconds = lambda dirs, ffprobe=None: list(secs)[:len(dirs)]
+        self.addCleanup(setattr, pv, "clip_seconds", pv.clip_seconds)
+        pv.clip_seconds = lambda dirs, ffprobe=None: list(secs)[:len(dirs)]
 
     def record_places(self, out):
         """置く順の見張り: zip を作る直前・一覧を書く直前に、そのとき 出力\\ にあるものを控える(友人の同期で欠けないように ① まとめ動画 → ② zip → ③ 一覧)"""
@@ -1491,8 +1492,8 @@ class TestRequests(Base):
     def test_group_without_preview_still_delivers_zips_and_list(self):
         """まとめ動画を作れなくても(ffmpeg が無い・動画が壊れている)zip と一覧は届ける(一覧の preview は null)"""
         self.tools.known = False
-        self.addCleanup(setattr, deliver_mod, "make_preview", deliver_mod.make_preview)
-        deliver_mod.make_preview = lambda *a, **k: False
+        self.addCleanup(setattr, pv, "make_preview", pv.make_preview)
+        pv.make_preview = lambda *a, **k: False
         out = os.path.join(self.tmp, "Dropbox", "出力")
         run = self.wait(self.r.start_request([{"id": VID, "top": 2, "title": "配信", "channel": ""}], request_id=self.RID, flow="auto", deliver_dir=out)["runs"][0])
         self.assertEqual(run["state"], "done", run)
@@ -2230,6 +2231,11 @@ class TestAutoSend(Base):
         from flow import deliveries
         return deliveries.rows(self.logs) or []
 
+    def notsent(self):
+        """② の送らなかった記録(logs/not-sent.jsonl。ds1)-> {マーク: {code, text, at}}(この配信の分)"""
+        from flow import deliveries
+        return {m: r for (v, m), r in deliveries.not_sent_marks(self.logs).items() if v == VID}
+
     def test_full_sends_group_with_origin_auto(self):
         run = self.go()
         self.assertEqual((run["state"], self.step(run)["state"]), ("done", "done"), run)
@@ -2273,7 +2279,7 @@ class TestAutoSend(Base):
 
     def test_not_sent_reasons(self):
         """送らない 4 つ(チェックを外した・友人の依頼あり・終わった時刻が分からない・48 時間を過ぎた): 段は飛ばして理由の文(flow/sendpolicy.REASONS)・
-        切り抜きごとに notSent(案件の札・品質のカード)。何も置かない"""
+        切り抜きごとに ② の送らなかった記録(案件の札・品質のカード。ds1 で案件の auto から移した)。何も置かない"""
         from flow import sendpolicy
         run = self.go(auto_send=False)   # 1 本目で解析・採用・書き出し・パックまで済ませる(チェックを外した)
         self.assertEqual((run["state"], self.step(run)["state"], self.step(run)["detail"]), ("done", "skip", sendpolicy.REASONS["unchecked"]), run)
@@ -2287,15 +2293,14 @@ class TestAutoSend(Base):
             run = self.go()
             want = text or sendpolicy.REASONS[code]
             self.assertEqual((run["state"], self.step(run)["state"], self.step(run)["detail"]), ("done", "skip", want), (code, run))
-            recs = self.recs()
-            self.assertEqual({k: (r["origin"], r["notSent"]["code"], r["notSent"]["text"]) for k, r in recs.items()},
-                             {k: ("full", code, want) for k in ("a2", "a3")}, code)
-            self.assertFalse(any(r.get("seenAt") for r in recs.values()), "「見た」は書かない(MARKS-3 で消した)")
+            self.assertEqual({k: (r["code"], r["text"]) for k, r in self.notsent().items()}, {k: (code, want) for k in ("a2", "a3")}, code)
+            self.assertEqual(self.recs(), {}, "送らなかったは案件に写さない(ds1)")
         self.assertEqual(self.outs(), [])
         self.assertEqual(self.rows(), [])
         # 案件の画面: 送らなかった札(review.notSent)・自動の印(品質のカードの対象)。「未確認」は無い(MARKS-3)
         saved = self.cases.load_saved(self.cases.locations(os.path.join(self.tmp, "repo"), self.env)["cases"])
-        built = self.cases.build({VID: json.loads(json.dumps(self.tools.video))}, [], saved)
+        from flow import deliveries
+        built = self.cases.build({VID: json.loads(json.dumps(self.tools.video))}, [], saved, not_sent=deliveries.not_sent_marks(self.logs))
         c = next(x for x in built["cases"] if x["id"] == VID)
         got = {cl["markId"]: cl for cl in c["clips"]}
         self.assertEqual({k: (cl["auto"]["origin"], cl["review"]["notSent"]["code"], "unconfirmed" in cl["review"]) for k, cl in got.items()},
@@ -2314,7 +2319,7 @@ class TestAutoSend(Base):
 
     def test_park_then_flush_and_expire(self):
         """置けない(受付の Dropbox のフォルダが無い)→ 実行は失敗にせず溜めに預ける(段は warn・友人に .失敗.txt を置かない)→ フォルダが戻れば flush で届く。
-        48 時間を過ぎた溜めは送らずに消して notSent expired"""
+        48 時間を過ぎた溜めは送らずに消して送らなかった記録に expired"""
         shutil.rmtree(self.folder)
         run = self.go()
         self.assertEqual((run["state"], self.step(run)["state"]), ("done", "warn"), run)
@@ -2348,8 +2353,7 @@ class TestAutoSend(Base):
         self.assertEqual(self.r.flush_pools(lambda m: False), 0)
         self.assertEqual((self.r.pools(), self.outs()), ({}, before))
         from flow import sendpolicy
-        self.assertEqual((self.recs()["zz"]["origin"], self.recs()["zz"]["notSent"]["code"], self.recs()["zz"]["notSent"]["text"]),
-                         ("full", "expired", sendpolicy.REASONS["expired"]))
+        self.assertEqual((self.notsent()["zz"]["code"], self.notsent()["zz"]["text"]), ("expired", sendpolicy.REASONS["expired"]))
         self.assertTrue(any("送りませんでした" in m for m in self.msgs), self.msgs)
 
     def test_no_double_on_resume_or_rerun(self):

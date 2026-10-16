@@ -29,7 +29,7 @@ VERDICT_SUFFIX = ".verdict.json"
 LOGS_DIR = "logs"                  # 届けた記録 deliveries.jsonl の置き場所(app の直下の logs)
 VERDICT_WHAT = {"keep": "adopt", "reject": "reject", "made_video": "made_video"}   # 送り返しの採否 → 人の判断の what
 VERDICTS = ("keep", "reject", "made_video")
-ORIGINS = ("request", "auto")       # 採否の任意の origin(D-SEND 2-7。友人に見せる出どころ = human/friend/deliver.face_origin と同じ 2 つ)
+ORIGINS = ("request", "auto")       # 採否の任意の origin(D-SEND 2-7。友人に見せる出どころ = flow/deliver.face_origin と同じ 2 つ)
 VERDICT_RE = re.compile(r"^([0-9A-Za-z_-]{1,64})__([^\\/:*?\"<>|\x00-\x1f]{1,120})" + re.escape(VERDICT_SUFFIX) + r"\Z")
 MAX_FILES = 2000                    # zip の中の数
 MAX_TOTAL = 400 * 1024 * 1024       # 展開後の合計(zip 爆弾を断る)

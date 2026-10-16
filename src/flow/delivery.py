@@ -1,7 +1,9 @@
-"""③ 友人へ届ける: まとめて実行の「Dropbox へ届ける」段と、ライブの切り抜きの組の溜め(まとめて実行 AutoRunner が継ぐ mixin)。
+"""② 友人へ届ける: まとめて実行の「Dropbox へ届ける」段と、ライブの切り抜きの組の溜め(まとめて実行 AutoRunner が継ぐ mixin)。
+ds1(要件 1-5「届ける段と溜めは ② へ」・仮決め 3-70 ds1・3-71 m3i)で ③ human/friend から移した(動きは変えていない)。
+① まとめ動画は pipeline/pack/preview・1 本の届け方は同じフォルダの deliver。③(受付・送り返し)は読まない(友人の PC には ③ が無い)。
 
 形: AutoRunner(入口の src/app/autorun.py)が `class AutoRunner(Delivery, Queue)` で継ぐ(Queue = src/flow/runqueue.py)。ここは入口の部品
-(autorun・launch・live・prefs)も案件の部品(manage/cases)も読まない = 要るものは継いだクラスが埋める:
+(autorun・launch・live・prefs)も案件の部品(manage/cases)も ③ も読まない = 要るものは継いだクラスが埋める:
   - _deliver_batch_limits() -> (既定, 下限, 上限)  n 本ごとに組にする数の既定と範囲(ホームの設定 intake.deliverBatch。AutoRunner が prefs から)
   - _save_active()・_active_runs()                 待ち・実行中の記録を残す(M5)・待ちと実行中の一覧(Queue)
   - 属性 prefs(ホームの設定。get だけ)・log_path(終わった実行の記録のパス。隣に deliveries.jsonl)・cv・log・clock・find_pack と
@@ -17,13 +19,14 @@ n 本たまったら組で届ける(flush_pools は入口の src/app/live.py が
 友人へ自動で送る(D-SEND。要件 notes:plan/d-send-requirements.md・判定と理由の文は ② flow/sendpolicy):
   - 出どころ(_origin): run.deliver_origin(request・auto・manual)。無ければ依頼の id があれば request・無ければ auto。友人に見せる形は deliver.face_origin
   - まとめて実行(mode full)の届ける段は、先に sendpolicy.decide(チェック = 届け先があるか・友人の依頼済み = _requested・配信が終わった時刻 =
-    スタジオの配信の analysis)。送らないなら段は飛ばして理由の文・切り抜きごとに _remember_not_sent(案件の auto[マーク].notSent)
+    スタジオの配信の analysis)。送らないなら段は飛ばして理由の文・切り抜きごとに _remember_not_sent(② の送らなかった記録 logs/not-sent.jsonl。
+    flow/deliveries.record_not_sent。前は案件の auto[マーク].notSent・origin "full" = 3-71 m3e)
   - 置けない(Dropbox のフォルダが無い・書けない)とき、出どころ auto は実行を失敗にせず溜めに預ける(鍵 full|<deliver_tag>|<配信>。meta.parked)・段は warn。
     flush_pools がすぐ送り直す(受付のフォルダがあるとき)。配信が終わってから 48 時間(sendpolicy.FRESH_SEC)を過ぎたら送らず溜めを消し notSent expired
   - 友人に失敗の知らせ(.失敗.txt)を置くのは依頼(request)だけ(2-6)。環境変数 YTT_AUTO_SEND=off(sendpolicy.switched_off)なら auto は届けない
-  - 組の本数(_batch_size): 依頼ごと → 友人のアプリの「届け方」(intake.read_delivery_prefs = <受付のフォルダ>/設定/届け方.json。2-4)→ ホームの設定
-継ぐ側が埋める物(上に加えて。既定は何もしない): _remember_not_sent(配信, マーク, 理由の鍵, 文)・属性 requested_hook(配信 id) -> 受け付けた時刻か None
-(入口が受付の Intake.requested_at を渡す)。
+  - 組の本数(_batch_size): 依頼ごと → 友人のアプリの「届け方」(継ぐ側の _friend_batch = 受付の <受付のフォルダ>/設定/届け方.json。2-4)→ ホームの設定
+継ぐ側が埋める物(上に加えて。既定は何もしない): _friend_batch() -> 友人のアプリの届け方の本数か None・_returned_request(配信 id) -> 友人の PC で
+処理した依頼か(③ 送り返し)・属性 requested_hook(配信 id) -> 受け付けた時刻か None(入口が受付の Intake.requested_at を渡す)。
 届けたは案件に写さない(届けた記録 logs/deliveries.jsonl は deliver.deliver_one が書き、案件は ② flow/deliveries.delivered_marks で引く。MARKS-3)。
 """
 import contextlib
@@ -33,14 +36,13 @@ import shutil
 import threading
 import uuid
 
-from flow import deliveries as deliveries_mod   # 届けた記録の読み口(依頼済みの配信・届け済みのパック)
-from flow import envelope   # 届け方の数の範囲(batch_ok)
-from flow import run as run_mod   # 段の表 MODE_STEPS・段の失敗 StepError(② の経路)
-from flow import sendpolicy   # 友人へ自動で送るかの判定と理由の文(D-SEND)
+from pipeline.pack import preview as _preview   # ① 組のまとめ動画・切り抜きの長さ・パックの題
 from ytt import fsio, tools
-from . import deliver as deliver_mod   # 1 本を届ける(まとめ動画 → zip → 届けた記録)・組のまとめ動画・名前の整え方
-from . import intake as intake_mod   # 受付のフォルダの読み方・友人のアプリの「届け方」(2-4)
-from . import returns as returns_mod   # 友人の PC で処理した依頼の配信(2-9)
+from . import deliver as deliver_mod   # 1 本を届ける(まとめ動画 → zip → 届けた記録)・組の一覧・名前の整え方
+from . import deliveries as deliveries_mod   # 届けた記録の読み口(依頼済みの配信・届け済みのパック)・送らなかった記録の書く口
+from . import envelope   # 届け方の数の範囲(batch_ok)
+from . import run as run_mod   # 段の表 MODE_STEPS・段の失敗 StepError(② の経路)
+from . import sendpolicy   # 友人へ自動で送るかの判定と理由の文(D-SEND)
 
 POOL_FILE = "deliver-pool.json"   # ライブの切り抜きの組の溜め(実行をまたいで n 本ためて組で届ける。log_dir の中)
 POOL_SCHEMA = "ytt-deliver-pool/v1"
@@ -83,7 +85,18 @@ class Delivery:
         self.requested_hook = None            # 配信 id -> 友人の依頼で受け付けた時刻か None(入口が受付の Intake.requested_at を渡す。D-SEND 2-9)
 
     def _remember_not_sent(self, video_id, mark_id, code, text):
-        """送らなかった切り抜きを案件に残す(auto[マーク].notSent。D-SEND)。継ぐ側(AutoRunner)が埋める。既定は何もしない"""
+        """送らなかった切り抜きを ② の送らなかった記録へ(logs/not-sent.jsonl。④ 案件の札・品質のカードが引く。D-SEND・3-71 m3e)。
+        書けなければ OSError(_not_sent がログへ)。記録のフォルダが無い(log_path None)なら何もしない"""
+        if self.log_path:
+            deliveries_mod.record_not_sent(os.path.dirname(self.log_path), video_id, mark_id, code, text)
+
+    def _friend_batch(self):
+        """友人のアプリの「届け方」の本数(D-SEND 2-4)か None。継ぐ側(AutoRunner)が受付の届け方.json で埋める。既定は None"""
+        return None
+
+    def _returned_request(self, video_id):
+        """その配信が友人の PC で処理した依頼か(送り返し。D-SEND 2-9 の 3 つ目の引き方)。継ぐ側(AutoRunner)が ③ の送り返しで埋める。既定は False"""
+        return False
 
     def _deliver_batch_limits(self):
         """n 本ごとに組にする数の (既定, 下限, 上限)。継ぐ側(AutoRunner)がホームの設定の既定と範囲で埋める"""
@@ -142,7 +155,7 @@ class Delivery:
             if video_id and mark_id:
                 self._remember_not_sent(video_id, str(mark_id), code, text)
         except Exception as e:   # noqa: BLE001  (残せなくても段は進める)
-            self.log("まとめて実行: 送らなかった印を案件に残せませんでした(%s)" % (str(e)[:120] or e.__class__.__name__))
+            self.log("まとめて実行: 送らなかった記録を残せませんでした(%s)" % (str(e)[:120] or e.__class__.__name__))
 
     def _sent_dirs(self):
         """届けた記録にあるパックのフォルダ(大文字・小文字と区切りをそろえた形の集合)。読めなければ空"""
@@ -164,7 +177,7 @@ class Delivery:
         if video_id in (deliveries_mod.delivered_videos(log_dir, origin="request") or {}):
             return True
         try:
-            return video_id in returns_mod.requested_videos(os.path.dirname(log_dir))
+            return bool(self._returned_request(video_id))
         except OSError:
             return False
 
@@ -256,7 +269,7 @@ class Delivery:
         D-SEND 2-4)、無ければホームの設定 intake.deliverBatch(既定と範囲は継ぐ側の _deliver_batch_limits = 入口の prefs.py。1 = 1 本ずつ)"""
         if run.deliver_batch:
             return run.deliver_batch
-        friend = intake_mod.read_delivery_prefs(intake_mod.configured_folder(self.prefs))
+        friend = self._friend_batch()
         if friend:
             return friend
         default, lo, hi = self._deliver_batch_limits()
@@ -292,8 +305,8 @@ class Delivery:
 
         def check():
             self._check(run)
-        preview = deliver_mod.batch_preview(batch, check=check, log=self.log)   # 作れなければ None
-        seconds = deliver_mod.clip_seconds(batch)
+        preview = _preview.batch_preview(batch, check=check, log=self.log)   # 作れなければ None
+        seconds = _preview.clip_seconds(batch)
         zips, titles, secs = [], [], []
         # 一覧(.group.json)を書けなかったら、先に置いた組のまとめ動画は消す(相手のいない動画は誰にも見えないごみになる。置けた zip は 1 本ずつの形で残る)
         with self._placing(preview) as placed:
@@ -307,7 +320,7 @@ class Delivery:
                 zp = self._deliver_one(run, d, with_preview=False)
                 if zp:
                     zips.append((run.packs.index(d) + 1, zp))
-                    titles.append(deliver_mod.pack_title(d))
+                    titles.append(_preview.pack_title(d))
                     secs.append(seconds[i])
             deliver_mod.write_group_json(json_path, run.title or "pack", rng, placed[0], deliver_mod.group_members(zips, titles, secs),
                                          origin=deliver_mod.face_origin(self._origin(run)))   # 出どころ(D-SEND 2-7。友人のアプリの札「依頼なし」)
@@ -329,12 +342,12 @@ class Delivery:
         try:
             yield placed
         except Exception as e:
-            deliver_mod.remove_quiet(placed[0])
+            _preview.remove_quiet(placed[0])
             if isinstance(e, OSError):
                 raise self._place_error(e)
             raise
         finally:
-            deliver_mod.remove_quiet(preview)
+            _preview.remove_quiet(preview)
 
     def _deliver_rest_quietly(self, run):
         """止まった実行に、まとめて届ける前のパック(n 本に満たず手元に残っていた分)があれば届ける。届けられなくても失敗の知らせは置く"""
@@ -351,7 +364,7 @@ class Delivery:
         d は run.packs の書き方のまま(届けた印 run.delivered と同じ文字列で比べる。run.packs に入れるときにそろえてある)。-> 置いた zip のパス(届け済みなら None)"""
         if d in run.delivered or not os.path.isdir(d):
             return None
-        name = self._deliver_name(run, deliver_mod.pack_title(d) or run.title or "pack")
+        name = self._deliver_name(run, _preview.pack_title(d) or run.title or "pack")
         with self._placing(None):   # 置けなかったら StepError(置いたまとめ動画は deliver_one が消す)
             dest = deliver_mod.deliver_one(d, run.deliver_dir, name, log_dir=os.path.dirname(self.log_path) if self.log_path else None, run=run,
                                            marks=run.pack_marks, with_preview=with_preview, check=lambda: self._check(run), log=self.log,
