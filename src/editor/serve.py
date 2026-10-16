@@ -182,11 +182,8 @@ _flowwire.install(
 _heavy_jobs.attach_board(_flowboard.default())   # ② のジョブの掲示板に頭 tx で見せる(引く形・取り消し・やり直し。表と /api/jobs は今のまま。RS8 の ② の口 S2)
 # ---- 差し込みの口(import の向きを守るため、上の層の関数を起動時に渡す)はここと flow/wire.install の 2 つだけ(OPT-H1) ----
 # ① ← ②(flow/wire.install の中): jobs.configure・backend.set_selector・records.set_dict_inputs
-# ③ ← ⑤(下の 2 つ): doc_jobs.set_hooks(評価用の作り直し = ⑤ evalbatch)・speakers.set_context_namer(⑤ drill の名前の候補)。30fps の作り直しは ② flow/normalize(OPT-M2)
+# ③ ← ⑤(下の 1 つ): speakers.set_context_namer(⑤ drill の名前の候補)。評価用の作り直しは ③ rerun.rebuild_whole(X-RERUN で口を消した)。30fps の作り直しは ② flow/normalize(OPT-M2)
 # 例外: 学習データの読み手 doc_jobs.set_learning は機械の設定(learningDir)が要るので入口 app/server.py が入れる
-# 呼ぶたびに持ち主のモジュールの属性を読む(test_evalbatch の patch.object(EB, "eb_redo_skip_at_start") が届く)。呼ぶ順は run_job のまま
-_docjobs.set_hooks(redo_skip=lambda job: _evalbatch.eb_redo_skip_at_start(job), redo_fill=lambda job, spec, fields: _evalbatch.eb_redo_fill(job, spec, fields))
-_docjobs.check_hooks()
 _speakers.set_context_namer(lambda tid: _drill.drill_candidates(tid).get("suggest"))
 _speakers.check_context_namer()
 

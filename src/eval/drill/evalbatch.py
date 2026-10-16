@@ -16,15 +16,16 @@
   - 未確認の評価用の作り直し(2026-10-04 ユーザー承認。whisper.cpp の時刻の 1 秒丸め・繰り返しを v0.51.0 で直す前に文字起こしした分):
     `POST api/eval-batch/redo {dryRun}`(eval_batch_redo)。「手つかず」(eb_redo_why が None)の評価用の文書を状態の redo.queue に入れ、
     見回り(_eb_redo_pass)が待ちの数の中で少しずつ、同じ文書 id のまま今の編集の設定で文字起こしし直す(spec の evalRedo・intoDoc。
-    _docjobs.run_job が始める直前(eb_redo_skip_at_start)と書く直前(eb_redo_fill)にもう一度確かめ、手が入っていたら書かずに飛ばす)。
-    前の状態は履歴(hist_snapshot)に・前の機械の出力は recognition.runs の kind "evalRedo" に残す。話者は消して、評価用の自動の判別をもう一度かける
-  - 1 本ずつの作り直し(2026-10-05 ユーザー要望): `POST api/eval-batch/redo-one {id, baseUpdatedAt, force?}`(eval_batch_redo_one)。
-    開いている評価用の動画だけを、見回りを通さずすぐ待機列へ。人が手を入れた文書は force のときだけ(押したあとに直されたら書かない)
+    書き込みは ③ human/proof/rerun.rebuild_whole(X-RERUN = 全体 × いつものエンジン × 差し替え。ユーザー決定 10-16 Q-A): 機械の層を丸ごと入れ替え、
+    人の層(答え)は残す。入れたときに手つかずで、そのあと変わっていなければ人の層も持たない = 前と同じく丸ごと)。
+    前の状態は履歴(hist_snapshot)に・前の機械の出力は recognition.runs の kind "evalRedo" に残す。話者の判別の記録は外して、評価用の自動の判別をもう一度かける
+  - 1 本ずつの作り直し(2026-10-05 ユーザー要望): `POST api/eval-batch/redo-one {id, baseUpdatedAt}`(eval_batch_redo_one)。
+    開いている評価用の動画だけを、見回りを通さずすぐ待機列へ。人が手を入れた文書も作り直す(人の層 = 直しは残る。X-RERUN)
 
 RS4-2(2026-10-10)に src/editor/ed_evalbatch.py から移した(殻なし。決定 3-25 #7)。
 名前は serve.py からも見える(serve.py が部品の名前を集めるので、**ほかの部品と重ならないよう eb_ / EB_ / eval_batch_ を付ける**)。
 ほかの部品は `_store.名前` などモジュールの属性として呼ぶたびに読む。編集(app)の部品は読まない: 文字起こしのジョブ(human/proof/doc_jobs の run_job)が
-作り直しで呼ぶ eb_redo_skip_at_start・eb_redo_fill と、見回りの裏のスレッド eb_start_background は serve が登録・起動する(② は ④ を読まない)。
+見回りの裏のスレッド eb_start_background は serve が起動する(② は ④ を読まない)。
 """
 import contextlib
 import json
@@ -663,14 +664,15 @@ def eval_batch_redo(req=None):
     return res
 
 
-def eb_redo_spec(tid, doc):
+def eb_redo_spec(tid, doc, machine_only=True):
     """作り直しの文字起こしの spec: 編集の設定そのまま + 評価用(ヒントなし)+ 文書の範囲(動画全体の文書は全体)。
     同じ文書へ入れる(intoDoc)・spec の tid = その文書(処理中の文書として、ドリル・付け替え・作り直しの判定が避ける)"""
     req = eb_request(str(doc.get("sourcePath") or ""), None)
     if not doc.get("whole"):
         req.update(start=_yschemas.num_or(doc.get("start"), 0.0) or 0.0, end=_yschemas.num_or(doc.get("end")))
     spec = _docjobs.validate_job(req)
-    spec.update(intoDoc=tid, tid=tid, evalSet=True, evalBatch=True, evalRedo={"queuedAt": _yschemas.now_ms()},
+    spec.update(intoDoc=tid, tid=tid, evalSet=True, evalBatch=True,
+                evalRedo={"queuedAt": _yschemas.now_ms(), "base": doc.get("updatedAt"), "machineOnly": machine_only is True},
                 title=(str(doc.get("title") or "") or spec["title"])[:120])
     return spec
 
@@ -727,30 +729,6 @@ def _eb_redo_pass(room, log):
 # まとめての文字起こしの見回り・待ちの数(EB_MAX_WAIT)を通さず、ユーザーが押したジョブとしてすぐ待機列へ(まとめての文字起こしが止まっていても動く)。
 # spec に evalBatch の印は付けない(ユーザーのジョブ = まとめての文字起こしはこの間増やさない・止めるで取り消されない)。evalRedo の one・force・base が印
 
-def _eb_touched_rows(doc, why):
-    """人が手を入れた行の数(作り直しで置き換わる直し。画面の確認に出す): 校正済み・音のメモ・機械の出力(original)に同じ文字・時刻の行が無い・
-    (理由が話者のとき)話者が付いている行"""
-    orig = doc.get("original") if isinstance(doc.get("original"), list) else []
-    keys = set()
-    for o in orig:
-        if isinstance(o, dict):
-            try:
-                keys.add((str(o.get("text") or ""), round(float(o["start"]), 2), round(float(o["end"]), 2)))
-            except (KeyError, TypeError, ValueError):
-                pass
-    n = 0
-    for g in doc.get("segments") or []:
-        if not isinstance(g, dict):
-            continue
-        try:
-            k = (str(g.get("text") or ""), round(float(g["start"]), 2), round(float(g["end"]), 2))
-        except (KeyError, TypeError, ValueError):
-            k = None
-        if g.get("proofed") is True or g.get("tags") or g.get("noSub") is True or k not in keys or (why == "speaker" and g.get("speaker")):
-            n += 1
-    return n
-
-
 def eval_batch_redo_one(req=None):
     """POST /api/eval-batch/redo-one {id, baseUpdatedAt, force?}。開いている評価用の動画 1 本を、今の編集の設定ですぐ作り直す(待機列へ)。
     断る: 評価用でない 400 not_eval・確かめ済み 400 reviewed・文字起こし前 400 not_transcribed・baseUpdatedAt が無い 400 / 違う 409 conflict・
@@ -759,7 +737,6 @@ def eval_batch_redo_one(req=None):
     -> {"ok", "job"(public_job), "forced"}。書く前の確かめ直しは eb_redo_skip_at_start・eb_redo_fill(force なら「押したときの updatedAt のまま」だけ)"""
     req = req if isinstance(req, dict) else {}
     tid = str(req.get("id") or "")
-    force = req.get("force") is True
     with _eb_one_lock:
         doc = _store.read_transcript(tid)
         if doc.get("evalSet") is not True:
@@ -780,104 +757,14 @@ def eval_batch_redo_one(req=None):
         why = eb_redo_why(tid, doc, media=False, recent=False)
         if why and why not in EB_REDO_TOUCHED:
             raise _errors.ApiError(why, "作り直せません(%s)" % EB_REDO_LABELS.get(why, why), 400)
-        if why and not force:
-            raise _errors.ApiError("touched", "この動画は人が手を入れています(%s)。作り直すと置き換わります" % EB_REDO_LABELS.get(why, why), 409,
-                                    {"why": why, "label": EB_REDO_LABELS.get(why, why), "rows": _eb_touched_rows(doc, why),
-                                     "total": sum(1 for g in doc.get("segments") or [] if isinstance(g, dict) and str(g.get("text") or "").strip())})
         if not _tools.find_ffmpeg():
             raise _errors.ApiError("no_ffmpeg", "ffmpeg が見つかりません(README の準備手順を確認してください)", 400)
-        spec = eb_redo_spec(tid, doc)
+        spec = eb_redo_spec(tid, doc, machine_only=not why)
         spec.pop("evalBatch", None)
-        spec["evalRedo"] = {"queuedAt": _yschemas.now_ms(), "one": True, "force": force, "base": doc.get("updatedAt"), "why": why}
+        spec["evalRedo"].update(one=True, why=why)
         job = _heavy.add_job(spec)
-    _txbase.log.info("評価用の動画 1 本を作り直します%s: %s", "(手を入れた分を置き換える: %s)" % why if why else "", tid)
-    return {"ok": True, "job": _docjobs.public_job(job), "forced": bool(why)}
-
-
-def _eb_one_why(tid, doc, red, busy=(), media=True):
-    """1 本ずつの作り直しのジョブ(evalRedo.one)の確かめ直し: 押したときの updatedAt(base)から変わっていない(変わっていれば pressedChanged)。
-    force でなければ、さらに今の「手つかず」の決まり(直近に開いた・直した は見ない)"""
-    if doc.get("updatedAt") != red.get("base"):
-        return "pressedChanged"
-    if red.get("force"):
-        return None
-    return eb_redo_why(tid, doc, busy, media=media, recent=False)
-
-
-def _eb_redo_skipped(job, why):
-    job["redoSkipped"] = why
-    _heavy.job_done(job, job["spec"].get("tid"), "作り直しませんでした(%s)" % EB_REDO_LABELS.get(why, why))
-
-
-def eb_redo_skip_at_start(job):
-    """作り直しのジョブ(spec の evalRedo)が動き出すとき(_docjobs.run_job の最初)にもう一度「手つかず」を確かめる。
-    手が入っていたら「完了(作り直しませんでした)」にして True。手つかずなら、書く直前の比べのために今の updatedAt を覚えて False。
-    1 本ずつの作り直し(evalRedo.one)は押したときの updatedAt(base)のまま比べる(_eb_one_why)"""
-    spec = job["spec"]
-    tid = str(spec.get("tid") or "")
-    red = spec.get("evalRedo") if isinstance(spec.get("evalRedo"), dict) else {}
-    with _heavy._jobs_lock:
-        busy = {str((j.get("spec") or {}).get("tid") or j.get("tid") or "") for j in _heavy._jobs.values()
-                if j is not job and j.get("state") in _heavy.ACTIVE_STATES}
-    try:
-        doc = _store.read_transcript(tid)
-        why = _eb_one_why(tid, doc, red, busy) if red.get("one") else eb_redo_why(tid, doc, busy)
-    except _errors.ApiError as e:
-        doc, why = None, e.code
-    if why:
-        _eb_redo_skipped(job, why)
-        _txbase.log.info("評価用の作り直しを飛ばしました(%s): %s", why, tid)
-        return True
-    if not red.get("one"):
-        spec["evalRedo"] = dict(red, base=doc.get("updatedAt"))
-    return False
-
-
-def eb_redo_fill(job, spec, fields):
-    """作り直しの結果を同じ文書に書く(_docjobs.run_job が fill_doc の代わりに呼ぶ。保存のロックの中)。-> 文書の id か None(書かなかった)。
-    書く直前にもう一度確かめる: 動画が同じ・始めたときから更新されていない(updatedAt)・まだ手つかず(認識の間に開いた = effort.lastAt も含む)。
-    前の状態は履歴に(以前の版に戻すで戻せる)・前の機械の出力は recognition.runs の kind "evalRedo"(replaced = 前の original・replacedRun = 前の最初の認識の記録)。
-    新しい最初の認識の記録を runs の先頭に(kind の無い記録 = 今の original を作った認識。D1-b・測る道具が読む)。
-    話者・判別の印(diarization)・確かめ済みの印は消す(話者は run_job の続きの自動の判別がもう一度付ける)。id・題名・作った日・clip・評価用の印・校正の手間・編集の内容はそのまま"""
-    tid = str(spec.get("tid") or spec.get("intoDoc") or "")
-    red = spec.get("evalRedo") if isinstance(spec.get("evalRedo"), dict) else {}
-    base = red.get("base")
-    with _store._save_lock:
-        try:
-            doc = _store.read_transcript(tid)
-        except _errors.ApiError as e:
-            _eb_redo_skipped(job, e.code)
-            return None
-        if _fsio.norm_path(str(doc.get("sourcePath") or "")) != _fsio.norm_path(spec["sourcePath"]):
-            why = "moved"
-        elif red.get("one"):   # 1 本ずつの作り直し: 押したときのまま(force なら手を入れた分も置き換える)
-            why = _eb_one_why(tid, doc, red, media=False)
-        elif base is not None and doc.get("updatedAt") != base:
-            why = "changed"
-        else:
-            why = eb_redo_why(tid, doc, media=False)
-        if why:
-            _eb_redo_skipped(job, why)
-            _txbase.log.info("評価用の作り直しを書きませんでした(%s): %s", why, tid)
-            return None
-        _store.snapshot(tid)   # 作り直す前を「以前の版に戻す」に残す
-        old_rec = doc.get("recognition") if isinstance(doc.get("recognition"), dict) else {}
-        old_first = [r for r in old_rec.get("runs") or [] if isinstance(r, dict) and not r.get("kind")]
-        a = float(spec.get("start") or 0)
-        b = _yschemas.num_or(spec.get("end")) or _yschemas.num_or(spec.get("duration")) or max([_yschemas.num_or(o.get("end"), 0.0) or 0.0 for o in doc.get("original") or []] + [a + 0.01])
-        _rerun.record_rerun(doc, spec, "evalRedo", [[a, max(b, a + 0.01)]], [dict(o) for o in doc.get("original") or [] if isinstance(o, dict)])
-        runs = doc["recognition"]["runs"]
-        if old_first and runs and runs[-1].get("kind") == "evalRedo":
-            runs[-1]["replacedRun"] = old_first[0]
-        doc.update(fields)
-        doc["recognition"] = dict(old_rec, runs=list(fields["recognition"]["runs"]) + [r for r in runs if r.get("kind")])
-        for k in ("diarization", "evalReviewed", "resplit"):
-            doc.pop(k, None)
-        doc["evalSet"] = True
-        _store.apply_edit_cuts(tid, doc)
-        _store.commit(tid, doc, why="eval_rebuild")
-    _txbase.log.info("評価用の文書を作り直しました: %s(%d 行)", tid, len(fields.get("segments") or []))
-    return tid
+    _txbase.log.info("評価用の動画 1 本を作り直します%s: %s", "(人の直しは残す: %s)" % why if why else "", tid)
+    return {"ok": True, "job": _docjobs.public_job(job), "keptHuman": bool(why)}
 
 
 # ---------------------------------------------------------------- 裏のスレッド

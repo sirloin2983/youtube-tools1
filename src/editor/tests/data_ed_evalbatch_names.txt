@@ -23,15 +23,12 @@ _eb_halt
 _eb_jobs
 _eb_mine
 _eb_one_lock
-_eb_one_why
 _eb_pass_lock
 _eb_redo_pass
-_eb_redo_skipped
 _eb_speaker_why
 _eb_state_lock
 _eb_threads
 _eb_tick_locked
-_eb_touched_rows
 _eb_wake
 _eb_write
 _file_lock
@@ -41,9 +38,7 @@ eb_key
 eb_lock_path
 eb_path
 eb_read
-eb_redo_fill
 eb_redo_scan
-eb_redo_skip_at_start
 eb_redo_spec
 eb_redo_why
 eb_request

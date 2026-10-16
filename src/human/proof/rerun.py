@@ -125,16 +125,20 @@ def _commit_rerun(tid, doc, layers0, spans, mrows, why, extra=None, empty_cover=
     組み立てた文書を commit(why, mach=)する。層が正なら hum も渡す。影のモード・off でも同じ組み立てを書く(守り方がモードで変わらない)。
     extra(stats) -> 文書の欄(retranscribed など)。-> {組み立ての stats + replace_mach_span の数}"""
     mach0, hum0 = layers0
-    hum0 = dict(hum0, docFields={k: v for k, v in (hum0.get("docFields") or {}).items() if k in doc})   # record_rerun が外した文書の欄(evalReviewed)は人の層からも外す
+    if hum0 is not None:
+        hum0 = dict(hum0, docFields={k: v for k, v in (hum0.get("docFields") or {}).items() if k in doc})   # record_rerun が外した文書の欄(evalReviewed)は人の層からも外す
     mach1, rep = _layers.replace_mach_span(mach0, spans, mrows, empty_cover, EMPTY_FLAG)
     rows, st = _layers.compose_rows(mach1, hum0)
     st = dict(st, **rep)
     if extra:
         doc.update(extra(st))
     doc["updatedAt"] = int(time.time() * 1000)
-    new = _layers.compose(mach1, hum0, _layers.split_meta(doc), rows)
+    meta = _layers.split_meta(doc)
+    if hum0 is None:   # 人の層を持たない(評価用の丸ごとの作り直し): 文書の欄(evalSet など)は文書から
+        meta.update({k: doc[k] for k in _layers.DOC_FIELDS if k in doc})
+    new = _layers.compose(mach1, hum0, meta, rows)
     store.apply_edit_cuts(tid, new)   # 差し替えた行の「カット済」は、編集の内容(時刻)から付け直す
-    if _txbase.layers_mode() == _txbase.LAYERS_PRIMARY:
+    if _txbase.layers_mode() == _txbase.LAYERS_PRIMARY and hum0 is not None:
         store.commit(tid, new, why=why, mach=mach1, hum=hum0)
     else:
         store.commit(tid, new, why=why, mach=mach1)
@@ -266,6 +270,55 @@ def _retranscribe_each(job, spec, targets, wav, start):
     """選んだ行を 1 行ずつ認識する(run_retranscribe の each。音声は取り出し済み)。-> {行の id: (文章, 要確認の理由)}。
     本物と疑似の選び方・ワーカーでの行ごとの認識は ② flow/tx.each_lines(本物の処理 _each_real もそこ)"""
     return _flowtx.each_lines(job, spec, targets, wav, start)
+
+# ---------- 評価用の作り直し(X-RERUN = 全体 × いつものエンジン × 差し替え。ユーザー決定 10-16 Q-A) ----------
+def rebuild_whole(job, spec, fields):
+    """評価用の作り直しの書き込み(doc_jobs.run_job の文字起こしの結果 fields を、同じ文書 spec["tid"] へ)。-> 文書の id か None(書かなかった)。
+    機械の層を丸ごと新しい認識に入れ替え、人の層(答え = 校正・音のメモ・人が付けた話者)は残す。ただし入れたときに「手つかず」で
+    (spec["evalRedo"]["machineOnly"])、そのあと文書が変わっていなければ(updatedAt が base のまま)人の層も持たない = 前と同じく丸ごと入れ替える。
+    書かない: 文書が消えた・動画が変わった(ジョブは「作り直しませんでした」で終わる)。前の状態は履歴に・前の機械の出力は recognition.runs の
+    kind "evalRedo"(replaced = 前の original・replacedRun = 前の最初の認識の記録)。新しい最初の認識の記録を runs の先頭に。
+    話者の判別の記録・確かめ済み・分け直しの印は外す(話者は run_job の続きの自動の判別がもう一度付ける)"""
+    tid = str(spec.get("tid") or spec.get("intoDoc") or "")
+    red = spec.get("evalRedo") if isinstance(spec.get("evalRedo"), dict) else {}
+    with store._save_lock:
+        try:
+            doc = store.read_transcript(tid)
+        except _errors.ApiError as e:
+            job["redoSkipped"] = e.code
+            _heavy.job_done(job, tid, "作り直しませんでした(文書がありません)")
+            return None
+        if _fsio_norm(doc.get("sourcePath")) != _fsio_norm(spec.get("sourcePath")):
+            job["redoSkipped"] = "moved"
+            _heavy.job_done(job, tid, "作り直しませんでした(動画が変わっていました)")
+            return None
+        machine_only = red.get("machineOnly") is True and doc.get("updatedAt") == red.get("base")
+        layers0 = store.layers_for(tid, doc)
+        if machine_only:
+            layers0 = (layers0[0], None)
+        store.snapshot(tid)   # 作り直す前を「以前の版に戻す」に残す
+        old_rec = doc.get("recognition") if isinstance(doc.get("recognition"), dict) else {}
+        old_first = [r for r in old_rec.get("runs") or [] if isinstance(r, dict) and not r.get("kind")]
+        a = float(spec.get("start") or 0)
+        b = _yschemas.num_or(spec.get("end")) or _yschemas.num_or(spec.get("duration")) or max(
+            [_yschemas.num_or(o.get("end"), 0.0) or 0.0 for o in doc.get("original") or [] if isinstance(o, dict)] + [a + 0.01])
+        record_rerun(doc, spec, "evalRedo", [[a, max(b, a + 0.01)]], [dict(o) for o in doc.get("original") or [] if isinstance(o, dict)])
+        runs = doc["recognition"]["runs"]
+        if old_first and runs and runs[-1].get("kind") == "evalRedo":
+            runs[-1]["replacedRun"] = old_first[0]
+        doc.update({k: v for k, v in fields.items() if k not in ("segments", "speakers")})
+        doc["recognition"] = dict(old_rec, runs=list((fields.get("recognition") or {}).get("runs") or []) + [r for r in runs if r.get("kind")])
+        for k in ("diarization", "evalReviewed", "resplit"):
+            doc.pop(k, None)
+        doc["evalSet"] = True
+        _commit_rerun(tid, doc, layers0, [(-1e18, 1e18)], list(fields.get("segments") or []), "eval_rebuild")
+    _txbase.log.info("評価用の文書を作り直しました: %s(%d 行%s)", tid, len(fields.get("segments") or []), "" if machine_only else "・人の層は残した")
+    return tid
+
+
+def _fsio_norm(p):
+    from ytt import fsio
+    return fsio.norm_path(str(p or ""))
 
 
 # ---------- 認識し直しの受付を 1 つに(X-RERUN。ユーザー決定 10-13 = 対象 × エンジン × 結果の扱い) ----------

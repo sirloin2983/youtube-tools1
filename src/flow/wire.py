@@ -8,7 +8,7 @@ install は ① と ② だけを読む。③ の関数(doc_jobs.run_job・speak
 登録の add_job の両方が ジョブの表 flow/jobs.EXCLUSIVE を使う)。
 
 差し込みの口はここ(① ← ② の 3 つ)と編集の serve.py の install の直後(③ ← ④⑤ の 2 つ)だけ。一覧は serve.py のその所(OPT-H1)。
-③ が登録の口を持つ物(doc_jobs.set_hooks + check_hooks・speakers.set_context_namer + check_context_namer)は ② から呼べない(② は ③ を読めない)ので serve が呼ぶ。
+③ が登録の口を持つ物(speakers.set_context_namer + check_context_namer)は ② から呼べない(② は ③ を読めない)ので serve が呼ぶ。
 本体は呼ぶ側が lambda で渡す(呼ぶたびに読む = S.run_job = … のテストの差し替えが効く)。
 """
 import os

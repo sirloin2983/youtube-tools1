@@ -375,18 +375,7 @@ async function redoOneHere(){
       if (S.docId === id) toast('保存が終わっていないため、作り直していません(保存の状態を確かめてから、もう一度押してください)', 6000, 'err');
       return;
     }
-    const send = force => api('/api/eval-batch/redo-one', { body: { id, baseUpdatedAt: S.baseUpdatedAt, ...(force ? { force: true } : {}) } });
-    try { await send(false); }
-    catch (e){
-      if (S.docId !== id) return;
-      if (e.code !== 'touched') throw e;
-      const x = e.data || {};
-      if (!(await UIKit.dialog.confirm({ title: 'この動画を作り直しますか', ok: '作り直す',
-        body: `この動画で直した${x.rows ? ` ${x.rows} 行` : '所'}${x.label ? `(${x.label})` : ''}は、新しい文字起こしに置き換わります(以前の版に戻すで戻せます)。作り直しますか` }))) return;
-      if (S.docId !== id) return;
-      if (!(await savedFor(id))) return toast('保存が終わっていないため、作り直していません', 6000, 'err');
-      await send(true);
-    }
+    await api('/api/eval-batch/redo-one', { body: { id, baseUpdatedAt: S.baseUpdatedAt } });   // 直した行は残る(機械の層だけ入れ替える = X-RERUN)
     toast('この動画の作り直しを待機列に追加しました(終わると自動で読み込み直します。それまで編集はできません)', 6000, 'ok');
     await kickJobs();
   } catch (e){

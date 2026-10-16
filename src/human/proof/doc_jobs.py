@@ -2,11 +2,10 @@
 """③ 人の操作の層 human/proof: 文字起こしのジョブの本体(run_job)と書く先の決め方・受付(validate_job・
 validate_retranscribe と疑わしい行の選び方 redo_targets)・字幕の文字数の設定・人の直しの引き継ぎ carry_overrides・新しい行の id。
 再認識(each・range・whole)のジョブの本体・文書への反映・再認識の記録は隣の rerun.py(rerun → doc_jobs の一方向 =
-ここは rerun を読まない)。ジョブの表と器は ② flow/jobs・flow/wire(本体は入口 editor/serve.py が渡す)。
+ここは rerun を読まない。例外は評価用の作り直しの書き込み rerun.rebuild_whole を呼ぶときだけ読む)。ジョブの表と器は ② flow/jobs・flow/wire(本体は入口 editor/serve.py が渡す)。
 名前は serve.py からも見える(serve.py が受け付けて、この部品へ転送する。テストの S.名前 = … もここに入る)。
 ほかの部品の名前は `store.名前`・`_flowtx.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
-評価用の作り直し(⑤ eval/drill/evalbatch)と 30fps の作り直し(④ manage/cases/relink)は読まず、serve が set_hooks で登録する口を呼ぶたびに引く
-(評価用のフォルダの判定は ytt/settings を直に)。2つ目のエンジンの候補 alt・学習 learn・話者 speakers・文書の置き場 store は隣。
+⑤ eval/drill/evalbatch は読まない(評価用の作り直しの書き込みは rerun.rebuild_whole = X-RERUN。評価用のフォルダの判定は ytt/settings を直に)。2つ目のエンジンの候補 alt・学習 learn・話者 speakers・文書の置き場 store は隣。
 ③ は ① pipeline/transcribe を直に読まない: 文字起こしの機械の分(取り出し → 認識 → 後処理 fill・llm → 文書の行 = ① clipjob)と
 文書の機械の分 fields・記録の書き込み・置換辞書の組 dict_pairs・モデルとエンジンの確かめ・配信ごとの文脈は ② の `flow/tx`(`_flowtx.名前`)、
 句読点・印の文・用語の区切りは ytt/txtext、置換辞書の読み方と当て方は ytt/dictfmt。
@@ -29,39 +28,7 @@ from . import store  # noqa: E402   文書の読み書き・行の無い文書�
 from . import overrides as _overrides  # noqa: E402   校正の上書き(人の行を新しい文書へ引き継ぐ・<id>.over.json)
 from . import speakers  # noqa: E402   話者の自動判別 autodiar_after_transcribe(呼ぶたびに speakers.名前 で読む)
 
-# ---------- serve が登録する口(⑤ eval の evalbatch をここから読まない = ③ から ⑤ を読まない。30fps の作り直しは ② flow/normalize) ----------
 # 評価用のフォルダの判定(eval_name_guard・in_eval_dir)は ytt/settings を直に呼ぶたびに読む
-_HOOK_KEYS = ("redo_skip", "redo_fill")
-_hooks = {}
-
-
-def set_hooks(**hooks):
-    """編集の serve.py が読み込みのときに登録する口(どれも関数。serve は呼ぶたびに持ち主のモジュールの属性を読む lambda を渡す = テストの差し替えが届く)。
-    redo_skip(job) -> bool: 未確認の評価用の作り直しを動き出す直前に確かめ直し、手が入っていれば True = 認識しない(evalbatch.eb_redo_skip_at_start。run_job)
-    redo_fill(job, spec, fields) -> 文書の id か None: 評価用の作り直しの書き込み(None = 書かなかった。evalbatch.eb_redo_fill。run_job)
-    知らない鍵・関数でない値は TypeError"""
-    bad = sorted(k for k in hooks if k not in _HOOK_KEYS)
-    if bad:
-        raise TypeError("doc_jobs の口に知らない鍵: %s" % ", ".join(bad))
-    for k, fn in hooks.items():
-        if not callable(fn):
-            raise TypeError("doc_jobs の口 %s は関数で渡す" % k)
-    _hooks.update(hooks)
-
-
-def check_hooks(names=_HOOK_KEYS):
-    """names のうち登録されていない口があれば RuntimeError(serve が登録のあとで呼ぶ)"""
-    missing = [k for k in names if k not in _hooks]
-    if missing:
-        raise RuntimeError("doc_jobs に登録されていない口: %s(編集の serve.py が読み込みのときに登録する)" % ", ".join(missing))
-
-
-def _hook(name):
-    """登録した口(呼ぶたびに引く)。登録されていなければ RuntimeError"""
-    try:
-        return _hooks[name]
-    except KeyError:
-        raise RuntimeError("doc_jobs の口 %s が登録されていません(編集の serve.py が読み込みのときに登録する)" % name) from None
 
 
 # ---------- 学習データの読み手(入口が machine の learningDir があるときだけ set_learning で入れる。notes:docs/spec/friend.md の 10) ----------
@@ -319,9 +286,6 @@ def run_job(job):
 
 def _run_transcribe(job, spec):
     """run_job の中身(文字起こし 1 本)"""
-    # 未確認の評価用の作り直し(eval/drill/evalbatch): 動き出す直前にもう一度「手つかず」を確かめる。手が入っていれば認識せずに「作り直しませんでした」
-    if spec.get("evalRedo") and _hook("redo_skip")(job):
-        return
     with _heavy.job_temp_wav(job) as wav:
         # 置換辞書の組と学習した置換は認識の前に 1 回だけ読む
         pairs = _flowtx.dict_pairs(spec)
@@ -336,9 +300,10 @@ def _run_transcribe(job, spec):
         clip = _flowtx.transcribe_clip(job, spec, wav, pairs, finder)
         fields = clip["fields"]
         if spec.get("evalRedo"):
-            # 評価用の作り直し: 同じ文書の行・機械の出力を置き換える(評価用の再認識を断る決まりの、この道だけの例外。ユーザー承認)。
-            # 認識の間に手が入っていたら書かない(新しい文書も作らない)
-            tid = _hook("redo_fill")(job, spec, fields)
+            # 評価用の作り直し(X-RERUN = 全体 × いつものエンジン × 差し替え): 同じ文書の機械の層を入れ替え、人の層(答え)は残す。
+            # 文書が消えた・動画が変わったら書かない(新しい文書も作らない)
+            from . import rerun as _rerun   # rerun は doc_jobs を読む(向き: rerun → doc_jobs)。ここは呼ぶときだけ
+            tid = _rerun.rebuild_whole(job, spec, fields)
             if tid is None:
                 return
         else:

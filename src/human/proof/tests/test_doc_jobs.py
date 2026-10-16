@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""human/proof/doc_jobs の、serve が登録する口(set_hooks・check_hooks。役割で組み直す RS2-8d)のテスト。
+"""human/proof/doc_jobs のテスト(差し込みの口 set_hooks は X-RERUN で消した・serve なしで読める・人の行の引き継ぎ)。
 
     py -3.10 -m unittest src/human/proof/tests/test_doc_jobs.py -v
 
@@ -26,56 +26,10 @@ from human.proof import doc_jobs, overrides  # noqa: E402
 
 
 class TestHooks(unittest.TestCase):
-    def setUp(self):
-        self.saved = dict(doc_jobs._hooks)
-        doc_jobs._hooks.clear()
-
-    def tearDown(self):
-        doc_jobs._hooks.clear()
-        doc_jobs._hooks.update(self.saved)
-
-    def test_unregistered_hook_raises(self):
-        with self.assertRaises(RuntimeError) as cm:
-            doc_jobs._hook("redo_skip")
-        self.assertIn("redo_skip", str(cm.exception))
-        self.assertIn("serve.py", str(cm.exception))
-
-    def test_check_hooks_names_missing_keys(self):
-        doc_jobs.set_hooks(redo_skip=lambda job: False)
-        with self.assertRaises(RuntimeError) as cm:
-            doc_jobs.check_hooks()
-        msg = str(cm.exception)
-        self.assertIn("redo_fill", msg)
-        self.assertNotIn("redo_skip", msg)
-        doc_jobs.check_hooks(("redo_skip",))   # 登録した鍵だけなら通る
-
-    def test_set_hooks_rejects_unknown_and_non_callable(self):
-        with self.assertRaises(TypeError):
-            doc_jobs.set_hooks(not_a_hook=lambda: None)
-        with self.assertRaises(TypeError):
-            doc_jobs.set_hooks(redo_skip=True)
-        self.assertEqual(doc_jobs._hooks, {})   # 断ったときは何も入れない
-
-    def test_hook_is_looked_up_at_call_time(self):
-        calls = []
-        doc_jobs.set_hooks(redo_skip=lambda job: calls.append(("a", job)))
-        doc_jobs._hook("redo_skip")("t1")
-        doc_jobs.set_hooks(redo_skip=lambda job: calls.append(("b", job)))   # 登録し直すと次の呼び出しから新しい方
-        doc_jobs._hook("redo_skip")("t2")
-        self.assertEqual(calls, [("a", "t1"), ("b", "t2")])
-        doc_jobs.set_hooks(redo_skip=lambda j: False, redo_fill=lambda j, s, f: None)
-        doc_jobs.check_hooks()
-
-    def test_eval_dir_hooks_are_gone(self):
-        """評価用のフォルダの判定は口でなく ytt/settings を直に読む(RS3-1。口は redo_skip・redo_fill の 2 本。norm_after は OPT-M2 5b-2 で消えた)"""
-        self.assertEqual(doc_jobs._HOOK_KEYS, ("redo_skip", "redo_fill"))
-        with self.assertRaises(TypeError):
-            doc_jobs.set_hooks(in_eval_dir=lambda path: False)
-
-    def test_does_not_import_manage_or_eval_parts(self):
-        """評価用のフォルダ(manage の ed_relink)と評価用の作り直し(eval の ed_evalbatch)はモジュールとして持たない(口を通す)"""
-        for name in ("ed_relink", "ed_evalbatch", "ed_state"):
-            self.assertNotIn(name, vars(doc_jobs), name)
+    def test_hooks_are_gone(self):
+        """差し込みの口(set_hooks・check_hooks)は X-RERUN で消した(評価用の作り直しの書き込みは ③ rerun.rebuild_whole)"""
+        for name in ("set_hooks", "check_hooks", "_hook", "_hooks", "_HOOK_KEYS"):
+            self.assertFalse(hasattr(doc_jobs, name), name)
 
 
 class TestImportWithoutServe(unittest.TestCase):
@@ -83,7 +37,7 @@ class TestImportWithoutServe(unittest.TestCase):
         """doc_jobs は編集の serve を読まずに import できる(口は空のまま = 使う前に serve が登録する)"""
         code = ("import os, sys; os.environ.setdefault('YTT_DATA_DIR', 'inplace'); sys.path[:0] = [%r, %r]; "
                 "from human.proof import doc_jobs; "
-                "ok = 'serve' not in sys.modules and doc_jobs._hooks == {}; "
+                "ok = 'serve' not in sys.modules; "
                 "print(sorted(m for m in sys.modules if m == 'serve')); sys.exit(0 if ok else 1)") % (SRC, EDITOR)
         p = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
@@ -99,7 +53,7 @@ class TestCarryOverrides(unittest.TestCase):
         from human.proof import store
         self.workdata, self.store = workdata, store
         self.tmp = tempfile.mkdtemp(prefix="ytt-carry-")
-        self.saved = (workdata.TX_DIR, workdata.SETTINGS, dict(doc_jobs._hooks))
+        self.saved = (workdata.TX_DIR, workdata.SETTINGS)
         workdata.TX_DIR = os.path.join(self.tmp, "transcripts")
         workdata.SETTINGS = os.path.join(self.tmp, "settings.json")
         os.makedirs(workdata.TX_DIR)
@@ -108,9 +62,7 @@ class TestCarryOverrides(unittest.TestCase):
         self.spec = {"sourcePath": self.src, "sourceName": "clip_0001.mp4", "title": "t", "start": 0.0, "end": 20.0, "evalSet": False}
 
     def tearDown(self):
-        self.workdata.TX_DIR, self.workdata.SETTINGS, hooks = self.saved
-        doc_jobs._hooks.clear()
-        doc_jobs._hooks.update(hooks)
+        self.workdata.TX_DIR, self.workdata.SETTINGS = self.saved
         self.store._summary_cache.clear()
         shutil.rmtree(self.tmp, ignore_errors=True)
 

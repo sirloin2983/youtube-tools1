@@ -617,7 +617,6 @@ class TestOtherVoice(StoreDir):
         d["segments"][1]["noSub"] = True
         self.assertEqual(S.eb_redo_why(TID, d, now=10 ** 13, media=False), "noSub")
         self.assertIn("noSub", S.EB_REDO_TOUCHED)
-        self.assertEqual(S._eb_touched_rows(d, "noSub"), 1)
 
 
 class TestExclusive(StoreDir):

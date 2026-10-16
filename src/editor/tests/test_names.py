@@ -135,18 +135,16 @@ class TestOwnersFollowServePatches(unittest.TestCase):
 
 
 class TestDocJobsHooks(unittest.TestCase):
-    """serve が doc_jobs.set_hooks に登録した口(評価用の作り直し = eval/drill/evalbatch(RS4-2 まで ed_evalbatch)・30fps = manage/cases/relink。RS2-8d)は全部埋まっていて、
-    呼ぶたびに持ち主の属性を読む(S.名前 の差し替えが届く)。評価用のフォルダの判定は RS3-1 から口でなく ytt/settings を直に読む"""
+    """doc_jobs の差し込みの口(set_hooks)は X-RERUN で消した(評価用の作り直しの書き込みは ③ rerun.rebuild_whole)。
+    評価用のフォルダの判定は RS3-1 から口でなく ytt/settings を直に読む"""
 
-    def test_hooks_registered_and_follow_patches(self):
-        doc_jobs.check_hooks()
+    def test_hooks_are_gone_and_eval_dir_follows_patches(self):
+        self.assertFalse(hasattr(doc_jobs, "set_hooks"))
         src = os.path.abspath(__file__)
         with mock.patch.object(S, "in_eval_dir", lambda path, dirs=None: True), mock.patch.object(S, "check_source", lambda p: src), \
                 mock.patch.object(S, "media_duration", lambda p: 10.0):
             spec = doc_jobs.validate_job({"sourcePath": src})
             self.assertIs(spec.get("evalSet"), True)   # 差し替えは ytt/settings に届き、validate_job が呼ぶたびに読む
-        with mock.patch.object(S, "eb_redo_skip_at_start", lambda job: "skip"):
-            self.assertEqual(doc_jobs._hook("redo_skip")({}), "skip")
 
 
 class TestEdSpeakersNames(unittest.TestCase):
@@ -367,7 +365,6 @@ class TestEdRelinkNames(unittest.TestCase):
 
     def test_norm_after_hook_is_gone(self):
         """文字起こしの続きの 30fps の口 norm_after は無い(OPT-M2 5b-2。受付の段 ② flow/normalize が先にそろえる)"""
-        self.assertNotIn("norm_after", doc_jobs._HOOK_KEYS)
         relink, _ = self.owners()
         self.assertFalse(hasattr(relink, "norm_after_transcribe"))
 
@@ -445,7 +442,7 @@ class TestDrillEvalbatchMovedWithoutShell(unittest.TestCase):
 
     def test_old_names_read_through_serve(self):
         drill, evalbatch = self.owners()
-        for mod, fname, n in ((drill, "data_ed_drill_names.txt", 32), (evalbatch, "data_ed_evalbatch_names.txt", 58)):
+        for mod, fname, n in ((drill, "data_ed_drill_names.txt", 32), (evalbatch, "data_ed_evalbatch_names.txt", 53)):
             names = _old_names(fname)
             self.assertEqual(len(names), n, fname)
             self.assertIn(mod, S._ED_MODULES, fname)
@@ -472,11 +469,8 @@ class TestDrillEvalbatchMovedWithoutShell(unittest.TestCase):
             self.assertEqual(drill._busy_tids(), {"x"})   # evalbatch は呼ぶたびに _drill._busy_tids を読む
 
     def test_hooks_point_to_new_owners(self):
-        from human.proof import doc_jobs, speakers
-        doc_jobs.check_hooks()
+        from human.proof import speakers
         speakers.check_context_namer()
-        with mock.patch.object(S, "eb_redo_fill", lambda job, spec, fields: "filled"):
-            self.assertEqual(doc_jobs._hook("redo_fill")({}, {}, {}), "filled")
         with mock.patch.object(S, "drill_candidates", lambda tid: {"suggest": "n" + tid}):
             self.assertEqual(speakers._context_name("t"), "nt")
 
