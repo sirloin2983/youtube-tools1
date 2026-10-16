@@ -629,9 +629,19 @@
     if (b && !b.hidden) b.focus();
   }
 
+  /* 友人へ自動で送る(まとめて実行の形が full のときだけ出す。受付のフォルダが無いと画面が知っているときだけ注を出す = 知らなければ出さない) */
+  function sendFolderMissing() { return !!intakeData && !intakeData.folder; }
+  function paintSendBox(box) {
+    var full = $('.pt-auto-mode', box).value === 'full';
+    $('.pt-auto-sendbox', box).hidden = !full;
+    $('.pt-auto-sendnote', box).hidden = !(full && sendFolderMissing());
+  }
   function wireAuto(node, c) {
     var box = $('.pt-auto', node), mode = $('.pt-auto-mode', box), top = $('.pt-auto-top', box), who = $('.pt-auto-streamer', box);
     if (c.gone) { goneAuto(box, c); return; }
+    box.setAttribute('data-auto-send', '');   // 友人へ自動で送る の注を付け直す対象(まとめて実行を配線した箱だけ)
+    var send = $('.pt-auto-send', box);
+    send.checked = true;   // 描くたびにオン(前回の値は覚えない = 3-47)
     UIKit.streamer.attach(who);
     var draft = draftFor(c.id);
     if (draft.streamer != null) { who.value = draft.streamer; who.dispatchEvent(new Event('input')); }   // 未保存の入力を再描画でも保つ(E2 finding 1)
@@ -642,7 +652,7 @@
     var ar = UIKit.autorun;
     var stateMode = !c.marks.total ? 'full' : c.marks.adopted ? 'adopted' : null;
     mode.value = stateMode || 'adopted';
-    var sync = function () { $('.pt-auto-topbox', box).hidden = mode.value !== 'full'; };
+    var sync = function () { $('.pt-auto-topbox', box).hidden = mode.value !== 'full'; paintSendBox(box); };
     ar.panel($('.pt-auto-panel', box), { kind: 'video' });
     ar.load().then(function (st) { if (!stateMode && st.mode) mode.value = st.mode; top.value = String(st.top); sync(); }, function () {});
     mode.addEventListener('change', function () { UIKit.prefs.patch('autorun', { mode: mode.value }).catch(function () {}); sync(); });
@@ -652,6 +662,7 @@
       var st = ar.state();
       var body = { id: c.id, mode: mode.value, overwrite: !!(st && st.overwrite) };
       if (mode.value === 'full') body.top = Math.round(Number(top.value) || 3);
+      body.autoSend = mode.value === 'full' && send.checked;   // 友人へ自動で送る(full だけ。それ以外は false = 届けない)
       var chk = UIKit.streamer.check(who);
       var estBody = { id: c.id, mode: body.mode, top: body.top, overwrite: body.overwrite };
       chk.then(function (name) {
@@ -1809,6 +1820,7 @@
   }
   function renderIntake(d) {
     intakeData = d;
+    $all('.pt-auto[data-auto-send]').forEach(function (b) { paintSendBox(b); });   // 受付のフォルダが分かったら注を出し直す
     var had = deliverFolder;
     deliverFolder = !!d.folder;   // 自動でできた切り抜きの「採用」(友人へ届ける)が押せるか。変わったら、自動の切り抜きがあるときだけ一覧を描き直す
     if (had !== deliverFolder && casesData && casesData.auto && casesData.auto.total) render();

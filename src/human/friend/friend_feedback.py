@@ -14,9 +14,10 @@ import os
 import re
 import time
 
+from flow import deliveries
 from ytt import fsio, tools
 
-DELIVERIES_LOG = "deliveries.jsonl"       # 届けた記録(入口の作業データの logs の中)
+DELIVERIES_LOG = deliveries.LOG           # 届けた記録(入口の作業データの logs の中。持ち主は ② flow/deliveries)
 FEEDBACK_LOG = "friend_feedback.jsonl"    # 友人の「要らない」の記録
 SUFFIX = ".feedback.json"
 # 判定: reject = 要らない(片付ける)/ made_video = 動画にした(F1 F6a。片付けずに記録だけ = 採用の数に数える)。
@@ -28,17 +29,9 @@ MAX_SCAN = 4 * 1024 * 1024                # 届けた記録を末尾から読む
 NAME_RE = re.compile(r'^[^\\/:*?"<>|\x00-\x1f]{1,200}$')
 
 
-def record_delivery(log_dir, zip_path, run, packs, marks=None):
-    """zip を 出力\\ に置いたことを deliveries.jsonl に 1 行(あとで友人の「要らない」が来たときに中身を引くため)。書けなくても届けるのは止めない"""
-    marks = marks or {}
-    row = {"at": int(time.time() * 1000), "zip": os.path.basename(zip_path), "requestId": run.request_id or "", "runId": run.id,
-           "videoId": run.video_id or "", "title": run.title or "",
-           "packs": [{"dir": d, "path": (marks.get(d) or {}).get("path") or "", "markId": (marks.get(d) or {}).get("markId") or ""} for d in packs]}
-    try:
-        _append(log_dir, DELIVERIES_LOG, row)
-    except OSError:
-        pass
-    return row
+def record_delivery(log_dir, zip_path, run, packs, marks=None, origin="request", ended_at=None):
+    """zip を 出力\\ に置いたことを deliveries.jsonl に 1 行。書く口は ② flow/deliveries.record(D-SEND でそちらへ寄せた。ここは渡すだけ)"""
+    return deliveries.record(log_dir, zip_path, run, packs, marks, origin, ended_at)
 
 
 def _append(log_dir, name, row):

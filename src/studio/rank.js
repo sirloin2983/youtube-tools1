@@ -188,6 +188,7 @@ function paneHtml(){
           <label class="lag">採用する数 <input id="rkAutoTop" type="number" min="1" max="30" step="1" value="3"></label>
           <label class="lag rk-autowho" title="名前を入れると、パックの字幕の文字をその人のメンバーカラーにします(空なら黒い文字)">配信者(字幕の色)
             <input id="rkAutoWho" type="text" size="12" placeholder="例: さくらみこ"></label>
+          <label class="lag rk-autosend"><input id="rkAutoSend" type="checkbox" checked> 友人へ自動で送る</label>
           <div class="rk-autopanel"></div>
           <p class="hint rk-automix" id="rkAutoMix" hidden>選んだ配信の配信者が違います。名前を入れると、全部の配信でその人の色になります。</p>
           <div class="row rk-autogo"><button type="button" class="btn primary" id="rkAutoGo" disabled>選んだ配信 0 本をまとめて実行</button><a class="btn small ghost" href="../#cases" data-ui-portal title="ホームの案件の一覧で見ます(ホームがほかの窓で開いていれば、その窓を前に出します)">案件の一覧</a></div>
@@ -441,7 +442,7 @@ async function startAuto(){
   const who = $('#rkAutoWho').value.trim();   // 手で入れたときだけ字幕の色に(チャンネル名から自動では入れない)
   R.adding = true; paintPick();
   try {
-    const body = { items, top, ...(who ? { streamer: who } : {}) };
+    const body = { items, top, ...(who ? { streamer: who } : {}), autoSend: !!$('#rkAutoSend').checked };
     const r = await UIKit.autorun.start('api/autorun/start-new', body, null);   // 始める・終わったら知らせる は共通の部品(段4。まだスタジオに無い配信なので見積もりはしない)
     const made = (r && r.runs) || [], sk = (r && r.skipped) || [];
     for (const x of made) R.picked.delete(x.videoId);

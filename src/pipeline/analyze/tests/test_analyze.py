@@ -206,6 +206,10 @@ class TestMeta(unittest.TestCase):
         self.assertEqual(m["chapters"], [[0.0, 100.0, "開始"]])
         self.assertEqual((m["views"], m["likes"], m["followers"], m["liveStatus"]), (12345, 999, 1000000, "was_live"))
         self.assertNotIn("formats", m)
+        self.assertEqual((m["releaseTs"], m["timestamp"]), (None, None))
+        m2 = fetch.slim_meta(dict(HEAT, release_timestamp=1760000000, timestamp=1760000100.7))   # D-SEND: 配信の始まり(終わった時刻 = releaseTs + duration の元)
+        self.assertEqual((m2["releaseTs"], m2["timestamp"], m2["duration"], m2["liveStatus"]), (1760000000, 1760000100, 7856, "was_live"))
+        self.assertIsNone(fetch.slim_meta(dict(HEAT, release_timestamp="x"))["releaseTs"])
         self.assertIsNone(fetch.slim_meta([1]))
         self.assertIsNone(fetch.slim_meta(None))
 
@@ -304,9 +308,21 @@ class TestRunCtl(unittest.TestCase):
         with mock.patch.object(analyze, "_levels", self.levels()):
             res = analyze.run(self.spec, ctl)
         self.assertTrue(res["candidates"])
-        self.assertEqual(set(res), {"source", "candidates", "series", "signals", "counts", "warnings", "spec"})
+        self.assertEqual(set(res), {"source", "candidates", "series", "signals", "counts", "warnings", "spec", "stream"})
+        self.assertEqual(res["stream"], {}, "付加情報が取れなかったときは空")
         self.assertEqual(seen[-1], (1.0, "解析が完了しました"))
         self.assertIn((None, "素材を取得中"), seen)
+
+    def test_run_carries_stream_times(self):
+        """D-SEND: 付加情報の配信の始まり・長さを結果の stream に写す(batch が analysis に入れる。② flow/sendpolicy.ended_at_of が読む)"""
+        real = analyze._weights
+        meta = fetch.slim_meta(dict(HEAT, release_timestamp=1760000000, timestamp=1760000100))
+
+        def with_meta(run, spec, warnings):
+            return real(run, spec, warnings)[0], meta
+        with mock.patch.object(analyze, "_levels", self.levels()), mock.patch.object(analyze, "_weights", with_meta):
+            res = analyze.run(self.spec, Ctl())
+        self.assertEqual(res["stream"], {"releaseTs": 1760000000, "timestamp": 1760000100, "uploadDate": "20260920", "liveStatus": "was_live", "duration": 7856})
 
     def test_cancel_and_failure_are_exceptions(self):
         ctl = Ctl()

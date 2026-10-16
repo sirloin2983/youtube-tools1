@@ -206,6 +206,7 @@ def _fake_run_analyze(spec, ctl=None):
     """① の解析の代わり(ネットワーク・ffmpeg に出ない): 候補 2 つ"""
     src = spec["source"]
     return {"source": dict(src, duration=300.0), "series": {"n": 1}, "signals": {}, "counts": {}, "warnings": [], "spec": {"count": 2},
+            "stream": {"releaseTs": 1000, "liveStatus": "was_live", "duration": 300},
             "candidates": [{"start": 10, "end": 40, "peak": 20, "score": 3, "parts": {}, "reasons": []},
                            {"start": 100, "end": 130, "peak": 110, "score": 8, "parts": {}, "reasons": []}]}
 
@@ -235,6 +236,10 @@ class LocalStudioTest(Base):
         self.assertEqual((it["status"], it["marks"]), ("done", 2))
         st, obj = self.ls.video(VID)
         self.assertEqual((st, obj["video"]["title"], len(obj["video"]["marks"])), (200, "題", 2))
+        an = obj["video"]["analysis"]   # D-SEND: 配信の始まり・長さが analysis に入り、sendpolicy が終わった時刻を引ける
+        self.assertEqual((an["releaseTs"], an["liveStatus"], an["duration"]), (1000, "was_live", 300))
+        from flow import sendpolicy
+        self.assertEqual(sendpolicy.ended_at_of(an), 1300.0)
         r = self.ls.request_marks({"id": VID, "ranges": [], "top": 1})
         self.assertEqual(len(r["autoIds"]), 1)
         with self.assertRaises(R.StepError):

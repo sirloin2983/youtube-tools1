@@ -249,7 +249,7 @@ namespace RequestSender
             deliver = new Stepper(DeliverBatch.Min, DeliverBatch.Max, settings.DeliverBatch, Ui.S(76), "届け方(何本ごとに届けるか)");
             deliver.Format = DeliverBatch.Label;
             deliver.Show_();
-            deliver.ValueChanged += () => { UpdateFlow(); UpdateAll(); };
+            deliver.ValueChanged += () => { UpdateFlow(); UpdateAll(); OnDeliverBatchChanged(); };
             lDeliver.Font = Theme.Small;
             string deliverTip = "届け方: 1 本ずつ = 切り抜きができた順に 1 本ずつ届く / n 本ごと = n 本の組(まとめ動画 1 本 + 1 本ずつ)で届き、まとめ動画を見てから 1 本ずつ選べる。ライブ配信は n 本たまるごとに組で届き、録画が終わると残りが届く";
             tips.SetToolTip(lDeliver, deliverTip);

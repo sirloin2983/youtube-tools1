@@ -48,6 +48,8 @@ static class CoreTests
         Run("受け取る: zip の展開(パックのフォルダを保存先の直下に・同じ名前は (2)・zip は消す・外へ出る名前は断る)", ExtractZips);
         Run("消す: delete_v2 の引数(日本語の path も ASCII)", DeleteArgs);
         Run("要らない: 記録の JSON と置き場所(<zip の名前>.feedback.json)", FeedbackJsonTest);
+        Run("出どころ(D-SEND 2-7): 古い形は依頼・auto の組と 1 本に札「依頼なし」・採否の JSON に origin", OriginTags);
+        Run("届け方の知らせ(D-SEND 2-4): /設定/届け方.json の形・前回と違うときだけ上げる・失敗は覚えず次の回で", DeliverPrefsTest);
         Run("画面: 作れる(開かない)・引数の動画だけ入る", FormBuilds);
         Run("画面: 時刻の欄にキーを送る(数字・← →・↑ ↓・BackSpace・Delete。「:」は入らない)", TimeBoxKeys);
         Run("画面: 配信のカード(t= つきの URL・+1分・③ では区間を送らない・誤りの欄・何行も貼る)", StreamCards);
@@ -1237,6 +1239,143 @@ static class CoreTests
         finally { Directory.Delete(dir, true); }
     }
 
+    static OutputEntry Listed(string name, int minute, string json = null)
+    {
+        var e = OutputFolder.FromName(name);
+        e.PathLower = "/出力/" + name.ToLowerInvariant(); e.Rev = "r" + name.Length; e.Size = 10; e.Modified = new DateTime(2026, 10, 16, 20, minute, 0);
+        if (json != null)
+        {
+            byte[] b = new UTF8Encoding(false).GetBytes(json);
+            if (e.Kind == OutputKind.Group) e.Info = GroupInfo.Parse(b, b.Length);
+            else if (e.Kind == OutputKind.Meta) { var m = MetaInfo.Parse(b, b.Length); e.Origin = m != null ? m.Origin : ""; }
+        }
+        return e;
+    }
+
+    static void OriginTags()
+    {
+        string g = "20261016-200000-aaaaaa__";
+        // 古い形(origin 無しの .group.json・meta 無しの zip)= 依頼として扱う(札なし)
+        var oldGroup = Listed(g + "古い 1-2.group.json", 30, "{\"v\":1,\"title\":\"古い\",\"packs\":[{\"n\":1,\"zip\":\"" + g + "o1.zip\"},{\"n\":2,\"zip\":\"" + g + "o2.zip\"}]}");
+        True(oldGroup.Info != null, "古い .group.json が読める");
+        Eq("", oldGroup.Info.Origin, "origin 無し = 分からない");
+        var o1 = Listed(g + "o1.zip", 31); var o2 = Listed(g + "o2.zip", 32);
+        var solo = Listed("20261016-190000-bbbbbb__単独.zip", 20);
+        OutputFolder.Arrange(new List<OutputEntry> { oldGroup, o1, o2, solo });
+        True(!oldGroup.IsAuto && !o1.IsAuto && !solo.IsAuto, "古い形は依頼として扱う");
+        True(!MainForm.AutoMark(oldGroup) && !MainForm.AutoMark(o1) && !MainForm.AutoMark(solo), "札は付かない");
+
+        // origin auto の組: 組にも中の 1 本にも札。request の組は札なし。知らない値は分からない扱い
+        string a = "20261016-210000-cccccc__";
+        var autoGroup = Listed(a + "自動 1-2.group.json", 40, "{\"v\":1,\"origin\":\"auto\",\"title\":\"自動\",\"packs\":[{\"n\":1,\"zip\":\"" + a + "a1.zip\"},{\"n\":2,\"zip\":\"" + a + "a2.zip\"}],\"sentAt\":\"2026-10-16T21:00:00+09:00\"}");
+        Eq("auto", autoGroup.Info.Origin, "組の origin");
+        var a1 = Listed(a + "a1.zip", 41); var a2 = Listed(a + "a2.zip", 42);
+        string r = "20261016-220000-dddddd__";
+        var reqGroup = Listed(r + "依頼 1-1.group.json", 50, "{\"v\":1,\"origin\":\"request\",\"title\":\"依頼\",\"packs\":[{\"n\":1,\"zip\":\"" + r + "r1.zip\"}]}");
+        var r1 = Listed(r + "r1.zip", 51);
+        var weird = Listed("20261016-230000-eeeeee__変.group.json", 55, "{\"v\":1,\"origin\":\"robot\",\"packs\":[{\"n\":1,\"zip\":\"w1.zip\"}]}");
+        var w1 = Listed("w1.zip", 56);
+        OutputFolder.Arrange(new List<OutputEntry> { autoGroup, a1, a2, reqGroup, r1, weird, w1 });
+        True(MainForm.AutoMark(autoGroup) && MainForm.AutoMark(a1) && MainForm.AutoMark(a2), "auto の組と中の 1 本に札");
+        True(!MainForm.AutoMark(reqGroup) && !MainForm.AutoMark(r1), "origin request の組は札なし");
+        True(!MainForm.AutoMark(weird) && !MainForm.AutoMark(w1), "知らない origin は依頼として扱う");
+
+        // 1 本: zip の隣の <zip の名前(.zip 抜き)>.meta.json。一覧には出さず zip に結ぶ。meta 単独(zip がまだ)は出さない
+        var s1 = Listed("20261016-240000-ffffff__自動の単独.zip", 10);
+        var s1m = Listed("20261016-240000-ffffff__自動の単独.meta.json", 9, "{\"v\":1,\"origin\":\"auto\",\"sentAt\":\"2026-10-16T24:00:00+09:00\"}");
+        Eq(OutputKind.Meta, s1m.Kind, "meta.json は種類 Meta");
+        Eq("auto", s1m.Origin, "meta を読むと origin");
+        var s2 = Listed("20261016-240100-ffffff__依頼の単独.zip", 11);
+        var s2m = Listed("20261016-240100-ffffff__依頼の単独.meta.json", 12, "{\"v\":1,\"origin\":\"request\"}");
+        var s3 = Listed("20261016-240200-ffffff__壊れた印.zip", 13);
+        var s3m = Listed("20261016-240200-ffffff__壊れた印.meta.json", 14, "{broken");
+        var orphan = Listed("20261016-240300-ffffff__相手なし.meta.json", 15, "{\"v\":1,\"origin\":\"auto\"}");
+        var list = OutputFolder.Arrange(new List<OutputEntry> { s1, s1m, s2, s2m, s3, s3m, orphan });
+        Eq("依頼の単独|壊れた印|自動の単独", string.Join("|", list.OrderBy(e => e.Title, StringComparer.Ordinal).Select(e => e.Title)), "meta は一覧に出ない・相手の無い meta も出ない");
+        Eq(3, OutputFolder.CountItems(list), "数に meta は入らない");
+        True(s1.IsAuto && s1.Meta == s1m && MainForm.AutoMark(s1), "1 本の auto に札・meta を結ぶ(消すとき一緒に消す)");
+        True(!s2.IsAuto && !s3.IsAuto, "request・壊れた meta は札なし");
+        Eq("/出力/20261016-240000-ffffff__自動の単独.meta.json", s1m.ApiPath, "meta の Dropbox の場所");
+        // Arrange をやり直しても同じ(札が残り続けない)
+        s1.Meta = null; s1.Origin = "";
+        OutputFolder.Arrange(new List<OutputEntry> { s1, s1m });
+        True(s1.IsAuto, "やり直しても結ぶ");
+        OutputFolder.Arrange(new List<OutputEntry> { s1 });
+        True(!s1.IsAuto && s1.Meta == null, "meta が無くなれば札も外れる");
+
+        // 採否の JSON に origin(分かるときだけ)
+        var now = new DateTimeOffset(2026, 10, 16, 21, 0, 0, TimeSpan.FromHours(9));
+        Eq("auto", Json.Str(Json.Parse(FeedbackJson.Reject(a1, now)), "origin"), "要らない(feedback.json)に origin");
+        Eq("auto", Json.Str(Json.Parse(FeedbackJson.MadeVideo(a1, now)), "origin"), "動画にしたにも");
+        True(!Json.Parse(FeedbackJson.Reject(o1, now)).ContainsKey("origin"), "分からないときは書かない");
+        var vj = Json.Parse(LocalPacks.VerdictJson("keep", a1.RequestId, a1.Name, a1.Title, 1760151600123, a1.Origin));
+        Eq("auto", Json.Str(vj, "origin"), ".verdict.json に origin");
+        True(Json.Str(vj, "verdict") == "keep" && Json.Long(vj, "at", 0) == 1760151600123, "ほかの鍵は今までどおり");
+        True(!Json.Parse(LocalPacks.VerdictJson("keep", "r", "p", "t", 1)).ContainsKey("origin"), "origin 無しの呼び出しは今までの形");
+        string dir = TempDir();
+        try
+        {
+            string path = LocalPacks.WriteVerdict(dir, a1, "reject", now);
+            Eq("auto", Json.Str(Json.ReadFileOrNull(path), "origin"), "WriteVerdict が出どころを書く");
+        }
+        finally { try { Directory.Delete(dir, true); } catch (IOException) { } }
+    }
+
+    static void DeliverPrefsTest()
+    {
+        var now = new DateTimeOffset(2026, 10, 16, 21, 5, 6, TimeSpan.FromHours(9));
+        Eq("/設定/届け方.json", DeliverPrefs.Path, "置き場所");
+        var d = Json.Parse(DeliverPrefs.Json(5, now));
+        True(Json.Long(d, "v", 0) == 1 && Json.Long(d, "deliverBatch", 0) == 5 && Json.Str(d, "at") == "2026-10-16T21:05:06+09:00", "{v, deliverBatch, at(地方時 ISO)}");
+        True(DeliverPrefs.NeedsUpload(5, 0) && DeliverPrefs.NeedsUpload(1, 5) && !DeliverPrefs.NeedsUpload(5, 5), "前回(0 = まだ)と違うときだけ");
+        True(!DeliverPrefs.NeedsUpload(0, 0) && !DeliverPrefs.NeedsUpload(11, 0), "範囲の外は上げない");
+        True(DropboxArgs.CommitOverwrite(DeliverPrefs.Path).Contains("\"mode\":\"overwrite\""), "同じ名前を置き換える");
+
+        var io = new FakeIo();
+        Eq(5, Sync.UploadDeliverPrefs(io, 5, 0, now), "初めては上げる");
+        Eq(1, io.Puts.Count, "1 回");
+        True(io.Puts.ContainsKey(DeliverPrefs.Path) && Json.Long(Json.Parse(Encoding.UTF8.GetString(io.Puts[DeliverPrefs.Path])), "deliverBatch", 0) == 5, "中身");
+        Eq(0, Sync.UploadDeliverPrefs(io, 5, 5, now), "同じなら上げない");
+        Eq(1, io.Puts.Count, "上げ直さない");
+
+        // RunAll: 上げたら Saved で覚える。失敗は覚えず(次の回で上げ直す)・ほかの確認は止めない
+        string data = TempDir();
+        try
+        {
+            int saved = 0;
+            var ds = new Sync.DeliverSync { Batch = 3, LastUploaded = 0, Saved = n => saved = n };
+            var r = Sync.RunAll(io, null, null, data, "0.58.0", s => { }, ds);
+            Eq(3, saved, "上げた値を覚える");
+            Eq(3, r.DeliverBatchUploaded, "結果に出る");
+            io.FailPut = true; saved = 0;
+            ds = new Sync.DeliverSync { Batch = 4, LastUploaded = 3, Saved = n => saved = n };
+            r = Sync.RunAll(io, null, null, data, "0.58.0", s => { }, ds);
+            Eq(0, saved, "失敗したら覚えない = 次の回で上げ直す");
+            True(r.Problems.Any(p => p.StartsWith("届け方")), "問題に出る");
+            io.FailPut = false;
+            r = Sync.RunAll(io, null, null, data, "0.58.0", s => { }, ds);
+            Eq(4, saved, "次の回で上がる");
+            var plain = Sync.RunAll(io, null, null, data, "0.58.0", s => { });
+            Eq(0, plain.DeliverBatchUploaded, "知らせの指定が無ければ何もしない(今までどおり)");
+        }
+        finally { try { Directory.Delete(data, true); } catch (IOException) { } }
+
+        // 前回上げた値は settings.json に(画面の設定とは別の鍵。ほかの鍵を消さない)
+        string dir = TempDir();
+        try
+        {
+            var st = new LocalState(dir);
+            Eq(0, st.LoadDeliverBatchUploaded(), "まだ上げていない = 0");
+            st.SaveDownloadDir(Path.Combine(dir, "dl"));
+            st.SaveDeliverBatchUploaded(6);
+            Eq(6, st.LoadDeliverBatchUploaded(), "覚える");
+            Eq(Path.Combine(dir, "dl"), st.LoadDownloadDir(), "ほかの鍵は消えない");
+            var s = st.LoadSettings(); s.DeliverBatch = 2; st.SaveSettings(s);
+            Eq(6, st.LoadDeliverBatchUploaded(), "画面の設定の保存で消えない");
+        }
+        finally { try { Directory.Delete(dir, true); } catch (IOException) { } }
+    }
+
     static void FeedbackJsonTest()
     {
         var e = OutputFolder.FromName("20261002-120000-0a1b2c__みこの配信 1-5.zip");
@@ -1877,6 +2016,14 @@ static class CoreTests
         public Dictionary<string, byte[]> Remote = new Dictionary<string, byte[]>();
         public List<string> Uploaded = new List<string>();
         public HashSet<string> FailUpload = new HashSet<string>();
+        public Dictionary<string, byte[]> Puts = new Dictionary<string, byte[]>();
+        public bool FailPut;
+
+        public void PutBytes(byte[] data, string path)
+        {
+            if (FailPut) throw new IOException("offline");
+            Puts[path] = data;
+        }
 
         public byte[] ReadSmall(string path) { byte[] b; return Remote.TryGetValue(path, out b) ? b : null; }
 

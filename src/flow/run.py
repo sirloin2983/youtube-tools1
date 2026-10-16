@@ -49,7 +49,7 @@ import time
 import uuid
 
 from ytt import colors, jobs as _slots
-from . import envelope as _envelope, keys as _keys, normalize as _norm, placement as _placement, prio as _prio, spec as _spec, tools as _tools
+from . import envelope as _envelope, keys as _keys, normalize as _norm, placement as _placement, prio as _prio, sendpolicy as _sendpolicy, spec as _spec, tools as _tools
 from .envelope import clean_pool  # noqa: F401  (src/home/autorun.py が同じ名前で読む。RS7-1 S3 で envelope へ移した)
 from .spec import (CUTS, LIVE_AUTO_CUT, MAX_MARKS, TX_ENGINES, TX_MODELS, WEIGHT_KEYS, clean_ranges, clean_weights)
 
@@ -213,7 +213,7 @@ class Run:
 
     def __init__(self, video_id, title, mode, top, doc_id=None, overwrite=False, streamer=None, marks=None, fresh=None, on_fail="next",
                  source_path=None, request_id=None, deliver_dir=None, speakers=None, video_tracks=None, ranges=None, cut=None, weights=None, duration=None,
-                 engine=None, model=None, deliver_batch=None, pool=None, force=False, normalize=False):
+                 engine=None, model=None, deliver_batch=None, pool=None, force=False, normalize=False, deliver_tag=None, deliver_origin=None):
         self.id = uuid.uuid4().hex[:10]
         self.normalize = normalize is True   # 動画ファイルの実行で、最初に写しを 30fps に置き換える段 normalize を持つか(上の NORMALIZE_STEP)
         self.force = force is True   # 鍵が同じ・違っても作り直す(文字起こし = 新しい文書・パック = 上書き。束の run.force と同じ。RS6 b-K2)
@@ -232,6 +232,8 @@ class Run:
         self.speakers = speakers         # 友人が入れた「配信者」{"count", "names", "styles"?: {名前: {"color": "#RRGGBB"}}}。あれば文字起こしのあとに話者分離(2026-10-01)。styles = 字幕の色(文書に覚え、パックにも渡す)
         self.new_docs = []               # この実行で文字起こしした文書(話者分離はこれだけ。前からある文書の話者は人が直したかもしれない)
         self.tx_before = {}              # 文字起こしを頼む直前に、動画ごとに前からあった文書(文字のある物)の id(F2。再開でこの外の文書 = この実行が作った物)
+        self.deliver_tag = deliver_tag if isinstance(deliver_tag, str) and deliver_tag else None   # 届ける zip の名前の頭(友人のアプリの名前の形 YYYYMMDD-HHMMSS-xxxxxx。None = 依頼の id か実行の id。D-SEND)
+        self.deliver_origin = deliver_origin if deliver_origin in _sendpolicy.ORIGINS else None   # 届けるときの出どころ(request・auto・manual。None = 依頼の id があれば request・無ければ auto。D-SEND)
         self.deliver_dir = deliver_dir   # ① 全自動: パックを zip にして置く所(Dropbox の 出力\)。失敗したら理由の .txt も
         self.packs = []                  # この実行で作ったパックのフォルダ
         self.kept_packs = []             # 鍵で飛ばして作らなかった、前からあるパックのフォルダ(結果の packs には載せる。届ける対象にはしない = packs とは別)
@@ -268,6 +270,8 @@ class Run:
         if mode in REQUEST_URL_MODES and self.ranges and len(self.ranges) >= (top or 0):
             keys.remove("analyze")   # 区間が切り抜く数に足りている: 解析なしで、その区間だけを取りに行く
             keys.append("analyze_later")   # 解析は最後(届けたあと)に順番へ入れるだけ = 友人の区間と自動の候補を比べる材料(決定 3-49 Q6。OPT-E2)
+        if mode == "full" and deliver_dir and "deliver" not in keys:   # まとめて実行で友人へ自動で送る(D-SEND。届け先があるときだけ段を足す = MODE_STEPS の full は変えない)
+            keys.append("deliver")
         if self.asked.get("transcribe", {}).get("diarize") and "transcribe" in keys:   # 話す人の人数がある(欄 speakers → 束の transcribe.diarize)
             keys.insert(keys.index("transcribe") + 1, "diarize")
         self.steps = [{"key": k, "label": STEP_LABELS[k], "state": "wait", "detail": ""} for k in keys]
@@ -341,7 +345,7 @@ class Run:
         else:
             inp = {"docId": self.doc_id, "title": self.title}
         return {"id": self.id, "kind": kind, "input": inp, "requestId": self.request_id,
-                "deliver": {"dir": self.deliver_dir, "batch": self.deliver_batch, "pool": self.pool}, "note": self.note,
+                "deliver": {"dir": self.deliver_dir, "batch": self.deliver_batch, "pool": self.pool, "origin": self.deliver_origin}, "note": self.note,
                 "createdAt": int(self.created * 1000), "specVersion": _envelope.SPEC_VERSION,
                 "legacy": {"mode": self.mode, "onFail": self.on_fail, "streamer": self.streamer}}
 
@@ -371,7 +375,7 @@ class Run:
                   video_tracks=pk["videoTracks"] if "videoTracks" in pins else None, ranges=[tuple(r) for r in b["hints"]["ranges"]],
                   cut=pk["cut"] if "cut" in pins else None, weights={k: b["analyze"][k] for k in WEIGHT_KEYS} if "weights" in pins else None,
                   duration=inp.get("duration"), engine=t["engine"] if "engine" in pins else None, model=t["model"] if "model" in pins else None,
-                  deliver_batch=dl["batch"], pool=dl["pool"], force=b["run"]["force"], normalize=normalize)
+                  deliver_batch=dl["batch"], pool=dl["pool"], force=b["run"]["force"], normalize=normalize, deliver_origin=dl["origin"])
         if RUN_ID_RE.match(env["id"]):
             run.id = env["id"]
         run.created = env["createdAt"] / 1000.0
@@ -385,7 +389,7 @@ class Run:
                 "overwrite": self.overwrite, "streamer": self.streamer, "streamerFrom": self.streamer_from, "marks": list(self.marks) if self.marks else None,
                 "fresh": self.fresh, "onFail": self.on_fail, "sourcePath": self.source_path, "requestId": self.request_id, "deliverDir": self.deliver_dir,
                 "speakers": self.speakers, "videoTracks": self.video_tracks, "ranges": [list(r) for r in self.ranges], "cut": self.cut, "weights": self.weights,
-                "duration": self.duration, "engine": self.engine, "model": self.model, "friendLength": self.friend_length, "deliverBatch": self.deliver_batch,
+                "duration": self.duration, "engine": self.engine, "model": self.model, "friendLength": self.friend_length, "deliverBatch": self.deliver_batch, "deliverTag": self.deliver_tag, "deliverOrigin": self.deliver_origin,
                 "pool": self.pool, "docs": list(self.docs), "newDocs": list(self.new_docs), "txBefore": copy.deepcopy(self.tx_before), "packs": list(self.packs), "keptPacks": list(self.kept_packs), "delivered": list(self.delivered),
                 "packMarks": dict(self.pack_marks), "force": self.force, "normalize": self.normalize,
                 "friendPlan": copy.deepcopy(self.friend_plan), "notes": list(self.notes),   # 受付で決めた物(RS7-1 S4)
@@ -429,7 +433,7 @@ class Run:
                       video_tracks=vt if isinstance(vt, int) and not isinstance(vt, bool) else None, ranges=clean_ranges(d.get("ranges")),
                       cut=d.get("cut"), weights=clean_weights(d.get("weights")), duration=d.get("duration") if _num(d.get("duration")) else None,
                       engine=d.get("engine"), model=d.get("model"), deliver_batch=d.get("deliverBatch"), pool=d.get("pool"), force=d.get("force") is True,
-                      normalize=norm)
+                      normalize=norm, deliver_tag=s("deliverTag", 120), deliver_origin=d.get("deliverOrigin"))
         except (TypeError, ValueError, KeyError):
             return None
         run.id = d["id"]

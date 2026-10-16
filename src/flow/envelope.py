@@ -10,7 +10,7 @@
    "kind": "url" | "file" | "docs" | "live",
    "input": kind ごとの入力(INPUT_KEYS。url = {videoId か url, title, duration, fresh, marks}・file = {path, title}・docs = {docId, title}・
             live = {videoId か url, title, recorder}(recorder = 録画の部品の名前。無ければ既定。Queue.submit が live の hook へ回す = RS7-2 G2a)),
-   "requestId": 友人の依頼の id か None, "deliver": {"dir", "batch", "pool"}(届け先・n 本の組・ライブの組の溜め。どれも None = 届けない・既定),
+   "requestId": 友人の依頼の id か None, "deliver": {"dir", "batch", "pool", "origin"}(届け先・n 本の組・ライブの組の溜め・出どころ request|auto|manual。どれも None = 届けない・既定・自動で決める),
    "note": メモ, "createdAt": 受けた時刻(ミリ秒), "specVersion": 束の形の版(SPEC_VERSION),
    "legacy": {"mode", "onFail", "streamer"}(一時。今の Run の欄で、まだ束に写せない物 = 段の並びの形・1 本が失敗したとき・字幕の色の配信者。
              配信者は受付で決めた名前(RS7-1 S4。"" = 色なし・null = 決めていない)。null のとき ② の口 submit は束の hints.people の先頭を照らし合わせて
@@ -30,7 +30,8 @@ KINDS = ("url", "file", "docs", "live")
 KEYS = ("id", "kind", "input", "requestId", "deliver", "note", "createdAt", "specVersion", "legacy")
 INPUT_KEYS = {"url": ("videoId", "url", "title", "duration", "fresh", "marks"), "live": ("videoId", "url", "title", "recorder"),
               "file": ("path", "title"), "docs": ("docId", "title")}
-DELIVER_KEYS = ("dir", "batch", "pool")
+DELIVER_KEYS = ("dir", "batch", "pool", "origin")
+DELIVER_ORIGINS = ("request", "auto", "manual")   # 届けるときの出どころ(flow/sendpolicy.ORIGINS と同じ。D-SEND。envelope は sendpolicy を読まない)
 LEGACY_KEYS = ("mode", "onFail", "streamer")
 ON_FAIL = ("next", "stop")
 ID_RE = re.compile(r"[0-9A-Za-z_-]{1,64}\Z")
@@ -127,7 +128,10 @@ def _deliver(d):
         pool = clean_pool(pool)
         if pool is None:
             raise ValueError("%s.pool は {key, rid?, title?, meta?} の形にしてください" % where)
-    return {"dir": _str(d.get("dir"), PATH_MAX, where + ".dir", empty=False), "batch": batch, "pool": pool}
+    origin = d.get("origin")
+    if origin is not None and origin not in DELIVER_ORIGINS:
+        raise ValueError("%s.origin は %s のどれかにしてください" % (where, "・".join(DELIVER_ORIGINS)))
+    return {"dir": _str(d.get("dir"), PATH_MAX, where + ".dir", empty=False), "batch": batch, "pool": pool, "origin": origin}
 
 
 def _legacy(d):

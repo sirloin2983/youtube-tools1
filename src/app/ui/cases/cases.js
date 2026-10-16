@@ -132,6 +132,14 @@
     if (k === 'file' && c.kind === 'file') return 'stream';
     return k || (c.kind === 'live' ? 'live' : c.kind === 'file' ? 'file' : PSEUDO[c.id] ? c.id : 'stream');
   }
+  /* 送らなかった理由の文(自動の切り抜き。review.notSent.code → 文。text が来ていればそれを優先)。文はこの 1 か所だけ */
+  var NOT_SENT = { unchecked: 'チェックを外した', stale: '古い配信', requested: '友人の依頼あり', expired: '古くなった', unknown_end: '終わった時刻が分からない' };
+  function notSentText(ns) { return (ns && ns.text) || NOT_SENT[ns && ns.code] || '理由が分かりません'; }
+  function notSentPill(it) {
+    var ns = it.kind === 'clip' && it.clip && it.clip.review && it.clip.review.notSent;
+    if (!ns) return '';
+    return '<span class="pill info" data-ui-audit-allow="A-33" title="' + esc(notSentText(ns)) + '">' + esc('送らなかった: ' + notSentText(ns)) + '</span>';
+  }
   function clipState(cl) {
     var tx = cl.transcript || null, st = typeof cl.state === 'string' ? cl.state : '';
     if (st === 'proofing' && tx && !(tx.proofed > 0)) return 'todo';   // C0 の proofing は「校正済みが足りない」= 1 行も済んでいなければ未校正
@@ -224,7 +232,7 @@
       var it = S.items[i];
       if (it.kind === 'clip' && !clipSep) { html += '<div class="ui-rail-sep">切り抜き</div>'; clipSep = true; }
       html += '<button type="button" class="ui-rail-item" data-cs-key="' + esc(it.key) + '" aria-current="' + (it.key === S.sel) + '" title="' + esc(it.label + (it.sub ? ' ・ ' + it.sub : '')) + '">' +
-        '<span class="ui-rail-t"><b>' + esc(it.label) + '</b><span class="ui-rail-s">' + esc(it.sub || '') + '</span></span>' + pillOf(it) + '</button>';
+        '<span class="ui-rail-t"><b>' + esc(it.label) + '</b><span class="ui-rail-s">' + esc(it.sub || '') + '</span></span>' + pillOf(it) + notSentPill(it) + '</button>';
     }
     if (!clipSep) html += '<div class="ui-rail-sep">切り抜き</div><p class="hint cs-rail-none">' + (NO_CAND[caseKind(S.kase)] ? 'この案件にはまだ文字起こしがありません。' : 'まだ書き出した切り抜きはありません。候補を採用して書き出すと、ここに 1 本 1 行で出ます。') + '</p>';
     if (html === S.railHtml) return;   // 変わっていなければ描き直さない(フォーカス・スクロールを保つ)

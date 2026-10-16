@@ -5,7 +5,7 @@ view(View)は 1 回の集め(collect)の間だけ読んだ物を共有する: �
 スタジオの data.json・答えの記録(answers)。
 **評価用(文書の evalSet・評価用のフォルダ evalDirs の中の動画)は View.docs の 1 か所で外す**(出どころは View.docs だけを使う)。
 V0 で入れた出どころ(細部は V2 で直す):
-  value:auto  自動でできた切り抜き(案件の clips[].auto で、届けていない・pending でない・文書がある物。ホームの続けて確認 rvItems と同じ)
+  value:auto  自動でできた切り抜きの品質(案件の clips[].auto。送った物も送らなかった物も・pending とごみ箱の物と評価用は外す)
   value:cand  候補のまま(スタジオの YouTube の配信で、まだ 1 本も採用・書き出ししていない配信の、状態が空のマーク。点数の高い順)
   read:fill   後処理(fill)が直した行で、校正していない・今の文字と認識のままが違う物
   voice:diar  話者の判別(.diar.json の latest.rows)の行で、1 秒以上・混ざり無し・校正していない物。自信の低い順(照合の弱い話者 → 弱い行 → 声の無い人)。
@@ -17,6 +17,7 @@ import os
 import re
 import threading
 
+from human.check import value as value_mod
 from human.check import voice as voice_mod
 from manage.cases import cases as cases_mod, txindex
 from ytt import fsio, settings
@@ -216,6 +217,8 @@ def _fold(s):
 # ---------------------------------------------------------------- V0 の出どころ
 
 def value_auto(view):
+    """送った後の品質の確認(10-16 の 2-8)。自動でできた切り抜き(clip.auto)のうち、送った物も送らなかった物も出す。
+    外すのは 前の物(pending = 未定のまま)・ごみ箱へ移した要らない物(exists が偽 = 人がもう要らないと決めた)・評価用の文書・読めない文書だけ"""
     out = []
     ok_docs = view.doc_ids()   # 評価用でない・読める文書がある切り抜きだけ
     for c in view.cases().get("cases") or ():
@@ -225,7 +228,7 @@ def value_auto(view):
             rv = cl.get("review") or {}
             tid = (cl.get("transcript") or {}).get("id")
             mid = cl.get("markId") or ""
-            if not cl.get("auto") or rv.get("deliveredAt") or rv.get("pending") or tid not in ok_docs or not MARK_RE.match(mid):
+            if not cl.get("auto") or rv.get("pending") or cl.get("exists") is False or tid not in ok_docs or not MARK_RE.match(mid):
                 continue
             if not MARK_RE.match(str(c.get("id") or "")):
                 continue
@@ -234,7 +237,8 @@ def value_auto(view):
                         "case": {"id": c["id"], "title": str(c.get("title") or "")[:120]},
                         "target": {"videoId": c["id"], "markId": mid, "docId": tid, "row": None},
                         "media": {"url": MEDIA % tid, "start": 0.0, "end": None, "pad": 0.0}, "text": str(cl.get("label") or ""),
-                        "guess": None, "options": ["send", "drop"], "score": auto.get("score"), "note": str(auto.get("originLabel") or ""),
+                        "guess": None, "options": list(value_mod.AUTO_CHOICES), "reasons": [{"id": k, "text": t} for k, t in value_mod.AUTO_REASONS.items()],
+                        "score": auto.get("score"), "note": str(auto.get("originLabel") or ""),
                         "_order": [0, -_num(c.get("streamedAt")), _num(cl.get("start"))]})
     return out
 

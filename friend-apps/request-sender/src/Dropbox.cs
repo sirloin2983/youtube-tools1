@@ -73,9 +73,10 @@ namespace RequestSender
 
         // ---- アップロード ----
         // -> Dropbox に置かれた実際の名前(autorename で変わることがある)
-        public string UploadBytes(byte[] data, string dropboxPath)
+        // overwrite = 同じ名前を置き換える(いつも同じ場所の 1 つのファイル用。ふつうは別の名前にして残す)
+        public string UploadBytes(byte[] data, string dropboxPath, bool overwrite = false)
         {
-            var d = Call("files/upload", DropboxArgs.Commit(dropboxPath), data, null);
+            var d = Call("files/upload", overwrite ? DropboxArgs.CommitOverwrite(dropboxPath) : DropboxArgs.Commit(dropboxPath), data, null);
             return NameOf(d, dropboxPath);
         }
 

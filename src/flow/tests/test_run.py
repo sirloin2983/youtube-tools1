@@ -113,6 +113,42 @@ class TestFromInput(unittest.TestCase):
         self.assertEqual((back.id, back.mode, back.doc_id, back.spec, back.resumed), (r.id, R.DOC_MODE, "d1", r.spec, True))
         self.assertIsNone(R.Run.restore(dict(new_only, envelope=dict(d["envelope"], specVersion=99))))
 
+    def test_full_with_deliver_dir_adds_deliver_step(self):
+        """D-SEND: full で届け先(deliver_dir)があれば末尾に段 deliver。MODE_STEPS の full は変えない・ほかの形は足さない"""
+        self.assertEqual(R.MODE_STEPS["full"], ("analyze", "adopt", "export", "transcribe", "pack"))
+        keys = lambda r: [s["key"] for s in r.steps]  # noqa: E731
+        self.assertEqual(keys(R.Run("abcdefghijk", "t", "full", 3)), list(R.MODE_STEPS["full"]))
+        r = R.Run("abcdefghijk", "t", "full", 3, deliver_dir="D:/out")
+        self.assertEqual(keys(r), list(R.MODE_STEPS["full"]) + ["deliver"])
+        r = R.Run("abcdefghijk", "t", "full", 3, deliver_dir="D:/out", speakers={"count": 2, "names": []})
+        self.assertEqual(keys(r), ["analyze", "adopt", "export", "transcribe", "diarize", "pack", "deliver"])
+        self.assertEqual(keys(R.Run("abcdefghijk", "t", "adopted", 3, deliver_dir="D:/out")), list(R.MODE_STEPS["adopted"]))
+        self.assertEqual(keys(R.Run("abcdefghijk", "t", "request_auto", 3, deliver_dir="D:/out")), list(R.MODE_STEPS["request_auto"]), "二重に足さない")
+
+    def test_deliver_tag_origin_saved_restored(self):
+        r = R.Run("abcdefghijk", "t", "full", 3, deliver_dir="D:/out", deliver_tag="20261016-120000-abc123", deliver_origin="auto")
+        d = json.loads(json.dumps(r.saved()))
+        self.assertEqual((d["deliverTag"], d["deliverOrigin"]), ("20261016-120000-abc123", "auto"))
+        back = R.Run.restore(d)
+        self.assertEqual((back.deliver_tag, back.deliver_origin, back.deliver_dir), ("20261016-120000-abc123", "auto", "D:/out"))
+        self.assertEqual([s["key"] for s in back.steps], [s["key"] for s in r.steps])
+        self.assertEqual(r.envelope()["deliver"]["origin"], "auto")
+        self.assertEqual(R.Run.from_envelope(E.check(r.envelope())).deliver_origin, "auto")
+        self.assertIsNone(R.Run("abcdefghijk", "t", "full", 3, deliver_tag="", deliver_origin="zzz").deliver_tag)
+        self.assertIsNone(R.Run("abcdefghijk", "t", "full", 3, deliver_origin="zzz").deliver_origin)
+
+    def test_restore_old_record_without_deliver_fields(self):
+        """D-SEND より前の待ちの記録(deliverTag・deliverOrigin が無い)も読める。届け先のある request_auto の段は今までどおり"""
+        r = R.Run("abcdefghijk", "t", "request_auto", 3, request_id="20261001-000000-aaaaaa", deliver_dir="D:/out")
+        d = r.saved()
+        d.pop("deliverTag"), d.pop("deliverOrigin")
+        d["envelope"]["deliver"].pop("origin")
+        back = R.Run.restore(d)
+        self.assertEqual((back.deliver_tag, back.deliver_origin, back.deliver_dir), (None, None, "D:/out"))
+        self.assertEqual([s["key"] for s in back.steps], list(R.MODE_STEPS["request_auto"]))
+        new_only = {k: d[k] for k in ("id", "envelope", "spec", "state", "steps", "created", "docs")}   # 封筒だけの形(origin の鍵が無い古い封筒)
+        self.assertIsNone(R.Run.restore(new_only).deliver_origin)
+
     def test_restore_skips_removed_post_analyze(self):
         """消した「あとから解析」(mode post_analyze。RS4)が以前の待ちの記録に残っていても、落ちずに読み飛ばす(同じ形の full は戻る)"""
         d = R.Run.from_input({"videoId": "abcdefghijk"}).saved()

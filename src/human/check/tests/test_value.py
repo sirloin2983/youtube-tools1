@@ -1,4 +1,4 @@
-"""価値のカードの反映(src/human/check/value.py)の単体テスト。入口が渡す口(auto_review・studio)は偽物。
+"""価値のカードの反映(src/human/check/value.py)の単体テスト。入口が渡す口(studio)は偽物。value:auto は記録だけ(案件の口を呼ばない)。
 
 実行(リポジトリ直下から): py -3.10 -m unittest src/human/check/tests/test_value.py -v
 """
@@ -54,63 +54,48 @@ class ValueTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="ytt-check-value-")
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
-        self.reviews = []
-        self.review_result = (200, {"ok": True, "job": "j1"})
         self.studio = FakeStudio()
+        self.hook_calls = []
 
-        def auto_review(body):
-            self.reviews.append(body)
-            return self.review_result
+        def auto_review(body):   # 案件の口。value:auto は呼んではいけない(記録だけ)
+            self.hook_calls.append(body)
+            return 200, {"ok": True}
         self.ctx = apply.Context(self.tmp, ROOT, hooks={"auto_review": auto_review, "studio": lambda *a: self.studio(*a)})
 
     def test_registered(self):
         self.assertTrue(apply._registered("value", "auto") and apply._registered("value", "cand"))
 
-    def test_send_is_deferred_until_next_answer_and_undo_cancels(self):
-        got = apply.answer(self.ctx, auto_card(), {"answer": {"choice": "send"}})
-        self.assertEqual((got["held"], self.reviews), (True, []))   # 1 枚遅れ: まだ届けない
-        back = apply.undo(self.ctx, got["answer"])
-        self.assertEqual((back["reverted"], self.reviews), ({"held": True}, []))   # 保留のうちの Z は何も起こさない
-        got = apply.answer(self.ctx, auto_card(), {"answer": {"choice": "send"}})
-        self.assertEqual(self.reviews, [])
-        out = apply.flush(self.ctx)
-        self.assertEqual(self.reviews, [{"op": "deliver", "id": VID, "markId": "a1"}])
-        self.assertEqual(out["flushed"][0]["applied"]["job"], "j1")
-        with self.assertRaises(apply.Refused) as e:   # 届けた後は戻せない
-            apply.undo(self.ctx, got["answer"])
-        self.assertEqual(e.exception.error, "cannot_undo")
-
-    def test_send_flushed_by_next_answer(self):
-        apply.answer(self.ctx, auto_card(), {"answer": {"choice": "send"}})
-        other = dict(auto_card(), id="value:auto:%s#a2" % VID, target=dict(auto_card()["target"], markId="a2"))
-        got = apply.answer(self.ctx, other, {"answer": {"choice": "drop"}})
-        self.assertEqual([r["op"] for r in self.reviews], ["deliver"])   # 要らないも保留(次の答えか flush で確定)
-        self.assertEqual((len(got["flushed"]), got["held"]), (1, True))
-
-    def test_send_failure_is_recorded_not_raised_on_flush(self):
-        apply.answer(self.ctx, auto_card(), {"answer": {"choice": "send"}})
-        self.review_result = (409, {"error": "conflict", "message": "パックがまだありません"})
-        out = apply.flush(self.ctx)
-        self.assertIn("パックがまだありません", out["flushed"][0]["failed"])
-
-    def test_drop_is_held_and_undoable(self):
-        got = apply.answer(self.ctx, auto_card(), {"answer": {"choice": "drop"}})
-        self.assertEqual((got["held"], self.reviews), (True, []))   # 1 枚遅れ = まだ片付けない
-        apply.undo(self.ctx, got["answer"])                          # 保留のうちの Z は何もしない
+    def test_auto_good_is_recorded_at_once_and_touches_nothing(self):
+        got = apply.answer(self.ctx, auto_card(), {"answer": {"choice": "good"}})
+        self.assertEqual((got["held"], got["applied"]["choice"]), (False, "good"))   # 1 枚遅れなし = すぐ記録
+        self.assertEqual(self.hook_calls, [])   # 送るかには効かせない
         self.assertEqual(apply.flush(self.ctx)["flushed"], [])
-        self.assertEqual(self.reviews, [])
-        apply.answer(self.ctx, auto_card(), {"answer": {"choice": "drop"}})
-        self.review_result = (409, {"error": "conflict", "message": "片付けている途中です"})
-        out = apply.flush(self.ctx)
-        self.assertIn("片付けている途中です", out["flushed"][0]["failed"])   # 確定の失敗は記録に残す
+        self.assertEqual(self.studio.calls, [])
+
+    def test_auto_bad_with_reason_and_undo_is_record_only(self):
+        got = apply.answer(self.ctx, auto_card(), {"answer": {"choice": "bad", "reason": "long"}})
+        self.assertEqual(got["applied"]["reason"], "long")
+        back = apply.undo(self.ctx, got["answer"])   # Z は記録の取り消し
+        self.assertEqual(back["reverted"], {})
+        self.assertEqual(self.hook_calls, [])
+        again = apply.answer(self.ctx, auto_card(), {"answer": {"choice": "bad"}})   # 取り消したカードはもう一度答えられる
+        self.assertEqual(again["applied"], {"videoId": VID, "markId": "a1", "choice": "bad"})
+
+    def test_auto_reason_only_for_bad_and_must_be_a_card_reason(self):
+        got = apply.answer(self.ctx, auto_card(), {"answer": {"choice": "good", "reason": "long"}})
+        self.assertNotIn("reason", got["applied"])   # 良いに付いた理由は捨てる
+        with self.assertRaises(apply.Refused) as e:
+            apply.answer(self.ctx, dict(auto_card(), id="value:auto:%s#a9" % VID), {"answer": {"choice": "bad", "reason": "nope"}})
+        self.assertEqual(e.exception.code, 400)
+        self.assertEqual(self.hook_calls, [])
 
     def test_bad_answer(self):
-        for bad in ({"choice": "adopt"}, "send", {"choice": None}, {}):
+        for bad in ({"choice": "adopt"}, {"choice": "send"}, "bad", {"choice": None}, {}):
             with self.assertRaises(apply.Refused) as e:
                 apply.answer(self.ctx, auto_card(), {"answer": bad})
             self.assertEqual(e.exception.code, 400)
         with self.assertRaises(apply.Refused):
-            apply.answer(self.ctx, cand_card(), {"answer": {"choice": "send"}})
+            apply.answer(self.ctx, cand_card(), {"answer": {"choice": "good"}})
 
     def test_cand_adopt_exports_and_undo(self):
         got = apply.answer(self.ctx, cand_card(), {"answer": {"choice": "adopt"}})

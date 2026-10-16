@@ -121,6 +121,7 @@ namespace RequestSender
                 d = client.Rpc("files/list_folder/continue", DropboxArgs.ListContinue(cursor));
             }
             foreach (var g in r.Entries.Where(e => e.Kind == OutputKind.Group)) g.Info = ReadGroup(g);
+            foreach (var m in r.Entries.Where(e => e.Kind == OutputKind.Meta)) m.Origin = ReadMeta(m);   // 出どころ(D-SEND 2-7)。読めなければ "" = 依頼として扱う
             r.Entries = OutputFolder.Arrange(r.Entries);   // 組(2.8.0)に zip とまとめ動画を結びつけ、まとめ動画は同じ名前のパックに結びつける(一覧には出さない)。新しい順
             return r;
         }
@@ -148,6 +149,31 @@ namespace RequestSender
             }
             lock (groupCache) groupCache[g.Key] = info;
             return info;
+        }
+
+        // 読んだ出どころ(鍵 = 名前と rev)。置き直されたら読み直す
+        static readonly Dictionary<string, string> metaCache = new Dictionary<string, string>();
+
+        // <zip>.meta.json の出どころ(request|auto)。大きすぎる・壊れている・もう無い・通信の失敗は ""(札を付けない = 依頼として扱う。通信の失敗は覚えず次の確認で読み直す)
+        string ReadMeta(OutputEntry m)
+        {
+            lock (metaCache) { string cached; if (metaCache.TryGetValue(m.Key, out cached)) return cached; }
+            string origin = "";
+            try
+            {
+                bool truncated;
+                byte[] data = client.DownloadHead(m.ApiPath, MetaInfo.TextCap, out truncated);
+                var info = truncated ? null : MetaInfo.Parse(data, data.Length);
+                if (info == null) client.Log("meta: ignored " + m.Name + (truncated ? " (too large)" : " (broken)"));
+                else origin = info.Origin;
+            }
+            catch (DropboxException ex)
+            {
+                client.Log("meta: not read " + m.Name + ": " + ex.Status + " " + ex.Message);
+                return "";
+            }
+            lock (metaCache) metaCache[m.Key] = origin;
+            return origin;
         }
 
         // まとめ動画(zip の隣の小さい mp4)を dir へ。前に取ってきた同じものがあればそのまま。-> 置いた場所
@@ -464,6 +490,7 @@ namespace RequestSender
         {
             DeletePath(e.ApiPath);
             if (e.Preview != null) DeletePath(e.Preview.ApiPath);
+            if (e.Meta != null) DeletePath(e.Meta.ApiPath);   // 1 本の出どころの印(D-SEND 2-7)も一緒に
         }
 
         void DeletePath(string apiPath)

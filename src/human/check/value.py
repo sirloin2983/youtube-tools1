@@ -1,10 +1,10 @@
 """「確かめる」の価値のカード(切り抜く価値があるか = 70 点以上か)の反映(notes:docs/design/v1-check-build.md・決定 3-41)。
 
 出どころ 2 つ(カードは src/app/check/sources.py の value_auto・value_cand):
-  value:auto  自動で採ってもう作った切り抜き。答え {choice: "send"} = 友人へ届ける / {choice: "drop"} = 要らない(どちらも 1 枚遅れで確定 = defer)
-              どちらもホームの「続けて確認」と同じ口(ctx.hook("auto_review") = POST /api/cases/auto と同じ body)を呼ぶ。
-              記録(live_feedback.jsonl の deliver / reject)はその口が残す。保留のうち(次のカードに答える・飛ばす・タブを閉じる / 隠すまで)に Z で戻せば何も起きない。
-              届けた後・要らないにした後は戻せない(revert なし。要らないはごみ箱フォルダに TRASH_DAYS の間は残る)
+  value:auto  自動でできた切り抜きの品質の確認(送った物も送らなかった物も・10-16 の 2-8)。答え {choice: "good"} = 良い /
+              {choice: "bad", reason?: AUTO_REASONS のどれか} = 悪い(理由は任意の札)。**記録だけ**(答えの行 = answers.jsonl に残す)。
+              案件の操作(auto_review・届ける・要らない)は呼ばない = 送るかには効かせない(1-2)。すぐ記録・1 枚遅れはしない。
+              Z は答えの記録の取り消し(revert は何も実物を変えない)
   value:cand  まだ切り抜いていない候補。答え {choice: "adopt"} = 採用して書き出しを頼む / {choice: "reject"} = 不採用
               スタジオの PUT /api/video(画面の保存と同じ。put_video が feedback.jsonl の良い / 悪いを残す = eval_marks が読む形)で
               マークの status を adopted / rejected に。採用のあと POST /api/export を頼む(ベストエフォート。待ち・失敗は採用だけで済ませて
@@ -16,7 +16,10 @@
 """
 from . import apply
 
-AUTO_CHOICES = ("send", "drop")
+AUTO_CHOICES = ("good", "bad")
+# 悪いときの理由の札(カードの reasons の候補。画面の文は src/app/check/sources.py が出す)。札は 1 つまで・任意
+AUTO_REASONS = {"boring": "場面がつまらない", "long": "長すぎる", "short": "短すぎる", "edge": "端がずれている",
+                "subtitle": "字幕がおかしい", "audio": "音が悪い", "other_person": "別の人が主役"}
 CAND_CHOICES = ("adopt", "reject")
 STATUS = {"adopt": "adopted", "reject": "rejected"}
 TRIES = 3   # 画面の保存・書き出しとぶつかった(409)ときの読み直しの回数
@@ -47,17 +50,30 @@ def _need(target, *keys):
     return out
 
 
-# ---------------------------------------------------------------- value:auto
+# ---------------------------------------------------------------- value:auto(記録だけ)
+
+def _auto_check(ans):
+    """答えを検査して整える。理由は悪いのときだけ・札の中から(良いに付いた理由は捨てる)"""
+    c = ans.get("choice") if isinstance(ans, dict) else None
+    if c not in AUTO_CHOICES:
+        raise ValueError("答えは %s のどれかです" % "・".join(AUTO_CHOICES))
+    out = {"choice": c}
+    if c == "bad" and ans.get("reason") is not None:
+        r = ans.get("reason")
+        if r not in AUTO_REASONS:
+            raise ValueError("理由は札のどれかにしてください")
+        out["reason"] = r
+    return out
+
 
 def _auto_apply(ctx, card, ans):
     vid, mid = _need(card.get("target"), "videoId", "markId")
-    op = "deliver" if ans["choice"] == "send" else "discard"
-    code, d = ctx.hook("auto_review")({"op": op, "id": vid, "markId": mid})
-    if code != 200 or not isinstance(d, dict):
-        raise apply.Refused(_msg(d, "切り抜きを処理できませんでした"), _code(code), str(d.get("error") or "conflict") if isinstance(d, dict) else "conflict")
-    if op == "deliver":
-        return {"op": op, "videoId": vid, "markId": mid, "job": d.get("job")}
-    return {"op": op, "videoId": vid, "markId": mid, "moved": d.get("moved"), "trash": d.get("trash"), "studio": d.get("studio")}
+    return dict({"videoId": vid, "markId": mid}, **ans)
+
+
+def _auto_revert(ctx, row):
+    """記録だけの答えは実物を変えない(Z の取り消しは答えの行を残さないことで済む)"""
+    return {}
 
 
 # ---------------------------------------------------------------- value:cand
@@ -140,5 +156,5 @@ def _cand_revert(ctx, row):
     return {"videoId": vid, "markId": mid, "status": back}
 
 
-apply.register("value", "auto", _auto_apply, None, check=_check(AUTO_CHOICES), defer=lambda a: True)   # 届ける・要らないはどちらも戻せない = 1 枚遅れで確定して Z を効かせる
+apply.register("value", "auto", _auto_apply, _auto_revert, check=_auto_check)   # 記録だけ = すぐ確定・Z は記録の取り消し(defer なし)
 apply.register("value", "cand", _cand_apply, _cand_revert, check=_check(CAND_CHOICES))

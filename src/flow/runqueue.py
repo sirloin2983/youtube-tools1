@@ -393,12 +393,13 @@ class Queue(run_mod.Runner):
         return hook(env, bundle)
 
     # ------------------------------------------------------------ 見積もり(気が利く画面へ 段4)
-    def estimate(self, video_id=None, mode=None, marks=None, top=None, doc_ids=None, overwrite=False):
+    def estimate(self, video_id=None, mode=None, marks=None, top=None, doc_ids=None, overwrite=False, deliver=False):
         """実行と同じ規則で、段ごとの本数と飛ばす理由を返す(何も書き込まない)。「飛ばすか」の判定は flow/run.py の
         analyze_verdict・adopted_ids・tx_verdict・pack_verdict で、実行の段と同じ関数(鍵の比べも同じ _pack_state)。実行は実行したときの状態で決めるので、
         前の段の結果しだいの本数は None(分からない)で返す。
         文書の一覧と紐づけは hook の _docs・_pick_doc。-> {"steps": [{"key", "label", "count" (None = 前の段の結果しだい), "note"}],
-        "total": 分かっている本数の合計, "nothing": bool, "reason"}"""
+        "total": 分かっている本数の合計, "nothing": bool, "reason"}。deliver = 友人へ自動で送る(mode full のときだけ。D-SEND)なら末尾に段 deliver の行
+        (本数は届けるかの判定 flow/sendpolicy しだいなので None・note「あとで決まります」)"""
         docs = self._docs()
         if doc_ids is not None:   # 文書単位(文字起こし → パック)
             return self._estimate_docs(docs, doc_ids, overwrite)
@@ -443,6 +444,8 @@ class Queue(run_mod.Runner):
                 count = None if pending else len(packable)
                 note = "文字起こしのあとで決まります" if count is None else ("" if count else ("パック済み(「パックがあれば作り直す(上書き)」を選ぶと作り直します)" if clips else "文字起こしのある切り抜きがありません"))
             steps.append({"key": key, "label": label, "count": count, "note": note})
+        if deliver and mode == "full":
+            steps.append({"key": "deliver", "label": STEP_LABELS["deliver"], "count": None, "note": "あとで決まります"})
         return self._estimate_out(steps, [] if st == 200 else ["配信がスタジオに見つかりません"])
 
     def _estimate_docs(self, docs, doc_ids, overwrite):

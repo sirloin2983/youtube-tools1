@@ -186,13 +186,28 @@ namespace RequestSender
 
         static string KindText(OutputEntry e)
         {
+            if (AutoMark(e)) return AutoLabel;   // 自動で来た組・パックは種類の所に札(D-SEND 2-7。種類の列は狭いので「パック」「組」の代わりに)
             return e.Local ? "この PC" : e.Kind == OutputKind.Group ? "組" : e.Kind == OutputKind.Pack ? "パック" : "失敗";
+        }
+
+        public const string AutoLabel = "依頼なし";
+
+        // 札「依頼なし」を付けるか: 出どころ auto の組・パック(組の中の 1 本は組から決まる)。古い形(origin 無し・meta 無し)は付けない = 依頼として扱う
+        public static bool AutoMark(OutputEntry e)
+        {
+            return e != null && !e.Local && (e.Kind == OutputKind.Pack || e.Kind == OutputKind.Group) && e.IsAuto;
+        }
+
+        // 詳しくの文の出どころの行(札が付かなければ空)
+        static string OriginLine(OutputEntry e)
+        {
+            return AutoMark(e) ? "出どころ: " + AutoLabel + "(あなたの依頼ではなく、送り先の PC が自動で届けたものです。受け取る / 要らないは依頼のときと同じに決められます)\r\n" : "";
         }
 
         // 一覧の題: 組 =「<題> 1-5(5 本)」/ 組の 1 本 =「  ├ 1. 題」(最後の本は └)/ ほか = 題
         static string RowTitle(OutputEntry e)
         {
-            if (IsGroup(e)) return OutputFolder.GroupLabel(e);
+            if (IsGroup(e)) return (AutoMark(e) ? "組 " : "") + OutputFolder.GroupLabel(e);   // 自動の組は種類の所が札になるので、題の頭で組と分かるように
             if (e.Parent == null || e.Slot == null) return e.Title;
             bool last = e.Parent.Members.Count > 0 && e.Parent.Members[e.Parent.Members.Count - 1] == e;
             return "  " + (last ? "└ " : "├ ") + e.Slot.N + ". " + e.Title;
@@ -313,7 +328,7 @@ namespace RequestSender
                 var owner = PreviewOwner(e);
                 string inGroup = e.Parent != null && e.Slot != null
                     ? "組: " + OutputFolder.GroupLabel(e.Parent) + " の " + e.Slot.N + " 本目" + (owner == e.Parent && e.Slot.HasStart ? "(まとめ動画の " + PreviewForm.Clock(e.Slot.PreviewStart) + " から)" : "") + "\r\n" : "";
-                detail.Text = "題: " + e.Title + "\r\n" + inGroup +
+                detail.Text = "題: " + e.Title + "\r\n" + OriginLine(e) + inGroup +
                               (e.RequestId.Length > 0 ? "依頼: " + e.RequestId + (same > 1 ? "(この依頼のパックは、届いている中に " + same + " 本)" : "") + "\r\n" : "") +
                               "大きさ: " + SizeText(e.Size) + (e.Slot != null && e.Slot.Duration > 0 ? "(切り抜きの長さ " + PreviewForm.Clock(e.Slot.Duration) + ")" : "") +
                               "\r\n届いた日時: " + When(e.Modified) + "\r\n" +
@@ -345,7 +360,7 @@ namespace RequestSender
         string GroupDetail(OutputEntry g)
         {
             var lines = g.Members.Select(m => "  " + m.Slot.N + ". " + m.Title + "(" + (m.Slot.Duration > 0 ? PreviewForm.Clock(m.Slot.Duration) + "・" : "") + SizeText(m.Size) + ")");
-            return "組: " + OutputFolder.GroupLabel(g) + "\r\n" +
+            return "組: " + OutputFolder.GroupLabel(g) + "\r\n" + OriginLine(g) +
                    (g.RequestId.Length > 0 ? "依頼: " + g.RequestId + "\r\n" : "") +
                    "大きさ: 合計 " + SizeText(OutputFolder.TotalSize(g.Members)) + "\r\n届いた日時: " + When(g.Modified) + "\r\n" +
                    "まとめ動画: " + PreviewText(g) + "\r\n\r\n" + string.Join("\r\n", lines) + "\r\n\r\n" +

@@ -39,6 +39,7 @@ namespace RequestSender
         byte[] ReadSmall(string path);                 // null = 無い
         bool Download(string path, string localPath);  // false = 無い
         void Upload(string localPath, string path);
+        void PutBytes(byte[] data, string path);       // 同じ名前を置き換えて上げる(/設定/届け方.json)
     }
 
     public class DropboxSyncIo : ISyncIo
@@ -64,6 +65,11 @@ namespace RequestSender
         {
             client.UploadFile(localPath, path, null);
         }
+
+        public void PutBytes(byte[] data, string path)
+        {
+            client.UploadBytes(data, path, true);
+        }
     }
 
     public class UpdateInfo
@@ -78,6 +84,7 @@ namespace RequestSender
         public bool LearningApplied;      // machine の learningDir を向けた
         public bool LearningSkipped;      // 束を作る側の PC なので取らず・向けなかった(Sync.MakerPc)
         public int Uploaded, UploadFailed;
+        public int DeliverBatchUploaded;  // 届け方の知らせを上げた値(0 = 上げなかった)
         public UpdateInfo Update;         // 自分より新しい版があるとき
         public List<string> Problems = new List<string>();
     }
@@ -274,10 +281,34 @@ namespace RequestSender
             return new UpdateInfo { Version = v, File = Json.Str(d, "file"), Sha256 = Json.Str(d, "sha256"), Notes = Json.Str(d, "notes"), Size = Json.Long(d, "size", 0) };
         }
 
-        // 3 つを順に(1 つの失敗でほかを止めない)
-        public static SyncResult RunAll(ISyncIo io, IFlowClient flow, Func<string, object, FlowReply> put, string dataRoot, string currentVersion, Action<string> log)
+        // ---- 届け方の知らせ(D-SEND 2-4) ----
+        // 値が前回上げたものと違うとき(まだ上げていないときも)/設定/届け方.json を置き換えて上げる。失敗は例外のまま返す(呼んだ側が覚えない = 次の回で上げ直す)。-> 上げた値(上げなかったら 0)
+        public static int UploadDeliverPrefs(ISyncIo io, int batch, int lastUploaded, DateTimeOffset now)
+        {
+            if (!DeliverPrefs.NeedsUpload(batch, lastUploaded)) return 0;
+            io.PutBytes(new UTF8Encoding(false).GetBytes(DeliverPrefs.Json(batch, now)), DeliverPrefs.Path);
+            return batch;
+        }
+
+        // 画面の「届け方」の今の値と前回上げた値。saved は上げられたときに呼ぶ(前回上げた値を settings に覚える)
+        public class DeliverSync
+        {
+            public int Batch, LastUploaded;
+            public Action<int> Saved;
+        }
+
+        // 4 つを順に(1 つの失敗でほかを止めない)
+        public static SyncResult RunAll(ISyncIo io, IFlowClient flow, Func<string, object, FlowReply> put, string dataRoot, string currentVersion, Action<string> log, DeliverSync deliver = null)
         {
             var r = new SyncResult();
+            if (deliver != null)
+                try
+                {
+                    int up = UploadDeliverPrefs(io, deliver.Batch, deliver.LastUploaded, DateTimeOffset.Now);
+                    if (up > 0) { r.DeliverBatchUploaded = up; if (deliver.Saved != null) deliver.Saved(up); log("deliver prefs: uploaded " + up); }
+                }
+                catch (CanceledException) { throw; }
+                catch (Exception ex) { r.Problems.Add("届け方: " + ex.Message); log("deliver prefs: " + ex.Message); }   // 覚えない = 次の回で上げ直す
             string learnRoot = LearningRoot(dataRoot);
             if (MakerPc(dataRoot)) { r.LearningSkipped = true; log("learning: maker PC (intake.folder is set), not fetched or applied"); }   // 自分の束を自分の ② に向けない(二重の守りの片方)
             else try
@@ -329,6 +360,20 @@ namespace RequestSender
             syncTimer.Tick += (s, e) => { syncTimer.Interval = SyncEveryMs; StartSync(); };
             syncTimer.Start();
             Disposed += (s, e) => syncTimer.Dispose();
+            // 「届け方」を変えたら少し待って(押し続けている間は待つ)知らせを上げる。起動時に前回と違えば最初の同期(5 秒後)が上げる(D-SEND 2-4)
+            deliverPrefsTimer.Interval = 2000;
+            deliverPrefsTimer.Tick += (s, e) => { deliverPrefsTimer.Stop(); StartSync(); };
+            Disposed += (s, e) => deliverPrefsTimer.Dispose();
+        }
+
+        readonly System.Windows.Forms.Timer deliverPrefsTimer = new System.Windows.Forms.Timer();
+
+        // 届け方の値が変わった(MainForm.cs の deliver.ValueChanged から)。前回上げた値と同じなら何もしない。同期が動いていたら次の回(10 分後)に回る
+        void OnDeliverBatchChanged()
+        {
+            if (Offline || !built || !DeliverPrefs.NeedsUpload(deliver.Value, state.LoadDeliverBatchUploaded())) return;
+            deliverPrefsTimer.Stop();
+            deliverPrefsTimer.Start();
         }
 
         void StartSync()
@@ -337,6 +382,7 @@ namespace RequestSender
             var config = LoadConfig(null);
             if (config == null) { syncRunning = 0; return; }   // 鍵が無い = 同期しない(送る側のメッセージが別に出る)
             var b = backend;
+            int batch = deliver != null ? deliver.Value : 0;   // 画面の値は画面のスレッドで読む
             var t = new Thread(() =>
             {
                 try
@@ -344,7 +390,8 @@ namespace RequestSender
                     var io = new DropboxSyncIo(new DropboxClient(config) { IsCanceled = () => IsDisposed, Log = Log.Write });
                     bool up = b != null && b.Ready;
                     string root = b != null ? b.DataRoot : Backend.DefaultDataRoot();
-                    var r = Sync.RunAll(io, up ? b : null, up ? (Func<string, object, FlowReply>)b.Put : null, root, AppInfo.Version, Log.Write);
+                    var r = Sync.RunAll(io, up ? b : null, up ? (Func<string, object, FlowReply>)b.Put : null, root, AppInfo.Version, Log.Write,
+                        new Sync.DeliverSync { Batch = batch, LastUploaded = state.LoadDeliverBatchUploaded(), Saved = n => state.SaveDeliverBatchUploaded(n) });
                     OnUi(() => ShowUpdate(r.Update));
                 }
                 catch (CanceledException) { }

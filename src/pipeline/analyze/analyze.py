@@ -29,6 +29,7 @@ MAX_DURATION = 12 * 3600
 AUDIO_LEVEL_IDLE = 900   # 音量の解析(ffmpeg)で、この秒数まったく出力がなければ中止
 HEAD_SEC_DEFAULT = 180   # 冒頭の減点をかける秒数(0で無効)
 ARCHIVE_KEEP = 2000
+STREAM_KEYS = ("releaseTs", "timestamp", "uploadDate", "liveStatus", "duration")   # 付加情報(fetch.slim_meta)から結果の stream に写す項目
 SPEC_KEYS = ("count", "length", "sensitivity", "preRatio", "lag", "lagAuto", "headSec", "wAudio", "wChat", "wComments")   # 結果・archive に残す設定
 
 
@@ -388,7 +389,8 @@ def run(spec, ctl=None):
         ctl.check()
         result = {"source": {**src, "duration": round(dur, 1)}, "candidates": cands, "series": series, "signals": info,
                   "counts": {"chat": chat["count"], "chatWarm": chat["warm"], "commentStamps": len(stamps) if stamps else 0, "meta": bool(meta), "heatmap": len((meta or {}).get("heatmap") or [])},
-                  "warnings": warnings, "spec": dict({k: spec[k] for k in SPEC_KEYS}, lag=spec.get("lagUsed", spec["lag"]))}
+                  "warnings": warnings, "spec": dict({k: spec[k] for k in SPEC_KEYS}, lag=spec.get("lagUsed", spec["lag"])),
+                  "stream": {k: meta[k] for k in STREAM_KEYS if (meta or {}).get(k) not in (None, "")}}   # 配信がいつ・どれだけ続いたか(② flow/sendpolicy.ended_at_of が読む。付加情報が取れなかったときは空)
         ctl.report(1.0, "解析が完了しました")
         return result
     except (Cancelled, ApiError):

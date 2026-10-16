@@ -445,6 +445,25 @@ namespace RequestSender
         }
     }
 
+    // ---- 届け方の知らせ(D-SEND 2-4): 「届け方」を変えたら Dropbox のアプリのフォルダの /設定/届け方.json に置く。
+    //   {"v":1,"deliverBatch":5,"at":"2026-10-16T21:00:00+09:00"}  … PC の受付が読んで、自動の組の本数にそろえる。/設定 は PC の受付が依頼として見ない下のフォルダ
+    public static class DeliverPrefs
+    {
+        public const string Path = "/設定/届け方.json";
+
+        public static string Json(int batch, DateTimeOffset now)
+        {
+            return "{\"v\":1,\"deliverBatch\":" + batch.ToString(CultureInfo.InvariantCulture) +
+                   ",\"at\":" + JsonText.Quote(now.ToString("yyyy-MM-dd'T'HH:mm:sszzz", CultureInfo.InvariantCulture), false) + "}";
+        }
+
+        // 上げる必要があるか: 値が範囲の中で、前回上げた値(0 = まだ上げていない)と違うとき
+        public static bool NeedsUpload(int batch, int lastUploaded)
+        {
+            return DeliverBatch.InRange(batch) && batch != lastUploaded;
+        }
+    }
+
     // ---- Dropbox の API の引数 ----
     // ---- 「要らない」の記録(2.6.0): 受け取らずに消したパックを PC に知らせる。受付のフォルダの直下に <zip の名前(.zip 抜き)>.feedback.json(PC の受付が読む) ----
     public static class FeedbackJson
@@ -472,6 +491,7 @@ namespace RequestSender
         {
             return "{\"v\":1,\"kind\":\"feedback\",\"verdict\":" + JsonText.Quote(verdict, false) + ",\"zip\":" + JsonText.Quote(e.Name, false) +
                    ",\"requestId\":" + JsonText.Quote(e.RequestId ?? "", false) + ",\"title\":" + JsonText.Quote(e.Title ?? "", false) +
+                   OriginKind.JsonPart(e.Origin) +
                    ",\"sentAt\":" + JsonText.Quote(now.ToString("yyyy-MM-dd'T'HH:mm:sszzz", CultureInfo.InvariantCulture), false) + "}";
         }
     }
@@ -481,6 +501,12 @@ namespace RequestSender
         public static string Commit(string path)
         {
             return "{\"path\":" + JsonText.Quote(path, true) + ",\"mode\":\"add\",\"autorename\":true,\"mute\":false}";
+        }
+
+        // 同じ名前を置き換える(D-SEND 2-4 の /設定/届け方.json のように、いつも同じ場所の 1 つのファイル用)
+        public static string CommitOverwrite(string path)
+        {
+            return "{\"path\":" + JsonText.Quote(path, true) + ",\"mode\":\"overwrite\",\"autorename\":false,\"mute\":true}";
         }
 
         public static string SessionStart()
@@ -530,8 +556,53 @@ namespace RequestSender
     //   <依頼の id>__<題>.zip             … DaVinci Resolve のパック(数 GB のことがある。PC が n 本をまとめると「<題> 1-5.zip」で、中に <題>_pack が並ぶ)
     //   <依頼の id>__<題>.失敗.txt        … 自動の処理が失敗した理由(UTF-8・BOM つき・短い)
     //   <zip の名前>.preview.mp4          … zip の隣のまとめ動画(n 本をつなげた等速の確認用。小さい。同じ名前の zip に結びつけ、一覧には出さない)
-    //   <依頼の id>__<題> 1-5.group.json  … 組(2.8.0。2-16): まとめ動画 1 本 + 1 本ずつの zip の一覧。中身を読んで zip とまとめ動画を組に結びつける
-    public enum OutputKind { Pack, Failure, Preview, Group }
+    //   <依頼の id>__<題> 1-5.group.json  … 組(2.8.0。2-16): まとめ動画 1 本 + 1 本ずつの zip の一覧。中身を読んで zip とまとめ動画を組に結びつける。上段の "origin" = request|auto(D-SEND 2-7。無ければ依頼)
+    //   <zip の名前>.meta.json            … 1 本のパックの出どころ {"v":1,"origin":"auto","sentAt":"…"}(D-SEND 2-7。PC が zip より先に置く。同じ名前の zip に結びつけ、一覧には出さない。無ければ依頼)
+    public enum OutputKind { Pack, Failure, Preview, Group, Meta }
+
+    // 出どころ(D-SEND 2-7): 友人の依頼か、PC が自動で届けたか。古い形(origin 無し・meta 無し)は依頼として扱う = Origin は "" のまま(分からない)
+    public static class OriginKind
+    {
+        public const string Request = "request", Auto = "auto";
+
+        // request / auto だけ通し、ほかは ""(分からない)
+        public static string Clean(string s)
+        {
+            return s == Request || s == Auto ? s : "";
+        }
+
+        // 採否の JSON に足す部分(分かるときだけ)
+        public static string JsonPart(string origin)
+        {
+            return Clean(origin).Length == 0 ? "" : ",\"origin\":" + JsonText.Quote(origin, false);
+        }
+    }
+
+    // <zip>.meta.json の中身
+    public class MetaInfo
+    {
+        public const int TextCap = 16 * 1024;
+        public string Origin = "";
+
+        // 読めない・壊れている・形が違うときは null(札を付けない = 依頼として扱う)
+        public static MetaInfo Parse(byte[] data, int length)
+        {
+            if (data == null || length <= 0 || length > data.Length) return null;
+            int start = length >= 3 && data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF ? 3 : 0;
+            IDictionary<string, object> d;
+            try
+            {
+                d = Json.Parse(new UTF8Encoding(false, true).GetString(data, start, length - start));
+            }
+            catch (Exception ex)
+            {
+                if (!(ex is FormatException || ex is ArgumentException || ex is InvalidOperationException || ex is DecoderFallbackException)) throw;
+                return null;
+            }
+            if (Json.Long(d, "v", 0) != 1) return null;
+            return new MetaInfo { Origin = OriginKind.Clean(Json.Str(d, "origin")) };
+        }
+    }
 
     public class OutputEntry
     {
@@ -541,6 +612,9 @@ namespace RequestSender
         public DateTime Modified;   // 地方時(Dropbox の server_modified)
         public OutputEntry Preview;  // パックの隣のまとめ動画(無ければ null)。組なら組のまとめ動画
         public GroupInfo Info;       // (組)読んだ .group.json の中身(読めない・壊れていれば null = 一覧に出さない)
+        public string Origin = "";   // 出どころ "request"|"auto"|""(分からない = 古い形。依頼として扱う)。組は .group.json・1 本は meta.json・組の 1 本は組から(Arrange が決める)。meta の行では読んだ meta.json の出どころ
+        public OutputEntry Meta;     // (パック)隣の meta.json(無ければ null。受け取った・要らないにしたとき一緒に消す)
+        public bool IsAuto { get { return Origin == OriginKind.Auto; } }   // 札「依頼なし」
         public List<OutputEntry> Members = new List<OutputEntry>();   // (組)いま届いている 1 本ずつの zip(n の順。受け取った・要らないにしたものは外す)
         public OutputEntry Parent;   // (パック)属する組(無ければ null)
         public GroupPack Slot;       // (パック)組の中での n・まとめ動画の中で始まる秒・長さ
@@ -567,10 +641,11 @@ namespace RequestSender
         public const string FailureSuffix = ".失敗.txt";
         public const string PreviewSuffix = ".preview.mp4";
         public const string GroupSuffix = ".group.json";
+        public const string MetaSuffix = ".meta.json";
         public const int FailureTextCap = 64 * 1024;
         public const int GroupTextCap = 64 * 1024;   // .group.json はこれより大きければ読まない(組を出さない)
         static readonly Regex NameRx = new Regex("^([0-9]{8}-[0-9]{6}-[0-9a-f]{6})__(.+)$");
-        static readonly OutputKind[] Kinds = { OutputKind.Failure, OutputKind.Preview, OutputKind.Group, OutputKind.Pack };
+        static readonly OutputKind[] Kinds = { OutputKind.Failure, OutputKind.Preview, OutputKind.Group, OutputKind.Meta, OutputKind.Pack };
 
         // 種類ごとの名前の終わり
         static string SuffixOf(OutputKind kind)
@@ -580,6 +655,7 @@ namespace RequestSender
                 case OutputKind.Failure: return FailureSuffix;
                 case OutputKind.Preview: return PreviewSuffix;
                 case OutputKind.Group: return GroupSuffix;
+                case OutputKind.Meta: return MetaSuffix;
                 default: return PackSuffix;
             }
         }
@@ -653,12 +729,19 @@ namespace RequestSender
         {
             var packs = new Dictionary<string, OutputEntry>(StringComparer.OrdinalIgnoreCase);
             var previews = new Dictionary<string, OutputEntry>(StringComparer.OrdinalIgnoreCase);
+            var packsByStem = new Dictionary<string, OutputEntry>(StringComparer.OrdinalIgnoreCase);
             foreach (var e in raw)
             {
                 e.Parent = null;
                 e.Slot = null;
-                if (e.Kind == OutputKind.Pack) packs[e.Name] = e;
+                if (e.Kind == OutputKind.Pack) { e.Origin = ""; e.Meta = null; packs[e.Name] = e; packsByStem[StemOf(e)] = e; }
                 else if (e.Kind == OutputKind.Preview) previews[e.Name] = e;
+            }
+            // 1 本のパックの出どころ(D-SEND 2-7): 同じ名前の meta.json を結びつけ、一覧には出さない。相手の zip が無い meta は出さない(消しもしない)
+            foreach (var m in raw.Where(x => x.Kind == OutputKind.Meta))
+            {
+                OutputEntry mp;
+                if (packsByStem.TryGetValue(StemOf(m), out mp)) { mp.Meta = m; mp.Origin = m.Origin ?? ""; }
             }
             var groups = new List<OutputEntry>();
             var usedPreviews = new HashSet<OutputEntry>();
@@ -666,6 +749,7 @@ namespace RequestSender
             {
                 g.Members = new List<OutputEntry>();
                 g.Preview = null;
+                g.Origin = g.Info != null ? g.Info.Origin : "";
                 if (g.Info == null) continue;
                 foreach (var slot in g.Info.Packs)
                 {
@@ -673,6 +757,7 @@ namespace RequestSender
                     if (!packs.TryGetValue(slot.Zip, out p) || p.Parent != null) continue;   // 2 つの組に同じ zip が書かれていたら先の組
                     p.Parent = g;
                     p.Slot = slot;
+                    if (g.Info.Origin.Length > 0) p.Origin = g.Info.Origin;   // 組の 1 本は組の出どころ(組の中の zip には meta を置かない)
                     g.Members.Add(p);
                 }
                 if (g.Members.Count == 0) continue;
@@ -680,7 +765,7 @@ namespace RequestSender
                 if (g.Info.Preview.Length > 0 && previews.TryGetValue(g.Info.Preview, out pv) && usedPreviews.Add(pv)) g.Preview = pv;
                 groups.Add(g);
             }
-            var rest = AttachPreviews(raw.Where(x => x.Kind != OutputKind.Group && !usedPreviews.Contains(x)).ToList());
+            var rest = AttachPreviews(raw.Where(x => x.Kind != OutputKind.Group && x.Kind != OutputKind.Meta && !usedPreviews.Contains(x)).ToList());
             var top = groups.Concat(rest.Where(x => x.Parent == null)).ToList();
             SortNewestFirst(top);
             var list = new List<OutputEntry>();
@@ -792,6 +877,7 @@ namespace RequestSender
         public const int MaxPacks = 100, MaxTitle = 200;
         public const double MaxSeconds = 48 * 3600;
         public string Title = "", Range = "", Preview = "";
+        public string Origin = "";   // request|auto|""(.group.json の上段の "origin"。無い・知らない値は "" = 依頼として扱う)
         public List<GroupPack> Packs = new List<GroupPack>();   // n の順
 
         // UTF-8(BOM があれば除く)の中身から。形が違う・壊れている・使える本が 1 つも無いときは null(組を出さない)
@@ -810,7 +896,7 @@ namespace RequestSender
                 return null;
             }
             if (Json.Long(d, "v", 0) != 1) return null;
-            var g = new GroupInfo { Title = CleanText(Json.Str(d, "title")), Range = CleanText(Json.Str(d, "range")), Preview = PlainName(Json.Str(d, "preview"), OutputFolder.PreviewSuffix) };
+            var g = new GroupInfo { Title = CleanText(Json.Str(d, "title")), Range = CleanText(Json.Str(d, "range")), Preview = PlainName(Json.Str(d, "preview"), OutputFolder.PreviewSuffix), Origin = OriginKind.Clean(Json.Str(d, "origin")) };
             if (g.Range.Length > 20) g.Range = "";
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var p in Json.List(d, "packs"))
@@ -922,11 +1008,16 @@ namespace RequestSender
         }
 
         // 読んで・直して・書く(ほかのキーを消さない。保存先と覚える設定が同じファイルにあるため)
+        static readonly object settingsLock = new object();   // 画面のスレッドと同期のスレッドが同じファイルを書く
+
         public void UpdateSettings(Action<IDictionary<string, object>> change)
         {
-            var d = LoadSettingsDict();
-            change(d);
-            WriteAtomic(SettingsPath, new JavaScriptSerializer().Serialize(d) + "\r\n");
+            lock (settingsLock)
+            {
+                var d = LoadSettingsDict();
+                change(d);
+                WriteAtomic(SettingsPath, new JavaScriptSerializer().Serialize(d) + "\r\n");
+            }
         }
 
         public AppSettings LoadSettings()
@@ -954,6 +1045,18 @@ namespace RequestSender
         public bool LoadExtractZip()
         {
             return Json.Bool(LoadSettingsDict(), "extractZip", true);
+        }
+
+        // 届け方の知らせを最後に Dropbox へ上げた値(settings.json の "deliverBatchUploaded"。0 = まだ)。画面の設定(AppSettings)とは別の鍵
+        public int LoadDeliverBatchUploaded()
+        {
+            long n = Json.Long(LoadSettingsDict(), "deliverBatchUploaded", 0);
+            return n >= DeliverBatch.Min && n <= DeliverBatch.Max ? (int)n : 0;
+        }
+
+        public void SaveDeliverBatchUploaded(int n)
+        {
+            UpdateSettings(d => d["deliverBatchUploaded"] = n);
         }
 
         void WriteAtomic(string path, string text)

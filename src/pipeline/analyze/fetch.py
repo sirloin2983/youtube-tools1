@@ -407,7 +407,7 @@ def slim_meta(d):
             continue
     return {"title": s_("title", 120), "channel": s_("channel", 100) or s_("uploader", 100), "categories": lst("categories", 30, 5), "tags": lst("tags", 30, 30),
             "views": i_("view_count"), "likes": i_("like_count"), "commentCount": i_("comment_count"), "followers": i_("channel_follower_count"),
-            "uploadDate": s_("upload_date", 8), "duration": i_("duration"), "liveStatus": s_("live_status", 20),
+            "uploadDate": s_("upload_date", 8), "releaseTs": i_("release_timestamp"), "timestamp": i_("timestamp"), "duration": i_("duration"), "liveStatus": s_("live_status", 20),
             "heatmap": hm[:300], "chapters": ch[:100], "fetchedAt": int(time.time())}
 
 

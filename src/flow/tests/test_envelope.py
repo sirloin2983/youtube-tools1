@@ -14,13 +14,26 @@ class TestCheck(unittest.TestCase):
     def test_minimal_forms_get_defaults(self):
         got = E.check({"id": "a1", "kind": "docs", "input": {"docId": "d1"}}, now=12.5)
         self.assertEqual(got, {"id": "a1", "kind": "docs", "input": {"title": "", "docId": "d1"}, "requestId": None,
-                               "deliver": {"dir": None, "batch": None, "pool": None}, "note": "", "createdAt": 12500,
+                               "deliver": {"dir": None, "batch": None, "pool": None, "origin": None}, "note": "", "createdAt": 12500,
                                "specVersion": E.SPEC_VERSION, "legacy": {"mode": None, "onFail": None, "streamer": None}})
         url = E.check({"id": "a", "kind": "url", "input": {"url": "https://youtu.be/abcdefghijk", "marks": ["m1", "m1"]}})
         self.assertEqual((url["input"]["videoId"], url["input"]["marks"]), ("abcdefghijk", ["m1"]))
         f = E.check({"id": "a", "kind": "file", "input": {"path": "C:/x.mp4", "title": "題"},
                      "deliver": {"dir": "D:/out", "batch": 3, "pool": {"key": "k", "meta": {"phase": "live", "x": 1}}}, "note": "メモ"})
-        self.assertEqual(f["deliver"], {"dir": "D:/out", "batch": 3, "pool": {"key": "k", "rid": "", "title": "", "meta": {"phase": "live"}}})
+        self.assertEqual(f["deliver"], {"dir": "D:/out", "batch": 3, "pool": {"key": "k", "rid": "", "title": "", "meta": {"phase": "live"}}, "origin": None})
+
+    def test_deliver_origin(self):
+        """D-SEND: 届けるときの出どころ(request・auto・manual。無ければ None = 自動で決める)。ほかは理由つきの ValueError"""
+        base = {"id": "a", "kind": "docs", "input": {"docId": "d1"}}
+        for o in E.DELIVER_ORIGINS:
+            self.assertEqual(E.check(dict(base, deliver={"dir": "D:/out", "origin": o}))["deliver"]["origin"], o)
+        self.assertEqual(E.check(dict(base, deliver={"dir": "D:/out"}))["deliver"]["origin"], None)
+        for bad in ("Auto", "", 1, True, ["auto"]):
+            with self.assertRaises(ValueError, msg=bad) as cm:
+                E.check(dict(base, deliver={"dir": "D:/out", "origin": bad}))
+            self.assertIn("封筒.deliver.origin", str(cm.exception))
+        from flow import sendpolicy
+        self.assertEqual(E.DELIVER_ORIGINS, sendpolicy.ORIGINS, "sendpolicy と同じ並び")
 
     def test_live_input(self):
         url = "https://www.youtube.com/watch?v=" + VID

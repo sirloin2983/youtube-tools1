@@ -239,6 +239,7 @@ class Batch:
             rec["error"] = "解析に失敗しました"
 
     def _apply(self, rec, res):
-        a = {"at": schemas.now_ms(), "signals": res["signals"], "counts": res["counts"], "warnings": res["warnings"], "spec": res["spec"], "type": res.get("type")}
+        a = {"at": schemas.now_ms(), "signals": res["signals"], "counts": res["counts"], "warnings": res["warnings"], "spec": res["spec"], "type": res.get("type"),
+             **(res.get("stream") or {})}   # 配信の始まり・長さ(releaseTs・timestamp・uploadDate・liveStatus・duration。友人へ自動で送る鮮度の判定が読む。D-SEND)
         cands = [{"start": c["start"], "end": c["end"], "peak": c["peak"], "score": c["score"], "parts": c["parts"], "reasons": c["reasons"]} for c in res["candidates"]]
         return self.store.replace_auto(_vid(rec), cands, a, res["source"].get("duration"), res["series"])

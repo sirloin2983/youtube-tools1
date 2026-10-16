@@ -132,15 +132,17 @@ class SourcesTest(unittest.TestCase):
     def test_value_auto(self):
         snap = {"cases": [{"id": VID, "title": "ライブ", "streamedAt": 5, "clips": [
             {"markId": "a1", "start": 3, "auto": {"score": 0.7, "originLabel": "配信中の候補"}, "review": {}, "transcript": {"id": DOC}},
-            {"markId": "a2", "auto": {}, "review": {"deliveredAt": 9}, "transcript": {"id": DOC}},
+            {"markId": "a2", "auto": {"score": 0.4}, "review": {"deliveredAt": 9}, "transcript": {"id": DOC}},   # 送った物も出す(2-8)
             {"markId": "a3", "auto": {}, "review": {"pending": True}, "transcript": {"id": DOC}},
             {"markId": "a4", "auto": {}, "review": {}, "transcript": {"id": EVAL_DOC}},
-            {"markId": "a5", "auto": None, "review": {}, "transcript": {"id": DOC}}]}], "virtual": []}
+            {"markId": "a5", "auto": None, "review": {}, "transcript": {"id": DOC}},
+            {"markId": "a6", "auto": {}, "review": {}, "exists": False, "transcript": {"id": DOC}}]}], "virtual": []}   # 要らないでごみ箱へ
         view = sources.View(self.ctx)
         view._cases = snap
         got = sources.value_auto(view)
-        self.assertEqual([c["id"] for c in got], ["value:auto:%s#a1" % VID])
-        self.assertEqual((got[0]["target"]["markId"], got[0]["options"], got[0]["note"]), ("a1", ["send", "drop"], "配信中の候補"))
+        self.assertEqual([c["id"] for c in got], ["value:auto:%s#a1" % VID, "value:auto:%s#a2" % VID])
+        self.assertEqual((got[0]["target"]["markId"], got[0]["options"], got[0]["note"]), ("a1", ["good", "bad"], "配信中の候補"))
+        self.assertEqual([r["id"] for r in got[0]["reasons"]], ["boring", "long", "short", "edge", "subtitle", "audio", "other_person"])
 
     def test_broken_source_does_not_stop_others(self):
         sources.register("time", "boom", lambda view: 1 / 0)

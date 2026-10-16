@@ -773,6 +773,10 @@ class TestStage4(Base):
         self.assertEqual([s["count"] for s in self.r.estimate(doc_ids=[tid], overwrite=True)["steps"]], [0, 1])
         with self.assertRaises(ValueError):
             self.r.estimate(VID, "nope")
+        e = self.r.estimate(VID, "full", deliver=True)   # D-SEND: 友人へ自動で送るなら末尾に deliver の行(本数は判定しだい = None)
+        self.assertEqual(e["steps"][-1], {"key": "deliver", "label": "Dropbox へ届ける", "count": None, "note": "あとで決まります"})
+        self.assertEqual([s["key"] for s in self.r.estimate(VID, "full")["steps"]], ["analyze", "adopt", "export", "transcribe", "pack"])
+        self.assertEqual([s["key"] for s in self.r.estimate(VID, "adopted", deliver=True)["steps"]], ["export", "transcribe", "pack"])
 
     def test_estimate_follows_pack_key(self):
         """見積もりも実行と同じ判定(pack_verdict)で、鍵が違うパックは作り直す数に入れる(以前は「パック済み」で 0 本だった。RS8 OPT2)"""

@@ -61,12 +61,13 @@ namespace RequestSender
             return requestId + "__" + packName + VerdictSuffix;
         }
 
-        public static string VerdictJson(string verdict, string requestId, string packName, string title, long atMs)
+        // origin = 出どころ request|auto(D-SEND 2-7。分かるときだけ書く。この PC の ② が作ったパックは分からない)
+        public static string VerdictJson(string verdict, string requestId, string packName, string title, long atMs, string origin = "")
         {
             if (Array.IndexOf(Verdicts, verdict) < 0) throw new ArgumentException("verdict: " + verdict);
             return "{\"v\":1,\"verdict\":" + JsonText.Quote(verdict, false) + ",\"requestId\":" + JsonText.Quote(requestId ?? "", false) +
                    ",\"zip\":" + JsonText.Quote(packName ?? "", false) + ",\"title\":" + JsonText.Quote(title ?? "", false) +
-                   ",\"at\":" + atMs.ToString(CultureInfo.InvariantCulture) + "}";
+                   OriginKind.JsonPart(origin) + ",\"at\":" + atMs.ToString(CultureInfo.InvariantCulture) + "}";
         }
 
         public static long NowMs(DateTimeOffset now)
@@ -87,7 +88,7 @@ namespace RequestSender
             Directory.CreateDirectory(outboxDir);
             string path = Path.Combine(outboxDir, VerdictFileName(e.RequestId, e.Name));
             string tmp = path + ".tmp";
-            File.WriteAllText(tmp, VerdictJson(verdict, e.RequestId, e.Name, e.Title, NowMs(now)), new UTF8Encoding(false));
+            File.WriteAllText(tmp, VerdictJson(verdict, e.RequestId, e.Name, e.Title, NowMs(now), e.Origin), new UTF8Encoding(false));
             if (File.Exists(path)) File.Delete(path);
             File.Move(tmp, path);
             return path;

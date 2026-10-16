@@ -337,18 +337,19 @@ test('player unavailable: automatic playback stays silent, an explicit play expl
   assert.equal(S.previewEnd, 2);
 });
 
-test('agency checks: untouched agencies follow registration, user choices are kept (rank.js)', () => {
+test('agency checks: untouched = hololive only when it has resolved channels, user choices are kept (rank.js)', () => {
   const store = {};
   const context = { R: { agPick: {} }, lsGet: k => (k in store ? JSON.parse(store[k]) : null) };
   vm.createContext(withUIKit(context));
   vm.runInContext(sliceOf('rank.js', 'const okCount', 'function renderAgChecks(') + '\nthis.agChecked = agChecked;', context);   // const は context に出ないので渡す
-  const ag = (id, ok) => ({ id, channels: Array.from({ length: ok }, () => ({ status: 'ok' })).concat([{ status: 'error' }]) });
-  assert.equal(context.agChecked(ag('vspo', 0)), false, 'no resolved channel yet: not checked');
-  assert.equal(context.agChecked(ag('vspo', 4)), true, 'registered later without touching the check: checked (it was stuck unchecked before)');
-  context.R.agPick.nijisanji = false;
-  assert.equal(context.agChecked(ag('nijisanji', 4)), false, 'the user unchecked it: stays unchecked');
-  context.R.agPick.neoporte = true;
-  assert.equal(context.agChecked(ag('neoporte', 0)), true, 'the user checked it: stays checked');
+  const ag = (id, n) => ({ id, n });   // 事務所の選び方は「ホロライブ / その他」の 2 つ(FIND-R)。n = 解決済みのチャンネルの数
+  assert.equal(context.agChecked(ag('hololive', 0)), false, 'no resolved channel yet: not checked');
+  assert.equal(context.agChecked(ag('hololive', 4)), true, 'registered later without touching the check: checked');
+  assert.equal(context.agChecked(ag('other', 4)), false, 'other is off unless the user checks it (10-16 user)');
+  context.R.agPick.hololive = false;
+  assert.equal(context.agChecked(ag('hololive', 4)), false, 'the user unchecked it: stays unchecked');
+  context.R.agPick.other = true;
+  assert.equal(context.agChecked(ag('other', 0)), true, 'the user checked it: stays checked');
   // v0.7.0 の保存(選んだ ID の配列)は「選んだ」だけ引き継ぐ。空の配列は「全部外した」とは読まない
   context.R.agPick = {}; store.ags = JSON.stringify(['hololive']);
   context.loadAgPick();
