@@ -3,6 +3,7 @@
 
 zip の中(アプリのフォルダ <任意>/RequestSender/ にそのまま展開する形。3 節 (f1i)):
     RequestSender.exe・members.json・README.txt(friend-apps/request-sender/build/ と README。build.bat で作ってから)
+    FriendInbox.exe  友人の受信箱の起動役(friend-apps/launcher/build/。そちらの build.bat で作ってから。F2-4。直下 = 今の RequestSender.exe と並べる)
     friend-defaults.json・guide.html(friend-apps/request-sender/ にあれば。F5・(f1f) の物)
     python/        公式の埋め込み用 Python 3.10 + python310._pth(Lib/site-packages と ../src を足す)+ wheel を展開した部品(numpy・sherpa-onnx・streamlink と依存)
     src/           git が管理している src のファイル(tests/・__pycache__ は外す。作業データ・追跡外のファイルは入らない)
@@ -49,6 +50,8 @@ from pipeline.transcribe import diarize as _diarize, tx_engines as _tx  # noqa: 
 import push_helper  # noqa: E402  個人データの名前の表を流用する
 
 APP_SRC = os.path.join(REPO, "friend-apps", "request-sender")
+LAUNCHER_BUILD = os.path.join(REPO, "friend-apps", "launcher", "build")
+LAUNCHER_EXE = "FriendInbox.exe"
 SCHEMA = "youtube-tools-friend-zip/v1"
 FETCH_SCHEMA = "youtube-tools-friend-fetch/v1"
 TX_TOOL = "transcribe"   # 編集の作業データの ID(datadir。fetch の dest の頭)
@@ -261,18 +264,12 @@ def lay_src(stage, repo=REPO):
         shutil.copy2(os.path.join(repo, *f.split("/")), dest)
 
 
-# 友人の受信箱(src/friendapp。F2-2)を起こす仮の入口(F2-4 の起動役ができるまで。.bat は ASCII と CRLF だけ)
-FRIEND_BAT = "inbox.bat"
-FRIEND_BAT_TEXT = "\r\n".join([
-    "@echo off",
-    "rem youtube-tools friend inbox (F2-2 temporary launcher). Opens the inbox window; closing the window keeps work running until done.",
-    'start "" "%~dp0python\\pythonw.exe" "%~dp0src\\friendapp\\server.py"', ""])
-
-
-def lay_friend_bat(stage):
-    """受信箱の仮の入口 inbox.bat を zip の直下に置く(今の送るアプリ RequestSender.exe と並べる = F2-7 まで両方使える)"""
-    with open(os.path.join(stage, FRIEND_BAT), "wb") as f:
-        f.write(FRIEND_BAT_TEXT.encode("ascii"))
+def lay_launcher(stage, launcher_build=LAUNCHER_BUILD):
+    """受信箱の起動役 FriendInbox.exe を zip の直下に置く(今の送るアプリ RequestSender.exe と並べる = F2-7 まで両方使える)。無ければ作るよう促して止まる"""
+    p = os.path.join(launcher_build, LAUNCHER_EXE)
+    if not os.path.isfile(p):
+        raise BuildError("%s がありません(friend-apps/launcher/build.bat を流してから)" % p)
+    shutil.copy2(p, stage)
 
 
 def lay_wcpp(stage, wcpp_dir):
@@ -469,7 +466,8 @@ def default_out(first):
     return os.path.join(folder, "更新")
 
 
-def build(out_dir, cache, wcpp_dir, app_build, first=False, with_key=False, fetch=True, notes="", fetcher=download, downloader=pip_download, app_src=APP_SRC):  # lint: long 一本の流れ(置く → 表 → 検査 → zip)
+def build(out_dir, cache, wcpp_dir, app_build, first=False, with_key=False, fetch=True, notes="", fetcher=download, downloader=pip_download, app_src=APP_SRC,
+          launcher_build=LAUNCHER_BUILD):  # lint: long 一本の流れ(置く → 表 → 検査 → zip)
     """zip を作って {zip, size, sha256, files} を返す。失敗は BuildError"""
     if with_key and not first:
         raise BuildError("--with-key は --first のときだけ(更新の zip に鍵を入れない)")
@@ -486,7 +484,7 @@ def build(out_dir, cache, wcpp_dir, app_build, first=False, with_key=False, fetc
         lay_python(stage, embed, wfiles)
         lay_src(stage)
         wcpp = lay_wcpp(stage, wcpp_dir)
-        lay_friend_bat(stage)
+        lay_launcher(stage, launcher_build)
         fetch_doc = {"schema": FETCH_SCHEMA, "version": ver, "items": model_entries() + tool_entries(cache, fetch, fetcher)}
         with open(os.path.join(stage, "fetch.json"), "w", encoding="utf-8") as f:
             json.dump(fetch_doc, f, ensure_ascii=False, indent=1)
@@ -520,6 +518,7 @@ def main(argv=None):
     ap.add_argument("--cache", default="", help="Python の本体・wheel・道具のキャッシュ(既定 %%LOCALAPPDATA%%/youtube-tools/app/friend-build-cache)")
     ap.add_argument("--wcpp-dir", default="", help="whisper.cpp の Vulkan 版のフォルダ(既定: 作業データの transcribe/bin/whisper.cpp-<版>-vulkan)")
     ap.add_argument("--app-build", default=os.path.join(APP_SRC, "build"), help="build.bat が作った exe の置き場所")
+    ap.add_argument("--launcher-build", default=LAUNCHER_BUILD, help="friend-apps/launcher/build.bat が作った FriendInbox.exe の置き場所")
     ap.add_argument("--first", action="store_true", help="初回に手で渡す zip(dist に・latest.json を書かない)")
     ap.add_argument("--with-key", action="store_true", help="--first のときだけ: config.json(Dropbox の鍵)を入れる")
     ap.add_argument("--no-fetch", action="store_true", help="キャッシュに無い物を取りに行かない(無ければ失敗)")
@@ -531,7 +530,8 @@ def main(argv=None):
         out = a.out or default_out(a.first)
         cache = a.cache or os.path.join(datadir.locate("app", SRC), "friend-build-cache")
         wcpp = a.wcpp_dir or _tx.wcpp_bin_dir(datadir.tool_dir(TX_TOOL, os.path.join(SRC, "editor")))
-        got = build(out, cache, wcpp, a.app_build, first=a.first, with_key=a.with_key, fetch=not a.no_fetch, notes=a.notes)
+        got = build(out, cache, wcpp, a.app_build, first=a.first, with_key=a.with_key, fetch=not a.no_fetch, notes=a.notes,
+                    launcher_build=a.launcher_build)
     except (BuildError, OSError) as e:
         say("[失敗] %s" % e)
         return 1

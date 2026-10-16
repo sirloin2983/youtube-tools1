@@ -86,6 +86,8 @@ friend-apps/holo-colors/data/
 # 切り抜き依頼(request-sender)のビルドの成果物と、Dropbox の鍵(config.json。dev/dropbox_auth.py が作る。**/config.json でも無視されるが明示する)
 friend-apps/request-sender/build/
 friend-apps/request-sender/dist/
+# 友人の受信箱の起動役(launcher)のビルドの成果物(FriendInbox.exe。zip に入れる)
+friend-apps/launcher/build/
 # Chrome 拡張(chrome-ext/)の build.bat が作る zip の元のフォルダ(友人に渡す)
 chrome-ext/*/dist/
 friend-apps/request-sender/config.json

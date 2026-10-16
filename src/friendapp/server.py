@@ -8,10 +8,15 @@
 - 安全はユーザーの PC の入口と同じ: Host(DNS rebinding)・Origin・Sec-Fetch-Site の検査(ytt/httpsec)と、書き込み系の合言葉(起動ごと。画面へは meta ytt-token)
 - 1 つの作業データに ② は 1 つ(flow/placement の .flow.lock)。もう動いていれば、その窓を開き直して終わる(終了コード 0)
 - 古い部品(%LOCALAPPDATA%/youtube-tools のモデル)は、起動のあと裏で写して確かめ、古い方を消す(A-16。friendapp/oldcopy)。その間は送れない
-- 窓を閉じても仕事は続ける。画面からの問い合わせが CLOSE_IDLE 秒来ず、② の待ち・実行中が 0 になったら自分で終わる(A-13 の一時の形。
-  状態の窓・縮小版のツールバーは F2-4 の起動役)。[すべて止めて終了] は確認なしですぐ止める(待ちは残り、次に開いたとき続きから = 4-6)
+- 窓を閉じても仕事は続ける。終わるかどうかは起動役(friend-apps/launcher の FriendInbox.exe。F2-4)が決める = GET /api/friend/state を見て
+  窓が閉じて仕事も無ければ POST /api/shutdown する。起動役なしで開発の PC から起こしたときは Ctrl+C か [すべて止めて終了] まで動く。
+  [すべて止めて終了] は確認なしですぐ止める(待ちは残り、次に開いたとき続きから = 4-6)
+- 環境変数(起動役が渡す): YTT_FRIEND_TOKEN(書き込み系の合言葉。無ければ乱数)・YTT_FRIEND_ROLLBACK(起動できなかった新しい版 = 前の版で開いた知らせを 1 回出す)
+- もう動いていれば標準出力に {"event":"already","port":…} を出して終了コード 0。起こせたら {"event":"ready","port":…,"pid":…}
 口(書き込み系は合言葉。全部 JSON):
   GET  /api/ping                          {app, version}
+  GET  /api/friend/state                  起動役が見回る {windowAgo, busy, recording, making, waiting, label}(合言葉つき)
+  POST /api/friend/window                 受信箱の窓を開く(起動役の [窓を開く])
   GET  /api/friend/inbox                  受信箱の行・前回の値・保存先・空き容量で止めているか・準備中か・片付けの知らせ
   GET  /api/friend/peek?url=              配信の題・チャンネル名と配信者の推し
   GET  /api/friend/media?id=&n=           組のまとめ動画(Range つき)
@@ -57,7 +62,8 @@ TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=u
 PAGES = ("/", "/friend/", "/friend/index.html")
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://i.ytimg.com; media-src 'self'; "
        "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
-CLOSE_IDLE = 120          # 画面からの問い合わせがこの秒数来ず、仕事も無ければ自分で終わる(窓を閉じた = A-13 の一時の形)
+TOKEN_ENV = "YTT_FRIEND_TOKEN"        # 起動役が渡す合言葉(無ければ乱数)
+ROLLBACK_ENV = "YTT_FRIEND_ROLLBACK"  # 起動役が前の版へ戻したとき、起動できなかった版
 SWEEP_EVERY = 3600        # 受信箱の 3 日の片付けを見る間隔(秒)
 SAVE_DEFAULT = ("Videos", "受け取ったパック")   # 受け取るの保存先の既定(%USERPROFILE% の下。⚙ で選ぶのは F2-5)
 SAVE_FILE = "save-dir.json"
@@ -140,8 +146,12 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/friend/inbox":
             app.seen = time.time()
             out = app.api.view()
-            out.update(prep=app.prep, notice=app.notice())
+            out.update(prep=app.prep, notice=app.notice(), rollback=app.rollback_notice())
             return self._json(200, out)
+        if path == "/api/friend/state":   # 起動役の見回り(GET でも合言葉を要る = 画面を開いていない人に仕事の中身を見せない)
+            if not httpsec.token_ok(self.headers, self.server.token, TOKEN_HEADER):
+                return self._json(403, TOKEN_FAIL)
+            return self._json(200, app.state())
         if path == "/api/friend/peek":
             try:
                 return self._json(200, app.api.peek((q.get("url") or [""])[0][:300]))
@@ -210,8 +220,14 @@ class Handler(BaseHTTPRequestHandler):
             app.open_folder(d)
             return self._json(200, {"ok": True, "dir": d})
         if path == "/api/friend/notice-seen":
+            app.rollback_seen = True
             if app.catalog:
                 _oldcopy.mark_notice_shown(app.catalog)
+            return self._json(200, {"ok": True})
+        if path == "/api/friend/window":   # 起動役の [窓を開く]。窓が戻るまで終わらせない
+            app.seen = app.clock()
+            if app.open_window is not None:
+                app.open_window("http://localhost:%d/friend/" % self.server.server_address[1])
             return self._json(200, {"ok": True})
         if path == "/api/shutdown":
             self._json(200, {"ok": True})
@@ -259,7 +275,7 @@ class Server(httpsec.ExclusiveServer):
     def __init__(self, addr, app):
         super().__init__(addr, Handler)
         self.app = app
-        self.token = secrets.token_urlsafe(24)
+        self.token = os.environ.get(TOKEN_ENV) or secrets.token_urlsafe(24)
         self.allowed_hosts = httpsec.allowed_hosts(self.server_address[1])
 
 
@@ -279,7 +295,34 @@ class FriendApp:
         self.seen = clock()
         self.closing = threading.Event()
         self.server = None
+        self.open_window = None                                 # 窓を開く(url を渡す)。main が入れる = テストは開かない
+        self.rollback = (os.environ.get(ROLLBACK_ENV) or "").strip()   # 起動役が前の版へ戻した = 起動できなかった版
+        self.rollback_seen = False
         self.open_folder = open_folder   # エクスプローラーで開く口(テストは差し替える = 画面を取らない)
+
+    def rollback_notice(self):
+        """前の版で開いた知らせ(起動役から戻ったと聞いたとき、閉じるまで 1 回)"""
+        return "新しい版 %s を起動できなかったので、前の版で開きました" % self.rollback[:40] if self.rollback and not self.rollback_seen else None
+
+    def recording_count(self):
+        """録画中の本数(F2-6 がライブを足すまで 0。起動役が窓を閉じても止めない・状態の窓に出す)"""
+        return 0
+
+    def state(self):
+        """起動役の見回り用: 最後の画面の問い合わせからの秒・仕事の有無・本数"""
+        rec = self.recording_count()
+        making = waiting = 0
+        eng = self.engine
+        if eng is not None:
+            for r in eng.queue.status().get("runs") or []:
+                if r.get("state") == "running":
+                    making += 1
+                elif r.get("state") == "queued":
+                    waiting += 1
+        busy = self.busy() or rec > 0
+        parts = (["録画中 %d 本" % rec] if rec else []) + (["作っている %d 本" % making] if making else []) + (["待ち %d 本" % waiting] if waiting else [])
+        return {"windowAgo": round(max(0.0, self.clock() - self.seen), 1), "busy": busy, "recording": rec, "making": making,
+                "waiting": waiting, "label": "・".join(parts) if parts else ("準備しています" if busy else "")}
 
     def notice(self):
         n = _oldcopy.notice(self.catalog) if os.path.isfile(self.catalog) else None
@@ -310,7 +353,7 @@ class FriendApp:
         return not st["idle"] or bool(eng._previews)
 
     def watch(self):
-        """3 日の片付け(SWEEP_EVERY ごと)と、窓を閉じて仕事も無くなったら終わる(CLOSE_IDLE)"""
+        """3 日の片付け(SWEEP_EVERY ごと)。終わるかどうかは起動役が決める(ここでは終わらない)"""
         last_sweep = 0
         while not self.closing.wait(10):
             now = self.clock()
@@ -322,10 +365,6 @@ class FriendApp:
                         self.log("3 日決めなかった %d 本を自動で要らないにしました" % n)
                 except Exception as e:   # 片付けで玄関を止めない
                     self.log("受信箱の片付けに失敗しました: %s" % e.__class__.__name__)
-            if now - self.seen >= CLOSE_IDLE and not self.busy():
-                self.log("窓が閉じていて仕事も無いので終わります")
-                self.shutdown()
-                return
 
     def shutdown(self):
         if self.closing.is_set():
@@ -380,7 +419,7 @@ def main(argv=None):
         url = "http://localhost:%d/friend/" % info["port"]
         if not a.no_open:
             open_window(pl["friend"], url, log)
-        say("もう動いています: %s" % url)
+        say(json.dumps({"event": "already", "port": info["port"]}))
         return 0
     app = FriendApp(pl, log=log, make_engine=_default_engine)
     srv = None
@@ -401,6 +440,7 @@ def main(argv=None):
         say("ほかの処理(%s)が同じ作業データを使っています。閉じてから開き直してください" % (getattr(e, "info", None) or {}).get("pid"), log)
         return 4
     app.server = srv
+    app.open_window = lambda u: open_window(pl["friend"], u, log)
     url = "http://localhost:%d/friend/" % port
     log("友人の玄関 v%s: %s(作業データ %s)" % (_version.VERSION, url, pl["data"]))
     threading.Thread(target=app.prepare, args=(_places.old_data_root(),), name="friend-prepare", daemon=True).start()

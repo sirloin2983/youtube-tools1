@@ -105,6 +105,15 @@ def make_app(root, key=True):
     return build, src
 
 
+def make_launcher(root, exe=True):
+    d = os.path.join(root, "launcher-build")
+    os.makedirs(d)
+    if exe:
+        with open(os.path.join(d, "FriendInbox.exe"), "wb") as f:
+            f.write(b"MZlauncher")
+    return d
+
+
 class Base(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="bfz-")
@@ -112,12 +121,14 @@ class Base(unittest.TestCase):
         self.cache = make_cache(self.tmp)
         self.wcpp = make_wcpp(self.tmp)
         self.app_build, self.app_src = make_app(self.tmp)
+        self.launcher = make_launcher(self.tmp)
         self.out = os.path.join(self.tmp, "out")
 
     def build(self, **kw):
         kw.setdefault("fetcher", _no_fetch)
         kw.setdefault("downloader", _no_fetch)
         kw.setdefault("app_src", self.app_src)
+        kw.setdefault("launcher_build", self.launcher)
         return B.build(self.out, self.cache, self.wcpp, self.app_build, **kw)
 
 
@@ -140,7 +151,8 @@ class BuildTest(Base):
         self.assertEqual(man["version"], V.VERSION)
         self.assertFalse(man["withKey"])
         self.assertNotIn("config.json", names)   # 鍵は既定で入れない(f1g)
-        for n in ("RequestSender.exe", "members.json", "README.txt", "fetch.json", "src/app/server.py", "src/app/cli.py", "src/ytt/version.py",
+        self.assertNotIn("inbox.bat", names)   # 仮の入口は起動役 FriendInbox.exe に替わった
+        for n in ("RequestSender.exe", "FriendInbox.exe", "members.json", "README.txt", "fetch.json", "src/app/server.py", "src/app/cli.py", "src/ytt/version.py",
                   "python/Lib/site-packages/numpy/__init__.py", "python/Lib/site-packages/sherpa_onnx_core.pyd"):
             self.assertIn(n, names)
         self.assertFalse(any("/tests/" in n or "__pycache__" in n or n.endswith(".pyc") for n in names))
@@ -213,6 +225,11 @@ class BuildTest(Base):
         with self.assertRaises(SystemExit) as cm:
             B.main(["--with-key", "--out", self.out])
         self.assertEqual(cm.exception.code, 2)
+
+    def test_launcher_exe_missing_stops(self):
+        os.remove(os.path.join(self.launcher, "FriendInbox.exe"))
+        with self.assertRaisesRegex(B.BuildError, "launcher/build.bat"):
+            self.build()
 
     def test_app_version_must_match(self):
         with open(os.path.join(self.app_build, "version.txt"), "w") as f:

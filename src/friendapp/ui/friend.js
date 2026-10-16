@@ -213,8 +213,9 @@
     var b = j.blocked;
     $('blocked').hidden = !b;
     if (b) $('blocked').textContent = '空き容量が ' + b.freeGB + ' GB です。' + b.minGB + ' GB を切ったので、新しい処理を始めずに待っています(不要なファイルを消すと続きから始めます)';
-    $('cleaned').hidden = !j.notice;
-    if (j.notice) $('cleanedText').textContent = 'C: の古い部品 ' + j.notice.freedGB + ' GB を片付けました(新しいアプリの場所へ写してあります)';
+    $('cleaned').hidden = !(j.notice || j.rollback);
+    $('cleanedText').textContent = (j.rollback ? j.rollback + '。' : '') +
+      (j.notice ? 'C: の古い部品 ' + j.notice.freedGB + ' GB を片付けました(新しいアプリの場所へ写してあります)' : '');
   }
   function refresh() {
     clearTimeout(timer);

@@ -531,6 +531,71 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(st, 403)
         self.assertTrue(self.thread.is_alive())
 
+    # ------------------------------------------------------------ 起動役(F2-4)の口
+    def test_state_needs_token(self):
+        st, _h, _p = self.get("/api/friend/state")
+        self.assertEqual(st, 403)
+        st, _h, _p = self.get("/api/friend/state", headers={TOKEN: "x"})
+        self.assertEqual(st, 403)
+
+    def test_state_idle_and_window_ago(self):
+        now = [1000.0]
+        self.app.clock = lambda: now[0]
+        self.app.seen = 990.0
+        st, _h, p = self.get("/api/friend/state", headers={TOKEN: self.srv.token})
+        self.assertEqual(st, 200)
+        d = self.js(p)
+        self.assertEqual((d["windowAgo"], d["busy"], d["recording"], d["making"], d["waiting"], d["label"]), (10.0, False, 0, 0, 0, ""))
+
+    def test_state_counts_runs_and_recording(self):
+        self.engine.queue.status = lambda: {"idle": False, "runs": [{"state": "running"}, {"state": "queued"}, {"state": "queued"}, {"state": "done"}]}
+        self.app.recording_count = lambda: 1
+        d = self.js(self.get("/api/friend/state", headers={TOKEN: self.srv.token})[2])
+        self.assertTrue(d["busy"])
+        self.assertEqual((d["recording"], d["making"], d["waiting"]), (1, 1, 2))
+        self.assertEqual(d["label"], "録画中 1 本・作っている 1 本・待ち 2 本")
+
+    def test_recording_alone_is_busy(self):
+        self.app.recording_count = lambda: 2
+        d = self.js(self.get("/api/friend/state", headers={TOKEN: self.srv.token})[2])
+        self.assertTrue(d["busy"])
+        self.assertEqual(d["label"], "録画中 2 本")
+
+    def test_window_post_resets_seen_and_opens(self):
+        opened = []
+        self.app.open_window = opened.append
+        self.app.seen = 0.0
+        st, _h, p = self.post("/api/friend/window", {})
+        self.assertEqual(st, 200)
+        self.assertTrue(self.js(p)["ok"])
+        self.assertEqual(opened, ["http://localhost:%d/friend/" % self.port])
+        self.assertLess(self.app.clock() - self.app.seen, 5)
+        self.assertEqual(self.post("/api/friend/window", {}, headers={TOKEN: None})[0], 403)
+
+    def test_watch_does_not_end_by_itself(self):
+        self.app.seen = 0.0   # 窓を閉じて長い = 前は 120 秒で自分で終わった
+        t = threading.Thread(target=self.app.watch, daemon=True)
+        with mock.patch.object(self.app.closing, "wait", side_effect=[False, False, True]):
+            t.start()
+            t.join(5)
+        self.assertFalse(t.is_alive())
+        self.assertFalse(self.app.closing.is_set())
+
+    def test_token_from_environment(self):
+        with mock.patch.dict(os.environ, {S.TOKEN_ENV: "launcher-secret"}):
+            srv = S.Server(("127.0.0.1", 0), self.app)
+        self.addCleanup(srv.server_close)
+        self.assertEqual(srv.token, "launcher-secret")
+
+    def test_rollback_notice_once(self):
+        self.assertIsNone(self.js(self.get("/api/friend/inbox")[2])["rollback"])
+        with mock.patch.dict(os.environ, {S.ROLLBACK_ENV: "0.90.0"}):
+            app = S.FriendApp(self.places, make_engine=FakeEngine)
+        self.assertIn("0.90.0", app.rollback_notice())
+        self.assertIn("前の版", app.rollback_notice())
+        app.rollback_seen = True
+        self.assertIsNone(app.rollback_notice())
+
     def test_notice_seen_without_catalog_is_ok(self):
         st, _h, p = self.post("/api/friend/notice-seen", {})
         self.assertEqual(st, 200)
