@@ -29,11 +29,11 @@ from unittest import mock
 from playwright.sync_api import sync_playwright
 
 TESTS = os.path.dirname(os.path.abspath(__file__))   # src/app/tests
-HERE = os.path.dirname(TESTS)   # home(入口の部品)
+HERE = os.path.dirname(TESTS)   # src/app(入口)
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
+sys.path.append(os.path.dirname(HERE))   # src(app 層の import の根)
 from app import appwindow as W  # noqa: E402
-sys.path.append(os.path.dirname(HERE))   # src(app 層。入口本体は src/app/server.py)
 from app import server as L  # noqa: E402
 from app import mount as M  # noqa: E402
 from e2e_portal import wait_js, open_advanced  # noqa: E402
