@@ -165,18 +165,20 @@ def row_edge_ok(v):
 # ---------- 束の形 ----------
 SECTIONS = ("hints", "analyze", "adopt", "export", "transcribe", "post", "pack", "run")
 RUN_FROM = ("analyze", "adopt", "export", "transcribe", "pack")   # run.from に書ける段(run.py の MODE_STEPS の段の名前)
-# run.pinned に書ける項目(依頼が決めた項目。RS7-1 S3 の一時の形): weights = analyze の重み 3 つ(解析済みでも重みが違えば解析し直す)・
+RUN_UPTO = ("transcribe", "pack")   # run.upto = どこまで作るか(transcribe = 文字起こしまで・pack = パックまで。RV A2 で封筒の legacy.mode から)
+ON_FAIL = ("next", "stop")          # run.onFail = 1 本が失敗したとき(next = 残りを続ける・stop = そこで止める。RV A2 で封筒の legacy.onFail から)
+# run.requested に書ける項目(依頼が決めた項目。RV A2 で run.pinned から改名): weights = analyze の重み 3 つ(解析済みでも重みが違えば解析し直す)・
 # cut = pack.cut(リアルタイム切り抜きの自動の採用の既定より強い)・videoTracks = pack.videoTracks(1 でも要求に書く)・
 # engine・model = transcribe の engine・model(機器から決まるエンジンと同じでも要求に書く)
-RUN_PINS = ("weights", "cut", "videoTracks", "engine", "model")
+RUN_REQUESTED = ("weights", "cut", "videoTracks", "engine", "model")
+RUN_PINS = RUN_REQUESTED   # 旧い名前(呼び手が直るまで)
+STREAMER_MAX = 120   # hints.streamer の長さ(封筒の題と同じ)
 
 # 束の鍵にしない固定の項目(5-4。ユーザー決定 2026-10-09 夜)。今の設定の画面から消す物。呼ぶ側は変えられない
 FIXED = {
     "fps": 30,                # 素材とパックは 30fps にそろえる(run.py の _pack_one。2026-10-04 Q1)
     "precise": True,          # 切り出しは精密(run.py の _export_body の precision "accurate")
     "maxHeight": 0,           # 画質は最大 = 上限なし(書き出しの maxHeight 0 = 上限なし。スタジオの exporter._max_height)。録画の live.quality も最大
-    "upto": "pack",           # 常にパックまで作る(段を途中で止める upto は無い)
-    "on_fail": "next",        # 1 本が失敗しても続ける(失敗は結果に理由つきで残す。run.py の Run.on_fail の既定 next)
 }
 
 # 既定値(今のコードにある値を写した物。出どころは行の横)。API キーは束に入れない(環境変数か鍵のファイル)
@@ -184,7 +186,8 @@ DEFAULTS = {
     "hints": {
         "ranges": [],         # 必ず切り抜く区間 [[開始秒, 終了秒], …]。無し = なし(autorun.py の clean_ranges(None))
         "people": [],         # 出る人 [{name, color?}](先頭 = 話者の分からない行の字幕の色にする人)か {count}。無し = ① が推定する。
-                              # ② の口 submit は、封筒に配信者(legacy.streamer)が無ければ先頭の名前を配信者(字幕の色)にする(RS7-1 S4。flow/runqueue.py)
+                              # ② の口 submit は、配信者(下の streamer)が無ければ先頭の名前を配信者(字幕の色)にする(RS7-1 S4。flow/runqueue.py)
+        "streamer": None,     # 字幕の色にする配信者(照らし合わせた名前)。None = 自動(出る人の先頭 → 覚えた名前 → チャンネル名)・"" = 色なし(RV A2 で封筒の legacy.streamer から)
     },
     "analyze": {              # スタジオの解析の設定(src/pipeline/analyze/analyze.py の validate_settings 90-96 行)
         "useAudio": True, "useChat": True, "useComments": True,
@@ -242,8 +245,10 @@ DEFAULTS = {
         "from": None,         # どの段からやり直すか(RUN_FROM)。None = 頭から
         "force": False,       # 同じ鍵でも作り直す
         "repack": False,      # パックがあれば作り直す(文字起こしは作り直さない。Run の旧い欄 overwrite。RS7-1 S3)
-        "pinned": [],         # 依頼が決めた項目(RUN_PINS。画面の既定・自動の決め方より強い。RS7-1 S3 の一時の形。受付で束を組む S4 のあとも、
-                              # 「依頼が決めた重みなら解析し直す・ライブの自動の採用の既定より強い・1 でも要求に書く」の印として残る)
+        "upto": "pack",       # どこまで作るか(RUN_UPTO。transcribe = 文字起こしまで。from と組で段の並び = flow/run.py の steps_of)
+        "onFail": "next",     # 1 本が失敗したとき(ON_FAIL。入口はホームの設定 autorun.onFail)
+        "requested": [],      # 依頼が決めた項目(RUN_REQUESTED。画面の既定・自動の決め方より強い。旧い鍵 run.pinned も読む = RENAMED_KEYS。
+                              # 「依頼が決めた重みなら解析し直す・ライブの自動の採用の既定より強い・1 でも要求に書く」の印)
     },
 }
 
@@ -266,10 +271,15 @@ def merge(spec):
         if sec == "transcribe" and given.get("engine") in LEGACY_TX_ENGINES and given.get("device") == "cuda":
             given = dict(given, device=TX_DEVICES[0])   # 旧いエンジンと組の cuda = 0.57.0 までの faster-whisper の CUDA(whisper.cpp の CUDA 版ではない)
         given = {k: read_legacy_tx(k, v) if sec == "transcribe" else v for k, v in given.items() if k not in RETIRED_KEYS.get(sec, ())}
+        for old, new in RENAMED_KEYS.get(sec, {}).items():   # 改名した鍵(旧い束・待ちの記録・録画の束)は今の名前で読む。両方あれば今の名前
+            if old in given:
+                v = given.pop(old)
+                given.setdefault(new, v)
         _overlay(out[sec], given, sec)
     return out
 
 
+RENAMED_KEYS = {"run": {"pinned": "requested"}}   # 改名した鍵(RV A2: run.pinned → run.requested)。旧い名前は merge が今の名前に読み替える
 RETIRED_KEYS = {"post": ("redoLarge", "autoRedo")}   # 消した項目(0.58.0 = kotoba のときの redoLarge・10-16 = autoRedo の入口ごと)。旧い束・保存した要求にあれば黙って捨てる
 
 
@@ -359,7 +369,11 @@ def _people_ok(v):
 
 
 def _pins_ok(v):
-    return isinstance(v, list) and all(isinstance(x, str) and x in RUN_PINS for x in v) and len(set(v)) == len(v)
+    return isinstance(v, list) and all(isinstance(x, str) and x in RUN_REQUESTED for x in v) and len(set(v)) == len(v)
+
+
+def _streamer_ok(v):
+    return v is None or (isinstance(v, str) and len(v) <= STREAMER_MAX)
 
 
 def _weight_ok(v):
@@ -388,7 +402,8 @@ _WRAP_ORIENT = {"vertical": _int_in(0, 40), "horizontal": _int_in(0, 40)}   # 0 
 # 節 -> 項目 -> (検査, 直し方の言い方)。範囲は検査の元になったコードの値(出どころは DEFAULTS の横の注)
 SCHEMA = {
     "hints": {"ranges": (_ranges_ok, "区間の一覧 [[開始秒, 終了秒], …](%d 個まで・1 つ %d 秒まで)" % (RANGE_MAX, RANGE_MAX_SEC)),
-              "people": (_people_ok, "[{name, color?}] の並びか {count: 1〜10}")},
+              "people": (_people_ok, "[{name, color?}] の並びか {count: 1〜10}"),
+              "streamer": (_streamer_ok, "null か %d 字までの名前(空 = 色なし)" % STREAMER_MAX)},
     "analyze": {"useAudio": (_is_bool, "true か false"), "useChat": (_is_bool, "true か false"), "useComments": (_is_bool, "true か false"),
                 "wAudio": (_weight_ok, "0〜3 の数"), "wChat": (_weight_ok, "0〜3 の数"), "wComments": (_weight_ok, "0〜3 の数"),
                 "sensitivity": (_one_of("high", "normal", "low"), "high・normal・low のどれか"),
@@ -431,7 +446,9 @@ SCHEMA = {
              "videoTracks": (_int_in(1, 5), "1〜5 の整数")},
     "run": {"from": (_or_none(_one_of(*RUN_FROM)), "null か %s のどれか" % "・".join(RUN_FROM)),
             "force": (_is_bool, "true か false"), "repack": (_is_bool, "true か false"),
-            "pinned": (_pins_ok, "%s の並び(重ならない)" % "・".join(RUN_PINS))},
+            "upto": (_one_of(*RUN_UPTO), "%s のどれか" % "・".join(RUN_UPTO)),
+            "onFail": (_one_of(*ON_FAIL), "%s のどれか" % "・".join(ON_FAIL)),
+            "requested": (_pins_ok, "%s の並び(重ならない)" % "・".join(RUN_REQUESTED))},
 }
 
 

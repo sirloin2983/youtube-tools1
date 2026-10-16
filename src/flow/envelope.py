@@ -5,39 +5,50 @@
 依頼 = **封筒**(処理の中身でない物 = 何を入れたか・どの依頼か・届け方・メモ)+ **束**(何を作るか = flow/spec.py)。
 ② の段は束だけを読み、封筒は記録と届け方(③ の hook)に使う。ここは封筒の形と検査だけ(純粋。ファイル・ネットワークを読まない)。
 
-形(check が整えて返す。無い項目は既定):
+形(版 2 = RV A2。check が整えて返す。無い項目は既定):
   {"id": 依頼の 1 件の id(英数字と - _ の 64 字まで。10 桁の 16 進なら実行の id にもなる),
    "kind": "url" | "file" | "docs" | "live",
-   "input": kind ごとの入力(INPUT_KEYS。url = {videoId か url, title, duration, fresh, marks}・file = {path, title}・docs = {docId, title}・
-            live = {videoId か url, title, recorder}(recorder = 録画の部品の名前。無ければ既定。Queue.submit が live の hook へ回す = RS7-2 G2a)),
-   "requestId": 友人の依頼の id か None, "deliver": {"dir", "batch", "pool", "origin"}(届け先・n 本の組・ライブの組の溜め・出どころ request|auto|manual。どれも None = 届けない・既定・自動で決める),
-   "note": メモ, "createdAt": 受けた時刻(ミリ秒), "specVersion": 束の形の版(SPEC_VERSION),
-   "legacy": {"mode", "onFail", "streamer"}(一時。今の Run の欄で、まだ束に写せない物 = 段の並びの形・1 本が失敗したとき・字幕の色の配信者。
-             配信者は受付で決めた名前(RS7-1 S4。"" = 色なし・null = 決めていない)。null のとき ② の口 submit は束の hints.people の先頭を照らし合わせて
-             配信者にする(flow/runqueue.py)。段の並びの形と onFail を束(run.from)か固定へ移すのは RS7-2 のあと)}
+   "input": kind ごとの入力(INPUT_KEYS。url = {videoId か url, title, duration, fresh, marks}・file = {path, title, normalize}・docs = {docId, title}・
+            live = {videoId か url, title, recorder}(recorder = 録画の部品の名前。無ければ既定。Queue.submit が live の hook へ回す = RS7-2 G2a)。
+            file の normalize = 最初の段で写しを 30fps に置き換える(真偽。既定 false。置き換えは元を消すので、作業データへの写しだけ),
+   "requestId": 友人の依頼の id か None,
+   "deliver": {"dir", "batch", "pool", "origin", "tag"}(届け先・n 本の組・ライブの組の溜め・出どころ request|auto|manual・届ける名前の頭。
+              どれも None = 届けない・既定・自動で決める),
+   "note": メモ, "createdAt": 受けた時刻(ミリ秒), "specVersion": 封筒と束の形の版}
+段の並び(どこから・どこまで)・1 本が失敗したとき・字幕の色の配信者は束(run.from・run.upto・run.onFail・hints.streamer)。
+版 1(0.87 まで)は一時の欄 legacy {"mode", "onFail", "streamer"} を持っていた。check は版 1 も版 2 も受け、版 1 のまま返す。
+upgrade(封筒, 束) が版 1 を版 2 に読み替える(legacy を束へ写す)。書くのは版 2 だけ(作業データの記録は書き換えない = 読むときに読み替える)。
 知らない項目・知らない版・形の違う値は理由つきの ValueError(受け口では HTTP の 400 にする)。
 
 import してよいのは標準ライブラリ・ytt・同じ flow の spec だけ(run.py が読むので run を読まない)。
 """
+import copy
 import re
 import time
 
 from ytt import yturl as _yturl
 from . import spec as _spec
 
-SPEC_VERSION = 1   # 束の形の版(flow/spec.py の DEFAULTS の形。形を変えたら上げる。知らない版は断る)
+SPEC_VERSION = 1   # 書く封筒と束の形の版(flow/spec.py の DEFAULTS の形。形を変えたら上げる)
+ACCEPTED = (1, 2)  # 読める版(1 = legacy つき。upgrade で 2 に読み替える。知らない版は断る)
 KINDS = ("url", "file", "docs", "live")
-KEYS = ("id", "kind", "input", "requestId", "deliver", "note", "createdAt", "specVersion", "legacy")
+KEYS = {1: ("id", "kind", "input", "requestId", "deliver", "note", "createdAt", "specVersion", "legacy"),
+        2: ("id", "kind", "input", "requestId", "deliver", "note", "createdAt", "specVersion")}
 INPUT_KEYS = {"url": ("videoId", "url", "title", "duration", "fresh", "marks"), "live": ("videoId", "url", "title", "recorder"),
-              "file": ("path", "title"), "docs": ("docId", "title")}
-DELIVER_KEYS = ("dir", "batch", "pool", "origin")
+              "file": ("path", "title", "normalize"), "docs": ("docId", "title")}
+DELIVER_KEYS = ("dir", "batch", "pool", "origin", "tag")
 DELIVER_ORIGINS = ("request", "auto", "manual")   # 届けるときの出どころ(flow/sendpolicy.ORIGINS と同じ。D-SEND。envelope は sendpolicy を読まない)
-LEGACY_KEYS = ("mode", "onFail", "streamer")
-ON_FAIL = ("next", "stop")
+LEGACY_KEYS = ("mode", "onFail", "streamer")      # 版 1 の一時の欄
+ON_FAIL = _spec.ON_FAIL
+# 版 1 の legacy.mode(段の並びの形)-> (kind, 束の run.from, 束の run.upto)。upgrade の読み替えと、派生の mode(flow/run.py の mode_of)の表
+LEGACY_MODES = {"full": ("url", None, "pack"), "adopted": ("url", "export", "pack"), "transcribe": ("url", "export", "transcribe"),
+                "request": ("url", None, "transcribe"), "request_auto": ("url", None, "pack"), "doc": ("docs", None, "pack"),
+                "file": ("file", None, "transcribe"), "file_auto": ("file", None, "pack")}
+KIND_DEFAULT_MODE = {"url": "full", "docs": "doc", "file": "file_auto"}   # 版 1 の封筒に legacy.mode が無いとき
 ID_RE = re.compile(r"[0-9A-Za-z_-]{1,64}\Z")
 VIDEO_ID_RE = re.compile(r"[0-9A-Za-z_-]{1,64}\Z")
 DOC_ID_RE = re.compile(r"[0-9A-Za-z_-]{1,40}\Z")
-TITLE_MAX, CHANNEL_MAX, PATH_MAX, NOTE_MAX = 120, 100, 1000, 1000
+TITLE_MAX, CHANNEL_MAX, PATH_MAX, NOTE_MAX, TAG_MAX = 120, 100, 1000, 1000, 120
 BATCH_RANGE = (1, 10)   # 友人の依頼ごとの届け方(n 本の組。src/app/prefs.py の intake.deliverBatch の範囲と同じ)
 
 
@@ -81,9 +92,10 @@ def _video_id(inp, where):
     return vid
 
 
-def _input(kind, inp):
+def _input(kind, inp, ver):
     where = "封筒.input"
-    _keys_known(inp, INPUT_KEYS[kind], where)
+    allowed = INPUT_KEYS[kind] if ver >= 2 else tuple(k for k in INPUT_KEYS[kind] if k != "normalize")
+    _keys_known(inp, allowed, where)
     out = {"title": (_str(inp.get("title"), TITLE_MAX, where + ".title") or "")}
     if kind in ("url", "live"):
         out["videoId"] = _video_id(inp, where)
@@ -108,6 +120,11 @@ def _input(kind, inp):
         out["path"] = _str(inp.get("path"), PATH_MAX, where + ".path", empty=False)
         if out["path"] is None:
             raise ValueError("%s.path(動画のパス)がありません" % where)
+        if ver >= 2:
+            norm = inp.get("normalize")
+            if norm is not None and not isinstance(norm, bool):
+                raise ValueError("%s.normalize は true か false にしてください" % where)
+            out["normalize"] = norm is True
     elif kind == "docs":
         tid = inp.get("docId")
         if not isinstance(tid, str) or not DOC_ID_RE.match(tid):
@@ -116,10 +133,10 @@ def _input(kind, inp):
     return out
 
 
-def _deliver(d):
+def _deliver(d, ver):
     where = "封筒.deliver"
     d = {} if d is None else d
-    _keys_known(d, DELIVER_KEYS, where)
+    _keys_known(d, DELIVER_KEYS if ver >= 2 else DELIVER_KEYS[:-1], where)
     batch = d.get("batch")
     if batch is not None and not batch_ok(batch):
         raise ValueError("%s.batch は %d〜%d の整数にしてください" % ((where,) + BATCH_RANGE))
@@ -131,7 +148,10 @@ def _deliver(d):
     origin = d.get("origin")
     if origin is not None and origin not in DELIVER_ORIGINS:
         raise ValueError("%s.origin は %s のどれかにしてください" % (where, "・".join(DELIVER_ORIGINS)))
-    return {"dir": _str(d.get("dir"), PATH_MAX, where + ".dir", empty=False), "batch": batch, "pool": pool, "origin": origin}
+    out = {"dir": _str(d.get("dir"), PATH_MAX, where + ".dir", empty=False), "batch": batch, "pool": pool, "origin": origin}
+    if ver >= 2:
+        out["tag"] = _str(d.get("tag"), TAG_MAX, where + ".tag", empty=False)
+    return out
 
 
 def _legacy(d):
@@ -145,12 +165,21 @@ def _legacy(d):
             "streamer": _str(d.get("streamer"), TITLE_MAX, where + ".streamer")}
 
 
+def version_of(env):
+    """封筒の版(specVersion。無ければ SPEC_VERSION)。読めない版は ValueError(呼ぶ側は版の違いとして断る)"""
+    ver = env.get("specVersion", SPEC_VERSION) if isinstance(env, dict) else SPEC_VERSION
+    if isinstance(ver, bool) or ver not in ACCEPTED:
+        raise ValueError("知らない束の版です: %r(この ② は %s。送る側か ② を新しくしてください)" % (ver, "・".join(map(str, ACCEPTED))))
+    return ver
+
+
 def check(env, now=None):
-    """封筒を確かめて整えた新しい dict を返す(無い項目は既定。createdAt が無ければ now(秒。None = 今))。合わなければ理由つきの ValueError"""
-    _keys_known(env, KEYS, "封筒")
-    ver = env.get("specVersion", SPEC_VERSION)
-    if ver != SPEC_VERSION or isinstance(ver, bool):
-        raise ValueError("知らない束の版です: %r(この ② は %d。送る側か ② を新しくしてください)" % (ver, SPEC_VERSION))
+    """封筒を確かめて整えた新しい dict を返す(無い項目は既定。createdAt が無ければ now(秒。None = 今))。合わなければ理由つきの ValueError。
+    版 1 は版 1 の形(legacy つき)・版 2 は版 2 の形のまま返す(版 2 にするのは upgrade)"""
+    if not isinstance(env, dict):
+        raise ValueError("封筒 は {項目: 値} の形にしてください")
+    ver = version_of(env)
+    _keys_known(env, KEYS[ver], "封筒")
     eid = env.get("id")
     if not isinstance(eid, str) or not ID_RE.match(eid):
         raise ValueError("封筒.id は英数字と - _ の 64 字までにしてください")
@@ -165,6 +194,52 @@ def check(env, now=None):
         at = int((time.time() if now is None else now) * 1000)
     elif not isinstance(at, int) or isinstance(at, bool) or at < 0:
         raise ValueError("封筒.createdAt はミリ秒の整数にしてください")
-    return {"id": eid, "kind": kind, "input": _input(kind, env.get("input")), "requestId": rid, "deliver": _deliver(env.get("deliver")),
-            "note": _str(env.get("note"), NOTE_MAX, "封筒.note") or "", "createdAt": at, "specVersion": SPEC_VERSION,
-            "legacy": _legacy(env.get("legacy"))}
+    out = {"id": eid, "kind": kind, "input": _input(kind, env.get("input"), ver), "requestId": rid, "deliver": _deliver(env.get("deliver"), ver),
+           "note": _str(env.get("note"), NOTE_MAX, "封筒.note") or "", "createdAt": at, "specVersion": ver}
+    if ver == 1:
+        out["legacy"] = _legacy(env.get("legacy"))
+    return out
+
+
+def upgrade(env, spec=None):
+    """確かめた封筒(check の結果)+ 束(変えたい所だけでもよい)-> (版 2 の封筒, 束)。版 2 はそのまま(写しを返す)。
+    版 1 は legacy を束へ写す: mode → run.from・run.upto(LEGACY_MODES。from は書き出しからの形だけ書く = 束の run.from(CLI の --from pack など)を消さない)・
+    onFail → run.onFail・streamer → hints.streamer(null = 決めていない = 書かない)。file の input.normalize は false・deliver.tag は null。
+    mode が kind に合わなければ理由つきの ValueError。束が辞書でなければそのまま返す(検査は spec.merge)"""
+    env = copy.deepcopy(env)
+    spec = copy.deepcopy(spec) if spec is not None else {}
+    if env.get("specVersion") != 1:
+        return env, spec
+    lg = env.pop("legacy", None) or {}
+    kind = env["kind"]
+    if kind == "file":
+        env["input"]["normalize"] = False
+    env["deliver"]["tag"] = None
+    env["specVersion"] = 2
+    if kind == "live":
+        mode = None
+    else:
+        mode = lg.get("mode") or KIND_DEFAULT_MODE[kind]
+        if LEGACY_MODES.get(mode, (None,))[0] != kind:
+            raise ValueError("封筒.legacy.mode は %s のどれかにしてください" % "・".join(m for m, v in LEGACY_MODES.items() if v[0] == kind))
+    if not isinstance(spec, dict):
+        return env, spec
+    run = spec.get("run") if isinstance(spec.get("run"), dict) else None
+    if mode is not None:
+        _kind, frm, upto = LEGACY_MODES[mode]
+        run = dict(run or {}, upto=upto)
+        if frm is not None:
+            run["from"] = frm
+    if lg.get("onFail") is not None:
+        run = dict(run or {}, onFail=lg["onFail"])
+    if run is not None:
+        spec["run"] = run
+    if lg.get("streamer") is not None:
+        hints = spec.get("hints") if isinstance(spec.get("hints"), dict) else {}
+        spec["hints"] = dict(hints, streamer=lg["streamer"])
+    return env, spec
+
+
+def read(env, spec=None, now=None):
+    """check + upgrade -> (版 2 の封筒, 束)。受け口・待ちの記録・録画の束の読み手が使う"""
+    return upgrade(check(env, now), spec)

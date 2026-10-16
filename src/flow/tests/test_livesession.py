@@ -151,10 +151,10 @@ class SubmitTest(Base):
         self.assertEqual(self.rec.started(), [])
 
     def test_bundle_pins_to_auto_cfg(self):
-        """束の run.pinned にあるエンジン・モデル・カット・余白だけが書き出したあとの設定に(録画を始めたときの値。決定 3-31 の仮 b3)"""
+        """束の run.requested にあるエンジン・モデル・カット・余白だけが書き出したあとの設定に(録画を始めたときの値。決定 3-31 の仮 b3)"""
         spec = LS.cfg_bundle(None, {"auto": {"engine": "whisper.cpp", "model": "large-v3", "cut": "silence", "pad": 1.5},
                                     "detect": {"sens": "high", "perHour": 7}, "autoAdopt": {"waitMin": 4}})
-        self.assertEqual((spec["adopt"]["sens"], spec["adopt"]["perHour"], spec["adopt"]["waitMin"], spec["adopt"]["pad"], sorted(spec["run"]["pinned"])),
+        self.assertEqual((spec["adopt"]["sens"], spec["adopt"]["perHour"], spec["adopt"]["waitMin"], spec["adopt"]["pad"], sorted(spec["run"]["requested"])),
                          ("high", 7, 4, 1.5, ["cut", "engine", "model"]))
         self.s.submit({"id": "live000005", "kind": "live", "input": {"videoId": VID}}, spec)
         self.cfg["auto"] = {"engine": "faster-whisper", "model": "small", "cut": "none", "pad": 0.5}   # 録画を始めたあとに変えても効かない
@@ -183,7 +183,7 @@ class OwnStreamTest(Base):
         self.assertEqual((sp["analyze"]["length"], sp["analyze"]["headSec"], sp["analyze"]["count"], sp["analyze"]["wChat"]), (20, 0, 12, 2.5))
         self.assertNotIn("nope", sp["analyze"])
         self.assertEqual(sp["export"], {"volume": 100, "loudness": -16})
-        self.assertEqual(sorted(sp["run"]["pinned"]), ["engine", "model"])
+        self.assertEqual(sorted(sp["run"]["requested"]), ["engine", "model"])
         self.assertEqual(self.s.requests.all(), {}, "自分の配信は依頼の結びつきを作らない")
         # 録画中に設定を変える(ホームの設定・スタジオの解析の設定・書き出しの音量)
         self.cfg.update(detect={"enabled": True, "sens": "high", "perHour": 20}, autoAdopt={"enabled": True, "waitMin": 60},
@@ -314,6 +314,37 @@ class HeadlessTest(Base):
         finally:
             s2.detector.stop()
 
+    def test_old_bundles_file_reads(self):
+        """RV A2: 0.87 までの live/bundles.json(封筒の版 1 = legacy.streamer・束の run.pinned)を固定の見本にして読む。
+        配信者は束の hints.streamer・cut・engine・model は書き出したあとの設定に・ファイルは読むだけでは書き換えない"""
+        old = {"local/" + REC: {"envelope": {"id": "lv-0123456789ab", "kind": "live", "input": {"title": "", "videoId": VID, "url": URL, "recorder": None},
+                                             "requestId": None, "deliver": {"dir": None, "batch": None, "pool": None, "origin": None}, "note": "",
+                                             "createdAt": 1790000000000, "specVersion": 1, "legacy": {"mode": None, "onFail": None, "streamer": "兎田ぺこら"}},
+                                "spec": {"pack": {"cut": "silence"}, "transcribe": {"engine": "whisper.cpp", "model": "large-v3"},
+                                         "run": {"pinned": ["cut", "engine", "model"]}, "adopt": {"pad": 1.5}}, "at": T0}}
+        os.makedirs(os.path.dirname(self.bundles_path), exist_ok=True)
+        raw = json.dumps(old, ensure_ascii=False).encode("utf-8")
+        fsio.atomic_write(self.bundles_path, raw)
+        s2 = self.session()
+        try:
+            b = s2.bundle("local", REC)
+            self.assertEqual((b["hints"]["streamer"], sorted(b["run"]["requested"])), ("兎田ぺこら", ["cut", "engine", "model"]))
+            self.assertNotIn("pinned", b["run"])
+            self.assertEqual(s2.auto_cfg("local", REC), {"after": "check", "cut": "silence", "engine": "whisper.cpp", "model": "large-v3", "pad": 1.5})
+            got = s2.bundles.get("local", REC)["envelope"]
+            self.assertEqual((got["specVersion"], "legacy" in got), (2, False))
+            with open(self.bundles_path, "rb") as f:
+                self.assertEqual(f.read(), raw, "読むだけでは書き換えない")
+        finally:
+            s2.detector.stop()
+
+    def test_legacy_streamer_to_request(self):
+        """版 1 の封筒の legacy.streamer は、依頼の結びつきの配信者に(束の hints.streamer を通る)"""
+        out = self.s.submit({"id": "live000013", "kind": "live", "input": {"videoId": VID}, "requestId": "req-2", "legacy": {"streamer": "兎田ぺこら"}},
+                            self.SPEC)
+        self.assertTrue(out["live"])
+        self.assertEqual(self.s.requests.get("local", REC)["streamer"], "兎田ぺこら")
+
 
 class LiveAppTest(unittest.TestCase):
     """入口の Live(app)の画面なしの形と、友人の依頼(intake の live_begin)の経路"""
@@ -351,7 +382,7 @@ class LiveAppTest(unittest.TestCase):
 
     def test_friend_request_goes_through_submit(self):
         """友人のライブ配信の依頼(intake の live_begin = Live.submit_request): 封筒 + 束で submit を通る。requests.json は ctx のまま・
-        束は自動の採用の上限 10(依頼の欄の既定)・依頼のカット・映像トラック・話す人を run.pinned に"""
+        束は自動の採用の上限 10(依頼の欄の既定)・依頼のカット・映像トラック・話す人を run.requested に"""
         self.prefs.patch("live", {"enabled": True})
         ctx = {"rid": "20261011-200000-abc123", "deliverDir": os.path.join(self.tmp, "出力"), "url": URL, "title": "配信の題", "streamer": "兎田ぺこら",
                "speakers": {"count": 1, "names": ["兎田ぺこら"], "styles": {}}, "videoTracks": 2, "cut": "silence", "memo": "歌のところ",
@@ -367,7 +398,7 @@ class LiveAppTest(unittest.TestCase):
                          (ctx["rid"], ctx["rid"], 3, "歌のところ"))
         sp = b["spec"]
         self.assertEqual((sp["adopt"]["top"], sp["adopt"]["sens"], sp["adopt"]["waitMin"], sp["adopt"]["afterStream"], sp["pack"]["cut"], sp["pack"]["videoTracks"],
-                          sp["transcribe"]["diarize"], sp["hints"]["people"], sorted(sp["run"]["pinned"])),
+                          sp["transcribe"]["diarize"], sp["hints"]["people"], sorted(sp["run"]["requested"])),
                          (10, "high", 3, False, "silence", 2, 1, [{"name": "兎田ぺこら"}], ["cut", "videoTracks"]))
         self.assertEqual(sp["analyze"]["length"], S.DEFAULTS["analyze"]["length"], "依頼の長さは束の analyze に入れない(検出は requests.json の長さ)")
         self.assertEqual(LS.bundle_ctx(b["envelope"], sp, URL)["settings"], dict(ctx["settings"], length=S.DEFAULTS["analyze"]["length"]))

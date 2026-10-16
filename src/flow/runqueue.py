@@ -73,9 +73,10 @@ def check_spec(envelope, spec):
     """submit の前に束の版と形を確かめる(F1 F0-1。アプリが「更新してください」と出せるように、ほかの理由と分ける)。
     版の違い -> SpecVersionError・束の知らない項目・合わない値 -> BadSpecError。封筒そのものの形は Run.from_envelope が確かめる"""
     if isinstance(envelope, dict) and "specVersion" in envelope:
-        ver = envelope["specVersion"]
-        if ver != _envelope.SPEC_VERSION or isinstance(ver, bool):
-            raise SpecVersionError("知らない束の版です: %r(この ② は %d。送る側か ② を新しくしてください)" % (ver, _envelope.SPEC_VERSION))
+        try:
+            _envelope.version_of(envelope)   # 読めるのは版 1・2(1 は読み替える。RV A2)
+        except ValueError as e:
+            raise SpecVersionError(str(e))
     try:
         _spec.validate(_spec.merge(spec))
     except ValueError as e:
@@ -385,7 +386,7 @@ class Queue(run_mod.Runner):
 
     def _submit_live(self, envelope, spec):
         """kind live は Run を作らず(待ち行列に積まない)live の hook へ。hook が無ければ理由つきの ValueError"""
-        env = _envelope.check(envelope)
+        env, spec = _envelope.read(envelope, spec)   # 版 1 の legacy.streamer は束の hints.streamer へ(RV A2)
         bundle = _spec.validate(_spec.merge(spec))
         hook = self.live_hook
         if hook is None:

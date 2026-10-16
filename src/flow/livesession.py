@@ -19,7 +19,7 @@ live/bundles.json の形: {"<録画元>/<録画>": {"envelope": 封筒(検査済
 束から読む所(決定 3-31 の仮 b1・b2・b3 = 録画を始めたときの束に固定):
   検出(live_detect.Detector.config の bundles = 録画ごとの解析の設定・感度・枠)・自動の採用の待ち(Detector.adopt_for)・
   配信後の全自動の解析の設定(live_archive の settings_for)・書き出しの音量(live_export.Exporter._audio_cfg)・
-  書き出したあとの設定(auto_cfg の cut・engine・model・pad。束の run.pinned にある物だけ)・まとめて実行へ渡す束(Exporter._handoff)。
+  書き出したあとの設定(auto_cfg の cut・engine・model・pad。束の run.requested にある物だけ)・まとめて実行へ渡す束(Exporter._handoff)。
   束の無い録画(封筒にできない URL・束より前の録画)は今の読み方(スタジオの GET /api/settings・settings-ui.json・ホームの設定 live.auto)に落ちる。
   録画中に設定を変えても、束のある録画には効かない(変えるなら録画を止めて始め直す)。検出・自動採用のオン/オフ・書き出したあと(auto.after)・画質は束に無い = 今の設定。
 
@@ -187,7 +187,7 @@ def live_envelope(url, title="", request_id=None, deliver_dir=None, batch=None, 
 
 def cfg_bundle(base, cfg):
     """録画を始めるときの束(入口の友人の依頼の土台): base(画面の設定から組んだ束 = 入口の AutoRunner.build_spec)に、ライブの設定 cfg(ホームの設定 live)の
-    検出の感度・枠(detect)・自動の採用の待ち(autoAdopt.waitMin)・余白(auto.pad)と、書き出したあとのエンジン・モデル・カット(auto。決めてあれば run.pinned に)を重ねる
+    検出の感度・枠(detect)・自動の採用の待ち(autoAdopt.waitMin)・余白(auto.pad)と、書き出したあとのエンジン・モデル・カット(auto。決めてあれば run.requested に)を重ねる
     (決定 3-31 の仮 b1・b3)。合わない値は base のまま"""
     b = copy.deepcopy(_spec.validate(_spec.merge(base)))
     cfg = cfg if isinstance(cfg, dict) else {}
@@ -197,12 +197,12 @@ def cfg_bundle(base, cfg):
     for key, v in (("sens", det.get("sens")), ("perHour", det.get("perHour")), ("waitMin", aa.get("waitMin")), ("pad", auto.get("pad"))):
         if v is not None and _spec.key_ok("adopt", key, v) and (key != "pad" or v <= PAD_MAX):
             b["adopt"][key] = v
-    pins = list(b["run"]["pinned"])
+    pins = list(b["run"]["requested"])
     for sec, key, v in (("transcribe", "engine", auto.get("engine")), ("transcribe", "model", auto.get("model")), ("pack", "cut", auto.get("cut"))):
         if v and _spec.key_ok(sec, key, v) and (key != "cut" or v in _spec.CUTS):
             b[sec][key] = _spec.read_legacy_tx(key, v) if sec == "transcribe" else v   # 旧い名前は key_ok と同じく今の値に読む(0.58.0)
             pins.append(key)
-    b["run"]["pinned"] = list(dict.fromkeys(pins))
+    b["run"]["requested"] = list(dict.fromkeys(pins))
     return _spec.validate(b)
 
 
@@ -227,7 +227,7 @@ def now_bundle(bundle, analyze=None, audio=None):
 
 def request_bundle(ctx, base=None, top=None):
     """友人のライブ配信の依頼の欄 ctx(human/friend/intake.py の _handle_live_request の形)-> 束: base に依頼の設定(感度・枠・待ち・余白・配信後の追加)・
-    カット・映像トラック・話す人(run.pinned に)と、自動の採用の上限 top(友人の依頼の欄の既定 10 を呼ぶ側が明示する)を重ねる。
+    カット・映像トラック・話す人(run.requested に)と、自動の採用の上限 top(友人の依頼の欄の既定 10 を呼ぶ側が明示する)を重ねる。
     長さ(settings.length)は束の analyze に入れない(検出は依頼の長さで測る = requests.json のまま。配信後の解析はスタジオの設定のまま)"""
     b = copy.deepcopy(_spec.validate(_spec.merge(base)))
     s = ctx.get("settings") if isinstance(ctx.get("settings"), dict) else {}
@@ -236,7 +236,7 @@ def request_bundle(ctx, base=None, top=None):
             b["adopt"][key] = s[key]
     if top is not None and _spec.key_ok("adopt", "top", top):
         b["adopt"]["top"] = top
-    pins = list(b["run"]["pinned"])
+    pins = list(b["run"]["requested"])
     if ctx.get("cut") in _spec.CUTS:
         b["pack"]["cut"] = ctx["cut"]
         pins.append("cut")
@@ -250,7 +250,7 @@ def request_bundle(ctx, base=None, top=None):
         people = _run._people_of(sp)   # 欄 → 束の写し方は flow/run.py の Run の欄と同じ
         if people:
             b["hints"]["people"] = people
-    b["run"]["pinned"] = list(dict.fromkeys(pins))
+    b["run"]["requested"] = list(dict.fromkeys(pins))
     return _spec.validate(b)
 
 
@@ -271,10 +271,10 @@ def speakers_of(bundle):
 
 
 def bundle_ctx(env, bundle, url):
-    """封筒 + 束 -> 友人の依頼の結びつきの欄(requests.json に残す形。画面なしの依頼・requestId のある封筒)"""
-    pins, pk = bundle["run"]["pinned"], bundle["pack"]
+    """封筒(版 2)+ 束 -> 友人の依頼の結びつきの欄(requests.json に残す形。画面なしの依頼・requestId のある封筒)。配信者は束の hints.streamer"""
+    pins, pk = bundle["run"]["requested"], bundle["pack"]
     return {"rid": env["requestId"] or env["id"], "deliverDir": env["deliver"]["dir"] or "", "url": url, "title": env["input"]["title"] or "",
-            "streamer": env["legacy"]["streamer"] or "", "speakers": speakers_of(bundle),
+            "streamer": bundle["hints"]["streamer"] or "", "speakers": speakers_of(bundle),
             "videoTracks": pk["videoTracks"] if "videoTracks" in pins else None,
             "cut": pk["cut"] if "cut" in pins and pk["cut"] in _spec.CUTS else None,
             "memo": env["note"], "settings": request_settings(bundle), "deliverBatch": env["deliver"]["batch"]}
@@ -302,19 +302,20 @@ class BundleBook:
         items, bad = {}, 0
         for k, v in d.items():
             rc, _sep, rec = k.partition("/") if isinstance(k, str) else ("", "", "")
+            raw = v.get("spec") if isinstance(v, dict) else None
+            env = v.get("envelope") if isinstance(v, dict) else None
+            try:   # 版 1 の封筒は版 2 に読み替える(legacy.streamer は束の hints.streamer へ。RV A2)。読めない封筒は記録だけなので無しにする
+                env, raw = _envelope.read(env, raw) if env is not None else (None, raw)
+            except (AttributeError, TypeError, ValueError, KeyError):
+                env = None
             try:
-                spec = _spec.validate(_spec.merge(v.get("spec")))
+                spec = _spec.validate(_spec.merge(raw))
             except (AttributeError, TypeError, ValueError):
                 bad += 1
                 continue
             if not schemas.ids_ok(rc, rec):
                 bad += 1
                 continue
-            env = v.get("envelope")
-            try:
-                env = _envelope.check(env) if env is not None else None
-            except (TypeError, ValueError):
-                env = None   # 封筒は記録だけ(束が読めれば使う)
             items[k] = {"envelope": env, "spec": spec, "at": v["at"] if schemas.is_num(v.get("at")) else 0}
         if bad:
             self.log("リアルタイム切り抜き: 録画の束 %d 件を読めなかったので、その録画は束なし(今までの設定の読み方)で続けます" % bad)
@@ -544,7 +545,7 @@ class LiveSession:
 
     def auto_cfg(self, rc=None, rec=None):
         """書き出したあとの自動の流れ(M2)-> {after, cut, engine, model, pad}。pad = 自動・アーカイブの採用の前後の余白(秒。M8)。
-        ライブの設定 auto(読めなければ既定)。rc・rec の録画に束があれば、cut・engine・model は束が決めた物(run.pinned にある物。無ければ "")・pad は束の adopt.pad
+        ライブの設定 auto(読めなければ既定)。rc・rec の録画に束があれば、cut・engine・model は束が決めた物(run.requested にある物。無ければ "")・pad は束の adopt.pad
         (録画を始めたときに固定 = 決定 3-31 の仮 b1・b3)。after は束に無い(ライブの設定のまま)"""
         a = self.cfg().get("auto")
         a = a if isinstance(a, dict) else {}
@@ -554,7 +555,7 @@ class LiveSession:
                "pad": float(pad) if schemas.is_num(pad) and 0 <= pad <= PAD_MAX else float(_spec.DEFAULTS["adopt"]["pad"])}
         b = self.bundle(rc, rec) if rc and rec else None
         if b is not None:
-            pins = b["run"]["pinned"]
+            pins = b["run"]["requested"]
             out.update(cut=b["pack"]["cut"] if "cut" in pins else "", engine=b["transcribe"]["engine"] if "engine" in pins else "",
                        model=b["transcribe"]["model"] if "model" in pins else "")
             if 0 <= b["adopt"]["pad"] <= PAD_MAX:
@@ -720,7 +721,7 @@ class LiveSession:
         画面なしで空き容量が下限(disk_min_gb)より少なければ録画を始めない。
         -> {"id": 封筒の id, "live", "recorder", "recording": 録画の id, "existing", "title"?} か 配信中でなければ {"id", "live": False, "status", "message"?}。
         形が違う・録画を始められなければ LiveError(ValueError)"""
-        env = _envelope.check(envelope)
+        env, bundle = _envelope.read(envelope, bundle)   # 版 1 の legacy.streamer は束の hints.streamer へ(RV A2)
         if env["kind"] != "live":
             raise LX.LiveError("ライブの依頼(封筒の kind live)ではありません")
         b = _spec.validate(_spec.merge(bundle))

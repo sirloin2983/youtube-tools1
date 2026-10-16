@@ -50,7 +50,10 @@ class TestCheck(unittest.TestCase):
         ok = {"id": "a", "kind": "docs", "input": {"docId": "d1"}}
         bad = [
             (dict(ok, extra=1), "知らない項目です: 封筒.extra"),
-            (dict(ok, specVersion=2), "知らない束の版"),
+            (dict(ok, specVersion=3), "知らない束の版"),
+            (dict(ok, specVersion=2, legacy={"mode": "doc"}), "知らない項目です: 封筒.legacy"),   # 版 2 に legacy は無い
+            (dict(ok, deliver={"tag": "t"}), "封筒.deliver.tag"),   # 版 1 に tag は無い
+            ({"id": "a", "kind": "file", "input": {"path": "C:/x.mp4", "normalize": True}}, "封筒.input.normalize"),
             (dict(ok, specVersion=True), "知らない束の版"),
             (dict(ok, kind="nai"), "封筒.kind"),
             (dict(ok, id="../x"), "封筒.id"),
@@ -72,6 +75,50 @@ class TestCheck(unittest.TestCase):
             with self.assertRaises(ValueError, msg=env) as cm:
                 E.check(env)
             self.assertIn(why, str(cm.exception), env)
+
+
+class TestVersion2(unittest.TestCase):
+    """RV A2: 版 2(legacy なし・deliver.tag・file の input.normalize)と、版 1 を読み替える upgrade"""
+
+    def test_v2_shape(self):
+        got = E.check({"id": "a", "kind": "file", "specVersion": 2, "input": {"path": "C:/x.mp4", "normalize": True},
+                       "deliver": {"origin": "auto", "tag": "20261016-010203-abcdef"}}, now=1)
+        self.assertNotIn("legacy", got)
+        self.assertEqual((got["specVersion"], got["input"]["normalize"], got["deliver"]["tag"]), (2, True, "20261016-010203-abcdef"))
+        self.assertIs(E.check({"id": "a", "kind": "file", "specVersion": 2, "input": {"path": "C:/x.mp4"}})["input"]["normalize"], False)
+        for bad, why in (({"path": "C:/x.mp4", "normalize": 1}, "normalize"),):
+            with self.assertRaises(ValueError) as cm:
+                E.check({"id": "a", "kind": "file", "specVersion": 2, "input": bad})
+            self.assertIn(why, str(cm.exception))
+        env, spec = E.upgrade(got, {"run": {"upto": "transcribe"}})
+        self.assertEqual((env, spec), (got, {"run": {"upto": "transcribe"}}), "版 2 はそのまま")
+
+    def test_upgrade_moves_legacy_to_bundle(self):
+        """版 1 の legacy.mode → run.from・run.upto(表 LEGACY_MODES)・onFail → run.onFail・streamer → hints.streamer。束の run.from(CLI の --from pack)は消さない"""
+        cases = {"full": (None, "pack"), "adopted": ("export", "pack"), "transcribe": ("export", "transcribe"), "request": (None, "transcribe"),
+                 "request_auto": (None, "pack"), "doc": (None, "pack"), "file": (None, "transcribe"), "file_auto": (None, "pack")}
+        self.assertEqual({m: v[1:] for m, v in E.LEGACY_MODES.items()}, cases)
+        inp = {"url": {"videoId": VID}, "docs": {"docId": "d1"}, "file": {"path": "C:/x.mp4"}}
+        for mode, (frm, upto) in cases.items():
+            kind = E.LEGACY_MODES[mode][0]
+            env, spec = E.read({"id": "a", "kind": kind, "input": inp[kind], "legacy": {"mode": mode, "onFail": "stop", "streamer": "ぺこら"}},
+                               {"run": {"force": True}})
+            self.assertEqual(env["specVersion"], 2, mode)
+            self.assertNotIn("legacy", env)
+            want = dict({"force": True, "upto": upto, "onFail": "stop"}, **({"from": frm} if frm else {}))
+            self.assertEqual(spec, {"run": want, "hints": {"streamer": "ぺこら"}}, mode)
+            self.assertIsNone(env["deliver"]["tag"])
+            if kind == "file":
+                self.assertIs(env["input"]["normalize"], False)
+        _env, spec = E.read({"id": "a", "kind": "file", "input": {"path": "C:/x.mp4"}, "legacy": {"mode": "file_auto"}}, {"run": {"from": "pack"}})
+        self.assertEqual(spec["run"], {"from": "pack", "upto": "pack"})
+        _env, spec = E.read({"id": "a", "kind": "url", "input": {"videoId": VID}})   # mode なし = full・streamer null は書かない
+        self.assertEqual(spec, {"run": {"upto": "pack"}})
+        _env, spec = E.read({"id": "L", "kind": "live", "input": {"videoId": VID}, "legacy": {"streamer": "x"}})
+        self.assertEqual(spec, {"hints": {"streamer": "x"}})
+        with self.assertRaises(ValueError) as cm:
+            E.read({"id": "a", "kind": "docs", "input": {"docId": "d1"}, "legacy": {"mode": "full"}})
+        self.assertIn("封筒.legacy.mode", str(cm.exception))
 
 
 VID = "abcdefghijk"

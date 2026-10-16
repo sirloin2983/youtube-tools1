@@ -436,7 +436,7 @@ def _scene_begin_and_play(cx):
     check(lv and lv[0].get("channel") == CHANNEL, "15 begin のチャンネル名がスタジオの配信の channel に入る: %s" % (lv[0].get("channel") if lv else None))
     bd = cx.live.bundles.get("local", rid) if rid else None
     check(bd and bd["envelope"]["kind"] == "live" and bd["envelope"]["requestId"] is None and bd["spec"]["export"] == {"volume": 100, "loudness": None}
-          and sorted(bd["spec"]["run"]["pinned"]) == ["engine", "model"],
+          and sorted(bd["spec"]["run"]["requested"]) == ["engine", "model"],
           "RS8 自分の配信も録画を始めたときに束を組む(live/bundles.json。書き出しの音量・書き出したあとのエンジン・モデルはその時点の値): %s"
           % ((bd or {}).get("spec") or {}).get("export"))
 

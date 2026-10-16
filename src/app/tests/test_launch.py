@@ -950,7 +950,7 @@ class PortalHttpTest(Base):
         with open(media, "wb") as f:
             f.write(b"x")
         env = {"id": "0123456789", "kind": "file", "input": {"path": media, "title": "切り抜き"}, "legacy": {"mode": "file"}}
-        for bad, code in (({"envelope": dict(env, specVersion=2)}, "spec_version"), ({"envelope": env, "spec": {"nai": {}}}, "bad_spec"),
+        for bad, code in (({"envelope": dict(env, specVersion=3)}, "spec_version"), ({"envelope": env, "spec": {"nai": {}}}, "bad_spec"),
                           ({"envelope": env, "spec": {"transcribe": {"nai": 1}}}, "bad_spec"), ({"envelope": dict(env, kind="nai")}, "bad_request")):
             r, body = self.post("/api/flow/submit", body=json.dumps(bad, ensure_ascii=False).encode("utf-8"))
             self.assertEqual((r.status, json.loads(body)["error"]), (400, code), bad)

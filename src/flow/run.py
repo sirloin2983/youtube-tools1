@@ -117,7 +117,29 @@ def _job_why(j):
 
 
 KIND_MODES = {"url": ("full", "adopted", "transcribe", "request", "request_auto"), "docs": (DOC_MODE,), "file": ("file", "file_auto")}
-KIND_DEFAULT_MODE = {"url": "full", "docs": DOC_MODE, "file": "file_auto"}   # 封筒に段の並びの形(legacy.mode)が無いとき
+KIND_DEFAULT_MODE = _envelope.KIND_DEFAULT_MODE   # 版 1 の封筒に段の並びの形(legacy.mode)が無いとき
+MODE_HINT = {"url": "run.from は null・analyze・export、run.upto は transcribe か pack", "docs": "run.upto は pack",
+             "file": "run.upto は transcribe か pack"}
+
+
+def mode_of(kind, bundle, request_id=None):
+    """封筒の kind + 束の run.from・run.upto + 依頼の id -> 実行の形(MODE_STEPS の鍵。記録の mode・modeLabel・届ける溜めの鍵の元)か None(合わない組)。
+    url: from が export = 採用後(upto pack → adopted・transcribe → transcribe)/ 頭から(null・analyze)= upto pack なら依頼の id で request_auto か full・
+    transcribe なら request。docs: pack だけ(doc)。file: pack → file_auto・transcribe → file(RV A2。以前は封筒の legacy.mode)"""
+    frm, upto = bundle["run"]["from"], bundle["run"]["upto"]
+    if kind == "docs":
+        return DOC_MODE if upto == "pack" else None
+    if kind == "file":
+        return "file_auto" if upto == "pack" else "file"
+    if kind != "url":
+        return None
+    if frm == "export":
+        return "adopted" if upto == "pack" else "transcribe"
+    if frm in (None, "analyze"):
+        if upto == "transcribe":
+            return "request"
+        return "request_auto" if request_id else "full"
+    return None
 PUBLIC_MAX = 50        # public に出すパック・文書の数の上限(書き出しの 1 回の上限と同じ)
 PEOPLE_NAME_MAX = 40  # 束の hints.people の名前の長さ(flow/spec.py の検査と同じ。友人の受付は 60 字まで受けるので、長い名前はここで切る)
 
@@ -146,7 +168,7 @@ def _with_asked(bundle, asked):
     for sec, items in asked.items():
         dst = out.setdefault(sec, {})
         for k, v in items.items():
-            if k == "pinned":
+            if k == "requested":
                 dst[k] = list(dict.fromkeys(list(dst.get(k) or []) + list(v)))
             elif k in ("force", "repack"):
                 dst[k] = dst.get(k) is True or v is True
@@ -156,7 +178,7 @@ def _with_asked(bundle, asked):
 
 
 def _pins(bundle):
-    return bundle["run"]["pinned"]
+    return bundle["run"]["requested"]
 
 
 STEP_TIMES = ("startedAt", "finishedAt")   # 段の始まりと終わりの時刻(ミリ秒。_run_steps が置く。RS7-1 S3 = 速さを測るため。無くても読める)
@@ -315,7 +337,14 @@ class Run:
         if self.overwrite:
             put("run", "repack", True)
         if pins:
-            a.setdefault("run", {})["pinned"] = pins
+            a.setdefault("run", {})["requested"] = pins
+        _k, frm, upto = _envelope.LEGACY_MODES[self.mode]   # 段の並びの形 → 束の run.from・run.upto(RV A2。from は書き出しからの形だけ = 封筒の upgrade と同じ)
+        a.setdefault("run", {})["upto"] = upto
+        if frm is not None:
+            a["run"]["from"] = frm
+        a["run"]["onFail"] = self.on_fail
+        if self.streamer is not None and _spec.key_ok("hints", "streamer", self.streamer):
+            a.setdefault("hints", {})["streamer"] = self.streamer
         return a
 
     @property
@@ -350,18 +379,23 @@ class Run:
                 "legacy": {"mode": self.mode, "onFail": self.on_fail, "streamer": self.streamer}}
 
     @classmethod
-    def from_envelope(cls, env, spec=None, normalize=False):
+    def from_envelope(cls, env, spec=None, normalize=None):
         """封筒 + 束 -> 「待ち」の Run(RS7-1 S3。受け口・待ちの記録の新しい形から)。束の中身の欄は束から読み戻す(③ の hook と public のため)。
         spec = 束(変えたい所だけでもよい。None = 既定)。normalize = 段 normalize を持つか(待ちの記録から戻すときだけ。② の口 submit は持たない)。
         形が違えば理由つきの ValueError"""
-        env = _envelope.check(env)
-        kind, inp, lg, dl = env["kind"], env["input"], env["legacy"], env["deliver"]
+        env, spec = _envelope.read(env, spec)   # 版 1(legacy つき)は版 2 に読み替える(RV A2)
+        kind, inp, dl = env["kind"], env["input"], env["deliver"]
         if kind == "live":
             raise ValueError("ライブの依頼は Run にしません(Queue.submit が live の hook へ回す)")
-        mode = lg["mode"] or KIND_DEFAULT_MODE[kind]
-        if mode not in KIND_MODES[kind]:
-            raise ValueError("封筒.legacy.mode は %s のどれかにしてください" % "・".join(KIND_MODES[kind]))
         b = _spec.validate(_spec.merge(spec))
+        mode = mode_of(kind, b, env["requestId"])
+        if mode is None:
+            raise ValueError("束の run.from・run.upto がこの封筒(%s)に合いません(%s)" % (kind, MODE_HINT[kind]))
+        if kind == "url" and inp.get("marks") and b["run"]["from"] != "export":
+            raise ValueError("マークを選んだ実行は、書き出しから(run.from export)だけです")
+        if normalize is None:
+            normalize = inp.get("normalize") is True
+        lg = {"streamer": b["hints"]["streamer"], "onFail": b["run"]["onFail"]}
         pins = _pins(b)
         hp = _spec.hint_people(b)
         dz = b["transcribe"]["diarize"]

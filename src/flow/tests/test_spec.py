@@ -135,7 +135,18 @@ class TestMerge(unittest.TestCase):
         for k in spec.FIXED:
             for sec in spec.SECTIONS:
                 self.assertNotIn(k, spec.DEFAULTS[sec], "%s.%s" % (sec, k))
-        self.assertEqual((spec.FIXED["fps"], spec.FIXED["on_fail"], spec.FIXED["upto"]), (30, "next", "pack"))
+        self.assertEqual(spec.FIXED["fps"], 30)
+        self.assertNotIn("upto", spec.FIXED)   # RV A2: どこまで・失敗したときは束の run.upto・run.onFail
+        self.assertEqual((spec.DEFAULTS["run"]["upto"], spec.DEFAULTS["run"]["onFail"], spec.DEFAULTS["hints"]["streamer"]), ("pack", "next", None))
+
+    def test_renamed_pinned_reads_as_requested(self):
+        """RV A2: 旧い鍵 run.pinned は run.requested として読む(待ちの記録・録画の束を書き換えない)。両方あれば今の名前"""
+        self.assertEqual(spec.merge({"run": {"pinned": ["cut"]}})["run"]["requested"], ["cut"])
+        self.assertNotIn("pinned", spec.merge({"run": {"pinned": ["cut"]}})["run"])
+        self.assertEqual(spec.merge({"run": {"pinned": ["cut"], "requested": ["weights"]}})["run"]["requested"], ["weights"])
+        for bad in ({"run": {"upto": "export"}}, {"run": {"onFail": "x"}}, {"hints": {"streamer": 1}}, {"hints": {"streamer": "x" * 121}}):
+            with self.assertRaises(ValueError, msg=bad):
+                spec.validate(spec.merge(bad))
 
     def test_overlay(self):
         b = spec.merge({"adopt": {"top": 5}, "pack": {"cutSilence": {"min": 1.0}, "cut": "silence"}, "hints": {"ranges": [[1, 9]]}})

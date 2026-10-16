@@ -192,7 +192,7 @@ class TestRun(unittest.TestCase):
         c = FakeClient()
         r = R.run(c, {"path": self.media}, spec={"transcribe": {"model": "large-v3"}, "post": {"autoDict": False}},
                   hooks=R.Runner(c, poll=0, sleep=lambda s: None))
-        self.assertEqual(r.spec, SP.validate(SP.merge({"transcribe": {"model": "large-v3"}, "post": {"autoDict": False}})))
+        self.assertEqual(r.spec, SP.validate(SP.merge({"transcribe": {"model": "large-v3"}, "post": {"autoDict": False}, "run": {"upto": "transcribe"}})))
         self.assertEqual((r.doc_id, r.docs, r.new_docs), ("t1", ["t1"], ["t1"]))
         self.assertEqual(r.step("transcribe")["state"], "done")
         self.assertEqual(r.message, "完了")
@@ -614,7 +614,7 @@ class TestFieldsToBundle(unittest.TestCase):
         base = SP.validate(SP.merge(SCREEN))
         r = R.Run(VID, "", "full", None)
         r.spec = base
-        self.assertEqual((r.asked, r.spec), ({}, base))
+        self.assertEqual((r.asked, r.spec), ({"run": {"upto": "pack", "onFail": "next"}}, base))   # 段の並びの形と失敗したときは束にも(RV A2)
 
     def test_long_name_is_cut_and_bad_fields_not_copied(self):
         """束に入らない欄は写さない(壊れた記録など)・41 字以上の名前は束の上限 40 字で切る(友人の受付は 60 字まで)"""
@@ -907,6 +907,36 @@ class TestStepNormalize(unittest.TestCase):
             slots.release(token)
         self.assertEqual(got, ["cancelled"])
         self.assertEqual(run.source_path, src)
+
+
+class TestEnvelopeV2(unittest.TestCase):
+    """RV A2: 版 2 の封筒(legacy なし)+ 束の run.from・run.upto・run.onFail・hints.streamer から同じ Run になる(版 1 と同じ形)"""
+
+    def test_v2_same_as_v1(self):
+        inp = {"url": {"videoId": "abcdefghijk"}, "docs": {"docId": "d1"}, "file": {"path": "C:/x.mp4"}}
+        for mode, (kind, frm, upto) in E.LEGACY_MODES.items():
+            rid = "r1" if mode in R.REQUEST_MODES else None
+            v1 = {"id": "0123456789", "kind": kind, "input": inp[kind], "requestId": rid, "legacy": {"mode": mode, "onFail": "stop", "streamer": "x"}}
+            v2 = {"id": "0123456789", "kind": kind, "input": inp[kind], "requestId": rid, "specVersion": 2}
+            spec2 = {"run": dict({"upto": upto, "onFail": "stop"}, **({"from": frm} if frm else {})), "hints": {"streamer": "x"}}
+            a, b = R.Run.from_envelope(v1, None), R.Run.from_envelope(v2, spec2)
+            for f in ("mode", "on_fail", "streamer", "top", "request_id", "doc_id", "source_path"):
+                self.assertEqual(getattr(b, f), getattr(a, f), "%s.%s" % (mode, f))
+            self.assertEqual([s["key"] for s in b.steps], [s["key"] for s in a.steps], mode)
+            self.assertEqual((b.mode, b.on_fail, b.streamer), (mode, "stop", "x"))
+            self.assertEqual(b.spec, a.spec, mode)
+
+    def test_v2_normalize_and_bad_pairs(self):
+        r = R.Run.from_envelope({"id": "0123456789", "kind": "file", "specVersion": 2, "input": {"path": "C:/x.mp4", "normalize": True}})
+        self.assertEqual([s["key"] for s in r.steps][:1], ["normalize"])
+        self.assertNotIn("normalize", [s["key"] for s in R.Run.from_envelope({"id": "0123456789", "kind": "file", "specVersion": 2,
+                                                                                "input": {"path": "C:/x.mp4"}}).steps])
+        for env, spec, why in (({"id": "a", "kind": "docs", "specVersion": 2, "input": {"docId": "d1"}}, {"run": {"upto": "transcribe"}}, "run.upto"),
+                               ({"id": "a", "kind": "url", "specVersion": 2, "input": {"videoId": "abcdefghijk"}}, {"run": {"from": "pack"}}, "run.from"),
+                               ({"id": "a", "kind": "url", "specVersion": 2, "input": {"videoId": "abcdefghijk", "marks": ["m1"]}}, None, "マーク")):
+            with self.assertRaises(ValueError, msg=why) as cm:
+                R.Run.from_envelope(env, spec)
+            self.assertIn(why, str(cm.exception))
 
 
 if __name__ == "__main__":
