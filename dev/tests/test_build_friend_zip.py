@@ -151,7 +151,7 @@ class BuildTest(Base):
         self.assertNotIn(wsub + "/extra-not-listed.txt", names)
         self.assertEqual(pth.split("\r\n")[-4:], ["Lib\\site-packages", "..\\src", "import site", ""])
         self.assertNotIn("#import site", pth)
-        self.assertNotIn("recorder/data", " ".join(names))   # 追跡外の作業データは入らない
+        self.assertNotIn("ingest/data", " ".join(names))   # 追跡外の作業データは入らない
 
     def test_fetch_json_reads_the_tables(self):
         got = self.build()

@@ -1,6 +1,6 @@
-# src/recorder/(案内)
+# src/pipeline/ingest/(案内)
 
-**このフォルダの AI 向けの決まりは、資料の保管庫(Obsidian)の `D:\Obsidian保管庫\youtube-tools\src\recorder\AGENTS.md` にある。作業を始める前に必ずそれを読むこと。**
+**このフォルダの AI 向けの決まりは、資料の保管庫(Obsidian)の `D:\Obsidian保管庫\youtube-tools\src\pipeline\ingest\AGENTS.md` にある。作業を始める前に必ずそれを読むこと。**
 
 - 資料(`docs/`・`plan/`・各 `AGENTS.md` の本文)は 2026-10-12 にリポジトリの外の保管庫 `D:\Obsidian保管庫\youtube-tools` へ移した(ユーザー決定)
 - コードのコメントの `notes:docs/…` は、その保管庫の中のパス

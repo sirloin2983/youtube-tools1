@@ -240,7 +240,7 @@ def lay_python(stage, embed_zip, wheel_files):
 
 
 def src_files(repo=REPO):
-    """git が管理している src のファイル(tests/・__pycache__ を外す)。追跡外の作業データ(src/recorder/data など)は入らない"""
+    """git が管理している src のファイル(tests/・__pycache__ を外す)。追跡外の作業データ(src/pipeline/ingest/data など)は入らない"""
     r = subprocess.run(["git", "-C", repo, "ls-files", "-z", "src"], capture_output=True)
     if r.returncode != 0:
         raise BuildError("git ls-files が失敗しました: %s" % r.stderr.decode("utf-8", "replace")[:200])

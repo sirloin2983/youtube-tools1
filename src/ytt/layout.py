@@ -18,7 +18,7 @@ import os
 SRC_DIR = "src"                     # 動くコードの置き場所(リポジトリ直下からの相対)
 FRIEND_APPS_DIR = "friend-apps"     # 友人用の Windows アプリの置き場所(同上)
 TOOL_DIRS = {"app": "home", "studio": "studio", "transcribe": "editor", "cut2resolve": "cut2resolve"}   # src/ の中のフォルダ名
-RECORDER_DIR = "recorder"           # src/ の中(録画の部品の作業データ inplace の data/・AGENTS.md・README.txt のフォルダ。コードは RECORDER_SCRIPT)
+RECORDER_DIR = os.path.join("pipeline", "ingest")   # src/ の中(録画の部品の作業データ inplace の data/・AGENTS.md・README.txt のフォルダ。旧い src/recorder/ は寄せた。コードは RECORDER_SCRIPT)
 RECORDER_SCRIPT = os.path.join("pipeline", "ingest", "recorder.py")   # src からの相対(録画の部品。入口と別のプロセス。パスで起動する)
 UI_KIT_DIR = "ui-kit"               # src/ の中(共通の見た目の正本)
 PACK_CORE = os.path.join("pipeline", "pack", "cut2resolve_core.py")   # src/ の中(cut2resolve の版 VERSION の正。RS1-2 で cut2resolve から移した)
