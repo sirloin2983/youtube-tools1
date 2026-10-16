@@ -8,32 +8,16 @@
 戻すとき(設計原則の指摘 1): 戻せた物と戻せなかった物を分けて返し、**戻せずにごみ箱に残った物は必ず manifest に元の場所を書く**
 (「片付けませんでした」と画面に出た物がごみ箱にあり、記録も無いまま 3 日で消える、を作らない)。戻したあとの空のフォルダは消す。
 """
-import json
 import os
 import shutil
 import time
 
-from ytt import fsio, schemas, tools
+from ytt import fsio, schemas, tools, trashbin
 
-MANIFEST = "manifest.jsonl"
-
-
-def free_path(dest, first=1, check=None):
-    """同じ名前があれば (1) (2) … を付ける。first = 最初に付ける番号・check = 「ある」の判定(既定は os.path.lexists)"""
-    check = check or os.path.lexists
-    k, (base, ext) = first, os.path.splitext(dest)
-    while check(dest):
-        dest = "%s (%d)%s" % (base, k, ext)
-        k += 1
-    return dest
-
-
-def append_manifest(day_dir, rows):
-    """ごみ箱フォルダの <日付>/manifest.jsonl に、移した物の元の場所を 1 行ずつ足す(rows = [{from, to, at, kind, ...}]。戻したいときに見る)。
-    書けなければ OSError"""
-    with open(os.path.join(day_dir, MANIFEST), "a", encoding="utf-8") as f:
-        for r in rows:
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+# 名前と記録の形は ytt/trashbin の 1 か所(① の録画の部品も同じ物を使う。LD-1)
+MANIFEST = trashbin.MANIFEST
+free_path = trashbin.free_path
+append_manifest = trashbin.append_manifest
 
 
 def _size(p):
@@ -56,7 +40,7 @@ def to_trash(trash, files, kind, name=None, all_or_nothing=False, need_first=Fal
     if not files:
         return res
     root = trash.trash_for(files[0])
-    res["day"] = os.path.join(root, time.strftime("%Y-%m-%d", time.localtime(clock())))
+    res["day"] = os.path.join(root, trashbin.day_name(clock()))
     base = os.path.join(res["day"], kind)
     try:
         dest = free_path(os.path.join(base, name)) if name else base

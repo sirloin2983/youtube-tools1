@@ -28,7 +28,7 @@ from flow import deliveries as _deliveries   # 届けた記録の読み口(持�
 from flow import placement   # 依頼のフォルダの名前・案件の身分証 case.json・案件の根の置き場所の読み方(④ は ② を読める)
 from human.friend import returns as _returns   # 友人の送り返し(同期フォルダの 送り返し\\ と その 受付済み・失敗 の名前。持ち主は ③ human/friend/returns)
 from manage.cases import txindex
-from ytt import datadir, fsio, schemas
+from ytt import datadir, fsio, schemas, trashbin
 
 from . import trash as _trash
 
@@ -485,25 +485,7 @@ class Cleanup:
         return n
 
 
-def _old_day_dirs(root, days, now):
-    """root の直下で、名前の頭 10 文字が YYYY-MM-DD の日付のフォルダのうち days 日より古いもの -> [(名前, パス)]。
-    root を読めなければ []。日付でない名前・ファイルは飛ばす(受付済み と ごみ箱フォルダの両方の決まり)"""
-    try:
-        names = os.listdir(root)
-    except OSError:
-        return []
-    out = []
-    for name in names:
-        p = os.path.join(root, name)
-        if not os.path.isdir(p):
-            continue
-        try:
-            day = time.mktime(time.strptime(name[:10], "%Y-%m-%d"))
-        except ValueError:
-            continue
-        if now - day > days * 86400:
-            out.append((name, p))
-    return out
+_old_day_dirs = trashbin.old_day_dirs   # 日付のフォルダの決まりは ytt/trashbin の 1 か所(受付済み と ごみ箱フォルダ。① の録画の部品も)
 
 
 def _media_stem(name):

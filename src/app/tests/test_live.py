@@ -88,7 +88,7 @@ class PrefsLiveTest(unittest.TestCase):
         self.assertEqual(P.Prefs(path, fsio.atomic_write).get(["live"])["live"], P.DEFAULTS["live"])
 
     def test_default_off_and_validation(self):
-        self.assertEqual(self.p.get(["live"])["live"], {"enabled": False, "folder": "", "recorders": [], "quality": "1080p", "autoArchive": True,
+        self.assertEqual(self.p.get(["live"])["live"], {"enabled": False, "folder": "", "recorders": [], "quality": "1080p",
                                                         "autoDelete": P.DEFAULTS["live"]["autoDelete"],
                                                         "auto": {"after": "check", "cut": "", "engine": "", "model": "", "pad": 2},   # pad = 自動・アーカイブの採用の前後の余白(M8)
                                                         "autoAfterStream": False, "afterStreamPerHour": 6,   # 配信後の全自動(M7)は既定オフ
@@ -116,17 +116,12 @@ class PrefsLiveTest(unittest.TestCase):
         for q in ("720p", "best", "1080p"):   # 録画の画質(スタジオの URL の欄から始める録画)
             self.assertEqual(self.p.patch("live", {"quality": q})["quality"], q)
         self.assertEqual(self.p.patch("live", {"enabled": False})["quality"], "1080p")   # ほかのキーを直しても残る
-        for bad in ({"autoArchive": "no"}, {"autoArchive": 0}, {"autoArchive": None}):   # 自動で本番版に作り直す(P4)
-            with self.assertRaises(P.PrefsError, msg=repr(bad)):
-                self.p.patch("live", bad)
-        self.assertIs(self.p.patch("live", {"autoArchive": False})["autoArchive"], False)
-        self.assertIs(self.p.patch("live", {"quality": "720p"})["autoArchive"], False)   # ほかのキーを直しても残る
-        self.assertIs(self.p.patch("live", {"autoArchive": True})["autoArchive"], True)
-        for bad in ({"autoDelete": "no"}, {"autoDelete": 1}, {"autoDelete": None}):   # 本番版に入れ替えたら録画を消す(P4)
+        self.assertNotIn("autoArchive", self.p.patch("live", {"autoArchive": False}))   # LD-1: 本番版への入れ替えをやめたので、送られても残さない
+        for bad in ({"autoDelete": "no"}, {"autoDelete": 1}, {"autoDelete": None}):   # アーカイブ化を確かめたら録画を消す
             with self.assertRaises(P.PrefsError, msg=repr(bad)):
                 self.p.patch("live", bad)
         self.assertIs(self.p.patch("live", {"autoDelete": False})["autoDelete"], False)
-        self.assertIs(self.p.patch("live", {"autoArchive": False})["autoDelete"], False)   # ほかのキーを直しても残る
+        self.assertIs(self.p.patch("live", {"quality": "720p"})["autoDelete"], False)   # ほかのキーを直しても残る
         self.assertIs(self.p.patch("live", {"autoDelete": True})["autoDelete"], True)
         for bad in ({"autoAfterStream": "yes"}, {"autoAfterStream": 1}, {"afterStreamPerHour": 0}, {"afterStreamPerHour": 31},
                     {"afterStreamPerHour": 2.5}, {"afterStreamPerHour": True}, {"afterStreamPerHour": "6"}):   # 配信後の全自動(M7)

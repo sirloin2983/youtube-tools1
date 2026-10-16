@@ -11,8 +11,8 @@
   live     … リアルタイム切り抜き(線 D。src/app/live.py。**既定はオフ**): enabled・録画の置き場所 folder(空 = 録画の部品の前回の設定か既定 E:/Video/live-rec)・
              録画元の一覧 recorders(空 = 手元の1つ。[{id, name, url, token}]。token が空の手元の録画元は録画の部品の token.txt を読む)・
              録画の画質 quality(best|1080p|720p。既定 1080p。スタジオの URL の欄から始める録画 = POST /live/api/begin)・
-             配信が終わったら自動で本番版に作り直す autoArchive(**既定オン**。src/flow/live_archive.py。P4)・
-             本番版に入れ替えたら録画を消す(マークの無い録画は 1 日で・退避した速報版は 3 日で・本番版に置き換わらない録画は終わって 3 日で)autoDelete(**既定オン**。src/manage/keep/live_cleanup.py。P4)・
+             書き出し済みでアーカイブ化を確かめたら録画を消す(ごみ箱へ。3 日で消える。マークの無い録画は 1 日で・確かめられない録画は終わって 3 日で)
+             autoDelete(**既定オン**。src/manage/keep/live_cleanup.py)・(autoArchive は 2026-10-16 に消した = 本番版への入れ替えの廃止。保存してある値は読まない)・
              書き出したあとの自動の流れ auto {after: none|check|auto(既定 check)・cut: ""(ホームの autorun.cut)|none|silence・
              engine: ""(編集の設定)|whisper.cpp・model: ""(編集の設定)|large-v3}(線 D の M2。入口 0.39.0。選択肢は 0.58.0 で絞った)。
              after は画面・API が書き出したあとを指定しないとき(POST /live/api/adopt など)の既定。cut・engine・model は書き出しを頼んだときに覚えてまとめて実行へ渡す・
@@ -66,7 +66,7 @@ DEFAULTS = {"autorun": {"mode": None, "top": 3, "cut": "none", "friendLength": T
                        "deliverBatch": 5},   # ① 全自動のパックを n 本ごとにまとめて届ける(1 = 1 本ずつ)
             "backup": {"enabled": False, "folder": "", "everyHours": 24},   # 守る物は学習データ・ツール・関連資料 = 1 日 1 回で足りる(10-14 ユーザー)
             "hidden": {k: {} for k in HIDE_LISTS},
-            "live": {"enabled": False, "folder": "", "recorders": [], "quality": "1080p", "autoArchive": True, "autoDelete": True,
+            "live": {"enabled": False, "folder": "", "recorders": [], "quality": "1080p", "autoDelete": True,
                      "auto": {"after": "check", "cut": "", "engine": "", "model": "", "pad": _ADOPT["pad"]}, "autoAfterStream": False, "afterStreamPerHour": _ADOPT["perHour"],
                      "detect": {"enabled": True, "sens": "normal", "perHour": _ADOPT["perHour"]}, "autoAdopt": {"enabled": True, "waitMin": _ADOPT["waitMin"]},
                      "liveTx": {"enabled": True, "model": "large-v3"},   # 配信中の候補の文字起こし(D-11 案 b。whisper.cpp の GPU。既定オン = 部品が無ければ何もしない)
@@ -174,7 +174,7 @@ def _clean_live(v, cur):
     録画元の合言葉は、送られなかった(空)ときは同じ id の今の値を残す(画面には合言葉を返さないため)"""
     out = {"enabled": cur.get("enabled") is True, "folder": cur.get("folder") or "", "recorders": [dict(r) for r in cur.get("recorders") or []],
            "quality": cur.get("quality") if cur.get("quality") in LIVE_QUALITIES else DEFAULTS["live"]["quality"],
-           "autoArchive": cur.get("autoArchive") is not False, "autoDelete": cur.get("autoDelete", DEFAULTS["live"]["autoDelete"]) is True,   # 消すのは明示的に true のときだけ
+           "autoDelete": cur.get("autoDelete", DEFAULTS["live"]["autoDelete"]) is True,   # 消すのは明示的に true のときだけ
            "autoAfterStream": cur.get("autoAfterStream") is True,   # 自動で採用するのは明示的に true のときだけ(既定オフ)
            "autoDeliver": cur.get("autoDeliver") is not False,   # 自動の切り抜きを確認なしで友人へ届ける(既定オン。依頼の受付の Dropbox のフォルダが決まっているときだけ効く)
            "afterStreamPerHour": cur.get("afterStreamPerHour") if _int_in(cur.get("afterStreamPerHour"), *LIVE_PER_HOUR) else DEFAULTS["live"]["afterStreamPerHour"]}
@@ -192,14 +192,13 @@ def _clean_live(v, cur):
         if v["quality"] not in LIVE_QUALITIES:
             raise PrefsError("録画の画質は %s のどれかにしてください" % "・".join(LIVE_QUALITIES))
         out["quality"] = v["quality"]
-    _put_bool(out, v, "autoArchive", "「自動で本番版に作り直す」")   # 配信が終わったら自動で本番版に作り直す(P4)
     _put_bool(out, v, "autoDeliver", "「自動の切り抜きを友人へ届ける」")   # 自動の切り抜きを確認なしで友人へ届ける
     _put_bool(out, v, "autoAfterStream", "「配信後に自動で切り抜く」")   # 配信が終わったらアーカイブの解析で自動で切り抜く(M7)
     if "afterStreamPerHour" in v:
         if not _int_in(v["afterStreamPerHour"], *LIVE_PER_HOUR):
             raise PrefsError("1 時間あたりの数は %d〜%d の整数で指定してください" % LIVE_PER_HOUR)
         out["afterStreamPerHour"] = v["afterStreamPerHour"]
-    _put_bool(out, v, "autoDelete", "「録画を消す」")   # 本番版に入れ替えたら録画を消す・マークの無い録画は 1 日で消す(P4。src/manage/keep/live_cleanup.py)
+    _put_bool(out, v, "autoDelete", "「録画を消す」")   # アーカイブ化を確かめたら録画を消す・マークの無い録画は 1 日で消す(src/manage/keep/live_cleanup.py)
     if "recorders" in v:
         rs = v["recorders"]
         if not isinstance(rs, list) or len(rs) > RECORDERS_MAX:

@@ -291,25 +291,6 @@ class TestReadK2(_Env):
         self.assertEqual(keys.stored_state(TID, self.media), {"transcribe": "differ", "pack": "differ"})
 
 
-class TestArchiveSwap(_Env):
-    def test_f1_rewrite_to_archive(self):
-        rec = schemas.media_identity("recording", recorder="rc1", recording="20261005-190000")
-        keys.write_export(self.media, rec, 100, 130, {"mode": "precise"})
-        before = keys.key_hash(keys.media_key_path(self.media, "export"), "export")
-        live_archive.Archiver._archive_key(self.media, {"videoId": "vid12345678", "start": 3600.0, "end": 3630.0})
-        k = keys.read(keys.media_key_path(self.media, "export"), "export")
-        self.assertEqual(k["inputs"]["media"], {"kind": "archive", "videoId": "vid12345678"})
-        self.assertEqual((k["inputs"]["start"], k["inputs"]["end"]), (3600000, 3630000))
-        self.assertEqual(k["inputs"]["settings"], {"mode": "precise"})   # 設定は引き継ぐ
-        self.assertNotEqual(k["hash"], before)
-
-    def test_f1_removes_key_when_write_fails(self):
-        keys.write_export(self.media, schemas.media_identity("recording", recorder="rc1", recording="r1"), 1, 2, {})
-        with mock.patch.object(keys, "write_export", return_value=False):
-            live_archive.Archiver._archive_key(self.media, {"videoId": "vid12345678", "start": 1.0, "end": 2.0})
-        self.assertIsNone(keys.read(keys.media_key_path(self.media, "export"), "export"))
-
-
 class TestPackRecord(_Env):
     """パックを作った記録(② flow/packrec)。API と CLI が同じ after_build を呼ぶ(設計原則の指摘 3)"""
 

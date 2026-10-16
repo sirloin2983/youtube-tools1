@@ -239,7 +239,7 @@ class Adopter:
 
     def adopt(self, body, hold=None):
         """POST /live/api/adopt(M1)。-> {job, video, mark, origin, existing}。
-        hold: "archive" = 書き出したあと、本番版に入れ替えてから まとめて実行へ渡す(配信後の全自動 M7 が入口の中から渡す。API の本文からは渡せない)"""
+        hold: "archive" = 録画からは書き出さず、アーカイブから書き出す(配信後の全自動 M7 が入口の中から渡す。API の本文からは渡せない)"""
         host = self.host
         origin = LX.check_origin(body.get("origin"))
         rc_id, rec = body.get("recorder"), body.get("recording")

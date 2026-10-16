@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""リアルタイム切り抜き P4(アーカイブで本番版に作り直す・録画を自動で消す。notes:plan/line-d-live-clipping.md の 0-9)の通しの確認。
+"""リアルタイム切り抜き LD-1(録画に無い区間だけをアーカイブから書き出す・アーカイブ化を確かめて録画をごみ箱へ移す。notes:plan/line-d-live-clipping.md の 0-9)の通しの確認。
 入口にスタジオを取り込み、録画の部品を別のプロセスで立て、ブラウザでホームの「新しい案件」(/#new)の URL の欄から録画を始め、
 案件の画面の候補のパネル(/cases?c=<録画 id>#cand。panels/cand.js がスタジオの review.js と LivePlayer を載せる)を操作する。本物の YouTube には繋がない。
-(RS8 C4 でスタジオの画面のページと、その ⚙ の「ライブの録画」の欄を消した。案件の画面の帯は開いたときに入口の設定 live.autoArchive・autoDelete を読む)
+(RS8 C4 でスタジオの画面のページと、その ⚙ の「ライブの録画」の欄を消した。案件の画面の帯は開いたときに入口の設定 live.autoDelete を読む。
+ LD-1 で「速報版を本番版に入れ替える(P4)」と設定 live.autoArchive は無くなった = アーカイブから書き出すのは録画に無い区間だけで、いつも自動)
 
     py -3.10 src/app/tests/e2e_live_archive.py                 # 確かめる(終了コード 0 = すべて OK)
     py -3.10 src/app/tests/e2e_live_archive.py --shots DIR     # あわせてスクリーンショットを DIR に残す
@@ -16,22 +17,23 @@
     窓の音 = アーカイブの mp4 から ffmpeg で切る。照合は本物(src/pipeline/ingest/live_align_worker.py)
   - スタジオの section(POST /studio/api/live/section)は本物: 疑似モード(STUDIO_FAKE=1)で STUDIO_FAKE_MEDIA = アーカイブの mp4 を切る
     (入口 → スタジオの API の呼び方・409 busy の待ち・path の検査が本物で通る)
-  - 時間は縮める: 自動の作り直し(録画が終わって 8 秒・確かめる間隔 2 秒)・録画を消す見回り(毎回)・マークの無い録画(6 秒)・退避した速報版(40 秒)
+  - 時間は縮める: アーカイブからの自動の書き出し(録画が終わって 8 秒・確かめる間隔 2 秒)・録画を消す見回り(毎回)・マークの無い録画(6 秒)
 
 確かめること:
-  S  「自動で本番版に作り直す」「録画を消す」(live.autoArchive・live.autoDelete)は入口の既定のとおり・外すと入口の設定に残る
+  S  「録画を消す」(live.autoDelete)は入口の既定(オン)のとおり・外すと入口の設定に残る(live.autoArchive は設定に無い)
      (スタジオの ⚙ の「ライブの録画」の確かめは、その引き出しと一緒に消えた)
-  1  /#new の URL → /cases?c=<録画 id>#cand → 候補のパネルでマーク(自動の書き出し)→ 速報版 / 欠け(つなぎ直しの間をまたぐマーク)→ 失敗・要差し替え / 欠けのあとのマーク
-  2  止める → 帯の案内・「アーカイブで作り直す」/ 用意がまだ(post_live)→ 409 の文が帯に出る
-  3  押す → 帯の進み具合(n/3 本・段)・スタジオが 409 busy の間は待つ → 速報版が同じ名前で本番版に入れ替わる(30fps・長さ・退避先に速報版・
-     clip.json の source.live.archive・速報版との音のずれが 1 コマ以内)・欠けのマークは本番版で新しく書き出される(書き出し済み)
-  4  マークに「本番版」の札(スタジオの /api/video の archived・候補のパネルの行)・前に作った Resolve のパックの注意(無いので出ない)
-  5  「録画を消す」がオフの間は録画が残る → オンにすると録画が消え、帯とプレーヤーの所が「録画は消しました…」(開き直しても同じ)・マークは残る
-  6  自動: 録画が終わる → 見回りが本番版に作り直す(archive.auto)→ 入れ替えが全部済んだので録画を消す
-  7  マークの無い録画: 終わって(縮めた)1 日 → 録画とスタジオの行が消える / 退避した速報版は(縮めた)7 日で消える
+  1  /#new の URL → /cases?c=<録画 id>#cand → 候補のパネルでマーク(自動の書き出し)→ 録画から書き出した切り抜き(done)/ 欠け(つなぎ直しの間をまたぐマーク)→ 失敗・要アーカイブ / 欠けのあとのマーク
+  2  止める → 帯の案内・「アーカイブから書き出す」/ 用意がまだ(post_live)→ 409 の文が帯に出る
+  3  押す → 帯の進み具合(n/1 本・段)・スタジオが 409 busy の間は待つ → 対象は欠けのマーク B だけ(アーカイブから書き出して done・30fps・長さ・
+     clip.json の source.live.archive・export.from youtube-archive・ずれはマークの手前の録画の音で照合)。A・C は録画から書き出したまま(ファイルの ino も変わらない)
+  4  B だけに「アーカイブ」の札(スタジオの /api/video の archived・候補のパネルの行)
+  5  「録画を消す」がオフの間は録画が残る → オンにすると、アーカイブ化を確かめて録画をごみ箱(<録画の置き場所>\ごみ箱\<日付>\録画\<録画 id>)へ移し、
+     帯とプレーヤーの所が LIVE_DELETED の文(開き直しても同じ)・マークと切り抜きは残る
+  6  録画が終わる → アーカイブから書き出すものが無いので作り直しは起きない → アーカイブ化を確かめて録画を自動でごみ箱へ
+  7  マークの無い録画: 終わって(縮めた)1 日 → 録画とスタジオの行が消える
   9  配信後の全自動(線 D の M7。live.autoAfterStream): 人がマークしない録画 → 終わる → 録画とアーカイブの時刻を照合 → アーカイブを偽の解析(STUDIO_FAKE)
-     → 上位 N を採用(origin archive)→ 書き出し → 本番版に入れ替え → まとめて実行へ「文字起こし → パック」で N 本渡る(人は触らない)・
-     自動の切り抜きが済むまで録画を消さない(マークの無い録画の 1 日(縮めた)を過ぎても)→ 済んだら消す・
+     → 上位 N を採用(origin archive)→ アーカイブから書き出し → まとめて実行へ「文字起こし → パック」で N 本渡る(人は触らない)・
+     自動の切り抜きが済むまで録画を消さない(マークの無い録画の 1 日(縮めた)を過ぎても)→ 済んだら消す(ごみ箱)・
      スタジオの LIVE の帯に進み具合の 1 行(archiveInfo.afterStream.text。スタジオ 0.21.3)
   8  コンソールのエラー・404・CSP 違反なし(想定した 409・消した録画の 404 は理由を書いて除く)
 """
@@ -158,7 +160,7 @@ def run(tmp, shots, force_chromium):
     import hls_fixture as F  # noqa: E402
     from flow import live_export as LX  # noqa: E402
     from flow import live_archive as LA  # noqa: E402
-    from ytt import fsio, normalize, schemas  # noqa: E402
+    from ytt import fsio, normalize, schemas, trashbin  # noqa: E402
     from test_launch import free_ports  # noqa: E402
 
     ok = True
@@ -291,7 +293,7 @@ def run(tmp, shots, force_chromium):
     probes, fetches = [], []
     first = {}   # 動画の id -> 録画の頭の受信時刻(epoch。偽の開始時刻)
 
-    def fake_probe(vid):
+    def fake_probe(vid):   # duration: release + ARC_SEC(420)が録画の終わり − 900 秒より後(アーカイブ化を確かめる条件。録画は 1〜2 分)になる大きさ
         probes.append(vid)
         return {"status": probe["status"], "release": first.get(vid), "timestamp": None, "duration": ARC_SEC, "availability": "public", "message": ""}
 
@@ -420,26 +422,25 @@ def run(tmp, shots, force_chromium):
 
 
 def _scene_settings(cx):
-    """S. 「自動で本番版に作り直す」「録画を消す」(入口の設定)"""
+    """S. 「録画を消す」(入口の設定)"""
     check, srv = cx.check, cx.srv
-    # ---------------- S. 「自動で本番版に作り直す」「録画を消す」(入口の設定)----------------
+    # ---------------- S. 「録画を消す」(入口の設定)----------------
     # 0.25.0 から欄は設定の画面(prefs)。スタジオの ⚙ の「ライブの録画」(表示と「設定の画面で変える」のリンク)は C4 でスタジオの画面と一緒に消えた
     # (案件の画面の ⚙ はテーマなどだけ)ので、「⚙ に出る・開き直すと帯へ伝わる」の確かめは外した。帯は録画を開いたときに入口の設定を読む(1・6 で見る)
     from app import prefs as P  # noqa: E402  (home。既定の値)
     defs = P.DEFAULTS["live"]
     lv = srv.prefs.get(["live"])["live"]
-    check(lv["autoArchive"] == defs["autoArchive"] and lv["autoDelete"] == defs["autoDelete"],
-          "S 2 つの値は入口の既定のとおり(自動で作り直す %s・録画を消す %s)" % (defs["autoArchive"], defs["autoDelete"]))
-    srv.prefs.patch("live", {"autoArchive": False, "autoDelete": False})   # 外す(この e2e の録画で自動の作り直し・削除を動かさない所から始める)
-    check(srv.prefs.get(["live"])["live"]["autoArchive"] is False and srv.prefs.get(["live"])["live"]["autoDelete"] is False,
-          "S 外すと入口の設定に残る")
+    check("autoArchive" not in defs and "autoArchive" not in lv, "S 「自動で本番版に作り直す」(live.autoArchive)は設定に無い")
+    check(lv["autoDelete"] == defs["autoDelete"] and lv["autoDelete"] is True, "S 「録画を消す」は入口の既定のとおり(オン): %s" % lv["autoDelete"])
+    srv.prefs.patch("live", {"autoDelete": False})   # 外す(この e2e の録画で自動の削除を動かさない所から始める)
+    check(srv.prefs.get(["live"])["live"]["autoDelete"] is False, "S 外すと入口の設定に残る")
 
 
 def _scene_record_marks(cx):
-    """1. 録画 → マーク(速報版)・欠け・欠けのあと"""
+    """1. 録画 → マーク(録画から書き出し)・欠け・欠けのあと"""
     LX, api, begin_from_home, check, here, jobs_of, mark, pg = cx.LX, cx.api, cx.begin_from_home, cx.check, cx.here, cx.jobs_of, cx.mark, cx.pg
     rec_len, rec_status, srcs = cx.rec_len, cx.rec_status, cx.srcs
-    # ---------------- 1. 録画 → マーク(速報版)・欠け・欠けのあと ----------------
+    # ---------------- 1. 録画 → マーク(録画から書き出し)・欠け・欠けのあと ----------------
     check(begin_from_home(pg, YT1), "1 ホームの /#new で URL を入れると録画が始まり、案件の画面の候補で開く")
     code, vs = api("GET", "/studio/api/videos")
     rid1 = cx.rid1 = next((v["id"] for v in (vs or {}).get("videos") or [] if v.get("kind") == "live"), None)
@@ -449,7 +450,7 @@ def _scene_record_marks(cx):
     wait_for(lambda: rec_len(rid1) > 13, 40, 0.5)
     mark(pg, 3.0, 9.0)
     ja = wait_for(lambda: (lambda js: js and js[0]["state"] in ("done", "error") and js[0])(jobs_of(rid1)), 90, 0.5)
-    check(ja and ja["state"] == "done", "1 マーク A を自動で書き出した(速報版): %s %s" % ((ja or {}).get("state"), (ja or {}).get("error")))
+    check(ja and ja["state"] == "done", "1 マーク A を自動で書き出した(録画から):%s %s" % ((ja or {}).get("state"), (ja or {}).get("error")))
     # 欠け(つなぎ直し)
     srcs[YT1].down = True
     check(wait_for(lambda: (rec_status(rid1)[1] or {}).get("state") == "reconnecting", 30, 0.3), "1 配信が切れると「つなぎ直し中」")
@@ -478,18 +479,18 @@ def _scene_record_marks(cx):
     jb, jc = by.get("B") or {}, by.get("C") or {}
     check(jb.get("state") == "error" and jb.get("needsArchive") is True, "1 欠けをまたぐマーク B は失敗・要差し替え: %s" % jb.get("error"))
     check(jc.get("state") == "done", "1 欠けのあとのマーク C は書き出せる: %s" % jc.get("error"))
-    check(wait_js(pg, "() => /録画に欠けがあります。帯の「アーカイブで作り直す」で作れます/.test(document.querySelector('#rvExpList').textContent)", 10000),
-          "1 書き出しの行に「アーカイブで作り直す」の案内")
+    check(wait_js(pg, "() => /録画に欠けがあります。帯の「アーカイブから書き出す」で作れます/.test(document.querySelector('#rvExpList').textContent)", 10000),
+          "1 書き出しの行に「アーカイブから書き出す」の案内")
     speed = {}
     for k in ("A", "C"):
         j = by.get(k) or {}
         if j.get("path") and os.path.isfile(j["path"]):
-            speed[k] = (j["path"], os.path.getsize(j["path"]), os.stat(j["path"]).st_ino)   # ファイルの id(入れ替えで変わる・退避しても同じ)
+            speed[k] = (j["path"], os.path.getsize(j["path"]), os.stat(j["path"]).st_ino)   # ファイルの id(アーカイブから書き出しても変わらない)
     cx.base_t, cx.g0, cx.speed = base_t, g0, speed
 
 
 def _scene_rebuild_by_hand(cx):
-    """2. 止める → 帯 → 用意がまだ / 3. 押す → 進み具合 → 入れ替え"""
+    """2. 止める → 帯 → 用意がまだ / 3. 押す → 進み具合 → アーカイブから書き出し(欠けのマークだけ)"""
     LA, LX, api, base_t, busy_path, check, first, fsio = cx.LA, cx.LX, cx.api, cx.base_t, cx.busy_path, cx.check, cx.first, cx.fsio
     g0, jobs_of, normalize, out_dir, pg, probe, rid1, schemas = cx.g0, cx.jobs_of, cx.normalize, cx.out_dir, cx.pg, cx.probe, cx.rid1, cx.schemas
     serve, shots, speed, tmp = cx.serve, cx.shots, cx.speed, cx.tmp
@@ -498,18 +499,18 @@ def _scene_rebuild_by_hand(cx):
     check(code == 200 and d.get("ok"), "2 録画を止める")
     first["TESTarch001"] = base_t
     check(wait_js(pg, "() => /録画は終わりました/.test(document.querySelector('#rvLiveGuide').textContent) && !document.querySelector('#rvArch').hidden", 20000),
-          "2 終わった録画の帯に「アーカイブで作り直す」: %s" % pg.text_content("#rvLiveGuide"))
+          "2 終わった録画の帯に「アーカイブから書き出す」: %s" % pg.text_content("#rvLiveGuide"))
     guide = pg.text_content("#rvLiveGuide") or ""
-    check("本番の画質に作り直せます(自動: オフ)" in guide and "録画は消します" not in guide, "2 帯の案内(自動: オフ・消す設定がオフなので「録画は消します」は出さない): %s" % guide)
-    check(wait_js(pg, "() => !document.querySelector('#rvArchRun').disabled", 10000), "2 「アーカイブで作り直す」が押せる")
+    check("録画に無い区間のマークは、アーカイブが用意できたら自動でアーカイブから書き出します" in guide and "ごみ箱" not in guide,
+          "2 帯の案内(録画に無い区間はアーカイブから書き出す・消す設定がオフなので「ごみ箱へ移します」は出さない): %s" % guide)
+    check(wait_js(pg, "() => !document.querySelector('#rvArchRun').disabled", 10000), "2 「アーカイブから書き出す」が押せる")
     probe["status"] = "post_live"
     pg.click("#rvArchRun")
     check(wait_js(pg, "() => /処理中/.test(document.querySelector('#rvArchMsg').textContent)", 15000),
           "2 用意がまだ(post_live)→ 入口の 409 の文が帯に出る: %s" % pg.text_content("#rvArchMsg"))
     check(all(not j.get("archive") for j in jobs_of(rid1)), "2 用意がまだのときは何も始めない")
 
-    # ---------------- 3. 押す → 進み具合 → 入れ替え ----------------
-    probe["status"] = "was_live"
+    # ---------------- 3. 押す → 進み具合 → アーカイブから書き出し(欠けのマーク B だけ)----------------
     seen_msgs, seen_band, busy = [], [], {"cancelled": False}
     stop_poll = threading.Event()
     # 押す前に、スタジオでほかの書き出しを始めておく(スタジオは同時に 1 本だけ = 入口の section は 409 busy になる)。
@@ -542,6 +543,7 @@ def _scene_rebuild_by_hand(cx):
             time.sleep(0.15)
     poller = threading.Thread(target=poll_jobs, daemon=True)
     poller.start()
+    probe["status"] = "was_live"   # 用意ができた(busy の書き出しを始めたあとに。見回りが先に始めて待ちを見逃さないように)
     pg.click("#rvArchRun")
     shot_taken = False
     deadline = time.time() + 300
@@ -549,86 +551,74 @@ def _scene_rebuild_by_hand(cx):
         t = pg.text_content("#rvArchMsg") or ""
         if t and (not seen_band or seen_band[-1] != t):
             seen_band.append(t)
-        if shots and not shot_taken and "作り直しています" in t:
+        if shots and not shot_taken and "アーカイブから書き出しています" in t:
             pg.evaluate("window.scrollTo(0, 0)")
             pg.screenshot(path=os.path.join(shots, "p4_01_rebuilding.png"))
             shot_taken = True
-        if "入れ替えました 3/3" in t:
+        if "アーカイブから書き出しました 1/1 本" in t:
             break
         time.sleep(0.2)
     stop_poll.set()
     poller.join(5)
     js1 = jobs_of(rid1)
-    arcs = {j["id"]: j.get("archive") or {} for j in js1}
-    check(all(a.get("state") == "done" for a in arcs.values()) and len(arcs) == 3,
-          "3 3 本とも本番版に: %s" % [(a.get("state"), a.get("message")) for a in arcs.values()])
-    check(any(re.match(r"^本番版に作り直しています [0-2]/3 本(.+)$", x) for x in seen_band),
-          "3 帯の進み具合(n/3 本と段。帯は 5 秒ごとに読み直す): %s" % " → ".join(seen_band[:12]))
+    arcs = {j["id"]: j.get("archive") or {} for j in js1 if j.get("archive")}
+    check(len(arcs) == 1 and all(a.get("state") == "done" for a in arcs.values()),
+          "3 アーカイブから書き出すのは欠けの 1 本だけ: %s" % [(a.get("state"), a.get("message")) for a in arcs.values()])
+    check(any(re.match(r"^アーカイブから書き出しています 0/1 本(.+)$", x) for x in seen_band),
+          "3 帯の進み具合(0/1 本と段。帯は 5 秒ごとに読み直す): %s" % " → ".join(seen_band[:12]))
     states = [m.split(":", 1)[0] for m in seen_msgs]
-    check(all(s in states for s in ("wait", "align", "fetch", "verify", "done")),   # probe は一瞬(偽の yt-dlp)なので見えないことがある
-          "3 ジョブの段: 待ち → 確かめ → 照合 → 取得 → 検証 → 本番版(%s)" % "・".join(dict.fromkeys(states)))
-    check(seen_band and seen_band[-1].startswith("本番版に入れ替えました 3/3 本"), "3 帯の最後: %s" % (seen_band[-1] if seen_band else ""))
+    check(all(s in states for s in ("align", "fetch", "done")),   # probe・verify は一瞬(偽の yt-dlp・入れ替えが無い)・待ちは見回りが先に拾うと見えないことがある
+          "3 ジョブの段: 待ち → 確かめ → 照合 → 取得 → 検証 → 書き出し済み(%s)" % "・".join(dict.fromkeys(states)))
+    check(seen_band and seen_band[-1].startswith("アーカイブから書き出しました 1/1 本"), "3 帯の最後: %s" % (seen_band[-1] if seen_band else ""))
     check(busy["code"] == 200 and any("スタジオの書き出しが終わるのを待っています" in m for m in seen_msgs),
           "3 スタジオがほかの書き出しで 409 busy の間は、失敗にせず待つ(busy の書き出し HTTP %s)" % busy["code"])
-    check(busy["cancelled"] and not os.path.exists(busy_path), "3 先に始めた書き出しを取り消すと、待っていた作り直しが進む(書きかけは残らない)")
+    check(busy["cancelled"] and not os.path.exists(busy_path), "3 先に始めた書き出しを取り消すと、待っていたアーカイブからの書き出しが進む(書きかけは残らない)")
     code, d = api("POST", "/studio/api/live/section", {"videoId": "TESTarch001", "start": 0, "end": 5, "path": os.path.join(tmp, "outside.mp4")})
     check(code == 400 and "書き出し先" in (d or {}).get("message", ""), "3 section の path は書き出し先の中だけ(本物の検査): %s" % (d or {}).get("message"))
     js1 = jobs_of(rid1)
     by = {}
     for j in js1:
         by["A" if abs(j["studio"]["start"] - 3.0) < 0.5 else "B" if j["studio"]["start"] < g0 else "C"] = j
-    for k in ("A", "C"):
+    for k in ("A", "C"):   # 録画から書き出した切り抜きはそのまま(アーカイブの対象でない = 照合もしない)
         j = by.get(k) or {}
-        a = j.get("archive") or {}
         if k not in speed:
-            check(False, "3 %s の速報版が無い" % k)
+            check(False, "3 %s の録画から書き出した切り抜きが無い" % k)
             continue
         path, size0, ino0 = speed[k]
-        kept = a.get("keep") or ""
-        check(j.get("path") == path and os.path.isfile(path) and os.stat(path).st_ino != ino0,
-              "3 %s: 同じ名前のまま本番版に入れ替わった: %s" % (k, os.path.basename(path)))
-        check(kept and os.path.isfile(kept) and os.stat(kept).st_ino == ino0 and os.path.getsize(kept) == size0 and os.path.basename(kept) == os.path.basename(path)
-              and os.path.basename(os.path.dirname(kept)) == LA.SPEED_DIR and os.path.basename(os.path.dirname(os.path.dirname(kept))) == schemas.WORK_DIR,
-              "3 %s: 速報版は 作業用\\速報版\\ に同じ名前で退避: %s" % (k, kept))
-        info = normalize.probe(path)
-        want = j["studio"]["end"] - j["studio"]["start"]
-        check(normalize.is_30fps(info) and abs((info or {}).get("duration", 0) - want) <= LX.LEN_TOL,
-              "3 %s: 本番版は 30fps・長さが区間と合う(%.2f 秒 / 区間 %.2f 秒)" % (k, (info or {}).get("duration", 0), want))
-        res = a.get("residual")
-        check(isinstance(res, (int, float)) and abs(res) <= FRAME_TOL, "3 %s: 速報版との音のずれが 1 コマ以内: %s 秒" % (k, res))
-        off = a.get("archiveStart", 0) - j["studio"]["start"]
-        check(off > 5, "3 %s: 録画はアーカイブの途中から(ずれ %.2f 秒)= 照合で求めた" % (k, off))
-        clip, _w = schemas.load_clip_file(schemas.find_clip_path(path))
-        ca = (((clip or {}).get("source") or {}).get("live") or {}).get("archive") or {}
-        check(ca.get("videoId") == "TESTarch001" and abs(ca.get("start", -1) - a.get("archiveStart", -2)) < 0.01 and clip["export"]["from"] == "youtube-archive",
-              "3 %s: .clip.json の source.live.archive・export.from: %s" % (k, ca))
-        check(not a.get("packOld"), "3 %s: Resolve のパックは作っていないので注意は無い" % k)
+        check(j.get("state") == "done" and j.get("path") == path and os.path.isfile(path) and os.stat(path).st_ino == ino0 and os.path.getsize(path) == size0
+              and not j.get("archive"),
+              "3 %s: 録画から書き出した切り抜きはそのまま(path・ino・大きさが同じ・archive なし): %s" % (k, os.path.basename(path)))
     b = by.get("B") or {}
+    ba = b.get("archive") or {}
     info = normalize.probe(b.get("path") or "") if b.get("path") else None
     check(b.get("state") == "done" and not b.get("needsArchive") and info and normalize.is_30fps(info)
           and abs(info.get("duration", 0) - (b["studio"]["end"] - b["studio"]["start"])) <= LX.LEN_TOL,
-          "3 欠けのマーク B は本番版で新しく書き出した(done・30fps・長さ): %s" % ((b.get("path") or "")[-60:]))
-    oa, ob = ((by.get("A") or {}).get("archive") or {}).get("offset"), (b.get("archive") or {}).get("offset")
-    check(isinstance(oa, (int, float)) and isinstance(ob, (int, float)) and abs(oa - ob) < 0.002,
-          "3 欠けのマーク B は、頭と同じセッション(欠けの前)のマーク A のずれを使う: A %s / B %s" % (oa, ob))
-    if b.get("manifest"):
-        clip = fsio.read_json_file(b["manifest"], 1 << 20)
-        check(clip["source"]["kind"] == "live" and clip["source"]["live"]["archive"]["videoId"] == "TESTarch001", "3 B の .clip.json に archive")
+          "3 欠けのマーク B はアーカイブから新しく書き出した(done・30fps・長さ): %s" % ((b.get("path") or "")[-60:]))
+    check(ba.get("state") == "done" and ba.get("aligned") and ba.get("offsetFrom") == "マークの手前の録画の音を照合" and isinstance(ba.get("offset"), (int, float)),
+          "3 B のずれはマークの手前の録画の音で照合した(archive.aligned・offsetFrom): %s / %s" % (ba.get("aligned"), ba.get("offsetFrom")))
+    off = ba.get("archiveStart", 0) - (b.get("studio") or {}).get("start", 0)
+    check(off > 5, "3 B: 録画はアーカイブの途中から(ずれ %.2f 秒)= 照合で求めた" % off)
+    clip, _w = schemas.load_clip_file(schemas.find_clip_path(b["path"])) if b.get("path") else (None, None)
+    ca = (((clip or {}).get("source") or {}).get("live") or {}).get("archive") or {}
+    check(clip and clip["source"]["kind"] == "live" and ca.get("videoId") == "TESTarch001" and abs(ca.get("start", -1) - ba.get("archiveStart", -2)) < 0.01
+          and clip["export"]["from"] == "youtube-archive", "3 B の .clip.json の source.live.archive・export.from youtube-archive: %s" % ca)
     check(not any(os.path.isdir(os.path.join(r_, d_)) for r_, ds, _f in os.walk(out_dir) for d_ in ds if d_ == LA.BUILD_DIR), "3 作りかけのフォルダは残らない")
 
 
 def _scene_chips_and_delete(cx):
-    """4. 本番版の札 / 5. 消す設定オフ → 残る / オン → 消える"""
+    """4. アーカイブの札 / 5. 消す設定オフ → 残る / オン → ごみ箱へ"""
     api, cases_url, check, deleted_rids, gone_from_list, jobs_of, pg = cx.api, cx.cases_url, cx.check, cx.deleted_rids, cx.gone_from_list, cx.jobs_of, cx.pg
     rec_ids, rfolder, rid1, shots, smarks, srv = cx.rec_ids, cx.rfolder, cx.rid1, cx.shots, cx.smarks, cx.srv
-    # ---------------- 4. 本番版の札 ----------------
-    ms = wait_for(lambda: (lambda m: m and len([x for x in m if x.get("archived")]) == 3 and m)(smarks(rid1)), 30, 0.5)
-    check(ms and all(x["status"] == "exported" and x.get("archived") for x in ms),
-          "4 スタジオのマーク 3 つが書き出し済み + 本番版(/api/video の archived): %s" % [(x.get("status"), x.get("archived")) for x in (smarks(rid1) or [])])
-    check(wait_js(pg, "() => document.querySelectorAll('#rvList .rv-mark-row .rv-chip.arch').length === 3", 15000), "4 候補のパネルのマークの行に「本番版」の札が 3 つ")
+    probes, trashbin = cx.probes, cx.trashbin
+    # ---------------- 4. アーカイブの札 ----------------
+    ms = wait_for(lambda: (lambda m: m and len([x for x in m if x.get("archived")]) == 1 and m)(smarks(rid1)), 30, 0.5)
+    check(ms and len(ms) == 3 and all(x["status"] == "exported" for x in ms) and len([x for x in ms if x.get("archived")]) == 1,
+          "4 スタジオのマーク 3 つが書き出し済みで、archived は欠けの B の 1 つだけ(/api/video の archived): %s"
+          % [(x.get("status"), x.get("archived")) for x in (smarks(rid1) or [])])
+    check(wait_js(pg, "() => document.querySelectorAll('#rvList .rv-mark-row .rv-chip.arch').length === 1", 15000), "4 候補のパネルのマークの行に「アーカイブ」の札が 1 つ")
     code, vs = api("GET", "/studio/api/videos")
     row = next((v for v in (vs or {}).get("videos") or [] if v["id"] == rid1), {})
-    check(row.get("archived") == 3, "4 一覧の行の本番版の数: %s" % row.get("archived"))
+    check(row.get("archived") == 1, "4 一覧の行の archived の数: %s" % row.get("archived"))
     if shots:
         pg.evaluate("window.scrollTo(0, 0)")
         pg.screenshot(path=os.path.join(shots, "p4_02_archived_chips.png"))
@@ -640,22 +630,26 @@ def _scene_chips_and_delete(cx):
 
     # ---------------- 5. 消す設定オフ → 残る / オン → 消える ----------------
     time.sleep(3)   # 入口の見回り(1 秒ごと)が何回か回る
-    check(rid1 in (rec_ids() or []) and os.path.isdir(os.path.join(rfolder, rid1)), "5 「録画を消す」がオフの間は、入れ替えが済んでも録画は残る")
-    srv.prefs.patch("live", {"autoDelete": True})   # 0.25.0: 設定の画面(prefs)で付ける(帯の案内は録画を開いたときに読む = 6 で見る)
+    check(rid1 in (rec_ids() or []) and os.path.isdir(os.path.join(rfolder, rid1)), "5 「録画を消す」がオフの間は、書き出しが済んでも録画は残る")
+    srv.prefs.patch("live", {"autoDelete": True})   # 設定の画面(prefs)で付ける(帯の案内は録画を開いたときに読む = 6 で見る)
     check(srv.prefs.get(["live"])["live"]["autoDelete"] is True, "5 「録画を消す」を付けると live.autoDelete = true")
+    n_probe = len(probes)
     gone = wait_for(lambda: gone_from_list(rid1), 30, 0.5)
     if gone:
         deleted_rids.add(rid1)
-    check(gone and not os.path.exists(os.path.join(rfolder, rid1)), "5 入れ替えが全部済んだ録画を消した(録画元の一覧と置き場所から): 一覧 %s・フォルダ %s"
-          % (rid1 in (rec_ids() or []), os.listdir(os.path.join(rfolder, rid1)) if os.path.isdir(os.path.join(rfolder, rid1)) else "なし"))
+    trashed = os.path.join(rfolder, "ごみ箱", trashbin.day_name(), "録画", rid1)
+    check(gone and not os.path.exists(os.path.join(rfolder, rid1)) and os.path.isfile(os.path.join(trashed, "recording.json")),
+          "5 全部書き出した録画を、アーカイブ化を確かめて、ごみ箱(<置き場所>\\ごみ箱\\<今日>\\録画\\<録画 id>)へ移した(一覧と元のフォルダから消えた): 一覧 %s・元のフォルダ %s・ごみ箱 %s"
+          % (rid1 in (rec_ids() or []), os.path.isdir(os.path.join(rfolder, rid1)), os.path.isfile(os.path.join(trashed, "recording.json"))))
+    check(len(probes) > n_probe, "5 消す直前にアーカイブ化を確かめた(偽の yt-dlp %d 回 → %d 回)" % (n_probe, len(probes)))
     check(all(j.get("recordingDeleted") for j in jobs_of(rid1)), "5 ジョブに消した印 recordingDeleted")
-    check(wait_js(pg, "() => document.querySelector('#rvLiveGuide').textContent.includes('録画は消しました(本番版に入れ替え済み)。マークと本番版はそのまま使えます')", 40000),
-          "5 帯が「録画は消しました…」: %s" % pg.text_content("#rvLiveGuide"))
+    check(wait_js(pg, "() => document.querySelector('#rvLiveGuide').textContent.includes('録画は消しました(ごみ箱へ移しました)。マークと書き出した切り抜きはそのまま使えます')", 40000),
+          "5 帯が「録画は消しました…」(LIVE_DELETED): %s" % pg.text_content("#rvLiveGuide"))
     check(pg.text_content("#rvRecState") == "録画を消しました" and "err" not in (pg.get_attribute("#rvRecState", "class") or ""), "5 状態の札はエラーにしない: %s" % pg.text_content("#rvRecState"))
     check(pg.evaluate("() => { const n = document.querySelector('#rvNotice'); return !n.hidden && /録画は消しました/.test(n.textContent) && !n.querySelector('[data-act=ytretry]'); }"),
           "5 プレーヤーの所にも同じ案内(「もう一度試す」は出さない)")
-    check(pg.is_hidden("#rvArch") and pg.is_hidden('label[for="rvAutoExp"]'), "5 「アーカイブで作り直す」「マークしたらすぐ書き出す」は出さない")
-    check(len(smarks(rid1) or []) == 3 and all(os.path.isfile(j["path"]) for j in jobs_of(rid1)), "5 マークと本番版はそのまま")
+    check(pg.is_hidden("#rvArch") and pg.is_hidden('label[for="rvAutoExp"]'), "5 「アーカイブから書き出す」「マークしたらすぐ書き出す」は出さない")
+    check(len(smarks(rid1) or []) == 3 and all(os.path.isfile(j["path"]) for j in jobs_of(rid1)), "5 マークと切り抜きはそのまま")
     if shots:
         pg.evaluate("window.scrollTo(0, 0)")
         pg.screenshot(path=os.path.join(shots, "p4_03_recording_deleted.png"))
@@ -664,19 +658,18 @@ def _scene_chips_and_delete(cx):
     check(wait_js(pg, "() => !!window.CasesShell && CasesShell.state().panel === 'cand' && !!document.querySelector('#csPane .cd-panel #rvLiveGuide')"
                       " && /録画は消しました/.test(document.querySelector('#rvLiveGuide').textContent) && !document.querySelector('#rvNotice').hidden", 20000)
           and "見つかりません" not in (pg.text_content("#rvRecState") or ""), "5 開き直しても「録画は消しました」(「録画が見つかりません」にしない)")
-    check(pg.evaluate("() => document.querySelectorAll('#rvList .rv-chip.arch').length") == 3, "5 開き直しても本番版の札")
+    check(pg.evaluate("() => document.querySelectorAll('#rvList .rv-chip.arch').length") == 1, "5 開き直しても「アーカイブ」の札(B の 1 つ)")
     code, d = api("POST", "/live/r/local/%s/delete" % rid1, {})
     check(code == 404, "5 画面からの中継では録画を消せない(POST …/delete は 404): HTTP %s" % code)
 
 
 def _scene_auto_rebuild(cx):
-    """6. 自動: 録画が終わる → 作り直す → 消す / 7. マークの無い録画 / 退避した速報版"""
+    """6. 録画が終わる → 作り直しは起きない → 録画を自動でごみ箱へ / 7. マークの無い録画"""
     LX, api, begin_from_home, check, deleted_rids, fetches, first, gone_from_list = cx.LX, cx.api, cx.begin_from_home, cx.check, cx.deleted_rids, cx.fetches, cx.first, cx.gone_from_list
     jobs_of, mark, pg, probes, rec_ids, rec_len, rec_status = cx.jobs_of, cx.mark, cx.pg, cx.probes, cx.rec_ids, cx.rec_len, cx.rec_status
-    rfolder, rid1, smarks, srv = cx.rfolder, cx.rid1, cx.smarks, cx.srv
-    # ---------------- 6. 自動: 録画が終わる → 作り直す → 消す ----------------
-    srv.prefs.patch("live", {"autoArchive": True})   # 0.25.0: 設定の画面(prefs)で付ける。帯は次に録画を開いたときに読む(下の 2 本目)
-    check(srv.prefs.get(["live"])["live"]["autoArchive"] is True, "6 「自動で本番版に作り直す」を付けると live.autoArchive = true")
+    probe, rfolder, rid1, smarks, srv, trashbin = cx.probe, cx.rfolder, cx.rid1, cx.smarks, cx.srv, cx.trashbin
+    # ---------------- 6. 録画が終わる → 作り直しは起きない → 録画を自動でごみ箱へ ----------------
+    check(srv.prefs.get(["live"])["live"]["autoDelete"] is True, "6 「録画を消す」は付いたまま(5 で付けた)")
     check(begin_from_home(pg, YT2) and wait_js(pg, "() => /録画中/.test(document.querySelector('#rvRecState').textContent)", 40000),
           "6 2 本目の録画が始まる(ホームの /#new → 案件の画面の候補)")
     code, vs = api("GET", "/studio/api/videos")
@@ -684,27 +677,33 @@ def _scene_auto_rebuild(cx):
     wait_for(lambda: rec_len(rid2) > 12, 40, 0.5)
     mark(pg, 3.0, 8.0)
     jd = wait_for(lambda: (lambda js: js and js[0]["state"] in ("done", "error") and js[0])(jobs_of(rid2)), 90, 0.5)
-    check(jd and jd["state"] == "done", "6 マーク D を書き出した(速報版)")
+    check(jd and jd["state"] == "done", "6 マーク D を書き出した(録画から)")
     d_path, d_ino = (jd or {}).get("path"), os.stat(jd["path"]).st_ino if jd and jd.get("path") else 0
     first["TESTarch002"] = LX.iso_epoch((rec_status(rid2)[1] or {}).get("firstPdt"))
-    guide = pg.text_content("#rvLiveGuide") or ""
+    n_probe = len(probes)
+    probe["status"] = "post_live"   # 止めた直後はアーカイブ化を確かめられない = 録画はまだ消えない(帯の案内を見るため。あとで was_live に戻す)
     api("POST", "/api/ytt/live", {"op": "stop", "recorder": "local", "recording": rid2})
-    check(wait_js(pg, "() => /本番版に入れ替えたら、録画は消します/.test(document.querySelector('#rvLiveGuide').textContent)", 20000),
-          "6 終わった録画の帯の案内に「本番版に入れ替えたら、録画は消します」: %s" % pg.text_content("#rvLiveGuide"))
+    check(wait_js(pg, "() => /全部書き出して、アーカイブになったと確かめたら、録画はごみ箱へ移します/.test(document.querySelector('#rvLiveGuide').textContent)", 20000),
+          "6 終わった録画の帯の案内に「全部書き出して、アーカイブになったと確かめたら、録画はごみ箱へ移します」: %s" % pg.text_content("#rvLiveGuide"))
+    guide = pg.text_content("#rvLiveGuide") or ""
+    check("アーカイブが用意できたら自動でアーカイブから書き出します" not in guide, "6 アーカイブから書き出すものが無いので、その案内は出ない: %s" % guide)
+    time.sleep(3)   # 入口の見回り(1 秒ごと)が何回か回る
+    check(rid2 in (rec_ids() or []) and os.path.isdir(os.path.join(rfolder, rid2)), "6 アーカイブ化を確かめられない間(post_live)は録画を消さない")
+    probe["status"] = "was_live"
     stopped_at = time.time()
-    jd = wait_for(lambda: (lambda js: js and (js[0].get("archive") or {}).get("state") in ("done", "error") and js[0])(jobs_of(rid2)), 180, 0.5)
-    a = (jd or {}).get("archive") or {}
-    check(a.get("state") == "done" and a.get("auto") is True, "6 録画が終わって(縮めた)30 分後に、見回りが自動で本番版に作り直した(%.0f 秒後): %s %s"
-          % (time.time() - stopped_at, a.get("state"), a.get("message")))
-    check(d_path and os.path.isfile(d_path) and os.stat(d_path).st_ino != d_ino and os.path.isfile(a.get("keep") or ""), "6 同じ名前で入れ替え・速報版は退避")
-    gone2 = wait_for(lambda: gone_from_list(rid2), 30, 0.5)
+    gone2 = wait_for(lambda: gone_from_list(rid2), 60, 0.5)
     if gone2:
         deleted_rids.add(rid2)
-    check(gone2 and not os.path.exists(os.path.join(rfolder, rid2)), "6 入れ替えが全部済んだので、録画を消した(自動)")
+    trashed = os.path.join(rfolder, "ごみ箱", trashbin.day_name(), "録画", rid2)
+    check(gone2 and not os.path.exists(os.path.join(rfolder, rid2)) and os.path.isfile(os.path.join(trashed, "recording.json")),
+          "6 アーカイブ化を確かめて、録画を自動でごみ箱へ移した(%.0f 秒後)" % (time.time() - stopped_at))
+    jd = (jobs_of(rid2) or [{}])[0]
+    check(not jd.get("archive") and jd.get("state") == "done" and jd.get("path") == d_path and os.path.isfile(d_path or "") and os.stat(d_path).st_ino == d_ino,
+          "6 アーカイブから書き出すものは無いので作り直しは起きない(D の path・ino は同じ・archive なし)")
     check(wait_js(pg, "() => /録画は消しました/.test(document.querySelector('#rvLiveGuide').textContent)", 40000), "6 開いている画面の帯も「録画は消しました」")
-    check(len(probes) >= 2 and fetches, "6 アーカイブの用意を確かめて(偽の yt-dlp %d 回)、窓の音を取った(%d 回)" % (len(probes), len(fetches)))
+    check(len(probes) > n_probe, "6 消す直前にアーカイブ化を確かめた(偽の yt-dlp %d 回。丸ごとの音の取得は %d 回)" % (len(probes) - n_probe, len(fetches)))
 
-    # ---------------- 7. マークの無い録画 / 退避した速報版 ----------------
+    # ---------------- 7. マークの無い録画 ----------------
     code, d = api("POST", "/live/api/begin", {"url": YT3})
     rid3 = cx.rid3 = ((d or {}).get("recording") or {}).get("id")
     code, _v = api("POST", "/studio/api/videos/open", {"kind": "live", "recorder": "local", "recording": rid3, "url": YT3, "title": "マークなし"})
@@ -717,11 +716,7 @@ def _scene_auto_rebuild(cx):
     if gone3:
         deleted_rids.add(rid3)
     check(gone3 and api("GET", "/studio/api/video?id=%s" % rid3)[0] == 404, "7 マークが無いまま(縮めた)1 日たった録画とスタジオの行を消した")
-    keeps = [(j.get("archive") or {}).get("keep") for j in jobs_of(rid1) + jobs_of(rid2) if (j.get("archive") or {}).get("keep")]
-    done_keeps = wait_for(lambda: (lambda js: all((j.get("archive") or {}).get("keepDeleted") for j in js if (j.get("archive") or {}).get("keep")) and js)(
-        jobs_of(rid1) + jobs_of(rid2)), 90, 1.0)
-    check(done_keeps and keeps and not any(os.path.exists(k) for k in keeps), "7 退避した速報版は入れ替えから(縮めた)7 日で消した: %d 本" % len(keeps))
-    check(all(os.path.isfile(j["path"]) for j in jobs_of(rid1) + jobs_of(rid2)), "7 本番版はそのまま")
+    check(all(os.path.isfile(j["path"]) for j in jobs_of(rid1) + jobs_of(rid2)), "7 切り抜きはそのまま")
 
 
 def _scene_after_stream(cx):
@@ -782,30 +777,30 @@ def _scene_after_stream(cx):
     check(got and got.get("state") == "done", "9 録画が終わって %.0f 秒で、人が触らずに配信後の自動の切り抜きが済んだ: %s / %s"
           % (time.time() - stopped_at, (got or {}).get("message"), " → ".join(seen_after[-8:])))
     check(any(x.startswith("analyze:") for x in seen_after) and any(x.startswith("export:") for x in seen_after),
-          "9 段: アーカイブを解析 → 書き出し → 本番版 → パック(%s)" % "・".join(dict.fromkeys(x.split(":", 1)[0] for x in seen_after)))
+          "9 段: アーカイブを解析 → アーカイブから書き出し → パック(%s)" % "・".join(dict.fromkeys(x.split(":", 1)[0] for x in seen_after)))
     done_band = wait_js(pg, "() => { const e = document.querySelector('#rvAfterStream'), t = e.textContent;"
-                            " return !e.hidden && t.startsWith('配信後の自動の切り抜き: 済み') && t.includes('本のうち 書き出し'); }", 40000)
+                            " return !e.hidden && t.startsWith('配信後の自動の切り抜き: 済み') && t.includes('本のうち アーカイブから書き出し'); }", 40000)
     check(done_band and all(t.startswith("配信後の自動の切り抜き: ") for t in band),
           "9 スタジオの LIVE の帯に進み具合の 1 行(archiveInfo.afterStream.text。途中 %d 通り → %s)"
           % (len(band), pg.text_content("#rvAfterStream")))
     js4 = jobs_of(rid4)
     check(len(js4) >= 2 and len(js4) == (got or {}).get("jobs"), "9 上位 N を採用した: %d 本(N = %s)" % (len(js4), (got or {}).get("n")))
-    check(js4 and all(j.get("origin") == "archive" and j.get("holdFor") == "archive" and j["state"] == "done" for j in js4),
-          "9 採用の出どころ archive・本番版を待ってから渡す: %s" % [(j.get("origin"), j.get("state"), j.get("error")) for j in js4])
+    check(js4 and all(j.get("origin") == "archive" and j.get("from") == "archive" and not j.get("holdFor") and j["state"] == "done" for j in js4),
+          "9 採用の出どころ archive・from archive・holdFor なし・done: %s" % [(j.get("origin"), j.get("from"), j.get("holdFor"), j.get("state"), j.get("error")) for j in js4])
     check(js4 and all((j.get("archive") or {}).get("state") == "done" and (j.get("archive") or {}).get("auto") for j in js4),
-          "9 全部を本番版に入れ替えた(「自動で本番版に作り直す」の設定に関係なく): %s" % [(j.get("archive") or {}).get("message") for j in js4])
+          "9 全部をアーカイブから書き出した(archive.state done・auto): %s" % [(j.get("archive") or {}).get("message") for j in js4])
     h4 = handed[n_handed:]
     check(js4 and sorted(p for p, _f in h4) == sorted(j["path"] for j in js4) and all(f == "auto" for _p, f in h4) and all(j.get("runId") for j in js4),
           "9 N 本ともまとめて実行へ「文字起こし → パック」(after = auto)で渡した: %s" % [(os.path.basename(p), f) for p, f in h4])
-    check(js4 and all(handed_ino.get(j["path"]) == os.stat(j["path"]).st_ino and os.path.isfile((j.get("archive") or {}).get("keep") or "") for j in js4),
-          "9 渡したのは本番版に入れ替えたあと(速報版は退避)= パックは本番版")
+    check(js4 and all(handed_ino.get(j["path"]) == os.stat(j["path"]).st_ino and not (j.get("archive") or {}).get("keep") for j in js4),
+          "9 渡したのは今の path と同じファイル(アーカイブから書き出した物。退避は無い)")
     ok_clips = bool(js4)
     for j in js4:
         clip, _w = schemas.load_clip_file(schemas.find_clip_path(j["path"]))
         live_src = ((clip or {}).get("source") or {}).get("live") or {}
         ok_clips = ok_clips and live_src.get("origin") == "archive" and (clip or {}).get("mark", {}).get("src") == "auto" \
             and (live_src.get("archive") or {}).get("videoId") == "TESTarch004"
-    check(ok_clips, "9 .clip.json に origin archive・mark.src auto・本番版(source.live.archive)")
+    check(ok_clips, "9 .clip.json に origin archive・mark.src auto・source.live.archive")
     try:
         with open(os.path.join(live.store_dir, LX.FEEDBACK), encoding="utf-8") as f:
             fb = [json.loads(x) for x in f if x.strip()]
@@ -819,7 +814,7 @@ def _scene_after_stream(cx):
     gone4 = wait_for(lambda: gone_from_list(rid4), 40, 0.5)
     if gone4:
         deleted_rids.add(rid4)
-    check(gone4, "9 自動の切り抜きが済み、全部入れ替わったので録画を消した")
+    check(gone4, "9 自動の切り抜きが済み、全部書き出したので、録画を消した(ごみ箱)")
     lf = ((api("GET", "/api/health")[1] or {}).get("live") or {})
     check(lf.get("disk") and lf["disk"].get("state") in ("ok", "warn", "low") and lf["disk"].get("rows"), "9 「調子」に空き容量(M4): %s"
           % [(r.get("label"), r.get("state")) for r in (lf.get("disk") or {}).get("rows") or []])

@@ -14,7 +14,7 @@
   pack       同じく、パック・届ける段で失敗した
   afterStream 配信後の全自動(M7。src/flow/live_archive.py の afterStream)が止まった(アーカイブの解析・時刻合わせ・採用。録画ごと。after_stream_failure)
   detect     配信中の盛り上がりの検出(線 D の L2・M11。src/flow/live_detect.py)のワーカーの不具合・起動し直しが多い・自動の採用を諦めた(detect_failure)
-  keep       終わって 3 日たっても本番版に置き換わらず、自動では消えない録画(D-14。src/manage/keep/live_cleanup.py の kept_failures。keep_failure)
+  keep       終わって 3 日たっても消せない録画(D-14。src/manage/keep/live_cleanup.py の kept_failures。keep_failure)
 人が中止した(cancelled)・取り消した書き出しは数えない(失敗ではない)。読むだけ(どのファイルも書き換えない)。
 """
 import os
@@ -54,7 +54,7 @@ def failure_of(job, run=None):
     name = _name(job)
     if job.get("state") == "error":
         why = _reason(job.get("error") or job.get("message")) or "理由が分かりません"
-        tail = "(アーカイブで本番版に作り直せます)" if job.get("needsArchive") else ""
+        tail = "(アーカイブが用意できたら、アーカイブから書き出せます)" if job.get("needsArchive") else ""
         return {"kind": "export", "kindLabel": KIND_LABELS["export"], "text": "%s: 書き出しに失敗しました: %s%s" % (name, why, tail)}
     if job.get("state") != "done":
         return None
@@ -108,16 +108,16 @@ def keep_failure(recording, days, why, title="", at=""):
     """終わっても消せない録画(D-14。src/manage/keep/live_cleanup.py)-> collect と同じ形の 1 件。文はここだけで作る。
     days: 終わってからの日数。why: 消せない理由(flow/live_retire の Retire.verdict などの文)"""
     name = "「%s」" % str(title)[:80] if title else "録画 %s" % (recording or "?")
-    text = ("%s: 終わって %d 日たちましたが、%sので録画は自動では消えません(本番版に作り直せない録画は置き場所に残り続けます。"
+    text = ("%s: 終わって %d 日たちましたが、%sので録画は自動では消えません(理由が解けない録画は置き場所に残り続けます。"
             "要らなければ「すべて終了」のあと、録画の置き場所の %s のフォルダを手で消してください)") % (name, int(days), _reason(why) or "理由が分かりません", recording or "?")
     return {"kind": "keep", "kindLabel": KIND_LABELS["keep"], "text": text, "jobId": "", "recorder": "", "recording": recording or "",
             "markId": "", "runId": "", "at": at}
 
 
 def delete_notice(recording, hours_left, title="", at=""):
-    """本番版に置き換わらない録画を消す予告(10-09 ユーザー決定。src/manage/keep/live_cleanup.py の kept_failures)-> collect と同じ形の 1 件(kind keep)"""
+    """書き出せない・アーカイブ化を確かめられない録画を消す予告(10-09 ユーザー決定。src/manage/keep/live_cleanup.py の kept_failures)-> collect と同じ形の 1 件(kind keep)"""
     name = "「%s」" % str(title)[:80] if title else "録画 %s" % (recording or "?")
-    text = ("%s: 終わってから本番版に作り直せていないマークがあるので、あと約 %d 時間で録画を自動で消します(書き出した切り抜きは残ります。"
+    text = ("%s: 書き出せていないマークがあるか、アーカイブ化を確かめられないので、あと約 %d 時間で録画を自動で消します(ごみ箱へ移し、3 日は戻せます。書き出した切り抜きは残ります。"
             "録画を残したいときは、それまでに設定の「録画を自動で消す」をオフにしてください)") % (name, int(hours_left))
     return {"kind": "keep", "kindLabel": KIND_LABELS["keep"], "text": text, "jobId": "", "recorder": "", "recording": recording or "",
             "markId": "", "runId": "", "at": at}

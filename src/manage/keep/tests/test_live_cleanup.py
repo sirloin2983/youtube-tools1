@@ -1,4 +1,5 @@
-"""録画を自動で消す(src/manage/keep/live_cleanup.py。線 D の P4 の 0-9 の最後)のテスト。消すのは戻せないので、消えない場合を厚く確かめる。
+"""録画を自動で消す(src/manage/keep/live_cleanup.py。線 D の 0-9 の最後。LD-1 で「書き出し済み + アーカイブ化を確かめたら ごみ箱へ」)のテスト。
+消すのは戻しにくいので、消えない場合を厚く確かめる。録画を ごみ箱 へ移すのは録画の部品(src/pipeline/ingest/tests/ の rec_core の delete)。
 
 偽の Live(録画元の一覧と delete)と本物の書き出しの管理(flow/live_export の Exporter)で動かす。入口(src/app/live.py)は使わない。
 実行(リポジトリ直下から): python -m unittest src/manage/keep/tests/test_live_cleanup.py -v
@@ -86,11 +87,17 @@ class CleanupTest(unittest.TestCase):
         self.studio_down = False
         self.studio_calls = []
         self.logs = []
+        self.arch = {}              # 録画の id -> アーカイブ化を確かめた結果(無い = 確かめた "")
+        self.asked = []
         self.cl = LC.Cleaner(self.live, enabled=lambda: self.on, studio=self.studio, log=self.logs.append,
-                                                     no_mark_sec=2.0, keep_sec=2.0, interval=0)
+                             no_mark_sec=2.0, keep_sec=2.0, interval=0, archived=self.archived)
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def archived(self, rc_id, r):
+        self.asked.append(r["id"])
+        return self.arch.get(r["id"], "")
 
     def studio(self, method, path, body=None):
         self.studio_calls.append((method, path, body))
@@ -111,13 +118,14 @@ class CleanupTest(unittest.TestCase):
             return 200, {"ok": True}
         return 404, {"error": "not_found"}
 
-    def job(self, rec, n, state="done", arc="done", keep=None, at=None, needs=False):
+    def job(self, rec, n, state="done", arc="done", keep=None, at=None, needs=False, **kw):
         j = {"id": "lx-%010x" % (n + 100 * len(self.live.exporter.jobs)), "recorder": "local", "recording": rec, "markId": "lm-%012x" % n, "n": n,
              "label": "", "start": LX.epoch_iso(RELEASE + n * 10), "end": LX.epoch_iso(RELEASE + n * 10 + 5), "state": state, "message": "",
              "error": "", "needsArchive": needs, "created": LX.now_iso(), "updated": LX.now_iso(), "path": "",
              "studio": {"video": rec, "mark": "m%d" % n, "start": n * 10.0, "end": n * 10.0 + 5}}
         if arc:
             j["archive"] = {"state": arc, "label": A.LABELS.get(arc, arc), "at": at or LX.now_iso(), "keep": keep}
+        j.update(kw)
         self.live.exporter.jobs.append(j)
         return j
 
@@ -125,37 +133,43 @@ class CleanupTest(unittest.TestCase):
         return {"id": "m%d" % n, "status": status, "start": n * 10.0 if start is None else start, "end": n * 10.0 + 5}
 
     def test_kept_recordings_are_reported(self):
-        """D-14 と 10-09 のユーザー決定: 終わっているのに消せない録画は理由を覚える。理由が「本番版になっていないマークがある」だけなら
-        終わって STALE_SEC で消し(スタジオに採用のまま書き出していないマークがあれば消さない)、WARN_SEC から「調子」に予告(delete_notice)。
+        """D-14 と 10-09 のユーザー決定: 終わっているのに消せない録画は理由を覚える。理由が stale_ok(書き出していない・アーカイブ化を
+        確かめられない)だけなら終わって STALE_SEC で消し(スタジオに採用のまま書き出していないマークがあれば消さない)、WARN_SEC から「調子」に予告(delete_notice)。
         ほかの理由(書き出しの途中など)は STALE_SEC より古ければ「調子」の失敗(kind keep。keep_failure)に出し、消さない。録画中は出さない"""
         C = LC
-        R4, R5 = "20261005-150000-abcdefghijk", "20261005-160000-abcdefghijk"
+        R4, R5, R6 = "20261005-150000-abcdefghijk", "20261005-160000-abcdefghijk", "20261005-170000-abcdefghijk"
+        no = C.live_retire.NOT_ARCHIVED + "(処理中)"
         self.live.add(self.R1, ended_ago=C.STALE_SEC + 100)
-        self.job(self.R1, 1, state="done", arc="error")     # 本番版になっていない・3 日たった → 消す
+        self.job(self.R1, 1)
+        self.arch[self.R1] = no                             # アーカイブ化を確かめられない・3 日たった → 消す
         self.live.add(self.R2, ended_ago=C.WARN_SEC + 100)
-        self.job(self.R2, 1, state="done", arc="error")     # 本番版になっていない・2 日 → 予告
+        self.job(self.R2, 1)
+        self.arch[self.R2] = no                             # 2 日 → 予告
         self.live.add(self.R3, state="recording")
         self.live.add(R4, ended_ago=C.STALE_SEC + 100)
-        self.job(R4, 1, state="encode", arc="wait")         # 書き出しの途中 → 消さずに知らせる
+        self.job(R4, 1, state="encode", arc=None)           # 書き出しの途中 → 消さずに知らせる
         self.live.add(R5, ended_ago=C.STALE_SEC + 100)
-        self.job(R5, 1, state="done", arc="error")
+        self.job(R5, 1)
+        self.arch[R5] = no
         self.studio_videos[R5] = [self.smark(1), self.smark(2, status="adopted")]   # 採用のまま書き出していないマーク → 消さない
+        self.live.add(R6, ended_ago=C.STALE_SEC + 100)
+        self.job(R6, 1, state="error", arc="error", needs=True)   # アーカイブから書き出せなかった・3 日たった → 消す
         self.cl.tick(force=True)
-        self.assertEqual(self.live.deleted(), [self.R1])
+        self.assertEqual(sorted(self.live.deleted()), sorted([self.R1, R6]))
         self.assertTrue(all(j.get("recordingDeleted") for j in self.live.exporter.jobs if j["recording"] == self.R1))
         f = {x["recording"]: x for x in self.cl.kept_failures()}
         self.assertEqual(sorted(f), sorted([self.R2, R4, R5]))
         self.assertEqual((f[self.R2]["kind"], f[self.R2]["kindLabel"], f[self.R2]["at"] is not None), ("keep", "録画の片付け", True))
-        for s in ("あと約 23 時間で録画を自動で消します", "録画を自動で消す"):
+        for s in ("あと約 23 時間で録画を自動で消します", "録画を自動で消す", "ごみ箱"):
             self.assertIn(s, f[self.R2]["text"])
         for s in ("書き出しの途中", "3 日", R4, "自動では消えません"):
             self.assertIn(s, f[R4]["text"])
         self.assertIn("採用のまま書き出していないマークがある", f[R5]["text"])
         self.assertNotIn(self.R3, self.cl._kept)
-        self.live.exporter.jobs[1]["archive"]["state"] = "done"   # R2 が本番版になったら消えて、予告も消える
+        self.arch[self.R2] = ""   # R2 のアーカイブ化を確かめられたら消えて、予告も消える
         self.studio_videos[self.R2] = [self.smark(1)]
         self.cl.tick(force=True)
-        self.assertEqual(self.live.deleted(), [self.R1, self.R2])
+        self.assertEqual(sorted(self.live.deleted()), sorted([self.R1, R6, self.R2]))
         self.assertEqual(sorted(x["recording"] for x in self.cl.kept_failures()), sorted([R4, R5]))
 
     def test_replaced_recording_is_deleted(self):
@@ -167,24 +181,20 @@ class CleanupTest(unittest.TestCase):
         self.assertTrue(j1["recordingDeleted"] and j2["recordingDeleted"])   # 画面が「録画は消しました」と出す印
         saved = fsio.read_json_file(os.path.join(self.tmp, "live", "exports.json"), 1 << 20)
         self.assertTrue(all(j.get("recordingDeleted") for j in saved["jobs"]))
-        self.assertTrue(any("録画を消しました" in m and self.R1 in m for m in self.logs), self.logs)
+        self.assertTrue(any("録画をごみ箱へ移しました" in m and self.R1 in m and "3 日" in m for m in self.logs), self.logs)
+        self.assertEqual(self.asked, [self.R1])   # アーカイブ化は消す直前に 1 回確かめる
         self.assertEqual(self.cl.tick()["deleted"], [])   # もう一覧に無い
 
-    def test_marks_file_is_dropped_only_after_copied_to_case(self):
-        """RS8 B3-5(決定 3-37 の (r8j)): 本番版に入れ替え済みで録画を消したら、マークの正本(live/marks)も消す。
-        スタジオの採用の正本(書き出しのジョブの入力の写し)は消してよい・スタジオなしの採用の印は案件の 採用.json に写ったあとだけ"""
+    def test_marks_file_is_kept(self):
+        """LD-1(Fable の指摘 5): 録画を消してもマークの正本(live/marks)は残す(あとでアーカイブから書き出すときに URL・題を読む)"""
         ms = self.live.exporter.marks
-        for rec, local in ((self.R1, False), (self.R2, True)):
+        for rec in (self.R1, self.R2):
             self.live.add(rec)
             self.job(rec, 1)
             self.studio_videos[rec] = [self.smark(1)]
-            ms.upsert("local", rec, "lm-%012x" % 1, 1, LX.epoch_iso(RELEASE + 10), LX.epoch_iso(RELEASE + 15))   # 書き出しのジョブの入力(スタジオの採用)
-            if local:   # スタジオなしの採用の印(案件に写っていない = 書き出したのに案件を引けなかった)
-                ms.adopt("local", rec, "a00000000000f", RELEASE, 10.0, 15.0)
+            ms.upsert("local", rec, "lm-%012x" % 1, 1, LX.epoch_iso(RELEASE + 10), LX.epoch_iso(RELEASE + 15))
         self.assertEqual(sorted(self.cl.tick()["deleted"]), sorted([self.R1, self.R2]))
-        self.assertFalse(os.path.exists(ms.path("local", self.R1)))
-        self.assertTrue(os.path.exists(ms.path("local", self.R2)))   # 写っていない採用の印は残す
-        self.assertTrue(any("案件にまだ写っていない" in m for m in self.logs), self.logs)
+        self.assertTrue(os.path.exists(ms.path("local", self.R1)) and os.path.exists(ms.path("local", self.R2)))
 
     def test_adopted_marks_from_marks_book(self):
         """G3(RS8 B3-5): 親がマークの置き場(marks.adopted)を持てば、採用のまま書き出していないマークはそこから見る(スタジオなしの headless)"""
@@ -204,28 +214,33 @@ class CleanupTest(unittest.TestCase):
         self.assertEqual(self.cl.tick()["deleted"], [self.R1])
         self.assertFalse(any(p.startswith("/api/video?id=") for _m, p, _b in self.studio_calls))   # スタジオには聞かない
 
-    def test_replaced_but_not_yet(self):
-        """1 本でも本番版でない・途中・失敗・取り消し・採用のまま・録画中・スタジオが答えない → 消さない"""
+    def test_not_yet(self):
+        """1 本でも書き出していない・アーカイブからの書き出しの待ち・途中・失敗・取り消し・採用のまま・録画中・スタジオが答えない・
+        アーカイブ化を確かめられない → 消さない"""
+        no = LC.live_retire.NOT_ARCHIVED + "(処理中)"
         cases = [
-            ("作り直せなかった", lambda r: (self.job(r, 1), self.job(r, 2, arc="error"))),
-            ("順番待ち", lambda r: (self.job(r, 1), self.job(r, 2, arc="wait"))),
-            ("作り直しの途中", lambda r: (self.job(r, 1), self.job(r, 2, arc="fetch"))),
-            ("取り消し", lambda r: (self.job(r, 1), self.job(r, 2, arc="cancelled"))),
-            ("まだ試していない", lambda r: (self.job(r, 1), self.job(r, 2, arc=None))),
+            ("アーカイブから書き出せなかった", lambda r: (self.job(r, 1), self.job(r, 2, state="error", arc="error", needs=True))),
+            ("アーカイブの待ち", lambda r: (self.job(r, 1), self.job(r, 2, state="error", arc="wait", needs=True))),
+            ("アーカイブからの書き出しの途中", lambda r: (self.job(r, 1), self.job(r, 2, state="error", arc="fetch", needs=True))),
+            ("取り消し", lambda r: (self.job(r, 1), self.job(r, 2, state="cancelled", arc="cancelled", needs=True))),
+            ("M7 の採用の待ち", lambda r: (self.job(r, 1), self.job(r, 2, state="wait", arc=None, **{"from": "archive"}))),
             ("書き出しの途中", lambda r: (self.job(r, 1), self.job(r, 2, state="wait", arc=None))),
-            ("欠けで書き出せず、作り直していない", lambda r: (self.job(r, 1), self.job(r, 2, state="error", arc=None, needs=True))),
+            ("欠けで書き出せず、まだ試していない", lambda r: (self.job(r, 1), self.job(r, 2, state="error", arc=None, needs=True))),
             ("最新の書き出しが失敗", lambda r: (self.job(r, 1), self.job(r, 2), self.job(r, 2, state="error", arc=None))),
+            ("アーカイブ化を確かめられない", lambda r: (self.job(r, 1), self.job(r, 2), self.arch.__setitem__(r, no))),
         ]
         for name, make in cases:
             with self.subTest(name):
                 self.live.exporter.jobs[:] = []
                 self.live.calls[:] = []
+                self.arch.clear()
                 self.live.add(self.R1)
                 self.studio_videos[self.R1] = [self.smark(1), self.smark(2)]
                 make(self.R1)
                 self.assertEqual(self.cl.tick()["deleted"], [], name)
                 self.assertEqual(self.live.deleted(), [], name)
-        # 全部本番版でも: 録画中(つなぎ直し中)・採用のまま書き出していないマーク・区間を直して採用に戻したマーク・スタジオにつながらない
+        self.arch.clear()
+        # 全部書き出し済みでも: 録画中(つなぎ直し中)・採用のまま書き出していないマーク・区間を直して採用に戻したマーク・スタジオにつながらない
         self.live.exporter.jobs[:] = []
         self.job(self.R1, 1)
         self.job(self.R1, 2)
@@ -241,7 +256,7 @@ class CleanupTest(unittest.TestCase):
                 self.assertEqual(self.cl.tick()["deleted"], [], name)
                 self.assertEqual(self.live.deleted(), [], name)
         self.studio_down = False
-        self.studio_videos[self.R1] = [self.smark(1), self.smark(2, "adopted")]   # 作り直した欠けのマーク(書き出し済みにする前の採用)は、同じ区間なら数えない
+        self.studio_videos[self.R1] = [self.smark(1), self.smark(2, "adopted")]   # アーカイブから書き出した欠けのマーク(書き出し済みにする前の採用)は、同じ区間なら数えない
         self.live.add(self.R1)
         self.assertEqual(self.cl.tick()["deleted"], [self.R1])
 
@@ -308,11 +323,11 @@ class CleanupTest(unittest.TestCase):
         self.assertIn(self.R1, self.live.recs)
 
     def test_after_stream_holds_delete(self):
-        """配信後の全自動(M7)がまだの録画は、マークが無くても・入れ替えが全部済んでいても消さない(hold)。済めば消す"""
+        """配信後の全自動(M7)がまだの録画は、マークが無くても・全部書き出し済みでも消さない(hold)。済めば消す"""
         hold = {"why": "配信後の自動の切り抜き(アーカイブの解析)がまだです"}
         self.cl.hold = lambda rc, r: hold["why"]
         self.live.add(self.R1, ended_ago=10)                # マークの無い録画
-        self.live.add(self.R2)                              # 入れ替えが全部済んだ録画
+        self.live.add(self.R2)                              # 全部書き出し済みの録画
         self.job(self.R2, 1)
         self.studio_videos[self.R2] = [self.smark(1)]
         self.assertEqual(self.cl.tick()["deleted"], [])

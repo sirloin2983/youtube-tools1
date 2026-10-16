@@ -6,17 +6,27 @@
 使うのは ④ の録画の片付け(src/manage/keep/live_cleanup.py の Cleaner)。④ は見回り(tick・check)・期限(3 日・24 時間・予告と知らせ)・
 録画元へ delete を送る・速報版のファイルを消す(場所の確かめ)・記録の 1 行だけを持ち、② の記録を直に書かない。
 親(host)は flow/livesession.py の LiveSession(exporter・marks・detector)。marks と detector は呼ぶときに読む(use_headless の差し替えが効く)。
+
+2026-10-16 の見直し(決定 3-73): 「本番版に全部入れ替えたら消す」をやめ、「マークが全部書き出し済み(録画に無い区間はアーカイブから)で、
+アーカイブ化を確かめたら消す」にした。アーカイブ化の確かめは src/flow/live_archive.py の Archiver.archived(④ が verdict に関数で渡す)。
+消すのは ごみ箱へ(録画の部品の delete が ごみ箱/<日付>/録画/ へ改名する。3 日で消える)。マークの正本は消さない(あとでアーカイブから書き出すときに URL・題を読む)。
 """
 import collections
 
 from . import live_export as LX
 
-NOT_REPLACED = "本番版になっていないマークがある"   # 消せない理由のうち、④ が期限(終わって 3 日)で消す理由
+NOT_EXPORTED = "書き出していないマークがある"   # 消せない理由のうち、④ が期限(終わって 3 日)で消す理由(失敗・取り消し・アーカイブから書き出せない)
+NOT_ARCHIVED = "アーカイブ化をまだ確かめられていない"   # 同じく期限で消す理由(live_archive.NOT_ARCHIVED と同じ頭。後ろに理由が付く)
 STUDIO_UNKNOWN = "スタジオに確かめられない"
 
 # 録画を消してよいかの答え: jobs = 書き出しのジョブがあるか(無ければ ④ はマークの無い録画の道へ)・why = 消せない理由(空 = 消してよい)・
-# replaced = 本番版に入れ替え済み(消したらマークの正本も後始末する。終わって 3 日の録画の正本は残す)
-Verdict = collections.namedtuple("Verdict", "jobs why replaced")
+# archived = アーカイブ化を確かめて消してよい(偽で why が空 = 終わって 3 日の期限で消してよい)
+Verdict = collections.namedtuple("Verdict", "jobs why archived")
+
+
+def stale_ok(why):
+    """終わって 3 日の期限を過ぎたら、この理由だけなら消してよいか(書き出していない・アーカイブ化を確かめられない)"""
+    return isinstance(why, str) and (why == NOT_EXPORTED or why.startswith(NOT_ARCHIVED))
 
 
 def near(a, b):
@@ -24,18 +34,18 @@ def near(a, b):
     return isinstance(a, (int, float)) and isinstance(b, (int, float)) and abs(a - b) < 0.05
 
 
-def replaced_why(js):
-    """録画のジョブの入れ替えが全部済んだか(採用の側は見ない)。済んでいれば ""、まだなら理由"""
+def exported_why(js):
+    """録画のマークが全部書き出し済みか(採用の側・アーカイブ化は見ない)。済んでいれば ""、まだなら理由"""
     if any(j.get("recordingDeleted") for j in js):   # 前に消した(一覧にまだあるのは、録画元が古い一覧を返したとき)
         return "前に消しました"
     for j in js:
+        if (j.get("archive") or {}).get("state") in LX.ARCHIVE_ACTIVE or (j.get("state") == "wait" and j.get("from") == "archive"):
+            return "アーカイブからの書き出しの途中・待ち"
         if j.get("state") in LX.ACTIVE:
             return "書き出しの途中"
-        if (j.get("archive") or {}).get("state") in LX.ARCHIVE_ACTIVE:
-            return "本番版への作り直しの途中"
     last = LX.latest_per_mark(js)
-    if not last or not all(j.get("state") == "done" and (j.get("archive") or {}).get("state") == "done" for j in last):
-        return NOT_REPLACED
+    if not last or not all(j.get("state") == "done" for j in last):
+        return NOT_EXPORTED
     return ""
 
 
@@ -84,18 +94,26 @@ class Retire:
             return None
 
     # --- 読み口 ---
-    def verdict(self, rc_id, rec, stale=False):
+    def verdict(self, rc_id, rec, stale=False, archived=None):
         """この録画を消してよいか -> Verdict。stale: 録画が終わって ④ の期限(3 日)を過ぎたか。
-        期限を過ぎて理由が NOT_REPLACED だけなら、採用のまま書き出していないマークが無ければ消してよい(replaced は False)"""
+        archived() -> アーカイブ化を確かめたか("" = 確かめた / 理由。live_archive.Archiver.archived。ほかの条件を満たしたときだけ呼ぶ = yt-dlp を むだに呼ばない)。
+        無ければ確かめられない。期限を過ぎて理由が stale_ok だけなら、採用のまま書き出していないマークが無ければ消してよい(archived は False)"""
         js = self._jobs(rc_id, rec)
         if not js:
             return Verdict(False, "", False)
-        why = replaced_why(js)
         last = LX.latest_per_mark(js)
+        why = exported_why(js)
         if not why:
             why = adopted_why(last, self._adopted(rc_id, rec))
-            return Verdict(True, why, not why)
-        if why == NOT_REPLACED and stale:
+            if why:
+                return Verdict(True, why, False)
+            try:
+                why = archived() if archived is not None else NOT_ARCHIVED
+            except Exception:   # noqa: BLE001  (確かめられなければ期限まで消さない)
+                why = NOT_ARCHIVED
+            if not why:
+                return Verdict(True, "", True)
+        if stale_ok(why) and stale:
             return Verdict(True, adopted_why(last, self._adopted(rc_id, rec)), False)
         return Verdict(True, why, False)
 
@@ -108,7 +126,7 @@ class Retire:
 
     def keeps(self):
         """消す候補の退避した速報版 -> (書き出し先の根か None, [{"id", "keep"(パス), "at"(入れ替えた時刻の epoch か None)}])。
-        本番版に入れ替え済み(archive.state done)で、keep があって keepDeleted の無いジョブだけ。期限と場所の確かめは ④"""
+        前の版で本番版に入れ替えた(archive.state done)ジョブで、keep があって keepDeleted の無いものだけ。期限と場所の確かめは ④"""
         ex = self._ex
         try:
             root = ex.out_dir()

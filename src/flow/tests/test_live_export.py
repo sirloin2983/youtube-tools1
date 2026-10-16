@@ -669,7 +669,8 @@ class ExportPiecesTest(unittest.TestCase):
         self.assertEqual((again.jobs[0]["handoffWait"], again.jobs[0]["runId"]), ("", "run-1"))
 
     def test_hold_for_archive_then_release(self):
-        """M7: holdFor archive のジョブは、書き出したあと まとめて実行へすぐ渡さず、本番版にしてから(release_hold)渡す。空きが少なければ空き待ちに"""
+        """M7(LD-1): hold archive のジョブは from archive の印で、録画からは書き出さない(_next_ready が飛ばす・pending に数えない = Archiver が受け持つ)。
+        前の版の本番版待ち(handoffWait archive)は release_hold で渡す。空きが少なければ空き待ちに。アーカイブから書き出したものはすぐ渡す"""
         free = {"v": 50 * LX.GB}
         runner = FakeRunner()
         ex, _logs = self._pieces_exporter(free, runner)
@@ -678,29 +679,29 @@ class ExportPiecesTest(unittest.TestCase):
         ex.add("local", rec, m["id"], after="auto", hold="archive")
 
         j = ex.jobs[0]
-        self.assertEqual(j["holdFor"], "archive")
+        self.assertEqual((j["from"], j["state"], "holdFor" in j), ("archive", "wait", False))
+        self.assertIn("アーカイブから書き出します", j["message"])
+        self.assertFalse(ex.pending())                                       # アーカイブから書き出すのは Archiver が受け持つ
+        self.assertIsNone(ex._next_ready())                                  # 録画元に聞かない
+        self.assertEqual(ex.snapshot("local", rec)[0]["stateLabel"], "アーカイブ待ち")
         media = os.path.join(self.tmp, "out", "02_y.mp4")
         os.makedirs(os.path.dirname(media))
         with open(media, "wb") as f:
             f.write(b"x")
         ans = {"url": "https://www.youtube.com/watch?v=abcdefghijk", "firstPdt": "2026-10-04T05:00:00.000Z"}
         a, b = LX.iso_epoch(j["start"]), LX.iso_epoch(j["end"])
-        ex._finish(j, {"id": "local"}, rec, ans, {"path": media, "duration": 5.0, "title": "配信"}, a, b)
-        self.assertEqual((j["handoffWait"], runner.files), ("archive", []))
-        self.assertIn("本番版に入れ替えてから、文字起こし → パックへ渡します", j["message"])
-        self.assertFalse(ex.pending())                                       # 本番版の待ちは Archiver が受け持つ
+        ex._finish(j, {"id": "local"}, rec, ans, {"path": media, "duration": 5.0, "title": "配信"}, a, b, archive={"videoId": "abcdefghijk"})
+        self.assertEqual((j["handoffWait"], j["runId"], j["state"]), ("", "run-1", "done"))   # アーカイブから書き出したものはすぐ渡す
+        # 前の版の本番版待ち
+        j2 = dict(j, id="lx-00000000b2", handoffWait="archive", runId="")
+        ex.jobs.append(j2)
         free["v"] = 1 * LX.GB
-        self.assertEqual(ex.release_hold(j), "")                             # 空きが少ない → 空き待ちへ
-        self.assertEqual(j["handoffWait"], "disk")
-        self.assertEqual(ex.release_hold(j), "")                             # もう本番版の待ちではない
+        self.assertEqual(ex.release_hold(j2), "")                            # 空きが少ない → 空き待ちへ
+        self.assertEqual(j2["handoffWait"], "disk")
+        self.assertEqual(ex.release_hold(j2), "")                            # もう本番版の待ちではない
         free["v"] = 50 * LX.GB
         ex._retry_handoffs()
-        self.assertEqual((j["handoffWait"], j["runId"], runner.files[-1][2]), ("", "run-1", "auto"))
-        # アーカイブから作った本番版(欠けのマーク)はすぐ渡す
-        j2 = dict(j, id="lx-00000000b2", handoffWait="", runId="")
-        ex.jobs.append(j2)
-        ex._finish(j2, {"id": "local"}, rec, ans, {"path": media, "duration": 5.0, "title": "配信"}, a, b, archive={"videoId": "abcdefghijk"})
-        self.assertEqual((j2["handoffWait"], j2["runId"]), ("", "run-2"))
+        self.assertEqual((j2["handoffWait"], j2["runId"], runner.files[-1][2]), ("", "run-2", "auto"))
 
     def test_handoff_with_friend_request(self):
         """友人のライブ配信の依頼の録画(2-15): 書き出したら まとめて実行の start_file に 依頼 id・届け先・話者・トラック・カット(依頼のものが live.auto より先)と

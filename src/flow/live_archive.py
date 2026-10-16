@@ -1,63 +1,73 @@
 # -*- coding: utf-8 -*-
-"""アーカイブで本番版に作り直す(線 D の P4。notes:plan/line-d-live-clipping.md の 0-9)の入口の側の中身。API は src/app/live.py(設定 live.enabled がオンのときだけ)。
+"""録画に無い区間をアーカイブ(YouTube)から書き出す(線 D の P4 の残り。notes:plan/line-d-live-clipping.md の 0-9)と、配信後の全自動(M7)の入口の側の中身。
+API は src/app/live.py(設定 live.enabled がオンのときだけ)。
+
+2026-10-16 の見直し(決定 3-73・notes:plan/f1-friend-requirements.md の A-14)で、録画から作った速報版を本番版に入れ替える(P4 の入れ替え)は廃止した。
+材料: 10-05〜10-15 の 140 本で音のずれはほぼ 0 秒・友人へは配信中に速報版のパックで届いていて入れ替えても何も届かない。
+P4 の本当の役目は「録画を消してよい合図」だったので、それは archived(アーカイブ化したかの確かめ)に置き換えた(録画を消すのは
+src/manage/keep/live_cleanup.py。判断は src/flow/live_retire.py)。設定 live.autoArchive も消した(欠けのジョブは自動で必ずアーカイブから)。
 
 単位は入口の書き出しのジョブ(src/flow/live_export.py の Exporter。live/exports.json)。ジョブに archive を足して残す(入口を起動し直しても続く):
   archive {state: wait|probe|align|fetch|verify|done|error|cancelled, label(日本語), message(失敗のときは理由), progress(0〜1),
-           offset(マークの絶対時刻 − 配信の開始時刻 の見当から、照合で求めたアーカイブの秒までの差), residual(本番版と速報版の音のずれ。秒),
-           archiveStart・archiveEnd(アーカイブの秒), at(済んだ時刻), auto(自動で始めた), aligned(照合が済んだ = ほかのマークの見当に使える),
-           built(入れ替え待ちの本番版。使用中で入れ替えられなかったとき), keep(退避した速報版), retryAt}
-  対象 = 録画1本の、マークごとの最新のジョブで、done(速報版と入れ替える)か error + needsArchive(欠けで書き出せなかった。新しく作る)。
+           offset(マークの絶対時刻 − 配信の開始時刻 の見当から、照合で求めたアーカイブの秒までの差), offsetFrom(ずれの出どころ),
+           archiveStart・archiveEnd(アーカイブの秒), at(済んだ時刻), auto(自動で始めた), aligned(録画の音で照合した = ほかのマークの見当に使える), retryAt}
+  対象 = 録画1本の、マークごとの最新のジョブで、録画に無い区間のもの:
+    error + needsArchive(欠け・止めていた間・録画が区間まで届かなかった)と、wait + from "archive"(M7 が採用した候補 = 最初からアーカイブから書き出す)。
+  録画から書き出せたジョブ(done)は対象にしない(前の版で退避した速報版の片付けは live_cleanup が続ける)。
 
 流れ(1本ずつ順に):
-  1. probe  … yt-dlp で live_status(was_live = 用意できた / post_live・is_live = まだ)・配信の開始時刻 release_timestamp を取る
+  1. probe  … yt-dlp で live_status(was_live = 用意できた / post_live・is_live = まだ)・配信の開始時刻 release_timestamp・長さ duration を取る
               (timestamp は配信の終わりごろの時刻で数時間ずれるので使わない。release_timestamp が無ければ照合できない)。
               録画1本ごとの結果は live/archive.json(画面の archiveInfo {ready, checkedAt, message})
   2. align  … 配信の音を丸ごと1回だけ yt-dlp で取り(-f ba = スタジオの書き出し bv*+ba と同じ音。2.5 時間の配信でも数秒)、入口の作業用
               live\\work\\audio-<videoId>\\ に置く(同じ配信のジョブで使い回す。その配信のジョブが無くなったら消す)。
-              見当 = マークの絶対時刻 − 開始時刻。その前後の窓(最初は ±300 秒、確かさが低ければ ±900 秒で1回だけやり直す。2 本目からは前のずれの ±20 秒。
-              だめなら広げる)を丸ごとの音から ffmpeg で切り(10 秒手前まで入力側の -ss、残りはデコードして切る = サンプル単位で正確。入力側だけだと AAC で 13ms ずれた)、速報版の音(頭の1秒ほどを除いた最大 60 秒)と相互相関
-              (8kHz・モノラル。numpy を使うので別プロセス src/pipeline/ingest/live_align_worker.py = 入口のプロセスでは numpy を import しない。配信全体は相関にかけない = 窓だけ)
-              2 本目からの見当は、同じ録画のほか、同じ配信(videoId)の別の録画の照合も使う(同じ配信の 2 本の録画の差は 1 秒ほど = ±20 秒に収まる)。
-              欠けのマーク(速報版が無い)は、同じ録画の照合できたマークのずれのうち、前にある・時刻が近いものを使う(1 本も無ければできない)。
-              2026-10-05 に本物の配信で確かめて変えた: yt-dlp の区間取得(--download-sections)は遅く(±600 秒で 570 秒)、m4a と opus で頭が 35ms ずれて
-              本番版の作り直しが毎回やり直しになっていた / 合わない区間で ratio 1.58 が出た(MIN_RATIO 3.0)/ yt-dlp の一時的な 403 は 30 秒あけて 2 回までやり直す
+              ずれ(録画の受信時刻 → アーカイブの秒)は、マークの頭の手前(同じセッション)の録画の音を最大 REF_SEC(60 秒)録画元から取って、
+              丸ごとの音の窓と照合して求める(_rec_offset。録画を消したあとは使えない)。見当 = マークの絶対時刻 − 開始時刻。
+              窓は最初 ±300 秒、確かさが低ければ ±900 秒で1回だけやり直す。2 本目からは前のずれの ±20 秒(だめなら広げる)。
+              窓は丸ごとの音から ffmpeg で切り(10 秒手前まで入力側の -ss、残りはデコードして切る = サンプル単位で正確。入力側だけだと AAC で 13ms ずれた)、
+              相互相関(8kHz・モノラル。numpy を使うので別プロセス src/pipeline/ingest/live_align_worker.py = 入口のプロセスでは numpy を import しない)。
+              録画の音が取れない(マークが録画の終わりより後・録画が無い)ときは、同じ録画の照合できたマークのずれのうち前にある・近いもの、
+              無ければ配信後の全自動(M7)が求めた録画のずれ(afterStream.offset)を使う。どれも無ければできない。
+              2026-10-05 に本物の配信で確かめて変えた: yt-dlp の区間取得(--download-sections)は遅く(±600 秒で 570 秒)、m4a と opus で頭が 35ms ずれる /
+              合わない区間で ratio 1.58 が出た(MIN_RATIO 3.0)/ yt-dlp の一時的な 403 は 30 秒あけて 2 回までやり直す
   3. fetch  … ② の書き出しの器 flow/export(スタジオの POST /studio/api/live/section と同じ束 {videoId, start, end, path, volume, loudness, maxHeight,
-              precision} = ① の build_section_spec。YouTube の書き出しの中身を使う。二重に書かない。OPT2 の J5 でスタジオの HTTP をやめた)を直に呼んで待つ。path は書き出し先の中の、まだ無い .mp4(<配信のフォルダ>\\作業用\\本番版の作りかけ\\<ジョブ>\\)
-  4. verify … 30fps・長さ(区間 ±0.2 秒)・速報版との音のずれが 1 コマ(FRAME_TOL = 0.034 秒)以内。超えたら1回だけずれを足して作り直す。それでもだめなら入れ替えない
-  5. 入れ替え … 速報版を <配信のフォルダ>\\作業用\\速報版\\<元の名前>(重なれば _2…)へ移し、本番版を元の名前へ(fsio.replace_retry)。
-              速報版は消さない。使用中で動かせなければ archive.state を wait に戻し(本番版は built に残す)、RETRY_SEC 後の見回りでやり直す
-              → .clip.json の source.live.archive {videoId, start, end, offset, residual, at}。欠けのマークは新しい名前で書き出して job.state を done・path を入れる
-              (スタジオの画面の今の突き合わせが「書き出し済み」にする。本番版の札は archive.state done を見て画面が付ける)
+              precision} = ① の build_section_spec。YouTube の書き出しの中身を使う。二重に書かない)を直に呼んで待つ。
+              path は書き出し先の中の、まだ無い .mp4(<配信のフォルダ>\\作業用\\本番版の作りかけ\\<ジョブ>\\)
+  4. verify … 30fps・長さ(区間 ±0.2 秒)
+  5. 置く   … 新しい名前で書き出し先へ置き、job.state を done・path を入れる(Exporter._finish。.clip.json の source.live.archive {videoId, start, end, offset, at}・
+              export.from "youtube-archive")。書き出したあとの流れ(文字起こし → パック)へはすぐ渡す。スタジオのマークは「書き出し済み」+ archived の札
 
-重い処理の順番(ytt.jobs.SLOTS)を入口の側では取らない: 作り直し(いちばん重い)はスタジオの書き出しが自分で SLOTS を取る。入口がその間 SLOT を
+重い処理の順番(ytt.jobs.SLOTS)を入口の側では取らない: 書き出し(いちばん重い)はスタジオの書き出しが自分で SLOTS を取る。入口がその間 SLOT を
 持って待つと、上限 1(YTT_MAX_HEAVY_JOBS=1)では互いに待って止まり、上限 2 でも1つをむだに塞ぐ。入口の側の仕事は yt-dlp の取得(通信)・
 ffmpeg で 8kHz の音にする(数秒)・照合(子プロセスで 1〜2 秒)だけで軽い。その代わり、自動で始めるのは SLOTS に実行中・順番待ちが無く、
 書き出しのジョブも無いときだけにする。
 
-自動(設定 live.autoArchive。既定オン): 録画が終わって FIRST_DELAY(30 分)後から INTERVAL(1 時間)ごとに用意を確かめ、GIVE_UP(7 日)でやめる。
+自動(いつも): 録画が終わって FIRST_DELAY(30 分)後から INTERVAL(1 時間)ごとに用意を確かめ、GIVE_UP(7 日)でやめる。
 録画が終わったかは録画元の /live/list(つながらなければジョブの時刻)。自動は、まだ一度も試していないマークだけ(失敗・取り消しは人が押して始める)。
 
-できないもの: アーカイブが残らない・メンバー限定・非公開・配信者がアーカイブを切り貼りして音が合わない区間 → 速報版のまま(理由を archive.message に出す)。
+アーカイブ化したか(archived。録画を消す判断 = src/flow/live_retire.py の Retire.verdict が聞く): 用意を確かめた結果が was_live・限定でない・
+開始時刻と長さが分かり、アーカイブの終わり(開始 + 長さ)が録画の終わり − ARCHIVED_SLACK(900 秒)より後。確かめたのが INTERVAL より前なら確かめ直す。
 
-空き容量(線 D の M4): 書き出し先・live\\work の空きが 5 GB 未満(src/flow/live_export.py の DISK_LOW)なら、作り直しを始めずに待ちに戻す(Later)。
-本番版を待っていた受け渡し(M7。ジョブの handoffWait "archive")は、入れ替えたら(作り直せなければ速報版のまま)Exporter.release_hold で まとめて実行へ渡す。
+できないもの: アーカイブが残らない・メンバー限定・非公開・配信者がアーカイブを切り貼りして音が合わない区間 → 書き出せない(理由を archive.message に出す)。
 
-配信後の全自動(線 D の M7。入口 0.40.0。設定 live.autoAfterStream 既定オフ・live.afterStreamPerHour 既定 6): 人が触らずにパックまで。
-録画ごとの状態は archive.json の afterStream {state, label, message, at, vid, t0, offset, first, last, n, qid, jobs, picked, skipped, title}。
+空き容量(線 D の M4): 書き出し先・live\\work の空きが 5 GB 未満(src/flow/live_export.py の DISK_LOW)なら、書き出しを始めずに待ちに戻す(Later)。
+
+配信後の全自動(線 D の M7。設定 live.autoAfterStream 既定オフ・live.afterStreamPerHour 既定 6): 人が触らずにパックまで。
+録画ごとの状態は archive.json の afterStream {state, label, message, at, vid, t0, offset, first, last, end, n, qid, jobs, picked, skipped, title}。
   wait     … 録画元の一覧(GET /live/list)で終わった録画のうち、終わって FIRST_DELAY(30 分)たち・AFTER_MAX_AGE(2 日)以内・YouTube の動画が分かるもの。
              アーカイブの用意(P4 と同じ確かめ方・同じ覚え方)を待つ
   (時刻)   … 録画の受信時刻とアーカイブの秒のずれ(offset。P4 と同じ向き)を決める: 同じ録画(無ければ同じ配信)の照合済みのマークがあればそのずれ、
              無ければ録画の真ん中あたりの REF_SEC(60 秒)の音を録画元から取って、アーカイブの丸ごとの音と照合する(P4 と同じ窓・同じしきい値・同じ子プロセス)
   analyze  … アーカイブ(kind youtube・videoId)をスタジオの今の解析にかける(POST /studio/api/queue/add。設定はスタジオで保存した解析の設定、
              候補の数 count は N の 2 倍まで増やす)。スタジオで解析済みならそれを使う。進み具合は GET /studio/api/queue
-  (採用)   … 候補(自動のマーク・判定前)を点数の高い順に、録画の範囲に入る(半分以上入るものは録画の範囲に切り詰める)・録画の採用済みのマーク
-             (マークの置き場から = taken。スタジオなしの headless は案件の 採用.json かマークの正本。RS8 B3-5 の G3)と重ならない上位 N を選び
+  (比べる) … 配信中の候補とアーカイブの候補を比べて live_feedback.jsonl へ(compare。src/flow/live_detect.py)
+  (採用)   … 候補(自動のマーク・判定前)を点数の高い順に、録画の頭から配信の終わり(end = アーカイブの終わり。2026-10-16 に録画の終わりから広げた)に
+             入る(半分以上入るものは範囲に切り詰める)・録画の採用済みのマーク(マークの置き場から = taken)と重ならない上位 N を選び
              (N = 録画の長さ(時間)× 1 時間あたりの数。1〜30)、M1 の採用(src/app/live.py の Live.adopt。origin archive・after auto = 文字起こし → パック・
-             hold archive)を 1 本ずつ呼ぶ = スタジオの録画の配信に採用のマーク・live_feedback.jsonl(自動は「良い」に数えない)・書き出しのジョブ(速報版)
-  export   … 書き出しが済んだ(・欠けで書き出せなかった)ジョブを本番版への作り直しに入れ(P4。設定 live.autoArchive がオフでも)、入れ替えたら
-             まとめて実行へ渡す(文字起こし → パック)。全部が済む(渡した・失敗した)と done(n 本のうち渡した数・失敗の数)
+             hold archive = 録画からは書き出さず、最初からアーカイブから書き出す)を 1 本ずつ呼ぶ
+  export   … 採用したジョブをアーカイブからの書き出しに入れ、全部が済む(渡した・失敗した)と done(n 本のうち渡した数・失敗の数)
   done・none(採用する候補が無かった)・error(理由。「調子」の失敗に出す = src/flow/live_failures.py の after_stream_failure)
-録画を自動で消す(src/manage/keep/live_cleanup.py)は、オンの間 afterStream が済むまで(AFTER_MAX_AGE まで)その録画を消さない(after_stream_hold)。
+録画を自動で消す(src/manage/keep/live_cleanup.py)は、afterStream が済むまで(AFTER_MAX_AGE まで)その録画を消さない(after_stream_hold)。
 """
 import json
 import os
@@ -71,7 +81,6 @@ from pipeline.transcribe import recognize as _recognize   # wav の引数を組�
 from ytt import fsio, jobs, normalize, schemas, tools
 from ytt.errors import ApiError
 from . import export as _export   # 書き出しの器(プロセスに 1 つ。OPT2 の J5)
-from . import keys as _keys   # 成果物の鍵(RS6 b-K1)
 from . import live_failures   # 失敗の文は 1 か所。M3・M7
 from . import live_export as LX
 
@@ -90,8 +99,7 @@ LABELS = {"wait": "待ち", "probe": "アーカイブを確かめ中", "align": 
 # 2026-10-05 に本物の配信 4 本で測った: 正しい区間は score 0.97〜0.999・ratio 4.7〜58、合わない区間で ratio 1.58 が出た(止めたのは score だけ)→ ratio は 3.0
 MIN_SCORE = 0.5
 MIN_RATIO = 3.0
-FRAME_TOL = 0.034            # 本番版と速報版の音のずれの上限(30fps の 1 コマ)
-REF_MAX = 60.0               # 照合に使う速報版の音の長さ(秒)
+ARCHIVED_SLACK = 900.0       # アーカイブ化したか: アーカイブの終わり(開始 + 長さ)がこれだけ録画の終わりより前でもよい(release_timestamp は数分ずれる)
 WINDOWS_FIRST = (300.0, 900.0)        # 配信で最初の照合: ±300 秒 → だめなら ±900 秒で1回だけ(release_timestamp と本当の 0 秒の差が −220 秒の配信があった)
 WINDOWS_NEXT = (20.0, 120.0, 900.0)   # 2 本目から: 前のずれの ±20 秒 → だめなら広げる
 YTDLP_RETRIES = 2            # yt-dlp の一時的な失敗(HTTP 403 など)は、あけてやり直す回数(用意の確認と音の取得)
@@ -116,20 +124,35 @@ AFTER_MIN_SEC = 3.0          # 録画の範囲に切り詰めた候補がこれ�
 AFTER_INSIDE = 0.5           # 候補の区間のうち、これだけ(割合)が録画の中にあれば、録画の範囲に切り詰めて使う
 AFTER_FLOW = "auto"          # 自動で採用した切り抜きの書き出したあと = 文字起こし → パック(M7 の決まり。live.auto.after に関係なく)
 REF_SEC = 60.0               # 録画とアーカイブの時刻を合わせるときに、録画から取る音の長さ(秒)
-AFTER_LABELS = {"wait": "アーカイブの用意を待っています", "analyze": "アーカイブを解析しています", "export": "書き出し → 本番版 → パック",
+AFTER_LABELS = {"wait": "アーカイブの用意を待っています", "analyze": "アーカイブを解析しています", "export": "アーカイブから書き出し → パック",
                 "done": "済み", "none": "採用する候補がありませんでした", "error": "失敗"}
 AFTER_END = ("done", "none", "error")
-# 掲示板(flow/board.py。RS8 の ② の口 S2): 本番版への作り直し・配信後の全自動の state -> 掲示板の state
+# 掲示板(flow/board.py。RS8 の ② の口 S2): アーカイブからの書き出し・配信後の全自動の state -> 掲示板の state
 BOARD_STATES = dict({s: "running" for s in RUN}, wait="queued", done="done", error="error", cancelled="cancelled")
 AFTER_BOARD = {"wait": "queued", "analyze": "running", "export": "running", "done": "done", "none": "skipped", "error": "error"}
 AFTER_PREFIX = "as-"   # 掲示板の id「la:as-<録画元>.<録画>」= 配信後の全自動(録画 1 本)。それ以外の la: は書き出しのジョブの id
-SPEED_DIR = "速報版"                      # 作業用\速報版\(退避した速報版)
-BUILD_DIR = "本番版の作りかけ"            # 作業用\本番版の作りかけ\<ジョブ>\(スタジオが書く先。済んだら消す)
+SPEED_DIR = "速報版"                      # 作業用/速報版/(前の版で入れ替えのときに退避した速報版。片付けは live_cleanup)
+BUILD_DIR = "本番版の作りかけ"            # 作業用/本番版の作りかけ/<ジョブ>/(スタジオが書く先。済んだら消す。名前は前の版のまま)
 UNAVAILABLE = ("subscriber_only", "premium_only", "needs_auth", "private")
 
 
+CANCELLED_MSG = "取り消しました(アーカイブから書き出していません)"
+NOT_ARCHIVED = "アーカイブ化をまだ確かめられていない"   # archived が返す理由の頭(src/flow/live_retire.py が 3 日の期限で消してよい理由に数える)
+
+
+def from_archive(job):
+    """M7 が採用した候補(録画からは書き出さず、最初からアーカイブから書き出す。live_export の Exporter.add の hold "archive")"""
+    return job.get("from") == "archive"
+
+
+def needs_archive(job):
+    """アーカイブから書き出す対象か: 録画に無い区間で書き出せなかった(error + needsArchive)か、M7 の採用で待っている(wait + from archive)"""
+    st = job.get("state")
+    return (st == "error" and bool(job.get("needsArchive"))) or (st == "wait" and from_archive(job))
+
+
 class ArchiveError(LX.LiveError):
-    """作り直せない理由(archive.state = error・archive.message に出す)"""
+    """アーカイブから書き出せない理由(archive.state = error・archive.message に出す)"""
 
 
 class Later(Exception):
@@ -328,7 +351,7 @@ def after_count(rec_sec, per_hour):
 def pick_candidates(marks, n, t0, offset, first, last, taken=()):
     """アーカイブの解析の候補(スタジオのアーカイブの配信のマーク。秒 = アーカイブの秒)から、録画の範囲に入る上位 n 個を選ぶ。
     アーカイブの秒 s → 絶対時刻 = t0 + s − offset(P4 の offset と同じ向き: アーカイブの秒 = 絶対時刻 − t0 + offset)。
-    候補 = 自動のマーク(src auto)で判定前(status が空)。点数の高い順に、録画 [first, last] に半分以上入るものを録画の範囲に切り詰め、
+    候補 = 自動のマーク(src auto)で判定前(status が空)。点数の高い順に、範囲 [first, last](M7 は録画の頭から配信の終わり)に半分以上入るものを範囲に切り詰め、
     taken(もう採用・書き出し済みの区間 [(絶対時刻, 絶対時刻)])と選んだものに重なる候補は飛ばす。-> [(a, b, マーク)](時刻の順)"""
     num = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool)   # noqa: E731
     cands = sorted((m for m in marks or [] if isinstance(m, dict) and m.get("src") == "auto" and not m.get("status")
@@ -351,7 +374,7 @@ def pick_candidates(marks, n, t0, offset, first, last, taken=()):
 def after_progress(a, jobs):
     """配信後の全自動(M7)で採用したジョブの進み具合(スタジオの LIVE の帯に出す数。入口 0.41.0)。
     a = afterStream・jobs = その録画のジョブ(GET /live/api/exports の jobs の形 = tx・failure つき)。一覧から消えた古いジョブは total にだけ入る。
-    -> {"total": 採用した本数, "exported": 書き出し済み, "archived": 本番版にした, "handed": まとめて実行へ渡した,
+    -> {"total": 採用した本数, "exported": 書き出し済み, "archived": アーカイブから書き出した, "handed": まとめて実行へ渡した,
         "finished": まとめて実行(文字起こし → パック)まで済んだ, "failed": 失敗の文があるもの(live_failures.failure_of)}"""
     ids = [x for x in a.get("jobs") or [] if isinstance(x, str)]
     mine = [j for j in jobs or [] if isinstance(j, dict) and j.get("id") in ids]
@@ -367,8 +390,8 @@ def after_text(a, p):
     """スタジオの LIVE の帯に出す 1 行(afterStream の label と、採用したあとは after_progress の数。無ければ message)"""
     head = "配信後の自動の切り抜き: %s" % (a.get("label") or a.get("state") or "")
     if a.get("state") in ("export", "done") and p["total"]:
-        return head + "(%d 本のうち 書き出し %d・本番版 %d・文字起こし → パックへ %d・パックまで済み %d%s)" % (
-            p["total"], p["exported"], p["archived"], p["handed"], p["finished"], "・失敗 %d" % p["failed"] if p["failed"] else "")
+        return head + "(%d 本のうち アーカイブから書き出し %d・文字起こし → パックへ %d・パックまで済み %d%s)" % (
+            p["total"], p["exported"], p["handed"], p["finished"], "・失敗 %d" % p["failed"] if p["failed"] else "")
     msg = str(a.get("message") or "")
     return head + ("(%s)" % msg if msg else "")
 
@@ -377,21 +400,19 @@ def after_text(a, p):
 class Archiver(LX.Patrol):
     NAME, LOOP_ERROR = "live-archive", "リアルタイム切り抜き: 本番版の見回りでエラー: %r"
 
-    def __init__(self, exporter, studio, enabled=None, auto=None, recording_state=None, probe=None, audio=None, align=None,
+    def __init__(self, exporter, studio, enabled=None, recording_state=None, probe=None, audio=None, align=None,
                  slots=None, python=None, ffmpeg=None, ffprobe=None, log=None, first_delay=FIRST_DELAY, interval=INTERVAL,
                  give_up=GIVE_UP, poll=POLL, retry_sec=RETRY_SEC, step=STEP, after=None,
                  after_stream=None, per_hour=None, recordings=None, adopt=None, after_max_age=AFTER_MAX_AGE, compare=None, request=None,
-                 pack_info=None, settings_for=None, taken=None, exports=None, section_spec=None, queue=None):
+                 settings_for=None, taken=None, exports=None, section_spec=None, queue=None):
         """exporter: src/flow/live_export.py の Exporter(ジョブ・マーク・書き出し先・音量)。
         studio(method, path, body) -> (HTTP の番号 か None(つながらない), JSON): 取り込んだスタジオの API(src/app/live.py が autorun と同じ形で呼ぶ)。
-        enabled()・auto(): リアルタイム切り抜きがオンか・設定 live.autoArchive。recording_state(録画元, 録画) -> {"active", "endedAt"(epoch)} か None。
+        enabled(): リアルタイム切り抜きがオンか。recording_state(録画元, 録画) -> {"active", "endedAt"(epoch)} か None。
         probe(videoId) -> probe_archive の形。audio(videoId, folder, cancelled) -> 配信の丸ごとの音のファイル(fetch_full_audio)。align(ref.wav, window.wav) -> 照合の JSON。
-        after(録画元, 録画): 1本を終えたとき(済み・失敗・取り消し)に呼ぶ(src/manage/keep/live_cleanup.py の Cleaner.check = 全部入れ替わった録画を消す)。
+        after(録画元, 録画): その録画の最後の1本が済んだときに呼ぶ(src/manage/keep/live_cleanup.py の Cleaner.check = 消してよい録画を消す)。
         配信後の全自動(M7): after_stream() = 設定 live.autoAfterStream・per_hour() = live.afterStreamPerHour・
         recordings() -> 録画元の録画の一覧 [{recorder, id, url, title, active, endedAt, firstPdt, lastPdt}](時刻は epoch。src/app/live.py の list_recordings)・
         adopt(body, hold=) = M1 の採用(Live.adopt)。
-        pack_info(動画のパス) -> その動画の Resolve パックの情報か None(速報版を本番版にしたとき、前に作ったパックが速報版のままだと知らせるため。
-        パックの有無の規則は manage/cases/txindex.pack_info だけが持つので、入口(Live)が渡す。None = 知らせない)。
         settings_for(録画元, 録画) -> 配信後の全自動のアーカイブの解析の設定(録画の束の analyze 節。flow/livesession.py。RS7-2 G2b)か None
         (束の無い録画 = 今までどおりスタジオの GET /api/settings)。
         taken(録画元, 録画) -> その録画の採用・書き出し済みのマーク [{start, end, …}](秒 = 録画の頭から)か None(読めない):
@@ -411,15 +432,13 @@ class Archiver(LX.Patrol):
         self.after_stream = after_stream or (lambda: False)
         self.per_hour = per_hour or (lambda: 6)
         self.friend_request = request or (lambda rc, rec: None)   # 引数 request(録画元, 録画) = 友人のライブ配信の依頼(live_requests.Store.get。2-15)。無ければ None。
-        # 名前は friend_request(self.request は「作り直しを頼む」メソッド = POST /live/api/archive。上書きしない)
+        # 名前は friend_request(self.request は「アーカイブからの書き出しを頼む」メソッド = POST /live/api/archive。上書きしない)
         self.recordings = recordings or (lambda: [])
         self.adopt = adopt
         self.after_max_age = after_max_age
         self.compare = compare   # compare(録画元, 録画, afterStream, アーカイブの候補): 配信中の候補と比べて記録する(0-10-6。src/flow/live_detect.py)
-        self.pack_info = pack_info or (lambda path: None)
         self.settings_for = settings_for or (lambda rc, rec: None)
         self.enabled = enabled or (lambda: True)
-        self.auto = auto or (lambda: True)
         self.recording_state = recording_state or (lambda rc, rec: None)
         self.probe = probe or probe_archive
         self.audio = audio or fetch_full_audio
@@ -427,7 +446,6 @@ class Archiver(LX.Patrol):
         self.align = align or (lambda ref, win: run_align(ref, win, self.python))
         self.slots = slots or jobs.SLOTS
         self.ffmpeg, self.ffprobe = ffmpeg, ffprobe
-        self._probes = fsio.StampCache()   # 速報版の ffprobe の結果(1 本の作り直しで照合・高さ・ずれの確かめに使う。ファイルが変われば調べ直す)
         self.log = log or (lambda m: None)
         self.first_delay, self.interval, self.give_up = first_delay, interval, give_up
         self.poll, self.retry_sec, self.step = poll, retry_sec, step
@@ -497,9 +515,8 @@ class Archiver(LX.Patrol):
             return [j for j in self.ex.jobs if j.get("recorder") == rc and j.get("recording") == rec]
 
     def targets(self, rc, rec):
-        """対象: マークごとの最新のジョブで、done(入れ替え)か error + needsArchive(新しく作る)"""
-        return sorted([j for j in LX.latest_per_mark(self._rec_jobs(rc, rec)) if j.get("state") == "done" or (j.get("state") == "error" and j.get("needsArchive"))],
-                      key=lambda j: j.get("start") or "")
+        """対象: マークごとの最新のジョブで、録画に無い区間のもの(error + needsArchive か、M7 が採用した wait + from "archive")"""
+        return sorted([j for j in LX.latest_per_mark(self._rec_jobs(rc, rec)) if needs_archive(j)], key=lambda j: j.get("start") or "")
 
     def _queue(self, js, auto):
         for j in js:
@@ -515,10 +532,8 @@ class Archiver(LX.Patrol):
         todo = [j for j in ts if (j.get("archive") or {}).get("state") not in ACTIVE + ("done",)]
         if not todo:
             if any((j.get("archive") or {}).get("state") in ACTIVE for j in ts):
-                return {"ok": True, "queued": 0, "message": "もう作り直しています"}
-            if ts:
-                raise ArchiveError("どのマークも本番版になっています", 409)
-            raise ArchiveError("本番版に作り直すものがありません(書き出したマークと、欠けで書き出せなかったマークが対象です)", 409)
+                return {"ok": True, "queued": 0, "message": "もうアーカイブから書き出しています"}
+            raise ArchiveError("アーカイブから書き出すものがありません(録画の欠け・止めていた間など、録画に無い区間のマークが対象です)", 409)
         i = self.info_view(rc, rec)
         fresh = i["ready"] is True and _checked_within(i, READY_CACHE)
         if not fresh:
@@ -526,7 +541,7 @@ class Archiver(LX.Patrol):
         if i.get("ready") is not True:
             raise ArchiveError(i.get("message") or "アーカイブがまだ用意できていません", 409)
         self._queue(todo, auto=False)
-        return {"ok": True, "queued": len(todo), "message": "%d 本を本番版に作り直します" % len(todo)}
+        return {"ok": True, "queued": len(todo), "message": "%d 本をアーカイブから書き出します" % len(todo)}
 
     def cancel(self, rc, rec):
         """POST /live/api/archive/cancel。-> 取り消した数(待ちはすぐ、途中のものは今の段を止めてから)"""
@@ -538,11 +553,9 @@ class Archiver(LX.Patrol):
     def _cancel_one(self, j):
         """1 本を取り消す(待ちはすぐ、途中のものは今の段を止めてから)。-> 取り消したか"""
         st = (j.get("archive") or {}).get("state")
-        if st == "wait":
-            built = (j.get("archive") or {}).get("built")
-            if isinstance(built, str) and inside(built, self.ex.out_dir()) and os.path.basename(os.path.dirname(built)) == j["id"]:
-                shutil.rmtree(os.path.dirname(built), ignore_errors=True)   # 使用中で入れ替え待ちだった本番版(自分で作った作りかけのフォルダだけ)
-            self._aset(j, save=False, state="cancelled", message="取り消しました(速報版のままです)", progress=0, built=None)
+        if st == "wait" or (not st and from_archive(j) and j.get("state") == "wait"):
+            self._aset(j, save=False, state="cancelled", message=CANCELLED_MSG, progress=0)
+            self._end_job(j, "cancelled")
             return True
         if st in RUN:
             self._cancel.add(j["id"])
@@ -552,7 +565,7 @@ class Archiver(LX.Patrol):
 
     # --- 掲示板(flow/board.py。RS8 の ② の口 S2。押す形 = 状態を変えた所で載せる。器の本体と今の API はそのまま) ---
     def attach_board(self, board):
-        """掲示板に本番版への作り直し(ジョブごと)と配信後の全自動(録画ごと)を載せる(頭 la。取り消しも掲示板の id で)。
+        """掲示板にアーカイブからの書き出し(ジョブごと)と配信後の全自動(録画ごと)を載せる(頭 la。取り消しも掲示板の id で)。
         ライブ係(flow/livesession.py)が作ったときに 1 回呼ぶ。今ある物も載せる"""
         self.board = board
         board.register("la", cancel=self.board_cancel)
@@ -568,14 +581,14 @@ class Archiver(LX.Patrol):
                 self._publish(self.after_board_job(rc, rec, a))
 
     def board_job(self, job):
-        """書き出しのジョブの本番版への作り直し(job["archive"])-> 掲示板の Job"""
+        """書き出しのジョブのアーカイブからの書き出し(job["archive"])-> 掲示板の Job"""
         a = job.get("archive") or {}
         st = BOARD_STATES.get(a.get("state"), "error")
         end = st not in ("queued", "running")
         updated = LX.iso_epoch(job.get("updated"))
         return {"id": "la:" + job["id"], "kind": "live_archive", "case": self.ex.case_of(job.get("recorder"), job.get("recording")),
                 "target": {"markId": job.get("markId"), "recording": job.get("recording"), "path": job.get("path") or None},
-                "title": "本番版に作り直し: %s" % (job.get("label") or "マーク %s" % (job.get("n") or "")),
+                "title": "アーカイブから書き出し: %s" % (job.get("label") or "マーク %s" % (job.get("n") or "")),
                 "state": st, "phase": a.get("message") or a.get("label") or "", "progress": a.get("progress"),
                 "finishedAt": int(updated * 1000) if end and updated is not None else None,
                 "error": (a.get("message") or "失敗しました") if st == "error" else None,
@@ -597,8 +610,8 @@ class Archiver(LX.Patrol):
             return
         try:
             b.upsert(job)
-        except ValueError as e:   # 載せられなくても作り直しは止めない
-            self.log("リアルタイム切り抜き: 本番版の作り直しを掲示板に載せられませんでした(%s)" % e)
+        except ValueError as e:   # 載せられなくても書き出しは止めない
+            self.log("リアルタイム切り抜き: アーカイブからの書き出しを掲示板に載せられませんでした(%s)" % e)
 
     def board_cancel(self, jid):
         """掲示板の取り消し(ジョブ 1 本。POST /live/api/archive/cancel の 1 本分)。配信後の全自動は ValueError・無い id は LookupError"""
@@ -607,9 +620,9 @@ class Archiver(LX.Patrol):
         with self.ex.lock:
             job = next((j for j in self.ex.jobs if j.get("id") == jid and isinstance(j.get("archive"), dict)), None)
         if job is None:
-            raise LookupError("その作り直しはありません")
+            raise LookupError("そのアーカイブからの書き出しはありません")
         if not self._cancel_one(job):
-            raise ValueError("この作り直しは今は止められません")
+            raise ValueError("このアーカイブからの書き出しは今は止められません")
         self.ex._save()
         self.wake.set()
         return self.board_job(job)
@@ -637,14 +650,43 @@ class Archiver(LX.Patrol):
         """アーカイブの用意を確かめて覚える -> 覚えた辞書。vid: 分かっていれば YouTube の動画の id(配信後の全自動 = マークがまだ無い録画。M7)"""
         vid = vid if LX.YT_ID_RE.match(vid or "") else self.video_id(rc, rec)
         if not vid:
-            ready, msg, p = False, "YouTube の動画が分からない録画なので、アーカイブで作り直せません", {}
+            ready, msg, p = False, "YouTube の動画が分からない録画なので、アーカイブから書き出せません", {}
         else:
             try:
                 p = (probe_archive(vid, retries=0) if quick and self.probe is probe_archive else self.probe(vid)) or {}
             except Exception as e:   # 調べる部品の不具合でも見回りは止めない
                 p = {"status": "unknown", "message": "アーカイブを確かめられませんでした(%s)" % e.__class__.__name__}
             ready, msg = readiness(p)
-        return self._info_put(rc, rec, videoId=vid, ready=ready, message=msg, checkedAt=LX.now_iso(), release=p.get("release"), timestamp=p.get("timestamp"))
+        return self._info_put(rc, rec, videoId=vid, ready=ready, message=msg, checkedAt=LX.now_iso(), release=p.get("release"), timestamp=p.get("timestamp"),
+                              duration=p.get("duration"), availability=p.get("availability") or "")
+
+    def archived(self, rc, r):
+        """アーカイブ化したか(録画を消してよい合図。src/flow/live_retire.py の Retire.verdict が聞く)。r = 録画元の一覧の 1 行(終わった録画)。
+        -> "" = 確かめた / 消さない理由(NOT_ARCHIVED で始まる文)。
+        消す直前に必ず確かめ直す(前の結果が「用意できた」でも probe し直す。数秒)。用意がまだと分かったばかり(INTERVAL 以内)なら確かめ直さない。
+        条件: was_live・限定でない・開始時刻と長さが分かる・アーカイブの終わり(開始 + 長さ)が録画の終わり − ARCHIVED_SLACK より後"""
+        rec = str((r or {}).get("id") or "")
+        if not self.enabled() or not LX.REC_RE.match(rec):
+            return NOT_ARCHIVED
+        vid = LX.video_id_of(str(r.get("url") or ""), rec)
+        if not vid:
+            return NOT_ARCHIVED + "(YouTube の動画が分からない録画)"
+        with self.lock:
+            i = dict(self.info.get(self.key(rc, rec)) or {})
+        if i.get("ready") is not True and _checked_within(i, self.interval):
+            return NOT_ARCHIVED + "(%s)" % (i.get("message") or "アーカイブがまだ用意できていません")
+        i = self.check(rc, rec, vid=vid)
+        if i.get("ready") is not True:
+            return NOT_ARCHIVED + "(%s)" % (i.get("message") or "アーカイブがまだ用意できていません")
+        t0, dur = i.get("release"), i.get("duration")
+        if not schemas.is_num(t0) or not schemas.is_num(dur):
+            return NOT_ARCHIVED + "(アーカイブの開始時刻か長さが分からない)"
+        ended = ended_at(r)
+        if ended is None:
+            return NOT_ARCHIVED + "(録画の終わりの時刻が分からない)"
+        if t0 + dur < ended - ARCHIVED_SLACK:
+            return NOT_ARCHIVED + "(アーカイブが録画の終わりまで無い。%d 秒足りない)" % int(ended - t0 - dur)
+        return ""
 
     def _info_put(self, rc, rec, **kw):
         """録画ごとの記録に kw を足して archive.json に残す -> 足したあとの記録の写し"""
@@ -668,7 +710,7 @@ class Archiver(LX.Patrol):
             self._process(job)
             self._clean_audio()
             if self.after and (job.get("archive") or {}).get("state") == "done" and not self._next_of(job):
-                self.after(job["recorder"], job["recording"])   # その録画の最後の1本が済んだ: 全部入れ替わっていれば録画を消す(P4)
+                self.after(job["recorder"], job["recording"])   # その録画の最後の1本が済んだ: 消してよければ録画を消す
             return True
         self._clean_audio()
         self.auto_tick()
@@ -693,7 +735,7 @@ class Archiver(LX.Patrol):
         return os.path.join(self.ex.work, AUDIO_DIR + vid)
 
     def _clean_audio(self):
-        """配信の丸ごとの音(live\\work\\audio-<videoId>\\)は、その配信の作り直しが待ち・途中で無くなったら消す(古い物も見回りで消える)"""
+        """配信の丸ごとの音(live\\work\\audio-<videoId>\\)は、その配信のアーカイブからの書き出しが待ち・途中で無くなったら消す(古い物も見回りで消える)"""
         try:
             names = [n for n in os.listdir(self.ex.work) if n.startswith(AUDIO_DIR)]
         except OSError:
@@ -759,9 +801,9 @@ class Archiver(LX.Patrol):
         return max(ends) if ends else None
 
     def auto_tick(self):
-        """自動(設定 live.autoArchive): 終わった録画で、まだ試していないマークがあれば、時間が来たら用意を確かめ、用意できていて手が空いていれば始める。
-        -> 始めた本数"""
-        if not self.enabled() or not self.auto():
+        """自動(いつも): 終わった録画で、アーカイブから書き出すマークのうち まだ試していないものがあれば、時間が来たら用意を確かめ、
+        用意できていて手が空いていれば始める。-> 始めた本数"""
+        if not self.enabled():
             return 0
         now = time.time()
         recs = {}
@@ -786,7 +828,7 @@ class Archiver(LX.Patrol):
             recent = _checked_within(i, self.interval, now)
             if not (i.get("ready") is True and recent):
                 if now - ended > self.give_up:
-                    self._info_put(rc, rec, gaveUp=True, message="録画が終わって %d 日たってもアーカイブを使えなかったので、自動で作り直すのをやめました(%s)"
+                    self._info_put(rc, rec, gaveUp=True, message="録画が終わって %d 日たってもアーカイブを使えなかったので、自動で書き出すのをやめました(%s)"
                                    % (int(self.give_up // 86400) or 1, i.get("message") or "理由は分かりません"))
                     continue
                 if recent:
@@ -797,7 +839,7 @@ class Archiver(LX.Patrol):
             if self.busy():
                 return started   # 手が空いてから(次の見回りで。用意の確認は INTERVAL のあいだ使い回す)
             self._queue(cand, auto=True)
-            self.log("リアルタイム切り抜き: アーカイブで本番版に作り直します(自動。%s の %d 本)" % (rec, len(cand)))
+            self.log("リアルタイム切り抜き: 録画に無い区間をアーカイブから書き出します(自動。%s の %d 本)" % (rec, len(cand)))
             started += len(cand)
         return started
 
@@ -934,8 +976,10 @@ class Archiver(LX.Patrol):
             raise ArchiveError("録画が短すぎるか、録画の時刻が分からないので、自動で切り抜けません")
         offset, how = self._after_offset(rc, rec, vid, t0, first, last)
         n = after_count(last - first, self._per_hour_for(rc, rec))
-        base = dict(vid=vid, t0=t0, offset=round(offset, 3), offsetFrom=how, first=first, last=last, n=n, title=str(r.get("title") or "")[:LX.TITLE_MAX],
-                    retryAt=None)
+        dur = i.get("duration")
+        end = max(last, t0 + dur - offset) if schemas.is_num(dur) else last   # 採用の範囲の終わり = 配信の終わり(アーカイブの終わり。録画の後で止めた分も)
+        base = dict(vid=vid, t0=t0, offset=round(offset, 3), offsetFrom=how, first=first, last=last, end=round(end, 3), n=n,
+                    title=str(r.get("title") or "")[:LX.TITLE_MAX], retryAt=None)
         _code, v = self._studio_video(vid)
         if v is not None and v.get("analysis"):   # 人がもう解析した: それを使う
             a = self._after_set(rc, rec, state="analyze", qid=None, message="スタジオで解析済みの結果を使います", **base)
@@ -976,14 +1020,20 @@ class Archiver(LX.Patrol):
         known = self._known_offset(rc, rec, vid)
         if known is not None:
             return known, "照合済みのマークから"
+        span = min(REF_SEC, last - first - 2.0)
+        ra = first + max(1.0, (last - first - span) / 2.0)
+        job = {"id": "after-" + rec, "recorder": rc, "recording": rec}   # 照合のための仮のジョブ(書き出しのジョブには入れない)
+        return self._rec_offset(job, vid, t0, ra, ra + span), "録画の音をアーカイブと照合"
+
+    def _rec_offset(self, job, vid, t0, ra, rb, last_session=False, center=None, windows=WINDOWS_FIRST):
+        """録画の [ra, rb](受信時刻)の音を録画元から取り、アーカイブの丸ごとの音と照合して ずれ(アーカイブの秒 − (受信時刻 − 開始時刻))を求める。
+        つなぎ直しをまたがない(last_session なら区間の最後のセッション = マークの頭に近い方、無ければ最初のセッションの分だけ)。
+        center: 見当のずれ(分かっていれば。窓の真ん中を動かす)。-> ずれ。取れない・合わなければ ArchiveError(つながらなければ Later)"""
+        rc, rec = job["recorder"], job["recording"]
         rco = self.ex.host.find(rc)
         if rco is None:
             raise ArchiveError("その録画元はありません")
-        span = min(REF_SEC, last - first - 2.0)
-        ra = first + max(1.0, (last - first - span) / 2.0)
-        rb = ra + span
-        job = {"id": "after-" + rec, "recorder": rc, "recording": rec}   # 照合のための仮のジョブ(書き出しのジョブには入れない)
-        wdir = os.path.join(self.ex.work, "after-" + rec)
+        wdir = os.path.join(self.ex.work, "offset-" + job["id"])
         try:
             code, d = self.ex._query(rc, rec, ra, rb)
             if code is None:
@@ -991,25 +1041,25 @@ class Archiver(LX.Patrol):
             if code != 200 or not isinstance(d, dict):
                 raise ArchiveError("録画が見つかりません(録画元で消されたか、置き場所を変えたかもしれません)" if code == 404 else
                                    "録画元から思わぬ応答がありました(HTTP %s)" % code)
-            segs = [s for s in d.get("segments") or [] if LX.SEG_URI_RE.match(str(s.get("uri") or ""))]
+            segs = [x for x in d.get("segments") or [] if LX.SEG_URI_RE.match(str(x.get("uri") or ""))]
             if not segs:
                 raise ArchiveError("録画に音を取れる所がないので、アーカイブと時刻を合わせられません")
-            sess = segs[0]["session"]
-            segs = [s for s in segs if s.get("session") == sess]   # つなぎ直しをまたがない(最初のセッションの分だけ)
+            sess = segs[-1 if last_session else 0].get("session")
+            segs = [x for x in segs if x.get("session") == sess]   # つなぎ直しをまたがない
             files = self.ex._fetch(job, rco, rec, segs, wdir)
             s0 = LX.iso_epoch(segs[0].get("pdt"))
-            have = sum(float(s.get("dur") or 0) for s in segs)
+            have = sum(float(x.get("dur") or 0) for x in segs)
             ss = max(0.0, ra - s0) if s0 is not None else 0.0
-            use = min(span, have - ss)
+            use = min(rb - ra, have - ss)
             if use < 5.0:
                 raise ArchiveError("録画に続けて取れる音が短すぎるので、アーカイブと時刻を合わせられません")
             ref = self._wav(files[0][0], os.path.join(wdir, "ref.wav"), ss, use, job)
             full = self._full_audio(job, vid)
             est = (s0 + ss if s0 is not None else ra) - t0
-            w0, _w1, r = self._search(job, ref, full, est, use, WINDOWS_FIRST, wdir)
+            w0, _w1, r = self._search(job, ref, full, est + (center or 0.0), use, windows, wdir)
             if w0 is None:
                 raise ArchiveError("録画の音とアーカイブの音が合いませんでした(%s)。アーカイブが切り貼りされたか、別の配信かもしれません" % r)
-            return w0 + float(r["offset"]) - est, "録画の音をアーカイブと照合"
+            return w0 + float(r["offset"]) - est
         finally:
             shutil.rmtree(wdir, ignore_errors=True)
 
@@ -1071,11 +1121,12 @@ class Archiver(LX.Patrol):
             got = None
         taken = [(a["first"] + m["start"], a["first"] + m["end"]) for m in got or []
                  if isinstance(m, dict) and m.get("status") in ("adopted", "exported") and schemas.is_num(m.get("start")) and schemas.is_num(m.get("end"))]
-        picked = pick_candidates(marks, a["n"], a["t0"], a["offset"], a["first"], a["last"] - LX.READY_PAD, taken)
+        end = a["end"] if schemas.is_num(a.get("end")) else a["last"] - LX.READY_PAD   # 前の版の記録(end なし)は録画の終わりまで
+        picked = pick_candidates(marks, a["n"], a["t0"], a["offset"], a["first"], end, taken)
         cands = sum(1 for m in marks if isinstance(m, dict) and m.get("src") == "auto")
         if not picked:
             self._after_set(rc, rec, state="none", jobs=[], picked=[],
-                            message="録画の範囲に採用できる候補がありませんでした(アーカイブの候補 %d 件・録画の範囲 %d 秒)" % (cands, int(a["last"] - a["first"])))
+                            message="録画の頭から配信の終わりまでに採用できる候補がありませんでした(アーカイブの候補 %d 件・範囲 %d 秒)" % (cands, int(end - a["first"])))
             return True
         jobs_, done, errs = [], [], []
         for k, (x, y, m) in enumerate(picked, 1):
@@ -1095,13 +1146,13 @@ class Archiver(LX.Patrol):
         if not jobs_:
             raise ArchiveError("自動で採用できませんでした: %s" % (errs[0] if errs else "理由は分かりません"))
         self._after_set(rc, rec, state="export", jobs=jobs_, picked=done, skipped=errs,
-                        message="%d 本を採用しました(アーカイブの解析の上位)。書き出し → 本番版 → 文字起こし → パック" % len(jobs_) +
+                        message="%d 本を採用しました(アーカイブの解析の上位)。アーカイブから書き出し → 文字起こし → パック" % len(jobs_) +
                         ("(%d 本は採用できませんでした: %s)" % (len(errs), errs[0]) if errs else ""))
         self.log("リアルタイム切り抜き: 配信後の自動の切り抜き: %s で %d 本を採用しました(origin archive)" % (rec, len(jobs_)))
         return True
 
     def _after_follow(self, rc, rec, a):
-        """採用したジョブを見届ける: 書き出せたら本番版への作り直しに入れる(設定 live.autoArchive がオフでも)・全部が済んだら done"""
+        """採用したジョブを見届ける: アーカイブからの書き出しに入れる・全部が済んだら done"""
         with self.ex.lock:
             js = {j["id"]: j for j in self.ex.jobs if j.get("id") in (a.get("jobs") or [])}
         todo, waiting = [], 0
@@ -1110,13 +1161,13 @@ class Archiver(LX.Patrol):
             if j is None:
                 continue
             arc = j.get("archive") or {}
-            if j.get("state") in LX.ACTIVE or arc.get("state") in ACTIVE:
-                waiting += 1
-            elif (j.get("state") == "done" or (j.get("state") == "error" and j.get("needsArchive"))) and not arc:
+            if needs_archive(j) and not arc:
                 todo.append(j)
                 waiting += 1
-            elif j.get("state") == "done" and j.get("handoffWait") == "archive" and arc.get("state") in ("error", "cancelled"):
-                self.ex.release_hold(j, "本番版にできなかったので、速報版のまま文字起こし・パックへ渡しました(%s)" % str(arc.get("message") or "")[:160])
+            elif j.get("state") in LX.ACTIVE or arc.get("state") in ACTIVE:
+                waiting += 1
+            elif j.get("state") == "done" and j.get("handoffWait") == "archive":   # 前の版: 速報版を書き出して本番版を待っていた(入れ替えは廃止)
+                self.ex.release_hold(j, "本番版への入れ替えはやめたので、速報版のまま文字起こし・パックへ渡しました")
                 waiting += 1 if j.get("handoffWait") else 0
             elif j.get("state") == "done" and j.get("handoffWait"):
                 waiting += 1   # 空き待ち(M4)
@@ -1132,7 +1183,7 @@ class Archiver(LX.Patrol):
         self.log("リアルタイム切り抜き: 配信後の自動の切り抜きが済みました %s(%d 本を渡しました)" % (rec, handed))
         if self.after:
             try:
-                self.after(rc, rec)   # 全部入れ替わっていれば録画を消す(P4。消すのを待っていた = after_stream_hold)
+                self.after(rc, rec)   # 消してよければ録画を消す(消すのを待っていた = after_stream_hold)
             except Exception:
                 pass
         return True
@@ -1173,13 +1224,31 @@ class Archiver(LX.Patrol):
     def _job_cancelled(self, job):
         return job["id"] in self._cancel
 
+    def _end_job(self, job, state, message=""):
+        """M7 の採用で待っていたジョブ(wait + from archive)を、書き出せなかった・取り消したときに閉じる(録画の書き出しの印 wait のまま残さない =
+        録画を消す判断・書き出しの順番が「書き出しの途中」と見ない)。失敗は error + needsArchive(人が押せばやり直せる)"""
+        if not (from_archive(job) and job.get("state") == "wait"):
+            return
+        with self.ex.lock:
+            if state == "error":
+                job.update(state="error", needsArchive=True, error=message or "アーカイブから書き出せませんでした", message="")
+            else:
+                job.update(state="cancelled", message=message or CANCELLED_MSG)
+            job["updated"] = LX.now_iso()
+        self.ex._save()
+        self.ex._publish(job)
+
     def _process(self, job):
         rc, rec = job["recorder"], job["recording"]
         wdir = os.path.join(self.ex.work, "archive-" + job["id"])
         tdir = None
-        keep_build = False
         try:
-            if self.ex._disk_low():   # 空きが少ない(M4): 作り直し(書き出し先へ書く・アーカイブの丸ごとの音)も空くまで待つ
+            if not needs_archive(job):   # 前の版で入れ替え(速報版 → 本番版)を待っていたジョブ: 入れ替えは廃止したので何もしない
+                if job.get("handoffWait") == "archive":   # 先に渡す(取り消しの印を見た側が、待っていた受け渡しを見ないように)
+                    self.ex.release_hold(job, "本番版への入れ替えはやめたので、録画から書き出した切り抜きのまま文字起こし・パックへ渡しました")
+                self._aset(job, state="cancelled", message="本番版への入れ替えはやめました(録画から書き出した切り抜きのままです)", progress=0, retryAt=None)
+                return
+            if self.ex._disk_low():   # 空きが少ない(M4): アーカイブからの書き出し(書き出し先へ書く・丸ごとの音)も空くまで待つ
                 raise Later(self.ex.disk()["message"], LX.DISK_POLL)
             self._aset(job, state="probe", message="アーカイブを確かめています", progress=0.02, retryAt=None)
             info = self._ready_info(rc, rec)
@@ -1187,7 +1256,7 @@ class Archiver(LX.Patrol):
                 raise Later(info.get("message") or "アーカイブがまだ用意できていません", self.interval)
             vid = info.get("videoId") or ""
             if not LX.YT_ID_RE.match(vid):
-                raise ArchiveError("YouTube の動画が分からない録画なので、アーカイブで作り直せません")
+                raise ArchiveError("YouTube の動画が分からない録画なので、アーカイブから書き出せません")
             t0 = info.get("release")   # timestamp は配信の終わりごろ(数時間ずれる)なので使わない
             if not isinstance(t0, (int, float)):
                 raise ArchiveError("開始時刻が分からないので照合できません")
@@ -1195,86 +1264,53 @@ class Archiver(LX.Patrol):
             if a is None or b is None or b <= a:
                 raise ArchiveError("マークの時刻が正しくありません")
             est, dur = a - t0, b - a
-            speed = self._speed_file(job)
             root = self.ex.out_dir()
-            if speed:
-                folder, base, title = os.path.dirname(speed), os.path.splitext(os.path.basename(speed))[0], None
-            else:
-                d = self._rec_meta(job)
-                folder, base, title = self.ex.target(job, d, rec, a, b)
+            d = self._rec_meta(job)
+            folder, base, title = self.ex.target(job, d, rec, a, b)
             tdir = os.path.join(folder, schemas.WORK_DIR, BUILD_DIR, job["id"])
             if not inside(tdir, root):
                 raise ArchiveError("書き出し先の外には書けません")
             tmp = os.path.join(tdir, base + ".mp4")
-            arc = job.get("archive") or {}
-            built = arc.get("built")
-            if built and os.path.normcase(built) == os.path.normcase(tmp) and os.path.isfile(tmp) and isinstance(arc.get("archiveStart"), (int, float)):
-                ast, res = arc["archiveStart"], arc.get("residual")   # 前に作って、使用中で入れ替えられなかった本番版
-                out = self._check_media(tmp, dur)
-            else:
-                shutil.rmtree(tdir, ignore_errors=True)
-                os.makedirs(tdir, exist_ok=True)
-                if speed:
-                    self._aset(job, state="align", message="アーカイブの音と速報版の音を照合しています", progress=0.05)
-                    ast = self._align(job, speed, vid, est, wdir)
-                else:
-                    off = self._nearest_offset(job)
-                    ast = est + off
-                    self._aset(job, offset=round(off, 3))
-                ast, res, out = self._build(job, vid, ast, dur, speed, tmp, wdir)
-            self._aset(job, built=tmp, archiveStart=round(ast, 3), archiveEnd=round(ast + dur, 3), residual=res)
-            meta = {"videoId": vid, "start": round(ast, 3), "end": round(ast + dur, 3), "offset": (job.get("archive") or {}).get("offset"),
-                    "residual": res, "at": LX.now_iso()}
-            keep_build = True   # ここから先で使用中なら、作った本番版を残して入れ替えだけやり直す
-            if speed:
-                kept = self._swap(job, speed, tmp, folder)
-                self._update_clip(speed, out, meta)
-                try:   # 前に作った Resolve のパック(動画の写しを入れる)は速報版のまま。作り直すと本番版になることを知らせる
-                    pack = self.pack_info(speed)
-                except Exception:
-                    pack = None
-                self._aset(job, state="done", progress=1.0, at=meta["at"], built=None, keep=kept, packOld=bool(pack),
-                           message="本番版にしました(速報版は 作業用\\%s へ)" % SPEED_DIR +
-                           ("。前に作ったパックは速報版のままなので、「編集」の 3 パック のタブで作り直してください" if pack else ""))
-                self.ex.release_hold(job)   # 本番版を待っていた受け渡し(M7): 本番版で文字起こし → パックへ
-            else:
-                final = os.path.join(folder, LX.unique_base(base, folder) + ".mp4")
-                self._aset(job, state="verify", message="本番版を置いています")
-                fsio.replace_retry(tmp, final)
-                d = self._rec_meta(job)
-                self.ex._finish(job, {"id": rc}, rec, d, dict(out, path=final, title=title or self.ex._title(job, d)), a, b,
-                                archive=meta, message="アーカイブから書き出しました")
-                with self.ex.lock:
-                    job.update(needsArchive=False, error="")
-                self._aset(job, state="done", message="アーカイブから本番版を書き出しました", progress=1.0, at=meta["at"], built=None)
-            keep_build = False
-            self.log("リアルタイム切り抜き: 本番版にしました %s(アーカイブの %.3f〜%.3f 秒・ずれ %s)" % (job.get("path"), ast, ast + dur, res))
+            shutil.rmtree(tdir, ignore_errors=True)
+            os.makedirs(tdir, exist_ok=True)
+            self._aset(job, state="align", message="録画の音とアーカイブの音を照合しています", progress=0.05)
+            off, how = self._job_offset(job, vid, t0, a, b)
+            ast = est + off
+            self._aset(job, offset=round(off, 3), offsetFrom=how)
+            out = self._build(job, vid, ast, dur, tmp)
+            meta = {"videoId": vid, "start": round(ast, 3), "end": round(ast + dur, 3), "offset": round(off, 3), "at": LX.now_iso()}
+            self._aset(job, archiveStart=meta["start"], archiveEnd=meta["end"])
+            final = os.path.join(folder, LX.unique_base(base, folder) + ".mp4")
+            self._aset(job, state="verify", message="書き出した動画を置いています")
+            fsio.replace_retry(tmp, final)
+            self.ex._finish(job, {"id": rc}, rec, d, dict(out, path=final, title=title or self.ex._title(job, d)), a, b,
+                            archive=meta, message="アーカイブから書き出しました")
+            with self.ex.lock:
+                job.update(needsArchive=False, error="")
+            self._aset(job, state="done", message="アーカイブから書き出しました", progress=1.0, at=meta["at"])
+            self.log("リアルタイム切り抜き: アーカイブから書き出しました %s(アーカイブの %.3f〜%.3f 秒・ずれ %.3f 秒・%s)" % (job.get("path"), ast, ast + dur, off, how))
         except LX.Cancelled:
-            keep_build = False
-            self._aset(job, state="cancelled", message="取り消しました(速報版のままです)", progress=0, built=None)
+            self._aset(job, state="cancelled", message=CANCELLED_MSG, progress=0)
+            self._end_job(job, "cancelled")
         except LX.Halted:
             self._aset(job, state="wait", message="ホームを終えたので、次の起動で続けます", progress=0)
         except Later as e:
             after = e.after if e.after is not None else self.retry_sec
             self._aset(job, state="wait", message=str(e), progress=0, retryAt=time.time() + after)
         except (LX.LiveError, normalize.NormalizeError) as e:
-            keep_build = False
-            self._aset(job, state="error", message=str(e), progress=0, built=None)
+            self._aset(job, state="error", message=str(e), progress=0)
+            self._end_job(job, "error", str(e))
         except OSError as e:
-            keep_build = False
-            self._aset(job, state="error", message="書けませんでした: %s" % tools.why(e), progress=0, built=None)
+            self._aset(job, state="error", message="書けませんでした: %s" % tools.why(e), progress=0)
+            self._end_job(job, "error", "書けませんでした: %s" % tools.why(e))
         except Exception as e:
-            keep_build = False
-            self.log("リアルタイム切り抜き: 本番版への作り直しでエラー %r" % (e,))
-            self._aset(job, state="error", message="内部エラー: %s" % e.__class__.__name__, progress=0, built=None)
+            self.log("リアルタイム切り抜き: アーカイブからの書き出しでエラー %r" % (e,))
+            self._aset(job, state="error", message="内部エラー: %s" % e.__class__.__name__, progress=0)
+            self._end_job(job, "error", "内部エラー: %s" % e.__class__.__name__)
         finally:
             self._cancel.discard(job["id"])
-            self._probes.clear()   # 速報版は入れ替えたかもしれない・次の作り直しは別の速報版
-            arc = job.get("archive") or {}
-            if job.get("handoffWait") == "archive" and arc.get("state") in ("error", "cancelled"):   # 本番版にできなかった(M7): 速報版のまま渡す
-                self.ex.release_hold(job, "本番版にできなかったので、速報版のまま文字起こし・パックへ渡しました(%s)" % str(arc.get("message") or "")[:160])
             shutil.rmtree(wdir, ignore_errors=True)
-            if tdir and not keep_build:
+            if tdir:
                 shutil.rmtree(tdir, ignore_errors=True)
                 for p in (os.path.dirname(tdir), os.path.dirname(os.path.dirname(tdir))):   # 空になった 本番版の作りかけ・作業用 は消す(中身があれば消えない)
                     try:
@@ -1282,16 +1318,36 @@ class Archiver(LX.Patrol):
                     except OSError:
                         break
 
-    def _speed_file(self, job):
-        """入れ替える相手 = このジョブが自分で書き出した path だけ(書き出し先の中・.mp4・実在)。欠けのマークは None"""
-        if job.get("state") != "done":
-            return None
-        p = job.get("path")
-        if not isinstance(p, str) or not p.lower().endswith(".mp4") or not os.path.isabs(p) or not inside(p, self.ex.out_dir()):
-            raise ArchiveError("速報版の場所が書き出し先の中ではないので、入れ替えません")
-        if not os.path.isfile(p):
-            raise ArchiveError("速報版のファイルが見つかりません(動かしたか消したかもしれません)")
-        return p
+    def _job_offset(self, job, vid, t0, a, b):
+        """ジョブのずれ -> (ずれ, 出どころの文)。
+        1. マークの頭の手前(無ければ頭から)の録画の音を照合する(同じセッション。照合できたら aligned = ほかのマークの見当にも使う)
+        2. だめなら同じ録画の照合できたマーク(前にある・近いもの)/ 3. 配信後の全自動(M7)が求めた録画のずれ。どれも無ければ最初の理由で ArchiveError"""
+        rc, rec = job["recorder"], job["recording"]
+        with self.lock:
+            i = dict(self.info.get(self.key(rc, rec)) or {})
+        prev = self._nearest_offset(job, need=False, same_video=True)
+        hint = prev if prev is not None else (i.get("afterStream") or {}).get("offset")
+        hint = hint if schemas.is_num(hint) else None
+        why = ""
+        try:
+            got = self._rec_offset(job, vid, t0, a - REF_SEC, a, last_session=True, center=hint, windows=WINDOWS_NEXT if hint is not None else WINDOWS_FIRST)
+            self._aset(job, aligned=True)
+            return got, "マークの手前の録画の音を照合"
+        except ArchiveError as e:
+            why = str(e)
+        try:   # 手前に録画が無い(マークが録画の頭より前・欠けの直後)ときは、マークの中の録れている所
+            got = self._rec_offset(job, vid, t0, a, min(b, a + REF_SEC), center=hint, windows=WINDOWS_NEXT if hint is not None else WINDOWS_FIRST)
+            self._aset(job, aligned=True)
+            return got, "マークの中の録画の音を照合"
+        except ArchiveError:
+            pass
+        near = self._nearest_offset(job, need=False)
+        if near is not None:
+            return near, "同じ録画の照合できたマークから"
+        after = (i.get("afterStream") or {}).get("offset")
+        if schemas.is_num(after):
+            return float(after), "配信後の自動の切り抜きの時刻合わせから"
+        raise ArchiveError("録画の音でアーカイブの時刻を合わせられませんでした(%s)" % why)
 
     def _rec_meta(self, job):
         """欠けのマークを新しく作るときの録画の情報 {url, title, firstPdt}(名前と .clip.json の range の 0 秒)。
@@ -1309,12 +1365,11 @@ class Archiver(LX.Patrol):
 
     def _nearest_offset(self, job, need=True, same_video=False):
         """同じ録画の、照合が済んだマークのずれのうち、時刻がいちばん近いもの(前にあるものを先に = 欠けをまたぐマークの頭は欠けの前の
-        セッションにあり、つなぎ直すとずれが 1 秒ほど変わるため。2026-10-05 の通しの確認で 0.73 秒)。無ければ need なら ArchiveError(照合を待つものがあれば Later)。
+        セッションにあり、つなぎ直すとずれが 1 秒ほど変わるため。2026-10-05 の通しの確認で 0.73 秒)。無ければ need なら ArchiveError、でなければ None。
         same_video: 同じ録画に無ければ、同じ配信(videoId)の別の録画のジョブからも探す(照合の窓の見当だけに使う。本物の配信で 2 本の録画の差は 1.24 秒 =
-        ±20 秒の窓に収まる。欠けのマークの時刻そのものには使わない = 録画が違うと 1 秒ほどずれる)"""
+        ±20 秒の窓に収まる。マークの時刻そのものには使わない = 録画が違うと 1 秒ほどずれる)"""
         a = LX.iso_epoch(job.get("start")) or 0
         best = None
-        pending = False
         vid = self._vid_of(job) if same_video else ""
         with self.ex.lock:
             pool = [j for j in self.ex.jobs if j is not job and (
@@ -1328,15 +1383,11 @@ class Archiver(LX.Patrol):
                 d = (0 if same else 1, 0 if s <= a + 0.001 else 1, abs(s - a))   # 同じ録画 → 前にあるもの → 近いもの
                 if best is None or d < best[0]:
                     best = (d, arc["offset"])
-            elif same and j.get("state") == "done" and arc.get("state") in ACTIVE:
-                pending = True
         if best is not None:
             return best[1]
         if not need:
             return None
-        if pending:
-            raise Later("同じ録画のほかのマークの照合を待っています", self.poll)
-        raise ArchiveError("速報版が無く、同じ録画に照合できたマークも無いので、アーカイブの時刻を合わせられません")
+        raise ArchiveError("同じ録画に照合できたマークが無いので、アーカイブの時刻を合わせられません")
 
     def _wav(self, src, dst, ss=None, t=None, job=None):
         """ffmpeg で 8kHz・モノラル・16bit の WAV にする(照合の子プロセスが読む形)"""
@@ -1352,36 +1403,9 @@ class Archiver(LX.Patrol):
             raise ArchiveError("音を取り出せませんでした(%s)" % (" / ".join(tail) or "終了コード %s" % code))
         return dst
 
-    def _probe_speed(self, speed):
-        """速報版の ffprobe の結果(読めなければ {})。同じ作り直しの中で何度も呼ぶので、更新日時と大きさが同じなら前の結果を使う"""
-        return self._probes.get(speed, lambda p: normalize.probe(p, self.ffprobe)) or {}
-
-    def _ref_span(self, dur):
-        """照合に使う速報版の区間 (頭から除く秒, 長さ)。頭と終わりの端(作り直しの端の揺れ)を少し外す"""
-        trim = min(1.0, dur * 0.2)
-        return trim, max(0.3, min(REF_MAX, dur - 2 * trim))
-
-    def _align(self, job, speed, vid, est, wdir):
-        """速報版の音をアーカイブの窓の音と照合する -> 速報版の頭のアーカイブの秒。ずれ(offset)と aligned を archive に残す"""
-        os.makedirs(wdir, exist_ok=True)
-        info = self._probe_speed(speed)
-        a, b = LX.iso_epoch(job["start"]), LX.iso_epoch(job["end"])
-        dur = info.get("duration") or (b - a)
-        trim, span = self._ref_span(dur)
-        ref = self._wav(speed, os.path.join(wdir, "ref.wav"), trim, span, job)
-        prev = self._nearest_offset(job, need=False, same_video=True)   # 同じ配信の別の録画の照合も見当に使う
-        center = est + (prev or 0.0)
-        full = self._full_audio(job, vid)
-        w0, w1, r = self._search(job, ref, full, center, trim + span, WINDOWS_NEXT if prev is not None else WINDOWS_FIRST, wdir, talk=True)
-        if w0 is None:
-            raise ArchiveError("アーカイブの音と速報版の音が合いませんでした(%s)。アーカイブが切り貼りされたか、別の配信かもしれないので、速報版のままにします" % r)
-        ast = w0 + float(r["offset"]) - trim
-        self._aset(job, offset=round(ast - est, 3), aligned=True, score=r.get("score"), ratio=r.get("ratio"), window=[round(w0, 3), round(w1, 3)])
-        return ast
-
     def _search(self, job, ref, full, center, span, windows, wdir, talk=False):
         """アーカイブの丸ごとの音 full から、見当 center の前後 w 秒(windows の順に広げる)の窓を切り出して ref と照合する
-        (窓の決め方・しきい値は P4 の作り直しと M7 の時刻合わせで同じ)。talk = 進み具合をジョブの archive に出す(P4)。
+        (窓の決め方・しきい値はジョブのずれと M7 の時刻合わせで同じ)。talk = 進み具合をジョブの archive に出す。
         -> (窓の頭の秒, 窓の終わりの秒, 照合の結果)。どの窓でも合わなければ (None, None, 最後の理由の文)"""
         why = ""
         for n, w in enumerate(windows):
@@ -1400,66 +1424,25 @@ class Archiver(LX.Patrol):
             why = r.get("reason") if not r.get("ok") else "確かさ %.2f・%.1f 倍" % (r.get("score") or 0, r.get("ratio") or 0)
         return None, None, why
 
-    def _audio(self, speed, job=None):
-        """スタジオに頼む音量(速報版と同じ扱い): 速報版の .clip.json の export に残した値 → 無ければ今の書き出しの設定(studio_audio)"""
-        vol, loud = self.ex._audio_cfg(job)   # 速報版のジョブの録画に束があれば束の音量(RS7-2 G2b)
-        if speed:
-            p = schemas.find_clip_path(speed)
-            c, _w = schemas.load_clip_file(p) if p else (None, None)
-            ex = (c or {}).get("export") or {}
-            lo = ex.get("loudness") if isinstance(ex.get("loudness"), dict) else None
-            if lo and isinstance(lo.get("target"), (int, float)):
-                return 100, float(lo["target"])
-            if isinstance(ex.get("volume"), (int, float)) and not isinstance(ex.get("volume"), bool):
-                return int(ex["volume"]), None
-        return vol, loud
-
     def _check_media(self, path, dur):
-        """作り直した本番版が 30fps で、長さが区間と LEN_TOL 以内か(ytt.normalize.verify)。-> probe の結果"""
-        return normalize.verify(path, dur, LX.LEN_TOL, self.ffprobe, what="作り直した本番版", ref="区間", got="動画", error=ArchiveError)
+        """アーカイブから書き出した動画が 30fps で、長さが区間と LEN_TOL 以内か(ytt.normalize.verify)。-> probe の結果"""
+        return normalize.verify(path, dur, LX.LEN_TOL, self.ffprobe, what="アーカイブから書き出した動画", ref="区間", got="動画", error=ArchiveError)
 
-    def _build(self, job, vid, ast, dur, speed, tmp, wdir):
-        """スタジオで作り直して確かめる(速報版との音のずれが 1 コマを超えたら、1回だけずれを足して作り直す)。-> (アーカイブの秒, ずれ, probe の結果)"""
-        height = 0
-        if speed:
-            h = self._probe_speed(speed).get("height")
-            height = h if h in HEIGHTS else 0   # 速報版と同じ高さ(文字起こし・カット・パックの見た目を変えない)
-        vol, loud = self._audio(speed, job)
-        for attempt in (0, 1):
-            self._check(job)
-            fsio.unlink_quiet(tmp)
-            self._aset(job, state="fetch", message="アーカイブから取って 30fps に作り直しています(スタジオの書き出し)", progress=0.15, archiveStart=round(ast, 3))
-            item = self._section(job, vid, ast, ast + dur, tmp, height, vol, loud)
-            self._aset(job, state="verify", message="作り直した本番版を確かめています", progress=0.9)
-            if not os.path.isfile(tmp):
-                raise ArchiveError("スタジオの書き出しが済んだのに、本番版のファイルがありません")
-            out = self._check_media(tmp, dur)
-            out["audio"] = {"loudness": item.get("loudness")} if loud and isinstance(item.get("loudness"), dict) else \
-                {"loudness": {"target": loud}} if loud else {"volume": vol}
-            if not speed:
-                return ast, None, out
-            res = self._residual(job, speed, tmp, wdir)
-            if abs(res) <= FRAME_TOL:
-                return ast, round(res, 4), out
-            if attempt == 0:
-                self.log("リアルタイム切り抜き: 本番版と速報版の音が %.3f 秒ずれたので、足して作り直します" % res)
-                ast += res
-                continue
-            raise ArchiveError("作り直した本番版と速報版の音が %.3f 秒ずれています(1 コマ %.3f 秒より大きい)。速報版のままにします" % (res, FRAME_TOL))
-        raise AssertionError("not reached")
-
-    def _residual(self, job, speed, new, wdir):
-        """本番版と速報版の音のずれ(秒。正 = 本番版の頭が早すぎる = アーカイブの開始を足す)"""
-        os.makedirs(wdir, exist_ok=True)
-        dur = self._probe_speed(speed).get("duration") or 1.0
-        trim, span = self._ref_span(dur)
-        ref = self._wav(speed, os.path.join(wdir, "vref.wav"), trim, span, job)
-        win = self._wav(new, os.path.join(wdir, "vnew.wav"), job=job)
-        r = self.align(ref, win) or {}
-        if not r.get("ok") or (r.get("score") or 0) < MIN_SCORE:
-            raise ArchiveError("作り直した本番版の音を速報版と照合できませんでした(%s)。速報版のままにします"
-                               % (r.get("reason") or "確かさ %.2f" % (r.get("score") or 0)))
-        return float(r["offset"]) - trim
+    def _build(self, job, vid, ast, dur, tmp):
+        """スタジオの書き出しでアーカイブの区間を 30fps に書き出して確かめる。音量は録画から書き出すときと同じ(録画の束か今の書き出しの設定)。
+        高さは指定なし(スタジオの既定)。-> probe の結果(+ audio)"""
+        vol, loud = self.ex._audio_cfg(job)
+        self._check(job)
+        fsio.unlink_quiet(tmp)
+        self._aset(job, state="fetch", message="アーカイブから取って 30fps に書き出しています(スタジオの書き出し)", progress=0.15, archiveStart=round(ast, 3))
+        item = self._section(job, vid, ast, ast + dur, tmp, 0, vol, loud)
+        self._aset(job, state="verify", message="書き出した動画を確かめています", progress=0.9)
+        if not os.path.isfile(tmp):
+            raise ArchiveError("スタジオの書き出しが済んだのに、動画のファイルがありません")
+        out = self._check_media(tmp, dur)
+        out["audio"] = {"loudness": item.get("loudness")} if loud and isinstance(item.get("loudness"), dict) else \
+            {"loudness": {"target": loud}} if loud else {"volume": vol}
+        return out
 
     def _section(self, job, vid, start, end, path, height, vol, loud):
         """② の書き出しの器(flow/export の ExportJobs。プロセスに 1 つ = スタジオの書き出しと同時 1 本を分け合う)に区間を頼み、済むまで待つ。
@@ -1469,14 +1452,14 @@ class Archiver(LX.Patrol):
         try:
             spec = self.section_spec(req)   # 検査(書き出し先の中・まだ無い .mp4・ffmpeg と yt-dlp)は ① の build_section_spec
         except ApiError as e:
-            raise ArchiveError("作り直しを始められませんでした: %s" % e.message)
+            raise ArchiveError("アーカイブからの書き出しを始められませんでした: %s" % e.message)
         while True:   # 書き出しは同時に 1 本だけ: ほかが動いていれば busy → 失敗にせず、待ってやり直す
             self._check(job)
             try:
                 rec = self.exports.start(spec)
             except ApiError as e:
                 if e.code != "busy":
-                    raise ArchiveError("作り直しを始められませんでした: %s" % e.message)
+                    raise ArchiveError("アーカイブからの書き出しを始められませんでした: %s" % e.message)
                 self._aset(job, save=False, message="スタジオの書き出しが終わるのを待っています")
                 self._halt.wait(max(self.step, 1.0) * 3)
                 continue
@@ -1503,64 +1486,3 @@ class Archiver(LX.Patrol):
             if st in ("error", "cancelled"):
                 raise ArchiveError("スタジオの書き出しに失敗しました: %s" % (it.get("error") or ("取り消されました" if st == "cancelled" else "理由は分かりません")))
             self._halt.wait(self.step)
-
-    def _swap(self, job, speed, built, folder):
-        """速報版を 作業用\\速報版\\ へ移し、本番版を元の名前へ。使用中なら Later(作った本番版は残す)。-> 退避した速報版のパス"""
-        self._aset(job, state="verify", message="速報版と入れ替えています", progress=0.95)
-        if job.get("path") != speed or not os.path.isfile(speed):   # 念のため: 入れ替える相手はこのジョブが書き出した path だけ
-            raise ArchiveError("速報版のファイルが見つかりません(動かしたか消したかもしれません)")
-        kdir = os.path.join(folder, schemas.WORK_DIR, SPEED_DIR)
-        if not inside(kdir, self.ex.out_dir()):
-            raise ArchiveError("書き出し先の外には書けません")
-        os.makedirs(kdir, exist_ok=True)
-        kept = free_name(kdir, os.path.basename(speed))
-        try:
-            fsio.replace_retry(speed, kept)
-        except PermissionError:
-            raise Later("速報版の動画がほかのソフトで開かれているので、入れ替えられませんでした。閉じたあとの見回りで入れ替えます")
-        try:
-            fsio.replace_retry(built, speed)
-        except OSError:
-            try:
-                fsio.replace_retry(kept, speed)   # 元へ戻す
-            except OSError as e:
-                self.log("リアルタイム切り抜き: 速報版を元の場所へ戻せませんでした(%s → %s): %s" % (kept, speed, e))
-                raise ArchiveError("本番版を置けず、速報版も元へ戻せませんでした(速報版は %s にあります)" % kept)
-            raise Later("動画を入れ替えられませんでした(ほかのソフトが使っているかもしれません)。あとの見回りでやり直します")
-        return kept
-
-    @staticmethod
-    def _archive_key(media, meta):
-        """F-1: 速報版を本番版に入れ替えたので、export の鍵を媒体 = archive(videoId)・区間 = アーカイブの秒で書き直す。書けなければ古い鍵(録画のまま)を消す"""
-        kp = _keys.media_key_path(media, "export")
-        old = _keys.read(kp, "export")
-        settings = ((old or {}).get("inputs") or {}).get("settings") or {}
-        try:
-            ok = _keys.write_export(media, schemas.media_identity("archive", videoId=str(meta.get("videoId") or "")), meta["start"], meta["end"], settings)
-        except (KeyError, TypeError, ValueError):
-            ok = False
-        if not ok:
-            _keys.remove(kp)
-
-    def _update_clip(self, media, out, meta):
-        """.clip.json の source.live.archive・長さ・export.from を直す(range はそのまま = 録画の頭からの秒。文字起こし・カットの時刻は変わらない)"""
-        self._archive_key(media, meta)
-        p = schemas.find_clip_path(media)
-        if not p:
-            return
-        try:
-            c = fsio.read_json_file(p, schemas.MAX_CLIP_BYTES)
-            if not isinstance(c, dict):
-                return
-            if not isinstance(c.get("source"), dict):
-                c["source"] = {}
-            src = c["source"]
-            live = src.get("live") if isinstance(src.get("live"), dict) else {}
-            src["live"] = dict(live, archive=dict(meta))
-            if isinstance(c.get("media"), dict) and out.get("duration") is not None:
-                c["media"]["durationSec"] = round(float(out["duration"]), 3)
-            if isinstance(c.get("export"), dict):
-                c["export"]["from"] = "youtube-archive"
-            fsio.write_json(p, c)
-        except (OSError, ValueError) as e:
-            self.log("リアルタイム切り抜き: .clip.json に本番版のことを書けませんでした %s: %s" % (p, e))

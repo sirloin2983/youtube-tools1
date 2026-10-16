@@ -81,13 +81,13 @@ class ApiTest(unittest.TestCase):
         code, d = self.jreq("POST", "/api/ytt/prefs", {"op": "patch", "section": "live", "value": {
             "enabled": True, "recorders": [{"id": "fake", "name": "偽物", "url": self.fake.url, "token": self.TL.TOKEN}]}})
         self.assertEqual(code, 200, d)
-        self.assertTrue(d["value"]["autoArchive"])
+        self.assertNotIn("autoArchive", d["value"])   # LD-1: 設定 live.autoArchive は消した(いつも自動)
         self.assertEqual(self.req("POST", "/live/api/archive", {"recorder": "fake", "recording": rec}, token=False)[0], 403)   # 合言葉
         self.assertEqual(self.jreq("POST", "/live/api/archive", {"recorder": "fake", "recording": "../x"})[0], 400)
         self.assertEqual(self.jreq("POST", "/live/api/archive", {"recorder": "nope", "recording": rec})[0], 404)
         code, d = self.jreq("POST", "/live/api/archive", {"recorder": "fake", "recording": rec})
         self.assertEqual((code, d.get("error")), (409, "conflict"), d)
-        self.assertIn("作り直すものがありません", d["message"])
+        self.assertIn("アーカイブから書き出すものがありません", d["message"])
         ex = self.srv.live.exporter
         ex.marks.upsert("fake", rec, "lm-0000000000aa", 1, LX.epoch_iso(RELEASE), LX.epoch_iso(RELEASE + 5), url="https://www.youtube.com/watch?v=" + VID)
         ex.jobs.append({"id": "lx-00000000aa", "recorder": "fake", "recording": rec, "markId": "lm-0000000000aa", "n": 1, "label": "",

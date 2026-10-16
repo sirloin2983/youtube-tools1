@@ -41,7 +41,7 @@ from ytt import datadir, fsio, layout, schemas, tools, version as _version
 from . import board as _board   # ② のジョブの掲示板(RS8 の ② の口 S2。書き出し lx・作り直し la・候補の文字起こし lt を載せる)
 from . import envelope as _envelope
 from . import live_adopt   # 採用 = マーク + 書き出し(M1。RS7-2 G1b)
-from . import live_archive   # アーカイブで本番版に作り直す。P4
+from . import live_archive   # 録画に無い区間をアーカイブから書き出す・配信後の全自動(M7)
 from . import live_detect   # 配信中の盛り上がりの検出と自動の採用。線 D の L2・M11
 from . import live_export as LX   # マークと書き出し。P2
 from . import live_failures   # 失敗の集約。M3・M7
@@ -580,21 +580,20 @@ class LiveSession:
 
     @property
     def archiver(self):
-        """アーカイブで本番版に作り直す(src/flow/live_archive.py。P4)。書き出しのジョブを単位にするので、書き出しと同じく初めて使うときに作る"""
+        """録画に無い区間をアーカイブから書き出す・配信後の全自動(src/flow/live_archive.py)。書き出しのジョブを単位にするので、書き出しと同じく初めて使うときに作る"""
         ex = self.exporter
         with self._ex_lock:
             if self._archiver is None:
                 kw = dict({"studio": self.studio_call, "queue": self.studio_queue,   # 解析の順番待ちは直に読めればそれ(OPT2 の J5)
-                           "enabled": self.enabled, "auto": lambda: self.cfg().get("autoArchive") is not False,
+                           "enabled": self.enabled,
                            "recording_state": self.recording_state, "python": self.python, "log": self.log,
-                           "after": self._cleaner_check,   # 1本終えたら: 全部入れ替わった録画を消す
+                           "after": self._cleaner_check,   # 録画の最後の1本を終えたら: 消してよい録画を消す
                            "after_stream": lambda: self.cfg().get("autoAfterStream") is True,   # 配信後の全自動(M7)
                            "per_hour": lambda: self.cfg().get("afterStreamPerHour") or _spec.DEFAULTS["adopt"]["perHour"],
                            "recordings": self.list_recordings, "adopt": self.adopt, "request": self.requests.get,   # 友人の依頼の録画は afterStream の設定で(2-15)
                            "compare": self.detector.compare,   # 配信中の候補とアーカイブの候補を比べる(0-10-6)
                            "settings_for": lambda rc, rec: (self.bundle(rc, rec) or {}).get("analyze"),   # 配信後の解析の設定はその録画の束から(RS7-2 G2b)
-                           "taken": lambda rc, rec: self.marks.adopted(rc, rec),   # 配信後の全自動が重ねない採用はマークの置き場から(RS8 B3-5 の G3。呼ぶときに読む = use_headless の差し替えが効く)
-                           "pack_info": self._pack_info},   # パックの有無の規則は入口が渡す(live_archive は読まない)
+                           "taken": lambda rc, rec: self.marks.adopted(rc, rec)},   # 配信後の全自動が重ねない採用はマークの置き場から(RS8 B3-5 の G3。呼ぶときに読む = use_headless の差し替えが効く)
                           **self.archive_opts)
                 self._archiver = live_archive.Archiver(ex, **kw)
                 self._archiver.attach_board(self.board)
@@ -867,8 +866,8 @@ class LiveSession:
         if code is None:
             raise self._down(rc)
         if code == 404:
-            if any(j.get("recordingDeleted") for j in self.exporter.snapshot(rc_id, rec)):   # 本番版に入れ替えて、録画を自動で消した(P4)
-                raise LX.LiveError("録画は消しました(本番版に入れ替え済み)。区間を変えた切り抜きは、録画が無いので作れません", 404)
+            if any(j.get("recordingDeleted") for j in self.exporter.snapshot(rc_id, rec)):   # 録画を自動で消した(アーカイブ化を確かめた・終わって 3 日)
+                raise LX.LiveError("録画は消しました(ごみ箱へ移しました)。区間を変えた切り抜きは、録画が無いので作れません", 404)
             raise LX.LiveError("その録画はありません(録画元で消されたか、置き場所を変えたかもしれません)", 404)
         if code != 200 or not isinstance(d, dict):
             raise LX.LiveError("録画元から思わぬ応答がありました(HTTP %s)" % code, 502)
@@ -880,7 +879,7 @@ class LiveSession:
     # --- M1: サーバー側の「マーク + 書き出し」(画面を閉じていても。自動の採用 M7・M11 もここを通る) ---
     def adopt(self, body, hold=None):
         """POST /live/api/adopt(M1)。-> {job, video, mark, origin, existing}。本体は flow/live_adopt.py の Adopter.adopt(RS7-2 G1b。マークの置き場は self.marks)。
-        hold: "archive" = 書き出したあと、本番版に入れ替えてから まとめて実行へ渡す(配信後の全自動 M7 が入口の中から渡す。API の本文からは渡せない)"""
+        hold: "archive" = 録画からは書き出さず、アーカイブから書き出す(配信後の全自動 M7 が入口の中から渡す。API の本文からは渡せない)"""
         return self.adopter.adopt(body, hold)
 
     def recent(self):
@@ -923,7 +922,7 @@ class LiveSession:
         self.wake.set()
         self.detector.stop()   # 盛り上がりの検出のワーカー(状態は 1 分ごとに保存済み。次の起動で続きから)
         self.livetx.close()    # 配信中の文字起こしの子プロセス(途中の候補は次の見回りでやり直す)
-        if self._archiver is not None:   # 本番版への作り直しの途中なら止める(順番待ちに戻り、次の起動で続ける)
+        if self._archiver is not None:   # アーカイブからの書き出しの途中なら止める(順番待ちに戻り、次の起動で続ける)
             self._archiver.close()
         if self._exporter is not None:   # 書き出しの途中なら ffmpeg を止める(ジョブは「録画待ち」に戻り、次の起動でやり直す)
             self._exporter.close()
@@ -1043,7 +1042,7 @@ class LiveSession:
         if os.path.isfile(os.path.join(self.store_dir, "exports.json")) or cfg.get("autoAfterStream") is True or self.requests.all():   # 友人の依頼の録画(2-15)は M7 がオフでも
             if self.exporter.pending():   # 入口を起動し直した: 途中の書き出しを続ける(空き待ちの受け渡しも。M4)
                 self.exporter.start()
-            self.archiver.start()   # 本番版への作り直し(P4): 途中のものを続ける・自動の見回り(設定 live.autoArchive)・配信後の全自動(M7)
+            self.archiver.start()   # アーカイブからの書き出し: 途中のものを続ける・自動の見回り・配信後の全自動(M7)
         if self.auto_delete():   # 録画を自動で消す(P4。設定 live.autoDelete。中で間隔を見る = 10 分ごと。不具合でも録画の部品の見回りは続ける)
             self._guard("録画を消す見回りでエラー", lambda: self.cleaner is not None and self.cleaner.tick())
         local = next((r for r in self.recorders(cfg) if is_local_url(r.get("url") or "")), None)
@@ -1135,7 +1134,7 @@ class LiveSession:
         if self._archiver is not None:   # 配信後の全自動(M7)が止まった録画(after_stream_failure)
             failures += self._guard("配信後の自動の失敗を読めませんでした", self._archiver.after_failures, [])
         failures += self._guard("盛り上がりの検出の失敗を読めませんでした", self.detector.failures, [])   # L2・M11
-        if self._cleaner is not None:   # D-14: 本番版に置き換わらないまま残っている録画の知らせ(keep_failure)
+        if self._cleaner is not None:   # D-14: 消せないまま残っている録画の知らせ(keep_failure)
             failures += self._guard("残っている録画の一覧を作れませんでした", self._cleaner.kept_failures, [])
         failures = sorted(failures, key=lambda x: x.get("at") or "", reverse=True)[:live_failures.MAX_LIST]
         disk = self._guard("空き容量を調べられませんでした", self.exporter.disk)   # 書き出し先・パック・live\work の空き(M4)

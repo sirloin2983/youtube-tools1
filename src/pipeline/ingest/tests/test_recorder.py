@@ -33,6 +33,7 @@ sys.path.insert(0, SRC)
 sys.path.insert(0, TESTS)
 import hls_fixture as F  # noqa: E402
 from pipeline.ingest import rec_core as R  # noqa: E402
+from ytt import trashbin  # noqa: E402
 
 FAST = dict(source="direct", hls_time=1, backoff=(1, 2), idle_end=8, stall_sec=4, first_seg_sec=15, poll=0.3)
 
@@ -300,8 +301,9 @@ class TestRecording(unittest.TestCase):
         self.assertEqual([x["name"] for x in r.meta["sessions"]], ["session_001"])
 
     def test_delete(self):
-        """P4 の「録画を自動で消す」: 録画中は 409・形の違う id は 400・置き場所の直下で recording.json があるものだけ・
-        リンク(ジャンクション)の先は消さない・使用中のファイルが残ったら 409 で recording.json を残し、あとでまた消せる"""
+        """「録画を自動で消す」: 録画中は 409・形の違う id は 400・置き場所の直下で recording.json があるものだけ・
+        リンク(ジャンクション)の先は消さない・使用中のファイルがあれば 409 で何も動かさず、あとでまた消せる。
+        LD-1: 消すのは 置き場所/ごみ箱/<日付>/録画/<id> へ改名(manifest.jsonl に元の場所)・3 日より古い日付のフォルダは purge_trash で消える"""
         s = self.rec.start(self.srv.url)
         rid = s["id"]
         r = self.rec.get(rid)
@@ -328,6 +330,12 @@ class TestRecording(unittest.TestCase):
             held.close()
         self.assertEqual(self.rec.delete(rid), rid)   # 閉じたら消せる
         self.assertFalse(os.path.exists(os.path.join(self.folder, rid)))
+        day = os.path.join(self.folder, R.TRASH_DIR, trashbin.day_name())
+        self.assertTrue(os.path.isfile(os.path.join(day, R.TRASH_KIND, rid, "recording.json")))   # ごみ箱へ移した(3 日は戻せる)
+        with open(os.path.join(day, trashbin.MANIFEST), encoding="utf-8") as f:
+            row = json.loads(f.readline())
+        self.assertEqual((row["from"], row["to"], row["kind"]), (os.path.join(self.folder, rid), os.path.join(day, R.TRASH_KIND, rid), R.TRASH_KIND))
+        self.assertEqual(self.rec.load(), [])   # ごみ箱は録画として読まない
         with self.assertRaises(R.RecError) as cm:
             self.rec.get(rid)
         self.assertEqual(cm.exception.status, 404)
@@ -374,6 +382,14 @@ class TestRecording(unittest.TestCase):
             self.assertEqual(self.rec.delete(rid2), rid2)   # 中のジャンクションはそれ自体だけ外す
             self.assertTrue(os.path.isfile(os.path.join(inner, "keep.ts")))
             self.assertFalse(os.path.exists(d2))
+        # 3 日より古い日付のフォルダは消える(新しいものは残る)
+        old = os.path.join(self.folder, R.TRASH_DIR, "2020-01-01", R.TRASH_KIND, "20200101-000000-old")
+        os.makedirs(old)
+        self.assertEqual(self.rec.purge_trash(), 1)
+        self.assertFalse(os.path.exists(os.path.dirname(os.path.dirname(old))))
+        self.assertTrue(os.path.isdir(day))
+        if made:
+            self.assertTrue(os.path.isfile(os.path.join(inner, "keep.ts")))   # ごみ箱を消しても、外して移したジャンクションの先は残る
 
     def test_halt_keeps_state_for_next_start(self):
         s = self.rec.start(self.srv.url)

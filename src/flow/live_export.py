@@ -28,7 +28,7 @@
                  check = 文字起こしまで(mode file)・auto = 文字起こし → パック(mode file_auto)・none = 渡さない)。streamer(配信者の名前)があれば
                  照らし合わせて渡す(字幕の色。合わなければ色なしで進めて、ジョブの warning に出す)
   ジョブは live/exports.json に残す。入口を起動し直したら、途中だったジョブは「録画待ち」からやり直す(冪等: 書きかけは消し、名前は仕上げるときに決める)。
-  P4(アーカイブで本番版に作り直す。src/flow/live_archive.py)はジョブに archive を足す(ここは起動し直したときに途中の段を「待ち」に戻すのと、
+  P4(録画に無い区間をアーカイブから書き出す。src/flow/live_archive.py)はジョブに archive を足す(ここは起動し直したときに途中の段を「待ち」に戻すのと、
   作り直しの途中のマークを書き出し直させない busy・欠けのマークの名前を決める target・recBase(録画の頭の時刻)を受け持つ)。
 
 採用の出どころ origin(線 D の M1。入口 0.39.0): manual(人がマークした)・auto(配信中の検出が自動で採用。M11)・archive(配信後のアーカイブの解析で自動で採用。M7)。
@@ -43,8 +43,10 @@
 (録画待ちのジョブは録画元に問い合わせずに待ち、書き出しが済んだジョブはまとめて実行へ渡すのを待つ = handoffWait "disk")。空けば続ける。
 止めずに待つのは、書き込みの途中で失敗して書きかけが壊れるより戻しやすいため(計画の 5 の 3)。録画の部品は録画先を 1 GB で止め・20 GB で注意する(別)。
 用途つきの枠(M6): 書き出す録画がまだ録画中なら、重い処理の順番(ytt.jobs.SLOTS)の用途つきの枠も使う(acquire(reserved=True))。
-本番版を待ってから渡す(M7): holdFor "archive" のジョブ(配信後の全自動。src/flow/live_archive.py)は、書き出したあと まとめて実行へすぐ渡さず
-handoffWait "archive" で待ち、アーカイブで本番版に入れ替えてから(できなければ速報版のまま)Archiver が release_hold で渡す(パックが本番版になる)。
+アーカイブから書き出すジョブ(M7。2026-10-16 の見直し = 決定 3-73): 配信後の全自動(src/flow/live_archive.py)が採用した候補は hold "archive" で頼まれ、
+from "archive" の印を付けた wait のジョブになる。録画からは書き出さず(_next_ready が飛ばす・pending に数えない)、Archiver がアーカイブから書き出して
+_finish(archive=…)で済ませ、すぐ まとめて実行へ渡す。録画に無い区間(欠け・録画が区間まで届かなかった)は error + needsArchive で、同じく Archiver が書き出す。
+前の版の handoffWait "archive"(速報版を書き出して本番版を待っていた)は Archiver が release_hold で そのまま渡す(入れ替えは廃止)。
 
 .clip.json の source(pipeline.md の 2.1 に足す値): kind "live"。range は「録画の最初のセグメントの受信時刻」からの秒、
 絶対時刻と録画の素性は source.live に入れる(P4 でアーカイブの時刻へ置き換えるため)。videoId は YouTube の動画の id(分かるとき)。
@@ -102,8 +104,8 @@ GB = 1024 ** 3
 DISK_WARN = 20 * GB        # 空きがこれ未満で注意(M4。録画の部品の 20 GB と同じ)
 DISK_LOW = 5 * GB          # 空きがこれ未満で、新しい書き出し・文字起こしを「空き待ち」にする(M4。録画の部品は 1 GB で録画を止める)
 DISK_POLL = 60.0           # 空きを調べ直す間隔(秒)
-HOLDS = ("archive",)       # まとめて実行へ渡すのを待つ理由(holdFor。M7: 本番版にしてから)
-ARCHIVE_RUN = ("probe", "align", "fetch", "verify")   # 本番版への作り直し(src/flow/live_archive.py の RUN と同じ)の動いている段
+HOLDS = ("archive",)       # add の hold: "archive" = 録画から書き出さず、アーカイブから書き出す(M7。ジョブの from)
+ARCHIVE_RUN = ("probe", "align", "fetch", "verify")   # アーカイブからの書き出し(src/flow/live_archive.py の RUN と同じ)の動いている段
 ARCHIVE_ACTIVE = ("wait",) + ARCHIVE_RUN
 # 掲示板(flow/board.py。RS8 の ② の口 S2): 書き出しの state -> 掲示板の 6 つの state
 BOARD_STATES = {"wait": "queued", "fetch": "running", "encode": "running", "done": "done", "error": "error", "cancelled": "cancelled"}
@@ -141,7 +143,7 @@ def rec_list(call, rc, timeout=5.0):
 
 
 def latest_per_mark(js):
-    """マークごとの最新のジョブ(作った時刻の新しいもの)。本番版への作り直しの対象(live_archive)と、録画を消すか(live_retire)で同じ決め方"""
+    """マークごとの最新のジョブ(作った時刻の新しいもの)。アーカイブから書き出す対象(live_archive)と、録画を消すか(live_retire)で同じ決め方"""
     last = {}
     for j in js:
         p = last.get(j.get("markId"))
@@ -558,7 +560,7 @@ class Exporter(Patrol):
                 j.update(state="wait", progress=0, message="ホームを起動し直したので、やり直します")
             j.pop("diskWait", None)
             arc = j.get("archive")
-            if isinstance(arc, dict) and arc.get("state") in ARCHIVE_RUN:   # 本番版への作り直し(P4。src/flow/live_archive.py)の途中: 順番待ちに戻す
+            if isinstance(arc, dict) and arc.get("state") in ARCHIVE_RUN:   # アーカイブからの書き出し(src/flow/live_archive.py)の途中: 順番待ちに戻す
                 j["archive"] = dict(arc, state="wait", label="待ち", progress=0, message="ホームを起動し直したので、続きから作り直します")
             j.pop("cancel", None)
             self.jobs.append(j)
@@ -599,7 +601,7 @@ class Exporter(Patrol):
             out = [dict((k, v) for k, v in j.items() if k != "cancel") for j in self.jobs
                    if (rc is None or j["recorder"] == rc) and (rec is None or j["recording"] == rec)]
         for j in out:
-            j["stateLabel"] = STATE_LABELS.get(j["state"], j["state"])
+            j["stateLabel"] = "アーカイブ待ち" if j["state"] == "wait" and j.get("from") == "archive" else STATE_LABELS.get(j["state"], j["state"])
             if j.get("runId") and j["runId"] in tx:
                 j["tx"] = tx[j["runId"]]
             f = live_failures.failure_of(j, runs.get(j.get("runId")) if j.get("runId") else None)
@@ -645,16 +647,16 @@ class Exporter(Patrol):
                 for x in runs or [] if isinstance(x, dict)}
 
     def busy(self, rec, mid):
-        """書き出しの途中か、本番版への作り直し(P4)の順番待ち・途中(入れ替える相手のファイルを、書き出し直しで変えない)"""
+        """書き出しの途中か、アーカイブからの書き出しの順番待ち・途中(同じマークを二重に書き出さない)"""
         with self.lock:
             return any(j for j in self.jobs if j["markId"] == mid and j["recording"] == rec and
                        (j["state"] in ACTIVE or (j.get("archive") or {}).get("state") in ARCHIVE_ACTIVE))
 
     def _busy_error(self, rec, mid):
-        """busy のときに断る文(本番版への作り直しの途中なら、そう言う)"""
+        """busy のときに断る文(アーカイブからの書き出しの途中なら、そう言う)"""
         with self.lock:
             arch = any(j for j in self.jobs if j["markId"] == mid and j["recording"] == rec and (j.get("archive") or {}).get("state") in ARCHIVE_ACTIVE)
-        return LiveError("このマークは本番版に作り直しています(終わってから書き出し直せます)" if arch else "このマークは書き出しの途中です", 409)
+        return LiveError("このマークはアーカイブから書き出しています(終わってから書き出し直せます)" if arch else "このマークは書き出しの途中です", 409)
 
     def add_studio(self, rc, rec, studio, first, transcribe=True, url=None, title=None, after=None, streamer="", origin="manual", auto=None, hold=None, score=None,
                    request=None):
@@ -677,7 +679,7 @@ class Exporter(Patrol):
         """studio: スタジオのマークから頼まれたとき {video, mark, start, end}(ジョブに残す = スタジオの画面がどのマークの書き出しか分かる)。
         after: 書き出したあと(AFTERS。None = transcribe から)。streamer: 検査済みの配信者の名前(""= 決まっていない)。どちらもジョブに残して _finish が使う。
         origin: 採用の出どころ(ORIGINS。M1)。auto: 書き出したあとの設定 {cut, engine, model}(clean_auto 済み。M2)。
-        hold: "archive" = 書き出したあと、本番版に入れ替えてから まとめて実行へ渡す(HOLDS。M7 の配信後の全自動。入口の中からだけ。API からは渡せない)。
+        hold: "archive" = 録画からは書き出さず、アーカイブから書き出す(HOLDS。ジョブに from "archive"。M7 の配信後の全自動。入口の中からだけ。API からは渡せない)。
         score: 候補の点数(配信中の検出・アーカイブの解析。任意)。ジョブに残し、.clip.json の source.live.score へ(M9 の確認の一覧が出す)。
         request: 友人のライブ配信の依頼(live_requests.Store の項目。2-15)。ジョブに {rid, deliverDir, speakers, videoTracks, cut} を残し、_handoff が まとめて実行へ渡す"""
         after = after if after in AFTERS else ("check" if transcribe else "none")
@@ -700,8 +702,8 @@ class Exporter(Patrol):
                    "created": now_iso(), "updated": now_iso()}
             if studio is not None:
                 job["studio"] = dict(studio)
-            if hold in HOLDS:
-                job["holdFor"] = hold
+            if hold == "archive":
+                job.update({"from": "archive", "message": "配信が終わってアーカイブが用意できたら、アーカイブから書き出します"})
             if isinstance(score, (int, float)) and not isinstance(score, bool):
                 job["score"] = round(float(score), 2)   # 候補の点数(自動の採用。.clip.json の source.live.score へ)
             if isinstance(request, dict) and request.get("rid"):
@@ -790,7 +792,7 @@ class Exporter(Patrol):
     def pending(self):
         """書き出しの途中・順番待ちか、空きを待ってまとめて実行へ渡すもの(M4)がある(入口を起動し直したら見回りを動かす)"""
         with self.lock:
-            return any(j["state"] in ACTIVE or (j["state"] == "done" and j.get("handoffWait") == "disk") for j in self.jobs)
+            return any((j["state"] in ACTIVE and j.get("from") != "archive") or (j["state"] == "done" and j.get("handoffWait") == "disk") for j in self.jobs)
 
     # --- ディスクの見張り(M4) ---
     def disk_paths(self):
@@ -861,7 +863,7 @@ class Exporter(Patrol):
         """録画待ちのジョブを順に見て、録画が届いた最初の1本を返す(録画元への問い合わせは、同じ録画は1回だけ)。
         空きが少ない(M4)ときは、どれも始めずに「空き待ち」の文を出す(録画元にも問い合わせない)"""
         with self.lock:
-            waiting = [j for j in self.jobs if j["state"] == "wait" and not j.get("cancel")]
+            waiting = [j for j in self.jobs if j["state"] == "wait" and not j.get("cancel") and j.get("from") != "archive"]   # アーカイブから書き出すものは Archiver
         if not waiting:
             return None
         dk = self.disk() if self._disk_low() else None
@@ -909,7 +911,8 @@ class Exporter(Patrol):
                     job["end"] = epoch_iso(last)
                     job["warning"] = "録画が区間の終わりまで届かなかったので、録画の終わり(%s)までで切りました" % job["end"][11:19]
                     return job
-                self._set(job, state="error", error="録画が区間まで届きませんでした(録画は「%s」です)" % (d.get("state") or "?"), message="")
+                self._set(job, state="error", needsArchive=True, message="",   # 録画に無い区間(止めた後・届かなかった): アーカイブから書き出せる
+                          error="録画が区間まで届きませんでした(録画は「%s」です)。アーカイブが用意できたら、アーカイブから書き出します" % (d.get("state") or "?"))
                 continue
             left = b + READY_PAD - (last if last is not None else a)
             msg = "録画が届くのを待っています(あと約 %d 秒)" % max(1, int(left + 0.999))
@@ -1186,7 +1189,7 @@ class Exporter(Patrol):
 
     @staticmethod
     def _write_export_key(media, rc, rec, vid, clip, span, archive):
-        """export の鍵(RS6 b-K1)。媒体は録画(recorder・recording)。アーカイブから作った本番版は archive(videoId)で、区間はアーカイブの秒(F-1)。書けなくても書き出しは成功"""
+        """export の鍵(RS6 b-K1)。媒体は録画(recorder・recording)。アーカイブから書き出したものは archive(videoId)で、区間はアーカイブの秒(F-1)。書けなくても書き出しは成功"""
         try:
             if archive:
                 mid, s, e = schemas.media_identity("archive", videoId=str(archive.get("videoId") or vid)), archive.get("start"), archive.get("end")
@@ -1232,9 +1235,7 @@ class Exporter(Patrol):
         run_id, handoff, wait = "", "", ""
         after = job_after(job)
         if after != "none":   # 書き出したあと: まとめて実行の動画ファイルの形へ(check = 文字起こしまで・auto = 文字起こし → パック)
-            if job.get("holdFor") == "archive" and not archive:   # 本番版に入れ替えてから渡す(M7。アーカイブから作った本番版はすぐ渡す)
-                wait = "archive"
-            elif self._disk_low():   # 空きが少ない(M4): 空くまで渡さない
+            if self._disk_low():   # 空きが少ない(M4): 空くまで渡さない
                 wait = "disk"
             else:
                 run_id, handoff, more = self._handoff(job, media, after)
@@ -1254,8 +1255,6 @@ class Exporter(Patrol):
         what = "文字起こし → パック" if after == "auto" else "文字起こし"
         if run_id:
             return "。%sの順番に入れました(ホームの「まとめて実行」)" % what
-        if wait == "archive":
-            return "。アーカイブで本番版に入れ替えてから、%sへ渡します" % what
         if wait == "disk":
             return "。空き容量が少ないので、空くまで%sへ渡すのを待っています" % what
         return ""
@@ -1292,7 +1291,7 @@ class Exporter(Patrol):
         return run_id, handoff, warn
 
     def _hand_over(self, job, note=""):
-        """待っていた まとめて実行への受け渡しを今する(M4 の空き待ち・M7 の本番版待ち)。空きが少なければ「空き待ち」に。-> run の id か "\""""
+        """待っていた まとめて実行への受け渡しを今する(M4 の空き待ち・前の版の M7 の本番版待ち)。空きが少なければ「空き待ち」に。-> run の id か "\""""
         after = job_after(job)
         media = job.get("path") or ""
         if after == "none" or not media or not os.path.isfile(media):
@@ -1315,8 +1314,8 @@ class Exporter(Patrol):
         return run_id
 
     def release_hold(self, job, note=""):
-        """本番版への作り直しを待っていた書き出し(handoffWait "archive"。M7)を まとめて実行へ渡す(src/flow/live_archive.py から。
-        入れ替えが済んだとき・作り直せなかったとき(note に理由 = 速報版のまま渡す))。-> run の id か ""(渡さなかった・空き待ち)"""
+        """前の版で本番版への入れ替えを待っていた書き出し(handoffWait "archive"。M7)を まとめて実行へ渡す(src/flow/live_archive.py から。
+        入れ替えは廃止したので note に理由を付けて そのまま渡す)。-> run の id か ""(渡さなかった・空き待ち)"""
         with self.lock:
             if job.get("state") != "done" or job.get("handoffWait") != "archive":
                 return ""

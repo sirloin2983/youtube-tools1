@@ -39,7 +39,7 @@ import urllib.request
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # src/(この ingest の2つ上)
 if ROOT not in sys.path:   # 共通部品 ytt(src/ の中)
     sys.path.append(ROOT)
-from ytt import errors as yerrors, fsio, recproto, tools as ytools  # noqa: E402
+from ytt import errors as yerrors, fsio, recproto, tools as ytools, trashbin  # noqa: E402
 
 SCHEMA = "ytt-recorder/v1"
 DEFAULT_FOLDER = r"E:\Video\live-rec"      # 録画の置き場所の既定(2026-10-04 ユーザー決定。ホームの設定で変えられる)
@@ -70,6 +70,9 @@ PLAYLIST_MAX = 16 * 1024 * 1024
 GAP_TOL = 1.0                  # 区間のセグメントの間がこれより空いていたら「欠け」(P2 の書き出し。PDT の揺れは 0.1 秒ほど)
 RANGE_MAX_SEC = 3 * 3600       # /segments で一度に聞ける区間の長さ
 SEGMENTS_MAX = 5000
+TRASH_DIR = "ごみ箱"            # 消した録画を移す先(置き場所の直下。録画の id の形ではないので録画として読まない)
+TRASH_KIND = "録画"
+TRASH_DAYS = 3                 # ごみ箱の日付のフォルダを消すまでの日数(④ の manage/keep/cleanup.TRASH_DAYS と同じ 3 日)
 PRIORITY = getattr(subprocess, "ABOVE_NORMAL_PRIORITY_CLASS", 0)   # 録画は「通常より上」(書き出し・文字起こしは「通常より下」)
 
 
@@ -685,6 +688,7 @@ class Recorder:
     def load(self):
         """置き場所の録画を読み込み、録画中だった物は続ける(起動時の復旧)。-> 続けた録画の id"""
         resumed = []
+        self.purge_trash()   # 消した録画(ごみ箱)の古い日付のフォルダ
         try:
             names = os.listdir(self.folder)
         except OSError:
@@ -792,10 +796,12 @@ class Recorder:
         return rec.summary()
 
     def delete(self, rid):
-        """録画を消す(線 D の P4「録画を自動で消す」。入口の manage/keep/live_cleanup.py だけが呼ぶ。入口の中継 /live/r/… は delete を通さない)。
-        消すのは置き場所の直下の <録画の id>\\ で、recording.json があるものだけ(id は REC_ID_RE の形・realpath で置き場所の直下か確かめる・
-        リンク / ジャンクションの先はたどらない)。録画中・配信待ち・つなぎ直し中は 409。
-        使用中で消せないファイルが残ったら 409(recording.json は最後に消すので、同じ要求をあとでまた呼べる)。-> 消した録画の id"""
+        """録画を消す(線 D の「録画を自動で消す」。入口の manage/keep/live_cleanup.py だけが呼ぶ。入口の中継 /live/r/… は delete を通さない)。
+        2026-10-16(LD-1)から、すぐには消さずに 置き場所の ごみ箱/<日付>/録画/<録画の id> へ改名する(同じドライブなので一瞬)。
+        元の場所は <日付>/manifest.jsonl に 1 行(④ の manage/keep/trash.py と同じ形 = ytt/trashbin)。TRASH_DAYS を過ぎた日付のフォルダは purge_trash が消す。
+        移すのは置き場所の直下の <録画の id>/ で、recording.json があるものだけ(id は REC_ID_RE の形・realpath で置き場所の直下か確かめる・
+        リンク / ジャンクションは移さない)。録画中・配信待ち・つなぎ直し中は 409。使用中で改名できなければ 409(何も動かないので、あとでまた呼べる)。
+        -> 移した録画の id"""
         if not isinstance(rid, str) or not REC_ID_RE.match(rid):
             raise RecError("録画の id が正しくありません")
         with self.lock:
@@ -815,49 +821,47 @@ class Recorder:
             inside = False
         if not inside:
             raise RecError("録画の置き場所の外は消せません", 400)
-        left = []
-        try:
-            entries = list(os.scandir(path))
-        except OSError as e:
-            raise RecError("録画のフォルダを読めません: %s" % (e.strerror or e.__class__.__name__), 409)
-        for ent in entries:
-            if ent.name == "recording.json":
-                continue
-            try:
-                if _is_link(ent.path):   # リンク・ジャンクションはそれ自体だけ外す(先は消さない)
+        try:   # 中のリンク・ジャンクションはそれ自体だけ先に外す(ごみ箱を消すときに先(置き場所の外)をたどらない)
+            for ent in os.scandir(path):
+                if _is_link(ent.path):
                     try:
                         os.unlink(ent.path)
                     except OSError:
                         os.rmdir(ent.path)
-                elif ent.is_dir(follow_symlinks=False):
-                    shutil.rmtree(ent.path, onerror=lambda fn, p, exc: left.append(p))
-                else:
-                    os.unlink(ent.path)
-            except OSError:
-                left.append(ent.path)
-        try:
-            rest = [n for n in os.listdir(path) if n != "recording.json"]
-        except OSError:
-            rest = ["?"]
-        if left or rest:   # 残りがある間は recording.json を残す(次にまた呼べる)
-            n = len(left) or len(rest)
-            self.log("録画 %s: 消しきれませんでした(使用中のファイルが %d 個)" % (rid, n))
-            raise RecError("使用中のファイルがあるので、録画を消しきれませんでした(残り %d 個。再生中の画面やほかのソフトを閉じてから、もう一度消します)" % n, 409)
-        try:
-            os.unlink(meta)
-        except FileNotFoundError:
-            pass
         except OSError as e:
-            raise RecError("録画の記録(recording.json)を消せませんでした: %s。あとでもう一度消します" % (e.strerror or e.__class__.__name__), 409)
+            raise RecError("録画のフォルダを読めません: %s" % (e.strerror or e.__class__.__name__), 409)
+        now = time.time()
+        day = os.path.join(root, TRASH_DIR, trashbin.day_name(now))
         try:
-            os.rmdir(path)
-        except OSError as e:   # 記録はもう無い(録画ではない)ので、空のフォルダが残っても消したことにする
-            self.log("録画 %s: 空のフォルダを消せませんでした: %s" % (rid, e))
+            os.makedirs(os.path.join(day, TRASH_KIND), exist_ok=True)
+            dest = trashbin.free_path(os.path.join(day, TRASH_KIND, rid))
+            os.rename(path, dest)   # 同じドライブの中の改名(写さない)。使用中のファイルがあれば失敗して何も動かない
+        except OSError as e:
+            self.log("録画 %s: ごみ箱へ移せませんでした: %s" % (rid, e))
+            raise RecError("使用中のファイルがあるので、録画をごみ箱へ移せませんでした(再生中の画面やほかのソフトを閉じてから、もう一度消します)", 409)
+        try:
+            trashbin.append_manifest(day, [{"from": path, "to": dest, "at": int(now * 1000), "kind": TRASH_KIND, "recording": rid}])
+        except OSError as e:   # 書けなくても、移した物は ごみ箱 の中にある
+            self.log("録画 %s: ごみ箱の manifest に書けませんでした: %s" % (rid, e))
         with self.lock:
             if self.recs.get(rid) is r:
                 self.recs.pop(rid, None)
-        self.log("録画 %s: 消しました" % rid)
+        self.log("録画 %s: ごみ箱へ移しました(%s。%d 日で消えます)" % (rid, dest, TRASH_DAYS))
+        self.purge_trash(now)
         return rid
+
+    def purge_trash(self, now=None):
+        """置き場所の ごみ箱 の、TRASH_DAYS を過ぎた日付のフォルダを消す(起動時の load と、録画を移すたび)。-> 消した日付のフォルダの数"""
+        if not self.folder:
+            return 0
+        now = time.time() if now is None else now
+        n = 0
+        for name, p in trashbin.old_day_dirs(os.path.join(self.folder, TRASH_DIR), TRASH_DAYS, now):
+            shutil.rmtree(p, ignore_errors=True)
+            if not os.path.isdir(p):
+                n += 1
+                self.log("録画の ごみ箱 の %s を消しました(%d 日を過ぎた)" % (name, TRASH_DAYS))
+        return n
 
     def set_folder(self, folder):
         with self.lock:

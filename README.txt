@@ -1,5 +1,5 @@
 ==========================================================
-  YouTube 切り抜き・編集支援ツール  v0.89.0(仮)  はじめに読んでください
+  YouTube 切り抜き・編集支援ツール  v0.90.0(仮)  はじめに読んでください
 ==========================================================
 版は全体で 1 つ(src/ytt/version.py の VERSION。ホーム・スタジオ・編集・cut2resolve・録画・分析が同じ番号)。正式な 1.0.0 は組み直しとコード・画面の見直しのあと。
 各ツールの README の「■ v0.xx の変更」は過去の経緯で、そのときのツールごとの版。
@@ -151,5 +151,4 @@ AI(Claude・GPT)向けの決まりは AGENTS.md です。
   src\cut2resolve\README.txt       cut2resolve(パックを作る部品・コマンド)と Resolve への取り込み
   friend-apps\holo-colors\README.txt     ホロカラー(メンバーカラーをコピーするアプリ。友人に渡す zip の作り方も)
   friend-apps\request-sender\README.txt  切り抜き依頼を送るプログラム(友人が使う。Dropbox の鍵の作り方・友人に渡す zip の作り方も)
-  src\friendapp\README.txt              友人の受信箱(作り直し中の友人のアプリ。友人の PC で URL の依頼を処理して届ける。確かめ方も)
   docs\spec\pipeline.md            ツール間の受け渡しの形式(開発向け)

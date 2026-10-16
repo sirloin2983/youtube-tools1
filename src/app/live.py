@@ -38,12 +38,12 @@ P3(2026-10-05。計画の 0-8): 録画と再生・マークは**スタジオの�
        文は src/flow/live_failures.py の failure_of だけが作り、「調子」の live.failures と同じ)・
   GET  /live/api/exports の各ジョブの archive {state, label, message, progress, offset, residual, at, auto, …}・
        ?recorder=&recording= を付けたときは応答に archiveInfo {ready: true|false|null, checkedAt, message}(その録画のアーカイブの用意)
-  録画を自動で消す(P4。中身は src/manage/keep/live_cleanup.py。設定 live.autoDelete・既定オン): 見回り(tick)と、本番版への作り直しが1本済んだとき。
+  録画を自動で消す(中身は src/manage/keep/live_cleanup.py。設定 live.autoDelete・既定オン): 見回り(tick)と、アーカイブからの書き出しが済んだとき。
        消した録画のジョブには recordingDeleted(スタジオの画面が「録画は消しました」と出す)。録画元の …/delete は入口のこの処理だけが呼ぶ
   ディスクの見張り(線 D の M4。入口 0.40.0): 「調子」の live.disk {state: ok|warn|low, rows, message}(書き出し先・パック・live\\work の空き。
        20 GB 未満で注意・5 GB 未満で新しい書き出し・文字起こしを「空き待ち」。中身は src/flow/live_export.py の Exporter.disk)
   配信後の全自動(線 D の M7。入口 0.40.0。設定 live.autoAfterStream 既定オフ・live.afterStreamPerHour 既定 6。中身は src/flow/live_archive.py):
-       録画が終わってアーカイブを使えるようになったら、アーカイブを解析して上位 N を M1 の採用(origin archive)→ 書き出し → 本番版 → 文字起こし → パック。
+       録画が終わってアーカイブを使えるようになったら、アーカイブを解析して上位 N を M1 の採用(origin archive)→ アーカイブから書き出し → 文字起こし → パック。
        進み具合は GET /live/api/exports?recorder=&recording= の archiveInfo.afterStream {state, label, message, at, n, jobs}・失敗は「調子」の live.failures
   GET  /live/api/peaks?recorder=&recording=&since=  ・ POST /live/api/peaks {op: adopt|dismiss|restore, recorder, recording, id}
                                           配信中の盛り上がりの候補(線 D の L2・M11。設定 live.detect・live.autoAdopt 既定オン(0.46.3 から)。中身と形は src/flow/live_detect.py)
@@ -78,7 +78,6 @@ import re
 import time
 import urllib.parse
 
-from manage.cases import txindex
 from ytt import datadir, fsio
 from flow import live_adopt   # 採用 = マーク + 書き出し(M1)の本体とマークの置き場(RS7-2 G1b。ここはスタジオの置き場 StudioMarks と友人へ届ける hook を渡すだけ)
 from flow import live_export   # マークと書き出し。P2
@@ -207,11 +206,9 @@ class Live(livesession.LiveSession):
     def _make_cleaner(self):
         """録画を自動で消す(src/manage/keep/live_cleanup.py。P4。設定 live.autoDelete)"""
         kw = dict({"enabled": self.auto_delete, "studio": self.studio_call, "log": self.log,
-                   "hold": lambda rc, r: self.archiver.after_stream_hold(rc, r)}, **self.cleanup_opts)   # 配信後の全自動(M7)がまだの録画は消さない
+                   "hold": lambda rc, r: self.archiver.after_stream_hold(rc, r),   # 配信後の全自動(M7)がまだの録画は消さない
+                   "archived": lambda rc, r: self.archiver.archived(rc, r)}, **self.cleanup_opts)   # アーカイブ化を確かめた録画だけ消す(LD-1)
         return live_cleanup.Cleaner(self, **kw)
-
-    def _pack_info(self, path):
-        return txindex.pack_info(path)   # パックの有無の規則は txindex だけ(live_archive は読まない)
 
     def _request_limit(self):
         return None if self.headless else live_requests.MAX_ACTIVE   # 友人の PC は同時の上限なし(決めたこと 7)
@@ -354,7 +351,7 @@ class Live(livesession.LiveSession):
                 return h._json(200, self.detector.api_post(body))
             if path == "/live/api/export/cancel":
                 return h._json(200, {"job": ex.cancel(body.get("id"))})
-            if path in ("/live/api/archive", "/live/api/archive/cancel"):   # P4: アーカイブで本番版に作り直す・取り消す
+            if path in ("/live/api/archive", "/live/api/archive/cancel"):   # P4: 録画に無い区間をアーカイブから書き出す・取り消す
                 rc_id, rec = body.get("recorder"), body.get("recording")
                 self._ids(rc_id, rec)
                 if path == "/live/api/archive":

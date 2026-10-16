@@ -79,37 +79,50 @@ class RetireTest(unittest.TestCase):
         return fsio.read_json_file(os.path.join(self.tmp, "live", "exports.json"), 1 << 20)["jobs"]
 
     def test_verdict(self):
+        """LD-1: 全部書き出し済み・採用のまま書き出していないマークなし・アーカイブ化を確かめた(archived が "")で消してよい"""
         V = LR.Verdict
-        self.assertEqual(self.rt.verdict("local", REC), V(False, "", False))   # ジョブが無い = マークの無い録画の道へ
-        self.job(1)
-        self.assertEqual(self.rt.verdict("local", REC), V(True, "", True))     # 入れ替え済み・採用のまま書き出していないマークなし
+        ok = lambda: ""   # noqa: E731  アーカイブ化を確かめた
+        asked = []
+        self.assertEqual(self.rt.verdict("local", REC, archived=ok), V(False, "", False))   # ジョブが無い = マークの無い録画の道へ
+        self.job(1, arc=None)
+        self.assertEqual(self.rt.verdict("local", REC, archived=ok), V(True, "", True))
+        self.assertEqual(self.rt.verdict("local", REC).why, LR.NOT_ARCHIVED)   # 確かめる口が無い = 確かめられない
+        self.assertEqual(self.rt.verdict("local", REC, archived=lambda: LR.NOT_ARCHIVED + "(処理中)").why, LR.NOT_ARCHIVED + "(処理中)")
+        self.assertEqual(self.rt.verdict("local", REC, stale=True, archived=lambda: LR.NOT_ARCHIVED + "(x)"), V(True, "", False))   # 期限: 消してよい
+        self.assertEqual(self.rt.verdict("local", REC, archived=lambda: 1 / 0).why, LR.NOT_ARCHIVED)   # 確かめる部品が落ちても消さない
         self.studio = [{"id": "m1", "status": "adopted", "start": 10.0, "end": 15.0}]   # 同じ区間の採用は数えない
-        self.assertEqual(self.rt.verdict("local", REC), V(True, "", True))
+        self.assertEqual(self.rt.verdict("local", REC, archived=ok), V(True, "", True))
         self.studio = [{"id": "m1", "status": "adopted", "start": 11.0, "end": 15.0}]   # 区間を直した
-        self.assertEqual(self.rt.verdict("local", REC).why, "採用のまま書き出していないマークがある")
+        self.assertEqual(self.rt.verdict("local", REC, archived=lambda: asked.append(1) or "").why, "採用のまま書き出していないマークがある")
+        self.assertEqual(asked, [])   # ほかの理由があれば アーカイブ化は確かめない(yt-dlp を呼ばない)
         self.studio = None
-        self.assertEqual(self.rt.verdict("local", REC).why, LR.STUDIO_UNKNOWN)
+        self.assertEqual(self.rt.verdict("local", REC, archived=ok).why, LR.STUDIO_UNKNOWN)
         self.studio = []
-        self.job(2, arc="error")
-        self.assertEqual(self.rt.verdict("local", REC), V(True, LR.NOT_REPLACED, False))
-        self.assertEqual(self.rt.verdict("local", REC, stale=True), V(True, "", False))   # 期限を過ぎた: 消してよい(マークの正本は残す)
+        self.job(2, state="error", arc=None)   # 書き出せなかった(失敗)
+        self.assertEqual(self.rt.verdict("local", REC, archived=ok), V(True, LR.NOT_EXPORTED, False))
+        self.assertEqual(self.rt.verdict("local", REC, stale=True, archived=ok), V(True, "", False))   # 期限を過ぎた: 消してよい
         self.studio = [{"id": "m9", "status": "adopted", "start": 90.0, "end": 95.0}]
-        self.assertEqual(self.rt.verdict("local", REC, stale=True), V(True, "採用のまま書き出していないマークがある", False))
-        self.job(3, arc="fetch")
-        self.assertEqual(self.rt.verdict("local", REC, stale=True).why, "本番版への作り直しの途中")   # ほかの理由は期限でも消さない
+        self.assertEqual(self.rt.verdict("local", REC, stale=True, archived=ok), V(True, "採用のまま書き出していないマークがある", False))
+        self.job(3, state="error", arc="fetch", needsArchive=True)
+        self.assertEqual(self.rt.verdict("local", REC, stale=True).why, "アーカイブからの書き出しの途中・待ち")   # ほかの理由は期限でも消さない
+        self.ex.jobs[:] = []
+        self.job(1, state="wait", arc=None, **{"from": "archive"})   # M7 の採用: アーカイブから書き出すのを待っている
+        self.assertEqual(self.rt.verdict("local", REC, archived=ok).why, "アーカイブからの書き出しの途中・待ち")
         self.ex.jobs[:] = []
         self.job(1, state="encode", arc=None)
         self.assertEqual(self.rt.verdict("local", REC).why, "書き出しの途中")
         self.ex.jobs[:] = []
         self.job(1, recordingDeleted=LX.now_iso())
         self.assertEqual(self.rt.verdict("local", REC).why, "前に消しました")
+        self.assertTrue(LR.stale_ok(LR.NOT_EXPORTED) and LR.stale_ok(LR.NOT_ARCHIVED + "(x)"))
+        self.assertFalse(LR.stale_ok("書き出しの途中") or LR.stale_ok(None))
 
     def test_verdict_reads_marks_book(self):
         """親がマークの置き場(marks.adopted)を持てばそこを読み、studio_marks には聞かない。読めなければ確かめられない"""
         self.job(1)
         self.studio = None   # 聞いたら「確かめられない」になる
         self.host.marks = Book([{"id": "m1", "status": "exported", "start": 10.0, "end": 15.0}])
-        self.assertEqual(self.rt.verdict("local", REC), LR.Verdict(True, "", True))
+        self.assertEqual(self.rt.verdict("local", REC, archived=lambda: ""), LR.Verdict(True, "", True))
         self.host.marks = Book(RuntimeError("x"))
         self.assertEqual(self.rt.verdict("local", REC).why, LR.STUDIO_UNKNOWN)
         self.host.marks = Book(None)
