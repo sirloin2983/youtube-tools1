@@ -10,12 +10,11 @@ import math
 import os
 import re
 import subprocess
-import sys
 import tempfile
 from fractions import Fraction
 from pathlib import Path
 
-from ytt import fsio
+from ytt import fsio, runtime as _runtime
 from ytt import tools as _ytools   # ffmpeg / ffprobe の場所(PATH → winget。RS7-1 F-k)
 
 # 編集ソフトで一般的なフレームレート。動画の実測値をこれに丸める
@@ -367,10 +366,4 @@ def build_srt(cues_f, fps):
     return "\n".join(parts)
 
 
-def safe_stdio():
-    """画面(Windows の cp932 など)に出せない文字があっても、エラーで落ちずに「?」にする(コマンドの main の最初で呼ぶ)"""
-    for stream in (sys.stdout, sys.stderr):
-        try:
-            stream.reconfigure(errors="replace")
-        except Exception:
-            pass
+safe_stdio = _runtime.safe_stdio   # lint: keep 別名(正は ytt/runtime。cut2resolve の口と cut2resolve_core が S.safe_stdio で読む)

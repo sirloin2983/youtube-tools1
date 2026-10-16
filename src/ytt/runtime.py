@@ -92,11 +92,6 @@ def read_runtime(rdir, tool):
     return {"port": d["port"], "version": str(d.get("version", ""))[:40], "pid": pid if type(pid) is int else None, "mtime": mtime, "path": path}
 
 
-def read_runtime_port(rdir, tool):
-    info = read_runtime(rdir, tool)
-    return info["port"] if info else None
-
-
 def remove_runtime(rdir, tool, port):
     """正常終了時に消す。自分が書いたもの(同じポート・同じプロセス)のときだけ(後から別のポートで起動した同じツールの記録を消さないため)。"""
     path, d = _load(rdir, tool)
@@ -189,7 +184,7 @@ def siblings(rdir, self_tool=None, self_port=None, timeout=PING_TIMEOUT, self_pa
 # ---------- 起動の約束の小道具(serve.py・録画の部品の main。2026-10-09) ----------
 def safe_stdio():
     """画面(Windows の cp932 など)に出せない文字があっても、エラーで落ちずに「?」にする(main の最初で呼ぶ)。
-    cut2resolve の単独のコマンドは ytt を読まないので srt2resolve.safe_stdio(同じ規則の写し)を使う"""
+    cut2resolve の部品(pipeline/pack/srt2resolve)もこれを読む(写しは持たない)"""
     for stream in (sys.stdout, sys.stderr):
         try:
             stream.reconfigure(errors="replace")

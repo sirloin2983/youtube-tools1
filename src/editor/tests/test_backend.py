@@ -4,7 +4,7 @@
     python3 -m unittest test_metrics test_resolve_export -q   # test_metrics がこのファイルのテストも読み込む
     python3 -m unittest test_backend -q                        # これだけ
 
-受け渡しの約束(notes:docs/spec/pipeline.md)の API(clip-info / transcript-v1 / export-file / siblings)は、
+受け渡しの約束(notes:docs/spec/pipeline.md)の API(clip-info / export-file(transcript-v1)/ siblings)は、
 疑似モード(TRANSCRIBE_BACKEND=fake)のサーバーを空いているポートで起動して確かめる(ffmpeg が必要)。
 """
 import json
@@ -578,7 +578,7 @@ class TestRuntime(unittest.TestCase):
         write_json(os.path.join(self.dir, "studio.json"), {"tool": "studio", "port": 8801})
         write_json(os.path.join(self.dir, "cut2resolve.json"), {"tool": "cut2resolve", "port": "8810"})     # 文字列
         write_json(os.path.join(self.dir, "evil.json"), {"tool": "evil", "port": 22})                         # 知らないツール
-        entries = lambda: [(t, p) for t in P.RUNTIME_TOOLS for p in [P.runtime.read_runtime_port(self.dir, t)] if p is not None]   # noqa: E731
+        entries = lambda: [(t, info["port"]) for t in P.RUNTIME_TOOLS for info in [P.runtime.read_runtime(self.dir, t)] if info]   # noqa: E731
         self.assertEqual(entries(), [("studio", 8801)])
         for bad in (0, 70000, True, 8.5, None, -1):
             self.assertFalse(P.valid_port(bad), bad)
@@ -700,6 +700,12 @@ class TestPipelineHttp(unittest.TestCase):
                 shutil.rmtree(p) if os.path.isdir(p) else os.unlink(p)   # 作業用\(途中のファイル)も消す
 
     # ---- .clip.json ----
+    def export_v1(self, tid):
+        """transcript-v1 の中身を、書き出された .transcript.json から読む(GET の口は無い = 呼び手 0 で消した)"""
+        r = self.call("POST", "/api/export-file", {"id": tid, "format": "transcript-v1"})
+        with open(r["path"], encoding="utf-8") as f:
+            return json.load(f)
+
     def test_transcribe_reads_clip_and_transcript_v1(self):
         self.write_clip(clip_obj(media={"path": "C:\\別のPC\\動画_0012.wav", "name": "動画_0012.wav", "durationSec": 12.0}))
         job = self.transcribe(self.wav)
@@ -713,14 +719,14 @@ class TestPipelineHttp(unittest.TestCase):
         segs[1]["proofed"] = True
         r = self.call("PUT", "/api/transcript?id=" + job["tid"], {"title": doc["title"], "speakers": [{"id": "S1", "name": "トワ"}], "segments": segs, "baseUpdatedAt": doc["updatedAt"]})
         self.assertTrue(r["ok"])
-        t = self.call("GET", "/api/transcript-v1?id=" + job["tid"])
+        t = self.export_v1(job["tid"])
         self.assertEqual(t["schema"], "youtube-tools-transcript/v1")
         self.assertEqual(t["clip"]["range"]["start"], 1234.5)
         self.assertEqual([g["cut"] for g in t["segments"][:2]], [True, False])
         self.assertEqual([g["proofed"] for g in t["segments"][:2]], [False, True])
         self.assertEqual(t["segments"], sorted(t["segments"], key=lambda g: g["start"]))
         self.assertNotIn("original", t)
-        self.assertEqual(self.call("GET", "/api/transcript-v1?id=../x").get("_status"), 404)
+        self.assertEqual(self.call("POST", "/api/export-file", {"id": "../x", "format": "transcript-v1"}).get("_status"), 404)
 
     def test_range_transcription_keeps_clip_and_file_times(self):
         """範囲指定でも clip はそのまま、行の時刻は動画ファイルの先頭基準(元の配信の時刻 = range.start + 行の時刻)。"""
@@ -729,7 +735,7 @@ class TestPipelineHttp(unittest.TestCase):
         doc = self.call("GET", "/api/transcript?id=" + job["tid"])
         self.assertEqual(doc["clip"]["range"]["start"], 1234.5)
         self.assertGreaterEqual(doc["segments"][0]["start"], 4.0)
-        t = self.call("GET", "/api/transcript-v1?id=" + job["tid"])
+        t = self.export_v1(job["tid"])
         self.assertEqual(t["transcribedRange"], {"start": 4, "end": 10})
         self.assertGreaterEqual(t["segments"][0]["start"], 4.0)
 

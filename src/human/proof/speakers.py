@@ -392,7 +392,7 @@ def _autodiar_name_by_context(tid, name):
 # 名前を付けた話者の行の音声から「声の特徴」(sherpa-onnx の話者の埋め込み。判別モデルごとに別)を作って覚え、
 # 次からの話者判別のあとで、見つかった話者を覚えている声と比べて名前を付ける。
 # 声の特徴は個人を見分けられる情報なので、作業データ(voices/)にだけ置く(リポジトリ・パックには入れない)。
-# 声の特徴の計算と照らし合わせ(VOICE_MATCH・embed_groups・match_voices)は pipeline/transcribe/diarize(numpy・sherpa-onnx は認識ワーカーの中だけ)。
+# 声の特徴の計算と照らし合わせ(VOICE_MATCH・embed_groups・match_voices_explain)は pipeline/transcribe/diarize(numpy・sherpa-onnx は認識ワーカーの中だけ)。
 # 覚えた声の置き場所(VOICES_DIR・voices_dir・load_voices・save_voices・登録簿のロック)と、声の特徴を取る・照らし合わせる段取りは ② flow/diar。
 # ここにあるのは、判別のあとの名前付け(_recognize_voices)・覚える行の計画・覚える前の確認・受付・覚えるジョブ・一覧・忘れる(声の登録簿の編集の受付)。
 # 名前は person_key で比べる(登録簿の「Pekora」と文書の「pekora」は同じ人 = 登録簿の名前に足す)

@@ -84,7 +84,6 @@ has_sherpa
 is_generic_speaker_name
 label_ratio
 load_voices
-match_voices
 match_voices_explain
 read_diar
 _recognize_voices

@@ -4,4 +4,3 @@ _read_json_file
 clip_info
 export_file
 runtime_path_dir
-transcript_v1

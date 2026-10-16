@@ -9,7 +9,7 @@ serve.名前 は serve の名前の受付がここへ回す(テストの S.名�
   (diar_models_dir。DIAR_DIR は上書き用 = src/eval/tools/eval_speakers が本物の作業データの場所を入れる)
 - 判別: diarize_real(サーバーは認識ワーカーに頼む)→ ワーカーの中の _diarize_local(sherpa-onnx)。行への割り当て assign_speakers・細切れのならし smooth_labels
 - 判別の記録 transcripts/<id>.diar.json(build_diar_run・write_diar・read_diar・update_diar_voices)
-- 声の特徴: embed_groups(ワーカーの中の _embed_local)と照らし合わせ match_voices。本物と疑似は backend の口(疑似は eval/fake/fake_asr の diarize_fake・embed_fake)
+- 声の特徴: embed_groups(ワーカーの中の _embed_local)と照らし合わせ match_voices_explain。本物と疑似は backend の口(疑似は eval/fake/fake_asr の diarize_fake・embed_fake)
 numpy・sherpa_onnx は _diarize_local・_embed_local の関数の中で読む(サーバーのプロセスでは読まない = src/editor/tests/test_worker.py の検査)。
 読むのは標準ライブラリ・ytt・兄弟(backend・tx_engines・txbase・worker_client)だけ(editor の ed_*・serve・eval は読まない)。
 """
@@ -499,15 +499,10 @@ def _embed_local(job, wav, emb, groups):
 _VOICE_EMPTY = {"top": None, "score": None, "second": None, "secondScore": None, "decided": None, "by": None, "reason": None}   # 話者ごとの照合の経過の空の形(使うときは dict(...) で写す)
 
 
-def match_voices(found, voices):
-    """found: {話者の id: 特徴}、voices: 覚えている声。-> {話者の id: (名前, 似ている度合い)}。
-    VOICE_MATCH 以上・2番目との差が VOICE_MARGIN 以上のときだけ。1つの名前は1人にだけ(似ている順に決める)"""
-    return match_voices_explain(found, voices)[0]
-
-
 def match_voices_explain(found, voices):
-    """match_voices と同じ決め方で、決まった結果に加えて話者ごとの経過も返す(判別の記録 <id>.diar.json 用)。
-    -> (match_voices と同じ, {話者の id: {"top", "score", "second", "secondScore", "decided", "by", "reason"}})。
+    """found: {話者の id: 特徴}、voices: 覚えている声。-> (結果, 経過)。結果は {話者の id: (名前, 似ている度合い)}。
+    VOICE_MATCH 以上・2番目との差が VOICE_MARGIN 以上のときだけ。1つの名前は1人にだけ(似ている順に決める)。
+    経過は判別の記録 <id>.diar.json 用 -> {話者の id: {"top", "score", "second", "secondScore", "decided", "by", "reason"}}。
     reason = 付けなかった理由: no_feature(特徴が取れない)・no_voices(比べる声が無い)・below_match(しきい値に届かない)・margin(2位との差が足りない)・name_taken(同じ名前を別の人が先に取った)"""
     names = list(voices)
     cands, info = [], {}

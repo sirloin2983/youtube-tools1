@@ -487,7 +487,7 @@ class TestRuntime(unittest.TestCase):
     def test_ids_and_unwritable(self):
         for bad in ("../evil", "Studio", "", "a/b", None, "x" * 40):
             self.assertIsNone(runtime.write_runtime(self.dir, bad, 8800, "v"), bad)
-            self.assertIsNone(runtime.read_runtime_port(self.dir, bad), bad)
+            self.assertIsNone(runtime.read_runtime(self.dir, bad), bad)
         self.assertIsNotNone(runtime.write_runtime(self.dir, "portal", 8700, "v"))   # 入口も書ける
         self.assertIsNone(runtime.write_runtime(os.path.join(self.dir, "x\0y"), "studio", 8800, "v"))
 
@@ -497,11 +497,11 @@ class TestRuntime(unittest.TestCase):
                  ({"tool": "transcribe", "port": 80}, None), ({"tool": "transcribe", "port": 70000}, None), ([1], None)]
         for obj, want in cases:
             self.put("transcribe", obj)
-            self.assertEqual(runtime.read_runtime_port(self.dir, "transcribe"), want, obj)
+            self.assertEqual((runtime.read_runtime(self.dir, "transcribe") or {}).get("port"), want, obj)
         self.put("transcribe", None, b'\xef\xbb\xbf{"tool": "transcribe", "port": 1024}')
-        self.assertEqual(runtime.read_runtime_port(self.dir, "transcribe"), 1024)
+        self.assertEqual(runtime.read_runtime(self.dir, "transcribe")["port"], 1024)
         self.put("transcribe", None, b'{"tool": "transcribe", "port": 8775, "x": "' + b"a" * 5000 + b'"}')
-        self.assertIsNone(runtime.read_runtime_port(self.dir, "transcribe"))
+        self.assertIsNone(runtime.read_runtime(self.dir, "transcribe"))
 
     def test_tool_ids_are_fixed(self):
         """ツールの識別子(/api/ping の app・.clip.json の tool.name)は互換のため固定。各サーバーはこの表を読む(サーバー側の確かめは自分の APP_ID だけ)"""

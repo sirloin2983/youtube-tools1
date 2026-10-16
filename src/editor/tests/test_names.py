@@ -152,7 +152,7 @@ class TestEdSpeakersNames(unittest.TestCase):
 
     def test_old_ed_speakers_names_still_resolve(self):
         names = _old_names("data_ed_speakers_names.txt")
-        self.assertEqual(len(names), 103)   # RS6 a-4 で _autodiar_record を外した(125 → 124)・OPT-H1 で ovdraft_ の 20 と _spksub_key を外した(124 → 103)
+        self.assertEqual(len(names), 102)   # RS6 a-4 で _autodiar_record を外した(125 → 124)・OPT-H1 で ovdraft_ の 20 と _spksub_key を外した(124 → 103)・RV で diarize の match_voices を消した(103 → 102)
         missing = [n for n in names if not hasattr(S, n)]
         self.assertEqual(missing, [])
 
@@ -374,7 +374,7 @@ class TestEdMiscNames(unittest.TestCase):
 
     def test_old_ed_misc_names_still_resolve(self):
         names = _old_names("data_ed_misc_names.txt")
-        self.assertEqual(len(names), 6)   # OTHER_JSON_MAX は ytt/studiodata.STUDIO_JSON_MAX に一本化(RS8 B3-1)・フォルダの一括の 5 つは OPT-H1 で消した
+        self.assertEqual(len(names), 5)   # OTHER_JSON_MAX は ytt/studiodata.STUDIO_JSON_MAX に一本化(RS8 B3-1)・フォルダの一括の 5 つは OPT-H1 で消した・RV で /api/transcript-v1(transcript_v1)を消した(6 → 5)
         self.assertEqual([n for n in names if not hasattr(S, n)], [])
 
     def test_moved_owners(self):

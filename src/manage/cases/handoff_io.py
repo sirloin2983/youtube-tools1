@@ -66,10 +66,6 @@ def clip_info(path):
     return out
 
 
-def transcript_v1(tid):
-    return _flowpack.handoff_files(_store.read_transcript(tid), "transcript-v1")[0]
-
-
 def export_file(req):
     """POST /api/export-file {"id", "format": transcript-v1|srt|cut-plan-v1, "baseUpdatedAt"?, "wrap"?, "speakerNames"?}
     → 動画の隣に保存して {"path", "name", "overwritten", "format", "count"}。保存済みの内容を書き出す(画面は先に保存してから呼ぶ)。

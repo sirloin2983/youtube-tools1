@@ -11,7 +11,6 @@ import logging.handlers
 import os
 import sys
 import threading
-import time
 
 from ytt import errors as _errors, fsio as _fsio, runtime as _runtime, schemas as _yschemas, tools as _tools, workdata as _workdata  # noqa: E402
 from flow import wire as _flowwire  # noqa: E402   置き場所と名簿の準備 setup_places(OPT-E2 1c-1)
@@ -91,9 +90,7 @@ add_warning = _txbase.add_warning           # lint: keep 別名(RS2-1a)= ジョ�
 norm_path = _fsio.norm_path   # lint: keep 別名(RS3-E5a。正は ytt/fsio)= 同じ動画かを比べる鍵(normcase(abspath))。ファイルには触らない
 
 
-def now_ms():
-    """今の時刻(ミリ秒の整数。文書・記録の at・updatedAt と同じ単位)"""
-    return int(time.time() * 1000)
+now_ms = _yschemas.now_ms   # lint: keep 別名(正は ytt/schemas)
 
 
 env_off = _txbase.env_off   # lint: keep 別名(RS2-9)= 環境変数が「止める」の値(off・0・no・false)か(裏の処理を止めるスイッチ)

@@ -56,7 +56,7 @@ class TestPure(unittest.TestCase):
                 {"start": 4.0, "end": 6.0, "speaker": "S2", "flag": diarize._txbase.MIXED_FLAG}]   # 声が混ざっている行は使わない
         self.assertEqual(diarize.voice_groups(segs, lambda g: g.get("speaker")), {"S1": ([(0.0, 2.0)], 2.0)})
         voices = {"A": {"vec": diarize._unit([1.0, 0.0])}, "B": {"vec": diarize._unit([0.0, 1.0])}}
-        self.assertEqual(diarize.match_voices({"S1": [1.0, 0.0], "S2": [0.0, 1.0]}, voices), {"S1": ("A", 1.0), "S2": ("B", 1.0)})
+        self.assertEqual(diarize.match_voices_explain({"S1": [1.0, 0.0], "S2": [0.0, 1.0]}, voices)[0], {"S1": ("A", 1.0), "S2": ("B", 1.0)})
         got, info = diarize.match_voices_explain({"S1": None}, voices)
         self.assertEqual((got, info["S1"]["reason"]), ({}, "no_feature"))
 

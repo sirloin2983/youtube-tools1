@@ -46,7 +46,6 @@
   GET  /api/peaks?id=        音の波形(0〜255 の1バイトの並び。X-Peaks-Rate・X-Peaks-Duration)。作っている間は 202
   受け渡し(notes:docs/spec/pipeline.md。読み・保存・.runtime は manage/cases/pipeline_io.py・JSON と SRT の組み立ては pipeline/pack/resolve_export.py):
   GET  /api/clip-info?path=  動画(または .clip.json)の隣の youtube-tools-clip/v1 → {"clip", "clipPath", "mediaPath", "warning"}
-  GET  /api/transcript-v1?id= youtube-tools-transcript/v1 の JSON
   POST /api/export-file      {"id", "format": transcript-v1|srt|cut-plan-v1} 動画の隣に保存 → {"path", "name", "overwritten", "format", "count"}
   GET  /api/siblings         実行中の他のツールのポート {"tools": {"transcribe": 8775, ...}}
   評価ドリル(マスタープラン Q4。git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md の (c)。本体は eval/drill/drill.py(RS4-2 まで _drill.py)。画面は編集の ?doc=<id>&drill=1):
@@ -240,7 +239,6 @@ GET_API = {
     "/api/ping": lambda a: _ping(),
     "/api/siblings": lambda a: pipeline_io.siblings(ed_state.runtime_path_dir(), ed_state.TOOL_ID, ed_state.PORT, self_path=ed_state.BASE_PATH),
     "/api/clip-info": lambda a: _handoff_io.clip_info(a("path")),
-    "/api/transcript-v1": lambda a: _handoff_io.transcript_v1(a("id")),
     "/api/roster": lambda a: _learn.load_roster(),
     "/api/tools": lambda a: _tools_info(),
     "/api/voices": lambda a: {"voices": _speakers.voices_summary(), "match": _txdiarize.VOICE_MATCH},   # A-3: 覚えている声の一覧(特徴そのものは返さない)

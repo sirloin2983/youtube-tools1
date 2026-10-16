@@ -61,11 +61,11 @@ class TestVoiceRules(unittest.TestCase):
 
     def test_match_threshold_margin_and_one_to_one(self):
         voices = {"ぺこら": {"vec": unit(1, 0, 0)}, "みこ": {"vec": unit(0, 1, 0)}}
-        got = S.match_voices({"S1": unit(0.95, 0.1, 0), "S2": unit(0.1, 0.9, 0.1), "S3": unit(0, 0, 1)}, voices)
+        got, _info = S.match_voices_explain({"S1": unit(0.95, 0.1, 0), "S2": unit(0.1, 0.9, 0.1), "S3": unit(0, 0, 1)}, voices)
         self.assertEqual({k: v[0] for k, v in got.items()}, {"S1": "ぺこら", "S2": "みこ"})   # S3 はどの声とも似ていない
-        got = S.match_voices({"S1": unit(1, 1, 0)}, voices)       # 2人のちょうど間: 差が無いので決めない
+        got, _info = S.match_voices_explain({"S1": unit(1, 1, 0)}, voices)       # 2人のちょうど間: 差が無いので決めない
         self.assertEqual(got, {})
-        got = S.match_voices({"S1": unit(1, 0.05, 0), "S2": unit(1, 0.1, 0)}, voices)   # 同じ名前は1人にだけ(似ている方)
+        got, _info = S.match_voices_explain({"S1": unit(1, 0.05, 0), "S2": unit(1, 0.1, 0)}, voices)   # 同じ名前は1人にだけ(似ている方)
         self.assertEqual({k: v[0] for k, v in got.items()}, {"S1": "ぺこら"})
 
     def test_generic_names(self):
