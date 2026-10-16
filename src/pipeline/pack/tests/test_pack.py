@@ -26,7 +26,7 @@ from pipeline.pack import cut2resolve_core as C  # noqa: E402
 from pipeline.pack import pack  # noqa: E402
 from pipeline.pack import resolve_textplus as RTP  # noqa: E402
 from pipeline.pack import srt2resolve as S  # noqa: E402
-from test_cut2resolve import FPS30, HAVE_FFMPEG, make_video, parse_edl, tc2f  # noqa: E402
+from test_cut2resolve import FPS30, HAVE_FFMPEG, make_video, parse_edl, selection_pack, tc2f  # noqa: E402
 
 
 def write(path, text, enc="utf-8"):
@@ -666,8 +666,8 @@ class TestOutputGuard(unittest.TestCase):
         self.assertEqual(sorted(x.name for x in self.dir.iterdir()), ["x.txt"])
 
     @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg が無いためスキップ")
-    def test_auto_cut_package_protects_subtitle_input_even_with_force(self):
-        """auto_cut.py(0.23.0 から pack 経由)でも、出力と同じパスにある入力の字幕は --force でも上書きしない"""
+    def test_selection_pack_protects_subtitle_input_even_with_force(self):
+        """採用区間 JSON からのパックでも、出力と同じパスにある入力の字幕は --force でも上書きしない"""
         video = self.dir / "v.mp4"
         make_video(video, 10, audio=None)
         out = self.dir / "pack"
@@ -675,10 +675,8 @@ class TestOutputGuard(unittest.TestCase):
         sub = write(out / "v_cut.srt", "1\n00:00:01,000 --> 00:00:02,000\nx\n")
         sel = write(self.dir / "sel.json", json.dumps({"schema": "youtube-tools-cut-plan/v1",
                                                        "segments": [{"id": "a", "start": 1, "end": 2}]}))
-        err = io.StringIO()
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
-            self.assertEqual(AC.main([str(video), str(sel), str(sub), "--handles", "0", "-o", str(out), "--force"]), 1)
-        self.assertIn("入力ファイル", err.getvalue())
+        with self.assertRaisesRegex(C.ToolError, "入力ファイル"):
+            selection_pack(video, sel, out, sub, handles=0.0, force=True)
         self.assertIn("x", sub.read_text(encoding="utf-8"))
         self.assertEqual(sorted(p.name for p in out.iterdir()), ["v_cut.srt"])   # 断ったときは何も書かない
 
@@ -779,11 +777,6 @@ class TestFcpxml(unittest.TestCase):
         clip = root.find(".//spine/asset-clip")
         self.assertEqual(clip.get("start"), "3601s")
         self.assertEqual(clip.find("title").get("offset"), "3601s")
-        xml2, _ = S.build_fcpxml(Path("/tmp/src.mp4"), self.meta, [(30, 60, "x")], "n", "Yu Gothic", 40, True, t0)
-        r2 = self._root(xml2)
-        self.assertEqual(r2.find(".//asset").get("start"), "3600s")
-        self.assertEqual(r2.find(".//spine/asset-clip").get("start"), "3600s")
-        self.assertEqual(r2.find(".//title").get("offset"), "3601s")
 
     def test_start_tc_frames(self):
         self.assertEqual(S.start_tc_frames(None, FPS30), (0, []))
@@ -834,13 +827,12 @@ class TestCutPlanDocs(unittest.TestCase):
     @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg が無いためスキップ")
     def test_package_plan_round_trips(self):
         """書いた cut-plan.json を読み直すと、同じ残す区間になる(以前は segments が無く読み直せなかった)。
-        auto_cut.py は 0.23.0 から pack 経由で書く(以前の write_package は消した)"""
+        採用区間 JSON からのパックは pack 経由で書く"""
         video = self.dir / "v.mp4"
         make_video(video, 30, fps="30000/1001", size="320x180", audio=None)
         segs = [{"id": "a", "start": 3.3, "end": 7.7}, {"id": "b", "start": 20, "end": 25}]
         out = self.dir / "out"
-        with contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(AC.main([str(video), str(self._plan(segs=segs)), "--handles", "1.5", "-o", str(out)]), 0)
+        selection_pack(video, self._plan(segs=segs), out, handles=1.5)
         saved = json.loads((out / "cut-plan.json").read_text(encoding="utf-8"))
         for k in ("schema", "tool", "createdAt", "media", "segments"):
             self.assertIn(k, saved)
@@ -1124,7 +1116,7 @@ class TestPackWithFfmpeg(unittest.TestCase):
 
     def test_copy_video_direct_and_same_copy(self):
         """copy_video を直接呼ぶ道も同じ決まり。same_copy は無い・フォルダなら False。
-        auto_cut.py --copy-video(0.23.0 から pack 経由)も、2 回目は写さずに注意を出す"""
+        採用区間 JSON からのパックの copy_video も、2 回目は写さずに注意を出す"""
         d = self.dir / "direct"
         d.mkdir()
         self.assertEqual(C.copy_video(self.video, d), d / "clip.mp4")    # 無ければ写す
@@ -1136,14 +1128,11 @@ class TestPackWithFfmpeg(unittest.TestCase):
         sel = write(self.dir / "sel.json", json.dumps({"schema": "youtube-tools-cut-plan/v1",
                                                        "segments": [{"id": "m1", "start": 1, "end": 2}]}))
         out = self.dir / "ac"
-        args = [str(self.video), str(sel), "--handles", "0.5", "-o", str(out), "--copy-video"]
-        with mock.patch("builtins.print") as p:
-            self.assertEqual(AC.main(args), 0)
-        self.assertNotIn(mock.call("注意: " + C.COPY_SKIPPED.format("clip.mp4")), p.call_args_list)
+        plan, res = selection_pack(self.video, sel, out, handles=0.5, copy_video=True)
+        self.assertNotIn(C.COPY_SKIPPED.format("clip.mp4"), plan.warnings + res["warnings"])
         self.assertTrue(C.same_copy(self.video, out / "clip.mp4"))
-        with mock.patch("builtins.print") as p:
-            self.assertEqual(AC.main(args + ["--force"]), 0)
-        p.assert_any_call("注意: " + C.COPY_SKIPPED.format("clip.mp4"))
+        plan, res = selection_pack(self.video, sel, out, handles=0.5, copy_video=True, force=True)
+        self.assertIn(C.COPY_SKIPPED.format("clip.mp4"), plan.warnings + res["warnings"])
 
     # ---- E-15 の続き(0.22.2): 音量をかけた写しも、前のパックの記録(videoCopy)と条件・置き場所の動画が同じなら作り直さない
     def _gain_pack(self, name, **kw):
@@ -1255,19 +1244,6 @@ class TestPackWithFfmpeg(unittest.TestCase):
             self.assertEqual(len(C.detect_silence(Path("-i.mp4"), meta["fps"], meta["total"])), 2)
         finally:
             os.chdir(cwd)
-
-    def test_srt2resolve_uses_embedded_start_timecode(self):
-        v = self.dir / "tc.mov"
-        subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "testsrc=size=320x180:rate=30:duration=3",
-                        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-timecode", "01:00:00:00", str(v)], check=True)
-        srt = write(self.dir / "tc.srt", "1\n00:00:01,000 --> 00:00:02,000\nx\n")
-        self.assertEqual(S.main([str(v), str(srt)]), 0)
-        root = ET.fromstring((self.dir / "tc_resolve" / "tc.fcpxml").read_text(encoding="utf-8").split("\n", 2)[2])
-        self.assertEqual(root.find(".//asset").get("start"), "3600s")
-        self.assertEqual(root.find(".//title").get("offset"), "3601s")
-        self.assertEqual(S.main([str(v), str(srt), "--src-start-tc", "00:00:00:00", "-o", str(self.dir / "z")]), 0)
-        root = ET.fromstring((self.dir / "z" / "tc.fcpxml").read_text(encoding="utf-8").split("\n", 2)[2])
-        self.assertEqual(root.find(".//asset").get("start"), "0s")
 
     def test_summary_shape(self):
         tr = self._tr([(0.5, 1.5, "a", False), (4.0, 5.0, "cut", True)])

@@ -26,10 +26,11 @@ from fractions import Fraction
 from pathlib import Path
 
 from ytt import fsio, jobs as _jobs, tools as _tools
+from ytt import version as _version
 from . import srt2resolve as S
 
 ToolError = S.ToolError
-VERSION = S.VERSION   # 全体の版(ytt/version.py の 1 か所。srt2resolve が読む。CLI・serve.py はこれを使う)
+VERSION = _version.VERSION   # 全体の版(ytt/version.py の 1 か所。CLI・serve.py はこれを使う)
 CUT_EXTS = {".txt", ".csv"}
 JSON_EXTS = {".json"}
 TRANSCRIPT_SCHEMA = "youtube-tools-transcript/v1"

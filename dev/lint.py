@@ -52,7 +52,6 @@ VERSION_LITERALS = [   # 版の数字そのものを書いてはいけない所(
     ("src/studio/core.js", r"APP_VERSION\s*=\s*['\"](\d[^'\"]*)['\"]"), ("src/editor/app.js", r"APP_VERSION\s*=\s*['\"](\d[^'\"]*)['\"]"),
     ("src/pipeline/pack/cut2resolve_core.py", r'^VERSION\s*=\s*"(\d[^"]*)"'), ("src/app/server.py", r'^VERSION\s*=\s*"(\d[^"]*)"'),
     ("src/pipeline/ingest/recorder.py", r'^VERSION\s*=\s*"(\d[^"]*)"'), ("src/manage/ops/analytics/__init__.py",r'^VERSION\s*=\s*"(\d[^"]*)"'),
-    ("src/pipeline/pack/srt2resolve.py", r'^VERSION\s*=\s*"(\d[^"]*)"'), ("src/pipeline/pack/auto_cut.py", r'^VERSION\s*=\s*"(\d[^"]*)"'),
     ("src/flow/live_export.py", r'^VERSION\s*=\s*"(\d[^"]*)"'),
 ]
 

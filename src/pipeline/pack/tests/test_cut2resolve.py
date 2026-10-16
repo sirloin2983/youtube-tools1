@@ -20,11 +20,21 @@ import importlib  # noqa: E402
 FULL = importlib.import_module("pipeline.pack.cut2resolve")   # cut2resolve.py(CLI)。FULL._D などの差し替えが本物に届くように同じモジュール
 from pipeline.pack import cut2resolve_core as C  # noqa: E402
 from pipeline.pack import auto_cut as AC  # noqa: E402
+from pipeline.pack import pack  # noqa: E402
 from pipeline.pack import srt2resolve as S  # noqa: E402
 from pipeline.pack import resolve_textplus as RTP  # noqa: E402
 
 HAVE_FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
 FPS30 = (30, 1)
+
+
+def selection_pack(video, selection, out_dir, sub=None, handles=None, copy_video=False, force=False):
+    """採用区間 JSON(youtube-tools-cut-plan/v1)+ 動画 + 任意の字幕から、パックを作る(base "plan"・EDL・FCPXML・カット後の SRT・
+    cut-plan.json・友人へ.txt)。消した単独のコマンド auto_cut.py の run と同じ指定(最短の長さで区間を捨てない・余白つき素材は入れない)。-> (計画, 結果)"""
+    req = pack.Request(video=Path(video), sub=Path(sub) if sub else None, plan=Path(selection), base="plan", handles=handles,
+                       min_len=0.0, edit_media=False)
+    plan = pack.plan_cut(req)
+    return plan, pack.build_pack(plan, Path(out_dir), copy_video=copy_video, fcpxml=True, force=force)
 
 
 def make_video(path, dur=10, fps="30", size="640x360", audio="tone"):
@@ -275,9 +285,8 @@ class TestOutputSafety(unittest.TestCase):
 
     @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg が無いためスキップ")
     def test_auto_cut_package_contains_recovery_files_and_protects_existing_outputs(self):
-        """auto_cut.py は pack の薄い包み(0.23.0。以前の write_package は消した): 既定の出力は <動画名>_resolve_pack(以前のまま)で、
-        EDL・FCPXML・カット後の SRT・cut-plan.json・友人へ.txt の 5 つ。cut-plan.json の tool.name は "cut2resolve"(以前は "cut2resolve-auto_cut")、
-        友人へ.txt は pack の手順書。2 回目は --force が要る"""
+        """採用区間 JSON からのパック(pack.build_pack の base "plan"。単独のコマンド auto_cut.py は消した): EDL・FCPXML・カット後の SRT・
+        cut-plan.json・友人へ.txt の 5 つ。cut-plan.json の tool.name は "cut2resolve"、友人へ.txt は pack の手順書。2 回目は --force が要る"""
         video = self.dir / "source.mp4"
         make_video(video, 10, audio=None)
         sel = self.dir / "selection.json"
@@ -286,9 +295,7 @@ class TestOutputSafety(unittest.TestCase):
         srt = self.dir / "source.srt"
         srt.write_text("1\n00:00:03,000 --> 00:00:05,000\n字幕\n", encoding="utf-8")
         out = self.dir / "source_resolve_pack"
-        args = [str(video), str(sel), str(srt), "--handles", "1"]
-        with contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(AC.main(args), 0)
+        selection_pack(video, sel, out, srt, handles=1.0)
         self.assertEqual(sorted(p.name for p in out.iterdir()),
                          sorted(["source.edl", "source_cut.fcpxml", "source_cut.srt", "cut-plan.json", "友人へ.txt"]))
         saved = json.loads((out / "cut-plan.json").read_text(encoding="utf-8"))
@@ -296,12 +303,9 @@ class TestOutputSafety(unittest.TestCase):
         self.assertEqual(saved["removed_frames"], [[0, 60], [180, 300]])
         self.assertEqual(saved["tool"]["name"], "cut2resolve")
         self.assertIn("DaVinci Resolve", (out / "友人へ.txt").read_text(encoding="utf-8-sig"))
-        err = io.StringIO()
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
-            self.assertEqual(AC.main(args), 1)
-        self.assertIn("--force", err.getvalue())
-        with contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(AC.main(args + ["--force"]), 0)
+        with self.assertRaisesRegex(C.ToolError, "--force"):
+            selection_pack(video, sel, out, srt, handles=1.0)
+        selection_pack(video, sel, out, srt, handles=1.0, force=True)
 
 
 @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg が無いためスキップ")
@@ -548,18 +552,6 @@ class TestWithFfmpeg(unittest.TestCase):
         self.assertEqual((ev[0][3], ev[0][4]), ("00:00:01:00", "00:00:09:00"))
         self.assertEqual(FULL.main([str(v), str(subs), "--drop-lines", "2"]), 1)
         self.assertEqual(FULL.main([str(v), str(subs), "--drop-lines", "2", "--force"]), 0)
-
-    def test_srt2resolve_output_overwrite_requires_force(self):
-        v = self.dir / "subvideo.mp4"
-        make_video(v, 10)
-        subs = self._srt()
-        args = [str(v), str(subs)]
-        self.assertEqual(S.main(args), 0)
-        out = self.dir / "subvideo_resolve"
-        xml = (out / "subvideo.fcpxml").read_bytes()
-        self.assertEqual(S.main(args), 1)
-        self.assertEqual((out / "subvideo.fcpxml").read_bytes(), xml)
-        self.assertEqual(S.main(args + ["--force"]), 0)
 
     def test_embedded_start_timecode_is_used_in_edl(self):
         # Resolve は動画に埋め込まれた開始タイムコードをクリップの Start TC にする。EDL の元動画側の時刻が

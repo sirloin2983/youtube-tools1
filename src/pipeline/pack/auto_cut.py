@@ -1,30 +1,18 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""文字起こし/切り抜きスタジオ向け自動カット計画(v0.2.0)。
-
-採用区間JSON + 元動画 + 任意のSRTから、編集余白付きのResolve素材一式を作る。
-ここに置くのはカットの計画の部品(read_cut_plan・build_plan・plan_from_keeps・finalize_plan・build_cut_fcpxml。pack.py が使う)。
-パックを書くのは pack.py だけで、このコマンド(run)は pack の薄い包み(cut2resolve 0.23.0。以前は write_package が自分で書いていた)。
+"""カットの計画の部品(read_cut_plan・build_plan・plan_from_keeps・finalize_plan・build_cut_fcpxml。pack.py が使う)。
+パックを書くのは pack.py だけ。単独のコマンド(auto_cut.py)は 10-16 のユーザー決定で消した(パックを作る道は入口と CLI の cut2resolve.py だけ)。
 """
-import argparse
 import bisect
 import datetime
 import hashlib
 import math
-import sys
 import xml.etree.ElementTree as ET
 from fractions import Fraction
 from pathlib import Path
 
-if not __package__:   # パスで動かしたとき(python auto_cut.py)も兄弟を相対 import で読めるように(src を足してパッケージとして読む)
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-    import pipeline.pack  # noqa: F401
-    __package__ = "pipeline.pack"
+from . import cut2resolve_core as C
+from . import srt2resolve as S
 
-from . import cut2resolve_core as C  # noqa: E402
-from . import srt2resolve as S  # noqa: E402
-
-VERSION = C.VERSION   # 全体の版(ytt/version.py)
 SCHEMA = C.CUT_PLAN_SCHEMA
 DEFAULT_HANDLES = 10.0   # スタジオの採用区間のような長い区間の既定(前後10秒の編集余白)
 
@@ -195,53 +183,3 @@ def _cues_per_clip(keeps, cues):
                     if max(cs, gs) < min(ce, ge)])
         gs = ge
     return out
-
-
-def run(args):
-    """pack の薄い包み(cut2resolve 0.23.0。パックを作るのは pack.py だけ = AGENTS.md の決まり。以前は write_package が自分で書いていた):
-    plan_cut の base "plan"(採用区間 + 前後の余白)→ build_pack の fcpxml=True(EDL・FCPXML・カット後の SRT・cut-plan.json・友人へ.txt)。
-    以前の auto_cut に合わせて、最短の長さで区間を捨てない(min_len=0)・スタジオの余白つき素材は入れない(edit_media=False)。
-    出力の既定のフォルダ名は以前のまま <動画名>_resolve_pack(cut2resolve.py の既定は _pack)"""
-    from . import pack   # pack が auto_cut を読むので、ここで読む(読み込みの輪を作らない)
-    video = Path(args.video)
-    sub = Path(args.subtitle) if args.subtitle else None
-    selection_path = Path(args.selection)
-    if not video.is_file() or (sub and not sub.is_file()):
-        raise C.ToolError("指定した動画または字幕ファイルがありません。")
-    if not selection_path.is_file():
-        raise C.ToolError(f"採用区間JSONがありません: {selection_path}")
-    req = pack.Request(video=video, sub=sub, plan=selection_path, base="plan", handles=args.handles,
-                       min_len=0.0, edit_media=False, src_start_tc=args.src_start_tc)
-    plan = pack.plan_cut(req)
-    out_dir = Path(args.output) if args.output else video.parent / f"{video.stem}_resolve_pack"
-    res = pack.build_pack(plan, out_dir, copy_video=args.copy_video, fcpxml=True, force=args.force)
-    for w in plan.warnings + res["warnings"]:
-        print("注意: " + w)
-    print(f"保持区間 {len(plan.keeps)}件 / 編集余白 {plan.handles:g}秒 / 出力 {out_dir}")
-    return 0
-
-
-def main(argv=None):
-    C.safe_stdio()
-    ap = argparse.ArgumentParser(description="採用区間JSONから編集余白付きのResolveカット計画を生成")
-    ap.add_argument("video", help="元動画")
-    ap.add_argument("selection", help="採用区間JSON (youtube-tools-cut-plan/v1)")
-    ap.add_argument("subtitle", nargs="?", help="任意の字幕 SRT/VTT")
-    ap.add_argument("--handles", type=float, default=None,
-                    help="各採用区間の前後に残す編集余白(秒)。既定は10。文字起こし由来の行単位の区間と、"
-                         "cut2resolve が書いた cut-plan.json(余白込み)は 0")
-    ap.add_argument("--src-start-tc", help="埋め込み開始TCが不正な場合の手動指定 HH:MM:SS:FF")
-    ap.add_argument("-o", "--output", help="出力先(既定 <動画名>_resolve_pack)")
-    ap.add_argument("--copy-video", action="store_true", help="元動画も出力フォルダへコピー")
-    ap.add_argument("--force", action="store_true", help="既存の出力を上書き")
-    ap.add_argument("--version", action="version", version=f"auto_cut {VERSION}")
-    args = ap.parse_args(argv)
-    try:
-        return run(args)
-    except C.ToolError as e:
-        print(f"エラー: {e}", file=sys.stderr)
-        return 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
