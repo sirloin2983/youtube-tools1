@@ -20,6 +20,8 @@
   <div class="ui-header-actions">
     <button type="button" class="btn ghost small" id="btnSaved" title="受け取ったパックの保存先をエクスプローラーで開きます">保存先を開く</button>
     <button type="button" class="btn danger small" id="btnQuit" title="処理と録画を全部止めて終了します(待っている依頼は残り、次に開くと続きから)">すべて止めて終了</button>
+    <a class="btn ghost small fr-help" href="guide.html#close" target="_blank" rel="noopener" aria-label="閉じるとき・止めるときの説明を新しい窓で開く" title="閉じるとき・止めるときの説明">?</a>
+    <button type="button" class="btn ghost icon small" id="btnSettings" aria-label="設定を開く" title="設定(保存先・一時保管・エンジン・API キー・空き容量・カット)"><span class="ui-icon" data-icon="gear" aria-hidden="true"></span></button>
   </div>
 </header>
 <div class="errbar" id="errbar" role="alert" hidden></div>
@@ -31,6 +33,28 @@
   <div class="notice" id="updated" hidden></div>
   <p class="hint fr-nokey" id="noKey" hidden></p>
 
+  <!-- 初回の準備(F2-5。9-1): 足りない部品があれば最初の起動で 1 回確かめる。[あとで] なら下の帯 -->
+  <section class="card fr-setup" id="setupCard" aria-labelledby="setupTitle" hidden>
+    <div class="fr-setup-h">
+      <h2 class="fr-h" id="setupTitle">初回の準備</h2>
+      <a class="btn ghost small fr-help" href="guide.html#setup" target="_blank" rel="noopener" aria-label="初回の準備の説明を新しい窓で開く" title="初回の準備の説明">?</a>
+    </div>
+    <p id="setupLead">文字起こしなどに使う部品を取ってきます。取り終わるまで、この PC での処理はできません。</p>
+    <ul class="fr-setup-items" id="setupItems"></ul>
+    <p class="hint fr-where" id="setupWhere"></p>
+    <p class="fr-bad" id="setupWhy" hidden></p>
+    <div id="setupProgWrap" hidden>
+      <div class="bar" id="setupBar" role="progressbar" aria-label="取っている進み具合" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i></i></div>
+      <p class="hint" id="setupProg" aria-live="polite"></p>
+    </div>
+    <div class="fr-line">
+      <button type="button" class="btn primary" id="btnSetupStart">始める</button>
+      <button type="button" class="btn ghost" id="btnSetupLater" title="今は取りません。上の帯の [取ってくる] からいつでも始められます(取り終わるまで、この PC での処理はできません)">あとで</button>
+      <button type="button" class="btn ghost" id="btnSetupCancel" hidden title="取るのをやめます(取れた分は残り、次は続きから)">やめる</button>
+    </div>
+  </section>
+  <div class="notice warn fr-band" id="setupBand" hidden><span id="setupBandText">部品が足りません</span> <button type="button" class="btn small" id="btnSetupOpen">取ってくる</button></div>
+
   <section class="card fr-send" aria-label="送る">
     <div class="fr-urlrow">
       <label class="fr-label" for="url" id="urlLabel">配信の URL</label>
@@ -38,7 +62,9 @@
       <span class="fr-file" id="fileChip" hidden><span class="fr-file-name" id="fileName"></span><button type="button" class="btn ghost small" id="btnFileClear" title="選んだ動画ファイルをやめて、URL を貼る欄に戻します">やめる</button></span>
       <button type="button" class="btn ghost" id="btnPick" title="パソコンの動画ファイル(切り抜いた動画など)を選んで送ります">動画ファイルを選ぶ</button>
       <button type="button" class="btn primary" id="btnSend" disabled title="URL を貼るか、動画ファイルを選ぶと押せます">送る</button>
+      <a class="btn ghost small fr-help" href="guide.html#send" target="_blank" rel="noopener" aria-label="送り方の説明を新しい窓で開く" title="送り方の説明">?</a>
     </div>
+    <p class="fr-bad fr-peek" id="sendWhy" hidden></p>
     <div class="hint fr-peek" id="peek" aria-live="polite"></div>
 
     <section class="fr-live" id="live" aria-label="ライブの設定" hidden>
@@ -134,6 +160,61 @@
     </div>
   </section>
 </main>
+<!-- ⚙ 設定(F2-5。7 章・9-2・A-8)。フォルダは [選ぶ] で玄関が Windows の窓を開く(画面からパスを打たせない) -->
+<aside class="ui-drawer" id="settingsDrawer" hidden aria-labelledby="settingsTitle">
+  <div class="ui-drawer-head">
+    <h2 class="ui-drawer-title" id="settingsTitle">設定</h2>
+    <a class="btn ghost small fr-help" href="guide.html#settings" target="_blank" rel="noopener" aria-label="設定の説明を新しい窓で開く" title="設定の説明">?</a>
+    <button type="button" class="btn ghost icon small" id="settingsClose" aria-label="閉じる"><span class="ui-icon" data-icon="close" aria-hidden="true"></span></button>
+  </div>
+  <div class="ui-drawer-body">
+    <section class="ui-settings-sec fr-set" aria-labelledby="setSaveH">
+      <h3 id="setSaveH">受け取るの保存先</h3>
+      <p class="fr-path" id="setSave"></p>
+      <div class="fr-line"><button type="button" class="btn small" id="btnPickSave">選ぶ</button><button type="button" class="btn ghost small" id="btnResetSave">既定に戻す</button></div>
+      <p class="hint">[受け取る] を押した切り抜きを置く場所です。変えても、今ある物は移しません。</p>
+    </section>
+    <section class="ui-settings-sec fr-set" aria-labelledby="setCasesH">
+      <h3 id="setCasesH">一時保管</h3>
+      <p class="fr-path" id="setCases"></p>
+      <div class="fr-line"><button type="button" class="btn small" id="btnPickCases">選ぶ</button><button type="button" class="btn ghost small" id="btnResetCases">既定に戻す</button></div>
+      <p class="hint">作っている途中の物・録画を置く場所です。選び直しても今ある物は移さず、新しい物から新しい場所に作ります。空き容量はこの場所のドライブで測ります。</p>
+    </section>
+    <section class="ui-settings-sec fr-set" aria-labelledby="setEngineH">
+      <h3 id="setEngineH">文字起こしのエンジン</h3>
+      <div class="fr-line" role="radiogroup" aria-labelledby="setEngineH">
+        <label class="fr-radio"><input type="radio" name="setEngine" value="A"> A Vulkan(どの GPU でも)</label>
+        <label class="fr-radio"><input type="radio" name="setEngine" value="C"> C CUDA(NVIDIA)</label>
+      </div>
+      <p class="hint" id="setGpu"></p>
+      <p class="hint">C は NVIDIA の GPU でより速くなります。C に切り替えたとき、足りない部品があれば取ってきます。次の処理から使います。</p>
+    </section>
+    <section class="ui-settings-sec fr-set" aria-labelledby="setKeyH">
+      <h3 id="setKeyH">YouTube の API キー</h3>
+      <p id="setKeyState"></p>
+      <div class="fr-line">
+        <input type="text" id="setKey" class="fr-key" autocomplete="off" spellcheck="false" aria-labelledby="setKeyH" placeholder="キーを貼る">
+        <button type="button" class="btn small" id="btnKeySave">確かめて保存</button>
+        <button type="button" class="btn ghost small" id="btnKeyClear">消す</button>
+      </div>
+      <p class="hint" id="setKeyHelp"></p>
+    </section>
+    <section class="ui-settings-sec fr-set" aria-labelledby="setDiskH">
+      <h3 id="setDiskH">空き容量の下限</h3>
+      <div class="fr-line">
+        <input type="number" id="setDisk" class="fr-num" min="0" max="100000" step="1" aria-labelledby="setDiskH"><span class="hint">GB(空きがこれより少なくなると、新しい処理を始めずに待ちます)</span>
+      </div>
+    </section>
+    <section class="ui-settings-sec fr-set" aria-labelledby="setCutH">
+      <h3 id="setCutH">カットの既定</h3>
+      <div class="fr-line" role="radiogroup" aria-labelledby="setCutH">
+        <label class="fr-radio"><input type="radio" name="setCut" value="none"> しない</label>
+        <label class="fr-radio"><input type="radio" name="setCut" value="silence"> 無音を削る</label>
+      </div>
+      <p class="hint">送るときに使います(送る欄には出しません)。初めは「しない」です。</p>
+    </section>
+  </div>
+</aside>
 <div id="toast"></div>
 </body>
 </html>

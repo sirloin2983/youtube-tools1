@@ -39,7 +39,7 @@ from . import inbox as _inbox, live as _live
 
 FORM_NAME = "form.json"
 FORM_DEFAULTS = {"top": 10, "videoTracks": 1, "deliverBatch": 5, "useWeights": False, "weights": {"wAudio": 1, "wChat": 1, "wComments": 1},
-                 "pc": "this", "live": dict(_live.SETTINGS_DEFAULT)}
+                 "pc": "this", "live": dict(_live.SETTINGS_DEFAULT), "cut": "none"}   # cut = ⚙ のカットの既定(A-8。送る欄には出さない。F2-5)
 BATCHES = (1, 5)
 PCS = ("this", "user")
 PEOPLE_MAX = 6
@@ -103,6 +103,12 @@ class Api:
         self._lock = threading.Lock()
         self.stopping = lambda: False    # 玄関が終わる途中か(写すのを止める。玄関が入れる)
         self.sync = None   # Dropbox の同期(friendapp/sync.Sync。玄関が入れる。無ければユーザーの PC には頼めない)
+        self.parts_missing = lambda: None   # 初回の取得の部品が足りない理由か None(この PC で作る依頼を断る。玄関が setup.Setup.block_reason を入れる = F2-5)
+
+    def _need_parts(self):
+        why = self.parts_missing()
+        if why:
+            raise FormError(why)
 
     # ------------------------------------------------------------ 前回の値
     def form(self):
@@ -122,7 +128,17 @@ class Api:
         if isinstance(w, dict) and all(_int_in(w.get(k), 0, 3) for k in _spec.WEIGHT_KEYS):
             out["weights"] = {k: w[k] for k in _spec.WEIGHT_KEYS}
         out["live"] = _live.clean_settings(d.get("live"))   # ライブの 6 つの設定(A-5。前回の値)
+        if d.get("cut") in _spec.CUTS:
+            out["cut"] = d["cut"]
         return out
+
+    def set_cut(self, cut):
+        """⚙ のカットの既定(none・silence)を form.json に(F2-5)"""
+        if cut not in _spec.CUTS:
+            raise FormError("カットは「しない」か「無音を削る」を選んでください")
+        cur = self.form()
+        cur["cut"] = cut
+        _fsio.write_json(self.form_path, cur, indent=None)
 
     def _remember(self, f):
         cur = self.form()
@@ -243,7 +259,8 @@ class Api:
         f = {"kind": kind, "url": str(body.get("url"))[:300] if vid else "", "videoId": vid, "ranges": ranges, "top": top, "streamer": streamer,
              "people": people, "videoTracks": vt, "deliverBatch": batch, "useWeights": use_w,
              "weights": {k: w[k] for k in _spec.WEIGHT_KEYS} if w else None,
-             "title": str(body.get("title") or "")[:120], "channel": str(body.get("channel") or "")[:100], "pc": pc}
+             "title": str(body.get("title") or "")[:120], "channel": str(body.get("channel") or "")[:100], "pc": pc,
+             "cut": self.form()["cut"]}   # ⚙ のカットの既定(送ったときの値を行に残す = [もう一度送る] も同じ。F2-5)
         if live:
             f["live"] = live
         if picked:
@@ -269,11 +286,11 @@ class Api:
             return env, bundle
         if kind == "file":   # 動画ファイル: 一時保管の写し(form.file.copy)を 30fps にそろえてから(写しだけ置き換える)パックまで
             env, diff = _order.order("file", path=f["file"].get("copy") or f["file"]["path"], title=f["title"] or f["file"]["name"], normalize=True,
-                                     upto="pack", video_tracks=f["videoTracks"], streamer=f["streamer"], repack=True, request_id=rid)
+                                     upto="pack", video_tracks=f["videoTracks"], streamer=f["streamer"], repack=True, request_id=rid, cut=_cut(f))
         else:
             env, diff = _order.order("url", video_id=f["videoId"], title=f["title"] or f["videoId"], fresh={"title": f["title"], "channel": f["channel"]},
                                      upto="pack", top=len(f["ranges"]) if f["ranges"] else f["top"], ranges=f["ranges"] or None,
-                                     weights=f["weights"], video_tracks=f["videoTracks"], streamer=f["streamer"], repack=True, request_id=rid)
+                                     weights=f["weights"], video_tracks=f["videoTracks"], streamer=f["streamer"], repack=True, request_id=rid, cut=_cut(f))
         people = self._people(f)
         if people:
             diff.setdefault("hints", {})["people"] = people
@@ -301,6 +318,7 @@ class Api:
         eng = self.engine_fn()
         if eng is None:
             raise FormError("準備中です。少し待ってから、もう一度押してください")
+        self._need_parts()
         rid = _deliver.request_id(self.clock())
         row = self.inbox.add(rid, f, self._source(f), kind=f["kind"])
         try:
@@ -438,6 +456,7 @@ class Api:
             return row
         if eng is None:
             raise FormError("もう一度送れる行ではありません")
+        self._need_parts()
         self.inbox.resent(rid, None)
         try:
             return self._submit_this(eng, self.inbox.row(rid))
@@ -453,6 +472,7 @@ class Api:
             raise FormError("この PC でやり直せる行ではありません")
         if eng is None:
             raise FormError("準備中です。少し待ってから、もう一度押してください")
+        self._need_parts()
         if self.sync is None:
             raise FormError("Dropbox の鍵が無いので、ユーザーの PC への依頼を取り消せません")
         try:
@@ -503,6 +523,12 @@ class Api:
                     r["progress"] = prog
         return {"rows": rows, "form": self.form(), "saveDir": self.places["save"](), "blocked": (flow or {}).get("blocked"),
                 "ready": eng is not None}
+
+
+def _cut(f):
+    """束に入れるカット(⚙ の既定が「しない」なら入れない = 束の既定のまま = 今までと同じ束。F2-5)"""
+    c = f.get("cut")
+    return c if c in _spec.CUTS and c != "none" else None
 
 
 def _public_run(r):

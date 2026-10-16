@@ -8,6 +8,8 @@
 F2-6: ライブの行(録画中・1 組届いて 2 本が組になるのを待っている)と動画ファイルの行(届いた)。配信の題と「配信中か」は見本の値を返す(ネットへ出ない):
 LIVE_URL を貼るとライブの 6 つの設定が出る。[動画ファイルを選ぶ] は本物の窓を開かず、見本の動画を選んだことにする。
 ② は疑似(StubEngine: 送った物を待ちに積むだけで処理しない)。Ctrl+C で終わる(一時フォルダは消す。--dir を指定したときは残す)。
+F2-5: ⚙ の [選ぶ] は本物の窓を開かず見本のフォルダを選んだことにする・API キーの確かめはネットへ出ない(どのキーも「使えます」)。
+--missing を付けると、初回の取得の部品が足りない形(見本の fetch.json)で起こす(ui_audit の friend-setup)。[始める] はネットへ出ず、少しずつ進んだことにする。
 """
 import argparse
 import os
@@ -135,6 +137,42 @@ def seed(app, home):
     ib.finished("demorun0006", "done", "", packs(rid, 1), 5, case=os.path.join(case_root, rid))
 
 
+DEMO_FETCH = (("whisper.cpp/large-v3", "ggml-large-v3.bin", 3095033483, None, "data", "transcribe/models/whispercpp"),
+              ("llama.cpp/b6000", "llama-bin-win-vulkan-x64.zip", 31457280, "zip", "data", "transcribe/bin/llama.cpp"),
+              ("llm/qwen3-8b", "Qwen3-8B-Q4_K_M.gguf", 5027783488, None, "data", "transcribe/models/llm"),
+              ("sensevoice/small", "sensevoice-small.tar.bz2", 241172480, "tar.bz2", "data", "transcribe/models/sensevoice"),
+              ("ffmpeg", "ffmpeg-9.0.2-essentials_build.zip", 104857600, "zip", "app", "tools/ffmpeg"),
+              ("yt-dlp", "yt-dlp.exe", 18874368, None, "app", "tools/yt-dlp"),
+              ("deno", "deno-x86_64-pc-windows-msvc.zip", 47185920, "zip", "app", "tools/deno"))
+
+
+def write_demo_fetch(home):
+    """見本の fetch.json(大きさは本物に近い・取得先は見本 = 取らない)"""
+    import json
+    items = []
+    for name, file, size, unzip, base, dest in DEMO_FETCH:
+        it = {"name": name, "file": file, "url": "https://example.invalid/" + file, "size": size, "sha256": "0" * 64, "base": base, "dest": dest,
+              "unzip": unzip}
+        if unzip == "tar.bz2":
+            it.update(top="sensevoice-small", parts=["model.onnx", "tokens.txt"])
+        items.append(it)
+    with open(os.path.join(home, "fetch.json"), "w", encoding="utf-8") as f:
+        json.dump({"schema": "youtube-tools-friend-fetch/v1", "version": "demo", "items": items}, f, ensure_ascii=False)
+
+
+class DemoDownloader:
+    """[始める] の代わり(ネットへ出ない): 少しずつ進んだことにして、最後は中身が違うので取れなかったことにする"""
+
+    def get(self, url, part, expect, progress, cancelled):
+        from friendapp import setup as _setup
+        for i in range(1, 21):
+            if cancelled():
+                raise _setup.Cancelled()
+            progress(expect * i // 20)
+            time.sleep(0.3)
+        raise _setup.FetchError("見本なので取りません")
+
+
 def demo_file(home):
     """[動画ファイルを選ぶ] の代わり(本物の窓を開かない): 見本の動画を作って、そのパスを返す"""
     p = os.path.join(home, "user", "Videos", "【星見ルナ】歌ってみた切り抜き.mp4")
@@ -149,6 +187,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8760)
     ap.add_argument("--dir")
+    ap.add_argument("--missing", action="store_true", help="初回の取得の部品が足りない形で起こす(F2-5)")
     a = ap.parse_args(argv)
     tmp_root = tempfile.gettempdir()
     for n in os.listdir(tmp_root):   # 前の見本の残り(ui_audit が止めると finally を通らない)を消す
@@ -160,6 +199,8 @@ def main(argv=None):
     os.environ.update(YTT_FRIEND_HOME=home, YTT_DATA_DIR=os.path.join(home, "data"), LOCALAPPDATA=os.path.join(home, "localappdata"),
                       USERPROFILE=os.path.join(home, "user"), TRANSCRIBE_BACKEND="fake", STUDIO_FAKE="1")
     from friendapp import places as P, server as S
+    if a.missing:
+        write_demo_fetch(home)
     key = os.path.join(home, "config.json")
     if not os.path.exists(key):   # 見本の鍵(形だけ。同期の糸は起こさない = Dropbox へつながない。あれば触らない)
         with open(key, "w", encoding="utf-8") as f:
@@ -172,6 +213,12 @@ def main(argv=None):
     app.api.fetch, app.api.probe = demo_fetch, demo_probe   # ネットへ出ない(F2-6)
     app.pick_file = lambda: demo_file(home)                  # 本物のファイルを選ぶ窓を開かない
     app.open_folder = lambda d: None                         # [保存先を開く] でエクスプローラーを開かない(画面を取らない)
+    picked = os.path.join(home, "user", "見本のフォルダ")
+    app.pick_folder = lambda what: picked                    # ⚙ の [選ぶ] で本物の窓を開かない(F2-5)
+    app.settings.probe = lambda key: (200, "{}")             # API キーの確かめでネットへ出ない
+    app.setup.downloader = DemoDownloader()                  # [始める] でネットへ出ない
+    app.setup.disk_usage = lambda path: shutil.disk_usage(home)._replace(free=200 * 1024 ** 3)   # 見本は空きが足りる形
+    app.setup.checked = True                                 # 見本は古い部品を写さない(prepare を通さない)
     if not app.inbox.rows:
         seed(app, home)
     srv = S.Server(("127.0.0.1", a.port), app)

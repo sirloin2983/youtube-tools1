@@ -28,6 +28,12 @@
   POST /api/friend/local {id}             ユーザーの PC に頼んだ依頼を [この PC でやり直す](F2-3。Dropbox の同期は friendapp/sync.py の裏の糸)
   POST /api/friend/open {what: saved}     受け取るの保存先をエクスプローラーで開く
   POST /api/friend/notice-seen            片付けの知らせを見た
+  POST /api/friend/setup/start・later・open・cancel   初回の取得(F2-5。friendapp/setup.py。受信箱の GET の setup に足りない物・置き場所と空き・進み具合)
+  GET  /api/friend/settings               ⚙ の中身(F2-5。friendapp/settings.py。API キーは「入っている / 無い」だけ)
+  POST /api/friend/settings {engine?, diskMinGB?, cut?, reset?: save|cases}   ⚙ を変える
+  POST /api/friend/settings/key {key}     YouTube の API キーを確かめて保存(空 = 消す)
+  POST /api/friend/pick-folder {what: save|cases}   Windows のフォルダを選ぶ窓を開いて、受け取るの保存先・一時保管を変える(画面からパスを打たせない)
+  GET  /friend/guide.html                 説明(節 send・receive・settings・setup・close。画面の [?] が新しい窓で開く)
   POST /api/shutdown                      すべて止めて終了
   GET  /api/flow/status・POST /api/flow/submit・POST /api/flow/cancel   ② の口(ユーザーの PC の入口と同じ形)
   POST api/ytt/streamer-colors・client-log   ui-kit の共通の口(配信者の名簿・画面のエラーの記録)
@@ -49,7 +55,7 @@ if SRC not in sys.path:
 
 from flow import placement as _placement, runqueue as _runqueue  # noqa: E402
 from ytt import appwindow as _appwindow, colors as _colors, fsio as _fsio, httpsec, version as _version  # noqa: E402
-from friendapp import api as _api, inbox as _inbox, oldcopy as _oldcopy, places as _places, sync as _sync  # noqa: E402
+from friendapp import api as _api, inbox as _inbox, oldcopy as _oldcopy, places as _places, settings as _settings, setup as _setup, sync as _sync  # noqa: E402
 
 APP_ID = "ytt-friend"
 DEFAULT_PORT = 8720
@@ -60,16 +66,17 @@ TOKEN_FAIL = {"error": "token", "message": "画面を開き直してから、も
 UI_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui")
 UIKIT_DIR = os.path.join(SRC, "ui-kit")
 STATIC = {"/friend/": ("friend.html", UI_DIR), "/friend/index.html": ("friend.html", UI_DIR), "/friend/friend.js": ("friend.js", UI_DIR),
-          "/friend/friend.css": ("friend.css", UI_DIR), "/friend/ui-kit.js": ("ui-kit.js", UIKIT_DIR), "/friend/ui-kit.css": ("ui-kit.css", UIKIT_DIR)}
+          "/friend/friend.css": ("friend.css", UI_DIR), "/friend/ui-kit.js": ("ui-kit.js", UIKIT_DIR), "/friend/ui-kit.css": ("ui-kit.css", UIKIT_DIR),
+          "/friend/guide.html": ("guide.html", UI_DIR)}   # 説明(F2-5 の [?]。本体は別の段が書く = 無ければ 404)
 TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8"}
-PAGES = ("/", "/friend/", "/friend/index.html")
+PAGES = ("/", "/friend/", "/friend/index.html", "/friend/guide.html")
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://i.ytimg.com; media-src 'self'; "
        "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 TOKEN_ENV = "YTT_FRIEND_TOKEN"        # 起動役が渡す合言葉(無ければ乱数)
 ROLLBACK_ENV = "YTT_FRIEND_ROLLBACK"  # 起動役が前の版へ戻したとき、起動できなかった版
 SWEEP_EVERY = 3600        # 受信箱の 3 日の片付けを見る間隔(秒)
-SAVE_DEFAULT = ("Videos", "受け取ったパック")   # 受け取るの保存先の既定(%USERPROFILE% の下。⚙ で選ぶのは F2-5)
-SAVE_FILE = "save-dir.json"
+SAVE_DEFAULT = _settings.SAVE_DEFAULT   # 受け取るの保存先の既定(%USERPROFILE% の下。⚙ で選ぶ = F2-5)
+SAVE_FILE = _settings.SAVE_FILE
 # 写したあと古い部品を消すか(A-16)。今の送るアプリ(C#)が F2-7 まで同じ古い作業データのモデルを使うので、それまでは写すだけ(仮・AI。F2-7 で True)
 REMOVE_OLD = False
 CLIENT_LOG_MAX = 512 * 1024
@@ -138,6 +145,46 @@ def pick_file_dialog(env=None):
             ole32.CoUninitialize()
 
 
+FOLDER_TITLES = {"save": "受け取ったパックを置くフォルダを選ぶ", "cases": "一時保管のフォルダを選ぶ(作っている途中の物・録画を置きます)"}
+
+
+def pick_folder_dialog(what, env=None):
+    """Windows のフォルダを選ぶ窓(shell32 の SHBrowseForFolderW。tkinter の無い埋め込みの Python でも動く)-> 選んだパスか None(やめた)。
+    窓は今いちばん前の窓(受信箱の Edge の窓)の上に出す。テストの作業データ(inplace)では開かない(テストでユーザーの画面を取らない守り)"""
+    env = os.environ if env is None else env
+    if (env.get("YTT_DATA_DIR") or "").strip().lower() == "inplace" or os.name != "nt":
+        return None
+    import ctypes
+    from ctypes import wintypes
+
+    class BROWSEINFOW(ctypes.Structure):
+        _fields_ = [("hwndOwner", wintypes.HWND), ("pidlRoot", ctypes.c_void_p), ("pszDisplayName", wintypes.LPWSTR), ("lpszTitle", wintypes.LPCWSTR),
+                    ("ulFlags", wintypes.UINT), ("lpfn", ctypes.c_void_p), ("lParam", wintypes.LPARAM), ("iImage", ctypes.c_int)]
+    ole32, shell32 = ctypes.windll.ole32, ctypes.windll.shell32
+    shell32.SHBrowseForFolderW.restype = ctypes.c_void_p
+    shell32.SHGetPathFromIDListW.argtypes = [ctypes.c_void_p, wintypes.LPWSTR]
+    ole32.CoTaskMemFree.argtypes = [ctypes.c_void_p]
+    inited = ole32.CoInitializeEx(None, 0x2) in (0, 1)   # COINIT_APARTMENTTHREADED(新しい形の窓が要る)
+    try:
+        name = ctypes.create_unicode_buffer(260)
+        bi = BROWSEINFOW()
+        bi.hwndOwner = ctypes.windll.user32.GetForegroundWindow()
+        bi.pszDisplayName = ctypes.cast(name, wintypes.LPWSTR)
+        bi.lpszTitle = FOLDER_TITLES.get(what, "フォルダを選ぶ")
+        bi.ulFlags = 0x0001 | 0x0040   # BIF_RETURNONLYFSDIRS・BIF_NEWDIALOGSTYLE(フォルダを作れる)
+        pidl = shell32.SHBrowseForFolderW(ctypes.byref(bi))
+        if not pidl:
+            return None
+        try:
+            buf = ctypes.create_unicode_buffer(1024)
+            return buf.value if shell32.SHGetPathFromIDListW(pidl, buf) and buf.value else None
+        finally:
+            ole32.CoTaskMemFree(pidl)
+    finally:
+        if inited:
+            ole32.CoUninitialize()
+
+
 def inject_meta(body, token):
     tag = ('<meta name="ytt-token" content="%s"><meta name="ytt-version" content="%s">' % (token, _version.VERSION)).encode("ascii")
     i = body.find(b"</head>")
@@ -191,7 +238,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/friend/inbox":
             app.seen = time.time()
             out = app.api.view()
-            out.update(prep=app.prep, notice=app.notice(), rollback=app.rollback_notice(), sync=app.sync.status())
+            out.update(prep=app.prep, notice=app.notice(), rollback=app.rollback_notice(), sync=app.sync.status(), setup=app.setup.view())
             return self._json(200, out)
         if path == "/api/friend/state":   # 起動役の見回り(GET でも合言葉を要る = 画面を開いていない人に仕事の中身を見せない)
             if not httpsec.token_ok(self.headers, self.server.token, TOKEN_HEADER):
@@ -221,6 +268,8 @@ class Handler(BaseHTTPRequestHandler):
                 return httpsec.send_file(self, p, "video/mp4")
             except OSError:
                 return self._fail(404, "not_found", "まとめ動画を読めませんでした")
+        if path == "/api/friend/settings":   # ⚙(F2-5)
+            return self._json(200, {"ok": True, "settings": app.settings.view()})
         if path == "/api/flow/status":
             eng = app.engine
             return self._json(200, eng.queue.status() if eng else {"idle": True, "runs": [], "preparing": True})
@@ -247,6 +296,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._fail(400, "bad_request", str(e))
         except KeyError:
             return self._fail(404, "not_found", "その行はもうありません(画面を読み込み直してください)")
+        except _settings.SettingsError as e:
+            return self._fail(400, "bad_request", str(e))
         except ValueError as e:
             return self._fail(409, "refused", str(e))
         finally:
@@ -282,6 +333,31 @@ class Handler(BaseHTTPRequestHandler):
             os.makedirs(d, exist_ok=True)
             app.open_folder(d)
             return self._json(200, {"ok": True, "dir": d})
+        if path.startswith("/api/friend/setup/"):   # 初回の取得(F2-5。9-1)
+            return self._setup(path[len("/api/friend/setup/"):])
+        if path == "/api/friend/settings":
+            if body.get("reset") is not None:
+                msg = app.settings.reset_folder(body.get("reset"))
+            else:
+                msg = app.settings.update({k: body[k] for k in ("engine", "diskMinGB", "cut") if k in body})["message"]
+            return self._json(200, {"ok": True, "message": msg, "settings": app.settings.view()})
+        if path == "/api/friend/settings/key":
+            ok, msg = app.settings.set_key(body.get("key") if isinstance(body.get("key"), str) else "")
+            if not ok:
+                return self._fail(400, "key", msg)
+            return self._json(200, {"ok": True, "message": msg, "settings": app.settings.view()})
+        if path == "/api/friend/pick-folder":   # フォルダを選ぶ窓(F2-5)。1 つずつ(開いている間の 2 つ目は断る)
+            what = body.get("what")
+            if what not in ("save", "cases"):
+                return self._fail(400, "bad_request", "変えられる場所ではありません")
+            if not app.pick_lock.acquire(blocking=False):
+                return self._fail(409, "busy", "選ぶ窓はもう開いています")
+            try:
+                chosen = app.pick_folder(what)
+            finally:
+                app.pick_lock.release()
+            msg = app.settings.set_folder(what, chosen) if chosen else ""
+            return self._json(200, {"ok": True, "chosen": bool(chosen), "message": msg, "settings": app.settings.view()})
         if path == "/api/friend/notice-seen":
             app.rollback_seen = True
             if app.catalog:
@@ -316,6 +392,21 @@ class Handler(BaseHTTPRequestHandler):
                               json.dumps(body, ensure_ascii=False)[:4000], CLIENT_LOG_MAX)
             return self._json(200, {"ok": True})
         return self._fail(404, "not_found", "その操作はありません")
+
+
+    def _setup(self, what):
+        st = self.server.app.setup
+        if what == "start":
+            st.start()
+        elif what == "later":   # [あとで] = 上の帯に「部品が足りません [取ってくる]」
+            st.defer()
+        elif what == "open":    # 帯の [取ってくる] = 確認をもう一度出す(中身・大きさ・置き場所・空きを見てから [始める])
+            st.reopen()
+        elif what == "cancel":
+            st.cancel()
+        else:
+            return self._fail(404, "not_found", "その操作はありません")
+        return self._json(200, {"ok": True, "setup": st.view()})
 
 
 def _entry(e):
@@ -368,6 +459,20 @@ class FriendApp:
         # Dropbox の同期(F2-3)。糸を起こすのは main だけ(テストは run_once を直に呼ぶ・偽の口を client_factory に)
         self.sync = _sync.Sync(places, self.inbox, self.api.form, engine_fn=lambda: self.engine, clock=clock, log=self.log)
         self.api.sync = self.sync
+        # 初回の取得(F2-5。fetch.json が無ければ何もしない)と ⚙
+        self.setup = _setup.Setup(places.get("fetch"), places["data"], places.get("home") or os.path.dirname(places["data"]), places["friend"],
+                                  device=_machine_device, log=self.log, after=self.after_setup)
+        self.api.parts_missing = self.setup.block_reason
+        self.settings = _settings.Settings(places, self.api, self.setup, engine_fn=lambda: self.engine, log=self.log)
+        self.pick_folder = pick_folder_dialog   # フォルダを選ぶ窓の口(F2-5。テストと見本は差し替える = 本物の窓を出さない)
+
+    def after_setup(self, result):
+        """初回の取得のあと: 取った道具(<home>/tools の ffmpeg など)の場所を ② に教え直す。② は起こし直さない
+        (道具は使うたびに環境変数と PATH から探す = ytt/tools.find_tool・モデルは読み込むときに作業データから読む)"""
+        home = self.places.get("home")
+        if home:
+            got = _places.tool_env(os.path.join(home, _places.TOOLS_NAME))
+            self.log("取った道具の場所を教え直しました: %s" % "・".join(sorted(k for k in got if k != "PATH")))
 
     def rollback_notice(self):
         """前の版で開いた知らせ(起動役から戻ったと聞いたとき、閉じるまで 1 回)"""
@@ -407,6 +512,7 @@ class FriendApp:
                 got = _oldcopy.migrate(fetch, old_root, self.places["data"], self.catalog, log=self.log, cancelled=self.closing.is_set,
                                        remove_old=REMOVE_OLD)
                 self.log("古い部品: 写した %d 件・消した %d 件(%.1f GB)" % (got["copied"], got["deleted"], got["freed"] / 1e9))
+            self.setup.checked = True   # 写せた物は足りない物に入らない(写すのが済んでから見る = F2-5)
             if self.closing.is_set():
                 return
             self.engine = self.make_engine(self.places, self.inbox, self.log)
@@ -440,11 +546,21 @@ class FriendApp:
         if self.closing.is_set():
             return
         self.closing.set()
+        self.setup.cancel()   # 取っている途中なら止める(取れた分は .part に残り、次は続きから)
         self.sync.stop()
         if self.engine is not None:
             self.engine.close()
         if self.server is not None:
             self.server.shutdown()
+
+
+def _machine_device():
+    """今の文字起こしの機器(この PC の設定 machine.json の device。読めなければ vulkan)"""
+    from flow import machine as _machine
+    try:
+        return _machine.get("device")
+    except (OSError, ValueError):
+        return "vulkan"
 
 
 def make_logger(path):

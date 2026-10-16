@@ -43,6 +43,21 @@
 .fr-nokey{margin:0 0 8px}
 .fr-bye{padding:24px 0}
 .ui-dlg-body{white-space:pre-line}
+/* F2-5: 初回の準備・上の帯・[?]・⚙ */
+.fr-setup{display:flex;flex-direction:column;gap:8px;margin-bottom:14px}
+.fr-setup p{margin:0}
+.fr-setup-h,.fr-detail-h{display:flex;align-items:center;gap:8px}
+.fr-detail-h{justify-content:flex-end;padding-top:6px}
+.fr-setup-items{margin:0;padding-left:1.4em;columns:2 18em;column-gap:24px}
+.fr-setup .bar{margin-top:0}
+.fr-setup .bar>i{background:var(--accent)}
+.fr-band{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.fr-help{min-width:28px;justify-content:center;text-decoration:none}
+.fr-path{margin:0 0 6px;overflow-wrap:anywhere;font-size:var(--fs-sm)}
+.fr-set .hint{margin:6px 0 0}
+.fr-set>p{margin:0 0 6px;font-size:var(--fs-sm)}
+.fr-where{white-space:pre-line;overflow-wrap:anywhere}
+.fr-key{flex:1 1 14em;min-width:0}
 @media (max-width:560px){
   .fr-label{min-width:0;width:100%}
   .fr-peek{margin-left:0}

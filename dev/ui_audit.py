@@ -728,7 +728,7 @@ def live_checks(base, out, shots=None, scenes=None, widths=WIDTHS, variants=VARI
         browser.close()
 
 
-def friend_scenes(base):
+def friend_scenes(base, setup_base=None):
     """友人の受信箱(dev/friend_demo.py の見本 = 送った・作っている・届いた 1 組と 2 組・失敗)。決める・送る・終了のボタンは押さない。
     ヘッダーの A-28(ホーム・案件の画面と同じ部品)は見ない = 友人の PC の画面は受信箱 1 枚でほかの画面へのリンクが無い"""
     page = base + "/friend/"
@@ -738,13 +738,17 @@ def friend_scenes(base):
             # F2-6: ライブの URL(見本は配信中と答える)を貼ると 6 つの設定・録画中の行を開く・動画ファイルを選んだ形(見本は本物の窓を開かない)
             {"name": "friend-live", "url": page, "actions": [("wait", 500), ("fill", "#url", "https://www.youtube.com/watch?v=demolive001"), ("wait", 1200)]},
             {"name": "friend-live-open", "url": page, "actions": [("wait", 800), ("click", "[data-row='20261016-096000-dddd01'] .ui-next-btn"), ("wait", 400)]},
-            {"name": "friend-file", "url": page, "actions": [("wait", 500), ("click", "#btnPick"), ("wait", 800)]}]
+            {"name": "friend-file", "url": page, "actions": [("wait", 500), ("click", "#btnPick"), ("wait", 800)]},
+            # F2-5: ⚙ の引き出し(見本は本物の窓を開かない)・初回の準備(--missing の見本 = 部品が足りない形の確認)
+            {"name": "friend-settings", "url": page, "actions": [("wait", 500), ("click", "#btnSettings"), ("wait", 800)],
+             "modal": {"root": "#settingsDrawer", "opener": "#btnSettings"}}] + \
+           ([{"name": "friend-setup", "url": setup_base + "/friend/", "actions": [("wait", 1200)]}] if setup_base else [])
 
 
-def start_friend_demo(port):
-    """友人の受信箱の見本(dev/friend_demo.py)を起動して待つ(戻り値: プロセス)"""
+def start_friend_demo(port, missing=False):
+    """友人の受信箱の見本(dev/friend_demo.py)を起動して待つ(戻り値: プロセス)。missing = 初回の取得の部品が足りない形(F2-5)"""
     env = dict(os.environ, PYTHONIOENCODING="utf-8")
-    proc = subprocess.Popen([sys.executable, os.path.join(REPO, "dev", "friend_demo.py"), "--port", str(port)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", env=env)
+    proc = subprocess.Popen([sys.executable, os.path.join(REPO, "dev", "friend_demo.py"), "--port", str(port)] + (["--missing"] if missing else []), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", env=env)
     deadline = time.time() + 60
     while time.time() < deadline:
         line = proc.stdout.readline()
@@ -814,7 +818,8 @@ def main():
             if a.demo:
                 procs.append(start_demo(a.port))
                 procs.append(start_friend_demo(a.port + 10))   # 友人の受信箱(別のポートの 2 つ目の玄関の見本)
-                scenes = default_scenes(base) + friend_scenes(f"http://localhost:{a.port + 10}")
+                procs.append(start_friend_demo(a.port + 11, missing=True))   # 初回の準備の形(F2-5)
+                scenes = default_scenes(base) + friend_scenes(f"http://localhost:{a.port + 10}", f"http://localhost:{a.port + 11}")
             live_checks(base, out, a.shots, scenes=scenes, widths=[int(w) for w in a.widths.split(",")], variants=a.variants.split(","), names=a.scenes.split(",") if a.scenes else None)
         finally:
             for proc in procs:

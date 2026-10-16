@@ -5,7 +5,7 @@
   var $ = function (id) { return document.getElementById(id); };
   var POLL = 3000, POLL_AWAY = 10000;
   var state = { key: '', rows: [], form: null, open: {}, sel: {}, peek: null, peekUrl: '', sending: false, auto: '', hasKey: true,
-    file: null, live: null, liveBusy: false, picking: false };
+    file: null, live: null, liveBusy: false, picking: false, partsWhy: '', setupKey: '', setupRun: false };
   var timer = 0;
 
   function el(tag, attrs, kids) {
@@ -21,7 +21,10 @@
     return e;
   }
   function api(path, body) { return UIKit.http('api/friend/' + path, body === undefined ? {} : { body: body }); }
-  function sizeText(n) { return n >= 1e9 ? (n / 1e9).toFixed(1) + ' GB' : Math.max(1, Math.round(n / 1e6)) + ' MB'; }
+  function sizeText(n) { return n == null ? '不明' : n >= 1e9 ? (n / 1e9).toFixed(1) + ' GB' : Math.max(1, Math.round(n / 1e6)) + ' MB'; }
+  function helpLink(sec, what) {   /* [?] = 説明の節を新しい窓で開く(F2-5。9-3) */
+    return el('a', { cls: 'btn ghost small fr-help', href: 'guide.html#' + sec, target: '_blank', rel: 'noopener', 'aria-label': what + 'を新しい窓で開く', title: what }, ['?']);
+  }
   function pct(p) { return p && p.total ? Math.floor(p.done * 100 / p.total) + '%' : ''; }
   function fail(what, e) { UIKit.toast(what + ': ' + e.message, { kind: 'err', detail: e.detail }); }
 
@@ -65,14 +68,16 @@
     $('urlLabel').textContent = state.file ? '動画ファイル' : '配信の URL';
     $('btnPick').hidden = !!state.file;
     $('btnPick').disabled = state.picking;
-    var user = pc() === 'user', noKey = user && !state.hasKey;
+    var user = pc() === 'user', noKey = user && !state.hasKey, noParts = !user && !!state.partsWhy;   /* 部品が足りない = この PC では作れない(F2-5。9-1) */
     var postLive = m === 'url' && state.live && state.live.status === 'post_live';
     var ready = m === 'file' ? true : (!!state.peek && !state.liveBusy && !postLive);
-    var ok = ready && !rg.bad && !state.sending && !noKey;
+    var ok = ready && !rg.bad && !state.sending && !noKey && !noParts;
+    $('sendWhy').hidden = !noParts;
+    $('sendWhy').textContent = noParts ? state.partsWhy : '';
     var btn = $('btnSend');
     btn.disabled = !ok;
     btn.textContent = (m === 'live' ? '録画を頼む' : '送る') + (user ? '(ユーザーの PC へ)' : '');   /* 覚えた値がユーザーの PC のとき、「詳しく」を閉じていても分かるように(A-2) */
-    btn.title = state.sending ? '送っています' : m !== 'file' && !state.peek ? 'YouTube の配信の URL を貼るか、動画ファイルを選ぶと押せます' :
+    btn.title = state.sending ? '送っています' : noParts ? state.partsWhy : m !== 'file' && !state.peek ? 'YouTube の配信の URL を貼るか、動画ファイルを選ぶと押せます' :
       state.liveBusy ? '配信中か調べています(数秒)' : postLive ? state.live.message : rg.bad ? rg.bad :
       noKey ? 'Dropbox の鍵が無いので、ユーザーの PC には頼めません(「詳しく」の処理する PC を「この PC」に)' : '';
   }
@@ -302,7 +307,8 @@
     var body = el('div', { cls: 'fr-row-body' }, [el('div', { cls: 'fr-row-head' }, head), el('div', { cls: 'fr-row-sub' }, sub)]);
     var row = el('div', { cls: 'fr-row', 'data-row': r.id }, [body, el('div', { cls: 'fr-row-acts' }, acts)]);
     if ((r.state === 'arrived' || r.state === 'recording') && r.groups.length && state.open[r.id]) {
-      return el('div', { cls: 'fr-item open' }, [row, el('div', { cls: 'fr-detail' }, r.groups.map(function (g) { return packList(r, g); }))]);
+      return el('div', { cls: 'fr-item open' }, [row, el('div', { cls: 'fr-detail' },
+        [el('div', { cls: 'fr-detail-h' }, [helpLink('receive', '受け取り方の説明')])].concat(r.groups.map(function (g) { return packList(r, g); })))]);
     }
     return el('div', { cls: 'fr-item' }, [row]);
   }
@@ -336,6 +342,107 @@
     $('cleanedText').textContent = (j.rollback ? j.rollback + '。' : '') +
       (j.notice ? 'C: の古い部品 ' + j.notice.freedGB + ' GB を片付けました(新しいアプリの場所へ写してあります)' : '');
   }
+  /* ---------------------------------------------------------------- 初回の準備(F2-5。9-1) */
+  function setupView(s) {
+    s = s || {};
+    var miss = !!s.active && s.count > 0, run = !!s.running, res = s.result;
+    state.partsWhy = !s.active ? '' : run ? '処理の部品を取っています。取り終えると送れます(進み具合は上の「初回の準備」)' :
+      miss ? (s.later ? '処理の部品が足りません。上の帯の [取ってくる] から取ってください' : '処理の部品が足りません。上の「初回の準備」の [始める] から取ってください') : '';
+    if (state.setupRun && !run && res) {
+      if (res.ok) UIKit.toast('処理の部品を取り終わりました。送れるようになりました', { ms: 4000 });
+    }
+    state.setupRun = run;
+    var card = !!s.active && (run || (miss && !s.later));
+    $('setupCard').hidden = !card;
+    $('setupBand').hidden = !(miss && s.later && !run);
+    $('setupBandText').textContent = miss ? '部品が足りません(' + s.count + ' 個・約 ' + sizeText(s.total) + ')。取り終わるまで、この PC での処理はできません' : '';
+    if (!card) return;
+    var key = JSON.stringify(s.missing || []);
+    if (key !== state.setupKey) {
+      state.setupKey = key;
+      $('setupItems').textContent = '';
+      (s.missing || []).forEach(function (m) { $('setupItems').appendChild(el('li', {}, [m.label + '(' + sizeText(m.size) + ')'])); });
+    }
+    $('setupLead').textContent = run ? '部品を取っています。窓を閉じても続きます(取れた分は残り、止めても次は続きから)。' :
+      '文字起こしなどに使う部品を取ってきます(' + s.count + ' 個・約 ' + sizeText(s.total) + ')。取り終わるまで、この PC での処理はできません。';
+    $('setupWhere').textContent = (s.places || []).map(function (p) {
+      return '置き場所: ' + p.path + '(空き ' + sizeText(p.free) + '・要る ' + sizeText(p.need) + ')';
+    }).join('\n');
+    var why = run ? '' : s.reason || (res && !res.ok ? (res.cancelled ? '止めました。取れた分は残っています(続きからやり直せます)' :
+      '取れなかった物があります(' + res.failed.length + ' 個)。ネットワークを確かめて、やり直してください。' +
+      res.failed.slice(0, 2).map(function (f) { return f.label + ': ' + f.message; }).join(' / ')) : '');
+    $('setupWhy').hidden = !why;
+    $('setupWhy').textContent = why;
+    var p = s.progress;
+    $('setupProgWrap').hidden = !run;
+    if (run && p) {
+      var frac = p.total ? Math.min(1, p.done / p.total) : 0;
+      $('setupBar').firstElementChild.style.width = Math.round(frac * 100) + '%';
+      $('setupBar').setAttribute('aria-valuenow', String(Math.round(frac * 100)));
+      $('setupProg').textContent = p.index ? '取っています(' + p.index + ' / ' + p.count + ') ' + p.label + ' ・ ' + p.phase +
+        (p.phase === '取っています' && p.itemTotal ? ' ' + sizeText(p.itemDone) + ' / ' + sizeText(p.itemTotal) : '') : p.phase;
+    }
+    $('btnSetupStart').hidden = run;
+    $('btnSetupStart').disabled = !s.canStart;
+    $('btnSetupStart').textContent = res && !res.ok ? 'やり直す' : '始める';
+    $('btnSetupStart').title = s.canStart ? '部品を取り始めます' : (s.reason || '');
+    $('btnSetupLater').hidden = run;
+    $('btnSetupCancel').hidden = !run;
+  }
+  function setupAct(what) {
+    return api('setup/' + what, {}).then(function (j) { setupView(j.setup); syncForm(); }, function (e) { fail('初回の準備', e); });
+  }
+
+  /* ---------------------------------------------------------------- ⚙ 設定(F2-5) */
+  function fillSettings(s) {
+    $('setSave').textContent = s.saveDir + (s.saveIsDefault ? '(既定)' : '');
+    $('setCases').textContent = s.caseRoot + (s.caseIsDefault ? '(既定)' : '');
+    $('btnResetSave').disabled = !!s.saveIsDefault;
+    $('btnResetSave').title = s.saveIsDefault ? '今が既定の場所です' : '既定の場所(ビデオの 受け取ったパック)に戻します';
+    $('btnResetCases').disabled = !!s.caseIsDefault;
+    $('btnResetCases').title = s.caseIsDefault ? '今が既定の場所です' : '既定の場所(アプリのフォルダの 作業)に戻します';
+    Array.prototype.forEach.call(document.querySelectorAll('input[name=setEngine]'), function (r) { r.checked = r.value === s.engine; });
+    $('setGpu').textContent = s.gpu ? 'この PC の GPU: ' + s.gpu.name + (s.gpu.vramGB ? '(' + s.gpu.vramGB + ' GB)' : '') : '';
+    $('setKeyState').textContent = s.apiKey ? '入っています' : 'まだ入っていません';
+    $('btnKeyClear').disabled = !s.apiKey;
+    $('btnKeyClear').title = s.apiKey ? '保存してあるキーを消します' : 'キーが入っていません';
+    $('setKeyHelp').textContent = s.apiKeyHelp || '';
+    if (document.activeElement !== $('setDisk')) $('setDisk').value = s.diskMinGB == null ? '' : s.diskMinGB;
+    Array.prototype.forEach.call(document.querySelectorAll('input[name=setCut]'), function (r) { r.checked = r.value === s.cut; });
+  }
+  function loadSettings() {
+    return api('settings').then(function (j) { fillSettings(j.settings); }, function (e) { fail('設定を読めませんでした', e); });
+  }
+  function putSettings(body) {
+    return api('settings', body).then(function (j) {
+      fillSettings(j.settings);
+      if (j.message) UIKit.toast(j.message, { ms: 3500 });
+      refresh();
+    }, function (e) { fail('変えられませんでした', e); loadSettings(); });
+  }
+  function pickFolder(what) {
+    var b = $(what === 'save' ? 'btnPickSave' : 'btnPickCases');
+    b.disabled = true;
+    api('pick-folder', { what: what }).then(function (j) {
+      fillSettings(j.settings);
+      if (j.chosen && j.message) UIKit.toast(j.message, { ms: 3500 });
+    }, function (e) { fail('フォルダを変えられませんでした', e); }).then(function () { b.disabled = false; });
+  }
+  function saveKey(key) {
+    var b = $('btnKeySave');
+    b.disabled = true;
+    $('setKeyState').textContent = key ? '確かめています…' : $('setKeyState').textContent;
+    api('settings/key', { key: key }).then(function (j) {
+      $('setKey').value = '';
+      fillSettings(j.settings);
+      UIKit.toast(j.message, { ms: 3500 });
+    }, function (e) { fail('API キー', e); loadSettings(); }).then(function () { b.disabled = false; });
+  }
+  function openSettings() {
+    UIKit.drawer.open($('settingsDrawer'), { opener: $('btnSettings') });
+    loadSettings();
+  }
+
   function refresh() {
     clearTimeout(timer);
     return api('inbox').then(function (j) {
@@ -343,6 +450,7 @@
       if (!state.form) { state.form = j.form; fillForm(j.form); syncForm(); }
       var key = JSON.stringify(j.rows || []);
       $('btnSaved').title = '受け取ったパックの保存先を開きます: ' + (j.saveDir || '');
+      setupView(j.setup);
       banner(j);
       if (key === state.key) return;   /* 変わっていなければ描き直さない(押そうとしているボタン・フォーカスを消さない) */
       state.key = key;
@@ -383,6 +491,34 @@
         document.querySelector('.fr-main').appendChild(el('p', { cls: 'fr-bye', text: '止めて終了しました。この窓は閉じてかまいません(次に開くと、待っていた依頼の続きから始めます)' }));
       }, function (e) { fail('終了できませんでした', e); });
     });
+    $('btnSetupStart').addEventListener('click', function () { setupAct('start'); });
+    $('btnSetupLater').addEventListener('click', function () { setupAct('later'); });
+    $('btnSetupCancel').addEventListener('click', function () { setupAct('cancel'); });
+    $('btnSetupOpen').addEventListener('click', function () { setupAct('open'); });
+    $('btnSettings').addEventListener('click', openSettings);
+    $('settingsClose').addEventListener('click', function () { UIKit.drawer.close($('settingsDrawer')); });
+    $('btnPickSave').addEventListener('click', function () { pickFolder('save'); });
+    $('btnPickCases').addEventListener('click', function () { pickFolder('cases'); });
+    $('btnResetSave').addEventListener('click', function () { putSettings({ reset: 'save' }); });
+    $('btnResetCases').addEventListener('click', function () { putSettings({ reset: 'cases' }); });
+    Array.prototype.forEach.call(document.querySelectorAll('input[name=setEngine]'), function (r) {
+      r.addEventListener('change', function () { if (r.checked) putSettings({ engine: r.value }); });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('input[name=setCut]'), function (r) {
+      r.addEventListener('change', function () { if (r.checked) putSettings({ cut: r.value }); });
+    });
+    $('setDisk').addEventListener('change', function () {
+      var v = parseFloat($('setDisk').value);
+      if (isNaN(v)) { UIKit.toast('空き容量の下限は数(GB)で入れてください', { kind: 'err' }); loadSettings(); return; }
+      putSettings({ diskMinGB: v });
+    });
+    $('btnKeySave').addEventListener('click', function () {
+      var k = $('setKey').value.trim();
+      if (!k) { UIKit.toast('キーを貼ってから押してください', { kind: 'err' }); return; }
+      saveKey(k);
+    });
+    $('setKey').addEventListener('keydown', function (e) { if (e.key === 'Enter' && $('setKey').value.trim()) saveKey($('setKey').value.trim()); });
+    $('btnKeyClear').addEventListener('click', function () { saveKey(''); });
     $('cleanedOk').addEventListener('click', function () { api('notice-seen', {}).then(function () { $('cleaned').hidden = true; }); });
     UIKit.life.onReturn(function () { refresh(); });
     refresh();

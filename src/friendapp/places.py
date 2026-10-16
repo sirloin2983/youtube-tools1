@@ -138,6 +138,8 @@ def api_key_env(roots, env=None):
         if isinstance(key, str) and key.strip():
             env["YTT_YT_API_KEY"] = key.strip()
             return True
+        if isinstance(key, str):   # "" = ⚙ で消した(F2-5)。前のアプリのキーへ戻らない
+            return False
     return False
 
 
