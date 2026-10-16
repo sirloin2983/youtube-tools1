@@ -29,6 +29,8 @@ from flow import spec as SP  # noqa: E402
 from flow import order as O  # noqa: E402  (欄 → 封筒 + 束の差分。受付は submit の 1 本 = RV A1)
 from human.friend import intake as IN  # noqa: E402  (友人の受付の欄 → submit = submit_urls・submit_file)
 from ytt import fsio  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), "flow", "tests"))   # 共有の部品 _runfields(以前の Run の欄の形 → 封筒 + 束。RV A2)
+import _runfields as RF  # noqa: E402
 
 
 # ---- 受付の欄の写し(RV A1 で AutoRunner.start* を消し、受付は submit の 1 本に)。画面の UIKit.flow.order と友人の受付(intake)と同じ変換 ----
@@ -1198,7 +1200,7 @@ class TestRestore(Base):
         ready = {"studio": False}
         self.tools.endpoint = lambda t: (1, "/") if ready.get(t, True) else None
         self.r.close()
-        run = A.Run(VID, "配信", "adopted", 3)
+        run = RF.run_of(VID, "配信", "adopted", 3)
         os.makedirs(self.logs, exist_ok=True)
         with open(os.path.join(self.logs, A.ACTIVE_FILE), "w", encoding="utf-8") as f:
             json.dump({"v": A.ACTIVE_VERSION, "runs": [run.saved()]}, f)
@@ -1279,7 +1281,7 @@ class TestRestartInfo(Base):
         os.makedirs(pack)
         open(os.path.join(pack, "cut-plan.json"), "w").close()
         out = os.path.join(self.tmp, "出力")
-        run = A.Run(VID, "配信", "request_auto", 1, deliver_dir=out, request_id="20261001-120000-abc123")   # 依頼(出どころ request = 出どころの印 .meta.json は置かない)
+        run = RF.run_of(VID, "配信", "request_auto", 1, deliver_dir=out, request_id="20261001-120000-abc123")   # 依頼(出どころ request = 出どころの印 .meta.json は置かない)
         run.state = "running"
         with self.r.cv:
             self.r.runs.append(run)
@@ -1620,7 +1622,7 @@ class TestRequests(Base):
 
     def direct_run(self, packs, out, batch=None):
         """段取りを通さずに届ける段(_deliver_pending)だけを動かすための実行(パックは手で用意したもの)"""
-        run = A.Run(VID, "配信", "request_auto", None, request_id=self.RID, deliver_dir=out, deliver_batch=batch)
+        run = RF.run_of(VID, "配信", "request_auto", None, request_id=self.RID, deliver_dir=out, deliver_batch=batch)
         run.state = "running"
         run.packs = list(packs)
         with self.r.cv:
@@ -1777,27 +1779,27 @@ class TestRequests(Base):
 
     def test_batch_size_priority_and_range(self):
         """_batch_size: 依頼の指定 > ホームの設定 > 既定"""
-        run = A.Run(VID, "配信", "request_auto", None)
+        run = RF.run_of(VID, "配信", "request_auto", None)
         self.batch_prefs(3)
         self.assertEqual(self.r._batch_size(run), 3)
-        self.assertEqual(self.r._batch_size(A.Run(VID, "配信", "request_auto", None, deliver_batch=7)), 7)
-        self.assertEqual(self.r._batch_size(A.Run(VID, "配信", "request_auto", None, deliver_batch=1)), 1)
+        self.assertEqual(self.r._batch_size(RF.run_of(VID, "配信", "request_auto", None, deliver_batch=7)), 7)
+        self.assertEqual(self.r._batch_size(RF.run_of(VID, "配信", "request_auto", None, deliver_batch=1)), 1)
         self.r.prefs = None
         self.assertEqual(self.r._batch_size(run), prefs_mod.DEFAULTS["intake"]["deliverBatch"])
-        self.assertEqual(self.r._batch_size(A.Run(VID, "配信", "request_auto", None, deliver_batch=10)), 10)
+        self.assertEqual(self.r._batch_size(RF.run_of(VID, "配信", "request_auto", None, deliver_batch=10)), 10)
 
     def test_run_deliver_batch_range_and_saved_restore(self):
         """Run の deliver_batch: 1〜10 の整数だけ(範囲の外・bool・文字列・小数は None = ホームの設定)。saved/restore で残る・壊れた値は None に戻る"""
         for bad in (None, 0, -1, 11, 100, True, False, "3", 2.5, [2], {}):
-            self.assertIsNone(A.Run(VID, "配信", "request_auto", None, deliver_batch=bad).deliver_batch, repr(bad))
+            self.assertIsNone(RF.run_of(VID, "配信", "request_auto", None, deliver_batch=bad).deliver_batch, repr(bad))
         for good in (1, 2, 5, 10):
-            run = A.Run(VID, "配信", "request_auto", None, request_id=self.RID, deliver_dir=self.tmp, deliver_batch=good)
+            run = RF.run_of(VID, "配信", "request_auto", None, request_id=self.RID, deliver_dir=self.tmp, deliver_batch=good)
             self.assertEqual(run.deliver_batch, good)
             saved = json.loads(json.dumps(run.saved()))   # 待ちの記録(autorun-active.json)を通した形
             self.assertEqual(saved["deliverBatch"], good)
             back = A.Run.restore(saved)
             self.assertEqual((back.id, back.deliver_batch, back.request_id), (run.id, good, self.RID))
-        none = A.Run(VID, "配信", "request_auto", None)
+        none = RF.run_of(VID, "配信", "request_auto", None)
         self.assertIsNone(none.saved()["deliverBatch"])
         self.assertIsNone(A.Run.restore(json.loads(json.dumps(none.saved()))).deliver_batch)
         for broken in (99, 0, "x", True, 3.5, [1]):
@@ -1817,7 +1819,7 @@ class TestRequests(Base):
         open(media2, "wb").close()
         run = self.wait(start_file(self.r, media2, title="二本目", request_id="rid2", flow="auto", deliver_dir=out, deliver_batch=99))
         # 範囲の外は指定なし = 受付でホームの設定の n 本に決める(RS7-1 S4。以前は None のまま実行中にホームの設定を読んだ)
-        self.assertEqual(self.real(run).deliver_batch, self.r._batch_size(A.Run(None, "", "file_auto", None)))
+        self.assertEqual(self.real(run).deliver_batch, self.r._batch_size(RF.run_of(None, "", "file_auto", None, source_path="C:/x/a.mp4")))
         self.assertEqual(sorted(n for n in os.listdir(out) if n.endswith(".zip")), ["rid1__依頼.zip", "rid2__二本目.zip"])
 
     def test_file_auto_delivers_and_failure_note(self):
@@ -2459,7 +2461,7 @@ class TestAutoSend(Base):
 
     def test_old_records_are_readable(self):
         """古い待ちの記録(deliverTag・deliverOrigin が無い)と古い溜め(tag・origin・mode が無い)も読める"""
-        old = A.Run(VID, "配信", "full", 2).saved()
+        old = RF.run_of(VID, "配信", "full", 2).saved()
         for k in ("deliverTag", "deliverOrigin"):
             old.pop(k)
         back = A.Run.restore(old)
@@ -2504,11 +2506,11 @@ class TestAutoSend(Base):
 
     def test_failure_note_only_for_requests(self):
         """友人に失敗の知らせ(.失敗.txt)を置くのは依頼だけ(2-6)"""
-        auto = A.Run(VID, "配信", "full", 2, deliver_dir=self.out, deliver_origin="auto", deliver_tag="20261016-120000-abcdef")
+        auto = RF.run_of(VID, "配信", "full", 2, deliver_dir=self.out, deliver_origin="auto", deliver_tag="20261016-120000-abcdef")
         auto.error = "わざと"
         self.r._deliver_failure(auto)
         self.assertEqual(self.outs(), [])
-        req = A.Run(VID, "配信", "request_auto", 2, deliver_dir=self.out, request_id="20261016-120000-abcdef")
+        req = RF.run_of(VID, "配信", "request_auto", 2, deliver_dir=self.out, request_id="20261016-120000-abcdef")
         req.error = "わざと"
         self.r._deliver_failure(req)
         self.assertEqual([n for n in self.outs() if n.endswith(".失敗.txt")], ["20261016-120000-abcdef__配信.失敗.txt"])
@@ -2555,6 +2557,23 @@ class TestSubmitBase(Base):
             for vid in ("aaaaaaaaaaa", "bbbbbbbbbbb", "ccccccccccc"):
                 self.r.submit(*O.order("url", video_id=vid, from_="export"))
         self.assertEqual(len(seen), 1)
+
+    def test_friend_app_v2_and_v1_bodies(self):
+        """送るアプリの本文: 版 2(RV A2 = run.upto・hints.streamer・run.requested)も 0.87 までの版 1(legacy・run.pinned・specVersion なし)も同じ実行"""
+        v2 = {"id": "0123456789", "kind": "url", "input": {"url": "https://www.youtube.com/watch?v=" + VID}, "requestId": "20261016-120000-abcdef",
+              "deliver": {"batch": 2}, "createdAt": 1, "specVersion": 2}
+        s2 = {"adopt": {"top": 2}, "pack": {"cut": "silence", "videoTracks": 2}, "hints": {"streamer": "さくらみこ"},
+              "run": {"requested": ["cut", "videoTracks"], "repack": True, "upto": "pack"}}
+        v1 = dict({k: v for k, v in v2.items() if k != "specVersion"}, id="abcdef0123", legacy={"mode": "request_auto", "streamer": "さくらみこ"})
+        s1 = {"adopt": {"top": 2}, "pack": {"cut": "silence", "videoTracks": 2}, "run": {"pinned": ["cut", "videoTracks"], "repack": True}}
+        with mock.patch.object(self.r, "_wake", lambda: None):
+            a = self.queued(self.r.submit(v2, s2))
+            self.r.cancel(a.id)
+            b = self.queued(self.r.submit(v1, s1))
+        for r in (a, b):
+            self.assertEqual((r.mode, r.streamer, r.cut, r.video_tracks, r.overwrite, r.deliver_batch, r.top), ("request_auto", "さくらみこ", "silence", 2, True, 2, 2))
+            self.assertEqual([s["key"] for s in r.steps], list(A.MODE_STEPS["request_auto"]))
+        self.assertEqual(a.spec, b.spec)
 
     def test_streamer_checked_unless_friend(self):
         """配信者の名前は色の一覧と照らし合わせる(合わなければ 400 = ValueError)。友人の依頼(requestId あり)はそのまま(以前の submit と同じ)・空 = 色なし"""

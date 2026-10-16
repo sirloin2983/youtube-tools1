@@ -29,7 +29,7 @@ import time
 from ytt import yturl as _yturl
 from . import spec as _spec
 
-SPEC_VERSION = 1   # 書く封筒と束の形の版(flow/spec.py の DEFAULTS の形。形を変えたら上げる)
+SPEC_VERSION = 2   # 書く封筒と束の形の版(flow/spec.py の DEFAULTS の形。形を変えたら上げる。2 = RV A2)
 ACCEPTED = (1, 2)  # 読める版(1 = legacy つき。upgrade で 2 に読み替える。知らない版は断る)
 KINDS = ("url", "file", "docs", "live")
 KEYS = {1: ("id", "kind", "input", "requestId", "deliver", "note", "createdAt", "specVersion", "legacy"),
@@ -165,9 +165,12 @@ def _legacy(d):
             "streamer": _str(d.get("streamer"), TITLE_MAX, where + ".streamer")}
 
 
+LEGACY_DEFAULT = 1   # specVersion の無い封筒の版(0.87 までの送るアプリ・記録は書いていなかった = 版 1。今の書き手は必ず書く)
+
+
 def version_of(env):
-    """封筒の版(specVersion。無ければ SPEC_VERSION)。読めない版は ValueError(呼ぶ側は版の違いとして断る)"""
-    ver = env.get("specVersion", SPEC_VERSION) if isinstance(env, dict) else SPEC_VERSION
+    """封筒の版(specVersion。無ければ版 1 = LEGACY_DEFAULT)。読めない版は ValueError(呼ぶ側は版の違いとして断る)"""
+    ver = env.get("specVersion", LEGACY_DEFAULT) if isinstance(env, dict) else LEGACY_DEFAULT
     if isinstance(ver, bool) or ver not in ACCEPTED:
         raise ValueError("知らない束の版です: %r(この ② は %s。送る側か ② を新しくしてください)" % (ver, "・".join(map(str, ACCEPTED))))
     return ver

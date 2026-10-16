@@ -19,6 +19,8 @@ SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SRC)
 from flow import board as B, runqueue as Q, run as R, spec as SP, tools as T  # noqa: E402
 from ytt import fsio  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # 共有の部品 _runfields(以前の Run の欄の形 → 封筒 + 束。RV A2)
+import _runfields as RF  # noqa: E402
 
 WAIT = 10.0
 
@@ -239,7 +241,7 @@ class TestSubmit(Base):
         tools = Tools()
         q = self.queue(tools)
         with q.cv:
-            out = q._push(R.Run(None, "t", "file", None, source_path=self.media[0]))
+            out = q._push(RF.run_of(None, "t", "file", None, source_path=self.media[0]))
         _until(lambda: q.status()["idle"], "待ち・実行中が 0")
         self.assertEqual(tools.started, [(self.media[0], SP.DEFAULTS["transcribe"]["model"], SP.DEFAULTS["post"]["llmModel"])])
         self.assertEqual(q.status()["runs"][0]["id"], out["id"])
@@ -271,13 +273,21 @@ class TestRestore(Base):
         self.assertEqual([m for _p, m, _l in tools2.started], ["large-v3", SP.DEFAULTS["transcribe"]["model"]])
 
     def test_old_form_and_too_old(self):
-        """古い形(欄だけ・束なし)の待ちの記録も戻す。RESTORE_MAX_AGE より前の物は戻さず記録に「中止」"""
+        """0.87 までの形(版 1 の封筒 + 欄・束なし)の待ちの記録も戻す(束なし = hook が組む)。封筒の無い記録は戻さない(RV A2)。
+        RESTORE_MAX_AGE より前の物は戻さず記録に「中止」"""
         now = time.time()
+
+        def env(rid, path):
+            return {"id": rid, "kind": "file", "input": {"path": path, "title": "古い形"}, "requestId": None,
+                    "deliver": {"dir": None, "batch": None, "pool": None, "origin": None}, "note": "", "createdAt": 0, "specVersion": 1,
+                    "legacy": {"mode": "file", "onFail": "next", "streamer": None}}
         old = {"id": "0123456789", "mode": "file", "title": "古い形", "sourcePath": self.media[0], "created": now - 60,
-               "steps": [{"key": "transcribe", "state": "wait", "detail": ""}]}
-        stale = dict(old, id="abcdef0123", sourcePath=self.media[1], created=now - Q.RESTORE_MAX_AGE - 60)
+               "steps": [{"key": "transcribe", "state": "wait", "detail": ""}], "envelope": env("0123456789", self.media[0])}
+        stale = dict(old, id="abcdef0123", sourcePath=self.media[1], created=now - Q.RESTORE_MAX_AGE - 60, envelope=env("abcdef0123", self.media[1]))
+        fields_only = {k: v for k, v in dict(old, id="fedcba9876").items() if k != "envelope"}
         with open(os.path.join(self.logs, Q.ACTIVE_FILE), "w", encoding="utf-8") as f:
-            json.dump({"v": Q.ACTIVE_VERSION, "runs": [{"id": "../x", "mode": "file"}, old, {"id": "abcdefabcd", "mode": "nope"}, stale, "壊れた"]}, f)   # 壊れた行・形の違う id・知らない mode は読み飛ばす(入口の試験から移した)
+            json.dump({"v": Q.ACTIVE_VERSION, "runs": [{"id": "../x", "mode": "file"}, old, {"id": "abcdefabcd", "mode": "nope"}, stale, "壊れた",
+                                                       fields_only]}, f)   # 壊れた行・形の違う id・知らない mode は読み飛ばす(入口の試験から移した)
         tools = Tools()
         q = self.queue(tools)
         _until(lambda: q.status()["idle"], "戻した 1 本が済む")
@@ -398,7 +408,7 @@ class TestBoard(Base):
 
     def test_board_job_shape(self):
         """board_job は掲示板の形のまま(normalize を通る)。失敗は error・案件の根は結果の束のパスの形だけで決める"""
-        run = R.Run("vid", "配信", "full", 3)
+        run = RF.run_of("vid", "配信", "full", 3)
         run.state, run.error = "error", "止まりました"
         j = B.normalize(Q.board_job(run))
         self.assertEqual((j["state"], j["error"]["text"], j["canRetry"], j["target"]), ("error", "止まりました", True, {"videoId": "vid"}))

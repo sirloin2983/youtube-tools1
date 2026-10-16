@@ -47,29 +47,26 @@ class TestOrder(unittest.TestCase):
         self.assertEqual((env["input"]["videoId"], diff), (VID, {"pack": {"cut": "none"}, "run": {"requested": ["cut"]}}), "ライブは段の並びを持たない")
 
     def test_same_run_as_old_fields(self):
-        """欄から作った Run は、以前の Run(欄) と同じ形・段の並び・束(派生の mode = 記録の mode が変わらない)"""
+        """欄から作った Run は、以前の Run(欄) と同じ形(派生の mode = 記録の mode)・段の並び(0.87 の Run の答えを固定の見本に)"""
         base = SP.validate(SP.merge(None))
         m = "C:/x/a.mp4"
-        cases = [("full", dict(kind="url", video_id=VID), dict()),
-                 ("adopted", dict(kind="url", video_id=VID, from_="export"), dict()),
-                 ("transcribe", dict(kind="url", video_id=VID, from_="export", upto="transcribe", marks=["m1"]), dict(marks=("m1",))),
-                 ("request", dict(kind="url", video_id=VID, upto="transcribe", request_id="r1", ranges=[(1, 5)], top=1), dict(request_id="r1", ranges=[(1, 5)])),
-                 ("request_auto", dict(kind="url", video_id=VID, request_id="r1", deliver_dir="D:/o", cut="none", repack=True),
-                  dict(request_id="r1", deliver_dir="D:/o", cut="none", overwrite=True)),
-                 ("doc", dict(kind="docs", doc_id="d1"), dict(doc_id="d1")),
-                 ("file", dict(kind="file", path=m, normalize=True, upto="transcribe"), dict(source_path=m, normalize=True)),
-                 ("file_auto", dict(kind="file", path=m, engine="whisper.cpp", speakers={"count": 2, "names": ["A"]}, upto="pack"),
-                  dict(source_path=m, engine="whisper.cpp", speakers={"count": 2, "names": ["A"]}))]
-        for mode, okw, fkw in cases:
+        cases = [("full", dict(kind="url", video_id=VID), ["analyze", "adopt", "export", "transcribe", "pack"]),
+                 ("full", dict(kind="url", video_id=VID, deliver_dir="D:/o"), ["analyze", "adopt", "export", "transcribe", "pack", "deliver"]),
+                 ("adopted", dict(kind="url", video_id=VID, from_="export"), ["export", "transcribe", "pack"]),
+                 ("transcribe", dict(kind="url", video_id=VID, from_="export", upto="transcribe", marks=["m1"]), ["export", "transcribe"]),
+                 ("request", dict(kind="url", video_id=VID, upto="transcribe", request_id="r1", ranges=[(1, 5)], top=1),
+                  ["adopt", "export", "transcribe", "analyze_later"]),
+                 ("request_auto", dict(kind="url", video_id=VID, request_id="r1", deliver_dir="D:/o", cut="none", repack=True,
+                                       speakers={"count": 2, "names": ["A"]}),
+                  ["analyze", "adopt", "export", "transcribe", "diarize", "pack", "deliver"]),
+                 ("doc", dict(kind="docs", doc_id="d1"), ["transcribe", "pack"]),
+                 ("file", dict(kind="file", path=m, normalize=True, upto="transcribe"), ["normalize", "transcribe"]),
+                 ("file_auto", dict(kind="file", path=m, engine="whisper.cpp", upto="pack"), ["transcribe", "pack", "deliver"])]
+        for mode, okw, steps in cases:
             kind = okw.pop("kind")
             env, diff = O.order(kind, **okw)
             new = R.Run.from_envelope(env, SP.merge_onto(base, diff))
-            top = okw.get("top", 3) if kind == "url" else None
-            old = R.Run(fkw.pop("video_id", VID if kind == "url" else None), "", mode, top, **fkw)
-            old.spec = base
-            self.assertEqual(new.mode, mode)
-            self.assertEqual([s["key"] for s in new.steps], [s["key"] for s in old.steps], mode)
-            self.assertEqual({k: v for k, v in new.spec.items()}, old.spec, mode)
+            self.assertEqual((new.mode, [s["key"] for s in new.steps]), (mode, steps), mode)
 
 
 class TestMergeOnto(unittest.TestCase):

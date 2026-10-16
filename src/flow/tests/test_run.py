@@ -17,6 +17,8 @@ SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SRC)
 from flow import run as R  # noqa: E402
 from flow import envelope as E, spec as SP, tools as T  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # 共有の部品 _runfields(以前の Run の欄の形 → 封筒 + 束。RV A2)
+import _runfields as RF  # noqa: E402
 
 
 class FakeClient:
@@ -94,21 +96,20 @@ class TestFromInput(unittest.TestCase):
 
     def test_spec_saved_not_public(self):
         """束は待ちの記録に封筒と一緒に残る(RS7-1 S3。起動し直しで CLI の --spec が消えない)。public には出さない。
-        古い形(欄だけ・束なし)も読める・合わない束は置かない"""
-        r = R.Run.from_input({"docId": "d1"})
-        self.assertIsNone(r.spec)
-        self.assertIsNone(r.saved()["spec"])
+        戻すのは封筒 + 束だけ(RV A2。封筒の無い記録は戻さない)・合わない束は置かない(入口が組み直す)"""
+        r = R.Run.from_input({"docId": "d1"}, spec={"pack": {"size": "1920x1080"}})
+        self.assertEqual(r.spec["pack"]["size"], "1920x1080")
         self.assertNotIn("spec", r.public())
-        r.spec = SP.merge({"pack": {"size": "1920x1080"}})
         d = json.loads(json.dumps(r.saved()))
         self.assertEqual(d["envelope"], json.loads(json.dumps(E.check(r.envelope()))))
+        self.assertEqual((d["envelope"]["specVersion"], "legacy" in d["envelope"]), (2, False))
         back = R.Run.restore(d)
         self.assertEqual((back.id, back.doc_id, back.spec), (r.id, "d1", r.spec))
-        old = {k: v for k, v in d.items() if k not in ("envelope", "spec")}   # RS7-1 より前の形
-        self.assertIsNone(R.Run.restore(old).spec)
-        self.assertEqual(R.Run.restore(old).doc_id, "d1")
-        self.assertIsNone(R.Run.restore(dict(d, spec={"pack": {"size": "1x1"}})).spec)
-        new_only = {k: d[k] for k in ("id", "envelope", "spec", "state", "steps", "created", "docs")}   # 欄の鍵の無い新しい形
+        old = {k: v for k, v in d.items() if k not in ("envelope", "spec")}   # RS7-1 より前の形(欄だけ)
+        self.assertIsNone(R.Run.restore(old))
+        bad = R.Run.restore(dict(d, spec={"pack": {"size": "1x1"}}))
+        self.assertEqual((bad.spec, bad.mode, bad.doc_id), (None, R.DOC_MODE, "d1"))
+        new_only = {k: d[k] for k in ("id", "envelope", "spec", "state", "steps", "created", "docs")}   # 欄の鍵の無い形
         back = R.Run.restore(new_only)
         self.assertEqual((back.id, back.mode, back.doc_id, back.spec, back.resumed), (r.id, R.DOC_MODE, "d1", r.spec, True))
         self.assertIsNone(R.Run.restore(dict(new_only, envelope=dict(d["envelope"], specVersion=99))))
@@ -117,16 +118,16 @@ class TestFromInput(unittest.TestCase):
         """D-SEND: full で届け先(deliver_dir)があれば末尾に段 deliver。MODE_STEPS の full は変えない・ほかの形は足さない"""
         self.assertEqual(R.MODE_STEPS["full"], ("analyze", "adopt", "export", "transcribe", "pack"))
         keys = lambda r: [s["key"] for s in r.steps]  # noqa: E731
-        self.assertEqual(keys(R.Run("abcdefghijk", "t", "full", 3)), list(R.MODE_STEPS["full"]))
-        r = R.Run("abcdefghijk", "t", "full", 3, deliver_dir="D:/out")
+        self.assertEqual(keys(RF.run_of("abcdefghijk", "t", "full", 3)), list(R.MODE_STEPS["full"]))
+        r = RF.run_of("abcdefghijk", "t", "full", 3, deliver_dir="D:/out")
         self.assertEqual(keys(r), list(R.MODE_STEPS["full"]) + ["deliver"])
-        r = R.Run("abcdefghijk", "t", "full", 3, deliver_dir="D:/out", speakers={"count": 2, "names": []})
+        r = RF.run_of("abcdefghijk", "t", "full", 3, deliver_dir="D:/out", speakers={"count": 2, "names": []})
         self.assertEqual(keys(r), ["analyze", "adopt", "export", "transcribe", "diarize", "pack", "deliver"])
-        self.assertEqual(keys(R.Run("abcdefghijk", "t", "adopted", 3, deliver_dir="D:/out")), list(R.MODE_STEPS["adopted"]))
-        self.assertEqual(keys(R.Run("abcdefghijk", "t", "request_auto", 3, deliver_dir="D:/out")), list(R.MODE_STEPS["request_auto"]), "二重に足さない")
+        self.assertEqual(keys(RF.run_of("abcdefghijk", "t", "adopted", 3, deliver_dir="D:/out")), list(R.MODE_STEPS["adopted"]))
+        self.assertEqual(keys(RF.run_of("abcdefghijk", "t", "request_auto", 3, deliver_dir="D:/out")), list(R.MODE_STEPS["request_auto"]), "二重に足さない")
 
     def test_deliver_tag_origin_saved_restored(self):
-        r = R.Run("abcdefghijk", "t", "full", 3, deliver_dir="D:/out", deliver_tag="20261016-120000-abc123", deliver_origin="auto")
+        r = RF.run_of("abcdefghijk", "t", "full", 3, deliver_dir="D:/out", deliver_tag="20261016-120000-abc123", deliver_origin="auto")
         d = json.loads(json.dumps(r.saved()))
         self.assertEqual((d["deliverTag"], d["deliverOrigin"]), ("20261016-120000-abc123", "auto"))
         back = R.Run.restore(d)
@@ -134,12 +135,13 @@ class TestFromInput(unittest.TestCase):
         self.assertEqual([s["key"] for s in back.steps], [s["key"] for s in r.steps])
         self.assertEqual(r.envelope()["deliver"]["origin"], "auto")
         self.assertEqual(R.Run.from_envelope(E.check(r.envelope())).deliver_origin, "auto")
-        self.assertIsNone(R.Run("abcdefghijk", "t", "full", 3, deliver_tag="", deliver_origin="zzz").deliver_tag)
-        self.assertIsNone(R.Run("abcdefghijk", "t", "full", 3, deliver_origin="zzz").deliver_origin)
+        self.assertIsNone(RF.run_of("abcdefghijk", "t", "full", 3, deliver_tag="").deliver_tag)
+        with self.assertRaisesRegex(ValueError, "deliver.origin"):   # 形の違う出どころは封筒の検査で断る(RV A2。以前は黙って None)
+            RF.run_of("abcdefghijk", "t", "full", 3, deliver_origin="zzz")
 
     def test_restore_old_record_without_deliver_fields(self):
         """D-SEND より前の待ちの記録(deliverTag・deliverOrigin が無い)も読める。届け先のある request_auto の段は今までどおり"""
-        r = R.Run("abcdefghijk", "t", "request_auto", 3, request_id="20261001-000000-aaaaaa", deliver_dir="D:/out")
+        r = RF.run_of("abcdefghijk", "t", "request_auto", 3, request_id="20261001-000000-aaaaaa", deliver_dir="D:/out")
         d = r.saved()
         d.pop("deliverTag"), d.pop("deliverOrigin")
         d["envelope"]["deliver"].pop("origin")
@@ -154,7 +156,135 @@ class TestFromInput(unittest.TestCase):
         d = R.Run.from_input({"videoId": "abcdefghijk"}).saved()
         self.assertIsNotNone(R.Run.restore(d))
         self.assertNotIn("post_analyze", R.MODE_STEPS)
-        self.assertIsNone(R.Run.restore(dict(d, mode="post_analyze", steps=[{"key": "analyze", "state": "run", "detail": ""}])))
+        v1 = dict(d, envelope=dict({k: v for k, v in d["envelope"].items() if k != "deliver"}, specVersion=1,
+                                   deliver={k: v for k, v in d["envelope"]["deliver"].items() if k != "tag"},
+                                   legacy={"mode": "post_analyze", "onFail": None, "streamer": None}))   # 0.87 までの記録の形
+        self.assertIsNone(R.Run.restore(dict(v1, steps=[{"key": "analyze", "state": "run", "detail": ""}])))
+        self.assertEqual(R.Run.restore(dict(v1, envelope=dict(v1["envelope"], legacy={"mode": "full"}))).mode, "full")
+
+
+class TestRestoreGolden(unittest.TestCase):
+    """RV A2: 0.87 までの待ちの記録(autorun-active.json の 1 件 = 欄 + 版 1 の封筒 + 束(run.pinned))を固定の見本にして restore。
+    段の並び・済んだ段・名前の頭・配信者・友人の区間の長さ・知らせ・途中の段が待ちに戻る、が以前と同じ"""
+
+    BASE = {"hints": {"ranges": [[10.0, 20.0], [30.0, 40.0]], "people": [{"name": "兎田ぺこら", "color": "#FF0000"}]},
+            "analyze": {"wAudio": 1.5, "wChat": 0.5, "wComments": 2.0, "length": 38, "preRatio": 0.61},
+            "adopt": {"top": 2}, "transcribe": {"diarize": 2}, "pack": {"cut": "silence", "videoTracks": 3},
+            "run": {"from": None, "force": False, "repack": True, "pinned": ["weights", "cut", "videoTracks"]}}
+
+    def record(self, **kw):
+        d = {"id": "0123456789", "videoId": "abcdefghijk", "title": "配信", "mode": "request_auto", "top": 2, "docId": None, "overwrite": True,
+             "streamer": "兎田ぺこら", "streamerFrom": None, "marks": ["r1", "r2"], "fresh": {"title": "配信", "channel": "ch"}, "onFail": "stop",
+             "sourcePath": None, "requestId": "20261016-120000-abcdef", "deliverDir": "D:/out", "speakers": {"count": 2, "names": ["兎田ぺこら"]},
+             "videoTracks": 3, "ranges": [[10.0, 20.0], [30.0, 40.0]], "cut": "silence", "weights": {"wAudio": 1.5, "wChat": 0.5, "wComments": 2.0},
+             "duration": 3600.0, "engine": None, "model": None, "friendLength": None, "deliverBatch": 3, "deliverTag": None, "deliverOrigin": "request",
+             "pool": None, "docs": ["t1"], "newDocs": ["t1"], "txBefore": {}, "packs": [], "keptPacks": [], "delivered": [], "packMarks": {}, "force": False,
+             "normalize": False, "friendPlan": {"length": 38, "preRatio": 0.61, "file": "flow/lengthhint", "samples": 9, "videos": 3, "base": {"length": 45}},
+             "notes": ["「行から」の設定の形が正しくないので、既定の広げ方で作りました"], "created": 1790000000.0, "state": "running", "message": "パック",
+             "steps": [{"key": "adopt", "state": "done", "detail": "指定の区間 2 個", "startedAt": 1, "finishedAt": 2},
+                       {"key": "export", "state": "done", "detail": "2 本を書き出しました"}, {"key": "transcribe", "state": "done", "detail": ""},
+                       {"key": "diarize", "state": "warn", "detail": "一部"}, {"key": "pack", "state": "run", "detail": "1 / 2 本"},
+                       {"key": "deliver", "state": "wait", "detail": ""}, {"key": "analyze_later", "state": "wait", "detail": ""}],
+             "envelope": {"id": "0123456789", "kind": "url", "input": {"title": "配信", "videoId": "abcdefghijk", "duration": 3600.0,
+                                                                     "fresh": {"title": "配信", "channel": "ch"}, "marks": ["r1", "r2"]},
+                          "requestId": "20261016-120000-abcdef", "deliver": {"dir": "D:/out", "batch": 3, "pool": None, "origin": "request"}, "note": "",
+                          "createdAt": 1790000000000, "specVersion": 1, "legacy": {"mode": "request_auto", "onFail": "stop", "streamer": "兎田ぺこら"}},
+             "spec": SP.validate(SP.merge(self.BASE))}
+        d.update(kw)
+        return json.loads(json.dumps(d))
+
+    def test_request_auto_mid_pack(self):
+        back = R.Run.restore(self.record())
+        self.assertEqual((back.id, back.mode, back.state, back.resumed), ("0123456789", "request_auto", "queued", True))
+        self.assertEqual([(s["key"], s["state"]) for s in back.steps],
+                         [("adopt", "done"), ("export", "done"), ("transcribe", "done"), ("diarize", "warn"), ("pack", "wait"), ("deliver", "wait"),
+                          ("analyze_later", "wait")])
+        self.assertEqual((back.steps[0]["startedAt"], back.steps[0]["finishedAt"]), (1, 2))
+        self.assertEqual((back.streamer, back.on_fail, back.top, back.cut, back.video_tracks, back.overwrite, back.marks, back.deliver_batch),
+                         ("兎田ぺこら", "stop", 2, "silence", 3, True, ("r1", "r2"), 3))
+        self.assertEqual((back.weights, back.speakers["count"], back.ranges), ({"wAudio": 1.5, "wChat": 0.5, "wComments": 2.0}, 2, [(10.0, 20.0), (30.0, 40.0)]))
+        self.assertEqual((back.friend_plan["length"], back.notes, back.docs, back.new_docs), (38, self.record()["notes"], ["t1"], ["t1"]))
+        self.assertEqual(sorted(back.spec["run"]["requested"]), ["cut", "videoTracks", "weights"])
+        self.assertEqual(back.public()["modeLabel"], R.REQUEST_MODES["request_auto"])
+        again = json.loads(json.dumps(back.saved()))   # 書き直した記録は版 2(legacy なし)で、もう一度戻しても同じ
+        self.assertEqual((again["envelope"]["specVersion"], "legacy" in again["envelope"], again["spec"]["hints"]["streamer"]), (2, False, "兎田ぺこら"))
+        back2 = R.Run.restore(again)
+        self.assertEqual([(s["key"], s["state"]) for s in back2.steps], [(s["key"], s["state"]) for s in back.steps])
+        self.assertEqual((back2.mode, back2.streamer, back2.on_fail, back2.deliver_tag), (back.mode, back.streamer, back.on_fail, None))
+
+    def test_full_auto_send_and_file(self):
+        """まとめて実行の自動で送る形(full・出どころ auto・deliverTag は欄だけ)と動画ファイル(normalize の欄・docId)"""
+        env = {"id": "abcdef0123", "kind": "url", "input": {"title": "配信", "videoId": "abcdefghijk", "duration": None, "fresh": None, "marks": None},
+               "requestId": None, "deliver": {"dir": None, "batch": None, "pool": None, "origin": "auto"}, "note": "", "createdAt": 1790000000000,
+               "specVersion": 1, "legacy": {"mode": "full", "onFail": "next", "streamer": ""}}
+        d = self.record(id="abcdef0123", envelope=env, mode="full", deliverTag="20261016-120000-aaaaaa", deliverOrigin="auto", requestId=None,
+                        steps=[{"key": "analyze", "state": "done", "detail": ""}, {"key": "deliver", "state": "wait", "detail": ""}],
+                        spec=SP.validate(SP.merge(None)))
+        back = R.Run.restore(d)
+        self.assertEqual((back.mode, back.deliver_tag, back.deliver_origin, back.deliver_dir, back.streamer), ("full", "20261016-120000-aaaaaa", "auto", None, ""))
+        self.assertEqual([s["key"] for s in back.steps], ["analyze", "adopt", "export", "transcribe", "pack", "deliver"])   # 届け先なし = notSent(D-SEND)
+        fenv = {"id": "fedcba9876", "kind": "file", "input": {"title": "依頼", "path": "C:/x/依頼.mp4"}, "requestId": "rid",
+                "deliver": {"dir": "D:/out", "batch": None, "pool": None, "origin": None}, "note": "", "createdAt": 1790000000000, "specVersion": 1,
+                "legacy": {"mode": "file_auto", "onFail": None, "streamer": None}}
+        f = self.record(id="fedcba9876", envelope=fenv, mode="file_auto", docId="t9", sourcePath="C:/x/依頼.mp4",
+                        steps=[{"key": "normalize", "state": "done", "detail": ""}, {"key": "transcribe", "state": "done", "detail": ""}],
+                        spec=SP.validate(SP.merge(None)))
+        f.pop("normalize")   # 段 normalize の前の記録 = True で読む
+        back = R.Run.restore(f)
+        self.assertEqual((back.mode, back.kind(), back.doc_id, back.normalize, back.source_path), ("file_auto", "file", "t9", True, "C:/x/依頼.mp4"))
+        self.assertEqual([(s["key"], s["state"]) for s in back.steps], [("normalize", "done"), ("transcribe", "done"), ("pack", "wait"), ("deliver", "wait")])
+        self.assertEqual(R.Run.restore(dict(f, normalize=False)).normalize, False)
+
+
+class TestStepsOf(unittest.TestCase):
+    """RV A2: 段の並び = 派生の mode(束の run.from・run.upto・封筒の kind・依頼の id)+ steps_of。8 つの形 × 届け先・出どころ・区間・話す人の総当たりで、
+    以前の決まり(MODE_STEPS + 足す決まり)と同じ"""
+
+    @staticmethod
+    def old_rule(mode, dir_, origin, ranges, top, diarize, normalize):
+        keys = list(R.MODE_STEPS[mode])
+        if "normalize" in keys and not normalize:
+            keys.remove("normalize")
+        if mode in R.REQUEST_URL_MODES and ranges and ranges >= (top or 0):
+            keys.remove("analyze")
+            keys.append("analyze_later")
+        if mode == "full" and dir_ and "deliver" not in keys:
+            keys.append("deliver")
+        if diarize and "transcribe" in keys:
+            keys.insert(keys.index("transcribe") + 1, "diarize")
+        if mode == "full" and origin == "auto" and "deliver" not in keys:   # 以前は入口の AutoRunner が足していた(RV A2 で steps_of へ)
+            keys.append("deliver")
+        return keys
+
+    def test_all_combinations(self):
+        import itertools
+        n = 0
+        for mode, dir_, origin, nr, dz, norm in itertools.product(list(E.LEGACY_MODES), (None, "D:/out"), (None, "auto", "request"), (0, 1, 3),
+                                                                  (None, 2), (False, True)):
+            kind = E.LEGACY_MODES[mode][0]
+            kw = {"deliver_dir": dir_, "deliver_origin": origin, "speakers": {"count": dz, "names": []} if dz else None}
+            if kind == "url":
+                kw["ranges"] = [(i * 10.0, i * 10.0 + 5) for i in range(nr)]
+            if kind == "file":
+                kw.update(source_path="C:/x/a.mp4", normalize=norm)
+            if kind == "docs":
+                kw["doc_id"] = "d1"
+            if mode in ("request", "request_auto"):
+                kw["request_id"] = "r1"
+            run = RF.run_of("abcdefghijk" if kind == "url" else None, "t", mode, 2 if kind == "url" else None, **kw)
+            want = self.old_rule(mode, dir_, origin, len(kw.get("ranges") or []), 2 if kind == "url" else None, dz, norm and kind == "file")
+            self.assertEqual(run.mode, mode)
+            self.assertEqual([s["key"] for s in run.steps], want, (mode, dir_, origin, nr, dz, norm))
+            n += 1
+        self.assertGreater(n, 500)
+
+    def test_mode_of_matches_legacy_table(self):
+        """派生の mode = 以前の mode(記録の mode・modeLabel・溜めの鍵・届けた記録の mode が変わらない)"""
+        for mode, (kind, frm, upto) in E.LEGACY_MODES.items():
+            b = SP.validate(SP.merge({"run": dict({"upto": upto}, **({"from": frm} if frm else {}))}))
+            self.assertEqual(R.mode_of(kind, b, "r1" if mode.startswith("request") else None), mode)
+        self.assertIsNone(R.mode_of("url", SP.validate(SP.merge({"run": {"from": "adopt"}}))))
+        self.assertIsNone(R.mode_of("docs", SP.validate(SP.merge({"run": {"upto": "transcribe"}}))))
 
 
 class TestHooks(unittest.TestCase):
@@ -306,8 +436,8 @@ class TestAdopt(unittest.TestCase):
     """採用の段(F-5。RS6 b-A): 規則はスタジオの 1 つ(request_marks の先)。段は数と余白を束 + Run の欄から渡し、答えを進み具合の文と run.marks にする"""
 
     def adopt(self, res, mode="full", top=3, ranges=None, spec=None, fresh=None):
-        run = R.Run("abcdefghijk", "配信", mode, top, ranges=ranges, fresh=fresh)
-        run.spec = SP.validate(SP.merge(spec))
+        run = RF.run_of("abcdefghijk", "配信", mode, top, ranges=ranges, fresh=fresh)
+        RF.respec(run, spec)
         tools = AdoptTools(res)
         rn = R.Runner(None, tools=tools)
         st = run.step("adopt")
@@ -376,8 +506,8 @@ class TestKeys(unittest.TestCase):
         return rn
 
     def step(self, rn, key, force=False, spec=None):
-        run = R.Run("abcdefghijk", "配信", "adopted", 3, force=force)
-        run.spec = SP.validate(SP.merge(spec))
+        run = RF.run_of("abcdefghijk", "配信", "adopted", 3, force=force)
+        RF.respec(run, spec)
         st = run.step(key)
         st["state"] = "run"
         getattr(rn, "_step_" + key)(run, st, self.video)
@@ -427,8 +557,7 @@ class TestKeys(unittest.TestCase):
         """指摘 2: 鍵の比べ(見積もりも同じ関数)は字幕の受け渡しの JSON を書かない。書かずに作った材料の鍵は、書いたファイルから作った鍵と同じ"""
         c = FakeClient(full=[self.doc])
         rn = R.Runner(c, poll=0, sleep=lambda s: None)
-        run = R.Run("abcdefghijk", "配信", "adopted", 3)
-        run.spec = SP.validate(SP.merge(None))
+        run = RF.run_of("abcdefghijk", "配信", "adopted", 3)
         opts = rn._pack_settings(run)
         body, _keeps, _rev = rn._pack_body(run, self.doc, self.media, opts, dry=True)
         self.assertNotIn(("transcribe", "POST", "/api/export-file"), c.calls)
@@ -547,9 +676,9 @@ class TestFieldsToBundle(unittest.TestCase):
         }
 
     @staticmethod
-    def make(kw):
+    def make(kw, base=None):
         kw = dict(kw)
-        return R.Run(kw.pop("video_id"), kw.pop("title"), kw.pop("mode"), kw.pop("top"), **kw)
+        return RF.run_of(kw.pop("video_id"), kw.pop("title"), kw.pop("mode"), kw.pop("top"), base=base, **kw)
 
     def bodies(self, run):
         """段の要求の本文(採用・解析・パック・文字起こし・話者分離)"""
@@ -578,8 +707,7 @@ class TestFieldsToBundle(unittest.TestCase):
         base = SP.validate(SP.merge(SCREEN))
         got = {}
         for name, kw in self.cases().items():
-            r1 = self.make(kw)
-            r1.spec = base
+            r1 = self.make(kw, base)   # 画面の束を土台に欄の差分(flow/order.py)
             env, spec = json.loads(json.dumps(r1.envelope())), json.loads(json.dumps(r1.spec))
             r2 = R.Run.from_envelope(env, spec)
             self.assertEqual(r2.spec, r1.spec, name)
@@ -612,18 +740,16 @@ class TestFieldsToBundle(unittest.TestCase):
     def test_no_fields_is_screen_bundle(self):
         """欄の無い Run(画面のまとめて実行・CLI)は束がそのまま(写す物が無い)"""
         base = SP.validate(SP.merge(SCREEN))
-        r = R.Run(VID, "", "full", None)
-        r.spec = base
-        self.assertEqual((r.asked, r.spec), ({"run": {"upto": "pack", "onFail": "next"}}, base))   # 段の並びの形と失敗したときは束にも(RV A2)
+        r = RF.run_of(VID, "", "full", None, base=base)
+        self.assertEqual((r.diff, r.spec), ({"run": {"upto": "pack"}}, base))   # 段の並び(どこまで)だけ(RV A2)
 
     def test_long_name_is_cut_and_bad_fields_not_copied(self):
         """束に入らない欄は写さない(壊れた記録など)・41 字以上の名前は束の上限 40 字で切る(友人の受付は 60 字まで)"""
-        r = R.Run(VID, "", "full", 99, video_tracks=9, weights={"wAudio": 1}, speakers={"count": 2, "names": ["あ" * 50]})
-        self.assertNotIn("adopt", r.asked)
-        self.assertNotIn("analyze", r.asked)
-        self.assertEqual(r.asked["hints"]["people"], [{"name": "あ" * 40}])
-        self.assertNotIn("pack", r.asked)
-        r.spec = SP.merge(None)
+        r = RF.run_of(VID, "", "full", 99, video_tracks=9, weights={"wAudio": 1}, speakers={"count": 2, "names": ["あ" * 50]})
+        self.assertNotIn("adopt", r.diff)
+        self.assertNotIn("analyze", r.diff)
+        self.assertEqual(r.diff["hints"]["people"], [{"name": "あ" * 40}])
+        self.assertNotIn("pack", r.diff)
         self.assertEqual(r.spec["adopt"]["top"], SP.DEFAULTS["adopt"]["top"])
 
     def test_from_envelope_defaults_and_refusals(self):
@@ -739,9 +865,9 @@ class TestStepsAndPublic(unittest.TestCase):
         """RS7-1 S4: 受付で決めた友人の区間の長さ(friend_plan。束の analyze に入れてある)と知らせ(notes)は待ちの記録に残り、
         解析の段は使った印 friend_length と文を出す・パックの段は知らせを文に出し、結果の束にも入る"""
         plan = {"length": 38, "preRatio": 0.61, "file": "x.json", "samples": 20, "videos": 5, "base": {"length": 45, "preRatio": 0.65}}
-        r = R.Run(VID, "配信", "request", 3, ranges=[(10.0, 20.0)])
+        r = RF.run_of(VID, "配信", "request", 3, ranges=[(10.0, 20.0)])
         r.friend_plan, r.notes = plan, ["知らせ"]
-        r.spec = SP.merge({"analyze": {"length": 38, "preRatio": 0.61}})
+        RF.respec(r, {"analyze": {"length": 38, "preRatio": 0.61}})
         back = R.Run.restore(json.loads(json.dumps(r.saved())))
         self.assertEqual((back.friend_plan, back.notes), (plan, ["知らせ"]))
         c = FakeClient()
@@ -806,7 +932,7 @@ class TestStepNormalize(unittest.TestCase):
         return path
 
     def run_step(self, path, mode="file_auto"):
-        run = R.Run(None, "依頼", mode, None, source_path=path, request_id="20261016-120000-abcdef", normalize=True)
+        run = RF.run_of(None, "依頼", mode, None, source_path=path, request_id="20261016-120000-abcdef", normalize=True)
         st = run.step("normalize")
         self.runner._file_normalize(run, st)
         return run, st
@@ -815,19 +941,18 @@ class TestStepNormalize(unittest.TestCase):
         """段を持つのは normalize=True の実行だけ(入口の start_file。ライブの書き出し・CLI・② の口 submit は持たない)・待ちの記録に残る・
         欄の無い古い記録は True で読む"""
         p = os.path.join(self.tmp, "a.mp4")
-        self.assertEqual([s["key"] for s in R.Run(None, "a", "file_auto", None, source_path=p, normalize=True).steps],
+        self.assertEqual([s["key"] for s in RF.run_of(None, "a", "file_auto", None, source_path=p, normalize=True).steps],
                          ["normalize", "transcribe", "pack", "deliver"])
-        self.assertEqual([s["key"] for s in R.Run(None, "a", "file", None, source_path=p).steps], ["transcribe"])
+        self.assertEqual([s["key"] for s in RF.run_of(None, "a", "file", None, source_path=p).steps], ["transcribe"])
         self.assertEqual([s["key"] for s in R.Run.from_input({"path": p}).steps], ["transcribe"])
         self.assertEqual([s["key"] for s in R.Run.from_envelope({"id": "0123456789", "kind": "file", "input": {"path": p, "title": "a"}}).steps],
                          ["transcribe", "pack", "deliver"])
-        r = R.Run(None, "a", "file", None, source_path=p, normalize=True)
+        r = RF.run_of(None, "a", "file", None, source_path=p, normalize=True)
         d = r.saved()
         self.assertIs(d["normalize"], True)
+        self.assertIs(d["envelope"]["input"]["normalize"], True)   # 版 2 は封筒の input.normalize(欄 normalize は版 1 の記録だけ読む = TestRestoreGolden)
         self.assertEqual([s["key"] for s in R.Run.restore(d).steps], ["normalize", "transcribe"])
-        self.assertEqual([s["key"] for s in R.Run.restore(dict(d, normalize=False)).steps], ["transcribe"])
-        old = {k: v for k, v in d.items() if k != "normalize"}   # 段 normalize の前の記録
-        self.assertEqual([s["key"] for s in R.Run.restore(old).steps], ["normalize", "transcribe"])
+        self.assertEqual([s["key"] for s in R.Run.restore(dict(d, normalize=False)).steps], ["normalize", "transcribe"])
 
     def test_30fps_is_skipped(self):
         src = self.make("そのまま", 30)
@@ -868,7 +993,7 @@ class TestStepNormalize(unittest.TestCase):
     def test_after_transcribe_is_skipped(self):
         """戻した実行で文字起こしが済んでいれば作り直さない(文書の動画を変えない)"""
         src = self.make("済み", 60)
-        run = R.Run(None, "依頼", "file_auto", None, source_path=src, normalize=True)
+        run = RF.run_of(None, "依頼", "file_auto", None, source_path=src, normalize=True)
         run.step("transcribe")["state"] = "done"
         st = run.step("normalize")
         self.runner._file_normalize(run, st)
@@ -881,7 +1006,7 @@ class TestStepNormalize(unittest.TestCase):
         src = self.make("待つ", 60)
         slots = yjobs.HeavySlots(limit=1, reserved={})
         token = slots.acquire("test", "枠を埋める")
-        run = R.Run(None, "依頼", "file", None, source_path=src, normalize=True)
+        run = RF.run_of(None, "依頼", "file", None, source_path=src, normalize=True)
         st = run.step("normalize")
         got = []
 

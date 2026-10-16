@@ -174,15 +174,15 @@ def stream_url(env):
     return inp.get("url") or "https://www.youtube.com/watch?v=" + inp["videoId"]
 
 
-def live_envelope(url, title="", request_id=None, deliver_dir=None, batch=None, streamer=None, note="", eid=None):
-    """録画を始める依頼の封筒(kind live。検査済み)。YouTube の動画の URL でなければ ValueError(手元のテストの録画元など = 束なしで録る)。
-    eid = 封筒の id(英数字と - _ の 64 字まで。合わない・無ければ新しく作る)"""
+def live_envelope(url, title="", request_id=None, deliver_dir=None, batch=None, note="", eid=None):
+    """録画を始める依頼の封筒(kind live・版 2。検査済み)。YouTube の動画の URL でなければ ValueError(手元のテストの録画元など = 束なしで録る)。
+    eid = 封筒の id(英数字と - _ の 64 字まで。合わない・無ければ新しく作る)。配信者は束の hints.streamer(request_bundle。RV A2 で封筒の legacy から)"""
     eid = eid if isinstance(eid, str) and _envelope.ID_RE.match(eid) else "lv-" + os.urandom(6).hex()
     return _envelope.check({"id": eid, "kind": "live", "input": {"url": url, "title": str(title or "")[:_envelope.TITLE_MAX]},
                             "requestId": str(request_id)[:120] if request_id else None,
                             "deliver": {"dir": str(deliver_dir)[:_envelope.PATH_MAX] if deliver_dir else None,
                                         "batch": batch if _envelope.batch_ok(batch) else None},
-                            "note": str(note or "")[:_envelope.NOTE_MAX], "legacy": {"streamer": str(streamer)[:_envelope.TITLE_MAX] if streamer else None}})
+                            "note": str(note or "")[:_envelope.NOTE_MAX], "specVersion": _envelope.SPEC_VERSION})
 
 
 def cfg_bundle(base, cfg):
@@ -227,7 +227,8 @@ def now_bundle(bundle, analyze=None, audio=None):
 
 def request_bundle(ctx, base=None, top=None):
     """友人のライブ配信の依頼の欄 ctx(human/friend/intake.py の _handle_live_request の形)-> 束: base に依頼の設定(感度・枠・待ち・余白・配信後の追加)・
-    カット・映像トラック・話す人(run.requested に)と、自動の採用の上限 top(友人の依頼の欄の既定 10 を呼ぶ側が明示する)を重ねる。
+    カット・映像トラック・話す人(run.requested に)・配信者(hints.streamer。RV A2 で封筒の legacy から)と、自動の採用の上限 top(友人の依頼の欄の既定 10 を
+    呼ぶ側が明示する)を重ねる。
     長さ(settings.length)は束の analyze に入れない(検出は依頼の長さで測る = requests.json のまま。配信後の解析はスタジオの設定のまま)"""
     b = copy.deepcopy(_spec.validate(_spec.merge(base)))
     s = ctx.get("settings") if isinstance(ctx.get("settings"), dict) else {}
@@ -246,10 +247,13 @@ def request_bundle(ctx, base=None, top=None):
     sp = ctx.get("speakers") if isinstance(ctx.get("speakers"), dict) else None
     if sp and _spec.key_ok("transcribe", "diarize", sp.get("count")):
         b["transcribe"]["diarize"] = sp["count"]
-        from . import run as _run   # 呼ぶときに読む(run は文字起こしの部品まで読む)
-        people = _run._people_of(sp)   # 欄 → 束の写し方は flow/run.py の Run の欄と同じ
+        from . import order as _order
+        people = _order.people_of(sp)   # 欄 → 束の写し方は flow/order.py の 1 か所
         if people:
             b["hints"]["people"] = people
+    who = ctx.get("streamer")
+    if isinstance(who, str) and who and _spec.key_ok("hints", "streamer", who):
+        b["hints"]["streamer"] = who
     b["run"]["requested"] = list(dict.fromkeys(pins))
     return _spec.validate(b)
 

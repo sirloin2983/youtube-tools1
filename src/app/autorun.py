@@ -46,7 +46,7 @@
 - 友人へ自動で送る(D-SEND。notes:plan/d-send-requirements.md): 画面の「友人へ自動で送る」(既定 = 解析から全部のときだけオン・保存しない)。
   画面は、依頼の受付の Dropbox のフォルダが決まっていれば(GET /api/intake の outDir)封筒の deliver に出どころ auto を置き、
   チェックが入っていれば届け先(出力)も置く(段 deliver が付く)。受付(_accept)が名前の頭 deliver.tag(友人のアプリの依頼 id の形)を決める。
-  チェックを外した実行も段 deliver を付けて(_ensure_send_step)、
+  チェックを外した実行も段 deliver を付けて(flow/run.py の steps_of = 出どころ auto の full)、
   そこで「チェックを外したので送りません」と切り抜きごとの送らなかった記録(② logs/not-sent.jsonl)を残す(品質のカードに出す = 2-8)。送るかの判定・溜め・送り直しは src/flow/delivery.py。
   まとめて実行の文書単位・full 以外・CLI は届けない
 - 「あとから解析(測るため)」(友人の依頼が区間だけで終わった配信を、手が空いたときに解析する mode post_analyze)は RS4 で消した(入口 0.55.0)。
@@ -296,17 +296,6 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
         """友人へ自動で送る届け先の元 = 依頼の受付の Dropbox のフォルダ(ホームの設定 intake.folder。読み方は受付と同じ 1 か所)。決まっていなければ空の文字"""
         return intake_mod.configured_folder(self.prefs, prefs_mod.DEFAULTS["intake"]) if self.prefs else ""
 
-    @staticmethod
-    def _ensure_send_step(run):
-        """自動で送る形の full の実行(出どころ auto)に段 deliver が無ければ末尾に足す(チェックを外した実行 = 届け先なし。Run は届け先があるときだけ段を足す)。
-        待ちの記録から戻したときも(段の並びは Run が作り直すので、ここで足し直す。もう一度決めても同じ答え・同じ印)"""
-        if run.mode == "full" and run.deliver_origin == "auto" and not any(s["key"] == "deliver" for s in run.steps):
-            run.steps.append({"key": "deliver", "label": STEP_LABELS["deliver"], "state": "wait", "detail": ""})
-
-    def _execute(self, run):
-        self._ensure_send_step(run)
-        return super()._execute(run)
-
     def _memo(self, key, fn):
         """1 回の受付(画面が配信・文書を 1 本ずつ submit する)の間だけ覚える(MEMO_SEC 秒。束の土台・スタジオの一覧・友人の区間の長さ)"""
         now = time.time()
@@ -437,7 +426,6 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
             run.deliver_batch = self._batch_size(run)
         if run.mode == "full" and run.deliver_origin == "auto" and not run.deliver_tag:
             run.deliver_tag = deliver_mod.request_id(self.clock())
-        self._ensure_send_step(run)   # チェックを外した自動で送る形の full にも段 deliver(D-SEND)
 
     def _accept_streamer(self, run, studio=None):
         """受付で配信者を決める(_auto_streamer と同じ規則 = prefs.guess_streamer)。実行中と同じ答えになるときだけ決める:

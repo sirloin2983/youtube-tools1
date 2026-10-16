@@ -171,7 +171,6 @@ ON_FAIL = ("next", "stop")          # run.onFail = 1 本が失敗したとき(ne
 # cut = pack.cut(リアルタイム切り抜きの自動の採用の既定より強い)・videoTracks = pack.videoTracks(1 でも要求に書く)・
 # engine・model = transcribe の engine・model(機器から決まるエンジンと同じでも要求に書く)
 RUN_REQUESTED = ("weights", "cut", "videoTracks", "engine", "model")
-RUN_PINS = RUN_REQUESTED   # 旧い名前(呼び手が直るまで)
 STREAMER_MAX = 120   # hints.streamer の長さ(封筒の題と同じ)
 
 # 束の鍵にしない固定の項目(5-4。ユーザー決定 2026-10-09 夜)。今の設定の画面から消す物。呼ぶ側は変えられない

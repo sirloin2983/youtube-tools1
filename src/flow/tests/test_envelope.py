@@ -15,7 +15,7 @@ class TestCheck(unittest.TestCase):
         got = E.check({"id": "a1", "kind": "docs", "input": {"docId": "d1"}}, now=12.5)
         self.assertEqual(got, {"id": "a1", "kind": "docs", "input": {"title": "", "docId": "d1"}, "requestId": None,
                                "deliver": {"dir": None, "batch": None, "pool": None, "origin": None}, "note": "", "createdAt": 12500,
-                               "specVersion": E.SPEC_VERSION, "legacy": {"mode": None, "onFail": None, "streamer": None}})
+                               "specVersion": 1, "legacy": {"mode": None, "onFail": None, "streamer": None}})   # 版の無い封筒 = 版 1(0.87 までの送るアプリ)
         url = E.check({"id": "a", "kind": "url", "input": {"url": "https://youtu.be/abcdefghijk", "marks": ["m1", "m1"]}})
         self.assertEqual((url["input"]["videoId"], url["input"]["marks"]), ("abcdefghijk", ["m1"]))
         f = E.check({"id": "a", "kind": "file", "input": {"path": "C:/x.mp4", "title": "題"},

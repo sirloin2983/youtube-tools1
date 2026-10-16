@@ -1783,9 +1783,10 @@ static class CoreTests
         True(!e0.ContainsKey("note"), "メモ欄はもう無いので note は書かない");
         Eq(3, (int)((IDictionary<string, object>)e0["deliver"])["batch"], "deliverBatch → deliver.batch");
         True(!((IDictionary<string, object>)e0["deliver"]).ContainsKey("dir"), "届け先は書かない(この PC では届けない)");
-        var lg = (IDictionary<string, object>)e0["legacy"];
-        Eq("request_auto", (string)lg["mode"], "段の並びは今の友人の受付と同じ");
-        Eq("さくらみこ", (string)lg["streamer"], "1 人目の配信者 → legacy.streamer");
+        True(!e0.ContainsKey("legacy"), "一時の欄 legacy は書かない(RV A2)");
+        Eq(2, (int)e0["specVersion"], "封筒と束の形の版 2");
+        Eq("pack", (string)Sec(reqs[0].Spec, "run")["upto"], "段の並びは束の run.upto(依頼の id つき = ② の request_auto)");
+        Eq("さくらみこ", (string)Sec(reqs[0].Spec, "hints")["streamer"], "1 人目の配信者 → hints.streamer");
         Eq(1791687600000L, (long)e0["createdAt"], "createdAt はミリ秒");
         var s0 = reqs[0].Spec;
         Eq(3, (int)Sec(s0, "adopt")["top"], "1 本ごとの切り抜く数");
@@ -1800,7 +1801,7 @@ static class CoreTests
         Eq(2, (int)Sec(s0, "pack")["videoTracks"], "映像トラック");
         Eq(1.5, (double)Sec(s0, "analyze")["wAudio"], "重み");
         Eq(3.0, (double)Sec(s0, "analyze")["wComments"], "重みは範囲に収める");
-        Eq("[\"cut\",\"videoTracks\",\"weights\"]", Ser(Sec(s0, "run")["pinned"]), "依頼が決めた印");
+        Eq("[\"cut\",\"videoTracks\",\"weights\"]", Ser(Sec(s0, "run")["requested"]), "依頼が決めた印(run.requested。旧 pinned)");
         Eq(true, (bool)Sec(s0, "run")["repack"], "送り直しは作り直す");
         Eq("{\"version\":\"v7\"}", Ser(Sec(s0, "post")["learning"]), "学習の版");
         True(!Sec(s0, "transcribe").ContainsKey("engine") && !Sec(s0, "transcribe").ContainsKey("device"), "エンジン・デバイスは書かない(② がこの PC の設定を重ねる)");
@@ -1809,9 +1810,9 @@ static class CoreTests
         // 配信者なし・重みなし・届け方の範囲の外
         var plain = FlowBundle.Build(new SendInput { Items = new List<UrlItem> { new UrlItem { Url = Norm, Top = 4 } }, DeliverBatch = 0 }, null, null, null, Ids_(), DateTimeOffset.Now)[0];
         True(!plain.Envelope.ContainsKey("deliver") && !plain.Envelope.ContainsKey("requestId"), "届け方 0・依頼 id なしは書かない");
-        True(!((IDictionary<string, object>)plain.Envelope["legacy"]).ContainsKey("streamer"), "配信者が無ければ streamer を書かない(② が決める)");
+        True(!Sec(plain.Spec, "hints").ContainsKey("streamer") && !plain.Envelope.ContainsKey("legacy"), "配信者が無ければ streamer を書かない(② が決める)");
         True(!Sec(plain.Spec, "hints").ContainsKey("people") && !plain.Spec.ContainsKey("transcribe"), "配信者なし = people・diarize なし");
-        Eq("[\"cut\",\"videoTracks\"]", Ser(Sec(plain.Spec, "run")["pinned"]), "重みなし = pinned に weights なし");
+        Eq("[\"cut\",\"videoTracks\"]", Ser(Sec(plain.Spec, "run")["requested"]), "重みなし = requested に weights なし");
         True(!plain.Spec.ContainsKey("post"), "学習の版なし = post なし");
         Eq("[]", Ser(Sec(plain.Spec, "hints")["ranges"]), "区間なし");
 
@@ -1835,7 +1836,8 @@ static class CoreTests
         var e = reqs[0].Envelope;
         Eq("live", (string)e["kind"], "kind live");
         Eq("{\"url\":\"" + Norm + "\"}", Ser(e["input"]), "input は url だけ");
-        True(!((IDictionary<string, object>)e["legacy"]).ContainsKey("mode"), "ライブは段の並びを書かない");
+        True(!e.ContainsKey("legacy") && !Sec(reqs[0].Spec, "run").ContainsKey("upto"), "ライブは段の並びを書かない");
+        Eq("ぺこら", (string)Sec(reqs[0].Spec, "hints")["streamer"], "ライブにも配信者(hints.streamer)");
         Eq("{\"sens\":\"high\",\"perHour\":8,\"waitMin\":5,\"pad\":3,\"afterStream\":false}", Ser(Sec(reqs[0].Spec, "adopt")), "ライブの設定 → adopt(範囲の外は既定)");
         Eq(60, (int)Sec(reqs[0].Spec, "analyze")["length"], "長さ → analyze.length");
         Eq(2, (int)((IDictionary<string, object>)e["deliver"])["batch"], "ライブの届け方");
@@ -1853,7 +1855,7 @@ static class CoreTests
             var inp = (IDictionary<string, object>)vids[0].Envelope["input"];
             Eq(v1, (string)inp["path"], "パスをそのまま(送らない)");
             Eq("にぇの叫び.mp4", (string)inp["title"], "題 = ファイルの名前");
-            Eq("file_auto", (string)((IDictionary<string, object>)vids[0].Envelope["legacy"])["mode"], "動画は file_auto");
+            Eq("pack", (string)Sec(vids[0].Spec, "run")["upto"], "動画はパックまで(② の file_auto)");
             True(!Sec(vids[0].Spec, "run").ContainsKey("repack") && !vids[0].Spec.ContainsKey("adopt"), "動画は作り直しの印・切り抜く数なし");
             Eq(3, (int)Sec(vids[1].Spec, "pack")["videoTracks"], "動画にもパックの指定");
         }

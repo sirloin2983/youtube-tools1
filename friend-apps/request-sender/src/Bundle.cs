@@ -2,10 +2,12 @@
 // 封筒 = src/flow/envelope.py・束 = src/flow/spec.py)。アプリは束の形を知らずに重ねるだけ(検査は ② = 断られたら理由を出す)。
 //   - URL は 1 本ごとに封筒 + 束を 1 つ(1 本ごとの切り抜く数・区間はその束の adopt.top・hints.ranges)
 //   - 動画ファイルは 1 本ごとに kind file(パスをそのまま渡す = 送らない)・ライブ配信は kind live 1 つ
-//   - 今の依頼の JSON の欄の行き先: deliverBatch → 封筒 deliver.batch・1 人目の配信者 → 封筒 legacy.streamer(今の形。RV で正式な欄に)・
-//     配信者の行 → 束 hints.people(色は #RRGGBB)と transcribe.diarize(人数)・カット / 映像トラック → pack.cut・pack.videoTracks(依頼が決めた印 run.pinned)・
-//     重み(指定したときだけ)→ analyze.wAudio・wChat・wComments(+ pinned weights)・ライブの設定 → adopt(sens・perHour・waitMin・pad・afterStream)と analyze.length
-//   - 段の並び(legacy.mode)は今の友人の受付と同じ: URL = request_auto(採用した所だけ書き出す・区間が足りていれば解析しない)・動画 = file_auto。
+//   - 封筒と束の形の版は 2(specVersion。RV A2 = 一時の欄 legacy をやめて束の正式な欄に)
+//   - 今の依頼の JSON の欄の行き先: deliverBatch → 封筒 deliver.batch・1 人目の配信者 → 束 hints.streamer・
+//     配信者の行 → 束 hints.people(色は #RRGGBB)と transcribe.diarize(人数)・カット / 映像トラック → pack.cut・pack.videoTracks(依頼が決めた印 run.requested)・
+//     重み(指定したときだけ)→ analyze.wAudio・wChat・wComments(+ requested weights)・ライブの設定 → adopt(sens・perHour・waitMin・pad・afterStream)と analyze.length
+//   - 段の並び(束の run.upto = pack。依頼の id があるので ② の形は今の友人の受付と同じ): URL = request_auto(採用した所だけ書き出す・区間が足りていれば解析しない)・
+//     動画 = file_auto。
 //     届け先(deliver.dir)は書かない = 届ける段は飛ぶ(パックはこの PC の案件フォルダにできる)
 //   - 重ね方は spec.merge と同じ「辞書は鍵ごと・それ以外は置き換え」。エンジン・デバイスは書かない(② がこの PC の設定を重ねる)
 using System;
@@ -100,7 +102,8 @@ namespace RequestSender
     public static class FlowBundle
     {
         public const int TitleMax = 120, PeopleNameMax = 40;   // flow/envelope.py の TITLE_MAX・flow/spec.py の名前の長さ
-        public const string UrlMode = "request_auto", FileMode = "file_auto";
+        public const int SpecVersion = 2;   // flow/envelope.py の SPEC_VERSION(RV A2)
+        public const string Upto = "pack";   // 束の run.upto(パックまで。依頼の id つきの URL = ② の request_auto・動画 = file_auto)
 
         // 封筒の id = 実行の id にもなる 10 桁の 16 進(flow/run.py の RUN_ID_RE)
         public static string NewId()
@@ -127,7 +130,7 @@ namespace RequestSender
                 Section(over, "adopt")["pad"] = (double)s.Pad;
                 Section(over, "adopt")["afterStream"] = s.AfterStream;
                 Section(over, "analyze")["length"] = s.Length;
-                var env = Envelope(newId(), "live", new Dictionary<string, object> { { "url", input.Live.Url } }, input, requestId, at, null);
+                var env = Envelope(newId(), "live", new Dictionary<string, object> { { "url", input.Live.Url } }, input, requestId, at);
                 list.Add(new FlowRequest { Envelope = env, Spec = BundleMerge.Merge(defaults.Bundle, over), Label = "ライブ配信" });
                 return list;
             }
@@ -142,10 +145,11 @@ namespace RequestSender
                     an["wAudio"] = Weights.Clean(input.Weights.Audio);
                     an["wChat"] = Weights.Clean(input.Weights.Chat);
                     an["wComments"] = Weights.Clean(input.Weights.Comments);
-                    ((List<object>)Section(over, "run")["pinned"]).Add("weights");
+                    ((List<object>)Section(over, "run")["requested"]).Add("weights");
                 }
                 Section(over, "run")["repack"] = true;   // 送り直しは今回のカット・映像トラックで作り直す(今の友人の受付の overwrite と同じ)
-                var env = Envelope(newId(), "url", new Dictionary<string, object> { { "url", it.Url } }, input, requestId, at, UrlMode);
+                Section(over, "run")["upto"] = Upto;
+                var env = Envelope(newId(), "url", new Dictionary<string, object> { { "url", it.Url } }, input, requestId, at);
                 list.Add(new FlowRequest { Envelope = env, Spec = BundleMerge.Merge(defaults.Bundle, over), Label = "配信 " + (YouTubeUrl.ExtractId(it.Url) ?? it.Url) });
             }
             foreach (string v in input.Videos)
@@ -153,7 +157,8 @@ namespace RequestSender
                 var over = Common(input, learningVersion);
                 string name = Path.GetFileName(v);
                 var inp = new Dictionary<string, object> { { "path", Path.GetFullPath(v) }, { "title", Cut_(name, TitleMax) } };
-                var env = Envelope(newId(), "file", inp, input, requestId, at, FileMode);
+                Section(over, "run")["upto"] = Upto;
+                var env = Envelope(newId(), "file", inp, input, requestId, at);
                 list.Add(new FlowRequest { Envelope = env, Spec = BundleMerge.Merge(defaults.Bundle, over), Label = "動画 " + name });
             }
             return list;
@@ -170,7 +175,9 @@ namespace RequestSender
             var pack = Section(over, "pack");
             pack["cut"] = RequestSender.Cut.IsValid(input.Cut) ? input.Cut : RequestSender.Cut.None;
             pack["videoTracks"] = input.VideoTracks >= VideoTracks.Min && input.VideoTracks <= VideoTracks.Max ? input.VideoTracks : VideoTracks.Default;
-            Section(over, "run")["pinned"] = new List<object> { "cut", "videoTracks" };   // 友人が選んだ値(ライブの自動の採用の既定より強い・1 でも要求に書く)
+            Section(over, "run")["requested"] = new List<object> { "cut", "videoTracks" };   // 友人が選んだ値(ライブの自動の採用の既定より強い・1 でも要求に書く)
+            string streamer = Speakers.StreamerName(input.People);
+            if (streamer.Length > 0) Section(over, "hints")["streamer"] = Cut_(streamer, TitleMax);   // 無ければ書かない = ② が束の hints.people の先頭から決める
             if (!string.IsNullOrEmpty(learningVersion))
                 Section(over, "post")["learning"] = new Dictionary<string, object> { { "version", learningVersion } };
             return over;
@@ -194,17 +201,13 @@ namespace RequestSender
             return new Dictionary<string, object> { { "count", set.Count } };
         }
 
-        static Dictionary<string, object> Envelope(string id, string kind, Dictionary<string, object> inp, SendInput input, string requestId, long at, string mode)
+        static Dictionary<string, object> Envelope(string id, string kind, Dictionary<string, object> inp, SendInput input, string requestId, long at)
         {
             var env = new Dictionary<string, object> { { "id", id }, { "kind", kind }, { "input", inp } };
             if (!string.IsNullOrEmpty(requestId)) env["requestId"] = requestId;
             if (DeliverBatch.InRange(input.DeliverBatch)) env["deliver"] = new Dictionary<string, object> { { "batch", input.DeliverBatch } };
             env["createdAt"] = at;
-            var legacy = new Dictionary<string, object>();
-            if (mode != null) legacy["mode"] = mode;
-            string streamer = Speakers.StreamerName(input.People);
-            if (streamer.Length > 0) legacy["streamer"] = Cut_(streamer, TitleMax);   // 無ければ書かない = ② が束の hints.people の先頭から決める
-            if (legacy.Count > 0) env["legacy"] = legacy;
+            env["specVersion"] = SpecVersion;
             return env;
         }
 

@@ -21,6 +21,8 @@ from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
 sys.path.insert(0, SRC)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # 共有の部品 _runfields(以前の Run の欄の形 → 封筒 + 束。RV A2)
+import _runfields as RF  # noqa: E402
 from flow import keys, placement, run as run_mod, runlog  # noqa: E402
 from ytt import datadir, layout, names, schemas, studio_env, workdata  # noqa: E402
 
@@ -250,7 +252,7 @@ class TestResult(_Tmp):
         os.makedirs(pack)
         video = {"marks": [{"id": "m1", "status": "exported", "path": clip}, {"id": "m2", "status": "exported", "path": other},
                            {"id": "m3", "status": "adopted", "path": None}]}
-        run = run_mod.Run("vid0000000a", "題名", "adopted", None, marks=("m1",))
+        run = RF.run_of("vid0000000a", "題名", "adopted", None, marks=("m1",))
         run.packs.append(pack)
         run.pack_marks[pack] = {"path": clip, "markId": "m1"}
         path = placement.write_result(run, None, _Runner(video=video), out_dir=out)
@@ -261,7 +263,7 @@ class TestResult(_Tmp):
         self.assertEqual(b["outputs"]["pack"], [{"path": pack, "key": None, "clip": clip}])
         self.assertEqual(b["packs"], [pack])
         # 切り抜きの分からない実行も、書き出しと同じ規則で案件を引く
-        run2 = run_mod.Run("vid0000000a", "題名", "full", 3)
+        run2 = RF.run_of("vid0000000a", "題名", "full", 3)
         self.assertEqual(placement.write_result(run2, None, _Runner(), out_dir=out), os.path.join(folder, schemas.WORK_DIR, "runs", run2.id + ".json"))
 
     def test_doc_run_uses_doc_source(self):
