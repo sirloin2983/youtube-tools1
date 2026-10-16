@@ -361,12 +361,6 @@ def _put_video(o):
     return {"ok": True, "video": STORE.put_video(o.get("id"), o.get("title"), o.get("marks"), o.get("baseRev") if "baseRev" in o else None)}
 
 
-def _adopt_top(o):
-    top = o.get("top")
-    ids, v = STORE.adopt_top(o.get("id"), top)
-    return {"ok": True, "adopted": ids, "video": v}
-
-
 def _request_marks(o):
     """まとめて実行・友人からの依頼から: 配信を(無ければ)登録し、採用の規則(F-5。store.adopt_marks)で採用する = 時刻で指定した区間を採用済みのマークに・
     人が採用したマークを数に入れ・上限 top までの残りを自動の上位で埋める。解析していない配信でも区間だけなら使える(その区間だけを書き出しのときに取りに行く)。
@@ -450,7 +444,6 @@ POST_ROUTES = {
     "/api/live/exported": _live_exported,   # 入口のライブの書き出しが済んだマークを書き出し済みに(path は書き出し先の中の mp4 だけ)
     "/api/live/section": _live_section,   # YouTube の区間を、書き出し先の中の指定のパスへ(線 D の P4。マークは触らない)
     "/api/video/delete": _video_delete,
-    "/api/video/adopt-top": _adopt_top,   # まとめて実行(入口の案件の画面)から: 自動マークの上位を採用に(学習の記録は書かない)
     "/api/video/request-marks": _request_marks,   # 友人からの依頼: 区間を採用済みのマークに + 自動の上位で埋める(学習の記録は書かない)
     "/api/export": _export,
     "/api/export/cancel": _export_cancel,

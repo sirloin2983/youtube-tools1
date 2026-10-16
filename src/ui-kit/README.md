@@ -23,8 +23,7 @@
 - `styleguide.html` … 見本。ブラウザで直接開いて、ダーク/ライトの両方で確認する
 
 ## 使い方
-1. 正本(このフォルダ)を直す(写し先は無い。`python dev/sync_ui_kit.py` は写し先が増えたときのために残してある = 今は何もしない)
-2. 画面のテストに加えて `python -m unittest dev/tests/test_ui_kit_sync.py` が通ること
+1. 正本(このフォルダ)を直す(写し先は無い。写す道具 dev/sync_ui_kit.py と、その確かめのテストは消した)
 
 各ツールでの読み込み:
 - スタジオ: `<head>` で `<script src="/ui-kit.js"></script>`(CSS より先・同期)→ `<link rel="stylesheet" href="/ui-kit.css">` → ツール固有の CSS
@@ -54,7 +53,7 @@
 ## v4(2026-09-26・「編集」: 文字起こし + cut2resolve の統合。`notes:docs/design/edit-tool-design.md`)
 - ツールの一覧(`UIKit.tools`)の transcribe の表示名を「編集」(カット・字幕・Resolve へのパック)に
 - cut2resolve は `hidden: true`: 一覧には残す(編集が `UIKit.tools.base('cut2resolve')` でパックの API を呼ぶ)が、「他のツール」のメニューには出さない
-- 写し先は studio(css・js)と editor(js と index.html の CSS)だけ(`dev/sync_ui_kit.py`)
+- 写し先は無い(各ツールは正本を直接読む。写す道具 dev/sync_ui_kit.py は消した)
 
 ## v6(2026-09-27・画面の全面見直し 段階1。`notes:docs/design/briefs/ui-overhaul/`)
 土台(トークン・部品)を広げる回。作り替えはしていない。詳しい経緯・決めたことは `notes:docs/design/briefs/ui-overhaul/DESIGN_BRIEF.md` と `IMPLEMENTATION.md` の「1」。
@@ -333,4 +332,4 @@
   案件の画面を引数なしで開くと、前に開いていた案件を開く(`src/app/ui/cases/cases.js`)
   (V1 確かめる V3 で「確かめる」(`/check`)を足して 4 項目 = 「ホーム / 案件 / 確かめる / 設定」。`data-ui-appnav="portal|cases|check|settings"`)
 - 録画中の札の「開く」は案件の画面の候補(`/cases?c=<録画の id>#cand`)。「他のツール」のメニューの「案件の一覧」はホームの案件の一覧(`/#cases`)
-- スタジオ・編集の写し(`src/studio/ui-kit.*`・`src/editor/ui-kit.*`)は消した(`dev/sync_ui_kit.py` の写し先は空)。`UIKit.version` は 27
+- スタジオ・編集の写し(`src/studio/ui-kit.*`・`src/editor/ui-kit.*`)は消した(写す道具は消した)。`UIKit.version` は 27

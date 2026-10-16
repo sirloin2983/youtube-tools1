@@ -33,7 +33,7 @@
 
 採用の出どころ origin(線 D の M1。入口 0.39.0): manual(人がマークした)・auto(配信中の検出が自動で採用。M11)・archive(配信後のアーカイブの解析で自動で採用。M7)。
 ジョブ・.clip.json の source.live.origin と mark.src(auto・archive は "auto")・live/live_feedback.jsonl(採用の記録。feedback.jsonl とは別 = 計画の 0-8)に残す。
-自動の採用は「良い」に数えない(live_feedback の human が false・verdict が null。スタジオの adopt_top と同じ決まり)。
+自動の採用は「良い」に数えない(live_feedback の human が false・verdict が null。スタジオの採用(adopt_marks)と同じ決まり)。
 書き出しが済んだら、スタジオのマーク(ジョブの studio)を入口が自分で「書き出し済み」にする(POST /studio/api/live/exported。画面を閉じていても。M1)。
 書き出したあとの自動の流れの設定(ホームの設定 live.auto の cut・engine・model。M2)はジョブを作るときに auto に覚え、まとめて実行へ渡す。
 失敗の文は src/flow/live_failures.py の failure_of だけが作る(M3)。snapshot はジョブに failure を足し、帯が今までどおり出す欄(error・warning)にも同じ文を入れる。

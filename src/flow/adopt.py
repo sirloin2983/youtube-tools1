@@ -12,7 +12,7 @@ from pipeline.analyze import adopt as _adopt
 from ytt import yturl
 from ytt.errors import ApiError
 
-TOP_MAX = _adopt.TOP_MAX   # 採用する数の上限(スタジオの adopt_top が読む)
+TOP_MAX = _adopt.TOP_MAX   # 採用する数の上限(スタジオの採用 adopt_marks が読む)
 
 
 def check(ranges, top):

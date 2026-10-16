@@ -37,6 +37,7 @@ from ytt import version as _version
 from ytt.errors import ApiError
 
 from . import adopt as _adopt, batch as _batch, casebook as _casebook, export as _export, keys as _keys
+from .tools import _step_error   # 段の失敗(StepError)の作り方は tools に 1 つだけ(run は呼ぶ時に読むので循環しない)
 
 log = logging.getLogger("ytt.flow.studiobook")
 
@@ -351,11 +352,6 @@ class StudioBook(Ledger):
     def internal(self, vid):
         """書き出しの指定(flow/export.build_spec)が読む形 = get"""
         return self.get(vid)
-
-
-def _step_error(msg):
-    from .run import StepError   # run が tools を読み、tools がここを読むので呼ぶときに読む
-    return StepError(msg)
 
 
 class LocalStudio:

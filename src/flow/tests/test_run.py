@@ -695,9 +695,6 @@ class TestStepsAndPublic(unittest.TestCase):
         self.assertIn("packs", pub)
         self.assertEqual(pub["steps"][0]["startedAt"], tx["startedAt"])
         self.assertEqual(R._placement.result(r)["steps"][0]["finishedAt"], tx["finishedAt"])
-        from flow import runlog
-        self.assertEqual(runlog.step_ms(pub["steps"][0]), tx["finishedAt"] - tx["startedAt"])
-        self.assertIsNone(runlog.step_ms({"key": "x"}))
         saved = json.loads(json.dumps(r.saved()))
         back = R.Run.restore(saved)
         self.assertEqual(back.step("transcribe")["startedAt"], tx["startedAt"])

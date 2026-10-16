@@ -824,10 +824,7 @@ def num(v):
     return v if math.isfinite(v) else None
 
 
-def is_network_path(p):
-    """ネットワーク上のパス(\\\\サーバー\\共有 など)か。他人が作ったかもしれない JSON の中のパスでは調べない
-    (Windows では存在を確かめるだけでそのサーバーへ接続し、資格情報のハッシュを送ってしまうため。文字起こしツールと同じ扱い)"""
-    return str(p or "").replace("/", "\\").startswith("\\\\")
+is_network_path = fsio.is_network_path   # ytt/fsio の同じ関数を読む(ここに写しを持たない。下の呼び出しと test_pack の名前を残す)
 
 
 WORK_DIR = "作業用"   # 途中のファイルの下のフォルダ(ytt.schemas.WORK_DIR と同じ名前。コマンドは ytt を読まないのでここにも持つ。test_serve が確かめる)

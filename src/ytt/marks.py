@@ -146,7 +146,7 @@ def clean_server(d):
             "auto0": auto0(d.get("auto0")) if src in ("auto", "collab") else None,
             "auto0Orig": auto0(d.get("auto0Orig")) if src == "manual" else None,   # 再解析で手動に変わったマークの、最初の自動区間(replace_auto だけが書く)
             "collabFrom": collab_from(d.get("collabFrom")) if src == "collab" else None,
-            # 人ではなく機械が採用にした印(Q2。adopt_top = "auto"・request_marks の区間 = "request")。人が状態を変えたら外れる(build_mark)
+            # 人ではなく機械が採用にした印(Q2。まとめての採用 = "auto"・request_marks の区間 = "request")。人が状態を変えたら外れる(build_mark)
             "adoptedBy": d.get("adoptedBy") if d.get("adoptedBy") in ("auto", "request") and st in ("adopted", "exported") else None}
 
 

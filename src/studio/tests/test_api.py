@@ -449,30 +449,6 @@ class TestTranscripts(Base):
         self.assertEqual(self.req("GET", "/api/transcripts?id=" + vid, headers={"Sec-Fetch-Site": "cross-site"})[0], 403)
 
 
-class TestAdoptTop(Base):
-    """POST /api/video/adopt-top: スタジオの「上位 n 本を採用」。採用の規則 F-5(区間なしの adopt_marks)で、上限までの残りを自動マークの上位で採用にする。学習の記録は書かない"""
-    def test_adopt_top(self):
-        vid = "adopttop001"
-        serve.STORE.ensure({"kind": "youtube", "videoId": vid}, "t")
-        cands = [{"start": s, "end": s + 5, "peak": s + 1, "score": sc, "parts": {}, "reasons": []} for s, sc in ((10, 2.0), (30, 9.0), (50, 5.0))]
-        serve.STORE.replace_auto(vid, cands, {"at": 1, "signals": {}, "counts": {}, "warnings": [], "spec": {}, "type": None}, 100.0, None)
-        fb = feedback.feedback_path() if hasattr(feedback, "feedback_path") else os.path.join(self.tmp, "feedback.jsonl")
-        before = os.path.getsize(fb) if os.path.exists(fb) else 0
-        st, j, *_ = self.req("POST", "/api/video/adopt-top", {"id": vid, "top": 2})
-        self.assertEqual(st, 200, j)
-        by = {m["id"]: m for m in j["video"]["marks"]}
-        self.assertEqual(sorted(by[i]["start"] for i in j["adopted"]), [30.0, 50.0])   # 点数の高い2件
-        self.assertEqual(sum(1 for m in by.values() if m["status"] == "adopted"), 2)
-        self.assertEqual(os.path.getsize(fb) if os.path.exists(fb) else 0, before)   # 人の判定ではないので記録しない
-        st, j, *_ = self.req("POST", "/api/video/adopt-top", {"id": vid, "top": 2})
-        self.assertEqual((st, j["adopted"]), (200, []))   # 前に機械が採用した 2 本で上限 = 何もしない
-        st, j, *_ = self.req("POST", "/api/video/adopt-top", {"id": vid, "top": 3})
-        self.assertEqual((st, [{m["id"]: m for m in j["video"]["marks"]}[i]["start"] for i in j["adopted"]]), (200, [10.0]))   # 上限を増やせば残りを足す(F-5)
-        for bad in (0, 31, "2", True):
-            self.assertEqual(self.req("POST", "/api/video/adopt-top", {"id": vid, "top": bad})[0], 400, bad)
-        self.assertEqual(self.req("POST", "/api/video/adopt-top", {"id": "nothere0000", "top": 1})[0], 404)
-
-
 class TestRequestMarks(Base):
     """POST /api/video/request-marks: まとめて実行・友人からの依頼。時刻で指定した区間を採用済みの手動マークに、上限 top までの残りを自動の上位で埋める(F-5)"""
     def marks(self, j):
@@ -679,8 +655,6 @@ class TestLiveApi(Base):
             self.assertEqual(st, 200, item)
             self.assertEqual((j["added"], len(j["rejected"])), ([], 1), item)
         self.assertEqual(self.req("GET", "/api/queue")[1]["items"], [])
-        st, j, *_ = self.req("POST", "/api/video/adopt-top", {"id": rid, "top": 2})
-        self.assertEqual(st, 400, j)
         st, j, *_ = self.req("POST", "/api/video/request-marks", {"id": rid, "ranges": [[1, 5]], "auto": 0})
         self.assertEqual(st, 400, j)
         st, j, *_ = self.req("POST", "/api/video/request-marks", {"id": "20261005-190299", "ranges": [[1, 5]], "auto": 0})   # 未登録の録画の id でも YouTube として登録しない

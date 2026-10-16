@@ -22,9 +22,9 @@ import os
 import re
 import secrets
 import threading
-import time
 
 from ytt import fsio
+from ytt.schemas import now_ms   # 今の時刻(ms)の正は ytt/schemas(テストは answerlog.now_ms を差し替える)
 
 DIR_NAME = "check"
 ANSWERS = "answers.jsonl"
@@ -46,10 +46,6 @@ def answers_path(app_dir):
 
 def _skips_path(app_dir):
     return os.path.join(_check_dir(app_dir), SKIPS)
-
-
-def now_ms():
-    return int(time.time() * 1000)
 
 
 def new_id(at=None):

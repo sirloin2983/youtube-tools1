@@ -26,7 +26,6 @@ static で見るもの(ID は基準の文書と同じ):
   A-11 reduced-motion… ui-kit.css に prefers-reduced-motion の全体の節がある(各ツールは ui-kit の節に乗る)
   A-12 html-base     … <html lang>・<title>・<meta viewport> がある
   A-13 transition-all… transition: all を書いていない
-  A-14 ui-kit-sync   … ui-kit の写しが正本と同じ(dev/sync_ui_kit.py --check。RS8 C4 から写し先は無い = いつも 0)
   A-15 abbr-term     … 専門用語(EDL・Text+・FCPXML・LUFS・CER)を出す画面に abbr.ui-term の説明がある
   (target="_blank" は見ない: 窓の中では UIKit.win が自動で「このパソコンの画面 → 窓・外のサイト → ブラウザ」に振り分ける決まり)
 
@@ -361,9 +360,6 @@ def static_checks(out):
             check_terms(path, read(path), out, py_strings(path))
     for tool in ("studio", "editor", "cut2resolve"):
         each_line(read(os.path.join(SRC, tool, "serve.py")), r"api/ytt/", "A-06", os.path.join(SRC, tool, "serve.py"), out, "ツールに api/ytt を作っている")
-    r = subprocess.run([sys.executable, os.path.join(REPO, "dev", "sync_ui_kit.py"), "--check"], capture_output=True, text=True, encoding="utf-8", errors="replace")   # 出力は UTF-8(Windows の cp932 で読むと落ちる)
-    if r.returncode != 0:
-        out.add("A-14", "dev/sync_ui_kit.py --check", (r.stdout + r.stderr).strip()[:200])
 
 
 # ---------- live(Playwright) ----------

@@ -194,7 +194,7 @@ class TestStatus(Base):
 
 
 class TestAdoptRule(Base):
-    """採用の規則 F-5(store.adopt_marks。RS6 b-A): 区間 ∪ 人の採用 ∪ 自動マークの点数の高い順(上限までの残り)。不採用と重なりは除く。adopt_top は区間なしの同じ規則"""
+    """採用の規則 F-5(store.adopt_marks。RS6 b-A): 区間 ∪ 人の採用 ∪ 自動マークの点数の高い順(上限までの残り)。不採用と重なりは除く。まとめての採用は区間なし(ranges = [])の adopt_marks で、同じ規則"""
     def setUp(self):
         super().setUp()
         self.st.replace_auto(YT["videoId"], [cand(10, 40, 2.0), cand(100, 130, 9.0), cand(200, 230, 5.0), cand(300, 330, 7.0)], {"spec": {}}, 600, {"t": [0]})
@@ -207,7 +207,8 @@ class TestAdoptRule(Base):
         self.put([dict(m, status=status) if m["start"] == start else m for m in self.marks()])
 
     def test_top_by_score(self):
-        ids, v = self.st.adopt_top(YT["videoId"], 2)
+        r0 = self.st.adopt_marks(YT["videoId"], [], 2)
+        ids, v = r0["added"], r0["video"]
         self.assertEqual(self.starts(ids), [100, 300])
         self.assertEqual({m["start"]: m.get("adoptedBy") for m in v["marks"] if m["status"] == "adopted"}, {100: "auto", 300: "auto"})
         r = self.st.adopt_marks(YT["videoId"], [], 2)   # 再実行: 前に機械が採用した分を数に入れる(増やさない)
@@ -216,11 +217,11 @@ class TestAdoptRule(Base):
     def test_human_adoption_counts_and_rest_is_filled(self):
         """人が 1 本採用した配信の再実行: 人の分を数に入れ、上限までの残りを自動で足す(以前の adopt_top は「人が採用済みなら自動は 0」)"""
         self.set_status(10, "adopted")
-        ids, _ = self.st.adopt_top(YT["videoId"], 3)
+        ids = self.st.adopt_marks(YT["videoId"], [], 3)["added"]
         self.assertEqual(self.starts(ids), [100, 300])
         r = self.st.adopt_marks(YT["videoId"], [], 3)
         self.assertEqual((self.starts(r["humanIds"]), self.starts(r["autoIds"]), r["added"]), ([10], [100, 300], []))
-        self.assertEqual(self.st.adopt_top(YT["videoId"], 1)[0], [])   # 人の分だけで上限
+        self.assertEqual(self.st.adopt_marks(YT["videoId"], [], 1)["added"], [])   # 人の分だけで上限
         self.assertEqual(self.st.adopt_marks(YT["videoId"], [], 1)["autoIds"], [])
 
     def test_rejected_and_overlaps_are_skipped(self):
@@ -240,9 +241,6 @@ class TestAdoptRule(Base):
         for bad in (-1, 31, "1", None, True):
             with self.assertRaises(ApiError, msg=bad):
                 self.st.adopt_marks(YT["videoId"], [], bad)
-        for bad in (0, 31):
-            with self.assertRaises(ApiError, msg=bad):
-                self.st.adopt_top(YT["videoId"], bad)
 
 
 class TestFeedback(Base):
@@ -340,7 +338,7 @@ class TestFeedback(Base):
         self.assertEqual(len(self.feedback()), n)
 
     def test_auto_adoption_is_not_recorded(self):
-        ids, _ = self.st.adopt_top(YT["videoId"], 2)
+        ids = self.st.adopt_marks(YT["videoId"], [], 2)["added"]
         self.assertEqual(len(ids), 2)
         self.assertEqual(self.feedback(), [])
         self.st.adopt_marks(YT["videoId"], [[400, 420]], 3)
@@ -348,7 +346,7 @@ class TestFeedback(Base):
 
     def test_machine_adoption_is_marked_and_cleared_by_human(self):
         """機械が採用にしたマークには adoptedBy(auto / request)。書き出しの行にも付く(人の「よかった」と分ける)。人が状態を変えたら外れる"""
-        ids, _ = self.st.adopt_top(YT["videoId"], 2)
+        ids = self.st.adopt_marks(YT["videoId"], [], 2)["added"]
         by = {m["id"]: m for m in self.marks()}
         self.assertEqual({by[i].get("adoptedBy") for i in ids}, {"auto"})
         rids = self.st.adopt_marks(YT["videoId"], [[400, 420]], 0)["rangeIds"]
@@ -820,7 +818,7 @@ class TestLive(Base):
     def test_analysis_entrypoints_refuse(self):
         self.st.ensure(LIVE_SRC, "配信")
         with self.assertRaises(ApiError) as c:
-            self.st.adopt_top(LIVE["recording"], 3)
+            self.st.adopt_marks(LIVE["recording"], [], 3)
         self.assertEqual(c.exception.status, 400)
         with self.assertRaises(ApiError) as c:
             self.st.adopt_marks(LIVE["recording"], [[1, 5]], 0)

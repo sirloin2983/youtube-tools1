@@ -592,7 +592,7 @@ class Store:
             # 自動マークは上の全部。手動マーク(自分で見つけた区間)は、採用・不採用にしたときだけ good / bad。
             # それとは別に、人の最終の操作を記録する(Q2。verdict は miss / unmiss / retract。feedback.FB_EXTRA_EVENTS):
             # 手で足した = 自動の見逃し(その時いちばん近い自動マークの点数と距離つき)・手で足した候補を消した・採用を取り消した・判定済みを削除した。
-            # まとめて実行(adopt_top・request_marks)は put_video を通らないので書かれない(人の判断ではないため)
+            # まとめて実行(adopt_marks・request_marks)は put_video を通らないので書かれない(人の判断ではないため)
             verdicts = []
             extras = []
             for m in v["marks"]:
@@ -630,15 +630,6 @@ class Store:
         for m, event, extra in extras:
             feedback.feedback_event(snap, m, event, extra)
         return snap
-
-    def adopt_top(self, vid, top):
-        """スタジオの「上位 n 本を採用」・まとめて実行用: 採用の規則 adopt_marks(F-5)を区間なし(ranges = [])で呼ぶ。
-        人が採用したマークは数に入れ、上限 top までの残りを自動マークの点数の高い順で足す。
-        -> (この呼び出しで採用にしたマークの id(点数の高い順), 公開用の動画)"""
-        if schemas.int_in(top, 1, _flow_adopt.TOP_MAX) is None:
-            raise ApiError("bad_request", "採用する数は1〜%d です" % _flow_adopt.TOP_MAX, 400)
-        r = self.adopt_marks(vid, [], top)
-        return r["added"], r["video"]
 
     def adopt_marks(self, vid, ranges, top):
         """採用の規則(F-5。notes:plan/role-restructure.md 5-5・決定 3-29 Q3。スタジオの「上位 n 本を採用」・まとめて実行・友人の依頼で同じ 1 つ)を当てて保存する。

@@ -183,16 +183,24 @@ class TestEditorSettings(unittest.TestCase):
     def test_follows_workdata_and_patch_keys(self):
         from ytt import errors
         self.assertEqual(self.st.load_settings(), {})
-        self.assertEqual(self.st.patch_settings({"values": {"packFps": "30"}}), {"ok": True, "values": {"packFps": "30"}})
+        self.assertEqual(self.st.patch_settings({"values": {"packSize": "1920x1080"}}), {"ok": True, "values": {"packSize": "1920x1080"}})
         with self.assertRaises(errors.ApiError) as cm:
-            self.st.patch_settings({"values": {"packFps": "31"}})
+            self.st.patch_settings({"values": {"packSize": "1080"}})
         self.assertEqual(cm.exception.status, 400)
-        self.st.merge_settings({"patch": {"glossary": "みこ", "packFps": "60"}})   # 検査のある鍵は merge では変えない
-        self.assertEqual(self.st.load_settings(), {"packFps": "30", "glossary": "みこ"})
-        self.st.replace_settings({"other": 1, "packFps": "24"})                   # 丸ごとでも検査のある鍵はサーバーの値
-        self.assertEqual(self.st.load_settings(), {"other": 1, "packFps": "30"})
+        self.st.merge_settings({"patch": {"glossary": "みこ", "packSize": "1080x1920"}})   # 検査のある鍵は merge では変えない
+        self.assertEqual(self.st.load_settings(), {"packSize": "1920x1080", "glossary": "みこ"})
+        self.st.replace_settings({"other": 1, "packSize": "1080x1920"})                   # 丸ごとでも検査のある鍵はサーバーの値
+        self.assertEqual(self.st.load_settings(), {"other": 1, "packSize": "1920x1080"})
         with open(self.path, encoding="utf-8") as f:
-            self.assertEqual(json.load(f), {"other": 1, "packFps": "30"})
+            self.assertEqual(json.load(f), {"other": 1, "packSize": "1920x1080"})
+        # 廃止した鍵(packFps): 直させない。古い設定ファイルに残っていても断らず、読み飛ばして消さない
+        with open(self.path, "w", encoding="utf-8") as f:
+            json.dump({"other": 1, "packSize": "1920x1080", "packFps": "30"}, f)
+        with self.assertRaises(errors.ApiError):
+            self.st.patch_settings({"values": {"packFps": "60"}})
+        self.st.merge_settings({"patch": {"packFps": "60", "glossary": "みこ"}})
+        self.st.replace_settings({"other": 2})
+        self.assertEqual(self.st.load_settings(), {"other": 2, "packSize": "1920x1080", "packFps": "30"})
 
     def test_register_patch_key(self):
         from ytt import errors

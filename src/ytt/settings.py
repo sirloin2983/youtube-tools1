@@ -11,7 +11,7 @@
     d = sf.read()                                  # 中身(新しい dict。壊れていれば {})
     sf.set_section("review", {...})                # 節を丸ごと置き換える(名前は SECTION_RE)
     sf.patch_section("autorun", value, cleaner)    # cleaner(value, cur) -> new を節に入れる(検査はツール側の関数)
-    sf.update_keys({"packFps": "30"}, allow)       # 最上位の鍵を、allow[key](value) が真のものだけ直す
+    sf.update_keys({"packSize": "1920x1080"}, allow)       # 最上位の鍵を、allow[key](value) が真のものだけ直す
     sf.merge_top({"glossary": "...", "old": None}, skip=allow)   # 最上位の鍵を合わせる(None = 消す。skip の鍵は触らない)
     with sf.lock: d, broken = sf.load(); ...; sf.save(d, broken)   # 自分で読み書きするとき(ホームの remember・hide など)
 
@@ -199,7 +199,6 @@ def load_settings():
 SETTINGS_PATCH_KEYS = {"packLoudness": lambda v: not isinstance(v, bool) and v in (0, -11, -14, -16, -18),   # パックの音量(LUFS。0 = % で決める)
                        "packVolume": lambda v: isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 200,   # packLoudness が 0 のときの音量(%)
                        # パックの出力(3 パック のタブ・まとめて実行の欄が同じ値を読み書きする。気が利く画面へ 段4)
-                       "packFps": lambda v: v in ("24", "25", "30", "50", "60"),
                        "packSize": lambda v: v in ("1080x1920", "1920x1080"),
                        "speakerColors": lambda v: isinstance(v, bool),
                        "packBackup": lambda v: isinstance(v, bool),
@@ -248,6 +247,15 @@ def _settings_error(e):
     return _errors.ApiError("bad_request", str(e), 400)
 
 
+# 画面の欄を消した鍵(RS7-1 S4 で packFps は読まなくなった)。直させない・読まない・消さない = 古い設定ファイルに残っていても断らず、そのまま残す
+RETIRED_SETTINGS_KEYS = ("packFps",)
+
+
+def _guarded_keys():
+    """丸ごとの保存・合わせるときに触らない鍵(値の検査のある SETTINGS_PATCH_KEYS と、廃止した鍵)"""
+    return set(SETTINGS_PATCH_KEYS) | set(RETIRED_SETTINGS_KEYS)
+
+
 def patch_settings(obj):
     """POST /api/settings/patch {"values": {鍵: 値}}: SETTINGS_PATCH_KEYS の項目だけを、値を検査して直す(送った鍵だけ)"""
     try:
@@ -266,7 +274,7 @@ def merge_settings(obj):
     if set(obj) != {"patch"} or not isinstance(p, dict):
         raise _errors.ApiError("bad_request", "設定の直し方(patch)の形が正しくありません", 400)
     try:
-        _settings_file().merge_top(p, skip=SETTINGS_PATCH_KEYS)
+        _settings_file().merge_top(p, skip=_guarded_keys())
     except SettingsError as e:
         raise _settings_error(e)
     return {"ok": True}
@@ -278,10 +286,12 @@ def replace_settings(obj):
     if not isinstance(obj, dict):
         raise _errors.ApiError("bad_request", "設定は辞書で指定してください", 400)
 
+    guarded = _guarded_keys()
+
     def put(d):
-        keep = {k: d[k] for k in SETTINGS_PATCH_KEYS if k in d}
+        keep = {k: d[k] for k in guarded if k in d}
         d.clear()
-        d.update({k: v for k, v in obj.items() if k not in SETTINGS_PATCH_KEYS})
+        d.update({k: v for k, v in obj.items() if k not in guarded})
         d.update(keep)
     try:
         _settings_file().update(put)
