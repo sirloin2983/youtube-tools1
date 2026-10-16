@@ -160,6 +160,8 @@ def main():
         app.prepare()                                        # 偽の ② を起こす(古い部品の写しは無い = old_root なし)
         app.api.fetch, app.api.probe = fake_oembed, fake_probe
         app.pick_file = lambda: None                         # ファイルを選ぶ窓は出さない
+        app.pick_folder = lambda what: None                  # ⚙ のフォルダを選ぶ窓も出さない(F2-5)
+        app.settings.probe = lambda key: (200, "{}")         # API キーの確かめでネットへ出ない(F2-5)
         opened = []
         app.open_folder = opened.append                       # エクスプローラーを開かない(画面を取らない)
         srv = S.Server(("127.0.0.1", 0), app)
