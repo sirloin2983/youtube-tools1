@@ -78,7 +78,8 @@ APP_ID = "cut2resolve"
 TOOL_ID = "cut2resolve"
 SERVER_VERSION = C.VERSION        # 全体の版(ytt/version.py。cut2resolve_core.VERSION が読む)
 DEFAULT_PORT = 8810
-WORK_DIR = os.path.join(CODE_DIR, "work")          # 起動時に作業データの置き場所(ytt.datadir)の中へ切り替える(_choose_work_dir)
+DEFAULT_WORK_DIR = os.path.join(CODE_DIR, "work") if datadir.data_root() is not None else os.path.join(datadir.inplace_dir(TOOL_ID, CODE_DIR), "work")   # inplace(テスト)は .data/cut2resolve/work(src に残さない)
+WORK_DIR = DEFAULT_WORK_DIR                        # 起動時に作業データの置き場所(ytt.datadir)の中へ切り替える(_choose_work_dir)
 LOG_PATH = os.path.join(WORK_DIR, "serve.log")
 LOG_MAX = 1024 * 1024
 MAX_BODY = 2 * 1024 * 1024                          # JSON の要求の上限(時刻リストの貼り付けを含む)
@@ -517,7 +518,7 @@ def _choose_work_dir():
     """作業用のフォルダ(ログ)を、作業データの置き場所の中にする(段階4)。
     中身はログだけなので、以前の場所からは写さない。テストが先に差し替えていれば(既定でなければ)そのまま"""
     global WORK_DIR, LOG_PATH
-    if os.path.normcase(WORK_DIR) != os.path.normcase(os.path.join(CODE_DIR, "work")):
+    if os.path.normcase(WORK_DIR) != os.path.normcase(DEFAULT_WORK_DIR):
         return
     r = datadir.prepare(TOOL_ID, CODE_DIR, (), log=lambda m: print(m, flush=True))
     for w in r["warnings"]:

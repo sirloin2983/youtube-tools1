@@ -14,6 +14,7 @@
 """
 import os
 
+from . import datadir as _datadir
 from . import layout as _layout
 from . import version as _version
 
@@ -34,7 +35,8 @@ def set_root(root):
     (起動したら serve が set_data_dir で本物の置き場所へ切り替える)。以前の ed_state の読み込みのときの値と同じ"""
     global ROOT, MARKER_DATA, STUDIO_DATA
     ROOT = root
-    set_data_dir(os.environ.get("TRANSCRIBE_DATA_DIR") or root)
+    default = _datadir.inplace_dir("transcribe", root) if _datadir.data_root() is None else root   # inplace なら .data/transcribe(.running.json などが src/editor に残らない)
+    set_data_dir(os.environ.get("TRANSCRIBE_DATA_DIR") or default)
     MARKER_DATA = os.environ.get("TRANSCRIBE_MARKER_DATA") or os.path.join(os.path.dirname(root), "clip-marker", "data.json")
     STUDIO_DATA = os.environ.get("TRANSCRIBE_STUDIO_DATA") or os.path.join(_layout.tool_dir("studio", os.path.dirname(root)), "data.json")
 

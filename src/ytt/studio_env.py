@@ -49,7 +49,12 @@ def home():
     """データの置き場所"""
     if _home is not None:
         return _home
-    return _datadir.override("studio") or os.path.abspath(_code_dir)
+    o = _datadir.override("studio")
+    if o:
+        return o
+    if _datadir.data_root() is None:   # YTT_DATA_DIR=inplace: 既定の置き場所もコードの src の中ではなく .data/studio(エクスポートのログ・studio.log が src に残らない)
+        return _datadir.inplace_dir("studio", _code_dir)
+    return os.path.abspath(_code_dir)
 
 
 def p(*parts):

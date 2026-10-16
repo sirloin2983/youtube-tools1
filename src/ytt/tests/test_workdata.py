@@ -32,7 +32,7 @@ class _Saved(unittest.TestCase):
 class TestWorkdata(_Saved):
     def test_set_root_defaults(self):
         root = os.path.join("x", "src", "editor")
-        env = {k: v for k, v in os.environ.items() if k not in ("TRANSCRIBE_DATA_DIR", "TRANSCRIBE_MARKER_DATA", "TRANSCRIBE_STUDIO_DATA")}
+        env = {k: v for k, v in os.environ.items() if k not in ("TRANSCRIBE_DATA_DIR", "TRANSCRIBE_MARKER_DATA", "TRANSCRIBE_STUDIO_DATA", "YTT_DATA_DIR")}
         with mock.patch.dict(os.environ, env, clear=True):
             workdata.set_root(root)
         self.assertEqual(workdata.ROOT, root)
@@ -41,6 +41,15 @@ class TestWorkdata(_Saved):
         self.assertEqual(workdata.TMP_DIR, os.path.join(root, "transcripts", ".tmp"))
         self.assertEqual(workdata.MARKER_DATA, os.path.join("x", "src", "clip-marker", "data.json"))
         self.assertEqual(workdata.STUDIO_DATA, os.path.join(layout.tool_dir("studio", os.path.join("x", "src")), "data.json"))
+
+    def test_set_root_inplace_goes_to_dot_data(self):
+        """YTT_DATA_DIR=inplace の既定は src の中(編集のフォルダ)ではなく <リポジトリ直下>/.data/transcribe"""
+        root = os.path.abspath(os.path.join("x", "src", "editor"))
+        env = {k: v for k, v in os.environ.items() if k != "TRANSCRIBE_DATA_DIR"}
+        env["YTT_DATA_DIR"] = "inplace"
+        with mock.patch.dict(os.environ, env, clear=True):
+            workdata.set_root(root)
+        self.assertEqual(workdata.DATA_DIR, os.path.join(os.path.abspath("x"), ".data", "transcribe"))
 
     def test_set_root_reads_env(self):
         with mock.patch.dict(os.environ, {"TRANSCRIBE_DATA_DIR": os.path.join("d", "data"), "TRANSCRIBE_MARKER_DATA": "m.json",
