@@ -8,16 +8,18 @@
 作り:
 - ① の経路(Run・段の表・段の中身・待つ骨組み)は RS1-7 で src/flow/run.py へ移した(役割で組み直す計画 notes:plan/role-restructure.md の 5-1)。
   順番待ちと糸・中止・状態と記録・起動し直しで戻す・見積もりは RS7-1 S5 で src/flow/runqueue.py の Queue へ移した(② が画面なしでも動くように。
-  AutoRunner は Queue を継ぐ)。ここに残すのは、受付(start*)・ToolClient・画面の設定から束を組む build_spec・起動し直すの確かめ restart_info と、
+  AutoRunner は Queue を継ぐ)。ここに残すのは、ToolClient・画面の設定から束を組む build_spec・起動し直すの確かめ restart_info と、
   Runner・Queue の hook(案件・ホームの設定・届けることを読む所)の中身。移した名前は同じ名前で読み直している。
-  RS7-1 S4: 受付で束を組む(_accept = build_spec + 友人の区間の長さ・配信者・届け方の n 本)。待ちの間に画面の設定を変えても、その実行の中身は変わらない。
+  受付は ② の口 Queue.submit(封筒, 束の差分)の 1 本だけ(RV A1。HTTP は POST /api/flow/submit。以前の start* と /api/autorun/* は消した)。
+  欄 → 封筒 + 束の差分の変換は flow/order.py(画面は UIKit.flow.order)の 1 か所。
+  RS7-1 S4: 受付で束を組む(_accept = build_spec + 友人の区間の長さ・配信者・届け方の n 本・届ける名前の頭)。待ちの間に画面の設定を変えても、その実行の中身は変わらない。
   切り出しの精密・画質の上限・パックの fps は固定(決定 3-30 Q2)・用語集は編集の受付が自分の設定から読む。
   届けることと組の溜めは RS3-3 で Delivery(mixin)へ切り出した(AutoRunner が継ぐ。ds1 で ② src/flow/delivery.py へ)
 - 各ツールの**公開している API を HTTP で呼ぶ**(入口と同じ 127.0.0.1。取り込んだツールは入口のポートの /studio/ など、子プロセスのツールはそのポート)。
   ツールの中の関数を直接呼ばないのは、画面から使うときと同じ検査・同じジョブ管理(重い処理の順番待ち ytt.jobs を含む)を通すため。
 - どの段も「まだ無いものだけ」作る(書き出し済み・文字起こし済み・パック済みは飛ばす)。途中で止めても、もう一度押せば続きから進む。
   文字起こしの有無は manage.cases.txindex(案件の画面・スタジオのセリフと同じ規則)、パックの有無は cases.find_pack で見る。
-- スタジオの ① 探す で選んだ配信(まだスタジオに無い YouTube の配信)は start_new で「解析から全部」に入れる。解析のキューに入れると
+- スタジオの ① 探す で選んだ配信(まだスタジオに無い YouTube の配信)は封筒の input.fresh つきで「解析から全部」に入れる。解析のキューに入れると
   スタジオに配信ができるので、それまでは受け取った題名で進める(git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 5)。
 - 1本ずつ順に処理する(キュー。src/flow/runqueue.py)。同じ配信を2つ同時には入れない。
 - 入口の起動し直しで、順番待ち・実行中の分を戻す(線 D の M5。入口 0.40.0。src/flow/runqueue.py): 待ち・実行中の実行を入口の作業データの logs/autorun-active.json に残し
@@ -41,11 +43,12 @@
   ライブの切り抜き(友人のライブ配信の依頼・live.autoDeliver)は 1 本ごとに別の実行なので、実行をまたいで「組の溜め」(run.pool。依頼 × 配信中 / 配信後の追加)に預け、
   n 本たまったら組で届ける。録画が終わって書き出しも実行も残っていなければ、最後に預けてから POOL_IDLE_SEC で残りを届ける(flush_pools。入口の src/app/live.py が見回りで呼ぶ)。
   溜めは logs/deliver-pool.json に残す(起動し直しても続く)。10-09 ユーザー決定 = decisions 3-20
-- 友人へ自動で送る(D-SEND。notes:plan/d-send-requirements.md): 画面の「友人へ自動で送る」(受付の autoSend。既定 = mode full のときだけオン・保存しない)。
-  受付(_send_plan)で、mode full かつ依頼の受付の Dropbox のフォルダが決まっていれば出どころ auto・名前の頭 deliver_tag(友人のアプリの依頼 id の形)を置き、
-  チェックが入っていれば届け先(出力)も置く(段 deliver が付く)。チェックを外した実行も段 deliver を付けて(_ensure_send_step)、
+- 友人へ自動で送る(D-SEND。notes:plan/d-send-requirements.md): 画面の「友人へ自動で送る」(既定 = 解析から全部のときだけオン・保存しない)。
+  画面は、依頼の受付の Dropbox のフォルダが決まっていれば(GET /api/intake の outDir)封筒の deliver に出どころ auto を置き、
+  チェックが入っていれば届け先(出力)も置く(段 deliver が付く)。受付(_accept)が名前の頭 deliver.tag(友人のアプリの依頼 id の形)を決める。
+  チェックを外した実行も段 deliver を付けて(_ensure_send_step)、
   そこで「チェックを外したので送りません」と切り抜きごとの送らなかった記録(② logs/not-sent.jsonl)を残す(品質のカードに出す = 2-8)。送るかの判定・溜め・送り直しは src/flow/delivery.py。
-  まとめて実行の文書単位(start_docs)・full 以外・CLI・/api/flow/submit は届けない
+  まとめて実行の文書単位・full 以外・CLI は届けない
 - 「あとから解析(測るため)」(友人の依頼が区間だけで終わった配信を、手が空いたときに解析する mode post_analyze)は RS4 で消した(入口 0.55.0)。
   代わりは区間だけの依頼の最後の段「解析(あとで)」(flow/run の analyze_later。届けたあとに解析を順番へ入れるだけで待たない。OPT-E2 = 決定 3-49 Q6。
   それまでの測る道具 eval_marks.py --analyze-missing は消した)。
@@ -80,9 +83,9 @@ from app import prefs as prefs_mod  # noqa: E402  (ホームの設定の既定�
 
 # RANGE_MAX・RANGE_MAX_SEC・RANGE_PAD・pad_range・CUTS・TX_ENGINES・TX_MODEL_RE・WEIGHT_KEYS は src/flow/spec.py へ、
 # MODES・MODE_STEPS・STEP_LABELS・Run・StepError など ① の経路は src/flow/run.py へ移した(上で読み直している)
-FLOW_MODES = {"url": {"auto": "request_auto", "check": "request"},
-              "file": {"auto": "file_auto", "check": "file"}}
-MAX_NEW = 10           # ① 探す から一度に入れられる配信の数(① 探す で選べる最大と同じ)
+# 受付は ② の口 Queue.submit の 1 本だけ(RV A1。画面・友人の受付・CLI は欄を flow/order.py(画面は UIKit.flow.order)で封筒 + 束の差分にして submit)。
+# 一度に入れられる数は玄関の側(① 探す の 10 本・友人の受付の intake.MAX_URLS)
+MEMO_SEC = 3.0         # 1 回の受付の間だけ覚える秒(_memo。画面が 1 本ずつ submit しても設定ファイル・スタジオの一覧を 1 回だけ読む)
 # 待ち行列と記録の数(MAX_KEEP・LOG_*・PAST_*・HISTORY_*・MAX_WAITING)は src/flow/runqueue.py(RS7-1 S5。上で読み直している)
 # 友人の区間の長さを、依頼の自動の候補の長さに使う(2026-10-05 ユーザーの要望。仮の決定 = まとめ役)。
 # 数えるのは ② flow/lengthhint(使うときにその場で。OPT-E2 7f-1。10-15 まで測る道具 eval_marks の夜の結果のファイルを読んでいた)
@@ -202,11 +205,6 @@ def spec_from_settings(studio=None, editor=None, autorun=None):
     return _spec.validate(_spec.merge(given)), notes
 
 
-def _yt_id_ok(v):
-    """YouTube の配信 ID(11文字。スタジオの common.VID_RE と同じ)"""
-    return isinstance(v, str) and len(v) == 11 and all(c.isascii() and (c.isalnum() or c in "-_") for c in v)
-
-
 _num = _spec.num_ok   # 扱ってよい大きさの数か(src/flow/spec.py。ここの検査もこれを使う)
 
 
@@ -222,7 +220,7 @@ _top_arg = _spec.top_arg   # 採用する数(src/flow/spec.py)
 
 
 class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
-    """入口のまとめて実行: 受付(start*。画面・友人の依頼の欄から Run を作って ② の待ち行列に積む)と hook(案件・ホームの設定・友人へ届ける)。
+    """入口のまとめて実行: ② の待ち行列(受付は submit の 1 本 = RV A1)の hook(案件・ホームの設定・友人へ届ける)。
     待ち行列・糸・中止・状態と記録・起動し直しで戻す・見積もりは src/flow/runqueue.py の Queue(RS7-1 S5)、段の中身は src/flow/run.py の Runner。
     友人へ届ける段と組の溜めは src/flow/delivery.py の Delivery(RS3-3・ds1)を継ぎ、そこが要る入口と ③ の物
     (届ける本数の既定と範囲・友人のアプリの届け方・送り返しの依頼)は下の _deliver_batch_limits・_friend_batch・_returned_request で渡す。
@@ -236,6 +234,8 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
         # hook が使う値は Queue の __init__ の前に置く(前の起動の待ちを戻すと、すぐに糸が段を進める)
         self.root = repo_root
         self.prefs = prefs   # ホームの設定(src/app/prefs.py)。カットの無い文書のカットの方法 autorun.cut
+        self.memo_sec = MEMO_SEC   # 1 回の受付の間だけ覚える秒(_memo。テストは 0 にできる)
+        self._memo_items = {}
         self._delivery_init(log_dir)   # ライブの切り抜きの組の溜めの置き場所とロック(src/flow/delivery.py の Delivery)
         # パックの有無の見方は案件の画面とそろえる(cases.find_pack)。client・env・poll・sleep・log(入口のログ launcher.log に1行)・clock・closed は Runner、
         # 待ち行列・記録・待ちの記録(log_dir の autorun-runs.jsonl・autorun-active.json)は Queue が持つ
@@ -264,17 +264,7 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
             run.message = "ホームを起動し直したので、ツールの準備を待っています(%s)" % "・".join(missing)
             self._wait(run, 1.0)
 
-    # ------------------------------------------------------------ 受付
-    def _streamer(self, name):
-        """まとめて実行の画面で入れた配信者の名前 -> 照らし合わせた名前。None(指定なし)= 自動(パックのときに覚えた名前・チャンネル名から。段5)・
-        ""(空で送った)= 色なし。見つからなければ始める前に断る(ValueError)"""
-        if name is None:
-            return None
-        if isinstance(name, str) and not name.strip():
-            return ""
-        who, _hex = colors.resolve(name if isinstance(name, str) else "", env=self.env)
-        return who
-
+    # ------------------------------------------------------------ 受付で決める配信者(段5)・ホームの設定
     def _guess_streamer(self, run, doc=None, v=None):
         """配信者の推定(段5): 覚えた名前(文書 → 配信 → チャンネル)→ チャンネル名から。-> prefs.guess_streamer の結果 {"name", "source"}"""
         clip = (doc or {}).get("clip") or {}
@@ -294,11 +284,6 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
         run.streamer = r["name"] or ""
         run.streamer_from = r["source"] if r["name"] else None
 
-    @staticmethod
-    def _marks_arg(marks):
-        """スタジオのマークの行から: このマークだけ進める(-> 重ならない id の組 / None = 配信の全部。検査は src/flow/spec.py の marks_arg)"""
-        return _spec.marks_arg(marks)
-
     def _pref(self, key, default=None):
         """ホームの設定 autorun の値(src/app/prefs.py。読めなければ default)"""
         try:
@@ -307,40 +292,9 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
             v = None
         return default if v is None else v
 
-    def start(self, video_id, mode, top=None, streamer=None, marks=None, overwrite=False, auto_send=None):
-        """auto_send = 友人へ自動で送る(D-SEND。True・False・None = 既定 = mode full ならオン)。full 以外では使わない"""
-        if not isinstance(video_id, str) or not (1 <= len(video_id) <= 64) or not all(c.isalnum() or c in "-_" for c in video_id):
-            raise ValueError("配信の指定が正しくありません")
-        if mode not in MODES:
-            raise ValueError("実行の形が正しくありません")
-        top = _top_arg(top)
-        who = self._streamer(streamer)
-        mk = self._marks_arg(marks)
-        if mk and mode == "full":
-            raise ValueError("マークを選んだまとめて実行は「採用後を全部」「文字起こしまで」だけです")
-        self._push_accepted(lambda r: r.video_id == video_id, "この配信は", None)   # 先に断る物を断る(束を組む前)
-        run = Run(video_id, "", mode, top, streamer=who, marks=mk, overwrite=overwrite, on_fail=self._pref("onFail", "next"),
-                  **self._send_plan(mode, auto_send))
-        self._accept(run)   # 束は受けたときに組む(RS7-1 S4)
-        return self._push_accepted(lambda r: r.video_id == video_id, "この配信は", run)
-
     def send_folder(self):
         """友人へ自動で送る届け先の元 = 依頼の受付の Dropbox のフォルダ(ホームの設定 intake.folder。読み方は受付と同じ 1 か所)。決まっていなければ空の文字"""
         return intake_mod.configured_folder(self.prefs, prefs_mod.DEFAULTS["intake"]) if self.prefs else ""
-
-    def _send_plan(self, mode, auto_send):
-        """受付で決める、友人へ自動で送る形(D-SEND)-> Run の欄 {deliver_dir, deliver_origin, deliver_tag}(送らない形なら {})。
-        mode full で、依頼の受付のフォルダが決まっているときだけ(2-10)。auto_send: None = 既定 = オン。False = チェックを外した = 届け先なし
-        (段 deliver は _ensure_send_step が付け、そこで「チェックを外したので送りません」)。名前の頭は友人のアプリの依頼 id の形(_deliver_name)"""
-        if mode != "full":
-            return {}
-        folder = self.send_folder()
-        if not folder:
-            return {}
-        plan = {"deliver_origin": "auto", "deliver_tag": deliver_mod.request_id(self.clock())}
-        if auto_send is not False:
-            plan["deliver_dir"] = intake_mod.out_dir_of(folder)
-        return plan
 
     @staticmethod
     def _ensure_send_step(run):
@@ -353,120 +307,30 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
         self._ensure_send_step(run)
         return super()._execute(run)
 
-    def start_new(self, items, top=None, streamer=None, auto_send=None):
-        """スタジオの ① 探す で選んだ配信を「解析から全部」で(git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 5)。まだスタジオに無い配信でもよい。
-        items = [{"id": YouTube の配信 ID, "title", "channel"}]。配信ごとに1つの実行。すでに実行中・順番待ちの配信は飛ばす。
-        auto_send = 友人へ自動で送る(D-SEND。None = 既定 = オン)。
-        -> {"runs": [作った実行], "skipped": [{"id", "title", "reason"}]}"""
-        if not isinstance(items, list) or not items or len(items) > MAX_NEW:
-            raise ValueError("配信は 1〜%d 本で選んでください" % MAX_NEW)
-        top = _top_arg(top)
-        who = self._streamer(streamer)
-        base, studio = self.build_spec(), self._studio_list()   # 受付で組む束(1 回の受付で 1 回だけ読む。RS7-1 S4)
+    def _memo(self, key, fn):
+        """1 回の受付(画面が配信・文書を 1 本ずつ submit する)の間だけ覚える(MEMO_SEC 秒。束の土台・スタジオの一覧・友人の区間の長さ)"""
+        now = time.time()
+        hit = self._memo_items.get(key)
+        if hit is not None and 0 <= now - hit[0] < self.memo_sec:
+            return hit[1]
+        v = fn()
+        self._memo_items[key] = (now, v)
+        return v
 
-        def make(it, active):
-            it = it if isinstance(it, dict) else {}
-            vid, title = it.get("id"), str(it.get("title") or "").strip()[:120]
-            channel = str(it.get("channel") or "").strip()[:100]
-            if not _yt_id_ok(vid):
-                return {"id": str(vid or "")[:40], "title": title, "reason": "配信の指定が正しくありません"}
-            why = _busy_reason(active, lambda r: r.video_id == vid)   # 同じ要求の中の重なりも(作った実行は active に入る)
-            if why:
-                return {"id": vid, "title": title, "reason": why}
-            run = Run(vid, title or vid, "full", top, streamer=who, fresh={"title": title, "channel": channel}, on_fail=self._pref("onFail", "next"),
-                      **self._send_plan("full", auto_send))
-            self._accept(run, base=base, studio=studio)
-            return run
-        return self._enqueue(items, make)
+    def _base(self):
+        """受付の束の土台(Queue の hook。build_spec を 1 回の受付の間だけ覚える)"""
+        return self._memo("base", self.build_spec)
 
-    def start_docs(self, ids, overwrite=False, streamer=None):
-        """「編集」の履歴で選んだ文書をまとめて(⑦(b))。文書ごとに1つの実行(順番待ち・中止・状態は配信単位の実行と同じ)。
-        同じ文書がもう実行中・順番待ちなら断る(二重の登録)。-> {"runs": [作った実行], "skipped": [{"id", "title", "reason"}]}"""
-        if not isinstance(ids, list) or not ids or len(ids) > MAX_WAITING:
-            raise ValueError("文書は 1〜%d 本で選んでください" % MAX_WAITING)
-        who = self._streamer(streamer)
-        docs = {d["id"]: d for d in self._docs()}
-        base = self.build_spec()   # 受付で組む束(RS7-1 S4)
-
-        def make(tid, active):
-            d = docs.get(tid) if _doc_id_ok(tid) else None
+    def _check_input(self, run):
+        """submit の入力の検査(Queue の hook): 動画ファイル(Queue)+ 文書の実行は文書があるか(無ければ ValueError「文書が見つかりません」)。
+        題が封筒に無ければ(文書の id のまま)文書の題にする"""
+        super()._check_input(run)
+        if run.kind() == "docs":
+            d = next((x for x in self._docs() if x.get("id") == run.doc_id), None)   # txindex は更新時刻で覚えている(何度読んでもよい)
             if not d:
-                return {"id": str(tid)[:40], "title": "", "reason": "文書が見つかりません"}
-            why = _busy_reason(active, lambda r: r.doc_id == tid)
-            if why:
-                return {"id": tid, "title": d["title"], "reason": why}
-            run = Run(None, d["title"] or tid, DOC_MODE, None, doc_id=tid, overwrite=overwrite, streamer=who, on_fail=self._pref("onFail", "next"))
-            self._accept(run, base=base)
-            return run
-        return self._enqueue(dict.fromkeys(i for i in ids if isinstance(i, str)), make)
-
-    def start_request(self, items, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None, cut=None, weights=None, streamer=None,
-                      deliver_batch=None):
-        """友人からの依頼(配信の URL。src/human/friend/intake.py)。items = [{"id": 配信 ID, "top": 1〜30, "title", "channel", "ranges"?, "duration"?}]。
-        配信ごとに1つの実行(mode request)。ranges = 時刻で指定した区間 [(開始, 終了)](③ では使わない)。top に足りない分は自動で埋める。
-        cut = カットの方法(① のパック)・weights = 解析の重み。すでに実行中・順番待ちの配信は飛ばす。-> {"runs", "skipped"}(start_new と同じ形)。
-        streamer = 照らし合わせ済みの配信者の名前か None(友人の 1 人目の名前。あれば字幕の色に使い、None・空ならチャンネル名などから自動 = _auto_streamer)"""
-        if not isinstance(items, list) or not items or len(items) > MAX_NEW:
-            raise ValueError("配信は 1〜%d 本で指定してください" % MAX_NEW)
-        mode = FLOW_MODES["url"].get(flow, "request")
-        weights = clean_weights(weights)
-        base, studio, seen = self.build_spec(), self._studio_list(), {}   # 受付で組む束・スタジオの一覧(1 回の受付で 1 回だけ読む。RS7-1 S4)
-
-        def friend():
-            """友人の区間の長さの実績(解析の段がある実行が出たときに 1 回だけ読む)"""
-            if "fl" not in seen:
-                seen["fl"] = self._friend_length()
-            return seen["fl"]
-
-        def make(it, active):
-            it = it if isinstance(it, dict) else {}
-            vid, top = it.get("id"), it.get("top")
-            title, channel = str(it.get("title") or "").strip()[:120], str(it.get("channel") or "").strip()[:100]
-            try:
-                ranges = clean_ranges(it.get("ranges")) if mode in REQUEST_URL_MODES else []
-            except ValueError as e:
-                return {"id": str(vid or "")[:40], "title": title, "reason": str(e)}
-            if not _yt_id_ok(vid) or not isinstance(top, int) or isinstance(top, bool) or not 1 <= top <= 30:
-                return {"id": str(vid or "")[:40], "title": title, "reason": "配信の指定が正しくありません"}
-            why = _busy_reason(active, lambda r: r.video_id == vid)
-            if why:
-                return {"id": vid, "title": title, "reason": why}
-            # ① の送り直しは、前のパックがあっても今回の設定(カット・映像トラック)で作り直して届ける(overwrite)
-            run = Run(vid, title or vid, mode, top, fresh={"title": title, "channel": channel},
-                      on_fail=self._pref("onFail", "next"), request_id=request_id, deliver_dir=deliver_dir, speakers=speakers,
-                      video_tracks=video_tracks, ranges=ranges, cut=cut, weights=weights, overwrite=mode == "request_auto", streamer=streamer or None,
-                      duration=it.get("duration") if _num(it.get("duration")) else None, deliver_batch=deliver_batch)
-            self._accept(run, base=base, friend=friend, studio=studio)
-            return run
-        return self._enqueue(items, make)
-
-    def start_file(self, path, title="", streamer=None, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None, cut=None,
-                   engine=None, model=None, deliver_batch=None, pool=None, normalize=True):
-        """友人が切り抜いた動画の依頼(src/human/friend/intake.py が作業データへコピーしたもの)を文字起こしだけ(mode file)。
-        streamer = 照らし合わせ済みの名前か None。文字起こしができたら、その文書の配信者として覚える(あとでパックを作るときの字幕の色)。
-        engine・model = 文字起こしのエンジンとモデル(None = 編集の設定のまま。リアルタイム切り抜きの書き出しが live.auto から渡す。M2)。
-        normalize = 最初の段で写しを 30fps に置き換える(flow/run.py の段 normalize。opt-human 9a-1 で受付から移した。置き換えは path を消すので、
-        作業データへの写しだけに使う。既に 30fps の物 = ライブの自動の書き出しなどは False)"""
-        if not isinstance(path, str) or not os.path.isabs(path) or not os.path.isfile(path):
-            raise ValueError("動画が見つかりません")
-        self._push_accepted(lambda r: r.source_path == path, "この動画は", None)   # 先に断る物を断る(束を組む前)
-        run = Run(None, str(title or os.path.basename(path))[:120], FLOW_MODES["file"].get(flow, "file"), None, streamer=streamer or None,
-                  on_fail=self._pref("onFail", "next"), source_path=path, request_id=request_id, deliver_dir=deliver_dir, speakers=speakers,
-                  video_tracks=video_tracks, cut=cut, engine=engine, model=model, deliver_batch=deliver_batch, pool=pool, normalize=normalize is True)
-        self._accept(run)   # 束は受けたときに組む(RS7-1 S4。ライブの書き出しの経路も欄から作った Run を、ここで束にする)
-        return self._push_accepted(lambda r: r.source_path == path, "この動画は", run)
-
-    def _push_accepted(self, same, what, run):
-        """1 本の受付: 同じ入力が待ち・実行中・待ちが多すぎれば理由つきの ValueError。run があれば積んで待ちの記録に残す -> run.public()(run が None = 確かめるだけ)"""
-        with self.cv:
-            why = _busy_reason(self._active_runs(), same, what)
-            if why:
-                raise ValueError(why)
-            if run is None:
-                return None
-            out = self._push(run)
-        self._save_active()
-        return out
+                raise ValueError("文書が見つかりません")
+            if (not run.title or run.title == run.doc_id) and d.get("title"):
+                run.title = str(d["title"])[:120]
 
     # ------------------------------------------------------------ 起動し直す(画面の「起動し直す」の確かめ。ToolClient を使うので入口に残す)
     def restart_info(self, timeout=5):
@@ -543,35 +407,36 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
         except (OSError, ValueError, KeyError):
             ar = {}
         bundle, notes = spec_from_settings(studio, editor, ar)
+        if ar.get("onFail") in _spec.ON_FAIL:   # 1 本が失敗したとき(ホームの設定 autorun.onFail。RV A1 で受付の欄から束の run.onFail へ)
+            bundle = dict(bundle, run=dict(bundle["run"], onFail=ar["onFail"]))
         return _machine.overlay(bundle, env=self.env), notes
 
     # ------------------------------------------------------------ 受付で決める(RS7-1 S4。Queue の hook)
-    def _accept(self, run, convert=False, base=None, friend=None, studio=None):
-        """受けたときに決める物を Run に置く(待ちの間に設定を変えても、その実行の中身は変わらない):
-        - 束(base = 組んである (束, 知らせ)。無ければ build_spec)と知らせ run.notes
-        - 友人の区間の長さ(依頼の URL で解析の段があるとき。_friend_length。friend = 1 回の受付で 1 回だけ読む関数)。束の analyze.length・preRatio に入れ、
+    def _accept(self, run, convert=False):
+        """受けたときに決める物を Run に置く(Queue の hook。submit が必ず通す = RV A1。待ちの間に設定を変えても、その実行の中身は変わらない):
+        - 束が無ければ組む(_base = build_spec)と知らせ run.notes・配信者が無ければ束の hints.people の先頭(Queue._accept)
+        - 友人の区間の長さ(依頼の URL で解析の段があるとき。_friend_length を 1 回の受付の間だけ覚える)。束の analyze.length・preRatio に入れ、
           run.friend_plan に出どころと重ねる前の値(解析の段が使った印 run.friend_length と文を出す)
-        - 配信者(指定が無いとき。覚えた名前 → チャンネル名から。決まらなければ実行中に _auto_streamer = 今までどおり)= 封筒の legacy.streamer
+        - 配信者(まだ無いとき。覚えた名前 → チャンネル名から。決まらなければ実行中に _auto_streamer = 今までどおり)= 束の hints.streamer
         - 届け方の n 本(友人の依頼・ライブの組の溜めで指定が無いとき。ホームの設定 intake.deliverBatch)= 封筒の deliver.batch
-        convert = 版 1 の待ちの記録を戻すとき: 束が無ければ組む・まだ決めていない物だけ決める(始めていた実行の配信者は実行中に決めるまま)。
-        studio = スタジオの一覧(1 回の受付で 1 回だけ読む。None = ここで読む)"""
+        - 届ける名前の頭(まとめて実行の自動で送る形 = mode full・出どころ auto で無ければ。友人のアプリの依頼 id の形。D-SEND)= 封筒の deliver.tag
+        convert = 束の無い待ちの記録を戻すとき: 束が無ければ組む・まだ決めていない物だけ決める(始めていた実行の配信者は実行中に決めるまま)"""
         new = run.spec is None
-        if new:
-            bundle, notes = base if base is not None else self.build_spec()
-            run.spec = bundle
-            run.notes = list(notes)
+        super()._accept(run, convert)
         pending = any(s["key"] == "analyze" and s["state"] not in DONE_STEPS for s in run.steps)
         if run.friend_plan is None and run.mode in REQUEST_URL_MODES and pending:
-            fl = friend() if friend is not None else self._friend_length()
+            fl = self._memo("friend", self._friend_length)
             if fl:
                 keys = [k for k in ("length", "preRatio") if k in fl]
                 b = run.spec
                 run.friend_plan = dict(fl, base={k: b["analyze"][k] for k in keys})
                 run.spec = dict(b, analyze=dict(b["analyze"], **{k: fl[k] for k in keys}))
         if run.streamer is None and (new or not convert):
-            self._accept_streamer(run, studio)
+            self._accept_streamer(run, self._memo("studio", self._studio_list))
         if run.deliver_batch is None and (run.deliver_dir or run.pool):
             run.deliver_batch = self._batch_size(run)
+        if run.mode == "full" and run.deliver_origin == "auto" and not run.deliver_tag:
+            run.deliver_tag = deliver_mod.request_id(self.clock())
         self._ensure_send_step(run)   # チェックを外した自動で送る形の full にも段 deliver(D-SEND)
 
     def _accept_streamer(self, run, studio=None):

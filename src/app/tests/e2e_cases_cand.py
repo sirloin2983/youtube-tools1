@@ -166,14 +166,17 @@ def main():
                             "modeLabel": "文字起こしまで", "marks": body.get("marks"), "steps": [{"label": "書き出し", "state": "queued"}]}
 
                 def fake_tx_start(route):   # 入口のまとめて実行(書き出しのあとの自動の文字起こし・まとめて実行)は頼んだ中身だけ見る
-                    body = json.loads(route.request.post_data or "{}")
+                    raw = json.loads(route.request.post_data or "{}")   # ② の口 {envelope, spec}(RV A1)-> 以前の形 {id, mode, marks} で覚える
+                    env, run = raw.get("envelope") or {}, (raw.get("spec") or {}).get("run") or {}
+                    mode = ("transcribe" if run.get("upto") == "transcribe" else "adopted") if run.get("from") == "export" else "full"
+                    body = {"id": (env.get("input") or {}).get("videoId"), "mode": mode, "marks": (env.get("input") or {}).get("marks")}
                     sent_tx.append(body)
                     runs[:] = [run_of(body)]
                     route.fulfill(status=200, content_type="application/json", body=json.dumps({"run": runs[0]}))
-                pg.route("**/api/autorun/start", fake_tx_start)
-                pg.route("**/api/autorun/estimate", lambda route: route.fulfill(status=200, content_type="application/json",
-                                                                                body=json.dumps({"steps": [{"label": "書き出し", "count": 1}]})))
-                pg.route("**/api/autorun", lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps({"runs": runs})))
+                pg.route("**/api/flow/submit", fake_tx_start)
+                pg.route("**/api/flow/estimate", lambda route: route.fulfill(status=200, content_type="application/json",
+                                                                             body=json.dumps({"steps": [{"label": "書き出し", "count": 1}]})))
+                pg.route("**/api/flow/runs", lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps({"runs": runs})))
 
                 # 1. 候補のパネルが載る(review.js を読んで、パネルの箱の中に作る)
                 pg.goto(base + "cases?c=%s#cand" % VID)
@@ -260,7 +263,7 @@ def main():
                 kb = pg.text_content(".ui-keybar") or ""
                 check("今をマーク①" in kb and "Space" in kb and "Shift+N" in kb, "下の帯にパネルのキーと殻のキー(Shift+N): %s" % kb[:120])
 
-                # 4c. まとめて実行(入口の /api/autorun。偽物で頼んだ中身だけ見る): 配信ごと・マークの行の「この後を ▸」(旧 check_review_autorun)
+                # 4c. まとめて実行(入口の /api/flow/submit。偽物で頼んだ中身だけ見る): 配信ごと・マークの行の「この後を ▸」(旧 check_review_autorun)
                 check(pg.is_visible("#rvAuto"), "「まとめて実行」が出る(入口の中)")
                 pg.click("#rvAuto > summary")
                 pg.click('#rvAuto [data-auto="transcribe"]')

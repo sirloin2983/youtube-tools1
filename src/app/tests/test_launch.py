@@ -878,7 +878,7 @@ class PortalHttpTest(Base):
         self.assertEqual(json.loads(body)["exists"], False)
 
     def test_autorun_history(self):
-        """段2 B-6: まとめて実行の記録(作業データの logs/autorun-runs.jsonl)。limit は既定 50・最大 200・前回の結果は /api/autorun の past"""
+        """段2 B-6: まとめて実行の記録(作業データの logs/autorun-runs.jsonl)。limit は既定 50・最大 200・前回の結果は /api/flow/runs の past(RV A1 で /api/autorun から)"""
         logs = self.sup.logs_dir
         self.assertTrue(os.path.abspath(logs).startswith(os.path.abspath(self.tmp)), logs)   # テストは一時フォルダに書く
         os.makedirs(logs, exist_ok=True)
@@ -886,17 +886,20 @@ class PortalHttpTest(Base):
             for i in range(250):
                 f.write(json.dumps({"v": 1, "id": "r%03d" % i, "kind": "video", "videoId": "v%03d" % i, "docId": None, "state": "error",
                                     "error": "理由%d" % i, "steps": []}, ensure_ascii=False) + "\n")
-        r, body = self.req("GET", "/api/autorun")
+        r, body = self.req("GET", "/api/flow/runs")
         j = json.loads(body)
         self.assertEqual((j["runs"], len(j["past"]), j["past"][0]["id"], j["past"][0]["error"]), ([], 50, "r249", "理由249"))
         for q, n, first in (("", 50, "r249"), ("?limit=1000", 200, "r249"), ("?limit=abc&offset=x", 50, "r249"), ("?limit=0", 1, "r249"),
                             ("?limit=20&offset=240", 10, "r009"), ("?offset=-3", 50, "r249")):
-            r, body = self.req("GET", "/api/autorun/history" + q)
+            r, body = self.req("GET", "/api/flow/history" + q)
             self.assertEqual(r.status, 200, q)
             h = json.loads(body)
             self.assertEqual((len(h["runs"]), h["runs"][0]["id"], h["total"]), (n, first, 250), q)
-        r, _ = self.req("GET", "/api/autorun/history", headers={"Sec-Fetch-Site": "cross-site"})   # ほかのサイトからは読めない
+        r, _ = self.req("GET", "/api/flow/history", headers={"Sec-Fetch-Site": "cross-site"})   # ほかのサイトからは読めない
         self.assertEqual(r.status, 403)
+        for path in ("/api/autorun", "/api/autorun/history"):   # 以前の名前は消した(RV A1)
+            r, _ = self.req("GET", path)
+            self.assertEqual(r.status, 404, path)
 
     def test_flow_submit_and_status(self):
         """RS7-1 S4: ② の口 POST /api/flow/submit {envelope, spec}(合言葉が要る・形が違えば 400 と理由)と GET /api/flow/status"""
@@ -1106,7 +1109,9 @@ class PortalHttpTest(Base):
         r, _ = self.req("GET", "/api/flow/history", headers={"Sec-Fetch-Site": "cross-site"})   # ほかのサイトからは読めない
         self.assertEqual(r.status, 403)
         r, _ = self.post("/api/flow/estimate", body=b'{"ids": []}')
-        self.assertEqual(r.status, 400)   # 旧い /api/autorun/estimate と同じ検査(文書は 1 本から)
+        self.assertEqual(r.status, 400)   # 本文は submit と同じ {envelope, spec}(RV A1。封筒が無ければ 400)
+        r, _ = self.post("/api/autorun/start", body=b'{"id": "abcdefghijk", "mode": "full"}')
+        self.assertEqual(r.status, 404, "以前の受付は消した(RV A1)")
 
     def test_flow_submit_live_goes_to_live(self):
         """RS7-2 G2b: 封筒 kind live は ② の口からライブ係(Live.submit)へ(入口が Queue.set_live_hook で登録)。リアルタイム切り抜きがオフなら 400 と理由

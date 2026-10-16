@@ -24,7 +24,7 @@
        action: {label, fn}(ボタン1つ)・閉じるボタン・戻り値 {close}。UIKit.confirmTwice(btn, run, text)(二度押しの確認を1つに)。
        UIKit.prefs(ホームの設定 api/ytt/prefs: get(sections)・patch(section, value)(節ごと・まとめて送る)・remember(kind, key, name)・
        available()。保存に失敗したら知らせと [もう一度])。
-       UIKit.autorun(まとめて実行の部品: panel(el, {kind, modes}) = 要約1行と「設定を変える」・start(path, body, estBody) = 見積もり → 始める → 終わったら知らせ・
+       UIKit.autorun(まとめて実行の部品: panel(el, {kind, modes}) = 要約1行と「設定を変える」・start(orders, opts) = 見積もり → 始める → 終わったら知らせ(v28)・
        stepLabel / runLabel = 状態の言葉)。
        UIKit.packLoud(パックの音量: LUFS でそろえる か % で決める。値は編集の設定 packLoudness・packVolume の1か所。mount(select) で選択の欄と % の欄にする・get()・set(values))
    v8(2026-09-29・気が利く画面へ 段6): UIKit.keymap(キーの一覧 = キー配置の設定。README.md の「v8」)
@@ -59,7 +59,10 @@
     v26(2026-10-11・RS8 案件の画面 C1): 左の一覧 .ui-rail・.ui-rail-item(ui-kit.css)・共通の再生キーにできないキーに Shift+N(案件: 次の未校正の切り抜き)。README.md の「v26」
     v27(2026-10-11・RS8 案件の画面 C4): 古い画面(スタジオ・編集のページ)を消したので、appnav を「ホーム / 案件 / 設定」に(案件 = /cases・設定 = /settings。
        <nav data-ui-appnav="portal|cases|settings">。V1 確かめる V3 で「確かめる」(= /check)を足して「ホーム / 案件 / 確かめる / 設定」の 4 つに)・録画中の札の「開く」は案件の画面の候補(/cases?c=<録画 id>#cand)・「他のツール」のメニューの「案件の一覧」はホームへ。
-       ツールごとの写し(src/studio/ui-kit.*・src/editor/ui-kit.*)は無くなった(画面はどれも入口の直下の正本 ui-kit.js・ui-kit.css を読む)。README.md の「v27」 */
+       ツールごとの写し(src/studio/ui-kit.*・src/editor/ui-kit.*)は無くなった(画面はどれも入口の直下の正本 ui-kit.js・ui-kit.css を読む)。README.md の「v27」
+    v28(2026-10-16・RV A1): まとめて実行の受付を ② の口 POST api/flow/submit {envelope, spec} の 1 本に。UIKit.flow.order(欄 → 封筒 + 束の差分。
+       Python の src/flow/order.py と同じ変換)・UIKit.autorun.start(orders, opts)(見積もり api/flow/estimate を 1 本ずつ足す → 1 本ずつ submit →
+       終わるまで api/flow/runs を見て知らせる)。以前の start(path, body, estBody) と api/autorun/* は消した。README.md の「v28」 */
 (function () {
   'use strict';
   var KEY = 'ytt:theme';
@@ -348,7 +351,7 @@
       });
     }, function (e) { clearTimeout(timer); throw noReply(e); });
   }
-  /* 入口(ホーム)の API の場所。path は入口の直下からの相対('api/autorun'・'api/ytt/prefs'・'live/api/info'。先頭の / は外す)。
+  /* 入口(ホーム)の API の場所。path は入口の直下からの相対('api/flow/runs'・'api/ytt/prefs'・'live/api/info'。先頭の / は外す)。
      取り込んだツールの画面(/studio/・/transcribe/)からもホームの画面(/)からも、画面の場所の 1 つ上 = 入口の直下を指す(絶対パスを書かない) */
   function homeUrl(path) { return new URL('../' + String(path == null ? '' : path).replace(/^\/+/, ''), location.href).href; }
   function homeApi(path, opt) { return http(homeUrl(path), opt); }
@@ -1981,6 +1984,43 @@
   var AR_CUT = { rows: '行から', none: 'カットしない', silence: '無音で削る' };
   var arSeq = 0, arPanels = [], arWatched = {}, arTimer = 0, arState = null;
   function arHomeApi(path, body) { return homeApi(path, { body: body, fail: httpCodeText }); }
+  /* ---- flow(v28・RV A1)---- 欄 → ② の口 POST api/flow/submit の本文 {envelope, spec}(封筒 = src/flow/envelope.py の版 2・spec = 束の差分)。
+     Python の src/flow/order.py の order と同じ形(画面が使う欄だけ)。f: {kind: 'url'|'docs'|'file', videoId, docId, path, title,
+     fresh: {title, channel}(まだスタジオに無い配信)・marks: [マークの id](このマークだけ。from は 'export')・from: null|'export'・upto: 'pack'|'transcribe'・
+     top(採用する数。url だけ)・streamer(null = 自動・'' = 色なし)・repack(パックがあれば作り直す)・deliver: {origin: 'auto', dir: 届け先 か null}} */
+  function flowId() {
+    var a = new Uint8Array(5), s = '';
+    try { window.crypto.getRandomValues(a); } catch (e) { for (var j = 0; j < a.length; j++) a[j] = Math.floor(Math.random() * 256); }
+    for (var i = 0; i < a.length; i++) s += (a[i] < 16 ? '0' : '') + a[i].toString(16);
+    return s;   /* 10 桁の 16 進 = 実行の id にもなる */
+  }
+  function flowOrder(f) {
+    f = f || {};
+    var kind = f.kind === 'docs' || f.kind === 'file' ? f.kind : 'url', title = String(f.title || '').slice(0, 120), inp;
+    if (kind === 'url') {
+      inp = { videoId: String(f.videoId || ''), title: title };
+      if (f.fresh) inp.fresh = { title: String(f.fresh.title || '').slice(0, 120), channel: String(f.fresh.channel || '').slice(0, 100) };
+      if (f.marks && f.marks.length) inp.marks = f.marks.slice();
+    } else if (kind === 'docs') inp = { docId: String(f.docId || ''), title: title };
+    else inp = { path: String(f.path || ''), title: title };
+    var env = { id: f.id || flowId(), kind: kind, input: inp, specVersion: 2 };
+    var d = f.deliver;
+    if (d && (d.origin || d.dir)) env.deliver = { origin: d.origin || null, dir: d.dir || null };
+    var run = { upto: f.upto === 'transcribe' ? 'transcribe' : 'pack' }, spec = { run: run };
+    if (f.from) run.from = f.from;
+    if (f.repack) run.repack = true;
+    if (kind === 'url' && f.top != null) spec.adopt = { top: Math.round(+f.top) };
+    if (f.streamer != null) spec.hints = { streamer: String(f.streamer) };
+    return { envelope: env, spec: spec };
+  }
+  /* 同じ指定でもう一度(やり直す)= 新しい id の封筒 */
+  function flowAgain(o) {
+    var env = {};
+    for (var k in o.envelope) if (Object.prototype.hasOwnProperty.call(o.envelope, k)) env[k] = o.envelope[k];
+    env.id = flowId();
+    return { envelope: env, spec: o.spec };
+  }
+  var flow = { order: flowOrder, again: flowAgain, newId: flowId };
   function arLoad() {
     var pr = prefs.available() ? prefs.get(['autorun']).then(function (p) { return p.autorun || {}; }, function () { return {}; }) : Promise.resolve({});
     var u = txApiUrl('api/settings');
@@ -2080,6 +2120,23 @@
     box.appendChild(arField('1本が失敗したとき', of));
     return box;
   }
+  /* 1 本ずつの見積もりを足す(段の鍵ごと。どれかが読めなければ null = 見積もりなしで始める) */
+  function arSumEstimates(list) {
+    if (!list.length) return null;
+    for (var i = 0; i < list.length; i++) if (!list[i] || !list[i].steps) return null;
+    if (list.length === 1) return list[0];
+    var order = [], by = {}, reasons = [], nothing = true, total = 0;
+    list.forEach(function (e) {
+      nothing = nothing && !!e.nothing;
+      if (e.reason && reasons.indexOf(e.reason) < 0) reasons.push(e.reason);
+      total += +e.total || 0;
+      e.steps.forEach(function (s) {
+        if (!by[s.key]) { by[s.key] = { key: s.key, label: s.label, count: 0, note: s.note || '' }; order.push(s.key); }
+        by[s.key].count = by[s.key].count == null || s.count == null ? null : by[s.key].count + s.count;
+      });
+    });
+    return { steps: order.map(function (k) { return by[k]; }), total: total, nothing: nothing, reason: nothing ? reasons.join('・') : '' };
+  }
   function arEstimateText(e) {
     if (!e || !e.steps) return '';
     return e.steps.map(function (s) { return s.label + ' ' + (s.count == null ? 'あとで決まる' : s.count + ' 本'); }).join(' → ');
@@ -2110,7 +2167,7 @@
     arTimer = 0;
     var ids = Object.keys(arWatched);
     if (!ids.length) return;
-    arHomeApi('api/autorun').then(function (j) {
+    arHomeApi('api/flow/runs').then(function (j) {
       var runs = j.runs || [];
       for (var i = 0; i < ids.length; i++) {
         var r = null;
@@ -2152,19 +2209,36 @@
       if (arState) p.paint(); else arLoad().then(arRepaint, function () {});
       return p;
     },
-    /* 始める: 見積もり(estBody があれば)→ やることが 0 なら始めない → path に POST → 終わるまで見て知らせる。-> Promise<応答 | null> */
-    start: function (path, body, estBody) {
-      var est = estBody ? arHomeApi('api/autorun/estimate', estBody).catch(function () { return null; }) : Promise.resolve(null);
+    /* 始める(v28・RV A1): orders = UIKit.flow.order の {envelope, spec} の並び(1 つでもよい)。opts.estimate(既定 true)= 1 本ずつ見積もって足す
+       (api/flow/estimate)→ やることが 0 なら始めない → 1 本ずつ api/flow/submit → 終わるまで見て知らせる。
+       -> Promise<{run: 1 本目, runs, skipped: [{id, title, reason}]} | null(やることが無い)>。全部断られたら 1 本目の理由で reject */
+    start: function (orders, opts) {
+      orders = Array.isArray(orders) ? orders : [orders];
+      opts = opts || {};
+      var est = opts.estimate === false ? Promise.resolve(null)
+        : Promise.all(orders.map(function (o) { return arHomeApi('api/flow/estimate', o).catch(function () { return null; }); })).then(arSumEstimates);
       return est.then(function (e) {
         if (e && e.nothing) { toastFn('やることがありません: ' + (e.reason || ''), { kind: 'info', ms: 8000 }); return null; }
-        return arHomeApi(path, body).then(function (j) {
-          var runs = j.run ? [j.run] : (j.runs || []);
-          for (var i = 0; i < runs.length; i++) arWatched[runs[i].id] = (function () { var b = body; return function () { autorun.start(path, b, estBody); }; })();
+        var runs = [], skipped = [], errs = [];
+        var chain = orders.reduce(function (p, o) {
+          return p.then(function () {
+            return arHomeApi('api/flow/submit', o).then(function (j) {
+              if (!j || !j.run) return;
+              runs.push(j.run);
+              arWatched[j.run.id] = function () { autorun.start([flowAgain(o)], opts); };
+            }, function (er) {
+              errs.push(er);
+              skipped.push({ id: o.envelope.input.videoId || o.envelope.input.docId || o.envelope.id, title: o.envelope.input.title || '', reason: er && er.message || String(er) });
+            });
+          });
+        }, Promise.resolve());
+        return chain.then(function () {
+          if (!runs.length && errs.length) throw errs[0];
           if (runs.length && !arTimer) arTimer = setTimeout(arPoll, 2500);
           var what = runs.length === 1 ? '「' + runs[0].modeLabel + '」' : runs.length + ' 本のまとめて実行';
-          toastFn(what + 'を始めました' + (e ? '(' + arEstimateText(e) + ')' : ''), { kind: 'ok', ms: 6000 });
-          if (j.skipped && j.skipped.length) toastFn(j.skipped.length + ' 本は始めませんでした: ' + j.skipped[0].reason, { kind: 'info', ms: 8000 });
-          return j;
+          if (runs.length) toastFn(what + 'を始めました' + (e ? '(' + arEstimateText(e) + ')' : ''), { kind: 'ok', ms: 6000 });
+          if (skipped.length) toastFn(skipped.length + ' 本は始めませんでした: ' + skipped[0].reason, { kind: 'info', ms: 8000 });
+          return { run: runs[0] || null, runs: runs, skipped: skipped };
         });
       });
     },
@@ -2661,8 +2735,8 @@
   }
   var sound = { other: sndOther, onChange: function (fn) { if (typeof fn === 'function') snd.subs.push(fn); }, tool: snd.tool };
 
-  window.UIKit = { version: 27, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
+  window.UIKit = { version: 28, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
                    portal: portal, streamer: streamer, appnav: appnav, drawer: drawer, dialog: dialogApi, toast: toastFn, keybar: keybar, settings: settings, settingsForm: settingsForm, keys: keysApi, keymap: keymapApi, icon: icon,
-                   confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud, autorun: autorun, restart: restart, timebox: timebox, hide: hide, liveBadge: liveBadge, menuOff: menuOff,
+                   confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud, autorun: autorun, flow: flow, restart: restart, timebox: timebox, hide: hide, liveBadge: liveBadge, menuOff: menuOff,
                    http: http, homeApi: homeApi, homeUrl: homeUrl, copy: copyText };
 })();

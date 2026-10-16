@@ -13,14 +13,10 @@
   POST /api/cases/auto                   {op: deliver|discard, id, markId} 自動でできた切り抜き(線 D の M9・M12)を 採用 = 友人へ届ける・
                                           要らない = ごみ箱フォルダへ(src/manage/cases/cases.py の auto_review。deliver の応答の job は api/ytt/deliver の status で聞き直す)。
                                           案件の状態・メモ(/api/cases/update)と「見た」(op seen)は MARKS-3 で消した
-  GET  /api/autorun                       まとめて実行の状態(src/app/autorun.py)。runs = この起動の実行・past = 配信・文書ごとの前回の結果(記録のファイルから)
-  GET  /api/autorun/history?limit=&offset=  終わった実行の記録(<作業データ>/app/logs/autorun-runs.jsonl と .1。新しい順。limit は既定 50・最大 200)
-  POST /api/autorun/start                 {id, mode: full|adopted|transcribe, top?, streamer?, marks?, overwrite?, autoSend?} 配信1本ぶんを順に自動で(marks: そのマークだけ・overwrite: パックがあれば作り直す・
-                                          autoSend: 友人へ自動で送る。無ければ mode full のときだけオン。D-SEND)
-  POST /api/autorun/estimate              {id, mode, marks?, top?, overwrite?, autoSend?} か {ids, overwrite?} 実行と同じ規則の見積もり(段ごとの本数と飛ばす理由。書き込まない)
-  POST /api/autorun/cancel                {runId}
-  POST /api/autorun/start-docs            {ids: [文書の id], overwrite?} 「編集」の履歴で選んだ文書を、行が無ければ文字起こし → パック(12 ⑦(b))
-  POST /api/flow/submit                   {envelope, spec?} ② の口(RS7-1 S4): 封筒(src/flow/envelope.py)+ 束(src/flow/spec.py)を待ち行列に積む → {run}。
+  GET  /api/flow/runs                     まとめて実行の状態(src/flow/runqueue.py の snapshot)。runs = この起動の実行(public。mode・modeLabel・docs…)・
+                                          past = 配信・文書ごとの前回の結果(記録のファイルから)・modes(RV A1 で GET /api/autorun から改名)
+  POST /api/flow/submit                   {envelope, spec?} ② の口 = 受付はこれ 1 本(RS7-1 S4・RV A1): 封筒(src/flow/envelope.py。版 1・2)+ 束の差分(src/flow/spec.py)を
+                                          待ち行列に積む → {run}。欄から封筒と差分を作るのは src/flow/order.py(画面は UIKit.flow.order)。束の土台は画面の設定(build_spec)。
                                           形が違う・同じ入力が待ち・実行中は 400 と理由。動画ファイルの封筒は実在するパス・動画か音声の拡張子だけ。届け先が無ければ届けない。
                                           F1 F0-1: 束の版(封筒.specVersion)が違えば 400 error spec_version・束に知らない節・項目・合わない値があれば 400 error bad_spec
                                           (送るアプリは「更新してください」)。ほかの理由は今までどおり bad_request
@@ -39,8 +35,8 @@
   GET  /api/flow/outbox                   送り返す zip の一覧 {files: [{id, requestId, runId, size, at}]}(src/flow/outbox.py の list_outbox。画面なしで
                                           依頼(requestId のある実行)が終わるたびに <app>/outbox に組む。F1 F6a)
   POST /api/flow/outbox/done              {id} 上げ終えた zip を outbox/済み へ → {ok: true}。無い・名前の形が違う id は 404(F1 F6a)
-  GET  /api/flow/history?case=&limit=&offset=  終わった実行の記録(/api/autorun/history と同じ中身。case = 結果の束の案件で絞る)
-  POST /api/flow/estimate                 /api/autorun/estimate と同じ(② の名前。旧い名前も残す)
+  GET  /api/flow/history?case=&limit=&offset=  終わった実行の記録(<作業データ>/app/logs/autorun-runs.jsonl と .1。新しい順。limit は既定 50・最大 200。case = 結果の束の案件で絞る)
+  POST /api/flow/estimate                 {envelope, spec?}(submit と同じ本文)実行と同じ規則の見積もり → {steps, total, nothing, reason, notes}(段ごとの本数と飛ばす理由。書き込まない)
   GET  /api/intake                        友人からの依頼の受付の状態・設定・最近の依頼(src/human/friend/intake.py。notes:docs/spec/friend.md)
   POST /api/intake/scan                   {} 今すぐフォルダを見る(裏で。応答は今の状態)
   GET  /api/backup                        作業データのバックアップの状態・設定(src/manage/keep/backup.py。notes:docs/spec/data.md の「バックアップ」)
@@ -53,7 +49,6 @@
   POST /api/check/answer                  {card, answer, ms?, skip?} カードに答える(カードはサーバーが引き直す。反映は src/human/check/apply.py に登録した部品)
                                           → {ok, answer, card, applied, held, flushed, next} / {undo: 答えの id} Z で戻す → {ok, answer, card, reverted}
   POST /api/check/skip                    {card} 今日の間だけ後ろへ(保留を先に確定)・POST /api/check/flush {} 保留(1 枚遅れの [送る])を確定(画面を離れたとき)
-  POST /api/autorun/start-new             {items: [{id, title, channel}], top?, streamer?, autoSend?} スタジオの ① 探す で選んだ配信を「解析から全部」で(autoSend の既定はオン)
   GET  /api/status                        {"app", "version", "tools": [...], "dataDir"}(ツールごとの状態・作業データの置き場所)
   GET  /api/health[?refresh=1]            「調子」(段9 9-1。src/manage/ops/health.py): 版の期待と実際・認識ワーカー・ffmpeg/ffprobe/yt-dlp・空き容量・作業データの大きさ・エラーの件数
   GET  /api/cleanup                       片付けの候補(段9 9-2。src/manage/keep/cleanup.py)。POST /api/cleanup {ids} で候補に出した物だけをごみ箱フォルダへ移す(TRASH_DAYS 日で起動時に消える)
@@ -656,13 +651,11 @@ ACTION_RE = re.compile(r"/api/tools/([a-z0-9]{1,20})/(start|stop|restart)")
 GET_SNAPSHOTS = {"/api/intake": "intake",       # 友人からの依頼の受付(src/human/friend/intake.py)
                  "/api/backup": "backup",       # 作業データのバックアップの状態と設定(src/manage/keep/backup.py)
                  "/api/accuracy": "accuracy",   # 精度の自動測定の状態(src/eval/drill/accuracy.py)
-                 "/api/autorun": "autorun"}     # まとめて実行の状態(src/app/autorun.py)
+                 "/api/flow/runs": "autorun"}   # まとめて実行の状態(src/flow/runqueue.py の snapshot。RV A1 で /api/autorun から)
 # POST: 場所 → (PortalHandler のメソッド, 終了の途中なら 409 で断るか)。合言葉・Origin などの検査と本文の読み取りは do_POST が先に済ませる
 POST_ROUTES = {"/api/cases/auto": ("_post_case_auto", True),
-               "/api/autorun/start": ("_post_autorun", True), "/api/autorun/cancel": ("_post_autorun", True),
-               "/api/autorun/start-docs": ("_post_autorun", True), "/api/autorun/start-new": ("_post_autorun", True),
-               "/api/autorun/estimate": ("_post_autorun", True), "/api/flow/submit": ("_post_flow_submit", True),
-               "/api/flow/estimate": ("_post_autorun", True), "/api/flow/cancel": ("_post_flow_job", True), "/api/flow/retry": ("_post_flow_job", True),
+               "/api/flow/submit": ("_post_flow_submit", True), "/api/flow/estimate": ("_post_flow_submit", True),
+               "/api/flow/cancel": ("_post_flow_job", True), "/api/flow/retry": ("_post_flow_job", True),
                "/api/flow/outbox/done": ("_post_outbox_done", False),
                "/api/intake/scan": ("_post_intake_scan", True), "/api/backup/run": ("_post_backup_run", True),
                "/api/accuracy/run": ("_post_accuracy_run", True), "/api/window": ("_post_window", False),
@@ -824,7 +817,7 @@ class PortalHandler(BaseHTTPRequestHandler):
             st = self.server.autorun.status()   # autorun を作る = 掲示板に Run を載せる(PortalServer.autorun)
             st.update(self.server.board.snapshot(case=case))
             return self._json(200, st)
-        if u.path in ("/api/autorun/history", "/api/flow/history"):   # 終わった実行の記録(段2 B-6。ホームの「まとめて実行の記録」を開いたときだけ読む)
+        if u.path == "/api/flow/history":   # 終わった実行の記録(段2 B-6。ホームの「まとめて実行の記録」を開いたときだけ読む)
             return self._json(200, self.server.autorun.history(query_int(q, "limit", autorun_mod.HISTORY_DEFAULT), query_int(q, "offset", 0),
                                                                case=case))
         if u.path == "/api/check/next":   # 「確かめる」の待ち行列(V1。src/app/check/deck.py。読むだけ = 開いただけでは何も書かない)
@@ -953,36 +946,17 @@ class PortalHandler(BaseHTTPRequestHandler):
             check_deck.invalidate()
         return self._json(200, out)
 
-    def _post_autorun(self, path, body):
-        """まとめて実行(配信1本ぶん・選んだ文書を順に自動で)。/api/autorun/<start|cancel|start-docs|start-new|estimate>"""
-        op, overwrite = path.rsplit("/", 1)[1], body.get("overwrite") is True
-        # 友人へ自動で送る(D-SEND): 本文の autoSend(true・false)。無ければ既定(mode full ならオン = autorun の _send_plan)。文書単位(start-docs)は送らない
-        auto_send = body.get("autoSend") if isinstance(body.get("autoSend"), bool) else None
-        try:
-            ar = self.server.autorun
-            if op == "estimate":   # 見積もり(書き込まない。段4): {ids, overwrite} か {id, mode, marks, top, overwrite, autoSend?}
-                if isinstance(body.get("ids"), list):
-                    return self._json(200, ar.estimate(doc_ids=body["ids"], overwrite=overwrite))
-                deliver = body.get("mode") == "full" and auto_send is not False and bool(ar.send_folder())   # 届ける段の行(受付のフォルダが決まっているときだけ)
-                return self._json(200, ar.estimate(body.get("id"), body.get("mode"), body.get("marks"), body.get("top"), overwrite=overwrite, deliver=deliver))
-            if op == "start-new":   # ① 探す で選んだ配信(git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 5)
-                return self._json(200, ar.start_new(body.get("items"), body.get("top"), body.get("streamer"), auto_send=auto_send))
-            if op == "start-docs":
-                return self._json(200, ar.start_docs(body.get("ids"), overwrite, body.get("streamer")))
-            if op == "start":
-                return self._json(200, {"run": ar.start(body.get("id"), body.get("mode"), body.get("top"), body.get("streamer"), body.get("marks"),
-                                                        overwrite=overwrite, auto_send=auto_send)})
-            return self._json(200, {"run": ar.cancel(body.get("runId"))})
-        except ValueError as e:
-            return self._fail(400, "bad_request", str(e))
-
     def _post_flow_submit(self, path, body):
-        """② の口(RS7-1 S4): {envelope, spec?} を待ち行列に積む(src/flow/runqueue.py の Queue.submit)。形が違う・積めない理由は 400。
-        入口の起動直後(ツールの取り込みの途中)は済むまで SUBMIT_START_WAIT 秒まで待つ(待ちきれなければ 503 starting)"""
+        """② の口(RS7-1 S4・RV A1): {envelope, spec?} を待ち行列に積む(src/flow/runqueue.py の Queue.submit)か、同じ本文で見積もる
+        (/api/flow/estimate = Queue.estimate。書き込まない)。形が違う・積めない理由は 400。
+        入口の起動直後(ツールの取り込みの途中)は済むまで SUBMIT_START_WAIT 秒まで待つ(待ちきれなければ 503 starting。見積もりは待たない)"""
+        estimate = path.endswith("/estimate")
         started = getattr(self.server, "tools_started", None)
-        if started is not None and not started.wait(SUBMIT_START_WAIT):
+        if not estimate and started is not None and not started.wait(SUBMIT_START_WAIT):
             return self._fail(503, "starting", "入口がまだツールを準備しています。少し待ってからもう一度頼んでください")
         try:
+            if estimate:
+                return self._json(200, self.server.autorun.estimate(body.get("envelope"), body.get("spec")))
             return self._json(200, {"run": self.server.autorun.submit(body.get("envelope"), body.get("spec"))})
         except queue_mod.SpecVersionError as e:   # 送る側と ② の束の版が違う(アプリは「更新してください」。F1 F0-1)
             return self._fail(400, "spec_version", str(e))

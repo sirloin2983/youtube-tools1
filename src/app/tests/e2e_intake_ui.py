@@ -4,10 +4,10 @@
     python src/app/tests/e2e_intake_ui.py [--shots <フォルダ>]
 
 バックエンド(src/human/friend/intake.py)には頼らない: api/intake・api/intake/scan・intake の設定の保存(api/ytt/prefs)・
-api/autorun は page.route で偽物に差し替える。入口(server.py)は e2e_portal.py と同じ形で動かすが、ツールは起動しない。
+api/flow/runs(まとめて実行の状態。RV A1 で api/autorun から)は page.route で偽物に差し替える。入口(server.py)は e2e_portal.py と同じ形で動かすが、ツールは起動しない。
 確かめること: オフのときの表示(閉じている)/ 設定の保存が正しい patch を送る・サーバーのエラーを出す・範囲外を送らない /
 届いた依頼の一覧(受け付けた・断った・理由・項目ごとの結果)/ 「今すぐ確認」が scan を呼ぶ /
-api/autorun に mode "file"・"request" の実行があっても画面が壊れない(コンソールのエラーなし・進行中に出る)。
+api/flow/runs に mode "file"・"request" の実行があっても画面が壊れない(コンソールのエラーなし・進行中に出る)。
 """
 import json
 import os
@@ -138,7 +138,7 @@ def main():
                 pg.route("**/api/intake/scan", r_scan)
                 pg.route("**/api/intake", r_intake)
                 pg.route("**/api/ytt/prefs", r_prefs)
-                pg.route("**/api/autorun", r_autorun)
+                pg.route("**/api/flow/runs", r_autorun)
                 pg.goto(base)
 
                 # 1. オフの表示: 閉じている・状態の札・案内・確認ボタンは押せない
@@ -189,7 +189,7 @@ def main():
                 check(wait_js(pg, "document.getElementById('intakeState').textContent === '止まっています'", 20000), "止まっているときの札と理由: %s" % pg.text_content("#intakeMsg"))
                 check("フォルダが見つかりません" in pg.text_content("#intakeMsg"), "止まっている理由が出る")
 
-                # 5. api/autorun に mode file / request がある: 進行中に出る・エラーなし
+                # 5. api/flow/runs に mode file / request がある: 進行中に出る・エラーなし
                 state["autorun"] = RUNS
                 pg.reload()
                 check(wait_js(pg, "document.querySelectorAll('#todoList .pt-todo-item').length >= 2", 20000), "次にやること: 依頼の実行が2つ出る")

@@ -11,7 +11,7 @@ _friend_length は RS7-1 S4 から受付(入口の AutoRunner._accept)が読む(
 
 順番待ちと実行の糸(_loop)・中止・状態と記録(snapshot・history・autorun-runs.jsonl)・起動し直しで戻す(autorun-active.json)・見積もりは
 RS7-1 S5 で flow/runqueue.py の Queue(Runner を継ぐ)へ。src/app/autorun.py に残したもの(AutoRunner が Queue を継いで hook を埋める):
-受付(start*)・restart_info・Dropbox へ届けることと組の溜め・HTTP の ToolClient(案件(cases・txindex)・ホームの設定(prefs)・届ける部品(deliver)を読むので)。
+restart_info・Dropbox へ届けることと組の溜め・HTTP の ToolClient(案件(cases・txindex)・ホームの設定(prefs)・届ける部品(deliver)を読むので)。
 autorun は移した名前を同じ名前で読み直している(テストと live.py が autorun.StepError などを使う。例外は同じ物)。
 
 将来 batch や live の流れを移すときは flow/run/ パッケージにせず兄弟モジュールにする(__init__ は import しない決まり)。
@@ -19,7 +19,7 @@ autorun は移した名前を同じ名前で読み直している(テストと l
 RS6 b-0(2026-10-10): 段は指定の束(Run.spec。run() が merge・validate して置く)を読む。各ツールの GET /api/settings は読まない
 (入口の AutoRunner.build_spec が画面の設定から束を組む = ① は設定ファイルを読まない。束 → 本文は flow/spec.py の export_body・tx_opts・pack_output)。
 
-RS7-1 S4(2026-10-11): 束は受けたときに組む(入口の受付 start* と ② の口 submit。flow/runqueue.py の Queue._accept)= 待ちの間に画面の設定を変えても
+RS7-1 S4(2026-10-11): 束は受けたときに組む(② の口 submit。RV A1 で受付はこの 1 本。flow/runqueue.py の Queue._accept)= 待ちの間に画面の設定を変えても
 その実行の中身は変わらない。Run.screen(束に入れない画面の値)は消した(精密・画質の上限なし・fps 30 は固定 = 決定 3-30 Q2。用語集は編集の受付が
 自分の設定から読む)。受付で決めた物: 束・知らせ Run.notes(入口が画面の設定を束にするときに直した所。パックの段の文と結果の束に出す)・
 友人の区間の長さ Run.friend_plan(束の analyze.length・preRatio に入れ、解析したときに Run.friend_length = 使った印)・配信者(決まれば封筒の
@@ -49,7 +49,7 @@ import time
 import uuid
 
 from ytt import colors, jobs as _slots
-from . import envelope as _envelope, keys as _keys, normalize as _norm, placement as _placement, prio as _prio, sendpolicy as _sendpolicy, spec as _spec, tools as _tools
+from . import envelope as _envelope, keys as _keys, order as _order, normalize as _norm, placement as _placement, prio as _prio, sendpolicy as _sendpolicy, spec as _spec, tools as _tools
 from .envelope import clean_pool  # noqa: F401  (src/app/autorun.py が同じ名前で読む。RS7-1 S3 で envelope へ移した)
 from .spec import (CUTS, LIVE_AUTO_CUT, MAX_MARKS, TX_ENGINES, TX_MODELS, WEIGHT_KEYS, clean_ranges, clean_weights)
 
@@ -63,7 +63,7 @@ MODE_STEPS = {"full": ("analyze", "adopt", "export", "transcribe", "pack"), "ado
               "request_auto": ("analyze", "adopt", "export", "transcribe", "pack", "deliver"),
               "file_auto": ("normalize", "transcribe", "pack", "deliver")}
 # 段 normalize(動画ファイルの実行の最初。opt-human 9a-1 で友人の受付から移した): 作業データへ写した動画を 30fps に置き換える(flow/normalize の replace=True)。
-# 置き換えは元を消すので、写しを渡す受付(入口の start_file。既定 normalize=True)の実行だけ。Run(normalize=False)(既定 = ライブの書き出し・CLI・② の口 submit)は段を持たない
+# 置き換えは元を消すので、写しを渡す受付(友人の受付 intake.submit_file = 封筒の input.normalize true)の実行だけ。ほか(ライブの書き出し・CLI)は段を持たない
 NORMALIZE_STEP = "normalize"
 # 友人からの依頼(src/human/friend/intake.py。notes:docs/spec/friend.md)の形。ホームの画面の「まとめて実行」の選択肢には出さない(MODES に入れない)。
 # 友人が送るときに選ぶ(2026-10-01 ユーザー決定): ① 全自動 auto = パックまで作って Dropbox の 出力\ へ / ② 軽く確認 check = 文字起こしまで /
@@ -141,25 +141,8 @@ def mode_of(kind, bundle, request_id=None):
         return "request_auto" if request_id else "full"
     return None
 PUBLIC_MAX = 50        # public に出すパック・文書の数の上限(書き出しの 1 回の上限と同じ)
-PEOPLE_NAME_MAX = 40  # 束の hints.people の名前の長さ(flow/spec.py の検査と同じ。友人の受付は 60 字まで受けるので、長い名前はここで切る)
-
-
-def _people_of(speakers):
-    """友人の「話す人」{"count", "names", "styles"} -> 束の hints.people [{name, color?}](名前の順。色は 16 進 6 桁にそろえる)"""
-    styles = speakers.get("styles") if isinstance(speakers.get("styles"), dict) else {}
-    out, seen = [], set()
-    for n in speakers.get("names") or []:
-        name = n.strip()[:PEOPLE_NAME_MAX].strip() if isinstance(n, str) else ""
-        if not name or name in seen:
-            continue
-        seen.add(name)
-        p = {"name": name}
-        sty = styles.get(n)
-        hx = colors.norm_hex(sty.get("color")) if isinstance(sty, dict) and isinstance(sty.get("color"), str) else None
-        if hx:
-            p["color"] = hx
-        out.append(p)
-    return out
+PEOPLE_NAME_MAX = _order.PEOPLE_NAME_MAX   # 束の hints.people の名前の長さ(変換は flow/order.py の 1 か所。RV A1)
+_people_of = _order.people_of   # 友人の「話す人」→ 束の hints.people(flow/livesession.py も読む)
 
 
 def _with_asked(bundle, asked):
@@ -392,7 +375,7 @@ class Run:
         if mode is None:
             raise ValueError("束の run.from・run.upto がこの封筒(%s)に合いません(%s)" % (kind, MODE_HINT[kind]))
         if kind == "url" and inp.get("marks") and b["run"]["from"] != "export":
-            raise ValueError("マークを選んだ実行は、書き出しから(run.from export)だけです")
+            raise ValueError("マークを選んだまとめて実行は「採用後を全部」「文字起こしまで」(書き出しから = run.from export)だけです")
         if normalize is None:
             normalize = inp.get("normalize") is True
         lg = {"streamer": b["hints"]["streamer"], "onFail": b["run"]["onFail"]}
@@ -409,7 +392,8 @@ class Run:
                   video_tracks=pk["videoTracks"] if "videoTracks" in pins else None, ranges=[tuple(r) for r in b["hints"]["ranges"]],
                   cut=pk["cut"] if "cut" in pins else None, weights={k: b["analyze"][k] for k in WEIGHT_KEYS} if "weights" in pins else None,
                   duration=inp.get("duration"), engine=t["engine"] if "engine" in pins else None, model=t["model"] if "model" in pins else None,
-                  deliver_batch=dl["batch"], pool=dl["pool"], force=b["run"]["force"], normalize=normalize, deliver_origin=dl["origin"])
+                  deliver_batch=dl["batch"], pool=dl["pool"], force=b["run"]["force"], normalize=normalize, deliver_origin=dl["origin"],
+                  deliver_tag=dl.get("tag"))
         if RUN_ID_RE.match(env["id"]):
             run.id = env["id"]
         run.created = env["createdAt"] / 1000.0

@@ -338,7 +338,7 @@
      <input id="docTitle" type="text" maxlength="120" aria-label="タイトル" title="タイトル(押して直せます)">
      <span class="tt-docbar-meta hint" id="docMeta"></span>
      <span class="tt-docbar-pills" id="docPills"><span class="pill ok" id="pillProof" hidden title="校正済み = 聞いて確認して、この行の文字が正しいと判断した行。精度の測定と、将来の追加学習の正解データになります"></span><span class="pill warn" id="pillCut" hidden></span><span class="pill" id="pillAuto" hidden></span></span>
-     <!-- まとめて実行(今の文書。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 3。入口の /api/autorun/start-docs。入口から開いたときだけ使える。開いていないときは押せない理由 = 段7 E-17) -->
+     <!-- まとめて実行(今の文書。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 3。入口の ② の口 /api/flow/submit。入口から開いたときだけ使える。開いていないときは押せない理由 = 段7 E-17) -->
      <details class="ui-menu tt-docauto" id="docAuto">
        <summary class="btn small ghost" title="この文書の残りの作業(文字起こし → パック)を、ホームの「まとめて実行」の順番待ちで進めます"><span>まとめて実行</span></summary>
        <div class="ui-menu-pop tt-docauto-pop">

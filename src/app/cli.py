@@ -29,12 +29,11 @@ import os
 import re
 import sys
 import time
-import uuid
 
 SRC =os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/app -> src
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
-from flow import envelope as _envelope, keys as _keys, learning as _learning, machine as _machine, placement as _flow_placement, run as _run, spec as _spec, tools as _tools, wire as _wire  # noqa: E402
+from flow import order as _order, keys as _keys, learning as _learning, machine as _machine, placement as _flow_placement, run as _run, spec as _spec, tools as _tools, wire as _wire  # noqa: E402
 from pipeline.transcribe import worker_client as _worker_client  # noqa: E402
 from flow import studiobook as _studiobook  # noqa: E402  スタジオなしの配信の台帳(URL を入口なしで。RS8)
 from ytt import datadir as _datadir, docloc as _docloc, fsio as _fsio, layout as _layout, runtime as _runtime, schemas as _schemas  # noqa: E402
@@ -49,7 +48,7 @@ TOKEN_RE = re.compile(rb'<meta\s+name="ytt-token"\s+content="([A-Za-z0-9_-]{1,20
 PAGE_MAX, BODY_MAX, TIMEOUT = 2 * 1024 * 1024, 16 * 1024 * 1024, 30
 SECRET_RE = re.compile(r"api[_-]?key|token|secret|password", re.I)   # 束に書いてはいけない鍵の名前
 FILE_FROM = (None, "analyze", "adopt", "export", "transcribe", "pack")   # 動画ファイル: pack より前は全部「文字起こしから」(解析・採用・書き出しは無い)
-URL_FROM = {None: "start-new", "analyze": "start-new", "export": "adopted"}   # URL: 封筒の legacy.mode(入口のまとめて実行の形)
+URL_FROM = {None: "start-new", "analyze": "start-new", "export": "adopted"}   # URL の --from(束の run.from)-> 入口のまとめて実行の形(解析から = まだスタジオに無い配信の印 fresh つき)
 END_STATES = ("done", "error", "cancelled")
 
 
@@ -315,7 +314,7 @@ def _wait_portal_run(portal, rid, prog):
     lost = 0
     try:
         while True:
-            runs = portal.ok("GET", "/api/autorun").get("runs") or []
+            runs = portal.ok("GET", "/api/flow/runs").get("runs") or []
             r = next((x for x in runs if isinstance(x, dict) and x.get("id") == rid), None)
             if r is None:
                 lost += 1
@@ -330,35 +329,26 @@ def _wait_portal_run(portal, rid, prog):
     except KeyboardInterrupt:
         prog.line("取り消しています(入口の実行も止めます)")
         try:
-            portal.call("POST", "/api/autorun/cancel", {"runId": rid})
+            portal.call("POST", "/api/flow/cancel", {"id": "run:" + rid})   # 掲示板の id(RV A1)
         except PortalError:
             pass
         raise
 
 
-def envelope_for(kind, target, title):
-    """入口に頼む封筒(flow/envelope.py の形。id は実行の id にもなる 10 桁の 16 進)。何を作るかは束(run.from = どこから)"""
-    eid = uuid.uuid4().hex[:10]
-    title = str(title or "")[:_envelope.TITLE_MAX]
+def envelope_for(kind, target, title, bundle=None):
+    """入口に頼む封筒(flow/order.py の変換 = 版 2。id は実行の id にもなる 10 桁の 16 進)。何を作るかは束(run.from = どこから・run.upto = パックまで)。
+    URL は解析から = まだスタジオに無い配信の印 fresh を付ける・書き出しから(run.from export)は付けない"""
+    frm = (bundle or {}).get("run", {}).get("from") if isinstance(bundle, dict) else None
     if kind == "url":
-        return {"id": eid, "kind": "url", "input": {"videoId": target, "title": title, "fresh": {"title": title, "channel": ""}}, "legacy": {"mode": "full"}}
-    return {"id": eid, "kind": "file", "input": {"path": target, "title": title or os.path.basename(target)[:_envelope.TITLE_MAX]},
-            "legacy": {"mode": "file_auto"}}
-
-
-def _url_envelope(env, bundle):
-    """URL の封筒を束の run.from に合わせる(書き出しから = 採用後を全部・まだスタジオに無い配信の印 fresh は付けない)"""
-    if URL_FROM[bundle["run"]["from"]] != "start-new":
-        env = dict(env, input={k: v for k, v in env["input"].items() if k != "fresh"}, legacy={"mode": URL_FROM[bundle["run"]["from"]]})
-    return env
+        fresh = {"title": str(title or ""), "channel": ""} if URL_FROM.get(frm) == "start-new" else None
+        return _order.order("url", video_id=target, title=title, fresh=fresh)[0]
+    return _order.order("file", path=target, title=title or os.path.basename(target))[0]
 
 
 def delegate(portal, kind, target, bundle, title, prog):
     """入口に頼んで待つ -> (結果の辞書, 終了コード)。② の口 submit に封筒 + 束を 1 回(RS7-1 S4)。submit の無い古い入口(404)は PortalError"""
     prog.line("入口(ポート %d)が動いているので、入口に頼みます" % portal.port)
-    env = envelope_for(kind, target, title)
-    if kind == "url":
-        env = _url_envelope(env, bundle)
+    env = envelope_for(kind, target, title, bundle)
     st, res = portal.call("POST", "/api/flow/submit", {"envelope": env, "spec": bundle})
     if st == 404:
         raise PortalError("入口の版が古く、コマンドからの依頼を受けられません(入口を「すべて終了」→ start.bat で起動し直してください)")
@@ -419,9 +409,11 @@ def _file_run(target, bundle, title, prog, learning):
         return None, _failed("この動画の文字起こしの文書がありません(--from pack をやめて文字起こしから)", prog)
     runner = CliRunner(prog, [doc] if doc else (), learning)
     if doc:   # 文字起こし済み: 文書 → パック(文字起こしの段は飛ばす)
-        run = _run.Run(None, title or doc["title"], _run.DOC_MODE, None, doc_id=doc["id"], overwrite=force)
+        env, diff = _order.order("docs", doc_id=doc["id"], title=title or doc["title"], repack=force)
     else:
-        run = _run.Run(None, title or os.path.basename(target), "file_auto", None, source_path=target, overwrite=force)
+        env, diff = _order.order("file", path=target, title=title or os.path.basename(target), repack=force)
+    run = _run.Run.from_envelope(env, _spec.merge_onto(bundle, diff))   # 欄の変換は入口に頼むときと同じ flow/order.py(RV A1)
+    if not doc:
         run.steps = [s for s in run.steps if s["key"] != "deliver"]   # 届ける先は無い(友人の受付の段)
     return run, runner
 
@@ -429,7 +421,7 @@ def _file_run(target, bundle, title, prog, learning):
 def _url_run(vid, bundle, title, prog, learning):
     """URL(配信)の実行と Runner -> (Run, CliRunner)。入口に頼むときと同じ封筒(解析から = full・書き出しから = adopted)を Run にする。
     配信の段はスタジオなしの台帳(flow/studiobook)に任せる"""
-    run = _run.Run.from_envelope(_url_envelope(envelope_for("url", vid, title), bundle), bundle)
+    run = _run.Run.from_envelope(envelope_for("url", vid, title, bundle), bundle)
     return run, CliRunner(prog, (), learning, studio=_studiobook.LocalStudio(use_studio_data()))
 
 
@@ -450,7 +442,7 @@ def run_local(target, bundle, title, root, prog, kind="file"):
             return runner, EXIT_FAIL
         run.state, run.message = "running", "実行中"
         try:
-            _run.run(None, run, spec=bundle, hooks=runner)
+            _run.run(None, run, hooks=runner)   # 束は Run が持つ(受けたときの束。RV A1)
             run.state, code = "done", EXIT_OK
         except _run.StepError as e:
             run.state, run.error = "error", str(e)

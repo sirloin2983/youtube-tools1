@@ -63,8 +63,8 @@ class ApiTest(unittest.TestCase):
 
 
 class AutoSendApiTest(unittest.TestCase):
-    """D-SEND: /api/autorun/<start|start-new|estimate> の autoSend の受け渡し(既定 = 無ければ None = autorun が mode full ならオン)と、
-    受付の見回りの終わりの送り直し(PortalServer.flush_sends)"""
+    """RV A1: 受付は POST /api/flow/submit {envelope, spec} の 1 本・見積もりは同じ本文で /api/flow/estimate(D-SEND の届け先は画面が封筒の deliver に入れる。
+    以前の /api/autorun/* の autoSend は消した)と、受付の見回りの終わりの送り直し(PortalServer.flush_sends)"""
 
     def setUp(self):
         from app import server
@@ -72,26 +72,15 @@ class AutoSendApiTest(unittest.TestCase):
         calls = self.calls = []
 
         class AR:
-            folder = "D:/Dropbox/切り抜き依頼"
-
-            def send_folder(self):
-                return self.folder
-
-            def start(self, *a, **k):
-                calls.append(("start", a, k))
+            def submit(self, env, spec=None):
+                calls.append(("submit", env, spec))
+                if env == "bad":
+                    raise ValueError("封筒 は {項目: 値} の形にしてください")
                 return {"id": "r1"}
 
-            def start_new(self, *a, **k):
-                calls.append(("start_new", a, k))
-                return {"runs": [], "skipped": []}
-
-            def start_docs(self, *a, **k):
-                calls.append(("start_docs", a, k))
-                return {"runs": [], "skipped": []}
-
-            def estimate(self, *a, **k):
-                calls.append(("estimate", a, k))
-                return {"steps": []}
+            def estimate(self, env, spec=None):
+                calls.append(("estimate", env, spec))
+                return {"steps": [], "nothing": True}
 
             def pools(self):
                 return {"k": {}}
@@ -102,7 +91,7 @@ class AutoSendApiTest(unittest.TestCase):
         self.ar = AR()
 
         class H:
-            _post_autorun = server.PortalHandler._post_autorun
+            _post_flow_submit = server.PortalHandler._post_flow_submit
 
             def _json(self, code, obj):
                 self.out = (code, obj)
@@ -113,23 +102,16 @@ class AutoSendApiTest(unittest.TestCase):
         self.h.server = types.SimpleNamespace(autorun=self.ar)
         self.server = server
 
-    def post(self, op, body):
-        self.h._post_autorun("/api/autorun/" + op, body)
-        return self.calls[-1]
-
-    def test_auto_send_passes_through(self):
-        self.assertIsNone(self.post("start", {"id": "abcdefghijk", "mode": "full"})[2]["auto_send"])   # 無ければ既定(autorun が決める)
-        self.assertIs(self.post("start", {"id": "abcdefghijk", "mode": "full", "autoSend": False})[2]["auto_send"], False)
-        self.assertIsNone(self.post("start", {"id": "abcdefghijk", "mode": "full", "autoSend": "yes"})[2]["auto_send"], "bool でない値は無視")
-        self.assertIs(self.post("start-new", {"items": [], "autoSend": True})[2]["auto_send"], True)
-        self.assertNotIn("auto_send", self.post("start-docs", {"ids": ["x"], "autoSend": True})[2], "文書単位は送らない")
-
-    def test_estimate_deliver(self):
-        self.assertIs(self.post("estimate", {"id": "abcdefghijk", "mode": "full"})[2]["deliver"], True)
-        self.assertIs(self.post("estimate", {"id": "abcdefghijk", "mode": "full", "autoSend": False})[2]["deliver"], False)
-        self.assertIs(self.post("estimate", {"id": "abcdefghijk", "mode": "adopted", "autoSend": True})[2]["deliver"], False)
-        self.ar.folder = ""
-        self.assertIs(self.post("estimate", {"id": "abcdefghijk", "mode": "full"})[2]["deliver"], False, "受付のフォルダが無ければ届けない")
+    def test_submit_and_estimate(self):
+        env = {"id": "0123456789", "kind": "url", "input": {"videoId": "abcdefghijk"}, "deliver": {"origin": "auto", "dir": "D:/out"}, "specVersion": 2}
+        self.h._post_flow_submit("/api/flow/submit", {"envelope": env, "spec": {"run": {"upto": "pack"}}})
+        self.assertEqual((self.calls[-1], self.h.out), (("submit", env, {"run": {"upto": "pack"}}), (200, {"run": {"id": "r1"}})))
+        self.h._post_flow_submit("/api/flow/estimate", {"envelope": env})
+        self.assertEqual((self.calls[-1], self.h.out), (("estimate", env, None), (200, {"steps": [], "nothing": True})))
+        self.h._post_flow_submit("/api/flow/submit", {"envelope": "bad"})
+        self.assertEqual(self.h.out[0], 400)
+        self.assertNotIn("_post_autorun", dir(self.server.PortalHandler), "以前の /api/autorun/* の受付は消した")
+        self.assertFalse(any(p.startswith("/api/autorun") for p in self.server.POST_ROUTES))
 
     def test_flush_sends(self):
         import types

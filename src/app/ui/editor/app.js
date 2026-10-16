@@ -132,9 +132,9 @@ const ago = ms => UIKit.fmt.ago(ms);
 /* 校正の状態: 未校正(1行も校正していない)/ 校正中 / 校正済み(文字のある行が全部校正済み) */
 const txStatus = i => { const r = Number(i.rows) || 0, p = Number(i.proofed) || 0; return p <= 0 ? 'todo' : (r > 0 && p >= r ? 'done' : 'doing'); };
 const txStream = i => i.streamTitle || i.clipTitle || '';
-/* ---------- 選んだ文書をまとめて(12 ⑦(b)。入口の /api/autorun/start-docs。入口から開いたときだけ) ---------- */
+/* ---------- 選んだ文書をまとめて(12 ⑦(b)。入口の ② の口 /api/flow/submit。入口から開いたときだけ) ---------- */
 const PICK = { on: false, ids: new Set(), polling: 0, active: new Set() };
-const PICK_MAX = 20;   // まとめて実行に一度に入れられる文書の数(app/autorun.py の MAX_WAITING)
+const PICK_MAX = 20;   // まとめて実行に一度に入れられる文書の数(flow/runqueue.py の MAX_WAITING)
 /* 状態の言葉は共通の部品(UIKit.autorun。どの入口も同じ言葉。段4)。ここは札の色だけ */
 const RUN_CLS = { queued: 'wait', running: 'run', done: 'ok', error: 'err', cancelled: 'wait' };
 const runLabelOf = r => UIKit.autorun.runLabel(r);
@@ -1119,7 +1119,7 @@ $('#txRuns').addEventListener('click', async e => {
   const b = e.target.closest('[data-act]'); if (!b) return;
   const row = b.closest('.tt-run');
   if (b.dataset.act === 'runopen') openDoc(row.dataset.doc);
-  else if (b.dataset.act === 'runcancel'){ try { await portalApi('api/autorun/cancel', { runId: row.dataset.run }); } catch (er){ toast(er.message, 4000, 'err'); } pollRuns(); }
+  else if (b.dataset.act === 'runcancel'){ try { await portalApi('api/flow/cancel', { id: 'run:' + row.dataset.run }); } catch (er){ toast(er.message, 4000, 'err'); } pollRuns(); }
 });
 $('#jobs').addEventListener('click', async e => {
   const b = e.target.closest('[data-act]'); if (!b) return;

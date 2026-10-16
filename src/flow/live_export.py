@@ -63,6 +63,7 @@ import urllib.parse
 
 from ytt import colors, fsio, jobs, loudness, marks as _marks, names, normalize, recproto, schemas, tools, version as _version
 from . import keys as _keys   # 成果物の鍵(RS6 b-K1)
+from . import spec as _spec   # 録画の束に書き出したあとの欄の差分を重ねる(merge_onto。RV A1)
 from . import prio as _prio   # 優先度の表(PRIO。リアルタイム切り抜きは録画中のライブ)
 from . import live_failures   # 失敗の文は 1 か所。M3
 from . import livehost   # 親の口の型(RS7-2 G0)
@@ -488,20 +489,22 @@ class MarkStore:
         m["start"], m["end"] = start, end
 
 
-FILE_MODES = {"check": "file", "auto": "file_auto"}   # 書き出したあと → 動画ファイルの実行の形(flow/run.py の KIND_MODES の file)
+FILE_UPTO = {"check": "transcribe", "auto": "pack"}   # 書き出したあと → 動画ファイルの実行のどこまで(束の run.upto)
+ORDER_KEYS = {"cut": "cut", "engine": "engine", "model": "model", "request_id": "request_id", "deliver_dir": "deliver_dir", "speakers": "speakers",
+              "video_tracks": "video_tracks", "deliver_batch": "batch", "pool": "pool", "deliver_origin": "origin"}   # _handoff の欄 → flow/order.py の欄
 
 
 def file_order(media, title, after, streamer, base, **kw):
-    """書き出した切り抜き 1 本 -> まとめて実行の口 Queue.submit へ渡す (封筒 kind file, 束)(RS7-2 G2b)。
-    欄 kw(cut・engine・model・request_id・deliver_dir・speakers・video_tracks・deliver_batch・pool)は flow/run.py の Run の欄と同じ写し方で
-    封筒と束(run.pinned)へ = 以前の start_file と同じ実行になる。base = 録画の束(None = 欄の差分だけ。Queue.submit が既定に重ねる)
-    """
-    from . import run as _run   # 呼ぶときに読む(run は文字起こしの部品まで読む = 入口のライブの部品を軽く。test_live_tx の import の検査)
-    run = _run.Run(None, str(title or "")[:120], FILE_MODES.get(after, "file"), None, streamer=streamer, source_path=media, **kw)   # 題は封筒の上限まで(start_file と同じ)
+    """書き出した切り抜き 1 本 -> まとめて実行の口 Queue.submit へ渡す (封筒 kind file, 束)(RS7-2 G2b・RV A1)。
+    欄 kw(cut・engine・model・request_id・deliver_dir・speakers・video_tracks・deliver_batch・pool・deliver_origin)は flow/order.py の変換で
+    封筒と束の差分(依頼が決めた印 run.requested)へ。base = 録画の束(差分を重ねた束を渡す。None = 差分だけ = submit が今の画面の設定に重ねる)。
+    書き出した切り抜きは 30fps 済みなので段 normalize は持たない"""
+    from . import order as _order
+    env, diff = _order.order("file", path=media, title=title, upto=FILE_UPTO.get(after, "transcribe"), streamer=streamer,
+                             **{ORDER_KEYS[k]: v for k, v in kw.items()})
     if base is None:
-        return run.envelope(), run.asked
-    run.spec = base   # 欄から写した差分が束に勝つ
-    return run.envelope(), run.spec
+        return env, diff
+    return env, _spec.merge_onto(_spec.validate(_spec.merge(base)), diff)   # 欄の差分が録画の束に勝つ(依頼が決めた印は足し合わせ)
 
 
 # ---------- 書き出しのジョブ ----------
@@ -1258,7 +1261,7 @@ class Exporter(Patrol):
         return ""
 
     def _handoff(self, job, media, after):
-        """まとめて実行へ渡す(② の口 Queue.submit に封筒 kind file + 束。RS7-2 G2b。以前の start_file と同じ実行になる = file_order)。
+        """まとめて実行へ渡す(② の口 Queue.submit に封筒 kind file + 束。RS7-2 G2b。欄の変換は file_order = flow/order.py)。
         束 = ジョブの録画の束(録画を始めたときの物)。束の無い録画はまとめて実行の build_spec(今の画面の設定)。
         -> (run の id, 渡せなかった理由(handoffError), 警告の文のリスト)"""
         warn, run_id, handoff = [], "", ""
@@ -1281,11 +1284,9 @@ class Exporter(Patrol):
                           deliver_origin="auto" if req.get("autoDeliver") is True else "request")   # 出どころ(D-SEND 2-7。自分の配信の自動 = 友人の札「依頼なし」)
                 if req.get("cut"):
                     kw["cut"] = req["cut"]
-            base = self._bundle_of(job)
-            if base is None and hasattr(r, "build_spec"):   # 束の無い録画(古い録画・手元のテストの録画元): 今の画面の設定から(以前の start_file と同じ)
-                base = r.build_spec()[0]
+            base = self._bundle_of(job)   # 束の無い録画(古い録画・手元のテストの録画元)は None = submit が今の画面の設定に重ねる
             env, spec = file_order(media, os.path.splitext(os.path.basename(media))[0], after, who, base, **kw)
-            run_id = (r.submit(env, spec, accept=True) or {}).get("id") or ""
+            run_id = (r.submit(env, spec) or {}).get("id") or ""
         except Exception as e:   # 失敗の集約(M3)は handoffError から文を作る(warning に重ねない)
             handoff = ("パックへ" if after == "auto" else "文字起こしへ") + "渡せませんでした: %s" % str(e)[:160]
         return run_id, handoff, warn

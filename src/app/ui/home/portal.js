@@ -1,7 +1,7 @@
 /* ホーム(src/app/ui/home/portal.html。段階5で入口 + 案件を1つにした)。
    - ツールの起動状態(旧・入口)は /api/status を定期的に読んで「詳しく」の中のカードに出す(開く・起動・停止・再起動・すべて終了)
    - 案件(配信ごと)の一覧(旧・cases.html)は /api/cases を読んで組み立てる。状態・メモは持たない(MARKS-3)
-   - 「やること」(RS8 C3)は、実行中の物(まとめて実行 /api/autorun)と、種類ごとの件数(採用待ち・校正待ち・パック待ち・失敗 = 案件の一覧の todoSum・todoFirst。
+   - 「やること」(RS8 C3)は、実行中の物(まとめて実行 /api/flow/runs)と、種類ごとの件数(採用待ち・校正待ち・パック待ち・失敗 = 案件の一覧の todoSum・todoFirst。
      cases.py)。押すと案件の画面(/cases?c=&d=#タブ)へ移る。「確かめる」は api/check/next?n=0 の goal から今いちばん効く確認を 1 つ・[始める] は /check(V1 確かめる)。
      「新しい案件」は引き出し(cases-panels/new.js = スタジオ ① のつなぎ)。受付・バックアップ・記録・編集の精度と学習・調子は「運用」の枠に畳む
    - 画面の移り方(S-15): ツールの画面へのリンクは同じ窓で移る(target を付けない。新しい窓は Ctrl・中クリック = 窓の中なら UIKit.win)。
@@ -24,10 +24,10 @@
 
   var casesData = null;                 // /api/cases の中身
   var txList = null, txById = {};       // /transcribe/api/transcripts(読めないときは null。次にやること・単体の文字起こしの詳しい表示に使う)
-  var runsByVideo = {}, runsByDoc = {}; // /api/autorun の実行(配信単位・文書単位)。最新のものだけ
-  var pastByVideo = {}, pastByDoc = {}; // /api/autorun の past: 前回の結果(記録のファイルから。この起動の実行が無い配信・文書だけ。段2 B-6)
-  var HIST_PAGE = 50, histOffset = 0, histBusy = false;   // 「まとめて実行の記録」(/api/autorun/history。開いたときだけ読む)
-  var runsByFile = {};                  // /api/autorun の kind "file"(依頼の文字起こしだけ。videoId・docId が無いので実行の id で持つ)
+  var runsByVideo = {}, runsByDoc = {}; // /api/flow/runs の実行(配信単位・文書単位)。最新のものだけ
+  var pastByVideo = {}, pastByDoc = {}; // /api/flow/runs の past: 前回の結果(記録のファイルから。この起動の実行が無い配信・文書だけ。段2 B-6)
+  var HIST_PAGE = 50, histOffset = 0, histBusy = false;   // 「まとめて実行の記録」(/api/flow/history。開いたときだけ読む)
+  var runsByFile = {};                  // /api/flow/runs の kind "file"(依頼の文字起こしだけ。videoId・docId が無いので実行の id で持つ)
   var wasActiveVideo = {}, wasActiveDoc = {}, wasActiveFile = {};
   var autoTimer = null;
   var visibleCount = PAGE_SIZE;         // 案件の一覧の「もっと見る」
@@ -610,6 +610,11 @@
 
   /* 友人へ自動で送る(まとめて実行の形が full のときだけ出す。受付のフォルダが無いと画面が知っているときだけ注を出す = 知らなければ出さない) */
   function sendFolderMissing() { return !!intakeData && !intakeData.folder; }
+  /* 友人へ自動で送る届け先(受付のフォルダの 出力。GET api/intake の outDir)。まだ読んでいなければ読む。決まっていなければ null(D-SEND・RV A1) */
+  function sendOutDir() {
+    if (intakeData) return Promise.resolve(intakeData.outDir || null);
+    return api('api/intake').then(function (d) { return (d && d.outDir) || null; }, function () { return null; });
+  }
   function paintSendBox(box) {
     var full = $('.pt-auto-mode', box).value === 'full';
     $('.pt-auto-sendbox', box).hidden = !full;
@@ -638,19 +643,25 @@
     top.addEventListener('change', function () { var n = Math.round(Number(top.value)); if (n >= 1 && n <= 20) UIKit.prefs.patch('autorun', { top: n }).catch(function () {}); });
     sync();
     $('.pt-auto-run', box).addEventListener('click', function () {
-      var st = ar.state();
-      var body = { id: c.id, mode: mode.value, overwrite: !!(st && st.overwrite) };
-      if (mode.value === 'full') body.top = Math.round(Number(top.value) || 3);
-      body.autoSend = mode.value === 'full' && send.checked;   // 友人へ自動で送る(full だけ。それ以外は false = 届けない)
+      var st = ar.state(), m = mode.value, full = m === 'full';
+      /* 欄 → 封筒 + 束の差分(UIKit.flow.order = ② の口 api/flow/submit の本文。RV A1)。形: 解析から全部 = 頭からパックまで・採用後を全部 = 書き出しから
+         パックまで・文字起こしまで = 書き出しから文字起こしまで */
+      var f = { kind: 'url', videoId: c.id, title: c.title || '', from: full ? null : 'export', upto: m === 'transcribe' ? 'transcribe' : 'pack',
+                repack: !!(st && st.overwrite) };
+      if (full) f.top = Math.round(Number(top.value) || 3);
       var chk = UIKit.streamer.check(who);
-      var estBody = { id: c.id, mode: body.mode, top: body.top, overwrite: body.overwrite, autoSend: body.autoSend };   // 届けるかで見積もりの段が変わる(D-SEND)
       chk.then(function (name) {
         if (name === null) return null;   // 見つからない名前で「やめる」を選んだ
-        body.streamer = name;   // 欄の名前(空 = 色なし。欄は自動で入るので、空は「色なし」の意味)
-        // 先に見積もる: やることが無いなら、理由だけでなく次の一手(スタジオで候補を確認する など)を押せる形で知らせる(M2)
-        return api('api/autorun/estimate', 'POST', estBody).catch(function () { return null; }).then(function (est) {
-          if (est && est.nothing) { nothingToDo(c, est.reason); return null; }
-          return ar.start('api/autorun/start', body, estBody);
+        f.streamer = name;   // 欄の名前(空 = 色なし。欄は自動で入るので、空は「色なし」の意味)
+        // 友人へ自動で送る(D-SEND。full だけ): 依頼の受付のフォルダが決まっていれば出どころ auto。チェックを外した = 届け先なし(送らなかった記録が残る)
+        return (full ? sendOutDir() : Promise.resolve(null)).then(function (out) {
+          if (out) f.deliver = { origin: 'auto', dir: send.checked ? out : null };
+          var order = UIKit.flow.order(f);
+          // 先に見積もる: やることが無いなら、理由だけでなく次の一手(スタジオで候補を確認する など)を押せる形で知らせる(M2)
+          return api('api/flow/estimate', 'POST', order).catch(function () { return null; }).then(function (est) {
+            if (est && est.nothing) { nothingToDo(c, est.reason); return null; }
+            return ar.start([order]);
+          });
         });
       }).then(function (r) {
         if (!r) return;   // やることが無い(見積もり。知らせは上の nothingToDo)
@@ -661,7 +672,7 @@
     enterRuns(top, $('.pt-auto-run', box));
     $('.pt-auto-cancel', box).addEventListener('click', function () {
       var r = runsByVideo[c.id]; if (!r) return;
-      api('api/autorun/cancel', 'POST', { runId: r.id }).then(function (x) { runsByVideo[c.id] = x.run; renderAuto(node, c.id); })
+      api('api/flow/cancel', 'POST', { id: 'run:' + r.id }).then(function () { pollAuto(); })   // 掲示板の id(RV A1)。止まったかは定期の読み込みで
         .catch(function (e) { failToast('中止できませんでした', 'もう一度「中止」を押してください', e); });
     });
     renderAuto(node, c.id);
@@ -1140,11 +1151,14 @@
   function runDocsBatch() {
     var ids = Object.keys(docPicked);
     if (!ids.length) return;
-    var body = { ids: ids, overwrite: $('#docOverwrite').checked };
-    var who = $('#docWho').value.trim();
-    if (who) body.streamer = who;
+    var over = $('#docOverwrite').checked, who = $('#docWho').value.trim();
+    var orders = ids.map(function (id) {   // 文書 1 本ずつ封筒にして submit(見積もりも 1 本ずつ足す。RV A1)
+      var f = { kind: 'docs', docId: id, repack: over };
+      if (who) f.streamer = who;
+      return UIKit.flow.order(f);
+    });
     offBtn($('#docRunBtn'), true, '始めています。少し待ってください');
-    UIKit.autorun.start('api/autorun/start-docs', body, { ids: ids, overwrite: body.overwrite }).then(function (r) {
+    UIKit.autorun.start(orders).then(function (r) {
       if (!r) { syncDocRunButton(); return; }   // やることが無い(見積もり)
       (r.runs || []).forEach(function (run) { runsByDoc[run.docId] = run; });
       docPicked = {};
@@ -1592,7 +1606,7 @@
 
   function pollAuto() {
     clearTimeout(autoTimer);
-    api('api/autorun').then(function (j) {
+    api('api/flow/runs').then(function (j) {
       var latestV = {}, latestD = {}, latestF = {}, anyActive = false, finished = false;
       (j.runs || []).forEach(function (r) {
         if (r.kind === 'doc') { if (r.docId && !latestD[r.docId]) latestD[r.docId] = r; }
@@ -1872,7 +1886,7 @@
     histBusy = true;
     if (reset) histOffset = 0;
     var empty = $('#historyEmpty');
-    api('api/autorun/history?limit=' + HIST_PAGE + '&offset=' + histOffset).then(function (j) {
+    api('api/flow/history?limit=' + HIST_PAGE + '&offset=' + histOffset).then(function (j) {
       var ol = $('#historyList'), runs = j.runs || [];
       if (reset) ol.textContent = '';
       runs.forEach(function (r) { ol.appendChild(historyRow(r)); });

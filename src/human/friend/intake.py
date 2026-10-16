@@ -17,8 +17,8 @@
 - 受け付けた元のファイルは 受付済み/YYYY-MM-DD/ へ、断ったものは 失敗/ へ移し「<名前>.理由.txt」を添える(消さない)
 - 動画は依頼のフォルダへコピーしてから文字起こしする(書き出し先があれば <書き出し先>/依頼/<日付>_<題>_<id6>/ = 案件、無ければ作業データの
   app/intake/<日付>/<依頼 id>/。_request_dir。Dropbox の「オンラインのみ」や片付けで元が消えても、文書の元のパスが切れない)
-  コピーを 30fps(H.264・AAC)にそろえるのは受付ではなく、まとめて実行の最初の段 normalize(② flow/run.py の _step_normalize。start_file の normalize=True)。
-  受付は錠の中で短い仕事(大きさ・ffprobe・コピー・案件・start_file)だけをする = 重い処理の枠 SLOTS を待たない(opt-human 9a-1: 枠を待つ間、
+  コピーを 30fps(H.264・AAC)にそろえるのは受付ではなく、まとめて実行の最初の段 normalize(② flow/run.py の _step_normalize。submit_file の normalize=True = 封筒の input.normalize)。
+  受付は錠の中で短い仕事(大きさ・ffprobe・コピー・案件・submit_file)だけをする = 重い処理の枠 SLOTS を待たない(opt-human 9a-1: 枠を待つ間、
   ライブ配信の依頼・「要らない」・送り返しの見回りが丸ごと止まっていた)
 - 同じ動画・同じ配信も断らない(2026-10-02 ユーザー: 送り直せるように。配信は解析・切り抜き・文字起こしを使い回す。受け付けた配信は intake-state.json に覚えるだけ)
 - 友人が時刻で指定した区間(items[].ranges)・カット(cut)・解析の重み(weights)は、形を確かめてまとめて実行へ渡す(送るアプリ 2.0.0。notes:docs/spec/friend.md の 2-6)
@@ -37,7 +37,7 @@ import threading
 import time
 import uuid
 
-from flow import envelope, placement
+from flow import envelope, order as _order, placement
 from flow.deliver import BAD_NAME_CHARS, OUT_DIR   # ファイル名に使えない文字・出力\ の名前(届ける側 ② と同じ 1 か所。ds1)
 from flow import spec as _spec   # 区間・重みの理由つきの検査(まとめて実行と同じ。opt-human 9b-2)
 from ytt import colors, fsio, names as ytt_names, normalize, studio_env, tools, yturl
@@ -60,7 +60,7 @@ NAME_PREFIX_RE = re.compile(r"^((?:【[^】]{1,60}】)+)\s*(.*)$")        # 手�
 TEXT_MAX = 64 * 1024
 MEMO_MAX = 500
 TOP_MAX = 10
-MAX_URLS = 10            # 1つの依頼に書ける配信の数(まとめて実行の start_request の上限と同じ)
+MAX_URLS = 10            # 1つの依頼に書ける配信の数(① 探す から一度に入れられる数と同じ)
 SETTLE = 20.0            # 大きさと更新時刻がこの秒数変わらなければ、同期が終わったとみなす
 INTERVAL = 30.0          # 見る間隔
 WAIT_FILES = 3600.0      # JSON があるのに動画がそろわないとき、断るまで待つ秒数
@@ -89,6 +89,48 @@ def configured_folder(prefs, defaults=None):
 def out_dir_of(folder):
     """受付のフォルダの 出力\\(友人のアプリの「受け取る」が読む)。folder が空なら None"""
     return os.path.join(folder, OUT_DIR) if folder else None
+
+
+def _yt_id_ok(v):
+    """YouTube の配信 ID(11文字。スタジオの common.VID_RE と同じ)"""
+    return isinstance(v, str) and len(v) == 11 and all(c.isascii() and (c.isalnum() or c in "-_") for c in v)
+
+
+def submit_urls(runner, items, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None, cut=None, weights=None,
+                streamer=None, deliver_batch=None):
+    """友人からの依頼(配信の URL)を、配信ごとに ② の口 submit へ(RV A1。欄 → 封筒 + 束の差分は flow/order.py。以前の AutoRunner.start_request)。
+    items = [{"id": 配信 ID, "top": 1〜30, "title", "channel", "ranges"?, "duration"?}]。flow = auto(① 全自動 = パックまで・送り直しは作り直す)か
+    check(② 軽く確認 = 文字起こしまで)。ranges = 時刻で指定した区間 [(開始, 終了)](top に足りない分は自動で埋める)。cut = カットの方法・weights = 解析の重み。
+    streamer = 照らし合わせ済みの配信者の名前か None(None・空ならチャンネル名などから自動)。
+    -> {"runs": [受けた実行の public], "skipped": [{"id", "title", "reason"}]}(断った理由 = 形が違う・同じ配信が待ち・実行中・待ちが多すぎる など)"""
+    upto = "pack" if flow == "auto" else "transcribe"
+    w = _spec.clean_weights(weights)
+    runs, skipped = [], []
+    for it in items:
+        it = it if isinstance(it, dict) else {}
+        vid, top = it.get("id"), it.get("top")
+        title, channel = str(it.get("title") or "").strip()[:120], str(it.get("channel") or "").strip()[:100]
+        try:
+            ranges = _spec.clean_ranges(it.get("ranges"))
+            if not _yt_id_ok(vid) or not isinstance(top, int) or isinstance(top, bool) or not 1 <= top <= 30:
+                raise ValueError("配信の指定が正しくありません")
+            env, diff = _order.order("url", video_id=vid, title=title or vid, fresh={"title": title, "channel": channel}, duration=it.get("duration"),
+                                     upto=upto, top=top, ranges=ranges, weights=w, cut=cut, video_tracks=video_tracks, speakers=speakers,
+                                     repack=flow == "auto", streamer=streamer or None, request_id=request_id, deliver_dir=deliver_dir, batch=deliver_batch)
+            runs.append(runner.submit(env, diff))   # ① の送り直しは、前のパックがあっても今回の設定(カット・映像トラック)で作り直して届ける(repack)
+        except ValueError as e:
+            skipped.append({"id": str(vid or "")[:40], "title": title, "reason": str(e)})
+    return {"runs": runs, "skipped": skipped}
+
+
+def submit_file(runner, path, title="", streamer=None, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None, cut=None,
+                deliver_batch=None, normalize=True):
+    """友人が切り抜いた動画の依頼(作業データへの写し)を ② の口 submit へ(RV A1。以前の AutoRunner.start_file)-> 実行の public。
+    flow = auto(パックまで)か check(文字起こしまで)。normalize = 最初の段で写しを 30fps に置き換える(写しだけに使う)。形が違えば ValueError"""
+    env, diff = _order.order("file", path=path, title=str(title or os.path.basename(str(path or ""))), normalize=normalize is True,
+                             upto="pack" if flow == "auto" else "transcribe", streamer=streamer or None, request_id=request_id,
+                             deliver_dir=deliver_dir, speakers=speakers, video_tracks=video_tracks, cut=cut, batch=deliver_batch)
+    return runner.submit(env, diff)
 
 
 SETTINGS_DIR, DELIVERY_PREFS = "設定", "届け方.json"   # 友人のアプリが置く「届け方」(D-SEND 2-4。受付は下のフォルダを依頼として見ない)
@@ -435,7 +477,9 @@ class Intake:
         # 見る処理が長い(大きな動画のコピー・yt-dlp の問い合わせ)ときに画面の表示を止めないよう、ロックは短く待つだけ(取れなくても読むだけなので安全)
         got = self.lock.acquire(timeout=0.3)
         try:
+            folder = cfg.get("folder") if isinstance(cfg.get("folder"), str) else ""
             return dict(cfg, state=self.state, stateLabel=STATE_LABELS[self.state], message=self.message,
+                        outDir=out_dir_of(folder),   # 届け先 = 受付のフォルダの 出力(画面の「友人へ自動で送る」が封筒の deliver.dir に入れる。D-SEND・RV A1)
                         lastScan=int(self.last_scan * 1000) if self.last_scan else None,
                         today=int(self.st["daily"].get(self._today(), 0)),
                         todayRejects=int(self.st["rejects"].get(self._today(), 0)),
@@ -767,9 +811,9 @@ class Intake:
         runs = []
         if todo:
             try:
-                out = self.runner().start_request([{k: it[k] for k in ("id", "top", "title", "channel", "ranges", "duration")} for it in todo], request_id=rid,
-                                                  flow=flow, deliver_dir=os.path.join(folder, OUT_DIR), speakers=speakers,
-                                                  video_tracks=tracks, cut=cut, weights=weights, streamer=streamer, deliver_batch=deliver_batch)
+                out = submit_urls(self.runner(), [{k: it[k] for k in ("id", "top", "title", "channel", "ranges", "duration")} for it in todo], request_id=rid,
+                                  flow=flow, deliver_dir=os.path.join(folder, OUT_DIR), speakers=speakers,
+                                  video_tracks=tracks, cut=cut, weights=weights, streamer=streamer, deliver_batch=deliver_batch)
             except ValueError as e:
                 out = {"runs": [], "skipped": [{"id": it["id"], "reason": str(e)} for it in todo]}
             by_vid = {r["videoId"]: r for r in out.get("runs") or []}
@@ -831,10 +875,10 @@ class Intake:
             return {"state": "rejected", "reason": "作業データへコピーできませんでした(%s)" % tools.why(e)}
         if in_case:   # 依頼のフォルダを案件にする(文書を最初から 作業用 へ置けるように。無ければ作るだけ)
             placement.ensure_case({"kind": "file", "path": dest}, channel=who or "", root=dest_dir, request_id=rid or "")
-        try:   # 30fps にそろえるのは実行の最初の段(start_file の既定 normalize=True。写しを置き換える = 元の動画は触らない。失敗しても写しのまま続く)
-            run = self.runner().start_file(dest, title=os.path.splitext(label)[0], streamer=who, request_id=rid, flow=flow,
-                                           deliver_dir=os.path.join(folder, OUT_DIR) if folder else None, speakers=speakers,
-                                           video_tracks=tracks, cut=cut, deliver_batch=deliver_batch)
+        try:   # 30fps にそろえるのは実行の最初の段(submit_file の既定 normalize=True。写しを置き換える = 元の動画は触らない。失敗しても写しのまま続く)
+            run = submit_file(self.runner(), dest, title=os.path.splitext(label)[0], streamer=who, request_id=rid, flow=flow,
+                              deliver_dir=os.path.join(folder, OUT_DIR) if folder else None, speakers=speakers,
+                              video_tracks=tracks, cut=cut, deliver_batch=deliver_batch)
         except ValueError as e:
             try:
                 os.remove(dest)

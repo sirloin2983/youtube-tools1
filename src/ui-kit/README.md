@@ -1,4 +1,4 @@
-# ui-kit(共通の見た目)v27
+# ui-kit(共通の見た目)v28
 
 画面(ホーム・案件の画面・設定の画面)で共通の、色・文字・部品・ダーク/ライト切り替え。
 正本はここ1か所。画面はどれも入口の直下にあり、正本を `ui-kit.js`・`ui-kit.css` として直に読む(RS8 C4 = v27 でスタジオ・編集の画面を消したので、各ツールへの写しは無くなった)。
@@ -333,3 +333,12 @@
   (V1 確かめる V3 で「確かめる」(`/check`)を足して 4 項目 = 「ホーム / 案件 / 確かめる / 設定」。`data-ui-appnav="portal|cases|check|settings"`)
 - 録画中の札の「開く」は案件の画面の候補(`/cases?c=<録画の id>#cand`)。「他のツール」のメニューの「案件の一覧」はホームの案件の一覧(`/#cases`)
 - スタジオ・編集の写し(`src/studio/ui-kit.*`・`src/editor/ui-kit.*`)は消した(写す道具は消した)。`UIKit.version` は 27
+
+## v28(2026-10-16・RV A1 = 受付を ② の口 1 本に)
+- **`UIKit.flow.order(f)`** … 画面の欄 → ② の口 `POST api/flow/submit` の本文 `{envelope, spec}`(封筒 = `src/flow/envelope.py` の版 2・`spec` = 束の差分)。
+  Python の `src/flow/order.py` の `order` と同じ変換(画面が使う欄だけ: `kind`(url・docs・file)・`videoId`・`docId`・`path`・`title`・`fresh`・`marks`・
+  `from`(null か `'export'`)・`upto`(`'pack'`・`'transcribe'`)・`top`・`streamer`(null = 自動・`''` = 色なし)・`repack`・`deliver: {origin, dir}`)。
+  `flow.again(o)` = 同じ指定で新しい id の封筒(やり直す)・`flow.newId()` = 10 桁の 16 進
+- **`UIKit.autorun.start(orders, opts)`** … `orders` = `flow.order` の並び。1 本ずつ見積もって足す(`api/flow/estimate`。`opts.estimate === false` で見積もらない)→
+  やることが 0 なら始めない → 1 本ずつ `api/flow/submit` → 終わるまで `api/flow/runs` を見て知らせる。
+  戻り値 `{run, runs, skipped}`(全部断られたら 1 本目の理由で reject)。以前の `start(path, body, estBody)` と `api/autorun/*` は消した。`UIKit.version` は 28

@@ -798,7 +798,7 @@ def _rank_results(cx, p):
 
 
 def _rank_autorun(cx, p):
-    """2j-3 のまとめて実行: 入口の start-new・autorun は偽物。送る中身(items の id と題名・top)・始めた行の印・チェックできない"""
+    """2j-3 のまとめて実行: 入口の ② の口(api/flow/submit・runs)は偽物。送る中身(封筒の videoId と題名・束の adopt.top)・始めた行の印・チェックできない"""
     check = cx.check
     check(p.is_visible("#rkAuto"), "[A] 2j-3: 選んだ配信の「まとめて実行」が出る(ホームの中)")
     vid = p.get_attribute("#results tr[data-vid] .pk >> nth=0", "data-id")
@@ -810,20 +810,21 @@ def _rank_autorun(cx, p):
 
     def fake_start(route):
         sent.append(json.loads(route.request.post_data or "{}"))
-        route.fulfill(json={"runs": fake_runs(), "skipped": []})
-    p.route("**/api/autorun/start-new", fake_start)
-    p.route("**/api/autorun", lambda route: route.fulfill(json={"runs": fake_runs(), "past": [], "modes": {}}))
+        route.fulfill(json={"run": fake_runs()[0]})
+    p.route("**/api/flow/submit", fake_start)
+    p.route("**/api/flow/runs", lambda route: route.fulfill(json={"runs": fake_runs(), "past": [], "modes": {}}))
     p.click("#rkAuto > summary")
     check(p.is_enabled("#rkAutoGo") and "1 本" in (p.text_content("#rkAutoGo") or ""), "[A] 2j-3: 選んだ本数が「まとめて実行」のボタンに出る: %s" % p.text_content("#rkAutoGo"))
     p.fill("#rkAutoTop", "2")
     p.click("#rkAutoGo")
     check(wait_js(p, "/まとめて実行の順番待ち/.test((document.querySelector('#results tr[data-vid=\"%s\"] .chip') || {}).textContent || '')" % vid, 10000),
           "[A] 2j-3: 始めた配信の行に「まとめて実行の順番待ち」の印")
-    it = (sent[0].get("items") or [{}])[0] if sent else {}
-    check(it.get("id") == vid and it.get("title") and sent[0].get("top") == 2, "[A] 2j-3: 選んだ配信(id と題名)と採用する数(top)を入口に送る: %s" % (sent[:1],))
+    it = ((sent[0].get("envelope") or {}).get("input") or {}) if sent else {}
+    check(it.get("videoId") == vid and it.get("title") and it.get("fresh") and ((sent[0].get("spec") or {}).get("adopt") or {}).get("top") == 2,
+          "[A] 2j-3: 選んだ配信(封筒の videoId と題名・まだスタジオに無い印 fresh)と採用する数(束の adopt.top)を入口に送る: %s" % (sent[:1],))
     check(p.text_content("#pickN") == "0" and p.is_disabled('#results tr[data-vid="%s"] .pk' % vid), "[A] 2j-3: 始めた配信は選択から外れ、順番待ちの間はチェックできない")
-    p.unroute("**/api/autorun/start-new")
-    p.unroute("**/api/autorun")
+    p.unroute("**/api/flow/submit")
+    p.unroute("**/api/flow/runs")
 
 
 def _new_case_queue_narrow(cx):
@@ -997,9 +998,9 @@ def _next_focus_and_enter(cx):
         route.fulfill(json={"run": fake_run()})
     p5 = ctx.new_page()
     p5.on("pageerror", lambda e: cx.errors.append(str(e)))
-    p5.route("**/api/autorun/estimate", lambda route: route.fulfill(json={"steps": [{"label": "パック", "count": 1}], "nothing": False}))
-    p5.route("**/api/autorun/start", fake_start)
-    p5.route("**/api/autorun", lambda route: route.fulfill(json={"runs": [fake_run()] if st["state"] else [], "past": [], "modes": {}}))
+    p5.route("**/api/flow/estimate", lambda route: route.fulfill(json={"steps": [{"label": "パック", "count": 1}], "nothing": False}))
+    p5.route("**/api/flow/submit", fake_start)
+    p5.route("**/api/flow/runs", lambda route: route.fulfill(json={"runs": [fake_run()] if st["state"] else [], "past": [], "modes": {}}))
     p5.goto(cx.base)
     check(wait_js(p5, "!!document.getElementById('case-e2eNext0002')", 15000), "[A] S-24: ホーム")
     p5.fill("#fText", "案件の通し確認")
@@ -1012,7 +1013,7 @@ def _next_focus_and_enter(cx):
     time.sleep(0.5)
     check(not st["starts"], "[A] S-24: かな漢字変換を確定する Enter では実行しない")
     p5.press(who, "Enter")
-    check(wait_routed(p5, lambda: len(st["starts"]) == 1, 10) and (st["starts"][0] or {}).get("id") == "e2eCase0001",
+    check(wait_routed(p5, lambda: len(st["starts"]) == 1, 10) and (((st["starts"][0] or {}).get("envelope") or {}).get("input") or {}).get("videoId") == "e2eCase0001",
           "[A] S-24: 配信者の欄の Enter で実行した: %s" % st["starts"])
     check(wait_js(p5, "document.activeElement === document.querySelector('#case-e2eCase0001 .pt-auto-cancel')", 10000),
           "[A] S-24: 実行を押したらフォーカスは中止へ: %s" % p5.evaluate("document.activeElement && document.activeElement.className"))
@@ -1071,7 +1072,7 @@ def _ui_review_checks(cx):
     # M2: 候補だけの配信で [実行] → やることが無い。理由だけでなく次の一手のボタンを出す
     p6 = ctx.new_page()
     p6.on("pageerror", lambda e: cx.errors.append(str(e)))
-    p6.route("**/api/autorun/estimate", lambda route: route.fulfill(json={"steps": [{"label": "書き出し", "count": 0, "note": "採用したマークがありません"}],
+    p6.route("**/api/flow/estimate", lambda route: route.fulfill(json={"steps": [{"label": "書き出し", "count": 0, "note": "採用したマークがありません"}],
                                                                            "nothing": True, "reason": "採用したマークがありません"}))
     p6.goto(cx.base)
     check(wait_js(p6, "document.querySelectorAll('.pt-case').length > 0", 15000), "[A] M2: ホーム")

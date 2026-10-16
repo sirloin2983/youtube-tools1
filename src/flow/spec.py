@@ -258,11 +258,27 @@ def merge(spec):
     辞書の値(maxChars・wrapChars・cutSilence・learning)は鍵ごとに重ね、それ以外(一覧・数・文字・None)は置き換える。
     知らない節・鍵は ValueError(綴りの間違いで黙って既定になるのを防ぐ)。値の検査はしない(validate)。
     旧い値は断らずに読み替える(0.58.0): transcribe の engine・model・device の旧い値は read_legacy_tx・消した項目(RETIRED_KEYS)は捨てる"""
+    return _merge_into(copy.deepcopy(DEFAULTS), spec)
+
+
+def merge_onto(base, spec):
+    """土台の束 base(検査済みの束 = 受付の build_spec など)に spec(変えたい所だけ)を重ねた新しい束(RV A1。② の口 submit の土台)。
+    重ね方は merge と同じ。ただし run.requested は足し合わせ・run.force・run.repack はどちらかが真なら真(依頼が決めた印を土台が消さない =
+    ライブの録画の束 + 書き出したあとの欄。以前の Run の欄から写した差分の重ね方 _with_asked と同じ)。値の検査はしない(validate)"""
+    out = _merge_into(copy.deepcopy(base), spec)
+    if isinstance(spec, dict) and isinstance(spec.get("run"), dict):
+        b, r = base.get("run") or {}, out["run"]
+        r["requested"] = list(dict.fromkeys(list(b.get("requested") or []) + list(r.get("requested") or [])))
+        for k in ("force", "repack"):
+            r[k] = b.get(k) is True or r.get(k) is True
+    return out
+
+
+def _merge_into(out, spec):
     if spec is None:
         spec = {}
     if not isinstance(spec, dict):
         raise ValueError("指定の束は {節: {項目: 値}} の形にしてください")
-    out = copy.deepcopy(DEFAULTS)
     for sec, given in spec.items():
         if sec not in out:
             raise ValueError("知らない節です: %s(使えるのは %s)" % (sec, "・".join(SECTIONS)))

@@ -3517,20 +3517,23 @@ Studio.review = {
   /* 片付ける(案件の画面のパネルを閉じるとき。スタジオの画面は呼ばない): 離れたときと同じ保存と停止に加えて、プレーヤー・書き出しとまとめて実行の確かめを止め、書き出しの欄を閉じる */
   dispose(){ deactivate(); unmountPlayer(); stopExpPoll(); clearTimeout(AUTO.t); clearTimeout(quietT); closeExportDrawer(); peaksOpened(null); }
 };
-/* ---------- まとめて実行(notes:docs/design/edit-tool-design.md の 12 ⑦(a)。入口の /api/autorun。案件の画面と同じ API・同じ形。入口の中だけ) ---------- */
+/* ---------- まとめて実行(notes:docs/design/edit-tool-design.md の 12 ⑦(a)。入口の ② の口 /api/flow/submit(RV A1)。案件の画面と同じ API・同じ形。入口の中だけ) ---------- */
 const AUTO = { t: 0, active: false };
 const AUTO_STATE = { queued: 'wait', running: 'run', done: 'ok', error: 'err', cancelled: 'wait' };   // 実行の状態の色(言葉は UIKit.autorun.runLabel の 1 か所)
 /* 入口の API(/api/...)。① 探す のまとめて実行と同じ core.js の Studio.portalApi */
 const portalApi = (path, body) => Studio.portalApi(path, body);
+/* 友人へ自動で送る届け先(受付のフォルダの 出力。入口の api/intake の outDir)。決まっていなければ null(D-SEND。解析から全部の既定はオン) */
+async function sendOutDir(){ try { return (await portalApi('api/intake')).outDir || null; } catch { return null; } }
 /* ---------- 書き出しのあと自動で文字起こし(入口から開いたときだけ。設定「書き出しのあと自動で文字起こし」既定オン。IMPLEMENTATION.md 4) ----------
-   入口の /api/autorun/start を mode:'transcribe' + marks(書き出したものだけ)で呼ぶ。もう書き出し済みのマークは、その段だけ飛ばして続く(app/autorun.py _step_export で確認済み) */
+   入口の ② の口 /api/flow/submit に「書き出しから文字起こしまで」+ marks(書き出したものだけ)で頼む(UIKit.flow.order。RV A1)。
+   もう書き出し済みのマークは、その段だけ飛ばして続く(flow/run.py の _step_export) */
 function autoTxEnabled(){ return S.settings.autoTx !== false; }
 /* 0.21 までの保存(このブラウザの localStorage の ytt:studio.autoTx)→ true / false / null(無い)。サーバーの設定に autoTx が無いときだけ読む(消さない) */
 function autoTxLegacy(){ try { const x = localStorage.getItem('ytt:studio.autoTx'); return x === '0' ? false : x === '1' ? true : null; } catch { return null; } }
 async function maybeAutoTranscribe(videoId, markIds){
   if (!Studio.token || !autoTxEnabled() || !markIds || !markIds.length) return;
   try {
-    const r = await portalApi('api/autorun/start', { id: videoId, mode: 'transcribe', marks: markIds });
+    const r = await portalApi('api/flow/submit', UIKit.flow.order({ kind: 'url', videoId, from: 'export', upto: 'transcribe', marks: markIds }));
     if (r && r.run) UIKit.autorun.watch(r.run.id);   // 終わったら知らせる(段4)
     toast('書き出しに続けて、文字起こしを始めました', 4000, 'ok');
     if (S.cur && S.cur.id === videoId) pollAuto();
@@ -3555,9 +3558,13 @@ async function startAuto(mode, marks){
     if (S.dirty) await flushSave();   // 手で付けたマークを先に保存してから(まとめて実行は保存済みのマークを読む)
     const who = await UIKit.streamer.check($('#rvAutoWho'));
     if (who === null) return;   // 見つからない名前で「やめる」を選んだ(S-20)
-    const st = UIKit.autorun.state();
-    const body = { id: S.cur.id, mode, ...(mode === 'full' ? { top } : {}), streamer: who, ...(marks ? { marks } : {}), overwrite: !!(st && st.overwrite) };   // 空 = 色なし(欄は自動で入る)
-    const r = await UIKit.autorun.start('api/autorun/start', body, { id: body.id, mode, marks: marks || null, top: body.top, overwrite: body.overwrite });
+    const st = UIKit.autorun.state(), full = mode === 'full';
+    if (full && marks) throw new Error('マークを選んだまとめて実行は「採用後を全部」「文字起こしまで」だけです');
+    // 欄 → 封筒 + 束の差分(UIKit.flow.order。RV A1): 解析から全部 = 頭からパックまで・採用後を全部 = 書き出しからパックまで・文字起こしまで = 書き出しから文字起こしまで
+    const f = { kind: 'url', videoId: S.cur.id, title: S.cur.title || '', from: full ? null : 'export', upto: mode === 'transcribe' ? 'transcribe' : 'pack',
+                streamer: who, repack: !!(st && st.overwrite), ...(full ? { top } : {}), ...(marks ? { marks } : {}) };   // 空 = 色なし(欄は自動で入る)
+    if (full){ const out = await sendOutDir(); if (out) f.deliver = { origin: 'auto', dir: out }; }   // 解析から全部は友人へ自動で送る(既定オン = 以前と同じ)
+    const r = await UIKit.autorun.start([UIKit.flow.order(f)]);
     if (!r) return;   // やることが無い(見積もり。知らせは部品が出す)
     $('#rvAuto').open = false;
     pollAuto();
@@ -3569,7 +3576,7 @@ async function pollAuto(){
   if (!Studio.token || !S.cur || !bar){ if (bar) bar.hidden = true; return; }
   const vid = S.cur.id;
   let runs;
-  try { runs = (await portalApi('api/autorun')).runs || []; } catch { return; }
+  try { runs = (await portalApi('api/flow/runs')).runs || []; } catch { return; }
   if (!S.cur || S.cur.id !== vid) return;
   const r = runs.find(x => x.kind !== 'doc' && x.videoId === vid);   // いちばん新しい実行(一覧は新しい順)
   const active = !!r && (r.state === 'queued' || r.state === 'running');
@@ -3604,7 +3611,7 @@ Studio.onReady(() => {
   $('#rvAuto').addEventListener('click', e => { const b = e.target.closest('[data-auto]'); if (b) startAuto(b.dataset.auto); });
   $('#rvAutoBar').addEventListener('click', async e => {
     if (!e.target.closest('[data-act=autocancel]')) return;
-    try { await portalApi('api/autorun/cancel', { runId: $('#rvAutoBar').dataset.run }); } catch (er){ toast(er.message, 5000, 'err'); }
+    try { await portalApi('api/flow/cancel', { id: 'run:' + $('#rvAutoBar').dataset.run }); } catch (er){ toast(er.message, 5000, 'err'); }   // 掲示板の id(RV A1)
     pollAuto();
   });
   showDataWarning();

@@ -404,8 +404,8 @@ async function loadMarks(){
     R.analyzed = new Set(v.videos.filter(x => x.analysis || x.marks > 0).map(x => x.id));
   } catch {}
   if (!S.token) return;
-  try {   // まとめて実行の順番待ち・実行中の配信(入口の /api/autorun。入口から開いたときだけ)
-    const runs = (await S.portalApi('api/autorun')).runs || [];
+  try {   // まとめて実行の順番待ち・実行中の配信(入口の /api/flow/runs。入口から開いたときだけ)
+    const runs = (await S.portalApi('api/flow/runs')).runs || [];
     R.auto = new Map(runs.filter(r => r.kind !== 'doc' && (r.state === 'queued' || r.state === 'running')).map(r => [r.videoId, r.state]));
   } catch {}
   clearTimeout(R.autoT);
@@ -434,7 +434,8 @@ function focusNextAdd(tr){
 }
 
 /* ================= まとめて実行(入口から開いたときだけ。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 5) =================
-   選んだ配信(まだスタジオに無くてよい)を、入口の /api/autorun/start-new で「解析から全部」。配信ごとに1つの実行(案件の一覧と同じ順番待ち) */
+   選んだ配信(まだスタジオに無くてよい)を「解析から全部」で、配信ごとに ② の口 /api/flow/submit へ(UIKit.flow.order の封筒の input.fresh = まだスタジオに無い配信。
+   案件の一覧と同じ順番待ち。RV A1) */
 async function startAuto(){
   if (R.adding || !R.picked.size) return;
   const items = [...R.picked.values()].map(p => ({ id: p.videoId, title: p.title, channel: p.channel }));
@@ -442,8 +443,12 @@ async function startAuto(){
   const who = $('#rkAutoWho').value.trim();   // 手で入れたときだけ字幕の色に(チャンネル名から自動では入れない)
   R.adding = true; paintPick();
   try {
-    const body = { items, top, ...(who ? { streamer: who } : {}), autoSend: !!$('#rkAutoSend').checked };
-    const r = await UIKit.autorun.start('api/autorun/start-new', body, null);   // 始める・終わったら知らせる は共通の部品(段4。まだスタジオに無い配信なので見積もりはしない)
+    let out = null;   // 友人へ自動で送る届け先(受付のフォルダの 出力。決まっていなければ送らない = D-SEND)
+    try { out = (await S.portalApi('api/intake')).outDir || null; } catch {}
+    const send = !!$('#rkAutoSend').checked;
+    const orders = items.map(it => UIKit.flow.order({ kind: 'url', videoId: it.id, title: it.title || it.id, fresh: { title: it.title, channel: it.channel }, top,
+                                                     ...(who ? { streamer: who } : {}), ...(out ? { deliver: { origin: 'auto', dir: send ? out : null } } : {}) }));
+    const r = await UIKit.autorun.start(orders, { estimate: false });   // 始める・終わったら知らせる は共通の部品(段4。まだスタジオに無い配信なので見積もりはしない)
     const made = (r && r.runs) || [], sk = (r && r.skipped) || [];
     for (const x of made) R.picked.delete(x.videoId);
     if (made.length) $('#rkAuto').open = false;

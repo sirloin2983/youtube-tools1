@@ -109,9 +109,7 @@ class TestMoved(unittest.TestCase):
             self.assertIs(getattr(A, name), getattr(spec, name), name)
         self.assertIs(A._top_arg, spec.top_arg)
         self.assertIs(A._num, spec.num_ok)
-        self.assertEqual(A.AutoRunner._marks_arg(["a", "a"]), ("a",))
-        with self.assertRaises(ValueError):
-            A.AutoRunner._marks_arg("a")
+        self.assertFalse(hasattr(A.AutoRunner, "_marks_arg"), "受付の欄の検査は flow/order.py・envelope(RV A1)")
 
 
 class TestMerge(unittest.TestCase):

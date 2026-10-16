@@ -28,6 +28,9 @@ from ytt import fsio, jobs, normalize, tools  # noqa: E402
 
 
 class FakeRunner:
+    """まとめて実行の代わり。受付(Intake)の欄を、submit_urls・submit_file に渡した形のまま覚える(下の Base が差し替える。
+    欄 → 封筒 + 束の差分の変換そのものは TestSubmitOrders が本物の submit_urls・submit_file で確かめる)"""
+
     def __init__(self):
         self.requests, self.files = [], []
         self.fail = None
@@ -59,6 +62,10 @@ class Base(unittest.TestCase):
         self.prefs = prefs_mod.Prefs(os.path.join(self.data, "prefs.json"), fsio.atomic_write)
         self.prefs.patch("intake", {"enabled": True, "folder": self.folder})
         self.runner = FakeRunner()
+        for name, meth in (("submit_urls", "start_request"), ("submit_file", "start_file")):   # 受付の欄を覚える(RV A1 で submit の 1 本に)
+            p = mock.patch.object(intake, name, lambda runner, *a, _m=meth, **kw: getattr(runner, _m)(*a, **kw))
+            p.start()
+            self.addCleanup(p.stop)
         self.now = time.time() + 1000   # ファイルの更新時刻より十分あと(落ち着いた扱い)
         self.infos = {}
         self.probes = {}
@@ -86,6 +93,52 @@ class Base(unittest.TestCase):
 
     def failed(self, *parts):
         return os.path.join(self.folder, intake.FAIL_DIR, *parts)
+
+
+class TestSubmitOrders(unittest.TestCase):
+    """RV A1: 受付の欄 → ② の口 submit(封筒 + 束の差分。flow/order.py)。結果の形 {"runs", "skipped"} は以前の start_request と同じ"""
+
+    class Rec:
+        def __init__(self, busy=()):
+            self.got, self.busy = [], set(busy)
+
+        def submit(self, env, spec=None):
+            if env["input"].get("videoId") in self.busy:
+                raise ValueError("同じ入力がすでに実行中・順番待ちです")
+            self.got.append((env, spec))
+            return {"id": env["id"], "videoId": env["input"].get("videoId")}
+
+    def test_urls(self):
+        rec = self.Rec(busy={"bbbbbbbbbbb"})
+        out = intake.submit_urls(rec, [{"id": "aaaaaaaaaaa", "top": 3, "title": "配信", "channel": "ch", "ranges": [(10, 20)], "duration": 100.0},
+                                       {"id": "bbbbbbbbbbb", "top": 2}, {"id": "bad", "top": 2}, {"id": "ccccccccccc", "top": 99}],
+                                 request_id="20261016-120000-abc123", flow="auto", deliver_dir="D:/out", speakers={"count": 2, "names": ["A"]},
+                                 video_tracks=2, cut="silence", weights={"wAudio": 1.5, "wChat": 0.5, "wComments": 2.0}, streamer="兎田ぺこら", deliver_batch=3)
+        self.assertEqual(sorted(out), ["runs", "skipped"])
+        self.assertEqual([r["videoId"] for r in out["runs"]], ["aaaaaaaaaaa"])
+        self.assertEqual([(s["id"], s["reason"]) for s in out["skipped"]],
+                         [("bbbbbbbbbbb", "同じ入力がすでに実行中・順番待ちです"), ("bad", "配信の指定が正しくありません"), ("ccccccccccc", "配信の指定が正しくありません")])
+        env, spec = rec.got[0]
+        self.assertEqual((env["kind"], env["specVersion"], env["requestId"], env["deliver"]["dir"], env["deliver"]["batch"], env["input"]["duration"],
+                          env["input"]["fresh"]), ("url", 2, "20261016-120000-abc123", "D:/out", 3, 100.0, {"title": "配信", "channel": "ch"}))
+        self.assertEqual(spec["run"], {"upto": "pack", "repack": True, "requested": ["weights", "cut", "videoTracks"]})
+        self.assertEqual((spec["adopt"]["top"], spec["hints"]["ranges"], spec["hints"]["streamer"], spec["pack"], spec["transcribe"]),
+                         (3, [[10.0, 20.0]], "兎田ぺこら", {"cut": "silence", "videoTracks": 2}, {"diarize": 2}))
+        out = intake.submit_urls(self.Rec(), [{"id": "aaaaaaaaaaa", "top": 1}])   # ② 軽く確認 = 文字起こしまで・作り直さない
+        self.assertEqual(out["runs"][0]["videoId"], "aaaaaaaaaaa")
+
+    def test_check_flow_and_file(self):
+        rec = self.Rec()
+        intake.submit_urls(rec, [{"id": "aaaaaaaaaaa", "top": 1, "ranges": [[5, 1]]}, {"id": "ddddddddddd", "top": 1}])
+        self.assertEqual(len(rec.got), 1, "形の違う区間の配信は断る")
+        self.assertEqual(rec.got[0][1]["run"], {"upto": "transcribe"})
+        intake.submit_file(rec, "C:/x/依頼.mp4", title="依頼", streamer="さくらみこ", request_id="rid", flow="auto", deliver_dir="D:/out", deliver_batch=4)
+        env, spec = rec.got[-1]
+        self.assertEqual((env["kind"], env["input"], env["requestId"], env["deliver"]["dir"], env["deliver"]["batch"]),
+                         ("file", {"title": "依頼", "path": "C:/x/依頼.mp4", "normalize": True}, "rid", "D:/out", 4))
+        self.assertEqual((spec["run"], spec["hints"]), ({"upto": "pack"}, {"streamer": "さくらみこ"}))
+        intake.submit_file(rec, "C:/x/b.mp4")
+        self.assertEqual((rec.got[-1][0]["input"]["title"], rec.got[-1][1]["run"]), ("b.mp4", {"upto": "transcribe"}))
 
 
 class TestParse(unittest.TestCase):

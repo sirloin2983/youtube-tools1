@@ -69,8 +69,8 @@ class FakeQueue:
     def __init__(self):
         self.got = []
 
-    def submit(self, env, spec=None, accept=False):
-        self.got.append((env, spec, accept))
+    def submit(self, env, spec=None):
+        self.got.append((env, spec))
         return {"id": env["id"]}
 
 
@@ -264,9 +264,9 @@ class HeadlessTest(Base):
         job = next(j for j in self.s.exporter.jobs if j["id"] == job["id"])
         run_id, handoff, _warn = self.s.exporter._handoff(job, media, "auto")
         self.assertEqual(handoff, "")
-        env, spec, accept = self.queue.got[-1]
-        self.assertEqual((run_id, accept, env["kind"], env["input"]["path"], env["requestId"], env["deliver"]["dir"]),
-                         (env["id"], True, "file", media, "req-1", None))   # 届け先の無い依頼(友人の PC)= 届ける段は「届け先がありません」で飛ばす
+        env, spec = self.queue.got[-1]   # 受けたときに決める物は submit が必ず hook の _accept で(RV A1)
+        self.assertEqual((run_id, env["specVersion"], env["kind"], env["input"]["path"], env["requestId"], env["deliver"]["dir"]),
+                         (env["id"], 2, "file", media, "req-1", None))   # 届け先の無い依頼(友人の PC)= 届ける段は「届け先がありません」で飛ばす
         run = R.Run.from_envelope(env, spec)
         self.assertEqual((run.mode, run.cut, run.video_tracks, run.source_path, run.request_id), ("file_auto", "silence", 3, media, "req-1"))
         self.assertEqual(run.speakers, {"count": 2, "names": ["兎田ぺこら"], "styles": {"兎田ぺこら": {"color": "#FF0000"}}})

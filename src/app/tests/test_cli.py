@@ -226,7 +226,7 @@ class TestLearningPlaces(Base):
 
 
 class FakePortal:
-    """入口の HTTP の偽物: 頼まれたことを並べ、GET /api/autorun は 1 回目は実行中・2 回目から済み。
+    """入口の HTTP の偽物: 頼まれたことを並べ、GET /api/flow/runs は 1 回目は実行中・2 回目から済み。
     old = submit の無い古い入口(POST /api/flow/submit が 404)。refuse = submit を 400 で断る理由"""
 
     def __init__(self, final="done", interrupt=False, old=False, refuse=None):
@@ -241,7 +241,7 @@ class FakePortal:
             if self.refuse:
                 return 400, {"error": "bad_request", "message": self.refuse}
             return 200, {"run": {"id": "r1"}}
-        if path == "/api/autorun":
+        if path == "/api/flow/runs":
             self.polls += 1
             if self.interrupt:
                 raise KeyboardInterrupt()
@@ -266,7 +266,7 @@ class TestPortal(Base):
 
     def submitted(self, portal):
         """入口に submit した 1 回 -> (封筒, 束)。submit のほかに頼んだ物は無い(取り消しは除く)"""
-        posts = [(p, b) for p, b in portal.posts() if p != "/api/autorun/cancel"]
+        posts = [(p, b) for p, b in portal.posts() if p != "/api/flow/cancel"]
         self.assertEqual([p for p, _b in posts], ["/api/flow/submit"])
         body = posts[0][1]
         from flow import envelope as E, spec as SP
@@ -281,8 +281,9 @@ class TestPortal(Base):
         code, res, err = self.main("https://www.youtube.com/watch?v=abcdefghijk", "--spec", self.spec({"adopt": {"top": 2}}), "--title", "題", "--force")
         self.assertEqual(code, 0, err)
         env, spec = self.submitted(portal)
-        self.assertEqual((env["kind"], env["input"], env["legacy"]),
-                         ("url", {"videoId": "abcdefghijk", "title": "題", "fresh": {"title": "題", "channel": ""}}, {"mode": "full"}))
+        self.assertEqual((env["kind"], env["input"], env["specVersion"], "legacy" in env),
+                         ("url", {"videoId": "abcdefghijk", "title": "題", "duration": None, "fresh": {"title": "題", "channel": ""}, "marks": None}, 2, False))
+        self.assertEqual((spec["run"]["from"], spec["run"]["upto"]), (None, "pack"))   # 解析から全部 = 束の run(RV A2)
         self.assertRegex(env["id"], r"^[0-9a-f]{10}$")
         self.assertEqual((spec["adopt"]["top"], spec["run"]["force"]), (2, True))
         self.assertEqual((res["via"], res["state"], res["id"]), ("portal", "done", "r1"))
@@ -296,8 +297,8 @@ class TestPortal(Base):
         code, res, err = self.main("abcdefghijk", "--from", "export", "--force")
         self.assertEqual(code, 1)
         env, spec = self.submitted(portal)
-        self.assertEqual((env["input"], env["legacy"], spec["run"]["from"], spec["run"]["force"]),
-                         ({"videoId": "abcdefghijk", "title": ""}, {"mode": "adopted"}, "export", True))
+        self.assertEqual((env["input"]["fresh"], spec["run"]["from"], spec["run"]["upto"], spec["run"]["force"]),
+                         (None, "export", "pack", True))   # 採用後を全部 = 書き出しから
 
     def test_file_submit(self):
         """動画ファイルは kind file の submit 1 回(文字起こし → パック。--from pack・--force は束の run で入口に渡る)"""
@@ -307,7 +308,7 @@ class TestPortal(Base):
         code, res, err = self.main(video, "--spec", self.spec({"transcribe": {"model": "large-v3"}}), "--from", "pack", "--force")
         self.assertEqual(code, 0, err)
         env, spec = self.submitted(portal)
-        self.assertEqual((env["kind"], env["input"]["path"], env["legacy"]["mode"]), ("file", video, "file_auto"))
+        self.assertEqual((env["kind"], env["input"]["path"], env["input"]["normalize"], spec["run"]["upto"]), ("file", video, False, "pack"))
         self.assertEqual((spec["transcribe"]["model"], spec["run"]["from"], spec["run"]["force"]), ("large-v3", "pack", True))
 
     def test_submit_refused(self):
@@ -333,7 +334,7 @@ class TestPortal(Base):
         self.use_portal(portal)
         code, res, err = self.main("abcdefghijk")
         self.assertEqual(code, 130)
-        self.assertEqual(portal.posts()[-1], ("/api/autorun/cancel", {"runId": "r1"}))
+        self.assertEqual(portal.posts()[-1], ("/api/flow/cancel", {"id": "run:r1"}))
         self.assertEqual(res["state"], "cancelled")
 
     def test_lock_without_portal(self):
@@ -413,14 +414,14 @@ class TestPortalHttp(unittest.TestCase):
         self.addCleanup(srv.server_close)
         self.addCleanup(srv.shutdown)
         p = cli.Portal(srv.server_address[1], timeout=5)
-        self.assertEqual(p.ok("GET", "/api/autorun"), {"runs": []})
+        self.assertEqual(p.ok("GET", "/api/flow/runs"), {"runs": []})
         self.assertEqual(p.ok("POST", "/api/flow/submit", {"items": []}), {"runs": [{"id": "r9"}]})
-        get_api = [s for s in _Handler.seen if s[:2] == ("GET", "/api/autorun")][0]
+        get_api = [s for s in _Handler.seen if s[:2] == ("GET", "/api/flow/runs")][0]
         self.assertIsNone(get_api[2], "GET には合言葉を付けない")
         self.assertEqual(get_api[3], "127.0.0.1:%d" % srv.server_address[1])
         self.assertEqual(_Handler.seen[-1], ("POST", "/api/flow/submit", "tok_123", {"items": []}))
         with self.assertRaises(cli.PortalError):
-            cli.Portal(1, timeout=1).ok("GET", "/api/autorun")   # つながらない
+            cli.Portal(1, timeout=1).ok("GET", "/api/flow/runs")   # つながらない
 
 
 class TestLocalLifecycle(Base):

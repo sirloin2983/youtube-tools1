@@ -6,12 +6,12 @@
 画面なし・③ なしでも動く: Queue(client, log_dir=...) だけで submit → 糸が段を進める → status / snapshot / history で見る。
 
 - Queue は flow/run.py の Runner を継ぐ(段の中身と hook はそのまま)。入口の AutoRunner(src/app/autorun.py)は Queue を継いで、
-  受付(start*。画面の欄から Run を作って積む)と hook(案件・ホームの設定・友人へ届ける = ③④ の物)だけを埋める。
+  hook(案件・ホームの設定・友人へ届ける = ③④ の物)だけを埋める。受付は submit の 1 本(RV A1。欄 → 封筒 + 束の差分は flow/order.py)。
   hook を埋めなければ何もしない(素の Runner の既定 + 下の build_spec・_on_error の既定)= 画面なしの ② の形
 - 口: submit(封筒, 束)= 封筒 + 束を受けて Run.from_envelope で積む(束にこの PC の設定 flow/machine.py を重ねる = 受けたときに組んだ束のまま流す)/
   status() = 待ち・実行中の数と進み具合(「終わったら閉じる」のため)/ cancel・snapshot・history・estimate・close。
   HTTP の口は入口の POST /api/flow/submit・GET /api/flow/status(src/app/server.py。RS7-1 S4)
-- 束は受けたときに組む(RS7-1 S4): submit は受けた束、入口の受付(AutoRunner.start*)は hook の _accept(画面の設定 + この PC の設定 = build_spec と、
+- 束は受けたときに組む(RS7-1 S4): submit は土台(hook の build_spec = 画面の設定 + この PC の設定)+ 受けた差分。hook の _accept(
   友人の区間の長さ・配信者・届け方の n 本)。待ちの間に設定を変えても、その実行の中身は変わらない
 - 糸 _loop: 待ちを 1 本ずつ、優先度の表(flow/prio.py。録画中のライブ > 友人の依頼 > 自分の配信のまとめて実行・同じなら入れた順。PRIO)の順で _execute(Run の束で流す。束の無い Run = 直に積んだ物だけ、ここで hook の build_spec で組む)
 - 待ちの記録(起動し直しで戻す。線 D の M5): 待ち・実行中の実行を log_dir/autorun-active.json に Run.saved()(封筒 + 束 + 状態)で残し
@@ -240,13 +240,26 @@ class Queue(run_mod.Runner):
         """受付で組む束 -> (束, 知らせの文のリスト)。既定 = 束の既定 + この PC の設定(flow/machine.py)・知らせなし"""
         return _machine.overlay(_spec.validate(_spec.merge(None)), env=self.env), []
 
+    def _check_input(self, run):
+        """submit の入力の検査(hook)。既定 = 動画ファイルは実在する動画・音声だけ(_check_media)。入口は文書があるかも見る"""
+        if run.kind() == "file":
+            _check_media(run.source_path)
+
+    def _base(self):
+        """受付の束の土台 -> (束, 知らせ)= build_spec(入口の AutoRunner は 1 回の受付の間だけ覚える)"""
+        return self.build_spec()
+
     def _accept(self, run, convert=False):
-        """受けたときに決める物を Run に置く(RS7-1 S4)。既定 = 束が無ければ build_spec で組む(知らせは run.notes)。
-        入口の AutoRunner は友人の区間の長さ・配信者・届け方の n 本も決める。convert = 束の無い待ちの記録を戻すとき(まだ決めていない物だけ)"""
+        """受けたときに決める物を Run に置く(RS7-1 S4。submit は必ず通す = RV A1)。既定 = 束が無ければ build_spec で組む(知らせは run.notes)・
+        配信者が決まっていなければ(束の hints.streamer が null)束の hints.people の先頭を照らし合わせた名前(合わなければ決めない)。
+        入口の AutoRunner は友人の区間の長さ・覚えた名前からの配信者・届け方の n 本・届ける名前の頭も決める。
+        convert = 束の無い待ちの記録を戻すとき(まだ決めていない物だけ)"""
         if run.spec is None:
-            bundle, notes = self.build_spec()
+            bundle, notes = self._base()
             run.spec = bundle
             run.notes = list(notes)
+        if run.streamer is None and not convert:
+            run.streamer = _people_streamer(run.spec, self.env)
 
     def _on_error(self, run):
         """失敗で終わった実行(記録に書く前。入口は友人へ、できていたパックと失敗の理由を届ける)。既定は何もしない"""
@@ -334,26 +347,42 @@ class Queue(run_mod.Runner):
             self._save_active()
         return {"runs": made, "skipped": skipped}
 
-    def submit(self, envelope, spec=None, accept=False):
-        """② の口: 封筒(flow/envelope.py)+ 束(flow/spec.py。変えたい所だけでもよい)を受けて待ち行列に積む -> run.public()。
-        accept = 受けたときに決める物(配信者・届け方の n 本)を入口の受付と同じ hook の _accept で決める(ライブの書き出しの受け渡し live_export._handoff。
-        以前の start_file と同じ決め方 = 束の hints.people の先頭は見ない。RS7-2 G2b)。
-        束にこの PC の設定(flow/machine.py)を重ねて Run に置く = 受けたときの束のまま流す(封筒の欄が決めた物 = run.pinned はそのまま)。
+    def _bundle_for(self, envelope, spec):
+        """封筒 + 束の差分 -> (版 2 の封筒, 受付の束, 知らせ)。土台 = hook の build_spec(_base)に差分を重ね(spec.merge_onto)、
+        最後にこの PC の設定(flow/machine.py)を重ねる(差分の機器・エンジンより、この PC の設定が勝つ = 以前の submit と同じ)"""
+        env, diff = _envelope.read(envelope, spec)
+        base, notes = self._base()
+        bundle = _machine.overlay(_spec.validate(_spec.merge_onto(base, diff)), env=self.env)
+        return env, bundle, notes
+
+    def submit(self, envelope, spec=None):
+        """② の口(受付はこの 1 本だけ = RV A1。HTTP は POST /api/flow/submit): 封筒(flow/envelope.py。版 1・2)+ 束(flow/spec.py の差分。
+        変えたい所だけでよい。全部でもよい)を受けて待ち行列に積む -> run.public()。欄から封筒と差分を作るのは flow/order.py(画面は UIKit.flow.order)。
+        束 = 土台(hook の build_spec。素の Queue = 既定 + この PC・入口 = 画面の設定)+ 差分 + この PC の設定 = 受けたときの束のまま流す。
+        受けたときに決める物は hook の _accept(必ず通す。配信者・友人の区間の長さ・届け方の n 本・届ける名前の頭)。
         動画ファイルの封筒(kind file)は、実在する絶対パスで拡張子が動画・音声(ytt/tools.MEDIA_TYPES)の物だけ。届け先が無ければ届けない(既定)。
-        配信者: 封筒に無ければ(legacy.streamer が null)束の hints.people の先頭の名前を照らし合わせた名前(字幕の色。ytt/colors.resolve =
-        友人の受付と同じ。合わなければ決めない)。決まらなければ実行中に決める(入口は hook の _auto_streamer = チャンネル名などから)。
+        配信者: 名前があれば色の一覧と照らし合わせる(ytt/colors.resolve。合わなければ ValueError。友人の依頼(requestId あり)は照らし合わせずそのまま =
+        以前と同じ)・空 = 色なし・null = _accept が決める(束の hints.people の先頭 → 入口は覚えた名前・チャンネル名から。決まらなければ実行中に)。
         封筒・束の形が違う・同じ入力(配信・文書・動画)か同じ id が待ち・実行中・待ちが多すぎれば理由つきの ValueError"""
         check_spec(envelope, spec)   # 版の違い・束の形を先に(SpecVersionError・BadSpecError。どちらも ValueError)
         if isinstance(envelope, dict) and envelope.get("kind") == "live":
             return self._submit_live(envelope, spec)
-        run = Run.from_envelope(envelope, spec)
-        if run.kind() == "file":
-            _check_media(run.source_path)
-        if run.streamer is None and not accept:
-            run.streamer = _people_streamer(run.spec, self.env)
-        run.spec = _machine.overlay(run.spec, env=self.env)   # 欄から写した差分(run.asked)は置くときに重なる = 封筒の決めた物が勝つ
-        if accept:
-            self._accept(run)
+        env, bundle, notes = self._bundle_for(envelope, spec)
+        run = Run.from_envelope(env, bundle)
+        run.notes = list(notes)
+        self._check_input(run)
+        if isinstance(run.streamer, str) and run.streamer:
+            if not run.streamer.strip():
+                run.streamer = ""
+            elif not run.request_id:
+                run.streamer = _colors.resolve(run.streamer, env=self.env)[0]   # 見つからなければ ValueError(始める前に断る)
+        with self.cv:
+            if self.closed:
+                raise ValueError(CLOSED_MSG)
+            why = busy_reason(self._active_runs(), lambda r: r.key() == run.key(), "同じ入力が")
+            if why:   # 先に断る物を断る(_accept が読む前に)
+                raise ValueError(why)
+        self._accept(run)
         with self.cv:
             if self.closed:
                 raise ValueError(CLOSED_MSG)
@@ -394,21 +423,26 @@ class Queue(run_mod.Runner):
         return hook(env, bundle)
 
     # ------------------------------------------------------------ 見積もり(気が利く画面へ 段4)
-    def estimate(self, video_id=None, mode=None, marks=None, top=None, doc_ids=None, overwrite=False, deliver=False):
-        """実行と同じ規則で、段ごとの本数と飛ばす理由を返す(何も書き込まない)。「飛ばすか」の判定は flow/run.py の
-        analyze_verdict・adopted_ids・tx_verdict・pack_verdict で、実行の段と同じ関数(鍵の比べも同じ _pack_state)。実行は実行したときの状態で決めるので、
-        前の段の結果しだいの本数は None(分からない)で返す。
+    def estimate(self, envelope, spec=None):
+        """submit と同じ封筒 + 束の差分(RV A1。HTTP は POST /api/flow/estimate {envelope, spec})で、実行と同じ規則の段ごとの本数と飛ばす理由を返す
+        (何も書き込まない・積まない)。「飛ばすか」の判定は flow/run.py の analyze_verdict・adopted_ids・tx_verdict・pack_verdict で、実行の段と同じ関数
+        (鍵の比べも同じ _pack_state)。実行は実行したときの状態で決めるので、前の段の結果しだいの本数は None(分からない)で返す。
         文書の一覧と紐づけは hook の _docs・_pick_doc。-> {"steps": [{"key", "label", "count" (None = 前の段の結果しだい), "note"}],
-        "total": 分かっている本数の合計, "nothing": bool, "reason"}。deliver = 友人へ自動で送る(mode full のときだけ。D-SEND)なら末尾に段 deliver の行
-        (本数は届けるかの判定 flow/sendpolicy しだいなので None・note「あとで決まります」)"""
+        "total": 分かっている本数の合計, "nothing": bool, "reason", "notes"}。配信の形(MODES)と文書だけ数える(ほかは段だけ・本数は None)。
+        友人へ自動で送る(D-SEND。段 deliver があり届け先がある)なら末尾に段 deliver の行(本数は届けるかの判定 flow/sendpolicy しだいなので None・
+        note「あとで決まります」)。封筒・束の形が違えば理由つきの ValueError"""
+        check_spec(envelope, spec)
+        env, bundle, _notes = self._bundle_for(envelope, spec)
+        run = Run.from_envelope(env, bundle)
         docs = self._docs()
-        if doc_ids is not None:   # 文書単位(文字起こし → パック)
-            return self._estimate_docs(docs, doc_ids, overwrite)
-        if mode not in MODES:
-            raise ValueError("実行の形が正しくありません")
+        if run.mode == DOC_MODE:   # 文書単位(文字起こし → パック)
+            return self._estimate_docs(docs, run)
+        if run.mode not in MODES:
+            return self._estimate_out([{"key": s["key"], "label": s["label"], "count": None, "note": ""} for s in run.steps], [])
+        video_id, mode, top = run.video_id, run.mode, run.top
         st, obj = self.tools.video(urllib.parse.quote(str(video_id or "")))
         v = (obj.get("video") or {}) if st == 200 and isinstance(obj, dict) else {}
-        run = Run(video_id, "", mode, top or _spec.DEFAULT_TOP, marks=_spec.marks_arg(marks), overwrite=overwrite)
+        deliver = bool(run.deliver_dir) and any(s["key"] == "deliver" for s in run.steps)
         mine = self._mine(run, v)
         adopted = adopted_ids(mine)
         clips = self._clips(v, run)
@@ -449,13 +483,11 @@ class Queue(run_mod.Runner):
             steps.append({"key": "deliver", "label": STEP_LABELS["deliver"], "count": None, "note": "あとで決まります"})
         return self._estimate_out(steps, [] if st == 200 else ["配信がスタジオに見つかりません"])
 
-    def _estimate_docs(self, docs, doc_ids, overwrite):
-        """estimate の文書単位(文字起こし → パック)"""
-        if not isinstance(doc_ids, list) or not doc_ids or len(doc_ids) > MAX_WAITING:
-            raise ValueError("文書は 1〜%d 本で選んでください" % MAX_WAITING)
+    def _estimate_docs(self, docs, run):
+        """estimate の文書単位(文字起こし → パック。文書 1 本 = run.doc_id。画面は文書ごとに見積もって足す)"""
         by = {d["id"]: d for d in docs}
         tx, pk, notes = 0, 0, []
-        for tid in dict.fromkeys(i for i in doc_ids if isinstance(i, str)):
+        for tid in (run.doc_id,):
             d = by.get(tid) if doc_id_ok(tid) else None
             if not d:
                 notes.append("見つからない文書があります")
@@ -464,7 +496,6 @@ class Queue(run_mod.Runner):
                 tx += 1
                 pk += 1
                 continue
-            run = Run(None, "", DOC_MODE, _spec.DEFAULT_TOP, doc_id=tid, overwrite=overwrite)
             if pack_verdict(self._repack(run), *self._pack_probe(run, d, d.get("sourcePath") or "", self._pack_settings(run))) != "skip":
                 pk += 1
         steps = [{"key": "transcribe", "label": STEP_LABELS["transcribe"], "count": tx, "note": "" if tx else "文字起こし済み"},

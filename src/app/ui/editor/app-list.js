@@ -122,7 +122,7 @@ function txRowHTML(i){
   </div>`;
 }
 
-/* ---------- 選んだ文書をまとめて(12 ⑦(b)。入口の /api/autorun/start-docs。入口から開いたときだけ) ---------- */
+/* ---------- 選んだ文書をまとめて(12 ⑦(b)。入口の ② の口 /api/flow/submit に文書 1 本ずつ = UIKit.flow.order。RV A1。入口から開いたときだけ) ---------- */
 
 /* 入口の API(/api/...)。画面は入口の /transcribe/ の下にあるので、画面の場所から1つ上(UIKit.homeApi。絶対パスを書かない。エラーの形は api() と同じ) */
 function portalApi(path, body){
@@ -168,7 +168,7 @@ async function pollRuns(){
   clearTimeout(PICK.polling);
   if (!TOKEN) return;
   let runs = [];
-  try { runs = ((await portalApi('api/autorun')).runs || []).filter(r => r.kind === 'doc'); } catch { return; }
+  try { runs = ((await portalApi('api/flow/runs')).runs || []).filter(r => r.kind === 'doc'); } catch { return; }
   PICK.lastRuns = runs; renderRuns(runs); renderDocAuto(runs);
   const active = new Set(runs.filter(r => r.state === 'queued' || r.state === 'running').map(r => r.id));
   if ([...PICK.active].some(id => !active.has(id))){   // 終わった実行があれば、一覧の「パック済み」などを今の状態に
@@ -189,8 +189,8 @@ async function startDocAuto(){
     if (!(await savedAll())) return;
     const who = await UIKit.streamer.check($('#docAutoWho'));
     if (who === null) return;   // 見つからない名前で「やめる」を選んだ(S-20)
-    const body = { ids: [id], overwrite: $('#docAutoOverwrite').checked, streamer: who };   // 空 = 色なし(欄は自動で入る)
-    const r = await UIKit.autorun.start('api/autorun/start-docs', body, { ids: [id], overwrite: body.overwrite });   // 見積もり → 始める → 終わったら知らせる(どの入口も同じ部品。段4)
+    const order = UIKit.flow.order({ kind: 'docs', docId: id, repack: $('#docAutoOverwrite').checked, streamer: who });   // 空 = 色なし(欄は自動で入る)
+    const r = await UIKit.autorun.start([order]);   // 見積もり → 始める → 終わったら知らせる(どの入口も同じ部品。段4)
     if (!r) return;   // やることが無い(知らせは部品が出す)
     if ((r.runs || []).length) $('#docAuto').open = false;
     else toast('始められませんでした: ' + ((r.skipped || [])[0] ? r.skipped[0].reason : '理由が分かりません'), 7000, 'err');
@@ -215,8 +215,9 @@ async function startBatch(){
   const b = $('#txBatchGo'); b.disabled = true;
   try {
     const who = $('#txBatchWho').value.trim();   // 手で入れたときだけ字幕の色に
-    const body = { ids, overwrite: $('#txOverwrite').checked, ...(who ? { streamer: who } : {}) };
-    const r = await UIKit.autorun.start('api/autorun/start-docs', body, { ids, overwrite: body.overwrite });   // 見積もり → 始める → 終わったら知らせる(どの入口も同じ部品。段4)
+    const over = $('#txOverwrite').checked;
+    const orders = ids.map(id => UIKit.flow.order({ kind: 'docs', docId: id, repack: over, ...(who ? { streamer: who } : {}) }));   // 文書 1 本ずつ(見積もりも 1 本ずつ足す)
+    const r = await UIKit.autorun.start(orders);   // 見積もり → 始める → 終わったら知らせる(どの入口も同じ部品。段4)
     if (!r) return;
     PICK.ids.clear(); renderList(); renderPickBar(); pollRuns();
   } catch (e){ toast('まとめて実行を始められませんでした: ' + e.message, 7000, 'err'); }

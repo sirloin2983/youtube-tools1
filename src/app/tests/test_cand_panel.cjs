@@ -964,9 +964,9 @@ test('the panels\' Studio API wrappers (core.js successor) go through UIKit.http
   assert.deepEqual([kind, url, o.method, plain(o.body), o.timeout], ['studio', '/api/video', 'PUT', { id: 'A' }, 0], 'studio API through the shell, no timeout (exports can be long)');
   assert.ok(o.offline.includes('スタジオにつながりませんでした'));
   assert.equal(ctx.Studio.url('/media?id=x'), 'studio/media?id=x');
-  await ctx.Studio.portalApi('api/autorun/start', { id: 'A' });
+  await ctx.Studio.portalApi('api/flow/submit', { envelope: { id: 'A' } });
   [kind, url, o] = calls.at(-1);
-  assert.deepEqual([kind, url, plain(o.body)], ['home', 'api/autorun/start', { id: 'A' }]);
+  assert.deepEqual([kind, url, plain(o.body)], ['home', 'api/flow/submit', { envelope: { id: 'A' } }]);
   await ctx.Studio.live.api('api/info');
   o = calls.at(-1)[2];
   assert.deepEqual([calls.at(-1)[1], o.method, o.body, o.timeout], ['live/api/info', 'GET', undefined, 10000]);

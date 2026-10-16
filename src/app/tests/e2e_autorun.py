@@ -19,6 +19,7 @@ import tempfile
 import threading
 import time
 import urllib.request
+import uuid
 from unittest import mock
 
 from playwright.sync_api import sync_playwright
@@ -95,10 +96,18 @@ def main():
             except urllib.error.HTTPError as e:
                 return e.code, json.loads(e.read() or b"null")
 
+        def submit(vid, frm=None, top=None):
+            """② の口 POST /api/flow/submit(RV A1。画面の UIKit.flow.order と同じ形: 封筒 + 束の差分)"""
+            spec = {"run": dict({"upto": "pack"}, **({"from": frm} if frm else {}))}
+            if top is not None:
+                spec["adopt"] = {"top": top}
+            env = {"id": uuid.uuid4().hex[:10], "kind": "url", "input": {"videoId": vid, "title": ""}, "specVersion": 2}
+            return call("POST", "/api/flow/submit", {"envelope": env, "spec": spec})
+
         def wait_run(run_id, timeout=240):
             end = time.time() + timeout
             while time.time() < end:
-                runs = call("GET", "/api/autorun")[1]["runs"]
+                runs = call("GET", "/api/flow/runs")[1]["runs"]
                 r = next((x for x in runs if x["id"] == run_id), None)
                 if r and r["state"] not in ("queued", "running"):
                     return r
@@ -184,9 +193,9 @@ def main():
             # ② API で「解析から全部」(未解析の動画)
             st, j = call("POST", "/studio/api/videos/open", {"kind": "file", "path": media_b})
             vid_b = j["video"]["id"]
-            st, j = call("POST", "/api/autorun/start", {"id": vid_b, "mode": "full", "top": 1})
+            st, j = submit(vid_b, top=1)
             check(st == 200 and j["run"]["mode"] == "full", "「解析から全部」を始めた")
-            st2, j2 = call("POST", "/api/autorun/start", {"id": vid_b, "mode": "adopted"})
+            st2, j2 = submit(vid_b, "export")
             check(st2 == 400 and "すでに" in j2.get("message", ""), "同じ配信は2つ同時に入れない: %s" % j2)
             r = wait_run(j["run"]["id"])
             states = {s["key"]: s["state"] for s in r["steps"]}
@@ -194,10 +203,10 @@ def main():
                   "解析 → 採用 → 書き出し → 文字起こし → パック: %s %s" % (states, r.get("error")))
             v = call("GET", "/studio/api/video?id=" + vid_b)[1]["video"]
             check(sum(1 for m in v["marks"] if m["status"] == "exported") == 1, "採用する数(1)だけ書き出した")
-            st, j = call("POST", "/api/autorun/start", {"id": "../x", "mode": "full"})
+            st, j = submit("../x")
             check(st == 400, "正しくない配信の指定は断る")
             # 合言葉なしの操作は断る
-            req = urllib.request.Request(base + "/api/autorun/start", method="POST", data=b'{"id":"x","mode":"full"}',
+            req = urllib.request.Request(base + "/api/flow/submit", method="POST", data=b'{"envelope":{"id":"x","kind":"url","input":{"videoId":"x"}}}',
                                          headers={"Content-Type": "application/json"})
             try:
                 urllib.request.urlopen(req, timeout=10)
@@ -207,7 +216,7 @@ def main():
             check(code == 403, "合言葉なしの まとめて実行 は断る: %s" % code)
 
             # ④ 入口を起動し直しても、前回の結果が見える(段2 B-6)
-            st, j = call("POST", "/api/autorun/start", {"id": "zzzzzzzzzzz", "mode": "adopted"})   # スタジオに無い配信 = 止まる
+            st, j = submit("zzzzzzzzzzz", "export")   # スタジオに無い配信 = 止まる
             bad = wait_run(j["run"]["id"], 60)
             check(bad["state"] == "error" and bad["error"], "無い配信は止まる: %s" % bad.get("error"))
             log_path = os.path.join(sup.logs_dir, "autorun-runs.jsonl")
@@ -227,9 +236,9 @@ def main():
             th = threading.Thread(target=srv.serve_forever, daemon=True)
             th.start()
             base = "http://127.0.0.1:%d" % port
-            j = call("GET", "/api/autorun")[1]
+            j = call("GET", "/api/flow/runs")[1]
             check(j["runs"] == [] and {p["videoId"] for p in j["past"]} == {vid_a, vid_b, "zzzzzzzzzzz"},
-                  "起動し直した入口の /api/autorun に前回の結果(past): %s" % [(p["videoId"], p["state"]) for p in j["past"]])
+                  "起動し直した入口の /api/flow/runs に前回の結果(past): %s" % [(p["videoId"], p["state"]) for p in j["past"]])
             with sync_playwright() as p:
                 browser = p.chromium.launch()
                 pg = browser.new_page(viewport={"width": 1200, "height": 900})
