@@ -171,6 +171,7 @@ def main(argv=None):
     app.prep = {"state": "ready", "message": ""}
     app.api.fetch, app.api.probe = demo_fetch, demo_probe   # ネットへ出ない(F2-6)
     app.pick_file = lambda: demo_file(home)                  # 本物のファイルを選ぶ窓を開かない
+    app.open_folder = lambda d: None                         # [保存先を開く] でエクスプローラーを開かない(画面を取らない)
     if not app.inbox.rows:
         seed(app, home)
     srv = S.Server(("127.0.0.1", a.port), app)
