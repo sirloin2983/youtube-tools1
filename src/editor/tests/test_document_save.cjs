@@ -13,8 +13,9 @@ const { withUIKit } = require(path.join(__dirname, '..', '..', 'ui-kit', 'tests'
 // CSP 対応(script-src 'self')でアプリの JS は app.js へ外出しした。段10 で関数の定義は app-*.js に分けた。
 // RS8 C4 で古い編集の画面(index.html)は消えた = 今は案件の画面の校正の台(src/app/ui/cases/edhost.js の ED_SCRIPTS)が読む順番(app-*.js → app.js)。
 // テストはその順番にファイルをつなげて読み、使う関数・状態を名前で取り出す
-const editorDir = path.join(__dirname, '..');
-const edhost = fs.readFileSync(path.join(editorDir, '..', 'app', 'ui', 'cases', 'edhost.js'), 'utf8');
+const editorDir = path.join(__dirname, '..', '..', 'app', 'ui', 'editor');   // 画面の部品(RV C2 で src/editor から移した)。ここから見て src は '..' の 3 つ上
+const srcDir = path.join(__dirname, '..', '..');
+const edhost = fs.readFileSync(path.join(srcDir, 'app', 'ui', 'cases', 'edhost.js'), 'utf8');
 const appFiles = [...(edhost.match(/var ED_SCRIPTS = \[([^\]]*)\]/) || ['', ''])[1].matchAll(/'(app[\w-]*\.js)'/g)].map(m => m[1]);
 assert.ok(appFiles.includes('app.js'), 'edhost.js must load app.js');
 const appJs = appFiles.map(f => fs.readFileSync(path.join(editorDir, f), 'utf8').replace(/\r\n/g, '\n')).join('\n');
@@ -188,7 +189,7 @@ test('out-of-order responses honor the most recent navigation request', async ()
 });
 
 test('app.js and ui-kit.js parse successfully (CSP: the cases page has no inline <script>)', () => {
-  const html = fs.readFileSync(path.join(editorDir, '..', 'app', 'ui', 'cases', 'index.html'), 'utf8');   // 編集の欄を載せる案件の画面(RS8 C4)
+  const html = fs.readFileSync(path.join(srcDir, 'app', 'ui', 'cases', 'index.html'), 'utf8');   // 編集の欄を載せる案件の画面(RS8 C4)
   const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)];
   assert.ok(scripts.length > 0);
   for (const [, attrs, source] of scripts) {
@@ -196,7 +197,7 @@ test('app.js and ui-kit.js parse successfully (CSP: the cases page has no inline
     assert.equal(source.trim(), '');
   }
   for (const f of appFiles.concat(['app-tpl.js', 'cut.js', 'pack-tab.js'])) new vm.Script(fs.readFileSync(path.join(editorDir, f), 'utf8'), { filename: f });   // 1つずつ(画面と同じく別のスクリプト)
-  new vm.Script(fs.readFileSync(path.join(editorDir, '..', 'ui-kit', 'ui-kit.js'), 'utf8'));   // 共通の見た目の正本(編集の写しは C4 で消した)
+  new vm.Script(fs.readFileSync(path.join(srcDir, 'ui-kit', 'ui-kit.js'), 'utf8'));   // 共通の見た目の正本(編集の写しは C4 で消した)
 });
 
 // 字幕の読む速さの印(2026-10-05): 画面の readMark とサーバーの pipeline/transcribe/retime.subread_mark が同じ結果になること(例は tests/subread_cases.json。test_retime.py も読む)

@@ -9,7 +9,7 @@
     ⚙ の API キー・事務所の登録・コラボ     … ホームの「新しい案件」の末尾の「探す設定」(コラボは collab.js のまま)
     ⚙ の出力先・ライブの録画の表示          … 設定の画面(/settings)
   /studio/?video=… などの以前の URL は、ホームが案件の画面へ転送します。API(/studio/api/…)と作業データ・識別子(clip-studio)は変わりません。
-  このフォルダに残る画面の部品は rank.js・queue.js・review.js・collab.js だけ(index.html・core.js・settings.js・app.css・review.css・ui-kit の写しは消しました)。
+  画面の部品 rank.js・queue.js・review.js・collab.js は src/app/ui/studio/ に移しました(RV C2。URL の /studio/rank.js などはそのまま。serve.py の STATIC が UI_DIR から配ります)。以前は(index.html・core.js・settings.js・app.css・review.css・ui-kit の写しは消しました)。
   以下の説明の「① ② のタブ」「ヘッダーの設定(⚙)」は消した画面のものです(経緯として残します)。
 
 【これは何?】

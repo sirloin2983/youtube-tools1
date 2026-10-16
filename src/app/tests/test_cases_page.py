@@ -132,7 +132,7 @@ class CasesPageFilesTest(unittest.TestCase):
         self.assertLess(html.index('src="cases-panels/machpick.js"'), html.index('src="cases-panels/proof.js"'))
         self.assertIn('class="ui-header top"', html, "編集の app.js が .top の高さを見る")
         for name in ("app.js", "app-core.js", "app-rows.js"):   # 古い編集の画面の動きは変えない口(window.EditHost が無ければ今までどおり)
-            self.assertIn("EDIT_HOST", read(os.path.join(SRC, "editor", name)), name)
+            self.assertIn("EDIT_HOST", read(os.path.join(SRC, "app", "ui", "editor", name)), name)
 
     def test_shell_uses_life_and_one_keydown(self):
         js = read(os.path.join(UI, "cases.js"))
@@ -156,7 +156,7 @@ class CasesPageFilesTest(unittest.TestCase):
         home = ids(read(os.path.join(SRC, "app", "ui", "home", "portal.html")))
         mine = set()
         for name in ("rank.js", "queue.js"):
-            mine |= ids(read(os.path.join(SRC, "studio", name)))
+            mine |= ids(read(os.path.join(SRC, "app", "ui", "studio", name)))
         mine |= {"paneRank"}
         self.assertGreater(len(mine), 40)   # 取り損ねていない
         self.assertEqual(sorted(home & mine), [])

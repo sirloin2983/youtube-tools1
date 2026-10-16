@@ -1,5 +1,5 @@
 /* 案件の画面の「候補」のパネル(#cand。配信全体の候補の採用・不採用・書き出し・LIVE の帯。RS8 C2a)。口の形は cases.js の先頭の説明。
-   中身はスタジオ ② の部品 src/studio/review.js(window.StudioReview.create(env))をそのまま使う = 古い画面と同じコード・同じ動き(古い画面は凍結。C4 で review.js をここへ移して古い画面を消す)。
+   中身はスタジオ ② の部品 src/app/ui/studio/review.js(window.StudioReview.create(env))をそのまま使う = 古い画面と同じコード・同じ動き(古い画面は凍結。C4 で review.js をここへ移して古い画面を消す)。
    このファイルは「つなぎ」だけ: review.js を studio/review.js から 1 回読み(タブを開いたときだけ)、パネルの箱の中で作り、core.js の window.Studio の代わり(Studio の写し)を渡す。
      DOM はパネルの箱(el の子)の中だけを引く(document.getElementById・document.querySelector は使わない)・keydown は殻の 1 本から keys(e) で受ける・
      離れた / 戻ったは殻の leave / back で受ける・下のキーの帯は keybar() で殻へ渡す・API はスタジオの今の口(ctx.api('studio', …)。合言葉は ui-kit)。

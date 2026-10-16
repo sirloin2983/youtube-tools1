@@ -492,8 +492,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_path(ed_state.APP_JS, "text/javascript; charset=utf-8")
             if u.path == "/proof.css":
                 return self._send_path(ed_state.PROOF_CSS, "text/css; charset=utf-8")
-            if name in ed_state.PAGE_JS and os.path.isfile(os.path.join(_workdata.ROOT, name)):
-                return self._send_path(os.path.join(_workdata.ROOT, name), "text/javascript; charset=utf-8")
+            if name in ed_state.PAGE_JS and os.path.isfile(os.path.join(ed_state.UI_DIR, name)):
+                return self._send_path(os.path.join(ed_state.UI_DIR, name), "text/javascript; charset=utf-8")
             fn = GET_API.get(u.path)
             if fn is not None:
                 return self._json(200, fn(arg))

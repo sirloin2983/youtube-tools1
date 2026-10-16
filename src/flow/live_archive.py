@@ -466,7 +466,7 @@ class Archiver(LX.Patrol):
     def info_view(self, rc, rec, jobs=None):
         """GET /live/api/exports の archiveInfo {ready: true|false|null, checkedAt, message}。
         配信後の全自動(M7)があれば afterStream {state, label, message, at, n, jobs(採用した本数), progress(after_progress), text(after_text)}。
-        jobs = その録画のジョブ(応答の jobs。None なら書き出しの一覧から読む)。帯への表示はスタジオの側(src/studio/review.js)"""
+        jobs = その録画のジョブ(応答の jobs。None なら書き出しの一覧から読む)。帯への表示はスタジオの側(src/app/ui/studio/review.js)"""
         with self.lock:
             i = dict(self.info.get(self.key(rc, rec)) or {})
         out = {"ready": i.get("ready") if i.get("ready") in (True, False) else None, "checkedAt": i.get("checkedAt"),

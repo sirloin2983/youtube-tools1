@@ -90,9 +90,9 @@ def main():
         tt = os.path.join(tmp, "editor")
         os.makedirs(tt)
         # RS8 C4: 編集の index.html・ui-kit の写しは消した(画面は案件の画面 /cases。ここは API だけ使う)
-        for n in ("serve.py", "app.js", "cut.js", "pack-tab.js", "proof.css", "hololive-roster.json") + tuple(n for n in sorted(os.listdir(os.path.join(ROOT, "editor"))) if (n.startswith("ed_") and n.endswith(".py")) or (n.startswith("app-") and n.endswith(".js"))):   # 段10 で serve.py・app.js から分けた部品
+        for n in ("serve.py", "hololive-roster.json") + tuple(n for n in sorted(os.listdir(os.path.join(ROOT, "editor"))) if n.startswith("ed_") and n.endswith(".py")):   # 段10 で serve.py から分けた部品。画面の部品は src/app/ui/editor(RV C2)
             shutil.copy(os.path.join(ROOT, "editor", n), tt)
-        procs.append(subprocess.Popen([sys.executable, os.path.join(tt, "serve.py"), str(pt), "--no-open"], env=env, cwd=tt,
+        procs.append(subprocess.Popen([sys.executable, os.path.join(tt, "serve.py"), str(pt), "--no-open"], env=dict(env, YTT_EDITOR_UI_DIR=os.path.join(ROOT, "app", "ui", "editor")), cwd=tt,
                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=NEW_GROUP))
         # ---- ③ cut2resolve
         procs.append(subprocess.Popen([sys.executable, os.path.join(ROOT, "cut2resolve", "serve.py"), str(pc), "--no-open"], env=env,

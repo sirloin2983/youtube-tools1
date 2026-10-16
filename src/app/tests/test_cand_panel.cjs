@@ -1,7 +1,7 @@
 // Run: node --test src/app/tests/test_cand_panel.cjs
 // Exercise real save/navigation/export functions with delayed and failed API replies.
-// 案件の画面の候補のパネル(panels/cand.js)の中身 = スタジオの部品 src/studio/review.js を切り出して試す(RS8 C4 で src/studio/tests/test_review.cjs から移した)。
-// 新しい案件の引き出し(panels/new.js)が読む src/studio/rank.js・queue.js の小さな確かめと、2 つのパネルが渡す window.Studio の代わり(core.js の後継)もここ。
+// 案件の画面の候補のパネル(panels/cand.js)の中身 = スタジオの部品 src/app/ui/studio/review.js を切り出して試す(RS8 C4 で src/studio/tests/test_review.cjs から移した)。
+// 新しい案件の引き出し(panels/new.js)が読む src/app/ui/studio/rank.js・queue.js の小さな確かめと、2 つのパネルが渡す window.Studio の代わり(core.js の後継)もここ。
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -11,7 +11,7 @@ const { test } = require('node:test');
 // (context.UIKit・context.window.UIKit。テストが自分で入れた UIKit / window.UIKit はそのまま)。呼ばれた部品は context.UIKit.called('toast') などで読める
 const { makeUIKit, withUIKit } = require(path.join(__dirname, '..', '..', 'ui-kit', 'tests', 'uikit_stub.cjs'));
 const SRC = path.join(__dirname, '..', '..');   // src/
-const source = fs.readFileSync(path.join(SRC, 'studio', 'review.js'), 'utf8').replace(/\r\n/g, '\n');   // 作業フォルダが CRLF でも同じに切り出す
+const source = fs.readFileSync(path.join(SRC, 'app', 'ui', 'studio', 'review.js'), 'utf8').replace(/\r\n/g, '\n');   // 作業フォルダが CRLF でも同じに切り出す
 function between(start, end) {
   const a = source.indexOf(start), b = source.indexOf(end, a);
   assert.ok(a >= 0 && b > a, 'application function boundaries must exist');
@@ -307,9 +307,9 @@ test('transcript lines: escaped text, stale replies ignored, open state kept', a
 });
 
 /* ---- 2026-09-26 v0.8.0 画面の全面見直しで足したテスト ---- */
-/* file: 'rank.js' など名前だけならスタジオのフォルダ(src/studio/)、'app/ui/cases/panels/cand.js' のように / を含めば src/ から */
+/* file: 'rank.js' など名前だけならスタジオの画面の部品のフォルダ(src/app/ui/studio/)、'app/ui/cases/panels/cand.js' のように / を含めば src/ から */
 function sliceOf(file, start, end) {
-  const src = fs.readFileSync(path.join(SRC, file.includes('/') ? file : path.join('studio', file)), 'utf8').replace(/\r\n/g, '\n');   // 作業フォルダが CRLF でも、'\n' を含む切り出しの印が当たるように
+  const src = fs.readFileSync(path.join(SRC, file.includes('/') ? file : path.join('app', 'ui', 'studio', file)), 'utf8').replace(/\r\n/g, '\n');   // 作業フォルダが CRLF でも、'\n' を含む切り出しの印が当たるように
   const a = src.indexOf(start), b = src.indexOf(end, a);
   assert.ok(a >= 0 && b > a, `${file}: application function boundaries must exist (${start})`);
   return src.slice(a, b);

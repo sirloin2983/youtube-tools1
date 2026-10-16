@@ -22,6 +22,7 @@ import urllib.request
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
 HERE = os.path.dirname(TESTS)   # ツール(editor/)のフォルダ
+UI_DIR = os.path.join(os.path.dirname(HERE), "app", "ui", "editor")   # 画面の部品(RV C2 で src/app/ui/editor へ)
 os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))   # 一時フォルダに写した serve.py が共通部品 ytt(リポジトリ直下)を見つけられるように
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
@@ -562,15 +563,15 @@ class TestHttp(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.mkdtemp()
-        for n in ("serve.py", "app.js", "cut.js", "pack-tab.js", "proof.css", "hololive-roster.json") + tuple(n for n in sorted(os.listdir(HERE)) if (n.startswith("ed_") and n.endswith(".py")) or (n.startswith("app-") and n.endswith(".js"))):   # 段10 で serve.py・app.js から分けた部品
+        for n in ("serve.py", "hololive-roster.json") + tuple(n for n in sorted(os.listdir(HERE)) if n.startswith("ed_") and n.endswith(".py")):   # 段10 で serve.py から分けた部品。画面の部品は src/app/ui/editor(RV C2。YTT_EDITOR_UI_DIR で教える)
             shutil.copy(os.path.join(HERE, n), cls.tmp)
         cls.wav = os.path.join(cls.tmp, "sample.wav")
         subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=24", cls.wav], check=True)
         with open(os.path.join(cls.tmp, "settings.json"), "w", encoding="utf-8") as f:
             json.dump({"glossary": "ホロライブ\nトワ", "replacements": "よっきゃ=>陽キャ"}, f)
         cls.port = free_port()
-        env = dict(os.environ, TRANSCRIBE_BACKEND="fake", TRANSCRIBE_FAKE_DELAY="0.01", YTT_RUNTIME_DIR=os.path.join(cls.tmp, ".runtime"))
-        cls.proc = subprocess.Popen([sys.executable, os.path.join(cls.tmp, "serve.py"), str(cls.port), "--no-open"], cwd=cls.tmp, env=env,
+        env = dict(os.environ, YTT_EDITOR_UI_DIR=UI_DIR, TRANSCRIBE_BACKEND="fake", TRANSCRIBE_FAKE_DELAY="0.01", YTT_RUNTIME_DIR=os.path.join(cls.tmp, ".runtime"))
+        cls.proc =subprocess.Popen([sys.executable, os.path.join(cls.tmp, "serve.py"), str(cls.port), "--no-open"], cwd=cls.tmp, env=env,
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         for _ in range(100):
             try:

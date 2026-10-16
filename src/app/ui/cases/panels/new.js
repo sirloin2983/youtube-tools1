@@ -1,5 +1,5 @@
 /* 新しい案件のパネル(ホームの引き出し #newDrawer で開く。配信を探す・URL から入れる・解析の順番待ち。RS8 C3)。
-   中身はスタジオ ① の部品 src/studio/rank.js(配信を探す・配信中・まとめて実行)と src/studio/queue.js(URL から入れる・解析の順番待ち)をそのまま使う
+   中身はスタジオ ① の部品 src/app/ui/studio/rank.js(配信を探す・配信中・まとめて実行)と src/app/ui/studio/queue.js(URL から入れる・解析の順番待ち)をそのまま使う
    = 古い画面と同じコード・同じ動き(古い画面は C4 まで凍結。C4 で rank.js・queue.js をここへ移して古い画面を消す)。
    このファイルは「つなぎ」だけ(panels/cand.js と同じ作り): 2 本のスクリプトは window.Studio(core.js)に頼って書かれているので、
    そのうち使う分だけの代わり(下の Studio)を渡して読み込み、パネルの箱の中に ① の器(#paneRank)を作る。

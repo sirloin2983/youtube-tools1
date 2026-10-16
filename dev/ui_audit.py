@@ -61,7 +61,7 @@ import time
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(REPO, "src")
 # 絶対パス禁止(A-01)の対象 = 案件の画面と、そこが相対パスで読む部品(RS8 C4 でスタジオ・編集の画面のページは消した。部品の JS・CSS は残る)
-MOUNTED = ("studio", "editor", "app/ui/cases", "app/ui/check")
+MOUNTED = ("app/ui/studio", "app/ui/editor", "app/ui/cases", "app/ui/check")
 SCREENS = {"app/ui/home": ["portal.html", "portal.js", "portal.css", "portal-edit.js", "intake.html", "intake.js", "backup.html", "backup.js", "live.html", "live.js"],
            "app/ui/settings": ["index.html", "settings.js", "settings.css"],
            # 案件の画面(/cases。RS8。入口が配る 1 枚。panels/new.* はホームの「新しい案件」の引き出しも読む)
@@ -70,8 +70,8 @@ SCREENS = {"app/ui/home": ["portal.html", "portal.js", "portal.css", "portal-edi
            # 確かめる(/check。RS8 V1。入口が配る 1 枚。見る場面は default_scenes の check-*。V4)
            "app/ui/check": ["index.html", "check.js", "check.css", "player.js", "cards/value.js", "cards/read.js", "cards/voice.js", "cards/time.js"],
            # 案件の画面が studio/・transcribe/ から読む部品(古い画面のページは C4 で消した = 部品だけ)
-           "studio": ["rank.js", "queue.js", "review.js", "collab.js"],
-           "editor": ["proof.css", "app-tpl.js", "app.js", "app-core.js", "app-jobs.js", "app-learn.js", "app-list.js", "app-rows.js", "app-tools.js", "cut.js", "pack-tab.js"],
+           "app/ui/studio": ["rank.js", "queue.js", "review.js", "collab.js"],
+           "app/ui/editor": ["proof.css", "app-tpl.js", "app.js", "app-core.js", "app-jobs.js", "app-learn.js", "app-list.js", "app-rows.js", "app-tools.js", "cut.js", "pack-tab.js"],
            "ui-kit": ["ui-kit.css", "ui-kit.js", "styleguide.html", "styleguide.js"]}
 # ホームの画面に文が出る .py(server.py の argparse・backup.py の CLI の問いは黒い画面に出るだけなので見ない)。/ を含む物は src/ からのパス(役割の層へ移した物)
 HOME_PY = ["autorun.py", "manage/cases/cases.py", "flow/delivery.py", "live.py", "pipeline/ingest/live_archive.py", "pipeline/export/live_export.py", "pipeline/live_failures.py", "eval/drill/accuracy.py","manage/ops/health.py", "manage/keep/cleanup.py", "flow/deliver.py", "pipeline/pack/preview.py", "human/friend/intake.py", "manage/ops/restart.py"]

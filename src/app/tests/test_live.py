@@ -788,7 +788,7 @@ class StudioSettingsTest(unittest.TestCase):
             json.dump({"review": review, "other": {}}, f)
 
     def test_defaults_when_unreadable(self):
-        self.assertEqual(LV.studio_audio(REPO), {"volume": 75, "loudness": -14.0})   # src/studio/review.js の DEFAULT_SETTINGS と同じ
+        self.assertEqual(LV.studio_audio(REPO), {"volume": 75, "loudness": -14.0})   # src/app/ui/studio/review.js の DEFAULT_SETTINGS と同じ
         self.assertEqual(LV.studio_lag(REPO), 0)
         with open(os.path.join(self.tmp, "settings-ui.json"), "w", encoding="utf-8") as f:
             f.write("{ broken")

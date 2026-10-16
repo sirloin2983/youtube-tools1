@@ -16,7 +16,7 @@ from . import _doc, apply   # 同じ human/check の兄弟
 from human.proof import learn
 
 CHOICES = ("1", "2", "other")
-FILL_FLAG_RE = re.compile(r"^(別の読みで埋めた|名簿の呼び名に直した|話者名を外した)")   # 編集の「別の読み」の札が外す印(src/editor/app.js の unfill と同じ)
+FILL_FLAG_RE = re.compile(r"^(別の読みで埋めた|名簿の呼び名に直した|話者名を外した)")   # 編集の「別の読み」の札が外す印(src/app/ui/editor/app.js の unfill と同じ)
 TIERS = ("alt",)
 
 

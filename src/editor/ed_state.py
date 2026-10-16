@@ -24,8 +24,9 @@ APP_ID = _runtime.TOOL_APPS["transcribe"]   # /api/ping の app 名(互換のた
 # ここに同じ名前を残さない = S.TX_DIR = … は serve の名前の受付が workdata へ届ける)。起動時に prepare() が ytt.datadir で決めて
 # serve.set_data_dir() で切り替え、認識ワーカーにも環境変数 TRANSCRIBE_DATA_DIR で渡す。import した直後はこのフォルダ(テスト用)= 下の set_root
 _flowwire.setup_places(root=os.path.dirname(os.path.abspath(__file__)))   # 置き場所の既定(ytt/workdata の set_root)と名簿のファイル(① roster.ROSTER)を ② の準備 1 か所で(OPT-E2 1c-1)
-APP_JS = os.path.join(_workdata.ROOT, "app.js")      # 画面の部品の JS(案件の画面の校正のパネルが読む。RS8 C4 で編集の画面のページ index.html と ui-kit の写しは消した)
-PROOF_CSS = os.path.join(_workdata.ROOT, "proof.css")     # 校正のパネルの CSS(RS8 C2b-0 で index.html から外に出した)
+UI_DIR = os.environ.get("YTT_EDITOR_UI_DIR") or os.path.join(os.path.dirname(_workdata.ROOT), "app", "ui", "editor")   # 画面の部品(app*.js・cut.js・pack-tab.js・proof.css)の置き場所。RV C2 で src/editor から src/app/ui/editor へ(URL は /transcribe/app.js のまま)。環境変数はテスト用(serve.py を一時フォルダに写して動かすため)
+APP_JS = os.path.join(UI_DIR, "app.js")     # 画面の部品の JS(案件の画面の校正のパネルが読む。RS8 C4 で編集の画面のページ index.html と ui-kit の写しは消した)
+PROOF_CSS = os.path.join(UI_DIR, "proof.css")     # 校正のパネルの CSS(RS8 C2b-0 で index.html から外に出した)
 PAGE_JS = ("cut.js", "pack-tab.js", "app-tpl.js", "app-core.js", "app-jobs.js", "app-list.js", "app-learn.js", "app-rows.js", "app-tools.js")          # 「編集」のタブの JS(notes:docs/design/edit-tool-design.md の 7。app.js より先に読む。無いものは 404)
 PORT = 8775
 ALLOWED_HOSTS = set()

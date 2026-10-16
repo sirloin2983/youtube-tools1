@@ -47,6 +47,7 @@ CODE_DIR = startup.CODE_DIR
 # 画面の部品だけ(RS8 C4 でスタジオの画面のページ・core.js・settings.js・CSS・ui-kit の写しを消した)。案件の画面とホームの「新しい案件」が
 # studio/review.js(候補のパネル)・studio/rank.js と queue.js(新しい案件)・studio/collab.js(新しい案件の「探す設定」のコラボ)を相対パスで読む
 STATIC = {"/rank.js": "rank.js", "/queue.js": "queue.js", "/review.js": "review.js", "/collab.js": "collab.js"}
+UI_DIR = os.path.join(os.path.dirname(CODE_DIR), "app", "ui", "studio")   # 画面の部品の置き場所(RV C2 で src/studio から src/app/ui/studio へ。URL は /studio/review.js のまま)
 STATIC_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "application/javascript; charset=utf-8"}
 PORT = 8800
 BASE_PATH = "/"   # 画面の場所。入口の統合サーバーに取り込まれたときは "/studio/"(app/mount.py が prepare() で入れる)
@@ -190,7 +191,7 @@ class Handler(BaseHTTPRequestHandler):
         q = urllib.parse.parse_qs(u.query)
         arg = lambda k: (q.get(k) or [""])[0]
         if u.path in STATIC:
-            fn = os.path.join(CODE_DIR, STATIC[u.path])
+            fn = os.path.join(UI_DIR, STATIC[u.path])
             try:
                 with open(fn, "rb") as f:
                     body = f.read()

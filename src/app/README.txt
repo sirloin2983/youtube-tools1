@@ -469,7 +469,7 @@ v0.10.0(2026-09-26)から、文字起こしツールは「編集」(文字起こ
     (段の途中で起動し直しても、同じパックを二度置かないため)
   - リアルタイム切り抜き(試験中)の配信後の全自動(M7): GET /live/api/exports?recorder=&recording= の archiveInfo.afterStream に、
     採用したジョブの進み具合 progress {total・exported・archived・handed・finished・failed} と、帯に出す 1 行 text を足しました。
-    **スタジオの LIVE の帯への表示はスタジオの側**(src\studio\review.js の pollLiveJobs が同じ応答を読んでいます。まだ出していません)
+    **スタジオの LIVE の帯への表示はスタジオの側**(src\app\ui\studio\review.js の pollLiveJobs が同じ応答を読んでいます。まだ出していません)
   - 内部の整理(動きは同じ): 「調子」とテストの使っていない読み込みを消した・画面の通しの確認(e2e_portal・e2e_live_studio・e2e_live_archive)の
     長い関数を場面ごとの関数に分けた(確かめる中身と順番は同じ)
   - テスト: test_restart(まとめて実行の仕事は数えない・人の仕事・書き出しは断る)・test_autorun(restart_info・届けたらすぐ残す)・

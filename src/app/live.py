@@ -101,7 +101,7 @@ POOL_EVERY = 60.0      # ライブの切り抜きの組の溜め(まとめて実
 EXPIRE_EVERY = 600.0   # 日数で自動の切り抜きの片付け(cases.expire_unseen)を見る間隔(案件の一覧を組み立て直すので、見回りのたびには見ない)
 
 
-# スタジオの「書き出しの設定」の既定(src/studio/review.js の DEFAULT_SETTINGS の exportVolume・exportLoudness・lag と同じ値。ツールをまたいで import しない)
+# スタジオの「書き出しの設定」の既定(src/app/ui/studio/review.js の DEFAULT_SETTINGS の exportVolume・exportLoudness・lag と同じ値。ツールをまたいで import しない)
 STUDIO_EXPORT_VOLUME, STUDIO_EXPORT_LOUDNESS, STUDIO_LAG = 75, -14.0, 0
 STUDIO_LOUDNESS_CHOICES = (0, -11, -14, -16, -18)   # 0 = そろえない(音量(%)を使う)
 STUDIO_LAGS = (0, 2, 3, 5)
@@ -115,7 +115,7 @@ def studio_review(root):
 
 
 def studio_audio(root):
-    """書き出しの音量の設定(スタジオの書き出しの設定と同じ値を使う。sanitizeSettings(src/studio/review.js)と同じ丸め方):
+    """書き出しの音量の設定(スタジオの書き出しの設定と同じ値を使う。sanitizeSettings(src/app/ui/studio/review.js)と同じ丸め方):
     -> {"volume": 1〜200(%。既定 75), "loudness": -11|-14|-16|-18(LUFS)か None(そろえない)}。loudness があるときは音量(%)は使わない。
     束の無い録画の書き出し・自分の配信の束(livesession.own_bundle が録画を始めたときに写す)・/live/api/info が使う(束のある録画は束の export。決定 3-31 の b2)"""
     r = studio_review(root)
