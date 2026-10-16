@@ -4,7 +4,8 @@
 玄関の裏の糸で数分ごと(EVERY 秒)と、起動の直後・画面の操作のあと(kick)に 1 回ずつ回す。② = flow は Dropbox を知らない(ここが玄関の中で全部持つ)。
 鍵は <home>/config.json(今の C# の送るアプリと同じ探し方・形 = friendapp/dropbox.py)。無ければ何もしない(画面に小さく知らせる)。
 1 回の中身(1 つの失敗でほかを止めない。Dropbox の名前は全部検査してから使い、手元のパスには Dropbox の名前を入れない):
-  1. ユーザーの PC に頼む(A-2): 受信箱のユーザーの PC の行の依頼の JSON(5-1 の形 = request_doc)を直下 /<依頼 id>.request.json へ上げる。
+  1. ユーザーの PC に頼む(A-2): 受信箱のユーザーの PC の行の依頼の JSON(5-1 の形 = request_doc。url・video・live = F2-6)を直下 /<依頼 id>.request.json へ上げる。
+     動画ファイルは先に動画を直下 /<依頼 id>__<元の名前> へ(進み具合 = upload_progress)。
      上げた依頼が直下から消えたら「受け付けられた」(行は「作っている」)。1 時間残っていれば画面に [この PC でやり直す](withdraw で直下から消す)
   2. 届け方(D-SEND 2-4): 送る欄の deliverBatch が前回上げた値と違えば /設定/届け方.json を置き換えて上げる(C# の UploadDeliverPrefs と同じ形)
   3. /出力/ の取り込み: 組(.group.json + まとめ動画 + 1 本ずつの zip)・1 本(zip + 同じ名前の .preview.mp4・.meta.json の origin)・.失敗.txt を
@@ -287,30 +288,53 @@ def _iso(t):
     return datetime.datetime.fromtimestamp(t).astimezone().isoformat(timespec="seconds")
 
 
-def request_doc(kind, rid, form, sent_at):
-    """ユーザーの PC に頼む依頼の JSON(5-1。C# の送るアプリの RequestJson.Url と同じ鍵と順)。今は URL の依頼だけ(動画ファイル・ライブは F2-6 が足す)。
-    form = api.check_form の整えた欄。区間があれば本数は区間の数(A-3)・カットは しない(A-8)・重みは指定したときだけ"""
-    if kind != "url":
-        raise ValueError("今はユーザーの PC へ URL の依頼だけを頼めます")
-    ranges = form.get("ranges") or []
-    top = len(ranges) if ranges else (form.get("top") or 10)
-    item = {"url": form["url"], "top": max(1, min(TOP_MAX, int(top)))}
-    if ranges:
-        item["ranges"] = [{"start": s, "end": e} for s, e in ranges]
-    d = {"v": 1, "kind": "url", "id": rid, "flow": "auto", "items": [item]}
+LIVE_KEYS = ("sens", "perHour", "length", "waitMin", "pad", "afterStream")   # 依頼の JSON の live の鍵の順(C# の LiveSettings.JsonPart と同じ)
+
+
+def request_doc(kind, rid, form, sent_at, files=None):
+    """ユーザーの PC に頼む依頼の JSON(5-1。C# の送るアプリの RequestJson と同じ鍵と順 = 依頼の JSON を組むのはここ 1 か所)。
+    kind = url(RequestJson.Url)/ video(RequestJson.Video。files = Dropbox の直下に上げた動画の名前)/ live(RequestJson.Live。2-15)。
+    form = api.check_form の整えた欄。区間があれば本数は区間の数(A-3)・カットは しない(A-8)・重みは指定したときだけ(URL だけ)"""
+    if kind not in ("url", "video", "live"):
+        raise ValueError("依頼の種類が正しくありません")
+    if kind == "video" and not files:
+        raise ValueError("上げた動画の名前がありません")
     names = list(dict.fromkeys(n for n in [form.get("streamer") or ""] + list(form.get("people") or []) if n))
-    if form.get("streamer"):
-        d["streamer"] = form["streamer"]
+    d = {"v": 1, "kind": kind, "id": rid, "flow": "auto"}
+    if kind == "url":
+        ranges = form.get("ranges") or []
+        top = len(ranges) if ranges else (form.get("top") or 10)
+        item = {"url": form["url"], "top": max(1, min(TOP_MAX, int(top)))}
+        if ranges:
+            item["ranges"] = [{"start": s, "end": e} for s, e in ranges]
+        d["items"] = [item]
+        if form.get("streamer"):
+            d["streamer"] = form["streamer"]
+    elif kind == "video":
+        d["files"] = [str(n) for n in files]
+        d["streamer"] = form.get("streamer") or ""
+    else:
+        d["url"] = "https://www.youtube.com/watch?v=" + form["videoId"] if form.get("videoId") else form["url"]   # 正規化した URL(C# と同じ)
+        d["streamer"] = form.get("streamer") or ""
     if names:
         d["speakers"] = {"count": len(names), "names": names, "people": [{"name": n} for n in names]}
     d["videoTracks"] = form.get("videoTracks") or 1
     d["cut"] = "none"
     w = form.get("weights")
-    if w:
+    if w and kind == "url":
         d["weights"] = {"audio": float(w["wAudio"]), "chat": float(w["wChat"]), "comments": float(w["wComments"])}
+    if kind == "live":
+        s = form.get("live") or {}
+        d["live"] = {k: s[k] for k in LIVE_KEYS if k in s}
     d["deliverBatch"] = form.get("deliverBatch") or 5
     d["sentAt"] = _iso(sent_at)
     return d
+
+
+def upload_name(rid, name):
+    """ユーザーの PC へ上げる動画の Dropbox の名前 <依頼 id>__<元の名前>(使えない文字は _。受付の APP_FILE_RE の形)"""
+    stem, ext = os.path.splitext(local_name(name, 150))
+    return "%s__%s%s" % (rid, stem or "video", ext if ext and not BAD_NAME.search(ext) else "")
 
 
 class Sync:
@@ -337,6 +361,7 @@ class Sync:
         self._groups = {}
         self.last = {"at": None, "problem": ""}
         self.receiving = 0
+        self.uploads = {}                       # 上げている動画 {依頼 id: [上げた, 全部]}(F2-6)
 
     # ------------------------------------------------------------ 鍵と口
     def config(self):
@@ -385,7 +410,7 @@ class Sync:
         self._wake.set()
 
     def busy(self):
-        return self.receiving > 0
+        return self.receiving > 0 or bool(self.uploads)
 
     def status(self):
         """画面へ: {"key": 鍵があるか, "message": 鍵が無いときの文, "at": 最後に回したミリ秒, "problem": 最後の問題, "updated": 入れた新しい版}"""
@@ -431,7 +456,13 @@ class Sync:
                 cur = self.inbox.row(r["id"])
                 if cur is None or cur.get("pc") != "user" or (cur.get("remote") or {}).get("state") != "pending" or not cur.get("form"):
                     continue
-                doc = request_doc("url", r["id"], cur["form"], self.clock())
+                kind = cur.get("kind") or "url"
+                files = None
+                if kind == "file":   # 動画ファイル: 先に動画を直下へ <依頼 id>__<元の名前>(大きな動画は 8MB ずつ・進み具合を行に)・最後に依頼の JSON(C# と同じ順)
+                    files = self._upload_video(io, cur)
+                    if files is None:
+                        continue
+                doc = request_doc("video" if kind == "file" else kind, r["id"], cur["form"], self.clock(), files=files)
                 io.upload_bytes(json.dumps(doc, ensure_ascii=False).encode("utf-8"), self.request_path(r["id"]), overwrite=True)
                 self.inbox.remote_mark(r["id"], "uploaded")
                 self.log("ユーザーの PC への依頼を上げました: %s" % r["id"])
@@ -439,6 +470,32 @@ class Sync:
             if io.get_metadata(self.request_path(r["id"])) is None:
                 self.inbox.remote_mark(r["id"], "accepted")
                 self.log("ユーザーの PC が依頼を受け付けました: %s" % r["id"])
+
+    def _upload_video(self, io, row):
+        """ユーザーの PC に頼む動画ファイルを直下へ上げる -> [置かれた名前] か None(動画が無い = 行を失敗に)。
+        前の回に上げ終えた同じ大きさの物が直下にあれば上げ直さない。通信の問題は DropboxError(次の回にもう一度)"""
+        rid, fi = row["id"], (row["form"].get("file") or {})
+        path = fi.get("path")
+        if not isinstance(path, str) or not os.path.isfile(path):
+            self.inbox.fail(rid, "送る動画ファイルが見つかりません(移動・削除した可能性があります)。選び直して送ってください")
+            return None
+        size = os.path.getsize(path)
+        name = upload_name(rid, fi.get("name") or os.path.basename(path))
+        have = io.get_metadata("/" + name)
+        if isinstance(have, dict) and have.get("size") == size:
+            return [have.get("name") or name]
+        self.uploads[rid] = [0, size]
+        try:
+            placed = io.upload(path, "/" + name, overwrite=True, progress=lambda done: self.uploads.__setitem__(rid, [done, size]))
+        finally:
+            self.uploads.pop(rid, None)
+        self.log("ユーザーの PC へ動画を上げました: %s(%d MB)" % (rid, size // (1024 * 1024)))
+        return [placed or name]
+
+    def upload_progress(self, rid):
+        """動画を Dropbox へ上げている進み具合 {"done", "total"} か None"""
+        got = self.uploads.get(rid)
+        return {"done": got[0], "total": got[1]} if got else None
 
     def withdraw(self, rid):
         """[この PC でやり直す]: 直下の依頼を消す -> True(消した・まだ上げていない)/ False(もう無い = ユーザーの PC が受け付けた)。
@@ -448,14 +505,19 @@ class Sync:
             rem = (r or {}).get("remote") or {}
             if r is None or r.get("pc") != "user":
                 raise KeyError(rid)
-            if rem.get("state") == "pending":
-                return True
-            if rem.get("state") != "uploaded":
+            if rem.get("state") not in ("pending", "uploaded"):
                 return False
+            video = r.get("kind") == "file"
+            if rem.get("state") == "pending" and not video:
+                return True
             io = self.io()
             if io is None:
                 raise SyncError(NO_KEY)
-            return io.delete(self.request_path(rid))
+            gone = True if rem.get("state") == "pending" else io.delete(self.request_path(rid))
+            if gone and video:   # 上げた動画も消す(依頼の JSON の無い動画を、受付が手で置いた動画として流さないように)
+                fi = (r.get("form") or {}).get("file") or {}
+                io.delete("/" + upload_name(rid, fi.get("name") or "video"))
+            return gone
 
     # ------------------------------------------------------------ 2. 届け方(D-SEND 2-4)
     def _deliver_prefs(self, io):

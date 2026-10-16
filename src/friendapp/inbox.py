@@ -22,6 +22,12 @@ F2-3(Dropbox の同期 = friendapp/sync.py が呼ぶ):
   するだけ(同期が取って展開してから remote_kept で決める)・[要らない] は取らずに決める。組の remote = {group, preview, previewSize, cleaned}。
   組の全部を決めたら同期が/出力/ の zip・まとめ動画・.group.json・.meta.json を消す(cleanup_queue → remote_cleaned)。名前は全部 Dropbox の名前(パスにしない)
 
+F2-6(送る欄を広げる): 行の kind = "url" / "file"(動画ファイル。form.file = {path, name, size, copy}。path・copy は画面に出さない)/ "live"(ライブ)。
+- この PC のライブの行: 送った → recording(録画中。live = {recorder, recording, endedAt, finished, phase, done, errors, lastError})→ 届いた / 失敗 → 決めた。
+  切り抜きごとの実行(封筒の requestId = 行の id)が終わるたびに live_clip でパックを足し、届け方の n 本ごとに組にする(録画が終わって作る物が無くなったら残りを
+  1 組に = live_update。配信後の追加(M7)の分は別の組「配信後」)。録画中でも組になった物は決められる(組になる前の物は出さない・決めない)
+- 動画ファイルのこの PC の行: 送った(写している = runId なし)→ set_run(② に積んだ)→ URL の行と同じ
+
 ファイルと時計は引数で受ける(テストは一時フォルダ)。標準ライブラリと ytt だけを読む。
 """
 import datetime
@@ -38,7 +44,11 @@ from ytt import fsio
 V = 1
 DAY = 86400
 KEEP_DAYS = 3                       # 物の終わりの日数(6 章の原則 = src/manage/keep/cleanup.py の 3 日)
-STATES = ("sent", "making", "arrived", "failed", "done")
+STATES = ("sent", "making", "recording", "arrived", "failed", "done")   # recording = この PC のライブの行(録画中・残りを作っている。F2-6)
+KINDS = ("url", "file", "live")     # 送った物(F2-6)。自動で届いた行は "remote"
+PHASES = ("live", "archive")        # ライブの切り抜きの段(配信中 / 配信後の追加 M7)。組は段ごと
+LIVE_STALE = KEEP_DAYS * DAY + 12 * 3600   # 録画の行がこれより長く終わらない(録画元が見つからないなど)= 残りを組にして閉じる
+LIVE_DONE_MAX = 500                 # ライブの行が覚える済んだ切り抜きの実行の id の数
 VERDICTS = ("keep", "reject")       # 「動画にした」はやめた(5-2)
 VERDICT_SUFFIX = ".verdict.json"
 TRASH_NAME = "ごみ箱"
@@ -119,13 +129,13 @@ class Inbox:
             return next((r for r in self.rows if r.get("runId") == run_id), None)
 
     # ------------------------------------------------------------ 送る
-    def add(self, rid, form, source, run_id=None, pc="this"):
+    def add(self, rid, form, source, run_id=None, pc="this", kind="url"):
         """送った行を足す(新しい物を先頭)。form = 送った欄(もう一度送るときに使う)・source = {url, videoId, title, channel}。
-        pc = "user" なら ユーザーの PC に頼む行(同期が Dropbox の直下へ上げる)"""
+        pc = "user" なら ユーザーの PC に頼む行(同期が Dropbox の直下へ上げる)。kind = url / file / live(F2-6)"""
         if not ROW_ID_RE.match(rid or ""):
             raise ValueError("依頼の id の形が違います")
         now = self._now_ms()
-        r = {"id": rid, "kind": "url", "origin": "request", "state": "sent", "form": form, "source": source, "runId": run_id,
+        r = {"id": rid, "kind": kind if kind in KINDS else "url", "origin": "request", "state": "sent", "form": form, "source": source, "runId": run_id,
              "createdAt": now, "updatedAt": now, "packs": [], "groups": [], "error": "", "note": "", "pc": "user" if pc == "user" else "this"}
         if r["pc"] == "user":
             r["remote"] = {"state": "pending", "uploadedAt": None}
@@ -133,6 +143,153 @@ class Inbox:
             self.rows.insert(0, r)
             self._save()
         return r
+
+    def drop(self, rid):
+        """送れなかった行を消す(② が断った・録画を始められなかった)"""
+        with self.lock:
+            r = self.row(rid)
+            if r is not None:
+                self.rows.remove(r)
+                self._save()
+
+    def set_run(self, rid, run_id, copy=None):
+        """動画ファイルの行: 写し終えて ② に積む(積む前に呼ぶ = 実行が終わったときに行が見つかる)。copy = 一時保管の写しのパス"""
+        with self.lock:
+            r = self.row(rid)
+            if r is None:
+                raise KeyError(rid)
+            r.update(runId=run_id, updatedAt=self._now_ms())
+            if copy and isinstance((r.get("form") or {}).get("file"), dict):
+                r["form"]["file"]["copy"] = copy
+            self._save()
+            return r
+
+    def fail(self, rid, text):
+        """送った・作っている行を失敗にする(写せなかった・Dropbox へ上げる動画が無い など。理由は画面にそのまま)"""
+        with self.lock:
+            r = self.row(rid)
+            if r is None or r["state"] not in ("sent", "making", "recording"):
+                return None
+            now = self._now_ms()
+            r.update(state="failed", failedAt=now, error=str(text or "失敗しました")[:500], updatedAt=now)
+            self._save()
+            return r
+
+    # ------------------------------------------------------------ この PC のライブの行(F2-6。engine が呼ぶ)
+    def live_started(self, rid, recorder, recording, existing=False):
+        """録画を始めた(依頼に結びつけた)-> 行は「録画中」"""
+        with self.lock:
+            r = self.row(rid)
+            if r is None:
+                raise KeyError(rid)
+            now = self._now_ms()
+            r.update(state="recording", runId=None, error="", updatedAt=now, failedAt=None)
+            r["live"] = {"recorder": recorder, "recording": recording, "existing": bool(existing), "startedAt": now, "endedAt": None,
+                         "finished": None, "phase": "recording", "done": [], "errors": 0, "lastError": ""}
+            self._save()
+            return r
+
+    def live_rows(self):
+        """見回る行(この PC のライブの行で、まだ閉じていない物か組になる前のパックがある物)の写し"""
+        with self.lock:
+            out = []
+            for r in self.rows:
+                lv = r.get("live")
+                if r.get("kind") != "live" or r.get("pc") == "user" or not isinstance(lv, dict) or r["state"] == "failed":
+                    continue
+                if r["state"] == "recording" or self._ungrouped(r):
+                    out.append(json.loads(json.dumps(r)))
+            return out
+
+    @staticmethod
+    def _ungrouped(r):
+        grouped = {n for g in r.get("groups") or [] for n in g["names"]}
+        return [p for p in r["packs"] if p["name"] not in grouped]
+
+    def _live_group(self, r, force):
+        """組になる前のパックを届け方の n 本ごとに組へ(段ごと)。force = 残りも 1 組に -> 足した組の n のリスト"""
+        batch = (r.get("form") or {}).get("deliverBatch")
+        n = batch if isinstance(batch, int) and not isinstance(batch, bool) and 1 <= batch <= 10 else 5
+        pend = self._ungrouped(r)
+        made = []
+        last = max([g["n"] for g in r.get("groups") or []] + [0])
+        for phase in PHASES:
+            ps = [p for p in pend if (p.get("phase") or "live") == phase]
+            while len(ps) >= n or (force and ps):
+                take, ps = ps[:n], ps[n:]
+                last += 1
+                r["groups"].append({"n": last, "names": [p["name"] for p in take], "preview": None, "label": "配信後" if phase == "archive" else ""})
+                made.append(last)
+        return made
+
+    def live_clip(self, rid, run_id, state, error, packs, phase="live", case=None):
+        """ライブの切り抜き 1 本の実行が終わった(封筒の requestId = 行の id)。packs = [{"dir", "seconds"}]。
+        -> (行の写し, 足した組の n のリスト) か (None, [])(ライブの行でない・同じ実行をもう入れた)"""
+        with self.lock:
+            r = self.row(rid)
+            lv = (r or {}).get("live")
+            if r is None or r.get("kind") != "live" or not isinstance(lv, dict) or run_id in (lv.get("done") or []):
+                return None, []
+            now = self._now_ms()
+            lv["done"] = ((lv.get("done") or []) + [run_id])[-LIVE_DONE_MAX:]
+            if isinstance(case, str) and case and case not in (r.get("cases") or []):
+                r["cases"] = (r.get("cases") or []) + [case]
+            names = {p["name"] for p in r["packs"]}
+            added = 0
+            for p in packs:
+                d = p.get("dir")
+                if not isinstance(d, str) or not os.path.isdir(d):
+                    continue
+                base = pack_name(d)
+                name, i = base, 2
+                while name in names:
+                    name, i = "%s-%d" % (base[:NAME_MAX - 4], i), i + 1
+                names.add(name)
+                r["packs"].append({"name": name, "dir": d, "title": pack_title(base), "seconds": p.get("seconds"), "verdict": None, "at": None, "by": None,
+                                   "phase": phase if phase in PHASES else "live"})
+                added += 1
+            if not added and state in ("error", "cancelled"):
+                lv["errors"] = int(lv.get("errors") or 0) + 1
+                lv["lastError"] = str(error or "止めました")[:300]
+            made = self._live_group(r, False)
+            if added and r["state"] in ("arrived", "done"):   # 閉じたあとに届いた(配信後の追加の遅れ)= もう一度「届いた」
+                r.update(state="arrived", arrivedAt=now, doneAt=None)
+            r["updatedAt"] = now
+            self._save()
+            return json.loads(json.dumps(r)), made
+
+    def live_update(self, rid, recording, busy, waiting=""):
+        """見回り: recording = 録画中か・busy = 書き出し・作っている切り抜きがあるか・waiting = 配信後の追加を待つ理由("" = 待たない)。
+        録画が終わって作る物が無ければ残りを組に・配信後の追加も待たなければ行を閉じる(パックがあれば「届いた」・全部決めていれば「決めた」・無ければ「失敗」)。
+        -> 足した組の n のリスト"""
+        with self.lock:
+            r = self.row(rid)
+            lv = (r or {}).get("live")
+            if r is None or not isinstance(lv, dict):
+                return []
+            now = self._now_ms()
+            before = json.dumps([r["state"], lv, r.get("groups")])
+            if not recording and not lv.get("endedAt"):
+                lv["endedAt"] = now
+            made = self._live_group(r, True) if not recording and not busy else []
+            lv["phase"] = "recording" if recording else "making" if busy else "after" if waiting else "done"
+            if not recording and not busy and not waiting and not lv.get("finished"):
+                lv["finished"] = now
+                if r["state"] == "recording":
+                    self._live_close(r, now)
+            if json.dumps([r["state"], lv, r.get("groups")]) != before:
+                r["updatedAt"] = now
+                self._save()
+            return made
+
+    def _live_close(self, r, now):
+        lv = r["live"]
+        if not r["packs"]:
+            r.update(state="failed", failedAt=now, error=lv.get("lastError") or "録画から切り抜く所が見つからず、パックができませんでした")
+        elif all(p["verdict"] for p in r["packs"]):
+            self._close_row(r)
+        else:
+            r.update(state="arrived", arrivedAt=now)
 
     def resent(self, rid, run_id):
         """失敗した行をもう一度送った(同じ行を「送った」に戻す。ユーザーの PC の行は依頼を上げ直す)"""
@@ -397,12 +554,13 @@ class Inbox:
             raise ValueError("決め方は keep か reject です")
         with self.lock:
             r = self.row(rid)
-            if r is None or r["state"] != "arrived":
+            if r is None or r["state"] not in ("arrived", "recording"):   # 録画中のライブの行も、組になった物は決められる(F2-6)
                 raise KeyError(rid)
             want = set(names or [])
             done, pending, errors = [], [], []
+            hidden = {p["name"] for p in self._ungrouped(r)}   # 組になる前のパック(画面に出していない)は決めない
             for p in r["packs"]:
-                if p["verdict"] or (want and p["name"] not in want) or (by == "auto" and p.get("want") == "keep"):
+                if p["verdict"] or p["name"] in hidden or (want and p["name"] not in want) or (by == "auto" and p.get("want") == "keep"):
                     continue
                 remote = bool(p.get("remote")) and not p.get("dir")
                 if remote and verdict == "keep":
@@ -418,7 +576,7 @@ class Inbox:
                     continue
                 p.update(verdict=verdict, at=self._now_ms(), by=by, want=None)
                 done.append(p["name"])
-            if r["packs"] and all(p["verdict"] for p in r["packs"]):
+            if r["state"] == "arrived" and r["packs"] and all(p["verdict"] for p in r["packs"]):   # 録画中の行は録画が終わってから閉じる
                 self._close_row(r)
             r["updatedAt"] = self._now_ms()
             self._save()
@@ -466,13 +624,13 @@ class Inbox:
         r["state"], r["doneAt"] = "done", self._now_ms()
 
     def _trash_case(self, r):
-        case = r.get("case")
         root = self.case_root()
-        if case and root and os.path.isdir(case) and fsio.is_inside(case, root, strict=True) and not fsio.is_inside(case, self.trash_dir()):
-            try:
-                self._to_trash(case)
-            except OSError as e:
-                self.log("案件フォルダをごみ箱へ移せませんでした: %s" % e.__class__.__name__)
+        for case in dict.fromkeys([r.get("case")] + list(r.get("cases") or [])):   # ライブの行は切り抜きごとの案件(F2-6)
+            if case and root and os.path.isdir(case) and fsio.is_inside(case, root, strict=True) and not fsio.is_inside(case, self.trash_dir()):
+                try:
+                    self._to_trash(case)
+                except OSError as e:
+                    self.log("案件フォルダをごみ箱へ移せませんでした: %s" % e.__class__.__name__)
 
     def remove(self, rid):
         """失敗の行を消す([消す])"""
@@ -499,7 +657,11 @@ class Inbox:
         with self.lock:
             now = self._now_ms()
             for r in list(self.rows):
-                if r["state"] == "arrived" and now - (r.get("arrivedAt") or now) >= limit:
+                if r["state"] == "recording" and now - ((r.get("live") or {}).get("endedAt") or r["createdAt"]) >= LIVE_STALE * 1000:
+                    self._live_group(r, True)   # 録画元が見つからないまま終わらない行(F2-6)= 残りを組にして閉じる
+                    r.setdefault("live", {})["finished"] = now
+                    self._live_close(r, now)
+                elif r["state"] == "arrived" and now - (r.get("arrivedAt") or now) >= limit:
                     n += len(self.decide(r["id"], [], "reject", by="auto")["done"])
                 elif r["state"] == "failed" and now - (r.get("failedAt") or now) >= limit:
                     self.remove(r["id"])
@@ -528,7 +690,16 @@ class Inbox:
                     continue
                 v = json.loads(json.dumps(r))
                 v["left"] = self.left_days(r)
-                v["undecided"] = sum(1 for p in r["packs"] if not p["verdict"])
+                hidden = {p["name"] for p in self._ungrouped(r)}
+                v["undecided"] = sum(1 for p in r["packs"] if not p["verdict"] and p["name"] not in hidden)
+                v["waitingPacks"] = len(hidden)   # 組になる前のパック(ライブ。画面に「あと m 本で 1 組」)
+                f = v.get("form") or {}
+                if isinstance(f.get("file"), dict):   # 動画ファイルのパスは画面に出さない(名前と大きさだけ)
+                    f["file"] = {k: f["file"].get(k) for k in ("name", "size")}
+                lv = v.pop("live", None)
+                if isinstance(lv, dict):
+                    v["live"] = {"phase": lv.get("phase") or "recording", "ended": bool(lv.get("endedAt")), "errors": lv.get("errors") or 0}
+                v.pop("cases", None)
                 for p in v["packs"]:
                     p.pop("dir", None)   # 画面に絶対パスを出さない(開くのは玄関の口から)
                     p.pop("savedTo", None)

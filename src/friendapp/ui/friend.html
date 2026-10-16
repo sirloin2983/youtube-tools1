@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>切り抜きの受信箱</title>
 <!-- 友人の玄関の受信箱(F2-2。notes:plan/f1-friend-requirements.md の A-1・A-3〜A-12)。1 枚・タブ無し。
-     上 = 送る欄(URL 1 本 + 区間・配信者・「詳しく」)・下 = 受信箱(送った → 作っている → 届いた → 決めた(消える)・失敗も同じ一覧)。
+     上 = 送る欄(URL 1 本か動画ファイル 1 本 + 区間・配信者・「詳しく」。ライブの URL なら 6 つの設定 = F2-6)・
+     下 = 受信箱(送った → 作っている / 録画中 → 届いた → 決めた(消える)・失敗も同じ一覧)。
      CSP の下で動く: インラインの script・on〇〇= は書かない。外の文字は textContent で入れる(friend.js) -->
 <script src="ui-kit.js"></script>
 <link rel="stylesheet" href="ui-kit.css">
@@ -32,11 +33,44 @@
 
   <section class="card fr-send" aria-label="送る">
     <div class="fr-urlrow">
-      <label class="fr-label" for="url">配信の URL</label>
+      <label class="fr-label" for="url" id="urlLabel">配信の URL</label>
       <input type="url" id="url" class="fr-url" placeholder="https://www.youtube.com/watch?v=…" autocomplete="off" spellcheck="false">
-      <button type="button" class="btn primary" id="btnSend" disabled title="URL を貼ると押せます">送る</button>
+      <span class="fr-file" id="fileChip" hidden><span class="fr-file-name" id="fileName"></span><button type="button" class="btn ghost small" id="btnFileClear" title="選んだ動画ファイルをやめて、URL を貼る欄に戻します">やめる</button></span>
+      <button type="button" class="btn ghost" id="btnPick" title="パソコンの動画ファイル(切り抜いた動画など)を選んで送ります">動画ファイルを選ぶ</button>
+      <button type="button" class="btn primary" id="btnSend" disabled title="URL を貼るか、動画ファイルを選ぶと押せます">送る</button>
     </div>
     <div class="hint fr-peek" id="peek" aria-live="polite"></div>
+
+    <section class="fr-live" id="live" aria-label="ライブの設定" hidden>
+      <div class="fr-live-h"><span class="pill info">ライブ</span><span id="liveNote">配信中です。録画しながら切り抜きます</span></div>
+      <div class="fr-line" role="radiogroup" aria-label="感度">
+        <span class="fr-label">感度</span>
+        <label class="fr-radio"><input type="radio" name="lvSens" value="high"> 高い</label>
+        <label class="fr-radio"><input type="radio" name="lvSens" value="normal"> ふつう</label>
+        <label class="fr-radio"><input type="radio" name="lvSens" value="low"> 低い</label>
+        <span class="hint">高いほど、小さな盛り上がりも拾います</span>
+      </div>
+      <div class="fr-line">
+        <label class="fr-label" for="lvPerHour">1 時間の枠</label>
+        <input type="number" id="lvPerHour" class="fr-num" min="1" max="30" step="1"><span class="hint">本(1 時間の配信から切る候補の上限・1〜30)</span>
+      </div>
+      <div class="fr-line">
+        <label class="fr-label" for="lvLength">長さ</label>
+        <input type="number" id="lvLength" class="fr-num" min="10" max="180" step="1"><span class="hint">秒(1 本の切り抜きの長さ・10〜180)</span>
+      </div>
+      <div class="fr-line">
+        <label class="fr-label" for="lvWait">待ち</label>
+        <input type="number" id="lvWait" class="fr-num" min="1" max="60" step="1"><span class="hint">分(候補が出てから自動で切るまで・1〜60)</span>
+      </div>
+      <div class="fr-line">
+        <label class="fr-label" for="lvPad">余白</label>
+        <input type="number" id="lvPad" class="fr-num" min="0" max="5" step="1"><span class="hint">秒(前後に足す・0〜5)</span>
+      </div>
+      <div class="fr-line">
+        <span class="fr-label">配信後</span>
+        <label class="fr-radio"><input type="checkbox" id="lvAfter"> 配信が終わったあと、アーカイブからも切り抜きを足す</label>
+      </div>
+    </section>
 
     <div class="fr-line">
       <label class="fr-label" for="streamer">配信者</label>
@@ -46,7 +80,7 @@
       <button type="button" class="btn ghost small" id="btnPerson" title="コラボの相手の名前を足します(字幕の色に使います)">+ 人</button>
     </div>
 
-    <div class="fr-line fr-ranges">
+    <div class="fr-line fr-ranges" id="rangeLine">
       <span class="fr-label">区間</span>
       <div id="ranges" class="fr-rangelist"></div>
       <button type="button" class="btn ghost small" id="btnRange" title="切り抜く所を時刻で決めます(入れると、その区間だけを切ります)">+ 区間</button>
@@ -56,7 +90,7 @@
     <div class="fr-line" id="topLine">
       <label class="fr-label" for="top">本数</label>
       <input type="number" id="top" class="fr-num" min="1" max="30" step="1">
-      <span class="hint">自動で見どころを探して、この本数を切ります</span>
+      <span class="hint" id="topHint">自動で見どころを探して、この本数を切ります</span>
     </div>
 
     <details class="ui-disclosure fr-more" id="more">
@@ -96,7 +130,7 @@
     <div class="ui-sheet fr-sheet" id="list"></div>
     <div class="fr-empty" id="empty" hidden>
       <p>まだ届いた物はありません。</p>
-      <p class="hint">上に配信の URL を貼って [送る] を押すと、ここに並びます。</p>
+      <p class="hint">上に配信の URL を貼るか動画ファイルを選んで [送る] を押すと、ここに並びます。</p>
     </div>
   </section>
 </main>

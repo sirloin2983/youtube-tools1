@@ -6,12 +6,16 @@
 - 実行が終わったら(Queue の finished_hook): 送り返しの zip(flow/outbox。依頼の実行だけ)→ 受信箱の行を「届いた / 失敗」に → 組のまとめ動画を裏で作る(5-8)
 - 区間だけの依頼の最後の段「解析(あとで)」は友人の PC では飛ばす(友人の区間と自動の候補を比べる材料はユーザーの PC の物。仮・AI)
 - 話者分離(束の transcribe.diarize)は LocalTools に無いので、送る側(api)で人数を束に入れない(コラボの名前は hints.people の色だけ。仮・AI)
+- ライブ(F2-6): ② のライブ係 friendapp/live.FriendLive を持ち、待ち行列の set_live_hook で封筒 kind live を回す(長さは受信箱の行の送った欄 =
+  束の analyze に入れない)。切り抜きごとの実行(requestId = 行の id)が終わったら行にパックを足し(live_clip)、ライブ係の見回りのたびに
+  録画が終わったか・作っている物が残っているかを見て行を進める(live_tick)
 """
 import os
 import shutil
 import threading
 
-from flow import learning as _learning, outbox as _outbox, runqueue as _runqueue, studiobook as _studiobook, tools as _tools, wire as _wire
+from flow import learning as _learning, livesession as _livesession, outbox as _outbox, runqueue as _runqueue, studiobook as _studiobook, \
+    tools as _tools, wire as _wire
 from pipeline.pack import preview as _preview
 from pipeline.transcribe import worker_client as _worker_client
 from ytt import workdata as _workdata
@@ -53,14 +57,20 @@ class FriendQueue(_runqueue.Queue):
 class Engine:
     """玄関の ② と受信箱を結ぶ係(玄関に 1 つ)"""
 
-    def __init__(self, places, inbox, log=None, queue_factory=FriendQueue):
+    def __init__(self, places, inbox, log=None, queue_factory=FriendQueue, live_factory=None):
+        """live_factory(places, queue_fn, log) -> ライブ係(friendapp/live.FriendLive)か None(ライブなし = テスト)。玄関は本物を渡し、見回りの糸を起こす"""
         self.places, self.inbox = places, inbox
         self.log = log or (lambda msg: None)
         self.app_dir = os.path.join(places["data"], "app")
         self.queue = queue_factory(places["studio"], os.path.join(self.app_dir, "logs"), log=self.log)
         self.queue.set_finished_hook(self.after_run)
+        self.live = live_factory(places, lambda: self.queue, self.log) if live_factory is not None else None
+        if self.live is not None:
+            self.queue.set_live_hook(self.live_submit)
+            self.live.on_tick = self.live_tick
         self._previews = []
         self._pv_lock = threading.Condition()
+        self._mk_lock = threading.Lock()
         self._pv_thread = threading.Thread(target=self._preview_loop, name="friend-preview", daemon=True)
         self._pv_thread.start()
         self.reconcile()
@@ -84,7 +94,9 @@ class Engine:
             if r["state"] not in ("sent", "making") or r.get("runId") in live or r.get("pc") == "user":   # ユーザーの PC に頼んだ行は同期が見る
                 continue
             rec = past.get(r.get("runId"))
-            if rec:
+            if not r.get("runId"):   # ② に積む前に閉じた(動画を写している途中・録画を始める途中。F2-6)
+                self.inbox.fail(r["id"], "前回アプリを閉じたときに依頼が途中で止まりました。[もう一度送る] で送り直してください")
+            elif rec:
                 packs = [p for p in (rec.get("packs") or []) if isinstance(p, str)]
                 self.inbox.finished(r["runId"], rec.get("state"), rec.get("error") or "", [{"dir": p} for p in packs],
                                     (r.get("form") or {}).get("deliverBatch"), case=_case_from(rec.get("resultPath")))
@@ -94,7 +106,11 @@ class Engine:
     # ------------------------------------------------------------ 終わった実行
     def after_run(self, run):
         row = self.inbox.by_run(run.id)
-        if row is None:
+        clip = False
+        if row is None and getattr(run, "request_id", None):   # ライブの切り抜き 1 本の実行(封筒の requestId = 受信箱の行の id。F2-6)
+            row = self.inbox.row(run.request_id)
+            clip = row is not None and row.get("kind") == "live"
+        if row is None or (row.get("runId") != run.id and not clip):
             return
         if run.result_path:
             try:
@@ -109,12 +125,58 @@ class Engine:
         except Exception:   # 長さが分からなくても届ける
             secs = [None] * len(dirs)
         error = run.error if run.state == "error" else ""
-        got = self.inbox.finished(run.id, run.state, error, [{"dir": d, "seconds": s} for d, s in zip(dirs, secs)],
-                                  (row.get("form") or {}).get("deliverBatch"), case=_case_from(run.result_path))
+        packs = [{"dir": d, "seconds": s} for d, s in zip(dirs, secs)]
+        if clip:
+            meta = ((getattr(run, "pool", None) or {}).get("meta") or {})
+            _got, made = self.inbox.live_clip(row["id"], run.id, run.state, error, packs, meta.get("phase") or "live", case=_case_from(run.result_path))
+            if made:
+                self._want_previews(row["id"])
+            return
+        got = self.inbox.finished(run.id, run.state, error, packs, (row.get("form") or {}).get("deliverBatch"), case=_case_from(run.result_path))
         if got and got["state"] == "arrived":
-            with self._pv_lock:
-                self._previews.append(got["id"])
-                self._pv_lock.notify()
+            self._want_previews(got["id"])
+
+    def _want_previews(self, rid):
+        with self._pv_lock:
+            if rid not in self._previews:
+                self._previews.append(rid)
+            self._pv_lock.notify()
+
+    # ------------------------------------------------------------ ライブ(F2-6)
+    def live_submit(self, env, bundle):
+        """② の待ち行列の live の hook: 封筒 kind live + 束 -> ライブ係の submit(依頼の結びつきの欄 ctx は封筒 + 束から。長さは受信箱の行の送った欄 =
+        束の analyze に入れない(入口 app の submit_request と同じ決まり))。録画の部品が起動するまで少し待つ"""
+        ctx = _livesession.bundle_ctx(env, bundle, _livesession.stream_url(env))
+        row = self.inbox.row(env.get("requestId") or "")
+        s = ((row or {}).get("form") or {}).get("live")
+        if isinstance(s, dict) and isinstance(s.get("length"), int):
+            ctx["settings"] = dict(ctx["settings"], length=s["length"])
+        ctx["deliverDir"] = ""   # 友人の PC は届けない(4-7。パックは受信箱に並ぶ)
+        self.live.wait_recorder()
+        return self.live.submit(env, bundle, ctx=ctx)
+
+    def live_tick(self):
+        """ライブ係の見回りのたび: この PC のライブの行ごとに、録画が終わったか・書き出しと切り抜きの実行が残っているか・配信後の追加を待つかを見て
+        行を進める(組・届いた・失敗)。録画元につながらないときはその行を飛ばす(分からないまま閉じない)"""
+        rows = self.inbox.live_rows()
+        if not rows or self.live is None:
+            return
+        runs = self.queue.status().get("runs") or []
+        lists = {}
+        for r in rows:
+            lv = r["live"]
+            rc, rec = lv.get("recorder"), lv.get("recording")
+            if rc not in lists:
+                lists[rc] = self.live.recordings(rc)
+            recs = lists[rc]
+            if recs is None:
+                continue
+            raw = recs.get(rec)
+            recording = bool(raw and raw.get("active"))
+            busy = self.live.busy_recording(rc, rec) or any(x.get("requestId") == r["id"] and x.get("state") in ("queued", "running") for x in runs)
+            waiting = self.live.after_hold(rc, raw) if raw is not None and not recording and not busy else ""
+            if self.inbox.live_update(r["id"], recording, busy, waiting):
+                self._want_previews(r["id"])
 
     def _preview_loop(self):
         while True:
@@ -130,7 +192,12 @@ class Engine:
                 self.log("まとめ動画を作れませんでした: %s" % e.__class__.__name__)
 
     def make_previews(self, rid):
-        """届いた行の組ごとのまとめ動画(札 = パックの題。① pipeline/pack/preview)を <玄関>/previews/<依頼 id>-<n>.mp4 に"""
+        """届いた行の組ごとのまとめ動画(札 = パックの題。① pipeline/pack/preview)を <玄関>/previews/<依頼 id>-<n>.mp4 に。
+        1 つずつ(裏の糸と呼んだ側が同じ組を二重に作らない)"""
+        with self._mk_lock:
+            self._make_previews(rid)
+
+    def _make_previews(self, rid):
         r = self.inbox.row(rid)
         if r is None:
             return
@@ -157,6 +224,11 @@ class Engine:
         lr.ld, lr.pack = new.ld, new.pack
 
     def close(self):
+        if self.live is not None:   # 録画中でも録画の部品まで止める(次に開いたとき同じ録画の続きから。friendapp/live.py)
+            try:
+                self.live.close()
+            except Exception as e:   # 後始末の途中の不具合で ② を残さない
+                self.log("ライブ係を止める途中でエラー: %s" % e.__class__.__name__)
         self.queue.close()
         with self._pv_lock:
             self._previews.append(None)

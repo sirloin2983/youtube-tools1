@@ -734,7 +734,11 @@ def friend_scenes(base):
     page = base + "/friend/"
     return [{"name": "friend", "url": page, "wide": True, "actions": [("wait", 800)]},
             {"name": "friend-open", "url": page, "actions": [("wait", 800), ("click", "[data-row='20261016-091000-aaaa02'] .ui-next-btn"), ("wait", 400)]},
-            {"name": "friend-more", "url": page, "actions": [("click", "#more > summary"), ("click", "#btnRange"), ("click", "#btnPerson"), ("wait", 300)]}]
+            {"name": "friend-more", "url": page, "actions": [("click", "#more > summary"), ("click", "#btnRange"), ("click", "#btnPerson"), ("wait", 300)]},
+            # F2-6: ライブの URL(見本は配信中と答える)を貼ると 6 つの設定・録画中の行を開く・動画ファイルを選んだ形(見本は本物の窓を開かない)
+            {"name": "friend-live", "url": page, "actions": [("wait", 500), ("fill", "#url", "https://www.youtube.com/watch?v=demolive001"), ("wait", 1200)]},
+            {"name": "friend-live-open", "url": page, "actions": [("wait", 800), ("click", "[data-row='20261016-096000-dddd01'] .ui-next-btn"), ("wait", 400)]},
+            {"name": "friend-file", "url": page, "actions": [("wait", 500), ("click", "#btnPick"), ("wait", 800)]}]
 
 
 def start_friend_demo(port):

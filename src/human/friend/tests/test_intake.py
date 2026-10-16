@@ -897,9 +897,9 @@ class TestLiveSettings(unittest.TestCase):
         self.assertIsNot(cs(None), dflt, "既定の写しを返す(書き換えても既定は変わらない)")
         self.assertEqual(cs({"sens": "low", "perHour": 1, "length": 10, "waitMin": 1, "pad": 0, "afterStream": False}),
                          {"sens": "low", "perHour": 1, "length": 10, "waitMin": 1, "pad": 0.0, "afterStream": False})   # 下の端
-        self.assertEqual(cs({"sens": "high", "perHour": 30, "length": 120, "waitMin": 60, "pad": 5, "afterStream": True}),
-                         {"sens": "high", "perHour": 30, "length": 120, "waitMin": 60, "pad": 5.0, "afterStream": True})   # 上の端
-        for k, bad in (("perHour", 0), ("perHour", 31), ("length", 9), ("length", 121), ("waitMin", 0), ("waitMin", 61), ("pad", -0.1), ("pad", 5.1),
+        self.assertEqual(cs({"sens": "high", "perHour": 30, "length": 180, "waitMin": 60, "pad": 5, "afterStream": True}),
+                         {"sens": "high", "perHour": 30, "length": 180, "waitMin": 60, "pad": 5.0, "afterStream": True})   # 上の端(長さは A-5b の仮 180)
+        for k, bad in (("perHour", 0), ("perHour", 31), ("length", 9), ("length", 181), ("waitMin", 0), ("waitMin", 61), ("pad", -0.1), ("pad", 5.1),
                        ("perHour", True), ("perHour", "6"), ("perHour", None), ("pad", None), ("pad", "1"), ("pad", float("nan")), ("length", float("inf")),
                        ("sens", "HIGH"), ("sens", None), ("sens", 1), ("afterStream", "false"), ("afterStream", 0), ("afterStream", None)):
             self.assertEqual(cs({k: bad})[k], dflt[k], (k, bad))

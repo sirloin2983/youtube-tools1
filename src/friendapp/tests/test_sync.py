@@ -183,6 +183,46 @@ class SyncTest(unittest.TestCase):
         self.box.remote_mark(RID, "accepted")
         self.assertFalse(self.sync.withdraw(RID))
 
+    def test_request_video_uploads_video_then_json(self):
+        """F2-6: 動画ファイルは先に動画を直下 <依頼 id>__<元の名前> へ(C# の RequestJson.Video と同じ鍵と順)・[この PC でやり直す] は動画も消す"""
+        self.key()
+        clip = os.path.join(self.tmp, "【星見ルナ】歌ってみた.mp4")
+        self.assertEqual(S.upload_name(RID, 'a<b>:"c".mp4'), RID + "__a_b___c_.mp4")   # Dropbox に使えない文字は _
+        with open(clip, "wb") as f:
+            f.write(b"v" * 100)
+        f = dict(FORM, kind="file", ranges=[], top=None, file={"path": clip, "name": os.path.basename(clip), "size": 100})
+        self.box.add(RID, f, {"title": "歌"}, pc="user", kind="file")
+        self.assertEqual(self.run_sync(), [])
+        name = S.upload_name(RID, os.path.basename(clip))
+        self.assertTrue(name.startswith(RID + "__【星見ルナ】歌") and name.endswith(".mp4"))
+        self.assertEqual(self.io.data("/" + name), b"v" * 100)
+        doc = json.loads(self.io.data("/%s.request.json" % RID).decode("utf-8"))
+        self.assertEqual(list(doc), ["v", "kind", "id", "flow", "files", "streamer", "speakers", "videoTracks", "cut", "deliverBatch", "sentAt"])
+        self.assertEqual((doc["kind"], doc["files"], doc["streamer"]), ("video", [name], "星見ルナ"))
+        self.assertTrue(self.sync.withdraw(RID))
+        self.assertIsNone(self.io.data("/" + name))
+        self.assertIsNone(self.io.data("/%s.request.json" % RID))
+
+    def test_request_video_missing_fails_row(self):
+        self.key()
+        f = dict(FORM, kind="file", file={"path": os.path.join(self.tmp, "nope.mp4"), "name": "nope.mp4", "size": 1})
+        self.box.add(RID, f, {"title": "x"}, pc="user", kind="file")
+        self.run_sync()
+        r = self.box.row(RID)
+        self.assertEqual(r["state"], "failed")
+        self.assertIn("見つかりません", r["error"])
+        self.assertIsNone(self.io.data("/%s.request.json" % RID))
+
+    def test_request_live_doc(self):
+        """F2-6: ライブは RequestJson.Live と同じ鍵と順(live の後に deliverBatch)"""
+        self.key()
+        live = {"sens": "low", "perHour": 8, "length": 150, "waitMin": 10, "pad": 5.0, "afterStream": False}
+        self.box.add(RID, dict(FORM, kind="live", ranges=[], top=7, url="https://youtu.be/dQw4w9WgXcQ", live=live), {"title": "x"}, pc="user", kind="live")
+        self.run_sync()
+        doc = json.loads(self.io.data("/%s.request.json" % RID).decode("utf-8"))
+        self.assertEqual(list(doc), ["v", "kind", "id", "flow", "url", "streamer", "speakers", "videoTracks", "cut", "live", "deliverBatch", "sentAt"])
+        self.assertEqual((doc["url"], doc["live"], list(doc["live"])), ("https://www.youtube.com/watch?v=dQw4w9WgXcQ", live, list(S.LIVE_KEYS)))
+
     def test_deliver_prefs_only_when_changed(self):
         self.key()
         self.run_sync()

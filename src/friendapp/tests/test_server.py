@@ -593,6 +593,70 @@ class ServerTest(unittest.TestCase):
         self.assertIn("受け付けました", self.js(p)["message"])
         self.assertEqual(self.engine.queue.submitted, [])
 
+    # ------------------------------------------------------------ 動画ファイル・ライブ(F2-6)
+    def test_pick_file_uses_hook_and_remembers_by_id(self):
+        clip = os.path.join(self.tmp, "【兎田ぺこら】切り抜き.mp4")
+        with open(clip, "wb") as f:
+            f.write(b"v" * 10)
+        picked = []
+        self.app.pick_file = lambda: picked.append(1) or clip   # 本物のファイルを選ぶ窓は出さない
+        st, _h, p = self.post("/api/friend/pick-file", {})
+        d = self.js(p)
+        self.assertEqual((st, d["file"]["name"], d["file"]["size"], d["file"]["streamer"], picked), (200, "【兎田ぺこら】切り抜き.mp4", 10, "兎田ぺこら", [1]))
+        self.assertNotIn(self.tmp, json.dumps(d, ensure_ascii=False))   # パスは画面に返さない
+        self.app.pick_file = lambda: None   # 窓でやめた
+        self.assertIsNone(self.js(self.post("/api/friend/pick-file", {})[2])["file"])
+        self.assertEqual(self.post("/api/friend/pick-file", {}, headers={TOKEN: None})[0], 403)
+        st, d2 = self.send(source="file", fileId=d["file"]["id"], url=None)
+        self.assertEqual((st, d2["row"]["kind"], d2["row"]["source"]["fileName"]), (200, "file", "【兎田ぺこら】切り抜き.mp4"))
+        for _ in range(200):   # 写し終えて ② へ(裏の糸)
+            if self.engine.queue.submitted:
+                break
+            threading.Event().wait(0.02)
+        env, _spec = self.engine.queue.submitted[0]
+        self.assertEqual((env["kind"], env["requestId"]), ("file", d2["row"]["id"]))
+        self.assertTrue(env["input"]["path"].startswith(self.places["cases"]))
+
+    def test_pick_file_busy(self):
+        self.app.pick_lock.acquire()
+        try:
+            st, _h, p = self.post("/api/friend/pick-file", {})
+        finally:
+            self.app.pick_lock.release()
+        self.assertEqual((st, self.js(p)["error"]), (409, "busy"))
+
+    def test_peek_live(self):
+        seen = []
+        self.app.api.probe = lambda url: seen.append(url) or {"status": "is_upcoming", "message": ""}
+        d = self.js(self.get("/api/friend/peek-live?url=" + URL)[2])
+        self.assertEqual((d["videoId"], d["status"], d["live"]), (VID, "is_upcoming", True))
+        self.get("/api/friend/peek-live?url=" + URL)
+        self.assertEqual(seen, [URL])   # 少しのあいだ覚える
+        self.app.api.probe = lambda url: {"status": "post_live"}
+        self.app.api._live_peek.clear()
+        d = self.js(self.get("/api/friend/peek-live?url=" + URL)[2])
+        self.assertFalse(d["live"])
+        self.assertIn("アーカイブがまだ見られません", d["message"])
+        self.assertEqual(self.get("/api/friend/peek-live?url=x")[0], 400)
+
+    def test_send_live_without_recorder_is_400(self):
+        st, d = self.send(kind="live", live={"sens": "normal", "perHour": 6, "length": 45, "waitMin": 5, "pad": 2, "afterStream": True})
+        self.assertEqual(st, 400)
+        self.assertIn("録画できません", d["message"])
+        self.assertEqual(self.app.inbox.rows, [])
+        st, d = self.send(kind="live", live={"sens": "normal", "perHour": 6, "length": 200, "waitMin": 5, "pad": 2, "afterStream": True})
+        self.assertIn("長さは 10〜180", d["message"])
+
+    def test_send_live_and_file_to_user_pc(self):
+        dbx = self.use_fake_dropbox()
+        live = {"sens": "high", "perHour": 6, "length": 180, "waitMin": 5, "pad": 2, "afterStream": True}
+        st, d = self.send(kind="live", live=live, pc="user")
+        self.assertEqual((st, d["row"]["kind"], d["row"]["pc"]), (200, "live", "user"))
+        self.app.sync.run_once()
+        doc = json.loads(dbx.files["/%s.request.json" % d["row"]["id"]])
+        self.assertEqual((doc["kind"], doc["live"]["length"], doc["live"]["sens"]), ("live", 180, "high"))
+        self.assertEqual(self.app.api.form()["live"]["length"], 180)
+
     def test_open_folder_guard_skips_test_places(self):
         """守り: inplace の作業データ・一時フォルダの下は開かない(本物の os.startfile まで行かない)"""
         self.assertFalse(S.open_folder(os.path.join(self.tmp, "save"), env={}))

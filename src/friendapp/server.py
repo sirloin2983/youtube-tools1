@@ -19,10 +19,12 @@
   POST /api/friend/window                 受信箱の窓を開く(起動役の [窓を開く])
   GET  /api/friend/inbox                  受信箱の行・前回の値・保存先・空き容量で止めているか・準備中か・片付けの知らせ
   GET  /api/friend/peek?url=              配信の題・チャンネル名と配信者の推し
+  GET  /api/friend/peek-live?url=         配信中・配信前か(F2-6。yt-dlp で数秒。ライブなら送る欄の下に 6 つの設定)
   GET  /api/friend/media?id=&n=           組のまとめ動画(Range つき)
-  POST /api/friend/send                   送る(friendapp/api.py の欄)
+  POST /api/friend/pick-file              Windows のファイルを選ぶ窓を開く(F2-6。画面からパスを打たせない)→ {file: {id, name, size, title, streamer, hex} | null}
+  POST /api/friend/send                   送る(friendapp/api.py の欄。動画ファイルは fileId・ライブは kind live + live)
   POST /api/friend/decide {id, names, verdict: keep|reject}   受け取る / 要らない(names 空 = その行の決めていない物全部)
-  POST /api/friend/retry {id}・remove {id}・cancel {id}        失敗の行の [もう一度送る]・[消す]・送った行を止める
+  POST /api/friend/retry {id}・remove {id}・cancel {id}        失敗の行の [もう一度送る]・[消す]・送った行を止める(録画中のライブの行は録画を止める)
   POST /api/friend/local {id}             ユーザーの PC に頼んだ依頼を [この PC でやり直す](F2-3。Dropbox の同期は friendapp/sync.py の裏の糸)
   POST /api/friend/open {what: saved}     受け取るの保存先をエクスプローラーで開く
   POST /api/friend/notice-seen            片付けの知らせを見た
@@ -95,6 +97,47 @@ def open_folder(d, env=None):
     return True
 
 
+PICK_TITLE = "送る動画ファイルを選ぶ"
+PICK_FILTER = "動画(*.mp4;*.mkv;*.mov;*.webm;*.ts;*.m4v;*.flv;*.avi)\0*.mp4;*.mkv;*.mov;*.webm;*.ts;*.m4v;*.flv;*.avi\0すべてのファイル(*.*)\0*.*\0\0"
+
+
+def pick_file_dialog(env=None):
+    """Windows のファイルを選ぶ窓(comdlg32 の GetOpenFileNameW。tkinter の無い埋め込みの Python でも動く)-> 選んだパスか None(やめた)。
+    窓は今いちばん前の窓(受信箱の Edge の窓)の上に出す。テストの作業データ(inplace)では開かない(テストでユーザーの画面を取らない守り)"""
+    env = os.environ if env is None else env
+    if (env.get("YTT_DATA_DIR") or "").strip().lower() == "inplace" or os.name != "nt":
+        return None
+    import ctypes
+    from ctypes import wintypes
+
+    class OPENFILENAMEW(ctypes.Structure):
+        _fields_ = [("lStructSize", wintypes.DWORD), ("hwndOwner", wintypes.HWND), ("hInstance", wintypes.HINSTANCE), ("lpstrFilter", ctypes.c_void_p),
+                    ("lpstrCustomFilter", wintypes.LPWSTR), ("nMaxCustFilter", wintypes.DWORD), ("nFilterIndex", wintypes.DWORD),
+                    ("lpstrFile", ctypes.c_void_p), ("nMaxFile", wintypes.DWORD), ("lpstrFileTitle", wintypes.LPWSTR), ("nMaxFileTitle", wintypes.DWORD),
+                    ("lpstrInitialDir", wintypes.LPCWSTR), ("lpstrTitle", wintypes.LPCWSTR), ("Flags", wintypes.DWORD), ("nFileOffset", wintypes.WORD),
+                    ("nFileExtension", wintypes.WORD), ("lpstrDefExt", wintypes.LPCWSTR), ("lCustData", wintypes.LPARAM), ("lpfnHook", ctypes.c_void_p),
+                    ("lpTemplateName", wintypes.LPCWSTR), ("pvReserved", ctypes.c_void_p), ("dwReserved", wintypes.DWORD), ("FlagsEx", wintypes.DWORD)]
+    ole32 = ctypes.windll.ole32
+    inited = ole32.CoInitializeEx(None, 0x2) in (0, 1)   # COINIT_APARTMENTTHREADED(シェルの窓が要る)
+    try:
+        buf = ctypes.create_unicode_buffer(4096)
+        filt = ctypes.create_unicode_buffer(PICK_FILTER, len(PICK_FILTER) + 1)
+        ofn = OPENFILENAMEW()
+        ofn.lStructSize = ctypes.sizeof(OPENFILENAMEW)
+        ofn.hwndOwner = ctypes.windll.user32.GetForegroundWindow()
+        ofn.lpstrFilter = ctypes.addressof(filt)
+        ofn.nFilterIndex = 1
+        ofn.lpstrFile = ctypes.addressof(buf)
+        ofn.nMaxFile = len(buf)
+        ofn.lpstrTitle = PICK_TITLE
+        ofn.Flags = 0x00001000 | 0x00000800 | 0x00000004 | 0x00000008 | 0x00080000   # FILEMUSTEXIST・PATHMUSTEXIST・HIDEREADONLY・NOCHANGEDIR・EXPLORER
+        ok = ctypes.windll.comdlg32.GetOpenFileNameW(ctypes.byref(ofn))
+        return buf.value if ok and buf.value else None
+    finally:
+        if inited:
+            ole32.CoUninitialize()
+
+
 def inject_meta(body, token):
     tag = ('<meta name="ytt-token" content="%s"><meta name="ytt-version" content="%s">' % (token, _version.VERSION)).encode("ascii")
     i = body.find(b"</head>")
@@ -159,6 +202,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, app.api.peek((q.get("url") or [""])[0][:300]))
             except _api.FormError as e:
                 return self._fail(400, "bad_url", str(e))
+        if path == "/api/friend/peek-live":   # 配信中・配信前か(F2-6。数秒かかる = 画面は題と別に問い合わせる)
+            try:
+                return self._json(200, app.api.peek_live((q.get("url") or [""])[0][:300]))
+            except _api.FormError as e:
+                return self._fail(400, "bad_url", str(e))
         if path == "/api/friend/media":
             r = app.inbox.row((q.get("id") or [""])[0])
             try:
@@ -209,6 +257,14 @@ class Handler(BaseHTTPRequestHandler):
         app = self.server.app
         if path == "/api/friend/send":
             return self._json(200, {"ok": True, "row": app.api.send(body)})
+        if path == "/api/friend/pick-file":   # ファイルを選ぶ窓(F2-6)。1 つずつ(開いている間の 2 つ目は断る)
+            if not app.pick_lock.acquire(blocking=False):
+                return self._fail(409, "busy", "ファイルを選ぶ窓はもう開いています")
+            try:
+                chosen = app.pick_file()
+            finally:
+                app.pick_lock.release()
+            return self._json(200, {"ok": True, "file": app.api.remember_file(chosen) if chosen else None})
         if path == "/api/friend/decide":
             got = app.inbox.decide(str(body.get("id") or ""), [n for n in body.get("names") or [] if isinstance(n, str)], body.get("verdict"))
             return self._json(200, {"ok": not got["errors"], "done": got["done"], "pending": got["pending"], "errors": got["errors"]})
@@ -306,6 +362,9 @@ class FriendApp:
         self.rollback = (os.environ.get(ROLLBACK_ENV) or "").strip()   # 起動役が前の版へ戻した = 起動できなかった版
         self.rollback_seen = False
         self.open_folder = open_folder   # エクスプローラーで開く口(テストは差し替える = 画面を取らない)
+        self.pick_file = pick_file_dialog   # ファイルを選ぶ窓の口(F2-6。テストは差し替える = 本物の窓を出さない)
+        self.pick_lock = threading.Lock()
+        self.api.stopping = self.closing.is_set   # 終わる途中なら動画を写すのを止める
         # Dropbox の同期(F2-3)。糸を起こすのは main だけ(テストは run_once を直に呼ぶ・偽の口を client_factory に)
         self.sync = _sync.Sync(places, self.inbox, self.api.form, engine_fn=lambda: self.engine, clock=clock, log=self.log)
         self.api.sync = self.sync
@@ -315,8 +374,9 @@ class FriendApp:
         return "新しい版 %s を起動できなかったので、前の版で開きました" % self.rollback[:40] if self.rollback and not self.rollback_seen else None
 
     def recording_count(self):
-        """録画中の本数(F2-6 がライブを足すまで 0。起動役が窓を閉じても止めない・状態の窓に出す)"""
-        return 0
+        """録画中の本数(F2-6 のライブ係が録画元に聞く。起動役が窓を閉じても止めない・状態の窓に出す・× が録画中だけ最小化になる)"""
+        live = getattr(self.engine, "live", None)
+        return live.active_count() if live is not None else 0
 
     def state(self):
         """起動役の見回り用: 最後の画面の問い合わせからの秒・仕事の有無・本数"""
@@ -360,7 +420,7 @@ class FriendApp:
         if eng is None:
             return self.prep["state"] in ("starting", "copying")
         st = eng.queue.status()
-        return not st["idle"] or bool(eng._previews) or self.sync.busy()
+        return not st["idle"] or bool(eng._previews) or self.sync.busy() or self.api.copying()
 
     def watch(self):
         """3 日の片付け(SWEEP_EVERY ごと)。終わるかどうかは起動役が決める(ここでは終わらない)"""
@@ -398,9 +458,22 @@ def make_logger(path):
     return log
 
 
+def _make_live(places, queue_fn, log):
+    """② のライブ係(F2-6。friendapp/live_session.FriendLive)。空き容量の下限はこの PC の設定 machine.json の diskMinGB"""
+    from flow import machine as _machine
+    from friendapp import live_session as _live_session
+    try:
+        floor = _machine.get("diskMinGB")
+    except (OSError, ValueError):
+        floor = _machine.DISK_MIN_GB
+    return _live_session.FriendLive(places, queue_fn, log=log, disk_min_gb=floor)
+
+
 def _default_engine(places, inbox, log):
     from friendapp import engine as _engine   # ② の部品は起動のあとに(画面を先に出す)
-    return _engine.Engine(places, inbox, log=log)
+    eng = _engine.Engine(places, inbox, log=log, live_factory=_make_live)
+    eng.live.start()   # 見回り(録画の部品を起こす・前回の録画の続き・依頼の録画の検出と書き出し・受信箱の行を進める)
+    return eng
 
 
 def say(msg, log=None):

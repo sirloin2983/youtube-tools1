@@ -35,6 +35,10 @@
 .fr-pack{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:32px}
 .fr-pack-pick{display:inline-flex;align-items:center;gap:6px;flex:1 1 240px;min-width:0}
 .fr-pack-title{overflow-wrap:anywhere}
+.fr-file{flex:1 1 320px;min-width:0;display:inline-flex;align-items:center;gap:8px}
+.fr-file-name{font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fr-live{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-md, 6px);background:var(--panel-2)}
+.fr-live-h{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .fr-empty{padding:18px 4px}
 .fr-nokey{margin:0 0 8px}
 .fr-bye{padding:24px 0}

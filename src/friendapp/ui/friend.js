@@ -1,9 +1,11 @@
-/* 友人の受信箱(F2-2)。口は friendapp/server.py の説明。外から来た文字(題・チャンネル・理由)は textContent でだけ入れる */
+/* 友人の受信箱(F2-2)。口は friendapp/server.py の説明。外から来た文字(題・チャンネル・理由)は textContent でだけ入れる。
+   F2-6: 動画ファイル([動画ファイルを選ぶ] = 玄関が Windows の窓を開いて id で覚える)・ライブ(URL が配信中・配信前なら 6 つの設定を出す) */
 (function () {
   'use strict';
   var $ = function (id) { return document.getElementById(id); };
   var POLL = 3000, POLL_AWAY = 10000;
-  var state = { key: '', rows: [], form: null, open: {}, sel: {}, peek: null, peekUrl: '', sending: false, auto: '', hasKey: true };
+  var state = { key: '', rows: [], form: null, open: {}, sel: {}, peek: null, peekUrl: '', sending: false, auto: '', hasKey: true,
+    file: null, live: null, liveBusy: false, picking: false };
   var timer = 0;
 
   function el(tag, attrs, kids) {
@@ -19,6 +21,8 @@
     return e;
   }
   function api(path, body) { return UIKit.http('api/friend/' + path, body === undefined ? {} : { body: body }); }
+  function sizeText(n) { return n >= 1e9 ? (n / 1e9).toFixed(1) + ' GB' : Math.max(1, Math.round(n / 1e6)) + ' MB'; }
+  function pct(p) { return p && p.total ? Math.floor(p.done * 100 / p.total) + '%' : ''; }
   function fail(what, e) { UIKit.toast(what + ': ' + e.message, { kind: 'err', detail: e.detail }); }
 
   /* ---------------------------------------------------------------- 送る欄 */
@@ -44,22 +48,40 @@
   function people() {
     return Array.prototype.map.call($('people').querySelectorAll('input'), function (x) { return x.value.trim(); }).filter(Boolean);
   }
+  /* 送る物: 'file'(動画ファイルを選んだ)・'live'(配信中・配信前の URL)・'url' */
+  function mode() { return state.file ? 'file' : (state.live && state.live.live ? 'live' : 'url'); }
   function syncForm() {
-    var rg = ranges(), has = rg.list.length > 0;
-    $('topLine').hidden = has;
-    $('weightLine').hidden = has;
+    var m = mode(), rg = m === 'url' ? ranges() : { list: [], bad: '' }, has = rg.list.length > 0;
+    $('rangeLine').hidden = m !== 'url';
+    $('topLine').hidden = has || m === 'file';
+    $('topHint').textContent = m === 'live' ? '録画 1 本で自動で切る上限です' : '自動で見どころを探して、この本数を切ります';
+    $('weightLine').hidden = has || m !== 'url';
+    $('live').hidden = m !== 'live';
     $('rangeHint').textContent = rg.bad || (has ? rg.list.length + ' 本(区間の数)を切ります' : '任意。入れると、その区間だけを切ります');
     $('rangeHint').classList.toggle('fr-bad', !!rg.bad);
     $('weights').hidden = !$('useWeights').checked;
+    $('url').hidden = !!state.file;
+    $('fileChip').hidden = !state.file;
+    $('urlLabel').textContent = state.file ? '動画ファイル' : '配信の URL';
+    $('btnPick').hidden = !!state.file;
+    $('btnPick').disabled = state.picking;
     var user = pc() === 'user', noKey = user && !state.hasKey;
-    var ok = !!state.peek && !rg.bad && !state.sending && !noKey;
+    var postLive = m === 'url' && state.live && state.live.status === 'post_live';
+    var ready = m === 'file' ? true : (!!state.peek && !state.liveBusy && !postLive);
+    var ok = ready && !rg.bad && !state.sending && !noKey;
     var btn = $('btnSend');
     btn.disabled = !ok;
-    btn.textContent = user ? '送る(ユーザーの PC へ)' : '送る';   /* 覚えた値がユーザーの PC のとき、「詳しく」を閉じていても分かるように(A-2) */
-    btn.title = state.sending ? '送っています' : !state.peek ? 'YouTube の配信の URL を貼ると押せます' : rg.bad ? rg.bad :
+    btn.textContent = (m === 'live' ? '録画を頼む' : '送る') + (user ? '(ユーザーの PC へ)' : '');   /* 覚えた値がユーザーの PC のとき、「詳しく」を閉じていても分かるように(A-2) */
+    btn.title = state.sending ? '送っています' : m !== 'file' && !state.peek ? 'YouTube の配信の URL を貼るか、動画ファイルを選ぶと押せます' :
+      state.liveBusy ? '配信中か調べています(数秒)' : postLive ? state.live.message : rg.bad ? rg.bad :
       noKey ? 'Dropbox の鍵が無いので、ユーザーの PC には頼めません(「詳しく」の処理する PC を「この PC」に)' : '';
   }
   function pc() { var r = document.querySelector('input[name=pc]:checked'); return r ? r.value : 'this'; }
+  function fillLive(s) {
+    Array.prototype.forEach.call(document.querySelectorAll('input[name=lvSens]'), function (r) { r.checked = r.value === s.sens; });
+    $('lvPerHour').value = s.perHour; $('lvLength').value = s.length; $('lvWait').value = s.waitMin; $('lvPad').value = s.pad;
+    $('lvAfter').checked = !!s.afterStream;
+  }
   function fillForm(f) {
     $('top').value = f.top;
     $('tracks').value = String(f.videoTracks);
@@ -67,12 +89,21 @@
     $('useWeights').checked = !!f.useWeights;
     Array.prototype.forEach.call(document.querySelectorAll('input[name=pc]'), function (r) { r.checked = r.value === (f.pc || 'this'); });
     $('wAudio').value = f.weights.wAudio; $('wChat').value = f.weights.wChat; $('wComments').value = f.weights.wComments;
+    if (f.live) fillLive(f.live);
+  }
+  function setAutoStreamer(name) {
+    var s = $('streamer');
+    if (!s.value.trim() || s.value === state.auto) {   /* 自分で打った名前は上書きしない */
+      UIKit.streamer.set(s, name || '');
+      state.auto = name || '';
+      $('streamerAuto').hidden = !name;
+    }
   }
   var peekSeq = 0;
   function onUrl() {
     var u = $('url').value.trim();
     if (u === state.peekUrl) return;
-    state.peekUrl = u; state.peek = null; syncForm();
+    state.peekUrl = u; state.peek = null; state.live = null; state.liveBusy = false; syncForm();
     if (!u) { $('peek').textContent = ''; return; }
     var my = ++peekSeq;
     $('peek').textContent = '配信を調べています…';
@@ -80,42 +111,80 @@
       if (my !== peekSeq) return;
       state.peek = p;
       $('peek').textContent = (p.title || '(題が取れませんでした)') + (p.channel ? ' ・ ' + p.channel : '');
-      var s = $('streamer');
-      if (!s.value.trim() || s.value === state.auto) {   /* 自分で打った名前は上書きしない */
-        UIKit.streamer.set(s, p.streamer || '');
-        state.auto = p.streamer || '';
-        $('streamerAuto').hidden = !p.streamer;
-      }
+      setAutoStreamer(p.streamer);
+      state.liveBusy = true;   /* 配信中・配信前か(yt-dlp で数秒)。分かるまで [送る] は待つ(ライブを普通の URL で送らない) */
       syncForm();
+      return api('peek-live?url=' + encodeURIComponent(u)).then(function (lv) {
+        if (my !== peekSeq) return;
+        state.live = lv;
+        $('liveNote').textContent = lv.status === 'is_upcoming' ? '配信前です。始まったら録画しながら切り抜きます' : '配信中です。録画しながら切り抜きます';
+        if (lv.status === 'post_live') $('peek').textContent += ' ・ ' + lv.message;
+      }, function () { if (my === peekSeq) state.live = null; }).then(function () {
+        if (my !== peekSeq) return;
+        state.liveBusy = false; syncForm();
+      });
     }, function (e) {
       if (my !== peekSeq) return;
       $('peek').textContent = e.message;
       syncForm();
     });
   }
+  function pickFile() {
+    state.picking = true; syncForm();
+    api('pick-file', {}).then(function (j) {
+      if (!j.file) return;   /* 窓でやめた */
+      state.file = j.file;
+      $('fileName').textContent = j.file.name;
+      $('fileName').title = j.file.name;
+      $('peek').textContent = '動画ファイル: ' + j.file.name + '(' + sizeText(j.file.size) + ')';
+      setAutoStreamer(j.file.streamer);
+    }, function (e) { fail('ファイルを選べませんでした', e); }).then(function () { state.picking = false; syncForm(); });
+  }
+  function clearFile() {
+    state.file = null; $('fileName').textContent = ''; $('peek').textContent = '';
+    state.peekUrl = ''; onUrl(); syncForm();
+  }
   function num(id, lo, hi, dflt) { var v = parseInt($(id).value, 10); return isNaN(v) ? dflt : Math.max(lo, Math.min(hi, v)); }
+  function liveSettings() {
+    var s = document.querySelector('input[name=lvSens]:checked'), pad = parseFloat($('lvPad').value);
+    return { sens: s ? s.value : 'normal', perHour: num('lvPerHour', 1, 30, 6), length: num('lvLength', 10, 180, 45), waitMin: num('lvWait', 1, 60, 5),
+      pad: isNaN(pad) ? 2 : Math.max(0, Math.min(5, pad)), afterStream: $('lvAfter').checked };
+  }
   function send() {
-    var rg = ranges();
-    if (!state.peek || rg.bad) return;
+    var m = mode(), rg = m === 'url' ? ranges() : { list: [], bad: '' };
+    if ($('btnSend').disabled || rg.bad) return;
     var batch = document.querySelector('input[name=batch]:checked');
-    var body = { url: $('url').value.trim(), title: state.peek.title, channel: state.peek.channel, ranges: rg.list,
-      top: rg.list.length ? null : num('top', 1, 30, 10), streamer: $('streamer').value.trim(), people: people(),
+    var body = { source: m === 'file' ? 'file' : 'url', ranges: rg.list,
+      top: rg.list.length || m === 'file' ? null : num('top', 1, 30, 10), streamer: $('streamer').value.trim(), people: people(),
       videoTracks: parseInt($('tracks').value, 10) || 1, deliverBatch: batch ? parseInt(batch.value, 10) : 5,
-      useWeights: $('useWeights').checked, pc: pc(),
+      useWeights: m === 'url' && $('useWeights').checked, pc: pc(),
       weights: { wAudio: num('wAudio', 0, 3, 1), wChat: num('wChat', 0, 3, 1), wComments: num('wComments', 0, 3, 1) } };
+    if (m === 'file') body.fileId = state.file.id;
+    else { body.url = $('url').value.trim(); body.title = state.peek.title; body.channel = state.peek.channel; }
+    if (m === 'live') { body.kind = 'live'; body.live = liveSettings(); }
     state.sending = true; syncForm();
     api('send', body).then(function () {
-      UIKit.toast(body.pc === 'user' ? 'ユーザーの PC に頼みました。作り終えると、下の受信箱に届きます' : '送りました。作り終えると、下の受信箱に届きます', { ms: 3000 });
-      $('url').value = ''; state.peekUrl = ''; state.peek = null; $('peek').textContent = '';
+      UIKit.toast(m === 'live' ? (body.pc === 'user' ? 'ユーザーの PC に録画を頼みました。切り抜けしだい、下の受信箱に届きます' : '録画を始めました。切り抜けしだい、下の受信箱に届きます') :
+        body.pc === 'user' ? 'ユーザーの PC に頼みました。作り終えると、下の受信箱に届きます' : '送りました。作り終えると、下の受信箱に届きます', { ms: 3000 });
+      $('url').value = ''; state.peekUrl = ''; state.peek = null; state.live = null; $('peek').textContent = '';
+      state.file = null; $('fileName').textContent = '';
       $('ranges').textContent = ''; $('people').textContent = '';
       UIKit.streamer.set($('streamer'), ''); state.auto = ''; $('streamerAuto').hidden = true;
       refresh();
-    }, function (e) { fail('送れませんでした', e); }).then(function () { state.sending = false; syncForm(); });
+    }, function (e) { fail(m === 'live' ? '録画を始められませんでした' : '送れませんでした', e); }).then(function () { state.sending = false; syncForm(); });
   }
 
   /* ---------------------------------------------------------------- 受信箱 */
-  var PILL = { sent: ['wait', '送った'], making: ['run', '作っている'], arrived: ['ok', '届いた'], failed: ['err', '失敗'] };
-  function rowTitle(r) { return (r.source && (r.source.title || r.source.videoId)) || r.id; }
+  var PILL = { sent: ['wait', '送った'], making: ['run', '作っている'], recording: ['run', '録画中'], arrived: ['ok', '届いた'], failed: ['err', '失敗'] };
+  function rowTitle(r) { return (r.source && (r.source.title || r.source.fileName || r.source.videoId)) || r.id; }
+  function livePhase(r) { return (r.live && r.live.phase) || 'recording'; }
+  function liveText(r) {
+    var ph = livePhase(r), got = r.packs.length - (r.waitingPacks || 0);
+    var t = ph === 'making' ? '録画は終わりました。残りの切り抜きを作っています' : ph === 'after' ? '録画は終わりました。配信後のアーカイブから切り抜くのを待っています' :
+      ph === 'done' ? '' : '録画しながら切り抜いています';
+    var n = r.packs.length ? '届いた ' + got + ' 本' + (r.waitingPacks ? '・組になるのを待っている ' + r.waitingPacks + ' 本' : '') : '切り抜けしだい、ここに届きます';
+    return t + (t ? '(' + n + ')' : n);
+  }
   function when(r) { return UIKit.fmt.ago(r.updatedAt || r.createdAt); }
   function stepText(run) {
     if (!run) return 'ほかの依頼のあとに始めます';
@@ -163,19 +232,36 @@
       return el('li', { cls: 'fr-pack' }, kids);
     });
     return el('div', { cls: 'fr-group' }, [
-      r.groups.length > 1 ? el('div', { cls: 'fr-group-h', text: g.n + ' 組目' }) : null,
+      r.groups.length > 1 || g.label ? el('div', { cls: 'fr-group-h', text: g.n + ' 組目' + (g.label ? '(' + g.label + ')' : '') }) : null,
       video || el('p', { cls: 'hint', text: g.remote ? 'まとめ動画を Dropbox から取ってきています(取り終えると、ここで続けて見られます)' : 'まとめ動画を作っています(できると、ここで続けて見られます)' }),
       el('ul', { cls: 'fr-packs' }, items)]);
   }
   function remoteText(r) {
     var st = (r.remote || {}).state;
     if (r.state === 'making' || st === 'accepted') return 'ユーザーの PC で作っています';
+    if (st === 'pending' && r.progress) return 'Dropbox へ動画を上げています(' + pct(r.progress) + ')';
     if (st === 'pending') return state.hasKey ? 'Dropbox へ送っています(つながらなければ次の見回りでもう一度)' : 'Dropbox の鍵が無いので送れません';
     return 'ユーザーの PC の受付を待っています' + (r.waitHours >= 1 ? '(' + r.waitHours + ' 時間)' : '');
   }
+  function decideActs(r, acts, sub) {
+    var sel = state.sel[r.id] || {}, picked = r.packs.filter(function (p) { return !p.verdict && sel[p.name]; }).map(function (p) { return p.name; });
+    if (r.state === 'arrived') sub.push(el('span', { cls: 'hint', text: r.undecided + ' 本 まだ決めていません' + (r.left != null ? '(あと ' + r.left + ' 日で自動で要らないにします)' : '') }));
+    if (r.note) sub.push(el('span', { cls: 'fr-err', text: r.note }));   /* ユーザーの PC の失敗の知らせ(一部だけ届いたとき) */
+    if (!r.groups.length) return;
+    var open = !!state.open[r.id];
+    acts.push(el('button', { type: 'button', cls: 'btn small ui-next-btn', 'aria-expanded': open ? 'true' : 'false', on: { click: function () { state.open[r.id] = !open; render(); } } }, [open ? '閉じる' : '開く']));
+    if (!r.undecided) return;
+    acts.push(el('button', { type: 'button', cls: 'btn small', title: picked.length ? '選んだ物を保存先へ移します' : 'まだ決めていない物を全部保存先へ移します',
+      on: { click: function () { decide(r, picked, 'keep'); } } }, [picked.length ? '選んだ ' + picked.length + ' 本を受け取る' : 'すべて受け取る']));
+    acts.push(el('button', { type: 'button', cls: 'btn ghost small', disabled: !picked.length, title: picked.length ? '' : '開いて、要らない物にチェックを付けると押せます',
+      on: { click: function () { rejectSelected(r, picked); } } }, [picked.length ? '選んだ ' + picked.length + ' 本を要らない' : '選んだ物を要らない']));
+  }
   function rowEl(r) {
     var pill = PILL[r.state] || ['info', r.state];
+    if (r.state === 'recording' && livePhase(r) !== 'recording') pill = ['run', '作っている'];
     var head = [el('span', { cls: 'pill ' + pill[0], text: pill[1] }), el('span', { cls: 'fr-title', text: rowTitle(r), title: (r.source && r.source.url) || '' })];
+    if (r.kind === 'live') head.push(el('span', { cls: 'pill info', text: 'ライブ', title: '配信を録画しながら切り抜く依頼です' }));
+    if (r.kind === 'file') head.push(el('span', { cls: 'pill info', text: '動画ファイル', title: 'パソコンの動画ファイルを送った依頼です' }));
     if (r.origin === 'auto') head.push(el('span', { cls: 'pill info', text: '依頼なし', title: 'ユーザーの PC が自分の配信から自動で届けた物です' }));
     if (r.pc === 'user') head.push(el('span', { cls: 'pill info', text: 'ユーザーの PC', title: 'ユーザーの PC で作った(作っている)依頼です' }));
     if (r.form && r.form.streamer) head.push(el('span', { cls: 'fr-who', text: r.form.streamer }));
@@ -186,11 +272,21 @@
       if (r.canLocal) acts.push(el('button', { type: 'button', cls: 'btn small', title: 'ユーザーの PC への依頼を取り消して、同じ欄でこの PC で作ります', on: { click: function () {
         api('local', { id: r.id }).then(function () { UIKit.toast('この PC で作り直します', { ms: 2500 }); refresh(); }, function (e) { fail('この PC でやり直せませんでした', e); });
       } } }, ['この PC でやり直す']));
+    } else if (r.state === 'sent' && r.kind === 'file' && !r.runId) {   /* 動画を一時保管へ写している(この PC) */
+      sub.push(el('span', { cls: 'hint', text: '動画を写しています' + (r.progress ? '(' + pct(r.progress) + ')' : '') }));
     } else if (r.state === 'sent' || r.state === 'making') {
       sub.push(el('span', { cls: 'hint', text: r.state === 'making' ? stepText(r.run) : '順番を待っています' }));
       acts.push(el('button', { type: 'button', cls: 'btn ghost small', title: 'この依頼を止めます(行は「失敗」になり、[もう一度送る] で続きから)', on: { click: function () {
         api('cancel', { id: r.id }).then(refresh, function (e) { fail('止められませんでした', e); });
       } } }, ['止める']));
+    } else if (r.state === 'recording') {   /* この PC のライブ(F2-6): 録画中も、組になった物は決められる */
+      sub.push(el('span', { cls: 'hint', text: liveText(r) }));
+      if (r.live && r.live.errors) sub.push(el('span', { cls: 'fr-err', text: '作れなかった切り抜き ' + r.live.errors + ' 本' }));
+      decideActs(r, acts, sub);
+      if (livePhase(r) === 'recording') acts.push(el('button', { type: 'button', cls: 'btn ghost small', title: '録画を止めます(ここまでの切り抜きは作り終えて届きます)', on: { click: function () {
+        api('cancel', { id: r.id }).then(function () { UIKit.toast('録画を止めました。ここまでの切り抜きを作り終えると届きます', { ms: 3000 }); refresh(); },
+          function (e) { fail('録画を止められませんでした', e); });
+      } } }, ['録画を止める']));
     } else if (r.state === 'failed') {
       sub.push(el('span', { cls: 'fr-err', text: r.error || '止まりました' }));
       if (r.left != null) sub.push(el('span', { cls: 'hint', text: 'あと ' + r.left + ' 日で片付けます' }));
@@ -201,19 +297,11 @@
         api('remove', { id: r.id }).then(refresh, function (e) { fail('消せませんでした', e); });
       } } }, ['消す']));
     } else if (r.state === 'arrived') {
-      var sel = state.sel[r.id] || {}, picked = r.packs.filter(function (p) { return !p.verdict && sel[p.name]; }).map(function (p) { return p.name; });
-      sub.push(el('span', { cls: 'hint', text: r.undecided + ' 本 まだ決めていません' + (r.left != null ? '(あと ' + r.left + ' 日で自動で要らないにします)' : '') }));
-      if (r.note) sub.push(el('span', { cls: 'fr-err', text: r.note }));   /* ユーザーの PC の失敗の知らせ(一部だけ届いたとき) */
-      var open = !!state.open[r.id];
-      acts.push(el('button', { type: 'button', cls: 'btn small ui-next-btn', 'aria-expanded': open ? 'true' : 'false', on: { click: function () { state.open[r.id] = !open; render(); } } }, [open ? '閉じる' : '開く']));
-      acts.push(el('button', { type: 'button', cls: 'btn small', title: picked.length ? '選んだ物を保存先へ移します' : 'まだ決めていない物を全部保存先へ移します',
-        on: { click: function () { decide(r, picked, 'keep'); } } }, [picked.length ? '選んだ ' + picked.length + ' 本を受け取る' : 'すべて受け取る']));
-      acts.push(el('button', { type: 'button', cls: 'btn ghost small', disabled: !picked.length, title: picked.length ? '' : '開いて、要らない物にチェックを付けると押せます',
-        on: { click: function () { rejectSelected(r, picked); } } }, [picked.length ? '選んだ ' + picked.length + ' 本を要らない' : '選んだ物を要らない']));
+      decideActs(r, acts, sub);
     }
     var body = el('div', { cls: 'fr-row-body' }, [el('div', { cls: 'fr-row-head' }, head), el('div', { cls: 'fr-row-sub' }, sub)]);
     var row = el('div', { cls: 'fr-row', 'data-row': r.id }, [body, el('div', { cls: 'fr-row-acts' }, acts)]);
-    if (r.state === 'arrived' && state.open[r.id]) {
+    if ((r.state === 'arrived' || r.state === 'recording') && r.groups.length && state.open[r.id]) {
       return el('div', { cls: 'fr-item open' }, [row, el('div', { cls: 'fr-detail' }, r.groups.map(function (g) { return packList(r, g); }))]);
     }
     return el('div', { cls: 'fr-item' }, [row]);
@@ -275,6 +363,8 @@
     $('url').addEventListener('keydown', function (e) { if (e.key === 'Enter' && !$('btnSend').disabled) send(); });
     $('streamer').addEventListener('input', function () { $('streamerAuto').hidden = $('streamer').value !== state.auto || !state.auto; });
     $('btnSend').addEventListener('click', send);
+    $('btnPick').addEventListener('click', pickFile);
+    $('btnFileClear').addEventListener('click', clearFile);
     $('btnRange').addEventListener('click', function () { rangeRow(); syncForm(); });
     $('btnPerson').addEventListener('click', function () {
       var i = el('input', { type: 'text', cls: 'fr-streamer', 'aria-label': 'コラボの相手の名前', placeholder: '名前', autocomplete: 'off' });
