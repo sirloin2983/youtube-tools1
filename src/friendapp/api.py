@@ -10,7 +10,9 @@
     videoTracks    映像トラックの数 1〜5(「詳しく」・前回の値 = A-6)
     deliverBatch   届け方 1 か 5(「詳しく」・初めは 5・前回の値 = A-9)
     weights        解析の重み {wAudio, wChat, wComments} 0〜3 か null(「詳しく」・区間のある依頼では使わない = A-10)
+    pc             処理する PC "this"(この PC の ②)/ "user"(ユーザーの PC に Dropbox で頼む。「詳しく」・前回の値・初めは this = A-2。F2-3)
 カット(A-8)は束の既定のまま(しない)。前回の値は <玄関>/form.json。
+ユーザーの PC に頼む行は、同期(friendapp/sync.py。api.sync)が依頼の JSON を Dropbox の直下へ上げる。受付が 1 時間読まなければ [この PC でやり直す](local)。
 """
 import json
 import os
@@ -24,8 +26,10 @@ from flow import deliver as _deliver, order as _order, spec as _spec
 from ytt import colors as _colors, fsio as _fsio, yturl as _yturl
 
 FORM_NAME = "form.json"
-FORM_DEFAULTS = {"top": 10, "videoTracks": 1, "deliverBatch": 5, "useWeights": False, "weights": {"wAudio": 1, "wChat": 1, "wComments": 1}}
+FORM_DEFAULTS = {"top": 10, "videoTracks": 1, "deliverBatch": 5, "useWeights": False, "weights": {"wAudio": 1, "wChat": 1, "wComments": 1},
+                 "pc": "this"}
 BATCHES = (1, 5)
+PCS = ("this", "user")
 PEOPLE_MAX = 6
 OEMBED = "https://www.youtube.com/oembed?format=json&url="
 PEEK_TIMEOUT = 8
@@ -59,6 +63,7 @@ class Api:
         self.form_path = os.path.join(places["friend"], FORM_NAME)
         self._peek = {}
         self._lock = threading.Lock()
+        self.sync = None   # Dropbox の同期(friendapp/sync.Sync。玄関が入れる。無ければユーザーの PC には頼めない)
 
     # ------------------------------------------------------------ 前回の値
     def form(self):
@@ -72,6 +77,8 @@ class Api:
             out["deliverBatch"] = d["deliverBatch"]
         if isinstance(d.get("useWeights"), bool):
             out["useWeights"] = d["useWeights"]
+        if d.get("pc") in PCS:
+            out["pc"] = d["pc"]
         w = d.get("weights")
         if isinstance(w, dict) and all(_int_in(w.get(k), 0, 3) for k in _spec.WEIGHT_KEYS):
             out["weights"] = {k: w[k] for k in _spec.WEIGHT_KEYS}
@@ -79,7 +86,7 @@ class Api:
 
     def _remember(self, f):
         cur = self.form()
-        for k in ("videoTracks", "deliverBatch", "useWeights"):
+        for k in ("videoTracks", "deliverBatch", "useWeights", "pc"):
             cur[k] = f[k]
         if f.get("top") is not None:
             cur["top"] = f["top"]
@@ -129,10 +136,13 @@ class Api:
         w = body.get("weights") if use_w else None
         if use_w and not (isinstance(w, dict) and all(_int_in(w.get(k), 0, 3) for k in _spec.WEIGHT_KEYS)):
             raise FormError("重みは 0〜3 にしてください")
+        pc = body.get("pc", "this")
+        if pc not in PCS:
+            raise FormError("処理する PC が正しくありません")
         return {"url": str(body.get("url"))[:300], "videoId": vid, "ranges": ranges, "top": top, "streamer": streamer, "people": people,
                 "videoTracks": vt, "deliverBatch": batch, "useWeights": body.get("useWeights") is True,
                 "weights": {k: w[k] for k in _spec.WEIGHT_KEYS} if w else None,
-                "title": str(body.get("title") or "")[:120], "channel": str(body.get("channel") or "")[:100]}
+                "title": str(body.get("title") or "")[:120], "channel": str(body.get("channel") or "")[:100], "pc": pc}
 
     def order(self, f, rid):
         """整えた欄 -> (封筒, 束の差分)(flow/order.py の 1 か所 + 人の名前)"""
@@ -145,15 +155,25 @@ class Api:
             diff.setdefault("hints", {})["people"] = people
         return env, diff
 
+    def _need_key(self):
+        if self.sync is None or not self.sync.has_key():
+            raise FormError("Dropbox の鍵が無いので、ユーザーの PC には頼めません(「詳しく」の処理する PC を「この PC」にしてください)")
+
     def send(self, body):
-        """[送る] -> 受信箱の行(送った)。② が断れば FormError(理由)"""
+        """[送る] -> 受信箱の行(送った)。② が断れば FormError(理由)。処理する PC がユーザーの PC なら同期が Dropbox へ上げる(② は使わない)"""
+        f = self.check_form(body)
+        source = {"url": f["url"], "videoId": f["videoId"], "title": f["title"], "channel": f["channel"]}
+        if f["pc"] == "user":
+            self._need_key()
+            row = self.inbox.add(_deliver.request_id(self.clock()), f, source, pc="user")
+            self._remember(f)
+            self.sync.kick()
+            return row
         eng = self.engine_fn()
         if eng is None:
             raise FormError("準備中です。少し待ってから、もう一度押してください")
-        f = self.check_form(body)
         rid = _deliver.request_id(self.clock())
         env, diff = self.order(f, rid)
-        source = {"url": f["url"], "videoId": f["videoId"], "title": f["title"], "channel": f["channel"]}
         row = self.inbox.add(rid, f, source, run_id=env["id"])
         try:
             eng.queue.submit(env, diff)
@@ -169,16 +189,50 @@ class Api:
         """失敗の行の [もう一度送る](同じ欄で。済んだ段は ② が飛ばす)"""
         eng = self.engine_fn()
         r = self.inbox.row(rid)
-        if eng is None or r is None or r["state"] != "failed":
+        if r is None or r["state"] != "failed" or not r.get("form"):
+            raise FormError("もう一度送れる行ではありません")
+        if r.get("pc") == "user":   # ユーザーの PC に頼んだ行は、同じ id の依頼を上げ直す
+            self._need_key()
+            row = self.inbox.resent(rid, None)
+            self.sync.kick()
+            return row
+        if eng is None:
             raise FormError("もう一度送れる行ではありません")
         env, diff = self.order(r["form"], rid)
         eng.queue.submit(env, diff)
         return self.inbox.resent(rid, env["id"])
 
+    def local(self, rid):
+        """[この PC でやり直す](A-2): ユーザーの PC の受付が 1 時間読まない依頼を、直下から消してから同じ欄でこの PC の ② へ"""
+        eng = self.engine_fn()
+        r = self.inbox.row(rid)
+        if r is None or r.get("pc") != "user" or not r.get("form"):
+            raise FormError("この PC でやり直せる行ではありません")
+        if eng is None:
+            raise FormError("準備中です。少し待ってから、もう一度押してください")
+        if self.sync is None:
+            raise FormError("Dropbox の鍵が無いので、ユーザーの PC への依頼を取り消せません")
+        try:
+            gone = self.sync.withdraw(rid)
+        except Exception as e:   # 鍵が無い・つながらない = 二重に作らないよう、取り消せるまでやり直さない
+            raise FormError("ユーザーの PC への依頼を取り消せませんでした(%s)。少し待ってから、もう一度押してください" % e)
+        if not gone:
+            raise FormError("ユーザーの PC がちょうど受け付けました。このまま届くのを待ってください")
+        env, diff = self.order(r["form"], rid)
+        row = self.inbox.to_local(rid, env["id"])
+        try:
+            eng.queue.submit(env, diff)
+        except ValueError as e:
+            self.inbox.finished(env["id"], "error", str(e), [], None)
+            raise FormError(str(e))
+        return row
+
     def cancel(self, rid):
         """送った・作っている行を止める(② の取り消し。行は「失敗(止めました)」になる)"""
         eng = self.engine_fn()
         r = self.inbox.row(rid)
+        if r is not None and r.get("pc") == "user":
+            raise FormError("ユーザーの PC に頼んだ依頼は、ここから止められません")
         if eng is None or r is None or r["state"] not in ("sent", "making"):
             raise FormError("止められる行ではありません")
         return eng.queue.cancel(r["runId"])

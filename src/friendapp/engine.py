@@ -81,7 +81,7 @@ class Engine:
         live, _ = self.status_map()
         past = {r.get("id"): r for r in (self.queue.history(200).get("runs") or [])}
         for r in self.inbox.view():
-            if r["state"] not in ("sent", "making") or r.get("runId") in live:
+            if r["state"] not in ("sent", "making") or r.get("runId") in live or r.get("pc") == "user":   # ユーザーの PC に頼んだ行は同期が見る
                 continue
             rec = past.get(r.get("runId"))
             if rec:
@@ -140,13 +140,21 @@ class Engine:
         for g in r["groups"]:
             if g.get("preview") and os.path.isfile(g["preview"]):
                 continue
-            dirs = [by_name[n]["dir"] for n in g["names"] if n in by_name and os.path.isdir(by_name[n]["dir"])]
+            dirs = [by_name[n]["dir"] for n in g["names"] if n in by_name and by_name[n].get("dir") and os.path.isdir(by_name[n]["dir"])]
             tmp = _preview.batch_preview(dirs, log=self.log) if dirs else None
             if not tmp:
                 continue
             dest = os.path.join(folder, "%s-%d.mp4" % (rid, g["n"]))
             shutil.move(tmp, dest)
             self.inbox.set_preview(rid, g["n"], dest)
+
+    def reload_learning(self):
+        """学習の束を取り直したとき(F2-3 の同期): machine の learningDir の束を、② の読み手に入れ直す(同じ物を道具と辞書の版が使う)"""
+        lr = getattr(self.queue, "learning_reader", None)
+        if lr is None:
+            return
+        new = _learning.Learning(_learning.learning_dir())
+        lr.ld, lr.pack = new.ld, new.pack
 
     def close(self):
         self.queue.close()

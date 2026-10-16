@@ -27,6 +27,8 @@
   <div class="notice" id="prep" hidden></div>
   <div class="notice warn" id="blocked" hidden></div>
   <div class="notice" id="cleaned" hidden><span id="cleanedText"></span> <button type="button" class="btn ghost small" id="cleanedOk">閉じる</button></div>
+  <div class="notice" id="updated" hidden></div>
+  <p class="hint fr-nokey" id="noKey" hidden></p>
 
   <section class="card fr-send" aria-label="送る">
     <div class="fr-urlrow">
@@ -64,6 +66,11 @@
         <select id="tracks" class="fr-num">
           <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option>
         </select>
+      </div>
+      <div class="fr-line" role="radiogroup" aria-label="処理する PC">
+        <span class="fr-label">処理する PC</span>
+        <label class="fr-radio"><input type="radio" name="pc" value="this"> この PC</label>
+        <label class="fr-radio" id="pcUserLabel"><input type="radio" name="pc" value="user" id="pcUser"> ユーザーの PC(Dropbox で頼む・結果は同じ受信箱に届きます)</label>
       </div>
       <div class="fr-line" role="radiogroup" aria-label="届け方">
         <span class="fr-label">届け方</span>

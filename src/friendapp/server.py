@@ -23,6 +23,7 @@
   POST /api/friend/send                   送る(friendapp/api.py の欄)
   POST /api/friend/decide {id, names, verdict: keep|reject}   受け取る / 要らない(names 空 = その行の決めていない物全部)
   POST /api/friend/retry {id}・remove {id}・cancel {id}        失敗の行の [もう一度送る]・[消す]・送った行を止める
+  POST /api/friend/local {id}             ユーザーの PC に頼んだ依頼を [この PC でやり直す](F2-3。Dropbox の同期は friendapp/sync.py の裏の糸)
   POST /api/friend/open {what: saved}     受け取るの保存先をエクスプローラーで開く
   POST /api/friend/notice-seen            片付けの知らせを見た
   POST /api/shutdown                      すべて止めて終了
@@ -46,7 +47,7 @@ if SRC not in sys.path:
 
 from flow import placement as _placement, runqueue as _runqueue  # noqa: E402
 from ytt import appwindow as _appwindow, colors as _colors, fsio as _fsio, httpsec, version as _version  # noqa: E402
-from friendapp import api as _api, inbox as _inbox, oldcopy as _oldcopy, places as _places  # noqa: E402
+from friendapp import api as _api, inbox as _inbox, oldcopy as _oldcopy, places as _places, sync as _sync  # noqa: E402
 
 APP_ID = "ytt-friend"
 DEFAULT_PORT = 8720
@@ -70,6 +71,7 @@ SAVE_FILE = "save-dir.json"
 # 写したあと古い部品を消すか(A-16)。今の送るアプリ(C#)が F2-7 まで同じ古い作業データのモデルを使うので、それまでは写すだけ(仮・AI。F2-7 で True)
 REMOVE_OLD = False
 CLIENT_LOG_MAX = 512 * 1024
+SYNC_KICK = ("/api/friend/send", "/api/friend/decide", "/api/friend/retry", "/api/friend/local")   # 押したあと同期を起こす口(F2-3)
 
 
 def save_dir(friend_dir, env=None):
@@ -146,7 +148,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/friend/inbox":
             app.seen = time.time()
             out = app.api.view()
-            out.update(prep=app.prep, notice=app.notice(), rollback=app.rollback_notice())
+            out.update(prep=app.prep, notice=app.notice(), rollback=app.rollback_notice(), sync=app.sync.status())
             return self._json(200, out)
         if path == "/api/friend/state":   # 起動役の見回り(GET でも合言葉を要る = 画面を開いていない人に仕事の中身を見せない)
             if not httpsec.token_ok(self.headers, self.server.token, TOKEN_HEADER):
@@ -199,6 +201,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._fail(404, "not_found", "その行はもうありません(画面を読み込み直してください)")
         except ValueError as e:
             return self._fail(409, "refused", str(e))
+        finally:
+            if path in SYNC_KICK:   # 画面の操作のあとに Dropbox の同期を 1 回(F2-3)
+                self.server.app.sync.kick()
 
     def _post(self, path, body):
         app = self.server.app
@@ -206,7 +211,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, {"ok": True, "row": app.api.send(body)})
         if path == "/api/friend/decide":
             got = app.inbox.decide(str(body.get("id") or ""), [n for n in body.get("names") or [] if isinstance(n, str)], body.get("verdict"))
-            return self._json(200, {"ok": not got["errors"], "done": got["done"], "errors": got["errors"]})
+            return self._json(200, {"ok": not got["errors"], "done": got["done"], "pending": got["pending"], "errors": got["errors"]})
         if path == "/api/friend/retry":
             return self._json(200, {"ok": True, "row": app.api.retry(str(body.get("id") or ""))})
         if path == "/api/friend/remove":
@@ -214,6 +219,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, {"ok": True})
         if path == "/api/friend/cancel":
             return self._json(200, {"ok": True, "result": app.api.cancel(str(body.get("id") or ""))})
+        if path == "/api/friend/local":   # [この PC でやり直す](A-2。F2-3)
+            return self._json(200, {"ok": True, "row": app.api.local(str(body.get("id") or ""))})
         if path == "/api/friend/open":
             d = app.places["save"]()
             os.makedirs(d, exist_ok=True)
@@ -299,6 +306,9 @@ class FriendApp:
         self.rollback = (os.environ.get(ROLLBACK_ENV) or "").strip()   # 起動役が前の版へ戻した = 起動できなかった版
         self.rollback_seen = False
         self.open_folder = open_folder   # エクスプローラーで開く口(テストは差し替える = 画面を取らない)
+        # Dropbox の同期(F2-3)。糸を起こすのは main だけ(テストは run_once を直に呼ぶ・偽の口を client_factory に)
+        self.sync = _sync.Sync(places, self.inbox, self.api.form, engine_fn=lambda: self.engine, clock=clock, log=self.log)
+        self.api.sync = self.sync
 
     def rollback_notice(self):
         """前の版で開いた知らせ(起動役から戻ったと聞いたとき、閉じるまで 1 回)"""
@@ -350,7 +360,7 @@ class FriendApp:
         if eng is None:
             return self.prep["state"] in ("starting", "copying")
         st = eng.queue.status()
-        return not st["idle"] or bool(eng._previews)
+        return not st["idle"] or bool(eng._previews) or self.sync.busy()
 
     def watch(self):
         """3 日の片付け(SWEEP_EVERY ごと)。終わるかどうかは起動役が決める(ここでは終わらない)"""
@@ -370,6 +380,7 @@ class FriendApp:
         if self.closing.is_set():
             return
         self.closing.set()
+        self.sync.stop()
         if self.engine is not None:
             self.engine.close()
         if self.server is not None:
@@ -445,6 +456,7 @@ def main(argv=None):
     log("友人の玄関 v%s: %s(作業データ %s)" % (_version.VERSION, url, pl["data"]))
     threading.Thread(target=app.prepare, args=(_places.old_data_root(),), name="friend-prepare", daemon=True).start()
     threading.Thread(target=app.watch, name="friend-watch", daemon=True).start()
+    threading.Thread(target=app.sync.loop, name="friend-sync", daemon=True).start()   # Dropbox の同期(F2-3。鍵が無ければ何もしない)
     if not a.no_open:
         open_window(pl["friend"], url, log)
     say(json.dumps({"event": "ready", "port": port, "pid": os.getpid()}))

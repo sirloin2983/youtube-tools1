@@ -113,6 +113,12 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(r["state"], "failed")
         self.assertIn("もう一度送る", r["error"])
 
+    def test_reconcile_leaves_user_pc_rows(self):
+        """ユーザーの PC に頼んだ行(F2-3)は ② の待ちに無くても失われていない(同期が見る)"""
+        self.ib.add("20261016-100000-eeeeee", {}, {}, pc="user")
+        self.make()
+        self.assertEqual(self.ib.row("20261016-100000-eeeeee")["state"], "sent")
+
     def test_friend_queue_drops_deliver_and_skips_later_analysis(self):
         q = engine.FriendQueue.__new__(engine.FriendQueue)
         run = types.SimpleNamespace(steps=[{"key": "export"}, {"key": "deliver"}, {"key": "analyze_later"}])

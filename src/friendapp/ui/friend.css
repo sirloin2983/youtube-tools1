@@ -36,6 +36,7 @@
 .fr-pack-pick{display:inline-flex;align-items:center;gap:6px;flex:1 1 240px;min-width:0}
 .fr-pack-title{overflow-wrap:anywhere}
 .fr-empty{padding:18px 4px}
+.fr-nokey{margin:0 0 8px}
 .fr-bye{padding:24px 0}
 .ui-dlg-body{white-space:pre-line}
 @media (max-width:560px){

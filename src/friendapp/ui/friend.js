@@ -3,7 +3,7 @@
   'use strict';
   var $ = function (id) { return document.getElementById(id); };
   var POLL = 3000, POLL_AWAY = 10000;
-  var state = { key: '', rows: [], form: null, open: {}, sel: {}, peek: null, peekUrl: '', sending: false, auto: '' };
+  var state = { key: '', rows: [], form: null, open: {}, sel: {}, peek: null, peekUrl: '', sending: false, auto: '', hasKey: true };
   var timer = 0;
 
   function el(tag, attrs, kids) {
@@ -51,16 +51,21 @@
     $('rangeHint').textContent = rg.bad || (has ? rg.list.length + ' 本(区間の数)を切ります' : '任意。入れると、その区間だけを切ります');
     $('rangeHint').classList.toggle('fr-bad', !!rg.bad);
     $('weights').hidden = !$('useWeights').checked;
-    var ok = !!state.peek && !rg.bad && !state.sending;
+    var user = pc() === 'user', noKey = user && !state.hasKey;
+    var ok = !!state.peek && !rg.bad && !state.sending && !noKey;
     var btn = $('btnSend');
     btn.disabled = !ok;
-    btn.title = state.sending ? '送っています' : !state.peek ? 'YouTube の配信の URL を貼ると押せます' : rg.bad ? rg.bad : '';
+    btn.textContent = user ? '送る(ユーザーの PC へ)' : '送る';   /* 覚えた値がユーザーの PC のとき、「詳しく」を閉じていても分かるように(A-2) */
+    btn.title = state.sending ? '送っています' : !state.peek ? 'YouTube の配信の URL を貼ると押せます' : rg.bad ? rg.bad :
+      noKey ? 'Dropbox の鍵が無いので、ユーザーの PC には頼めません(「詳しく」の処理する PC を「この PC」に)' : '';
   }
+  function pc() { var r = document.querySelector('input[name=pc]:checked'); return r ? r.value : 'this'; }
   function fillForm(f) {
     $('top').value = f.top;
     $('tracks').value = String(f.videoTracks);
     Array.prototype.forEach.call(document.querySelectorAll('input[name=batch]'), function (r) { r.checked = r.value === String(f.deliverBatch); });
     $('useWeights').checked = !!f.useWeights;
+    Array.prototype.forEach.call(document.querySelectorAll('input[name=pc]'), function (r) { r.checked = r.value === (f.pc || 'this'); });
     $('wAudio').value = f.weights.wAudio; $('wChat').value = f.weights.wChat; $('wComments').value = f.weights.wComments;
   }
   var peekSeq = 0;
@@ -96,11 +101,11 @@
     var body = { url: $('url').value.trim(), title: state.peek.title, channel: state.peek.channel, ranges: rg.list,
       top: rg.list.length ? null : num('top', 1, 30, 10), streamer: $('streamer').value.trim(), people: people(),
       videoTracks: parseInt($('tracks').value, 10) || 1, deliverBatch: batch ? parseInt(batch.value, 10) : 5,
-      useWeights: $('useWeights').checked,
+      useWeights: $('useWeights').checked, pc: pc(),
       weights: { wAudio: num('wAudio', 0, 3, 1), wChat: num('wChat', 0, 3, 1), wComments: num('wComments', 0, 3, 1) } };
     state.sending = true; syncForm();
     api('send', body).then(function () {
-      UIKit.toast('送りました。作り終えると、下の受信箱に届きます', { ms: 3000 });
+      UIKit.toast(body.pc === 'user' ? 'ユーザーの PC に頼みました。作り終えると、下の受信箱に届きます' : '送りました。作り終えると、下の受信箱に届きます', { ms: 3000 });
       $('url').value = ''; state.peekUrl = ''; state.peek = null; $('peek').textContent = '';
       $('ranges').textContent = ''; $('people').textContent = '';
       UIKit.streamer.set($('streamer'), ''); state.auto = ''; $('streamerAuto').hidden = true;
@@ -121,6 +126,7 @@
   function decide(r, names, verdict) {
     return api('decide', { id: r.id, names: names, verdict: verdict }).then(function (j) {
       (j.errors || []).forEach(function (x) { UIKit.toast(x.name + ': ' + x.message, { kind: 'err', ms: 0 }); });
+      if (j.pending && j.pending.length) UIKit.toast(j.pending.length + ' 本を Dropbox から取ってきます(受け取り終えると保存先に並びます)', { ms: 3000 });
       if (j.done && j.done.length) UIKit.toast(verdict === 'keep' ? j.done.length + ' 本を保存先へ移しました' : j.done.length + ' 本を要らないにしました', { ms: 2500 });
       state.sel[r.id] = {};
       refresh();
@@ -142,12 +148,14 @@
       if (!p) return null;
       var start = at;
       at = (at != null && p.seconds) ? at + p.seconds : null;
-      var cb = el('input', { type: 'checkbox', 'aria-label': p.title + ' を選ぶ', disabled: !!p.verdict });
+      var cb = el('input', { type: 'checkbox', 'aria-label': p.title + ' を選ぶ', disabled: !!p.verdict || p.want === 'keep' });
       cb.checked = !!sel[n];
       cb.addEventListener('change', function () { sel[n] = cb.checked; render(); });
       var kids = [el('label', { cls: 'fr-pack-pick' }, [cb, el('span', { cls: 'fr-pack-title', text: p.title })])];
       if (p.verdict) kids.push(el('span', { cls: 'pill ' + (p.verdict === 'keep' ? 'ok' : 'wait'), text: p.verdict === 'keep' ? '受け取った' : '要らない' }));
+      else if (p.want === 'keep') kids.push(el('span', { cls: 'pill run', text: '受け取っています' }));
       else {
+        if (p.error) kids.push(el('span', { cls: 'fr-err', text: p.error }));
         if (video && start != null) kids.push(el('button', { type: 'button', cls: 'btn ghost small', title: 'まとめ動画のこの切り抜きの所から再生します', on: { click: function () { video.currentTime = start; video.play(); } } }, ['ここから見る']));
         kids.push(el('button', { type: 'button', cls: 'btn small', on: { click: function () { decide(r, [n], 'keep'); } } }, ['受け取る']));
         kids.push(el('button', { type: 'button', cls: 'btn ghost small', on: { click: function () { rejectSelected(r, [n]); } } }, ['要らない']));
@@ -156,16 +164,29 @@
     });
     return el('div', { cls: 'fr-group' }, [
       r.groups.length > 1 ? el('div', { cls: 'fr-group-h', text: g.n + ' 組目' }) : null,
-      video || el('p', { cls: 'hint', text: 'まとめ動画を作っています(できると、ここで続けて見られます)' }),
+      video || el('p', { cls: 'hint', text: g.remote ? 'まとめ動画を Dropbox から取ってきています(取り終えると、ここで続けて見られます)' : 'まとめ動画を作っています(できると、ここで続けて見られます)' }),
       el('ul', { cls: 'fr-packs' }, items)]);
+  }
+  function remoteText(r) {
+    var st = (r.remote || {}).state;
+    if (r.state === 'making' || st === 'accepted') return 'ユーザーの PC で作っています';
+    if (st === 'pending') return state.hasKey ? 'Dropbox へ送っています(つながらなければ次の見回りでもう一度)' : 'Dropbox の鍵が無いので送れません';
+    return 'ユーザーの PC の受付を待っています' + (r.waitHours >= 1 ? '(' + r.waitHours + ' 時間)' : '');
   }
   function rowEl(r) {
     var pill = PILL[r.state] || ['info', r.state];
     var head = [el('span', { cls: 'pill ' + pill[0], text: pill[1] }), el('span', { cls: 'fr-title', text: rowTitle(r), title: (r.source && r.source.url) || '' })];
+    if (r.origin === 'auto') head.push(el('span', { cls: 'pill info', text: '依頼なし', title: 'ユーザーの PC が自分の配信から自動で届けた物です' }));
+    if (r.pc === 'user') head.push(el('span', { cls: 'pill info', text: 'ユーザーの PC', title: 'ユーザーの PC で作った(作っている)依頼です' }));
     if (r.form && r.form.streamer) head.push(el('span', { cls: 'fr-who', text: r.form.streamer }));
     head.push(el('span', { cls: 'fr-when', text: when(r) }));
     var acts = [], sub = [];
-    if (r.state === 'sent' || r.state === 'making') {
+    if ((r.state === 'sent' || r.state === 'making') && r.pc === 'user') {
+      sub.push(el('span', { cls: 'hint', text: remoteText(r) }));
+      if (r.canLocal) acts.push(el('button', { type: 'button', cls: 'btn small', title: 'ユーザーの PC への依頼を取り消して、同じ欄でこの PC で作ります', on: { click: function () {
+        api('local', { id: r.id }).then(function () { UIKit.toast('この PC で作り直します', { ms: 2500 }); refresh(); }, function (e) { fail('この PC でやり直せませんでした', e); });
+      } } }, ['この PC でやり直す']));
+    } else if (r.state === 'sent' || r.state === 'making') {
       sub.push(el('span', { cls: 'hint', text: r.state === 'making' ? stepText(r.run) : '順番を待っています' }));
       acts.push(el('button', { type: 'button', cls: 'btn ghost small', title: 'この依頼を止めます(行は「失敗」になり、[もう一度送る] で続きから)', on: { click: function () {
         api('cancel', { id: r.id }).then(refresh, function (e) { fail('止められませんでした', e); });
@@ -173,7 +194,7 @@
     } else if (r.state === 'failed') {
       sub.push(el('span', { cls: 'fr-err', text: r.error || '止まりました' }));
       if (r.left != null) sub.push(el('span', { cls: 'hint', text: 'あと ' + r.left + ' 日で片付けます' }));
-      acts.push(el('button', { type: 'button', cls: 'btn small ui-next-btn', on: { click: function () {
+      if (r.form) acts.push(el('button', { type: 'button', cls: 'btn small ui-next-btn', on: { click: function () {
         api('retry', { id: r.id }).then(refresh, function (e) { fail('送れませんでした', e); });
       } } }, ['もう一度送る']));
       acts.push(el('button', { type: 'button', cls: 'btn ghost small', on: { click: function () {
@@ -182,6 +203,7 @@
     } else if (r.state === 'arrived') {
       var sel = state.sel[r.id] || {}, picked = r.packs.filter(function (p) { return !p.verdict && sel[p.name]; }).map(function (p) { return p.name; });
       sub.push(el('span', { cls: 'hint', text: r.undecided + ' 本 まだ決めていません' + (r.left != null ? '(あと ' + r.left + ' 日で自動で要らないにします)' : '') }));
+      if (r.note) sub.push(el('span', { cls: 'fr-err', text: r.note }));   /* ユーザーの PC の失敗の知らせ(一部だけ届いたとき) */
       var open = !!state.open[r.id];
       acts.push(el('button', { type: 'button', cls: 'btn small ui-next-btn', 'aria-expanded': open ? 'true' : 'false', on: { click: function () { state.open[r.id] = !open; render(); } } }, [open ? '閉じる' : '開く']));
       acts.push(el('button', { type: 'button', cls: 'btn small', title: picked.length ? '選んだ物を保存先へ移します' : 'まだ決めていない物を全部保存先へ移します',
@@ -206,6 +228,15 @@
     $('count').textContent = state.rows.length ? state.rows.length + ' 件' : '';
   }
   function banner(j) {
+    var sy = j.sync || {};
+    state.hasKey = sy.key !== false;
+    $('noKey').hidden = !sy.message;
+    $('noKey').textContent = sy.message || '';
+    $('updated').hidden = !sy.updated;
+    $('updated').textContent = sy.updated ? '新しい版 ' + sy.updated + ' を入れました(次に開いたときから)' : '';
+    $('pcUser').disabled = !state.hasKey;
+    $('pcUserLabel').title = state.hasKey ? '' : 'Dropbox の鍵が無いので選べません';
+    syncForm();
     var p = j.prep || {};
     $('prep').hidden = p.state === 'ready';
     $('prep').textContent = p.message || '';
@@ -253,6 +284,7 @@
       i.focus();
     });
     $('useWeights').addEventListener('change', syncForm);
+    Array.prototype.forEach.call(document.querySelectorAll('input[name=pc]'), function (r) { r.addEventListener('change', syncForm); });
     $('btnSaved').addEventListener('click', function () { api('open', { what: 'saved' }).catch(function (e) { fail('開けませんでした', e); }); });
     $('btnQuit').addEventListener('click', function () {
       api('../shutdown', {}).then(function () {

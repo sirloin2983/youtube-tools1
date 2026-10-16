@@ -65,6 +65,36 @@ class FakeEngine:
         self.closed = True
 
 
+class FakeDropbox:
+    """Dropbox の口の偽物(friendapp/dropbox.Client と同じ名前の関数。つながない)"""
+
+    def __init__(self):
+        self.files = {}
+
+    def upload_bytes(self, data, path, overwrite=False):
+        self.files[path] = bytes(data)
+        return path.rsplit("/", 1)[1]
+
+    def upload(self, local, path, overwrite=False, progress=None):
+        with open(local, "rb") as f:
+            return self.upload_bytes(f.read(), path)
+
+    def get_metadata(self, path):
+        return {"name": path} if path in self.files else None
+
+    def delete(self, path):
+        return self.files.pop(path, None) is not None
+
+    def list_folder(self, path):
+        return None
+
+    def read_small(self, path, cap=1024 * 1024):
+        return None
+
+    def download(self, path, part, rev=None, progress=None):
+        return False
+
+
 class ServerTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="friendsrv-")
@@ -511,6 +541,57 @@ class ServerTest(unittest.TestCase):
         self.assertTrue(os.path.isdir(os.path.join(self.tmp, "save")))
         self.assertEqual(self.js(p)["dir"], os.path.join(self.tmp, "save"))
         self.assertEqual(self.opened, [os.path.join(self.tmp, "save")])
+
+    # ------------------------------------------------------------ ユーザーの PC に頼む(F2-3。A-2)
+    def use_fake_dropbox(self):
+        os.makedirs(self.places["home"], exist_ok=True)
+        with open(os.path.join(self.places["home"], "config.json"), "w", encoding="utf-8") as f:
+            json.dump({"appKey": "k", "refreshToken": "r"}, f)
+        dbx = FakeDropbox()
+        self.app.sync.client_factory = lambda cfg, cancelled: dbx
+        return dbx
+
+    def test_send_to_user_pc_needs_key(self):
+        st, d = self.send(pc="user")
+        self.assertEqual(st, 400)
+        self.assertIn("Dropbox の鍵", d["message"])
+        self.assertEqual(self.app.inbox.rows, [])
+        st, _h, p = self.get("/api/friend/inbox")
+        self.assertFalse(self.js(p)["sync"]["key"])
+        self.assertEqual(self.send(pc="other")[0], 400)
+
+    def test_send_to_user_pc_then_back_to_this_pc(self):
+        dbx = self.use_fake_dropbox()
+        st, d = self.send(pc="user")
+        self.assertEqual(st, 200)
+        row = d["row"]
+        self.assertEqual((row["pc"], row["state"], row["runId"]), ("user", "sent", None))
+        self.assertEqual(self.engine.queue.submitted, [])   # この PC の ② には積まない
+        st, _h, p = self.get("/api/friend/inbox")
+        j = self.js(p)
+        self.assertEqual((j["form"]["pc"], j["sync"]["key"]), ("user", True))
+        self.assertEqual(self.post("/api/friend/cancel", {"id": row["id"]})[0], 400)   # ユーザーの PC の依頼はここから止めない
+        self.app.sync.run_once()
+        path = "/%s.request.json" % row["id"]
+        self.assertIn(path, dbx.files)
+        self.assertEqual(json.loads(dbx.files[path])["items"][0]["url"], URL)
+        st, _h, p = self.post("/api/friend/local", {"id": row["id"]})
+        self.assertEqual(st, 200)
+        self.assertNotIn(path, dbx.files)   # 直下の依頼を消してから
+        self.assertEqual(len(self.engine.queue.submitted), 1)
+        r = self.app.inbox.row(row["id"])
+        self.assertEqual((r["pc"], r["state"], r["runId"]), ("this", "sent", self.engine.queue.submitted[0][0]["id"]))
+
+    def test_local_refused_after_user_pc_accepted(self):
+        self.use_fake_dropbox()
+        _st, d = self.send(pc="user")
+        rid = d["row"]["id"]
+        self.app.sync.run_once()
+        self.app.inbox.remote_mark(rid, "accepted")
+        st, _h, p = self.post("/api/friend/local", {"id": rid})
+        self.assertEqual(st, 400)
+        self.assertIn("受け付けました", self.js(p)["message"])
+        self.assertEqual(self.engine.queue.submitted, [])
 
     def test_open_folder_guard_skips_test_places(self):
         """守り: inplace の作業データ・一時フォルダの下は開かない(本物の os.startfile まで行かない)"""

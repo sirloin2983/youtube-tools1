@@ -3,7 +3,8 @@
 
     py -3.10 dev/friend_demo.py [--port 8760] [--dir <作業フォルダ>]
 
-一時フォルダ(--dir を指定すればそこ)をアプリのフォルダにし、受信箱に 送った・作っている・届いた(1 組 / 2 組)・失敗 の行を置く。
+一時フォルダ(--dir を指定すればそこ)をアプリのフォルダにし、受信箱に 送った・作っている・届いた(1 組 / 2 組)・失敗 の行と、
+ユーザーの PC が自動で届けた組(依頼なし)・ユーザーの PC に頼んだ行(受付待ち・作っている)を置く(F2-3。Dropbox の同期の糸は起こさない)。
 ② は疑似(StubEngine: 送った物を待ちに積むだけで処理しない)。Ctrl+C で終わる(一時フォルダは消す。--dir を指定したときは残す)。
 """
 import argparse
@@ -89,6 +90,20 @@ def seed(app, home):
         elif st == "failed":
             ib.finished(run_id, "error", "配信を取ってこられませんでした(配信が非公開か、まだ公開されていません)。少し待ってから [もう一度送る] を押してください", [], 5)
     app.engine.queue.runs.append({"id": "demorun0005", "state": "queued", "message": "順番を待っています", "steps": []})
+    # F2-3: ユーザーの PC が自動で届けた組(札「依頼なし」・Dropbox のパック = まだ手元に無い)と、ユーザーの PC に頼んだ行(受付待ち 2 時間・作っている)
+    rid = "20261016-095000-bbbb01"
+    ib.import_remote(rid, "auto", "【自動】朝活の見どころ", [{"group": rid + "__朝活 1-3.group.json", "preview": None, "previewSize": None, "packs": [
+        {"zip": "%s__見どころ %d.zip" % (rid, i), "title": "見どころ %d" % i, "seconds": 40.0 + i, "size": 1024, "rev": "r%d" % i, "hash": None, "meta": None}
+        for i in (1, 2, 3)]}])
+    for rid, title, accepted in (("20261016-085000-cccc01", "【歌枠】ユーザーの PC に頼んだ", False), ("20261016-086000-cccc02", "【雑談】ユーザーの PC で作っている", True)):
+        ib.add(rid, dict(form, title=title), {"url": form["url"], "videoId": form["videoId"], "title": title, "channel": "星見ルナ Ch."}, pc="user")
+        ib.remote_mark(rid, "uploaded")
+        if accepted:
+            ib.remote_mark(rid, "accepted")
+        else:
+            with ib.lock:
+                ib.row(rid)["remote"]["uploadedAt"] = int((now - 2 * 3600) * 1000)   # 2 時間待っている = [この PC でやり直す]
+                ib._save()
 
 
 def main(argv=None):
@@ -106,6 +121,10 @@ def main(argv=None):
     os.environ.update(YTT_FRIEND_HOME=home, YTT_DATA_DIR=os.path.join(home, "data"), LOCALAPPDATA=os.path.join(home, "localappdata"),
                       USERPROFILE=os.path.join(home, "user"), TRANSCRIBE_BACKEND="fake", STUDIO_FAKE="1")
     from friendapp import places as P, server as S
+    key = os.path.join(home, "config.json")
+    if not os.path.exists(key):   # 見本の鍵(形だけ。同期の糸は起こさない = Dropbox へつながない。あれば触らない)
+        with open(key, "w", encoding="utf-8") as f:
+            f.write('{"appKey": "demo", "refreshToken": "demo"}')
     pl = P.setup()
     pl["save"] = lambda: S.save_dir(pl["friend"])
     app = S.FriendApp(pl, log=lambda m: print(m, flush=True), make_engine=StubEngine)

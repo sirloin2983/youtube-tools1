@@ -14,6 +14,14 @@ src/human/friend/returns.py の parse_verdict と同じ)。届いてから 3 日
 全部決めた行の案件フォルダ(切り抜き・作業用)はごみ箱へ(6 章)。ごみ箱(<一時保管>/ごみ箱/<日付>/)は 3 日で消す。
 組(5-8): 届け方の n 本ごと(依頼の deliverBatch。初めは 5 = A-9)にまとめる。まとめ動画は玄関の engine が作ってから set_preview で入れる。
 
+F2-3(Dropbox の同期 = friendapp/sync.py が呼ぶ):
+- 処理する PC(A-2): 行の pc = "this"(この PC の ②)/ "user"(ユーザーの PC に頼んだ)/ "auto"(ユーザーの PC が自分の配信から自動で届けた = 依頼なし)。
+  ユーザーの PC に頼んだ行は remote.state = pending(まだ上げていない)→ uploaded(Dropbox の直下に置いた・受付待ち)→ accepted(直下から消えた =
+  受け付けられた。行は「作っている」)→ done(/出力/ から届いた)。LOCAL_AFTER 秒受付が読まなければ [この PC でやり直す](to_local)
+- Dropbox のパック(/出力/ の zip。まだ手元に無い): パックの remote = {zip, size, rev, hash, meta}・dir は受け取るまで None。[受け取る] は want = keep に
+  するだけ(同期が取って展開してから remote_kept で決める)・[要らない] は取らずに決める。組の remote = {group, preview, previewSize, cleaned}。
+  組の全部を決めたら同期が/出力/ の zip・まとめ動画・.group.json・.meta.json を消す(cleanup_queue → remote_cleaned)。名前は全部 Dropbox の名前(パスにしない)
+
 ファイルと時計は引数で受ける(テストは一時フォルダ)。標準ライブラリと ytt だけを読む。
 """
 import datetime
@@ -38,6 +46,9 @@ ROW_ID_RE = re.compile(r"^[0-9A-Za-z_-]{1,64}$")   # 依頼 id(flow/deliver.requ
 BAD_NAME = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 NAME_MAX = 100                      # 送り返しの名前に入れるパック名の長さ(送るアプリの LocalPacks.PackNameMax と同じ)
 PACK_SUFFIX = "_pack"
+PCS = ("this", "user")              # 処理する PC(A-2)。行の pc にはほかに "auto"(依頼なし)
+LOCAL_AFTER = 3600                  # ユーザーの PC の受付がこの秒数読まなければ [この PC でやり直す](A-2 の仮 = 1 時間)
+REMOTE_FAILS_MAX = 20
 
 
 def pack_name(d):
@@ -108,25 +119,72 @@ class Inbox:
             return next((r for r in self.rows if r.get("runId") == run_id), None)
 
     # ------------------------------------------------------------ 送る
-    def add(self, rid, form, source, run_id=None):
-        """送った行を足す(新しい物を先頭)。form = 送った欄(もう一度送るときに使う)・source = {url, videoId, title, channel}"""
+    def add(self, rid, form, source, run_id=None, pc="this"):
+        """送った行を足す(新しい物を先頭)。form = 送った欄(もう一度送るときに使う)・source = {url, videoId, title, channel}。
+        pc = "user" なら ユーザーの PC に頼む行(同期が Dropbox の直下へ上げる)"""
         if not ROW_ID_RE.match(rid or ""):
             raise ValueError("依頼の id の形が違います")
         now = self._now_ms()
         r = {"id": rid, "kind": "url", "origin": "request", "state": "sent", "form": form, "source": source, "runId": run_id,
-             "createdAt": now, "updatedAt": now, "packs": [], "groups": [], "error": "", "note": ""}
+             "createdAt": now, "updatedAt": now, "packs": [], "groups": [], "error": "", "note": "", "pc": "user" if pc == "user" else "this"}
+        if r["pc"] == "user":
+            r["remote"] = {"state": "pending", "uploadedAt": None}
         with self.lock:
             self.rows.insert(0, r)
             self._save()
         return r
 
     def resent(self, rid, run_id):
-        """失敗した行をもう一度送った(同じ行を「送った」に戻す)"""
+        """失敗した行をもう一度送った(同じ行を「送った」に戻す。ユーザーの PC の行は依頼を上げ直す)"""
         with self.lock:
             r = self.row(rid)
             if r is None:
                 raise KeyError(rid)
             r.update(state="sent", runId=run_id, error="", note="", failedAt=None, updatedAt=self._now_ms())
+            if r.get("pc") == "user":
+                r["remote"] = {"state": "pending", "uploadedAt": None}
+            self._save()
+            return r
+
+    # ------------------------------------------------------------ ユーザーの PC に頼んだ行(A-2。同期が呼ぶ)
+    def remote_rows(self, state):
+        """ユーザーの PC に頼んだ行のうち remote.state が state の物(写し)"""
+        with self.lock:
+            return [json.loads(json.dumps(r)) for r in self.rows
+                    if r.get("pc") == "user" and r["state"] in ("sent", "making") and (r.get("remote") or {}).get("state") == state]
+
+    def remote_mark(self, rid, state):
+        """uploaded(直下に置いた)・accepted(直下から消えた = 受け付けられた。行は「作っている」)"""
+        with self.lock:
+            r = self.row(rid)
+            if r is None or r.get("pc") != "user" or r["state"] not in ("sent", "making"):
+                return None
+            now = self._now_ms()
+            rem = r.setdefault("remote", {})
+            rem["state"] = state
+            if state == "uploaded":
+                rem["uploadedAt"] = now
+            elif state == "accepted":
+                rem["acceptedAt"] = now
+                r["state"] = "making"
+            r["updatedAt"] = now
+            self._save()
+            return r
+
+    def waited(self, r):
+        """ユーザーの PC の受付を待っている秒数(上げる前は送った時刻から)か None(待っていない)"""
+        rem = r.get("remote") or {}
+        if r.get("pc") != "user" or r["state"] != "sent" or rem.get("state") not in ("pending", "uploaded"):
+            return None
+        return max(0, (self._now_ms() - (rem.get("uploadedAt") or r["createdAt"])) // 1000)
+
+    def to_local(self, rid, run_id):
+        """[この PC でやり直す]: ユーザーの PC に頼んだ行を、この PC の ② の行に変える(同期が直下の依頼を消したあと)"""
+        with self.lock:
+            r = self.row(rid)
+            if r is None:
+                raise KeyError(rid)
+            r.update(pc="this", remote=None, runId=run_id, state="sent", error="", updatedAt=self._now_ms())
             self._save()
             return r
 
@@ -173,12 +231,168 @@ class Inbox:
             g = next((g for g in (r or {}).get("groups") or [] if g["n"] == n), None)
             if g is not None:
                 g["preview"] = path
+                if path is None and g.get("remote"):
+                    g["remote"]["preview"] = None   # Dropbox にまとめ動画が無かった = もう取りに行かない
                 self._save()
+
+    # ------------------------------------------------------------ Dropbox の /出力/ から届いた物(同期が呼ぶ)
+    def known_remote(self):
+        """行に入れた Dropbox の名前(zip・組の一覧・まとめ動画・印・失敗の知らせ)の集まり(同じ物を 2 回取り込まない)"""
+        out = set()
+        with self.lock:
+            for r in self.rows:
+                for p in r["packs"]:
+                    rem = p.get("remote") or {}
+                    out.update(x for x in (rem.get("zip"), rem.get("meta")) if x)
+                for g in r.get("groups") or []:
+                    rem = g.get("remote") or {}
+                    out.update(x for x in (rem.get("group"), rem.get("previewName")) if x)
+                out.update(r.get("remoteFails") or [])
+        return out
+
+    def _remote_row(self, rid, origin, title, now):
+        r = {"id": rid, "kind": "remote", "origin": "auto" if origin == "auto" else "request", "state": "arrived", "form": None,
+             "source": {"url": "", "videoId": "", "title": title, "channel": ""}, "runId": None, "createdAt": now, "updatedAt": now,
+             "packs": [], "groups": [], "error": "", "note": "", "pc": "auto" if origin == "auto" else "user"}
+        self.rows.insert(0, r)
+        return r
+
+    def import_remote(self, rid, origin, title, specs):
+        """/出力/ の組・1 本を行に入れる(依頼 id の行があればその行・無ければ新しい行 = origin auto なら札「依頼なし」)。
+        specs = [{"group": 名前か None, "preview": 名前か None, "previewSize", "packs": [{"zip", "title", "seconds", "size", "rev", "hash", "meta"}]}]"""
+        if not ROW_ID_RE.match(rid or ""):
+            raise ValueError("依頼の id の形が違います")
+        with self.lock:
+            now = self._now_ms()
+            r = self.row(rid) or self._remote_row(rid, origin, title, now)
+            names = {p["name"] for p in r["packs"]}
+            n = max([g["n"] for g in r.get("groups") or []] + [0])
+            for spec in specs:
+                got = []
+                for it in spec["packs"]:
+                    base = pack_name(str(it.get("title") or "pack") + PACK_SUFFIX) or "pack"
+                    name, i = base, 2
+                    while name in names:
+                        name, i = "%s-%d" % (base[:NAME_MAX - 4], i), i + 1
+                    names.add(name)
+                    r["packs"].append({"name": name, "dir": None, "title": str(it.get("title") or pack_title(name)), "seconds": it.get("seconds"),
+                                       "verdict": None, "at": None, "by": None, "want": None, "error": "",
+                                       "remote": {k: it.get(k) for k in ("zip", "size", "rev", "hash", "meta")}})
+                    got.append(name)
+                if got:
+                    n += 1
+                    r["groups"].append({"n": n, "names": got, "preview": None,
+                                        "remote": {"group": spec.get("group"), "previewName": spec.get("preview"), "preview": spec.get("preview"),
+                                                   "previewSize": spec.get("previewSize"), "cleaned": False}})
+            r.update(state="arrived", arrivedAt=now, error="", updatedAt=now)   # 新しく届いた物にも 3 日(仮 = 行の残りも延びる)
+            if r.get("remote"):
+                r["remote"]["state"] = "done"
+            self._save()
+            return r
+
+    def remote_failure(self, rid, title, text, fail_name):
+        """/出力/ の .失敗.txt(ユーザーの PC で失敗した)。依頼の行は「失敗」に・無ければ失敗の行を足す・届いた行には知らせだけ"""
+        if not ROW_ID_RE.match(rid or ""):
+            raise ValueError("依頼の id の形が違います")
+        with self.lock:
+            now = self._now_ms()
+            r = self.row(rid)
+            if r is None:
+                r = self._remote_row(rid, "request", title, now)
+                r.update(state="failed", failedAt=now, error=text)
+            elif r["state"] in ("sent", "making", "failed"):
+                r.update(state="failed", failedAt=now, error=text)
+            elif r["state"] == "arrived":
+                r["note"] = text[:500]
+            r["remoteFails"] = ((r.get("remoteFails") or []) + [fail_name])[-REMOTE_FAILS_MAX:]
+            r["updatedAt"] = now
+            self._save()
+            return r
+
+    def remote_fail_cleared(self, rid, fail_name):
+        """失敗の知らせを Dropbox から消した(覚えておく必要が無くなった)"""
+        with self.lock:
+            r = self.row(rid)
+            if r is not None and fail_name in (r.get("remoteFails") or []):
+                r["remoteFails"].remove(fail_name)
+                self._save()
+
+    def preview_queue(self):
+        """取ってくるまとめ動画 -> [(依頼 id, 組の n, Dropbox の名前, 大きさ)]"""
+        with self.lock:
+            return [(r["id"], g["n"], g["remote"]["preview"], g["remote"].get("previewSize")) for r in self.rows if r["state"] == "arrived"
+                    for g in r.get("groups") or [] if g.get("remote") and g["remote"].get("preview") and not g.get("preview")
+                    and not g["remote"].get("cleaned")]
+
+    def receive_queue(self):
+        """[受け取る] を押した Dropbox のパック -> [(依頼 id, パック名, remote の写し)]"""
+        with self.lock:
+            return [(r["id"], p["name"], dict(p["remote"])) for r in self.rows if r["state"] == "arrived"
+                    for p in r["packs"] if p.get("remote") and p.get("want") == "keep" and not p["verdict"]]
+
+    def _pack(self, rid, name):
+        r = self.row(rid)
+        return r, next((p for p in (r or {}).get("packs") or [] if p["name"] == name), None)
+
+    def remote_kept(self, rid, name, saved_to):
+        """Dropbox のパックを取って保存先へ展開し終えた -> 受け取ったに決める(送り返しの .verdict.json)"""
+        with self.lock:
+            r, p = self._pack(rid, name)
+            if p is None or p["verdict"]:
+                return None
+            p.update(savedTo=saved_to, want=None, error="")
+            try:
+                self._write_verdict(r, p, "keep", None)
+            except OSError as e:
+                self.log("採否を書けませんでした: %s" % e.__class__.__name__)
+            p.update(verdict="keep", at=self._now_ms(), by=None)
+            if all(x["verdict"] for x in r["packs"]):
+                self._close_row(r)
+            r["updatedAt"] = self._now_ms()
+            self._save()
+            return r
+
+    def remote_keep_failed(self, rid, name, message):
+        with self.lock:
+            r, p = self._pack(rid, name)
+            if p is not None and not p["verdict"]:
+                p.update(want=None, error=message)
+                r["updatedAt"] = self._now_ms()
+                self._save()
+
+    def cleanup_queue(self):
+        """全部決めた Dropbox の組 -> [(依頼 id, 組の n, [/出力/ の名前])](zip・印・まとめ動画・組の一覧。消すのは同期)"""
+        out = []
+        with self.lock:
+            for r in self.rows:
+                by = {p["name"]: p for p in r["packs"]}
+                for g in r.get("groups") or []:
+                    rem = g.get("remote")
+                    if not rem or rem.get("cleaned"):
+                        continue
+                    ps = [by[n] for n in g["names"] if n in by]
+                    if ps and all(p["verdict"] for p in ps):
+                        names = [x for p in ps for x in ((p.get("remote") or {}).get("zip"), (p.get("remote") or {}).get("meta")) if x]
+                        out.append((r["id"], g["n"], names + [x for x in (rem.get("previewName"), rem.get("group")) if x]))
+        return out
+
+    def remote_cleaned(self, rid, n):
+        with self.lock:
+            r = self.row(rid)
+            g = next((g for g in (r or {}).get("groups") or [] if g["n"] == n), None)
+            if g is not None and g.get("remote"):
+                g["remote"]["cleaned"] = True
+                self._save()
+
+    def _remote_left(self, r):
+        return any(g.get("remote") and not g["remote"].get("cleaned") for g in r.get("groups") or [])
 
     # ------------------------------------------------------------ 決める
     def decide(self, rid, names, verdict, by=None):
-        """パック(names。空なら行の決めていない物全部)を keep / reject に決める -> {"done": [名前], "errors": [{"name", "message"}], "row"}。
-        keep = 保存先へ移す・reject = ごみ箱へ。どちらも送り返しの .verdict.json を書く。移せなかった物は決めない(理由を返す = 一覧から外さない)"""
+        """パック(names。空なら行の決めていない物全部)を keep / reject に決める -> {"done": [名前], "pending": [名前], "errors": [{"name", "message"}], "row"}。
+        keep = 保存先へ移す・reject = ごみ箱へ。どちらも送り返しの .verdict.json を書く。移せなかった物は決めない(理由を返す = 一覧から外さない)。
+        Dropbox のパック(まだ手元に無い): keep は「受け取っています」にするだけ(pending。同期が取って展開してから決める)・reject は取らずに決める。
+        3 日の自動(by auto)は、受け取っている途中の物を要らないにしない"""
         if verdict not in VERDICTS:
             raise ValueError("決め方は keep か reject です")
         with self.lock:
@@ -186,23 +400,29 @@ class Inbox:
             if r is None or r["state"] != "arrived":
                 raise KeyError(rid)
             want = set(names or [])
-            done, errors = [], []
+            done, pending, errors = [], [], []
             for p in r["packs"]:
-                if p["verdict"] or (want and p["name"] not in want):
+                if p["verdict"] or (want and p["name"] not in want) or (by == "auto" and p.get("want") == "keep"):
+                    continue
+                remote = bool(p.get("remote")) and not p.get("dir")
+                if remote and verdict == "keep":
+                    p.update(want="keep", error="")
+                    pending.append(p["name"])
                     continue
                 try:
-                    self._place(p, verdict)
+                    if not remote:
+                        self._place(p, verdict)
                     self._write_verdict(r, p, verdict, by)
                 except OSError as e:
                     errors.append({"name": p["name"], "message": self._move_failed(verdict, e)})
                     continue
-                p.update(verdict=verdict, at=self._now_ms(), by=by)
+                p.update(verdict=verdict, at=self._now_ms(), by=by, want=None)
                 done.append(p["name"])
             if r["packs"] and all(p["verdict"] for p in r["packs"]):
                 self._close_row(r)
             r["updatedAt"] = self._now_ms()
             self._save()
-            return {"done": done, "errors": errors, "row": r}
+            return {"done": done, "pending": pending, "errors": errors, "row": r}
 
     @staticmethod
     def _move_failed(verdict, e):
@@ -225,7 +445,8 @@ class Inbox:
     def _write_verdict(self, r, p, verdict, by):
         os.makedirs(self.outbox, exist_ok=True)
         path = os.path.join(self.outbox, "%s__%s%s" % (r["id"], p["name"], VERDICT_SUFFIX))
-        fsio.write_json(path, verdict_doc(verdict, r["id"], p["name"], p["title"], self._now_ms(), r.get("origin") or "request", by), indent=None)
+        zip_name = (p.get("remote") or {}).get("zip") or p["name"]   # Dropbox のパックは出力の zip の名前
+        fsio.write_json(path, verdict_doc(verdict, r["id"], zip_name, p["title"], self._now_ms(), r.get("origin") or "request", by), indent=None)
 
     def trash_dir(self):
         return os.path.join(self.case_root(), TRASH_NAME)
@@ -282,8 +503,8 @@ class Inbox:
                     n += len(self.decide(r["id"], [], "reject", by="auto")["done"])
                 elif r["state"] == "failed" and now - (r.get("failedAt") or now) >= limit:
                     self.remove(r["id"])
-                elif r["state"] == "done" and now - (r.get("doneAt") or now) >= limit:
-                    self.rows.remove(r)
+                elif r["state"] == "done" and now - (r.get("doneAt") or now) >= limit and not self._remote_left(r):
+                    self.rows.remove(r)   # Dropbox にまだ消せていない物がある行は残す(消し終えるまで同じ物を取り込み直さない)
             self._save()
         self._purge_trash()
         return n
@@ -310,6 +531,16 @@ class Inbox:
                 v["undecided"] = sum(1 for p in r["packs"] if not p["verdict"])
                 for p in v["packs"]:
                     p.pop("dir", None)   # 画面に絶対パスを出さない(開くのは玄関の口から)
+                    p.pop("savedTo", None)
+                    p["remote"] = bool(p.get("remote"))
+                for g in v.get("groups") or []:
+                    g["remote"] = bool(g.get("remote"))
+                    g["preview"] = bool(g.get("preview"))
+                v.pop("remoteFails", None)
+                v.setdefault("pc", "this")
+                w = self.waited(r)
+                if w is not None:
+                    v["waitHours"], v["canLocal"] = int(w // 3600), w >= LOCAL_AFTER
                 if r["state"] in ("sent", "making") and status_of and r.get("runId"):
                     v["run"] = status_of(r["runId"])
                 out.append(v)
