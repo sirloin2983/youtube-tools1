@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>使い方 - 切り抜きの受信箱</title>
+<!-- 友人のアプリの説明(F2。notes:plan/f1-friend-requirements.md の 9-2・9-3・A)。静的な 1 枚。スクリプトは無し。
+     画像は後でユーザーに撮ってもらう(置き場所を <!-- 画像: --> で示す)。 -->
+<link rel="stylesheet" href="ui-kit.css">
+<style>
+  .guide { max-width: 760px; margin: 0 auto; padding: 16px; line-height: 1.8; }
+  .guide h1 { font-size: 1.5em; margin: 8px 0 4px; }
+  .guide h2 { font-size: 1.2em; margin: 28px 0 8px; padding-bottom: 4px; border-bottom: 1px solid currentColor; }
+  .guide h3 { font-size: 1em; margin: 16px 0 4px; }
+  .guide ul, .guide ol { padding-left: 1.4em; }
+  .guide li { margin: 4px 0; }
+  .guide .toc { padding-left: 1.4em; }
+  .guide .note { opacity: 0.85; font-size: 0.95em; }
+  .guide kbd { font-family: inherit; border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; }
+</style>
+</head>
+<body>
+<main class="guide">
+  <h1>使い方</h1>
+  <p>配信の URL や動画を送ると、この PC で切り抜きを作り、受信箱に届けるアプリの説明です。
+     ボタンの名前は [送る] のように書いています。</p>
+
+  <nav aria-label="目次">
+    <ol class="toc">
+      <li><a href="#send">送る</a></li>
+      <li><a href="#receive">届く・受け取る</a></li>
+      <li><a href="#settings">⚙ 設定</a></li>
+      <li><a href="#setup">初回の準備</a></li>
+      <li><a href="#close">閉じるとき</a></li>
+    </ol>
+  </nav>
+
+  <section id="send" aria-labelledby="send-h">
+    <h2 id="send-h">1. 送る</h2>
+    <p>上の欄に配信の URL を貼って、[送る] を押します。作り終わると、下の受信箱に届きます。
+       続けて別の URL を貼れば、次の行に並びます。一度に送るのは 1 本です。</p>
+    <p>パソコンの動画で送るときは、[動画ファイルを選ぶ] を押して動画を選びます。
+       URL の欄の代わりに動画の名前が出ます。[やめる] を押すと、URL の欄に戻ります。</p>
+    <!-- 画像: 送る欄の全体(撮ったら src/friendapp/ui/img/guide-send.png) -->
+
+    <h3>送る欄の設定</h3>
+    <ul>
+      <li><strong>区間</strong>: 切り抜く所を時刻で決めます。書かなくても使えます。[+ 区間] で足します。
+        区間を入れると、その区間だけを切ります。区間の数が本数になるので、本数の欄は消えます。</li>
+      <li><strong>本数</strong>: 区間が無いときに、見どころを自動で探して切る本数です(1〜30)。
+        前に送ったときの値を覚えています。</li>
+      <li><strong>配信者</strong>: 名前は自動で入ります。違うときは直せます。
+        コラボのときは [+ 人] を押して、相手の名前を足します。</li>
+      <li><strong>詳しく</strong>: 押すと、細かい設定が出ます。普段は開かなくても使えます。
+        映像トラック・処理する PC・届け方・解析の重みが入っています。</li>
+      <li><strong>処理する PC</strong>: [この PC] は今使っている PC で作ります。
+        [ユーザーの PC] は作る人の PC に頼みます。結果は同じ受信箱に届きます。
+        ユーザーの PC に頼むと、ボタンの名前が [送る(ユーザーの PC へ)] になります。</li>
+      <li><strong>届け方</strong>: 5 本ずつまとめて届けるか、1 本ずつ届けるかを選びます。
+        5 本ずつのときは、まとめ動画で一度に見て選べます。</li>
+    </ul>
+
+    <h3>ライブ</h3>
+    <p>配信中か、これから始まる配信の URL を貼ると、送る欄の下に設定が出ます。
+       ボタンの名前は [録画を頼む] になります。録画しながら切り抜きます。</p>
+    <ul>
+      <li><strong>感度</strong>: 高いほど、小さな盛り上がりも拾います。</li>
+      <li><strong>1 時間の枠</strong>: 1 時間の配信から切る本数の上限です(1〜30)。</li>
+      <li><strong>長さ</strong>: 1 本の長さの秒数です。</li>
+      <li><strong>待ち</strong>: 候補が出てから、自動で切るまでの分数です(1〜60)。</li>
+      <li><strong>余白</strong>: 切る前後に足す秒数です(0〜5)。</li>
+      <li><strong>配信後</strong>: 配信が終わったあと、アーカイブからも切り抜きを足します。</li>
+    </ul>
+    <!-- 画像: ライブの設定(6 つ)が出た送る欄(撮ったら src/friendapp/ui/img/guide-live.png) -->
+  </section>
+
+  <section id="receive" aria-labelledby="receive-h">
+    <h2 id="receive-h">2. 届く・受け取る</h2>
+    <p>送った依頼は、次の順に進みます。</p>
+    <ol>
+      <li><strong>送った</strong>: 受け付けた状態です。順番を待っています。</li>
+      <li><strong>作っている</strong>: 切り抜きと字幕を作っています。ライブは「録画中」になります。</li>
+      <li><strong>届いた</strong>: 作り終わりました。ここで決めます。</li>
+    </ol>
+    <p>作れなかったときは、行が「失敗」になり、理由が出ます。</p>
+
+    <h3>組とまとめ動画</h3>
+    <p>届いた物は、届け方で決めた本数ごとに「組」になります。組ごとにまとめ動画があり、
+       続けて見て選べます。組の中で、見たい切り抜きから再生できます。</p>
+    <!-- 画像: 届いた行を開いて、まとめ動画と 1 本ずつの一覧が見える所(撮ったら src/friendapp/ui/img/guide-receive.png) -->
+
+    <h3>決める</h3>
+    <ul>
+      <li>[受け取る] を押すと、受け取るの保存先へ移します。</li>
+      <li>[要らない] を押すと、一時保管の「ごみ箱」へ移します。ごみ箱の物は 3 日で消えます。</li>
+      <li>何本か選んでから、[選んだ物を受け取る] か [選んだ物を要らない] を押すと、まとめて決められます。</li>
+      <li>届いてから 3 日決めないと、自動で要らないになります。</li>
+    </ul>
+
+    <h3>札(ふだ)の意味</h3>
+    <ul>
+      <li><strong>依頼なし</strong>: ユーザーの PC が、自分の配信から自動で届けた物です。頼んだ覚えはありません。</li>
+      <li><strong>ユーザーの PC</strong>: ユーザーの PC で作っている(作った)依頼です。</li>
+    </ul>
+
+    <h3>失敗の行</h3>
+    <p>失敗の行には理由が出ます。[もう一度送る] を押すと、同じ依頼を送り直します。
+       [消す] を押すと、行を消せます。</p>
+  </section>
+
+  <section id="settings" aria-labelledby="settings-h">
+    <h2 id="settings-h">3. ⚙ 設定</h2>
+    <p>画面の ⚙ を押すと、設定が開きます。</p>
+    <ul>
+      <li><strong>受け取るの保存先</strong>: [受け取る] を押した切り抜きを置く場所です。</li>
+      <li><strong>一時保管</strong>: 作っている途中の物を置く場所です。</li>
+      <li><strong>文字起こしのエンジン</strong>: A か C から選びます。</li>
+      <li><strong>YouTube の API キー</strong>: 配信のコメントに書かれたタイムスタンプを、見どころを探す手がかりに使います。無くても動きます(コメントを使わないだけ)。</li>
+      <li><strong>空き容量の下限</strong>: 空きがこの GB 数より少なくなると、新しい処理を始めずに待ちます。</li>
+      <li><strong>カットの既定</strong>: 切り抜きの前後を切るかどうかの初めの値です。初めは「しない」です。</li>
+    </ul>
+  </section>
+
+  <section id="setup" aria-labelledby="setup-h">
+    <h2 id="setup-h">4. 初回の準備</h2>
+    <p>初めて開くとき、約 9.5 GB の部品を取ります。始める前に、中身・大きさ・置き場所・空き容量を見せて、確認を 1 回だけ出します。</p>
+    <ul>
+      <li><strong>置き場所</strong>: アプリのフォルダの中に入ります。</li>
+      <li><strong>空き</strong>: 空きが足りないときは、取り始める前に止まります。空きを増やしてから、もう一度始めてください。</li>
+      <li><strong>[あとで]</strong>: 今は取らずに進みます。ただし部品がそろうまで、[送る] は押せません。
+        上の帯の [取ってくる] を押すと、いつでも取り始められます。</li>
+      <li><strong>古い部品</strong>: C: の前のアプリの部品と同じ物があれば、写して使います。ネットから取り直さずに済みます。</li>
+    </ul>
+    <!-- 画像: 初回の準備の確認の窓(撮ったら src/friendapp/ui/img/guide-setup.png) -->
+  </section>
+
+  <section id="close" aria-labelledby="close-h">
+    <h2 id="close-h">5. 閉じるとき</h2>
+    <p>窓を閉じても、作っている物と録画は続きます。</p>
+    <ul>
+      <li>作業が終われば、アプリは自分で終わります。</li>
+      <li>作業が残っているときは、タスクバーに小さな状態の窓が出ます。
+        録画中・作っている・待っている数が見えます。</li>
+      <li>状態の窓の [窓を開く] を押すと、受信箱をもう一度開けます。</li>
+      <li>状態の窓の × は、録画中なら最小化になります。録画が無いときは、× で止めて閉じます。</li>
+    </ul>
+
+    <h3>止めたいとき</h3>
+    <ul>
+      <li>状態の窓の [今すぐ止めて閉じる] を押します。</li>
+      <li>受信箱の右上の [すべて止めて終了] を押します。</li>
+      <li>タスクバーのボタンにマウスを乗せると出る小さな見本の [止める] を押します。</li>
+    </ul>
+    <p>どの方法も、確認は出ずにすぐ止まります。待っている依頼は消えずに残ります。
+       次に開くと、続きからになります。</p>
+    <!-- 画像: 状態の窓(撮ったら src/friendapp/ui/img/guide-close.png) -->
+  </section>
+</main>
+</body>
+</html>
