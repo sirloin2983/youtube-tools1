@@ -936,7 +936,7 @@
     }, 3000)));
   }
 
-  /* ---- prefs(ホームの設定。v7)---- api/ytt/prefs(home/prefs.py)。ホームから開いていない(合言葉なし)ときは available() が false。
+  /* ---- prefs(ホームの設定。v7)---- api/ytt/prefs(app/prefs.py)。ホームから開いていない(合言葉なし)ときは available() が false。
      patch は同じ節をまとめて 400ms 後に送る(続けて変えても1回)。失敗したら知らせと [もう一度](以前は空の catch で黙って捨てていた) */
   var prefsPending = {}, prefsTimer = {};
   function prefsFail(section, err) {
@@ -969,7 +969,7 @@
     }
   };
 
-  /* ---- hide(一覧の項目を非表示に。v13)---- 覚える場所はホームの設定の節 hidden(home/prefs.py: 一覧の名前 → {id: 時刻})。
+  /* ---- hide(一覧の項目を非表示に。v13)---- 覚える場所はホームの設定の節 hidden(app/prefs.py: 一覧の名前 → {id: 時刻})。
      どの窓・どのツールで隠しても同じ(戻ったときに読み直す)。足す・外すは1件ずつ(op "hide")送る = 窓を2つ並べても相手の分を消さない。
      「非表示のものも出す」はこの画面の間だけ(覚えない = 開き直すといつも隠れている)。入口の外(合言葉なし)では available() が false */
   var hideMap = null, hideP = null, hideSubs = [], hideShow = {};
@@ -1553,7 +1553,7 @@
     '<': '編集 2 カット: 選んだ端を10コマ戻す(Shift+,)', '>': '編集 2 カット: 選んだ端を10コマ進める(Shift+.)',   // Shift+, / Shift+. は e.key が < > になる(段3 3-2)
     'Shift+n': '案件: 次の未校正の切り抜き' };   // v26: 案件の画面(/cases)
   for (var dgi = 0; dgi <= 9; dgi++) PB_BLOCKED[String(dgi)] = '編集: 話者の番号';
-  var KM_COMBO_RE = /^(?:Shift\+)?(?:[^\x00-\x1f\x7f]|[A-Z][A-Za-z0-9]{1,20})$/;   /* home/prefs.py の COMBO_RE と同じ */
+  var KM_COMBO_RE = /^(?:Shift\+)?(?:[^\x00-\x1f\x7f]|[A-Z][A-Za-z0-9]{1,20})$/;   /* app/prefs.py の COMBO_RE と同じ */
   /* ← → に当たるキー + Shift(5 秒)。1文字の記号は Shift で文字そのものが変わるので派生しない(comboOf と同じ決まり) */
   function kmDerived(combo) {
     if (!combo || combo.indexOf('Shift+') === 0) return '';

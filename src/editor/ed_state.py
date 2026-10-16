@@ -30,7 +30,7 @@ PROOF_CSS = os.path.join(_workdata.ROOT, "proof.css")     # 校正のパネル�
 PAGE_JS = ("cut.js", "pack-tab.js", "app-tpl.js", "app-core.js", "app-jobs.js", "app-list.js", "app-learn.js", "app-rows.js", "app-tools.js")          # 「編集」のタブの JS(notes:docs/design/edit-tool-design.md の 7。app.js より先に読む。無いものは 404)
 PORT = 8775
 ALLOWED_HOSTS = set()
-BASE_PATH = "/"   # 画面の場所。入口の統合サーバーに取り込まれたときは "/transcribe/"(home/mount.py が prepare() で入れる)
+BASE_PATH = "/"   # 画面の場所。入口の統合サーバーに取り込まれたときは "/transcribe/"(app/mount.py が prepare() で入れる)
 MAX_BODY = 32 * 1024 * 1024
 MAX_SEGMENTS = _yschemas.MAX_SEGMENTS   # 別名(RS3-E5a。正は ytt/schemas = 文書の置き場 human/proof/store が読む。差し替えない値)
 TAGS = _yschemas.ROW_TAGS   # 別名(RS3-E5a。正は ytt/schemas の ROW_TAGS)= 行に付けるメモ。unclear(聞き取れない)の行は、精度測定・学習の正解に使わない

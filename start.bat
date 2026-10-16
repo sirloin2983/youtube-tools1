@@ -1,6 +1,6 @@
 @echo off
 rem Double-click to start all three tools (studio, editor, cut2resolve) and open the portal page.
-rem Details: src\home\README.txt
+rem Details: src\app\README.txt
 setlocal
 cd /d "%~dp0"
 title youtube-tools

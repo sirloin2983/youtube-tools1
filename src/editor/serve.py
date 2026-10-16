@@ -717,7 +717,7 @@ def choose_data_dir():
 
 def prepare(port, base_path="/", hooks=False):
     """待ち受け以外の起動の準備(ログ・前回の異常終了の確認・.runtime・環境チェック・ジョブのスレッド)。
-    main() と、入口の統合サーバー(home/mount.py)の両方から呼ぶ。戻り値は .runtime の記録のパス(書けなければ None)。
+    main() と、入口の統合サーバー(app/mount.py)の両方から呼ぶ。戻り値は .runtime の記録のパス(書けなければ None)。
     シグナルの受け取りは main() だけで行う(統合サーバーでは入口が受け取る)。"""
     ed_state.PORT, ed_state.BASE_PATH = port, base_path
     if not ed_state.ALLOWED_HOSTS:

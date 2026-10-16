@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""段階7 のテスト: 窓で開く(src/home/appwindow.py)・画面のエラーの記録(本体は src/manage/ops/tests/test_clientlog.py)・入口の共通の API(api/ytt/…)。
-    python -m unittest src/home/tests/test_window.py -v
+"""段階7 のテスト: 窓で開く(src/app/appwindow.py)・画面のエラーの記録(本体は src/manage/ops/tests/test_clientlog.py)・入口の共通の API(api/ytt/…)。
+    python -m unittest src/app/tests/test_window.py -v
 
-Edge は起動しない(起動のコマンドは偽の popen で受け取って確かめる)。取り込んだツールの画面からの api/ytt/… は src/home/tests/test_mount.py。
+Edge は起動しない(起動のコマンドは偽の popen で受け取って確かめる)。取り込んだツールの画面からの api/ytt/… は src/app/tests/test_mount.py。
 """
 import http.client
 import json
@@ -14,14 +14,14 @@ import tempfile
 import threading
 import unittest
 
-TESTS = os.path.dirname(os.path.abspath(__file__))   # src/home/tests
+TESTS = os.path.dirname(os.path.abspath(__file__))   # src/app/tests
 HERE = os.path.dirname(TESTS)   # home(入口の部品)
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
-import appwindow as W  # noqa: E402
 sys.path.append(os.path.dirname(HERE))   # src(app 層。入口本体は src/app/server.py)
+from app import appwindow as W  # noqa: E402
 from app import server as L  # noqa: E402  (src を sys.path に入れる。clientlog が ytt を読むので先に)
-import prefs as PR  # noqa: E402
+from app import prefs as PR  # noqa: E402
 from ytt import fsio  # noqa: E402
 
 EDGE = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
@@ -153,7 +153,7 @@ class TestFocusWindow(unittest.TestCase):
             o.focus("x", focus=lambda t: True)
 
     def test_portal_title_matches_page(self):
-        with open(os.path.join(L.CODE_DIR, "portal.html"), encoding="utf-8") as f:
+        with open(os.path.join(L.HOME_UI_DIR, "portal.html"), encoding="utf-8") as f:
             self.assertIn("<title>%s</title>" % L.PORTAL_TITLE, f.read())
 
 
@@ -274,7 +274,7 @@ class TestOpener(unittest.TestCase):
 
 
 class TestPrefs(unittest.TestCase):
-    """ホームの設定(src/home/prefs.py。気が利く画面へ 段1): 節ごとに直す・許可した形だけ・壊れたファイル・配信者の記憶"""
+    """ホームの設定(src/app/prefs.py。気が利く画面へ 段1): 節ごとに直す・許可した形だけ・壊れたファイル・配信者の記憶"""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="ytt-prefs-")

@@ -1,6 +1,6 @@
 """録画を自動で消す(src/manage/keep/live_cleanup.py。線 D の P4 の 0-9 の最後)のテスト。消すのは戻せないので、消えない場合を厚く確かめる。
 
-偽の Live(録画元の一覧と delete)と本物の書き出しの管理(flow/live_export の Exporter)で動かす。入口(src/home/live.py)は使わない。
+偽の Live(録画元の一覧と delete)と本物の書き出しの管理(flow/live_export の Exporter)で動かす。入口(src/app/live.py)は使わない。
 実行(リポジトリ直下から): python -m unittest src/manage/keep/tests/test_live_cleanup.py -v
 """
 import os

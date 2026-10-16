@@ -1,7 +1,7 @@
 """友人からの依頼の受付(notes:docs/spec/friend.md。2026-09-30)。
 
 友人のプログラム(friend-apps/request-sender/)か Dropbox のファイルリクエストで届いた依頼を、Dropbox が同期したフォルダで見張り、
-まとめて実行(入口の src/home/autorun.py。読み込まない = 入口が runner= で渡す)に入れて文字起こしまで流す。ホームの起動と一緒に動き、「すべて終了」で止まる。
+まとめて実行(入口の src/app/autorun.py。読み込まない = 入口が runner= で渡す)に入れて文字起こしまで流す。ホームの起動と一緒に動き、「すべて終了」で止まる。
 
 届くもの(依頼は見張るフォルダの直下だけ。受付済み/・失敗/・出力/ などの下のフォルダは見ない。送り返し/ だけは returns.scan が見る):
   <id>.request.json   友人のプログラムが最後に送る依頼(kind video = 同じ id の動画を文字起こし / url = 配信を解析 → 上位 N 個 → 書き出し → 文字起こし /
@@ -348,7 +348,7 @@ def _streamer(name):
 class Intake:
     def __init__(self, prefs, runner, data_dir, log=None, clock=None, probe=None, info=None, interval=INTERVAL, settle=SETTLE,
                  feedback=None, live_begin=None, defaults=None, flush=None):
-        """prefs: src/home/prefs.py の Prefs(節 intake)。defaults: 設定が読めないときに使う節の既定(入口が prefs.DEFAULTS["intake"] を渡す。
+        """prefs: src/app/prefs.py の Prefs(節 intake)。defaults: 設定が読めないときに使う節の既定(入口が prefs.DEFAULTS["intake"] を渡す。
         prefs を読み込まない = app の部品に依存しない。None = 空 = オフ扱い)。runner: まとめて実行を返す関数(AutoRunner)。data_dir: ホームの作業データ(app)。
         probe・info: 動画・配信を調べる関数(テストで差し替える)。30fps にそろえるのはまとめて実行の段 normalize(opt-human 9a-1)。
         feedback: 友人の「要らない」(friend_feedback.parse の dict)を片付ける関数 -> {"ok", "summary"/"reason"}(入口が friend_feedback.apply を渡す。None = 断る)。

@@ -48,7 +48,7 @@ def main():
     data = os.path.join(tmp, "data")
     proc = None
     try:
-        for d in ("home", "studio", "editor", "cut2resolve", "ui-kit"):
+        for d in ("studio", "editor", "cut2resolve", "ui-kit"):
             shutil.copytree(os.path.join(REPO, d), os.path.join(repo, d), ignore=IGNORE)
         sys.path.insert(0, REPO)
         from ytt import layout as _layout

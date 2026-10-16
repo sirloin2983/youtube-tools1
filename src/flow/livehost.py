@@ -2,7 +2,7 @@
 """ライブの親(host)の口(役割で組み直す RS7-2 G0。資料の git:cbe1a64:docs/design/surveys/rs7-survey-2026-10-10/plan_order_v3.md)。
 
 ② のライブの子 4 つ(live_detect.Detector・live_tx.LiveTx・live_report.Reporter・live_export.Exporter)は、
-親(flow/livesession.py の LiveSession = ライブ係。RS7-2 G2b。入口の src/home/live.py の Live はそれを継ぐ app の殻)を受け取って呼び返す。
+親(flow/livesession.py の LiveSession = ライブ係。RS7-2 G2b。入口の src/app/live.py の Live はそれを継ぐ app の殻)を受け取って呼び返す。
 ここはその「親に何を求めるか」を typing.Protocol で並べた物(動きは持たない。子は self.host に親を持つ)。
 親は 1 つ(LiveSession)なので口も LiveHost の 1 つにまとめた(採用 flow/live_adopt.py の Adopter。RS7-2 G1b も同じ口)。
 親とは別の物の口: 友人の依頼の結びつき RequestBook・マークの置き場 MarkBook(実装が 2 つ = live_adopt の StudioMarks・LocalMarks)。

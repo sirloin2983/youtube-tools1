@@ -6,7 +6,7 @@
 
 127.0.0.1 だけで待ち受け、Host / Origin / Sec-Fetch-Site を検査する。カットの計算とパックの作成は pipeline/pack/pack.py(CLI と同じ関数)。
 
-API(「編集」の cut.js・pack-tab.js・app-tools.js と、入口の「まとめて実行」(home/autorun.py)が呼ぶ):
+API(「編集」の cut.js・pack-tab.js・app-tools.js と、入口の「まとめて実行」(app/autorun.py)が呼ぶ):
   GET  /api/ping                 {"app": "cut2resolve", "version"}
   GET  /api/siblings             {"tools": {"studio": 8800, "transcribe": 8775, "cut2resolve": 8810}}(notes:docs/spec/pipeline.md の 4)
   POST /api/plan                 {spec} → ジョブ(試算。ファイルは作らない。無音の検出が要る試算は、build と同じく他のツールの重い処理と順番を待つ。0.22.3)。結果の warnings と同じ順番・同じ長さの warningLevels("warn"|"info")付き(問題5)
@@ -31,7 +31,7 @@ API(「編集」の cut.js・pack-tab.js・app-tools.js と、入口の「まと
 受けなくした指定(0.23.0。消した画面のためのもので、送る側が無かった): spec.silenceExtra・spec.handles・spec.joinGap・
 output.fcpxml・output.crf。送っても黙って無視する(知らない鍵と同じ)。補助の FCPXML(10-16 に書き出しごと消した)・粗編集の画質・余白・つなぐ隙間は受けない
 
-入口(start.bat)の統合サーバーに取り込まれたときは http://localhost:8700/cut2resolve/ で動く(home/mount.py。段階3-2)。
+入口(start.bat)の統合サーバーに取り込まれたときは http://localhost:8700/cut2resolve/ で動く(app/mount.py。段階3-2)。
 そのときは prepare() / finish() が起動・終了の準備を行い、状態は MOUNT に持つ。書き込み系の API には合言葉(X-YTT-Token)が要る(mount.py が検査)
 """
 import json
@@ -84,7 +84,7 @@ LOG_MAX = 1024 * 1024
 MAX_BODY = 2 * 1024 * 1024                          # JSON の要求の上限(時刻リストの貼り付けを含む)
 SOCKET_TIMEOUT = 120
 # 画面(index.html・app.js・app.css)は「編集」(editor の 2 カット・3 パック のタブ)に統合して消した(ユーザー決定 2026-09-26。
-# notes:docs/design/edit-tool-design.md)。入口の中では home/mount.py が /cut2resolve/ を「編集」へ転送する。ここに届いた / には案内だけを返す
+# notes:docs/design/edit-tool-design.md)。入口の中では app/mount.py が /cut2resolve/ を「編集」へ転送する。ここに届いた / には案内だけを返す
 PAGE_PATHS = ("/", "/index.html")
 MOVED_PAGE = ("<!doctype html><html lang=\"ja\"><head><meta charset=\"utf-8\"><title>cut2resolve</title></head><body>"
               "<h1>cut2resolve の画面は「編集」に統合しました</h1>"
@@ -96,8 +96,8 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' 
 QUIET_PATHS = ("/api/job", "/api/siblings", "/api/ping")
 TOOL_APPS = _runtime.TOOL_APPS          # notes:docs/spec/pipeline.md の 4(ytt.runtime が正)
 PING_TIMEOUT = _runtime.PING_TIMEOUT
-BASE_PATH = "/"          # 画面の場所。入口の統合サーバーに取り込まれたときは "/cut2resolve/"(home/mount.py が prepare() で入れる)
-ALLOWED_HOSTS = set()    # 取り込まれたときに許す Host(home/mount.py が入口のポートで入れる。単独で動くときはサーバーごとに持つ)
+BASE_PATH = "/"          # 画面の場所。入口の統合サーバーに取り込まれたときは "/cut2resolve/"(app/mount.py が prepare() で入れる)
+ALLOWED_HOSTS = set()    # 取り込まれたときに許す Host(app/mount.py が入口のポートで入れる。単独で動くときはサーバーごとに持つ)
 MOUNT = None             # 取り込まれたときの状態(port・allowed_hosts・app)。単独で動くときは C2RServer が持つ
 
 
@@ -539,7 +539,7 @@ def _startup(port, base_path="/"):
 
 
 def prepare(port, base_path="/", opener=None):
-    """入口の統合サーバー(home/mount.py)に取り込まれるときの起動の準備。状態(ジョブ・配信を許す動画など)は MOUNT に持つ。
+    """入口の統合サーバー(app/mount.py)に取り込まれるときの起動の準備。状態(ジョブ・配信を許す動画など)は MOUNT に持つ。
     許す Host は、mount.py が先に入れた ALLOWED_HOSTS(入口のポート)。シグナルの受け取りは入口が行う"""
     global MOUNT
     MOUNT = MountContext(port, ALLOWED_HOSTS or httpsec.allowed_hosts(port), opener)

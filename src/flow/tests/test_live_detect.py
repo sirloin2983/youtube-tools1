@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """配信中の盛り上がりの検出の ② の側 src/flow/live_detect.py(Detector)と、その上に載る自動の採用(M11)・配信ごとの記録・友人の依頼のテスト。
 入口 home の Live は使わず、ライブ係 flow/livesession.LiveSession(偽の録画元・偽のスタジオ)で組む。ワーカーの中身は
-src/pipeline/analyze/tests/test_live_excite_worker.py、設定(prefs)の検査と Live を通す振り分けは src/home/tests/test_live_detect_api.py。
+src/pipeline/analyze/tests/test_live_excite_worker.py、設定(prefs)の検査と Live を通す振り分けは src/app/tests/test_live_detect_api.py。
 
     py -3.10 -m unittest src/flow/tests/test_live_detect.py
 
@@ -511,7 +511,7 @@ class DetectApiTest(unittest.TestCase):
         self.assertTrue(self.det.write_config())
 
     def request(self, rec=REC, **settings):
-        """友人のライブ配信の依頼を録画に結びつける(src/home/live.py の begin_request が使う Store。2-15)"""
+        """友人のライブ配信の依頼を録画に結びつける(src/app/live.py の begin_request が使う Store。2-15)"""
         return self.live.requests.put("fake", rec, {"rid": "20261008-120000-abcd", "deliverDir": os.path.join(self.tmp, "deliver"), "streamer": "友人の推し",
                                                     "settings": settings})
 

@@ -3,7 +3,7 @@
 作業データ(%LOCALAPPDATA%\\youtube-tools\\)はリポジトリの外にあり、git にも GitHub にも入らない。
 2026-10-03 に Windows の入れ直しで失ったので、入口が動いている間に、決めた間隔で別のドライブのフォルダへ写す。
 
-- 写す先: 設定(src/home/prefs.py の節 backup)の folder の下の `youtube-tools-data\\<ツールID>\\…`(作業データと同じ形。戻すときはそのまま写し戻す)
+- 写す先: 設定(src/app/prefs.py の節 backup)の folder の下の `youtube-tools-data\\<ツールID>\\…`(作業データと同じ形。戻すときはそのまま写し戻す)
 - 守る物(ユーザー 10-14。decisions 3-48): 作業データそのものではなく**学習データ・ツール・関連資料**。だから頻繁でなくてよい = 間隔(everyHours。既定 24 時間)と「今すぐ」だけ
 - 写すもの: 作り直せないもの(文字起こしと校正・カット・スタジオの data.json とマーク・採用の記録・設定・声の登録・パックの記録・案件)と、
   **評価用データ・学習用データの動画**(settings.evalDirs のフォルダと、その隣の 学習用データ。YouTube の元は消える・非公開になりうる・正解の時刻はその動画に
@@ -329,7 +329,7 @@ def run_once(source, folder, day=None, stop=None, on_file=None, out_dir=None, me
 class Backup:
     def __init__(self, prefs, source, data_dir, log=None, clock=None, first_wait=FIRST_WAIT, check_every=CHECK_EVERY, defaults=None, out_dir=None,
                  media_dirs=None):
-        """prefs: src/home/prefs.py の Prefs(節 backup)。defaults: 設定が読めないときに使う節の既定(入口が prefs.DEFAULTS["backup"] を渡す。
+        """prefs: src/app/prefs.py の Prefs(節 backup)。defaults: 設定が読めないときに使う節の既定(入口が prefs.DEFAULTS["backup"] を渡す。
         prefs を読み込まない = app の部品に依存しない。None = 空 = オフ扱い)。source: 作業データの親フォルダ(datadir.data_root()。None = inplace なので写さない)。
         data_dir: ホームの作業データ(app。最後に写した時刻の記録を置く)。
         out_dir: 案件の根(スタジオの書き出し先)。文字列か、呼ぶたびに返す関数(設定で変わるので)。None・無いフォルダ = 案件の 作業用 は写さない。

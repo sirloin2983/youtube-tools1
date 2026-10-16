@@ -42,7 +42,7 @@
   - ホームの「すべて終了」・黒い画面を閉じる・「起動し直す」では、録画は止まりません
 
 ■ ログインしたら自動で
-  ホームを裏で起動するショートカット(src\home\start_hidden.vbs を shell:startup に置く。src\home\README.txt の「裏で動かす」)を使えば、
+  ホームを裏で起動するショートカット(src\app\start_hidden.vbs を shell:startup に置く。src\app\README.txt の「裏で動かす」)を使えば、
   ホームがこの部品も起こします(リアルタイム切り抜きがオンのときだけ)。
 
 ■ 入れる物

@@ -13,7 +13,7 @@
   POST /api/cases/update                 {id, status?, memo?} 案件の状態・メモ
   POST /api/cases/auto                   {op: seen|deliver|discard, id, markId} 自動でできた切り抜き(線 D の M9・M12)を 見た・採用 = 友人へ届ける・
                                           要らない = ごみ箱フォルダへ(src/manage/cases/cases.py の auto_review。deliver の応答の job は api/ytt/deliver の status で聞き直す)
-  GET  /api/autorun                       まとめて実行の状態(src/home/autorun.py)。runs = この起動の実行・past = 配信・文書ごとの前回の結果(記録のファイルから)
+  GET  /api/autorun                       まとめて実行の状態(src/app/autorun.py)。runs = この起動の実行・past = 配信・文書ごとの前回の結果(記録のファイルから)
   GET  /api/autorun/history?limit=&offset=  終わった実行の記録(<作業データ>/app/logs/autorun-runs.jsonl と .1。新しい順。limit は既定 50・最大 200)
   POST /api/autorun/start                 {id, mode: full|adopted|transcribe, top?, streamer?, marks?, overwrite?, autoSend?} 配信1本ぶんを順に自動で(marks: そのマークだけ・overwrite: パックがあれば作り直す・
                                           autoSend: 友人へ自動で送る。無ければ mode full のときだけオン。D-SEND)
@@ -61,13 +61,13 @@
   POST /api/tools/<ID>/start|stop|restart {} → {"tool": {...}}
   POST /api/shutdown                      {} → この入口から起動したツールを止めて、入口も終わる。録画中でなければ録画の部品も止める
                                           (録画中なら残して、応答に recorderKept・notice。0.38.1)
-  POST /api/window                        {mode: browser|app} 画面を窓(Edge のアプリモード)で開くか(段階7-3。src/home/appwindow.py)
+  POST /api/window                        {mode: browser|app} 画面を窓(Edge のアプリモード)で開くか(段階7-3。src/app/appwindow.py)
   POST api/ytt/client-log|open-window|open-external|focus-portal|streamer-colors   画面の共通の API(focus-portal: 入口の窓を前に出す・
                                           streamer-colors: 配信者の名前 → メンバーカラーの候補。2026-09-27)。入口の画面(/api/ytt/…)と、取り込んだツールの画面
-                                          (/studio/api/ytt/… など。src/home/mount.py が入口へ回す)のどちらからも同じ(段階7。PortalServer.ytt_request)
+                                          (/studio/api/ytt/… など。src/app/mount.py が入口へ回す)のどちらからも同じ(段階7。PortalServer.ytt_request)
   POST api/ytt/restart-self               {} → 入口ごと起動し直す(段9 9-3。src/manage/ops/restart.py)。重い処理・人が始めた処理・書き出しの最中は 409 と理由の文。
                                           まとめて実行の待ち・実行中は断らずに、応答に notice(何件が起動し直したあとに続くか。0.41.0)
-  GET  /live/…・POST /live/…              リアルタイム切り抜き(線 D。src/home/live.py)。**設定 live.enabled がオンのときだけ**(オフなら今までどおり 404):
+  GET  /live/…・POST /live/…              リアルタイム切り抜き(線 D。src/app/live.py)。**設定 live.enabled がオンのときだけ**(オフなら今までどおり 404):
                                           録画を始める /live/api/begin・録画元(src/pipeline/ingest/recorder.py)への中継 /live/r/<録画元>/<残り>・マークと書き出し・
                                           サーバー側の「マーク + 書き出し」/live/api/adopt(線 D の M1。0.39.0)。
                                           画面はスタジオの中(P3。/live/ はスタジオへ 302)。0.40.0 から(線 D の M4〜M7): 「調子」の live.disk(空き容量)・
@@ -111,11 +111,12 @@ import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src(このファイルは src/app/server.py。RS7-2 G5b で src/home/launch.py から移した)
-CODE_DIR = os.path.join(ROOT, "home")   # 入口の画面(portal.*・settings/)と home の部品(mount・autorun・prefs・live・appwindow)の置き場所 = layout.TOOL_DIRS["app"]
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src(このファイルは src/app/server.py。RS7-2 G5b で旧 launch.py から移し、RV C1 で旧 launch.py の転送は消した)
+CODE_DIR = os.path.join(ROOT, "app")   # 入口の部品(mount・autorun・prefs・live・appwindow)の置き場所(画面は ui/home・ui/settings・ui/cases・ui/check)。作業データの inplace の置き場所 layout.TOOL_DIRS["app"] とは別(そちらは次の作業で揃える)
+HOME_UI_DIR = os.path.join(CODE_DIR, "ui", "home")   # ホームの画面(portal.html・portal.js・portal.css・portal-edit.js)
 if ROOT not in sys.path:   # 役割の層・共通部品 ytt(src)
     sys.path.append(ROOT)
-if CODE_DIR not in sys.path:   # home の部品を裸の名前で読む(import mount など。画面と同じ場所)
+if CODE_DIR not in sys.path:   # 入口の部品を裸の名前で読む(import mount など)
     sys.path.insert(0, CODE_DIR)
 from manage.cases import handoff_io, txindex  # noqa: E402
 from app import redirects as redirects_mod  # noqa: E402  (古い画面の URL -> /cases の転送の表。RS8 C0・C4 でいつも有効)
@@ -132,8 +133,8 @@ from flow import prio as prio_mod  # noqa: E402  (処理の優先度の表。後
 from manage.keep import learnpack as learnpack_mod  # noqa: E402  (学習の束を <依頼の受付のフォルダ>/学習 に置く。起動時と 1 日ごと。F1 F6a)
 from ytt import colors as colors_mod, datadir, docloc, fsio, httpsec, jobs, layout, runtime, tools, version as _version  # noqa: E402
 from ytt import errors as _yerrors  # noqa: E402  (確かめるの部品が上げる ApiError を状態の番号で返す)
-import mount as mount_mod  # noqa: E402  (src/home/mount.py: 統合サーバーへのツールの取り込み)
-import autorun as autorun_mod
+from app import mount as mount_mod  # noqa: E402  (src/app/mount.py: 統合サーバーへのツールの取り込み)
+from app import autorun as autorun_mod
 from human.friend import intake as intake_mod  # noqa: E402  (src/human/friend/intake.py: 友人からの依頼の受付)
 from manage.keep import backup as backup_mod  # noqa: E402  (src/manage/keep/backup.py: 作業データのバックアップ)
 from eval.drill import accuracy as accuracy_mod  # noqa: E402  (src/eval/drill/accuracy.py: 精度の自動測定 = src/eval/tools/eval_*.py を手が空いた夜に子プロセスで)
@@ -150,13 +151,13 @@ from human.friend import deliver as deliver_mod  # noqa: E402 (src/human/friend/
 from manage.cases import cases as cases_mod  # noqa: E402  (src/manage/cases/cases.py: 案件(配信1本)ごとの紐づけ)
 from manage.cases import outdirs as outdirs_mod  # noqa: E402  (src/manage/cases/outdirs.py: 書き出し先を変えたあとの案件の繋ぎ直し・「調子」の置き場所の行。RS8 B3-8 の残り)
 from human.friend import friend_feedback as friend_feedback_mod  # noqa: E402  (src/human/friend/friend_feedback.py: 友人の「要らない」= 切り抜きとパックを ごみ箱 へ・記録を残す。マークは変えない)
-import appwindow as appwindow_mod  # noqa: E402  (src/home/appwindow.py: 窓(Edge のアプリモード)で開く。段階7-3)
+from app import appwindow as appwindow_mod  # noqa: E402  (src/app/appwindow.py: 窓(Edge のアプリモード)で開く。段階7-3)
 from manage.ops import clientlog as clientlog_mod  # noqa: E402  (src/manage/ops/clientlog.py: 画面のエラーの記録。段階7-0)
 from manage.ops import health as health_mod  # noqa: E402  (src/manage/ops/health.py: 「調子」。段9 9-1)
 from manage.keep import cleanup as cleanup_mod  # noqa: E402  (src/manage/keep/cleanup.py: 片付け。段9 9-2)
 from manage.ops import restart as restart_mod  # noqa: E402  (src/manage/ops/restart.py: 入口ごと起動し直す。段9 9-3)
-import prefs as prefs_mod  # noqa: E402  (src/home/prefs.py: ホームの設定。まとめて実行の既定・配信者の記憶・共通の再生キー)
-import live as live_mod  # noqa: E402  (src/home/live.py: リアルタイム切り抜き(線 D)。既定はオフ)
+from app import prefs as prefs_mod  # noqa: E402  (src/app/prefs.py: ホームの設定。まとめて実行の既定・配信者の記憶・共通の再生キー)
+from app import live as live_mod  # noqa: E402  (src/app/live.py: リアルタイム切り抜き(線 D)。既定はオフ)
 try:   # src/manage/ops/analytics: 分析と日報(/analytics/ を受け持つ。notes:plan/analytics-daily-report.md)。入口を一時フォルダに写すテストでは無いことがある
     from manage.ops.analytics import service as analytics_mod  # noqa: E402
 except ImportError:
@@ -293,7 +294,7 @@ class Tool:
     """1つのツールのサーバー(子プロセス)の状態。値の変更は lock の中で行う。
     state: stopped 停止 / starting 起動中 / running 動作中 / external 別の画面で起動済み / stopping 停止中 /
            crashed 異常終了 / missing フォルダ・serve.py が無い
-    mounted = True は、子プロセスではなく入口のサーバーの中に取り込んで動かしているもの(段階3。src/home/mount.py)"""
+    mounted = True は、子プロセスではなく入口のサーバーの中に取り込んで動かしているもの(段階3。src/app/mount.py)"""
 
     def __init__(self, spec, root, logs_dir):
         self.spec = spec
@@ -354,7 +355,7 @@ def logs_dir_for(root):
 class Supervisor:
     def __init__(self, root=ROOT, only=None, ready_timeout=90.0, stop_timeout=8.0, poll=0.5, log=None, ports=None, mounts=()):
         """ports: {"studio": 18800, ...} 既定のポートを変える(テスト用。本物のツールとぶつからないように)
-        mounts: 入口のサーバーに取り込むツール("studio" など。src/home/mount.py の MOUNTS にあるもの)。attach() でサーバーを渡してから start する"""
+        mounts: 入口のサーバーに取り込むツール("studio" など。src/app/mount.py の MOUNTS にあるもの)。attach() でサーバーを渡してから start する"""
         self.root = os.path.abspath(root)
         self.rdir = runtime_dir(self.root)
         self.logs_dir = logs_dir_for(self.root)
@@ -611,10 +612,10 @@ class Supervisor:
 
 
 # ---------- 入口の画面(HTTP) ----------
-SETTINGS_DIR = os.path.join(CODE_DIR, "settings")   # 設定の画面(/settings。設定を 1 つに S5。スキーマ schema.json から UIKit.settingsForm が描く。
+SETTINGS_DIR = os.path.join(CODE_DIR, "ui", "settings")   # 設定の画面(/settings。設定を 1 つに S5。スキーマ schema.json から UIKit.settingsForm が描く。
 # 入口の直下の 1 枚にする = 画面の相対パス api/ytt/… が入口の API を指す(ui-kit の決まり。/settings/ のフォルダにすると /settings/api/… になる)
-STATIC = {"/": ("portal.html", CODE_DIR), "/index.html": ("portal.html", CODE_DIR), "/portal.js": ("portal.js", CODE_DIR),
-          "/portal.css": ("portal.css", CODE_DIR), "/ui-kit.css": ("ui-kit.css", UI_KIT_DIR), "/ui-kit.js": ("ui-kit.js", UI_KIT_DIR),
+STATIC = {"/": ("portal.html", HOME_UI_DIR), "/index.html": ("portal.html", HOME_UI_DIR), "/portal.js": ("portal.js", HOME_UI_DIR),
+          "/portal.css": ("portal.css", HOME_UI_DIR), "/ui-kit.css": ("ui-kit.css", UI_KIT_DIR), "/ui-kit.js": ("ui-kit.js", UI_KIT_DIR),
           "/settings": ("index.html", SETTINGS_DIR), "/settings.js": ("settings.js", SETTINGS_DIR),
           "/settings.css": ("settings.css", SETTINGS_DIR), "/settings-schema.json": ("schema.json", SETTINGS_DIR)}
 # 案件の画面(/cases。RS8 C1。notes:docs/design/rs8-cases-build.md)。/settings と同じく入口の直下の 1 枚(相対パス api/… が入口・studio/api/… が取り込んだスタジオ)。
@@ -627,7 +628,7 @@ STATIC["/cases-panels/cand.css"] = (os.path.join("panels", "cand.css"), CASES_DI
 # 新しい案件のパネル(ホームの引き出しで開く。スタジオ ① の rank.js + queue.js のつなぎ。RS8 C3)。ホームが読む(/cases の画面では使わない)
 STATIC["/cases-panels/new.js"] = (os.path.join("panels", "new.js"), CASES_DIR)
 STATIC["/cases-panels/new.css"] = (os.path.join("panels", "new.css"), CASES_DIR)
-STATIC["/portal-edit.js"] = ("portal-edit.js", CODE_DIR)   # ホームの運用の中の「精度」「学習」(編集の左メニューにあった物。RS8 C3)
+STATIC["/portal-edit.js"] = ("portal-edit.js", HOME_UI_DIR)   # ホームの運用の中の「精度」「学習」(編集の左メニューにあった物。RS8 C3)
 STATIC.update({"/cases-panels/proof.css": (os.path.join("panels", "proof.css"), CASES_DIR),   # 校正のパネル(C2b): 見た目・3 択の部品・編集を載せる台(編集の app-*.js は transcribe/ から読む)
                "/cases-panels/machpick.js": (os.path.join("panels", "machpick.js"), CASES_DIR), "/cases-edhost.js": ("edhost.js", CASES_DIR)})
 # 確かめる(/check。RS8 V1。notes:docs/design/v1-check-build.md)。案件をまたぐ軽い確認のカード。/cases と同じく入口の直下の 1 枚・完全一致の表だけ。
@@ -641,7 +642,7 @@ STATIC_TYPES = {".html":"text/html; charset=utf-8", ".css": "text/css; charset=u
 NAV_PAGES = httpsec.PAGES + ("/settings", "/cases", "/check")   # ほかの画面のリンクで開ける画面(httpsec.navigation_ok)
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
        "object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
-# 案件の画面はスタジオ ② の候補(YouTube の埋め込みのプレイヤー)と編集を載せるので、取り込んだスタジオの CSP と同じ(home/mount.py の MOUNTS["studio"]。
+# 案件の画面はスタジオ ② の候補(YouTube の埋め込みのプレイヤー)と編集を載せるので、取り込んだスタジオの CSP と同じ(app/mount.py の MOUNTS["studio"]。
 # スタイルの属性は移すパネルが使うので制限しない)。インラインのスクリプトは動かない・ほかのサイトの枠には入らない
 PAGE_CSP = {"/cases": "script-src 'self' https://www.youtube.com https://s.ytimg.com; object-src 'none'; base-uri 'none'; "
                       "form-action 'none'; frame-ancestors 'none'"}
@@ -655,7 +656,7 @@ ACTION_RE = re.compile(r"/api/tools/([a-z0-9]{1,20})/(start|stop|restart)")
 GET_SNAPSHOTS = {"/api/intake": "intake",       # 友人からの依頼の受付(src/human/friend/intake.py)
                  "/api/backup": "backup",       # 作業データのバックアップの状態と設定(src/manage/keep/backup.py)
                  "/api/accuracy": "accuracy",   # 精度の自動測定の状態(src/eval/drill/accuracy.py)
-                 "/api/autorun": "autorun"}     # まとめて実行の状態(src/home/autorun.py)
+                 "/api/autorun": "autorun"}     # まとめて実行の状態(src/app/autorun.py)
 # POST: 場所 → (PortalHandler のメソッド, 終了の途中なら 409 で断るか)。合言葉・Origin などの検査と本文の読み取りは do_POST が先に済ませる
 POST_ROUTES = {"/api/cases/update": ("_post_case", False), "/api/cases/auto": ("_post_case_auto", True),
                "/api/autorun/start": ("_post_autorun", True), "/api/autorun/cancel": ("_post_autorun", True),
@@ -1061,7 +1062,7 @@ class PortalHandler(BaseHTTPRequestHandler):
     def _post_shutdown(self, path, body):
         """すべて終了(応答を返してから後始末)"""
         out = {"ok": True}
-        try:   # 録画中なら録画の部品は止めずに残す(src/home/live.py の stop_recorder)。画面の「すべて終了しました」に知らせる
+        try:   # 録画中なら録画の部品は止めずに残す(src/app/live.py の stop_recorder)。画面の「すべて終了しました」に知らせる
             if self.server.live.local_recording() is True:
                 out.update(recorderKept=True, notice=livesession.KEPT_NOTE)
         except Exception:
@@ -1321,9 +1322,9 @@ class PortalServer(httpsec.ExclusiveServer):
                     j = self.deliveries.status(body.get("job"))
                     return (200, {"ok": True, "job": j}) if j else (404, {"error": "not_found", "message": "その仕事はありません(ホームを起動し直しましたか)"})
                 return 200, {"ok": True, "job": self.deliveries.start(body.get("dir"), body.get("title"))}
-            if sub == "live":   # リアルタイム切り抜き(線 D の P3): 全ツールのヘッダーの録画の札 {op: "status"} / 札の「停止」{op: "stop", recorder, recording}(src/home/live.py)
+            if sub == "live":   # リアルタイム切り抜き(線 D の P3): 全ツールのヘッダーの録画の札 {op: "status"} / 札の「停止」{op: "stop", recorder, recording}(src/app/live.py)
                 return self.live.ytt(body)
-            if sub == "prefs":   # ホームの設定(src/home/prefs.py。節ごとに読む・直す。全体を上書きしない)
+            if sub == "prefs":   # ホームの設定(src/app/prefs.py。節ごとに読む・直す。全体を上書きしない)
                 return 200, self.prefs_api(body)
             if sub == "streamer-colors":   # 配信者の名前の欄(字幕の色): 候補の一覧と、入れた名前に合う人(規則は src/ytt/colors.py)
                 return 200, streamer_colors(body)
@@ -1385,7 +1386,7 @@ class PortalServer(httpsec.ExclusiveServer):
 
     def ytt_request(self, h, tool, version=""):
         """画面の共通の API(api/ytt/<名前>)の要求を受け持つ。h は入口か、取り込んだツールの Handler(_json を持つ)。
-        取り込んだツールの画面の /studio/api/ytt/… も src/home/mount.py がここへ回す(ツールごとに同じものを書かないため)。
+        取り込んだツールの画面の /studio/api/ytt/… も src/app/mount.py がここへ回す(ツールごとに同じものを書かないため)。
         検査は入口の API と同じ: POST だけ・Host・Origin・Sec-Fetch-Site・合言葉・本文は application/json で 16KB まで。
         断るときは本文を読み捨てる(0.50.0 までは取り込んだ画面から来た要求を Host・Origin で断るときに読まずに閉じていた = Windows で 403 が届かないことがある形)"""
         path = urllib.parse.urlsplit(h.path).path
@@ -1401,7 +1402,7 @@ class PortalServer(httpsec.ExclusiveServer):
         return h._json(code, obj)
 
     def tool_endpoint(self, tid):
-        """まとめて実行(src/home/autorun.py)がツールの API を呼ぶ先 (ポート, 場所)。動いていなければ None"""
+        """まとめて実行(src/app/autorun.py)がツールの API を呼ぶ先 (ポート, 場所)。動いていなければ None"""
         t = self.sup.by_id.get(tid)
         if t is None:
             return None

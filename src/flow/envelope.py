@@ -38,7 +38,7 @@ ID_RE = re.compile(r"[0-9A-Za-z_-]{1,64}\Z")
 VIDEO_ID_RE = re.compile(r"[0-9A-Za-z_-]{1,64}\Z")
 DOC_ID_RE = re.compile(r"[0-9A-Za-z_-]{1,40}\Z")
 TITLE_MAX, CHANNEL_MAX, PATH_MAX, NOTE_MAX = 120, 100, 1000, 1000
-BATCH_RANGE = (1, 10)   # 友人の依頼ごとの届け方(n 本の組。src/home/prefs.py の intake.deliverBatch の範囲と同じ)
+BATCH_RANGE = (1, 10)   # 友人の依頼ごとの届け方(n 本の組。src/app/prefs.py の intake.deliverBatch の範囲と同じ)
 
 
 def clean_pool(p):

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """配信中の候補の文字起こし(D-11 案 b)の設定との一致のテスト。入口 home の prefs と ② flow/live_tx・編集の tx_engines の値がそろっていること。
 
-    py -3.10 -m unittest src/home/tests/test_live_tx_prefs.py
+    py -3.10 -m unittest src/app/tests/test_live_tx_prefs.py
 
   - 値の一致: WCPP_VERSION・WCPP_EXE・WCPP_MODEL_FILES・置き場所が編集の tx_engines と同じ・prefs.LIVE_TX_MODELS が同じ名前
   - 入口のプロセスで tx_engines・numpy を import しない(live_tx を読んでも)
@@ -22,7 +22,7 @@ sys.path.insert(0, HERE)
 if SRC not in sys.path:   # 共通部品 ytt(server.py と同じ)
     sys.path.append(SRC)
 from flow import live_tx as TX  # noqa: E402
-import prefs as P  # noqa: E402
+from app import prefs as P  # noqa: E402
 
 
 def tx_engines():

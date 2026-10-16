@@ -28,8 +28,8 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.join(os.path.dirname(HERE), "src")   # ツールと ytt の置き場所(入口の ROOT と同じ意味)
-sys.path.insert(0, os.path.join(REPO, "home"))
-sys.path.insert(0, os.path.join(REPO, "home", "tests"))   # test_launch(_copy_tool)
+sys.path.insert(0, os.path.join(REPO, "app"))
+sys.path.insert(0, os.path.join(REPO, "app", "tests"))   # test_launch(_copy_tool)
 sys.path.insert(0, REPO)
 
 CHANNELS = ["星見ルナ", "朝霧ソラ", "猫宮こはく", "雷堂ジン", "白銀ユキ", "緋ノ宮かえで", "海月ミオ", "鷹野レン"]
@@ -257,7 +257,7 @@ def main(argv=None):
                        "TRANSCRIBE_BACKEND": "fake", "STUDIO_HOME": os.path.join(tmp, "studio-home"),
                        "YTT_CHECK_SECTION": "on", "YTT_CHECK_CUT": "on"})   # 見本では評価のレーンの区間カードを出す(既定はオフ。human/check/section.enabled)
     from app import server as L   # noqa: E402  (環境変数を決めてから読む)
-    import mount as M    # noqa: E402
+    from app import mount as M    # noqa: E402
     from test_launch import _copy_tool  # noqa: E402
     fresh = not os.path.isdir(os.path.join(tmp, "studio"))
     os.environ["STUDIO_FAKE_MEDIA"] = os.path.join(tmp, "media", "sample0.mp4")   # 疑似モードの解析・書き出しに使う動画(② 解析も動く)

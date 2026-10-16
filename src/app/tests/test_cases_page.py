@@ -17,8 +17,8 @@ import unittest
 
 TESTS = os.path.dirname(os.path.abspath(__file__))   # src/app/tests
 SRC = os.path.dirname(os.path.dirname(TESTS))
-sys.path.insert(0, os.path.join(SRC, "home"))
-sys.path.insert(0, os.path.join(SRC, "home", "tests"))
+sys.path.insert(0, os.path.join(SRC, "app"))
+sys.path.insert(0, os.path.join(SRC, "app", "tests"))
 if SRC not in sys.path:
     sys.path.append(SRC)
 sys.path.insert(0, TESTS)   # 土台 _pagetest.py(入口を立てる共通の準備)
@@ -153,7 +153,7 @@ class CasesPageFilesTest(unittest.TestCase):
     def test_home_ids_do_not_collide_with_new_panel(self):
         """rank.js・queue.js は document.querySelector('#id') で引くので、引き出しの中の id はホームの id と重ならないこと"""
         ids = lambda text: set(re.findall(r'\bid="([A-Za-z][\w-]*)"', text))
-        home = ids(read(os.path.join(SRC, "home", "portal.html")))
+        home = ids(read(os.path.join(SRC, "app", "ui", "home", "portal.html")))
         mine = set()
         for name in ("rank.js", "queue.js"):
             mine |= ids(read(os.path.join(SRC, "studio", name)))

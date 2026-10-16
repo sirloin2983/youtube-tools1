@@ -102,8 +102,8 @@ class TestMoved(unittest.TestCase):
 
     def test_autorun_still_exposes_the_names(self):
         """autorun は同じ名前で読み直している(test_autorun.py・ほかの使い手がそのまま動く)"""
-        sys.path.insert(0, os.path.join(SRC, "home"))
-        import autorun as A   # noqa: E402
+        sys.path.insert(0, os.path.join(SRC, "app"))
+        from app import autorun as A   # noqa: E402
         for name in ("RANGE_MAX", "RANGE_MAX_SEC", "CUTS", "TX_ENGINES", "TX_MODEL_RE", "WEIGHT_KEYS", "MAX_MARKS", "DEFAULT_TOP", "LIVE_AUTO_CUT",
                      "clean_ranges", "clean_weights"):
             self.assertIs(getattr(A, name), getattr(spec, name), name)
@@ -290,7 +290,7 @@ class TestValidate(unittest.TestCase):
 
 
 class TestBodies(unittest.TestCase):
-    """束 → 各ツールの API の本文(RS6 b-0)。同じ画面の設定から前と同じ本文になることは src/home/tests/test_autorun.py の TestSpecSameBodies"""
+    """束 → 各ツールの API の本文(RS6 b-0)。同じ画面の設定から前と同じ本文になることは src/app/tests/test_autorun.py の TestSpecSameBodies"""
 
     def test_key_ok(self):
         self.assertTrue(spec.key_ok("pack", "wrapChars", {"vertical": 9}))   # 辞書は既定に重ねてから見る

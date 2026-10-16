@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """flow/runqueue.py(② の待ち行列と実行の糸。RS7-1 S5)のテスト。  py -3.10 -m unittest src/flow/tests/test_runqueue.py -v
 home(入口の AutoRunner・案件・ホームの設定)を読まずに、素の Queue だけで submit → status → 完了・待ちの記録の保存と復元・中止を見る。
-受付と hook を埋めた形(AutoRunner)の細かい動きは src/home/tests/test_autorun.py。
+受付と hook を埋めた形(AutoRunner)の細かい動きは src/app/tests/test_autorun.py。
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない(記録は一時フォルダ)

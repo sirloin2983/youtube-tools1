@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """配信(録画)ごとの結果の記録(線 D の D-12。10-08 ユーザー決定。長い配信の確かめ U4 と、数の決め直し D-15・当たり具合 L5 の材料)。
 
-入口の見回り(src/home/live.py の Live.tick。30 秒ごと)から tick() が呼ばれ、録画ごとに 1 つの JSON を
+入口の見回り(src/app/live.py の Live.tick。30 秒ごと)から tick() が呼ばれ、録画ごとに 1 つの JSON を
 入口の作業データの live/reports/<録画元>__<録画の id>.json に置く(書き手はここだけ。読むのは src/eval/tools/eval_marks.py --live と人)。
   録画中  … EVERY 秒ごとに書き直す(state "recording")。最大値(遅れ・メモリ・ワーカーの遅れ)は見回りのたびに取って残す(入口を起動し直しても前の最大値から続ける)
   終わり  … 録画が終わって、ワーカーが帳簿を締めた(peaks.json の ended)か FINISH_DELAY 秒たったら最後に 1 回書く(state "done")。

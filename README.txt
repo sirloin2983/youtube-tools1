@@ -145,7 +145,7 @@ AI(Claude・GPT)向けの決まりは AGENTS.md です。
   - 表示や操作について: 各ツールの README.txt
 
 【各フォルダの README】
-  src\home\README.txt              ホームと案件の画面(起動・終了・ログ・次にやること・案件・新しい案件・まとめて実行)
+  src\app\README.txt              ホームと案件の画面(起動・終了・ログ・次にやること・案件・新しい案件・まとめて実行)
   src\studio\README.txt            解析・候補・書き出しの部品(画面は案件の画面の「候補」とホームの「新しい案件」。以前の「切り抜きスタジオ」)
   src\editor\README.txt            文字起こし・校正・カット・パックの部品(画面は案件の画面の「校正」「カット・パック」。以前の「編集」。精度・話者判別を含む)
   src\cut2resolve\README.txt       cut2resolve(パックを作る部品・コマンド)と Resolve への取り込み

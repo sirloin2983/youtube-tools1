@@ -2,7 +2,7 @@
 """② 管理の層 flow: 自動の切り抜きの長さの目安(友人が依頼で指定した区間の長さから。OPT-E2 7f-1・7f-2。決定 3-49 の Q1)。
 
 今まで ⑤ の測る道具(src/eval/tools/eval_marks.py --json)が夜に結果のファイル(evals/marks/<日時>.json の clipLength)へ書き、
-本番の読み手 2 つ(依頼の解析 = src/home/autorun.py・ライブの新しい録画 = src/flow/live_detect.py)がそれを読んでいた
+本番の読み手 2 つ(依頼の解析 = src/app/autorun.py・ライブの新しい録画 = src/flow/live_detect.py)がそれを読んでいた
 (= ⑤ が本番の入力を作る層の違反・読み手ごとに定義が違う・名前が変わると黙って効かなくなる・30 日で黙って止まる)。
 今は使うときにここでその場で数える(作業データを読むだけ。スタジオの data.json・archive/<配信>.json.gz・入口の実行記録)。
 ⑤ eval_marks はこれを読んで表示するだけ。

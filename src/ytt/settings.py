@@ -1,6 +1,6 @@
 """設定ファイル(JSON の辞書)の読み書きの共通部品(設定を 1 つにまとめる 段 2 = S4。notes:docs/spec/data.md の 4)。
 
-ホームの prefs.json(src/home/prefs.py)・スタジオの settings-ui.json(src/human/review/store.py)・編集の settings.json(src/human/proof/learn.py)が
+ホームの prefs.json(src/app/prefs.py)・スタジオの settings-ui.json(src/human/review/store.py)・編集の settings.json(src/human/proof/learn.py)が
 同じ決まりで扱う: 読めない・形が違う・大きすぎるファイルは「壊れている」として既定({})で動き、次に書くときに `.broken-<日時>` に退避してから
 書き直す(中身を調べられるように消さない)。書き込みは原子的(fsio.atomic_write)で、大きさの上限を超えたら保存しない(SettingsTooLarge)。
 節(section)の名前の形と、節を差し替える・節の中の鍵を直す・最上位の鍵を直す、の 3 つの書き方もここで 1 つにする。
@@ -218,7 +218,7 @@ SETTINGS_PATCH_KEYS = {"packLoudness": lambda v: not isinstance(v, bool) and v i
 # 無音で削るときの値の範囲(cut2resolve の serve.py の spec_to_request と同じ。範囲の外は cut2resolve が 400 にする)
 CUT_SILENCE_RANGE = {"noise": (-90, 0), "min": (0.05, 60), "pad": (0, 10)}
 _KM_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,40}$")
-_KM_COMBO_RE = re.compile(r"^(?:Shift\+)?(?:[^\x00-\x1f\x7f]|[A-Z][A-Za-z0-9]{1,20})$")   # UIKit.keys.comboOf の表記(home/prefs.py と同じ)
+_KM_COMBO_RE = re.compile(r"^(?:Shift\+)?(?:[^\x00-\x1f\x7f]|[A-Z][A-Za-z0-9]{1,20})$")   # UIKit.keys.comboOf の表記(app/prefs.py と同じ)
 
 
 def register_patch_key(name, check):

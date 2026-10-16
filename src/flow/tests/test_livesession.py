@@ -22,7 +22,7 @@ import unittest
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
 sys.path.insert(0, SRC)
-sys.path.insert(0, os.path.join(SRC, "home"))   # 入口の Live(app)と設定(prefs)
+sys.path.insert(0, os.path.join(SRC, "app"))   # 入口の Live(app)と設定(prefs)
 from flow import live_adopt as LA, live_detect as D, live_export as LX, livesession as LS, run as R, runqueue as Q, spec as S  # noqa: E402
 from pipeline.analyze import live_excite_worker as W  # noqa: E402
 from ytt import fsio  # noqa: E402
@@ -319,8 +319,8 @@ class LiveAppTest(unittest.TestCase):
     """入口の Live(app)の画面なしの形と、友人の依頼(intake の live_begin)の経路"""
 
     def setUp(self):
-        import live as LV
-        import prefs as P
+        from app import live as LV
+        from app import prefs as P
         self.LV = LV
         self.tmp = tempfile.mkdtemp(prefix="ytt-livesession-app-")
         self.prefs = P.Prefs(os.path.join(self.tmp, "prefs.json"), fsio.atomic_write)

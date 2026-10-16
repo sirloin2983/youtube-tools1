@@ -1,7 +1,7 @@
 """精度の自動測定(src/eval/drill/accuracy.py)の単体テスト。一時フォルダと、src/eval/tools/eval_*.py の代わりの偽の道具(小さな Python スクリプト)だけを使う。
 
 実行(リポジトリ直下から): py -3.10 -m unittest src/eval/drill/tests/test_accuracy.py -v
-(入口の API の検査は src/home/tests/test_accuracy_api.py)
+(入口の API の検査は src/app/tests/test_accuracy_api.py)
 """
 import datetime
 import json
@@ -14,13 +14,13 @@ from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> drill -> eval -> src
-HOME = os.path.join(ROOT, "home")   # 設定 prefs(入口 = app)を借りる
+HOME = os.path.join(ROOT, "app")   # 設定 prefs(入口 = app)を借りる
 for p in (HOME, ROOT):
     if p not in sys.path:
         sys.path.insert(0, p)
 
 from eval.drill import accuracy  # noqa: E402
-import prefs as prefs_mod  # noqa: E402
+from app import prefs as prefs_mod  # noqa: E402
 from ytt import fsio, jobs  # noqa: E402
 
 # 偽の道具: 引数 = 領域の id・結果の置き場所。環境変数 FAKE_FAIL(領域の id をカンマ区切り)で失敗・FAKE_HANG(同)で居座る・

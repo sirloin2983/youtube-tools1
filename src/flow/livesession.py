@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """② 管理の層 flow: ライブ係(役割で組み直す RS7-2 G2b。資料の git:cbe1a64:docs/design/surveys/rs7-survey-2026-10-10/plan_order_v3.md の 1 節 5・notes:plan/f1-friend-pc.md)。
 
-もとは入口の src/home/live.py の Live の中の app でない部分。録画元のクライアント(一覧・要求・状態)・録画を始める(begin・友人の依頼の begin_request)・
+もとは入口の src/app/live.py の Live の中の app でない部分。録画元のクライアント(一覧・要求・状態)・録画を始める(begin・友人の依頼の begin_request)・
 見回りの列(tick)・子プロセス(録画の部品の起動と後始末・検出のワーカー)・「調子」・採用の口(adopt)をここに置き、4 つの子(Detector・LiveTx・Reporter・
 Exporter)と Archiver・Adopter の親になる(flow/livehost.py の LiveHost を満たす)。入口の Live は LiveSession を継いで、HTTP の受け口・中継・札・
 スタジオ(studio_call・StudioMarks)・友人へ届ける・D-13・ホームの設定(prefs)だけを足す(app の殻)。画面なし(--headless)も同じ Live を使い、
@@ -55,7 +55,7 @@ LOCAL = {"id": "local", "name": "この PC", "url": "http://127.0.0.1:%d" % RECO
 RELAY_TIMEOUT = 15.0
 WATCH_SEC = 30.0
 SPAWN_GAP = 30.0
-QUALITIES = ("best", "1080p", "720p")     # src/pipeline/ingest/rec_core.py の QUALITIES と同じ名前(src/home/prefs.py の LIVE_QUALITIES)
+QUALITIES = ("best", "1080p", "720p")     # src/pipeline/ingest/rec_core.py の QUALITIES と同じ名前(src/app/prefs.py の LIVE_QUALITIES)
 DEFAULT_QUALITY = "1080p"
 YT_HOSTS = ("youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be")   # src/pipeline/ingest/rec_core.py の YT_HOSTS と同じ
 URL_MAX = 500
@@ -618,7 +618,7 @@ class LiveSession:
     def auto_delete(self):
         """録画を自動で消してよいか(リアルタイム切り抜きがオンで、設定 live.autoDelete がオン。既定オン)"""
         cfg = self.cfg()
-        return cfg.get("enabled") is True and cfg.get("autoDelete") is True   # 消すのは戻せないので、明示的に true のときだけ(既定の値は src/home/prefs.py の DEFAULTS)
+        return cfg.get("enabled") is True and cfg.get("autoDelete") is True   # 消すのは戻せないので、明示的に true のときだけ(既定の値は src/app/prefs.py の DEFAULTS)
 
     def studio_call(self, method, path, body=None):
         """取り込んだスタジオの API -> (HTTP の番号, JSON)。ここ(スタジオなし)は (None, {"message"})。入口の Live が埋める"""

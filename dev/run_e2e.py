@@ -37,17 +37,17 @@ SUITE = [
     # 3 ツールの通し・作業データの置き場所(dev/tests/)
     ("dev", "dev/tests/e2e_pipeline.py", [], "スタジオ → 編集 → cut2resolve の API の通し(Playwright なし)(14 秒)"),
     ("dev", "dev/tests/e2e_datadir.py", [], "作業データを外へ写す(入口を本物で起動)(7 秒)"),
-    # 入口(src/home/tests/)
-    ("home", "src/home/tests/e2e_portal.py", [], "ホーム(本番と同じ取り込み)・appnav・古い URL の転送・案件の画面の候補/校正/カット・新しい案件と探す設定・案件・次にやること・子プロセスの文字起こし(72 秒)"),
-    ("home", "src/home/tests/e2e_autorun.py", [], "まとめて実行(画面と API・起動し直し後の記録)(27 秒)"),
-    ("home", "src/home/tests/e2e_window.py", [], "画面のエラーの記録・離れた/戻った・窓で開く(案件の画面)(11 秒)"),
-    ("home", "src/home/tests/e2e_keymap.py", [], "共通の再生キーの移行・? の一覧・キーの変更(校正・候補のパネル)(22 秒)"),
-    ("home", "src/home/tests/e2e_settings.py", [], "設定の画面 /settings(5 秒)"),
-    ("home", "src/home/tests/e2e_intake_ui.py", [], "依頼の受付の画面(4 秒)"),
-    ("home", "src/home/tests/e2e_backup_ui.py", [], "バックアップの画面(本物のバックアップ)(6 秒)"),
-    ("home", "src/home/tests/e2e_live.py", [], "ライブ(線 D)の入口の API(録画の部品は本物)(8 秒)"),
-    ("home", "src/home/tests/e2e_live_studio.py", [], "ライブ: ホームの /#new から録画 → 案件の画面の候補で再生 → マーク → 書き出し・候補(約 3 分)"),
-    ("home", "src/home/tests/e2e_live_archive.py", [], "ライブ: 案件の画面の候補でアーカイブの本番版に入れ替え・自動の消去・配信後の全自動(約 4 分)"),
+    # 入口(src/app/tests/)
+    ("home", "src/app/tests/e2e_portal.py", [], "ホーム(本番と同じ取り込み)・appnav・古い URL の転送・案件の画面の候補/校正/カット・新しい案件と探す設定・案件・次にやること・子プロセスの文字起こし(72 秒)"),
+    ("home", "src/app/tests/e2e_autorun.py", [], "まとめて実行(画面と API・起動し直し後の記録)(27 秒)"),
+    ("home", "src/app/tests/e2e_window.py", [], "画面のエラーの記録・離れた/戻った・窓で開く(案件の画面)(11 秒)"),
+    ("home", "src/app/tests/e2e_keymap.py", [], "共通の再生キーの移行・? の一覧・キーの変更(校正・候補のパネル)(22 秒)"),
+    ("home", "src/app/tests/e2e_settings.py", [], "設定の画面 /settings(5 秒)"),
+    ("home", "src/app/tests/e2e_intake_ui.py", [], "依頼の受付の画面(4 秒)"),
+    ("home", "src/app/tests/e2e_backup_ui.py", [], "バックアップの画面(本物のバックアップ)(6 秒)"),
+    ("home", "src/app/tests/e2e_live.py", [], "ライブ(線 D)の入口の API(録画の部品は本物)(8 秒)"),
+    ("home", "src/app/tests/e2e_live_studio.py", [], "ライブ: ホームの /#new から録画 → 案件の画面の候補で再生 → マーク → 書き出し・候補(約 3 分)"),
+    ("home", "src/app/tests/e2e_live_archive.py", [], "ライブ: 案件の画面の候補でアーカイブの本番版に入れ替え・自動の消去・配信後の全自動(約 4 分)"),
     # スタジオ(src/studio/tests/)・ui-kit
     ("studio", "src/studio/tests/e2e_analyze.py", [], "解析の通し(合成の音声とチャット。Playwright なし)(14 秒)"),
     ("ui-kit", "src/ui-kit/tests/e2e_styleguide.py", [], "ui-kit の見本(部品の動き・版の帯・録画中の札・http)(16 秒)"),

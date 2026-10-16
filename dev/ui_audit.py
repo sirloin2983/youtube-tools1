@@ -62,8 +62,8 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(REPO, "src")
 # 絶対パス禁止(A-01)の対象 = 案件の画面と、そこが相対パスで読む部品(RS8 C4 でスタジオ・編集の画面のページは消した。部品の JS・CSS は残る)
 MOUNTED = ("studio", "editor", "app/ui/cases", "app/ui/check")
-SCREENS = {"home": ["portal.html", "portal.js", "portal.css", "portal-edit.js", "intake.html", "intake.js", "backup.html", "backup.js", "live.html", "live.js",
-                    "settings/index.html", "settings/settings.js", "settings/settings.css"],
+SCREENS = {"app/ui/home": ["portal.html", "portal.js", "portal.css", "portal-edit.js", "intake.html", "intake.js", "backup.html", "backup.js", "live.html", "live.js"],
+           "app/ui/settings": ["index.html", "settings.js", "settings.css"],
            # 案件の画面(/cases。RS8。入口が配る 1 枚。panels/new.* はホームの「新しい案件」の引き出しも読む)
            "app/ui/cases": ["index.html", "cases.js", "cases.css", "edhost.js", "panels/cand.js", "panels/cand.css", "panels/proof.js", "panels/proof.css",
                             "panels/cut.js", "panels/machpick.js", "panels/new.js", "panels/new.css"],
@@ -355,7 +355,7 @@ def static_checks(out):
     for screen, path in screen_files((".js",)):
         static_js(screen, path, read(path), out)
     for name in HOME_PY:
-        path = os.path.join(SRC, *name.split("/")) if "/" in name else os.path.join(SRC, "home", name)
+        path = os.path.join(SRC, *name.split("/")) if "/" in name else os.path.join(SRC, "app", name)
         if os.path.exists(path):
             check_terms(path, read(path), out, py_strings(path))
     for tool in ("studio", "editor", "cut2resolve"):

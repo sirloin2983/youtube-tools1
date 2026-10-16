@@ -5,7 +5,7 @@
 送るアプリ(友人の入口)・ユーザーの入口・CLI が同じ ② の口を使えるように、待ち行列と糸をここに置く(以前は入口の AutoRunner の中)。
 画面なし・③ なしでも動く: Queue(client, log_dir=...) だけで submit → 糸が段を進める → status / snapshot / history で見る。
 
-- Queue は flow/run.py の Runner を継ぐ(段の中身と hook はそのまま)。入口の AutoRunner(src/home/autorun.py)は Queue を継いで、
+- Queue は flow/run.py の Runner を継ぐ(段の中身と hook はそのまま)。入口の AutoRunner(src/app/autorun.py)は Queue を継いで、
   受付(start*。画面の欄から Run を作って積む)と hook(案件・ホームの設定・友人へ届ける = ③④ の物)だけを埋める。
   hook を埋めなければ何もしない(素の Runner の既定 + 下の build_spec・_on_error の既定)= 画面なしの ② の形
 - 口: submit(封筒, 束)= 封筒 + 束を受けて Run.from_envelope で積む(束にこの PC の設定 flow/machine.py を重ねる = 受けたときに組んだ束のまま流す)/

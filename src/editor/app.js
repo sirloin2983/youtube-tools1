@@ -134,7 +134,7 @@ const txStatus = i => { const r = Number(i.rows) || 0, p = Number(i.proofed) || 
 const txStream = i => i.streamTitle || i.clipTitle || '';
 /* ---------- 選んだ文書をまとめて(12 ⑦(b)。入口の /api/autorun/start-docs。入口から開いたときだけ) ---------- */
 const PICK = { on: false, ids: new Set(), polling: 0, active: new Set() };
-const PICK_MAX = 20;   // まとめて実行に一度に入れられる文書の数(home/autorun.py の MAX_WAITING)
+const PICK_MAX = 20;   // まとめて実行に一度に入れられる文書の数(app/autorun.py の MAX_WAITING)
 /* 状態の言葉は共通の部品(UIKit.autorun。どの入口も同じ言葉。段4)。ここは札の色だけ */
 const RUN_CLS = { queued: 'wait', running: 'run', done: 'ok', error: 'err', cancelled: 'wait' };
 const runLabelOf = r => UIKit.autorun.runLabel(r);

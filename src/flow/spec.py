@@ -6,11 +6,11 @@
   validate(束)   = 型と範囲の検査(合わなければ理由つきの ValueError)。検査の本体は下の clean_*・top_arg・row_edge_ok など
 固定の項目(FIXED)は束の鍵にしない。呼ぶ側(画面・友人の受付・CLI)は、変えたい所だけを渡す。
 
-前半は src/home/autorun.py から移した検査(RS1-6。動きは変えていない)。autorun は同じ名前で読み直している。
+前半は src/app/autorun.py から移した検査(RS1-6。動きは変えていない)。autorun は同じ名前で読み直している。
 後半の DEFAULTS は、今のコードにある既定値を写した物(出どころの場所を横に書いた)。
 末尾の「束 → 本文」(RS6 b-0)は、段(flow/run.py)が各ツールの API に渡す本文を束から作る純粋な関数:
   export_body(束, 配信, マーク)・tx_opts(束)・pack_output(束)。解析の設定は束の analyze 節をそのまま渡す。
-入口(src/home/autorun.py の build_spec)は画面の設定から束を組む = 段は設定ファイルも GET /api/settings も読まない(5-4)。
+入口(src/app/autorun.py の build_spec)は画面の設定から束を組む = 段は設定ファイルも GET /api/settings も読まない(5-4)。
 5-4 の固定(切り出しの精密・画質の上限なし・パックの fps 30)は FIXED の値をいつも使う(RS7-1 S4 = 決定 3-30 Q2 で画面だけの値 screen の口を消した)。
 学習データの用語集は束に入れない(編集の受付が要求に無ければ自分の設定から読む = human/proof/doc_jobs.validate_job・CLI は flow/tools の Learning)。
 """
@@ -201,7 +201,7 @@ DEFAULTS = {
     "adopt": {                # 自動採用
         "top": DEFAULT_TOP,   # 採用する上限の本数(autorun.py の DEFAULT_TOP)
         "pad": 2.0,           # 区間の前後に足す秒(上の RANGE_PAD)
-        "perHour": 6,         # ライブの 1 時間の候補の枠(src/home/prefs.py の DEFAULTS live.detect.perHour)
+        "perHour": 6,         # ライブの 1 時間の候補の枠(src/app/prefs.py の DEFAULTS live.detect.perHour)
         "waitMin": 5,         # ライブの候補を最初に見てから採用まで待つ分(同 live.autoAdopt.waitMin)
         "sens": "normal",     # ライブの検出の感度 high|normal|low(human/friend/live_requests.py の SETTINGS_DEFAULT sens)
         "afterStream": True,  # ライブ: 配信が終わったあとにアーカイブから全自動で流すか(同 SETTINGS_DEFAULT afterStream)
@@ -460,7 +460,7 @@ def validate(bundle):
 
 def key_ok(sec, key, value):
     """束の 1 項目の値が検査に合うか(辞書の項目は既定に重ねてから見る = {"vertical": 9} だけでもよい)。
-    入口が画面の設定から束を組むとき、合わない値を既定に戻すのに使う(src/home/autorun.py の spec_from_settings)"""
+    入口が画面の設定から束を組むとき、合わない値を既定に戻すのに使う(src/app/autorun.py の spec_from_settings)"""
     try:
         merged = merge({sec: {key: value}})[sec][key]
     except ValueError:

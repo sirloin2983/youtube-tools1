@@ -70,13 +70,12 @@ FILES = {
     "src/editor/thumb_ideas.py": ("human", "human/cut", "サムネの案(P5)"),
     "src/editor/ed_state.py": ("app", "app", "split: 設定は ytt/settings、backend_name は eval/fake の登録"),
     "src/editor/serve.py": ("app", "app", "名前の受付と API の配線"),
-    # ---- home
-    "src/home/launch.py": ("app", "app", "旧パスの起動用の転送(runpy で src/app/server.py を動かすだけ。RS7-2 G5b で本体を app へ移した。start.bat は新しい場所を直に呼ぶ)"),
-    "src/home/mount.py": ("app", "app", ""),
-    "src/home/appwindow.py": ("app", "app", ""),
-    "src/home/prefs.py": ("app", "app", "設定の既定値と検査(ytt/settings に寄せる)"),
-    "src/home/autorun.py": ("app", "app", "計画 7 節は pipeline/run だったが app に残す(RS3-0B・仮決め #4。AutoRunner は受付と、Runner・Queue の hook を案件・設定で埋める合成の役(待ち行列と糸は RS7-1 S5 で flow/runqueue.py へ)。① の経路は RS1-7 で pipeline/run.py へ済み。友人の届け約 275 行は RS3-3 で human/friend/delivery.py の Delivery(mixin)へ出して継ぐ)"),
-    "src/home/live.py": ("app", "app", "計画 7 節は pipeline/run だったが app に残す(RS3-0B・仮決め #4。Live は録画元・中継・友人・片付け・見回り _tick を束ねる玄関 = 合成の役。葉の live_* だけ層へ移す = RS3-1)"),
+    # ---- 入口の部品(旧 src/home。RV C1 で src/app へ移した)
+    "src/app/mount.py": ("app", "app", ""),
+    "src/app/appwindow.py": ("app", "app", ""),
+    "src/app/prefs.py": ("app", "app", "設定の既定値と検査(ytt/settings に寄せる)"),
+    "src/app/autorun.py": ("app", "app", "計画 7 節は pipeline/run だったが app に残す(RS3-0B・仮決め #4。AutoRunner は受付と、Runner・Queue の hook を案件・設定で埋める合成の役(待ち行列と糸は RS7-1 S5 で flow/runqueue.py へ)。① の経路は RS1-7 で pipeline/run.py へ済み。友人の届け約 275 行は RS3-3 で human/friend/delivery.py の Delivery(mixin)へ出して継ぐ)"),
+    "src/app/live.py": ("app", "app", "計画 7 節は pipeline/run だったが app に残す(RS3-0B・仮決め #4。Live は録画元・中継・友人・片付け・見回り _tick を束ねる玄関 = 合成の役。葉の live_* だけ層へ移す = RS3-1)"),
     # ---- ライブの葉は RS3-1 で移した(DIRS で読む): live_export → pipeline/export・live_detect と live_excite_worker → pipeline/analyze・
     #      live_archive と live_align_worker → pipeline/ingest(計画は pipeline/run だが run.py がファイルなので)・live_tx と live_tx_worker → pipeline/transcribe・
     #      live_failures → pipeline(計画は manage/ops。RS3-0B・仮決め #5)・live_report → pipeline(計画は eval/tools。決定 3-25 の c)・live_cleanup → manage/keep。
@@ -97,7 +96,7 @@ FILES = {
     "src/flow/livehost.py": ("flow", "flow", "ライブの親の口(RS7-2 G0。typing.Protocol だけ。Detector・LiveTx・Reporter・Exporter・Adopter が親に求める物 = LiveHost 1 つ。flow/livesession の LiveSession が満たす)"),
     "src/flow/live_adopt.py": ("flow", "flow", "ライブの採用 = マーク + 書き出し(M1。RS7-2 G1b。Live.adopt の本体。マークの置き場 StudioMarks(スタジオ)・LocalMarks(マークの正本。スタジオなし))"),
     "src/flow/livesession.py": ("flow", "flow", "ライブ係(RS7-2 G2b。Live から app でない部分 = 録画元のクライアント・録画を始める・受付 submit(封筒 kind live + 束 → live/bundles.json)・"
-                                "見回り・子プロセス・調子・採用の口。入口の home/live.py の Live はこれを継ぐ app の殻)"),
+                                "見回り・子プロセス・調子・採用の口。入口の app/live.py の Live はこれを継ぐ app の殻)"),
     # ---- analytics → manage/ops/analytics(別件。中身は変えない)
     "src/manage/ops/analytics/__init__.py": ("manage", "manage/ops/analytics", ""),
     "src/manage/ops/analytics/bridge.py": ("manage", "manage/ops/analytics", ""),

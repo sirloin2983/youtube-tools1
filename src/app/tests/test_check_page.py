@@ -15,8 +15,8 @@ import unittest
 
 TESTS = os.path.dirname(os.path.abspath(__file__))   # src/app/tests
 SRC = os.path.dirname(os.path.dirname(TESTS))
-sys.path.insert(0, os.path.join(SRC, "home"))
-sys.path.insert(0, os.path.join(SRC, "home", "tests"))
+sys.path.insert(0, os.path.join(SRC, "app"))
+sys.path.insert(0, os.path.join(SRC, "app", "tests"))
 if SRC not in sys.path:
     sys.path.append(SRC)
 sys.path.insert(0, TESTS)   # 土台 _pagetest.py(入口を立てる共通の準備)

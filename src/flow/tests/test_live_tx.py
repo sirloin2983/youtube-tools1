@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """配信中の候補の文字起こし(線 D の D-11 案 b。ホーム 0.48.0)のテスト。② の側 src/flow/live_tx.py(入口 home の Live は使わず、ライブ係 flow/livesession.LiveSession で組む)。
-子プロセス live_tx_worker.py の試験は src/pipeline/transcribe/tests/test_live_tx_worker.py、設定(prefs)との一致は src/home/tests/test_live_tx_prefs.py。
+子プロセス live_tx_worker.py の試験は src/pipeline/transcribe/tests/test_live_tx_worker.py、設定(prefs)との一致は src/app/tests/test_live_tx_prefs.py。
 
     py -3.10 -m unittest src/flow/tests/test_live_tx.py
 

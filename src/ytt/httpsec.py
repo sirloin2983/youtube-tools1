@@ -65,7 +65,7 @@ def send_head(handler, code, ctype, length, extra=None, cache="no-store"):
 
 def send(handler, code, body=b"", ctype="text/plain; charset=utf-8", extra=None, cache="no-store"):
     """応答を書く(見出しは send_head。HEAD の要求には本文を書かない)。各サーバーの Handler._send はこれを呼ぶだけ
-    (入口の取り込み src/home/mount.py は _send を上書きして CSP と合言葉を足すので、Handler._send という名前は残す)"""
+    (入口の取り込み src/app/mount.py は _send を上書きして CSP と合言葉を足すので、Handler._send という名前は残す)"""
     send_head(handler, code, ctype, len(body), extra, cache)
     if handler.command != "HEAD":
         handler.wfile.write(body)

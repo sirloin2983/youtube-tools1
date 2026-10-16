@@ -1,4 +1,4 @@
-/* ホーム(src/home/portal.html。段階5で入口 + 案件を1つにした)。
+/* ホーム(src/app/ui/home/portal.html。段階5で入口 + 案件を1つにした)。
    - ツールの起動状態(旧・入口)は /api/status を定期的に読んで「詳しく」の中のカードに出す(開く・起動・停止・再起動・すべて終了)
    - 案件(配信ごと)の一覧(旧・cases.html)は /api/cases を読んで組み立てる。状態・メモは /api/cases/update に保存
    - 「やること」(RS8 C3)は、実行中の物(まとめて実行 /api/autorun)と、種類ごとの件数(採用待ち・校正待ち・パック待ち・失敗 = 案件の一覧の todoSum・todoFirst。
@@ -1207,7 +1207,7 @@
 
   /* 押せないボタンには理由を title に(A-34)。押せるときは title を外す */
   function offBtn(b, off, why) { b.disabled = !!off; if (off) b.title = why; else b.removeAttribute('title'); }
-  var DOC_BATCH_MAX = 20;   // まとめて実行に一度に入れられる文書の数(src/home/autorun.py の MAX_WAITING)
+  var DOC_BATCH_MAX = 20;   // まとめて実行に一度に入れられる文書の数(src/app/autorun.py の MAX_WAITING)
   function syncDocRunButton() {
     var n = Object.keys(docPicked).length;
     offBtn($('#docRunBtn'), !n || n > DOC_BATCH_MAX, n ? '一度に ' + DOC_BATCH_MAX + ' 本までです。選びを減らすと押せます' : '文字起こしを選ぶと押せます(一覧の左のチェック)');
@@ -1778,7 +1778,7 @@
 
   var INTAKE_PILL = { off: 'wait', watching: 'ok', error: 'err' };
   var intakeData = null, intakeSig = '', intakeBusy = false, intakeOpened = false;
-  /* 0.54.0: 見張るフォルダ・数の欄は設定の画面(/settings。範囲は home/prefs.py の INTAKE_RANGES とスキーマを test_settings_schema が突き合わせる)。ここはスイッチと今のフォルダだけ */
+  /* 0.54.0: 見張るフォルダ・数の欄は設定の画面(/settings。範囲は app/prefs.py の INTAKE_RANGES とスキーマを test_settings_schema が突き合わせる)。ここはスイッチと今のフォルダだけ */
   function fillIntakeSettings(d) {
     $('#intakeEnabled').checked = !!d.enabled;
     $('#intakeFolderNow').textContent = d.folder ? '見張るフォルダ: ' + d.folder : '見張るフォルダは未設定(「設定を変える」で決めます)';
@@ -1917,7 +1917,7 @@
       function (e) { failToast('バックアップを始められませんでした', '写す先のフォルダを確かめて、もう一度「今すぐ写す」を押してください', e); })
       .then(function () { backupBusy = false; if (backupData) renderBackupStatus(backupData); });
   }
-  /* スイッチ(enabled)だけを保存する(写す先・間隔は設定の画面)。写す先が空のままオンにすると入口が断る(home/prefs.py)→ 理由を出してスイッチを戻す */
+  /* スイッチ(enabled)だけを保存する(写す先・間隔は設定の画面)。写す先が空のままオンにすると入口が断る(app/prefs.py)→ 理由を出してスイッチを戻す */
   function backupSave(v) {
     var msg = $('#backupSaveMsg');
     msg.textContent = '保存しています…';

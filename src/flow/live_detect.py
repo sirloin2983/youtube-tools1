@@ -3,7 +3,7 @@
 計算はワーカー(src/pipeline/analyze/live_excite_worker.py。入口の子プロセス)。ここは起動・見張り・候補の API・人の採用と見送り・自動の採用・「調子」の行。
 ライブ係 src/flow/livesession.py の LiveSession(入口の Live はそれを継ぐ)が持ち(live.detector)、見回り(tick。30 秒ごと)・API の振り分け・「調子」から呼ぶ(live.py を大きくしない。仮決め (br))。
 
-設定(ホームの設定の節 live。src/home/prefs.py): detect {enabled(既定オン。10-08 ユーザー決定), sens: high|normal|low, perHour: 1〜30(既定 6)}・
+設定(ホームの設定の節 live。src/app/prefs.py): detect {enabled(既定オン。10-08 ユーザー決定), sens: high|normal|low, perHour: 1〜30(既定 6)}・
 autoAdopt {enabled(既定オン), waitMin: 1〜60(既定 5)}。検出はリアルタイム切り抜き(live.enabled)もオンのときだけ動く。
 束のある録画(親の bundles = live/bundles.json。RS7-2 G2b)は、録画を始めたときの束の解析の設定(analyze)・感度・枠(adopt.sens・perHour)を
 config.json の bundles に、自動の採用の待ちは束の adopt.waitMin(決定 3-31 の仮 b1)。束の無い録画は上の設定とスタジオの解析の設定のまま。
@@ -16,7 +16,7 @@ config.json の bundles に、自動の採用の待ちは束の adopt.waitMin(�
   auto_failures.json  ここが書く: 自動の採用を諦めた候補(「調子」の失敗に出す)
   peaks.json・state.json・series.jsonl・worker.json・skipped.jsonl はワーカーが書く(ここは読むだけ)
 
-API(src/home/live.py の handle_get / _api_post から。書き込みは入口の合言葉が要る = 今の仕組みのまま):
+API(src/app/live.py の handle_get / _api_post から。書き込みは入口の合言葉が要る = 今の仕組みのまま):
   GET  /live/api/peaks?recorder=&recording=&since=<seq>
        → {ok, seq, enabled, recorder, recording, worker: {running, behindSec, chat, restarts, chatRestarts, memMB, lag, message, error},
           hour: {perHour, counts: {"<h>": n}}, autoAdopt: {enabled, waitMin},

@@ -1,6 +1,6 @@
 """③ 友人へ届ける: まとめて実行の「Dropbox へ届ける」段と、ライブの切り抜きの組の溜め(まとめて実行 AutoRunner が継ぐ mixin)。
 
-形: AutoRunner(入口の src/home/autorun.py)が `class AutoRunner(Delivery, Queue)` で継ぐ(Queue = src/flow/runqueue.py)。ここは入口の部品
+形: AutoRunner(入口の src/app/autorun.py)が `class AutoRunner(Delivery, Queue)` で継ぐ(Queue = src/flow/runqueue.py)。ここは入口の部品
 (autorun・launch・live・prefs)も案件の部品(manage/cases)も読まない = 要るものは継いだクラスが埋める:
   - _deliver_batch_limits() -> (既定, 下限, 上限)  n 本ごとに組にする数の既定と範囲(ホームの設定 intake.deliverBatch。AutoRunner が prefs から)
   - _remember_delivered(切り抜きのパス, zip の名前)  案件の一覧に「届けた」を残す(AutoRunner が cases.remember_delivered を呼ぶ)
@@ -13,7 +13,7 @@
 組 = まとめ動画 1 本 + 1 本ずつの zip + 組の一覧(.group.json)で Dropbox の 出力 へ置く(実行の終わりには n 本に満たない残りも)。
 n=1 か 1 本だけのときは 1 本の zip + その隣のまとめ動画。1 本の作り方(まとめ動画 → zip → 届けた記録)は同じフォルダの deliver.deliver_one(手で届けるのも同じ)。
 ライブの切り抜き(友人のライブ配信の依頼・live.autoDeliver)は 1 本ごとに別の実行なので、実行をまたいで「組の溜め」(run.pool)に預け、
-n 本たまったら組で届ける(flush_pools は入口の src/home/live.py が見回りで呼ぶ)。溜めは logs/deliver-pool.json(10-09 ユーザー決定 = decisions 3-20)。
+n 本たまったら組で届ける(flush_pools は入口の src/app/live.py が見回りで呼ぶ)。溜めは logs/deliver-pool.json(10-09 ユーザー決定 = decisions 3-20)。
 
 友人へ自動で送る(D-SEND。要件 notes:plan/d-send-requirements.md・判定と理由の文は ② flow/sendpolicy):
   - 出どころ(_origin): run.deliver_origin(request・auto・manual)。無ければ依頼の id があれば request・無ければ auto。友人に見せる形は deliver.face_origin
@@ -447,7 +447,7 @@ class Delivery:
             return len(prun.delivered) - before
 
     def flush_pools(self, is_done, now=None):
-        """溜めの残りを届ける見回り(入口の src/home/live.py が呼ぶ)。is_done(meta) = その録画・その段がもう切り抜きを作らないか
+        """溜めの残りを届ける見回り(入口の src/app/live.py が呼ぶ)。is_done(meta) = その録画・その段がもう切り抜きを作らないか
         (録画が終わった・書き出しの途中が無い)。届けるのは: is_done が真で、その溜めに預ける実行が待ち・実行中に無く、最後に預けてから POOL_IDLE_SEC たったとき、
         または溜めを作ってから POOL_MAX_AGE たったとき。
         置けなかった自動の分(meta.parked。D-SEND 2-6)は待たずにすぐ送り直す(受付の Dropbox のフォルダがあるとき)。配信が終わってから 48 時間を過ぎていれば

@@ -574,7 +574,7 @@ function openPicker(focusOpen){
   setTimeout(() => { const f = focusOpen ? $('#rvOpenIn') : $('#rvPickQ'); if (f) f.focus(); }, 0);
 }
 /* ---------- 前回の場所(S-8): 配信ごとに、再生位置と選んでいたマークを覚えて、開いたときに戻す ----------
-   置き場所はこのブラウザ(localStorage の ytt:studio.place)。ホームの設定(UIKit.prefs)は節が決まっていて(home/prefs.py の PATCHABLE)スタジオの節が無いこと、
+   置き場所はこのブラウザ(localStorage の ytt:studio.place)。ホームの設定(UIKit.prefs)は節が決まっていて(app/prefs.py の PATCHABLE)スタジオの節が無いこと、
    再生位置は再生中に数秒ごとに変わる値で、配信のデータ(マークの保存。rev で重なりを見ている)に書くとマークの保存と競合することから。
    形: { 配信の id: [秒, マークの id, 覚えた時刻(ms)] }。新しい順に PLACE_MAX 本まで(古いものから捨てる)。書くのは変わったときだけ・2 秒に1回まで */
 const PLACE_KEY = 'ytt:studio.place', PLACE_MAX = 200;
@@ -1780,7 +1780,7 @@ async function openLiveRecording(rec){
 const PEAK_PRE = 5;            // [再生]・グラフの山の札は、頭の 5 秒前から
 const PEAK_FADE_MS = 3000;     // 外れた行を薄くしてから消すまで
 const PEAK_FULL_MS = 60000;    // 全部(+ グラフの series)を読み直す間(それ以外の見回りは since の差分だけ)。入口が「オフ」と答えたあと聞き直すまでの間も同じ
-const PEAK_DEFAULT = { perHour: 6, waitMin: 5 };   // 入口の答えに無いときの 1 時間の本数・自動採用の待つ分(home/prefs.py の既定と同じ)
+const PEAK_DEFAULT = { perHour: 6, waitMin: 5 };   // 入口の答えに無いときの 1 時間の本数・自動採用の待つ分(app/prefs.py の既定と同じ)
 const PEAK_SENDING = '送っています…';   // 操作の答えを待つ間、その候補のボタンを押せない理由
 const PEAK_STATE = { frame: ['info', '枠', 'この 1 時間の枠に入っている候補です(点数の高い候補と入れ替わることがあります)'],
   bench: ['wait', '控え', '枠からあふれた候補です(採用はできます)'], adopted: ['ok', '採用', '採用してマークにしました'], dismissed: ['', '見送り', '見送った候補です(「戻す」で戻せます)'] };
@@ -3523,7 +3523,7 @@ const AUTO_STATE = { queued: 'wait', running: 'run', done: 'ok', error: 'err', c
 /* 入口の API(/api/...)。① 探す のまとめて実行と同じ core.js の Studio.portalApi */
 const portalApi = (path, body) => Studio.portalApi(path, body);
 /* ---------- 書き出しのあと自動で文字起こし(入口から開いたときだけ。設定「書き出しのあと自動で文字起こし」既定オン。IMPLEMENTATION.md 4) ----------
-   入口の /api/autorun/start を mode:'transcribe' + marks(書き出したものだけ)で呼ぶ。もう書き出し済みのマークは、その段だけ飛ばして続く(home/autorun.py _step_export で確認済み) */
+   入口の /api/autorun/start を mode:'transcribe' + marks(書き出したものだけ)で呼ぶ。もう書き出し済みのマークは、その段だけ飛ばして続く(app/autorun.py _step_export で確認済み) */
 function autoTxEnabled(){ return S.settings.autoTx !== false; }
 /* 0.21 までの保存(このブラウザの localStorage の ytt:studio.autoTx)→ true / false / null(無い)。サーバーの設定に autoTx が無いときだけ読む(消さない) */
 function autoTxLegacy(){ try { const x = localStorage.getItem('ytt:studio.autoTx'); return x === '0' ? false : x === '1' ? true : null; } catch { return null; } }

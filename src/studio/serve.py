@@ -49,7 +49,7 @@ CODE_DIR = startup.CODE_DIR
 STATIC = {"/rank.js": "rank.js", "/queue.js": "queue.js", "/review.js": "review.js", "/collab.js": "collab.js"}
 STATIC_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "application/javascript; charset=utf-8"}
 PORT = 8800
-BASE_PATH = "/"   # 画面の場所。入口の統合サーバーに取り込まれたときは "/studio/"(home/mount.py が prepare() で入れる)
+BASE_PATH = "/"   # 画面の場所。入口の統合サーバーに取り込まれたときは "/studio/"(app/mount.py が prepare() で入れる)
 ALLOWED_HOSTS = set()
 MAX_BODY = 4 * 1024 * 1024
 SOCKET_TIMEOUT = float(os.environ.get("STUDIO_SOCKET_TIMEOUT") or 60)   # 読み取りが止まった接続を閉じるまでの秒数
@@ -610,7 +610,7 @@ def _keep_legacy_exports(r):
 
 def prepare(port, base_path="/"):
     """サーバーの待ち受け以外の起動の準備(データの読み込み・ログ・前回の作業ファイルの片付け・.runtime・環境チェック)。
-    main() と、入口の統合サーバー(home/mount.py)の両方から呼ぶ。戻り値は .runtime の記録のパス(書けなければ None)。
+    main() と、入口の統合サーバー(app/mount.py)の両方から呼ぶ。戻り値は .runtime の記録のパス(書けなければ None)。
     シグナルの受け取りは main() だけで行う(統合サーバーでは入口が受け取るため)。"""
     global PORT, BASE_PATH, ALLOWED_HOSTS
     PORT, BASE_PATH = port, base_path
@@ -673,7 +673,7 @@ def shutdown_jobs(wait=SHUTDOWN_WAIT):
 
 def finish():
     """終了の後始末: 実行中の処理と子プロセスを止め(shutdown_jobs)、.runtime の記録を消す(自分が書いた記録のときだけ消える)。
-    入口の中では home/mount.py の Mount.stop() がこれを呼ぶ(「すべて終了」・入口の Ctrl+C・×)"""
+    入口の中では app/mount.py の Mount.stop() がこれを呼ぶ(「すべて終了」・入口の Ctrl+C・×)"""
     try:
         shutdown_jobs()
     finally:

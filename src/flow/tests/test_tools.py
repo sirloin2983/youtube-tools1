@@ -3,7 +3,7 @@
 
 - LocalTools: 入口なしで 動画ファイル → 文字起こし → パック を 1 本(疑似のエンジン。疑似の差し込みはテストの側 = eval/fake/fake_asr の FAKE)
 - LocalTools に無い段(配信・解析・採用・書き出し・話者分離)は「入口に頼んでください」の StepError
-- HttpTools は今の API をそのまま呼ぶ(呼ぶ API と本文は src/home/tests/test_autorun.py が見る)
+- HttpTools は今の API をそのまま呼ぶ(呼ぶ API と本文は src/app/tests/test_autorun.py が見る)
 - 鍵を読んで飛ばす(RS6 b-K2): 同じ・違う・force と、HttpTools(API の形)と LocalTools で同じ Run.public
 """
 import os

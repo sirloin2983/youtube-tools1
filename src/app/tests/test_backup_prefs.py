@@ -1,6 +1,6 @@
-"""設定 prefs の backup の節(src/home/prefs.py。入口の側に残した検査)。バックアップの本体のテストは src/manage/keep/tests/test_backup.py。
+"""設定 prefs の backup の節(src/app/prefs.py。入口の側に残した検査)。バックアップの本体のテストは src/manage/keep/tests/test_backup.py。
 
-実行(リポジトリ直下から): python -m unittest src/home/tests/test_backup_prefs.py -v
+実行(リポジトリ直下から): python -m unittest src/app/tests/test_backup_prefs.py -v
 """
 import os
 import shutil
@@ -15,7 +15,7 @@ for p in (HOME, ROOT):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import prefs as prefs_mod  # noqa: E402
+from app import prefs as prefs_mod  # noqa: E402
 from ytt import fsio  # noqa: E402
 
 

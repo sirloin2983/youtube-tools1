@@ -1,4 +1,4 @@
-"""作業データのバックアップ(src/manage/keep/backup.py。設定は入口の Prefs を借りる。prefs の節の検査は src/home/tests/test_backup_prefs.py)の単体テスト。一時フォルダだけを使う。
+"""作業データのバックアップ(src/manage/keep/backup.py。設定は入口の Prefs を借りる。prefs の節の検査は src/app/tests/test_backup_prefs.py)の単体テスト。一時フォルダだけを使う。
 
 実行(リポジトリ直下から): python -m unittest src/manage/keep/tests/test_backup.py -v
 """
@@ -13,13 +13,13 @@ import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> keep -> manage -> src
-HOME = os.path.join(ROOT, "home")   # 設定 prefs(入口 = app)を借りる
+HOME = os.path.join(ROOT, "app")   # 設定 prefs(入口 = app)を借りる
 for p in (HOME, ROOT):
     if p not in sys.path:
         sys.path.insert(0, p)
 
 from manage.keep import backup  # noqa: E402
-import prefs as prefs_mod  # noqa: E402
+from app import prefs as prefs_mod  # noqa: E402
 from ytt import fsio  # noqa: E402
 
 

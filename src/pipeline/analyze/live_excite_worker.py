@@ -269,7 +269,7 @@ def spec_with_hint(spec, hint):
 
 # ---------------------------------------------------------------- 録画元
 class RecorderClient:
-    """録画元の API(GET だけ)。合言葉 Bearer と Host を付ける(src/home/live.py の Live.request と同じ形)"""
+    """録画元の API(GET だけ)。合言葉 Bearer と Host を付ける(src/app/live.py の Live.request と同じ形)"""
 
     def __init__(self, rc, timeout=10.0):
         self.rc, self.timeout = rc, timeout

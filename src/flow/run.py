@@ -10,7 +10,7 @@ _after_pack・_remember_styles・_remember_doc_streamer)にして、既定は「
 _friend_length は RS7-1 S4 から受付(入口の AutoRunner._accept)が読む(段は束の analyze と Run.friend_plan を読む)。
 
 順番待ちと実行の糸(_loop)・中止・状態と記録(snapshot・history・autorun-runs.jsonl)・起動し直しで戻す(autorun-active.json)・見積もりは
-RS7-1 S5 で flow/runqueue.py の Queue(Runner を継ぐ)へ。src/home/autorun.py に残したもの(AutoRunner が Queue を継いで hook を埋める):
+RS7-1 S5 で flow/runqueue.py の Queue(Runner を継ぐ)へ。src/app/autorun.py に残したもの(AutoRunner が Queue を継いで hook を埋める):
 受付(start*)・restart_info・Dropbox へ届けることと組の溜め・HTTP の ToolClient(案件(cases・txindex)・ホームの設定(prefs)・届ける部品(deliver)を読むので)。
 autorun は移した名前を同じ名前で読み直している(テストと live.py が autorun.StepError などを使う。例外は同じ物)。
 
@@ -50,7 +50,7 @@ import uuid
 
 from ytt import colors, jobs as _slots
 from . import envelope as _envelope, keys as _keys, normalize as _norm, placement as _placement, prio as _prio, sendpolicy as _sendpolicy, spec as _spec, tools as _tools
-from .envelope import clean_pool  # noqa: F401  (src/home/autorun.py が同じ名前で読む。RS7-1 S3 で envelope へ移した)
+from .envelope import clean_pool  # noqa: F401  (src/app/autorun.py が同じ名前で読む。RS7-1 S3 で envelope へ移した)
 from .spec import (CUTS, LIVE_AUTO_CUT, MAX_MARKS, TX_ENGINES, TX_MODELS, WEIGHT_KEYS, clean_ranges, clean_weights)
 
 
@@ -540,7 +540,7 @@ class Runner:
         self.find_pack = find_pack or (lambda path: None)
         self.closed = False   # 入口の終了(_check が止める)
 
-    # ------------------------------------------------------------ hook(既定 = 何も知らない。src/home/autorun.py の AutoRunner が埋める)
+    # ------------------------------------------------------------ hook(既定 = 何も知らない。src/app/autorun.py の AutoRunner が埋める)
     def _await_tools(self, run):
         """戻した実行(M5)で、使うツールの準備を待つ。既定は待たない"""
         run.resumed = False

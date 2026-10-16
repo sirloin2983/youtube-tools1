@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ホームの「依頼の受付」(友人の依頼の自動受付。notes:docs/spec/friend.md の 6)の画面の確認(Playwright)。
 
-    python src/home/tests/e2e_intake_ui.py [--shots <フォルダ>]
+    python src/app/tests/e2e_intake_ui.py [--shots <フォルダ>]
 
 バックエンド(src/human/friend/intake.py)には頼らない: api/intake・api/intake/scan・intake の設定の保存(api/ytt/prefs)・
 api/autorun は page.route で偽物に差し替える。入口(server.py)は e2e_portal.py と同じ形で動かすが、ツールは起動しない。

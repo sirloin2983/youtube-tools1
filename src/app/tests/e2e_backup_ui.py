@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ホームの「作業データのバックアップ」(src/manage/keep/backup.py。notes:docs/spec/data.md の「バックアップ」)の画面の確認(Playwright)。
 
-    python src/home/tests/e2e_backup_ui.py
+    python src/app/tests/e2e_backup_ui.py
 
 入口(server.py)は e2e_intake_ui.py と同じ形で動かす(ツールは起動しない)。バックエンドは本物:
 作業データの代わりの一時フォルダを srv.backup.source に入れ、画面から 先を決める → オンにする → 写る → 今すぐ写す を通す。

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """リアルタイム切り抜き(試験中。線 D)の入口の側の通しの確認。本物の YouTube には繋がない。
 
-    py -3.10 src/home/tests/e2e_live.py
+    py -3.10 src/app/tests/e2e_live.py
 
 入口(server.py)は e2e_backup_ui.py と同じ形で動かす(ツールは起動しない)。録画の部品は本物(src/pipeline/ingest/recorder.py)を
 --source direct で別のプロセスとして動かし、ffmpeg の lavfi で作った HLS を手元の HTTP サーバーで配信中のように出して録る。

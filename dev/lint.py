@@ -179,8 +179,8 @@ def dup_helpers(path, nodes, src):
 
 def js_dead(corpus):
     out = []
-    for tool in ("home", "studio", "editor", "ui-kit"):
-        d = os.path.join(SRC, tool)
+    for tool in ("app/ui/home", "app/ui/settings", "studio", "editor", "ui-kit"):
+        d = os.path.join(SRC, *tool.split("/"))
         paths = [p for p in walk(d, (".js", ".html", ".cjs")) if not p.endswith("ui-kit.js") or tool == "ui-kit"]
         for p in paths:
             if p.endswith(".cjs") or is_test(p):

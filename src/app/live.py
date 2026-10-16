@@ -8,7 +8,7 @@ P3(2026-10-05。計画の 0-8): 録画と再生・マークは**スタジオの�
 
 オンのとき:
   GET  /live/・/live/index.html・/live    ホーム / へ 302(以前の録画の画面のブックマーク。スタジオの画面は RS8 C4 で消した)
-  GET  /live/hls.min.js                   hls.js(src/home/vendor/ に同梱 = CSP script-src 'self' のまま。スタジオの画面が ../live/hls.min.js で読む)
+  GET  /live/hls.min.js                   hls.js(src/app/ui/home/vendor/ に同梱 = CSP script-src 'self' のまま。スタジオの画面が ../live/hls.min.js で読む)
   GET  /live/api/info                     録画元の一覧(名前・URL。合言葉は出さない)・録画の置き場所の設定・書き出しの音量(スタジオの設定の引き出しが読む)
   POST /live/api/begin  {url}             配信の状態を yt-dlp で調べ(live_status)、配信中・配信前なら既定の録画元(一覧の先頭)で録画を始める
                                           → {live: true, recorder, recording: {id, url, title, state}, existing}(同じ配信を録画中ならそれ = existing: true)
@@ -61,7 +61,7 @@ P3(2026-10-05。計画の 0-8): 録画と再生・マークは**スタジオの�
 残った録画の部品がフォルダを掴んで移動できなかった): POST /live/quit で静かに終わらせ、応答が無い・終わらないときは、この入口が起動したものだけ孫ごと止める
 (スタジオの ffmpeg・yt-dlp と同じ taskkill /T /F)。**録画中(quit が 409)なら止めずに残し**、記録と「すべて終了」の画面に知らせる(録画は続き、次の入口が見回りでつなぐ)。
 スタートアップのショートカットにしない理由: 既定オフ(オンにするまで自動で起動しない)を、ショートカットを置く・消す手作業なしで守れるため。
-ログインしたら録画も上げたいときは、今までどおり入口を裏で起動するショートカット(src\\home\\start_hidden.vbs)を置けば、入口が録画の部品も起こす。
+ログインしたら録画も上げたいときは、今までどおり入口を裏で起動するショートカット(src\\app\\start_hidden.vbs)を置けば、入口が録画の部品も起こす。
 
 役割で組み直す RS7-2 G2b(2026-10-11): app でない部分(録画元のクライアント・録画を始める begin/begin_request・受付 submit・見回りの列・子プロセス・「調子」・採用の口)は
 src/flow/livesession.py の LiveSession(ライブ係)へ移した。Live はそれを継ぎ、ここに残すのは app の物だけ: HTTP の受け口(handle_get・handle_post)・
@@ -89,7 +89,7 @@ from human.friend import deliver as deliver_mod  # noqa: E402  (自動の切り�
 from human.friend import intake as intake_mod  # noqa: E402  (受付のフォルダと 出力\ の読み方 configured_folder・out_dir_of = 受付と同じ 1 か所)
 
 CODE_DIR = os.path.dirname(os.path.abspath(__file__))
-VENDOR_DIR = os.path.join(CODE_DIR, "vendor")
+VENDOR_DIR = os.path.join(CODE_DIR, "ui", "home", "vendor")
 PAGES = {"/live/hls.min.js": ("hls.min.js", VENDOR_DIR)}   # 部品だけ(画面は案件の画面の候補。P3・RS8 C4)
 TYPES = {".js": "application/javascript; charset=utf-8"}
 TO_STUDIO = ("/live", "/live/", "/live/index.html")       # 以前の録画の画面 → ホーム(録画中の帯から案件の画面へ。スタジオの画面は RS8 C4 で消した)
@@ -144,7 +144,7 @@ def studio_lag(root):
 class Live(livesession.LiveSession):
     def __init__(self, prefs, root, logs_dir, log=None, python=None, data_dir=None, watch_sec=livesession.WATCH_SEC, spawn=True,
                  store_dir=None, out_dir=None, runner=None, audio=None, server=None, archive_opts=None, cleanup_opts=None):
-        """prefs: src/home/prefs.py の Prefs。data_dir: 手元の録画の部品の作業データ(テスト用。既定 recorder_data_dir)。
+        """prefs: src/app/prefs.py の Prefs。data_dir: 手元の録画の部品の作業データ(テスト用。既定 recorder_data_dir)。
         store_dir: マークと書き出しの記録(既定 入口の作業データの live)。out_dir(): 書き出し先(既定 スタジオの書き出し先)。
         runner(): 文字起こしへ渡す まとめて実行(既定 入口の server.autorun。画面の要求が来たときに覚える)。
         audio(): 束の無い録画の書き出しの音量の設定 {"volume", "loudness"}(既定 スタジオの書き出しの設定 = studio_audio)。
@@ -184,12 +184,12 @@ class Live(livesession.LiveSession):
         return self.prefs.get(["live"])["live"]
 
     def studio_call(self, method, path, body=None):
-        """取り込んだスタジオの API を呼ぶ(まとめて実行 src/home/autorun.py の ToolClient と同じ形 = 画面と同じ検査・合言葉)。
+        """取り込んだスタジオの API を呼ぶ(まとめて実行 src/app/autorun.py の ToolClient と同じ形 = 画面と同じ検査・合言葉)。
         -> (HTTP の番号, JSON)。スタジオが動いていない・つながらないときは (None, {"message"})"""
         srv = self._server
         if srv is None or not hasattr(srv, "tool_endpoint"):
             return None, {"message": "ホームのサーバーがまだ準備できていません"}
-        import autorun   # 入口のプロセスの中だけ(ここで読むのは、テストで live だけを読むときに要らないため)
+        from app import autorun   # 入口のプロセスの中だけ(ここで読むのは、テストで live だけを読むときに要らないため)
         try:
             return autorun.ToolClient(srv.tool_endpoint, srv.token, timeout=30).call("studio", method, path, body)
         except autorun.StepError as e:
@@ -366,7 +366,7 @@ class Live(livesession.LiveSession):
 
     # --- 友人へ届ける・D-13・片付け(入口の物) ---
     def flush_pools(self, force=False):
-        """まとめて実行の組の溜め(src/home/autorun.py の flush_pools)の残りを届ける見回り。その録画が終わり、書き出しの途中・受け渡し待ちが無ければ「もう作らない」。
+        """まとめて実行の組の溜め(src/app/autorun.py の flush_pools)の残りを届ける見回り。その録画が終わり、書き出しの途中・受け渡し待ちが無ければ「もう作らない」。
         -> 届けた本数"""
         now = time.time()
         if not force and now - self._pool_at < POOL_EVERY:

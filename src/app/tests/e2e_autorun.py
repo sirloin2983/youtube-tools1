@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""まとめて実行(src/home/autorun.py)の通し確認。本物の3ツールを疑似モードで一時フォルダに写し、入口に取り込んだ形で動かす(空きポートだけを使う)。
+"""まとめて実行(src/app/autorun.py)の通し確認。本物の3ツールを疑似モードで一時フォルダに写し、入口に取り込んだ形で動かす(空きポートだけを使う)。
 
-    python src/home/tests/e2e_autorun.py [--shots <フォルダ>]
+    python src/app/tests/e2e_autorun.py [--shots <フォルダ>]
 
 ① ホームの案件の一覧(/。旧 /cases.html は RS8 C4 で / へ転送)で「採用後を全部」を押す → 書き出し → 文字起こし → Resolve パック(Text+)が順に進み、
    案件の画面に文字起こし・パックが出る。もう一度押すと、何も作り直さない(すべて「飛ばした」)
@@ -23,13 +23,13 @@ from unittest import mock
 
 from playwright.sync_api import sync_playwright
 
-TESTS = os.path.dirname(os.path.abspath(__file__))   # src/home/tests
+TESTS = os.path.dirname(os.path.abspath(__file__))   # src/app/tests
 HERE = os.path.dirname(TESTS)   # home(入口の部品)
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 sys.path.append(os.path.dirname(HERE))   # src(app 層。入口本体は src/app/server.py)
 from app import server as L  # noqa: E402
-import mount as M  # noqa: E402
+from app import mount as M  # noqa: E402
 from test_launch import REPO, _copy_tool, free_ports  # noqa: E402
 
 

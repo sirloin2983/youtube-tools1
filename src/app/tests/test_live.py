@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""リアルタイム切り抜き(線 D の P1)の入口の側(src/home/live.py・prefs の節 live・server.py の /live/…・「調子」の行)のテスト。
+"""リアルタイム切り抜き(線 D の P1)の入口の側(src/app/live.py・prefs の節 live・server.py の /live/…・「調子」の行)のテスト。
 ② の部分は src/flow/tests に移した: 録画元まわり(probe・stop_recorder・見回りの起動)= test_live_recorder.py、マークと書き出し・採用・失敗の集約・ディスク・重い処理の枠 = test_live_export.py。
 
-    py -3.10 -m unittest src/home/tests/test_live.py
+    py -3.10 -m unittest src/app/tests/test_live.py
 
 確かめること:
   - 設定 live: 既定はオフ・形の検査・合言葉は空で送っても今の値を残す・画面へ返す設定に合言葉を出さない・配信中の候補の文字起こし liveTx(D-11 案 b)の検査
@@ -39,13 +39,13 @@ sys.path.insert(0, os.path.join(REPO, "flow", "tests"))   # 共有の偽物 _liv
 import _livefix as LF  # noqa: E402
 sys.path.append(os.path.dirname(HERE))   # src(app 層。入口本体は src/app/server.py)
 from app import server as L  # noqa: E402
-import live as LV  # noqa: E402
+from app import live as LV  # noqa: E402
 from flow import live_adopt as LA  # noqa: E402
 from flow import livesession as LS  # noqa: E402
 from flow import run as RunMod  # noqa: E402
 from flow import live_export as LX  # noqa: E402
 from human.friend import live_requests as LR  # noqa: E402
-import prefs as P  # noqa: E402
+from app import prefs as P  # noqa: E402
 from ytt import fsio, jobs, loudness, normalize, schemas, tools  # noqa: E402
 
 TOKEN = LF.TOKEN

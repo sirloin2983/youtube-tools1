@@ -31,14 +31,14 @@ TESTS = os.path.dirname(os.path.abspath(__file__))   # src/app/tests
 SRC = os.path.dirname(os.path.dirname(TESTS))
 STUDIO = os.path.join(SRC, "studio")
 sys.path.insert(0, STUDIO)
-sys.path.insert(0, os.path.join(SRC, "home"))
+sys.path.insert(0, os.path.join(SRC, "app"))
 if SRC not in sys.path:
     sys.path.append(SRC)
 import startup  # noqa: E402,F401  (src を sys.path に足し、スタジオのフォルダを ytt/studio_env に知らせる)
 from ytt import studio_env  # noqa: E402
 import serve  # noqa: E402
 from app import server as L  # noqa: E402
-import mount  # noqa: E402
+from app import mount  # noqa: E402
 
 VID = "fqa00000001"
 YT_ID = "ytCand00001"   # YouTube の配信(テストでは YouTube へ繋がない = プレーヤーが使えないときの確認用)

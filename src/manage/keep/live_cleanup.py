@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """録画を自動で消す(線 D の P4。notes:plan/line-d-live-clipping.md の 0-9 の最後。2026-10-05 ユーザー決定)の入口の側。
-設定 live.autoDelete(既定オン。src/home/prefs.py)。オフなら何も消さない。リアルタイム切り抜きがオフ(live.enabled)のときも何もしない。
+設定 live.autoDelete(既定オン。src/app/prefs.py)。オフなら何も消さない。リアルタイム切り抜きがオフ(live.enabled)のときも何もしない。
 
 消すのは戻せないので、条件は厳しめにする(迷ったら消さない・分からなければ消さない):
   1. 本番版への入れ替えが全部済んだ録画(すぐ。src/flow/live_archive.py の Archiver が1本終えるたびに check を呼ぶ・見回りでも)
@@ -42,7 +42,7 @@ from flow import live_retire   # 録画を消してよいかの判断と、消�
 
 NO_MARK_SEC = 24 * 3600.0      # マークの無い録画を消すまで(録画が終わってから)
 KEEP_SEC = 3 * 86400.0         # 退避した速報版を消すまで(入れ替えてから。ただの控えは早めに消す = notes:docs/spec/data.md の保存の方針)
-INTERVAL = 600.0               # 見回り(入口の録画の見回り src/home/live.py の tick から)で調べる間隔
+INTERVAL = 600.0               # 見回り(入口の録画の見回り src/app/live.py の tick から)で調べる間隔
 STALE_SEC = 3 * 86400.0        # D-14: 終わってからこれだけたっても消せない録画を「調子」に知らせる。理由が NOT_REPLACED だけなら、このとき消す(10-09 ユーザー決定)
 WARN_SEC = 2 * 86400.0         # NOT_REPLACED の録画を消す 1 日前から「調子」に予告する
 NOT_REPLACED = live_retire.NOT_REPLACED   # 消せない理由のうち、3 日で消す理由(② の Retire.verdict が返す文)
@@ -52,7 +52,7 @@ REC_ACTIVE = ("waiting", "recording", "reconnecting")   # src/pipeline/ingest/re
 
 class Cleaner:
     def __init__(self, live, enabled=None, studio=None, log=None, no_mark_sec=NO_MARK_SEC, keep_sec=KEEP_SEC, interval=INTERVAL, clock=time.time, hold=None):
-        """live: src/home/live.py の Live(録画元の一覧と要求。書き出しのジョブ・マーク・検出の記録は ② の口 live_retire.Retire(live) を通して読み書きする)。
+        """live: src/app/live.py の Live(録画元の一覧と要求。書き出しのジョブ・マーク・検出の記録は ② の口 live_retire.Retire(live) を通して読み書きする)。
         enabled(): 消してよいか(リアルタイム切り抜きがオンで、設定 live.autoDelete がオン)。
         studio(method, path, body) -> (HTTP の番号 か None(つながらない), JSON): 取り込んだスタジオの API(Live.studio_call)。
         hold(録画元の id, 録画元の一覧の 1 行) -> 消すのを待つ理由(空 = 待たない。M7 の配信後の全自動がまだ)。

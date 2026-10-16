@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """リアルタイム切り抜き(線 D の P2: マークと書き出し。notes:plan/line-d-live-clipping.md の 0・5・6)の入口の側の中身。
-画面と API は src/home/live.py(設定 live.enabled がオンのときだけ)。ここは「マークの正本」と「書き出しのジョブ」。
+画面と API は src/app/live.py(設定 live.enabled がオンのときだけ)。ここは「マークの正本」と「書き出しのジョブ」。
 
 マーク(MarkStore):
   録画1本(録画元 + 録画の id)ごとに、入口の作業データの live/marks/<録画元>__<録画の id>.json に置く(マークの正本)。
@@ -132,7 +132,7 @@ def pick_folder(root, title, owner):
 
 def rec_list(call, rc, timeout=5.0):
     """録画元の録画の一覧(GET /live/list の recordings のうち、id の形が正しい辞書だけ)。つながらない・読めなければ None。
-    call = src/home/live.py の Live.call(テストは差し替える)"""
+    call = src/app/live.py の Live.call(テストは差し替える)"""
     code, d = call(rc, "GET", "/live/list", timeout=timeout)
     if code != 200 or not isinstance(d, dict):
         return None
@@ -183,7 +183,7 @@ def check_origin(v):
 
 
 def clean_auto(cfg):
-    """ホームの設定 live.auto(src/home/prefs.py が検査済み)-> ジョブに覚える {cut, engine, model}(空の値は入れない)"""
+    """ホームの設定 live.auto(src/app/prefs.py が検査済み)-> ジョブに覚える {cut, engine, model}(空の値は入れない)"""
     cfg = cfg if isinstance(cfg, dict) else {}
     return {k: cfg[k] for k in AUTO_KEYS if isinstance(cfg.get(k), str) and cfg[k]}
 
@@ -511,8 +511,8 @@ class Exporter(Patrol):
     def __init__(self, host: "livehost.LiveHost", folder, out_dir, runner=None, log=None, slots=None, poll=POLL, down_sec=DOWN_SEC, ffmpeg=None, ffprobe=None, audio=None,
                  runs_log=None, disk_usage=None, disk_poll=DISK_POLL, exported=None):
         """host: 親(flow/livehost.py の LiveHost。flow/livesession.py の LiveSession。録画元の一覧と要求。studio_call は無くてよい)。folder: 入口の作業データの live\\。out_dir(): 書き出し先(スタジオの書き出し先)。
-        runner(): まとめて実行(src/home/autorun.py の AutoRunner。文字起こしへ渡す)か None。
-        audio(): 書き出しの音量 {"volume": 1〜200(%), "loudness": LUFS か None}(src/home/live.py の studio_audio)。None なら音量を変えない。
+        runner(): まとめて実行(src/app/autorun.py の AutoRunner。文字起こしへ渡す)か None。
+        audio(): 書き出しの音量 {"volume": 1〜200(%), "loudness": LUFS か None}(src/app/live.py の studio_audio)。None なら音量を変えない。
         runs_log: まとめて実行の記録 autorun-runs.jsonl(失敗の集約。M3)。
         disk_usage(path) -> (空きのバイト数, 全体のバイト数)(M4。既定 fsio.disk_space。テストは偽の小さな空きにする)・disk_poll: 調べ直す間隔(秒)。
         exported(job, media, archived) -> 警告の文か "": 書き出したらマークの置き場(flow/live_adopt.py の StudioMarks・LocalMarks)に「書き出し済み」を伝える(RS7-2 G1b)。

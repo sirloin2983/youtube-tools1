@@ -246,7 +246,7 @@ class TestEditStore(StoreDir):
         self.assertEqual(rec(dict(mini, loudness=0, volume=200, streamer="", advanced={}))["output"],
                          dict(mini, loudness=0, volume=200, streamer="", advanced={}))
         # output が無い・壊れている → 記録はできて output は入らない
-        self.assertNotIn("output", rec(KEEP_OFF))                                           # 古い画面・まとめて実行(home/autorun.py)
+        self.assertNotIn("output", rec(KEEP_OFF))                                           # 古い画面・まとめて実行(app/autorun.py)
         self.assertEqual(S.get_edit(TID)["packStale"], False)
         for bad in (None, "x", [], 3, dict(full, fps=30), dict(full, fps="1000"), dict(full, fps="3a"), dict(full, fps="3\n"), dict(full, size="abc"),
                     dict(full, size="1080x1080"), dict(full, wrap=41), dict(full, wrap=-1), dict(full, wrap="8"), dict(full, wrap=True), dict(full, wrap=8.5),

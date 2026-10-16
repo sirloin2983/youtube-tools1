@@ -4,7 +4,7 @@
     python dev/run_editor_suite.py [--only 名前の一部] [--out 結果.json]
 
 リポジトリ直下から流す。各テストは別のプロセス(AGENTS.md の決まりどおりのコマンド)。
-e2e は PYTHONIOENCODING=utf-8、src/home/tests/test_mount.py は付けない(付けると子プロセスの出力の読み取りが落ちる。以前からの件)。
+e2e は PYTHONIOENCODING=utf-8、src/app/tests/test_mount.py は付けない(付けると子プロセスの出力の読み取りが落ちる。以前からの件)。
 """
 import argparse
 import json
@@ -18,7 +18,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PY = sys.executable
 UNIT = [
     ("editor 単体", [PY, "-m", "unittest", "src/editor/tests/test_metrics.py", "src/editor/tests/test_resolve_export.py", "src/editor/tests/test_roster.py"], False),
-    ("home test_mount", [PY, "-m", "unittest", "src/home/tests/test_mount.py"], False),
+    ("home test_mount", [PY, "-m", "unittest", "src/app/tests/test_mount.py"], False),
     ("契約テスト", [PY, "-m", "unittest", "dev/tests/test_resolve_pack_contract.py"], False),
     ("eval_asr", [PY, "-m", "unittest", "src/eval/tools/tests/test_eval_asr.py"], False),
     ("eval_alt", [PY, "-m", "unittest", "src/eval/tools/tests/test_eval_alt.py"], False),   # 候補の当たり率(alt)

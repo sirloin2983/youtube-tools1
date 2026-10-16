@@ -12,7 +12,7 @@
   5. 画面(ui-kit の UIKit.restart)は api/ping を数秒ごとに読み、戻ったら再読み込みする
 
 起動のしかた(start.bat と同じ環境):
-- start.bat・src/home/start_hidden.vbs が決めているのは「どの Python か(py -3 → python)」と「作業フォルダ = リポジトリ直下」だけ。
+- start.bat・src/app/start_hidden.vbs が決めているのは「どの Python か(py -3 → python)」と「作業フォルダ = リポジトリ直下」だけ。
   環境変数は何も足さない。動いている入口の sys.executable は、その選んだ Python の本体(py -3 は本体を起動する)なので、
   ここでは sys.executable を使い、環境変数は今のプロセスのものをそのまま写す(bat を経由しない。bat の Python の選び方は変えない)
 - コンソール: 既定は見えないコンソール(CREATE_NO_WINDOW。start_hidden.vbs と同じ「裏で動かす」の形)。

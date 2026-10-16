@@ -4,9 +4,9 @@
 案件の画面の候補のパネル(/cases?c=<録画 id>#cand。panels/cand.js がスタジオの review.js と LivePlayer を載せる)を操作する。本物の YouTube には繋がない。
 (RS8 C4 でスタジオの画面のページと、その ⚙ の「ライブの録画」の欄を消した。案件の画面の帯は開いたときに入口の設定 live.autoArchive・autoDelete を読む)
 
-    py -3.10 src/home/tests/e2e_live_archive.py                 # 確かめる(終了コード 0 = すべて OK)
-    py -3.10 src/home/tests/e2e_live_archive.py --shots DIR     # あわせてスクリーンショットを DIR に残す
-    py -3.10 src/home/tests/e2e_live_archive.py --chromium      # Edge があっても Playwright の chromium で
+    py -3.10 src/app/tests/e2e_live_archive.py                 # 確かめる(終了コード 0 = すべて OK)
+    py -3.10 src/app/tests/e2e_live_archive.py --shots DIR     # あわせてスクリーンショットを DIR に残す
+    py -3.10 src/app/tests/e2e_live_archive.py --chromium      # Edge があっても Playwright の chromium で
 
 作り(e2e_live_studio.py と同じ形。全部一時フォルダ):
   - 「アーカイブ」= ffmpeg の lavfi で作った mp4(testsrc2 の 30fps + 時間で変わる音。照合できる音)。それを -c copy で 1 秒ごとの HLS にして、
@@ -154,7 +154,7 @@ def run(tmp, shots, force_chromium):
     from ytt import studio_env  # noqa: E402
     import serve   # noqa: E402  (studio)
     from app import server as L  # noqa: E402
-    import mount  # noqa: E402
+    from app import mount  # noqa: E402
     import hls_fixture as F  # noqa: E402
     from flow import live_export as LX  # noqa: E402
     from flow import live_archive as LA  # noqa: E402
@@ -425,7 +425,7 @@ def _scene_settings(cx):
     # ---------------- S. 「自動で本番版に作り直す」「録画を消す」(入口の設定)----------------
     # 0.25.0 から欄は設定の画面(prefs)。スタジオの ⚙ の「ライブの録画」(表示と「設定の画面で変える」のリンク)は C4 でスタジオの画面と一緒に消えた
     # (案件の画面の ⚙ はテーマなどだけ)ので、「⚙ に出る・開き直すと帯へ伝わる」の確かめは外した。帯は録画を開いたときに入口の設定を読む(1・6 で見る)
-    import prefs as P  # noqa: E402  (home。既定の値)
+    from app import prefs as P  # noqa: E402  (home。既定の値)
     defs = P.DEFAULTS["live"]
     lv = srv.prefs.get(["live"])["live"]
     check(lv["autoArchive"] == defs["autoArchive"] and lv["autoDelete"] == defs["autoDelete"],

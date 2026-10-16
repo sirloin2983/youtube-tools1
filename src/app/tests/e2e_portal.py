@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""ホーム(src/home/portal.html。段階5: 入口 + 案件を1つにした)の通し確認(Playwright。本物の3ツールを疑似モードで
+"""ホーム(src/app/ui/home/portal.html。段階5: 入口 + 案件を1つにした)の通し確認(Playwright。本物の3ツールを疑似モードで
 一時フォルダに写し、空きポートだけを使う)。
 
-    python src/home/tests/e2e_portal.py [--shots <フォルダ>]
+    python src/app/tests/e2e_portal.py [--shots <フォルダ>]
 
-いまは「文字起こし」も入口に取り込める(段階3-3。src/home/mount.py の MOUNTS)ので、2つの形をそれぞれ確かめる:
+いまは「文字起こし」も入口に取り込める(段階3-3。src/app/mount.py の MOUNTS)ので、2つの形をそれぞれ確かめる:
 
   (A) 本番と同じ形(python src/app/server.py と同じ mounts=tuple(mount.MOUNTS)): 3つとも入口に取り込み。
       2枚のカードが「ホームに取り込み」で動作中になる → ヘッダーの appnav(ホーム / 案件 / 確かめる / 設定)→ 案件の画面(/cases の候補・校正・
@@ -35,13 +35,13 @@ from unittest import mock
 
 from playwright.sync_api import sync_playwright
 
-TESTS = os.path.dirname(os.path.abspath(__file__))   # src/home/tests
+TESTS = os.path.dirname(os.path.abspath(__file__))   # src/app/tests
 HERE = os.path.dirname(TESTS)   # home(入口の部品)
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 sys.path.append(os.path.dirname(HERE))   # src(app 層。入口本体は src/app/server.py)
 from app import server as L  # noqa: E402
-import mount as M  # noqa: E402
+from app import mount as M  # noqa: E402
 from test_launch import REPO, _copy_tool, free_ports, wait_for  # noqa: E402
 from ytt import layout, schemas  # noqa: E402
 
@@ -430,7 +430,7 @@ def _mounted_cases_and_memo(cx):
     pg.evaluate("document.getElementById('advancedBox').open = true")
 
     # 2d-2. 未保存のメモ・フォーカスは、alt-tab で離れて戻ったとき(UIKit.life の blur→focus → refreshCases)の
-    # 再描画でも消えない(E2 finding 1)。blur→focus の起こし方は src/home/tests/e2e_window.py の「7-2 離れた・戻った」と同じ
+    # 再描画でも消えない(E2 finding 1)。blur→focus の起こし方は src/app/tests/e2e_window.py の「7-2 離れた・戻った」と同じ
     pg.click(".pt-case .pt-case-row")
     check(wait_js(pg, "document.querySelector('.pt-case').open === true", 5000), "[A] 下書きを試すため行を開く")
     pg.evaluate("document.querySelector('.pt-case .pt-case-memo').open = true")   # メモの <details> も開く(空だと既定で閉じている)

@@ -27,7 +27,7 @@ from ytt import normalize, tools  # noqa: E402
 TOKEN = "t" * 40   # FakeRecorder の合言葉
 FF = tools.find_tool("ffmpeg", "YTT_FFMPEG")
 
-# ホームの設定の節 live の既定(src/home/prefs.py の DEFAULTS["live"] と同じ値。flow のテストは入口を読まないので写す)
+# ホームの設定の節 live の既定(src/app/prefs.py の DEFAULTS["live"] と同じ値。flow のテストは入口を読まないので写す)
 LIVE_DEFAULTS = {"enabled": False, "folder": "", "recorders": [], "quality": "1080p", "autoArchive": True, "autoDelete": True,
                  "auto": {"after": "check", "cut": "", "engine": "", "model": "", "pad": 2.0}, "autoAfterStream": False, "afterStreamPerHour": 6,
                  "detect": {"enabled": True, "sens": "normal", "perHour": 6}, "autoAdopt": {"enabled": True, "waitMin": 5},

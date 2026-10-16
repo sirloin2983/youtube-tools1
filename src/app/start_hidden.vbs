@@ -1,11 +1,11 @@
 ' Start the home (launcher) in the background: no browser window, no console window.
 ' Used by start-background.bat and by a shortcut in the Startup folder (shell:startup).
-' Details: src\home\README.txt (section "background"). If the home is already running, server.py just exits.
+' Details: src\app\README.txt (section "background"). If the home is already running, server.py just exits.
 Option Explicit
 Dim fso, sh, root, py
 Set fso = CreateObject("Scripting.FileSystemObject")
 Set sh = CreateObject("WScript.Shell")
-' This file is in src\home\, so the repository root is three levels up.
+' This file is in src\app\, so the repository root is three levels up.
 root = fso.GetParentFolderName(fso.GetParentFolderName(fso.GetParentFolderName(WScript.ScriptFullName)))
 sh.CurrentDirectory = root
 ' Same choice of Python as start.bat: py -3.10 first, then the py launcher, then python on PATH.

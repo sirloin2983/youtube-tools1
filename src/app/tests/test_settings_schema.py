@@ -1,5 +1,5 @@
-"""設定の画面のスキーマ(src/home/settings/schema.json。S5)と、ホームの設定の検査(prefs.py)が食い違っていないか。リポジトリ直下で:
-    python -m unittest src/home/tests/test_settings_schema.py
+"""設定の画面のスキーマ(src/app/ui/settings/schema.json。S5)と、ホームの設定の検査(prefs.py)が食い違っていないか。リポジトリ直下で:
+    python -m unittest src/app/tests/test_settings_schema.py
 スキーマの型・範囲・選択肢・既定値を、prefs.py の CLEANERS / DEFAULTS に実際に通して確かめる(数字をここに写さない)。
 スタジオ・編集の分は src/studio/tests/test_settings_schema.py・src/editor/tests/test_settings_schema.py。"""
 import copy
@@ -10,10 +10,10 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 HOME = os.path.dirname(HERE)
-sys.path.insert(0, HOME)
-import prefs as PR  # noqa: E402
+sys.path.insert(0, os.path.dirname(HOME))   # src
+from app import prefs as PR  # noqa: E402
 
-SCHEMA_PATH = os.path.join(HOME, "settings", "schema.json")
+SCHEMA_PATH = os.path.join(HOME, "ui", "settings", "schema.json")
 TYPES = ("bool", "enum", "int", "number", "text", "folder", "textarea", "link")
 NO_UI = {"autorun.mode", "live.recorders", "live.liveTx.model"}   # 画面に出さない鍵(mode は案件ごと・recorders は一覧・liveTx.model は固定)
 

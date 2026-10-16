@@ -105,14 +105,14 @@
   - `intro`・`playbackNote`・`footNote`・`extra`: 一覧の中の文。`onChange()`: 割り当てが変わるたび(画面の帯・手がかりを描き直す)
 - api: `map()`(今効く割り当て `{id: キー}`。共通の再生キーを含む。`UIKit.keys.playback({keymap})` にそのまま渡せる)・`key(id)`・`text(id)`(表示用)・`actionOf(combo)`(キー → このツールの操作の id)・
   `mount(el)`・`reload()`・`refusal(id, combo)`・`set(id, combo)`・`setMany(map, msg)`(スタジオのプリセット。[戻す] つき)・`clearNote()`・`capturing()`
-- **共通の再生キー**(`UIKit.keys.PLAYBACK_ACTIONS`)はホームの設定 `keymap.playback`(`src/home/prefs.py`・`api/ytt/prefs`)に1つ。どのツールで変えても同じ。
+- **共通の再生キー**(`UIKit.keys.PLAYBACK_ACTIONS`)はホームの設定 `keymap.playback`(`src/app/prefs.py`・`api/ytt/prefs`)に1つ。どのツールで変えても同じ。
   初回は `fallbackPlayback.load()` の値(編集の settings.keymap にあった再生キー)をホームの設定へ移す。戻ったとき(`UIKit.life.onReturn`)に読み直す
 - 変え方: キーのボタン → その場で次のキーを待つ(捕捉の段階で受け、ほかのキー処理に渡さない)。Esc = 取り消しだけ(一覧は閉じない)・Delete / Backspace = 外す・
   Ctrl / Alt / Meta つきと日本語の変換中は受け取らない・断ったら理由を一覧の中に出して待ち続ける
 - 重なり: 別の操作に使っているキーを選ぶと、そちらを外して「「X」から外しました [戻す]」(一覧はモーダルの上なので、知らせ(トースト)ではなく一覧の中に出す)。行ごとの「標準」・すべて標準に戻す
 - **重なりの検査は部品の1か所**: 共通の再生キーにできないキー `UIKit.keymap.BLOCKED`(全ツールの固定キー・編集の 2 カット のキー・数字)・ツールの `refuse`・
-  派生キー(← → に当たるキー + Shift = 5 秒。1文字の記号は派生しない。GPT-03)。キーの形は `src/home/prefs.py` の `COMBO_RE` と同じ(サーバーは fullmatch で検査)
-- 新しいキーを足すとき: ツールのキーは `actions` に、共通の再生キーにできなくなるキー(どこかのツールで固定の意味を持つもの)は `PB_BLOCKED`(ui-kit.js)に足す。確かめるテストは `src/home/tests/e2e_keymap.py`
+  派生キー(← → に当たるキー + Shift = 5 秒。1文字の記号は派生しない。GPT-03)。キーの形は `src/app/prefs.py` の `COMBO_RE` と同じ(サーバーは fullmatch で検査)
+- 新しいキーを足すとき: ツールのキーは `actions` に、共通の再生キーにできなくなるキー(どこかのツールで固定の意味を持つもの)は `PB_BLOCKED`(ui-kit.js)に足す。確かめるテストは `src/app/tests/e2e_keymap.py`
 
 ## v9(2026-09-30・全体の計画 段2 監査 11。`UIKit.settings.status`)
 設定の保存・読み込みの失敗を、文書の保存の表示とは別の場所に出す(黙って捨てない)。
@@ -259,7 +259,7 @@
 ## v13(2026-10-04・一覧の項目を任意に非表示に `UIKit.hide`)
 増えていく一覧(ホームの案件・次にやること・単体の文字起こし・届いた依頼・まとめて実行の記録、スタジオ ③ の配信、「編集」の履歴)の項目を隠す部品。
 **新しく増えていく一覧を作るときは、これで隠せるようにする**。データは消さない(表示だけ)。
-- 覚える場所: ホームの設定の節 `hidden`(`src/home/prefs.py`。一覧の名前 → `{id: 隠した時刻}`。一覧の名前は `HIDE_LISTS` = `cases`・`todo`・`transcripts`・`videos`・`intake`・`runs`。
+- 覚える場所: ホームの設定の節 `hidden`(`src/app/prefs.py`。一覧の名前 → `{id: 隠した時刻}`。一覧の名前は `HIDE_LISTS` = `cases`・`todo`・`transcripts`・`videos`・`intake`・`runs`。
   新しい一覧はそこに足す)。足す・外すは `api/ytt/prefs` の op `hide`(`{list, ids, hidden}`)で1件ずつ = 窓を2つ並べても相手の分を消さない
 - `available()`: ホームから開いた(合言葉がある)ときだけ true。false のときは隠す操作・切り替えを出さない
 - `load(force)` → Promise(最初の1回と、画面に戻ったとき(`UIKit.life.onReturn`)に読み直す)・`has(list, id)`・`count(list, ids)`
@@ -317,9 +317,9 @@
 - 70・75: 右の欄の幕・右の欄 / 80: ツールチップ / 90: トースト
 
 ## v25(2026-10-09・設定を 1 つに S5。`notes:docs/spec/data.md` の 4)
-- `UIKit.settingsForm.render(host, group, io)` … 宣言的なスキーマ(`src/home/settings/schema.json`。鍵・型・範囲・既定値・ラベル・1 行の説明)から設定の節を描く。
+- `UIKit.settingsForm.render(host, group, io)` … 宣言的なスキーマ(`src/app/ui/settings/schema.json`。鍵・型・範囲・既定値・ラベル・1 行の説明)から設定の節を描く。
   範囲と形の検査・「標準に戻す」(既定と違うときだけ)・保存の印(「保存しました」2 秒。失敗は理由を行に出して値を戻す)・`when` で出す/隠す・ツールが動いていないときの無効化(`io.disabled()`)が自動で付く。
-  節の要素には `id="uiSetGroup-<節の id>"`(ほかの画面からのリンク先。`settings#uiSetGroup-intake`)。`UIKit.settingsForm.filter(root, text)` は検索(ラベル・説明・鍵)。入口の `/settings`(`src/home/settings/`)が使う。各ツールの ⚙ は今までの作り(S2・S3 で置いた)
+  節の要素には `id="uiSetGroup-<節の id>"`(ほかの画面からのリンク先。`settings#uiSetGroup-intake`)。`UIKit.settingsForm.filter(root, text)` は検索(ラベル・説明・鍵)。入口の `/settings`(`src/app/ui/settings/`)が使う。各ツールの ⚙ は今までの作り(S2・S3 で置いた)
 - `UIKit.settings.general()` … ⚙ の「全体」の節(テーマ・文字の大きさ・キーの帯)の要素。/settings にも置く。入口に取り込まれている画面の「全体」の節には「すべての設定を 1 つの画面で → 設定の画面を開く」(`/settings`)が付く
 
 ## v26(2026-10-11・RS8 案件の画面 C1。`notes:docs/design/rs8-cases-build.md`)

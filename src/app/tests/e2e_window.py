@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """段階7(画面の形の準備と窓)の通し確認(Playwright。本物の3ツールを疑似モードで一時フォルダに写し、3つとも入口に取り込む)。
 
-    python src/home/tests/e2e_window.py
+    python src/app/tests/e2e_window.py
 
   (RS8 C4: スタジオ・編集の画面は消えたので、ツールの画面の場面は案件の画面 /cases で確かめる。appnav の 4 項目と旧 URL の転送は e2e_portal.py)
   7-0 画面のエラーの記録: 案件の画面・設定の画面で起きたエラー(throw・Promise の失敗)が client-errors.jsonl に1行ずつ残る
@@ -28,14 +28,14 @@ from unittest import mock
 
 from playwright.sync_api import sync_playwright
 
-TESTS = os.path.dirname(os.path.abspath(__file__))   # src/home/tests
+TESTS = os.path.dirname(os.path.abspath(__file__))   # src/app/tests
 HERE = os.path.dirname(TESTS)   # home(入口の部品)
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
-import appwindow as W  # noqa: E402
+from app import appwindow as W  # noqa: E402
 sys.path.append(os.path.dirname(HERE))   # src(app 層。入口本体は src/app/server.py)
 from app import server as L  # noqa: E402
-import mount as M  # noqa: E402
+from app import mount as M  # noqa: E402
 from e2e_portal import wait_js, open_advanced  # noqa: E402
 from test_launch import REPO, _copy_tool, free_ports  # noqa: E402
 from ytt import fsio  # noqa: E402

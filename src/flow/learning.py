@@ -22,7 +22,7 @@ RULES_FILE = "learned-rules.json"    # 計算済みの規則
 SETTINGS_FILE, FEEDBACK_FILE = "settings.json", "learn-feedback.json"
 ROSTER_FILE, MEMBERS_FILE, VOICES_DIRNAME = "hololive-roster.json", "members.json", "voices"
 MAX_RULES = 5000
-PREFS_FILE = "prefs.json"            # ホームの設定(<作業データ>/app。src/home/prefs.py)。作る側の見分けに intake.folder だけ読む
+PREFS_FILE = "prefs.json"            # ホームの設定(<作業データ>/app。src/app/prefs.py)。作る側の見分けに intake.folder だけ読む
 MAKER_SKIP = "学習の束を作る側の PC なので、machine の learningDir(%s)は読みません(今の置き場所のまま)"
 
 

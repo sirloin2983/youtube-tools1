@@ -5,7 +5,7 @@
                                   [--data-dir <フォルダ>] [--source streamlink|direct]
 
 1台のときはデスクトップで 127.0.0.1 だけで待ち受ける。2台(P5)のときはノート PC で同じプログラムを LAN で待ち受ける
-(--host と --allow-host。合言葉と Host の検査は1台のときも同じコードを通る)。ブラウザからは直接使わない: 入口(home/live.py)が
+(--host と --allow-host。合言葉と Host の検査は1台のときも同じコードを通る)。ブラウザからは直接使わない: 入口(app/live.py)が
 /live/r/<録画元>/… を中継する(同じオリジン・CSP・合言葉の決まりのまま、CORS が要らない)。
 
 API(/api/ping 以外は合言葉 `Authorization: Bearer <token>` が要る。token は <作業データ>/recorder/token.txt):
@@ -62,7 +62,7 @@ def data_dir(arg=None):
 
 
 def load_token(ddir):
-    """合言葉(無ければ作る)。入口は同じファイルを読む(home/live.py)"""
+    """合言葉(無ければ作る)。入口は同じファイルを読む(app/live.py)"""
     p = os.path.join(ddir, "token.txt")
     try:
         with open(p, "r", encoding="ascii") as f:

@@ -1,4 +1,4 @@
-"""設定の画面のスキーマ(src/home/settings/schema.json。S5)のスタジオの分(store studio の節 analyze)が、analyze.validate_settings の
+"""設定の画面のスキーマ(src/app/ui/settings/schema.json。S5)のスタジオの分(store studio の節 analyze)が、analyze.validate_settings の
 範囲・既定値と食い違っていないか。リポジトリ直下で:
     python -m unittest src/studio/tests/test_settings_schema.py
 review の節は画面側(review.js の sanitizeSettings)だけで検査するので、ここでは鍵の形だけ見る。"""
@@ -12,7 +12,7 @@ sys.path.insert(0, STUDIO)
 sys.path.append(os.path.dirname(STUDIO))   # src(解析は ytt・pipeline を読む。RS3-4 から common を読まない)
 from pipeline.analyze import analyze  # noqa: E402
 
-SCHEMA_PATH = os.path.join(os.path.dirname(STUDIO), "home", "settings", "schema.json")
+SCHEMA_PATH = os.path.join(os.path.dirname(STUDIO), "app", "ui", "settings", "schema.json")
 
 
 def studio_items():

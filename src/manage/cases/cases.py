@@ -1,4 +1,4 @@
-"""案件(配信1本)ごとの紐づけ(統合計画の段階4)。入口の「案件」画面(src/home/portal.html)の中身を作る。
+"""案件(配信1本)ごとの紐づけ(統合計画の段階4)。入口の「案件」画面(src/app/ui/home/portal.html)の中身を作る。
 
 案件 = 切り抜きスタジオの動画1本(配信・ファイル)。その下に、書き出した切り抜きと、それぞれの文字起こし・パックを並べる。
 紐づけは、各ツールが持っているデータを**読むたびに組み立て直す**(各ツールの記録と食い違わないように。2026-09-26 ユーザーと決定):
@@ -80,7 +80,7 @@ AUTO_OPS = ("seen", "deliver", "discard")
 AUTO_KEEP = 2000                   # 案件 1 件で覚えておく確認の数(古いものから捨てる)
 DISCARD_KIND = "discard"           # ごみ箱/<日付>/ の下の種類の名前(片付けの export・work などと並ぶ)
 MARK_RE = re.compile(r"^[\w-]{1,40}\Z", re.ASCII)   # スタジオのマークの id(src/human/review/store.py の ID_RE と同じ形)
-STUDIO_TRIES = 3                   # スタジオの保存とぶつかったときに読み直す回数(src/home/live.py の採用と同じ)
+STUDIO_TRIES = 3                   # スタジオの保存とぶつかったときに読み直す回数(src/app/live.py の採用と同じ)
 _busy, _busy_lock = set(), threading.Lock()   # 「要らない」の途中の (配信, マーク)(二度押し・窓を 2 つ並べたときに同じものを二重に動かさない)
 _readers = {}                      # まとめて実行の記録のパス → live_failures.Reader(変わったときだけ読み直す)
 
@@ -204,7 +204,7 @@ def _apply_state(cases):
 
 def clip_live(media_path):
     """切り抜きの .clip.json の (source.live, mark)(線 D の書き出し = src/flow/live_export.py の _finish が書く。source.kind は live)。
-    無い・読めない・ライブでない・ネットワーク上のパスなら (None, None)。まとめて実行の M8(src/home/autorun.py の live_auto_origin)も同じ読み方"""
+    無い・読めない・ライブでない・ネットワーク上のパスなら (None, None)。まとめて実行の M8(src/app/autorun.py の live_auto_origin)も同じ読み方"""
     if not isinstance(media_path, str) or not media_path or fsio.is_network_path(media_path):   # ネットワーク上のパスには触らない(資格情報を送らない。txindex と同じ)
         return None, None
     cp = schemas.find_clip_path(media_path)
@@ -659,7 +659,7 @@ def auto_review(repo_root, body, deliveries=None, studio=None, feedback=None, tr
     """POST /api/cases/auto {op, id(案件 = スタジオの配信), markId(スタジオのマーク)}-> (HTTP の番号, JSON)。
     op: seen = 見た / deliver = 採用 = 友人へ届ける(パックがあるときだけ)/ discard = 要らない。自動でできた切り抜き(clip["auto"])だけを受け付ける
     (人の切り抜きは、この口では届けない・動かさない)。部品は入口が渡す: deliveries = deliver.Deliveries・studio(method, path, body) -> (番号, JSON)
-    (取り込んだスタジオの API = src/home/live.py の Live.studio_call)・feedback(行) = live_feedback.jsonl に 1 行・trash = cleanup.Cleanup
+    (取り込んだスタジオの API = src/app/live.py の Live.studio_call)・feedback(行) = live_feedback.jsonl に 1 行・trash = cleanup.Cleanup
     (ごみ箱フォルダの場所)・hide(文書の id) = その文字起こしを一覧で非表示に(ホームの設定の hidden)"""
     body = body if isinstance(body, dict) else {}
     op = body.get("op")
@@ -699,7 +699,7 @@ def _find_auto(repo_root, case_id, mark_id, env):
 
 def remember_delivered(repo_root, media_path, zip_name, env=None, at=None):
     """まとめて実行が自動で届けた(live.autoDeliver・友人のライブ配信の依頼)切り抜きに「届けた」を残す
-    (src/human/friend/delivery.py の _record_delivery → src/home/autorun.py の _remember_delivered から)。
+    (src/human/friend/delivery.py の _record_delivery → src/app/autorun.py の _remember_delivered から)。
     at: 届けた時刻(ms。付け直しの relink_delivered が届けた記録の at を渡す。既に「届けた」があれば変えない)。
     ライブの切り抜きでなければ何もしない。-> 残したか"""
     key = _studio_key(media_path)
@@ -936,7 +936,7 @@ def _remember(repo_root, case_id, mark_id, env=None, delivered=None, discarded=N
 
 
 def _feedback_row(c, cl, **kw):
-    """live_feedback.jsonl の 1 行(src/home/live.py の採用の行と同じ形: 出どころ・人か・判定・録画元・録画・マークの正本の id・スタジオの配信とマーク・区間・ラベル)。
+    """live_feedback.jsonl の 1 行(src/app/live.py の採用の行と同じ形: 出どころ・人か・判定・録画元・録画・マークの正本の id・スタジオの配信とマーク・区間・ラベル)。
     .clip.json を読むので、ファイルを動かす前に作る"""
     live, _m = clip_live(cl.get("path"))
     live = live or {}

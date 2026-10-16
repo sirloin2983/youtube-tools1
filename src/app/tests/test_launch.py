@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""入口(src/app/server.py)のテスト。  python -m unittest src/home/tests/test_launch.py -v
+"""入口(src/app/server.py)のテスト。  python -m unittest src/app/tests/test_launch.py -v
 
 - 偽のツール(serve.py の約束だけをまねた小さなサーバー)で、起動・停止・再起動・異常終了・別の画面で起動済み・
   強制終了・ポートの繰り上げ・入口の画面の安全検査を確かめる
@@ -22,7 +22,7 @@ import unittest
 import urllib.parse
 from unittest import mock
 
-TESTS = os.path.dirname(os.path.abspath(__file__))   # src/home/tests
+TESTS = os.path.dirname(os.path.abspath(__file__))   # src/app/tests
 HERE = os.path.dirname(TESTS)   # home(入口の部品)
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)

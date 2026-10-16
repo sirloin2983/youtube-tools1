@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""アーカイブで本番版に作り直す(線 D の P4。notes:plan/line-d-live-clipping.md の 0-9)の入口の側の中身。API は src/home/live.py(設定 live.enabled がオンのときだけ)。
+"""アーカイブで本番版に作り直す(線 D の P4。notes:plan/line-d-live-clipping.md の 0-9)の入口の側の中身。API は src/app/live.py(設定 live.enabled がオンのときだけ)。
 
 単位は入口の書き出しのジョブ(src/flow/live_export.py の Exporter。live/exports.json)。ジョブに archive を足して残す(入口を起動し直しても続く):
   archive {state: wait|probe|align|fetch|verify|done|error|cancelled, label(日本語), message(失敗のときは理由), progress(0〜1),
@@ -52,7 +52,7 @@ ffmpeg で 8kHz の音にする(数秒)・照合(子プロセスで 1〜2 秒)�
              候補の数 count は N の 2 倍まで増やす)。スタジオで解析済みならそれを使う。進み具合は GET /studio/api/queue
   (採用)   … 候補(自動のマーク・判定前)を点数の高い順に、録画の範囲に入る(半分以上入るものは録画の範囲に切り詰める)・録画の採用済みのマーク
              (マークの置き場から = taken。スタジオなしの headless は案件の 採用.json かマークの正本。RS8 B3-5 の G3)と重ならない上位 N を選び
-             (N = 録画の長さ(時間)× 1 時間あたりの数。1〜30)、M1 の採用(src/home/live.py の Live.adopt。origin archive・after auto = 文字起こし → パック・
+             (N = 録画の長さ(時間)× 1 時間あたりの数。1〜30)、M1 の採用(src/app/live.py の Live.adopt。origin archive・after auto = 文字起こし → パック・
              hold archive)を 1 本ずつ呼ぶ = スタジオの録画の配信に採用のマーク・live_feedback.jsonl(自動は「良い」に数えない)・書き出しのジョブ(速報版)
   export   … 書き出しが済んだ(・欠けで書き出せなかった)ジョブを本番版への作り直しに入れ(P4。設定 live.autoArchive がオフでも)、入れ替えたら
              まとめて実行へ渡す(文字起こし → パック)。全部が済む(渡した・失敗した)と done(n 本のうち渡した数・失敗の数)
@@ -300,7 +300,7 @@ def free_name(folder, name):
 # ---------- 配信後の全自動(M7)の決め方 ----------
 def ended_at(r):
     """録画の一覧の行 r の「終わった時刻」(epoch 秒): endedAt、無ければ lastPdt(最後のセグメントの時刻)。分からなければ None。
-    行の時刻の型は呼ぶ側で違う: after_tick は epoch(src/home/live.py の list_recordings)、after_stream_hold は録画の部品の生の行 = ISO の文字列
+    行の時刻の型は呼ぶ側で違う: after_tick は epoch(src/app/live.py の list_recordings)、after_stream_hold は録画の部品の生の行 = ISO の文字列
     (src/manage/keep/live_cleanup.py)。どちらでも同じ値にする(3 か所で別々に求めていたのを 1 つに。2026-10-09)"""
     for k in ("endedAt", "lastPdt"):
         v = r.get(k)
@@ -383,12 +383,12 @@ class Archiver(LX.Patrol):
                  after_stream=None, per_hour=None, recordings=None, adopt=None, after_max_age=AFTER_MAX_AGE, compare=None, request=None,
                  pack_info=None, settings_for=None, taken=None, exports=None, section_spec=None, queue=None):
         """exporter: src/flow/live_export.py の Exporter(ジョブ・マーク・書き出し先・音量)。
-        studio(method, path, body) -> (HTTP の番号 か None(つながらない), JSON): 取り込んだスタジオの API(src/home/live.py が autorun と同じ形で呼ぶ)。
+        studio(method, path, body) -> (HTTP の番号 か None(つながらない), JSON): 取り込んだスタジオの API(src/app/live.py が autorun と同じ形で呼ぶ)。
         enabled()・auto(): リアルタイム切り抜きがオンか・設定 live.autoArchive。recording_state(録画元, 録画) -> {"active", "endedAt"(epoch)} か None。
         probe(videoId) -> probe_archive の形。audio(videoId, folder, cancelled) -> 配信の丸ごとの音のファイル(fetch_full_audio)。align(ref.wav, window.wav) -> 照合の JSON。
         after(録画元, 録画): 1本を終えたとき(済み・失敗・取り消し)に呼ぶ(src/manage/keep/live_cleanup.py の Cleaner.check = 全部入れ替わった録画を消す)。
         配信後の全自動(M7): after_stream() = 設定 live.autoAfterStream・per_hour() = live.afterStreamPerHour・
-        recordings() -> 録画元の録画の一覧 [{recorder, id, url, title, active, endedAt, firstPdt, lastPdt}](時刻は epoch。src/home/live.py の list_recordings)・
+        recordings() -> 録画元の録画の一覧 [{recorder, id, url, title, active, endedAt, firstPdt, lastPdt}](時刻は epoch。src/app/live.py の list_recordings)・
         adopt(body, hold=) = M1 の採用(Live.adopt)。
         pack_info(動画のパス) -> その動画の Resolve パックの情報か None(速報版を本番版にしたとき、前に作ったパックが速報版のままだと知らせるため。
         パックの有無の規則は manage/cases/txindex.pack_info だけが持つので、入口(Live)が渡す。None = 知らせない)。

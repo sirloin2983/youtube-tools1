@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""入口への取り込み(src/home/mount.py・段階3)のテスト。  python -m unittest src/home/tests/test_mount.py -v
+"""入口への取り込み(src/app/mount.py・段階3)のテスト。  python -m unittest src/app/tests/test_mount.py -v
 
 本物の切り抜きスタジオ(疑似モード)・cut2resolve を一時フォルダに写し、入口のサーバーに取り込んで確かめる:
 /studio/・/cut2resolve/ の画面・API・安全対策(CSP・合言葉・Host)、.runtime の場所、他のツールの /api/siblings、
@@ -20,13 +20,13 @@ import types
 import unittest
 from unittest import mock
 
-TESTS = os.path.dirname(os.path.abspath(__file__))   # src/home/tests
+TESTS = os.path.dirname(os.path.abspath(__file__))   # src/app/tests
 HERE = os.path.dirname(TESTS)   # home(入口の部品)
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 sys.path.append(os.path.dirname(HERE))   # src(app 層。入口本体は src/app/server.py)
 from app import server as L  # noqa: E402
-import mount as M  # noqa: E402
+from app import mount as M  # noqa: E402
 from test_launch import REPO, _copy_tool, free_ports, wait_for  # noqa: E402
 from ytt import layout  # noqa: E402
 
@@ -49,7 +49,7 @@ class TestModuleNames(unittest.TestCase):
     def test_tools_do_not_share_module_names(self):
         """1つのプロセスに取り込むので、ツール間で同じ名前の部品を作らない(notes:docs/design/integration-plan.md)"""
         seen = {}
-        for d in TOOL_DIRS + (layout.TOOL_DIRS["app"],):   # 各フォルダの直下だけ(tests/ は取り込まないので対象外)
+        for d in TOOL_DIRS + ("app",):   # 入口の部品(src/app。作業データの置き場所 layout.TOOL_DIRS["app"] とは別)。各フォルダの直下だけ(tests/ は取り込まないので対象外)
             path = os.path.join(REPO, d)
             if not os.path.isdir(path):
                 continue

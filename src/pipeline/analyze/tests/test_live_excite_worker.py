@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """配信中の盛り上がりの検出(線 D の L2)のワーカー src/pipeline/analyze/live_excite_worker.py のテスト(子プロセスの中身を直に)。
-② の側(flow/live_detect.py。API・自動の採用 M11・友人の依頼など)は src/flow/tests/test_live_detect.py、設定の検査と入口を通す分は src/home/tests/test_live_detect_api.py。
+② の側(flow/live_detect.py。API・自動の採用 M11・友人の依頼など)は src/flow/tests/test_live_detect.py、設定の検査と入口を通す分は src/app/tests/test_live_detect_api.py。
 
     py -3.10 -m unittest src/pipeline/analyze/tests/test_live_excite_worker.py
 
@@ -38,7 +38,7 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データ
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(TESTS)))   # tests -> analyze -> pipeline -> src
-HERE = os.path.join(SRC, "home")                                  # 入口(NoNumpyTest が子プロセスで読む)
+HERE = os.path.join(SRC, "app")                                  # 入口(NoNumpyTest が子プロセスで読む)
 if SRC not in sys.path:   # src(層のパッケージ pipeline・ytt。server.py と同じく後ろに)
     sys.path.append(SRC)
 from pipeline.analyze import live_excite_worker as W  # noqa: E402

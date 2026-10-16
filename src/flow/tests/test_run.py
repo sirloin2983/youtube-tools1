@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """pipeline/run.py(① の経路。RS1-7)のテスト。  py -3.10 -m unittest src/flow/tests/test_run.py -v
-段の中身の細かい動きは src/home/tests/test_autorun.py(AutoRunner が Runner を継いだ形)で見る。ここは入口の関数・入力の形・hook の既定と、
+段の中身の細かい動きは src/app/tests/test_autorun.py(AutoRunner が Runner を継いだ形)で見る。ここは入口の関数・入力の形・hook の既定と、
 層の決まり(home を知らずに読める)だけ。
 """
 import os

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""アーカイブで本番版に作り直す(線 D の P4。src/flow/live_archive.py・src/pipeline/ingest/live_align_worker.py)のテスト。入口を通す API の分は src/home/tests/test_live_archive_api.py。本物の YouTube には繋がない。
+"""アーカイブで本番版に作り直す(線 D の P4。src/flow/live_archive.py・src/pipeline/ingest/live_align_worker.py)のテスト。入口を通す API の分は src/app/tests/test_live_archive_api.py。本物の YouTube には繋がない。
 
     py -3.10 -m unittest src/flow/tests/test_live_archive.py
 
@@ -536,7 +536,7 @@ class WorkerTest(unittest.TestCase):
 
 class AfterStreamTest(unittest.TestCase):
     """線 D の M7(配信後の全自動。src/flow/live_archive.py の after_tick): 用意を待つ → 解析を頼む → 上位 N を採用(origin archive・hold archive)
-    → 本番版へ → done。時刻合わせ(_after_offset)・スタジオ・採用(Live.adopt)は偽物(本物の通しは src/home/tests/e2e_live_archive.py の 9)"""
+    → 本番版へ → done。時刻合わせ(_after_offset)・スタジオ・採用(Live.adopt)は偽物(本物の通しは src/app/tests/e2e_live_archive.py の 9)"""
     HOURS = 3.0
 
     def setUp(self):

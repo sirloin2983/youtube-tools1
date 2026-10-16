@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """キーの一覧 = キー配置(UIKit.keymap。気が利く画面へ 段6)の通し確認。3ツールを疑似モードで一時フォルダに写し、入口に取り込んだ形で動かす。
 
-    python src/home/tests/e2e_keymap.py
+    python src/app/tests/e2e_keymap.py
 
 (RS8 C4: スタジオ・編集の画面は消えたので、編集 = 案件の画面の校正(/cases?d=<文書>#proof)・スタジオ = 候補(/cases?c=<配信>#cand)で確かめる)
 ① 校正: 以前の編集の設定に入れた共通の再生キーを、ホームの設定へ移す(1回だけ)
@@ -24,13 +24,13 @@ from unittest import mock
 
 from playwright.sync_api import sync_playwright
 
-TESTS = os.path.dirname(os.path.abspath(__file__))   # src/home/tests
+TESTS = os.path.dirname(os.path.abspath(__file__))   # src/app/tests
 HERE = os.path.dirname(TESTS)   # home(入口の部品)
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 sys.path.append(os.path.dirname(HERE))   # src(app 層。入口本体は src/app/server.py)
 from app import server as L  # noqa: E402
-import mount as M  # noqa: E402
+from app import mount as M  # noqa: E402
 from test_launch import REPO, _copy_tool, free_ports  # noqa: E402
 from e2e_autorun import make_media, wait_js  # noqa: E402
 

@@ -39,7 +39,7 @@
   1 本の zip + その隣のまとめ動画(<同じ名前>.preview.mp4)。友人は 1 本ずつ受け取る・要らないを選べる(notes:docs/spec/friend.md の 2-16)。作り方・名前は src/human/friend/deliver.py、
   届ける段と組の溜めの中身は src/human/friend/delivery.py(RS3-3)
   ライブの切り抜き(友人のライブ配信の依頼・live.autoDeliver)は 1 本ごとに別の実行なので、実行をまたいで「組の溜め」(run.pool。依頼 × 配信中 / 配信後の追加)に預け、
-  n 本たまったら組で届ける。録画が終わって書き出しも実行も残っていなければ、最後に預けてから POOL_IDLE_SEC で残りを届ける(flush_pools。入口の src/home/live.py が見回りで呼ぶ)。
+  n 本たまったら組で届ける。録画が終わって書き出しも実行も残っていなければ、最後に預けてから POOL_IDLE_SEC で残りを届ける(flush_pools。入口の src/app/live.py が見回りで呼ぶ)。
   溜めは logs/deliver-pool.json に残す(起動し直しても続く)。10-09 ユーザー決定 = decisions 3-20
 - 友人へ自動で送る(D-SEND。notes:plan/d-send-requirements.md): 画面の「友人へ自動で送る」(受付の autoSend。既定 = mode full のときだけオン・保存しない)。
   受付(_send_plan)で、mode full かつ依頼の受付の Dropbox のフォルダが決まっていれば出どころ auto・名前の頭 deliver_tag(友人のアプリの依頼 id の形)を置き、
@@ -75,7 +75,7 @@ from manage.cases import cases  # noqa: E402  (src/manage/cases/cases.py: パッ
 from human.friend import delivery as delivery_mod  # noqa: E402  (友人へ届ける段と組の溜め = AutoRunner が継ぐ Delivery。RS3-3 で切り出した)
 from human.friend import deliver as deliver_mod  # noqa: E402  (自動で送る分の名前の頭 = 友人のアプリの依頼 id の形。D-SEND)
 from human.friend import intake as intake_mod  # noqa: E402  (受付のフォルダの読み方の 1 か所。D-SEND の届け先)
-import prefs as prefs_mod  # noqa: E402  (ホームの設定の既定値と範囲。読み書きは渡された Prefs で)
+from app import prefs as prefs_mod  # noqa: E402  (ホームの設定の既定値と範囲。読み書きは渡された Prefs で)
 
 # RANGE_MAX・RANGE_MAX_SEC・RANGE_PAD・pad_range・CUTS・TX_ENGINES・TX_MODEL_RE・WEIGHT_KEYS は src/flow/spec.py へ、
 # MODES・MODE_STEPS・STEP_LABELS・Run・StepError など ① の経路は src/flow/run.py へ移した(上で読み直している)
@@ -233,7 +233,7 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
         待ちと実行中の記録(M5)も log_dir に置く(None = 残せないので、起動し直しで戻さない)。clock はテスト用"""
         # hook が使う値は Queue の __init__ の前に置く(前の起動の待ちを戻すと、すぐに糸が段を進める)
         self.root = repo_root
-        self.prefs = prefs   # ホームの設定(src/home/prefs.py)。カットの無い文書のカットの方法 autorun.cut
+        self.prefs = prefs   # ホームの設定(src/app/prefs.py)。カットの無い文書のカットの方法 autorun.cut
         self._delivery_init(log_dir)   # ライブの切り抜きの組の溜めの置き場所とロック(src/human/friend/delivery.py の Delivery)
         # パックの有無の見方は案件の画面とそろえる(cases.find_pack)。client・env・poll・sleep・log(入口のログ launcher.log に1行)・clock・closed は Runner、
         # 待ち行列・記録・待ちの記録(log_dir の autorun-runs.jsonl・autorun-active.json)は Queue が持つ
@@ -298,7 +298,7 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
         return _spec.marks_arg(marks)
 
     def _pref(self, key, default=None):
-        """ホームの設定 autorun の値(src/home/prefs.py。読めなければ default)"""
+        """ホームの設定 autorun の値(src/app/prefs.py。読めなければ default)"""
         try:
             v = (self.prefs.get(["autorun"])["autorun"] or {}).get(key) if self.prefs else None
         except (OSError, ValueError, KeyError):

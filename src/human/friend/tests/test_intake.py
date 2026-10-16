@@ -1,7 +1,7 @@
 """友人からの依頼の受付(src/human/friend/intake.py)の単体テスト。まとめて実行・ffprobe・yt-dlp は偽物。
 
 実行(リポジトリ直下から): python -m unittest src/human/friend/tests/test_intake.py -v
-(設定 prefs の intake の節の検査は入口の側 src/home/tests/test_intake_prefs.py)
+(設定 prefs の intake の節の検査は入口の側 src/app/tests/test_intake_prefs.py)
 """
 import json
 import os
@@ -16,14 +16,14 @@ from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> friend -> human -> src
-HOME = os.path.join(ROOT, "home")   # 設定 prefs(入口 = app)を、本物の設定と組み合わせて使うため
+HOME = os.path.join(ROOT, "app")   # 設定 prefs(入口 = app)を、本物の設定と組み合わせて使うため
 for p in (HOME, ROOT):
     if p not in sys.path:
         sys.path.insert(0, p)
 
 from human.friend import intake  # noqa: E402
 from human.friend import live_requests  # noqa: E402
-import prefs as prefs_mod  # noqa: E402
+from app import prefs as prefs_mod  # noqa: E402
 from ytt import fsio, jobs, normalize, tools  # noqa: E402
 
 

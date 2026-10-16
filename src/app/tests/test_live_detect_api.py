@@ -2,7 +2,7 @@
 """配信中の盛り上がりの検出の入口 home の側(app の殻 Live の GET|POST /live/api/peaks の振り分け・ホームの設定 prefs の検査)のテスト。
 Detector の中身(api_get・採用・自動の採用など)は ② の src/flow/tests/test_live_detect.py、ワーカーは src/pipeline/analyze/tests/test_live_excite_worker.py。
 
-    py -3.10 -m unittest src/home/tests/test_live_detect_api.py
+    py -3.10 -m unittest src/app/tests/test_live_detect_api.py
 
   - Live.handle_get / handle_post の振り分け(入口の合言葉・Origin の検査は server.py が先に済ませる)・オフなら 404・1 回の要求で設定を読むのは 1 回
   - 設定 detect・autoAdopt の検査(既定・範囲・壊れた値は既定へ)
@@ -26,8 +26,8 @@ sys.path.insert(0, os.path.join(SRC, "flow", "tests"))   # 共有の偽物 _live
 if SRC not in sys.path:   # src(層のパッケージ。server.py と同じく後ろに)
     sys.path.append(SRC)
 import _livefix as LF  # noqa: E402
-import live as LV  # noqa: E402
-import prefs as P  # noqa: E402
+from app import live as LV  # noqa: E402
+from app import prefs as P  # noqa: E402
 from ytt import fsio  # noqa: E402
 
 TOKEN = "k" * 40

@@ -1,4 +1,4 @@
-/* ホーム(src/home/portal.html)だけの見た目。色は ui-kit の変数だけを使う(ダーク/ライトの両方で読めるように)。
+/* ホーム(src/app/ui/home/portal.html)だけの見た目。色は ui-kit の変数だけを使う(ダーク/ライトの両方で読めるように)。
    クラス名の接頭辞は pt-(notes:docs/spec/pipeline.md の 5: ツール固有のクラスには接頭辞)。
    画面の全面見直し(notes:docs/design/briefs/ui-overhaul/)の段階5: 入口 + 案件を1つのホームにまとめた。 */
 

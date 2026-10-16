@@ -9,7 +9,7 @@ for _p in (os.path.dirname(_HOME), _HOME):
         sys.path.insert(0, _p)
 
 from flow import live_detect, spec  # noqa: E402
-import prefs  # noqa: E402
+from app import prefs  # noqa: E402
 
 
 class AdoptDefaults(unittest.TestCase):

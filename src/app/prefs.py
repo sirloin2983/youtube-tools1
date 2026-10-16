@@ -5,10 +5,10 @@
   streamer … 配信者(字幕の色)の記憶: 文書 id / 配信(video id)/ チャンネル → 名前(空 = 「色なし」を覚えた)
   keymap   … 共通の再生キーの割り当て(編集・スタジオで同じ)
   intake   … 友人からの依頼の受付(src/human/friend/intake.py。notes:docs/spec/friend.md): 見張るフォルダ・オン/オフ・既定の切り抜く数・
-             配信の長さと動画の大きさの上限・見る間隔・① 全自動のパックをまとめて届ける本数 deliverBatch(src/home/autorun.py。1 = 1 本ずつ)
+             配信の長さと動画の大きさの上限・見る間隔・① 全自動のパックをまとめて届ける本数 deliverBatch(src/app/autorun.py。1 = 1 本ずつ)
   backup   … 作業データのバックアップ(src/manage/keep/backup.py。notes:docs/spec/data.md): オン/オフ・写す先のフォルダ・間隔(時間)
   accuracy … 精度の自動測定(src/eval/drill/accuracy.py。git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md の (a)): enabled(**既定オン**。読むだけで軽い)・夜の窓 nightFrom〜nightTo(時。既定 1〜6。from > to は日をまたぐ)
-  live     … リアルタイム切り抜き(線 D。src/home/live.py。**既定はオフ**): enabled・録画の置き場所 folder(空 = 録画の部品の前回の設定か既定 E:/Video/live-rec)・
+  live     … リアルタイム切り抜き(線 D。src/app/live.py。**既定はオフ**): enabled・録画の置き場所 folder(空 = 録画の部品の前回の設定か既定 E:/Video/live-rec)・
              録画元の一覧 recorders(空 = 手元の1つ。[{id, name, url, token}]。token が空の手元の録画元は録画の部品の token.txt を読む)・
              録画の画質 quality(best|1080p|720p。既定 1080p。スタジオの URL の欄から始める録画 = POST /live/api/begin)・
              配信が終わったら自動で本番版に作り直す autoArchive(**既定オン**。src/flow/live_archive.py。P4)・
@@ -47,7 +47,7 @@ NAME_MAX = 60
 KEY_MAX = 120
 SECTIONS = ("autorun", "streamer", "keymap", "intake", "backup", "hidden", "live", "accuracy")
 PATCHABLE = ("autorun", "keymap", "intake", "backup", "live", "accuracy")
-AUTORUN_MODES = ("full", "adopted", "transcribe")      # src/home/autorun.py の MODES と同じ名前
+AUTORUN_MODES = ("full", "adopted", "transcribe")      # src/app/autorun.py の MODES と同じ名前
 CUT_METHODS = ("rows", "none", "silence")
 ON_FAIL = ("next", "stop")
 STREAMER_KINDS = ("docs", "videos", "channels")
@@ -82,7 +82,7 @@ RECORDER_URL_RE = re.compile(r"^http://[A-Za-z0-9.\-]{1,100}:\d{2,5}\Z")   # 2�
 RECORDER_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{20,128}\Z")
 LIVE_QUALITIES = ("best", "1080p", "720p")   # 録画の画質(src/pipeline/ingest/rec_core.py の QUALITIES と同じ名前。既定 1080p = DEFAULT_QUALITY)
 LIVE_AFTERS = ("none", "check", "auto")      # 書き出したあと(src/flow/live_export.py の AFTERS と同じ名前)
-LIVE_CUTS = ("", "none", "silence")          # 自動のパックのカット(src/home/autorun.py の CUTS。"" = ホームの autorun.cut)
+LIVE_CUTS = ("", "none", "silence")          # 自動のパックのカット(src/app/autorun.py の CUTS。"" = ホームの autorun.cut)
 # 認識エンジンとモデル("" = 編集の設定のまま)。0.58.0(2026-10-11 ユーザー決定「普段よく使っているモデル以外は要らない」)で whisper.cpp・large-v3 だけに
 # (faster-whisper・qwen3-asr・llama.cpp と自由入力のモデルは外した。保存してある外れた値は読むときに "" = 編集の設定に戻る = _clean_keys)
 LIVE_ENGINES = ("", "whisper.cpp")   # flow/spec.py の TX_ENGINES と同じ名前(editor は読み込まない)
@@ -170,7 +170,7 @@ def _clean_accuracy(v, cur):
 
 
 def _clean_live(v, cur):
-    """リアルタイム切り抜きの設定(src/home/live.py)。置き場所のドライブがあるかは録画の部品が確かめて画面に出す(ここでは形だけ)。
+    """リアルタイム切り抜きの設定(src/app/live.py)。置き場所のドライブがあるかは録画の部品が確かめて画面に出す(ここでは形だけ)。
     録画元の合言葉は、送られなかった(空)ときは同じ id の今の値を残す(画面には合言葉を返さないため)"""
     out = {"enabled": cur.get("enabled") is True, "folder": cur.get("folder") or "", "recorders": [dict(r) for r in cur.get("recorders") or []],
            "quality": cur.get("quality") if cur.get("quality") in LIVE_QUALITIES else DEFAULTS["live"]["quality"],
