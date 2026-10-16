@@ -67,6 +67,8 @@ Thumbs.db
 
 # YTT_DATA_DIR=inplace のときの作業データ(<ツールの ID>/)と、実行中のサーバーのポート(.runtime/)。src はコードだけ(2026-10-16)
 .data/
+# 古い置き場所の残り(10-16 より前の .runtime/ = リポジトリ直下と src の下)。今は .data/.runtime/
+.runtime/
 # Claude(Cowork)が納品する確認用フォルダ
 _new/
 # 古い名前のログの控え・壊れた登録ファイルの退避(studio。旧 clip-studio)
