@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""パックの部品(動画の情報の読み取り・字幕の読み込み・フレームの計算・SRT と FCPXML の組み立ての小道具)。
-単独のコマンド(srt2resolve.py = 動画 + 字幕から FCPXML だけを作る)は 10-16 のユーザー決定で消した。
-パックを作る道は入口と CLI の cut2resolve.py だけ。
+"""パックの部品(動画の情報の読み取り・字幕の読み込み・フレームの計算・SRT の組み立ての小道具)。
+単独のコマンド(srt2resolve.py = 動画 + 字幕から FCPXML だけを作る)と FCPXML の書き出しは 10-16 のユーザー決定で消した。
+パックを作る道は入口と ② の CLI src/app/cli.py だけ。
 """
 import contextlib
 import json
@@ -12,7 +12,6 @@ import re
 import subprocess
 import sys
 import tempfile
-import xml.etree.ElementTree as ET
 from fractions import Fraction
 from pathlib import Path
 
@@ -24,7 +23,6 @@ STD_FPS = [(24000, 1001), (24, 1), (25, 1), (30000, 1001), (30, 1),
            (48, 1), (50, 1), (60000, 1001), (60, 1)]
 SUB_EXTS = {".srt", ".vtt"}
 MAX_SUB_BYTES = 5 * 1024 * 1024
-SEQ_AUDIO_RATE = {32000: "32k", 44100: "44.1k", 48000: "48k", 88200: "88.2k", 96000: "96k"}
 TC_RE = re.compile(r"\d{1,2}[:;]\d{2}[:;]\d{2}[:;]\d{2}")
 
 
@@ -353,71 +351,7 @@ def frames_to_ms(n, fps):
     return round_half_up(Fraction(n * 1000 * fps[1], fps[0]))
 
 
-def frames_to_time(n, fps):
-    """FCPXML の時刻表記。フレーム境界の分数(秒)で書く(境界外だと取り込み側がずれる)"""
-    f = Fraction(n * fps[1], fps[0])
-    return f"{f.numerator}s" if f.denominator == 1 else f"{f.numerator}/{f.denominator}s"
-
-
-def assign_lanes(items):
-    """時間が重なる字幕を別トラック(レーン)へ。同じトラックで重なると Resolve が取り込めないため"""
-    ends, out = [], []
-    for sf, ef, t in items:
-        for i, e in enumerate(ends):
-            if e <= sf:
-                ends[i] = ef
-                lane = i + 1
-                break
-        else:
-            ends.append(ef)
-            lane = len(ends)
-        out.append((sf, ef, t, lane))
-    return out
-
-
 # ---------------------------------------------------------------- 出力の組み立て
-
-TITLE_EFFECT_UID = ".../Titles.localized/Bumper:Opener.localized/Basic Title.localized/Basic Title.moti"
-
-
-def fcpxml_skeleton(video, meta, uid, start_frames, titles, event, project, seq_frames):
-    """FCPXML の共通の骨組み(auto_cut.build_cut_fcpxml): format・asset(start = 元動画の開始タイムコードのフレーム)・
-    タイトルの effect(titles のとき)・library > event > project > sequence(長さ seq_frames フレーム)。-> (root, spine)"""
-    fps, audio = meta["fps"], meta.get("audio")
-    w, h = meta["w"], meta["h"]
-    fps_label = f"{fps[0] / fps[1]:g}" if fps[1] == 1 else f"{fps[0] / fps[1]:.2f}"
-    root = ET.Element("fcpxml", version="1.8")
-    res = ET.SubElement(root, "resources")
-    ET.SubElement(res, "format", id="r1", name=f"FFVideoFormat{w}x{h}p{fps_label}",
-                  frameDuration=frames_to_time(1, fps), width=str(w), height=str(h))
-    asset_attr = dict(id="r2", name=video.name, uid=uid, src=video.resolve().as_uri(), start=frames_to_time(start_frames, fps),
-                      duration=frames_to_time(meta["total"], fps), hasVideo="1", format="r1")
-    if audio:
-        asset_attr.update(hasAudio="1", audioSources="1", audioChannels=str(audio[0]), audioRate=str(audio[1]))
-    ET.SubElement(res, "asset", **asset_attr)
-    if titles:
-        ET.SubElement(res, "effect", id="r3", name="Basic Title", uid=TITLE_EFFECT_UID)
-    proj = ET.SubElement(ET.SubElement(ET.SubElement(root, "library"), "event", name=event), "project", name=project)
-    seq = ET.SubElement(proj, "sequence", format="r1", duration=frames_to_time(seq_frames, fps), tcStart="0s", tcFormat="NDF",
-                        audioLayout="mono" if audio and audio[0] == 1 else "stereo",
-                        audioRate=SEQ_AUDIO_RATE.get(audio[1] if audio else 48000, "48k"))
-    return root, ET.SubElement(seq, "spine")
-
-
-def fcpxml_title(clip, n, lane, offset, frames, text, fps, font, size):
-    """つながったタイトル(字幕 1 件)を clip に足す。offset は親(asset-clip)の中の時刻(フレーム)。n = 文書の中の通し番号(text-style-def の id)。
-    タイトルの内部の開始は FCP の流儀の 3600 秒をフレーム境界に合わせた値"""
-    t = ET.SubElement(clip, "title", ref="r3", lane=str(lane), offset=frames_to_time(offset, fps), name=text.replace("\n", " ")[:40],
-                      start=frames_to_time(round(3600 * fps[0] / fps[1]), fps), duration=frames_to_time(frames, fps))
-    ET.SubElement(ET.SubElement(t, "text"), "text-style", ref=f"ts{n}").text = text
-    ET.SubElement(ET.SubElement(t, "text-style-def", id=f"ts{n}"), "text-style", font=font, fontSize=str(size), fontColor="1 1 1 1",
-                  bold="1", alignment="center", strokeColor="0 0 0 1", strokeWidth="-4")
-
-
-def fcpxml_text(root):
-    ET.indent(root, space="  ")
-    return '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE fcpxml>\n' + ET.tostring(root, encoding="unicode") + "\n"
-
 
 def _srt_ts(ms):
     h, rem = divmod(ms, 3600000)

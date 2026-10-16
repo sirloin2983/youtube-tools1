@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""カットの計算(試算)とパックの作成。CLI(cut2resolve.py)と画面(serve.py)の両方から呼ぶ共通部(処理を二重に持たない)。
+"""カットの計算(試算)とパックの作成。② の CLI(src/app/cli.py)と画面(serve.py)の両方から呼ぶ共通部(処理を二重に持たない)。
 
   plan_cut(Request)   … 動画を調べ、カットの決め方を組み合わせて「残す区間」を出す。ファイルは作らない(= --dry-run)
-  build_pack(Plan, …) … EDL・カット後の字幕・友人へ.txt・cut-plan.json(+ 任意で FCPXML・粗編集 mp4・元動画のコピー・Text+パック)を作る。
+  build_pack(Plan, …) … EDL・カット後の字幕・友人へ.txt・cut-plan.json(+ 任意で粗編集 mp4・元動画のコピー・Text+パック)を作る。
                         Text+ パックは最小限にできる(backup=False: EDL・予備の手順書・SRT を入れない、plan_file=False: cut-plan.json を書かない
                         = 画面・API。記録は作業データ側。notes:docs/design/edit-tool-design.md の 12 ④)
 
@@ -64,7 +64,7 @@ TRANSCRIPT_ROWS = {"base": "rows", "handles": 0.0, "min_len": 0.0, "join_frames"
 # とても短い区間は捨てずに注意だけ出す(warn_short 秒)。notes:docs/design/edit-tool-design.md の 5
 EDIT_KEEPS = {"base": "list", "handles": 0.0, "min_len": 0.0, "join_frames": 0, "silence": False, "drop_cut_rows": False, "warn_short": 0.5}
 MAX_KEEPS = 5000
-PACK_FILE_KINDS = ("edl", "srt", "readme", "plan", "fcpxml", "roughcut", "video",
+PACK_FILE_KINDS = ("edl", "srt", "readme", "plan", "roughcut", "video",
                    "textplus_script", "textplus_install", "textplus_launcher", "textplus_readme", "textplus_template")
 OLD_TEXTPLUS_PLAN = "textplus-import.json"   # 2026-09-26 まで Text+ パックに入れていた計画(中身は Lua に埋め込み済みなので、もう書かない。④)
 OLD_MEDIA_DIR = "media"                       # 2026-09-27 まで Text+ パックの動画を入れていたフォルダ(今はパックの直下)
@@ -522,7 +522,7 @@ def caption_layout(plan):
 
 
 def describe(plan, lay=None):
-    """CLI の表示(従来の cut2resolve.py と同じ行)。lay: caption_layout(plan)(渡せば作り直さない)"""
+    """試算の表示の行(旧 cut2resolve.py のコマンドと同じ行)。lay: caption_layout(plan)(渡せば作り直さない)"""
     m, fps, total = plan.meta, plan.meta["fps"], plan.meta["total"]
     out = [f"動画: {plan.video.name}  {m['w']}x{m['h']}  {fps[0] / fps[1]:.3f}fps  {total}フレーム({m['frames_source']})",
            f"映像: {m['codec']} / {m['pix_fmt']}",
@@ -548,7 +548,7 @@ def describe(plan, lay=None):
     return out
 
 
-def pack_paths(video, out_dir, has_subs, render=False, copy_video=False, fcpxml=False, textplus=False, media=None,
+def pack_paths(video, out_dir, has_subs, render=False, copy_video=False, textplus=False, media=None,
                backup=True, plan_file=True, readme_file=True):
     """パックに書くファイル {種類: パス}。media: 同梱する動画が video と違うとき(スタジオの余白つき素材)。名前は video にそろえる。
     backup: Text+ パックに予備(EDL・予備_EDLで開く手順.txt・カット後の SRT)も入れる(Text+ でないパックは、EDL が本体なのでいつも入れる)。
@@ -568,8 +568,6 @@ def pack_paths(video, out_dir, has_subs, render=False, copy_video=False, fcpxml=
             p["srt"] = out_dir / f"{video.stem}_cut.srt"
     if plan_file:
         p["plan"] = out_dir / "cut-plan.json"
-    if fcpxml:
-        p["fcpxml"] = out_dir / f"{video.stem}_cut.fcpxml"
     if render:
         p["roughcut"] = out_dir / f"{video.stem}_roughcut.mp4"
     if copy_video or textplus:
@@ -586,10 +584,10 @@ def pack_paths(video, out_dir, has_subs, render=False, copy_video=False, fcpxml=
     return p
 
 
-def normalize_outputs(copy_video, fcpxml, textplus):
+def normalize_outputs(copy_video, textplus):
     """出力の指定のつじつま合わせ(画面の API・パックの作成・上書き確認の下見で共通。1 か所):
-    Text+ パックは動画を同梱し(copy_video が真)、補助の FCPXML は作らない(Text+ の道は FCPXML を使わない)。-> (copy_video, fcpxml)"""
-    return bool(copy_video or textplus), bool(fcpxml and not textplus)
+    Text+ パックは動画を同梱する(copy_video が真)。-> copy_video"""
+    return bool(copy_video or textplus)
 
 
 def edit_media_path(video, req=None, include_video=True):
@@ -635,24 +633,24 @@ def media_for_pack(plan, include_video, cache=None):
                              f"後ろへ {max(0.0, after):.1f} 秒まで延ばせます)。"]}
 
 
-def expected_paths(req, out_dir, has_subs, render=False, copy_video=False, fcpxml=False, textplus=False, backup=True, plan_file=True,
+def expected_paths(req, out_dir, has_subs, render=False, copy_video=False, textplus=False, backup=True, plan_file=True,
                    readme_file=True):
     """作る予定のファイル {種類: パス}(pack_paths。同梱する余白つき素材の名前も。ffprobe を使わない下見)"""
-    copy_video, fcpxml = normalize_outputs(copy_video, fcpxml, textplus)
+    copy_video = normalize_outputs(copy_video, textplus)
     media = edit_media_path(req.video, req, copy_video)
-    return pack_paths(req.video, out_dir, has_subs, render, copy_video, fcpxml, textplus, media, backup, plan_file, readme_file)
+    return pack_paths(req.video, out_dir, has_subs, render, copy_video, textplus, media, backup, plan_file, readme_file)
 
 
-def planned_outputs(plan, out_dir=None, render=False, copy_video=False, fcpxml=False, textplus=False, backup=True, plan_file=True,
+def planned_outputs(plan, out_dir=None, render=False, copy_video=False, textplus=False, backup=True, plan_file=True,
                     readme_file=True):
     """作る予定のファイルと、すでにあるもの(画面の上書き確認用)"""
     out_dir = Path(out_dir) if out_dir else default_out_dir(plan.video)
-    paths = expected_paths(plan.req, out_dir, plan.cues_out is not None, render, copy_video, fcpxml, textplus, backup, plan_file,
+    paths = expected_paths(plan.req, out_dir, plan.cues_out is not None, render, copy_video, textplus, backup, plan_file,
                            readme_file)
     return out_dir, paths, [p for p in paths.values() if p.exists()]
 
 
-def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False, textplus=False, force=False, crf=C.DEFAULT_CRF,
+def build_pack(plan, out_dir=None, render=False, copy_video=False, textplus=False, force=False, crf=C.DEFAULT_CRF,
                task=None, log=None, textplus_target=None, backup=True, plan_file=True, textplus_wrap=None, readme_file=True,
                textplus_color=None, speaker_colors=None, loudness=None, volume=None, textplus_style="default", speaker_outlines=None,
                video_tracks=1, prev_copy=None, cache=None):
@@ -686,14 +684,13 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
     out_dir = Path(out_dir) if out_dir else default_out_dir(video)
     if out_dir.exists() and not out_dir.is_dir():
         raise ToolError(f"出力先がフォルダではありません: {out_dir}")
-    copy_video, fcpxml = normalize_outputs(copy_video, fcpxml, textplus)
+    copy_video = normalize_outputs(copy_video, textplus)
     m = media_for_pack(plan, copy_video, cache)   # 同梱する動画(余白つき素材なら、残す区間もそれに合わせる)。cache は画面用(probe を覚える)
     mvideo, mmeta, mkeeps = m["video"], m["meta"], m["keeps"]
-    paths = pack_paths(video, out_dir, plan.cues_out is not None, render, copy_video, fcpxml, textplus, mvideo, backup, plan_file,
+    paths = pack_paths(video, out_dir, plan.cues_out is not None, render, copy_video, textplus, mvideo, backup, plan_file,
                        readme_file)
     C.validate_output_paths(list(paths.values()), force, protected=plan.req.inputs() + ((mvideo,) if m["edit"] else ()))
     req = plan.req
-    t0 = C.tc_to_frames(m["src_start"], C.nominal_rate(fps))
     warnings = list(m["warnings"])
     if "edl" in paths:   # 動画のファイル名の注意は EDL を書くときだけ(EDL がファイル名で元動画と結び付くため。2026-10-01 ユーザー決定。試算 plan_cut には入れない)
         warnings += C.name_warnings(video)
@@ -724,9 +721,6 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
         if task:
             task.check()
         extras = []
-        if fcpxml:
-            extras.append((paths["fcpxml"].name, "補助: カット済みのタイムライン(字幕はタイトル)。Resolve の実機では未確認。"
-                                                 "動画の場所を書いてあるので、動画を移動したら再リンクが必要"))
         if textplus:
             extras.append((paths["textplus_launcher"].name, "Resolve のスクリプト一覧に Text+ 作成機能を登録する(明示実行)"))
             if "textplus_readme" in paths:
@@ -738,11 +732,6 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
             files = C.write_pack(out_dir, mvideo, mmeta, mkeeps, plan.cues_out, req.reel, req.rec_start,
                                  m["src_start"], paths.get("roughcut"), req.name, extras, readme_path=paths.get("readme", False),
                                  stem=video.stem)
-        if fcpxml:
-            xml_video = paths["video"] if copy_video else mvideo   # FCPXML は動画の場所を書く。同梱したならそちら
-            S.write_text_atomic(paths["fcpxml"], AC.build_cut_fcpxml(Path(xml_video), mmeta, mkeeps, plan.cues_out, t0),
-                                encoding="utf-8", newline="\n")
-            files["fcpxml"] = paths["fcpxml"]
         doc = AC.finalize_plan(plan.doc, video, meta, plan.src_start, copy_video, plan.cues_out)
         if m["edit"]:   # 区間(segments)は元の切り抜きの時刻のまま(ツールで読み直す用)。同梱した素材はこちらに書く
             doc["editMedia"] = {"name": m["edit"]["name"], "selectionInSeconds": m["edit"]["selectionIn"],
@@ -801,7 +790,8 @@ def _stage_video(m, out_dir, final, tmp, gain, prev_copy, task=None, log=None):
 
 def _stale_warning(video, out_dir, paths, mvideo):
     """前に作ったかもしれない・今回は作らないファイルがフォルダに残っていれば、その注意の文(無ければ None)"""
-    known = pack_paths(video, out_dir, True, render=True, fcpxml=True, textplus=True)
+    known = pack_paths(video, out_dir, True, render=True, textplus=True)
+    known["old_fcpxml"] = out_dir / f"{video.stem}_cut.fcpxml"           # FCPXML は 2026-10-16 まで補助で書けた(今は作らない)
     known["textplus_plan"] = out_dir / OLD_TEXTPLUS_PLAN
     known["old_video"] = out_dir / OLD_MEDIA_DIR / mvideo.name        # 2026-09-27 までの Text+ パックの動画の場所
     stale = [p for k, p in known.items() if k not in paths and p.exists()]

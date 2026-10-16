@@ -287,7 +287,7 @@ def _pack_settings(o):
     who, hex_ = _colors.resolve(o.get("streamer") if isinstance(o.get("streamer"), str) else "")
     styles = o.get("speakerStyles") if isinstance(o.get("speakerStyles"), dict) else {}
     loud = _loud.check_target(o.get("loudness"))
-    return {"textplus": textplus, "copyVideo": _pack.normalize_outputs(o.get("copyVideo"), False, textplus)[0], "render": bool(o.get("render")),
+    return {"textplus": textplus, "copyVideo": _pack.normalize_outputs(o.get("copyVideo"), textplus), "render": bool(o.get("render")),
             "backup": o.get("backup") is True, "target": [target["fps"], target["width"], target["height"]],
             "textplusWrap": None if o.get("textplusWrap") in (None, "") else int(o["textplusWrap"]), "color": hex_ or None, "who": who if hex_ else None,
             "speakerColors": o.get("speakerColors") is not False,

@@ -29,7 +29,7 @@ API(「編集」の cut.js・pack-tab.js・app-tools.js と、入口の「まと
 消した API(0.22.0。消した画面のためのもので、使う側が無かった): /api/state・/api/inspect・/api/upload・/media/<token>
 (plan・build の結果の mediaUrl・roughcutUrl も)。消した API は 404
 受けなくした指定(0.23.0。消した画面のためのもので、送る側が無かった): spec.silenceExtra・spec.handles・spec.joinGap・
-output.fcpxml・output.crf。送っても黙って無視する(知らない鍵と同じ)。補助の FCPXML・粗編集の画質・余白・つなぐ隙間はコマンドの cut2resolve.py に残る
+output.fcpxml・output.crf。送っても黙って無視する(知らない鍵と同じ)。補助の FCPXML(10-16 に書き出しごと消した)・粗編集の画質・余白・つなぐ隙間は受けない
 
 入口(start.bat)の統合サーバーに取り込まれたときは http://localhost:8700/cut2resolve/ で動く(home/mount.py。段階3-2)。
 そのときは prepare() / finish() が起動・終了の準備を行い、状態は MOUNT に持つ。書き込み系の API には合言葉(X-YTT-Token)が要る(mount.py が検査)
@@ -90,7 +90,7 @@ MOVED_PAGE = ("<!doctype html><html lang=\"ja\"><head><meta charset=\"utf-8\"><t
               "<h1>cut2resolve の画面は「編集」に統合しました</h1>"
               "<p>カットは「編集」の <b>2 カット</b>、Resolve へのパックは <b>3 パック</b> のタブで作ります。"
               "入口(このフォルダの1つ上の start.bat)から「編集」を開いてください。</p>"
-              "<p>コマンドで使うときは cut2resolve.py(README.txt)。</p></body></html>").encode("utf-8")
+              "<p>コマンドで使うときは src/app/cli.py。</p></body></html>").encode("utf-8")
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; "
        "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 QUIET_PATHS = ("/api/job", "/api/siblings", "/api/ping")
@@ -220,7 +220,7 @@ def open_folder(path):
 
 
 FILE_NOTES = {"edl": "カット(EDL)", "srt": "カット後の字幕", "readme": "予備の EDL で開く手順", "plan": "カットの記録",
-              "fcpxml": "補助の FCPXML", "roughcut": "粗編集の動画", "video": "元動画のコピー",
+              "roughcut": "粗編集の動画", "video": "元動画のコピー",
               "textplus_script": "Resolve内で実行するLua Text+生成スクリプト",
               "textplus_install": "Luaスクリプト登録用PowerShell", "textplus_launcher": "Luaスクリプト登録バッチ",
               "textplus_readme": "友人向けの手順(Text+)"}

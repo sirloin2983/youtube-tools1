@@ -2,8 +2,6 @@
 # -*- coding: utf-8 -*-
 """cut2resolve の見直し(2026-09)で直した所・足した所のテスト。
 python -m unittest test_cut2resolve で一緒に走る(test_cut2resolve の load_tests)。単独なら python -m unittest test_pack"""
-import contextlib
-import io
 import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
@@ -11,7 +9,6 @@ import subprocess
 import sys
 import tempfile
 import unittest
-import xml.etree.ElementTree as ET
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -20,13 +17,11 @@ TESTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(TESTS.parents[2]))   # src(パックの部品は pipeline.pack。RS1-2 で cut2resolve から移した)
 sys.path.insert(0, str(TESTS))          # 隣のテスト(test_cut2resolve の道具)
 from pipeline.pack import auto_cut as AC  # noqa: E402
-import importlib  # noqa: E402
-FULL = importlib.import_module("pipeline.pack.cut2resolve")   # cut2resolve.py(CLI)。FULL._D などの差し替えが本物に届くように同じモジュール
 from pipeline.pack import cut2resolve_core as C  # noqa: E402
 from pipeline.pack import pack  # noqa: E402
 from pipeline.pack import resolve_textplus as RTP  # noqa: E402
 from pipeline.pack import srt2resolve as S  # noqa: E402
-from test_cut2resolve import FPS30, HAVE_FFMPEG, make_video, parse_edl, selection_pack, tc2f  # noqa: E402
+from test_cut2resolve import FPS30, HAVE_FFMPEG, make_video, parse_edl, run_pack, selection_pack, tc2f  # noqa: E402
 
 
 def write(path, text, enc="utf-8"):
@@ -746,38 +741,7 @@ class TestGainCopyRecord(unittest.TestCase):
         self.assertEqual(C.gain_copy_key(self.src, self.dst, -10.457, self.meta), key)      # → 条件は同じ(same_copy と同じ秒単位)
 
 
-class TestFcpxml(unittest.TestCase):
-    meta = {"fps": FPS30, "total": 300, "w": 640, "h": 360, "audio": None}
-
-    def _root(self, xml):
-        return ET.fromstring(xml.split("\n", 2)[2])
-
-    def test_title_offsets_are_in_parent_clip_time(self):
-        # 2つ目のクリップは元動画の 5秒(150f)から。字幕はカット後の 2.5秒(75f) = 2つ目のクリップの 0.5秒後
-        xml = AC.build_cut_fcpxml(Path("/tmp/src.mp4"), self.meta, [(0, 60), (150, 240)], [(75, 105, "B")])
-        root = self._root(xml)
-        clips = root.findall(".//spine/asset-clip")
-        self.assertEqual(clips[1].get("start"), "5s")
-        title = clips[1].find("title")
-        self.assertEqual(title.get("offset"), "11/2s")   # 150 + 15 フレーム = 5.5秒(親の start 基準)
-        self.assertIsNone(clips[0].find("title"))
-
-    def test_text_style_ids_are_unique(self):
-        xml = AC.build_cut_fcpxml(Path("/tmp/src.mp4"), self.meta, [(0, 60), (150, 240)],
-                                  [(0, 30, "a"), (60, 90, "b"), (100, 120, "c")])
-        ids = [e.get("id") for e in self._root(xml).iter("text-style-def")]
-        self.assertEqual(len(ids), 3)
-        self.assertEqual(len(set(ids)), 3)
-
-    def test_start_timecode_is_applied(self):
-        t0 = 108000   # 01:00:00:00 @30
-        xml = AC.build_cut_fcpxml(Path("/tmp/src.mp4"), self.meta, [(30, 60)], [(0, 10, "a")], t0)
-        root = self._root(xml)
-        self.assertEqual(root.find(".//asset").get("start"), "3600s")
-        clip = root.find(".//spine/asset-clip")
-        self.assertEqual(clip.get("start"), "3601s")
-        self.assertEqual(clip.find("title").get("offset"), "3601s")
-
+class TestStartTcFrames(unittest.TestCase):
     def test_start_tc_frames(self):
         self.assertEqual(S.start_tc_frames(None, FPS30), (0, []))
         self.assertEqual(S.start_tc_frames("01:00:00;00", (30000, 1001))[0], 108000)
@@ -844,7 +808,7 @@ class TestCutPlanDocs(unittest.TestCase):
         doc = AC.read_cut_plan(out / "cut-plan.json")
         again = AC.build_plan(doc["segments"], meta, AC.default_handles(doc))
         self.assertEqual(again["keep_frames"], plan["keep_frames"])
-        plan2 = pack.plan_cut(pack.Request(video=video, plan=out / "cut-plan.json", base="plan", min_len=0.0))   # cut2resolve.py --plan の道
+        plan2 = pack.plan_cut(pack.Request(video=video, plan=out / "cut-plan.json", base="plan", min_len=0.0))   # 採用区間の cut-plan.json を読み直す道
         self.assertEqual([list(x) for x in plan2.keeps], plan["keep_frames"])
 
 
@@ -1004,32 +968,26 @@ class TestPackWithFfmpeg(unittest.TestCase):
 
     def test_invalid_timecode_fails_before_rendering(self):
         cuts = write(self.dir / "cuts.txt", "1 2\n")
-        rc = FULL.main([str(self.video), str(cuts), "--render", "--src-start-tc", "00:00:00:45"])
+        rc = run_pack(self.video, keep=cuts, render=True, src_start_tc="00:00:00:45")
         self.assertEqual(rc, 1)
         self.assertFalse((self.dir / "clip_pack").exists())   # 以前は粗編集の mp4 だけ書き出してから失敗していた
 
-    def test_full_cli_with_transcript_json_and_fcpxml(self):
+    def test_pack_from_transcript_json(self):
         tr = self._tr([(0.5, 1.5, "こんにちは", False), (4.0, 5.0, "カット", True), (8.5, 9.5, "またね", False)])
-        self.assertEqual(FULL.main([str(self.video), str(tr), "--fcpxml"]), 0)   # .json は順不同で schema から判別
+        pack.build_pack(pack.plan_cut(pack.Request(video=self.video, transcript=tr)))
         out = self.dir / "clip_pack"
         names = sorted(p.name for p in out.iterdir())
-        self.assertEqual(names, ["clip.edl", "clip_cut.fcpxml", "clip_cut.srt", "cut-plan.json", "友人へ.txt"])
+        self.assertEqual(names, ["clip.edl", "clip_cut.srt", "cut-plan.json", "友人へ.txt"])
         ev = parse_edl((out / "clip.edl").read_text(encoding="utf-8"))
         self.assertEqual([(e[3], e[4]) for e in ev], [("00:00:00:00", "00:00:04:00"), ("00:00:05:00", "00:00:10:00")])
         readme = (out / "友人へ.txt").read_text(encoding="utf-8-sig")
         self.assertIn("cut-plan.json", readme)
-        self.assertIn("clip_cut.fcpxml", readme)
+        self.assertNotIn("fcpxml", readme)
         doc = AC.read_cut_plan(out / "cut-plan.json")   # 読み直せる
         self.assertEqual(len(doc["segments"]), 2)
         bad = write(self.dir / "other.json", '{"schema":"something/v1"}')
-        self.assertEqual(FULL.main([str(self.video), str(bad), "-o", str(self.dir / "o")]), 1)
-
-    def test_full_cli_plan_and_list_are_exclusive(self):
-        cuts = write(self.dir / "cuts.txt", "1 2\n")
-        p = write(self.dir / "p.json", json.dumps({"schema": "youtube-tools-cut-plan/v1", "segments": [{"start": 1, "end": 2}]}))
-        self.assertEqual(FULL.main([str(self.video), str(cuts), str(p), "--dry-run"]), 1)
-        self.assertEqual(FULL.main([str(self.video), "--keep-rows", "--dry-run"]), 1)   # 文字起こしが無い
-        self.assertEqual(FULL.main([str(self.video), str(p), "--dry-run"]), 0)
+        with self.assertRaises(C.ToolError):
+            pack.plan_cut(pack.Request(video=self.video, transcript=bad))
 
     def test_build_pack_stale_files_warning_and_force(self):
         plan = pack.plan_cut(pack.Request(video=self.video, silence=True))
@@ -1842,15 +1800,12 @@ class TestRowEdgeWithAudio(unittest.TestCase):
         plan = pack.plan_cut(pack.Request(video=self.video, base="list", keep_pairs=[(0.5, 1.8)], min_len=0, row_edge=pack.ROW_EDGE))
         self.assertEqual(plan.keeps, [(15, 54)])
 
-    def test_cli_option(self):
-        import contextlib
-        import io
+    def test_row_edge_is_described(self):
         tr = write(Path(self.tmp.name) / "cli.transcript.json", json.dumps(transcript_doc([(0.5, 1.8, "一", False)]), ensure_ascii=False))
-        for extra, shown in (([], True), (["--no-row-edge"], False)):
-            buf = io.StringIO()
-            with contextlib.redirect_stdout(buf):
-                self.assertEqual(FULL.main([str(self.video), "--transcript", str(tr), "--keep-rows", "--dry-run"] + extra), 0)
-            self.assertEqual("行の端: 声の止まる所まで" in buf.getvalue(), shown, buf.getvalue())
+        for row_edge, shown in ((pack.ROW_EDGE, True), (None, False)):
+            plan = pack.plan_cut(pack.Request(video=self.video, transcript=tr, base="rows", row_edge=row_edge))
+            text = "\n".join(pack.describe(plan))
+            self.assertEqual("行の端: 声の止まる所まで" in text, shown, text)
 
 
 def dataclasses_replace(obj, **kw):

@@ -31,12 +31,11 @@ from . import srt2resolve as S
 
 ToolError = S.ToolError
 VERSION = _version.VERSION   # 全体の版(ytt/version.py の 1 か所。CLI・serve.py はこれを使う)
-CUT_EXTS = {".txt", ".csv"}
 JSON_EXTS = {".json"}
 TRANSCRIPT_SCHEMA = "youtube-tools-transcript/v1"
 CUT_PLAN_SCHEMA = "youtube-tools-cut-plan/v1"
 MAX_JSON_BYTES = 32 * 1024 * 1024   # 文字起こし・cut-plan の上限(3時間の配信でも数MB)
-# 指定を省いたときの値の正(pack.Request・serve.py の API・cut2resolve.py のコマンドはここ(か Request の既定)を読む。2026-10-09 に写しをやめた)
+# 指定を省いたときの値の正(pack.Request・serve.py の API はここ(か Request の既定)を読む。2026-10-09 に写しをやめた)
 DEFAULT_NOISE_DB = -35.0            # 無音とみなす音量 dB
 DEFAULT_SILENCE_MIN = 0.6           # この秒数以上続く無音だけ削る
 DEFAULT_SILENCE_PAD = 0.15          # 話の前後に残す秒数
@@ -139,23 +138,6 @@ def parse_cut_list(text):
     return out
 
 
-def parse_index_list(text):
-    """'3,5-7' -> {3,5,6,7}(1始まり)"""
-    idx = set()
-    for tok in re.split(r"[,\s]+", text.strip()):
-        if not tok:
-            continue
-        m = re.fullmatch(r"(\d+)(?:-(\d+))?", tok)
-        if not m:
-            raise ToolError(f"行番号を読めません: {tok!r}(例: 3,5-7)")
-        a = int(m.group(1))
-        b = int(m.group(2) or a)
-        if b < a or a < 1:
-            raise ToolError(f"行番号が正しくありません: {tok!r}")
-        idx.update(range(a, b + 1))
-    return idx
-
-
 def _sec_to_ms(sec):
     """秒 -> ミリ秒(四捨五入。0.5 は大きい方へ = 文字起こしツールの srt_time と同じ)"""
     return math.floor(sec * 1000 + 0.5)
@@ -192,10 +174,6 @@ def cut_list_to_keeps(pairs, fps, total):
         warns.append(f"フレームに直すと長さが 0 になる短い区間が {zero} か所あり、無視しました"
                      f"(1フレーム = {frames_to_sec(1, fps):.3f}秒)。")
     return normalize(raw, total), warns
-
-
-def read_text_file(path):
-    return S.read_sub_file(Path(path))  # 文字コード判別(UTF-8/Shift_JIS/UTF-16)と大きさ上限を流用
 
 
 # ---------------------------------------------------------------- 区間の計算(フレーム, 半開区間)
@@ -621,25 +599,6 @@ def name_warnings(video):
     return []
 
 
-def classify_inputs(paths, need_cuts):
-    subs = [p for p in paths if p.suffix.lower() in S.SUB_EXTS]
-    cuts = [p for p in paths if p.suffix.lower() in CUT_EXTS]
-    vids = [p for p in paths if p not in subs and p not in cuts]
-    if len(vids) != 1:
-        raise ToolError("動画ファイルを1つ指定してください(字幕は .srt/.vtt、カットリストは .txt を、順不同で)。")
-    if len(subs) > 1 or len(cuts) > 1:
-        raise ToolError("字幕ファイルとカットリストは、それぞれ1つまでです。")
-    if need_cuts and not cuts:
-        raise ToolError("カットリスト(.txt)が必要です。1行に「開始 終了」を書いたファイルを一緒に指定してください。")
-    return vids[0], (subs[0] if subs else None), (cuts[0] if cuts else None)
-
-
-def split_json_inputs(paths):
-    """(.json 以外, .json)。フル版は動画・字幕・カットリストに加えて、文字起こし・cut-plan の JSON も順不同で受け取る"""
-    js = [p for p in paths if p.suffix.lower() in JSON_EXTS]
-    return [p for p in paths if p not in js], js
-
-
 def loudness_mod():
     """ytt/loudness.py(ラウドネスの決まりの1か所)。コマンドとして動かしたときは ytt を読める所に無いことがあるので、src を足して読む"""
     try:
@@ -805,16 +764,6 @@ def check_schema(d, schema, what):
     if isinstance(got, str) and got.startswith(kind):
         raise ToolError(f"{what}は未対応の版です({got[:60]}。読めるのは {schema})。")
     raise ToolError(f"{what}ではありません(schema が {schema} ではありません)。")
-
-
-def json_schema(path):
-    """JSON の schema(読めなければ None)。フル版の CLI が、順不同で渡された .json の種類を見分けるのに使う"""
-    try:
-        d = read_json_file(path)
-    except ToolError:
-        return None
-    s = d.get("schema") if isinstance(d, dict) else None
-    return s if isinstance(s, str) else None
 
 
 def num(v):

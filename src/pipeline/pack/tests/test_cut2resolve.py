@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """cut2resolve のテスト。 python test_cut2resolve.py  (ffmpeg が無ければ通しテストは自動スキップ)"""
-import contextlib
-import io
 import json
 import re
 import shutil
@@ -10,14 +8,11 @@ import subprocess
 import sys
 import tempfile
 import unittest
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
 TESTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(TESTS.parents[2]))   # src(パックの部品は pipeline.pack。RS1-2 で cut2resolve から移した)
 sys.path.insert(0, str(TESTS))          # 隣のテスト(test_cut2resolve の道具)
-import importlib  # noqa: E402
-FULL = importlib.import_module("pipeline.pack.cut2resolve")   # cut2resolve.py(CLI)。FULL._D などの差し替えが本物に届くように同じモジュール
 from pipeline.pack import cut2resolve_core as C  # noqa: E402
 from pipeline.pack import auto_cut as AC  # noqa: E402
 from pipeline.pack import pack  # noqa: E402
@@ -29,12 +24,33 @@ FPS30 = (30, 1)
 
 
 def selection_pack(video, selection, out_dir, sub=None, handles=None, copy_video=False, force=False):
-    """採用区間 JSON(youtube-tools-cut-plan/v1)+ 動画 + 任意の字幕から、パックを作る(base "plan"・EDL・FCPXML・カット後の SRT・
-    cut-plan.json・友人へ.txt)。消した単独のコマンド auto_cut.py の run と同じ指定(最短の長さで区間を捨てない・余白つき素材は入れない)。-> (計画, 結果)"""
+    """採用区間 JSON(youtube-tools-cut-plan/v1)+ 動画 + 任意の字幕から、パックを作る(base "plan"・EDL・カット後の SRT・
+    cut-plan.json・友人へ.txt)。最短の長さで区間を捨てない・余白つき素材は入れない。-> (計画, 結果)"""
     req = pack.Request(video=Path(video), sub=Path(sub) if sub else None, plan=Path(selection), base="plan", handles=handles,
                        min_len=0.0, edit_media=False)
     plan = pack.plan_cut(req)
-    return plan, pack.build_pack(plan, Path(out_dir), copy_video=copy_video, fcpxml=True, force=force)
+    return plan, pack.build_pack(plan, Path(out_dir), copy_video=copy_video, force=force)
+
+
+def run_pack(video, sub=None, keep=None, drop=None, drop_lines=None, out=None, force=False, dry_run=False, silence=False,
+             render=False, copy_video=False, textplus=False, textplus_fps=None, textplus_size=None, src_start_tc=None):
+    """消した単独のコマンド cut2resolve.py と同じ道(plan_cut → build_pack。出力の既定は <動画名>_pack)をテストから流す。
+    keep: カットリスト(.txt)・drop: 削る区間のファイル・drop_lines: 削る字幕の行(1 始まりの集合)。ToolError は 1・成功は 0(コマンドの終了コードと同じ)"""
+    video = Path(video)
+    try:
+        target = RTP.parse_target(textplus_fps, textplus_size)
+        req = pack.Request(
+            video=video, sub=Path(sub) if sub else None, base="list" if keep else "all",
+            keep_pairs=C.parse_cut_list(Path(keep).read_text(encoding="utf-8")) if keep else None,
+            drop_pairs=C.parse_cut_list(Path(drop).read_text(encoding="utf-8")) if drop else [],
+            drop_lines=drop_lines, silence=silence, src_start_tc=src_start_tc,
+            extra_inputs=tuple(Path(p) for p in (keep, drop) if p))
+        plan = pack.plan_cut(req)
+        if not dry_run:
+            pack.build_pack(plan, out, render=render, copy_video=copy_video, textplus=textplus, textplus_target=target, force=force)
+        return 0
+    except (C.ToolError, ValueError):
+        return 1
 
 
 def make_video(path, dur=10, fps="30", size="640x360", audio="tone"):
@@ -92,13 +108,6 @@ class TestTimeAndLists(unittest.TestCase):
         with self.assertRaises(C.ToolError) as cm:
             C.parse_cut_list("0:10 0:05\n")
         self.assertIn("1行目", str(cm.exception))
-
-    def test_parse_index_list(self):
-        self.assertEqual(C.parse_index_list("3,5-7"), {3, 5, 6, 7})
-        self.assertEqual(C.parse_index_list(" 2 4 "), {2, 4})
-        for bad in ("a", "0", "5-3"):
-            with self.assertRaises(C.ToolError, msg=bad):
-                C.parse_index_list(bad)
 
     def test_timecode(self):
         self.assertEqual(C.frames_to_tc(0, 30), "00:00:00:00")
@@ -217,18 +226,6 @@ class TestSrcStart(unittest.TestCase):
 
 
 class TestInputs(unittest.TestCase):
-    def test_classify(self):
-        v, s, c = C.classify_inputs([Path("cuts.txt"), Path("a.mp4"), Path("b.srt")], need_cuts=True)
-        self.assertEqual((v.name, s.name, c.name), ("a.mp4", "b.srt", "cuts.txt"))
-
-    def test_classify_errors(self):
-        with self.assertRaises(C.ToolError):
-            C.classify_inputs([Path("a.mp4"), Path("b.srt")], need_cuts=True)  # カットリスト無し
-        with self.assertRaises(C.ToolError):
-            C.classify_inputs([Path("a.mp4"), Path("b.mp4")], need_cuts=False)  # 動画が2つ
-        with self.assertRaises(C.ToolError):
-            C.classify_inputs([Path("a.mp4"), Path("b.srt"), Path("c.srt")], need_cuts=False)
-
     def test_name_warning(self):
         self.assertEqual(C.name_warnings(Path("clip.mp4")), [])
         self.assertEqual(len(C.name_warnings(Path("さくらみこ.mp4"))), 1)
@@ -273,20 +270,10 @@ class TestOutputSafety(unittest.TestCase):
                      '{"id":"skip","start":3.0,"end":4.0,"status":"rejected"}]}', encoding="utf-8")
         self.assertEqual([x["id"] for x in AC.read_cut_plan(p)["segments"]], ["keep"])
 
-    def test_auto_cut_fcpxml_contains_trimmed_source_clips_and_titles(self):
-        meta = {"fps": FPS30, "total": 120, "w": 640, "h": 360, "audio": None}
-        xml = AC.build_cut_fcpxml(self.dir / "source.mp4", meta, [(0, 30), (60, 90)],
-                                  [(0, 30, "one"), (30, 60, "two")])
-        root = ET.fromstring(xml.split("\n", 2)[2])
-        clips = root.findall(".//spine/asset-clip")
-        self.assertEqual(len(clips), 2)
-        self.assertEqual([x.get("start") for x in clips], ["0s", "2s"])
-        self.assertEqual([x.find("title/text/text-style").text for x in clips], ["one", "two"])
-
     @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg が無いためスキップ")
     def test_auto_cut_package_contains_recovery_files_and_protects_existing_outputs(self):
-        """採用区間 JSON からのパック(pack.build_pack の base "plan"。単独のコマンド auto_cut.py は消した): EDL・FCPXML・カット後の SRT・
-        cut-plan.json・友人へ.txt の 5 つ。cut-plan.json の tool.name は "cut2resolve"、友人へ.txt は pack の手順書。2 回目は --force が要る"""
+        """採用区間 JSON からのパック(pack.build_pack の base "plan"。単独のコマンド auto_cut.py は消した): EDL・カット後の SRT・
+        cut-plan.json・友人へ.txt の 4 つ。cut-plan.json の tool.name は "cut2resolve"、友人へ.txt は pack の手順書。2 回目は --force が要る"""
         video = self.dir / "source.mp4"
         make_video(video, 10, audio=None)
         sel = self.dir / "selection.json"
@@ -297,7 +284,7 @@ class TestOutputSafety(unittest.TestCase):
         out = self.dir / "source_resolve_pack"
         selection_pack(video, sel, out, srt, handles=1.0)
         self.assertEqual(sorted(p.name for p in out.iterdir()),
-                         sorted(["source.edl", "source_cut.fcpxml", "source_cut.srt", "cut-plan.json", "友人へ.txt"]))
+                         sorted(["source.edl", "source_cut.srt", "cut-plan.json", "友人へ.txt"]))
         saved = json.loads((out / "cut-plan.json").read_text(encoding="utf-8"))
         self.assertEqual(saved["keep_frames"], [[60, 180]])
         self.assertEqual(saved["removed_frames"], [[0, 60], [180, 300]])
@@ -310,13 +297,11 @@ class TestOutputSafety(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg が無いためスキップ")
 class TestDefaultsInOnePlace(unittest.TestCase):
-    """指定を省いたときの値は、cut2resolve_core の DEFAULT_* と pack.Request の既定の 1 か所(API のサーバーとコマンドの cut2resolve.py は読むだけ。サーバーは動かさない)"""
+    """指定を省いたときの値は、cut2resolve_core の DEFAULT_* と pack.Request の既定の 1 か所(API のサーバーは読むだけ。サーバーは動かさない)"""
 
     def test_defaults_agree(self):
-        import contextlib
         import dataclasses
         import inspect
-        import io
         from pipeline.pack import pack
         req ={f.name: f.default for f in dataclasses.fields(pack.Request)}
         self.assertEqual((req["noise"], req["silence_min"], req["silence_pad"], req["rec_start"], req["reel"]),
@@ -330,14 +315,6 @@ class TestDefaultsInOnePlace(unittest.TestCase):
         self.assertEqual((param(C.render_rough_cut, "crf"), param(pack.build_pack, "crf")), (C.DEFAULT_CRF, C.DEFAULT_CRF))
         self.assertEqual(C._reel(""), C.DEFAULT_REEL)
         self.assertEqual(AC.SCHEMA, C.CUT_PLAN_SCHEMA)
-        # コマンドの --help の「既定」も同じ値から出る(argparse の default)
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out), self.assertRaises(SystemExit):
-            FULL.main(["--help"])
-        text = " ".join(out.getvalue().split())
-        for want in ("既定 -35。", "既定 0.6)", "既定 0.15)", "既定 0.3 秒)", "既定 18)", "既定 AX)", "既定 01:00:00:00)"):
-            self.assertIn(want, text)
-        self.assertEqual(FULL._D["min_len"], req["min_len"])
 
 
 class TestStagedWrite(unittest.TestCase):
@@ -455,7 +432,7 @@ class TestWithFfmpeg(unittest.TestCase):
         make_video(v, 10)
         cuts = self.dir / "cuts.txt"
         cuts.write_text("0:00 0:03\n5 8  # 後半\n", encoding="utf-8")
-        rc = FULL.main([str(v), str(self._srt()), str(cuts)])
+        rc = run_pack(v, self._srt(), keep=cuts)
         self.assertEqual(rc, 0)
         out = self.dir / "clip_pack"
         ev = parse_edl((out / "clip.edl").read_text(encoding="utf-8"))
@@ -469,27 +446,27 @@ class TestWithFfmpeg(unittest.TestCase):
         self.assertIn(b"\r\n", raw)  # EDL は CRLF で書く
         self.assertFalse(raw.startswith(b"\xef\xbb\xbf"))  # BOM なし
         original_edl = raw
-        args = [str(v), str(self._srt()), str(cuts)]
-        self.assertEqual(FULL.main(args), 1)  # 既存出力は既定で保護
+        srt = self._srt()
+        self.assertEqual(run_pack(v, srt, keep=cuts), 1)  # 既存出力は既定で保護
         self.assertEqual((out / "clip.edl").read_bytes(), original_edl)
-        self.assertEqual(FULL.main(args + ["--force"]), 0)
+        self.assertEqual(run_pack(v, srt, keep=cuts, force=True), 0)
 
     def test_cutlist_cli_without_subtitles_and_errors(self):
         v = self.dir / "n.mp4"
         make_video(v, 5)
         cuts = self.dir / "c.txt"
         cuts.write_text("1 2\n", encoding="utf-8")
-        self.assertEqual(FULL.main([str(v), str(cuts)]), 0)
+        self.assertEqual(run_pack(v, keep=cuts), 0)
         self.assertFalse((self.dir / "n_pack" / "n_cut.srt").exists())
         self.assertIn("字幕は付いていません", (self.dir / "n_pack" / "友人へ.txt").read_text(encoding="utf-8-sig"))
         bad = self.dir / "bad.txt"
         bad.write_text("100 200\n", encoding="utf-8")  # 動画(5秒)の範囲外
-        self.assertEqual(FULL.main([str(v), str(bad), "-o", str(self.dir / "bad_out")]), 1)
+        self.assertEqual(run_pack(v, keep=bad, out=self.dir / "bad_out"), 1)
 
     def test_full_cli_silence_render_pack(self):
         v = self.dir / "g.mp4"
         make_video(v, 10, audio="gaps")
-        rc = FULL.main([str(v), str(self._srt()), "--silence", "--render", "--copy-video"])
+        rc = run_pack(v, self._srt(), silence=True, render=True, copy_video=True)
         self.assertEqual(rc, 0)
         out = self.dir / "g_pack"
         for name in ("g.edl", "g_cut.srt", "g_roughcut.mp4", "友人へ.txt", "g.mp4"):
@@ -505,7 +482,7 @@ class TestWithFfmpeg(unittest.TestCase):
         # v0.4.0: 60fps 横の動画を再圧縮せずパックに入れ(2026-09-27 から直下)、置き先(既定 30fps・1080x1920)を計画に書く。CLI の経路の確認
         v = self.dir / "t60.mp4"
         make_video(v, 10, fps="60")
-        rc = FULL.main([str(v), str(self._srt()), "--textplus"])
+        rc = run_pack(v, self._srt(), textplus=True)
         self.assertEqual(rc, 0)
         out = self.dir / "t60_pack"
         for name in ("create_resolve_textplus_project.lua", "cut-plan.json", "友人へ.txt"):
@@ -527,31 +504,30 @@ class TestWithFfmpeg(unittest.TestCase):
         v = self.dir / "t.mp4"
         make_video(v, 4)
         subs = self._srt("1\n00:00:01,000 --> 00:00:02,000\nあ\n")
-        self.assertEqual(FULL.main([str(v), str(subs), "--textplus", "--textplus-fps", "60",
-                                    "--textplus-size", "1920x1080"]), 0)
+        self.assertEqual(run_pack(v, subs, textplus=True, textplus_fps="60", textplus_size="1920x1080"), 0)
         plan = RTP.read_script_plan((self.dir / "t_pack" / "create_resolve_textplus_project.lua").read_text(encoding="utf-8"))
         self.assertEqual(plan["target"], {"fps": 60, "width": 1920, "height": 1080})
-        for bad in (["--textplus-fps", "29"], ["--textplus-size", "1080"], ["--textplus-size", "1081x1920"]):
-            self.assertEqual(FULL.main([str(v), str(subs), "--textplus", "--force", "-o", str(self.dir / "x")] + bad), 1, bad)
+        for bad in ({"textplus_fps": "29"}, {"textplus_size": "1080"}, {"textplus_size": "1081x1920"}):
+            self.assertEqual(run_pack(v, subs, textplus=True, force=True, out=self.dir / "x", **bad), 1, bad)
             self.assertFalse((self.dir / "x").exists(), bad)  # 不正な指定ではファイルを作らない
 
     def test_full_cli_dry_run_and_options(self):
         v = self.dir / "d.mp4"
         make_video(v, 10)
         subs = self._srt()
-        self.assertEqual(FULL.main([str(v), str(subs), "--drop-lines", "2", "--dry-run"]), 0)
+        self.assertEqual(run_pack(v, subs, drop_lines={2}, dry_run=True), 0)
         self.assertFalse((self.dir / "d_pack").exists())  # dry-run はファイルを作らない
-        self.assertEqual(FULL.main([str(v), str(subs), "--drop-lines", "2"]), 0)
+        self.assertEqual(run_pack(v, subs, drop_lines={2}), 0)
         ev = parse_edl((self.dir / "d_pack" / "d.edl").read_text(encoding="utf-8"))
         self.assertEqual(len(ev), 2)  # 5-6秒の字幕の時間帯が抜ける
         self.assertEqual((ev[0][4], ev[1][3]), ("00:00:05:00", "00:00:06:00"))
         drop = self.dir / "drop.txt"
         drop.write_text("0 1\n9 10\n", encoding="utf-8")
-        self.assertEqual(FULL.main([str(v), "--drop", str(drop), "-o", str(self.dir / "o2")]), 0)
+        self.assertEqual(run_pack(v, drop=drop, out=self.dir / "o2"), 0)
         ev = parse_edl((self.dir / "o2" / "d.edl").read_text(encoding="utf-8"))
         self.assertEqual((ev[0][3], ev[0][4]), ("00:00:01:00", "00:00:09:00"))
-        self.assertEqual(FULL.main([str(v), str(subs), "--drop-lines", "2"]), 1)
-        self.assertEqual(FULL.main([str(v), str(subs), "--drop-lines", "2", "--force"]), 0)
+        self.assertEqual(run_pack(v, subs, drop_lines={2}), 1)
+        self.assertEqual(run_pack(v, subs, drop_lines={2}, force=True), 0)
 
     def test_embedded_start_timecode_is_used_in_edl(self):
         # Resolve は動画に埋め込まれた開始タイムコードをクリップの Start TC にする。EDL の元動画側の時刻が
@@ -563,13 +539,13 @@ class TestWithFfmpeg(unittest.TestCase):
         self.assertEqual(C.read_start_tc(v), "10:00:00:00")
         cuts = self.dir / "cuts.txt"
         cuts.write_text("1 2\n3 5\n", encoding="utf-8")
-        self.assertEqual(FULL.main([str(v), str(cuts)]), 0)
+        self.assertEqual(run_pack(v, keep=cuts), 0)
         ev = parse_edl((self.dir / "tc_pack" / "tc.edl").read_text(encoding="utf-8"))
         self.assertEqual([(e[3], e[4]) for e in ev], [("10:00:01:00", "10:00:02:00"), ("10:00:03:00", "10:00:05:00")])
         self.assertEqual(ev[0][5], "01:00:00:00")  # 記録側は元の開始タイムコードに影響されない
         self.assertIn("10:00:00:00", (self.dir / "tc_pack" / "友人へ.txt").read_text(encoding="utf-8-sig"))
         # 明示指定が優先
-        self.assertEqual(FULL.main([str(v), str(cuts), "--src-start-tc", "00:00:00:00", "-o", str(self.dir / "o")]), 0)
+        self.assertEqual(run_pack(v, keep=cuts, src_start_tc="00:00:00:00", out=self.dir / "o"), 0)
         ev = parse_edl((self.dir / "o" / "tc.edl").read_text(encoding="utf-8"))
         self.assertEqual(ev[0][3], "00:00:01:00")
 
@@ -582,20 +558,17 @@ class TestWithFfmpeg(unittest.TestCase):
     def test_full_cli_errors(self):
         v = self.dir / "e.mp4"
         make_video(v, 4)
-        self.assertEqual(FULL.main([str(v), "--drop-lines", "1"]), 1)  # 字幕が無い
+        self.assertEqual(run_pack(v, drop_lines={1}), 1)  # 字幕が無い
         drop = self.dir / "all.txt"
         drop.write_text("0 10\n", encoding="utf-8")
-        self.assertEqual(FULL.main([str(v), "--drop", str(drop)]), 1)  # 全部削ると残らない
-        cuts = self.dir / "cuts.txt"
-        cuts.write_text("0 1\n", encoding="utf-8")
-        self.assertEqual(FULL.main([str(v), str(cuts), "--keep", str(cuts)]), 1)  # 二重指定
+        self.assertEqual(run_pack(v, drop=drop), 1)  # 全部削ると残らない
 
     def test_frame_exactness_at_2997(self):
         v = self.dir / "f.mp4"
         make_video(v, 6, fps="30000/1001")
         cuts = self.dir / "cuts.txt"
         cuts.write_text("1 2\n3 4\n", encoding="utf-8")
-        self.assertEqual(FULL.main([str(v), str(cuts), "--render"]), 0)
+        self.assertEqual(run_pack(v, keep=cuts, render=True), 0)
         out = self.dir / "f_pack"
         ev = parse_edl((out / "f.edl").read_text(encoding="utf-8"))
         n = sum(tc2f(e[4], 30) - tc2f(e[3], 30) for e in ev)

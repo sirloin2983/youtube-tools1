@@ -1,7 +1,6 @@
 """パックの指定(JSON の spec・output)-> pack.Request と build_pack の引数。指定の読み方の 1 か所
 
-読み手は 3 つ: cut2resolve の API(src/cut2resolve/serve.py。画面から)・② の LocalTools(src/flow/tools.py。入口なしの CLI)・コマンド
-(cut2resolve.py)の引数だけは別の形(ファイルを並べて渡す)なので build_request が自前で組む。
+読み手は 2 つ: cut2resolve の API(src/cut2resolve/serve.py。画面から)・② の LocalTools(src/flow/tools.py。入口なしの CLI)。
 エラーは ytt.errors.ApiError(code, message)。画面から来る値を守る厳しさが正で、LocalTools も同じ検査を通る
 (動画・文字起こしは絶対パスで実在・拡張子を確かめる / keeps は時刻の順で重ならない / 数は範囲を確かめる)。
 パックの出力は変えない(読み方を 1 か所にしただけ)"""
@@ -105,7 +104,7 @@ def request_from_spec(spec):
     """画面の指定(JSON)→ pack.Request。モード: silence(① 無音で自動カット)/ keep(② 残す区間)/ list(③ 時刻リスト)
     どのモードでも、文字起こしがあれば「カット済」の行を削る(dropCutRows。既定 true)を重ねられる。
     0.23.0 で、消した画面のための指定(silenceExtra = ②③に無音を重ねる・handles = ②の前後の余白・joinGap = つなぐ隙間)は受けない
-    (送っても黙って無視する = 知らない鍵と同じ。余白・つなぐ隙間はコマンドの cut2resolve.py に残る)。
+    (送っても黙って無視する = 知らない鍵と同じ。余白・つなぐ隙間は 10-16 に単独のコマンドごと消えた)。
     listKind "drop"(③の削る区間)は、入口のまとめて実行の「カットしない」(listText "" = 動画全体)が使うので残す"""
     if not isinstance(spec, dict):
         raise ApiError("bad_request", "指定の形が正しくありません")
@@ -275,12 +274,12 @@ def apply_speaker_styles(plan, styles, color_map, shown):
 
 
 def output_from_spec(o, video):
-    """出力の指定(JSON)→ build_pack の引数のもと。0.23.0 で、消した画面のための fcpxml(補助の FCPXML)・crf(粗編集の画質)は受けない
-    (送っても黙って無視する。FCPXML は作らない・粗編集は既定の画質 C.DEFAULT_CRF。どちらもコマンドの cut2resolve.py に残る)"""
+    """出力の指定(JSON)→ build_pack の引数のもと。fcpxml(補助の FCPXML。2026-10-16 に書き出しごと消した)・crf(粗編集の画質)は受けない
+    (送っても黙って無視する = 古い要求は断らない。FCPXML は作らない・粗編集は既定の画質 C.DEFAULT_CRF)"""
     o = o if isinstance(o, dict) else {}
     out = clean_path(o.get("dir"), "out")
     textplus = bool(o.get("textplus"))
-    copy_video, _ = pack.normalize_outputs(o.get("copyVideo"), False, textplus)
+    copy_video = pack.normalize_outputs(o.get("copyVideo"), textplus)
     try:
         target = TP.parse_target(o.get("textplusFps"), o.get("textplusSize"))
     except ValueError as e:

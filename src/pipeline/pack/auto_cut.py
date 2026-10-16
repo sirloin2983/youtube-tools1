@@ -1,17 +1,13 @@
 # -*- coding: utf-8 -*-
-"""カットの計画の部品(read_cut_plan・build_plan・plan_from_keeps・finalize_plan・build_cut_fcpxml。pack.py が使う)。
-パックを書くのは pack.py だけ。単独のコマンド(auto_cut.py)は 10-16 のユーザー決定で消した(パックを作る道は入口と CLI の cut2resolve.py だけ)。
+"""カットの計画の部品(read_cut_plan・build_plan・plan_from_keeps・finalize_plan。pack.py が使う)。
+パックを書くのは pack.py だけ。単独のコマンド(auto_cut.py)と FCPXML の書き出しは 10-16 のユーザー決定で消した(パックを作る道は入口と ② の CLI src/app/cli.py だけ)。
 """
-import bisect
 import datetime
-import hashlib
 import math
-import xml.etree.ElementTree as ET
 from fractions import Fraction
 from pathlib import Path
 
 from . import cut2resolve_core as C
-from . import srt2resolve as S
 
 SCHEMA = C.CUT_PLAN_SCHEMA
 DEFAULT_HANDLES = 10.0   # スタジオの採用区間のような長い区間の既定(前後10秒の編集余白)
@@ -142,44 +138,3 @@ def finalize_plan(plan, video, meta, src_start, copy_video=False, cues_out=None,
     doc["subtitles"] = len(cues_out) if cues_out is not None else None
     order = ["schema", "tool", "createdAt", "media", "segments", "segmentsIncludeHandles", "handleSeconds"]
     return {k: doc[k] for k in order + [k for k in doc if k not in order]}
-
-
-def build_cut_fcpxml(video, meta, keeps, cues, start_frames=0):
-    """Create one editable FCPXML timeline with trimmed source clips and title clips.
-    start_frames: 元動画の開始タイムコード(フレーム)。asset の start と asset-clip の start はメディアの時刻で書く
-    (Resolve は埋め込みの開始タイムコードで照合する。EDL の v0.1.1 と同じ理由)。
-    タイトル(つながったクリップ)の offset は親の asset-clip の中の時刻 = 親の start 基準で書く
-    (以前は 0 基準で、2つ目以降のクリップの字幕が親の範囲の外を指していた)。
-    text-style-def の id は文書全体で重ならないよう通し番号にする(以前はクリップごとに ts1 から振り直していた)"""
-    fps, t0 = meta["fps"], int(start_frames or 0)
-    uid = hashlib.md5(str(video.resolve()).encode("utf-8")).hexdigest().upper()
-    root, spine = S.fcpxml_skeleton(video, meta, uid, t0, bool(cues), "Auto Cut", video.stem, sum(b - a for a, b in keeps))
-    timeline = n = 0
-    for (a, b), local_cues in zip(keeps, _cues_per_clip(keeps, cues)):
-        clip = ET.SubElement(spine, "asset-clip", ref="r2", offset=S.frames_to_time(timeline, fps), name=video.stem,
-                             start=S.frames_to_time(t0 + a, fps), duration=S.frames_to_time(b - a, fps), format="r1", tcFormat="NDF")
-        for ls, le, text, lane in S.assign_lanes(local_cues):
-            n += 1
-            S.fcpxml_title(clip, n, lane, t0 + a + ls, le - ls, text, fps, "Yu Gothic", 56)
-        timeline += b - a
-    return S.fcpxml_text(root)
-
-
-def _cues_per_clip(keeps, cues):
-    """区間ごとに、タイムラインでその区間 [gs, ge) に重なる字幕を、区間の中の時刻 [(開始, 終了, 文)] で(字幕の元の並び順のまま)。
-    区間はタイムラインに続けて並ぶ(各区間は 開始 ≤ 終了 = normalize の形)ので、開始の順の索引を二分探索して「始まった字幕」を足し、
-    「終わった字幕」を落としながら進む
-    (以前は区間ごとに全部の字幕を見ていた = 区間の数 × 字幕の数。結果は同じ)"""
-    cues = list(cues or [])
-    order = sorted(range(len(cues)), key=lambda i: cues[i][0])
-    starts = [cues[i][0] for i in order]
-    out, active, nxt, gs = [], [], 0, 0
-    for a, b in keeps:
-        ge = gs + (b - a)
-        hi = max(nxt, bisect.bisect_left(starts, ge))   # 開始 < ge の字幕を足す
-        active = [i for i in active + order[nxt:hi] if cues[i][1] > gs]   # 終わり ≤ gs の字幕は、この先の区間にも重ならない
-        nxt = hi
-        out.append([(max(cs, gs) - gs, min(ce, ge) - gs, text) for cs, ce, text in (cues[i] for i in sorted(active))
-                    if max(cs, gs) < min(ce, ge)])
-        gs = ge
-    return out

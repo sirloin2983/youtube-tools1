@@ -23,10 +23,10 @@ cut2resolve(「編集」の部品・コマンド。版は全体で 1 つ = ytt/v
     試算・カット後の見え方                 2 カット のタブのプレビュー(削った所を飛ばして再生)と、3 パック のタブの「これから作るパック」
     書き出し(Text+ パック・粗編集の動画)   3 パック のタブ(置き先の fps・大きさ・粗編集の動画・タイムコード・リール名・出力先・上書きの確認・中止)
   たたき台は区間を決める出発点で、そのあとタイムラインで手で直せます。
-  補助の FCPXML(Resolve では未確認)は画面から外しました。要るときはコマンド(--fcpxml)で作れます。
-  パックを作る部品とコマンド(pack.py・cut2resolve.py。パックを作るのは pack.py だけ)は src/pipeline/pack/ に移しました(2026-10-09。中身は同じ)。
-  単独のコマンド auto_cut.py・srt2resolve.py は 2026-10-16 に消しました(パックを作る道は入口と cut2resolve.py だけ。auto_cut.py・srt2resolve.py は pack.py の部品として残る)。
-  このフォルダには API(serve.py。「編集」とまとめて実行が使う)と cut2resolve.bat(と .bat 用の転送 cut2resolve.py)が残ります。
+  補助の FCPXML(Resolve では未確認)は 2026-10-16 に書き出しごと消しました。
+  パックを作る部品(pack.py)は src/pipeline/pack/ に移しました(2026-10-09。中身は同じ)。パックを作るのは pack.py だけです。
+  単独のコマンド(cut2resolve.py・cut2resolve.bat・auto_cut.py・srt2resolve.py)は 2026-10-16 に消しました(パックを作る道は入口と ② の CLI src/app/cli.py だけ。
+  auto_cut.py・srt2resolve.py は pack.py の部品として残る)。このフォルダには API(serve.py。「編集」とまとめて実行が使う)が残ります。
 
 
 ■ API(serve.py。入口の中の /cut2resolve/api/...)
@@ -69,16 +69,7 @@ cut2resolve(「編集」の部品・コマンド。版は全体で 1 つ = ytt/v
   Text+ 用パックを選んだ場合は、出力内の「Text+の使い方.txt」に沿って登録し、fps・解像度が合うテストプロジェクトで実行してください。
 
 
-■ 単独のコマンド(手で使う道具。src/pipeline/pack/ にある。python src/pipeline/pack/cut2resolve.py … のようにパスで動かす。
-  このフォルダの cut2resolve.py と cut2resolve.bat は転送で同じ物を動かす)
-  - cut2resolve.py(パックを作る。中身は API と同じ pack.py): python cut2resolve.py 動画.mp4 カットリスト.txt [字幕.srt]
-    (出力は <動画名>_pack/。以前のシンプル版 cut2resolve_simple.bat は 2026-09-26 に廃止)。cut2resolve.bat に動画・字幕などをドロップ(フル版。無音カット+粗編集つき)
-  - 採用区間 JSON(youtube-tools-cut-plan/v1)から前後の余白つきで作るときは cut2resolve.py 動画.mp4 --plan 採用区間.json --fcpxml --min-len 0 --no-edit-media
-    (単独のコマンド auto_cut.py は 2026-10-16 に消した。動画 + 字幕だけから FCPXML を作る srt2resolve.py も同じ)
-  - 補助の FCPXML(カット済みのタイムライン + 字幕のタイトル。Resolve の実機では未確認): python cut2resolve.py … --fcpxml
-  python cut2resolve.py --help で全オプション
-  Text+ パックは python cut2resolve.py 動画.mp4 字幕.srt --textplus で作成できます(--textplus-fps 60 / --textplus-size 1920x1080 で置き先を変更)。
-  スタジオの余白つき素材を使わないときは --no-edit-media。
+■ 単独のコマンドは 2026-10-16 に消しました(パックは入口と ② の CLI src/app/cli.py の道だけ。旧 cut2resolve.py の使い方は git の履歴に残っています)。
   出力先にファイルがあるときは止まります。上書きは --force。
   上書きのとき、前に写した動画が元の動画と同じ大きさ・更新日時なら、動画のコピーは飛ばします(v0.22.1。音量をそろえるときは作り直す。
   音量をかけた写しを飛ばすのは「編集」・まとめて実行(API)のときだけ。v0.22.2)。
