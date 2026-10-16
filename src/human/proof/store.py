@@ -691,7 +691,7 @@ def delete_doc(tid):
 # 行(proofedRows = 校正済みにした行・unproofedRows = 外した行)は保存のときにサーバーが数える(どの画面から保存しても同じ数え方)。
 # lastAt = 人が最後に操作した時刻(保存・校正済みの数が変わったとき・編集の画面が操作中に送る POST /api/effort)。**記録のほかの役目**:
 # ⑤ eval/drill/evalbatch が「人が作業中か」をこれで見て、評価用の作り直しで文書を上書きしない守りに使う。
-# 作業した時間の記録(activeSec・cutSec・sessions)はやめた(決定 3-47 の 1d-3。数え方が粗い)。今ある値は消さずに残す(読み手は ⑤ eval/tools/eval_effort.py だけ)。
+# 作業した時間の記録(activeSec・cutSec・sessions)はやめた(決定 3-47 の 1d-3。数え方が粗い)。今ある値は消さずに残す(読み手は消した eval_effort.py だけ)。
 # どれも文書の updatedAt を動かさない(記録のために画面の保存の競合 baseUpdatedAt / 409 を起こさない)
 EFFORT_KEYS = ("proofedRows", "unproofedRows")
 

@@ -1,11 +1,11 @@
-"""dev/ の測る道具(eval_asr.py・eval_speakers.py・eval_timing.py・eval_cut.py・eval_alt.py・eval_effort.py・eval_marks.py)の共通の部品
+"""dev/ の測る道具(eval_asr.py・eval_speakers.py・eval_timing.py・eval_cut.py・eval_alt.py・eval_marks.py)の共通の部品
 (2026-10-07 ③ dev の見直しでまとめ、見直しの 2 周目で eval_asr・eval_speakers・eval_timing も使うようにした)。
 
 - 置き場所: TOP(リポジトリ直下 = git)・REPO(src = ツールと ytt)。読み込むと REPO を sys.path に足す
 - 作業データの場所(ytt.datadir の 1 か所。--data-dir は全ツールの作業データの親フォルダ = テスト用)・JSON の読み方・
   時期(--since / --until)・率と分布・git の rev・結果の保存(<ツールの作業データ>/evals/<領域>/<日時>.json。
   入口の src/eval/drill/accuracy.py が、道具の最後の行「保存: <パス>」(前と中身が同じなら「変わらず: <前のパス>」)と名前の形 <日時>.json で読む = 形を変えない)
-- ①②③ の部品をこのプロセスの中で使う準備(prepare。編集の serve は読まない = OPT-E2。eval_asr・eval_speakers の run・eval_effort・eval_alt・eval_cloud)
+- ①②③ の部品をこのプロセスの中で使う準備(prepare。編集の serve は読まない = OPT-E2。eval_asr・eval_speakers の run・eval_alt・eval_cloud)
 """
 import atexit
 import datetime

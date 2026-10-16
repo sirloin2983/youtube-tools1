@@ -53,7 +53,7 @@ SKIP_MARK = ".part-"       # datadir.prepare・fsio の途中のファイル
 KEEP_BIN_PREFIX = "whisper.cpp-"   # transcribe\\bin の下で、これで始まるフォルダだけは写す(作り直しに Visual Studio が要る)
 COPY_MEDIA = True          # 評価用・学習用の動画を写す(スイッチ。False = 今までどおり作業データと案件の 作業用 だけ)
 MEDIA_DIR = "media"        # 写す先の下の、評価用・学習用の動画を置くフォルダ(<写す先>/youtube-tools-data/media/<ドライブ>/<パス>)
-LEARN_NAME = "学習用データ"   # 評価用のフォルダの隣の学習用のフォルダ(src/eval/tools/eval_split.py の --train の既定と同じ)
+LEARN_NAME = "学習用データ"   # 評価用のフォルダの隣の学習用のフォルダ(旧い eval_split.py の --train の既定と同じ。その道具は消した)
 PREV_SUFFIX = ".prev"
 MAX_ERRORS = 20
 STATE_MAX = 64 * 1024     # backup-state.json を読む上限(これより大きければ読めない扱い = 記録なし)

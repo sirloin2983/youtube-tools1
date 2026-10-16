@@ -69,7 +69,7 @@ SRC = os.path.dirname(os.path.dirname(HERE))   # tools -> eval -> src
 if not __package__:   # スクリプトとして起動したとき(py -3.10 src/eval/tools/eval_asr.py)だけ。src を先頭に・この道具のフォルダは外す(兄弟は絶対 import で読む。見本 pipeline/transcribe/worker.py)
     sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
 from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・git の rev・保存・editor の読み込み。src を sys.path に足す)
-from eval.tools._evalcommon import is_reviewed, read_json  # noqa: E402  is_reviewed は eval_alt・eval_effort・eval_timing・テストも eval_asr.名前 で使う
+from eval.tools._evalcommon import is_reviewed, read_json  # noqa: E402  is_reviewed は eval_alt・eval_timing・テストも eval_asr.名前 で使う
 from ytt import docloc, tools  # noqa: E402
 from pipeline.transcribe import postproc as _postproc  # noqa: E402
 from pipeline.transcribe import tx_engines as _tx_engines  # noqa: E402
