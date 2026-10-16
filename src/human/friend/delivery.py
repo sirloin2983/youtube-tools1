@@ -3,7 +3,6 @@
 形: AutoRunner(入口の src/app/autorun.py)が `class AutoRunner(Delivery, Queue)` で継ぐ(Queue = src/flow/runqueue.py)。ここは入口の部品
 (autorun・launch・live・prefs)も案件の部品(manage/cases)も読まない = 要るものは継いだクラスが埋める:
   - _deliver_batch_limits() -> (既定, 下限, 上限)  n 本ごとに組にする数の既定と範囲(ホームの設定 intake.deliverBatch。AutoRunner が prefs から)
-  - _remember_delivered(切り抜きのパス, zip の名前)  案件の一覧に「届けた」を残す(AutoRunner が cases.remember_delivered を呼ぶ)
   - _save_active()・_active_runs()                 待ち・実行中の記録を残す(M5)・待ちと実行中の一覧(Queue)
   - 属性 prefs(ホームの設定。get だけ)・log_path(終わった実行の記録のパス。隣に deliveries.jsonl)・cv・log・clock・find_pack と
     Runner の _check・_clips
@@ -24,7 +23,8 @@ n 本たまったら組で届ける(flush_pools は入口の src/app/live.py が
   - 友人に失敗の知らせ(.失敗.txt)を置くのは依頼(request)だけ(2-6)。環境変数 YTT_AUTO_SEND=off(sendpolicy.switched_off)なら auto は届けない
   - 組の本数(_batch_size): 依頼ごと → 友人のアプリの「届け方」(intake.read_delivery_prefs = <受付のフォルダ>/設定/届け方.json。2-4)→ ホームの設定
 継ぐ側が埋める物(上に加えて。既定は何もしない): _remember_not_sent(配信, マーク, 理由の鍵, 文)・属性 requested_hook(配信 id) -> 受け付けた時刻か None
-(入口が受付の Intake.requested_at を渡す)。_remember_delivered はまとめて実行の自動の分だけ video_id・mark_id も渡す。
+(入口が受付の Intake.requested_at を渡す)。
+届けたは案件に写さない(届けた記録 logs/deliveries.jsonl は deliver.deliver_one が書き、案件は ② flow/deliveries.delivered_marks で引く。MARKS-3)。
 """
 import contextlib
 import json
@@ -49,7 +49,7 @@ POOL_MAX_AGE = 12 * 3600.0         # 溜めを作ってからこれだけたっ�
 
 
 class _PoolRun:
-    """組の溜めを届けるときに Delivery の届ける部品(_deliver_pending・_deliver_group・_deliver_one・_record_delivery)へ渡す、実行の代わり"""
+    """組の溜めを届けるときに Delivery の届ける部品(_deliver_pending・_deliver_group・_deliver_one)へ渡す、実行の代わり"""
 
     def __init__(self, key, p):
         self.id = "pool" + uuid.uuid5(uuid.NAMESPACE_URL, key).hex[:6]
@@ -88,10 +88,6 @@ class Delivery:
     def _deliver_batch_limits(self):
         """n 本ごとに組にする数の (既定, 下限, 上限)。継ぐ側(AutoRunner)がホームの設定の既定と範囲で埋める"""
         raise NotImplementedError("継ぐ側が _deliver_batch_limits を埋める")
-
-    def _remember_delivered(self, clip_path, zip_name):
-        """届けた切り抜きを案件の一覧に残す。継ぐ側(AutoRunner)が埋める"""
-        raise NotImplementedError("継ぐ側が _remember_delivered を埋める")
 
     def _after_pack(self, run, st, prefix):
         """① 全自動: パックが n 本たまるごとに届ける(全部を待たない)"""
@@ -321,21 +317,6 @@ class Delivery:
         run.delivered.extend(dirs)
         self._save_active()
 
-    def _record_delivery(self, run, zip_path, dirs):
-        """届けた切り抜きを案件の一覧に「届けた」で残す(届けた zip の中身の記録 logs/deliveries.jsonl は deliver.deliver_one が書く)。
-        まとめて実行の自動で送った分(D-SEND)は配信とマークも渡す = 案件の auto[マーク] に「まとめて実行」の印(品質のカードに出る。2-8)"""
-        full = getattr(run, "mode", None) == "full" and self._origin(run) == "auto" and run.video_id
-        for d in dirs:   # ライブの自動の切り抜きなら、案件の一覧に「届けた」を残す(二重に届けない。live.autoDeliver・友人の依頼)
-            pm = run.pack_marks.get(d) or {}
-            path, mid = pm.get("path") or "", pm.get("markId") or ""
-            try:
-                if full and mid:
-                    self._remember_delivered(path, os.path.basename(zip_path), video_id=run.video_id, mark_id=mid)
-                elif path:
-                    self._remember_delivered(path, os.path.basename(zip_path))
-            except Exception as e:   # noqa: BLE001  (記録が残せなくても届けたことは変わらない)
-                self.log("まとめて実行: 届けた印を案件に残せませんでした(%s)" % (str(e)[:120] or e.__class__.__name__))
-
     @staticmethod
     def _place_error(e):
         return run_mod.StepError("パックを Dropbox へ置けませんでした: %s" % tools.why(e))
@@ -376,7 +357,6 @@ class Delivery:
                                            marks=run.pack_marks, with_preview=with_preview, check=lambda: self._check(run), log=self.log,
                                            origin=self._origin(run), ended_at=getattr(run, "send_ended_at", None))
             self._mark_delivered(run, [d])
-            self._record_delivery(run, dest, [d])
             return dest
 
     # ------------------------------------------------------------ ライブの切り抜きの組の溜め(10-09 ユーザー決定 = decisions 3-20)

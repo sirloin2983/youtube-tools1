@@ -2244,9 +2244,15 @@ class TestAutoSend(Base):
         rows = self.rows()
         self.assertEqual({(r["origin"], r["videoId"]) for r in rows}, {("auto", VID)})
         self.assertTrue(all(r["endedAt"] == (self.stream["releaseTs"] + self.stream["duration"]) * 1000 for r in rows), rows)
-        recs = self.recs()   # 案件に「まとめて実行」の印と「届けた」(品質のカードに出る)
-        self.assertEqual(sorted(recs), ["a2", "a3"])
-        self.assertTrue(all(r["origin"] == "full" and r["deliveredAt"] and "notSent" not in r for r in recs.values()), recs)
+        self.assertEqual(sorted(p["markId"] for r in rows for p in r["packs"]), ["a2", "a3"])
+        self.assertTrue(all(r["mode"] == "full" for r in rows), rows)   # 実行の形(案件が「まとめて実行の自動で送った」を見分ける)
+        self.assertEqual(self.recs(), {}, "届けたは案件に写さない(MARKS-3。② の届けた記録から引く)")
+        # 案件の画面: 届けた記録の mode full・origin auto から「まとめて実行」の印と「届けた」(品質のカードに出る)
+        from flow import deliveries
+        built = self.cases.build({VID: json.loads(json.dumps(self.tools.video))}, [], {}, delivered=deliveries.delivered_marks(self.logs))
+        got = {cl["markId"]: cl for cl in next(x for x in built["cases"] if x["id"] == VID)["clips"]}
+        self.assertEqual({k: (cl["auto"]["origin"], bool(cl["review"]["deliveredAt"]), cl["review"]["delivered"].endswith(".zip"), "notSent" in cl["review"])
+                          for k, cl in got.items()}, {"a2": ("full", True, True, False), "a3": ("full", True, True, False)})
         self.assertFalse([n for n in names if n.endswith(".失敗.txt")])
 
     def test_friend_delivery_prefs_one_by_one(self):
@@ -2284,15 +2290,15 @@ class TestAutoSend(Base):
             recs = self.recs()
             self.assertEqual({k: (r["origin"], r["notSent"]["code"], r["notSent"]["text"]) for k, r in recs.items()},
                              {k: ("full", code, want) for k in ("a2", "a3")}, code)
-            self.assertFalse(any(r.get("seenAt") for r in recs.values()), "人は見ていない")
+            self.assertFalse(any(r.get("seenAt") for r in recs.values()), "「見た」は書かない(MARKS-3 で消した)")
         self.assertEqual(self.outs(), [])
         self.assertEqual(self.rows(), [])
-        # 案件の画面: 送らなかった札(review.notSent)・自動の印(品質のカードの対象)。未確認には数えない
+        # 案件の画面: 送らなかった札(review.notSent)・自動の印(品質のカードの対象)。「未確認」は無い(MARKS-3)
         saved = self.cases.load_saved(self.cases.locations(os.path.join(self.tmp, "repo"), self.env)["cases"])
         built = self.cases.build({VID: json.loads(json.dumps(self.tools.video))}, [], saved)
         c = next(x for x in built["cases"] if x["id"] == VID)
         got = {cl["markId"]: cl for cl in c["clips"]}
-        self.assertEqual({k: (cl["auto"]["origin"], cl["review"]["notSent"]["code"], cl["review"]["unconfirmed"]) for k, cl in got.items()},
+        self.assertEqual({k: (cl["auto"]["origin"], cl["review"]["notSent"]["code"], "unconfirmed" in cl["review"]) for k, cl in got.items()},
                          {"a2": ("full", "stale", False), "a3": ("full", "stale", False)})
 
     def test_requested_by_delivery_log_or_returns(self):
@@ -2330,7 +2336,8 @@ class TestAutoSend(Base):
         self.assertEqual(len([n for n in names if n.endswith(".zip")]), 2, names)
         self.assertTrue(all(re.match(self.TAG_RE, n) for n in names), names)
         self.assertEqual({r["origin"] for r in self.rows()}, {"auto"})
-        self.assertTrue(all(r.get("deliveredAt") and r["origin"] == "full" for r in self.recs().values()), self.recs())
+        self.assertEqual({r["mode"] for r in self.rows()}, {"full"})   # 溜めから送った分も実行の形 full(案件は届けた記録で見分ける)
+        self.assertFalse(any("deliveredAt" in r for r in self.recs().values()), "届けたは案件に写さない(MARKS-3)")
         # 48 時間を過ぎた溜め
         with self.r._pool_lock:
             self.r._pools_load()["full|x|" + VID] = {"rid": "x", "tag": None, "origin": "auto", "mode": "full", "title": "古い", "deliverDir": self.out,

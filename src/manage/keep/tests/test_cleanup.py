@@ -37,19 +37,18 @@ class CleanupTest(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def test_export_candidates_need_pack_and_done_status(self):
+    def test_export_ignores_old_case_status(self):
+        """案件の状態(投稿済み・見送り)の条件は MARKS-3 で消した: 古い一覧の status が残っていても、それだけでは候補にしない(パックから 3 日・届けてから 3 日だけ)"""
+        self.assertFalse(hasattr(C, "DONE_STATUSES"))
         v = os.path.join(self.tmp, "vid")
         a = touch(os.path.join(v, "a.mp4"), 100)
         b = touch(os.path.join(v, "b.mp4"), 100)
-        c = touch(os.path.join(v, "c.mp4"), 100)
         cases = [{"id": "1", "title": "終わった配信", "status": "posted", "clips": [{"path": a, "exists": True, "pack": {"dir": a + "_pack"}}, {"path": b, "exists": True, "pack": None}]},
-                 {"id": "2", "title": "作業中", "status": "", "clips": [{"path": c, "exists": True, "pack": {"dir": c + "_pack"}}]}]
+                 {"id": "2", "title": "見送った配信", "status": "skipped", "clips": [{"path": b, "exists": True, "pack": {"dir": b + "_pack"}}]}]
         r = self.cl.candidates(cases)
         exp = next(k for k in r["kinds"] if k["kind"] == "export")
-        self.assertEqual([i["path"] for i in exp["items"]], [a])              # パックがあり、案件が投稿済み/見送りのものだけ
-        self.assertIn("終わった配信", exp["items"][0]["note"])
-        self.assertEqual(exp["bytes"], 100)
-        self.assertEqual(r["bytes"], 100)
+        self.assertEqual((exp["items"], exp["bytes"], r["bytes"]), ([], 0, 0))
+        self.assertNotIn("投稿済み", exp["label"])
         self.assertEqual((r["keepDays"], r["trashDays"], r["packAgeDays"]), (14, 3, 3))   # 受付済みの候補(このテストは 14 を渡す)・ごみ箱 TRASH_DAYS・パックから PACK_AGE_DAYS
 
     def test_work_orphans(self):

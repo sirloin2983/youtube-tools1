@@ -194,7 +194,7 @@ def run_mounted_phase(browser, tmp, shots, check, events):
         _mounted_cards_and_health(cx)
         _mounted_open_tools(cx)
         _mounted_old_urls(cx)
-        _mounted_cases_and_memo(cx)
+        _mounted_cases(cx)
         _mounted_todo_and_unlinked(cx)
         _mounted_list_tools(cx)
         _mounted_next_steps(cx)
@@ -378,8 +378,8 @@ def _mounted_old_urls(cx):
     tab.close()
 
 
-def _mounted_cases_and_memo(cx):
-    """[A] 2d. 案件の一覧・2d-2. 離れて戻ってもメモの下書きが残る・2d-3. メモの保存の応答待ち"""
+def _mounted_cases(cx):
+    """[A] 2d. 案件の一覧(配信 1 本 = 1 行・開くと切り抜き・まとめて実行)・2d-2. 保存していない配信者の入力は離れて戻っても残る"""
     check, ctx, pg = cx.check, cx.ctx, cx.pg
     # 2d. 案件(配信ごと)の画面はホーム(/)にまとめた(段階5)。スタジオ・文字起こしのデータから紐づけを組み立て、状態を付けて保存できる
     check(wait_js(pg, "document.querySelectorAll('.pt-case').length === 1", 15000), "[A] 案件の一覧に配信が1本出た")
@@ -388,7 +388,10 @@ def _mounted_cases_and_memo(cx):
     pills = pg.eval_on_selector_all(".pt-clip .pill", "els => els.map(e => e.textContent)")
     check("文字起こし 校正 1/2行" in pills and "パック まだ" in pills, "[A] 閉じていても中身は組み立ててある(文字起こしの進み具合とパックの有無): %s" % pills)
     pg.click(".pt-case .pt-case-row")
-    check(wait_js(pg, "document.querySelector('.pt-case').open === true", 5000), "[A] 行を開くと切り抜き・まとめて実行・メモが出る")
+    check(wait_js(pg, "document.querySelector('.pt-case').open === true", 5000), "[A] 行を開くと切り抜き・まとめて実行が出る")
+    # MARKS-3: 案件の状態・メモ・見た/未見・未確認の絞り込みは画面に無い
+    check(pg.evaluate("!document.querySelector('.pt-case-status, .pt-case-statuspill, .pt-case-memo, .pt-memo-save, #fStatus, #autoFilter, .pt-ac-seen, .pt-ac-unseen')"),
+          "[A] MARKS-3: 案件の状態・メモ・見た/未見・未確認の絞り込みは画面に無い")
     acts = pg.eval_on_selector_all(".pt-clip a", "els => els.map(a => [a.textContent, a.getAttribute('href')])")
     check(any(t == "校正で開く" and h.startswith("/cases?c=e2eCase0001&d=") and h.endswith("#proof") for t, h in acts),
           "[A] 切り抜きの操作は「校正で開く」(案件の画面へ。文書 ID で校正のタブ。B-1: 同じ動画の別の文書が開かないように): %s" % acts)
@@ -411,107 +414,31 @@ def _mounted_cases_and_memo(cx):
           "[A] 「案件の画面で開く」で案件の画面がその配信を開いた: %s" % tab.evaluate("[location.pathname, location.search, location.hash]"))
     check(len(ctx.pages) == n_pages, "[A] S-15: 「案件の画面で開く」は同じタブで移る(新しいタブを開かない): %d → %d" % (n_pages, len(ctx.pages)))
     tab.close()
-    pg.select_option(".pt-case-status", "posted")
-    check(wait_js(pg, "[...document.querySelectorAll('.ui-toast')].some(t => t.textContent.indexOf('投稿済み') >= 0)", 10000), "[A] 状態を保存した(合言葉つきの POST)")
-    pg.reload()
-    check(wait_js(pg, "document.querySelector('.pt-case-status') && document.querySelector('.pt-case-status').value === 'posted'", 15000),
-          "[A] 読み込み直しても状態が残る(案件ファイル)")
-    # B-4: 投稿済み・見送りの案件は「次にやること」に出さない
-    time.sleep(1.0)
-    todo_hrefs = pg.eval_on_selector_all(".pt-todo-item .pt-todo-link", "els => els.map(a => a.getAttribute('href'))")
-    check(not any(("d=" + case_doc) in h for h in todo_hrefs), "[A] 投稿済みの案件の文書は「やること」に出ない: %s" % todo_hrefs)
+    # 2d-2. 保存していない配信者の入力(まとめて実行の欄)は、alt-tab で離れて戻ったとき(UIKit.life の blur→focus → refreshCases)の
+    # 再描画でも消えない(E2 finding 1)。blur→focus の起こし方は src/app/tests/e2e_window.py の「7-2 離れた・戻った」と同じ
     if not pg.evaluate("document.querySelector('.pt-case').open"):
         pg.click(".pt-case .pt-case-row")
-    pg.select_option(".pt-case-status", "")
-    check(wait_js(pg, "[...document.querySelectorAll('.ui-toast')].some(t => t.textContent.indexOf('未設定') >= 0)", 10000), "[A] 状態を「未設定」に戻した")
-    if pg.evaluate("document.querySelector('.pt-case').open"):
-        pg.click(".pt-case .pt-case-row")   # 下の確認は閉じた行を開くところから始まる
-    # reload で advancedBox が既定に戻るので、また開く
-    pg.evaluate("document.getElementById('advancedBox').open = true")
-
-    # 2d-2. 未保存のメモ・フォーカスは、alt-tab で離れて戻ったとき(UIKit.life の blur→focus → refreshCases)の
-    # 再描画でも消えない(E2 finding 1)。blur→focus の起こし方は src/app/tests/e2e_window.py の「7-2 離れた・戻った」と同じ
-    pg.click(".pt-case .pt-case-row")
     check(wait_js(pg, "document.querySelector('.pt-case').open === true", 5000), "[A] 下書きを試すため行を開く")
-    pg.evaluate("document.querySelector('.pt-case .pt-case-memo').open = true")   # メモの <details> も開く(空だと既定で閉じている)
-    draft = "書きかけの下書き"
-    pg.fill(".pt-case textarea", draft)   # 「メモを保存」は押さない(保存前の下書きのまま)
-    pg.evaluate("document.querySelector('.pt-case textarea').focus()")
+    draft = "書きかけの配信者"
+    pg.fill(".pt-case .pt-auto-streamer", draft)   # 実行は押さない(保存していない入力のまま)
+    pg.evaluate("document.querySelector('.pt-case .pt-auto-streamer').focus()")
     pg.evaluate("() => { document.hasFocus = () => false; window.dispatchEvent(new Event('blur')); }")
     time.sleep(0.4)   # UIKit.life の blurTimer(150ms)より長く待つ
     pg.evaluate("() => { document.hasFocus = () => true; window.dispatchEvent(new Event('focus')); }")
     check(wait_js(pg, "document.querySelector('.pt-case') && document.querySelector('.pt-case').open === true", 10000),
           "[A] 離れて戻った再描画のあとも行は開いたまま")
-    check(wait_js(pg, "document.querySelector('.pt-case textarea') && document.querySelector('.pt-case textarea').value === %s" % json.dumps(draft), 10000),
-          "[A] 保存前のメモが、戻ったときの再描画(refreshCases)でも消えない: %s"
-          % pg.evaluate("document.querySelector('.pt-case textarea') && document.querySelector('.pt-case textarea').value"))
-    check(pg.evaluate("document.activeElement === document.querySelector('.pt-case textarea')"),
-          "[A] フォーカスも(再描画で作り直された)メモ欄に戻る")
-
-    # 2d-3. 監査 14(段2): メモの保存の応答を待つ間に書き足した分は消さない・「保存しました」は保存した内容のときだけ・二度押しは最後の値。
-    # 応答を遅らせるのは画面の fetch を包んで行う(要求はすぐサーバーへ送り、応答だけを __release() まで止める。
-    # page.route の同期版は、止めている間 Playwright の操作も止まるので使わない)
-    pg.evaluate("""() => {
-            const orig = window.fetch.bind(window);
-            window.__origFetch = orig; window.__held = []; window.__memoSent = [];
-            window.fetch = (url, init) => {
-                let body = null;
-                try { body = init && init.body ? JSON.parse(init.body) : null; } catch (e) { body = null; }
-                if (String(url).indexOf('/api/cases/update') >= 0 && body && body.memo != null) {
-                    window.__memoSent.push(body.memo);
-                    const p = orig(url, init);
-                    return new Promise((res, rej) => window.__held.push(() => p.then(res, rej)));
-                }
-                return orig(url, init);
-            };
-            window.__release = () => { const h = window.__held.shift(); if (h) h(); return !!h; };
-        }""")
-    server_memo = lambda: pg.evaluate("window.__origFetch('/api/cases', {cache: 'no-store'}).then(r => r.json()).then(j => j.cases[0].memo)")
-    memo_msg = lambda: pg.evaluate("document.querySelector('.pt-case .pt-memo-msg').textContent")
-    pg.fill(".pt-case textarea", "メモA")
-    pg.click(".pt-case .pt-memo-save")
-    check(wait_js(pg, "window.__memoSent.length === 1", 5000) and pg.text_content(".pt-case .pt-memo-save") == "保存中…",
-          "[A] メモの保存中はボタンが「保存中…」: %s" % pg.text_content(".pt-case .pt-memo-save"))
-    pg.fill(".pt-case textarea", "メモA\n追記B")   # 応答の前に書き足す
-    pg.evaluate("document.querySelector('.pt-case').__old = true")
-    pg.evaluate("() => { document.hasFocus = () => false; window.dispatchEvent(new Event('blur')); }")   # 応答を待つ間に行が作り直される
-    time.sleep(0.4)
-    pg.evaluate("() => { document.hasFocus = () => true; window.dispatchEvent(new Event('focus')); }")
-    check(wait_js(pg, "document.querySelector('.pt-case') && !document.querySelector('.pt-case').__old", 10000)
-          and pg.text_content(".pt-case .pt-memo-save") == "保存中…", "[A] 保存中に行が作り直されても「保存中…」のまま")
-    pg.evaluate("window.__release()")
-    check(wait_js(pg, "document.querySelector('.pt-case .pt-memo-msg').textContent === '保存しました(そのあとの入力はまだ保存していません)'", 10000),
-          "[A] 保存の応答のあとも、書き足した分はまだ保存していないと出す(作り直した行に): %s" % memo_msg())
-    check(pg.input_value(".pt-case textarea") == "メモA\n追記B" and server_memo() == "メモA",
-          "[A] 書き足した入力は消えない・サーバーは送った分(A)だけ: %r / %r" % (pg.input_value(".pt-case textarea"), server_memo()))
-    check(pg.text_content(".pt-case .pt-memo-save") == "メモを保存", "[A] 応答のあとはボタンが元に戻る")
-    pg.click(".pt-case .pt-memo-save")
-    wait_js(pg, "window.__memoSent.length === 2", 5000)
-    pg.evaluate("window.__release()")
-    check(wait_js(pg, "document.querySelector('.pt-case .pt-memo-msg').textContent === '保存しました'", 10000) and server_memo() == "メモA\n追記B",
-          "[A] もう一度保存すると、書き足した分もサーバーに入って「保存しました」: %s / %r" % (memo_msg(), server_memo()))
-    pg.fill(".pt-case textarea", "メモC1")   # 二度押し: 送っている間の押し直しは、応答のあとに今の下書きを1回だけ送る
-    check(memo_msg() == "", "[A] 書き足したら前の「保存しました」は消える: %s" % memo_msg())
-    pg.click(".pt-case .pt-memo-save")
-    wait_js(pg, "window.__memoSent.length === 3", 5000)
-    pg.fill(".pt-case textarea", "メモC2")
-    pg.click(".pt-case .pt-memo-save")
-    pg.click(".pt-case .pt-memo-save")
-    time.sleep(0.3)
-    check(pg.evaluate("window.__memoSent.length") == 3, "[A] 送っている間の押し直しでは、すぐには送らない(応答の順が入れ替わらない)")
-    pg.evaluate("window.__release()")
-    check(wait_js(pg, "window.__memoSent.length === 4", 5000) and pg.evaluate("window.__memoSent[3]") == "メモC2"
-          and memo_msg() == "" and pg.text_content(".pt-case .pt-memo-save") == "保存中…",
-          "[A] 応答のあとで今の下書き(C2)を1回だけ送る(まだ「保存しました」と言わない): %s / %s" % (pg.evaluate("window.__memoSent"), memo_msg()))
-    pg.evaluate("window.__release()")
-    check(wait_js(pg, "document.querySelector('.pt-case .pt-memo-msg').textContent === '保存しました'", 10000) and server_memo() == "メモC2"
-          and pg.evaluate("window.__memoSent.length") == 4, "[A] 二度押しでは最後の値(C2)が残る: %r" % server_memo())
-    pg.fill(".pt-case textarea", "")   # 後の確認のためにメモを空に戻す
-    pg.click(".pt-case .pt-memo-save")
-    wait_js(pg, "window.__memoSent.length === 5", 5000)
-    pg.evaluate("window.__release()")
-    wait_js(pg, "document.querySelector('.pt-case .pt-memo-msg').textContent === '保存しました'", 10000)
-    pg.evaluate("window.fetch = window.__origFetch")
+    check(wait_js(pg, "document.querySelector('.pt-case .pt-auto-streamer') && document.querySelector('.pt-case .pt-auto-streamer').value === %s" % json.dumps(draft), 10000),
+          "[A] 保存していない配信者の入力が、戻ったときの再描画(refreshCases)でも消えない: %s"
+          % pg.evaluate("document.querySelector('.pt-case .pt-auto-streamer') && document.querySelector('.pt-case .pt-auto-streamer').value"))
+    check(pg.evaluate("document.activeElement === document.querySelector('.pt-case .pt-auto-streamer')"),
+          "[A] フォーカスも(再描画で作り直された)配信者の欄に戻る")
+    pg.fill(".pt-case .pt-auto-streamer", "")   # 後の確認のため空に戻す
+    # 下書きは、作り直す前の欄の change で配信(e2eCase0001)とチャンネル(ch)に覚えられている(UIKit.streamer の「手で直したら覚える」)。
+    # 空(色なし)を覚え直さないと、あとの場面(S-24)で自動で入る名前が下書きになり、「見つからない名前」の確かめが出て実行が止まる。
+    # 作り直した欄は下書きから値を入れるだけで覚える配線が無いので、欄の change ではなくホームの設定へ直接送る
+    st = pg.evaluate("Promise.all([UIKit.prefs.remember('videos', 'e2eCase0001', ''), UIKit.prefs.remember('channels', 'ch', '')]).then(r => r[1])")
+    check(st and st.get("videos", {}).get("e2eCase0001") == "" and st.get("channels", {}).get("ch") == "",
+          "[A] あとの場面のため、配信者の記憶を空(色なし)に戻した: %s" % st)
     cx.case_doc = case_doc
 
 
@@ -957,7 +884,7 @@ def _next_todo(cx):
     first_adopt = (cases_api.get("todoFirst") or {}).get("adopt") or {}
     check(any(p == "採用待ち" and h == "/cases?c=%s#cand" % first_adopt.get("case") and "候補" in s for p, h, s in todo) and first_adopt.get("case"),
           "[A] RS8 C3: 採用待ち → いちばん古い配信の案件の画面の候補へ(todoFirst): %s / %s" % (todo, first_adopt))
-    adopt_n = sum(c.get("todoSum", {}).get("adopt", 0) for c in cases_api["cases"] if c.get("status") not in ("posted", "skipped") and not c.get("gone"))
+    adopt_n = sum(c.get("todoSum", {}).get("adopt", 0) for c in cases_api["cases"] if not c.get("gone"))
     check(any(p == "採用待ち" and ("%d 個" % adopt_n) in pg.evaluate("[...document.querySelectorAll('.pt-todo-item')].find(e => e.querySelector('.pt-todo-pill').textContent === '採用待ち').querySelector('.pt-todo-title').textContent") for p, h, s in todo),
           "[A] RS8 C3: 採用待ちの件数 = 案件の todoSum の合計(%d)" % adopt_n)
     order_api = pg.evaluate("fetch('/api/cases', {cache: 'no-store'}).then(r => r.json()).then(j => j.todoOrder)")
@@ -1099,8 +1026,8 @@ def _next_focus_and_enter(cx):
 def _ui_review_checks(cx):
     """[A] 2j. UI の見直し 1 周目(B の指摘 M2・M5〜M10・S10・S12): やることが無いときの次の一手・空の表示・フォーカス・札の色・中止・⚙ の「ホーム」の節・失敗の文"""
     check, ctx, pg = cx.check, cx.ctx, cx.pg
-    # M7: 回る輪の札(run)は本当に動いているときだけ(案件の状態「作業中」・切り抜きの校正の途中には使わない)
-    check(pg.evaluate("document.querySelectorAll('.pt-case-statuspill.run, .pt-clip-steps .pill.run').length") == 0, "[A] M7: 作業中・校正の途中の札に回る輪(run)を使わない")
+    # M7: 回る輪の札(run)は本当に動いているときだけ(切り抜きの校正の途中には使わない)
+    check(pg.evaluate("document.querySelectorAll('.pt-clip-steps .pill.run').length") == 0, "[A] M7: 校正の途中の札に回る輪(run)を使わない")
     # M8: 中止は取り消せる(済んだ段は残る)ので danger にしない
     check(pg.evaluate("[...document.querySelectorAll('.pt-auto-cancel')].every(b => !b.classList.contains('danger') && b.title.indexOf('続きから') >= 0)"),
           "[A] M8: 中止は danger でなく、済んだ段が残ることを title に")
@@ -1160,22 +1087,6 @@ def _ui_review_checks(cx):
     p6.wait_for_url(lambda u: "/cases" in u and "c=e2eNext0001" in u and u.endswith("#cand"), timeout=20000)
     check(True, "[A] M2: [候補の確認へ] は案件の画面の候補でその配信を開く: %s" % p6.url)
     p6.close()
-    # M9: 状態の保存が失敗したとき: 「何が」+「どうすれば」・HTTP の番号は本文に出さない・[もう一度]
-    p7 = ctx.new_page()
-    p7.on("pageerror", lambda e: cx.errors.append(str(e)))
-    p7.route("**/api/cases/update", lambda route: route.fulfill(status=500, json={}))
-    p7.goto(cx.base)
-    check(wait_js(p7, "document.querySelectorAll('.pt-case').length > 0", 15000), "[A] M9: ホーム")
-    p7.fill("#fText", "次テスト 候補")
-    check(wait_js(p7, "!!document.getElementById('case-e2eNext0001')", 10000), "[A] M9: 候補だけの配信の行")
-    p7.click("#case-e2eNext0001 .pt-case-title")
-    p7.select_option("#case-e2eNext0001 .pt-case-status", "working")
-    check(wait_js(p7, "[...document.querySelectorAll('.ui-toast.err')].some(t => t.textContent.indexOf('状態を保存できませんでした') >= 0)", 10000), "[A] M9: 状態の保存の失敗の知らせ")
-    msg = p7.evaluate("[...document.querySelectorAll('.ui-toast.err')].map(t => t.querySelector('.ui-toast-msg').textContent).join('|')")
-    check("HTTP" not in msg and "もう一度" in msg, "[A] M9: 本文に HTTP の番号を出さず、次の一歩(もう一度選ぶ)を書く: %s" % msg)
-    check(p7.evaluate("!!document.querySelector('.ui-toast.err .ui-toast-act') && document.querySelector('.ui-toast.err .ui-toast-detail').textContent.indexOf('HTTP 500') >= 0"),
-          "[A] M9: 知らせに [もう一度]・原文(HTTP 500)は「詳しく」の中")
-    p7.close()
     # M9: 案件の一覧を読めなかったとき: 欄の中に 2 文 + [読み込み直す](赤い帯は接続の文だけ。接続の確認で消えない)・次にやることも帯を指さない
     fail = {"on": True}
     p8 = ctx.new_page()
@@ -1285,25 +1196,24 @@ def seed_auto_clips(cx):
 
 
 def _mounted_auto_clips(cx):
-    """[A] 2j. 自動でできた切り抜きの確認(線 D の M9・M12。入口 0.43.1): 札・絞り込み・未見 → 見た・[採用](パック・届ける先が無いと押せない → 届ける)・
+    """[A] 2j. 自動でできた切り抜きの確認(線 D の M9・M12。入口 0.43.1): 札・出どころ・[採用](パック・届ける先が無いと押せない → 届ける)・
     [要らない](ごみ箱フォルダへ・スタジオのマークを不採用・誤検出の記録)"""
     check, pg = cx.check, cx.pg
     clips = seed_auto_clips(cx)
     pg.reload()
-    check(wait_js(pg, "!document.getElementById('autoFilter').hidden && document.getElementById('autoFilter').textContent === '自動の切り抜き: 未確認 2 件'", 15000),
-          "[A] M9: 一覧の上に「自動の切り抜き: 未確認 2 件」: %s" % pg.text_content("#autoFilter"))
-    check(pg.text_content("#case-%s .pt-case-autopill" % AUTO_REC_A) == "自動 未確認 2本" and pg.is_hidden("#case-%s .pt-case-autopill" % AUTO_REC_B),
-          "[A] M9: 閉じた行にも「自動 未確認 n本」(人の切り抜きだけの配信には出さない)")
-    pg.click("#autoFilter")
-    check(wait_js(pg, "document.querySelectorAll('#list .pt-case').length === 1 && !!document.getElementById('case-%s') && document.getElementById('case-%s').open"
-                      " && document.getElementById('autoFilter').getAttribute('aria-pressed') === 'true'" % (AUTO_REC_A, AUTO_REC_A), 10000),
-          "[A] M9: 絞り込むと未確認がある配信だけ・行を開く: %s" % pg.evaluate("[...document.querySelectorAll('#list .pt-case')].map(n => n.dataset.id)"))
+    check(wait_js(pg, "document.querySelectorAll('#list .pt-case').length > 0", 15000), "[A] 2j: 一覧が出た")
+    check(pg.text_content("#case-%s .pt-case-autopill" % AUTO_REC_A) == "自動 2本" and pg.is_hidden("#case-%s .pt-case-autopill" % AUTO_REC_B),
+          "[A] 2j: 閉じた行にも「自動 n本」(人の切り抜きだけの配信には出さない)")
+    check(pg.locator("#autoFilter").count() == 0 and pg.locator(".pt-ac-seen, .pt-ac-unseen").count() == 0,
+          "[A] MARKS-3: 一覧の上に未確認の絞り込みは無く、見た/未見の札も出ない")
+    pg.click("#case-%s .pt-case-row" % AUTO_REC_A)
+    check(wait_js(pg, "document.getElementById('case-%s').open === true" % AUTO_REC_A, 10000), "[A] 2j: 行を開くと自動の切り抜きが見える")
     row = "#case-%s .pt-ac" % AUTO_REC_A
     texts = pg.eval_on_selector_all(row, "els => els.map(e => e.querySelector('.row').textContent)")
-    check(len(texts) == 2 and "自動" in texts[0] and "配信中の候補" in texts[0] and "未見" in texts[0] and "配信後の解析" in texts[1] and "控え" in texts[1],
-          "[A] M9: 自動の札・出どころ・未見・控え: %s" % texts)
-    sizes = pg.evaluate("[...document.querySelectorAll('#autoFilter, %s .pt-ac-deliver, %s .pt-ac-discard')].map(b => Math.round(b.getBoundingClientRect().height))" % (row, row))
-    check(len(sizes) == 5 and min(sizes) >= 28, "[A] M9: 絞り込み・採用・要らない は 28px 以上: %s" % sizes)
+    check(len(texts) == 2 and "自動" in texts[0] and "配信中の候補" in texts[0] and "配信後の解析" in texts[1] and "控え" in texts[1],
+          "[A] 2j: 自動の札・出どころ・控え: %s" % texts)
+    sizes = pg.evaluate("[...document.querySelectorAll('%s .pt-ac-deliver, %s .pt-ac-discard')].map(b => Math.round(b.getBoundingClientRect().height))" % (row, row))
+    check(len(sizes) == 4 and min(sizes) >= 28, "[A] 2j: 採用・要らない は 28px 以上: %s" % sizes)
     if cx.shots:
         pg.screenshot(path=os.path.join(cx.shots, "portal-auto-clips.png"), full_page=True)
     # 届ける先(依頼の受付の Dropbox のフォルダ)が無い・パックが無いときは押せず、理由を出す
@@ -1311,19 +1221,13 @@ def _mounted_auto_clips(cx):
                       " && document.querySelectorAll('%s .pt-ac-msg')[0].textContent.indexOf('届ける先が決まっていません') >= 0; })()" % (row, row), 15000)
           and "パックがまだありません" in pg.eval_on_selector_all(row + " .pt-ac-msg", "els => els[1].textContent"),
           "[A] M12: パックが無い・届ける先が無いと「採用」は押せず、理由を出す: %s" % pg.eval_on_selector_all(row + " .pt-ac-msg", "els => els.map(e => e.textContent)"))
-    # 「編集で開く」で開いたら「見た」(開くのは止めない = 送るだけ。ここは移らないように中クリックの合図だけを送る)
-    pg.evaluate("document.querySelector('%s a').dispatchEvent(new MouseEvent('auxclick', {button: 1}))" % row)
-    time.sleep(0.5)
-    pg.click("#btnReload")
-    check(wait_js(pg, "document.getElementById('autoFilter').textContent === '自動の切り抜き: 未確認 1 件' && !!document.querySelector('%s .pt-ac-seen')" % row, 10000),
-          "[A] M9: 開いたら「見た」になり、未確認が 1 件に: %s" % pg.text_content("#autoFilter"))
     _auto_deliver(cx, row)
     _auto_discard(cx, row, clips)
     pg.evaluate("document.getElementById('advancedBox').open = true")   # あとの「すべて終了」のため(読み込み直すと閉じる)
 
 
 def _auto_deliver(cx, row):
-    """M12: 届ける先を決めると押せる → 二度押しで zip を Dropbox の 出力 へ → 「届けた」・live_feedback.jsonl に人の「良い」"""
+    """M12: 届ける先を決めると押せる → 二度押しで zip を Dropbox の 出力 へ → 「届けた」・人の判断の記録 judgments.jsonl に「採用」(MARKS-3)"""
     check, pg = cx.check, cx.pg
     box = os.path.join(cx.tmp, "Dropbox")
     os.makedirs(box, exist_ok=True)
@@ -1344,13 +1248,14 @@ def _auto_deliver(cx, row):
           "[A] D-SEND: 手で届けた 1 本も出どころの印 .meta.json を隣に置く(友人のアプリの札「依頼なし」): %s" % names)
     check(wait_js(pg, "!!document.querySelector('%s .pt-ac-done') && document.querySelectorAll('%s .pt-ac-deliver').length === 1" % (row, row), 10000),
           "[A] M12: 届けた切り抜きは「届けた」の札になり、「採用」は消える(二度は届けない)")
-    fb = _live_feedback(cx)
-    check([(x.get("event"), x.get("origin"), x.get("human"), x.get("verdict")) for x in fb] == [("deliver", "auto", True, "good")],
-          "[A] M12: live_feedback.jsonl に人の「良い」(event deliver): %s" % fb)
+    jr = _judgments(cx)
+    check([(x.get("who"), x.get("what"), x.get("via")) for x in jr] == [("self", "adopt", "cases")],
+          "[A] M12: 人の判断の記録に「採用」(MARKS-3。live_feedback には書かない): %s" % jr)
+    check(not [x for x in _live_feedback(cx) if x.get("human")], "[A] MARKS-3: live_feedback.jsonl に人の行を書かない")
 
 
 def _auto_discard(cx, row, clips):
-    """M9: 要らない = 二度押しで ごみ箱フォルダへ・スタジオのマークを不採用・誤検出の記録 → 未確認が 0 になると絞り込みが空 → 全部に戻す"""
+    """M9: 要らない = 二度押しで ごみ箱フォルダへ・スタジオのマークを不採用・誤検出の記録 → 行の自動の札は残りの本数"""
     check, pg = cx.check, cx.pg
     btn = "#case-%s .pt-ac:nth-child(2) .pt-ac-discard" % AUTO_REC_A
     pg.click(btn)
@@ -1361,18 +1266,17 @@ def _auto_discard(cx, row, clips):
           "[A] M9: 要らない にした切り抜きの動画と .clip.json だけが動いた")
     _st, v = pg.evaluate(STUDIO_CALL, ["GET", "/api/video?id=" + AUTO_REC_A, None])
     check(sorted(m["status"] for m in v["video"]["marks"]) == ["exported", "rejected"], "[A] M9: スタジオのマークは不採用: %s" % [m["status"] for m in v["video"]["marks"]])
-    fb = _live_feedback(cx)
-    check([(x.get("event"), x.get("origin"), x.get("human"), x.get("verdict")) for x in fb][-1:] == [("reject", "archive", True, "bad")],
-          "[A] M9: live_feedback.jsonl に誤検出(event reject・人の「悪い」): %s" % fb[-1:])
-    check(wait_js(pg, "document.getElementById('autoFilter').textContent === '自動の切り抜き: 未確認 0 件' && !document.getElementById('case-%s')"
-                      " && document.querySelector('#list .pt-empty b').textContent === '未確認の自動の切り抜きはありません'"
-                      " && document.activeElement === document.getElementById('autoFilter')" % AUTO_REC_A, 10000),
-          "[A] M9: 未確認が無くなると絞り込みは空の表示・フォーカスは絞り込みのボタンへ: %s / %s"
-          % (pg.text_content("#autoFilter"), pg.evaluate("document.activeElement && (document.activeElement.id || document.activeElement.className)")))
-    pg.click("#list .pt-empty button")
-    check(wait_js(pg, "document.getElementById('autoFilter').getAttribute('aria-pressed') === 'false' && !!document.getElementById('case-%s')"
-                      " && document.querySelector('#case-%s .pt-case-autopill').textContent === '自動 1本'" % (AUTO_REC_A, AUTO_REC_A), 10000),
-          "[A] M9: 「全部の配信に戻す」で戻る(届けた 1 本は 自動 1本)")
+    jr = _judgments(cx)
+    check([(x.get("who"), x.get("what"), x.get("via")) for x in jr][-1:] == [("self", "reject", "cases")],
+          "[A] M9: 人の判断の記録に「要らない」(MARKS-3): %s" % jr[-1:])
+    check(wait_js(pg, "document.querySelector('#case-%s .pt-case-autopill').textContent === '自動 1本'" % AUTO_REC_A, 10000),
+          "[A] 2j: 要らないにしたあとも、行の自動の札は 自動 1本(届けた 1 本)")
+
+
+def _judgments(cx):
+    """人の判断の記録(作業データの app の judgments.jsonl。live の置き場所 app\\live の 1 つ上)"""
+    from human import judgments as _j
+    return _j.rows(os.path.dirname(cx.srv.live.store_dir))
 
 
 def _live_feedback(cx):

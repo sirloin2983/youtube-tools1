@@ -21,6 +21,7 @@ sys.path.insert(0, REPO)
 from eval.tools import eval_marks as M  # noqa: E402
 from manage.cases import txindex  # noqa: E402
 from flow import lengthhint  # noqa: E402
+from human import judgments  # noqa: E402
 
 V1, V2 = "v1aaaaaaaaa", "v2bbbbbbbbb"
 
@@ -89,6 +90,18 @@ class Env:
 
     def evaluate(self, **kw):
         return M.evaluate(self.root, **kw)
+
+    def judge(self, n, what, vid="vj", mid=None, who="self", origin="live", via="cases", at=None, **kw):
+        """人の判断(judgments.jsonl)を 1 行足す。key は n(同じ n は 1 回だけ)"""
+        return judgments.record(os.path.join(self.root, "app"), what=what, who=who, videoId=vid, markId=mid or "m%d" % n, origin=origin, via=via,
+                                at=at or ms("2026-10-08", "10:%02d:00" % n), key="t:%d" % n, **kw)
+
+    def deliver(self, zip_name, packs, origin="request", at="2026-10-08", vid=V1, **kw):
+        """届けた記録(logs/deliveries.jsonl)を 1 行足す。packs = [(パックのフォルダ名, markId)]"""
+        row = dict({"at": ms(at), "zip": zip_name, "requestId": "q" if origin == "request" else "", "runId": "r", "videoId": vid, "origin": origin,
+                    "packs": [{"dir": "C:\\out\\" + n, "markId": m} for n, m in packs]}, **kw)
+        with open(os.path.join(self.logs, "deliveries.jsonl"), "a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
 def video(vid, marks, typ="歌枠", title="t"):
@@ -182,13 +195,16 @@ class EvalMarks(unittest.TestCase):
         before = env.evaluate()["overall"]
         live = os.path.join(env.root, "app", "live")
         os.makedirs(live)
-        rows = [{"v": 1, "at": "2026-10-08T10:00:00.000Z", "event": "adopt", "human": False, "recorder": "local", "recording": "rec1"},   # 自動の採用は数えない
-                {"v": 1, "at": "2026-10-08T10:05:00.000Z", "event": "deliver", "human": True, "verdict": "good", "recorder": "local", "recording": "rec1"},
-                {"v": 1, "at": "2026-10-08T10:06:00.000Z", "event": "reject", "human": True, "verdict": "bad", "recorder": "local", "recording": "rec1"},
-                {"v": 1, "at": "2026-10-08T11:00:00.000Z", "event": "reject", "human": True, "verdict": "bad", "recorder": "local", "recording": "rec2"},
+        rows = [{"v": 1, "at": "2026-10-08T10:00:00.000Z", "event": "adopt", "human": False, "recorder": "local", "recording": "rec1"},   # 機械の行は人の判断に数えない
                 {"v": 1, "at": "2026-10-08T12:00:00.000Z", "event": "detect_compare", "recorder": "local", "recording": "rec3"}]
         with open(os.path.join(live, "live_feedback.jsonl"), "w", encoding="utf-8") as f:
             f.write("\n".join(json.dumps(r) for r in rows) + "\n")
+        # 人の判断は judgments から(live_feedback の human の行はもう読まない)
+        for n, what, rec in ((1, "adopt", "rec1"), (2, "reject", "rec1"), (3, "reject", "rec2")):
+            env.judge(n, what, vid=rec, ref={"recorder": "local", "recording": rec})
+        env.judge(4, "adopt", vid="recx", origin="manual", ref={"recorder": "local", "recording": "recx"})   # origin live でない物は数えない
+        with open(os.path.join(live, "live_feedback.jsonl"), "a", encoding="utf-8") as f:
+            f.write(json.dumps({"v": 1, "at": "2026-10-08T10:05:00.000Z", "event": "deliver", "human": True, "recorder": "local", "recording": "rec9"}) + "\n")   # 古い人の行は無視
         with open(os.path.join(env.logs, "friend_feedback.jsonl"), "w", encoding="utf-8") as f:
             for vid in (V1, V2, V2):   # V1 はスタジオで判定あり = 二重に数えない
                 f.write(json.dumps({"at": ms("2026-10-08"), "zip": "z.zip", "verdict": "reject", "videoId": vid, "packs": []}) + "\n")
@@ -449,19 +465,25 @@ class LiveReports(unittest.TestCase):
                 row("2026-10-08T20:30:00Z", R1, "adopt", "auto", "m2", human=False, verdict=None),
                 row("2026-10-08T20:40:00Z", R1, "adopt", "manual", "m3", human=True, verdict="good"),
                 row("2026-10-09T01:00:00Z", R1, "adopt", "archive", "m4", human=False, verdict=None),
-                row("2026-10-09T02:00:00Z", R1, "deliver", "auto", "m1", human=True, verdict="good"),
-                row("2026-10-09T02:01:00Z", R1, "reject", "archive", "m4", human=True, verdict="bad"),
-                row("2026-10-09T02:02:00Z", R1, "deliver", "manual", "m3", human=True, verdict="good"),   # 人の採用の判定は数えない
+                row("2026-10-09T02:00:00Z", R1, "deliver", "auto", "m1", human=True, verdict="good"),   # 古い人の行は読まない(judgments が持つ)
                 {"v": 1, "at": "2026-10-09T01:30:00Z", "event": "detect_compare", "recorder": RC, "recording": R1, "archive": 4, "hit": 3, "ratio": 0.75,
                  "medianAbsDiff": 2.5, "liveFrame": 5, "liveBench": 2, "liveUnmatched": 2},
                 row("2026-10-01T10:10:00Z", R3, "adopt", "auto", "m9", human=False, verdict=None),   # 記録の無い録画(行だけ)
                 {"v": 1, "at": "2026-10-01T10:11:00Z", "event": "adopt"}]   # 壊れた行は飛ばす
+
+    def human(self, env):
+        """人の判断(judgments): m1 を届けた = 良い・m4 を要らない = 悪い・m3(人の採用)も届けたが自動の採用ではないので数えない"""
+        ref = {"recorder": self.RC, "recording": self.R1}
+        env.judge(1, "adopt", vid=self.R1, mid="m1", ref=ref)
+        env.judge(2, "reject", vid=self.R1, mid="m4", ref=ref)
+        env.judge(3, "adopt", vid=self.R1, mid="m3", ref=ref)
 
     def test_live_rows_and_totals(self):
         env = Env(self)
         self.report(env, self.R1, "2026-10-08T20:00:00Z")
         self.report(env, self.R2, "2026-10-10T12:00:00Z", request={"rid": "r", "streamer": "x"}, detect={"frame": 1, "bench": 0, "dismissed": 0, "adopted": 0, "adoptedAuto": 0, "adoptedManual": 0, "givenUp": 0, "gaps": 1, "ended": False})
         self.feedback(env, self.rows())
+        self.human(env)
         res = M.evaluate_live(env.root)
         m, t = res["meta"], res["totals"]
         self.assertEqual((m["schema"], m["recordings"], m["few"], m["liveDir"]), (M.LIVE_SCHEMA, 3, True, os.path.join(env.root, "app", "live")))
@@ -493,6 +515,7 @@ class LiveReports(unittest.TestCase):
         self.assertIn("記録がありません", out.getvalue())
         self.report(env, self.R1, "2026-10-08T20:00:00Z")
         self.feedback(env, self.rows())
+        self.human(env)
         before = sorted(os.listdir(env.root))
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
@@ -507,6 +530,80 @@ class LiveReports(unittest.TestCase):
         with open(os.path.join(env.studio, "evals", "marks", saved[0]), encoding="utf-8") as f:
             self.assertEqual(json.load(f)["meta"]["schema"], M.LIVE_SCHEMA)
         self.assertEqual(sorted(os.listdir(env.root)), before)   # 作業データの親には何も足さない(evals は studio の中)
+
+
+class Human3(unittest.TestCase):
+    """物差し 3 本(human3。MARKS-3): 友人の区間・届けた物を友人が使ったか・確かめるの良い / 悪い。人の判断は judgments だけを読む"""
+
+    def h3(self, env, **kw):
+        return env.evaluate(**kw)["human3"]
+
+    def test_used_counts_unanswered_and_origin(self):
+        env = Env(self)
+        env.deliver("a.zip", [("p1", "m1"), ("p2", "m2"), ("p3", "m3")], origin="request")
+        env.deliver("b.zip", [("p4", "m4"), ("p5", "m5")], origin="auto", vid=V2)
+        env.deliver("c.zip", [("p6", "m6")], origin="manual")
+        fr = {"zip": "a.zip", "pack": "C:\\out\\P1"}   # パック名で突き合わせる(場所・大文字小文字は問わない)
+        env.judge(1, "adopt", vid=V1, mid="m1", who="friend", origin="request", via="friend_verdict", ref=fr)
+        env.judge(2, "reject", vid=V1, mid="m2", who="friend", origin="request", via="friend_verdict", ref={"zip": "a.zip", "pack": "p2"})
+        env.judge(4, "made_video", vid=V2, mid="m4", who="friend", origin="auto", via="friend_file", ref={"zip": "b.zip", "pack": "p4"})   # 使った(動画にした)
+        env.judge(5, "adopt", vid=V1, mid="m6", who="friend", origin="manual", via="friend_verdict", ref={"zip": "c.zip", "pack": "p6"})
+        env.judge(6, "adopt", vid=V1, mid="mx", who="self", origin="live", via="cases")   # 自分の判断は分子に入れない
+        u = self.h3(env)["used"]
+        self.assertEqual((u["request"]["delivered"], u["request"]["used"], u["request"]["notUsed"], u["request"]["unanswered"]), (3, 1, 1, 1))   # p3 = 未回答
+        self.assertEqual((u["auto"]["delivered"], u["auto"]["used"], u["auto"]["unanswered"]), (2, 1, 1))                                # p5 = 未回答(by auto の要らないは書かれない)
+        self.assertEqual((u["manual"]["delivered"], u["manual"]["used"]), (1, 1))
+        self.assertEqual((u["all"]["delivered"], u["all"]["used"], u["all"]["notUsed"], u["all"]["unanswered"], u["all"]["answered"]), (6, 3, 1, 2, 4))
+        self.assertEqual((u["all"]["usedRate"], u["all"]["answerRate"], u["all"]["usedOfAnswered"]), (0.5, 0.6667, 0.75))
+        self.assertEqual(self.h3(env)["judgments"], 5)
+
+    def test_used_match_by_mark_when_no_pack_name_and_last_wins(self):
+        env = Env(self)
+        env.deliver("a.zip", [("p1", "m1")])
+        env.judge(1, "reject", vid=V1, mid="m1", who="friend", origin="request", via="friend_verdict")                 # ref.pack 無し = (videoId, markId) で突き合わせる
+        j = env.judge(2, "adopt", vid=V1, mid="m1", who="friend", origin="request", via="friend_verdict")              # 後の判断が勝つ
+        self.assertEqual(self.h3(env)["used"]["request"]["used"], 1)
+        env.judge(3, "retract", vid=V1, mid="m1", who="friend", origin="request", via="friend_verdict", of=j["id"])   # 取り消し = 未回答に戻る(古い reject は後から復活しない)
+        g = self.h3(env)["used"]["request"]
+        self.assertEqual((g["used"], g["notUsed"], g["unanswered"]), (0, 0, 1))
+
+    def test_used_period_and_no_deliveries(self):
+        env = Env(self)
+        self.assertEqual(self.h3(env)["used"]["all"], {"delivered": 0, "used": 0, "notUsed": 0, "unanswered": 0, "answered": 0, "usedRate": None, "answerRate": None, "usedOfAnswered": None})
+        env.deliver("a.zip", [("p1", "m1")], at="2026-10-01")
+        env.deliver("b.zip", [("p2", "m2")], at="2026-10-09")
+        self.assertEqual(self.h3(env)["used"]["all"]["delivered"], 2)
+        self.assertEqual(self.h3(env, since="2026-10-05")["used"]["all"]["delivered"], 1)
+        self.assertEqual(self.h3(env, until="2026-10-05")["used"]["all"]["delivered"], 1)
+
+    def test_quality_origin_and_reason(self):
+        env = Env(self)
+        env.judge(1, "quality_good", vid=V1, mid="m1", origin="request", via="check")
+        env.judge(2, "quality_good", vid=V1, mid="m2", origin="auto", via="check")
+        env.judge(3, "quality_bad", vid=V1, mid="m3", origin="auto", via="check", reason="cut")
+        b = env.judge(4, "quality_bad", vid=V1, mid="m4", origin="auto", via="check", reason="cut")
+        env.judge(5, "quality_bad", vid=V1, mid="m5", origin="request", via="check", reason="boring")
+        env.judge(6, "retract", vid=V1, mid="m4", origin="auto", via="check", of=b["id"])   # Z で取り消した答えは数えない
+        env.judge(7, "adopt", vid=V1, mid="m1", origin="manual", via="review")             # 採否は物差し 3 に入らない
+        q = self.h3(env)["quality"]
+        self.assertEqual((q["good"], q["bad"], q["judged"], q["goodRate"]), (2, 2, 4, 0.5))
+        self.assertEqual(q["byOrigin"], {"request": {"good": 1, "bad": 1}, "auto": {"good": 1, "bad": 1}})
+        self.assertEqual(q["reasons"], {"cut": 1, "boring": 1})
+
+    def test_friend_range_is_passed_through_and_printed_first(self):
+        env = build(self)
+        env.deliver("a.zip", [("p1", "m1")])
+        env.judge(1, "adopt", vid=V1, mid="m1", who="friend", origin="request", via="friend_verdict", ref={"pack": "p1"})
+        res = env.evaluate()
+        fr = res["friendRanges"]["overall"]
+        self.assertEqual((res["human3"]["friendRange"]["hit"], res["human3"]["friendRange"]["hitRate"], res["human3"]["friendRange"]["ranges"]), (fr["hit"], fr["hitRate"], fr["ranges"]))
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            M.print_report(res)
+        text = out.getvalue()
+        self.assertIn("物差し 3 本", text)
+        self.assertLess(text.index("物差し 3 本"), text.index("上位"))   # 3 本が先頭(古い物差しより前)
+        self.assertIn("2 届けた物を友人が使った率: 100%", text)
 
 
 class FriendRanges(unittest.TestCase):

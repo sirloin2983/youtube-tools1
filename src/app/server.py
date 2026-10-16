@@ -10,9 +10,9 @@
   GET  /                                  入口の画面(portal.html)
   GET  /api/ping                          {"app": "ytt-launcher", "version"}
   GET  /api/cases                         案件(配信1本)ごとの切り抜き・文字起こし・パック(src/manage/cases/cases.py)
-  POST /api/cases/update                 {id, status?, memo?} 案件の状態・メモ
-  POST /api/cases/auto                   {op: seen|deliver|discard, id, markId} 自動でできた切り抜き(線 D の M9・M12)を 見た・採用 = 友人へ届ける・
-                                          要らない = ごみ箱フォルダへ(src/manage/cases/cases.py の auto_review。deliver の応答の job は api/ytt/deliver の status で聞き直す)
+  POST /api/cases/auto                   {op: deliver|discard, id, markId} 自動でできた切り抜き(線 D の M9・M12)を 採用 = 友人へ届ける・
+                                          要らない = ごみ箱フォルダへ(src/manage/cases/cases.py の auto_review。deliver の応答の job は api/ytt/deliver の status で聞き直す)。
+                                          案件の状態・メモ(/api/cases/update)と「見た」(op seen)は MARKS-3 で消した
   GET  /api/autorun                       まとめて実行の状態(src/app/autorun.py)。runs = この起動の実行・past = 配信・文書ごとの前回の結果(記録のファイルから)
   GET  /api/autorun/history?limit=&offset=  終わった実行の記録(<作業データ>/app/logs/autorun-runs.jsonl と .1。新しい順。limit は既定 50・最大 200)
   POST /api/autorun/start                 {id, mode: full|adopted|transcribe, top?, streamer?, marks?, overwrite?, autoSend?} 配信1本ぶんを順に自動で(marks: そのマークだけ・overwrite: パックがあれば作り直す・
@@ -658,7 +658,7 @@ GET_SNAPSHOTS = {"/api/intake": "intake",       # 友人からの依頼の受付
                  "/api/accuracy": "accuracy",   # 精度の自動測定の状態(src/eval/drill/accuracy.py)
                  "/api/autorun": "autorun"}     # まとめて実行の状態(src/app/autorun.py)
 # POST: 場所 → (PortalHandler のメソッド, 終了の途中なら 409 で断るか)。合言葉・Origin などの検査と本文の読み取りは do_POST が先に済ませる
-POST_ROUTES = {"/api/cases/update": ("_post_case", False), "/api/cases/auto": ("_post_case_auto", True),
+POST_ROUTES = {"/api/cases/auto": ("_post_case_auto", True),
                "/api/autorun/start": ("_post_autorun", True), "/api/autorun/cancel": ("_post_autorun", True),
                "/api/autorun/start-docs": ("_post_autorun", True), "/api/autorun/start-new": ("_post_autorun", True),
                "/api/autorun/estimate": ("_post_autorun", True), "/api/flow/submit": ("_post_flow_submit", True),
@@ -909,17 +909,8 @@ class PortalHandler(BaseHTTPRequestHandler):
             self.server.live.disk_min_gb = now["diskMinGB"]
         return self._json(200, {"machine": now, "file": saved})
 
-    def _post_case(self, path, body):
-        """案件の状態・メモ(案件ファイルに書く。各ツールのデータは触らない)"""
-        try:
-            return self._json(200, cases_mod.update(self.server.sup.root, body.get("id"), body.get("status"), body.get("memo")))
-        except ValueError as e:
-            return self._fail(400, "bad_request", str(e))
-        except OSError as e:
-            return self._fail(500, "write", "案件ファイルを書けませんでした: %s" % tools.why(e))
-
     def _post_case_auto(self, path, body):
-        """自動でできた切り抜きの確認(線 D の M9・M12): 見た・採用 = 友人へ届ける・要らない。中身は src/manage/cases/cases.py の auto_review"""
+        """自動でできた切り抜きの操作(線 D の M9・M12): 採用 = 友人へ届ける・要らない。中身は src/manage/cases/cases.py の auto_review"""
         return self._json(*self.server.auto_review(body))
 
     def _post_check(self, path, body):
@@ -1159,7 +1150,6 @@ class PortalServer(httpsec.ExclusiveServer):
         self.deliveries.attach_board(self.board)   # 届ける(頭 dl)を掲示板へ(RS8 の ② の口 S2)
         # リアルタイム切り抜き(線 D。既定はオフ。見回り = 録画の部品を起こすのは main で start。テストで作る入口では動かさない)
         self.live = live_mod.Live(self.prefs, sup.root, sup.logs_dir, log=sup.log, server=self)   # server: P4 の作り直しがスタジオの API を呼ぶ
-        cases_mod.relink_delivered_later(sup.root, sup.logs_dir, log=sup.log)   # 届けた印の付け直し(起動の少しあとに 1 回・裏で。opt-manage 2a-1。inplace では走らない)
         self.health = health_mod.Health(sup, sup.logs_dir, sup.root, worker_probe=self._worker_probe, extra_dirs=self._extra_dirs,
                                         live_probe=self.live.health, accuracy_probe=self.accuracy.snapshot,
                                         places_probe=self._places_probe)   # 「調子」(段9 9-1。録画の行はオンのときだけ・精度の行・置き場所の行)
@@ -1170,9 +1160,9 @@ class PortalServer(httpsec.ExclusiveServer):
         self.analytics = analytics_mod.Service(log=sup.log, token=self.token) if analytics_mod else None
 
     def auto_review(self, body):
-        """自動でできた切り抜きの確認(POST /api/cases/auto と「確かめる」の価値のカード)。-> (HTTP の番号, JSON)。部品は入口が渡す"""
-        return cases_mod.auto_review(self.sup.root, body, deliveries=self.deliveries, studio=self.live.studio_call,
-                                     feedback=lambda row: self.live.exporter.feedback(row), trash=self.cleanup,
+        """自動でできた切り抜きの操作(POST /api/cases/auto と「確かめる」の価値のカード)。-> (HTTP の番号, JSON)。部品は入口が渡す
+        (人の判断は cases が ③ human/judgments に書く。live_feedback.jsonl には書かない = MARKS-3)"""
+        return cases_mod.auto_review(self.sup.root, body, deliveries=self.deliveries, studio=self.live.studio_call, trash=self.cleanup,
                                      hide=lambda tid: self.prefs.hide("transcripts", [tid], True))
 
     def check_ctx(self):

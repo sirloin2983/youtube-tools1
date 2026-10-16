@@ -30,6 +30,9 @@ __pycache__/
 **/data.json.corrupt-*
 **/feedback.jsonl
 **/feedback.jsonl.old
+**/judgments.jsonl
+**/judgments.jsonl.old
+src/cut2resolve/packs/
 **/.running.json
 # 秘密情報・個人データの名前(dev/push_helper.py の BAD_NAMES と同じ。push.bat を通さない git add でも入らないように)
 **/.env

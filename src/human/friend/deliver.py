@@ -366,7 +366,7 @@ class Deliveries:
 
     def start(self, d, title="", on_done=None, clip=None):
         """-> 仕事の状態。断るときは ValueError(画面にそのまま出す文)。
-        on_done(仕事の状態): 置き終えたときに 1 回だけ呼ぶ(自動でできた切り抜きの「採用」が案件に「届けた」を残す。src/manage/cases/cases.py。線 D の M12)。
+        on_done(仕事の状態): 置き終えたときに 1 回だけ呼ぶ(今の呼び手は使わない。案件の「届けた」は届けた記録から引く = MARKS-3)。
         clip: 届けた記録に残す切り抜き {"path", "markId", "videoId"}(分かるとき。友人の「要らない」で切り抜きの動画も片付けるため。無ければパックだけ)"""
         if not isinstance(d, str) or not d.strip() or len(d) > 1024:
             raise ValueError("パックのフォルダがありません")

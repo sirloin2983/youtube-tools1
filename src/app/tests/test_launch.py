@@ -622,13 +622,14 @@ class PortalHttpTest(Base):
         """本文の読み取りの境目(0.50.1 で httpsec.read_json_body に寄せた。応答の番号と文は前と同じ)"""
         def err(r, body):
             return r.status, json.loads(body).get("error")
-        self.assertEqual(err(*self.post("/api/cases/update", body=b"")), (400, "bad_request"))   # 空の本文は {} として読む(案件の検査で断る)
-        self.assertEqual(err(*self.post("/api/cases/update", body=b'{"id": NaN}')), (400, "bad_request"))   # NaN は今までどおり通す(案件の検査で断る)
-        self.assertEqual(err(*self.post("/api/cases/update", headers={"Content-Length": "abc"}, body=None)), (413, "size"))
-        self.assertEqual(err(*self.post("/api/cases/update", headers={"Content-Type": "application/json; charset=UTF-8"}, body=b"[]")), (400, "json"))
-        self.assertEqual(err(*self.post("/api/cases/update", body=b'{"a": 1')), (400, "json"))
-        self.assertEqual(err(*self.post("/api/cases/update", body=b"[" * 3000)), (400, "json"))   # 深い入れ子でも落ちずに 400
-        self.assertEqual(err(*self.post("/api/cases/update", headers={"Content-Type": "text/plain"})), (415, "content_type"))
+        self.assertEqual(err(*self.post("/api/cases/update", body=b"{}")), (404, "not_found"))   # 案件の状態・メモの口は MARKS-3 で消した
+        self.assertEqual(err(*self.post("/api/cases/auto", body=b"")), (400, "bad_request"))   # 空の本文は {} として読む(案件の検査で断る)
+        self.assertEqual(err(*self.post("/api/cases/auto", body=b'{"id": NaN}')), (400, "bad_request"))   # NaN は今までどおり通す(案件の検査で断る)
+        self.assertEqual(err(*self.post("/api/cases/auto", headers={"Content-Length": "abc"}, body=None)), (413, "size"))
+        self.assertEqual(err(*self.post("/api/cases/auto", headers={"Content-Type": "application/json; charset=UTF-8"}, body=b"[]")), (400, "json"))
+        self.assertEqual(err(*self.post("/api/cases/auto", body=b'{"a": 1')), (400, "json"))
+        self.assertEqual(err(*self.post("/api/cases/auto", body=b"[" * 3000)), (400, "json"))   # 深い入れ子でも落ちずに 400
+        self.assertEqual(err(*self.post("/api/cases/auto", headers={"Content-Type": "text/plain"})), (415, "content_type"))
         r, _ = self.post("/api/tools/studio/start", headers={"X-YTT-Token": "é" * 10})   # ASCII 以外の合言葉でも落ちずに 403
         self.assertEqual(r.status, 403)
 

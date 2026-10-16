@@ -18,6 +18,7 @@ if SRC not in sys.path:
 
 from manage.cases import cases  # noqa: E402
 from manage.keep import cleanup  # noqa: E402
+from human import judgments as J  # noqa: E402
 from human.friend import friend_feedback as F  # noqa: E402
 
 
@@ -164,6 +165,40 @@ class TestApply(Base):
         self.assertEqual([p["markId"] for p in res["packs"]], [""])
         self.assertFalse(os.path.isdir(self.pack1))
         self.assertTrue(os.path.exists(self.clip1), "記録に無い切り抜きの動画は触らない")
+
+
+    def test_judgments_for_reject(self):
+        """人の判断の記録(app の judgments.jsonl): 要らないを届けた記録のパックの markId ごとに who friend で 1 行。ref に zip・パック・依頼・配信の id"""
+        marks = {self.pack1: {"path": self.clip1, "markId": "m1"}, self.pack2: {"path": self.clip2, "markId": "m2"}}
+        z = "20261002-120000-0a1b2c__配信A 1-2.zip"
+        F.record_delivery(self.logs, os.path.join(self.tmp, "出力", z), self.run, [self.pack1, self.pack2], marks)
+        res = F.apply(self.logs, self.fb(), trash=self.trash, log=self.lines.append, discard=cases.discard_clip)
+        self.assertTrue(res["ok"], res)
+        rows = J.rows(os.path.join(self.tmp, "app"))
+        self.assertEqual(sorted((r["what"], r["markId"], r["videoId"], r["who"], r["via"], r["origin"]) for r in rows),
+                         [("reject", "m1", "VID", "friend", "friend_file", "request"), ("reject", "m2", "VID", "friend", "friend_file", "request")])
+        r = [x for x in rows if x["markId"] == "m1"][0]
+        self.assertEqual((r["ref"]["zip"], r["ref"]["pack"], r["ref"]["requestId"], r["ref"]["runId"]), (z, "c1_pack", "20261002-120000-0a1b2c", "run1"))
+        self.assertEqual(r["key"], "ff:%d:%s:m1" % (r["at"], z))
+        with open(os.path.join(self.logs, F.FEEDBACK_LOG), encoding="utf-8") as f:
+            self.assertEqual(len([l for l in f if l.strip()]), 1, "友人の返事の記録は今のまま 1 行")
+
+    def test_judgments_made_video_and_old_row_without_mark(self):
+        """動画にした: 人の判断の記録に made_video(who friend)。markId の無い古い行は配信・マークを空にしてパック名で残し、友人の返事の記録も残す"""
+        app = os.path.join(self.tmp, "app")
+        z = "20261002-120000-0a1b2c__配信A 1-2.zip"
+        F.record_delivery(self.logs, os.path.join(self.tmp, "出力", z), self.run, [self.pack1], {self.pack1: {"path": self.clip1, "markId": "m1"}})
+        fb = F.parse(json.dumps({"v": 1, "kind": "feedback", "verdict": "made_video", "zip": z, "requestId": "20261002-120000-0a1b2c"}))
+        self.assertTrue(F.apply(self.logs, fb, log=self.lines.append)["ok"])
+        self.assertEqual([(r["who"], r["what"], r["markId"], r["via"]) for r in J.rows(app)], [("friend", "made_video", "m1", "friend_file")])
+        z2 = "20261002-120000-0a1b2c__古い.zip"
+        F.record_delivery(self.logs, os.path.join(self.tmp, "出力", z2), self.run, [self.pack2], {})
+        res = F.apply(self.logs, dict(fb, zip=z2), log=self.lines.append)
+        self.assertTrue(res["ok"], res)
+        rows = J.rows(app)
+        self.assertEqual([(r["videoId"], r["markId"], r["ref"]["pack"]) for r in rows[1:]], [("", "", os.path.basename(self.pack2))], "markId の無い行はパック名で残す")
+        with open(os.path.join(self.logs, F.FEEDBACK_LOG), encoding="utf-8") as f:
+            self.assertEqual(len([l for l in f if l.strip()]), 2, "友人の返事の記録は残す")
 
 
 if __name__ == "__main__":

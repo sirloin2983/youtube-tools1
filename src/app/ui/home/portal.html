@@ -55,17 +55,10 @@
 
   <section class="pt-cases-box" id="caseListSection">
     <h2 class="pt-h2">案件(配信ごと)</h2>
-    <p class="hint" title="紐づけは開くたびに各ツールのデータから作り直し、状態とメモだけをここで保存します">配信1本を1行にまとめます。行を開くと、切り抜きの一覧・まとめて実行・メモが出ます。「案件の画面で開く」から校正・カット・パックへ進みます。</p>
+    <p class="hint" title="紐づけは開くたびに各ツールのデータから作り直します">配信1本を1行にまとめます。行を開くと、切り抜きの一覧・まとめて実行が出ます。「案件の画面で開く」から校正・カット・パックへ進みます。</p>
 
     <div class="ui-listbar">
       <input id="fText" type="search" placeholder="配信のタイトル・配信者で絞り込み" aria-label="配信のタイトル・配信者で絞り込み">
-      <select id="fStatus" aria-label="状態で絞り込み">
-        <option value="">状態: すべて</option>
-        <option value="none">状態: 未設定</option>
-        <option value="working">状態: 作業中</option>
-        <option value="posted">状態: 投稿済み</option>
-        <option value="skipped">状態: 見送り</option>
-      </select>
       <select id="fSort" aria-label="並び替え">
         <option value="new">新しい順</option>
         <option value="remaining">次にやることが多い順</option>
@@ -75,10 +68,7 @@
       <select id="fGroup" aria-label="まとめ方">
         <option value="">まとめ方: なし</option>
         <option value="channel">配信者ごとにまとめる</option>
-        <option value="status">状態ごとにまとめる</option>
       </select>
-      <!-- 自動でできた切り抜き: 未確認(見ても届けてもいない)がある配信だけに絞る。自動の切り抜きが無ければ出さない(portal.js の paintAutoFilter) -->
-      <button type="button" class="btn small" id="autoFilter" aria-pressed="false" hidden></button>
       <button type="button" class="btn small primary" id="newCaseBtn" aria-haspopup="dialog" aria-controls="newDrawer" title="配信を探す・URL や動画ファイルから入れる・解析の順番待ち(引き出しで開きます)"><span class="ui-icon" data-icon="plus" aria-hidden="true"></span>新しい案件</button>
       <button type="button" class="btn small ghost" id="btnReload">読み込み直す</button>
       <button type="button" class="btn small ghost" id="casesHidden" hidden></button>
@@ -354,7 +344,6 @@
         <span class="pt-case-title"></span>
         <span class="hint pt-case-sub"></span>
       </span>
-      <span class="pill pt-case-statuspill"></span>
       <span class="pill pt-case-autopill" hidden></span>
       <span class="hint num pt-case-clips" hidden></span>
       <span class="hint num pt-case-tx" hidden></span>
@@ -364,7 +353,6 @@
     </summary>
     <div class="pt-case-body">
       <div class="row">
-        <label class="lag">状態 <select class="pt-case-status" aria-label="状態"><option value="">未設定</option><option value="working">作業中</option><option value="posted">投稿済み</option><option value="skipped">見送り</option></select></label>
         <span class="pt-case-studio"></span>
       </div>
       <ol class="pt-clips"></ol>
@@ -387,10 +375,6 @@
         <ol class="pt-auto-steps"></ol>
         <div class="hint pt-auto-msg"></div>
       </div>
-      <details class="ui-disclosure pt-case-memo"><summary class="hint">メモ</summary>
-        <textarea rows="3" maxlength="2000" aria-label="メモ" placeholder="投稿日・タイトル案・気づいたことなど"></textarea>
-        <div class="row"><button type="button" class="btn small pt-memo-save">メモを保存</button><span class="hint pt-memo-msg"></span></div>
-      </details>
     </div>
   </details>
 </template>

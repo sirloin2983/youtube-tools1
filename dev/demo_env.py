@@ -185,7 +185,6 @@ def seed_check(tmp, txdir, samples, videos, write_tx, now):
       speech:diar 声の区間(.diar.json の turns)と重ならない行(C-EVAL)
       section:eval 評価用の文書の区間(評価のレーン。見本ではスイッチをオンにする = main の YTT_CHECK_SECTION。C-EVAL)
       cut:edge・gap・whole 自動カットのたたき台(edit.json の draft.keepsSec。見本ではスイッチをオン = YTT_CHECK_CUT。CUT-CARD)"""
-    from manage.cases import cases as cases_mod
     from ytt import schemas
     created = int((now - 86400) * 1000)
     title = "【自分の配信】まったり雑談"
@@ -193,8 +192,7 @@ def seed_check(tmp, txdir, samples, videos, write_tx, now):
     os.makedirs(d, exist_ok=True)
     clip = os.path.join(d, "01_自動の山.mp4")
     shutil.copyfile(samples[0], clip)
-    t = max(now, cases_mod.REVIEW_SINCE + 60)
-    os.utime(clip, (t, t))   # REVIEW_SINCE より前に作った切り抜きは「未定のまま」(pending)で確かめるに出ない
+    os.utime(clip, (now, now))   # 新しい自動の切り抜き(MARKS-3 で「未定のまま」= REVIEW_SINCE は消した)
     mk = {"id": "lm1", "start": 600.0, "end": 640.0, "label": "自動の山", "status": "exported", "src": "auto", "score": 8.2,
           "file": os.path.basename(clip), "path": clip}
     cj = schemas.build_clip(clip, 40.0, {"kind": "youtube", "videoId": "", "title": title}, (600.0, 640.0), mk,

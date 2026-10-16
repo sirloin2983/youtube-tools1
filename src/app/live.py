@@ -66,7 +66,7 @@ P3(2026-10-05。計画の 0-8): 録画と再生・マークは**スタジオの�
 役割で組み直す RS7-2 G2b(2026-10-11): app でない部分(録画元のクライアント・録画を始める begin/begin_request・受付 submit・見回りの列・子プロセス・「調子」・採用の口)は
 src/flow/livesession.py の LiveSession(ライブ係)へ移した。Live はそれを継ぎ、ここに残すのは app の物だけ: HTTP の受け口(handle_get・handle_post)・
 中継(_relay)・札(ytt)・スタジオ(studio_call・StudioMarks・書き出しの音量の settings-ui.json)・友人へ届ける(_auto_deliver_for)・6 時間の上限(stop_long_requests)・
-組の溜め(flush_pools)・見ていない自動の切り抜きの片付け(expire_unseen)・ホームの設定(prefs)・片付けの部品(Cleaner)・依頼の録画の束(live_bundle)。
+組の溜め(flush_pools)・日数で自動の切り抜きの片付け(expire_unseen)・ホームの設定(prefs)・片付けの部品(Cleaner)・依頼の録画の束(live_bundle)。
 自分の配信(スタジオの URL の欄 POST /live/api/begin)も RS8 から録画を始めたときに束を組む(livesession.begin_own。封筒 kind live + own_bundle =
 画面の設定の束 + ホームの設定 live + 今のスタジオの解析の設定・書き出しの音量)。録画中に設定を変えても、その録画の検出の感度・枠・採用の待ち・余白・
 配信後の解析・書き出しの音量・書き出したあとのエンジン・モデル・カットには効かない(決定 3-31 の b1・b2)。封筒にできない URL(テストの手元の録画元)は束なし。
@@ -98,7 +98,7 @@ RELAY_RE = re.compile(r"^/live/r/([a-z][a-z0-9-]{0,15})/([A-Za-z0-9._/-]{1,200})
 RELAY_POST_RE = re.compile(r"^\d{8}-\d{6}(?:-[A-Za-z0-9_-]{1,24})?/stop\Z")   # POST で中継してよい残り(録画の id/stop だけ。P4 で録画の部品に delete を足したため)
 PASS_TYPES = ("application/json", "application/vnd.apple.mpegurl", "video/mp2t")   # 中継で返してよい種類
 POOL_EVERY = 60.0      # ライブの切り抜きの組の溜め(まとめて実行の flush_pools)を見る間隔
-EXPIRE_EVERY = 600.0   # 見ていない自動の切り抜きの片付け(cases.expire_unseen)を見る間隔(案件の一覧を組み立て直すので、見回りのたびには見ない)
+EXPIRE_EVERY = 600.0   # 日数で自動の切り抜きの片付け(cases.expire_unseen)を見る間隔(案件の一覧を組み立て直すので、見回りのたびには見ない)
 
 
 # スタジオの「書き出しの設定」の既定(src/studio/review.js の DEFAULT_SETTINGS の exportVolume・exportLoudness・lag と同じ値。ツールをまたいで import しない)
@@ -164,7 +164,7 @@ class Live(livesession.LiveSession):
                          marks=live_adopt.StudioMarks(lambda method, path, body=None: self.studio_call(method, path, body)),
                          deliver_for=self._auto_deliver_for)
         self._stop_said = set()            # D-13: 6 時間で止められなかった録画(記録に 1 回だけ)
-        self._expire_at = 0.0              # 見ていない自動の切り抜きの片付けを最後に見た時刻(EXPIRE_EVERY ごと)
+        self._expire_at = 0.0              # 日数で自動の切り抜きの片付けを最後に見た時刻(EXPIRE_EVERY ごと)
         self._pool_at = 0.0                # 組の溜めの残りを最後に見た時刻(POOL_EVERY ごと)
 
     def use_headless(self, disk_min_gb=None):
@@ -226,7 +226,7 @@ class Live(livesession.LiveSession):
         if self.headless:   # 友人の PC は届けない・③④ の片付けは画面なしでは動かさない
             return []
         return [("届け方の組の見回りでエラー", self.flush_pools),   # n 本の組で届けるライブの切り抜き: 録画が終わったら残りも届ける(10-09 ユーザー決定)
-                ("見ていない自動の切り抜きの片付けでエラー", self.expire_unseen)]   # 3 日見ない自動の切り抜きはごみ箱へ(10-09 ユーザー決定。オフでも前の分は片付ける)
+                ("日数で自動の切り抜きの片付けでエラー", self.expire_unseen)]   # 作ってから・届けてから 3 日の自動の切り抜きはごみ箱へ(10-09・10-16 ユーザー決定。オフでも前の分は片付ける)
 
     # --- 束(RS7-2 G2b) ---
     def _bundle_base(self):
@@ -386,7 +386,7 @@ class Live(livesession.LiveSession):
         return ar.flush_pools(done)
 
     def expire_unseen(self, force=False):
-        """見ても届けてもいない自動の切り抜きを、作ってから cases.EXPIRE_SEC(3 日)で片付ける(src/manage/cases/cases.py の expire_unseen。EXPIRE_EVERY ごと)。
+        """自動の切り抜きを、届けていない物は作ってから・届けた物は届けてから cases.EXPIRE_SEC(3 日)で片付ける(src/manage/cases/cases.py の expire_unseen。EXPIRE_EVERY ごと)。
         部品(ごみ箱フォルダ・届ける仕組み・非表示)は入口のサーバーから。入口から作られていないとき(テスト)は何もしない。-> 片付けた [(案件, マーク)]"""
         srv, now = self._server, time.time()
         if srv is None or (not force and now - self._expire_at < EXPIRE_EVERY):
@@ -394,11 +394,11 @@ class Live(livesession.LiveSession):
         self._expire_at = now
         from manage.cases import cases as cases_mod   # 呼ぶときに読む(cases は入口の部品。live を読み込むテストを重くしない)
         prefs = getattr(srv, "prefs", None)
-        done = cases_mod.expire_unseen(self.root, self.studio_call, self.exporter.feedback, getattr(srv, "cleanup", None),
+        done = cases_mod.expire_unseen(self.root, self.studio_call, getattr(srv, "cleanup", None),
                                        (lambda tid: prefs.hide("transcripts", [tid], True)) if prefs is not None else None, getattr(srv, "deliveries", None),
                                        is_request=lambda rc_id, rec: self.requests.get(rc_id, rec) is not None)
         if done:
-            self.log("リアルタイム切り抜き: 見ないまま %d 日たった自動の切り抜き %d 本をごみ箱フォルダへ移しました(%s)" % (
+            self.log("リアルタイム切り抜き: 作ってから・届けてから %d 日たった自動の切り抜き %d 本をごみ箱フォルダへ移しました(%s)" % (
                 int(cases_mod.EXPIRE_SEC // 86400), len(done), "・".join("%s/%s" % k for k in done[:5])))
         return done
 

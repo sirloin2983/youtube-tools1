@@ -14,7 +14,10 @@
               (不採用を戻しても feedback.jsonl の「悪い」は残る = review/store.put_video の決まり。役割 7 で直す)
 ③ の層なので ① ④ を直に読まない: 案件の操作・スタジオの API は入口が ctx.hooks で渡す。
 """
+import secrets
+
 from . import apply
+from .. import judgments as _judgments   # 同じ human の兄弟(人の判断の記録。③ の中の書き手)
 
 AUTO_CHOICES = ("good", "bad")
 # 悪いときの理由の札(カードの reasons の候補。画面の文は src/app/check/sources.py が出す)。札は 1 つまで・任意
@@ -67,13 +70,28 @@ def _auto_check(ans):
 
 
 def _auto_apply(ctx, card, ans):
+    """良い / 悪い + 理由を judgments に 1 行足す(who self・quality_good / quality_bad・via check)。
+    答えの id は apply の後で決まる(apply.answer が作る)ので、key は乱数の印 ans:<token>。applied に judgment(行の id)と jkey を残し Z で retract する"""
     vid, mid = _need(card.get("target"), "videoId", "markId")
-    return dict({"videoId": vid, "markId": mid}, **ans)
+    key = "ans:" + secrets.token_hex(8)
+    what = "quality_good" if ans["choice"] == "good" else "quality_bad"
+    row = _judgments.record(ctx.app_dir, who="self", what=what, reason=ans.get("reason"), videoId=vid, markId=mid,
+                            origin="auto", via="check", key=key)   # 出どころは auto(カードに request・live の印は無い)
+    return dict({"videoId": vid, "markId": mid, "judgment": row["id"], "jkey": key}, **ans)
 
 
 def _auto_revert(ctx, row):
-    """記録だけの答えは実物を変えない(Z の取り消しは答えの行を残さないことで済む)"""
-    return {}
+    """判断の行を retract する(of = その行の id・key = 原本の key + ":retract"。書いてあれば何もしない = やり直しで二重にしない)。実物は変えない"""
+    ap = row.get("applied") or {}
+    jid, jkey = ap.get("judgment"), ap.get("jkey")
+    if not (isinstance(jid, str) and isinstance(jkey, str)):
+        return {}   # 判断の行を持たない答え(書き手より前の行)
+    rkey = jkey + ":retract"
+    if rkey in _judgments.keys(ctx.app_dir):
+        return {}
+    _judgments.record(ctx.app_dir, who="self", what="retract", of=jid, videoId=ap["videoId"], markId=ap["markId"],
+                      origin="auto", via="check", key=rkey)
+    return {"judgment": jid}
 
 
 # ---------------------------------------------------------------- value:cand

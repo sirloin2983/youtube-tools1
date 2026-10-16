@@ -218,17 +218,16 @@ def _fold(s):
 
 def value_auto(view):
     """送った後の品質の確認(10-16 の 2-8)。自動でできた切り抜き(clip.auto)のうち、送った物も送らなかった物も出す。
-    外すのは 前の物(pending = 未定のまま)・ごみ箱へ移した要らない物(exists が偽 = 人がもう要らないと決めた)・評価用の文書・読めない文書だけ"""
+    外すのは ごみ箱へ移した物(exists が偽 = 要らない・日数の片付け)・評価用の文書・読めない文書だけ(「未定」の pending は MARKS-3 で消した)"""
     out = []
     ok_docs = view.doc_ids()   # 評価用でない・読める文書がある切り抜きだけ
     for c in view.cases().get("cases") or ():
         if c.get("gone"):
             continue
         for cl in c.get("clips") or ():
-            rv = cl.get("review") or {}
             tid = (cl.get("transcript") or {}).get("id")
             mid = cl.get("markId") or ""
-            if not cl.get("auto") or rv.get("pending") or cl.get("exists") is False or tid not in ok_docs or not MARK_RE.match(mid):
+            if not cl.get("auto") or cl.get("exists") is False or tid not in ok_docs or not MARK_RE.match(mid):
                 continue
             if not MARK_RE.match(str(c.get("id") or "")):
                 continue

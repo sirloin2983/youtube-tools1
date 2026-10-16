@@ -177,6 +177,9 @@ class AccuracyTest(unittest.TestCase):
         # K2: 線 D の録画・友人の返事も足した judgedAll があれば、配信の数(C1 の入口)はそれ。無い以前の結果は judgedVideos
         marks2 = accuracy.summarize_marks({"meta": {"few": True}, "overall": {"judgedVideos": 3, "judgedAll": 7, "top": {"top10": {"adoptRate": 0.7}}, "misses": {"missRate": 0.1}}})
         self.assertEqual((marks2["value"], marks2["docs"]), (0.7, 7))
+        marks3 = accuracy.summarize_marks({"meta": {}, "overall": {"judgedVideos": 3, "top": {"top10": {"adoptRate": 0.7}}, "misses": {"missRate": 0.1}},
+                                           "human3": {"friendRange": {"hitRate": 0.6}, "used": {"all": {"usedRate": 0.25}}}})
+        self.assertEqual([(e["label"], e["value"]) for e in marks3["extra"]][1:], [("友人の区間の拾えた率", 0.6), ("届けた物を友人が使った率", 0.25)])   # 物差し 3 本(MARKS-3)
         spk = accuracy.summarize_speakers({"meta": {"docs": 9, "fewNote": ""}, "subsets": {"all": {"rate": 0.8, "voices": {"rate": 0.9}}}, "speakerCount": {"exactRate": 0.5}})
         self.assertEqual((spk["value"], spk["docs"], [e["value"] for e in spk["extra"]]), (0.8, 9, [0.9, 0.5]))
         gen = accuracy.summarize_generic({"accuracy": {"label": "x", "value": 0.4, "docs": 3, "better": "lower", "extra": [{"label": "y", "value": 1}]}})

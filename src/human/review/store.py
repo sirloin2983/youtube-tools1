@@ -38,9 +38,12 @@ from ytt import studiodata as _studiodata  # noqa: E402  data.json の行の読�
 from flow import adopt as _flow_adopt  # noqa: E402  採用の規則 F-5 の口(① pipeline/analyze/adopt)
 from flow import casebook as _casebook  # noqa: E402  案件の分け方・引き方・書き
 from . import feedback  # noqa: E402  判定の記録(呼ぶたびに feedback.名前 で読む)
+from human import judgments as _judgments  # noqa: E402  人の判断の記録(作業データの app/judgments.jsonl。MARKS-3 S1a)
+from ytt import datadir as _datadir  # noqa: E402  作業データの app の場所(入口が登録する。Store の app_dir の既定)
 from ytt.errors import ApiError  # noqa: E402
 
 _log = logging.getLogger("ytt.review.store")
+_judge_lock = threading.Lock()   # 取り消しの行を書くとき: 読んで・足すを 1 度に(保存の外で書くので Store.lock は取らない)
 # 作業データが壊れていたときの戻し方(画面の帯に出す。退避したファイルの名前・フォルダは画面の「詳しく」に出す。見直し M8)
 RESTORE_STEPS = "前のデータは退避してあります。戻すには: ホームで「すべて終了」→ 退避したファイルの名前を元に戻す(下の「詳しく」)→ start.bat で起動し直す"
 SAVE_ERR = "保存に失敗しました(ディスクの空きなど)"
@@ -61,6 +64,21 @@ _CASE_SKIP = (_casefiles.UNSEEN_CODE, _casefiles.BROKEN_CODE)   # 反映しな�
 def _warn(msg):
     """警告のログ(入口は studio.log にも残す = studio/serve の _WarnToStudioLog。7d-2)"""
     _log.warning(msg)
+
+
+def _origin(video, m):
+    """人の判断の出どころ(judgments の origin)。録画は live・手で足したマークは manual・自動の候補(転写・再解析で手動になった物を含む)は auto"""
+    if video.get("kind") == "live":
+        return "live"
+    if m.get("src") == "manual" and not m.get("auto0Orig"):
+        return "manual"
+    return "auto"
+
+
+def _ref(video):
+    """録画の配信の出どころ(ref.recorder・ref.recording)。録画でなければ None"""
+    lv = video.get("live") if video.get("kind") == "live" else None
+    return {"recorder": lv.get("recorder"), "recording": lv.get("recording")} if lv else None
 
 
 _index_row = _casefiles.index_row   # 全部の形 -> data.json の索引の行(ytt/casefiles)
@@ -227,8 +245,9 @@ class Store:
     案件にした配信は 候補.json・採用.json を読んで重ねる(_full)・書くのは _writing の中(案件の錠)。ロックの順は Store.lock → casefiles.lock(root)。
     学習の記録(feedback.jsonl)は保存に成功したあと、ロックの外で書く。スタジオなしの書き手は ② flow/studiobook の StudioBook(同じ形で書く)"""
 
-    def __init__(self, path):
+    def __init__(self, path, app_dir=None):
         self.path = path
+        self.app_dir = app_dir or _datadir.resolve("app")   # 人の判断の記録(judgments.jsonl)の置き場所。テストは一時フォルダを渡す
         self.ui_path = os.path.join(os.path.dirname(path), "settings-ui.json")
         self.lock = threading.RLock()
         # 画面の設定(読む・書く・退避・大きさの上限は ytt.settings.SettingsFile。ホーム・編集の設定ファイルと同じ決まり。S4 2026-10-09)
@@ -572,12 +591,12 @@ class Store:
             return True
 
     # ---- マークの置き換え(確認画面からの保存) ----
-    def put_video(self, vid, title, marks_raw, base_rev=None):
+    def put_video(self, vid, title, marks_raw, base_rev=None, judged=True):
         """画面の保存(PUT /api/video): マーク全件を置き換える。-> 公開用の動画。
         baseRev が今の版と違えば 409(解析・書き出し・別タブが先に入っている。何も変えない)・全件を ytt/marks.validate_marks で検査して 1 件でも不正なら 400(何も変えない)。
         サーバーだけが決める値(src・点数・exported・file・path・adoptedBy)は前の値を引き継ぐ。案件の配信は 採用.json の版と比べて 採用.json へ書く。
         保存できたあと、ロックの外で、人の判定を feedback.jsonl へ(採用 = good・不採用と候補のままの自動マークの削除 = bad・人の最終の操作 = miss など。
-        録画は書かない)・採用したマークはコラボの相手へ転写する"""
+        録画も書く)・人の採否・取り消しを judgments.jsonl へ 1 行ずつ(judged=False は書かない = 入口のライブの採用。その行は案件の道が書く)・採用したマークはコラボの相手へ転写する"""
         if not isinstance(marks_raw, list):
             raise ApiError("bad_request", "marks が正しくありません", 400)
         if base_rev is not None and not schemas.is_int(base_rev):
@@ -624,12 +643,43 @@ class Store:
             self._bump(nv, prev)   # 保存に成功したときだけ、feedback を書く
             snap = self._pub(nv)
         for m, verdict, event in verdicts:
-            feedback.feedback_for_mark(snap, m, verdict, event)
+            ts = time.strftime("%Y-%m-%dT%H:%M:%S")   # feedback の行と judgments の key で同じ時刻
+            feedback.feedback_for_mark(snap, m, verdict, event, ts=ts)
+            if judged and not m.get("adoptedBy"):   # 機械が採用にしたマーク(adoptedBy)は人の判断ではない
+                self._judge(snap, m, "adopt" if verdict == "good" else "reject", event, ts)
             if event == "adopt":   # コラボグループに入っていれば、他の動画へ候補として転写する
                 self._transfer_collab(vid, m)
         for m, event, extra in extras:
             feedback.feedback_event(snap, m, event, extra)
+            if judged and event in ("unadopt", "delete_judged"):   # 人の取り消し = 同じ印の最後の採否の行を取り消す(無ければ書かない)
+                self._retract_judgment(snap, m)
         return snap
+
+    def _judge(self, snap, m, what, event, ts):
+        """人の採否(adopt・reject)を judgments.jsonl に 1 行。key は判定の記録と同じ fb:<ts>:<videoId>:<markId>:<event>。書けなくても保存は落とさない(ログだけ)"""
+        try:
+            _judgments.record(self.app_dir, who="self", videoId=snap["id"], markId=m["id"], what=what, origin=_origin(snap, m), via="review",
+                              start=m["start"], end=m["end"], key="fb:%s:%s:%s:%s" % (ts, snap["id"], m["id"], event), ref=_ref(snap))
+        except (ValueError, OSError) as e:
+            _warn("人の判断の記録を書けませんでした(%s): %s" % (e.__class__.__name__, snap["id"]))
+
+    def _retract_judgment(self, snap, m):
+        """人の取り消し(採用を候補に戻す・判定済みの削除)。同じ印の、まだ取り消していない最後の採否の行を of にして 1 行足す。key は原本の key + ":retract"。
+        無ければ何も書かない(機械の採用・書き出しだけだった印など)"""
+        vid, mid = snap["id"], m["id"]
+        try:
+            with _judge_lock:
+                rows = _judgments.rows(self.app_dir)
+                done = {r.get("of") for r in rows if r["what"] == "retract"}
+                hit = None
+                for r in rows:
+                    if r["who"] == "self" and r["what"] in ("adopt", "reject") and r["videoId"] == vid and r["markId"] == mid and r["id"] not in done:
+                        hit = r
+                if hit is not None:
+                    _judgments.record(self.app_dir, who="self", videoId=vid, markId=mid, what="retract", of=hit["id"], origin=hit["origin"], via="review",
+                                      key=(hit.get("key") or hit["id"]) + ":retract", ref=hit.get("ref"))
+        except (ValueError, OSError) as e:
+            _warn("人の判断の取り消しを書けませんでした(%s): %s" % (e.__class__.__name__, vid))
 
     def adopt_marks(self, vid, ranges, top):
         """採用の規則(F-5。notes:plan/role-restructure.md 5-5・決定 3-29 Q3。スタジオの「上位 n 本を採用」・まとめて実行・友人の依頼で同じ 1 つ)を当てて保存する。
@@ -671,7 +721,7 @@ class Store:
                 while want in taken:
                     want = "m" + os.urandom(6).hex()
                 new = v["marks"] + [{"id": want, "start": a, "end": b, "label": str(label or "")[:120], "status": "adopted"}]
-            snap = self.put_video(vid, None, new, base_rev=v["rev"])   # 同じロックの中 = 版がぶつからない
+            snap = self.put_video(vid, None, new, base_rev=v["rev"], judged=False)   # 同じロックの中 = 版がぶつからない。人の判断の行は案件の道(S3)が書く
             mark = next(m for m in snap["marks"] if m["id"] == want)
             return vid, mark, _marks.order_of(snap["marks"], want)
 

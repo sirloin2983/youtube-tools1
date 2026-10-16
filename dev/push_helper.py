@@ -48,7 +48,7 @@ SECRET_PATTERNS = [
 SECRET_FILES = {"friend-apps/request-sender/config.json": "切り抜き依頼の鍵(Dropbox)", "request-sender/config.json": "切り抜き依頼の鍵(Dropbox)"}
 # 名前で止めるもの(小文字で比べる)
 BAD_NAMES = {"data.json", "config.json", "cases.json", ".migrated.json", "cookies.txt", ".env", "registry.json",
-             "feedback.jsonl", "learn-feedback.json", "eval-baselines.json", ".running.json"}
+             "feedback.jsonl", "judgments.jsonl", "learn-feedback.json", "eval-baselines.json", ".running.json"}
 BAD_NAME_RE = re.compile(r"^settings.*\.json$|\.jsonl(\.old)?$|\.log(\.old)?$|\.(mp4|mkv|mov|webm|m4a|mp3|wav|flac|ogg|opus|aac|ts|flv|onnx|bin|pt|safetensors)$")
 BAD_DIRS = {"transcripts", "dataset", "models", "cache", "archive", "exports", "clips", "work", "logs", ".runtime", "0old", ".whisper_models", "evals",
             "browser-profile"}   # browser-profile: 窓(Edge のアプリモード)の専用のプロファイル(閲覧の記録・Cookie。段階7-3)

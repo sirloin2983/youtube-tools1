@@ -71,7 +71,6 @@
 .pt-ac-msg{overflow-wrap:anywhere}
 .pt-case-autopill{white-space:nowrap}
 /* 続けて確認(A5): 動画が見える幅の引き出し。字幕は動画の下に 1 行(校正前のたたき台)。並びの一覧は押すとその切り抜きへ */
-.pt-case-memo textarea{width:100%;margin:6px 0}
 /* まとめ方(.ui-group。ui-kit)の中の見出し */
 .pt-group-label{font-weight:inherit}
 .pt-group-body{padding:8px;background:var(--bg)}

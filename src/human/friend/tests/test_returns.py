@@ -10,6 +10,7 @@ import shutil
 import sys
 import tempfile
 import time
+import types
 import unittest
 import zipfile
 
@@ -18,7 +19,8 @@ SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.ab
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
-from flow import outbox  # noqa: E402
+from flow import deliveries, outbox  # noqa: E402
+from human import judgments as J  # noqa: E402
 from human.friend import returns as R  # noqa: E402
 
 RID = "20261011-120000-abcdef"
@@ -229,6 +231,56 @@ class TestRoundTrip(Base):
     def test_no_folder_is_quiet(self):
         shutil.rmtree(self.inbox)
         self.assertEqual(self.scan(), [])
+
+
+class TestJudgments(Base):
+    """送り返しの採否を人の判断の記録(judgments)に: keep → adopt・reject → reject・made_video → made_video。by auto は書かない。届けた記録のパックは名前で引く"""
+
+    def deliver(self, pack, mid):
+        run = types.SimpleNamespace(request_id=RID, id="r1", video_id="VID", title="配信")
+        d = os.path.join(self.tmp, "切り抜き", pack)
+        deliveries.record(os.path.join(self.app, "logs"), os.path.join(self.tmp, "出力", "%s__r1.zip" % RID), run, [d], {d: {"path": "c.mp4", "markId": mid}} if mid else {})
+
+    def verdict(self, pack, body):
+        p = os.path.join(self.inbox, "%s__%s.verdict.json" % (RID, pack))
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(body)
+        os.utime(p, (time.time() - 600,) * 2)
+
+    def test_verdicts_are_judged(self):
+        self.deliver("パック1", "m1")
+        self.deliver("パック2", "m2")
+        self.verdict("パック1", '{"verdict":"keep","at":1760000000000}')
+        self.verdict("パック2", '{"verdict":"reject","at":1760000000001}')
+        self.verdict("パック3", '{"verdict":"made_video","at":1760000000002}')   # 届けた記録に無い = 配信・マークを空にしてパック名で残す
+        self.scan()
+        rows = J.rows(self.app)
+        self.assertEqual(sorted((r["what"], r["markId"], r["videoId"], r["who"], r["via"], r["origin"]) for r in rows),
+                         [("adopt", "m1", "VID", "friend", "friend_verdict", "request"), ("made_video", "", "", "friend", "friend_verdict", "request"),
+                          ("reject", "m2", "VID", "friend", "friend_verdict", "request")])
+        self.assertEqual([x["ref"]["pack"] for x in rows if not x["markId"]], ["パック3"])
+        r = [x for x in rows if x["markId"] == "m1"][0]
+        self.assertEqual(r["key"], "vd:%s:パック1:1760000000000" % RID)
+        self.assertEqual((r["ref"]["pack"], r["ref"]["zip"], r["ref"]["runId"], r["ref"]["requestId"]), ("パック1", "%s__r1.zip" % RID, "r1", RID))
+        self.assertEqual(sorted(R.iter_requests(self.app)[0]["verdicts"]), ["パック1", "パック2", "パック3"], "採否の記録は今のまま残す")
+
+    def test_auto_is_not_judged(self):
+        self.deliver("パック1", "m1")
+        self.verdict("パック1", '{"verdict":"reject","at":1760000000000,"by":"auto"}')
+        self.scan()
+        self.assertEqual(J.rows(self.app), [], "3 日で自動の要らないは人の判断ではない")
+        self.assertIn("パック1", R.iter_requests(self.app)[0]["verdicts"])
+
+    def test_missing_mark_or_pack_is_kept_by_pack_name(self):
+        """マークの分からないパック(古い届けた記録・届けた記録に無い)は配信・マークを空にしてパック名で残す(物差しがパック名で突き合わせる)"""
+        self.deliver("パック1", "")
+        self.verdict("パック1", '{"verdict":"keep","at":1760000000000}')
+        self.verdict("パック9", '{"verdict":"keep","at":1760000000001}')
+        self.scan()
+        rows = J.rows(self.app)
+        self.assertEqual([(r["what"], r["videoId"], r["markId"], r["ref"]["pack"]) for r in rows], [("adopt", "", "", "パック1"), ("adopt", "", "", "パック9")])
+        self.assertEqual(J.fold(rows), {}, "マークの分からない行は切り抜きごとに畳まない")
+        self.assertEqual(len(R.iter_requests(self.app)[0]["verdicts"]), 2)
 
 
 if __name__ == "__main__":

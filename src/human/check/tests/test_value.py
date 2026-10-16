@@ -13,6 +13,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.a
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
+from human import judgments  # noqa: E402
 from human.check import answerlog, apply, value  # noqa: E402,F401
 
 VID = "abcdefghijk"
@@ -76,10 +77,10 @@ class ValueTest(unittest.TestCase):
         got = apply.answer(self.ctx, auto_card(), {"answer": {"choice": "bad", "reason": "long"}})
         self.assertEqual(got["applied"]["reason"], "long")
         back = apply.undo(self.ctx, got["answer"])   # Z は記録の取り消し
-        self.assertEqual(back["reverted"], {})
+        self.assertEqual(back["reverted"], {"judgment": got["applied"]["judgment"]})
         self.assertEqual(self.hook_calls, [])
         again = apply.answer(self.ctx, auto_card(), {"answer": {"choice": "bad"}})   # 取り消したカードはもう一度答えられる
-        self.assertEqual(again["applied"], {"videoId": VID, "markId": "a1", "choice": "bad"})
+        self.assertEqual({k: again["applied"][k] for k in ("videoId", "markId", "choice")}, {"videoId": VID, "markId": "a1", "choice": "bad"})
 
     def test_auto_reason_only_for_bad_and_must_be_a_card_reason(self):
         got = apply.answer(self.ctx, auto_card(), {"answer": {"choice": "good", "reason": "long"}})
@@ -88,6 +89,38 @@ class ValueTest(unittest.TestCase):
             apply.answer(self.ctx, dict(auto_card(), id="value:auto:%s#a9" % VID), {"answer": {"choice": "bad", "reason": "nope"}})
         self.assertEqual(e.exception.code, 400)
         self.assertEqual(self.hook_calls, [])
+
+    def test_auto_writes_judgment_and_undo_retracts_it(self):
+        got = apply.answer(self.ctx, auto_card(), {"answer": {"choice": "bad", "reason": "boring"}})
+        rows = judgments.rows(self.tmp)
+        self.assertEqual(len(rows), 1)
+        r = rows[0]
+        self.assertEqual((r["what"], r["who"], r["via"], r["origin"], r["videoId"], r["markId"]), ("quality_bad", "self", "check", "auto", VID, "a1"))
+        self.assertEqual(r["reason"], "boring")
+        self.assertEqual(r["id"], got["applied"]["judgment"])
+        self.assertTrue(r["key"].startswith("ans:"))
+        apply.undo(self.ctx, got["answer"])
+        rows = judgments.rows(self.tmp)
+        self.assertEqual([x["what"] for x in rows], ["quality_bad", "retract"])
+        self.assertEqual((rows[1]["of"], rows[1]["key"]), (r["id"], r["key"] + ":retract"))
+        self.assertIsNone(judgments.fold(rows)[(VID, "a1")]["quality"])   # 取り消したら品質のレーンは空
+
+    def test_auto_good_writes_quality_good_without_reason(self):
+        apply.answer(self.ctx, auto_card(), {"answer": {"choice": "good", "reason": "long"}})
+        rows = judgments.rows(self.tmp)
+        self.assertEqual((rows[0]["what"], rows[0]["via"]), ("quality_good", "check"))
+        self.assertNotIn("reason", rows[0])
+        self.assertEqual(self.studio.calls, [])
+
+    def test_cand_writes_no_judgment(self):
+        apply.answer(self.ctx, cand_card(), {"answer": {"choice": "reject"}})
+        self.assertEqual(judgments.rows(self.tmp), [])
+
+    def test_retract_is_not_written_twice(self):
+        got = apply.answer(self.ctx, auto_card(), {"answer": {"choice": "good"}})
+        value._auto_revert(self.ctx, {"applied": got["applied"]})
+        value._auto_revert(self.ctx, {"applied": got["applied"]})
+        self.assertEqual([x["what"] for x in judgments.rows(self.tmp)], ["quality_good", "retract"])
 
     def test_bad_answer(self):
         for bad in ({"choice": "adopt"}, {"choice": "send"}, "bad", {"choice": None}, {}):

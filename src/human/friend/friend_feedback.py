@@ -16,6 +16,7 @@ import re
 import time
 
 from flow import deliveries
+from human import judgments
 from ytt import fsio, tools
 
 DELIVERIES_LOG = deliveries.LOG           # 届けた記録(入口の作業データの logs の中。持ち主は ② flow/deliveries)
@@ -92,6 +93,37 @@ def _origin(fb, row):
     return None
 
 
+def _app_dir(log_dir):
+    """作業データの app(judgments.jsonl・friend-returns の置き場所)。log_dir は入口の logs(app の直下)"""
+    return os.path.dirname(os.path.normpath(log_dir))
+
+
+def _judge(app_dir, log, **row):
+    """人の判断の記録(judgments)に 1 行。書けなければ(空の欄 = markId の無い古い行も含む)ログに残して飛ばす。書けた行を返す(飛ばしたら None)"""
+    try:
+        return judgments.record(app_dir, **row)
+    except (ValueError, OSError) as e:
+        log("友人の返事: 人の判断の記録に書けませんでした(%s)" % tools.why(e))
+        return None
+
+
+def _judge_friend(log_dir, fb, row, what, at, log):
+    """友人の判断(reject・made_video)を人の判断の記録に、届けた記録のパックの markId ごとに 1 行(who friend・via friend_file)。
+    届けた記録が無ければ何も書かない(パックが無い)。key の末尾は markId(無い古い行はパックの名前)"""
+    if not row:
+        return
+    origin = deliveries.origin_of(row)
+    for p in row.get("packs") or []:
+        if not isinstance(p, dict):
+            continue
+        pack = os.path.basename(str(p.get("dir") or ""))
+        mid = str(p.get("markId") or "")
+        _judge(_app_dir(log_dir), log, who="friend", what=what, origin=origin, via="friend_file",
+               videoId=str(row.get("videoId") or "") if mid else "", markId=mid, at=at,
+               key="ff:%d:%s:%s" % (at, fb["zip"], mid or pack),
+               ref={"zip": fb["zip"], "pack": pack, "requestId": fb.get("requestId") or row.get("requestId") or "", "runId": row.get("runId") or ""})
+
+
 def apply(log_dir, fb, trash=None, log=None, discard=None):
     """友人の「要らない」を当てる: 届けた記録にあるパックと切り抜きの動画を ごみ箱フォルダ へ(3 日で消える)、記録を friend_feedback.jsonl に。
     スタジオのマークは変えない(2026-10-08 ユーザー決定: こちらが友人へ送る基準と友人が実際に採用する基準は別。マークの採用の記録は
@@ -124,6 +156,7 @@ def apply(log_dir, fb, trash=None, log=None, discard=None):
     rec = {"at": int(time.time() * 1000), "zip": fb["zip"], "verdict": fb["verdict"], "requestId": fb.get("requestId") or row.get("requestId") or "",
            "title": fb.get("title") or row.get("title") or "", "videoId": row.get("videoId") or "", "runId": row.get("runId") or "", "packs": results,
            "origin": _origin(fb, row)}
+    _judge_friend(log_dir, fb, row, "reject", rec["at"], log)
     try:
         _append(log_dir, FEEDBACK_LOG, rec)
     except OSError as e:
@@ -143,6 +176,7 @@ def _record_made(log_dir, fb, row, log):
     rec = {"at": int(time.time() * 1000), "zip": fb["zip"], "verdict": "made_video", "requestId": fb.get("requestId") or row.get("requestId") or "",
            "title": fb.get("title") or row.get("title") or "", "videoId": row.get("videoId") or "", "runId": row.get("runId") or "", "packs": packs,
            "origin": _origin(fb, row)}
+    _judge_friend(log_dir, fb, row, "made_video", rec["at"], log)
     try:
         _append(log_dir, FEEDBACK_LOG, rec)
     except OSError as e:

@@ -5,9 +5,9 @@
 候補として出していないパスは move で受け付けない(API に好きなパスを渡しても消せない)。
 
 候補の種類:
-- export … スタジオの書き出しの元動画のうち、パックができていて、案件の状態が「投稿済み」「見送り」か、Text+ のパック(動画のコピー入り)から PACK_AGE_DAYS 日
-  たったもの(案件は src/manage/cases/cases.snapshot の cases)。日数で出すのは**このパックだけで編集できるとき**だけ(txindex.pack_ready = 記録したファイルが
-  全部あって空でない・動画と Lua が入っている。部品 M1。移す直前にもう一度見る)
+- export … スタジオの書き出しの元動画のうち、Text+ のパック(動画のコピー入り)から PACK_AGE_DAYS 日たったもの(案件は src/manage/cases/cases.snapshot の cases)と、
+  届けたあとパックだけが片付いた自動の切り抜き(届けてから PACK_AGE_DAYS 日)。日数で出すのは**このパックだけで編集できるとき**だけ(txindex.pack_ready =
+  記録したファイルが全部あって空でない・動画と Lua が入っている。部品 M1。移す直前にもう一度見る)。案件の状態(投稿済み・見送り)の条件は MARKS-3 で消した
 - work   … 動画の「作業用」フォルダの途中のファイルのうち、元の動画がもう無いもの(記録から辿れない)
 - cache  … 「編集」の波形のキャッシュ(いつでも作り直せる)
 - log    … 回したログ(*.old.log・*.log.old・*.1・*.old)
@@ -45,13 +45,12 @@ ROOTS_FILE = "trash-roots.json"   # 作業データの外に作ったごみ箱�
 DRIVE_TRASH = "youtube-tools ごみ箱"   # 動画のドライブに書き出し先が無いときのごみ箱(<ドライブ>\youtube-tools ごみ箱\)
 SIDECARS = (".clip.json", ".edit.json", ".transcript.json", ".cut-plan.json", ".srt", "_edit.mp4", "_edit.clip.json")   # 元動画と一緒に片付ける途中のファイル
 REASON_SUFFIX = ".理由.txt"   # 失敗\\ の物に添える断った理由(受付・送り返しとも。returns._move と intake の決まり)
-KINDS = (("export", "スタジオの書き出しの元動画(パック済みで、案件が投稿済み/見送り か パックから %d 日)" % PACK_AGE_DAYS),
+KINDS = (("export", "スタジオの書き出しの元動画(パックから %d 日・届けてから %d 日でパックなし)" % (PACK_AGE_DAYS, PACK_AGE_DAYS)),
          ("work", "作業用の途中のファイル(元の動画が無い)"),
          ("cache", "波形のキャッシュ(作り直せる)"),
          ("log", "古いログ"),
          ("intake", "受け付けた依頼の動画・友人の送り返しの受付済み(届けてから・手で置いた物は受け付けてから %d 日。文書は残す)" % KEEP_DAYS),
          ("failed", "断って失敗\\ に置いた物(受付と送り返し。更新から %d 日・理由の .txt つき)" % KEEP_DAYS))
-DONE_STATUSES = ("posted", "skipped")
 VIDEO_EXTS = (".mp4", ".mkv", ".mov", ".webm", ".m4v", ".avi", ".ts")
 MAX_ITEMS = 500
 
@@ -211,13 +210,12 @@ class Cleanup:
                 "trashDays": self.trash_days, "packAgeDays": PACK_AGE_DAYS, "at": int(self.clock() * 1000)}
 
     def _exports(self, cases):
-        """パックがある元動画のうち、案件が投稿済み/見送り か、Text+ のパック(動画のコピー入り。元動画が無くても Resolve で開ける)を作って
-        PACK_AGE_DAYS 日たったもの。_edit.mp4・作業用の途中のファイルも一緒に(extra)"""
+        """パックがある元動画のうち、Text+ のパック(動画のコピー入り。元動画が無くても Resolve で開ける)を作って PACK_AGE_DAYS 日たったもの・
+        届けたあとパックだけが片付いた自動の切り抜き。_edit.mp4・作業用の途中のファイルも一緒に(extra)"""
         out, seen, now = [], set(), self.clock()
         for c in cases:
             if not isinstance(c, dict):
                 continue
-            done = c.get("status") in DONE_STATUSES
             for cl in c.get("clips") or []:
                 p = cl.get("path") if isinstance(cl, dict) else None
                 if not p or not cl.get("exists") or not os.path.isfile(p):
@@ -239,18 +237,17 @@ class Cleanup:
                 at = pk.get("updatedAt") if isinstance(pk, dict) else 0
                 aged = isinstance(pk, dict) and pk.get("textplus") is True and isinstance(at, (int, float)) and at > 0 \
                     and now - at / 1000.0 > PACK_AGE_DAYS * 86400
-                if not (done or aged):
+                if not aged:
                     continue
                 key = os.path.normcase(p)
                 if key in seen:
                     continue
-                pack_dir = pk.get("dir") if aged and not done else None
+                pack_dir = pk.get("dir")
                 if pack_dir and not self._pack_ready(pack_dir):
                     continue   # パックの動画などが欠けている = 元の素材がまだ要る(部品 M1)
                 seen.add(key)
                 title = str(c.get("title") or c.get("id") or "")[:40]
-                why = ("投稿済み" if c["status"] == "posted" else "見送り") if done else \
-                    "パックから %d 日" % int((now - at / 1000.0) // 86400)
+                why = "パックから %d 日" % int((now - at / 1000.0) // 86400)
                 it = _item("export", p, "案件「%s」(%s)" % (title, why), _sidecars(p))
                 if pack_dir:
                     it["packDir"] = pack_dir   # move の直前にもう一度見る

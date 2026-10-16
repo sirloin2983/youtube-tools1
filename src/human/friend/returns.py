@@ -19,12 +19,15 @@ import stat
 import time
 import zipfile
 
-from ytt import fsio
-from flow import outbox
+from flow import deliveries, outbox
+from human import judgments
+from ytt import fsio, tools
 
 RETURNS_DIR = "friend-returns"      # <app>/friend-returns/<YYYY-MM>/<requestId>/
 IN_DIR, DONE_DIR, FAIL_DIR = "送り返し", "受付済み", "失敗"
 VERDICT_SUFFIX = ".verdict.json"
+LOGS_DIR = "logs"                  # 届けた記録 deliveries.jsonl の置き場所(app の直下の logs)
+VERDICT_WHAT = {"keep": "adopt", "reject": "reject", "made_video": "made_video"}   # 送り返しの採否 → 人の判断の what
 VERDICTS = ("keep", "reject", "made_video")
 ORIGINS = ("request", "auto")       # 採否の任意の origin(D-SEND 2-7。友人に見せる出どころ = human/friend/deliver.face_origin と同じ 2 つ)
 VERDICT_RE = re.compile(r"^([0-9A-Za-z_-]{1,64})__([^\\/:*?\"<>|\x00-\x1f]{1,120})" + re.escape(VERDICT_SUFFIX) + r"\Z")
@@ -128,6 +131,8 @@ def parse_verdict(raw):
     out = {"verdict": d["verdict"], "at": int(at) if ok else None}
     if d.get("origin") in ORIGINS:
         out["origin"] = d["origin"]
+    if d.get("by") == "auto":   # 友人のアプリが 3 日で自動で要らないにした物(人の判断ではない。人の判断の記録には書かない)
+        out["by"] = "auto"
     return out
 
 
@@ -202,6 +207,7 @@ def _one(folder, app_dir, n, p, clock, log):
         out = os.path.join(d, "verdicts")
         os.makedirs(out, exist_ok=True)
         fsio.write_json(os.path.join(out, pack + VERDICT_SUFFIX), dict(v, requestId=rid, pack=pack))
+        _judge_verdict(app_dir, v, rid, pack, clock, log)
         _move(folder, n, "accepted", "", clock())
         return {"name": n, "kind": "verdict", "state": "accepted", "reason": ""}
     m = outbox.NAME_RE.match(n)
@@ -235,6 +241,40 @@ def _one(folder, app_dir, n, p, clock, log):
         log("送り返し: %s の中の requestId が名前と違います" % n)
     _move(folder, n, "accepted", "", clock())
     return {"name": n, "kind": "run", "state": "accepted", "reason": ""}
+
+
+def _delivered_pack(logs_dir, rid, pack):
+    """届けた記録(② flow/deliveries)で、依頼 rid のパック pack(フォルダの名前)を引く -> (行, パック)。同じ名前が複数なら新しい行。引けなければ (None, None)"""
+    found = (None, None)
+    for r in deliveries.rows(logs_dir) or []:
+        if r.get("requestId") != rid:
+            continue
+        for p in r.get("packs") or []:
+            if isinstance(p, dict) and os.path.basename(str(p.get("dir") or "")) == pack:
+                found = (r, p)
+    return found
+
+
+def _judge_verdict(app_dir, v, rid, pack, clock, log):
+    """送り返しの採否を人の判断の記録(judgments)に 1 行(who friend・via friend_verdict)。by auto(友人のアプリが 3 日で自動で要らないにした物)は書かない。
+    videoId・markId は届けた記録のパック(名前で引く)から。引けない・markId の空は judgments が空の欄を断るので、ログに残して飛ばす。
+    採否の記録(verdicts)は今のまま残す"""
+    if v.get("by") == "auto":
+        return
+    what = VERDICT_WHAT.get(v.get("verdict"))
+    if not what:
+        return
+    at = v.get("at") or int(clock() * 1000)
+    r, p = _delivered_pack(os.path.join(app_dir, LOGS_DIR), rid, pack)
+    r, p = r or {}, p or {}
+    mid = str(p.get("markId") or "")
+    try:
+        origin = v.get("origin") if v.get("origin") in ("request", "auto") else (deliveries.origin_of(r) if r else "request")   # 友人のアプリが書いた出どころが先(写しと同じ順)
+        judgments.record(app_dir, who="friend", what=what, origin=origin, via="friend_verdict",
+                         videoId=str(r.get("videoId") or "") if mid else "", markId=mid, at=at, key="vd:%s:%s:%d" % (rid, pack, at),
+                         ref={"pack": pack, "requestId": rid, "zip": str(r.get("zip") or ""), "runId": str(r.get("runId") or "")})
+    except (ValueError, OSError) as e:
+        log("送り返し: %s の採否を人の判断の記録に書けませんでした(%s)" % (pack, tools.why(e)))
 
 
 def _rmtree(path):

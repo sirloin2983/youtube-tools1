@@ -22,13 +22,14 @@ def feedback_path():
 _fb_lock = threading.Lock()
 
 
-def _feedback_row(video, mark, verdict, event):
+def _feedback_row(video, mark, verdict, event, ts=None):
     """feedback.jsonl の1行の共通部分(区間・点数・解析の信号と設定・配信の種類)。
     自動マークは、最初の自動区間(auto0)と手で直した量(dStart / dEnd)も残す。
-    再解析で手動マークに変わったもの(auto0 が auto0Orig に移っている)も同じ値で残す(reanalyzed: true)。"""
+    再解析で手動マークに変わったもの(auto0 が auto0Orig に移っている)も同じ値で残す(reanalyzed: true)。
+    ts: 呼ぶ側が決めた時刻(判断の記録 judgments の key と同じ値にするため)。省けば今の時刻。"""
     an = video.get("analysis") or {}
     sp = an.get("spec") or {}
-    row = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "videoId": video.get("id", ""), "kind": video.get("kind"), "start": mark.get("start"), "end": mark.get("end"),
+    row = {"ts": ts or time.strftime("%Y-%m-%dT%H:%M:%S"), "videoId": video.get("id", ""), "kind": video.get("kind"), "start": mark.get("start"), "end": mark.get("end"),
            "peak": mark.get("peak"), "score": mark.get("score"), "parts": mark.get("parts") or {}, "verdict": verdict, "signals": an.get("signals") or {},
            "settings": {k: sp[k] for k in FB_SETTING_KEYS if k in sp}, "source": "review", "src": mark.get("src", "auto"), "event": event,
            "duration": video.get("duration"), "type": an.get("type"), "markId": mark.get("id")}
@@ -62,13 +63,13 @@ def _feedback_write(row):
     return True
 
 
-def feedback_for_mark(video, mark, verdict, event=""):
+def feedback_for_mark(video, mark, verdict, event="", ts=None):
     """確認画面での結果(採用・不採用・削除・書き出し)を feedback.jsonl に1行で残す。パスは含めない。
     video: store の動画(id, kind, analysis を使う)、mark: そのマーク。event: adopt / reject / delete / export。
-    手動マーク(src=manual)の採用・書き出しも「よかった」として残す。"""
+    手動マーク(src=manual)の採用・書き出しも「よかった」として残す。ts: 行の時刻(省けば今)。"""
     if verdict not in ("good", "bad"):
         return False
-    return _feedback_write(_feedback_row(video, mark, verdict, event))
+    return _feedback_write(_feedback_row(video, mark, verdict, event, ts))
 
 
 # 人の最終の操作の記録(Q2。機械の最初の結果と並べて残すため)。verdict は good / bad 以外の値にする(good・bad だけ数える読み手に混ざらない):
@@ -102,12 +103,12 @@ def nearest_auto(marks, start, end):
     return {"autoCount": n, "nearAuto": near}
 
 
-def feedback_event(video, mark, event, extra=None):
+def feedback_event(video, mark, event, extra=None, ts=None):
     """FB_EXTRA_EVENTS の行(手で足した・手で消した・採用の取り消し・判定済みの削除)を feedback.jsonl に1行で残す。extra の項目は行に足す。"""
     verdict = FB_EXTRA_EVENTS.get(event)
     if not verdict:
         return False
-    row = _feedback_row(video, mark, verdict, event)
+    row = _feedback_row(video, mark, verdict, event, ts)
     if extra:
         row.update(extra)
     return _feedback_write(row)

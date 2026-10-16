@@ -224,7 +224,8 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
     """入口のまとめて実行: 受付(start*。画面・友人の依頼の欄から Run を作って ② の待ち行列に積む)と hook(案件・ホームの設定・友人へ届ける)。
     待ち行列・糸・中止・状態と記録・起動し直しで戻す・見積もりは src/flow/runqueue.py の Queue(RS7-1 S5)、段の中身は src/flow/run.py の Runner。
     友人へ届ける段と組の溜めは src/human/friend/delivery.py の Delivery(RS3-3)を継ぎ、そこが要る入口と案件の物
-    (届ける本数の既定と範囲・案件に届けた印)は下の _deliver_batch_limits・_remember_delivered で渡す"""
+    (届ける本数の既定と範囲・送らなかった理由)は下の _deliver_batch_limits・_remember_not_sent で渡す。届けたは案件に写さない
+    (② flow/deliveries の届けた記録を案件が読む。MARKS-3)"""
 
     def __init__(self, client, repo_root, env=None, poll=1.0, sleep=None, find_pack=None, prefs=None, log_dir=None, log_max=LOG_MAX_BYTES,
                  clock=None, log=None, tools=None):
@@ -614,14 +615,6 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
         """Delivery が n 本ごとに組にして届ける数の既定と範囲(ホームの設定 intake.deliverBatch。既定と範囲は prefs.py)。-> (既定, 下限, 上限)"""
         lo, hi, _label = prefs_mod.INTAKE_RANGES["deliverBatch"]
         return prefs_mod.DEFAULTS["intake"]["deliverBatch"], lo, hi
-
-    def _remember_delivered(self, clip_path, zip_name, video_id=None, mark_id=None):
-        """Delivery が届けたライブの自動の切り抜きを、案件の一覧に「届けた」と残す(二重に届けない。cases.remember_delivered)。
-        まとめて実行の自動で送った分(video_id・mark_id。D-SEND)は案件の auto[マーク] に「まとめて実行」の印と「届けた」(cases.remember_auto)"""
-        if video_id and mark_id:
-            cases.remember_auto(self.root, video_id, mark_id, self.env, delivered=zip_name)
-            return
-        cases.remember_delivered(self.root, clip_path, zip_name, self.env)
 
     def _remember_not_sent(self, video_id, mark_id, code, text):
         """Delivery が送らなかったまとめて実行の切り抜きを案件に残す(auto[マーク].notSent = {code, text, at}。案件の札・品質のカード。D-SEND)"""

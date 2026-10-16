@@ -4,6 +4,10 @@
     python src/eval/tools/eval_marks.py [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--json] [--data-dir 作業データの親フォルダ] [--status-fallback]
     python src/eval/tools/eval_marks.py --live [--since …] [--until …] [--json]     配信ごと(線 D の D-12。下の「--live」)
 
+- 物差し 3 本(結果の `human3`・表示の先頭。MARKS-3): (1) 友人の区間の拾えた率 = 下の friendRanges のまま / (2) 届けた物を友人が使ったか =
+  分母 ② flow/deliveries の届けたパック(origin ごとに request・auto・manual)・分子 ③ human/judgments の who friend の adopt・made_video = 使った / reject = 使わなかった /
+  無し = 未回答(パック名で突き合わせる。友人のアプリが 3 日で自動で要らないにした物は判断として書かれないので未回答に入る)/ (3) 確かめるの良い / 悪い =
+  judgments の quality_good・quality_bad(origin と reason の分布)。人の判断は judgments だけを読む(線 D の人の行も)。以下の古い物差しは残す。
 - 未解析の友人の配信の解析は ② が依頼のあとに行う(この道具は数えるだけ: friendRanges の unanalyzed)。
 - 作業データは**読むだけ**(どの口も。スタジオの data.json・feedback.jsonl(と .old)・archive/<動画ID>.json.gz・入口の logs/autorun-runs.jsonl・
   cut2resolve の packs/)。何も書き換えない。--json のときだけ、結果を スタジオの作業データの evals\\marks\\<日時>.json に残す(原則 3: 機械の最初の結果と人の最終を並べる)
@@ -32,11 +36,11 @@
   手で足した・取り消した行の日時で絞る(until はその日を含む)。配信が 10 本未満のときは「まだ少ない(参考)」と出す(少ないデータで決めすぎない)。
   friendRanges は実行の記録の時刻(出どころ 2 はマークの作られた時刻)で絞る。解析済みの区間が 20 未満・配信が 5 本未満のときは「まだ少ない(参考)」
 - C1 の入口の数(結果の overall.judgedElsewhere・judgedAll。K2 = 10-08 決定): 判定のある配信の数に、スタジオの判定の外の人の判定も足す =
-  線 D の録画(live/live_feedback.jsonl の人の「届けた」「要らない」)と、友人の返事(logs/friend_feedback.jsonl。配信は videoId → 実行記録の runId →
+  線 D の録画(judgments の origin live の採用・不採用 = 「届けた」「要らない」)と、友人の返事(logs/friend_feedback.jsonl。配信は videoId → 実行記録の runId →
   切り抜きのフォルダの順にたどる)。採用率・見逃しなどの指標には混ぜない(友人が採る基準は送る基準と別 = 10-08 ユーザー決定)。入口の「調子」の
   「採用の記録 配信 10 本」は judgedAll を読む(src/eval/drill/accuracy.py の summarize_marks)
 - --live(線 D の D-12。L5 の土台): 入口の配信ごとの記録(入口の作業データ live/reports/<録画元>__<録画>.json。src/flow/live_report.py が録画中に書き、
-  終わったら締める)と採用の記録(live/live_feedback.jsonl)を読んで、録画ごとに 候補(枠・控え・見送り)・採用(自動・人)・人の判定(届けた = 良い /
+  終わったら締める)と採用の記録(live/live_feedback.jsonl の機械の行)と人の判断(judgments)を読んで、録画ごとに 候補(枠・控え・見送り)・採用(自動・人)・人の判定(届けた = 良い /
   要らない = 悪い。自動の採用だけ)・配信中の候補とアーカイブの候補の重なり(detect_compare の行 = 配信後の全自動 M7 が書く)・ワーカーの遅れとメモリの最大・
   配信中の文字起こしの成否・書き出しの待ち・空き を並べる。時期は記録の startedAt(行は at)で絞る。録画が 5 本未満なら「まだ少ない(参考)」。
   --json は スタジオの作業データの evals\\marks\\<日時>-live.json
@@ -59,6 +63,8 @@ from eval.tools._evalcommon import pct, rate, read_json  # noqa: E402
 from manage.cases import txindex  # noqa: E402
 from ytt import studiodata  # noqa: E402  スタジオの data.json の読み口
 from flow import lengthhint  # noqa: E402  自動の長さの目安(人が指定した区間の長さ。本番と同じ式)
+from flow import deliveries  # noqa: E402  友人へ届けた記録の読み口(物差し 2 の分母。② が持つ起きた事実)
+from human import judgments  # noqa: E402  人の判断の記録(物差し 2・3 の分子と、線 D の人の行。③ が持つ)
 from pipeline.analyze import excite  # noqa: E402
 
 SCHEMA = "youtube-tools-marks-eval/v1"
@@ -647,6 +653,99 @@ def friend_ranges(studio, app, vmap, since_ms=None, until_ms=None, dvideos=None,
             "notes": notes, "overall": overall, "byVideo": by_video}
 
 
+# ---------------------------------------------------------------- 物差し 3 本(human3。MARKS-3)
+
+H3_ORIGINS = ("request", "auto", "manual")
+H3_USED = ("adopt", "made_video")
+
+
+def _pack_name(p):
+    """パックの置き場所 / 名前 -> 突き合わせの鍵(最後の名前・大文字小文字と区切りをそろえる)"""
+    return os.path.basename(str(p or "").replace("\\", "/").rstrip("/")).lower()
+
+
+def friend_lane(rows):
+    """judgments の行 -> ({パック名: 友人の最後の判断の行}, {(videoId, markId): 同})。取り消しは畳んだあと"""
+    by_pack, by_mark = {}, {}
+    for slot in judgments.fold(rows).values():
+        j = slot["friend"]
+        if j is None:
+            continue
+        ref = j.get("ref") if isinstance(j.get("ref"), dict) else {}
+        name = _pack_name(ref.get("pack"))
+        if name and (name not in by_pack or by_pack[name]["at"] < j["at"]):
+            by_pack[name] = j
+        by_mark[(j["videoId"], j["markId"])] = j
+    return by_pack, by_mark
+
+
+def _used_group(items):
+    n = len(items)
+    used = sum(1 for i in items if i == "used")
+    bad = sum(1 for i in items if i == "notUsed")
+    answered = used + bad
+    return {"delivered": n, "used": used, "notUsed": bad, "unanswered": n - answered, "answered": answered,
+            "usedRate": rate(used, n), "answerRate": rate(answered, n), "usedOfAnswered": rate(used, answered)}
+
+
+def friend_used(app, rows, since_ms=None, until_ms=None):
+    """物差し 2: 届けたパック(origin ごと)を友人が使ったか。分母 = 届けた記録のパック(同じ zip の同じパックは 1 つ)。
+    分子 = judgments の who friend の adopt・made_video = 使った / reject = 使わなかった / 無し = 未回答。by auto の自動の要らないは書かれない前提(未回答に入る)"""
+    by_pack, by_mark = friend_lane(rows)
+    got = deliveries.rows(os.path.join(app, "logs")) or []
+    items, seen = {o: [] for o in H3_ORIGINS}, set()
+    for d in got:
+        at = d.get("at")
+        if not C.in_period(at if isinstance(at, int) and not isinstance(at, bool) else None, since_ms, until_ms):
+            continue
+        origin = deliveries.origin_of(d)
+        for p in d.get("packs") or []:
+            if not isinstance(p, dict):
+                continue
+            name = _pack_name(p.get("dir"))
+            k = (d.get("zip"), name, p.get("markId"))
+            if not name or k in seen:
+                continue
+            seen.add(k)
+            j = by_pack.get(name)
+            if j is None and p.get("markId"):
+                j = by_mark.get((str(d.get("videoId") or ""), str(p["markId"])))
+            items[origin].append("unanswered" if j is None else "used" if j["what"] in H3_USED else "notUsed")
+    out = {o: _used_group(v) for o, v in items.items()}
+    out["all"] = _used_group([i for v in items.values() for i in v])
+    return out
+
+
+def quality_counts(rows):
+    """物差し 3: 確かめるの良い / 悪い(最後の答え。取り消しは畳んだあと)。origin ごとと悪いの reason の分布"""
+    good = bad = 0
+    by_origin, reasons = {}, {}
+    for slot in judgments.fold(rows).values():
+        j = slot["quality"]
+        if j is None:
+            continue
+        g = by_origin.setdefault(j.get("origin") or "", {"good": 0, "bad": 0})
+        if j["what"] == "quality_good":
+            good += 1
+            g["good"] += 1
+        else:
+            bad += 1
+            g["bad"] += 1
+            reasons[j.get("reason") or ""] = reasons.get(j.get("reason") or "", 0) + 1
+    return {"good": good, "bad": bad, "judged": good + bad, "goodRate": rate(good, good + bad), "byOrigin": by_origin, "reasons": reasons}
+
+
+def human3(app, friend, since_ms=None, until_ms=None):
+    """-> 物差し 3 本。friend = friend_ranges の結果(1 本目はそのまま)。人の判断は judgments だけを読む"""
+    rows = [r for r in judgments.rows(app) if C.in_period(int(r["at"]), since_ms, until_ms)]
+    o = friend["overall"]
+    rng = {k: o[k] for k in ("ranges", "analyzedRanges", "videos", "analyzedVideos", "hit", "hitRate", "miss", "missRate")}
+    rng["top"] = o["top"]
+    rng["few"] = friend["few"]
+    return {"schema": "youtube-tools-marks-human3/v1", "friendRange": rng, "used": friend_used(app, rows, since_ms, until_ms), "quality": quality_counts(rows),
+            "judgments": len(rows)}
+
+
 def evaluate(data_dir=None, since=None, until=None, status_fallback=False):
     """-> 結果の辞書(JSON にする形)。作業データは読むだけ"""
     env, studio, app = locate(data_dir)
@@ -684,7 +783,8 @@ def evaluate(data_dir=None, since=None, until=None, status_fallback=False):
     allv = videos if since_ms is None and until_ms is None else build(None, None)
     friend = friend_ranges(studio, app, allv, since_ms, until_ms, dvideos=dvideos, records=records, archive=archive)
     clip = lengthhint.compute(studio, app, by_type=True)
-    return {"meta": meta, "overall": overall, "byType": {k: group_metrics(v) for k, v in sorted(types.items())}, "byVideo": by_video, "friendRanges": friend, "clipLength": clip}
+    return {"meta": meta, "human3": human3(app, friend, since_ms, until_ms), "overall": overall, "byType": {k: group_metrics(v) for k, v in sorted(types.items())},
+            "byVideo": by_video, "friendRanges": friend, "clipLength": clip}
 
 
 # ---------------------------------------------------------------- 配信ごと(線 D の D-12。--live)
@@ -720,17 +820,16 @@ def _friend_folder(r, run_src):
 
 def judged_elsewhere(app, studio_judged, since_ms=None, until_ms=None, records=None, folders=None):
     """C1 の入口(「採用の記録 配信 10 本」)に数える、スタジオの判定の外の人の判定(K2。10-08 決定 = 線 D の [採用][要らない]・友人の返事も数える)。
-    線 D の録画 = live/live_feedback.jsonl の人の行(event deliver = 届けた = 良い・reject = 要らない = 悪い。自動の採用は数えない)を録画ごとに。
+    線 D の録画 = judgments の人の行(origin live。adopt = 届けた = 良い・reject = 要らない = 悪い。自動の採用は数えない)を録画ごとに。
     友人の返事 = logs/friend_feedback.jsonl の行(友人の「要らない」)のある配信。行の videoId が空(自動で届けた切り抜き)なら、行の runId から
     入口の実行記録(autorun-runs.jsonl)の videoId をたどり、それも無ければ(ファイル 1 本ずつの全自動)切り抜きのフォルダ = 配信ごとのフォルダを
     スタジオのマークの書き出し先(folders = folder_videos)と突き合わせる。突き合わなければフォルダを 1 つの配信として数える。
     **採用率には混ぜない**(友人が採る基準は送る基準と別 = 10-08 ユーザー決定)。records = run_records(app) を読んであれば渡す。
     -> {"live": {"recordings", "good", "bad"}, "friend": {"videos", "rows", "unknown", "notInStudio"}, "all": スタジオの判定のある配信 + 線 D の録画 + ほかで数えていない友人の配信}"""
     live = {}
-    for _, r in read_jsonl(os.path.join(app, LIVE_DIR, LIVE_FEEDBACK)):
-        if r.get("human") is True and r.get("event") in ("deliver", "reject") and _live_period_ok(r.get("at"), since_ms, until_ms):
-            g = live.setdefault((str(r.get("recorder") or ""), str(r.get("recording") or "")), {"good": 0, "bad": 0})
-            g["good" if r.get("event") == "deliver" else "bad"] += 1
+    for j in live_human(app, since_ms, until_ms):
+        g = live.setdefault(live_key(j), {"good": 0, "bad": 0})
+        g["good" if j["what"] == "adopt" else "bad"] += 1
     recs = run_records(app) if records is None else records
     run_vid = {r.get("id"): r.get("videoId") for r in recs if isinstance(r.get("videoId"), str) and r.get("videoId")}
     run_src = {r.get("id"): r.get("sourcePath") for r in recs if isinstance(r.get("sourcePath"), str)}
@@ -752,6 +851,22 @@ def judged_elsewhere(app, studio_judged, since_ms=None, until_ms=None, records=N
     return {"live": {"recordings": len(live), "good": sum(g["good"] for g in live.values()), "bad": sum(g["bad"] for g in live.values())},
             "friend": {"videos": len(friend), "rows": sum(friend.values()) + unknown, "unknown": unknown, "notInStudio": len(extra)},
             "all": len(studio_judged) + len(live) + len(extra)}
+
+
+def live_human(app, since_ms=None, until_ms=None):
+    """線 D の録画の人の判断(judgments の who self・origin live の採用 / 不採用。取り消しは畳んだあと)。-> 行のリスト(古い順)。
+    以前は live_feedback.jsonl の human の行を読んでいた(MARKS-3 で人の判断は judgments だけに)"""
+    rows = [r for r in judgments.rows(app) if C.in_period(int(r["at"]), since_ms, until_ms)]
+    out = [slot["adopt"] for slot in judgments.fold(rows).values()
+           if slot["adopt"] is not None and slot["adopt"].get("origin") == "live" and slot["adopt"]["who"] == "self"]
+    out.sort(key=lambda r: r["at"])
+    return out
+
+
+def live_key(j):
+    """judgments の行 -> (録画元, 録画)。ref に無ければ videoId を録画とみなす"""
+    ref = j.get("ref") if isinstance(j.get("ref"), dict) else {}
+    return (str(ref.get("recorder") or ""), str(ref.get("recording") or j.get("videoId") or ""))
 
 
 def _live_period_ok(iso_at, since_ms, until_ms):
@@ -828,10 +943,13 @@ def evaluate_live(data_dir=None, since=None, until=None):
                 marks[mid] = origin
             if row["state"] == "feedback" and origin in ("auto", "manual"):   # 記録の無い録画は行から数える
                 row["adopt"][origin] += 1
-        elif ev in ("deliver", "reject") and r.get("human") is True and mid in marks:
-            row["adopt"]["good" if ev == "deliver" else "bad"] += 1
         elif ev == "detect_compare":
             row["compare"] = {k: r.get(k) for k in ("archive", "hit", "ratio", "medianAbsDiff", "liveFrame", "liveBench", "liveUnmatched")}
+    for j in live_human(app, since_ms, until_ms):   # 人の判断は judgments から(自動の採用の行のある物だけ数える)
+        rc, rec = live_key(j)
+        key = "%s/%s" % (rc, rec)
+        if key in by and j["markId"] in auto_marks.get(key, {}):
+            by[key]["adopt"]["good" if j["what"] == "adopt" else "bad"] += 1
     for row in by.values():
         a = row["adopt"]
         a["unjudged"] = max(0, a["auto"] + a["archive"] - a["good"] - a["bad"])
@@ -999,10 +1117,42 @@ def print_clip_length(cl):
             typ, t["length"], pre, t["samples"], t["videos"], "" if t.get("enough") else "・まだ少ない"))
 
 
+def print_human3(h):
+    """物差し 3 本(表示の先頭)"""
+    print("物差し 3 本(人の判断 = judgments %d 行)" % h["judgments"])
+    r = h["friendRange"]
+    if r["analyzedRanges"]:
+        t = r["top"]
+        print("  1 友人の区間の拾えた率: %s(%d / %d。上位10 %s)%s" % (pct(r["hitRate"], 0), r["hit"], r["analyzedRanges"], pct(t["top10"]["rate"], 0), "  ★まだ少ない(参考)" if r["few"] else ""))
+    else:
+        print("  1 友人の区間の拾えた率: -(解析済みの区間がまだありません)")
+    u = h["used"]
+    if u["all"]["delivered"]:
+        print("  2 届けた物を友人が使った率: %s(使った %d / 届けた %d・使わなかった %d・未回答 %d)" % (pct(u["all"]["usedRate"], 0), u["all"]["used"], u["all"]["delivered"], u["all"]["notUsed"], u["all"]["unanswered"]))
+        for o in H3_ORIGINS:
+            g = u[o]
+            if g["delivered"]:
+                print("      %-7s 使った %d・使わなかった %d・未回答 %d / 届けた %d(使った率 %s・返事のあった中で %s)"
+                      % (o, g["used"], g["notUsed"], g["unanswered"], g["delivered"], pct(g["usedRate"], 0).strip(), pct(g["usedOfAnswered"], 0).strip()))
+    else:
+        print("  2 届けた物を友人が使った率: -(届けた記録がありません)")
+    q = h["quality"]
+    if q["judged"]:
+        print("  3 確かめるの良い / 悪い: 良い %d・悪い %d(良い率 %s)" % (q["good"], q["bad"], pct(q["goodRate"], 0).strip()))
+        print("      出どころ: " + "・".join("%s 良い %d 悪い %d" % (k or "不明", v["good"], v["bad"]) for k, v in sorted(q["byOrigin"].items())))
+        if q["reasons"]:
+            print("      悪いの理由: " + "・".join("%s %d" % (k or "(なし)", n) for k, n in sorted(q["reasons"].items(), key=lambda kv: -kv[1])))
+    else:
+        print("  3 確かめるの良い / 悪い: -(まだ答えがありません)")
+    print("")
+
+
 def print_report(res):
     m = res["meta"]
     rng = C.period_label(m["since"], m["until"])
     print("盛り上がり検出の測定(%s)  配信 %d 本・判定のある配信 %d 本  スタジオ: %s" % (rng, m["videos"], m["judgedVideos"], m["studioDir"]))
+    if res.get("human3"):
+        print_human3(res["human3"])
     je = res["overall"].get("judgedElsewhere") or {}
     if je:
         print("C1 の入口に数える判定のある配信 %d 本 = スタジオ %d・線 D の録画 %d(届けた %d・要らない %d)・友人の返事だけの配信 %d(採用率には混ぜない)" % (

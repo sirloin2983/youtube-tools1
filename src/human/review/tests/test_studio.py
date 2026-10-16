@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))   # tests → review → human → src
 from human.review import store  # noqa: E402
+from human import judgments as _judgments  # noqa: E402
 from ytt import yturl  # noqa: E402
 from ytt import studio_env  # noqa: E402
 from ytt import casefiles, marks, names, schemas, studiodata  # noqa: E402
@@ -32,7 +33,8 @@ class Base(unittest.TestCase):
         self.tmp = tempfile.mkdtemp()
         studio_env.set_home(self.tmp)
         self.path = os.path.join(self.tmp, "data.json")
-        self.st = store.Store(self.path)
+        self.app = os.path.join(self.tmp, "app")   # 人の判断の記録(judgments.jsonl)の置き場所(作業データの app。実際の場所には書かない)
+        self.st = store.Store(self.path, app_dir=self.app)
         self.st.ensure(YT, "t", "c")
 
     def tearDown(self):
@@ -178,7 +180,7 @@ class TestStatus(Base):
                 self.assertFalse(saved)
                 self.assertEqual(self.video(), before)
                 self.assertEqual(self.feedback(), feedback)
-                reloaded = store.Store(self.path)
+                reloaded = store.Store(self.path, app_dir=self.app)
                 self.assertEqual(reloaded.get(YT["videoId"])[0]["marks"], before["marks"])
 
     def test_export_completion_allows_label_edit(self):
@@ -420,7 +422,7 @@ class TestReplaceAuto(Base):
         self.assertEqual(by[203.0]["auto0Orig"], [200.0, 230.0])
         self.assertNotIn("auto0Orig", by[400.0])
         self.assertEqual(by[400.0]["src"], "auto")
-        st2 = store.Store(self.path)   # 保存し直しても消えない・画面から送り直しても書き換えられない
+        st2 = store.Store(self.path, app_dir=self.app)   # 保存し直しても消えない・画面から送り直しても書き換えられない
         self.assertEqual(st2.get(YT["videoId"])[0]["marks"], ms)
         r = self.put([dict(m, auto0Orig=[1, 2]) if m["start"] == 10.0 else m for m in ms])
         self.assertEqual([m for m in r["marks"] if m["start"] == 10.0][0]["auto0Orig"], [10.0, 40.0])
@@ -448,13 +450,13 @@ class TestPersistence(Base):
     def test_reload_roundtrip(self):
         self.auto((10, 40))
         self.put(self.marks() + [{"id": "m1", "start": 50, "end": 60, "label": "L"}])
-        st2 = store.Store(self.path)
+        st2 = store.Store(self.path, app_dir=self.app)
         self.assertEqual(st2.get(YT["videoId"])[0]["marks"], self.marks())
 
     def test_corrupt_file_quarantined(self):
         with open(self.path, "wb") as f:
             f.write(b"{not json")
-        st2 = store.Store(self.path)
+        st2 = store.Store(self.path, app_dir=self.app)
         self.assertEqual(st2.videos, {})
         w, b = st2.take_warning()
         self.assertTrue(w and b)
@@ -467,7 +469,7 @@ class TestPersistence(Base):
         d["videos"]["badbadbad11"] = {"id": "other", "kind": "youtube"}
         with open(self.path, "w", encoding="utf-8") as f:
             json.dump(d, f)
-        st2 = store.Store(self.path)
+        st2 = store.Store(self.path, app_dir=self.app)
         self.assertIn(YT["videoId"], st2.videos)
         self.assertNotIn("badbadbad11", st2.videos)
         self.assertTrue(st2.take_warning()[0])
@@ -484,7 +486,7 @@ class TestPersistence(Base):
 
     def test_series_persist_and_trim(self):
         self.st.series[YT["videoId"]] = {"a": 1}
-        st2 = store.Store(self.path)
+        st2 = store.Store(self.path, app_dir=self.app)
         self.assertEqual(st2.series.get(YT["videoId"]), {"a": 1})
         for i in range(studiodata.SERIES_KEEP + 5):
             self.st.series["v%010d" % i] = {"i": i}
@@ -694,7 +696,7 @@ class TestCollab(Base):
     def test_group_persists_across_reload(self):
         g = self.group()
         self.st.set_anchor(g["id"], YT2["videoId"], [[100.0, 110.0]])
-        st2 = store.Store(self.path)
+        st2 = store.Store(self.path, app_dir=self.app)
         g2 = st2.get_group(g["id"])
         self.assertTrue(g2["allSet"])
         by = {m["id"]: m for m in g2["members"]}
@@ -707,7 +709,7 @@ class TestCollab(Base):
         d["groups"]["badbadbad11"] = {"id": "other"}
         with open(self.path, "w", encoding="utf-8") as f:
             json.dump(d, f)
-        st2 = store.Store(self.path)
+        st2 = store.Store(self.path, app_dir=self.app)
         self.assertEqual(len(st2.groups), 1)
         self.assertTrue(st2.take_warning()[0])
 
@@ -799,7 +801,7 @@ class TestLive(Base):
     def test_reload_roundtrip_and_bad_live_skipped(self):
         self.st.ensure(LIVE_SRC, "配信")
         self.st.put_video(LIVE["recording"], "配信", [{"id": "m1", "start": 5, "end": 20, "status": "adopted"}])
-        st2 = store.Store(self.path)
+        st2 = store.Store(self.path, app_dir=self.app)
         self.assertEqual(st2.get(LIVE["recording"])[0], self.st.get(LIVE["recording"])[0])
         with open(self.path, encoding="utf-8") as f:
             d = json.load(f)
@@ -811,7 +813,7 @@ class TestLive(Base):
         d["videos"].update({"20261005-185301": bad1, "20261005-185302": bad2, "20261005-185303": bad3})
         with open(self.path, "w", encoding="utf-8") as f:
             json.dump(d, f)
-        st3 = store.Store(self.path)
+        st3 = store.Store(self.path, app_dir=self.app)
         self.assertEqual(sorted(st3.videos), sorted([YT["videoId"], LIVE["recording"]]))
         self.assertTrue(st3.take_warning()[0])
 
@@ -895,7 +897,7 @@ class TestLive(Base):
         self.assertTrue(ms[0]["archived"])
         self.assertNotIn("archived", ms[1])
         # 再読み込みしても残る(load_marks を通る)
-        st2 = store.Store(self.path)
+        st2 = store.Store(self.path, app_dir=self.app)
         self.assertTrue(st2.get(rid)[0]["marks"][0]["archived"])
         # 省略(None)は、同じファイルなら今のまま・違うファイルになったら外れる。False で外す。True に戻せる
         self.assertTrue(self.st.mark_exported(rid, "m1", "f/a.mp4", 5.0, 20.0, os.path.join(self.tmp, "a.mp4")))
@@ -926,7 +928,7 @@ class TestLive(Base):
         d["videos"][rid]["marks"][0]["archived"] = True   # status は rejected
         with open(self.path, "w", encoding="utf-8") as f:
             json.dump(d, f)
-        self.assertNotIn("archived", store.Store(self.path).get(rid)[0]["marks"][0])
+        self.assertNotIn("archived", store.Store(self.path, app_dir=self.app).get(rid)[0]["marks"][0])
 
     def test_archived_never_on_non_live(self):
         yid = YT["videoId"]
@@ -939,7 +941,7 @@ class TestLive(Base):
         d["videos"][yid]["marks"][0]["archived"] = True
         with open(self.path, "w", encoding="utf-8") as f:
             json.dump(d, f)
-        self.assertNotIn("archived", store.Store(self.path).get(yid)[0]["marks"][0])
+        self.assertNotIn("archived", store.Store(self.path, app_dir=self.app).get(yid)[0]["marks"][0])
 
     def test_conflict_with_other_kind(self):
         self.st.ensure(LIVE_SRC, "配信")
@@ -1024,7 +1026,7 @@ class TestCaseFiles(Base):
         self.assertEqual(len(cands["sources"][vid]["auto"]), 2)
         self.assertEqual([m["id"] for m in adopts["marks"]], ["m1"])
         self.assertEqual(adopts["marks"][0]["path"], "01.mp4")   # 根からの相対
-        self.assertEqual(store.Store(self.path).get(vid)[0], v)   # 起動し直しても同じ
+        self.assertEqual(store.Store(self.path, app_dir=self.app).get(vid)[0], v)   # 起動し直しても同じ
         listed = next(x for x in self.st.list() if x["id"] == vid)
         self.assertEqual((listed["marks"], listed["exported"], listed["candidates"]), (3, 1, 2))
         # 人の保存は 候補.json を書き換えず、消した候補は 採用.json の消した印に
@@ -1090,7 +1092,7 @@ class TestCaseFiles(Base):
         self.assertEqual(self.st.get(arc)[0]["marks"][1]["label"], "直した2")
         adopts = casefiles.read(self.root)[1]
         self.assertEqual(set(adopts["sources"]), {rec, arc})
-        st2 = store.Store(self.path)
+        st2 = store.Store(self.path, app_dir=self.app)
         self.assertEqual(st2.get(rec)[0], self.st.get(rec)[0])
         self.assertEqual(st2.get(arc)[0], self.st.get(arc)[0])
 
@@ -1169,6 +1171,92 @@ class TestCaseFiles(Base):
         self.assertEqual(self.row(vid)["case"], os.path.normpath(self.root))
         self.assertEqual([m["status"] for m in self.marks()], ["adopted", "exported"])
         self.assertEqual(sorted(m["id"] for m in casefiles.read(self.root)[1]["marks"]), ["m1", "m2"])   # 重ならない
+
+
+class TestJudgments(Base):
+    """人の判断の記録(judgments.jsonl)。人の採否・取り消しだけ 1 行ずつ。機械の採用・書き出し・手で足した候補・入口のライブの採用は書かない(MARKS-3 S1b-1)"""
+    def setUp(self):
+        super().setUp()
+        self.auto((10, 40), (100, 130), (200, 230))
+        self.ms = self.marks()
+
+    def rows(self):
+        return _judgments.rows(self.app)
+
+    def test_human_adopt_and_reject_one_row_each(self):
+        a, b, c = self.ms
+        self.put([dict(a, status="adopted"), dict(b, status="rejected"), c])
+        rows = self.rows()
+        self.assertEqual(sorted((r["what"], r["markId"]) for r in rows), sorted([("adopt", a["id"]), ("reject", b["id"])]))
+        ra = next(r for r in rows if r["what"] == "adopt")
+        fbrow = next(r for r in self.feedback() if r["event"] == "adopt")   # 判定の記録も残る(二重書き)
+        self.assertEqual((ra["who"], ra["origin"], ra["via"], ra["videoId"], ra["start"], ra["end"]), ("self", "auto", "review", YT["videoId"], a["start"], a["end"]))
+        self.assertEqual(ra["key"], "fb:%s:%s:%s:adopt" % (fbrow["ts"], YT["videoId"], a["id"]))   # key は判定の記録の ts と同じ
+        self.assertNotIn("ref", ra)
+        self.put(self.marks())   # 変化なし = 行は増えない
+        self.assertEqual(len(self.rows()), 2)
+
+    def test_candidate_deleted_is_reject(self):
+        a, b, c = self.ms
+        self.put([dict(a, status="adopted"), b, c])
+        self.put([m for m in self.marks() if m["id"] == a["id"]])   # 候補の自動マーク 2 本を削除
+        rows = self.rows()
+        self.assertEqual([r["what"] for r in rows], ["adopt", "reject", "reject"])
+        self.assertEqual(sorted(r["markId"] for r in rows if r["what"] == "reject"), sorted([b["id"], c["id"]]))
+        self.assertTrue(all(r["key"].endswith(":delete") for r in rows if r["what"] == "reject"))
+
+    def test_unadopt_retracts_the_adopt_row(self):
+        a = self.ms[0]
+        self.put([dict(a, status="adopted"), self.ms[1], self.ms[2]])
+        adopt_id = next(r["id"] for r in self.rows() if r["what"] == "adopt")
+        self.put([dict(m, status="") if m["id"] == a["id"] else m for m in self.marks()])   # 採用を候補に戻す
+        rows = self.rows()
+        ret = [r for r in rows if r["what"] == "retract"]
+        self.assertEqual((len(ret), ret[0]["of"], ret[0]["who"]), (1, adopt_id, "self"))
+        self.assertEqual(ret[0]["key"], next(r["key"] for r in rows if r["what"] == "adopt") + ":retract")
+        self.assertIsNone(_judgments.fold(rows)[(YT["videoId"], a["id"])]["adopt"])   # 採否のレーンは空に戻る
+
+    def test_delete_judged_retracts_last_reject_once(self):
+        a, b, c = self.ms
+        self.put([dict(a, status="adopted"), dict(b, status="rejected"), c])
+        self.put([dict(a, status="adopted"), c])                # 不採用の b を削除 = 判定済みの削除 → 取り消し
+        self.put([dict(a, status="adopted"), c])                # 同じ状態の保存は何も書かない
+        rows = self.rows()
+        self.assertEqual([r["what"] for r in rows], ["adopt", "reject", "retract"])
+        self.assertEqual(rows[2]["of"], rows[1]["id"])
+        self.assertEqual(_judgments.fold(rows)[(YT["videoId"], b["id"])]["adopt"], None)
+
+    def test_retract_without_human_row_writes_nothing(self):
+        """機械が採用にした印を人が消しても、人の採否の行が無いので取り消しは書かない"""
+        ids = self.st.adopt_marks(YT["videoId"], [], 2)["added"]
+        self.put([m for m in self.marks() if m["id"] not in ids])   # 機械の採用を人が削除
+        self.assertEqual(self.rows(), [])
+
+    def test_machine_adoption_writes_nothing(self):
+        self.st.adopt_marks(YT["videoId"], [[400, 420]], 2)
+        self.assertEqual(self.rows(), [])
+
+    def test_export_writes_nothing(self):
+        a = self.ms[0]
+        self.st.mark_exported(YT["videoId"], a["id"], "f/a.mp4", a["start"], a["end"])
+        self.assertEqual(self.rows(), [])
+
+    def test_manual_candidate_writes_nothing_until_judged(self):
+        self.put(self.marks() + [{"id": "m1", "start": 500, "end": 520}])   # 手で足した候補: 行は書かない
+        self.assertEqual(self.rows(), [])
+        self.put([dict(m, status="adopted") if m["id"] == "m1" else m for m in self.marks()])   # 採用にしたら 1 行(出どころは manual)
+        rows = self.rows()
+        self.assertEqual([(r["what"], r["origin"], r["markId"]) for r in rows], [("adopt", "manual", "m1")])
+
+    def test_adopt_live_writes_nothing_but_human_live_edit_does(self):
+        rid = LIVE["recording"]
+        self.st.ensure(LIVE_SRC, "配信")
+        self.st.adopt_live(LIVE_SRC, "配信", 100.0, 130.0)   # 入口のライブの採用: 案件の道(S3)が書く
+        self.assertEqual(self.rows(), [])
+        self.st.put_video(rid, None, [{"id": "m9", "start": 5, "end": 20, "status": "adopted"}])   # 録画の画面での採用は書く(出どころ live)
+        rows = self.rows()
+        self.assertEqual([(r["what"], r["origin"], r["markId"]) for r in rows], [("adopt", "live", "m9")])
+        self.assertEqual(rows[0]["ref"], {"recorder": LIVE["recorder"], "recording": LIVE["recording"]})
 
 
 if __name__ == "__main__":
