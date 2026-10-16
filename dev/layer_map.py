@@ -12,7 +12,7 @@ import してよい相手は ALLOWED の表(順位の比較ではない)。
 表の値: (層, 行き先のサブパッケージ, 備考)。"split" が付く物は分割が要るファイル(主の層を書く。関数ごとの行き先は
 `資料の git:cbe1a64:docs/design/surveys/role-restructure-map-2026-10-09.md`)。
 """
-LAYERS = ["ytt", "pipeline", "flow", "human", "manage", "eval", "app"]
+LAYERS = ["ytt", "pipeline", "flow", "human", "manage", "eval", "app", "friendapp"]
 
 # 層 → import してよい相手の層(自分の層はいつも許す)。app は全部
 ALLOWED = {
@@ -22,7 +22,8 @@ ALLOWED = {
     "human": {"ytt", "flow"},              # ① は直に読まない(② を通す)
     "manage": {"ytt", "flow", "human"},    # ① は直に読まない(② を通す)
     "eval": {"ytt", "pipeline", "flow", "human", "manage"},
-    "app": set(LAYERS),
+    "app": set(LAYERS) - {"friendapp"},
+    "friendapp": {"ytt", "pipeline", "flow"},   # 友人の玄関(F2。notes:plan/f1-friend-requirements.md の A-1)。③④⑤ と入口 app は読まない
 }
 
 # 今のパス(リポジトリ直下から。区切りは /)→ (層, 行き先, 備考)
@@ -72,7 +73,6 @@ FILES = {
     "src/editor/serve.py": ("app", "app", "名前の受付と API の配線"),
     # ---- 入口の部品(旧 src/home。RV C1 で src/app へ移した)
     "src/app/mount.py": ("app", "app", ""),
-    "src/app/appwindow.py": ("app", "app", ""),
     "src/app/prefs.py": ("app", "app", "設定の既定値と検査(ytt/settings に寄せる)"),
     "src/app/autorun.py": ("app", "app", "計画 7 節は pipeline/run だったが app に残す(RS3-0B・仮決め #4。AutoRunner は受付と、Runner・Queue の hook を案件・設定で埋める合成の役(待ち行列と糸は RS7-1 S5 で flow/runqueue.py へ)。① の経路は RS1-7 で pipeline/run.py へ済み。友人の届け約 275 行は RS3-3 で Delivery(mixin)へ出して継ぐ。ds1 で ② flow/delivery.py へ = ③ の受付・送り返しは _friend_batch・_returned_request で渡す)"),
     "src/app/live.py": ("app", "app", "計画 7 節は pipeline/run だったが app に残す(RS3-0B・仮決め #4。Live は録画元・中継・友人・片付け・見回り _tick を束ねる玄関 = 合成の役。葉の live_* だけ層へ移す = RS3-1)"),
@@ -108,7 +108,7 @@ FILES = {
 }
 
 # 新しいフォルダ(RS1 以降に移した先)。フォルダ名 → 層。ここにある物は FILES に書かなくてよい
-DIRS = {"src/ytt": "ytt", "src/pipeline": "pipeline", "src/flow": "flow", "src/human": "human", "src/manage": "manage", "src/eval": "eval", "src/app": "app"}
+DIRS = {"src/ytt": "ytt", "src/pipeline": "pipeline", "src/flow": "flow", "src/human": "human", "src/manage": "manage", "src/eval": "eval", "src/app": "app", "src/friendapp": "friendapp"}
 
 # 旧い名前の転送(移したあとも旧い名前の import を動かすためだけのファイル。RS5-G で消して空になった = 今は転送は無い。仕組みはテスト用に残す)。
 # 転送のファイル → {旧い名前の中の名前: 実体のパス, "*": 表に無い名前の実体のパスの型}。test_layering は転送を import する側としては

@@ -286,7 +286,7 @@ class TestLayering(unittest.TestCase):
 
     def test_layer_order(self):
         """ALLOWED の表(RS6 a-0): ③④ は ① を直に読まず ② を通す・⑤ は ① を読んでよい・app は全部"""
-        self.assertEqual(LM.LAYERS, ["ytt", "pipeline", "flow", "human", "manage", "eval", "app"])
+        self.assertEqual(LM.LAYERS, ["ytt", "pipeline", "flow", "human", "manage", "eval", "app", "friendapp"])
         self.assertEqual(set(LM.ALLOWED), set(LM.LAYERS))
         self.assertTrue(LM.allowed("flow", "pipeline"))
         self.assertFalse(LM.allowed("pipeline", "flow"))
@@ -301,6 +301,11 @@ class TestLayering(unittest.TestCase):
         self.assertFalse(LM.allowed("ytt", "pipeline"))
         self.assertTrue(LM.allowed("ytt", "ytt"))
         self.assertEqual(LM.layer_of("src/flow/x.py"), "flow")
+        self.assertTrue(LM.allowed("friendapp", "flow"))   # 友人の玄関(F2): ② を通す・③④⑤ と入口 app は読まない
+        for other in ("human", "manage", "eval", "app"):
+            self.assertFalse(LM.allowed("friendapp", other))
+        self.assertFalse(LM.allowed("app", "friendapp"))
+        self.assertEqual(LM.layer_of("src/friendapp/x.py"), "friendapp")
 
     def test_flow_is_not_alias(self):
         """② に ① の別名だけの関数を作らない(RS6 決定 3-29。例外は `# flow: alias ok`)"""

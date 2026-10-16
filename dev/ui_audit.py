@@ -72,6 +72,8 @@ SCREENS = {"app/ui/home": ["portal.html", "portal.js", "portal.css", "portal-edi
            # 案件の画面が studio/・transcribe/ から読む部品(古い画面のページは C4 で消した = 部品だけ)
            "app/ui/studio": ["rank.js", "queue.js", "review.js", "collab.js"],
            "app/ui/editor": ["proof.css", "app-tpl.js", "app.js", "app-core.js", "app-jobs.js", "app-learn.js", "app-list.js", "app-rows.js", "app-tools.js", "cut.js", "pack-tab.js"],
+           # 友人の受信箱(F2-2。友人の PC の玄関 src/friendapp が配る 1 枚。見る場面は friend_scenes。見本は dev/friend_demo.py)
+           "friendapp/ui": ["friend.html", "friend.js", "friend.css"],
            "ui-kit": ["ui-kit.css", "ui-kit.js", "styleguide.html", "styleguide.js"]}
 # ホームの画面に文が出る .py(server.py の argparse・backup.py の CLI の問いは黒い画面に出るだけなので見ない)。/ を含む物は src/ からのパス(役割の層へ移した物)
 HOME_PY = ["autorun.py", "manage/cases/cases.py", "flow/delivery.py", "live.py", "pipeline/ingest/live_archive.py", "pipeline/export/live_export.py", "pipeline/live_failures.py", "eval/drill/accuracy.py","manage/ops/health.py", "manage/keep/cleanup.py", "flow/deliver.py", "pipeline/pack/preview.py", "human/friend/intake.py", "manage/ops/restart.py"]
@@ -726,6 +728,30 @@ def live_checks(base, out, shots=None, scenes=None, widths=WIDTHS, variants=VARI
         browser.close()
 
 
+def friend_scenes(base):
+    """友人の受信箱(dev/friend_demo.py の見本 = 送った・作っている・届いた 1 組と 2 組・失敗)。決める・送る・終了のボタンは押さない。
+    ヘッダーの A-28(ホーム・案件の画面と同じ部品)は見ない = 友人の PC の画面は受信箱 1 枚でほかの画面へのリンクが無い"""
+    page = base + "/friend/"
+    return [{"name": "friend", "url": page, "wide": True, "actions": [("wait", 800)]},
+            {"name": "friend-open", "url": page, "actions": [("wait", 800), ("click", "[data-row='20261016-091000-aaaa02'] .ui-next-btn"), ("wait", 400)]},
+            {"name": "friend-more", "url": page, "actions": [("click", "#more > summary"), ("click", "#btnRange"), ("click", "#btnPerson"), ("wait", 300)]}]
+
+
+def start_friend_demo(port):
+    """友人の受信箱の見本(dev/friend_demo.py)を起動して待つ(戻り値: プロセス)"""
+    env = dict(os.environ, PYTHONIOENCODING="utf-8")
+    proc = subprocess.Popen([sys.executable, os.path.join(REPO, "dev", "friend_demo.py"), "--port", str(port)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", env=env)
+    deadline = time.time() + 60
+    while time.time() < deadline:
+        line = proc.stdout.readline()
+        if not line and proc.poll() is not None:
+            raise SystemExit("友人の受信箱の見本が起動できなかった")
+        if line.startswith("見本の受信箱"):
+            return proc
+    proc.terminate()
+    raise SystemExit("友人の受信箱の見本の起動が 60 秒で終わらなかった")
+
+
 def start_demo(port):
     """見本サーバーを起動して READY まで待つ(戻り値: プロセス)。"""
     env = dict(os.environ, YTT_DATA_DIR="inplace", PYTHONIOENCODING="utf-8")
@@ -777,14 +803,17 @@ def main():
     out = Findings()
     if a.mode in ("static", "all"):
         static_checks(out)
-    proc = None
+    procs = []
     if a.mode in ("live", "all"):
-        if a.demo:
-            proc = start_demo(a.port)
+        base, scenes = f"http://localhost:{a.port}", None
         try:
-            live_checks(f"http://localhost:{a.port}", out, a.shots, widths=[int(w) for w in a.widths.split(",")], variants=a.variants.split(","), names=a.scenes.split(",") if a.scenes else None)
+            if a.demo:
+                procs.append(start_demo(a.port))
+                procs.append(start_friend_demo(a.port + 10))   # 友人の受信箱(別のポートの 2 つ目の玄関の見本)
+                scenes = default_scenes(base) + friend_scenes(f"http://localhost:{a.port + 10}")
+            live_checks(base, out, a.shots, scenes=scenes, widths=[int(w) for w in a.widths.split(",")], variants=a.variants.split(","), names=a.scenes.split(",") if a.scenes else None)
         finally:
-            if proc:
+            for proc in procs:
                 proc.terminate()
                 try:
                     proc.wait(10)

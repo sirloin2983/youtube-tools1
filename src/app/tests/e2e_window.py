@@ -33,7 +33,7 @@ HERE = os.path.dirname(TESTS)   # src/app(入口)
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 sys.path.append(os.path.dirname(HERE))   # src(app 層の import の根)
-from app import appwindow as W  # noqa: E402
+from ytt import appwindow as W  # noqa: E402
 from app import server as L  # noqa: E402
 from app import mount as M  # noqa: E402
 from e2e_portal import wait_js, open_advanced  # noqa: E402

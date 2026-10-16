@@ -4,8 +4,28 @@
     {
       "name": "rs8-mock",
       "runtimeExecutable": "py",
-      "runtimeArgs": ["-3.10", "-m", "http.server", "8791", "--bind", "127.0.0.1", "--directory", "docs/design/briefs/rs8-cases/mock"],
+      "runtimeArgs": [
+        "-3.10",
+        "-m",
+        "http.server",
+        "8791",
+        "--bind",
+        "127.0.0.1",
+        "--directory",
+        "docs/design/briefs/rs8-cases/mock"
+      ],
       "port": 8791
+    },
+    {
+      "name": "friend-demo",
+      "runtimeExecutable": "py",
+      "runtimeArgs": [
+        "-3.10",
+        "dev/friend_demo.py",
+        "--port",
+        "8760"
+      ],
+      "port": 8760
     }
   ]
 }

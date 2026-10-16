@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""段階7 のテスト: 窓で開く(src/app/appwindow.py)・画面のエラーの記録(本体は src/manage/ops/tests/test_clientlog.py)・入口の共通の API(api/ytt/…)。
+"""段階7 のテスト: 窓で開く(src/ytt/appwindow.py)・画面のエラーの記録(本体は src/manage/ops/tests/test_clientlog.py)・入口の共通の API(api/ytt/…)。
     python -m unittest src/app/tests/test_window.py -v
 
 Edge は起動しない(起動のコマンドは偽の popen で受け取って確かめる)。取り込んだツールの画面からの api/ytt/… は src/app/tests/test_mount.py。
@@ -19,7 +19,7 @@ HERE = os.path.dirname(TESTS)   # home(入口の部品)
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 sys.path.append(os.path.dirname(HERE))   # src(app 層。入口本体は src/app/server.py)
-from app import appwindow as W  # noqa: E402
+from ytt import appwindow as W  # noqa: E402
 from app import server as L  # noqa: E402  (src を sys.path に入れる。clientlog が ytt を読むので先に)
 from app import prefs as PR  # noqa: E402
 from ytt import fsio  # noqa: E402

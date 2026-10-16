@@ -261,6 +261,20 @@ def lay_src(stage, repo=REPO):
         shutil.copy2(os.path.join(repo, *f.split("/")), dest)
 
 
+# 友人の受信箱(src/friendapp。F2-2)を起こす仮の入口(F2-4 の起動役ができるまで。.bat は ASCII と CRLF だけ)
+FRIEND_BAT = "inbox.bat"
+FRIEND_BAT_TEXT = "\r\n".join([
+    "@echo off",
+    "rem youtube-tools friend inbox (F2-2 temporary launcher). Opens the inbox window; closing the window keeps work running until done.",
+    'start "" "%~dp0python\\pythonw.exe" "%~dp0src\\friendapp\\server.py"', ""])
+
+
+def lay_friend_bat(stage):
+    """受信箱の仮の入口 inbox.bat を zip の直下に置く(今の送るアプリ RequestSender.exe と並べる = F2-7 まで両方使える)"""
+    with open(os.path.join(stage, FRIEND_BAT), "wb") as f:
+        f.write(FRIEND_BAT_TEXT.encode("ascii"))
+
+
 def lay_wcpp(stage, wcpp_dir):
     """whisper.cpp の Vulkan 版を tools/ に。build.json の版・コミットが tx_engines の WHISPER_CPP と合い、files の SHA-256 が合う物だけ"""
     try:
@@ -472,6 +486,7 @@ def build(out_dir, cache, wcpp_dir, app_build, first=False, with_key=False, fetc
         lay_python(stage, embed, wfiles)
         lay_src(stage)
         wcpp = lay_wcpp(stage, wcpp_dir)
+        lay_friend_bat(stage)
         fetch_doc = {"schema": FETCH_SCHEMA, "version": ver, "items": model_entries() + tool_entries(cache, fetch, fetcher)}
         with open(os.path.join(stage, "fetch.json"), "w", encoding="utf-8") as f:
             json.dump(fetch_doc, f, ensure_ascii=False, indent=1)

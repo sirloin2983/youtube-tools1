@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>切り抜きの受信箱</title>
+<!-- 友人の玄関の受信箱(F2-2。notes:plan/f1-friend-requirements.md の A-1・A-3〜A-12)。1 枚・タブ無し。
+     上 = 送る欄(URL 1 本 + 区間・配信者・「詳しく」)・下 = 受信箱(送った → 作っている → 届いた → 決めた(消える)・失敗も同じ一覧)。
+     CSP の下で動く: インラインの script・on〇〇= は書かない。外の文字は textContent で入れる(friend.js) -->
+<script src="ui-kit.js"></script>
+<link rel="stylesheet" href="ui-kit.css">
+<link rel="stylesheet" href="friend.css">
+<script src="friend.js" defer></script>
+</head>
+<body>
+<header class="ui-header">
+  <span class="fr-brand">切り抜きの受信箱</span>
+  <span class="ui-ver" id="ver"></span>
+  <div class="ui-header-actions">
+    <button type="button" class="btn ghost small" id="btnSaved" title="受け取ったパックの保存先をエクスプローラーで開きます">保存先を開く</button>
+    <button type="button" class="btn danger small" id="btnQuit" title="処理と録画を全部止めて終了します(待っている依頼は残り、次に開くと続きから)">すべて止めて終了</button>
+  </div>
+</header>
+<div class="errbar" id="errbar" role="alert" hidden></div>
+
+<main class="fr-main">
+  <div class="notice" id="prep" hidden></div>
+  <div class="notice warn" id="blocked" hidden></div>
+  <div class="notice" id="cleaned" hidden><span id="cleanedText"></span> <button type="button" class="btn ghost small" id="cleanedOk">閉じる</button></div>
+
+  <section class="card fr-send" aria-label="送る">
+    <div class="fr-urlrow">
+      <label class="fr-label" for="url">配信の URL</label>
+      <input type="url" id="url" class="fr-url" placeholder="https://www.youtube.com/watch?v=…" autocomplete="off" spellcheck="false">
+      <button type="button" class="btn primary" id="btnSend" disabled title="URL を貼ると押せます">送る</button>
+    </div>
+    <div class="hint fr-peek" id="peek" aria-live="polite"></div>
+
+    <div class="fr-line">
+      <label class="fr-label" for="streamer">配信者</label>
+      <input type="text" id="streamer" class="fr-streamer" data-ui-streamer placeholder="名前(空なら色なし)" autocomplete="off">
+      <span class="pill info" id="streamerAuto" hidden>自動</span>
+      <span id="people"></span>
+      <button type="button" class="btn ghost small" id="btnPerson" title="コラボの相手の名前を足します(字幕の色に使います)">+ 人</button>
+    </div>
+
+    <div class="fr-line fr-ranges">
+      <span class="fr-label">区間</span>
+      <div id="ranges" class="fr-rangelist"></div>
+      <button type="button" class="btn ghost small" id="btnRange" title="切り抜く所を時刻で決めます(入れると、その区間だけを切ります)">+ 区間</button>
+      <span class="hint" id="rangeHint">任意。入れると、その区間だけを切ります</span>
+    </div>
+
+    <div class="fr-line" id="topLine">
+      <label class="fr-label" for="top">本数</label>
+      <input type="number" id="top" class="fr-num" min="1" max="30" step="1">
+      <span class="hint">自動で見どころを探して、この本数を切ります</span>
+    </div>
+
+    <details class="ui-disclosure fr-more" id="more">
+      <summary>詳しく</summary>
+      <div class="fr-line">
+        <label class="fr-label" for="tracks">映像トラック</label>
+        <select id="tracks" class="fr-num">
+          <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option>
+        </select>
+      </div>
+      <div class="fr-line" role="radiogroup" aria-label="届け方">
+        <span class="fr-label">届け方</span>
+        <label class="fr-radio"><input type="radio" name="batch" value="5"> 5 本ずつまとめて届ける(まとめ動画で一度に見て選べます)</label>
+        <label class="fr-radio"><input type="radio" name="batch" value="1"> 1 本ずつ届ける</label>
+      </div>
+      <div class="fr-line" id="weightLine">
+        <label class="fr-radio"><input type="checkbox" id="useWeights"> 解析の重みを指定する</label>
+        <span id="weights" class="fr-weights" hidden>
+          <label>音量 <input type="number" id="wAudio" class="fr-num" min="0" max="3" step="1"></label>
+          <label>チャット <input type="number" id="wChat" class="fr-num" min="0" max="3" step="1"></label>
+          <label>コメント <input type="number" id="wComments" class="fr-num" min="0" max="3" step="1"></label>
+        </span>
+      </div>
+    </details>
+  </section>
+
+  <section aria-label="受信箱">
+    <div class="ui-listbar fr-listbar">
+      <h1 class="fr-h">受信箱</h1>
+      <span class="ui-count" id="count"></span>
+    </div>
+    <div class="ui-sheet fr-sheet" id="list"></div>
+    <div class="fr-empty" id="empty" hidden>
+      <p>まだ届いた物はありません。</p>
+      <p class="hint">上に配信の URL を貼って [送る] を押すと、ここに並びます。</p>
+    </div>
+  </section>
+</main>
+<div id="toast"></div>
+</body>
+</html>

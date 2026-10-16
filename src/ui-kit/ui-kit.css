@@ -195,7 +195,7 @@ select option{background:var(--panel);color:var(--ink)}
   white-space:nowrap;cursor:text;user-select:none;-webkit-user-select:none;transition:border-color var(--dur) var(--ease),box-shadow var(--dur) var(--ease)}
 .ui-time:hover{border-color:var(--line-strong)}
 .ui-time:focus{outline:none;border-color:var(--accent);box-shadow:var(--ring)}
-.ui-time.ui-time-empty{color:var(--ink-4)}
+.ui-time.ui-time-empty{color:var(--ink-3)}   /* 空の欄の「--:--」も文字の濃さ 4.5:1 以上(F2-2 の ui_audit A-22。以前は --ink-4) */
 .ui-time-seg{padding:1px;border-radius:var(--r-xs)}
 .ui-time:focus .ui-time-seg.on{background:var(--accent);color:var(--accent-ink)}
 .ui-time[aria-invalid=true]{border-color:var(--danger)}
