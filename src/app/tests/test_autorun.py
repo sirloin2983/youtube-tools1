@@ -2168,7 +2168,7 @@ class TestFriendLength(Base):
         self.assertEqual(self.settings(), AN(count=12, length=38, preRatio=0.65, wAudio=1.5, wChat=1.0, wComments=1.0))
         self.assertEqual(run["friendLength"], {"length": 38, "file": "flow/lengthhint", "samples": 20, "videos": 5})
         self.assertIn("長さ 38 秒(友人の区間の実績から)", next(s for s in run["steps"] if s["key"] == "analyze")["detail"])
-        self.assertIn("長さの目安を使います: 38 秒", self.logs[0])
+        self.assertIn("長さの目安を使います(場面が取れないときの長さ): 38 秒", self.logs[0])
 
     def test_not_enough(self):
         self.write_runs(n=19, videos=5)
@@ -2177,13 +2177,13 @@ class TestFriendLength(Base):
         self.assertTrue(any("まだ少ない" in x for x in self.logs), self.logs)
 
     def test_clamp_and_switch_log(self):
-        self.write_runs(length=300.0)
-        self.assertEqual(self.r._friend_length()["length"], 180)   # 上限 180 秒(決定 3-49 Q1)
+        self.write_runs(length=400.0)
+        self.assertEqual(self.r._friend_length()["length"], 300)   # 上限 300 秒(LD-2d。10-16 まで 180)
         n = len(self.logs)
         self.r._friend_length()
         self.assertEqual(len(self.logs), n)   # 変わらなければログに出さない
         self.write_runs(n=40, length=4.0)   # 外れ値(5 秒未満)は数えない = 見本は 20 のまま・長さも同じ
-        self.assertEqual(self.r._friend_length()["length"], 180)
+        self.assertEqual(self.r._friend_length()["length"], 300)
         self.write_runs(n=21, length=20.0)   # 中央値が変わる = ログに 1 行
         self.assertEqual(self.r._friend_length()["length"], 20)
         self.assertEqual(len(self.logs), n + 1)

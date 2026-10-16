@@ -461,5 +461,95 @@ class TestMoodShift(unittest.TestCase):
         self.assertLessEqual(len(b.vals), 2 * excite.MOOD_SEC)
 
 
+def bump(n, c, amp, width, base=0.0):
+    """合計の点数の合成: 平らな base に、秒 c を中心に幅 width の台形の山(上り・下り 10 秒)"""
+    out = [base] * n
+    for i in range(n):
+        d = abs(i - c)
+        if d <= width / 2:
+            out[i] = base + amp
+        elif d <= width / 2 + 10:
+            out[i] = base + amp * (1 - (d - width / 2) / 10)
+    return out
+
+
+class TestScene(unittest.TestCase):
+    """場面ごとの区間(LD-2b。scene_region・pick_clips の shape scene・PeakBook の shape scene)"""
+
+    def test_region_follows_scene_and_limits(self):
+        p = excite.scene_params({"lead": 20, "tail": 30, "rise": 0.3, "settle": 0.3})
+        w = bump(2000, 1000, 5.0, 100)
+        r = excite.scene_region(w, 1000, 2000, p)
+        self.assertFalse(r["open"])
+        self.assertTrue(940 <= r["rise"] <= 950 and 1050 <= r["settle"] <= 1060, r)
+        self.assertAlmostEqual(r["start"], r["rise"] - 20)
+        self.assertAlmostEqual(r["end"], r["settle"] + 30)
+        short = excite.scene_region(bump(2000, 1000, 5.0, 4), 1000, 2000, excite.scene_params({"lead": 0, "tail": 0}))
+        self.assertAlmostEqual(short["end"] - short["start"], excite.SCENE["min"])   # 短い場面は 60 秒に足す
+        long_ = excite.scene_region(bump(3000, 1500, 5.0, 400), 1500, 3000)
+        self.assertAlmostEqual(long_["end"] - long_["start"], excite.SCENE["max"])   # 長すぎれば 300 秒に削る(山は中)
+        self.assertTrue(long_["start"] <= 1500 <= long_["end"])
+        self.assertIsNone(excite.scene_region([1.0] * 500, 250, 500))   # 平ら = 場面が取れない
+        self.assertIsNone(excite.scene_region(bump(3000, 1500, 5.0, 900), 1500, 3000))   # 山の前もずっと高い = 取れない(固定の長さへ)
+        head = excite.scene_region(bump(400, 20, 5.0, 10), 20, 400)
+        self.assertEqual(head["start"], 0.0)   # 頭は 0 で止める
+
+    def test_region_open_until_settled(self):
+        w = bump(2000, 1000, 5.0, 100)
+        r = excite.scene_region(w[:1030], 1000, 1 << 40, upto=1029)
+        self.assertTrue(r["open"])
+        r = excite.scene_region(w, 1000, 1 << 40, upto=1999)
+        self.assertFalse(r["open"])
+
+    def test_pick_clips_scene_marks_and_keeps_fixed(self):
+        full, band, act = synth(3)
+        total = excite.audio_score(full, band)
+        fixed = excite.pick_clips(total, full, SPEC, len(total))
+        scene = excite.pick_clips(total, full, dict(SPEC, shape="scene"), len(total))
+        self.assertTrue(all("shape" not in c for c in fixed))   # 形の指定が無ければ 0.88 までと同じ(golden)
+        self.assertEqual([c["peak"] for c in scene][:3], [c["peak"] for c in fixed][:3])
+        for c in scene:
+            self.assertIn(c["shape"], excite.SHAPES)
+            self.assertEqual(len(c["fixed"]), 2)
+            self.assertTrue(c["start"] <= c["peak"] <= c["end"], c)
+            self.assertLessEqual(c["end"] - c["start"], excite.SCENE["max"] * excite.SNAP_RATIO[1])
+        cands = excite.candidates(scene, {"audio": total})
+        self.assertEqual((cands[0]["shape"], cands[0]["fixed"]), (scene[0]["shape"], scene[0]["fixed"]))
+
+    def test_peakbook_scene_waits_for_settle(self):
+        n = 1600
+        w = bump(n, 800, 6.0, 120)
+        b = excite.PeakBook(45, 0.65, "normal", 6, shape="scene")
+        seen_open = False
+        for t in range(n):
+            b.push(t, w[t], {"audio": w[t]}, -30.0)
+            pk = b.list()
+            if pk and pk[0].get("sceneOpen"):
+                seen_open = True
+        pk = b.list()
+        self.assertEqual(len(pk), 1, pk)
+        pk = pk[0]
+        self.assertTrue(seen_open)
+        self.assertEqual((pk["shape"], pk["sceneOpen"], pk["endPending"]), ("scene", False, False))
+        self.assertTrue(pk["start"] < 740 - 60 and pk["end"] > 860 + 30, pk)   # 前振りと余韻
+        self.assertEqual(len(pk["fixed"]), 2)
+        c = excite.PeakBook.from_json(json.loads(json.dumps(b.to_json())))
+        self.assertEqual((c.shape, c.scene), (b.shape, b.scene))
+        old = b.to_json()
+        for k in ("shape", "scene", "work"):
+            old.pop(k)
+        self.assertEqual(excite.PeakBook.from_json(old).shape, "fixed")   # 0.88 までの保存は固定の形
+
+    def test_peakbook_finish_closes_open_scene(self):
+        w = bump(1000, 900, 6.0, 300)
+        b = excite.PeakBook(45, 0.65, "normal", 6, shape="scene")
+        for t in range(1000):
+            b.push(t, w[t], {"audio": w[t]}, -30.0)
+        b.finish()
+        pk = b.list()[0]
+        self.assertEqual((pk["sceneOpen"], pk["endPending"]), (False, False))
+        self.assertTrue(pk["start"] <= pk["peak"] <= pk["end"])
+
+
 if __name__ == "__main__":
     unittest.main()

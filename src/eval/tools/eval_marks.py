@@ -31,7 +31,8 @@
   (前後の余白 FRIEND_PAD を引いて戻す。人が状態を変えると印が外れるので取りこぼす)。同じ配信・同じ区間(±0.6 秒)は 1 つにまとめる。
   自動の候補(上の「自動マークの集まり」。点数の高い順)と比べ、当たり(区間と時間が重なる候補。定数 HIT_OVERLAP)・上位 N で拾えた率・見逃し・長さごとの拾えた率などを出す。
   解析していない配信(自動の候補も解析の記録も無い)の区間は「未解析」として別に数え、見逃しに入れない
-- 自動の長さの目安(結果の `clipLength`・表示の最後の節): 数えるのは src/flow/lengthhint.py(本番と同じ式・友人が指定した区間だけ・上限 180 秒)。見本 = 入口の実行記録の ranges(同じ区間は 1 つ・5 秒未満と 600 秒超は数だけ)。長さ = 中央値を 10〜180 秒に収める・山の前の割合 = 区間の中の候補の山の位置の中央値(0.3〜0.9)。enough = 見本 20 個・配信 5 本以上。本番は src/flow/lengthhint が使うときに数える(このツールの結果ファイルは読まない)。
+- 自動の長さの目安(結果の `clipLength`・表示の最後の節): 数えるのは src/flow/lengthhint.py(本番と同じ式・友人が指定した区間だけ・上限 300 秒)。見本 = 入口の実行記録の ranges(同じ区間は 1 つ・5 秒未満と 600 秒超は数だけ)。長さ = 中央値を 10〜300 秒に収める・山の前の割合 = 区間の中の候補の山の位置の中央値(0.3〜0.9)。enough = 見本 20 個・配信 5 本以上。本番は src/flow/lengthhint が使うときに数える(このツールの結果ファイルは読まない)。
+- 区間の合い方(結果の `clipFit`・表示の最後の節。LD-2a): 友人の区間を自動の区間がどれだけ覆えたか・余分の秒を、固定の長さと場面ごとの形で並べる。数えるのは src/eval/tools/clipfit.py(期間で絞らない)。
 - --since / --until(原則 4: 時期で分ける)は、マークの作られた日時(data.json は createdAt・archive は解析の日時・feedback だけのものは最初の行の日時)と
   手で足した・取り消した行の日時で絞る(until はその日を含む)。配信が 10 本未満のときは「まだ少ない(参考)」と出す(少ないデータで決めすぎない)。
   friendRanges は実行の記録の時刻(出どころ 2 はマークの作られた時刻)で絞る。解析済みの区間が 20 未満・配信が 5 本未満のときは「まだ少ない(参考)」
@@ -63,6 +64,7 @@ from eval.tools._evalcommon import pct, rate, read_json  # noqa: E402
 from manage.cases import txindex  # noqa: E402
 from ytt import studiodata  # noqa: E402  スタジオの data.json の読み口
 from flow import lengthhint  # noqa: E402  自動の長さの目安(人が指定した区間の長さ。本番と同じ式)
+from eval.tools import clipfit  # noqa: E402  区間の合い方(LD-2a。友人の区間を覆えた割合・余分の秒)
 from flow import deliveries  # noqa: E402  友人へ届けた記録の読み口(物差し 2 の分母。② が持つ起きた事実)
 from human import judgments  # noqa: E402  人の判断の記録(物差し 2・3 の分子と、線 D の人の行。③ が持つ)
 from pipeline.analyze import excite  # noqa: E402
@@ -783,8 +785,10 @@ def evaluate(data_dir=None, since=None, until=None, status_fallback=False):
     allv = videos if since_ms is None and until_ms is None else build(None, None)
     friend = friend_ranges(studio, app, allv, since_ms, until_ms, dvideos=dvideos, records=records, archive=archive)
     clip = lengthhint.compute(studio, app, by_type=True)
+    fit = clipfit.evaluate(studio, app, records=records, hint=clip, data_dir=data_dir)   # 期間で絞らない(友人の区間は少ない)
+    fit.pop("items", None)
     return {"meta": meta, "human3": human3(app, friend, since_ms, until_ms), "overall": overall, "byType": {k: group_metrics(v) for k, v in sorted(types.items())},
-            "byVideo": by_video, "friendRanges": friend, "clipLength": clip}
+            "byVideo": by_video, "friendRanges": friend, "clipLength": clip, "clipFit": fit}
 
 
 # ---------------------------------------------------------------- 配信ごと(線 D の D-12。--live)
@@ -1164,6 +1168,7 @@ def print_report(res):
         print("(データがありません。スタジオでマークを判定すると貯まります)")
         print_friend(res["friendRanges"])
         print_clip_length(res["clipLength"])
+        clipfit.print_fit(res["clipFit"])
         return
     print_group("全体", res["overall"])
     for k, g in res["byType"].items():
@@ -1176,6 +1181,7 @@ def print_report(res):
         print("注意: " + n)
     print_friend(res["friendRanges"])
     print_clip_length(res["clipLength"])
+    clipfit.print_fit(res["clipFit"])
 
 
 def main(argv=None):

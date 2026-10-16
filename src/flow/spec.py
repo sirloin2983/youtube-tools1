@@ -193,7 +193,7 @@ DEFAULTS = {
         "wAudio": 1.0, "wChat": 1.0, "wComments": 0.7,
         "sensitivity": "normal",
         "count": 8,           # 候補の本数
-        "length": 45,         # 切り抜きの長さ(秒)
+        "length": 45,         # 切り抜きの長さ(秒。区間が場面ごとの形 = excite.SHAPE_DEFAULT のときは、場面が取れないときの長さ)
         "preRatio": 0.65,     # 山の位置(src/pipeline/analyze/excite.py の PRE_RATIO_DEFAULT)
         "headSec": 180,       # 冒頭の減点をかける秒(analyze.py の HEAD_SEC_DEFAULT。0 で無効)
         "lagAuto": True,      # チャットの遅れ: 自動
@@ -236,6 +236,7 @@ DEFAULTS = {
         "backup": False, "render": False, "speakerColors": True,
         "wrapChars": {"vertical": 8, "horizontal": 14},   # 字幕 1 段の文字数(src/human/proof/doc_jobs.py の SUBTITLE_DEFAULT)
         "rowEdge": True,      # 行から作るときの端の広げ方。True = 既定・False = 広げない・{on?, after?, before?}
+        "snapEdges": True,    # 切り抜きの両端を話の切れ目へ詰める(LD-2c = src/pipeline/analyze/breaks.py。スイッチ。「編集」でカットを決めた文書には効かない)
         "cut": LIVE_AUTO_CUT,                              # カットの方法 rows・none・silence(run.py の _cut_method の既定 none)
         "cutSilence": {"noise": -35.0, "min": 0.6, "pad": 0.15},   # 無音で削る値(cut2resolve_core.py の DEFAULT_NOISE_DB・SILENCE_MIN・SILENCE_PAD)
         "videoTracks": 1,     # Text+ の映像トラックの数(1〜5。src/human/friend/intake.py の VIDEO_TRACKS_DEFAULT・MAX)
@@ -422,7 +423,7 @@ SCHEMA = {
     "analyze": {"useAudio": (_is_bool, "true か false"), "useChat": (_is_bool, "true か false"), "useComments": (_is_bool, "true か false"),
                 "wAudio": (_weight_ok, "0〜3 の数"), "wChat": (_weight_ok, "0〜3 の数"), "wComments": (_weight_ok, "0〜3 の数"),
                 "sensitivity": (_one_of("high", "normal", "low"), "high・normal・low のどれか"),
-                "count": (_int_in(1, 30), "1〜30 の整数"), "length": (_num_in(10, 180), "10〜180 の数(秒)"),
+                "count": (_int_in(1, 30), "1〜30 の整数"), "length": (_num_in(10, 300), "10〜300 の数(秒)"),
                 "preRatio": (_num_in(0.3, 0.9), "0.3〜0.9 の数"), "headSec": (_num_in(0, 600), "0〜600 の数(秒)"),
                 "lagAuto": (_is_bool, "true か false"), "lag": (_num_in(0, 30), "0〜30 の数(秒)"),
                 "chatTimeout": (_int_in(1, 120), "1〜120 の整数(秒)")},
@@ -455,6 +456,7 @@ SCHEMA = {
              "backup": (_is_bool, "true か false"), "render": (_is_bool, "true か false"), "speakerColors": (_is_bool, "true か false"),
              "wrapChars": (_dict_of(**_WRAP_ORIENT), "{vertical, horizontal}(どちらも 0〜40 の整数。0 = 改行しない)"),
              "rowEdge": (row_edge_ok, "true か false か {on?, after?, before?}(0〜2 秒)"),
+             "snapEdges": (_is_bool, "true か false"),
              "cut": (_one_of(*PACK_CUTS), "%s のどれか" % "・".join(PACK_CUTS)),
              "cutSilence": (_dict_of(noise=_num_in(-90, 0), min=_num_in(0.05, 60), pad=_num_in(0, 10)),
                             "{noise: -90〜0, min: 0.05〜60, pad: 0〜10}"),

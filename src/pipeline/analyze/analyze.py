@@ -30,7 +30,7 @@ AUDIO_LEVEL_IDLE = 900   # 音量の解析(ffmpeg)で、この秒数まったく
 HEAD_SEC_DEFAULT = 180   # 冒頭の減点をかける秒数(0で無効)
 ARCHIVE_KEEP = 2000
 STREAM_KEYS = ("releaseTs", "timestamp", "uploadDate", "liveStatus", "duration")   # 付加情報(fetch.slim_meta)から結果の stream に写す項目
-SPEC_KEYS = ("count", "length", "sensitivity", "preRatio", "lag", "lagAuto", "headSec", "wAudio", "wChat", "wComments")   # 結果・archive に残す設定
+SPEC_KEYS = ("count", "length", "sensitivity", "preRatio", "lag", "lagAuto", "headSec", "wAudio", "wChat", "wComments", "shape")   # 結果・archive に残す設定
 
 
 def sig_cache_dir():
@@ -68,10 +68,11 @@ def validate_settings(req):
     sens = req.get("sensitivity") if req.get("sensitivity") in ("high", "normal", "low") else "normal"
     return {"useAudio": req.get("useAudio") is not False, "useChat": req.get("useChat") is not False,
             "useComments": req.get("useComments") is not False,
-            "count": int(num(req.get("count"), 1, 30, 8)), "length": num(req.get("length"), 10, 180, 45), "preRatio": num(req.get("preRatio"), 0.3, 0.9, excite.PRE_RATIO_DEFAULT),
+            "count": int(num(req.get("count"), 1, 30, 8)), "length": num(req.get("length"), 10, 300, 45), "preRatio": num(req.get("preRatio"), 0.3, 0.9, excite.PRE_RATIO_DEFAULT),
             "lag": num(req.get("lag"), 0, 30, 8), "lagAuto": req.get("lagAuto") is not False, "headSec": num(req.get("headSec"), 0, 600, HEAD_SEC_DEFAULT),
             "chatTimeout": int(num(req.get("chatTimeout"), 1, 120, 20)), "noCache": req.get("noCache") is True, "sensitivity": sens,
-            "wAudio": num(req.get("wAudio"), 0, 3, 1.0), "wChat": num(req.get("wChat"), 0, 3, 1.0), "wComments": num(req.get("wComments"), 0, 3, 0.7)}
+            "wAudio": num(req.get("wAudio"), 0, 3, 1.0), "wChat": num(req.get("wChat"), 0, 3, 1.0), "wComments": num(req.get("wComments"), 0, 3, 0.7),
+            "shape": req.get("shape") if req.get("shape") in excite.SHAPES else excite.SHAPE_DEFAULT}   # 区間の形(LD-2b。既定はスイッチ excite.SHAPE_DEFAULT)
 
 
 def make_spec(src, settings):
@@ -324,9 +325,10 @@ def _save_record(src, spec, dur, n, levels, chat, stamps, ctexts, meta, info, ca
                    "full": [round(x, 1) for x in full], "band": [round(x, 1) for x in band],
                    "chat": ({"act": [round(x, 1) for x in chat["act"]], "count": chat["count"], "warmCount": chat["warm"], **(chat["extra"] or {})} if chat else None),
                    "stamps": ([[t, lk, round(w, 3), (ctexts[i] if i < len(ctexts) else "")] for i, (t, lk, w) in enumerate(stamps)] if stamps else None)}
-        run = {"at": payload["at"], "spec": {k: spec[k] for k in SPEC_KEYS},
+        run = {"at": payload["at"], "spec": {k: spec.get(k) for k in SPEC_KEYS},
                "lagUsed": spec.get("lagUsed"), "signals": info,
-               "candidates": [{"start": c["start"], "end": c["end"], "peak": c["peak"], "score": c["score"], "parts": c["parts"]} for c in cands]}
+               "candidates": [dict({"start": c["start"], "end": c["end"], "peak": c["peak"], "score": c["score"], "parts": c["parts"]},
+                               **{k: c[k] for k in ("shape", "fixed") if k in c}) for c in cands]}   # 生の結果(固定の長さの区間)も残す(LD-2b)
         save_archive(src["videoId"], payload, run)
     except Exception:
         pass
@@ -389,7 +391,7 @@ def run(spec, ctl=None):
         ctl.check()
         result = {"source": {**src, "duration": round(dur, 1)}, "candidates": cands, "series": series, "signals": info,
                   "counts": {"chat": chat["count"], "chatWarm": chat["warm"], "commentStamps": len(stamps) if stamps else 0, "meta": bool(meta), "heatmap": len((meta or {}).get("heatmap") or [])},
-                  "warnings": warnings, "spec": dict({k: spec[k] for k in SPEC_KEYS}, lag=spec.get("lagUsed", spec["lag"])),
+                  "warnings": warnings, "spec": dict({k: spec.get(k) for k in SPEC_KEYS}, lag=spec.get("lagUsed", spec["lag"])),
                   "stream": {k: meta[k] for k in STREAM_KEYS if (meta or {}).get(k) not in (None, "")}}   # 配信がいつ・どれだけ続いたか(② flow/sendpolicy.ended_at_of が読む。付加情報が取れなかったときは空)
         ctl.report(1.0, "解析が完了しました")
         return result

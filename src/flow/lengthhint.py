@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """② 管理の層 flow: 自動の切り抜きの長さの目安(友人が依頼で指定した区間の長さから。OPT-E2 7f-1・7f-2。決定 3-49 の Q1)。
+LD-2d(10-16。notes:plan/ld2-clip-length.md): 区間は場面ごと(① excite の scene_region。スイッチ excite.SHAPE_DEFAULT)になったので、
+この目安の役目は「場面が取れないとき(点数が無い・山が平ら)の固定の長さ」と、スイッチを fixed に戻したときの長さ。
 
 今まで ⑤ の測る道具(src/eval/tools/eval_marks.py --json)が夜に結果のファイル(evals/marks/<日時>.json の clipLength)へ書き、
 本番の読み手 2 つ(依頼の解析 = src/app/autorun.py・ライブの新しい録画 = src/flow/live_detect.py)がそれを読んでいた
@@ -9,8 +11,7 @@
 
 見本 = 入口の実行記録(logs/autorun-runs.jsonl と .1)の ranges(友人が指定した区間。余白を足す前)。同じ配信の同じ区間(±TOL 秒)は 1 つ。
 外れ値(OUTLIER_MIN 秒未満・OUTLIER_MAX 秒超)は数だけ。長さ = 見本の中央値を LENGTH_MIN〜LENGTH_MAX に丸める。
-上限は 180 秒(10-14 まで 120。友人の区間の中央値が 150 秒で、120 では人の選び方を写していなかった。180 秒 = ショートの上限 3 分。
-決定 3-49 Q1 の仮決め)。山の前の割合 preRatio = 区間の中にある自動の候補の山の位置 (山 − 開始) ÷ 長さ の中央値(見本 PRE_MIN_SAMPLES 個から)。
+上限は 300 秒(LD-2 の L-3 = 長さの守り 60〜300 秒に合わせた。10-16 まで 180 = 決定 3-49 Q1 の仮決め・10-14 まで 120)。山の前の割合 preRatio = 区間の中にある自動の候補の山の位置 (山 − 開始) ÷ 長さ の中央値(見本 PRE_MIN_SAMPLES 個から)。
 enough = 見本 ENOUGH_SAMPLES 個以上かつ配信 ENOUGH_VIDEOS 本以上(読み手はこのときだけ使う)。
 同じ入力(data.json と実行記録の大きさ・更新の時刻)なら覚えた結果を返す(ライブの設定は数秒ごとに作り直すため)。
 
@@ -27,7 +28,7 @@ from ytt import studiodata as _studiodata
 from . import runlog as _runlog
 
 SCHEMA = "youtube-tools-length-hint/v1"
-LENGTH_MIN, LENGTH_MAX = 10, 180       # 目安の長さの範囲(秒。解析の設定 length の範囲 = pipeline/analyze/analyze.py・flow/spec.py と同じ)
+LENGTH_MIN, LENGTH_MAX = 10, 300       # 目安の長さの範囲(秒。解析の設定 length の範囲 = pipeline/analyze/analyze.py・flow/spec.py と同じ)
 PRE_MIN, PRE_MAX = 0.3, 0.9            # 目安の preRatio の範囲(解析の設定 preRatio の範囲)
 OUTLIER_MIN, OUTLIER_MAX = 5.0, 600.0  # 見本の外れ値(この外は数だけ。目安に入れない)
 PRE_MIN_SAMPLES = 10                   # 山の位置の見本がこれ未満なら preRatio は出さない(None)
@@ -216,7 +217,7 @@ def describe(hint):
     """ログ・調子の 1 行(使う・使わないと数)"""
     u = usable(hint)
     if u:
-        return "長さの目安を使います: %d 秒%s(友人の区間 %d 個・配信 %d 本)" % (
+        return "長さの目安を使います(場面が取れないときの長さ): %d 秒%s(友人の区間 %d 個・配信 %d 本)" % (
             u["length"], "・山の前 %.2f" % u["preRatio"] if "preRatio" in u else "", hint["samples"], hint["videos"])
     if not isinstance(hint, dict):
         return "長さの目安を使いません(数えられませんでした)"

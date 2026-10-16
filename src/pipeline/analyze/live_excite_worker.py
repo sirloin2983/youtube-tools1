@@ -101,7 +101,7 @@ QUEUED_EVERY = 60.0        # 順番待ちの録画の peaks.json を書き直す
 # ワーカーは読むだけ(clean_hint)。足りない(enough でない)ときはスタジオの解析の設定のまま
 LENGTH_HINT_MIN_SAMPLES, LENGTH_HINT_MIN_VIDEOS = 20, 5   # enough の条件(flow/lengthhint の ENOUGH_SAMPLES・ENOUGH_VIDEOS と同じ値。ワーカーでも確かめ直す)
 # スタジオの解析の設定(spec)の範囲(src/pipeline/analyze/analyze.py の validate_settings と同じ)。入口の live_detect.clean_spec と、ここの clean_hint が読む
-SPEC_RANGES = {"length": (10.0, 180.0), "preRatio": (0.3, 0.9), "lag": (0.0, 30.0), "wAudio": (0.0, 3.0), "wChat": (0.0, 3.0), "headSec": (0.0, 600.0)}
+SPEC_RANGES = {"length": (10.0, 300.0), "preRatio": (0.3, 0.9), "lag": (0.0, 30.0), "wAudio": (0.0, 3.0), "wChat": (0.0, 3.0), "headSec": (0.0, 600.0)}
 # 録画元との約束(録画元・録画・セグメントの id の形、時刻の書き方、動画の id)は ytt/recproto.py の 1 か所(入口の live_export と同じ物)
 ID_RE, REC_RE, SEG_URI_RE = recproto.RECORDER_ID_RE, recproto.REC_ID_RE, recproto.SEG_URI_RE
 iso_epoch, epoch_iso, video_id = recproto.iso_epoch, recproto.epoch_iso, recproto.video_id_of
@@ -240,7 +240,7 @@ def parse_chat_line(line):
 # ---------------------------------------------------------------- 候補の長さの目安(M10)
 def clean_hint(h):
     """config.json の lengthHint -> 使ってよい目安 {"length", "preRatio"?, "samples", "videos", "file"} か None。
-    使うのは enough(見本 LENGTH_HINT_MIN_SAMPLES 以上かつ配信 LENGTH_HINT_MIN_VIDEOS 本以上)のときだけ。長さは 10〜180 秒・前の割合は 0.3〜0.9 に丸める"""
+    使うのは enough(見本 LENGTH_HINT_MIN_SAMPLES 以上かつ配信 LENGTH_HINT_MIN_VIDEOS 本以上)のときだけ。長さは 10〜300 秒(LD-2d)・前の割合は 0.3〜0.9 に丸める"""
     if not isinstance(h, dict) or h.get("enough") is not True or not schemas.is_num(h.get("length")):
         return None
     n, v = h.get("samples"), h.get("videos")
@@ -551,6 +551,13 @@ class ChatFeed:
             self.files = []
 
 
+def shape_of(spec):
+    """録画の区間の形(LD-2b): 友人の依頼で長さを決めた録画は固定の長さ(L-4)・spec の shape・無ければスイッチ excite.SHAPE_DEFAULT"""
+    if spec.get("lengthFrom") == "friend":
+        return "fixed"
+    return spec["shape"] if spec.get("shape") in excite.SHAPES else excite.SHAPE_DEFAULT
+
+
 # ---------------------------------------------------------------- 録画 1 本の状態
 class RecState:
     """録画 1 本の計算(音とチャットの箱 → Online → PeakBook)と保存。時計・ファイル以外の入出力は Worker が渡す"""
@@ -565,7 +572,7 @@ class RecState:
         self.chat_state = "ok" if use_chat else "off"
         self.online = excite.Online(use_chat=self.use_chat, **self.args)
         det = clean_detect(detect)
-        self.book = excite.PeakBook(self.spec["length"], self.spec["preRatio"], det["sens"], det["perHour"])
+        self.book = excite.PeakBook(self.spec["length"], self.spec["preRatio"], det["sens"], det["perHour"], shape=shape_of(self.spec))
         # 候補が出るまでの遅れを縮める(仮の候補): チャットを待たずに音だけで先に計算する Online(同じ窓・同じ重み。チャットなしの録画は本番がもう待たないので作らない)
         self.fast = excite.Online(use_chat=False, **self.args) if self.use_chat and provisional else None
         self.mood = excite.MoodShift()   # 雰囲気の変わり目(0-10-5)
@@ -848,6 +855,7 @@ class RecState:
                 "skipped": [{"from": s["from"], "to": s["to"], "done": s["done"], "capped": bool(s.get("capped"))} for s in self.skipped],
                 "lateChat": self.late, "ended": self.finished, "message": self.message,
                 "length": self.book.length, "preRatio": self.book.pre, "lengthFrom": self.spec.get("lengthFrom") or "studio",   # M10: 候補の長さの出どころ
+                "shape": self.book.shape,   # 区間の形(LD-2b。scene = 場面ごと・fixed = 山から固定の長さ)
                 "moodShifts": self.mood_shifts, "provisional": self.fast is not None,   # 雰囲気の変わり目の数・仮の候補を出しているか
                 "lateFrom": self.late_from,   # 録画の途中から測り始めた秒(それより前の候補は無い)
                 "peaks": self.book.list(), "changes": ch}

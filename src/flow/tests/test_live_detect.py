@@ -512,7 +512,7 @@ class DetectApiTest(unittest.TestCase):
 
     def test_config_and_spec_from_studio(self):
         """config.json: 録画元(合言葉つき)・感度・1 時間の本数・スタジオの解析の設定(範囲外は丸める)。変わったときだけ書く"""
-        settings = {"settings": {"analyze": {"length": 300, "preRatio": 0.5, "lag": "x", "wChat": 1.4, "lagAuto": False}}}
+        settings = {"settings": {"analyze": {"length": 400, "preRatio": 0.5, "lag": "x", "wChat": 1.4, "lagAuto": False}}}
         base = self.studio
 
         def studio(method, path, body=None):
@@ -526,7 +526,7 @@ class DetectApiTest(unittest.TestCase):
             c = json.load(f)
         self.assertEqual(c["recorders"], [{"id": "fake", "url": self.rec.url, "token": TOKEN}])
         self.assertEqual(c["detect"], {"sens": "high", "perHour": 3})
-        self.assertEqual((c["spec"]["length"], c["spec"]["preRatio"], c["spec"]["lag"], c["spec"]["wChat"], c["spec"]["lagAuto"]), (180.0, 0.5, 8.0, 1.4, False))   # 上限 180(決定 3-49 Q1)
+        self.assertEqual((c["spec"]["length"], c["spec"]["preRatio"], c["spec"]["lag"], c["spec"]["wChat"], c["spec"]["lagAuto"]), (300.0, 0.5, 8.0, 1.4, False))   # 上限 300(LD-2d。10-16 まで 180)
         self.assertEqual(c["dir"], self.det.dir)
         self.assertFalse(self.det.write_config())   # 変わっていなければ書かない
         LF.patch_cfg(self.cfg, {"detect": {"perHour": 4}})

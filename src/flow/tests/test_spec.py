@@ -219,7 +219,7 @@ class TestValidate(unittest.TestCase):
     def test_analyze(self):
         spec.validate(spec.merge({"analyze": {"wAudio": 3, "wChat": 0, "count": 30, "length": 10, "preRatio": 0.9, "lag": 0, "sensitivity": "low"}}))
         for kw in ({"wAudio": 3.1}, {"wChat": -1}, {"wComments": True}, {"wAudio": "1"}, {"sensitivity": "mid"}, {"count": 0}, {"count": 31}, {"count": 8.0},
-                   {"length": 9}, {"length": 181}, {"preRatio": 0.2}, {"headSec": 601}, {"lag": 31}, {"lagAuto": 1}, {"chatTimeout": 0}, {"useChat": None}):
+                   {"length": 9}, {"length": 301}, {"preRatio": 0.2}, {"headSec": 601}, {"lag": 31}, {"lagAuto": 1}, {"chatTimeout": 0}, {"useChat": None}):
             self.bad("analyze", **kw)
 
     def test_adopt_export(self):
@@ -349,6 +349,7 @@ class TestBodies(unittest.TestCase):
         from pipeline.pack import cut2resolve_core as C, pack, resolve_textplus as TP
         got = analyze.validate_settings({})
         got.pop("noCache")
+        self.assertIn(got.pop("shape"), ("scene", "fixed"))   # 区間の形は束に入れない(既定は ① のスイッチ excite.SHAPE_DEFAULT の 1 か所。LD-2b)
         self.assertEqual(got, spec.DEFAULTS["analyze"])
         self.assertEqual(spec.DEFAULTS["export"]["volume"], exporter.DEFAULT_EXPORT_VOLUME)
         self.assertEqual(spec.DEFAULTS["pack"]["cutSilence"], {"noise": C.DEFAULT_NOISE_DB, "min": C.DEFAULT_SILENCE_MIN, "pad": C.DEFAULT_SILENCE_PAD})

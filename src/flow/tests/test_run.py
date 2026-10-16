@@ -353,7 +353,7 @@ class TestRun(unittest.TestCase):
         self.assertEqual(r.step("pack")["state"], "done", r.steps)
         body = c.bodies["/api/build"]
         self.assertEqual(body["spec"], {"video": media, "transcript": "/x/t1.transcript.json", "mode": "silence",
-                                        "silence": {"noise": -40, "min": 0.6, "pad": 0.15}})
+                                        "silence": {"noise": -40, "min": 0.6, "pad": 0.15}, "snapEdges": True})   # 両端を話の切れ目へ詰める(LD-2c。束の pack.snapEdges の既定)
         self.assertEqual(body["output"], {"textplus": True, "textplusWrap": 12, "textplusSize": "1920x1080", "textplusFps": "30",
                                           "speakerColors": True, "volume": 50})
         self.assertEqual(r.packs, [os.path.normpath("/x/clip_pack")])

@@ -1813,6 +1813,40 @@ def dataclasses_replace(obj, **kw):
     return dataclasses.replace(obj, **kw)
 
 
+
+class TestSnapEdges(unittest.TestCase):
+    """LD-2c: 切り抜きの両端を話の切れ目へ詰める(pack.snap_base・Request.snap_edges・spec の snapEdges)。30fps"""
+
+    def rows(self, *spec):
+        return [{"id": "s%d" % i, "start": a, "end": b, "text": t, "cut": c} for i, (a, b, t, c) in enumerate(spec, 1)]
+
+    def test_cuts_partial_rows_at_both_ends(self):
+        # 0 秒から言葉の途中で始まり(1 行目)・最後の行が動画の終わりまで続く(言葉の途中で終わる)
+        rows = self.rows((0.0, 3.0, "だから", False), (4.0, 20.0, "本題です。", False), (21.0, 30.0, "でね", False), (31.0, 40.0, "最後まで", False))
+        warns = []
+        base = pack.snap_base([(0, 1200)], rows, FPS30, 1200, warns)   # 40 秒
+        self.assertEqual(base, [(105, 915)])   # 3.5 秒(1 行目のあと)〜 30.5 秒(終助詞の行のあと。最後の行は終わりで切れている)
+        self.assertTrue(any("話の切れ目" in w for w in warns), warns)
+
+    def test_keeps_when_already_clean_or_nothing_left(self):
+        rows = self.rows((1.0, 5.0, "はい。", False), (6.0, 9.0, "どうも。", False))
+        warns = []
+        self.assertEqual(pack.snap_base([(0, 300)], rows, FPS30, 300, warns), [(0, 300)])   # 話の前後に間がある = 詰めない
+        self.assertEqual(warns, [])
+        self.assertEqual(pack.snap_base([(0, 300)], [], FPS30, 300, warns), [(0, 300)])
+        cut = self.rows((0.0, 3.0, "だから", True), (4.0, 9.0, "本題", False))
+        self.assertEqual(pack.snap_base([(0, 270)], cut, FPS30, 270, []), pack.snap_base([(0, 270)], cut[1:], FPS30, 270, []))   # カット済の行は見ない
+
+    def test_request_reads_snap_edges(self):
+        from pipeline.pack import request as R
+        with tempfile.TemporaryDirectory() as d:
+            v = write(os.path.join(d, "a.mp4"), "x")
+            t = write(os.path.join(d, "a.transcript.json"), json.dumps(transcript_doc([(0, 1, "a", False)])))
+            self.assertTrue(R.request_from_spec({"video": str(v), "transcript": str(t), "preset": "transcript-rows", "snapEdges": True}).snap_edges)
+            self.assertFalse(R.request_from_spec({"video": str(v), "transcript": str(t), "preset": "transcript-rows"}).snap_edges)
+            self.assertTrue(R.request_from_spec({"video": str(v), "transcript": str(t), "mode": "silence", "snapEdges": True}).snap_edges)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
 

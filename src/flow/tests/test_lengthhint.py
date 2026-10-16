@@ -3,7 +3,7 @@
 
     py -3.10 -m unittest src/flow/tests/test_lengthhint.py -v
 
-- 見本 = 実行記録の ranges(同じ区間は 1 つ・外れ値は数だけ)・長さは中央値を 10〜180 秒に丸める(上限 180 = 決定 3-49 Q1)
+- 見本 = 実行記録の ranges(同じ区間は 1 つ・外れ値は数だけ)・長さは中央値を 10〜300 秒に丸める(上限 300 = LD-2d。10-16 まで 180)
 - 山の前の割合は区間の中の自動の候補の山(data.json のマーク・archive の候補)から・見本 10 個未満なら出さない
 - enough(20 個・5 本)・同じ入力は覚えた結果・入力が変われば数え直す・usable / change / describe
 """
@@ -47,14 +47,14 @@ class Base(unittest.TestCase):
 
 
 class TestCompute(Base):
-    def test_median_and_cap_180(self):
+    def test_median_and_cap_300(self):
         recs = [run("v%d" % (i % 5), [[i * 1000.0, i * 1000.0 + 150.0 + i]], i) for i in range(20)]
         self.write(recs)
         h = LH.compute(self.studio, self.app)
         self.assertEqual((h["samples"], h["videos"], h["enough"]), (20, 5, True))
         self.assertEqual(h["length"], 160)   # 150〜169 の中央値 159.5 → 160
-        self.write([run("v%d" % (i % 5), [[0.0, 300.0 + i]], i) for i in range(20)])
-        self.assertEqual(LH.compute(self.studio, self.app)["length"], 180)   # 上限 180 で切る
+        self.write([run("v%d" % (i % 5), [[0.0, 400.0 + i]], i) for i in range(20)])
+        self.assertEqual(LH.compute(self.studio, self.app)["length"], 300)   # 上限 300 で切る
         self.write([run("a", [[0.0, 3.0]], 0), run("a", [[10.0, 700.0]], 1)])
         h = LH.compute(self.studio, self.app)
         self.assertEqual((h["samples"], h["outliers"], h["length"], h["enough"]), (0, 2, None, False))

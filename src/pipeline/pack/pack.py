@@ -31,6 +31,7 @@ from . import auto_cut as AC
 from . import cut2resolve_core as C
 from . import srt2resolve as S
 from . import resolve_textplus as TP
+from ..analyze import breaks   # 話の切れ目(LD-2c。横動画の H3 と共有)
 
 ToolError = C.ToolError
 BASES = ("all", "list", "plan", "rows")
@@ -54,6 +55,7 @@ class RowEdge:
 
 ROW_EDGE = RowEdge()   # 既定(オン)。「編集」の「行から」の設定・cut2resolve の spec.rowEdge で変えられる(row_edge_from)
 ROW_EDGE_MAX = 2.0     # 広げる上限(秒)の上限
+SNAP_MIN = 0.05        # 話の切れ目で両端を詰めるのは、これより大きく動くときだけ(秒)
 
 # 文字起こしツールの「残す行」の規則(dev/tests/test_resolve_pack_contract.py が確かめる):
 # 行の時間を残す・短い行も捨てない(最短 0)・1フレーム以下の隙間はつなぐ(1フレームだけのジャンプカットを作らない)・
@@ -100,6 +102,7 @@ class Request:
     edit_media: bool = True               # 動画を同梱するパックで、スタジオの余白つき素材(.edit.json)があればそれを入れる
     warn_short: float = 0.0               # これより短い残す区間を注意に出す(秒。0 = 出さない。EDIT_KEEPS で使う)
     row_edge: Optional[RowEdge] = None    # base "rows" の区間の端を声の止まる所まで広げる(None = 広げない。TRANSCRIPT_ROWS は ROW_EDGE)
+    snap_edges: bool = False              # 土台の両端を話の切れ目へ詰める(LD-2c。言葉の途中で始まる・終わる所を落とす。文字起こしがあるときだけ)
 
     def inputs(self):
         return tuple(Path(p) for p in (self.video, self.sub, self.transcript, self.plan) + tuple(self.extra_inputs) if p)
@@ -327,6 +330,8 @@ def plan_cut(req, task=None, cache=None, log=None):
     cp = AC.read_cut_plan(req.plan) if req.plan else None
     cues, sub_source, cue_names, no_sub = _subtitles(req, tr, warns)
     base, selected_records, handles = _base_spans(req, meta, tr, cp, warns, task, cache, log)
+    if req.snap_edges and tr:
+        base = snap_base(base, tr["rows"], fps, meta["total"], warns)
     drops = _drop_spans(req, meta, cues, tr, warns, task, cache, log)
 
     keeps = C.subtract(base, [x for v in drops.values() for x in v])
@@ -395,6 +400,30 @@ def _subtitles(req, tr, warns):
     warns.append(f"文字起こしの残す行がすべて「字幕に出さない」行({no_sub} 行)のため、字幕は付けません。" if no_sub
                  else "文字起こしに残す行が無いため、字幕は付けません。")
     return None, None, None, no_sub
+
+
+def snap_base(base, rows, fps, total, warns):
+    """LD-2c: 土台(フレームの区間)を、動画の両端から前後 breaks.RADIUS 秒の中の話の切れ目(① breaks。行の間・句読点)の内側だけにする
+    = 言葉の途中で始まる・終わる所を落とす(話が端にかかっている端だけ。書き出しに余白が無い今は詰めるだけ)。詰めたら注意に 1 行(印。元の動画は全部パックに入るので
+    Resolve で戻せる)。何も残らなければ詰めない"""
+    dur = C.frames_to_sec(total, fps)
+    kept = [r for r in rows if not r.get("cut")]
+    if not kept or dur <= 0:
+        return base
+    near = breaks.MIN_GAP   # 話が端にかかっている(端の近くまで声がある)端だけ詰める。端の前後が静かなら動かさない
+    cs = [c for c in breaks.cuts(kept) if near <= c["t"] <= dur - near]   # 動画の外の「話の前後」は切れ目にしない(端で話が切れている)
+    a, b, info = breaks.snap(0.0, dur, cs)
+    a = max(0.0, a) if any(r["start"] < near and r["end"] > 0 for r in kept) else 0.0
+    b = min(dur, b) if any(r["end"] > dur - near and r["start"] < dur for r in kept) else dur
+    if a <= SNAP_MIN and b >= dur - SNAP_MIN:
+        return base
+    fa, fb = C.sec_to_frames(a, fps), C.sec_to_frames(b, fps)
+    out = [(max(x, fa), min(y, fb)) for x, y in base if min(y, fb) > max(x, fa)]
+    if not out:
+        return base
+    warns.append("話の切れ目に合わせて両端を詰めました(始まり %.1f 秒・終わり %.1f 秒を落とした。切れ目: %s / %s)" % (
+        a, dur - b, info["in"][2] or "なし", info["out"][2] or "なし"))
+    return out
 
 
 def _base_spans(req, meta, tr, cp, warns, task=None, cache=None, log=None):

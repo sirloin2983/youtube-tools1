@@ -87,6 +87,8 @@ def clean_spec(an):
         if isinstance(v, (int, float)) and not isinstance(v, bool) and v == v:
             out[k] = float(min(hi, max(lo, v)))
     out["lagAuto"] = an.get("lagAuto") is not False
+    if an.get("shape") in EW.excite.SHAPES:   # 区間の形(LD-2b。無ければワーカーがスイッチ excite.SHAPE_DEFAULT)
+        out["shape"] = an["shape"]
     return out
 
 

@@ -120,7 +120,8 @@ def request_from_spec(spec):
         # 文字起こしの行だけを残す(文字起こしツールの Resolve パッケージ・入口のまとめて実行と同じ規則 pack.TRANSCRIPT_ROWS。他の指定は使わない)
         if tr is None:
             raise ApiError("no_transcript", "文字起こしのファイルを入れてください")
-        return pack.Request(video=video, transcript=tr, **dict(pack.TRANSCRIPT_ROWS, row_edge=row_edge_from_spec(spec)))
+        return pack.Request(video=video, transcript=tr, snap_edges=spec.get("snapEdges") is True,   # 両端を話の切れ目へ詰める(LD-2c。② が送る)
+                            **dict(pack.TRANSCRIPT_ROWS, row_edge=row_edge_from_spec(spec)))
     if spec.get("preset") not in (None, ""):
         raise ApiError("bad_value", "preset が正しくありません")
     if spec.get("keeps") is not None:
@@ -166,7 +167,7 @@ def request_from_spec(spec):
         silence=mode == "silence", noise=noise, silence_min=smin, silence_pad=spad,
         drop_cut_rows=spec.get("dropCutRows") is not False,
         min_len=_num(spec.get("minLen"), "最短の長さ", 0, 3600, DEFAULTS["minLen"]),
-        row_edge=row_edge_from_spec(spec) if base == "rows" else None, **advanced_from_spec(spec))
+        row_edge=row_edge_from_spec(spec) if base == "rows" else None, snap_edges=spec.get("snapEdges") is True, **advanced_from_spec(spec))
 
 
 def row_edge_from_spec(spec):

@@ -32,6 +32,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
@@ -834,11 +835,36 @@ class WorkerRestTest(unittest.TestCase):
         self.assertEqual(st.book.boost, [], "過ぎた区間は捨てる")
         w.close()
 
+    def test_shape_scene_and_friend(self):
+        """LD-2b: 区間の形はスイッチ excite.SHAPE_DEFAULT(spec の shape が上書き)。友人の依頼で長さを決めた録画は固定の長さ(L-4)"""
+        self.assertEqual(W.shape_of({}), excite.SHAPE_DEFAULT)
+        self.assertEqual(W.shape_of({"shape": "fixed"}), "fixed")
+        self.assertEqual(W.shape_of({"shape": "scene"}), "scene")
+        self.assertEqual(W.shape_of({"shape": "scene", "lengthFrom": "friend"}), "fixed")
+        self.assertEqual(W.shape_of({"shape": "x"}), excite.SHAPE_DEFAULT)
+        folder = os.path.join(self.tmp, "w-scene")
+        clock = Clock(T0)
+        sim = SimRecorder(clock)
+        with mock.patch.object(excite, "SHAPE_DEFAULT", "scene"):
+            w = make_worker(write_config(folder), clock, sim)
+            run_until(w, clock, sim, T0 + 1300)
+        d = peaks_of(folder)
+        self.assertEqual(d["shape"], "scene")
+        p = [x for x in d["peaks"] if not x["endPending"]][0]
+        self.assertIn(p["shape"], ("scene", "fixed"))
+        self.assertEqual(len(p["fixed"]), 2)   # 生の結果(固定の長さの区間)も残す
+        self.assertTrue(excite.SCENE["min"] - 8 <= p["end"] - p["start"] <= excite.SCENE["max"] + 8, p)
+        w.close()
+
     def test_length_hint_from_human_records(self):
         """M10: 入口が ② flow/lengthhint で数えた目安(config.json の lengthHint)→ 見本が足りれば新しく受け持つ録画の長さ・前の割合をそれに
-        (lengthFrom human)、足りなければスタジオの設定(45 秒)。数え方は src/flow/tests/test_lengthhint.py"""
-        h = {"length": 223, "preRatio": 0.55, "samples": 24, "videos": 6, "enough": True, "file": "flow/lengthhint"}
-        self.assertEqual(W.clean_hint(h), {"length": 180.0, "preRatio": 0.55, "samples": 24, "videos": 6, "file": h["file"]})   # 180 秒に丸める(決定 3-49 Q1)
+        (lengthFrom human)、足りなければスタジオの設定(45 秒)。数え方は src/flow/tests/test_lengthhint.py。
+        長さがそのまま区間になるのは固定の形のとき(場面ごとの形では場面が取れないときの長さ = LD-2d。形の切り替えは test_shape_scene_and_friend)"""
+        patch = mock.patch.object(excite, "SHAPE_DEFAULT", "fixed")
+        patch.start()
+        self.addCleanup(patch.stop)
+        h = {"length": 323, "preRatio": 0.55, "samples": 24, "videos": 6, "enough": True, "file": "flow/lengthhint"}
+        self.assertEqual(W.clean_hint(h), {"length": 300.0, "preRatio": 0.55, "samples": 24, "videos": 6, "file": h["file"]})   # 300 秒に丸める(LD-2d。10-16 まで 180)
         for bad in (dict(h, enough=False), dict(h, samples=19), dict(h, videos=4), dict(h, length="x"), dict(h, samples=True), None, [1]):
             self.assertIsNone(W.clean_hint(bad), bad)
         self.assertEqual(W.clean_hint(dict(h, length=3, preRatio=None)), {"length": 10.0, "samples": 24, "videos": 6, "file": h["file"]})
@@ -1080,19 +1106,19 @@ class WorkerRestTest(unittest.TestCase):
             self.assertEqual(W.clean_bundles(bad), {}, bad)
 
     def test_clean_requests(self):
-        """config.json の requests の検査: 鍵は「録画元/録画」の文字列・中身は辞書だけ。感度・枠は clean_detect と同じ、長さは 10〜180 秒(外は None = スタジオの長さ。決定 3-49 Q1 で上限 120 → 180)"""
+        """config.json の requests の検査: 鍵は「録画元/録画」の文字列・中身は辞書だけ。感度・枠は clean_detect と同じ、長さは 10〜300 秒(外は None = スタジオの長さ。決定 3-49 Q1 で上限 120 → 180・LD-2d で 300)"""
         k = "fake/" + REC
         self.assertEqual(W.clean_requests({k: {"sens": "high", "perHour": 3, "length": 30}}), {k: {"sens": "high", "perHour": 3, "length": 30.0}})
         for bad in (None, [], "x", 5, {"noslash": {"sens": "high"}}, {5: {"sens": "high"}}, {k: "x"}, {k: None}, {k: [1]}):
             self.assertEqual(W.clean_requests(bad), {}, bad)
-        got = W.clean_requests({"fake/a": {"sens": "max", "perHour": True, "length": 9.9}, "fake/b": {"perHour": 2.5, "length": 181},
-                                "fake/c": {"length": 10}, "fake/d": {"length": 180.0}, "fake/e": {"length": float("nan")}, "fake/f": {"length": "45"},
+        got = W.clean_requests({"fake/a": {"sens": "max", "perHour": True, "length": 9.9}, "fake/b": {"perHour": 2.5, "length": 301},
+                                "fake/c": {"length": 10}, "fake/d": {"length": 300.0}, "fake/e": {"length": float("nan")}, "fake/f": {"length": "45"},
                                 "fake/g": {"length": True}, "fake/h": {}})
         self.assertEqual(got, {"fake/a": {"sens": "normal", "perHour": 6, "length": None}, "fake/b": {"sens": "normal", "perHour": 6, "length": None},
-                               "fake/c": {"sens": "normal", "perHour": 6, "length": 10.0}, "fake/d": {"sens": "normal", "perHour": 6, "length": 180.0},
+                               "fake/c": {"sens": "normal", "perHour": 6, "length": 10.0}, "fake/d": {"sens": "normal", "perHour": 6, "length": 300.0},
                                "fake/e": {"sens": "normal", "perHour": 6, "length": None}, "fake/f": {"sens": "normal", "perHour": 6, "length": None},
                                "fake/g": {"sens": "normal", "perHour": 6, "length": None}, "fake/h": {"sens": "normal", "perHour": 6, "length": None}})
-        cfg = write_config(self.dir, requests={k: {"sens": "low", "perHour": 1, "length": 200}, "broken": {"sens": "high"}})   # 読み込みでも通す
+        cfg = write_config(self.dir, requests={k: {"sens": "low", "perHour": 1, "length": 400}, "broken": {"sens": "high"}})   # 読み込みでも通す
         w = make_worker(cfg, Clock(T0), SimRecorder(Clock(T0)))
         self.assertEqual((w.cfg["requests"], w.cfg["detectAll"]), ({k: {"sens": "low", "perHour": 1, "length": None}}, True))   # detectAll が無い = 全部(今までどおり)
         self.assertEqual((w._detect_for("fake", REC), w._detect_for("fake", REC_B)), ({"sens": "low", "perHour": 1}, {"sens": "normal", "perHour": 6}))

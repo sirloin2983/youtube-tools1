@@ -1083,6 +1083,8 @@ class Runner:
                 spec = {"video": media, "transcript": tr.get("path"), "preset": "transcript-rows"}
                 if isinstance(row_edge, (bool, dict)):
                     spec["rowEdge"] = row_edge
+            if self._bundle(run)["pack"].get("snapEdges") is True:   # 両端を話の切れ目へ詰める(LD-2c。束の pack.snapEdges = スイッチ。「編集」のカットには付けない)
+                spec["snapEdges"] = True
             body = {"spec": spec, "output": dict({"textplus": True}, **wrap_out)}
         b = self._bundle(run)
         if "videoTracks" in _pins(b):   # 友人が選んだ映像トラックの数(字幕はその上のトラック。1 でも書く = 今の要求の本文のまま)
