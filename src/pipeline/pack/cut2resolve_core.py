@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""cut2resolve 共通部 v0.2.0
+"""cut2resolve 共通部
 
 元動画 + カット(残す区間) + 字幕(SRT) から、DaVinci Resolve に読み込める
   ・EDL(カットリスト。動画の場所は書かず、ファイル名で元動画と結び付ける)

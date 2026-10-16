@@ -9,7 +9,7 @@
 - 外部の道具: `find_tool(name)`(環境変数 STUDIO_<名前> → YTT_<名前> → PATH → winget。決め方は ytt/tools.find_tool)
 - 失敗の記録: `log_failure(context, error)`(<置き場所>/studio-errors.log)・`rotate_log`・`old_log_name`
 - 書き出し先(settings.json の outDir): `get_out_dir`・`default_out_dir`・`set_out_dir`・`load_out_dir`・`check_out_dir`・`is_inside_out_dir`・`_out_lock`
-読む側は `studio_env.名前` を呼ぶたびに読む(テストの `common.get_out_dir` などの差し替えは、スタジオの common.py の転送がここへ届ける。RS5 で消す)。
+読む側は `studio_env.名前` を呼ぶたびに読む(テストの差し替えは直にここへ届く・旧い common.py の転送は RS5 で消した)。
 """
 import json
 import os

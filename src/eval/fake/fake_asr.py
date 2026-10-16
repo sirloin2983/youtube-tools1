@@ -1,11 +1,11 @@
 """疑似の文字起こし(環境変数 TRANSCRIBE_BACKEND=fake のテスト・画面の通し確認用。役割で組み直す RS2-2 で編集の ed_jobs から移した)。
 
-実際の音声認識は行わず、決まった形の行を作る。認識の部品(pipeline/transcribe・今は ed_jobs)は疑似を知らず、
+実際の音声認識は行わず、決まった形の行を作る。認識の部品(pipeline/transcribe)は疑似を知らず、
 `pipeline/transcribe/backend.py` の差し込み口から FakeBackend(FAKE)を呼ぶ。どちらを使うかは app(編集の serve.py)が決める
 (`backend.set_selector`。ed_state.backend_name() が "fake" のとき FAKE)。
-`transcribe_fake`・`_fake_spans` は今までどおり ed_jobs.名前 / S.名前 でも読める(serve が ed_jobs の転送にこのモジュールを足す)。編集の ed_state.fake_sleep は fake_wait の別名。
+`transcribe_fake`・`_fake_spans` は S.名前 でも読める(serve の受付がこのモジュールへ回す)。編集の ed_state.fake_sleep は fake_wait の別名。
 本体は呼ぶたびにこのモジュールの名前を読む(`mock.patch.object(ed_jobs, "transcribe_fake", …)` が効く)。
-RS2-9 に、話者判別と声の特徴の疑似 diarize_fake・embed_fake を編集の ed_speakers から移した(S.diarize_fake・S.embed_fake は serve の受付、ed_speakers.名前 は殻の転送で読める。
+RS2-9 に、話者判別と声の特徴の疑似 diarize_fake・embed_fake を編集の ed_speakers から移した(S.diarize_fake・S.embed_fake は serve の受付で読める。
 認識ワーカーの worker-fake もこの 2 つを使う = 偽物どうしが食い違わない)。
 """
 import os

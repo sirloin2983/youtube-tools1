@@ -59,7 +59,7 @@ def release_idle_models(now=None):
 IN_WORKER = False   # 認識ワーカー(worker.py)の中で True にする(そのときは load_model などが本体をその場で実行する)
 WORKER_SCRIPT = None   # 認識ワーカーの本体の上書き(テストが差し替える)。None ならこのフォルダの worker.py(RS2-9。以前は app が編集の tx_worker.py を入れた)
 WORKER_LOG = None      # ワーカーの標準エラーの記録。app が入れる(作業データの切り替え set_data_dir も)。None なら ytt/workdata の DATA_DIR の worker.log
-FAKES_MODULE = None    # worker-fake(テスト)のときワーカーに読ませる疑似の部品のモジュール名(④ の eval/fake/fake_worker。app = 編集の serve が入れる。① は ④ を import しない = 名前の文字だけ)
+FAKES_MODULE = None    # worker-fake(テスト)のときワーカーに読ませる疑似の部品のモジュール名(⑤ の eval/fake/fake_worker。app = 編集の serve が入れる。① は ⑤ を import しない = 名前の文字だけ)
 FAKES_ENV = "YTT_WORKER_FAKES"   # FAKES_MODULE をワーカーへ渡す環境変数(worker_env が入れ、worker.py の main が読む)
 WORKER_LOG_MAX = 1024 * 1024
 WORKER_CANCEL_GRACE = 15   # 取り消してから、この秒数で止まらなければワーカーを強制終了する

@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
-"""④ テストと検証の層 eval/drill: 認識精度の測定(文字誤り率 CER。人が校正済みにした行を正解に、機械の出力 original と比べる)・
+"""⑤ テストと検証の層 eval/drill: 認識精度の測定(文字誤り率 CER。人が校正済みにした行を正解に、機械の出力 original と比べる)・
 「字幕に出さない」行(noSub)の別集計・同時にしゃべっている所(重なり)の数え方。
 
 役割で組み直す RS3-E5c(2026-10-10)に編集の ed_learn(段10 で editor/serve.py から分けた部品)から移した(中身は同じ)。
 機械と人の行の対応づけ(_groups・_prep・split_nosub・_norm)は human/proof/learn、置換辞書は pipeline/transcribe/replace を呼ぶたびに読む
-(④ から ②・① を読む向き。learn はここを読まない)。画面の API(/api/metrics)は serve が直に呼び、
+(⑤ から ②・① を読む向き。learn はここを読まない)。画面の API(/api/metrics)は serve が直に呼び、
 src/eval/tools/eval_asr.py・src/eval/tools/eval_alt.py は serve の名前(S.norm_cer・S.lev_counts・S.doc_metrics など)で読む。
-旧い名前 ed_learn.名前・S.名前 は editor/ed_learn.py(転送だけの殻。serve が _add_moved でここを足す = 殻は eval を読まない。RS5 で消す)と
+旧い名前 ed_learn.名前・S.名前 は(殻 editor/ed_learn.py は RS5-A で消した)と
 serve の受付がここへ回す(テストの S.MAX_LEV_CELLS = … もここに入る)。
 """
 import difflib

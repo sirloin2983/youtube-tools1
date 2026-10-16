@@ -16,7 +16,7 @@ faster-whisper(ctranslate2)と sherpa-onnx はネイティブコードで、メ�
 - 作業データの場所(ytt/workdata の DATA_DIR)はこのプロセスで入れる(_setup_env): 環境変数 TRANSCRIBE_DATA_DIR(サーバーの worker_env が必ず渡す。
   無ければ以前の既定 = 編集のフォルダ)。GPU の有無 worker_client.gpu_ready は IN_WORKER なので models._gpu_ready_local を呼ぶたびに読む(疑似の差し替えが効く)・
   疑似のワーカーの判定 worker_client.worker_fake は環境変数 TRANSCRIBE_BACKEND(RS3-0A まではこのプロセスで txenv の口に登録していた)
-- 疑似(TRANSCRIBE_BACKEND=worker-fake のテスト)は ④ の eval/fake/fake_worker.install()。① は ④ を import しないので、サーバーが渡す環境変数
+- 疑似(TRANSCRIBE_BACKEND=worker-fake のテスト)は ⑤ の eval/fake/fake_worker.install()。① は ⑤ を import しないので、サーバーが渡す環境変数
   YTT_WORKER_FAKES(モジュール名の文字。app = 編集の serve が worker_client.FAKES_MODULE に入れる)を importlib で読む
 - 読むのは標準ライブラリ・ytt・pipeline/transcribe だけ(編集の ed_*・serve は読まない)。numpy などは要求を処理する部品の関数の中で
 
@@ -162,7 +162,7 @@ _MODULE_NAME = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*")
 
 
 def _install_fakes():
-    """worker-fake(テスト)のとき、サーバーが渡したモジュール(環境変数 worker_client.FAKES_ENV。④ の eval/fake/fake_worker)の install() を呼ぶ
+    """worker-fake(テスト)のとき、サーバーが渡したモジュール(環境変数 worker_client.FAKES_ENV。⑤ の eval/fake/fake_worker)の install() を呼ぶ
     (faster-whisper・sherpa-onnx・whisper.cpp などを偽物に。本物の _load_model_local の流れはそのまま通す)。
     ① は ④ を import しない = 名前の文字を app から受け取って importlib で読む。worker-fake でなければ、環境変数があっても読まない"""
     if not worker_client.worker_fake():

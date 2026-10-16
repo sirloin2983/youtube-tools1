@@ -2,7 +2,7 @@
 
 認識の部品は「疑似なら …」の if を持たず、違う所(文字起こしの行・記録のエンジン名・
 範囲と全体の再認識・選んだ行の再認識・全体の再認識の続きの目印。RS2-9 から話者判別の区間と声の特徴も)を `select()` が返す Backend のメソッドで呼ぶ。
-本物の処理は呼ぶ側が real に渡す(本物の Backend = REAL はそれをそのまま呼ぶ)。疑似は ④ の `eval/fake/fake_asr.py` の FakeBackend が上書きする。
+本物の処理は呼ぶ側が real に渡す(本物の Backend = REAL はそれをそのまま呼ぶ)。疑似は ⑤ の `eval/fake/fake_asr.py` の FakeBackend が上書きする。
 どちらを使うかは app(編集の serve.py)が set_selector で登録する(呼ぶたびに決める = テストの `S.backend_name` の差し替えが効く)。
 この層(pipeline)は eval を読まない。登録が無ければ REAL。
 疑似かどうかの旗もここ 1 か所(RS5-D): 環境変数 TRANSCRIBE_BACKEND の読みは mode()(編集の ed_state.backend_name・worker_client.worker_fake はこれを呼ぶ)、

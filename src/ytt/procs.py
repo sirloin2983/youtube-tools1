@@ -9,7 +9,7 @@
   中身は ytt.tools.run_progress(spawn=True。OPT2)
 - `terminate`(止める依頼。待たない)・`hard_kill`(孫ごと強制終了)・`idle_message`(出力が止まったときの文)
 - `pid_alive(pid)`: 自分の子でないプロセスが動いているか(flow/placement の .flow.lock の取り残しの見分け。RS6 b-B0)
-テストは `common.spawn` などの旧い名前でも読み書きできる(スタジオの common.py の転送。RS5 で消す)。読む側は `procs.名前` を呼ぶたびに読む。
+旧い名前 `common.spawn` などの転送は RS5 で消した。読む側は `procs.名前` を呼ぶたびに読む。
 """
 import os
 import signal

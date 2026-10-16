@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """④ 受け渡し: 元の配信の情報(clip/v1)・受け渡しの JSON と SRT を動画の隣に保存
 (notes:docs/spec/pipeline.md の 2・4・6。段10 で editor/serve.py から分けた ed_misc。役割で組み直す RS3-E7(2026-10-10)に manage/cases/handoff_io.py へ移した。
-旧い名前 ed_misc は転送だけの殻 = RS5 で消す)。
+旧い名前 ed_misc の殻は RS5-A で消した)。
 
 - .runtime の置き場所 runtime_path_dir は app(editor/ed_state.py)
 - 名前 handoff_io はスタジオの handoff(配信 → 編集の受け渡しの書き手)と重ねないため

@@ -3,7 +3,7 @@
 
     py -3.10 -m unittest src/pipeline/transcribe/tests/test_txbackend.py -v
 
-編集の serve を読まずに動く(この層は app = serve・ed_state と ④ = eval を読まない)。serve の登録で S.backend_name に合わせて
+編集の serve を読まずに動く(この層は app = serve・ed_state と ⑤ = eval を読まない)。serve の登録で S.backend_name に合わせて
 切り替わることは src/editor/tests/test_names.py(test_metrics から)が確かめる。
 RS3-0A に test_txenv.py から名前を変えた(一時の口 txenv は消した = 置き場所は ytt/workdata、外の道具などは持ち主を直に読む。
 持ち主が S の差し替えに従うことは test_names.py の TestOwnersFollowServePatches)。
