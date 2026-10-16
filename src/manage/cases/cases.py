@@ -712,7 +712,7 @@ def remember_delivered(repo_root, media_path, zip_name, env=None, at=None):
 def remember_auto(repo_root, video_id, mark_id, env=None, delivered=None, not_sent=None):
     """まとめて実行の自動で送る形(D-SEND)の切り抜きを案件に残す: auto[マーク] に origin "full"(= clip["auto"] が付き、品質のカードに出る)と、
     delivered(置いた zip の名前)なら「届けた」(notSent は消す)・not_sent = {code, text} なら送らなかった理由 notSent = {code, text, at}
-    (人は見ていないので seenAt は付けない)。src/home/autorun.py の _remember_delivered・_remember_not_sent から。-> その記録"""
+    (人は見ていないので seenAt は付けない)。src/app/autorun.py の _remember_delivered・_remember_not_sent から。-> その記録"""
     _check_case_id(video_id)
     if not isinstance(mark_id, str) or not MARK_RE.match(mark_id):
         raise ValueError("切り抜きの指定(markId)が正しくありません")

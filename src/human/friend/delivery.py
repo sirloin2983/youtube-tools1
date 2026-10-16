@@ -452,7 +452,7 @@ class Delivery:
         または溜めを作ってから POOL_MAX_AGE たったとき。
         置けなかった自動の分(meta.parked。D-SEND 2-6)は待たずにすぐ送り直す(受付の Dropbox のフォルダがあるとき)。配信が終わってから 48 時間を過ぎていれば
         送らずに溜めを消し、切り抜きごとに notSent expired。出どころ auto は YTT_AUTO_SEND=off なら届けない(溜めは残す)。
-        入口の src/home/live.py の見回りと、受付の Intake.scan の終わり(server.py が flush に渡す)が呼ぶ。-> 届けた本数の合計"""
+        入口の src/app/live.py の見回りと、受付の Intake.scan の終わり(server.py が flush に渡す)が呼ぶ。-> 届けた本数の合計"""
         now = self.clock() if now is None else now
         with self._pool_lock:
             keys = list(self._pools_load())
