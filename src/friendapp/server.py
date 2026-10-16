@@ -29,6 +29,7 @@ import json
 import os
 import secrets
 import sys
+import tempfile
 import threading
 import time
 import urllib.parse
@@ -72,6 +73,18 @@ def save_dir(friend_dir, env=None):
         return d
     env = os.environ if env is None else env
     return os.path.join(env.get("USERPROFILE") or os.path.expanduser("~"), *SAVE_DEFAULT)
+
+
+def open_folder(d, env=None):
+    """フォルダをエクスプローラーで開く(玄関が決めた保存先だけ。画面からパスは受け取らない)。
+    テストの作業データ(inplace)と一時フォルダの下は開かない(テストでユーザーの画面を取らない守り)。-> 開いたか"""
+    env = os.environ if env is None else env
+    if (env.get("YTT_DATA_DIR") or "").strip().lower() == "inplace" or _fsio.is_inside(d, tempfile.gettempdir()):
+        return False
+    if not hasattr(os, "startfile"):
+        return False
+    os.startfile(d)   # noqa: S606
+    return True
 
 
 def inject_meta(body, token):
@@ -194,8 +207,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/friend/open":
             d = app.places["save"]()
             os.makedirs(d, exist_ok=True)
-            if hasattr(os, "startfile"):
-                os.startfile(d)   # noqa: S606(玄関が決めた保存先だけ。画面からパスは受け取らない)
+            app.open_folder(d)
             return self._json(200, {"ok": True, "dir": d})
         if path == "/api/friend/notice-seen":
             if app.catalog:
@@ -267,6 +279,7 @@ class FriendApp:
         self.seen = clock()
         self.closing = threading.Event()
         self.server = None
+        self.open_folder = open_folder   # エクスプローラーで開く口(テストは差し替える = 画面を取らない)
 
     def notice(self):
         n = _oldcopy.notice(self.catalog) if os.path.isfile(self.catalog) else None

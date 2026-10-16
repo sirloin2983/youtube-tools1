@@ -80,6 +80,8 @@ class ServerTest(unittest.TestCase):
         os.makedirs(self.places["friend"])
         os.makedirs(self.places["cases"])
         self.app = S.FriendApp(self.places, make_engine=FakeEngine)
+        self.opened = []
+        self.app.open_folder = self.opened.append   # 本物のエクスプローラーを開かない(画面を取らない)
         self.app.prepare()
         self.app.api.fetch = self.fake_fetch
         self.fetched = []
@@ -508,6 +510,12 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(st, 200)
         self.assertTrue(os.path.isdir(os.path.join(self.tmp, "save")))
         self.assertEqual(self.js(p)["dir"], os.path.join(self.tmp, "save"))
+        self.assertEqual(self.opened, [os.path.join(self.tmp, "save")])
+
+    def test_open_folder_guard_skips_test_places(self):
+        """守り: inplace の作業データ・一時フォルダの下は開かない(本物の os.startfile まで行かない)"""
+        self.assertFalse(S.open_folder(os.path.join(self.tmp, "save"), env={}))
+        self.assertFalse(S.open_folder("C:\\somewhere", env={"YTT_DATA_DIR": "inplace"}))
 
     def test_shutdown_stops_server_and_engine(self):
         st, _h, p = self.post("/api/shutdown", {})
