@@ -1195,7 +1195,7 @@ class ServerTest(unittest.TestCase):
         self.app.sync.run_once()
         doc = json.loads(dbx.files["/%s.request.json" % d["row"]["id"]])
         self.assertEqual(doc["kind"], "live")
-        self.assertEqual(doc["live"], {"sens": "high", "perHour": 12, "length": 180, "waitMin": 9, "pad": 3.5, "afterStream": False})
+        self.assertEqual(doc["live"], {"sens": "high", "perHour": 12, "length": 180, "waitMin": 9, "pad": 3.5, "afterStream": False, "lengthMode": "fixed"})   # 長さの自動か固定も(C-2-11)
         f = self.app.api.form()
         self.assertEqual(f["live"], {"sens": "high", "perHour": 12, "length": 180, "waitMin": 9, "pad": 3.5, "afterStream": False, "lengthMode": "fixed"})
         self.assertEqual(f["top"], 5)   # ライブは本数を持たない = 前の本数のまま

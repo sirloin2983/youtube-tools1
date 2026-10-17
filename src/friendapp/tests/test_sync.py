@@ -236,7 +236,7 @@ class SyncTest(unittest.TestCase):
         self.run_sync()
         doc = json.loads(self.io.data("/%s.request.json" % RID).decode("utf-8"))
         self.assertEqual(list(doc), ["v", "kind", "id", "flow", "url", "streamer", "speakers", "videoTracks", "cut", "live", "deliverBatch", "sentAt"])
-        self.assertEqual((doc["url"], doc["live"], list(doc["live"])), ("https://www.youtube.com/watch?v=dQw4w9WgXcQ", live, list(S.LIVE_KEYS)))
+        self.assertEqual((doc["url"], doc["live"], list(doc["live"])), ("https://www.youtube.com/watch?v=dQw4w9WgXcQ", live, [k for k in S.LIVE_KEYS if k in live]))   # 鍵の順は LIVE_KEYS(無い鍵 = 前の形の lengthMode は入れない)
 
     def test_deliver_prefs_only_when_changed(self):
         self.key()
