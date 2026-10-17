@@ -39,8 +39,8 @@
     Object.keys(ui).forEach(function (k) { if (k.indexOf(name + ':') === 0) ui[k].checked = k === name + ':' + v; });
   }
 
-  function num(id, min, max, step) {
-    var e = h('input', { type: 'number', id: id, class: 'fs-num', min: String(min), max: String(max), step: String(step) });
+  function num(id, min, max, step, label) {
+    var e = h('input', { type: 'number', id: id, class: 'fs-num', min: String(min), max: String(max), step: String(step), 'aria-label': label });
     ui[id] = e;
     return e;
   }
@@ -63,7 +63,7 @@
     ui.remoteWhy = h('p', { class: 'hint' });
     ui.useWeights = h('input', { type: 'checkbox' });
     ui.weightsRow = h('div', { class: 'fs-line fs-weights' }, [['wAudio', '音量'], ['wChat', 'チャット'], ['wComments', 'コメント']].map(function (w) {
-      return h('label', { class: 'fs-radio' }, [w[1] + ' ', num('fsW_' + w[0], 0, 3, 1)]);
+      return h('label', { class: 'fs-radio' }, [w[1] + ' ', num('fsW_' + w[0], 0, 3, 1, w[1] + 'の重み')]);
     }));
     ui.sens = h('select', { 'aria-labelledby': 'fsLiveSensL' });
     ui.oldWrap = h('section', { class: 'ui-settings-sec fs-set', 'aria-labelledby': 'fsOldH', hidden: '' });
@@ -83,14 +83,14 @@
       section('fsEngineH', '文字起こしのエンジン', [radios('fsEngine', 'fsEngineH', [['A', 'A(どの GPU でも)'], ['C', 'C(NVIDIA 用)']]), ui.gpu],
               'C は NVIDIA の GPU で速くなります。切り替えたとき足りない部品があれば取ってきます。次の処理から使います。'),
       section('fsKeyH', 'YouTube の API キー', [ui.keyState, h('div', { class: 'fs-line' }, [ui.key, ui.keySave, ui.keyClear]), ui.keyHelp]),
-      section('fsDiskH', '空き容量の下限', [h('div', { class: 'fs-line' }, [num('fsDisk', 0, 100000, 1), h('span', { class: 'hint', text: 'GB(空きがこれより少なくなると、新しい処理を始めずに待ちます)' })])]),
+      section('fsDiskH', '空き容量の下限', [h('div', { class: 'fs-line' }, [num('fsDisk', 0, 100000, 1, '空き容量の下限(GB)'), h('span', { class: 'hint', text: 'GB(空きがこれより少なくなると、新しい処理を始めずに待ちます)' })])]),
       section('fsCutH', 'カットの既定', [radios('fsCut', 'fsCutH', [['none', 'しない'], ['silence', '無音を削る']])], '送るときに使います。初めは「しない」です。'),
       section('fsWH', '解析の重み', [h('label', { class: 'fs-radio' }, [ui.useWeights, ' 重みを指定する']), ui.weightsRow],
               '見どころを自動で探すときの手がかりの強さ(0〜3)。指定しなければ、作る人の PC の設定の値を使います。区間を入れた依頼では使いません。'),
       section('fsLiveH', 'ライブの切り抜き', [
         h('div', { class: 'fs-line' }, [h('span', { id: 'fsLiveSensL', text: '感度' }), ui.sens]),
-        h('div', { class: 'fs-line' }, [h('label', { class: 'fs-radio' }, ['待ち ', num('fsLiveWait', 1, 60, 1), ' 分'])]),
-        h('div', { class: 'fs-line' }, [h('label', { class: 'fs-radio' }, ['余白 ', num('fsLivePad', 0, 5, 0.5), ' 秒'])])
+        h('div', { class: 'fs-line' }, [h('label', { class: 'fs-radio' }, ['待ち ', num('fsLiveWait', 1, 60, 1, '待ち(分)'), ' 分'])]),
+        h('div', { class: 'fs-line' }, [h('label', { class: 'fs-radio' }, ['余白 ', num('fsLivePad', 0, 5, 0.5, '余白(秒)'), ' 秒'])])
       ], '録画しながら切り抜くときの細かい設定です。次の録画から使います。'),
       ui.oldWrap
     ]);
@@ -146,14 +146,18 @@
     ui.save.textContent = (s.saveDir || '') + (s.saveIsDefault ? '(既定)' : '');
     ui.cases.textContent = (s.caseRoot || '') + (s.caseIsDefault ? '(既定)' : '');
     ui.resetSave.disabled = !!s.saveIsDefault;
+    ui.resetSave.title = s.saveIsDefault ? '今が既定の場所です' : '既定の場所(ビデオの 受け取ったパック)に戻します';
     ui.resetCases.disabled = !!s.caseIsDefault;
+    ui.resetCases.title = s.caseIsDefault ? '今が既定の場所です' : '既定の場所(アプリのフォルダの 作業)に戻します';
     setRadio('fsPc', s.processing || 'local');
     ui['fsPc:remote'].disabled = s.canRemote === false && s.processing !== 'remote';
+    ui['fsPc:remote'].title = ui['fsPc:remote'].disabled ? 'Dropbox の鍵が無いので選べません' : '';
     ui.remoteWhy.textContent = s.canRemote === false ? 'Dropbox の鍵が無いので「依頼する」は選べません' : '';
     setRadio('fsEngine', s.engine);
     ui.gpu.textContent = s.gpu ? 'この PC の GPU: ' + s.gpu.name + (s.gpu.vramGB ? '(' + s.gpu.vramGB + ' GB)' : '') : '';
     ui.keyState.textContent = s.apiKey ? '入っています' : 'まだ入っていません';
     ui.keyClear.disabled = !s.apiKey;
+    ui.keyClear.title = s.apiKey ? '保存してあるキーを消します' : 'キーが入っていません';
     ui.keyHelp.textContent = s.apiKeyHelp || '';
     if (document.activeElement !== ui.fsDisk) ui.fsDisk.value = s.diskMinGB == null ? '' : s.diskMinGB;
     setRadio('fsCut', s.cut);
@@ -162,6 +166,7 @@
     ['wAudio', 'wChat', 'wComments'].forEach(function (k) {
       var e = ui['fsW_' + k];
       e.disabled = !w;
+      e.title = w ? '0〜3' : '「重みを指定する」を入れると変えられます';
       if (document.activeElement !== e) e.value = w && w[k] != null ? w[k] : 1;
     });
     var lv = s.live || {};
