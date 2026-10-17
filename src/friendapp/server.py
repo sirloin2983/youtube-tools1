@@ -23,10 +23,11 @@
   GET  /api/friend/inbox                  受信箱の行・前回の値・保存先・空き容量で止めているか・準備中か・片付けの知らせ
   GET  /api/friend/peek?url=              配信の題・チャンネル名と配信者の推し
   GET  /api/friend/peek-live?url=         配信中・配信前か(F2-6。yt-dlp で数秒。ライブなら送る欄の下に 6 つの設定)
-  GET  /api/friend/media?id=&n=           組のまとめ動画(Range つき)
+  GET  /api/friend/media?id=&name=        1 本の確認用の動画(Range つき。前の形の id=&n= = 組のまとめ動画も読める)
   POST /api/friend/pick-file              Windows のファイルを選ぶ窓を開く(F2-6。画面からパスを打たせない)→ {file: {id, name, size, title, streamer, hex} | null}
   POST /api/friend/send                   送る(friendapp/api.py の欄。動画ファイルは fileId・ライブは kind live + live)
-  POST /api/friend/decide {id, names, verdict: keep|reject}   受け取る / 要らない(names 空 = その行の決めていない物全部)
+  POST /api/friend/decide {items: [{id, name}], verdict: keep|skip|bad, reason?: boring|cut}   受け取る / 見送る / 届かなくてよかった(前の形 {id, names} も受ける)
+  POST /api/friend/undo {items}           見送った・届かなくてよかったを 3 日の間は戻す(C-3-6)
   POST /api/friend/retry {id}・remove {id}・cancel {id}        失敗の行の [もう一度送る]・[消す]・送った行を止める(録画中のライブの行は録画を止める)
   POST /api/friend/live-settings {id, perHour?, lengthMode?: auto|fixed, length?, afterStream?}   録画中のライブの設定を途中で変える(C-2-11。→ {ok, row})
   POST /api/friend/local {id}             ユーザーの PC に頼んだ依頼を [この PC でやり直す](F2-3。Dropbox の同期は friendapp/sync.py の裏の糸)
