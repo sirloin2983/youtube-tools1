@@ -4,7 +4,7 @@
 (function () {
   'use strict';
   var $ = function (id) { return document.getElementById(id); };
-  var timer = 0, leaving = false, detailText = '';
+  var timer = 0, leaving = false, detailText = '', shownItems = null;
   var TITLES = { copying: '前のアプリの部品を写しています', fetching: '準備しています', placing: '部品を置いています', checking: '部品を確かめています',
                  cuda: '文字起こしの部品を取り直しています', done: '準備ができました', failed: '準備が止まりました', 'need-space': '空きが足りません' };
 
@@ -57,8 +57,12 @@
     $('fsOld').hidden = !old.ask;
     $('fsOldText').textContent = old.ask ? '前のアプリを片付けます(約 ' + sizeText(old.bytes) + ' 空きます)。部品はこのアプリへ写して同じだと確かめてあります。' : '';
     var items = s.detail || [];
-    $('fsItems').textContent = '';
-    items.forEach(function (it) { $('fsItems').appendChild(li(it)); });
+    var itemsKey = JSON.stringify(items);
+    if (itemsKey !== shownItems) {   /* 1 秒ごとの問い合わせで変わった時だけ一覧を作り直す */
+      shownItems = itemsKey;
+      $('fsItems').textContent = '';
+      items.forEach(function (it) { $('fsItems').appendChild(li(it)); });
+    }
     $('fsErr').hidden = !s.error || s.error === failText;
     $('fsErr').textContent = s.error || '';
     detailText = items.map(function (it) { return it.label + ': ' + (it.state || '') + (it.text ? ' ' + it.text : ''); }).concat(s.error ? [s.error] : []).join('\n');

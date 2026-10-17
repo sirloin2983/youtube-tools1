@@ -6,7 +6,7 @@
   'use strict';
   var $ = function (id) { return document.getElementById(id); };
   var POLL = 3000, POLL_AWAY = 10000;
-  var subs = [], timer = 0, listTimer = 0, view = 'send', undecided = 0;
+  var subs = [], timer = 0, listTimer = 0, view = 'send';
   var st = { partsWhy: '', hasKey: true, inbox: null, receive: null, form: null };
 
   function el(tag, attrs, kids) {
@@ -57,7 +57,6 @@
     });
   }
   function setCount(n) {   /* ●n = まだ決めていない本数(C-3-9)。窓のタイトルにも(窓はタイトルを写す = F3-A) */
-    undecided = n;
     $('tabN').hidden = !n;
     $('tabN').textContent = n ? String(n) : '';
     $('tabReceive').setAttribute('aria-label', n ? '受け取る(まだ決めていない ' + n + ' 本)' : '受け取る');
@@ -106,8 +105,6 @@
   function drawerOpen() { var d = $('settingsDrawer'); return !!d && !d.hidden; }   /* ⚙ が開いている(Esc とキーは ⚙ へ) */
   window.FR = { $: $, el: el, api: api, fail: fail, sizeText: sizeText, dur: dur, token: token, typing: typing, on: on, refresh: refresh, show: show, drawerOpen: drawerOpen,
     get state() { return st; }, get view() { return view; } };
-  window.FriendApp = { show: show, count: function () { return undecided; } };   /* 窓(F3-A)から呼ぶ口(仮 = decisions 3-83 (f3b-e)) */
-
   document.addEventListener('DOMContentLoaded', function () {
     var v = document.querySelector('meta[name="ytt-version"]');
     $('ver').textContent = v ? 'v' + v.content : '';

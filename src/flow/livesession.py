@@ -616,10 +616,6 @@ class LiveSession:
         c = self.cleaner
         return c.check(rc, rec) if c is not None else None
 
-    def _pack_info(self, path):
-        """その動画の Resolve パックの情報か None(入口が txindex.pack_info で埋める)"""
-        return None
-
     def auto_delete(self):
         """録画を自動で消してよいか(リアルタイム切り抜きがオンで、設定 live.autoDelete がオン。既定オン)"""
         cfg = self.cfg()

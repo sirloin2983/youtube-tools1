@@ -33,7 +33,7 @@
   POST /api/friend/send                   送る(friendapp/api.py の欄。動画ファイルは fileId・ライブは kind live + live)
   POST /api/friend/decide {items: [{id, name}], verdict: keep|skip|bad, reason?: boring|cut}   受け取る / 見送る / 届かなくてよかった(前の形 {id, names} も受ける)
   POST /api/friend/undo {items}           見送った・届かなくてよかったを 3 日の間は戻す(C-3-6)
-  POST /api/friend/retry {id}・remove {id}・cancel {id}        失敗の行の [もう一度送る]・[消す]・送った行を止める(録画中のライブの行は録画を止める)
+  POST /api/friend/retry {id}・cancel {id}      失敗の行の [もう一度送る]・[消す]・送った行を止める(録画中のライブの行は録画を止める)
   POST /api/friend/live-settings {id, perHour?, lengthMode?: auto|fixed, length?, afterStream?}   録画中のライブの設定を途中で変える(C-2-11。→ {ok, row})
   POST /api/friend/local {id}             ユーザーの PC に頼んだ依頼を [この PC でやり直す](F2-3。Dropbox の同期は friendapp/sync.py の裏の糸)
   POST /api/friend/open {what: saved}     受け取るの保存先をエクスプローラーで開く
@@ -418,9 +418,6 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, {"ok": True, "message": "。".join(msgs) or "変えるものがありません", "form": app.api.form()})
         if path == "/api/friend/retry":
             return self._json(200, {"ok": True, "row": app.api.retry(str(body.get("id") or ""))})
-        if path == "/api/friend/remove":
-            app.inbox.remove(str(body.get("id") or ""))
-            return self._json(200, {"ok": True})
         if path == "/api/friend/cancel":
             return self._json(200, {"ok": True, "result": app.api.cancel(str(body.get("id") or ""))})
         if path == "/api/friend/live-settings":   # 録画中のライブの設定を途中で変える(C-2-11)

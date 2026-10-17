@@ -671,14 +671,16 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(st4, 400)
 
     def test_remove_failed_row_and_refuse_others(self):
+        """失敗の行の [消す] は cancel の口 1 つ(remove の口はやめた = 確認を抜ける道を作らない)。受信箱の remove は失敗の行だけを消す"""
         st, d = self.send()
         rid, run = d["row"]["id"], d["row"]["runId"]
-        st2, _h, p2 = self.post("/api/friend/remove", {"id": rid})
-        self.assertEqual(st2, 404)
+        self.assertEqual(self.post("/api/friend/remove", {"id": rid})[0], 404)   # 口は無い
+        with self.assertRaises(KeyError):
+            self.app.inbox.remove(rid)   # 失敗していない行は消さない
         self.app.inbox.finished(run, "error", "切り抜く所が見つかりません", [], 5)
-        st3, _h, p3 = self.post("/api/friend/remove", {"id": rid})
+        st3, _h, p3 = self.post("/api/friend/cancel", {"id": rid})
         self.assertEqual(st3, 200)
-        self.assertTrue(self.js(p3)["ok"])
+        self.assertEqual(self.js(p3)["result"], {"id": rid, "state": "cancelled"})
         self.assertIsNone(self.app.inbox.row(rid))
 
     def test_cancel_sent_row_removes_it_and_stops_the_run(self):

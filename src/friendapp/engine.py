@@ -143,11 +143,6 @@ class Engine:
         self.reconcile()
 
     # ------------------------------------------------------------ ② の状態
-    def run_status(self, run_id):
-        """1 本の実行の状態({state, stateLabel, step, steps, message})か None(② の待ちに無い)"""
-        st = self.queue.status()
-        return next((r for r in st["runs"] if r["id"] == run_id), None)
-
     def status_map(self):
         st = self.queue.status()
         return {r["id"]: r for r in st["runs"]}, st

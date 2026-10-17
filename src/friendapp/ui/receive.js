@@ -44,12 +44,20 @@
   function renderList() {
     var d = my.data || { sections: [], skipped: [] };
     var box = $('rcvSections');
+    var fa = document.activeElement, fc = fa && box.contains(fa) && fa.closest ? fa.closest('.fr-rcard') : null;   /* 描き直しでフォーカスを失わない(B-17) */
+    var focusKey = fc && fc.getAttribute('data-key'), focusTag = fc && fa.tagName, focusText = fc && fa.textContent;
     box.textContent = '';
     d.sections.forEach(function (s) {
       var grid = el('div', { cls: 'fr-rcards' });
       s.items.forEach(function (it) { grid.appendChild(card(it, s)); });
       box.appendChild(el('section', { cls: 'fr-rsec', 'aria-label': s.title }, [secHead(s), grid]));
     });
+    if (focusKey) {   /* 同じカードの同じ種類・同じ文字の要素へ(無ければカードの最初の押せる物) */
+      var card2 = box.querySelector('.fr-rcard[data-key="' + CSS.escape(focusKey) + '"]');
+      var cands = card2 ? Array.prototype.slice.call(card2.querySelectorAll('button, input, a[href], [tabindex]')) : [];
+      var hit = cands.filter(function (x) { return x.tagName === focusTag && x.textContent === focusText; })[0] || cands[0];
+      if (hit) hit.focus();
+    }
     $('rcvEmpty').hidden = d.sections.length > 0;
     $('rcvCount').textContent = d.undecided ? 'まだ決めていない ' + d.undecided + ' 本' : '';
     var sk = d.skipped || [];
