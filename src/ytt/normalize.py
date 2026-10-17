@@ -3,6 +3,13 @@
 決まり: **H.264・8bit・yuv420p・30/1 の固定(CFR)・AAC** ならそのまま使う(作り直さない)。違えば ffmpeg(libx264)で作り直す。
 画質の設定はスタジオの書き出しと同じ(crf 18。ENC_ARGS を1か所にして、スタジオの exporter もこれを使う)。GPU(AMF)は測ってから。
 
+動画の全体を作り直す normalize() だけ、速くする 2 つ(2026-10-18 ユーザー「進めて」。友人の PC で動画ファイルの依頼の「1/3 動画を取得」が長かった):
+- 映像がもう条件どおりで音声だけが違う(AAC でない)ときは、映像はコピーして音声だけ作り直す(video_ok)
+- 映像を作り直すときは、NVIDIA の GPU の作り方(h264_nvenc)が使えればそれで作る(CPU の libx264 の数倍速い)。
+  使えるかは ffmpeg で 0.1 秒の見本を作って確かめる(1 回だけ覚える)。GPU で失敗したら libx264 で 1 回だけやり直す。
+  環境変数 YTT_NVENC=0 で使わない(スイッチ)。どちらで作ったかは戻り値の "how" に残る
+  スタジオの書き出し(ENC_ARGS)と区間の作り直し(encode_section)は今のまま
+
 - 時刻は秒のまま保たれる(ずらさない): fps フィルタは各コマの表示時刻をそのまま 1/30 秒の格子に当てはめるだけなので、
   文字起こし・マークの時刻(秒)は作り直したあともそのまま使える。
 - 60fps → 30fps は1コマおきに落とす。29.97fps → 30fps はコマを落とさず、約 33 秒に1コマを複製して揃う(目立たない)。
@@ -35,6 +42,9 @@ FAST_PRESET = "ultrafast" # スタジオの「高速」(コピーでは fps を�
 CRF = "18"
 IDLE_SEC = 600            # ffmpeg がこの秒数まったく出力しなければ止める
 PART = ".normalizing-"    # 作り直しの途中の名前(<名前>.normalizing-xxxxxxxx.mp4。検証が済んでから本当の名前へ)
+NVENC_CQ = "19"           # h264_nvenc の画質(-cq。libx264 の crf 18 と同じくらい)
+NVENC_PRESET = "p4"       # h264_nvenc の速さと画質の段(p1 速い 〜 p7 きれい。p4 = ffmpeg の既定の中ほど)
+NVENC_ENV = "YTT_NVENC"   # "0" で GPU の作り方を使わない
 _PIX_DEPTH = re.compile(r"p(\d{2})(?:le|be)$")             # yuv420p10le などの bit 数
 
 
@@ -63,6 +73,46 @@ def encode_args(preset=PRESET, vf=None, in_graph=False):
 
 ENC_ARGS = encode_args()                     # スタジオの「精密」
 ENC_FAST_ARGS = encode_args(FAST_PRESET)     # スタジオの「高速」
+
+
+def nvenc_args(vf=None):
+    """encode_args と同じ形で、映像を NVIDIA の GPU(h264_nvenc)で作る引数(fps フィルタ・-fps_mode cfr・yuv420p・AAC 192k・faststart は同じ)"""
+    return ["-vf", fps_filter(vf), "-fps_mode", "cfr", "-c:v", "h264_nvenc", "-preset", NVENC_PRESET, "-rc", "vbr", "-cq", NVENC_CQ,
+            "-b:v", "0", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"]
+
+
+# 映像はコピーし、音声だけ AAC に作り直す(映像が条件どおりのとき)
+AUDIO_ONLY_ARGS = ["-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"]
+
+_nvenc_ok = {}   # ffmpeg のパス -> 使えるか(1 回だけ確かめる)
+
+
+def nvenc_available(ffmpeg, runner=None):
+    """ffmpeg で h264_nvenc が実際に使えるか(一覧に有っても NVIDIA の GPU が無ければ失敗するので、0.1 秒の見本を作って確かめる)。
+    YTT_NVENC=0 なら偽。runner(cmd) -> 終了コード はテスト用の差し替え"""
+    if os.environ.get(NVENC_ENV, "").strip() == "0" or not ffmpeg:
+        return False
+    if ffmpeg in _nvenc_ok and runner is None:
+        return _nvenc_ok[ffmpeg]
+    cmd = [ffmpeg, "-hide_banner", "-nostdin", "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=256x256:r=30:d=0.1",
+           "-c:v", "h264_nvenc", "-pix_fmt", "yuv420p", "-f", "null", "-"]
+    try:
+        if runner is not None:
+            ok = runner(cmd) == 0
+        else:
+            ok = subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30,
+                                creationflags=tools.no_window_flags(new_group=True)).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        ok = False
+    if runner is None:
+        _nvenc_ok[ffmpeg] = ok
+    return ok
+
+
+def video_ok(info):
+    """映像が条件どおり(H.264・8bit・yuv420p・30/1 の固定)か = 作り直しが要るのは音声だけか"""
+    return bool(info and info.get("has_video") and info.get("vcodec") == "h264" and info.get("bit_depth") in (8, None)
+                and info.get("pix_fmt") == "yuv420p" and is_30fps(info))
 
 
 # ---------- 古い ffmpeg への備え ----------
@@ -262,7 +312,7 @@ def verify(path, dur, tol=DURATION_TOL, ffprobe=None, what="作り直した動�
 
 
 def normalize(src, dst, cancelled=None, on_progress=None, priority_low=True, preset=PRESET, ffmpeg=None, ffprobe=None,
-              popen=None, idle_sec=IDLE_SEC):
+              popen=None, idle_sec=IDLE_SEC, nvenc_runner=None):
     """src を 30fps(H.264・yuv420p・AAC)に作り直して dst に置く。dst と同じフォルダの一時の名前に書き、
     検証(probe で 30/1・長さが元と ±DURATION_TOL 秒)が済んでから dst へ置き換える(src と dst が同じでもよい = 置き換え)。
     失敗・取り消しでは一時ファイルを消して NormalizeError(取り消しは Cancelled)。成功したら dst の probe の結果を返す。
@@ -271,6 +321,8 @@ def normalize(src, dst, cancelled=None, on_progress=None, priority_low=True, pre
     - priority_low: Windows では「通常より下」の優先度で動かす(画面の操作・ほかのツールが先に CPU を取れる)
     - popen: 子プロセスの起動を差し替える(呼ぶ側が終了の流れで止めるために覚えたいとき。既定 subprocess.Popen)
     - ffmpeg が 5.1 より古く -fps_mode を知らなければ、-vsync cfr に替えて1回だけやり直す(legacy_args)
+    - 映像が条件どおりなら映像はコピー(音声だけ)・GPU(h264_nvenc)が使えれば GPU・失敗したら次の作り方へ(最後は libx264)。
+      戻り値の "how" = 作った作り方・"failed" = 失敗した作り方と理由。nvenc_runner は nvenc_available の確かめの差し替え(テスト用)
     SLOTS(ytt.jobs)は呼ぶ側が持つ。"""
     cancelled = cancelled or (lambda: False)
     ff = ffmpeg or tools.find_tool("ffmpeg")
@@ -284,24 +336,46 @@ def normalize(src, dst, cancelled=None, on_progress=None, priority_low=True, pre
     dur = info.get("duration") or 0.0
     tmp = temp_path(dst)
     base = [ff, "-hide_banner", "-nostdin", "-y", "-v", "error", "-i", src, "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn"]
-    enc = encode_args(preset)
     flags = tools.no_window_flags(new_group=True, priority="low" if priority_low else None)
+    # 作り方の順(前が失敗したら次で 1 回だけ。音声だけ・GPU は速い道、最後の libx264 が今までの作り方)
+    tries = []
+    if video_ok(info):
+        tries.append(("音声だけ作り直し", list(AUDIO_ONLY_ARGS)))
+    if nvenc_available(ff, nvenc_runner):
+        tries.append(("GPU(h264_nvenc)", nvenc_args()))
+    tries.append(("CPU(libx264)", encode_args(preset)))
 
     def run(args):
         return run_ffmpeg(base + args + ["-progress", "pipe:1", "-nostats", tmp], flags, popen, cancelled, idle_sec, on_progress, dur)
 
+    failed = []
     try:
-        code, tail, why = run_with_legacy(run, enc, tmp, cancelled)   # ffmpeg 5.1 より古ければ -vsync cfr で1回だけやり直す
-        if why == "cancel" or cancelled():
-            raise Cancelled("取り消しました")
-        if why == "idle":
-            raise NormalizeError("ffmpeg が %d 秒間なにも出力しなかったので止めました" % idle_sec)
-        if code != 0:
-            raise NormalizeError("作り直しに失敗しました: %s" % (" / ".join(tail[-3:]) or "終了コード %s" % code))
-        out = verify(tmp, dur or None, DURATION_TOL, ffprobe)   # 元の長さが分からなければ長さは見ない
-        fsio.replace_retry(tmp, dst)
+        for i, (how, enc) in enumerate(tries):
+            last = i == len(tries) - 1
+            code, tail, why = run_with_legacy(run, enc, tmp, cancelled)   # ffmpeg 5.1 より古ければ -vsync cfr で1回だけやり直す
+            if why == "cancel" or cancelled():
+                raise Cancelled("取り消しました")
+            if why == "idle":
+                raise NormalizeError("ffmpeg が %d 秒間なにも出力しなかったので止めました" % idle_sec)
+            if code != 0:
+                msg = " / ".join(tail[-3:]) or "終了コード %s" % code
+                if last:
+                    raise NormalizeError("作り直しに失敗しました: %s" % msg)
+                failed.append("%s: %s" % (how, msg[:120]))
+                fsio.unlink_quiet(tmp)
+                continue
+            try:
+                out = verify(tmp, dur or None, DURATION_TOL, ffprobe)   # 元の長さが分からなければ長さは見ない
+            except NormalizeError as e:
+                if last:
+                    raise
+                failed.append("%s: %s" % (how, str(e)[:120]))
+                fsio.unlink_quiet(tmp)
+                continue
+            fsio.replace_retry(tmp, dst)
+            break
     except BaseException:
         fsio.unlink_quiet(tmp)
         raise
     _report(on_progress, 1.0)
-    return dict(out, path=dst)
+    return dict(out, path=dst, how=how, failed=failed)

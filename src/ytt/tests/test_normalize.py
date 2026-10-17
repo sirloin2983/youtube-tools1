@@ -18,6 +18,13 @@ FF = tools.find_tool("ffmpeg", "YTT_FFMPEG")
 FP = tools.find_tool("ffprobe", "YTT_FFPROBE")
 
 
+def no_gpu(case):
+    """作り直しのテストを GPU の有無で変えない(NVIDIA の PC でも libx264 の道を確かめる)。GPU の道は TestFastPaths で別に"""
+    p = mock.patch.dict(os.environ, {normalize.NVENC_ENV: "0"})
+    p.start()
+    case.addCleanup(p.stop)
+
+
 def make(path, rate, sec, audio=True, size="64x64", pix="yuv420p", vcodec="libx264", src="testsrc"):
     cmd = [FF, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-f", "lavfi", "-i", "%s=size=%s:rate=%s:duration=%s" % (src, size, rate, sec)]
     if audio:
@@ -148,6 +155,7 @@ class TestNormalize(unittest.TestCase):
         shutil.rmtree(cls.src, ignore_errors=True)
 
     def setUp(self):
+        no_gpu(self)
         self.tmp = tempfile.mkdtemp()
 
     def tearDown(self):
@@ -261,6 +269,7 @@ class TestOldFfmpeg(unittest.TestCase):
         shutil.rmtree(cls.src, ignore_errors=True)
 
     def setUp(self):
+        no_gpu(self)
         self.tmp = tempfile.mkdtemp()
 
     def tearDown(self):
@@ -301,3 +310,86 @@ class TestOldFfmpeg(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestFastRules(unittest.TestCase):
+    """速くする 2 つの決まり(10-18): 映像が条件どおりなら音声だけ・GPU(h264_nvenc)の引数と使えるかの確かめ"""
+    def test_video_ok(self):
+        self.assertTrue(normalize.video_ok(info(acodec="opus")))   # 音声だけ違う = 映像はコピーでよい
+        for bad in (info(vcodec="hevc"), info(bit_depth=10), info(pix_fmt="yuv444p"), info(r_frame_rate="60/1", avg_fps=60.0),
+                    info(avg_fps=29.5), info(has_video=False), None):
+            self.assertFalse(normalize.video_ok(bad))
+
+    def test_nvenc_args_keep_the_rules(self):
+        a = normalize.nvenc_args()
+        for pair in (["-vf", "fps=30"], ["-fps_mode", "cfr"], ["-c:v", "h264_nvenc"], ["-pix_fmt", "yuv420p"], ["-c:a", "aac"],
+                     ["-movflags", "+faststart"], ["-cq", normalize.NVENC_CQ]):
+            i = a.index(pair[0])
+            self.assertEqual(a[i:i + 2], pair)
+        self.assertEqual(normalize.ENC_ARGS[normalize.ENC_ARGS.index("-c:v") + 1], "libx264")   # スタジオの書き出しは今のまま
+
+    def test_nvenc_available(self):
+        with mock.patch.dict(os.environ, {normalize.NVENC_ENV: "0"}):
+            self.assertFalse(normalize.nvenc_available("ffmpeg", runner=lambda c: 0))   # スイッチで使わない
+        with mock.patch.dict(os.environ, {normalize.NVENC_ENV: ""}):
+            seen = []
+            self.assertTrue(normalize.nvenc_available("ffmpeg", runner=lambda c: seen.append(c) or 0))
+            self.assertIn("h264_nvenc", seen[0])
+            self.assertFalse(normalize.nvenc_available("ffmpeg", runner=lambda c: 1))
+            self.assertFalse(normalize.nvenc_available(None))
+
+
+@unittest.skipUnless(FF and FP, "ffmpeg・ffprobe が無い環境ではスキップ")
+class TestFastPaths(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.src = tempfile.mkdtemp()
+        cls.v60 = make(os.path.join(cls.src, "v60.mp4"), 60, 2)
+        cls.opus = os.path.join(cls.src, "opus.mkv")   # 映像は 30fps の H.264・音声だけ opus(OBS の mkv など)
+        subprocess.run([FF, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-f", "lavfi", "-i", "testsrc=size=64x64:rate=30:duration=2",
+                        "-f", "lavfi", "-i", "sine=frequency=440:duration=2", "-shortest", "-c:v", "libx264", "-preset", "veryfast",
+                        "-pix_fmt", "yuv420p", "-c:a", "libopus", cls.opus], check=True, stdin=subprocess.DEVNULL)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.src, ignore_errors=True)
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def test_audio_only_copies_video(self):
+        before = normalize.probe(self.opus)
+        self.assertEqual(normalize.needs_normalize(before)[0], True)
+        calls = []
+
+        def popen(cmd, **kw):
+            calls.append(list(cmd))
+            return subprocess.Popen(cmd, **kw)
+        with mock.patch.dict(os.environ, {normalize.NVENC_ENV: "0"}):
+            out = normalize.normalize(self.opus, os.path.join(self.tmp, "a.mp4"), popen=popen)
+        self.assertEqual(out["how"], "音声だけ作り直し")
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][calls[0].index("-c:v") + 1], "copy")
+        after = normalize.probe(out["path"])
+        self.assertEqual((after["vcodec"], after["acodec"], after["r_frame_rate"]), ("h264", "aac", "30/1"))
+        self.assertEqual(normalize.needs_normalize(after), (False, []))
+
+    def test_gpu_first_then_cpu(self):
+        """GPU が使えると見たら h264_nvenc から。GPU で作れなければ(NVIDIA の無い PC では必ず)libx264 で 1 回だけやり直す"""
+        calls = []
+
+        def popen(cmd, **kw):
+            calls.append(list(cmd))
+            return subprocess.Popen(cmd, **kw)
+        with mock.patch.dict(os.environ, {normalize.NVENC_ENV: ""}):
+            out = normalize.normalize(self.v60, os.path.join(self.tmp, "g.mp4"), popen=popen, nvenc_runner=lambda c: 0)
+        self.assertEqual(calls[0][calls[0].index("-c:v") + 1], "h264_nvenc")
+        self.assertEqual(normalize.probe(out["path"])["r_frame_rate"], "30/1")
+        if out["how"] == "CPU(libx264)":   # この PC に NVIDIA の GPU が無い
+            self.assertEqual(len(calls), 2)
+            self.assertEqual(calls[1][calls[1].index("-c:v") + 1], "libx264")
+            self.assertTrue(out["failed"][0].startswith("GPU(h264_nvenc)"))
+        else:
+            self.assertEqual((out["how"], len(calls)), ("GPU(h264_nvenc)", 1))
+        self.assertEqual([n for n in os.listdir(self.tmp) if normalize.PART in n], [])

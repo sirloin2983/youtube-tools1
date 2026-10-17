@@ -1362,6 +1362,7 @@ class Runner:
             st["state"], st["detail"] = "warn", note or "30fps にそろえられませんでした。元の動画のまま進めます"
             return None
         run.source_path = path
+        self.log("30fps にそろえました: %s(%s)" % (run.title, note))   # 作り方(音声だけ・GPU・CPU)も残る
         st["detail"] = "30fps にそろえました(%s)" % " / ".join(p.get("why") or [])[:120]
         self._checkpoint(run)   # 封筒の input.path が新しい写しになる(起動し直しで消えた古い写しを探さない)
         return None

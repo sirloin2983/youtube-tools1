@@ -117,7 +117,7 @@ def run(plan, cancelled=None, on_progress=None, on_start=None):
         if on_start:
             on_start()
         try:
-            _vnorm.normalize(src, dst, cancelled=cancelled, on_progress=on_progress)
+            done = _vnorm.normalize(src, dst, cancelled=cancelled, on_progress=on_progress) or {}
         except _vnorm.Cancelled:
             return None, "30fps にそろえるのを取り消しました。文書は元の動画のままです"
         except (_vnorm.NormalizeError, OSError) as e:
@@ -128,7 +128,10 @@ def run(plan, cancelled=None, on_progress=None, on_start=None):
                 os.remove(src)   # 置き換え = 古い写しを消す(消せなくても作り直した動画は使える)
             except OSError:
                 pass
-        return dst, "30fps にそろえた動画 %s を作って付け替えました(元の動画はそのまま残っています)" % os.path.basename(dst)
+        how = ("・%s" % done["how"]) if done.get("how") else ""
+        if done.get("failed"):
+            _txbase.log.warning("30fps の作り直しで先に失敗した作り方: %s %s", src, " / ".join(done["failed"]))
+        return dst, "30fps にそろえた動画 %s を作って付け替えました(元の動画はそのまま残っています%s)" % (os.path.basename(dst), how)
     return dst, "30fps の動画 %s があったので、それに付け替えました" % os.path.basename(dst)
 
 
