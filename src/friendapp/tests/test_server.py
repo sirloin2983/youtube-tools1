@@ -964,6 +964,16 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.post("/api/friend/palette", {"name": "B"}, headers={TOKEN: None})[0], 403)
         self.assertEqual(self.get("/friend/palette.js")[0], 200)
 
+    def test_player_prefs_remembered(self):
+        """再生画面の音量・消音・速度(前回の値。YouTube と同じ速度の段だけ)"""
+        self.assertEqual(self.js(self.get("/api/friend/player")[2])["player"], {"volume": 1.0, "muted": False, "rate": 1})
+        st, _h, p = self.post("/api/friend/player", {"volume": 0.35, "muted": True, "rate": 1.5})
+        self.assertEqual((st, self.js(p)["player"]), (200, {"volume": 0.35, "muted": True, "rate": 1.5}))
+        self.assertEqual(self.js(self.get("/api/friend/player")[2])["player"]["rate"], 1.5)
+        for bad in ({"rate": 3}, {"volume": 2}, {"muted": "yes"}):
+            self.assertEqual(self.post("/api/friend/player", bad)[0], 400)
+        self.assertEqual(self.post("/api/friend/player", {"rate": 1}, headers={TOKEN: None})[0], 403)
+
     def test_dropped_files_from_window(self):
         """exe の窓に落とした動画(F3-1 の host.js sendFiles = exe が本物のパスを POST /api/friend/files)。動画でない物はその 1 本だけ外す"""
         clip = os.path.join(self.tmp, "【兎田ぺこら】落とした.mp4")

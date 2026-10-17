@@ -64,6 +64,99 @@
     });
   }
 
+  /* ---------------------------------------------------------------- 操作の帯(YouTube 風。再生 / 一時停止・シークバー・時刻・音量・速度)
+     音量(消音かも)と速度は玄関が覚える(GET / POST api/friend/player。exe は起動ごとに番号が変わる = localStorage は使えない)。次の 1 本・開き直しも同じ値で始める */
+  var RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+  var pl = { prefs: { volume: 1, muted: false, rate: 1 }, saveT: 0, applying: false, dragging: false, dragVol: false };
+  var SVG = { play: 'M7 4.5v15l13-7.5z', pause: 'M6 5h4v14H6zM14 5h4v14h-4z',
+    vol: 'M4 9v6h4l5 4V5L8 9zM16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12', mute: 'M4 9v6h4l5 4V5L8 9zM16 9l5 6M21 9l-5 6' };
+  function icon(btn, name) {
+    var ns = 'http://www.w3.org/2000/svg', svg = document.createElementNS(ns, 'svg'), path = document.createElementNS(ns, 'path');
+    svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('aria-hidden', 'true');
+    path.setAttribute('d', SVG[name]);
+    if (name === 'vol' || name === 'mute') {
+      path.setAttribute('fill', 'none'); path.setAttribute('stroke', 'currentColor'); path.setAttribute('stroke-width', '2');
+      path.setAttribute('stroke-linejoin', 'round'); path.setAttribute('stroke-linecap', 'round');
+    }
+    svg.appendChild(path);
+    btn.textContent = '';
+    btn.appendChild(svg);
+  }
+  function tm(sec) { return isFinite(sec) ? FR.dur(Math.max(0, sec)) : '0:00'; }
+  function drawBar() {
+    var v = $('playerVideo'), d = v.duration, t = v.currentTime, frac = d > 0 ? Math.min(1, t / d) : 0;
+    $('pDone').style.width = (frac * 100) + '%';
+    $('pKnob').style.left = (frac * 100) + '%';
+    var b = 0;
+    for (var i = 0; i < v.buffered.length; i++) if (v.buffered.start(i) <= t + 0.5) b = Math.max(b, v.buffered.end(i));
+    $('pBuf').style.width = (d > 0 ? Math.min(1, b / d) * 100 : 0) + '%';
+    $('pTime').textContent = tm(t) + ' / ' + tm(d);
+    $('pSeek').setAttribute('aria-valuemax', String(Math.round(d || 0)));
+    $('pSeek').setAttribute('aria-valuenow', String(Math.round(t || 0)));
+    $('pSeek').setAttribute('aria-valuetext', tm(t) + ' / ' + tm(d));
+  }
+  function drawState() {
+    var v = $('playerVideo');
+    icon($('pPlay'), v.paused ? 'play' : 'pause');
+    $('pPlay').setAttribute('aria-label', v.paused ? '再生(Space)' : '一時停止(Space)');
+    $('pPlay').title = $('pPlay').getAttribute('aria-label');
+    var m = v.muted || v.volume === 0;
+    icon($('pMute'), m ? 'mute' : 'vol');
+    $('pMute').setAttribute('aria-label', m ? '消音をやめる' : '消音');
+    $('pMute').title = $('pMute').getAttribute('aria-label');
+    if (!pl.dragVol) $('pVol').value = String(v.muted ? 0 : v.volume);
+    $('pRate').value = String(v.playbackRate);
+  }
+  function applyPrefs() {   /* 覚えた音量・速度を動画に(読み込み直すと速度が 1 に戻るので、1 本ごとに) */
+    var v = $('playerVideo');
+    pl.applying = true;
+    v.volume = pl.prefs.volume; v.muted = pl.prefs.muted;
+    v.playbackRate = v.defaultPlaybackRate = pl.prefs.rate;
+    pl.applying = false;
+    drawState();
+  }
+  function savePrefs() {
+    var v = $('playerVideo');
+    if (pl.applying) return;
+    pl.prefs = { volume: Math.round(v.volume * 100) / 100, muted: !!v.muted, rate: RATES.indexOf(v.playbackRate) >= 0 ? v.playbackRate : 1 };
+    clearTimeout(pl.saveT);
+    pl.saveT = setTimeout(function () { api('player', pl.prefs).catch(function () { /* 覚えられなくても再生は続ける */ }); }, 500);
+  }
+  function seekAt(clientX, commit) {
+    var r = $('pSeek').getBoundingClientRect(), v = $('playerVideo'), d = v.duration;
+    var frac = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
+    if (commit && d > 0) { v.currentTime = frac * d; drawBar(); }
+    return { frac: frac, sec: d > 0 ? frac * d : 0 };
+  }
+  function tip(clientX) {
+    var at = seekAt(clientX, false), t = $('pTip');
+    t.hidden = false;
+    t.textContent = tm(at.sec);
+    t.style.left = (at.frac * 100) + '%';
+  }
+  function toggle() { var v = $('playerVideo'); if (v.paused) { var p = v.play(); if (p && p.catch) p.catch(function () {}); } else v.pause(); }
+  function volBy(d) { var v = $('playerVideo'); v.muted = false; v.volume = Math.max(0, Math.min(1, Math.round((v.volume + d) * 100) / 100)); }
+  function initBar() {
+    var v = $('playerVideo'), seek = $('pSeek');
+    ['timeupdate', 'progress', 'loadedmetadata', 'durationchange', 'seeked'].forEach(function (ev) { v.addEventListener(ev, drawBar); });
+    ['play', 'pause', 'volumechange', 'ratechange'].forEach(function (ev) { v.addEventListener(ev, drawState); });
+    v.addEventListener('volumechange', savePrefs);
+    v.addEventListener('ratechange', savePrefs);
+    v.addEventListener('loadedmetadata', applyPrefs);
+    v.addEventListener('click', toggle);
+    $('pPlay').addEventListener('click', toggle);
+    $('pMute').addEventListener('click', function () { if (v.muted || v.volume === 0) { v.muted = false; if (v.volume === 0) v.volume = 0.5; } else v.muted = true; });
+    $('pVol').addEventListener('input', function () { pl.dragVol = true; v.muted = false; v.volume = parseFloat($('pVol').value) || 0; });
+    $('pVol').addEventListener('change', function () { pl.dragVol = false; drawState(); });
+    $('pRate').addEventListener('change', function () { v.playbackRate = parseFloat($('pRate').value) || 1; });
+    seek.addEventListener('pointerdown', function (e) { pl.dragging = true; seek.setPointerCapture(e.pointerId); seekAt(e.clientX, true); tip(e.clientX); });
+    seek.addEventListener('pointermove', function (e) { tip(e.clientX); if (pl.dragging) seekAt(e.clientX, true); });
+    seek.addEventListener('pointerup', function (e) { pl.dragging = false; seekAt(e.clientX, true); });
+    seek.addEventListener('pointerleave', function () { if (!pl.dragging) $('pTip').hidden = true; });
+    api('player').then(function (j) { if (j && j.player) { pl.prefs = j.player; applyPrefs(); } }, function () {});
+    drawState(); drawBar();
+  }
+
   /* ---------------------------------------------------------------- 再生画面(C-3-3) */
   function sideList() {
     var cur = find(my.cur), box = $('playerList');
@@ -91,11 +184,13 @@
     $('viewReceive').classList.add('playing');
     var v = $('playerVideo');
     $('playerNoVideo').hidden = x.it.preview;
+    $('pbar').hidden = !x.it.preview;
     $('playerNoVideo').style.backgroundImage = x.it.preview || !x.sec.videoId ? '' : 'url("' + thumbOf(x.sec.videoId, 'hqdefault') + '")';
     v.hidden = !x.it.preview;
     if (x.it.preview) {
       v.src = 'api/friend/media?id=' + encodeURIComponent(x.it.id) + '&name=' + encodeURIComponent(x.it.name);
       v.currentTime = 0;   /* 次は最初から再生 */
+      applyPrefs();        /* 音量・速度は覚えた値で始める */
       var p = v.play();
       if (p && p.catch) p.catch(function () { /* 自動の再生を止められた = 押せば再生 */ });
     } else v.removeAttribute('src');
@@ -191,9 +286,9 @@
     }
     if (!my.cur || FR.typing(e.target)) return;
     var v = $('playerVideo');
-    if (e.key === ' ' && !(e.target && e.target.tagName === 'BUTTON')) { e.preventDefault(); if (v.paused) v.play(); else v.pause(); }
+    if (e.key === ' ' && !(e.target && /^(BUTTON|SELECT)$/.test(e.target.tagName))) { e.preventDefault(); toggle(); }
     else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); v.currentTime = Math.max(0, v.currentTime + (e.key === 'ArrowLeft' ? -5 : 5)); }
-    else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); v.volume = Math.max(0, Math.min(1, v.volume + (e.key === 'ArrowUp' ? 0.1 : -0.1))); }
+    else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); volBy(e.key === 'ArrowUp' ? 0.1 : -0.1); }
   }
 
   document.addEventListener('DOMContentLoaded', function () {
@@ -210,6 +305,7 @@
     $('bulkCut').addEventListener('click', function () { decide(selected(), 'bad', 'cut'); });
     $('bulkClear').addEventListener('click', clearSel);
     document.addEventListener('keydown', onKey);
+    initBar();
     FR.on(function (what, d) {
       if (what === 'view' && d !== 'receive') {   /* 送るへ切り替えた = 再生を止め、「見送りました [戻す]」を閉じる(一覧の下の「見送った物」からは戻せる) */
         if (my.cur) $('playerVideo').pause();

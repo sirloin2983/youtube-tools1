@@ -33,6 +33,7 @@
   POST /api/friend/notice-seen            片付けの知らせを見た
   GET  /api/friend/setup                  初回の準備の進み具合(F3-5。friendapp/setup.py の view)
   POST /api/friend/setup/start・cancel・clean-old・skip-old   初回の準備を(もう一度)始める・やめる・前のアプリを片付ける / あとで
+  GET・POST /api/friend/player {volume: 0〜1, muted, rate}   再生画面の音量・消音・速度を覚える(前回の値で始める)
   POST /api/friend/palette {name: A〜D}  配色を覚える(画面へは meta ytt-palette。ui/palette.js)
   GET  /api/friend/streams                配信の一覧(F3-2。friendapp/streams.py の view + 各カードの送った物の印 sent)
   POST /api/friend/streams/refresh        一覧の [更新](断られて待っている間は {ok: false, waitSec})
@@ -87,6 +88,8 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
 SOON_MS = 30 * 60 * 1000              # 予約の配信がこれより近ければスリープを止める(C-5-4)
 PALETTES = ("A", "B", "C", "D")       # 配色(前の送るアプリと同じ 4 つ。色の組は ui-kit のトークン = ui/palette.js)
 PALETTE_NAME = "palette.json"
+PLAYER_NAME = "player.json"           # 再生画面の音量・消音・速度(前回の値)
+PLAYER_RATES = (0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2)   # YouTube と同じ段
 STREAMS_NAME = "streams.json"         # 配信の一覧の写し(開いた瞬間は前回の一覧 = C-2-5)
 TOKEN_ENV = "YTT_FRIEND_TOKEN"        # exe が渡す合言葉(無ければ乱数)
 HOST_ENV = "YTT_FRIEND_HOST"          # exe の窓の種類(webview2 = 合言葉は WebView2 が足す / edge = 逃げ道 / 無し = 開発の PC)
@@ -283,6 +286,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, app.api.peek_live((q.get("url") or [""])[0][:300]))
             except _api.FormError as e:
                 return self._fail(400, "bad_url", str(e))
+        if path == "/api/friend/player":   # 再生画面の音量・消音・速度(前回の値)
+            return self._json(200, {"ok": True, "player": app.player()})
         if path == "/api/friend/receive":   # 受け取る画面(F3-4。配信ごとの段・見送った物・まだ決めていない本数)
             app.seen = time.time()
             return self._json(200, app.inbox.receive_view())
@@ -384,6 +389,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, app.decide(body))
         if path == "/api/friend/undo":   # [戻す](C-3-6){items: [{id, name}]}
             return self._json(200, app.undo(body))
+        if path == "/api/friend/player":   # 再生画面の音量・消音・速度を覚える(C-3-3 の操作の帯)
+            return self._json(200, {"ok": True, "player": app.set_player(body)})
         if path == "/api/friend/palette":   # 配色を覚える(画面はもう塗り替えている。次に開いたとき meta ytt-palette で同じ色)
             return self._json(200, {"ok": True, "palette": app.set_palette(body.get("name"))})
         if path == "/api/friend/files":   # 落とした動画(exe が本物のパスを読んで送る = F3-1 の host.js の sendFiles。画面からパスは送らない)
@@ -574,6 +581,28 @@ class FriendApp:
         """選んだ配色 A〜D(無ければ A = ネオンシアン。前の送るアプリの初めと同じ)"""
         got = _fsio.read_json_or(os.path.join(self.places["friend"], PALETTE_NAME), {}, kind=dict).get("name")
         return got if got in PALETTES else "A"
+
+    def player(self):
+        """再生画面の前回の音量(0〜1)・消音・速度(YouTube と同じ段)。無ければ 音量 1・消音なし・標準"""
+        d = _fsio.read_json_or(os.path.join(self.places["friend"], PLAYER_NAME), {}, kind=dict)
+        vol = d.get("volume")
+        return {"volume": float(vol) if isinstance(vol, (int, float)) and not isinstance(vol, bool) and 0 <= vol <= 1 else 1.0,
+                "muted": d.get("muted") is True, "rate": d.get("rate") if d.get("rate") in PLAYER_RATES else 1}
+
+    def set_player(self, body):
+        cur = self.player()
+        vol = body.get("volume", cur["volume"])
+        if not (isinstance(vol, (int, float)) and not isinstance(vol, bool) and 0 <= vol <= 1):
+            raise _api.FormError("音量は 0〜1 です")
+        rate = body.get("rate", cur["rate"])
+        if rate not in PLAYER_RATES:
+            raise _api.FormError("再生速度は 0.25〜2 の段のどれかです")
+        muted = body.get("muted", cur["muted"])
+        if not isinstance(muted, bool):
+            raise _api.FormError("消音はオンかオフです")
+        got = {"volume": round(float(vol), 2), "muted": muted, "rate": rate}
+        _fsio.write_json(os.path.join(self.places["friend"], PLAYER_NAME), got)
+        return got
 
     def set_palette(self, name):
         if name not in PALETTES:

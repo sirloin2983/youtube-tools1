@@ -177,7 +177,24 @@
     <div id="rcvPlayer" class="fr-player" hidden>
       <div class="fr-player-main">
         <button type="button" class="btn ghost small fr-back" id="btnPlayerBack" title="一覧へ戻る(Esc)">← 一覧へ</button>
-        <video id="playerVideo" class="fr-video" controls preload="metadata"></video>
+        <video id="playerVideo" class="fr-video" preload="metadata" playsinline></video>
+        <!-- 操作の帯(YouTube 風・配色の変数で色を付ける。音量と速度は玄関が覚える = receive.js) -->
+        <div class="fr-pbar" id="pbar" role="group" aria-label="再生の操作">
+          <button type="button" class="fr-pbtn" id="pPlay" aria-label="再生(Space)" title="再生(Space)"></button>
+          <div class="fr-seek" id="pSeek" role="slider" tabindex="0" aria-label="再生位置" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0">
+            <div class="fr-seek-track"><div class="fr-seek-buf" id="pBuf"></div><div class="fr-seek-done" id="pDone"></div></div>
+            <div class="fr-seek-knob" id="pKnob"></div>
+            <div class="fr-seek-tip" id="pTip" hidden></div>
+          </div>
+          <span class="fr-ptime" id="pTime">0:00 / 0:00</span>
+          <button type="button" class="fr-pbtn" id="pMute" aria-label="消音" title="消音"></button>
+          <input type="range" class="fr-pvol" id="pVol" min="0" max="1" step="0.05" aria-label="音量(↑ ↓)" title="音量(↑ ↓)">
+          <label class="fr-prate-l"><span class="fr-sr">再生速度</span>
+            <select class="fr-prate" id="pRate" aria-label="再生速度" title="再生速度">
+              <option value="0.25">0.25</option><option value="0.5">0.5</option><option value="0.75">0.75</option><option value="1">標準</option>
+              <option value="1.25">1.25</option><option value="1.5">1.5</option><option value="1.75">1.75</option><option value="2">2</option>
+            </select></label>
+        </div>
         <div class="fr-novideo" id="playerNoVideo" hidden><p>確認用の動画はまだありません(作っている途中か、取ってきている途中です)。<br>[受け取る] を押すと、見ずに保存先に入れます。</p></div>
         <h2 class="fr-player-title" id="playerTitle"></h2>
         <div class="fr-player-meta" id="playerMeta"></div>
