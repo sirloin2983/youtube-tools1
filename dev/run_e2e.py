@@ -52,7 +52,8 @@ SUITE = [
     ("studio", "src/studio/tests/e2e_analyze.py", [], "解析の通し(合成の音声とチャット。Playwright なし)(14 秒)"),
     ("ui-kit", "src/ui-kit/tests/e2e_styleguide.py", [], "ui-kit の見本(部品の動き・版の帯・録画中の札・http)(16 秒)"),
     # 友人の受信箱(src/friendapp/tests/。玄関を一時フォルダに起こす・② と外の口は偽物)
-    ("friend", "src/friendapp/tests/e2e_friend_inbox.py", [], "友人の受信箱: 送る → 送った → 作っている → 届いた → 受け取る・要らない(確認)→ 行が消える・outbox の .verdict.json・失敗の [もう一度送る](約 22 秒)"),
+    ("friend", "src/friendapp/tests/e2e_friend_send.py", [], "友人の送る: 一覧のカード → 区間 2 つ → 送る → 順番待ち・進み具合 → 取り消す(確認)・URL を貼る・失敗の [もう一度送る]・録画中の [録画を取り消す]・Esc(約 13 秒)"),
+    ("friend", "src/friendapp/tests/e2e_friend_receive.py", [], "友人の受け取る: 段・通し番号 → 再生(速度・音量を覚える)→ 受け取る・見送る・戻す・まとめて見送る・判断の記録 v2(約 5 秒)"),
 ]
 # リポジトリにあるが一式に入れない e2e(理由は先頭の説明)
 NOT_IN_SUITE = {
