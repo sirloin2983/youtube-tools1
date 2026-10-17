@@ -186,8 +186,39 @@ namespace FriendInbox
             }
         }
 
+        // 写真の手順のファイル(YTT_FRIEND_SHOT_STEPS=<JSON>。F3-B の関所 = 送る・受け取るの場面を本物の窓で撮る):
+        // [{"w"・"h": 窓の大きさ(省略可), "js": 画面で流す JavaScript(省略可), "wait": その後に待つ ms(省略 = 800), "shot": 書く PNG の名前(省略可)}, …]。終わったら止める
+        public static readonly string StepFile = Environment.GetEnvironmentVariable("YTT_FRIEND_SHOT_STEPS");
+
+        async Task TakeStepShots()
+        {
+            try
+            {
+                Directory.CreateDirectory(ShotDir);
+                await Task.Delay(3000);
+                var steps = new System.Web.Script.Serialization.JavaScriptSerializer { MaxJsonLength = 1 << 24 }.DeserializeObject(File.ReadAllText(StepFile, Encoding.UTF8)) as object[];
+                foreach (var o in steps ?? new object[0])
+                {
+                    var d = o as System.Collections.Generic.Dictionary<string, object>;
+                    if (d == null) continue;
+                    object js, wait, shot, w, h;
+                    if (d.TryGetValue("w", out w) && w is int && d.TryGetValue("h", out h) && h is int) Size = new Size((int)w, (int)h);   // 狭い幅の形
+                    if (d.TryGetValue("js", out js) && js is string) await view.CoreWebView2.ExecuteScriptAsync((string)js);
+                    await Task.Delay(d.TryGetValue("wait", out wait) && wait is int ? (int)wait : 800);
+                    if (d.TryGetValue("shot", out shot) && shot is string) Capture(this, Path.GetFileName((string)shot));
+                }
+                Log.Write("手順の写真を書きました: " + ShotDir);
+            }
+            catch (Exception ex)
+            {
+                Log.Write("手順の写真に失敗: " + ex);
+            }
+            StopAll();
+        }
+
         async Task TakeShots()
         {
+            if (!string.IsNullOrEmpty(StepFile)) { await TakeStepShots(); return; }
             try
             {
                 Directory.CreateDirectory(ShotDir);
