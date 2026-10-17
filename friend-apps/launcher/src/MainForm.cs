@@ -9,6 +9,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using FriendApps;
 using Microsoft.Web.WebView2.Core;
@@ -48,7 +49,13 @@ namespace FriendInbox
             Text = Rules.AppTitle;
             MinimumSize = new Size(720, 480);
             RestoreBounds_();
-            if (NoActivate) WindowState = FormWindowState.Minimized;   // 開発の PC の確かめ(テストで人の画面を取らない)
+            if (ShotDir != null)   // 写真を撮るとき: 画面の外に 1280×800 で出す(人の画面を取らない・タスクバーにも出さない)
+            {
+                StartPosition = FormStartPosition.Manual;
+                Bounds = new Rectangle(SystemInformation.VirtualScreen.Right + 200, 0, 1280, 800);
+                ShowInTaskbar = false;
+            }
+            else if (NoActivate) WindowState = FormWindowState.Minimized;   // 開発の PC の確かめ(テストで人の画面を取らない)
             tray.Icon = appIcon;
             tray.Text = Rules.TrayText(null, false);
             tray.Visible = true;
@@ -100,7 +107,9 @@ namespace FriendInbox
         }
 
         // 開発の PC で確かめるときだけ: 最小化で出し、前に出さない(YTT_FRIEND_NOACTIVATE=1)
-        static readonly bool NoActivate = Environment.GetEnvironmentVariable("YTT_FRIEND_NOACTIVATE") == "1";
+        // 写真を撮るときだけ: YTT_FRIEND_SHOTS=<フォルダ>(画面の外で起こし、場面ごとに PNG を書いて終わる = 関所で人に見せる用)
+        public static readonly string ShotDir = Environment.GetEnvironmentVariable("YTT_FRIEND_SHOTS");
+        static readonly bool NoActivate = Environment.GetEnvironmentVariable("YTT_FRIEND_NOACTIVATE") == "1" || ShotDir != null;
 
         protected override bool ShowWithoutActivation { get { return NoActivate; } }
 
@@ -117,7 +126,7 @@ namespace FriendInbox
             try
             {
                 string udf = Path.Combine(friendDir, "webview2");
-                env = await CoreWebView2Environment.CreateAsync(null, udf, new CoreWebView2EnvironmentOptions("--disable-features=msSmartScreenProtection"));
+                env = await CoreWebView2Environment.CreateAsync(null, udf, new CoreWebView2EnvironmentOptions(ShotDir != null ? "--disable-features=msSmartScreenProtection,CalculateNativeWinOcclusion" : "--disable-features=msSmartScreenProtection"));
                 await view.EnsureCoreWebView2Async(env);
             }
             catch (Exception ex)
@@ -138,7 +147,90 @@ namespace FriendInbox
             core.NewWindowRequested += OnNewWindow;
             core.WebMessageReceived += OnMessage;
             core.ProcessFailed += (s, a) => { Log.Write("画面の処理が落ちました: " + a.ProcessFailedKind); BeginInvoke((Action)Reload); };
+            if (ShotDir != null)
+            {
+                bool started = false;
+                core.NavigationCompleted += async (s, a) => { if (started) return; started = true; await TakeShots(); };
+            }
             Reload();
+        }
+
+        // ---- 関所の写真(YTT_FRIEND_SHOTS)。窓は画面の外・前に出さない
+        [DllImport("user32.dll")]
+        static extern bool PrintWindow(IntPtr hwnd, IntPtr hdc, uint flags);
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct RECT { public int Left, Top, Right, Bottom; }
+
+        [DllImport("user32.dll")]
+        static extern bool GetWindowRect(IntPtr hwnd, out RECT r);
+
+        [DllImport("dwmapi.dll")]
+        static extern int DwmGetWindowAttribute(IntPtr hwnd, int attr, out RECT r, int size);
+
+        static void Capture(Control c, string name)
+        {
+            using (var bmp = new Bitmap(c.Width, c.Height))
+            {
+                using (var g = Graphics.FromImage(bmp))
+                {
+                    IntPtr hdc = g.GetHdc();
+                    PrintWindow(c.Handle, hdc, 2);   // PW_RENDERFULLCONTENT(WebView2 の中身も)
+                    g.ReleaseHdc(hdc);
+                }
+                var crop = new Rectangle(Point.Empty, bmp.Size);
+                RECT win, vis;
+                if (GetWindowRect(c.Handle, out win) && DwmGetWindowAttribute(c.Handle, 9, out vis, Marshal.SizeOf(typeof(RECT))) == 0)   // DWMWA_EXTENDED_FRAME_BOUNDS
+                    crop = Rectangle.Intersect(crop, new Rectangle(vis.Left - win.Left, vis.Top - win.Top, vis.Right - vis.Left, vis.Bottom - vis.Top));
+                using (var cut = bmp.Clone(crop, bmp.PixelFormat)) cut.Save(Path.Combine(ShotDir, name), System.Drawing.Imaging.ImageFormat.Png);
+            }
+        }
+
+        async Task TakeShots()
+        {
+            try
+            {
+                Directory.CreateDirectory(ShotDir);
+                await Task.Delay(3000);
+                Capture(this, "f1-start.png");
+                using (var big = new Bitmap(appIcon.ToBitmap(), 128, 128)) big.Save(Path.Combine(ShotDir, "f2-tray-icon.png"), System.Drawing.Imaging.ImageFormat.Png);
+                var menu = tray.ContextMenuStrip;
+                menu.CreateControl();
+                menu.PerformLayout();
+                using (var mb = new Bitmap(Math.Max(1, menu.PreferredSize.Width), Math.Max(1, menu.PreferredSize.Height)))
+                {
+                    menu.Size = menu.PreferredSize;
+                    menu.DrawToBitmap(mb, new Rectangle(Point.Empty, mb.Size));
+                    mb.Save(Path.Combine(ShotDir, "f3-tray-menu.png"), System.Drawing.Imaging.ImageFormat.Png);
+                }
+                var work = new HostState { Making = 2, Recording = 1, Waiting = 1, Reserved = 1, ArchiveWait = 1 };
+                var setupOnly = new HostState { Setup = true };
+                File.WriteAllText(Path.Combine(ShotDir, "f-texts.txt"),
+                    "アイコンに乗せたとき(作業中):\r\n" + Rules.TrayText(work, false) + "\r\n\r\nアイコンに乗せたとき(裏で続けている・作業なし):\r\n" +
+                    Rules.TrayText(new HostState(), true) + "\r\n\r\n窓のタイトル(●n = 3):\r\n" + Rules.Title(3) + "\r\n", new UTF8Encoding(true));
+                await ShotConfirm(work, "f4-confirm-working.png");
+                await ShotConfirm(setupOnly, "f5-confirm-setup.png");
+                await view.CoreWebView2.ExecuteScriptAsync("var b=document.getElementById('btnSettings'); if(b) b.click();");
+                await Task.Delay(1500);
+                Capture(this, "f6-settings.png");
+                Log.Write("関所の写真を書きました: " + ShotDir);
+            }
+            catch (Exception ex)
+            {
+                Log.Write("関所の写真に失敗: " + ex);
+            }
+            StopAll();
+        }
+
+        async Task ShotConfirm(HostState st, string name)
+        {
+            using (var dlg = new ConfirmForm(Rules.ConfirmText(st), appIcon) { StartPosition = FormStartPosition.Manual, Location = new Point(SystemInformation.VirtualScreen.Right + 200, 900) })
+            {
+                dlg.Show();
+                await Task.Delay(500);
+                Capture(dlg, name);
+                dlg.Close();
+            }
         }
 
         // 今の番号の画面を読み込み直す(Python を起こし直したとき・初めて)。合言葉を足す範囲もその番号に付け替える
@@ -497,7 +589,7 @@ namespace FriendInbox
             }
         }
 
-        // アプリの絵(赤い角丸に白い再生の三角。アイコンの部品を持たないので描く)
+        // アプリの絵(青い角丸に白い三角。アイコンの部品を持たないので描く)
         static Icon MakeAppIcon()
         {
             using (var bmp = new Bitmap(32, 32, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
@@ -510,7 +602,7 @@ namespace FriendInbox
                     path.AddArc(2, 5, 8, 8, 180, 90); path.AddArc(22, 5, 8, 8, 270, 90);
                     path.AddArc(22, 19, 8, 8, 0, 90); path.AddArc(2, 19, 8, 8, 90, 90);
                     path.CloseFigure();
-                    using (var b = new SolidBrush(Color.FromArgb(204, 32, 40))) g.FillPath(b, path);
+                    using (var b = new SolidBrush(Color.FromArgb(37, 99, 199))) g.FillPath(b, path);
                 }
                 g.FillPolygon(Brushes.White, new[] { new Point(13, 10), new Point(22, 16), new Point(13, 22) });
                 return Icon.FromHandle(bmp.GetHicon());
@@ -580,6 +672,8 @@ namespace FriendInbox
     // 止めるときの確認(作業中・預かりがあるときだけ)。[裏で続ける](初めから選んだ状態)= Retry / [止めて閉じる] = Abort / ×・Esc = Cancel(何もしない)
     public sealed class ConfirmForm : Form
     {
+        protected override bool ShowWithoutActivation { get { return MainForm.ShotDir != null; } }   // 写真を撮るときは前に出さない
+
         public ConfirmForm(string text, Icon icon)
         {
             Text = Rules.AppTitle;
@@ -590,19 +684,20 @@ namespace FriendInbox
             StartPosition = FormStartPosition.CenterParent;
             Font = new Font("Yu Gothic UI", 10f);
             AutoScaleMode = AutoScaleMode.Dpi;
-            var msg = new Label { Text = text, AutoSize = true, MaximumSize = new Size(460, 0), Location = new Point(20, 18) };
-            var keep = new Button { Text = "裏で続ける", DialogResult = DialogResult.Retry, AutoSize = true, MinimumSize = new Size(130, 34) };
-            var stop = new Button { Text = "止めて閉じる", DialogResult = DialogResult.Abort, AutoSize = true, MinimumSize = new Size(130, 34) };
-            var row = new FlowLayoutPanel { FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Dock = DockStyle.Bottom, Padding = new Padding(12) };
-            row.Controls.Add(stop);
-            row.Controls.Add(keep);
+            var msg = new Label { Text = text, AutoSize = true, MaximumSize = new Size(480, 0), Location = new Point(20, 18) };
+            var keep = new Button { Text = "裏で続ける", DialogResult = DialogResult.Retry, AutoSize = true, MinimumSize = new Size(140, 36) };
+            var stop = new Button { Text = "止めて閉じる", DialogResult = DialogResult.Abort, AutoSize = true, MinimumSize = new Size(140, 36) };
             Controls.Add(msg);
-            Controls.Add(row);
+            Controls.Add(keep);
+            Controls.Add(stop);
+            Size text_ = msg.GetPreferredSize(new Size(480, 0));
+            int w = Math.Max(text_.Width, keep.PreferredSize.Width + stop.PreferredSize.Width + 12) + 40;
+            int y = 18 + text_.Height + 20;
+            stop.Location = new Point(w - 20 - stop.PreferredSize.Width, y);
+            keep.Location = new Point(stop.Left - 12 - keep.PreferredSize.Width, y);
+            ClientSize = new Size(w, y + Math.Max(keep.PreferredSize.Height, 36) + 18);
             AcceptButton = keep;
             CancelButton = null;
-            AutoSize = true;
-            AutoSizeMode = AutoSizeMode.GrowAndShrink;
-            Padding = new Padding(0, 0, 20, 0);
             Shown += delegate { keep.Focus(); };
         }
 
