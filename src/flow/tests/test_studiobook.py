@@ -332,6 +332,25 @@ class BuildSpecTest(Base):
                     E.build_spec(ledger, req)
                 self.assertEqual(cm.exception.code, "no_file")
 
+    def test_long_request_range_reaches_export(self):
+        """友人の依頼の区間 1 つの長さは上限なし(C-2-7・C-5-5): 3 時間の区間が 束の受付 → 採用(マーク)→ 読み直し → 書き出しの指示 まで通る。
+        本物の ffmpeg・yt-dlp は動かさない(書き出しは指定を組むところまで)"""
+        from flow import spec as S
+        b = S.validate(S.merge({"hints": {"ranges": [[600, 600 + 3 * 3600]]}, "adopt": {"top": 1}}))
+        ranges = S.hint_ranges(b, 5 * 3600.0)
+        self.assertEqual(ranges, [[598.0, 11402.0]])   # 前後に adopt.pad(2 秒)の余白。長さで余白を減らさない
+        self.book.ensure({"kind": "youtube", "videoId": VID, "name": VID}, "題", "ch")
+        r = self.book.adopt_marks(VID, ranges, b["adopt"]["top"])
+        self.assertEqual(len(r["rangeIds"]), 1)
+        book2 = SB.StudioBook(self.data, out_dir=lambda: self.out)   # 読み直しても残る(保存済みのマークの読み込みは長さを見ない)
+        for ledger in (book2, self.studio()):
+            m = next(x for x in ledger.internal(VID)["marks"] if x["id"] == r["rangeIds"][0])
+            self.assertEqual((m["start"], m["end"], m["status"]), (598.0, 11402.0, "adopted"))
+        body = S.export_body(b, VID, r["rangeIds"])
+        with mock.patch.object(_exporter, "_need_ffmpeg"), mock.patch.object(_exporter, "_youtube_source"):
+            spec = E.build_spec(book2, body)
+        self.assertEqual([(c["id"], c["start"], c["end"]) for c in spec["clips"]], [(r["rangeIds"][0], 598.0, 11402.0)])
+
     def test_unknown_video_is_not_found(self):
         with self.assertRaises(errors.ApiError) as cm:
             E.build_spec(self.book, {"id": "zzzzzzzzzzz", "markIds": ["m"]})

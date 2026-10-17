@@ -29,6 +29,17 @@ class TestCheckTimes(unittest.TestCase):
             with self.assertRaises(M.BadMark, msg=(a, b)):
                 M.check_times(a, b)
 
+    def test_limit(self):
+        """長さの上限は人が付けるマークだけ(既定 MAX_MARK_SEC)。None = 見ない(友人の依頼の区間)"""
+        self.assertEqual(M.check_times(0, 3600), (0.0, 3600.0))
+        self.assertEqual(M.check_times(0, 3 * 3600, None), (0.0, 10800.0))
+        self.assertEqual(M.check_times(0, 100, 100.0), (0.0, 100.0))
+        with self.assertRaises(M.BadMark):
+            M.check_times(0, 101, 100.0)
+        for a, b in [(-1, 5), (5, 5), (0, 1e9)]:   # 開始 < 終了・巨大な値は上限なしでも断る
+            with self.assertRaises(M.BadMark, msg=(a, b)):
+                M.check_times(a, b, None)
+
     def test_clamp_end(self):
         self.assertEqual(M.clamp_end(600, 10, 700), 600.0)
         self.assertEqual(M.clamp_end(0, 10, 700), 700)       # 長さが分からなければ切らない
@@ -49,6 +60,22 @@ class TestBuildMark(unittest.TestCase):
         m = auto_mark(10, 40, reasons=["音量"] * 9, parts={"audio": 1.234, "x": 3}, peak=11.26)
         self.assertEqual((m["src"], m["score"], m["auto0"], m["peak"]), ("auto", 5.0, [10.0, 40.0], 11.3))
         self.assertEqual((len(m["reasons"]), m["parts"]), (6, {"audio": 1.23}))
+
+    def test_long_marks(self):
+        """友人の依頼の長い区間のマーク(new_mark の limit=None): 読み込み(trusted)は長さを見ない・画面の保存は前の長さまで通す。
+        人が新しく付ける・前より長くするマークは今までどおり 60 分まで"""
+        long = M.new_mark("r", 600, 600 + 3 * 3600, "adopted", limit=None)
+        self.assertEqual((long["start"], long["end"]), (600.0, 11400.0))
+        with self.assertRaises(M.BadMark):
+            M.new_mark("c", 0, 3601)   # 既定は 60 分まで(コラボの転写・解析の候補)
+        self.assertEqual(M.load_marks([long]), [long])
+        kept = M.validate_marks([dict(long, label="長い区間")], [long])   # 画面から同じ区間のまま保存できる
+        self.assertEqual((kept[0]["end"], kept[0]["label"]), (11400.0, "長い区間"))
+        shrunk = M.validate_marks([dict(long, start=700)], [long])        # 縮めるのもよい
+        self.assertEqual(shrunk[0]["start"], 700.0)
+        for bad in ([dict(long, end=11500)], [{"id": "new1", "start": 0, "end": 3601}]):   # 前より長く・新しく 60 分を超える = 断る
+            with self.assertRaises(M.ApiError, msg=bad):
+                M.validate_marks(bad, [long])
 
     def test_exported_moved_goes_back_to_adopted(self):
         old = M.build_mark({"id": "a1", "start": 10, "end": 40, "status": "exported", "file": "f/a.mp4", "path": "C:/x/a.mp4"}, None, True)

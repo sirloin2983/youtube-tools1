@@ -256,6 +256,16 @@ def _ffmpeg_run(cmd, timeout, task=None, duration=None):
     return subprocess.CompletedProcess(cmd, code, "\n".join(out), "\n".join(err))
 
 
+def span_timeout(base, sec, per_sec):
+    """長さ sec 秒の動画を扱う ffmpeg の時間の上限(秒)= base と sec × per_sec の大きいほう(sec が分からなければ base)。
+    友人の依頼の区間は長さの上限なし(要件 C-2-7・C-5-5)なので、3 時間の切り抜きでも決まった秒数で切れないように長さに合わせて延ばす"""
+    try:
+        sec = float(sec)
+    except (TypeError, ValueError):
+        return base
+    return max(base, sec * per_sec) if math.isfinite(sec) and sec > 0 else base
+
+
 def _ffmpeg_script(script, opts, make_cmd, timeout, task=None, duration=None):
     """フィルタをファイルで渡して ffmpeg を動かす(区間が多くても Windows のコマンド長の制限に当たらないように)。-> 最後の結果。
     opts: フィルタのファイルを渡すオプションの名前の候補。新しい ffmpeg では -filter_complex_script が -/filter_complex に
@@ -293,7 +303,7 @@ def detect_silence(video, fps, total, noise_db=DEFAULT_NOISE_DB, min_sec=DEFAULT
     cmd = [S.tool("ffmpeg"), "-hide_banner", "-nostdin", "-nostats", "-i", S.arg_path(video), "-map", "0:a:0", "-vn", "-sn", "-dn",
            "-af", f"silencedetect=noise={noise_db}dB:d={min_sec}", "-f", "null", "-"]
     total_sec = frames_to_sec(total, fps)
-    r = _ffmpeg_run(cmd, 3600, task, total_sec)
+    r = _ffmpeg_run(cmd, span_timeout(3600, total_sec, 1.0), task, total_sec)
     if r.returncode != 0:
         raise ToolError("無音の検出に失敗しました(音声が無い動画かもしれません): " + (r.stderr or "").strip()[-200:])
     spans, cur = [], None
@@ -460,7 +470,7 @@ def render_rough_cut(video, keeps, fps, has_audio, out_path, crf=DEFAULT_CRF, ta
         out_opts += ["-movflags", "+faststart", "-f", "mp4", tmp]
         r = _ffmpeg_script(";\n".join(chains), ("-filter_complex_script", "-/filter_complex"),
                            lambda opt, sp: [S.tool("ffmpeg"), "-y", "-nostdin", "-v", "error", "-i", S.arg_path(video), opt, sp] + out_opts,
-                           7200, task, kept_sec)
+                           span_timeout(7200, kept_sec, 3.0), task, kept_sec)
         if r.returncode != 0:
             raise ToolError("粗編集の動画を書き出せませんでした: " + (r.stderr or "").strip()[-300:])
 
@@ -616,7 +626,7 @@ def measure_loudness(video, spans_sec=None, task=None, duration=None):
     sel = _loud.select_filter(spans_sec)
     r = _ffmpeg_script((sel + "," if sel else "") + "loudnorm=print_format=json", ("-filter_script:a", "-/af"),
                        lambda opt, sp: [S.tool("ffmpeg"), "-nostdin", "-hide_banner", "-i", S.arg_path(video), "-vn", opt, sp, "-f", "null", "-"],
-                       3600, task, duration)
+                       span_timeout(3600, duration, 1.0), task, duration)
     if r.returncode != 0:
         raise ToolError("音量を測れませんでした: " + (r.stderr or "").strip()[-300:])
     return _loud.parse(r.stderr or "")
@@ -640,7 +650,7 @@ def copy_video_gain(video, dst, gain_db, task=None, duration=None, meta=None):
     ext = dst.suffix.lower()
     opts = _gain_copy_opts(video, ext, gain_db, meta)
     with S.staged(dst, ext or ".mp4") as tmp:
-        r = _ffmpeg_run([S.tool("ffmpeg"), "-y", "-nostdin", "-v", "error", "-i", S.arg_path(video)] + opts + [tmp], 7200, task, duration)
+        r = _ffmpeg_run([S.tool("ffmpeg"), "-y", "-nostdin", "-v", "error", "-i", S.arg_path(video)] + opts + [tmp], span_timeout(7200, duration, 2.0), task, duration)
         if r.returncode != 0:
             raise ToolError("音量をそろえた動画を書き出せませんでした: " + (r.stderr or "").strip()[-300:])
     return dst

@@ -21,7 +21,8 @@ from ytt import marks as _marks, schemas
 
 # ---------- 区間・マーク・採用数・重みの検査(autorun.py から移した) ----------
 RANGE_MAX = _marks.MAX_REQUEST_RANGES   # 1本の配信の区間の数(スタジオと同じ = ytt/marks)
-RANGE_MAX_SEC = _marks.MAX_MARK_SEC     # 1つの区間の長さ(スタジオと同じ = ytt/marks)
+# 1 つの区間の長さは上限なし(友人の依頼の要件 C-2-7・C-5-5。2026-10-17 に RANGE_MAX_SEC = 60 分を消した。人が付けるマークの 60 分は ytt/marks のまま)
+PAD_MAX = 3600           # 区間の前後の余白(束の adopt.pad)の上限(秒。前の RANGE_MAX_SEC と同じ値)
 MARGIN_DEFAULT, MARGIN_MAX = _marks.CLIP_MARGIN_DEFAULT, _marks.CLIP_MARGIN_MAX   # 切り抜きの前後の余白(LD-2f。ytt/marks)
 RANGE_TIME_MAX = 360000  # 区間の時刻の上限(秒 = 100 時間。これより後は形が違う扱い。友人の受付の検査から)
 RANGE_PAD = 2.0          # 区間の前後に足す秒(ぴったり指定すると頭の一言が欠けやすいため。2026-10-02 ユーザー決定: 自動で付ける。RS1-7 で autorun.py から)
@@ -56,7 +57,7 @@ def _hms(sec):
 
 def check_range(r):
     """区間 1 つ (開始, 終了)(秒)を確かめる(理由つきの検査。opt-human 9b-2)。-> (小数 1 桁に丸めた (開始, 終了) か None, 断った理由)。
-    時刻は 0〜RANGE_TIME_MAX 秒・開始 < 終了・長さ RANGE_MAX_SEC 秒まで。丸めたあと長さ 0 になる区間(0.01〜0.04 など)も断る。
+    時刻は 0〜RANGE_TIME_MAX 秒・開始 < 終了(長さの上限なし = 要件 C-2-7・C-5-5)。丸めたあと長さ 0 になる区間(0.01〜0.04 など)も断る。
     友人の受付(③ human/friend/intake.parse_ranges)と束の検査 clean_ranges が同じこれを使う"""
     s, e = r if isinstance(r, (list, tuple)) and len(r) == 2 else (None, None)
     if not all(num_ok(x) and 0 <= x <= RANGE_TIME_MAX for x in (s, e)):
@@ -66,8 +67,6 @@ def check_range(r):
         return None, "区間 %s〜%s: 終了が開始より前です" % (_hms(s), _hms(e))
     if b <= a:
         return None, "区間 %s〜%s: 短すぎます(0.1 秒より長くしてください)" % (_hms(s), _hms(e))
-    if b - a > RANGE_MAX_SEC:
-        return None, "区間 %s〜%s: 1つの区間は %d 分までです" % (_hms(s), _hms(e), RANGE_MAX_SEC // 60)
     return (a, b), ""
 
 
@@ -107,8 +106,7 @@ def clean_ranges(v):
 
 
 def pad_range(s, e, duration=None, pad=RANGE_PAD):
-    """友人が入れた区間の前後に余白 pad 秒(束の adopt.pad)を足す(0 より前・動画の長さより後には出さない。長さの上限を超えるときは余白を減らす)"""
-    pad = min(pad, max(0.0, (RANGE_MAX_SEC - (e - s)) / 2))
+    """友人が入れた区間の前後に余白 pad 秒(束の adopt.pad)を足す(0 より前・動画の長さより後には出さない。区間の長さの上限は無い)"""
     a, b = max(0.0, s - pad), e + pad
     if duration and duration > 0:
         b = min(b, float(duration))
@@ -419,7 +417,7 @@ _WRAP_ORIENT = {"vertical": _int_in(0, 40), "horizontal": _int_in(0, 40)}   # 0 
 
 # 節 -> 項目 -> (検査, 直し方の言い方)。範囲は検査の元になったコードの値(出どころは DEFAULTS の横の注)
 SCHEMA = {
-    "hints": {"ranges": (_ranges_ok, "区間の一覧 [[開始秒, 終了秒], …](%d 個まで・1 つ %d 秒まで)" % (RANGE_MAX, RANGE_MAX_SEC)),
+    "hints": {"ranges": (_ranges_ok, "区間の一覧 [[開始秒, 終了秒], …](%d 個まで・時刻は 0〜%d 秒・長さの上限なし)" % (RANGE_MAX, RANGE_TIME_MAX)),
               "people": (_people_ok, "[{name, color?}] の並びか {count: 1〜10}"),
               "streamer": (_streamer_ok, "null か %d 字までの名前(空 = 色なし)" % STREAMER_MAX)},
     "analyze": {"useAudio": (_is_bool, "true か false"), "useChat": (_is_bool, "true か false"), "useComments": (_is_bool, "true か false"),
@@ -429,7 +427,7 @@ SCHEMA = {
                 "preRatio": (_num_in(0.3, 0.9), "0.3〜0.9 の数"), "headSec": (_num_in(0, 600), "0〜600 の数(秒)"),
                 "lagAuto": (_is_bool, "true か false"), "lag": (_num_in(0, 30), "0〜30 の数(秒)"),
                 "chatTimeout": (_int_in(1, 120), "1〜120 の整数(秒)")},
-    "adopt": {"top": (_top_ok, "1〜30 の整数"), "pad": (_num_in(0, RANGE_MAX_SEC), "0〜%d の数(秒)" % RANGE_MAX_SEC),
+    "adopt": {"top": (_top_ok, "1〜30 の整数"), "pad": (_num_in(0, PAD_MAX), "0〜%d の数(秒)" % PAD_MAX),
               "perHour": (_int_in(1, 30), "1〜30 の整数"), "waitMin": (_int_in(1, 60), "1〜60 の整数(分)"),
               "sens": (_one_of("high", "normal", "low"), "high・normal・low のどれか"), "afterStream": (_is_bool, "true か false")},
     "export": {"loudness": (_or_none(_one_of(*_LUFS)), "null か %s のどれか" % "・".join(map(str, _LUFS))),

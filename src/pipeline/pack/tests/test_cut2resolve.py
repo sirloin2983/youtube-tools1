@@ -124,6 +124,33 @@ class TestTimeAndLists(unittest.TestCase):
             C.tc_to_frames("00:00:00:30", 30)  # フレーム部が範囲外
 
 
+class TestLongClipTimeouts(unittest.TestCase):
+    """友人の依頼の区間は長さの上限なし(C-2-7・C-5-5)= 3 時間の切り抜きでも ffmpeg を決まった秒数で切らない"""
+
+    def test_span_timeout(self):
+        self.assertEqual(C.span_timeout(3600, 600, 1.0), 3600)          # 短い切り抜きは今までの値
+        self.assertEqual(C.span_timeout(7200, 3 * 3600, 3.0), 32400)     # 長いものは長さに合わせて延ばす
+        for unknown in (None, 0, -5, float("nan"), "x"):
+            self.assertEqual(C.span_timeout(7200, unknown, 3.0), 7200, unknown)
+
+    def test_preview_timeout_follows_length(self):
+        from unittest import mock
+        from pipeline.pack import preview as PV
+        d = Path(tempfile.mkdtemp(prefix="ytt_pv_"))
+        self.addCleanup(shutil.rmtree, d, True)
+        video = d / "clip.mp4"
+        video.write_bytes(b"\0")
+        got = []
+        with mock.patch.object(PV.normalize, "probe", return_value={"has_audio": True, "duration": 3 * 3600.0}), \
+                mock.patch.object(PV, "_run_ffmpeg", side_effect=lambda args, timeout, check: (got.append(timeout), (1, "x"))[1]):
+            self.assertFalse(PV.make_preview(str(video), str(d / "p.mp4"), ffmpeg="ffmpeg"))
+        self.assertEqual(got, [3 * 3600 * PV.PREVIEW_PER_SEC])
+        with mock.patch.object(PV.normalize, "probe", return_value={"has_audio": False, "duration": 60.0}), \
+                mock.patch.object(PV, "_run_ffmpeg", side_effect=lambda args, timeout, check: (got.append(timeout), (1, "x"))[1]):
+            PV.make_preview(str(video), str(d / "p.mp4"), ffmpeg="ffmpeg")
+        self.assertEqual(got[-1], PV.PREVIEW_TIMEOUT)
+
+
 class TestRanges(unittest.TestCase):
     def test_normalize(self):
         self.assertEqual(C.normalize([(10, 20), (15, 30), (30, 40), (50, 50), (-5, 3), (90, 200)], 100),

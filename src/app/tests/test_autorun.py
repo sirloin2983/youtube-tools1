@@ -1996,11 +1996,12 @@ class TestRequests(Base):
     def test_range_helpers(self):
         self.assertEqual(A.pad_range(100, 190), [98.0, 192.0])
         self.assertEqual(A.pad_range(1, 30, 31.0), [0.0, 31.0])
-        self.assertEqual(A.pad_range(0, 3600), [0.0, 3600.0])        # 長さの上限いっぱいなら余白は足さない
-        self.assertEqual(A.pad_range(10, 3609), [9.5, 3609.5])       # 余白を減らして上限に収める
+        self.assertEqual(A.pad_range(0, 3600), [0.0, 3602.0])        # 区間の長さの上限は無い(C-2-7・C-5-5)= 余白はそのまま
+        self.assertEqual(A.pad_range(10, 3609), [8.0, 3611.0])
         self.assertEqual(A.clean_ranges(None), [])
         self.assertEqual(A.clean_ranges([[1, 2.26], (3, 4)]), [(1.0, 2.3), (3.0, 4.0)])
-        for bad in ("x", [[1]], [[2, 1]], [[0, 3601]], [[-1, 5]], [["1", 2]], [[True, 2]], [[i, i + 1] for i in range(11)]):
+        self.assertEqual(A.clean_ranges([[0, 3 * 3600]]), [(0.0, 10800.0)])
+        for bad in ("x", [[1]], [[2, 1]], [[0, 360001]], [[-1, 5]], [["1", 2]], [[True, 2]], [[i, i + 1] for i in range(11)]):
             with self.assertRaises(ValueError, msg=bad):
                 A.clean_ranges(bad)
         res = start_request(self.r, [{"id": VID, "top": 1, "ranges": [[5, 1]]}])

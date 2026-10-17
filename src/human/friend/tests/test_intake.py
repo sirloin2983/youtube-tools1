@@ -546,9 +546,9 @@ class TestVideo(Base):
     def test_ranges_cut_weights_from_app(self):
         """2.0.0 のアプリ: 時刻で指定した区間(配信ごと)・カット(① だけ)・解析の重みを、形を確かめてまとめて実行へ"""
         self.assertEqual(intake.parse_ranges(None), ([], []))
-        ok, bad = intake.parse_ranges([{"start": 10, "end": 20}, {"start": 5, "end": 5}, {"start": 0, "end": 3601}, {"start": "1", "end": 2}, "x",
-                                       {"start": True, "end": 2}, {"start": 10, "end": 20}])
-        self.assertEqual((ok, len(bad)), ([(10, 20)], 5))
+        ok, bad = intake.parse_ranges([{"start": 10, "end": 20}, {"start": 5, "end": 5}, {"start": 0, "end": 360001}, {"start": "1", "end": 2}, "x",
+                                       {"start": True, "end": 2}, {"start": 10, "end": 20}, {"start": 0, "end": 3 * 3600}])
+        self.assertEqual((ok, len(bad)), ([(10, 20), (0.0, 10800.0)], 5))   # 区間 1 つの長さは上限なし(C-2-7・C-5-5)
         self.assertEqual(len(intake.parse_ranges([{"start": i * 10, "end": i * 10 + 5} for i in range(12)])[0]), 10)
         ok, bad = intake.parse_ranges([{"start": 0.01, "end": 0.04}, {"start": 1.26, "end": 2}])   # 丸めたあと長さ 0 は断る(9b-2)・丸めた値で渡す
         self.assertEqual((ok, len(bad)), ([(1.3, 2.0)], 1))

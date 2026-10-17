@@ -59,7 +59,7 @@ import time
 from manage.cases import txindex
 from ytt import colors, datadir, settings as _settings
 from flow import spec as _spec  # noqa: E402  (指定の束の検査・既定値。RS1-6 で RANGE_MAX・clean_ranges・top_arg などをここへ移した。下で同じ名前で読み直す)
-from flow.spec import (CUTS, DEFAULT_TOP, LIVE_AUTO_CUT, MAX_MARKS, RANGE_MAX, RANGE_MAX_SEC, RANGE_PAD, TX_ENGINES, TX_MODEL_RE,  # noqa: E402,F401
+from flow.spec import (CUTS, DEFAULT_TOP, LIVE_AUTO_CUT, MAX_MARKS, RANGE_MAX, RANGE_PAD, TX_ENGINES, TX_MODEL_RE,  # noqa: E402,F401
                            WEIGHT_KEYS, clean_ranges, clean_weights, pad_range)
 from flow import machine as _machine  # noqa: E402  (この PC の設定 = 束に重ねる機械の都合。RS7-1 S1)
 from flow import lengthhint as _lengthhint  # noqa: E402  (友人の区間の長さの目安をその場で数える。OPT-E2 7f-1)
@@ -77,7 +77,7 @@ from human.friend import intake as intake_mod  # noqa: E402  (受付のフォル
 from human.friend import returns as returns_mod  # noqa: E402  (友人の PC で処理した依頼の配信 = 依頼済みの 3 つ目の引き方。D-SEND 2-9)
 from app import prefs as prefs_mod  # noqa: E402  (ホームの設定の既定値と範囲。読み書きは渡された Prefs で)
 
-# RANGE_MAX・RANGE_MAX_SEC・RANGE_PAD・pad_range・CUTS・TX_ENGINES・TX_MODEL_RE・WEIGHT_KEYS は src/flow/spec.py へ、
+# RANGE_MAX・RANGE_PAD・pad_range・CUTS・TX_ENGINES・TX_MODEL_RE・WEIGHT_KEYS は src/flow/spec.py へ、
 # MODES・MODE_STEPS・STEP_LABELS・Run・StepError など ① の経路は src/flow/run.py へ移した(上で読み直している)
 # 受付は ② の口 Queue.submit の 1 本だけ(RV A1。画面・友人の受付・CLI は欄を flow/order.py(画面は UIKit.flow.order)で封筒 + 束の差分にして submit)。
 # 一度に入れられる数は玄関の側(① 探す の 10 本・友人の受付の intake.MAX_URLS)

@@ -4,7 +4,7 @@
 送る欄(F3-3。notes:plan/f1-friend-requirements.md の C-2-6〜C-2-19):
     source         "url"(配信 1 本)/ "files"(動画ファイル。files = [{fileId, streamer}] を 20 まで。1 本 = 1 依頼の行)
     kind           url のとき "url"(アーカイブ)/ "live"(ライブ中・予定 = 録画を頼む・予約する)/ "wait"(終わったばかり = アーカイブ待ち。C-2-12)
-    ranges         区間 [[開始, 終了], …](秒。5 つまで。url・wait だけ)。区間があれば本数は区間の数
+    ranges         区間 [[開始, 終了], …](秒。5 つまで・1 つの長さの上限なし。url・wait だけ)。区間があれば本数は区間の数
     top            本数(区間が無いときだけ。1〜20。初め 5・前回の値 = C-2-8)
     streamer       配信者の札(名簿・打った名前。"" = 色なし)・people = [+ 人] で足したコラボの相手(字幕の色だけ)
     videoTracks    映像トラックの数 1〜5(送る欄・前回の値 = C-2-10)
@@ -105,15 +105,19 @@ def file_title(name):
 
 
 def clean_ranges(v):
-    """区間 [[開始, 終了], …] -> 整えた一覧(5 つまで。1 つの長さの上限は ② の決まりのまま = flow/spec)。違えば FormError"""
+    """区間 [[開始, 終了], …] -> 整えた一覧(5 つまで。1 つの長さの上限なし = C-2-7・C-5-5)。違えば FormError(どの区間がなぜ違うか)。
+    1 つずつの検査は ② flow/spec.check_range(時刻は 0〜100 時間・開始 < 終了・丸めて長さ 0 は断る)"""
     if v in (None, [], ()):
         return []
     if not isinstance(v, (list, tuple)) or len(v) > RANGES_MAX:
         raise FormError("区間は %d つまでです" % RANGES_MAX)
-    try:
-        return _spec.clean_ranges(v)
-    except ValueError as e:
-        raise FormError(str(e))
+    out = []
+    for r in v:
+        got, why = _spec.check_range(r)
+        if got is None:
+            raise FormError(why)
+        out.append(got)
+    return out
 
 
 class Api:

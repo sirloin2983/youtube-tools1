@@ -97,6 +97,15 @@ class TestAdoptRule(unittest.TestCase):
                 A.check_args(ranges, top)
         self.assertEqual(A.check_args([[1.04, 10.26]], 0), [(1.0, 10.3)])
 
+    def test_long_range_has_no_length_limit(self):
+        """友人の依頼の区間 1 つの長さは上限なし(C-2-7・C-5-5): 3 時間の区間もマークにする(人が付けるマークの 60 分は当てない)"""
+        want = A.check_args([[598, 598 + 3 * 3600 + 4]], 0)
+        self.assertEqual(want, [(598.0, 11402.0)])
+        r = A.adopt(self.marks, want, 0, 5 * 3600)
+        m = next(x for x in r["marks"] if x["id"] == r["rangeIds"][0])
+        self.assertEqual((m["start"], m["end"], m["status"], m["adoptedBy"]), (598.0, 11402.0, "adopted", "request"))
+        self.assertEqual(M.load_marks([m]), [m], "保存したあと読み直しても残る(読み込みは長さを見ない)")
+
 
 class TestFlowVerb(unittest.TestCase):
     """② flow/adopt: 理由を ApiError 400 にそろえる・kind live は通さない・配信の長さで切る"""

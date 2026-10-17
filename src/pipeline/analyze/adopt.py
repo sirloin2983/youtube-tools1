@@ -4,7 +4,8 @@
 保存は呼ぶ側(今はスタジオの Store.adopt_marks。② の flow/run.py の _step_adopt は今のまま HTTP の /api/video/request-marks を通す)。
 
 採用の集合 = 区間 ranges のマーク ∪ 人が採用したマーク ∪ 自動マークの点数の高い順(上限 top までの残り)。不採用と、前の 2 つに重なる自動マークは除く。
-- ranges = [[開始, 終了], …](秒)。同じ区間(±0.5 秒)のマークがあれば、それを使い回す(候補・不採用なら採用に戻す)。無ければ足す(区間は上限を超えても全部)
+- ranges = [[開始, 終了], …](秒)。同じ区間(±0.5 秒)のマークがあれば、それを使い回す(候補・不採用なら採用に戻す)。無ければ足す(区間は上限を超えても全部)。
+  区間 1 つの長さは上限なし(人が付けるマークの 60 分 = ytt/marks の MAX_MARK_SEC は当てない。要件 C-2-7・C-5-5)
 - 人が採用したマーク = 採用・書き出し済みで、機械が採用した印(adoptedBy)が無いもの
 - 自動の分は、前に機械が採用・書き出したもの(同じ配信の送り直し・再実行)も点数の順に数に入れ、候補(判定前)のものを採用にする
 - 機械が採用にしたマークには adoptedBy(区間 = "request"・自動の上位 = "auto")を付ける
@@ -28,7 +29,7 @@ def check_args(ranges, top):
         if not isinstance(r, (list, tuple)) or len(r) != 2:
             raise ValueError("区間の形が正しくありません([開始, 終了])")
         try:
-            want.append(_marks.check_times(r[0], r[1]))
+            want.append(_marks.check_times(r[0], r[1], None))   # 区間 1 つの長さは上限なし(友人の依頼。要件 C-2-7・C-5-5)
         except _marks.BadMark as e:
             raise ValueError("区間が正しくありません: %s" % e)
     return want
@@ -49,7 +50,7 @@ def adopt(marks, want, top, duration=None):
         if m is None:
             if len(marks) >= _marks.MAX_MARKS:
                 raise ValueError("マークは%d件までです" % _marks.MAX_MARKS)
-            m = _marks.new_mark("r", s, e, "adopted")
+            m = _marks.new_mark("r", s, e, "adopted", limit=None)
             m["adoptedBy"] = "request"
             marks.append(m)
             added.append(m["id"])

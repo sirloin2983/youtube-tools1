@@ -12,6 +12,9 @@ MarkStore)・束の検査(flow/spec.py)も、同じ区間の幅・長さの上�
   同じ場所 = ±SPOT_TOL(5 秒)以内で重なりが短いほうの半分以上(similar。人が消した候補の印の当て方。B3-3)
 - 手を入れた自動マーク = 判定した・ラベルあり・時刻を EDIT_TOL より動かした(touched。再解析で残す境目)
 - ライブの採用の使い回し = 同じ区間の最初のマーク(near_mark)・番号 = 開始の順の位置(order_of)(RS8 B3-5)
+- 長さの上限 MAX_MARK_SEC(60 分)は人が付ける・動かすマークだけ(画面の保存 validate_marks・解析の候補・コラボの転写・ライブ)。
+  友人の依頼の区間(採用の規則 F-5 の ranges = adoptedBy "request")は上限なし(要件 C-2-7・C-5-5。2026-10-17)。
+  保存済みのマークの読み込み(load_marks = trusted)は長さを見ない。画面の保存は、前からあるマークならその長さまでは通す(長い区間のマークを縮める・そのまま保存できる)
 """
 import math
 import operator
@@ -24,7 +27,7 @@ from ytt.errors import ApiError
 
 ID_RE = re.compile(r"^[\w-]{1,40}\Z", re.ASCII)   # マーク・配信・グループの id
 MAX_MARKS = 500
-MAX_MARK_SEC = 3600
+MAX_MARK_SEC = 3600     # 人が付けるマーク 1 つの長さの上限(秒。友人の依頼の区間には当てない = 上の説明)
 MAX_REQUEST_RANGES = 10  # 友人の依頼で1本の配信に指定できる区間の数(採用の規則 F-5 の ranges)
 MAX_TIME = 1e7          # 秒。これを超える値は不正(巨大な数値対策)
 PART_KEYS = ("audio", "chat", "comments")
@@ -99,8 +102,9 @@ def clamp_end(dur, s, e):
     return e if e > s else None
 
 
-def check_times(s_raw, e_raw):
-    """開始・終了(秒)を検査して、小数1桁に丸めた (start, end) を返す。不正なら BadMark(理由)。"""
+def check_times(s_raw, e_raw, limit=MAX_MARK_SEC):
+    """開始・終了(秒)を検査して、小数1桁に丸めた (start, end) を返す。不正なら BadMark(理由)。
+    limit = 長さの上限(秒。None = 見ない = 友人の依頼の区間・保存済みの読み込み)"""
     s, e = num_strict(s_raw), num_strict(e_raw)
     if s is None or e is None:
         raise BadMark("開始・終了が数値ではありません(または大きすぎます)")
@@ -109,9 +113,15 @@ def check_times(s_raw, e_raw):
     s, e = round(s, 1), round(e, 1)
     if e <= s:
         raise BadMark("終了が開始より後になっていません")
-    if e - s > MAX_MARK_SEC:
-        raise BadMark("長さが%d秒を超えています" % MAX_MARK_SEC)
+    if limit is not None and e - s > limit:
+        raise BadMark("長さが%d秒を超えています" % limit)
     return s, e
+
+
+def _len_of(m):
+    """マーク(辞書)の長さ(秒)。時刻の形が違えば 0"""
+    a, b = fnum(m.get("start")), fnum(m.get("end"))
+    return b - a if a is not None and b is not None and b > a else 0.0
 
 
 def auto0(v):
@@ -153,9 +163,14 @@ def clean_server(d):
             "adoptedBy": d.get("adoptedBy") if d.get("adoptedBy") in ("auto", "request") and st in ("adopted", "exported") else None}
 
 
-def build_mark(m, old, trusted=False):
-    """1件のマークを検査して整形する。不正なら BadMark。old: 同じ id の既存マーク(サーバー由来の値を引き継ぐ)。id は呼び出し側で検査済み。"""
-    s, e = check_times(m.get("start"), m.get("end"))
+def build_mark(m, old, trusted=False, limit=MAX_MARK_SEC):
+    """1件のマークを検査して整形する。不正なら BadMark。old: 同じ id の既存マーク(サーバー由来の値を引き継ぐ)。id は呼び出し側で検査済み。
+    長さの上限 limit(None = 見ない)は、trusted(保存済み)なら見ない・old があれば old の長さまでは通す(友人の依頼の長い区間のマークを画面から保存できる)"""
+    if trusted:
+        limit = None
+    elif limit is not None and old is not None:
+        limit = max(limit, _len_of(old))
+    s, e = check_times(m.get("start"), m.get("end"), limit)
     if old is not None:
         srv = clean_server(old)
         cs = m.get("status") if m.get("status") in STATUS_CLIENT else None   # クライアントが決められる状態(exported・未指定は無視)
@@ -225,9 +240,11 @@ def validate_marks(raw, old_marks):
     return out
 
 
-def new_mark(prefix, s, e, status=""):
-    """サーバーが作る新しいマーク(手動・ラベルなしで整形する。src などは呼び出し側が上書きする)。id は prefix + 乱数"""
-    return build_mark({"id": prefix + os.urandom(5).hex(), "start": s, "end": e, "label": "", "live": False, "status": status, "createdAt": schemas.now_ms()}, None)
+def new_mark(prefix, s, e, status="", limit=MAX_MARK_SEC):
+    """サーバーが作る新しいマーク(手動・ラベルなしで整形する。src などは呼び出し側が上書きする)。id は prefix + 乱数。
+    limit = 長さの上限(None = 見ない = 友人の依頼の区間)"""
+    return build_mark({"id": prefix + os.urandom(5).hex(), "start": s, "end": e, "label": "", "live": False, "status": status, "createdAt": schemas.now_ms()},
+                      None, limit=limit)
 
 
 def load_marks(raw):

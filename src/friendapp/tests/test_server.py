@@ -399,6 +399,16 @@ class ServerTest(unittest.TestCase):
         self.assertNotIn("analyze", spec)
         self.assertEqual(d["row"]["form"]["useWeights"], False)
 
+    def test_send_long_range_has_no_length_limit(self):
+        """区間 1 つの長さは上限なし(C-2-7・C-5-5。前は ② の 60 分で断っていた): 3 時間の区間もそのまま束の hints.ranges へ"""
+        st, d = self.send(top=None, ranges=[[600, 600 + 3 * 3600], [0, 3601]])
+        self.assertEqual(st, 200, d)
+        env, spec = self.engine.queue.submitted[-1]
+        self.assertEqual([list(r) for r in spec["hints"]["ranges"]], [[600.0, 11400.0], [0.0, 3601.0]])
+        st, d = self.send(top=None, ranges=[[100, 50]])   # 開始 < 終了は今のまま断る(理由つき)
+        self.assertEqual(st, 400)
+        self.assertIn("終了が開始より前", json.dumps(d, ensure_ascii=False))
+
     def test_send_with_weights_uses_them(self):
         st, d = self.prefs(useWeights=True, weights={"wAudio": 0, "wChat": 2, "wComments": 3})
         self.assertEqual(st, 200)

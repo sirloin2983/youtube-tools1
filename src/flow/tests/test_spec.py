@@ -16,7 +16,8 @@ from flow import spec  # noqa: E402
 
 class TestMoved(unittest.TestCase):
     def test_constants(self):
-        self.assertEqual((spec.RANGE_MAX, spec.RANGE_MAX_SEC, spec.MAX_MARKS, spec.DEFAULT_TOP), (10, 3600, 50, 3))
+        self.assertEqual((spec.RANGE_MAX, spec.PAD_MAX, spec.MAX_MARKS, spec.DEFAULT_TOP), (10, 3600, 50, 3))
+        self.assertFalse(hasattr(spec, "RANGE_MAX_SEC"), "区間 1 つの長さは上限なし(C-2-7・C-5-5)")
         self.assertEqual(spec.CUTS, ("none", "silence"))
         self.assertEqual(spec.LIVE_AUTO_CUT, "none")
         self.assertEqual(spec.WEIGHT_KEYS, ("wAudio", "wChat", "wComments"))
@@ -36,13 +37,15 @@ class TestMoved(unittest.TestCase):
         self.assertEqual(spec.clean_ranges(None), [])
         self.assertEqual(spec.clean_ranges([]), [])
         self.assertEqual(spec.clean_ranges([[1, 2.26], (3, 4)]), [(1.0, 2.3), (3.0, 4.0)])
-        for bad in ("x", [[1]], [[2, 1]], [[0, 3601]], [[-1, 5]], [["1", 2]], [[True, 2]], [[i, i + 1] for i in range(11)]):
+        for bad in ("x", [[1]], [[2, 1]], [[0, 360001]], [[-1, 5]], [["1", 2]], [[True, 2]], [[i, i + 1] for i in range(11)]):
             with self.assertRaises(ValueError, msg=bad):
                 spec.clean_ranges(bad)
         with self.assertRaises(ValueError) as cm:
             spec.clean_ranges([[5, 1]])
         self.assertEqual(str(cm.exception), "区間の指定が正しくありません")
         self.assertEqual(spec.clean_ranges([[0, 3600]]), [(0.0, 3600.0)])
+        self.assertEqual(spec.clean_ranges([[0, 3601], [600, 600 + 3 * 3600]]), [(0.0, 3601.0), (600.0, 11400.0)])   # 長さの上限なし(3 時間も通る)
+        self.assertEqual(spec.clean_ranges([[0, 360000]]), [(0.0, 360000.0)])   # 時刻の上限(100 時間)いっぱいまで
         self.assertEqual(len(spec.clean_ranges([[i, i + 1] for i in range(10)])), 10)
         with self.assertRaises(ValueError):
             spec.clean_ranges([[0.01, 0.04]])   # 丸めたあと長さ 0(opt-human 9b-2。前は (0.0, 0.0) で通っていた)
@@ -50,7 +53,7 @@ class TestMoved(unittest.TestCase):
     def test_check_ranges(self):
         """理由つきの検査(opt-human 9b-2。友人の受付 intake.parse_ranges が呼ぶ): 形の違う区間だけ断り、ほかは進める"""
         self.assertEqual(spec.check_range((10, 20)), ((10.0, 20.0), ""))
-        for r, why in (((5, 5), "終了が開始より前"), ((0, 3601), "60 分まで"), ((0.01, 0.04), "短すぎます"), (("1", 2), "形が正しくありません"),
+        for r, why in (((5, 5), "終了が開始より前"), ((0.01, 0.04), "短すぎます"), (("1", 2), "形が正しくありません"),
                        ((True, 2), "形が正しくありません"), ((0, 360001), "形が正しくありません"), (None, "形が正しくありません"), ((1,), "形が正しくありません")):
             got, msg = spec.check_range(r)
             self.assertIsNone(got, r)
@@ -104,7 +107,7 @@ class TestMoved(unittest.TestCase):
         """autorun は同じ名前で読み直している(test_autorun.py・ほかの使い手がそのまま動く)"""
         sys.path.insert(0, os.path.join(SRC, "app"))
         from app import autorun as A   # noqa: E402
-        for name in ("RANGE_MAX", "RANGE_MAX_SEC", "CUTS", "TX_ENGINES", "TX_MODEL_RE", "WEIGHT_KEYS", "MAX_MARKS", "DEFAULT_TOP", "LIVE_AUTO_CUT",
+        for name in ("RANGE_MAX", "CUTS", "TX_ENGINES", "TX_MODEL_RE", "WEIGHT_KEYS", "MAX_MARKS", "DEFAULT_TOP", "LIVE_AUTO_CUT",
                      "clean_ranges", "clean_weights"):
             self.assertIs(getattr(A, name), getattr(spec, name), name)
         self.assertIs(A._top_arg, spec.top_arg)
@@ -211,7 +214,7 @@ class TestValidate(unittest.TestCase):
     def test_hints(self):
         spec.validate(spec.merge({"hints": {"ranges": [[0, 10], (20, 30.5)], "people": [{"name": "A", "color": "#ff6699"}, {"name": "B"}]}}))
         spec.validate(spec.merge({"hints": {"people": {"count": 3}}}))
-        for bad in ("x", [[2, 1]], [[0, 3601]], [[i, i + 1] for i in range(11)], None):
+        for bad in ("x", [[2, 1]], [[0, 360001]], [[i, i + 1] for i in range(11)], None):
             self.bad("hints", ranges=bad)
         for bad in ("x", {"count": 0}, {"count": 11}, {"count": 2, "x": 1}, [{"name": ""}], [{"color": "#ffffff"}], [{"name": "A", "color": "red"}], [{"name": "A", "x": 1}], ["A"]):
             self.bad("hints", people=bad)

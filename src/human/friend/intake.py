@@ -303,7 +303,7 @@ def _hms(sec):
 
 def parse_ranges(v):
     """依頼の区間 [{"start": 秒, "end": 秒}, …](2.0.0 のアプリ)-> ([(開始, 終了)], [断った理由])。受付の口(アプリの形を読むだけ)。
-    検査は ② flow/spec.check_ranges(0 ≤ 開始 < 終了・長さと個数の上限は flow/spec の RANGE_MAX_SEC・RANGE_MAX = ytt/marks の値・小数 1 桁に丸めて長さ 0 は断る。
+    検査は ② flow/spec.check_ranges(0 ≤ 開始 < 終了・個数の上限は flow/spec の RANGE_MAX = ytt/marks の値・1 つの長さの上限なし = 要件 C-2-7・C-5-5・小数 1 桁に丸めて長さ 0 は断る。
     形が違うものだけ断る = ほかは進める。まとめて実行の clean_ranges と同じ検査。opt-human 9b-2)"""
     if v is None:
         return [], []
