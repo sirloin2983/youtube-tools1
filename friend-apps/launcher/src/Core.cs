@@ -216,6 +216,26 @@ namespace FriendInbox
             return t.Length > 127 ? t.Substring(0, 127) : t;
         }
 
+        // 時計の横のアイコンのメニューの頭の行(今の作業の件数。読めないときは「読み込み中」)
+        public static string MenuStatus(HostState s)
+        {
+            if (s == null) return "状態を読み込んでいます";
+            var parts = new List<string>();
+            if (s.Setup) parts.Add("準備しています");
+            if (s.Making > 0) parts.Add("作っています " + s.Making + " 件");
+            if (s.Recording > 0) parts.Add("録画中 " + s.Recording + " 件");
+            if (s.Waiting > 0) parts.Add("待ち " + s.Waiting + " 件");
+            if (s.Reserved > 0) parts.Add("予約 " + s.Reserved + " 件");
+            if (s.ArchiveWait > 0) parts.Add("アーカイブ待ち " + s.ArchiveWait + " 件");
+            return parts.Count > 0 ? string.Join("・", parts.ToArray()) : "作業はありません";
+        }
+
+        // メニューの「受け取る」の行(まだ決めていない本数)。0 なら null = 出さない
+        public static string MenuUndecided(HostState s)
+        {
+            return s != null && s.Undecided > 0 ? "まだ決めていない物 " + s.Undecided + " 本" : null;
+        }
+
         // 窓のタイトル(まだ決めていない本数 ●n。0 なら出さない = C-3-9)
         public static string Title(int undecided)
         {

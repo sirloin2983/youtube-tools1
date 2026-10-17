@@ -60,9 +60,15 @@ namespace FriendInbox
             tray.Text = Rules.TrayText(null, false);
             tray.Visible = true;
             tray.MouseClick += (s, e) => { if (e.Button == MouseButtons.Left) ShowFront(); };
-            var menu = new ContextMenuStrip();
-            menu.Items.Add("開く", null, delegate { ShowFront(); });
-            menu.Items.Add("止める", null, delegate { RequestQuit(); });
+            // メニュー: 頭にアプリの名前と今の件数(押せない行)→ 開く(太字 = アイコンを押したときと同じ)→ 止める
+            var menu = new ContextMenuStrip { ShowImageMargin = false, Font = new Font("Yu Gothic UI", 10f) };
+            var head = new ToolStripLabel(Rules.AppTitle) { Font = new Font("Yu Gothic UI", 10f, FontStyle.Bold), Margin = new Padding(6, 6, 6, 0) };
+            menuStatus = new ToolStripLabel(Rules.MenuStatus(null)) { Margin = new Padding(6, 2, 6, 0) };
+            menuUndecided = new ToolStripLabel("") { Margin = new Padding(6, 2, 6, 4), Visible = false };
+            var open = new ToolStripMenuItem("開く", null, delegate { ShowFront(); }) { Font = new Font("Yu Gothic UI", 10f, FontStyle.Bold), Padding = new Padding(4, 3, 4, 3) };
+            var stop = new ToolStripMenuItem("止める…", null, delegate { RequestQuit(); }) { Padding = new Padding(4, 3, 4, 3), ToolTipText = "作業中・預かりがあれば、続けるか聞きます" };
+            menu.Items.AddRange(new ToolStripItem[] { head, menuStatus, menuUndecided, new ToolStripSeparator(), open, stop });
+            menu.Opening += delegate { FillMenu(); };
             tray.ContextMenuStrip = menu;
             if (webview)
             {
@@ -77,6 +83,16 @@ namespace FriendInbox
         }
 
         bool threads;
+        ToolStripLabel menuStatus, menuUndecided;
+
+        // メニューを開くときに今の件数を入れる(見回りが 2 秒ごとに読んだ状態)
+        void FillMenu()
+        {
+            menuStatus.Text = Rules.MenuStatus(last);
+            string u = Rules.MenuUndecided(last);
+            menuUndecided.Text = u ?? "";
+            menuUndecided.Visible = u != null;
+        }
 
         protected override void OnHandleCreated(EventArgs e)
         {
@@ -226,6 +242,8 @@ namespace FriendInbox
                 Capture(this, "f1-start.png");
                 using (var big = new Bitmap(appIcon.ToBitmap(), 128, 128)) big.Save(Path.Combine(ShotDir, "f2-tray-icon.png"), System.Drawing.Imaging.ImageFormat.Png);
                 var menu = tray.ContextMenuStrip;
+                last = new HostState { Making = 2, Recording = 1, Undecided = 3 };   // 写真用の見本の件数
+                FillMenu();
                 menu.CreateControl();
                 menu.PerformLayout();
                 using (var mb = new Bitmap(Math.Max(1, menu.PreferredSize.Width), Math.Max(1, menu.PreferredSize.Height)))

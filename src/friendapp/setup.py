@@ -802,8 +802,7 @@ class Setup:
             res["at"] = int(time.time() * 1000)
             self._record(miss, res)
             if res["failed"]:
-                names = "・".join(x["label"] for x in res["failed"][:3])
-                return self._flow_fail("取れなかった部品があります(%s)。ネットを確かめて [もう一度] を押してください" % names)
+                return self._flow_fail("取れなかった部品があります。ネットを確かめて [もう一度] を押してください(どれかは「詳しく」に)")
             fetched = res["done"]
         # 3 浅く置く
         self._flow_set("placing", "道具を置いています", 90)
@@ -815,7 +814,7 @@ class Setup:
         self._check_rows(rows + [wrow])
         bad = _toolcheck.failed(rows)
         if bad:
-            return self._flow_fail("「%s」が動きません。ウイルス対策ソフトに止められていないか確かめて [もう一度] を押してください" % bad[0]["label"])
+            return self._flow_fail("部品の一つが動きません。ウイルス対策ソフトに止められていないか確かめて [もう一度] を押してください(どれかは「詳しく」に)")
         if not wrow["ok"]:
             if device == "cuda" or not self._try_cuda(device):
                 return self._flow_fail("文字起こしが動きません。詳しくは「詳しく」を見てください")

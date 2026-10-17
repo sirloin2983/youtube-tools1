@@ -578,7 +578,7 @@ class FlowTest(unittest.TestCase):
         st = self.make()
         v = self.go(st)
         self.assertEqual(v["state"], "failed")
-        self.assertIn("配信を取る道具 yt-dlp", v["error"])
+        self.assertNotIn("yt-dlp", v["error"])   # 失敗の文に部品の名前は出さない(名前は詳しくの中)
         self.assertFalse(st.done)
         bad = [d for d in v["detail"] if d["state"] == "failed"]
         self.assertEqual([d["label"] for d in bad], ["配信を取る道具 yt-dlp"])
@@ -595,7 +595,8 @@ class FlowTest(unittest.TestCase):
         v = self.go(st)
         self.assertEqual(v["state"], "failed")
         self.assertIn("ネット", v["error"])
-        self.assertIn("Deno", v["error"])
+        self.assertNotIn("Deno", v["error"])   # 失敗の文に部品の名前は出さない
+        self.assertIn("Deno", " ".join(d["label"] for d in v["detail"] if d["state"] == "failed"))
         self.assertEqual([d["state"] for d in v["detail"]], ["done", "done", "done", "failed"])
         self.dl.fail.clear()
         self.dl.calls.clear()

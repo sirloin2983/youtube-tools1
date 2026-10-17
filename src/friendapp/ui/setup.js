@@ -16,7 +16,7 @@
   }
 
   function leftText(sec) {
-    if (sec == null || !isFinite(sec)) return '';
+    if (sec == null || !isFinite(sec)) return '残り時間を見積もっています';
     if (sec < 60) return 'あと 1 分ほど';
     return 'あと約 ' + Math.ceil(sec / 60) + ' 分';
   }
@@ -39,16 +39,19 @@
     s = s || {};
     var st = s.state || 'fetching';
     $('fsTitle').textContent = TITLES[st] || '準備しています';
+    var failed = st === 'failed' || st === 'need-space';
     $('fsLead').textContent = s.message || (st === 'done' ? '送る画面へ移ります。' : '文字起こしなどに使う部品をそろえています(約 11GB)。');
+    $('fsLead').hidden = failed;
     var pct = Math.max(0, Math.min(100, Math.round(+s.percent || (st === 'done' ? 100 : 0))));
     $('fsBar').firstElementChild.style.width = pct + '%';
     $('fsBar').setAttribute('aria-valuenow', String(pct));
-    $('fsBar').hidden = st === 'failed' || st === 'need-space';
+    $('fsBar').hidden = failed;
     $('fsLeft').textContent = st === 'done' ? '' : [pct + '%', leftText(s.remainSec),
       s.totalBytes ? sizeText(s.doneBytes) + ' / ' + sizeText(s.totalBytes) : ''].filter(Boolean).join('・');
-    var failed = st === 'failed' || st === 'need-space';
+    $('fsLeft').hidden = failed || st === 'done';
     $('fsFail').hidden = !failed;
-    $('fsFailText').textContent = failed ? (s.error && st === 'need-space' ? s.error : (s.message || 'ネットを確かめて [もう一度] を押してください(取れた分は残り、続きから取ります)')) : '';
+    var failText = failed ? (s.error && st === 'need-space' ? s.error : (s.message || 'ネットを確かめて [もう一度] を押してください(取れた分は残り、続きから取ります)')) : '';
+    $('fsFailText').textContent = failText;
     $('btnRetry').hidden = st === 'need-space' && !s.canRetry;
     var old = s.oldApp || {};
     $('fsOld').hidden = !old.ask;
@@ -56,7 +59,7 @@
     var items = s.detail || [];
     $('fsItems').textContent = '';
     items.forEach(function (it) { $('fsItems').appendChild(li(it)); });
-    $('fsErr').hidden = !s.error;
+    $('fsErr').hidden = !s.error || s.error === failText;
     $('fsErr').textContent = s.error || '';
     detailText = items.map(function (it) { return it.label + ': ' + (it.state || '') + (it.text ? ' ' + it.text : ''); }).concat(s.error ? [s.error] : []).join('\n');
     $('btnCopy').hidden = !failed;

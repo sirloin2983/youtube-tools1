@@ -26,6 +26,7 @@ static class Tests
         Run("状態: JSON の読み取り(足りない欄は 0)", StateParse);
         Run("Python の出力: 渡した番号の ready だけ読む・読めない行は無視", GatewayLines);
         Run("配色: 画面から来た色を読む・形が違えば null・暗いかは帯の明るさ", ThemeParse);
+        Run("アイコンのメニュー: 件数の行・作業なし・読み込み中・決めていない本数", MenuRules);
         Console.WriteLine(failures == 0 ? "OK " + passed + " 件" : "NG " + failures + " 件失敗 / " + passed + " 件成功");
         return failures == 0 ? 0 : 1;
     }
@@ -210,6 +211,16 @@ static class Tests
         True(g.Bye, "bye = 止めてと言われて終わる(起こし直さない)");
         int p = Gateway.FreePort();
         True(p > 0 && p < 65536, "空いている番号");
+    }
+
+    static void MenuRules()
+    {
+        Eq("状態を読み込んでいます", Rules.MenuStatus(null), "読めない");
+        Eq("作業はありません", Rules.MenuStatus(S()), "作業なし");
+        Eq("作っています 2 件・録画中 1 件・予約 1 件", Rules.MenuStatus(S(making: 2, rec: 1, reserved: 1)), "件数");
+        Eq("準備しています", Rules.MenuStatus(S(setup: true)), "準備中");
+        True(Rules.MenuUndecided(S()) == null && Rules.MenuUndecided(null) == null, "0 なら出さない");
+        Eq("まだ決めていない物 4 本", Rules.MenuUndecided(new HostState { Undecided = 4 }), "決めていない本数");
     }
 
     static void ThemeParse()
