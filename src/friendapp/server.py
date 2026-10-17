@@ -86,12 +86,10 @@ STREAMS_NAME = "streams.json"         # 配信の一覧の写し(開いた瞬間
 TOKEN_ENV = "YTT_FRIEND_TOKEN"        # exe が渡す合言葉(無ければ乱数)
 HOST_ENV = "YTT_FRIEND_HOST"          # exe の窓の種類(webview2 = 合言葉は WebView2 が足す / edge = 逃げ道 / 無し = 開発の PC)
 PORT_BUSY_EXIT = 5                    # exe が渡した番号を使えなかった(exe が選び直す)
-ROLLBACK_ENV = "YTT_FRIEND_ROLLBACK"  # 起動役が前の版へ戻したとき、起動できなかった版
+ROLLBACK_ENV = "YTT_FRIEND_ROLLBACK"  # exe が前の版へ戻したとき、起動できなかった版
 SWEEP_EVERY = 3600        # 受信箱の 3 日の片付けを見る間隔(秒)
 SAVE_DEFAULT = _settings.SAVE_DEFAULT   # 受け取るの保存先の既定(%USERPROFILE% の下。⚙ で選ぶ = F2-5)
 SAVE_FILE = _settings.SAVE_FILE
-# 写したあと古い部品を消すか(A-16)。今の送るアプリ(C#)が F2-7 まで同じ古い作業データのモデルを使うので、それまでは写すだけ(仮・AI。F2-7 で True)
-REMOVE_OLD = False
 CLIENT_LOG_MAX = 512 * 1024
 SYNC_KICK = ("/api/friend/send", "/api/friend/decide", "/api/friend/retry", "/api/friend/local")   # 押したあと同期を起こす口(F2-3)
 
@@ -366,7 +364,7 @@ class Handler(BaseHTTPRequestHandler):
             if body.get("reset") is not None:
                 msg = app.settings.reset_folder(body.get("reset"))
             else:
-                msg = app.settings.update({k: body[k] for k in ("engine", "diskMinGB", "cut") if k in body})["message"]
+                msg = app.settings.update({k: body[k] for k in ("engine", "diskMinGB", "cut", "processing", "weights", "live", "cleanOld") if k in body})["message"]
             return self._json(200, {"ok": True, "message": msg, "settings": app.settings.view()})
         if path == "/api/friend/settings/key":
             ok, msg = app.settings.set_key(body.get("key") if isinstance(body.get("key"), str) else "")
@@ -471,7 +469,7 @@ class FriendApp:
         self.catalog = os.path.join(places["friend"], "old-copy.json")
         self.closing = threading.Event()
         self.server = None
-        self.rollback = (os.environ.get(ROLLBACK_ENV) or "").strip()   # 起動役が前の版へ戻した = 起動できなかった版
+        self.rollback = (os.environ.get(ROLLBACK_ENV) or "").strip()   # exe が前の版へ戻した = 起動できなかった版
         self.rollback_seen = False
         self.open_folder = open_folder   # エクスプローラーで開く口(テストは差し替える = 画面を取らない)
         self.pick_file = pick_file_dialog   # ファイルを選ぶ窓の口(F2-6。テストは差し替える = 本物の窓を出さない)
@@ -512,7 +510,7 @@ class FriendApp:
             self.log("取った道具の場所を教え直しました: %s" % "・".join(sorted(k for k in got if k != "PATH")))
 
     def rollback_notice(self):
-        """前の版で開いた知らせ(起動役から戻ったと聞いたとき、閉じるまで 1 回)"""
+        """前の版で開いた知らせ(exe から戻ったと聞いたとき、閉じるまで 1 回)"""
         return "新しい版 %s を起動できなかったので、前の版で開きました" % self.rollback[:40] if self.rollback and not self.rollback_seen else None
 
     def setup_done(self):
@@ -548,7 +546,7 @@ class FriendApp:
                 elif r.get("state") == "queued":
                     waiting += 1
         hold = self.holdings()
-        setup = self.setup.running() or self.prep["state"] == "copying"
+        setup = self.setup.awake()
         busy = self.busy() or rec > 0
         parts = (["録画中 %d 本" % rec] if rec else []) + (["作っている %d 本" % making] if making else []) + (["待ち %d 本" % waiting] if waiting else [])
         return {"busy": busy, "recording": rec, "making": making, "waiting": waiting, "reserved": hold["reserved"], "archiveWait": hold["archiveWait"],
@@ -561,15 +559,13 @@ class FriendApp:
         return {"freedGB": round(n["bytes"] / 1e9, 1)} if n and n.get("bytes") else None
 
     def prepare(self, old_root=None):
-        """裏の糸: 古い部品を写す(A-16)→ ② を起こす"""
+        """裏の糸: 初回の準備(F3-5。前のアプリの部品を写す → 取る → 浅く置く → 全部の道具を動かして確かめる。済んでいれば確かめず済み)を
+        確認なしで始め、進んでいる間は待つ → ② を起こす(待ちの記録の続きを、道具がそろう前に始めない)。準備が失敗しても ② は起こす
+        (画面は準備だけの画面で理由と [もう一度] を出す)"""
         try:
-            fetch = self.places.get("fetch")
-            if old_root and fetch and os.path.isfile(fetch) and os.path.isdir(old_root):
-                self.prep = {"state": "copying", "message": "前のアプリの部品(モデルなど)を写しています。終わるまで送れません"}
-                got = _oldcopy.migrate(fetch, old_root, self.places["data"], self.catalog, log=self.log, cancelled=self.closing.is_set,
-                                       remove_old=REMOVE_OLD)
-                self.log("古い部品: 写した %d 件・消した %d 件(%.1f GB)" % (got["copied"], got["deleted"], got["freed"] / 1e9))
-            self.setup.checked = True   # 写せた物は足りない物に入らない(写すのが済んでから見る = F2-5)
+            self.setup.start(old_root)
+            while self.setup.awake() and not self.closing.wait(0.5):
+                pass
             if self.closing.is_set():
                 return
             self.engine = self.make_engine(self.places, self.inbox, self.log)
@@ -586,7 +582,7 @@ class FriendApp:
         return not st["idle"] or bool(eng._previews) or self.sync.busy() or self.api.copying()
 
     def watch(self):
-        """3 日の片付け(SWEEP_EVERY ごと)。終わるかどうかは起動役が決める(ここでは終わらない)"""
+        """3 日の片付け(SWEEP_EVERY ごと)。終わるかどうかは exe が決める(ここでは終わらない)"""
         last_sweep = 0
         while not self.closing.wait(10):
             now = self.clock()

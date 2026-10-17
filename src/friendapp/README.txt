@@ -9,18 +9,15 @@
   要件: 資料の plan\f1-friend-requirements.md の A・B。仕様: 資料の docs\spec\friend.md の 11 節。
 
 ■ 起こし方
-  友人の PC: アプリのフォルダの FriendInbox.exe(起動役。F2-4)をダブルクリック。Edge のアプリの窓で受信箱が開きます。
-    起動役が、<アプリのフォルダ>\app-<版>\(bad に無い一番新しい版。無ければ今の形 <アプリのフォルダ>\python と \src)の玄関を起こします。
-    90 秒たっても ready が来ない・先に終わった版は app-versions.json の bad に足し、前の版で起こし直します(受信箱に「前の版で開きました」を 1 回)。
-    1 回起動できた版を current・その前を previous にし、それより古い app-<版> を消します。
-    2 つ目を起こすと、玄関が窓を開き直すだけで終わります(起動役も 1 つだけ)。
-    窓を閉じても、作っている物・録画が続く間は裏で動き(タスクバーに状態の窓。[窓を開く]・[今すぐ止めて閉じる]・縮小版のツールバー)、
-    窓が閉じて 20 秒たち仕事も無ければ、起動役が玄関を止めて自分も終わります。
-    すぐに全部止めたいときは、画面の右上の [すべて止めて終了] か状態の窓の [今すぐ止めて閉じる](確認は出ません。待っている依頼は残り、次に開くと続きから)。
-    ログ: data\app\friendapp\logs\launcher.log(起動役)・friendapp.log(玄関)
-  開発の PC: py -3.10 src\friendapp\server.py [--port 8720] [--no-open]
-    起動役なしで起こすので、Ctrl+C か [すべて止めて終了] まで動き続けます(窓を閉じても自分では終わりません)。
-    見本のデータで画面だけ見るとき: py -3.10 dev\friend_demo.py(本物の作業データには触りません)
+  友人の PC: アプリのフォルダの FriendApp.exe をダブルクリック。exe の窓(WebView2)が開きます(F3-1)。
+    窓・止め方・番号・合言葉・窓と画面の境目は friend-apps\launcher\README.txt。exe が <アプリのフォルダ>pp-<版>\(無ければ
+    <アプリのフォルダ>\python と \src)の server.py を子(ジョブオブジェクト)で起こし、起動できない版は前の版へ戻します。
+    × ・[すべて止めて終了]・時計の横のアイコンの「止める」は、作業中・預かりがあるときだけ確認([裏で続ける] / [止めて閉じる])。
+    待っている依頼は残り、次に開くと続きから。
+    ログ: datappriendapp\logs\launcher.log(exe)・friendapp.log(Python)
+  開発の PC: py -3.10 srcriendapp\server.py [--port 8720] [--no-open]
+    exe なしで起こすので、Ctrl+C か [すべて止めて終了] まで動き続けます。窓は Edge のアプリの窓(画面に本物の合言葉を入れる形)。
+    見本のデータで画面だけ見るとき: py -3.10 devriend_demo.py(本物の作業データには触りません。--missing で初回の準備の画面)
 
 ■ 置き場所(アプリのフォルダ 1 つに全部入る)
   <アプリのフォルダ>\data\          処理の部品の作業データ(モデル・この PC の設定・待ちの記録)
@@ -33,21 +30,21 @@
   前のアプリの部品(%LOCALAPPDATA%\youtube-tools のモデル)は、初めて開いたときに data\ へ写します(ハッシュが合う物だけ・ネットから取り直さない)。
   古い方を消すのは今の送るアプリをやめるとき(F2-7)。それまでは写すだけです。
 
-■ 初回の準備(F2-5。friendapp\setup.py。要件 9-1・7-5)
-  表はアプリのフォルダの fetch.json(dev\build_friend_zip.py が書く。モデル・llama.cpp・ffmpeg・yt-dlp・Deno)。無ければ何もしない(開発の PC)。
-  起動のあと、古い部品を写す(A-16)のが済んでから足りない物を見る = 写せた物は取らない。足りない物があれば受信箱の上に「初回の準備」を 1 回出す
-  (中身・大きさ・置き場所・空き。空きが足りなければ [始める] を押せず理由)。[始める] で裏の糸が 1 つずつ取る(進み具合・[やめる])。
-  [あとで] なら上の帯に「部品が足りません [取ってくる]」を出したまま(押すと確認をもう一度出す)。足りない間はこの PC で作る [送る]・[もう一度送る]・
-  [この PC でやり直す] を断る(理由を送る欄の下に出す。ユーザーの PC に頼む依頼は送れる)。[あとで] は起動ごと(次に開くとまた確認を出す)。
-  取り方は今の送るアプリ(Setup.cs)と同じ: .part に続きから(Range)・大きさと SHA-256 を確かめる・違えば消して最初から(2 回まで)・
-  zip と tar は名前を全部確かめてから展開(外へ出る名前・絶対パス・ドライブ名・リンクは断る)・1 つ失敗しても次へ(失敗した物は次の回にまた出る)・
-  zip は目印 .fetched-<file>(今の送るアプリと同じ名前 = 前に取った物は取り直さない)。接続先は表の https の URL だけ(http への転送は断る)。
-  書き換えるのは表の行の置き場所(dest の下)だけ(7-5)。記録は data\app\friendapp\setup.json(見るためだけ)。
-  エンジン C(CUDA)にしているときは公式の CUDA 版の whisper.cpp(① の表 tx_engines.WCPP_BINARIES)も足りない物に数える(取った zip は ① の fetch_wcpp_binary が展開)。
-  取り終えたら <アプリのフォルダ>\tools の道具の場所を ② に教え直す(② は起こし直さない = 道具は使うたびに環境変数と PATH から探す・モデルは読むときに作業データから)。
-  確かめ: src\friendapp\tests\test_setup.py・test_settings.py(本物のネットには出ない)。見本は py -3.10 dev\friend_demo.py --missing
+■ 初回の準備(F3-5。friendapp\setup.py・places.py・toolcheck.py・画面 ui\setup.html。要件 C-5-1・C-1-2)
+  表はアプリのフォルダの fetch.json(devuild_friend_zip.py が書く)。無ければ(開発の PC)すぐ済み。
+  済むまで /friend/ は準備だけの画面 /friend/setup.html へ(送る欄は出さない)。確認なしで自動で始まり、済んだら自動で送る画面へ。
+  段 = 前のアプリの部品を写す(%LOCALAPPDATA%\youtube-tools。ハッシュが合う物だけ。消さない)→ 足りない物を取る(.part に続きから・SHA-256・
+  zip slip を断る・https だけ)→ 道具を <アプリのフォルダ>	ools\<名前>\ の直下へ浅く置き直す(0.95.0 の「ffmpeg が見つかりません」の元)→
+  全部の道具(ffmpeg・ffprobe・yt-dlp・deno)を 1 回ずつ動かし、文字起こしを 2 秒の音で 1 回動かす → A(Vulkan)で動かなければ自動で
+  エンジン C(NVIDIA 用)の部品を取って確かめ直す(C でも駄目なら「文字起こしが動きません」と詳しい文)。
+  空きが足りなければ取らずに理由・失敗は「ネットを確かめて [もう一度]」(続きから)。部品の名前と詳しい文は「詳しく」の中だけ。
+  済んだこと(版・機器・道具のファイルの印)は datappriendapp\setup.json に残し、次の起動では確かめ直さない(道具が変わったら確かめ直す)。
+  前のアプリの片付け: 写して同じと確かめた物があれば 1 回だけ「前のアプリを片付けます(約 n GB 空きます)[片付ける] [あとで]」。
+  消すのは目録(old-copy.json)に載った写し済みの物だけ。[あとで] なら ⚙ の「前のアプリ」から。
+  準備中は exe がスリープを止め、閉じるときに確かめる(GET /api/friend/state の setup・awake)。
+  確かめ: srcriendapp	ests	est_setup.py・test_toolcheck.py・test_settings.py(本物のネット・道具・文字起こしは動かさない)
 
-■ ⚙ 設定(F2-5。friendapp\settings.py。受信箱の右上の ⚙ = ui-kit の引き出し)
+■ ⚙ 設定(F2-5・F3-5。friendapp\settings.py・画面 ui\settings.js。主の画面は settings.js を読み #btnSettings を置くだけ)
   受け取るの保存先   data\app\friendapp\save-dir.json(無ければ %USERPROFILE%\Videos\受け取ったパック)。変えても今ある物は移さない
   一時保管           スタジオの書き出し先と machine.json の caseRoot をそろえて変える。7-3 = 選び直しても移さない(新しい物から新しい場所)。空き容量はこのドライブで測る
   文字起こしのエンジン A Vulkan / C CUDA = machine.json の device(vulkan / cuda)。次の処理から。C にして部品が足りなければすぐ取り始める
@@ -57,6 +54,10 @@
   カットの既定       data\app\friendapp\form.json の cut(しない / 無音を削る。初めは「しない」= A-8)。送る欄には出さず、送るときの束(pack.cut)と
                      ユーザーの PC への依頼の cut に入る(「しない」は束に入れない = 今までの束のまま)。送った値は行に残る([もう一度送る] も同じ)
   フォルダは [選ぶ] で玄関が Windows のフォルダを選ぶ窓を開く(画面からパスを打たせない。FriendApp.pick_folder = テストと見本は偽物)。[既定に戻す] もある
+  処理する PC       form.json の pc(この PC で処理する / 依頼する。依頼するは Dropbox の鍵があるときだけ = C-2-19)
+  解析の重み         form.json の useWeights・weights(wAudio・wChat・wComments 0〜3。指定しなければユーザーの PC の設定の値)
+  ライブの切り抜き   form.json の live(感度・待ち・余白。範囲は friendapp\live.py)
+  前のアプリ         写し済みの古い部品が残っていれば [片付ける]
 
 ■ 配信の一覧(F3-2。friendapp\streams.py・画面は ui\send-list.js。要件 C-2-2〜C-2-5)
   画面の [送る] の左。API キー無し: 名簿 members.json(friend-apps\holo-colors。JP と DEV_IS で channel のある人)の各チャンネルの RSS を 5 分おき・同時 4 本で読み、
@@ -113,14 +114,14 @@
   確かめ: src\friendapp\tests\test_live.py(録画の部品・yt-dlp・ネットは偽物)
 
 ■ 友人に渡す物の作り方(F2-2 の確かめ用)
-  1. friend-apps\request-sender\build.bat(今の送るアプリ)と friend-apps\launcher\build.bat(起動役 FriendInbox.exe)。どちらも zip の直下に入る
+  1. friend-apps\request-sender\build.bat(今の送るアプリ)と friend-apps\launcher\build.bat(窓 FriendApp.exe と WebView2 の DLL)。どちらも zip の直下に入る
   2. py -3.10 dev\build_friend_zip.py
-     → Dropbox の 更新\ に RequestSender-<版>.zip(今の送るアプリの「更新する」で友人の PC へ届く。直下に FriendInbox.exe が入る)
+     → Dropbox の 更新\ に RequestSender-<版>.zip(今の送るアプリの「更新する」で友人の PC へ届く。直下に FriendApp.exe が入る)
      初めて渡すときは --first --with-key(friend-apps\request-sender\dist\ にでき、手で渡す)
   3. 友人の PC で、今のアプリの [更新する] を押すか、zip をアプリのフォルダに展開する
 
 ■ 友人の PC での確かめ(1.0.0 の条件 = URL の依頼 1 本が友人の PC で処理されて届く)
-  1. アプリのフォルダの FriendInbox.exe をダブルクリック → 受信箱の窓が開く(初回は前の部品を写すので数分「写しています」)
+  1. アプリのフォルダの FriendApp.exe をダブルクリック → 窓が開く(初回は準備だけの画面で前の部品を写し・取り・確かめる。済むと送る画面へ)
   2. 配信の URL を貼る → 題と「配信者: 〇〇(自動)」が出る → 区間を 1 つ入れて(短い方が早い)[送る]
   3. 行が「送った」→「作っている(書き出し・文字起こし・パックの途中)」→「届いた」に変わる
   4. [開く] でまとめ動画とパックの一覧 → 1 本 [受け取る](保存先に <題>_pack ができる)・ほかを [要らない]

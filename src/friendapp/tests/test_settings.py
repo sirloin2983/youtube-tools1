@@ -64,8 +64,6 @@ class SettingsServerTest(unittest.TestCase):
         self.app.setup.downloader = self.dl
         self.app.setup.disk_usage = lambda p: Usage(10 ** 13, 0, 10 ** 13)
         self.app.setup.cuda = lambda: None
-        self.app.setup.start = self.app.setup.start_fetch
-        self.app.setup.view = self.app.setup.inbox_view   # server.py をまとめ役が新しい view につなぐまでは、旧い帯の形で確かめる
         self.app.setup.after = lambda res: self.after.append(res)   # 本物の道具の場所の教え直し(環境変数)はしない
         self.after = []
         self.picked = []
@@ -76,6 +74,15 @@ class SettingsServerTest(unittest.TestCase):
         self.probes = []
         self.app.settings.probe = lambda key: (self.probes.append(key), (200, "{}"))[1]
         self.app.api.fetch = lambda vid: {"title": "題", "channel": "ch"}
+        # 初回の準備の道具の確かめ(F3-5)は偽物で: 本物の ffmpeg・whisper.cpp を動かさない・machine.json を書かない・環境変数を変えない
+        for sub, exe in (("ffmpeg", "ffmpeg.exe"), ("ffmpeg", "ffprobe.exe"), ("yt-dlp", "yt-dlp.exe"), ("deno", "deno.exe")):
+            os.makedirs(os.path.join(home, "tools", sub), exist_ok=True)
+            open(os.path.join(home, "tools", sub, exe), "wb").close()
+        self.cmds = []
+        self.app.setup.run = self.fake_run
+        self.app.setup.whisper = lambda device, data_root, wav: None
+        self.app.setup.set_device = lambda d: None
+        self.app.setup.env = {}
         self.app.prepare()
         self.srv = S.Server(("127.0.0.1", 0), self.app)
         self.app.server = self.srv
@@ -83,6 +90,13 @@ class SettingsServerTest(unittest.TestCase):
         self.thread = threading.Thread(target=self.srv.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
         self.thread.start()
         self.addCleanup(self.stop)
+
+    def fake_run(self, cmd, timeout):
+        self.cmds.append(list(cmd))
+        if "lavfi" in cmd:
+            with open(cmd[-1], "wb") as f:
+                f.write(b"RIFF....WAVE")
+        return 0, "tool version 1", None
 
     def stop(self):
         self.app.setup.cancel()
@@ -117,41 +131,24 @@ class SettingsServerTest(unittest.TestCase):
         st, raw = self.request("POST", path, body if body is not None else {}, token)
         return st, json.loads(raw.decode("utf-8"))
 
-    # ---- 初回の準備(9-1)
-    def test_setup_flow_blocks_send_until_fetched(self):
-        st, j = self.get("/api/friend/inbox")
-        s = j["setup"]
-        self.assertTrue(s["active"])
-        self.assertEqual(s["count"], 1)
-        self.assertTrue(s["canStart"])
-        self.assertEqual(s["places"][0]["path"], self.places["data"])
-        # [送る](この PC)は断る・理由つき
-        st, j = self.post("/api/friend/send", {"url": URL, "top": 3, "title": "題"})
-        self.assertEqual(st, 400)
-        self.assertIn("[取ってくる]", j["message"])
-        # [あとで] → 帯
-        st, j = self.post("/api/friend/setup/later")
-        self.assertTrue(j["setup"]["later"])
-        st, j = self.post("/api/friend/setup/open")
-        self.assertFalse(j["setup"]["later"])
-        # [始める] → 取り終える → 送れる
-        self.dl.gate.clear()
-        st, j = self.post("/api/friend/setup/start")
+    # ---- 初回の準備(F3-5。準備だけの画面)
+    def test_setup_runs_by_itself_then_main_page(self):
+        st, j = self.get("/api/friend/setup")
         self.assertEqual(st, 200)
-        self.assertTrue(j["setup"]["running"])
-        st, j = self.post("/api/friend/send", {"url": URL, "top": 3, "title": "題"})
-        self.assertEqual(st, 400)
-        self.assertIn("取っています", j["message"])
-        st, j = self.post("/api/friend/setup/start")
-        self.assertEqual(st, 409)   # 2 つ目は断る
-        self.dl.gate.set()
-        self.app.setup.wait(5)
-        st, j = self.get("/api/friend/inbox")
-        self.assertEqual(j["setup"]["count"], 0)
-        self.assertTrue(j["setup"]["result"]["ok"])
-        self.assertEqual(len(self.after), 1)
+        self.assertTrue(j["done"], j)
+        self.assertEqual(j["setup"]["state"], "done")
+        self.assertEqual(len(self.after), 1)   # 取ったあとに道具の場所を教え直した
+        self.assertTrue(any("lavfi" in c for c in self.cmds))   # 文字起こしを短い音で確かめた(偽物)
+        self.assertEqual(self.request("GET", "/friend/")[0], 200)
         st, j = self.post("/api/friend/send", {"url": URL, "top": 3, "title": "題"})
         self.assertEqual(st, 200, j)
+
+    def test_main_page_goes_to_setup_while_preparing(self):
+        self.app.setup.flow = "fetching"
+        st, raw = self.request("GET", "/friend/")
+        self.assertEqual(st, 302)
+        st, j = self.get("/api/friend/state")
+        self.assertTrue(j["setup"] and j["awake"])   # 準備中は exe が閉じるときに確かめ・スリープを止める
 
     def test_setup_needs_token(self):
         st, j = self.post("/api/friend/setup/start", token=False)
@@ -159,10 +156,14 @@ class SettingsServerTest(unittest.TestCase):
         self.assertFalse(self.app.setup.running())
 
     def test_setup_space_short(self):
+        os.remove(os.path.join(self.places["data"], "transcribe", "models", "m.bin"))
         self.app.setup.disk_usage = lambda p: Usage(100, 99, 1)
         st, j = self.post("/api/friend/setup/start")
-        self.assertEqual(st, 409)
-        self.assertIn("空きが足りません", j["message"])
+        self.assertEqual(st, 200)
+        self.app.setup.wait(5)
+        st, j = self.get("/api/friend/setup")
+        self.assertEqual(j["setup"]["state"], "need-space", j)
+        self.assertFalse(j["done"])
 
     def test_user_pc_send_not_blocked_by_parts(self):
         """ユーザーの PC に頼む依頼は、この PC の部品が足りなくても送れる(鍵が無いので別の理由で断る)"""
@@ -213,13 +214,14 @@ class SettingsServerTest(unittest.TestCase):
                 "dest": "transcribe/bin", "unzip": "wcpp", "top": "", "member": "", "size": len(blob), "maxBytes": 0, "parts": []}
         self.dl.files["https://h/c.zip"] = blob
         self.app.setup.cuda = lambda: item
-        self.app.setup.wcpp = lambda it, archive, root: None
+        laid = []
+        self.app.setup.wcpp = lambda it, archive, root: laid.append(it["name"])
         with mock.patch.object(SU, "_wcpp_ready", lambda root: False):
             st, j = self.post("/api/friend/settings", {"engine": "C"})
             self.assertEqual(st, 200)
             self.assertIn("取ってきます", j["message"])
             self.app.setup.wait(5)
-            self.assertEqual(self.app.setup.result["done"], [SU.CUDA_NAME])   # C の部品だけ(ほかの足りない物は確認してから)
+            self.assertEqual(laid, [SU.CUDA_NAME])   # 準備の流れが C の部品を取って置いた(ほかの部品はもうある)
 
     def upd(self, body):
         """server.py の口がまだ processing・weights・live・cleanOld を通さないので、Settings.update を直に呼ぶ(まとめ役が口をつなぐ)"""
@@ -387,8 +389,11 @@ class SettingsServerTest(unittest.TestCase):
     def test_page_has_help_links(self):
         st, raw = self.request("GET", "/friend/")
         page = raw.decode("utf-8")
-        for sec in ("send", "settings", "setup", "close"):
+        for sec in ("send", "close"):
             self.assertIn('href="guide.html#%s"' % sec, page)
+        for name, sec in (("settings.js", "settings"), ("setup.html", "setup")):   # ⚙ と初回の準備は F3-5 の別の物
+            with open(os.path.join(S.UI_DIR, name), encoding="utf-8") as f:
+                self.assertIn("guide.html#%s" % sec, f.read())
         with open(os.path.join(S.UI_DIR, "friend.js"), encoding="utf-8") as f:
             self.assertIn("helpLink('receive'", f.read())
 

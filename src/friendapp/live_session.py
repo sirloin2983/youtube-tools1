@@ -9,7 +9,7 @@
 違うところ(友人の PC だけ):
   - 依頼と録画の結びつきは受信箱の側(friendapp/live.RequestBook。③ human の live_requests は読まない)
   - 録画の置き場所は一時保管の中(<作業>/ライブの録画)。本番版への作り直し(P4)はしない(A-14 で廃止)
-  - [すべて止めて終了]・起動役の [止める] は録画中でも録画の部品まで止める(親の close は録画中なら残す)。止めても録画の記録は「録画中」のまま =
+  - [すべて止めて終了]・exe の「止める」 は録画中でも録画の部品まで止める(親の close は録画中なら残す)。止めても録画の記録は「録画中」のまま =
     次に開いたとき録画の部品が起動して(見回り)、同じ録画を新しいセッションで続ける(pipeline/ingest/rec_core の load)
   - 配信後のアーカイブからの追加(M7)の解析は、② の道具のスタジオなしの台帳(flow/studiobook.LocalStudio)へ(studio_call の 3 つの口だけを写す)
   - 録画は終わって 3 日で消す(配信後の追加が済んでから。6 章の「確かめられないまま 3 日で消す」。アーカイブ化で消すのは線 D の LD-1)
@@ -138,7 +138,7 @@ class FriendLive(_ls.LiveSession):
         return {r["id"]: dict(r, active=r.get("active") is True or r.get("state") in _rec_core.ACTIVE) for r in rows}
 
     def active_count(self):
-        """録画中の本数(起動役の状態の窓の × が録画中だけ最小化になる。録画元の一覧を数秒覚えて読む)"""
+        """録画中の本数(exe の閉じるときの確認とアイコンの文に出す。録画元の一覧を数秒覚えて読む)"""
         try:
             return sum(1 for r in self.recent() if r.get("active") is True)
         except Exception:   # noqa: BLE001  (数えられなければ 0)

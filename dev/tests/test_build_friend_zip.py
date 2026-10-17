@@ -109,7 +109,10 @@ def make_launcher(root, exe=True):
     d = os.path.join(root, "launcher-build")
     os.makedirs(d)
     if exe:
-        with open(os.path.join(d, "FriendInbox.exe"), "wb") as f:
+        for dll in B.LAUNCHER_DLLS:
+            with open(os.path.join(d, dll), "wb") as f:
+                f.write(b"dll")
+        with open(os.path.join(d, "FriendApp.exe"), "wb") as f:
             f.write(b"MZlauncher")
     return d
 
@@ -151,8 +154,8 @@ class BuildTest(Base):
         self.assertEqual(man["version"], V.VERSION)
         self.assertFalse(man["withKey"])
         self.assertNotIn("config.json", names)   # 鍵は既定で入れない(f1g)
-        self.assertNotIn("inbox.bat", names)   # 仮の入口は起動役 FriendInbox.exe に替わった
-        for n in ("RequestSender.exe", "FriendInbox.exe", "members.json", "README.txt", "fetch.json", "src/app/server.py", "src/app/cli.py", "src/ytt/version.py",
+        self.assertNotIn("inbox.bat", names)   # 仮の入口は窓 FriendApp.exe に替わった
+        for n in ("RequestSender.exe", "FriendApp.exe", "WebView2Loader.dll", "Microsoft.Web.WebView2.Core.dll", "members.json", "README.txt", "fetch.json", "src/app/server.py", "src/app/cli.py", "src/ytt/version.py",
                   "python/Lib/site-packages/numpy/__init__.py", "python/Lib/site-packages/sherpa_onnx_core.pyd"):
             self.assertIn(n, names)
         self.assertFalse(any("/tests/" in n or "__pycache__" in n or n.endswith(".pyc") for n in names))
@@ -227,7 +230,7 @@ class BuildTest(Base):
         self.assertEqual(cm.exception.code, 2)
 
     def test_launcher_exe_missing_stops(self):
-        os.remove(os.path.join(self.launcher, "FriendInbox.exe"))
+        os.remove(os.path.join(self.launcher, "FriendApp.exe"))
         with self.assertRaisesRegex(B.BuildError, "launcher/build.bat"):
             self.build()
 

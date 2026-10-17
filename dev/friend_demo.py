@@ -277,7 +277,11 @@ def main(argv=None):
     app.settings.probe = lambda key: (200, "{}")             # API キーの確かめでネットへ出ない
     app.setup.downloader = DemoDownloader()                  # [始める] でネットへ出ない
     app.setup.disk_usage = lambda path: shutil.disk_usage(home)._replace(free=200 * 1024 ** 3)   # 見本は空きが足りる形
-    app.setup.checked = True                                 # 見本は古い部品を写さない(prepare を通さない)
+    app.setup.run = lambda cmd, timeout: (0, "demo 1.0", None)   # 道具の確かめで本物の道具を動かさない(F3-5)
+    app.setup.whisper = lambda device, data_root, wav: None
+    app.setup.set_device = lambda d: None
+    app.setup.env = {}
+    app.setup.start()                                        # 見本は古い部品を写さない。fetch.json が無ければすぐ済み・--missing は準備だけの画面
     app.streams = DemoStreams()                              # 配信の一覧(F3-2)はネットへ出ない
     if not app.inbox.rows:
         seed(app, home)

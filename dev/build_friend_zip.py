@@ -3,7 +3,7 @@
 
 zip の中(アプリのフォルダ <任意>/RequestSender/ にそのまま展開する形。3 節 (f1i)):
     RequestSender.exe・members.json・README.txt(friend-apps/request-sender/build/ と README。build.bat で作ってから)
-    FriendInbox.exe  友人の受信箱の起動役(friend-apps/launcher/build/。そちらの build.bat で作ってから。F2-4。直下 = 今の RequestSender.exe と並べる)
+    FriendApp.exe    友人のアプリの窓(friend-apps/launcher/build/。そちらの build.bat で作ってから。F3-1。WebView2 の DLL 3 つと一緒に直下 = 今の RequestSender.exe と並べる)
     friend-defaults.json・guide.html(friend-apps/request-sender/ にあれば。F5・(f1f) の物)
     python/        公式の埋め込み用 Python 3.10 + python310._pth(Lib/site-packages と ../src を足す)+ wheel を展開した部品(numpy・sherpa-onnx・streamlink と依存)
     src/           git が管理している src のファイル(tests/・__pycache__ は外す。作業データ・追跡外のファイルは入らない)
@@ -51,7 +51,8 @@ import push_helper  # noqa: E402  個人データの名前の表を流用する
 
 APP_SRC = os.path.join(REPO, "friend-apps", "request-sender")
 LAUNCHER_BUILD = os.path.join(REPO, "friend-apps", "launcher", "build")
-LAUNCHER_EXE = "FriendInbox.exe"
+LAUNCHER_EXE = "FriendApp.exe"
+LAUNCHER_DLLS = ("Microsoft.Web.WebView2.Core.dll", "Microsoft.Web.WebView2.WinForms.dll", "WebView2Loader.dll")   # dev/fetch_webview2.py が取る物
 SCHEMA = "youtube-tools-friend-zip/v1"
 FETCH_SCHEMA = "youtube-tools-friend-fetch/v1"
 TX_TOOL = "transcribe"   # 編集の作業データの ID(datadir。fetch の dest の頭)
@@ -265,11 +266,13 @@ def lay_src(stage, repo=REPO):
 
 
 def lay_launcher(stage, launcher_build=LAUNCHER_BUILD):
-    """受信箱の起動役 FriendInbox.exe を zip の直下に置く(今の送るアプリ RequestSender.exe と並べる = F2-7 まで両方使える)。無ければ作るよう促して止まる"""
-    p = os.path.join(launcher_build, LAUNCHER_EXE)
-    if not os.path.isfile(p):
-        raise BuildError("%s がありません(friend-apps/launcher/build.bat を流してから)" % p)
-    shutil.copy2(p, stage)
+    """友人のアプリの窓 FriendApp.exe と WebView2 の DLL を zip の直下に置く(今の送るアプリ RequestSender.exe と並べる)。無ければ作るよう促して止まる"""
+    for name in (LAUNCHER_EXE,) + LAUNCHER_DLLS:
+        p = os.path.join(launcher_build, name)
+        if not os.path.isfile(p):
+            raise BuildError("%s がありません(friend-apps/launcher/build.bat を流してから)" % p)
+    for name in (LAUNCHER_EXE,) + LAUNCHER_DLLS:
+        shutil.copy2(os.path.join(launcher_build, name), stage)
 
 
 def lay_wcpp(stage, wcpp_dir):
@@ -518,7 +521,7 @@ def main(argv=None):
     ap.add_argument("--cache", default="", help="Python の本体・wheel・道具のキャッシュ(既定 %%LOCALAPPDATA%%/youtube-tools/app/friend-build-cache)")
     ap.add_argument("--wcpp-dir", default="", help="whisper.cpp の Vulkan 版のフォルダ(既定: 作業データの transcribe/bin/whisper.cpp-<版>-vulkan)")
     ap.add_argument("--app-build", default=os.path.join(APP_SRC, "build"), help="build.bat が作った exe の置き場所")
-    ap.add_argument("--launcher-build", default=LAUNCHER_BUILD, help="friend-apps/launcher/build.bat が作った FriendInbox.exe の置き場所")
+    ap.add_argument("--launcher-build", default=LAUNCHER_BUILD, help="friend-apps/launcher/build.bat が作った FriendApp.exe と DLL の置き場所")
     ap.add_argument("--first", action="store_true", help="初回に手で渡す zip(dist に・latest.json を書かない)")
     ap.add_argument("--with-key", action="store_true", help="--first のときだけ: config.json(Dropbox の鍵)を入れる")
     ap.add_argument("--no-fetch", action="store_true", help="キャッシュに無い物を取りに行かない(無ければ失敗)")

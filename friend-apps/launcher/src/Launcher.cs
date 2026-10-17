@@ -141,6 +141,7 @@ namespace FriendInbox
             var env = psi.EnvironmentVariables;
             env["YTT_FRIEND_HOME"] = home;
             env["YTT_FRIEND_TOKEN"] = token;
+            env["YTT_FRIEND_LAUNCHER"] = "1";   // 更新を受けるのは exe から動いているときだけ(friendapp/sync.py)
             env["YTT_FRIEND_HOST"] = tokenInPage ? "edge" : "webview2";
             env["YTT_FRIEND_REC_PORT"] = g.RecPort.ToString();
             if (rollback != null) env["YTT_FRIEND_ROLLBACK"] = rollback; else env.Remove("YTT_FRIEND_ROLLBACK");

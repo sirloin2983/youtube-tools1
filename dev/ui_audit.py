@@ -73,7 +73,7 @@ SCREENS = {"app/ui/home": ["portal.html", "portal.js", "portal.css", "portal-edi
            "app/ui/studio": ["rank.js", "queue.js", "review.js", "collab.js"],
            "app/ui/editor": ["proof.css", "app-tpl.js", "app.js", "app-core.js", "app-jobs.js", "app-learn.js", "app-list.js", "app-rows.js", "app-tools.js", "cut.js", "pack-tab.js"],
            # 友人の受信箱(F2-2。友人の PC の玄関 src/friendapp が配る 1 枚。見る場面は friend_scenes。見本は dev/friend_demo.py)
-           "friendapp/ui": ["friend.html", "friend.js", "friend.css"],
+           "friendapp/ui": ["friend.html", "friend.js", "friend.css", "setup.html", "setup.js", "settings.js", "settings.css", "host.js"],
            "ui-kit": ["ui-kit.css", "ui-kit.js", "styleguide.html", "styleguide.js"]}
 # ホームの画面に文が出る .py(server.py の argparse・backup.py の CLI の問いは黒い画面に出るだけなので見ない)。/ を含む物は src/ からのパス(役割の層へ移した物)
 HOME_PY = ["autorun.py", "manage/cases/cases.py", "flow/delivery.py", "live.py", "pipeline/ingest/live_archive.py", "pipeline/export/live_export.py", "pipeline/live_failures.py", "eval/drill/accuracy.py","manage/ops/health.py", "manage/keep/cleanup.py", "flow/deliver.py", "pipeline/pack/preview.py", "human/friend/intake.py", "manage/ops/restart.py"]
@@ -743,7 +743,7 @@ def friend_scenes(base, setup_base=None):
             # F2-5: ⚙ の引き出し(見本は本物の窓を開かない)・初回の準備(--missing の見本 = 部品が足りない形の確認)
             {"name": "friend-settings", "url": page, "actions": [("wait", 500), ("click", "#btnSettings"), ("wait", 800)],
              "modal": {"root": "#settingsDrawer", "opener": "#btnSettings"}}] + \
-           ([{"name": "friend-setup", "url": setup_base + "/friend/", "actions": [("wait", 1200)]}] if setup_base else [])
+           ([{"name": "friend-setup", "url": setup_base + "/friend/", "actions": [("wait", 1500)]}] if setup_base else [])   # F3-5: /friend/ → 準備だけの画面
 
 
 def start_friend_demo(port, missing=False):
