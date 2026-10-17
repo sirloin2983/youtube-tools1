@@ -310,7 +310,7 @@ def _iso(t):
     return datetime.datetime.fromtimestamp(t).astimezone().isoformat(timespec="seconds")
 
 
-LIVE_KEYS = ("sens", "perHour", "length", "waitMin", "pad", "afterStream")   # 依頼の JSON の live の鍵の順(C# の LiveSettings.JsonPart と同じ)
+LIVE_KEYS = ("sens", "perHour", "length", "waitMin", "pad", "afterStream", "lengthMode")   # 依頼の JSON の live の鍵の順(C# の LiveSettings.JsonPart と同じ + 長さの自動 = C-2-11)
 
 
 def request_doc(kind, rid, form, sent_at, files=None):
