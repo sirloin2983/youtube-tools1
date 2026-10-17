@@ -55,6 +55,10 @@
     ui.pickCases = h('button', { type: 'button', class: 'btn small', text: '選ぶ' });
     ui.resetCases = h('button', { type: 'button', class: 'btn ghost small', text: '既定に戻す' });
     ui.gpu = h('p', { class: 'hint' });
+    /* C の部品(f1 の 10 章の 8): 取り終えるまで C は選べない。横に理由と [取る]・取っている間は n% */
+    ui.cudaText = h('span', { class: 'fs-cuda-text', 'aria-live': 'polite' });
+    ui.cudaGet = h('button', { type: 'button', class: 'btn small', text: '取る', title: 'C(NVIDIA 用)の部品を取ってきます。取り終えると C を選べます' });
+    ui.cudaRow = h('div', { class: 'fs-line fs-cuda', hidden: '' }, [ui.cudaText, ui.cudaGet]);
     ui.keyState = h('p', {});
     ui.key = h('input', { type: 'text', class: 'fs-key', autocomplete: 'off', spellcheck: 'false', 'aria-labelledby': 'fsKeyH', placeholder: 'キーを貼る' });
     ui.keySave = h('button', { type: 'button', class: 'btn small', text: '確かめて保存' });
@@ -80,8 +84,8 @@
               '[受け取る] を押した切り抜きを置く場所です。変えても、今ある物は移しません。'),
       section('fsCasesH', '一時保管', [ui.cases, h('div', { class: 'fs-line' }, [ui.pickCases, ui.resetCases])],
               '作っている途中の物・録画を置く場所です。選び直しても今ある物は移さず、新しい物から新しい場所に作ります。空き容量はこの場所のドライブで測ります。'),
-      section('fsEngineH', '文字起こしのエンジン', [radios('fsEngine', 'fsEngineH', [['A', 'A(どの GPU でも)'], ['C', 'C(NVIDIA 用)']]), ui.gpu],
-              'C は NVIDIA の GPU で速くなります。切り替えたとき足りない部品があれば取ってきます。次の処理から使います。'),
+      section('fsEngineH', '文字起こしのエンジン', [radios('fsEngine', 'fsEngineH', [['A', 'A(どの GPU でも)'], ['C', 'C(NVIDIA 用)']]), ui.cudaRow, ui.gpu],
+              'C は NVIDIA の GPU で速くなります。C を使うには部品を取ります(取り終えると選べます)。次の処理から使います。'),
       section('fsKeyH', 'YouTube の API キー', [ui.keyState, h('div', { class: 'fs-line' }, [ui.key, ui.keySave, ui.keyClear]), ui.keyHelp]),
       section('fsDiskH', '空き容量の下限', [h('div', { class: 'fs-line' }, [num('fsDisk', 0, 100000, 1, '空き容量の下限(GB)'), h('span', { class: 'hint', text: 'GB(空きがこれより少なくなると、新しい処理を始めずに待ちます)' })])]),
       section('fsCutH', 'カットの既定', [radios('fsCut', 'fsCutH', [['none', 'しない'], ['silence', '無音を削る']])], '送るときに使います。初めは「しない」です。'),
@@ -116,6 +120,7 @@
     ui.keySave.addEventListener('click', function () { saveKey(ui.key.value.trim()); });
     ui.key.addEventListener('keydown', function (e) { if (e.key === 'Enter') saveKey(ui.key.value.trim()); });
     ui.keyClear.addEventListener('click', function () { saveKey(''); });
+    ui.cudaGet.addEventListener('click', function () { ui.cudaGet.disabled = true; put({ fetchCuda: true }); });
     ui.useWeights.addEventListener('change', putWeights);
     ['wAudio', 'wChat', 'wComments'].forEach(function (k) { ui['fsW_' + k].addEventListener('change', putWeights); });
     ui.sens.addEventListener('change', putLive);
@@ -154,6 +159,7 @@
     ui['fsPc:remote'].title = ui['fsPc:remote'].disabled ? 'Dropbox の鍵が無いので選べません' : '';
     ui.remoteWhy.textContent = s.canRemote === false ? 'Dropbox の鍵が無いので「依頼する」は選べません' : '';
     setRadio('fsEngine', s.engine);
+    fillCuda(s);
     ui.gpu.textContent = s.gpu ? 'この PC の GPU: ' + s.gpu.name + (s.gpu.vramGB ? '(' + s.gpu.vramGB + ' GB)' : '') : '';
     ui.keyState.textContent = s.apiKey ? '入っています' : 'まだ入っていません';
     ui.keyClear.disabled = !s.apiKey;
@@ -181,6 +187,23 @@
     var old = s.oldApp || {};
     if (old.canClean) ui.oldWrap.removeAttribute('hidden'); else ui.oldWrap.setAttribute('hidden', '');
     ui.oldText.textContent = old.canClean ? '前のアプリの部品(約 ' + sizeText(old.bytes) + ')が残っています。このアプリへ写して同じだと確かめてあります。' : '';
+  }
+
+  var cudaTimer = 0;
+
+  function fillCuda(s) {
+    var c = s.cuda || {}, r = ui['fsEngine:C'];
+    var locked = !c.ready && s.engine !== 'C';
+    r.disabled = locked;
+    r.title = !locked ? '' : c.fetching ? 'C の部品を取っています。取り終えると選べます' : 'C の部品がまだありません。横の [取る] で取り終えると選べます';
+    if (locked) ui.cudaRow.removeAttribute('hidden'); else ui.cudaRow.setAttribute('hidden', '');
+    ui.cudaGet.hidden = !!c.fetching || !c.available;
+    ui.cudaGet.disabled = false;
+    ui.cudaText.textContent = c.fetching ? 'C の部品を取っています ' + (c.percent || 0) + '%' :
+      !c.available ? 'この PC には C の部品がありません(NVIDIA の GPU 用)' :
+      (c.error ? c.error : 'C を使うには部品' + (c.size ? '(約 ' + sizeText(c.size) + ')' : '') + 'を取ります');
+    clearTimeout(cudaTimer);
+    if (c.fetching) cudaTimer = setTimeout(function () { if (drawer && UIKit.drawer.isOpen(drawer)) load(); }, 1500);   /* 開いている間だけ進み具合を読み直す */
   }
 
   function load() { return api('settings').then(function (j) { fill(j.settings); }, function (e) { fail('設定を読めませんでした', e); }); }

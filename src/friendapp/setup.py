@@ -534,6 +534,7 @@ class Setup:
         self.cancel_ev = threading.Event()
         self.progress = None
         self.result = None
+        self.cuda_job = False   # 今の(最後の)取得が ⚙ の [取る](C の部品だけ)か
 
     # ---- 足りない物
     def items(self):
@@ -613,11 +614,61 @@ class Setup:
             self.cancel_ev.clear()
             self.later = False
             self.result = None
+            self.cuda_job = False
             self.progress = {"index": 0, "count": len(miss), "name": "", "label": "", "phase": "始めています", "itemDone": 0,
                              "itemTotal": 0, "done": 0, "total": sum(expect(i) for i in miss)}
             self.thread = threading.Thread(target=self._job, args=(miss,), name="friend-setup", daemon=True)
             self.thread.start()
         return self.view()
+
+    # ---- ⚙ のエンジン C の部品(10 章の 8: 取り終えるまで C は選べない・横に理由と [取る])
+    def cuda_ready(self):
+        """C の部品(CUDA 版の whisper.cpp)が置いてあるか"""
+        try:
+            return bool(_wcpp_ready(self.data_root))
+        except Exception:   # noqa: BLE001  (読めなければ無い扱い = C を選ばせない)
+            return False
+
+    def cuda_state(self):
+        """⚙ の C の欄: {ready, fetching, percent(取っている間), size(取る大きさ。分からなければ null), available(この PC に取れる物があるか), error}"""
+        ready = self.cuda_ready()
+        fetching = self.running() and self.cuda_job
+        p = self.progress if fetching else None
+        pct = int(min(100, p["done"] * 100 // p["total"])) if p and p.get("total") else (0 if fetching else None)
+        it = None
+        if not ready:
+            try:
+                it = self.cuda()
+            except Exception:   # noqa: BLE001
+                it = None
+        err = None
+        res = self.result
+        if not fetching and not ready and self.cuda_job and res and not res.get("ok"):
+            err = "取れませんでした。ネットを確かめて、もう一度 [取る] を押してください" if not res.get("cancelled") else "やめました(取れた分は残り、次は続きから)"
+        return {"ready": ready, "fetching": bool(fetching), "percent": pct, "size": expect(it) if it else None,
+                "available": ready or it is not None, "error": err}
+
+    def fetch_cuda(self):
+        """C の部品だけを裏の糸で取り始める(エンジンは変えない = 取り終えたら ⚙ で C を選べる)。始められなければ ValueError(理由)"""
+        with self.lock:
+            if self.running():
+                raise ValueError("ほかの部品を取っている途中です。終わってから押してください")
+            if self.cuda_ready():
+                raise ValueError("C の部品はもう取ってあります")
+            it = self.cuda()
+            if not it:
+                raise ValueError("この PC で使える C の部品がありません")
+            short = [s for s in space([it], self.data_root, self.home, self.disk_usage) if not s["ok"]]
+            if short:
+                raise ValueError("%s の空きが足りません(空き %s・要る %s)" % (short[0]["path"], gb(short[0]["free"]), gb(short[0]["need"])))
+            self.cancel_ev.clear()
+            self.result = None
+            self.cuda_job = True
+            self.progress = {"index": 0, "count": 1, "name": it["name"], "label": label(it["name"]), "phase": "始めています", "itemDone": 0,
+                             "itemTotal": 0, "done": 0, "total": expect(it)}
+            self.thread = threading.Thread(target=self._job, args=([it],), name="friend-setup-cuda", daemon=True)
+            self.thread.start()
+        return self.cuda_state()
 
     def cancel(self):
         self.cancel_ev.set()

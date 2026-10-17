@@ -431,7 +431,7 @@ class Handler(BaseHTTPRequestHandler):
             if body.get("reset") is not None:
                 msg = app.settings.reset_folder(body.get("reset"))
             else:
-                msg = app.settings.update({k: body[k] for k in ("engine", "diskMinGB", "cut", "processing", "weights", "live", "cleanOld") if k in body})["message"]
+                msg = app.settings.update({k: body[k] for k in ("engine", "diskMinGB", "cut", "processing", "weights", "live", "cleanOld", "fetchCuda") if k in body})["message"]
             return self._json(200, {"ok": True, "message": msg, "settings": app.settings.view()})
         if path == "/api/friend/settings/key":
             ok, msg = app.settings.set_key(body.get("key") if isinstance(body.get("key"), str) else "")

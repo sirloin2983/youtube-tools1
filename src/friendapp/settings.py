@@ -4,7 +4,8 @@
 項目と置き場所:
     受け取るの保存先    <玄関>/save-dir.json の dir(無ければ %USERPROFILE%/Videos/受け取ったパック = server.save_dir)
     一時保管            スタジオの書き出し先 outDir と machine の caseRoot(同じ値にそろえる)。7-3 = 選び直しても移さない(新しい物から新しい場所)
-    文字起こしのエンジン machine の device(A = vulkan / C = cuda)。C にして部品が足りなければ取る(setup.Setup)
+    文字起こしのエンジン machine の device(A = vulkan / C = cuda)。C は部品(CUDA 版の whisper.cpp)を取り終えるまで選べない(f1 の 10 章の 8)。
+                       取るのは ⚙ の [取る](fetchCuda = setup.Setup.fetch_cuda。エンジンは変えない)
     YouTube の API キー  <作業データ>/app/keys.json の youtubeApiKey(画面へはキーを返さない =「入っている / 無い」だけ)。
                         貼ったら videos.list を 1 回呼んで確かめ、使えるときだけ保存(Settings.cs の YtKeyCheck と同じ)。消すと "" を書く
                         (places.api_key_env が前のアプリの keys.json へ戻らない印)。入れた・消したは環境変数 YTT_YT_API_KEY にもすぐ写す
@@ -194,7 +195,7 @@ class Settings:
                 "engine": "C" if m.get("device") == "cuda" else "A", "gpu": gpu,
                 "apiKey": bool(load_key(self.places["data"]) or self.env.get(KEY_ENV)), "apiKeyHelp": KEY_HELP,
                 "diskMinGB": m.get("diskMinGB"), "cut": self.api.form().get("cut", CUT_DEFAULT),
-                **self._form_view(), "oldApp": self.old_app()}
+                **self._form_view(), "oldApp": self.old_app(), "cuda": self.cuda()}
 
     def _form_view(self):
         f = self.api.form()
@@ -294,15 +295,25 @@ class Settings:
     # ---- エンジン・空き容量・カット
     def update(self, body):
         """{engine?: A|C, diskMinGB?: 数, cut?: none|silence, processing?: local|remote, weights?: null|{volume,chat,comment},
-        live?: {sensitivity?, wait?, margin?}, cleanOld?: true} -> {"message", "fetching"}。合わなければ SettingsError(どれも書かない)"""
-        patch, msgs, cut, fetching = {}, [], None, False
+        live?: {sensitivity?, wait?, margin?}, cleanOld?: true, fetchCuda?: true} -> {"message", "fetching"}。合わなければ SettingsError(どれも書かない)"""
+        patch, msgs, cut = {}, [], None
         form_patch, form_msgs = self._check_form(body)
         if body.get("cleanOld") is True and not callable(getattr(self.setup, "clean_old", None)):
             raise SettingsError("片付けられる物がありません")
         if "engine" in body:
             if body["engine"] not in DEVICES:
                 raise SettingsError("エンジンは A か C を選んでください")
+            if body["engine"] == "C" and self._machine().get("device") != "cuda" and not self.cuda()["ready"]:
+                raise SettingsError("C の部品がまだありません。横の [取る] で取り終えると選べます")
             patch["device"] = DEVICES[body["engine"]]
+        if body.get("fetchCuda") is True:
+            if not callable(getattr(self.setup, "fetch_cuda", None)):
+                raise SettingsError("C の部品を取れません")
+            try:
+                self.setup.fetch_cuda()
+            except ValueError as e:
+                raise SettingsError(str(e))
+            msgs.append("C の部品を取り始めました。取り終えると C を選べます")
         if "diskMinGB" in body:
             try:
                 patch["diskMinGB"] = _machine.check("diskMinGB", body["diskMinGB"])
@@ -327,15 +338,9 @@ class Settings:
             msgs.append("空き容量の下限を %s GB にしました" % patch["diskMinGB"])
         if "device" in patch:
             c = patch["device"] == "cuda"
-            msgs.append("C(CUDA)にしました。次の処理から使います" if c else "A(Vulkan)にしました。次の処理から使います")
-            if c:
-                fetching, why = self._fetch_cuda()
-                if fetching:
-                    msgs.append("足りない部品を取ってきます(進み具合は受信箱の上の「初回の準備」)")
-                elif why:
-                    msgs.append(why)
+            msgs.append("C(NVIDIA 用)にしました。次の処理から使います" if c else "A にしました。次の処理から使います")
         self.log("⚙: %s" % "・".join(msgs))
-        return {"message": "。".join(m.rstrip("。") for m in msgs) if msgs else "変えるものがありません", "fetching": fetching}
+        return {"message": "。".join(m.rstrip("。") for m in msgs) if msgs else "変えるものがありません", "fetching": body.get("fetchCuda") is True}
 
     def _live_floor(self, gb):
         """録画の空き容量の下限もすぐ変える(ライブ係は起こしたときに読むので)"""
@@ -343,29 +348,13 @@ class Settings:
         if live is not None and hasattr(live, "disk_min_gb"):
             live.disk_min_gb = gb
 
-    def _fetch_cuda(self):
-        """エンジン C の部品(CUDA 版の whisper.cpp)が足りなければ取り始める -> (始めたか, 始められない理由)"""
+    def cuda(self):
+        """⚙ の C の欄(10 章の 8: 取り終えるまで C は選べない)。初回の準備の係が無ければ使えない扱い"""
         st = self.setup
-        if st is None or not st.checked:
-            return False, ""
-        if getattr(st, "flow", None) is not None:   # 準備だけの画面の流れ(F3-5)が始まっている = 部品を取る・確かめ直すのは begin(続きから)
-            if st.running():
-                return False, "準備の途中です。終わったあと、もう一度 C を選んでください"
-            st.start()
-            return True, ""
-        try:
-            miss = [i["name"] for i in st.missing() if i["unzip"] == "wcpp"]
-        except Exception:   # noqa: BLE001
-            return False, ""
-        if not miss:
-            return False, ""
-        if st.running():
-            return False, "部品を取っている途中です。取り終えたあと、受信箱の上の「初回の準備」から C の部品も取れます"
-        try:
-            st.start_fetch(only=set(miss))
-            return True, ""
-        except ValueError as e:
-            return False, "C の部品を取れません: %s" % e
+        f = getattr(st, "cuda_state", None)
+        if not callable(f):
+            return {"ready": False, "fetching": False, "percent": None, "size": None, "available": False, "error": None}
+        return f()
 
     # ---- API キー
     def set_key(self, raw):

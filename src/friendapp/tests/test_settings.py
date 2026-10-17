@@ -188,6 +188,7 @@ class SettingsServerTest(unittest.TestCase):
         self.assertEqual(s["diskMinGB"], 20)
 
     def test_engine_disk_cut(self):
+        self.app.setup.cuda_ready = lambda: True   # C の部品はもう置いてある形(取るのは test_engine_c_needs_parts_first)
         st, j = self.post("/api/friend/settings", {"engine": "C", "diskMinGB": 35, "cut": "silence"})
         self.assertEqual(st, 200, j)
         s = j["settings"]
@@ -212,7 +213,8 @@ class SettingsServerTest(unittest.TestCase):
             self.assertEqual(st, 400, body)
         self.assertFalse(os.path.exists(os.environ["YTT_MACHINE_FILE"]))
 
-    def test_engine_c_fetches_cuda_part(self):
+    def test_engine_c_needs_parts_first(self):
+        """f1 の 10 章の 8: C は部品を取り終えるまで選べない(理由つきで断る)・[取る] で C の部品だけを取る(エンジンは変えない)・取り終えたら選べる"""
         blob = b"cuda-zip"
         item = {"name": SU.CUDA_NAME, "file": "c.zip", "url": "https://h/c.zip", "sha256": hashlib.sha256(blob).hexdigest(), "base": "data",
                 "dest": "transcribe/bin", "unzip": "wcpp", "top": "", "member": "", "size": len(blob), "maxBytes": 0, "parts": []}
@@ -220,12 +222,35 @@ class SettingsServerTest(unittest.TestCase):
         self.app.setup.cuda = lambda: item
         laid = []
         self.app.setup.wcpp = lambda it, archive, root: laid.append(it["name"])
-        with mock.patch.object(SU, "_wcpp_ready", lambda root: False):
+        ready = [False]
+        with mock.patch.object(SU, "_wcpp_ready", lambda root: ready[0]):
+            s = self.get("/api/friend/settings")[1]["settings"]["cuda"]
+            self.assertEqual((s["ready"], s["fetching"], s["available"], s["size"]), (False, False, True, len(blob)))
             st, j = self.post("/api/friend/settings", {"engine": "C"})
-            self.assertEqual(st, 200)
-            self.assertIn("取ってきます", j["message"])
+            self.assertEqual(st, 400)
+            self.assertIn("[取る]", j["message"])
+            self.assertEqual(self.get("/api/friend/settings")[1]["settings"]["engine"], "A")   # 変えていない
+            st, j = self.post("/api/friend/settings", {"fetchCuda": True})
+            self.assertEqual(st, 200, j)
+            self.assertIn("取り始めました", j["message"])
             self.app.setup.wait(5)
-            self.assertEqual(laid, [SU.CUDA_NAME])   # 準備の流れが C の部品を取って置いた(ほかの部品はもうある)
+            self.assertEqual(laid, [SU.CUDA_NAME])   # C の部品だけを取って ① の置き方で置いた
+            self.assertEqual(self.get("/api/friend/settings")[1]["settings"]["engine"], "A")   # 取ってもエンジンは変えない
+            ready[0] = True
+            self.assertTrue(self.get("/api/friend/settings")[1]["settings"]["cuda"]["ready"])
+            st, j = self.post("/api/friend/settings", {"engine": "C"})
+            self.assertEqual(st, 200, j)
+            st, j = self.post("/api/friend/settings", {"fetchCuda": True})
+            self.assertEqual(st, 400)   # もう取ってある
+            self.assertIn("もう取ってあります", j["message"])
+
+    def test_fetch_cuda_without_part_for_this_pc(self):
+        self.app.setup.cuda = lambda: None
+        with mock.patch.object(SU, "_wcpp_ready", lambda root: False):
+            self.assertFalse(self.get("/api/friend/settings")[1]["settings"]["cuda"]["available"])
+            st, j = self.post("/api/friend/settings", {"fetchCuda": True})
+        self.assertEqual(st, 400)
+        self.assertIn("使える C の部品がありません", j["message"])
 
     def upd(self, body):
         """server.py の口がまだ processing・weights・live・cleanOld を通さないので、Settings.update を直に呼ぶ(まとめ役が口をつなぐ)"""
