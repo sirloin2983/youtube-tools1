@@ -207,7 +207,13 @@
   }
   function buttons() {
     var x = find(my.cur), can = !!x && open(x.it);
-    ['btnKeep', 'btnSkip', 'btnBoring', 'btnCut'].forEach(function (id) { $(id).disabled = !can || my.busy; });
+    var why = x && x.it.want === 'keep' ? 'Dropbox から取ってきています(取り終えると保存先に入ります)' : my.busy ? '決めています…' : '';
+    ['btnKeep', 'btnSkip', 'btnBoring', 'btnCut'].forEach(function (id) {
+      if ($(id).getAttribute('data-title0') === null) $(id).setAttribute('data-title0', $(id).title || '');
+      $(id).disabled = !can || my.busy;
+      $(id).setAttribute('data-ui-why', $(id).disabled ? why : '');   /* 押せない理由(乗せると出る = ui.md B-04) */
+      if ($(id).disabled && why) $(id).title = why; else if ($(id).getAttribute('data-title0') !== null) $(id).title = $(id).getAttribute('data-title0');
+    });
     $('btnKeep').textContent = x && x.it.want === 'keep' ? '受け取っています' : '受け取る';
   }
   function back() {
