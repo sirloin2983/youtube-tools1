@@ -1,0 +1,48 @@
+"""src/friendapp/places.py のテスト。リポジトリ直下で: py -3.10 -m unittest src/friendapp/tests/test_places.py"""
+import os
+import shutil
+import sys
+import tempfile
+import unittest
+
+os.environ.setdefault("YTT_DATA_DIR", "inplace")
+SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if SRC not in sys.path:
+    sys.path.insert(0, SRC)
+from friendapp import places  # noqa: E402
+from ytt import colors  # noqa: E402
+
+
+class MembersEnvTest(unittest.TestCase):
+    def setUp(self):
+        self.home = tempfile.mkdtemp(prefix="places-")
+        self.addCleanup(shutil.rmtree, self.home, True)
+
+    def put_members(self):
+        p = os.path.join(self.home, "members.json")
+        with open(p, "w", encoding="utf-8") as f:
+            f.write("[]")
+        return p
+
+    def test_zip_root_members_found(self):
+        """zip の直下の members.json を colors.members_path が見つける(友人の PC。以前は friend-apps/holo-colors/ を探して効かなかった)"""
+        p = self.put_members()
+        env = {}
+        self.assertTrue(places.members_env(self.home, env))
+        self.assertEqual(colors.members_path(env), p)
+
+    def test_no_file_changes_nothing(self):
+        """直下に無ければ何もしない(開発の PC は従来の場所のまま)"""
+        env = {}
+        self.assertFalse(places.members_env(self.home, env))
+        self.assertNotIn(colors.MEMBERS_ENV, env)
+
+    def test_explicit_env_wins(self):
+        self.put_members()
+        env = {colors.MEMBERS_ENV: "X:/mine.json"}
+        self.assertFalse(places.members_env(self.home, env))
+        self.assertEqual(env[colors.MEMBERS_ENV], "X:/mine.json")
+
+
+if __name__ == "__main__":
+    unittest.main()

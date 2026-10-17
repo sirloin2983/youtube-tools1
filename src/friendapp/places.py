@@ -17,7 +17,7 @@ import os
 import shutil
 
 from flow import learning as _learning, machine as _machine, placement as _placement, studiobook as _studiobook, wire as _wire
-from ytt import datadir as _datadir, fsio as _fsio, layout as _layout, studio_env as _studio_env
+from ytt import colors as _colors, datadir as _datadir, fsio as _fsio, layout as _layout, studio_env as _studio_env
 
 HOME_ENV = "YTT_FRIEND_HOME"
 DATA_NAME, CASES_NAME, TOOLS_NAME = "data", "作業", "tools"
@@ -192,6 +192,17 @@ def api_key_env(roots, env=None):
     return False
 
 
+def members_env(h, env=None):
+    """zip の直下の members.json(配信者の名簿。dev/build_friend_zip.py が home 直下に入れる)を環境変数 YTT_HOLO_MEMBERS に
+    (ytt/colors が読む。開発の PC は friend-apps/holo-colors/ のまま = 直下に無ければ何もしない)-> 入れたか"""
+    env = os.environ if env is None else env
+    p = os.path.join(h, "members.json")
+    if (env.get(_colors.MEMBERS_ENV) or "").strip() or not os.path.isfile(p):
+        return False
+    env[_colors.MEMBERS_ENV] = p
+    return True
+
+
 def setup(env=None, log=None):
     """② の置き場所を決める(何度呼んでもよい)。-> {"home", "data", "friend", "outbox", "cases", "studio"(スタジオなしの台帳)}"""
     env = os.environ if env is None else env
@@ -202,6 +213,7 @@ def setup(env=None, log=None):
         env.pop(name, None)
     lay_tools_shallow(os.path.join(h, TOOLS_NAME))   # 深く展開された道具を直下へ(F3-5)
     tool_env(os.path.join(h, TOOLS_NAME), env)
+    members_env(h, env)
     root = data_root(env)
     tx = _datadir.locate("transcribe")
     _wire.setup_places(data_dir=tx, studio_data=None if env.get("TRANSCRIBE_STUDIO_DATA") else _placement.studio_data())
