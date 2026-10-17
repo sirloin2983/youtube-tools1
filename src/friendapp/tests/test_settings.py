@@ -393,13 +393,11 @@ class SettingsServerTest(unittest.TestCase):
     def test_page_has_help_links(self):
         st, raw = self.request("GET", "/friend/")
         page = raw.decode("utf-8")
-        for sec in ("send", "close"):
+        for sec in ("send", "receive"):   # F3: 閉じるときの [?] はやめた(止めるときは exe が確認の窓で説明する = C-5-3)
             self.assertIn('href="guide.html#%s"' % sec, page)
         for name, sec in (("settings.js", "settings"), ("setup.html", "setup")):   # ⚙ と初回の準備は F3-5 の別の物
             with open(os.path.join(S.UI_DIR, name), encoding="utf-8") as f:
                 self.assertIn("guide.html#%s" % sec, f.read())
-        with open(os.path.join(S.UI_DIR, "friend.js"), encoding="utf-8") as f:
-            self.assertIn("helpLink('receive'", f.read())
 
 
 if __name__ == "__main__":

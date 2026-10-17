@@ -68,7 +68,8 @@
       <section class="card fr-form" id="sendForm" aria-label="送る欄">
         <!-- 何も選んでいないとき: URL の欄と動画ファイルの受け皿 -->
         <div id="formEmpty">
-          <label class="fr-label-top" for="url">配信の URL</label>
+          <div class="fr-line fr-form-top"><label class="fr-label-top" for="url">配信の URL</label>
+            <a class="btn ghost small fr-help" href="guide.html#send" target="_blank" rel="noopener" aria-label="送り方の説明を新しい窓で開く" title="送り方の説明">?</a></div>
           <input type="url" id="url" class="fr-url" placeholder="https://www.youtube.com/watch?v=…" autocomplete="off" spellcheck="false">
           <p class="fr-bad" id="urlWhy" hidden></p>
           <p class="hint fr-or">左の一覧から配信を選ぶか、URL を貼ってください。</p>
