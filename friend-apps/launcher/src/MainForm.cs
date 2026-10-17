@@ -168,6 +168,7 @@ namespace FriendInbox
             core.ProcessFailed += (s, a) => { Log.Write("画面の処理が落ちました: " + a.ProcessFailedKind); BeginInvoke((Action)Reload); };
             if (ShotDir != null)
             {
+                core.IsMuted = true;   // 写真を撮るときは音を出さない(確認用の動画を流しても人の PC のスピーカーから鳴らさない)
                 bool started = false;
                 core.NavigationCompleted += async (s, a) => { if (started) return; started = true; await TakeShots(); };
             }

@@ -701,7 +701,7 @@ def live_checks(base, out, shots=None, scenes=None, widths=WIDTHS, variants=VARI
     if shots:
         os.makedirs(shots, exist_ok=True)
     with sync_playwright() as p:
-        browser = p.chromium.launch()
+        browser = p.chromium.launch(args=["--mute-audio"])   # 画面の動画を流しても音を出さない
         for variant in variant_defs(variants):
             for width in list(variant.get("widths") or widths) + ([WIDE] if WIDE not in widths and not variant.get("widths") else []):
                 ctx = browser.new_context(viewport={"width": width, "height": 900 if width > 400 else 800}, reduced_motion="no-preference")

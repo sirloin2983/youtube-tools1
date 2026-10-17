@@ -158,7 +158,7 @@ def main():
         base = "http://localhost:%d/friend/" % port
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            browser = p.chromium.launch(headless=True, args=["--mute-audio"])   # 動画を流しても音を出さない
             try:
                 pg = browser.new_page(viewport={"width": 1000, "height": 800})
                 errors = []
