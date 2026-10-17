@@ -93,6 +93,13 @@
       tbShowLen();
     });
 
+    // ---- v29: ホイール・add・貼り付けの前の口(時刻の欄) ----
+    document.getElementById('tbAdd30').addEventListener('click', function () { UIKit.timebox.add(document.getElementById('tbWheel'), 30); });
+    document.addEventListener('ui-time-beforepaste', function (e) {   // 画面が断る例: 配信の URL は時刻として入れない
+      if (e.target.id !== 'tbWheel' || !/youtu/.test(e.detail.text)) return;
+      e.preventDefault(); tbMsg.textContent = '別の配信の URL です。この欄には時刻を入れていません';
+    });
+
     // ---- 下の帯(keybar) ----
     document.getElementById('btnKeybarSet').addEventListener('click', function () {
       UIKit.keybar.set([{ k: 'Space', l: '再生・停止' }, { k: '↓', l: '次の行' }, { k: '↑', l: '前の行' }, { k: 'Shift+Space', l: '校正済みで次へ' }, { k: '?', l: 'キー操作' }]);

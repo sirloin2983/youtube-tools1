@@ -10,7 +10,7 @@ ui-kit/ をそのまま python の http.server で1つのポートに乗せ、st
 共通の再生キー(UIKit.keys.playback: Space/J/K/L/矢印/,/./I/O・入力欄では無視) / アイコン(UIKit.icon: 一覧すべて) /
 設定の引き出し(UIKit.settings: 文字の大きさが html[data-fs] に効いて保存される) /
 版の帯(UIKit.restart。v10: 単体では案内だけ・合言葉があれば「起動し直す」→ 断られた理由・ping を待って読み込み直す・戻らなければ案内)/
-時刻の欄(UIKit.timebox。v11: 数字だけで 時 → 分 → 秒・← →・↑ ↓・BackSpace・Delete・貼り付け・0.1 秒・YouTube の URL は指定した欄だけ・上限・使えない欄)/
+時刻の欄(UIKit.timebox。v11: 数字だけで 時 → 分 → 秒・← →・↑ ↓・BackSpace・Delete・貼り付け・0.1 秒・YouTube の URL は指定した欄だけ・上限・使えない欄。v29: ホイール・光らせる・add・貼り付けの前の口)/
 録画中の札(UIKit.liveBadge。v16: api/ytt/live を偽装。札・一覧・差分・二度押しの停止・知らせ・間隔・隠れたタブ)。
 """
 import functools
@@ -134,6 +134,61 @@ def check_restart(browser, base, check):
         check(not errs, "画面のエラーなし(版の帯): %s" % errs[:5])
     finally:
         ctx.close()
+
+
+def check_timebox_v29(pg, check):
+    """時刻の欄(UIKit.timebox。v29): ホイール(本物のホイール・画面が止めたか)・光らせる・add(空から・下限・上限・commit の via)・貼り付けの前の口(画面が断る)"""
+    def text(sel):
+        return pg.evaluate("s => document.querySelector(s).textContent", sel)
+
+    def value(sel):
+        return pg.evaluate("s => UIKit.timebox.get(document.querySelector(s))", sel)
+
+    def flashed():
+        return pg.evaluate("() => { const s = document.querySelector('#tbWheel .ui-time-flash'); return s ? s.dataset.seg : null; }")
+
+    def hover_seg(i):
+        b = pg.locator("#tbWheel .ui-time-seg[data-seg='%d']" % i).bounding_box()
+        pg.mouse.move(b['x'] + b['width'] / 2, b['y'] + b['height'] / 2)
+
+    pg.evaluate("UIKit.timebox.set(document.getElementById('tbWheel'), 83)")
+    pg.evaluate("window.__v29 = []; document.addEventListener('ui-time-commit', e => window.__v29.push(e.detail.via))")
+    hover_seg(1)
+    pg.mouse.wheel(0, -100)   # 上へ回す = 分が +1
+    check((text('#tbWheel'), value('#tbWheel')) == ('0:02:23', 143), 'ホイールの上で分が +1: %s' % text('#tbWheel'))
+    check(flashed() == '1', '動いた単位(分)が光る: %s' % flashed())
+    hover_seg(2)
+    pg.mouse.wheel(0, 100)    # 下へ回す = 秒が -1
+    check(value('#tbWheel') == 142, '下へ回すと秒が -1: %s' % text('#tbWheel'))
+    # 合成のホイールは単位の上(data-seg='2' = 秒)へ出す(欄の外側だと単位を近さで決める)
+    wheel_seg2 = "(dy) => { const s = document.querySelector('#tbWheel .ui-time-seg[data-seg=\"2\"]'); return !s.dispatchEvent(new WheelEvent('wheel', {deltaY: dy, bubbles: true, cancelable: true})); }"
+    check(pg.evaluate(wheel_seg2, -100) and value('#tbWheel') == 143,
+          'ホイールの上ではページのスクロールを止める(preventDefault)・秒が +1: %s' % text('#tbWheel'))
+    pg.evaluate("document.getElementById('tbWheel').setAttribute('aria-disabled', 'true')")
+    check(pg.evaluate(wheel_seg2, -100) is False and value('#tbWheel') == 143,
+          '無効(aria-disabled)なら回しても変わらず、止めない')
+    pg.evaluate("document.getElementById('tbWheel').removeAttribute('aria-disabled')")
+
+    # add: 今の値に足す。動いた一番上の単位(秒)が光る。確定は via: 'add'
+    pg.evaluate("UIKit.timebox.add(document.getElementById('tbWheel'), 30)")
+    check((text('#tbWheel'), value('#tbWheel')) == ('0:02:53', 173), 'add(30) で 30 秒足す: %s' % text('#tbWheel'))
+    check(flashed() == '2', 'add は動いた一番上の単位(秒)を光らせる: %s' % flashed())
+    check(pg.evaluate('window.__v29') == ['add'], 'add は ui-time-commit(via: add)を出す: %s' % pg.evaluate('window.__v29'))
+    pg.evaluate("UIKit.timebox.add(document.getElementById('tbWheel'), -99999)")
+    check(value('#tbWheel') == 0, 'add の下限は 0: %s' % text('#tbWheel'))
+    pg.evaluate("UIKit.timebox.set(document.getElementById('tbWheel'), null)")
+    pg.evaluate("UIKit.timebox.add(document.getElementById('tbWheel'), 45)")
+    check((text('#tbWheel'), value('#tbWheel')) == ('0:00:45', 45), '空の欄は 0 から足す: %s' % text('#tbWheel'))
+
+    # 貼り付けの前の口: 画面(styleguide.js)が URL を断る → 値も reject も変わらず、理由は画面の文
+    pg.evaluate("window.__tbReject = null")
+    paste_v29 = """([sel, s]) => { const el = document.querySelector(sel); el.focus(); const dt = new DataTransfer(); dt.setData('text/plain', s);
+        el.dispatchEvent(new ClipboardEvent('paste', {clipboardData: dt, bubbles: true, cancelable: true})); }"""
+    pg.evaluate(paste_v29, ['#tbWheel', 'https://youtu.be/dQw4w9WgXcQ?t=5025'])
+    check(value('#tbWheel') == 45 and pg.evaluate('window.__tbReject') is None and '別の配信' in text('#tbMsg'),
+          '画面が断った貼り付けは値も ui-time-reject も変えない: %s' % text('#tbMsg'))
+    pg.evaluate(paste_v29, ['#tbWheel', '1:02:03'])
+    check(value('#tbWheel') == 3723, 'ふつうの貼り付けは入る: %s' % text('#tbWheel'))
 
 
 def check_timebox(pg, check):
@@ -988,6 +1043,7 @@ def check_page(browser, base, check):
     check_icons_settings(pg, check)
     # ---- v11: 時刻の欄(UIKit.timebox) ----
     check_timebox(pg, check)
+    check_timebox_v29(pg, check)
     # ---- v24: fmt.day・fmt.dur の opt・UIKit.copy ----
     check_v24_fmt_copy(pg, base, check)
 

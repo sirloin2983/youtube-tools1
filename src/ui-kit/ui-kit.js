@@ -62,7 +62,8 @@
        ツールごとの写し(src/studio/ui-kit.*・src/editor/ui-kit.*)は無くなった(画面はどれも入口の直下の正本 ui-kit.js・ui-kit.css を読む)。README.md の「v27」
     v28(2026-10-16・RV A1): まとめて実行の受付を ② の口 POST api/flow/submit {envelope, spec} の 1 本に。UIKit.flow.order(欄 → 封筒 + 束の差分。
        Python の src/flow/order.py と同じ変換)・UIKit.autorun.start(orders, opts)(見積もり api/flow/estimate を 1 本ずつ足す → 1 本ずつ submit →
-       終わるまで api/flow/runs を見て知らせる)。以前の start(path, body, estBody) と api/autorun/* は消した。README.md の「v28」 */
+       終わるまで api/flow/runs を見て知らせる)。以前の start(path, body, estBody) と api/autorun/* は消した。README.md の「v28」
+    v29(2026-10-17・友人のアプリの区間の欄 F3-3): UIKit.timebox に ホイール(opt.wheel / data-ui-time-wheel。マウスの下の単位を ±1・Shift で ±10・動いた単位を一瞬光らせる)・add(秒)(今の値に足す・動いた一番上の単位を光らせる)・貼り付けの前の口 ui-time-beforepaste(取り消せる。画面が止めたら値も reject も出さない)。README.md の「v29」 */
 (function () {
   'use strict';
   var KEY = 'ytt:theme';
@@ -2333,7 +2334,8 @@
      入力欄(input)ではなく、フォーカスできる要素に自分で描く: 文字を打ち込めない・日本語入力に数字のキーを取られない・選んだ所をアクセントの色で見せられる。
      値は秒(tenths・short のときは 0.1 秒刻み)。入っていなければ null。変わるたびに要素へ 'ui-time'(detail: {value})、
      欄を離れた・Enter を押したときに値が変わっていれば 'ui-time-commit'(input の change に当たる。detail: {value, via: 'enter'|'blur', to: 移った先の要素 | null})、
-     読めない貼り付けは 'ui-time-reject'(detail: {reason}) */
+     読めない貼り付けは 'ui-time-reject'(detail: {reason})。
+     v29: ホイール(opt.wheel / data-ui-time-wheel)・add(秒)・貼り付けの前の口 'ui-time-beforepaste'(detail: {text}。取り消せる)・動いた単位の光り(.ui-time-flash)は README.md の「v29」 */
   var TB_MAX = 99 * 3600 + 59 * 60 + 59;   // 秒
   /* 形ごとの区切り: unit = その場所の 1 が 0.1 秒いくつ分か。先頭は桁数を決めない(1桁打ったら次へ)・2桁の所は 0 を付けて出す・0.1 秒は1桁 */
   var TB_FORMS = {
@@ -2380,6 +2382,7 @@
     var formName = opt.short || el.hasAttribute('data-ui-time-short') ? 'short' : (opt.tenths !== undefined ? opt.tenths : el.hasAttribute('data-ui-time-tenths')) ? 'tenths' : 'hms';
     var form = TB_FORMS[formName], fine = formName !== 'hms', last = form.length - 1;
     var youtube = opt.youtube !== undefined ? !!opt.youtube : el.hasAttribute('data-ui-time-youtube');
+    var wheelOn = opt.wheel !== undefined ? !!opt.wheel : el.hasAttribute('data-ui-time-wheel');   // v29: ホイールで単位を ±1
     var maxSec = Number(opt.max !== undefined ? opt.max : el.getAttribute('data-ui-time-max')) || TB_MAX;
     var v = 0, has = false, seg = 0, half = false;   // v = 0.1 秒の数。half = 2桁の所の1桁目だけ打った所
     var baseV = 0, baseHas = false;                  // 欄に入ったとき(か最後に確定したとき)の値。離れたときに違えば ui-time-commit
@@ -2392,6 +2395,8 @@
     function clamp(x) { return Math.max(0, Math.min(Math.round(maxSec * 10), Math.round(x))); }
     function disabled() { return el.getAttribute('aria-disabled') === 'true'; }
     function fire(name, detail) { try { el.dispatchEvent(new CustomEvent(name, { bubbles: true, detail: detail })); } catch (e) { /* 古いブラウザ */ } }
+    /* v29: 取り消せる知らせ。false = 画面が preventDefault した */
+    function ask(name, detail) { try { return el.dispatchEvent(new CustomEvent(name, { bubbles: true, cancelable: true, detail: detail })); } catch (e) { return true; } }
     function draw() {
       var p = tbParts(v, form), on = document.activeElement === el, shown = has || on, html = '';
       for (var i = 0; i <= last; i++) {
@@ -2404,10 +2409,41 @@
       el.setAttribute('aria-valuetext', has ? tbText(v, form) + (on ? '(' + form[seg].name + 'を選択中)' : '') : '未入力');
     }
     function tell() { fire('ui-time', { value: has ? v / 10 : null }); }
+    /* v29: 値が動いた単位を一瞬光らせる(.ui-time-flash。400ms で消す)。draw のあとに当てる(描き直すと span が作り直されるため) */
+    var flashT = null;
+    function flash(i) {
+      var s = el.querySelector('.ui-time-seg[data-seg="' + i + '"]');
+      if (!s) return;
+      clearTimeout(flashT);
+      s.classList.add('ui-time-flash');
+      flashT = setTimeout(function () { s.classList.remove('ui-time-flash'); }, 400);
+    }
+    /* v29: ホイールのとき、マウスの下の単位(空の欄でも、その場所)。区切りの上なら一番近い単位 */
+    function segAt(e) {
+      var t = e.target && e.target.closest ? e.target.closest('.ui-time-seg') : null;
+      if (t) return Number(t.getAttribute('data-seg'));
+      var segs = el.querySelectorAll('.ui-time-seg'), best = 0, bd = Infinity;
+      for (var i = 0; i < segs.length; i++) {
+        var r = segs[i].getBoundingClientRect(), d = e.clientX < r.left ? r.left - e.clientX : e.clientX > r.right ? e.clientX - r.right : 0;
+        if (d < bd) { bd = d; best = i; }
+      }
+      return best;
+    }
+    /* v29: 今の値に sec 秒を足す(空なら 0 から・0 未満にならない・上限まで)。足したら ui-time と ui-time-commit(via: 'add')・動いた一番上の単位を光らせる */
+    function addSec(sec) {
+      if (sec === null || sec === undefined || sec === '' || !isFinite(Number(sec))) return;
+      var wasV = v, wasHas = has, p0 = tbParts(v, form), nv = clamp(v + Math.round(Number(sec) * 10)), p1 = tbParts(nv, form), top = -1;
+      for (var j = 0; j <= last; j++) if (p0[j] !== p1[j]) { top = j; break; }
+      v = nv; has = true; half = false;
+      draw();
+      if (top >= 0) flash(top);
+      if (wasV !== v || wasHas !== has) tell();
+      commit('add', null);
+    }
     function commit(via, to) {
       if (baseV === v && baseHas === has) return;
       baseV = v; baseHas = has;
-      /* via = 'enter' | 'blur'、to = 離れて移った先(画面を描き直す側が、フォーカスを奪い返さずに移った先へ戻せるように) */
+      /* via = 'enter' | 'blur' | 'add'(v29)、to = 離れて移った先(画面を描き直す側が、フォーカスを奪い返さずに移った先へ戻せるように) */
       fire('ui-time-commit', { value: has ? v / 10 : null, via: via, to: to || null });
     }
     function setPart(i, n) {
@@ -2434,11 +2470,11 @@
     }
     el.addEventListener('keydown', function (e) {
       if (disabled() || e.ctrlKey || e.metaKey || e.altKey) return;
-      var k = e.key, before = v, had = has, used = true;
+      var k = e.key, before = v, had = has, used = true, lit = -1;
       if (/^[0-9]$/.test(k)) digit(Number(k));
       else if (k === 'ArrowLeft') { seg = Math.max(0, seg - 1); half = false; }
       else if (k === 'ArrowRight') { seg = Math.min(last, seg + 1); half = false; }
-      else if (k === 'ArrowUp' || k === 'ArrowDown') { has = true; half = false; v = clamp(v + (k === 'ArrowUp' ? 1 : -1) * form[seg].unit * (e.shiftKey ? 10 : 1)); }
+      else if (k === 'ArrowUp' || k === 'ArrowDown') { var was = v; has = true; half = false; v = clamp(v + (k === 'ArrowUp' ? 1 : -1) * form[seg].unit * (e.shiftKey ? 10 : 1)); if (v !== was) lit = seg; }
       else if (k === 'Backspace') { if (tbParts(v, form)[seg] === 0 && !half) seg = Math.max(0, seg - 1); else setPart(seg, 0); half = false; }
       else if (k === 'Delete') { v = 0; has = false; seg = 0; half = false; }
       else if (k === 'Enter') { half = false; commit('enter', null); }
@@ -2446,12 +2482,27 @@
       if (!used) return;
       e.preventDefault(); e.stopPropagation();   // 画面のキー操作(再生・矢印で 1 秒など)に渡さない
       draw();
+      if (lit >= 0) flash(lit);
       if (before !== v || had !== has) tell();
     });
+    /* v29: ホイール(opt.wheel / data-ui-time-wheel のときだけ)。マウスの下の単位を ±1(Shift で ±10)。この欄の上だけページのスクロールを止める */
+    if (wheelOn) el.addEventListener('wheel', function (e) {
+      var dy = e.deltaY !== 0 ? e.deltaY : e.deltaX;   // Shift + ホイールで横に来るブラウザがあるので
+      if (disabled() || !dy) return;
+      e.preventDefault();
+      var i = segAt(e), before = v, had = has;
+      seg = i; half = false; has = true;
+      v = clamp(v + (dy < 0 ? 1 : -1) * form[i].unit * (e.shiftKey ? 10 : 1));
+      draw();
+      if (before !== v) flash(i);
+      if (before !== v || had !== has) tell();
+    }, { passive: false });
     el.addEventListener('paste', function (e) {
       if (disabled()) return;
       e.preventDefault();
-      var before = v, had = has, text = (e.clipboardData || window.clipboardData).getData('text');
+      var text = (e.clipboardData || window.clipboardData).getData('text');
+      if (!ask('ui-time-beforepaste', { text: text })) return;   // v29: 画面が preventDefault したら値も ui-time-reject も変えない
+      var before = v, had = has;
       if (paste(text)) { draw(); if (before !== v || had !== has) tell(); fire('ui-time-paste', { text: text }); }
     });
     el.addEventListener('copy', function (e) { if (has && e.clipboardData) { e.clipboardData.setData('text/plain', tbText(v, form)); e.preventDefault(); } });
@@ -2472,6 +2523,7 @@
         half = false; baseV = v; baseHas = has; draw();
       },
       text: function () { return has ? tbText(v, form) : ''; },
+      add: function (sec) { addSec(sec); return has ? v / 10 : null; },   // v29: 今の値に足す(空なら 0 から)
       focus: function () { el.focus(); }
     };
     var init = opt.value !== undefined ? opt.value : el.getAttribute('data-ui-time');
@@ -2495,6 +2547,8 @@
     },
     get: function (el) { var a = attachTime(el); return a ? a.get() : null; },
     set: function (el, sec) { var a = attachTime(el); if (a) a.set(sec); },
+    /* v29: 今の値に sec 秒を足す(欄の値を返す。ホイール・↑ ↓ と同じく 'ui-time'・'ui-time-commit'(via: 'add')を出す) */
+    add: function (el, sec) { var a = attachTime(el); return a ? a.add(sec) : null; },
     parse: tbParse,
     format: tbFormat
   };
@@ -2735,7 +2789,7 @@
   }
   var sound = { other: sndOther, onChange: function (fn) { if (typeof fn === 'function') snd.subs.push(fn); }, tool: snd.tool };
 
-  window.UIKit = { version: 28, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
+  window.UIKit = { version: 29, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
                    portal: portal, streamer: streamer, appnav: appnav, drawer: drawer, dialog: dialogApi, toast: toastFn, keybar: keybar, settings: settings, settingsForm: settingsForm, keys: keysApi, keymap: keymapApi, icon: icon,
                    confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud, autorun: autorun, flow: flow, restart: restart, timebox: timebox, hide: hide, liveBadge: liveBadge, menuOff: menuOff,
                    http: http, homeApi: homeApi, homeUrl: homeUrl, copy: copyText };

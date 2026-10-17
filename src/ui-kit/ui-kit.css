@@ -197,6 +197,10 @@ select option{background:var(--panel);color:var(--ink)}
 .ui-time:focus{outline:none;border-color:var(--accent);box-shadow:var(--ring)}
 .ui-time.ui-time-empty{color:var(--ink-3)}   /* 空の欄の「--:--」も文字の濃さ 4.5:1 以上(F2-2 の ui_audit A-22。以前は --ink-4) */
 .ui-time-seg{padding:1px;border-radius:var(--r-xs)}
+/* v29: 値が動いた単位を一瞬光らせる(ホイール・↑ ↓・add)。動きを減らす設定では動かさず一瞬の色だけ */
+.ui-time-seg.ui-time-flash{animation:ui-time-flash .4s ease-out}
+@keyframes ui-time-flash{from{background:var(--accent-line)}to{background:transparent}}
+@media (prefers-reduced-motion: reduce){.ui-time-seg.ui-time-flash{animation:none;background:var(--accent-line);}}
 .ui-time:focus .ui-time-seg.on{background:var(--accent);color:var(--accent-ink)}
 .ui-time[aria-invalid=true]{border-color:var(--danger)}
 .ui-time[aria-disabled=true]{opacity:.55;cursor:not-allowed}

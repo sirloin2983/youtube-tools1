@@ -306,6 +306,10 @@
   欄が使ったキーは画面のキー操作に渡さない(`stopPropagation`)。`UIKit.keys.isTyping(el)` は時刻の欄を「入力中」と数える。
   **ツールが自分の「入力中か」の判定を持っているとき(スタジオの `Studio.isTyping` など)は、使う前に `.ui-time` を足す**
 - そのほか: `UIKit.timebox.parse(文字, {youtube, tenths})` → 秒 | null・`UIKit.timebox.format(秒, 形)` → `1:23:45`(形: 省略 / `true`・`'tenths'` / `'short'`)
+- **ホイール**(v29・`opt.wheel` / `data-ui-time-wheel`): 欄の上でホイールを回すと、マウスの下の単位(空の欄でも、その場所)を上 = +1・下 = −1(Shift で ±10)。この欄の上だけページのスクロールを止める。動いたら `ui-time`(blur のときの `ui-time-commit` は今のまま)。`aria-disabled` なら何もしない。
+- **動いた単位を光らせる**(v29): ホイール・↑ ↓・`add` で値が動いた単位に `ui-time-flash`(約 400ms)。動きを減らす設定(`prefers-reduced-motion`)では動かさず一瞬の色だけ。
+- **足す**(v29): `UIKit.timebox.add(el, 秒)`(api は `add(秒)`)= 今の値に足す(空なら 0 から・0 未満にならない・上限まで)。足したら `ui-time` と `ui-time-commit`(`detail.via: 'add'`)。動いた一番上の単位を光らせる。画面のボタン(「+30 秒」など)から使う。
+- **貼り付けの前の口**(v29): 貼り付けたとき、読む前に `ui-time-beforepaste`(`detail.text`。bubbles・cancelable)を要素に出す。画面が `preventDefault()` したら値も `ui-time-reject` も変えない(別の配信の URL を画面で断るときに使う)。
 - 使っている所(2026-10-02): 編集の 1 文字起こし の行(short)・スタジオの ③ 確認のマークの開始/終了(tenths)・コラボの合わせる時刻(tenths)
 - 見本とテスト: `styleguide.html` の「v11: 時刻の欄」・`python src/ui-kit/tests/e2e_styleguide.py`(本物のキー入力)。`UIKit.version` は 11
 

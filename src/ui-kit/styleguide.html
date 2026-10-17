@@ -169,6 +169,10 @@
         <label class="lag keep">上限 10 分 <span data-ui-time data-ui-time-max="600" id="tbMax" aria-label="10 分までの時刻"></span></label>
         <label class="lag keep">使えない <span data-ui-time="5025" aria-disabled="true" id="tbOff" aria-label="使えない時刻"></span></label>
       </div>
+      <div class="row" style="margin-top:10px">
+        <label class="lag keep">ホイールで動く <span data-ui-time="83" data-ui-time-wheel id="tbWheel" aria-label="ホイールで動く時刻"></span></label>
+        <button class="btn small" id="tbAdd30">+30秒</button>
+      </div>
       <p class="hint" id="tbMsg" aria-live="polite">欄を選んで 12345 → 1:23:45。← → で 時・分・秒 を選び、↑ ↓ で ±1(Shift で ±10)。BackSpace = 選んだ所を 0・Delete = 空に・Ctrl+V = 1:23:45 / 83:45 / 1h23m45s
         (「YouTube の URL も」の欄だけ、…?t=5025 の URL も読む)。</p>
     </section>
