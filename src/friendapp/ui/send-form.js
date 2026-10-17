@@ -197,13 +197,18 @@
       $('topVal').textContent = String(f.top);
       $('topMinus').disabled = f.top <= 1; $('topPlus').disabled = f.top >= TOP_MAX;
       var rec = k === 'live' ? liveRow() : null;
+      f.rec = rec;
       $('liveNow').hidden = !rec;
-      if (rec) $('liveNow').textContent = '録画しています(届いた ' + rec.packs.length + ' 本)。取り消すときは下の「送った物」の [取り消す] から';
-      label = k === 'live' ? (s.state === 'upcoming' ? '予約する' : '録画を頼む') : pcUser ? '依頼する' : '送る';
+      if (rec && f.recId !== rec.id) {   /* 録画中の配信を開いた = 今の設定を出す(途中で変えられる = C-2-11) */
+        f.recId = rec.id;
+        fillLive(Object.assign({}, (FR.state.form || {}).live || {}, (rec.form || {}).live || {}));
+      } else if (!rec && f.recId) { f.recId = ''; fillLive((FR.state.form || {}).live || {}); }
+      $('liveLead').textContent = rec ? '録画しています(届いた ' + rec.packs.length + ' 本)。設定を変えると、この先の切り抜きから効きます。' :
+        '配信が終わるまで録画し、面白い所を自動で切ります。できた分から「受け取る」に届きます。';
+      label = rec ? '録画を取り消す' : k === 'live' ? (s.state === 'upcoming' ? '予約する' : '録画を頼む') : pcUser ? '依頼する' : '送る';
       if (f.checking) why = '配信を確かめています…';
       else if (s.blocked) why = s.blocked;
       else if (rg.bad) why = rg.bad;
-      else if (rec) why = 'この配信は録画しています';
     } else {
       var up = f.files.some(function (x) { return !x.id; });
       label = pcUser ? '依頼する' : '送る';
@@ -213,6 +218,8 @@
     var parts = !pcUser && FR.state.partsWhy;
     if (!why && parts) why = parts;
     $('btnSend').textContent = (f.mode === 'files' && f.files.length > 1 ? f.files.length + ' 本を' : '') + label;
+    $('btnSend').classList.toggle('primary', !f.rec);
+    $('btnSend').classList.toggle('danger', !!f.rec);
     $('btnSend').disabled = !!why || f.sending;
     $('btnSend').title = why;
     $('sendWhy').hidden = !why || why === '配信を確かめています…';
@@ -257,6 +264,12 @@
     if (!rangeRows().length) addRange(false);
     if (it.state === 'checking') probe(it.url, ++f.peekSeq, false);
     sync();
+    reveal();
+  }
+  function reveal() {   /* 送る欄を見える所へ: 2 列 = 右の列を上へ・1 列(狭い)= 欄までスクロール(欄は一覧の上) */
+    var side = document.querySelector('.fr-side');
+    if (side) side.scrollTop = 0;
+    if (window.innerWidth <= 960) $('sendForm').scrollIntoView({ block: 'start' });
   }
   function openUrl(text) {
     var vid = vidOf(text);
@@ -290,7 +303,7 @@
   }
   function close() {   /* Esc・×: 送る欄を閉じる(入れかけも消える = C-2-18) */
     f.peekSeq++;
-    f.mode = 'none'; f.stream = null; f.files = []; f.checking = false; f.people = [];
+    f.mode = 'none'; f.stream = null; f.files = []; f.checking = false; f.people = []; f.rec = null; f.recId = '';
     f.streamer = { name: '', hex: null, auto: true };
     $('ranges').textContent = '';
     $('url').value = '';
@@ -332,7 +345,7 @@
   }
   function addFile(got) {   /* {id, name, size, streamer, hex} */
     if (f.files.length >= FILES_MAX) { UIKit.toast('動画ファイルは 1 回に ' + FILES_MAX + ' 本までです', { kind: 'err' }); return null; }
-    if (f.mode !== 'files') { close(); f.mode = 'files'; }
+    if (f.mode !== 'files') { close(); f.mode = 'files'; setTimeout(reveal, 0); }
     var x = { id: got.id || '', name: got.name, size: got.size, who: { name: got.streamer || '', hex: got.hex || null, auto: true }, pct: 0 };
     f.files.push(x);
     drawFiles();
@@ -393,8 +406,28 @@
   }
 
   /* ---------------------------------------------------------------- 送る */
+  function liveBody() {
+    var mode = (document.querySelector('input[name=lvLenMode]:checked') || {}).value || 'auto';
+    return { perHour: parseInt($('lvPerHour').value, 10) || 6, lengthMode: mode, length: parseInt($('lvLength').value, 10) || 45, afterStream: $('lvAfter').checked };
+  }
+  function liveChanged() {   /* 録画中の配信の設定を途中で変える(この先の切り抜きから効く) */
+    if (!f.rec) return;
+    api('live-settings', Object.assign({ id: f.rec.id }, liveBody())).then(function () {
+      UIKit.toast('録画の設定を変えました(この先の切り抜きから効きます)', { ms: 4000 });
+      FR.refresh();
+    }, function (e) { FR.fail('設定を変えられませんでした', e); });
+  }
+  function cancelRec() {
+    var rec = f.rec;
+    UIKit.dialog.confirm({ title: '録画を取り消します', body: '録画と、この先の切り抜きを止めます。届いた物は「受け取る」に残り、作りかけは捨てます。',
+      ok: '取り消す', cancel: '続ける', danger: true }).then(function (yes) {
+      if (!yes) return;
+      api('cancel', { id: rec.id }).then(function () { close(); FR.refresh(); }, function (e) { FR.fail('取り消せませんでした', e); });
+    });
+  }
   function send() {
     if ($('btnSend').disabled) return;
+    if (f.mode === 'stream' && f.rec) { cancelRec(); return; }
     var body;
     if (f.mode === 'files') {
       body = { source: 'files', videoTracks: parseInt($('tracksF').value, 10) || 1,
@@ -404,10 +437,7 @@
       body = { source: 'url', kind: k, url: f.stream.url, title: f.stream.title, ranges: rg.list, top: rg.list.length ? null : f.top,
         streamer: f.streamer.name || '', people: f.people.map(function (p) { return p.name; }).filter(Boolean),
         videoTracks: parseInt($('tracks').value, 10) || 1, startAt: f.stream.startAt || null };
-      if (k === 'live') {
-        var mode = (document.querySelector('input[name=lvLenMode]:checked') || {}).value || 'auto';
-        body.live = { perHour: parseInt($('lvPerHour').value, 10) || 6, lengthMode: mode, length: parseInt($('lvLength').value, 10) || 45, afterStream: $('lvAfter').checked };
-      }
+      if (k === 'live') body.live = liveBody();
     }
     f.sending = true; sync();
     api('send', body).then(function (j) {
@@ -439,8 +469,9 @@
     $('topMinus').addEventListener('click', function () { f.top = Math.max(1, f.top - 1); sync(); });
     $('topPlus').addEventListener('click', function () { f.top = Math.min(TOP_MAX, f.top + 1); sync(); });
     Array.prototype.forEach.call(document.querySelectorAll('input[name=lvLenMode]'), function (r) {
-      r.addEventListener('change', function () { lenBox(r.value === 'fixed' && r.checked); });
+      r.addEventListener('change', function () { lenBox(r.value === 'fixed' && r.checked); liveChanged(); });
     });
+    ['lvPerHour', 'lvLength', 'lvAfter'].forEach(function (id) { $(id).addEventListener('change', liveChanged); });
     $('btnSend').addEventListener('click', send);
     $('btnPick').addEventListener('click', pickFile);
     $('btnPickMore').addEventListener('click', pickFile);

@@ -606,13 +606,18 @@ class FriendApp:
         return {"ok": not errors, "done": done, "errors": errors}
 
     def streams_view(self):
-        """配信の一覧 + 各カードの送った物の印(同じ配信の一番新しい依頼の行の状態 = C-2-4)"""
+        """配信の一覧 + 各カードの送った物の印(同じ配信の一番新しい依頼の行の状態 = C-2-4)。
+        状態は送った物の行と同じ読み方(api.view = ② の実行中なら making・待ちなら queued)= 一覧の印と送った物の行が食い違わない"""
         v = self.streams.view()
         sent = {}
-        for r in self.inbox.view():
+        for r in self.api.view()["rows"]:
             vid = (r.get("source") or {}).get("videoId")
-            if vid and vid not in sent:   # 行は新しい順
-                sent[vid] = {"state": r["state"], "id": r["id"]}
+            if not vid or vid in sent or r.get("cancelled"):   # 行は新しい順・取り消した行は印にしない
+                continue
+            st = r["state"]
+            if st == "sent" and (r.get("run") or {}).get("state") == "queued":
+                st = "queued"
+            sent[vid] = {"state": st, "id": r["id"]}
         for sec in v.get("sections") or []:
             for it in sec.get("items") or []:
                 if it.get("videoId") in sent:

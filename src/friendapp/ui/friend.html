@@ -67,7 +67,8 @@
             <span class="fr-head-thumb"><img id="headThumb" alt=""></span>
             <div class="fr-head-body">
               <div class="fr-head-title" id="headTitle"></div>
-              <div class="fr-head-meta"><span id="headWho"></span><span class="fr-head-len" id="headLen"></span><span class="pill" id="headState" hidden></span></div>
+              <div class="fr-head-meta"><span id="headWho"></span></div>
+              <div class="fr-head-sub"><span class="fr-head-len" id="headLen"></span><span class="pill" id="headState" hidden></span></div>
             </div>
             <button type="button" class="btn ghost icon small fr-close" id="btnFormClose" aria-label="送る欄を閉じる" title="閉じる(Esc)"><span class="ui-icon" data-icon="close" aria-hidden="true"></span></button>
           </div>
@@ -177,7 +178,7 @@
       <div class="fr-player-main">
         <button type="button" class="btn ghost small fr-back" id="btnPlayerBack" title="一覧へ戻る(Esc)">← 一覧へ</button>
         <video id="playerVideo" class="fr-video" controls preload="metadata"></video>
-        <p class="hint" id="playerNoVideo" hidden>確認用の動画はまだありません(作っている途中か、取ってきている途中です)。[受け取る] を押すと、見ずに保存先に入れます。</p>
+        <div class="fr-novideo" id="playerNoVideo" hidden><p>確認用の動画はまだありません(作っている途中か、取ってきている途中です)。<br>[受け取る] を押すと、見ずに保存先に入れます。</p></div>
         <h2 class="fr-player-title" id="playerTitle"></h2>
         <div class="fr-player-meta" id="playerMeta"></div>
         <div class="fr-decide">

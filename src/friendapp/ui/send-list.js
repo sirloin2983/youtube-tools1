@@ -7,7 +7,7 @@
   var $ = function (id) { return document.getElementById(id); };
   var STATE = { live: ['fr-badge-live', 'ライブ'], upcoming: ['fr-badge-plan', '予定'], justEnded: ['fr-badge-ended', '終わったばかり'],
     checking: ['fr-badge-check', '確かめ中'] };
-  var SENT = { sent: '送った', waiting: 'アーカイブ待ち', reserved: '予約', making: '作っている', recording: '録画中', arrived: '届いた', failed: '失敗' };
+  var SENT = { sent: '送った', queued: '順番待ち', waiting: 'アーカイブ待ち', reserved: '予約', making: '作っている', recording: '録画中', arrived: '届いた', failed: '失敗' };
   var my = { key: '', view: null, selected: '', onPick: null, items: {} };
 
   function el(tag, cls, text) {
@@ -112,8 +112,10 @@
   }
   function bar(v) {
     var b = $('btnStreamsRefresh');
-    b.textContent = v.busy ? '取っています…' : v.updatedAt ? hm(v.updatedAt) + ' に更新' : '更新';
+    /* 取りに行っている間も、前に取れた時刻を出したまま(C-2-5「14:05 に更新」)。初めての 1 回だけ「取っています…」 */
+    b.textContent = v.updatedAt ? hm(v.updatedAt) + ' に更新' + (v.busy ? '(確かめています)' : '') : v.busy ? '取っています…' : '更新';
     b.disabled = !!v.busy;
+    b.title = v.busy ? '新しい一覧を確かめています' : '押すと、新しい一覧を取りに行きます';
     var err = v.error && !v.first ? v.error.message : '';
     $('streamsErr').hidden = !err;
     $('streamsErrText').textContent = err;

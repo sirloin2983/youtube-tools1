@@ -253,6 +253,24 @@ class ServerTest(unittest.TestCase):
         self.assertEqual((st, self.js(p), FakeStreams.refreshed), (200, {"ok": True}, 1))
         self.assertEqual(self.post("/api/friend/streams/refresh", {}, headers={TOKEN: None})[0], 403)
 
+    def test_streams_view_uses_same_state_as_sent_rows(self):
+        """一覧の印は送った物の行と同じ読み方(② の待ち = queued・実行中 = making。取り消した行は印にしない)"""
+        class FakeStreams:
+            def view(self):
+                return {"updatedAt": 1, "busy": False, "first": False, "error": None, "sections": [
+                    {"key": "today", "label": "今日", "count": 1, "items": [{"videoId": VID, "title": "a"}]}]}
+
+            def stop(self):
+                pass
+        self.app.streams = FakeStreams()
+        st, d = self.send()
+        self.assertEqual(st, 200)
+        run_id = d["row"]["runId"]
+        self.engine.status_map = lambda: ({run_id: {"id": run_id, "state": "queued"}}, {"blocked": None})
+        self.assertEqual(self.js(self.get("/api/friend/streams")[2])["sections"][0]["items"][0]["sent"]["state"], "queued")
+        self.engine.status_map = lambda: ({run_id: {"id": run_id, "state": "running", "steps": []}}, {"blocked": None})
+        self.assertEqual(self.js(self.get("/api/friend/streams")[2])["sections"][0]["items"][0]["sent"]["state"], "making")
+
     def test_send_list_script_is_served(self):
         st, h, p = self.get("/friend/send-list.js")
         self.assertEqual(st, 200)

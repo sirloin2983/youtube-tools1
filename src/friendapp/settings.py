@@ -221,7 +221,7 @@ class Settings:
             if body["processing"] not in PROCESSING:
                 raise SettingsError("処理する PC は「この PC」か「依頼する」を選んでください")
             if body["processing"] == "remote" and not self._can_remote():
-                raise SettingsError("Dropbox の鍵が無いので、ユーザーの PC には頼めません(鍵はユーザーから受け取ります)")
+                raise SettingsError("Dropbox の鍵が無いので、作る人の PC には依頼できません(鍵は作る人から受け取ります)")
             patch["pc"] = PROCESSING[body["processing"]]
             msgs.append("処理する PC を「%s」にしました(次に送る物から)" % ("この PC" if body["processing"] == "local" else "依頼する"))
         if "weights" in body:

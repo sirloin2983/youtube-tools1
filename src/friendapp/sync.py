@@ -67,7 +67,7 @@ UPDATE_MAX_BYTES = 4 * 1024 ** 3
 LAUNCHER_ENV = "YTT_FRIEND_LAUNCHER"
 STATE_NAME = "sync.json"
 VERSIONS_NAME = "app-versions.json"
-NO_KEY = "Dropbox の鍵がありません(自動で届いた物・ユーザーの PC への依頼は使えません)"
+NO_KEY = "Dropbox の鍵がありません。作る人の PC に依頼する・作る人の PC から届く物を受け取ることはできません(この PC で作る物は使えます)"   # 友人の画面の言葉(作る側の「ユーザーの PC」は出さない)
 
 
 class SyncError(Exception):

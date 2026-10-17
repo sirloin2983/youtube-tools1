@@ -777,7 +777,7 @@ class Api:
         f = r.get("form") or {}
         kind, ranged = r.get("kind") or "url", bool(f.get("ranges"))
         if r["state"] == "sent" and (not run or run.get("state") == "queued"):
-            queued = [x["id"] for x in runs if x.get("state") == "queued"]
+            queued = [x.get("id") for x in runs if x.get("state") == "queued"]
             pos = queued.index(r["runId"]) + 1 if r.get("runId") in queued else None
             if blocked:
                 return {"text": _progress.text(None, None, False, blocked=blocked), "index": 0, "total": 0, "label": ""}

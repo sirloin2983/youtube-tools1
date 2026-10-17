@@ -54,6 +54,7 @@ LIVE_DONE_MAX = 500                 # ライブの行が覚える済んだ切り
 VERDICTS = ("keep", "skip", "bad")  # 受け取る / 見送る / 届かなくてよかった(C-3-4。前の reject は skip と読む)
 JUDGE = {"keep": "good", "skip": "unknown", "bad": "bad"}   # 送り返しの判断の記録 v 2 の言葉(notes:docs/spec/friend.md の 12-2)
 REASONS = ("boring", "cut")         # 届かなくてよかったの理由: つまらない(場面の選び方)/ 切り方が変(区間の決め方)
+CLIP_RANGE_RE = re.compile(r"(\d{2,})h(\d{2})m(\d{2})s-(\d{2,})h(\d{2})m(\d{2})s")   # 書き出しの名前の <始まり>-<終わり>(ytt/names)
 TITLE_CUT = 40                      # 保存先のフォルダの名前に入れる配信の題の長さ(C-3-8)
 VERDICT_SUFFIX = ".verdict.json"
 TRASH_NAME = "ごみ箱"
@@ -1021,10 +1022,20 @@ class Inbox:
             return {"sections": out, "skipped": skipped, "undecided": total, "notice": dict(self.notice) if self.notice else None}
 
     @staticmethod
+    def _clip_label(p):
+        """カードの下の文字: 切り抜きの名前が <番号>_<始まり>-<終わり>(書き出しの名前)なら「配信の 1:56〜5:21」・違えば題のまま"""
+        m = CLIP_RANGE_RE.search(str(p.get("title") or p.get("name") or ""))
+        if not m:
+            return p["title"]
+        a = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + int(m.group(3))
+        b = int(m.group(4)) * 3600 + int(m.group(5)) * 60 + int(m.group(6))
+        return "配信の %s〜%s" % (_hms(a), _hms(b))
+
+    @staticmethod
     def _item(r, p, info):
         num = p.get("num") or 0
         title = "%s|%s #%d" % (info["streamer"], info["title"], num) if info["streamer"] else "%s #%d" % (info["title"] or p["title"], num)
-        return {"id": r["id"], "name": p["name"], "num": num, "title": title, "clip": p["title"], "seconds": p.get("seconds"),
+        return {"id": r["id"], "name": p["name"], "num": num, "title": title, "clip": Inbox._clip_label(p), "seconds": p.get("seconds"),
                 "preview": bool(p.get("preview")), "remote": bool(p.get("remote")), "want": p.get("want"), "error": p.get("error") or "",
                 "verdict": p["verdict"], "reason": p.get("reason"), "at": p.get("at"), "arrivedAt": p.get("arrivedAt"),
                 "videoId": info["videoId"], "auto": r.get("origin") == "auto"}
@@ -1039,6 +1050,11 @@ class Inbox:
                 return p["preview"]
             g = next((g for g in r.get("groups") or [] if g.get("names") == [name] and g.get("preview")), None)
             return g["preview"] if g else None
+
+
+def _hms(sec):
+    h, m, s = sec // 3600, sec % 3600 // 60, sec % 60
+    return "%d:%02d:%02d" % (h, m, s) if h else "%d:%02d" % (m, s)
 
 
 def _stream_key(r, p):

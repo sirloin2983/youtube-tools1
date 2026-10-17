@@ -39,6 +39,15 @@ def iso_day(t):
     return datetime.datetime.fromtimestamp(t).strftime("%Y-%m-%d")
 
 
+class ClipLabelTest(unittest.TestCase):
+    def test_clip_label_from_export_name(self):
+        """受け取るのカードの下の文字: 書き出しの名前 <番号>_<始まり>-<終わり> は「配信の 1:56〜5:21」に・違えば題のまま"""
+        L = inbox.Inbox._clip_label
+        self.assertEqual(L({"title": "01_00h01m56s-00h05m21s", "name": "x"}), "配信の 1:56〜5:21")
+        self.assertEqual(L({"title": "03_01h52m21s-01h56m05s", "name": "x"}), "配信の 1:52:21〜1:56:05")
+        self.assertEqual(L({"title": "見どころ 1", "name": "x"}), "見どころ 1")
+
+
 class InboxTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="inbox-")

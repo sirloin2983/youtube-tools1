@@ -71,11 +71,16 @@
     if (!cur) return;
     var secs = ((my.data || {}).sections || []).slice().sort(function (a, b) { return (a.key === cur.sec.key ? -1 : 0) - (b.key === cur.sec.key ? -1 : 0); });
     secs.forEach(function (s) {
-      box.appendChild(el('div', { cls: 'fr-side-h', text: (s.streamer ? s.streamer + '|' : '') + (s.title || '') }));
+      var ht = (s.streamer ? s.streamer + '|' : '') + (s.title || '');
+      box.appendChild(el('div', { cls: 'fr-side-h', text: ht, title: ht }));
       s.items.forEach(function (it) { box.appendChild(card(it, s, true)); });
     });
-    var on = box.querySelector('.fr-rcard.on');
-    if (on && on.scrollIntoView) on.scrollIntoView({ block: 'nearest' });
+    var on = box.querySelector('.fr-rcard.on'), side = box.parentNode;   /* 右の一覧の中だけ動かす(画面ごと動かすと上の見出しが隠れる) */
+    if (on && side) {
+      var top = on.offsetTop - side.offsetTop, bottom = top + on.offsetHeight;
+      if (top < side.scrollTop) side.scrollTop = Math.max(0, top - 28);
+      else if (bottom > side.scrollTop + side.clientHeight) side.scrollTop = bottom - side.clientHeight;
+    }
   }
   function play(key) {
     var x = find(key);
@@ -83,8 +88,10 @@
     my.cur = key;
     $('rcvList').hidden = true;
     $('rcvPlayer').hidden = false;
+    $('viewReceive').classList.add('playing');
     var v = $('playerVideo');
     $('playerNoVideo').hidden = x.it.preview;
+    $('playerNoVideo').style.backgroundImage = x.it.preview || !x.sec.videoId ? '' : 'url("' + thumbOf(x.sec.videoId, 'hqdefault') + '")';
     v.hidden = !x.it.preview;
     if (x.it.preview) {
       v.src = 'api/friend/media?id=' + encodeURIComponent(x.it.id) + '&name=' + encodeURIComponent(x.it.name);
@@ -107,8 +114,10 @@
     var v = $('playerVideo');
     v.pause(); v.removeAttribute('src'); v.load();
     $('rcvPlayer').hidden = true;
+    $('viewReceive').classList.remove('playing');
     $('rcvList').hidden = false;
     renderList();
+    bulk();
   }
   function nextAfter(key) {   /* 同じ配信の次の番号 → 次の配信 → 無ければ null */
     var list = all(), i = -1;
@@ -137,7 +146,7 @@
       } else if (verdict === 'keep' && (j.pending || []).length) {
         UIKit.toast('Dropbox から取ってきています(取り終えると保存先に入ります)', { ms: 5000 });
       } else if (done.length) {
-        UIKit.toast((verdict === 'bad' ? '届かなくてよかったにしました' : '見送りました') + (done.length > 1 ? '(' + done.length + ' 本)' : ''), { ms: 6000,
+        my.toast = UIKit.toast((verdict === 'bad' ? '届かなくてよかったにしました' : '見送りました') + (done.length > 1 ? '(' + done.length + ' 本)' : ''), { ms: 6000,
           action: { label: '戻す', fn: function () { undo(done); } } });
       }
       return FR.refresh().then(function () {
@@ -157,6 +166,7 @@
   function bulk() {
     var s = selected();
     $('bulkBar').hidden = !s.length;
+    document.body.classList.toggle('fr-bulk-on', !!s.length && !my.cur);   /* 一覧の下の帯が出ている = 知らせを帯の上へ */
     $('bulkCount').textContent = s.length + ' 本を選んでいます';
     Array.prototype.forEach.call(document.querySelectorAll('.fr-rcard'), function (c) {
       var cb = c.querySelector('.fr-pick');
@@ -201,7 +211,11 @@
     $('bulkClear').addEventListener('click', clearSel);
     document.addEventListener('keydown', onKey);
     FR.on(function (what, d) {
-      if (what === 'view' && d !== 'receive' && my.cur) { $('playerVideo').pause(); return; }
+      if (what === 'view' && d !== 'receive') {   /* 送るへ切り替えた = 再生を止め、「見送りました [戻す]」を閉じる(一覧の下の「見送った物」からは戻せる) */
+        if (my.cur) $('playerVideo').pause();
+        if (my.toast && my.toast.close) { my.toast.close(); my.toast = null; }
+        return;
+      }
       if (what !== 'data') return;
       my.data = d.receive;
       Object.keys(my.sel).forEach(function (key) { var x = find(key); if (!x || !open(x.it)) delete my.sel[key]; });
