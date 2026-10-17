@@ -83,16 +83,15 @@ friend-apps/holo-colors/build/
 friend-apps/holo-colors/dist/
 friend-apps/holo-colors/data/
 
-# 切り抜き依頼(request-sender)のビルドの成果物と、Dropbox の鍵(config.json。dev/dropbox_auth.py が作る。**/config.json でも無視されるが明示する)
-friend-apps/request-sender/build/
-friend-apps/request-sender/dist/
-# 友人の受信箱の起動役(launcher)のビルドの成果物(FriendInbox.exe。zip に入れる)
+# 友人のアプリの窓(launcher)のビルドの成果物(FriendApp.exe。zip に入れる)と、--first の zip の置き場所
 friend-apps/launcher/build/
+friend-apps/launcher/dist/
 # FriendApp.exe の WebView2 の部品(dev/fetch_webview2.py が NuGet から取る)
 friend-apps/launcher/lib/
 # Chrome 拡張(chrome-ext/)の build.bat が作る zip の元のフォルダ(友人に渡す)
 chrome-ext/*/dist/
-friend-apps/request-sender/config.json
+# Dropbox の鍵(dev/dropbox_auth.py が作る。**/config.json でも無視されるが明示する)
+friend-apps/launcher/config.json
 
 # design-review の写真(見本のデータ。重いので入れない。python の見直しの手順で撮り直せる)
 docs/design/briefs/*/screenshots/

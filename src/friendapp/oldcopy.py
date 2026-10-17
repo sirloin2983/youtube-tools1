@@ -323,6 +323,116 @@ def _finish_old(catalog, old_root, say):
     return deleted, freed
 
 
+# アプリのフォルダ(home の直下)に前のアプリが残した物。この一覧の名前だけ消す(目録と同じ考え方 = 一覧に無い物(config.json・keys.json・FriendApp.exe・app-*・python・src・tools・data・作業・fetch.json・members.json)には触らない)
+HOME_FILES = ("RequestSender.exe", "RequestSender.exe.config", "README.txt", "guide.html", "friend-defaults.json",
+              "FriendApp-はじめに.txt", "settings.json", "update.cmd")
+HOME_DIRS = ("new", "update-download")
+
+
+def _is_link(path):
+    """シンボリックリンクか、Windows の接合点(junction)か。辿らない物は消さない。"""
+    if os.path.islink(path):
+        return True
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return False
+    return bool(getattr(st, "st_file_attributes", 0) & 0x400)   # FILE_ATTRIBUTE_REPARSE_POINT(接合点は islink では見えない = py3.10)
+
+
+def _home_entries(home):
+    """home の直下で一覧に載っている物 -> [(名前, パス, フォルダか)]。home が無い・リンクの物・種類が違う物は外す。"""
+    out = []
+    if not home or not os.path.isdir(home) or _is_link(home):
+        return out
+    for name in HOME_FILES + HOME_DIRS:
+        path = os.path.join(home, name)   # name は一覧の固定の名前(外へ出ない)
+        if _is_link(path):
+            continue
+        is_dir = name in HOME_DIRS
+        if (is_dir and os.path.isdir(path)) or (not is_dir and os.path.isfile(path)):
+            out.append((name, path, is_dir))
+    return out
+
+
+def _size_or_0(path):
+    """ファイルの大きさ。読めなければ 0。"""
+    try:
+        return os.path.getsize(path)
+    except OSError:
+        return 0
+
+
+def _tree_size(path):
+    """フォルダの中の通常のファイルの大きさの合計。リンク・接合点は辿らず数えない。読めない物は飛ばす。"""
+    total = 0
+    try:
+        names = os.listdir(path)
+    except OSError:
+        return 0
+    for name in names:
+        p = os.path.join(path, name)
+        if _is_link(p):
+            continue
+        if os.path.isdir(p):
+            total += _tree_size(p)
+        elif os.path.isfile(p):
+            total += _size_or_0(p)
+    return total
+
+
+def _rm_tree(path, remove):
+    """フォルダを中の物ごと消す。リンク・接合点が中にあれば辿らず止める(OSError)。ファイルは remove で消す。"""
+    for name in os.listdir(path):
+        p = os.path.join(path, name)
+        if _is_link(p):
+            raise OSError("リンクがあるので消さない: " + name)
+        if os.path.isdir(p):
+            _rm_tree(p, remove)
+        else:
+            remove(p)
+    os.rmdir(path)
+
+
+def home_pending(home):
+    """アプリのフォルダに残った前のアプリの物 -> {"bytes": 消すと空く大きさ, "count": 件数}。一覧に無い物は数えない。"""
+    n = size = 0
+    for _name, path, is_dir in _home_entries(home):
+        n += 1
+        size += _tree_size(path) if is_dir else _size_or_0(path)
+    return {"bytes": size, "count": n}
+
+
+def clean_home(home, log=None, remove=os.remove):
+    """アプリのフォルダの一覧の物を消す。消せない物(動いている RequestSender.exe など)は飛ばして記録し、ほかは続ける。
+    -> {"deleted": 件数, "freed": 大きさ, "skipped": [名前]}。remove は消す口(テストで差し替える)。"""
+    say = log if log is not None else (lambda msg: None)
+    deleted = freed = 0
+    skipped = []
+    for name, path, is_dir in _home_entries(home):
+        size = _tree_size(path) if is_dir else _size_or_0(path)
+        try:
+            if is_dir:
+                _rm_tree(path, remove)
+            else:
+                remove(path)
+        except OSError as e:
+            skipped.append(name)
+            say(f"消せないので飛ばす: {name}({e.__class__.__name__})")
+            continue
+        deleted += 1
+        freed += size
+        say(f"前のアプリの物を消した: {name}({size} バイト)")
+    return {"deleted": deleted, "freed": freed, "skipped": skipped}
+
+
+def mark_asked(catalog_path):
+    """もう聞かない印を付ける。目録が無くても作る(アプリのフォルダに残った物だけの時も 1 回で済む)。"""
+    cat = _load_catalog(catalog_path)
+    cat["asked"] = True
+    _save_catalog(catalog_path, cat)
+
+
 def migrate(fetch_path, old_root, new_root, catalog_path, log=None, cancelled=None, hasher=None, remove_old=True):
     """古い作業データから表の対象を新しい作業データへ写し、写して確かめた物の古い方を消す。
 

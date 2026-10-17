@@ -255,16 +255,23 @@ namespace FriendInbox
         {
             var rec = Versions.Read(home);
             Layout used;
+            bool skipLegacy = false;
             while (true)
             {
-                used = Versions.Pick(home, rec.Bad);
+                used = Versions.Pick(home, rec.Bad, skipLegacy);
                 if (used == null) return "起動できる版がありません(python と src が見つかりません)";
                 var g = StartOn(used, RolledFrom);
                 if (g == null) return "受信箱を起動できませんでした(番号を 3 回選び直しても使えませんでした)";
                 if (g.Ready) { Gw = g; break; }
                 g.Kill();
                 if (g.ExitCode == Gateway.LockBusyExit) return "ほかの処理が同じ作業データを使っています。閉じてから開き直してください";
-                if (used.Version == null) return "起動できませんでした(終了コード " + g.ExitCode + ")";
+                if (used.Version == null)   // 前の形が起動できない: 版のフォルダがあればそちらで(無ければ止める)
+                {
+                    if (skipLegacy || Versions.Pick(home, rec.Bad, true) == null) return "起動できませんでした(終了コード " + g.ExitCode + ")";
+                    Log.Write("前の形(src・python)を起動できませんでした(終了コード " + g.ExitCode + ")。版のフォルダで起こし直します");
+                    skipLegacy = true;
+                    continue;
+                }
                 Log.Write("版 " + used.Version + " を起動できませんでした(終了コード " + g.ExitCode + ")。前の版で起こし直します");
                 rec.Bad.Add(used.Version);
                 RolledFrom = used.Version;
@@ -359,6 +366,22 @@ namespace FriendInbox
             }
         }
 
+        static int Restart(string home)
+        {
+            try
+            {
+                Thread.Sleep(1500);   // 前の窓の WebView2 の処理が終わるのを少し待つ(同じ置き場所を新しい窓が使う)
+                Process.Start(new ProcessStartInfo(Path.Combine(home, "FriendApp.exe")) { UseShellExecute = false, WorkingDirectory = home });
+                Log.Write("新しい版で開き直しました");
+            }
+            catch (Exception ex)
+            {
+                if (!(ex is Win32Exception || ex is InvalidOperationException || ex is FileNotFoundException)) throw;
+                Log.Write("新しい版で開き直せませんでした: " + ex.Message);
+            }
+            return 0;
+        }
+
         public static void Fail(string msg)
         {
             Log.Write(msg);
@@ -366,11 +389,22 @@ namespace FriendInbox
             MessageBox.Show(msg + "\r\n(記録: data\\app\\friendapp\\logs\\launcher.log)", Rules.AppTitle, MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
 
+        // [更新する] で入れ替えたあと、Mutex を放してから新しい exe を起こす(放す前に起こすと「2 つ目」で終わってしまう)
+        public static volatile bool RestartAfterExit;
+
         [STAThread]
         static int Main()
         {
             string home = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\', '/');
             Log.Init(Path.Combine(home, "data", "app", "friendapp", "logs"), "launcher.log");
+            string self = Process.GetCurrentProcess().MainModule.FileName;
+            string main = Path.Combine(home, "FriendApp.exe");
+            if (Updater.IsHandoffName(self) && File.Exists(main))   // 前のアプリの名前で起こされた(移る最後の 1 回の写し・前のショートカット)= 新しいアプリを起こして終わる
+            {
+                Log.Write("RequestSender.exe として起こされたので FriendApp.exe を起こします");
+                Process.Start(new ProcessStartInfo(main) { UseShellExecute = false, WorkingDirectory = home });
+                return 0;
+            }
             string name = InstanceName(home);
             bool created;
             using (var mutex = new Mutex(true, name, out created))
@@ -383,6 +417,8 @@ namespace FriendInbox
                 }
                 try
                 {
+                    int cleaned = Updater.CleanOld(home);   // 前の [更新する] で残った *.old
+                    if (cleaned > 0) Log.Write("前の版の exe と部品を片付けました(" + cleaned + " 個)");
                     Application.EnableVisualStyles();
                     Application.SetCompatibleTextRenderingDefault(false);
                     bool webview = MainForm.WebViewAvailable();
@@ -391,13 +427,14 @@ namespace FriendInbox
                     string err = be.StartFirst();
                     if (err != null) { Fail(err); be.Stop(); return 1; }
                     using (var form = new MainForm(home, be, webview, show)) Application.Run(form);
-                    return 0;
                 }
                 finally
                 {
                     mutex.ReleaseMutex();
                 }
             }
+            if (RestartAfterExit) Restart(home);   // Mutex を閉じたあと(using の外)
+            return 0;
         }
     }
 }

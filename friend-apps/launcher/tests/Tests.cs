@@ -27,6 +27,9 @@ static class Tests
         Run("Python の出力: 渡した番号の ready だけ読む・読めない行は無視", GatewayLines);
         Run("配色: 画面から来た色を読む・形が違えば null・暗いかは帯の明るさ", ThemeParse);
         Run("アイコンのメニュー: 件数の行・作業なし・読み込み中・決めていない本数", MenuRules);
+        Run("更新: 前の形の版も比べる・起動できなければ飛ばす・版のフォルダが 2 つそろえば前の形を消す", LegacyRules);
+        Run("更新: [更新する] は作業と預かりが無いときだけ入れ替える・状態の読み取り", UpdateRules);
+        Run("更新: exe と DLL を写す(動いている物は *.old に)・次の起動で *.old を消す・前のアプリの名前", SwapRules);
         Console.WriteLine(failures == 0 ? "OK " + passed + " 件" : "NG " + failures + " 件失敗 / " + passed + " 件成功");
         return failures == 0 ? 0 : 1;
     }
@@ -221,6 +224,74 @@ static class Tests
         Eq("準備しています", Rules.MenuStatus(S(setup: true)), "準備中");
         True(Rules.MenuUndecided(S()) == null && Rules.MenuUndecided(null) == null, "0 なら出さない");
         Eq("まだ決めていない物 4 本", Rules.MenuUndecided(new HostState { Undecided = 4 }), "決めていない本数");
+    }
+
+    static void Legacy(string home, string ver)
+    {
+        Install(home, null);
+        Directory.CreateDirectory(Path.Combine(home, "src", "ytt"));
+        File.WriteAllText(Path.Combine(home, "src", "ytt", "version.py"), "# x\nVERSION = \"" + ver + "\"\n");
+    }
+
+    static void LegacyRules()
+    {
+        string h = Temp();
+        Legacy(h, "0.99.13");
+        Install(h, "0.99.12");
+        Eq("0.99.13", Versions.LegacyVersion(h), "前の形の版");
+        Eq(null, Versions.Pick(h, new List<string>()).Version, "前の形の方が新しい = 前の形(移る最後の 1 回)");
+        Eq("0.99.12", Versions.Pick(h, new List<string>(), true).Version, "前の形が起動できなければ版のフォルダ");
+        Install(h, "0.99.14");
+        Eq("0.99.14", Versions.Pick(h, new List<string>()).Version, "版のフォルダの方が新しい");
+        File.WriteAllText(Path.Combine(h, "src", "ytt", "version.py"), "VERSION = \"x\"");
+        Eq(null, Versions.LegacyVersion(h), "読めない版");
+        // 前の形を消すのは版のフォルダが 2 つそろい、前の形の方が古いときだけ
+        string k = Temp();
+        Legacy(k, "0.99.11");
+        Install(k, "0.99.13");
+        var gone = Versions.Prune(k, new VersionRecord { Current = "0.99.13", Previous = "" }, null);
+        True(Directory.Exists(Path.Combine(k, "src")), "previous が無ければ前の形は残す(戻る先)");
+        Install(k, "0.99.12");
+        gone = Versions.Prune(k, new VersionRecord { Current = "0.99.13", Previous = "0.99.12" }, null);
+        True(!Directory.Exists(Path.Combine(k, "src")) && !Directory.Exists(Path.Combine(k, "python")), "2 つそろえば前の形を消す");
+        string m = Temp();
+        Legacy(m, "0.99.20");
+        Install(m, "0.99.13"); Install(m, "0.99.12");
+        Versions.Prune(m, new VersionRecord { Current = "0.99.13", Previous = "0.99.12" }, null);
+        True(Directory.Exists(Path.Combine(m, "src")), "前の形の方が新しければ消さない");
+    }
+
+    static void UpdateRules()
+    {
+        var s = HostState.Parse("{\"update\":\"0.99.14\",\"updateRequested\":true}");
+        Eq("0.99.14", s.Update, "版"); True(s.UpdateRequested, "押した");
+        True(Rules.ShouldApplyUpdate(s), "作業なし = 入れ替える");
+        s.Making = 1;
+        True(!Rules.ShouldApplyUpdate(s), "作っている間は待つ");
+        True(!Rules.ShouldApplyUpdate(new HostState { Update = "0.99.14", UpdateRequested = true, Reserved = 1 }), "予約の間も待つ");
+        True(!Rules.ShouldApplyUpdate(new HostState { Update = "0.99.14" }), "押していない");
+        True(!Rules.ShouldApplyUpdate(new HostState { Update = "", UpdateRequested = true }), "新しい版が無い");
+        True(!Rules.ShouldApplyUpdate(null), "状態なし");
+        Eq("", HostState.Parse("{}").Update, "欄なし");
+    }
+
+    static void SwapRules()
+    {
+        string h = Temp();
+        Directory.CreateDirectory(Path.Combine(h, "app-0.99.14"));
+        File.WriteAllText(Path.Combine(h, "FriendApp.exe"), "old-exe");
+        File.WriteAllText(Path.Combine(h, "WebView2Loader.dll"), "old-dll");
+        File.WriteAllText(Path.Combine(h, "app-0.99.14", "FriendApp.exe"), "new-exe");
+        File.WriteAllText(Path.Combine(h, "app-0.99.14", "WebView2Loader.dll"), "new-dll");
+        Eq(2, Updater.Swap(h, "0.99.14"), "写した数(版のフォルダにある物だけ)");
+        Eq("new-exe", File.ReadAllText(Path.Combine(h, "FriendApp.exe")), "exe");
+        Eq("old-exe", File.ReadAllText(Path.Combine(h, "FriendApp.exe.old")), "前の exe は .old");
+        Eq("new-dll", File.ReadAllText(Path.Combine(h, "WebView2Loader.dll")), "dll");
+        Eq(2, Updater.CleanOld(h), ".old を消す");
+        True(!File.Exists(Path.Combine(h, "FriendApp.exe.old")), "消えた");
+        Eq(0, Updater.Swap(h, "0.99.99"), "版のフォルダに exe が無ければ写さない");
+        True(Updater.IsHandoffName(@"C:\x\RequestSender.exe") && Updater.IsHandoffName(@"C:\x\requestsender.EXE"), "前のアプリの名前");
+        True(!Updater.IsHandoffName(@"C:\x\FriendApp.exe"), "新しいアプリの名前");
     }
 
     static void ThemeParse()

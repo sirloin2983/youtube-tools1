@@ -19,7 +19,10 @@
 - exe なしで、もう動いていれば標準出力に {"event":"already","port":…} を出して終了コード 0。起こせたら {"event":"ready","port":…,"pid":…}
 口(書き込み系は合言葉。全部 JSON):
   GET  /api/ping                          {app, version}
-  GET  /api/friend/state                  exe が見回る {making, recording, waiting, reserved, archiveWait, setup, undecided, awake, busy, label}(合言葉つき)
+  GET  /api/friend/state                  exe が見回る {making, recording, waiting, reserved, archiveWait, setup, undecided, awake, busy, label,
+                                          update(入れてある新しい版 or ""), updateRequested}(合言葉つき)
+  GET  /api/friend/update                 新しい版があるか {available, version, requested, waiting, label, hosted}(画面の帯の 1 行 = ui/update.js)
+  POST /api/friend/update/apply           [更新する]。作業と預かりが無くなったら exe が入れ替えて開き直す(exe の無い開発の PC は開き直しの案内だけ)
   GET  /api/friend/inbox                  受信箱の行・前回の値・保存先・空き容量で止めているか・準備中か・片付けの知らせ
   GET  /api/friend/peek?url=              配信の題・チャンネル名と配信者の推し
   GET  /api/friend/peek-live?url=         配信中・配信前か(F2-6。yt-dlp で数秒。ライブなら送る欄の下に 6 つの設定)
@@ -80,7 +83,7 @@ STATIC = {"/friend/": ("friend.html", UI_DIR), "/friend/index.html": ("friend.ht
           "/friend/friend.css": ("friend.css", UI_DIR), "/friend/ui-kit.js": ("ui-kit.js", UIKIT_DIR), "/friend/ui-kit.css": ("ui-kit.css", UIKIT_DIR),
           "/friend/guide.html": ("guide.html", UI_DIR),   # 説明(F2-5 の [?]。本体は別の段が書く = 無ければ 404)
           "/friend/setup.html": ("setup.html", UI_DIR), "/friend/setup.js": ("setup.js", UI_DIR), "/friend/host.js": ("host.js", UI_DIR),
-          "/friend/settings.js": ("settings.js", UI_DIR), "/friend/settings.css": ("settings.css", UI_DIR)}   # F3-1・F3-5(窓と画面の境目)
+          "/friend/settings.js": ("settings.js", UI_DIR), "/friend/update.js": ("update.js", UI_DIR), "/friend/settings.css": ("settings.css", UI_DIR)}   # F3-1・F3-5(窓と画面の境目)
 for _n in ("send-empty", "send-ranges", "send-live", "sent-failed", "receive-list", "receive-player", "receive-bulk", "palette"):   # 説明 guide.html の画像
     STATIC["/friend/guide/%s.png" % _n] = ("guide/%s.png" % _n, UI_DIR)
 TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".png": "image/png"}
@@ -274,6 +277,8 @@ class Handler(BaseHTTPRequestHandler):
             out = app.api.view()
             out.update(prep=app.prep, notice=app.notice(), rollback=app.rollback_notice(), sync=app.sync.status(), setup=app.setup.view())
             return self._json(200, out)
+        if path == "/api/friend/update":   # 新しい版があるか(帯の 1 行 = ui/update.js)
+            return self._json(200, app.update_view())
         if path == "/api/friend/setup":   # 初回の準備の進み具合(F3-5)
             return self._json(200, {"ok": True, "setup": app.setup.view(), "done": app.setup_done()})
         if path == "/api/friend/state":   # exe の見回り(GET でも合言葉を要る = 画面を開いていない人に仕事の中身を見せない)
@@ -426,6 +431,12 @@ class Handler(BaseHTTPRequestHandler):
             os.makedirs(d, exist_ok=True)
             app.open_folder(d)
             return self._json(200, {"ok": True, "dir": d})
+        if path == "/api/friend/update/apply":   # [更新する]: 作業と預かりが無くなったら exe が入れ替えて開き直す
+            if not app.update_version():
+                return self._fail(409, "refused", "新しい版はありません")
+            app.update_requested = True
+            app.log("[更新する] を押されました(%s)" % app.update_version())
+            return self._json(200, {"ok": True, "update": app.update_view()})
         if path.startswith("/api/friend/setup/"):   # 初回の取得(F2-5。9-1)
             return self._setup(path[len("/api/friend/setup/"):])
         if path == "/api/friend/streams/refresh":   # 一覧の [更新](F3-2)
@@ -542,6 +553,7 @@ class FriendApp:
         self.catalog = os.path.join(places["friend"], "old-copy.json")
         self.closing = threading.Event()
         self.server = None
+        self.update_requested = False   # 画面の [更新する](exe が見回りで見て、作業が無ければ入れ替える)
         self.rollback = (os.environ.get(ROLLBACK_ENV) or "").strip()   # exe が前の版へ戻した = 起動できなかった版
         self.rollback_seen = False
         self.open_folder = open_folder   # エクスプローラーで開く口(テストは差し替える = 画面を取らない)
@@ -696,6 +708,33 @@ class FriendApp:
                 soon = soon or start - now <= SOON_MS
         return {"reserved": reserved, "archiveWait": wait, "soon": soon}
 
+    # ---- 更新(新しい版は同期 sync.py の 6 が <home>/app-<版>/ に入れておく。入れ替えるのは exe = friend-apps/launcher/README.txt)
+    def update_version(self):
+        """入れてある一番新しい版(今より新しく・起動できなかった版でない物)か ""。<home>/app-<版>/ に server.py と python.exe がそろった物だけ"""
+        home = self.places.get("home")
+        if not home or not os.path.isdir(home):
+            return ""
+        bad = _fsio.read_json_or(os.path.join(home, _sync.VERSIONS_NAME), {}, kind=dict).get("bad") or []
+        best = ""
+        for n in os.listdir(home):
+            v = n[4:] if n.startswith("app-") else ""
+            if not _sync.APP_VERSION_RE.match(v) or v in bad:
+                continue
+            d = os.path.join(home, n)
+            if not (os.path.isfile(os.path.join(d, "src", "friendapp", "server.py")) and os.path.isfile(os.path.join(d, "python", "python.exe"))):
+                continue
+            if _sync.version_tuple(v) > _sync.version_tuple(_version.VERSION) and _sync.version_tuple(v) > _sync.version_tuple(best or "0.0.0"):
+                best = v
+        return best
+
+    def update_view(self):
+        """画面の帯の 1 行: {available, version, requested(押した), waiting(作業が終わるのを待っている), label(待っている作業), hosted(exe の窓か)}"""
+        v = self.update_version()
+        st = self.state() if v and self.update_requested else None
+        hold = st and (st["making"] + st["recording"] + st["waiting"] + st["reserved"] + st["archiveWait"] + (1 if st["setup"] else 0))
+        return {"available": bool(v), "version": v, "requested": bool(v and self.update_requested), "waiting": bool(hold),
+                "label": (st or {}).get("label") or "", "hosted": (os.environ.get(HOST_ENV) or "").strip() == "webview2"}
+
     def undecided(self):
         """受け取るの ●n = まだ決めていない本数(窓のタイトルとタスクバー。C-3-9)"""
         try:
@@ -722,7 +761,8 @@ class FriendApp:
         return {"busy": busy, "recording": rec, "making": making, "waiting": waiting, "reserved": hold["reserved"], "archiveWait": hold["archiveWait"],
                 "setup": bool(setup), "undecided": self.undecided(),
                 "awake": bool(rec or making or waiting or setup or hold["archiveWait"] or hold["soon"]),
-                "label": "・".join(parts) if parts else ("準備しています" if busy else "")}
+                "label": "・".join(parts) if parts else ("準備しています" if busy else ""),
+                "update": self.update_version(), "updateRequested": bool(self.update_requested)}
 
     def notice(self):
         n = _oldcopy.notice(self.catalog) if os.path.isfile(self.catalog) else None

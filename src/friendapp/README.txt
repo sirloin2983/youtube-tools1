@@ -5,7 +5,7 @@
   友人の PC で動かす 2 つ目の玄関です(あなたの PC の玄関は start.bat = src\app\server.py)。
   配信の URL を 1 本貼るか動画ファイルを選んで [送る](配信中・配信前ならライブ = 録画しながら。F2-6)→ 友人の PC で切り抜き・文字起こし・パックまで作る → 受信箱に届く →
   [受け取る](保存先へ移す)か [要らない](ごみ箱へ)を決める、を 1 枚の画面でします。
-  今の C# の送るアプリ(friend-apps\request-sender)は F2-7 まで残します(友人は今もそれで依頼を送っています)。
+  前の C# の送るアプリ(friend-apps\request-sender)は 2026-10-18 に消しました(移る最後の 1 回だけ dev\build_friend_zip.py --handoff の zip が RequestSender.exe = FriendApp.exe の写しを持ちます)。
   要件: 資料の plan\f1-friend-requirements.md の A・B。仕様: 資料の docs\spec\friend.md の 11 節。
 
 ■ 起こし方
@@ -131,10 +131,11 @@
   確かめ: src\friendapp\tests\test_live.py(録画の部品・yt-dlp・ネットは偽物)
 
 ■ 友人に渡す物の作り方(F2-2 の確かめ用)
-  1. friend-apps\request-sender\build.bat(今の送るアプリ)と friend-apps\launcher\build.bat(窓 FriendApp.exe と WebView2 の DLL)。どちらも zip の直下に入る
+  1. friend-apps\launcher\build.bat(窓 FriendApp.exe と WebView2 の DLL。zip の直下に入る。build_friend_zip.py が古ければ自分で流す)
   2. py -3.10 dev\build_friend_zip.py
-     → Dropbox の 更新\ に RequestSender-<版>.zip(今の送るアプリの「更新する」で友人の PC へ届く。直下に FriendApp.exe が入る)
-     初めて渡すときは --first --with-key(friend-apps\request-sender\dist\ にでき、手で渡す)
+     → --publish で Dropbox の 更新\ に FriendApp-<版>.zip + latest.json(新しいアプリの [更新する] で友人の PC へ届く)。zip の直下に members.json(friend-apps\holo-colors の名簿の写し)も入る
+     前のアプリ RequestSender から移る最後の 1 回だけ --handoff(RequestSender-<版>.zip。中に RequestSender.exe = FriendApp.exe の写し。前のアプリの [更新する] が取る)
+     初めて渡すときは --first --with-key(friend-apps\launcher\dist\ にでき、手で渡す。鍵は friend-apps\launcher\config.json = git の外・dev\dropbox_auth.py が作る)
   3. 友人の PC で、今のアプリの [更新する] を押すか、zip をアプリのフォルダに展開する
 
 ■ 友人の PC での確かめ(1.0.0 の条件 = URL の依頼 1 本が友人の PC で処理されて届く)

@@ -6,7 +6,7 @@
 - `<requestId>__<パック名>[~<at 13 桁>].verdict.json`  友人の判断(アプリが直に書く。並べた verdicts\\ にもそのまま残す)。2 つの形(parse_verdict):
   新しい形 v 2(F3-6。notes:plan/f1-friend-requirements.md の C-3-4・C-3-6・C-4-1)= {"v":2, "id", "judge": good|bad|unknown|retract, "reason"(bad = boring|cut),
   "of"(retract = 取り消す記録の id), "by"?: "auto"(3 日の自動の見送り), "zip", "videoId"?, "markId"?, "origin"?, "at"} / 古い形 v 1 = {"verdict": keep|reject|made_video, …}
-  (前のアプリ RequestSender。keep = 良い・reject = 不明・made_video = 良い として読む = judgments.friend_value)
+  (前のアプリ RequestSender = 2026-10-18 に消した。keep = 良い・reject = 不明・made_video = 良い として読む = judgments.friend_value)
 - `<requestId>__notice-<at 13 桁>.notice.json`  [作る人に知らせる](C-2-16)= {"v":1, "kind":"failure", "message", "detail", "code", "title", "appVersion", "at", "log"}。
   `<依頼>\\notices\\` に並べ、ホームの「依頼の受付」に出す(recent_notices)・ログに 1 行
 受け取ると `app\\friend-returns\\<YYYY-MM>\\<requestId>\\` に並べ(zip は `<runId>\\` へ展開・採否は `verdicts\\` へ)、元は `送り返し\\受付済み\\<日付>\\` へ移す

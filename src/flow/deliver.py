@@ -11,7 +11,7 @@ notes:docs/spec/friend.md の 2-7。ds1(要件 1-5「届ける段と溜めは �
 - 名前: zip は <依頼 id>__<題>(delivery_name)。同じ名前があれば末尾に 4 文字足す(unique_zip)
 - 出どころ(D-SEND 2-7。notes:plan/d-send-requirements.md): 届けた記録の origin は request(友人の依頼)・auto(自分の配信から自動で)・manual(手で届ける)。
   友人に見せる出どころ(face_origin)は request か auto(手で届けるも auto = 札「自動で届いた」)。.meta.json の origin(meta_doc の欄の説明)
-- 古い友人のアプリ(RequestSender)は .meta.json の v と origin だけを読む = v は 1 のまま欄を足した(F3-7 で前のアプリを消すまで読めるように)
+- 古い友人のアプリ(RequestSender)は .meta.json の v と origin だけを読む = v は 1 のまま欄を足した(前のアプリは 2026-10-18 に消した。入っている友人の PC が残る間は読めるように)
 - Deliveries: 手で「友人へ届ける」(画面の api/ytt/deliver)の裏の仕事。数 GB の zip は時間がかかるので、画面は状態を聞き直す
 送れるのは cut2resolve が作ったパックのフォルダだけ(manage.cases.txindex.is_pack_dir。画面から任意のフォルダを Dropbox へ出させない)。
 zip は動画を圧縮しない(ZIP_STORED)ので CPU はほとんど使わない → 重い処理の枠(jobs.SLOTS)は通さない(文字起こしの後ろで何時間も待たせないため)。

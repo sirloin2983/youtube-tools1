@@ -1,6 +1,6 @@
 """友人からの依頼の受付(notes:docs/spec/friend.md。2026-09-30)。
 
-友人のプログラム(friend-apps/request-sender/)か Dropbox のファイルリクエストで届いた依頼を、Dropbox が同期したフォルダで見張り、
+友人のアプリ(src/friendapp/。前のアプリ request-sender は 2026-10-18 に消した)か Dropbox のファイルリクエストで届いた依頼を、Dropbox が同期したフォルダで見張り、
 まとめて実行(入口の src/app/autorun.py。読み込まない = 入口が runner= で渡す)に入れて文字起こしまで流す。ホームの起動と一緒に動き、「すべて終了」で止まる。
 
 届くもの(依頼は見張るフォルダの直下だけ。受付済み/・失敗/・出力/ などの下のフォルダは見ない。送り返し/ だけは returns.scan が見る):

@@ -103,9 +103,9 @@ class TestCheck(Repo):
                 self.assertEqual(P.problems_for(path, data), [], path)
 
     def test_dropbox_keys(self):
-        # 鍵のファイル(friend-apps/request-sender/config.json)は中身に関係なく止める(config.json の名前でも止まるが、理由をはっきり出す)。
+        # 鍵のファイル(friend-apps/launcher/config.json)は中身に関係なく止める(config.json の名前でも止まるが、理由をはっきり出す)。
         # 旧い場所(2026-10-07 以前の request-sender/config.json)も止める
-        for key_path in ("friend-apps/request-sender/config.json", "request-sender/config.json"):
+        for key_path in ("friend-apps/launcher/config.json", "friend-apps/request-sender/config.json", "request-sender/config.json"):
             with self.subTest(key=key_path):
                 why = P.problems_for(key_path, b"{}")
                 self.assertTrue(any("切り抜き依頼の鍵" in x for x in why), why)
@@ -120,8 +120,8 @@ class TestCheck(Repo):
                 self.assertTrue(any("Dropbox" in x for x in P.problems_for(path, data)), path)
         # 説明・コードの中の名前は止めない
         for path, data in {
-            "friend-apps/request-sender/README.txt": b'{"appKey": "...", "refreshToken": "..."}',
-            "friend-apps/request-sender/src/Core.cs": b'RefreshToken = Json.Str(d, "refreshToken"); "refresh_token=" + Uri.EscapeDataString(config.RefreshToken)',
+            "friend-apps/launcher/README.txt": b'{"appKey": "...", "refreshToken": "..."}',
+            "friend-apps/launcher/src/Core.cs": b'RefreshToken = Json.Str(d, "refreshToken"); "refresh_token=" + Uri.EscapeDataString(config.RefreshToken)',
             "dev/dropbox_auth.py": b'json.dump({"appKey": app_key, "refreshToken": refresh_token}, f); data["refresh_token"]',
             "docs/x.md": b'"refreshToken": "<refresh token>"  sl.short',
         }.items():

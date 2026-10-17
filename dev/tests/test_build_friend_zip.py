@@ -90,20 +90,16 @@ def make_wcpp(root):
     return d
 
 
-def make_app(root, key=True):
-    build = os.path.join(root, "app-build")
-    src = os.path.join(root, "app-src")
-    os.makedirs(build)
-    os.makedirs(src)
-    for n, b in (("RequestSender.exe", b"MZapp"), ("members.json", b"[]"), ("version.txt", (V.VERSION + "\r\n").encode())):
-        with open(os.path.join(build, n), "wb") as f:
-            f.write(b)
-    with open(os.path.join(src, "README.txt"), "w", encoding="utf-8") as f:
-        f.write("readme\n")
+def make_inputs(root, key=True):
+    """名簿(members.json)と鍵(config.json)の偽物。本物の名簿・鍵は読まない"""
+    members = os.path.join(root, "members-src.json")
+    with open(members, "w", encoding="utf-8") as f:
+        f.write('{"members": []}')
+    keyp = os.path.join(root, "key-src.json")
     if key:
-        with open(os.path.join(src, "config.json"), "w", encoding="utf-8") as f:
+        with open(keyp, "w", encoding="utf-8") as f:
             f.write('{"fake": "FAKE-short"}')
-    return build, src
+    return members, keyp
 
 
 def make_launcher(root, exe=True):
@@ -132,22 +128,23 @@ class Base(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self.cache = make_cache(self.tmp)
         self.wcpp = make_wcpp(self.tmp)
-        self.app_build, self.app_src = make_app(self.tmp)
+        self.members, self.key = make_inputs(self.tmp)
         self.launcher = make_launcher(self.tmp)
         self.out = os.path.join(self.tmp, "out")
 
     def build(self, **kw):
         kw.setdefault("fetcher", _no_fetch)
         kw.setdefault("downloader", _no_fetch)
-        kw.setdefault("app_src", self.app_src)
+        kw.setdefault("members_src", self.members)
+        kw.setdefault("key_src", self.key)
         kw.setdefault("launcher_build", self.launcher)
-        return B.build(self.out, self.cache, self.wcpp, self.app_build, **kw)
+        return B.build(self.out, self.cache, self.wcpp, **kw)
 
 
 class BuildTest(Base):
     def test_update_zip_contents(self):
         got = self.build(notes="n")
-        name = "RequestSender-%s.zip" % V.VERSION
+        name = "FriendApp-%s.zip" % V.VERSION
         self.assertEqual(os.path.basename(got["zip"]), name)
         with open(os.path.join(self.out, "latest.json"), encoding="utf-8") as f:
             latest = json.load(f)
@@ -162,10 +159,15 @@ class BuildTest(Base):
         self.assertEqual(set(man["files"]) | {"manifest.json"}, names)
         self.assertEqual(man["version"], V.VERSION)
         self.assertFalse(man["withKey"])
+        self.assertFalse(man["handoff"])
+        self.assertNotIn("RequestSender.exe", names)   # 前のアプリの物は入れない(--handoff のときだけ FriendApp.exe の写し)
+        for old in ("README.txt", "friend-defaults.json", "guide.html"):
+            self.assertNotIn(old, names)               # 前のアプリの README・友人の設定・説明
+        self.assertEqual({n.split("/")[0] for n in names if n.startswith("RequestSender")}, set())
         self.assertNotIn("config.json", names)   # 鍵は既定で入れない(f1g)
         self.assertNotIn("inbox.bat", names)   # 仮の入口は窓 FriendApp.exe に替わった
-        for n in ("RequestSender.exe", "FriendApp.exe", "WebView2Loader.dll", "Microsoft.Web.WebView2.Core.dll", "Microsoft.Web.WebView2.WinForms.dll",
-                  B.INSTALL_NAME, "members.json", "README.txt", "fetch.json",
+        for n in ("FriendApp.exe", "WebView2Loader.dll", "Microsoft.Web.WebView2.Core.dll", "Microsoft.Web.WebView2.WinForms.dll",
+                  B.INSTALL_NAME, "members.json", "fetch.json",
                   "src/friendapp/server.py", "src/friendapp/streams.py", "src/friendapp/ui/friend.html", "src/friendapp/ui/host.js", "src/friendapp/ui/setup.html",
                   "src/friendapp/ui/guide.html", "src/app/server.py", "src/app/cli.py", "src/ytt/version.py",
                   "python/Lib/site-packages/numpy/__init__.py", "python/Lib/site-packages/sherpa_onnx_core.pyd"):
@@ -209,7 +211,7 @@ class BuildTest(Base):
     def test_extracted_src_imports(self):
         """外した後も ② の headless(server.py)と CLI が import で落ちない(展開した src だけを読む)"""
         got = self.build()
-        app = os.path.join(self.tmp, "friend", "RequestSender")
+        app = os.path.join(self.tmp, "friend", "FriendApp")
         with zipfile.ZipFile(got["zip"]) as z:
             z.extractall(app)
         data = os.path.join(self.tmp, "friend-data")
@@ -229,12 +231,67 @@ class BuildTest(Base):
         got = self.build(first=True, with_key=True)
         self.assertTrue(got["zip"].endswith("-first.zip"))
         self.assertFalse(os.path.exists(os.path.join(self.out, "latest.json")))
+        self.assertEqual(os.path.basename(got["zip"]), "FriendApp-%s-first.zip" % V.VERSION)
         with zipfile.ZipFile(got["zip"]) as z:
             self.assertIn("config.json", z.namelist())
+            self.assertEqual(z.read("config.json"), b'{"fake": "FAKE-short"}')
             self.assertTrue(json.loads(z.read("manifest.json"))["withKey"])
+            self.assertNotIn("RequestSender.exe", z.namelist())
         got = self.build(first=True)
         with zipfile.ZipFile(got["zip"]) as z:
             self.assertNotIn("config.json", z.namelist())
+
+    def test_members_copied_from_source(self):
+        got = self.build()
+        with zipfile.ZipFile(got["zip"]) as z:
+            self.assertEqual(z.read("members.json"), b'{"members": []}')
+        os.remove(self.members)
+        with self.assertRaisesRegex(B.BuildError, "members.json|members-src"):
+            self.build()
+
+    def test_default_members_and_key_sources(self):
+        self.assertTrue(B.MEMBERS_SRC.replace("\\", "/").endswith("friend-apps/holo-colors/members.json"))
+        self.assertTrue(os.path.isfile(B.MEMBERS_SRC))
+        self.assertTrue(B.KEY_SRC.replace("\\", "/").endswith("friend-apps/launcher/config.json"))
+        self.assertTrue(B.default_out(True).replace("\\", "/").endswith("friend-apps/launcher/dist"))
+
+    def test_with_key_without_key_file_stops(self):
+        os.remove(self.key)
+        with self.assertRaisesRegex(B.BuildError, "dropbox_auth"):
+            self.build(first=True, with_key=True)
+
+    def test_handoff_zip(self):
+        got = self.build(handoff=True, notes="移る")
+        name = "RequestSender-%s.zip" % V.VERSION
+        self.assertEqual(os.path.basename(got["zip"]), name)
+        with open(os.path.join(self.out, "latest.json"), encoding="utf-8") as f:
+            latest = json.load(f)
+        self.assertEqual((latest["version"], latest["file"], latest["sha256"]), (V.VERSION, name, got["sha256"]))
+        with zipfile.ZipFile(got["zip"]) as z:
+            names = set(z.namelist())
+            man = json.loads(z.read("manifest.json"))
+            self.assertEqual(z.read("RequestSender.exe"), z.read("FriendApp.exe"))   # FriendApp.exe の写し
+            self.assertEqual(z.read("RequestSender.exe"), b"MZlauncher")
+            for n, sha in man["files"].items():
+                self.assertEqual(_sha(z.read(n)), sha, n)
+        self.assertTrue(man["handoff"])
+        self.assertIn("RequestSender.exe", man["files"])
+        self.assertNotIn("config.json", names)
+        self.assertIn("FriendApp.exe", names)
+
+    def test_handoff_and_first_refused(self):
+        with self.assertRaisesRegex(B.BuildError, "--handoff"):
+            self.build(handoff=True, first=True)
+        with self.assertRaises(SystemExit) as cm:
+            B.main(["--handoff", "--first", "--out", self.out])
+        self.assertEqual(cm.exception.code, 2)
+        self.assertFalse(os.path.exists(self.out))
+
+    def test_handoff_and_normal_do_not_overwrite_each_other(self):
+        self.build()
+        self.build(handoff=True)
+        self.assertEqual(sorted(n for n in os.listdir(self.out) if n.endswith(".zip")),
+                         ["FriendApp-%s.zip" % V.VERSION, "RequestSender-%s.zip" % V.VERSION])
 
     def test_cli_rejects_key_without_first(self):
         with self.assertRaises(SystemExit) as cm:
@@ -285,38 +342,21 @@ class BuildTest(Base):
         with self.assertRaisesRegex(B.BuildError, "launcher/build.bat"):
             self.build()
 
-    def test_app_version_must_match(self):
-        with open(os.path.join(self.app_build, "version.txt"), "w") as f:
-            f.write("0.0.1")
-        with self.assertRaisesRegex(B.BuildError, "build.bat"):
-            self.build()
-
-    def test_app_rebuilt_when_old(self):
-        src = os.path.join(self.tmp, "app2")
-        shutil.copytree(self.app_src, src)
-        b = os.path.join(src, "build")
-        shutil.rmtree(b, ignore_errors=True)
-        shutil.copytree(self.app_build, b)
-        with open(os.path.join(b, "version.txt"), "w") as f:
-            f.write("0.0.1")
-        calls = []
-
-        def rebuild(app_src):
-            calls.append(app_src)
-            with open(os.path.join(b, "version.txt"), "w") as f:
-                f.write(B._version.VERSION)
-        stage = tempfile.mkdtemp(dir=self.tmp)
-        B.lay_app(stage, b, False, app_src=src, rebuild=rebuild)
-        self.assertEqual(calls, [src])
-        self.assertTrue(os.path.isfile(os.path.join(stage, "RequestSender.exe")))
+    def test_previous_app_is_gone_from_the_builder(self):
+        self.assertFalse(hasattr(B, "lay_app") or hasattr(B, "run_app_build") or hasattr(B, "APP_SRC"))
+        self.assertFalse(os.path.exists(os.path.join(B.REPO, "friend-apps", "request-sender", "src")))
 
     def test_prune_keeps_two(self):
         os.makedirs(self.out)
         for v in ("0.9.0", "0.10.0", "0.8.5"):
+            open(os.path.join(self.out, "FriendApp-%s.zip" % v), "wb").close()
+        for v in ("0.99.1", "0.99.2", "0.99.3"):   # 移る前の名前も名前ごとに 2 つまで
             open(os.path.join(self.out, "RequestSender-%s.zip" % v), "wb").close()
+        open(os.path.join(self.out, "FriendApp-0.1.0-first.zip"), "wb").close()
         open(os.path.join(self.out, "other.zip"), "wb").close()
         B.prune(self.out)
-        self.assertEqual(sorted(os.listdir(self.out)), ["RequestSender-0.10.0.zip", "RequestSender-0.9.0.zip", "other.zip"])
+        self.assertEqual(sorted(os.listdir(self.out)), ["FriendApp-0.1.0-first.zip", "FriendApp-0.10.0.zip", "FriendApp-0.9.0.zip",
+                                                         "RequestSender-0.99.2.zip", "RequestSender-0.99.3.zip", "other.zip"])
 
 
 class CacheTest(Base):

@@ -84,7 +84,7 @@ class ZipPackTest(unittest.TestCase):
             self.assertIn("clip_pack/old.txt", [n.replace("\\", "/") for n in z.namelist()])
 
     def test_request_id_matches_friend_app(self):
-        # friend-apps/request-sender/src/Core.cs の NameRx と同じ形(アプリが先頭の id を除いて題名を出す)
+        # 前のアプリ(消した request-sender)の Core.cs の NameRx と同じ形(アプリが先頭の id を除いて題名を出す)
         self.assertRegex(deliver.request_id(), r"^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$")
 
 

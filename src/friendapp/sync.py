@@ -14,8 +14,10 @@
   4. 送り返し: <data>/app/outbox の zip と .verdict.json を /送り返し/ へ上げ、上がった物は outbox から消す(失敗は次の回・3 日上がらなければ消す = 6 章)
   5. 学習の束: /学習/latest.json が新しければ /学習/<版>/ を sha256 を確かめて <data>/learning/<版>/ へ・machine の learningDir を向ける・直近 3 版
      (C# の FetchLearning・ApplyLearning と同じ。束を作る側の PC = places.is_maker_data では取らない)
-  6. 更新(F2-4 の起動役との約束): 起動役から動いているとき(YTT_FRIEND_LAUNCHER=1)だけ、/更新/latest.json が今の版より新しければ zip を取り
-     SHA-256 を確かめ、src/ と python/ を <home>/app-<版>.tmp/ に展開 → src/friendapp/server.py と python/python.exe があれば <home>/app-<版>/ へ
+  6. 更新(FriendApp.exe との約束。形は friend-apps/launcher/README.txt): exe から動いているとき(YTT_FRIEND_LAUNCHER=1)だけ、/更新/latest.json が
+     今の版より新しければ zip(FriendApp-<版>.zip。移る最後の 1 回だけ RequestSender-<版>.zip)を取り SHA-256 を確かめ、src/・python/ と直下の
+     FriendApp.exe・WebView2 の DLL・fetch.json・members.json を <home>/app-<版>.tmp/ に展開 → src/friendapp/server.py と python/python.exe があれば
+     <home>/app-<版>/ へ。入れ替える(exe を写して開き直す)のは画面の [更新する] から exe が(作業と預かりが無いとき)
 """
 import datetime
 import hashlib
@@ -48,7 +50,9 @@ RETURN_ZIP_RE = re.compile(r"^[0-9A-Za-z_-]{1,64}__[0-9A-Za-z_-]{1,64}\.zip$")  
 VERDICT_NAME_RE = re.compile(r'^[0-9A-Za-z_-]{1,64}__[^\\/:*?"<>|\x00-\x1f]{1,100}(~\d{13})?\.verdict\.json$')  # SyncPaths.VerdictName(F3: ~<at> = 判断ごとに別のファイル)
 NOTICE_NAME_RE = re.compile(r"^[0-9A-Za-z_-]{1,64}__notice-\d{13}\.notice\.json$")   # [作る人に知らせる](notes:docs/spec/friend.md の 12-4)
 APP_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
-UPDATE_FILE_RE = re.compile(r"^RequestSender-\d+\.\d+\.\d+\.zip$")   # dev/build_friend_zip.py の名前(C# の Setup.UpdateFile)
+UPDATE_FILE_RE = re.compile(r"^(FriendApp|RequestSender)-\d+\.\d+\.\d+\.zip$")   # dev/build_friend_zip.py の名前(RequestSender は前のアプリから移る最後の 1 回 = --handoff)
+UPDATE_ROOT_FILES = ("FriendApp.exe", "Microsoft.Web.WebView2.Core.dll", "Microsoft.Web.WebView2.WinForms.dll", "WebView2Loader.dll",
+                     "fetch.json", "members.json")   # zip の直下から app-<版>/ へ写す物(exe と DLL は [更新する] のとき exe がアプリのフォルダへ写す)
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 BAD_NAME = re.compile(r'[\\/:*?"<>|\x00-\x1f\x7f]')
 RESERVED = re.compile(r"^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$", re.I)
@@ -269,7 +273,7 @@ def extract_pack(zip_path, dest_dir, fallback_name):
 
 
 def install_update(zip_path, home, version):
-    """更新の zip の src/ と python/ を <home>/app-<版>.tmp/ に展開し、manifest.json があれば SHA-256 を確かめ、
+    """更新の zip の src/・python/ と直下の UPDATE_ROOT_FILES を <home>/app-<版>.tmp/ に展開し、manifest.json があれば SHA-256 を確かめ、
     src/friendapp/server.py と python/python.exe があれば <home>/app-<版>/ へ名前を変える -> 置いたフォルダ。だめなら ValueError(途中の物は消す)"""
     final = os.path.join(home, "app-" + version)
     tmp = final + ".tmp"
@@ -286,12 +290,12 @@ def install_update(zip_path, home, version):
                 if n == "manifest.json":
                     manifest = _json_bytes(z.read(info))
                     continue
-                if not n.startswith(("src/", "python/")) or n.endswith("/"):
+                if n.endswith("/") or not (n.startswith(("src/", "python/")) or n in UPDATE_ROOT_FILES):
                     continue
                 _copy_member(z, info, safe_join(tmp, n))
         files = manifest.get("files") if isinstance(manifest, dict) and isinstance(manifest.get("files"), dict) else {}
         for rel, want in files.items():
-            if not str(rel).startswith(("src/", "python/")):
+            if not (str(rel).startswith(("src/", "python/")) or rel in UPDATE_ROOT_FILES):
                 continue
             p = safe_join(tmp, rel)
             if not isinstance(want, str) or not os.path.isfile(p) or sha256_file(p) != want.lower():

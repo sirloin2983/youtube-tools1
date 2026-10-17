@@ -2,7 +2,7 @@
 
     <リポジトリ直下>/            start.bat・push.bat・README.txt・AGENTS.md(保管庫への案内)・setup/・dev/(ユーザーと AI が触る。資料 docs/・plan/ は保管庫 notes_root())
       src/                       動くコード = ツール(home・studio・editor・cut2resolve・recorder)・共通部品(ytt・ui-kit)・役割の層(pipeline・human・manage・eval・app)
-      friend-apps/               友人用の Windows アプリ(holo-colors・request-sender。C#)
+      friend-apps/               友人用の Windows アプリ(holo-colors・launcher = 友人のアプリの窓 FriendApp.exe。C#)
 
 フォルダ名と識別子を分ける: キーはツールの ID(作業データのフォルダ名・.runtime の ID・URL の /studio/ など。互換のため変えない)、
 値はフォルダ名(2026-09-30 に app → home・clip-studio → studio・transcribe-tool → editor に変えた)。
@@ -24,7 +24,6 @@ RECORDER_SCRIPT = os.path.join("pipeline", "ingest", "recorder.py")   # src か�
 UI_KIT_DIR = "ui-kit"               # src/ の中(共通の見た目の正本)
 PACK_CORE = os.path.join("pipeline", "pack", "cut2resolve_core.py")   # src/ の中(cut2resolve の版 VERSION の正。RS1-2 で cut2resolve から移した)
 HOLO_COLORS_DIR = os.path.join(FRIEND_APPS_DIR, "holo-colors")          # リポジトリ直下からの相対
-REQUEST_SENDER_DIR = os.path.join(FRIEND_APPS_DIR, "request-sender")    # 同上
 # src/ の中の共通のコード(ツールのフォルダではない物)。役割で組み直す計画(notes:plan/role-restructure.md)の層のパッケージと、
 # (旧い名前の転送は RS5-G で消した)。ツールを一時フォルダに写すテストは、ツールと一緒にこれを全部写す(copy_shared_code)
 SHARED_CODE_DIRS = ("ytt", "pipeline", "flow", "human", "manage", "eval", "app")   # flow = ② 管理(RS6 a-0)

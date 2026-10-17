@@ -15,7 +15,7 @@ AI(Claude・GPT)向けの決まりは AGENTS.md です。
     README.txt                          このファイル(全体の使い方)
   ふだん開かないもの:
     src\                動くコード。ツール本体(home・studio・editor・cut2resolve。録画の部品 recorder は pipeline\ingest)・共通部品(ytt = 基盤。旧 ytt_core・ui-kit)と、役割の層(pipeline = 自動の流れ・human = 人の操作・manage = データの管理・eval = 検証)が入っている。部品は少しずつ役割の層へ移していて、2026-10-10 に RS4 まで済み
-    friend-apps\        友人に渡す Windows のアプリ(holo-colors = ホロカラー・request-sender = 切り抜き依頼を送るプログラム。C#)
+    friend-apps\        友人に渡す Windows のアプリ(holo-colors = ホロカラー・launcher = 友人のアプリの窓 FriendApp.exe。C#)
     docs\               AI の作業記録(ROADMAP・WORKLOG)と、仕様・計画・設計・古い資料
     dev\                開発の道具(テストの補助・push.bat の検査・消すファイルの一覧 removals.txt。精度を測る道具 eval_*.py は src\eval\tools\ へ移した = 使い方は py -3.10 src\eval\tools\eval_asr.py のように)
   AGENTS.md・CLAUDE.md は AI 向けの決まりです。以下の説明にある「home」「studio」「editor」などのツールのフォルダは src\ の中にあります。
@@ -150,5 +150,5 @@ AI(Claude・GPT)向けの決まりは AGENTS.md です。
   src\editor\README.txt            文字起こし・校正・カット・パックの部品(画面は案件の画面の「校正」「カット・パック」。以前の「編集」。精度・話者判別を含む)
   src\cut2resolve\README.txt       cut2resolve(パックを作る部品・コマンド)と Resolve への取り込み
   friend-apps\holo-colors\README.txt     ホロカラー(メンバーカラーをコピーするアプリ。友人に渡す zip の作り方も)
-  friend-apps\request-sender\README.txt  切り抜き依頼を送るプログラム(友人が使う。Dropbox の鍵の作り方・友人に渡す zip の作り方も)
+  friend-apps\launcher\README.txt       友人のアプリの窓 FriendApp.exe(友人に渡す zip の作り方は src\friendapp\README.txt)
   docs\spec\pipeline.md            ツール間の受け渡しの形式(開発向け)

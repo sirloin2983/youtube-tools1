@@ -524,9 +524,9 @@ class SyncTest(unittest.TestCase):
         self.assertEqual(self.applied, [])
 
     # ------------------------------------------------------------ 更新
-    def put_update(self, ver, entries, sha=None):
+    def put_update(self, ver, entries, sha=None, name=None):
         data = zip_bytes(entries)
-        name = "RequestSender-%s.zip" % ver
+        name = name or "FriendApp-%s.zip" % ver
         self.io.put("/更新/" + name, data)
         self.io.put("/更新/latest.json", json.dumps({"version": ver, "file": name, "size": len(data),
                                                       "sha256": sha or hashlib.sha256(data).hexdigest(), "notes": ""}).encode())
@@ -546,9 +546,23 @@ class SyncTest(unittest.TestCase):
         self.assertEqual(self.run_sync(), [])
         app = os.path.join(self.places["home"], "app-0.91.0")
         self.assertTrue(os.path.isfile(os.path.join(app, "src", "friendapp", "server.py")))
-        self.assertFalse(os.path.exists(os.path.join(app, "RequestSender.exe")))   # src と python だけ
+        self.assertFalse(os.path.exists(os.path.join(app, "RequestSender.exe")))   # src・python と決まった直下の物だけ
         self.assertEqual(self.sync.status()["updated"], "0.91.0")
         self.assertEqual([n for n in os.listdir(self.places["home"]) if n.endswith((".tmp", ".part"))], [])
+
+    def test_update_takes_launcher_files_and_handoff_name(self):
+        """exe と DLL・fetch.json は app-<版>/ へ(入れ替えは [更新する] で exe が)・移る最後の 1 回の RequestSender-<版>.zip も受ける・ほかの名前は断る"""
+        self.key()
+        self.env[S.LAUNCHER_ENV] = "1"
+        extra = {"FriendApp.exe": b"MZexe", "WebView2Loader.dll": b"MZdll", "fetch.json": b"{}", "notes.txt": b"x"}
+        self.put_update("0.92.0", self.update_entries(**extra), name="RequestSender-0.92.0.zip")
+        self.assertEqual(self.run_sync(), [])
+        app = os.path.join(self.places["home"], "app-0.92.0")
+        for n in ("FriendApp.exe", "WebView2Loader.dll", "fetch.json"):
+            self.assertTrue(os.path.isfile(os.path.join(app, n)), n)
+        self.assertFalse(os.path.exists(os.path.join(app, "notes.txt")))   # 決まった名前だけ
+        self.put_update("0.93.0", self.update_entries(), name="Other-0.93.0.zip")
+        self.assertTrue(any("latest.json" in p for p in self.run_sync()))
 
     def test_update_refuses_bad_zip_old_version_and_bad_list(self):
         self.key()

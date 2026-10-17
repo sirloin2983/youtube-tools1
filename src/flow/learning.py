@@ -42,7 +42,7 @@ def maker_pc(env=None):
     """この PC は学習の束を作る側(ユーザーの PC)か = ホームの設定 <作業データ>/app/prefs.json の intake.folder(依頼の受付のフォルダ)が空でない。
     束は入口が <intake.folder>/学習 に作るので、この設定がある PC だけが作る側。友人の PC は Dropbox を API で読み(友人のアプリ)、② は画面なしで
     受付の設定を持たないので真にならない。文字起こしの文書(transcribe/transcripts)は友人の PC の ② も書くので見分けに使わない
-    (友人のアプリ friend-apps/request-sender/src/Sync.cs の Sync.MakerPc も同じ条件。6d-1)"""
+    (前の友人のアプリ = 消した request-sender の Sync.cs の Sync.MakerPc も同じ条件だった。6d-1)"""
     p = os.path.join(_datadir.locate("app", env=env), PREFS_FILE)
     d = _fsio.read_json_or(p, None, kind=dict)
     intake = d.get("intake") if d else None

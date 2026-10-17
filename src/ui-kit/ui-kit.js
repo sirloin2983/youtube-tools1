@@ -2327,7 +2327,7 @@
   };
 
   /* ==== v11(2026-10-02): 時刻の欄 UIKit.timebox。使い方は README.md の「v11」 ====
-     時刻(1:23:45)を「:」を打たずに入れる欄。送るアプリ(friend-apps/request-sender の TimeBox)と同じ動き(notes:docs/spec/friend.md の 2-10):
+     時刻(1:23:45)を「:」を打たずに入れる欄。前の送るアプリ(消した request-sender の TimeBox)と同じ動き(notes:docs/spec/friend.md の 2-10):
        欄は1つ。時・分・秒 のどれか1つが選ばれていて(反転)、数字は 時(1桁)→ 分(2桁)→ 秒(2桁)の順に入る(分・秒の最初が 6〜9 なら1桁で次へ)。
        ← → で場所を選ぶ(クリックでも)・↑ ↓ で選んだ単位を ±1(Shift で ±10)・BackSpace = 選んだ所を 0(もう 0 なら左へ)・Delete = 空に・
        貼り付け(1:23:45 / 83:45 / 1h23m45s。youtube: true のときだけ YouTube の URL の t= も読む)。

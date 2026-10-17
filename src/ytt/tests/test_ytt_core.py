@@ -1625,7 +1625,6 @@ class TestLayout(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(layout.src_root(), "app", "server.py")))
         self.assertTrue(os.path.isfile(os.path.join(TOP, layout.HOLO_COLORS_DIR, "members.json")))
         self.assertEqual(layout.holo_colors_dir(), os.path.join(TOP, "friend-apps", "holo-colors"))
-        self.assertTrue(os.path.isdir(os.path.join(TOP, layout.REQUEST_SENDER_DIR)))
         with self.assertRaises(KeyError):
             layout.tool_dir("clip-studio")   # 識別子はツールの ID(フォルダ名ではない)
 

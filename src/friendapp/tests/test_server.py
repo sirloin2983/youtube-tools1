@@ -1738,6 +1738,38 @@ class ServerTest(unittest.TestCase):
         self.assertTrue(d["busy"])
         self.assertEqual(d["label"], "録画中 2 本")
 
+    def make_version(self, ver):
+        d = os.path.join(self.places["home"], "app-" + ver)
+        os.makedirs(os.path.join(d, "src", "friendapp"), exist_ok=True)
+        os.makedirs(os.path.join(d, "python"), exist_ok=True)
+        open(os.path.join(d, "src", "friendapp", "server.py"), "w").close()
+        open(os.path.join(d, "python", "python.exe"), "w").close()
+
+    def test_update_band_and_apply(self):
+        """入れてある新しい版 → 帯の 1 行(GET /api/friend/update)→ [更新する] → exe が見る state の update・updateRequested"""
+        st, _h, p = self.get("/api/friend/update")
+        self.assertEqual(self.js(p)["available"], False)
+        self.assertEqual(self.post("/api/friend/update/apply", {})[0], 409)   # 新しい版が無い
+        self.make_version("0.0.1")       # 今より古い版は出さない
+        self.make_version("999.0.0")
+        self.make_version("999.1.0")
+        with open(os.path.join(self.places["home"], "app-versions.json"), "w", encoding="utf-8") as f:
+            json.dump({"v": 1, "bad": ["999.1.0"]}, f)   # 起動できなかった版は出さない
+        u = self.js(self.get("/api/friend/update")[2])
+        self.assertEqual((u["available"], u["version"], u["requested"]), (True, "999.0.0", False))
+        d = self.js(self.get("/api/friend/state", headers={TOKEN: self.srv.token})[2])
+        self.assertEqual((d["update"], d["updateRequested"]), ("999.0.0", False))
+        self.assertEqual(self.post("/api/friend/update/apply", {}, headers={TOKEN: None})[0], 403)   # 合言葉が要る
+        st, _h, p = self.post("/api/friend/update/apply", {})
+        self.assertEqual(st, 200)
+        self.assertTrue(self.js(p)["update"]["requested"])
+        d = self.js(self.get("/api/friend/state", headers={TOKEN: self.srv.token})[2])
+        self.assertTrue(d["updateRequested"])
+        self.engine.queue.status = lambda: {"idle": False, "runs": [{"state": "running"}]}
+        u = self.js(self.get("/api/friend/update")[2])
+        self.assertTrue(u["waiting"])   # 作っている間は待つ
+        self.assertIn("作っている", u["label"])
+
     def test_window_route_is_gone(self):
         self.assertEqual(self.post("/api/friend/window", {})[0], 404)
 

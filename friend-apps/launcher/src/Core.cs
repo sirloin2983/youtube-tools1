@@ -79,13 +79,33 @@ namespace FriendInbox
             return list;
         }
 
-        // 一番新しい版(bad に無い物)。無ければ移るまでの形(<home>\python・<home>\src)。それも無ければ null
-        public static Layout Pick(string home, ICollection<string> bad)
+        // 前の形(<home>\src)の版(src\ytt\version.py の VERSION = "…")。読めなければ null
+        public static string LegacyVersion(string home)
         {
-            foreach (var v in Installed(home))
-                if (!bad.Contains(v)) return LayoutOf(home, v);
+            try
+            {
+                string p = Path.Combine(home, "src", "ytt", "version.py");
+                if (!File.Exists(p)) return null;
+                var m = System.Text.RegularExpressions.Regex.Match(File.ReadAllText(p, Encoding.UTF8), "^VERSION\\s*=\\s*\"([0-9.]+)\"", System.Text.RegularExpressions.RegexOptions.Multiline);
+                return m.Success && Parse(m.Groups[1].Value) != null ? m.Groups[1].Value : null;
+            }
+            catch (Exception ex)
+            {
+                if (!(ex is IOException || ex is UnauthorizedAccessException)) throw;
+                return null;
+            }
+        }
+
+        // 一番新しい版(bad に無い物)。前の形(<home>\python・<home>\src)も版として比べる(前のアプリの [更新する] で前の形に新しい版が入る = 移る最後の 1 回)。
+        // skipLegacy = 前の形が起動できなかった。どれも無ければ null
+        public static Layout Pick(string home, ICollection<string> bad, bool skipLegacy = false)
+        {
             var legacy = LayoutOf(home, null);
-            return Complete(legacy) ? legacy : null;
+            bool legOk = !skipLegacy && Complete(legacy);
+            string lv = legOk ? LegacyVersion(home) : null;
+            foreach (var v in Installed(home))
+                if (!bad.Contains(v)) return lv != null && Compare(lv, v) > 0 ? legacy : LayoutOf(home, v);
+            return legOk ? legacy : null;
         }
 
         public static VersionRecord Read(string home)
@@ -144,7 +164,80 @@ namespace FriendInbox
                     if (log != null) log("古い版を消せませんでした: " + name + " " + ex.Message);
                 }
             }
+            // 前の形(<home>\src・<home>\python)は、版のフォルダが 2 つ(current・previous)そろい、前の形の方が古ければ消す(戻る先は previous がある)
+            string lv = LegacyVersion(home);
+            if (!string.IsNullOrEmpty(r.Current) && !string.IsNullOrEmpty(r.Previous) && Directory.Exists(Path.Combine(home, Prefix + r.Current)) &&
+                Directory.Exists(Path.Combine(home, Prefix + r.Previous)) && (lv == null || Compare(lv, r.Previous) <= 0))
+            {
+                foreach (var d in new[] { "src", "python" })
+                {
+                    string p = Path.Combine(home, d);
+                    if (!Directory.Exists(p)) continue;
+                    try { Directory.Delete(p, true); gone.Add("(前の形の " + d + ")"); }
+                    catch (Exception ex)
+                    {
+                        if (!(ex is IOException || ex is UnauthorizedAccessException)) throw;
+                        if (log != null) log("前の形の " + d + " を消せませんでした: " + ex.Message);
+                    }
+                }
+            }
             return gone;
+        }
+    }
+
+    // 更新の入れ替え(画面の [更新する] → 作業と預かりが無くなったら): app-<版>\ の FriendApp.exe と DLL をアプリのフォルダへ写す。
+    // 動いている exe と DLL は名前なら変えられる = *.old にしてから写す・次の起動で *.old を消す。exe と DLL が版のフォルダに無ければ写さない(Python だけ新しい版)
+    public static class Updater
+    {
+        public static readonly string[] Files = { "FriendApp.exe", "Microsoft.Web.WebView2.Core.dll", "Microsoft.Web.WebView2.WinForms.dll", "WebView2Loader.dll" };
+
+        // -> 写した数。途中で失敗したら写した物を戻して例外
+        public static int Swap(string home, string version)
+        {
+            string from = Path.Combine(home, Versions.Prefix + version);
+            var done = new List<string>();
+            try
+            {
+                foreach (var f in Files)
+                {
+                    string src = Path.Combine(from, f), dst = Path.Combine(home, f), old = dst + ".old";
+                    if (!File.Exists(src)) continue;
+                    if (File.Exists(old)) File.Delete(old);
+                    if (File.Exists(dst)) File.Move(dst, old);
+                    done.Add(f);
+                    File.Copy(src, dst);
+                }
+                return done.Count;
+            }
+            catch (Exception)
+            {
+                foreach (var f in done)   // 戻す: 写しかけを消して *.old を元の名前へ
+                {
+                    string dst = Path.Combine(home, f), old = dst + ".old";
+                    try { if (File.Exists(old)) { if (File.Exists(dst)) File.Delete(dst); File.Move(old, dst); } }
+                    catch (Exception ex2) { if (!(ex2 is IOException || ex2 is UnauthorizedAccessException)) throw; }
+                }
+                throw;
+            }
+        }
+
+        // 前の入れ替えで残った *.old を消す(動いていなければ消せる。消せなければ次の回)
+        public static int CleanOld(string home)
+        {
+            int n = 0;
+            foreach (var f in Files)
+            {
+                string old = Path.Combine(home, f + ".old");
+                try { if (File.Exists(old)) { File.Delete(old); n++; } }
+                catch (Exception ex) { if (!(ex is IOException || ex is UnauthorizedAccessException)) throw; }
+            }
+            return n;
+        }
+
+        // 前のアプリの名前(RequestSender.exe)で起こされたか = 前のアプリの [更新する] が FriendApp.exe の写しを RequestSender.exe として置いた(移る最後の 1 回)
+        public static bool IsHandoffName(string exePath)
+        {
+            return string.Equals(Path.GetFileName(exePath), "RequestSender.exe", StringComparison.OrdinalIgnoreCase);
         }
     }
 
@@ -152,8 +245,8 @@ namespace FriendInbox
     public sealed class HostState
     {
         public int Making, Recording, Waiting, Reserved, ArchiveWait, Undecided;
-        public bool Setup, Awake;
-        public string Label = "";
+        public bool Setup, Awake, UpdateRequested;
+        public string Label = "", Update = "";
 
         public static HostState Parse(string text)
         {
@@ -162,7 +255,8 @@ namespace FriendInbox
             {
                 Making = Json.Int(j, "making", 0), Recording = Json.Int(j, "recording", 0), Waiting = Json.Int(j, "waiting", 0),
                 Reserved = Json.Int(j, "reserved", 0), ArchiveWait = Json.Int(j, "archiveWait", 0), Undecided = Json.Int(j, "undecided", 0),
-                Setup = Json.Bool(j, "setup", false), Awake = Json.Bool(j, "awake", false), Label = Json.Str(j, "label") ?? ""
+                Setup = Json.Bool(j, "setup", false), Awake = Json.Bool(j, "awake", false), Label = Json.Str(j, "label") ?? "",
+                Update = Json.Str(j, "update") ?? "", UpdateRequested = Json.Bool(j, "updateRequested", false)
             };
         }
 
@@ -240,6 +334,12 @@ namespace FriendInbox
         public static string Title(int undecided)
         {
             return undecided > 0 ? AppTitle + " ●" + undecided : AppTitle;
+        }
+
+        // [更新する] を押され、新しい版があり、作業も預かりも無い = 入れ替えてよい
+        public static bool ShouldApplyUpdate(HostState s)
+        {
+            return s != null && s.UpdateRequested && Versions.Parse(s.Update) != null && s.Holdings == 0;
         }
 
         // 裏で続けている間に仕事が無くなったら自分で終わる

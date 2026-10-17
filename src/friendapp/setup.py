@@ -929,27 +929,29 @@ class Setup:
 
     # ---- 前のアプリの片付け(C-1-2)
     def old_pending(self):
-        """写して同じと確かめた古い部品の、片付けると空く大きさ -> {"bytes", "count", "asked"}"""
-        if not self.old_root or not os.path.isfile(self.catalog):
-            return {"bytes": 0, "count": 0, "asked": False}
-        return _oldcopy.pending(self.catalog, self.old_root)
+        """片付けると空く前のアプリの物 -> {"bytes", "count", "asked"}。目録の古い部品(写して同じと確かめた物)と、
+        アプリのフォルダに残った一覧の物の合計。asked は目録の印(もう聞いたか)"""
+        cat = _oldcopy.pending(self.catalog, self.old_root)
+        home = _oldcopy.home_pending(self.home)
+        return {"bytes": cat["bytes"] + home["bytes"], "count": cat["count"] + home["count"], "asked": cat["asked"]}
 
     def old_app(self):
-        """準備の画面で 1 回だけ聞く: {ask = 写し終えてまだ聞いていない, canClean = 片付けられる物がある(⚙ のボタン), bytes = 空く大きさ}"""
+        """準備の画面で 1 回だけ聞く: {ask = 片付ける物がありまだ聞いていない, canClean = 片付ける物がある(⚙ のボタン), bytes = 空く大きさ}"""
         p = self.old_pending()
-        return {"ask": bool(self.checked and p["bytes"] > 0 and not p["asked"]), "canClean": p["bytes"] > 0, "bytes": p["bytes"]}
+        return {"ask": bool(self.checked and p["count"] > 0 and not p["asked"]), "canClean": p["count"] > 0, "bytes": p["bytes"]}
 
     def clean_old(self):
-        """[片付ける]: 写して同じと確かめた物(目録の物)の古い方だけ消す。目録に無い物(案件・設定)には触らない -> {"deleted", "freed"}"""
-        if not self.old_root:
-            return {"deleted": 0, "freed": 0}
-        got = _oldcopy.clean(self.catalog, self.old_root, self.log)
+        """[片付ける]: 目録の物(写して同じと確かめた古い部品)の古い方と、アプリのフォルダの一覧の物(前のアプリの物)を消す。
+        目録に無い物(案件・設定・config.json・keys.json・FriendApp.exe など)には触らない -> {"deleted", "freed"}"""
+        cat = _oldcopy.clean(self.catalog, self.old_root, self.log)   # old_root が無くても聞いた印は付く
+        home = _oldcopy.clean_home(self.home, self.log)
+        got = {"deleted": cat["deleted"] + home["deleted"], "freed": cat["freed"] + home["freed"]}
         self.log("前のアプリの部品を片付けました: %d 件(%.1f GB)" % (got["deleted"], got["freed"] / 1e9))
         return got
 
     def skip_old(self):
         """[あとで]: もう聞かない(⚙ から後で片付けられる)"""
-        _oldcopy.skip(self.catalog)
+        _oldcopy.mark_asked(self.catalog)
 
     def _job(self, items):
         self.log("初回の取得を始めます: %d 個(%s)" % (len(items), gb(sum(expect(i) for i in items))))

@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -280,6 +281,86 @@ class OldCopyTest(unittest.TestCase):
         self.assertEqual(oldcopy.pending(self.catalog, self.old)["bytes"], 0)
         self.assertEqual(oldcopy.clean(self.catalog, self.old)["deleted"], 0)
         self.assertTrue(os.path.isfile(old_path))
+
+
+class HomeCleanTest(unittest.TestCase):
+    """アプリのフォルダ(home の直下)に残った前のアプリの物の片付け。一覧の名前だけ消す。"""
+    KEEP = ("config.json", "keys.json", "FriendApp.exe", "app-0.1.0/app.dll", "python/python.exe", "src/a.py",
+            "tools/ffmpeg.exe", "data/x.txt", "作業/a.txt", "fetch.json", "members.json")
+    OLD = ("RequestSender.exe", "README.txt", "guide.html", "friend-defaults.json", "FriendApp-はじめに.txt",
+           "settings.json", "update.cmd", "new/a.bin", "update-download/b.zip")
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="homeclean-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.home = os.path.join(self.tmp, "FriendApp")
+        self.catalog = os.path.join(self.tmp, "state", "catalog.json")
+        for rel in self.KEEP + self.OLD:
+            path = os.path.join(self.home, *rel.split("/"))
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as f:
+                f.write(b"0123456789")   # 10 バイトずつ
+        # 家の外の同名の物は触らない
+        with open(os.path.join(self.tmp, "RequestSender.exe"), "wb") as f:
+            f.write(b"outside")
+
+    def exists(self, rel):
+        return os.path.exists(os.path.join(self.home, *rel.split("/")))
+
+    def test_only_listed_names_removed(self):
+        self.assertEqual(oldcopy.home_pending(self.home), {"bytes": 90, "count": 9})
+        got = oldcopy.clean_home(self.home)
+        self.assertEqual(got, {"deleted": 9, "freed": 90, "skipped": []})
+        for rel in self.OLD:
+            self.assertFalse(self.exists(rel), rel)
+        for rel in self.KEEP:
+            self.assertTrue(self.exists(rel), rel)
+        self.assertTrue(os.path.isfile(os.path.join(self.tmp, "RequestSender.exe")))   # 外へ出ない
+        self.assertEqual(oldcopy.home_pending(self.home), {"bytes": 0, "count": 0})
+
+    def test_locked_file_is_skipped_and_rest_goes_on(self):
+        def remove(path):
+            if os.path.basename(path) in ("RequestSender.exe", "a.bin"):
+                raise PermissionError(13, "使用中")
+            os.remove(path)
+        logs = []
+        got = oldcopy.clean_home(self.home, log=logs.append, remove=remove)
+        self.assertEqual(got, {"deleted": 7, "freed": 70, "skipped": ["RequestSender.exe", "new"]})
+        self.assertTrue(self.exists("RequestSender.exe"))
+        self.assertTrue(self.exists("new/a.bin"))                  # フォルダの中に残った物があるので new は残す
+        self.assertFalse(self.exists("README.txt"))
+        self.assertFalse(self.exists("update-download"))
+        self.assertTrue(any("消せないので飛ばす: RequestSender.exe" in m for m in logs))
+
+    def test_link_is_not_followed(self):
+        target = os.path.join(self.tmp, "target")
+        os.makedirs(target)
+        with open(os.path.join(target, "keep.txt"), "wb") as f:
+            f.write(b"keep")
+        link = os.path.join(self.home, "update-download")
+        shutil.rmtree(link)
+        try:
+            os.symlink(target, link, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            # 権限が無い Windows では接合点(junction・管理者権限が要らない)で同じ形を作る。黒い窓は出さない
+            flags = 0x08000000 if os.name == "nt" else 0   # CREATE_NO_WINDOW
+            r = subprocess.run(["cmd", "/c", "mklink", "/J", link, target], capture_output=True, creationflags=flags)
+            if r.returncode != 0:
+                self.skipTest("リンクも接合点も作れない")
+        got = oldcopy.clean_home(self.home)
+        self.assertEqual(got["deleted"], 8)                                  # リンク以外の一覧の物は消す
+        self.assertEqual(got["skipped"], [])                                 # リンクは一覧から外すだけ(飛ばしの記録にもしない)
+        self.assertTrue(os.path.isfile(os.path.join(target, "keep.txt")))   # 辿らない
+        self.assertTrue(oldcopy._is_link(link))                             # 残っている(リンクとして)
+
+    def test_missing_home_does_nothing(self):
+        self.assertEqual(oldcopy.home_pending(os.path.join(self.tmp, "none")), {"bytes": 0, "count": 0})
+        self.assertEqual(oldcopy.clean_home(os.path.join(self.tmp, "none")), {"deleted": 0, "freed": 0, "skipped": []})
+
+    def test_mark_asked_without_catalog(self):
+        self.assertFalse(os.path.exists(self.catalog))
+        oldcopy.mark_asked(self.catalog)
+        self.assertTrue(oldcopy.pending(self.catalog, None)["asked"])
 
 
 if __name__ == "__main__":

@@ -27,6 +27,18 @@
   - 外へのリンク(YouTube など)は既定のブラウザ・同じ画面の [?] は小さな説明の窓
   - WebView2 の本体が無い PC: Edge のアプリの窓で開く逃げ道(このときだけ画面に本物の合言葉を入れる。止めるのはアイコンから)
 
+■ 更新(8 章・A-15。新しい版の入れ方と前の版へ戻す)
+  - 取る: Python の同期(src\friendapp\sync.py の 6)が Dropbox の /更新/latest.json を見て、今より新しければ FriendApp-<版>.zip を取り、
+    大きさと SHA-256 を確かめて <アプリのフォルダ>\app-<版>\ に入れる(src・python と FriendApp.exe・WebView2 の DLL・fetch.json・members.json)
+  - 知らせる: 画面の帯の 1 行(src\friendapp\ui\update.js。画面は帯に <div data-fr-update></div> を置くだけ)に「新しい版 n があります [更新する]」
+  - 入れ替える: [更新する] → 作業と預かりが無ければすぐ・あれば終わってから、exe が Python を止め、app-<版>\ の FriendApp.exe と DLL を写し
+    (動いている exe と DLL は *.old に名前を変えてから。次の起動で消す)、閉じて新しい exe を起こす
+  - 版のフォルダ: 一番新しい版を選ぶ(前の形 <アプリのフォルダ>\src・python も src\ytt\version.py の版で比べる)。1 回起動できた版を current・その前を
+    previous にし、それより古い app-<版> を消す(置くのは 2 つ)。前の形は版のフォルダが 2 つそろったら消す。起動できない版は bad にして前の版で起こし直す
+  - 前のアプリ(RequestSender)から移る最後の 1 回: dev\build_friend_zip.py --handoff の RequestSender-<版>.zip を前のアプリの [更新する] で入れる。
+    中の RequestSender.exe は FriendApp.exe の写し = 自分の名前が RequestSender.exe なら隣の FriendApp.exe を起こして終わる。
+    前のアプリの物(RequestSender.exe など)は初回の準備の「前のアプリを片付けます」の 1 回で消す(src\friendapp\oldcopy.py の HOME_FILES)
+
 ■ 窓と画面の境目(F3-B の画面・F3-C もこれに合わせる)
   - 画面の URL: http://127.0.0.1:<番号>/friend/(送る・受け取る)。初回の準備が済むまでは /friend/setup.html(準備だけの画面)へ 302
   - 番号: exe がその都度空いている物を選んで --port で渡す(Python は他の番号へずらさない。使えなければ終了コード 5 → exe が選び直す)。

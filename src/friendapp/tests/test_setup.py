@@ -761,6 +761,32 @@ class FlowTest(unittest.TestCase):
         self.assertEqual(v["oldApp"], {"ask": False, "canClean": False, "bytes": 0})
         self.assertEqual(self.make().clean_old(), {"deleted": 0, "freed": 0})
 
+    def test_home_leftovers_alone_ask_once_and_clean(self):
+        # 前のアプリの部品は無く、アプリのフォルダに前のアプリの物だけ残っている
+        for rel in ("RequestSender.exe", "README.txt", "settings.json"):
+            with open(os.path.join(self.home, rel), "wb") as f:
+                f.write(b"old-app")
+        os.makedirs(os.path.join(self.home, "new"))
+        with open(os.path.join(self.home, "new", "a.bin"), "wb") as f:
+            f.write(b"x" * 5)
+        keep = [os.path.join(self.home, n) for n in ("config.json", "FriendApp.exe")]
+        for p in keep:
+            with open(p, "wb") as f:
+                f.write(b"keep")
+        st = self.make()
+        v = self.go(st)
+        self.assertEqual(v["oldApp"], {"ask": True, "canClean": True, "bytes": 26})
+        st.skip_old()                                       # もう聞かない(片付けは ⚙ から)
+        v = st.view()
+        self.assertFalse(v["oldApp"]["ask"])
+        self.assertTrue(v["oldApp"]["canClean"])
+        self.assertEqual(st.clean_old(), {"deleted": 4, "freed": 26})
+        for rel in ("RequestSender.exe", "README.txt", "settings.json", "new"):
+            self.assertFalse(os.path.exists(os.path.join(self.home, rel)), rel)
+        for p in keep:
+            self.assertTrue(os.path.isfile(p), p)
+        self.assertEqual(st.view()["oldApp"], {"ask": False, "canClean": False, "bytes": 0})
+
 
 if __name__ == "__main__":
     unittest.main()

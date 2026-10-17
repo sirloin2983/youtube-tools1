@@ -538,7 +538,7 @@ html[data-fs=lg]{--fs-xs:12.5px;--fs-sm:13.5px;--fs-md:15.5px;--fs-lg:17.5px;--f
   --ok:#5CE1E6;--ok-ink:#5CE1E6;--ok-soft:rgba(92,225,230,.11);--warn:#FFC14D;--warn-ink:#FFC14D;--warn-soft:rgba(255,193,77,.12);
   --danger:#FF5F6D;--danger-ink:#FF8A94;--danger-soft:rgba(255,95,109,.12);--info:#9DB8FF;--info-ink:#B6CAFF;--info-soft:rgba(157,184,255,.11);
   --header-bg:rgba(6,11,8,.92);--scroll-thumb:#2A4A36;--knob:#032611}
-/* v30(2026-10-17): シンセウェーブ(synth)= 前の送るアプリ(friend-apps/request-sender の Theme.cs の配色 B)と同じ地・面・線・文字・アクセント */
+/* v30(2026-10-17): シンセウェーブ(synth)= 前の送るアプリ(消した request-sender の Theme.cs の配色 B)と同じ地・面・線・文字・アクセント */
 :root[data-theme=dark][data-palette=synth]{
   --bg:#0D0A17;--bg-2:#09070F;--panel:#161129;--panel-2:#120E21;--panel-3:#211A3B;--field:#0D0A17;--field-hover:#120E21;
   --line:#30245A;--line-2:#3E3073;--line-strong:#57469A;--ink:#ECE6FF;--ink-2:#BFB5E2;--ink-3:#9288B8;--ink-4:#6B6290;

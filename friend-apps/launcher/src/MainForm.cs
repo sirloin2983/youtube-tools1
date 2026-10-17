@@ -432,6 +432,7 @@ namespace FriendInbox
                 }
                 var st = be.State();
                 Ui(() => Apply(st));
+                if (Rules.ShouldApplyUpdate(st)) { Ui(() => ApplyUpdate(st.Update)); return; }
                 Thread.Sleep(PollMs);
             }
         }
@@ -528,6 +529,34 @@ namespace FriendInbox
             if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
             Activate();
             BringToFront();
+        }
+
+        // [更新する](作業も預かりも無いとき): Python を止める → app-<版>\ の exe と DLL を写す → 閉じて、Mutex を放してから新しい exe を起こす(Program.RestartAfterExit)。
+        // 新しい exe は一番新しい版のフォルダを選んで起こす(起動できなければ前の版へ戻す = 8 章)
+        void ApplyUpdate(string version)
+        {
+            if (quitting) return;
+            quitting = true;
+            SaveBounds();
+            if (Visible) Hide();
+            Log.Write("新しい版 " + version + " に入れ替えます");
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                be.Stop();
+                try { Log.Write("exe と部品を写しました(" + Updater.Swap(home, version) + " 個)"); }
+                catch (Exception ex)
+                {
+                    if (!(ex is IOException || ex is UnauthorizedAccessException)) throw;
+                    Log.Write("exe を写せませんでした(Python だけ新しい版で開きます): " + ex.Message);
+                }
+                Program.RestartAfterExit = true;
+                Ui(() =>
+                {
+                    tray.Visible = false;
+                    SetThreadExecutionState(ES_CONTINUOUS);
+                    Close();
+                });
+            });
         }
 
         // 全部止めて閉じる(待っている依頼は残り、次に開くと続きから)
