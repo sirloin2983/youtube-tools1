@@ -65,25 +65,73 @@ class EngineTest(unittest.TestCase):
         self.addCleanup(eng.close)
         return eng
 
-    def test_after_run_arrives_and_makes_previews(self):
-        self.ib.add("20261016-100000-aaaaaa", {"deliverBatch": 5}, {}, run_id="r1")
-        dirs = self.packs(6)
-        eng = self.make()
-
-        def preview(ds, log=None):
-            p = os.path.join(self.tmp, "tmp-%d.mp4" % len(ds))
+    def fake_preview(self, tag):
+        """確認用の動画の偽物(ffmpeg は使わない)。呼ばれた dirs を self.calls に残す"""
+        def fn(ds, log=None):
+            self.calls.append((tag, list(ds) if isinstance(ds, (list, tuple)) else ds))
+            p = os.path.join(self.tmp, "tmp-%s-%d.mp4" % (tag, len(self.calls)))
             with open(p, "wb") as f:
                 f.write(b"x")
             return p
-        with mock.patch.object(engine._preview, "clip_seconds", lambda ds: [30.0] * len(ds)), \
-                mock.patch.object(engine._preview, "batch_preview", preview), mock.patch.object(engine._outbox, "build", lambda *a, **k: None):
+        return fn
+
+    def test_after_run_arrives_and_makes_one_preview_per_pack(self):
+        """届いた行はパックごとに確認用の動画(1 本ずつの組)。clip_preview が ① に無い間は batch_preview の 1 本"""
+        self.ib.add("20261016-100000-aaaaaa", {"deliverBatch": 5}, {}, run_id="r1")
+        dirs = self.packs(6)
+        eng = self.make()
+        self.calls = []
+        with mock.patch.object(engine._preview, "clip_seconds", lambda ds: [30.0] * len(ds)), mock.patch.object(engine, "_CLIP_PREVIEW", None), \
+                mock.patch.object(engine._preview, "batch_preview", self.fake_preview("batch")), mock.patch.object(engine._outbox, "build", lambda *a, **k: None):
             eng.after_run(fake_run("r1", "done", dirs))
             eng.make_previews("20261016-100000-aaaaaa")
         r = self.ib.row("20261016-100000-aaaaaa")
         self.assertEqual(r["state"], "arrived")
-        self.assertEqual([len(g["names"]) for g in r["groups"]], [5, 1])
+        self.assertEqual([len(g["names"]) for g in r["groups"]], [1] * 6)   # 組の本数(deliverBatch)は読まない
         self.assertTrue(all(g["preview"] and os.path.isfile(g["preview"]) for g in r["groups"]))
         self.assertEqual(r["packs"][0]["seconds"], 30.0)
+        self.assertEqual([c[0] for c in self.calls], ["batch"] * 6)
+        self.assertTrue(all(len(c[1]) == 1 for c in self.calls))
+        self.assertEqual([p["preview"] for p in r["packs"]], [g["preview"] for g in r["groups"]])   # パックの確認用の動画 = 組の動画
+        self.assertEqual(self.ib.pack_preview(r["id"], r["packs"][2]["name"]), r["groups"][2]["preview"])
+        self.assertEqual(os.path.dirname(r["groups"][0]["preview"]), os.path.join(self.places["friend"], "previews"))
+
+    def test_previews_use_clip_preview_when_available(self):
+        self.ib.add("20261016-100000-aaaaaa", {}, {}, run_id="r1")
+        dirs = self.packs(2)
+        eng = self.make()
+        self.calls = []
+        with mock.patch.object(engine._preview, "clip_seconds", lambda ds: [30.0] * len(ds)), \
+                mock.patch.object(engine, "_CLIP_PREVIEW", self.fake_preview("clip")), \
+                mock.patch.object(engine._preview, "batch_preview", self.fake_preview("batch")), mock.patch.object(engine._outbox, "build", lambda *a, **k: None):
+            eng.after_run(fake_run("r1", "done", dirs))
+            eng.make_previews("20261016-100000-aaaaaa")
+            n = len(self.calls)
+            eng.make_previews("20261016-100000-aaaaaa")   # 作った物は作り直さない
+            self.assertEqual(len(self.calls), n)
+        self.assertEqual(self.calls, [("clip", dirs[0]), ("clip", dirs[1])])   # 1 本のフォルダを渡す
+        self.assertTrue(all(g["preview"] for g in self.ib.row("20261016-100000-aaaaaa")["groups"]))
+
+    def test_previews_skip_packs_already_decided(self):
+        self.ib.add("20261016-100000-aaaaaa", {}, {}, run_id="r1")
+        dirs = self.packs(2)
+        eng = self.make()
+        self.calls = []
+        with mock.patch.object(engine._preview, "clip_seconds", lambda ds: [30.0] * len(ds)), mock.patch.object(engine, "_CLIP_PREVIEW", self.fake_preview("clip")), \
+                mock.patch.object(engine._outbox, "build", lambda *a, **k: None):
+            eng.after_run(fake_run("r1", "done", dirs))
+            r = self.ib.row("20261016-100000-aaaaaa")
+            r["packs"][0]["verdict"] = "skip"   # 作る前に見送った
+            eng.make_previews(r["id"])
+        self.assertEqual(self.calls, [("clip", dirs[1])])
+
+    def test_after_run_cancelled_row_is_removed(self):
+        """[取り消す] で止めた実行(届いた物なし)は行ごと消える"""
+        self.ib.add("20261016-100000-bbbbbb", {}, {}, run_id="r2")
+        eng = self.make()
+        with mock.patch.object(engine._outbox, "build", lambda *a, **k: None):
+            eng.after_run(fake_run("r2", "cancelled", []))
+        self.assertIsNone(self.ib.row("20261016-100000-bbbbbb"))
 
     def test_after_run_error_fails_row(self):
         self.ib.add("20261016-100000-bbbbbb", {}, {}, run_id="r2")

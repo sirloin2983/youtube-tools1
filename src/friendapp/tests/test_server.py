@@ -1,4 +1,5 @@
 """src/friendapp/server.py と api.py の HTTP の口のテスト(本物のソケットで 127.0.0.1 のポート 0 に起こす。② は偽の engine)。リポジトリ直下で: py -3.10 -m unittest src/friendapp/tests/test_server.py"""
+import datetime
 import http.client
 import json
 import os
@@ -6,7 +7,9 @@ import shutil
 import sys
 import tempfile
 import threading
+import types
 import unittest
+import urllib.parse
 from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
@@ -15,6 +18,7 @@ if SRC not in sys.path:
     sys.path.insert(0, SRC)
 from friendapp import server as S  # noqa: E402
 from friendapp import api as _api  # noqa: E402
+from friendapp import api as A  # noqa: E402
 from ytt import version as _version  # noqa: E402
 
 URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
@@ -29,18 +33,25 @@ class FakeQueue:
         self.submitted = []
         self.cancelled = []
         self.fail = None
+        self.runs = []            # ② の待ちにある実行(submit で足す。テストが state・steps を書き換えて進み具合を作る)
+        self.blocked = None
 
     def status(self):
-        return {"idle": True, "runs": [], "blocked": None}
+        return {"idle": not self.runs, "runs": self.runs, "blocked": self.blocked}
 
     def submit(self, env, spec=None):
         if self.fail is not None:
             raise self.fail
         self.submitted.append((env, spec))
+        self.runs.append({"id": env["id"], "state": "queued", "stateLabel": "順番待ち", "message": "順番を待っています", "steps": [],
+                          "requestId": env.get("requestId")})
         return {"id": env["id"], "state": "queued", "message": "順番を待っています", "steps": []}
 
     def cancel(self, run_id):
         self.cancelled.append(run_id)
+        for x in self.runs:
+            if x["id"] == run_id:
+                x["state"] = "cancelled"
         return {"id": run_id, "state": "cancelled"}
 
     def history(self, limit=None):
@@ -59,7 +70,8 @@ class FakeEngine:
         self.closed = False
 
     def status_map(self):
-        return {}, self.queue.status()
+        st = self.queue.status()
+        return {r["id"]: r for r in st["runs"]}, st
 
     def close(self):
         self.closed = True
@@ -167,8 +179,7 @@ class ServerTest(unittest.TestCase):
         return json.loads(payload.decode("utf-8"))
 
     def form_body(self, **kw):
-        d = {"url": URL, "top": 3, "streamer": "", "people": [], "videoTracks": 1, "deliverBatch": 5,
-             "useWeights": False, "title": "題", "channel": "チャンネル"}
+        d = {"url": URL, "top": 3, "streamer": "", "people": [], "videoTracks": 1, "title": "題", "channel": "チャンネル"}
         d.update(kw)
         return d
 
@@ -176,18 +187,45 @@ class ServerTest(unittest.TestCase):
         st, _h, p = self.post("/api/friend/send", self.form_body(**kw))
         return st, self.js(p)
 
-    def make_arrived(self, rid, names, batch=5):
+    def prefs(self, **kw):
+        """⚙ の値(処理する PC・解析の重み・ライブの感度・待ち・余白)を POST -> (状態, 応答)"""
+        st, _h, p = self.post("/api/friend/prefs", kw)
+        return st, self.js(p)
+
+    def make_arrived(self, rid, names, vid=VID, title="題", streamer=""):
         """受信箱に届いた行を直に作る(② は通さない)-> 案件フォルダ・パックのフォルダ"""
         inbox = self.app.inbox
-        inbox.add(rid, {"url": URL}, {"url": URL, "videoId": VID, "title": "題", "channel": "c"}, run_id="run-" + rid)
+        inbox.add(rid, {"url": URL, "videoId": vid, "streamer": streamer}, {"url": URL, "videoId": vid, "title": title, "channel": ""}, run_id="run-" + rid)
         case = os.path.join(self.places["cases"], "案件-" + rid)
         dirs = []
         for n in names:
             d = os.path.join(case, "パック", n)
             os.makedirs(d)
             dirs.append(d)
-        inbox.finished("run-" + rid, "done", "", [{"dir": d, "seconds": 3} for d in dirs], batch, case=case)
+        inbox.finished("run-" + rid, "done", "", [{"dir": d, "seconds": 3} for d in dirs], 5, case=case)
         return case, dirs
+
+    def saved_folder(self, title="題", streamer=""):
+        """受け取った物の置き場所(<保存先>/<届いた日>_<配信者>_<題>)。届いた日 = 今日"""
+        day = datetime.date.today().isoformat()
+        return os.path.join(self.tmp, "save", "_".join([x for x in (day, streamer, title) if x]))
+
+    def verdict_docs(self, rid=None):
+        """送り返し(outbox)の判断の記録 -> [dict](名前順)"""
+        box = self.places["outbox"]
+        out = []
+        for n in sorted(os.listdir(box)) if os.path.isdir(box) else []:
+            if n.endswith(".verdict.json") and (rid is None or n.startswith(rid + "__")):
+                with open(os.path.join(box, n), encoding="utf-8") as f:
+                    out.append(dict(json.load(f), _name=n))
+        return out
+
+    def wait_until(self, fn, secs=10):
+        for _ in range(int(secs / 0.02)):
+            if fn():
+                return True
+            threading.Event().wait(0.02)
+        return False
 
     # ------------------------------------------------------------ 配信の一覧(F3-2)
     def test_streams_view_marks_sent_and_refresh(self):
@@ -309,8 +347,10 @@ class ServerTest(unittest.TestCase):
         self.assertIsNone(d["blocked"])
         self.assertIsNone(d["notice"])
         self.assertEqual(d["prep"], {"state": "ready", "message": ""})
-        self.assertEqual(d["form"]["top"], 10)
-        self.assertEqual(d["form"]["deliverBatch"], 5)
+        self.assertEqual(d["form"]["top"], 5)   # 本数の初め(C-2-8)
+        self.assertNotIn("deliverBatch", d["form"])   # 届け方(5 本ずつ)はやめた
+        self.assertEqual((d["form"]["pc"], d["form"]["useWeights"], d["form"]["cut"]), ("this", False, "none"))
+        self.assertEqual(d["form"]["live"]["lengthMode"], "auto")
         self.assertEqual(d["saveDir"], os.path.join(self.tmp, "save"))
 
     def test_send_makes_row_and_queues_envelope(self):
@@ -331,19 +371,26 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.app.inbox.row(row["id"])["state"], "sent")
 
     def test_send_with_ranges_uses_count_and_ignores_top_and_weights(self):
-        st, d = self.send(top=9, ranges=[[10, 20], [30, 45]], useWeights=True, weights={"wAudio": 2, "wChat": 2, "wComments": 2})
+        self.assertEqual(self.prefs(useWeights=True, weights={"wAudio": 2, "wChat": 2, "wComments": 2})[0], 200)   # 重みは ⚙ の値
+        st, d = self.send(top=9, ranges=[[10, 20], [30, 45]])
         self.assertEqual(st, 200)
         env, spec = self.engine.queue.submitted[0]
         self.assertEqual(spec["adopt"]["top"], 2)
         self.assertEqual(len(spec["hints"]["ranges"]), 2)
         self.assertEqual(spec["hints"]["ranges"][0][0], 10)
         self.assertNotIn("analyze", spec)
+        self.assertEqual(d["row"]["form"]["useWeights"], False)
 
     def test_send_with_weights_uses_them(self):
-        st, d = self.send(useWeights=True, weights={"wAudio": 0, "wChat": 2, "wComments": 3})
+        st, d = self.prefs(useWeights=True, weights={"wAudio": 0, "wChat": 2, "wComments": 3})
+        self.assertEqual(st, 200)
+        st, d = self.send(useWeights=True, weights={"wAudio": 3, "wChat": 3, "wComments": 3})   # 送る欄の重みは読まない(⚙ の値を使う)
         self.assertEqual(st, 200)
         env, spec = self.engine.queue.submitted[0]
         self.assertEqual(spec["analyze"], {"wAudio": 0, "wChat": 2, "wComments": 3})
+        self.prefs(useWeights=False)
+        self.send()
+        self.assertNotIn("analyze", self.engine.queue.submitted[1][1])
 
     def test_send_people_becomes_hints_only_with_two_or_more(self):
         st, _d = self.send(streamer="配信者A", people=["コラボB", "配信者A"])
@@ -358,13 +405,15 @@ class ServerTest(unittest.TestCase):
     def test_send_bad_form_is_400_with_reason(self):
         cases = [
             (dict(url="nope"), "YouTube の配信の URL"),
-            (dict(top=0), "本数は 1〜30"),
-            (dict(top=31), "本数は 1〜30"),
-            (dict(top=True), "本数は 1〜30"),
+            (dict(top=0), "本数は 1〜20"),
+            (dict(top=21), "本数は 1〜20"),
+            (dict(top=True), "本数は 1〜20"),
+            (dict(top=None), "本数は 1〜20"),
+            (dict(top=3.5), "本数は 1〜20"),
             (dict(ranges=[[5, 1]]), "区間"),
+            (dict(ranges=[[i * 100, i * 100 + 20] for i in range(6)]), "区間は 5 つまで"),
+            (dict(ranges="x"), "区間は 5 つまで"),
             (dict(videoTracks=9), "映像トラックの数"),
-            (dict(deliverBatch=3), "届け方"),
-            (dict(useWeights=True, weights={"wAudio": 9, "wChat": 1, "wComments": 1}), "重みは 0〜3"),
         ]
         for kw, why in cases:
             with self.subTest(kw=kw):
@@ -391,13 +440,13 @@ class ServerTest(unittest.TestCase):
         self.assertFalse(self.js(p)["ready"])
 
     def test_form_remembers_last_values_in_form_json(self):
-        st, _d = self.send(top=7, deliverBatch=1, videoTracks=3, useWeights=True, weights={"wAudio": 2, "wChat": 0, "wComments": 3})
+        self.prefs(useWeights=True, weights={"wAudio": 2, "wChat": 0, "wComments": 3})
+        st, _d = self.send(top=7, videoTracks=3)
         self.assertEqual(st, 200)
         form_path = os.path.join(self.places["friend"], "form.json")
         self.assertTrue(os.path.isfile(form_path))
         f = self.app.api.form()
         self.assertEqual(f["top"], 7)
-        self.assertEqual(f["deliverBatch"], 1)
         self.assertEqual(f["videoTracks"], 3)
         self.assertTrue(f["useWeights"])
         self.assertEqual(f["weights"], {"wAudio": 2, "wChat": 0, "wComments": 3})
@@ -406,15 +455,31 @@ class ServerTest(unittest.TestCase):
         f2 = self.app.api.form()
         self.assertEqual(f2["top"], 7)
         self.assertEqual(f2["videoTracks"], 2)
+        # アーカイブ待ちの送りも本数を覚える(アーカイブの送りと同じ)
+        self.send(kind="wait", top=12)
+        self.assertEqual(self.app.api.form()["top"], 12)
+        # 本数は 20 まで(1 つ上は断る・上限は覚えられる)
+        self.send(top=20)
+        self.assertEqual(self.app.api.form()["top"], 20)
         # 壊れた値は既定に戻る(他の値は残す)
         with open(form_path, "w", encoding="utf-8") as fh:
-            json.dump({"top": 99, "deliverBatch": 1, "videoTracks": 0}, fh)
+            json.dump({"top": 99, "deliverBatch": 1, "videoTracks": 0, "pc": "x"}, fh)
         f3 = self.app.api.form()
-        self.assertEqual(f3["top"], 10)
-        self.assertEqual(f3["deliverBatch"], 1)
-        self.assertEqual(f3["videoTracks"], 1)
+        self.assertEqual(f3["top"], 5)
+        self.assertNotIn("deliverBatch", f3)
+        self.assertEqual((f3["videoTracks"], f3["pc"]), (1, "this"))
         st3, _h, p3 = self.get("/api/friend/inbox")
-        self.assertEqual(self.js(p3)["form"]["top"], 10)
+        self.assertEqual(self.js(p3)["form"]["top"], 5)
+
+    def test_send_accepts_up_to_five_ranges_and_twenty_top(self):
+        st, d = self.send(ranges=[[i * 100, i * 100 + 30] for i in range(5)])
+        self.assertEqual(st, 200)
+        self.assertEqual(self.engine.queue.submitted[-1][1]["adopt"]["top"], 5)   # 区間があれば本数は区間の数
+        st, d = self.send(top=20)
+        self.assertEqual(st, 200)
+        self.assertEqual(self.engine.queue.submitted[-1][1]["adopt"]["top"], 20)
+        st, d = self.send(top=1)
+        self.assertEqual(st, 200)
 
     def test_peek_returns_title_and_caches(self):
         st, h, p = self.get("/api/friend/peek?url=" + URL)
@@ -438,36 +503,121 @@ class ServerTest(unittest.TestCase):
     def test_decide_keep_over_http(self):
         rid = "20250615-130000-aaaaaa"
         case, dirs = self.make_arrived(rid, ["a_pack", "b_pack"])
+        # 前の形 {id, names} も受ける(names が空 = 決めていない物の全部)
         st, _h, p = self.post("/api/friend/decide", {"id": rid, "names": [], "verdict": "keep"})
         d = self.js(p)
         self.assertEqual(st, 200)
         self.assertTrue(d["ok"])
-        self.assertEqual(sorted(d["done"]), ["a_pack", "b_pack"])
+        self.assertEqual(sorted(x["name"] for x in d["done"]), ["a_pack", "b_pack"])
+        self.assertEqual({x["id"] for x in d["done"]}, {rid})
         self.assertEqual(d["errors"], [])
-        self.assertTrue(os.path.isdir(os.path.join(self.tmp, "save", "a_pack")))
+        folder = self.saved_folder()
+        self.assertTrue(os.path.isdir(os.path.join(folder, "#1")))   # 保存先 = <日付>_<題>/#番号
+        self.assertTrue(os.path.isdir(os.path.join(folder, "#2")))
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "save", "a_pack")))
         self.assertEqual(self.app.inbox.row(rid)["state"], "done")
+        self.assertEqual({v["judge"] for v in self.verdict_docs(rid)}, {"good"})
+
+    def test_decide_items_for_several_rows_and_verdicts(self):
+        r1, r2 = "20250615-130010-aaaaaa", "20250615-130011-aaaaaa"
+        _c1, dirs1 = self.make_arrived(r1, ["a_pack", "b_pack"], vid="aaaaaaaaaaa", title="配信A")
+        _c2, dirs2 = self.make_arrived(r2, ["c_pack"], vid="bbbbbbbbbbb", title="配信B")
+        st, _h, p = self.post("/api/friend/decide", {"items": [{"id": r1, "name": "a_pack"}, {"id": r2, "name": "c_pack"}], "verdict": "keep"})
+        d = self.js(p)
+        self.assertEqual((st, d["ok"]), (200, True))
+        self.assertEqual(sorted((x["id"], x["name"]) for x in d["done"]), [(r1, "a_pack"), (r2, "c_pack")])
+        self.assertTrue(os.path.isdir(os.path.join(self.saved_folder("配信A"), "#1")))
+        self.assertTrue(os.path.isdir(os.path.join(self.saved_folder("配信B"), "#1")))
+        # 見送る = ごみ箱(戻せる)
+        st, _h, p = self.post("/api/friend/decide", {"items": [{"id": r1, "name": "b_pack"}], "verdict": "skip"})
+        self.assertEqual(self.js(p)["done"], [{"id": r1, "name": "b_pack"}])
+        self.assertFalse(os.path.exists(dirs1[1]))
+        pk = self.app.inbox.row(r1)["packs"][1]
+        self.assertTrue(os.path.isdir(pk["trash"]))
+        self.assertEqual(self.app.inbox.row(r1)["state"], "done")
+        self.assertEqual(sorted(v["judge"] for v in self.verdict_docs(r1)), ["good", "unknown"])
+
+    def test_decide_bad_with_reason(self):
+        rid = "20250615-130020-aaaaaa"
+        self.make_arrived(rid, ["a_pack", "b_pack"])
+        for body in ({"verdict": "bad"}, {"verdict": "bad", "reason": "other"}):
+            st, _h, p = self.post("/api/friend/decide", dict(body, items=[{"id": rid, "name": "a_pack"}]))
+            self.assertEqual((st, self.js(p)["error"]), (400, "bad_request"))
+        self.assertEqual(self.verdict_docs(rid), [])
+        st, _h, p = self.post("/api/friend/decide", {"items": [{"id": rid, "name": "a_pack"}], "verdict": "bad", "reason": "boring"})
+        self.assertEqual((st, self.js(p)["done"]), (200, [{"id": rid, "name": "a_pack"}]))
+        st, _h, p = self.post("/api/friend/decide", {"items": [{"id": rid, "name": "b_pack"}], "verdict": "bad", "reason": "cut"})
+        docs = {d["zip"]: d for d in self.verdict_docs(rid)}
+        self.assertEqual((docs["a_pack"]["judge"], docs["a_pack"]["reason"]), ("bad", "boring"))
+        self.assertEqual((docs["b_pack"]["judge"], docs["b_pack"]["reason"]), ("bad", "cut"))
+        self.assertEqual(docs["a_pack"]["v"], 2)
 
     def test_decide_reports_move_error_as_not_ok(self):
         rid = "20250615-130100-aaaaaa"
         self.make_arrived(rid, ["a_pack"])
         with mock.patch("friendapp.inbox.shutil.move", side_effect=OSError("busy")):
-            st, _h, p = self.post("/api/friend/decide", {"id": rid, "names": ["a_pack"], "verdict": "reject"})
+            st, _h, p = self.post("/api/friend/decide", {"id": rid, "names": ["a_pack"], "verdict": "reject"})   # 前の言葉 reject = 見送る
         d = self.js(p)
         self.assertEqual(st, 200)
         self.assertFalse(d["ok"])
         self.assertEqual(d["done"], [])
         self.assertEqual(d["errors"][0]["name"], "a_pack")
+        self.assertEqual(d["errors"][0]["id"], rid)
         self.assertEqual(self.app.inbox.row(rid)["state"], "arrived")
 
     def test_decide_errors(self):
         rid = "20250615-130200-aaaaaa"
         self.make_arrived(rid, ["a_pack"])
-        st, _h, p = self.post("/api/friend/decide", {"id": rid, "names": [], "verdict": "video"})
-        self.assertEqual(st, 409)
-        self.assertEqual(self.js(p)["error"], "refused")
-        st2, _h, p2 = self.post("/api/friend/decide", {"id": "no-such-row", "names": [], "verdict": "keep"})
+        st, _h, p = self.post("/api/friend/decide", {"items": [{"id": rid, "name": "a_pack"}], "verdict": "video"})
+        self.assertEqual(st, 400)
+        self.assertEqual(self.js(p)["error"], "bad_request")
+        st2, _h, p2 = self.post("/api/friend/decide", {"items": [{"id": "no-such-row", "name": "x"}], "verdict": "keep"})
         self.assertEqual(st2, 404)
         self.assertEqual(self.js(p2)["error"], "not_found")
+        self.assertEqual(self.app.inbox.row(rid)["packs"][0]["verdict"], None)
+
+    def test_undo_over_http(self):
+        rid = "20250615-130210-aaaaaa"
+        _case, dirs = self.make_arrived(rid, ["a_pack"])
+        self.post("/api/friend/decide", {"items": [{"id": rid, "name": "a_pack"}], "verdict": "skip"})
+        self.assertFalse(os.path.exists(dirs[0]))
+        st, _h, p = self.post("/api/friend/undo", {"items": [{"id": rid, "name": "a_pack"}, {"id": rid, "name": "zzz"}, "x", {"id": 3, "name": "a_pack"}]})
+        d = self.js(p)
+        self.assertEqual((st, d["ok"], d["done"], d["errors"]), (200, True, [{"id": rid, "name": "a_pack"}], []))
+        self.assertTrue(os.path.isdir(dirs[0]))   # ごみ箱から元の場所へ
+        self.assertEqual(self.app.inbox.row(rid)["state"], "arrived")
+        self.assertEqual(sorted(v["judge"] for v in self.verdict_docs(rid)), ["retract", "unknown"])
+        self.assertEqual(self.post("/api/friend/undo", {"items": []})[0], 200)
+        self.assertEqual(self.post("/api/friend/undo", {"items": [{"id": "nope", "name": "a"}]})[0], 404)
+        self.assertEqual(self.post("/api/friend/undo", {"items": [{"id": rid, "name": "a_pack"}]}, headers={TOKEN: None})[0], 403)
+
+    def test_receive_over_http(self):
+        r1, r2 = "20250615-130220-aaaaaa", "20250615-130221-aaaaaa"
+        self.make_arrived(r1, ["a_pack", "b_pack"], vid="aaaaaaaaaaa", title="配信A", streamer="ぺこら")
+        self.make_arrived(r2, ["c_pack"], vid="bbbbbbbbbbb", title="配信B")
+        self.app.inbox.row(r1)["packs"][0]["arrivedAt"] -= 5000   # 配信 A が先(最後に届いた時刻は B の方が新しい)
+        st, _h, p = self.get("/api/friend/receive")
+        d = self.js(p)
+        self.assertEqual(st, 200)
+        self.assertEqual([s["videoId"] for s in d["sections"]], ["bbbbbbbbbbb", "aaaaaaaaaaa"])
+        a = d["sections"][1]
+        self.assertEqual((a["title"], a["streamer"], [i["num"] for i in a["items"]]), ("配信A", "ぺこら", [1, 2]))
+        self.assertEqual((d["undecided"], d["skipped"], d["notice"]), (3, [], None))
+        self.assertNotIn(self.tmp, json.dumps(d, ensure_ascii=False))   # 手元のパスを画面に返さない
+        self.post("/api/friend/decide", {"items": [{"id": r1, "name": "a_pack"}], "verdict": "skip"})
+        d = self.js(self.get("/api/friend/receive")[2])
+        self.assertEqual([(i["name"], i["verdict"]) for i in d["skipped"]], [("a_pack", "skip")])
+        self.assertEqual(d["undecided"], 2)
+        self.assertEqual(self.get("/api/friend/receive", headers={"Sec-Fetch-Site": "cross-site"})[0], 403)
+
+    def test_cleaned_notice_over_http(self):
+        self.app.inbox.notice = {"n": 2, "at": 1}
+        self.assertEqual(self.js(self.get("/api/friend/receive")[2])["notice"], {"n": 2, "at": 1})
+        st, _h, p = self.post("/api/friend/notice-seen", {"what": "cleaned"})
+        self.assertEqual((st, self.js(p)), (200, {"ok": True}))
+        self.assertIsNone(self.js(self.get("/api/friend/receive")[2])["notice"])
+        self.assertFalse(self.app.rollback_seen)   # 別の知らせの「見た」は動かさない
+        self.assertEqual(self.post("/api/friend/notice-seen", {"what": "cleaned"}, headers={TOKEN: None})[0], 403)
 
     def test_retry_resends_failed_row(self):
         st, d = self.send()
@@ -494,24 +644,102 @@ class ServerTest(unittest.TestCase):
         rid, run = d["row"]["id"], d["row"]["runId"]
         st2, _h, p2 = self.post("/api/friend/remove", {"id": rid})
         self.assertEqual(st2, 404)
-        self.app.inbox.finished(run, "cancelled", "", [], 5)
+        self.app.inbox.finished(run, "error", "切り抜く所が見つかりません", [], 5)
         st3, _h, p3 = self.post("/api/friend/remove", {"id": rid})
         self.assertEqual(st3, 200)
         self.assertTrue(self.js(p3)["ok"])
         self.assertIsNone(self.app.inbox.row(rid))
 
-    def test_cancel_sent_row_and_refuse_arrived(self):
+    def test_cancel_sent_row_removes_it_and_stops_the_run(self):
         st, d = self.send()
         rid, run = d["row"]["id"], d["row"]["runId"]
         st2, _h, p2 = self.post("/api/friend/cancel", {"id": rid})
         self.assertEqual(st2, 200)
-        self.assertEqual(self.js(p2)["result"], {"id": run, "state": "cancelled"})
+        self.assertEqual(self.js(p2)["result"], {"id": rid, "state": "cancelled"})
         self.assertEqual(self.engine.queue.cancelled, [run])
+        self.assertIsNone(self.app.inbox.row(rid))   # 届いた物が無ければ行ごと消える(C-2-14)
         rid2 = "20250615-130300-aaaaaa"
         self.make_arrived(rid2, ["a_pack"])
-        st3, _h, p3 = self.post("/api/friend/cancel", {"id": rid2})
+        st3, _h, p3 = self.post("/api/friend/cancel", {"id": rid2})   # 届いた(作り終えた)行は取り消せない
         self.assertEqual(st3, 400)
-        self.assertIn("止められる行ではありません", self.js(p3)["message"])
+        self.assertIn("取り消せる行ではありません", self.js(p3)["message"])
+        self.assertEqual(self.post("/api/friend/cancel", {"id": "nope"})[0], 404)
+
+    def test_cancel_waiting_row_drops_it_without_queueing(self):
+        st, d = self.send(kind="wait", top=4)
+        self.assertEqual((st, d["row"]["state"], d["row"]["runId"], d["row"]["kind"]), (200, "waiting", None, "url"))
+        rid = d["row"]["id"]
+        self.assertEqual(self.engine.queue.submitted, [])   # アーカイブ待ちは ② に積まない
+        st, _h, p = self.post("/api/friend/cancel", {"id": rid})
+        self.assertEqual((st, self.js(p)["result"]), (200, {"id": rid, "state": "cancelled"}))
+        self.assertIsNone(self.app.inbox.row(rid))
+        self.assertEqual(self.engine.queue.cancelled, [])
+
+    def test_cancel_making_row_with_arrived_packs_keeps_them(self):
+        """作っている途中で 1 本届いていた: ② の実行を止め、行は「届いた」で cancelled(送った物の一覧から外れ、届いた物は受け取るに残る)"""
+        st, d = self.send()
+        rid, run = d["row"]["id"], d["row"]["runId"]
+        case = os.path.join(self.places["cases"], "案件-" + rid)
+        pack = os.path.join(case, "パック", "a_pack")
+        os.makedirs(pack)
+        row = self.app.inbox.row(rid)
+        row["packs"].append({"name": "a_pack", "dir": pack, "title": "a", "seconds": 3, "verdict": None, "at": None, "by": None, "arrivedAt": 1})
+        self.app.inbox._number(row, row["packs"][0])
+        row["state"] = "making"
+        st, _h, p = self.post("/api/friend/cancel", {"id": rid})
+        self.assertEqual((st, self.js(p)["result"]), (200, {"id": rid, "state": "cancelled"}))
+        self.assertEqual(self.engine.queue.cancelled, [run])
+        r = self.app.inbox.row(rid)
+        self.assertEqual((r["state"], r["cancelled"]), ("arrived", True))
+        shown = self.js(self.get("/api/friend/inbox")[2])["rows"][0]
+        self.assertTrue(shown["cancelled"])   # 画面はこの印で送った物から外す
+        self.assertEqual(self.js(self.get("/api/friend/receive")[2])["undecided"], 1)   # 届いた物は受け取るに残る
+
+    def test_cancel_failed_row_removes_it(self):
+        st, d = self.send()
+        rid, run = d["row"]["id"], d["row"]["runId"]
+        self.app.inbox.finished(run, "error", "ネットにつながらない", [], 5)
+        st, _h, p = self.post("/api/friend/cancel", {"id": rid})
+        self.assertEqual((st, self.js(p)["result"]), (200, {"id": rid, "state": "cancelled"}))
+        self.assertIsNone(self.app.inbox.row(rid))
+
+    def test_cancel_recording_stops_recording_and_clips(self):
+        """録画中: 録画を止め、同じ requestId の待ち・実行中の切り抜きを取り消す(別の依頼の物は止めない)。届いた物が無ければ行が消える"""
+        rid = "20250615-130310-aaaaaa"
+        stopped = []
+        self.engine.live = types.SimpleNamespace(stop_recording=lambda rc, rec: stopped.append((rc, rec)) or True)
+        self.app.inbox.add(rid, {"url": URL, "kind": "live"}, {"url": URL, "videoId": VID, "title": "題", "channel": ""}, kind="live")
+        self.app.inbox.live_started(rid, "local", "rec-1")
+        q = self.engine.queue
+        q.runs += [{"id": "c1", "state": "queued", "requestId": rid}, {"id": "c2", "state": "running", "requestId": rid},
+                   {"id": "c3", "state": "done", "requestId": rid}, {"id": "other", "state": "queued", "requestId": "20250615-130311-bbbbbb"}]
+        st, _h, p = self.post("/api/friend/cancel", {"id": rid})
+        self.assertEqual((st, self.js(p)["result"]), (200, {"id": rid, "state": "cancelled"}))
+        self.assertEqual(stopped, [("local", "rec-1")])
+        self.assertEqual(q.cancelled, ["c1", "c2"])
+        self.assertIsNone(self.app.inbox.row(rid))
+
+    def test_cancel_user_pc_row(self):
+        """ユーザーの PC に頼んだ行: まだ上げていない / 上げた(直下にある)なら Dropbox から消して行も消す。受け付けられた後はこの画面から外すだけ"""
+        dbx = self.use_fake_dropbox()
+        self.assertEqual(self.prefs(pc="user")[0], 200)
+        rid1 = self.send()[1]["row"]["id"]
+        self.assertEqual(self.post("/api/friend/cancel", {"id": rid1})[0], 200)   # 上げる前
+        self.assertIsNone(self.app.inbox.row(rid1))
+        rid2 = self.send()[1]["row"]["id"]
+        self.app.sync.run_once()
+        self.assertIn("/%s.request.json" % rid2, dbx.files)
+        self.assertEqual(self.post("/api/friend/cancel", {"id": rid2})[0], 200)   # 上げた後(受付がまだ読んでいない)
+        self.assertNotIn("/%s.request.json" % rid2, dbx.files)
+        self.assertIsNone(self.app.inbox.row(rid2))
+        rid3 = self.send()[1]["row"]["id"]
+        self.app.sync.run_once()
+        del dbx.files["/%s.request.json" % rid3]   # 受付済みへ移った
+        self.app.sync.run_once()
+        self.assertEqual(self.app.inbox.row(rid3)["state"], "making")
+        self.assertEqual(self.post("/api/friend/cancel", {"id": rid3})[0], 200)   # もう受け付けられた = 画面から外すだけ
+        self.assertIsNone(self.app.inbox.row(rid3))
+        self.assertEqual(self.engine.queue.submitted, [])
 
     def test_flow_submit_and_cancel_go_to_queue(self):
         env = {"id": "envx", "kind": "url"}
@@ -532,7 +760,7 @@ class ServerTest(unittest.TestCase):
     # ------------------------------------------------------------ まとめ動画
     def test_media_404_until_preview_exists(self):
         rid = "20250615-130400-aaaaaa"
-        self.make_arrived(rid, ["a_pack", "b_pack"], batch=1)
+        self.make_arrived(rid, ["a_pack", "b_pack"])
         st, _h, p = self.get("/api/friend/media?id=%s&n=1" % rid)
         self.assertEqual(st, 404)
         self.assertEqual(self.js(p)["error"], "not_found")
@@ -540,6 +768,9 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(st2, 404)
         st3, _h, _p = self.get("/api/friend/media?id=%s&n=abc" % rid)
         self.assertEqual(st3, 404)
+        self.assertEqual(self.get("/api/friend/media?id=%s&name=a_pack" % rid)[0], 404)
+        self.assertEqual(self.get("/api/friend/media?id=%s&name=zzz" % rid)[0], 404)
+        self.assertEqual(self.get("/api/friend/media?id=nope&name=a_pack")[0], 404)
 
     def test_media_serves_preview_with_range_and_refuses_outside(self):
         rid = "20250615-130500-aaaaaa"
@@ -565,6 +796,42 @@ class ServerTest(unittest.TestCase):
         st3, _h, _p3 = self.get("/api/friend/media?id=%s&n=1" % rid)
         self.assertEqual(st3, 404)
 
+    def test_media_serves_pack_preview_by_name_and_refuses_outside(self):
+        """パックの確認用の動画(id + name。F3-4)。玄関の外のパスは断る"""
+        rid = "20250615-130510-aaaaaa"
+        self.make_arrived(rid, ["a_pack", "b_pack"])
+        pdir = os.path.join(self.places["friend"], "previews")
+        os.makedirs(pdir)
+        inside = os.path.join(pdir, "%s-1.mp4" % rid)
+        with open(inside, "wb") as f:
+            f.write(b"0123456789")
+        self.app.inbox.set_preview(rid, 1, inside)   # 1 本ずつの組 = そのパックの確認用の動画
+        st, h, p = self.get("/api/friend/media?id=%s&name=a_pack" % rid)
+        self.assertEqual((st, p, h["content-type"]), (200, b"0123456789", "video/mp4"))
+        st2, h2, p2 = self.get("/api/friend/media?id=%s&name=a_pack" % rid, headers={"Range": "bytes=2-4"})
+        self.assertEqual((st2, p2, h2["content-range"]), (206, b"234", "bytes 2-4/10"))
+        self.assertEqual(self.get("/api/friend/media?id=%s&name=b_pack" % rid)[0], 404)   # b の動画はまだ無い
+        outside = os.path.join(self.tmp, "outside.mp4")
+        with open(outside, "wb") as f:
+            f.write(b"xx")
+        self.app.inbox.row(rid)["packs"][1]["preview"] = outside
+        self.assertEqual(self.get("/api/friend/media?id=%s&name=b_pack" % rid)[0], 404)
+        self.app.inbox.row(rid)["packs"][1]["preview"] = os.path.join(pdir, "..", "outside.mp4")   # .. で外へ出る名前も断る
+        self.assertEqual(self.get("/api/friend/media?id=%s&name=b_pack" % rid)[0], 404)
+
+    def test_open_pack_folder_after_keep(self):
+        """受け取った物のフォルダを開く(偽の open_folder。保存先に無い物は 404)"""
+        rid = "20250615-130520-aaaaaa"
+        self.make_arrived(rid, ["a_pack", "b_pack"])
+        self.assertEqual(self.post("/api/friend/open", {"id": rid, "name": "a_pack"})[0], 404)   # まだ受け取っていない
+        self.post("/api/friend/decide", {"items": [{"id": rid, "name": "a_pack"}], "verdict": "keep"})
+        st, _h, p = self.post("/api/friend/open", {"id": rid, "name": "a_pack"})
+        self.assertEqual((st, self.js(p)), (200, {"ok": True}))
+        self.assertEqual(self.opened, [os.path.join(self.saved_folder(), "#1")])
+        self.assertEqual(self.post("/api/friend/open", {"id": rid, "name": "b_pack"})[0], 404)
+        self.assertEqual(self.post("/api/friend/open", {"id": "nope", "name": "a_pack"})[0], 404)
+        self.assertEqual(len(self.opened), 1)
+
     # ------------------------------------------------------------ 止める・保存先・合言葉の口
     def test_open_saved_dir_creates_it(self):
         st, _h, p = self.post("/api/friend/open", {"what": "saved"})
@@ -582,18 +849,39 @@ class ServerTest(unittest.TestCase):
         self.app.sync.client_factory = lambda cfg, cancelled: dbx
         return dbx
 
-    def test_send_to_user_pc_needs_key(self):
-        st, d = self.send(pc="user")
+    def test_prefs_pc_user_needs_key(self):
+        st, d = self.prefs(pc="user")
+        self.assertEqual(st, 400)
+        self.assertIn("Dropbox の鍵", d["message"])
+        self.assertEqual(self.app.api.form()["pc"], "this")   # 書かない
+        st, _h, p = self.get("/api/friend/inbox")
+        self.assertFalse(self.js(p)["sync"]["key"])
+        self.assertEqual(self.prefs(pc="other")[0], 400)
+        self.assertEqual(self.app.api.form()["pc"], "this")
+
+    def test_send_to_user_pc_without_key_after_form_says_user(self):
+        """前回の値が user のまま鍵が無くなっても、送ると鍵の理由で断る(行は残さない)"""
+        cur = self.app.api.form()
+        cur["pc"] = "user"
+        self.app.api._write_form(cur)
+        st, d = self.send()
         self.assertEqual(st, 400)
         self.assertIn("Dropbox の鍵", d["message"])
         self.assertEqual(self.app.inbox.rows, [])
-        st, _h, p = self.get("/api/friend/inbox")
-        self.assertFalse(self.js(p)["sync"]["key"])
-        self.assertEqual(self.send(pc="other")[0], 400)
+        self.assertEqual(self.engine.queue.submitted, [])
+
+    def test_send_pc_in_body_is_ignored(self):
+        """処理する PC は ⚙ の値。送る欄の pc は読まない"""
+        self.use_fake_dropbox()
+        st, d = self.send(pc="user")
+        self.assertEqual((st, d["row"]["pc"], len(self.engine.queue.submitted)), (200, "this", 1))
 
     def test_send_to_user_pc_then_back_to_this_pc(self):
         dbx = self.use_fake_dropbox()
-        st, d = self.send(pc="user")
+        st, d = self.prefs(pc="user")
+        self.assertEqual((st, d["form"]["pc"]), (200, "user"))
+        self.assertIn("依頼する", d["message"])
+        st, d = self.send()
         self.assertEqual(st, 200)
         row = d["row"]
         self.assertEqual((row["pc"], row["state"], row["runId"]), ("user", "sent", None))
@@ -601,7 +889,6 @@ class ServerTest(unittest.TestCase):
         st, _h, p = self.get("/api/friend/inbox")
         j = self.js(p)
         self.assertEqual((j["form"]["pc"], j["sync"]["key"]), ("user", True))
-        self.assertEqual(self.post("/api/friend/cancel", {"id": row["id"]})[0], 400)   # ユーザーの PC の依頼はここから止めない
         self.app.sync.run_once()
         path = "/%s.request.json" % row["id"]
         self.assertIn(path, dbx.files)
@@ -615,7 +902,8 @@ class ServerTest(unittest.TestCase):
 
     def test_local_refused_after_user_pc_accepted(self):
         self.use_fake_dropbox()
-        _st, d = self.send(pc="user")
+        self.prefs(pc="user")
+        _st, d = self.send()
         rid = d["row"]["id"]
         self.app.sync.run_once()
         self.app.inbox.remote_mark(rid, "accepted")
@@ -638,15 +926,141 @@ class ServerTest(unittest.TestCase):
         self.app.pick_file = lambda: None   # 窓でやめた
         self.assertIsNone(self.js(self.post("/api/friend/pick-file", {})[2])["file"])
         self.assertEqual(self.post("/api/friend/pick-file", {}, headers={TOKEN: None})[0], 403)
-        st, d2 = self.send(source="file", fileId=d["file"]["id"], url=None)
+        st, d2 = self.send(source="files", files=[{"fileId": d["file"]["id"], "streamer": "兎田ぺこら"}], url=None)
         self.assertEqual((st, d2["row"]["kind"], d2["row"]["source"]["fileName"]), (200, "file", "【兎田ぺこら】切り抜き.mp4"))
-        for _ in range(200):   # 写し終えて ② へ(裏の糸)
-            if self.engine.queue.submitted:
-                break
-            threading.Event().wait(0.02)
+        self.assertEqual((len(d2["rows"]), d2["skipped"], d2["rows"][0]["id"]), (1, [], d2["row"]["id"]))
+        self.assertTrue(self.wait_until(lambda: self.engine.queue.submitted))   # 写し終えて ② へ(裏の糸)
         env, _spec = self.engine.queue.submitted[0]
         self.assertEqual((env["kind"], env["requestId"]), ("file", d2["row"]["id"]))
         self.assertTrue(env["input"]["path"].startswith(self.places["cases"]))
+
+    def make_videos(self, names):
+        out = []
+        for n in names:
+            p = os.path.join(self.tmp, n)
+            with open(p, "wb") as f:
+                f.write(b"v" * 10)
+            out.append(self.app.api.remember_file(p) if n.endswith(".mp4") else p)
+        return out
+
+    def test_send_files_many_makes_one_row_each_and_skips_bad(self):
+        """複数の動画ファイル(source files): 1 本 = 1 行。選び直しが要る物(覚えに無い・消えた)は理由つきで skipped"""
+        vids = self.make_videos(["a.mp4", "b.mp4", "c.mp4"])
+        gone = vids[2]
+        os.remove(os.path.join(self.tmp, "c.mp4"))
+        files = [{"fileId": vids[0]["id"], "streamer": "A"}, {"fileId": "nope"}, {"fileId": vids[1]["id"]}, {"fileId": gone["id"]}]
+        st, d = self.send(source="files", files=files, url=None)
+        self.assertEqual(st, 200)
+        self.assertEqual(len(d["rows"]), 2)
+        self.assertEqual([r["source"]["fileName"] for r in d["rows"]], ["a.mp4", "b.mp4"])
+        self.assertEqual(len({r["id"] for r in d["rows"]}), 2)
+        self.assertEqual([s["fileId"] for s in d["skipped"]], ["nope", gone["id"]])
+        self.assertTrue(all("選び直して" in s["message"] for s in d["skipped"]))
+        self.assertTrue(self.wait_until(lambda: len(self.engine.queue.submitted) == 2))
+        self.assertEqual({(spec.get("hints") or {}).get("streamer") for _e, spec in self.engine.queue.submitted}, {"A", ""})   # 配信者は 1 本ずつ
+        # 送った物は覚えから外す(同じ物を 2 回送らない)
+        st, d = self.send(source="files", files=[{"fileId": vids[0]["id"]}], url=None)
+        self.assertEqual(st, 400)
+        self.assertIn("選び直して", d["message"])
+
+    def test_send_files_limits(self):
+        st, d = self.send(source="files", files=[], url=None)
+        self.assertEqual((st, "動画ファイルを選んでください" in d["message"]), (400, True))
+        st, d = self.send(source="files", files=[{"fileId": "x%d" % i} for i in range(21)], url=None)
+        self.assertEqual(st, 400)
+        self.assertIn("20 本まで", d["message"])
+        self.assertEqual(self.app.inbox.rows, [])
+
+    def test_send_files_skips_non_video(self):
+        """動画でない物は覚えに入れる時点で断る(remember_file)。pick-file も同じ"""
+        txt = os.path.join(self.tmp, "memo.txt")
+        with open(txt, "w") as f:
+            f.write("x")
+        self.app.pick_file = lambda: txt
+        st, _h, p = self.post("/api/friend/pick-file", {})
+        self.assertEqual(st, 400)
+        self.assertIn("動画ファイル", self.js(p)["message"])
+        self.assertEqual(self.app.api._files, {})
+
+    # ------------------------------------------------------------ 画面に落とした動画(PUT。C-2-13)
+    def put(self, name, data, token=True, extra=None):
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        h = {"Host": "127.0.0.1:%d" % self.port, "Content-Length": str(len(data))}
+        if token:
+            h[TOKEN] = self.srv.token
+        h.update(extra or {})
+        try:
+            conn.request("PUT", "/api/friend/upload?name=" + urllib.parse.quote(name), body=data, headers=h)
+            r = conn.getresponse()
+            body = r.read()
+            return r.status, self.js(body) if body.startswith(b"{") else body
+        finally:
+            conn.close()
+
+    def test_upload_needs_token_and_video_name(self):
+        self.assertEqual(self.put("a.mp4", b"vvvv", token=False)[0], 403)
+        self.assertEqual(self.put("a.mp4", b"vvvv", extra={"Host": "evil.example"})[0], 403)
+        st, d = self.put("memo.txt", b"vvvv")
+        self.assertEqual(st, 400)
+        self.assertIn("動画ファイル", d["message"])
+        st, d = self.put("", b"vvvv")
+        self.assertEqual(st, 400)
+        st, d = self.put("a.mp4", b"")   # 空の本文 = 大きさが分からない
+        self.assertEqual(st, 400)
+        self.assertFalse(os.path.isdir(self.app.api.upload_dir()) and os.listdir(self.app.api.upload_dir()))
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)   # PUT の別の道は 404
+        try:
+            conn.request("PUT", "/api/friend/inbox", body=b"x", headers={"Host": "127.0.0.1:%d" % self.port, TOKEN: self.srv.token, "Content-Length": "1"})
+            self.assertEqual(conn.getresponse().status, 404)
+        finally:
+            conn.close()
+
+    def test_upload_receives_video_and_send_moves_it(self):
+        st, d = self.put("【兎田ぺこら】歌:ってみた.mp4", b"v" * 3000)
+        self.assertEqual(st, 200)
+        f = d["file"]
+        self.assertEqual((f["name"], f["size"], f["title"], f["streamer"]), ("【兎田ぺこら】歌_ってみた.mp4", 3000, "歌_ってみた", "兎田ぺこら"))
+        self.assertNotIn(self.tmp, json.dumps(d, ensure_ascii=False))   # パスは返さない
+        up = self.app.api.upload_dir()
+        self.assertEqual(up, os.path.join(self.places["cases"], "受け取った動画"))
+        kept = os.listdir(up)
+        self.assertEqual(len(kept), 1)
+        with open(os.path.join(up, kept[0]), "rb") as fh:
+            self.assertEqual(fh.read(), b"v" * 3000)
+        st, d2 = self.send(source="files", files=[{"fileId": f["id"]}], url=None)
+        self.assertEqual(st, 200)
+        rid = d2["row"]["id"]
+        self.assertTrue(self.wait_until(lambda: self.engine.queue.submitted))
+        env, _spec = self.engine.queue.submitted[0]
+        path = env["input"]["path"]
+        self.assertTrue(os.path.isfile(path))
+        self.assertNotEqual(os.path.dirname(path), up)   # 依頼のフォルダへ移した(写し直さない)
+        self.assertEqual(os.listdir(up), [])
+        with open(path, "rb") as fh:
+            self.assertEqual(fh.read(), b"v" * 3000)
+        self.assertEqual(self.app.inbox.row(rid)["form"]["file"]["copy"], path)
+
+    def test_upload_not_sent_is_swept_after_a_day(self):
+        st, d = self.put("a.mp4", b"v" * 100)
+        self.assertEqual(st, 200)
+        up = self.app.api.upload_dir()
+        path = os.path.join(up, os.listdir(up)[0])
+        now = [os.path.getmtime(path)]
+        self.app.api.clock = lambda: now[0]
+        stray = os.path.join(up, "stray.mp4")   # アプリを開き直す前に落とした物(画面の覚えに無い)
+        with open(stray, "wb") as fh:
+            fh.write(b"x")
+        os.utime(stray, (now[0] - 2 * 86400, now[0] - 2 * 86400))
+        now[0] += 86400 - 10
+        self.app.api.sweep_uploads()
+        self.assertTrue(os.path.isfile(path))
+        self.assertFalse(os.path.exists(stray))
+        now[0] += 20
+        self.app.api.sweep_uploads()
+        self.assertTrue(os.path.isfile(path))   # 画面がまだ覚えている間は送れるので残す
+        self.app.api._files.clear()   # アプリを開き直した = 覚えが無い
+        self.app.api.sweep_uploads()
+        self.assertEqual(os.listdir(up), [])   # 送らなかった物は 1 日で消える
 
     def test_pick_file_busy(self):
         self.app.pick_lock.acquire()
@@ -667,26 +1081,444 @@ class ServerTest(unittest.TestCase):
         self.app.api._live_peek.clear()
         d = self.js(self.get("/api/friend/peek-live?url=" + URL)[2])
         self.assertFalse(d["live"])
-        self.assertIn("アーカイブがまだ見られません", d["message"])
+        self.assertEqual((d["status"], d["message"]), ("post_live", "配信が終わったばかりです。送ると、アーカイブが出たら自動で作り始めます"))   # アーカイブ待ちで送れる
         self.assertEqual(self.get("/api/friend/peek-live?url=x")[0], 400)
 
+    def test_peek_live_members_only_and_probe_failure(self):
+        self.app.api.probe = lambda url: {"status": "unknown", "message": "Join this channel to get access to members-only content"}
+        d = self.js(self.get("/api/friend/peek-live?url=" + URL)[2])
+        self.assertEqual((d["status"], d["live"], d["message"]), ("members", False, "メンバー限定の配信は切り抜けません"))
+        self.app.api._live_peek.clear()
+
+        def boom(url):
+            raise RuntimeError("yt-dlp が無い")
+        self.app.api.probe = boom   # 調べる部品の不具合でも送る欄は使える
+        d = self.js(self.get("/api/friend/peek-live?url=" + URL)[2])
+        self.assertEqual((d["status"], d["live"]), ("unknown", False))
+        self.assertIn("RuntimeError", d["message"])
+
     def test_send_live_without_recorder_is_400(self):
-        st, d = self.send(kind="live", live={"sens": "normal", "perHour": 6, "length": 45, "waitMin": 5, "pad": 2, "afterStream": True})
+        st, d = self.send(kind="live", live={"perHour": 6, "lengthMode": "fixed", "length": 45, "afterStream": True})
         self.assertEqual(st, 400)
         self.assertIn("録画できません", d["message"])
         self.assertEqual(self.app.inbox.rows, [])
-        st, d = self.send(kind="live", live={"sens": "normal", "perHour": 6, "length": 200, "waitMin": 5, "pad": 2, "afterStream": True})
+        st, d = self.send(kind="live", live={"perHour": 6, "lengthMode": "fixed", "length": 200, "afterStream": True})
         self.assertIn("長さは 10〜180", d["message"])
+        st, d = self.send(kind="live", live={"perHour": 0, "lengthMode": "auto", "afterStream": True})
+        self.assertIn("1 時間の枠", d["message"])
+        st, d = self.send(kind="live", live={"perHour": 6, "lengthMode": "fixed", "afterStream": "yes"})   # fixed で長さ無し・配信後の追加が真偽でない
+        self.assertEqual(st, 400)
+
+    def test_send_live_to_user_pc_mixes_form_and_prefs(self):
+        """ライブの送る欄の 3 つ(1 時間の枠・長さ・配信後の追加)+ ⚙ の感度・待ち・余白(C-2-11)"""
+        dbx = self.use_fake_dropbox()
+        self.assertEqual(self.prefs(pc="user", liveSens="high", liveWait=9, livePad=3.5)[0], 200)
+        live = {"perHour": 12, "lengthMode": "fixed", "length": 180, "afterStream": False, "sens": "low", "waitMin": 1, "pad": 0}   # 感度・待ち・余白は送る欄から読まない
+        st, d = self.send(kind="live", live=live, top=None, ranges=[[1, 5]])
+        self.assertEqual((st, d["row"]["kind"], d["row"]["pc"]), (200, "live", "user"))
+        self.app.sync.run_once()
+        doc = json.loads(dbx.files["/%s.request.json" % d["row"]["id"]])
+        self.assertEqual(doc["kind"], "live")
+        self.assertEqual(doc["live"], {"sens": "high", "perHour": 12, "length": 180, "waitMin": 9, "pad": 3.5, "afterStream": False})
+        f = self.app.api.form()
+        self.assertEqual(f["live"], {"sens": "high", "perHour": 12, "length": 180, "waitMin": 9, "pad": 3.5, "afterStream": False, "lengthMode": "fixed"})
+        self.assertEqual(f["top"], 5)   # ライブは本数を持たない = 前の本数のまま
+
+    def test_send_live_length_only_when_fixed(self):
+        """lengthMode が auto の間は送る欄の length を読まない(fixed のときだけ length を検査して使う)"""
+        self.use_fake_dropbox()
+        self.prefs(pc="user")
+        st, d = self.send(kind="live", live={"perHour": 6, "lengthMode": "auto", "length": 9999, "afterStream": True})
+        self.assertEqual(st, 200)
+        self.assertEqual(d["row"]["form"]["live"]["lengthMode"], "auto")
+        self.assertNotEqual(d["row"]["form"]["live"]["length"], 9999)
+        st, d = self.send(kind="live", live={"perHour": 6, "lengthMode": "fixed", "length": 9999, "afterStream": True})
+        self.assertEqual(st, 400)
+        st, d = self.send(kind="live", live={"perHour": 6, "lengthMode": "weird", "length": 9999, "afterStream": True})   # 知らない値は auto
+        self.assertEqual((st, d["row"]["form"]["live"]["lengthMode"]), (200, "auto"))
+
+    def test_send_wait_kind_makes_waiting_row(self):
+        """kind wait(終わったばかり = アーカイブ待ち): 行は waiting・② にも Dropbox にも積まない。区間も送る欄どおり"""
+        dbx = self.use_fake_dropbox()
+        st, d = self.send(kind="wait", top=4)
+        row = d["row"]
+        self.assertEqual((st, row["state"], row["kind"], row["runId"], row["pc"]), (200, "waiting", "url", None, "this"))
+        self.assertEqual(self.engine.queue.submitted, [])
+        self.assertEqual(row["form"]["top"], 4)
+        self.prefs(pc="user")
+        st, d = self.send(kind="wait", top=None, ranges=[[10, 40]])
+        self.assertEqual((st, d["row"]["state"], d["row"]["pc"]), (200, "waiting", "user"))
+        self.assertNotIn("remote", d["row"])
+        self.app.sync.run_once()
+        self.assertEqual(dbx.files, {})   # アーカイブが出るまで上げない
+        st, d = self.send(kind="wait", top=None)
+        self.assertEqual(st, 400)
+
+    def test_send_wait_does_not_need_parts_or_engine(self):
+        """待つだけの行は部品が足りなくても受け付ける(作り始めるときに断る)"""
+        self.app.engine = None
+        st, d = self.send(kind="wait", top=3)
+        self.assertEqual((st, d["row"]["state"]), (200, "waiting"))
 
     def test_send_live_and_file_to_user_pc(self):
         dbx = self.use_fake_dropbox()
-        live = {"sens": "high", "perHour": 6, "length": 180, "waitMin": 5, "pad": 2, "afterStream": True}
-        st, d = self.send(kind="live", live=live, pc="user")
+        self.prefs(pc="user", liveSens="high")
+        live = {"perHour": 6, "lengthMode": "fixed", "length": 180, "afterStream": True}
+        st, d = self.send(kind="live", live=live)
         self.assertEqual((st, d["row"]["kind"], d["row"]["pc"]), (200, "live", "user"))
         self.app.sync.run_once()
         doc = json.loads(dbx.files["/%s.request.json" % d["row"]["id"]])
         self.assertEqual((doc["kind"], doc["live"]["length"], doc["live"]["sens"]), ("live", 180, "high"))
         self.assertEqual(self.app.api.form()["live"]["length"], 180)
+
+    # ------------------------------------------------------------ ⚙ の値(prefs。C-2-19)
+    def test_prefs_sets_each_value_and_writes_form_json(self):
+        st, d = self.prefs(useWeights=True, weights={"wAudio": 3, "wChat": 0, "wComments": 1}, liveSens="low", liveWait=20, livePad=4)
+        self.assertEqual(st, 200)
+        self.assertTrue(d["ok"])
+        for word in ("解析の重みを使う", "解析の重みを変えました", "ライブの設定を変えました"):
+            self.assertIn(word, d["message"])
+        f = d["form"]
+        self.assertEqual((f["useWeights"], f["weights"]), (True, {"wAudio": 3, "wChat": 0, "wComments": 1}))
+        self.assertEqual((f["live"]["sens"], f["live"]["waitMin"], f["live"]["pad"]), ("low", 20, 4.0))
+        with open(os.path.join(self.places["friend"], "form.json"), encoding="utf-8") as fh:
+            self.assertEqual(json.load(fh)["live"]["waitMin"], 20)
+        st, d = self.prefs(useWeights=False)
+        self.assertIn("使わない", d["message"])
+        self.assertEqual(self.app.api.form()["weights"], {"wAudio": 3, "wChat": 0, "wComments": 1})   # 重みの値は残す
+        st, d = self.prefs()
+        self.assertEqual((st, d["message"]), (200, "変えるものがありません"))
+        st, d = self.prefs(liveSens="low")   # 同じ値 = 変わらない
+        self.assertEqual(d["message"], "変えるものがありません")
+        st, d = self.prefs(unknown=1, pc="this")
+        self.assertIn("この PC で処理する", d["message"])
+
+    def test_prefs_bad_values_are_400_and_write_nothing(self):
+        before = self.app.api.form()
+        bad = [(dict(pc="other"), "処理する PC"), (dict(useWeights="yes"), "オンかオフ"), (dict(useWeights=1), "オンかオフ"),
+               (dict(weights={"wAudio": 9, "wChat": 1, "wComments": 1}), "重みは 0〜3"), (dict(weights={"wAudio": 1}), "重みは 0〜3"),
+               (dict(weights=3), "重みは 0〜3"), (dict(weights={"wAudio": 1, "wChat": 1, "wComments": True}), "重みは 0〜3"),
+               (dict(liveSens="max"), "感度"), (dict(liveWait=0), "待ち"), (dict(liveWait=61), "待ち"), (dict(livePad=6), "余白"),
+               (dict(livePad="1"), "余白"), (dict(liveWait=2.5), "待ち")]
+        for kw, why in bad:
+            with self.subTest(kw=kw):
+                st, d = self.prefs(**kw)
+                self.assertEqual((st, d["error"]), (400, "bad_request"))
+                self.assertIn(why, d["message"])
+        # 1 つでも違えば、同じ呼びの正しい値も書かない
+        st, d = self.prefs(useWeights=True, liveSens="max")
+        self.assertEqual(st, 400)
+        self.assertEqual(self.app.api.form(), before)
+        self.assertFalse(os.path.exists(os.path.join(self.places["friend"], "form.json")))
+        self.assertEqual(self.post("/api/friend/prefs", {"useWeights": True}, headers={TOKEN: None})[0], 403)
+
+    # ------------------------------------------------------------ アーカイブ待ち(tick。C-2-12)
+    def fake_clock(self, t0=1_800_000_000.0):
+        """玄関の API と受信箱の時計を同じ偽物に(秒)-> [秒](書き換えて進める)"""
+        t = [t0]
+        self.app.api.clock = lambda: t[0]
+        self.app.inbox.clock = lambda: t[0]
+        return t
+
+    def test_tick_waits_for_archive_then_queues(self):
+        t = self.fake_clock()
+        probed = []
+        status = ["post_live"]
+        self.app.api.probe = lambda url: probed.append(url) or {"status": status[0]}
+        st, d = self.send(kind="wait", top=4)
+        rid = d["row"]["id"]
+        self.app.api.tick()
+        self.assertEqual((probed, self.app.inbox.row(rid)["state"], self.engine.queue.submitted), ([URL], "waiting", []))   # 調べて post_live のままなら待つ
+        self.assertEqual(self.app.inbox.row(rid)["checkedAt"], int(t[0] * 1000))
+        self.app.api.tick()
+        t[0] += A.WAIT_EVERY - 1
+        self.app.api.tick()
+        self.assertEqual(len(probed), 1)   # WAIT_EVERY より早くは調べ直さない
+        t[0] += 1
+        self.app.api.tick()
+        self.assertEqual((len(probed), self.app.inbox.row(rid)["state"]), (2, "waiting"))
+        t[0] += A.WAIT_EVERY
+        status[0] = "was_live"   # アーカイブが出た
+        self.app.api.tick()
+        r = self.app.inbox.row(rid)
+        self.assertEqual((r["state"], r["kind"], r["form"]["kind"], r["waited"]), ("sent", "url", "url", True))
+        self.assertEqual(len(self.engine.queue.submitted), 1)
+        env, spec = self.engine.queue.submitted[0]
+        self.assertEqual((env["kind"], env["requestId"], env["input"]["videoId"], spec["adopt"]["top"], r["runId"]), ("url", rid, VID, 4, env["id"]))
+        t[0] += 5 * A.WAIT_EVERY
+        self.app.api.tick()
+        self.assertEqual((len(probed), len(self.engine.queue.submitted)), (3, 1))   # 作り始めた行はもう調べない・二重に積まない
+
+    def test_tick_not_live_status_also_starts_and_probe_error_waits_again(self):
+        t = self.fake_clock()
+        outcomes = [RuntimeError("yt-dlp"), {"status": "not_live"}]
+
+        def probe(url):
+            o = outcomes.pop(0)
+            if isinstance(o, Exception):
+                raise o
+            return o
+        self.app.api.probe = probe
+        rid = self.send(kind="wait", top=2)[1]["row"]["id"]
+        self.app.api.tick()   # 調べられない = 次の回にもう一度
+        self.assertEqual(self.app.inbox.row(rid)["state"], "waiting")
+        t[0] += A.WAIT_EVERY
+        self.app.api.tick()
+        self.assertEqual(self.app.inbox.row(rid)["state"], "sent")   # 配信ではない(アーカイブとして見られる)ので作り始める
+
+    def test_tick_waiting_row_for_user_pc_goes_to_dropbox(self):
+        dbx = self.use_fake_dropbox()
+        t = self.fake_clock()
+        self.prefs(pc="user")
+        self.app.api.probe = lambda url: {"status": "was_live"}
+        rid = self.send(kind="wait", top=None, ranges=[[10, 40]])[1]["row"]["id"]
+        self.app.sync.run_once()
+        self.assertEqual(dbx.files, {})
+        self.app.api.tick()
+        r = self.app.inbox.row(rid)
+        self.assertEqual((r["state"], r["pc"], r["remote"]["state"], r["kind"]), ("sent", "user", "pending", "url"))
+        self.assertEqual(self.engine.queue.submitted, [])
+        self.app.sync.run_once()
+        doc = json.loads(dbx.files["/%s.request.json" % rid])
+        self.assertEqual((doc["kind"], doc["items"][0]["url"], doc["items"][0]["ranges"]), ("url", URL, [{"start": 10.0, "end": 40.0}]))
+
+    def test_tick_gives_up_after_a_day(self):
+        t = self.fake_clock()
+        probed = []
+        self.app.api.probe = lambda url: probed.append(url) or {"status": "post_live"}
+        rid = self.send(kind="wait", top=4)[1]["row"]["id"]
+        t[0] += A.WAIT_GIVE_UP
+        self.app.api.tick()
+        r = self.app.inbox.row(rid)
+        self.assertEqual((r["state"], probed), ("failed", []))   # もう調べない
+        self.assertIn("アーカイブが出ませんでした", r["error"])
+        fail = self.js(self.get("/api/friend/inbox")[2])["rows"][0]["fail"]
+        self.assertEqual((fail["code"], fail["retrying"], fail["repeat"]), ("noArchive", False, False))
+        t[0] += 10 * A.RETRY_EVERY
+        self.app.api.tick()
+        self.assertEqual(self.engine.queue.submitted, [])   # 自動で作り直さない
+
+    # ------------------------------------------------------------ 失敗の言葉・自動のやり直し・知らせる(C-2-16)
+    def failing_row(self, text="ネットにつながりませんでした"):
+        """送って、その実行を失敗にした行の id"""
+        row = self.send()[1]["row"]
+        self.app.inbox.finished(row["runId"], "error", text, [], 5)
+        return row["id"]
+
+    def view_row(self, rid):
+        return next(r for r in self.js(self.get("/api/friend/inbox")[2])["rows"] if r["id"] == rid)
+
+    def fail_again(self, rid, text="ネットにつながりませんでした"):
+        self.app.inbox.finished(self.app.inbox.row(rid)["runId"], "error", text, [], 5)
+
+    def test_failure_words_and_auto_retry_up_to_max(self):
+        t = self.fake_clock()
+        rid = self.failing_row()
+        f = self.view_row(rid)["fail"]
+        self.assertEqual((f["code"], f["retrying"], f["repeat"], f["reported"]), ("net", True, False, False))
+        self.assertIn("ネットにつながりませんでした", f["message"])
+        self.assertIn("もう一度送る", f["message"])
+        self.assertEqual(f["detail"], "ネットにつながりませんでした")
+        self.app.api.tick()
+        self.assertEqual(len(self.engine.queue.submitted), 1)   # RETRY_EVERY までは待つ
+        for i in range(1, A.RETRY_MAX + 1):
+            t[0] += A.RETRY_EVERY - 1
+            self.app.api.tick()
+            self.assertEqual(len(self.engine.queue.submitted), i)
+            t[0] += 1
+            self.app.api.tick()
+            self.assertEqual(len(self.engine.queue.submitted), i + 1)   # RETRY_EVERY ごとに 1 回
+            r = self.app.inbox.row(rid)
+            self.assertEqual((r["state"], r["autoRetries"], r["runId"]), ("sent", i, self.engine.queue.submitted[-1][0]["id"]))
+            self.assertEqual(self.engine.queue.submitted[-1][0]["requestId"], rid)
+            self.fail_again(rid)
+            f = self.view_row(rid)["fail"]
+            self.assertEqual(f["retrying"], i < A.RETRY_MAX)   # 使い切るまでは「やり直しています」
+            self.assertFalse(f["repeat"])
+        t[0] += 10 * A.RETRY_EVERY
+        self.app.api.tick()
+        self.assertEqual(len(self.engine.queue.submitted), 1 + A.RETRY_MAX)   # 使い切ったら自動ではやり直さない
+        self.assertEqual(self.app.inbox.row(rid)["state"], "failed")
+
+    def test_failure_repeat_after_friend_resends_and_fails_the_same_way(self):
+        t = self.fake_clock()
+        rid = self.failing_row()
+        for _ in range(A.RETRY_MAX):   # 自動のやり直しを使い切る
+            t[0] += A.RETRY_EVERY
+            self.app.api.tick()
+            self.fail_again(rid)
+        f = self.view_row(rid)["fail"]
+        self.assertEqual((f["retrying"], f["repeat"]), (False, False))   # 1 回目の失敗(数え始め)
+        st, _h, p = self.post("/api/friend/retry", {"id": rid})   # 友人が [もう一度送る]
+        self.assertEqual(st, 200)
+        self.assertEqual(self.js(p)["row"]["autoRetries"], 0)
+        self.fail_again(rid)
+        f = self.view_row(rid)["fail"]
+        self.assertEqual((f["retrying"], f["repeat"]), (True, False))   # また自動のやり直しが始まる(数え直し)
+        for _ in range(A.RETRY_MAX):
+            t[0] += A.RETRY_EVERY
+            self.app.api.tick()
+            self.fail_again(rid)
+        f = self.view_row(rid)["fail"]
+        self.assertEqual((f["retrying"], f["repeat"]), (False, True))   # 同じ失敗がもう一度 = [作る人に知らせる]
+
+    def test_failure_not_fixable_is_not_retrying_at_once(self):
+        t = self.fake_clock()
+        rid = self.failing_row("メンバー限定の配信です(Join this channel)")
+        f = self.view_row(rid)["fail"]
+        self.assertEqual((f["code"], f["retrying"], f["repeat"]), ("members", False, False))
+        self.assertIn("メンバー限定の配信は切り抜けません", f["message"])
+        t[0] += 10 * A.RETRY_EVERY
+        self.app.api.tick()
+        self.assertEqual(len(self.engine.queue.submitted), 1)   # 自動ではやり直さない
+        self.post("/api/friend/retry", {"id": rid})   # 友人が送り直して、同じ失敗がもう一度
+        self.fail_again(rid, "メンバー限定の配信です(Join this channel)")
+        f = self.view_row(rid)["fail"]
+        self.assertEqual((f["retrying"], f["repeat"]), (False, True))
+
+    def test_failure_other_codes_and_unknown(self):
+        cases = [("この配信は非公開です", "unavailable", False), ("空き容量が足りません", "disk", True), ("ffmpeg が落ちました", "unknown", True),
+                 ("切り抜く所が見つからず、パックができませんでした", "noHighlights", False)]
+        for text, code, retry in cases:
+            with self.subTest(text=text):
+                f = self.view_row(self.failing_row(text))["fail"]
+                self.assertEqual((f["code"], f["retrying"]), (code, retry))
+                self.assertEqual(f["detail"], text)
+
+    def test_tick_does_not_retry_cancelled_or_formless_rows(self):
+        t = self.fake_clock()
+        rid = self.failing_row()
+        self.app.inbox.row(rid)["cancelled"] = True
+        t[0] += 10 * A.RETRY_EVERY
+        self.app.api.tick()
+        self.assertEqual(len(self.engine.queue.submitted), 1)
+
+    def test_report_writes_notice_to_outbox(self):
+        t = self.fake_clock(1_800_000_000.0)
+        rid = self.failing_row("ネットにつながりませんでした")
+        log = self.app.api.log_path
+        os.makedirs(os.path.dirname(log), exist_ok=True)
+        with open(log, "w", encoding="utf-8", newline="") as fh:
+            fh.write("".join("ログの行 %d\n" % i for i in range(20000)))   # 128KB より大きい
+        st, _h, p = self.post("/api/friend/report", {"id": rid})
+        self.assertEqual(st, 200)
+        row = self.js(p)["row"]
+        self.assertEqual(row["reportedAt"], int(t[0] * 1000))
+        files = [n for n in os.listdir(self.places["outbox"]) if n.endswith(".notice.json")]
+        self.assertEqual(files, ["%s__notice-%013d.notice.json" % (rid, int(t[0] * 1000))])
+        path = os.path.join(self.places["outbox"], files[0])
+        self.assertLess(os.path.getsize(path), 256 * 1024)
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+        self.assertEqual(sorted(doc), sorted(["v", "kind", "requestId", "title", "code", "message", "detail", "appVersion", "at", "log"]))
+        self.assertEqual((doc["v"], doc["kind"], doc["requestId"], doc["title"], doc["code"]), (1, "failure", rid, "題", "net"))
+        self.assertEqual((doc["detail"], doc["appVersion"], doc["at"]), ("ネットにつながりませんでした", _version.VERSION, int(t[0] * 1000)))
+        self.assertIn("ネットにつながりませんでした", doc["message"])
+        self.assertTrue(doc["log"].endswith("ログの行 19999\n"))   # ログの末尾
+        self.assertLessEqual(len(doc["log"].encode("utf-8")), 120 * 1024)
+        self.assertTrue(doc["log"].startswith("ログの行 "))   # 行の途中から始めない
+        self.assertTrue(self.view_row(rid)["fail"]["reported"])
+        self.assertEqual(self.post("/api/friend/report", {"id": "nope"})[0], 404)
+        self.assertEqual(self.post("/api/friend/report", {"id": rid}, headers={TOKEN: None})[0], 403)
+
+    def test_report_without_log_and_trims_big_notice(self):
+        self.fake_clock()
+        rid = self.failing_row()
+        self.app.api.report(rid)
+        with open(os.path.join(self.places["outbox"], os.listdir(self.places["outbox"])[0]), encoding="utf-8") as fh:
+            self.assertEqual(json.load(fh)["log"], "")   # ログが無くても知らせられる
+        rid2 = self.failing_row()
+        log = self.app.api.log_path
+        os.makedirs(os.path.dirname(log), exist_ok=True)
+        with open(log, "w", encoding="utf-8", newline="") as fh:
+            fh.write("\x01" * (120 * 1024))   # JSON にすると 1 文字 6 バイト → 256KB を超える
+        self.app.api.clock = lambda: 1_800_000_100.0
+        self.app.api.report(rid2)
+        path = os.path.join(self.places["outbox"], [n for n in os.listdir(self.places["outbox"]) if n.startswith(rid2)][0])
+        self.assertLess(os.path.getsize(path), 256 * 1024)
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+        self.assertTrue(0 < len(doc["log"]) < 120 * 1024)
+        self.assertEqual(set(doc["log"]), {"\x01"})
+
+    def test_resend_clears_reported_mark(self):
+        self.fake_clock()
+        rid = self.failing_row()
+        self.app.api.report(rid)
+        self.assertIsNotNone(self.app.inbox.row(rid)["reportedAt"])
+        self.post("/api/friend/retry", {"id": rid})
+        self.assertIsNone(self.app.inbox.row(rid)["reportedAt"])
+
+    # ------------------------------------------------------------ 進み具合(steps。C-2-15)
+    def test_steps_queue_position_and_blocked(self):
+        self.fake_clock()
+        r1 = self.send()[1]["row"]["id"]
+        r2 = self.send()[1]["row"]["id"]
+        rows = {r["id"]: r for r in self.js(self.get("/api/friend/inbox")[2])["rows"]}
+        self.assertEqual(rows[r1]["steps"]["text"], "順番を待っています(次に始まります)")
+        self.assertEqual(rows[r2]["steps"]["text"], "順番を待っています(2 番目)")
+        self.assertEqual((rows[r1]["steps"]["index"], rows[r1]["steps"]["total"]), (0, 0))
+        self.engine.queue.blocked = {"freeGB": 5.0, "minGB": 20}   # 空き不足
+        d = self.js(self.get("/api/friend/inbox")[2])
+        self.assertEqual(d["blocked"], {"freeGB": 5.0, "minGB": 20})
+        self.assertEqual({r["steps"]["text"] for r in d["rows"]}, {"パソコンの空きが少ないので待っています(あと 15 GB 空けると始まります)"})
+
+    def run_of(self, rid):
+        return next(x for x in self.engine.queue.runs if x["id"] == self.app.inbox.row(rid)["runId"])
+
+    def test_steps_stage_reading_eta_slow_and_stage_stats(self):
+        t = self.fake_clock()
+        self.app.inbox.record_stage("文字起こし", 60)
+        self.app.inbox.record_stage("仕上げ", 30)
+        rid = self.send()[1]["row"]["id"]
+        run = self.run_of(rid)
+        run.update(state="running", steps=[{"key": "analyze", "state": "done", "detail": ""}, {"key": "adopt", "state": "done", "detail": ""},
+                                           {"key": "export", "state": "done", "detail": ""}, {"key": "transcribe", "state": "run", "detail": "3/5"},
+                                           {"key": "pack", "state": "wait", "detail": ""}])
+        row = self.view_row(rid)
+        self.assertEqual(row["state"], "making")   # 実行が動いていれば「作っている」
+        self.assertEqual(row["steps"], {"text": "3/4 文字起こし・3/5 本・あと約 1 分", "index": 3, "total": 4, "label": "文字起こし"})   # 見どころ(analyze・adopt)は 1 段
+        self.assertEqual(self.app.inbox.stage_stats()["文字起こし"], [60.0])
+        t[0] += 100   # 平均 60 秒を過ぎた = 残りは後ろの段だけ(30 秒)
+        self.assertEqual(self.view_row(rid)["steps"]["text"], "3/4 文字起こし・3/5 本・あと 1 分ほど")
+        t[0] += 600   # 10 分進みが無い
+        self.assertEqual(self.view_row(rid)["steps"]["text"], "3/4 文字起こし・3/5 本・あと 1 分ほど・時間がかかっています")
+        run["steps"][3]["detail"] = "4/5"   # 進んだ = 遅いの印は消える
+        self.assertEqual(self.view_row(rid)["steps"]["text"], "3/4 文字起こし・4/5 本・あと 1 分ほど")
+        t[0] += 50
+        run["steps"][3]["state"] = "done"
+        run["steps"][4]["state"] = "run"   # 次の段へ = 前の段にかかった秒を覚える
+        row = self.view_row(rid)
+        self.assertEqual((row["steps"]["label"], row["steps"]["index"]), ("仕上げ", 4))
+        self.assertEqual(self.app.inbox.stage_stats()["文字起こし"], [750.0, 60.0])
+
+    def test_steps_vanish_when_row_arrives(self):
+        self.fake_clock()
+        rid = self.send()[1]["row"]["id"]
+        run = self.run_of(rid)
+        run.update(state="running", steps=[{"key": "export", "state": "run", "detail": ""}])
+        self.view_row(rid)
+        self.assertIn(rid, self.app.api._stages)
+        pack = os.path.join(self.places["cases"], "案件", "a_pack")
+        os.makedirs(pack)
+        self.app.inbox.finished(run["id"], "done", "", [{"dir": pack}], 5)
+        self.js(self.get("/api/friend/inbox")[2])
+        self.assertNotIn(rid, self.app.api._stages)   # 作っていない行の段の覚えを捨てる
+        self.assertNotIn("steps", self.view_row(rid))
+
+    def test_steps_when_run_has_no_known_stage(self):
+        self.fake_clock()
+        rid = self.send()[1]["row"]["id"]
+        self.run_of(rid).update(state="running", steps=[{"key": "something", "state": "run", "detail": ""}])
+        self.assertEqual(self.view_row(rid)["steps"]["text"], "仕上げています")
+
+    def test_steps_for_ranged_url_skip_the_search_stage(self):
+        self.fake_clock()
+        rid = self.send(top=None, ranges=[[1, 30]])[1]["row"]["id"]
+        self.run_of(rid).update(state="running", steps=[{"key": "analyze", "state": "done", "detail": ""}, {"key": "export", "state": "run", "detail": ""},
+                                                         {"key": "transcribe", "state": "wait", "detail": ""}])
+        s = self.view_row(rid)["steps"]
+        self.assertEqual((s["label"], s["index"], s["total"]), ("切り抜き", 1, 2))   # 区間があれば「見どころを探す」を数えない
 
     def test_open_folder_guard_skips_test_places(self):
         """守り: inplace の作業データ・一時フォルダの下は開かない(本物の os.startfile まで行かない)"""

@@ -139,10 +139,14 @@ class LiveFlowTest(unittest.TestCase):
         self.eng.close()
 
     def send_live(self, **kw):
-        body = {"source": "url", "kind": "live", "url": URL, "title": "配信の題", "channel": "Ch", "top": 7, "streamer": "", "people": [],
-                "videoTracks": 2, "deliverBatch": 5, "pc": "this", "live": dict(SETTINGS)}
+        """ライブを送る -> 行。送る欄の 3 つ(perHour・長さ・配信後の追加)は body・感度と待ちと余白は ⚙ の値(C-2-11)"""
+        self.api.set_prefs({"liveSens": SETTINGS["sens"], "liveWait": SETTINGS["waitMin"], "livePad": SETTINGS["pad"]})
+        live = {"perHour": SETTINGS["perHour"], "lengthMode": "fixed", "length": SETTINGS["length"], "afterStream": SETTINGS["afterStream"]}
+        live.update(kw.pop("live", {}))
+        body = {"source": "url", "kind": "live", "url": URL, "title": "配信の題", "channel": "Ch", "streamer": "", "people": [],
+                "videoTracks": 2, "live": live}
         body.update(kw)
-        return self.api.send(body)
+        return self.api.send(body)["rows"][0]
 
     def packs(self, n, start=0):
         out = []
@@ -159,9 +163,8 @@ class LiveFlowTest(unittest.TestCase):
         self.assertEqual((item["rid"], item["settings"]["length"], item["settings"]["sens"], item["settings"]["afterStream"], item["deliverDir"]),
                          (row["id"], 150, "low", False, ""))
         b = self.eng.live.bundle("local", REC)
-        self.assertEqual((b["adopt"]["top"], b["adopt"]["perHour"], b["adopt"]["waitMin"], b["pack"]["videoTracks"]), (7, 8, 10, 2))
-        self.assertEqual(self.eng.live.detector.auto_max("local", REC), 7)   # 1 録画の自動の採用の上限 = 本数
-        self.assertEqual(self.api.form()["live"], dict(SETTINGS, pad=5.0))   # 前回の値(A-5)
+        self.assertEqual((b["adopt"]["perHour"], b["adopt"]["waitMin"], b["pack"]["videoTracks"]), (8, 10, 2))
+        self.assertEqual(self.api.form()["live"], dict(SETTINGS, pad=5.0, lengthMode="fixed"))   # 前回の値(A-5)
         self.assertEqual(self.eng.live.active_count(), 1)
 
     def test_send_live_not_live_refused(self):
@@ -178,16 +181,17 @@ class LiveFlowTest(unittest.TestCase):
         self.eng.after_run(fake_run("c0", "done", [], rid))   # 同じ実行の 2 回目は数えない
         self.eng.after_run(fake_run("bad", "error", [], rid, error="書き出せませんでした"))
         v = self.box.view()[0]
-        self.assertEqual((v["state"], len(v["groups"]), v["waitingPacks"], v["undecided"], v["live"]["errors"]), ("recording", 1, 1, 5, 1))
-        got = self.box.decide(rid, [], "keep")   # 録画中でも、組になった 5 本は決められる(組になる前の 1 本は決めない)
+        self.assertEqual((v["state"], len(v["groups"]), v["undecided"], v["live"]["errors"]), ("recording", 6, 6, 1))   # 1 本ずつ(C-3-1)= 待たされる本数は無い
+        self.assertEqual([p["num"] for p in v["packs"]], [1, 2, 3, 4, 5, 6])
+        got = self.box.decide(rid, [p["name"] for p in v["packs"][:5]], "keep")   # 録画中でも決められる
         self.assertEqual((len(got["done"]), self.box.row(rid)["state"]), (5, "recording"))
         self.eng.live_tick()   # まだ録画中
         self.assertEqual(self.box.row(rid)["state"], "recording")
         self.rec.end(REC)
         self.eng.live_tick()   # 録画が終わって作る物が無い = 残りを 1 組・行は「届いた」
         r = self.box.row(rid)
-        self.assertEqual((r["state"], [len(g["names"]) for g in r["groups"]], r["live"]["phase"]), ("arrived", [5, 1], "done"))
-        self.box.decide(rid, [], "reject")
+        self.assertEqual((r["state"], [len(g["names"]) for g in r["groups"]], r["live"]["phase"]), ("arrived", [1] * 6, "done"))
+        self.box.decide(rid, [], "skip")
         self.assertEqual(self.box.row(rid)["state"], "done")
         self.eng.after_run(fake_run("late", "done", self.packs(1, 10), rid, phase="archive"))   # 閉じたあとに届いた(配信後の追加)
         r = self.box.row(rid)
@@ -196,7 +200,7 @@ class LiveFlowTest(unittest.TestCase):
         self.assertEqual(self.box.row(rid)["groups"][-1]["label"], "配信後")
 
     def test_busy_or_after_stream_keeps_recording_row(self):
-        rid = self.send_live(live=dict(SETTINGS, afterStream=True))["id"]
+        rid = self.send_live(live={"afterStream": True})["id"]
         self.rec.end(REC)
         with mock.patch.object(self.eng.live, "busy_recording", lambda rc, rec: True):
             self.eng.live_tick()
@@ -223,15 +227,33 @@ class LiveFlowTest(unittest.TestCase):
         rid = self.send_live()["id"]
         self.eng.after_run(fake_run("c1", "done", self.packs(1), rid))
         self.box.clock = lambda: time.time() + I.LIVE_STALE + 60
-        self.box.sweep()
+        self.assertEqual(self.box.sweep(), 1)   # 閉じて、決めないまま 3 日たった 1 本は自動で見送る
         r = self.box.row(rid)
-        self.assertEqual((r["state"], len(r["groups"])), ("arrived", 1))
+        self.assertEqual((r["state"], len(r["groups"]), r["packs"][0]["verdict"], r["packs"][0]["by"]), ("done", 1, "skip", "auto"))
+
+    def test_close_with_everything_decided_marks_row_done(self):
+        """録画が終わった時に、組になった物を全部決めていれば、行は「決めた」(録画中のまま残さない)"""
+        rid = self.send_live()["id"]
+        self.eng.after_run(fake_run("c0", "done", self.packs(2), rid))
+        self.box.decide(rid, [], "keep")
+        self.assertEqual(self.box.row(rid)["state"], "recording")
+        self.rec.end(REC)
+        self.eng.live_tick()
+        self.assertEqual(self.box.row(rid)["state"], "done")
 
     def test_cancel_stops_recording(self):
         rid = self.send_live()["id"]
-        self.assertEqual(self.api.cancel(rid), {"id": rid, "state": "stopped"})
+        self.assertEqual(self.api.cancel(rid), {"id": rid, "state": "cancelled"})
         self.assertIn(("POST", "/live/%s/stop" % REC), self.rec.calls)
         self.assertEqual(self.eng.live.active_count(), 0)
+        self.assertIsNone(self.box.row(rid))   # 届いた物が無ければ行ごと消す(C-2-14)
+
+    def test_cancel_recording_keeps_clips_already_arrived(self):
+        rid = self.send_live()["id"]
+        self.eng.after_run(fake_run("c0", "done", self.packs(2), rid))
+        self.assertEqual(self.api.cancel(rid), {"id": rid, "state": "cancelled"})
+        r = self.box.row(rid)   # 届いた物は受け取るに残す・送った物の一覧からは外す
+        self.assertEqual((r["state"], r["cancelled"], len(r["packs"]), r["live"]["phase"]), ("arrived", True, 2, "done"))
 
     def test_close_kills_own_recorder_even_while_recording(self):
         lv = self.eng.live
@@ -297,7 +319,7 @@ class FileTest(unittest.TestCase):
 
     def test_remember_file_and_refuse_others(self):
         got = self.api.remember_file(self.src)
-        self.assertEqual((got["name"], got["size"], got["title"], got["streamer"]), ("【兎田ぺこら】歌ってみた.mp4", 3000, "【兎田ぺこら】歌ってみた", "兎田ぺこら"))
+        self.assertEqual((got["name"], got["size"], got["title"], got["streamer"]), ("【兎田ぺこら】歌ってみた.mp4", 3000, "歌ってみた", "兎田ぺこら"))   # 題の元は頭の【】を除く
         self.assertNotIn("path", got)
         txt = os.path.join(self.tmp, "a.txt")
         open(txt, "w").close()
@@ -308,8 +330,10 @@ class FileTest(unittest.TestCase):
 
     def test_send_file_copies_then_submits(self):
         fid = self.api.remember_file(self.src)["id"]
-        row = self.api.send({"source": "file", "fileId": fid, "streamer": "兎田ぺこら", "people": [], "videoTracks": 2, "deliverBatch": 1, "pc": "this",
+        got = self.api.send({"source": "files", "files": [{"fileId": fid, "streamer": "兎田ぺこら"}], "people": [], "videoTracks": 2,
                              "ranges": [[1, 2]], "top": 99, "useWeights": True, "weights": {"wAudio": 9}})   # 区間・本数・重みは動画ファイルでは使わない
+        self.assertEqual(got["skipped"], [])
+        row = got["rows"][0]
         self.assertEqual((row["kind"], row["state"]), ("file", "sent"))
         r = self.wait_copy(row["id"])
         env, spec = self.submitted[0]
@@ -328,11 +352,12 @@ class FileTest(unittest.TestCase):
         self.assertFalse(f["useWeights"])   # 動画ファイルの送りでは重みを覚えない
 
     def test_send_file_needs_known_id_and_retry_reuses_copy(self):
-        with self.assertRaises(A.FormError):
-            self.api.send({"source": "file", "fileId": "nope", "videoTracks": 1, "deliverBatch": 5})
+        with self.assertRaises(A.FormError) as cm:
+            self.api.send({"source": "files", "files": [{"fileId": "nope"}], "videoTracks": 1})
+        self.assertIn("選び直して", str(cm.exception))
         fid = self.api.remember_file(self.src)["id"]
         self.eng.queue.submit = lambda env, spec=None: (_ for _ in ()).throw(ValueError("待ちが多すぎます"))
-        row = self.api.send({"source": "file", "fileId": fid, "videoTracks": 1, "deliverBatch": 5})
+        row = self.api.send({"source": "files", "files": [{"fileId": fid}], "videoTracks": 1})["rows"][0]
         r = self.wait_copy(row["id"])
         self.assertEqual((r["state"], r["error"]), ("failed", "待ちが多すぎます"))
         copy = r["form"]["file"]["copy"]   # 写しは行が覚えている(一時保管の依頼のフォルダ)
@@ -348,10 +373,21 @@ class FileTest(unittest.TestCase):
         self.assertEqual(r["state"], "failed")
         self.assertIn("見つかりません", r["error"])
 
+    def test_cancel_file_row_while_copying_removes_row(self):
+        """動画を写している途中(② に積む前)で取り消す: 行を消す。写し終えた糸が行を見失っても何も積まない"""
+        fid = self.api.remember_file(self.src)["id"]
+        with mock.patch.object(self.api, "_start_copy"):   # 写す糸は起こさない(途中の形を作る)
+            row = self.api.send({"source": "files", "files": [{"fileId": fid}], "videoTracks": 1})["rows"][0]
+        self.assertEqual((row["state"], row["runId"]), ("sent", None))
+        self.assertEqual(self.api.cancel(row["id"]), {"id": row["id"], "state": "cancelled"})
+        self.assertIsNone(self.box.row(row["id"]))
+        self.api._copy_and_submit(row["id"])   # 遅れて動き出した写す糸
+        self.assertEqual(self.submitted, [])
+
     def test_copy_stops_when_closing(self):
         fid = self.api.remember_file(self.src)["id"]
         self.api.stopping = lambda: True
-        row = self.api.send({"source": "file", "fileId": fid, "videoTracks": 1, "deliverBatch": 5})
+        row = self.api.send({"source": "files", "files": [{"fileId": fid}], "videoTracks": 1})["rows"][0]
         r = self.wait_copy(row["id"])
         self.assertEqual(r["state"], "failed")
         self.assertEqual(self.submitted, [])

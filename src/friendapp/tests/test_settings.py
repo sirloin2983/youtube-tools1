@@ -167,9 +167,13 @@ class SettingsServerTest(unittest.TestCase):
 
     def test_user_pc_send_not_blocked_by_parts(self):
         """ユーザーの PC に頼む依頼は、この PC の部品が足りなくても送れる(鍵が無いので別の理由で断る)"""
-        st, j = self.post("/api/friend/send", {"url": URL, "top": 3, "title": "題", "pc": "user"})
+        cur = self.app.api.form()
+        cur["pc"] = "user"   # 処理する PC は ⚙ の値(鍵が無いと prefs では変えられないので、前回の値を直に書く)
+        self.app.api._write_form(cur)
+        st, j = self.post("/api/friend/send", {"url": URL, "top": 3, "title": "題"})
         self.assertEqual(st, 400)
         self.assertIn("Dropbox", j["message"])
+        self.assertNotIn("部品", j["message"])
 
     # ---- ⚙
     def test_settings_view_defaults(self):

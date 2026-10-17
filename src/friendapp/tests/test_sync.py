@@ -1,5 +1,7 @@
 """src/friendapp/sync.py のテスト(本物の Dropbox につながない = 偽の io。受信箱は本物の一時フォルダ)。
 リポジトリ直下で: py -3.10 -m unittest src/friendapp/tests/test_sync.py"""
+import datetime
+import glob
 import hashlib
 import io
 import json
@@ -131,9 +133,22 @@ class SyncTest(unittest.TestCase):
         with open(os.path.join(self.places["home"], "config.json"), "w", encoding="utf-8") as f:
             json.dump({"appKey": "k", "refreshToken": "r"}, f)
 
-    def verdict(self, rid, name):
-        with open(os.path.join(self.places["outbox"], "%s__%s.verdict.json" % (rid, name)), encoding="utf-8") as f:
+    def verdict(self, rid, name, nth=-1):
+        """判断の記録(<依頼 id>__<パック名>~<13 桁>.verdict.json。送り返しへ上げるまでの outbox)"""
+        files = sorted(glob.glob(os.path.join(self.places["outbox"], "%s__%s~*.verdict.json" % (rid, glob.escape(name)))))
+        self.assertTrue(files, name)
+        with open(files[nth], encoding="utf-8") as f:
             return json.load(f)
+
+    def uploaded(self, rid, name, nth=-1):
+        """送り返しへ上げ終えた判断の記録(Dropbox の /送り返し/ の偽物の中)"""
+        pre = ("/送り返し/%s__%s~" % (rid, name)).lower()
+        keys = sorted(k for k in self.io.files if k.startswith(pre) and k.endswith(".verdict.json"))
+        self.assertTrue(keys, name)
+        return json.loads(self.io.files[keys[nth]]["data"].decode("utf-8"))
+
+    def iso_day(self):
+        return datetime.datetime.fromtimestamp(NOW).strftime("%Y-%m-%d")
 
     def run_sync(self):
         got = self.sync.run_once()
@@ -261,24 +276,30 @@ class SyncTest(unittest.TestCase):
         self.run_sync()   # 2 回目は取り込み直さない
         self.assertEqual(len(self.box.row(AUTO)["packs"]), 2)
         names = [p["name"] for p in r["packs"]]
-        got = self.box.decide(AUTO, [names[0]], "reject")   # 要らない = 取らない
+        got = self.box.decide(AUTO, [names[0]], "skip")   # 見送る = 取らない
         self.assertEqual(got["done"], [names[0]])
         got = self.box.decide(AUTO, [names[1]], "keep")
         self.assertEqual((got["done"], got["pending"]), ([], [names[1]]))
         v = self.verdict(AUTO, names[0])
-        self.assertEqual((v["verdict"], v["zip"], v["origin"], v["requestId"]), ("reject", zips[0], "auto", AUTO))
+        self.assertEqual((v["v"], v["judge"], v["zip"], v["origin"]), (2, "unknown", zips[0], "auto"))
         self.run_sync()
         r = self.box.row(AUTO)
         self.assertEqual(r["state"], "done")
         saved = r["packs"][1]["savedTo"]
-        self.assertEqual(os.path.basename(saved), "見どころ 2_pack")
+        # 保存先 = <保存先>/<日付>_<題>/#番号(この組は配信の欄が無い = 行の題・届いた日。番号は 2 本目)
+        self.assertEqual(saved, os.path.join(self.tmp, "save", "%s_朝活" % self.iso_day(), "#2"))
         self.assertTrue(os.path.isfile(os.path.join(saved, "clip.mp4")))
-        self.assertTrue(r["groups"][0]["remote"]["cleaned"])
-        self.assertEqual([k for k in self.io.files if k.startswith("/出力/")], [])   # zip・まとめ動画・組の一覧を消した
-        sent = sorted(k for k in self.io.files if k.startswith("/送り返し/"))
-        self.assertEqual(len(sent), 2)
+        self.assertEqual(self.uploaded(AUTO, names[1])["judge"], "good")
+        # 見送った物は戻せる 3 日の間は Dropbox の出力に残す(受け取った物だけ先に消さない)
+        self.assertFalse(r["groups"][0]["remote"]["cleaned"])
+        self.assertEqual(len([k for k in self.io.files if k.startswith("/出力/")]), 4)
+        self.assertEqual(len([k for k in self.io.files if k.startswith("/送り返し/")]), 2)
         self.assertEqual(os.listdir(self.places["outbox"]), [])   # 上げたら消す
         self.assertFalse(os.path.exists(r["groups"][0]["preview"]))
+        self.t[0] += 3 * 86400 + 1
+        self.run_sync()
+        self.assertTrue(self.box.row(AUTO)["groups"][0]["remote"]["cleaned"])
+        self.assertEqual([k for k in self.io.files if k.startswith("/出力/")], [])   # zip・まとめ動画・組の一覧を消した
 
     def test_partial_group_waits_then_imports(self):
         self.key()
@@ -347,7 +368,7 @@ class SyncTest(unittest.TestCase):
         self.assertIsNone(p["verdict"])
         self.assertIn("展開できませんでした", p["error"])
         self.assertFalse(os.path.exists(os.path.join(self.tmp, "evil.txt")))
-        self.assertEqual(os.listdir(os.path.join(self.tmp, "save")), [])
+        self.assertEqual([n for _d, _s, fs in os.walk(os.path.join(self.tmp, "save")) for n in fs], [])   # 何も置かない(空のフォルダだけ)
         f = self.io.files[("/出力/" + p["remote"]["zip"]).lower()]
         f["data"] = b"changed"   # 一覧の hash と違う = 壊れていた
         with self.box.lock:
@@ -370,18 +391,18 @@ class SyncTest(unittest.TestCase):
         self.run_sync()
         self.assertEqual(self.box.row(AUTO)["packs"][0]["verdict"], "keep")
 
-    def test_three_days_auto_reject_without_download(self):
+    def test_three_days_auto_skip_without_download(self):
         self.key()
         self.put_group(AUTO, n=2)
         self.run_sync()
         names = [p["name"] for p in self.box.row(AUTO)["packs"]]
-        self.box.decide(AUTO, [names[0]], "keep")   # 受け取っている途中の物は自動で要らないにしない
+        self.box.decide(AUTO, [names[0]], "keep")   # 受け取っている途中の物は自動で見送らない
         self.t[0] += 3 * 86400 + 1
         self.assertEqual(self.box.sweep(), 1)
         p = self.box.row(AUTO)["packs"]
-        self.assertEqual((p[0]["want"], p[1]["verdict"], p[1]["by"]), ("keep", "reject", "auto"))
+        self.assertEqual((p[0]["want"], p[1]["verdict"], p[1]["by"]), ("keep", "skip", "auto"))
         v = self.verdict(AUTO, names[1])
-        self.assertEqual(v["by"], "auto")
+        self.assertEqual((v["by"], v["judge"]), ("auto", "unknown"))
 
     # ------------------------------------------------------------ 送り返し
     def test_returns_upload_and_keep_on_failure(self):
@@ -400,6 +421,61 @@ class SyncTest(unittest.TestCase):
         os.utime(os.path.join(self.places["outbox"], "%s__p.verdict.json" % RID), (NOW - 10, NOW - 10))
         self.run_sync()
         self.assertNotIn("%s__p.verdict.json" % RID, os.listdir(self.places["outbox"]))
+
+    def test_returns_upload_new_verdict_and_notice_names(self):
+        """F3: 判断の記録は ~<13 桁> つき・知らせは __notice-<13 桁>.notice.json。形の違う名前は上げない"""
+        self.key()
+        os.makedirs(self.places["outbox"])
+        good = ["%s__p~1790000000000.verdict.json" % RID, "%s__p.verdict.json" % RID, "%s__notice-1790000000000.notice.json" % RID,
+                "unknown__notice-1790000000000.notice.json"]
+        bad = ["%s__notice-123.notice.json" % RID, "%s__notice-1790000000000.notice.json.tmp" % RID, "x__y.notice.json"]
+        for n in good + bad:
+            with open(os.path.join(self.places["outbox"], n), "wb") as f:
+                f.write(b"1")
+        self.assertEqual(self.run_sync(), [])
+        self.assertEqual(sorted(k for k in self.io.files if k.startswith("/送り返し/")), sorted(("/送り返し/" + n).lower() for n in good))
+        self.assertEqual(sorted(os.listdir(self.places["outbox"])), sorted(bad))
+        for n in good:
+            self.assertEqual(self.io.data("/送り返し/" + n), b"1")
+
+    def test_parse_meta_info(self):
+        d = S.parse_meta_info(json.dumps({"v": 1, "origin": "request", "videoId": "dQw4w9WgXcQ", "markId": "m1", "streamTitle": "枠の題", "streamer": "星見ルナ",
+                                          "seconds": 31.5, "title": "パックの題"}).encode())
+        self.assertEqual(d, {"videoId": "dQw4w9WgXcQ", "markId": "m1", "streamTitle": "枠の題", "streamer": "星見ルナ", "seconds": 31.5})
+        d = S.parse_meta_info(json.dumps({"v": 1, "videoId": "short", "markId": "", "streamTitle": "", "seconds": 0}).encode())
+        self.assertEqual(d, {})   # 分からない欄は入れない
+        self.assertEqual(S.parse_meta_info(json.dumps({"v": 1, "seconds": 86400}).encode()), {})
+        self.assertEqual(S.parse_meta_info(json.dumps({"v": 1, "seconds": True}).encode()), {})
+        self.assertEqual(S.parse_meta_info(json.dumps({"v": 2, "videoId": "dQw4w9WgXcQ"}).encode()), {})
+        self.assertEqual(S.parse_meta_info(b"{broken"), {})
+
+    def test_single_pack_meta_fills_stream_info_and_keep_place(self):
+        """.meta.json の配信の欄がパックの info に入り、受け取るの保存先 <日付>_<配信者>_<題> の中の #番号 になる。判断の記録にも videoId・markId"""
+        self.key()
+        meta = {"v": 1, "kind": "clip", "origin": "request", "videoId": "dQw4w9WgXcQ", "markId": "mk1", "streamTitle": "耐久/配信:前編", "streamer": "星見ルナ",
+                "seconds": 42.0, "title": "見どころ"}
+        for i in (1, 2):
+            self.io.put("/出力/%s__見どころ%d.zip" % (RID, i), zip_bytes({"見どころ%d_pack/a.mp4" % i: b"v"}))
+            self.io.put("/出力/%s__見どころ%d.preview.mp4" % (RID, i), b"MP4")
+            self.io.put("/出力/%s__見どころ%d.meta.json" % (RID, i), json.dumps(dict(meta, title="見どころ%d" % i)).encode())
+        self.run_sync()
+        r = self.box.row(RID)
+        self.assertEqual(len(r["packs"]), 2)
+        p0 = r["packs"][0]
+        self.assertEqual(p0["info"], {"videoId": "dQw4w9WgXcQ", "markId": "mk1", "streamTitle": "耐久/配信:前編", "streamer": "星見ルナ"})
+        self.assertEqual((p0["seconds"], p0["key"], [p["num"] for p in r["packs"]]), (42.0, "v:dQw4w9WgXcQ", [1, 2]))
+        self.assertEqual(self.box.receive_view()["sections"][0]["title"], "耐久/配信:前編")
+        self.assertEqual(self.box.receive_view()["sections"][0]["streamer"], "星見ルナ")
+        names = [p["name"] for p in r["packs"]]
+        self.box.decide(RID, names, "keep")
+        self.run_sync()
+        r = self.box.row(RID)
+        folder = os.path.join(self.tmp, "save", "%s_星見ルナ_耐久_配信_前編" % self.iso_day())   # 使えない文字は _
+        self.assertEqual([p["savedTo"] for p in r["packs"]], [os.path.join(folder, "#1"), os.path.join(folder, "#2")])
+        self.assertTrue(os.path.isfile(os.path.join(folder, "#2", "a.mp4")))
+        self.assertEqual(r["state"], "done")
+        v = self.uploaded(RID, names[0])
+        self.assertEqual((v["judge"], v["videoId"], v["markId"], v["zip"]), ("good", "dQw4w9WgXcQ", "mk1", "%s__見どころ1.zip" % RID))
 
     # ------------------------------------------------------------ 学習の束
     def put_learning(self, ver, files, bad=False):
