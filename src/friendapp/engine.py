@@ -209,7 +209,7 @@ class Engine:
                     self.log("送り返しの zip を作りました: %s" % os.path.basename(path))
             except Exception as e:   # 送り返しが作れなくても受信箱には届ける
                 self.log("送り返しの zip を作れませんでした: %s" % e.__class__.__name__)
-        dirs = [d for d in run.all_packs() if os.path.isdir(d)] if run.state == "done" else []
+        dirs = [d for d in run.all_packs() if os.path.isdir(_fsio.long_path(d))] if run.state == "done" else []
         try:
             secs = _preview.clip_seconds(dirs) if dirs else []
         except Exception:   # 長さが分からなくても届ける
@@ -299,7 +299,7 @@ class Engine:
         for g in r["groups"]:
             if g.get("preview") and os.path.isfile(g["preview"]):
                 continue
-            dirs = [by_name[n]["dir"] for n in g["names"] if n in by_name and by_name[n].get("dir") and os.path.isdir(by_name[n]["dir"])
+            dirs = [by_name[n]["dir"] for n in g["names"] if n in by_name and by_name[n].get("dir") and os.path.isdir(_fsio.long_path(by_name[n]["dir"]))
                     and not by_name[n].get("verdict")]
             if len(dirs) == 1 and _CLIP_PREVIEW is not None:
                 tmp = _CLIP_PREVIEW(dirs[0], log=self.log)
@@ -308,7 +308,7 @@ class Engine:
             if not tmp:
                 continue
             dest = os.path.join(folder, "%s-%d.mp4" % (rid, g["n"]))
-            shutil.move(tmp, dest)
+            shutil.move(_fsio.long_path(tmp), _fsio.long_path(dest))
             self.inbox.set_preview(rid, g["n"], dest)
 
     def reload_learning(self):

@@ -15,6 +15,7 @@ import uuid
 
 from ytt import fsio, normalize, tools
 
+LONG_PATH_AT = 240             # このくらい長いパスは \\?\ の形にして OS・ffmpeg に渡す(Windows の 260 文字の壁)
 CLIP_EXT = (".mp4", ".mov", ".mkv", ".webm", ".m4v")                     # パックの中の切り抜きの動画
 PREVIEW_HEIGHT = 480           # 確認用の動画の縦の画素数(速さは等速 = 2026-10-08 ユーザー決定)
 PREVIEW_CRF = 28               # 確認用の動画の画質(本番より落とす。90 秒で 6〜10MB の見込み)
@@ -43,18 +44,20 @@ def pack_video(d):
     """パックのフォルダの中の切り抜きの動画(フォルダ直下でいちばん大きい動画。粗編集の _roughcut は除く)。無ければ None"""
     best = None
     try:
-        names = os.listdir(d)
+        names = os.listdir(fsio.long_path(d))   # 友人の動画の題は長い = 題が 2 回入るパックのパスは 260 文字を超えうる(Windows)
     except OSError:
         return None
     for n in names:
         p = os.path.join(d, n)
         stem, ext = os.path.splitext(n)
-        if ext.lower() not in CLIP_EXT or stem.endswith("_roughcut") or not os.path.isfile(p):
+        if ext.lower() not in CLIP_EXT or stem.endswith("_roughcut") or not os.path.isfile(fsio.long_path(p)):
             continue
-        size = os.path.getsize(p)
+        size = os.path.getsize(fsio.long_path(p))
         if best is None or size > best[0]:
             best = (size, p)
-    return best[1] if best else None
+    if not best:
+        return None
+    return fsio.long_path(best[1]) if len(best[1]) >= LONG_PATH_AT else best[1]   # ffmpeg・ffprobe へ渡すときも長いパスの形
 
 
 def _run_ffmpeg(args, timeout, check):
@@ -81,7 +84,7 @@ def make_preview(video, out_path, height=PREVIEW_HEIGHT, ffmpeg=None, ffprobe=No
     作れなくても呼ぶ側は確認用の動画なしで届ける。音の無いクリップは音なしで作る"""
     log = log or (lambda msg: None)
     ffmpeg = ffmpeg or tools.find_tool("ffmpeg")
-    if not ffmpeg or not video or not os.path.isfile(video):
+    if not ffmpeg or not video or not os.path.isfile(fsio.long_path(video)):
         return False
     info = normalize.probe(video, ffprobe=ffprobe) or {}
     audio = bool(info.get("has_audio"))
@@ -93,7 +96,7 @@ def make_preview(video, out_path, height=PREVIEW_HEIGHT, ffmpeg=None, ffprobe=No
     try:
         code, err = _run_ffmpeg(_preview_args(ffmpeg, video, tmp_out, height, audio), timeout, check)
         if code == 0 and os.path.isfile(tmp_out) and os.path.getsize(tmp_out) > 0:
-            shutil.move(tmp_out, out_path)
+            shutil.move(tmp_out, fsio.long_path(out_path))
             return True
         log("確認用の動画を作れませんでした: %s" % err)
         return False
@@ -131,7 +134,7 @@ def batch_preview(dirs, check=None, log=None):
     audio = all((normalize.probe(v) or {}).get("has_audio") for v in videos)
     out = scratch_path(dirs[0], "preview-", ".mp4")
     code, err = _run_ffmpeg(_concat_args(ffmpeg, videos, out, PREVIEW_HEIGHT, audio), PREVIEW_TIMEOUT, check)
-    if code == 0 and os.path.isfile(out) and os.path.getsize(out) > 0:
+    if code == 0 and os.path.isfile(fsio.long_path(out)) and os.path.getsize(fsio.long_path(out)) > 0:
         return out
     (log or (lambda m: None))("確認用の動画を作れませんでした: %s" % err)
     remove_quiet(out)
