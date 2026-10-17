@@ -537,6 +537,15 @@ class DetectApiTest(unittest.TestCase):
         return self.live.requests.put("fake", rec, {"rid": "20261008-120000-abcd", "deliverDir": os.path.join(self.tmp, "deliver"), "streamer": "友人の推し",
                                                     "settings": settings})
 
+    def test_friend_request_length_auto_to_worker(self):
+        """C-2-11: 依頼の長さ「自動(場面ごと)」(settings の lengthMode auto)だけ config.json の requests に lengthMode を渡す(無い = 固定の長さ)"""
+        self.request(sens="high", perHour=3, length=30, waitMin=2, pad=1, afterStream=False, lengthMode="auto")
+        self.request(rec="20261007-210000-x", sens="high", perHour=3, length=30, waitMin=2, pad=1, afterStream=False)
+        got = self.det.requests_cfg()
+        self.assertEqual(got["fake/" + REC], {"sens": "high", "perHour": 3, "length": 30, "lengthMode": "auto"})
+        self.assertEqual(got["fake/20261007-210000-x"], {"sens": "high", "perHour": 3, "length": 30})
+        self.assertEqual(W.clean_requests(got)["fake/" + REC]["lengthMode"], "auto")
+
     def test_friend_request_with_detect_off(self):
         """2-15: ホームの検出・自動採用がオフでも、友人のライブ配信の依頼に結びついた録画があれば検出を動かす(config.json の detectAll false と
         録画ごとの requests)。画面の答え(enabled・autoAdopt)も録画ごと。リアルタイム切り抜きがオフなら動かさない"""

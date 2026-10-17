@@ -88,6 +88,7 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual(L.clean_settings({"length": 180, "sens": "high"})["length"], 180)
         self.assertEqual(L.clean_settings({"length": 999}), L.SETTINGS_DEFAULT)
         self.assertIn("長さ 150 秒", L.settings_label(L.clean_settings(SETTINGS)))
+        self.assertEqual(L.clean_settings(dict(SETTINGS, lengthMode="auto"))["lengthMode"], "auto")   # 自動(場面ごと)だけ残す(C-2-11)
 
     def test_request_book(self):
         tmp = tempfile.mkdtemp(prefix="friend-livebook-")
@@ -166,6 +167,72 @@ class LiveFlowTest(unittest.TestCase):
         self.assertEqual((b["adopt"]["perHour"], b["adopt"]["waitMin"], b["pack"]["videoTracks"]), (8, 10, 2))
         self.assertEqual(self.api.form()["live"], dict(SETTINGS, pad=5.0, lengthMode="fixed"))   # 前回の値(A-5)
         self.assertEqual(self.eng.live.active_count(), 1)
+
+    def worker_req(self):
+        """検出のワーカーが読む依頼の設定(config.json の requests を ① の clean_requests で読んだ形)と、その録画の spec"""
+        from pipeline.analyze import live_excite_worker as W
+        self.eng.live.detector.write_config()
+        with open(os.path.join(self.eng.live.detector.dir, "config.json"), encoding="utf-8") as f:
+            req = W.clean_requests(json.load(f)["requests"])["local/" + REC]
+        spec = W.request_spec(dict(W.SPEC_DEFAULT, lengthFrom="studio"), req)
+        return req, spec, W.shape_of(spec)
+
+    def test_length_auto_is_scene_and_fixed_is_seconds(self):
+        """C-2-11: 長さ「自動(場面ごと)」は場面ごとの形(長さは場面が取れないときの長さ)・固定は送った秒(ワーカーの読み方まで)"""
+        row = self.send_live(live={"lengthMode": "auto", "length": 9999})
+        self.assertEqual(row["form"]["live"]["lengthMode"], "auto")
+        item = self.eng.live.requests.get("local", REC)
+        self.assertEqual((item["settings"]["lengthMode"], item["settings"]["length"]), ("auto", 45))   # 長さは前回の値(初め 45。送る欄の 9999 は読まない)= 場面が取れないときの長さ
+        req, spec, shape = self.worker_req()
+        self.assertEqual((req["lengthMode"], shape, spec["lengthFrom"], spec["length"]), ("auto", "scene", "friendScene", 45.0))
+        self.assertIn("長さ 自動(場面ごと)", L.settings_label(item["settings"]))
+
+    def test_length_fixed_and_old_request_stay_fixed(self):
+        self.send_live(live={"lengthMode": "fixed", "length": 60})
+        item = self.eng.live.requests.get("local", REC)
+        self.assertNotIn("lengthMode", item["settings"])   # 無い = 固定(前の形の依頼と同じ)
+        req, spec, shape = self.worker_req()
+        self.assertEqual((req.get("lengthMode"), shape, spec["lengthFrom"], spec["length"]), (None, "fixed", "friend", 60.0))
+        old = L.clean_settings({"sens": "high", "perHour": 3, "length": 30})   # lengthMode の無い前の形の依頼
+        self.assertNotIn("lengthMode", old)
+        self.assertEqual(L.clean_settings(dict(old, lengthMode="weird")), old)
+
+    def test_update_live_while_recording(self):
+        """C-2-11: 録画中に 1 時間の枠・長さ・配信後の追加を変える → ② の結びつき(ワーカーの config.json まで)と行の form.live が変わる"""
+        rid = self.send_live(live={"lengthMode": "fixed", "length": 60, "afterStream": False})["id"]
+        row = self.api.update_live(rid, {"id": rid, "perHour": 3, "lengthMode": "auto", "length": 9999, "afterStream": True})
+        self.assertEqual(row["form"]["live"], {"sens": "low", "perHour": 3, "length": 60, "waitMin": 10, "pad": 5.0, "afterStream": True, "lengthMode": "auto"})
+        self.assertEqual(self.box.row(rid)["form"]["live"]["lengthMode"], "auto")
+        s = self.eng.live.requests.get("local", REC)["settings"]
+        self.assertEqual((s["perHour"], s["afterStream"], s["lengthMode"], s["length"], s["sens"]), (3, True, "auto", 60, "low"))
+        req, _spec, shape = self.worker_req()
+        self.assertEqual((req["perHour"], req["lengthMode"], shape), (3, "auto", "scene"))
+        self.assertTrue(self.eng.live.archiver._request_after("local", REC))   # 配信後の追加は配信が終わったときに今の値を読む
+        # 固定に戻す(長さだけ送らなければ今の長さ)・別の長さ
+        row = self.api.update_live(rid, {"lengthMode": "fixed", "length": 90})
+        s = self.eng.live.requests.get("local", REC)["settings"]
+        self.assertEqual((row["form"]["live"]["lengthMode"], row["form"]["live"]["length"], s["length"], s.get("lengthMode")), ("fixed", 90, 90, None))
+        self.assertEqual(self.worker_req()[2], "fixed")
+        for bad, why in (({"perHour": 0}, "1 時間の枠"), ({"length": 181}, "長さは 10〜180"), ({"lengthMode": "x"}, "自動"), ({"afterStream": "yes"}, "配信後")):
+            with self.subTest(bad=bad):
+                with self.assertRaises(A.FormError) as cm:
+                    self.api.update_live(rid, bad)
+                self.assertIn(why, str(cm.exception))
+        self.assertEqual(self.eng.live.requests.get("local", REC)["settings"]["length"], 90)   # 断った値は入らない
+
+    def test_update_live_refuses_user_pc_and_not_recording_rows(self):
+        rid = self.send_live()["id"]
+        self.rec.end(REC)
+        self.eng.live_tick()   # 録画が終わった
+        with self.assertRaises(A.FormError) as cm:
+            self.api.update_live(rid, {"perHour": 3})
+        self.assertIn("録画中の行だけ", str(cm.exception))
+        user = self.box.add("20261017-120000-abcdef", {"kind": "live", "live": dict(SETTINGS, lengthMode="auto")}, {"url": URL}, pc="user", kind="live")
+        with self.assertRaises(A.FormError) as cm:
+            self.api.update_live(user["id"], {"perHour": 3})
+        self.assertEqual(str(cm.exception), "作る人の PC で録画している依頼は、ここから変えられません")
+        with self.assertRaises(KeyError):
+            self.api.update_live("nope", {"perHour": 3})
 
     def test_send_live_not_live_refused(self):
         self.eng.live.probe = lambda url: {"status": "was_live", "title": "", "channel": "", "message": ""}

@@ -9,6 +9,7 @@ src/flow/livesession.py の begin_request)ここに結びつけ、録画の候�
   {"v": 1, "items": {"<録画元の id>/<録画の id>": {"rid", "deliverDir", "url", "title", "streamer", "speakers", "videoTracks", "cut", "memo",
                                                    "settings": {"sens", "perHour", "length", "waitMin", "pad", "afterStream"}, "createdAt", "deliverBatch"}}}
 settings = 友人のベータの設定(依頼の JSON の live)。範囲の外・無い鍵は既定(SETTINGS_DEFAULT)。
+lengthMode "auto"(長さ「自動(場面ごと)」。友人の受信箱のアプリ C-2-11)があれば settings にも残し、検出は場面ごとの形で切る。無い = 固定の長さ。
 """
 import copy
 import threading
@@ -43,13 +44,16 @@ def clean_settings(v):
         out["pad"] = float(v["pad"])
     if isinstance(v.get("afterStream"), bool):
         out["afterStream"] = v["afterStream"]
+    if v.get("lengthMode") == "auto":   # 長さ「自動(場面ごと)」(友人の受信箱のアプリ。C-2-11)。無い = 前の形の依頼 = 固定の長さ
+        out["lengthMode"] = "auto"
     return out
 
 
 def settings_label(s):
     """受付の一覧に出す 1 行"""
-    return "ライブの設定: 感度 %s・1 時間 %d 本・長さ %d 秒・待ち %d 分・余白 %g 秒・配信後の追加 %s" % (
-        {"high": "高", "normal": "普通", "low": "低"}[s["sens"]], s["perHour"], s["length"], s["waitMin"], s["pad"], "あり" if s["afterStream"] else "なし")
+    size = "長さ 自動(場面ごと)" if s.get("lengthMode") == "auto" else "長さ %d 秒" % s["length"]
+    return "ライブの設定: 感度 %s・1 時間 %d 本・%s・待ち %d 分・余白 %g 秒・配信後の追加 %s" % (
+        {"high": "高", "normal": "普通", "low": "低"}[s["sens"]], s["perHour"], size, s["waitMin"], s["pad"], "あり" if s["afterStream"] else "なし")
 
 
 def key_of(rc, rec):

@@ -12,6 +12,7 @@
   - [すべて止めて終了]・exe の「止める」 は録画中でも録画の部品まで止める(親の close は録画中なら残す)。止めても録画の記録は「録画中」のまま =
     次に開いたとき録画の部品が起動して(見回り)、同じ録画を新しいセッションで続ける(pipeline/ingest/rec_core の load)
   - 配信後のアーカイブからの追加(M7)の解析は、② の道具のスタジオなしの台帳(flow/studiobook.LocalStudio)へ(studio_call の 3 つの口だけを写す)
+  - 録画中に依頼の設定(1 時間の枠・長さ・配信後の追加)を差し替えられる(change_request。C-2-11)
   - 録画は終わって 3 日で消す(配信後の追加が済んでから。6 章の「確かめられないまま 3 日で消す」。アーカイブ化で消すのは線 D の LD-1)
 受信箱の行と録画を結ぶ見回り(行の状態・組)は engine が持つ(on_tick)。
 """
@@ -155,6 +156,24 @@ class FriendLive(_ls.LiveSession):
         if code is None:
             raise self._down(rc)
         raise _lx.LiveError("録画を止められませんでした(%s)" % (((d or {}).get("message") if isinstance(d, dict) else "") or "HTTP %s" % code), 409)
+
+    def change_request(self, rc_id, rec, rid, settings):
+        """録画中の依頼の設定を差し替える(C-2-11。1 時間の枠・長さ(固定の秒 / 自動 = 場面ごと)・配信後の追加)。
+        結びつき(requests.json)を書き換え、検出のワーカーへの config.json もすぐ書く = これから確定・採用・切り出す物から効く
+        (枠と長さはワーカーが読み直したとき・配信後の追加は配信が終わったときに読む。もう切った物は作り直さない)。
+        -> 差し替えた結びつきの項目。録画がその依頼に結びついていなければ LiveError(409)"""
+        item = self.requests.get(rc_id, rec)
+        if item is None or item.get("rid") != rid:
+            raise _lx.LiveError("この録画の依頼が見つかりません(録画が終わって片付けたかもしれません)", 409)
+        got = self.requests.update(rc_id, rec, settings)
+        if got is None:
+            raise _lx.LiveError("この録画の依頼が見つかりません(録画が終わって片付けたかもしれません)", 409)
+        self.log("ライブ: 依頼 %s の設定を録画の途中で変えました(%s)" % (rid, settings_label(got["settings"])))
+        try:
+            self.detector.write_config()
+        except Exception as e:   # noqa: BLE001  (書けなくても次の見回りが書く)
+            self.log("ライブ: 検出の設定を書けませんでした(次の見回りで書きます): %s" % e.__class__.__name__)
+        return got
 
     def busy_recording(self, rc_id, rec):
         """その録画の書き出し・まとめて実行への受け渡しが途中か"""

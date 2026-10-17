@@ -7,7 +7,7 @@
 - 区間だけの依頼の最後の段「解析(あとで)」は友人の PC では飛ばす(友人の区間と自動の候補を比べる材料はユーザーの PC の物。仮・AI)
 - 話者分離(束の transcribe.diarize)は LocalTools に無いので、送る側(api)で人数を束に入れない(コラボの名前は hints.people の色だけ。仮・AI)
 - ライブ(F2-6): ② のライブ係 friendapp/live.FriendLive を持ち、待ち行列の set_live_hook で封筒 kind live を回す(長さは受信箱の行の送った欄 =
-  束の analyze に入れない)。切り抜きごとの実行(requestId = 行の id)が終わったら行にパックを足し(live_clip)、ライブ係の見回りのたびに
+  束の analyze に入れない。lengthMode auto = 場面ごとの形・fixed = 固定の秒。C-2-11)。切り抜きごとの実行(requestId = 行の id)が終わったら行にパックを足し(live_clip)、ライブ係の見回りのたびに
   録画が終わったか・作っている物が残っているかを見て行を進める(live_tick)
 """
 import os
@@ -151,6 +151,8 @@ class Engine:
         s = ((row or {}).get("form") or {}).get("live")
         if isinstance(s, dict) and isinstance(s.get("length"), int):
             ctx["settings"] = dict(ctx["settings"], length=s["length"])
+        if isinstance(s, dict) and s.get("lengthMode") == "auto":   # 長さ「自動(場面ごと)」(C-2-11。length は場面が取れないときの長さ)
+            ctx["settings"] = dict(ctx["settings"], lengthMode="auto")
         ctx["deliverDir"] = ""   # 友人の PC は届けない(4-7。パックは受信箱に並ぶ)
         self.live.wait_recorder()
         return self.live.submit(env, bundle, ctx=ctx)

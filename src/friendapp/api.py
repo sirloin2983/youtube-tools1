@@ -689,6 +689,43 @@ class Api:
             return {"id": rid, "state": "cancelled"}
         raise FormError("取り消せる行ではありません")
 
+    def update_live(self, rid, body):
+        """録画中のライブの行の設定を途中で変える(C-2-11。POST /api/friend/live-settings)。body = {perHour?, lengthMode?: auto|fixed, length?, afterStream?}
+        (無い鍵は今の値のまま・length は fixed のときだけ読む・範囲は送る欄と同じ check_settings)。② のライブ係の結びつきを差し替え、行の form.live も
+        書き換える = これから採用・切り出す物から効く(もう切った物は作り直さない)。-> 行。ユーザーの PC に頼んだ行・録画中でない行・値の違いは FormError"""
+        r = self.inbox.row(rid)
+        if r is None:
+            raise KeyError(rid)
+        if r.get("kind") != "live":
+            raise FormError("ライブの行ではありません")
+        if r.get("pc") == "user":
+            raise FormError("作る人の PC で録画している依頼は、ここから変えられません")
+        lv = r.get("live") if isinstance(r.get("live"), dict) else {}
+        if r["state"] != "recording" or not lv.get("recording") or lv.get("endedAt"):
+            raise FormError("録画中の行だけ設定を変えられます")
+        cur = (r.get("form") or {}).get("live") or {}
+        mode = body.get("lengthMode", cur.get("lengthMode") if cur.get("lengthMode") in LENGTH_MODES else "fixed")   # 無い = 前の形の行 = 固定
+        if mode not in LENGTH_MODES:
+            raise FormError("長さは「自動(場面ごと)」か「固定」を選んでください")
+        s = {k: v for k, v in _live.clean_settings(cur).items() if k != "lengthMode"}
+        for k in ("perHour", "afterStream"):
+            if k in body:
+                s[k] = body[k]
+        if mode == "fixed" and "length" in body:
+            s["length"] = body["length"]
+        try:
+            new = dict(_live.check_settings(s), lengthMode=mode)
+        except ValueError as e:
+            raise FormError(str(e))
+        eng = self.engine_fn()
+        if eng is None or getattr(eng, "live", None) is None:
+            raise FormError("準備中です。少し待ってから、もう一度押してください")
+        try:
+            eng.live.change_request(lv.get("recorder"), lv.get("recording"), rid, new)
+        except ValueError as e:   # 結びつきが無い(LiveError も ValueError)
+            raise FormError(str(e))
+        return self.inbox.set_live_form(rid, new)
+
     @staticmethod
     def _cancel_runs(eng, pick):
         for x in eng.queue.status().get("runs") or []:

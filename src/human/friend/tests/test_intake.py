@@ -901,6 +901,11 @@ class TestLiveSettings(unittest.TestCase):
                          "ライブの設定: 感度 普通・1 時間 6 本・長さ 45 秒・待ち 5 分・余白 2 秒・配信後の追加 あり")
         self.assertEqual(live_requests.settings_label({"sens": "high", "perHour": 12, "length": 60, "waitMin": 3, "pad": 1.5, "afterStream": False}),
                          "ライブの設定: 感度 高・1 時間 12 本・長さ 60 秒・待ち 3 分・余白 1.5 秒・配信後の追加 なし")
+        auto = live_requests.clean_settings({"lengthMode": "auto"})   # 友人の受信箱のアプリの長さ「自動(場面ごと)」(C-2-11)
+        self.assertEqual(auto, dict(live_requests.SETTINGS_DEFAULT, lengthMode="auto"))
+        self.assertIn("長さ 自動(場面ごと)", live_requests.settings_label(auto))
+        for mode in ("fixed", "AUTO", None, 1):   # auto 以外・無い(前の形の依頼)= 固定の長さ
+            self.assertEqual(live_requests.clean_settings({"lengthMode": mode}), live_requests.SETTINGS_DEFAULT, mode)
 
 
 class TestLiveRequest(Base):
@@ -951,6 +956,15 @@ class TestLiveRequest(Base):
         (_url, ctx), = self.begun
         self.assertEqual(ctx["deliverBatch"], 3)
         self.assertIn("1 本ずつ届けます", rec["items"][0]["reason"])
+
+    def test_live_length_auto_reaches_link(self):
+        """友人の受信箱のアプリの長さ「自動(場面ごと)」(依頼の JSON の live.lengthMode auto。C-2-11)は結びつきの settings に残す(検出が場面ごとに切る)"""
+        self.infos[self.VID] = {"duration": None, "live": "is_live", "title": "配信中", "channel": "Miko Ch."}
+        rec = self.send("20261017-200000-abc303", live={"sens": "high", "perHour": 12, "length": 60, "waitMin": 3, "pad": 1.5, "afterStream": False,
+                                                         "lengthMode": "auto"})
+        (_url, ctx), = self.begun
+        self.assertEqual(ctx["settings"]["lengthMode"], "auto")
+        self.assertIn("長さ 自動(場面ごと)", rec["items"][1]["reason"])
 
     def test_live_now_begins_recording_and_links(self):
         self.infos[self.VID] = {"duration": None, "live": "is_live", "title": "【歌枠】配信中", "channel": "Miko Ch."}

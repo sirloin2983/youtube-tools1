@@ -1237,6 +1237,27 @@ class ServerTest(unittest.TestCase):
         self.assertEqual((doc["kind"], doc["live"]["length"], doc["live"]["sens"]), ("live", 180, "high"))
         self.assertEqual(self.app.api.form()["live"]["length"], 180)
 
+    def test_live_settings_refuses_user_pc_and_other_rows(self):
+        """POST /api/friend/live-settings(C-2-11。録画中の行の変え方は test_live の test_update_live_while_recording):
+        ユーザーの PC に頼んだ行・ライブでない行・録画中でない行は 400(理由)・無い行は 404・合言葉が要る"""
+        self.use_fake_dropbox()
+        self.prefs(pc="user")
+        st, d = self.send(kind="live", live={"perHour": 6, "lengthMode": "auto", "afterStream": True})
+        rid = d["row"]["id"]
+        st, _h, p = self.post("/api/friend/live-settings", {"id": rid, "perHour": 3})
+        self.assertEqual((st, self.js(p)["message"]), (400, "作る人の PC で録画している依頼は、ここから変えられません"))
+        self.assertEqual(self.app.inbox.row(rid)["form"]["live"]["perHour"], 6)
+        self.prefs(pc="this")
+        self.app.inbox.add("20261017-130000-abcdef", {"kind": "live", "live": {}}, {"url": URL}, kind="live")   # 送っただけ(録画を始める前)
+        st, _h, p = self.post("/api/friend/live-settings", {"id": "20261017-130000-abcdef", "perHour": 3})
+        self.assertEqual(st, 400)
+        self.assertIn("録画中の行だけ", self.js(p)["message"])
+        st, d = self.send(kind="url", top=2)
+        st, _h, p = self.post("/api/friend/live-settings", {"id": d["row"]["id"], "perHour": 3})
+        self.assertEqual((st, self.js(p)["message"]), (400, "ライブの行ではありません"))
+        self.assertEqual(self.post("/api/friend/live-settings", {"id": "nope", "perHour": 3})[0], 404)
+        self.assertEqual(self.post("/api/friend/live-settings", {"id": rid}, headers={TOKEN: None})[0], 403)
+
     # ------------------------------------------------------------ ⚙ の値(prefs。C-2-19)
     def test_prefs_sets_each_value_and_writes_form_json(self):
         st, d = self.prefs(useWeights=True, weights={"wAudio": 3, "wChat": 0, "wComments": 1}, liveSens="low", liveWait=20, livePad=4)

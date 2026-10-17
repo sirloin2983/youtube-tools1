@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """友人の玄関のライブの依頼の欄と結びつき(F2-6。notes:plan/f1-friend-requirements.md の A-5・A-5b、docs/spec/friend.md の 2-15)。軽い部品だけ(画面を先に出すため)。
 
-- 6 つの設定の検査の表(check_settings = 送る欄・clean_settings = 記録の読み直し)。長さは 10〜180 秒 = A-5b の仮。LD-2e で「自動(場面ごと)」を足すのは LENGTH の 1 か所
-- RequestBook = 友人の依頼と録画の結びつき(③ human の live_requests は読まない = 受信箱の側に持つ。flow/livehost.RequestBook の形 = get・all・put・prune)
+- 6 つの設定の検査の表(check_settings = 送る欄・clean_settings = 記録の読み直し)。長さは 10〜180 秒 = A-5b の仮。
+  長さ「自動(場面ごと)」(C-2-11)は結びつきの settings の lengthMode "auto"(無い = 固定の長さ)。検出のワーカーが場面ごとの形で切る(長さは場面が取れないときの長さ)
+- RequestBook = 友人の依頼と録画の結びつき(③ human の live_requests は読まない = 受信箱の側に持つ。flow/livehost.RequestBook の形 = get・all・put・prune。
+  録画中の設定の差し替え update = C-2-11)
 ② のライブ係 FriendLive は friendapp/live_session.py(flow/livesession を読む重い部品)。
 """
 import copy
@@ -65,13 +67,16 @@ def clean_settings(v):
         out["pad"] = float(v["pad"])
     if isinstance(v.get("afterStream"), bool):
         out["afterStream"] = v["afterStream"]
+    if v.get("lengthMode") == "auto":   # 長さ「自動(場面ごと)」(C-2-11)。無い = 固定の長さ(前の形の依頼も)
+        out["lengthMode"] = "auto"
     return out
 
 
 def settings_label(s):
     """記録に出す 1 行"""
-    return "感度 %s・1 時間 %d 本・長さ %d 秒・待ち %d 分・余白 %g 秒・配信後の追加 %s" % (
-        SENS_LABELS[s["sens"]], s["perHour"], s["length"], s["waitMin"], s["pad"], "あり" if s["afterStream"] else "なし")
+    size = "長さ 自動(場面ごと)" if s.get("lengthMode") == "auto" else "長さ %d 秒" % s["length"]
+    return "感度 %s・1 時間 %d 本・%s・待ち %d 分・余白 %g 秒・配信後の追加 %s" % (
+        SENS_LABELS[s["sens"]], s["perHour"], size, s["waitMin"], s["pad"], "あり" if s["afterStream"] else "なし")
 
 
 def _int_or_none(v, lo=None, hi=None):
@@ -135,6 +140,17 @@ class RequestBook:
                 del self.items[key]
             self._write()
         return dict(item)
+
+    def update(self, rc, rec, settings):
+        """録画中に依頼の設定を差し替える(C-2-11。今の設定に重ねて読み直す = 範囲の外は既定)-> 残した項目か None(結びつきが無い)"""
+        key = "%s/%s" % (rc, rec)
+        with self.lock:
+            item = self.items.get(key)
+            if item is None:
+                return None
+            item["settings"] = clean_settings(dict(item.get("settings") or {}, **settings))
+            self._write()
+            return copy.deepcopy(item)
 
     def prune(self, keep_days=KEEP_DAYS):
         """古い結びつき(録画と配信後の追加が済んで十分たった物)を消す -> 消した数"""

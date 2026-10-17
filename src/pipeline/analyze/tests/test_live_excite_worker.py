@@ -1058,13 +1058,20 @@ class WorkerRestTest(unittest.TestCase):
         sa = w.recs[("fake", REC)]
         self.assertEqual((sa.book.thr, sa.book.per_hour, sa.book.length, sa.spec["lengthFrom"]), (excite.SENS["low"], 5, 45.0, "studio"))
         self.assertEqual((st.book.thr, st.book.per_hour), (excite.SENS["high"], 2))
-        # 依頼の設定が変わった(読み直し): 感度・枠は途中から、長さは受け持っている録画では変えない
+        # 依頼の設定が変わった(読み直し): 感度・枠・長さも途中から(長さは C-2-11 で録画中に変えられるようにした = これから確定する候補から)
         write_config(self.dir, detect=home, detectAll=True, requests={"fake/" + REC_B: {"sens": "normal", "perHour": 4, "length": 60}})
         w.cfg_checked = -1e18
         clock.t += 6
         w.tick()
-        self.assertEqual((st.book.thr, st.book.per_hour, st.book.length), (excite.SENS["normal"], 4, 30.0))
+        self.assertEqual((st.book.thr, st.book.per_hour, st.book.length, st.book.shape), (excite.SENS["normal"], 4, 60.0, "fixed"))
         self.assertEqual((sa.book.thr, sa.book.per_hour), (excite.SENS["low"], 5))
+        # 長さを「自動(場面ごと)」に(C-2-11): 場面ごとの形へ・依頼でない録画は変えない
+        write_config(self.dir, detect=home, detectAll=True, requests={"fake/" + REC_B: {"sens": "normal", "perHour": 4, "length": 60, "lengthMode": "auto"}})
+        w.cfg_checked = -1e18
+        clock.t += 6
+        w.tick()
+        self.assertEqual((st.book.shape, st.book.length, st.spec["lengthFrom"]), ("scene", 60.0, "friendScene"))
+        self.assertEqual(sa.spec["lengthFrom"], "studio")
         # ホームの検出をオフに戻した(detectAll false): ほかの録画は保存して手放す。依頼の録画は続ける
         write_config(self.dir, detect=home, detectAll=False, requests=reqs)
         w.cfg_checked = -1e18
@@ -1123,6 +1130,19 @@ class WorkerRestTest(unittest.TestCase):
         self.assertEqual((w.cfg["requests"], w.cfg["detectAll"]), ({k: {"sens": "low", "perHour": 1, "length": None}}, True))   # detectAll が無い = 全部(今までどおり)
         self.assertEqual((w._detect_for("fake", REC), w._detect_for("fake", REC_B)), ({"sens": "low", "perHour": 1}, {"sens": "normal", "perHour": 6}))
         w.close()
+
+    def test_request_length_mode(self):
+        """C-2-11: 依頼の lengthMode auto = 場面ごとの形(長さは場面が取れないときの長さ)・無い(前の形の依頼)と auto 以外 = 固定の長さ"""
+        k = "fake/" + REC
+        self.assertEqual(W.clean_requests({k: {"length": 30, "lengthMode": "auto"}})[k]["lengthMode"], "auto")
+        for mode in (None, "fixed", "AUTO", 1):
+            self.assertNotIn("lengthMode", W.clean_requests({k: {"length": 30, "lengthMode": mode}})[k], mode)
+        base = dict(W.SPEC_DEFAULT, lengthFrom="studio", shape="fixed")
+        auto = W.request_spec(base, {"length": 30.0, "lengthMode": "auto"})
+        self.assertEqual((W.shape_of(auto), auto["length"], auto["lengthFrom"]), ("scene", 30.0, "friendScene"))
+        fixed = W.request_spec(auto, {"length": 50.0})
+        self.assertEqual((W.shape_of(fixed), fixed["length"], fixed["lengthFrom"]), ("fixed", 50.0, "friend"))
+        self.assertEqual(W.request_spec(base, {"length": None}), base)   # 長さの無い依頼 = スタジオの長さのまま
 
 
 class SameAsExportTest(unittest.TestCase):

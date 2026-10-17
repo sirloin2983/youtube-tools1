@@ -155,7 +155,22 @@ def clean_requests(v):
         llo, lhi = SPEC_RANGES["length"]
         length = float(s.get("length")) if schemas.is_num(s.get("length")) and llo <= s["length"] <= lhi else None
         out[k] = {"sens": det["sens"], "perHour": det["perHour"], "length": length}
+        if s.get("lengthMode") == "auto":   # 長さ「自動(場面ごと)」(C-2-11。無い = 前の形の依頼 = 固定の長さ)
+            out[k]["lengthMode"] = "auto"
     return out
+
+
+def request_spec(spec, req):
+    """友人の依頼の録画の spec(2-15・C-2-11): lengthMode auto なら場面ごとの形(長さは場面が取れないときの長さ)、ほかは依頼の固定の長さ。
+    依頼の長さが無ければ spec の長さのまま"""
+    if req.get("lengthMode") == "auto":
+        out = dict(spec, shape="scene", lengthFrom="friendScene", lengthNote="友人の依頼の設定(場面ごと)")
+        if req.get("length"):
+            out["length"] = req["length"]
+        return out
+    if req.get("length"):
+        return dict(spec, length=req["length"], lengthFrom="friend", lengthNote="友人の依頼の設定")
+    return spec
 
 
 def clean_spec_doc(src):
@@ -552,7 +567,8 @@ class ChatFeed:
 
 
 def shape_of(spec):
-    """録画の区間の形(LD-2b): 友人の依頼で長さを決めた録画は固定の長さ(L-4)・spec の shape・無ければスイッチ excite.SHAPE_DEFAULT"""
+    """録画の区間の形(LD-2b): 友人の依頼で長さを決めた録画は固定の長さ(L-4)・spec の shape・無ければスイッチ excite.SHAPE_DEFAULT。
+    友人の依頼の「自動(場面ごと)」(C-2-11)は request_spec が shape scene・lengthFrom friendScene にする"""
     if spec.get("lengthFrom") == "friend":
         return "fixed"
     return spec["shape"] if spec.get("shape") in excite.SHAPES else excite.SHAPE_DEFAULT
@@ -655,6 +671,17 @@ class RecState:
         """感度・1 時間の本数は配信の途中でも変えられる(これから確定する候補から)"""
         det = clean_detect(detect)
         self.book.thr, self.book.per_hour = excite.SENS[det["sens"]], det["perHour"]
+
+    def set_request(self, req):
+        """友人の依頼の録画の長さ(固定の秒 / 場面ごと)も配信の途中で変えられる(C-2-11。これから確定する候補から。もう出た候補は変えない)。
+        req = clean_requests の 1 項目か None(依頼でない録画 = 何もしない)"""
+        if not req:
+            return
+        spec = request_spec(self.spec, req)
+        if spec == self.spec:
+            return
+        self.spec = spec
+        self.book.length, self.book.shape = float(spec["length"]), shape_of(spec)
 
     def disable_chat(self, why):
         """チャットを諦めた: Online を音だけにして続ける(過去の秒はそのまま)"""
@@ -975,6 +1002,7 @@ class Worker:
                     "bundles": clean_bundles(d.get("bundles"))}         # 束のある録画ごとの解析の設定・感度・枠(RS7-2 G2b。無ければ {})
         for st in self.recs.values():
             st.set_detect(self._detect_for(st.rc, st.rec))
+            st.set_request(self._request_for(st.rc, st.rec))   # 依頼の長さの形も途中から(C-2-11)
         return True
 
     # ---- 動かす
@@ -1256,8 +1284,8 @@ class Worker:
             bun = self._bundle_for(rc["id"], r["id"])   # 束のある録画は録画を始めたときの解析の設定(RS7-2 G2b)
             spec = spec_with_hint(bun["spec"] if bun else self.cfg["spec"], self.cfg.get("lengthHint"))   # M10: 人が選んだ長さの目安(足りなければスタジオの設定)
             req = self._request_for(rc["id"], r["id"])
-            if req and req.get("length"):   # 友人の依頼の録画: 長さは依頼の設定(2-15)
-                spec = dict(spec, length=req["length"], lengthFrom="friend", lengthNote="友人の依頼の設定")
+            if req:   # 友人の依頼の録画: 長さは依頼の設定(2-15。自動 = 場面ごと・固定 = 依頼の秒。C-2-11)
+                spec = request_spec(spec, req)
             st = RecState(folder, rc["id"], r["id"], url, first, spec, self._detect_for(rc["id"], r["id"]), bool(ytdlp and video_id(url, r["id"])) and live,
                           self.chat_grace, provisional=self.cfg.get("provisional", True))
             self.log("盛り上がりの検出: %s を受け持ちます(チャット %s・候補の長さ %g 秒 = %s%s)" % (
@@ -1270,6 +1298,7 @@ class Worker:
         elif not self.cfg.get("provisional", True):
             st.fast = None   # 仮の候補を止めた(config の provisional: false)。出ている仮の候補は本番が置き換えるか外す
         st.set_detect(self._detect_for(rc["id"], r["id"]))   # 友人の依頼の録画は依頼の感度・枠(2-15。ホームの設定で上書きしない)
+        st.set_request(self._request_for(rc["id"], r["id"]))   # 止まっている間に変えた依頼の長さの形も(C-2-11)
         self.recs[key] = st
         if st.use_chat:   # 受け持った周期のうちにチャットを読む(続きから: 止まっていた間の秒を、チャットを読む前に grace で進めない)
             self._feed_step(self._feed(st), self.clock())
