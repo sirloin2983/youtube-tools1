@@ -281,6 +281,7 @@ def main(argv=None):
     app.setup.whisper = lambda device, data_root, wav: None
     app.setup.set_device = lambda d: None
     app.setup.env = {}
+    app.setup.log = lambda m: None                           # 準備の流れのログは出さない(ui_audit は起動の 1 行のあと標準出力を読まない = 詰まる)
     app.setup.start()                                        # 見本は古い部品を写さない。fetch.json が無ければすぐ済み・--missing は準備だけの画面
     app.streams = DemoStreams()                              # 配信の一覧(F3-2)はネットへ出ない
     if not app.inbox.rows:
