@@ -998,6 +998,10 @@ class ServerTest(unittest.TestCase):
         self.assertEqual([x["name"] for x in d["skipped"]], ["メモ.txt", "無い.mp4"])
         self.assertNotIn(self.tmp, json.dumps(d["files"], ensure_ascii=False))   # パスは画面に返さない
         self.assertEqual(self.post("/api/friend/files", {"paths": [clip]}, headers={TOKEN: None})[0], 403)
+        # 同じ物をもう一度落としても重ならない(同じパス・大きさ・更新時刻 = 同じ id)
+        d2 = self.js(self.post("/api/friend/files", {"paths": [clip, clip]})[2])
+        self.assertEqual({x["id"] for x in d2["files"]}, {d["files"][0]["id"]})
+        self.assertEqual(len(self.app.api._files), 1)
 
     def test_holdings_count_reserved_and_archive_wait(self):
         """exe の見回りの預かり(F3-1 の state): 予約 = まだ始まっていない配信の録画・アーカイブ待ち・30 分以内の予約はスリープを止める"""

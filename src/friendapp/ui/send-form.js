@@ -345,6 +345,7 @@
     $('filesTitle').textContent = f.files.length ? '動画ファイル(' + f.files.length + ' 本)' : '動画ファイル';
   }
   function addFile(got) {   /* {id, name, size, streamer, hex} */
+    if (got.id && f.files.some(function (y) { return y.id === got.id; })) return null;   /* 同じ物は足さない(玄関が同じパスに同じ id を返す) */
     if (f.files.length >= FILES_MAX) { UIKit.toast('動画ファイルは 1 回に ' + FILES_MAX + ' 本までです', { kind: 'err' }); return null; }
     if (f.mode !== 'files') { close(); f.mode = 'files'; setTimeout(reveal, 0); }
     var x = { id: got.id || '', name: got.name, size: got.size, who: { name: got.streamer || '', hex: got.hex || null, auto: true }, pct: 0 };
@@ -363,6 +364,7 @@
       UIKit.toast(file.name + ' は動画ではないので外しました', { kind: 'err', ms: 5000 });
       return;
     }
+    if (f.files.some(function (y) { return y.name === file.name && y.size === file.size; })) return;   /* 同じ名前・大きさは足さない */
     var x = addFile({ name: file.name, size: file.size });
     if (!x) return;
     var xhr = new XMLHttpRequest();
@@ -391,6 +393,7 @@
     zone.addEventListener('dragleave', function () { zone.classList.remove('on'); });
     zone.addEventListener('drop', function (e) {
       e.preventDefault();
+      e.stopPropagation();   /* 落とす所は入れ子(送る欄の中に落とす所)。外側にも届くと同じ物が 2 回入る */
       zone.classList.remove('on');
       var files = (e.dataTransfer && e.dataTransfer.files) || [];
       if (!files.length) return;

@@ -281,7 +281,15 @@ class Api:
         name = os.path.basename(path)
         if os.path.splitext(name)[1].lower() not in VIDEO_TYPES:
             raise FormError("動画ファイル(%s)ではありません" % " ".join(sorted(VIDEO_TYPES)))
-        return self._keep_file({"path": path, "name": name[:200], "size": os.path.getsize(path)})
+        size = os.path.getsize(path)
+        key = (os.path.normcase(os.path.abspath(path)), size, os.path.getmtime(path))
+        with self._lock:   # 同じ物(同じパス・大きさ・更新時刻)をもう一度覚えさせても 1 つのまま = 同じ id を返す
+            for fid, e in self._files.items():
+                if e.get("key") == key:
+                    who = guess_streamer(e["name"])
+                    return {"id": fid, "name": e["name"], "size": e["size"], "title": file_title(e["name"]),
+                            "streamer": who["name"] if who else "", "hex": who["hex"] if who else None}
+        return self._keep_file({"path": path, "name": name[:200], "size": size, "key": key})
 
     def upload_dir(self):
         return os.path.join(self.places["cases"], UPLOAD_DIR)

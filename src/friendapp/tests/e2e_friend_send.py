@@ -153,6 +153,20 @@ def main():
                 expect(pg.locator("#formEmpty")).to_be_visible(timeout=WAIT)
                 ok &= check(True, "Esc で送る欄を閉じる")
 
+                # 6. 動画ファイルを落とす: 1 回で 1 つ・同じ物をもう一度でも 1 つのまま(落とす所が入れ子でも二重にならない)
+                drop_js = """(n) => {
+                    const dt = new DataTransfer();
+                    dt.items.add(new File([new Uint8Array(5)], 'ドロップ試験.mp4', { type: 'video/mp4' }));
+                    document.getElementById(n).dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+                }"""
+                pg.evaluate(drop_js, "dropZone")
+                expect(pg.locator("#fileList li")).to_have_count(1, timeout=WAIT)
+                time.sleep(0.8)
+                ok &= check(pg.locator("#fileList li").count() == 1, "動画を 1 回落とすと欄に 1 つだけ入る")
+                pg.evaluate(drop_js, "dropMore")
+                time.sleep(0.8)
+                ok &= check(pg.locator("#fileList li").count() == 1, "同じ物(同じ名前・大きさ)をもう一度落としても 1 つのまま")
+
                 ok &= check(not rig.opened, "フォルダ・窓は開いていない(偽物の口に呼びが無い)")
                 ok &= check(not errors, "画面にエラー(pageerror)が出ていない%s" % ("" if not errors else ": " + errors[0][:120]))
             finally:
