@@ -173,7 +173,7 @@
 
   /* ---------------------------------------------------------------- キー(C-3-10) */
   function onKey(e) {
-    if (FR.view !== 'receive' || e.ctrlKey || e.metaKey || e.altKey || document.querySelector('dialog[open]') || !$('settingsDrawer').hidden) return;
+    if (FR.view !== 'receive' || e.ctrlKey || e.metaKey || e.altKey || document.querySelector('dialog[open]') || FR.drawerOpen()) return;
     if (e.key === 'Escape') {
       if (selected().length) { clearSel(); e.preventDefault(); return; }
       if (my.cur) { back(); e.preventDefault(); }

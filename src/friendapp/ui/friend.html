@@ -6,10 +6,13 @@
 <title>切り抜き</title>
 <!-- 友人のアプリ(F3。notes:plan/f1-friend-requirements.md の C)。1 枚の中で [送る] / [受け取る] を切り替える(#send・#receive)。
      送る = 左に配信の一覧(F3-2。send-list.js)・右に送る欄(F3-3。send-form.js)・右下に送った物(sent.js)/ 受け取る = 配信ごとの段と再生画面(F3-4。receive.js)。
-     共通の口・⚙・初回の準備・見回りは friend.js。CSP の下で動く: インラインの script・on〇〇= は書かない。外の文字は textContent で入れる -->
+     共通の口・見回りは friend.js・⚙ は settings.js・窓との境目は host.js(F3-A)・初回の準備は setup.html(F3-5)。CSP の下で動く: インラインの script・on〇〇= は書かない。外の文字は textContent で入れる -->
 <script src="ui-kit.js"></script>
+<script src="host.js"></script>
 <link rel="stylesheet" href="ui-kit.css">
 <link rel="stylesheet" href="friend.css">
+<link rel="stylesheet" href="settings.css">
+<script src="settings.js" defer></script>
 <script src="friend.js" defer></script>
 <script src="send-list.js" defer></script>
 <script src="send-form.js" defer></script>
@@ -38,28 +41,6 @@
   <div class="notice" id="cleaned" hidden><span id="cleanedText"></span> <button type="button" class="btn ghost small" id="cleanedOk">閉じる</button></div>
   <div class="notice" id="updated" hidden><span id="updatedText"></span> <button type="button" class="btn ghost small" id="updatedOk">閉じる</button></div>
   <p class="hint fr-nokey" id="noKey" hidden></p>
-
-  <!-- 初回の準備(F2-5。F3-5 で作り直す): 足りない部品があれば最初の起動で 1 回確かめる。[あとで] なら下の帯 -->
-  <section class="card fr-setup" id="setupCard" aria-labelledby="setupTitle" hidden>
-    <div class="fr-setup-h">
-      <h2 class="fr-h" id="setupTitle">初回の準備</h2>
-      <a class="btn ghost small fr-help" href="guide.html#setup" target="_blank" rel="noopener" aria-label="初回の準備の説明を新しい窓で開く" title="初回の準備の説明">?</a>
-    </div>
-    <p id="setupLead">文字起こしなどに使う部品を取ってきます。取り終わるまで、この PC での処理はできません。</p>
-    <ul class="fr-setup-items" id="setupItems"></ul>
-    <p class="hint fr-where" id="setupWhere"></p>
-    <p class="fr-bad" id="setupWhy" hidden></p>
-    <div id="setupProgWrap" hidden>
-      <div class="bar" id="setupBar" role="progressbar" aria-label="取っている進み具合" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i></i></div>
-      <p class="hint" id="setupProg" aria-live="polite"></p>
-    </div>
-    <div class="fr-line">
-      <button type="button" class="btn primary" id="btnSetupStart">始める</button>
-      <button type="button" class="btn ghost" id="btnSetupLater" title="今は取りません。上の帯の [取ってくる] からいつでも始められます(取り終わるまで、この PC での処理はできません)">あとで</button>
-      <button type="button" class="btn ghost" id="btnSetupCancel" hidden title="取るのをやめます(取れた分は残り、次は続きから)">やめる</button>
-    </div>
-  </section>
-  <div class="notice warn fr-band" id="setupBand" hidden><span id="setupBandText">部品が足りません</span> <button type="button" class="btn small" id="btnSetupOpen">取ってくる</button></div>
 
   <!-- ================================================================ 送る(C-2) -->
   <div class="fr-view fr-sendview" id="viewSend">
@@ -217,87 +198,6 @@
     </div>
   </section>
 </main>
-<!-- ⚙ 設定(F2-5 + C-2-19・C-2-11 の 3 つ。F3-5 で作り直す)。フォルダは [選ぶ] で玄関が Windows の窓を開く(画面からパスを打たせない) -->
-<aside class="ui-drawer" id="settingsDrawer" hidden aria-labelledby="settingsTitle">
-  <div class="ui-drawer-head">
-    <h2 class="ui-drawer-title" id="settingsTitle">設定</h2>
-    <a class="btn ghost small fr-help" href="guide.html#settings" target="_blank" rel="noopener" aria-label="設定の説明を新しい窓で開く" title="設定の説明">?</a>
-    <button type="button" class="btn ghost icon small" id="settingsClose" aria-label="閉じる"><span class="ui-icon" data-icon="close" aria-hidden="true"></span></button>
-  </div>
-  <div class="ui-drawer-body">
-    <section class="ui-settings-sec fr-set" aria-labelledby="setPcH">
-      <h3 id="setPcH">処理する PC</h3>
-      <div class="fr-line" role="radiogroup" aria-labelledby="setPcH">
-        <label class="fr-radio"><input type="radio" name="setPc" value="this"> この PC で処理する</label>
-        <label class="fr-radio" id="setPcUserLabel"><input type="radio" name="setPc" value="user" id="setPcUser"> 依頼する</label>
-      </div>
-      <p class="hint">「依頼する」にすると、この PC では処理せず、作る人の PC で作って届きます。</p>
-    </section>
-    <section class="ui-settings-sec fr-set" aria-labelledby="setSaveH">
-      <h3 id="setSaveH">受け取った物の保存先</h3>
-      <p class="fr-path" id="setSave"></p>
-      <div class="fr-line"><button type="button" class="btn small" id="btnPickSave">選ぶ</button><button type="button" class="btn ghost small" id="btnResetSave">既定に戻す</button></div>
-      <p class="hint">変えても、今ある物は移しません。</p>
-    </section>
-    <section class="ui-settings-sec fr-set" aria-labelledby="setCasesH">
-      <h3 id="setCasesH">一時保管</h3>
-      <p class="fr-path" id="setCases"></p>
-      <div class="fr-line"><button type="button" class="btn small" id="btnPickCases">選ぶ</button><button type="button" class="btn ghost small" id="btnResetCases">既定に戻す</button></div>
-      <p class="hint">作っている途中の物と録画を置く場所です(空き容量はこのドライブで測ります)。</p>
-    </section>
-    <section class="ui-settings-sec fr-set" aria-labelledby="setLiveH">
-      <h3 id="setLiveH">ライブ</h3>
-      <div class="fr-line" role="radiogroup" aria-label="感度">
-        <span class="fr-label">感度</span>
-        <label class="fr-radio"><input type="radio" name="setSens" value="high"> 高い</label>
-        <label class="fr-radio"><input type="radio" name="setSens" value="normal"> ふつう</label>
-        <label class="fr-radio"><input type="radio" name="setSens" value="low"> 低い</label>
-      </div>
-      <div class="fr-line"><label class="fr-label" for="setWait">切るまで</label><input type="number" id="setWait" class="fr-num" min="1" max="60" step="1"><span class="hint">分(盛り上がりを見つけてから切るまで)</span></div>
-      <div class="fr-line"><label class="fr-label" for="setPad">余白</label><input type="number" id="setPad" class="fr-num" min="0" max="5" step="1"><span class="hint">秒(前後に足す)</span></div>
-    </section>
-    <section class="ui-settings-sec fr-set" aria-labelledby="setWH">
-      <h3 id="setWH">解析の重み</h3>
-      <label class="fr-radio"><input type="checkbox" id="setUseW"> 見どころを選ぶときの手がかりの重みを変える</label>
-      <div class="fr-line" id="setWLine">
-        <label>音量 <input type="number" id="setWAudio" class="fr-num" min="0" max="3" step="1"></label>
-        <label>チャット <input type="number" id="setWChat" class="fr-num" min="0" max="3" step="1"></label>
-        <label>コメント <input type="number" id="setWComments" class="fr-num" min="0" max="3" step="1"></label>
-      </div>
-    </section>
-    <section class="ui-settings-sec fr-set" aria-labelledby="setEngineH">
-      <h3 id="setEngineH">文字起こしのエンジン</h3>
-      <div class="fr-line" role="radiogroup" aria-labelledby="setEngineH">
-        <label class="fr-radio"><input type="radio" name="setEngine" value="A"> ふつう(どの GPU でも)</label>
-        <label class="fr-radio"><input type="radio" name="setEngine" value="C"> NVIDIA の GPU 向け</label>
-      </div>
-      <p class="hint" id="setGpu"></p>
-    </section>
-    <section class="ui-settings-sec fr-set" aria-labelledby="setKeyH">
-      <h3 id="setKeyH">YouTube の API キー</h3>
-      <p id="setKeyState"></p>
-      <div class="fr-line">
-        <input type="password" id="setKey" class="fr-key" autocomplete="off" spellcheck="false" aria-labelledby="setKeyH" placeholder="キーを貼る">
-        <button type="button" class="btn small" id="btnKeySave">確かめて保存</button>
-        <button type="button" class="btn ghost small" id="btnKeyClear">消す</button>
-      </div>
-      <p class="hint" id="setKeyHelp"></p>
-    </section>
-    <section class="ui-settings-sec fr-set" aria-labelledby="setDiskH">
-      <h3 id="setDiskH">空き容量の下限</h3>
-      <div class="fr-line">
-        <input type="number" id="setDisk" class="fr-num" min="0" max="100000" step="1" aria-labelledby="setDiskH"><span class="hint">GB(これより少なくなると、空くまで待ちます)</span>
-      </div>
-    </section>
-    <section class="ui-settings-sec fr-set" aria-labelledby="setCutH">
-      <h3 id="setCutH">カットの既定</h3>
-      <div class="fr-line" role="radiogroup" aria-labelledby="setCutH">
-        <label class="fr-radio"><input type="radio" name="setCut" value="none"> しない</label>
-        <label class="fr-radio"><input type="radio" name="setCut" value="silence"> 無音を削る</label>
-      </div>
-    </section>
-  </div>
-</aside>
 <div id="toast"></div>
 </body>
 </html>

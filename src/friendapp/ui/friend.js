@@ -1,12 +1,13 @@
 /* 友人のアプリの共通の部分(F3)。口は friendapp/server.py の説明。外から来た文字(題・名前・理由)は textContent でだけ入れる。
-   ここ = [送る] / [受け取る] の切り替え・3 秒おきの問い合わせ(送った物の行・受け取る物)を各部品へ配る(FR.on)・⚙・初回の準備・上の帯・止めて終了。
+   ここ = [送る] / [受け取る] の切り替え・3 秒おきの問い合わせ(送った物の行・受け取る物)を各部品へ配る(FR.on)・上の帯・止めて終了。
+   ⚙ は settings.js(F3-5)・窓との境目は host.js(F3-1。FriendHost)・初回の準備は setup.html(済むまで玄関がそちらへ送る)。
    部品: send-list.js(配信の一覧)・send-form.js(送る欄)・sent.js(送った物)・receive.js(受け取る) */
 (function () {
   'use strict';
   var $ = function (id) { return document.getElementById(id); };
   var POLL = 3000, POLL_AWAY = 10000;
   var subs = [], timer = 0, listTimer = 0, view = 'send', undecided = 0;
-  var st = { partsWhy: '', setupKey: '', setupRun: false, hasKey: true, inbox: null, receive: null, form: null };
+  var st = { partsWhy: '', hasKey: true, inbox: null, receive: null, form: null };
 
   function el(tag, attrs, kids) {
     var e = document.createElement(tag);
@@ -83,8 +84,6 @@
     $('cleaned').hidden = !(old || cl);
     $('cleanedText').textContent = old || (cl ? '3 日たった ' + cl.n + ' 本を片付けました' : '');
     $('cleaned').setAttribute('data-what', old ? 'old' : 'cleaned');
-    $('setPcUser').disabled = !st.hasKey;
-    $('setPcUserLabel').title = st.hasKey ? '' : 'Dropbox の鍵が無いので選べません';
   }
   function refresh() {
     clearTimeout(timer);
@@ -93,7 +92,6 @@
       $('errbar').hidden = true;
       st.inbox = j; st.receive = got[1]; st.form = j.form;
       $('btnSaved').title = '受け取った物の保存先を開きます: ' + (j.saveDir || '');
-      setupView(j.setup);
       banner(j);
       setCount(got[1].undecided || 0);
       emit('data', { inbox: j, receive: got[1] });
@@ -104,120 +102,8 @@
     }).then(function () { timer = setTimeout(refresh, UIKit.life.isAway() ? POLL_AWAY : POLL); });
   }
 
-  /* ---------------------------------------------------------------- 初回の準備(F2-5。F3-5 で作り直す) */
-  function setupView(s) {
-    s = s || {};
-    var miss = !!s.active && s.count > 0, run = !!s.running, res = s.result;
-    st.partsWhy = !s.active ? '' : run ? '処理の部品を取っています。取り終えると送れます' :
-      miss ? '処理の部品が足りません。上の [取ってくる] から取ってください' : '';
-    if (st.setupRun && !run && res && res.ok) UIKit.toast('処理の部品を取り終わりました。送れるようになりました', { ms: 5000 });
-    st.setupRun = run;
-    var card = !!s.active && (run || (miss && !s.later));
-    $('setupCard').hidden = !card;
-    $('setupBand').hidden = !(miss && s.later && !run);
-    $('setupBandText').textContent = miss ? '部品が足りません(約 ' + sizeText(s.total) + ')。取り終わるまで、この PC での処理はできません' : '';
-    if (!card) return;
-    var key = JSON.stringify(s.missing || []);
-    if (key !== st.setupKey) {
-      st.setupKey = key;
-      $('setupItems').textContent = '';
-      (s.missing || []).forEach(function (m) { $('setupItems').appendChild(el('li', {}, [m.label + '(' + sizeText(m.size) + ')'])); });
-    }
-    $('setupLead').textContent = run ? '部品を取っています。窓を閉じても続きます(取れた分は残り、止めても次は続きから)。' :
-      '文字起こしなどに使う部品を取ってきます(約 ' + sizeText(s.total) + ')。取り終わるまで、この PC での処理はできません。';
-    $('setupWhere').textContent = (s.places || []).map(function (p) { return '置き場所: ' + p.path + '(空き ' + sizeText(p.free) + '・要る ' + sizeText(p.need) + ')'; }).join('\n');
-    var why = run ? '' : s.reason || (res && !res.ok ? (res.cancelled ? '止めました。取れた分は残っています(続きからやり直せます)' :
-      '取れなかった物があります。ネットを確かめて、やり直してください') : '');
-    $('setupWhy').hidden = !why;
-    $('setupWhy').textContent = why;
-    var p = s.progress;
-    $('setupProgWrap').hidden = !run;
-    if (run && p) {
-      var frac = p.total ? Math.min(1, p.done / p.total) : 0;
-      $('setupBar').firstElementChild.style.width = Math.round(frac * 100) + '%';
-      $('setupBar').setAttribute('aria-valuenow', String(Math.round(frac * 100)));
-      $('setupProg').textContent = p.index ? '取っています(' + p.index + ' / ' + p.count + ')' : (p.phase || '');
-    }
-    $('btnSetupStart').hidden = run;
-    $('btnSetupStart').disabled = !s.canStart;
-    $('btnSetupStart').textContent = res && !res.ok ? 'やり直す' : '始める';
-    $('btnSetupStart').title = s.canStart ? '部品を取り始めます' : (s.reason || '');
-    $('btnSetupLater').hidden = run;
-    $('btnSetupCancel').hidden = !run;
-  }
-  function setupAct(what) {
-    return api('setup/' + what, {}).then(function (j) { setupView(j.setup); emit('parts', st.partsWhy); }, function (e) { fail('初回の準備', e); });
-  }
-
-  /* ---------------------------------------------------------------- ⚙ 設定 */
-  function fillSettings(s) {
-    $('setSave').textContent = s.saveDir + (s.saveIsDefault ? '(既定)' : '');
-    $('setCases').textContent = s.caseRoot + (s.caseIsDefault ? '(既定)' : '');
-    $('btnResetSave').disabled = !!s.saveIsDefault;
-    $('btnResetSave').title = s.saveIsDefault ? '今が既定の場所です' : '既定の場所(ビデオの 受け取ったパック)に戻します';
-    $('btnResetCases').disabled = !!s.caseIsDefault;
-    $('btnResetCases').title = s.caseIsDefault ? '今が既定の場所です' : '既定の場所(アプリのフォルダの 作業)に戻します';
-    Array.prototype.forEach.call(document.querySelectorAll('input[name=setEngine]'), function (r) { r.checked = r.value === s.engine; });
-    $('setGpu').textContent = s.gpu ? 'この PC の GPU: ' + s.gpu.name : '';
-    $('setKeyState').textContent = s.apiKey ? '入っています' : 'まだ入っていません';
-    $('btnKeyClear').disabled = !s.apiKey;
-    $('btnKeyClear').title = s.apiKey ? '保存してあるキーを消します' : 'キーが入っていません';
-    $('setKeyHelp').textContent = s.apiKeyHelp || '';
-    if (document.activeElement !== $('setDisk')) $('setDisk').value = s.diskMinGB == null ? '' : s.diskMinGB;
-    Array.prototype.forEach.call(document.querySelectorAll('input[name=setCut]'), function (r) { r.checked = r.value === s.cut; });
-  }
-  function fillPrefs(f) {   /* ⚙ の処理する PC・ライブ・重み(form.json = C-2-19・C-2-11) */
-    if (!f) return;
-    Array.prototype.forEach.call(document.querySelectorAll('input[name=setPc]'), function (r) { r.checked = r.value === (f.pc || 'this'); });
-    Array.prototype.forEach.call(document.querySelectorAll('input[name=setSens]'), function (r) { r.checked = r.value === f.live.sens; });
-    if (document.activeElement !== $('setWait')) $('setWait').value = f.live.waitMin;
-    if (document.activeElement !== $('setPad')) $('setPad').value = f.live.pad;
-    $('setUseW').checked = !!f.useWeights;
-    $('setWLine').hidden = !f.useWeights;
-    $('setWAudio').value = f.weights.wAudio; $('setWChat').value = f.weights.wChat; $('setWComments').value = f.weights.wComments;
-  }
-  function loadSettings() {
-    fillPrefs(st.form);
-    return api('settings').then(function (j) { fillSettings(j.settings); }, function (e) { fail('設定を読めませんでした', e); });
-  }
-  function putSettings(body) {
-    return api('settings', body).then(function (j) {
-      fillSettings(j.settings);
-      if (j.message) UIKit.toast(j.message, { ms: 4000 });
-    }, function (e) { fail('変えられませんでした', e); loadSettings(); });
-  }
-  function putPrefs(body) {
-    return api('prefs', body).then(function (j) {
-      st.form = j.form; fillPrefs(j.form);
-      emit('prefs', j.form);
-      if (j.message) UIKit.toast(j.message, { ms: 4000 });
-    }, function (e) { fail('変えられませんでした', e); fillPrefs(st.form); });
-  }
-  function num(id, dflt) { var v = parseFloat($(id).value); return isNaN(v) ? dflt : v; }
-  function pickFolder(what) {
-    var b = $(what === 'save' ? 'btnPickSave' : 'btnPickCases');
-    b.disabled = true;
-    api('pick-folder', { what: what }).then(function (j) {
-      fillSettings(j.settings);
-      if (j.chosen && j.message) UIKit.toast(j.message, { ms: 4000 });
-    }, function (e) { fail('フォルダを変えられませんでした', e); }).then(function () { b.disabled = false; });
-  }
-  function saveKey(key) {
-    var b = $('btnKeySave');
-    b.disabled = true;
-    if (key) $('setKeyState').textContent = '確かめています…';
-    api('settings/key', { key: key }).then(function (j) {
-      $('setKey').value = '';
-      fillSettings(j.settings);
-      UIKit.toast(j.message, { ms: 4000 });
-    }, function (e) { fail('API キー', e); loadSettings(); }).then(function () { b.disabled = false; });
-  }
-  function openSettings() {
-    UIKit.drawer.open($('settingsDrawer'), { opener: $('btnSettings') });
-    loadSettings();
-  }
-
-  window.FR = { $: $, el: el, api: api, fail: fail, sizeText: sizeText, dur: dur, token: token, typing: typing, on: on, refresh: refresh, show: show,
+  function drawerOpen() { var d = $('settingsDrawer'); return !!d && !d.hidden; }   /* ⚙ が開いている(Esc とキーは ⚙ へ) */
+  window.FR = { $: $, el: el, api: api, fail: fail, sizeText: sizeText, dur: dur, token: token, typing: typing, on: on, refresh: refresh, show: show, drawerOpen: drawerOpen,
     get state() { return st; }, get view() { return view; } };
   window.FriendApp = { show: show, count: function () { return undecided; } };   /* 窓(F3-A)から呼ぶ口(仮 = decisions 3-83 (f3b-e)) */
 
@@ -229,54 +115,13 @@
     window.addEventListener('hashchange', function () { show(location.hash.slice(1)); });
     $('btnSaved').addEventListener('click', function () { api('open', { what: 'saved' }).catch(function (e) { fail('開けませんでした', e); }); });
     $('btnQuit').addEventListener('click', function () {
+      if (window.FriendHost && FriendHost.isApp) { FriendHost.quit(); return; }   /* exe の窓 = exe が作業中・預かりを見て確認する(F3-1) */
       api('../shutdown', {}).then(function () {
         clearTimeout(timer); clearTimeout(listTimer);
         document.querySelector('.fr-main').textContent = '';
         document.querySelector('.fr-main').appendChild(el('p', { cls: 'fr-bye', text: '止めて終了しました。この窓は閉じてかまいません(次に開くと、作っていた物の続きから始めます)' }));
       }, function (e) { fail('終了できませんでした', e); });
     });
-    $('btnSetupStart').addEventListener('click', function () { setupAct('start'); });
-    $('btnSetupLater').addEventListener('click', function () { setupAct('later'); });
-    $('btnSetupCancel').addEventListener('click', function () { setupAct('cancel'); });
-    $('btnSetupOpen').addEventListener('click', function () { setupAct('open'); });
-    $('btnSettings').addEventListener('click', openSettings);
-    $('settingsClose').addEventListener('click', function () { UIKit.drawer.close($('settingsDrawer')); });
-    $('btnPickSave').addEventListener('click', function () { pickFolder('save'); });
-    $('btnPickCases').addEventListener('click', function () { pickFolder('cases'); });
-    $('btnResetSave').addEventListener('click', function () { putSettings({ reset: 'save' }); });
-    $('btnResetCases').addEventListener('click', function () { putSettings({ reset: 'cases' }); });
-    Array.prototype.forEach.call(document.querySelectorAll('input[name=setEngine]'), function (r) {
-      r.addEventListener('change', function () { if (r.checked) putSettings({ engine: r.value }); });
-    });
-    Array.prototype.forEach.call(document.querySelectorAll('input[name=setCut]'), function (r) {
-      r.addEventListener('change', function () { if (r.checked) putSettings({ cut: r.value }); });
-    });
-    Array.prototype.forEach.call(document.querySelectorAll('input[name=setPc]'), function (r) {
-      r.addEventListener('change', function () { if (r.checked) putPrefs({ pc: r.value }); });
-    });
-    Array.prototype.forEach.call(document.querySelectorAll('input[name=setSens]'), function (r) {
-      r.addEventListener('change', function () { if (r.checked) putPrefs({ liveSens: r.value }); });
-    });
-    $('setWait').addEventListener('change', function () { putPrefs({ liveWait: Math.round(num('setWait', 5)) }); });
-    $('setPad').addEventListener('change', function () { putPrefs({ livePad: num('setPad', 2) }); });
-    $('setUseW').addEventListener('change', function () { putPrefs({ useWeights: $('setUseW').checked }); });
-    ['setWAudio', 'setWChat', 'setWComments'].forEach(function (id) {
-      $(id).addEventListener('change', function () {
-        putPrefs({ weights: { wAudio: Math.round(num('setWAudio', 1)), wChat: Math.round(num('setWChat', 1)), wComments: Math.round(num('setWComments', 1)) } });
-      });
-    });
-    $('setDisk').addEventListener('change', function () {
-      var x = parseFloat($('setDisk').value);
-      if (isNaN(x)) { UIKit.toast('空き容量の下限は数(GB)で入れてください', { kind: 'err' }); loadSettings(); return; }
-      putSettings({ diskMinGB: x });
-    });
-    $('btnKeySave').addEventListener('click', function () {
-      var k = $('setKey').value.trim();
-      if (!k) { UIKit.toast('キーを貼ってから押してください', { kind: 'err' }); return; }
-      saveKey(k);
-    });
-    $('setKey').addEventListener('keydown', function (e) { if (e.key === 'Enter' && $('setKey').value.trim()) saveKey($('setKey').value.trim()); });
-    $('btnKeyClear').addEventListener('click', function () { saveKey(''); });
     $('cleanedOk').addEventListener('click', function () {
       var what = $('cleaned').getAttribute('data-what');
       api('notice-seen', what === 'cleaned' ? { what: 'cleaned' } : {}).then(function () { $('cleaned').hidden = true; if (st.receive) st.receive.notice = null; });

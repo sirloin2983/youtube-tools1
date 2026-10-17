@@ -934,6 +934,32 @@ class ServerTest(unittest.TestCase):
         self.assertEqual((env["kind"], env["requestId"]), ("file", d2["row"]["id"]))
         self.assertTrue(env["input"]["path"].startswith(self.places["cases"]))
 
+    def test_dropped_files_from_window(self):
+        """exe の窓に落とした動画(F3-1 の host.js sendFiles = exe が本物のパスを POST /api/friend/files)。動画でない物はその 1 本だけ外す"""
+        clip = os.path.join(self.tmp, "【兎田ぺこら】落とした.mp4")
+        with open(clip, "wb") as f:
+            f.write(b"v" * 7)
+        txt = os.path.join(self.tmp, "メモ.txt")
+        with open(txt, "w", encoding="utf-8") as f:
+            f.write("x")
+        st, _h, p = self.post("/api/friend/files", {"paths": [clip, txt, os.path.join(self.tmp, "無い.mp4")]})
+        d = self.js(p)
+        self.assertEqual((st, [x["name"] for x in d["files"]], d["files"][0]["streamer"]), (200, ["【兎田ぺこら】落とした.mp4"], "兎田ぺこら"))
+        self.assertEqual([x["name"] for x in d["skipped"]], ["メモ.txt", "無い.mp4"])
+        self.assertNotIn(self.tmp, json.dumps(d["files"], ensure_ascii=False))   # パスは画面に返さない
+        self.assertEqual(self.post("/api/friend/files", {"paths": [clip]}, headers={TOKEN: None})[0], 403)
+
+    def test_holdings_count_reserved_and_archive_wait(self):
+        """exe の見回りの預かり(F3-1 の state): 予約 = まだ始まっていない配信の録画・アーカイブ待ち・30 分以内の予約はスリープを止める"""
+        ib = self.app.inbox
+        now = int(self.app.clock() * 1000)
+        ib.add("20261017-200000-aaaaaa", {"url": URL, "startAt": now + 3600 * 1000}, {"url": URL, "videoId": VID, "title": "予約"}, kind="live")
+        ib.live_started("20261017-200000-aaaaaa", "local", "rec1")
+        ib.add("20261017-200100-bbbbbb", {"url": URL}, {"url": URL, "videoId": VID, "title": "待ち"}, state="waiting")
+        self.assertEqual(self.app.holdings(), {"reserved": 1, "archiveWait": 1, "soon": False})
+        ib.row("20261017-200000-aaaaaa")["form"]["startAt"] = now + 10 * 60 * 1000
+        self.assertTrue(self.app.holdings()["soon"])
+
     def make_videos(self, names):
         out = []
         for n in names:
@@ -1557,7 +1583,7 @@ class ServerTest(unittest.TestCase):
 
     def test_state_holdings_undecided_and_awake(self):
         self.app.holdings = lambda: {"reserved": 2, "archiveWait": 1, "soon": False}
-        self.app.inbox.view = lambda *a, **k: [{"undecided": 3}, {"undecided": 2}, {}]
+        self.app.inbox.receive_view = lambda: {"sections": [], "skipped": [], "undecided": 5, "notice": None}   # ●n = 受け取る画面と同じ数(F3-4)
         d = self.js(self.get("/api/friend/state", headers={TOKEN: self.srv.token})[2])
         self.assertEqual((d["reserved"], d["archiveWait"], d["undecided"]), (2, 1, 5))
         self.assertTrue(d["awake"])   # アーカイブ待ちの間はスリープを止める

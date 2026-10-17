@@ -83,6 +83,7 @@ SETUP_PAGE = "/friend/setup.html"
 MAIN_PAGES = ("/friend/", "/friend/index.html")
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://i.ytimg.com; media-src 'self'; "
        "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+SOON_MS = 30 * 60 * 1000              # 予約の配信がこれより近ければスリープを止める(C-5-4)
 STREAMS_NAME = "streams.json"         # 配信の一覧の写し(開いた瞬間は前回の一覧 = C-2-5)
 TOKEN_ENV = "YTT_FRIEND_TOKEN"        # exe が渡す合言葉(無ければ乱数)
 HOST_ENV = "YTT_FRIEND_HOST"          # exe の窓の種類(webview2 = 合言葉は WebView2 が足す / edge = 逃げ道 / 無し = 開発の PC)
@@ -377,6 +378,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, app.decide(body))
         if path == "/api/friend/undo":   # [戻す](C-3-6){items: [{id, name}]}
             return self._json(200, app.undo(body))
+        if path == "/api/friend/files":   # 落とした動画(exe が本物のパスを読んで送る = F3-1 の host.js の sendFiles。画面からパスは送らない)
+            return self._json(200, app.dropped_files(body.get("paths")))
         if path == "/api/friend/report":   # [作る人に知らせる](C-2-16)
             return self._json(200, {"ok": True, "row": app.api.report(str(body.get("id") or ""))})
         if path == "/api/friend/prefs":   # ⚙ の処理する PC・解析の重み・ライブの感度・待ち・余白(C-2-19・C-2-11)
@@ -559,6 +562,16 @@ class FriendApp:
             self.sync.kick()
         return {"ok": not errors, "done": done, "pending": pending, "errors": errors}
 
+    def dropped_files(self, paths):
+        """exe の窓に落とした動画のパス -> {"ok", "files": [remember_file の形], "skipped": [{"name", "message"}]}(動画でない物はその 1 本だけ外す)"""
+        files, skipped = [], []
+        for p in (paths if isinstance(paths, list) else [])[:_api.FILES_MAX_SEND]:
+            try:
+                files.append(self.api.remember_file(p))
+            except _api.FormError as e:
+                skipped.append({"name": os.path.basename(str(p or ""))[:200], "message": str(e)})
+        return {"ok": bool(files), "files": files, "skipped": skipped}
+
     def undo(self, body):
         by_row = {}
         for it in body.get("items") if isinstance(body.get("items"), list) else []:
@@ -609,13 +622,25 @@ class FriendApp:
         return live.active_count() if live is not None else 0
 
     def holdings(self):
-        """作っている物のほかの預かり(F3-3 で送る係が数える): {reserved: 予約の数, archiveWait: アーカイブ待ちの数, soon: 30 分以内に始まる予約があるか}"""
-        return {"reserved": 0, "archiveWait": 0, "soon": False}
+        """作っている物のほかの預かり(F3-3): {reserved: 予約の数(まだ始まっていない配信の録画), archiveWait: アーカイブ待ちの数,
+        soon: 30 分以内に始まる予約があるか(スリープを止める = C-5-4)}"""
+        now = self.clock() * 1000
+        reserved, wait, soon = 0, 0, False
+        for r in self.inbox.view():
+            if r.get("cancelled"):
+                continue
+            if r["state"] == "waiting":
+                wait += 1
+            start = (r.get("form") or {}).get("startAt")
+            if r["state"] == "recording" and r.get("kind") == "live" and isinstance(start, int) and start > now and not r["packs"]:
+                reserved += 1
+                soon = soon or start - now <= SOON_MS
+        return {"reserved": reserved, "archiveWait": wait, "soon": soon}
 
     def undecided(self):
         """受け取るの ●n = まだ決めていない本数(窓のタイトルとタスクバー。C-3-9)"""
         try:
-            return sum(int(r.get("undecided") or 0) for r in self.inbox.view())
+            return int(self.inbox.receive_view()["undecided"])   # 受け取る画面の ●n と同じ数(受け取っている途中の物は数えない)
         except Exception as e:   # noqa: BLE001  (数えられなくても見回りは止めない)
             self.log("決めていない本数を数えられませんでした: %s" % e.__class__.__name__)
             return 0

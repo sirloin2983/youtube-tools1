@@ -378,7 +378,17 @@
     zone.addEventListener('drop', function (e) {
       e.preventDefault();
       zone.classList.remove('on');
-      Array.prototype.forEach.call((e.dataTransfer && e.dataTransfer.files) || [], upload);
+      var files = (e.dataTransfer && e.dataTransfer.files) || [];
+      if (!files.length) return;
+      if (window.FriendHost && FriendHost.isApp) {   /* exe の窓 = exe が本物のパスを読んで玄関へ(F3-1。写すのは送るとき) */
+        FriendHost.sendFiles(files, function (err, j) {
+          ((j && j.skipped) || []).forEach(function (x) { UIKit.toast(x.name + ': ' + x.message, { kind: 'err', ms: 6000 }); });
+          if (err && !(j && j.files && j.files.length)) { UIKit.toast(err.message, { kind: 'err', ms: 6000 }); return; }
+          ((j && j.files) || []).forEach(addFile);
+        });
+        return;
+      }
+      Array.prototype.forEach.call(files, upload);   /* 窓の外(Edge・開発の PC)= 中身を玄関へ送る */
     });
   }
 
@@ -444,7 +454,7 @@
       if (vidOf(t)) { e.preventDefault(); openUrl(t); }
     });
     document.addEventListener('keydown', function (e) {   /* Esc で送る欄を閉じる(⚙ や確認の窓が開いているときはそちら) */
-      if (e.key !== 'Escape' || FR.view !== 'send' || f.mode === 'none' || document.querySelector('dialog[open]') || !$('settingsDrawer').hidden) return;
+      if (e.key !== 'Escape' || FR.view !== 'send' || f.mode === 'none' || document.querySelector('dialog[open]') || FR.drawerOpen()) return;
       if (e.target && e.target.classList && e.target.classList.contains('fr-chip-in')) return;
       close();
     });
