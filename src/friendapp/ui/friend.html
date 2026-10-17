@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>切り抜き</title>
 <!-- 友人のアプリ(F3。notes:plan/f1-friend-requirements.md の C)。1 枚の中で [送る] / [受け取る] を切り替える(#send・#receive)。
-     送る = 左に配信の一覧(F3-2。send-list.js)・右に送る欄・右下に送った物 / 受け取る = 届いた物。
-     CSP の下で動く: インラインの script・on〇〇= は書かない。外の文字は textContent で入れる(friend.js・send-list.js) -->
+     送る = 左に配信の一覧(F3-2。send-list.js)・右に送る欄(F3-3。send-form.js)・右下に送った物(sent.js)/ 受け取る = 配信ごとの段と再生画面(F3-4。receive.js)。
+     共通の口・⚙・初回の準備・見回りは friend.js。CSP の下で動く: インラインの script・on〇〇= は書かない。外の文字は textContent で入れる -->
 <script src="ui-kit.js"></script>
-<script src="host.js"></script>
 <link rel="stylesheet" href="ui-kit.css">
 <link rel="stylesheet" href="friend.css">
-<link rel="stylesheet" href="settings.css">
-<script src="settings.js" defer></script>
-<script src="send-list.js" defer></script>
 <script src="friend.js" defer></script>
+<script src="send-list.js" defer></script>
+<script src="send-form.js" defer></script>
+<script src="sent.js" defer></script>
+<script src="receive.js" defer></script>
 </head>
 <body>
 <header class="ui-header">
@@ -25,22 +25,21 @@
   </nav>
   <span class="ui-ver" id="ver"></span>
   <div class="ui-header-actions">
-    <button type="button" class="btn ghost small" id="btnSaved" title="受け取ったパックの保存先をエクスプローラーで開きます">保存先を開く</button>
-    <button type="button" class="btn danger small" id="btnQuit" title="処理と録画を全部止めて終了します(待っている依頼は残り、次に開くと続きから)">すべて止めて終了</button>
-    <a class="btn ghost small fr-help" href="guide.html#close" target="_blank" rel="noopener" aria-label="閉じるとき・止めるときの説明を新しい窓で開く" title="閉じるとき・止めるときの説明">?</a>
-    <button type="button" class="btn ghost icon small" id="btnSettings" aria-label="設定を開く" title="設定(保存先・一時保管・エンジン・API キー・空き容量・カット)"><span class="ui-icon" data-icon="gear" aria-hidden="true"></span></button>
+    <button type="button" class="btn ghost small" id="btnSaved" title="受け取った物の保存先をエクスプローラーで開きます">保存先を開く</button>
+    <button type="button" class="btn ghost icon small" id="btnSettings" aria-label="設定を開く" title="設定"><span class="ui-icon" data-icon="gear" aria-hidden="true"></span></button>
+    <span class="fr-sep" aria-hidden="true"></span>
+    <button type="button" class="btn danger small" id="btnQuit" title="処理と録画を全部止めて終了します(作っている途中の物は消えず、次に開くと続きから)">すべて止めて終了</button>
   </div>
 </header>
 <div class="errbar" id="errbar" role="alert" hidden></div>
 
 <main class="fr-main">
   <div class="notice" id="prep" hidden></div>
-  <div class="notice warn" id="blocked" hidden></div>
   <div class="notice" id="cleaned" hidden><span id="cleanedText"></span> <button type="button" class="btn ghost small" id="cleanedOk">閉じる</button></div>
-  <div class="notice" id="updated" hidden></div>
+  <div class="notice" id="updated" hidden><span id="updatedText"></span> <button type="button" class="btn ghost small" id="updatedOk">閉じる</button></div>
   <p class="hint fr-nokey" id="noKey" hidden></p>
 
-  <!-- 初回の準備(F2-5。9-1): 足りない部品があれば最初の起動で 1 回確かめる。[あとで] なら下の帯 -->
+  <!-- 初回の準備(F2-5。F3-5 で作り直す): 足りない部品があれば最初の起動で 1 回確かめる。[あとで] なら下の帯 -->
   <section class="card fr-setup" id="setupCard" aria-labelledby="setupTitle" hidden>
     <div class="fr-setup-h">
       <h2 class="fr-h" id="setupTitle">初回の準備</h2>
@@ -62,128 +61,242 @@
   </section>
   <div class="notice warn fr-band" id="setupBand" hidden><span id="setupBandText">部品が足りません</span> <button type="button" class="btn small" id="btnSetupOpen">取ってくる</button></div>
 
+  <!-- ================================================================ 送る(C-2) -->
   <div class="fr-view fr-sendview" id="viewSend">
-  <div class="fr-side">
-  <section class="card fr-send" aria-label="送る">
-    <div class="fr-urlrow">
-      <label class="fr-label" for="url" id="urlLabel">配信の URL</label>
-      <input type="url" id="url" class="fr-url" placeholder="https://www.youtube.com/watch?v=…" autocomplete="off" spellcheck="false">
-      <span class="fr-file" id="fileChip" hidden><span class="fr-file-name" id="fileName"></span><button type="button" class="btn ghost small" id="btnFileClear" title="選んだ動画ファイルをやめて、URL を貼る欄に戻します">やめる</button></span>
-      <button type="button" class="btn ghost" id="btnPick" title="パソコンの動画ファイル(切り抜いた動画など)を選んで送ります">動画ファイルを選ぶ</button>
-      <button type="button" class="btn primary" id="btnSend" disabled title="URL を貼るか、動画ファイルを選ぶと押せます">送る</button>
-      <a class="btn ghost small fr-help" href="guide.html#send" target="_blank" rel="noopener" aria-label="送り方の説明を新しい窓で開く" title="送り方の説明">?</a>
-    </div>
-    <p class="fr-bad fr-peek" id="sendWhy" hidden></p>
-    <div class="hint fr-peek" id="peek" aria-live="polite"></div>
+    <div class="fr-side">
+      <!-- 送る欄(F3-3。C-2-6〜C-2-19。send-form.js) -->
+      <section class="card fr-form" id="sendForm" aria-label="送る欄">
+        <!-- 何も選んでいないとき: URL の欄と動画ファイルの受け皿 -->
+        <div id="formEmpty">
+          <label class="fr-label-top" for="url">配信の URL</label>
+          <input type="url" id="url" class="fr-url" placeholder="https://www.youtube.com/watch?v=…" autocomplete="off" spellcheck="false">
+          <p class="fr-bad" id="urlWhy" hidden></p>
+          <p class="hint fr-or">左の一覧から配信を選ぶか、URL を貼ってください。</p>
+          <div class="fr-drop" id="dropZone">
+            <span>動画ファイルをここに落とす</span>
+            <button type="button" class="btn ghost small" id="btnPick" title="パソコンの動画ファイル(切り抜いた動画など)を選びます">ファイルを選ぶ</button>
+          </div>
+        </div>
+        <!-- 配信を選んだとき -->
+        <div id="formStream" hidden>
+          <div class="fr-head">
+            <span class="fr-head-thumb"><img id="headThumb" alt=""></span>
+            <div class="fr-head-body">
+              <div class="fr-head-title" id="headTitle"></div>
+              <div class="fr-head-meta"><span id="headWho"></span><span class="fr-head-len" id="headLen"></span><span class="pill" id="headState" hidden></span></div>
+            </div>
+            <button type="button" class="btn ghost icon small fr-close" id="btnFormClose" aria-label="送る欄を閉じる" title="閉じる(Esc)"><span class="ui-icon" data-icon="close" aria-hidden="true"></span></button>
+          </div>
+          <p class="fr-bad" id="streamWhy" hidden></p>
+          <!-- アーカイブ・終わったばかり: 区間と本数 -->
+          <div id="archiveBox">
+            <p class="hint fr-wait-note" id="waitNote" hidden>配信が終わったばかりです。送ると、アーカイブが出たら自動で作り始めます。</p>
+            <div class="fr-sec-label">区間</div>
+            <div id="ranges" class="fr-ranges"></div>
+            <button type="button" class="btn ghost small fr-add" id="btnRange" title="区間を足します(5 つまで。1 つの依頼としてまとめて届きます)">+ 区間を足す</button>
+            <div class="fr-line" id="topLine">
+              <span class="fr-label" id="topLabel">本数</span>
+              <button type="button" class="btn ghost small fr-step" id="topMinus" aria-label="本数を減らす">−</button>
+              <output class="fr-num-out" id="topVal" aria-labelledby="topLabel">5</output>
+              <button type="button" class="btn ghost small fr-step" id="topPlus" aria-label="本数を増やす">+</button>
+              <span class="hint">区間を入れないときは、自動で見どころを選んでこの本数を作ります</span>
+            </div>
+          </div>
+          <!-- ライブ中・予定: 録画を頼む -->
+          <div id="liveBox" hidden>
+            <p class="fr-live-lead" id="liveLead">配信が終わるまで録画し、面白い所を自動で切ります。できた分から「受け取る」に届きます。</p>
+            <div class="fr-line">
+              <label class="fr-label" for="lvPerHour">1 時間の枠</label>
+              <input type="number" id="lvPerHour" class="fr-num" min="1" max="30" step="1"><span class="hint">本まで</span>
+            </div>
+            <div class="fr-line" role="radiogroup" aria-labelledby="lvLenLabel">
+              <span class="fr-label" id="lvLenLabel">長さ</span>
+              <label class="fr-radio"><input type="radio" name="lvLenMode" value="auto"> 自動(場面ごと)</label>
+              <label class="fr-radio"><input type="radio" name="lvLenMode" value="fixed"> 固定</label>
+              <input type="number" id="lvLength" class="fr-num" min="10" max="180" step="1" aria-label="固定の長さ(秒)"><span class="hint">秒</span>
+            </div>
+            <label class="fr-radio fr-after"><input type="checkbox" id="lvAfter"> 配信が終わったら、アーカイブからも足す</label>
+            <p class="hint" id="liveNow" hidden></p>
+          </div>
+          <div class="fr-line" id="tracksLine">
+            <label class="fr-label" for="tracks">映像トラック</label>
+            <select id="tracks" class="fr-num" title="Resolve で重ねる映像の数です">
+              <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option>
+            </select>
+          </div>
+        </div>
+        <!-- 動画ファイル(C-2-13) -->
+        <div id="formFiles" hidden>
+          <div class="fr-head fr-head-files">
+            <div class="fr-head-body"><div class="fr-head-title" id="filesTitle">動画ファイル</div><div class="hint">選んだ動画から切り抜きを作ります(区間と本数はありません)</div></div>
+            <button type="button" class="btn ghost icon small fr-close" id="btnFilesClose" aria-label="送る欄を閉じる" title="閉じる(Esc)"><span class="ui-icon" data-icon="close" aria-hidden="true"></span></button>
+          </div>
+          <ul class="fr-files" id="fileList"></ul>
+          <div class="fr-drop fr-drop-more" id="dropMore"><span>ここに落とすと足せます</span><button type="button" class="btn ghost small" id="btnPickMore">ファイルを選ぶ</button></div>
+          <div class="fr-line">
+            <label class="fr-label" for="tracksF">映像トラック</label>
+            <select id="tracksF" class="fr-num" title="Resolve で重ねる映像の数です(全部の動画で同じ)">
+              <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option>
+            </select>
+          </div>
+        </div>
+        <div class="fr-send-row" id="sendRow" hidden>
+          <p class="hint fr-pcnote" id="pcNote" hidden>依頼します(この PC では処理しません)</p>
+          <p class="fr-bad" id="sendWhy" hidden></p>
+          <button type="button" class="btn primary fr-send-btn" id="btnSend">送る</button>
+        </div>
+      </section>
 
-    <section class="fr-live" id="live" aria-label="ライブの設定" hidden>
-      <div class="fr-live-h"><span class="pill info">ライブ</span><span id="liveNote">配信中です。録画しながら切り抜きます</span></div>
-      <div class="fr-line" role="radiogroup" aria-label="感度">
-        <span class="fr-label">感度</span>
-        <label class="fr-radio"><input type="radio" name="lvSens" value="high"> 高い</label>
-        <label class="fr-radio"><input type="radio" name="lvSens" value="normal"> ふつう</label>
-        <label class="fr-radio"><input type="radio" name="lvSens" value="low"> 低い</label>
-        <span class="hint">高いほど、小さな盛り上がりも拾います</span>
+      <!-- 送った物(C-2-14〜C-2-16。sent.js) -->
+      <section class="card fr-sent" id="sent" aria-labelledby="sentTitle">
+        <button type="button" class="fr-sent-bar" id="sentBar" aria-expanded="true" aria-controls="sentList">
+          <span class="fr-h" id="sentTitle">送った物</span><span class="fr-sent-sum" id="sentSum"></span>
+        </button>
+        <div id="sentList" class="fr-sent-list"></div>
+        <p class="hint fr-sent-empty" id="sentEmpty" hidden>送った物はまだありません。</p>
+      </section>
+    </div>
+
+    <!-- 配信の一覧(F3-2。C-2-2〜C-2-5。send-list.js) -->
+    <section class="fr-streams" id="streams" aria-labelledby="streamsTitle">
+      <div class="fr-streams-bar">
+        <h2 class="fr-h" id="streamsTitle">配信</h2>
+        <button type="button" class="btn ghost small fr-updated" id="btnStreamsRefresh" title="押すと、新しい一覧を取りに行きます">更新</button>
       </div>
-      <div class="fr-line">
-        <label class="fr-label" for="lvPerHour">1 時間の枠</label>
-        <input type="number" id="lvPerHour" class="fr-num" min="1" max="30" step="1"><span class="hint">本(1 時間の配信から切る候補の上限・1〜30)</span>
-      </div>
-      <div class="fr-line">
-        <label class="fr-label" for="lvLength">長さ</label>
-        <input type="number" id="lvLength" class="fr-num" min="10" max="180" step="1"><span class="hint">秒(1 本の切り抜きの長さ・10〜180)</span>
-      </div>
-      <div class="fr-line">
-        <label class="fr-label" for="lvWait">待ち</label>
-        <input type="number" id="lvWait" class="fr-num" min="1" max="60" step="1"><span class="hint">分(候補が出てから自動で切るまで・1〜60)</span>
-      </div>
-      <div class="fr-line">
-        <label class="fr-label" for="lvPad">余白</label>
-        <input type="number" id="lvPad" class="fr-num" min="0" max="5" step="1"><span class="hint">秒(前後に足す・0〜5)</span>
-      </div>
-      <div class="fr-line">
-        <span class="fr-label">配信後</span>
-        <label class="fr-radio"><input type="checkbox" id="lvAfter"> 配信が終わったあと、アーカイブからも切り抜きを足す</label>
+      <div class="notice warn fr-streams-err" id="streamsErr" hidden><span id="streamsErrText"></span> <button type="button" class="btn small" id="btnStreamsRetry">もう一度</button></div>
+      <div class="fr-streams-scroll" id="streamsScroll">
+        <div id="streamsList"></div>
+        <div class="fr-streams-empty" id="streamsEmpty" hidden></div>
       </div>
     </section>
-
-    <div class="fr-line">
-      <label class="fr-label" for="streamer">配信者</label>
-      <input type="text" id="streamer" class="fr-streamer" data-ui-streamer placeholder="名前(空なら色なし)" autocomplete="off">
-      <span class="pill info" id="streamerAuto" hidden>自動</span>
-      <span id="people"></span>
-      <button type="button" class="btn ghost small" id="btnPerson" title="コラボの相手の名前を足します(字幕の色に使います)">+ 人</button>
-    </div>
-
-    <div class="fr-line fr-ranges" id="rangeLine">
-      <span class="fr-label">区間</span>
-      <div id="ranges" class="fr-rangelist"></div>
-      <button type="button" class="btn ghost small" id="btnRange" title="切り抜く所を時刻で決めます(入れると、その区間だけを切ります)">+ 区間</button>
-      <span class="hint" id="rangeHint">任意。入れると、その区間だけを切ります</span>
-    </div>
-
-    <div class="fr-line" id="topLine">
-      <label class="fr-label" for="top">本数</label>
-      <input type="number" id="top" class="fr-num" min="1" max="30" step="1">
-      <span class="hint" id="topHint">自動で見どころを探して、この本数を切ります</span>
-    </div>
-
-    <details class="ui-disclosure fr-more" id="more">
-      <summary>詳しく</summary>
-      <div class="fr-line">
-        <label class="fr-label" for="tracks">映像トラック</label>
-        <select id="tracks" class="fr-num">
-          <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option>
-        </select>
-      </div>
-      <div class="fr-line" role="radiogroup" aria-label="処理する PC">
-        <span class="fr-label">処理する PC</span>
-        <label class="fr-radio"><input type="radio" name="pc" value="this"> この PC</label>
-        <label class="fr-radio" id="pcUserLabel"><input type="radio" name="pc" value="user" id="pcUser"> ユーザーの PC(Dropbox で頼む・結果は同じ受信箱に届きます)</label>
-      </div>
-      <div class="fr-line" role="radiogroup" aria-label="届け方">
-        <span class="fr-label">届け方</span>
-        <label class="fr-radio"><input type="radio" name="batch" value="5"> 5 本ずつまとめて届ける(まとめ動画で一度に見て選べます)</label>
-        <label class="fr-radio"><input type="radio" name="batch" value="1"> 1 本ずつ届ける</label>
-      </div>
-      <div class="fr-line" id="weightLine">
-        <label class="fr-radio"><input type="checkbox" id="useWeights"> 解析の重みを指定する</label>
-        <span id="weights" class="fr-weights" hidden>
-          <label>音量 <input type="number" id="wAudio" class="fr-num" min="0" max="3" step="1"></label>
-          <label>チャット <input type="number" id="wChat" class="fr-num" min="0" max="3" step="1"></label>
-          <label>コメント <input type="number" id="wComments" class="fr-num" min="0" max="3" step="1"></label>
-        </span>
-      </div>
-    </details>
-  </section>
   </div>
 
-  <!-- 配信の一覧(F3-2。C-2-2〜C-2-5。send-list.js が描く) -->
-  <section class="fr-streams" id="streams" aria-labelledby="streamsTitle">
-    <div class="fr-streams-bar">
-      <h2 class="fr-h" id="streamsTitle">配信</h2>
-      <button type="button" class="btn ghost small fr-updated" id="btnStreamsRefresh" title="押すと、新しい一覧を取りに行きます">更新</button>
+  <!-- ================================================================ 受け取る(C-3。receive.js) -->
+  <section class="fr-view fr-rcv" id="viewReceive" aria-label="受け取る" hidden>
+    <div id="rcvList">
+      <div class="fr-rcv-bar">
+        <h1 class="fr-h">受け取る</h1>
+        <span class="ui-count" id="rcvCount"></span>
+        <a class="btn ghost small fr-help" href="guide.html#receive" target="_blank" rel="noopener" aria-label="受け取り方の説明を新しい窓で開く" title="受け取り方の説明">?</a>
+      </div>
+      <div id="rcvSections"></div>
+      <div class="fr-empty" id="rcvEmpty" hidden>
+        <p>まだ届いた物はありません。</p>
+        <p class="hint">[送る] で配信を選んで送ると、できた切り抜きがここに届きます。</p>
+      </div>
+      <details class="fr-skipped" id="rcvSkipped" hidden>
+        <summary id="rcvSkippedSum">見送った物</summary>
+        <ul class="fr-skip-list" id="rcvSkipList"></ul>
+      </details>
     </div>
-    <div class="notice warn fr-streams-err" id="streamsErr" hidden><span id="streamsErrText"></span> <button type="button" class="btn small" id="btnStreamsRetry">もう一度</button></div>
-    <div class="fr-streams-scroll" id="streamsScroll">
-      <div id="streamsList"></div>
-      <div class="fr-streams-empty" id="streamsEmpty" hidden></div>
+    <div id="rcvPlayer" class="fr-player" hidden>
+      <div class="fr-player-main">
+        <button type="button" class="btn ghost small fr-back" id="btnPlayerBack" title="一覧へ戻る(Esc)">← 一覧へ</button>
+        <video id="playerVideo" class="fr-video" controls preload="metadata"></video>
+        <p class="hint" id="playerNoVideo" hidden>確認用の動画はまだありません(作っている途中か、取ってきている途中です)。[受け取る] を押すと、見ずに保存先に入れます。</p>
+        <h2 class="fr-player-title" id="playerTitle"></h2>
+        <div class="fr-player-meta" id="playerMeta"></div>
+        <div class="fr-decide">
+          <button type="button" class="btn primary" id="btnKeep">受け取る</button>
+          <button type="button" class="btn" id="btnSkip" title="今回は使いません(3 日の間は一覧の下の「見送った物」から戻せます)">見送る</button>
+          <span class="fr-bad-links" id="playerBad">届かなくてよかった: <button type="button" class="btn link" id="btnBoring">つまらない</button> / <button type="button" class="btn link" id="btnCut">切り方が変</button></span>
+        </div>
+      </div>
+      <aside class="fr-player-side" aria-label="この配信の切り抜き">
+        <div id="playerList"></div>
+      </aside>
     </div>
-  </section>
-  </div>
-
-  <section class="fr-view" id="viewReceive" aria-label="受信箱" hidden>
-    <div class="ui-listbar fr-listbar">
-      <h1 class="fr-h">受信箱</h1>
-      <span class="ui-count" id="count"></span>
-    </div>
-    <div class="ui-sheet fr-sheet" id="list"></div>
-    <div class="fr-empty" id="empty" hidden>
-      <p>まだ届いた物はありません。</p>
-      <p class="hint">上に配信の URL を貼るか動画ファイルを選んで [送る] を押すと、ここに並びます。</p>
+    <!-- まとめて決める帯(C-3-5) -->
+    <div class="fr-bulk" id="bulkBar" hidden role="region" aria-label="選んだ物">
+      <span id="bulkCount"></span>
+      <button type="button" class="btn primary small" id="bulkKeep">選んだ物を受け取る</button>
+      <button type="button" class="btn small" id="bulkSkip">選んだ物を見送る</button>
+      <span class="fr-bad-links">届かなくてよかった: <button type="button" class="btn link" id="bulkBoring">つまらない</button> / <button type="button" class="btn link" id="bulkCut">切り方が変</button></span>
+      <button type="button" class="btn ghost small" id="bulkClear" title="選ぶのをやめる(Esc)">選ぶのをやめる</button>
     </div>
   </section>
 </main>
+<!-- ⚙ 設定(F2-5 + C-2-19・C-2-11 の 3 つ。F3-5 で作り直す)。フォルダは [選ぶ] で玄関が Windows の窓を開く(画面からパスを打たせない) -->
+<aside class="ui-drawer" id="settingsDrawer" hidden aria-labelledby="settingsTitle">
+  <div class="ui-drawer-head">
+    <h2 class="ui-drawer-title" id="settingsTitle">設定</h2>
+    <a class="btn ghost small fr-help" href="guide.html#settings" target="_blank" rel="noopener" aria-label="設定の説明を新しい窓で開く" title="設定の説明">?</a>
+    <button type="button" class="btn ghost icon small" id="settingsClose" aria-label="閉じる"><span class="ui-icon" data-icon="close" aria-hidden="true"></span></button>
+  </div>
+  <div class="ui-drawer-body">
+    <section class="ui-settings-sec fr-set" aria-labelledby="setPcH">
+      <h3 id="setPcH">処理する PC</h3>
+      <div class="fr-line" role="radiogroup" aria-labelledby="setPcH">
+        <label class="fr-radio"><input type="radio" name="setPc" value="this"> この PC で処理する</label>
+        <label class="fr-radio" id="setPcUserLabel"><input type="radio" name="setPc" value="user" id="setPcUser"> 依頼する</label>
+      </div>
+      <p class="hint">「依頼する」にすると、この PC では処理せず、作る人の PC で作って届きます。</p>
+    </section>
+    <section class="ui-settings-sec fr-set" aria-labelledby="setSaveH">
+      <h3 id="setSaveH">受け取った物の保存先</h3>
+      <p class="fr-path" id="setSave"></p>
+      <div class="fr-line"><button type="button" class="btn small" id="btnPickSave">選ぶ</button><button type="button" class="btn ghost small" id="btnResetSave">既定に戻す</button></div>
+      <p class="hint">変えても、今ある物は移しません。</p>
+    </section>
+    <section class="ui-settings-sec fr-set" aria-labelledby="setCasesH">
+      <h3 id="setCasesH">一時保管</h3>
+      <p class="fr-path" id="setCases"></p>
+      <div class="fr-line"><button type="button" class="btn small" id="btnPickCases">選ぶ</button><button type="button" class="btn ghost small" id="btnResetCases">既定に戻す</button></div>
+      <p class="hint">作っている途中の物と録画を置く場所です(空き容量はこのドライブで測ります)。</p>
+    </section>
+    <section class="ui-settings-sec fr-set" aria-labelledby="setLiveH">
+      <h3 id="setLiveH">ライブ</h3>
+      <div class="fr-line" role="radiogroup" aria-label="感度">
+        <span class="fr-label">感度</span>
+        <label class="fr-radio"><input type="radio" name="setSens" value="high"> 高い</label>
+        <label class="fr-radio"><input type="radio" name="setSens" value="normal"> ふつう</label>
+        <label class="fr-radio"><input type="radio" name="setSens" value="low"> 低い</label>
+      </div>
+      <div class="fr-line"><label class="fr-label" for="setWait">切るまで</label><input type="number" id="setWait" class="fr-num" min="1" max="60" step="1"><span class="hint">分(盛り上がりを見つけてから切るまで)</span></div>
+      <div class="fr-line"><label class="fr-label" for="setPad">余白</label><input type="number" id="setPad" class="fr-num" min="0" max="5" step="1"><span class="hint">秒(前後に足す)</span></div>
+    </section>
+    <section class="ui-settings-sec fr-set" aria-labelledby="setWH">
+      <h3 id="setWH">解析の重み</h3>
+      <label class="fr-radio"><input type="checkbox" id="setUseW"> 見どころを選ぶときの手がかりの重みを変える</label>
+      <div class="fr-line" id="setWLine">
+        <label>音量 <input type="number" id="setWAudio" class="fr-num" min="0" max="3" step="1"></label>
+        <label>チャット <input type="number" id="setWChat" class="fr-num" min="0" max="3" step="1"></label>
+        <label>コメント <input type="number" id="setWComments" class="fr-num" min="0" max="3" step="1"></label>
+      </div>
+    </section>
+    <section class="ui-settings-sec fr-set" aria-labelledby="setEngineH">
+      <h3 id="setEngineH">文字起こしのエンジン</h3>
+      <div class="fr-line" role="radiogroup" aria-labelledby="setEngineH">
+        <label class="fr-radio"><input type="radio" name="setEngine" value="A"> ふつう(どの GPU でも)</label>
+        <label class="fr-radio"><input type="radio" name="setEngine" value="C"> NVIDIA の GPU 向け</label>
+      </div>
+      <p class="hint" id="setGpu"></p>
+    </section>
+    <section class="ui-settings-sec fr-set" aria-labelledby="setKeyH">
+      <h3 id="setKeyH">YouTube の API キー</h3>
+      <p id="setKeyState"></p>
+      <div class="fr-line">
+        <input type="password" id="setKey" class="fr-key" autocomplete="off" spellcheck="false" aria-labelledby="setKeyH" placeholder="キーを貼る">
+        <button type="button" class="btn small" id="btnKeySave">確かめて保存</button>
+        <button type="button" class="btn ghost small" id="btnKeyClear">消す</button>
+      </div>
+      <p class="hint" id="setKeyHelp"></p>
+    </section>
+    <section class="ui-settings-sec fr-set" aria-labelledby="setDiskH">
+      <h3 id="setDiskH">空き容量の下限</h3>
+      <div class="fr-line">
+        <input type="number" id="setDisk" class="fr-num" min="0" max="100000" step="1" aria-labelledby="setDiskH"><span class="hint">GB(これより少なくなると、空くまで待ちます)</span>
+      </div>
+    </section>
+    <section class="ui-settings-sec fr-set" aria-labelledby="setCutH">
+      <h3 id="setCutH">カットの既定</h3>
+      <div class="fr-line" role="radiogroup" aria-labelledby="setCutH">
+        <label class="fr-radio"><input type="radio" name="setCut" value="none"> しない</label>
+        <label class="fr-radio"><input type="radio" name="setCut" value="silence"> 無音を削る</label>
+      </div>
+    </section>
+  </div>
+</aside>
 <div id="toast"></div>
 </body>
 </html>

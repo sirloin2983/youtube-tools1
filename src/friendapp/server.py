@@ -71,7 +71,8 @@ TOKEN_HEADER = "X-YTT-Token"
 TOKEN_FAIL = {"error": "token", "message": "画面を開き直してから、もう一度操作してください(合言葉が違います)"}
 UI_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui")
 UIKIT_DIR = os.path.join(SRC, "ui-kit")
-STATIC = {"/friend/": ("friend.html", UI_DIR), "/friend/index.html": ("friend.html", UI_DIR), "/friend/friend.js": ("friend.js", UI_DIR), "/friend/send-list.js": ("send-list.js", UI_DIR),
+STATIC = {"/friend/": ("friend.html", UI_DIR), "/friend/index.html": ("friend.html", UI_DIR), "/friend/friend.js": ("friend.js", UI_DIR), "/friend/send-list.js": ("send-list.js", UI_DIR), "/friend/send-form.js": ("send-form.js", UI_DIR),
+          "/friend/sent.js": ("sent.js", UI_DIR), "/friend/receive.js": ("receive.js", UI_DIR),
           "/friend/friend.css": ("friend.css", UI_DIR), "/friend/ui-kit.js": ("ui-kit.js", UIKIT_DIR), "/friend/ui-kit.css": ("ui-kit.css", UIKIT_DIR),
           "/friend/guide.html": ("guide.html", UI_DIR),   # 説明(F2-5 の [?]。本体は別の段が書く = 無ければ 404)
           "/friend/setup.html": ("setup.html", UI_DIR), "/friend/setup.js": ("setup.js", UI_DIR), "/friend/host.js": ("host.js", UI_DIR),
@@ -310,6 +311,7 @@ class Handler(BaseHTTPRequestHandler):
         u = urllib.parse.urlsplit(self.path)
         h = self.headers
         path = u.path[len("/friend"):] if u.path.startswith("/friend/api/") else u.path
+        self.close_connection = True   # 本文を読まずに断ったときに、残りを次の要求として読まない
         if not (self._host_ok() and httpsec.origin_ok(h, self.server.allowed_hosts) and httpsec.fetch_site_ok(h)):
             return self._send(403, b"forbidden")
         if not httpsec.token_ok(h, self.server.token, TOKEN_HEADER):
@@ -321,7 +323,6 @@ class Handler(BaseHTTPRequestHandler):
             size = int(h.get("Content-Length") or "-1")
         except ValueError:
             size = -1
-        self.close_connection = True   # 読み切らずに断ったときに、残りを次の要求として読まない
         try:
             got = self.server.app.api.upload_file((q.get("name") or [""])[0], size, self.rfile.read)
         except _api.FormError as e:

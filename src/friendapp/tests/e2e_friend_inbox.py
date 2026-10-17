@@ -5,9 +5,9 @@
     set PYTHONIOENCODING=utf-8
     py -3.10 src/friendapp/tests/e2e_friend_inbox.py
 
-流れ 1: URL を貼る → 題が出る → [送る] → 行が「送った」→「作っている」→「届いた」→ 行を開く → 1 本 [受け取る](保存先 = 一時フォルダ)
-        → 残りを [要らない](確認 → ごみ箱 = 一時フォルダ)→ 行が消える → 送り返し(outbox)に .verdict.json が 1 本ずつ
-流れ 2: 失敗の行の [もう一度送る] → 届いた
+流れ 1: URL を貼る → 題が出る → 区間を 1 つ(数字だけで打つ・Enter で次の欄)→ [送る] → 送った物 → 届く(●3)→ [受け取る] の段 → 再生画面で
+        [受け取る](保存先 = <日付>_<配信者>_<題> の中の #1)→ 自動で次 → [見送る] → 知らせの [戻す] → 一覧でチェック 2 本 → まとめて見送る → 判断の記録 v2
+流れ 2: 失敗(上の段 = 友人の言葉)→ [もう一度送る] → 届く・Esc で送る欄を閉じる
 
 外に作用する口は偽物に替える(本物のネット・Dropbox・エクスプローラー・Edge・ファイルを選ぶ窓は出さない):
   ② = FakeEngine(送った依頼を少し後に「作っている」→ 一時フォルダにパックのフォルダを 3 本作って inbox.finished。fail_next 回は「止まった」で終わる)
@@ -17,7 +17,6 @@
 """
 import json
 import os
-import re
 import shutil
 import sys
 import tempfile
@@ -78,7 +77,7 @@ class FakeQueue:
             self.runs[rid].update(state="running", stateLabel="実行中")
         time.sleep(WORK_SEC)
         if fail:
-            self.inbox.finished(rid, "error", "配信を取ってこられませんでした(テストの偽物)", [], 5)
+            self.inbox.finished(rid, "error", "この動画は非公開です(テストの偽物)", [], 5)
         else:
             d = os.path.join(self.cases, rid)
             packs = []
@@ -138,18 +137,6 @@ def make_places(tmp):
     return places, save
 
 
-def pack_row(pg, title):
-    return pg.locator(".fr-row", has_text=title).first
-
-
-def pack_item(pg, title):
-    return pg.locator(".fr-item", has_text=title).first
-
-
-def pill_text(row):
-    return row.locator(".pill").first.text_content().strip()
-
-
 def main():
     tmp = tempfile.mkdtemp(prefix="ytt-friend-inbox-e2e-")
     ok = True
@@ -177,65 +164,87 @@ def main():
                 errors = []
                 pg.on("pageerror", lambda e: errors.append(str(e)))
                 pg.goto(base)
-                expect(pg.locator("#btnSend")).to_be_visible(timeout=WAIT)
-                ok &= check(pg.locator("#btnSend").is_disabled(), "URL が無いうちは [送る] が押せない")
+                expect(pg.locator("#formEmpty")).to_be_visible(timeout=WAIT)
 
-                # 流れ 1: 送る
+                # 流れ 1: URL を貼る → 区間を 1 つ → 送る → 送った物 → 届く(●3)
                 pg.fill("#url", URL_A)
-                expect(pg.locator("#peek")).to_contain_text(TITLE_A, timeout=WAIT)
+                pg.press("#url", "Enter")
+                expect(pg.locator("#headTitle")).to_have_text(TITLE_A, timeout=WAIT)
                 expect(pg.locator("#btnSend")).to_be_enabled(timeout=WAIT)
-                ok &= check(CHANNEL in pg.locator("#peek").text_content(), "貼った URL の題とチャンネル名が出る")
+                ok &= check(True, "URL を貼ると送る欄に題が出て [送る] が押せる")
+                pg.locator(".fr-range .ui-time").nth(0).click()
+                pg.keyboard.type("01230")
+                pg.keyboard.press("Enter")   # 次の欄へ
+                pg.keyboard.type("01500")
+                expect(pg.locator(".fr-range-said").first).to_contain_text("12分30秒 〜 15分00秒(2分30秒)", timeout=WAIT)
+                ok &= check(pg.locator("#topLine").is_hidden(), "区間を入れると読み取った結果が出て、本数の欄が消える")
                 pg.click("#btnSend")
-                pg.click("#tabReceive")   # 届いた物は [受け取る] の画面(F3)
-                row = pack_row(pg, TITLE_A)
+                expect(pg.locator("#formEmpty")).to_be_visible(timeout=WAIT)
+                row = pg.locator(".fr-sent-row", has_text=TITLE_A).first
                 expect(row).to_be_visible(timeout=WAIT)
-                expect(row.locator(".pill").first).to_have_text("送った", timeout=WAIT)
-                ok &= check(True, "[送る] の後、行が「送った」")
-                expect(row.locator(".pill").first).to_have_text("作っている", timeout=WAIT)
-                ok &= check(True, "行が「作っている」になる")
-                expect(row.locator(".pill").first).to_have_text("届いた", timeout=WAIT)
-                ok &= check(True, "行が「届いた」になる")
+                ok &= check(True, "[送る] の後、送る欄が閉じて「送った物」に行が出る")
+                sent = app.inbox.rows[0]["form"]
+                ok &= check([list(x) for x in sent["ranges"]] == [[750.0, 900.0]] and sent["top"] is None, "区間が依頼に入る(C-0 の「区間が捨てられる」の直し)")
+                expect(pg.locator(".fr-sent-row", has_text=TITLE_A)).to_have_count(0, timeout=WAIT * 2)
+                expect(pg.locator("#tabN")).to_have_text(str(PACKS), timeout=WAIT)
+                ok &= check(True, "届くと送った物から消え、[受け取る] に ●%d" % PACKS)
 
-                item = pack_item(pg, TITLE_A)
-                row.get_by_role("button", name="開く").click()
-                expect(item.locator("li.fr-pack")).to_have_count(PACKS, timeout=WAIT)
-                ok &= check(True, "行を開くと %d 本のパックが並ぶ" % PACKS)
-                item.locator("li.fr-pack").nth(0).get_by_role("button", name="受け取る").click()
-                expect(item.locator("li.fr-pack").nth(0)).to_contain_text("受け取った", timeout=WAIT)
-                ok &= check(os.path.isdir(os.path.join(save, "見どころ1_pack")), "[受け取る] で 1 本目が保存先へ移った")
-                # 残り 2 本を [要らない](確認の窓 → ごみ箱へ)
-                for cb in item.locator("input[type=checkbox]:not([disabled])").all():
+                # 受け取る: 配信の段 → 再生画面 → [受け取る](保存先の形)→ 自動で次 → [見送る] → [戻す] → まとめて見送る
+                pg.click("#tabReceive")
+                sec = pg.locator(".fr-rsec", has_text=TITLE_A).first
+                expect(sec.locator(".fr-rcard")).to_have_count(PACKS, timeout=WAIT)
+                ok &= check(True, "配信の段に %d 本" % PACKS)
+                sec.locator(".fr-rcard-btn").first.click()
+                expect(pg.locator("#playerTitle")).to_contain_text("#1", timeout=WAIT)
+                pg.click("#btnKeep")
+                expect(pg.locator("#playerTitle")).to_contain_text("#2", timeout=WAIT)
+                folders = os.listdir(save) if os.path.isdir(save) else []
+                ok &= check(len(folders) == 1 and TITLE_A in folders[0] and os.path.isdir(os.path.join(save, folders[0], "#1")),
+                            "[受け取る] で保存先の <日付>_<配信者>_<題> の中の #1 に入り、自動で #2 へ: %s" % folders)
+                pg.click("#btnSkip")
+                expect(pg.locator("#playerTitle")).to_contain_text("#3", timeout=WAIT)
+                pg.locator("#toast").get_by_role("button", name="戻す").click()
+                expect(pg.locator("#playerList .fr-rcard")).to_have_count(2, timeout=WAIT)
+                ok &= check(True, "[見送る] で #3 へ・知らせの [戻す] で #2 が戻る")
+                pg.keyboard.press("Escape")
+                expect(pg.locator("#rcvList")).to_be_visible(timeout=WAIT)
+                for cb in sec.locator(".fr-pick").all():
                     cb.check()
-                item.get_by_role("button", name=re.compile("選んだ 2 本を要らない")).click()
-                dlg = pg.locator("dialog[open]")
-                expect(dlg).to_be_visible(timeout=WAIT)
-                dlg.get_by_role("button", name="要らない").click()
-                expect(pg.locator(".fr-row", has_text=TITLE_A)).to_have_count(0, timeout=WAIT)
-                ok &= check(True, "残りを要らないにすると、行が消える")
+                expect(pg.locator("#bulkBar")).to_be_visible(timeout=WAIT)
+                pg.click("#bulkSkip")
+                expect(pg.locator(".fr-rsec", has_text=TITLE_A)).to_have_count(0, timeout=WAIT)
+                expect(pg.locator("#rcvSkipList li")).to_have_count(2, timeout=WAIT)
+                ok &= check(pg.locator("#tabN").is_hidden(), "まとめて見送ると段が消え、見送った物に 2 本・●が消える")
 
-                verdicts = []
+                judges = []
                 for n in sorted(os.listdir(places["outbox"])):
                     if n.endswith(".verdict.json"):
                         with open(os.path.join(places["outbox"], n), encoding="utf-8") as f:
-                            verdicts.append(json.load(f)["verdict"])
-                ok &= check(sorted(verdicts) == ["keep", "reject", "reject"], "outbox に .verdict.json が 1 本ずつ(受け取る 1・要らない 2)")
-                saved = sorted(os.listdir(save)) if os.path.isdir(save) else []
-                ok &= check(saved == ["見どころ1_pack"], "保存先には受け取った 1 本だけ(要らない 2 本は保存先に入らない)")
+                            d = json.load(f)
+                        judges.append(d["judge"] if d.get("v") == 2 else "v1")
+                ok &= check(sorted(judges) == ["good", "retract", "unknown", "unknown", "unknown"], "判断の記録 v2(受け取る 1・見送る 3・戻す 1): %s" % judges)
 
-                # 流れ 2: 失敗 → [もう一度送る]
+                # 流れ 2: 失敗(2 段)→ [もう一度送る] → 届く・Esc で送る欄を閉じる
                 app.engine.queue.fail_next = 1
                 pg.click("#tabSend")
                 pg.fill("#url", URL_B)
-                expect(pg.locator("#peek")).to_contain_text(TITLE_B, timeout=WAIT)
+                pg.press("#url", "Enter")
+                expect(pg.locator("#headTitle")).to_have_text(TITLE_B, timeout=WAIT)
                 expect(pg.locator("#btnSend")).to_be_enabled(timeout=WAIT)
                 pg.click("#btnSend")
-                pg.click("#tabReceive")
-                row = pack_row(pg, TITLE_B)
-                expect(row.locator(".pill").first).to_have_text("失敗", timeout=WAIT * 2)
-                ok &= check(True, "止まった依頼の行が「失敗」(理由つき)")
+                row = pg.locator(".fr-sent-row", has_text=TITLE_B).first
+                expect(row.locator(".fr-fail-top")).to_be_visible(timeout=WAIT * 2)
+                ok &= check("見られません" in row.locator(".fr-fail-top").text_content(), "失敗は友人の言葉で次にすることを 1 つ(上の段)")
                 row.get_by_role("button", name="もう一度送る").click()
-                expect(pack_row(pg, TITLE_B).locator(".pill").first).to_have_text("届いた", timeout=WAIT * 2)
+                expect(pg.locator("#tabN")).to_have_text(str(PACKS), timeout=WAIT * 2)
                 ok &= check(True, "[もう一度送る] で届いた")
+                pg.fill("#url", URL_A)
+                pg.press("#url", "Enter")
+                expect(pg.locator("#formStream")).to_be_visible(timeout=WAIT)
+                pg.locator("#headTitle").click()
+                pg.keyboard.press("Escape")
+                expect(pg.locator("#formEmpty")).to_be_visible(timeout=WAIT)
+                ok &= check(True, "Esc で送る欄を閉じる")
 
                 ok &= check(not errors, "画面にエラー(pageerror)が出ていない%s" % ("" if not errors else ": " + errors[0][:120]))
             finally:

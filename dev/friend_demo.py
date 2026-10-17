@@ -187,6 +187,9 @@ def seed(app, home):
     ib.live_started(rid, "local", "20261016-200000-" + LIVE_VID)
     for i, p in enumerate(packs(rid, 7)):
         ib.live_clip(rid, "demolive%02d" % i, "done", "", [p], "live", case=os.path.join(case_root, rid))
+    # F3-3: アーカイブ待ちの行(終わったばかりの配信を送った)
+    ib.add("20261016-098000-ffff01", dict(form, url="https://www.youtube.com/watch?v=demo0000005", videoId="demo0000005", kind="wait", title="【朝活】おはよう!"),
+           {"url": "https://www.youtube.com/watch?v=demo0000005", "videoId": "demo0000005", "title": "【朝活】おはよう!", "channel": ""}, state="waiting")
     rid = "20261016-097000-eeee01"
     clip = os.path.join(home, "user", "Videos", "【星見ルナ】歌ってみた切り抜き.mp4")
     ib.add(rid, dict(form, kind="file", file={"path": clip, "name": os.path.basename(clip), "size": 1300000000}, title="【星見ルナ】歌ってみた切り抜き"),

@@ -733,13 +733,14 @@ def friend_scenes(base, setup_base=None):
     ヘッダーの A-28(ホーム・案件の画面と同じ部品)は見ない = 友人の PC の画面は受信箱 1 枚でほかの画面へのリンクが無い"""
     page = base + "/friend/"
     return [{"name": "friend", "url": page, "wide": True, "actions": [("wait", 800)]},
-            {"name": "friend-pick", "url": page, "actions": [("wait", 800), ("click", ".fr-card[data-vid='demo0000007']"), ("wait", 600)]},   # F3-2: 一覧のカードを押した
-            {"name": "friend-open", "url": page + "#receive", "actions": [("wait", 800), ("click", "[data-row='20261016-091000-aaaa02'] .ui-next-btn"), ("wait", 400)]},
-            {"name": "friend-more", "url": page, "actions": [("click", "#more > summary"), ("click", "#btnRange"), ("click", "#btnPerson"), ("wait", 300)]},
-            # F2-6: ライブの URL(見本は配信中と答える)を貼ると 6 つの設定・録画中の行を開く・動画ファイルを選んだ形(見本は本物の窓を開かない)
-            {"name": "friend-live", "url": page, "actions": [("wait", 500), ("fill", "#url", "https://www.youtube.com/watch?v=demolive001"), ("wait", 1200)]},
-            {"name": "friend-live-open", "url": page + "#receive", "actions": [("wait", 800), ("click", "[data-row='20261016-096000-dddd01'] .ui-next-btn"), ("wait", 400)]},
-            {"name": "friend-file", "url": page, "actions": [("wait", 500), ("click", "#btnPick"), ("wait", 800)]},
+            {"name": "friend-pick", "url": page, "actions": [("wait", 800), ("click", ".fr-card[data-vid='demo0000007']"), ("wait", 600)]},   # F3-2・F3-3: カードを押した = 区間の欄
+            {"name": "friend-more", "url": page, "actions": [("wait", 800), ("click", ".fr-card[data-vid='demo0000008']"), ("click", "#btnRange"),
+                                                             ("click", ".fr-add-person"), ("wait", 400)]},   # 区間 2 つ + 人
+            {"name": "friend-live", "url": page, "actions": [("wait", 800), ("click", ".fr-card[data-vid='demo0000001']"), ("wait", 600)]},   # ライブ中 = 録画を頼む
+            {"name": "friend-file", "url": page, "actions": [("wait", 500), ("click", "#btnPick"), ("wait", 800)]},   # 動画ファイル(見本は本物の窓を開かない)
+            {"name": "friend-open", "url": page + "#receive", "actions": [("wait", 900)]},   # F3-4: 受け取る(配信ごとの段)
+            {"name": "friend-play", "url": page + "#receive", "actions": [("wait", 900), ("click", ".fr-rcard-btn"), ("wait", 500)]},   # 再生画面
+            {"name": "friend-bulk", "url": page + "#receive", "actions": [("wait", 900), ("click", ".fr-pick"), ("wait", 300)]},   # まとめて決める帯
             # F2-5: ⚙ の引き出し(見本は本物の窓を開かない)・初回の準備(--missing の見本 = 部品が足りない形の確認)
             {"name": "friend-settings", "url": page, "actions": [("wait", 500), ("click", "#btnSettings"), ("wait", 800)],
              "modal": {"root": "#settingsDrawer", "opener": "#btnSettings"}}] + \
