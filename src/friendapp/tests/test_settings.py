@@ -4,6 +4,7 @@ import hashlib
 import http.client
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -414,6 +415,22 @@ class SettingsServerTest(unittest.TestCase):
                 self.assertIn(('id="%s"' % sec).encode(), raw)
         else:
             self.assertEqual(st, 404)
+
+    def test_guide_images_served_and_page_is_static(self):
+        st, raw = self.request("GET", "/friend/guide.html")
+        self.assertEqual(st, 200)
+        page = raw.decode("utf-8")
+        self.assertNotRegex(page, r"<script(?![^>]*\ssrc=)")     # インラインの script は無い(外の読み込みだけ)
+        self.assertNotRegex(page, r"\son[a-z]+=")                # onclick などは無い
+        for old in ("ユーザーの PC", "要らない", "依頼なし", "5 本ずつ", "スタジオ"):
+            self.assertNotIn(old, page)
+        srcs = re.findall(r'<img[^>]*\ssrc="(guide/[^"]+\.png)"', page)
+        self.assertGreaterEqual(len(srcs), 6)
+        for src in srcs:
+            st, body = self.request("GET", "/friend/" + src)
+            self.assertEqual(st, 200, src)
+            self.assertTrue(body.startswith(b"\x89PNG"), src)
+            self.assertLessEqual(len(body), 300 * 1024, src)
 
     def test_page_has_help_links(self):
         st, raw = self.request("GET", "/friend/")
