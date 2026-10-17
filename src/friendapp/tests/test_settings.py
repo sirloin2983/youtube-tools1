@@ -64,6 +64,8 @@ class SettingsServerTest(unittest.TestCase):
         self.app.setup.downloader = self.dl
         self.app.setup.disk_usage = lambda p: Usage(10 ** 13, 0, 10 ** 13)
         self.app.setup.cuda = lambda: None
+        self.app.setup.start = self.app.setup.start_fetch
+        self.app.setup.view = self.app.setup.inbox_view   # server.py をまとめ役が新しい view につなぐまでは、旧い帯の形で確かめる
         self.app.setup.after = lambda res: self.after.append(res)   # 本物の道具の場所の教え直し(環境変数)はしない
         self.after = []
         self.picked = []
@@ -218,6 +220,73 @@ class SettingsServerTest(unittest.TestCase):
             self.assertIn("取ってきます", j["message"])
             self.app.setup.wait(5)
             self.assertEqual(self.app.setup.result["done"], [SU.CUDA_NAME])   # C の部品だけ(ほかの足りない物は確認してから)
+
+    def upd(self, body):
+        """server.py の口がまだ processing・weights・live・cleanOld を通さないので、Settings.update を直に呼ぶ(まとめ役が口をつなぐ)"""
+        try:
+            msg = self.app.settings.update(body)["message"]
+        except T.SettingsError as e:
+            return 400, {"message": str(e)}
+        return 200, {"message": msg, "settings": self.app.settings.view()}
+
+    def test_processing_weights_live_view_and_update(self):
+        st, j = self.get("/api/friend/settings")
+        s = j["settings"]
+        self.assertEqual((s["processing"], s["weights"], s["canRemote"]), ("local", None, False))
+        self.assertEqual(s["live"], {"sens": "normal", "waitMin": 5, "pad": 2.0})
+        self.assertEqual([o["value"] for o in s["liveSensOptions"]], ["high", "normal", "low"])
+        self.assertEqual(s["liveSensOptions"][0]["label"], "高い")
+        self.assertEqual(s["oldApp"], {"canClean": False, "bytes": 0})
+        st, j = self.upd({"weights": {"wAudio": 3, "wChat": 0, "wComments": 1}, "live": {"sens": "high", "waitMin": 10, "pad": 1.5}})
+        self.assertEqual(st, 200, j)
+        s = j["settings"]
+        self.assertEqual(s["weights"], {"wAudio": 3, "wChat": 0, "wComments": 1})
+        self.assertEqual(s["live"], {"sens": "high", "waitMin": 10, "pad": 1.5})
+        form = self.app.api.form()   # 送る係が読む form.json に入っている
+        self.assertEqual((form["useWeights"], form["live"]["sens"], form["live"]["perHour"]), (True, "high", 6))
+        st, j = self.upd({"weights": None})
+        self.assertIsNone(j["settings"]["weights"])
+        self.assertEqual(self.app.api.form()["weights"], {"wAudio": 3, "wChat": 0, "wComments": 1})
+
+    def test_processing_remote_needs_dropbox_key(self):
+        st, j = self.upd({"processing": "remote"})
+        self.assertEqual(st, 400)
+        self.assertIn("Dropbox の鍵", j["message"])
+        self.assertEqual(self.app.api.form()["pc"], "this")
+        self.app.sync.has_key = lambda: True
+        st, j = self.upd({"processing": "remote"})
+        self.assertEqual(st, 200, j)
+        self.assertEqual((j["settings"]["processing"], j["settings"]["canRemote"], self.app.api.form()["pc"]), ("remote", True, "user"))
+        st, j = self.upd({"processing": "local"})
+        self.assertEqual(j["settings"]["processing"], "local")
+
+    def test_bad_values_write_nothing(self):
+        for body in ({"weights": {"wAudio": 4, "wChat": 0, "wComments": 0}}, {"weights": {"wAudio": 1}}, {"live": {"sens": "max"}},
+                     {"live": {"waitMin": 0}}, {"live": {"pad": 9}}, {"processing": "x"}):
+            st, j = self.upd(dict(body, cut="silence"))
+            self.assertEqual(st, 400, body)
+        self.assertEqual(self.app.api.form()["cut"], "none")
+        self.assertFalse(self.app.api.form()["useWeights"])
+
+    def test_clean_old_via_settings(self):
+        class FakeSetup:
+            checked = True
+            cleaned = 0
+
+            def old_pending(self):
+                return {"bytes": 2 * 10 ** 9, "count": 1, "asked": True}
+
+            def clean_old(self):
+                self.cleaned += 1
+                return {"deleted": 1, "freed": 2 * 10 ** 9}
+        fs = FakeSetup()
+        self.app.settings.setup = fs
+        st, j = self.get("/api/friend/settings")
+        self.assertEqual(j["settings"]["oldApp"], {"canClean": True, "bytes": 2 * 10 ** 9})
+        st, j = self.upd({"cleanOld": True})
+        self.assertEqual(st, 200, j)
+        self.assertEqual(fs.cleaned, 1)
+        self.assertIn("2.0 GB", j["message"])
 
     def test_api_key_saved_and_never_returned(self):
         st, j = self.post("/api/friend/settings/key", {"key": "  " + KEY + "\n"})

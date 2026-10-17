@@ -7,6 +7,8 @@
   1. plan() で写す候補を決める(古い方がある・大きさが合う・新しい方がまだ無い)
   2. migrate() で候補ごとに、古い方のハッシュ → 一時の名前(.part)へ写す → 写した物のハッシュ → 置き換え → 目録に足す
   3. 全部終えたら、目録の物のうち古い方が写したときのまま(大きさと更新時刻)の物だけ古い方を消し、空になったフォルダを片付ける
+     (F3-5: 友人のアプリは写すだけ(remove_old 偽)にして、写し終えたあと 1 回だけ聞く = pending で空く大きさを出し、
+     [片付ける] なら clean・[あとで] なら skip(もう聞かない。⚙ からは後で片付けられる)。目録の物だけ消す = 目録に無い物(案件・設定)には触らない)
 """
 import hashlib
 import json
@@ -134,7 +136,7 @@ def plan(items, old_root, new_root):
 
 def _empty_catalog():
     """目録の空の形。"""
-    return {"v": CATALOG_VERSION, "files": [], "notice": {"bytes": 0, "shown": False}}
+    return {"v": CATALOG_VERSION, "files": [], "notice": {"bytes": 0, "shown": False}, "asked": False}
 
 
 def _load_catalog(path):
@@ -151,7 +153,7 @@ def _load_catalog(path):
         notice = {"bytes": 0, "shown": False}
     return {"v": CATALOG_VERSION,
             "files": [e for e in data["files"] if isinstance(e, dict)],
-            "notice": {"bytes": notice["bytes"], "shown": bool(notice.get("shown"))}}
+            "notice": {"bytes": notice["bytes"], "shown": bool(notice.get("shown"))}, "asked": bool(data.get("asked"))}
 
 
 def _save_catalog(path, data):
@@ -169,6 +171,43 @@ def notice(catalog_path):
     if n["bytes"] > 0 and not n["shown"]:
         return {"bytes": n["bytes"]}
     return None
+
+
+def pending(catalog_path, old_root):
+    """写して同じと確かめた物のうち、まだ古い方が残っている物 -> {"bytes": 消すと空く大きさ, "count": 件数, "asked": もう聞いたか}。
+    old_root の外・写したときから変わった物は数えない(clean が消さない物と同じ見方)"""
+    cat = _load_catalog(catalog_path)
+    root = _norm(old_root) if old_root else None
+    n = size = 0
+    for e in cat["files"]:
+        old, new, sz = e.get("old"), e.get("new"), e.get("size")
+        if root is None or not (isinstance(old, str) and isinstance(new, str) and _is_int(sz)):
+            continue
+        path = _norm(old)
+        if path == root or not _within(path, root) or not os.path.isfile(old) or not _unchanged(e, old, new, sz):
+            continue
+        n += 1
+        size += sz
+    return {"bytes": size, "count": n, "asked": cat["asked"]}
+
+
+def clean(catalog_path, old_root, log=None):
+    """[片付ける]: 目録の物(写して同じと確かめた物)の古い方だけ消す。-> {"deleted", "freed"}。聞いたことにする"""
+    say = log if log is not None else (lambda msg: None)
+    cat = _load_catalog(catalog_path)
+    deleted, freed = _finish_old(cat, old_root, say) if old_root else (0, 0)
+    cat["asked"] = True
+    _save_catalog(catalog_path, cat)
+    return {"deleted": deleted, "freed": freed}
+
+
+def skip(catalog_path):
+    """[あとで]: もう聞かない(目録が無ければ何もしない。古い方は消さない)"""
+    if not os.path.exists(catalog_path):
+        return
+    cat = _load_catalog(catalog_path)
+    cat["asked"] = True
+    _save_catalog(catalog_path, cat)
 
 
 def mark_notice_shown(catalog_path):

@@ -79,24 +79,73 @@ def is_maker_data(root):
     return isinstance(folder, str) and bool(folder.strip())
 
 
+SEARCH_DEPTH = 4   # tools の下を探す深さ(初回の取得で 3 段下に展開される物も見つける。浅く置き直すのは lay_tools_shallow)
+
+
+def _find_exe(base, exe, depth=SEARCH_DEPTH):
+    """base の直下、無ければ depth 段下まで(浅い方・名前順)で最初に見つかった exe のパスか None"""
+    level = [base]
+    for _ in range(depth + 1):
+        nxt = []
+        for d in level:
+            p = os.path.join(d, exe)
+            if os.path.isfile(p):
+                return p
+            try:
+                nxt.extend(sorted((os.path.join(d, n) for n in os.listdir(d) if os.path.isdir(os.path.join(d, n))), key=str.lower))
+            except OSError:
+                pass
+        level = nxt
+    return None
+
+
 def tool_env(tools_dir, env=None):
-    """<home>/tools の道具を ② に教える環境変数(PATH の頭に足す・YTT_FFMPEG など。見つかった物だけ)-> 足した {名前: 値}"""
+    """<home>/tools の道具を ② に教える環境変数(PATH の頭に足す・YTT_FFMPEG など。見つかった物だけ。4 段下まで探す)-> 足した {名前: 値}。
+    すでに入っている値は、そのファイルがあるうちは変えない(無くなっていれば = 浅く置き直したあとなどは見つけ直す)"""
     env = os.environ if env is None else env
     if not os.path.isdir(tools_dir):
         return {}
     dirs = [tools_dir] + sorted((os.path.join(tools_dir, n) for n in os.listdir(tools_dir) if os.path.isdir(os.path.join(tools_dir, n))), key=str.lower)
     out = {}
     for name, exe in TOOL_EXES:
-        if env.get(name):
+        if env.get(name) and os.path.isfile(env[name]):
             continue
-        for d in dirs:
-            p = os.path.join(d, exe)
-            if os.path.isfile(p):
-                out[name] = p
-                break
+        p = _find_exe(tools_dir, exe)
+        if p:
+            out[name] = p
+            if os.path.dirname(p) not in dirs:
+                dirs.append(os.path.dirname(p))
     out["PATH"] = os.pathsep.join(dirs + [env.get("PATH", "")])
     env.update(out)
     return out
+
+
+def lay_tools_shallow(tools_dir, log=None):
+    """初回の取得で展開した道具(tools/<名前>/ffmpeg-9.0.2.../bin/ffmpeg.exe のように深い所)を tools/<名前>/ の直下(1 段)へ置き直す。
+    exe のあるフォルダの直下のファイルを全部移し、空になった深いフォルダは消す(取り終えた目印 .fetched-* は tools/<名前>/ にあるので取り直さない)。
+    whisper.cpp-* には触らない。-> 移したファイルの数。何度呼んでもよい(すでに直下にあれば何もしない)"""
+    if not os.path.isdir(tools_dir):
+        return 0
+    moved = 0
+    say = log or (lambda msg: None)
+    for sub in sorted(n for n in os.listdir(tools_dir) if os.path.isdir(os.path.join(tools_dir, n)) and not n.startswith("whisper.cpp-")):
+        base = os.path.join(tools_dir, sub)
+        for _name, exe in TOOL_EXES:
+            if os.path.isfile(os.path.join(base, exe)):
+                continue
+            p = _find_exe(base, exe)
+            if not p:
+                continue
+            src_dir = os.path.dirname(p)
+            for n in os.listdir(src_dir):
+                s = os.path.join(src_dir, n)
+                if os.path.isfile(s):
+                    os.replace(s, os.path.join(base, n))
+                    moved += 1
+            first = os.path.relpath(src_dir, base).split(os.sep)[0]   # base の直下の、exe を含んでいた枝
+            shutil.rmtree(os.path.join(base, first), ignore_errors=True)
+            say("道具を浅く置きました: %s" % os.path.join(sub, exe))
+    return moved
 
 
 def lay_whisper(tools_dir, tx_data, log=None):
@@ -151,6 +200,7 @@ def setup(env=None, log=None):
         env["YTT_DATA_DIR"] = os.path.join(h, DATA_NAME)
     for name in _datadir.ENV_OVERRIDE.values():   # 指定した根の下だけを使う(CLI の --data-dir と同じ)
         env.pop(name, None)
+    lay_tools_shallow(os.path.join(h, TOOLS_NAME))   # 深く展開された道具を直下へ(F3-5)
     tool_env(os.path.join(h, TOOLS_NAME), env)
     root = data_root(env)
     tx = _datadir.locate("transcribe")

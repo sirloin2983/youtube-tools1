@@ -10,6 +10,11 @@
                         (places.api_key_env が前のアプリの keys.json へ戻らない印)。入れた・消したは環境変数 YTT_YT_API_KEY にもすぐ写す
     空き容量の下限      machine の diskMinGB(GB)
     カットの既定        <玄関>/form.json の cut(none = しない・silence = 無音を削る。初めは none = A-8)。送る欄には出さず、送るときの束に効く
+    処理する PC         processing: local = この PC で処理する・remote = 依頼する(form.json の pc: this / user。remote は Dropbox の鍵があるときだけ = view の canRemote)
+    解析の重み          weights: null(既定の重み)か {wAudio, wChat, wComments} 0〜3(form.json の useWeights と weights)
+    ライブの感度・待ち・余白  live: {sens: high|normal|low, waitMin: 分, pad: 秒}(form.json の live。範囲は friendapp/live.RANGES。画面の選択肢は view の liveSensOptions)
+    前のアプリの片付け   view の oldApp: {canClean(片付けられる物がある), bytes}。update の cleanOld: true で片付ける(写して同じと確かめた物だけ)
+    これらは送る係が form.json から読む(cut と同じ置き場所)。送る欄のその場の変更は form.json の同じ値を書き換える(最後に書いた方が次の初めの値)
 フォルダは画面から打たせない: [選ぶ] で玄関が Windows のフォルダを選ぶ窓を開く(FriendApp.pick_folder。テストと見本は偽物)。
 """
 import json
@@ -21,6 +26,8 @@ import urllib.request
 
 from flow import machine as _machine, spec as _spec
 from ytt import fsio as _fsio, studio_env as _studio_env
+
+from . import live as _live
 
 KEYS_NAME = "keys.json"
 KEY_FIELD = "youtubeApiKey"
@@ -34,6 +41,7 @@ CASES_NAME = "作業"
 DEVICES = {"A": "vulkan", "C": "cuda"}
 CUTS = _spec.CUTS            # none・silence
 CUT_DEFAULT = "none"         # A-8
+PROCESSING = {"local": "this", "remote": "user"}   # ⚙ の処理する PC -> form.json の pc
 
 
 class SettingsError(ValueError):
@@ -185,7 +193,77 @@ class Settings:
                 "caseRoot": cases, "caseIsDefault": os.path.normcase(os.path.abspath(cases)) == os.path.normcase(os.path.abspath(self.cases_default())),
                 "engine": "C" if m.get("device") == "cuda" else "A", "gpu": gpu,
                 "apiKey": bool(load_key(self.places["data"]) or self.env.get(KEY_ENV)), "apiKeyHelp": KEY_HELP,
-                "diskMinGB": m.get("diskMinGB"), "cut": self.api.form().get("cut", CUT_DEFAULT)}
+                "diskMinGB": m.get("diskMinGB"), "cut": self.api.form().get("cut", CUT_DEFAULT),
+                **self._form_view(), "oldApp": self.old_app()}
+
+    def _form_view(self):
+        f = self.api.form()
+        w = f["weights"]
+        lv = f["live"]
+        return {"processing": "remote" if f["pc"] == "user" else "local",
+                "weights": dict(w) if f["useWeights"] else None, "live": {k: lv[k] for k in ("sens", "waitMin", "pad")},
+                "liveSensOptions": [{"value": v, "label": _live.SENS_LABELS[v]} for v in _live.SENS], "canRemote": self._can_remote()}
+
+    def _can_remote(self):
+        sync = getattr(self.api, "sync", None)
+        return bool(sync is not None and sync.has_key())
+
+    def old_app(self):
+        """前のアプリの片付けのボタン用: {canClean = 片付けられる物がある, bytes = 空く大きさ}"""
+        p = getattr(self.setup, "old_pending", None)
+        got = p() if callable(p) else None
+        return {"canClean": bool(got and got["bytes"] > 0), "bytes": got["bytes"] if got else 0}
+
+    def _check_form(self, body):
+        """processing・weights・live を検べて form.json へ書く差分を返す(違えば SettingsError)"""
+        patch, msgs = {}, []
+        if "processing" in body:
+            if body["processing"] not in PROCESSING:
+                raise SettingsError("処理する PC は「この PC」か「依頼する」を選んでください")
+            if body["processing"] == "remote" and not self._can_remote():
+                raise SettingsError("Dropbox の鍵が無いので、ユーザーの PC には頼めません(鍵はユーザーから受け取ります)")
+            patch["pc"] = PROCESSING[body["processing"]]
+            msgs.append("処理する PC を「%s」にしました(次に送る物から)" % ("この PC" if body["processing"] == "local" else "依頼する"))
+        if "weights" in body:
+            w = body["weights"]
+            if w is None:
+                patch["useWeights"] = False
+                msgs.append("解析の重みを既定に戻しました")
+            else:
+                if not (isinstance(w, dict) and all(isinstance(w.get(k), int) and not isinstance(w.get(k), bool) and 0 <= w[k] <= 3 for k in _spec.WEIGHT_KEYS)):
+                    raise SettingsError("解析の重みは 音量・チャット・コメント をそれぞれ 0〜3 の整数で入れてください")
+                patch["useWeights"] = True
+                patch["weights"] = {k: w[k] for k in _spec.WEIGHT_KEYS}
+                msgs.append("解析の重みを変えました(次に送る物から)")
+        if "live" in body:
+            lv = body["live"]
+            cur = dict(self.api.form()["live"])
+            if not isinstance(lv, dict):
+                raise SettingsError("ライブの設定が正しくありません")
+            if "sens" in lv:
+                if lv["sens"] not in _live.SENS:
+                    raise SettingsError("ライブの感度は 高い・ふつう・低い のどれかにしてください")
+                cur["sens"] = lv["sens"]
+            if "waitMin" in lv:
+                lo, hi = _live.RANGES["waitMin"]
+                if not (isinstance(lv["waitMin"], int) and not isinstance(lv["waitMin"], bool) and lo <= lv["waitMin"] <= hi):
+                    raise SettingsError("ライブの待ちは %d〜%d 分にしてください" % (lo, hi))
+                cur["waitMin"] = lv["waitMin"]
+            if "pad" in lv:
+                lo, hi = _live.RANGES["pad"]
+                m = lv["pad"]
+                if not (isinstance(m, (int, float)) and not isinstance(m, bool) and lo <= m <= hi):
+                    raise SettingsError("ライブの余白は %g〜%g 秒にしてください" % (lo, hi))
+                cur["pad"] = float(m)
+            patch["live"] = cur
+            msgs.append("ライブの感度・待ち・余白を変えました(次に送る物から)")
+        return patch, msgs
+
+    def _write_form(self, patch):
+        if patch:
+            cur = self.api.form()
+            cur.update(patch)
+            _fsio.write_json(self.api.form_path, cur, indent=None)
 
     # ---- フォルダ
     def set_folder(self, what, raw):
@@ -215,8 +293,12 @@ class Settings:
 
     # ---- エンジン・空き容量・カット
     def update(self, body):
-        """{engine?: A|C, diskMinGB?: 数, cut?: none|silence} -> {"message", "fetching"}。合わなければ SettingsError(どれも書かない)"""
+        """{engine?: A|C, diskMinGB?: 数, cut?: none|silence, processing?: local|remote, weights?: null|{volume,chat,comment},
+        live?: {sensitivity?, wait?, margin?}, cleanOld?: true} -> {"message", "fetching"}。合わなければ SettingsError(どれも書かない)"""
         patch, msgs, cut, fetching = {}, [], None, False
+        form_patch, form_msgs = self._check_form(body)
+        if body.get("cleanOld") is True and not callable(getattr(self.setup, "clean_old", None)):
+            raise SettingsError("片付けられる物がありません")
         if "engine" in body:
             if body["engine"] not in DEVICES:
                 raise SettingsError("エンジンは A か C を選んでください")
@@ -232,6 +314,11 @@ class Settings:
             cut = body["cut"]
         if patch:
             _machine.save(patch, p=self.machine_file)
+        self._write_form(form_patch)
+        msgs.extend(form_msgs)
+        if body.get("cleanOld") is True:
+            got = self.setup.clean_old()
+            msgs.append("前のアプリの部品を片付けました(%.1f GB 空きました)" % (got["freed"] / 1e9) if got["deleted"] else "片付けられる物はありませんでした")
         if cut is not None:
             self.api.set_cut(cut)
             msgs.append("カットの既定を「%s」にしました(次に送る物から)" % ("無音を削る" if cut == "silence" else "しない"))
@@ -261,6 +348,11 @@ class Settings:
         st = self.setup
         if st is None or not st.checked:
             return False, ""
+        if getattr(st, "flow", None) is not None:   # 準備だけの画面の流れ(F3-5)が始まっている = 部品を取る・確かめ直すのは begin(続きから)
+            if st.running():
+                return False, "準備の途中です。終わったあと、もう一度 C を選んでください"
+            st.start()
+            return True, ""
         try:
             miss = [i["name"] for i in st.missing() if i["unzip"] == "wcpp"]
         except Exception:   # noqa: BLE001
@@ -270,7 +362,7 @@ class Settings:
         if st.running():
             return False, "部品を取っている途中です。取り終えたあと、受信箱の上の「初回の準備」から C の部品も取れます"
         try:
-            st.start(only=set(miss))
+            st.start_fetch(only=set(miss))
             return True, ""
         except ValueError as e:
             return False, "C の部品を取れません: %s" % e

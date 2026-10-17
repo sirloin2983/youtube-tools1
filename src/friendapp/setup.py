@@ -13,7 +13,14 @@
     古い部品を写す oldcopy(A-16)のあとに見る = 写せた物は足りない物に入らない。
 文字起こしのエンジン C(CUDA)にしているときは、公式の CUDA 版の whisper.cpp(pipeline/transcribe/tx_engines.WCPP_BINARIES)も足りない物に数える
     (表に無いので行を組む。取った zip を tx_engines.fetch_wcpp_binary に渡して展開する = 置き方は ① と同じ 1 か所)。
-記録 <玄関>/setup.json(取った物と最後の回の結果。見るためだけ。足りないかの判断には使わない)。
+記録 <玄関>/setup.json(取った物と最後の回の結果。見るためだけ。足りないかの判断には使わない。ただし checked = 道具を動かして確かめ終えた印は使う)。
+
+準備だけの画面(F3-5。notes:plan/f1-friend-requirements.md の C-5-1・C-5-2・C-1-2・C-0): start() が確認なしで自動で始める流れ。
+    前のアプリの部品を写す(copying。oldcopy。写すだけで消さない)→ 取る(fetching。空きが足りなければ始めずに need-space)→
+    浅く置く(placing。places.lay_tools_shallow)→ 道具を確かめる(checking。toolcheck)→
+    (文字起こしが A で動かなければ)エンジン C にして CUDA 版を取り確かめ直す(cuda)→ 済み(done)。失敗は failed(続きから [もう一度] = begin)。
+    確かめ終えたことは setup.json の checked(版・機器・道具のファイルの印)に残し、次の起動では確かめ直さない(道具が変わったら確かめ直す)。
+    画面は view()(1 本の棒)・done(送る画面へ)・awake()(スリープを止める)。前のアプリの片付けは 1 回だけ聞く(view の oldApp)→ clean_old・skip_old。
 """
 import hashlib
 import json
@@ -29,6 +36,8 @@ import zipfile
 
 from ytt import fsio as _fsio, version as _version
 
+from . import oldcopy as _oldcopy, places as _places, toolcheck as _toolcheck
+
 UNZIPS = (None, "zip", "tar.bz2", "tar.bz2-member", "wcpp")   # wcpp = CUDA 版の whisper.cpp(表には無い。cuda_item が組む)
 SHA_RE = re.compile(r"^[0-9a-f]{64}\Z")
 CHUNK = 256 * 1024
@@ -40,6 +49,8 @@ ROOM = 1024 ** 3            # 取るときに残す空き(展開の途中の物�
 RECORD = "setup.json"
 TX_TOOL = "transcribe"      # 文字起こしの作業データの ID(fetch.json の dest の頭と同じ。dev/build_friend_zip.py の TX_TOOL)
 CUDA_NAME = "whisper.cpp/cuda"
+FLOW_ACTIVE = ("copying", "fetching", "placing", "checking", "cuda")   # スリープを止める間
+FLOW_STATES = FLOW_ACTIVE + ("done", "failed", "need-space")
 LABELS = (("whisper.cpp/", "文字起こしのモデル"), ("llama.cpp/", "文を整える部品"), ("llm/", "文を整えるモデル"), ("sensevoice/", "声の判別のモデル"),
           ("diar/", "話す人の判別のモデル"), ("ffmpeg", "動画の道具 ffmpeg"), ("yt-dlp", "配信を取る道具 yt-dlp"), ("deno", "配信を取る道具の部品 Deno"))
 
@@ -495,10 +506,26 @@ class Setup:
     after(結果) = 取り終えたとき(玄関が道具の場所を教え直す)"""
 
     def __init__(self, fetch_path, data_root, home, record_dir, device=lambda: "vulkan", log=None, downloader=None,
-                 disk_usage=shutil.disk_usage, wcpp=install_wcpp, cuda=cuda_item, after=None):
+                 disk_usage=shutil.disk_usage, wcpp=install_wcpp, cuda=cuda_item, after=None, env=None, set_device=None,
+                 copy=_oldcopy.migrate, run=_toolcheck.run_cmd, whisper=_toolcheck.whisper_run):
         self.fetch_path, self.data_root, self.home, self.record_dir = fetch_path, data_root, home, record_dir
         self.device, self.log, self.downloader = device, log or (lambda msg: None), downloader
         self.disk_usage, self.wcpp, self.cuda, self.after = disk_usage, wcpp, cuda, after
+        # 準備だけの画面の流れ(begin)。env = 道具の場所を入れる環境変数(既定 os.environ)・set_device(機器) = machine.json に書く口・
+        # copy = 前のアプリの部品を写す口・run = 子プロセスの実行・whisper = 文字起こしの 1 回(どれもテストは偽物)
+        self.env = os.environ if env is None else env
+        self.set_device = set_device or _set_device
+        self.copy, self.run, self.whisper = copy, run, whisper
+        self.catalog = os.path.join(record_dir, "old-copy.json")
+        self.old_root = None
+        self.flow = None            # None = まだ始めていない・FLOW_STATES のどれか
+        self.flow_thread = None
+        self.flow_msg = ""
+        self.flow_error = None
+        self.fetching = set()       # 今取っている部品の名前(行の更新の対象)
+        self.rows = []              # 部品ごとの行 [{name, label, state, text}]
+        self.prog = {"done": 0, "total": 0, "start": None, "first": None}
+        self.percent = 0
         self.checked = False
         self.later = False          # [あとで](起動ごと。次に開くとまた確認を出す)
         self.error = None           # fetch.json が壊れている(作る側の不具合。ログと画面に)
@@ -535,21 +562,23 @@ class Setup:
         return [i for i in rows if i["name"] in only] if only else rows
 
     def running(self):
-        t = self.thread
-        return t is not None and t.is_alive()
+        t, f = self.thread, self.flow_thread
+        return (t is not None and t.is_alive()) or (f is not None and f.is_alive())
 
     def block_reason(self):
         """[送る](この PC)を押せない理由か None"""
         if not self.checked:
             return None
+        if self.flow is not None and self.flow != "done":
+            return "初回の準備の途中です。終わると送れます"
         if self.running():
             return "処理の部品を取っています。取り終えると送れます(進み具合は上の「初回の準備」)"
         if self.missing():
             return "処理の部品が足りません。上の帯の [取ってくる] から取ってください"
         return None
 
-    def view(self):
-        """画面へ: {active, missing: [{name, label, size}], count, total, places, canStart, reason, running, progress, result, later, error}"""
+    def inbox_view(self):
+        """受信箱の上の帯(F2-5 の画面)用: {active, missing: [{name, label, size}], count, total, places, canStart, reason, running, progress, result, later, error}"""
         if not self.checked:
             return {"active": False}
         miss = self.missing()
@@ -568,8 +597,8 @@ class Setup:
                 "error": self.error}
 
     # ---- 操作
-    def start(self, only=None):
-        """足りない物を裏の糸で取り始める(only = 名前の組 = その物だけ)。始められなければ ValueError(理由)"""
+    def start_fetch(self, only=None):
+        """足りない物を裏の糸で取り始める(受信箱の帯の旧い形。準備だけの画面は start)(only = 名前の組 = その物だけ)。始められなければ ValueError(理由)"""
         with self.lock:
             if not self.checked:
                 raise ValueError("前のアプリの部品を写しています。終わってから始めてください")
@@ -600,9 +629,277 @@ class Setup:
         self.later = False
 
     def wait(self, timeout=None):
-        t = self.thread
-        if t is not None:
-            t.join(timeout)
+        for t in (self.thread, self.flow_thread):
+            if t is not None:
+                t.join(timeout)
+
+    # ================================================================ 準備だけの画面(F3-5)
+    @property
+    def done(self):
+        """準備が済んだ(確かめまで通った)= 送る画面へ進んでよい"""
+        return self.flow == "done"
+
+    def awake(self):
+        """スリープを止めるか(準備が進んでいる間)"""
+        return self.flow in FLOW_ACTIVE or self.running()
+
+    def start(self, old_root=None):
+        """準備を確認なしで自動で始める(裏の糸)。すでに進んでいれば何もしない。失敗のあとの [もう一度] もこれ(取れた分は残り、続きから。begin は別名)。
+        fetch.json が無ければ(開発の PC)何もせず済みにする。old_root = 前のアプリの作業データ(places.old_data_root())か None"""
+        with self.lock:
+            if self.running():
+                return
+            if old_root is not None:
+                self.old_root = old_root
+            self.cancel_ev.clear()
+            self.flow_error = None
+            self.percent = 0
+            if not self.fetch_path or not os.path.isfile(self.fetch_path):
+                self.checked = True
+                self._flow_set("done", "")
+                return
+            self._flow_set("copying" if self.old_root and os.path.isdir(self.old_root) else "fetching", "準備しています")
+            self.flow_thread = threading.Thread(target=self._flow_job, name="friend-setup-flow", daemon=True)
+            self.flow_thread.start()
+
+    begin = start
+
+    def _flow_set(self, state, msg, percent=None):
+        self.flow, self.flow_msg = state, msg
+        if state == "done":
+            self.percent = 100
+        elif percent is not None:
+            self.percent = percent
+
+    def _flow_job(self):
+        try:
+            self._flow()
+        except Cancelled:
+            self._flow_fail("準備を止めました。もう一度始めると続きから進みます")
+        except Exception as e:   # noqa: BLE001  (思わぬ失敗でも画面に理由を出す)
+            self.log("初回の準備が止まりました: %s %s" % (e.__class__.__name__, str(e)[:200]))
+            self._flow_fail("準備が止まりました(%s)。ネットを確かめて [もう一度] を押してください" % e.__class__.__name__)
+
+    def _flow_fail(self, msg):
+        self.flow_error = msg
+        self._flow_set("failed", msg)
+
+    def tools_dir(self):
+        return os.path.join(self.home, _places.TOOLS_NAME)
+
+    def tx_dir(self):
+        return os.path.join(self.data_root, TX_TOOL)
+
+    def _place(self):
+        """浅く置く・文字起こしの部品を作業データへ写す・道具の場所を環境変数へ(置き直して無くなった古い値は入れ直す)"""
+        _places.lay_tools_shallow(self.tools_dir(), self.log)
+        _places.lay_whisper(self.tools_dir(), self.tx_dir(), self.log)
+        _places.tool_env(self.tools_dir(), self.env)
+
+    def _sig_files(self, device):
+        from ytt import txbase as _txbase
+        files = [self.env.get(var) for _n, var, _a, _l in _toolcheck.TOOL_CHECKS]
+        files.append(_txbase.wcpp_exe(self.tx_dir(), device))
+        return files
+
+    def _checked_ok(self, device):
+        d = _fsio.read_json_or(os.path.join(self.record_dir, RECORD), {}, kind=dict).get("checked")
+        return (isinstance(d, dict) and d.get("version") == _version.VERSION and d.get("device") == device
+                and d.get("sig") == _toolcheck.signature(self._sig_files(device)))
+
+    def _save_checked(self, device):
+        path = os.path.join(self.record_dir, RECORD)
+        d = _fsio.read_json_or(path, {}, kind=dict)
+        d["v"] = 1
+        d["checked"] = {"version": _version.VERSION, "device": device, "sig": _toolcheck.signature(self._sig_files(device)),
+                        "at": int(time.time() * 1000)}
+        try:
+            _fsio.write_json(path, d, indent=1)
+        except OSError as e:
+            self.log("確かめた印を書けませんでした: %s" % e.__class__.__name__)
+
+    def _fetch_items(self, items, state, msg, keep=False):
+        """items を取る(Fetcher)-> 結果。行を更新しながら(keep = それまでの行(道具の確かめの結果)も残す)"""
+        self._flow_set(state, msg)
+        self.rows = (self.rows if keep else []) + [{"name": i["name"], "label": label(i["name"]), "state": "wait", "text": "待っています"} for i in items]
+        self.prog = {"done": 0, "total": sum(expect(i) for i in items), "start": time.monotonic(), "first": None}
+        self.fetching = {i["name"] for i in items}
+        f = Fetcher(self.data_root, self.home, downloader=self.downloader, log=self.log, progress=self._flow_progress,
+                    cancelled=self.cancel_ev.is_set, wcpp=self.wcpp)
+        res = f.run(items)
+        failed = {x["name"]: x["message"] for x in res["failed"]}
+        for r in (r for r in self.rows if r["name"] in self.fetching):
+            if r["name"] in failed:
+                r["state"], r["text"] = "failed", "取れませんでした(%s)" % failed[r["name"]]
+            elif r["name"] in res["done"]:
+                r["state"], r["text"] = "done", "取れました"
+        if res["cancelled"]:
+            raise Cancelled()
+        return res
+
+    def _flow_progress(self, p):
+        p = dict(p)
+        mine = [r for r in self.rows if r["name"] in self.fetching]
+        for k, r in enumerate(mine):
+            if k + 1 < p["index"]:
+                r["state"], r["text"] = "done", "取れました"
+            elif k + 1 == p["index"]:
+                if r["state"] != "failed":
+                    r["state"], r["text"] = "doing", p.get("phase") or "取っています"
+        total, done = p["total"], p["done"]
+        if self.prog["first"] is None:
+            self.prog["first"] = done
+        self.prog["done"], self.prog["total"] = done, total
+        if self.flow == "fetching" and total > 0:
+            self.percent = min(89, int(90 * done / total))
+
+    def _remain(self):
+        pg = self.prog
+        if self.flow != "fetching" or pg["start"] is None or pg["first"] is None:
+            return None
+        el, got = time.monotonic() - pg["start"], pg["done"] - pg["first"]
+        if el < 5 or got < (1 << 20) or pg["total"] <= pg["done"]:
+            return None
+        return int((pg["total"] - pg["done"]) / (got / el))
+
+    def _check_rows(self, rows):
+        for r in rows:
+            self.rows = [x for x in self.rows if x["name"] != r["name"]]
+            self.rows.append({"name": r["name"], "label": r["label"], "state": "done" if r["ok"] else "failed", "text": r["text"]})
+
+    def _flow(self):
+        # 1 前のアプリの部品を写す(写すだけ。消すかは写し終えたあとに 1 回聞く = oldApp)
+        old = self.old_root
+        if old and os.path.isdir(old):
+            self._flow_set("copying", "前のアプリの部品(モデルなど)を写しています", 0)
+            got = self.copy(self.fetch_path, old, self.data_root, self.catalog, log=self.log, cancelled=self.cancel_ev.is_set, remove_old=False)
+            self.log("古い部品: 写した %d 件(%.1f GB)" % (got["copied"], got["bytes"] / 1e9))
+        self.checked = True
+        if self.cancel_ev.is_set():
+            raise Cancelled()
+        # 2 足りない物
+        items = self.items()
+        if self.error:
+            return self._flow_fail("初回の準備の表を使えません(%s)。アプリを入れ直してください" % self.error)
+        self._place()
+        device = self.device()
+        miss = [i for i in items if not is_done(i, self.data_root, self.home)]
+        if not miss and self._checked_ok(device):
+            self._flow_set("done", "")
+            return
+        fetched = []
+        if miss:
+            short = [s for s in space(miss, self.data_root, self.home, self.disk_usage) if not s["ok"]]
+            if short:
+                s = short[0]
+                self.rows = [{"name": i["name"], "label": label(i["name"]), "state": "wait", "text": "待っています"} for i in miss]
+                self._flow_set("need-space", "%s の空きが足りません(空き %s・要る %s)。空きを増やしてから [もう一度] を押してください" % (
+                    s["path"], gb(s["free"]), gb(s["need"])))
+                return
+            self.log("初回の取得を始めます: %d 個(%s)" % (len(miss), gb(sum(expect(i) for i in miss))))
+            res = self._fetch_items(miss, "fetching", "必要な部品を取っています")
+            res["ok"] = not res["failed"]
+            res["at"] = int(time.time() * 1000)
+            self._record(miss, res)
+            if res["failed"]:
+                names = "・".join(x["label"] for x in res["failed"][:3])
+                return self._flow_fail("取れなかった部品があります(%s)。ネットを確かめて [もう一度] を押してください" % names)
+            fetched = res["done"]
+        # 3 浅く置く
+        self._flow_set("placing", "道具を置いています", 90)
+        self._place()
+        # 4 道具を動かして確かめる
+        self._flow_set("checking", "道具が動くか確かめています", 94)
+        rows = _toolcheck.check_tools(self.env, self.run)
+        wrow = self._whisper_row(device, rows)
+        self._check_rows(rows + [wrow])
+        bad = _toolcheck.failed(rows)
+        if bad:
+            return self._flow_fail("「%s」が動きません。ウイルス対策ソフトに止められていないか確かめて [もう一度] を押してください" % bad[0]["label"])
+        if not wrow["ok"]:
+            if device == "cuda" or not self._try_cuda(device):
+                return self._flow_fail("文字起こしが動きません。詳しくは「詳しく」を見てください")
+            device = "cuda"
+        self._save_checked(device)
+        self._flow_set("done", "")
+        if self.after is not None:
+            try:
+                self.after({"done": fetched, "failed": [], "cancelled": False, "ok": True})
+            except Exception as e:   # noqa: BLE001
+                self.log("準備のあとの処理に失敗しました: %s" % e.__class__.__name__)
+
+    def _whisper_row(self, device, tool_rows):
+        if any(not r["ok"] for r in tool_rows if r["name"] == "ffmpeg"):
+            return {"name": "whisper", "label": _toolcheck.WHISPER_LABEL, "ok": False, "text": "ffmpeg が動かないので確かめられません"}
+        return _toolcheck.check_whisper(device, self.data_root, self.env.get("YTT_FFMPEG"), os.path.join(self.record_dir, "toolcheck"),
+                                        self.run, self.whisper)
+
+    def _try_cuda(self, was):
+        """文字起こしが A で動かなかった -> エンジン C(CUDA)にして CUDA 版を取り、確かめ直す。動かなければ元の機器へ戻す -> C で動いたか"""
+        try:
+            item = self.cuda()
+        except Exception as e:   # noqa: BLE001
+            self.log("エンジン C の部品の表を読めません: %s" % e.__class__.__name__)
+            item = None
+        if not item:
+            return False
+        self._flow_set("cuda", "この PC に合わせて文字起こしを別の方式(C)にしています", 96)
+        self.set_device("cuda")
+        self.log("文字起こしが A で動かないのでエンジン C にします")
+        try:
+            if not is_done(item, self.data_root, self.home):
+                res = self._fetch_items([item], "cuda", "文字起こしの別の方式(C)の部品を取っています", keep=True)
+                if res["failed"]:
+                    raise FetchError(res["failed"][0]["message"])
+            _places.tool_env(self.tools_dir(), self.env)
+            row = _toolcheck.check_whisper("cuda", self.data_root, self.env.get("YTT_FFMPEG"), os.path.join(self.record_dir, "toolcheck"),
+                                           self.run, self.whisper)
+            row = dict(row, name="whisper-c", label=_toolcheck.WHISPER_LABEL + " C")
+        except Cancelled:
+            self.set_device(was)
+            raise
+        except (FetchError, OSError) as e:
+            row = {"name": "whisper-c", "label": _toolcheck.WHISPER_LABEL + " C", "ok": False, "text": "C の部品を取れませんでした(%s)" % str(e)[:160]}
+        self._check_rows([row])
+        if not row["ok"]:
+            self.set_device(was)
+            return False
+        return True
+
+    def view(self):
+        """準備だけの画面(1 本の棒)へ: {state: copying|fetching|placing|checking|cuda|done|failed|need-space, percent, remainSec(見積もれなければ null),
+        totalBytes, doneBytes, message(友人の言葉 1 行), detail: [{label, state(wait|doing|done|failed), text}], error, oldApp: {ask, bytes}}"""
+        state = self.flow or "copying"
+        pg = self.prog
+        return {"state": state, "percent": 100 if state == "done" else int(self.percent), "remainSec": self._remain(),
+                "totalBytes": pg["total"], "doneBytes": min(pg["done"], pg["total"]) if pg["total"] else 0,
+                "message": self.flow_msg or ("" if state == "done" else "準備しています"),
+                "detail": [{"label": r["label"], "state": r["state"], "text": r["text"]} for r in self.rows],
+                "error": self.flow_error, "oldApp": self.old_app()}
+
+    # ---- 前のアプリの片付け(C-1-2)
+    def old_pending(self):
+        """写して同じと確かめた古い部品の、片付けると空く大きさ -> {"bytes", "count", "asked"}"""
+        if not self.old_root or not os.path.isfile(self.catalog):
+            return {"bytes": 0, "count": 0, "asked": False}
+        return _oldcopy.pending(self.catalog, self.old_root)
+
+    def old_app(self):
+        """準備の画面で 1 回だけ聞く: {ask = 写し終えてまだ聞いていない, canClean = 片付けられる物がある(⚙ のボタン), bytes = 空く大きさ}"""
+        p = self.old_pending()
+        return {"ask": bool(self.checked and p["bytes"] > 0 and not p["asked"]), "canClean": p["bytes"] > 0, "bytes": p["bytes"]}
+
+    def clean_old(self):
+        """[片付ける]: 写して同じと確かめた物(目録の物)の古い方だけ消す。目録に無い物(案件・設定)には触らない -> {"deleted", "freed"}"""
+        if not self.old_root:
+            return {"deleted": 0, "freed": 0}
+        got = _oldcopy.clean(self.catalog, self.old_root, self.log)
+        self.log("前のアプリの部品を片付けました: %d 件(%.1f GB)" % (got["deleted"], got["freed"] / 1e9))
+        return got
+
+    def skip_old(self):
+        """[あとで]: もう聞かない(⚙ から後で片付けられる)"""
+        _oldcopy.skip(self.catalog)
 
     def _job(self, items):
         self.log("初回の取得を始めます: %d 個(%s)" % (len(items), gb(sum(expect(i) for i in items))))
@@ -636,9 +933,18 @@ class Setup:
             if it["name"] in res["done"]:
                 got[it["name"]] = {"sha256": it["sha256"], "folder": folder(it, self.data_root, self.home), "at": res["at"]}
         try:
-            _fsio.write_json(path, {"v": 1, "items": got, "last": {k: res[k] for k in ("at", "ok", "done", "failed", "cancelled")}}, indent=1)
+            out = {"v": 1, "items": got, "last": {k: res[k] for k in ("at", "ok", "done", "failed", "cancelled")}}
+            if isinstance(d.get("checked"), dict):
+                out["checked"] = d["checked"]   # 道具を確かめ終えた印は残す(いつ変わったかは signature が見る)
+            _fsio.write_json(path, out, indent=1)
         except OSError as e:
             self.log("初回の取得の記録を書けませんでした: %s" % e.__class__.__name__)
+
+
+def _set_device(device):
+    """この PC の設定 machine.json の device(vulkan = A・cuda = C)"""
+    from flow import machine as _machine
+    _machine.save({"device": device})
 
 
 def gb(n):

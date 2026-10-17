@@ -8,9 +8,11 @@ import sys
 import tarfile
 import tempfile
 import threading
+import time
 import unittest
 import zipfile
 from collections import namedtuple
+from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -118,7 +120,7 @@ class SetupTest(unittest.TestCase):
         return st
 
     def run_setup(self, st, only=None):
-        st.start(only)
+        st.start_fetch(only)
         st.wait(10)
         return st.result
 
@@ -136,7 +138,7 @@ class SetupTest(unittest.TestCase):
         self.write_fetch([dict(self.items[0], url="http://h/model.bin")])
         st = self.make()
         self.assertEqual(st.missing(), [])
-        self.assertIn("https", st.view()["error"])
+        self.assertIn("https", st.inbox_view()["error"])
         self.assertIsNone(st.block_reason())
 
     def test_no_fetch_json_means_inactive(self):
@@ -144,14 +146,14 @@ class SetupTest(unittest.TestCase):
         st.checked = True
         self.assertEqual(st.missing(), [])
         self.assertIsNone(st.block_reason())
-        self.assertEqual(st.view()["count"], 0)
+        self.assertEqual(st.inbox_view()["count"], 0)
 
     # ---- 取る
     def test_fetch_all_and_done(self):
         st = self.make()
         self.assertEqual(len(st.missing()), 4)
         self.assertIn("足りません", st.block_reason())
-        v = st.view()
+        v = st.inbox_view()
         self.assertTrue(v["canStart"])
         self.assertEqual(v["total"], sum(S.expect(S.parse_item(i)) for i in self.items))
         res = self.run_setup(st)
@@ -225,7 +227,7 @@ class SetupTest(unittest.TestCase):
         self.assertIn("SHA-256", res["failed"][0]["message"])
         self.assertEqual([i["name"] for i in st.missing()], ["whisper.cpp/large-v3"])   # 失敗した物だけ次の回
         self.assertFalse(os.path.exists(os.path.join(self.data, "transcribe", "models", "whispercpp", "model.bin.part")))
-        self.assertEqual(st.view()["result"]["failed"][0]["name"], "whisper.cpp/large-v3")
+        self.assertEqual(st.inbox_view()["result"]["failed"][0]["name"], "whisper.cpp/large-v3")
 
     def test_failure_does_not_stop_others(self):
         self.dl.fail["https://h/ffmpeg.zip"] = 1
@@ -247,12 +249,12 @@ class SetupTest(unittest.TestCase):
                 if cancelled():
                     raise S.Cancelled()
         st = self.make(downloader=Slow(self.files))
-        st.start()
+        st.start_fetch()
         started.wait(5)
         self.assertTrue(st.running())
         self.assertIn("取っています", st.block_reason())
         with self.assertRaises(ValueError):
-            st.start()   # 2 つ目は断る
+            st.start_fetch()   # 2 つ目は断る
         st.cancel()
         gate.set()
         st.wait(5)
@@ -261,27 +263,27 @@ class SetupTest(unittest.TestCase):
 
     def test_space_short_refuses(self):
         st = self.make(disk_usage=lambda p: Usage(100, 99, 1))
-        v = st.view()
+        v = st.inbox_view()
         self.assertFalse(v["canStart"])
         self.assertIn("空きが足りません", v["reason"])
         with self.assertRaises(ValueError):
-            st.start()
+            st.start_fetch()
         self.assertEqual(self.dl.calls, [])
 
     def test_not_checked_waits(self):
         st = self.make()
         st.checked = False   # 古い部品を写している間は見せない・始めない・送るも止めない
-        self.assertEqual(st.view(), {"active": False})
+        self.assertEqual(st.inbox_view(), {"active": False})
         self.assertIsNone(st.block_reason())
         with self.assertRaises(ValueError):
-            st.start()
+            st.start_fetch()
 
     def test_later_and_reopen(self):
         st = self.make()
         st.defer()
-        self.assertTrue(st.view()["later"])
+        self.assertTrue(st.inbox_view()["later"])
         st.reopen()
-        self.assertFalse(st.view()["later"])
+        self.assertFalse(st.inbox_view()["later"])
 
     def test_after_called_with_result(self):
         got = []
@@ -430,6 +432,333 @@ class HttpDownloaderTest(unittest.TestCase):
     def test_cancel(self):
         with self.assertRaises(S.Cancelled):
             S.HttpDownloader(opener=FakeOpener(FakeResp(b"abc"))).get("https://h/x", self.part, 10, lambda n: None, lambda: True)
+
+
+# ================================================================ 準備だけの画面の流れ(F3-5。begin・view・done・awake・前のアプリの片付け)
+class FlowTest(unittest.TestCase):
+    """本物のネット・本物の道具・本物の文字起こしは動かさない(偽の取り方・偽の run・偽の whisper)"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="friendflow-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.home = os.path.join(self.tmp, "home")
+        self.data = os.path.join(self.home, "data")
+        self.friend = os.path.join(self.data, "app", "friendapp")
+        os.makedirs(self.friend)
+        self.fetch = os.path.join(self.home, "fetch.json")
+        self.model = b"model-bytes" * 5
+        self.ffz = zbytes({"ffmpeg-9/bin/ffmpeg.exe": b"ff-exe", "ffmpeg-9/bin/ffprobe.exe": b"fp-exe", "ffmpeg-9/LICENSE": b"l"})
+        self.ytd = b"ytdlp-exe"
+        self.dnz = zbytes({"deno.exe": b"deno-exe"})
+        self.files = {"https://h/model.bin": self.model, "https://h/ff.zip": self.ffz, "https://h/yt-dlp.exe": self.ytd, "https://h/deno.zip": self.dnz}
+        self.items = [
+            {"name": "whisper.cpp/large-v3", "file": "model.bin", "url": "https://h/model.bin", "size": len(self.model), "sha256": sha(self.model),
+             "base": "data", "dest": "transcribe/models/whispercpp", "unzip": None},
+            {"name": "ffmpeg", "file": "ff.zip", "url": "https://h/ff.zip", "size": len(self.ffz), "sha256": sha(self.ffz),
+             "base": "app", "dest": "tools/ffmpeg", "unzip": "zip"},
+            {"name": "yt-dlp", "file": "yt-dlp.exe", "url": "https://h/yt-dlp.exe", "size": len(self.ytd), "sha256": sha(self.ytd),
+             "base": "app", "dest": "tools/yt-dlp", "unzip": None},
+            {"name": "deno", "file": "deno.zip", "url": "https://h/deno.zip", "size": len(self.dnz), "sha256": sha(self.dnz),
+             "base": "app", "dest": "tools/deno", "unzip": "zip"},
+        ]
+        self.write_fetch(self.items)
+        self.dl = FakeDownloader(self.files)
+        self.cmds = []                 # 偽の run が受けた命令
+        self.bad_tool = None           # この名前を含む道具は終了コード 1
+        self.whispered = []            # 偽の whisper が受けた機器
+        self.whisper_ok = {"vulkan": True, "cuda": True}
+        self.device = ["vulkan"]
+        self.devices_set = []
+        self.copied = []
+
+    def write_fetch(self, items):
+        with open(self.fetch, "w", encoding="utf-8") as f:
+            json.dump({"schema": "youtube-tools-friend-fetch/v1", "version": "0.93.0", "items": items}, f)
+
+    def fake_run(self, cmd, timeout):
+        self.cmds.append(list(cmd))
+        if "lavfi" in cmd:
+            with open(cmd[-1], "wb") as f:
+                f.write(b"RIFF....WAVE")
+            return 0, "", None
+        if self.bad_tool and self.bad_tool in os.path.basename(cmd[0]):
+            return 1, "broken", None
+        return 0, "tool version 1.2.3", None
+
+    def whisper(self, device, data_root, wav):
+        self.whispered.append(device)
+        if not self.whisper_ok[device]:
+            raise RuntimeError("Vulkan の機器がありません" if device == "vulkan" else "CUDA が動きません")
+
+    def set_device(self, d):
+        self.devices_set.append(d)
+        self.device[0] = d
+
+    def make(self, **kw):
+        kw.setdefault("downloader", self.dl)
+        kw.setdefault("disk_usage", lambda p: BIG)
+        kw.setdefault("cuda", lambda: None)
+        kw.setdefault("env", {})
+        kw.setdefault("run", self.fake_run)
+        kw.setdefault("whisper", self.whisper)
+        kw.setdefault("set_device", self.set_device)
+        kw.setdefault("device", lambda: self.device[0])
+        return S.Setup(self.fetch, self.data, self.home, self.friend, **kw)
+
+    def go(self, st, old_root=None):
+        st.start(old_root)
+        st.wait(10)
+        return st.view()
+
+    def cuda_item(self):
+        blob = b"cuda-zip"
+        self.files["https://h/c.zip"] = blob
+        self.dl.files["https://h/c.zip"] = blob
+        return {"name": S.CUDA_NAME, "file": "c.zip", "url": "https://h/c.zip", "sha256": sha(blob), "base": "data", "dest": "transcribe/bin",
+                "unzip": "wcpp", "top": "", "member": "", "size": len(blob), "maxBytes": 0, "parts": []}
+
+    def tool(self, *parts):
+        return os.path.join(self.home, "tools", *parts)
+
+    # ---- 全部通る
+    def test_full_flow_places_checks_and_records(self):
+        st = self.make()
+        self.assertFalse(st.done)
+        v = self.go(st)
+        self.assertEqual((v["state"], v["percent"], v["error"]), ("done", 100, None))
+        self.assertTrue(st.done)
+        self.assertFalse(st.awake())
+        # 浅く置いた(1 段下)・深い所は消えた
+        for rel in (("ffmpeg", "ffmpeg.exe"), ("ffmpeg", "ffprobe.exe"), ("yt-dlp", "yt-dlp.exe"), ("deno", "deno.exe")):
+            self.assertTrue(os.path.isfile(self.tool(*rel)), rel)
+        self.assertFalse(os.path.exists(self.tool("ffmpeg", "ffmpeg-9")))
+        self.assertEqual(st.env["YTT_FFMPEG"], self.tool("ffmpeg", "ffmpeg.exe"))
+        self.assertEqual(st.env["YTT_DENO"], self.tool("deno", "deno.exe"))
+        # 4 つの道具を 1 回ずつ + 短い音 + 文字起こし 1 回
+        versions = [c[1] for c in self.cmds if len(c) == 2]
+        self.assertEqual(sorted(versions), ["--version", "--version", "-version", "-version"])
+        self.assertEqual(self.whispered, ["vulkan"])
+        labels = [d["label"] for d in v["detail"]]
+        self.assertIn("文字起こし(whisper.cpp)", labels)
+        self.assertTrue(all(d["state"] == "done" for d in v["detail"]), v["detail"])
+        with open(os.path.join(self.friend, "setup.json"), encoding="utf-8") as f:
+            rec = json.load(f)
+        self.assertEqual(rec["checked"]["device"], "vulkan")
+        self.assertIn("ffmpeg", rec["items"])
+
+    def test_second_start_does_not_check_again(self):
+        self.go(self.make())
+        self.cmds.clear()
+        self.whispered.clear()
+        self.dl.calls.clear()
+        v = self.go(self.make())
+        self.assertEqual(v["state"], "done")
+        self.assertEqual((self.cmds, self.whispered, self.dl.calls), ([], [], []))
+
+    def test_changed_tool_is_checked_again(self):
+        self.go(self.make())
+        self.cmds.clear()
+        with open(self.tool("ffmpeg", "ffmpeg.exe"), "wb") as f:
+            f.write(b"a-different-and-longer-ffmpeg")
+        v = self.go(self.make())
+        self.assertEqual(v["state"], "done")
+        self.assertTrue(self.cmds)
+        self.assertEqual(self.whispered, ["vulkan", "vulkan"])
+
+    def test_no_fetch_json_is_done_at_once(self):
+        os.remove(self.fetch)
+        st = self.make()
+        st.start()
+        self.assertTrue(st.done)
+        self.assertEqual(self.cmds, [])
+
+    # ---- 失敗と続き
+    def test_tool_failure_names_the_tool(self):
+        self.bad_tool = "yt-dlp"
+        st = self.make()
+        v = self.go(st)
+        self.assertEqual(v["state"], "failed")
+        self.assertIn("配信を取る道具 yt-dlp", v["error"])
+        self.assertFalse(st.done)
+        bad = [d for d in v["detail"] if d["state"] == "failed"]
+        self.assertEqual([d["label"] for d in bad], ["配信を取る道具 yt-dlp"])
+        self.assertIn("終了コード 1", bad[0]["text"])
+        self.assertIsNotNone(st.block_reason())
+        self.bad_tool = None
+        self.dl.calls.clear()
+        self.assertEqual(self.go(st)["state"], "done")   # [もう一度] = 取る物は残っていない・確かめ直す
+        self.assertEqual(self.dl.calls, [])
+
+    def test_download_failure_then_retry_continues(self):
+        self.dl.fail["https://h/deno.zip"] = 99
+        st = self.make()
+        v = self.go(st)
+        self.assertEqual(v["state"], "failed")
+        self.assertIn("ネット", v["error"])
+        self.assertIn("Deno", v["error"])
+        self.assertEqual([d["state"] for d in v["detail"]], ["done", "done", "done", "failed"])
+        self.dl.fail.clear()
+        self.dl.calls.clear()
+        v = self.go(st)
+        self.assertEqual(v["state"], "done")
+        self.assertEqual(self.dl.calls, ["https://h/deno.zip"])   # 取れた物は取り直さない
+
+    def test_space_short_does_not_start(self):
+        st = self.make(disk_usage=lambda p: Usage(100, 99, 1))
+        v = self.go(st)
+        self.assertEqual(v["state"], "need-space")
+        self.assertIn("空きが足りません", v["message"])
+        self.assertEqual(self.dl.calls, [])
+        self.assertFalse(st.done)
+
+    def test_cancel_stops_with_failed(self):
+        gate = threading.Event()
+        orig = self.dl.get
+
+        def slow(url, part, expect, progress, cancelled):
+            gate.wait(5)
+            return orig(url, part, expect, progress, cancelled)
+        self.dl.get = slow
+        st = self.make()
+        st.start()
+        self.assertTrue(st.awake())
+        self.assertEqual(st.view()["state"], "fetching")
+        st.cancel()
+        gate.set()
+        st.wait(10)
+        self.assertEqual(st.view()["state"], "failed")
+        self.assertFalse(st.awake())
+
+    # ---- C への自動の切り替え
+    def test_whisper_fails_on_a_then_c_works(self):
+        self.whisper_ok["vulkan"] = False
+        st = self.make(cuda=self.cuda_item, wcpp=lambda it, archive, root: None)
+        with mock.patch.object(S, "_wcpp_ready", lambda root: False):
+            v = self.go(st)
+        self.assertEqual(v["state"], "done", v)
+        self.assertEqual(self.whispered, ["vulkan", "cuda"])
+        self.assertEqual(self.devices_set, ["cuda"])
+        self.assertEqual(self.device[0], "cuda")
+        names = {d["label"]: d for d in v["detail"]}
+        self.assertEqual(names["文字起こし(whisper.cpp)"]["state"], "failed")      # A の失敗は詳しくに残る
+        self.assertEqual(names["文字起こし(whisper.cpp) C"]["state"], "done")
+        self.assertIn("https://h/c.zip", self.dl.calls)
+        with open(os.path.join(self.friend, "setup.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["checked"]["device"], "cuda")
+
+    def test_whisper_fails_on_both_goes_back_to_a(self):
+        self.whisper_ok = {"vulkan": False, "cuda": False}
+        st = self.make(cuda=self.cuda_item, wcpp=lambda it, archive, root: None)
+        with mock.patch.object(S, "_wcpp_ready", lambda root: False):
+            v = self.go(st)
+        self.assertEqual(v["state"], "failed")
+        self.assertIn("文字起こしが動きません", v["error"])
+        self.assertEqual(self.devices_set, ["cuda", "vulkan"])
+        self.assertEqual(self.device[0], "vulkan")
+        texts = " ".join(d["text"] for d in v["detail"] if d["state"] == "failed")
+        self.assertIn("CUDA が動きません", texts)
+        self.assertIn("Vulkan の機器がありません", texts)
+        self.assertFalse(st.done)
+
+    def test_whisper_fails_and_no_cuda_part_known(self):
+        self.whisper_ok["vulkan"] = False
+        v = self.go(self.make())   # cuda = None(表に無い)
+        self.assertEqual(v["state"], "failed")
+        self.assertEqual(self.devices_set, [])
+
+    def test_whisper_not_tried_when_ffmpeg_broken(self):
+        self.bad_tool = "ffmpeg"
+        v = self.go(self.make())
+        self.assertEqual(v["state"], "failed")
+        self.assertEqual(self.whispered, [])
+
+    def test_device_c_failure_does_not_switch(self):
+        self.device[0] = "cuda"
+        self.whisper_ok["cuda"] = False
+        v = self.go(self.make(cuda=lambda: None))
+        self.assertEqual(v["state"], "failed")
+        self.assertEqual(self.devices_set, [])
+
+    # ---- 見た目の形
+    def test_view_shape_while_fetching(self):
+        gate = threading.Event()
+        orig = self.dl.get
+
+        def slow(url, part, expect, progress, cancelled):
+            gate.wait(5)
+            return orig(url, part, expect, progress, cancelled)
+        self.dl.get = slow
+        st = self.make()
+        st.start()
+        for _ in range(100):
+            if st.view()["totalBytes"]:
+                break
+            time.sleep(0.02)
+        v = st.view()
+        self.assertEqual(set(v), {"state", "percent", "remainSec", "totalBytes", "doneBytes", "message", "detail", "error", "oldApp"})
+        self.assertEqual(v["state"], "fetching")
+        self.assertIsNone(v["remainSec"])
+        self.assertEqual(v["totalBytes"], sum(S.expect(i) for i in self.items))
+        self.assertTrue(v["message"])
+        self.assertEqual(len(v["detail"]), 4)
+        gate.set()
+        st.wait(10)
+        self.assertTrue(st.done)
+        self.assertIsNone(st.block_reason())
+
+    # ---- 前のアプリの片付け(C-1-2)
+    def old_setup(self):
+        self.old = os.path.join(self.tmp, "old")
+        os.makedirs(os.path.join(self.old, "transcribe", "models", "whispercpp"))
+        with open(os.path.join(self.old, "transcribe", "models", "whispercpp", "model.bin"), "wb") as f:
+            f.write(self.model)
+        self.keep = os.path.join(self.old, "cases", "mine.txt")   # 目録に無い物(案件)
+        os.makedirs(os.path.dirname(self.keep))
+        with open(self.keep, "wb") as f:
+            f.write(b"my case")
+        self.old_model = os.path.join(self.old, "transcribe", "models", "whispercpp", "model.bin")
+
+    def test_old_copy_then_ask_once_and_clean(self):
+        self.old_setup()
+        st = self.make()
+        v = self.go(st, self.old)
+        self.assertEqual(v["state"], "done")
+        self.assertEqual(self.dl.calls.count("https://h/model.bin"), 0)   # 写せた物は取らない
+        self.assertTrue(os.path.isfile(self.old_model))                    # 写すだけ・まだ消さない
+        self.assertEqual(v["oldApp"], {"ask": True, "canClean": True, "bytes": len(self.model)})
+        got = st.clean_old()
+        self.assertEqual((got["deleted"], got["freed"]), (1, len(self.model)))
+        self.assertFalse(os.path.exists(self.old_model))
+        self.assertTrue(os.path.isfile(self.keep))                         # 目録に無い物には触らない
+        self.assertEqual(st.view()["oldApp"], {"ask": False, "canClean": False, "bytes": 0})
+        self.assertTrue(os.path.isfile(os.path.join(self.data, "transcribe", "models", "whispercpp", "model.bin")))
+
+    def test_old_skip_asks_no_more_but_settings_can_clean(self):
+        self.old_setup()
+        st = self.make()
+        self.go(st, self.old)
+        st.skip_old()
+        v = st.view()
+        self.assertFalse(v["oldApp"]["ask"])
+        self.assertEqual(v["oldApp"]["bytes"], len(self.model))
+        self.assertTrue(os.path.isfile(self.old_model))
+        self.assertEqual(st.old_pending()["bytes"], len(self.model))       # ⚙ のボタン用(聞いたかに関わらず)
+        self.assertEqual(st.clean_old()["deleted"], 1)
+
+    def test_old_changed_file_is_not_deleted(self):
+        self.old_setup()
+        st = self.make()
+        self.go(st, self.old)
+        with open(self.old_model, "ab") as f:
+            f.write(b"changed after copy")
+        self.assertEqual(st.old_pending()["bytes"], 0)
+        self.assertEqual(st.clean_old()["deleted"], 0)
+        self.assertTrue(os.path.isfile(self.old_model))
+
+    def test_no_old_app(self):
+        v = self.go(self.make())
+        self.assertEqual(v["oldApp"], {"ask": False, "canClean": False, "bytes": 0})
+        self.assertEqual(self.make().clean_old(), {"deleted": 0, "freed": 0})
 
 
 if __name__ == "__main__":

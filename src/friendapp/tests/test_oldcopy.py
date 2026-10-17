@@ -251,5 +251,36 @@ class OldCopyTest(unittest.TestCase):
         self.assertEqual(oldcopy.plan(items, self.old, self.old), [])
 
 
+    def test_pending_clean_skip_only_catalog_files(self):
+        data = b"model-bytes" * 10
+        old_path = self.put(self.old, "m/a.bin", data)
+        other = self.put(self.old, "cases/mine.txt", b"case")
+        self.write_fetch([self.row("m", "a.bin", data)])
+        self.migrate(remove_old=False)
+        self.assertTrue(os.path.isfile(old_path))
+        self.assertEqual(oldcopy.pending(self.catalog, self.old), {"bytes": len(data), "count": 1, "asked": False})
+        oldcopy.skip(self.catalog)
+        self.assertTrue(oldcopy.pending(self.catalog, self.old)["asked"])
+        got = oldcopy.clean(self.catalog, self.old)
+        self.assertEqual(got, {"deleted": 1, "freed": len(data)})
+        self.assertFalse(os.path.exists(old_path))
+        self.assertTrue(os.path.isfile(other))
+        self.assertEqual(oldcopy.pending(self.catalog, self.old)["count"], 0)
+
+    def test_pending_without_catalog_and_changed_old(self):
+        self.assertEqual(oldcopy.pending(self.catalog, self.old), {"bytes": 0, "count": 0, "asked": False})
+        oldcopy.skip(self.catalog)   # 目録が無ければ何もしない
+        self.assertFalse(os.path.exists(self.catalog))
+        data = b"abc" * 50
+        old_path = self.put(self.old, "m/a.bin", data)
+        self.write_fetch([self.row("m", "a.bin", data)])
+        self.migrate(remove_old=False)
+        with open(old_path, "ab") as f:
+            f.write(b"x")
+        self.assertEqual(oldcopy.pending(self.catalog, self.old)["bytes"], 0)
+        self.assertEqual(oldcopy.clean(self.catalog, self.old)["deleted"], 0)
+        self.assertTrue(os.path.isfile(old_path))
+
+
 if __name__ == "__main__":
     unittest.main()
