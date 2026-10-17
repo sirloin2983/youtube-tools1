@@ -152,6 +152,19 @@ def norm_path(p):
     return os.path.normcase(os.path.abspath(p))
 
 
+def long_path(p):
+    """Windows の 260 文字の壁を越えて開く・作る・動かすための、長いパスの接頭辞つきのパス。Windows 以外・空・すでに接頭辞つきならそのまま。
+    絶対パスにして区切りを直す(接頭辞つきのパスは . や .. を解かないため)。ネットワークのパスは UNC の形にする。
+    ファイルには触らない。検査(is_inside など)や保存・表示には元のパスを使い、OS を呼ぶ所だけで包む。"""
+    s = os.fspath(p) if p else ""
+    if os.name != "nt" or not s or s.startswith("\\\\?\\"):
+        return s
+    s = os.path.abspath(s)
+    if s.startswith("\\\\"):
+        return "\\\\?\\UNC\\" + s[2:]
+    return "\\\\?\\" + s
+
+
 # ---------- 各ツールにあった小道具(2026-10-09) ----------
 READ_OR_MAX = 16 * 2**20   # read_json_or の既定の大きさの上限(設定・記録のファイル。これより大きいものは「読めない」扱い)
 

@@ -89,7 +89,7 @@ def verdict_doc(verdict, request_id, name, title, at_ms, origin="request", by=No
 def unique_dest(folder, name):
     """folder/name が既にあれば末尾に -xxxx を足した名前"""
     dest = os.path.join(folder, name)
-    while os.path.exists(dest):
+    while os.path.exists(fsio.long_path(dest)):
         dest = os.path.join(folder, "%s-%s" % (name, uuid.uuid4().hex[:4]))
     return dest
 
@@ -360,9 +360,9 @@ class Inbox:
             added = 0
             for p in packs:
                 d = p.get("dir")
-                if not isinstance(d, str) or not os.path.isdir(d):
+                if not isinstance(d, str) or not os.path.isdir(fsio.long_path(d)):
                     continue
-                base = pack_name(d)
+                base =pack_name(d)
                 name, i = base, 2
                 while name in names:
                     name, i = "%s-%d" % (base[:NAME_MAX - 4], i), i + 1
@@ -490,7 +490,7 @@ class Inbox:
             items = []
             for p in packs:
                 d = p.get("dir")
-                if not isinstance(d, str) or not os.path.isdir(d):
+                if not isinstance(d, str) or not os.path.isdir(fsio.long_path(d)):
                     continue
                 name = pack_name(d)
                 items.append({"name": name, "dir": d, "title": pack_title(name), "seconds": p.get("seconds"), "verdict": None, "at": None, "by": None,
@@ -745,11 +745,11 @@ class Inbox:
                     continue
                 try:
                     if p.get("trash"):
-                        if not os.path.isdir(p["trash"]):
+                        if not os.path.isdir(fsio.long_path(p["trash"])):
                             raise FileNotFoundError(p["trash"])
-                        os.makedirs(os.path.dirname(p["dir"]), exist_ok=True)
-                        back = p["dir"] if not os.path.exists(p["dir"]) else unique_dest(os.path.dirname(p["dir"]), os.path.basename(p["dir"]))
-                        shutil.move(p["trash"], back)
+                        os.makedirs(fsio.long_path(os.path.dirname(p["dir"])), exist_ok=True)
+                        back = p["dir"] if not os.path.exists(fsio.long_path(p["dir"])) else unique_dest(os.path.dirname(p["dir"]), os.path.basename(p["dir"]))
+                        shutil.move(fsio.long_path(p["trash"]), fsio.long_path(back))
                         p["dir"] = back
                     self._record(r, p, "retract", of=p.get("verdictId"))
                 except OSError as e:
@@ -770,16 +770,16 @@ class Inbox:
 
     def _place(self, r, p, verdict, by):
         src = p["dir"]
-        if not os.path.isdir(src):
+        if not os.path.isdir(fsio.long_path(src)):
             raise FileNotFoundError(src)
         if verdict == "keep":
             folder, name = self.keep_dest(r, p)
-            os.makedirs(folder, exist_ok=True)
+            os.makedirs(fsio.long_path(folder), exist_ok=True)
             dest = unique_dest(folder, name)
-            shutil.move(src, dest)
+            shutil.move(fsio.long_path(src), fsio.long_path(dest))
             p["savedTo"] = dest
         elif by == "auto":   # 3 日決めなかった物 = ごみ箱を経ずにすぐ消す(C-3-7)
-            shutil.rmtree(src)
+            shutil.rmtree(fsio.long_path(src))
         else:
             p["trash"] = self._to_trash(src)
 
@@ -796,7 +796,7 @@ class Inbox:
         with self.lock:
             _r, p = self._pack(rid, name)
             d = (p or {}).get("savedTo")
-            return d if d and os.path.isdir(d) else None
+            return d if d and os.path.isdir(fsio.long_path(d)) else None
 
     def keep_place(self, rid, name):
         """Dropbox のパックを受け取る置き場所(同期が使う)-> (配信のフォルダ, "#番号") か None"""
@@ -847,9 +847,9 @@ class Inbox:
     def _to_trash(self, path):
         day = datetime.datetime.fromtimestamp(self.clock()).strftime("%Y%m%d")
         folder = os.path.join(self.trash_dir(), day)
-        os.makedirs(folder, exist_ok=True)
+        os.makedirs(fsio.long_path(folder), exist_ok=True)
         dest = unique_dest(folder, os.path.basename(path.rstrip("\\/")))
-        shutil.move(path, dest)
+        shutil.move(fsio.long_path(path), fsio.long_path(dest))
         return dest
 
     def _close_row(self, r):
@@ -860,7 +860,7 @@ class Inbox:
     def _trash_case(self, r):
         root = self.case_root()
         for case in dict.fromkeys([r.get("case")] + list(r.get("cases") or [])):   # ライブの行は切り抜きごとの案件(F2-6)
-            if case and root and os.path.isdir(case) and fsio.is_inside(case, root, strict=True) and not fsio.is_inside(case, self.trash_dir()):
+            if case and root and os.path.isdir(fsio.long_path(case)) and fsio.is_inside(case, root, strict=True) and not fsio.is_inside(case, self.trash_dir()):
                 try:
                     self._to_trash(case)
                 except OSError as e:
@@ -925,12 +925,12 @@ class Inbox:
 
     def _purge_trash(self):
         t = self.trash_dir()
-        if not os.path.isdir(t):
+        if not os.path.isdir(fsio.long_path(t)):
             return
         cut = datetime.datetime.fromtimestamp(self.clock() - KEEP_DAYS * DAY).strftime("%Y%m%d")
-        for name in os.listdir(t):
+        for name in os.listdir(fsio.long_path(t)):
             if re.fullmatch(r"\d{8}", name) and name < cut:
-                shutil.rmtree(os.path.join(t, name), ignore_errors=True)
+                shutil.rmtree(fsio.long_path(os.path.join(t, name)), ignore_errors=True)
 
     # ------------------------------------------------------------ 画面へ
     def view(self, status_of=None):

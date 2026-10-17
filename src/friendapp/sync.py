@@ -226,6 +226,7 @@ def version_tuple(v):
 
 
 def _copy_member(z, info, path):
+    path = fsio.long_path(path)   # 置き場所が深くても 260 文字で失敗しない
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with z.open(info) as src, open(path, "xb") as dst:
         shutil.copyfileobj(src, dst, 1 << 20)
@@ -247,8 +248,8 @@ def extract_pack(zip_path, dest_dir, fallback_name):
         top = next(iter(tops)) if len(tops) == 1 and all("/" in n.strip("/") or n.endswith("/") for n in names if n.strip("/")) else None
         target = _inbox.unique_dest(dest_dir, local_name(top or fallback_name))
         temp = target + ".extracting"
-        shutil.rmtree(temp, ignore_errors=True)
-        os.makedirs(temp)
+        shutil.rmtree(fsio.long_path(temp), ignore_errors=True)
+        os.makedirs(fsio.long_path(temp))
         try:
             for info, n in zip(infos, names):
                 rel = n[len(top) + 1:] if top else n
@@ -257,12 +258,12 @@ def extract_pack(zip_path, dest_dir, fallback_name):
                     continue
                 path = safe_join(temp, rel)
                 if info.is_dir():
-                    os.makedirs(path, exist_ok=True)
+                    os.makedirs(fsio.long_path(path), exist_ok=True)
                 else:
                     _copy_member(z, info, path)
-            os.replace(temp, target)
+            os.replace(fsio.long_path(temp), fsio.long_path(target))
         except BaseException:
-            shutil.rmtree(temp, ignore_errors=True)
+            shutil.rmtree(fsio.long_path(temp), ignore_errors=True)
             raise
     return target
 
