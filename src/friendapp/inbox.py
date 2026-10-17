@@ -853,7 +853,7 @@ class Inbox:
 
     def _close_row(self, r):
         """前の形の口(remote_kept などが使う)= _maybe_close と同じ"""
-        r["state"] = "arrived" if r["state"] == "done" else r["state"]
+        r["state"] = "arrived" if r["state"] == "recording" else r["state"]   # 録画の行を閉じるとき(全部決めていれば _maybe_close が done に)
         self._maybe_close(r)
 
     def _trash_case(self, r):
