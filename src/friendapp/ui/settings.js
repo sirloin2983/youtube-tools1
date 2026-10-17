@@ -1,10 +1,12 @@
 /* ⚙ 設定の引き出し(F3-5。notes:plan/f1-friend-requirements.md の C-5-2・C-2-19・C-1-2)。
    主の画面(F3-B)は <script src="settings.js" defer> と settings.css を読み、歯車のボタンを id="btnSettings" で置くだけ。中身・Esc はここ。
-   口: GET api/friend/settings・POST api/friend/settings {…}・settings/key {key}・pick-folder {what}・setup/clean-old。
+   口: GET api/friend/settings・POST api/friend/settings {…}・settings/key {key}・pick-folder {what}・setup/clean-old・
+   フォルダの整理(F3-A): GET tidy・POST tidy/scan・tidy/apply {ids}・tidy/later・tidy/open-trash。口が無い(404)ときは節に「この版では使えません」。
    フォルダは [選ぶ] で Python が Windows の窓を開く(画面からパスを打たせない)。外の文字は textContent で入れる(CSP の下で動く)。 */
 (function () {
   'use strict';
   var drawer = null, ui = {}, current = null;
+  var tidy = null, tidyTimer = 0, tidyBusy = false, tidyChecked = {};   /* フォルダの整理の view・読み直しの timer・操作中・ask の物のチェック(既定は入れる) */
 
   function api(path, body) { return UIKit.http('api/friend/' + path, body === undefined ? {} : { body: body }); }
 
@@ -77,6 +79,22 @@
     ui.oldWrap.appendChild(ui.oldText);
     ui.oldWrap.appendChild(h('div', { class: 'fs-line' }, [ui.oldBtn]));
 
+    /* フォルダを整理する(F3-A)。[内容を見る] は帯から FriendSettings.open('tidy') で来る。中身の見え方は fillTidy */
+    ui.tidyText = h('p', { class: 'fs-path', 'aria-live': 'polite' });
+    ui.tidyScan = h('button', { type: 'button', class: 'btn small', text: '調べる' });
+    ui.tidyApply = h('button', { type: 'button', class: 'btn small', text: '選んだ物を片付ける' });
+    ui.tidyTrash = h('button', { type: 'button', class: 'btn ghost small', text: 'ごみ箱を開く', hidden: '' });
+    ui.tidyList = h('ul', { class: 'fs-items', 'aria-label': '片付ける物' });
+    ui.tidyAuto = h('p', { class: 'hint' });
+    ui.tidyKept = h('p', { class: 'hint' });
+    ui.tidyWrap = h('div', { class: 'fs-tidy' }, [ui.tidyText, h('div', { class: 'fs-line' }, [ui.tidyScan, ui.tidyApply, ui.tidyTrash]), ui.tidyList, ui.tidyAuto, ui.tidyKept]);
+    ui.tidyOff = h('p', { class: 'hint fs-tidy-off', hidden: '', text: 'この版では使えません' });
+    ui.tidySec = section('fsTidyH', 'フォルダを整理する', [ui.tidyWrap, ui.tidyOff],
+      '作業の残りや使っていない物を、アプリのごみ箱へ移します。ごみ箱の物は 3 日で消えます。');
+    ui.tidyScan.addEventListener('click', function () { tidyCall('scan', {}); });
+    ui.tidyApply.addEventListener('click', function () { tidyCall('apply', { ids: selectedIds() }); });
+    ui.tidyTrash.addEventListener('click', openTrash);
+
     var body = h('div', { class: 'ui-drawer-body' }, [
       section('fsPcH', '処理する PC', [radios('fsPc', 'fsPcH', [['local', 'この PC で処理する'], ['remote', '依頼する']]), ui.remoteWhy],
               '「依頼する」にすると、この PC では処理せず、作る人の PC に頼みます(Dropbox で送ります)。'),
@@ -96,6 +114,7 @@
         h('div', { class: 'fs-line' }, [h('label', { class: 'fs-radio' }, ['待ち ', num('fsLiveWait', 1, 60, 1, '待ち(分)'), ' 分'])]),
         h('div', { class: 'fs-line' }, [h('label', { class: 'fs-radio' }, ['余白 ', num('fsLivePad', 0, 5, 0.5, '余白(秒)'), ' 秒'])])
       ], '録画しながら切り抜くときの細かい設定です。次の録画から使います。'),
+      ui.tidySec,
       ui.oldWrap
     ]);
     var help = h('a', { class: 'btn ghost small fs-help', href: 'guide.html#settings', target: '_blank', rel: 'noopener', 'aria-label': '設定の説明を新しい窓で開く', title: '設定の説明', text: '?' });
@@ -234,13 +253,116 @@
     }, function (e) { fail('API キー', e); load(); }).then(function () { ui.keySave.disabled = false; });
   }
 
+  /* ---- フォルダを整理する(F3-A)---- 口: GET tidy・POST tidy/scan・tidy/apply {ids}・tidy/later・tidy/open-trash。view の形は f3a-tidy-design.md */
+  function viewOf(j) { return j && j.tidy && typeof j.tidy === 'object' ? j.tidy : j; }
+
+  function toMs(at) {
+    if (typeof at === 'number') return at < 1e12 ? at * 1000 : at;
+    var t = Date.parse(at);
+    return isFinite(t) ? t : 0;
+  }
+
+  function lastText(last) {
+    if (last.failed) return '片付けられませんでした' + (last.message ? ': ' + last.message : '');
+    return last.count > 0 ? last.count + ' 件 ' + sizeText(last.bytes) + ' を片付けました(3 日はごみ箱に残ります)' : '';
+  }
+
+  function selectedIds() {
+    return ((tidy && tidy.items) || []).filter(function (it) { return it.mode === 'ask' && tidyChecked[it.id] !== false; })
+      .map(function (it) { return it.id; });
+  }
+
+  /* 押せるか・押せないときの理由(title)。blocked は作業中などで今は走らせない理由の文 */
+  function tidyButtons() {
+    var v = tidy || {}, applying = v.state === 'applying', blocked = v.blocked || '', off = tidyBusy || applying;
+    var n = selectedIds().length;
+    ui.tidyScan.disabled = off || !!blocked || v.state === 'scanning';
+    ui.tidyScan.title = blocked || (applying ? '片付けている間は調べられません' : '');
+    ui.tidyApply.disabled = off || !!blocked || n === 0;
+    ui.tidyApply.title = blocked || (applying ? '片付けている間は使えません' : n === 0 ? '片付ける物を 1 つ以上選んでください' : '選んだ物をアプリのごみ箱へ移します(3 日は戻せます)');
+  }
+
+  function fillTidy(v) {
+    tidy = v;
+    var applying = v.state === 'applying', scanning = v.state === 'scanning', last = v.last;
+    var recent = !!last && Date.now() - toMs(last.at) <= 120000;
+    ui.tidyOff.hidden = true;
+    ui.tidyWrap.hidden = false;
+    ui.tidyText.textContent = applying ? '片付けています…' : scanning ? '調べています…' : (v.blocked || (recent ? lastText(last) : ''));
+    ui.tidyTrash.hidden = !v.trash;
+    ui.tidyList.textContent = '';
+    var asks = (v.items || []).filter(function (it) { return it.mode === 'ask'; });
+    if (!asks.length) ui.tidyList.appendChild(h('li', { class: 'hint', text: '片付ける物はありません' }));
+    asks.forEach(function (it) {
+      var cb = h('input', { type: 'checkbox', value: String(it.id) });
+      cb.checked = tidyChecked[it.id] !== false;   /* 初めは全部チェック */
+      cb.addEventListener('change', function () { tidyChecked[it.id] = cb.checked; tidyButtons(); });
+      ui.tidyList.appendChild(h('li', { class: 'fs-item' }, [h('label', { class: 'fs-radio' },
+        [cb, ' ' + it.label + (it.where ? '(' + it.where + ')' : '') + ' ' + sizeText(it.bytes)])]));
+    });
+    var a = v.autoDone;
+    ui.tidyAuto.textContent = a && a.count ? '前回黙って片付けた物 ' + a.count + ' 件(' + sizeText(a.bytes) + ')' : '前回黙って片付けた物はありません';
+    ui.tidyKept.textContent = '触らなかった物 ' + (v.unknownCount || 0) + ' 件(何か分からない物は記録だけ)';
+    tidyButtons();
+    clearTimeout(tidyTimer);
+    if ((applying || scanning) && drawer && UIKit.drawer.isOpen(drawer)) tidyTimer = setTimeout(tidyPoll, 3000);   /* 進みの文を開いている間だけ読み直す */
+  }
+
+  function tidyOff(text) {
+    clearTimeout(tidyTimer);
+    tidy = null;
+    ui.tidyWrap.hidden = true;
+    ui.tidyOff.textContent = text;
+    ui.tidyOff.hidden = false;
+  }
+
+  function loadTidy() {
+    return api('tidy').then(function (j) {
+      var v = viewOf(j);
+      if (v && typeof v === 'object') fillTidy(v); else tidyOff('フォルダの整理の状態を読めませんでした');
+    }, function (e) {
+      tidyOff(e && e.status === 404 ? 'この版では使えません' : 'フォルダの整理の状態を読めませんでした。引き出しを開き直してみてください');
+    });
+  }
+
+  function tidyPoll() { if (drawer && UIKit.drawer.isOpen(drawer)) loadTidy(); }
+
+  function tidyCall(path, body) {
+    if (tidyBusy) return;
+    tidyBusy = true;
+    tidyButtons();
+    api('tidy/' + path, body).then(function (j) {
+      var v = viewOf(j);
+      if (v && typeof v === 'object') fillTidy(v);
+      document.dispatchEvent(new CustomEvent('friend-tidy', { detail: v }));   /* 帯の 1 行も読み直す */
+    }, function (e) { fail('フォルダを整理できませんでした', e); }).then(function () { tidyBusy = false; tidyButtons(); });
+  }
+
+  function openTrash() {
+    ui.tidyTrash.disabled = true;
+    api('tidy/open-trash', {}).then(null, function (e) { fail('ごみ箱を開けませんでした', e); }).then(function () { ui.tidyTrash.disabled = false; });
+  }
+
+  /* open(opener) = ⚙ のボタン。open('tidy') = 「フォルダを整理する」の節へ(帯の [内容を見る]) */
   function open(opener) {
+    var sec = typeof opener === 'string' ? opener : '';
+    if (sec) opener = null;
     if (!drawer) build();
     UIKit.drawer.open(drawer, { opener: opener || document.getElementById('btnSettings') });
     load();
+    loadTidy();
+    if (sec === 'tidy') setTimeout(function () {
+      ui.tidySec.scrollIntoView({ block: 'start' });
+      if (!ui.tidyScan.disabled) ui.tidyScan.focus({ preventScroll: true });
+    }, 60);
   }
 
   window.FriendSettings = { open: open, current: function () { return current; } };
+
+  /* 帯(update.js)の操作で変わったら、開いている節も同じ見え方に */
+  document.addEventListener('friend-tidy', function (e) {
+    if (drawer && UIKit.drawer.isOpen(drawer) && e.detail && typeof e.detail === 'object') fillTidy(e.detail);
+  });
 
   /* 歯車の絵: ui-kit の gear(丸と放射の線)は小さいと点の集まりに見えて設定だと分からない(10-17 関所の返事)ので、
      歯の付いた輪の形の線の SVG をここで持つ(形は Lucide の settings = ISC ライセンス)。大きさは settings.css の .fs-gear */

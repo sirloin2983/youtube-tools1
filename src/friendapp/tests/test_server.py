@@ -1770,6 +1770,21 @@ class ServerTest(unittest.TestCase):
         self.assertTrue(u["waiting"])   # 作っている間は待つ
         self.assertIn("作っている", u["label"])
 
+    def test_tidy_routes(self):
+        """フォルダの整理の口: GET の形・調べる・片付ける物が無ければ 409・あとで・ごみ箱が無ければ 404・合言葉"""
+        st, _h, p = self.get("/api/friend/tidy")
+        self.assertEqual(st, 200)
+        v = self.js(p)
+        for k in ("state", "ask", "askCount", "askBytes", "items", "unknownCount", "autoDone", "last", "blocked", "trash"):
+            self.assertIn(k, v)
+        st, _h, p = self.post("/api/friend/tidy/scan", {})
+        self.assertEqual(st, 200)
+        self.assertEqual(self.post("/api/friend/tidy/apply", {})[0], 409)   # 片付ける物が無い
+        self.assertEqual(self.post("/api/friend/tidy/later", {})[0], 200)
+        self.assertEqual(self.post("/api/friend/tidy/open-trash", {})[0], 404)
+        self.assertEqual(self.post("/api/friend/tidy/scan", {}, headers={TOKEN: None})[0], 403)
+        self.assertEqual(self.opened, [])   # エクスプローラーは開いていない
+
     def test_window_route_is_gone(self):
         self.assertEqual(self.post("/api/friend/window", {})[0], 404)
 

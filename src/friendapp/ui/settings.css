@@ -31,6 +31,12 @@
 .fs-gear{width:18px;height:18px;flex:none;display:block}
 .fs-cuda{margin-top:4px}
 .fs-cuda-text{color:var(--ink-2);font-size:var(--fs-sm)}
+/* フォルダを整理する(settings.js の節。候補が多いときは一覧の中だけ動かす) */
+.fs-tidy{display:flex;flex-direction:column;gap:8px}
+.fs-tidy .fs-items{max-height:240px;overflow:auto;margin:0;padding-right:4px}
+.fs-tidy .fs-item{align-items:center}
+.fs-tidy .fs-radio{min-height:28px;overflow-wrap:anywhere;text-align:left}
+.fs-tidy-off{margin:0}
 /* 新しい版の帯の 1 行(update.js。画面の帯に置く [data-fr-update]) */
 [data-fr-update]{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 [data-fr-update][hidden]{display:none}

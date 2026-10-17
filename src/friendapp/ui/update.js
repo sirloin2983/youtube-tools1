@@ -5,6 +5,7 @@
 (function () {
   'use strict';
   var POLL = 30000, POLL_WAIT = 3000, timer = 0, busy = false;
+  var curU = null, curT = null, tidyBusy = false;   /* 新しい版の知らせ・フォルダの整理の view(口が無い・失敗のときは null) */
 
   function api(path, body) { return UIKit.http('api/friend/' + path, body === undefined ? {} : { body: body }); }
 
@@ -15,9 +16,8 @@
     return e;
   }
 
-  function draw(box, u) {
+  function drawUpdate(box, u) {
     box.textContent = '';
-    if (!u || !u.available) { box.hidden = true; return; }
     box.hidden = false;
     box.setAttribute('role', 'status');
     var msg = el('span', 'fr-update-text');
@@ -41,22 +41,93 @@
     if (busy) return;
     busy = true;
     b.disabled = true;
-    api('update/apply', {}).then(function (j) { draw(box, j.update); }, function (e) {
+    api('update/apply', {}).then(function (j) { curU = j.update; redraw(); }, function (e) {
       UIKit.toast('更新できませんでした: ' + ((e && e.message) || ''), { kind: 'err', ms: 5000 });
       b.disabled = false;
     }).then(function () { busy = false; poll(); });
   }
 
+  function viewOf(j) { return j && j.tidy && typeof j.tidy === 'object' ? j.tidy : j; }
+
+  function sizeText(n) { return n >= 1e9 ? (n / 1e9).toFixed(1) + 'GB' : Math.max(1, Math.round((n || 0) / 1e6)) + 'MB'; }
+
+  /* 時刻は秒か ms の数、または日付の文字列(読めなければ 0) */
+  function toMs(at) {
+    if (typeof at === 'number') return at < 1e12 ? at * 1000 : at;
+    var t = Date.parse(at);
+    return isFinite(t) ? t : 0;
+  }
+
+  /* 帯の 1 行(フォルダの整理・F3-A): 片付けている → 片付ける物がある(聞く) → 2 分以内の結果 の順。何も無ければ隠す */
+  function drawTidy(box, v) {
+    box.textContent = '';
+    box.hidden = true;
+    if (!v || typeof v !== 'object') return;
+    var last = v.last, ask = !!v.ask && v.askCount > 0, msg = '';
+    if (v.state === 'applying') msg = '片付けています…';
+    else if (ask) msg = 'フォルダに片付けられる物が ' + v.askCount + ' 件(' + sizeText(v.askBytes) + ')あります';
+    else if (last && Date.now() - toMs(last.at) <= 120000) {
+      if (last.failed) msg = '片付けられませんでした' + (last.message ? ': ' + last.message : '');
+      else if (last.count > 0) msg = last.count + ' 件 ' + sizeText(last.bytes) + ' を片付けました(3 日はごみ箱に残ります)';
+    }
+    if (!msg) return;
+    box.hidden = false;
+    box.setAttribute('role', 'status');
+    box.appendChild(el('span', 'fr-update-text', msg));
+    if (!ask || v.state === 'applying') return;
+    var go = el('button', 'btn primary small', '片付ける');
+    go.type = 'button';
+    go.disabled = !!v.blocked || tidyBusy;
+    go.title = v.blocked || '片付ける物を全部、アプリのごみ箱へ移します(3 日は戻せます)';
+    go.addEventListener('click', function () { tidyAct('apply', {}); });
+    var see = el('button', 'btn ghost small', '内容を見る');
+    see.type = 'button';
+    see.title = '⚙ の「フォルダを整理する」で中身を見て選べます';
+    see.addEventListener('click', function () { if (window.FriendSettings) window.FriendSettings.open('tidy'); });
+    var later = el('button', 'btn ghost small', 'あとで');
+    later.type = 'button';
+    later.title = 'この版ではもう聞きません';
+    later.addEventListener('click', function () { tidyAct('later', {}); });
+    box.appendChild(go);
+    box.appendChild(see);
+    box.appendChild(later);
+  }
+
+  function tidyAct(path, body) {
+    if (tidyBusy) return;
+    tidyBusy = true;
+    redraw();
+    api('tidy/' + path, body).then(function (j) {
+      var v = viewOf(j);
+      if (v && typeof v === 'object') curT = v;
+    }, function (e) {
+      UIKit.toast('できませんでした: ' + ((e && e.message) || ''), { kind: 'err', ms: 5000 });
+    }).then(function () {
+      tidyBusy = false;
+      redraw();
+      document.dispatchEvent(new CustomEvent('friend-tidy', { detail: curT }));   /* 引き出しの節も同じ見え方に・この帯も読み直す */
+    });
+  }
+
+  function redraw() {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-fr-update]'), function (box) {
+      if (curU && curU.available) drawUpdate(box, curU); else drawTidy(box, curT);
+    });
+  }
+
   function poll() {
     clearTimeout(timer);
-    var boxes = document.querySelectorAll('[data-fr-update]');
-    if (!boxes.length) return;
-    api('update').then(function (u) {
-      Array.prototype.forEach.call(boxes, function (box) { draw(box, u); });
-      timer = setTimeout(poll, u && u.requested ? POLL_WAIT : POLL);
-    }, function () { timer = setTimeout(poll, POLL); });
+    if (!document.querySelector('[data-fr-update]')) return;
+    var u = api('update').then(function (x) { curU = x; return x; }, function () { return curU; });
+    var t = api('tidy').then(function (j) { curT = viewOf(j); return curT; }, function () { curT = null; return null; });
+    Promise.all([u, t]).then(function (r) {
+      redraw();
+      var fast = !!(r[0] && r[0].requested) || !!(curT && curT.state === 'applying');
+      timer = setTimeout(poll, fast ? POLL_WAIT : POLL);
+    });
   }
 
   document.addEventListener('DOMContentLoaded', poll);
+  document.addEventListener('friend-tidy', function () { poll(); });   /* 引き出しで変えたら帯も読み直す */
   window.FriendUpdate = { refresh: poll };
 })();

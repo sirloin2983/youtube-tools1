@@ -23,6 +23,8 @@
                                           update(入れてある新しい版 or ""), updateRequested}(合言葉つき)
   GET  /api/friend/update                 新しい版があるか {available, version, requested, waiting, label, hosted}(画面の帯の 1 行 = ui/update.js)
   POST /api/friend/update/apply           [更新する]。作業と預かりが無くなったら exe が入れ替えて開き直す(exe の無い開発の PC は開き直しの案内だけ)
+  GET  /api/friend/tidy                   フォルダの整理(friendapp/tidy.py。新しい版で起動できたあとの 1 回と ⚙)の候補と結果
+  POST /api/friend/tidy/scan・apply {ids?}・later・open-trash   調べ直す・片付ける(ごみ箱へ)・この版ではもう聞かない・ごみ箱を開く
   GET  /api/friend/inbox                  受信箱の行・前回の値・保存先・空き容量で止めているか・準備中か・片付けの知らせ
   GET  /api/friend/peek?url=              配信の題・チャンネル名と配信者の推し
   GET  /api/friend/peek-live?url=         配信中・配信前か(F2-6。yt-dlp で数秒。ライブなら送る欄の下に 6 つの設定)
@@ -69,6 +71,7 @@ if SRC not in sys.path:
 from flow import placement as _placement, runqueue as _runqueue  # noqa: E402
 from ytt import appwindow as _appwindow, colors as _colors, fsio as _fsio, httpsec, version as _version  # noqa: E402
 from friendapp import api as _api, inbox as _inbox, oldcopy as _oldcopy, places as _places, settings as _settings, setup as _setup, streams as _streams, sync as _sync  # noqa: E402
+from friendapp import tidy as _tidy  # noqa: E402
 
 APP_ID = "ytt-friend"
 DEFAULT_PORT = 8720
@@ -103,6 +106,7 @@ HOST_ENV = "YTT_FRIEND_HOST"          # exe の窓の種類(webview2 = 合言葉
 PORT_BUSY_EXIT = 5                    # exe が渡した番号を使えなかった(exe が選び直す)
 ROLLBACK_ENV = "YTT_FRIEND_ROLLBACK"  # exe が前の版へ戻したとき、起動できなかった版
 SWEEP_EVERY = 3600        # 受信箱の 3 日の片付けを見る間隔(秒)
+TIDY_EVERY = 180          # 新しい版のあとのフォルダの整理を見直す間隔(秒。版ごとに 1 回走れば以後は何もしない)
 SAVE_DEFAULT = _settings.SAVE_DEFAULT   # 受け取るの保存先の既定(%USERPROFILE% の下。⚙ で選ぶ = F2-5)
 SAVE_FILE = _settings.SAVE_FILE
 CLIENT_LOG_MAX = 512 * 1024
@@ -277,6 +281,8 @@ class Handler(BaseHTTPRequestHandler):
             out = app.api.view()
             out.update(prep=app.prep, notice=app.notice(), rollback=app.rollback_notice(), sync=app.sync.status(), setup=app.setup.view())
             return self._json(200, out)
+        if path == "/api/friend/tidy":   # フォルダの整理(帯の 1 行と ⚙)
+            return self._json(200, app.tidy_view())
         if path == "/api/friend/update":   # 新しい版があるか(帯の 1 行 = ui/update.js)
             return self._json(200, app.update_view())
         if path == "/api/friend/setup":   # 初回の準備の進み具合(F3-5)
@@ -431,6 +437,8 @@ class Handler(BaseHTTPRequestHandler):
             os.makedirs(d, exist_ok=True)
             app.open_folder(d)
             return self._json(200, {"ok": True, "dir": d})
+        if path.startswith("/api/friend/tidy/"):   # フォルダの整理
+            return self._tidy(path[len("/api/friend/tidy/"):], body)
         if path == "/api/friend/update/apply":   # [更新する]: 作業と預かりが無くなったら exe が入れ替えて開き直す
             if not app.update_version():
                 return self._fail(409, "refused", "新しい版はありません")
@@ -497,6 +505,30 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, {"ok": True})
         return self._fail(404, "not_found", "その操作はありません")
 
+
+    def _tidy(self, what, body):
+        app = self.server.app
+        t = app.tidy
+        if what == "scan":
+            why = t.rescan()
+            v = app.tidy_view()
+            v["blocked"] = why
+            return self._json(200, v)
+        if what == "apply":
+            ids = [i for i in body.get("ids") or [] if isinstance(i, str)][:500] or None
+            t.start_apply(ids)   # 始められなければ ValueError = 409
+            return self._json(200, app.tidy_view())
+        if what == "later":
+            t.later()
+            return self._json(200, app.tidy_view())
+        if what == "open-trash":
+            for root in t.case_roots() + ([t.home()] if t.home() else []):
+                d = os.path.join(root, _tidy.TRASH_NAME)
+                if os.path.isdir(d):
+                    app.open_folder(d)
+                    return self._json(200, {"ok": True})
+            return self._fail(404, "not_found", "ごみ箱はまだありません")
+        return self._fail(404, "not_found", "その操作はありません")
 
     def _setup(self, what):
         app = self.server.app
@@ -568,6 +600,9 @@ class FriendApp:
                                   device=_machine_device, log=self.log, after=self.after_setup)
         self.api.parts_missing = self.setup.block_reason
         self.settings = _settings.Settings(places, self.api, self.setup, engine_fn=lambda: self.engine, log=self.log)
+        # フォルダの整理(新しい版で起動できたあとの 1 回と ⚙。動かす・消す口はテストで差し替える)
+        self.tidy = _tidy.Tidy(places, self.inbox, queue_fn=lambda: getattr(self.engine, "queue", None), setup=self.setup, sync=self.sync,
+                               version=_version.VERSION, clock=clock, log=self.log)
         self.pick_folder = pick_folder_dialog   # フォルダを選ぶ窓の口(F2-5。テストと見本は差し替える = 本物の窓を出さない)
         # 配信の一覧(F3-2。キー無し = 名簿の channel・RSS・動画のページ)。糸を起こすのは main だけ(テストと見本は fetch を差し替える)
         self.streams = _streams.Streams(os.path.join(places["friend"], STREAMS_NAME), clock=clock, log=self.log)
@@ -735,6 +770,12 @@ class FriendApp:
         return {"available": bool(v), "version": v, "requested": bool(v and self.update_requested), "waiting": bool(hold),
                 "label": (st or {}).get("label") or "", "hosted": (os.environ.get(HOST_ENV) or "").strip() == "webview2"}
 
+    def tidy_view(self):
+        """整理の画面の中身(今は調べない理由 = blocked つき)"""
+        v = self.tidy.view()
+        v["blocked"] = self.tidy.blocked() if not v["items"] else None
+        return v
+
     def undecided(self):
         """受け取るの ●n = まだ決めていない本数(窓のタイトルとタスクバー。C-3-9)"""
         try:
@@ -793,9 +834,15 @@ class FriendApp:
 
     def watch(self):
         """3 日の片付け(SWEEP_EVERY ごと)。終わるかどうかは exe が決める(ここでは終わらない)"""
-        last_sweep = 0
+        last_sweep = last_tidy = 0
         while not self.closing.wait(10):
             now = self.clock()
+            if now - last_tidy >= TIDY_EVERY and self.engine is not None:   # 新しい版で起動できたあとの整理(版ごとに 1 回。条件がそろうまで見直す)
+                last_tidy = now
+                try:
+                    self.tidy.maybe_auto()
+                except Exception as e:   # noqa: BLE001  (整理で玄関を止めない)
+                    self.log("フォルダの整理に失敗しました: %s" % e.__class__.__name__)
             if self.engine is not None:
                 try:
                     self.api.tick()   # アーカイブ待ち・失敗の自動のやり直し・落とした動画の片付け(F3-3)
