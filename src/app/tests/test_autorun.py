@@ -1414,8 +1414,8 @@ class TestRequests(Base):
 
     def fake_seconds(self, **by_pack):
         """各パックの切り抜きの長さ(ffprobe の結果)。キーはパックのフォルダの名前(a2_pack など)。偽の動画は読めないので、そのままだと長さは None"""
-        self.addCleanup(setattr, pv, "clip_seconds", pv.clip_seconds)
-        pv.clip_seconds = lambda d, ffprobe=None: by_pack.get(os.path.basename(os.path.normpath(d)))
+        self.addCleanup(setattr, pv, "pack_seconds", pv.pack_seconds)
+        pv.pack_seconds = lambda d, ffprobe=None: by_pack.get(os.path.basename(os.path.normpath(d)))
 
     def meta_of(self, out, zip_name):
         """zip の隣の印(<zip の名前(.zip 抜き)>.meta.json)を読む。UTF-8・BOM なし(友人のアプリの読み取りの約束)"""

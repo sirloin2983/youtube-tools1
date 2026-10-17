@@ -51,6 +51,9 @@ def intake_obj(enabled=False, requests=None, **kw):
     return d
 
 
+NOTICES = [{"at": NOW - 600_000, "receivedAt": NOW - 60_000, "requestId": "r1", "title": "さくらみこ|<i>朝の配信</i>", "message": "直りませんでした。作る人に知らせてください",
+            "detail": "Traceback ...\n文字起こしが動きません", "code": "transcribe", "appVersion": "1.0.0", "hasLog": True}]   # [作る人に知らせる](F3-6)
+
 REQUESTS = [
     {"id": "r1", "kind": "url", "source": "app", "title": "【雑談】<b>朝の配信</b>", "streamer": "さくらみこ", "memo": "笑ったところを多めに",
      "received": NOW - 300_000, "state": "accepted", "stateLabel": "受け付けた", "reason": "", "runIds": ["run1"],
@@ -100,7 +103,7 @@ def main():
 
     def r_scan(route):
         state["scans"] += 1
-        state["intake"] = intake_obj(True, REQUESTS, lastScan=NOW)
+        state["intake"] = intake_obj(True, REQUESTS, lastScan=NOW, notices=NOTICES)
         route.fulfill(status=200, content_type="application/json", body=json.dumps(state["intake"]))
 
     def r_prefs(route):
@@ -148,6 +151,7 @@ def main():
                 check("オフです" in pg.text_content("#intakeMsg"), "オフの案内が出る: %s" % pg.text_content("#intakeMsg"))
                 check(pg.is_disabled("#intakeScanBtn"), "オフのときは「今すぐ確認」を押せない")
                 check(not pg.is_visible("#intakeList") and pg.is_visible("#intakeEmpty"), "依頼が無いときは「まだ依頼は届いていません」")
+                check(not pg.is_visible("#intakeNotices"), "友人から知らせが無いときは欄ごと出さない")
                 # 0.54.0: フォルダ・数の欄は設定の画面へ。パネルには今のフォルダと「設定を変える」
                 check("未設定" in (pg.text_content("#intakeFolderNow") or "") and (pg.get_attribute("#intakeSettingsLink", "href") or "").endswith("settings#uiSetGroup-intake"),
                       "フォルダは未設定と出て、「設定を変える」は設定の画面の受付の節へ: %s" % pg.text_content("#intakeFolderNow"))
@@ -180,6 +184,10 @@ def main():
                 check("断った" in rows[1] and "動画が大きすぎます" in rows[1] and "clip_big.mp4" in rows[1] and "12.3GB" in rows[1] and "clip_ok.mp4" in rows[1] and "動画" in rows[1] and "フォルダに直接" in rows[1],
                       "断った依頼: 理由・項目ごとの結果: %s" % rows[1].replace("\n", " / "))
                 check(pg.eval_on_selector_all("#intakeList b", "e => e.length") == 0, "題名の <b> は要素にならない")
+                check(wait_js(pg, "!document.getElementById('intakeNotices').hidden"), "友人から知らせが出る(F3-6)")
+                nt = pg.text_content("#intakeNoticeList") or ""
+                check("直りませんでした" in nt and "<i>朝の配信</i>" in nt and "transcribe" in nt and "1.0.0" in nt and pg.eval_on_selector_all("#intakeNoticeList i", "e => e.length") == 0,
+                      "知らせ: 題(HTML として解釈しない)・上の文・種類・版: %s" % nt[:160])
                 check("最後に確認" in pg.text_content("#intakeScan") and pg.text_content("#intakeToday").strip() == "今日 2 件",
                       "最後の確認・今日の件数: %s / %s" % (pg.text_content("#intakeScan"), pg.text_content("#intakeToday")))
 

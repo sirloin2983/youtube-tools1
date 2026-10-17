@@ -173,7 +173,7 @@ def deliver_one(d, out_dir, name, log_dir=None, run=None, marks=None, check=None
         meta = meta_path_for(dest)
         write_meta_json(meta, meta_doc(dest, face_origin(origin), placed, _preview.pack_title(d), getattr(run, "video_id", None) or "",
                                        str(mark.get("markId") or ""), getattr(run, "title", "") if stream_title is None else stream_title,
-                                       getattr(run, "streamer", None) or "", _preview.clip_seconds(d)))
+                                       getattr(run, "streamer", None) or "", _preview.pack_seconds(d)))
         zip_packs([d], out_dir, name, check=check, progress=progress, dest=dest)
     except BaseException:
         _preview.remove_quiet(placed)

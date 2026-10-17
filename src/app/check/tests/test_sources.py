@@ -145,7 +145,7 @@ class SourcesTest(unittest.TestCase):
         got = sources.value_auto(view)
         self.assertEqual([c["id"] for c in got], ["value:auto:%s#a1" % VID, "value:auto:%s#a2" % VID, "value:auto:%s#a7" % VID])
         self.assertEqual(got[2]["note"], "まとめて実行")
-        self.assertEqual((got[0]["target"]["markId"], got[0]["options"], got[0]["note"]), ("a1", ["good", "bad"], "配信中の候補"))
+        self.assertEqual((got[0]["target"]["markId"], got[0]["options"], got[0]["note"]), ("a1", ["good", "bad", "unknown"], "配信中の候補"))
         self.assertEqual([r["id"] for r in got[0]["reasons"]], ["boring", "long", "short", "edge", "subtitle", "audio", "other_person"])
 
     def test_broken_source_does_not_stop_others(self):

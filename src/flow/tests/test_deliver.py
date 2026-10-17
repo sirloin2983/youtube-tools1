@@ -104,7 +104,7 @@ class OriginTest(unittest.TestCase):
         put(os.path.join(self.pack, "clip.mp4"), b"v")
         self.out = os.path.join(self.tmp, "Dropbox", deliver.OUT_DIR)
         self.logs = os.path.join(self.tmp, "logs")
-        for name, fake in (("make_preview", fake_make_preview), ("clip_seconds", lambda d, ffprobe=None: None)):
+        for name, fake in (("make_preview", fake_make_preview), ("pack_seconds", lambda d, ffprobe=None: None)):
             p = mock.patch.object(pv, name, fake)
             p.start()
             self.addCleanup(p.stop)
@@ -146,7 +146,7 @@ class OriginTest(unittest.TestCase):
 
     def test_meta_doc_fields_for_a_request(self):
         """依頼の分にも meta を必ず置く。欄 = meta_doc の形(v 1・kind clip・origin・requestId・zip・preview・title・videoId・markId・streamTitle・streamer・seconds)"""
-        with mock.patch.object(pv, "clip_seconds", lambda d, ffprobe=None: 48.256):
+        with mock.patch.object(pv, "pack_seconds", lambda d, ffprobe=None: 48.256):
             dest = deliver.deliver_one(self.pack, self.out, "20261016-120000-abcdef__題", origin="request", run=self.run_(),
                                        marks={self.pack: {"path": "x.mp4", "markId": "m7"}})
         with open(deliver.meta_path_for(dest), encoding="utf-8") as f:
@@ -174,7 +174,7 @@ class OriginTest(unittest.TestCase):
         """組(まとめ動画・組の一覧)の部品は消した(F3-6)"""
         for gone in ("GROUP_SUFFIX", "group_paths", "group_members", "write_group_json"):
             self.assertFalse(hasattr(deliver, gone), gone)
-        for gone in ("batch_preview", "PREVIEW_LABEL_SEC"):
+        for gone in ("PREVIEW_LABEL_SEC", "FONT_CANDIDATES"):   # batch_preview・clip_seconds は友人の PC の受信箱のために古い口として残る
             self.assertFalse(hasattr(pv, gone), gone)
 
 
@@ -256,7 +256,7 @@ class FormatTest(unittest.TestCase):
             deliver.write_meta_json(os.path.join(out, "x.meta.json"), {"t": "bad\ud800"})
         self.assertEqual(os.listdir(out), [os.path.basename(path)], "書きかけを残さない")
 
-    def test_clip_seconds(self):
+    def test_pack_seconds(self):
         """パックの切り抜きの長さ(秒)。いちばん大きい動画(_roughcut は除く)を ffprobe に渡す。動画の無いパック・長さの読めない・0 以下・
         フォルダの無いものは None(ffprobe を呼ばない)"""
         a, b, c, d = (os.path.join(self.tmp, n + "_pack") for n in "abcd")
@@ -273,14 +273,14 @@ class FormatTest(unittest.TestCase):
             asked.append((path, ffprobe))
             return infos.get(path)
         with mock.patch.object(pv.normalize, "probe", probe):
-            self.assertEqual(pv.clip_seconds(a, ffprobe="FFPROBE"), 48.25)
-            self.assertIsNone(pv.clip_seconds(b))
-            self.assertIsNone(pv.clip_seconds(c))
-            self.assertIsNone(pv.clip_seconds(d))
-            self.assertIsNone(pv.clip_seconds(os.path.join(self.tmp, "無い_pack")))
+            self.assertEqual(pv.pack_seconds(a, ffprobe="FFPROBE"), 48.25)
+            self.assertIsNone(pv.pack_seconds(b))
+            self.assertIsNone(pv.pack_seconds(c))
+            self.assertIsNone(pv.pack_seconds(d))
+            self.assertIsNone(pv.pack_seconds(os.path.join(self.tmp, "無い_pack")))
             infos[os.path.join(c, "c.mp4")] = {"duration": 7}
-            self.assertIsInstance(pv.clip_seconds(c), float)
-            self.assertEqual(pv.clip_seconds(c), 7.0)
+            self.assertIsInstance(pv.pack_seconds(c), float)
+            self.assertEqual(pv.pack_seconds(c), 7.0)
         self.assertEqual(asked[0], (os.path.join(a, "a.mp4"), "FFPROBE"), "いちばん大きい動画(_roughcut でない)を調べる")
         self.assertEqual(len([1 for p, _f in asked if p.startswith(d)]), 0, "動画の無いパックは ffprobe を呼ばない")
 
@@ -376,16 +376,16 @@ class PreviewTest(unittest.TestCase):
         self.assertNotEqual(code, 0)
         self.assertTrue(err)
 
-    def test_clip_seconds_with_real_ffprobe(self):
+    def test_pack_seconds_with_real_ffprobe(self):
         """組の印の長さ(meta の seconds): 本物の動画は秒が読める・壊れた動画・動画の無いパックは None"""
         a = self.clip("一本目_pack/一本目.mp4", 2)
         bad = os.path.join(self.tmp, "x_pack", "x.mp4")
         put(bad, os.urandom(3000))
         empty = os.path.join(self.tmp, "空_pack")
         os.makedirs(empty)
-        self.assertAlmostEqual(pv.clip_seconds(os.path.dirname(a), ffprobe=self.ffprobe), 2.0, delta=0.5)
-        self.assertIsNone(pv.clip_seconds(os.path.dirname(bad), ffprobe=self.ffprobe))
-        self.assertIsNone(pv.clip_seconds(empty, ffprobe=self.ffprobe))
+        self.assertAlmostEqual(pv.pack_seconds(os.path.dirname(a), ffprobe=self.ffprobe), 2.0, delta=0.5)
+        self.assertIsNone(pv.pack_seconds(os.path.dirname(bad), ffprobe=self.ffprobe))
+        self.assertIsNone(pv.pack_seconds(empty, ffprobe=self.ffprobe))
 
 class DeliveriesTest(unittest.TestCase):
     def setUp(self):
@@ -400,7 +400,7 @@ class DeliveriesTest(unittest.TestCase):
         self.logs = []
         self.log_dir = os.path.join(self.tmp, "logs")
         self.dl = deliver.Deliveries(lambda: self.cfg["folder"], lambda d: os.path.normpath(d) in self.packs, log=self.logs.append, log_dir=self.log_dir)
-        for name, fake in (("make_preview", fake_make_preview), ("clip_seconds", lambda d, ffprobe=None: None)):   # ffmpeg を呼ばない
+        for name, fake in (("make_preview", fake_make_preview), ("pack_seconds", lambda d, ffprobe=None: None)):   # ffmpeg を呼ばない
             p = mock.patch.object(pv, name, fake)
             p.start()
             self.addCleanup(p.stop)
