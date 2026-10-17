@@ -155,7 +155,10 @@ class BuildTest(Base):
         self.assertFalse(man["withKey"])
         self.assertNotIn("config.json", names)   # 鍵は既定で入れない(f1g)
         self.assertNotIn("inbox.bat", names)   # 仮の入口は窓 FriendApp.exe に替わった
-        for n in ("RequestSender.exe", "FriendApp.exe", "WebView2Loader.dll", "Microsoft.Web.WebView2.Core.dll", "members.json", "README.txt", "fetch.json", "src/app/server.py", "src/app/cli.py", "src/ytt/version.py",
+        for n in ("RequestSender.exe", "FriendApp.exe", "WebView2Loader.dll", "Microsoft.Web.WebView2.Core.dll", "Microsoft.Web.WebView2.WinForms.dll",
+                  B.INSTALL_NAME, "members.json", "README.txt", "fetch.json",
+                  "src/friendapp/server.py", "src/friendapp/streams.py", "src/friendapp/ui/friend.html", "src/friendapp/ui/host.js", "src/friendapp/ui/setup.html",
+                  "src/friendapp/ui/guide.html", "src/app/server.py", "src/app/cli.py", "src/ytt/version.py",
                   "python/Lib/site-packages/numpy/__init__.py", "python/Lib/site-packages/sherpa_onnx_core.pyd"):
             self.assertIn(n, names)
         self.assertFalse(any("/tests/" in n or "__pycache__" in n or n.endswith(".pyc") for n in names))
@@ -228,6 +231,45 @@ class BuildTest(Base):
         with self.assertRaises(SystemExit) as cm:
             B.main(["--with-key", "--out", self.out])
         self.assertEqual(cm.exception.code, 2)
+
+    def test_required_src_is_tracked(self):
+        B.check_src()   # 新しいアプリの必須の物(REQUIRED_SRC)が git に入っている
+        self.assertTrue(set(B.REQUIRED_SRC) <= set(B.src_files()))
+        self.assertFalse(any("FriendInbox" in n for n in B.REQUIRED_SRC))
+
+    def test_default_out_refuses_without_out(self):
+        with self.assertRaisesRegex(B.BuildError, "--out"):
+            B.default_out(False)   # Dropbox の 更新\ へは黙って置かない
+        self.assertEqual(os.path.basename(B.default_out(True, False)), "dist")
+        self.assertEqual(B.main([]), 1)
+        with self.assertRaises(SystemExit) as cm:
+            B.main(["--publish", "--out", self.out])
+        self.assertEqual(cm.exception.code, 2)
+
+    def test_launcher_rebuilt_when_missing_or_old(self):
+        src = os.path.join(self.tmp, "launcher-src")
+        os.makedirs(os.path.join(src, "src"))
+        cs = os.path.join(src, "src", "A.cs")
+        with open(cs, "w") as f:
+            f.write("x")
+        b = os.path.join(src, "build")
+        calls = []
+
+        def rebuild(launcher_src):
+            calls.append(launcher_src)
+            shutil.copytree(self.launcher, b, dirs_exist_ok=True)
+        stage = tempfile.mkdtemp(dir=self.tmp)
+        B.lay_launcher(stage, b, src, rebuild)           # 無い -> 作る
+        self.assertEqual(calls, [src])
+        os.utime(cs, (os.path.getmtime(b) + 100,) * 2)   # C# が新しい -> 作り直す
+        B.lay_launcher(stage, b, src, rebuild)
+        self.assertEqual(len(calls), 2)
+        old = os.path.getmtime(cs) + 100
+        os.utime(os.path.join(b, "FriendApp.exe"), (old, old))   # exe が新しい -> 流さない
+        B.lay_launcher(stage, b, src, rebuild)
+        self.assertEqual(len(calls), 2)
+        for n in (B.LAUNCHER_EXE,) + B.LAUNCHER_DLLS:
+            self.assertTrue(os.path.isfile(os.path.join(stage, n)))
 
     def test_launcher_exe_missing_stops(self):
         os.remove(os.path.join(self.launcher, "FriendApp.exe"))
