@@ -143,6 +143,19 @@ def clip_base(folder, n, start, end, label, unique=unique_base):
     return unique(head + ("_" + label if label else ""), folder)
 
 
+_CLIP_NUMBER = re.compile(r"^(\d+)_\d{2,}h\d{2}m\d{2}s-\d{2,}h\d{2}m\d{2}s")
+
+
+def next_clip_number(folder):
+    """フォルダにある切り抜き(<番号>_<開始>-<終わり>…)の番号の最大 + 1(無ければ 1)。開き直した・2 回目の書き出しが 01 から振り直さないため。
+    直下のファイルだけを見る(書きかけ .partial も数える = 作業用/ は見ない)。読めなければ 1"""
+    try:
+        found = [int(m.group(1)) for m in (_CLIP_NUMBER.match(n) for n in os.listdir(folder)) if m]
+    except OSError:
+        return 1
+    return max(found, default=0) + 1
+
+
 def partial_path(folder, base, ext=".mp4"):
     """書きかけのファイルの場所(同じフォルダ・<base>.partial.mp4。置き換えが同じドライブの中で済む)。"""
     return os.path.join(folder, base + PARTIAL + ext)

@@ -25,7 +25,7 @@ import startup  # noqa: E402  (src を sys.path に足し、スタジオのフ�
 from ytt import errors, jobs, mediainfo, studio_env  # noqa: E402
 from pipeline.export import exporter
 from flow import export as _fexport  # noqa: E402  (指定は ② の build_spec = 台帳から引く口。① の spec_from_video は配信の dict を受けるだけ)
-from ytt import normalize, schemas  # noqa: E402  (途中のファイルの置き場所 WORK_DIR)
+from ytt import names, normalize, schemas  # noqa: E402  (途中のファイルの置き場所 WORK_DIR)
 
 
 def _make_clip(path, sec=2.0):
@@ -121,6 +121,22 @@ class TestExportCompletion(unittest.TestCase):
                 _run(job, spec, done)
             done.assert_called_once_with("abcdefghijk", "m1", "video/clip.mp4", 10.0, 15.0, os.path.join(tmp, "clip.mp4"))   # 最後は書き出した mp4 の絶対パス(マークに残す)
             self.assertEqual((job["state"], item["status"], item["file"]), ("done", "done", "video/clip.mp4"))
+
+
+class TestClipNumbering(unittest.TestCase):
+    def test_numbers_continue_from_existing_clips(self):
+        """同じ配信のフォルダに書き出しがあれば、開き直した 2 回目の書き出しは続きの番号から(01 から振り直さない)"""
+        with tempfile.TemporaryDirectory() as tmp:
+            for n in ("01_00h00m10s-00h00m15s_a.mp4", "02_00h01m00s-00h01m05s.partial.mp4", "メモ.txt"):
+                open(os.path.join(tmp, n), "w").close()
+            items = [{"id": "m%d" % i, "start": 10.0 * i, "end": 10.0 * i + 5, "label": "", "status": "queued"} for i in (1, 2)]
+            job = {"items": items, "state": "running"}
+            seen = []
+            with patch.object(studio_env, "get_out_dir", return_value=tmp), patch.object(exporter, "pick_folder", return_value=("video", tmp)), \
+                    patch.object(exporter, "_export_clip", side_effect=lambda ctl, spec, it, idx, on_done: seen.append(idx) or it.update(status="done")):
+                _run(job, {"videoId": "abcdefghijk", "mode": "file"})
+            self.assertEqual(seen, [3, 4])
+            self.assertEqual(names.next_clip_number(os.path.join(tmp, "無い")), 1)
 
 
 def _make_source(path, sec=30, gop=300, rate=60, video=None):

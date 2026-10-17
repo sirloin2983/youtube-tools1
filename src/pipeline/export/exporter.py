@@ -849,7 +849,7 @@ def _run_job(res, ctl, spec, on_done=None):
     res["folder"] = spec["folder"]
     if spec.get("combine"):
         return _run_combine(res, ctl, spec)
-    for idx, it in enumerate(res["items"], 1):
+    for idx, it in enumerate(res["items"], _names.next_clip_number(spec["outDir"])):   # 同じ配信のフォルダにある書き出しの続きの番号から
         if ctl.cancelled:
             it["status"] = "cancelled"
             continue
