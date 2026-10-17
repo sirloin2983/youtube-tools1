@@ -1,0 +1,26 @@
+/* 初回の準備だけの画面(setup.html)と ⚙ の引き出し(settings.js)。F3-5。色は ui-kit の変数だけ(両テーマ) */
+.fs-brand{font:650 15px/1.2 var(--font-display);margin-right:8px}
+.fs-main{max-width:640px;margin:0 auto;padding:48px 16px}
+.fs-card{display:flex;flex-direction:column;gap:12px;padding:24px}
+.fs-card p{margin:0}
+.fs-title{font:650 20px/1.3 var(--font-display);margin:0}
+.fs-bar{margin:4px 0 0}
+.fs-bar>i{background:var(--accent)}
+.fs-left{color:var(--ink-2);font-variant-numeric:tabular-nums;min-height:1.3em}
+.fs-fail,.fs-old{display:flex;flex-direction:column;gap:10px;padding:12px;border:1px solid var(--line);border-radius:var(--r-md, 6px);background:var(--panel-2)}
+.fs-fail p{color:var(--danger-ink)}
+.fs-line{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.fs-more>summary{min-height:28px;cursor:pointer}
+.fs-items{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:4px;font-size:var(--fs-sm)}
+.fs-item{display:flex;gap:8px;overflow-wrap:anywhere}
+.fs-mark{min-width:3em;color:var(--ink-3)}
+.fs-fail .fs-mark,.fs-item.fs-fail .fs-mark,.fs-item.fs-failed .fs-mark{color:var(--danger-ink)}
+.fs-err{color:var(--danger-ink);white-space:pre-wrap;overflow-wrap:anywhere;font-size:var(--fs-sm)}
+.fs-help{min-width:28px;justify-content:center;text-decoration:none}
+.fs-path{margin:0 0 6px;overflow-wrap:anywhere;font-size:var(--fs-sm)}
+.fs-set .hint{margin:6px 0 0}
+.fs-set>p{margin:0 0 6px;font-size:var(--fs-sm)}
+.fs-radio{display:inline-flex;align-items:center;gap:6px;min-height:28px}
+.fs-num{width:5em}
+.fs-key{flex:1 1 14em;min-width:0}
+.fs-weights{gap:12px}

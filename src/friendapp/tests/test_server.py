@@ -714,14 +714,25 @@ class ServerTest(unittest.TestCase):
         st, _h, _p = self.get("/api/friend/state", headers={TOKEN: "x"})
         self.assertEqual(st, 403)
 
-    def test_state_idle_and_window_ago(self):
-        now = [1000.0]
-        self.app.clock = lambda: now[0]
-        self.app.seen = 990.0
+    def test_state_idle(self):
         st, _h, p = self.get("/api/friend/state", headers={TOKEN: self.srv.token})
         self.assertEqual(st, 200)
         d = self.js(p)
-        self.assertEqual((d["windowAgo"], d["busy"], d["recording"], d["making"], d["waiting"], d["label"]), (10.0, False, 0, 0, 0, ""))
+        self.assertNotIn("windowAgo", d)   # 窓の推測はやめた(F3-1。窓は exe が持つ)
+        self.assertEqual({k: d[k] for k in ("busy", "recording", "making", "waiting", "reserved", "archiveWait", "setup", "undecided", "awake", "label")},
+                         {"busy": False, "recording": 0, "making": 0, "waiting": 0, "reserved": 0, "archiveWait": 0, "setup": False,
+                          "undecided": 0, "awake": False, "label": ""})
+
+    def test_state_holdings_undecided_and_awake(self):
+        self.app.holdings = lambda: {"reserved": 2, "archiveWait": 1, "soon": False}
+        self.app.inbox.view = lambda *a, **k: [{"undecided": 3}, {"undecided": 2}, {}]
+        d = self.js(self.get("/api/friend/state", headers={TOKEN: self.srv.token})[2])
+        self.assertEqual((d["reserved"], d["archiveWait"], d["undecided"]), (2, 1, 5))
+        self.assertTrue(d["awake"])   # アーカイブ待ちの間はスリープを止める
+        self.app.holdings = lambda: {"reserved": 1, "archiveWait": 0, "soon": False}
+        self.assertFalse(self.js(self.get("/api/friend/state", headers={TOKEN: self.srv.token})[2])["awake"])   # 予約だけ(30 分より前)は止めない
+        self.app.holdings = lambda: {"reserved": 1, "archiveWait": 0, "soon": True}
+        self.assertTrue(self.js(self.get("/api/friend/state", headers={TOKEN: self.srv.token})[2])["awake"])
 
     def test_state_counts_runs_and_recording(self):
         self.engine.queue.status = lambda: {"idle": False, "runs": [{"state": "running"}, {"state": "queued"}, {"state": "queued"}, {"state": "done"}]}
@@ -737,19 +748,43 @@ class ServerTest(unittest.TestCase):
         self.assertTrue(d["busy"])
         self.assertEqual(d["label"], "録画中 2 本")
 
-    def test_window_post_resets_seen_and_opens(self):
-        opened = []
-        self.app.open_window = opened.append
-        self.app.seen = 0.0
-        st, _h, p = self.post("/api/friend/window", {})
+    def test_window_route_is_gone(self):
+        self.assertEqual(self.post("/api/friend/window", {})[0], 404)
+
+    def test_page_token_is_placeholder_in_webview2(self):
+        with mock.patch.dict(os.environ, {S.HOST_ENV: "webview2"}):
+            st, _h, p = self.get("/friend/")
         self.assertEqual(st, 200)
-        self.assertTrue(self.js(p)["ok"])
-        self.assertEqual(opened, ["http://localhost:%d/friend/" % self.port])
-        self.assertLess(self.app.clock() - self.app.seen, 5)
-        self.assertEqual(self.post("/api/friend/window", {}, headers={TOKEN: None})[0], 403)
+        self.assertIn(b'<meta name="ytt-token" content="host">', p)   # 本物は WebView2 が要求ごとに足す
+        self.assertNotIn(self.srv.token.encode("ascii"), p)
+        with mock.patch.dict(os.environ, {S.HOST_ENV: "edge"}):
+            p = self.get("/friend/")[2]
+        self.assertIn(('<meta name="ytt-token" content="%s">' % self.srv.token).encode("ascii"), p)   # 逃げ道の Edge の窓は本物
+
+    def test_main_page_goes_to_setup_until_done(self):
+        self.app.setup_done = lambda: False
+        st, h, _p = self.get("/friend/")
+        self.assertEqual((st, h["location"]), (302, "/friend/setup.html"))
+        st, _h, p = self.get("/friend/setup.html")
+        self.assertEqual(st, 200)
+        self.assertIn(b"setup.js", p)
+        self.app.setup_done = lambda: True
+        self.assertEqual(self.get("/friend/")[0], 200)
+
+    def test_host_files_are_served(self):
+        for name in ("host.js", "settings.js", "settings.css", "setup.js"):
+            self.assertEqual(self.get("/friend/" + name)[0], 200, name)
+
+    def test_shutdown_says_bye_only_under_exe(self):
+        with mock.patch.object(S, "say") as said:
+            self.app.shutdown()
+        said.assert_not_called()
+        app = S.FriendApp(self.places, make_engine=FakeEngine)
+        with mock.patch.dict(os.environ, {S.HOST_ENV: "webview2"}), mock.patch.object(S, "say") as said:
+            app.shutdown()
+        said.assert_called_once_with('{"event": "bye"}')
 
     def test_watch_does_not_end_by_itself(self):
-        self.app.seen = 0.0   # 窓を閉じて長い = 前は 120 秒で自分で終わった
         t = threading.Thread(target=self.app.watch, daemon=True)
         with mock.patch.object(self.app.closing, "wait", side_effect=[False, False, True]):
             t.start()

@@ -1,4 +1,4 @@
-// 起動役 FriendInbox.exe の決まり(版の選び方・版の記録・見回りの判断)。画面にも通信にも触らない = tests\Tests.cs で確かめる。C# 5 で書く
+// FriendApp.exe の決まり(版の選び方・版の記録・閉じるときの判断)。画面にも通信にも触らない = tests\Tests.cs で確かめる。C# 5 で書く
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -148,50 +148,92 @@ namespace FriendInbox
         }
     }
 
-    // GET /api/friend/state の中身
-    public sealed class FriendState
+    // GET /api/friend/state の中身(窓と画面の境目。notes:plan/f1-friend-requirements.md の C-5-3・C-5-4)
+    public sealed class HostState
     {
-        public double WindowAgo;
-        public bool Busy;
-        public int Recording, Making, Waiting;
+        public int Making, Recording, Waiting, Reserved, ArchiveWait, Undecided;
+        public bool Setup, Awake;
         public string Label = "";
 
-        // 秒は小数(JavaScriptSerializer は decimal・int・long で返す)。無い・型が違うときは 0 = 窓は開いている扱い(誤って止めない)
-        static double Number(IDictionary<string, object> d, string key)
-        {
-            object v;
-            return d.TryGetValue(key, out v) && (v is decimal || v is int || v is long || v is double) ? Convert.ToDouble(v) : 0;
-        }
-
-        public static FriendState Parse(string text)
+        public static HostState Parse(string text)
         {
             var j = Json.Parse(text);
-            return new FriendState
+            return new HostState
             {
-                WindowAgo = Number(j, "windowAgo"), Busy = Json.Bool(j, "busy", false), Recording = Json.Int(j, "recording", 0),
-                Making = Json.Int(j, "making", 0), Waiting = Json.Int(j, "waiting", 0), Label = Json.Str(j, "label") ?? ""
+                Making = Json.Int(j, "making", 0), Recording = Json.Int(j, "recording", 0), Waiting = Json.Int(j, "waiting", 0),
+                Reserved = Json.Int(j, "reserved", 0), ArchiveWait = Json.Int(j, "archiveWait", 0), Undecided = Json.Int(j, "undecided", 0),
+                Setup = Json.Bool(j, "setup", false), Awake = Json.Bool(j, "awake", false), Label = Json.Str(j, "label") ?? ""
             };
+        }
+
+        // 作業中と預かりの数(0 なら閉じてもすぐ止めてよい)
+        public int Holdings
+        {
+            get { return Math.Max(0, Making) + Math.Max(0, Recording) + Math.Max(0, Waiting) + Math.Max(0, Reserved) + Math.Max(0, ArchiveWait) + (Setup ? 1 : 0); }
         }
     }
 
-    public enum Step { None, Shutdown, ShowStatus, HideStatus }
-
-    public static class Watch
+    // 窓の決まり(画面にも通信にも触らない = tests\Tests.cs で確かめる)
+    public static class Rules
     {
-        public const double WindowClosedAfter = 20;   // 窓の問い合わせがこの秒数なければ窓が閉じたとみる
+        public const string AppTitle = "切り抜き依頼";
 
-        // 見回り 1 回の判断: 窓が戻れば状態の窓を隠す・閉じていて仕事が無ければ止めて終わる・仕事があれば状態の窓を出す
-        public static Step Decide(FriendState s, bool statusShown)
+        // 閉じるとき(×・[すべて止めて終了]・アイコンの「止める」)に確認を出すか。状態を読めない(Python が止まっている)ときは出さない
+        public static bool NeedConfirm(HostState s)
         {
-            if (s.WindowAgo < WindowClosedAfter) return statusShown ? Step.HideStatus : Step.None;
-            if (!s.Busy) return Step.Shutdown;
-            return statusShown ? Step.None : Step.ShowStatus;
+            return s != null && s.Holdings > 0;
         }
 
-        // 状態の窓の ×: 録画中は最小化と同じ・無ければ今すぐ止めて閉じる(確認は出さない)
-        public static bool CloseStopsNow(int recording)
+        // 確認の窓の文(作っている数・録画中なら「録画が途中で切れます」・予約とアーカイブ待ちの数・「閉じると止まります」)
+        public static string ConfirmText(HostState s)
         {
-            return recording <= 0;
+            var lines = new List<string>();
+            if (s.Setup) lines.Add("初回の準備をしています(止めても、次に開くと続きから取ります)");
+            if (s.Making > 0) lines.Add("作っている物が " + s.Making + " 件あります");
+            if (s.Waiting > 0) lines.Add("順番を待っている物が " + s.Waiting + " 件あります");
+            if (s.Recording > 0) lines.Add("録画中が " + s.Recording + " 件あります。止めると録画が途中で切れます");
+            if (s.Reserved > 0) lines.Add("予約が " + s.Reserved + " 件あります");
+            if (s.ArchiveWait > 0) lines.Add("アーカイブ待ちが " + s.ArchiveWait + " 件あります");
+            lines.Add("");
+            lines.Add("閉じると止まります。裏で続けると、終わったら自分で閉じます。");
+            lines.Add("(止めても作っている途中の物は消えず、次に開いたときに続きから作ります)");
+            return string.Join("\r\n", lines.ToArray());
+        }
+
+        // 時計の横のアイコンの文(Windows の上限 127 文字)
+        public static string TrayText(HostState s, bool background)
+        {
+            var parts = new List<string>();
+            if (s != null)
+            {
+                if (s.Setup) parts.Add("準備しています");
+                if (s.Making > 0) parts.Add("作っています " + s.Making + " 件");
+                if (s.Recording > 0) parts.Add("録画中 " + s.Recording + " 件");
+                if (s.Waiting > 0) parts.Add("待ち " + s.Waiting + " 件");
+                if (s.Reserved + s.ArchiveWait > 0) parts.Add("予約・アーカイブ待ち " + (s.Reserved + s.ArchiveWait) + " 件");
+            }
+            string t = AppTitle + (background ? "(裏で続けています)" : "") + (parts.Count > 0 ? "\n" + string.Join("・", parts.ToArray()) : "");
+            return t.Length > 127 ? t.Substring(0, 127) : t;
+        }
+
+        // 窓のタイトル(まだ決めていない本数 ●n。0 なら出さない = C-3-9)
+        public static string Title(int undecided)
+        {
+            return undecided > 0 ? AppTitle + " ●" + undecided : AppTitle;
+        }
+
+        // 裏で続けている間に仕事が無くなったら自分で終わる
+        public static bool AutoExit(HostState s, bool background)
+        {
+            return background && s != null && s.Holdings == 0;
+        }
+
+        // Python が先に終わったときに起こし直すか(10 分のうち 3 回まで。止める途中なら起こさない)
+        public static bool ShouldRestart(List<DateTime> recent, DateTime now, bool stopping)
+        {
+            if (stopping) return false;
+            recent.RemoveAll(t => (now - t).TotalMinutes > 10);
+            return recent.Count < 3;
         }
     }
 }

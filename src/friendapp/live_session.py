@@ -27,6 +27,16 @@ from .live import REC_FOLDER, REQUESTS_NAME, STORE_DIR, RequestBook, settings_la
 REC_KEEP_DAYS = 3                   # 終わった録画を消すまでの日数(配信後の追加が済んでから)
 CLEAN_EVERY = 600.0                 # 録画の片付けを見る間隔(秒)
 RECORDER_WAIT = 20.0                # 送ったとき、録画の部品が起動するまで待つ秒
+REC_PORT_ENV = "YTT_FRIEND_REC_PORT"   # 録画の部品の番号(exe が選ぶ。無ければ 8730)
+
+
+def recorders(env=None):
+    """録画元の一覧: 手元の 1 つ。番号は exe がその都度空いている物を選んで YTT_FRIEND_REC_PORT で渡す(C-1-3。ユーザーの入口や前のアプリの
+    8730 と取り合わない = C-0)。無い・読めなければ空 = 決まりの 8730(開発の PC)"""
+    env = os.environ if env is None else env
+    raw = (env.get(REC_PORT_ENV) or "").strip()
+    port = int(raw) if raw.isdigit() and 1024 <= int(raw) <= 65535 else 0
+    return [dict(_ls.LOCAL, url="http://127.0.0.1:%d" % port)] if port else []
 
 
 class FriendLive(_ls.LiveSession):
@@ -54,7 +64,7 @@ class FriendLive(_ls.LiveSession):
     def live_cfg(self):
         """ライブの設定(ホームの設定 live の代わり)。検出・採用は依頼の設定で動く(結びつきのある録画だけ)・P4 の作り直しはしない(A-14)・
         配信後の追加は依頼の afterStream で(autoAfterStream は依頼でない録画の物 = 使わない)・書き出したあとはパックまで"""
-        return {"enabled": True, "folder": self.rec_folder(), "recorders": [], "quality": _ls.DEFAULT_QUALITY,
+        return {"enabled": True, "folder": self.rec_folder(), "recorders": recorders(), "quality": _ls.DEFAULT_QUALITY,
                 "autoArchive": False, "autoAfterStream": False, "autoDelete": False, "auto": {"after": "auto"}}
 
     def _request_label(self, item):

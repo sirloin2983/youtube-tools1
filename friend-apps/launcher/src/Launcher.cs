@@ -1,11 +1,18 @@
-// 起動役 FriendInbox.exe の本体: 玄関(Python の src\friendapp\server.py)を版を選んで起こし、見回り、止める。C# 5 で書く
-//   FriendInbox.exe   … 玄関を起こす。もう動いていれば玄関が窓を開き直すだけ(自分は終わる)。窓が閉じて仕事も無ければ止めて終わる
+// FriendApp.exe の起こし方: 窓 1 枚(MainForm = WebView2)を持ち、Python(src\friendapp\server.py)を子としてジョブオブジェクトで起こす。C# 5 で書く
+//   notes:plan/f1-friend-requirements.md の C-1-1・C-1-3・C-5-3。窓と画面の境目は friend-apps/launcher/README.txt
+//   - 1 つだけ起動(アプリのフォルダごとの名前つき Mutex)。2 つ目は 1 つ目の窓を前に出して終わる
+//   - 番号はその都度空いている物を選んで --port で渡す(Python はずらさない)。録画の部品の番号も選んで YTT_FRIEND_REC_PORT で渡す
+//   - 合言葉は exe が作って YTT_FRIEND_TOKEN で渡し、WebView2 が要求ごとに X-YTT-Token を足す(画面の meta に頼らない)
+//   - ジョブオブジェクト(閉じたら全部止める)= exe が落ちても Python と孫(ffmpeg・whisper.cpp・録画の部品)が残らない
 // 手元の記録: <home>\data\app\friendapp\logs\launcher.log(../common/Log.cs。数百 KB で切る)
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Net;
+using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
@@ -14,13 +21,81 @@ using FriendApps;
 
 namespace FriendInbox
 {
-    // 起こした玄関 1 つ
+    // 閉じたら中の処理を全部止めるジョブ(JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE。BREAKAWAY_OK は付けない = 孫も外へ出られない)
+    public sealed class Job : IDisposable
+    {
+        IntPtr handle;
+
+        public Job()
+        {
+            handle = CreateJobObject(IntPtr.Zero, null);
+            if (handle == IntPtr.Zero) throw new Win32Exception();
+            var info = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION();
+            info.BasicLimitInformation.LimitFlags = 0x2000;
+            int len = Marshal.SizeOf(typeof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION));
+            if (!SetInformationJobObject(handle, 9, ref info, (uint)len)) throw new Win32Exception();
+        }
+
+        public void Add(Process p)
+        {
+            if (!AssignProcessToJobObject(handle, p.Handle)) throw new Win32Exception();
+        }
+
+        public void Kill()
+        {
+            if (handle != IntPtr.Zero) TerminateJobObject(handle, 1);
+        }
+
+        public void Dispose()
+        {
+            if (handle != IntPtr.Zero) { CloseHandle(handle); handle = IntPtr.Zero; }
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct JOBOBJECT_BASIC_LIMIT_INFORMATION
+        {
+            public long PerProcessUserTimeLimit, PerJobUserTimeLimit;
+            public uint LimitFlags;
+            public UIntPtr MinimumWorkingSetSize, MaximumWorkingSetSize;
+            public uint ActiveProcessLimit;
+            public UIntPtr Affinity;
+            public uint PriorityClass, SchedulingClass;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct IO_COUNTERS
+        {
+            public ulong ReadOperationCount, WriteOperationCount, OtherOperationCount, ReadTransferCount, WriteTransferCount, OtherTransferCount;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+        {
+            public JOBOBJECT_BASIC_LIMIT_INFORMATION BasicLimitInformation;
+            public IO_COUNTERS IoInfo;
+            public UIntPtr ProcessMemoryLimit, JobMemoryLimit, PeakProcessMemoryUsed, PeakJobMemoryUsed;
+        }
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        static extern IntPtr CreateJobObject(IntPtr attrs, string name);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool SetInformationJobObject(IntPtr job, int infoClass, ref JOBOBJECT_EXTENDED_LIMIT_INFORMATION info, uint len);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool TerminateJobObject(IntPtr job, uint exitCode);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool CloseHandle(IntPtr h);
+    }
+
+    // 起こした Python 1 つ
     public sealed class Gateway
     {
         public const int LockBusyExit = 4;   // 同じ作業データを別の処理が使っている(版のせいではない)
+        public const int PortBusyExit = 5;   // 渡した番号を使えなかった(別の番号で起こし直す)
         public Process Proc;
-        public int Port;
-        public bool Ready, Already;
+        public int Port, RecPort;
+        public bool Ready, Bye;   // Bye = Python が「止めてと言われて終わる」と言った(起こし直さない)
         public int ExitCode = -1;
         readonly ManualResetEvent readyEvt = new ManualResetEvent(false), exitEvt = new ManualResetEvent(false);
 
@@ -29,7 +104,7 @@ namespace FriendInbox
             get { try { return Proc != null && !Proc.HasExited; } catch (InvalidOperationException) { return false; } }
         }
 
-        // 標準出力の 1 行 JSON {"event":"ready","port":…} / {"event":"already","port":…}
+        // 標準出力の 1 行 JSON {"event":"ready","port":…} / {"event":"bye"}
         public void OnLine(string line)
         {
             IDictionary<string, object> j;
@@ -40,35 +115,49 @@ namespace FriendInbox
                 return;
             }
             string ev = Json.Str(j, "event");
-            if (ev == "ready") { Port = Json.Int(j, "port", 0); Ready = Port > 0; if (Ready) readyEvt.Set(); }
-            else if (ev == "already") { Port = Json.Int(j, "port", 0); Already = true; }
+            if (ev == "ready" && Json.Int(j, "port", 0) == Port) { Ready = true; readyEvt.Set(); }
+            else if (ev == "bye") Bye = true;
         }
 
-        // 玄関を起こして ready を waitSec 秒待つ。結果は Ready(動いている)・Already(もう動いていた)・それ以外は起動できない(ExitCode)
-        public static Gateway Start(Layout l, string home, string token, string rollback, int waitSec, Action<string> log)
+        // 空いている番号(127.0.0.1 で 0 番を開いて OS に選ばせ、すぐ閉じる)
+        public static int FreePort()
         {
-            var g = new Gateway();
-            var psi = new ProcessStartInfo(l.Python, "-X utf8 \"" + l.Script + "\"")
+            var l = new TcpListener(IPAddress.Loopback, 0);
+            l.Start();
+            try { return ((IPEndPoint)l.LocalEndpoint).Port; }
+            finally { l.Stop(); }
+        }
+
+        // Python を起こして ready を waitSec 秒待つ。tokenInPage = WebView2 が無く Edge の窓で開く(画面の meta に本物の合言葉を入れる)
+        public static Gateway Start(Layout l, string home, string token, string rollback, bool tokenInPage, Job job, int waitSec, Action<string> log)
+        {
+            var g = new Gateway { Port = FreePort(), RecPort = FreePort() };
+            if (g.RecPort == g.Port) g.RecPort = FreePort();
+            var psi = new ProcessStartInfo(l.Python, "-X utf8 \"" + l.Script + "\" --port " + g.Port + " --no-open")
             {
                 UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true,
                 StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8, WorkingDirectory = home
             };
-            psi.EnvironmentVariables["YTT_FRIEND_HOME"] = home;
-            psi.EnvironmentVariables["YTT_FRIEND_TOKEN"] = token;
-            psi.EnvironmentVariables["YTT_FRIEND_LAUNCHER"] = "1";
-            if (rollback != null) psi.EnvironmentVariables["YTT_FRIEND_ROLLBACK"] = rollback; else psi.EnvironmentVariables.Remove("YTT_FRIEND_ROLLBACK");
+            var env = psi.EnvironmentVariables;
+            env["YTT_FRIEND_HOME"] = home;
+            env["YTT_FRIEND_TOKEN"] = token;
+            env["YTT_FRIEND_HOST"] = tokenInPage ? "edge" : "webview2";
+            env["YTT_FRIEND_REC_PORT"] = g.RecPort.ToString();
+            if (rollback != null) env["YTT_FRIEND_ROLLBACK"] = rollback; else env.Remove("YTT_FRIEND_ROLLBACK");
             g.Proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
-            g.Proc.OutputDataReceived += (s, e) => { if (e.Data != null) { log("玄関: " + e.Data); g.OnLine(e.Data); } };
-            g.Proc.ErrorDataReceived += (s, e) => { if (e.Data != null) log("玄関(エラー): " + e.Data); };
+            g.Proc.OutputDataReceived += (s, e) => { if (e.Data != null) { log("Python: " + e.Data); g.OnLine(e.Data); } };
+            g.Proc.ErrorDataReceived += (s, e) => { if (e.Data != null) log("Python(エラー): " + e.Data); };
             g.Proc.Exited += (s, e) => g.exitEvt.Set();
-            log("起こします: " + (l.Version ?? "(app-版なしの形)") + " " + l.Script);
+            log("起こします: " + (l.Version ?? "(app-版なしの形)") + " " + l.Script + " 番号 " + g.Port + "・録画 " + g.RecPort);
             g.Proc.Start();
+            try { job.Add(g.Proc); }
+            catch (Win32Exception ex) { log("ジョブに入れられませんでした(閉じるときは止める口で止めます): " + ex.Message); }
             g.Proc.BeginOutputReadLine();
             g.Proc.BeginErrorReadLine();
             int w = WaitHandle.WaitAny(new WaitHandle[] { g.readyEvt, g.exitEvt }, waitSec * 1000);
             if (w == 1)
             {
-                g.Proc.WaitForExit();   // 標準出力を読み切ってから(already の行を取りこぼさない)
+                g.Proc.WaitForExit();   // 標準出力を読み切ってから
                 g.ExitCode = g.Proc.ExitCode;
             }
             else if (w == WaitHandle.WaitTimeout) log("ready が " + waitSec + " 秒来ませんでした");
@@ -76,26 +165,21 @@ namespace FriendInbox
             return g;
         }
 
-        // 子の ffmpeg なども含めて強制で終わらせる
         public void Kill()
         {
             if (!Alive) return;
-            try
-            {
-                var p = Process.Start(new ProcessStartInfo("taskkill", "/T /F /PID " + Proc.Id) { UseShellExecute = false, CreateNoWindow = true });
-                p.WaitForExit(10000);
-            }
+            try { Proc.Kill(); Proc.WaitForExit(5000); }
             catch (Exception ex)
             {
-                if (!(ex is System.ComponentModel.Win32Exception || ex is InvalidOperationException)) throw;
+                if (!(ex is Win32Exception || ex is InvalidOperationException)) throw;
             }
         }
     }
 
-    // 玄関への問い合わせ(127.0.0.1 だけ・合言葉つき)
+    // Python への問い合わせ(127.0.0.1 だけ・合言葉つき)
     public static class Http
     {
-        public static string Call(string method, int port, string path, string token, int timeoutMs)
+        public static string Call(string method, int port, string path, string token, int timeoutMs, string body = null)
         {
             var req = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:" + port + path);
             req.Method = method;
@@ -107,131 +191,56 @@ namespace FriendInbox
             if (method == "POST")
             {
                 req.ContentType = "application/json";
-                byte[] body = Encoding.UTF8.GetBytes("{}");
-                req.ContentLength = body.Length;
-                using (var s = req.GetRequestStream()) s.Write(body, 0, body.Length);
+                req.Headers["Origin"] = "http://127.0.0.1:" + port;
+                byte[] b = Encoding.UTF8.GetBytes(body ?? "{}");
+                req.ContentLength = b.Length;
+                using (var s = req.GetRequestStream()) s.Write(b, 0, b.Length);
             }
             using (var res = (HttpWebResponse)req.GetResponse())
             using (var rd = new StreamReader(res.GetResponseStream(), Encoding.UTF8))
                 return rd.ReadToEnd();
         }
-    }
 
-    // 玄関の見回り(2 秒ごと)と止める。画面は StatusForm
-    public sealed class Supervisor : ApplicationContext
-    {
-        const int PollMs = 2000, StopWaitMs = 10000;
-        readonly Gateway gw;
-        readonly string token;
-        readonly StatusForm form;
-        int stopping;
-        volatile bool shown;
-        volatile int recording;
-
-        public Supervisor(Gateway gw, string token)
+        // 失敗の答え(4xx)の中身も返す(画面へそのまま渡す)。つながらなければ null
+        public static string CallKeepError(string method, int port, string path, string token, int timeoutMs, string body, out int status)
         {
-            this.gw = gw;
-            this.token = token;
-            form = new StatusForm(OpenWindow, StopNow);
-            IntPtr h = form.Handle;   // 見回りの糸から BeginInvoke できるよう、ハンドルだけ先に作る(窓は出さない)
-            new Thread(Loop) { IsBackground = true, Name = "friend-watch" }.Start();
-        }
-
-        void Loop()
-        {
-            int fails = 0;
-            while (stopping == 0)
+            status = 0;
+            try
             {
-                if (!gw.Alive) { Log.Write("玄関が先に終わったので、起動役も終わります"); Quit(); return; }
-                try
-                {
-                    var st = FriendState.Parse(Http.Call("GET", gw.Port, "/api/friend/state", token, 3000));
-                    fails = 0;
-                    recording = st.Recording;
-                    var step = Watch.Decide(st, shown);
-                    if (step == Step.Shutdown) { Log.Write("窓が閉じていて仕事も無いので止めます"); StopNow(); return; }
-                    if (step == Step.ShowStatus) shown = true;
-                    if (step == Step.HideStatus) shown = false;
-                    Ui(() => { if (shown) form.ShowStatus(st); else form.HideStatus(); });
-                }
-                catch (Exception ex)
-                {
-                    if (!(ex is WebException || ex is IOException || ex is FormatException || ex is ArgumentException || ex is InvalidOperationException)) throw;
-                    if (++fails <= 3) Log.Write("見回りに失敗: " + ex.Message);
-                }
-                gw.Proc.WaitForExit(PollMs);   // 玄関が終わればすぐ戻る
+                string s = Call(method, port, path, token, timeoutMs, body);
+                status = 200;
+                return s;
             }
-        }
-
-        void Ui(Action a)
-        {
-            try { form.BeginInvoke(a); }
-            catch (InvalidOperationException) { }   // 窓がもう無い(終わるところ)
-        }
-
-        void OpenWindow()
-        {
-            ThreadPool.QueueUserWorkItem(delegate
+            catch (WebException ex)
             {
-                try { Http.Call("POST", gw.Port, "/api/friend/window", token, 5000); }
-                catch (Exception ex)
-                {
-                    if (!(ex is WebException || ex is IOException || ex is InvalidOperationException)) throw;
-                    Log.Write("窓を開けませんでした: " + ex.Message);
-                }
-            });
-        }
-
-        // 確認なしで今すぐ止める: shutdown → 10 秒待つ → 終わらなければ taskkill /T /F。そのあと自分も終わる
-        void StopNow()
-        {
-            if (Interlocked.Exchange(ref stopping, 1) != 0) return;
-            ThreadPool.QueueUserWorkItem(delegate
-            {
-                try { Http.Call("POST", gw.Port, "/api/shutdown", token, 3000); }
-                catch (Exception ex)
-                {
-                    if (!(ex is WebException || ex is IOException || ex is InvalidOperationException)) throw;
-                    Log.Write("shutdown を送れませんでした: " + ex.Message);
-                }
-                if (!gw.Proc.WaitForExit(StopWaitMs))
-                {
-                    Log.Write("10 秒たっても終わらないので強制で止めます");
-                    gw.Kill();
-                }
-                Quit();
-            });
-        }
-
-        void Quit()
-        {
-            Ui(() => { form.AllowClose(); form.Close(); ExitThread(); });
+                var res = ex.Response as HttpWebResponse;
+                if (res == null) return null;
+                status = (int)res.StatusCode;
+                using (var rd = new StreamReader(res.GetResponseStream(), Encoding.UTF8)) return rd.ReadToEnd();
+            }
         }
     }
 
-    static class Program
+    // Python を起こし・起こし直し・止める係(窓とは別。MainForm が持つ)
+    public sealed class Backend
     {
-        const string MutexName = "Local\\YttFriendInbox";
-        const int ReadySeconds = 90;
+        const int ReadySeconds = 90, StopWaitMs = 10000;
+        readonly string home;
+        readonly bool tokenInPage;
+        readonly Job job = new Job();
+        public readonly string Token = NewToken();
+        public Gateway Gw;
+        public string RolledFrom;
+        public volatile bool Stopping;
+        readonly List<DateTime> restarts = new List<DateTime>();
 
-        [STAThread]
-        static int Main()
+        public Backend(string home, bool tokenInPage)
         {
-            string home = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\', '/');
-            Log.Init(Path.Combine(home, "data", "app", "friendapp", "logs"), "launcher.log");
-            bool created;
-            using (var mutex = new Mutex(true, MutexName, out created))
-            {
-                try
-                {
-                    return created ? RunFirst(home) : RunSecond(home);
-                }
-                finally
-                {
-                    if (created) mutex.ReleaseMutex();
-                }
-            }
+            this.home = home;
+            this.tokenInPage = tokenInPage;
         }
+
+        public int Port { get { var g = Gw; return g != null ? g.Port : 0; } }
 
         static string NewToken()
         {
@@ -240,62 +249,152 @@ namespace FriendInbox
             return BitConverter.ToString(b).Replace("-", "").ToLowerInvariant();
         }
 
-        static void Fail(string msg)
-        {
-            Log.Write(msg);
-            MessageBox.Show(msg + "\r\n(記録: data\\app\\friendapp\\logs\\launcher.log)", "受信箱", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-        }
-
-        // 2 つ目: 玄関を起こすだけ(玄関が「もう動いている」で窓を開き直して終わる)
-        static int RunSecond(string home)
-        {
-            var layout = Versions.Pick(home, Versions.Read(home).Bad);
-            if (layout == null) { Fail("アプリの部品(python と src)が見つかりません"); return 1; }
-            var g = Gateway.Start(layout, home, NewToken(), null, 30, Log.Write);
-            if (g.Ready) { Log.Write("2 つ目の起動役が玄関を起こしてしまったので止めます"); g.Kill(); return 1; }
-            return 0;
-        }
-
-        static int RunFirst(string home)
+        // 版を選んで起こす(起動できない版は bad に足して前の版へ)。起こせなければ理由の文を返す(null = 起きた)
+        public string StartFirst()
         {
             var rec = Versions.Read(home);
-            string token = NewToken(), rolledFrom = null;
-            Gateway gw;
             Layout used;
             while (true)
             {
                 used = Versions.Pick(home, rec.Bad);
-                if (used == null) { Fail("起動できる版がありません(python と src が見つかりません)"); return 1; }
-                gw = Gateway.Start(used, home, token, rolledFrom, ReadySeconds, Log.Write);
-                if (gw.Ready || gw.Already) break;
-                gw.Kill();
-                if (gw.ExitCode == Gateway.LockBusyExit) { Fail("ほかの処理が同じ作業データを使っています。閉じてから開き直してください"); return 1; }
-                if (used.Version == null) { Fail("受信箱を起動できませんでした"); return 1; }
-                Log.Write("版 " + used.Version + " を起動できませんでした(終了コード " + gw.ExitCode + ")。前の版で起こし直します");
+                if (used == null) return "起動できる版がありません(python と src が見つかりません)";
+                var g = StartOn(used, RolledFrom);
+                if (g == null) return "受信箱を起動できませんでした(番号を 3 回選び直しても使えませんでした)";
+                if (g.Ready) { Gw = g; break; }
+                g.Kill();
+                if (g.ExitCode == Gateway.LockBusyExit) return "ほかの処理が同じ作業データを使っています。閉じてから開き直してください";
+                if (used.Version == null) return "起動できませんでした(終了コード " + g.ExitCode + ")";
+                Log.Write("版 " + used.Version + " を起動できませんでした(終了コード " + g.ExitCode + ")。前の版で起こし直します");
                 rec.Bad.Add(used.Version);
-                rolledFrom = used.Version;
-                SaveQuietly(home, rec);
+                RolledFrom = used.Version;
+                SaveQuietly(rec);
             }
-            if (gw.Already) return 0;
             if (used.Version != null)
             {
                 Versions.MarkStarted(rec, used.Version);
-                SaveQuietly(home, rec);
+                SaveQuietly(rec);
                 try { Versions.Prune(home, rec, Log.Write); } catch (Exception ex) { Log.Write("古い版の片付けに失敗: " + ex.Message); }
             }
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new Supervisor(gw, token));
-            return 0;
+            return null;
         }
 
-        static void SaveQuietly(string home, VersionRecord rec)
+        // 番号が取られていたら(終了コード 5)別の番号で 3 回まで
+        Gateway StartOn(Layout l, string rollback)
+        {
+            for (int i = 0; i < 3; i++)
+            {
+                var g = Gateway.Start(l, home, Token, rollback, tokenInPage, job, ReadySeconds, Log.Write);
+                if (g.ExitCode != Gateway.PortBusyExit) return g;
+                Log.Write("番号 " + g.Port + " を使えなかったので選び直します");
+            }
+            return null;
+        }
+
+        // 動いている途中で Python が終わった: 10 分に 3 回まで起こし直す(番号は選び直す)。-> 起こせたか
+        public bool Restart()
+        {
+            if (!Rules.ShouldRestart(restarts, DateTime.Now, Stopping)) return false;
+            restarts.Add(DateTime.Now);
+            var l = Versions.Pick(home, Versions.Read(home).Bad);
+            if (l == null) return false;
+            var g = StartOn(l, null);
+            if (g == null || !g.Ready) { if (g != null) g.Kill(); return false; }
+            Gw = g;
+            Log.Write("Python を起こし直しました(番号 " + g.Port + ")");
+            return true;
+        }
+
+        public HostState State()
+        {
+            var g = Gw;
+            if (g == null || !g.Alive) return null;
+            try { return HostState.Parse(Http.Call("GET", g.Port, "/api/friend/state", Token, 3000)); }
+            catch (Exception ex)
+            {
+                if (!(ex is WebException || ex is IOException || ex is FormatException || ex is ArgumentException || ex is InvalidOperationException)) throw;
+                return null;
+            }
+        }
+
+        // 確認なしで止める: shutdown → 10 秒待つ → 終わらなければジョブごと
+        public void Stop()
+        {
+            Stopping = true;
+            var g = Gw;
+            if (g != null && g.Alive)
+            {
+                try { Http.Call("POST", g.Port, "/api/shutdown", Token, 3000); }
+                catch (Exception ex)
+                {
+                    if (!(ex is WebException || ex is IOException || ex is InvalidOperationException)) throw;
+                    Log.Write("shutdown を送れませんでした: " + ex.Message);
+                }
+                if (!g.Proc.WaitForExit(StopWaitMs)) Log.Write("10 秒たっても終わらないので、ジョブごと止めます");
+            }
+            job.Kill();
+            job.Dispose();
+        }
+
+        void SaveQuietly(VersionRecord rec)
         {
             try { Versions.Write(home, rec); }
             catch (Exception ex)
             {
                 if (!(ex is IOException || ex is UnauthorizedAccessException)) throw;
                 Log.Write("app-versions.json を書けませんでした: " + ex.Message);
+            }
+        }
+    }
+
+    static class Program
+    {
+        // アプリのフォルダごとの名前(別の場所の同じアプリを黙って止めない = C-0)
+        static string InstanceName(string home)
+        {
+            using (var sha = SHA1.Create())
+            {
+                var h = sha.ComputeHash(Encoding.UTF8.GetBytes(home.ToLowerInvariant()));
+                return "Local\\YttFriendApp-" + BitConverter.ToString(h, 0, 8).Replace("-", "");
+            }
+        }
+
+        public static void Fail(string msg)
+        {
+            Log.Write(msg);
+            MessageBox.Show(msg + "\r\n(記録: data\\app\\friendapp\\logs\\launcher.log)", Rules.AppTitle, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+
+        [STAThread]
+        static int Main()
+        {
+            string home = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\', '/');
+            Log.Init(Path.Combine(home, "data", "app", "friendapp", "logs"), "launcher.log");
+            string name = InstanceName(home);
+            bool created;
+            using (var mutex = new Mutex(true, name, out created))
+            using (var show = new EventWaitHandle(false, EventResetMode.AutoReset, name + "-show"))
+            {
+                if (!created)   // 2 つ目: 1 つ目の窓を前に出して終わる
+                {
+                    show.Set();
+                    return 0;
+                }
+                try
+                {
+                    Application.EnableVisualStyles();
+                    Application.SetCompatibleTextRenderingDefault(false);
+                    bool webview = MainForm.WebViewAvailable();
+                    if (!webview) Log.Write("WebView2 の部品がないので、Edge の窓で開きます");
+                    var be = new Backend(home, !webview);
+                    string err = be.StartFirst();
+                    if (err != null) { Fail(err); be.Stop(); return 1; }
+                    using (var form = new MainForm(home, be, webview, show)) Application.Run(form);
+                    return 0;
+                }
+                finally
+                {
+                    mutex.ReleaseMutex();
+                }
             }
         }
     }

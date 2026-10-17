@@ -8,8 +8,11 @@
      送る = 左に配信の一覧(F3-2。send-list.js)・右に送る欄・右下に送った物 / 受け取る = 届いた物。
      CSP の下で動く: インラインの script・on〇〇= は書かない。外の文字は textContent で入れる(friend.js・send-list.js) -->
 <script src="ui-kit.js"></script>
+<script src="host.js"></script>
 <link rel="stylesheet" href="ui-kit.css">
 <link rel="stylesheet" href="friend.css">
+<link rel="stylesheet" href="settings.css">
+<script src="settings.js" defer></script>
 <script src="send-list.js" defer></script>
 <script src="friend.js" defer></script>
 </head>
@@ -181,61 +184,6 @@
     </div>
   </section>
 </main>
-<!-- ⚙ 設定(F2-5。7 章・9-2・A-8)。フォルダは [選ぶ] で玄関が Windows の窓を開く(画面からパスを打たせない) -->
-<aside class="ui-drawer" id="settingsDrawer" hidden aria-labelledby="settingsTitle">
-  <div class="ui-drawer-head">
-    <h2 class="ui-drawer-title" id="settingsTitle">設定</h2>
-    <a class="btn ghost small fr-help" href="guide.html#settings" target="_blank" rel="noopener" aria-label="設定の説明を新しい窓で開く" title="設定の説明">?</a>
-    <button type="button" class="btn ghost icon small" id="settingsClose" aria-label="閉じる"><span class="ui-icon" data-icon="close" aria-hidden="true"></span></button>
-  </div>
-  <div class="ui-drawer-body">
-    <section class="ui-settings-sec fr-set" aria-labelledby="setSaveH">
-      <h3 id="setSaveH">受け取るの保存先</h3>
-      <p class="fr-path" id="setSave"></p>
-      <div class="fr-line"><button type="button" class="btn small" id="btnPickSave">選ぶ</button><button type="button" class="btn ghost small" id="btnResetSave">既定に戻す</button></div>
-      <p class="hint">[受け取る] を押した切り抜きを置く場所です。変えても、今ある物は移しません。</p>
-    </section>
-    <section class="ui-settings-sec fr-set" aria-labelledby="setCasesH">
-      <h3 id="setCasesH">一時保管</h3>
-      <p class="fr-path" id="setCases"></p>
-      <div class="fr-line"><button type="button" class="btn small" id="btnPickCases">選ぶ</button><button type="button" class="btn ghost small" id="btnResetCases">既定に戻す</button></div>
-      <p class="hint">作っている途中の物・録画を置く場所です。選び直しても今ある物は移さず、新しい物から新しい場所に作ります。空き容量はこの場所のドライブで測ります。</p>
-    </section>
-    <section class="ui-settings-sec fr-set" aria-labelledby="setEngineH">
-      <h3 id="setEngineH">文字起こしのエンジン</h3>
-      <div class="fr-line" role="radiogroup" aria-labelledby="setEngineH">
-        <label class="fr-radio"><input type="radio" name="setEngine" value="A"> A Vulkan(どの GPU でも)</label>
-        <label class="fr-radio"><input type="radio" name="setEngine" value="C"> C CUDA(NVIDIA)</label>
-      </div>
-      <p class="hint" id="setGpu"></p>
-      <p class="hint">C は NVIDIA の GPU でより速くなります。C に切り替えたとき、足りない部品があれば取ってきます。次の処理から使います。</p>
-    </section>
-    <section class="ui-settings-sec fr-set" aria-labelledby="setKeyH">
-      <h3 id="setKeyH">YouTube の API キー</h3>
-      <p id="setKeyState"></p>
-      <div class="fr-line">
-        <input type="text" id="setKey" class="fr-key" autocomplete="off" spellcheck="false" aria-labelledby="setKeyH" placeholder="キーを貼る">
-        <button type="button" class="btn small" id="btnKeySave">確かめて保存</button>
-        <button type="button" class="btn ghost small" id="btnKeyClear">消す</button>
-      </div>
-      <p class="hint" id="setKeyHelp"></p>
-    </section>
-    <section class="ui-settings-sec fr-set" aria-labelledby="setDiskH">
-      <h3 id="setDiskH">空き容量の下限</h3>
-      <div class="fr-line">
-        <input type="number" id="setDisk" class="fr-num" min="0" max="100000" step="1" aria-labelledby="setDiskH"><span class="hint">GB(空きがこれより少なくなると、新しい処理を始めずに待ちます)</span>
-      </div>
-    </section>
-    <section class="ui-settings-sec fr-set" aria-labelledby="setCutH">
-      <h3 id="setCutH">カットの既定</h3>
-      <div class="fr-line" role="radiogroup" aria-labelledby="setCutH">
-        <label class="fr-radio"><input type="radio" name="setCut" value="none"> しない</label>
-        <label class="fr-radio"><input type="radio" name="setCut" value="silence"> 無音を削る</label>
-      </div>
-      <p class="hint">送るときに使います(送る欄には出しません)。初めは「しない」です。</p>
-    </section>
-  </div>
-</aside>
 <div id="toast"></div>
 </body>
 </html>

@@ -88,6 +88,8 @@ friend-apps/request-sender/build/
 friend-apps/request-sender/dist/
 # 友人の受信箱の起動役(launcher)のビルドの成果物(FriendInbox.exe。zip に入れる)
 friend-apps/launcher/build/
+# FriendApp.exe の WebView2 の部品(dev/fetch_webview2.py が NuGet から取る)
+friend-apps/launcher/lib/
 # Chrome 拡張(chrome-ext/)の build.bat が作る zip の元のフォルダ(友人に渡す)
 chrome-ext/*/dist/
 friend-apps/request-sender/config.json

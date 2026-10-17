@@ -4,19 +4,22 @@
     python src/friendapp/server.py [--port 8720] [--no-open]
 
 - ② を同じプロセスで起こす(friendapp/engine.py。③ human・入口 app は読まない = 層の表 dev/layer_map.py の friendapp)
-- 画面は /friend/ の受信箱 1 枚(friendapp/ui/。ui-kit)。窓 = Edge のアプリの形(ytt/appwindow。無ければ既定のブラウザ)
-- 安全はユーザーの PC の入口と同じ: Host(DNS rebinding)・Origin・Sec-Fetch-Site の検査(ytt/httpsec)と、書き込み系の合言葉(起動ごと。画面へは meta ytt-token)
+- 画面は /friend/(送る・受け取る)と /friend/setup.html(初回の準備だけ。済むまで /friend/ はこちらへ)。friendapp/ui/。ui-kit
+- 窓は FriendApp.exe(friend-apps/launcher。C#・WebView2。F3-1 = notes:plan/f1-friend-requirements.md の C-1)が持つ。窓と画面の境目は friend-apps/launcher/README.txt:
+  exe が空いている番号を選んで --port で渡す(ここでは他の番号へずらさない = 使えなければ終了コード 5)・合言葉は YTT_FRIEND_TOKEN で渡し、
+  WebView2 が要求ごとに X-YTT-Token を足す(画面の meta ytt-token は中身 host の置き物 = 画面の JS は合言葉を知らない)。
+  WebView2 の無い PC の逃げ道(YTT_FRIEND_HOST=edge)と開発の PC(exe なし)だけ meta に本物の合言葉を入れ、Edge のアプリの窓で開く
+- 安全はユーザーの PC の入口と同じ: Host(DNS rebinding)・Origin・Sec-Fetch-Site の検査(ytt/httpsec)と、書き込み系の合言葉(起動ごと)
 - 1 つの作業データに ② は 1 つ(flow/placement の .flow.lock)。もう動いていれば、その窓を開き直して終わる(終了コード 0)
 - 古い部品(%LOCALAPPDATA%/youtube-tools のモデル)は、起動のあと裏で写して確かめ、古い方を消す(A-16。friendapp/oldcopy)。その間は送れない
-- 窓を閉じても仕事は続ける。終わるかどうかは起動役(friend-apps/launcher の FriendInbox.exe。F2-4)が決める = GET /api/friend/state を見て
-  窓が閉じて仕事も無ければ POST /api/shutdown する。起動役なしで開発の PC から起こしたときは Ctrl+C か [すべて止めて終了] まで動く。
-  [すべて止めて終了] は確認なしですぐ止める(待ちは残り、次に開いたとき続きから = 4-6)
-- 環境変数(起動役が渡す): YTT_FRIEND_TOKEN(書き込み系の合言葉。無ければ乱数)・YTT_FRIEND_ROLLBACK(起動できなかった新しい版 = 前の版で開いた知らせを 1 回出す)
-- もう動いていれば標準出力に {"event":"already","port":…} を出して終了コード 0。起こせたら {"event":"ready","port":…,"pid":…}
+- 閉じる・止めるの確認(作業中・預かりがあるときだけ)とスリープ止めは exe が GET /api/friend/state を見て決め、止めるときは POST /api/shutdown。
+  exe なしで開発の PC から起こしたときは Ctrl+C か [すべて止めて終了] まで動く(待ちは残り、次に開いたとき続きから = 4-6)
+- 環境変数(exe が渡す): YTT_FRIEND_TOKEN(合言葉。無ければ乱数)・YTT_FRIEND_HOST(webview2 / edge。無ければ開発の PC)・
+  YTT_FRIEND_REC_PORT(録画の部品の番号。無ければ 8730)・YTT_FRIEND_ROLLBACK(起動できなかった新しい版 = 前の版で開いた知らせを 1 回出す)
+- exe なしで、もう動いていれば標準出力に {"event":"already","port":…} を出して終了コード 0。起こせたら {"event":"ready","port":…,"pid":…}
 口(書き込み系は合言葉。全部 JSON):
   GET  /api/ping                          {app, version}
-  GET  /api/friend/state                  起動役が見回る {windowAgo, busy, recording, making, waiting, label}(合言葉つき)
-  POST /api/friend/window                 受信箱の窓を開く(起動役の [窓を開く])
+  GET  /api/friend/state                  exe が見回る {making, recording, waiting, reserved, archiveWait, setup, undecided, awake, busy, label}(合言葉つき)
   GET  /api/friend/inbox                  受信箱の行・前回の値・保存先・空き容量で止めているか・準備中か・片付けの知らせ
   GET  /api/friend/peek?url=              配信の題・チャンネル名と配信者の推し
   GET  /api/friend/peek-live?url=         配信中・配信前か(F2-6。yt-dlp で数秒。ライブなら送る欄の下に 6 つの設定)
@@ -28,7 +31,8 @@
   POST /api/friend/local {id}             ユーザーの PC に頼んだ依頼を [この PC でやり直す](F2-3。Dropbox の同期は friendapp/sync.py の裏の糸)
   POST /api/friend/open {what: saved}     受け取るの保存先をエクスプローラーで開く
   POST /api/friend/notice-seen            片付けの知らせを見た
-  POST /api/friend/setup/start・later・open・cancel   初回の取得(F2-5。friendapp/setup.py。受信箱の GET の setup に足りない物・置き場所と空き・進み具合)
+  GET  /api/friend/setup                  初回の準備の進み具合(F3-5。friendapp/setup.py の view)
+  POST /api/friend/setup/start・cancel・clean-old・skip-old   初回の準備を(もう一度)始める・やめる・前のアプリを片付ける / あとで
   GET  /api/friend/streams                配信の一覧(F3-2。friendapp/streams.py の view + 各カードの送った物の印 sent)
   POST /api/friend/streams/refresh        一覧の [更新](断られて待っている間は {ok: false, waitSec})
   GET  /api/friend/settings               ⚙ の中身(F2-5。friendapp/settings.py。API キーは「入っている / 無い」だけ)
@@ -69,13 +73,19 @@ UI_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui")
 UIKIT_DIR = os.path.join(SRC, "ui-kit")
 STATIC = {"/friend/": ("friend.html", UI_DIR), "/friend/index.html": ("friend.html", UI_DIR), "/friend/friend.js": ("friend.js", UI_DIR), "/friend/send-list.js": ("send-list.js", UI_DIR),
           "/friend/friend.css": ("friend.css", UI_DIR), "/friend/ui-kit.js": ("ui-kit.js", UIKIT_DIR), "/friend/ui-kit.css": ("ui-kit.css", UIKIT_DIR),
-          "/friend/guide.html": ("guide.html", UI_DIR)}   # 説明(F2-5 の [?]。本体は別の段が書く = 無ければ 404)
+          "/friend/guide.html": ("guide.html", UI_DIR),   # 説明(F2-5 の [?]。本体は別の段が書く = 無ければ 404)
+          "/friend/setup.html": ("setup.html", UI_DIR), "/friend/setup.js": ("setup.js", UI_DIR), "/friend/host.js": ("host.js", UI_DIR),
+          "/friend/settings.js": ("settings.js", UI_DIR), "/friend/settings.css": ("settings.css", UI_DIR)}   # F3-1・F3-5(窓と画面の境目)
 TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8"}
-PAGES = ("/", "/friend/", "/friend/index.html", "/friend/guide.html")
+PAGES = ("/", "/friend/", "/friend/index.html", "/friend/guide.html", "/friend/setup.html")
+SETUP_PAGE = "/friend/setup.html"
+MAIN_PAGES = ("/friend/", "/friend/index.html")
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://i.ytimg.com; media-src 'self'; "
        "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 STREAMS_NAME = "streams.json"         # 配信の一覧の写し(開いた瞬間は前回の一覧 = C-2-5)
-TOKEN_ENV = "YTT_FRIEND_TOKEN"        # 起動役が渡す合言葉(無ければ乱数)
+TOKEN_ENV = "YTT_FRIEND_TOKEN"        # exe が渡す合言葉(無ければ乱数)
+HOST_ENV = "YTT_FRIEND_HOST"          # exe の窓の種類(webview2 = 合言葉は WebView2 が足す / edge = 逃げ道 / 無し = 開発の PC)
+PORT_BUSY_EXIT = 5                    # exe が渡した番号を使えなかった(exe が選び直す)
 ROLLBACK_ENV = "YTT_FRIEND_ROLLBACK"  # 起動役が前の版へ戻したとき、起動できなかった版
 SWEEP_EVERY = 3600        # 受信箱の 3 日の片付けを見る間隔(秒)
 SAVE_DEFAULT = _settings.SAVE_DEFAULT   # 受け取るの保存先の既定(%USERPROFILE% の下。⚙ で選ぶ = F2-5)
@@ -188,8 +198,15 @@ def pick_folder_dialog(what, env=None):
             ole32.CoUninitialize()
 
 
+def page_token(token, env=None):
+    """画面の meta ytt-token に入れる値: exe の WebView2 の窓なら置き物 host(本物は WebView2 が要求ごとに足す = 画面の JS は知らない)・
+    逃げ道の Edge の窓と開発の PC は本物"""
+    env = os.environ if env is None else env
+    return "host" if (env.get(HOST_ENV) or "").strip() == "webview2" else token
+
+
 def inject_meta(body, token):
-    tag = ('<meta name="ytt-token" content="%s"><meta name="ytt-version" content="%s">' % (token, _version.VERSION)).encode("ascii")
+    tag = ('<meta name="ytt-token" content="%s"><meta name="ytt-version" content="%s">' % (page_token(token), _version.VERSION)).encode("ascii")
     i = body.find(b"</head>")
     return body[:i] + tag + body[i:] if i >= 0 else tag + body
 
@@ -221,6 +238,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(403, b"forbidden")
         if path in ("/", "/friend"):
             return self._send(302, b"", extra={"Location": "/friend/"})
+        if path in MAIN_PAGES and not self.server.app.setup_done():   # 初回の準備が済むまでは準備だけの画面(C-5-1)
+            return self._send(302, b"", extra={"Location": SETUP_PAGE})
         if path in STATIC:
             name, base = STATIC[path]
             try:
@@ -239,11 +258,12 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/ping":
             return self._json(200, {"app": APP_ID, "version": _version.VERSION})
         if path == "/api/friend/inbox":
-            app.seen = time.time()
             out = app.api.view()
             out.update(prep=app.prep, notice=app.notice(), rollback=app.rollback_notice(), sync=app.sync.status(), setup=app.setup.view())
             return self._json(200, out)
-        if path == "/api/friend/state":   # 起動役の見回り(GET でも合言葉を要る = 画面を開いていない人に仕事の中身を見せない)
+        if path == "/api/friend/setup":   # 初回の準備の進み具合(F3-5)
+            return self._json(200, {"ok": True, "setup": app.setup.view(), "done": app.setup_done()})
+        if path == "/api/friend/state":   # exe の見回り(GET でも合言葉を要る = 画面を開いていない人に仕事の中身を見せない)
             if not httpsec.token_ok(self.headers, self.server.token, TOKEN_HEADER):
                 return self._json(403, TOKEN_FAIL)
             return self._json(200, app.state())
@@ -370,11 +390,6 @@ class Handler(BaseHTTPRequestHandler):
             if app.catalog:
                 _oldcopy.mark_notice_shown(app.catalog)
             return self._json(200, {"ok": True})
-        if path == "/api/friend/window":   # 起動役の [窓を開く]。窓が戻るまで終わらせない
-            app.seen = app.clock()
-            if app.open_window is not None:
-                app.open_window("http://localhost:%d/friend/" % self.server.server_address[1])
-            return self._json(200, {"ok": True})
         if path == "/api/shutdown":
             self._json(200, {"ok": True})
             threading.Thread(target=app.shutdown, name="friend-shutdown", daemon=True).start()
@@ -402,18 +417,19 @@ class Handler(BaseHTTPRequestHandler):
 
 
     def _setup(self, what):
-        st = self.server.app.setup
-        if what == "start":
+        app = self.server.app
+        st = app.setup
+        if what == "start":       # 失敗のあとの [もう一度](取れた分は .part に残り、続きから)
             st.start()
-        elif what == "later":   # [あとで] = 上の帯に「部品が足りません [取ってくる]」
-            st.defer()
-        elif what == "open":    # 帯の [取ってくる] = 確認をもう一度出す(中身・大きさ・置き場所・空きを見てから [始める])
-            st.reopen()
         elif what == "cancel":
             st.cancel()
+        elif what == "clean-old":  # 前のアプリを片付ける(写して同じと確かめた物だけ = C-1-2)
+            st.clean_old()
+        elif what == "skip-old":   # [あとで](もう聞かない。⚙ から片付けられる)
+            st.skip_old()
         else:
             return self._fail(404, "not_found", "その操作はありません")
-        return self._json(200, {"ok": True, "setup": st.view()})
+        return self._json(200, {"ok": True, "setup": st.view(), "done": app.setup_done()})
 
 
 def _entry(e):
@@ -453,10 +469,8 @@ class FriendApp:
         self.api = _api.Api(places, self.inbox, lambda: self.engine, clock=clock)
         self.make_engine = make_engine
         self.catalog = os.path.join(places["friend"], "old-copy.json")
-        self.seen = clock()
         self.closing = threading.Event()
         self.server = None
-        self.open_window = None                                 # 窓を開く(url を渡す)。main が入れる = テストは開かない
         self.rollback = (os.environ.get(ROLLBACK_ENV) or "").strip()   # 起動役が前の版へ戻した = 起動できなかった版
         self.rollback_seen = False
         self.open_folder = open_folder   # エクスプローラーで開く口(テストは差し替える = 画面を取らない)
@@ -501,13 +515,29 @@ class FriendApp:
         """前の版で開いた知らせ(起動役から戻ったと聞いたとき、閉じるまで 1 回)"""
         return "新しい版 %s を起動できなかったので、前の版で開きました" % self.rollback[:40] if self.rollback and not self.rollback_seen else None
 
+    def setup_done(self):
+        """初回の準備が済んだか(済むまで /friend/ は準備だけの画面へ。fetch.json の無い開発の PC は済み扱い)"""
+        return bool(getattr(self.setup, "done", True))
+
     def recording_count(self):
-        """録画中の本数(F2-6 のライブ係が録画元に聞く。起動役が窓を閉じても止めない・状態の窓に出す・× が録画中だけ最小化になる)"""
+        """録画中の本数(F2-6 のライブ係が録画元に聞く。exe の確認の窓とアイコンの文に出す)"""
         live = getattr(self.engine, "live", None)
         return live.active_count() if live is not None else 0
 
+    def holdings(self):
+        """作っている物のほかの預かり(F3-3 で送る係が数える): {reserved: 予約の数, archiveWait: アーカイブ待ちの数, soon: 30 分以内に始まる予約があるか}"""
+        return {"reserved": 0, "archiveWait": 0, "soon": False}
+
+    def undecided(self):
+        """受け取るの ●n = まだ決めていない本数(窓のタイトルとタスクバー。C-3-9)"""
+        try:
+            return sum(int(r.get("undecided") or 0) for r in self.inbox.view())
+        except Exception as e:   # noqa: BLE001  (数えられなくても見回りは止めない)
+            self.log("決めていない本数を数えられませんでした: %s" % e.__class__.__name__)
+            return 0
+
     def state(self):
-        """起動役の見回り用: 最後の画面の問い合わせからの秒・仕事の有無・本数"""
+        """exe の見回り用(窓と画面の境目 = friend-apps/launcher/README.txt): 作業中と預かりの数・準備中・●n・スリープを止めるか"""
         rec = self.recording_count()
         making = waiting = 0
         eng = self.engine
@@ -517,10 +547,14 @@ class FriendApp:
                     making += 1
                 elif r.get("state") == "queued":
                     waiting += 1
+        hold = self.holdings()
+        setup = self.setup.running() or self.prep["state"] == "copying"
         busy = self.busy() or rec > 0
         parts = (["録画中 %d 本" % rec] if rec else []) + (["作っている %d 本" % making] if making else []) + (["待ち %d 本" % waiting] if waiting else [])
-        return {"windowAgo": round(max(0.0, self.clock() - self.seen), 1), "busy": busy, "recording": rec, "making": making,
-                "waiting": waiting, "label": "・".join(parts) if parts else ("準備しています" if busy else "")}
+        return {"busy": busy, "recording": rec, "making": making, "waiting": waiting, "reserved": hold["reserved"], "archiveWait": hold["archiveWait"],
+                "setup": bool(setup), "undecided": self.undecided(),
+                "awake": bool(rec or making or waiting or setup or hold["archiveWait"] or hold["soon"]),
+                "label": "・".join(parts) if parts else ("準備しています" if busy else "")}
 
     def notice(self):
         n = _oldcopy.notice(self.catalog) if os.path.isfile(self.catalog) else None
@@ -569,6 +603,8 @@ class FriendApp:
         if self.closing.is_set():
             return
         self.closing.set()
+        if (os.environ.get(HOST_ENV) or "").strip():   # exe に「止めてと言われて終わる」と知らせる(起こし直さない。窓の外から止めたときも)
+            say(json.dumps({"event": "bye"}))
         self.setup.cancel()   # 取っている途中なら止める(取れた分は .part に残り、次は続きから)
         self.sync.stop()
         self.streams.stop()
@@ -632,13 +668,17 @@ def open_window(friend_dir, url, log):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="friendapp/server.py", description="友人の受信箱(送る → 作っている → 届く → 決める)")
-    ap.add_argument("--port", type=int, default=DEFAULT_PORT)
+    ap.add_argument("--port", type=int, default=DEFAULT_PORT, help="exe から起こすときはこの番号だけを使う(ずらさない)")
     ap.add_argument("--no-open", action="store_true", help="窓を開かない")
     a = ap.parse_args(argv)
     pl = _places.setup()
     pl["save"] = lambda: save_dir(pl["friend"])
     log = make_logger(os.path.join(pl["friend"], "logs", "friendapp.log"))
+    hosted = bool((os.environ.get(HOST_ENV) or "").strip())   # exe から起こした(番号は exe が選んだ物だけ・窓は exe)
     info = _placement.lock_info(pl["data"])
+    if hosted and info and info.get("port"):   # exe は 1 つだけ起こすので、別の処理が同じ作業データを使っている
+        say("ほかの処理(%s)が同じ作業データを使っています" % info.get("pid"), log)
+        return 4
     if info and info.get("port"):   # もう動いている = その窓を開き直して終わる
         url = "http://localhost:%d/friend/" % info["port"]
         if not a.no_open:
@@ -647,13 +687,16 @@ def main(argv=None):
         return 0
     app = FriendApp(pl, log=log, make_engine=_default_engine)
     srv = None
-    for p in range(a.port, a.port + PORT_TRIES):
+    for p in ([a.port] if hosted else range(a.port, a.port + PORT_TRIES)):
         try:
             srv = Server(("127.0.0.1", p), app)
             break
         except OSError:
             continue
     if srv is None:
+        if hosted:
+            say("番号 %d を使えません(exe が選び直します)" % a.port, log)
+            return PORT_BUSY_EXIT
         say("使えるポートがありません(%d〜%d)" % (a.port, a.port + PORT_TRIES - 1), log)
         return 1
     port = srv.server_address[1]
@@ -664,8 +707,7 @@ def main(argv=None):
         say("ほかの処理(%s)が同じ作業データを使っています。閉じてから開き直してください" % (getattr(e, "info", None) or {}).get("pid"), log)
         return 4
     app.server = srv
-    app.open_window = lambda u: open_window(pl["friend"], u, log)
-    url = "http://localhost:%d/friend/" % port
+    url = "http://127.0.0.1:%d/friend/" % port
     log("友人の玄関 v%s: %s(作業データ %s)" % (_version.VERSION, url, pl["data"]))
     threading.Thread(target=app.prepare, args=(_places.old_data_root(),), name="friend-prepare", daemon=True).start()
     threading.Thread(target=app.watch, name="friend-watch", daemon=True).start()

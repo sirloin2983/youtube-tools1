@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>初回の準備 — 切り抜き依頼</title>
+<!-- 初回の準備だけの画面(F3-5。notes:plan/f1-friend-requirements.md の C-5-1・C-1-2)。送る欄は出さない。
+     済むまで /friend/ はここへ(server.py)。済んだら自動で /friend/ へ移る。部品の名前は「詳しく」の中だけ。
+     CSP の下で動く: インラインの script・on〇〇= は書かない。外の文字は textContent で入れる(setup.js) -->
+<script src="ui-kit.js"></script>
+<script src="host.js"></script>
+<link rel="stylesheet" href="ui-kit.css">
+<link rel="stylesheet" href="settings.css">
+<script src="setup.js" defer></script>
+</head>
+<body>
+<header class="ui-header">
+  <span class="fs-brand">切り抜き依頼</span>
+  <div class="ui-header-actions">
+    <a class="btn ghost small fs-help" href="guide.html#setup" target="_blank" rel="noopener" aria-label="初回の準備の説明を新しい窓で開く" title="初回の準備の説明">?</a>
+    <button type="button" class="btn ghost small" id="btnQuit" title="準備を止めて終了します(取れた分は残り、次に開くと続きから)">すべて止めて終了</button>
+  </div>
+</header>
+<main class="fs-main">
+  <section class="card fs-card" aria-labelledby="fsTitle">
+    <h1 class="fs-title" id="fsTitle">準備しています</h1>
+    <p class="fs-lead" id="fsLead">文字起こしなどに使う部品をそろえています(約 11GB)。</p>
+    <div class="bar fs-bar" id="fsBar" role="progressbar" aria-labelledby="fsTitle" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i></i></div>
+    <p class="fs-left" id="fsLeft" aria-live="polite"></p>
+    <p class="hint fs-free">この間も PC は使えます。閉じるときに、続けるか聞きます。</p>
+    <div class="fs-fail" id="fsFail" role="alert" hidden>
+      <p id="fsFailText"></p>
+      <button type="button" class="btn primary" id="btnRetry">もう一度</button>
+    </div>
+    <div class="fs-old" id="fsOld" hidden>
+      <p id="fsOldText"></p>
+      <div class="fs-line">
+        <button type="button" class="btn primary" id="btnCleanOld">片付ける</button>
+        <button type="button" class="btn ghost" id="btnSkipOld">あとで</button>
+      </div>
+    </div>
+    <details class="fs-more" id="fsMore">
+      <summary>詳しく</summary>
+      <ul class="fs-items" id="fsItems"></ul>
+      <p class="fs-err" id="fsErr" hidden></p>
+      <button type="button" class="btn ghost small" id="btnCopy" hidden>詳しい文をコピー</button>
+    </details>
+  </section>
+</main>
+<div id="toast"></div>
+</body>
+</html>

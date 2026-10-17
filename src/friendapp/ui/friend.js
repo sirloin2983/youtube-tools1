@@ -394,55 +394,7 @@
     return api('setup/' + what, {}).then(function (j) { setupView(j.setup); syncForm(); }, function (e) { fail('初回の準備', e); });
   }
 
-  /* ---------------------------------------------------------------- ⚙ 設定(F2-5) */
-  function fillSettings(s) {
-    $('setSave').textContent = s.saveDir + (s.saveIsDefault ? '(既定)' : '');
-    $('setCases').textContent = s.caseRoot + (s.caseIsDefault ? '(既定)' : '');
-    $('btnResetSave').disabled = !!s.saveIsDefault;
-    $('btnResetSave').title = s.saveIsDefault ? '今が既定の場所です' : '既定の場所(ビデオの 受け取ったパック)に戻します';
-    $('btnResetCases').disabled = !!s.caseIsDefault;
-    $('btnResetCases').title = s.caseIsDefault ? '今が既定の場所です' : '既定の場所(アプリのフォルダの 作業)に戻します';
-    Array.prototype.forEach.call(document.querySelectorAll('input[name=setEngine]'), function (r) { r.checked = r.value === s.engine; });
-    $('setGpu').textContent = s.gpu ? 'この PC の GPU: ' + s.gpu.name + (s.gpu.vramGB ? '(' + s.gpu.vramGB + ' GB)' : '') : '';
-    $('setKeyState').textContent = s.apiKey ? '入っています' : 'まだ入っていません';
-    $('btnKeyClear').disabled = !s.apiKey;
-    $('btnKeyClear').title = s.apiKey ? '保存してあるキーを消します' : 'キーが入っていません';
-    $('setKeyHelp').textContent = s.apiKeyHelp || '';
-    if (document.activeElement !== $('setDisk')) $('setDisk').value = s.diskMinGB == null ? '' : s.diskMinGB;
-    Array.prototype.forEach.call(document.querySelectorAll('input[name=setCut]'), function (r) { r.checked = r.value === s.cut; });
-  }
-  function loadSettings() {
-    return api('settings').then(function (j) { fillSettings(j.settings); }, function (e) { fail('設定を読めませんでした', e); });
-  }
-  function putSettings(body) {
-    return api('settings', body).then(function (j) {
-      fillSettings(j.settings);
-      if (j.message) UIKit.toast(j.message, { ms: 3500 });
-      refresh();
-    }, function (e) { fail('変えられませんでした', e); loadSettings(); });
-  }
-  function pickFolder(what) {
-    var b = $(what === 'save' ? 'btnPickSave' : 'btnPickCases');
-    b.disabled = true;
-    api('pick-folder', { what: what }).then(function (j) {
-      fillSettings(j.settings);
-      if (j.chosen && j.message) UIKit.toast(j.message, { ms: 3500 });
-    }, function (e) { fail('フォルダを変えられませんでした', e); }).then(function () { b.disabled = false; });
-  }
-  function saveKey(key) {
-    var b = $('btnKeySave');
-    b.disabled = true;
-    $('setKeyState').textContent = key ? '確かめています…' : $('setKeyState').textContent;
-    api('settings/key', { key: key }).then(function (j) {
-      $('setKey').value = '';
-      fillSettings(j.settings);
-      UIKit.toast(j.message, { ms: 3500 });
-    }, function (e) { fail('API キー', e); loadSettings(); }).then(function () { b.disabled = false; });
-  }
-  function openSettings() {
-    UIKit.drawer.open($('settingsDrawer'), { opener: $('btnSettings') });
-    loadSettings();
-  }
+  /* ⚙ は settings.js(F3-5。FriendSettings)。#btnSettings を押すと開く */
 
   /* ---------------------------------------------------------------- [送る] / [受け取る](F3。C-2-1)と配信の一覧(F3-2) */
   var view = 'send', listTimer = 0, undecided = 0;
@@ -519,6 +471,7 @@
     Array.prototype.forEach.call(document.querySelectorAll('input[name=pc]'), function (r) { r.addEventListener('change', syncForm); });
     $('btnSaved').addEventListener('click', function () { api('open', { what: 'saved' }).catch(function (e) { fail('開けませんでした', e); }); });
     $('btnQuit').addEventListener('click', function () {
+      if (FriendHost.isApp) { FriendHost.quit(); return; }   /* exe の窓 = exe が作業中・預かりを見て確認する(F3-1) */
       api('../shutdown', {}).then(function () {
         clearTimeout(timer);
         document.querySelector('.fr-main').textContent = '';
@@ -529,30 +482,6 @@
     $('btnSetupLater').addEventListener('click', function () { setupAct('later'); });
     $('btnSetupCancel').addEventListener('click', function () { setupAct('cancel'); });
     $('btnSetupOpen').addEventListener('click', function () { setupAct('open'); });
-    $('btnSettings').addEventListener('click', openSettings);
-    $('settingsClose').addEventListener('click', function () { UIKit.drawer.close($('settingsDrawer')); });
-    $('btnPickSave').addEventListener('click', function () { pickFolder('save'); });
-    $('btnPickCases').addEventListener('click', function () { pickFolder('cases'); });
-    $('btnResetSave').addEventListener('click', function () { putSettings({ reset: 'save' }); });
-    $('btnResetCases').addEventListener('click', function () { putSettings({ reset: 'cases' }); });
-    Array.prototype.forEach.call(document.querySelectorAll('input[name=setEngine]'), function (r) {
-      r.addEventListener('change', function () { if (r.checked) putSettings({ engine: r.value }); });
-    });
-    Array.prototype.forEach.call(document.querySelectorAll('input[name=setCut]'), function (r) {
-      r.addEventListener('change', function () { if (r.checked) putSettings({ cut: r.value }); });
-    });
-    $('setDisk').addEventListener('change', function () {
-      var v = parseFloat($('setDisk').value);
-      if (isNaN(v)) { UIKit.toast('空き容量の下限は数(GB)で入れてください', { kind: 'err' }); loadSettings(); return; }
-      putSettings({ diskMinGB: v });
-    });
-    $('btnKeySave').addEventListener('click', function () {
-      var k = $('setKey').value.trim();
-      if (!k) { UIKit.toast('キーを貼ってから押してください', { kind: 'err' }); return; }
-      saveKey(k);
-    });
-    $('setKey').addEventListener('keydown', function (e) { if (e.key === 'Enter' && $('setKey').value.trim()) saveKey($('setKey').value.trim()); });
-    $('btnKeyClear').addEventListener('click', function () { saveKey(''); });
     $('cleanedOk').addEventListener('click', function () { api('notice-seen', {}).then(function () { $('cleaned').hidden = true; }); });
     $('tabSend').addEventListener('click', function () { show('send'); });
     $('tabReceive').addEventListener('click', function () { show('receive'); });

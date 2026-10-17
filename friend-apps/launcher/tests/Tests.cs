@@ -1,4 +1,4 @@
-// 起動役のテスト(build.bat が FriendInbox.exe を参照して作り、流す)。窓・玄関のプロセス・通信は使わない。失敗が 1 つでもあれば終了コード 1。
+// FriendApp.exe のテスト(build.bat が FriendApp.exe を参照して作り、流す)。窓・玄関のプロセス・通信は使わない。失敗が 1 つでもあれば終了コード 1。
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -19,10 +19,12 @@ static class Tests
         Run("記録: app-versions.json の読み書き・壊れていたら空・bad の重なりと不正な版は捨てる", RecordRoundTrip);
         Run("記録: 起動できた版が current・その前が previous(bad は previous にしない)", MarkStarted);
         Run("片付け: previous より古い app-版 だけ消す(新しい物・.tmp は残す)", PruneOld);
-        Run("見回り: 窓が戻れば隠す・閉じて仕事なしなら止める・仕事ありなら状態の窓", WatchRules);
-        Run("状態: JSON の読み取り(小数の秒・足りない欄は窓が開いている扱い)", StateParse);
-        Run("状態の窓の ×: 録画中は止めない・録画が無ければ止める", CloseRule);
-        Run("玄関の出力: ready・already の行を読む・読めない行は無視", GatewayLines);
+        Run("閉じる: 作業中・預かりがあるときだけ確認・文に数と録画の注意", ConfirmRules);
+        Run("窓: タイトルの ●n・アイコンの文(127 文字まで)", TrayAndTitle);
+        Run("裏で続ける: 仕事が無くなったら自分で終わる(予約の間は続ける)", AutoExitRules);
+        Run("起こし直し: 10 分に 3 回まで・止める途中は起こさない", RestartRules);
+        Run("状態: JSON の読み取り(足りない欄は 0)", StateParse);
+        Run("Python の出力: 渡した番号の ready だけ読む・読めない行は無視", GatewayLines);
         Console.WriteLine(failures == 0 ? "OK " + passed + " 件" : "NG " + failures + " 件失敗 / " + passed + " 件成功");
         return failures == 0 ? 0 : 1;
     }
@@ -132,48 +134,80 @@ static class Tests
         True(Directory.Exists(Path.Combine(h, "app-0.89.0")) && Directory.Exists(Path.Combine(h, "app-0.90.0")), "current・previous は残す");
     }
 
-    static FriendState S(double ago, bool busy, int rec = 0)
+    static HostState S(int making = 0, int rec = 0, int waiting = 0, int reserved = 0, int archive = 0, bool setup = false)
     {
-        return new FriendState { WindowAgo = ago, Busy = busy, Recording = rec };
+        return new HostState { Making = making, Recording = rec, Waiting = waiting, Reserved = reserved, ArchiveWait = archive, Setup = setup };
     }
 
-    static void WatchRules()
+    static void ConfirmRules()
     {
-        Eq(Step.None, Watch.Decide(S(3, true), false), "窓が開いている");
-        Eq(Step.None, Watch.Decide(S(19.9, false), false), "20 秒未満はまだ開いている");
-        Eq(Step.HideStatus, Watch.Decide(S(2, true), true), "窓が戻れば状態の窓を隠す");
-        Eq(Step.Shutdown, Watch.Decide(S(20, false), false), "窓が閉じて仕事なし");
-        Eq(Step.Shutdown, Watch.Decide(S(60, false), true), "状態の窓を出していても仕事が無くなれば止める");
-        Eq(Step.ShowStatus, Watch.Decide(S(25, true), false), "窓が閉じて仕事あり");
-        Eq(Step.None, Watch.Decide(S(25, true), true), "出し済みなら何もしない");
+        True(!Rules.NeedConfirm(S()), "作業も預かりも無ければ確認なし");
+        True(!Rules.NeedConfirm(null), "状態を読めない(Python が止まっている)なら確認なし");
+        True(Rules.NeedConfirm(S(making: 1)) && Rules.NeedConfirm(S(rec: 1)) && Rules.NeedConfirm(S(waiting: 1)), "作っている・録画中・待ち");
+        True(Rules.NeedConfirm(S(reserved: 1)) && Rules.NeedConfirm(S(archive: 1)) && Rules.NeedConfirm(S(setup: true)), "予約・アーカイブ待ち・準備中");
+        Eq(0, S(making: -3).Holdings, "負の数は 0");
+        string t = Rules.ConfirmText(S(making: 2, rec: 1, reserved: 1, archive: 3));
+        True(t.Contains("作っている物が 2 件") && t.Contains("録画が途中で切れます") && t.Contains("予約が 1 件") && t.Contains("アーカイブ待ちが 3 件"), "数と録画の注意");
+        True(t.Contains("閉じると止まります"), "閉じると止まる");
+        True(!Rules.ConfirmText(S(making: 1)).Contains("録画"), "録画が無ければ録画の注意なし");
+    }
+
+    static void TrayAndTitle()
+    {
+        Eq("切り抜き依頼", Rules.Title(0), "0 なら数なし");
+        Eq("切り抜き依頼 ●3", Rules.Title(3), "●n");
+        True(Rules.TrayText(S(making: 2, rec: 1), false).Contains("作っています 2 件・録画中 1 件"), "アイコンの文");
+        True(Rules.TrayText(S(), true).Contains("裏で続けています"), "裏で");
+        True(Rules.TrayText(null, false).Length > 0, "状態なし");
+        True(Rules.TrayText(S(making: 99999, rec: 99999, waiting: 99999, reserved: 99999, archive: 99999, setup: true), true).Length <= 127, "127 文字まで");
+    }
+
+    static void AutoExitRules()
+    {
+        True(Rules.AutoExit(S(), true), "裏で続けていて仕事が無くなれば終わる");
+        True(!Rules.AutoExit(S(making: 1), true), "仕事があれば続ける");
+        True(!Rules.AutoExit(S(), false), "窓を開いている間は終わらない");
+        True(!Rules.AutoExit(null, true), "状態を読めないときは終わらない(起こし直しの途中)");
+        True(!Rules.AutoExit(S(reserved: 1), true), "予約を待っている間は終わらない");
+    }
+
+    static void RestartRules()
+    {
+        var recent = new List<DateTime>();
+        var now = new DateTime(2026, 10, 17, 12, 0, 0);
+        True(Rules.ShouldRestart(recent, now, false), "初めは起こし直す");
+        True(!Rules.ShouldRestart(recent, now, true), "止める途中なら起こさない");
+        recent.AddRange(new[] { now.AddMinutes(-1), now.AddMinutes(-2), now.AddMinutes(-3) });
+        True(!Rules.ShouldRestart(recent, now, false), "10 分に 3 回まで");
+        recent.Clear();
+        recent.AddRange(new[] { now.AddMinutes(-11), now.AddMinutes(-12), now.AddMinutes(-2) });
+        True(Rules.ShouldRestart(recent, now, false), "10 分より前は数えない");
+        Eq(1, recent.Count, "古い記録を捨てる");
     }
 
     static void StateParse()
     {
-        var s = FriendState.Parse("{\"windowAgo\": 21.5, \"busy\": true, \"recording\": 1, \"making\": 2, \"waiting\": 3, \"label\": \"録画中 1 本\"}");
-        Eq(21.5, s.WindowAgo, "秒"); True(s.Busy, "busy"); Eq(1, s.Recording, "rec"); Eq(2, s.Making, "making"); Eq(3, s.Waiting, "waiting"); Eq("録画中 1 本", s.Label, "label");
-        var e = FriendState.Parse("{\"busy\": true}");
-        Eq(0.0, e.WindowAgo, "欄なしは窓が開いている扱い");
-        Eq(Step.None, Watch.Decide(e, false), "誤って止めない");
-        Eq(7.0, FriendState.Parse("{\"windowAgo\": 7}").WindowAgo, "整数の秒");
-    }
-
-    static void CloseRule()
-    {
-        True(!Watch.CloseStopsNow(1), "録画中は止めない(最小化)");
-        True(Watch.CloseStopsNow(0), "録画が無ければ止める");
+        var s = HostState.Parse("{\"making\":2,\"recording\":1,\"waiting\":3,\"reserved\":4,\"archiveWait\":5,\"setup\":true,\"undecided\":6,\"awake\":true,\"label\":\"x\"}");
+        Eq(2, s.Making, "making"); Eq(1, s.Recording, "rec"); Eq(3, s.Waiting, "waiting"); Eq(4, s.Reserved, "reserved"); Eq(5, s.ArchiveWait, "archive");
+        True(s.Setup && s.Awake, "setup・awake"); Eq(6, s.Undecided, "undecided"); Eq("x", s.Label, "label");
+        Eq(16, s.Holdings, "作業中と預かりの数");
+        var e = HostState.Parse("{}");
+        Eq(0, e.Holdings, "欄なしは 0"); True(!e.Awake, "欄なしはスリープを止めない");
     }
 
     static void GatewayLines()
     {
-        var g = new Gateway();
+        var g = new Gateway { Port = 8720 };
         g.OnLine("ひとことの文字");
         g.OnLine("{\"event\":\"x\"}");
-        True(!g.Ready && !g.Already, "読めない行・知らない event は無視");
-        g.OnLine("{\"event\":\"already\",\"port\":8721}");
-        True(g.Already && g.Port == 8721, "already");
-        var r = new Gateway();
-        r.OnLine("{\"event\":\"ready\",\"port\":8720,\"pid\":123}");
-        True(r.Ready && r.Port == 8720, "ready");
+        True(!g.Ready, "読めない行・知らない event は無視");
+        g.OnLine("{\"event\":\"ready\",\"port\":8721}");
+        True(!g.Ready, "渡した番号と違う ready は無視");
+        g.OnLine("{\"event\":\"ready\",\"port\":8720,\"pid\":123}");
+        True(g.Ready && !g.Bye, "ready");
+        g.OnLine("{\"event\":\"bye\"}");
+        True(g.Bye, "bye = 止めてと言われて終わる(起こし直さない)");
+        int p = Gateway.FreePort();
+        True(p > 0 && p < 65536, "空いている番号");
     }
 }
