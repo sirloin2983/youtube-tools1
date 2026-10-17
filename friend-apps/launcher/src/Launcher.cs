@@ -362,6 +362,7 @@ namespace FriendInbox
         public static void Fail(string msg)
         {
             Log.Write(msg);
+            if (Environment.GetEnvironmentVariable("YTT_FRIEND_NOACTIVATE") == "1" || Environment.GetEnvironmentVariable("YTT_FRIEND_SHOTS") != null) return;   // 確かめ・写真のとき: 窓と音を出さない(記録だけ。MainForm の型を読まない)
             MessageBox.Show(msg + "\r\n(記録: data\\app\\friendapp\\logs\\launcher.log)", Rules.AppTitle, MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
 

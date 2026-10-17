@@ -45,7 +45,7 @@
     止めるとき POST /api/shutdown(10 秒待って、終わらなければジョブごと)
   - 環境変数(exe → Python): YTT_FRIEND_HOME・YTT_FRIEND_TOKEN・YTT_FRIEND_HOST(webview2 / edge)・YTT_FRIEND_REC_PORT・YTT_FRIEND_LAUNCHER=1(更新を受ける)・
     YTT_FRIEND_ROLLBACK(前の版へ戻したとき)
-  - 開発の PC で確かめるときだけ: YTT_FRIEND_NOACTIVATE=1(最小化で出し前に出さない)・YTT_FRIEND_DEVTOOLS=1・
+  - 開発の PC で確かめるときだけ(どちらも音を出さない = WebView2 の音を消す・Edge の逃げ道は --mute-audio・止まったときの窓と音も出さない): YTT_FRIEND_SHOTS=<フォルダ>(画面の外で起こし関所の写真を撮って終わる)・YTT_FRIEND_NOACTIVATE=1(最小化で出し前に出さない)・YTT_FRIEND_DEVTOOLS=1・
     WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=<番号>(Playwright の connect_over_cdp で画面を調べる)
 
 ■ 記録

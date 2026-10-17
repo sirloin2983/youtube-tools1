@@ -126,6 +126,8 @@ namespace FriendInbox
         // 写真を撮るときだけ: YTT_FRIEND_SHOTS=<フォルダ>(画面の外で起こし、場面ごとに PNG を書いて終わる = 関所で人に見せる用)
         public static readonly string ShotDir = Environment.GetEnvironmentVariable("YTT_FRIEND_SHOTS");
         static readonly bool NoActivate = Environment.GetEnvironmentVariable("YTT_FRIEND_NOACTIVATE") == "1" || ShotDir != null;
+        // 確かめ・写真のとき(上の 2 つ)は音を出さない: WebView2 の音を消す・Edge の逃げ道は --mute-audio・止まったときの窓(MessageBox の音)は出さない
+        public static bool Quiet { get { return NoActivate; } }
 
         protected override bool ShowWithoutActivation { get { return NoActivate; } }
 
@@ -154,6 +156,7 @@ namespace FriendInbox
             var core = view.CoreWebView2;
             var st = core.Settings;
             st.AreDevToolsEnabled = Environment.GetEnvironmentVariable("YTT_FRIEND_DEVTOOLS") == "1";
+            if (Quiet) core.IsMuted = true;   // 確かめ・写真のとき(動画の音を人の PC から流さない)
             st.IsStatusBarEnabled = false;
             st.IsGeneralAutofillEnabled = false;
             st.IsPasswordAutosaveEnabled = false;
@@ -556,7 +559,7 @@ namespace FriendInbox
                 if (edge != null)
                 {
                     string prof = Path.Combine(friendDir, "edge-profile");
-                    Process.Start(new ProcessStartInfo(edge, "--app=" + url + " --user-data-dir=\"" + prof + "\" --no-first-run") { UseShellExecute = false });
+                    Process.Start(new ProcessStartInfo(edge, "--app=" + url + " --user-data-dir=\"" + prof + "\" --no-first-run" + (Quiet ? " --mute-audio" : "")) { UseShellExecute = false });
                 }
                 else Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
             }
