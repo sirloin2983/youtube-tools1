@@ -11,7 +11,7 @@ import tempfile
 import threading
 import time
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -60,10 +60,12 @@ def at(*args):
 
 def rss_xml(entries):
     parts = ['<?xml version="1.0" encoding="UTF-8"?>'
-             '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:yt="http://www.youtube.com/xml/schemas/2015">']
-    for vid, title, pub in entries:
+             '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns:media="http://search.yahoo.com/mrss/">']
+    for e in entries:
+        vid, title, pub = e[:3]
+        views = '<media:group><media:community><media:statistics views="%d"/></media:community></media:group>' % e[3] if len(e) > 3 else ""
         parts.append('<entry><yt:videoId>%s</yt:videoId><title>%s</title><published>%s</published>'
-                     '<updated>%s</updated></entry>' % (vid, title, iso(pub), iso(pub)))
+                     '<updated>%s</updated>%s</entry>' % (vid, title, iso(pub), iso(pub), views))
     parts.append("</feed>")
     return "".join(parts).encode("utf-8")
 
@@ -150,9 +152,9 @@ class StreamsTest(unittest.TestCase):
         with open(self.members, "w", encoding="utf-8") as f:
             json.dump(d, f, ensure_ascii=False)
 
-    def add(self, cid, vid, pub, html, title="題名"):
+    def add(self, cid, vid, pub, html, title="題名", views=None):
         """チャンネルの RSS に動画を 1 本足し、その動画のページを用意する"""
-        self.feeds.setdefault(cid, []).append((vid, title, pub))
+        self.feeds.setdefault(cid, []).append((vid, title, pub) + ((views,) if views is not None else ()))
         self.web.routes[S.RSS_URL % cid] = (200, rss_xml(self.feeds[cid]))
         self.web.routes[S.WATCH_URL % vid] = (200, html.encode("utf-8"))
 
@@ -253,6 +255,15 @@ class StreamsTest(unittest.TestCase):
         self.add(CH_A, "v0000000021", at(10, 1, 9, 0), live_page(at(10, 1, 9, 0)))   # 2 日より前 = 範囲の外
         self.run_at(NOW_TS)
         self.assertEqual(self.web.count(S.WATCH_URL % "v0000000021"), 0)
+
+    def test_old_waiting_room_with_no_views_is_read(self):
+        """何日も前に立てた予定の枠(再生数 0)は古くても読む = 初めて開いた日にも出る"""
+        self.add(CH_A, "v0000000022", at(10, 1, 9, 0), upcoming_page(NOW + timedelta(hours=1)), views=0)
+        self.add(CH_A, "v0000000023", at(10, 1, 9, 0), live_page(at(10, 1, 9, 0)), views=1200)
+        self.run_at(NOW_TS)
+        self.assertEqual(self.web.count(S.WATCH_URL % "v0000000022"), 1)
+        self.assertEqual(self.web.count(S.WATCH_URL % "v0000000023"), 0)
+        self.assertIn("v0000000022", [v for _k, vs in self.ids(self.s.view()) for v in vs])
 
     def test_tries_then_skip_for_unreadable_page(self):
         self.add(CH_A, "v0000000031", at(10, 17, 9, 0), "<html>no json</html>")

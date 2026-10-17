@@ -189,6 +189,37 @@ class ServerTest(unittest.TestCase):
         inbox.finished("run-" + rid, "done", "", [{"dir": d, "seconds": 3} for d in dirs], batch, case=case)
         return case, dirs
 
+    # ------------------------------------------------------------ 配信の一覧(F3-2)
+    def test_streams_view_marks_sent_and_refresh(self):
+        class FakeStreams:
+            refreshed = 0
+
+            def view(self):
+                return {"updatedAt": 1, "busy": False, "first": False, "error": None, "sections": [
+                    {"key": "today", "label": "今日", "count": 2, "items": [{"videoId": VID, "title": "a"}, {"videoId": "zzzzzzzzzzz", "title": "b"}]}]}
+
+            def refresh(self):
+                FakeStreams.refreshed += 1
+                return {"ok": True}
+
+            def stop(self):
+                pass
+        self.app.streams = FakeStreams()
+        self.make_arrived("20261017-100000-aaaa01", ["p1_pack"])
+        st, _h, p = self.get("/api/friend/streams")
+        self.assertEqual(st, 200)
+        items = self.js(p)["sections"][0]["items"]
+        self.assertEqual(items[0]["sent"], {"state": "arrived", "id": "20261017-100000-aaaa01"})
+        self.assertNotIn("sent", items[1])
+        st, _h, p = self.post("/api/friend/streams/refresh", {})
+        self.assertEqual((st, self.js(p), FakeStreams.refreshed), (200, {"ok": True}, 1))
+        self.assertEqual(self.post("/api/friend/streams/refresh", {}, headers={TOKEN: None})[0], 403)
+
+    def test_send_list_script_is_served(self):
+        st, h, p = self.get("/friend/send-list.js")
+        self.assertEqual(st, 200)
+        self.assertIn("FRList", p.decode("utf-8"))
+
     # ------------------------------------------------------------ 口の基本・安全
     def test_ping(self):
         st, h, p = self.get("/api/ping")

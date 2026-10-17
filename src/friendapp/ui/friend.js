@@ -109,12 +109,13 @@
     var u = $('url').value.trim();
     if (u === state.peekUrl) return;
     state.peekUrl = u; state.peek = null; state.live = null; state.liveBusy = false; syncForm();
-    if (!u) { $('peek').textContent = ''; return; }
+    if (!u) { $('peek').textContent = ''; FRList.select(''); return; }
     var my = ++peekSeq;
     $('peek').textContent = '配信を調べています…';
     api('peek?url=' + encodeURIComponent(u)).then(function (p) {
       if (my !== peekSeq) return;
       state.peek = p;
+      FRList.select(FRList.item(p.videoId) ? p.videoId : '');   /* 一覧にある配信ならそのカードを選んだ状態に(C-2-17) */
       $('peek').textContent = (p.title || '(題が取れませんでした)') + (p.channel ? ' ・ ' + p.channel : '');
       setAutoStreamer(p.streamer);
       state.liveBusy = true;   /* 配信中・配信前か(yt-dlp で数秒)。分かるまで [送る] は待つ(ライブを普通の URL で送らない) */
@@ -443,6 +444,38 @@
     loadSettings();
   }
 
+  /* ---------------------------------------------------------------- [送る] / [受け取る](F3。C-2-1)と配信の一覧(F3-2) */
+  var view = 'send', listTimer = 0, undecided = 0;
+  function show(v) {
+    view = v === 'receive' ? 'receive' : 'send';
+    $('viewSend').hidden = view !== 'send';
+    $('viewReceive').hidden = view !== 'receive';
+    $('tabSend').setAttribute('aria-pressed', view === 'send' ? 'true' : 'false');
+    $('tabReceive').setAttribute('aria-pressed', view === 'receive' ? 'true' : 'false');
+    if (location.hash !== '#' + view) history.replaceState(null, '', '#' + view);
+    if (view === 'send') pollList();
+  }
+  function pollList() {   /* 一覧は送る画面を出している間だけ問い合わせる(玄関の中の写しを読むだけ = 軽い) */
+    clearTimeout(listTimer);
+    if (view !== 'send') return;
+    FRList.load().catch(function () { /* 玄関とつながらない = 上の帯が知らせる */ }).then(function () {
+      listTimer = setTimeout(pollList, UIKit.life.isAway() ? POLL_AWAY : POLL);
+    });
+  }
+  function setCount(n) {   /* ●n = まだ決めていない本数(C-3-9)。窓のタイトルにも(窓はタイトルを写す = F3-A) */
+    undecided = n;
+    $('tabN').hidden = !n;
+    $('tabN').textContent = n ? String(n) : '';
+    $('tabReceive').setAttribute('aria-label', n ? '受け取る(まだ決めていない ' + n + ' 本)' : '受け取る');
+    document.title = n ? '切り抜き(' + n + ')' : '切り抜き';
+  }
+  function pickStream(it) {   /* カードを押した = URL の欄に入れて、貼ったときと同じに調べる(送る欄の作り直しは F3-3) */
+    clearFile();
+    $('url').value = it.url;
+    onUrl();
+  }
+  window.FriendApp = { show: show, count: function () { return undecided; } };   /* 窓(F3-A)から呼ぶ口(仮) */
+
   function refresh() {
     clearTimeout(timer);
     return api('inbox').then(function (j) {
@@ -455,6 +488,7 @@
       if (key === state.key) return;   /* 変わっていなければ描き直さない(押そうとしているボタン・フォーカスを消さない) */
       state.key = key;
       state.rows = j.rows || [];
+      setCount(state.rows.reduce(function (a, r) { return a + (r.undecided || 0); }, 0));
       render();
     }, function (e) {
       $('errbar').hidden = false;
@@ -520,7 +554,12 @@
     $('setKey').addEventListener('keydown', function (e) { if (e.key === 'Enter' && $('setKey').value.trim()) saveKey($('setKey').value.trim()); });
     $('btnKeyClear').addEventListener('click', function () { saveKey(''); });
     $('cleanedOk').addEventListener('click', function () { api('notice-seen', {}).then(function () { $('cleaned').hidden = true; }); });
-    UIKit.life.onReturn(function () { refresh(); });
+    $('tabSend').addEventListener('click', function () { show('send'); });
+    $('tabReceive').addEventListener('click', function () { show('receive'); });
+    window.addEventListener('hashchange', function () { show(location.hash.slice(1)); });
+    FRList.onPick = pickStream;
+    UIKit.life.onReturn(function () { refresh(); pollList(); });
+    show(location.hash.slice(1));
     refresh();
   });
 })();

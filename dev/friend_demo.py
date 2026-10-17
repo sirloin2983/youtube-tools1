@@ -79,6 +79,65 @@ class StubEngine:
         pass
 
 
+DEMO_PEOPLE = (("兎田ぺこら", "#65BAEA"), ("宝鐘マリン", "#B3223B"), ("白上フブキ", "#2CC7E4"), ("さくらみこ", "#FF4C8F"), ("星街すいせい", "#0F77E7"),
+               ("戌神ころね", "#E0A800"), ("大空スバル", "#E1E11A"), ("猫又おかゆ", "#B28DF1"))
+DEMO_STREAMS = (   # (状態, 始まりの「今から何分」, 長さの分, 題)。ui_audit が見る一覧(F3-2)
+    ("live", -95, None, "【マイクラ】新しい拠点を作る!"), ("live", -20, None, "【雑談】寝る前にちょっとだけ"),
+    ("upcoming", 40, None, "【歌枠】リクエスト歌枠"), ("upcoming", 300, None, "【APEX】ランク"),
+    ("justEnded", -200, 150, "【朝活】おはよう!"), ("checking", -60, None, "【ゲーム】新作を遊ぶ"),
+    ("ended", -320, 180, "【コラボ】4人で協力プレイ!"), ("ended", -500, 95, "【歌ってみた】の裏話"),
+    ("ended", -24 * 60 - 120, 240, "【耐久】クリアするまで終われない"), ("ended", -24 * 60 - 400, 120, "【雑談】昨日の振り返り"),
+    ("ended", -36 * 60, 13 * 60, "【24時間】長時間配信"))
+
+
+def demo_thumb(hex_color):
+    """見本のサムネ(色だけの SVG。ネットへ出ない・CSP の data: で読める)"""
+    import urllib.parse
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 9"><defs><linearGradient id="g" x2="1" y2="1">'
+           '<stop offset="0" stop-color="%s"/><stop offset="1" stop-color="#1b2030"/></linearGradient></defs><rect width="16" height="9" fill="url(#g)"/></svg>'
+           % hex_color)
+    return "data:image/svg+xml," + urllib.parse.quote(svg)
+
+
+class DemoStreams:
+    """配信の一覧の代わり(F3-2。ネットへ出ない。時刻は起動した時刻から作る)"""
+
+    def __init__(self, clock=time.time):
+        now = clock()
+        self.at = int(now * 1000)
+        items = []
+        for i, (st, start, length, title) in enumerate(DEMO_STREAMS):
+            who, hexc = DEMO_PEOPLE[i % len(DEMO_PEOPLE)]
+            vid = "demo%07d" % (i + 1)
+            s = int((now + start * 60) * 1000)
+            items.append({"videoId": vid, "url": "https://www.youtube.com/watch?v=" + vid, "title": title, "channelId": "UCdemo%018d" % i,
+                          "streamer": who, "hex": hexc, "thumb": demo_thumb(hexc), "state": st, "startAt": s,
+                          "endAt": s + length * 60000 if length else None, "duration": length * 60 if length and st == "ended" else None})
+        today = time.mktime(time.localtime(now)[:3] + (0, 0, 0, 0, 0, -1)) * 1000
+        live = sorted([x for x in items if x["state"] in ("live", "upcoming")], key=lambda x: (x["state"] != "live", x["startAt"]))
+        rest = sorted([x for x in items if x["state"] not in ("live", "upcoming")], key=lambda x: -x["startAt"])
+        secs = [("live", "ライブ中・これから", live), ("today", "今日", [x for x in rest if x["startAt"] >= today]),
+                ("yesterday", "昨日", [x for x in rest if x["startAt"] < today])]
+        self.sections = [{"key": k, "label": lb, "count": len(xs), "items": xs} for k, lb, xs in secs if xs]
+
+    def view(self):
+        import json
+        return {"updatedAt": self.at, "busy": False, "first": False, "error": None, "sections": json.loads(json.dumps(self.sections))}
+
+    def refresh(self):
+        self.at = int(time.time() * 1000)
+        return {"ok": True}
+
+    def lookup(self, vid):
+        return next((dict(x) for s in self.sections for x in s["items"] if x["videoId"] == vid), None)
+
+    def start(self):
+        pass
+
+    def stop(self):
+        pass
+
+
 def seed(app, home):
     ib = app.inbox
     now = time.time()
@@ -219,6 +278,7 @@ def main(argv=None):
     app.setup.downloader = DemoDownloader()                  # [始める] でネットへ出ない
     app.setup.disk_usage = lambda path: shutil.disk_usage(home)._replace(free=200 * 1024 ** 3)   # 見本は空きが足りる形
     app.setup.checked = True                                 # 見本は古い部品を写さない(prepare を通さない)
+    app.streams = DemoStreams()                              # 配信の一覧(F3-2)はネットへ出ない
     if not app.inbox.rows:
         seed(app, home)
     srv = S.Server(("127.0.0.1", a.port), app)

@@ -42,6 +42,8 @@ SOON_SEC = 600          # 予定の物は開始の 10 分前から読み直す
 HORIZON_SEC = 12 * 3600 # これからの予定は今から 12 時間まで(今日の 24 時の遅いほうまで)
 OLD_SEC = 2 * 86400     # 前日の 0 時より 2 日以上前に出た新着は範囲の外として読まない
 KEEP_SEC = 48 * 3600    # 出さない物・ライブの覚えを残す時間
+FAR_SEC = 24 * 3600     # これより先の予定は
+FAR_REREAD_SEC = 6 * 3600   # この間隔でだけ読み直す
 TRIES_MAX = 3           # 動画のページが読めない(200 だが JSON が無い)回数。超えたら出さない物
 WORKERS = 4
 TIMEOUT = 15
@@ -51,6 +53,7 @@ CACHE_MAX = 8 * 1024 * 1024
 STATES = ("checking", "live", "upcoming", "justEnded", "ended", "skip")
 RSS_NS = "{http://www.w3.org/2005/Atom}"
 YT_NS = "{http://www.youtube.com/xml/schemas/2015}"
+MEDIA_NS = "{http://search.yahoo.com/mrss/}"
 PR_RE = re.compile(r"ytInitialPlayerResponse\s*=\s*")
 MEMBER_WORDS = ("members", "メンバー限定", "メンバーシップ", "membership", "sponsors_only", "join this channel")
 FIRST_MSG = "配信の一覧を取れませんでした。ネットを確かめて [もう一度] を押してください"
@@ -154,7 +157,7 @@ def _default_fetch(url, timeout):
 
 
 def parse_rss(body):
-    """RSS(Atom)の本文 -> [{"videoId", "title", "published"}](形の違う項目は飛ばす)。読めなければ None"""
+    """RSS(Atom)の本文 -> [{"videoId", "title", "published", "views"}](形の違う項目は飛ばす。views = 再生数か None)。読めなければ None"""
     try:
         root = ET.fromstring(body)
     except (ET.ParseError, ValueError):
@@ -168,7 +171,8 @@ def parse_rss(body):
         if pub is None:
             continue
         title = (e.findtext(RSS_NS + "title") or "").strip()[:TITLE_MAX]
-        out.append({"videoId": vid, "title": title, "published": pub})
+        st = e.find("%sgroup/%scommunity/%sstatistics" % (MEDIA_NS, MEDIA_NS, MEDIA_NS))
+        out.append({"videoId": vid, "title": title, "published": pub, "views": _int(st.get("views")) if st is not None else None})
     return out
 
 
@@ -420,7 +424,8 @@ class Streams:
                 vid = e["videoId"]
                 rec = self._items.get(vid)
                 if rec is None:
-                    if e["published"] < yest0 - OLD_SEC * 1000:
+                    # 古い物は読まない。ただし再生数 0 = 前から立ててある予定の枠かもしれないので読む(初めて開いた日に、何日も前に告知した配信が出ないのを防ぐ)
+                    if e["published"] < yest0 - OLD_SEC * 1000 and e.get("views") != 0:
                         self._items[vid] = {"videoId": vid, "channelId": cid, "title": e["title"], "state": "skip",
                                             "startAt": None, "endAt": None, "duration": None, "checkedAt": nowms, "tries": 0}
                     else:
@@ -457,6 +462,9 @@ class Streams:
                 continue
             age = nowms - (rec["checkedAt"] or 0)
             if poll:
+                # 遠い先の予定(フリーチャットの枠など)は 6 時間に 1 回だけ読み直す(見回りのたびに読むと断られやすい)
+                if st == "upcoming" and rec["startAt"] - nowms > FAR_SEC * 1000 and age < FAR_REREAD_SEC * 1000:
+                    continue
                 out.append(rec["videoId"])
             elif st == "checking" and age >= RETRY_SEC * 1000:
                 out.append(rec["videoId"])

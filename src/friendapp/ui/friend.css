@@ -1,6 +1,6 @@
 /* 友人の受信箱(F2-2)。色は ui-kit の変数だけ(両テーマ) */
 .fr-brand{font:650 15px/1.2 var(--font-display);margin-right:8px}
-.fr-main{max-width:1040px;margin:0 auto;padding:12px 16px 48px}
+.fr-main{max-width:1480px;margin:0 auto;padding:12px 16px 48px}
 .fr-send{display:flex;flex-direction:column;gap:10px;margin-bottom:18px}
 .fr-urlrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .fr-url{flex:1 1 320px;min-width:0}
@@ -58,6 +58,44 @@
 .fr-set>p{margin:0 0 6px;font-size:var(--fs-sm)}
 .fr-where{white-space:pre-line;overflow-wrap:anywhere}
 .fr-key{flex:1 1 14em;min-width:0}
+/* F3: [送る] / [受け取る](C-2-1)・送る画面の 2 列(C-2-20 = 約 960px まで 2 列・狭いと送る欄を一覧の上へ)・配信の一覧(F3-2) */
+.fr-tab-n{background:var(--danger)!important;color:var(--danger-on)!important;width:auto!important;min-width:18px;padding:0 5px}
+#viewReceive{max-width:1040px;margin:0 auto}
+.fr-sendview{display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,420px);grid-template-areas:"list side";gap:16px;align-items:start}
+.fr-side{grid-area:side;position:sticky;top:12px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.fr-side .fr-send{margin-bottom:0}
+.fr-streams{grid-area:list;min-width:0;display:flex;flex-direction:column;gap:8px}
+.fr-streams-bar{display:flex;align-items:center;gap:10px}
+.fr-updated{margin-left:auto}
+.fr-streams-err{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0}
+.fr-streams-scroll{max-height:calc(100vh - 140px);overflow-y:auto;overscroll-behavior:contain;padding-right:4px}
+.fr-sec+.fr-sec{margin-top:14px}
+.fr-sec-h{position:sticky;top:0;z-index:1;display:flex;align-items:baseline;gap:8px;margin:0;padding:6px 2px;background:var(--bg);font:650 14px/1.3 var(--font-display)}
+.fr-sec-n{color:var(--ink-3);font:500 12px/1 var(--mono)}
+.fr-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+.fr-card{display:flex;flex-direction:column;gap:6px;padding:0 0 6px;border:1px solid transparent;border-radius:var(--r-lg);background:transparent;color:inherit;text-align:left;cursor:pointer;font:inherit;min-width:0}
+.fr-card:hover{background:var(--panel-2)}
+.fr-card[aria-pressed=true]{border-color:var(--accent);background:var(--accent-soft)}
+.fr-thumb{position:relative;display:block;aspect-ratio:16/9;border-radius:var(--r-lg);overflow:hidden;background:var(--panel-3)}
+.fr-thumb img{display:block;width:100%;height:100%;object-fit:cover}
+.fr-badge{position:absolute;top:6px;left:6px;padding:2px 6px;border-radius:4px;font:700 11.5px/1.3 var(--font-ui, inherit);background:rgba(0,0,0,.72);color:#fff}
+.fr-badge-live{background:var(--danger);color:var(--danger-on)}
+.fr-badge-sent{left:auto;right:6px}
+.fr-badge-sent.bad{background:var(--danger);color:var(--danger-on)}
+.fr-dur{position:absolute;right:6px;bottom:6px;padding:1px 5px;border-radius:4px;background:rgba(0,0,0,.78);color:#fff;font:600 12px/1.3 var(--mono)}
+.fr-card-body{display:flex;flex-direction:column;gap:2px;padding:0 4px;min-width:0}
+.fr-card-title{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-weight:600;line-height:1.35;overflow-wrap:anywhere}
+.fr-card-who{display:flex;align-items:center;gap:6px;color:var(--ink-2);font-size:var(--fs-sm);min-width:0}
+.fr-dot{flex:none;width:9px;height:9px;border-radius:50%;background:var(--ink-3)}
+.fr-card-when{color:var(--ink-3);font-size:var(--fs-sm)}
+.fr-card-when.live{color:var(--danger-ink);font-weight:600}
+.fr-streams-empty{padding:24px 4px}
+.fr-streams-empty p{margin:0 0 8px}
+@media (max-width:960px){
+  .fr-sendview{grid-template-columns:minmax(0,1fr);grid-template-areas:"side" "list"}
+  .fr-side{position:static}
+  .fr-streams-scroll{max-height:none;overflow:visible}
+}
 @media (max-width:560px){
   .fr-label{min-width:0;width:100%}
   .fr-peek{margin-left:0}
