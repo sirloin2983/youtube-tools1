@@ -821,7 +821,7 @@ class Api:
             self.inbox.fail(rid, str(e))
 
     # ------------------------------------------------------------ 画面へ
-    def _progress(self, r, runs, blocked, stats):
+    def _progress(self, r, runs, blocked, stats, eng=None):
         """作っている行の進み具合の 1 行(C-2-15)-> {"text", "index", "total", "label"} か None"""
         run = r.get("run")
         f = r.get("form") or {}
@@ -832,7 +832,13 @@ class Api:
             if blocked:
                 return {"text": _progress.text(None, None, False, blocked=blocked), "index": 0, "total": 0, "label": ""}
             return {"text": _progress.text(None, None, False, queue_pos=pos) if pos else "順番を待っています", "index": 0, "total": 0, "label": ""}
-        st = _progress.stage((run or {}).get("steps") or [], kind, ranged)
+        st = _progress.stage((run or {}).get("steps") or [], kind, ranged, with_raw=True)
+        if st is not None and st["label"] == "文字起こし" and eng is not None:
+            # 文字起こしは ② の段の中で止まったまま回る(ツールの transcribe_start が同じ糸で終わらせる)ので、段の detail は動かない。
+            # 認識のジョブの進み(認識 42%)を玄関から直に読む
+            live = getattr(eng, "transcribe_progress", lambda: None)()
+            if live:
+                st["detail"], st["raw"] = live, live
         if st is None:
             return {"text": "仕上げています", "index": 0, "total": 0, "label": ""}
         now = int(self.clock() * 1000)
@@ -841,9 +847,9 @@ class Api:
             if seen is None or seen[0] != st["label"]:
                 if seen is not None:
                     self.inbox.record_stage(seen[0], (now - seen[1]) / 1000.0)
-                seen = self._stages[r["id"]] = [st["label"], now, st["detail"], now]
-            elif seen[2] != st["detail"]:
-                seen[2], seen[3] = st["detail"], now
+                seen = self._stages[r["id"]] = [st["label"], now, st["raw"], now]
+            elif seen[2] != st["raw"]:
+                seen[2], seen[3] = st["raw"], now
         left = _progress.eta(stats, kind, ranged, st["label"], (now - seen[1]) / 1000.0)
         return {"text": _progress.text(st, left, _progress.slow(seen[1], seen[3], now)), "index": st["index"], "total": st["total"], "label": st["label"]}
 
@@ -866,7 +872,7 @@ class Api:
                     r["progress"] = prog
             if r["state"] in ("sent", "making") and r.get("pc") != "user" and r.get("runId"):
                 live_ids.add(r["id"])
-                r["steps"] = self._progress(r, runs, blocked, stats)
+                r["steps"] = self._progress(r, runs, blocked, stats, eng)
             if r["state"] == "failed":
                 cls = _progress.classify(r.get("error") or "", r.get("kind") or "url")
                 retrying = cls["retry"] and (r.get("autoRetries") or 0) < cls.get("retryMax", RETRY_MAX) and not r.get("cancelled")

@@ -96,5 +96,27 @@ class TestFiles(_Env):
         self.assertEqual(txwords.read_words(TID), [[0.0, 0.5, "あ"]])
 
 
+class ScanGpuTest(unittest.TestCase):
+    """whisper.cpp の標準エラーの装置の行の読み取り(友人の PC の遅さを調べる記録用。見本の文字列だけ)"""
+
+    def test_vulkan_and_cuda_samples(self):
+        from pipeline.transcribe import tx_engines as te
+        vk = ["ggml_vulkan: Found 1 Vulkan devices:", "ggml_vulkan: 0 = NVIDIA GeForce RTX 3060 (NVIDIA) | uma: 0 | fp16: 1 | warp size: 32",
+              "whisper_backend_init_gpu: using Vulkan0 backend"]
+        self.assertEqual(te.WhisperCpp.scan_gpu(vk), ("Vulkan0", "NVIDIA GeForce RTX 3060"))
+        cu = ["ggml_cuda_init: found 1 CUDA devices:", "  Device 0: NVIDIA GeForce RTX 3060, compute capability 8.6, VMM: yes",
+              "whisper_backend_init_gpu: using CUDA0 backend"]
+        self.assertEqual(te.WhisperCpp.scan_gpu(cu), ("CUDA0", "NVIDIA GeForce RTX 3060"))
+        self.assertEqual(te.WhisperCpp.scan_gpu(["whisper_backend_init_gpu: no GPU found"]), ("", ""))   # CPU に落ちた
+        self.assertEqual(te.WhisperCpp.scan_gpu(["progress = 5%"]), (None, ""))   # 装置の行なし
+
+    def test_recognition_run_keeps_gpu_only_when_known(self):
+        with mock.patch.object(records, "dict_version", lambda s: {}):
+            a = records.recognition_run({"model": "small", "language": "ja"}, {"device": "vulkan", "gpu": "RTX 3060", "backend": "Vulkan0"}, 1.0, 2.0)
+            b = records.recognition_run({"model": "small", "language": "ja"}, {"device": "cpu"}, 1.0, 2.0)
+        self.assertEqual((a["gpu"], a["backend"]), ("RTX 3060", "Vulkan0"))
+        self.assertNotIn("gpu", b)   # 無いときは書かない(記録の形を変えない)
+
+
 if __name__ == "__main__":
     unittest.main()

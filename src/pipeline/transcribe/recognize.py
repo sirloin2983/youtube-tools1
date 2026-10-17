@@ -140,6 +140,10 @@ def transcribe_vad_fallback(job, model, audio, spec, on_seg=None):
         last = i == len(ladder) - 1
         kw = worker_client.filter_kwargs(model, worker_client.whisper_kwargs(dict(spec, vadMode=mode)))
         segs, info = model.transcribe(audio, **kw)
+        for k in ("gpu", "backend"):   # 使った装置(whisper.cpp)を文書の記録 runs に残す(records.recognition_run。10-18)
+            v = getattr(info, k, None)
+            if isinstance(v, str) and v and isinstance(job, dict):
+                job[k] = v
         kept, removed = vad_kept(info, mode)
         if kept is not None and kept < VAD_MIN_KEEP and not last:
             close = getattr(segs, "close", None)

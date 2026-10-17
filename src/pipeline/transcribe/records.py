@@ -82,6 +82,9 @@ def recognition_run(spec, job, audio_sec, wall_sec, pairs=None):
                             "context": [m["name"] for m in (spec.get("context") or {}).get("members") or []]})
     run.update({"audioSec": round(float(audio_sec or 0), 2), "wallSec": round(float(wall_sec), 2),
                 **vad_record(job.get("vad"))})
+    for k in ("gpu", "backend"):   # whisper.cpp が実際に使った装置(GPU 名・backend。無ければ書かない。10-18)
+        if job.get(k):
+            run[k] = str(job[k])
     return run
 
 

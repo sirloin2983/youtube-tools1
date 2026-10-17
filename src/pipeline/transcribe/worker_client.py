@@ -449,7 +449,7 @@ class RemoteModel:
         if self.engine != tx_engines.DEFAULT:
             args["engine"] = self.engine
         g = self.client.stream("transcribe", args, self.job)
-        info = _Obj({"language": kw.get("language"), "duration": None, "duration_after_vad": None})
+        info = _Obj({"language": kw.get("language"), "duration": None, "duration_after_vad": None, "gpu": "", "backend": ""})
         first = None
         try:   # faster-whisper と同じく、声の検出の結果(info)は行を読む前に分かるようにする(最初の知らせを先に読む)
             first = next(g)
@@ -460,6 +460,7 @@ class RemoteModel:
             raise
         if first and first[0] == "info" and isinstance(first[1], dict):
             info.__dict__.update({k: first[1].get(k) for k in ("duration", "duration_after_vad")})
+            info.__dict__.update({k: first[1][k] for k in ("gpu", "backend") if isinstance(first[1].get(k), str)})
             first = None
 
         def conv(v):

@@ -97,17 +97,23 @@ def _friend_label(key, detail):
     return lab
 
 
+_PCT = re.compile(r"(\d{1,3})\s*%")
+_COUNT = re.compile(r"^(\d+)\s*/\s*(\d+)\s*(?:本)?\s*(?:[・･]\s*(.*))?$")
+
+
 def _stage_detail(label, detail):
-    """文字起こしの進み: "3/5" -> "3/5 本"・"42%" -> "42%"・ほかは ""（C-2-15）"""
-    if label != "文字起こし":
-        return ""
+    """段の中の進み(行に添える)。文字起こし: "3/5" -> "3/5 本"・"42%" -> "42%"・"1 / 3 本 ・ 認識 42%" -> "1/3 本 42%"・ほかは ""(C-2-15)。
+    ほかの段: 割合(30fps にそろえています(42%)・解析 42%)か待ち(…を待っています)が入った短い文だけそのまま出す(10-18 友人の PC で
+    「1/3」のまま長く止まって見えた = 何をしているか・進んでいるかが行に出ていなかった)"""
     d = (detail or "").strip()
-    m = re.match(r"^(\d+)\s*/\s*(\d+)$", d)
-    if m:
-        return "%s/%s 本" % (m.group(1), m.group(2))
-    if re.match(r"^\d+(\.\d+)?%$", d):
-        return d
-    return ""
+    if label != "文字起こし":
+        return d[:60] if d and (_PCT.search(d) or "待っています" in d) else ""
+    m = _COUNT.match(d)
+    out = "%s/%s 本" % (m.group(1), m.group(2)) if m else ""
+    p = _PCT.search(m.group(3) or "" if m else d)
+    if p:
+        out = (out + " " if out else "") + p.group(1) + "%"
+    return out
 
 
 def _merge_state(states):
@@ -118,9 +124,10 @@ def _merge_state(states):
     return "done"
 
 
-def stage(steps, kind="url", ranged=False):
+def stage(steps, kind="url", ranged=False, with_raw=False):
     """② の段の一覧 -> 今の段 {index, total, label, detail} か None(全部済み・段が無い)。
-    段は友人の名前に読み替え、同じ名前が続くときは 1 段にまとめる。ranged なら 見どころを探す を数えない"""
+    段は友人の名前に読み替え、同じ名前が続くときは 1 段にまとめる。ranged なら 見どころを探す を数えない。
+    with_raw: 元の detail も "raw" に付ける(進みが動いているかの印 = slow の「最後に変わった時」を測るため)"""
     allowed = _labels(kind, ranged)
     seq = []
     for s in steps or []:
@@ -149,7 +156,10 @@ def stage(steps, kind="url", ranged=False):
     if cur is None:
         return None
     x = seq[cur]
-    return {"index": cur + 1, "total": len(seq), "label": x["label"], "detail": _stage_detail(x["label"], x["detail"])}
+    out = {"index": cur + 1, "total": len(seq), "label": x["label"], "detail": _stage_detail(x["label"], x["detail"])}
+    if with_raw:
+        out["raw"] = x["detail"]
+    return out
 
 
 def _avg(stats, label):

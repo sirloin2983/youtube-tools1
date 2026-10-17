@@ -203,7 +203,8 @@ def _op_transcribe(m, rid, job, out, cancels):
     # 声の検出(VAD)の結果は、行を読み始める前に分かる(faster-whisper は transcribe() の中で先に VAD をかける)。
     # 先に送ると、サーバーは「ほとんど捨てた」ときに行を読まずにやり直せる(docs/design/whole-retranscribe-design.md の 4-2)
     out.send({"rid": rid, "ev": "info", "v": {k: (float(getattr(info, k)) if isinstance(getattr(info, k, None), (int, float)) else None)
-                                               for k in ("duration", "duration_after_vad")}})
+                                               for k in ("duration", "duration_after_vad")}
+                                         | {k: str(getattr(info, k))[:120] for k in ("gpu", "backend") if isinstance(getattr(info, k, None), str)}})   # 使った装置(whisper.cpp の GPU 名・backend。10-18)
     n = 0
     for s in segs:
         if rid in cancels:

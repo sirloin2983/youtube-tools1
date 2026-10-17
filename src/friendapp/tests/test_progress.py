@@ -134,6 +134,14 @@ class StageTest(unittest.TestCase):
         r = P.stage(steps, kind="file")
         self.assertEqual(r, {"index": 2, "total": 3, "label": "文字起こし", "detail": "3/5 本"})
 
+    def test_stage_progress_text(self):
+        self.assertEqual(P.stage([st("transcribe", "run", "1 / 3 本 ・ 認識 42%")])["detail"], "1/3 本 42%")
+        self.assertEqual(P.stage([st("normalize", "run", "30fps にそろえています(42%)")], kind="file")["detail"], "30fps にそろえています(42%)")
+        self.assertEqual(P.stage([st("normalize", "run", "重い処理の枠が空くのを待っています")], kind="file")["detail"], "重い処理の枠が空くのを待っています")
+        self.assertEqual(P.stage([st("normalize", "run", "30fps にそろえています(1/3)")], kind="file")["detail"], "")
+        r = P.stage([st("transcribe", "run", "1 / 3 本 ・ 認識 42%")], with_raw=True)
+        self.assertEqual(r["raw"], "1 / 3 本 ・ 認識 42%")
+
     def test_transcribe_percent_and_other_detail(self):
         self.assertEqual(P.stage([st("transcribe", "run", "42%")])["detail"], "42%")
         self.assertEqual(P.stage([st("export", "run", "12/30")])["detail"], "")

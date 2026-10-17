@@ -203,5 +203,68 @@ class CopyOnlyTest(unittest.TestCase):
         self.assertFalse(os.path.isfile(os.path.join(old, "transcribe", "models", "m.bin")))
 
 
+class RunLogTest(unittest.TestCase):
+    """友人のログ friendapp.log に残す 1 依頼ぶんの記録(段ごとの時刻と秒・文字起こしの装置)。偽の実行だけ(本物の認識も ffmpeg も動かさない)"""
+
+    def run_obj(self, **kw):
+        steps = [{"key": "normalize", "label": "30fps", "state": "done", "detail": "30fps にそろえました", "startedAt": 1000000, "finishedAt": 1090500},
+                 {"key": "transcribe", "label": "文字起こし", "state": "done", "detail": "1 本を文字起こししました", "startedAt": 1090500, "finishedAt": 1150500},
+                 {"key": "pack", "label": "パック", "state": "wait", "detail": ""}]   # 始まらなかった段は書かない
+        d = dict(id="r9", request_id="20261018-100000-abcdef", state="done", error="", steps=steps, docs=["t1", "told"])
+        d.update(kw)
+        return types.SimpleNamespace(**d)
+
+    DOCS = {"t1": {"recognition": {"runs": [{"at": 1100000, "device": "vulkan", "engine": "whisper.cpp", "engineVersion": "1.9.4", "model": "large-v3",
+                                              "audioSec": 120.0, "wallSec": 60.0, "backend": "Vulkan0", "gpu": "NVIDIA GeForce RTX 3060"}]}},
+            "told": {"recognition": {"runs": [{"at": 5, "device": "cpu", "model": "old", "audioSec": 1, "wallSec": 1}]}}}   # 飛ばした既存の文書(段の前の記録)
+
+    def test_stage_lines_one_per_started_stage(self):
+        lines = engine.stage_lines(self.run_obj())
+        self.assertEqual(len(lines), 2)
+        self.assertIn("依頼=20261018-100000-abcdef normalize(動画を取得)", lines[0])
+        self.assertIn("90.5 秒 done", lines[0])
+        self.assertIn("transcribe(文字起こし)", lines[1])
+        self.assertIn("60.0 秒", lines[1])
+
+    def test_transcribe_line_has_engine_device_model_rtf(self):
+        lines = engine.transcribe_lines(self.run_obj(), read_doc=self.DOCS.get)
+        self.assertEqual(len(lines), 1)   # 段の前の記録は書かない
+        s = lines[0]
+        for want in ("エンジン=A(whisper.cpp 1.9.4)", "装置=Vulkan0 GPU=NVIDIA GeForce RTX 3060", "モデル=large-v3", "音声=120.0 秒", "かかった=60.0 秒", "実時間比=0.50"):
+            self.assertIn(want, s)
+
+    def test_transcribe_line_cpu_and_missing_device(self):
+        self.assertIn("装置=CPU(GPU は使っていません)", engine.transcribe_line("x", {"device": "cpu", "audioSec": 10, "wallSec": 40}))
+        self.assertIn("実時間比=4.00", engine.transcribe_line("x", {"device": "cpu", "audioSec": 10, "wallSec": 40}))
+        s = engine.transcribe_line("x", {"device": "cuda", "model": "large-v3"})   # GPU の行を拾えていない
+        self.assertIn("エンジン=C", s)
+        self.assertIn("CPU に落ちた疑い", s)
+        self.assertIn("実時間比=?", s)
+
+    def test_log_run_writes_stage_transcribe_and_end_lines(self):
+        tmp = tempfile.mkdtemp(prefix="friend-runlog-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        lines = []
+        eng = engine.Engine.__new__(engine.Engine)
+        eng.log = lines.append
+        with mock.patch.object(engine, "_read_doc", self.DOCS.get):
+            eng.log_run(self.run_obj())
+            eng.log_run(self.run_obj(state="error", error="GPU(Vulkan)を使えませんでした", docs=[]))
+        self.assertEqual(len([x for x in lines if x.startswith("段 ")]), 4)
+        self.assertEqual(len([x for x in lines if x.startswith("文字起こし ")]), 1)
+        self.assertIn("実行の終わり 依頼=20261018-100000-abcdef 状態=done", lines[3])
+        self.assertTrue(lines[-1].endswith("理由=GPU(Vulkan)を使えませんでした"))
+
+    def test_transcribe_progress_reads_running_job(self):
+        eng = engine.Engine.__new__(engine.Engine)
+        eng.queue = types.SimpleNamespace(tools=types.SimpleNamespace(jobs=lambda: [
+            {"kind": "transcribe", "state": "done", "progress": 1.0}, {"kind": "transcribe", "state": "running", "progress": 0.423}]))
+        self.assertEqual(eng.transcribe_progress(), "42%")
+        eng.queue = types.SimpleNamespace(tools=types.SimpleNamespace(jobs=lambda: [{"kind": "transcribe", "state": "done"}]))
+        self.assertIsNone(eng.transcribe_progress())
+        eng.queue = types.SimpleNamespace()   # tools が無い(偽の待ち行列)
+        self.assertIsNone(eng.transcribe_progress())
+
+
 if __name__ == "__main__":
     unittest.main()

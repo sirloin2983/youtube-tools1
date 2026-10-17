@@ -470,7 +470,8 @@ class WhisperCpp(Engine):
             # duration_after_vad = None(声の検出をしない = 分からない。サーバーの「捨てすぎたら緩める」は見ない)。
             # Silero の声の区間の外の行を捨てる TRANSCRIBE_WCPP_SPEECH_FILTER=1 は 0.65.0 で消した(評価用 18 本で 27.0% → 33.8% に悪化)
             info = types.SimpleNamespace(language=(data.get("result") or {}).get("language") or kw.get("language"),
-                                         duration=duration, duration_after_vad=None)
+                                         duration=duration, duration_after_vad=None,
+                                         gpu=getattr(self, "gpu_name", "") or "", backend=getattr(self, "backend", "") or "")   # 使った装置(記録用。10-18)
             return iter(segs), info
         finally:
             shutil.rmtree(work, ignore_errors=True)
@@ -505,18 +506,28 @@ class WhisperCpp(Engine):
             raise EngineError("engine_failed", "whisper.cpp が失敗しました(終了コード %s): %s" % (p.returncode, tail[-300:]))
         return lines
 
-    def _check_gpu(self, log):
-        """GPU(Vulkan)を頼んだのに使っていなければ止める(黙って CPU で動いた結果を「GPU」として残さない)。
-        声の検出(--vad)のモデルは CPU で動き、そのときも「no GPU found」の行が出るので、認識のモデルの「using … backend」を探す
-        (編集は 0.65.0 から --vad を渡さないが、ほかの版の whisper-cli や入口の live_tx_worker の出力でも同じ見方でよいので残す)"""
-        used = None
+    @staticmethod
+    def scan_gpu(log):
+        """whisper-cli の標準エラーの行 -> (認識のモデルの「using … backend」の名前 か None(行が無い)・'' = no GPU found, GPU 名)。
+        装置の行を拾うだけの純粋な関数(友人の PC の遅さを調べるため、使った装置を記録に残す = 10-18)"""
+        used, name = None, ""
         for s in log:
             m = _GPU_LINE.search(s)
             if m and (used is None or m.group(1)):
                 used = m.group(1) or used or ""
             d = _VK_DEV.search(s) or _CUDA_DEV.search(s)
             if d:
-                self.gpu_name = d.group(1).strip()
+                name = d.group(1).strip()
+        return used, name
+
+    def _check_gpu(self, log):
+        """GPU(Vulkan)を頼んだのに使っていなければ止める(黙って CPU で動いた結果を「GPU」として残さない)。
+        声の検出(--vad)のモデルは CPU で動き、そのときも「no GPU found」の行が出るので、認識のモデルの「using … backend」を探す
+        (編集は 0.65.0 から --vad を渡さないが、ほかの版の whisper-cli や入口の live_tx_worker の出力でも同じ見方でよいので残す)"""
+        used, name = self.scan_gpu(log)
+        if name:
+            self.gpu_name = name
+        self.backend = used or ""
         if self.device in ("vulkan", "cuda") and not (used and self.device in used.lower()):
             raise EngineError("gpu_failed", "GPU(%s)を使えませんでした(%s)。GPU のドライバを確かめるか、処理方式を「CPU」にしてください"
                               % ("CUDA" if self.device == "cuda" else "Vulkan", "GPU が見つからない" if used is not None else "GPU の初期化の記録が無い"))

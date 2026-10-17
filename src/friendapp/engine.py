@@ -13,17 +13,84 @@
 import os
 import shutil
 import threading
+import time
 
 from flow import learning as _learning, livesession as _livesession, outbox as _outbox, runqueue as _runqueue, studiobook as _studiobook, \
     tools as _tools, wire as _wire
 from pipeline.pack import preview as _preview
 from pipeline.transcribe import worker_client as _worker_client
-from ytt import workdata as _workdata
+from ytt import docloc as _docloc, fsio as _fsio, workdata as _workdata
 
-from . import inbox as _inbox
+from . import inbox as _inbox, progress as _progress
 
 PREVIEW_DIR = "previews"
 _CLIP_PREVIEW = getattr(_preview, "clip_preview", None)   # 1 本の確認用の動画(札なし。F3-6 で ① に入る。無ければ札つきのまとめ動画の形で 1 本)
+
+
+ENGINE_OF_DEVICE = {"vulkan": "A", "cuda": "C"}   # 文字起こしのエンジン A = whisper.cpp の Vulkan・C = CUDA(⚙ と同じ名前)
+
+
+def _hms(ms):
+    return time.strftime("%H:%M:%S", time.localtime(ms / 1000.0))
+
+
+def stage_lines(run):
+    """1 本の実行の段ごとの始めと終わりの時刻・かかった秒を 1 段 1 行で(友人のログ friendapp.log 用。10-18 友人の PC が遅い原因を後から追うため)。
+    段の時刻は ② の steps[].startedAt・finishedAt(ミリ秒)。始まらなかった段は書かない"""
+    who = getattr(run, "request_id", None) or run.id
+    out = []
+    for s in getattr(run, "steps", None) or []:
+        a, b = s.get("startedAt"), s.get("finishedAt")
+        if not isinstance(a, int) or isinstance(a, bool):
+            continue
+        b = b if isinstance(b, int) and not isinstance(b, bool) else a
+        out.append("段 依頼=%s %s(%s) 始め=%s 終わり=%s %.1f 秒 %s %s" % (
+            who, s.get("key"), _progress.FRIEND_OF.get(s.get("key")) or "-", _hms(a), _hms(b), max(0, b - a) / 1000.0,
+            s.get("state") or "", str(s.get("detail") or "")[:60].replace("\n", " ")))
+    return out
+
+
+def transcribe_line(who, rec):
+    """文書の認識の記録(recognition.runs の 1 件)-> 文字起こしの 1 行: エンジン(A/C)・実際に使った装置・モデル・音声の長さ・かかった秒・実時間比。
+    装置 = whisper.cpp が出した「using … backend」と GPU 名(ggml_vulkan / CUDA の行)。CPU に落ちたら CPU と書く。記録に装置が無ければ「記録なし」"""
+    dev = str(rec.get("device") or "")
+    eng = ENGINE_OF_DEVICE.get(dev) or ("CPU" if dev == "cpu" else "?")
+    backend, gpu = str(rec.get("backend") or ""), str(rec.get("gpu") or "")
+    if dev == "cpu":
+        where = "CPU(GPU は使っていません)"
+    elif backend or gpu:
+        where = "%s GPU=%s" % (backend or "?", gpu or "?")
+    else:
+        where = "記録なし(GPU の行を拾えていません。CPU に落ちた疑い)" if dev in ENGINE_OF_DEVICE else "記録なし"
+    audio, wall = rec.get("audioSec"), rec.get("wallSec")
+    ok = isinstance(audio, (int, float)) and isinstance(wall, (int, float)) and audio > 0
+    return "文字起こし 依頼=%s エンジン=%s(%s %s) 装置=%s モデル=%s 音声=%s 秒 かかった=%s 秒 実時間比=%s" % (
+        who, eng, rec.get("engine") or "?", rec.get("engineVersion") or "", where, rec.get("model") or "?",
+        "%.1f" % audio if isinstance(audio, (int, float)) else "?", "%.1f" % wall if isinstance(wall, (int, float)) else "?",
+        "%.2f" % (wall / audio) if ok else "?")
+
+
+def transcribe_lines(run, read_doc=None):
+    """この実行が文字起こしした文書ごとの transcribe_line(段の始まりより後の認識の記録だけ = 飛ばした既存の文書は書かない)"""
+    who = getattr(run, "request_id", None) or run.id
+    read_doc = read_doc or _read_doc
+    t0 = next((s.get("startedAt") for s in getattr(run, "steps", None) or [] if s.get("key") == "transcribe" and isinstance(s.get("startedAt"), int)), None)
+    out = []
+    for tid in getattr(run, "docs", None) or []:
+        d = read_doc(tid)
+        runs = ((d or {}).get("recognition") or {}).get("runs") if isinstance(d, dict) else None
+        rec = runs[-1] if isinstance(runs, list) and runs and isinstance(runs[-1], dict) else None
+        if rec is None or (t0 is not None and isinstance(rec.get("at"), (int, float)) and rec["at"] < t0):
+            continue
+        out.append(transcribe_line(who, rec))
+    return out
+
+
+def _read_doc(tid):
+    try:
+        return _fsio.read_json_or(_docloc.doc_file(str(tid), ".json"), None, kind=dict)
+    except Exception:
+        return None
 
 
 class FriendQueue(_runqueue.Queue):
@@ -104,7 +171,30 @@ class Engine:
                 self.inbox.finished(r["runId"], "error", "前回アプリを閉じたときに依頼が途中で失われました。[もう一度送る] で送り直してください", [], None)
 
     # ------------------------------------------------------------ 終わった実行
+    def transcribe_progress(self):
+        """いま動いている文字起こしのジョブの進み("42%")か None。ツールの transcribe_start は ② の段の中で同じ糸が終わらせるので、
+        段の detail は動かない。玄関の画面がここから読む(「1/3」のまま止まって見えないように)"""
+        try:
+            jobs = self.queue.tools.jobs()
+        except Exception:
+            return None
+        run = [j for j in jobs if isinstance(j, dict) and j.get("kind") == "transcribe" and j.get("state") == "running"]
+        if not run:
+            return None
+        p = run[-1].get("progress")
+        return "%d%%" % round(float(p) * 100) if isinstance(p, (int, float)) and not isinstance(p, bool) else None
+
+    def log_run(self, run):
+        """終わった実行の記録を friendapp.log へ(段ごと 1 行 + 文字起こし 1 行 + 実行の終わり 1 行)。書けなくても実行は止めない"""
+        try:
+            for line in stage_lines(run) + transcribe_lines(run):
+                self.log(line)
+            self.log("実行の終わり 依頼=%s 状態=%s" % (getattr(run, "request_id", None) or run.id, run.state) + (" 理由=%s" % str(run.error)[:200].replace("\n", " ") if run.state == "error" else ""))
+        except Exception as e:
+            self.log("実行の記録を書けませんでした: %s" % e.__class__.__name__)
+
     def after_run(self, run):
+        self.log_run(run)
         row = self.inbox.by_run(run.id)
         clip = False
         if row is None and getattr(run, "request_id", None):   # ライブの切り抜き 1 本の実行(封筒の requestId = 受信箱の行の id。F2-6)

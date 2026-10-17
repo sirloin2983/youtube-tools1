@@ -1623,6 +1623,33 @@ class ServerTest(unittest.TestCase):
         self.assertEqual((row["steps"]["label"], row["steps"]["index"]), ("仕上げ", 4))
         self.assertEqual(self.app.inbox.stage_stats()["文字起こし"], [750.0, 60.0])
 
+    def test_steps_show_in_stage_progress_and_slow_only_when_stuck(self):
+        """段の中の進み(30fps にそろえています(42%)・解析 42%・待ち)を行に出す。進んでいる間は「時間がかかっています」を出さない(10-18)"""
+        t = self.fake_clock()
+        rid = self.send()[1]["row"]["id"]
+        run = self.run_of(rid)
+        run.update(state="running", steps=[{"key": "analyze", "state": "run", "detail": "解析 42%"}, {"key": "transcribe", "state": "wait", "detail": ""}])
+        self.assertIn("1/2 見どころを探す・解析 42%", self.view_row(rid)["steps"]["text"])
+        t[0] += 700
+        run["steps"][0]["detail"] = "解析 43%"   # 10 分のうちに進んだ
+        self.assertNotIn("時間がかかっています", self.view_row(rid)["steps"]["text"])
+        t[0] += 700   # 進みが止まった
+        self.assertIn("時間がかかっています", self.view_row(rid)["steps"]["text"])
+        run["steps"][0]["detail"] = "重い処理の枠が空くのを待っています"
+        self.assertIn("・重い処理の枠が空くのを待っています", self.view_row(rid)["steps"]["text"])
+
+    def test_steps_transcribe_reads_live_job_progress(self):
+        """文字起こしは段の detail が動かない(同じ糸で回る)ので、玄関の認識のジョブの進みを行に出す"""
+        t = self.fake_clock()
+        rid = self.send()[1]["row"]["id"]
+        run = self.run_of(rid)
+        run.update(state="running", steps=[{"key": "transcribe", "state": "run", "detail": ""}])
+        self.engine.transcribe_progress = lambda: "17%"
+        self.assertIn("文字起こし・17%", self.view_row(rid)["steps"]["text"])
+        t[0] += 700
+        self.engine.transcribe_progress = lambda: "18%"
+        self.assertNotIn("時間がかかっています", self.view_row(rid)["steps"]["text"])
+
     def test_steps_vanish_when_row_arrives(self):
         self.fake_clock()
         rid = self.send()[1]["row"]["id"]
