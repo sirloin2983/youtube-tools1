@@ -45,7 +45,8 @@ RID_RE = re.compile(r"^\d{8}-\d{6}-[0-9a-f]{6}$")                     # 依頼 i
 OUT_NAME_RE = re.compile(r"^(\d{8}-\d{6}-[0-9a-f]{6})__(.+)$")        # 出力の名前 <依頼 id>__<題>(C# の OutputFolder.NameRx)
 VERSION_DIR_RE = re.compile(r"^\d{8}-\d{6}-[0-9a-f]{8}$")             # 学習の束の版(C# の SyncPaths.VersionDir)
 RETURN_ZIP_RE = re.compile(r"^[0-9A-Za-z_-]{1,64}__[0-9A-Za-z_-]{1,64}\.zip$")                      # SyncPaths.ZipName
-VERDICT_NAME_RE = re.compile(r'^[0-9A-Za-z_-]{1,64}__[^\\/:*?"<>|\x00-\x1f]{1,100}\.verdict\.json$')  # SyncPaths.VerdictName
+VERDICT_NAME_RE = re.compile(r'^[0-9A-Za-z_-]{1,64}__[^\\/:*?"<>|\x00-\x1f]{1,100}(~\d{13})?\.verdict\.json$')  # SyncPaths.VerdictName(F3: ~<at> = 判断ごとに別のファイル)
+NOTICE_NAME_RE = re.compile(r"^[0-9A-Za-z_-]{1,64}__notice-\d{13}\.notice\.json$")   # [作る人に知らせる](notes:docs/spec/friend.md の 12-4)
 APP_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 UPDATE_FILE_RE = re.compile(r"^RequestSender-\d+\.\d+\.\d+\.zip$")   # dev/build_friend_zip.py の名前(C# の Setup.UpdateFile)
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -53,6 +54,7 @@ BAD_NAME = re.compile(r'[\\/:*?"<>|\x00-\x1f\x7f]')
 RESERVED = re.compile(r"^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$", re.I)
 SMALL_CAP = 64 * 1024              # .group.json・失敗の知らせ・latest.json(C# の GroupTextCap・FailureTextCap)
 META_CAP = 16 * 1024
+VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 GROUP_WAIT = 600                   # 組の zip がそろわないとき、そろった分だけで取り込むまで待つ秒
 SINGLE_WAIT = 1800                 # まとめ動画も印も無い zip を 1 本として取り込むまで待つ秒(組の一覧が後から来るかもしれない)
 KEEP_LEARNING = 3
@@ -152,6 +154,25 @@ def parse_meta(data):
     """<zip>.meta.json -> 出どころ request|auto か ""(読めない = 依頼として扱う)"""
     d = _json_bytes(data)
     return clean_origin(d.get("origin")) if isinstance(d, dict) and d.get("v") == 1 else ""
+
+
+def parse_meta_info(data):
+    """<zip>.meta.json の配信の欄(F3-6。notes:docs/spec/friend.md の 12-1)-> {videoId, markId, streamTitle, streamer, seconds}(無い欄は入れない)"""
+    d = _json_bytes(data)
+    if not isinstance(d, dict) or d.get("v") != 1:
+        return {}
+    out = {}
+    vid = d.get("videoId")
+    if isinstance(vid, str) and VIDEO_ID_RE.match(vid):
+        out["videoId"] = vid
+    for k, cap in (("markId", 80), ("streamTitle", 200), ("streamer", 60)):
+        t = clean_text(d.get(k), cap)
+        if t:
+            out[k] = t
+    sec = d.get("seconds")
+    if isinstance(sec, (int, float)) and not isinstance(sec, bool) and 0 < sec < 86400:
+        out["seconds"] = float(sec)
+    return out
 
 
 def failure_text(data, truncated):
@@ -592,6 +613,7 @@ class Sync:
             origin = (parse_meta(got[0]) if got and not got[1] else "") or "request"
             item = self._pack_item(f, f["title"], None)
             item["meta"] = meta
+            item["info"] = parse_meta_info(got[0]) if got and not got[1] else {}
             self.inbox.import_remote(f["rid"], origin, f["title"], [{"group": None, "preview": pv, "previewSize": files[pv]["size"] if pv else None,
                                                                      "packs": [item]}])
             self.log("届いたパックを受信箱に入れました: %s" % name)
@@ -643,7 +665,7 @@ class Sync:
             if not name_ok(zname):
                 self.inbox.remote_keep_failed(rid, name, "名前が正しくないので受け取れません")
                 continue
-            save = self.places["save"]()
+            save, num = self.inbox.keep_place(rid, name) or (self.places["save"](), None)   # <保存先>\<日付>_<配信者>_<題>\#番号(C-3-8)
             os.makedirs(save, exist_ok=True)
             if not self._free_ok(save, size * 2):
                 self.inbox.remote_keep_failed(rid, name, "保存先の空きが足りません(あと %d MB ほど空けてから、もう一度 [受け取る])" % (size * 2 // (1024 * 1024) + 64))
@@ -661,6 +683,10 @@ class Sync:
                     continue
                 try:
                     placed = extract_pack(part, save, _inbox.pack_title(name))
+                    if num:   # 展開した <題>_pack を #番号 に
+                        dest = _inbox.unique_dest(save, num)
+                        os.replace(placed, dest)
+                        placed = dest
                 except (ValueError, zipfile.BadZipFile, OSError) as e:
                     self.inbox.remote_keep_failed(rid, name, "展開できませんでした(%s)" % (str(e)[:120] if isinstance(e, ValueError) else e.__class__.__name__))
                     continue
@@ -690,7 +716,7 @@ class Sync:
         failed = []
         for name in sorted(os.listdir(box)):
             p = os.path.join(box, name)
-            if not os.path.isfile(p) or not (RETURN_ZIP_RE.match(name) or VERDICT_NAME_RE.match(name)):
+            if not os.path.isfile(p) or not (RETURN_ZIP_RE.match(name) or VERDICT_NAME_RE.match(name) or NOTICE_NAME_RE.match(name)):
                 continue
             try:
                 io.upload(p, "%s/%s" % (RETURNS, name))

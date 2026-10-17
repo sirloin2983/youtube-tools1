@@ -23,6 +23,7 @@ from ytt import workdata as _workdata
 from . import inbox as _inbox
 
 PREVIEW_DIR = "previews"
+_CLIP_PREVIEW = getattr(_preview, "clip_preview", None)   # 1 本の確認用の動画(札なし。F3-6 で ① に入る。無ければ札つきのまとめ動画の形で 1 本)
 
 
 class FriendQueue(_runqueue.Queue):
@@ -191,8 +192,8 @@ class Engine:
                 self.log("まとめ動画を作れませんでした: %s" % e.__class__.__name__)
 
     def make_previews(self, rid):
-        """届いた行の組ごとのまとめ動画(札 = パックの題。① pipeline/pack/preview)を <玄関>/previews/<依頼 id>-<n>.mp4 に。
-        1 つずつ(裏の糸と呼んだ側が同じ組を二重に作らない)"""
+        """届いた行のパック 1 本ずつの確認用の動画(480p・字幕なし。① pipeline/pack/preview の clip_preview = F3-6。C-3-3)を
+        <玄関>/previews/<依頼 id>-<n>.mp4 に(n = 1 本ずつの組の番号)。1 つずつ(裏の糸と呼んだ側が同じ物を二重に作らない)"""
         with self._mk_lock:
             self._make_previews(rid)
 
@@ -206,8 +207,12 @@ class Engine:
         for g in r["groups"]:
             if g.get("preview") and os.path.isfile(g["preview"]):
                 continue
-            dirs = [by_name[n]["dir"] for n in g["names"] if n in by_name and by_name[n].get("dir") and os.path.isdir(by_name[n]["dir"])]
-            tmp = _preview.batch_preview(dirs, log=self.log) if dirs else None
+            dirs = [by_name[n]["dir"] for n in g["names"] if n in by_name and by_name[n].get("dir") and os.path.isdir(by_name[n]["dir"])
+                    and not by_name[n].get("verdict")]
+            if len(dirs) == 1 and _CLIP_PREVIEW is not None:
+                tmp = _CLIP_PREVIEW(dirs[0], log=self.log)
+            else:
+                tmp = _preview.batch_preview(dirs, log=self.log) if dirs else None
             if not tmp:
                 continue
             dest = os.path.join(folder, "%s-%d.mp4" % (rid, g["n"]))

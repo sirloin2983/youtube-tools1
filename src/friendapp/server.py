@@ -91,7 +91,7 @@ SWEEP_EVERY = 3600        # 受信箱の 3 日の片付けを見る間隔(秒)
 SAVE_DEFAULT = _settings.SAVE_DEFAULT   # 受け取るの保存先の既定(%USERPROFILE% の下。⚙ で選ぶ = F2-5)
 SAVE_FILE = _settings.SAVE_FILE
 CLIENT_LOG_MAX = 512 * 1024
-SYNC_KICK = ("/api/friend/send", "/api/friend/decide", "/api/friend/retry", "/api/friend/local")   # 押したあと同期を起こす口(F2-3)
+SYNC_KICK = ("/api/friend/send", "/api/friend/decide", "/api/friend/undo", "/api/friend/retry", "/api/friend/local", "/api/friend/report")   # 押したあと同期を起こす口(F2-3)
 
 
 def save_dir(friend_dir, env=None):
@@ -275,14 +275,21 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, app.api.peek_live((q.get("url") or [""])[0][:300]))
             except _api.FormError as e:
                 return self._fail(400, "bad_url", str(e))
-        if path == "/api/friend/media":
-            r = app.inbox.row((q.get("id") or [""])[0])
-            try:
-                n = int((q.get("n") or ["0"])[0])
-            except ValueError:
-                n = 0
-            g = next((g for g in (r or {}).get("groups") or [] if g["n"] == n), None)
-            p = g and g.get("preview")
+        if path == "/api/friend/receive":   # 受け取る画面(F3-4。配信ごとの段・見送った物・まだ決めていない本数)
+            app.seen = time.time()
+            return self._json(200, app.inbox.receive_view())
+        if path == "/api/friend/media":   # 1 本の確認用の動画(id + name。F3-4)・前の形の組のまとめ動画(id + n)
+            rid = (q.get("id") or [""])[0]
+            if q.get("name"):
+                p = app.inbox.pack_preview(rid, (q.get("name") or [""])[0])
+            else:
+                r = app.inbox.row(rid)
+                try:
+                    n = int((q.get("n") or ["0"])[0])
+                except ValueError:
+                    n = 0
+                g = next((g for g in (r or {}).get("groups") or [] if g["n"] == n), None)
+                p = g and g.get("preview")
             if not p or not os.path.isfile(p) or not _fsio.is_inside(p, app.places["friend"]):
                 return self._fail(404, "not_found", "まとめ動画がまだありません")
             try:
@@ -297,6 +304,31 @@ class Handler(BaseHTTPRequestHandler):
             eng = app.engine
             return self._json(200, eng.queue.status() if eng else {"idle": True, "runs": [], "preparing": True})
         return self._fail(404, "not_found", "その操作はありません")
+
+    # ------------------------------------------------------------ PUT(画面に落とした動画を受け取る。F3-3 = C-2-13)
+    def do_PUT(self):
+        u = urllib.parse.urlsplit(self.path)
+        h = self.headers
+        path = u.path[len("/friend"):] if u.path.startswith("/friend/api/") else u.path
+        if not (self._host_ok() and httpsec.origin_ok(h, self.server.allowed_hosts) and httpsec.fetch_site_ok(h)):
+            return self._send(403, b"forbidden")
+        if not httpsec.token_ok(h, self.server.token, TOKEN_HEADER):
+            return self._json(403, TOKEN_FAIL)
+        if path != "/api/friend/upload":
+            return self._fail(404, "not_found", "その操作はありません")
+        q = urllib.parse.parse_qs(u.query)
+        try:
+            size = int(h.get("Content-Length") or "-1")
+        except ValueError:
+            size = -1
+        self.close_connection = True   # 読み切らずに断ったときに、残りを次の要求として読まない
+        try:
+            got = self.server.app.api.upload_file((q.get("name") or [""])[0], size, self.rfile.read)
+        except _api.FormError as e:
+            return self._fail(400, "bad_request", str(e))
+        except OSError as e:
+            return self._fail(500, "io", "動画を受け取れませんでした(%s)" % e.__class__.__name__)
+        return self._json(200, {"ok": True, "file": got})
 
     # ------------------------------------------------------------ POST
     def do_POST(self):
@@ -329,8 +361,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def _post(self, path, body):
         app = self.server.app
-        if path == "/api/friend/send":
-            return self._json(200, {"ok": True, "row": app.api.send(body)})
+        if path == "/api/friend/send":   # F3-3: {rows, skipped}(row = 先頭の行。前の形の呼び手のため)
+            got = app.api.send(body)
+            return self._json(200, {"ok": True, "row": got["rows"][0], "rows": got["rows"], "skipped": got["skipped"]})
         if path == "/api/friend/pick-file":   # ファイルを選ぶ窓(F2-6)。1 つずつ(開いている間の 2 つ目は断る)
             if not app.pick_lock.acquire(blocking=False):
                 return self._fail(409, "busy", "ファイルを選ぶ窓はもう開いています")
@@ -339,9 +372,15 @@ class Handler(BaseHTTPRequestHandler):
             finally:
                 app.pick_lock.release()
             return self._json(200, {"ok": True, "file": app.api.remember_file(chosen) if chosen else None})
-        if path == "/api/friend/decide":
-            got = app.inbox.decide(str(body.get("id") or ""), [n for n in body.get("names") or [] if isinstance(n, str)], body.get("verdict"))
-            return self._json(200, {"ok": not got["errors"], "done": got["done"], "pending": got["pending"], "errors": got["errors"]})
+        if path == "/api/friend/decide":   # F3-4: {items: [{id, name}], verdict: keep|skip|bad, reason?: boring|cut}(前の形 {id, names} も受ける)
+            return self._json(200, app.decide(body))
+        if path == "/api/friend/undo":   # [戻す](C-3-6){items: [{id, name}]}
+            return self._json(200, app.undo(body))
+        if path == "/api/friend/report":   # [作る人に知らせる](C-2-16)
+            return self._json(200, {"ok": True, "row": app.api.report(str(body.get("id") or ""))})
+        if path == "/api/friend/prefs":   # ⚙ の処理する PC・解析の重み・ライブの感度・待ち・余白(C-2-19・C-2-11)
+            msgs = app.api.set_prefs({k: body[k] for k in ("pc", "useWeights", "weights", "liveSens", "liveWait", "livePad") if k in body})
+            return self._json(200, {"ok": True, "message": "。".join(msgs) or "変えるものがありません", "form": app.api.form()})
         if path == "/api/friend/retry":
             return self._json(200, {"ok": True, "row": app.api.retry(str(body.get("id") or ""))})
         if path == "/api/friend/remove":
@@ -351,6 +390,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, {"ok": True, "result": app.api.cancel(str(body.get("id") or ""))})
         if path == "/api/friend/local":   # [この PC でやり直す](A-2。F2-3)
             return self._json(200, {"ok": True, "row": app.api.local(str(body.get("id") or ""))})
+        if path == "/api/friend/open" and body.get("id"):   # 受け取った物のフォルダ([フォルダを開く]。C-3-8)
+            d = app.inbox.saved_dir(str(body.get("id")), str(body.get("name") or ""))
+            if not d:
+                return self._fail(404, "not_found", "保存先のフォルダが見つかりません")
+            app.open_folder(d)
+            return self._json(200, {"ok": True})
         if path == "/api/friend/open":
             d = app.places["save"]()
             os.makedirs(d, exist_ok=True)
@@ -384,6 +429,9 @@ class Handler(BaseHTTPRequestHandler):
             msg = app.settings.set_folder(what, chosen) if chosen else ""
             return self._json(200, {"ok": True, "chosen": bool(chosen), "message": msg, "settings": app.settings.view()})
         if path == "/api/friend/notice-seen":
+            if body.get("what") == "cleaned":   # 「3 日たった n 本を片付けました」を見た(C-3-7)
+                app.inbox.notice_seen()
+                return self._json(200, {"ok": True})
             app.rollback_seen = True
             if app.catalog:
                 _oldcopy.mark_notice_shown(app.catalog)
@@ -486,6 +534,43 @@ class FriendApp:
         self.pick_folder = pick_folder_dialog   # フォルダを選ぶ窓の口(F2-5。テストと見本は差し替える = 本物の窓を出さない)
         # 配信の一覧(F3-2。キー無し = 名簿の channel・RSS・動画のページ)。糸を起こすのは main だけ(テストと見本は fetch を差し替える)
         self.streams = _streams.Streams(os.path.join(places["friend"], STREAMS_NAME), clock=clock, log=self.log)
+        self.inbox.stream_info = lambda vid: self.streams.lookup(vid)   # 受け取った物の置き場所の日付・段の見出し(C-3-8)
+
+    def decide(self, body):
+        """[受け取る] / [見送る] / 届かなくてよかった(1 本でもまとめてでも。行ごとに受信箱へ)"""
+        items = body.get("items")
+        if not isinstance(items, list):   # 前の形 {id, names}
+            items = [{"id": body.get("id"), "name": n} for n in body.get("names") or [None]]
+        by_row = {}
+        for it in items:
+            if isinstance(it, dict) and isinstance(it.get("id"), str):
+                by_row.setdefault(it["id"], []).extend([it["name"]] if isinstance(it.get("name"), str) else [])
+        done, pending, errors = [], [], []
+        for rid, names in by_row.items():
+            try:
+                got = self.inbox.decide(rid, names, body.get("verdict"), reason=body.get("reason"))
+            except ValueError as e:
+                raise _api.FormError(str(e))
+            done += [{"id": rid, "name": n} for n in got["done"]]
+            pending += [{"id": rid, "name": n} for n in got["pending"]]
+            errors += [dict(e, id=rid) for e in got["errors"]]
+        if done or pending:
+            self.sync.kick()
+        return {"ok": not errors, "done": done, "pending": pending, "errors": errors}
+
+    def undo(self, body):
+        by_row = {}
+        for it in body.get("items") if isinstance(body.get("items"), list) else []:
+            if isinstance(it, dict) and isinstance(it.get("id"), str) and isinstance(it.get("name"), str):
+                by_row.setdefault(it["id"], []).append(it["name"])
+        done, errors = [], []
+        for rid, names in by_row.items():
+            got = self.inbox.undo(rid, names)
+            done += [{"id": rid, "name": n} for n in got["done"]]
+            errors += [dict(e, id=rid) for e in got["errors"]]
+        if done:
+            self.sync.kick()
+        return {"ok": not errors, "done": done, "errors": errors}
 
     def streams_view(self):
         """配信の一覧 + 各カードの送った物の印(同じ配信の一番新しい依頼の行の状態 = C-2-4)"""
@@ -586,12 +671,17 @@ class FriendApp:
         last_sweep = 0
         while not self.closing.wait(10):
             now = self.clock()
+            if self.engine is not None:
+                try:
+                    self.api.tick()   # アーカイブ待ち・失敗の自動のやり直し・落とした動画の片付け(F3-3)
+                except Exception as e:   # 見回りで玄関を止めない
+                    self.log("送った物の見回りに失敗しました: %s" % e.__class__.__name__)
             if now - last_sweep >= SWEEP_EVERY and self.engine is not None:
                 last_sweep = now
                 try:
                     n = self.inbox.sweep()
                     if n:
-                        self.log("3 日決めなかった %d 本を自動で要らないにしました" % n)
+                        self.log("3 日決めなかった %d 本を自動で見送りました" % n)
                 except Exception as e:   # 片付けで玄関を止めない
                     self.log("受信箱の片付けに失敗しました: %s" % e.__class__.__name__)
 

@@ -1,23 +1,20 @@
 # -*- coding: utf-8 -*-
-"""友人の玄関の口の中身(F2-2。HTTP の形は server.py。ここは欄の検査・② への受付・受信箱の決め方・前回の値)。
+"""友人の玄関の口の中身(F2-2・F3-3。HTTP の形は server.py。ここは欄の検査・② への受付・送った物の進み具合と取り消し・失敗のやり直し・前回の値)。
 
-送る欄(notes:plan/f1-friend-requirements.md の A-3〜A-10):
-    url            配信の URL 1 本(A-4。YouTube の配信・動画。動画ファイルとライブは F2-6)
-    ranges         区間 [[開始, 終了], …](秒。任意)。区間があれば本数は区間の数(自動の見どころで埋めない = A-3)
-    top            本数(区間が無いときだけ。1〜30。前回の値)
-    streamer       配信者(自動の推し・名簿・打った名前。"" = 色なし。依頼ごと = 覚えない = A-7)
-    people         コラボで足した人の名前(字幕の色だけ。話者分離は友人の PC の ② にまだ無いので人数は束に入れない = 仮・AI)
-    videoTracks    映像トラックの数 1〜5(「詳しく」・前回の値 = A-6)
-    deliverBatch   届け方 1 か 5(「詳しく」・初めは 5・前回の値 = A-9)
-    weights        解析の重み {wAudio, wChat, wComments} 0〜3 か null(「詳しく」・区間のある依頼では使わない = A-10)
-    pc             処理する PC "this"(この PC の ②)/ "user"(ユーザーの PC に Dropbox で頼む。「詳しく」・前回の値・初めは this = A-2。F2-3)
-F2-6(送る欄を広げる):
-    source         "url"(配信の URL)/ "file"(動画ファイル。fileId = [ファイルを選ぶ] で玄関が覚えた id。画面からパスは受けない)
-    kind           URL のとき "live" なら ライブ(peek_live が配信中・配信前と答えた)。区間は使わない・本数は 1 録画の自動の採用の上限
-    live           ライブの 6 つの設定 {sens, perHour, length, waitMin, pad, afterStream}(前回の値 = form.json の live。検査は friendapp/live.check_settings)
-    動画ファイル: 題 = ファイル名・配信者の推しは名前の頭の【名前】から(A-7 の仮)・区間・本数・重みは使わない(② の動画ファイルの実行は 1 本 = 1 パック)。
-    この PC では一時保管の <作業>/依頼/<日付>_<題>_<id6>/ へ写してから ② へ(7-2。元の動画は読むだけ)・ユーザーの PC へは同期が動画を上げてから依頼の JSON
-カット(A-8)は束の既定のまま(しない)。前回の値は <玄関>/form.json。
+送る欄(F3-3。notes:plan/f1-friend-requirements.md の C-2-6〜C-2-19):
+    source         "url"(配信 1 本)/ "files"(動画ファイル。files = [{fileId, streamer}] を 20 まで。1 本 = 1 依頼の行)
+    kind           url のとき "url"(アーカイブ)/ "live"(ライブ中・予定 = 録画を頼む・予約する)/ "wait"(終わったばかり = アーカイブ待ち。C-2-12)
+    ranges         区間 [[開始, 終了], …](秒。5 つまで。url・wait だけ)。区間があれば本数は区間の数
+    top            本数(区間が無いときだけ。1〜20。初め 5・前回の値 = C-2-8)
+    streamer       配信者の札(名簿・打った名前。"" = 色なし)・people = [+ 人] で足したコラボの相手(字幕の色だけ)
+    videoTracks    映像トラックの数 1〜5(送る欄・前回の値 = C-2-10)
+    live           ライブの送る欄の 3 つ {perHour, lengthMode: auto|fixed, length, afterStream}。感度・待ち・余白は ⚙ の値(C-2-11)
+⚙ の値(C-2-19。prefs で変える): pc(この PC で処理する "this" / 依頼する "user")・解析の重み(useWeights・weights)・ライブの感度・待ち・余白・カットの既定。
+前回の値は <玄関>/form.json。届け方(5 本ずつ)はやめた(1 本ずつ = C-3-1)。
+
+送った物(C-2-14〜C-2-16): どの行にも [取り消す](cancel)。失敗は friendapp/progress.classify で友人の言葉に直し、直る見込みのある物は
+RETRY_EVERY 秒おきに RETRY_MAX 回まで自動でやり直す(tick)。同じ失敗が 2 回目なら [作る人に知らせる](report = 送り返しに .notice.json。形は
+notes:docs/spec/friend.md の 12-4)。アーカイブ待ちの行は tick が数分おきに配信を調べ、アーカイブが出たら作り始める(1 日出なければ失敗)。
 ユーザーの PC に頼む行は、同期(friendapp/sync.py。api.sync)が依頼の JSON を Dropbox の直下へ上げる。受付が 1 時間読まなければ [この PC でやり直す](local)。
 """
 import datetime
@@ -33,25 +30,38 @@ import urllib.request
 import uuid
 
 from flow import deliver as _deliver, order as _order, placement as _placement, spec as _spec
-from ytt import colors as _colors, fsio as _fsio, tools as _tools, yturl as _yturl
+from ytt import colors as _colors, fsio as _fsio, tools as _tools, version as _version, yturl as _yturl
 
-from . import inbox as _inbox, live as _live
+from . import inbox as _inbox, live as _live, progress as _progress
 
 FORM_NAME = "form.json"
-FORM_DEFAULTS = {"top": 10, "videoTracks": 1, "deliverBatch": 5, "useWeights": False, "weights": {"wAudio": 1, "wChat": 1, "wComments": 1},
-                 "pc": "this", "live": dict(_live.SETTINGS_DEFAULT), "cut": "none"}   # cut = ⚙ のカットの既定(A-8。送る欄には出さない。F2-5)
-BATCHES = (1, 5)
+TOP_MAX = 20                        # 本数の上限(C-5-5)
+TOP_DEFAULT = 5                     # 本数の初め(C-2-8)
+RANGES_MAX = 5                      # 区間の数の上限(C-5-5)
+FILES_MAX_SEND = 20                 # 動画ファイルを 1 回に送る数(C-2-13)
+LENGTH_MODES = ("auto", "fixed")    # ライブの長さ: 自動(場面ごと)/ 固定の秒数(C-2-11)
+FORM_DEFAULTS = {"top": TOP_DEFAULT, "videoTracks": 1, "useWeights": False, "weights": {"wAudio": 1, "wChat": 1, "wComments": 1},
+                 "pc": "this", "live": dict(_live.SETTINGS_DEFAULT, lengthMode="auto"), "cut": "none"}   # cut = ⚙ のカットの既定(A-8)
 PCS = ("this", "user")
 PEOPLE_MAX = 6
 OEMBED = "https://www.youtube.com/oembed?format=json&url="
 PEEK_TIMEOUT = 8
 LIVE_PEEK_CACHE = 60                # 配信中か調べた結果を覚える秒(配信前 → 配信中と変わるので短く)
 LIVE_STATES = ("is_live", "is_upcoming")
-FILES_MAX = 20                      # 覚えておく選んだファイルの数
+FILES_MAX = 60                      # 覚えておく選んだファイルの数
 VIDEO_TYPES = tuple(k for k, v in _tools.MEDIA_TYPES.items() if v.startswith("video/"))
-NAME_PREFIX_RE = re.compile(r"^【([^】]{1,60})】")   # 動画の名前の頭の【配信者】(手で送るときの読み方 = A-7 の仮)
+NAME_PREFIX_RE = re.compile(r"^【([^】]{1,60})】")   # 動画の名前の頭の【配信者】
 COPY_CHUNK = 8 * 1024 * 1024
 COPY_ROOM = 512 * 1024 * 1024       # 写すときに残す空き
+WAIT_EVERY = 300                    # アーカイブ待ち: 配信を調べ直す間隔(秒)
+WAIT_GIVE_UP = 86400                # アーカイブ待ち: これだけ待って出なければ失敗(C-2-12 の「1 日など」)
+ARCHIVE_OK = ("was_live", "not_live")   # 調べた結果がこれならアーカイブが見られる(post_live = まだ)
+RETRY_MAX = _inbox.RETRY_MAX         # 直る見込みのある失敗の自動のやり直しの回数(C-2-16)
+RETRY_EVERY = 180                   # 自動のやり直しの間隔(秒 = 数分おき)
+NOTICE_MAX = 250 * 1024             # [作る人に知らせる] の 1 つの大きさ(12-4 = 256KB 未満)
+NOTICE_LOG_MAX = 120 * 1024         # その中のログ(12-4 = 128KB まで)
+UPLOAD_DIR = "受け取った動画"       # 画面に落とした動画の置き場所(一時保管の中。送らなければ 1 日で消す)
+UPLOAD_KEEP = 86400
 
 
 class FormError(ValueError):
@@ -80,12 +90,30 @@ def probe_live(url):
 
 
 def guess_streamer(name, entries=None):
-    """動画の名前の頭の【名前】-> 名簿の 1 人 {"name", "hex"} か None(A-7 の仮: 手で送るときの読み方を流用。合わなければ推さない)"""
+    """動画の名前の頭の【名前】-> 名簿の 1 人 {"name", "hex"} か None(合わなければ推さない)"""
     m = NAME_PREFIX_RE.match(str(name or "").strip())
     if not m:
         return None
     hit = _colors.lookup(m.group(1).strip(), entries)["match"]
     return {"name": hit["name"], "hex": hit["hex"]} if hit else None
+
+
+def file_title(name):
+    """動画ファイルの名前 -> 題の元(拡張子と頭の【】を除く。C-2-13)"""
+    stem = os.path.splitext(os.path.basename(str(name or "")))[0]
+    return (NAME_PREFIX_RE.sub("", stem).strip() or stem)[:120]
+
+
+def clean_ranges(v):
+    """区間 [[開始, 終了], …] -> 整えた一覧(5 つまで。1 つの長さの上限は ② の決まりのまま = flow/spec)。違えば FormError"""
+    if v in (None, [], ()):
+        return []
+    if not isinstance(v, (list, tuple)) or len(v) > RANGES_MAX:
+        raise FormError("区間は %d つまでです" % RANGES_MAX)
+    try:
+        return _spec.clean_ranges(v)
+    except ValueError as e:
+        raise FormError(str(e))
 
 
 class Api:
@@ -98,28 +126,28 @@ class Api:
         self.form_path = os.path.join(places["friend"], FORM_NAME)
         self._peek = {}
         self._live_peek = {}
-        self._files = {}                 # [ファイルを選ぶ] で選んだ動画 {id: {path, name, size}}(パスは画面に出さない)
+        self._files = {}                 # 選んだ・落とした動画 {id: {path, name, size, copy?}}(パスは画面に出さない)
         self._copies = {}                # 写している動画 {依頼 id: [写した, 全部]}
+        self._stages = {}                # 作っている行の今の段 {依頼 id: [段の名前, 始まった ms, detail, 最後に変わった ms]}(進み具合・残り時間)
         self._lock = threading.Lock()
         self.stopping = lambda: False    # 玄関が終わる途中か(写すのを止める。玄関が入れる)
-        self.sync = None   # Dropbox の同期(friendapp/sync.Sync。玄関が入れる。無ければユーザーの PC には頼めない)
-        self.parts_missing = lambda: None   # 初回の取得の部品が足りない理由か None(この PC で作る依頼を断る。玄関が setup.Setup.block_reason を入れる = F2-5)
+        self.sync = None   # Dropbox の同期(friendapp/sync.Sync。玄関が入れる。無ければ依頼できない)
+        self.parts_missing = lambda: None   # 初回の取得の部品が足りない理由か None(この PC で作る依頼を断る。玄関が setup.Setup.block_reason を入れる)
+        self.log_path = os.path.join(places["friend"], "logs", "friendapp.log")   # [作る人に知らせる] に付けるログ
 
     def _need_parts(self):
         why = self.parts_missing()
         if why:
             raise FormError(why)
 
-    # ------------------------------------------------------------ 前回の値
+    # ------------------------------------------------------------ 前回の値と ⚙
     def form(self):
         d = _fsio.read_json_or(self.form_path, {}, kind=dict)
         out = json.loads(json.dumps(FORM_DEFAULTS))
-        if _int_in(d.get("top"), 1, 30):
+        if _int_in(d.get("top"), 1, TOP_MAX):
             out["top"] = d["top"]
         if _int_in(d.get("videoTracks"), 1, 5):
             out["videoTracks"] = d["videoTracks"]
-        if d.get("deliverBatch") in BATCHES:
-            out["deliverBatch"] = d["deliverBatch"]
         if isinstance(d.get("useWeights"), bool):
             out["useWeights"] = d["useWeights"]
         if d.get("pc") in PCS:
@@ -127,10 +155,14 @@ class Api:
         w = d.get("weights")
         if isinstance(w, dict) and all(_int_in(w.get(k), 0, 3) for k in _spec.WEIGHT_KEYS):
             out["weights"] = {k: w[k] for k in _spec.WEIGHT_KEYS}
-        out["live"] = _live.clean_settings(d.get("live"))   # ライブの 6 つの設定(A-5。前回の値)
+        lv = d.get("live") if isinstance(d.get("live"), dict) else {}
+        out["live"] = dict(_live.clean_settings(lv), lengthMode=lv.get("lengthMode") if lv.get("lengthMode") in LENGTH_MODES else "auto")
         if d.get("cut") in _spec.CUTS:
             out["cut"] = d["cut"]
         return out
+
+    def _write_form(self, cur):
+        _fsio.write_json(self.form_path, cur, indent=None)
 
     def set_cut(self, cut):
         """⚙ のカットの既定(none・silence)を form.json に(F2-5)"""
@@ -138,25 +170,57 @@ class Api:
             raise FormError("カットは「しない」か「無音を削る」を選んでください")
         cur = self.form()
         cur["cut"] = cut
-        _fsio.write_json(self.form_path, cur, indent=None)
+        self._write_form(cur)
+
+    def set_prefs(self, body):
+        """⚙ の値(C-2-19・C-2-11): pc・useWeights・weights・liveSens・liveWait・livePad -> 変えた物の文のリスト。違えば FormError(どれも書かない)"""
+        cur = self.form()
+        msgs = []
+        if "pc" in body:
+            if body["pc"] not in PCS:
+                raise FormError("処理する PC が正しくありません")
+            if body["pc"] == "user":
+                self._need_key()
+            cur["pc"] = body["pc"]
+            msgs.append("依頼するにしました(この PC では処理しません)" if body["pc"] == "user" else "この PC で処理するにしました")
+        if "useWeights" in body:
+            if not isinstance(body["useWeights"], bool):
+                raise FormError("解析の重みはオンかオフにしてください")
+            cur["useWeights"] = body["useWeights"]
+            msgs.append("解析の重みを%s" % ("使うにしました" if body["useWeights"] else "使わないにしました"))
+        if "weights" in body:
+            w = body["weights"]
+            if not (isinstance(w, dict) and all(_int_in(w.get(k), 0, 3) for k in _spec.WEIGHT_KEYS)):
+                raise FormError("重みは 0〜3 にしてください")
+            cur["weights"] = {k: w[k] for k in _spec.WEIGHT_KEYS}
+            msgs.append("解析の重みを変えました")
+        lv = dict(cur["live"])
+        for key, name in (("liveSens", "sens"), ("liveWait", "waitMin"), ("livePad", "pad")):
+            if key in body:
+                lv[name] = body[key]
+        if lv != cur["live"]:
+            try:
+                checked = _live.check_settings(lv)
+            except ValueError as e:
+                raise FormError(str(e))
+            cur["live"] = dict(checked, lengthMode=lv.get("lengthMode", "auto"))
+            msgs.append("ライブの設定を変えました(次に頼む録画から)")
+        if msgs:
+            self._write_form(cur)
+        return msgs
 
     def _remember(self, f):
         cur = self.form()
-        for k in ("videoTracks", "deliverBatch", "pc"):
-            cur[k] = f[k]
-        if f["kind"] == "url":   # 重みは URL の欄だけ(動画ファイル・ライブでは出さない)
-            cur["useWeights"] = f["useWeights"]
-        if f.get("top") is not None:
+        cur["videoTracks"] = f["videoTracks"]
+        if f.get("top") is not None and f["kind"] in ("url", "wait"):
             cur["top"] = f["top"]
-        if f.get("weights"):
-            cur["weights"] = f["weights"]
         if f.get("live"):
-            cur["live"] = f["live"]
-        _fsio.write_json(self.form_path, cur, indent=None)
+            cur["live"] = dict(cur["live"], **{k: f["live"][k] for k in ("perHour", "length", "afterStream", "lengthMode") if k in f["live"]})
+        self._write_form(cur)
 
     # ------------------------------------------------------------ 送る
     def peek(self, url):
-        """URL を貼ったとき: 配信の id・題・チャンネル名と配信者の推し(A-7)-> {"videoId", "title", "channel", "streamer", "hex"}"""
+        """URL を貼ったとき: 配信の id・題・チャンネル名と配信者の推し -> {"videoId", "title", "channel", "streamer", "hex"}"""
         vid = _yturl.parse_video_id(url)
         if not vid:
             raise FormError("YouTube の配信の URL を貼ってください")
@@ -172,8 +236,8 @@ class Api:
         return dict(got)
 
     def peek_live(self, url):
-        """URL を貼ったとき: 配信中・配信前か(A-5。yt-dlp の live_status = ② の probe_live。数秒かかる)-> {"videoId", "status", "live", "message"}。
-        live = 配信中・配信前(送る欄の下に 6 つの設定を出す)。post_live = 終わった直後(アーカイブがまだ見られない = 送れない)"""
+        """配信中・配信前か(yt-dlp の live_status = ② の probe_live。数秒かかる)-> {"videoId", "status", "live", "message"}。
+        live = 配信中・配信前(ライブの送る欄)。post_live = 終わった直後(アーカイブ待ちで送れる = C-2-12)。members = メンバー限定(送れない)"""
         vid = _yturl.parse_video_id(url)
         if not vid:
             raise FormError("YouTube の配信の URL を貼ってください")
@@ -188,11 +252,23 @@ class Api:
             st = info.get("status") if isinstance(info.get("status"), str) else "unknown"
             msg = str(info.get("message") or "")[:200]
             if st == "post_live":
-                msg = "配信が終わったばかりで、アーカイブがまだ見られません。見られるようになってから送ってください"
+                msg = "配信が終わったばかりです。送ると、アーカイブが出たら自動で作り始めます"
+            if _progress.classify(msg)["code"] == "members":
+                st, msg = "members", "メンバー限定の配信は切り抜けません"
             hit = (now, {"videoId": vid, "status": st, "live": st in LIVE_STATES, "message": msg})
             with self._lock:
                 self._live_peek[vid] = hit
         return dict(hit[1])
+
+    def _keep_file(self, entry):
+        fid = uuid.uuid4().hex[:12]
+        with self._lock:
+            self._files[fid] = entry
+            while len(self._files) > FILES_MAX:
+                self._files.pop(next(iter(self._files)))
+        who = guess_streamer(entry["name"])
+        return {"id": fid, "name": entry["name"], "size": entry["size"], "title": file_title(entry["name"]),
+                "streamer": who["name"] if who else "", "hex": who["hex"] if who else None}
 
     def remember_file(self, path):
         """[ファイルを選ぶ] で選んだ動画を覚える -> {"id", "name", "size", "title", "streamer", "hex"}(パスは返さない)。動画でなければ FormError"""
@@ -200,72 +276,115 @@ class Api:
             raise FormError("動画ファイルが見つかりません")
         name = os.path.basename(path)
         if os.path.splitext(name)[1].lower() not in VIDEO_TYPES:
-            raise FormError("動画ファイル(%s)を選んでください" % " ".join(sorted(VIDEO_TYPES)))
-        size = os.path.getsize(path)
-        fid = uuid.uuid4().hex[:12]
-        with self._lock:
-            self._files[fid] = {"path": path, "name": name[:200], "size": size}
-            while len(self._files) > FILES_MAX:
-                self._files.pop(next(iter(self._files)))
-        who = guess_streamer(name)
-        return {"id": fid, "name": name[:200], "size": size, "title": os.path.splitext(name)[0][:120],
-                "streamer": who["name"] if who else "", "hex": who["hex"] if who else None}
+            raise FormError("動画ファイル(%s)ではありません" % " ".join(sorted(VIDEO_TYPES)))
+        return self._keep_file({"path": path, "name": name[:200], "size": os.path.getsize(path)})
 
-    def check_form(self, body):
-        """送る欄 -> 整えた欄(上の説明)。違えば FormError"""
-        source = body.get("source", "url")
-        if source not in ("url", "file"):
-            raise FormError("送る物が正しくありません")
-        vid, picked, live = None, None, None
-        if source == "file":
-            with self._lock:
-                picked = self._files.get(str(body.get("fileId") or ""))
-            if picked is None or not os.path.isfile(picked["path"]):
-                raise FormError("動画ファイルを選び直してください([ファイルを選ぶ])")
-            kind = "file"
-        else:
-            vid = _yturl.parse_video_id(body.get("url"))
-            if not vid:
-                raise FormError("YouTube の配信の URL を貼ってください")
-            kind = "live" if body.get("kind") == "live" else "url"
+    def upload_dir(self):
+        return os.path.join(self.places["cases"], UPLOAD_DIR)
+
+    def upload_file(self, name, size, read):
+        """画面に落とした動画を受け取る(C-2-13。ブラウザはパスを渡せないので中身を受ける)。read(n) = 本文を読む口 -> remember_file と同じ形。
+        置き場所は一時保管の 受け取った動画\\(写しを兼ねる = 送るときにもう一度写さない)"""
+        name = _inbox.BAD_NAME.sub("_", os.path.basename(str(name or ""))).strip()[:200]
+        if not name or os.path.splitext(name)[1].lower() not in VIDEO_TYPES:
+            raise FormError("動画ファイル(%s)ではありません" % " ".join(sorted(VIDEO_TYPES)))
+        if not _int_in(size, 1, 1 << 46):
+            raise FormError("動画ファイルの大きさが分かりません")
+        folder = self.upload_dir()
+        os.makedirs(folder, exist_ok=True)
         try:
-            ranges = _spec.clean_ranges(body.get("ranges")) if kind == "url" else []   # 区間は URL だけ(ライブ・動画ファイルは使わない)
-        except ValueError as e:
-            raise FormError(str(e))
-        top = None if ranges or kind == "file" else body.get("top")
-        if kind != "file" and not ranges and not _int_in(top, 1, 30):
-            raise FormError("本数は 1〜30 にしてください")
-        if kind == "live":
+            free = shutil.disk_usage(folder).free
+        except OSError:
+            free = None
+        if free is not None and free < size + COPY_ROOM:
+            raise FormError("パソコンの空きが足りません(あと %d MB ほど空けてください)" % ((size + COPY_ROOM - free) // (1024 * 1024) + 1))
+        dest = os.path.join(folder, "%s_%s" % (uuid.uuid4().hex[:8], name))
+        tmp = dest + ".part"
+        try:
+            with open(tmp, "wb") as f:
+                left = size
+                while left > 0:
+                    buf = read(min(COPY_CHUNK, left))
+                    if not buf:
+                        raise FormError("動画を受け取る途中で止まりました。もう一度落としてください")
+                    f.write(buf)
+                    left -= len(buf)
+            os.replace(tmp, dest)
+        except BaseException:
+            _fsio.unlink_quiet(tmp)
+            raise
+        return self._keep_file({"path": dest, "name": name, "size": size, "copy": dest})
+
+    def sweep_uploads(self):
+        """落としたまま送らなかった動画を 1 日で消す(送った物は依頼のフォルダへ移している)"""
+        folder = self.upload_dir()
+        if not os.path.isdir(folder):
+            return
+        with self._lock:
+            held = {os.path.normcase(e["path"]) for e in self._files.values()}
+        for n in os.listdir(folder):
+            p = os.path.join(folder, n)
             try:
-                live = _live.check_settings(body.get("live"))
-            except ValueError as e:
-                raise FormError(str(e))
+                if os.path.isfile(p) and os.path.normcase(p) not in held and self.clock() - os.path.getmtime(p) >= UPLOAD_KEEP:
+                    os.remove(p)
+            except OSError:
+                pass
+
+    def _common(self, body):
         streamer = body.get("streamer")
         streamer = streamer.strip()[:_colors.NAME_MAX] if isinstance(streamer, str) else ""
         people = [p.strip()[:_order.PEOPLE_NAME_MAX] for p in body.get("people") or [] if isinstance(p, str) and p.strip()][:PEOPLE_MAX]
         vt = body.get("videoTracks", 1)
         if not _int_in(vt, 1, 5):
             raise FormError("映像トラックの数は 1〜5 にしてください")
-        batch = body.get("deliverBatch", 5)
-        if batch not in BATCHES:
-            raise FormError("届け方が正しくありません")
-        use_w = body.get("useWeights") is True and not ranges and kind == "url"
-        w = body.get("weights") if use_w else None
-        if use_w and not (isinstance(w, dict) and all(_int_in(w.get(k), 0, 3) for k in _spec.WEIGHT_KEYS)):
-            raise FormError("重みは 0〜3 にしてください")
-        pc = body.get("pc", "this")
-        if pc not in PCS:
-            raise FormError("処理する PC が正しくありません")
-        f = {"kind": kind, "url": str(body.get("url"))[:300] if vid else "", "videoId": vid, "ranges": ranges, "top": top, "streamer": streamer,
-             "people": people, "videoTracks": vt, "deliverBatch": batch, "useWeights": use_w,
-             "weights": {k: w[k] for k in _spec.WEIGHT_KEYS} if w else None,
-             "title": str(body.get("title") or "")[:120], "channel": str(body.get("channel") or "")[:100], "pc": pc,
-             "cut": self.form()["cut"]}   # ⚙ のカットの既定(送ったときの値を行に残す = [もう一度送る] も同じ。F2-5)
-        if live:
-            f["live"] = live
-        if picked:
-            f.update(file=dict(picked), title=os.path.splitext(picked["name"])[0][:120], channel="")
-        return f
+        return streamer, people, vt
+
+    def check_form(self, body):
+        """配信 1 本の送る欄 -> 整えた欄(上の説明)。違えば FormError。処理する PC・重み・カットは ⚙ の値"""
+        prefs = self.form()
+        vid = _yturl.parse_video_id(body.get("url"))
+        if not vid:
+            raise FormError("YouTube の配信の URL を貼ってください")
+        kind = body.get("kind") if body.get("kind") in ("url", "live", "wait") else "url"
+        ranges = clean_ranges(body.get("ranges")) if kind != "live" else []
+        top = None
+        if kind != "live" and not ranges:
+            top = body.get("top")
+            if not _int_in(top, 1, TOP_MAX):
+                raise FormError("本数は 1〜%d にしてください" % TOP_MAX)
+        live = None
+        if kind == "live":
+            got = body.get("live") if isinstance(body.get("live"), dict) else {}
+            mode = got.get("lengthMode") if got.get("lengthMode") in LENGTH_MODES else "auto"
+            s = dict(prefs["live"])   # 感度・待ち・余白は ⚙ の値
+            for k in ("perHour", "afterStream"):
+                if k in got:
+                    s[k] = got[k]
+            if mode == "fixed":
+                s["length"] = got.get("length")
+            s.pop("lengthMode", None)
+            try:
+                live = dict(_live.check_settings(s), lengthMode=mode)
+            except ValueError as e:
+                raise FormError(str(e))
+        streamer, people, vt = self._common(body)
+        use_w = prefs["useWeights"] and not ranges and kind != "live"
+        return {"kind": kind, "url": _yturl.watch_url(vid), "videoId": vid, "ranges": ranges, "top": top, "streamer": streamer, "people": people,
+                "videoTracks": vt, "useWeights": use_w, "weights": prefs["weights"] if use_w else None,
+                "title": str(body.get("title") or "")[:120], "channel": str(body.get("channel") or "")[:100], "pc": prefs["pc"],
+                "cut": prefs["cut"], "live": live, "startAt": body.get("startAt") if _int_in(body.get("startAt"), 0, 1 << 50) else None}
+
+    def check_file(self, item, body):
+        """動画ファイル 1 本の欄 -> 整えた欄。選び直しが要れば FormError"""
+        with self._lock:
+            picked = self._files.get(str((item or {}).get("fileId") or ""))
+        if picked is None or not os.path.isfile(picked["path"]):
+            raise FormError("動画ファイルを選び直してください")
+        prefs = self.form()
+        streamer, people, vt = self._common(dict(body, streamer=(item or {}).get("streamer", "")))
+        return {"kind": "file", "url": "", "videoId": None, "ranges": [], "top": None, "streamer": streamer, "people": people, "videoTracks": vt,
+                "useWeights": False, "weights": None, "title": file_title(picked["name"]), "channel": "", "pc": prefs["pc"], "cut": prefs["cut"],
+                "live": None, "file": dict(picked)}
 
     def _people(self, f):
         names = ([f["streamer"]] if f["streamer"] else []) + [p for p in f["people"] if p != f["streamer"]]
@@ -275,13 +394,13 @@ class Api:
     def order(self, f, rid):
         """整えた欄 -> (封筒, 束の差分)(flow/order.py の 1 か所 + 人の名前)。kind ごと(url・file・live)"""
         kind = f.get("kind") or "url"
-        if kind == "live":   # ライブ: 封筒 kind live + 依頼の束(感度・枠・待ち・余白・配信後の追加・上限 = 本数。長さは束に入れない = engine が行の欄から)
+        if kind == "live":   # ライブ: 封筒 kind live + 依頼の束(感度・枠・待ち・余白・配信後の追加。長さは束に入れない = engine が行の欄から)
             from flow import livesession   # 読むのは送るときだけ(画面を先に出す)
-            env, _diff = _order.order("live", video_id=f["videoId"], title=f["title"] or f["videoId"], request_id=rid, batch=f["deliverBatch"])
-            ctx = {"settings": f["live"], "videoTracks": f["videoTracks"], "streamer": f["streamer"]}
-            bundle = livesession.request_bundle(ctx, None, top=f["top"])
+            env, _diff = _order.order("live", video_id=f["videoId"], title=f["title"] or f["videoId"], request_id=rid, batch=1)
+            ctx = {"settings": {k: v for k, v in f["live"].items() if k != "lengthMode"}, "videoTracks": f["videoTracks"], "streamer": f["streamer"]}
+            bundle = livesession.request_bundle(ctx, None)
             people = self._people(f)
-            if people:   # 名前と色だけ(人数は入れない = 話者分離は友人の PC の ② にまだ無い。URL の欄と同じ)。切り抜きの実行は録画の束を土台にする
+            if people:
                 bundle["hints"]["people"] = people
             return env, bundle
         if kind == "file":   # 動画ファイル: 一時保管の写し(form.file.copy)を 30fps にそろえてから(写しだけ置き換える)パックまで
@@ -298,7 +417,7 @@ class Api:
 
     def _need_key(self):
         if self.sync is None or not self.sync.has_key():
-            raise FormError("Dropbox の鍵が無いので、ユーザーの PC には頼めません(「詳しく」の処理する PC を「この PC」にしてください)")
+            raise FormError("Dropbox の鍵が無いので依頼できません(⚙ の処理する PC を「この PC で処理する」にしてください)")
 
     @staticmethod
     def _source(f):
@@ -307,11 +426,37 @@ class Api:
         return {"url": f["url"], "videoId": f["videoId"], "title": f["title"], "channel": f["channel"]}
 
     def send(self, body):
-        """[送る] -> 受信箱の行(送った)。② が断れば FormError(理由)。処理する PC がユーザーの PC なら同期が Dropbox へ上げる(② は使わない)"""
-        f = self.check_form(body)
+        """[送る] -> {"rows": [行]}。動画ファイルは 1 本ずつの行(動画でない物は理由つきで外す = skipped)。② が断れば FormError(理由)"""
+        if body.get("source") == "files":
+            items = body.get("files") if isinstance(body.get("files"), list) else []
+            if not items:
+                raise FormError("動画ファイルを選んでください")
+            if len(items) > FILES_MAX_SEND:
+                raise FormError("動画ファイルは 1 回に %d 本までです" % FILES_MAX_SEND)
+            forms, skipped = [], []
+            for it in items:
+                try:
+                    forms.append(self.check_file(it, body))
+                except FormError as e:
+                    skipped.append({"fileId": (it or {}).get("fileId"), "message": str(e)})
+            if not forms:
+                raise FormError(skipped[0]["message"] if skipped else "動画ファイルを選んでください")
+            rows = [self._send_one(f) for f in forms]
+            with self._lock:   # 送った物は覚えから外す(同じ物を 2 回送らない)
+                for it in items:
+                    self._files.pop(str((it or {}).get("fileId") or ""), None)
+            return {"rows": rows, "skipped": skipped}
+        return {"rows": [self._send_one(self.check_form(body))], "skipped": []}
+
+    def _send_one(self, f):
+        rid = _deliver.request_id(self.clock())
+        if f["kind"] == "wait":   # アーカイブ待ち: 受け付けるだけ(tick が出たのを見て作り始める)
+            row = self.inbox.add(rid, f, self._source(f), kind="url", pc=f["pc"], state="waiting")
+            self._remember(f)
+            return row
         if f["pc"] == "user":
             self._need_key()
-            row = self.inbox.add(_deliver.request_id(self.clock()), f, self._source(f), pc="user", kind=f["kind"])
+            row = self.inbox.add(rid, f, self._source(f), pc="user", kind=f["kind"])
             self._remember(f)
             self.sync.kick()
             return row
@@ -319,7 +464,6 @@ class Api:
         if eng is None:
             raise FormError("準備中です。少し待ってから、もう一度押してください")
         self._need_parts()
-        rid = _deliver.request_id(self.clock())
         row = self.inbox.add(rid, f, self._source(f), kind=f["kind"])
         try:
             row = self._submit_this(eng, row)
@@ -386,7 +530,9 @@ class Api:
         f = json.loads(json.dumps(r["form"]))
         fi = f["file"]
         dest = fi.get("copy")
-        if not (dest and os.path.isfile(dest) and os.path.getsize(dest) > 0):
+        if dest and os.path.isfile(dest) and fsio_inside(dest, self.upload_dir()):   # 落とした動画 = もう一時保管にある → 依頼のフォルダへ移すだけ
+            dest = self._move_upload(rid, f["title"], dest)
+        elif not (dest and os.path.isfile(dest) and os.path.getsize(dest) > 0):
             dest = self._copy_video(rid, f["title"], fi["path"])
         fi["copy"] = dest
         _placement.ensure_case({"kind": "file", "path": dest}, channel=f.get("streamer") or "", root=os.path.dirname(dest), request_id=rid)
@@ -402,21 +548,32 @@ class Api:
         except ValueError as e:
             raise FormError(str(e))
 
-    def _copy_video(self, rid, title, src):
-        """元の動画を一時保管の <作業>/依頼/<日付>_<題>_<id6>/ へ写す(元は読むだけ)-> 写しのパス"""
-        if not os.path.isfile(src):
-            raise FormError("動画ファイルが見つかりません(移動・削除した可能性があります)。選び直して送ってください")
+    def _request_folder(self, rid, title):
         cases = self.places["cases"]
         day = datetime.date.fromtimestamp(self.clock()).isoformat()
         folder = _placement.find_request_dir(rid, cases) or _placement.request_root(day, title, rid, out_dir=cases) or os.path.join(cases, "依頼", rid)
         os.makedirs(folder, exist_ok=True)
+        return folder
+
+    def _move_upload(self, rid, title, src):
+        folder = self._request_folder(rid, title)
+        name = os.path.basename(src).split("_", 1)[-1]
+        dest = _inbox.unique_dest(folder, name)
+        shutil.move(src, dest)
+        return dest
+
+    def _copy_video(self, rid, title, src):
+        """元の動画を一時保管の <作業>/依頼/<日付>_<題>_<id6>/ へ写す(元は読むだけ)-> 写しのパス"""
+        if not os.path.isfile(src):
+            raise FormError("動画ファイルが見つかりません(移動・削除した可能性があります)。選び直して送ってください")
+        folder = self._request_folder(rid, title)
         size = os.path.getsize(src)
         try:
             free = shutil.disk_usage(folder).free
         except OSError:
             free = None
         if free is not None and free < size + COPY_ROOM:
-            raise FormError("一時保管の空きが足りません(あと %d MB ほど空けてから [もう一度送る])" % ((size + COPY_ROOM - free) // (1024 * 1024) + 1))
+            raise FormError("パソコンの空きが足りません(あと %d MB ほど空けてから [もう一度送る])" % ((size + COPY_ROOM - free) // (1024 * 1024) + 1))
         stem, ext = os.path.splitext(_inbox.BAD_NAME.sub("_", os.path.basename(src)))
         dest = os.path.join(folder, stem + ext)
         while os.path.exists(dest):
@@ -443,21 +600,22 @@ class Api:
             raise
         return dest
 
-    def retry(self, rid):
-        """失敗の行の [もう一度送る](同じ欄で。済んだ段は ② が飛ばす)"""
+    # ------------------------------------------------------------ やり直す・取り消す・知らせる
+    def retry(self, rid, auto=False):
+        """失敗の行の [もう一度送る](同じ欄で。済んだ段は ② が飛ばす)。auto = 自動のやり直し(回数を数える)"""
         eng = self.engine_fn()
         r = self.inbox.row(rid)
         if r is None or r["state"] != "failed" or not r.get("form"):
             raise FormError("もう一度送れる行ではありません")
-        if r.get("pc") == "user":   # ユーザーの PC に頼んだ行は、同じ id の依頼を上げ直す
+        if r.get("pc") == "user":   # 依頼した行は、同じ id の依頼を上げ直す
             self._need_key()
-            row = self.inbox.resent(rid, None)
+            row = self.inbox.resent(rid, None, auto=auto)
             self.sync.kick()
             return row
         if eng is None:
-            raise FormError("もう一度送れる行ではありません")
+            raise FormError("準備中です。少し待ってから、もう一度押してください")
         self._need_parts()
-        self.inbox.resent(rid, None)
+        self.inbox.resent(rid, None, auto=auto)
         try:
             return self._submit_this(eng, self.inbox.row(rid))
         except FormError as e:
@@ -465,7 +623,7 @@ class Api:
             raise
 
     def local(self, rid):
-        """[この PC でやり直す](A-2): ユーザーの PC の受付が 1 時間読まない依頼を、直下から消してから同じ欄でこの PC の ② へ"""
+        """[この PC でやり直す]: ユーザーの PC の受付が 1 時間読まない依頼を、直下から消してから同じ欄でこの PC の ② へ"""
         eng = self.engine_fn()
         r = self.inbox.row(rid)
         if r is None or r.get("pc") != "user" or not r.get("form"):
@@ -474,13 +632,13 @@ class Api:
             raise FormError("準備中です。少し待ってから、もう一度押してください")
         self._need_parts()
         if self.sync is None:
-            raise FormError("Dropbox の鍵が無いので、ユーザーの PC への依頼を取り消せません")
+            raise FormError("Dropbox の鍵が無いので、依頼を取り消せません")
         try:
             gone = self.sync.withdraw(rid)
         except Exception as e:   # 鍵が無い・つながらない = 二重に作らないよう、取り消せるまでやり直さない
-            raise FormError("ユーザーの PC への依頼を取り消せませんでした(%s)。少し待ってから、もう一度押してください" % e)
+            raise FormError("依頼を取り消せませんでした(%s)。少し待ってから、もう一度押してください" % e)
         if not gone:
-            raise FormError("ユーザーの PC がちょうど受け付けました。このまま届くのを待ってください")
+            raise FormError("作る人の PC がちょうど受け付けました。このまま届くのを待ってください")
         row = self.inbox.to_local(rid, None)
         try:
             return self._submit_this(eng, row)
@@ -489,40 +647,213 @@ class Api:
             raise
 
     def cancel(self, rid):
-        """送った・作っている行を止める(② の取り消し。行は「失敗(止めました)」になる)。録画中のライブの行は録画を止める(そのあとの切り抜きは続く)"""
+        """[取り消す](C-2-14。時間の制限なし): 待ち・アーカイブ待ち・予約は依頼ごと消す / 作っている途中は止めて届いた物は残す /
+        録画中は録画と先の切り抜きを止め、届いた物は残す・作りかけは捨てる。依頼した行は Dropbox の直下から消せれば消し、
+        もう受け付けられていれば、この画面から外すだけ(届いた物は受け取るに並ぶ)。-> {"id", "state": "cancelled"}"""
         eng = self.engine_fn()
         r = self.inbox.row(rid)
-        if r is not None and r.get("pc") == "user":
-            raise FormError("ユーザーの PC に頼んだ依頼は、ここから止められません")
-        if eng is not None and r is not None and r["state"] == "recording":
+        if r is None:
+            raise KeyError(rid)
+        if r["state"] == "failed":
+            self.inbox.remove(rid)
+            return {"id": rid, "state": "cancelled"}
+        if r["state"] == "waiting":
+            self.inbox.drop(rid)
+            return {"id": rid, "state": "cancelled"}
+        if r.get("pc") == "user":
+            gone = False
+            if self.sync is not None and r["state"] == "sent":
+                try:
+                    gone = self.sync.withdraw(rid)
+                except Exception:   # noqa: BLE001  (つながらない = 画面から外すだけ。届いた物は受け取るへ)
+                    gone = False
+            self.inbox.cancelled(rid, drop=gone)
+            return {"id": rid, "state": "cancelled"}
+        if r["state"] == "recording":
             lv = r.get("live") or {}
-            if getattr(eng, "live", None) is None:
-                raise FormError("録画を止められませんでした(録画の部品がありません)")
-            try:
-                eng.live.stop_recording(lv.get("recorder"), lv.get("recording"))
-            except ValueError as e:
-                raise FormError(str(e))
-            return {"id": rid, "state": "stopped"}
-        if eng is None or r is None or r["state"] not in ("sent", "making") or not r.get("runId"):
-            raise FormError("止められる行ではありません")
-        return eng.queue.cancel(r["runId"])
+            if eng is not None and getattr(eng, "live", None) is not None:
+                try:
+                    eng.live.stop_recording(lv.get("recorder"), lv.get("recording"))
+                except ValueError as e:
+                    raise FormError(str(e))
+                self._cancel_runs(eng, lambda x: x.get("requestId") == rid)   # 作りかけの切り抜きは捨てる
+            self.inbox.cancelled(rid)
+            return {"id": rid, "state": "cancelled"}
+        if r["state"] in ("sent", "making"):
+            if r.get("kind") == "file" and not r.get("runId"):   # 写している途中 = 写すのは糸が見て止まらないので、行を消す(写しは片付けが消す)
+                self.inbox.cancelled(rid, drop=True)
+                return {"id": rid, "state": "cancelled"}
+            if eng is not None and r.get("runId"):
+                self._cancel_runs(eng, lambda x: x.get("id") == r["runId"])
+            self.inbox.cancelled(rid, drop=r["state"] == "sent" or not r["packs"])
+            return {"id": rid, "state": "cancelled"}
+        raise FormError("取り消せる行ではありません")
 
-    # ------------------------------------------------------------ 受信箱
+    @staticmethod
+    def _cancel_runs(eng, pick):
+        for x in eng.queue.status().get("runs") or []:
+            if x.get("state") in ("queued", "running") and pick(x):
+                try:
+                    eng.queue.cancel(x["id"])
+                except Exception:   # noqa: BLE001  (もう終わった = 取り消す物が無い)
+                    pass
+
+    def report(self, rid):
+        """[作る人に知らせる](C-2-16): 送り返しへ <依頼 id>__notice-<at>.notice.json(notes:docs/spec/friend.md の 12-4)-> 行"""
+        r = self.inbox.row(rid)
+        if r is None:
+            raise KeyError(rid)
+        cls = _progress.classify(r.get("error") or "", r.get("kind") or "url")
+        now = int(self.clock() * 1000)
+        doc = {"v": 1, "kind": "failure", "requestId": rid, "title": rowtitle(r), "code": cls["code"], "message": cls["message"],
+               "detail": (r.get("error") or "")[:2000], "appVersion": _version.VERSION, "at": now, "log": _log_tail(self.log_path, NOTICE_LOG_MAX)}
+        data = json.dumps(doc, ensure_ascii=False).encode("utf-8")
+        while len(data) >= NOTICE_MAX and doc["log"]:
+            doc["log"] = doc["log"][len(doc["log"]) // 4:]
+            data = json.dumps(doc, ensure_ascii=False).encode("utf-8")
+        box = self.places["outbox"]
+        os.makedirs(box, exist_ok=True)
+        path = os.path.join(box, "%s__notice-%013d.notice.json" % (rid, now))
+        with open(path + ".tmp", "wb") as f:
+            f.write(data)
+        os.replace(path + ".tmp", path)
+        if self.sync is not None:
+            self.sync.kick()
+        return self.inbox.reported(rid)
+
+    # ------------------------------------------------------------ 見回り(玄関の watch が呼ぶ)
+    def tick(self):
+        """アーカイブ待ちの行を調べる・直る見込みのある失敗を自動でやり直す・落としたまま送らなかった動画を片付ける"""
+        now = self.clock()
+        for r in self.inbox.waiting_rows():
+            if now - r["createdAt"] / 1000.0 >= WAIT_GIVE_UP:
+                self.inbox.wait_failed(r["id"], "アーカイブが出ませんでした(1 日待ちました)")
+                continue
+            if now - (r.get("checkedAt") or 0) / 1000.0 < WAIT_EVERY:
+                continue
+            try:
+                info = self.probe(r["form"]["url"]) or {}
+            except Exception:   # noqa: BLE001  (調べられない = 次の回にもう一度)
+                info = {}
+            self.inbox.wait_checked(r["id"])
+            if info.get("status") in ARCHIVE_OK:
+                self._start_waited(r["id"])
+        for r in self.inbox.view():
+            if r["state"] != "failed" or r.get("cancelled") or not r.get("form"):
+                continue
+            cls = _progress.classify(r.get("error") or "", r.get("kind") or "url")
+            if cls["retry"] and (r.get("autoRetries") or 0) < RETRY_MAX and now - (r.get("failedAt") or 0) / 1000.0 >= RETRY_EVERY:
+                try:
+                    self.retry(r["id"], auto=True)
+                except (FormError, KeyError):
+                    pass
+        self.sweep_uploads()
+
+    def _start_waited(self, rid):
+        """アーカイブが出た: 普通の URL の依頼として作り始める(区間の長さの検査はここ = ② が配信の長さで断る)"""
+        r = self.inbox.row(rid)
+        if r is None:
+            return
+        self.inbox.wait_done(rid)
+        r = self.inbox.row(rid)
+        try:
+            if r.get("pc") == "user":
+                self._need_key()
+                self.inbox.to_remote(rid)
+                self.sync.kick()
+                return
+            eng = self.engine_fn()
+            if eng is None:
+                raise FormError("処理の部品が止まっています")
+            self._need_parts()
+            self._submit_this(eng, r)
+        except FormError as e:
+            self.inbox.fail(rid, str(e))
+
+    # ------------------------------------------------------------ 画面へ
+    def _progress(self, r, runs, blocked, stats):
+        """作っている行の進み具合の 1 行(C-2-15)-> {"text", "index", "total", "label"} か None"""
+        run = r.get("run")
+        f = r.get("form") or {}
+        kind, ranged = r.get("kind") or "url", bool(f.get("ranges"))
+        if r["state"] == "sent" and (not run or run.get("state") == "queued"):
+            queued = [x["id"] for x in runs if x.get("state") == "queued"]
+            pos = queued.index(r["runId"]) + 1 if r.get("runId") in queued else None
+            if blocked:
+                return {"text": _progress.text(None, None, False, blocked=blocked), "index": 0, "total": 0, "label": ""}
+            return {"text": _progress.text(None, None, False, queue_pos=pos) if pos else "順番を待っています", "index": 0, "total": 0, "label": ""}
+        st = _progress.stage((run or {}).get("steps") or [], kind, ranged)
+        if st is None:
+            return {"text": "仕上げています", "index": 0, "total": 0, "label": ""}
+        now = int(self.clock() * 1000)
+        with self._lock:
+            seen = self._stages.get(r["id"])
+            if seen is None or seen[0] != st["label"]:
+                if seen is not None:
+                    self.inbox.record_stage(seen[0], (now - seen[1]) / 1000.0)
+                seen = self._stages[r["id"]] = [st["label"], now, st["detail"], now]
+            elif seen[2] != st["detail"]:
+                seen[2], seen[3] = st["detail"], now
+        left = _progress.eta(stats, kind, ranged, st["label"], (now - seen[1]) / 1000.0)
+        return {"text": _progress.text(st, left, _progress.slow(seen[1], seen[3], now)), "index": st["index"], "total": st["total"], "label": st["label"]}
+
     def view(self):
         eng = self.engine_fn()
         st, flow = (eng.status_map() if eng else ({}, None))
+        runs = list(st.values()) if isinstance(st, dict) else []
+        blocked = (flow or {}).get("blocked")
         rows = self.inbox.view(status_of=lambda run_id: _public_run(st.get(run_id)))
+        stats = self.inbox.stage_stats()
         sync = self.sync
+        live_ids = set()
         for r in rows:
             run = r.get("run")
             if r["state"] == "sent" and run and run.get("state") == "running":
                 r["state"] = "making"
-            if r["state"] == "sent" and r.get("kind") == "file":   # 動画を写している(この PC)・Dropbox へ上げている(ユーザーの PC)の進み具合
+            if r["state"] == "sent" and r.get("kind") == "file":   # 動画を写している(この PC)・Dropbox へ上げている(依頼)の進み具合
                 prog = self.copy_progress(r["id"]) if r.get("pc") != "user" else (sync.upload_progress(r["id"]) if sync is not None else None)
                 if prog:
                     r["progress"] = prog
-        return {"rows": rows, "form": self.form(), "saveDir": self.places["save"](), "blocked": (flow or {}).get("blocked"),
-                "ready": eng is not None}
+            if r["state"] in ("sent", "making") and r.get("pc") != "user" and r.get("runId"):
+                live_ids.add(r["id"])
+                r["steps"] = self._progress(r, runs, blocked, stats)
+            if r["state"] == "failed":
+                cls = _progress.classify(r.get("error") or "", r.get("kind") or "url")
+                retrying = cls["retry"] and (r.get("autoRetries") or 0) < RETRY_MAX and not r.get("cancelled")
+                r["fail"] = {"code": cls["code"], "message": cls["message"], "detail": cls["detail"], "retrying": retrying,
+                             "repeat": not retrying and (r.get("failCodes") or []).count(cls["code"]) >= 2, "reported": bool(r.get("reportedAt"))}
+        with self._lock:   # 作っていない行の段の覚えを捨てる
+            for k in [k for k in self._stages if k not in live_ids]:
+                self._stages.pop(k, None)
+        return {"rows": rows, "form": self.form(), "saveDir": self.places["save"](), "blocked": blocked, "ready": eng is not None}
+
+
+def fsio_inside(path, root):
+    try:
+        return _fsio.is_inside(path, root)
+    except (OSError, ValueError):
+        return False
+
+
+def rowtitle(r):
+    s = r.get("source") or {}
+    return str(s.get("title") or s.get("fileName") or s.get("videoId") or r.get("id") or "")[:200]
+
+
+def _log_tail(path, cap):
+    """ログの末尾 cap バイト(行の途中から始めない)"""
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - cap))
+            data = f.read(cap)
+    except OSError:
+        return ""
+    text = data.decode("utf-8", "replace")
+    if size > cap and "\n" in text:
+        text = text.split("\n", 1)[1]
+    return text
 
 
 def _cut(f):
