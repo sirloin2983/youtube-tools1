@@ -29,21 +29,8 @@
 .fr-tab-n{background:var(--danger)!important;color:var(--danger-on)!important;width:auto!important;min-width:18px;padding:0 5px}
 .fr-dot{flex:none;display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--ink-3)}
 .fr-dot.none{background:transparent;border:1px dashed var(--ink-3)}
-/* 初回の準備・上の帯・[?]・⚙(F2-5。F3-5 で作り直す) */
-.fr-setup{display:flex;flex-direction:column;gap:8px;margin-bottom:14px}
-.fr-setup p{margin:0}
-.fr-setup-h{display:flex;align-items:center;gap:8px}
-.fr-setup-items{margin:0;padding-left:1.4em;columns:2 18em;column-gap:24px}
-.fr-setup .bar{margin-top:0}
-.fr-setup .bar>i{background:var(--accent)}
-.fr-band{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+/* [?] */
 .fr-help{min-width:28px;justify-content:center;text-decoration:none}
-.fr-path{margin:0 0 6px;overflow-wrap:anywhere;font-size:var(--fs-sm)}
-.fr-set .hint{margin:6px 0 0}
-.fr-set>p{margin:0 0 6px;font-size:var(--fs-sm)}
-.fr-set .fr-line+.fr-line{margin-top:6px}
-.fr-where{white-space:pre-line;overflow-wrap:anywhere}
-.fr-key{flex:1 1 14em;min-width:0}
 
 /* 上の帯(.ui-header)は画面の上に貼り付く = 貼り付く物はその下(--header-h)から。帯の下に隠れない */
 /* ---------------------------------------------------------------- 送る(C-2-20 = 約 960px まで 2 列・狭いと送る欄を一覧の上へ) */
@@ -63,7 +50,7 @@
 .fr-card[aria-pressed=true]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
 .fr-thumb{position:relative;display:block;aspect-ratio:16/9;border-radius:var(--r-lg);overflow:hidden;background:var(--panel-3)}
 .fr-thumb img{display:block;width:100%;height:100%;object-fit:cover}
-.fr-badge{position:absolute;top:6px;left:6px;padding:2px 6px;border-radius:4px;font:700 11.5px/1.3 var(--font-ui, inherit);background:rgba(0,0,0,.72);color:#fff}
+.fr-badge{position:absolute;top:6px;left:6px;padding:2px 6px;border-radius:4px;font:700 11.5px/1.3 var(--font);background:rgba(0,0,0,.72);color:#fff}
 .fr-badge-live{background:var(--danger);color:var(--danger-on)}
 .fr-badge-sent{left:auto;right:6px}
 .fr-badge-sent.bad{background:var(--danger);color:var(--danger-on)}

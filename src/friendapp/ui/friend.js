@@ -71,6 +71,7 @@
   function banner(j) {
     var sy = j.sync || {};
     st.hasKey = sy.key !== false;
+    st.partsWhy = j.partsWhy || '';   /* 部品を取っている間・足りない間は [送る](この PC)を止める(C-5-1) */
     $('noKey').hidden = !sy.message;
     $('noKey').textContent = sy.message || '';
     $('updated').hidden = !sy.updated || st.updatedSeen === sy.updated;

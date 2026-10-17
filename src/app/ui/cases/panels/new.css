@@ -106,7 +106,7 @@
 .nw-panel .lv-act{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px 8px}
 .nw-panel .lv-act>[hidden]{display:none}
 .nw-panel .lv-row[data-state=live] .lv-th{position:relative}
-.nw-panel .lv-row[data-state=live] .lv-th::after{content:"配信中";position:absolute;left:4px;bottom:4px;padding:0 5px;border-radius:4px;background:#C42660;color:#fff;font:700 10.5px/16px var(--font)}
+.nw-panel .lv-row[data-state=live] .lv-th::after{content:"配信中";position:absolute;left:4px;bottom:4px;padding:0 5px;border-radius:4px;background:var(--danger);color:var(--danger-on);font:700 10.5px/16px var(--font)}
 .nw-panel .q-host{margin-bottom:16px}
 .nw-panel .q-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:"entry list";gap:16px;align-items:start}
 .nw-panel .q-entry{grid-area:entry;margin-bottom:0}

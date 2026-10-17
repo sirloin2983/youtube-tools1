@@ -279,7 +279,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, {"app": APP_ID, "version": _version.VERSION})
         if path == "/api/friend/inbox":
             out = app.api.view()
-            out.update(prep=app.prep, notice=app.notice(), rollback=app.rollback_notice(), sync=app.sync.status(), setup=app.setup.view())
+            out.update(prep=app.prep, notice=app.notice(), rollback=app.rollback_notice(), sync=app.sync.status(), setup=app.setup.view(),
+                       partsWhy=app.setup.block_reason() or "")   # [送る](この PC)を押せない理由(画面で先に止める。受け付けでも api が断る)
             return self._json(200, out)
         if path == "/api/friend/tidy":   # フォルダの整理(帯の 1 行と ⚙)
             return self._json(200, app.tidy_view())

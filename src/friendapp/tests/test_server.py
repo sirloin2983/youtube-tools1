@@ -365,6 +365,9 @@ class ServerTest(unittest.TestCase):
         self.assertIsNone(d["blocked"])
         self.assertIsNone(d["notice"])
         self.assertEqual(d["prep"], {"state": "ready", "message": ""})
+        self.assertEqual(d["partsWhy"], "")   # 部品がそろっている = [送る] を止めない
+        self.app.setup.block_reason = lambda: "処理の部品を取っています"
+        self.assertEqual(self.js(self.get("/api/friend/inbox")[2])["partsWhy"], "処理の部品を取っています")   # 画面が [送る] を先に止める(C-5-1)
         self.assertEqual(d["form"]["top"], 5)   # 本数の初め(C-2-8)
         self.assertNotIn("deliverBatch", d["form"])   # 届け方(5 本ずつ)はやめた
         self.assertEqual((d["form"]["pc"], d["form"]["useWeights"], d["form"]["cut"]), ("this", False, "none"))

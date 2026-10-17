@@ -153,8 +153,9 @@ async function retryJob(id){
 function renderJobs(){
   renderJobBadge(); renderIntoState(); renderAlt();
   const box = $('#jobs');
-  if (!S.jobs.length){ box.innerHTML = '<p class="hint" style="margin:6px 0 0">まだ処理中のものはありません。文字起こしを始めると、ここに進み具合が出ます。</p>'; return; }   // 空の状態は 2 文(S13)
-  box.innerHTML = S.jobs.slice(0, 10).map(j => `<div class="job" data-id="${esc(j.id)}">
+  let html;
+  if (!S.jobs.length) html = '<p class="hint" style="margin:6px 0 0">まだ処理中のものはありません。文字起こしを始めると、ここに進み具合が出ます。</p>';   // 空の状態は 2 文(S13)
+  else html = S.jobs.slice(0, 10).map(j => `<div class="job" data-id="${esc(j.id)}">
     <div class="row" style="justify-content:space-between;flex-wrap:nowrap"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500">${esc(j.title)}</span>
       <span class="pill ${j.state === 'done' ? 'ok' : j.state === 'error' ? 'err' : ACTIVE.has(j.state) ? (j.state === 'queued' ? 'wait' : 'run') : ''}">${esc(STATE_LABEL[j.state] || j.state)}</span></div>
     ${j.hasClip ? '<div class="hint" style="margin-top:2px">元の配信の情報(.clip.json)つき</div>' : ''}
@@ -163,6 +164,8 @@ function renderJobs(){
     ${(Array.isArray(j.warnings) ? j.warnings : []).slice(0, 3).map(w => `<div class="notice tt-jwarn">${esc(w)}</div>`).join('')}
     ${j.state === 'done' && j.tid ? `<div class="row" style="margin-top:3px"><span class="hint">${jobDoneText(j)}</span><button type="button" class="btn small" data-act="open" data-tid="${esc(j.tid)}">開く</button></div>` : ''}
   </div>`).join('');
+  if (html === S.jobsHtml) return;   // 1 秒ごとの問い合わせで変わっていなければ描き直さない(開いた「詳しく」・フォーカスを保つ)
+  box.innerHTML = html; S.jobsHtml = html;
 }
 
 /* ---------- 話者の自動判別 ---------- */

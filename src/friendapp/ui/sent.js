@@ -69,8 +69,11 @@
       e.currentTarget.disabled = true;
       api('retry', { id: r.id }).then(FR.refresh, function (er) { FR.fail('送れませんでした', er); FR.refresh(); });
     } } }, ['もう一度送る']));
-    acts.push(el('button', { type: 'button', cls: 'btn ghost small', on: { click: function () {
-      api('cancel', { id: r.id }).then(FR.refresh, function (er) { FR.fail('消せませんでした', er); });
+    /* 失敗の行を消すと依頼の記録も消える(もう一度送れない)= 取り消せない操作は二度押し(ui.md B-10) */
+    acts.push(el('button', { type: 'button', cls: 'btn ghost small', on: { click: function (e) {
+      UIKit.confirmTwice(e.currentTarget, function () {
+        api('cancel', { id: r.id }).then(FR.refresh, function (er) { FR.fail('消せませんでした', er); });
+      }, 'もう一度押すと消す');
     } } }, ['消す']));
   }
   function rowEl(r) {
