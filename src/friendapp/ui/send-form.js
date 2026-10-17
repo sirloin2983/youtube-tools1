@@ -270,6 +270,7 @@
     var side = document.querySelector('.fr-side');
     if (side) side.scrollTop = 0;
     if (window.innerWidth <= 960) $('sendForm').scrollIntoView({ block: 'start' });
+    else if (window.scrollY > 0) window.scrollTo(0, 0);   /* 2 列 = 右の列は画面の上に貼り付く。画面ごと下がっていると欄の頭が隠れる */
   }
   function openUrl(text) {
     var vid = vidOf(text);
