@@ -177,7 +177,7 @@
 .fr-player{display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,380px);gap:18px;align-items:start}
 .fr-player-main{display:flex;flex-direction:column;gap:10px;min-width:0}
 .fr-back{align-self:flex-start}
-.fr-video{display:block;width:100%;max-height:70vh;aspect-ratio:16/9;background:var(--stage-bg, #000);border-radius:var(--r-lg)}
+.fr-video{display:block;width:100%;max-height:calc(100vh - 360px);aspect-ratio:16/9;background:var(--stage-bg, #000);border-radius:var(--r-lg)}
 .fr-player-title{margin:0;font:650 17px/1.4 var(--font-display);overflow-wrap:anywhere}
 .fr-player-meta{color:var(--ink-3);font-size:var(--fs-sm)}
 .fr-decide{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
@@ -189,7 +189,7 @@
 .fr-rcv.playing{display:flex;flex-direction:column}
 body.fr-bulk-on .ui-toasts{bottom:calc(96px + env(safe-area-inset-bottom,0px))}   /* まとめて決める帯に知らせが重ならない */
 .fr-rcv.playing .fr-bulk{order:-1;position:static;margin:0 0 10px}   /* 再生画面では上に出す = [受け取る] [見送る] に重ならない */
-.fr-novideo{display:grid;place-items:center;aspect-ratio:16/9;max-height:70vh;border-radius:var(--r-lg);background:var(--stage-bg) center/cover no-repeat;color:var(--stage-ink);text-align:center}
+.fr-novideo{display:grid;place-items:center;aspect-ratio:16/9;max-height:calc(100vh - 360px);border-radius:var(--r-lg);background:var(--stage-bg) center/cover no-repeat;color:var(--stage-ink);text-align:center}
 .fr-novideo>p{margin:0;padding:12px 16px;background:rgba(0,0,0,.66);border-radius:6px;color:#fff;line-height:1.6}
 .fr-head-sub{display:flex;align-items:center;gap:8px}
 /* 再生画面の操作の帯(YouTube 風。動画のすぐ下・配色の変数だけ) */

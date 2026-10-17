@@ -143,6 +143,7 @@
     v.addEventListener('volumechange', savePrefs);
     v.addEventListener('ratechange', savePrefs);
     v.addEventListener('loadedmetadata', applyPrefs);
+    v.addEventListener('loadedmetadata', function () { var x = find(my.cur); if (x) meta(x.it, v.duration); });
     v.addEventListener('click', toggle);
     $('pPlay').addEventListener('click', toggle);
     $('pMute').addEventListener('click', function () { if (v.muted || v.volume === 0) { v.muted = false; if (v.volume === 0) v.volume = 0.5; } else v.muted = true; });
@@ -195,9 +196,14 @@
       if (p && p.catch) p.catch(function () { /* 自動の再生を止められた = 押せば再生 */ });
     } else v.removeAttribute('src');
     $('playerTitle').textContent = x.it.title;
-    $('playerMeta').textContent = (x.it.clip ? x.it.clip + '・' : '') + (x.it.seconds ? FR.dur(x.it.seconds) : '') + (x.it.auto ? '・自動で届いた' : '');
+    meta(x.it, null);
     buttons();
     sideList();
+  }
+  /* 題の下の 1 行。長さは受け取る動画の長さ 1 つだけ(確認用の動画を読んだら、その長さ = 帯の長さと同じ数に合わせる。古い動画で食い違っても 2 通りに見せない) */
+  function meta(it, dur) {
+    var sec = dur > 0 ? dur : it.seconds;
+    $('playerMeta').textContent = (it.clip ? it.clip + '・' : '') + (sec ? '長さ ' + FR.dur(sec) : '') + (it.auto ? '・自動で届いた' : '');
   }
   function buttons() {
     var x = find(my.cur), can = !!x && open(x.it);

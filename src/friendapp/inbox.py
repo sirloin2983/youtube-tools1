@@ -1034,13 +1034,13 @@ class Inbox:
 
     @staticmethod
     def _clip_label(p):
-        """カードの下の文字: 切り抜きの名前が <番号>_<始まり>-<終わり>(書き出しの名前)なら「配信の 1:56〜5:21」・違えば題のまま"""
+        """カードの下の文字: 切り抜きの名前が <番号>_<始まり>-<終わり>(書き出しの名前)なら「配信の 1:56 あたり」・違えば題のまま。
+        名前の区間は見どころ(マーク)の区間で、届く動画は編集のための前後の余白(LD-2f)込み = 区間の長さを出すと動画の長さと 2 通りに見えるので、始まりだけ"""
         m = CLIP_RANGE_RE.search(str(p.get("title") or p.get("name") or ""))
         if not m:
             return p["title"]
         a = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + int(m.group(3))
-        b = int(m.group(4)) * 3600 + int(m.group(5)) * 60 + int(m.group(6))
-        return "配信の %s〜%s" % (_hms(a), _hms(b))
+        return "配信の %s あたり" % _hms(a)
 
     @staticmethod
     def _item(r, p, info):
