@@ -326,9 +326,32 @@ class StudioBook(Ledger):
         if raw is None:
             return None
         try:
-            return _sd.load_video(str(vid), raw)
+            row = _sd.load_video(str(vid), raw)
         except ValueError as e:
             raise ApiError("studio_data_broken", "スタジオの作業データの配信 %s が壊れています: %s" % (vid, e), 500)
+        if self._case_gone(row):
+            self._forget(str(vid), row)
+            return None
+        return row
+
+    def _case_gone(self, row):
+        """索引の行の案件のフォルダが消えている(ごみ箱へ移した・手で消した)か。書き出し先が見えていて、案件がその下にあるときだけ
+        (ドライブが外れた・書き出し先を付け替えた = フォルダが見えないだけ、とは分ける。そちらは今までどおり 503)"""
+        root = row.get("case")
+        if not root or _cf.problem(root) != "フォルダが見えない":
+            return False
+        try:
+            out = self.out_dir()
+            return isinstance(out, str) and os.path.isabs(out) and not _cf.is_remote(out) and os.path.isdir(out) and _fsio.is_inside(root, out, strict=True)
+        except Exception:   # 設定が読めない = 消えたとは言い切れない
+            return False
+
+    def _forget(self, vid, row):
+        """案件のフォルダが無い配信の行を data.json から外す(次の依頼が新しく登録して新しい案件を作る。記録の中身はフォルダと一緒に無くなっている)"""
+        log.warning("案件のフォルダが無いので配信の登録を外します(新しく登録し直せます): %s %s", vid, row.get("case"))
+        d = self._load()
+        if d["videos"].pop(vid, None) is not None:
+            self._write(d)
 
     def _save_series(self, vid, series):
         """盛り上がりのグラフ(スタジオの画面が読む cache/series/<配信>.json。最新 ytt/studiodata.SERIES_KEEP 本)。書けなくても上げない"""

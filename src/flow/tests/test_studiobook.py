@@ -112,6 +112,33 @@ class BookTest(Base):
         self.assertEqual(self.raw()["videos"][VID]["case"], row["case"])
         self.assertEqual(sum(m["status"] == "exported" for m in self.book.get(VID)["marks"]), 2)
 
+    def exported_case(self):
+        self.analyzed()
+        mid = self.book.adopt_marks(VID, [], 1)["autoIds"][0]
+        folder, clip = self.case_folder()
+        self.assertTrue(self.book.mark_exported(VID, mid, "題/01_clip.mp4", 100.0, 130.0, clip))
+        return folder
+
+    def test_trashed_case_registers_again(self):
+        """案件のフォルダが消えた(受信箱がごみ箱へ移した)配信は「案件のフォルダが見えません」で止まらず、新しく登録し直せる"""
+        folder = self.exported_case()
+        shutil.rmtree(folder)
+        self.assertFalse(self.book.has(VID))
+        self.assertNotIn(VID, self.raw()["videos"])
+        v = self.book.ensure({"kind": "youtube", "videoId": VID, "name": VID}, "題", "ch")
+        self.assertEqual((v.get("case"), v["marks"]), (None, []))
+        self.assertNotIn("case", self.raw()["videos"][VID])
+
+    def test_case_on_unseen_drive_still_503(self):
+        """書き出し先ごと見えない(ドライブが外れた)・書き出し先の外の案件は消えたと見なさず今までどおり 503"""
+        folder = self.exported_case()
+        shutil.rmtree(folder)
+        shutil.rmtree(self.out)
+        with self.assertRaises(errors.ApiError) as cm:
+            self.book.get(VID)
+        self.assertEqual(cm.exception.code, CF.UNSEEN_CODE)
+        self.assertIn(VID, self.raw()["videos"])
+
     def test_keeps_other_rows_and_groups(self):
         os.makedirs(self.home)
         other = {"id": "zzzzzzzzzzz", "kind": "youtube", "title": "別", "marks": [], "rev": 4, "extra": "そのまま"}
