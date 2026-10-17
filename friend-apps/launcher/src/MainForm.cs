@@ -213,11 +213,17 @@ namespace FriendInbox
                 await view.CoreWebView2.ExecuteScriptAsync("var b=document.getElementById('btnSettings'); if(b) b.click();");
                 await Task.Delay(1500);
                 Capture(this, "f6-settings.png");
-                // 配色を変えたとき(ここでは ui-kit の暗い表示)に、窓のタイトルの帯と確認の窓が付いてくるか
-                await view.CoreWebView2.ExecuteScriptAsync("document.documentElement.setAttribute('data-theme','dark');");
-                await Task.Delay(1200);
-                Capture(this, "f7-dark.png");
-                await ShotConfirm(work, "f8-confirm-dark.png");
+                // 配色 A〜D(F3-B の palette.js)を順に変えて、窓のタイトルの帯と確認の窓が付いてくるか
+                await view.CoreWebView2.ExecuteScriptAsync("var d=document.getElementById('settingsDrawer'); if(d&&window.UIKit&&UIKit.drawer.isOpen(d)) UIKit.drawer.close(d);");
+                foreach (var pal in new[] { "A", "B", "C", "D" })
+                {
+                    await view.CoreWebView2.ExecuteScriptAsync("window.FriendPalette ? FriendPalette.set('" + pal + "') : document.documentElement.setAttribute('data-theme','dark');");
+                    await Task.Delay(1200);
+                    Capture(this, "p" + pal + "-window.png");
+                    await ShotConfirm(work, "p" + pal + "-confirm.png");
+                }
+                await view.CoreWebView2.ExecuteScriptAsync("window.FriendPalette && FriendPalette.set('A');");   // 写真用の家の配色を初めに戻す
+                await Task.Delay(500);
                 Log.Write("関所の写真を書きました: " + ShotDir);
             }
             catch (Exception ex)
