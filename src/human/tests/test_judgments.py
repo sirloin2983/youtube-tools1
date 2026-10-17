@@ -95,6 +95,36 @@ class JudgmentsTest(unittest.TestCase):
         t = J.fold(J.rows(self.d))[("v1", "m1")]
         self.assertEqual((t["friend"], t["adopt"]), (None, b))
 
+    def test_friend_value_maps_old_and_new(self):
+        f = lambda what: {"who": "friend", "what": what}   # noqa: E731
+        self.assertEqual([J.friend_value(f(w)) for w in ("good", "bad", "unknown", "adopt", "made_video", "reject")],
+                         ["good", "bad", "unknown", "good", "good", "unknown"])
+        self.assertIsNone(J.friend_value({"who": "self", "what": "adopt"}))
+        self.assertIsNone(J.friend_value(None))
+
+    def test_friend_bad_reason_and_unknown_by_auto(self):
+        b = self.rec("b", "bad", at=1000, who="friend", origin="request", via="friend_verdict", reason="boring", ref={"pack": "p1"})
+        self.assertEqual((b["reason"], J.friend_value(b)), ("boring", "bad"))
+        c = self.rec("c", "bad", at=1100, who="friend", origin="request", via="friend_verdict", reason="cut", markId="m2")
+        self.assertEqual(c["reason"], "cut")
+        u = self.rec("u", "unknown", at=1200, who="friend", origin="auto", via="friend_verdict", by="auto", markId="m3")
+        self.assertEqual((u["by"], J.friend_value(u)), ("auto", "unknown"))
+        with self.assertRaises(ValueError):
+            self.rec("x", "good", who="friend", reason="boring")   # reason は bad だけ
+        with self.assertRaises(ValueError):
+            self.rec("y", "unknown", who="friend", by="self")   # by は auto だけ
+        with self.assertRaises(ValueError):
+            self.rec("z", "unknown", who="friend", origin="request", via="friend_verdict", of="x")   # of は retract だけ
+
+    def test_quality_unknown_lane(self):
+        q = self.rec("qu", "quality_unknown", at=1000)
+        self.assertEqual((q["what"], q["who"]), ("quality_unknown", "self"))
+        self.assertEqual(J.fold(J.rows(self.d))[("v1", "m1")]["quality"], q)
+        g = self.rec("qg", "quality_good", at=2000)
+        self.assertEqual(J.fold(J.rows(self.d))[("v1", "m1")]["quality"], g)   # 後の答えが勝つ
+        with self.assertRaises(ValueError):
+            self.rec("qx", "quality_unknown", who="friend")
+
 
 if __name__ == "__main__":
     unittest.main()

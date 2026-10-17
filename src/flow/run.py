@@ -262,7 +262,7 @@ class Run:
         self.marks = tuple(inp["marks"]) if inp.get("marks") else None   # このマークだけ(スタジオのマークの行の「この後を」。依頼の URL は採用の段が置く)
         self.request_id = env["requestId"]   # 友人からの依頼の id(src/human/friend/intake.py)
         self.deliver_dir = dl["dir"]         # ① 全自動: パックを zip にして置く所(Dropbox の 出力\)。失敗したら理由の .txt も
-        self.deliver_batch = dl["batch"]     # 友人の依頼ごとの届け方(1 = 1 本ずつ・n = n 本の組。None = ホームの設定 intake.deliverBatch。2-16)
+        self.deliver_batch = dl["batch"]     # 友人の依頼ごとの届け方(古い依頼の欄。F3-6 から届けるのはいつも 1 本ずつ = 読まない)
         self.pool = dl["pool"]               # ライブの切り抜きの組の溜め {"key", "rid", "title", "meta"}(None = この実行の中で届ける)
         self.deliver_origin = dl["origin"]   # 届けるときの出どころ(request・auto・manual。None = 依頼の id があれば request・無ければ auto。D-SEND)
         self.deliver_tag = dl.get("tag")     # 届ける zip の名前の頭(友人のアプリの名前の形 YYYYMMDD-HHMMSS-xxxxxx。None = 依頼の id か実行の id。D-SEND)

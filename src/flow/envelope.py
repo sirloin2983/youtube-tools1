@@ -12,7 +12,7 @@
             live = {videoId か url, title, recorder}(recorder = 録画の部品の名前。無ければ既定。Queue.submit が live の hook へ回す = RS7-2 G2a)。
             file の normalize = 最初の段で写しを 30fps に置き換える(真偽。既定 false。置き換えは元を消すので、作業データへの写しだけ),
    "requestId": 友人の依頼の id か None,
-   "deliver": {"dir", "batch", "pool", "origin", "tag"}(届け先・n 本の組・ライブの組の溜め・出どころ request|auto|manual・届ける名前の頭。
+   "deliver": {"dir", "batch", "pool", "origin", "tag"}(届け先・n 本の組(F3-6 から読まない = 古い依頼のために欄だけ)・ライブの組の溜め・出どころ request|auto|manual・届ける名前の頭。
               どれも None = 届けない・既定・自動で決める),
    "note": メモ, "createdAt": 受けた時刻(ミリ秒), "specVersion": 封筒と束の形の版}
 段の並び(どこから・どこまで)・1 本が失敗したとき・字幕の色の配信者は束(run.from・run.upto・run.onFail・hints.streamer)。
@@ -49,7 +49,7 @@ ID_RE = re.compile(r"[0-9A-Za-z_-]{1,64}\Z")
 VIDEO_ID_RE = re.compile(r"[0-9A-Za-z_-]{1,64}\Z")
 DOC_ID_RE = re.compile(r"[0-9A-Za-z_-]{1,40}\Z")
 TITLE_MAX, CHANNEL_MAX, PATH_MAX, NOTE_MAX, TAG_MAX = 120, 100, 1000, 1000, 120
-BATCH_RANGE = (1, 10)   # 友人の依頼ごとの届け方(n 本の組。src/app/prefs.py の intake.deliverBatch の範囲と同じ)
+BATCH_RANGE = (1, 10)   # 友人の依頼ごとの届け方(n 本の組。F3-6 から届ける段は読まない = 古いアプリの依頼を断らないために検査だけ残す)
 
 
 def clean_pool(p):

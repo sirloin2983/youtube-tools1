@@ -550,11 +550,12 @@ class Human3(unittest.TestCase):
         env.judge(5, "adopt", vid=V1, mid="m6", who="friend", origin="manual", via="friend_verdict", ref={"zip": "c.zip", "pack": "p6"})
         env.judge(6, "adopt", vid=V1, mid="mx", who="self", origin="live", via="cases")   # 自分の判断は分子に入れない
         u = self.h3(env)["used"]
-        self.assertEqual((u["request"]["delivered"], u["request"]["used"], u["request"]["notUsed"], u["request"]["unanswered"]), (3, 1, 1, 1))   # p3 = 未回答
-        self.assertEqual((u["auto"]["delivered"], u["auto"]["used"], u["auto"]["unanswered"]), (2, 1, 1))                                # p5 = 未回答(by auto の要らないは書かれない)
-        self.assertEqual((u["manual"]["delivered"], u["manual"]["used"]), (1, 1))
-        self.assertEqual((u["all"]["delivered"], u["all"]["used"], u["all"]["notUsed"], u["all"]["unanswered"], u["all"]["answered"]), (6, 3, 1, 2, 4))
-        self.assertEqual((u["all"]["usedRate"], u["all"]["answerRate"], u["all"]["usedOfAnswered"]), (0.5, 0.6667, 0.75))
+        # p1 良い・p2 古い reject = 不明・p3 答えなし = 不明
+        self.assertEqual((u["request"]["delivered"], u["request"]["good"], u["request"]["bad"], u["request"]["unknown"], u["request"]["answered"]), (3, 1, 0, 2, 2))
+        self.assertEqual((u["auto"]["delivered"], u["auto"]["good"], u["auto"]["unknown"], u["auto"]["answered"]), (2, 1, 1, 1))   # p5 = 答えなし = 不明
+        self.assertEqual((u["manual"]["delivered"], u["manual"]["good"]), (1, 1))
+        self.assertEqual((u["all"]["delivered"], u["all"]["good"], u["all"]["bad"], u["all"]["unknown"], u["all"]["answered"]), (6, 3, 0, 3, 4))   # 答え = 行がある = p1・p2(古い reject)・p4・p6
+        self.assertEqual((u["all"]["goodRate"], u["all"]["badRate"], u["all"]["badOfJudged"]), (0.5, 0.0, 0.0))
         self.assertEqual(self.h3(env)["judgments"], 5)
 
     def test_used_match_by_mark_when_no_pack_name_and_last_wins(self):
@@ -562,14 +563,16 @@ class Human3(unittest.TestCase):
         env.deliver("a.zip", [("p1", "m1")])
         env.judge(1, "reject", vid=V1, mid="m1", who="friend", origin="request", via="friend_verdict")                 # ref.pack 無し = (videoId, markId) で突き合わせる
         j = env.judge(2, "adopt", vid=V1, mid="m1", who="friend", origin="request", via="friend_verdict")              # 後の判断が勝つ
-        self.assertEqual(self.h3(env)["used"]["request"]["used"], 1)
-        env.judge(3, "retract", vid=V1, mid="m1", who="friend", origin="request", via="friend_verdict", of=j["id"])   # 取り消し = 未回答に戻る(古い reject は後から復活しない)
+        self.assertEqual(self.h3(env)["used"]["request"]["good"], 1)
+        env.judge(3, "retract", vid=V1, mid="m1", who="friend", origin="request", via="friend_verdict", of=j["id"])   # 取り消し = 答えなしに戻る(古い reject は後から復活しない)
         g = self.h3(env)["used"]["request"]
-        self.assertEqual((g["used"], g["notUsed"], g["unanswered"]), (0, 0, 1))
+        self.assertEqual((g["good"], g["bad"], g["unknown"], g["answered"]), (0, 0, 1, 0))
 
     def test_used_period_and_no_deliveries(self):
         env = Env(self)
-        self.assertEqual(self.h3(env)["used"]["all"], {"delivered": 0, "used": 0, "notUsed": 0, "unanswered": 0, "answered": 0, "usedRate": None, "answerRate": None, "usedOfAnswered": None})
+        self.assertEqual(self.h3(env)["used"]["all"], {"delivered": 0, "good": 0, "bad": 0, "unknown": 0, "answered": 0, "goodRate": None, "badRate": None,
+                                                       "badReasons": {"boring": 0, "cut": 0, "other": 0}, "badOfJudged": None,
+                                                       "scene": {"judged": 0, "boring": 0}, "sceneBoringRate": None})
         env.deliver("a.zip", [("p1", "m1")], at="2026-10-01")
         env.deliver("b.zip", [("p2", "m2")], at="2026-10-09")
         self.assertEqual(self.h3(env)["used"]["all"]["delivered"], 2)
@@ -585,10 +588,30 @@ class Human3(unittest.TestCase):
         env.judge(5, "quality_bad", vid=V1, mid="m5", origin="request", via="check", reason="boring")
         env.judge(6, "retract", vid=V1, mid="m4", origin="auto", via="check", of=b["id"])   # Z で取り消した答えは数えない
         env.judge(7, "adopt", vid=V1, mid="m1", origin="manual", via="review")             # 採否は物差し 3 に入らない
+        env.judge(8, "quality_unknown", vid=V1, mid="m8", origin="auto", via="check")      # 不明 = 良い・悪いの数には入らない
         q = self.h3(env)["quality"]
-        self.assertEqual((q["good"], q["bad"], q["judged"], q["goodRate"]), (2, 2, 4, 0.5))
-        self.assertEqual(q["byOrigin"], {"request": {"good": 1, "bad": 1}, "auto": {"good": 1, "bad": 1}})
+        self.assertEqual((q["good"], q["bad"], q["unknown"], q["judged"], q["goodRate"]), (2, 2, 1, 4, 0.5))
+        self.assertEqual(q["byOrigin"], {"request": {"good": 1, "bad": 1, "unknown": 0}, "auto": {"good": 1, "bad": 1, "unknown": 1}})
         self.assertEqual(q["reasons"], {"cut": 1, "boring": 1})
+
+    def test_friend_good_bad_unknown_reasons_and_scene(self):
+        env = Env(self)
+        env.deliver("a.zip", [("p1", "m1"), ("p2", "m2"), ("p3", "m3"), ("p4", "m4")], origin="request", runId="rq1")   # 区間指定の実行
+        env.deliver("b.zip", [("p5", "m5"), ("p6", "m6"), ("p7", "m7")], origin="request", runId="rn1")               # 区間指定でない実行
+        env.runs([{"id": "rq1", "videoId": V1, "state": "done", "ranges": [[10, 20]]},
+                  {"id": "rn1", "videoId": V1, "state": "done", "ranges": []}])
+        env.judge(1, "bad", vid=V1, mid="m1", who="friend", origin="request", via="friend_verdict", reason="boring", ref={"pack": "p1"})
+        env.judge(2, "good", vid=V1, mid="m2", who="friend", origin="request", via="friend_verdict", ref={"pack": "p2"})
+        env.judge(3, "unknown", vid=V1, mid="m3", who="friend", origin="request", via="friend_verdict", by="auto", ref={"pack": "p3"})
+        env.judge(5, "bad", vid=V1, mid="m5", who="friend", origin="request", via="friend_verdict", reason="boring", ref={"pack": "p5"})
+        env.judge(6, "bad", vid=V1, mid="m6", who="friend", origin="request", via="friend_verdict", reason="cut", ref={"pack": "p6"})
+        env.judge(7, "bad", vid=V1, mid="m7", who="friend", origin="request", via="friend_verdict", ref={"pack": "p7"})   # 理由なし = その他
+        u = self.h3(env)["used"]["all"]
+        self.assertEqual((u["delivered"], u["good"], u["bad"], u["unknown"], u["answered"]), (7, 1, 4, 2, 6))   # p4 = 答えなし
+        self.assertEqual(u["badReasons"], {"boring": 2, "cut": 1, "other": 1})   # p1・p5 つまらない / p6 切り方が変 / p7 理由なし
+        self.assertEqual((u["goodRate"], u["badRate"], u["badOfJudged"]), (0.1429, 0.5714, 0.8))
+        self.assertEqual(u["scene"], {"judged": 3, "boring": 1})   # 区間指定の実行(rq1 = p1〜p4)を外す。p5 つまらない・p6 切り方が変・p7 理由なし
+        self.assertEqual(u["sceneBoringRate"], 0.3333)
 
     def test_friend_range_is_passed_through_and_printed_first(self):
         env = build(self)
@@ -603,7 +626,7 @@ class Human3(unittest.TestCase):
         text = out.getvalue()
         self.assertIn("物差し 3 本", text)
         self.assertLess(text.index("物差し 3 本"), text.index("上位"))   # 3 本が先頭(古い物差しより前)
-        self.assertIn("2 届けた物を友人が使った率: 100%", text)
+        self.assertIn("2 届けた物を友人がどう答えたか: 良い 100%(良い 1 / 届けた 1)", text)
 
 
 class FriendRanges(unittest.TestCase):

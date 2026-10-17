@@ -4,10 +4,12 @@
     python src/eval/tools/eval_marks.py [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--json] [--data-dir 作業データの親フォルダ] [--status-fallback]
     python src/eval/tools/eval_marks.py --live [--since …] [--until …] [--json]     配信ごと(線 D の D-12。下の「--live」)
 
-- 物差し 3 本(結果の `human3`・表示の先頭。MARKS-3): (1) 友人の区間の拾えた率 = 下の friendRanges のまま / (2) 届けた物を友人が使ったか =
-  分母 ② flow/deliveries の届けたパック(origin ごとに request・auto・manual)・分子 ③ human/judgments の who friend の adopt・made_video = 使った / reject = 使わなかった /
-  無し = 未回答(パック名で突き合わせる。友人のアプリが 3 日で自動で要らないにした物は判断として書かれないので未回答に入る)/ (3) 確かめるの良い / 悪い =
-  judgments の quality_good・quality_bad(origin と reason の分布)。人の判断は judgments だけを読む(線 D の人の行も)。以下の古い物差しは残す。
+- 物差し 3 本(結果の `human3`・表示の先頭。MARKS-3・C-4-1): (1) 友人の区間の拾えた率 = 下の friendRanges のまま / (2) 届けた物を友人がどう答えたか =
+  分母 ② flow/deliveries の届けたパック(origin ごとに request・auto・manual)・答え ③ human/judgments の who friend を judgments.friend_value で読む =
+  good(受け取る)/ bad(届かなくてよかった。reason が boring = 場面の選び方・cut = 切り方が変)/ unknown(見送る・3 日の自動・古い reject も。行が無い = 答えなしも unknown)。
+  結果は goodRate・badRate・badReasons・badOfJudged(bad ÷ (good+bad))。scene = 友人が区間を指定した実行(入口の実行記録の ranges。届けた記録の runId で突き合わせる)
+  のパックを外した場面の選び方の数え方(sceneBoringRate = つまらない ÷ 良い+悪い)。パック名で突き合わせる(友人のアプリの 3 日の見送りは by auto の不明として書かれる)/
+  (3) 確かめるの良い / 悪い / 不明 = judgments の quality_good・quality_bad・quality_unknown(origin と reason の分布)。人の判断は judgments だけを読む(線 D の人の行も)。以下の古い物差しは残す。
 - 未解析の友人の配信の解析は ② が依頼のあとに行う(この道具は数えるだけ: friendRanges の unanalyzed)。
 - 作業データは**読むだけ**(どの口も。スタジオの data.json・feedback.jsonl(と .old)・archive/<動画ID>.json.gz・入口の logs/autorun-runs.jsonl・
   cut2resolve の packs/)。何も書き換えない。--json のときだけ、結果を スタジオの作業データの evals\\marks\\<日時>.json に残す(原則 3: 機械の最初の結果と人の最終を並べる)
@@ -658,7 +660,7 @@ def friend_ranges(studio, app, vmap, since_ms=None, until_ms=None, dvideos=None,
 # ---------------------------------------------------------------- 物差し 3 本(human3。MARKS-3)
 
 H3_ORIGINS = ("request", "auto", "manual")
-H3_USED = ("adopt", "made_video")
+H3_BAD_REASONS = ("boring", "cut")   # 友人の「届かなくてよかった」の理由(judgments.FRIEND_REASONS)。それ以外・無しは "other"
 
 
 def _pack_name(p):
@@ -681,18 +683,41 @@ def friend_lane(rows):
     return by_pack, by_mark
 
 
+def friend_run_ids(records):
+    """友人が区間を指定した実行の id の集合(load_friend_runs と同じ判定: ranges に正しい区間が 1 つでもある)。届けた記録の runId と突き合わせる"""
+    out = set()
+    for r in records:
+        rid = r.get("id")
+        if not isinstance(r.get("videoId"), str) or not isinstance(rid, str) or not rid or not isinstance(r.get("ranges"), list):
+            continue
+        for rg in r["ranges"]:
+            p = pair(rg)
+            if p and p[1] > p[0] >= 0:
+                out.add(rid)
+                break
+    return out
+
+
 def _used_group(items):
+    """items = [{"v": good・bad・unknown, "reason": 悪いの理由 or None, "answered": 行がある, "scene": 区間指定でない実行のパックか}]"""
     n = len(items)
-    used = sum(1 for i in items if i == "used")
-    bad = sum(1 for i in items if i == "notUsed")
-    answered = used + bad
-    return {"delivered": n, "used": used, "notUsed": bad, "unanswered": n - answered, "answered": answered,
-            "usedRate": rate(used, n), "answerRate": rate(answered, n), "usedOfAnswered": rate(used, answered)}
+    good = sum(1 for i in items if i["v"] == "good")
+    bad = sum(1 for i in items if i["v"] == "bad")
+    reasons = {k: 0 for k in H3_BAD_REASONS + ("other",)}
+    for i in items:
+        if i["v"] == "bad":
+            reasons[i["reason"] if i["reason"] in H3_BAD_REASONS else "other"] += 1
+    scene = [i for i in items if i["scene"] and i["v"] in ("good", "bad")]
+    boring = sum(1 for i in scene if i["v"] == "bad" and i["reason"] == "boring")
+    return {"delivered": n, "good": good, "bad": bad, "unknown": n - good - bad, "answered": sum(1 for i in items if i["answered"]),
+            "goodRate": rate(good, n), "badRate": rate(bad, n), "badReasons": reasons, "badOfJudged": rate(bad, good + bad),
+            "scene": {"judged": len(scene), "boring": boring}, "sceneBoringRate": rate(boring, len(scene))}
 
 
-def friend_used(app, rows, since_ms=None, until_ms=None):
-    """物差し 2: 届けたパック(origin ごと)を友人が使ったか。分母 = 届けた記録のパック(同じ zip の同じパックは 1 つ)。
-    分子 = judgments の who friend の adopt・made_video = 使った / reject = 使わなかった / 無し = 未回答。by auto の自動の要らないは書かれない前提(未回答に入る)"""
+def friend_used(app, rows, since_ms=None, until_ms=None, friend_runs=frozenset()):
+    """物差し 2: 届けたパック(origin ごと)に友人が付けた 3 つの答え。分母 = 届けた記録のパック(同じ zip の同じパックは 1 つ)。
+    答え = judgments の who friend の good / bad(reason)/ unknown(見送る・3 日の自動 by auto・古い reject も)。行が無い = 答えなしも unknown。
+    scene = 友人が区間を指定した実行(friend_runs の runId)のパックを外した、場面の選び方の数え方(C-4-1)"""
     by_pack, by_mark = friend_lane(rows)
     got = deliveries.rows(os.path.join(app, "logs")) or []
     items, seen = {o: [] for o in H3_ORIGINS}, set()
@@ -701,6 +726,7 @@ def friend_used(app, rows, since_ms=None, until_ms=None):
         if not C.in_period(at if isinstance(at, int) and not isinstance(at, bool) else None, since_ms, until_ms):
             continue
         origin = deliveries.origin_of(d)
+        scene_ok = str(d.get("runId") or "") not in friend_runs
         for p in d.get("packs") or []:
             if not isinstance(p, dict):
                 continue
@@ -712,39 +738,46 @@ def friend_used(app, rows, since_ms=None, until_ms=None):
             j = by_pack.get(name)
             if j is None and p.get("markId"):
                 j = by_mark.get((str(d.get("videoId") or ""), str(p["markId"])))
-            items[origin].append("unanswered" if j is None else "used" if j["what"] in H3_USED else "notUsed")
+            v = (judgments.friend_value(j) if j is not None else None) or "unknown"
+            items[origin].append({"v": v, "reason": j.get("reason") if j is not None else None, "answered": j is not None, "scene": scene_ok})
     out = {o: _used_group(v) for o, v in items.items()}
     out["all"] = _used_group([i for v in items.values() for i in v])
     return out
 
 
 def quality_counts(rows):
-    """物差し 3: 確かめるの良い / 悪い(最後の答え。取り消しは畳んだあと)。origin ごとと悪いの reason の分布"""
-    good = bad = 0
+    """物差し 3: 確かめるの良い / 悪い / 不明(最後の答え。取り消しは畳んだあと)。origin ごとと悪いの reason の分布。
+    judged = 良い + 悪い(良い率の分母)。不明(quality_unknown)は判定の数に入れない"""
+    good = bad = unknown = 0
     by_origin, reasons = {}, {}
     for slot in judgments.fold(rows).values():
         j = slot["quality"]
         if j is None:
             continue
-        g = by_origin.setdefault(j.get("origin") or "", {"good": 0, "bad": 0})
+        g = by_origin.setdefault(j.get("origin") or "", {"good": 0, "bad": 0, "unknown": 0})
         if j["what"] == "quality_good":
             good += 1
             g["good"] += 1
-        else:
+        elif j["what"] == "quality_bad":
             bad += 1
             g["bad"] += 1
             reasons[j.get("reason") or ""] = reasons.get(j.get("reason") or "", 0) + 1
-    return {"good": good, "bad": bad, "judged": good + bad, "goodRate": rate(good, good + bad), "byOrigin": by_origin, "reasons": reasons}
+        else:
+            unknown += 1
+            g["unknown"] += 1
+    return {"good": good, "bad": bad, "unknown": unknown, "judged": good + bad, "goodRate": rate(good, good + bad), "byOrigin": by_origin, "reasons": reasons}
 
 
-def human3(app, friend, since_ms=None, until_ms=None):
-    """-> 物差し 3 本。friend = friend_ranges の結果(1 本目はそのまま)。人の判断は judgments だけを読む"""
+def human3(app, friend, since_ms=None, until_ms=None, records=None):
+    """-> 物差し 3 本。friend = friend_ranges の結果(1 本目はそのまま)。人の判断は judgments だけを読む。
+    records = 入口の実行記録(run_records と同じ。読んであれば渡す = 区間指定の実行を外す scene の数え方に使う)"""
     rows = [r for r in judgments.rows(app) if C.in_period(int(r["at"]), since_ms, until_ms)]
     o = friend["overall"]
     rng = {k: o[k] for k in ("ranges", "analyzedRanges", "videos", "analyzedVideos", "hit", "hitRate", "miss", "missRate")}
     rng["top"] = o["top"]
     rng["few"] = friend["few"]
-    return {"schema": "youtube-tools-marks-human3/v1", "friendRange": rng, "used": friend_used(app, rows, since_ms, until_ms), "quality": quality_counts(rows),
+    fr_ids = friend_run_ids(run_records(app) if records is None else records)
+    return {"schema": "youtube-tools-marks-human3/v1", "friendRange": rng, "used": friend_used(app, rows, since_ms, until_ms, fr_ids), "quality": quality_counts(rows),
             "judgments": len(rows)}
 
 
@@ -787,7 +820,7 @@ def evaluate(data_dir=None, since=None, until=None, status_fallback=False):
     clip = lengthhint.compute(studio, app, by_type=True)
     fit = clipfit.evaluate(studio, app, records=records, hint=clip, data_dir=data_dir)   # 期間で絞らない(友人の区間は少ない)
     fit.pop("items", None)
-    return {"meta": meta, "human3": human3(app, friend, since_ms, until_ms), "overall": overall, "byType": {k: group_metrics(v) for k, v in sorted(types.items())},
+    return {"meta": meta, "human3": human3(app, friend, since_ms, until_ms, records), "overall": overall, "byType": {k: group_metrics(v) for k, v in sorted(types.items())},
             "byVideo": by_video, "friendRanges": friend, "clipLength": clip, "clipFit": fit}
 
 
@@ -1133,22 +1166,28 @@ def print_human3(h):
         print("  1 友人の区間の拾えた率: -(解析済みの区間がまだありません)")
     u = h["used"]
     if u["all"]["delivered"]:
-        print("  2 届けた物を友人が使った率: %s(使った %d / 届けた %d・使わなかった %d・未回答 %d)" % (pct(u["all"]["usedRate"], 0), u["all"]["used"], u["all"]["delivered"], u["all"]["notUsed"], u["all"]["unanswered"]))
+        a = u["all"]
+        print("  2 届けた物を友人がどう答えたか: 良い %s(良い %d / 届けた %d)・悪い %s(%d)・不明 %d(答えなし・見送りを含む)"
+              % (pct(a["goodRate"], 0), a["good"], a["delivered"], pct(a["badRate"], 0).strip(), a["bad"], a["unknown"]))
+        print("      悪いの理由: つまらない %d・切り方が変 %d・その他 %d(良い・悪いの中で悪い %s)"
+              % (a["badReasons"]["boring"], a["badReasons"]["cut"], a["badReasons"]["other"], pct(a["badOfJudged"], 0).strip()))
+        print("      場面の選び方(区間指定を除く): つまらない %s(%d / 良い・悪い %d)"
+              % (pct(a["sceneBoringRate"], 0).strip(), a["scene"]["boring"], a["scene"]["judged"]))
         for o in H3_ORIGINS:
             g = u[o]
             if g["delivered"]:
-                print("      %-7s 使った %d・使わなかった %d・未回答 %d / 届けた %d(使った率 %s・返事のあった中で %s)"
-                      % (o, g["used"], g["notUsed"], g["unanswered"], g["delivered"], pct(g["usedRate"], 0).strip(), pct(g["usedOfAnswered"], 0).strip()))
+                print("      %-7s 良い %d・悪い %d・不明 %d / 届けた %d(良い率 %s・答えのあった中で悪い %s)"
+                      % (o, g["good"], g["bad"], g["unknown"], g["delivered"], pct(g["goodRate"], 0).strip(), pct(g["badOfJudged"], 0).strip()))
     else:
-        print("  2 届けた物を友人が使った率: -(届けた記録がありません)")
+        print("  2 届けた物を友人がどう答えたか: -(届けた記録がありません)")
     q = h["quality"]
-    if q["judged"]:
-        print("  3 確かめるの良い / 悪い: 良い %d・悪い %d(良い率 %s)" % (q["good"], q["bad"], pct(q["goodRate"], 0).strip()))
-        print("      出どころ: " + "・".join("%s 良い %d 悪い %d" % (k or "不明", v["good"], v["bad"]) for k, v in sorted(q["byOrigin"].items())))
+    if q["judged"] or q["unknown"]:
+        print("  3 確かめるの良い / 悪い / 不明: 良い %d・悪い %d・不明 %d(良い率 %s)" % (q["good"], q["bad"], q["unknown"], pct(q["goodRate"], 0).strip()))
+        print("      出どころ: " + "・".join("%s 良い %d 悪い %d 不明 %d" % (k or "不明", v["good"], v["bad"], v["unknown"]) for k, v in sorted(q["byOrigin"].items())))
         if q["reasons"]:
             print("      悪いの理由: " + "・".join("%s %d" % (k or "(なし)", n) for k, n in sorted(q["reasons"].items(), key=lambda kv: -kv[1])))
     else:
-        print("  3 確かめるの良い / 悪い: -(まだ答えがありません)")
+        print("  3 確かめるの良い / 悪い / 不明: -(まだ答えがありません)")
     print("")
 
 

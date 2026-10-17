@@ -3,8 +3,12 @@
 
 友人の PC のアプリが Dropbox の `/送り返し/` へ上げた物が、ユーザーの PC では同期フォルダ(intake.folder)の `送り返し\\` に届く:
 - `<requestId>__<runId>.zip`            ② が組んだ 1 実行の結果(flow/outbox。動画なし)
-- `<requestId>__<パック名>.verdict.json`  友人の採否 {"verdict": "keep"|"reject"|"made_video", "at": ミリ秒, "origin"?: "request"|"auto"}
-  (アプリが直に書く。origin は D-SEND 2-7 の出どころ = 任意。並べた verdicts\\ にもそのまま残す)
+- `<requestId>__<パック名>[~<at 13 桁>].verdict.json`  友人の判断(アプリが直に書く。並べた verdicts\\ にもそのまま残す)。2 つの形(parse_verdict):
+  新しい形 v 2(F3-6。notes:plan/f1-friend-requirements.md の C-3-4・C-3-6・C-4-1)= {"v":2, "id", "judge": good|bad|unknown|retract, "reason"(bad = boring|cut),
+  "of"(retract = 取り消す記録の id), "by"?: "auto"(3 日の自動の見送り), "zip", "videoId"?, "markId"?, "origin"?, "at"} / 古い形 v 1 = {"verdict": keep|reject|made_video, …}
+  (前のアプリ RequestSender。keep = 良い・reject = 不明・made_video = 良い として読む = judgments.friend_value)
+- `<requestId>__notice-<at 13 桁>.notice.json`  [作る人に知らせる](C-2-16)= {"v":1, "kind":"failure", "message", "detail", "code", "title", "appVersion", "at", "log"}。
+  `<依頼>\\notices\\` に並べ、ホームの「依頼の受付」に出す(recent_notices)・ログに 1 行
 受け取ると `app\\friend-returns\\<YYYY-MM>\\<requestId>\\` に並べ(zip は `<runId>\\` へ展開・採否は `verdicts\\` へ)、元は `送り返し\\受付済み\\<日付>\\` へ移す
 (消さない。受付の 受付済み と同じ日付のフォルダ。形が違う・壊れた物・扱えなかった物は `送り返し\\失敗\\` へ理由の .txt つき)。読む道具は今は無い(⑤ の eval_friend は OPT-E1 で消した)。
 zip の中のパスは展開先の中だけ(zip slip を断る。Windows の予約名・: を含む名前も断る)。部品を壊す物・大きすぎる物は zip ごと断る。intake.scan から scan が 1 行で呼ばれる。
@@ -27,10 +31,19 @@ RETURNS_DIR = "friend-returns"      # <app>/friend-returns/<YYYY-MM>/<requestId>
 IN_DIR, DONE_DIR, FAIL_DIR = "送り返し", "受付済み", "失敗"
 VERDICT_SUFFIX = ".verdict.json"
 LOGS_DIR = "logs"                  # 届けた記録 deliveries.jsonl の置き場所(app の直下の logs)
-VERDICT_WHAT = {"keep": "adopt", "reject": "reject", "made_video": "made_video"}   # 送り返しの採否 → 人の判断の what
+VERDICT_WHAT = {"keep": "adopt", "reject": "reject", "made_video": "made_video"}   # 古い形の採否 → 人の判断の what(読むときに friend_value が読み替える)
 VERDICTS = ("keep", "reject", "made_video")
+JUDGES = ("good", "bad", "unknown", "retract")   # 新しい形 v 2 の judge(good・bad・unknown は人の判断の what にそのまま)
+ID_RE = re.compile(r"^[0-9A-Za-z_-]{1,64}\Z")    # 新しい形の記録の id(友人のアプリが作る)・videoId・markId
 ORIGINS = ("request", "auto")       # 採否の任意の origin(D-SEND 2-7。友人に見せる出どころ = flow/deliver.face_origin と同じ 2 つ)
-VERDICT_RE = re.compile(r"^([0-9A-Za-z_-]{1,64})__([^\\/:*?\"<>|\x00-\x1f]{1,120})" + re.escape(VERDICT_SUFFIX) + r"\Z")
+VERDICT_RE = re.compile(r"^([0-9A-Za-z_-]{1,64})__([^\\/:*?\"<>|\x00-\x1f]{1,120}?)(~[0-9]{13})?" + re.escape(VERDICT_SUFFIX) + r"\Z")
+NOTICE_SUFFIX = ".notice.json"
+NOTICE_RE = re.compile(r"^([0-9A-Za-z_-]{1,64})__notice-([0-9]{13})" + re.escape(NOTICE_SUFFIX) + r"\Z")
+NOTICES_DIR = "notices"             # <依頼>\notices\ = 作る人への知らせ(実行の結果のフォルダと見分ける)
+MAX_NOTICE = 256 * 1024
+NOTICE_TEXT = {"message": 500, "detail": 4000, "code": 40, "title": 200, "appVersion": 40, "log": 128 * 1024}   # 知らせの文字の欄の長さの上限
+NOTICE_DAYS = 7                     # ホームに出す知らせ(この日数の分)
+NOTICE_SHOW = 10
 ZIP_NAME_RE = re.compile(r'^[^\\/:*?"<>|\x00-\x1f]{1,200}\Z')   # verdict の zip(friend_feedback.NAME_RE と同じ)
 MAX_FILES = 2000                   # zip の中の数
 MAX_TOTAL = 400 * 1024 * 1024       # 展開後の合計(zip 爆弾を断る)
@@ -125,6 +138,8 @@ def parse_verdict(raw):
         d = json.loads(raw.decode("utf-8-sig"))
     except (UnicodeDecodeError, ValueError):
         raise ValueError("JSON として読めません")
+    if isinstance(d, dict) and d.get("v") == 2:
+        return _parse_v2(d)
     if not isinstance(d, dict) or d.get("verdict") not in VERDICTS:
         raise ValueError("verdict は %s のどれかにしてください" % " / ".join(VERDICTS))
     at = d.get("at")
@@ -137,6 +152,60 @@ def parse_verdict(raw):
     z = d.get("zip")
     if isinstance(z, str) and ZIP_NAME_RE.match(z) and z.lower().endswith(".zip") and z not in (".", ".."):   # Dropbox で届けたパックの zip の名前(F2-3)
         out["zip"] = z
+    return out
+
+
+def _at(v):
+    """ミリ秒の時刻(0 < at < AT_MAX の数だけ。整数にそろえる)か None"""
+    return int(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and 0 < v < AT_MAX else None
+
+
+def _parse_v2(d):
+    """新しい形 v 2 の判断(F3-6)-> {"judge", "id", "at", ("reason"・"of"・"by"・"origin"・"zip"・"videoId"・"markId")}。形が違えば ValueError"""
+    judge = d.get("judge")
+    if judge not in JUDGES:
+        raise ValueError("judge は %s のどれかにしてください" % " / ".join(JUDGES))
+    rid = d.get("id")
+    if not isinstance(rid, str) or not ID_RE.match(rid):
+        raise ValueError("id は英数字・_・- の 64 文字までにしてください")
+    out = {"v": 2, "judge": judge, "id": rid, "at": _at(d.get("at"))}
+    if judge == "bad":
+        if d.get("reason") not in judgments.FRIEND_REASONS:
+            raise ValueError("届かなくてよかったの理由(reason)は %s のどれかにしてください" % " / ".join(judgments.FRIEND_REASONS))
+        out["reason"] = d["reason"]
+    if judge == "retract":
+        if not isinstance(d.get("of"), str) or not ID_RE.match(d["of"]):
+            raise ValueError("戻す(retract)には取り消す記録の id(of)が要ります")
+        out["of"] = d["of"]
+    if d.get("by") == "auto" and judge == "unknown":   # 3 日の自動の見送り(人が押したのではない)
+        out["by"] = "auto"
+    if d.get("origin") in ORIGINS:
+        out["origin"] = d["origin"]
+    z = d.get("zip")
+    if isinstance(z, str) and ZIP_NAME_RE.match(z) and z.lower().endswith(".zip"):
+        out["zip"] = z
+    for k in ("videoId", "markId"):   # 届いた .meta.json の値を返す(友人の PC で処理した物は届けた記録に無いので、これで切り抜きを引く)
+        if isinstance(d.get(k), str) and ID_RE.match(d[k]):
+            out[k] = d[k]
+    return out
+
+
+def parse_notice(raw):
+    """[作る人に知らせる] の .notice.json(bytes)-> 整えた辞書。形が違えば ValueError(理由)。文字の欄は NOTICE_TEXT の長さで切る"""
+    try:
+        d = json.loads(raw.decode("utf-8-sig"))
+    except (UnicodeDecodeError, ValueError):
+        raise ValueError("JSON として読めません")
+    if not isinstance(d, dict) or d.get("v") != 1 or d.get("kind") != "failure":
+        raise ValueError("v 1・kind failure の知らせではありません")
+    if not isinstance(d.get("message"), str) or not d["message"].strip():
+        raise ValueError("message(友人に見えていた文)がありません")
+    out = {"v": 1, "kind": "failure", "at": _at(d.get("at"))}
+    for k, cap in NOTICE_TEXT.items():
+        v = d.get(k)
+        out[k] = v[:cap] if isinstance(v, str) else ""
+    rid = d.get("requestId")
+    out["requestId"] = rid if isinstance(rid, str) and ID_RE.match(rid) else ""
     return out
 
 
@@ -160,7 +229,7 @@ def scan(sync_folder, app_dir, clock=None, log=None, feedback=None):
     """同期フォルダの 送り返し\\ を見て、届いた物を並べる -> [{"name", "kind"("run"|"verdict"), "state"("accepted"|"rejected"|"wait"), "reason"}]。
     何があっても上げない(受付の見回りを止めない)。フォルダが無ければ空。
     feedback: 友人の「要らない」を片付ける関数(入口の friend_feedback.apply。受付が渡す)。Dropbox で届けたパック(verdict の zip が .zip の名前)の
-    reject は .feedback.json と同じく片付ける(新しい友人のアプリは要らないを .verdict.json だけで返す = 8b 章の 3 → 4。F2-3)"""
+    古い reject・新しい bad・unknown は .feedback.json と同じく片付ける(友人のアプリは判断を .verdict.json だけで返す = 8b 章の 3 → 4。F2-3)"""
     log = log or (lambda msg: None)
     clock = clock or time.time
     folder = os.path.join(sync_folder, IN_DIR)
@@ -173,7 +242,7 @@ def scan(sync_folder, app_dir, clock=None, log=None, feedback=None):
         p = os.path.join(folder, n)
         low = n.lower()
         try:
-            if n.startswith((".", "~")) or not os.path.isfile(p) or not (low.endswith(".zip") or low.endswith(VERDICT_SUFFIX)):
+            if n.startswith((".", "~")) or not os.path.isfile(p) or not (low.endswith(".zip") or low.endswith(VERDICT_SUFFIX) or low.endswith(NOTICE_SUFFIX)):
                 continue
             if clock() - os.path.getmtime(p) < SETTLE_SEC:
                 continue
@@ -189,11 +258,17 @@ def scan(sync_folder, app_dir, clock=None, log=None, feedback=None):
                 _move(folder, n, "rejected", why, clock())
             except OSError:
                 pass
-            results.append({"name": n, "kind": "verdict" if low.endswith(VERDICT_SUFFIX) else "run", "state": "rejected", "reason": why})
+            results.append({"name": n, "kind": _kind(low), "state": "rejected", "reason": why})
     return results
 
 
+def _kind(low):
+    return "verdict" if low.endswith(VERDICT_SUFFIX) else "notice" if low.endswith(NOTICE_SUFFIX) else "run"
+
+
 def _one(folder, app_dir, n, p, clock, log, feedback=None):
+    if n.lower().endswith(NOTICE_SUFFIX):
+        return _one_notice(folder, app_dir, n, p, clock, log)
     if n.lower().endswith(VERDICT_SUFFIX):
         m = VERDICT_RE.match(n)
         if not m:
@@ -208,13 +283,16 @@ def _one(folder, app_dir, n, p, clock, log, feedback=None):
         except ValueError as e:
             _move(folder, n, "rejected", str(e), clock())
             return {"name": n, "kind": "verdict", "state": "rejected", "reason": str(e)}
-        rid, pack = m.group(1), m.group(2)
+        rid, pack, stamp = m.group(1), m.group(2), m.group(3) or ""
         d = _find_request_dir(app_dir, rid) or os.path.join(returns_dir(app_dir), _month(v["at"], clock()), rid)
         out = os.path.join(d, "verdicts")
         os.makedirs(out, exist_ok=True)
-        fsio.write_json(os.path.join(out, pack + VERDICT_SUFFIX), dict(v, requestId=rid, pack=pack))
-        _judge_verdict(app_dir, v, rid, pack, clock, log)
-        if v["verdict"] == "reject" and v.get("zip") and feedback is not None:
+        fsio.write_json(os.path.join(out, pack + stamp + VERDICT_SUFFIX), dict(v, requestId=rid, pack=pack))   # ~<at> = 同じ切り抜きの判断・取り消しを並べる
+        if v.get("v") == 2:
+            _judge_v2(app_dir, v, rid, pack, clock, log)
+        else:
+            _judge_verdict(app_dir, v, rid, pack, clock, log)
+        if (v.get("verdict") == "reject" or v.get("judge") in ("bad", "unknown")) and v.get("zip") and feedback is not None:
             _discard(feedback, v, rid, log)
         _move(folder, n, "accepted", "", clock())
         return {"name": n, "kind": "verdict", "state": "accepted", "reason": ""}
@@ -252,15 +330,16 @@ def _one(folder, app_dir, n, p, clock, log, feedback=None):
 
 
 def _discard(feedback, v, rid, log):
-    """Dropbox で届けたパックの「要らない」を .feedback.json と同じく片付ける(届けた記録に無ければ何もしない。失敗は記録に 1 行 = 採否は受け取る)"""
-    fb = {"zip": v["zip"], "verdict": "reject", "requestId": rid, "title": ""}
+    """Dropbox で届けたパックの見送り・届かなくてよかった(古い「要らない」)を .feedback.json と同じく片付ける(届けた記録に無ければ何もしない。
+    失敗は記録に 1 行 = 判断は受け取る)"""
+    fb = {"zip": v["zip"], "verdict": "reject", "requestId": rid, "title": "", "judged": True}   # judged = 判断の記録はこちらで書いた(apply は片付けだけ)
     if v.get("origin"):
         fb["origin"] = v["origin"]
     try:
         res = feedback(fb) or {}
     except (OSError, ValueError, RuntimeError) as e:
         res = {"ok": False, "reason": "%s: %s" % (e.__class__.__name__, str(e)[:120])}
-    log("送り返し: 要らない %s を%s" % (v["zip"], "片付けました" if res.get("ok") else "片付けませんでした(%s)" % (res.get("reason") or "")[:160]))
+    log("送り返し: 見送った %s を%s" % (v["zip"], "片付けました" if res.get("ok") else "片付けませんでした(%s)" % (res.get("reason") or "")[:160]))
 
 
 def _delivered_pack(logs_dir, rid, pack):
@@ -273,6 +352,108 @@ def _delivered_pack(logs_dir, rid, pack):
             if isinstance(p, dict) and os.path.basename(str(p.get("dir") or "")) == pack:
                 found = (r, p)
     return found
+
+
+def _delivered_zip(logs_dir, zip_name):
+    """届けた記録で zip の名前(1 本ずつ = パックは 1 つ)を引く -> (行, パック)。引けなければ (None, None)"""
+    found = (None, None)
+    for r in deliveries.rows(logs_dir) or []:
+        if r.get("zip") == zip_name and r.get("packs") and isinstance(r["packs"][0], dict):
+            found = (r, r["packs"][0])
+    return found
+
+
+def _judge_v2(app_dir, v, rid, pack, clock, log):
+    """新しい形 v 2 の判断を人の判断の記録に 1 行(who friend・via friend_verdict・key vd2:<友人の記録の id>)。
+    good・bad(reason)・unknown(by auto)はそのまま what に。retract は of の記録の行(key vd2:<of>)を取り消す(見つからなければログだけ)。
+    切り抜きは 届けた記録の zip → 依頼とパックの名前 → 届いた .meta.json から返った videoId・markId の順に引く(友人の PC で処理した物は 3 つ目だけ)"""
+    at = v.get("at") or int(clock() * 1000)
+    key = "vd2:" + v["id"]
+    try:
+        if v["judge"] == "retract":
+            hit = next((r for r in judgments.rows(app_dir) if r.get("key") == "vd2:" + v["of"]), None)
+            if hit is None:
+                log("送り返し: 戻す %s の元の判断が人の判断の記録にありません" % pack)
+                return
+            judgments.record(app_dir, who="friend", what="retract", of=hit["id"], origin=hit["origin"], via="friend_verdict",
+                             videoId=hit["videoId"], markId=hit["markId"], at=at, key=key, ref=hit.get("ref"))
+            return
+        logs = os.path.join(app_dir, LOGS_DIR)
+        r, p = _delivered_zip(logs, v["zip"]) if v.get("zip") else (None, None)
+        if r is None:
+            r, p = _delivered_pack(logs, rid, pack)
+        r, p = r or {}, p or {}
+        vid, mid = str(r.get("videoId") or "") if p.get("markId") else "", str(p.get("markId") or "")
+        if not mid and v.get("markId") and v.get("videoId"):
+            vid, mid = v["videoId"], v["markId"]
+        origin = v.get("origin") or (deliveries.origin_of(r) if r else "request")
+        judgments.record(app_dir, who="friend", what=v["judge"], reason=v.get("reason"), by=v.get("by"), origin=origin, via="friend_verdict",
+                         videoId=vid, markId=mid, at=at, key=key,
+                         ref={"pack": pack, "requestId": rid, "zip": v.get("zip") or str(r.get("zip") or ""), "runId": str(r.get("runId") or "")})
+    except (ValueError, OSError) as e:
+        log("送り返し: %s の判断を人の判断の記録に書けませんでした(%s)" % (pack, tools.why(e)))
+
+
+def _one_notice(folder, app_dir, n, p, clock, log):
+    """[作る人に知らせる](C-2-16)の 1 つ: <依頼>\\notices\\ へ並べてログに 1 行。元は 受付済み へ"""
+    m = NOTICE_RE.match(n)
+    if not m:
+        _move(folder, n, "rejected", "名前が <依頼 id>__notice-<時刻>%s の形ではありません" % NOTICE_SUFFIX, clock())
+        return {"name": n, "kind": "notice", "state": "rejected", "reason": "名前の形"}
+    if os.path.getsize(p) > MAX_NOTICE:
+        _move(folder, n, "rejected", "大きすぎます", clock())
+        return {"name": n, "kind": "notice", "state": "rejected", "reason": "大きすぎます"}
+    try:
+        with open(p, "rb") as f:
+            d = parse_notice(f.read())
+    except ValueError as e:
+        _move(folder, n, "rejected", str(e), clock())
+        return {"name": n, "kind": "notice", "state": "rejected", "reason": str(e)}
+    rid = m.group(1)
+    d["at"] = d["at"] or int(m.group(2))
+    d["requestId"] = d["requestId"] or rid
+    base = _find_request_dir(app_dir, rid) or os.path.join(returns_dir(app_dir), _month(d["at"], clock()), rid)
+    out = os.path.join(base, NOTICES_DIR)
+    os.makedirs(out, exist_ok=True)
+    fsio.write_json(os.path.join(out, n), dict(d, receivedAt=int(clock() * 1000)))
+    log("友人から知らせ: %s%s(詳しくはホームの「依頼の受付」)" % ((d["title"] + ": ") if d["title"] else "", d["message"][:200]))
+    _move(folder, n, "accepted", "", clock())
+    return {"name": n, "kind": "notice", "state": "accepted", "reason": ""}
+
+
+def recent_notices(app_dir, now=None, days=NOTICE_DAYS, limit=NOTICE_SHOW):
+    """ホームに出す友人からの知らせ(受け取ってから days 日の分・新しい順に limit 件)-> [{"at", "receivedAt", "requestId", "title", "message", "detail", "code",
+    "appVersion", "hasLog"}]。ログの本文は並べたファイルに残す(画面には出さない)。読むだけ・壊れたファイルは飛ばす"""
+    now = time.time() if now is None else now
+    since = (now - days * 86400) * 1000
+    out, root = [], returns_dir(app_dir)
+    try:
+        months = sorted(os.listdir(root))[-2:]   # 7 日なら今月と先月で足りる
+    except OSError:
+        return out
+    for mo in months:
+        mp = os.path.join(root, mo)
+        try:
+            rids = os.listdir(mp)
+        except OSError:
+            continue
+        for rid in rids:
+            nd = os.path.join(mp, rid, NOTICES_DIR)
+            try:
+                names = os.listdir(nd)
+            except OSError:
+                continue
+            for nn in names:
+                if not nn.endswith(NOTICE_SUFFIX):
+                    continue
+                d = fsio.read_json_or(os.path.join(nd, nn), None, kind=dict)
+                got = d.get("receivedAt") if d else None
+                if not isinstance(got, int) or got < since:
+                    continue
+                out.append({"at": d.get("at"), "receivedAt": got, "requestId": str(d.get("requestId") or rid), "hasLog": bool(d.get("log")),
+                            **{k: str(d.get(k) or "") for k in ("title", "message", "detail", "code", "appVersion")}})
+    out.sort(key=lambda x: x["receivedAt"], reverse=True)
+    return out[:limit]
 
 
 def _judge_verdict(app_dir, v, rid, pack, clock, log):
@@ -302,7 +483,7 @@ def _rmtree(path):
 
 
 def iter_requests(app_dir):
-    """並べた依頼の一覧 -> [{"month", "requestId", "dir", "runs": [{"runId", "dir", "manifest", "result"}], "verdicts": {パック名: {verdict, at}}}]。
+    """並べた依頼の一覧 -> [{"month", "requestId", "dir", "runs": [{"runId", "dir", "manifest", "result"}], "verdicts": {名前: {verdict か judge, at}}}]。
     読むだけ。壊れた JSON は飛ばす"""
     out = []
     root = returns_dir(app_dir)
@@ -325,9 +506,11 @@ def iter_requests(app_dir):
                     for vn in sorted(os.listdir(sp)):
                         if vn.endswith(VERDICT_SUFFIX):
                             v = fsio.read_json_or(os.path.join(sp, vn), None, kind=dict)
-                            if v and v.get("verdict") in VERDICTS:
-                                verdicts[vn[:-len(VERDICT_SUFFIX)]] = dict({"verdict": v["verdict"], "at": v.get("at")},
+                            if v and (v.get("verdict") in VERDICTS or v.get("judge") in JUDGES):
+                                verdicts[vn[:-len(VERDICT_SUFFIX)]] = dict({k: v[k] for k in ("verdict", "judge") if k in v}, at=v.get("at"),
                                                                            **({"origin": v["origin"]} if v.get("origin") in ORIGINS else {}))
+                elif sub == NOTICES_DIR:
+                    continue
                 elif os.path.isdir(sp) and not sub.endswith(".part"):
                     runs.append({"runId": sub, "dir": sp, "manifest": fsio.read_json_or(os.path.join(sp, "manifest.json"), {}, kind=dict),
                                  "result": fsio.read_json_or(os.path.join(sp, "run.json"), {}, kind=dict)})

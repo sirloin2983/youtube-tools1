@@ -1680,7 +1680,7 @@
   }
 
   var INTAKE_PILL = { off: 'wait', watching: 'ok', error: 'err' };
-  var intakeData = null, intakeSig = '', intakeBusy = false, intakeOpened = false;
+  var intakeData = null, intakeSig = '', noticeSig = '', intakeBusy = false, intakeOpened = false;
   /* 0.54.0: 見張るフォルダ・数の欄は設定の画面(/settings。範囲は app/prefs.py の INTAKE_RANGES とスキーマを test_settings_schema が突き合わせる)。ここはスイッチと今のフォルダだけ */
   function fillIntakeSettings(d) {
     $('#intakeEnabled').checked = !!d.enabled;
@@ -1721,8 +1721,38 @@
     if (r.items && r.items.length) { var ul = el('ul', 'pt-intake-items'); r.items.forEach(function (it) { ul.appendChild(intakeItemRow(it)); }); li.appendChild(ul); }
     return li;
   }
+  /* 友人から知らせ(送り返しの .notice.json = 友人のアプリの [作る人に知らせる]。F3-6・C-2-16)。無ければ欄ごと隠す */
+  function noticeRow(n) {
+    var li = el('li', 'pt-intake-item');
+    var head = el('div', 'pt-intake-head');
+    head.appendChild(el('span', 'pill warn', '失敗'));
+    head.appendChild(el('span', 'pt-intake-title', n.title || '(依頼の題なし)'));
+    var t = el('span', 'hint pt-intake-when', ago(n.receivedAt)); t.title = n.receivedAt ? when(n.receivedAt) : '';
+    head.appendChild(t);
+    li.appendChild(head);
+    li.appendChild(el('span', 'pt-intake-sub', n.message || ''));
+    var sub = [n.code ? '種類: ' + n.code : '', n.appVersion ? 'アプリ ' + n.appVersion : '', n.requestId ? '依頼 ' + n.requestId : '', n.hasLog ? 'ログあり' : ''].filter(Boolean).join(' ・ ');
+    if (sub) li.appendChild(el('span', 'hint pt-intake-sub', sub));
+    if (n.detail) {
+      var det = el('details'); det.appendChild(el('summary', 'hint', '詳しい文'));
+      det.appendChild(el('pre', 'pt-notice-detail', n.detail));
+      li.appendChild(det);
+    }
+    return li;
+  }
+  function renderNotices(list) {
+    var box = $('#intakeNotices');
+    if (!box) return;
+    var sig = JSON.stringify(list || []);
+    if (sig === noticeSig) return;
+    noticeSig = sig;
+    var ol = $('#intakeNoticeList'); ol.textContent = '';
+    (list || []).forEach(function (n) { ol.appendChild(noticeRow(n)); });
+    box.hidden = !(list && list.length);
+  }
   function renderIntake(d) {
     intakeData = d;
+    renderNotices(d.notices);
     $all('.pt-auto[data-auto-send]').forEach(function (b) { paintSendBox(b); });   // 受付のフォルダが分かったら注を出し直す
     var had = deliverFolder;
     deliverFolder = !!d.folder;   // 自動でできた切り抜きの「採用」(友人へ届ける)が押せるか。変わったら、自動の切り抜きがあるときだけ一覧を描き直す

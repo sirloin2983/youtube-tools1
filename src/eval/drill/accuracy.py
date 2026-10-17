@@ -120,13 +120,13 @@ def summarize_marks(res):
     # 配信の数 = C1 の入口「採用の記録 配信 10 本」: スタジオの判定に線 D の録画・友人の返事も足した judgedAll(K2。無い以前の結果は judgedVideos)
     docs = o.get("judgedAll") if isinstance(o.get("judgedAll"), int) and not isinstance(o.get("judgedAll"), bool) else o.get("judgedVideos")
     extra = [{"label": "見逃し率", "value": _num(miss), "better": "lower"}]
-    # 物差し 3 本(MARKS-3。結果の human3。無い以前の結果は足さない): 友人の区間の拾えた率・届けた物を友人が使った率
+    # 物差し 3 本(MARKS-3・C-4-1。結果の human3。無い以前の結果は足さない): 友人の区間の拾えた率・届けた物を友人が良いと答えた率
     h3 = res.get("human3") if isinstance(res.get("human3"), dict) else {}
     fr, used = h3.get("friendRange") or {}, (h3.get("used") or {}).get("all") or {}
     if _num(fr.get("hitRate")) is not None:
         extra.append({"label": "友人の区間の拾えた率", "value": _num(fr.get("hitRate")), "better": "higher"})
-    if _num(used.get("usedRate")) is not None:
-        extra.append({"label": "届けた物を友人が使った率", "value": _num(used.get("usedRate")), "better": "higher"})
+    if _num(used.get("goodRate")) is not None:
+        extra.append({"label": "届けた物を友人が良いと答えた率", "value": _num(used.get("goodRate")), "better": "higher"})
     return _summary("上位10の採用率", top10.get("adoptRate"), docs, "配信", "higher", (res.get("meta") or {}).get("few"), extra=extra)
 
 

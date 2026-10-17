@@ -43,7 +43,7 @@ def wait_js(pg, expr, timeout=15000):
 
 
 def intake_obj(enabled=False, requests=None, **kw):
-    d = {"enabled": enabled, "folder": "" if not enabled else "C:\\Dropbox\\アプリ\\切り抜き依頼", "top": 3, "deliverBatch": 5, "maxHours": 6, "maxGB": 10,
+    d = {"enabled": enabled, "folder": "" if not enabled else "C:\\Dropbox\\アプリ\\切り抜き依頼", "top": 3, "maxHours": 6, "maxGB": 10,
          "state": "watching" if enabled else "off", "stateLabel": "見張り中" if enabled else "オフ",
          "message": "" if enabled else "オフです。フォルダを決めてスイッチを入れると、依頼を受け付けます",
          "lastScan": NOW - 90_000 if enabled else None, "today": 2, "requests": requests or []}

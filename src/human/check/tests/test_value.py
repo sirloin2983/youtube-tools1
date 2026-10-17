@@ -112,6 +112,17 @@ class ValueTest(unittest.TestCase):
         self.assertNotIn("reason", rows[0])
         self.assertEqual(self.studio.calls, [])
 
+    def test_auto_unknown_writes_quality_unknown_without_reason_and_undo(self):
+        got = apply.answer(self.ctx, auto_card(), {"answer": {"choice": "unknown", "reason": "boring"}})
+        self.assertEqual((got["applied"]["choice"], self.hook_calls), ("unknown", []))
+        self.assertNotIn("reason", got["applied"])   # 不明に付いた理由は捨てる(理由は悪いのときだけ)
+        rows = judgments.rows(self.tmp)
+        self.assertEqual((rows[0]["what"], rows[0]["who"], rows[0]["via"], rows[0]["origin"]), ("quality_unknown", "self", "check", "auto"))
+        self.assertNotIn("reason", rows[0])
+        self.assertEqual(judgments.fold(rows)[(VID, "a1")]["quality"]["what"], "quality_unknown")
+        apply.undo(self.ctx, got["answer"])
+        self.assertIsNone(judgments.fold(judgments.rows(self.tmp))[(VID, "a1")]["quality"])
+
     def test_cand_writes_no_judgment(self):
         apply.answer(self.ctx, cand_card(), {"answer": {"choice": "reject"}})
         self.assertEqual(judgments.rows(self.tmp), [])

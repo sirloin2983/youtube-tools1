@@ -369,7 +369,7 @@ class LiveAppTest(unittest.TestCase):
     def test_use_headless(self):
         lv = self.live
         steps = [w for w, _f in lv._watch_steps()]
-        self.assertTrue(any("6" in w or "上限" in w for w in steps) and any("届け方" in w for w in steps), steps)   # 画面ありは D-13・届け方の見回りも
+        self.assertTrue(any("6" in w or "上限" in w for w in steps) and any("溜め" in w for w in steps), steps)   # 画面ありは D-13・溜めの見回りも
         self.assertIsInstance(lv.marks, LA.StudioMarks)
         self.assertFalse(lv.enabled())
         lv.use_headless(20)
@@ -378,7 +378,7 @@ class LiveAppTest(unittest.TestCase):
         self.assertEqual((lv.adopter.deliver_for, lv._request_limit(), lv.disk_min_gb, lv.request_all), (None, None, 20, True))
         self.assertEqual(lv.auto_max, lv.bundle_top)
         steps = [w for w, _f in lv._watch_steps()]
-        self.assertFalse(any("上限" in w or "届け方" in w or "見ていない" in w for w in steps), steps)
+        self.assertFalse(any("上限" in w or "溜め" in w or "見ていない" in w for w in steps), steps)
 
     def test_friend_request_goes_through_submit(self):
         """友人のライブ配信の依頼(intake の live_begin = Live.submit_request): 封筒 + 束で submit を通る。requests.json は ctx のまま・

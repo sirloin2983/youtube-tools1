@@ -2,7 +2,8 @@
 
 出どころ 2 つ(カードは src/app/check/sources.py の value_auto・value_cand):
   value:auto  自動でできた切り抜きの品質の確認(送った物も送らなかった物も・10-16 の 2-8)。答え {choice: "good"} = 良い /
-              {choice: "bad", reason?: AUTO_REASONS のどれか} = 悪い(理由は任意の札)。**記録だけ**(答えの行 = answers.jsonl に残す)。
+              {choice: "bad", reason?: AUTO_REASONS のどれか} = 悪い(理由は任意の札)/ {choice: "unknown"} = 不明(どちらとも言えない。理由なし =
+              quality_unknown)。**記録だけ**(答えの行 = answers.jsonl に残す)。
               案件の操作(auto_review・届ける・要らない)は呼ばない = 送るかには効かせない(1-2)。すぐ記録・1 枚遅れはしない。
               Z は答えの記録の取り消し(revert は何も実物を変えない)
   value:cand  まだ切り抜いていない候補。答え {choice: "adopt"} = 採用して書き出しを頼む / {choice: "reject"} = 不採用
@@ -19,7 +20,7 @@ import secrets
 from . import apply
 from .. import judgments as _judgments   # 同じ human の兄弟(人の判断の記録。③ の中の書き手)
 
-AUTO_CHOICES = ("good", "bad")
+AUTO_CHOICES = ("good", "bad", "unknown")   # unknown = 不明(記録だけ・理由は無い)
 # 悪いときの理由の札(カードの reasons の候補。画面の文は src/app/check/sources.py が出す)。札は 1 つまで・任意
 AUTO_REASONS = {"boring": "場面がつまらない", "long": "長すぎる", "short": "短すぎる", "edge": "端がずれている",
                 "subtitle": "字幕がおかしい", "audio": "音が悪い", "other_person": "別の人が主役"}
@@ -70,11 +71,11 @@ def _auto_check(ans):
 
 
 def _auto_apply(ctx, card, ans):
-    """良い / 悪い + 理由を judgments に 1 行足す(who self・quality_good / quality_bad・via check)。
+    """良い / 悪い + 理由 / 不明を judgments に 1 行足す(who self・quality_good / quality_bad / quality_unknown・via check)。
     答えの id は apply の後で決まる(apply.answer が作る)ので、key は乱数の印 ans:<token>。applied に judgment(行の id)と jkey を残し Z で retract する"""
     vid, mid = _need(card.get("target"), "videoId", "markId")
     key = "ans:" + secrets.token_hex(8)
-    what = "quality_good" if ans["choice"] == "good" else "quality_bad"
+    what = {"good": "quality_good", "bad": "quality_bad", "unknown": "quality_unknown"}[ans["choice"]]
     row = _judgments.record(ctx.app_dir, who="self", what=what, reason=ans.get("reason"), videoId=vid, markId=mid,
                             origin="auto", via="check", key=key)   # 出どころは auto(カードに request・live の印は無い)
     return dict({"videoId": vid, "markId": mid, "judgment": row["id"], "jkey": key}, **ans)

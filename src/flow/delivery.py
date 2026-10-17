@@ -1,20 +1,17 @@
-"""② 友人へ届ける: まとめて実行の「Dropbox へ届ける」段と、ライブの切り抜きの組の溜め(まとめて実行 AutoRunner が継ぐ mixin)。
-ds1(要件 1-5「届ける段と溜めは ② へ」・仮決め 3-70 ds1・3-71 m3i)で ③ human/friend から移した(動きは変えていない)。
-① まとめ動画は pipeline/pack/preview・1 本の届け方は同じフォルダの deliver。③(受付・送り返し)は読まない(友人の PC には ③ が無い)。
+"""② 友人へ届ける: まとめて実行の「Dropbox へ届ける」段と、置けなかった自動の分の溜め(まとめて実行 AutoRunner が継ぐ mixin)。
+ds1(要件 1-5「届ける段と溜めは ② へ」・仮決め 3-70 ds1・3-71 m3i)で ③ human/friend から移した。
+① 確認用の動画は pipeline/pack/preview・1 本の届け方は同じフォルダの deliver。③(受付・送り返し)は読まない(友人の PC には ③ が無い)。
 
 形: AutoRunner(入口の src/app/autorun.py)が `class AutoRunner(Delivery, Queue)` で継ぐ(Queue = src/flow/runqueue.py)。ここは入口の部品
 (autorun・launch・live・prefs)も案件の部品(manage/cases)も ③ も読まない = 要るものは継いだクラスが埋める:
-  - _deliver_batch_limits() -> (既定, 下限, 上限)  n 本ごとに組にする数の既定と範囲(ホームの設定 intake.deliverBatch。AutoRunner が prefs から)
   - _save_active()・_active_runs()                 待ち・実行中の記録を残す(M5)・待ちと実行中の一覧(Queue)
-  - 属性 prefs(ホームの設定。get だけ)・log_path(終わった実行の記録のパス。隣に deliveries.jsonl)・cv・log・clock・find_pack と
-    Runner の _check・_clips
+  - 属性 log_path(終わった実行の記録のパス。隣に deliveries.jsonl)・cv・log・clock・find_pack と Runner の _check・_clips
 溜めの置き場所とロックは _delivery_init(log_dir) で作る(AutoRunner の __init__ が呼ぶ)。
 
-届け方(notes:docs/spec/friend.md の 2-16): パックを n 本(依頼ごとの deliver_batch。無ければホームの設定 intake.deliverBatch)たまるごとに、
-組 = まとめ動画 1 本 + 1 本ずつの zip + 組の一覧(.group.json)で Dropbox の 出力 へ置く(実行の終わりには n 本に満たない残りも)。
-n=1 か 1 本だけのときは 1 本の zip + その隣のまとめ動画。1 本の作り方(まとめ動画 → zip → 届けた記録)は同じフォルダの deliver.deliver_one(手で届けるのも同じ)。
-ライブの切り抜き(友人のライブ配信の依頼・live.autoDeliver)は 1 本ごとに別の実行なので、実行をまたいで「組の溜め」(run.pool)に預け、
-n 本たまったら組で届ける(flush_pools は入口の src/app/live.py が見回りで呼ぶ)。溜めは logs/deliver-pool.json(10-09 ユーザー決定 = decisions 3-20)。
+届け方(F3-6。notes:plan/f1-friend-requirements.md の C-3-1・C-6): **パックはできた順に 1 本ずつ**届ける(1 本の zip + 480p の確認用の動画 + .meta.json。
+作り方は同じフォルダの deliver.deliver_one = 手で届けるのも同じ)。5 本ずつの組・まとめ動画・届け方の設定(依頼の deliverBatch・ホームの設定 intake.deliverBatch・
+友人のアプリの 設定/届け方.json)はやめた(封筒の deliver.batch は古い依頼・古い記録を読めるように欄だけ残し、読まない)。
+組の溜め(logs/deliver-pool.json)は、置けなかった自動の分(下)と、この変更の前に溜めてあったライブの切り抜きの残り(flush_pools が 1 本ずつ届ける)にだけ使う。
 
 友人へ自動で送る(D-SEND。要件 notes:plan/d-send-requirements.md・判定と理由の文は ② flow/sendpolicy):
   - 出どころ(_origin): run.deliver_origin(request・auto・manual)。無ければ依頼の id があれば request・無ければ auto。友人に見せる形は deliver.face_origin
@@ -24,40 +21,35 @@ n 本たまったら組で届ける(flush_pools は入口の src/app/live.py が
   - 置けない(Dropbox のフォルダが無い・書けない)とき、出どころ auto は実行を失敗にせず溜めに預ける(鍵 full|<deliver_tag>|<配信>。meta.parked)・段は warn。
     flush_pools がすぐ送り直す(受付のフォルダがあるとき)。配信が終わってから 48 時間(sendpolicy.FRESH_SEC)を過ぎたら送らず溜めを消し notSent expired
   - 友人に失敗の知らせ(.失敗.txt)を置くのは依頼(request)だけ(2-6)。環境変数 YTT_AUTO_SEND=off(sendpolicy.switched_off)なら auto は届けない
-  - 組の本数(_batch_size): 依頼ごと → 友人のアプリの「届け方」(継ぐ側の _friend_batch = 受付の <受付のフォルダ>/設定/届け方.json。2-4)→ ホームの設定
-継ぐ側が埋める物(上に加えて。既定は何もしない): _friend_batch() -> 友人のアプリの届け方の本数か None・_returned_request(配信 id) -> 友人の PC で
+継ぐ側が埋める物(上に加えて。既定は何もしない): _returned_request(配信 id) -> 友人の PC で
 処理した依頼か(③ 送り返し)・属性 requested_hook(配信 id) -> 受け付けた時刻か None(入口が受付の Intake.requested_at を渡す)。
 届けたは案件に写さない(届けた記録 logs/deliveries.jsonl は deliver.deliver_one が書き、案件は ② flow/deliveries.delivered_marks で引く。MARKS-3)。
 """
 import contextlib
 import json
 import os
-import shutil
 import threading
 import uuid
 
-from pipeline.pack import preview as _preview   # ① 組のまとめ動画・切り抜きの長さ・パックの題
+from pipeline.pack import preview as _preview   # ① パックの題
 from ytt import fsio, tools
-from . import deliver as deliver_mod   # 1 本を届ける(まとめ動画 → zip → 届けた記録)・組の一覧・名前の整え方
+from . import deliver as deliver_mod   # 1 本を届ける(確認用の動画 → meta → zip → 届けた記録)・名前の整え方
 from . import deliveries as deliveries_mod   # 届けた記録の読み口(依頼済みの配信・届け済みのパック)・送らなかった記録の書く口
-from . import envelope   # 届け方の数の範囲(batch_ok)
 from . import run as run_mod   # 段の表 MODE_STEPS・段の失敗 StepError(② の経路)
 from . import sendpolicy   # 友人へ自動で送るかの判定と理由の文(D-SEND)
 
-POOL_FILE = "deliver-pool.json"   # ライブの切り抜きの組の溜め(実行をまたいで n 本ためて組で届ける。log_dir の中)
+POOL_FILE = "deliver-pool.json"   # 溜め(置けなかった自動の分・前の版で溜めたライブの切り抜きの残り。log_dir の中)
 POOL_SCHEMA = "ytt-deliver-pool/v1"
-POOL_IDLE_SEC = 600.0              # 録画が終わって書き出しも実行も無くなってから、最後に預けてこれだけたったら残りを届ける
-POOL_MAX_AGE = 12 * 3600.0         # 溜めを作ってからこれだけたったら、終わりを待たずに残りを届ける(録画が長すぎる・見張りが止まった)
+POOL_IDLE_SEC = 600.0              # (前の版のライブの溜め)録画が終わって書き出しも実行も無くなってから、最後に預けてこれだけたったら残りを届ける
+POOL_MAX_AGE = 12 * 3600.0         # (同)溜めを作ってからこれだけたったら、終わりを待たずに残りを届ける
 
 
 class _PoolRun:
-    """組の溜めを届けるときに Delivery の届ける部品(_deliver_pending・_deliver_group・_deliver_one)へ渡す、実行の代わり"""
+    """溜めを届けるときに Delivery の届ける部品(_deliver_pending・_deliver_one)へ渡す、実行の代わり"""
 
     def __init__(self, key, p):
         self.id = "pool" + uuid.uuid5(uuid.NAMESPACE_URL, key).hex[:6]
         self.request_id, self.title, self.deliver_dir = p.get("rid") or "", p.get("title") or "pack", p.get("deliverDir") or ""
-        b = p.get("batch")
-        self.deliver_batch = b if envelope.batch_ok(b) else None
         meta = p.get("meta") if isinstance(p.get("meta"), dict) else {}
         self.video_id = meta.get("videoId") or meta.get("recording") or ""
         self.packs, self.delivered = list(p.get("packs") or []), list(p.get("delivered") or [])
@@ -80,8 +72,8 @@ class Delivery:
     def _delivery_init(self, log_dir):
         """溜めの置き場所(log_dir の中。None = メモリだけ)とロック"""
         self.pool_path = os.path.join(log_dir, POOL_FILE) if log_dir else None   # ライブの切り抜きの組の溜め(None = メモリだけ)
-        self._pool_lock = threading.RLock()   # 溜めの読み書きと組で届ける間(これを持ったまま self.cv を取ってよい。逆に self.cv を持ったまま取らない)
-        self._pools = None                    # {溜めの鍵: {rid, title, deliverDir, batch, meta, packs, delivered, marks, created, updated, (tag, origin, mode)}}(初めて使うときに読む)
+        self._pool_lock = threading.RLock()   # 溜めの読み書きと溜めから届ける間(これを持ったまま self.cv を取ってよい。逆に self.cv を持ったまま取らない)
+        self._pools = None                    # {溜めの鍵: {rid, title, deliverDir, (batch = 古い溜めだけ・読まない), meta, packs, delivered, marks, created, updated, (tag, origin, mode)}}(初めて使うときに読む)
         self.requested_hook = None            # 配信 id -> 友人の依頼で受け付けた時刻か None(入口が受付の Intake.requested_at を渡す。D-SEND 2-9)
 
     def _remember_not_sent(self, video_id, mark_id, code, text):
@@ -90,22 +82,14 @@ class Delivery:
         if self.log_path:
             deliveries_mod.record_not_sent(os.path.dirname(self.log_path), video_id, mark_id, code, text)
 
-    def _friend_batch(self):
-        """友人のアプリの「届け方」の本数(D-SEND 2-4)か None。継ぐ側(AutoRunner)が受付の届け方.json で埋める。既定は None"""
-        return None
-
     def _returned_request(self, video_id):
         """その配信が友人の PC で処理した依頼か(送り返し。D-SEND 2-9 の 3 つ目の引き方)。継ぐ側(AutoRunner)が ③ の送り返しで埋める。既定は False"""
         return False
 
-    def _deliver_batch_limits(self):
-        """n 本ごとに組にする数の (既定, 下限, 上限)。継ぐ側(AutoRunner)がホームの設定の既定と範囲で埋める"""
-        raise NotImplementedError("継ぐ側が _deliver_batch_limits を埋める")
-
     def _after_pack(self, run, st, prefix):
-        """① 全自動: パックが n 本たまるごとに届ける(全部を待たない)"""
+        """① 全自動: パックができるたびに 1 本ずつ届ける(全部を待たない)"""
         if run.deliver_dir and "deliver" in run_mod.MODE_STEPS[run.mode]:
-            self._deliver_pending(run, st, prefix, final=False)
+            self._deliver_pending(run)
 
     # 依頼の動画(mode file) -------------------------------------
     def _file_deliver(self, run, st):
@@ -196,8 +180,8 @@ class Delivery:
         return deliver_mod.delivery_name(getattr(run, "deliver_tag", None) or run.request_id or run.id, title)
 
     def _deliver(self, run, st, dirs):
-        """① 全自動の届ける段: この実行のパック(前からあったものも)のうち、まだ届けていない分を全部 Dropbox の 出力 へ置く
-        (友人のアプリの「受け取る」に出る。n 本ごとのまとめ方は _deliver_pending)。
+        """① 全自動の届ける段: この実行のパック(前からあったものも)のうち、まだ届けていない分を全部 1 本ずつ Dropbox の 出力 へ置く
+        (友人のアプリの「受け取る」に出る)。
         出どころ auto: YTT_AUTO_SEND=off なら届けない・置けなければ溜めに預けて送り直す(_park。段は warn = 実行は失敗にしない)"""
         dirs = [d for d in dict.fromkeys(os.path.normpath(x) for x in dirs if x) if os.path.isdir(d)]
         if not run.deliver_dir:
@@ -210,8 +194,6 @@ class Delivery:
         if auto and sendpolicy.switched_off():
             st["state"], st["detail"] = "skip", "開発機の守り(環境変数 %s=off)なので友人へ送りません" % sendpolicy.ENV_SWITCH
             return None
-        if run.pool and self._batch_size(run) > 1:   # ライブの切り抜き: 実行をまたいで溜めに預け、n 本たまったら組で届ける(1 本ずつのときは今までどおり)
-            return self._pool_add(run, st, dirs)
         for d in dirs:
             if d not in run.packs:
                 run.packs.append(d)   # 前からあったパックも、この実行の並び(1 本目・2 本目…)に入れて同じ数え方で届ける
@@ -219,11 +201,11 @@ class Delivery:
             try:
                 if not self._outbox_ok(run.deliver_dir):
                     raise self._place_error(FileNotFoundError(2, "Dropbox のフォルダが見つかりません", os.path.dirname(os.path.normpath(run.deliver_dir))))
-                self._deliver_pending(run, st, "", final=True)
+                self._deliver_pending(run)
             except run_mod.StepError as e:
                 return self._park(run, st, e)
         else:
-            self._deliver_pending(run, st, "", final=True)
+            self._deliver_pending(run)
         st["detail"] = "%d 本のパックを Dropbox の 出力 に置きました(字幕は校正前)" % len(run.delivered)
         return None
 
@@ -246,7 +228,7 @@ class Delivery:
         with self._pool_lock:
             pools = self._pools_load()
             p = pools.get(key) or {"rid": run.request_id or tag, "tag": getattr(run, "deliver_tag", None), "origin": "auto", "mode": run.mode,
-                                   "title": run.title or "pack", "deliverDir": run.deliver_dir, "batch": run.deliver_batch,
+                                   "title": run.title or "pack", "deliverDir": run.deliver_dir,
                                    "meta": {"origin": "auto", "videoId": run.video_id or "", "endedAt": ended if ended else now, "parked": True},
                                    "packs": [], "delivered": [], "marks": {}, "created": now}
             for d in pending:
@@ -264,66 +246,10 @@ class Delivery:
         self.log("まとめて実行: %s を友人へ届けられませんでした(%s)。%d 本を預けて、あとで送り直します" % (run.title or run.id, str(err)[:160], len(pending)))
         return None
 
-    def _batch_size(self, run):
-        """n 本ごとに組にして届ける。友人の依頼が指定していればそれ(run.deliver_batch。2-16)、次に友人のアプリの「届け方」(<受付のフォルダ>/設定/届け方.json。
-        D-SEND 2-4)、無ければホームの設定 intake.deliverBatch(既定と範囲は継ぐ側の _deliver_batch_limits = 入口の prefs.py。1 = 1 本ずつ)"""
-        if run.deliver_batch:
-            return run.deliver_batch
-        friend = self._friend_batch()
-        if friend:
-            return friend
-        default, lo, hi = self._deliver_batch_limits()
-        try:
-            v = (self.prefs.get(["intake"])["intake"] or {}).get("deliverBatch") if self.prefs else None
-            return max(lo, min(hi, int(v))) if v is not None else default
-        except (OSError, ValueError, KeyError, TypeError):
-            return default
-
-    def _deliver_pending(self, run, st, prefix, final):
-        """まだ届けていないパックを n 本ごとに届ける(final = 実行の終わり: n 本に満たない分もその本数で届ける)。
-        2 本以上なら組(_deliver_group = まとめ動画 1 本 + 1 本ずつの zip + .group.json)、1 本なら 1 本の zip + そのまとめ動画(_deliver_one)。2-16"""
-        n = self._batch_size(run)
-        while True:
-            pending = [p for p in run.packs if p not in run.delivered and os.path.isdir(p)]
-            if not pending or (len(pending) < n and not final):
-                return
-            batch = pending[:n]
-            if n <= 1 or len(batch) <= 1:
-                self._deliver_one(run, batch[0])
-            else:
-                self._deliver_group(run, st, batch, prefix)
-
-    def _deliver_group(self, run, st, batch, prefix):
-        """n 本のパックを組にして 出力 へ(notes:docs/spec/friend.md の 2-16): ① 組のまとめ動画 <依頼 id>__<題> 1-5.preview.mp4(2-13 の中身のまま)→
-        ② 1 本ずつの zip(_deliver_one と同じ <依頼 id>__<パックの題>.zip。まとめ動画は組のものを使うので付けない)→ ③ 最後に <同じ名前>.group.json(zip の名前・何本目・
-        まとめ動画の中の開始秒)。友人のアプリ(2.8.0)はまとめ動画を見てから 1 本ずつ受け取る・要らないを選べる。古いアプリは 1 本ずつの zip として受け取れる。
-        まとめ動画を作れなくても(ffmpeg が無い・動画が壊れている)zip と一覧は届ける。届けた記録(deliveries.jsonl)は zip ごと"""
-        first, last = run.packs.index(batch[0]) + 1, run.packs.index(batch[-1]) + 1
-        rng = "%d-%d" % (first, last)
-        name = self._deliver_name(run, "%s %s" % (run.title or "pack", rng))
-        st["detail"] = prefix + "まとめ動画を作っています(%d 本)" % len(batch)
-
-        def check():
-            self._check(run)
-        preview = _preview.batch_preview(batch, check=check, log=self.log)   # 作れなければ None
-        seconds = _preview.clip_seconds(batch)
-        zips, titles, secs = [], [], []
-        # 一覧(.group.json)を書けなかったら、先に置いた組のまとめ動画は消す(相手のいない動画は誰にも見えないごみになる。置けた zip は 1 本ずつの形で残る)
-        with self._placing(preview) as placed:
-            os.makedirs(run.deliver_dir, exist_ok=True)
-            pv_path, json_path, name = deliver_mod.group_paths(run.deliver_dir, name)
-            if preview:
-                placed[0] = pv_path   # 写している途中で止まっても(ディスクがいっぱい)、書きかけを残さないように先に控える
-                shutil.copyfile(preview, pv_path)
-            for i, d in enumerate(batch):
-                st["detail"] = prefix + "%d 本を 1 本ずつ zip にして Dropbox へ届けています(%d / %d)" % (len(batch), i + 1, len(batch))
-                zp = self._deliver_one(run, d, with_preview=False)
-                if zp:
-                    zips.append((run.packs.index(d) + 1, zp))
-                    titles.append(_preview.pack_title(d))
-                    secs.append(seconds[i])
-            deliver_mod.write_group_json(json_path, run.title or "pack", rng, placed[0], deliver_mod.group_members(zips, titles, secs),
-                                         origin=deliver_mod.face_origin(self._origin(run)))   # 出どころ(D-SEND 2-7。友人のアプリの札「依頼なし」)
+    def _deliver_pending(self, run):
+        """まだ届けていないパックを 1 本ずつ届ける(F3-6。5 本ずつの組はやめた)"""
+        for p in [p for p in run.packs if p not in run.delivered and os.path.isdir(p)]:
+            self._deliver_one(run, p)
 
     def _mark_delivered(self, run, dirs):
         """届けたパックを run.delivered に足して、すぐ残す(段の途中で起動し直しても、同じパックを二度置かない。M5)"""
@@ -335,44 +261,37 @@ class Delivery:
         return run_mod.StepError("パックを Dropbox へ置けませんでした: %s" % tools.why(e))
 
     @contextlib.contextmanager
-    def _placing(self, preview):
-        """届けるときの後片付け(組と 1 本で共通): 中で失敗したら、先に置いたまとめ動画(箱 placed[0])を消し、OSError は StepError(_place_error)に変える。
-        最後に一時のまとめ動画 preview を消す。-> 箱 [置いたまとめ動画のパス or None]"""
-        placed = [None]
+    def _placing(self):
+        """届けるときの OSError を StepError(_place_error)に変える"""
         try:
-            yield placed
-        except Exception as e:
-            _preview.remove_quiet(placed[0])
-            if isinstance(e, OSError):
-                raise self._place_error(e)
-            raise
-        finally:
-            _preview.remove_quiet(preview)
+            yield
+        except OSError as e:
+            raise self._place_error(e)
 
     def _deliver_rest_quietly(self, run):
-        """止まった実行に、まとめて届ける前のパック(n 本に満たず手元に残っていた分)があれば届ける。届けられなくても失敗の知らせは置く"""
+        """止まった実行に、まだ届けていないパックがあれば届ける。届けられなくても失敗の知らせは置く"""
         if "deliver" not in run_mod.MODE_STEPS.get(run.mode, ()):
             return
         try:
-            self._deliver_pending(run, {}, "", final=True)
+            self._deliver_pending(run)
         except Exception as e:   # noqa: BLE001  (届け残しが置けなくても止まった知らせは出す)
             self.log("まとめて実行: 止まった実行のパックを届けられませんでした(%s)" % (str(e)[:120] or e.__class__.__name__))
 
-    def _deliver_one(self, run, d, with_preview=True):
-        """1本のパックのフォルダを zip(<依頼 id>__<パックの題>.zip)にして 出力 へ置く(deliver.deliver_one = まとめ動画 → zip → 届けた記録。
-        「編集」の「友人へ届ける」と同じ)。with_preview: その切り抜きだけのまとめ動画を隣へ(2-16。友人は 1 本でも見てから選べる。組の中では組のものを使うので付けない)。
-        d は run.packs の書き方のまま(届けた印 run.delivered と同じ文字列で比べる。run.packs に入れるときにそろえてある)。-> 置いた zip のパス(届け済みなら None)"""
+    def _deliver_one(self, run, d):
+        """1本のパックのフォルダを zip(<依頼 id>__<パックの題>.zip)にして 出力 へ置く(deliver.deliver_one = 確認用の動画 → meta → zip → 届けた記録。
+        「編集」の「友人へ届ける」と同じ)。d は run.packs の書き方のまま(届けた印 run.delivered と同じ文字列で比べる。run.packs に入れるときにそろえてある)。
+        -> 置いた zip のパス(届け済みなら None)"""
         if d in run.delivered or not os.path.isdir(d):
             return None
         name = self._deliver_name(run, _preview.pack_title(d) or run.title or "pack")
-        with self._placing(None):   # 置けなかったら StepError(置いたまとめ動画は deliver_one が消す)
+        with self._placing():   # 置けなかったら StepError(置いた確認用の動画・meta は deliver_one が消す)
             dest = deliver_mod.deliver_one(d, run.deliver_dir, name, log_dir=os.path.dirname(self.log_path) if self.log_path else None, run=run,
-                                           marks=run.pack_marks, with_preview=with_preview, check=lambda: self._check(run), log=self.log,
+                                           marks=run.pack_marks, check=lambda: self._check(run), log=self.log,
                                            origin=self._origin(run), ended_at=getattr(run, "send_ended_at", None))
             self._mark_delivered(run, [d])
             return dest
 
-    # ------------------------------------------------------------ ライブの切り抜きの組の溜め(10-09 ユーザー決定 = decisions 3-20)
+    # ------------------------------------------------------------ 溜め(置けなかった自動の分・前の版のライブの切り抜きの組の残り)
     def _pools_load(self):
         """溜めの一覧(呼ぶのは self._pool_lock を持っている間)"""
         if self._pools is None:
@@ -395,34 +314,8 @@ class Delivery:
             return {k: {"rid": p.get("rid"), "title": p.get("title"), "meta": p.get("meta"),
                         "waiting": sum(1 for d in p["packs"] if d not in (p.get("delivered") or []))} for k, p in self._pools_load().items()}
 
-    def _pool_add(self, run, st, dirs):
-        """この実行のパックを溜めに預け、n 本たまっていれば組で届ける。預けたパックはこの実行では届け済みの扱い(二重に置かない)"""
-        key, now = run.pool["key"], self.clock()
-        with self._pool_lock:
-            pools = self._pools_load()
-            p = pools.get(key) or {"rid": run.pool.get("rid") or run.request_id or run.id, "title": run.pool.get("title") or run.title or "pack",
-                                   "deliverDir": run.deliver_dir, "batch": run.deliver_batch, "meta": run.pool.get("meta") or {},
-                                   "packs": [], "delivered": [], "marks": {}, "created": now,
-                                   "origin": self._origin(run), "tag": getattr(run, "deliver_tag", None)}   # 出どころ・名前の頭(D-SEND。古い溜めには無い)
-            for d in dirs:
-                if d not in p["packs"]:
-                    p["packs"].append(d)
-                if isinstance(run.pack_marks.get(d), dict):
-                    p["marks"][d] = run.pack_marks[d]
-            p["updated"] = now
-            pools[key] = p
-            self._pools_save()
-            self._mark_delivered(run, [d for d in dirs if d not in run.delivered])
-            self._pool_deliver(key, final=False, st=st)
-            p = self._pools_load().get(key)
-            waiting = sum(1 for d in (p or {}).get("packs", []) if d not in (p or {}).get("delivered", []))
-        n = self._batch_size(run)
-        st["detail"] = ("%d 本たまったので組で Dropbox の 出力 に置きました(字幕は校正前)" % n) if not waiting else \
-            "%d 本の組にためています(今 %d 本。録画が終わったら残りも届けます)" % (n, waiting)
-        return None
-
-    def _pool_deliver(self, key, final, st=None):
-        """溜め 1 つの、まだ届けていないパックを n 本ごとに届ける(final = 残りも)。-> 届けた本数。届け終えた溜めは消す"""
+    def _pool_deliver(self, key, final):
+        """溜め 1 つの、まだ届けていないパックを 1 本ずつ届ける。-> 届けた本数。final で届け終えた溜めは消す"""
         with self._pool_lock:
             pools = self._pools_load()
             p = pools.get(key)
@@ -431,7 +324,7 @@ class Delivery:
             prun = _PoolRun(key, p)
             before = len(prun.delivered)
             try:
-                self._deliver_pending(prun, st if st is not None else {}, "", final)
+                self._deliver_pending(prun)
             finally:
                 p["delivered"] = list(prun.delivered)
                 if final and all(d in p["delivered"] or not os.path.isdir(d) for d in p["packs"]):

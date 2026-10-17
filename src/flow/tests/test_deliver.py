@@ -3,7 +3,6 @@
 実行(リポジトリ直下から): python -m unittest src/human/friend/tests/test_deliver.py -v
 (入口の ytt_api の受け渡しは src/app/tests/test_deliver_api.py)
 """
-import datetime
 import json
 import os
 import re
@@ -89,8 +88,14 @@ class ZipPackTest(unittest.TestCase):
         self.assertRegex(deliver.request_id(), r"^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$")
 
 
+def fake_make_preview(video, out_path, **_kw):
+    """ffmpeg の代わり(中身は見ない。名前と置く順だけ確かめる)。PreviewTest は本物の ffmpeg で確かめる"""
+    put(out_path, b"PV")
+    return True
+
+
 class OriginTest(unittest.TestCase):
-    """D-SEND 2-7: 出どころ。1 本(組でない)で依頼でなければ zip より先に <zip の名前>.meta.json。依頼・組の中の 1 本には置かない。届けた記録に origin・endedAt"""
+    """F3-6: 1 本ずつの届け方。確認用の動画 → meta → zip の順に置く。依頼でも自動でも meta を必ず置く。届けた記録に origin・endedAt"""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="ytt-deliver-")
@@ -99,9 +104,10 @@ class OriginTest(unittest.TestCase):
         put(os.path.join(self.pack, "clip.mp4"), b"v")
         self.out = os.path.join(self.tmp, "Dropbox", deliver.OUT_DIR)
         self.logs = os.path.join(self.tmp, "logs")
-        p = mock.patch.object(pv, "batch_preview", lambda dirs, check=None, log=None: None)
-        p.start()
-        self.addCleanup(p.stop)
+        for name, fake in (("make_preview", fake_make_preview), ("clip_seconds", lambda d, ffprobe=None: None)):
+            p = mock.patch.object(pv, name, fake)
+            p.start()
+            self.addCleanup(p.stop)
 
     def run_(self, rid="rid"):
         import types
@@ -111,17 +117,23 @@ class OriginTest(unittest.TestCase):
         self.assertEqual([deliver.face_origin(o) for o in ("request", None, "", "auto", "manual")], ["request"] * 3 + ["auto"] * 2)
         self.assertEqual(deliver.META_SUFFIX, ".meta.json")
 
-    def test_auto_one_places_meta_before_zip(self):
-        seen = []
-        real = deliver.zip_packs
+    def test_auto_one_places_preview_then_meta_then_zip(self):
+        """置く順 = 確認用の動画 → meta → zip(zip が見えたら印も動画もそろっている = 友人のアプリの約束)"""
+        events = []
+        real_zip, real_meta = deliver.zip_packs, deliver.write_meta_json
 
-        def zip_packs(*a, **k):   # zip を置く時点で、印はもう隣にある(友人のアプリは zip が見えたらそろっているとみなす)
-            seen.append(sorted(os.listdir(self.out)))
-            return real(*a, **k)
-        with mock.patch.object(deliver, "zip_packs", zip_packs):
+        def write_meta_json(path, doc):
+            events.append(("meta", sorted(os.listdir(self.out))))
+            return real_meta(path, doc)
+
+        def zip_packs(*a, **k):
+            events.append(("zip", sorted(os.listdir(self.out))))
+            return real_zip(*a, **k)
+        with mock.patch.object(deliver, "zip_packs", zip_packs), mock.patch.object(deliver, "write_meta_json", write_meta_json):
             dest = deliver.deliver_one(self.pack, self.out, "20261016-120000-abcdef__題", log_dir=self.logs, run=self.run_(), origin="auto", ended_at=1000)
+        stem = "20261016-120000-abcdef__題"
+        self.assertEqual(events, [("meta", [stem + ".preview.mp4"]), ("zip", sorted([stem + ".meta.json", stem + ".preview.mp4"]))])
         meta = deliver.meta_path_for(dest)
-        self.assertEqual(seen, [[os.path.basename(meta)]])
         with open(meta, "rb") as f:
             raw = f.read()
         self.assertFalse(raw.startswith(b"\xef\xbb\xbf"))
@@ -132,24 +144,38 @@ class OriginTest(unittest.TestCase):
         row = deliveries.rows(self.logs)[-1]
         self.assertEqual((row["origin"], row["endedAt"], row["zip"]), ("auto", 1000000, os.path.basename(dest)))
 
-    def test_request_and_group_member_have_no_meta(self):
-        dest = deliver.deliver_one(self.pack, self.out, "rid__依頼", origin="request")
-        dest2 = deliver.deliver_one(self.pack, self.out, "rid__組の 1 本", origin="auto", with_preview=False)
-        self.assertEqual(sorted(os.listdir(self.out)), sorted([os.path.basename(dest), os.path.basename(dest2)]))
+    def test_meta_doc_fields_for_a_request(self):
+        """依頼の分にも meta を必ず置く。欄 = meta_doc の形(v 1・kind clip・origin・requestId・zip・preview・title・videoId・markId・streamTitle・streamer・seconds)"""
+        with mock.patch.object(pv, "clip_seconds", lambda d, ffprobe=None: 48.256):
+            dest = deliver.deliver_one(self.pack, self.out, "20261016-120000-abcdef__題", origin="request", run=self.run_(),
+                                       marks={self.pack: {"path": "x.mp4", "markId": "m7"}})
+        with open(deliver.meta_path_for(dest), encoding="utf-8") as f:
+            doc = json.load(f)
+        self.assertEqual(sorted(doc), sorted(["v", "kind", "origin", "sentAt", "requestId", "zip", "preview", "title", "videoId", "markId",
+                                              "streamTitle", "streamer", "seconds"]))
+        self.assertEqual(doc, {"v": 1, "kind": "clip", "origin": "request", "sentAt": doc["sentAt"], "requestId": "20261016-120000-abcdef",
+                               "zip": "20261016-120000-abcdef__題.zip", "preview": "20261016-120000-abcdef__題.preview.mp4", "title": "clip",
+                               "videoId": "abcdefghijk", "markId": "m7", "streamTitle": "題", "streamer": "", "seconds": 48.26})
 
-    def test_failure_removes_meta(self):
+    def test_two_packs_same_name_get_separate_metas(self):
+        d1 = deliver.deliver_one(self.pack, self.out, "rid__題", origin="auto")
+        d2 = deliver.deliver_one(self.pack, self.out, "rid__題", origin="auto")
+        self.assertNotEqual(d1, d2)
+        self.assertEqual(len([n for n in os.listdir(self.out) if n.endswith(".meta.json")]), 2)
+
+    def test_failure_removes_meta_and_preview(self):
         with mock.patch.object(deliver, "zip_packs", side_effect=OSError(28, "no space")):
             with self.assertRaises(OSError):
                 deliver.deliver_one(self.pack, self.out, "rid__題", origin="auto")
-        self.assertEqual(os.listdir(self.out), [], "書きかけの印を残さない")
+        self.assertEqual(os.listdir(self.out), [], "書きかけの印・確認用の動画を残さない")
+        self.assertEqual([n for n in os.listdir(self.tmp) if n.startswith(".deliver-")], [], "一時の確認用の動画も消す")
 
-    def test_group_json_origin(self):
-        os.makedirs(self.out)
-        p = os.path.join(self.out, "g.group.json")
-        self.assertEqual(deliver.write_group_json(p, "t", "1-2", None, [], origin="auto")["origin"], "auto")
-        with open(p, encoding="utf-8") as f:
-            self.assertEqual(json.load(f)["origin"], "auto")
-        self.assertNotIn("origin", deliver.write_group_json(p, "t", "1-2", None, []), "渡さなければ古い形のまま")
+    def test_group_api_is_gone(self):
+        """組(まとめ動画・組の一覧)の部品は消した(F3-6)"""
+        for gone in ("GROUP_SUFFIX", "group_paths", "group_members", "write_group_json"):
+            self.assertFalse(hasattr(deliver, gone), gone)
+        for gone in ("batch_preview", "PREVIEW_LABEL_SEC"):
+            self.assertFalse(hasattr(pv, gone), gone)
 
 
 class ZipPacksTest(unittest.TestCase):
@@ -198,107 +224,41 @@ class ZipPacksTest(unittest.TestCase):
         self.assertTrue(os.path.isfile(preview))
         empty = os.path.join(self.tmp, "空_pack")
         os.makedirs(empty)
-        self.assertIsNone(pv.batch_preview([self.a, empty]))   # ffmpeg を呼ばない
+        self.assertIsNone(pv.clip_preview(empty))   # 動画の無いパックは ffmpeg を呼ばない
         self.assertEqual([n for n in os.listdir(self.tmp) if n.startswith(".deliver-")], [])
 
 
-class GroupFilesTest(unittest.TestCase):
-    """組で届ける(notes:docs/spec/friend.md の 2-16)の部品: 組の名前・一覧の packs・一覧のファイル・クリップの長さ"""
+class FormatTest(unittest.TestCase):
+    """届く物の名前の約束(F3-6): 確認用の動画 <zip の名前>.preview.mp4・印 <zip の名前>.meta.json。組の部品は無い"""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="ytt-deliver-")
         self.addCleanup(shutil.rmtree, self.tmp, True)
-        self.out = os.path.join(self.tmp, "Dropbox", deliver.OUT_DIR)
 
     def test_suffix_constants(self):
-        self.assertEqual((deliver.GROUP_SUFFIX, deliver.PREVIEW_SUFFIX), (".group.json", ".preview.mp4"))
+        self.assertEqual((deliver.PREVIEW_SUFFIX, deliver.META_SUFFIX), (".preview.mp4", ".meta.json"))
+        self.assertEqual(deliver.meta_path_for(os.path.join("出力", "rid__題.zip")), os.path.join("出力", "rid__題.meta.json"))
 
-    def test_group_paths_plain_and_unique(self):
-        """組の名前 -> (まとめ動画, 一覧, 使う名前)。まとめ動画か一覧が同じ名前で残っていれば、末尾に 4 文字足す(2 つを同じ名前でそろえる)。zip の有無は見ない"""
-        name = "20261001-120000-abc123__題 1-5"
-        pv, js, used = deliver.group_paths(self.out, name)   # 出力\ がまだ無くても動く
-        self.assertEqual((pv, js, used), (os.path.join(self.out, name + ".preview.mp4"), os.path.join(self.out, name + ".group.json"), name))
-        os.makedirs(self.out)
-        put(os.path.join(self.out, name + ".zip"))   # 同じ名前の zip だけなら変えない(zip は 1 本ずつ unique_zip で決める)
-        self.assertEqual(deliver.group_paths(self.out, name)[2], name)
-        for existing in (".preview.mp4", ".group.json"):
-            put(os.path.join(self.out, name + existing))
-            pv, js, used = deliver.group_paths(self.out, name)
-            self.assertRegex(used, r"^%s-[0-9a-f]{4}$" % re.escape(name), existing)
-            self.assertEqual((pv, js), (os.path.join(self.out, used + ".preview.mp4"), os.path.join(self.out, used + ".group.json")), existing)
-            self.assertFalse(os.path.exists(pv) or os.path.exists(js))
-            os.remove(os.path.join(self.out, name + existing))
-
-    def test_group_members_accumulate_preview_start(self):
-        """previewStart = まとめ動画の中でそのクリップが始まる秒(前のクリップの長さの合計)・duration = そのクリップの秒。小数 2 桁に丸める"""
-        zips = [(1, os.path.join(self.out, "rid__a.zip")), (2, os.path.join(self.out, "rid__b.zip")), (3, os.path.join(self.out, "rid__c.zip"))]
-        got = deliver.group_members(zips, ["a", "b", "c"], [10.5, 20.25, 5.0])
-        self.assertEqual(got, [{"n": 1, "zip": "rid__a.zip", "title": "a", "previewStart": 0.0, "duration": 10.5},
-                               {"n": 2, "zip": "rid__b.zip", "title": "b", "previewStart": 10.5, "duration": 20.25},
-                               {"n": 3, "zip": "rid__c.zip", "title": "c", "previewStart": 30.75, "duration": 5.0}])
-        self.assertEqual(sorted(got[0]), ["duration", "n", "previewStart", "title", "zip"])
-        rounded = deliver.group_members(zips[:2], ["a", "b"], [12.3456, 7.0])
-        self.assertEqual([(m["previewStart"], m["duration"]) for m in rounded], [(0.0, 12.35), (12.35, 7.0)])
-
-    def test_group_members_unknown_length_makes_following_starts_unknown(self):
-        """長さの分からないクリップ以降の previewStart は None(ずれた秒を教えない)。そのクリップ自身の頭は分かる"""
-        zips = [(n, "rid__%d.zip" % n) for n in (1, 2, 3, 4)]
-        got = deliver.group_members(zips, list("abcd"), [10.0, None, 5.0, 2.0])
-        self.assertEqual([(m["n"], m["previewStart"], m["duration"]) for m in got], [(1, 0.0, 10.0), (2, 10.0, None), (3, None, 5.0), (4, None, 2.0)])
-        got = deliver.group_members(zips[:2], ["a", "b"], [None, 3.0])
-        self.assertEqual([(m["previewStart"], m["duration"]) for m in got], [(0.0, None), (None, 3.0)])
-
-    def test_group_members_uses_placed_zips_only(self):
-        """置けた zip だけ(n は実行の通し番号のまま)。zip の名前は名前だけ(フォルダは入れない)。何も置けなければ空"""
-        got = deliver.group_members([(3, os.path.join(self.out, "rid__c.zip")), (4, os.path.join(self.out, "rid__d.zip"))], ["c", "d", "e"], [1.0, 2.0, 3.0])
-        self.assertEqual([(m["n"], m["zip"], m["title"]) for m in got], [(3, "rid__c.zip", "c"), (4, "rid__d.zip", "d")])
-        self.assertEqual(deliver.group_members([], ["a"], [1.0]), [])
-
-    def test_write_group_json(self):
-        """組の一覧: UTF-8・BOM なし・日本語はそのまま。鍵は v・title・range・preview(名前だけ)・packs・sentAt(ISO 8601 + タイムゾーン)"""
-        os.makedirs(self.out)
-        path = os.path.join(self.out, "rid__雑談 うた 1-2.group.json")
-        members = deliver.group_members([(1, "rid__a.zip"), (2, "rid__b.zip")], ["あ", "い"], [4.5, 6.0])
-        now = 1791000000   # 夏でも冬でも、その時点のずれ(夏時間)で書く
-        doc = deliver.write_group_json(path, "雑談 / うた", "1-2", os.path.join(self.out, "rid__雑談 うた 1-2.preview.mp4"), members, now=now)
+    def test_meta_is_written_as_one_utf8_line_atomically(self):
+        """meta の書き方: UTF-8・BOM なし・1 行・日本語はそのまま。書けなければ何も残さない"""
+        out = os.path.join(self.tmp, "出力")
+        os.makedirs(out)
+        path = os.path.join(out, "rid__雑談 うた.meta.json")
+        doc = {"v": 1, "title": "雑談 / うた"}
+        self.assertEqual(deliver.write_meta_json(path, doc), doc)
         with open(path, "rb") as f:
             raw = f.read()
         self.assertFalse(raw.startswith(b"\xef\xbb\xbf"))
         self.assertIn("雑談".encode("utf-8"), raw, "\\uXXXX にしない")
         self.assertEqual(json.loads(raw.decode("utf-8")), doc)
-        self.assertEqual(sorted(doc), ["packs", "preview", "range", "sentAt", "title", "v"])
-        self.assertEqual((doc["v"], doc["title"], doc["range"], doc["preview"], doc["packs"]), (1, "雑談 / うた", "1-2", "rid__雑談 うた 1-2.preview.mp4", members))
-        self.assertEqual(doc["sentAt"], datetime.datetime.fromtimestamp(now).astimezone().isoformat(timespec="seconds"))
-        for t in (1783000000, 1799000000):   # 冬・夏のどちらの時刻でも、その時刻のずれ
-            self.assertEqual(deliver.write_group_json(path, "t", "1", None, [], now=t)["sentAt"],
-                             datetime.datetime.fromtimestamp(t).astimezone().isoformat(timespec="seconds"), t)
-        self.assertRegex(deliver.write_group_json(path, "t", "1", None, [])["sentAt"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d$")   # now を省けば今
-
-    def test_write_group_json_is_atomic(self):
-        """組の一覧は原子的に書く: 書く途中で失敗しても書きかけのファイルを残さない(友人のアプリは一覧が見えたら組がそろっているとみなす。
-        前は open "w" で先に作っていた。資料 4 節の疑い 3)。中身は今までと同じ 1 行(json.dump と同じバイト列・改行なし)"""
-        os.makedirs(self.out)
-        path = os.path.join(self.out, "rid__t 1-2.group.json")
+        self.assertNotIn(b"\n", raw.rstrip(b"\r\n"), "1 行")
         with self.assertRaises(UnicodeError):
-            deliver.write_group_json(path, "bad\ud800", "1-2", None, [])   # UTF-8 にできない題 = 書く途中の失敗
-        self.assertEqual(os.listdir(self.out), [])
-        doc = deliver.write_group_json(path, "雑談", "1-2", None, [], now=1791000000)
-        with open(path, "rb") as f:
-            self.assertEqual(f.read(), json.dumps(doc, ensure_ascii=False).encode("utf-8"))
-        self.assertEqual(os.listdir(self.out), [os.path.basename(path)])   # 一時ファイルを残さない
-
-    def test_write_group_json_without_preview_is_null(self):
-        """まとめ動画を作れなかった組: preview は null(zip と一覧は届ける)"""
-        path = os.path.join(self.tmp, "g.group.json")
-        deliver.write_group_json(path, "t", "1-2", None, [])
-        with open(path, encoding="utf-8") as f:
-            doc = json.load(f)
-        self.assertIsNone(doc["preview"])
-        self.assertEqual(doc["packs"], [])
+            deliver.write_meta_json(os.path.join(out, "x.meta.json"), {"t": "bad\ud800"})
+        self.assertEqual(os.listdir(out), [os.path.basename(path)], "書きかけを残さない")
 
     def test_clip_seconds(self):
-        """各パックの切り抜きの長さ(秒)。パックの切り抜きの動画(いちばん大きい動画。_roughcut は除く)を ffprobe に渡す。動画の無いパック・
-        長さの読めない・0 以下の動画は None"""
+        """パックの切り抜きの長さ(秒)。いちばん大きい動画(_roughcut は除く)を ffprobe に渡す。動画の無いパック・長さの読めない・0 以下・
+        フォルダの無いものは None(ffprobe を呼ばない)"""
         a, b, c, d = (os.path.join(self.tmp, n + "_pack") for n in "abcd")
         put(os.path.join(a, "a.mp4"), b"a" * 500)
         put(os.path.join(a, "a_roughcut.mp4"), b"r" * 900)
@@ -313,42 +273,40 @@ class GroupFilesTest(unittest.TestCase):
             asked.append((path, ffprobe))
             return infos.get(path)
         with mock.patch.object(pv.normalize, "probe", probe):
-            self.assertEqual(pv.clip_seconds([a, b, c, d], ffprobe="FFPROBE"), [48.25, None, None, None])
-            self.assertEqual(pv.clip_seconds([]), [])
+            self.assertEqual(pv.clip_seconds(a, ffprobe="FFPROBE"), 48.25)
+            self.assertIsNone(pv.clip_seconds(b))
+            self.assertIsNone(pv.clip_seconds(c))
+            self.assertIsNone(pv.clip_seconds(d))
+            self.assertIsNone(pv.clip_seconds(os.path.join(self.tmp, "無い_pack")))
             infos[os.path.join(c, "c.mp4")] = {"duration": 7}
-            infos[os.path.join(b, "b.mp4")] = {"duration": -3.0}
-            self.assertEqual(pv.clip_seconds([b, c]), [None, 7.0])
-            self.assertIsInstance(pv.clip_seconds([c])[0], float)
-            self.assertEqual(pv.clip_seconds([os.path.join(self.tmp, "無い_pack")]), [None])   # フォルダが無い
+            self.assertIsInstance(pv.clip_seconds(c), float)
+            self.assertEqual(pv.clip_seconds(c), 7.0)
         self.assertEqual(asked[0], (os.path.join(a, "a.mp4"), "FFPROBE"), "いちばん大きい動画(_roughcut でない)を調べる")
-        self.assertNotIn(os.path.join(d, "cut-plan.json"), [p for p, _f in asked])
         self.assertEqual(len([1 for p, _f in asked if p.startswith(d)]), 0, "動画の無いパックは ffprobe を呼ばない")
 
-
 class PreviewArgsTest(unittest.TestCase):
-    """まとめ動画の ffmpeg の引数(ffmpeg は要らない): 等速だけ(setpts/atempo を入れない)・札はずっと(2026-10-08 ユーザー決定)"""
+    """確認用の動画の ffmpeg の引数(ffmpeg は要らない): 480p・等速・札と字幕の焼き込み(drawtext)は無い・音は 96k の aac か無し(F3-6)"""
 
-    def test_normal_speed_and_label_always(self):
-        self.assertEqual(pv.PREVIEW_LABEL_SEC, 0)
-        args = pv._preview_args("ffmpeg", ["a.mp4", "b.mp4"], "out.mp4", 480, True, label_files=["l1.txt", "l2.txt"], font="C:/Windows/Fonts/meiryo.ttc")
-        fc = args[args.index("-filter_complex") + 1]
-        self.assertNotIn("setpts", fc)
-        self.assertNotIn("atempo", fc)
-        self.assertIn("[0:a]anull[a0]", fc)
-        self.assertIn("drawtext=", fc)
-        self.assertNotIn("enable=", fc, "札はずっと出す")
-        self.assertIn("concat=n=2:v=1:a=1[v][a]", fc)
+    def test_scale_480_and_no_labels(self):
+        self.assertEqual(pv.PREVIEW_HEIGHT, 480)
+        args = pv._preview_args("ffmpeg", "in.mp4", "out.mp4", 480, True)
+        self.assertEqual(args[args.index("-vf") + 1], "scale=-2:480")
+        self.assertNotIn("-filter_complex", args)
+        self.assertFalse(any("drawtext" in a for a in args), "札・字幕は焼かない")
+        self.assertFalse(any("setpts" in a or "atempo" in a for a in args), "等速")
+        self.assertIn("-map", args)
+        self.assertNotIn("-an", args)
+        self.assertEqual(args[args.index("-b:a") + 1], "96k")
+        self.assertEqual(args[-1], "out.mp4")
 
-    def test_without_labels_or_audio(self):
-        args = pv._preview_args("ffmpeg", ["a.mp4"], "out.mp4", 480, False)
-        fc = args[args.index("-filter_complex") + 1]
-        self.assertNotIn("drawtext", fc)
-        self.assertIn("concat=n=1:v=1:a=0[v]", fc)
+    def test_silent_clip_has_no_audio_args(self):
+        args = pv._preview_args("ffmpeg", "in.mp4", "out.mp4", 480, False)
         self.assertIn("-an", args)
-
+        self.assertNotIn("-b:a", args)
+        self.assertFalse(any("drawtext" in a for a in args))
 
 class PreviewTest(unittest.TestCase):
-    """まとめ動画(ffmpeg が要る。無ければ skip)"""
+    """確認用の動画(ffmpeg が要る。無ければ skip)"""
 
     def setUp(self):
         from ytt import tools
@@ -371,32 +329,34 @@ class PreviewTest(unittest.TestCase):
         subprocess.run(args + ["-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-shortest", p], check=True, timeout=60)
         return p
 
-    def test_two_clips_at_normal_speed(self):
+    def test_one_clip_at_480_and_normal_speed(self):
         from ytt import normalize
-        a, b = self.clip("一本目_pack/一本目.mp4", 2), self.clip("二本目_pack/二本目.mp4", 2)
+        a = self.clip("一本目_pack/一本目.mp4", 2)
         out = os.path.join(self.tmp, "preview.mp4")
-        self.assertTrue(pv.make_preview([a, b], out, ["一本目", "二本目"], ffmpeg=self.ffmpeg, ffprobe=self.ffprobe, log=self.logs.append), self.logs)
+        self.assertTrue(pv.make_preview(a, out, ffmpeg=self.ffmpeg, ffprobe=self.ffprobe, log=self.logs.append), self.logs)
         info = normalize.probe(out, ffprobe=self.ffprobe)
         self.assertEqual((info["height"], info["has_audio"]), (480, True))
-        self.assertAlmostEqual(info["duration"], 4.0, delta=0.5)   # 等速: 2 秒 × 2 本 = 4 秒(2026-10-08 ユーザー決定)
+        self.assertAlmostEqual(info["duration"], 2.0, delta=0.5)   # 等速(2026-10-08 ユーザー決定)
         self.assertEqual(self.logs, [])
 
     def test_silent_clip_makes_a_silent_preview(self):
         from ytt import normalize
-        a, b = self.clip("a_pack/a.mp4", 1), self.clip("b_pack/b.mp4", 1, audio=False)
+        b = self.clip("b_pack/b.mp4", 1, audio=False)
         out = os.path.join(self.tmp, "preview.mp4")
-        self.assertTrue(pv.make_preview([a, b], out, ["A", "B"], ffmpeg=self.ffmpeg, ffprobe=self.ffprobe, log=self.logs.append), self.logs)
+        self.assertTrue(pv.make_preview(b, out, ffmpeg=self.ffmpeg, ffprobe=self.ffprobe, log=self.logs.append), self.logs)
         self.assertFalse(normalize.probe(out, ffprobe=self.ffprobe)["has_audio"])
 
     def test_broken_input_fails_quietly(self):
         bad = os.path.join(self.tmp, "x_pack", "x.mp4")
         put(bad, os.urandom(3000))   # 文字だけのファイルは ffmpeg が「文字の動画」として読めてしまうので、でたらめなバイト列で
-        self.assertFalse(pv.make_preview([bad], os.path.join(self.tmp, "p.mp4"), ffmpeg=self.ffmpeg, ffprobe=self.ffprobe, log=self.logs.append))
-        self.assertTrue(self.logs and "まとめ動画を作れませんでした" in self.logs[-1], self.logs)
-        self.assertFalse(pv.make_preview([], os.path.join(self.tmp, "p.mp4")))
+        out = os.path.join(self.tmp, "p.mp4")
+        self.assertFalse(pv.make_preview(bad, out, ffmpeg=self.ffmpeg, ffprobe=self.ffprobe, log=self.logs.append))
+        self.assertTrue(self.logs and "確認用の動画を作れませんでした" in self.logs[-1], self.logs)
+        self.assertFalse(os.path.exists(out))
+        self.assertFalse(pv.make_preview("", os.path.join(self.tmp, "p.mp4")))
 
     def test_run_ffmpeg_stops_on_check_and_timeout(self):
-        """まとめ動画の ffmpeg: check() が例外を投げたら止めて投げ直す・時間切れは (1, "timeout")・普通に終われば (0, 標準エラーの末尾)"""
+        """確認用の動画の ffmpeg: check() が例外を投げたら止めて投げ直す・時間切れは (1, "timeout")・普通に終われば (0, 標準エラーの末尾)"""
         slow = [self.ffmpeg, "-hide_banner", "-nostdin", "-re", "-f", "lavfi", "-i", "testsrc2=size=64x64:rate=10:duration=30", "-f", "null", "-"]
 
         class Stop(Exception):
@@ -417,16 +377,15 @@ class PreviewTest(unittest.TestCase):
         self.assertTrue(err)
 
     def test_clip_seconds_with_real_ffprobe(self):
-        """組の一覧の長さ: 本物の動画は秒が読める・壊れた動画・動画の無いパックは None"""
+        """組の印の長さ(meta の seconds): 本物の動画は秒が読める・壊れた動画・動画の無いパックは None"""
         a = self.clip("一本目_pack/一本目.mp4", 2)
         bad = os.path.join(self.tmp, "x_pack", "x.mp4")
         put(bad, os.urandom(3000))
         empty = os.path.join(self.tmp, "空_pack")
         os.makedirs(empty)
-        got = pv.clip_seconds([os.path.dirname(a), os.path.dirname(bad), empty], ffprobe=self.ffprobe)
-        self.assertAlmostEqual(got[0], 2.0, delta=0.5)
-        self.assertEqual(got[1:], [None, None])
-
+        self.assertAlmostEqual(pv.clip_seconds(os.path.dirname(a), ffprobe=self.ffprobe), 2.0, delta=0.5)
+        self.assertIsNone(pv.clip_seconds(os.path.dirname(bad), ffprobe=self.ffprobe))
+        self.assertIsNone(pv.clip_seconds(empty, ffprobe=self.ffprobe))
 
 class DeliveriesTest(unittest.TestCase):
     def setUp(self):
@@ -441,33 +400,29 @@ class DeliveriesTest(unittest.TestCase):
         self.logs = []
         self.log_dir = os.path.join(self.tmp, "logs")
         self.dl = deliver.Deliveries(lambda: self.cfg["folder"], lambda d: os.path.normpath(d) in self.packs, log=self.logs.append, log_dir=self.log_dir)
-        p = mock.patch.object(pv, "batch_preview", lambda dirs, check=None, log=None: None)   # まとめ動画は作らない(ffmpeg を呼ばない)。作るときは各テストで
-        p.start()
-        self.addCleanup(p.stop)
+        for name, fake in (("make_preview", fake_make_preview), ("clip_seconds", lambda d, ffprobe=None: None)):   # ffmpeg を呼ばない
+            p = mock.patch.object(pv, name, fake)
+            p.start()
+            self.addCleanup(p.stop)
 
     def test_start_and_done(self):
         j = wait(self.dl, self.dl.start(self.pack, "【雑談】校正済み/1"))
         self.assertEqual(j["state"], "done")
         self.assertRegex(j["name"], r"^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}__【雑談】校正済み_1\.zip$")
-        # 手で届けるも出どころの印 <zip の名前>.meta.json(友人には「依頼なし」= origin auto。D-SEND 2-7・2-8)
-        self.assertEqual(sorted(os.listdir(os.path.join(self.folder, deliver.OUT_DIR))), sorted([j["name"], j["name"][:-4] + deliver.META_SUFFIX]))
+        # 手で届けるのも 1 本ずつの届け方: 確認用の動画 + 出どころの印 <zip の名前>.meta.json(友人には「依頼なし」= origin auto。D-SEND 2-7・2-8)
+        stem = j["name"][:-4]
+        self.assertEqual(sorted(os.listdir(os.path.join(self.folder, deliver.OUT_DIR))), sorted([j["name"], stem + deliver.PREVIEW_SUFFIX, stem + deliver.META_SUFFIX]))
         self.assertTrue(self.logs)
 
     def test_same_as_auto_preview_zip_and_record(self):
-        """手で届けるのも全自動と同じ 1 本の届け方(deliver_one): まとめ動画を zip の隣に・届けた記録 deliveries.jsonl に 1 行(友人の「要らない」が引ける。Q16)"""
+        """手で届けるのも全自動と同じ 1 本の届け方(deliver_one): 確認用の動画を zip の隣に・届けた記録 deliveries.jsonl に 1 行(友人の「要らない」が引ける。Q16)"""
         from human.friend import friend_feedback
-        tmp_preview = os.path.join(self.tmp, ".deliver-preview-x.mp4")
-
-        def fake_preview(dirs, check=None, log=None):
-            put(tmp_preview, b"PV")
-            return tmp_preview
         clip = os.path.join(self.tmp, "clip.mp4")
-        with mock.patch.object(pv, "batch_preview", fake_preview):
-            j = wait(self.dl, self.dl.start(self.pack, "題", clip={"path": clip, "markId": "m1", "videoId": "abcdefghijk"}))
+        j = wait(self.dl, self.dl.start(self.pack, "題", clip={"path": clip, "markId": "m1", "videoId": "abcdefghijk"}))
         self.assertEqual(j["state"], "done")
         out = os.path.join(self.folder, deliver.OUT_DIR)
         self.assertEqual(sorted(os.listdir(out)), sorted([j["name"], j["name"][:-4] + deliver.PREVIEW_SUFFIX, j["name"][:-4] + deliver.META_SUFFIX]))
-        self.assertFalse(os.path.exists(tmp_preview), "一時のまとめ動画は消す")
+        self.assertEqual([n for n in os.listdir(self.tmp) if n.startswith(".deliver-")], [], "一時の確認用の動画は消す")
         with open(os.path.join(out, j["name"][:-4] + deliver.META_SUFFIX), "rb") as f:
             meta = json.loads(f.read().decode("utf-8"))
         self.assertEqual((meta["v"], meta["origin"]), (1, "auto"))

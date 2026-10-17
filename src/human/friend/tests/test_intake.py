@@ -187,27 +187,16 @@ class TestState(Base):
 class TestSend(Base):
     """D-SEND: 友人のアプリの「届け方」(2-4)・依頼済みの配信の引き方(2-9)・見回りの終わりの送り直し(2-6)"""
 
-    def test_read_delivery_prefs(self):
-        path = os.path.join(self.folder, intake.SETTINGS_DIR, intake.DELIVERY_PREFS)
-        self.assertIsNone(intake.read_delivery_prefs(self.folder), "無い = ホームの設定のまま")
-        os.makedirs(os.path.dirname(path))
-        for body, want in (('{"v":1,"deliverBatch":3,"at":"2026-10-16T21:00:00+09:00"}', 3), ('﻿{"v":1,"deliverBatch":1}', 1),
-                           ('{"v":1,"deliverBatch":11}', None), ('{"v":1,"deliverBatch":0}', None), ('{"v":2,"deliverBatch":3}', None),
-                           ('{"v":1,"deliverBatch":"3"}', None), ('{"v":1,"deliverBatch":true}', None), ("壊れた", None), ('{"v":1,"deliverBatch":10}', 10)):
-            n = getattr(self, "_n", 0) + 1
-            self._n = n
-            with open(path, "w", encoding="utf-8") as f:
-                f.write(body)
-            os.utime(path, (1760000000 + n, 1760000000 + n))   # 書くたびに更新時刻を変える(更新時刻と大きさで覚える)
-            self.assertEqual(intake.read_delivery_prefs(self.folder), want, body)
-        self.assertIsNone(intake.read_delivery_prefs(""))
-        os.unlink(path)
-        self.assertIsNone(intake.read_delivery_prefs(self.folder))
+    def test_delivery_prefs_are_gone(self):
+        """届け方の設定(友人のアプリの 設定\\届け方.json・ホームの intake.deliverBatch)は読まない = 届けるのは 1 本ずつだけ(F3-6)"""
+        for gone in ("read_delivery_prefs", "SETTINGS_DIR", "DELIVERY_PREFS", "_deliver_how"):
+            self.assertFalse(hasattr(intake, gone), gone)
+        self.assertEqual(intake.parse_deliver_batch(3), 3, "依頼の欄は封筒に残すだけ(古いアプリの依頼を断らない)")
 
     def test_settings_folder_is_not_a_request(self):
         """友人のアプリが置く 設定\\届け方.json は依頼として読まない(下のフォルダは見ない)"""
-        os.makedirs(os.path.join(self.folder, intake.SETTINGS_DIR))
-        with open(os.path.join(self.folder, intake.SETTINGS_DIR, intake.DELIVERY_PREFS), "w", encoding="utf-8") as f:
+        os.makedirs(os.path.join(self.folder, "設定"))
+        with open(os.path.join(self.folder, "設定", "届け方.json"), "w", encoding="utf-8") as f:
             f.write('{"v":1,"deliverBatch":3}')
         self.scan2()
         self.assertEqual((self.runner.requests, self.runner.files, self.it.snapshot()["requests"]), ([], [], []))
@@ -961,7 +950,7 @@ class TestLiveRequest(Base):
         rec = self.send("20261008-200000-abc302", deliverBatch=3)
         (_url, ctx), = self.begun
         self.assertEqual(ctx["deliverBatch"], 3)
-        self.assertIn("3 本ごとに組で届けます", rec["items"][0]["reason"])
+        self.assertIn("1 本ずつ届けます", rec["items"][0]["reason"])
 
     def test_live_now_begins_recording_and_links(self):
         self.infos[self.VID] = {"duration": None, "live": "is_live", "title": "【歌枠】配信中", "channel": "Miko Ch."}

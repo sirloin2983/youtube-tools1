@@ -1,14 +1,14 @@
 /* 確かめるのカード「価値」(/check-cards/value.js)。口は check.js の先頭。
-   source auto(自動でできた切り抜き・10-16 の 2-8) = 送った後の品質の確認: [良い](A) / [悪い](X)。悪いを押したら理由の札を 1 つ選べる(数字 1〜7・任意。Enter = 理由なしで記録)。
+   source auto(自動でできた切り抜き・10-16 の 2-8) = 送った後の品質の確認: [良い](A) / [悪い](X) / [不明](S・どちらとも言えない = 理由なしで記録)。悪いを押したら理由の札を 1 つ選べる(数字 1〜7・任意。Enter = 理由なしで記録)。
      記録だけ(src/human/check/value.py)。送るかには効かせない = [送る]・[要らない] は無い。すぐ記録(1 枚遅れなし)。Z で記録を取り消す。
    source cand(候補のまま) = 採用 / 不採用(殻の決まった形 CheckCards.simple・今のまま。1 枚遅れで確定)。
-   カード(src/app/check/sources.py): auto = options ["good","bad"]・reasons [{id, text}] / cand = options ["adopt","reject"]。答え = {choice} / 悪いの理由 {choice:"bad", reason: id} */
+   カード(src/app/check/sources.py): auto = options ["good","bad","unknown"]・reasons [{id, text}] / cand = options ["adopt","reject"]。答え = {choice} / 悪いの理由 {choice:"bad", reason: id} */
 (function () {
   'use strict';
   var esc = UIKit.esc;
   var LABEL = { adopt: '採用', reject: '不採用' };
   var TITLE = { adopt: '70 点以上として数え、書き出して案件の切り抜きに足します', reject: '70 点未満として数えます' };
-  var AUTO_TITLE = { good: '出来が良い(記録だけ。送るかには効きません)', bad: '出来が悪い(理由の札を選べます・記録だけ)' };
+  var AUTO_TITLE = { good: '出来が良い(記録だけ。送るかには効きません)', bad: '出来が悪い(理由の札を選べます・記録だけ)', unknown: 'どちらとも言えない(記録だけ)' };
   var WHY = '悪い理由を 1 つ選べます(数字)。選ばずに記録するなら Enter';
 
   function candBody(card) {
@@ -33,7 +33,7 @@
       var acts = box && box.querySelector('.chk-acts');
       if (!acts) return;
       if (step === 'pick') {
-        acts.innerHTML = btn('良い', 'A', 'primary', AUTO_TITLE.good) + btn('悪い', 'X', '', AUTO_TITLE.bad);
+        acts.innerHTML = btn('良い', 'A', 'primary', AUTO_TITLE.good) + btn('悪い', 'X', '', AUTO_TITLE.bad) + btn('不明', 'S', '', AUTO_TITLE.unknown);
       } else {
         acts.innerHTML = '<p class="hint">' + esc(WHY) + '</p>' + reasons().map(function (r, i) {
           return btn(r.text || r.id, String(i + 1), '', '');
@@ -62,6 +62,7 @@
         var k = CheckCards.keyOf(e);
         if (step === 'pick') {
           if (k === 'A') return { choice: 'good' };
+          if (k === 'S') return { choice: 'unknown' };   // 不明 = 理由の段を通らず記録(キー S。check.js の Z・N・Enter・再生キーと重ならない)
           if (k === 'X') { step = 'why'; paint(); return true; }   // 悪い = 理由の段へ(答えはまだ)
           return null;
         }
@@ -70,7 +71,7 @@
         return r ? { choice: 'bad', reason: r.id } : null;
       },
       keybar: function () {
-        return step === 'pick' ? [{ k: 'A', l: '良い' }, { k: 'X', l: '悪い' }] : [{ k: '1〜7', l: '理由' }, { k: 'Enter', l: '理由なしで記録' }];
+        return step === 'pick' ? [{ k: 'A', l: '良い' }, { k: 'X', l: '悪い' }, { k: 'S', l: '不明' }] : [{ k: '1〜7', l: '理由' }, { k: 'Enter', l: '理由なしで記録' }];
       },
       unmount: function () { card = null; ctx = null; box = null; }
     };

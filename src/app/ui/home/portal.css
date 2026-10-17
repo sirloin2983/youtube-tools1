@@ -139,6 +139,9 @@
 .pt-intake-sub{overflow-wrap:anywhere}
 .pt-intake-items{list-style:none;margin:2px 0 0;padding:0 0 0 12px;display:flex;flex-direction:column;gap:2px;font-size:13px}
 .pt-intake-items li{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.pt-notices{margin:0 0 12px;padding:8px 12px;border:1px solid var(--line);border-radius:var(--r-lg)}
+.pt-notices .hint{margin:2px 0 4px}
+.pt-notice-detail{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;margin:4px 0 0}
 
 /* ---- 詳しく(サーバーの管理) ---- */
 .pt-advanced{margin-top:28px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel);padding:4px 14px}

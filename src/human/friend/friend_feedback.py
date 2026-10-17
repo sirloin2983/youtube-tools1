@@ -156,7 +156,8 @@ def apply(log_dir, fb, trash=None, log=None, discard=None):
     rec = {"at": int(time.time() * 1000), "zip": fb["zip"], "verdict": fb["verdict"], "requestId": fb.get("requestId") or row.get("requestId") or "",
            "title": fb.get("title") or row.get("title") or "", "videoId": row.get("videoId") or "", "runId": row.get("runId") or "", "packs": results,
            "origin": _origin(fb, row)}
-    _judge_friend(log_dir, fb, row, "reject", rec["at"], log)
+    if not fb.get("judged"):   # 送り返しの .verdict.json から来た物は、そちらが判断の記録を書いた(ここで reject を足すと新しい形の bad を後から不明で上書きする。F3-6)
+        _judge_friend(log_dir, fb, row, "reject", rec["at"], log)
     try:
         _append(log_dir, FEEDBACK_LOG, rec)
     except OSError as e:

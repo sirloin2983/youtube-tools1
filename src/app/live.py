@@ -222,7 +222,7 @@ class Live(livesession.LiveSession):
     def _app_watch(self):
         if self.headless:   # 友人の PC は届けない・③④ の片付けは画面なしでは動かさない
             return []
-        return [("届け方の組の見回りでエラー", self.flush_pools),   # n 本の組で届けるライブの切り抜き: 録画が終わったら残りも届ける(10-09 ユーザー決定)
+        return [("溜めの見回りでエラー", self.flush_pools),   # 置けなかった自動の分の送り直し・前の版で組に溜めたライブの切り抜きの残り(F3-6 からは 1 本ずつ)
                 ("日数で自動の切り抜きの片付けでエラー", self.expire_unseen)]   # 作ってから・届けてから 3 日の自動の切り抜きはごみ箱へ(10-09・10-16 ユーザー決定。オフでも前の分は片付ける)
 
     # --- 束(RS7-2 G2b) ---

@@ -15,7 +15,6 @@
         { "key": "intake.enabled", "type": "bool", "label": "依頼を受け付ける", "default": false, "hint": "見張るフォルダを決めてからオンにします。" },
         { "key": "intake.folder", "type": "folder", "label": "見張るフォルダ", "default": "", "placeholder": "例: C:\\Users\\(あなた)\\Dropbox\\アプリ\\切り抜き依頼", "maxlength": 260, "hint": "友人と共有しているフォルダの場所(ドライブ名からの全部のパス)。Dropbox で「オフラインで利用可能」にしておきます。" },
         { "key": "intake.top", "type": "int", "label": "既定の切り抜く数", "default": 3, "min": 1, "max": 10, "unit": "本", "hint": "依頼に数が書いてないときの数。" },
-        { "key": "intake.deliverBatch", "type": "int", "label": "まとめて届ける本数", "default": 5, "min": 1, "max": 10, "unit": "本", "hint": "全自動のパックをこの本数ごとに 1 つの zip にして届けます(1 = 1 本ずつ)。" },
         { "key": "intake.maxHours", "type": "number", "label": "配信の長さの上限", "default": 8, "min": 1, "max": 24, "step": 1, "unit": "時間", "hint": "これより長い配信の依頼は断ります。" },
         { "key": "intake.maxGB", "type": "number", "label": "動画の大きさの上限", "default": 20, "min": 1, "max": 200, "step": 1, "unit": "GB" },
         { "key": "intake.interval", "type": "int", "label": "見る間隔", "default": 30, "min": 10, "max": 600, "step": 5, "unit": "秒" }

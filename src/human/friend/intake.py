@@ -133,35 +133,6 @@ def submit_file(runner, path, title="", streamer=None, request_id=None, flow="ch
     return runner.submit(env, diff)
 
 
-SETTINGS_DIR, DELIVERY_PREFS = "設定", "届け方.json"   # 友人のアプリが置く「届け方」(D-SEND 2-4。受付は下のフォルダを依頼として見ない)
-_delivery_prefs = {}   # パス -> (更新時刻, 大きさ, 読んだ値)(変わったときだけ読み直す)
-
-
-def read_delivery_prefs(folder):
-    """友人のアプリの「届け方」<受付のフォルダ>/設定/届け方.json = {"v":1,"deliverBatch":n,"at":…} -> n(1〜10)か None
-    (無い・読めない・形が違う・範囲の外。呼び手はホームの設定 intake.deliverBatch にする)。更新時刻と大きさで覚える"""
-    if not folder or not isinstance(folder, str) or fsio.is_network_path(folder):
-        return None
-    path = os.path.join(folder, SETTINGS_DIR, DELIVERY_PREFS)
-    try:
-        st = os.stat(path)
-    except OSError:
-        _delivery_prefs.pop(path, None)
-        return None
-    got = _delivery_prefs.get(path)
-    if got and got[0] == st.st_mtime and got[1] == st.st_size:
-        return got[2]
-    val = None
-    try:
-        d = fsio.read_json_file(path, 64 * 1024)
-        n = d.get("deliverBatch") if isinstance(d, dict) and d.get("v") == 1 else None
-        val = n if envelope.batch_ok(n) else None
-    except (OSError, ValueError, UnicodeError):
-        val = None
-    _delivery_prefs[path] = (st.st_mtime, st.st_size, val)
-    return val
-
-
 def youtube_id(url):
     """YouTube の配信・動画の URL -> 11 文字の ID(ほかは None)。watch?v= / youtu.be/ / live/ / shorts/ / embed/。
     読み方は ytt/yturl.parse_video_id の strict(素の ID は受けない・/watch は完全一致)"""
@@ -359,13 +330,9 @@ def parse_video_tracks(v):
     return v if isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= VIDEO_TRACKS_MAX else VIDEO_TRACKS_DEFAULT
 
 
-def _deliver_how(n):
-    """受付の記録の文に入れる届け方(n = 1〜10。それ以外は 1 本ずつと読む)"""
-    return "%d 本ごとに組で" % n if envelope.batch_ok(n) and n >= 2 else "1 本ずつ"
-
-
 def parse_deliver_batch(v):
-    """依頼の JSON の deliverBatch(2.8.0 のアプリ。1〜10 = flow/envelope.batch_ok)-> int か None(無い・範囲の外 = ホームの設定 intake.deliverBatch のまま)"""
+    """依頼の JSON の deliverBatch(2.8.0〜のアプリ。1〜10 = flow/envelope.batch_ok)-> int か None。F3-6 で届け方は 1 本ずつだけになった =
+    封筒の deliver.batch に残すだけで、届ける段は読まない(古いアプリの依頼を断らないため)"""
     return v if envelope.batch_ok(v) else None
 
 
@@ -483,10 +450,18 @@ class Intake:
                         lastScan=int(self.last_scan * 1000) if self.last_scan else None,
                         today=int(self.st["daily"].get(self._today(), 0)),
                         todayRejects=int(self.st["rejects"].get(self._today(), 0)),
-                        requests=[dict(r) for r in list(self.st["requests"])])
+                        requests=[dict(r) for r in list(self.st["requests"])],
+                        notices=self._notices())   # 友人の [作る人に知らせる](送り返しの .notice.json。F3-6・C-2-16)
         finally:
             if got:
                 self.lock.release()
+
+    def _notices(self):
+        """ホームの「依頼の受付」に出す友人からの知らせ(returns.recent_notices。読めなければ空)"""
+        try:
+            return returns.recent_notices(self.data_dir, self.clock())
+        except OSError:
+            return []
 
     def _cfg(self):
         try:
@@ -623,7 +598,7 @@ class Intake:
         speakers = parse_speakers(d.get("speakers"))   # 話す人(1.3.0 のアプリ。無ければ話者分離しない)
         tracks = parse_video_tracks(d.get("videoTracks"))   # 映像トラックの数 1〜5・既定 1(パックを作る ① だけ)
         cut = parse_cut(d.get("cut"))   # カットの方法(パックを作る ① だけ。無ければホームの設定)
-        batch = parse_deliver_batch(d.get("deliverBatch"))   # 届け方(2.8.0。無ければホームの設定)
+        batch = parse_deliver_batch(d.get("deliverBatch"))   # 届け方(2.8.0。封筒に残すだけ = F3-6 で 1 本ずつだけ)
         if d["kind"] == "live":   # ライブ配信(2-15): 配信中・配信前なら録画を始めて結びつける。終わっていれば ① 全自動
             self._handle_live_request(folder, n, d, rid, cfg, memo, speakers, tracks, cut)
             return {n}
@@ -662,13 +637,13 @@ class Intake:
     def _handle_live_request(self, folder, n, d, rid, cfg, memo, speakers, tracks, cut):
         """ライブ配信の依頼(notes:docs/spec/friend.md の 2-15。2.8.0 のアプリ。kind live・url 1 本・live = 友人の設定)。
         配信中・配信前: 録画を始めて依頼に結びつける(live_begin = 入口の Live.submit_request)。以後はその録画の候補の検出・自動の採用・書き出し → パック → 届ける が
-        友人の設定で動く。もう終わっていれば kind url の ① 全自動と同じ(切り抜く数はホームの既定。届け方は依頼の deliverBatch か、無ければホームの設定)"""
+        友人の設定で動く。もう終わっていれば kind url の ① 全自動と同じ(切り抜く数はホームの既定。届けるのは 1 本ずつ)"""
         url = str(d.get("url") or "")[:300]
         vid = youtube_id(url)
         settings = live_requests.clean_settings(d.get("live"))
         who, note = _streamer(d.get("streamer"))
-        batch = parse_deliver_batch(d.get("deliverBatch"))   # 届け方(2.9.0 のアプリから。無ければホームの設定 intake.deliverBatch。10-09 ユーザー決定 = decisions 3-20)
-        how = _deliver_how(batch if batch is not None else cfg.get("deliverBatch"))
+        batch = parse_deliver_batch(d.get("deliverBatch"))   # 届け方(2.9.0 のアプリから。封筒に残すだけ = F3-6 で 1 本ずつだけ)
+        how = "1 本ずつ"   # 届け方は 1 本ずつだけ(F3-6)
         moved = [n]
         if not vid:
             self._record(folder, "live", "app", n, moved, who or "", memo, [], [{"label": url or n, "state": "rejected", "reason": "YouTube の配信の URL ではありません"}], "auto",

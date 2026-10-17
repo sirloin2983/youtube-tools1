@@ -2,6 +2,7 @@
 
 実行(リポジトリ直下から): python -m unittest src/app/tests/test_intake_prefs.py -v
 """
+import json
 import os
 import shutil
 import sys
@@ -51,6 +52,21 @@ class TestPrefs(unittest.TestCase):
                 raise OSError("読めない")
         self.assertEqual(intake.Intake(Broken(), lambda: None, tmp, defaults={"folder": box}).folder(), box)
         self.assertEqual(intake.configured_folder(Broken()), "")
+
+    def test_old_delivery_batch_key_is_read_and_dropped(self):
+        """前の版の prefs.json(intake.deliverBatch がある)も読める。届け方の鍵は捨てる(届けるのは 1 本ずつ = F3-6)"""
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        path = os.path.join(tmp, "prefs.json")
+        box = os.path.join(tmp, "Dropbox")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"intake": {"folder": box, "top": 4, "deliverBatch": 3}}, f)
+        p = prefs_mod.Prefs(path, fsio.atomic_write)
+        got = p.get(["intake"])["intake"]
+        self.assertNotIn("deliverBatch", got)
+        self.assertEqual((got["top"], got["folder"]), (4, box))
+        self.assertNotIn("deliverBatch", p.patch("intake", {"deliverBatch": 9, "top": 2}))
+        self.assertEqual(p.get(["intake"])["intake"]["top"], 2)
 
     def test_intake_prefs(self):
         tmp = tempfile.mkdtemp()

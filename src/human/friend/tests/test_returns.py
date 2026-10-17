@@ -307,5 +307,101 @@ class TestJudgments(Base):
         self.assertEqual(len(R.iter_requests(self.app)[0]["verdicts"]), 2)
 
 
+class TestV2(Base):
+    """新しい形 v 2(F3-6): good・bad(reason)・unknown(by auto)・retract。名前の ~<at> で同じ切り抜きの記録を並べる。zip の名前で届けた記録を引く"""
+    deliver = TestJudgments.deliver
+
+    def v2(self, pack, body, at):
+        p = os.path.join(self.inbox, "%s__%s~%013d.verdict.json" % (RID, pack, at))
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(dict({"v": 2, "at": at, "zip": "%s__r1.zip" % RID}, **body), f)
+        os.utime(p, (time.time() - 600,) * 2)
+
+    def test_good_bad_unknown_and_retract(self):
+        self.deliver("パック1", "m1")
+        self.v2("パック1", {"id": "f1", "judge": "bad", "reason": "cut"}, 1760000000000)
+        self.scan()
+        self.v2("パック1", {"id": "f2", "judge": "retract", "of": "f1"}, 1760000000001)
+        self.v2("パック1", {"id": "f3", "judge": "unknown", "by": "auto"}, 1760000000002)
+        self.scan()
+        rows = J.rows(self.app)
+        self.assertEqual([(r["what"], r.get("reason"), r.get("by"), r["key"]) for r in rows],
+                         [("bad", "cut", None, "vd2:f1"), ("retract", None, None, "vd2:f2"), ("unknown", None, "auto", "vd2:f3")])
+        self.assertEqual(rows[1]["of"], rows[0]["id"])
+        slot = J.fold(rows)[("VID", "m1")]
+        self.assertEqual(J.friend_value(slot["friend"]), "unknown")
+        self.assertEqual(len(R.iter_requests(self.app)[0]["verdicts"]), 3, "~<at> で上書きしない")
+
+    def test_retract_of_last_empties_lane(self):
+        self.deliver("パック1", "m1")
+        self.v2("パック1", {"id": "f1", "judge": "good"}, 1760000000000)
+        self.v2("パック1", {"id": "f2", "judge": "retract", "of": "f1"}, 1760000000001)
+        self.scan()
+        self.assertIsNone(J.fold(J.rows(self.app))[("VID", "m1")]["friend"])
+
+    def test_meta_ids_for_friend_pc_packs(self):
+        """届けた記録に無い(友人の PC で処理した)物は、返ってきた videoId・markId で引く"""
+        self.v2("パック7", {"id": "f9", "judge": "good", "videoId": "V2", "markId": "m7", "zip": "x__パック7.zip"}, 1760000000000)
+        self.scan()
+        r = J.rows(self.app)[0]
+        self.assertEqual((r["videoId"], r["markId"], r["what"]), ("V2", "m7", "good"))
+
+    def test_bad_forms_refused(self):
+        for i, body in enumerate(({"id": "a", "judge": "bad"}, {"id": "b", "judge": "great"}, {"judge": "good"}, {"id": "c", "judge": "retract"},
+                                  {"id": "d", "judge": "bad", "reason": "long"})):
+            self.v2("p%d" % i, body, 1760000000000 + i)
+        res = self.scan()
+        self.assertEqual([r["state"] for r in res], ["rejected"] * 5)
+        self.assertEqual(J.rows(self.app), [])
+
+    def test_bad_and_unknown_discard_but_feedback_does_not_judge_again(self):
+        seen = []
+        self.deliver("パック1", "m1")
+        self.v2("パック1", {"id": "f1", "judge": "bad", "reason": "boring"}, 1760000000000)
+        self.v2("パック2", {"id": "f2", "judge": "good"}, 1760000000001)
+        R.scan(self.sync, self.app, log=self.msgs.append, feedback=lambda d: seen.append(d) or {"ok": True})
+        self.assertEqual([(d["zip"], d["judged"]) for d in seen], [("%s__r1.zip" % RID, True)])
+
+    def test_parse_v2_keeps_only_known_fields(self):
+        v = R.parse_verdict(json.dumps({"v": 2, "id": "x", "judge": "unknown", "by": "auto", "at": 5, "origin": "auto", "markId": "bad id!"}).encode())
+        self.assertEqual(v, {"v": 2, "judge": "unknown", "id": "x", "at": 5, "by": "auto", "origin": "auto"})
+
+
+class TestNotice(Base):
+    """[作る人に知らせる](C-2-16): <rid>__notice-<at>.notice.json を <依頼>\\notices\\ に並べ、ログに 1 行・recent_notices で 7 日の分"""
+
+    def notice(self, body, at=1760000000000, rid=RID):
+        p = os.path.join(self.inbox, "%s__notice-%013d.notice.json" % (rid, at))
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(body if isinstance(body, str) else json.dumps(body))
+        os.utime(p, (time.time() - 600,) * 2)
+        return p
+
+    def test_received_and_listed(self):
+        p = self.notice({"v": 1, "kind": "failure", "title": "配信者|配信", "message": "直りませんでした", "detail": "x" * 9000, "code": "transcribe",
+                         "appVersion": "1.0.0", "log": "ログ", "at": 1760000000000})
+        res = self.scan()
+        self.assertEqual([(r["kind"], r["state"]) for r in res], [("notice", "accepted")])
+        self.assertFalse(os.path.exists(p))
+        self.assertTrue(any("友人から知らせ" in m and "直りませんでした" in m for m in self.msgs))
+        got = R.recent_notices(self.app)
+        self.assertEqual(len(got), 1)
+        self.assertEqual((got[0]["message"], got[0]["code"], got[0]["requestId"], got[0]["hasLog"], len(got[0]["detail"])),
+                         ("直りませんでした", "transcribe", RID, True, R.NOTICE_TEXT["detail"]))
+        self.assertEqual(R.iter_requests(self.app)[0]["runs"], [], "notices は実行の結果ではない")
+        self.assertEqual(R.recent_notices(self.app, now=time.time() + 8 * 86400), [], "7 日を過ぎたら出さない")
+
+    def test_bad_notice_rejected(self):
+        self.notice("nope", at=1)
+        self.notice({"v": 1, "kind": "failure", "message": ""}, at=2)
+        p = os.path.join(self.inbox, "x__notice.notice.json")
+        with open(p, "w", encoding="utf-8") as f:
+            f.write("{}")
+        os.utime(p, (time.time() - 600,) * 2)
+        res = self.scan()
+        self.assertEqual(sorted(r["state"] for r in res), ["rejected"] * 3)
+        self.assertEqual(R.recent_notices(self.app), [])
+
+
 if __name__ == "__main__":
     unittest.main()

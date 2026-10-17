@@ -4,9 +4,11 @@
 機械の採用・書き出しなどの起きた事実は ② が、片付けは ④ が持つ(ここには書かない)。置き場所 = 作業データの app/judgments.jsonl(呼ぶ側が app_dir を渡す)。
 大きくなったら judgments.jsonl.old の末尾へ足して空にする(fsio.append_line の keep_old。消さない)。ytt だけを読む(③ の中の他の部品は読まない)。
 
-レーン = 採否(who self の adopt・reject)・品質(quality_good・quality_bad)・友人(who friend の adopt・reject・made_video)。
-各レーンは時刻順で最後の行が勝つ。retract は of の行を取り消す(その行がレーンの最後のときだけレーンを空に戻す)。
-reason の札の鍵が AUTO_REASONS のどれかは書き手(human/check/value)が確かめる(ここは空でない文字列だけ見る)。
+レーン = 採否(who self の adopt・reject)・品質(quality_good・quality_bad・quality_unknown)・友人(who friend の good・bad・unknown と
+古い adopt・reject・made_video)。各レーンは時刻順で最後の行が勝つ。retract は of の行を取り消す(その行がレーンの最後のときだけレーンを空に戻す)。
+友人の 3 つの物差し(F3-6・notes:plan/f1-friend-requirements.md の C-4-1): good = 受け取る / bad = 届かなくてよかった(reason boring・cut)/
+unknown = 見送る・3 日の自動(by auto)。古い行は書き換えずに読み替える(friend_value: adopt・made_video = good・reject = unknown)。
+reason の札の鍵が AUTO_REASONS・FRIEND_REASONS のどれかは書き手(human/check/value・human/friend/returns)が確かめる(ここは空でない文字列だけ見る)。
 """
 import json
 import os
@@ -20,14 +22,25 @@ VERSION = 1
 FILE = "judgments.jsonl"
 MAX_BYTES = 32 * 1024 * 1024   # 1 行 300 バイト前後。超えたら .old の末尾へ移す(消さない)
 
-WHATS = ("adopt", "reject", "quality_good", "quality_bad", "made_video", "retract")
+WHATS = ("adopt", "reject", "quality_good", "quality_bad", "quality_unknown", "made_video", "good", "bad", "unknown", "retract")
 WHOS = ("self", "friend")
 ORIGINS = ("request", "auto", "manual", "live")
 VIAS = ("review", "cases", "check", "friend_file", "friend_verdict", "migrate")
 LANES = ("adopt", "quality", "friend")
 REF_KEYS = ("zip", "pack", "requestId", "runId", "recorder", "recording")
-_SELF_WHATS = {"adopt": "adopt", "reject": "adopt", "quality_good": "quality", "quality_bad": "quality"}
-_FRIEND_WHATS = ("adopt", "reject", "made_video")
+_SELF_WHATS = {"adopt": "adopt", "reject": "adopt", "quality_good": "quality", "quality_bad": "quality", "quality_unknown": "quality"}
+_FRIEND_WHATS = ("good", "bad", "unknown", "adopt", "reject", "made_video")
+_REASON_WHATS = ("quality_bad", "bad")
+FRIEND_REASONS = {"boring": "つまらない", "cut": "切り方が変"}   # 友人の「届かなくてよかった」の理由(boring = 場面の選び方・cut = 区間の決め方)
+FRIEND_VALUES = ("good", "bad", "unknown")
+_FRIEND_VALUE = {"good": "good", "bad": "bad", "unknown": "unknown", "adopt": "good", "made_video": "good", "reject": "unknown"}   # 古い行の読み替え(C-4-1)
+
+
+def friend_value(row):
+    """友人の行 -> good・bad・unknown(古い adopt・made_video は good・reject = 前のアプリの「要らない」は unknown)。友人の行でなければ None"""
+    if not isinstance(row, dict) or row.get("who") != "friend":
+        return None
+    return _FRIEND_VALUE.get(row.get("what"))
 
 _lock = threading.Lock()
 
@@ -76,9 +89,13 @@ def _check(row):
     out = {"v": VERSION, "id": row.get("id") or "j%013d-%s" % (at, secrets.token_hex(3)), "at": at, "who": who,
            "videoId": vid, "markId": mid, "what": what}
     if row.get("reason") is not None:
-        if what != "quality_bad":
-            raise ValueError("reason は quality_bad だけ")
+        if what not in _REASON_WHATS:
+            raise ValueError("reason は quality_bad・bad だけ")
         out["reason"] = _str(row, "reason")
+    if row.get("by") is not None:
+        if row.get("by") != "auto":
+            raise ValueError("by は auto だけ")
+        out["by"] = "auto"   # 人が押したのではなく自動で決まった(友人のアプリの 3 日の見送り)
     if what == "retract":
         out["of"] = _str(row, "of")
     elif row.get("of") is not None:

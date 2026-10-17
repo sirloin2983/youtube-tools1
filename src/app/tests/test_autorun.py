@@ -111,8 +111,8 @@ def start_file(ar, path, title="", streamer=None, request_id=None, flow="check",
     return ar.submit(env, diff)
 
 
-def _fake_preview(videos, out, labels=None, **kw):
-    """まとめ動画は ffmpeg を使うので偽物(中身は test_deliver の PreviewTest で確かめる)。差し替えは Base.setUp で(テストの間だけ。
+def _fake_preview(video, out, **kw):
+    """確認用の動画は ffmpeg を使うので偽物(中身は test_deliver の PreviewTest で確かめる)。差し替えは Base.setUp で(テストの間だけ。
     モジュールの読み込み時に差し替えると、同じプロセスで流す test_deliver の本物のテストまで偽物になる)"""
     with open(out, "wb") as f:
         f.write(b"PREVIEW")
@@ -1290,7 +1290,7 @@ class TestRestartInfo(Base):
         with open(os.path.join(logs, A.ACTIVE_FILE), encoding="utf-8") as f:
             saved = json.load(f)["runs"]
         self.assertEqual([x["delivered"] for x in saved], [[os.path.normpath(pack)]])
-        self.assertEqual(len(os.listdir(out)), 1)
+        self.assertEqual(sorted(n.split(".", 1)[1] for n in os.listdir(out)), ["meta.json", "zip"], "zip と印(依頼の分にも必ず)")
 
 
 class TestRequests(Base):
@@ -1410,204 +1410,39 @@ class TestRequests(Base):
         """実行が届けたパックのフォルダ(一覧の dict には出ないので Run から)"""
         return next(r for r in self.r.runs if r.id == run["id"]).delivered
 
-    def batch_prefs(self, n):
-        """まとめて届ける本数 n(ホームの設定 intake.deliverBatch)"""
-        self.r.prefs = prefs_mod.Prefs(os.path.join(self.tmp, "prefs.json"), fsio.atomic_write)
-        self.r.prefs.patch("intake", {"deliverBatch": n})
-
     RID = "20261001-120000-abc123"
 
-    def group_json(self, out, name):
-        """組の一覧(<名前>.group.json)を読む。UTF-8・BOM なし(友人のアプリの読み取りの約束。2-16)"""
-        with open(os.path.join(out, name), "rb") as f:
+    def fake_seconds(self, **by_pack):
+        """各パックの切り抜きの長さ(ffprobe の結果)。キーはパックのフォルダの名前(a2_pack など)。偽の動画は読めないので、そのままだと長さは None"""
+        self.addCleanup(setattr, pv, "clip_seconds", pv.clip_seconds)
+        pv.clip_seconds = lambda d, ffprobe=None: by_pack.get(os.path.basename(os.path.normpath(d)))
+
+    def meta_of(self, out, zip_name):
+        """zip の隣の印(<zip の名前(.zip 抜き)>.meta.json)を読む。UTF-8・BOM なし(友人のアプリの読み取りの約束)"""
+        with open(os.path.join(out, zip_name[:-4] + ".meta.json"), "rb") as f:
             raw = f.read()
         self.assertFalse(raw.startswith(b"\xef\xbb\xbf"), "BOM なし")
         return json.loads(raw.decode("utf-8"))
 
-    def fake_seconds(self, *secs):
-        """各パックの切り抜きの長さ(ffprobe の結果)を決めた値にする。偽の動画は読めないので、そのままだと長さは None"""
-        self.addCleanup(setattr, pv, "clip_seconds", pv.clip_seconds)
-        pv.clip_seconds = lambda dirs, ffprobe=None: list(secs)[:len(dirs)]
-
     def record_places(self, out):
-        """置く順の見張り: zip を作る直前・一覧を書く直前に、そのとき 出力\\ にあるものを控える(友人の同期で欠けないように ① まとめ動画 → ② zip → ③ 一覧)"""
+        """置く順の見張り: 印を書く直前・zip を作る直前に、そのとき 出力\\ にあるものを控える(友人の同期で欠けないように 確認用の動画 → 印 → zip)"""
         events = []
-        orig_zip, orig_json = deliver_mod.zip_packs, deliver_mod.write_group_json
+        orig_zip, orig_meta = deliver_mod.zip_packs, deliver_mod.write_meta_json
         self.addCleanup(setattr, deliver_mod, "zip_packs", orig_zip)
-        self.addCleanup(setattr, deliver_mod, "write_group_json", orig_json)
+        self.addCleanup(setattr, deliver_mod, "write_meta_json", orig_meta)
+
+        def listing():
+            return sorted(os.listdir(out)) if os.path.isdir(out) else []
 
         def zip_packs(dirs, *a, **k):
-            events.append(("zip", sorted(os.listdir(out)) if os.path.isdir(out) else []))
+            events.append(("zip", listing()))
             return orig_zip(dirs, *a, **k)
 
-        def write_group_json(path, *a, **k):
-            events.append(("group", sorted(os.listdir(out))))
-            return orig_json(path, *a, **k)
-        deliver_mod.zip_packs, deliver_mod.write_group_json = zip_packs, write_group_json
+        def write_meta_json(path, doc):
+            events.append(("meta", listing()))
+            return orig_meta(path, doc)
+        deliver_mod.zip_packs, deliver_mod.write_meta_json = zip_packs, write_meta_json
         return events
-
-    def test_request_auto_delivers_packs(self):
-        """① 全自動(URL): 解析 → 採用 → 書き出し → 文字起こし → パック → n 本(既定 5)ごとに 組 = まとめ動画 1 本 + 1 本ずつの zip + 組の一覧 を 出力\\ へ
-        (友人のアプリの「受け取る」。2-16)。2 本なら実行の終わりに「1-2」の 1 組"""
-        self.tools.known = False
-        out = os.path.join(self.tmp, "Dropbox", "出力")
-        events = self.record_places(out)
-        run = self.wait(start_request(self.r, [{"id": VID, "top": 2, "title": "配信", "channel": ""}], request_id=self.RID,
-                                             flow="auto", deliver_dir=out)["runs"][0])
-        self.assertEqual((run["state"], run["mode"]), ("done", "request_auto"), run)
-        self.assertEqual(list(self.states(run)), ["analyze", "adopt", "export", "transcribe", "pack", "deliver"])
-        self.assertEqual(self.states(run)["deliver"], "done")
-        pre = "%s__%s" % (self.RID, run["title"])   # 題名は実行が決める(偽の配信の題名)
-        z2, z3 = "%s__a2.zip" % self.RID, "%s__a3.zip" % self.RID   # 1 本ずつの zip は <依頼 id>__<パックの題>.zip(組の名前に 1-2 は付けない)
-        self.assertEqual(sorted(os.listdir(out)), sorted([pre + " 1-2.preview.mp4", z2, z3, pre + " 1-2.group.json"]))
-        got = self.zips(out)
-        for n in ("a2_pack/cut-plan.json", "a2_pack/a2.mp4"):
-            self.assertIn(n, got[z2])
-        self.assertIn("a3_pack/cut-plan.json", got[z3])
-        self.assertEqual([n for n in got[z2] if not n.startswith("a2_pack/")] + [n for n in got[z3] if not n.startswith("a3_pack/")], [], "1 本の zip に 1 本だけ")
-        for z in (z2, z3):
-            self.assertNotIn("まとめ.mp4", got[z], "まとめ動画は zip の隣だけ(受け取ったあとは要らない。2026-10-08)")
-        with open(os.path.join(out, pre + " 1-2.preview.mp4"), "rb") as f:
-            self.assertEqual(f.read(), b"PREVIEW")   # 組のまとめ動画(偽物)がそのまま置かれる
-        doc = self.group_json(out, pre + " 1-2.group.json")
-        self.assertEqual({k: doc[k] for k in ("v", "title", "range", "preview")}, {"v": 1, "title": run["title"], "range": "1-2", "preview": pre + " 1-2.preview.mp4"})
-        self.assertRegex(doc["sentAt"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d$")
-        # 偽の動画は長さが読めない: duration は None、previewStart は 1 本目だけ 0.0(2 本目は前の長さが分からないので None)
-        self.assertEqual(doc["packs"], [{"n": 1, "zip": z2, "title": "a2", "previewStart": 0.0, "duration": None},
-                                        {"n": 2, "zip": z3, "title": "a3", "previewStart": None, "duration": None}])
-        # 置く順: 1 本目の zip の前にまとめ動画がある・一覧を書く前に両方の zip が置いてある・書く前に一覧は無い
-        self.assertEqual([k for k, _n in events], ["zip", "zip", "group"], events)
-        self.assertIn(pre + " 1-2.preview.mp4", events[0][1])
-        self.assertNotIn(z2, events[0][1])
-        self.assertIn(z2, events[1][1])
-        self.assertNotIn(z3, events[1][1])
-        self.assertTrue({pre + " 1-2.preview.mp4", z2, z3} <= set(events[2][1]) and pre + " 1-2.group.json" not in events[2][1], events[2][1])
-        self.assertEqual(len(self.delivered(run)), 2)
-        for z in (z2, z3):   # 友人の「要らない」で引く記録は zip ごと 1 行(パックは 1 つずつ)
-            row = friend_feedback.find_delivery(os.path.join(self.tmp, "logs"), z)
-            self.assertEqual((row["requestId"], row["videoId"], len(row["packs"])), (self.RID, VID, 1), row)
-            self.assertTrue(all(p["markId"] and p["path"].endswith(".mp4") and os.path.isdir(p["dir"]) for p in row["packs"]), row)
-        self.assertIsNone(friend_feedback.find_delivery(os.path.join(self.tmp, "logs"), pre + " 1-2.zip"), "n 本を 1 つにした前の形の zip は無い")
-        marks = next(r for r in self.r.runs if r.id == run["id"]).pack_marks
-        packs = [p for z in (z2, z3) for p in friend_feedback.find_delivery(os.path.join(self.tmp, "logs"), z)["packs"]]
-        self.assertEqual(sorted(marks), sorted(p["dir"] for p in packs))
-        self.assertEqual(sorted(m["markId"] for m in marks.values()), sorted(p["markId"] for p in packs))
-        self.assertFalse([n for n in os.listdir(os.path.dirname(self.tools.clip_path("a2"))) if n.startswith(".deliver")], "書きかけの zip・まとめ動画が残る")
-
-    def test_group_json_has_preview_start_from_clip_lengths(self):
-        """組の一覧の previewStart は、まとめ動画の中でそのクリップが始まる秒(前のクリップの長さの積み上げ)・duration はそのクリップの秒"""
-        self.tools.known = False
-        self.fake_seconds(48.2, 31.456)
-        out = os.path.join(self.tmp, "Dropbox", "出力")
-        run = self.wait(start_request(self.r, [{"id": VID, "top": 2, "title": "配信", "channel": ""}], request_id=self.RID, flow="auto", deliver_dir=out)["runs"][0])
-        self.assertEqual(run["state"], "done", run)
-        doc = self.group_json(out, "%s__%s 1-2.group.json" % (self.RID, run["title"]))
-        self.assertEqual([(p["n"], p["previewStart"], p["duration"]) for p in doc["packs"]], [(1, 0.0, 48.2), (2, 48.2, 31.46)])
-
-    def test_live_clips_pool_across_runs(self):
-        """10-09 ユーザー決定(decisions 3-20): ライブの切り抜きは 1 本ごとに別の実行でも、溜め(run.pool)に預けて n 本たまったら組で届ける。
-        録画がもう作らない(is_done)・最後に預けてから POOL_IDLE_SEC たったら残りを届ける(1 本なら 1 本の形)。溜めは logs/deliver-pool.json に残る"""
-        self.tools.known = False
-        out = os.path.join(self.tmp, "Dropbox", "出力")
-        self.r.pool_path = os.path.join(self.tmp, "logs", DL.POOL_FILE)   # この組み立ては log_dir なし(log_path だけ)なので、溜めの置き場所も足す
-        pool = {"key": "live|%s|local/rec1" % self.RID, "rid": self.RID, "title": "配信", "meta": {"recorder": "local", "recording": "rec1", "phase": "live"}}
-        for i in range(3):
-            media = self.live_clip("l%d.mp4" % i, "auto")
-            run = self.wait(start_file(self.r, media, title="l%d" % i, flow="auto", request_id=self.RID, deliver_dir=out, deliver_batch=2, pool=pool))
-            self.assertEqual(run["state"], "done", run)
-            names = sorted(os.listdir(out)) if os.path.isdir(out) else []
-            if i == 0:
-                self.assertEqual((names, self.r.pools()[pool["key"]]["waiting"]), ([], 1))   # 1 本目は溜めるだけ
-            elif i == 1:
-                pre = "%s__配信 1-2" % self.RID
-                self.assertEqual(names, sorted([pre + ".preview.mp4", pre + ".group.json", "%s__l0.zip" % self.RID, "%s__l1.zip" % self.RID]), names)
-            else:
-                self.assertEqual(len(names), 4)   # 3 本目は溜めるだけ
-        self.assertEqual(self.r.pools()[pool["key"]]["waiting"], 1)
-        self.assertTrue(os.path.isfile(self.r.pool_path))   # 起動し直しても続く
-        later = self.r.clock() + DL.POOL_IDLE_SEC + 1
-        self.assertEqual(self.r.flush_pools(lambda meta: False, now=later), 0)   # 録画がまだ作るかもしれない間は待つ
-        self.assertEqual(self.r.flush_pools(lambda meta: meta.get("recording") == "rec1", now=later), 1)
-        self.assertIn("%s__l2.zip" % self.RID, os.listdir(out))
-        self.assertEqual(self.r.pools(), {})
-
-    def test_delivers_one_by_one_when_batch_is_1(self):
-        """まとめて届ける本数 1 = 1 本ずつ(<依頼 id>__<パックの題>.zip + 隣にそのクリップの <同じ名前>.preview.mp4。組の一覧は作らない)"""
-        self.tools.known = False
-        self.batch_prefs(1)
-        out = os.path.join(self.tmp, "Dropbox", "出力")
-        events = self.record_places(out)
-        run = self.wait(start_request(self.r, [{"id": VID, "top": 2, "title": "配信", "channel": ""}], request_id=self.RID,
-                                             flow="auto", deliver_dir=out)["runs"][0])
-        self.assertEqual(run["state"], "done", run)
-        got = self.zips(out)
-        z2, z3 = "%s__a2.zip" % self.RID, "%s__a3.zip" % self.RID
-        self.assertEqual(sorted(os.listdir(out)), sorted(["%s__a2.preview.mp4" % self.RID, z2, "%s__a3.preview.mp4" % self.RID, z3]))
-        self.assertIn("a2_pack/cut-plan.json", got[z2])
-        self.assertNotIn("まとめ.mp4", got[z2])
-        self.assertEqual([k for k, _n in events], ["zip", "zip"], "組の一覧は書かない")
-        self.assertIn("%s__a2.preview.mp4" % self.RID, events[0][1], "まとめ動画は zip より先に置く")
-        self.assertIn("%s__a3.preview.mp4" % self.RID, events[1][1])
-        for z in (z2, z3):   # 1 本ずつでも届けた記録は残す
-            self.assertEqual(len(friend_feedback.find_delivery(os.path.join(self.tmp, "logs"), z)["packs"]), 1, z)
-
-    def test_delivers_in_batches_with_remainder(self):
-        """n=2 で 3 本: 2 本たまった時点で組「1-2」(まとめ動画 + 2 つの zip + 一覧)、実行の終わりに残りの 1 本は
-        1 本の形(<依頼 id>__<パックの題>.zip + <同じ名前>.preview.mp4。組の一覧なし)"""
-        self.tools.known = False
-        self.batch_prefs(2)
-        out = os.path.join(self.tmp, "Dropbox", "出力")
-        run = self.wait(start_request(self.r, [{"id": VID, "top": 3, "title": "配信", "channel": ""}], request_id=self.RID,
-                                             flow="auto", deliver_dir=out)["runs"][0])
-        self.assertEqual(run["state"], "done", run)
-        pre = "%s__%s" % (self.RID, run["title"])
-        names = sorted(os.listdir(out))
-        z = ["%s__a%d.zip" % (self.RID, i) for i in (1, 2, 3)]
-        self.assertEqual(names, sorted([pre + " 1-2.preview.mp4", pre + " 1-2.group.json", z[0], z[1], "%s__a3.preview.mp4" % self.RID, z[2]]), names)
-        got = self.zips(out)
-        for name in z:   # どれも 1 本だけの zip
-            self.assertEqual(len([n for n in got[name] if n.endswith("cut-plan.json")]), 1, name)
-        doc = self.group_json(out, pre + " 1-2.group.json")
-        self.assertEqual((doc["range"], [(p["n"], p["zip"]) for p in doc["packs"]]), ("1-2", [(1, z[0]), (2, z[1])]))   # 残りの 3 本目は一覧に入らない
-        self.assertEqual(len(self.delivered(run)), 3)
-        for name in z:
-            self.assertEqual(len(friend_feedback.find_delivery(os.path.join(self.tmp, "logs"), name)["packs"]), 1, name)
-
-    def test_group_without_preview_still_delivers_zips_and_list(self):
-        """まとめ動画を作れなくても(ffmpeg が無い・動画が壊れている)zip と一覧は届ける(一覧の preview は null)"""
-        self.tools.known = False
-        self.addCleanup(setattr, pv, "make_preview", pv.make_preview)
-        pv.make_preview = lambda *a, **k: False
-        out = os.path.join(self.tmp, "Dropbox", "出力")
-        run = self.wait(start_request(self.r, [{"id": VID, "top": 2, "title": "配信", "channel": ""}], request_id=self.RID, flow="auto", deliver_dir=out)["runs"][0])
-        self.assertEqual(run["state"], "done", run)
-        pre = "%s__%s" % (self.RID, run["title"])
-        self.assertEqual(sorted(os.listdir(out)), sorted(["%s__a2.zip" % self.RID, "%s__a3.zip" % self.RID, pre + " 1-2.group.json"]))
-        doc = self.group_json(out, pre + " 1-2.group.json")
-        self.assertIsNone(doc["preview"])
-        self.assertEqual([p["n"] for p in doc["packs"]], [1, 2])
-
-    def test_group_name_does_not_overwrite_existing_group(self):
-        """同じ名前の組が 出力\\ に残っていたら、末尾に 4 文字足して置く(まとめ動画と一覧は同じ名前でそろえる)。zip はそれぞれ unique_zip"""
-        self.tools.known = False
-        out = os.path.join(self.tmp, "Dropbox", "出力")
-        os.makedirs(out)
-        run0 = start_request(self.r, [{"id": VID, "top": 2, "title": "配信", "channel": ""}], request_id=self.RID, flow="auto", deliver_dir=out)["runs"][0]
-        pre = "%s__%s" % (self.RID, self.wait(run0)["title"])
-        before = set(os.listdir(out))
-        self.assertIn(pre + " 1-2.group.json", before)
-        # 同じ依頼 id・同じ配信をもう一度(送り直し。overwrite の実行)
-        run1 = self.wait(start_request(self.r, [{"id": VID, "top": 2, "title": "配信", "channel": ""}], request_id=self.RID, flow="auto", deliver_dir=out)["runs"][0])
-        self.assertEqual(run1["state"], "done", run1)
-        new = set(os.listdir(out)) - before
-        groups = sorted(n for n in new if n.endswith(".group.json"))
-        self.assertEqual(len(groups), 1, new)
-        stem = groups[0][:-len(".group.json")]
-        self.assertRegex(stem, r"^%s 1-2-[0-9a-f]{4}$" % re.escape(pre))
-        self.assertIn(stem + ".preview.mp4", new)
-        self.assertEqual(self.group_json(out, groups[0])["preview"], stem + ".preview.mp4")
-        for p in self.group_json(out, groups[0])["packs"]:   # 一覧が指す zip は実際にある(unique_zip で名前が変わっていても一覧は置いた名前)
-            self.assertIn(p["zip"], new)
 
     def make_packs(self, n, sub="packs"):
         """パックのフォルダ n 個(cut2resolve が作った形の最小: cut-plan.json + 切り抜きの動画の写し)-> 実行の並びのパス(run.packs と同じ書き方)"""
@@ -1621,9 +1456,9 @@ class TestRequests(Base):
             out.append(d)
         return out
 
-    def direct_run(self, packs, out, batch=None):
+    def direct_run(self, packs, out):
         """段取りを通さずに届ける段(_deliver_pending)だけを動かすための実行(パックは手で用意したもの)"""
-        run = RF.run_of(VID, "配信", "request_auto", None, request_id=self.RID, deliver_dir=out, deliver_batch=batch)
+        run = RF.run_of(VID, "配信", "request_auto", None, request_id=self.RID, deliver_dir=out)
         run.state = "running"
         run.packs = list(packs)
         with self.r.cv:
@@ -1651,88 +1486,209 @@ class TestRequests(Base):
         """一覧の dict でない、実行そのもの(Run)"""
         return next(r for r in self.r.runs if r.id == run["id"])
 
-    def test_group_numbers_follow_run_order(self):
-        """n=2 で 4 本(実行の並び): 組「1-2」と「3-4」。一覧の n は実行の通し番号・previewStart は組ごとに頭から数える"""
+    def test_request_auto_delivers_packs(self):
+        """① 全自動(URL): 解析 → 採用 → 書き出し → 文字起こし → パック → パックができるたびに 1 本ずつ届ける(F3-6): 1 本の zip + 隣の確認用の動画 + 隣の印(meta)"""
+        self.tools.known = False
         out = os.path.join(self.tmp, "Dropbox", "出力")
-        run = self.direct_run(self.make_packs(4), out, batch=2)
-        self.fake_seconds(10.0, 20.0)
-        self.r._deliver_pending(run, {}, "", final=True)
-        pre = "%s__配信" % self.RID
-        self.assertEqual(sorted(os.listdir(out)), sorted(["%s__p%d.zip" % (self.RID, i) for i in (1, 2, 3, 4)] +
-                                                         [pre + " %s.%s" % (r, e) for r in ("1-2", "3-4") for e in ("preview.mp4", "group.json")]))
-        first, second = self.group_json(out, pre + " 1-2.group.json"), self.group_json(out, pre + " 3-4.group.json")
-        self.assertEqual([(p["n"], p["zip"], p["title"], p["previewStart"], p["duration"]) for p in first["packs"]],
-                         [(1, "%s__p1.zip" % self.RID, "p1", 0.0, 10.0), (2, "%s__p2.zip" % self.RID, "p2", 10.0, 20.0)])
-        self.assertEqual([(p["n"], p["zip"], p["previewStart"], p["duration"]) for p in second["packs"]],
-                         [(3, "%s__p3.zip" % self.RID, 0.0, 10.0), (4, "%s__p4.zip" % self.RID, 10.0, 20.0)])
-        self.assertEqual((first["range"], second["range"], second["preview"]), ("1-2", "3-4", pre + " 3-4.preview.mp4"))
+        events = self.record_places(out)
+        run = self.wait(start_request(self.r, [{"id": VID, "top": 2, "title": "配信", "channel": ""}], request_id=self.RID,
+                                             flow="auto", deliver_dir=out)["runs"][0])
+        self.assertEqual((run["state"], run["mode"]), ("done", "request_auto"), run)
+        self.assertEqual(list(self.states(run)), ["analyze", "adopt", "export", "transcribe", "pack", "deliver"])
+        self.assertEqual(self.states(run)["deliver"], "done")
+        z2, z3 = "%s__a2.zip" % self.RID, "%s__a3.zip" % self.RID   # 1 本の zip は <依頼 id>__<パックの題>.zip
+        self.assertEqual(sorted(os.listdir(out)), sorted([z2, z3] + [z[:-4] + e for z in (z2, z3) for e in (".preview.mp4", ".meta.json")]))
+        got = self.zips(out)
+        for n in ("a2_pack/cut-plan.json", "a2_pack/a2.mp4"):
+            self.assertIn(n, got[z2])
+        self.assertIn("a3_pack/cut-plan.json", got[z3])
+        self.assertEqual([n for n in got[z2] if not n.startswith("a2_pack/")] + [n for n in got[z3] if not n.startswith("a3_pack/")], [], "1 本の zip に 1 本だけ")
+        for z in (z2, z3):
+            self.assertNotIn("まとめ.mp4", got[z])
+            doc = self.meta_of(out, z)
+            self.assertEqual(sorted(doc), sorted(["v", "kind", "origin", "sentAt", "requestId", "zip", "preview", "title", "videoId", "markId",
+                                                  "streamTitle", "streamer", "seconds"]))
+            self.assertEqual((doc["v"], doc["kind"], doc["origin"], doc["requestId"], doc["zip"], doc["preview"], doc["videoId"]),
+                             (1, "clip", "request", self.RID, z, z[:-4] + ".preview.mp4", VID))
+            self.assertRegex(doc["sentAt"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d$")
+            with open(os.path.join(out, z[:-4] + ".preview.mp4"), "rb") as f:
+                self.assertEqual(f.read(), b"PREVIEW")   # 確認用の動画(偽物)がそのまま置かれる
+        self.assertEqual([self.meta_of(out, z)["title"] for z in (z2, z3)], ["a2", "a3"])
+        # 置く順: 各パックで 確認用の動画 → 印 → zip(zip が見えたら印も動画もそろっている)
+        self.assertEqual([k for k, _n in events], ["meta", "zip", "meta", "zip"], events)
+        for i, z in enumerate((z2, z3)):
+            stem = z[:-4]
+            meta_seen, zip_seen = events[2 * i][1], events[2 * i + 1][1]
+            self.assertIn(stem + ".preview.mp4", meta_seen)
+            self.assertNotIn(stem + ".meta.json", meta_seen)
+            self.assertTrue({stem + ".preview.mp4", stem + ".meta.json"} <= set(zip_seen) and z not in zip_seen, zip_seen)
+        self.assertEqual(len(self.delivered(run)), 2)
+        for z in (z2, z3):   # 友人の「要らない」で引く記録は zip ごと 1 行(パックは 1 つずつ)
+            row = friend_feedback.find_delivery(self.logs_dir(), z)
+            self.assertEqual((row["requestId"], row["videoId"], len(row["packs"])), (self.RID, VID, 1), row)
+            self.assertTrue(all(p["markId"] and p["path"].endswith(".mp4") and os.path.isdir(p["dir"]) for p in row["packs"]), row)
+        marks = next(r for r in self.r.runs if r.id == run["id"]).pack_marks
+        packs = [p for z in (z2, z3) for p in friend_feedback.find_delivery(self.logs_dir(), z)["packs"]]
+        self.assertEqual(sorted(marks), sorted(p["dir"] for p in packs))
+        self.assertEqual(sorted(m["markId"] for m in marks.values()), sorted(p["markId"] for p in packs))
+        self.assertFalse([n for n in os.listdir(os.path.dirname(self.tools.clip_path("a2"))) if n.startswith(".deliver")], "書きかけの zip・確認用の動画が残る")
+
+    def test_meta_has_seconds_from_clip_length(self):
+        """印の seconds = そのパックの切り抜きの長さ(小数 2 桁)。分からなければ None"""
+        self.tools.known = False
+        self.fake_seconds(a2_pack=48.2, a3_pack=31.456)
+        out = os.path.join(self.tmp, "Dropbox", "出力")
+        run = self.wait(start_request(self.r, [{"id": VID, "top": 2, "title": "配信", "channel": ""}], request_id=self.RID, flow="auto", deliver_dir=out)["runs"][0])
+        self.assertEqual(run["state"], "done", run)
+        self.assertEqual([self.meta_of(out, "%s__a%d.zip" % (self.RID, i))["seconds"] for i in (2, 3)], [48.2, 31.46])
+
+    def test_live_clips_each_delivered_as_the_run_ends(self):
+        """ライブの切り抜き(1 本ごとに別の実行)も、その実行の中で 1 本ずつ届ける(溜めはしない = F3-6)。溜めは残らない"""
+        out = os.path.join(self.tmp, "Dropbox", "出力")
+        for i in range(3):
+            media = self.live_clip("l%d.mp4" % i, "auto")
+            run = self.wait(start_file(self.r, media, title="l%d" % i, flow="auto", request_id=self.RID, deliver_dir=out))
+            self.assertEqual(run["state"], "done", run)
+            self.assertIn("%s__l%d.zip" % (self.RID, i), os.listdir(out))
+            self.assertIn("%s__l%d.meta.json" % (self.RID, i), os.listdir(out))
+        self.assertEqual(len(os.listdir(out)), 9)
+        self.assertEqual(self.r.pools(), {})
+
+    def test_old_pool_with_batch_5_is_delivered_one_by_one(self):
+        """前の版の溜め(batch 5 の入った deliver-pool.json)の残りは、組ではなく 1 本ずつ届ける(flush_pools)。届けたら溜めは消える"""
+        out = os.path.join(self.tmp, "Dropbox", "出力")
+        packs = self.make_packs(3, "oldpool")
+        self.r.pool_path = os.path.join(self.tmp, "logs", DL.POOL_FILE)
+        os.makedirs(os.path.dirname(self.r.pool_path), exist_ok=True)
+        with open(self.r.pool_path, "w", encoding="utf-8") as f:
+            json.dump({"schema": DL.POOL_SCHEMA, "pools": {"live|%s|local/rec9" % self.RID: {
+                "rid": self.RID, "title": "配信", "deliverDir": out, "batch": 5, "meta": {"recorder": "local", "recording": "rec9", "phase": "live"},
+                "packs": packs, "delivered": [], "marks": {}, "created": 0, "updated": 0}}}, f)
+        self.r._pools = None
+        self.assertEqual(self.r.flush_pools(lambda m: True), 3)
+        zips = ["%s__p%d.zip" % (self.RID, i) for i in (1, 2, 3)]
+        self.assertEqual(sorted(os.listdir(out)), sorted(zips + [z[:-4] + e for z in zips for e in (".preview.mp4", ".meta.json")]))
+        self.assertEqual(self.r.pools(), {})
+
+    def test_delivers_one_by_one_as_each_pack_is_made(self):
+        """パックができるたびに 1 本ずつ届ける(組はない)。どの zip も 1 本だけ・隣の確認用の動画と印・置く順は 確認用の動画 → 印 → zip"""
+        self.tools.known = False
+        out = os.path.join(self.tmp, "Dropbox", "出力")
+        events = self.record_places(out)
+        run = self.wait(start_request(self.r, [{"id": VID, "top": 2, "title": "配信", "channel": ""}], request_id=self.RID,
+                                             flow="auto", deliver_dir=out)["runs"][0])
+        self.assertEqual(run["state"], "done", run)
+        got = self.zips(out)
+        z2, z3 = "%s__a2.zip" % self.RID, "%s__a3.zip" % self.RID
+        self.assertEqual(sorted(os.listdir(out)), sorted([z2, z3] + [z[:-4] + e for z in (z2, z3) for e in (".preview.mp4", ".meta.json")]))
+        self.assertIn("a2_pack/cut-plan.json", got[z2])
+        self.assertNotIn("まとめ.mp4", got[z2])
+        self.assertEqual([k for k, _n in events], ["meta", "zip", "meta", "zip"], events)
+        for z in (z2, z3):   # 1 本ずつでも届けた記録は残す
+            self.assertEqual(len(friend_feedback.find_delivery(self.logs_dir(), z)["packs"]), 1, z)
+
+    def test_three_packs_each_one_by_one(self):
+        """3 本: 3 組の zip + それぞれの確認用の動画と印。組の一覧(.group.json)は作らない(F3-6)"""
+        self.tools.known = False
+        out = os.path.join(self.tmp, "Dropbox", "出力")
+        run = self.wait(start_request(self.r, [{"id": VID, "top": 3, "title": "配信", "channel": ""}], request_id=self.RID,
+                                             flow="auto", deliver_dir=out)["runs"][0])
+        self.assertEqual(run["state"], "done", run)
+        z = ["%s__a%d.zip" % (self.RID, i) for i in (1, 2, 3)]
+        self.assertEqual(sorted(os.listdir(out)), sorted(z + [x[:-4] + e for x in z for e in (".preview.mp4", ".meta.json")]))
+        got = self.zips(out)
+        for name in z:   # どれも 1 本だけの zip
+            self.assertEqual(len([n for n in got[name] if n.endswith("cut-plan.json")]), 1, name)
+        self.assertEqual(len(self.delivered(run)), 3)
+        for name in z:
+            self.assertEqual(len(friend_feedback.find_delivery(self.logs_dir(), name)["packs"]), 1, name)
+
+    def test_without_preview_still_delivers_zip_and_meta(self):
+        """確認用の動画を作れなくても(ffmpeg が無い・動画が壊れている)zip と印は届ける(印の preview は null)"""
+        self.tools.known = False
+        self.addCleanup(setattr, pv, "make_preview", pv.make_preview)
+        pv.make_preview = lambda *a, **k: False
+        out = os.path.join(self.tmp, "Dropbox", "出力")
+        run = self.wait(start_request(self.r, [{"id": VID, "top": 2, "title": "配信", "channel": ""}], request_id=self.RID, flow="auto", deliver_dir=out)["runs"][0])
+        self.assertEqual(run["state"], "done", run)
+        self.assertEqual(sorted(os.listdir(out)), sorted(["%s__a%d.%s" % (self.RID, i, e) for i in (2, 3) for e in ("zip", "meta.json")]))
+        for i in (2, 3):
+            self.assertIsNone(self.meta_of(out, "%s__a%d.zip" % (self.RID, i))["preview"])
+
+    def test_same_name_does_not_overwrite(self):
+        """同じ依頼 id・同じ配信をもう一度届けたら、同じ名前は末尾に 4 文字足して置く(zip・確認用の動画・印は同じ名前でそろえる)"""
+        self.tools.known = False
+        out = os.path.join(self.tmp, "Dropbox", "出力")
+        os.makedirs(out)
+        self.wait(start_request(self.r, [{"id": VID, "top": 2, "title": "配信", "channel": ""}], request_id=self.RID, flow="auto", deliver_dir=out)["runs"][0])
+        before = set(os.listdir(out))
+        self.assertEqual(len(before), 6)
+        run1 = self.wait(start_request(self.r, [{"id": VID, "top": 2, "title": "配信", "channel": ""}], request_id=self.RID, flow="auto", deliver_dir=out)["runs"][0])
+        self.assertEqual(run1["state"], "done", run1)
+        new = set(os.listdir(out)) - before
+        new_zips = sorted(n for n in new if n.endswith(".zip"))
+        self.assertEqual(len(new_zips), 2, new)
+        for z in new_zips:
+            self.assertRegex(z, r"^%s__a[23]-[0-9a-f]{4}\.zip$" % re.escape(self.RID))
+            stem = z[:-4]
+            self.assertTrue({stem + ".preview.mp4", stem + ".meta.json"} <= new, z)
+            self.assertEqual(self.meta_of(out, z)["zip"], z)
+
+    def test_each_pack_once_in_run_order(self):
+        """段を通さずに届ける段(_deliver_pending)だけ: 4 本はそれぞれ 1 本ずつ・2 度目は何も置かない"""
+        out = os.path.join(self.tmp, "Dropbox", "出力")
+        run = self.direct_run(self.make_packs(4), out)
+        self.fake_seconds(p1_pack=10.0, p2_pack=20.0)
+        self.r._deliver_pending(run)
+        zips = ["%s__p%d.zip" % (self.RID, i) for i in (1, 2, 3, 4)]
+        self.assertEqual(sorted(os.listdir(out)), sorted(zips + [z[:-4] + e for z in zips for e in (".preview.mp4", ".meta.json")]))
+        self.assertEqual([self.meta_of(out, z)["seconds"] for z in zips], [10.0, 20.0, None, None])
         self.assertEqual(run.delivered, run.packs)
+        self.r._deliver_pending(run)
+        self.assertEqual(len(os.listdir(out)), 12)
 
-    def test_pending_waits_for_n_unless_final(self):
-        """実行の途中(final でない)は n 本たまるまで届けない・終わりに n 本に満たない分は 1 本ずつの形(zip + そのまとめ動画)で届ける"""
-        out = os.path.join(self.tmp, "Dropbox", "出力")
-        run = self.direct_run(self.make_packs(3), out, batch=2)
-        pre = "%s__配信" % self.RID
-        self.r._deliver_pending(run, {}, "", final=False)
-        self.assertEqual(len(run.delivered), 2)
-        self.assertEqual(sorted(n for n in os.listdir(out) if n.endswith((".zip", ".json"))),
-                         sorted(["%s__p1.zip" % self.RID, "%s__p2.zip" % self.RID, pre + " 1-2.group.json"]))
-        self.r._deliver_pending(run, {}, "", final=False)   # 3 本目だけでは届けない
-        self.assertEqual(len(run.delivered), 2)
-        self.r._deliver_pending(run, {}, "", final=True)
-        self.assertEqual(len(run.delivered), 3)
-        self.assertEqual(sorted(os.listdir(out)), sorted(["%s__p%d.zip" % (self.RID, i) for i in (1, 2, 3)] +
-                                                         ["%s__p3.preview.mp4" % self.RID, pre + " 1-2.preview.mp4", pre + " 1-2.group.json"]))
-        self.r._deliver_pending(run, {}, "", final=True)   # 届け済みは二度置かない
-        self.assertEqual(len(os.listdir(out)), 6)
-
-    def test_group_stops_midway_keeps_placed_records_and_no_list(self):
-        """組の途中で zip が置けなかった(ディスクがいっぱい): 置けた分の記録(deliveries.jsonl・届けた印)は残る。一覧(.group.json)は書かない
-        (友人のアプリは一覧が見えたら組がそろっているとみなす)。置けなかった分の記録・書きかけは残らない"""
+    def test_stops_midway_keeps_placed_records(self):
+        """2 本目の zip が置けなかった(ディスクがいっぱい): 1 本目の記録(deliveries.jsonl・届けた印)は残る。2 本目の確認用の動画・印は残さない"""
         out = os.path.join(self.tmp, "Dropbox", "出力")
         packs = self.make_packs(3)
-        run = self.direct_run(packs, out, batch=3)
+        run = self.direct_run(packs, out)
         calls = self.fail_zips_after(1)
         with self.assertRaisesRegex(A.StepError, "No space left on device"):
-            self.r._deliver_pending(run, {}, "", final=True)
+            self.r._deliver_pending(run)
         self.assertEqual(calls["n"], 2)
         z1 = "%s__p1.zip" % self.RID
         self.assertEqual(run.delivered, [packs[0]])
-        self.assertEqual([n for n in os.listdir(out) if n.endswith((".zip", ".json"))], [z1], "置けた 1 本目だけ・一覧なし")
-        pre = "%s__配信" % self.RID
-        self.assertTrue(set(n for n in os.listdir(out) if n.endswith(".preview.mp4")) <= {pre + " 1-3.preview.mp4"}, "1 本ずつのまとめ動画は組の中では置かない")
+        self.assertEqual(sorted(os.listdir(out)), sorted([z1, z1[:-4] + ".preview.mp4", z1[:-4] + ".meta.json"]))
         row = friend_feedback.find_delivery(self.logs_dir(), z1)
         self.assertEqual((row["requestId"], [p["dir"] for p in row["packs"]]), (self.RID, [packs[0]]), row)
         self.assertIsNone(friend_feedback.find_delivery(self.logs_dir(), "%s__p2.zip" % self.RID))
-        self.assertFalse([n for n in os.listdir(os.path.dirname(packs[0])) if n.startswith(".deliver")], "書きかけの zip・まとめ動画が残る")
+        self.assertFalse([n for n in os.listdir(os.path.dirname(packs[0])) if n.startswith(".deliver")], "書きかけが残る")
 
-    def test_nothing_placed_leaves_no_preview(self):
-        """1 本目から zip が置けなかった: 先に置いたまとめ動画も残さない・記録も届けた印も無い。組(n=3)も 1 本ずつの形(n=1)も同じ"""
-        for batch in (3, 1):
-            out = os.path.join(self.tmp, "Dropbox%d" % batch, "出力")
-            run = self.direct_run(self.make_packs(3, "packs%d" % batch), out, batch=batch)
-            self.fail_zips_after(0)
-            with self.assertRaisesRegex(A.StepError, "No space left on device"):
-                self.r._deliver_pending(run, {}, "", final=True)
-            self.assertEqual(os.listdir(out), [], "batch=%d" % batch)
-            self.assertEqual(run.delivered, [], "batch=%d" % batch)
-            self.assertFalse(os.path.exists(os.path.join(self.logs_dir(), "deliveries.jsonl")), "batch=%d" % batch)
-            self.assertFalse([n for n in os.listdir(os.path.join(self.tmp, "packs%d" % batch)) if n.startswith(".deliver")], "書きかけが残る")
+    def test_nothing_placed_leaves_no_files(self):
+        """1 本目の zip が置けなかった: 先に置いた確認用の動画・印も残さない・記録も届けた印も無い"""
+        out = os.path.join(self.tmp, "Dropbox", "出力")
+        run = self.direct_run(self.make_packs(3), out)
+        self.fail_zips_after(0)
+        with self.assertRaisesRegex(A.StepError, "No space left on device"):
+            self.r._deliver_pending(run)
+        self.assertEqual(os.listdir(out), [])
+        self.assertEqual(run.delivered, [])
+        self.assertFalse(os.path.exists(os.path.join(self.logs_dir(), "deliveries.jsonl")))
+        self.assertFalse([n for n in os.listdir(os.path.join(self.tmp, "packs")) if n.startswith(".deliver")], "書きかけが残る")
 
     def test_preview_copy_stops_midway_leaves_no_partial_file(self):
-        """まとめ動画を 出力 へ写している途中で止まった(ディスクがいっぱい): 書きかけのまとめ動画を残さない。組(n=3)も 1 本ずつの形(n=1)も"""
+        """確認用の動画を 出力 へ写している途中で止まった(ディスクがいっぱい): 書きかけの確認用の動画を残さない"""
         def copyfile(src, dst, **_k):
             with open(dst, "wb") as f:
                 f.write(b"PART")
             raise OSError(28, "No space left on device")
-        for batch in (3, 1):
-            out = os.path.join(self.tmp, "Dropbox%d" % batch, "出力")
-            run = self.direct_run(self.make_packs(3, "packs%d" % batch), out, batch=batch)
-            with mock.patch.object(shutil, "copyfile", copyfile):
-                with self.assertRaisesRegex(A.StepError, "No space left on device"):
-                    self.r._deliver_pending(run, {}, "", final=True)
-            self.assertEqual(os.listdir(out), [], "batch=%d" % batch)
-            self.assertEqual(run.delivered, [], "batch=%d" % batch)
+        out = os.path.join(self.tmp, "Dropbox", "出力")
+        run = self.direct_run(self.make_packs(3, "packs2"), out)
+        with mock.patch.object(shutil, "copyfile", copyfile):
+            with self.assertRaisesRegex(A.StepError, "No space left on device"):
+                self.r._deliver_pending(run)
+        self.assertEqual(os.listdir(out), [])
+        self.assertEqual(run.delivered, [])
 
     def test_group_stops_the_run_with_failure_note(self):
         """通しで: 組の 2 本目の zip が置けなかった実行は「止まった」(error)。友人の受け取りに失敗の知らせの .txt、1 本目の記録は残る"""
@@ -1755,39 +1711,15 @@ class TestRequests(Base):
         self.assertIsNotNone(friend_feedback.find_delivery(self.logs_dir(), "%s__a2.zip" % self.RID))
         self.assertIsNone(friend_feedback.find_delivery(self.logs_dir(), "%s__a3.zip" % self.RID))
 
-    def test_deliver_batch_per_request_beats_home_setting(self):
-        """依頼ごとの届け方 deliver_batch(2-16)は、ホームの設定 intake.deliverBatch より優先する:
-        設定が 5 でも依頼が 1 なら 1 本ずつ(組なし)・設定が 1 でも依頼が 2 なら組・依頼が指定しなければホームの設定のまま"""
+    def test_deliver_batch_is_not_a_setting_any_more(self):
+        """届け方は 1 本ずつだけ(F3-6)。依頼の deliverBatch は封筒に残るだけで届け方を変えない(組の一覧は作らない)"""
         self.tools.known = False
-        self.batch_prefs(5)
         out = os.path.join(self.tmp, "Dropbox", "出力")
         run = self.wait(start_request(self.r, [{"id": VID, "top": 2, "title": "配信", "channel": ""}], request_id=self.RID, flow="auto", deliver_dir=out,
-                                             deliver_batch=1)["runs"][0])
+                                             deliver_batch=5)["runs"][0])
         self.assertEqual(run["state"], "done", run)
-        self.assertEqual(self.real(run).deliver_batch, 1)
-        self.assertEqual(sorted(os.listdir(out)), sorted(["%s__a%d.%s" % (self.RID, i, e) for i in (2, 3) for e in ("zip", "preview.mp4")]), "組の一覧なし")
-        self.batch_prefs(1)
-        out2 = os.path.join(self.tmp, "Dropbox2", "出力")
-        run = self.wait(start_request(self.r, [{"id": VID, "top": 2, "title": "配信", "channel": ""}], request_id="20261002-120000-def456", flow="auto",
-                                             deliver_dir=out2, deliver_batch=2)["runs"][0])
-        self.assertEqual((run["state"], self.real(run).deliver_batch), ("done", 2), run)
-        self.assertEqual(sorted(n for n in os.listdir(out2) if n.endswith(".group.json")), ["20261002-120000-def456__%s 1-2.group.json" % run["title"]])
-        out3 = os.path.join(self.tmp, "Dropbox3", "出力")   # 指定が無ければ(None)ホームの設定のまま = 1 本ずつ(受付で決めて封筒の deliver.batch に入れる。RS7-1 S4)
-        run = self.wait(start_request(self.r, [{"id": VID, "top": 2, "title": "配信", "channel": ""}], request_id="20261003-120000-aaa111", flow="auto",
-                                             deliver_dir=out3)["runs"][0])
-        self.assertEqual((run["state"], self.real(run).deliver_batch), ("done", 1), run)
-        self.assertFalse([n for n in os.listdir(out3) if n.endswith(".group.json")])
-
-    def test_batch_size_priority_and_range(self):
-        """_batch_size: 依頼の指定 > ホームの設定 > 既定"""
-        run = RF.run_of(VID, "配信", "request_auto", None)
-        self.batch_prefs(3)
-        self.assertEqual(self.r._batch_size(run), 3)
-        self.assertEqual(self.r._batch_size(RF.run_of(VID, "配信", "request_auto", None, deliver_batch=7)), 7)
-        self.assertEqual(self.r._batch_size(RF.run_of(VID, "配信", "request_auto", None, deliver_batch=1)), 1)
-        self.r.prefs = None
-        self.assertEqual(self.r._batch_size(run), prefs_mod.DEFAULTS["intake"]["deliverBatch"])
-        self.assertEqual(self.r._batch_size(RF.run_of(VID, "配信", "request_auto", None, deliver_batch=10)), 10)
+        self.assertEqual(self.real(run).deliver_batch, 5)
+        self.assertEqual(sorted(os.listdir(out)), sorted(["%s__a%d.%s" % (self.RID, i, e) for i in (2, 3) for e in ("zip", "preview.mp4", "meta.json")]))
 
     def test_run_deliver_batch_range_and_saved_restore(self):
         """Run の deliver_batch: 1〜10 の整数だけ(範囲の外・bool・文字列・小数は None = ホームの設定)。saved/restore で残る・壊れた値は None に戻る"""
@@ -1819,8 +1751,8 @@ class TestRequests(Base):
         media2 = os.path.join(self.tmp, "二本目.mp4")
         open(media2, "wb").close()
         run = self.wait(start_file(self.r, media2, title="二本目", request_id="rid2", flow="auto", deliver_dir=out, deliver_batch=99))
-        # 範囲の外は指定なし = 受付でホームの設定の n 本に決める(RS7-1 S4。以前は None のまま実行中にホームの設定を読んだ)
-        self.assertEqual(self.real(run).deliver_batch, self.r._batch_size(RF.run_of(None, "", "file_auto", None, source_path="C:/x/a.mp4")))
+        # 範囲の外は指定なし(None)。届け方は 1 本ずつだけなので、読まれる値は無い(F3-6)
+        self.assertIsNone(self.real(run).deliver_batch)
         self.assertEqual(sorted(n for n in os.listdir(out) if n.endswith(".zip")), ["rid1__依頼.zip", "rid2__二本目.zip"])
 
     def test_file_auto_delivers_and_failure_note(self):
@@ -2325,17 +2257,19 @@ class TestAutoSend(Base):
         from flow import deliveries
         return {m: r for (v, m), r in deliveries.not_sent_marks(self.logs).items() if v == VID}
 
-    def test_full_sends_group_with_origin_auto(self):
+    def test_full_sends_one_by_one_with_origin_auto(self):
         run = self.go()
         self.assertEqual((run["state"], self.step(run)["state"]), ("done", "done"), run)
         names = self.outs()
-        zips = [n for n in names if n.endswith(".zip")]
-        groups = [n for n in names if n.endswith(".group.json")]
-        self.assertEqual((len(zips), len(groups)), (2, 1), names)   # 既定の 5 本ごと = 2 本の組(まとめ動画 + 1 本ずつの zip + 一覧)
+        zips = sorted(n for n in names if n.endswith(".zip"))
+        self.assertEqual(len(zips), 2, names)   # 1 本ずつ = パックごとに zip + 確認用の動画 + 印(F3-6)
+        self.assertEqual(sorted(names), sorted(z[:-4] + e for z in zips for e in (".zip", ".preview.mp4", ".meta.json")), names)
         self.assertTrue(all(re.match(self.TAG_RE, n) for n in names), names)   # 名前の頭は友人のアプリの依頼 id の形(deliver_tag)
-        self.assertFalse([n for n in names if n.endswith(".meta.json")], "組の中の 1 本には印を置かない(組の一覧が持つ)")
-        with open(os.path.join(self.out, groups[0]), encoding="utf-8") as f:
-            self.assertEqual(json.load(f)["origin"], "auto")
+        self.assertFalse([n for n in names if n.endswith(".group.json")], "組の一覧は作らない")
+        for z in zips:   # 手で届けるのと同じく自動の分は印の出どころ auto(友人には「依頼なし」)
+            with open(os.path.join(self.out, z[:-4] + ".meta.json"), encoding="utf-8") as f:
+                doc = json.load(f)
+            self.assertEqual((doc["v"], doc["origin"], doc["zip"]), (1, "auto", z))
         rows = self.rows()
         self.assertEqual({(r["origin"], r["videoId"]) for r in rows}, {("auto", VID)})
         self.assertTrue(all(r["endedAt"] == (self.stream["releaseTs"] + self.stream["duration"]) * 1000 for r in rows), rows)
@@ -2480,8 +2414,10 @@ class TestAutoSend(Base):
         self.r = self.runner()
         self.assertEqual(self.r.flush_pools(lambda m: True), 1)
         names = self.outs()
-        self.assertEqual([n for n in names if n.endswith(".zip")], ["20261001-120000-abc123__p.zip"])
-        self.assertFalse([n for n in names if n.endswith(".meta.json")], "古い溜め(依頼の id)は依頼として届ける")
+        stem = "20261001-120000-abc123__p"
+        self.assertEqual(names, sorted([stem + ".zip", stem + ".preview.mp4", stem + ".meta.json"]), names)   # 組ではなく 1 本ずつ(batch 2 は読まない)
+        with open(os.path.join(self.out, stem + ".meta.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["origin"], "request", "古い溜め(依頼の id)は依頼として届ける")
 
     def test_only_full_with_folder_sends(self):
         """届けるのは full だけ・受付のフォルダが決まっているときだけ(2-10)。文書単位・adopted などは届けない。

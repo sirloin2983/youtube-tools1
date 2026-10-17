@@ -154,7 +154,7 @@ def _scene_open(cx):
     check("C1 盛り上がりの重み(I-4a)" in goal and "あと 2 本" in goal and "採用の記録 配信 10 本" in goal, "帯: この確認で決まる物とあと何本: %r" % goal)
     check("切り抜く価値があるか" in pg.text_content("#chkKind") and "自動で採った" in pg.text_content("#chkKind"), "カードの種類と出どころの札")
     check(pg.evaluate("document.querySelectorAll('#chkQueue li').length") >= 5, "このあと の一覧")
-    check(pg.evaluate("[...document.querySelectorAll('.ui-keybar-item')].map(e => e.dataset.k).join(',')").startswith("A,X,N"), "下の帯に A・X・N")
+    check(pg.evaluate("[...document.querySelectorAll('.ui-keybar-item')].map(e => e.dataset.k).join(',')").startswith("A,X,S,N"), "下の帯に A・X・S(不明。F3-6)・N")
     check(pg.is_disabled("#chkUndo") and bool(pg.get_attribute("#chkUndo", "title")), "まだ答えていないときは戻せない + 理由")
     check(wait_js(pg, "document.querySelector('#ver').textContent.startsWith('v')"), "版が出る")
     check(pg.evaluate("!!document.querySelector('.ui-header nav[data-ui-appnav]') && !!document.querySelector('.ui-header-actions [data-ui-settings]')"), "ヘッダーに appnav と設定")
