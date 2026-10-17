@@ -106,3 +106,5 @@ docs/design/briefs/*/screenshots/
 # 資料は保管庫 D:/Obsidian保管庫/youtube-tools へ移した(2026-10-12)。リポジトリに作り直してもコミットしない
 /docs/
 /plan/
+# 消した前のアプリ RequestSender の、手元に残った鍵(config.json)と build・dist(2026-10-18 に source を消した。push.bat の git add -A で拾わない)
+friend-apps/request-sender/
