@@ -17,7 +17,47 @@
     });
   }
 
+  /* 配色(F3-B の配色 A〜D の切り替え・明るい / 暗い)を exe へ: 窓のタイトルの帯と閉じるときの確認の窓の色を画面に合わせる。
+     ui-kit の変数(--header-bg・--ink・--panel・--line-2・--accent・--accent-ink)を色に直して送る。変数の名前を変えずに
+     値だけ切り替える形なら、画面のほかの所は何もしなくてよい(<html> と <body> の属性・暗い表示の切り替えを見て送り直す) */
+  var lastTheme = '';
+  function rgb(varName) {
+    var probe = document.createElement('i');
+    probe.style.cssText = 'position:absolute;width:0;height:0;visibility:hidden;color:var(' + varName + ')';
+    (document.body || document.documentElement).appendChild(probe);
+    var m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(getComputedStyle(probe).color || '');
+    probe.remove();
+    return m ? [+m[1], +m[2], +m[3]] : null;
+  }
+  function sendTheme() {
+    if (!wv) return;
+    var t = { type: 'theme', caption: rgb('--header-bg'), text: rgb('--ink'), panel: rgb('--panel'), line: rgb('--line-2'),
+              accent: rgb('--accent'), accentInk: rgb('--accent-ink') };
+    if (!t.caption || !t.text) return;
+    var key = JSON.stringify(t);
+    if (key === lastTheme) return;
+    lastTheme = key;
+    wv.postMessage(t);
+  }
+  var themeTimer = 0;
+  function themeSoon() { clearTimeout(themeTimer); themeTimer = setTimeout(sendTheme, 50); }
+  if (wv) {
+    document.addEventListener('DOMContentLoaded', function () {
+      sendTheme();
+      var mo = new MutationObserver(themeSoon);
+      mo.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style', 'data-theme', 'data-scheme', 'data-palette'] });
+      if (document.body) mo.observe(document.body, { attributes: true, attributeFilter: ['class', 'style', 'data-theme', 'data-scheme', 'data-palette'] });
+      if (window.matchMedia) {
+        var mq = window.matchMedia('(prefers-color-scheme: dark)');
+        if (mq.addEventListener) mq.addEventListener('change', themeSoon);
+      }
+    });
+  }
+
   window.FriendHost = {
+    /* 配色を変えたあとに呼ぶと、すぐ exe の窓の色も合わせる(属性を変える形なら呼ばなくても送られる) */
+    themeChanged: themeSoon,
+
     /* exe の窓の中か */
     isApp: !!wv,
 

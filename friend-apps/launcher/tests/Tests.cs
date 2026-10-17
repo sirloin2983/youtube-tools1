@@ -25,6 +25,7 @@ static class Tests
         Run("起こし直し: 10 分に 3 回まで・止める途中は起こさない", RestartRules);
         Run("状態: JSON の読み取り(足りない欄は 0)", StateParse);
         Run("Python の出力: 渡した番号の ready だけ読む・読めない行は無視", GatewayLines);
+        Run("配色: 画面から来た色を読む・形が違えば null・暗いかは帯の明るさ", ThemeParse);
         Console.WriteLine(failures == 0 ? "OK " + passed + " 件" : "NG " + failures + " 件失敗 / " + passed + " 件成功");
         return failures == 0 ? 0 : 1;
     }
@@ -209,5 +210,19 @@ static class Tests
         True(g.Bye, "bye = 止めてと言われて終わる(起こし直さない)");
         int p = Gateway.FreePort();
         True(p > 0 && p < 65536, "空いている番号");
+    }
+
+    static void ThemeParse()
+    {
+        var th = Theme.From(FriendApps.Json.Parse("{\"caption\":[20,24,32],\"text\":[230,233,239],\"panel\":[29,33,41],\"accent\":[72,147,230]}"));
+        True(th != null, "読める");
+        Eq(System.Drawing.Color.FromArgb(20, 24, 32).ToArgb(), th.Caption.ToArgb(), "帯");
+        True(th.Dark, "暗い帯");
+        Eq(th.Ink.ToArgb(), th.Line.ToArgb(), "線が無ければ文字の色");
+        Eq(th.Panel.ToArgb(), th.AccentInk.ToArgb(), "accentInk が無ければ面の色");
+        True(!Theme.From(FriendApps.Json.Parse("{\"caption\":[255,255,255],\"text\":[0,0,0]}")).Dark, "明るい帯");
+        True(Theme.From(FriendApps.Json.Parse("{\"caption\":[300,0,0],\"text\":[0,0,0]}")) == null, "範囲の外");
+        True(Theme.From(FriendApps.Json.Parse("{\"caption\":[1,2],\"text\":[0,0,0]}")) == null, "3 つでない");
+        True(Theme.From(FriendApps.Json.Parse("{\"text\":[0,0,0]}")) == null, "帯が無い");
     }
 }

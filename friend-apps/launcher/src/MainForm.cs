@@ -213,6 +213,11 @@ namespace FriendInbox
                 await view.CoreWebView2.ExecuteScriptAsync("var b=document.getElementById('btnSettings'); if(b) b.click();");
                 await Task.Delay(1500);
                 Capture(this, "f6-settings.png");
+                // 配色を変えたとき(ここでは ui-kit の暗い表示)に、窓のタイトルの帯と確認の窓が付いてくるか
+                await view.CoreWebView2.ExecuteScriptAsync("document.documentElement.setAttribute('data-theme','dark');");
+                await Task.Delay(1200);
+                Capture(this, "f7-dark.png");
+                await ShotConfirm(work, "f8-confirm-dark.png");
                 Log.Write("関所の写真を書きました: " + ShotDir);
             }
             catch (Exception ex)
@@ -299,7 +304,17 @@ namespace FriendInbox
             }
             string type = Json.Str(j, "type");
             if (type == "quit") RequestQuit();
+            else if (type == "theme") ApplyTheme(Theme.From(j));
             else if (type == "files") SendFiles(Json.Int(j, "id", 0), e);
+        }
+
+        // 画面の配色(host.js が ui-kit の変数を色にして送る)を窓のタイトルの帯と確認の窓に合わせる
+        void ApplyTheme(Theme t)
+        {
+            if (t == null) return;
+            Theme.Current = t;
+            t.ApplyCaption(Handle);
+            BackColor = t.Panel;
         }
 
         void SendFiles(int id, CoreWebView2WebMessageReceivedEventArgs e)
@@ -643,6 +658,7 @@ namespace FriendInbox
                 try
                 {
                     await view.EnsureCoreWebView2Async(env);
+                    if (Theme.Current != null) Theme.Current.ApplyCaption(Handle);   // 主の窓と同じ配色の帯
                     view.CoreWebView2.Settings.AreDevToolsEnabled = false;
                     view.CoreWebView2.NavigationStarting += (s, e) =>
                     {
@@ -698,6 +714,23 @@ namespace FriendInbox
             ClientSize = new Size(w, y + Math.Max(keep.PreferredSize.Height, 36) + 18);
             AcceptButton = keep;
             CancelButton = null;
+            var th = Theme.Current;
+            if (th != null)   // 画面の配色に合わせる(F3-B の配色 A〜D・暗い表示)
+            {
+                BackColor = th.Panel;
+                ForeColor = th.Ink;
+                foreach (var b in new[] { keep, stop })
+                {
+                    b.FlatStyle = FlatStyle.Flat;
+                    b.FlatAppearance.BorderColor = th.Line;
+                    b.BackColor = th.Panel;
+                    b.ForeColor = th.Ink;
+                }
+                keep.BackColor = th.Accent;
+                keep.ForeColor = th.AccentInk;
+                keep.FlatAppearance.BorderColor = th.Accent;
+                HandleCreated += delegate { th.ApplyCaption(Handle); };
+            }
             Shown += delegate { keep.Focus(); };
         }
 
@@ -706,6 +739,56 @@ namespace FriendInbox
             if (keyData == Keys.Escape) { DialogResult = DialogResult.Cancel; return true; }
             return base.ProcessCmdKey(ref msg, keyData);
         }
+    }
+
+    // 画面の配色(host.js の {type:"theme"})。窓のタイトルの帯は Windows 11 の DWM の色(古い Windows では黙って効かない)
+    public sealed class Theme
+    {
+        public static Theme Current;
+        public Color Caption, Text, Panel, Ink, Line, Accent, AccentInk;
+
+        static Color? Rgb(IDictionary<string, object> j, string key)
+        {
+            object v;
+            var a = j.TryGetValue(key, out v) ? v as System.Collections.IList : null;
+            if (a == null || a.Count != 3) return null;
+            var n = new int[3];
+            for (int i = 0; i < 3; i++)
+            {
+                if (!(a[i] is int)) return null;
+                n[i] = (int)a[i];
+                if (n[i] < 0 || n[i] > 255) return null;
+            }
+            return Color.FromArgb(n[0], n[1], n[2]);
+        }
+
+        // 画面から来た値(形が違えば null = 今の色のまま)
+        public static Theme From(IDictionary<string, object> j)
+        {
+            Color? cap = Rgb(j, "caption"), txt = Rgb(j, "text");
+            if (cap == null || txt == null) return null;
+            Color panel = Rgb(j, "panel") ?? cap.Value, ink = txt.Value;
+            return new Theme
+            {
+                Caption = cap.Value, Text = txt.Value, Panel = panel, Ink = ink, Line = Rgb(j, "line") ?? ink,
+                Accent = Rgb(j, "accent") ?? ink, AccentInk = Rgb(j, "accentInk") ?? panel
+            };
+        }
+
+        public bool Dark { get { return Caption.GetBrightness() < 0.45f; } }
+
+        static int Ref(Color c) { return c.R | (c.G << 8) | (c.B << 16); }   // COLORREF
+
+        public void ApplyCaption(IntPtr hwnd)
+        {
+            int dark = Dark ? 1 : 0, cap = Ref(Caption), txt = Ref(Text);
+            DwmSetWindowAttribute(hwnd, 20, ref dark, 4);   // DWMWA_USE_IMMERSIVE_DARK_MODE(閉じる・最小化の記号の色)
+            DwmSetWindowAttribute(hwnd, 35, ref cap, 4);    // DWMWA_CAPTION_COLOR
+            DwmSetWindowAttribute(hwnd, 36, ref txt, 4);    // DWMWA_TEXT_COLOR
+        }
+
+        [DllImport("dwmapi.dll")]
+        static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
     }
 
     // ITaskbarList3 のうち SetOverlayIcon まで(COM は並びが大事 = ITaskbarList・ITaskbarList2 の分も順に書く)
