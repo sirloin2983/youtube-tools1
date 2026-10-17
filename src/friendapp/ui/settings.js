@@ -219,9 +219,43 @@
 
   window.FriendSettings = { open: open, current: function () { return current; } };
 
+  /* 歯車の絵: ui-kit の gear(丸と放射の線)は小さいと点の集まりに見えて設定だと分からない(10-17 関所の返事)ので、
+     歯の付いた輪の形の線の SVG をここで持つ(形は Lucide の settings = ISC ライセンス)。大きさは settings.css の .fs-gear */
+  var GEAR = 'M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1' +
+    'a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20' +
+    'a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08' +
+    'a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z';
+
+  function gearIcon() {
+    var ns = 'http://www.w3.org/2000/svg';
+    var svg = document.createElementNS(ns, 'svg');
+    [['viewBox', '0 0 24 24'], ['fill', 'none'], ['stroke', 'currentColor'], ['stroke-width', '1.8'], ['stroke-linecap', 'round'],
+     ['stroke-linejoin', 'round'], ['aria-hidden', 'true'], ['focusable', 'false'], ['class', 'fs-gear']].forEach(function (a) { svg.setAttribute(a[0], a[1]); });
+    var path = document.createElementNS(ns, 'path');
+    path.setAttribute('d', GEAR);
+    var dot = document.createElementNS(ns, 'circle');
+    dot.setAttribute('cx', '12');
+    dot.setAttribute('cy', '12');
+    dot.setAttribute('r', '3');
+    svg.appendChild(path);
+    svg.appendChild(dot);
+    return svg;
+  }
+
+  /* 主の画面(F3-B)が置いた歯車のボタンの見た目をそろえる: 絵・押せる範囲(ほかの小さいボタンと同じ高さの正方形)・乗せたときの「設定」 */
+  function dressButton(b) {
+    b.textContent = '';
+    b.appendChild(gearIcon());
+    b.classList.add('fs-gear-btn');
+    b.title = '設定';
+    b.setAttribute('aria-label', '設定');
+  }
+
   document.addEventListener('DOMContentLoaded', function () {
     var b = document.getElementById('btnSettings');
-    if (b) b.addEventListener('click', function () { open(b); });
+    if (!b) return;
+    dressButton(b);
+    b.addEventListener('click', function () { open(b); });
   });
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && drawer && UIKit.drawer.isOpen(drawer)) { UIKit.drawer.close(drawer); e.stopPropagation(); }

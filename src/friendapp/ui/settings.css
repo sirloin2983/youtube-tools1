@@ -24,3 +24,6 @@
 .fs-num{width:5em}
 .fs-key{flex:1 1 14em;min-width:0}
 .fs-weights{gap:12px}
+/* 歯車のボタン(主の画面の #btnSettings。settings.js が絵を入れる): 隣の [?]・[すべて止めて終了] と同じ高さの正方形・絵は 18px */
+.btn.fs-gear-btn{width:var(--ctl-h-sm);min-width:var(--ctl-h-sm);min-height:var(--ctl-h-sm);padding:0}
+.fs-gear{width:18px;height:18px;flex:none;display:block}
