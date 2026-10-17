@@ -732,6 +732,34 @@ class TestYoutubeTwoStage(unittest.TestCase):
             calls = [json.loads(l) for l in f]
         return job, calls
 
+    def test_ytdlp_error_text_is_read_as_utf8(self):
+        """yt-dlp のエラーの文(UTF-8)が化けない: ’ ' と全角の記号がそのまま失敗の文に(10-18 友人の PC で you’re が you�fre に化けた)。
+        本物の yt-dlp.exe は --encoding utf-8 が無いと管に cp932 で書くので、起こすコマンドに必ず付ける"""
+        with patch.object(studio_env, "find_tool", lambda n: "yt-dlp.exe"):
+            self.assertEqual(exporter._ytdlp_cmd(), ["yt-dlp.exe", "--encoding", "utf-8"])
+        msg = "ERROR: [youtube] abcdefghijk: Sign in to confirm you’re not a bot. it's【全角】「記号」〜"
+        bad = os.path.join(self.tmp, "bad_ytdlp.py")
+        with open(bad, "w", encoding="utf-8") as f:
+            f.write("import sys\nsys.stderr.buffer.write(%r.encode('utf-8') + b'\\n')\nsys.exit(1)\n" % msg)
+        clip = {"id": "m1", "start": 7.0, "end": 12.0, "title": "t", "label": "", "src": "manual", "markStatus": ""}
+        spec = dict(_spec(None, [clip], False), kind="youtube", videoId="abcdefghijk", sourceFile=None, mode="url")
+        spec.pop("sourcePath")
+        job = _job([clip], studio_env.get_out_dir())
+        with patch.object(exporter, "_ytdlp_cmd", return_value=[sys.executable, bad]):
+            _run(job, spec, lambda *a: True)
+        err = job["items"][0].get("error") or ""
+        self.assertIn("you’re not a bot", err)
+        self.assertIn("it's【全角】「記号」〜", err)
+        self.assertNotIn("\ufffd", err)
+
+    @unittest.skipUnless(studio_env.find_tool("yt-dlp"), "本物の yt-dlp が無い環境ではスキップ")
+    def test_real_ytdlp_writes_utf8_with_the_flag(self):
+        """本物の yt-dlp に URL でない文字(’ と全角)を渡す = ネットを使わずにエラーの文が出る。_ytdlp_cmd の形で UTF-8 のまま読める"""
+        from ytt import procs as _procs
+        p = _procs.run_short(exporter._ytdlp_cmd() + ["--", "テスト’you're【】"], timeout=60)
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("テスト’you're【】", p.stderr)
+
     def test_two_stage_exact_and_30fps(self):
         clip = {"id": "m1", "start": 7.0, "end": 12.0, "title": "t", "label": "", "src": "manual", "markStatus": ""}
         job, calls = self.export(clip)

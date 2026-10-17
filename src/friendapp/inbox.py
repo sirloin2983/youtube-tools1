@@ -230,7 +230,7 @@ class Inbox:
     def _failed_code(r):
         """失敗の種類を数える(自動のやり直しが残っている間は数えない = 「同じ失敗が 2 回目」は友人が送り直してまた落ちたとき。C-2-16)"""
         cls = _progress.classify(r.get("error") or "", r.get("kind") or "url")
-        if cls["retry"] and (r.get("autoRetries") or 0) < RETRY_MAX:
+        if cls["retry"] and (r.get("autoRetries") or 0) < cls.get("retryMax", RETRY_MAX):
             return
         r["failCodes"] = ((r.get("failCodes") or []) + [cls["code"]])[-10:]
 

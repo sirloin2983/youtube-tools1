@@ -783,7 +783,8 @@ class Api:
             if r["state"] != "failed" or r.get("cancelled") or not r.get("form"):
                 continue
             cls = _progress.classify(r.get("error") or "", r.get("kind") or "url")
-            if cls["retry"] and (r.get("autoRetries") or 0) < RETRY_MAX and now - (r.get("failedAt") or 0) / 1000.0 >= RETRY_EVERY:
+            if cls["retry"] and (r.get("autoRetries") or 0) < cls.get("retryMax", RETRY_MAX) and \
+                    now - (r.get("failedAt") or 0) / 1000.0 >= cls.get("retryEvery", RETRY_EVERY):
                 try:
                     self.retry(r["id"], auto=True)
                 except (FormError, KeyError):
@@ -860,7 +861,7 @@ class Api:
                 r["steps"] = self._progress(r, runs, blocked, stats)
             if r["state"] == "failed":
                 cls = _progress.classify(r.get("error") or "", r.get("kind") or "url")
-                retrying = cls["retry"] and (r.get("autoRetries") or 0) < RETRY_MAX and not r.get("cancelled")
+                retrying = cls["retry"] and (r.get("autoRetries") or 0) < cls.get("retryMax", RETRY_MAX) and not r.get("cancelled")
                 r["fail"] = {"code": cls["code"], "message": cls["message"], "detail": cls["detail"], "retrying": retrying,
                              "repeat": not retrying and (r.get("failCodes") or []).count(cls["code"]) >= 2, "reported": bool(r.get("reportedAt"))}
         with self._lock:   # 作っていない行の段の覚えを捨てる

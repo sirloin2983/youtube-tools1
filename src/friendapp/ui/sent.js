@@ -44,7 +44,7 @@
   function failBox(r, kids, acts) {
     var fl = r.fail || { message: r.error || 'うまくいきませんでした', detail: r.error || '' };
     if (fl.retrying) {
-      kids.push(el('div', { cls: 'fr-sent-line', text: '少し待ってから、自動でもう一度試します' }));
+      kids.push(el('div', { cls: 'fr-sent-line', text: fl.code === 'bot' ? '30 分ほどあとに、自動で 1 回だけもう一度試します' : '少し待ってから、自動でもう一度試します' }));
       kids.push(el('div', { cls: 'hint', text: fl.message }));
     } else if (fl.repeat) {
       kids.push(el('div', { cls: 'fr-fail-top', text: fl.reported ? '知らせました。直るまで待ってください' : '直りませんでした。作る人に知らせてください' }));
@@ -65,7 +65,7 @@
       } } }, ['コピー']));
       kids.push(d);
     }
-    if (!fl.retrying && r.form) acts.unshift(el('button', { type: 'button', cls: 'btn small', on: { click: function (e) {
+    if ((!fl.retrying || fl.code === 'bot') && r.form) acts.unshift(el('button', { type: 'button', cls: 'btn small', on: { click: function (e) {
       e.currentTarget.disabled = true;
       api('retry', { id: r.id }).then(FR.refresh, function (er) { FR.fail('送れませんでした', er); FR.refresh(); });
     } } }, ['もう一度送る']));

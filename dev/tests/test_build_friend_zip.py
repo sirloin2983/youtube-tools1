@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 import zipfile
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
@@ -37,11 +38,11 @@ def _zip(path, files):
             z.writestr(n, b)
 
 
-def _record(path):
+def _record(path, url):
     with open(path, "rb") as f:
         b = f.read()
     with open(path + ".sha256.json", "w", encoding="utf-8") as f:
-        json.dump({"url": "https://example.invalid/", "size": len(b), "sha256": _sha(b)}, f)
+        json.dump({"url": url, "size": len(b), "sha256": _sha(b)}, f)
 
 
 def make_cache(root):
@@ -49,7 +50,7 @@ def make_cache(root):
     cache = os.path.join(root, "cache")
     emb = os.path.join(cache, "python", B.PY_EMBED["file"])
     _zip(emb, {"python.exe": b"MZfake", "python310._pth": PTH, "python310.zip": b"PK"})
-    _record(emb)
+    _record(emb, B.PY_EMBED["url"])
     wdir = os.path.join(cache, "wheels")
     _zip(os.path.join(wdir, "numpy-2.2.6-cp310-cp310-win_amd64.whl"),
          {"numpy/__init__.py": "x = 1\n", "numpy-2.2.6.dist-info/METADATA": "Name: numpy\n"})
@@ -69,7 +70,7 @@ def make_cache(root):
         os.makedirs(os.path.dirname(p), exist_ok=True)
         with open(p, "wb") as f:
             f.write(b"fake " + t["name"].encode())
-        _record(p)
+        _record(p, t["url"])
     return cache
 
 
@@ -117,8 +118,16 @@ def make_launcher(root, exe=True):
     return d
 
 
+REAL_TOOLS = B.TOOLS
+# 表の公式の大きさ・SHA-256(yt-dlp)は、偽の道具では合わないので外す(照らす所は CacheTest で別に確かめる)
+FAKE_TOOLS = tuple({k: v for k, v in t.items() if k not in ("size", "sha256")} for t in B.TOOLS)
+
+
 class Base(unittest.TestCase):
     def setUp(self):
+        patcher = mock.patch.object(B, "TOOLS", FAKE_TOOLS)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.tmp = tempfile.mkdtemp(prefix="bfz-")
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self.cache = make_cache(self.tmp)
@@ -311,6 +320,33 @@ class BuildTest(Base):
 
 
 class CacheTest(Base):
+    def test_ytdlp_pinned_to_official_hash(self):
+        t = next(t for t in REAL_TOOLS if t["name"] == "yt-dlp")
+        self.assertRegex(t["url"], r"/releases/download/\d{4}\.\d{2}\.\d{2}/yt-dlp\.exe$")
+        self.assertRegex(t["sha256"], r"^[0-9a-f]{64}$")
+        self.assertGreater(t["size"], 1000000)
+
+    def test_official_hash_mismatch_stops(self):
+        item = dict(FAKE_TOOLS[1], size=len(b"fake yt-dlp"), sha256="0" * 64)
+        with self.assertRaisesRegex(B.BuildError, "公式の SHA-256 と違います"):
+            B.cached(self.cache, "tools", item, False)
+        item["sha256"] = _sha(b"fake yt-dlp")
+        self.assertEqual(B.cached(self.cache, "tools", item, False)[1]["sha256"], item["sha256"])
+
+    def test_new_version_url_refetches(self):
+        item = dict(FAKE_TOOLS[1], url="https://example.invalid/2099.01.01/yt-dlp.exe")
+        with self.assertRaisesRegex(B.BuildError, "別の版"):
+            B.cached(self.cache, "tools", item, False)
+        calls = []
+
+        def fetcher(url, dest):
+            calls.append(url)
+            with open(dest, "wb") as f:
+                f.write(b"new")
+
+        path, got = B.cached(self.cache, "tools", item, True, fetcher=fetcher)
+        self.assertEqual((calls, got["sha256"]), ([item["url"]], _sha(b"new")))
+
     def test_tampered_cache_stops(self):
         with open(os.path.join(self.cache, "python", B.PY_EMBED["file"]), "ab") as f:
             f.write(b"x")

@@ -52,7 +52,7 @@ def download_audio(ctl, vid, wdir):
     yt = _env.find_tool("yt-dlp")
     if not yt:
         raise ApiError("no_ytdlp", "yt-dlp が見つかりません(README の準備手順を確認してください)")
-    cmd = [yt, "--no-playlist", "--no-warnings", "--newline", "--ffmpeg-location", _env.find_tool("ffmpeg") or "", "-f", "ba/b", "-o", _yturl.ytdlp_out(wdir, "audio.%(ext)s"),
+    cmd = [yt, "--encoding", "utf-8", "--no-playlist", "--no-warnings", "--newline", "--ffmpeg-location", _env.find_tool("ffmpeg") or "", "-f", "ba/b", "-o", _yturl.ytdlp_out(wdir, "audio.%(ext)s"),
            "--", _yturl.watch_url(vid)]
 
     def on(line):
@@ -181,7 +181,7 @@ def download_chat(ctl, run, vid, wdir, timeout):
     yt = _env.find_tool("yt-dlp")
     if not yt:
         return None, "yt-dlp が見つからないため、チャットは使えません"
-    cmd = [yt, "--no-playlist", "--no-warnings", "--newline", "--skip-download", "--write-subs", "--sub-langs", "live_chat", "-o", _yturl.ytdlp_out(wdir, "chat.%(ext)s"), "--", _yturl.watch_url(vid)]
+    cmd = [yt, "--encoding", "utf-8", "--no-playlist", "--no-warnings", "--newline", "--skip-download", "--write-subs", "--sub-langs", "live_chat", "-o", _yturl.ytdlp_out(wdir, "chat.%(ext)s"), "--", _yturl.watch_url(vid)]
     stop = threading.Event()
 
     def watch():   # 出力ファイルの大きさを見せる(yt-dlp は進捗を出さないため、動いている目安になる)
@@ -444,7 +444,7 @@ def fetch_meta(ctl, vid):
         return None, "yt-dlp が見つかりません"
     buf = []
     try:
-        rc, err = _procs.run_capture(ctl, [yt, "--no-playlist", "--no-warnings", "--skip-download", "-J", "--", _yturl.watch_url(vid)],
+        rc, err = _procs.run_capture(ctl, [yt, "--encoding", "utf-8", "--no-playlist", "--no-warnings", "--skip-download", "-J", "--", _yturl.watch_url(vid)],
                               lambda l: buf.append(l) if len(buf) < 20000 else None, timeout=META_TIMEOUT, what="動画情報の取得")
     except ApiError as e:
         return None, e.message

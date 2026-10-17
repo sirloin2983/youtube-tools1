@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """友人のアプリの「送った物」の行に出す、失敗の言葉と進み具合を作る部品(F3-3。notes:plan/f1-friend-requirements.md の C-2-15・C-2-16)。純粋な関数だけ(ファイルもネットも触らない。時計は引数で受ける)。
 
-- classify(text, kind) = ② や同期が出した失敗の文を、友人の言葉(次にすること 1 つ)と再試行の可否に直す。表 CODES は上から順に当てる
+- classify(text, kind) = ② や同期が出した失敗の文を、友人の言葉(次にすること 1 つ)と再試行の可否に直す。表 CODES は上から順に当てる。
+  RETRY_PLAN の種類は retryMax・retryEvery(自動のやり直しの回数と間隔)も付ける
 - stage(steps, kind, ranged) = ② の実行の段を友人の 5 段(動画を取得・見どころを探す・切り抜き・文字起こし・仕上げ)に読み替えて、今の段を返す
 - eta(stats, kind, ranged, label, elapsed) = 残り時間の見積もり(記録は玄関が持つ。ここは読むだけ)。record(stats, label, seconds) = 記録の写しに 1 つ足す
 - slow(...) = 1 つの段で 10 分進みが無いか。text(...) = 画面に出す 1 行
@@ -26,8 +27,14 @@ RANGE_MSG_FILE_SKIP = "rangeOver"   # 動画ファイルでは出さない code
 FILE_UNAVAILABLE = "動画ファイルが見つかりません。もう一度選んで送ってください"
 UNKNOWN_MSG = "うまくいきませんでした。[もう一度送る] を押してください"
 
+# 自動のやり直しの回数と間隔(秒)を表の既定(玄関の RETRY_MAX 回・RETRY_EVERY 秒おき)から変える種類。
+# bot = YouTube の bot 判定: 重ねるほど長引くので、間を空けて 1 回だけ(10-18 友人の PC で 0.99.11 から依頼して出た)
+RETRY_PLAN = {"bot": (1, 1800)}
+
 # 失敗の言葉の表(上から順に当てる)。(code, 当てる文の字句, message, retry)。字句は小文字にして照らす
 CODES = (
+    ("bot", ("not a bot", "HTTP Error 429", "Too Many Requests"),
+     "YouTube に一時的に止められました。しばらく待つか、⚙ の『処理する PC』を『依頼する』にして送り直してください", True),
     ("members", ("メンバー限定", "members only", "Join this channel"),
      "メンバー限定の配信は切り抜けません。別の配信を選んでください", False),
     ("unavailable", ("非公開", "削除", "Private video", "Video unavailable", "This live event will begin", "まだ公開"),
@@ -65,7 +72,10 @@ def classify(text, kind="url"):
         if code == "unavailable" and kind == "file":
             message = FILE_UNAVAILABLE
             retry = False
-        return {"code": code, "message": message, "retry": retry, "detail": detail}
+        out = {"code": code, "message": message, "retry": retry, "detail": detail}
+        if code in RETRY_PLAN:
+            out["retryMax"], out["retryEvery"] = RETRY_PLAN[code]
+        return out
     return {"code": "unknown", "message": UNKNOWN_MSG, "retry": True, "detail": detail}
 
 

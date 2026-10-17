@@ -78,8 +78,11 @@ PY_EMBED = {"version": "3.10.11", "file": "python-3.10.11-embed-amd64.zip",
 TOOLS = (
     {"name": "ffmpeg", "file": "ffmpeg-9.0.2-essentials_build.zip", "unzip": "zip", "dest": "tools/ffmpeg",
      "url": "https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/ffmpeg-9.0.2-essentials_build.zip"},
+    # yt-dlp: 今の安定版(10-18 に GitHub の releases/latest で確かめた。新しいのは nightly だけ)。大きさと SHA-256 は公式の SHA2-256SUMS の値
+    # (この PC の winget の yt-dlp.exe も同じ値)。版を上げるときは url と一緒に size・sha256 も公式の値へ
     {"name": "yt-dlp", "file": "yt-dlp.exe", "unzip": None, "dest": "tools/yt-dlp",
-     "url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp.exe"},
+     "url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp.exe",
+     "size": 17840399, "sha256": "66674953fe251b89f4d08c5f0e35e0728679bd67ab3d7d05c0562af101dd3e7a"},
     {"name": "deno", "file": "deno-x86_64-pc-windows-msvc.zip", "unzip": "zip", "dest": "tools/deno",
      "url": "https://github.com/denoland/deno/releases/download/v2.9.7/deno-x86_64-pc-windows-msvc.zip"},
 )
@@ -121,9 +124,20 @@ def download(url, dest):
 
 def cached(cache, sub, item, fetch, fetcher=download):
     """キャッシュの <sub>/<file> を返す。無ければ取り(fetch が偽なら BuildError)、大きさと SHA-256 を <file>.sha256.json に残す。
-    あれば残した値と照らす(違えば BuildError = キャッシュが書き換わった)"""
+    あれば残した値と照らす(違えば BuildError = キャッシュが書き換わった)。
+    記録の url が表と違う(版を上げた)ときは取り直す。表に sha256(公式の値)があれば、それとも照らす"""
     path = os.path.join(cache, sub, item["file"])
     rec = path + ".sha256.json"
+    if os.path.isfile(path) and os.path.isfile(rec):
+        try:
+            with open(rec, encoding="utf-8") as f:
+                old_url = json.load(f).get("url") or item["url"]   # url の無い古い記録は今の版とみなす
+        except (OSError, ValueError):
+            old_url = item["url"]
+        if old_url != item["url"]:
+            if not fetch:
+                raise BuildError("キャッシュの %s は別の版です(--no-fetch)。%s" % (item["file"], item["url"]))
+            os.remove(path)
     if not os.path.isfile(path):
         if not fetch:
             raise BuildError("キャッシュに %s がありません(--no-fetch)。%s" % (item["file"], item["url"]))
@@ -138,6 +152,8 @@ def cached(cache, sub, item, fetch, fetcher=download):
     got = {"size": os.path.getsize(path), "sha256": sha256_file(path)}
     if got["size"] != want.get("size") or got["sha256"] != want.get("sha256"):
         raise BuildError("キャッシュの %s が記録と違います。消して取り直してください" % item["file"])
+    if item.get("sha256") and (got["sha256"] != item["sha256"] or got["size"] != item.get("size", got["size"])):
+        raise BuildError("%s が公式の SHA-256 と違います(%s)。消して取り直してください" % (item["file"], item["url"]))
     return path, got
 
 

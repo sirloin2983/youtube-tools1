@@ -1459,6 +1459,36 @@ class ServerTest(unittest.TestCase):
         f = self.view_row(rid)["fail"]
         self.assertEqual((f["retrying"], f["repeat"]), (False, True))   # 同じ失敗がもう一度 = [作る人に知らせる]
 
+    BOT = "書き出しに失敗しました(1 本): 方法1(区間取得): ERROR: [youtube] poERFwoVxxE: Sign in to confirm you’re not a bot. Use --cookies-from-browser or --cookies for the authentication.【全角】「'」"
+
+    def test_failure_bot_retries_once_after_a_long_wait(self):
+        """YouTube の bot 判定: 友人の言葉は「一時的に止められました」・自動のやり直しは間を空けて 1 回だけ・[もう一度送る] は出せる(10-18)"""
+        t = self.fake_clock()
+        rid = self.failing_row(self.BOT)
+        f = self.view_row(rid)["fail"]
+        self.assertEqual((f["code"], f["retrying"], f["repeat"]), ("bot", True, False))
+        self.assertIn("YouTube に一時的に止められました", f["message"])
+        self.assertIn("処理する PC", f["message"])
+        self.assertEqual(f["detail"], self.BOT)   # 詳しく・[コピー] の元 = ’ や全角の記号がそのまま
+        t[0] += A.RETRY_EVERY   # 普通の失敗の間隔では、まだやり直さない
+        self.app.api.tick()
+        self.assertEqual(len(self.engine.queue.submitted), 1)
+        t[0] += 1800 - A.RETRY_EVERY
+        self.app.api.tick()
+        self.assertEqual(len(self.engine.queue.submitted), 2)   # 30 分あとに 1 回
+        self.fail_again(rid, self.BOT)
+        f = self.view_row(rid)["fail"]
+        self.assertEqual((f["retrying"], f["repeat"]), (False, False))
+        t[0] += 10 * 1800
+        self.app.api.tick()
+        self.assertEqual(len(self.engine.queue.submitted), 2)   # 2 回目は無い
+        st, _h, p = self.post("/api/friend/report", {"id": rid})   # 送り返しの知らせも化けない
+        self.assertEqual(st, 200)
+        notes = [n for n in os.listdir(self.places["outbox"]) if n.endswith(".notice.json")]
+        with open(os.path.join(self.places["outbox"], notes[0]), encoding="utf-8") as fh:
+            doc = json.load(fh)
+        self.assertEqual((doc["code"], doc["detail"]), ("bot", self.BOT))
+
     def test_failure_not_fixable_is_not_retrying_at_once(self):
         t = self.fake_clock()
         rid = self.failing_row("メンバー限定の配信です(Join this channel)")

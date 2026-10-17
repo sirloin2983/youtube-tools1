@@ -29,6 +29,16 @@ class ClassifyTest(unittest.TestCase):
         self.check("メンバー限定の動画です", "members")
         self.assertEqual(P.classify("members only")["retry"], False)
 
+    def test_bot(self):
+        r = self.check("方法1(区間取得): ERROR: [youtube] x: Sign in to confirm you’re not a bot. Use --cookies-from-browser", "bot")
+        self.assertTrue(r["retry"])
+        self.assertEqual((r["retryMax"], r["retryEvery"]), (1, 1800))   # 間を空けて 1 回だけ
+        self.assertIn("YouTube に一時的に止められました", r["message"])
+        self.check("Sign in to confirm you�fre not a bot", "bot")   # 化けた文でも当たる
+        self.check("HTTP Error 429: Too Many Requests", "bot")
+        self.check("Sign in to confirm your age. Use --cookies-from-browser", "unknown")   # 年齢の確認は別(bot ではない)
+        self.assertNotIn("retryMax", P.classify("timed out"))
+
     def test_unavailable(self):
         self.check("この動画は非公開です", "unavailable")
         self.check("Private video. Sign in", "unavailable")

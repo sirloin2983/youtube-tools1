@@ -457,8 +457,9 @@ def _fsel(spec):
 
 
 def _ytdlp_cmd():
-    """yt-dlp を起動するコマンドの先頭(テストで偽物の yt-dlp に差し替える)"""
-    return [_env.find_tool("yt-dlp")]
+    """yt-dlp を起動するコマンドの先頭(テストで偽物の yt-dlp に差し替える)。
+    --encoding utf-8: Windows の yt-dlp.exe は管にコンソールの文字コード(cp932)で書き、エラーの文の ’ が化ける(PYTHONIOENCODING は効かない)"""
+    return [_env.find_tool("yt-dlp"), "--encoding", "utf-8"]
 
 
 def _work_dir(spec):
