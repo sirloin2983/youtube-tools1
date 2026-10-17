@@ -122,8 +122,8 @@ class EngineTest(unittest.TestCase):
     def test_friend_queue_drops_deliver_and_skips_later_analysis(self):
         q = engine.FriendQueue.__new__(engine.FriendQueue)
         run = types.SimpleNamespace(steps=[{"key": "export"}, {"key": "deliver"}, {"key": "analyze_later"}])
-        with mock.patch.object(engine._runqueue.Queue, "_accept", lambda self, run, convert=False: None):
-            q._accept(run)
+        q._shape_steps(run)
+        q._shape_steps(run)   # 何度呼んでも同じ(_accept と復元の両方から呼ばれる)
         self.assertEqual([s["key"] for s in run.steps], ["export", "analyze_later"])
         st = {}
         self.assertIsNone(q._step_analyze_later(run, st, {}))

@@ -272,6 +272,29 @@ class TestRestore(Base):
         self.assertEqual([(r["id"], r["state"]) for r in q2.status()["runs"]], [("0123456789", "done"), ("abcdef0123", "done")])
         self.assertEqual([m for _p, m, _l in tools2.started], ["large-v3", SP.DEFAULTS["transcribe"]["model"]])
 
+    def test_shape_steps_hook_runs_on_accept_and_restore(self):
+        """継ぐ側が段の並びを整える hook(_shape_steps)は、受けたときと、束のある記録を戻したとき(_accept を通らない)の両方で呼ぶ"""
+        calls = []
+
+        class Shaped(Q.Queue):
+            def _shape_steps(self, run):
+                calls.append(run.id)
+
+        tools = Tools()
+        tools.gate.clear()
+        q = Shaped(None, env=self.env, poll=0.01, tools=tools, log_dir=self.logs)
+        self.addCleanup(q.close)
+        q.submit(self.env_of(self.media[0]))
+        _until(lambda: q.status()["running"] == 1 and tools.started, "実行中")
+        self.assertEqual(calls, ["0123456789"])
+        q.close()
+        _until(lambda: not q.thread.is_alive(), "糸が止まる")
+        self.assertIsNotNone(self.active_file()["runs"][0]["spec"])   # 束のある記録 = 復元で _accept を通らない
+        del calls[:]
+        q2 = Shaped(None, env=self.env, poll=0.01, tools=Tools(), log_dir=self.logs)
+        self.addCleanup(q2.close)
+        self.assertEqual(calls, ["0123456789"])
+
     def test_old_form_and_too_old(self):
         """0.87 までの形(版 1 の封筒 + 欄・束なし)の待ちの記録も戻す(束なし = hook が組む)。封筒の無い記録は戻さない(RV A2)。
         RESTORE_MAX_AGE より前の物は戻さず記録に「中止」"""
