@@ -934,6 +934,18 @@ class ServerTest(unittest.TestCase):
         self.assertEqual((env["kind"], env["requestId"]), ("file", d2["row"]["id"]))
         self.assertTrue(env["input"]["path"].startswith(self.places["cases"]))
 
+    def test_palette_is_remembered_and_put_in_meta_at_head_top(self):
+        """配色(前の送るアプリの A〜D): 覚えて次に開いたとき meta ytt-palette に(palette.js が <head> の中で読む = meta は <head> の頭)"""
+        page = self.get("/friend/")[2].decode("utf-8")
+        self.assertIn('<meta name="ytt-palette" content="A">', page)   # 初めは A(ネオンシアン)
+        self.assertLess(page.index('name="ytt-palette"'), page.index('src="palette.js"'))
+        st, _h, p = self.post("/api/friend/palette", {"name": "C"})
+        self.assertEqual((st, self.js(p)["palette"]), (200, "C"))
+        self.assertIn('<meta name="ytt-palette" content="C">', self.get("/friend/")[2].decode("utf-8"))
+        self.assertEqual(self.post("/api/friend/palette", {"name": "Z"})[0], 400)
+        self.assertEqual(self.post("/api/friend/palette", {"name": "B"}, headers={TOKEN: None})[0], 403)
+        self.assertEqual(self.get("/friend/palette.js")[0], 200)
+
     def test_dropped_files_from_window(self):
         """exe の窓に落とした動画(F3-1 の host.js sendFiles = exe が本物のパスを POST /api/friend/files)。動画でない物はその 1 本だけ外す"""
         clip = os.path.join(self.tmp, "【兎田ぺこら】落とした.mp4")

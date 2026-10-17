@@ -63,13 +63,14 @@
     v28(2026-10-16・RV A1): まとめて実行の受付を ② の口 POST api/flow/submit {envelope, spec} の 1 本に。UIKit.flow.order(欄 → 封筒 + 束の差分。
        Python の src/flow/order.py と同じ変換)・UIKit.autorun.start(orders, opts)(見積もり api/flow/estimate を 1 本ずつ足す → 1 本ずつ submit →
        終わるまで api/flow/runs を見て知らせる)。以前の start(path, body, estBody) と api/autorun/* は消した。README.md の「v28」
-    v29(2026-10-17・友人のアプリの区間の欄 F3-3): UIKit.timebox に ホイール(opt.wheel / data-ui-time-wheel。マウスの下の単位を ±1・Shift で ±10・動いた単位を一瞬光らせる)・add(秒)(今の値に足す・動いた一番上の単位を光らせる)・貼り付けの前の口 ui-time-beforepaste(取り消せる。画面が止めたら値も reject も出さない)。README.md の「v29」 */
+    v29(2026-10-17・友人のアプリの区間の欄 F3-3): UIKit.timebox に ホイール(opt.wheel / data-ui-time-wheel。マウスの下の単位を ±1・Shift で ±10・動いた単位を一瞬光らせる)・add(秒)(今の値に足す・動いた一番上の単位を光らせる)・貼り付けの前の口 ui-time-beforepaste(取り消せる。画面が止めたら値も reject も出さない)。README.md の「v29」
+    v30(2026-10-17・友人のアプリの配色): 暗いときの配色に シンセウェーブ(synth)を足した(UIKit.theme.palette('synth')。前の送るアプリの配色 B と同じ色) */
 (function () {
   'use strict';
   var KEY = 'ytt:theme';
   /* v12: 暗いときの配色(cyan = ネオンシアン・steel = 鋼の白・green = ターミナルグリーン)。明るいときはアイスライト(ice)だけ。
      明るい/暗い(ytt:theme)と分けて持つ = 切り替えボタン・OSに合わせる・以前の保存がそのまま使える */
-  var PAL_KEY = 'ytt:palette', DARK_PALETTES = { cyan: 'ネオンシアン', steel: '鋼の白', green: 'ターミナルグリーン' };
+  var PAL_KEY = 'ytt:palette', DARK_PALETTES = { cyan: 'ネオンシアン', steel: '鋼の白', green: 'ターミナルグリーン', synth: 'シンセウェーブ' };   /* v30: synth = 前の送るアプリの配色 B */
   function darkPalette() {
     try { var v = localStorage.getItem(PAL_KEY); return DARK_PALETTES[v] ? v : 'cyan'; } catch (e) { return 'cyan'; }
   }
@@ -2789,7 +2790,7 @@
   }
   var sound = { other: sndOther, onChange: function (fn) { if (typeof fn === 'function') snd.subs.push(fn); }, tool: snd.tool };
 
-  window.UIKit = { version: 29, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
+  window.UIKit = { version: 30, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
                    portal: portal, streamer: streamer, appnav: appnav, drawer: drawer, dialog: dialogApi, toast: toastFn, keybar: keybar, settings: settings, settingsForm: settingsForm, keys: keysApi, keymap: keymapApi, icon: icon,
                    confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud, autorun: autorun, flow: flow, restart: restart, timebox: timebox, hide: hide, liveBadge: liveBadge, menuOff: menuOff,
                    http: http, homeApi: homeApi, homeUrl: homeUrl, copy: copyText };

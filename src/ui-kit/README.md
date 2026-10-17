@@ -346,3 +346,6 @@
 - **`UIKit.autorun.start(orders, opts)`** … `orders` = `flow.order` の並び。1 本ずつ見積もって足す(`api/flow/estimate`。`opts.estimate === false` で見積もらない)→
   やることが 0 なら始めない → 1 本ずつ `api/flow/submit` → 終わるまで `api/flow/runs` を見て知らせる。
   戻り値 `{run, runs, skipped}`(全部断られたら 1 本目の理由で reject)。以前の `start(path, body, estBody)` と `api/autorun/*` は消した。`UIKit.version` は 28
+
+## v30(2026-10-17)暗いときの配色 シンセウェーブ
+- `UIKit.theme.palette('synth')` = シンセウェーブ(`:root[data-theme=dark][data-palette=synth]`)。前の送るアプリ(friend-apps/request-sender の Theme.cs)の配色 B と同じ地・面・線・文字・アクセント。友人のアプリの配色の切り替え(A ネオンシアン = cyan・B シンセウェーブ = synth・C ターミナルグリーン = green・D アイスライト = 明るい)で使う

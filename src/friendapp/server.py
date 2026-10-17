@@ -33,6 +33,7 @@
   POST /api/friend/notice-seen            片付けの知らせを見た
   GET  /api/friend/setup                  初回の準備の進み具合(F3-5。friendapp/setup.py の view)
   POST /api/friend/setup/start・cancel・clean-old・skip-old   初回の準備を(もう一度)始める・やめる・前のアプリを片付ける / あとで
+  POST /api/friend/palette {name: A〜D}  配色を覚える(画面へは meta ytt-palette。ui/palette.js)
   GET  /api/friend/streams                配信の一覧(F3-2。friendapp/streams.py の view + 各カードの送った物の印 sent)
   POST /api/friend/streams/refresh        一覧の [更新](断られて待っている間は {ok: false, waitSec})
   GET  /api/friend/settings               ⚙ の中身(F2-5。friendapp/settings.py。API キーは「入っている / 無い」だけ)
@@ -72,7 +73,7 @@ TOKEN_FAIL = {"error": "token", "message": "画面を開き直してから、も
 UI_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui")
 UIKIT_DIR = os.path.join(SRC, "ui-kit")
 STATIC = {"/friend/": ("friend.html", UI_DIR), "/friend/index.html": ("friend.html", UI_DIR), "/friend/friend.js": ("friend.js", UI_DIR), "/friend/send-list.js": ("send-list.js", UI_DIR), "/friend/send-form.js": ("send-form.js", UI_DIR),
-          "/friend/sent.js": ("sent.js", UI_DIR), "/friend/receive.js": ("receive.js", UI_DIR),
+          "/friend/sent.js": ("sent.js", UI_DIR), "/friend/receive.js": ("receive.js", UI_DIR), "/friend/palette.js": ("palette.js", UI_DIR),
           "/friend/friend.css": ("friend.css", UI_DIR), "/friend/ui-kit.js": ("ui-kit.js", UIKIT_DIR), "/friend/ui-kit.css": ("ui-kit.css", UIKIT_DIR),
           "/friend/guide.html": ("guide.html", UI_DIR),   # 説明(F2-5 の [?]。本体は別の段が書く = 無ければ 404)
           "/friend/setup.html": ("setup.html", UI_DIR), "/friend/setup.js": ("setup.js", UI_DIR), "/friend/host.js": ("host.js", UI_DIR),
@@ -84,6 +85,8 @@ MAIN_PAGES = ("/friend/", "/friend/index.html")
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://i.ytimg.com; media-src 'self'; "
        "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 SOON_MS = 30 * 60 * 1000              # 予約の配信がこれより近ければスリープを止める(C-5-4)
+PALETTES = ("A", "B", "C", "D")       # 配色(前の送るアプリと同じ 4 つ。色の組は ui-kit のトークン = ui/palette.js)
+PALETTE_NAME = "palette.json"
 STREAMS_NAME = "streams.json"         # 配信の一覧の写し(開いた瞬間は前回の一覧 = C-2-5)
 TOKEN_ENV = "YTT_FRIEND_TOKEN"        # exe が渡す合言葉(無ければ乱数)
 HOST_ENV = "YTT_FRIEND_HOST"          # exe の窓の種類(webview2 = 合言葉は WebView2 が足す / edge = 逃げ道 / 無し = 開発の PC)
@@ -205,10 +208,13 @@ def page_token(token, env=None):
     return "host" if (env.get(HOST_ENV) or "").strip() == "webview2" else token
 
 
-def inject_meta(body, token):
+def inject_meta(body, token, palette=None):
+    """合言葉・版・配色の meta を <head> の頭に(配色は palette.js が <head> の中で読む = 描く前に色を決める)"""
     tag = ('<meta name="ytt-token" content="%s"><meta name="ytt-version" content="%s">' % (page_token(token), _version.VERSION)).encode("ascii")
-    i = body.find(b"</head>")
-    return body[:i] + tag + body[i:] if i >= 0 else tag + body
+    if palette in PALETTES:
+        tag += ('<meta name="ytt-palette" content="%s">' % palette).encode("ascii")
+    i = body.find(b"<head>")
+    return body[:i + 6] + tag + body[i + 6:] if i >= 0 else tag + body
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -249,7 +255,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(404, b"not found")
             page = name.endswith(".html")
             if page:
-                body = inject_meta(body, self.server.token)
+                body = inject_meta(body, self.server.token, self.server.app.palette())
             return self._send(200, body, TYPES[os.path.splitext(name)[1]],
                               {"Content-Security-Policy": CSP, "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer"} if page else None)
         q = urllib.parse.parse_qs(u.query)
@@ -378,6 +384,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, app.decide(body))
         if path == "/api/friend/undo":   # [戻す](C-3-6){items: [{id, name}]}
             return self._json(200, app.undo(body))
+        if path == "/api/friend/palette":   # 配色を覚える(画面はもう塗り替えている。次に開いたとき meta ytt-palette で同じ色)
+            return self._json(200, {"ok": True, "palette": app.set_palette(body.get("name"))})
         if path == "/api/friend/files":   # 落とした動画(exe が本物のパスを読んで送る = F3-1 の host.js の sendFiles。画面からパスは送らない)
             return self._json(200, app.dropped_files(body.get("paths")))
         if path == "/api/friend/report":   # [作る人に知らせる](C-2-16)
@@ -561,6 +569,17 @@ class FriendApp:
         if done or pending:
             self.sync.kick()
         return {"ok": not errors, "done": done, "pending": pending, "errors": errors}
+
+    def palette(self):
+        """選んだ配色 A〜D(無ければ A = ネオンシアン。前の送るアプリの初めと同じ)"""
+        got = _fsio.read_json_or(os.path.join(self.places["friend"], PALETTE_NAME), {}, kind=dict).get("name")
+        return got if got in PALETTES else "A"
+
+    def set_palette(self, name):
+        if name not in PALETTES:
+            raise _api.FormError("配色は A〜D のどれかです")
+        _fsio.write_json(os.path.join(self.places["friend"], PALETTE_NAME), {"name": name})
+        return name
 
     def dropped_files(self, paths):
         """exe の窓に落とした動画のパス -> {"ok", "files": [remember_file の形], "skipped": [{"name", "message"}]}(動画でない物はその 1 本だけ外す)"""
