@@ -186,6 +186,7 @@ def main():
                 expect(pg.locator("#btnSend")).to_be_enabled(timeout=WAIT)
                 ok &= check(CHANNEL in pg.locator("#peek").text_content(), "貼った URL の題とチャンネル名が出る")
                 pg.click("#btnSend")
+                pg.click("#tabReceive")   # 届いた物は [受け取る] の画面(F3)
                 row = pack_row(pg, TITLE_A)
                 expect(row).to_be_visible(timeout=WAIT)
                 expect(row.locator(".pill").first).to_have_text("送った", timeout=WAIT)
@@ -223,10 +224,12 @@ def main():
 
                 # 流れ 2: 失敗 → [もう一度送る]
                 app.engine.queue.fail_next = 1
+                pg.click("#tabSend")
                 pg.fill("#url", URL_B)
                 expect(pg.locator("#peek")).to_contain_text(TITLE_B, timeout=WAIT)
                 expect(pg.locator("#btnSend")).to_be_enabled(timeout=WAIT)
                 pg.click("#btnSend")
+                pg.click("#tabReceive")
                 row = pack_row(pg, TITLE_B)
                 expect(row.locator(".pill").first).to_have_text("失敗", timeout=WAIT * 2)
                 ok &= check(True, "止まった依頼の行が「失敗」(理由つき)")
