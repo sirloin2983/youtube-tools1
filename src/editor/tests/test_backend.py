@@ -61,11 +61,14 @@ class StoreDir(unittest.TestCase):
 
     def setUp(self):
         self.tmp = testkit.tempdir(self)
-        self.saved = (S.TX_DIR, S.TMP_DIR, S.SETTINGS)
-        S.TX_DIR, S.TMP_DIR, S.SETTINGS = self.tmp, os.path.join(self.tmp, ".tmp"), os.path.join(self.tmp, "settings.json")
+        for name, value in (("TX_DIR", self.tmp), ("TMP_DIR", os.path.join(self.tmp, ".tmp")), ("SETTINGS", os.path.join(self.tmp, "settings.json"))):
+            self.patch(S, name, value)
 
-    def tearDown(self):
-        S.TX_DIR, S.TMP_DIR, S.SETTINGS = self.saved
+    def patch(self, obj, name, value):
+        """このテストの間だけ obj.name を value に(終わりに戻す)"""
+        p = patch.object(obj, name, value)
+        p.start()
+        self.addCleanup(p.stop)
 
     def put_doc(self, doc, tid=TID):
         write_json(S.tx_path(tid), doc)
@@ -151,21 +154,9 @@ class TestPerformance(StoreDir):
 
     def _run_capturing(self, fn, job):
         seen = []
-        old_ex, old_env = S.extract_audio, os.environ.get("TRANSCRIBE_BACKEND")
-
-        def fake_extract(job, spec, wav):
-            seen.append((spec["start"], spec["end"]))
-        try:
-            S.extract_audio = fake_extract
-            os.environ["TRANSCRIBE_BACKEND"] = "fake"
-            os.environ.setdefault("TRANSCRIBE_FAKE_DELAY", "0")
+        with patch.object(S, "extract_audio", lambda job, spec, wav: seen.append((spec["start"], spec["end"]))), \
+                patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "fake", "TRANSCRIBE_FAKE_DELAY": os.environ.get("TRANSCRIBE_FAKE_DELAY", "0")}):
             fn(job)
-        finally:
-            S.extract_audio = old_ex
-            if old_env is None:
-                os.environ.pop("TRANSCRIBE_BACKEND", None)
-            else:
-                os.environ["TRANSCRIBE_BACKEND"] = old_env
         return seen
 
     def _extracts_only_needed_span(self):
@@ -283,27 +274,19 @@ class TestPerformance(StoreDir):
 
 class TestStartupChecks(StoreDir):
     def test_checks(self):
-        old = (S.APP_JS, S.find_ffmpeg)
-        try:
-            self.assertFalse(hasattr(S, "INDEX"))   # RS8 C4: 編集の画面のページ index.html は無い(入口が案件の画面へ転送する) = その検査もない
-            S.APP_JS = os.path.join(self.tmp, "app.js")
-            with open(S.APP_JS, "w", encoding="utf-8") as f:
-                f.write("// app")
-            S.find_ffmpeg = lambda: "/usr/bin/ffmpeg"
-            self.assertEqual(S.startup_checks(), [])
-            S.find_ffmpeg = lambda: None
-            blocker = os.path.join(self.tmp, "file")
-            with open(blocker, "w") as f:
-                f.write("x")
-            S.TX_DIR = os.path.join(blocker, "transcripts")    # ファイルの下には作れない = 書き込めない保存先
-            w = " / ".join(S.startup_checks())
-            for word in ("ffmpeg", "保存先に書き込めません"):
-                self.assertIn(word, w)
-            os.unlink(S.APP_JS)
-            self.assertIn("app.js が見つかりません", " / ".join(S.startup_checks()))
-            self.assertNotIn("index.html", " / ".join(S.startup_checks()))   # 画面のページを確かめない
-        finally:
-            S.APP_JS, S.find_ffmpeg = old
+        self.assertFalse(hasattr(S, "INDEX"))   # RS8 C4: 編集の画面のページ index.html は無い(入口が案件の画面へ転送する) = その検査もない
+        self.patch(S, "APP_JS", testkit.write_text(os.path.join(self.tmp, "app.js"), "// app"))
+        self.patch(S, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
+        self.assertEqual(S.startup_checks(), [])
+        S.find_ffmpeg = lambda: None
+        blocker = testkit.write_text(os.path.join(self.tmp, "file"), "x")
+        S.TX_DIR = os.path.join(blocker, "transcripts")    # ファイルの下には作れない = 書き込めない保存先
+        w = " / ".join(S.startup_checks())
+        for word in ("ffmpeg", "保存先に書き込めません"):
+            self.assertIn(word, w)
+        os.unlink(S.APP_JS)
+        self.assertIn("app.js が見つかりません", " / ".join(S.startup_checks()))
+        self.assertNotIn("index.html", " / ".join(S.startup_checks()))   # 画面のページを確かめない
 
 
 class TestBomTolerant(StoreDir):
@@ -312,14 +295,10 @@ class TestBomTolerant(StoreDir):
         with open(S.SETTINGS, "w", encoding="utf-8-sig") as f:
             json.dump({"replacements": "よっきゃ=>陽キャ"}, f, ensure_ascii=False)
         self.assertEqual(S.parse_replacements(S.load_settings().get("replacements")), [("よっきゃ", "陽キャ")])
-        old = S.ROSTER
-        try:
-            S.ROSTER = os.path.join(self.tmp, "roster.json")
-            with open(S.ROSTER, "w", encoding="utf-8-sig") as f:
-                json.dump({"asOf": "2026-09-22", "groups": [{"id": "g", "label": "G", "names": ["兎田ぺこら"]}]}, f, ensure_ascii=False)
-            self.assertEqual(S.load_roster()["groups"][0]["names"], ["兎田ぺこら"])
-        finally:
-            S.ROSTER = old
+        self.patch(S, "ROSTER", os.path.join(self.tmp, "roster.json"))
+        with open(S.ROSTER, "w", encoding="utf-8-sig") as f:
+            json.dump({"asOf": "2026-09-22", "groups": [{"id": "g", "label": "G", "names": ["兎田ぺこら"]}]}, f, ensure_ascii=False)
+        self.assertEqual(S.load_roster()["groups"][0]["names"], ["兎田ぺこら"])
         p = os.path.join(self.tmp, "data.json")
         with open(p, "w", encoding="utf-8-sig") as f:
             json.dump({"videos": {}}, f)
@@ -333,18 +312,14 @@ class TestModelName(unittest.TestCase):
         self.assertTrue(S.valid_model("kotoba-tech/kotoba-whisper-v2.0-faster"))
         for bad in ("../x", ".hidden", "a/b/c", "C:\\x", "", "x" * 101, None):
             self.assertFalse(S.valid_model(bad), bad)
-        tmp = tempfile.mkdtemp()
-        cwd = os.getcwd()
-        try:
-            os.chdir(tmp)
-            os.makedirs("mymodel")
-            os.makedirs(os.path.join("org", "local"))
-            self.assertFalse(S.valid_model("mymodel"))       # 起動したフォルダからの相対で実在する
-            self.assertFalse(S.valid_model("org/local"))
-            self.assertTrue(S.valid_model("org/remote"))
-        finally:
-            os.chdir(cwd)
-            shutil.rmtree(tmp, ignore_errors=True)
+        tmp = testkit.tempdir(self)
+        self.addCleanup(os.chdir, os.getcwd())
+        os.chdir(tmp)
+        os.makedirs("mymodel")
+        os.makedirs(os.path.join("org", "local"))
+        self.assertFalse(S.valid_model("mymodel"))       # 起動したフォルダからの相対で実在する
+        self.assertFalse(S.valid_model("org/local"))
+        self.assertTrue(S.valid_model("org/remote"))
         self.assertFalse(S.valid_model("transcripts" if os.path.isdir(os.path.join(S.ROOT, "transcripts")) else "hololive-roster.json"))   # ツールのフォルダの中の名前
 
 
@@ -375,53 +350,44 @@ class TestClipValidation(unittest.TestCase):
             self.assertIn(word, warn)
 
     def test_files_and_media_resolution(self):
-        tmp = tempfile.mkdtemp()
+        tmp = testkit.tempdir(self)
+        media = os.path.join(tmp, "動画_0012.mp4")
+        with open(media, "wb") as f:
+            f.write(b"x")
+        cj = os.path.join(tmp, "動画_0012.clip.json")                          # 以前の置き方(動画の隣)も読む
+        self.assertEqual(P.clip_path_for(media), os.path.join(tmp, P.schemas.WORK_DIR, "動画_0012.clip.json"))   # 書くのは 作業用\
+        self.assertEqual(P.find_clip(media), (None, None, None))           # 無ければ何もしない
+        with open(cj, "w", encoding="utf-8-sig") as f:                     # BOM 付きでも読む
+            json.dump(clip_obj(), f, ensure_ascii=False)
+        clip, warn, path = P.find_clip(media, 24.5)
+        self.assertEqual((clip["range"]["start"], warn, path), (1234.5, None, cj))
+        clip, warn, _ = P.find_clip(media, 60.0)                          # 長さが大きく違えば警告(clip は使う)
+        self.assertIsNotNone(clip)
+        self.assertIn("長さ", warn)
+        # media.path は別の PC のパス → 同じフォルダの media.name を使う
+        self.assertEqual(P.resolve_clip_media(cj, clip, S.MEDIA_TYPES), os.path.abspath(media))
+        # media.name に ../ があっても、フォルダの外は見ない(名前だけを使う)
+        outside = os.path.join(os.path.dirname(tmp), "outside_%s.mp4" % os.getpid())
+        with open(outside, "wb") as f:
+            f.write(b"x")
         try:
-            media = os.path.join(tmp, "動画_0012.mp4")
-            with open(media, "wb") as f:
-                f.write(b"x")
-            cj = os.path.join(tmp, "動画_0012.clip.json")                          # 以前の置き方(動画の隣)も読む
-            self.assertEqual(P.clip_path_for(media), os.path.join(tmp, P.schemas.WORK_DIR, "動画_0012.clip.json"))   # 書くのは 作業用\
-            self.assertEqual(P.find_clip(media), (None, None, None))           # 無ければ何もしない
-            with open(cj, "w", encoding="utf-8-sig") as f:                     # BOM 付きでも読む
-                json.dump(clip_obj(), f, ensure_ascii=False)
-            clip, warn, path = P.find_clip(media, 24.5)
-            self.assertEqual((clip["range"]["start"], warn, path), (1234.5, None, cj))
-            clip, warn, _ = P.find_clip(media, 60.0)                          # 長さが大きく違えば警告(clip は使う)
-            self.assertIsNotNone(clip)
-            self.assertIn("長さ", warn)
-            # media.path は別の PC のパス → 同じフォルダの media.name を使う
-            self.assertEqual(P.resolve_clip_media(cj, clip, S.MEDIA_TYPES), os.path.abspath(media))
-            # media.name に ../ があっても、フォルダの外は見ない(名前だけを使う)
-            outside = os.path.join(os.path.dirname(tmp), "outside_%s.mp4" % os.getpid())
-            with open(outside, "wb") as f:
-                f.write(b"x")
-            try:
-                c2 = dict(clip, media={"name": "../" + os.path.basename(outside), "path": ""})
-                os.unlink(media)
-                self.assertIsNone(P.resolve_clip_media(cj, c2, S.MEDIA_TYPES))
-            finally:
-                os.unlink(outside)
-            # .clip.json の中のネットワークのパスには接続しない
-            self.assertTrue(P.is_network_path("\\\\host\\share\\x.mp4") and P.is_network_path("//host/x.mp4"))
-            self.assertFalse(P.is_network_path("C:\\x.mp4") or P.is_network_path("/home/x.mp4") or P.is_network_path("Z:/x.mp4"))
-            seen = []
-            real_isfile = os.path.isfile
-            os.path.isfile = lambda c: seen.append(c) or real_isfile(c)
-            try:
-                P.resolve_clip_media(cj, dict(clip, media={"path": "\\\\evil\\share\\x.mp4", "name": ""}), S.MEDIA_TYPES)
-            finally:
-                os.path.isfile = real_isfile
-            self.assertFalse(any("evil" in c for c in seen))
-            # 壊れた JSON・大きすぎるファイルは使わない
-            with open(cj, "w", encoding="utf-8") as f:
-                f.write("{broken")
-            self.assertIsNone(P.load_clip_file(cj)[0])
-            with open(cj, "w", encoding="utf-8") as f:
-                f.write(" " * (P.MAX_SIDECAR_BYTES + 10))
-            self.assertIn("大きすぎ", P.load_clip_file(cj)[1])
+            c2 = dict(clip, media={"name": "../" + os.path.basename(outside), "path": ""})
+            os.unlink(media)
+            self.assertIsNone(P.resolve_clip_media(cj, c2, S.MEDIA_TYPES))
         finally:
-            shutil.rmtree(tmp, ignore_errors=True)
+            os.unlink(outside)
+        # .clip.json の中のネットワークのパスには接続しない
+        self.assertTrue(P.is_network_path("\\\\host\\share\\x.mp4") and P.is_network_path("//host/x.mp4"))
+        self.assertFalse(P.is_network_path("C:\\x.mp4") or P.is_network_path("/home/x.mp4") or P.is_network_path("Z:/x.mp4"))
+        seen, real_isfile = [], os.path.isfile
+        with patch.object(os.path, "isfile", lambda c: seen.append(c) or real_isfile(c)):
+            P.resolve_clip_media(cj, dict(clip, media={"path": "\\\\evil\\share\\x.mp4", "name": ""}), S.MEDIA_TYPES)
+        self.assertFalse(any("evil" in c for c in seen))
+        # 壊れた JSON・大きすぎるファイルは使わない
+        testkit.write_text(cj, "{broken")
+        self.assertIsNone(P.load_clip_file(cj)[0])
+        testkit.write_text(cj, " " * (P.MAX_SIDECAR_BYTES + 10))
+        self.assertIn("大きすぎ", P.load_clip_file(cj)[1])
 
 
 def sample_doc(src):
@@ -522,26 +488,17 @@ class TestSaveBeside(unittest.TestCase):
                         f.write(b"other")
                 return False
             return real_lexists(p)
-        try:
-            os.path.lexists = racy
+        with patch.object(os.path, "lexists", racy):
             p, _ = P.save_beside(self.media, ".srt", b"mine", None)
-        finally:
-            os.path.lexists = real_lexists
         with open(target, "rb") as f:
             self.assertEqual(f.read(), b"other")
         self.assertEqual(os.path.basename(p), "動画 A (2).srt")
 
     def test_permission_error_is_400(self):
-        real = tempfile.mkstemp
-
         def deny(*a, **k):
             raise PermissionError(13, "Permission denied", self.tmp)
-        try:
-            tempfile.mkstemp = deny
-            with self.assertRaises(P.PipelineError) as cm:
-                P.save_beside(self.media, ".srt", b"1", None)
-        finally:
-            tempfile.mkstemp = real
+        with patch.object(tempfile, "mkstemp", deny), self.assertRaises(P.PipelineError) as cm:
+            P.save_beside(self.media, ".srt", b"1", None)
         self.assertEqual((cm.exception.code, cm.exception.status), ("no_write", 400))
         with self.assertRaises(P.PipelineError) as cm:
             P.save_beside(os.path.join(self.tmp, "無いフォルダ", "a.mp4"), ".srt", b"1", None)
@@ -553,16 +510,8 @@ class TestRuntime(unittest.TestCase):
         self.dir = testkit.tempdir(self)
 
     def test_runtime_dir_env(self):
-        old = os.environ.get("YTT_RUNTIME_DIR")
-        try:
-            os.environ.pop("YTT_RUNTIME_DIR", None)
-            os.environ["YTT_RUNTIME_DIR"] = self.dir
+        with patch.dict(os.environ, {"YTT_RUNTIME_DIR": self.dir}):
             self.assertEqual(S.runtime_path_dir(), self.dir)
-        finally:
-            if old is None:
-                os.environ.pop("YTT_RUNTIME_DIR", None)
-            else:
-                os.environ["YTT_RUNTIME_DIR"] = old
 
     def test_entries_validation(self):
         write_json(os.path.join(self.dir, "studio.json"), {"tool": "studio", "port": 8801})
@@ -694,8 +643,7 @@ class TestPipelineHttp(unittest.TestCase):
     def export_v1(self, tid):
         """transcript-v1 の中身を、書き出された .transcript.json から読む(GET の口は無い = 呼び手 0 で消した)"""
         r = self.call("POST", "/api/export-file", {"id": tid, "format": "transcript-v1"})
-        with open(r["path"], encoding="utf-8") as f:
-            return json.load(f)
+        return testkit.read_json(r["path"])
 
     def test_transcribe_reads_clip_and_transcript_v1(self):
         self.write_clip(clip_obj(media={"path": "C:\\別のPC\\動画_0012.wav", "name": "動画_0012.wav", "durationSec": 12.0}))
@@ -805,8 +753,7 @@ class TestPipelineHttp(unittest.TestCase):
             self.assertIn("テスト\n文1\n", f.read())
         r = self.call("POST", "/api/export-file", {"id": tid, "format": "cut-plan-v1"})
         self.assertEqual(r["name"], "動画_0012.cut-plan.json")
-        with open(r["path"], encoding="utf-8") as f:
-            plan = json.load(f)
+        plan = testkit.read_json(r["path"])
         self.assertEqual(plan["schema"], "youtube-tools-cut-plan/v1")
         cut = next(g for g in segs if g.get("cutState") == "cut")
         self.assertEqual(plan["segments"][0]["end"], cut["start"])                   # カット済の行の手前で区切れる
@@ -830,8 +777,7 @@ class TestPipelineHttp(unittest.TestCase):
 
     # ---- .runtime と /api/siblings ----
     def test_runtime_file_and_siblings(self):
-        with open(os.path.join(self.runtime, "transcribe.json"), encoding="utf-8") as f:
-            me = json.load(f)
+        me = testkit.read_json(os.path.join(self.runtime, "transcribe.json"))
         self.assertEqual((me["tool"], me["port"]), ("transcribe", self.port))
         studio, hang, wrong = _PingServer("clip-studio"), _PingServer("cut2resolve", hang=True), _PingServer("clip-studio")
         try:
@@ -950,8 +896,7 @@ class TestSettingsMerge(StoreDir):
     """設定の保存の「差のキーだけ」(PUT /api/settings {"patch"}。段2 監査 11): 別の窓が保存したほかのキーを消さない"""
 
     def st(self):
-        with open(S.SETTINGS, encoding="utf-8") as f:
-            return json.load(f)
+        return testkit.read_json(S.SETTINGS)
 
     def test_merge_keeps_other_keys(self):
         # (名前, 保存前の設定ファイル(None = ファイルなし), 送る patch, 保存後の中身)
@@ -988,20 +933,17 @@ class TestRuntimeCleanup(unittest.TestCase):
     @unittest.skipIf(os.name == "nt", "SIGTERM の確認は Linux / Mac のみ")
     def test_runtime_removed_on_terminate(self):
         """終了の合図(SIGTERM)でも .runtime/transcribe.json と起動中の印を消す。"""
-        tmp = tempfile.mkdtemp()
-        try:
-            runtime = os.path.join(tmp, "rt")
-            port = free_port()
-            proc = start_server(tmp, port, runtime)
-            path = os.path.join(runtime, "transcribe.json")
-            self.assertTrue(os.path.exists(path))
-            self.assertTrue(os.path.exists(os.path.join(tmp, ".running.json")))
-            proc.terminate()
-            proc.wait(timeout=10)
-            self.assertFalse(os.path.exists(path))
-            self.assertFalse(os.path.exists(os.path.join(tmp, ".running.json")))   # 正常終了の扱い(次の起動で「異常終了」と出ない)
-        finally:
-            shutil.rmtree(tmp, ignore_errors=True)
+        tmp = testkit.tempdir(self)
+        runtime = os.path.join(tmp, "rt")
+        port = free_port()
+        proc = start_server(tmp, port, runtime)
+        path = os.path.join(runtime, "transcribe.json")
+        self.assertTrue(os.path.exists(path))
+        self.assertTrue(os.path.exists(os.path.join(tmp, ".running.json")))
+        proc.terminate()
+        proc.wait(timeout=10)
+        self.assertFalse(os.path.exists(path))
+        self.assertFalse(os.path.exists(os.path.join(tmp, ".running.json")))   # 正常終了の扱い(次の起動で「異常終了」と出ない)
 
 
 class TestHeavyJobLimit(unittest.TestCase):

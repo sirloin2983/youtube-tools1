@@ -32,6 +32,18 @@ from ytt import testkit  # noqa: E402
 HAVE_FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
 
 
+def counting(calls, fail_at=None):
+    """RangeRecognizer.main の差し替え: 呼ばれた区間 (a, b) を calls に足して本物を呼ぶ。fail_at 回目は落ちる(途中で落ちたふり)"""
+    real = S.RangeRecognizer.main
+
+    def main(rec, a, b, share=(0.0, 1.0)):
+        calls.append((a, b))
+        if len(calls) == fail_at:
+            raise RuntimeError("落ちた")
+        return real(rec, a, b, share)
+    return main
+
+
 def wait_for(fn, timeout=20.0, step=0.05):
     end = time.time() + timeout
     while time.time() < end:
@@ -72,15 +84,22 @@ class WorkerTest(unittest.TestCase):
         S.TX_DIR, S.TMP_DIR, S.SETTINGS, S.WORKER, S.WORKER_LOG, S.WORKER_CANCEL_GRACE, S.RUN_MARK, S.WORKER_SILENCE_TIMEOUT = self.saved
 
     # ---- 手伝い
-    def transcribe(self, **req):
-        spec = S.validate_job(dict({"sourcePath": self.media, "model": "small", "language": "ja"}, **req))
-        job = S.add_job(spec)
+    def run_job(self, spec, kind=None):
+        """ジョブを入れてその場で流す -> ジョブ"""
+        job = S.add_job(spec, kind) if kind else S.add_job(spec)
         S.work_one(job["id"])
         return job
 
+    def transcribe(self, **req):
+        return self.run_job(S.validate_job(dict({"sourcePath": self.media, "model": "small", "language": "ja"}, **req)))
+
+    def restart_worker(self):
+        """ワーカーを閉じて新しい口に(環境変数を変えたあと、次のジョブで起動し直させる)"""
+        S.WORKER.close()
+        S.WORKER = S.WorkerClient()
+
     def doc(self, tid):
-        with open(S.tx_path(tid), encoding="utf-8") as f:
-            return json.load(f)
+        return testkit.read_json(S.tx_path(tid))
 
     def worker_log(self):
         try:
@@ -130,15 +149,13 @@ class WorkerTest(unittest.TestCase):
         self.assertIn(pj["vadNote"], pj["warnings"])                        # 処理状況にも出る
         # 声の検出をかけると全部捨てる → 「なし」まで緩める
         os.environ["TRANSCRIBE_FAKE_VAD"] = "drop-vad"
-        S.WORKER.close()
-        S.WORKER = S.WorkerClient()
+        self.restart_worker()
         job = self.transcribe(vadMode="normal")
         run = self.doc(job["tid"])["recognition"]["runs"][0]
         self.assertEqual((run["vadUsed"], [r["mode"] for r in run["vadRetries"]]), ("off", ["normal", "weak"]))
         # 捨てすぎていなければ、やり直さない
         os.environ["TRANSCRIBE_FAKE_VAD"] = ""
-        S.WORKER.close()
-        S.WORKER = S.WorkerClient()
+        self.restart_worker()
         job = self.transcribe(vadMode="normal")
         run = self.doc(job["tid"])["recognition"]["runs"][0]
         self.assertEqual((run["vadUsed"], run["vadRetries"], run["vadRemovedSec"]), ("normal", [], 0.0))
@@ -185,22 +202,15 @@ class WorkerTest(unittest.TestCase):
             _s, job = self._whole(tid_a)
             self.assertEqual(job["state"], "done", job.get("error"))
             self.assertFalse(os.path.exists(S.resume_path(tid_a)))           # 反映したら続きの記録は消す
-            calls, real = [], S.RangeRecognizer.main
-
-            def main_fails_second(rec, a, b, share=(0.0, 1.0)):
-                calls.append((a, b))
-                if len(calls) == 2:
-                    raise RuntimeError("落ちた")
-                return real(rec, a, b, share)
-            with mock.patch.object(S.RangeRecognizer, "main", main_fails_second):
+            calls = []
+            with mock.patch.object(S.RangeRecognizer, "main", counting(calls, fail_at=2)):
                 _s, job = self._whole(tid_b)
             self.assertEqual(job["state"], "error")
-            with open(S.resume_path(tid_b), encoding="utf-8") as f:
-                cp = json.load(f)
+            cp = testkit.read_json(S.resume_path(tid_b))
             self.assertEqual((len(cp["parts"]), sorted(cp["done"])), (3, ["0"]))   # 20 秒 → 6 秒の目安で 3 区間・1つ目だけ済み
             self.assertEqual(cp["parts"][0], [0.0, 6.0])                      # 行(4 秒ごと)にすき間が無い → 目安の所で区切る
             calls.clear()
-            with mock.patch.object(S.RangeRecognizer, "main", lambda rec, a, b, share=(0.0, 1.0): calls.append((a, b)) or real(rec, a, b, share)):
+            with mock.patch.object(S.RangeRecognizer, "main", counting(calls)):
                 _s, job = self._whole(tid_b)
             self.assertEqual(job["state"], "done", job.get("error"))
             self.assertEqual(calls, [tuple(p) for p in cp["parts"][1:]])      # 済んだ区間は認識しない
@@ -214,22 +224,16 @@ class WorkerTest(unittest.TestCase):
         """設定が違えば続きの記録は使わない(最初から認識して上書き)。短い動画は区間に分けず、記録も書かない"""
         tid = self.transcribe()["tid"]
         with mock.patch.object(S, "WHOLE_PART_SEC", 6):
-            calls, real = [], S.RangeRecognizer.main
-
-            def main_fails_second(rec, a, b, share=(0.0, 1.0)):
-                calls.append((a, b))
-                if len(calls) == 2:
-                    raise RuntimeError("落ちた")
-                return real(rec, a, b, share)
-            with mock.patch.object(S.RangeRecognizer, "main", main_fails_second):
+            calls = []
+            with mock.patch.object(S.RangeRecognizer, "main", counting(calls, fail_at=2)):
                 self._whole(tid)
             self.assertTrue(os.path.exists(S.resume_path(tid)))
             calls.clear()
-            with mock.patch.object(S.RangeRecognizer, "main", lambda rec, a, b, share=(0.0, 1.0): calls.append((a, b)) or real(rec, a, b, share)):
+            with mock.patch.object(S.RangeRecognizer, "main", counting(calls)):
                 _s, job = self._whole(tid, model="large-v3")                 # モデルが違う
             self.assertEqual((job["state"], len(calls), job.get("resumed")), ("done", 3, None))
         calls.clear()
-        with mock.patch.object(S.RangeRecognizer, "main", lambda rec, a, b, share=(0.0, 1.0): calls.append((a, b)) or real(rec, a, b, share)):
+        with mock.patch.object(S.RangeRecognizer, "main", counting(calls)):
             _s, job = self._whole(tid)                                        # 既定の目安(600 秒)では 20 秒は1回で
         self.assertEqual((job["state"], len(calls)), ("done", 1))
         self.assertFalse(os.path.isdir(os.path.join(S.TX_DIR, ".resume")) and os.listdir(os.path.join(S.TX_DIR, ".resume")))
@@ -308,20 +312,17 @@ class WorkerTest(unittest.TestCase):
     def test_retranscribe_each_and_range(self):
         tid = self.transcribe()["tid"]
         spec = S.validate_retranscribe({"tid": tid, "ids": ["s2", "s3"], "model": "small"})
-        job = S.add_job(spec, "retranscribe")
-        S.work_one(job["id"])
+        job = self.run_job(spec, "retranscribe")
         self.assertEqual(job["state"], "done", job.get("error"))   # 行ごとの音声(float32 の配列)は一時ファイルで渡す
         self.assertEqual(os.listdir(S.TMP_DIR), [])                # 一時ファイル(音声・範囲の配列)は残らない
         spec = S.validate_retranscribe({"tid": tid, "ids": ["s2", "s3"], "model": "small", "mode": "range"})
-        job = S.add_job(spec, "retranscribe")
-        S.work_one(job["id"])
+        job = self.run_job(spec, "retranscribe")
         self.assertEqual(job["state"], "done", job.get("error"))
         self.assertEqual(os.listdir(S.TMP_DIR), [])
 
     def test_diarize_through_worker(self):
         tid = self.transcribe()["tid"]
-        job = S.add_job(S.validate_diarize({"tid": tid, "numSpeakers": 2}), "diarize")
-        S.work_one(job["id"])
+        job = self.run_job(S.validate_diarize({"tid": tid, "numSpeakers": 2}), "diarize")
         self.assertEqual(job["state"], "done", job.get("error"))
         self.assertEqual(job["speakers"], 2)
         self.assertEqual(len(self.doc(tid)["speakers"]), 2)
@@ -341,28 +342,21 @@ class WorkerTest(unittest.TestCase):
 
     def _voice_learn_and_rediarize(self):
         """名前を付けた話者の声を覚え、もう一度判別する -> (判別し直したジョブ, 文書の読み出し, tid)"""
-        saved = S.VOICES_DIR
-        S.VOICES_DIR = os.path.join(self.tmp, "voices")
-        try:
+        with mock.patch.object(S, "VOICES_DIR", os.path.join(self.tmp, "voices")):
             tid = self.transcribe()["tid"]
-            j = S.add_job(S.validate_diarize({"tid": tid, "numSpeakers": 2}), "diarize")
-            S.work_one(j["id"])
+            j = self.run_job(S.validate_diarize({"tid": tid, "numSpeakers": 2}), "diarize")
             self.assertEqual((j["state"], j.get("named") or []), ("done", []), j.get("error"))   # まだ何も覚えていない
             d = self.doc(tid)
             d["speakers"][0]["name"] = "兎田ぺこら"
             for g in d["segments"]:
                 g["proofed"] = True   # 段1(監査17): 覚えるのは校正済みの行だけ
             S.save_transcript(tid, d)
-            j2 = S.add_job(S.validate_voice_learn({"tid": tid, "names": ["兎田ぺこら"]}), "voice-learn")
-            S.work_one(j2["id"])
+            j2 = self.run_job(S.validate_voice_learn({"tid": tid, "names": ["兎田ぺこら"]}), "voice-learn")
             self.assertEqual((j2["state"], j2.get("learned")), ("done", ["兎田ぺこら"]), j2.get("error"))
-            j3 = S.add_job(S.validate_diarize({"tid": tid, "numSpeakers": 2}), "diarize")   # 判別し直すと名前は「話者n」に戻る → 声で付け直す
-            S.work_one(j3["id"])
+            j3 = self.run_job(S.validate_diarize({"tid": tid, "numSpeakers": 2}), "diarize")   # 判別し直すと名前は「話者n」に戻る → 声で付け直す
             self.assertEqual(j3["state"], "done", j3.get("error"))
             self.assertEqual(os.listdir(S.TMP_DIR), [])
             return j3, self.doc(tid), tid
-        finally:
-            S.VOICES_DIR = saved
 
     def test_voice_learn_and_recognize_through_worker_primary(self):
         """層が正: 判別し直すと人の層の話者の表が残るので、名前は「話者n」に戻らず、覚えた声で付け直すこともしない"""
@@ -555,8 +549,7 @@ print(json.dumps({"states": [j["state"], r["state"], d["state"]],
         self.assertEqual((run["engine"], run["engineVersion"], run["device"], run["model"]), ("whisper.cpp", "v1.9.4", "vulkan", "large-v3"))
         self.assertTrue(os.path.isfile(S.words_path(job["tid"])))            # トークンの時刻が単語の時刻になる
         with mock.patch.dict(os.environ, {"FAKE_WCPP_GPU": "none"}):
-            S.WORKER.close()
-            S.WORKER = S.WorkerClient()                                       # 環境変数をワーカーに渡すため起動し直す
+            self.restart_worker()                                       # 環境変数をワーカーに渡すため起動し直す
             job = self.transcribe(model="large-v3", engine="whisper.cpp")
         self.assertEqual(job["state"], "error")
         self.assertIn("GPU(Vulkan)を使えませんでした", job["error"])         # 黙って CPU にしない
@@ -729,10 +722,7 @@ class JobHelperTest(unittest.TestCase):
         self.assertEqual(S.job_title("x: ", {"title": "あ" * 150}), "x: " + "あ" * 100)
 
     def test_temp_wav(self):
-        tmp = tempfile.mkdtemp(prefix="tx-wav-")
-        saved = S.TMP_DIR
-        S.TMP_DIR = os.path.join(tmp, ".tmp")
-        try:
+        with mock.patch.object(S, "TMP_DIR", os.path.join(testkit.tempdir(self, "tx-wav-"), ".tmp")):
             job = {"id": "j1", "state": "running", "phase": ""}
             with S.job_temp_wav(job) as wav:
                 self.assertTrue(os.path.isdir(S.TMP_DIR))                     # 一時のフォルダは作ってから渡す
@@ -746,9 +736,6 @@ class JobHelperTest(unittest.TestCase):
             with S.job_temp_wav(job) as wav:
                 raise RuntimeError("boom")
             self.assertEqual((job["state"], job["error"], job["internal"]), ("error", S.INTERNAL_MSG, True))
-        finally:
-            S.TMP_DIR = saved
-            shutil.rmtree(tmp, ignore_errors=True)
 
     def test_numbers(self):
         from pipeline.transcribe import tx_engines

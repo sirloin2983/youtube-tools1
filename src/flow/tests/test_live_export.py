@@ -113,7 +113,6 @@ class FailuresTest(unittest.TestCase):
                 job(5, path=os.path.join(self.tmp, "out", "05_ok.mp4"), runId="r-ok"),
                 job(6, state="cancelled", message="取り消しました"),
                 job(7, state="error", error="古い失敗", updated=old, created=old)]   # 7 日より前は「調子」に出さない
-        os.makedirs(os.path.join(self.tmp, "live"))
         testkit.write_json(os.path.join(self.tmp, "live", "exports.json"), {"schema": LX.JOBS_SCHEMA, "jobs": jobs})
 
         def run(rid, state, steps, error=""):
@@ -127,8 +126,7 @@ class FailuresTest(unittest.TestCase):
         self.live = FIX.new_session(self.tmp, self.cfg, root=REPO)
 
     def tearDown(self):
-        self.fake.close()
-        shutil.rmtree(self.tmp, ignore_errors=True)
+        self.fake.close()   # 一時フォルダは testkit.tempdir が後で消す
 
     def test_same_text_in_band_and_health(self):
         snap = {j["id"]: j for j in self.live.exporter.snapshot()}
@@ -226,8 +224,7 @@ class ExportTest(unittest.TestCase):
             self.proc.wait(20)
         except Exception:
             self.proc.kill()
-        self.src.close()
-        shutil.rmtree(self.tmp, ignore_errors=True)
+        self.src.close()   # 一時フォルダは testkit.tempdir が後で消す
 
     def start_rec(self, n=4):
         code, d = self.live.call(self.rc, "POST", "/live/start", {"url": self.src.url, "title": "テストの配信"}, timeout=10)
@@ -314,16 +311,6 @@ class ExportTest(unittest.TestCase):
         # 記録は exports.json に残る(起動し直しても見える)
         again = LX.Exporter(self.live, os.path.join(self.tmp, "live"), lambda: self.out)
         self.assertEqual({x["id"]: x["state"] for x in again.jobs}, {j["id"]: "done", j2["id"]: "done", j3["id"]: "cancelled", j4["id"]: "done", j5["id"]: "done"})
-
-    def test_pad_secs(self):
-        """M8: 自動・アーカイブの採用の区間を前後 pad 秒だけ広げる。0 より前・録れている範囲(lastPdt)の外・1 つのマークの上限の外へは広げない"""
-        first = 1_700_000_000.0
-        st = lambda rel: {"lastPdt": LX.epoch_iso(first + rel)}
-        self.assertEqual(LA.pad_secs(10.0, 20.0, 2, st(100), first), (8.0, 22.0))   # 本体は flow/live_adopt.py(RS7-2 G1b)
-        self.assertEqual(LA.pad_secs(1.0, 20.0, 2, st(21), first), (0.0, 21.0))      # 頭は 0 まで・後ろは録れている所まで
-        self.assertEqual(LA.pad_secs(10.0, 20.0, 2, st(19), first), (8.0, 20.0))     # 終わりがまだ録れていない = 後ろは足さない
-        self.assertEqual(LA.pad_secs(10.0, 20.0, 1.5, {}, first), (8.5, 21.5))     # lastPdt が無ければ両側に
-        self.assertEqual(LA.pad_secs(0.0, LX.MAX_MARK_SEC, 2, {}, first), (0.0, float(LX.MAX_MARK_SEC)))
 
     def test_adopt_server_side(self):
         """M1: POST /live/api/adopt の中身(Live.adopt)。画面なしで スタジオのマーク(採用)→ 正本 → 書き出し → スタジオのマークを「書き出し済み」。
@@ -476,6 +463,31 @@ class ExportPiecesTest(unittest.TestCase):
     def setUp(self):
         self.tmp = testkit.tempdir(self, "ytt-live-pieces-")
 
+    def media(self, name):
+        """書き出し先(out)に書き出し済みの動画のふり(中身 1 バイト)を置く"""
+        path = os.path.join(self.tmp, "out", name)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(b"x")
+        return path
+
+    def mark_job(self, ex, rec, start, end, **kw):
+        """マークを足して書き出しのジョブに入れる -> ジョブ(記録の dict そのもの)"""
+        m, _ = ex.marks.apply("local", rec, {"op": "add", "start": start, "end": end})
+        job = ex.add("local", rec, m["id"], **kw)
+        return next(x for x in ex.jobs if x["id"] == job["id"])
+
+    def test_pad_secs(self):
+        """M8: 自動・アーカイブの採用の区間を前後 pad 秒だけ広げる。0 より前・録れている範囲(lastPdt)の外・1 つのマークの上限の外へは広げない
+        (録画の部品は使わない = 部品のクラスで)"""
+        first = 1_700_000_000.0
+        st = lambda rel: {"lastPdt": LX.epoch_iso(first + rel)}
+        self.assertEqual(LA.pad_secs(10.0, 20.0, 2, st(100), first), (8.0, 22.0))   # 本体は flow/live_adopt.py(RS7-2 G1b)
+        self.assertEqual(LA.pad_secs(1.0, 20.0, 2, st(21), first), (0.0, 21.0))      # 頭は 0 まで・後ろは録れている所まで
+        self.assertEqual(LA.pad_secs(10.0, 20.0, 2, st(19), first), (8.0, 20.0))     # 終わりがまだ録れていない = 後ろは足さない
+        self.assertEqual(LA.pad_secs(10.0, 20.0, 1.5, {}, first), (8.5, 21.5))     # lastPdt が無ければ両側に
+        self.assertEqual(LA.pad_secs(0.0, LX.MAX_MARK_SEC, 2, {}, first), (0.0, float(LX.MAX_MARK_SEC)))
+
     def test_names_like_studio(self):
         self.assertEqual(LX.compact_ts(3725.9), "01h02m05s")
         self.assertEqual(LX.safe_name('a/b:c*?"<>|%d', 30), "a_b_c_d")
@@ -620,10 +632,8 @@ class ExportPiecesTest(unittest.TestCase):
         runner = FakeRunner()
         ex, logs = self._pieces_exporter(free, runner)
         rec = "20261004-000000-a"
-        m, _ = ex.marks.apply("local", rec, {"op": "add", "start": "2026-10-04T06:00:00Z", "end": "2026-10-04T06:00:05Z"})
-        ex.add("local", rec, m["id"], after="check")
-        j = ex.jobs[0]
-        ans = {"url": "https://www.youtube.com/watch?v=abcdefghijk", "state": "recording", "active": True, "lastPdt": "2026-10-04T06:10:00.000Z",
+        j = self.mark_job(ex, rec, "2026-10-04T06:00:00Z", "2026-10-04T06:00:05Z", after="check")
+        ans ={"url": "https://www.youtube.com/watch?v=abcdefghijk", "state": "recording", "active": True, "lastPdt": "2026-10-04T06:10:00.000Z",
                "firstPdt": "2026-10-04T05:00:00.000Z", "segments": [], "gaps": []}
         with mock.patch.object(ex, "_query", return_value=(200, ans)) as q:
             self.assertIsNone(ex._next_ready())
@@ -645,10 +655,7 @@ class ExportPiecesTest(unittest.TestCase):
         self.assertTrue(any("20 GB を切りました" in x for x in logs), logs)
         # 書き出しが済んだが空きが少ない → まとめて実行へは渡さずに待つ → 空いたら渡す
         free["v"] = 1 * LX.GB
-        media = os.path.join(self.tmp, "out", "01_x.mp4")
-        os.makedirs(os.path.dirname(media))
-        with open(media, "wb") as f:
-            f.write(b"x")
+        media = self.media("01_x.mp4")
         a, b = LX.iso_epoch(j["start"]), LX.iso_epoch(j["end"])
         ex._finish(j, {"id": "local"}, rec, ans, {"path": media, "duration": 5.0, "title": "配信"}, a, b)
         self.assertEqual((j["state"], j["handoffWait"], j["runId"], runner.files), ("done", "disk", "", []))
@@ -672,22 +679,15 @@ class ExportPiecesTest(unittest.TestCase):
         runner = FakeRunner()
         ex, _logs = self._pieces_exporter(free, runner)
         rec = "20261004-000000-a"
-        m, _ = ex.marks.apply("local", rec, {"op": "add", "start": "2026-10-04T06:00:00Z", "end": "2026-10-04T06:00:05Z"})
-        ex.add("local", rec, m["id"], after="auto", hold="archive")
-
-        j = ex.jobs[0]
+        j = self.mark_job(ex, rec, "2026-10-04T06:00:00Z", "2026-10-04T06:00:05Z", after="auto", hold="archive")
         self.assertEqual((j["from"], j["state"], "holdFor" in j), ("archive", "wait", False))
         self.assertIn("アーカイブから書き出します", j["message"])
         self.assertFalse(ex.pending())                                       # アーカイブから書き出すのは Archiver が受け持つ
         self.assertIsNone(ex._next_ready())                                  # 録画元に聞かない
         self.assertEqual(ex.snapshot("local", rec)[0]["stateLabel"], "アーカイブ待ち")
-        media = os.path.join(self.tmp, "out", "02_y.mp4")
-        os.makedirs(os.path.dirname(media))
-        with open(media, "wb") as f:
-            f.write(b"x")
         ans = {"url": "https://www.youtube.com/watch?v=abcdefghijk", "firstPdt": "2026-10-04T05:00:00.000Z"}
         a, b = LX.iso_epoch(j["start"]), LX.iso_epoch(j["end"])
-        ex._finish(j, {"id": "local"}, rec, ans, {"path": media, "duration": 5.0, "title": "配信"}, a, b, archive={"videoId": "abcdefghijk"})
+        ex._finish(j, {"id": "local"}, rec, ans, {"path": self.media("02_y.mp4"), "duration": 5.0, "title": "配信"}, a, b, archive={"videoId": "abcdefghijk"})
         self.assertEqual((j["handoffWait"], j["runId"], j["state"], runner.files[-1][2]), ("", "run-1", "done", "auto"))   # アーカイブから書き出したものはすぐ渡す
 
     def test_handoff_with_friend_request(self):
@@ -702,16 +702,11 @@ class ExportPiecesTest(unittest.TestCase):
                "speakers": {"count": 2, "names": ["兎田ぺこら", "宝鐘マリン"], "styles": {}}, "videoTracks": 2, "cut": "silence", "memo": "",
                "settings": dict(LR.SETTINGS_DEFAULT), "createdAt": 1.0}
         auto = {"cut": "none", "engine": "whisper.cpp", "model": "large-v3"}
-        media = os.path.join(self.tmp, "out", "03_z.mp4")
-        os.makedirs(os.path.dirname(media))
-        with open(media, "wb") as f:
-            f.write(b"x")
+        media = self.media("03_z.mp4")
         ans = {"url": "https://www.youtube.com/watch?v=abcdefghijk", "firstPdt": "2026-10-04T05:00:00.000Z"}
 
         def run(start, request):
-            m, _ = ex.marks.apply("local", rec, {"op": "add", "start": start, "end": start[:-3] + "05Z"})
-            job = ex.add("local", rec, m["id"], after="auto", streamer="兎田ぺこら", auto=auto, request=request)
-            j = next(x for x in ex.jobs if x["id"] == job["id"])
+            j = self.mark_job(ex, rec, start, start[:-3] + "05Z", after="auto", streamer="兎田ぺこら", auto=auto, request=request)
             ex._finish(j, {"id": "local"}, rec, ans, {"path": media, "duration": 5.0, "title": "配信"}, LX.iso_epoch(j["start"]), LX.iso_epoch(j["end"]))
             return j
         j = run("2026-10-04T06:00:00Z", req)
@@ -756,12 +751,12 @@ class ExportPiecesTest(unittest.TestCase):
             pad = b - a > 6
             return [({"id": "local", "name": "この PC"}, rec, {"active": False, "firstPdt": "2026-10-04T05:00:00.000Z", "gaps": gaps["pad"] if pad else [],
                      "segments": [{"uri": "session_001/seg_000000.ts", "session": "session_001", "pdt": "2026-10-04T05:59:40.000Z", "dur": 40.0}]})]
-        with mock.patch.object(ex, "margin", return_value=10.0), mock.patch.object(ex, "_sources", side_effect=sources),                 mock.patch.object(ex, "_fetch", return_value=[("part.ts", "session_001")]),                 mock.patch.object(ex, "_encode", side_effect=encode), mock.patch.object(ex, "_finish", side_effect=finish):
+        with mock.patch.object(ex, "margin", return_value=10.0), mock.patch.object(ex, "_sources", side_effect=sources), \
+                mock.patch.object(ex, "_fetch", return_value=[("part.ts", "session_001")]), \
+                mock.patch.object(ex, "_encode", side_effect=encode), mock.patch.object(ex, "_finish", side_effect=finish):
             for k, gap in enumerate(([], [{"from": "2026-10-04T05:59:50.000Z", "to": "2026-10-04T05:59:55.000Z", "sec": 5}])):
                 gaps["pad"] = gap
-                m, _ = ex.marks.apply("local", rec, {"op": "add", "start": "2026-10-04T06:00:0%dZ" % k, "end": "2026-10-04T06:00:0%dZ" % (k + 5)})
-                job = ex.add("local", rec, m["id"], after="none")
-                j = next(x for x in ex.jobs if x["id"] == job["id"])
+                j = self.mark_job(ex, rec, "2026-10-04T06:00:0%dZ" % k, "2026-10-04T06:00:0%dZ" % (k + 5), after="none")
                 ex._process(j)
                 a = LX.iso_epoch(j["start"])
                 if not gap:
@@ -809,9 +804,7 @@ class ExportPiecesTest(unittest.TestCase):
         stack.enter_context(mock.patch.object(ex, "_finish", side_effect=lambda job, *a, **k: ex._set(job, state="done")))
 
         def run(active):
-            m, _ = ex.marks.apply("local", rec, {"op": "add", "start": "2026-10-04T06:00:00Z", "end": "2026-10-04T06:00:05Z"})
-            job = ex.add("local", rec, m["id"], after="none")
-            j = next(x for x in ex.jobs if x["id"] == job["id"])
+            j = self.mark_job(ex, rec, "2026-10-04T06:00:00Z", "2026-10-04T06:00:05Z", after="none")
             ans.clear()
             ans.update({"active": active, "firstPdt": "2026-10-04T05:00:00.000Z", "gaps": [],
                         "segments": [{"uri": "session_001/seg_000000.ts", "session": "session_001", "pdt": "2026-10-04T05:59:58.000Z", "dur": 8.0}]})

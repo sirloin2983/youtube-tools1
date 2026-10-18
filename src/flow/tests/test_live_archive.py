@@ -64,8 +64,7 @@ class FakeExLive:
 class WavArgsTest(unittest.TestCase):
     def test_wav_args_unchanged(self):
         """OPT2: 照合の wav(8kHz・精密な切り方)を作る ffmpeg の引数の列は、引数を組む所を ① へ移しても 1 つも変わらない"""
-        tmp = tempfile.mkdtemp(prefix="ytt-arc-wav-")
-        self.addCleanup(shutil.rmtree, tmp, True)
+        tmp = testkit.tempdir(self, "ytt-arc-wav-")
         cmds = []
 
         def run(cmd, timeout, cancelled=None):
@@ -123,8 +122,7 @@ class ArchiveTest(unittest.TestCase):
 
     def tearDown(self):
         for a in self.arcs:
-            a.close()
-        shutil.rmtree(self.tmp, ignore_errors=True)
+            a.close()   # 一時フォルダは testkit.tempdir が後で消す
 
     # --- 偽物 ---
     def exporter(self):
@@ -512,8 +510,7 @@ class AfterStreamTest(unittest.TestCase):
 
     def tearDown(self):
         for a in self.arcs:
-            a.close()
-        shutil.rmtree(self.tmp, ignore_errors=True)
+            a.close()   # 一時フォルダは testkit.tempdir が後で消す
 
     def studio(self, method, path, body=None):
         self.calls.append((method, path, body))

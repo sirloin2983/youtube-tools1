@@ -16,17 +16,15 @@ import json
 import shutil
 import subprocess
 import sys
-import tempfile
-import threading
 import unittest
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> app -> src
 sys.path.insert(0, SRC)
 from app import cli  # noqa: E402
 from pipeline.transcribe import backend, roster, worker_client  # noqa: E402
-from ytt import datadir, studio_env, workdata  # noqa: E402
+from ytt import datadir, studio_env, testkit, workdata  # noqa: E402
 from eval.fake import fake_asr  # noqa: E402  (疑似の認識。CLI は eval を読まないので、テストの側で差し込む)
 
 HAS_FFMPEG = bool(shutil.which("ffmpeg"))
@@ -81,38 +79,21 @@ class FakeWorker:
 
 class Base(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt_cli_")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "ytt_cli_")
         self.data = os.path.join(self.tmp, "data")
-        # main は環境変数・作業データの場所・名簿の場所を入れ替える = テストの終わりに戻す
-        p = mock.patch.dict(os.environ, {"YTT_RUNTIME_DIR": os.path.join(self.tmp, "runtime"), "TRANSCRIBE_FAKE_DELAY": "0"})
-        p.start()
-        self.addCleanup(p.stop)
-        for name in ("ROOT", "DATA_DIR", "TX_DIR", "TMP_DIR", "SETTINGS", "FEEDBACK", "MARKER_DATA", "STUDIO_DATA"):
-            p = mock.patch.object(workdata, name, getattr(workdata, name))
-            p.start()
-            self.addCleanup(p.stop)
-        p = mock.patch.object(roster, "ROSTER", roster.ROSTER)
-        p.start()
-        self.addCleanup(p.stop)
-        for obj, name in ((studio_env, "_home"), (studio_env, "_out_dir")):   # URL の実行はスタジオの置き場所を入れる = テストの終わりに戻す
-            p = mock.patch.object(obj, name, getattr(obj, name))
-            p.start()
-            self.addCleanup(p.stop)
-        p = mock.patch.dict(datadir._registered)
-        p.start()
-        self.addCleanup(p.stop)
         self.worker = FakeWorker()
-        p = mock.patch.object(worker_client, "WORKER", self.worker)
-        p.start()
-        self.addCleanup(p.stop)
-        p = mock.patch.object(cli.time, "sleep", lambda s: None)
-        p.start()
-        self.addCleanup(p.stop)
         self.pl = FakePlacement(result_dir=self.tmp)
-        p = mock.patch.object(cli, "_placement", lambda: self.pl)
-        p.start()
-        self.addCleanup(p.stop)
+        # main は環境変数・作業データの場所・名簿の場所を入れ替える = テストの終わりに戻す。URL の実行はスタジオの置き場所を入れる = 同じく戻す
+        patches = [mock.patch.dict(os.environ, {"YTT_RUNTIME_DIR": os.path.join(self.tmp, "runtime"), "TRANSCRIBE_FAKE_DELAY": "0"}),
+                   mock.patch.object(roster, "ROSTER", roster.ROSTER), mock.patch.dict(datadir._registered),
+                   mock.patch.object(worker_client, "WORKER", self.worker), mock.patch.object(cli.time, "sleep", lambda s: None),
+                   mock.patch.object(cli, "_placement", lambda: self.pl)]
+        patches += [mock.patch.object(workdata, name, getattr(workdata, name))
+                    for name in ("ROOT", "DATA_DIR", "TX_DIR", "TMP_DIR", "SETTINGS", "FEEDBACK", "MARKER_DATA", "STUDIO_DATA")]
+        patches += [mock.patch.object(studio_env, name, getattr(studio_env, name)) for name in ("_home", "_out_dir")]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
 
     def main(self, *argv):
         out, err = io.StringIO(), io.StringIO()
@@ -128,10 +109,7 @@ class Base(unittest.TestCase):
 
     def spec(self, obj):
         self.n_spec = getattr(self, "n_spec", 0) + 1
-        path = os.path.join(self.tmp, "spec%d.json" % self.n_spec)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(obj, f)
-        return path
+        return testkit.write_json(os.path.join(self.tmp, "spec%d.json" % self.n_spec), obj)
 
 
 class TestArgs(Base):
@@ -196,10 +174,7 @@ class TestLearningPlaces(Base):
         """F1: learningDir が学習の束なら文書なしで置換辞書・用語・規則を使い、束の版が束に入る(友人の PC の形)"""
         from flow import diar, learning
         from manage.keep import learnpack
-        data = os.path.join(self.tmp, "src-data")
-        os.makedirs(data)
-        with open(os.path.join(data, "settings.json"), "w", encoding="utf-8") as f:
-            json.dump({"replacements": "あ=>い"}, f)
+        data = os.path.dirname(testkit.write_json(os.path.join(self.tmp, "src-data", "settings.json"), {"replacements": "あ=>い"}))
         rules = {"schema": "ytt-learned-rules/v1", "high": [{"wrong": "ぺこ", "right": "ぺこら", "pos": 3, "docs": 2}], "glossary": ["ぺこら"], "dictLearned": "x"}
         pack = learnpack.build(os.path.join(self.tmp, "学習"), data_dir=data, roster_path=os.path.join(self.tmp, "no-roster.json"),
                                members_path=os.path.join(self.tmp, "no-members.json"), rules=rules)
@@ -263,6 +238,7 @@ class TestPortal(Base):
         p = mock.patch.object(cli, "portal_at", lambda port: portal if port == 8700 else None)
         p.start()
         self.addCleanup(p.stop)
+        return portal
 
     def submitted(self, portal):
         """入口に submit した 1 回 -> (封筒, 束)。submit のほかに頼んだ物は無い(取り消しは除く)"""
@@ -276,8 +252,7 @@ class TestPortal(Base):
 
     def test_url_submit(self):
         """RS7-1 S4: URL は封筒 + 束の submit 1 回(解析から = full・まだスタジオに無い配信の印 fresh)。--spec・--force も入口で効く"""
-        portal = FakePortal()
-        self.use_portal(portal)
+        portal = self.use_portal(FakePortal())
         code, res, err = self.main("https://www.youtube.com/watch?v=abcdefghijk", "--spec", self.spec({"adopt": {"top": 2}}), "--title", "題", "--force")
         self.assertEqual(code, 0, err)
         env, spec = self.submitted(portal)
@@ -292,8 +267,7 @@ class TestPortal(Base):
         self.assertEqual(self.worker.closed, 0)
 
     def test_url_from_export_submit_and_failure(self):
-        portal = FakePortal(final="error")
-        self.use_portal(portal)
+        portal = self.use_portal(FakePortal(final="error"))
         code, res, err = self.main("abcdefghijk", "--from", "export", "--force")
         self.assertEqual(code, 1)
         env, spec = self.submitted(portal)
@@ -302,8 +276,7 @@ class TestPortal(Base):
 
     def test_file_submit(self):
         """動画ファイルは kind file の submit 1 回(文字起こし → パック。--from pack・--force は束の run で入口に渡る)"""
-        portal = FakePortal()
-        self.use_portal(portal)
+        portal = self.use_portal(FakePortal())
         video = self.dummy()
         code, res, err = self.main(video, "--spec", self.spec({"transcribe": {"model": "large-v3"}}), "--from", "pack", "--force")
         self.assertEqual(code, 0, err)
@@ -312,8 +285,7 @@ class TestPortal(Base):
         self.assertEqual((spec["transcribe"]["model"], spec["run"]["from"], spec["run"]["force"]), ("large-v3", "pack", True))
 
     def test_submit_refused(self):
-        portal = FakePortal(refuse="同じ入力がすでに実行中・順番待ちです")
-        self.use_portal(portal)
+        portal = self.use_portal(FakePortal(refuse="同じ入力がすでに実行中・順番待ちです"))
         code, res, err = self.main(self.dummy())
         self.assertEqual((code, res["state"]), (1, "error"))
         self.assertIn("すでに実行中", err)
@@ -321,8 +293,7 @@ class TestPortal(Base):
     def test_old_portal_fails(self):
         """submit の無い古い入口(404)には頼まない = 起動し直しを促して終了コード 1(2 段で頼む今までの形は消した)"""
         for target in ("https://www.youtube.com/watch?v=abcdefghijk", self.dummy()):
-            portal = FakePortal(old=True)
-            self.use_portal(portal)
+            portal = self.use_portal(FakePortal(old=True))
             code, res, err = self.main(target)
             self.assertEqual((code, res["state"]), (1, "error"), target)
             self.assertIn("start.bat", res["error"])
@@ -330,8 +301,7 @@ class TestPortal(Base):
             self.assertEqual((self.pl.acquired, portal.polls), ([], 0))
 
     def test_ctrl_c_cancels_portal_run(self):
-        portal = FakePortal(interrupt=True)
-        self.use_portal(portal)
+        portal = self.use_portal(FakePortal(interrupt=True))
         code, res, err = self.main("abcdefghijk")
         self.assertEqual(code, 130)
         self.assertEqual(portal.posts()[-1], ("/api/flow/cancel", {"id": "run:r1"}))
@@ -409,10 +379,7 @@ class _Handler(BaseHTTPRequestHandler):
 
 class TestPortalHttp(unittest.TestCase):
     def test_token_from_page(self):
-        srv = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
-        threading.Thread(target=srv.serve_forever, daemon=True).start()
-        self.addCleanup(srv.server_close)
-        self.addCleanup(srv.shutdown)
+        _url, srv = testkit.serve(self, _Handler)
         p = cli.Portal(srv.server_address[1], timeout=5)
         self.assertEqual(p.ok("GET", "/api/flow/runs"), {"runs": []})
         self.assertEqual(p.ok("POST", "/api/flow/submit", {"items": []}), {"runs": [{"id": "r9"}]})
@@ -477,8 +444,7 @@ class TestLocalRun(Base):
         self.assertEqual(len(res["artifacts"]["packs"]), 1)
         self.assertTrue(any(k.endswith(".transcribe.key.json") for k in res["artifacts"]["keys"]), res["artifacts"])
         self.assertTrue(os.path.isfile(res["resultFile"]))
-        with open(out, encoding="utf-8") as f:
-            self.assertEqual(json.load(f)["id"], res["id"])
+        self.assertEqual(testkit.read_json(out)["id"], res["id"])
         self.assertIn("[文字起こし]", err)
         self.assertEqual((self.pl.released, self.worker.closed), (self.pl.acquired, 1))
         # 2 回目: 文字起こし済み(文書を見つける)= 飛ばす・同じ名前のパックがある = 上書きしない
@@ -507,8 +473,7 @@ class TestLocalRun(Base):
                              [("analyze", "done"), ("adopt", "done"), ("export", "done"), ("transcribe", "done"), ("pack", "done")], res["steps"])
             self.assertEqual((res["via"], len(res["artifacts"]["packs"]), len(res["artifacts"]["docs"])), ("local", 1, 1))
             data = os.path.join(self.data, "studio", "data.json")
-            with open(data, encoding="utf-8") as f:
-                row = json.load(f)["videos"]["abcdefghijk"]
+            row = testkit.read_json(data)["videos"]["abcdefghijk"]
             self.assertEqual((row["title"], sorted(row)), ("配信の題", sorted(casefiles.INDEX_KEYS + ("case",))))   # 初めて書き出した = 案件の索引の行
             case = row["case"]
             self.assertTrue(os.path.isfile(casefiles.work_path(case, casefiles.ADOPTIONS_NAME)))
@@ -544,8 +509,7 @@ print(json.dumps({"code": code, "before": before, "human": sorted(k for k in sys
 class TestNoHumanLayer(unittest.TestCase):
     def drive(self, target_of, extra_env=None, sec=3):
         """別のプロセスで CLI を 1 回 -> (結果 {code, before, human}, 標準エラーの終わり)"""
-        tmp = tempfile.mkdtemp(prefix="ytt_cli_iso_")
-        self.addCleanup(shutil.rmtree, tmp, True)
+        tmp = testkit.tempdir(self, "ytt_cli_iso_")
         video = os.path.join(tmp, "v.mp4")
         _make_video(video, sec)
         env = dict(os.environ, TRANSCRIBE_FAKE_DELAY="0", YTT_RUNTIME_DIR=os.path.join(tmp, "runtime"), **(extra_env(video) if extra_env else {}))

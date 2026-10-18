@@ -6,6 +6,7 @@
 - 本物の3ツール(疑似モード)を一時フォルダに写して、入口から起動・停止できることを確かめる(RealToolsTest)
 ポートは OS に空きを選ばせるので、本物のツールが動いている PC でも走らせられる。
 """
+import contextlib
 import http.client
 import io
 import json
@@ -14,7 +15,6 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データ
 import shutil
 import socket
 import sys
-import tempfile
 import textwrap
 import threading
 import time
@@ -28,7 +28,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 sys.path.append(os.path.dirname(HERE))   # src(app 層。入口本体は src/app/server.py)
 from app import server as L  # noqa: E402
-from ytt import layout  # noqa: E402  (launch がリポジトリ直下を sys.path に入れる)
+from ytt import layout, testkit  # noqa: E402  (launch がリポジトリ直下を sys.path に入れる)
 
 REPO = os.path.dirname(HERE)
 
@@ -165,13 +165,34 @@ def _http(port, method, path, body=None, token=None):
         conn.close()
 
 
+@contextlib.contextmanager
+def patched(patches):
+    """mock.patch の並びを順に当てて、抜けるときに逆の順で外す"""
+    with contextlib.ExitStack() as stack:
+        for p in patches:
+            stack.enter_context(p)
+        yield
+
+
+def quiet_logger(sink=None):
+    """L.make_logger の代わり(黒い画面へは出さない。sink があれば行をそこへ)"""
+    def make_logger(path):
+        def log(msg, console=True):
+            if sink is not None:
+                sink.append(msg)
+        log.flush = lambda timeout=1.0: None
+        return log
+    return make_logger
+
+
 class Base(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-launch-")
+        self.tmp = testkit.tempdir(self, "ytt-launch-")
         self.root = make_fake_root(self.tmp)
         self.rdir = os.path.join(self.tmp, ".runtime")
-        self.env = mock.patch.dict(os.environ, {"YTT_RUNTIME_DIR": self.rdir})
-        self.env.start()
+        env = mock.patch.dict(os.environ, {"YTT_RUNTIME_DIR": self.rdir})
+        env.start()
+        self.addCleanup(env.stop)
         self.ports = dict(zip(L.TOOL_IDS, free_ports(3)))
         self.events = []
         self.sup = L.Supervisor(self.root, ready_timeout=20, stop_timeout=3, poll=0.1, log=self.events.append, ports=self.ports)
@@ -184,8 +205,6 @@ class Base(unittest.TestCase):
             if p.poll() is None:
                 p.kill()
                 p.wait(5)
-        self.env.stop()
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def state(self, tid):
         return self.sup.by_id[tid].snapshot()["state"]
@@ -193,11 +212,10 @@ class Base(unittest.TestCase):
     def wait_state(self, tid, *states, timeout=15):
         return wait_for(lambda: self.state(tid) in states, timeout)
 
-    def spawn_external(self, tid, port):
-        """入口を通さずに(別の黒い画面で起動したのと同じ)偽のツールを起動する"""
+    def spawn_external(self, tid, port, root=None):
+        """入口を通さずに(別の黒い画面で起動したのと同じ)偽のツールを起動する。root: 別のフォルダの serve.py(古い版など)"""
         import subprocess
-        spec = [s for s in L.TOOLS if s["id"] == tid][0]
-        p = subprocess.Popen([sys.executable, os.path.join(self.root, spec["dir"], "serve.py"), str(port), "--no-open"],
+        p = subprocess.Popen([sys.executable, os.path.join(root or self.root, layout.TOOL_DIRS[tid], "serve.py"), str(port), "--no-open"],
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.extra_procs.append(p)
         self.assertTrue(wait_for(lambda: L.ping(port) is not None, 10), "偽のツールが起動しない")
@@ -301,18 +319,10 @@ class SupervisorTest(Base):
 
     def test_old_version_external_warns(self):
         # フォルダの中は 0.2.0 だが、動いているのは古い版
-        d = os.path.join(self.root, layout.TOOL_DIRS["studio"])
-        with open(os.path.join(d, "serve.py"), encoding="utf-8") as f:
+        with open(os.path.join(self.root, layout.TOOL_DIRS["studio"], "serve.py"), encoding="utf-8") as f:
             src = f.read()
-        old_dir = os.path.join(self.tmp, "old", layout.TOOL_DIRS["studio"])
-        os.makedirs(old_dir)
-        with open(os.path.join(old_dir, "serve.py"), "w", encoding="utf-8") as f:
-            f.write(src.replace("'0.2.0'", "'0.1.8'"))
-        import subprocess
-        p = subprocess.Popen([sys.executable, os.path.join(old_dir, "serve.py"), str(self.ports["studio"]), "--no-open"],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        self.extra_procs.append(p)
-        self.assertTrue(wait_for(lambda: L.ping(self.ports["studio"]) is not None, 10))
+        testkit.write_text(os.path.join(self.tmp, "old", layout.TOOL_DIRS["studio"], "serve.py"), src.replace("'0.2.0'", "'0.1.8'"))
+        self.spawn_external("studio", self.ports["studio"], root=os.path.join(self.tmp, "old"))
         self.sup.start("studio")
         snap = self.sup.by_id["studio"].snapshot()
         self.assertEqual(snap["state"], "external")
@@ -356,10 +366,7 @@ class SupervisorTest(Base):
         set_mode(self.root, "studio", "slow")   # 子が自分の記録を書くまで少しかかる
         self.sup.start("studio")
         self.assertEqual(self.state("studio"), "starting")
-        os.makedirs(self.rdir, exist_ok=True)
-        path = os.path.join(self.rdir, "studio.json")
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump({"tool": "studio", "port": other, "version": "0.2.0"}, f)
+        path = testkit.write_json(os.path.join(self.rdir, "studio.json"), {"tool": "studio", "port": other, "version": "0.2.0"})
         old = time.time() - 3600
         os.utime(path, (old, old))
         self.sup.start_monitor()
@@ -368,8 +375,7 @@ class SupervisorTest(Base):
         self.assertTrue(self.wait_state("studio", "running"))
         self.assertEqual(self.sup.by_id["studio"].snapshot()["port"], self.ports["studio"])
         # 範囲外のポートを書いた記録も信用しない
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump({"tool": "studio", "port": 1, "version": "x"}, f)
+        testkit.write_json(path, {"tool": "studio", "port": 1, "version": "x"})
         self.assertIsNone(L.read_runtime(self.rdir, "studio"))
 
     def test_missing_folder(self):
@@ -396,10 +402,7 @@ class SupervisorTest(Base):
 
 class HelpersTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-launch-h-")
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
+        self.tmp = testkit.tempdir(self, "ytt-launch-h-")
 
     def test_tail(self):
         p = os.path.join(self.tmp, "a.log")
@@ -463,13 +466,9 @@ class HelpersTest(unittest.TestCase):
     def test_relink_out_dirs_on_start(self):
         """書き出し先を変えたあとの案件の繋ぎ直し(起動のとき)。inplace(テスト)は何もしない・書き出し先は起動のたびに覚える・失敗しても上げない"""
         from types import SimpleNamespace
-        tmp = tempfile.mkdtemp(prefix="relinkout-")
-        self.addCleanup(shutil.rmtree, tmp, True)
-        data = os.path.join(tmp, "studio", "data.json")
-        os.makedirs(os.path.dirname(data))
-        with open(data, "w", encoding="utf-8") as f:
-            json.dump({"schema": "clip-studio/v1", "videos": {}, "groups": {}}, f)
-        srv = SimpleNamespace(sup=SimpleNamespace(root=tmp))
+        tmp = self.tmp
+        data = testkit.write_json(os.path.join(tmp, "studio", "data.json"), {"schema": "clip-studio/v1", "videos": {}, "groups": {}})
+        srv =SimpleNamespace(sup=SimpleNamespace(root=tmp))
         logs = []
         self.assertIsNone(L.relink_out_dirs(srv, logs.append))   # inplace
         with mock.patch.object(L.datadir, "data_root", return_value=tmp), mock.patch.object(L.placement, "studio_data", return_value=data), \
@@ -527,6 +526,32 @@ class PortalHttpTest(Base):
         h.update(headers or {})
         return self.req("POST", path, body, h)
 
+    def get_json(self, path, **kw):
+        """GET -> (HTTP の番号, 本文の JSON)"""
+        r, body = self.req("GET", path, **kw)
+        return r.status, json.loads(body)
+
+    def post_json(self, path, obj, **kw):
+        """obj を JSON(UTF-8)で POST -> (HTTP の番号, 本文の JSON)"""
+        r, body = self.post(path, body=json.dumps(obj, ensure_ascii=False).encode("utf-8"), **kw)
+        return r.status, json.loads(body)
+
+    def patch_prefs(self, section, value):
+        """入口の設定(api/ytt/prefs)の節 section に value を重ねる -> (HTTP の番号, 本文の JSON)"""
+        return self.post_json("/api/ytt/prefs", {"op": "patch", "section": section, "value": value})
+
+    def file_envelope(self):
+        """一時フォルダの動画 1 本の封筒(kind file)-> (動画のパス, 封筒)"""
+        media = os.path.join(self.tmp, "切り抜き.mp4")
+        with open(media, "wb") as f:
+            f.write(b"x")
+        return media, {"id": "0123456789", "kind": "file", "input": {"path": media, "title": "切り抜き"}, "legacy": {"mode": "file"}}
+
+    def wait_stops(self, stops):
+        """後始末の頼み(request_shutdown)は裏で届くので、届くまで少し待つ"""
+        wait_for(lambda: stops, 1.5, 0.05)
+        self.assertEqual(stops, [1])
+
     def test_page_and_headers(self):
         r, body = self.req("GET", "/")
         self.assertEqual(r.status, 200)
@@ -546,8 +571,7 @@ class PortalHttpTest(Base):
         self.assertIn(b'name="ytt-token"', body)
         r, _ = self.req("GET", "/settings/")
         self.assertEqual((r.status, r.getheader("Location")), (302, "/settings"))
-        r, _ = self.req("GET", "/server.py")   # コードや他のファイルは配らない
-        self.assertEqual(r.status, 404)
+        self.assertEqual(self.req("GET", "/server.py")[0].status, 404)   # コードや他のファイルは配らない
 
     def test_cases_redirects_switch_and_doc_lookup(self):
         """RS8 C0・C4: 今の URL -> /cases の転送はいつも有効(C4 でスイッチ YTT_CASES_REDIRECT を消した)。/api/cases の足した欄と ?doc="""
@@ -574,39 +598,25 @@ class PortalHttpTest(Base):
         self.assertEqual(r.status, 400)
 
     def test_host_check(self):
-        r, _ = self.req("GET", "/api/status", headers={"Host": "evil.example:%d" % self.port})
-        self.assertEqual(r.status, 403)
-        r, _ = self.post("/api/tools/studio/start", headers={"Host": "evil.example"})
-        self.assertEqual(r.status, 403)
+        self.assertEqual(self.req("GET", "/api/status", headers={"Host": "evil.example:%d" % self.port})[0].status, 403)
+        self.assertEqual(self.post("/api/tools/studio/start", headers={"Host": "evil.example"})[0].status, 403)
 
     def test_cross_site_reads_and_navigation(self):
-        r, _ = self.req("GET", "/api/status", headers={"Sec-Fetch-Site": "cross-site"})
-        self.assertEqual(r.status, 403)
+        self.assertEqual(self.req("GET", "/api/status", headers={"Sec-Fetch-Site": "cross-site"})[0].status, 403)
         nav = {"Sec-Fetch-Site": "same-site", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document"}
-        r, _ = self.req("GET", "/", headers=nav)   # 各ツールの画面のリンクで入口を開くのはよい
-        self.assertEqual(r.status, 200)
-        r, _ = self.req("GET", "/api/status", headers=nav)   # API は同じ画面からだけ
-        self.assertEqual(r.status, 403)
-        r, _ = self.req("GET", "/", headers=dict(nav, **{"Sec-Fetch-Dest": "iframe"}))
-        self.assertEqual(r.status, 403)
+        self.assertEqual(self.req("GET", "/", headers=nav)[0].status, 200)   # 各ツールの画面のリンクで入口を開くのはよい
+        self.assertEqual(self.req("GET", "/api/status", headers=nav)[0].status, 403)   # API は同じ画面からだけ
+        self.assertEqual(self.req("GET", "/", headers=dict(nav, **{"Sec-Fetch-Dest": "iframe"}))[0].status, 403)
 
     def test_post_guards(self):
-        r, _ = self.req("POST", "/api/tools/studio/start", b"{}", {"Content-Type": "text/plain", "X-YTT-Token": self.srv.token})
-        self.assertEqual(r.status, 415)
-        r, _ = self.post("/api/tools/studio/start", headers={"Origin": "http://evil.example"})
-        self.assertEqual(r.status, 403)
-        r, _ = self.post("/api/tools/studio/start", headers={"Sec-Fetch-Site": "cross-site"})
-        self.assertEqual(r.status, 403)
-        r, _ = self.post("/api/tools/studio/start", headers={"Origin": "http://localhost:%d" % (self.port + 1)})
-        self.assertEqual(r.status, 403)
-        r, _ = self.post("/api/tools/studio/start", body=b"[1]")
-        self.assertEqual(r.status, 400)
-        r, _ = self.post("/api/tools/studio/start", body=b"x" * 5000)
-        self.assertEqual(r.status, 413)
-        r, _ = self.post("/api/tools/nope/start")
-        self.assertEqual(r.status, 404)
-        r, _ = self.post("/api/tools/studio/delete")
-        self.assertEqual(r.status, 404)
+        self.assertEqual(self.req("POST", "/api/tools/studio/start", b"{}", {"Content-Type": "text/plain", "X-YTT-Token": self.srv.token})[0].status, 415)
+        self.assertEqual(self.post("/api/tools/studio/start", headers={"Origin": "http://evil.example"})[0].status, 403)
+        self.assertEqual(self.post("/api/tools/studio/start", headers={"Sec-Fetch-Site": "cross-site"})[0].status, 403)
+        self.assertEqual(self.post("/api/tools/studio/start", headers={"Origin": "http://localhost:%d" % (self.port + 1)})[0].status, 403)
+        self.assertEqual(self.post("/api/tools/studio/start", body=b"[1]")[0].status, 400)
+        self.assertEqual(self.post("/api/tools/studio/start", body=b"x" * 5000)[0].status, 413)
+        self.assertEqual(self.post("/api/tools/nope/start")[0].status, 404)
+        self.assertEqual(self.post("/api/tools/studio/delete")[0].status, 404)
         self.assertEqual(self.state("studio"), "stopped", "拒否したのに起動した")
 
     def test_post_body_edges(self):
@@ -621,8 +631,7 @@ class PortalHttpTest(Base):
         self.assertEqual(err(*self.post("/api/cases/auto", body=b'{"a": 1')), (400, "json"))
         self.assertEqual(err(*self.post("/api/cases/auto", body=b"[" * 3000)), (400, "json"))   # 深い入れ子でも落ちずに 400
         self.assertEqual(err(*self.post("/api/cases/auto", headers={"Content-Type": "text/plain"})), (415, "content_type"))
-        r, _ = self.post("/api/tools/studio/start", headers={"X-YTT-Token": "é" * 10})   # ASCII 以外の合言葉でも落ちずに 403
-        self.assertEqual(r.status, 403)
+        self.assertEqual(self.post("/api/tools/studio/start", headers={"X-YTT-Token": "é" * 10})[0].status, 403)   # ASCII 以外の合言葉でも落ちずに 403
 
     def test_extra_dirs(self):
         """空き容量・ごみ箱フォルダの書き出し先(0.50.1 で datadir.studio_out_dir に寄せた)。settings.json が無ければ今までどおり []"""
@@ -634,8 +643,7 @@ class PortalHttpTest(Base):
             self.assertEqual(self.srv._extra_dirs(), [])
             for st, want in (({"outDir": out}, [out]), ({}, [os.path.join(sdir, "exports")]), ({"outDir": ""}, [os.path.join(sdir, "exports")]),
                              ([1], [os.path.join(sdir, "exports")]), ({"outDir": "rel/x"}, [os.path.join(sdir, "exports")])):
-                with open(path, "w", encoding="utf-8") as f:
-                    json.dump(st, f)
+                testkit.write_json(path, st)
                 self.assertEqual(self.srv._extra_dirs(), want, st)
 
     def test_ytt_request_drains_refused_body(self):
@@ -673,11 +681,7 @@ class PortalHttpTest(Base):
         self.assertEqual([v["tool"] for v in h["versions"]], [t.id for t in self.sup.tools])
         self.assertTrue(h["disk"] and h["disk"][0]["totalBytes"] > 0)
         self.assertEqual(h["errors"]["clientLast24h"], 0)
-        for _ in range(60):
-            if h["data"] is not None:
-                break
-            time.sleep(0.1)
-            h = json.loads(self.req("GET", "/api/health")[1])
+        h = wait_for(lambda: (lambda x: x if x["data"] is not None else None)(self.get_json("/api/health")[1]), 6) or h   # 大きさは別のスレッドで数える
         self.assertIsNotNone(h["data"])
         self.assertIn("ffmpeg", h["tools"])
         r, body = self.req("GET", "/api/health?refresh=1")
@@ -691,59 +695,48 @@ class PortalHttpTest(Base):
         self.assertEqual([k["kind"] for k in d["kinds"]], ["export", "work", "cache", "log", "intake", "failed"])
         for k in ("bytes", "trash", "trashRoots", "keepDays", "packAgeDays"):
             self.assertIn(k, d)
-        r, _ = self.post("/api/cleanup", body=json.dumps({"ids": []}).encode())
-        self.assertEqual(r.status, 400)
+        self.assertEqual(self.post("/api/cleanup", body=json.dumps({"ids": []}).encode())[0].status, 400)
         r, body = self.post("/api/cleanup", body=json.dumps({"ids": ["nope"]}).encode())
         self.assertEqual((r.status, json.loads(body)["unknown"], json.loads(body)["moved"]), (200, ["nope"], []))
 
     def test_restart_self(self):
         """起動し直す(段9 9-3): 重い処理の最中は 409 で断る。空いていれば新しい入口を --wait-port で起こし、後始末を頼む"""
+        R, calls, stops = self.fake_restart()
+        with mock.patch.object(R, "can_restart", lambda *a, **k: "実行中の処理があります(文字起こし)。終わってから起動し直してください"):
+            r, body = self.post("/api/ytt/restart-self")
+        self.assertEqual((r.status, json.loads(body)["error"]), (409, "busy"))
+        self.assertEqual(calls, [])
+        r, body = self.post("/api/ytt/restart-self")
+        self.assertEqual(r.status, 200, body)
+        self.assertEqual(len(calls), 1)
+        self.assertIn("--wait-port", calls[0])
+        self.assertEqual(calls[0][calls[0].index("--port") + 1], str(self.srv.server_address[1]))
+        self.wait_stops(stops)
+
+    def fake_restart(self):
+        """新しい入口を起こす口と後始末の頼みを偽物に(このテストの間だけ)-> (restart のモジュール, 起こした引数, 後始末の頼み)"""
         from manage.ops import restart as R
         calls, stops = [], []
-        saved = (R.spawn_new_launcher, self.srv.request_shutdown, R.can_restart)
-        R.spawn_new_launcher = lambda root, args=(), log=None, **kw: calls.append(list(args))
-        self.srv.request_shutdown = lambda: stops.append(1)
-        try:
-            R.can_restart = lambda *a, **k: "実行中の処理があります(文字起こし)。終わってから起動し直してください"
-            r, body = self.post("/api/ytt/restart-self")
-            self.assertEqual((r.status, json.loads(body)["error"]), (409, "busy"))
-            self.assertEqual(calls, [])
-            R.can_restart = saved[2]
-            r, body = self.post("/api/ytt/restart-self")
-            self.assertEqual(r.status, 200, body)
-            self.assertEqual(len(calls), 1)
-            self.assertIn("--wait-port", calls[0])
-            self.assertEqual(calls[0][calls[0].index("--port") + 1], str(self.srv.server_address[1]))
-            for _ in range(30):
-                if stops:
-                    break
-                time.sleep(0.05)
-            self.assertEqual(stops, [1])
-        finally:
-            R.spawn_new_launcher, self.srv.request_shutdown, R.can_restart = saved
+        for p in (mock.patch.object(R, "spawn_new_launcher", lambda root, args=(), log=None, **kw: calls.append(list(args))),
+                  mock.patch.object(self.srv, "request_shutdown", lambda: stops.append(1))):
+            p.start()
+            self.addCleanup(p.stop)
+        return R, calls, stops
 
     def test_restart_self_refused_when_headless(self):
         """画面なしの入口(--headless)は起動し直さない(新しい入口が送るアプリの子にならない)= 409 で新しい入口を起こさない"""
-        from manage.ops import restart as R
-        calls = []
-        saved = R.spawn_new_launcher
-        R.spawn_new_launcher = lambda root, args=(), log=None, **kw: calls.append(list(args))
-        self.srv.headless = True
-        try:
+        _R, calls, _stops = self.fake_restart()
+        with mock.patch.object(self.srv, "headless", True):
             r, body = self.post("/api/ytt/restart-self")
-            self.assertEqual((r.status, json.loads(body)["error"]), (409, "headless"))
-            self.assertEqual(calls, [])
-        finally:
-            R.spawn_new_launcher = saved
-            self.srv.headless = False
+        self.assertEqual((r.status, json.loads(body)["error"]), (409, "headless"))
+        self.assertEqual(calls, [])
 
     def test_flow_status_live(self):
         """RS7-2 G5a: GET /api/flow/status の live 欄 = ライブの録画中・検出中・書き出しの途中の数(PortalServer.live_activity)。
         どれかが 0 でなければ idle は偽。リアルタイム切り抜きがオフなら全部 0 で、録画元に問い合わせない"""
-        r, body = self.req("GET", "/api/flow/status")
-        st = json.loads(body)
-        self.assertEqual((st["live"], st["idle"]), ({"recording": 0, "detecting": 0, "exporting": 0}, True))   # 既定(オフ)
-        real = self.srv.live
+        idle = ({"recording": 0, "detecting": 0, "exporting": 0}, True)
+        st = self.get_json("/api/flow/status")[1]
+        self.assertEqual((st["live"], st["idle"]), idle)   # 既定(オフ)
         fake = mock.MagicMock()
         fake.enabled.return_value = True
         fake.recent.return_value = [{"id": "a", "active": True}, {"id": "b", "active": False}]   # 終わって 10 分以内の録画は数えない
@@ -752,31 +745,26 @@ class PortalHttpTest(Base):
         fake.detector.running.return_value = True
         fake._exporter.lock = threading.Lock()
         fake._exporter.jobs = [{"state": "fetch"}, {"state": "done", "handoffWait": "disk"}, {"state": "done"}, {"state": "failed"}]
-        self.srv.live = fake
-        try:
-            st = json.loads(self.req("GET", "/api/flow/status")[1])
+        with mock.patch.object(self.srv, "live", fake):
+            st = self.get_json("/api/flow/status")[1]
             self.assertEqual((st["live"], st["idle"], st["queued"], st["running"]), ({"recording": 1, "detecting": 2, "exporting": 2}, False, 0, 0))
             fake.recent.return_value = []
             fake.detector.running.return_value = False   # ワーカーが止まっている = 測っていない
             fake._exporter = None   # 書き出しを一度も使っていない
-            st = json.loads(self.req("GET", "/api/flow/status")[1])
-            self.assertEqual((st["live"], st["idle"]), ({"recording": 0, "detecting": 0, "exporting": 0}, True))
+            st = self.get_json("/api/flow/status")[1]
+            self.assertEqual((st["live"], st["idle"]), idle)
             fake.recent.side_effect = OSError("録画元につながらない")   # 読めない = 閉じない側
-            st = json.loads(self.req("GET", "/api/flow/status")[1])
+            st = self.get_json("/api/flow/status")[1]
             self.assertEqual((st["live"]["recording"], st["idle"]), (None, False))
             fake.enabled.return_value = False
             fake.recent.reset_mock()
-            st = json.loads(self.req("GET", "/api/flow/status")[1])
-            self.assertEqual((st["live"], st["idle"]), ({"recording": 0, "detecting": 0, "exporting": 0}, True))
+            st = self.get_json("/api/flow/status")[1]
+            self.assertEqual((st["live"], st["idle"]), idle)
             fake.recent.assert_not_called()
-        finally:
-            self.srv.live = real
 
     def test_restart_self_keeps_autorun_runs(self):
         """まとめて実行の待ち・実行中は断らずに起動し直し、何件が続くかを notice で知らせる(M5。入口 0.41.0)。
         実行中の段の仕事でも、同じツールに人が始めた仕事があれば(others)今までどおり断る"""
-        from manage.ops import restart as R
-
         class Stub:
             def __init__(self, redo):
                 self.redo = redo
@@ -789,39 +777,27 @@ class PortalHttpTest(Base):
 
             def close(self):
                 pass
-        calls, stops = [], []
-        saved = (R.spawn_new_launcher, self.srv.request_shutdown, self.srv._autorun, self.srv.sup.status)
-        R.spawn_new_launcher = lambda root, args=(), log=None, **kw: calls.append(list(args))
-        self.srv.request_shutdown = lambda: stops.append(1)
+        R, calls, stops = self.fake_restart()
         heavy = {"limit": 2, "active": [{"tool": "transcribe", "label": "配信の切り抜き", "seconds": 3}], "waiting": []}
-        self.srv.sup.status = lambda: {"heavy": heavy}
-        try:
+        with mock.patch.object(self.srv.sup, "status", lambda: {"heavy": heavy}), mock.patch.object(self.srv, "_autorun"):
             self.srv._autorun = Stub({"tool": "transcribe", "labels": ["配信の切り抜き"], "others": ["人が入れた文字起こし"]})
             r, body = self.post("/api/ytt/restart-self")
             self.assertEqual((r.status, calls), (409, []), body)
             self.assertIn("配信の切り抜き", json.loads(body)["message"])
             self.srv._autorun = Stub({"tool": "transcribe", "labels": ["配信の切り抜き"], "others": []})
             r, body = self.post("/api/ytt/restart-self")
-            self.assertEqual((r.status, len(calls)), (200, 1), body)
-            self.assertEqual(json.loads(body), {"ok": True, "notice": R.RESUME_NOTICE % 2})
-            for _ in range(30):
-                if stops:
-                    break
-                time.sleep(0.05)
-            self.assertEqual(stops, [1])
-        finally:
-            R.spawn_new_launcher, self.srv.request_shutdown, self.srv._autorun, self.srv.sup.status = saved
+        self.assertEqual((r.status, len(calls)), (200, 1), body)
+        self.assertEqual(json.loads(body), {"ok": True, "notice": R.RESUME_NOTICE % 2})
+        self.wait_stops(stops)
 
     def test_csrf_token(self):
         """書き込み系の API は、画面に埋め込んだ合言葉(CSRF トークン)が一致しないと受け付けない"""
         r, body = self.req("GET", "/")
         self.assertIn(('<meta name="ytt-token" content="%s">' % self.srv.token).encode(), body)
         for bad in ("", "x" * len(self.srv.token), self.srv.token + "x"):
-            r, _ = self.post("/api/tools/studio/start", headers={"X-YTT-Token": bad})
-            self.assertEqual(r.status, 403, bad)
+            self.assertEqual(self.post("/api/tools/studio/start", headers={"X-YTT-Token": bad})[0].status, 403, bad)
         h = {"Content-Type": "application/json", "Origin": "http://" + self.host}
-        r, _ = self.req("POST", "/api/shutdown", b"{}", h)   # 合言葉なし
-        self.assertEqual(r.status, 403)
+        self.assertEqual(self.req("POST", "/api/shutdown", b"{}", h)[0].status, 403)   # 合言葉なし
         self.assertFalse(self.srv.closing.is_set())
         self.assertEqual(self.state("studio"), "stopped")
         other, _ = L.make_server(0, self.sup)
@@ -836,8 +812,7 @@ class PortalHttpTest(Base):
         self.assertEqual(json.loads(body)["tool"]["state"], "starting")
         self.sup.start_monitor()
         self.assertTrue(self.wait_state("studio", "running"))
-        r, body = self.req("GET", "/api/status", headers={"Sec-Fetch-Site": "same-origin"})
-        st = json.loads(body)
+        st = self.get_json("/api/status", headers={"Sec-Fetch-Site": "same-origin"})[1]
         self.assertEqual(st["app"], L.APP_ID)
         self.assertEqual(st["version"], L.VERSION)
         by = {t["id"]: t for t in st["tools"]}
@@ -854,15 +829,13 @@ class PortalHttpTest(Base):
         self.sup.start("studio")
         self.sup.start_monitor()
         self.assertTrue(self.wait_state("studio", "running"))
-        r, body = self.req("GET", "/api/log?tool=studio&lines=5")
-        j = json.loads(body)
+        j = self.get_json("/api/log?tool=studio&lines=5")[1]
         self.assertTrue(j["exists"])
         self.assertLessEqual(len(j["lines"]), 5)
         self.assertTrue(any("listening" in ln for ln in j["lines"]))
         self.assertIn("studio.log", j["log"])
         for bad in ("../launcher", "..%2F..%2Fetc%2Fpasswd", "", "STUDIO"):
-            r, _ = self.req("GET", "/api/log?tool=" + bad)
-            self.assertEqual(r.status, 404, bad)
+            self.assertEqual(self.req("GET", "/api/log?tool=" + bad)[0].status, 404, bad)
         r, body = self.req("GET", "/api/log?tool=studio&lines=abc")
         self.assertEqual(r.status, 200)
         r, body = self.req("GET", "/api/log?tool=transcribe")
@@ -877,8 +850,7 @@ class PortalHttpTest(Base):
             for i in range(250):
                 f.write(json.dumps({"v": 1, "id": "r%03d" % i, "kind": "video", "videoId": "v%03d" % i, "docId": None, "state": "error",
                                     "error": "理由%d" % i, "steps": []}, ensure_ascii=False) + "\n")
-        r, body = self.req("GET", "/api/flow/runs")
-        j = json.loads(body)
+        j = self.get_json("/api/flow/runs")[1]
         self.assertEqual((j["runs"], len(j["past"]), j["past"][0]["id"], j["past"][0]["error"]), ([], 50, "r249", "理由249"))
         for q, n, first in (("", 50, "r249"), ("?limit=1000", 200, "r249"), ("?limit=abc&offset=x", 50, "r249"), ("?limit=0", 1, "r249"),
                             ("?limit=20&offset=240", 10, "r009"), ("?offset=-3", 50, "r249")):
@@ -886,24 +858,18 @@ class PortalHttpTest(Base):
             self.assertEqual(r.status, 200, q)
             h = json.loads(body)
             self.assertEqual((len(h["runs"]), h["runs"][0]["id"], h["total"]), (n, first, 250), q)
-        r, _ = self.req("GET", "/api/flow/history", headers={"Sec-Fetch-Site": "cross-site"})   # ほかのサイトからは読めない
-        self.assertEqual(r.status, 403)
+        self.assertEqual(self.req("GET", "/api/flow/history", headers={"Sec-Fetch-Site": "cross-site"})[0].status, 403)   # ほかのサイトからは読めない
         for path in ("/api/autorun", "/api/autorun/history"):   # 以前の名前は消した(RV A1)
-            r, _ = self.req("GET", path)
-            self.assertEqual(r.status, 404, path)
+            self.assertEqual(self.req("GET", path)[0].status, 404, path)
 
     def test_flow_submit_and_status(self):
         """RS7-1 S4: ② の口 POST /api/flow/submit {envelope, spec}(合言葉が要る・形が違えば 400 と理由)と GET /api/flow/status"""
         r, body = self.req("GET", "/api/flow/status")
         j = json.loads(body)
         self.assertEqual((r.status, j["queued"], j["running"], j["idle"], j["runs"]), (200, 0, 0, True, []))
-        media = os.path.join(self.tmp, "切り抜き.mp4")
-        with open(media, "wb") as f:
-            f.write(b"x")
-        env = {"id": "0123456789", "kind": "file", "input": {"path": media, "title": "切り抜き"}, "legacy": {"mode": "file"}}
+        media, env = self.file_envelope()
         payload = json.dumps({"envelope": env, "spec": {"transcribe": {"model": "large-v3"}}}, ensure_ascii=False).encode("utf-8")
-        r, _ = self.post("/api/flow/submit", headers={"X-YTT-Token": "x"}, body=payload)   # 書き込み系 = 合言葉が要る
-        self.assertEqual(r.status, 403)
+        self.assertEqual(self.post("/api/flow/submit", headers={"X-YTT-Token": "x"}, body=payload)[0].status, 403)   # 書き込み系 = 合言葉が要る
         for bad, why in (({"envelope": dict(env, kind="nai")}, "封筒.kind"),
                          ({"envelope": dict(env, input={"path": os.path.join(self.tmp, "nai.mp4")})}, "見つかりません"),
                          ({"envelope": env, "spec": {"transcribe": {"engine": "nai"}}}, "transcribe.engine"),
@@ -919,12 +885,10 @@ class PortalHttpTest(Base):
         r, body = self.post("/api/flow/submit", body=payload)
         j = json.loads(body)
         self.assertEqual((r.status, j["run"]["id"], j["run"]["kind"], j["run"]["sourcePath"]), (200, "0123456789", "file", media))
-        r, body = self.req("GET", "/api/flow/status")
-        st = json.loads(body)
+        st = self.get_json("/api/flow/status")[1]
         self.assertEqual([x["id"] for x in st["runs"]], ["0123456789"])
         self.assertEqual(next(x for x in self.srv.autorun.runs if x.id == "0123456789").spec["transcribe"]["model"], "large-v3")   # 受けた束のまま
-        r, _ = self.req("GET", "/api/flow/status", headers={"Sec-Fetch-Site": "cross-site"})   # ほかのサイトからは読めない
-        self.assertEqual(r.status, 403)
+        self.assertEqual(self.req("GET", "/api/flow/status", headers={"Sec-Fetch-Site": "cross-site"})[0].status, 403)   # ほかのサイトからは読めない
 
     def test_flow_submit_waits_for_tools(self):
         """起動直後(ツールの取り込みの途中)の submit は取り込みが済むまで待つ・待ちきれなければ 503 starting(CLI が「編集が動いていない」で落ちない)"""
@@ -940,10 +904,7 @@ class PortalHttpTest(Base):
             self.srv.tools_started = None
     def test_flow_submit_spec_errors(self):
         """F1 F0-1: 束の版の違いは 400 spec_version・束の知らない節・項目は 400 bad_spec(送るアプリは「更新してください」)・封筒の形は今までどおり bad_request"""
-        media = os.path.join(self.tmp, "切り抜き.mp4")
-        with open(media, "wb") as f:
-            f.write(b"x")
-        env = {"id": "0123456789", "kind": "file", "input": {"path": media, "title": "切り抜き"}, "legacy": {"mode": "file"}}
+        _media, env = self.file_envelope()
         for bad, code in (({"envelope": dict(env, specVersion=3)}, "spec_version"), ({"envelope": env, "spec": {"nai": {}}}, "bad_spec"),
                           ({"envelope": env, "spec": {"transcribe": {"nai": 1}}}, "bad_spec"), ({"envelope": dict(env, kind="nai")}, "bad_request")):
             r, body = self.post("/api/flow/submit", body=json.dumps(bad, ensure_ascii=False).encode("utf-8"))
@@ -954,9 +915,8 @@ class PortalHttpTest(Base):
         """F1 F0-1: GET /api/flow/machine = この PC の設定・PUT は合言葉つきで machine.json に書く(変えられる項目だけ・合わない値は 400)"""
         mfile = os.path.join(self.tmp, "m", "machine.json")
         with mock.patch.dict(os.environ, {"YTT_MACHINE_FILE": mfile}):
-            r, body = self.req("GET", "/api/flow/machine")
-            j = json.loads(body)
-            self.assertEqual((r.status, j["diskMinGB"], j["sources"]["diskMinGB"]), (200, L.machine_mod.DISK_MIN_GB, "default"))
+            st, j = self.get_json("/api/flow/machine")
+            self.assertEqual((st, j["diskMinGB"], j["sources"]["diskMinGB"]), (200, L.machine_mod.DISK_MIN_GB, "default"))
 
             def put(obj, token=None, path="/api/flow/machine"):
                 h = {"Content-Type": "application/json", "Origin": "http://" + self.host, "Sec-Fetch-Site": "same-origin",
@@ -967,16 +927,15 @@ class PortalHttpTest(Base):
             self.assertFalse(os.path.exists(mfile))
             st, j = put({"diskMinGB": 50, "llmModel": "qwen3-4b"})
             self.assertEqual((st, j["machine"]["diskMinGB"], j["machine"]["sources"]["diskMinGB"], j["file"]["llmModel"]), (200, 50, "file", "qwen3-4b"))
-            with open(mfile, encoding="utf-8") as f:
-                self.assertEqual(json.load(f)["diskMinGB"], 50)
+            self.assertEqual(testkit.read_json(mfile)["diskMinGB"], 50)
             for bad in ({"engine": "whisper.cpp"}, {"docMove": True}, {"diskMinGB": -1}, {"caseRoot": "relative"}):
                 st, j = put(bad)
                 self.assertEqual((st, j["error"]), (400, "bad_request"), bad)
             st, j = put({"diskMinGB": None})   # null = 既定へ戻す
             self.assertEqual((st, j["machine"]["diskMinGB"], "diskMinGB" in j["file"]), (200, L.machine_mod.DISK_MIN_GB, False))
             self.assertEqual(put({}, path="/api/flow/nai")[0], 404)
-            r, _ = self.req("PUT", "/api/flow/machine", b"{}", {"Content-Type": "application/json", "Sec-Fetch-Site": "cross-site", "X-YTT-Token": self.srv.token})
-            self.assertEqual(r.status, 403)
+            cross = {"Content-Type": "application/json", "Sec-Fetch-Site": "cross-site", "X-YTT-Token": self.srv.token}
+            self.assertEqual(self.req("PUT", "/api/flow/machine", b"{}", cross)[0].status, 403)
 
     def test_flow_outbox_api(self):
         """F1 F6a: GET /api/flow/outbox = 送り返す zip の一覧・POST /api/flow/outbox/done {id} で 済み へ(無い・形が違う id は 404・合言葉が要る)"""
@@ -994,7 +953,7 @@ class PortalHttpTest(Base):
         r, body = self.post("/api/flow/outbox/done", body=b'{"id":"req1__run1.zip"}')
         self.assertEqual((r.status, json.loads(body)), (200, {"ok": True}))
         self.assertTrue(os.path.isfile(os.path.join(ob, "済み", "req1__run1.zip")))
-        self.assertEqual(json.loads(self.req("GET", "/api/flow/outbox")[1])["files"], [])
+        self.assertEqual(self.get_json("/api/flow/outbox")[1]["files"], [])
 
     def test_after_run_outbox_only_headless(self):
         """F1 F6a: 実行が終わったあとの送り返しの zip は、画面なし・依頼(requestId)の実行だけ"""
@@ -1023,11 +982,8 @@ class PortalHttpTest(Base):
         self.assertEqual(logs, ["読みません"])
         self.assertIsNone(doc_jobs._learning[0])
         pack = os.path.join(self.tmp, "学習", "v9")
-        os.makedirs(pack)
-        with open(os.path.join(pack, "learning.json"), "w", encoding="utf-8") as f:
-            json.dump({"version": "v9"}, f)
-        with open(os.path.join(pack, "learned-rules.json"), "w", encoding="utf-8") as f:
-            json.dump({"high": [], "glossary": ["星街すいせい"], "dictLearned": "d1"}, f)
+        testkit.write_json(os.path.join(pack, "learning.json"), {"version": "v9"})
+        testkit.write_json(os.path.join(pack, "learned-rules.json"), {"high": [], "glossary": ["星街すいせい"], "dictLearned": "d1"})
         self.srv.autorun   # 先に作ってあっても読み手が入る
         with mock.patch.object(L.learning_mod, "learning_dir_checked", return_value=(pack, "")), mock.patch.object(L.learning_mod, "apply_places") as ap:
             lr = self.srv.wire_learning()
@@ -1065,28 +1021,21 @@ class PortalHttpTest(Base):
         for path in ("/api/flow/status?case=" + quote("相対/パス"), "/api/flow/history?case=" + quote("x")):
             r, body = self.req("GET", path)
             self.assertEqual((r.status, json.loads(body)["error"]), (400, "bad_request"), path)
-        media = os.path.join(self.tmp, "切り抜き.mp4")
-        with open(media, "wb") as f:
-            f.write(b"x")
-        env = {"id": "0123456789", "kind": "file", "input": {"path": media, "title": "切り抜き"}, "legacy": {"mode": "file"}}
-        r, _ = self.post("/api/flow/submit", body=json.dumps({"envelope": env}, ensure_ascii=False).encode("utf-8"))
-        self.assertEqual(r.status, 200)
-        st = json.loads(self.req("GET", "/api/flow/status")[1])
+        media, env = self.file_envelope()
+        self.assertEqual(self.post_json("/api/flow/submit", {"envelope": env})[0], 200)
+        st = self.get_json("/api/flow/status")[1]
         job = next(j for j in st["jobs"] if j["id"] == "run:0123456789")
         self.assertEqual((job["kind"], job["target"]["path"], [s["key"] for s in job["steps"]]), ("run", media, ["transcribe"]))
-        st = json.loads(self.req("GET", "/api/flow/status?case=" + quote(os.path.join(self.tmp, "nai")))[1])
+        st = self.get_json("/api/flow/status?case=" + quote(os.path.join(self.tmp, "nai")))[1]
         self.assertEqual((st["jobs"], [x["id"] for x in st["runs"]]), ([], ["0123456789"]))   # 絞るのは jobs だけ
-        r, _ = self.post("/api/flow/cancel", headers={"X-YTT-Token": "x"}, body=b'{"id": "run:0123456789"}')   # 書き込み系 = 合言葉が要る
-        self.assertEqual(r.status, 403)
+        self.assertEqual(self.post("/api/flow/cancel", headers={"X-YTT-Token": "x"}, body=b'{"id": "run:0123456789"}')[0].status, 403)   # 書き込み系 = 合言葉が要る
         for payload, code, err in (({"id": "nai"}, 400, "bad_request"), ({}, 400, "bad_request"), ({"id": "run:ffffffffff"}, 404, "not_found")):
             for op in ("cancel", "retry"):
                 r, body = self.post("/api/flow/" + op, body=json.dumps(payload).encode("utf-8"))
                 self.assertEqual((r.status, json.loads(body)["error"]), (code, err), (op, payload))
         r, body = self.post("/api/flow/cancel", body=b'{"id": "run:0123456789"}')
         self.assertIn(r.status, (200, 409))   # 実行中なら止める・もう終わっていれば cannot_cancel
-        end = time.time() + 30
-        while not self.srv.autorun.status()["idle"] and time.time() < end:
-            time.sleep(0.05)
+        wait_for(lambda: self.srv.autorun.status()["idle"], 30, 0.05)
         r, body = self.post("/api/flow/cancel", body=b'{"id": "run:0123456789"}')
         self.assertEqual((r.status, json.loads(body)["error"]), (409, "cannot_cancel"))
         r, body = self.post("/api/flow/retry", body=b'{"id": "run:0123456789"}')
@@ -1097,12 +1046,9 @@ class PortalHttpTest(Base):
         r, body = self.req("GET", "/api/flow/history?case=" + quote(self.tmp) + "&limit=5")
         self.assertEqual(r.status, 200)
         self.assertLessEqual({"runs", "total", "more", "offset"}, set(json.loads(body)))
-        r, _ = self.req("GET", "/api/flow/history", headers={"Sec-Fetch-Site": "cross-site"})   # ほかのサイトからは読めない
-        self.assertEqual(r.status, 403)
-        r, _ = self.post("/api/flow/estimate", body=b'{"ids": []}')
-        self.assertEqual(r.status, 400)   # 本文は submit と同じ {envelope, spec}(RV A1。封筒が無ければ 400)
-        r, _ = self.post("/api/autorun/start", body=b'{"id": "abcdefghijk", "mode": "full"}')
-        self.assertEqual(r.status, 404, "以前の受付は消した(RV A1)")
+        self.assertEqual(self.req("GET", "/api/flow/history", headers={"Sec-Fetch-Site": "cross-site"})[0].status, 403)   # ほかのサイトからは読めない
+        self.assertEqual(self.post("/api/flow/estimate", body=b'{"ids": []}')[0].status, 400)   # 本文は submit と同じ {envelope, spec}(RV A1。封筒が無ければ 400)
+        self.assertEqual(self.post("/api/autorun/start", body=b'{"id": "abcdefghijk", "mode": "full"}')[0].status, 404, "以前の受付は消した(RV A1)")
 
     def test_flow_submit_live_goes_to_live(self):
         """RS7-2 G2b: 封筒 kind live は ② の口からライブ係(Live.submit)へ(入口が Queue.set_live_hook で登録)。リアルタイム切り抜きがオフなら 400 と理由
@@ -1120,47 +1066,38 @@ class PortalHttpTest(Base):
 
     def test_intake_api(self):
         """友人からの依頼の受付(src/human/friend/intake.py): 状態・設定(api/ytt/prefs の節 intake)・今すぐ確認。受付の設定は作業データの prefs.json(一時フォルダ)"""
-        r, body = self.req("GET", "/api/intake")
-        j = json.loads(body)
-        self.assertEqual((r.status, j["enabled"], j["state"], j["requests"]), (200, False, "off", []))
+        st, j = self.get_json("/api/intake")
+        self.assertEqual((st, j["enabled"], j["state"], j["requests"]), (200, False, "off", []))
         folder = os.path.join(self.tmp, "依頼")
         os.makedirs(folder)
-        r, body = self.post("/api/ytt/prefs", body=json.dumps({"op": "patch", "section": "intake", "value": {"folder": "\\\\srv\\share"}}).encode())
-        self.assertEqual(r.status, 400)
-        self.assertIn("ネットワーク", json.loads(body)["message"])
-        r, body = self.post("/api/ytt/prefs", body=json.dumps({"op": "patch", "section": "intake", "value": {"enabled": True, "folder": folder, "top": 4}}).encode())
-        self.assertEqual((r.status, json.loads(body)["value"]["top"]), (200, 4))
+        st, j = self.patch_prefs("intake", {"folder": "\\\\srv\\share"})
+        self.assertEqual(st, 400)
+        self.assertIn("ネットワーク", j["message"])
+        st, j = self.patch_prefs("intake", {"enabled": True, "folder": folder, "top": 4})
+        self.assertEqual((st, j["value"]["top"]), (200, 4))
         self.srv.intake.scan()
-        r, body = self.req("GET", "/api/intake")
-        j = json.loads(body)
+        j = self.get_json("/api/intake")[1]
         self.assertEqual((j["enabled"], j["folder"], j["state"], j["top"]), (True, folder, "watching", 4))
-        r, body = self.post("/api/intake/scan", headers={"X-YTT-Token": "x"})   # 合言葉が要る
-        self.assertEqual(r.status, 403)
-        r, body = self.post("/api/intake/scan")
-        self.assertEqual((r.status, json.loads(body)["state"]), (200, "watching"))
-        r, _ = self.req("GET", "/api/intake", headers={"Sec-Fetch-Site": "cross-site"})
-        self.assertEqual(r.status, 403)
+        self.assertEqual(self.post("/api/intake/scan", headers={"X-YTT-Token": "x"})[0].status, 403)   # 合言葉が要る
+        st, j = self.post_json("/api/intake/scan", {})
+        self.assertEqual((st, j["state"]), (200, "watching"))
+        self.assertEqual(self.req("GET", "/api/intake", headers={"Sec-Fetch-Site": "cross-site"})[0].status, 403)
 
     def test_backup_api(self):
         """作業データのバックアップ(src/manage/keep/backup.py): 状態・設定(api/ytt/prefs の節 backup)・今すぐ写す。テスト(inplace)では作業データの親が無いので写さない"""
-        r, body = self.req("GET", "/api/backup")
-        j = json.loads(body)
-        self.assertEqual((r.status, j["enabled"], j["state"], j["everyHours"], j["source"]), (200, False, "off", 24, None))
-        r, body = self.post("/api/ytt/prefs", body=json.dumps({"op": "patch", "section": "backup", "value": {"enabled": True}}).encode())
-        self.assertEqual(r.status, 400)   # 先のフォルダが無いままではオンにできない
-        r, body = self.post("/api/ytt/prefs", body=json.dumps({"op": "patch", "section": "backup", "value": {"folder": "\\\\srv\\share"}}).encode())
-        self.assertEqual(r.status, 400)
+        st, j = self.get_json("/api/backup")
+        self.assertEqual((st, j["enabled"], j["state"], j["everyHours"], j["source"]), (200, False, "off", 24, None))
+        self.assertEqual(self.patch_prefs("backup", {"enabled": True})[0], 400)   # 先のフォルダが無いままではオンにできない
+        self.assertEqual(self.patch_prefs("backup", {"folder": "\\\\srv\\share"})[0], 400)
         dest = os.path.join(self.tmp, "先")
-        r, body = self.post("/api/ytt/prefs", body=json.dumps({"op": "patch", "section": "backup", "value": {"enabled": True, "folder": dest, "everyHours": 12}}).encode())
-        self.assertEqual((r.status, json.loads(body)["value"]), (200, {"enabled": True, "folder": dest, "everyHours": 12}))
-        r, body = self.post("/api/backup/run", headers={"X-YTT-Token": "x"})   # 合言葉が要る
-        self.assertEqual(r.status, 403)
-        r, body = self.post("/api/backup/run")
-        self.assertEqual((r.status, json.loads(body)["folder"]), (200, dest))
+        st, j = self.patch_prefs("backup", {"enabled": True, "folder": dest, "everyHours": 12})
+        self.assertEqual((st, j["value"]), (200, {"enabled": True, "folder": dest, "everyHours": 12}))
+        self.assertEqual(self.post("/api/backup/run", headers={"X-YTT-Token": "x"})[0].status, 403)   # 合言葉が要る
+        st, j = self.post_json("/api/backup/run", {})
+        self.assertEqual((st, j["folder"]), (200, dest))
         self.srv.backup.tick()   # inplace では写さない(本物の作業データに触らない)
         self.assertEqual((self.srv.backup.state, os.path.exists(dest)), ("off", False))
-        r, _ = self.req("GET", "/api/backup", headers={"Sec-Fetch-Site": "cross-site"})
-        self.assertEqual(r.status, 403)
+        self.assertEqual(self.req("GET", "/api/backup", headers={"Sec-Fetch-Site": "cross-site"})[0].status, 403)
 
     def test_shutdown_stops_children_and_server(self):
         self.sup.start_all()
@@ -1187,45 +1124,37 @@ class MainShutdownTest(unittest.TestCase):
     Ctrl+C・黒い画面の×(KeyboardInterrupt)の経路でもまとめて実行を閉じる(閉じないと実行中の段が「失敗」として記録され、次の起動で続かない。M5)"""
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-main-")
+        self.tmp = testkit.tempdir(self, "ytt-main-")
         self.root = make_fake_root(self.tmp)
-        self.saved_app = L.datadir.registered("app")
+        self.addCleanup(L.datadir.register, "app", L.datadir.registered("app"))
 
-    def tearDown(self):
-        L.datadir.register("app", self.saved_app)
-        shutil.rmtree(self.tmp, ignore_errors=True)
+    def base_patches(self, make_logger, make_server):
+        """main を一時フォルダの偽のツールで動かすための差し替え(ほかの差し替えは呼び手が足す)"""
+        return [mock.patch.dict(os.environ, {"YTT_RUNTIME_DIR": os.path.join(self.tmp, ".runtime")}),
+                mock.patch.object(L, "ROOT", self.root), mock.patch.object(L, "make_server", make_server),
+                mock.patch.object(L, "make_logger", make_logger)]
 
-    def run_main(self, on_live_start):
-        got, unmounts, logs = {}, [], []
+    def keep_server(self, got):
+        """本物の make_server で起こして、できたサーバーを got["srv"] に控える"""
         real_make_server = L.make_server
 
         def make_server(port, sup):
             got["srv"], p = real_make_server(port, sup)
             return got["srv"], p
+        return make_server
 
-        def make_logger(path):   # 黒い画面へは出さない
-            def log(msg, console=True):
-                logs.append(msg)
-            log.flush = lambda timeout=1.0: None
-            return log
+    def run_main(self, on_live_start):
+        got, unmounts = {}, []
 
         def live_start(live):   # 起動の最後のほう(まとめて実行を作ったあと)で、終了の合図を送る
             on_live_start(got["srv"])
 
-        patches = [mock.patch.dict(os.environ, {"YTT_RUNTIME_DIR": os.path.join(self.tmp, ".runtime")}),
-                   mock.patch.object(L, "ROOT", self.root), mock.patch.object(L, "make_server", make_server),
-                   mock.patch.object(L, "make_logger", make_logger),
-                   mock.patch.object(L, "install_stop_signals"), mock.patch.object(L, "ignore_stop_signals"),
-                   mock.patch.object(L, "analytics_mod", None), mock.patch.object(L.Supervisor, "start_all"),
-                   mock.patch.object(L.Supervisor, "unmount_all", lambda sup: unmounts.append(1)),
-                   mock.patch.object(L.live_mod.Live, "start", live_start), mock.patch.object(L.PortalServer, "purge_trash", lambda srv: None)]
-        for p in patches:
-            p.start()
-        try:
+        with patched(self.base_patches(quiet_logger(), self.keep_server(got)) + [
+                mock.patch.object(L, "install_stop_signals"), mock.patch.object(L, "ignore_stop_signals"),
+                mock.patch.object(L, "analytics_mod", None), mock.patch.object(L.Supervisor, "start_all"),
+                mock.patch.object(L.Supervisor, "unmount_all", lambda sup: unmounts.append(1)),
+                mock.patch.object(L.live_mod.Live, "start", live_start), mock.patch.object(L.PortalServer, "purge_trash", lambda srv: None)]):
             self.assertEqual(L.main(["--port", "0", "--no-open", "--no-mount"]), 0)
-        finally:
-            for p in reversed(patches):
-                p.stop()
         return got["srv"], unmounts
 
     def test_shutdown_from_page_runs_teardown_once(self):
@@ -1246,16 +1175,6 @@ class MainShutdownTest(unittest.TestCase):
         -> (終了コード, srv, 標準出力, 起こした常駐の名前, 画面を開いた回数)"""
         got, started, opened = {}, [], []
         out = io.StringIO()
-        real_make_server = L.make_server
-
-        def make_server(port, sup):
-            got["srv"], p = real_make_server(port, sup)
-            return got["srv"], p
-
-        def make_logger(path):
-            log = lambda msg, console=True: None
-            log.flush = lambda timeout=1.0: None
-            return log
 
         def live_start(live):   # ready は Live.start のあとに出る = 裏で ready を待ってから終える(画面ありはすぐ終える)
             started.append("live")
@@ -1280,26 +1199,18 @@ class MainShutdownTest(unittest.TestCase):
             return lambda *a, **k: started.append(name)
 
         analytics = mock.MagicMock()
-        patches = [mock.patch.dict(os.environ, {"YTT_RUNTIME_DIR": os.path.join(self.tmp, ".runtime")}),
-                   mock.patch.object(L, "ROOT", self.root), mock.patch.object(L, "make_server", make_server),
-                   mock.patch.object(L, "make_logger", make_logger),
-                   mock.patch.object(L, "install_stop_signals"), mock.patch.object(L, "ignore_stop_signals"),
-                   mock.patch.object(L, "analytics_mod", analytics), mock.patch.object(L.Supervisor, "start_all"),
-                   mock.patch.object(L.Supervisor, "unmount_all", lambda sup: None),
-                   mock.patch.object(L.live_mod.Live, "start", live_start),
-                   mock.patch.object(L.intake_mod.Intake, "start", rec("intake")), mock.patch.object(L.backup_mod.Backup, "start", rec("backup")),
-                   mock.patch.object(L.accuracy_mod.Accuracy, "start", rec("accuracy")),
-                   mock.patch.object(L.PortalServer, "purge_trash", rec("trash")),
-                   mock.patch.object(L.appwindow_mod.Opener, "open_start", lambda op, url: opened.append(url) or "browser"),
-                   mock.patch.object(sys, "stdout", out)]
-        for p in patches:
-            p.start()
-        try:
+        with patched(self.base_patches(quiet_logger(), self.keep_server(got)) + [
+                mock.patch.object(L, "install_stop_signals"), mock.patch.object(L, "ignore_stop_signals"),
+                mock.patch.object(L, "analytics_mod", analytics), mock.patch.object(L.Supervisor, "start_all"),
+                mock.patch.object(L.Supervisor, "unmount_all", lambda sup: None),
+                mock.patch.object(L.live_mod.Live, "start", live_start),
+                mock.patch.object(L.intake_mod.Intake, "start", rec("intake")), mock.patch.object(L.backup_mod.Backup, "start", rec("backup")),
+                mock.patch.object(L.accuracy_mod.Accuracy, "start", rec("accuracy")),
+                mock.patch.object(L.PortalServer, "purge_trash", rec("trash")),
+                mock.patch.object(L.appwindow_mod.Opener, "open_start", lambda op, url: opened.append(url) or "browser"),
+                mock.patch.object(sys, "stdout", out)]):
             code = L.main(argv)
             self.assertIs(sys.stdout, out, "標準出力を元に戻していない")
-        finally:
-            for p in reversed(patches):
-                p.stop()
         if analytics.Service.return_value.start.called:
             started.append("analytics")
         return code, got["srv"], out.getvalue(), started, opened, got.get("result")
@@ -1401,14 +1312,7 @@ class MainShutdownTest(unittest.TestCase):
 
     def run_main_failing(self, argv, wait_result=None, lock_busy=None, existing=False):
         """RS7-1 1d: 待ちの期限・.flow.lock の先客で、トレースバックにせず読める文を出して非 0 で終わる。existing: 入口がすでに動いている"""
-        logs, errs = [], io.StringIO()
-        made = []
-
-        def make_logger(path):
-            def log(msg, console=True):
-                logs.append(msg)
-            log.flush = lambda timeout=1.0: None
-            return log
+        logs, errs, made = [], io.StringIO(), []
 
         def make_server(port, sup):
             if existing:
@@ -1417,20 +1321,13 @@ class MainShutdownTest(unittest.TestCase):
             made.append(srv)
             return srv, port
 
-        patches = [mock.patch.dict(os.environ, {"YTT_RUNTIME_DIR": os.path.join(self.tmp, ".runtime")}),
-                   mock.patch.object(L, "ROOT", self.root), mock.patch.object(L, "make_logger", make_logger),
-                   mock.patch.object(L, "make_server", make_server), mock.patch.object(sys, "stderr", errs)]
+        patches = self.base_patches(quiet_logger(logs), make_server) + [mock.patch.object(sys, "stderr", errs)]
         if wait_result is not None:
             patches.append(mock.patch.object(L.restart_mod, "wait_old_launcher", lambda port, pid=None: wait_result))
         if lock_busy is not None:
             patches.append(mock.patch.object(L.placement, "acquire", mock.Mock(side_effect=L.placement.LockBusy(lock_busy))))
-        for p in patches:
-            p.start()
-        try:
+        with patched(patches):
             code = L.main(argv)
-        finally:
-            for p in reversed(patches):
-                p.stop()
         return code, logs, errs.getvalue(), made
 
     def test_wait_port_deadline_exits_nonzero_without_next_port(self):
@@ -1461,48 +1358,44 @@ class RealToolsTest(unittest.TestCase):
     ポート共有(.runtime・/api/siblings)が働く → まとめて停止で .runtime が消える、を確かめる"""
 
     def test_real_tools(self):
-        tmp = tempfile.mkdtemp(prefix="ytt-launch-real-")
+        tmp = testkit.tempdir(self, "ytt-launch-real-")
         rdir = os.path.join(tmp, ".runtime")
         env = {"YTT_RUNTIME_DIR": rdir, "STUDIO_FAKE": "1", "TRANSCRIBE_BACKEND": "fake"}
-        try:
-            for s in L.TOOLS:
-                _copy_tool(os.path.join(REPO, s["dir"]), os.path.join(tmp, s["dir"]))
-            from ytt import layout as _layout
-            _layout.copy_shared_code(tmp, ignore=shutil.ignore_patterns("__pycache__"), root=REPO)   # 共通のコード(ytt と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
-            ports = dict(zip(L.TOOL_IDS, free_ports(3)))
-            events = []
-            with mock.patch.dict(os.environ, env):
-                sup = L.Supervisor(tmp, ready_timeout=60, stop_timeout=10, poll=0.2, log=events.append, ports=ports)
-                try:
-                    sup.start_all()
-                    sup.start_monitor()
-                    ok = wait_for(lambda: all(t.snapshot()["state"] == "running" for t in sup.tools), 60, 0.2)
-                    self.assertTrue(ok, "\n".join(events) + "\n" + json.dumps(sup.status(), ensure_ascii=False, indent=1))
-                    for t in sup.tools:
-                        snap = t.snapshot()
-                        self.assertEqual(snap["port"], ports[t.id])
-                        self.assertEqual(snap["version"], snap["expectedVersion"], t.id)
-                    # スタジオの「他のツール」(/api/siblings)が、入口から起動した他の2つを見つける
-                    conn = http.client.HTTPConnection("127.0.0.1", ports["studio"], timeout=10)
-                    conn.request("GET", "/api/siblings", headers={"Host": "127.0.0.1:%d" % ports["studio"]})
-                    sib = json.loads(conn.getresponse().read())
-                    conn.close()
-                    self.assertEqual(sib["tools"], ports)
-                    # 監視の接続確認(つないですぐ切る)で、ツールのログにアクセスの行が増え続けない
-                    tx = sup.by_id["transcribe"]
-                    before = len(L.tail(tx.log_path, 10000) or [])
-                    time.sleep(7)
-                    after = len(L.tail(tx.log_path, 10000) or [])
-                    self.assertLessEqual(after - before, 1, "\n".join((L.tail(tx.log_path, 20) or [])))
-                    self.assertEqual(sup.by_id["transcribe"].snapshot()["state"], "running")
-                finally:
-                    sup.close()
-                    sup.stop_all()
+        for s in L.TOOLS:
+            _copy_tool(os.path.join(REPO, s["dir"]), os.path.join(tmp, s["dir"]))
+        layout.copy_shared_code(tmp, ignore=shutil.ignore_patterns("__pycache__"), root=REPO)   # 共通のコード(ytt と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
+        ports = dict(zip(L.TOOL_IDS, free_ports(3)))
+        events = []
+        with mock.patch.dict(os.environ, env):
+            sup = L.Supervisor(tmp, ready_timeout=60, stop_timeout=10, poll=0.2, log=events.append, ports=ports)
+            try:
+                sup.start_all()
+                sup.start_monitor()
+                ok = wait_for(lambda: all(t.snapshot()["state"] == "running" for t in sup.tools), 60, 0.2)
+                self.assertTrue(ok, "\n".join(events) + "\n" + json.dumps(sup.status(), ensure_ascii=False, indent=1))
                 for t in sup.tools:
-                    self.assertEqual(t.snapshot()["state"], "stopped", t.id)
-                    self.assertFalse(os.path.exists(os.path.join(rdir, t.id + ".json")), t.id)
-        finally:
-            shutil.rmtree(tmp, ignore_errors=True)
+                    snap = t.snapshot()
+                    self.assertEqual(snap["port"], ports[t.id])
+                    self.assertEqual(snap["version"], snap["expectedVersion"], t.id)
+                # スタジオの「他のツール」(/api/siblings)が、入口から起動した他の2つを見つける
+                conn = http.client.HTTPConnection("127.0.0.1", ports["studio"], timeout=10)
+                conn.request("GET", "/api/siblings", headers={"Host": "127.0.0.1:%d" % ports["studio"]})
+                sib = json.loads(conn.getresponse().read())
+                conn.close()
+                self.assertEqual(sib["tools"], ports)
+                # 監視の接続確認(つないですぐ切る)で、ツールのログにアクセスの行が増え続けない
+                tx = sup.by_id["transcribe"]
+                before = len(L.tail(tx.log_path, 10000) or [])
+                time.sleep(7)
+                after = len(L.tail(tx.log_path, 10000) or [])
+                self.assertLessEqual(after - before, 1, "\n".join((L.tail(tx.log_path, 20) or [])))
+                self.assertEqual(sup.by_id["transcribe"].snapshot()["state"], "running")
+            finally:
+                sup.close()
+                sup.stop_all()
+            for t in sup.tools:
+                self.assertEqual(t.snapshot()["state"], "stopped", t.id)
+                self.assertFalse(os.path.exists(os.path.join(rdir, t.id + ".json")), t.id)
 
 
 if __name__ == "__main__":

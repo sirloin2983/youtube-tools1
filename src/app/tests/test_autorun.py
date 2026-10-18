@@ -7,7 +7,6 @@ import os
 import re
 import shutil
 import sys
-import tempfile
 import time
 import unittest
 from unittest import mock
@@ -29,7 +28,7 @@ from flow import runlog  # noqa: E402
 from flow import spec as SP  # noqa: E402
 from flow import order as O  # noqa: E402  (欄 → 封筒 + 束の差分。受付は submit の 1 本 = RV A1)
 from human.friend import intake as IN  # noqa: E402  (友人の受付の欄 → submit = submit_urls・submit_file)
-from ytt import fsio  # noqa: E402
+from ytt import fsio, testkit  # noqa: E402
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "flow", "tests"))   # 共有の部品 _runfields(以前の Run の欄の形 → 封筒 + 束。RV A2)
 import _runfields as RF  # noqa: E402
 
@@ -120,6 +119,13 @@ def _fake_preview(video, out, **kw):
     return True
 
 VID = "abcdefghijk"
+
+
+def write_old_pool(path, key, rid, title, deliver_dir, batch, recording, packs):
+    """前の版の溜め(deliver-pool.json。組の batch 入り・ライブの録画 recording の分)を 1 つ置く"""
+    testkit.write_json(path, {"schema": DL.POOL_SCHEMA, "pools": {key: {
+        "rid": rid, "title": title, "deliverDir": deliver_dir, "batch": batch, "meta": {"recorder": "local", "recording": recording, "phase": "live"},
+        "packs": packs, "delivered": [], "marks": {}, "created": 0, "updated": 0}}})
 
 
 def AN(**kw):
@@ -306,8 +312,8 @@ class FakeTools:
                     continue
                 j["state"] = "done"
                 tid = j["body"].get("intoDoc") or ("%012d" % int(j["id"][1:]))   # intoDoc = 行の無い文書に入れる(⑦(b))
-                with open(os.path.join(self.txdir, tid + ".json"), "w", encoding="utf-8") as f:
-                    json.dump({"id": tid, "title": "題" + tid[-1], "sourcePath": j["src"], "updatedAt": 1, "segments": [{"start": 0, "end": 1, "text": "a"}]}, f)
+                testkit.write_json(os.path.join(self.txdir, tid + ".json"), {"id": tid, "title": "題" + tid[-1], "sourcePath": j["src"], "updatedAt": 1,
+                                                                            "segments": [{"start": 0, "end": 1, "text": "a"}]})
         return 200, {"jobs": list(self.tx_jobs.values())}
 
     def h_transcribe_POST_api_transcribe_cancel(self, path, body):
@@ -358,7 +364,7 @@ class Base(unittest.TestCase):
     analysis = True
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp()
+        self.tmp = testkit.tempdir(self)
         self.addCleanup(setattr, pv, "make_preview", pv.make_preview)
         pv.make_preview = _fake_preview
         self.tools = FakeTools(self.tmp, json.loads(json.dumps(self.marks)), self.analysis)
@@ -366,40 +372,84 @@ class Base(unittest.TestCase):
         c2r_env.start()
         self.addCleanup(c2r_env.stop)
         self.env = {"TRANSCRIBE_DATA_DIR": os.path.join(self.tmp, "txdata"), "YTT_DATA_DIR": os.path.join(self.tmp, "data")}
-        from manage.cases import cases
-        self.r = A.AutoRunner(self.tools, os.path.join(self.tmp, "repo"), self.env, poll=0, sleep=lambda s: None, find_pack=cases.find_pack)
+        self.r = self.make_runner()
 
     def tearDown(self):
-        self.r.close()
-        shutil.rmtree(self.tmp, ignore_errors=True)
+        self.r.close()   # 一時フォルダは testkit.tempdir が後で消す
 
-    def run_one(self, mode, top=None, timeout=10):
-        run = start(self.r, VID, mode, top)
+    def make_runner(self, **kw):
+        """偽のツールにつないだ AutoRunner(既定は待たない・パックは案件の find_pack で探す)。kw は log_dir・prefs・sleep など"""
+        kw.setdefault("sleep", lambda s: None)
+        kw.setdefault("find_pack", A.cases.find_pack)
+        return A.AutoRunner(self.tools, os.path.join(self.tmp, "repo"), self.env, poll=0, **kw)
+
+    def until(self, fn, timeout=10):
+        """fn() が真になるまで待ってその値を返す(間に合わなければ落とす)"""
         end = time.time() + timeout
         while time.time() < end:
-            cur = next(x for x in self.r.snapshot()["runs"] if x["id"] == run["id"])
-            if cur["state"] not in ("queued", "running"):
-                return cur
+            v = fn()
+            if v:
+                return v
             time.sleep(0.01)
-        self.fail("終わらない: %s" % cur)
+        self.fail("待ちきれません")
+
+    def wait(self, run, timeout=10):
+        """実行(一覧の dict)が終わるまで待って、終わったときの一覧の dict を返す"""
+        def cur():
+            x = next(x for x in self.r.snapshot()["runs"] if x["id"] == run["id"])
+            return x if x["state"] not in ("queued", "running") else None
+        return self.until(cur, timeout)
+
+    def run_one(self, mode, top=None, timeout=10):
+        return self.wait(start(self.r, VID, mode, top), timeout)
 
     def states(self, run):
         return {s["key"]: s["state"] for s in run["steps"]}
+
+    def set_prefs(self, **autorun):
+        """ホームの設定(一時フォルダの prefs.json)を実行の側に付ける。autorun = autorun 節に重ねる値"""
+        p = prefs_mod.Prefs(os.path.join(self.tmp, "prefs.json"), fsio.atomic_write)
+        if autorun:
+            p.patch("autorun", autorun)
+        self.r.prefs = p
+        return p
+
+    def empty(self, name):
+        """一時フォルダに空のファイル(偽の動画)を置いてパスを返す"""
+        path = os.path.join(self.tmp, name)
+        open(path, "wb").close()
+        return path
+
+    def file_run(self, name, **kw):
+        """空の動画 name を置いて動画の依頼(start_file)を 1 本流し、終わった実行を返す"""
+        return self.wait(start_file(self.r, self.empty(name), **kw))
+
+    def sub_calls(self):
+        """字幕の色を覚える API(POST /api/speakers/sub)の呼ばれ方"""
+        return [c for c in self.tools.calls if c[2] == "/api/speakers/sub"]
+
+    def use_members(self):
+        """配信者の色の一覧(兎田ぺこら 1 人)を一時フォルダに置いて使わせる"""
+        self.env["YTT_HOLO_MEMBERS"] = testkit.write_json(os.path.join(self.tmp, "members.json"), {"groups": [{"name": "3期生", "members": [
+            {"id": "usada-pekora", "name": "兎田ぺこら", "en": "Usada Pekora", "hex": "#7EC2FE"}]}]})
+
+    def jobs_with_tid(self):
+        """本物の「編集」のジョブは、できた文書の id(tid)を返す。偽の一覧にそれを足す"""
+        jobs = self.tools.h_transcribe_GET_api_jobs
+
+        def with_tid(path, body):
+            st, obj = jobs(path, body)
+            for j in obj["jobs"]:
+                if j["state"] == "done":
+                    j["tid"] = "%012d" % int(j["id"][1:])
+            return st, obj
+        self.tools.h_transcribe_GET_api_jobs = with_tid
 
 
 class TestMarks(Base):
     """スタジオのマークの行の「この後を」(git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 3): そのマークだけ 書き出し → 文字起こし → パック"""
     marks = [{"id": "m1", "status": "adopted", "start": 1, "end": 5}, {"id": "m3", "status": "adopted", "start": 20, "end": 25},
              {"id": "m2", "status": "", "start": 9, "end": 12}]
-
-    def wait(self, run, timeout=10):
-        end = time.time() + timeout
-        while time.time() < end:
-            cur = next(x for x in self.r.snapshot()["runs"] if x["id"] == run["id"])
-            if cur["state"] not in ("queued", "running"):
-                return cur
-            time.sleep(0.01)
-        self.fail("終わらない")
 
     def test_only_selected_mark(self):
         run = start(self.r, VID, "adopted", marks=["m3", "m3"])
@@ -429,21 +479,12 @@ class TestDocs(Base):
         super().setUp()
         self.media = {}
         for tid, rows in (("aaaaaaaaaaa1", []), ("bbbbbbbbbbb2", [{"start": 0, "end": 2, "text": "こんにちは"}])):
-            m = os.path.join(self.tmp, tid + ".mp4")
-            open(m, "wb").close()
+            m = self.empty(tid + ".mp4")
             self.media[tid] = m
-            with open(os.path.join(self.tools.txdir, tid + ".json"), "w", encoding="utf-8") as f:
-                json.dump({"id": tid, "title": "文書" + tid[-1], "sourcePath": m, "updatedAt": 5, "segments": rows}, f, ensure_ascii=False)
+            testkit.write_json(os.path.join(self.tools.txdir, tid + ".json"), {"id": tid, "title": "文書" + tid[-1], "sourcePath": m, "updatedAt": 5, "segments": rows})
 
     def wait_all(self, runs, timeout=10):
-        ids = {r["id"] for r in runs}
-        end = time.time() + timeout
-        while time.time() < end:
-            cur = [x for x in self.r.snapshot()["runs"] if x["id"] in ids]
-            if all(x["state"] not in ("queued", "running") for x in cur):
-                return {x["docId"]: x for x in cur}
-            time.sleep(0.01)
-        self.fail("終わりません")
+        return {x["docId"]: x for x in (self.wait(r, timeout) for r in runs)}
 
     def test_transcribe_then_pack(self):
         res = start_docs(self.r, ["aaaaaaaaaaa1", "bbbbbbbbbbb2", "aaaaaaaaaaa1"])   # 同じ id を二度渡しても1つ
@@ -462,10 +503,7 @@ class TestDocs(Base):
 
     def test_streamer_color_is_passed(self):
         """配信者の名前(字幕の文字の色。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 4): 照らし合わせた名前を cut2resolve に渡す。見つからなければ始める前に断る"""
-        members = os.path.join(self.tmp, "members.json")
-        with open(members, "w", encoding="utf-8") as f:
-            json.dump({"groups": [{"name": "3期生", "members": [{"id": "usada-pekora", "name": "兎田ぺこら", "en": "Usada Pekora", "hex": "#7EC2FE"}]}]}, f, ensure_ascii=False)
-        self.env["YTT_HOLO_MEMBERS"] = members
+        self.use_members()
         with self.assertRaisesRegex(ValueError, "見つかりません"):
             start_docs(self.r, ["bbbbbbbbbbb2"], streamer="だれか")
         self.assertEqual(self.r.snapshot()["runs"], [])
@@ -532,16 +570,14 @@ class TestModes(Base):
         self.tools.tx_extra = {"model": "small"}   # 待ちの間に設定を変えた
         with self.r.cv:
             self.r._wake()
-        end = time.time() + 10
-        while time.time() < end and queued.state in ("queued", "running"):
-            time.sleep(0.01)
+        self.until(lambda: queued.state not in ("queued", "running"))
         self.assertEqual(queued.state, "done", queued.public())
         self.assertEqual(self.tools.tx_jobs["t1"]["body"]["model"], "large-v3")
 
     def test_row_edge_setting_is_passed(self):
         """行から作るときの端の広げ方は「編集」の「行から」の設定(文字起こしの settings.rowEdge)を cut2resolve に渡す"""
         self.tools.row_edge = {"on": False, "after": 0.5, "before": 0.3}
-        self._prefs(cut="rows")
+        self.set_prefs(cut="rows")
         run = self.run_one("adopted")
         self.assertEqual(run["state"], "done", run)
         self.assertEqual(self.tools.c2r["body"]["spec"]["rowEdge"], {"on": False, "after": 0.5, "before": 0.3})
@@ -567,23 +603,16 @@ class TestModes(Base):
         out = self.tools.c2r["body"]["output"]
         self.assertEqual((out["speakerColors"], out.get("loudness"), out["volume"]), (False, None, 70))
 
-    def _prefs(self, **autorun):
-        import prefs as PR
-        from ytt import fsio
-        p = PR.Prefs(os.path.join(self.tmp, "prefs.json"), fsio.atomic_write)
-        p.patch("autorun", autorun)
-        self.r.prefs = p
-
     def test_cut_method_none_for_docs_without_cut(self):
         """カットを決めていない文書のカットの方法(ホームの設定 autorun.cut): none = 動画全体・カット済の行の字幕も消さない(段3)"""
-        self._prefs(cut="none")
+        self.set_prefs(cut="none")
         run = self.run_one("adopted")
         self.assertEqual(run["state"], "done", run)
         spec = self.tools.c2r["body"]["spec"]
         self.assertEqual((spec["mode"], spec["listKind"], spec["listText"], spec["dropCutRows"], "preset" in spec), ("list", "drop", "", False, False))
 
     def test_cut_method_silence_uses_edit_settings(self):
-        self._prefs(cut="silence")
+        self.set_prefs(cut="silence")
         self.tools.tx_extra = {"cutSilence": {"noise": -40, "min": 0.8, "pad": 0.2, "x": 1, "pad2": True}}
         run = self.run_one("adopted")
         self.assertEqual(run["state"], "done", run)
@@ -595,7 +624,7 @@ class TestModes(Base):
         self.assertEqual(self.tools.c2r["body"]["spec"]["mode"], "list")
 
     def test_adopted_mode_exports_transcribes_and_packs(self):
-        self._prefs(cut="rows")
+        self.set_prefs(cut="rows")
         run = self.run_one("adopted")
         self.assertEqual(run["state"], "done", run)
         self.assertEqual(self.states(run), {"export": "done", "transcribe": "done", "pack": "done"})
@@ -656,11 +685,8 @@ class TestModes(Base):
     def test_tool_not_running(self):
         r = A.AutoRunner(A.ToolClient(lambda t: None), self.tmp, self.env, poll=0, sleep=lambda s: None, find_pack=lambda p: None)
         try:
-            run = start(r, VID, "adopted")
-            end = time.time() + 5
-            while time.time() < end and r.snapshot()["runs"][0]["state"] in ("queued", "running"):
-                time.sleep(0.01)
-            got = r.snapshot()["runs"][0]
+            start(r, VID, "adopted")
+            got = self.until(lambda: (lambda x: x if x["state"] not in ("queued", "running") else None)(r.snapshot()["runs"][0]))
             self.assertEqual(got["state"], "error")
             # 何が起きたか + 次にすること(S-19。入口 0.42.0): 「入口の画面で状態を確かめて」ではなく、どこで何を押すか
             self.assertIn("切り抜きスタジオが動いていないので、この段を進められませんでした", got["error"])
@@ -700,15 +726,6 @@ class TestNew(Base):
     def setUp(self):
         super().setUp()
         self.tools.known = False
-
-    def wait(self, run, timeout=10):
-        end = time.time() + timeout
-        while time.time() < end:
-            cur = next(x for x in self.r.snapshot()["runs"] if x["id"] == run["id"])
-            if cur["state"] not in ("queued", "running"):
-                return cur
-            time.sleep(0.01)
-        self.fail("終わらない")
 
     def test_new_stream_goes_through_everything(self):
         res = start_new(self.r, [{"id": VID, "title": " 新しい配信 ", "channel": "ch"}], top=2)
@@ -761,14 +778,9 @@ class TestControl(Base):
         run = start(self.r, VID, "adopted")
         with self.assertRaises(ValueError):
             start(self.r, VID, "transcribe")
-        end = time.time() + 5
-        while time.time() < end and self.r.snapshot()["runs"][0]["steps"][0]["state"] != "run":
-            time.sleep(0.01)
+        self.until(lambda: self.r.snapshot()["runs"][0]["steps"][0]["state"] == "run")
         self.r.cancel(run["id"])
-        end = time.time() + 5
-        while time.time() < end and self.r.snapshot()["runs"][0]["state"] == "running":
-            time.sleep(0.01)
-        got = self.r.snapshot()["runs"][0]
+        got = self.wait(run)
         self.assertEqual(got["state"], "cancelled")
         self.assertIn(("studio", "POST", "/api/export/cancel", {"id": "e1"}), self.tools.calls)   # ツールの側の書き出しも止める
         with self.assertRaises(ValueError):
@@ -779,14 +791,10 @@ class TestControl(Base):
         self.tools.hold = True
         first = start(self.r, VID, "adopted")
         second = start(self.r, "zzzzzzzzzzz", "adopted")
-        end = time.time() + 5
-        while time.time() < end and self.r.snapshot()["runs"][-1]["steps"][0]["state"] != "run":
-            time.sleep(0.01)
+        self.until(lambda: self.r.snapshot()["runs"][-1]["steps"][0]["state"] == "run")
         self.r.close()
-        end = time.time() + 5
-        while time.time() < end and any(x["state"] == "running" for x in self.r.snapshot()["runs"]):
-            time.sleep(0.01)
-        got = {x["id"]: x for x in self.r.snapshot()["runs"]}
+        self.until(lambda: not any(x["state"] == "running" for x in self.r.snapshot()["runs"]))
+        got ={x["id"]: x for x in self.r.snapshot()["runs"]}
         self.assertEqual((got[second["id"]]["state"], got[second["id"]]["message"]), ("queued", "ホームを終了したので、次の起動で続けます"))
         self.assertEqual((got[first["id"]]["state"], got[first["id"]]["steps"][0]["state"]), ("queued", "wait"))   # 途中の段は次の起動で頭から
         self.assertIn(("studio", "POST", "/api/export/cancel", {"id": "e1"}), self.tools.calls)   # ツールの側の書き出しは止める
@@ -794,15 +802,6 @@ class TestControl(Base):
 class TestStage4(Base):
     """気が利く画面へ 段4: パックの設定は編集の設定のとおり・「行から」の形・配信単位の上書き・失敗したとき・やることが無い・見積もり"""
     marks = [{"id": "m1", "status": "adopted", "start": 1, "end": 5}, {"id": "m3", "status": "adopted", "start": 20, "end": 25}]
-
-    def wait(self, run, timeout=10):
-        end = time.time() + timeout
-        while time.time() < end:
-            cur = next(x for x in self.r.snapshot()["runs"] if x["id"] == run["id"])
-            if cur["state"] not in ("queued", "running"):
-                return cur
-            time.sleep(0.01)
-        self.fail("終わらない")
 
     def test_pack_uses_all_pack_settings(self):
         self.tools.tx_extra = {"packFps": "60", "packSize": "1920x1080", "packBackup": True}
@@ -845,11 +844,7 @@ class TestStage4(Base):
         self.assertIn("失敗した 1 本", pk["detail"])
 
     def test_on_fail_stop(self):
-        import prefs as PR
-        from ytt import fsio
-        p = PR.Prefs(os.path.join(self.tmp, "prefs.json"), fsio.atomic_write)
-        p.patch("autorun", {"onFail": "stop"})
-        self.r.prefs = p
+        self.set_prefs(onFail="stop")
         self.tools.fail_pack = {self.tools.clip_path("m1")}
         run = self.run_one("adopted")
         self.assertEqual((run["state"], run["stateLabel"], run["onFail"]), ("error", "失敗", "stop"), run)
@@ -901,45 +896,27 @@ class TestStage5(Base):
 
     def test_explicit_empty_is_no_color(self):
         self.tools.video["channel"] = "Pekora Ch. 兎田ぺこら"
-        run = start(self.r, VID, "adopted", streamer="")
-        end = time.time() + 10
-        while time.time() < end:
-            cur = next(x for x in self.r.snapshot()["runs"] if x["id"] == run["id"])
-            if cur["state"] not in ("queued", "running"):
-                break
-            time.sleep(0.01)
+        cur = self.wait(start(self.r, VID, "adopted", streamer=""))
         self.assertEqual(cur["state"], "done", cur)
         self.assertNotIn("streamer", self.tools.c2r["body"]["output"])   # 空 = 色なし(チャンネル名からも入れない)
 
     def test_remembered_name_wins(self):
-        import prefs as PR
-        from ytt import fsio
-        p = PR.Prefs(os.path.join(self.tmp, "prefs.json"), fsio.atomic_write)
-        p.remember("videos", VID, "さくらみこ")
-        self.r.prefs = p
+        self.set_prefs().remember("videos", VID, "さくらみこ")
         self.tools.video["channel"] = "Pekora Ch. 兎田ぺこら"
         run = self.run_one("adopted")
         self.assertEqual((self.tools.c2r["body"]["output"].get("streamer"), run["streamerFrom"]), ("さくらみこ", "video"))
 
     def test_decided_at_accept(self):
         """RS7-1 S4: 覚えた名前で決まる配信者は受付で決める(待ちの間に覚えた名前を変えても変わらない)。決まらなければ実行中に(上の 2 つ)"""
-        import prefs as PR
-        from ytt import fsio
-        p = PR.Prefs(os.path.join(self.tmp, "prefs.json"), fsio.atomic_write)
+        p = self.set_prefs()
         p.remember("videos", VID, "さくらみこ")
-        self.r.prefs = p
         with mock.patch.object(self.r, "_wake", lambda: None):
             run = start(self.r, VID, "adopted")
         self.assertEqual((run["streamer"], run["streamerFrom"]), ("さくらみこ", "video"))
         p.remember("videos", VID, "兎田ぺこら")
         with self.r.cv:
             self.r._wake()
-        end = time.time() + 10
-        while time.time() < end:
-            cur = next(x for x in self.r.snapshot()["runs"] if x["id"] == run["id"])
-            if cur["state"] not in ("queued", "running"):
-                break
-            time.sleep(0.01)
+        cur = self.wait(run)
         self.assertEqual((cur["state"], self.tools.c2r["body"]["output"].get("streamer")), ("done", "さくらみこ"))
         self.assertEqual(p.get(["streamer"])["streamer"]["docs"], {})   # 推定した名前は文書に覚えない(今までどおり)
 
@@ -954,9 +931,7 @@ class TestRunLog(Base):
         self.r = self.runner()
 
     def runner(self, **kw):
-        from manage.cases import cases
-        return A.AutoRunner(self.tools, os.path.join(self.tmp, "repo"), self.env, poll=0, sleep=lambda s: None, find_pack=cases.find_pack,
-                            log_dir=kw.pop("log_dir", self.logs), **kw)
+        return self.make_runner(log_dir=kw.pop("log_dir", self.logs), **kw)
 
     @property
     def path(self):
@@ -971,13 +946,7 @@ class TestRunLog(Base):
 
     def wait_lines(self, n, timeout=10):
         """実行の状態が変わってから記録を書くまでの間があるので、行が n 行になるまで待つ"""
-        end = time.time() + timeout
-        while time.time() < end:
-            got = self.lines()
-            if len(got) >= n:
-                return got
-            time.sleep(0.01)
-        self.fail("記録が %d 行になりません: %s" % (n, self.lines()))
+        return self.until(lambda: (lambda got: got if len(got) >= n else None)(self.lines()), timeout)
 
     def test_done_and_error_are_written_once(self):
         run = self.run_one("adopted")
@@ -1050,16 +1019,12 @@ class TestRunLog(Base):
         ids = [self.run_one("adopted")["id"]]
         self.wait_lines(1)
         ids.append(self.run_one("adopted")["id"])
-        end = time.time() + 5
-        while time.time() < end and not os.path.exists(self.path + ".1"):
-            time.sleep(0.01)
+        self.until(lambda: os.path.exists(self.path + ".1"))
         self.assertEqual([x["id"] for x in self.lines(self.path + ".1")], ids[:1])   # 古い方は .1 へ(1世代)
         self.assertEqual([x["id"] for x in self.wait_lines(1)], ids[1:])
         self.assertEqual([x["id"] for x in self.r.history()["runs"]], ids[::-1])   # 記録は .1 と今のファイルの両方から
         ids.append(self.run_one("adopted")["id"])
-        end = time.time() + 5
-        while time.time() < end and [x["id"] for x in self.lines(self.path + ".1")] != ids[1:2]:
-            time.sleep(0.01)
+        self.until(lambda: [x["id"] for x in self.lines(self.path + ".1")] == ids[1:2])
         self.assertEqual([x["id"] for x in self.lines(self.path + ".1")], ids[1:2])   # いちばん古いものは消える(際限なく大きくならない)
         self.assertEqual([x["id"] for x in self.wait_lines(1)], ids[2:])
 
@@ -1092,10 +1057,7 @@ class TestRunLog(Base):
         self.r = self.runner(log_dir=os.path.join(blocker, "logs"))
         run = self.run_one("adopted")
         self.assertEqual(run["state"], "done")
-        end = time.time() + 5
-        while time.time() < end and not self.r.log_error:
-            time.sleep(0.01)
-        self.assertTrue(self.r.log_error)
+        self.assertTrue(self.until(lambda: self.r.log_error))
         self.assertEqual(self.r.history()["runs"], [])
         run = self.run_one("adopted")                    # 次の実行も続けられる
         self.assertEqual(run["state"], "done")
@@ -1117,32 +1079,18 @@ class TestRestore(Base):
         super().setUp()
         self.r.close()
         self.logs = os.path.join(self.tmp, "logs")
-        jobs = self.tools.h_transcribe_GET_api_jobs
-
-        def with_tid(path, body):   # 本物の「編集」のジョブは、できた文書の id(tid)を返す
-            st, obj = jobs(path, body)
-            for j in obj["jobs"]:
-                if j["state"] == "done":
-                    j["tid"] = "%012d" % int(j["id"][1:])
-            return st, obj
-        self.tools.h_transcribe_GET_api_jobs = with_tid
+        self.jobs_with_tid()
         self.r = self.runner()
 
     def runner(self):
-        from manage.cases import cases
-        return A.AutoRunner(self.tools, os.path.join(self.tmp, "repo"), self.env, poll=0, sleep=lambda s: None, find_pack=cases.find_pack, log_dir=self.logs)
+        return self.make_runner(log_dir=self.logs)
 
     def snap(self, rid):
         return next((x for x in self.r.snapshot()["runs"] if x["id"] == rid), None)
 
-    def until(self, fn, timeout=10):
-        end = time.time() + timeout
-        while time.time() < end:
-            v = fn()
-            if v:
-                return v
-            time.sleep(0.01)
-        self.fail("待ちきれません")
+    def finished(self, rid):
+        """起動し直しのあとの同じ id の実行が終わるまで待つ(戻る前は一覧に無いことがある)"""
+        return self.until(lambda: (lambda x: x if x and x["state"] not in ("queued", "running") else None)(self.snap(rid)))
 
     def active(self):
         try:
@@ -1159,14 +1107,12 @@ class TestRestore(Base):
         self.r.close()
         self.until(lambda: not any(x["state"] == "running" for x in self.r.snapshot()["runs"]))
         if saved is not None:
-            with open(os.path.join(self.logs, A.ACTIVE_FILE), "w", encoding="utf-8") as f:
-                json.dump({"v": A.ACTIVE_VERSION, "runs": saved}, f, ensure_ascii=False)
+            testkit.write_json(os.path.join(self.logs, A.ACTIVE_FILE), {"v": A.ACTIVE_VERSION, "runs": saved})
         self.r = self.runner()
 
     def test_file_run_in_transcribe_continues_after_restart(self):
         """リアルタイム切り抜きの書き出し → まとめて実行(文字起こし → パック)の文字起こしの途中で入口を止めて起動し直すと、同じ run が続く"""
-        media = os.path.join(self.tmp, "ライブ.mp4")
-        open(media, "wb").close()
+        media = self.empty("ライブ.mp4")
         self.tools.hold = True
         run = start_file(self.r, media, title="ライブの切り抜き", flow="auto", engine="whisper.cpp", model="large-v3", normalize=False)   # ライブの書き出しは 30fps 済み
         self.until(lambda: (self.snap(run["id"]) or {}).get("steps", [{}])[0].get("state") == "run")
@@ -1179,7 +1125,7 @@ class TestRestore(Base):
         self.assertIn(got["state"], ("queued", "running"))                     # 同じ id のまま戻って、すぐ続きを始める
         self.assertEqual((got["engine"], got["model"], got["title"], got["mode"]), ("whisper.cpp", "large-v3", "ライブの切り抜き", "file_auto"))
         self.tools.hold = False
-        done = self.until(lambda: (lambda x: x if x and x["state"] not in ("queued", "running") else None)(self.snap(run["id"])))
+        done = self.finished(run["id"])
         self.assertEqual((done["state"], done["id"]), ("done", run["id"]), done)
         self.assertEqual(self.states(done), {"transcribe": "done", "pack": "done", "deliver": "skip"})
         tx = [j for j in self.tools.tx_jobs.values() if j["src"] == media]
@@ -1200,7 +1146,7 @@ class TestRestore(Base):
         exports = sum(1 for c in self.tools.calls if c[1:3] == ("POST", "/api/export"))
         self.restart(saved=saved)   # 強制終了のふり: 止める前の記録のまま起動する
         tx_hold["on"] = False
-        done = self.until(lambda: (lambda x: x if x and x["state"] not in ("queued", "running") else None)(self.snap(run["id"])))
+        done = self.finished(run["id"])
         self.assertEqual((done["state"], self.states(done)), ("done", {"export": "done", "transcribe": "done", "pack": "done"}), done)
         self.assertEqual(sum(1 for c in self.tools.calls if c[1:3] == ("POST", "/api/export")), exports)   # 書き出しはやり直さない
         self.assertEqual(done["steps"][0]["detail"], saved[0]["steps"][0]["detail"])                      # 済んだ段の結果の文もそのまま
@@ -1212,30 +1158,18 @@ class TestRestore(Base):
         self.tools.endpoint = lambda t: (1, "/") if ready.get(t, True) else None
         self.r.close()
         run = RF.run_of(VID, "配信", "adopted", 3)
-        os.makedirs(self.logs, exist_ok=True)
-        with open(os.path.join(self.logs, A.ACTIVE_FILE), "w", encoding="utf-8") as f:
-            json.dump({"v": A.ACTIVE_VERSION, "runs": [run.saved()]}, f)
+        testkit.write_json(os.path.join(self.logs, A.ACTIVE_FILE), {"v": A.ACTIVE_VERSION, "runs": [run.saved()]})
         with mock.patch.object(A, "RESUME_WAIT", 30):
-            self.r = A.AutoRunner(self.tools, os.path.join(self.tmp, "repo"), self.env, poll=0, sleep=lambda s: time.sleep(0.01),
-                                  find_pack=A.cases.find_pack, log_dir=self.logs)
+            self.r = self.make_runner(sleep=lambda s: time.sleep(0.01), log_dir=self.logs)
             self.until(lambda: "ツールの準備を待っています(studio)" in ((self.snap(run.id) or {}).get("message") or ""))
             self.assertFalse(any(c[0] == "studio" for c in self.tools.calls))
             ready["studio"] = True
-            done = self.until(lambda: (lambda x: x if x and x["state"] not in ("queued", "running") else None)(self.snap(run.id)))
+            done = self.finished(run.id)
         self.assertEqual(done["state"], "done", done)
 
 
 class TestRestartInfo(Base):
     """画面の「起動し直す」の材料(restart_info。入口 0.41.0): 待ち・実行中の数と、実行中の段がツールで動かしている仕事(書き出しの段は入れない)"""
-
-    def until(self, fn, timeout=10):
-        end = time.time() + timeout
-        while time.time() < end:
-            v = fn()
-            if v:
-                return v
-            time.sleep(0.01)
-        self.fail("待ちきれません")
 
     def step_state(self, key):
         runs = [x for x in self.r.snapshot()["runs"] if x["state"] == "running"]
@@ -1253,10 +1187,8 @@ class TestRestartInfo(Base):
         self.assertEqual(len(owned[1]), 1)
 
     def test_transcribe_jobs_and_others(self):
-        media = os.path.join(self.tmp, "ライブ.mp4")
-        open(media, "wb").close()
         self.tools.hold = True
-        start_file(self.r, media, title="ライブの切り抜き")
+        start_file(self.r, self.empty("ライブ.mp4"), title="ライブの切り抜き")
         self.until(lambda: self.r.restart_info()["redo"])   # ジョブを入れて待ち始めるまで
         jid = next(iter(self.tools.tx_jobs))
         self.tools.tx_jobs[jid]["title"] = "ライブの切り抜き"
@@ -1287,7 +1219,7 @@ class TestRestartInfo(Base):
         """届けたパックはすぐ待ちの記録に残す(段の途中で起動し直しても、同じパックを二度置かない)"""
         logs = os.path.join(self.tmp, "logs")
         self.r.close()
-        self.r = A.AutoRunner(self.tools, os.path.join(self.tmp, "repo"), self.env, poll=0, sleep=lambda s: None, log_dir=logs)
+        self.r = self.make_runner(find_pack=None, log_dir=logs)
         pack = os.path.join(self.tmp, "a_pack")
         os.makedirs(pack)
         open(os.path.join(pack, "cut-plan.json"), "w").close()
@@ -1310,29 +1242,19 @@ class TestRequests(Base):
 
     def setUp(self):
         super().setUp()
-        import prefs as P
-        from ytt import fsio
-        self.prefs = P.Prefs(os.path.join(self.tmp, "prefs.json"), fsio.atomic_write)
-        self.r.prefs = self.prefs
+        self.prefs = self.set_prefs()
         self.r.log_path = os.path.join(self.tmp, "logs", runlog.RUNS_LOG)
-        jobs = self.tools.h_transcribe_GET_api_jobs
+        self.jobs_with_tid()
+        self.out = os.path.join(self.tmp, "Dropbox", "出力")   # 友人の受け取り(一時フォルダ)
 
-        def with_tid(path, body):   # 本物の「編集」のジョブは、できた文書の id(tid)を返す
-            st, obj = jobs(path, body)
-            for j in obj["jobs"]:
-                if j["state"] == "done":
-                    j["tid"] = "%012d" % int(j["id"][1:])
-            return st, obj
-        self.tools.h_transcribe_GET_api_jobs = with_tid
+    def request(self, item, **kw):
+        """URL の依頼 1 本(item = 依頼の行)を流して、終わった実行を返す"""
+        return self.wait(start_request(self.r, [item], **kw)["runs"][0])
 
-    def wait(self, run, timeout=10):
-        end = time.time() + timeout
-        while time.time() < end:
-            cur = next(x for x in self.r.snapshot()["runs"] if x["id"] == run["id"])
-            if cur["state"] not in ("queued", "running"):
-                return cur
-            time.sleep(0.01)
-        self.fail("終わらない")
+    def auto_request(self, **kw):
+        """① 全自動(URL)の依頼 1 本(上位 2 個・届け先 self.out)を流して、終わった実行を返す。kw は依頼の欄の上書き"""
+        kw = dict({"request_id": self.RID, "flow": "auto", "deliver_dir": self.out}, **kw)
+        return self.request({"id": VID, "top": 2, "title": "配信", "channel": ""}, **kw)
 
     def test_request_url(self):
         self.tools.known = False
@@ -1348,8 +1270,7 @@ class TestRequests(Base):
         self.assertEqual(start_request(self.r, []), {"runs": [], "skipped": []})
 
     def test_file(self):
-        media = os.path.join(self.tmp, "依頼.mp4")
-        open(media, "wb").close()
+        media = self.empty("依頼.mp4")
         run = start_file(self.r, media, title="依頼", streamer="さくらみこ", request_id="rid")
         with self.assertRaisesRegex(ValueError, "すでに"):
             start_file(self.r, media)
@@ -1370,15 +1291,11 @@ class TestRequests(Base):
 
     def test_file_engine_and_model(self):
         """リアルタイム切り抜きの live.auto(M2): 実行ごとのエンジン・モデルを文字起こしの要求に入れる(無ければ編集の設定のまま)。形の違う値は使わない"""
-        media = os.path.join(self.tmp, "ライブ.mp4")
-        open(media, "wb").close()
-        run = self.wait(start_file(self.r, media, title="ライブ", engine="whisper.cpp", model="large-v3"))
+        run = self.file_run("ライブ.mp4", title="ライブ", engine="whisper.cpp", model="large-v3")
         self.assertEqual((run["state"], run["engine"], run["model"]), ("done", "whisper.cpp", "large-v3"), run)
         body = list(self.tools.tx_jobs.values())[-1]["body"]
         self.assertEqual((body["engine"], body["model"], body["language"]), ("whisper.cpp", "large-v3", "ja"))   # ほかは編集の設定のまま
-        media2 = os.path.join(self.tmp, "ライブ2.mp4")
-        open(media2, "wb").close()
-        run = self.wait(start_file(self.r, media2, engine="openai", model="../x"))
+        run = self.file_run("ライブ2.mp4", engine="openai", model="../x")
         self.assertEqual((run["engine"], run["model"]), (None, None))
         body = list(self.tools.tx_jobs.values())[-1]["body"]
         self.assertEqual(("engine" in body, body["model"]), (False, "large-v3"))   # 編集の設定のモデル(small は 0.58.0 から large-v3 に読む)
@@ -1386,14 +1303,10 @@ class TestRequests(Base):
     def live_clip(self, name, origin):
         """リアルタイム切り抜きの書き出し(src/flow/live_export.py の _finish)と同じ形の .clip.json を置いた動画"""
         from ytt import schemas
-        media = os.path.join(self.tmp, name)
-        open(media, "wb").close()
+        media = self.empty(name)
         clip = {"schema": schemas.CLIP_SCHEMA, "range": {"start": 1200.0, "end": 1245.0}, "mark": {"id": "m1", "status": "exported", "src": "auto"},
                 "source": {"kind": "live", "videoId": VID, "live": {"recorder": "local", "recording": "20261007-200000-" + VID, "origin": origin}}}
-        path = schemas.clip_path_for(media)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(clip, f)
+        testkit.write_json(schemas.clip_path_for(media), clip)
         return media
 
     def test_live_auto_clip_pack_is_whole_range(self):
@@ -1497,33 +1410,32 @@ class TestRequests(Base):
         return next(r for r in self.r.runs if r.id == run["id"])
 
     def test_request_auto_delivers_packs(self):
-        """① 全自動(URL): 解析 → 採用 → 書き出し → 文字起こし → パック → パックができるたびに 1 本ずつ届ける(F3-6): 1 本の zip + 隣の確認用の動画 + 隣の印(meta)"""
+        """① 全自動(URL): 解析 → 採用 → 書き出し → 文字起こし → パック → パックができるたびに 1 本ずつ届ける(F3-6・組はない): 1 本の zip + 隣の確認用の動画 + 隣の印(meta)。
+        置く順は 確認用の動画 → 印 → zip・1 本ずつでも届けた記録は残す(以前の test_delivers_one_by_one_as_each_pack_is_made もここで)"""
         self.tools.known = False
-        out = os.path.join(self.tmp, "Dropbox", "出力")
-        events = self.record_places(out)
-        run = self.wait(start_request(self.r, [{"id": VID, "top": 2, "title": "配信", "channel": ""}], request_id=self.RID,
-                                             flow="auto", deliver_dir=out)["runs"][0])
+        events = self.record_places(self.out)
+        run = self.auto_request()
         self.assertEqual((run["state"], run["mode"]), ("done", "request_auto"), run)
         self.assertEqual(list(self.states(run)), ["analyze", "adopt", "export", "transcribe", "pack", "deliver"])
         self.assertEqual(self.states(run)["deliver"], "done")
         z2, z3 = "%s__a2.zip" % self.RID, "%s__a3.zip" % self.RID   # 1 本の zip は <依頼 id>__<パックの題>.zip
-        self.assertEqual(sorted(os.listdir(out)), sorted([z2, z3] + [z[:-4] + e for z in (z2, z3) for e in (".preview.mp4", ".meta.json")]))
-        got = self.zips(out)
+        self.assertEqual(sorted(os.listdir(self.out)), sorted([z2, z3] + [z[:-4] + e for z in (z2, z3) for e in (".preview.mp4", ".meta.json")]))
+        got = self.zips(self.out)
         for n in ("a2_pack/cut-plan.json", "a2_pack/a2.mp4"):
             self.assertIn(n, got[z2])
         self.assertIn("a3_pack/cut-plan.json", got[z3])
         self.assertEqual([n for n in got[z2] if not n.startswith("a2_pack/")] + [n for n in got[z3] if not n.startswith("a3_pack/")], [], "1 本の zip に 1 本だけ")
         for z in (z2, z3):
             self.assertNotIn("まとめ.mp4", got[z])
-            doc = self.meta_of(out, z)
+            doc = self.meta_of(self.out, z)
             self.assertEqual(sorted(doc), sorted(["v", "kind", "origin", "sentAt", "requestId", "zip", "preview", "title", "videoId", "markId",
                                                   "streamTitle", "streamer", "seconds"]))
             self.assertEqual((doc["v"], doc["kind"], doc["origin"], doc["requestId"], doc["zip"], doc["preview"], doc["videoId"]),
                              (1, "clip", "request", self.RID, z, z[:-4] + ".preview.mp4", VID))
             self.assertRegex(doc["sentAt"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d$")
-            with open(os.path.join(out, z[:-4] + ".preview.mp4"), "rb") as f:
+            with open(os.path.join(self.out, z[:-4] + ".preview.mp4"), "rb") as f:
                 self.assertEqual(f.read(), b"PREVIEW")   # 確認用の動画(偽物)がそのまま置かれる
-        self.assertEqual([self.meta_of(out, z)["title"] for z in (z2, z3)], ["a2", "a3"])
+        self.assertEqual([self.meta_of(self.out, z)["title"] for z in (z2, z3)], ["a2", "a3"])
         # 置く順: 各パックで 確認用の動画 → 印 → zip(zip が見えたら印も動画もそろっている)
         self.assertEqual([k for k, _n in events], ["meta", "zip", "meta", "zip"], events)
         for i, z in enumerate((z2, z3)):
@@ -1547,112 +1459,84 @@ class TestRequests(Base):
         """印の seconds = そのパックの切り抜きの長さ(小数 2 桁)。分からなければ None"""
         self.tools.known = False
         self.fake_seconds(a2_pack=48.2, a3_pack=31.456)
-        out = os.path.join(self.tmp, "Dropbox", "出力")
-        run = self.wait(start_request(self.r, [{"id": VID, "top": 2, "title": "配信", "channel": ""}], request_id=self.RID, flow="auto", deliver_dir=out)["runs"][0])
+        run = self.auto_request()
         self.assertEqual(run["state"], "done", run)
-        self.assertEqual([self.meta_of(out, "%s__a%d.zip" % (self.RID, i))["seconds"] for i in (2, 3)], [48.2, 31.46])
+        self.assertEqual([self.meta_of(self.out, "%s__a%d.zip" % (self.RID, i))["seconds"] for i in (2, 3)], [48.2, 31.46])
 
     def test_live_clips_each_delivered_as_the_run_ends(self):
         """ライブの切り抜き(1 本ごとに別の実行)も、その実行の中で 1 本ずつ届ける(溜めはしない = F3-6)。溜めは残らない"""
-        out = os.path.join(self.tmp, "Dropbox", "出力")
         for i in range(3):
             media = self.live_clip("l%d.mp4" % i, "auto")
-            run = self.wait(start_file(self.r, media, title="l%d" % i, flow="auto", request_id=self.RID, deliver_dir=out))
+            run = self.wait(start_file(self.r, media, title="l%d" % i, flow="auto", request_id=self.RID, deliver_dir=self.out))
             self.assertEqual(run["state"], "done", run)
-            self.assertIn("%s__l%d.zip" % (self.RID, i), os.listdir(out))
-            self.assertIn("%s__l%d.meta.json" % (self.RID, i), os.listdir(out))
-        self.assertEqual(len(os.listdir(out)), 9)
+            self.assertIn("%s__l%d.zip" % (self.RID, i), os.listdir(self.out))
+            self.assertIn("%s__l%d.meta.json" % (self.RID, i), os.listdir(self.out))
+        self.assertEqual(len(os.listdir(self.out)), 9)
         self.assertEqual(self.r.pools(), {})
 
     def test_old_pool_with_batch_5_is_delivered_one_by_one(self):
         """前の版の溜め(batch 5 の入った deliver-pool.json)の残りは、組ではなく 1 本ずつ届ける(flush_pools)。届けたら溜めは消える"""
-        out = os.path.join(self.tmp, "Dropbox", "出力")
         packs = self.make_packs(3, "oldpool")
         self.r.pool_path = os.path.join(self.tmp, "logs", DL.POOL_FILE)
-        os.makedirs(os.path.dirname(self.r.pool_path), exist_ok=True)
-        with open(self.r.pool_path, "w", encoding="utf-8") as f:
-            json.dump({"schema": DL.POOL_SCHEMA, "pools": {"live|%s|local/rec9" % self.RID: {
-                "rid": self.RID, "title": "配信", "deliverDir": out, "batch": 5, "meta": {"recorder": "local", "recording": "rec9", "phase": "live"},
-                "packs": packs, "delivered": [], "marks": {}, "created": 0, "updated": 0}}}, f)
+        write_old_pool(self.r.pool_path, "live|%s|local/rec9" % self.RID, self.RID, "配信", self.out, 5, "rec9", packs)
         self.r._pools = None
         self.assertEqual(self.r.flush_pools(lambda m: True), 3)
         zips = ["%s__p%d.zip" % (self.RID, i) for i in (1, 2, 3)]
-        self.assertEqual(sorted(os.listdir(out)), sorted(zips + [z[:-4] + e for z in zips for e in (".preview.mp4", ".meta.json")]))
+        self.assertEqual(sorted(os.listdir(self.out)), sorted(zips + [z[:-4] + e for z in zips for e in (".preview.mp4", ".meta.json")]))
         self.assertEqual(self.r.pools(), {})
-
-    def test_delivers_one_by_one_as_each_pack_is_made(self):
-        """パックができるたびに 1 本ずつ届ける(組はない)。どの zip も 1 本だけ・隣の確認用の動画と印・置く順は 確認用の動画 → 印 → zip"""
-        self.tools.known = False
-        out = os.path.join(self.tmp, "Dropbox", "出力")
-        events = self.record_places(out)
-        run = self.wait(start_request(self.r, [{"id": VID, "top": 2, "title": "配信", "channel": ""}], request_id=self.RID,
-                                             flow="auto", deliver_dir=out)["runs"][0])
-        self.assertEqual(run["state"], "done", run)
-        got = self.zips(out)
-        z2, z3 = "%s__a2.zip" % self.RID, "%s__a3.zip" % self.RID
-        self.assertEqual(sorted(os.listdir(out)), sorted([z2, z3] + [z[:-4] + e for z in (z2, z3) for e in (".preview.mp4", ".meta.json")]))
-        self.assertIn("a2_pack/cut-plan.json", got[z2])
-        self.assertNotIn("まとめ.mp4", got[z2])
-        self.assertEqual([k for k, _n in events], ["meta", "zip", "meta", "zip"], events)
-        for z in (z2, z3):   # 1 本ずつでも届けた記録は残す
-            self.assertEqual(len(friend_feedback.find_delivery(self.logs_dir(), z)["packs"]), 1, z)
 
     def test_without_preview_still_delivers_zip_and_meta(self):
         """確認用の動画を作れなくても(ffmpeg が無い・動画が壊れている)zip と印は届ける(印の preview は null)"""
         self.tools.known = False
         self.addCleanup(setattr, pv, "make_preview", pv.make_preview)
         pv.make_preview = lambda *a, **k: False
-        out = os.path.join(self.tmp, "Dropbox", "出力")
-        run = self.wait(start_request(self.r, [{"id": VID, "top": 2, "title": "配信", "channel": ""}], request_id=self.RID, flow="auto", deliver_dir=out)["runs"][0])
+        run = self.auto_request()
         self.assertEqual(run["state"], "done", run)
-        self.assertEqual(sorted(os.listdir(out)), sorted(["%s__a%d.%s" % (self.RID, i, e) for i in (2, 3) for e in ("zip", "meta.json")]))
+        self.assertEqual(sorted(os.listdir(self.out)), sorted(["%s__a%d.%s" % (self.RID, i, e) for i in (2, 3) for e in ("zip", "meta.json")]))
         for i in (2, 3):
-            self.assertIsNone(self.meta_of(out, "%s__a%d.zip" % (self.RID, i))["preview"])
+            self.assertIsNone(self.meta_of(self.out, "%s__a%d.zip" % (self.RID, i))["preview"])
 
     def test_same_name_does_not_overwrite(self):
         """同じ依頼 id・同じ配信をもう一度届けたら、同じ名前は末尾に 4 文字足して置く(zip・確認用の動画・印は同じ名前でそろえる)"""
         self.tools.known = False
-        out = os.path.join(self.tmp, "Dropbox", "出力")
-        os.makedirs(out)
-        self.wait(start_request(self.r, [{"id": VID, "top": 2, "title": "配信", "channel": ""}], request_id=self.RID, flow="auto", deliver_dir=out)["runs"][0])
-        before = set(os.listdir(out))
+        os.makedirs(self.out)
+        self.auto_request()
+        before = set(os.listdir(self.out))
         self.assertEqual(len(before), 6)
-        run1 = self.wait(start_request(self.r, [{"id": VID, "top": 2, "title": "配信", "channel": ""}], request_id=self.RID, flow="auto", deliver_dir=out)["runs"][0])
+        run1 = self.auto_request()
         self.assertEqual(run1["state"], "done", run1)
-        new = set(os.listdir(out)) - before
+        new = set(os.listdir(self.out)) - before
         new_zips = sorted(n for n in new if n.endswith(".zip"))
         self.assertEqual(len(new_zips), 2, new)
         for z in new_zips:
             self.assertRegex(z, r"^%s__a[23]-[0-9a-f]{4}\.zip$" % re.escape(self.RID))
             stem = z[:-4]
             self.assertTrue({stem + ".preview.mp4", stem + ".meta.json"} <= new, z)
-            self.assertEqual(self.meta_of(out, z)["zip"], z)
+            self.assertEqual(self.meta_of(self.out, z)["zip"], z)
 
     def test_each_pack_once_in_run_order(self):
         """段を通さずに届ける段(_deliver_pending)だけ: 4 本はそれぞれ 1 本ずつ・2 度目は何も置かない"""
-        out = os.path.join(self.tmp, "Dropbox", "出力")
-        run = self.direct_run(self.make_packs(4), out)
+        run = self.direct_run(self.make_packs(4), self.out)
         self.fake_seconds(p1_pack=10.0, p2_pack=20.0)
         self.r._deliver_pending(run)
         zips = ["%s__p%d.zip" % (self.RID, i) for i in (1, 2, 3, 4)]
-        self.assertEqual(sorted(os.listdir(out)), sorted(zips + [z[:-4] + e for z in zips for e in (".preview.mp4", ".meta.json")]))
-        self.assertEqual([self.meta_of(out, z)["seconds"] for z in zips], [10.0, 20.0, None, None])
+        self.assertEqual(sorted(os.listdir(self.out)), sorted(zips + [z[:-4] + e for z in zips for e in (".preview.mp4", ".meta.json")]))
+        self.assertEqual([self.meta_of(self.out, z)["seconds"] for z in zips], [10.0, 20.0, None, None])
         self.assertEqual(run.delivered, run.packs)
         self.r._deliver_pending(run)
-        self.assertEqual(len(os.listdir(out)), 12)
+        self.assertEqual(len(os.listdir(self.out)), 12)
 
     def test_stops_midway_keeps_placed_records(self):
         """2 本目の zip が置けなかった(ディスクがいっぱい): 1 本目の記録(deliveries.jsonl・届けた印)は残る。2 本目の確認用の動画・印は残さない"""
-        out = os.path.join(self.tmp, "Dropbox", "出力")
         packs = self.make_packs(3)
-        run = self.direct_run(packs, out)
+        run = self.direct_run(packs, self.out)
         calls = self.fail_zips_after(1)
         with self.assertRaisesRegex(A.StepError, "No space left on device"):
             self.r._deliver_pending(run)
         self.assertEqual(calls["n"], 2)
         z1 = "%s__p1.zip" % self.RID
         self.assertEqual(run.delivered, [packs[0]])
-        self.assertEqual(sorted(os.listdir(out)), sorted([z1, z1[:-4] + ".preview.mp4", z1[:-4] + ".meta.json"]))
+        self.assertEqual(sorted(os.listdir(self.out)), sorted([z1, z1[:-4] + ".preview.mp4", z1[:-4] + ".meta.json"]))
         row = friend_feedback.find_delivery(self.logs_dir(), z1)
         self.assertEqual((row["requestId"], [p["dir"] for p in row["packs"]]), (self.RID, [packs[0]]), row)
         self.assertIsNone(friend_feedback.find_delivery(self.logs_dir(), "%s__p2.zip" % self.RID))
@@ -1660,12 +1544,11 @@ class TestRequests(Base):
 
     def test_nothing_placed_leaves_no_files(self):
         """1 本目の zip が置けなかった: 先に置いた確認用の動画・印も残さない・記録も届けた印も無い"""
-        out = os.path.join(self.tmp, "Dropbox", "出力")
-        run = self.direct_run(self.make_packs(3), out)
+        run = self.direct_run(self.make_packs(3), self.out)
         self.fail_zips_after(0)
         with self.assertRaisesRegex(A.StepError, "No space left on device"):
             self.r._deliver_pending(run)
-        self.assertEqual(os.listdir(out), [])
+        self.assertEqual(os.listdir(self.out), [])
         self.assertEqual(run.delivered, [])
         self.assertFalse(os.path.exists(os.path.join(self.logs_dir(), "deliveries.jsonl")))
         self.assertFalse([n for n in os.listdir(os.path.join(self.tmp, "packs")) if n.startswith(".deliver")], "書きかけが残る")
@@ -1676,30 +1559,24 @@ class TestRequests(Base):
             with open(dst, "wb") as f:
                 f.write(b"PART")
             raise OSError(28, "No space left on device")
-        out = os.path.join(self.tmp, "Dropbox", "出力")
-        run = self.direct_run(self.make_packs(3, "packs2"), out)
+        run = self.direct_run(self.make_packs(3, "packs2"), self.out)
         with mock.patch.object(shutil, "copyfile", copyfile):
             with self.assertRaisesRegex(A.StepError, "No space left on device"):
                 self.r._deliver_pending(run)
-        self.assertEqual(os.listdir(out), [])
+        self.assertEqual(os.listdir(self.out), [])
         self.assertEqual(run.delivered, [])
 
     def test_group_stops_the_run_with_failure_note(self):
         """通しで: 組の 2 本目の zip が置けなかった実行は「止まった」(error)。友人の受け取りに失敗の知らせの .txt、1 本目の記録は残る"""
         self.tools.known = False
-        out = os.path.join(self.tmp, "Dropbox", "出力")
         self.fail_zips_after(1)
-        run = self.wait(start_request(self.r, [{"id": VID, "top": 2, "title": "配信", "channel": ""}], request_id=self.RID, flow="auto", deliver_dir=out)["runs"][0])
+        run = self.auto_request()
         self.assertEqual(run["state"], "error", run)
         self.assertEqual(self.states(run)["deliver"], "error")
         self.assertIn("No space left on device", run["error"])
         pre = "%s__%s" % (self.RID, run["title"])
-        for _ in range(300):   # 失敗の知らせは状態が error になったあとに置く(状態だけ見て読むと、まだ無いことがある)
-            names = os.listdir(out)
-            if pre + ".失敗.txt" in names:
-                break
-            time.sleep(0.01)
-        self.assertIn(pre + ".失敗.txt", names)
+        # 失敗の知らせは状態が error になったあとに置く(状態だけ見て読むと、まだ無いことがある)
+        names = self.until(lambda: (lambda ns: ns if pre + ".失敗.txt" in ns else None)(os.listdir(self.out)), 3)
         self.assertEqual(sorted(n for n in names if n.endswith(".zip")), ["%s__a2.zip" % self.RID])
         self.assertFalse([n for n in names if n.endswith(".group.json")])
         self.assertIsNotNone(friend_feedback.find_delivery(self.logs_dir(), "%s__a2.zip" % self.RID))
@@ -1708,12 +1585,10 @@ class TestRequests(Base):
     def test_deliver_batch_is_not_a_setting_any_more(self):
         """届け方は 1 本ずつだけ(F3-6)。依頼の deliverBatch は封筒に残るだけで届け方を変えない(組の一覧は作らない)"""
         self.tools.known = False
-        out = os.path.join(self.tmp, "Dropbox", "出力")
-        run = self.wait(start_request(self.r, [{"id": VID, "top": 2, "title": "配信", "channel": ""}], request_id=self.RID, flow="auto", deliver_dir=out,
-                                             deliver_batch=5)["runs"][0])
+        run = self.auto_request(deliver_batch=5)
         self.assertEqual(run["state"], "done", run)
         self.assertEqual(self.real(run).deliver_batch, 5)
-        self.assertEqual(sorted(os.listdir(out)), sorted(["%s__a%d.%s" % (self.RID, i, e) for i in (2, 3) for e in ("zip", "preview.mp4", "meta.json")]))
+        self.assertEqual(sorted(os.listdir(self.out)), sorted(["%s__a%d.%s" % (self.RID, i, e) for i in (2, 3) for e in ("zip", "preview.mp4", "meta.json")]))
 
     def test_run_deliver_batch_range_and_saved_restore(self):
         """Run の deliver_batch: 1〜10 の整数だけ(範囲の外・bool・文字列・小数は None = ホームの設定)。saved/restore で残る・壊れた値は None に戻る"""
@@ -1737,55 +1612,38 @@ class TestRequests(Base):
 
     def test_start_file_deliver_batch(self):
         """動画の依頼(start_file)にも deliver_batch を渡せる(範囲の外は None)"""
-        media = os.path.join(self.tmp, "依頼.mp4")
-        open(media, "wb").close()
-        out = os.path.join(self.tmp, "Dropbox", "出力")
-        run = self.wait(start_file(self.r, media, title="依頼", request_id="rid1", flow="auto", deliver_dir=out, deliver_batch=4))
+        run = self.file_run("依頼.mp4", title="依頼", request_id="rid1", flow="auto", deliver_dir=self.out, deliver_batch=4)
         self.assertEqual((run["state"], self.real(run).deliver_batch, self.real(run).saved()["deliverBatch"]), ("done", 4, 4), run)
-        media2 = os.path.join(self.tmp, "二本目.mp4")
-        open(media2, "wb").close()
-        run = self.wait(start_file(self.r, media2, title="二本目", request_id="rid2", flow="auto", deliver_dir=out, deliver_batch=99))
+        run = self.file_run("二本目.mp4", title="二本目", request_id="rid2", flow="auto", deliver_dir=self.out, deliver_batch=99)
         # 範囲の外は指定なし(None)。届け方は 1 本ずつだけなので、読まれる値は無い(F3-6)
         self.assertIsNone(self.real(run).deliver_batch)
-        self.assertEqual(sorted(n for n in os.listdir(out) if n.endswith(".zip")), ["rid1__依頼.zip", "rid2__二本目.zip"])
+        self.assertEqual(sorted(n for n in os.listdir(self.out) if n.endswith(".zip")), ["rid1__依頼.zip", "rid2__二本目.zip"])
 
     def test_file_auto_delivers_and_failure_note(self):
         """① 全自動(動画): 文字起こし → パック → zip。止まったら 出力\\ に理由の .txt"""
-        media = os.path.join(self.tmp, "依頼.mp4")
-        open(media, "wb").close()
-        out = os.path.join(self.tmp, "Dropbox", "出力")
-        run = self.wait(start_file(self.r, media, title="依頼", streamer="さくらみこ", request_id="rid1", flow="auto", deliver_dir=out))
+        run = self.file_run("依頼.mp4", title="依頼", streamer="さくらみこ", request_id="rid1", flow="auto", deliver_dir=self.out)
         self.assertEqual((run["state"], run["mode"], list(self.states(run))), ("done", "file_auto", ["normalize", "transcribe", "pack", "deliver"]), run)
         self.assertEqual(self.tools.c2r["body"]["output"].get("streamer"), "さくらみこ")   # 選んだ配信者の色でパック
         self.assertNotIn("videoTracks", self.tools.c2r["body"]["output"])                 # 選ばなければ送らない(= 1)
-        self.assertEqual(sorted(self.zips(out)), ["rid1__依頼.zip"])
-        media2 = os.path.join(self.tmp, "b.mp4")
-        open(media2, "wb").close()
+        self.assertEqual(sorted(self.zips(self.out)), ["rid1__依頼.zip"])
         self.tools.fail_tx = True
-        run = self.wait(start_file(self.r, media2, title="二本目", request_id="rid2", flow="auto", deliver_dir=out))
+        run = self.wait(start_file(self.r, self.empty("b.mp4"), title="二本目", request_id="rid2", flow="auto", deliver_dir=self.out))
         self.assertEqual(run["state"], "error")
-        note = os.path.join(out, "rid2__二本目.失敗.txt")
-        for _ in range(300):   # 失敗の知らせは状態が error になったあとに置く
-            if os.path.exists(note):
-                break
-            time.sleep(0.01)
+        note = os.path.join(self.out, "rid2__二本目.失敗.txt")
+        self.until(lambda: os.path.exists(note), 3)   # 失敗の知らせは状態が error になったあとに置く
         with open(note, encoding="utf-8-sig") as f:
             self.assertIn("モデルが読めません", f.read())
 
     def test_file_auto_video_tracks_to_pack(self):
         """友人が選んだ映像トラックの数をパックの output.videoTracks へ"""
-        media = os.path.join(self.tmp, "トラック.mp4")
-        open(media, "wb").close()
-        run = self.wait(start_file(self.r, media, title="トラック", request_id="rid9", flow="auto", deliver_dir=os.path.join(self.tmp, "out9"), video_tracks=4))
+        run = self.file_run("トラック.mp4", title="トラック", request_id="rid9", flow="auto", deliver_dir=os.path.join(self.tmp, "out9"), video_tracks=4)
         self.assertEqual(run["state"], "done", run)
         self.assertEqual(self.tools.c2r["body"]["output"]["videoTracks"], 4)
 
     def test_file_with_speakers_diarizes_new_doc(self):
         """話す人があれば、文字起こしのあとに話者分離(人数と名前を「編集」の /api/diarize へ)"""
-        self.tools.h_transcribe_POST_api_diarize = lambda path, body: (self.tools.tx_jobs.setdefault("d1", {"id": "d1", "state": "done", "src": "", "body": body}) and (200, {"id": "d1"}))
-        media = os.path.join(self.tmp, "コラボ.mp4")
-        open(media, "wb").close()
-        run = self.wait(start_file(self.r, media, speakers={"count": 2, "names": ["兎田ぺこら"]}))
+        self._diarize_fake()
+        run = self.file_run("コラボ.mp4", speakers={"count": 2, "names": ["兎田ぺこら"]})
         self.assertEqual((run["state"], list(self.states(run))), ("done", ["normalize", "transcribe", "diarize"]), run)
         body = self.tools.tx_jobs["d1"]["body"]
         self.assertEqual((body["tid"], body["numSpeakers"], body["names"]), ("000000000001", 2, ["兎田ぺこら"]))
@@ -1802,94 +1660,71 @@ class TestRequests(Base):
     def test_file_with_styles_remembers_color_in_doc(self):
         """話者分離のあと、指定された字幕の色を文書に覚える(POST /api/speakers/sub {id, styles})。styles が空なら呼ばない"""
         self._diarize_fake(lambda path, body: (200, {"ok": True, "applied": list(body["styles"])}))
-        media = os.path.join(self.tmp, "コラボ.mp4")
-        open(media, "wb").close()
-        run = self.wait(start_file(self.r, media, speakers=dict(self.SPEAKERS)))
+        run = self.file_run("コラボ.mp4", speakers=dict(self.SPEAKERS))
         self.assertEqual((run["state"], list(self.states(run))), ("done", ["normalize", "transcribe", "diarize"]), run)
-        subs = [c for c in self.tools.calls if c[2] == "/api/speakers/sub"]
+        subs = self.sub_calls()
         self.assertEqual([(c[0], c[1], c[3]) for c in subs], [("transcribe", "POST", {"id": "000000000001", "styles": self.STYLES})])
         detail = next(s for s in run["steps"] if s["key"] == "diarize")["detail"]
         self.assertIn("字幕の色を覚えました", detail)
         self.assertNotIn("覚えられませんでした", detail)
         # 色の指定が無い(古い形・styles が空)なら呼ばない
-        media2 = os.path.join(self.tmp, "ふたり.mp4")
-        open(media2, "wb").close()
+        media2 = self.empty("ふたり.mp4")
         self.tools.calls.clear()
         run = self.wait(start_file(self.r, media2, speakers={"count": 2, "names": ["A", "B"], "styles": {}}))
         self.assertEqual(run["state"], "done", run)
-        self.assertFalse([c for c in self.tools.calls if c[2] == "/api/speakers/sub"])
-        media3 = os.path.join(self.tmp, "古い.mp4")
-        open(media3, "wb").close()
-        run = self.wait(start_file(self.r, media3, speakers={"count": 2, "names": ["A", "B"]}))   # styles の鍵そのものが無い
+        self.assertFalse(self.sub_calls())
+        run = self.file_run("古い.mp4", speakers={"count": 2, "names": ["A", "B"]})   # styles の鍵そのものが無い
         self.assertEqual(run["state"], "done", run)
-        self.assertFalse([c for c in self.tools.calls if c[2] == "/api/speakers/sub"])
+        self.assertFalse(self.sub_calls())
 
     def test_file_styles_not_sent_when_color_invalid(self):
         """実行の作り手が検査をすり抜けた色を渡しても、16 進 6 桁でなければ送らない(画面・Lua に入る前の 2 重の守り)"""
         self._diarize_fake(lambda path, body: (200, {"ok": True, "applied": []}))
-        media = os.path.join(self.tmp, "x.mp4")
-        open(media, "wb").close()
-        run = self.wait(start_file(self.r, media, speakers={"count": 2, "names": ["A", "B"], "styles": {"A": {"color": "red\"); os.exit()"}, "B": {"color": "ff00aa"}}}))
+        run = self.file_run("x.mp4", speakers={"count": 2, "names": ["A", "B"], "styles": {"A": {"color": "red\"); os.exit()"}, "B": {"color": "ff00aa"}}})
         self.assertEqual(run["state"], "done", run)
         self.assertEqual([c[3]["styles"] for c in self.tools.calls if c[2] == "/api/speakers/sub"], [{"B": {"color": "#FF00AA"}}])
 
     def test_file_styles_old_editor_does_not_stop_request(self):
         """古い「編集」(sub の API が無く 404)・その他の失敗でも、依頼は止めない(一部失敗にもしない)。段の知らせに足すだけ"""
         self._diarize_fake()   # sub の API なし = 404
-        media = os.path.join(self.tmp, "古い編集.mp4")
-        open(media, "wb").close()
-        run = self.wait(start_file(self.r, media, speakers=dict(self.SPEAKERS), flow="auto", deliver_dir=os.path.join(self.tmp, "出力")))
+        run = self.file_run("古い編集.mp4", speakers=dict(self.SPEAKERS), flow="auto", deliver_dir=os.path.join(self.tmp, "出力"))
         self.assertEqual((run["state"], list(self.states(run))), ("done", ["normalize", "transcribe", "diarize", "pack", "deliver"]), run)
         self.assertEqual(self.states(run)["diarize"], "done")
         self.assertIn("字幕の色を覚えられませんでした", next(s for s in run["steps"] if s["key"] == "diarize")["detail"])
         self.assertEqual(self.tools.c2r["body"]["output"]["speakerStyles"], self.STYLES, "パックには色を渡す")
         for i, res in enumerate(((500, {"error": "x"}), (200, {"ok": False}), (200, "x"))):
             self.tools.h_transcribe_POST_api_speakers_sub = lambda path, body, res=res: res
-            m = os.path.join(self.tmp, "n%d.mp4" % i)
-            open(m, "wb").close()
-            run = self.wait(start_file(self.r, m, speakers=dict(self.SPEAKERS)))
+            run = self.file_run("n%d.mp4" % i, speakers=dict(self.SPEAKERS))
             self.assertEqual((run["state"], self.states(run)["diarize"]), ("done", "done"), run)
         def boom(path, body):
             raise OSError("つながらない")
         self.tools.h_transcribe_POST_api_speakers_sub = boom
-        m = os.path.join(self.tmp, "boom.mp4")
-        open(m, "wb").close()
-        run = self.wait(start_file(self.r, m, speakers=dict(self.SPEAKERS)))
+        run = self.file_run("boom.mp4", speakers=dict(self.SPEAKERS))
         self.assertEqual((run["state"], self.states(run)["diarize"]), ("done", "done"), run)
 
     def test_file_styles_not_remembered_when_diarize_fails(self):
         """話者分離が失敗した文書には、色を覚えさせない"""
         self.tools.h_transcribe_POST_api_diarize = lambda path, body: (500, {"message": "話者分離が使えません"})
         self.tools.h_transcribe_POST_api_speakers_sub = lambda path, body: (200, {"ok": True, "applied": []})
-        media = os.path.join(self.tmp, "失敗.mp4")
-        open(media, "wb").close()
-        run = self.wait(start_file(self.r, media, speakers=dict(self.SPEAKERS)))
+        run = self.file_run("失敗.mp4", speakers=dict(self.SPEAKERS))
         self.assertEqual(self.states(run)["diarize"], "warn", run)
-        self.assertFalse([c for c in self.tools.calls if c[2] == "/api/speakers/sub"])
+        self.assertFalse(self.sub_calls())
         self.tools.h_transcribe_POST_api_diarize = lambda path, body: (self.tools.tx_jobs.setdefault("d2", {"id": "d2", "state": "error", "error": "だめ", "src": "", "body": body}) and (200, {"id": "d2"}))
-        media = os.path.join(self.tmp, "失敗2.mp4")
-        open(media, "wb").close()
-        run = self.wait(start_file(self.r, media, speakers=dict(self.SPEAKERS)))
+        run = self.file_run("失敗2.mp4", speakers=dict(self.SPEAKERS))
         self.assertEqual(self.states(run)["diarize"], "warn", run)
-        self.assertFalse([c for c in self.tools.calls if c[2] == "/api/speakers/sub"])
+        self.assertFalse(self.sub_calls())
 
     def test_pack_request_has_speaker_styles_only_when_given(self):
         """パックの要求(output.speakerStyles)は、色の指定があるときだけ。無ければ鍵ごと付けない(今までと同じ要求)"""
         self._diarize_fake(lambda path, body: (200, {"ok": True, "applied": []}))
         out = os.path.join(self.tmp, "出力")
-        media = os.path.join(self.tmp, "あり.mp4")
-        open(media, "wb").close()
-        run = self.wait(start_file(self.r, media, request_id="r1", flow="auto", deliver_dir=out, speakers=dict(self.SPEAKERS)))
+        run = self.file_run("あり.mp4", request_id="r1", flow="auto", deliver_dir=out, speakers=dict(self.SPEAKERS))
         self.assertEqual(run["state"], "done", run)
         self.assertEqual(self.tools.c2r["body"]["output"]["speakerStyles"], self.STYLES)
-        media = os.path.join(self.tmp, "なし.mp4")
-        open(media, "wb").close()
-        run = self.wait(start_file(self.r, media, request_id="r2", flow="auto", deliver_dir=out, speakers={"count": 2, "names": ["A"], "styles": {}}))
+        run = self.file_run("なし.mp4", request_id="r2", flow="auto", deliver_dir=out, speakers={"count": 2, "names": ["A"], "styles": {}})
         self.assertEqual(run["state"], "done", run)
         self.assertNotIn("speakerStyles", self.tools.c2r["body"]["output"])
-        media = os.path.join(self.tmp, "話者なし.mp4")
-        open(media, "wb").close()
-        run = self.wait(start_file(self.r, media, request_id="r3", flow="auto", deliver_dir=out))
+        run = self.file_run("話者なし.mp4", request_id="r3", flow="auto", deliver_dir=out)
         self.assertEqual(run["state"], "done", run)
         self.assertNotIn("speakerStyles", self.tools.c2r["body"]["output"])
 
@@ -1897,18 +1732,16 @@ class TestRequests(Base):
         """URL の依頼(① 全自動): 配信者(streamer)はチャンネル名からの自動より優先・色の指定は文書に覚え、パックにも渡す。streamer が無ければ今までどおり自動"""
         self.tools.known = False
         self._diarize_fake(lambda path, body: (200, {"ok": True, "applied": []}))
-        out = os.path.join(self.tmp, "Dropbox", "出力")
-        run = self.wait(start_request(self.r, [{"id": VID, "top": 1, "title": "配信", "channel": "Pekora Ch. 兎田ぺこら", "ranges": [(50, 60)]}], request_id="rid1", flow="auto",
-                                             deliver_dir=out, speakers=dict(self.SPEAKERS), streamer="さくらみこ")["runs"][0])
+        item = {"id": VID, "top": 1, "title": "配信", "channel": "Pekora Ch. 兎田ぺこら", "ranges": [(50, 60)]}
+        run = self.request(item, request_id="rid1", flow="auto", deliver_dir=self.out, speakers=dict(self.SPEAKERS), streamer="さくらみこ")
         self.assertEqual((run["state"], run["streamer"], run["streamerFrom"]), ("done", "さくらみこ", None), run)
         self.assertEqual(list(self.states(run)), ["adopt", "export", "transcribe", "diarize", "pack", "deliver", "analyze_later"])
         out_body = self.tools.c2r["body"]["output"]
         self.assertEqual((out_body["streamer"], out_body["speakerStyles"]), ("さくらみこ", self.STYLES))
-        self.assertTrue([c for c in self.tools.calls if c[2] == "/api/speakers/sub"])
+        self.assertTrue(self.sub_calls())
         # streamer なし / 空 = 今までどおりチャンネル名から自動
         for who in (None, ""):
-            run = self.wait(start_request(self.r, [{"id": VID, "top": 1, "title": "配信", "channel": "Pekora Ch. 兎田ぺこら", "ranges": [(70, 80)]}], request_id="rid2", flow="auto",
-                                                 deliver_dir=out, streamer=who)["runs"][0])
+            run = self.request(dict(item, ranges=[(70, 80)]), request_id="rid2", flow="auto", deliver_dir=self.out, streamer=who)
             self.assertEqual((run["state"], run["streamer"], run["streamerFrom"]), ("done", "兎田ぺこら", "auto"), run)
             self.assertEqual(self.tools.c2r["body"]["output"]["streamer"], "兎田ぺこら")
             self.assertNotIn("speakerStyles", self.tools.c2r["body"]["output"])
@@ -1916,8 +1749,7 @@ class TestRequests(Base):
     def test_request_ranges_only_skips_analysis(self):
         """区間が切り抜く数に足りている: 解析なしで、区間(前後に 2 秒の余白)だけを書き出し → 文字起こし。解析は最後に順番へ入れるだけ(待たない。決定 3-49 Q6)"""
         self.tools.known = False
-        res = start_request(self.r, [{"id": VID, "top": 2, "title": "配信", "channel": "ch", "ranges": [(100, 190), (1, 30)], "duration": 191.0}], request_id="rid")
-        run = self.wait(res["runs"][0])
+        run = self.request({"id": VID, "top": 2, "title": "配信", "channel": "ch", "ranges": [(100, 190), (1, 30)], "duration": 191.0}, request_id="rid")
         self.assertEqual((run["state"], list(self.states(run))), ("done", ["adopt", "export", "transcribe", "analyze_later"]), run)
         adds = [i for i, c in enumerate(self.tools.calls) if c[2] == "/api/queue/add"]
         self.assertEqual(len(adds), 1, "解析は最後に 1 回だけ順番へ")
@@ -1933,7 +1765,7 @@ class TestRequests(Base):
         前からある人の採用は数に入れる(採用の規則 F-5。RS6 b-A)"""
         self.tools.known = False
         self.tools.video["marks"] = [{"id": "old", "src": "manual", "status": "adopted", "score": None, "start": 500, "end": 510}]   # 前からある人の採用
-        run = self.wait(start_request(self.r, [{"id": VID, "top": 3, "ranges": [(18, 23)]}], request_id="rid")["runs"][0])
+        run = self.request({"id": VID, "top": 3, "ranges": [(18, 23)]}, request_id="rid")
         self.assertEqual((run["state"], list(self.states(run))), ("done", ["analyze", "adopt", "export", "transcribe"]), run)
         self.assertEqual((self.tools.request_marks["ranges"], self.tools.request_marks["top"]), ([[16.0, 25.0]], 3))
         by = {m["id"]: m for m in self.tools.video["marks"]}
@@ -1948,22 +1780,21 @@ class TestRequests(Base):
     def test_request_cut_and_resend_rebuilds_pack(self):
         """① 全自動: 友人が選んだカット(無音を削る)でパック。同じ配信・同じ区間の送り直しは、切り抜き・文字起こしを使い回してパックだけ作り直して届ける"""
         self.tools.known = False
-        out = os.path.join(self.tmp, "Dropbox", "出力")
         item = {"id": VID, "top": 1, "title": "配信", "ranges": [(50, 60)]}
-        run = self.wait(start_request(self.r, [dict(item)], request_id="rid1", flow="auto", deliver_dir=out, cut="silence", video_tracks=2)["runs"][0])
+        run = self.request(dict(item), request_id="rid1", flow="auto", deliver_dir=self.out, cut="silence", video_tracks=2)
         self.assertEqual((run["state"], list(self.states(run))), ("done", ["adopt", "export", "transcribe", "pack", "deliver", "analyze_later"]), run)
         self.assertEqual((self.tools.c2r["body"]["spec"]["mode"], self.tools.c2r["body"]["output"]["videoTracks"]), ("silence", 2))
-        self.assertEqual(len(self.zips(out)), 1)
+        self.assertEqual(len(self.zips(self.out)), 1)
         jobs = len(self.tools.tx_jobs)
-        run = self.wait(start_request(self.r, [dict(item)], request_id="rid2", flow="auto", deliver_dir=out, cut="none", video_tracks=3)["runs"][0])
+        run = self.request(dict(item), request_id="rid2", flow="auto", deliver_dir=self.out, cut="none", video_tracks=3)
         st = self.states(run)
         self.assertEqual((run["state"], st["export"], st["transcribe"], st["pack"], st["deliver"]), ("done", "skip", "skip", "done", "done"), run)
         self.assertEqual(len(self.tools.tx_jobs), jobs, "文字起こしは使い回す")
         body = self.tools.c2r["body"]
         self.assertEqual((body["spec"].get("mode"), body["spec"].get("listKind"), body["output"]["videoTracks"], body["output"].get("force")), ("list", "drop", 3, True))
-        self.assertEqual(len(self.zips(out)), 2, "作り直したパックも届ける")
+        self.assertEqual(len(self.zips(self.out)), 2, "作り直したパックも届ける")
         # カットの指定が無い依頼(1.4.0 までのアプリ)は、ホームの設定(既定 = カットしない)
-        self.wait(start_request(self.r, [dict(item, ranges=[(70, 80)])], request_id="rid3", flow="auto", deliver_dir=out)["runs"][0])
+        self.request(dict(item, ranges=[(70, 80)]), request_id="rid3", flow="auto", deliver_dir=self.out)
         self.assertEqual(self.tools.c2r["body"]["spec"].get("listKind"), "drop")
 
     def test_request_weights_reanalyze_only_when_different(self):
@@ -1971,18 +1802,18 @@ class TestRequests(Base):
         w = {"wAudio": 1.5, "wChat": 0.5, "wComments": 0.7}
         self.tools.analyze = {"count": 12, "wAudio": 1.0}
         self.tools.known = False
-        run = self.wait(start_request(self.r, [{"id": VID, "top": 1}], weights=w)["runs"][0])
+        run = self.request({"id": VID, "top": 1}, weights=w)
         self.assertEqual(self.states(run)["analyze"], "done", run)
         add = [c for c in self.tools.calls if c[2] == "/api/queue/add"]
         self.assertEqual(add[-1][3]["settings"], AN(count=12, wAudio=1.5, wChat=0.5, wComments=0.7))   # ほかの設定はスタジオのまま
         self.tools.video["analysis"] = {"at": 3, "spec": dict(w, count=12)}
-        run = self.wait(start_request(self.r, [{"id": VID, "top": 1}], weights=dict(w))["runs"][0])
+        run = self.request({"id": VID, "top": 1}, weights=dict(w))
         self.assertEqual(self.states(run)["analyze"], "skip")
         self.tools.queue.clear()
-        run = self.wait(start_request(self.r, [{"id": VID, "top": 1}], weights=dict(w, wChat=2.0))["runs"][0])
+        run = self.request({"id": VID, "top": 1}, weights=dict(w, wChat=2.0))
         self.assertEqual(self.states(run)["analyze"], "done", run)
         self.assertEqual(len([c for c in self.tools.calls if c[2] == "/api/queue/add"]), 2)
-        run = self.wait(start_request(self.r, [{"id": VID, "top": 1}])["runs"][0])   # 指定なし: 解析済みなら使い回す
+        run = self.request({"id": VID, "top": 1})   # 指定なし: 解析済みなら使い回す
         self.assertEqual(self.states(run)["analyze"], "skip")
         self.assertIsNone(A.clean_weights({"wAudio": 4, "wChat": 1, "wComments": 1}))
         self.assertIsNone(A.clean_weights({"wAudio": True, "wChat": 1, "wComments": 1}))
@@ -2052,9 +1883,9 @@ class TestFriendLength(Base):
 
     def setUp(self):
         super().setUp()
-        from unittest import mock
-        self.env_patch = mock.patch.dict(os.environ)
-        self.env_patch.start()
+        env_patch = mock.patch.dict(os.environ)
+        env_patch.start()
+        self.addCleanup(env_patch.stop)
         os.environ.pop(A.FRIEND_LENGTH_ENV, None)
         self.logs = []
         self.r.log = self.logs.append
@@ -2062,10 +1893,6 @@ class TestFriendLength(Base):
         self.tools.known = False
         from manage.cases import cases
         self.runs_log = cases.locations(self.r.root, self.env)["runs"]
-
-    def tearDown(self):
-        self.env_patch.stop()
-        super().tearDown()
 
     def write_runs(self, n=20, videos=5, length=38.4):
         """実行記録に友人の区間を n 個(配信 videos 本)。今の記録の後ろに足す"""
@@ -2076,14 +1903,7 @@ class TestFriendLength(Base):
                                     "videoId": "fv%d" % (i % videos), "ranges": [[i * 1000.0, i * 1000.0 + length]]}) + "\n")
 
     def run_request(self, **kw):
-        res = start_request(self.r, [{"id": VID, "top": 3, "ranges": [(50, 60)]}], request_id="rid", **kw)   # 区間が足りない = 解析あり
-        end = time.time() + 10
-        while time.time() < end:
-            cur = next(x for x in self.r.snapshot()["runs"] if x["id"] == res["runs"][0]["id"])
-            if cur["state"] not in ("queued", "running"):
-                return cur
-            time.sleep(0.01)
-        self.fail("終わらない")
+        return self.wait(start_request(self.r, [{"id": VID, "top": 3, "ranges": [(50, 60)]}], request_id="rid", **kw)["runs"][0])   # 区間が足りない = 解析あり
 
     def settings(self):
         adds = [c for c in self.tools.calls if c[2] == "/api/queue/add"]
@@ -2173,10 +1993,7 @@ class TestToolSettingsFiles(Base):
         self.assertEqual((bundle["analyze"]["count"], bundle["transcribe"]["model"], bundle["pack"]["size"], notes), (5, "large-v3", "1920x1080", []))
 
     def test_build_spec_uses_home_cut(self):
-        import prefs as PR
-        p = PR.Prefs(os.path.join(self.tmp, "prefs.json"), fsio.atomic_write)
-        p.patch("autorun", {"cut": "silence"})
-        self.r.prefs = p
+        self.set_prefs(cut="silence")
         self.assertEqual(self.r.build_spec()[0]["pack"]["cut"], "silence")
         self.r.prefs = None
         self.assertEqual(self.r.build_spec()[0]["pack"]["cut"], "none")
@@ -2212,8 +2029,7 @@ class TestAutoSend(Base):
         self.r = self.runner()
 
     def runner(self):
-        return A.AutoRunner(self.tools, os.path.join(self.tmp, "repo"), self.env, poll=0, sleep=lambda s: None, find_pack=self.cases.find_pack,
-                            prefs=self.prefs, log_dir=self.logs, log=self.msgs.append)
+        return self.make_runner(prefs=self.prefs, log_dir=self.logs, log=self.msgs.append)
 
     @staticmethod
     def info(hours_ago, live="was_live"):
@@ -2225,14 +2041,11 @@ class TestAutoSend(Base):
         return it.snapshot()["outDir"]
 
     def go(self, mode="full", auto_send=None, timeout=10):
-        run = start(self.r, VID, mode, 2, auto_send=auto_send)
-        end = time.time() + timeout
-        while time.time() < end:
-            cur = next(x for x in self.r.snapshot()["runs"] if x["id"] == run["id"])
-            if cur["state"] not in ("queued", "running"):
-                return cur
-            time.sleep(0.01)
-        self.fail("終わらない")
+        return self.wait(start(self.r, VID, mode, 2, auto_send=auto_send), timeout)
+
+    def meta(self, zip_name):
+        """zip の隣の印(.meta.json)"""
+        return testkit.read_json(os.path.join(self.out, zip_name[:-4] + ".meta.json"))
 
     def step(self, run, key="deliver"):
         return next(s for s in run["steps"] if s["key"] == key)
@@ -2262,8 +2075,7 @@ class TestAutoSend(Base):
         self.assertTrue(all(re.match(self.TAG_RE, n) for n in names), names)   # 名前の頭は友人のアプリの依頼 id の形(deliver_tag)
         self.assertFalse([n for n in names if n.endswith(".group.json")], "組の一覧は作らない")
         for z in zips:   # 手で届けるのと同じく自動の分は印の出どころ auto(友人には「依頼なし」)
-            with open(os.path.join(self.out, z[:-4] + ".meta.json"), encoding="utf-8") as f:
-                doc = json.load(f)
+            doc = self.meta(z)
             self.assertEqual((doc["v"], doc["origin"], doc["zip"]), (1, "auto", z))
         rows = self.rows()
         self.assertEqual({(r["origin"], r["videoId"]) for r in rows}, {("auto", VID)})
@@ -2281,9 +2093,7 @@ class TestAutoSend(Base):
 
     def test_friend_delivery_prefs_one_by_one(self):
         """友人のアプリの「届け方」(<受付のフォルダ>/設定/届け方.json。2-4)が 1 本ずつなら、1 本の zip + 出どころの印 .meta.json"""
-        os.makedirs(os.path.join(self.folder, "設定"))
-        with open(os.path.join(self.folder, "設定", "届け方.json"), "w", encoding="utf-8") as f:
-            f.write('{"v":1,"deliverBatch":1,"at":"2026-10-16T21:00:00+09:00"}')
+        testkit.write_text(os.path.join(self.folder, "設定", "届け方.json"), '{"v":1,"deliverBatch":1,"at":"2026-10-16T21:00:00+09:00"}')
         run = self.go()
         self.assertEqual(self.step(run)["state"], "done", run)
         names = self.outs()
@@ -2291,8 +2101,7 @@ class TestAutoSend(Base):
         self.assertEqual(len(zips), 2)
         for z in zips:
             self.assertIn(z[:-4] + ".meta.json", names)
-            with open(os.path.join(self.out, z[:-4] + ".meta.json"), encoding="utf-8") as f:
-                self.assertEqual(json.load(f)["origin"], "auto")
+            self.assertEqual(self.meta(z)["origin"], "auto")
         self.assertFalse([n for n in names if n.endswith(".group.json")])
 
     def test_not_sent_reasons(self):
@@ -2400,19 +2209,14 @@ class TestAutoSend(Base):
         os.makedirs(pack)
         with open(os.path.join(pack, "p.mp4"), "wb") as f:
             f.write(b"v")
-        os.makedirs(self.logs, exist_ok=True)
-        with open(os.path.join(self.logs, DL.POOL_FILE), "w", encoding="utf-8") as f:
-            json.dump({"schema": DL.POOL_SCHEMA, "pools": {"live|rid9|local/rec": {"rid": "20261001-120000-abc123", "title": "t", "deliverDir": self.out, "batch": 2,
-                                                                                    "meta": {"recorder": "local", "recording": "rec", "phase": "live"},
-                                                                                    "packs": [pack], "delivered": [], "marks": {}, "created": 0, "updated": 0}}}, f)
+        write_old_pool(os.path.join(self.logs, DL.POOL_FILE), "live|rid9|local/rec", "20261001-120000-abc123", "t", self.out, 2, "rec", [pack])
         self.r.close()
         self.r = self.runner()
         self.assertEqual(self.r.flush_pools(lambda m: True), 1)
         names = self.outs()
         stem = "20261001-120000-abc123__p"
         self.assertEqual(names, sorted([stem + ".zip", stem + ".preview.mp4", stem + ".meta.json"]), names)   # 組ではなく 1 本ずつ(batch 2 は読まない)
-        with open(os.path.join(self.out, stem + ".meta.json"), encoding="utf-8") as f:
-            self.assertEqual(json.load(f)["origin"], "request", "古い溜め(依頼の id)は依頼として届ける")
+        self.assertEqual(self.meta(stem + ".zip")["origin"], "request", "古い溜め(依頼の id)は依頼として届ける")
 
     def test_only_full_with_folder_sends(self):
         """届けるのは full だけ・受付のフォルダが決まっているときだけ(2-10)。文書単位・adopted などは届けない。
@@ -2472,9 +2276,7 @@ class TestSubmitBase(Base):
 
     def test_on_fail_from_home_prefs(self):
         """1 本が失敗したときは、ホームの設定 autorun.onFail が土台の束の run.onFail に(以前は受付の欄 on_fail)。差分の onFail が勝つ"""
-        p = prefs_mod.Prefs(os.path.join(self.tmp, "prefs.json"), fsio.atomic_write)
-        p.patch("autorun", {"onFail": "stop"})
-        self.r.prefs = p
+        self.set_prefs(onFail="stop")
         with mock.patch.object(self.r, "_wake", lambda: None):
             a = self.queued(self.r.submit(*O.order("url", video_id=VID, from_="export")))
             b = self.queued(self.r.submit(*O.order("url", video_id="zzzzzzzzzzz", from_="export", on_fail="next")))
@@ -2499,10 +2301,7 @@ class TestSubmitBase(Base):
 
     def test_streamer_checked_unless_friend(self):
         """配信者の名前は色の一覧と照らし合わせる(合わなければ 400 = ValueError)。友人の依頼(requestId あり)はそのまま(以前の submit と同じ)・空 = 色なし"""
-        members = os.path.join(self.tmp, "members.json")
-        with open(members, "w", encoding="utf-8") as f:
-            json.dump({"groups": [{"name": "3期生", "members": [{"id": "usada-pekora", "name": "兎田ぺこら", "en": "Usada Pekora", "hex": "#7EC2FE"}]}]}, f, ensure_ascii=False)
-        self.env["YTT_HOLO_MEMBERS"] = members
+        self.use_members()
         with mock.patch.object(self.r, "_wake", lambda: None):
             with self.assertRaisesRegex(ValueError, "見つかりません"):
                 self.r.submit(*O.order("url", video_id=VID, from_="export", streamer="だれか"))
