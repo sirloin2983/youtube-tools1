@@ -12,8 +12,8 @@
 
 - **ed_media.py** (156 行) — 「編集」のサーバーの部品: 音の波形(カットのタイムライン)(段10 で editor/serve.py から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
   - 名前: `peaks_rate` :33・`compute_peaks` :54・`get_peaks` :123
-- **ed_state.py** (188 行) — 「編集」のサーバーの部品: 置き場所・設定の値・共通の小道具・記録(落ちたときの手がかり)・作業データの切り替え(段10 で editor/serve.py から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
-  - 名前: `replace_retry` :66・`atomic_write` :72・`runtime_path_dir` :117・`setup_logging` :122・`write_mark` :148・`check_previous_run` :157・`clear_mark` :168・`backend_name` :180
+- **ed_state.py** (186 行) — 「編集」のサーバーの部品: 置き場所・設定の値・共通の小道具・記録(落ちたときの手がかり)・作業データの切り替え(段10 で editor/serve.py から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
+  - 名前: `replace_retry` :64・`atomic_write` :70・`runtime_path_dir` :115・`setup_logging` :120・`write_mark` :146・`check_previous_run` :155・`clear_mark` :166・`backend_name` :178
 - **ed_thumb.py** (90 行) — 「編集」のサムネの案(提案 P5 の S。notes:plan/thumb-ideas.md の 7・8)。作る本体は thumb_ideas.py(コマンドとしても使える独立の部品)。
   - 名前: `thumb_paths` :25・`thumb_spec` :37・`run_thumb` :52・`thumb_info` :70・`thumb_image_path` :83
 - **serve.py** (833 行) — 文字起こしツール用のローカルサーバー(標準ライブラリ + faster-whisper)。

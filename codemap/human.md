@@ -67,18 +67,18 @@
   - 名前: `set_learning` :40・`glossary_of` :45・`validate_job` :62・`public_job` :131・`subtitle_settings` :169・`split_chars_for` :183・`learned_finder` :201・`dict_learned` :212・`carry_overrides` :230・`run_job` :269・`validate_retranscribe` :331・`redo_targets` :383
 - **layers.py** (1061 行) — ③ 文書を「機械の層 + 人の層」から組み立てる純粋な関数(O2-1。RS8・2026-10-11。決定 3-37 の (r8r)〜(r8u)・notes:plan/done/rs8-cases-ui.md の決めたこと 3)。
   - 名前: `match` :65・`join_flags` :126・`compose_rows` :328・`compose` :424・`split_meta` :445・`diff` :551・`mach_changes` :636・`pick` :656・`assign_speakers` :692・`carry` :747・`mach_from_doc` :829・`advance_mach` :870・ほか 5
-- **learn.py** (471 行) — ③ 人の操作の層 human/proof: 人が直した内容からの学習(機械の出力と人の行の対応づけ・「誤=>正」の統計・確度)と、行への修正の提案・
-  - 名前: `align_groups` :29・`prep_rows` :48・`is_nosub` :64・`split_nosub` :68・`row_text` :93・`learn_events` :104・`learn_groups` :146・`learned_candidates` :199・`load_feedback` :229・`unrecord_feedback` :259・`record_feedback` :281・`forget_doc` :303・ほか 7
+- **learn.py** (470 行) — ③ 人の操作の層 human/proof: 人が直した内容からの学習(機械の出力と人の行の対応づけ・「誤=>正」の統計・確度)と、行への修正の提案・
+  - 名前: `align_groups` :29・`prep_rows` :48・`is_nosub` :63・`split_nosub` :67・`row_text` :92・`learn_events` :103・`learn_groups` :145・`learned_candidates` :198・`load_feedback` :228・`unrecord_feedback` :258・`record_feedback` :280・`forget_doc` :302・ほか 7
 - **machpick.py** (46 行) — ③ 3 択の口(RS8 O2-4。決定 3-37・notes:plan/done/rs8-cases-ui.md の決めたこと 3 の案 A): 機械の結果が変わって人の直しと食い違う行(印 layers.MACH_CHANGED)を
   - 名前: `changes` :15・`pick` :24
 - **rerun.py** (357 行) — ③ 人の操作の層 human/proof: 再認識(選んだ行 each・範囲 range・全体 whole)のジョブの本体と、文書への反映・
   - 名前: `record_rerun` :47・`apply_retranscribe` :83・`replace_original_multi` :152・`thin_rows` :171・`apply_range` :184・`run_retranscribe` :229・`rebuild_whole` :275・`validate_rerun` :330
 - **retime.py** (32 行) — ③ 人の操作の層 human/proof: 行の時刻の候補の API の包み POST /api/retime {id, rows: [行の id…]}
   - 名前: `retime_engine` :12・`retime_doc` :18
-- **speakers.py** (672 行) — ③ 人の操作の層 human/proof: 話者判別の結果を文書へ(apply_diarization・1 人指定 single_speaker・守る行 diar_keep_row)・判別のジョブの受付と文書への書き込み(validate_diarize・
-  - 名前: `set_context_namer` :29・`check_context_namer` :38・`apply_diarization` :60・`diar_keep_row` :77・`validate_diarize` :169・`single_speaker` :192・`run_diarize` :220・`autodiar_enabled` :268・`autodiar_ready` :273・`autodiar_enqueue` :293・`autodiar_after_transcribe` :325・`is_generic_speaker_name` :406・ほか 7
-- **store.py** (1192 行) — ③ 文書の置き場: 文書を書く唯一の口 commit と機械の層・人の層(層が正 = 文書は組み立て済みの写し・古い写しの読み直し fresh_copy)・保存の錠 saving・
-  - 名前: `tx_path` :38・`write_doc` :42・`read_layers` :82・`commit` :123・`layers_for` :180・`fresh_copy` :210・`snapshot` :260・`backup_doc` :268・`sanitize_sub_style` :287・`sanitize_transcript` :300・`doc_length` :384・`good_row` :405・ほか 38
+- **speakers.py** (671 行) — ③ 人の操作の層 human/proof: 話者判別の結果を文書へ(apply_diarization・1 人指定 single_speaker・守る行 diar_keep_row)・判別のジョブの受付と文書への書き込み(validate_diarize・
+  - 名前: `set_context_namer` :29・`check_context_namer` :38・`apply_diarization` :60・`diar_keep_row` :77・`validate_diarize` :168・`single_speaker` :191・`run_diarize` :219・`autodiar_enabled` :267・`autodiar_ready` :272・`autodiar_enqueue` :292・`autodiar_after_transcribe` :324・`is_generic_speaker_name` :405・ほか 7
+- **store.py** (1190 行) — ③ 文書の置き場: 文書を書く唯一の口 commit と機械の層・人の層(層が正 = 文書は組み立て済みの写し・古い写しの読み直し fresh_copy)・保存の錠 saving・
+  - 名前: `tx_path` :38・`write_doc` :42・`read_layers` :82・`commit` :123・`layers_for` :180・`fresh_copy` :210・`snapshot` :260・`backup_doc` :268・`sanitize_sub_style` :287・`sanitize_transcript` :300・`doc_length` :382・`good_row` :403・ほか 38
 
 ## src/human/review/
 
