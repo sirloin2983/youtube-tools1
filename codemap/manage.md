@@ -9,8 +9,8 @@
 ## src/manage/cases/
 
 - **__init__.py** (3 行) — ④ 案件(配信 1 本の束ね)・紐づけ(切り抜き ↔ 文字起こし ↔ パック)・成果物の鍵の読み取り
-- **cases.py** (910 行) — 案件(配信1本)ごとの紐づけ(統合計画の段階4)。入口の「案件」画面(src/app/ui/home/portal.html)の中身を作る。
-  - 名前: `locations` :93・`read_studio` :107・`read_transcripts` :111・`find_pack` :116・`clip_state` :181・`clip_live` :204・`auto_info` :218・`live_failures_by_mark` :237・`delivered_of` :271・`virtual_cases` :331・`build` :405・`load_saved` :457・ほか 7
+- **cases.py** (905 行) — 案件(配信1本)ごとの紐づけ(統合計画の段階4)。入口の「案件」画面(src/app/ui/home/portal.html)の中身を作る。
+  - 名前: `locations` :92・`read_studio` :106・`read_transcripts` :110・`find_pack` :115・`clip_state` :180・`clip_live` :203・`auto_info` :217・`live_failures_by_mark` :236・`delivered_of` :270・`virtual_cases` :329・`build` :403・`load_saved` :453・ほか 7
 - **doclist.py** (108 行) — ④ 文字起こしの一覧と、元の動画・パックの有無・前回のパックの手順(役割で組み直す RS3-E5a。2026-10-10 に編集の文書の保存の部品から切り出した。中身は同じ)。
   - 名前: `pack_info` :21・`list_transcripts` :59・`pack_readme` :88
 - **handoff_io.py** (118 行) — ④ 受け渡し: 元の配信の情報(clip/v1)・受け渡しの JSON と SRT を動画の隣に保存

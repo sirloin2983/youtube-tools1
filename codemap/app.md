@@ -4,24 +4,22 @@
 
 ## src/app/
 
-- **__init__.py** (3 行) — 入口と画面。起動・1 つのポート・API の配線・設定の画面の API。旧い URL(/studio/ など)の転送。全部の層を使ってよい
+- **__init__.py** (3 行) — 入口と画面。起動・1 つのポート・API の配線・設定の画面の API。全部の層を使ってよい
 - **autorun.py** (508 行) — まとめて実行(統合計画の段階5。2026-09-26)。入口の「案件」の画面から、配信1本ぶんの作業を順に自動で流す。
   - 名前: `class ToolClient` :108・`spec_from_settings` :189・`live_auto_origin` :207・`class AutoRunner` :218
 - **cli.py** (548 行) — ② 管理 + ① 道具で動くコマンド(役割で組み直す RS6 b-S1。決定 3-29・資料の git:cbe1a64:docs/design/surveys/rs6-survey-2026-10-10/plan_order_v2.md の b-S1)。
   - 名前: `class UsageError` :55・`class PortalError` :59・`parse_args` :70・`load_spec` :97・`classify_input` :122・`check_from` :137・`use_data_dir` :146・`use_studio_data` :161・`class Learning` :182・`find_doc` :198・`class Progress` :213・`class Portal` :239・ほか 10
-- **live.py** (523 行) — リアルタイム切り抜き(線 D。notes:plan/line-d-live-clipping.md の 0)の入口の側。**既定はオフ**(ホームの設定の節 live.enabled)。
-  - 名前: `studio_review` :108・`studio_audio` :115・`studio_lag` :133・`class Live` :142
-  - 受ける口: `/api/peaks` :277・`/api/exports` :284・`/api/info` :296・`/api/begin` :332・`/api/export` :335・`/api/adopt` :342・`/api/export/cancel` :346・`/api/archive/cancel` :348・`/api/archive` :351
-- **mount.py** (232 行) — 統合サーバーへのツールの取り込み(統合計画の段階3。notes:docs/design/integration-plan.md)。
-  - 名前: `class MountError` :53・`tool_modules` :57・`check_no_collision` :67・`load_serve` :77・`inject_token` :104・`send_redirect` :115・`make_handler` :125・`class Mount` :184
+- **live.py** (517 行) — リアルタイム切り抜き(線 D。notes:plan/line-d-live-clipping.md の 0)の入口の側。**既定はオフ**(ホームの設定の節 live.enabled)。
+  - 名前: `studio_review` :105・`studio_audio` :112・`studio_lag` :130・`class Live` :139
+  - 受ける口: `/api/peaks` :271・`/api/exports` :278・`/api/info` :290・`/api/begin` :326・`/api/export` :329・`/api/adopt` :336・`/api/export/cancel` :340・`/api/archive/cancel` :342・`/api/archive` :345
+- **mount.py** (220 行) — 統合サーバーへのツールの取り込み(統合計画の段階3。notes:docs/design/integration-plan.md)。
+  - 名前: `class MountError` :53・`tool_modules` :57・`check_no_collision` :67・`load_serve` :77・`inject_token` :104・`send_redirect` :115・`make_handler` :125・`class Mount` :172
   - 受ける口: `/api/ytt` :46
 - **prefs.py** (493 行) — ホームの設定(画面の直し「気が利く画面へ」の土台。notes:docs/design/briefs/ux-consistency/DESIGN_BRIEF.md)。
   - 名前: `class PrefsError` :96・`guess_streamer` :387・`class Prefs` :399
-- **redirects.py** (62 行) — 今の画面の URL を、案件の画面(/cases)の URL へ転送する表(RS8 の案件の画面 C0。計画 notes:docs/design/rs8-cases-build.md の 2 節)。
-  - 名前: `target` :25
-- **server.py** (1900 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
-  - 名前: `runtime_dir` :209・`ping` :219・`port_open` :224・`tail` :230・`expected_version` :251・`tool_python` :257・`rel_or_abs` :267・`signal_stop` :275・`class Tool` :288・`app_data_dir` :338・`logs_dir_for` :344・`class Supervisor` :350・ほか 20
-  - 受ける口: `/api/intake` :651・`/api/backup` :652・`/api/accuracy` :653・`/api/flow/runs` :654・`/api/cases/auto` :656・`/api/flow/submit` :657・`/api/flow/estimate` :657・`/api/flow/cancel` :658・`/api/flow/retry` :658・`/api/flow/outbox/done` :659・`/api/intake/scan` :660・`/api/backup/run` :660・`/api/accuracy/run` :661・`/api/window` :661・`/api/check/answer` :662・`/api/check/skip` :662・`/api/check/flush` :662・`/api/cleanup` :663・`/api/shutdown` :663・`/api/ping` :784・`/api/status` :786・`/api/health` :790・`/api/log` :794・`/api/flow/machine` :809・`/api/flow/outbox` :814・`/api/flow/status` :816・`/api/flow/history` :820・`/api/check/next` :823・`/api/cases` :829
+- **server.py** (1876 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
+  - 名前: `runtime_dir` :208・`ping` :218・`port_open` :223・`tail` :229・`expected_version` :250・`tool_python` :256・`rel_or_abs` :266・`signal_stop` :274・`class Tool` :287・`app_data_dir` :337・`logs_dir_for` :343・`class Supervisor` :349・ほか 20
+  - 受ける口: `/api/intake` :650・`/api/backup` :651・`/api/accuracy` :652・`/api/flow/runs` :653・`/api/cases/auto` :655・`/api/flow/submit` :656・`/api/flow/estimate` :656・`/api/flow/cancel` :657・`/api/flow/retry` :657・`/api/flow/outbox/done` :658・`/api/intake/scan` :659・`/api/backup/run` :659・`/api/accuracy/run` :660・`/api/window` :660・`/api/check/answer` :661・`/api/check/skip` :661・`/api/check/flush` :661・`/api/cleanup` :662・`/api/shutdown` :662・`/api/ping` :763・`/api/status` :765・`/api/health` :769・`/api/log` :773・`/api/flow/machine` :788・`/api/flow/outbox` :793・`/api/flow/status` :795・`/api/flow/history` :799・`/api/check/next` :802・`/api/cases` :808
 
 ## src/app/check/
 
@@ -47,12 +45,12 @@
 
 ## src/app/ui/cases/
 
-- **cases.js** (578 行) — 案件の画面(/cases = 入口の直下の 1 枚。部品は src/app/ui/cases/。RS8 C1 = 殻。作り方 notes:docs/design/rs8-cases-build.md・何を作るか notes:docs/design/briefs/rs8-cases/)。
+- **cases.js** (590 行) — 案件の画面(/cases = 入口の直下の 1 枚。部品は src/app/ui/cases/。RS8 C1 = 殻。作り方 notes:docs/design/rs8-cases-build.md・何を作るか notes:docs/design/briefs/rs8-cases/)。
 - **edhost.js** (140 行) — 案件の画面に「編集」の校正(1 文字起こし)をそのまま載せる台(RS8 C2b。作り方 notes:docs/design/rs8-cases-build.md の C2b)。
 
 ## src/app/ui/cases/panels/
 
-- **cand.js** (227 行) — 案件の画面の「候補」のパネル(#cand。配信全体の候補の採用・不採用・書き出し・LIVE の帯。RS8 C2a)。口の形は cases.js の先頭の説明。
+- **cand.js** (226 行) — 案件の画面の「候補」のパネル(#cand。配信全体の候補の採用・不採用・書き出し・LIVE の帯。RS8 C2a)。口の形は cases.js の先頭の説明。
 - **cut.js** (634 行) — 案件の画面の「カット・パック」のパネル(#cut。残す区間を決めて、末尾で DaVinci Resolve へ渡すパックを作る)。口の形は cases.js の先頭の説明。RS8 C2c。
 - **machpick.js** (159 行) — 校正のパネルの 3 択(RS8 C2b。作り方 notes:docs/design/rs8-cases-build.md の 4 節・決定 3-37 の案 A)。
 - **new.js** (295 行) — 新しい案件のパネル(ホームの引き出し #newDrawer で開く。配信を探す・URL から入れる・解析の順番待ち。RS8 C3)。
@@ -75,8 +73,8 @@
 
 ## src/app/ui/editor/
 
-- **app-core.js** (477 行) — app-core.js — 「編集」の画面: 共通の小道具・表示の好み・⚙・他のツール・設定・準備状況・評価ドリルの数の読み直し(進行度は 0.69.0 で消した)(段10 で app.js から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-spl…
-  - 名前: `fmtT` :8・`parseT` :15・`uiIcon` :24・`toast` :27・`showErr` :34・`undoToast` :48・`stopAtEnd` :60・`armPlayEnd` :81・`httpFailText` :86・`api` :87・`apiBlob` :92・`busy` :98・ほか 51
+- **app-core.js** (472 行) — app-core.js — 「編集」の画面: 共通の小道具・表示の好み・⚙・他のツール・設定・準備状況・評価ドリルの数の読み直し(進行度は 0.69.0 で消した)(段10 で app.js から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-spl…
+  - 名前: `fmtT` :8・`parseT` :15・`uiIcon` :24・`toast` :27・`showErr` :34・`undoToast` :48・`stopAtEnd` :60・`armPlayEnd` :81・`httpFailText` :86・`api` :87・`apiBlob` :92・`busy` :98・ほか 50
 - **app-jobs.js** (399 行) — app-jobs.js — 「編集」の画面: 新規ジョブ・スタジオ/マーカー連携・ジョブの進捗・話者の自動判別・声を覚える・再認識(段10 で app.js から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
   - 名前: `jobOpts` :8・`startFile` :13・`askTxAgain` :27・`onStart` :40・`startPolling` :52・`pollJobs` :54・`namedBy` :104・`renderJobBadge` :106・`transcribeInto` :113・`renderIntoState` :125・`jobProg` :136・`jobPhase` :137・ほか 31
 - **app-learn.js** (465 行) — app-learn.js — 「編集」の画面: 修正から学習した候補・修正の提案・校正済み・進み具合の帯・認識精度の測定・名簿と用語集・保存データへの保管(段10 で app.js から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md…
@@ -88,8 +86,8 @@
 - **app-tools.js** (663 行) — app-tools.js — 「編集」の画面: 動画を選び直す・まとめて付け替える・検索と置換・書き出し・左パネル・受け渡し・cut2resolve の API・確認のダイアログ・カットとパックのタブとのつなぎ(段10 で app.js から分けた。git の履歴(679ff01 以前)の doc…
   - 名前: `rlSync` :8・`rlReset` :10・`openRelink` :16・`renderRlResult` :23・`rlCheck` :42・`pickPath` :58・`renderMissing` :66・`raSync` :72・`raUpdate` :79・`raCheck` :102・`raSetPath` :117・`renderRa` :119・ほか 46
 - **app-tpl.js** (386 行) — app-tpl.js — 「編集」の画面の HTML のうち「1 文字起こし」の欄(tx)とダイアログ(dialogs)。index.html の中身をここへ移した(RS8 C2b-0。動きは同じ)。
-- **app.js** (1251 行) — 案件の画面(/cases)の校正のパネルに載せたとき(RS8 C2b)の口。src/app/ui/cases/edhost.js が app.js より先に window.EditHost を置く = {base(API の頭), keybar(帯), tab(タブ), open(別の文書), o…
-  - 名前: `$` :6・`isOtherSp` :17・`apiUrl` :28・`safeName` :32・`spColor` :35・`uid` :36・`norm` :37・`wideTab` :48・`menuOpen` :49・`isDrawer` :54・`setSnap` :98・`setStatus` :99・ほか 46
+- **app.js** (1250 行) — 案件の画面(/cases)の校正のパネルに載せたとき(RS8 C2b)の口。src/app/ui/cases/edhost.js が app.js より先に window.EditHost を置く = {base(API の頭), keybar(帯), tab(タブ), open(別の文書), o…
+  - 名前: `$` :6・`isOtherSp` :17・`apiUrl` :28・`safeName` :32・`spColor` :35・`uid` :36・`norm` :37・`wideTab` :48・`menuOpen` :49・`isDrawer` :54・`setSnap` :97・`setStatus` :98・ほか 46
 - **cut.js** (1216 行) — 「編集」2 カット のタブ(notes:docs/design/edit-tool-design.md の 3・4・8)。app.js より先に読み込み、app.js が EditCut.create(host) で起動する。
   - 名前: `create` :24
 - **pack-tab.js** (612 行) — 「編集」のパック(2 カット の末尾 #packArea。notes:docs/design/edit-tool-design.md の 3・5)。app.js より先に読み、app.js が EditPack.create(host) で起動する。
@@ -112,7 +110,7 @@
   - 名前: `$` :7・`mmss` :11・`entryHtml` :14・`settings` :51・`loadOpts` :55・`unquote` :60・`looksYt` :61・`entries` :62・`paintKinds` :72・`syncAdd` :77・`refocusForm` :87・`setMsg` :94・ほか 20
 - **rank.js** (785 行) — 切り抜きスタジオ: ① 探す(配信ランキング)。検索 → 結果(全部まとめて再生数の順 / 事務所ごと)→ チェックして「解析に追加」か「まとめて実行」(入口から開いたときだけ)
   - 名前: `$` :5・`lsGet` :8・`lsSet` :9・`fmtN` :10・`fmtDur` :11・`ymd` :12・`okThumb` :13・`atMs` :16・`saveReg` :27・`agKey` :32・`captureReg` :35・`restoreReg` :51・ほか 69
-- **review.js** (3653 行) — 切り抜きスタジオ ② 確認・書き出し(切り抜きマーカー由来)。
+- **review.js** (3654 行) — 切り抜きスタジオ ② 確認・書き出し(切り抜きマーカー由来)。
   - 名前: `create` :9・`round1` :14・`uid` :15・`toast` :16・`parseTime` :20・`looksLikeYouTube` :29・`isAutoLike` :38・`marksPayload` :39・`sec1` :52・`sanitizeKeymap` :53・`spanLabel` :64・`sanitizeSettings` :68・ほか 296
 
 ## テスト
@@ -150,6 +148,5 @@
 - src/app/tests/test_live_archive_api.py — アーカイブで本番版に作り直す(線 D の P4)の入口 home を通す分: POST /live/api/archive・…/cancel・GET /live/api/exports の archiveInfo(server.py を通して)と、
 - src/app/tests/test_live_detect_api.py — 配信中の盛り上がりの検出の入口 home の側(app の殻 Live の GET|POST /live/api/peaks の振り分け・ホームの設定 prefs の検査)のテスト。
 - src/app/tests/test_mount.py — 入口への取り込み(src/app/mount.py・段階3)のテスト。  python -m unittest src/app/tests/test_mount.py -v
-- src/app/tests/test_redirects.py — 今の URL -> /cases の転送の表(src/app/redirects.py。RS8 C0)のテスト。
 - src/app/tests/test_settings_schema.py — 設定の画面のスキーマ(src/app/ui/settings/schema.json。S5)と、ホームの設定の検査(prefs.py)が食い違っていないか。リポジトリ直下で:
 - src/app/tests/test_window.py — 段階7 のテスト: 窓で開く(src/ytt/appwindow.py)・画面のエラーの記録(本体は src/manage/ops/tests/test_clientlog.py)・入口の共通の API(api/ytt/…)。

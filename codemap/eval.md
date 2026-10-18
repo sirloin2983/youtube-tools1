@@ -41,8 +41,8 @@
   - 名前: `load_material` :42・`rebuild` :66・`picks` :87・`fit` :96・`summarize` :108・`default_variants` :118・`friend_material` :126・`evaluate` :138・`edge_speech` :199・`scene_only` :257・`grid` :272・`print_fit` :304・ほか 1
 - **eval_alt.py** (564 行) — 「2つ目のエンジンとの食い違いの候補」(行に出る札「別」)が、校正を本当に速くしているかを数字で見る道具(候補の当たり率)。
   - 名前: `locate` :75・`name_checker` :80・`read_alt` :87・`read_feedback` :95・`read_answers` :106・`pct` :135・`num` :140・`clean_rows` :146・`fold_text` :153・`class Group` :163・`map_span` :188・`judge_candidate` :206・ほか 9
-- **eval_asr.py** (1082 行) — 文字起こしの精度を、校正済みの文字起こし(評価用)で測る道具(文字起こしの改善の計画 段0-2。notes:plan/line-b-transcription.md(付録))。
-  - 名前: `real_data_dir` :106・`load_docs` :111・`has_proofed` :129・`whole_video` :133・`reviewed_sec` :139・`resolve_source` :161・`doc_time` :165・`select_docs` :179・`resolve_reviewed` :202・`pick_reviewed` :210・`runs_of` :228・`draft_run` :233・ほか 43
+- **eval_asr.py** (1080 行) — 文字起こしの精度を、校正済みの文字起こし(評価用)で測る道具(文字起こしの改善の計画 段0-2。notes:plan/line-b-transcription.md(付録))。
+  - 名前: `real_data_dir` :106・`load_docs` :111・`has_proofed` :129・`whole_video` :133・`reviewed_sec` :139・`resolve_source` :160・`doc_time` :164・`select_docs` :178・`resolve_reviewed` :201・`pick_reviewed` :209・`runs_of` :227・`draft_run` :232・ほか 43
 - **eval_cloud.py** (514 行) — クラウドの文字起こし(OpenAI・ElevenLabs)に評価用の音声を送り、手元のエンジンと同じ物差し(src/eval/tools/eval_asr.py の採点)で測る道具
   - 名前: `request_fields` :82・`timing_kind` :96・`multipart` :103・`http_json` :115・`auth_headers` :134・`scrub` :138・`send_audio` :146・`delete_remote` :159・`rows_from_words` :183・`rows_from` :215・`cache_dir` :230・`audio_span` :234・ほか 17
 - **eval_cut.py** (416 行) — カットのたたき台(機械の最初の結果)と、人の最終の差を測る道具(マスタープラン Q3・I-3a: 無音のしきい値・行の後の余白の既定を見直す材料)。
