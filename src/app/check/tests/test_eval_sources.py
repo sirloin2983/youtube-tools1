@@ -5,16 +5,14 @@
 """
 import json
 import os
-import shutil
 import sys
-import tempfile
 import unittest
 from unittest import mock
 
-os.environ.setdefault("YTT_DATA_DIR", "inplace")
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> check -> app -> src
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _checkkit as kit  # noqa: E402  (src を sys.path へ・YTT_DATA_DIR の既定・write・Ctx)
+
+ROOT = kit.ROOT
 
 from app.check import deck, eval_sources, lineup, sources  # noqa: E402
 from human.check import apply, section  # noqa: E402
@@ -22,10 +20,7 @@ from human.check import apply, section  # noqa: E402
 EVAL_DOC, DOC, DONE_DOC = "eeeeeeeeeeee", "dddddddddddd", "cccccccccccc"
 
 
-def write(path, obj):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(obj, f, ensure_ascii=False)
+write = kit.write
 
 
 def row(rid, a, b, text="あ"):
@@ -52,8 +47,7 @@ class CutTest(unittest.TestCase):
 
 class SectionSourceTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-check-eval-")
-        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.tmp = kit.tempdir(self, "ytt-check-eval-")
         self.env = {"YTT_DATA_DIR": self.tmp}
         tx = os.path.join(self.tmp, "transcribe", "transcripts")
         base = {"title": "t", "start": 0.0, "end": 100.0, "updatedAt": 200, "speakers": [{"id": "S1", "name": "話者 1"}], "segments": ROWS}

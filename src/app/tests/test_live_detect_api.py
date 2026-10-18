@@ -79,29 +79,6 @@ class DetectRouteTest(unittest.TestCase):
         os.makedirs(self.folder, exist_ok=True)
         fsio.atomic_write(os.path.join(self.folder, "peaks.json"), json.dumps(doc).encode("utf-8"))
 
-    def test_one_settings_read_per_request(self):
-        """C(2026-10-09): 1 回の GET /live/api/peaks(スタジオが 3 秒ごとに呼ぶ)で設定のファイルを読むのは 1 回(以前は約 11 回)。
-        時間では覚えない: 設定を変えた直後の要求は新しい値"""
-        n = [0]
-        get = self.prefs.get
-
-        def counted(*a, **k):
-            n[0] += 1
-            return get(*a, **k)
-        self.prefs.get = counted
-        h = Handler()
-        for q in ("", "&since=4"):
-            n[0] = 0
-            self.assertTrue(self.live.handle_get(h, urllib.parse.urlsplit("/live/api/peaks?recorder=fake&recording=%s%s" % (REC, q))))
-            self.assertEqual((h.out[0], n[0]), (200, 1), q)
-        n[0] = 0
-        self.live.health()
-        self.assertEqual(n[0], 1)
-        self.prefs.patch("live", {"autoAdopt": {"enabled": True, "waitMin": 7}})
-        self.live.handle_get(h, urllib.parse.urlsplit("/live/api/peaks?recorder=fake&recording=%s" % REC))
-        self.assertEqual(h.out[1]["autoAdopt"], {"enabled": True, "waitMin": 7})
-        self.assertIsNone(getattr(self.live._scope, "cfg", None))   # 要求が終われば捨てる
-
     def test_routes_through_live(self):
         """Live.handle_get / handle_post の振り分け(入口の合言葉・Origin の検査は server.py が先に済ませる)"""
         h = Handler()

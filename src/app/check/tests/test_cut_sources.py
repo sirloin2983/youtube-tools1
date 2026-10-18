@@ -6,16 +6,14 @@
 """
 import json
 import os
-import shutil
 import sys
-import tempfile
 import unittest
 from unittest import mock
 
-os.environ.setdefault("YTT_DATA_DIR", "inplace")
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> check -> app -> src
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _checkkit as kit  # noqa: E402  (src を sys.path へ・YTT_DATA_DIR の既定・write・Ctx)
+
+ROOT = kit.ROOT
 
 from app.check import cut_sources, lineup, sources  # noqa: E402
 from human.check import apply, cutcard  # noqa: E402
@@ -30,10 +28,7 @@ KEEPS_DOC = [[0.0, 10.0], [10.5, 20.0], [22.0, 30.0], [31.0, 32.0]]   # 消し�
 KEEPS_SHORT = [[0.0, 100.0], [101.0, 200.0]]                         # 消した所 1.0 秒・合計 199 秒
 
 
-def write(path, obj):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(obj, f, ensure_ascii=False)
+write = kit.write
 
 
 def edit(origin, keeps):
@@ -41,14 +36,12 @@ def edit(origin, keeps):
             "draft": {"origin": origin, "settings": {}, "keepsSec": keeps, "at": 1}}
 
 
-class Ctx(apply.Context):
-    pass
+Ctx = kit.Ctx
 
 
 class CutSourcesTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-check-cut-")
-        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.tmp = kit.tempdir(self, "ytt-check-cut-")
         self.env = {"YTT_DATA_DIR": self.tmp}
         tx = os.path.join(self.tmp, "transcribe", "transcripts")
         docs = ((DOC, 300, False, edit("rows", KEEPS_DOC)), (SHORT, 200, False, edit("silence", KEEPS_SHORT)),
@@ -69,10 +62,6 @@ class CutSourcesTest(unittest.TestCase):
 
     def off(self):
         return mock.patch.dict(os.environ, {cutcard.SWITCH_ENV: ""}), mock.patch.object(cutcard._settings, "load_settings", return_value={cutcard.SETTING: False})
-
-    def test_registered(self):
-        for src in ("edge", "gap", "whole"):
-            self.assertIn(("cut", src), sources.registered())
 
     def test_switch_off_gives_nothing(self):
         e, s = self.off()

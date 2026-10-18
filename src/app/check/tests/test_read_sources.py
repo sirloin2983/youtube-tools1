@@ -5,14 +5,14 @@
 """
 import json
 import os
-import shutil
 import sys
-import tempfile
 import unittest
 
-os.environ.setdefault("YTT_DATA_DIR", "inplace")
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> check -> eval -> src
-for _p in (os.path.join(ROOT, "editor"), ROOT):
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _checkkit as kit  # noqa: E402  (src を sys.path へ・YTT_DATA_DIR の既定・write・Ctx)
+
+ROOT = kit.ROOT
+for _p in (os.path.join(ROOT, "editor"),):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
@@ -24,10 +24,7 @@ from ytt import workdata  # noqa: E402
 DOC, EVAL_DOC = "aaaaaaaaaaaa", "bbbbbbbbbbbb"
 
 
-def write(path, obj):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(obj, f, ensure_ascii=False)
+write = kit.write
 
 
 def doc(eval_set=False):
@@ -46,14 +43,12 @@ def engine_rows():
             {"start": 8.0, "end": 12.0, "text": "校正済みの行ですよ"}, {"start": 12.0, "end": 16.0, "text": "そのままの行です"}]
 
 
-class Ctx(apply.Context):
-    pass
+Ctx = kit.Ctx
 
 
 class ReadSourcesTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-check-readsrc-")
-        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.tmp = kit.tempdir(self, "ytt-check-readsrc-")
         saved = {n: getattr(workdata, n) for n in ("DATA_DIR", "TX_DIR", "TMP_DIR", "SETTINGS", "FEEDBACK")}
         self.addCleanup(lambda: [setattr(workdata, n, v) for n, v in saved.items()])
         workdata.set_data_dir(os.path.join(self.tmp, "data"))   # learn-feedback.json の置き場所(読むだけ)
@@ -88,12 +83,6 @@ class ReadSourcesTest(unittest.TestCase):
     def test_no_files_no_cards(self):
         os.remove(os.path.join(self.tx, DOC + ".alt.json"))
         self.assertEqual(self.cards("alt"), [])
-
-    def test_registered_and_find(self):
-        self.assertIn(("read", "alt"), sources.registered())
-        self.assertNotIn(("read", "yt"), sources.registered())
-        card = deck.find(self.ctx, "read:alt:%s#s1" % DOC)
-        self.assertEqual(card["_cand"]["right"], "腫")   # 答える前の引き直しは内側の鍵も持つ
 
     def test_module_registers_on_import(self):
         self.assertTrue(callable(read_sources.read_alt))

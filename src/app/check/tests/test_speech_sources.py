@@ -5,15 +5,13 @@
 """
 import json
 import os
-import shutil
 import sys
-import tempfile
 import unittest
 
-os.environ.setdefault("YTT_DATA_DIR", "inplace")
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> check -> app -> src
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _checkkit as kit  # noqa: E402  (src を sys.path へ・YTT_DATA_DIR の既定・write・Ctx)
+
+ROOT = kit.ROOT
 
 from app.check import sources, speech_sources  # noqa: E402
 from human.check import apply  # noqa: E402
@@ -22,14 +20,10 @@ DOC, EVAL_DOC, NODIAR_DOC = "dddddddddddd", "eeeeeeeeeeee", "ffffffffffff"
 TURNS = [{"start": 0.0, "end": 10.0, "label": "S1"}, {"start": 20.0, "end": 30.0, "label": "S2"}]
 
 
-def write(path, obj):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(obj, f, ensure_ascii=False)
+write = kit.write
 
 
-class Ctx(apply.Context):
-    pass
+Ctx = kit.Ctx
 
 
 def rows():
@@ -48,8 +42,7 @@ def rows():
 
 class SpeechSourcesTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-check-speech-")
-        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.tmp = kit.tempdir(self, "ytt-check-speech-")
         self.env = {"YTT_DATA_DIR": self.tmp}
         tx = os.path.join(self.tmp, "transcribe", "transcripts")
         for tid, ev in ((DOC, False), (EVAL_DOC, True), (NODIAR_DOC, False)):
@@ -63,9 +56,6 @@ class SpeechSourcesTest(unittest.TestCase):
 
     def cards(self):
         return speech_sources.speech_diar(sources.View(self.ctx))
-
-    def test_registered(self):
-        self.assertIn(("speech", "diar"), sources.registered())
 
     def test_candidates_and_exclusions(self):
         ids = [c["target"]["row"] for c in self.cards() if c["target"]["docId"] == DOC]

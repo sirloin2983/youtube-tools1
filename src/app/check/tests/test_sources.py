@@ -5,15 +5,13 @@
 """
 import json
 import os
-import shutil
 import sys
-import tempfile
 import unittest
 
-os.environ.setdefault("YTT_DATA_DIR", "inplace")
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> check -> eval -> src
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _checkkit as kit  # noqa: E402  (src を sys.path へ・YTT_DATA_DIR の既定・write・Ctx)
+
+ROOT = kit.ROOT
 
 from app.check import deck, lineup, sources  # noqa: E402
 from human.check import answerlog, apply  # noqa: E402
@@ -22,10 +20,7 @@ DOC, EVAL_DOC, EVAL_DIR_DOC = "aaaaaaaaaaaa", "bbbbbbbbbbbb", "cccccccccccc"
 VID, VID2 = "dQw4w9WgXcQ", "AAAAAAAAAAA"
 
 
-def write(path, obj):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(obj, f, ensure_ascii=False)
+write = kit.write
 
 
 def doc(updated, src="", eval_set=False, rows=None):
@@ -46,14 +41,12 @@ def diar(rows):
             "history": []}
 
 
-class Ctx(apply.Context):
-    pass
+Ctx = kit.Ctx
 
 
 class SourcesTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-check-src-")
-        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.tmp = kit.tempdir(self, "ytt-check-src-")
         self.env = {"YTT_DATA_DIR": self.tmp}
         tx = os.path.join(self.tmp, "transcribe", "transcripts")
         self.evaldir = os.path.join(self.tmp, "評価用")

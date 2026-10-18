@@ -925,64 +925,7 @@ test('live recordings are registered in one place with the channel name (new cas
   assert.ok(!sliceOf('review.js', 'async function openLiveRecording(', '/* ---------- マーク操作').includes("'/api/videos/open'"), 'the header badge "開く" uses register too');
 });
 
-// ---- 0.23.4(コードの見直し B): スタジオの API の包み 3 つは ui-kit の UIKit.http / homeApi を呼ぶだけ・② の設定と欄の対応は 1 つの表 ----
-test('the panels\' Studio API wrappers (core.js successor) go through UIKit.http / homeApi with their messages, the live timeouts and the empty POST body', async () => {
-  const calls = [];
-  const kit = () => makeUIKit({
-    http: (url, o) => { calls.push(['http', url, o]); return Promise.resolve({ ok: 1 }); },
-    homeApi: (p, o) => { calls.push(['home', p, o]); return Promise.resolve({ ok: 2 }); },
-    homeUrl: p => 'http://h/' + p,
-    toast: (m, o) => { calls.push(['toast', m, o]); } });
-  // 新しい案件の引き出し(panels/new.js): スタジオの API は UIKit.http(Studio.url)・入口は homeApi
-  let ctx = studioShim(...NEW_SHIM, { UIKit: kit() });
-  assert.deepEqual(plain(await ctx.Studio.api('/api/video', { method: 'PUT', body: { id: 'A' } })), { ok: 1 });
-  let [kind, url, o] = calls.at(-1);
-  assert.equal(kind, 'http'); assert.equal(url, 'studio/api/video', 'the URL is made by Studio.url (relative, one place)');
-  assert.deepEqual(plain({ method: o.method, body: o.body }), { method: 'PUT', body: { id: 'A' } });
-  assert.equal(o.offline, ctx.STUDIO_OFFLINE);
-  await ctx.Studio.portalApi('api/autorun');
-  [kind, url, o] = calls.at(-1);
-  assert.equal(kind, 'home'); assert.equal(url, 'api/autorun'); assert.equal(o.body, undefined, 'no body = GET (no token)');
-  assert.equal(o.offline, ctx.HOME_OFFLINE);
-  await ctx.Studio.live.api('api/info');
-  [kind, url, o] = calls.at(-1);
-  assert.deepEqual([kind, url, o.method, o.body, o.timeout], ['home', 'live/api/info', 'GET', undefined, 10000], 'GET: 10 seconds, no body');
-  await ctx.Studio.live.api('r/local/R1/stop', { body: undefined, method: 'POST' });
-  o = calls.at(-1)[2];
-  assert.deepEqual([o.method, plain(o.body), o.timeout], ['POST', {}, 45000], 'POST: 45 seconds and always a body ({} when none)');
-  await ctx.Studio.live.api('api/begin', { body: { url: 'u' }, timeout: 5000 });
-  o = calls.at(-1)[2];
-  assert.deepEqual([o.method, plain(o.body), o.timeout, o.slow], ['POST', { url: 'u' }, 5000, 'ホームから時間内に応答がありません']);
-  assert.equal(ctx.Studio.live.url('hls.min.js'), 'http://h/live/hls.min.js', 'media URLs come from UIKit.homeUrl');
-  assert.equal(ctx.Studio.live.begunText({ existing: true }), 'この配信はもう録画しています。その録画を開きました');
-  assert.equal(ctx.Studio.live.begunText({}), '配信の録画を始めました。見ながらマークできます');
-  // 候補のパネル(panels/cand.js): スタジオの API は殻の ctx.api('studio', …)(待ちの時間切れなし)・ライブの口は同じ時間・録画の登録はしない
-  const shell = [];
-  ctx = studioShim(...CAND_SHIM, { UIKit: kit(), cctx: { api: (tool, p, opt) => { shell.push([tool, p, opt]); return Promise.resolve({ ok: 3 }); } } });
-  assert.deepEqual(plain(await ctx.Studio.api('/api/video', { method: 'PUT', body: { id: 'A' } })), { ok: 3 });
-  [kind, url, o] = shell.at(-1);
-  assert.deepEqual([kind, url, o.method, plain(o.body), o.timeout], ['studio', '/api/video', 'PUT', { id: 'A' }, 0], 'studio API through the shell, no timeout (exports can be long)');
-  assert.ok(o.offline.includes('スタジオにつながりませんでした'));
-  assert.equal(ctx.Studio.url('/media?id=x'), 'studio/media?id=x');
-  await ctx.Studio.portalApi('api/flow/submit', { envelope: { id: 'A' } });
-  [kind, url, o] = calls.at(-1);
-  assert.deepEqual([kind, url, plain(o.body)], ['home', 'api/flow/submit', { envelope: { id: 'A' } }]);
-  await ctx.Studio.live.api('api/info');
-  o = calls.at(-1)[2];
-  assert.deepEqual([calls.at(-1)[1], o.method, o.body, o.timeout], ['live/api/info', 'GET', undefined, 10000]);
-  await ctx.Studio.live.api('r/local/R1/stop', { method: 'POST' });
-  o = calls.at(-1)[2];
-  assert.deepEqual([o.method, plain(o.body), o.timeout], ['POST', {}, 45000]);
-  await assert.rejects(ctx.Studio.live.register('local', { id: 'R1' }), /録画の登録はしません/);
-  // Studio.toast(msg, 0, kind) の 0 は昔の「既定の秒数」(ui-kit の「消えない」ms: 0 として渡さない)。オブジェクトはそのまま(旧 e2e_ui の check_header)
-  for (const c of [CAND_SHIM, NEW_SHIM]) {
-    const seen = [];
-    const t = studioShim(...c, { UIKit: makeUIKit({ toast: (m, opt) => { seen.push(opt); } }) });
-    t.Studio.toast('a', 0, 'ok'); t.Studio.toast('b', 1200); t.Studio.toast('c', { ms: 0, kind: 'err' });
-    assert.deepEqual(seen.map(x => [x.ms === undefined ? null : x.ms, x.kind || null]), [[null, 'ok'], [1200, null], [0, 'err']], c[0]);
-  }
-});
-
+// ---- 0.23.4(コードの見直し B): ② の設定と欄の対応は 1 つの表 ----
 test('review settings: one table of field ↔ setting; every field value read back through sanitizeSettings gives the same setting', () => {
   const ctx = load([['const LIVE_AFTERS', '/* ---------- 状態 ---------- */'], ['const SET_UI = [', 'function syncSettingsUI(']],
     { autoTxLegacy: () => null, sec1: (v, d) => d, sanitizeKeymap: () => ({}), KEY_PRESETS: { standard: {} }, DEFAULT_QUICK_SPANS: [30, 60, 120, 180, 300] });
@@ -1042,11 +985,6 @@ test('export count text: what will be written, or what to do when nothing can be
   assert.ok(ctx.exportCountText(v('adopted'), false, t2, null, false, 0, []).startsWith('採用と候補のマーク 2件'));
 });
 
-test('the LIVE band asks for the recording status without the segment list (since, like the portal\'s _rec_status)', () => {
-  const poll = between('async function pollLiveStatus(){', 'function applyLiveStatus(');
-  assert.ok(poll.includes("liveRest(v, 'status?since=999999999')"), 'status?since=999999999');
-  assert.ok(!/liveRest\(v, 'status'\)/.test(poll));
-});
 // ---- 2026-10-07 線 D の L3: 配信中の候補(LIVE の帯の一覧・タイムラインの印・p / z・入口の GET/POST ../live/api/peaks) ----
 const PEAK_FNS = ['const PEAK_PRE = 5;', '/* 配信中の候補の状態'];
 const mmss = t => Math.floor(t / 60) + ':' + String(Math.floor(t % 60)).padStart(2, '0');

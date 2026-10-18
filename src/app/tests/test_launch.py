@@ -234,17 +234,13 @@ class SupervisorTest(Base):
         self.sup.start_monitor()
         self.assertTrue(self.wait_state("studio", "running"))
         old = self.sup.by_id["studio"].proc
+        self.sup.start("studio")   # 起動中にもう一度押しても2つ目は起動しない
+        self.assertIs(self.sup.by_id["studio"].proc, old)
         self.sup.restart("studio")
         self.assertIsNotNone(old.poll(), "古いプロセスが残っている")
         self.assertTrue(self.wait_state("studio", "running"))
         self.assertIsNot(self.sup.by_id["studio"].proc, old)
         self.assertEqual(self.sup.by_id["studio"].snapshot()["starts"], 2)
-
-    def test_start_is_idempotent(self):
-        self.sup.start("studio")
-        first = self.sup.by_id["studio"].proc
-        self.sup.start("studio")   # 起動中にもう一度押しても2つ目は起動しない
-        self.assertIs(self.sup.by_id["studio"].proc, first)
 
     def test_crash_is_reported_with_log(self):
         set_mode(self.root, "transcribe", "crash_later")

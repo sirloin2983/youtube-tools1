@@ -60,17 +60,15 @@ test('same case reloaded while a status poll is in flight still schedules the ne
   await tick();
   assert.equal(h.liveTimers().length, 1, 'the next poll is scheduled');
   assert.equal(h.S.timer > 0, true);
-});
-
-test('failed status reply after a same-case reload also keeps polling', async () => {
-  const h = harness();
-  await h.context.load(false);
+  // 失敗の返事の枝: 読み直しのあと問い合わせが失敗しても 15 秒後に確かめ続ける
+  const f = harness();
+  await f.context.load(false);
   await tick();
-  await h.context.load(true);
-  h.statusReqs[0].reject(new Error('down'));
+  await f.context.load(true);
+  f.statusReqs[0].reject(new Error('down'));
   await tick();
-  assert.equal(h.liveTimers().length, 1);
-  assert.equal(h.liveTimers()[0].ms, 15000);
+  assert.equal(f.liveTimers().length, 1);
+  assert.equal(f.liveTimers()[0].ms, 15000);
 });
 
 test('stale reply for another case is ignored', async () => {

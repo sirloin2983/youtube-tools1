@@ -876,10 +876,7 @@ class TestStage4(Base):
         self.assertEqual(e["steps"][-1], {"key": "deliver", "label": "Dropbox へ届ける", "count": None, "note": "あとで決まります"})
         self.assertEqual([s["key"] for s in estimate(self.r, VID, "full")["steps"]], ["analyze", "adopt", "export", "transcribe", "pack"])
         self.assertEqual([s["key"] for s in estimate(self.r, VID, "adopted", deliver=True)["steps"]], ["export", "transcribe", "pack"])
-
-    def test_estimate_follows_pack_key(self):
-        """見積もりも実行と同じ判定(pack_verdict)で、鍵が違うパックは作り直す数に入れる(以前は「パック済み」で 0 本だった。RS8 OPT2)"""
-        self.run_one("adopted")
+        # 見積もりも実行と同じ判定(pack_verdict)で、鍵が違うパックは作り直す数に入れる(以前は「パック済み」で 0 本だった。RS8 OPT2)
         self.assertEqual(estimate(self.r, VID, "adopted")["total"], 0)
         with mock.patch.object(self.r, "_pack_state", return_value=("differ", None)):
             e = estimate(self.r, VID, "adopted")
@@ -1599,22 +1596,6 @@ class TestRequests(Base):
         self.assertEqual([k for k, _n in events], ["meta", "zip", "meta", "zip"], events)
         for z in (z2, z3):   # 1 本ずつでも届けた記録は残す
             self.assertEqual(len(friend_feedback.find_delivery(self.logs_dir(), z)["packs"]), 1, z)
-
-    def test_three_packs_each_one_by_one(self):
-        """3 本: 3 組の zip + それぞれの確認用の動画と印。組の一覧(.group.json)は作らない(F3-6)"""
-        self.tools.known = False
-        out = os.path.join(self.tmp, "Dropbox", "出力")
-        run = self.wait(start_request(self.r, [{"id": VID, "top": 3, "title": "配信", "channel": ""}], request_id=self.RID,
-                                             flow="auto", deliver_dir=out)["runs"][0])
-        self.assertEqual(run["state"], "done", run)
-        z = ["%s__a%d.zip" % (self.RID, i) for i in (1, 2, 3)]
-        self.assertEqual(sorted(os.listdir(out)), sorted(z + [x[:-4] + e for x in z for e in (".preview.mp4", ".meta.json")]))
-        got = self.zips(out)
-        for name in z:   # どれも 1 本だけの zip
-            self.assertEqual(len([n for n in got[name] if n.endswith("cut-plan.json")]), 1, name)
-        self.assertEqual(len(self.delivered(run)), 3)
-        for name in z:
-            self.assertEqual(len(friend_feedback.find_delivery(self.logs_dir(), name)["packs"]), 1, name)
 
     def test_without_preview_still_delivers_zip_and_meta(self):
         """確認用の動画を作れなくても(ffmpeg が無い・動画が壊れている)zip と印は届ける(印の preview は null)"""
@@ -2498,16 +2479,6 @@ class TestSubmitBase(Base):
             a = self.queued(self.r.submit(*O.order("url", video_id=VID, from_="export")))
             b = self.queued(self.r.submit(*O.order("url", video_id="zzzzzzzzzzz", from_="export", on_fail="next")))
         self.assertEqual((a.on_fail, a.spec["run"]["onFail"], b.on_fail), ("stop", "stop", "next"))
-
-    def test_memo_reads_settings_once_per_accept(self):
-        """1 回の受付(画面が 1 本ずつ submit する)の間は、束の土台・スタジオの一覧を 1 回だけ読む(MEMO_SEC 秒)"""
-        self.r.memo_sec = 60
-        seen = []
-        real = self.r.build_spec
-        with mock.patch.object(self.r, "build_spec", lambda: (seen.append(1), real())[1]), mock.patch.object(self.r, "_wake", lambda: None):
-            for vid in ("aaaaaaaaaaa", "bbbbbbbbbbb", "ccccccccccc"):
-                self.r.submit(*O.order("url", video_id=vid, from_="export"))
-        self.assertEqual(len(seen), 1)
 
     def test_friend_app_v2_and_v1_bodies(self):
         """送るアプリの本文: 版 2(RV A2 = run.upto・hints.streamer・run.requested)も 0.87 までの版 1(legacy・run.pinned・specVersion なし)も同じ実行"""

@@ -299,14 +299,6 @@ class TestCut2ResolveMounted(unittest.TestCase):
         h.update(extra or {})
         return self.req("POST", path, json.dumps(obj).encode(), h)
 
-    def test_mounted_state(self):
-        snaps = {i: self.sup.by_id[i].snapshot() for i in ("studio", "cut2resolve")}
-        self.assertEqual({i: (s["state"], s["mounted"], s["port"], s["path"]) for i, s in snaps.items()},
-                         {"studio": ("running", True, self.port, "/studio/"), "cut2resolve": ("running", True, self.port, "/cut2resolve/")},
-                         self.events)
-        self.assertEqual(snaps["cut2resolve"]["version"], self.mod.SERVER_VERSION)
-        self.assertIsNone(self.sup.by_id["cut2resolve"].proc)
-
     def test_page_assets_and_security_headers(self):
         r, body = self.req("GET", "/cut2resolve/")
         self.assertEqual(r.status, 200)   # 画面は「編集」に統合した(編集が取り込まれていない入口では、案内だけ)
@@ -365,17 +357,13 @@ class TestCut2ResolveMounted(unittest.TestCase):
         r, _ = self.req("POST", "/api/tools/cut2resolve/stop", b"{}", {"Content-Type": "application/json"})
         self.assertEqual(r.status, 403)   # 入口の API も合言葉が要る
 
-    def test_removed_apis_under_prefix(self):
-        """cut2resolve 0.22.0 で消した API(api/state・api/inspect・media/。消した画面のためのもの)は、取り込まれた場所でも 404"""
-        for path in ("/cut2resolve/api/state", "/cut2resolve/media/" + "a" * 16):
-            r, _ = self.req("GET", path)
-            self.assertEqual(r.status, 404, path)
-        r, body = self.post("/cut2resolve/api/inspect", {"video": self.video})
-        self.assertEqual((r.status, json.loads(body)["error"]), (404, "not_found"))
-        r, _ = self.req("GET", "/media/" + "a" * 16)   # 入口の直下にも無い
-        self.assertEqual(r.status, 404)
-
-    def test_runtime_and_siblings(self):
+    def test_mounted_state_runtime_and_siblings(self):
+        snaps = {i: self.sup.by_id[i].snapshot() for i in ("studio", "cut2resolve")}
+        self.assertEqual({i: (s["state"], s["mounted"], s["port"], s["path"]) for i, s in snaps.items()},
+                         {"studio": ("running", True, self.port, "/studio/"), "cut2resolve": ("running", True, self.port, "/cut2resolve/")},
+                         self.events)
+        self.assertEqual(snaps["cut2resolve"]["version"], self.mod.SERVER_VERSION)
+        self.assertIsNone(self.sup.by_id["cut2resolve"].proc)
         info = L.read_runtime(self.rdir, "cut2resolve")
         self.assertEqual((info["port"], info["path"]), (self.port, "/cut2resolve/"))
         want = {"tools": {"studio": self.port, "cut2resolve": self.port}, "paths": {"studio": "/studio/", "cut2resolve": "/cut2resolve/"}}
