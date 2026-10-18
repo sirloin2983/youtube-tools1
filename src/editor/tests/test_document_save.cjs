@@ -61,9 +61,9 @@ function harness(respond) {
       return respond(call, S);
     }
   };
-  // 保存と切り替えの競合には関係しない画面の更新(上の context にないもの): 知らせ・学習と精度の読み直し・題名・一覧の進み具合・パックの見積もり・
+  // 保存と切り替えの競合には関係しない画面の更新(上の context にないもの): 知らせ・修正の提案の読み直し・題名・一覧の進み具合・パックの見積もり・
   // 校正の手間(effortStart。マスタープラン Q2)
-  for (const name of ['toast', 'scheduleLearn', 'scheduleAcc', 'scheduleDrillStat', 'updateDocTitle', 'syncListItem', 'cpAfterSave',
+  for (const name of ['toast', 'scheduleSuggest', 'updateDocTitle', 'syncListItem', 'cpAfterSave',
     'effortStart', 'fillDiarNum', 'rememberLast', 'paintSaveState']) context[name] = () => {};   // 話者の人数の欄・前回の文書(段7 E-6・E-7)
   context.apiUrl = p => p;
   vm.createContext(withUIKit(context));

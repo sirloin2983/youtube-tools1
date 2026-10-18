@@ -183,11 +183,10 @@ def main():
                 check(wait_js(pg, "!!document.querySelector('#csPane .cd-panel #rvList .rv-mark-row[data-id=\"m1\"]')", 20000), "候補のパネルにマークの一覧が出る")
                 check(pg.evaluate("CasesShell.state().panel") == "cand" and pg.evaluate("location.search + location.hash") == "?c=%s#cand" % VID, "殻: 候補のタブ・URL")
                 check(pg.evaluate("document.querySelectorAll('#csPane #rvList .rv-mark-row').length") == 5, "マーク 5 件(手 2 + 自動 3)")
-                check(pg.evaluate("getComputedStyle(document.querySelector('#rvPick')).display") == "none", "配信の選択(探す一覧)は出さない(案件は左の一覧で選ぶ)")
                 check(pg.is_hidden("[data-cd-status]"), "読み込めたら案内は消える")
                 check(pg.evaluate("!!document.querySelector('script[src=\"studio/review.js\"]')"), "部品はスタジオの review.js(相対パス)を読む")
                 # 1b. 外から来る文字列(題名・ラベル)は文字のまま(旧 e2e_ui の check_untrusted_text)
-                check(pg.text_content("#rvCurLabel") == XSS_TITLE, "配信の題名は文字のまま")
+                check(pg.input_value("#rvTitle") == XSS_TITLE, "配信の題名は文字のまま")
                 check(pg.input_value('#rvList .rv-mark-row[data-id="x1"] [data-f="label"]') == XSS_LABEL, "マークのラベルは文字のまま")
 
                 # 2. 再生(webm)と盛り上がりグラフ

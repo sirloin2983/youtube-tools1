@@ -236,7 +236,7 @@ function txKeybarScene(){
     const km = keymap(), k = id => km[id] ? keyText(km[id]) : '';
     keybarSet([{ k: keyWithAlt('rowNext'), l: '次の行' }, { k: keyWithAlt('rowPrev'), l: '前の行' }, { k: k('unNext'), l: '次の未校正' }, { k: k('proof'), l: '校正済みで次へ' },
       { k: k('replay'), l: '聞く' }, { k: k('edit'), l: '直す' },   // 「3秒戻る・進む」は ? の一覧に(帯は 7 個まで。UI の見直し S17)
-      ...(DR.on ? [{ k: k('drillDone'), l: '済みにして次へ' }] : []), { k: '?', l: 'キー操作' }].filter(x => x.k));   // 評価ドリルの間は「済みにして次へ」も
+      { k: '?', l: 'キー操作' }].filter(x => x.k));
   }
 }
 
@@ -244,7 +244,7 @@ function txKeybarScene(){
 function keybarSet(items){ if (EDIT_HOST) EDIT_HOST.keybar(items); else if (items) UIKit.keybar.set(items); else UIKit.keybar.clear(); }
 
 function applySideTab(){
-  if (!['start', 'files', 'quality', 'data'].includes(V.sideTab)) V.sideTab = 'start';
+  if (!['start', 'files'].includes(V.sideTab)) V.sideTab = 'start';
   document.querySelectorAll('[data-side-tab]').forEach(b => b.setAttribute('aria-selected', b.dataset.sideTab === V.sideTab ? 'true' : 'false'));
   document.querySelectorAll('[data-side-pane]').forEach(p => { p.hidden = p.dataset.sidePane !== V.sideTab; });
 }
@@ -465,7 +465,3 @@ function renderSetup(){
     + (miss.length ? banner(`準備が必要です(${miss.length}件)`, miss.join('<br>'), true) : '') + gpu;
 }
 
-/* ---------- 評価ドリルのカードの数の読み直し ----------
-   校正の目標(goalHours)と進行度(api/progress・ヘッダーの札・棒)は 0.69.0(段 D2)で消した。定点の数(確かめ済みの文書の行で数える条件)は保存・一覧の読み直しで変わるので、少し待ってまとめて読み直す */
-
-function scheduleDrillStat(){ clearTimeout(scheduleDrillStat.t); scheduleDrillStat.t = setTimeout(loadDrillStat, 2500); }

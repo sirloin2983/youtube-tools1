@@ -150,7 +150,6 @@ $('#txList').addEventListener('toggle', e => {
   if (d.open){ txOpen.add(k); const rows = d.querySelector('.tt-g-rows'); if (rows && !rows.children.length) rows.innerHTML = txRowsHTML(k, txGroups.get(k) || []); }
   else txOpen.delete(k);
 }, true);
-$('#txSearch').addEventListener('input', () => { txLimit.clear(); renderList(); });
 [['txState', 'state'], ['txFilter', 'kind'], ['txSort', 'sort'], ['txGroup', 'group']].forEach(([id, k]) => {
   const el = $('#' + id); el.value = L[k];
   el.addEventListener('change', () => {
@@ -172,9 +171,6 @@ const VOICE_SKIP = [['unproofed', '未校正'], ['tagged', '音のメモ(重な�
 const voiceSec = s => s >= 60 ? `${Math.round(s / 6) / 10}分` : `${Math.round(s)}秒`;
 /* 全行をこの人に(評価用。マスタープラン Q4。app-jobs.js の renderSpAll)。候補は文書ごとに api/drill/candidates から1回 */
 const SPALL = { id: null, cands: [], suggest: '' };
-/* 評価ドリル(URL の ?drill=1。マスタープラン Q4。app-learn.js の drill*): on = 帯を出している・done = このドリルで済みにした本数・skip = 飛ばした文書(次に出さない)・
-   none = 次に出せる動画が無い理由・status = api/drill/status(定点の残りと条件)・busy = 済み/飛ばすの途中 */
-const DR = { on: false, done: 0, skip: [], none: '', status: null, busy: false };
 /* この動画だけを今の設定で作り直す(app-learn.js の redoOneHere。2026-10-05): busy = 保存・確認・送るの途中 */
 const REDO1 = { busy: false };
 const SPALL_FROM = { voice: '覚えた声', folder: 'メンバーのフォルダ', stream: '配信の文脈' };
@@ -239,20 +235,15 @@ for (const id of ['spDetails', 'fixDetails', 'exDetails', 'hiDetails']){
   d.hidden = !d.open;
   d.addEventListener('toggle', () => { d.hidden = !d.open; });
 }
-$('#drSpk').addEventListener('click', () => { const b = document.querySelector('#jumpMenu [data-jump="spDetails"]'); if (b) b.click(); });   // ドリルの帯の「話者を付ける…」=「…」の中の「話者」と同じ
 $('#diarGo').addEventListener('click', e => {
   const b = e.currentTarget;
   const run = async () => { b.disabled = true; try { await startDiarize(); } catch (er){ toast(er.message); } finally { b.disabled = !(S.tools && S.tools.diarize && S.tools.diarize.ready); } };
   if (S.doc && (S.doc.speakers.length || S.doc.segments.some(s => s.speaker))) armDelete(b, run, 'もう一度押すと判別し直します(今の話者は置き換わります)'); else run();
 });
-/* 評価ドリル(帯のボタン・「評価ドリル」のカードの「始める」)と、評価用の文書の「確かめ済み」(app-learn.js) */
-$('#drDone').addEventListener('click', () => drillDone());
-$('#drSkip').addEventListener('click', () => drillSkip());
-$('#drEnd').addEventListener('click', () => drillEnd());
-$('#drillGo').addEventListener('click', () => { if (!DR.on) drillStart(); });
+/* 評価用の文書の「確かめ済み」(app-learn.js) */
 $('#evrMark').addEventListener('click', e => busy(e.currentTarget, evalReviewHere).finally(renderEvalReview));
 $('#evrUndo').addEventListener('click', () => unmarkReviewed());
-for (const id of ['drRedo', 'evrRedo']) $('#' + id).addEventListener('click', () => redoOneHere());   // この動画を作り直す(今の設定で)
+$('#evrRedo').addEventListener('click', () => redoOneHere());   // この動画を作り直す(今の設定で)
 $('#spAllName').addEventListener('change', () => { syncSpAllNew(); if ($('#spAllName').value === 'other') $('#spAllNew').focus(); });
 $('#spAllGo').addEventListener('click', async e => {
   const b = e.currentTarget; b.disabled = true;
@@ -272,49 +263,6 @@ $('#rtGo').addEventListener('click', e => {
 });
 $('#rtTarget').addEventListener('change', updateRt);
 $('#rtModel').addEventListener('change', updateRt);   // 動画全体の目安はモデルで変わる
-
-/* ---------- 修正から学習した候補 ---------- */
-let learned = { items: [], docs: 0 };
-let learnedShowAll = false;
-const lnKey = x => `${x.wrong}=>${x.right}`;
-const lnDraft = {};   // 候補ごとの、編集中の文字(一覧を更新しても消えないように残す)
-$('#lnList').addEventListener('input', e => {
-  const row = e.target.closest('.ln'), x = row && learned.items[Number(row.dataset.i)]; if (!x) return;
-  const w = row.querySelector('.lw').value, r = row.querySelector('.lr').value, edited = w !== x.wrong || r !== x.right;
-  if (edited) lnDraft[lnKey(x)] = { w, r }; else delete lnDraft[lnKey(x)];
-  row.classList.toggle('edited', edited); row.querySelector('[data-act=lnrev]').hidden = !edited;
-});
-$('#lnList').addEventListener('click', async e => {
-  const b = e.target.closest('[data-act]'); if (!b) return;
-  const row = b.closest('.ln'), x = learned.items[Number(row.dataset.i)]; if (!x) return;
-  try {
-    if (b.dataset.act === 'lnrev'){ delete lnDraft[lnKey(x)]; renderLearned(); return; }
-    if (b.dataset.act === 'lnadd'){
-      const w = row.querySelector('.lw').value.trim(), r = row.querySelector('.lr').value.trim();
-      if (!w) return toast('「誤」の文字を入れてください');
-      if (w === r) return toast('「誤」と「正」が同じです');
-      if (/=>|[\r\n]/.test(w + r)) return toast('「=>」と改行は使えません');
-      const wbW = ccOf(w[0]) && [...w].every(c => ccOf(c) === ccOf(w[0])) && !w.includes('|') ? `|${w}|` : w;   // カタカナ・漢字・英数字だけの語は、単語の途中には当てない形で登録する
-      const d = $('#repDict'), lines = d.value.split(/\r?\n/), same = lines.findIndex(l => { const k = l.indexOf('=>'); return k > 0 && wbSplit(l.slice(0, k).trim())[0] === w; });
-      let msg = '置換辞書に登録しました。開いている文字起こしにも直すには「辞書を全体に適用」を押してください';
-      if (same >= 0){ msg = `同じ「${w}」の登録があったので、置き換えました。` + msg.slice(msg.indexOf('開いている')); lines[same] = `${wbW}=>${r}`; d.value = lines.join('\n'); }
-      else d.value = (d.value.replace(/\s+$/, '') + `\n${wbW}=>${r}`).replace(/^\n/, '');
-      if ($('#lnGloss').checked && r.length >= 2 && r.length <= 15 && (!x.ctx || r !== x.right)){   // 前後の文字を足した断片のままなら、用語集には入れない
-        const g = $('#optGloss'); if (!g.value.split(/\r?\n/).some(l => l.trim() === r)) g.value = (g.value.replace(/\s+$/, '') + '\n' + r).replace(/^\n/, '');
-      }
-      if (w !== x.wrong || r !== x.right) S.settings.learnIgnore = [...(S.settings.learnIgnore || []), lnKey(x)].slice(-500);   // 直して登録したときは、元の候補は消す
-      delete lnDraft[lnKey(x)];
-      readOpts(); await putSettingsNow(); toast(msg);
-    } else {
-      S.settings.learnIgnore = [...(S.settings.learnIgnore || []), lnKey(x)].slice(-500); delete lnDraft[lnKey(x)]; await putSettingsNow();
-    }
-    await loadLearned();
-  } catch (er){ toast(er.message); }
-});
-$('#lnRefresh').addEventListener('click', loadLearned);
-$('#lnSearch').addEventListener('input', () => { learnedShowAll = false; renderLearned(); });
-$('#lnMore').addEventListener('click', () => { learnedShowAll = !learnedShowAll; renderLearned(); });
-$('#lnMin').addEventListener('change', () => { learnedShowAll = false; loadLearned(); });
 
 /* ---------- 修正の提案(文脈つきの統計) ---------- */
 S.sug = [];
@@ -393,12 +341,6 @@ $('#btnProofSel').addEventListener('click', () => {
   renderDoc(); markDirty();
   if (!proofNext(before)) toast(`${n}行を校正済みにしました(「元に戻す」で戻せます)`);   // 未校正が 0 になったら [2 カットへ](段7 S-17)
 });
-
-/* ---------- 認識精度の測定 ---------- */
-const pct = v => v == null ? '—' : (v * 100).toFixed(1) + '%';
-let accT = null;
-$('#accScope').addEventListener('change', loadAcc);
-$('#accRefresh').addEventListener('click', loadAcc);
 
 /* ---------- ホロライブの名簿 / 用語集の「認識に効く長さ」 ---------- */
 const GLOSS_PROMPT = 150;   // serve.py の whisper_kwargs と揃える(initial_prompt に渡る文字数)
@@ -663,16 +605,14 @@ const TX_ACTIONS_ALL = [   // [id, 既定のキー(UIKit.keys.comboOf の表記)
   ['tagUnclear', 'x', '聞き取れない', 'memo'], ['tagOverlap', 'c', '声が重なる', 'memo'], ['tagBgm', 'v', 'BGM・音が大きい', 'memo'], ['insert', 'n', '後ろに行を追加', 'memo'], ['del', 'z', 'この行を削除(2回押し)', 'memo'],
   /* つなぐ・分ける(0.63.0。A6 = 校正でいちばん時間を食うのが行をつなぐ・分ける。それまでは行の下のボタンと右クリックだけ) */
   ['mergeNext', 'm', '次の行とつなぐ', 'memo'], ['mergePrev', 'Shift+m', '前の行とつなぐ', 'memo'], ['splitPlay', 'y', '再生位置で行を分ける', 'memo'],
-  ['menu', 'g', '左のメニューを開く/閉じる', 'screen'],
-  /* 評価ドリル(?drill=1 の帯が出ているときだけ働く)。単体キーにしない(押し間違いで「全部聞いた」にならないように Shift つき) */
-  ['drillDone', 'Shift+d', '評価ドリル: 済みにして次へ', 'drill'], ['drillSkip', 'Shift+n', '評価ドリル: 飛ばして次へ', 'drill']
+  ['menu', 'g', '左のメニューを開く/閉じる', 'screen']
 ];
-/* 案件の画面(EDIT_HOST)では、左のメニュー(G)も評価ドリルの帯(Shift+D・Shift+N)も無い = 一覧・キー配置に載せない。
+/* 案件の画面(EDIT_HOST)では、左のメニュー(G)が無い = 一覧・キー配置に載せない。
    Shift+N は殻の「次の案件へ」・Alt+1/2 は殻のタブなので、割り当てさせない(KEY_SHELL。RS8 の小さな直し) */
-const HOST_NO_KEY = new Set(['menu', 'drillDone', 'drillSkip']);
+const HOST_NO_KEY = new Set(['menu']);
 const TX_ACTIONS = EDIT_HOST ? TX_ACTIONS_ALL.filter(a => !HOST_NO_KEY.has(a[0])) : TX_ACTIONS_ALL;
 const KEY_SHELL = EDIT_HOST ? { 'Shift+n': '次の案件へ(案件の画面)', 'Shift+N': '次の案件へ(案件の画面)', 'Alt+1': 'タブの切り替え(案件の画面)', 'Alt+2': 'タブの切り替え(案件の画面)' } : {};
-const KEY_GROUPS = [['move', '行を移動する'], ['listen', '聞く・校正する'], ['memo', '音の状態のメモ・行の編集'], ['screen', '画面'], ['drill', '評価ドリル(帯が出ているときだけ)']].filter(g => !(EDIT_HOST && g[0] === 'drill'));
+const KEY_GROUPS = [['move', '行を移動する'], ['listen', '聞く・校正する'], ['memo', '音の状態のメモ・行の編集'], ['screen', '画面']];
 const KEY_ALT = { rowNext: '↓', rowPrev: '↑', unNext: 'Shift+↓', unPrev: 'Shift+↑' };   // 固定の別の手段(一覧・帯に並べて出す)
 /* 割り当てられないキー(固定の意味がある)。値は使い道(「X は『使い道』に使っているので割り当てられません」) */
 const KEY_FIXED = { ArrowDown: '次の行(固定)', ArrowUp: '前の行(固定)', 'Shift+ArrowDown': '次の未校正(固定)', 'Shift+ArrowUp': '前の未校正(固定)',
@@ -710,8 +650,7 @@ const KEY_FN = {
   tagUnclear: () => tagCur('unclear'), tagOverlap: () => tagCur('overlap'), tagBgm: () => tagCur('bgm'),
   insert: () => { const c = rowAndSeg(); if (c) insertAfter(c.i); else insertAtTime(player().currentTime); },
   del: () => deleteCur(), menu: () => toggleMenu(),
-  mergeNext: () => mergeKey(1), mergePrev: () => mergeKey(-1), splitPlay: () => splitKey(),   // app-rows.js
-  drillDone: () => drillKey('drillDone'), drillSkip: () => drillKey('drillSkip')
+  mergeNext: () => mergeKey(1), mergePrev: () => mergeKey(-1), splitPlay: () => splitKey()   // app-rows.js
 };
 /* 左のメニューがキーを持つ間は、文書を操作するキー(校正のキー・共通の再生キー・Ctrl+Z・Tab・2 カット のキー)を効かせない(GPT-04・段3 3-1 監査 04):
    (a) 本文の上に重ねて開いている間(フォーカスが幕・本文のどこにあっても)または (b) フォーカスがメニューの中にある間(並べて出す 1600px 以上でも)。
@@ -911,47 +850,6 @@ $('#rlBrowse').addEventListener('click', async () => {
   } finally { b.disabled = false; }
 });
 
-/* ---------- 見つからない動画をまとめて付け替える(2026-10-01。関数は app-tools.js の ra*) ---------- */
-const RA = { rows: [], seq: 0, busy: false, q: Promise.resolve() };
-$('#txMissingGo').addEventListener('click', () => openRelinkAll());
-$('#raFind').addEventListener('click', raFind);
-$('#raFolder').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing){ e.preventDefault(); raFind(); } });
-$('#raBrowse').addEventListener('click', async () => {
-  const b = $('#raBrowse'); b.disabled = true;
-  try {
-    const first = RA.rows.find(r => !r.done);
-    const p = await pickPath('dir', $('#raFolder').value.trim() || (first ? first.sourcePath : ''));
-    if (p && $('#relinkAllDlg').open){ $('#raFolder').value = p; await raFind(); }
-  } finally { raSync(); }
-});
-$('#raGo').addEventListener('click', async () => {
-  const rows = RA.rows.filter(r => r.pick && r.check && !r.done);
-  if (!rows.length || RA.busy) return;
-  RA.busy = true; RA.rows.forEach(raUpdate);
-  const cur = S.docId, curIn = rows.some(r => r.id === cur);
-  let ok = 0;
-  try {
-    if (curIn && !(await savedAll())) return;
-    for (const r of rows){
-      r.state = 'saving'; raUpdate(r);
-      try {
-        await api('/api/relink', { body: { id: r.id, path: r.path, baseUpdatedAt: r.id === S.docId ? S.baseUpdatedAt : r.updatedAt, acceptDiff: !!r.check.mismatch, normalize: false } });   // まとめて付け替える = 以前の文書の動画を移したとき。30fps に作り直さない(Q1: 以前の動画はそのまま)
-        r.done = true; ok++;
-      } catch (e){
-        r.err = e.message; r.pick = false;
-        if (e.code === 'duration_mismatch' && e.data && e.data.check) r.check = e.data.check;
-      }
-      r.state = ''; raUpdate(r);
-    }
-    if (ok) toast(`${ok} 件を付け替えました(前の状態は各文書の「以前の版に戻す」で戻せます)`, 7000, 'ok');
-    if (ok < rows.length) toast(`${rows.length - ok} 件は付け替えられませんでした(理由は一覧に出しています)`, 8000, 'err');
-    await loadList();
-    if (curIn && S.docId === cur && rows.some(r => r.id === cur && r.done)) await openDoc(cur);   // 開いている文書は新しいパスで読み直す
-  } finally { RA.busy = false; RA.rows.forEach(raUpdate); raSync(); }
-});
-$('#raCancel').addEventListener('click', () => { if (!RA.busy) $('#relinkAllDlg').close(); });
-$('#relinkAllDlg').addEventListener('cancel', e => { if (RA.busy) e.preventDefault(); });   // 付け替えている途中は閉じない
-$('#relinkAllDlg').addEventListener('close', () => { RA.seq++; });
 player().addEventListener('playing', () => { $('#playerMsg').hidden = true; updateCaption(); });
 /* v0.9.6: 行の▶などで「そこだけ再生」した直後に手動で止めた場合、S.playEnd が残ったままだと、
    表示部(動画本体)の再生ボタンで再開したときにも、またそこで止まってしまう。
@@ -977,7 +875,7 @@ $('#evalSet').addEventListener('change', e => {
   toast(S.doc.evalSet ? '評価用にしました。この文字起こしは、辞書・提案・追加学習には使いません(すでに登録した辞書は残ります)。'
     + (S.evalDirsActive ? 'ほかの文書へ移ると、動画を評価用のフォルダへ移します(すべて校正済みならメンバーのフォルダ、それ以外は仮置き)' : '')
     : '評価用を外しました。この文字起こしは、学習用として扱われます', 7000);
-  setTimeout(() => { loadDrillStat(); loadLearned(); loadAcc(); }, 1500);
+  setTimeout(loadSuggest, 1500);
 });
 $('#evSave').addEventListener('click', async () => {
   const dirs = $('#evDirs').value.split(/\r?\n/).map(x => x.trim().replace(/^"|"$/g, '').trim()).filter(Boolean);
@@ -1132,10 +1030,10 @@ $('#txList').addEventListener('click', e => {
     return;
   }
   if (b.dataset.act === 'gostart'){ setSideTab('start'); const p = $('#srcPath'); if (p) p.focus(); return; }   // 履歴が 0 件: 新規へ(M8)
-  if (b.dataset.act === 'clearfilter'){   // 絞り込みで 0 件: 検索の文字と状態・種類の絞り込みを消す(M8)
-    $('#txSearch').value = ''; L.state = 'all'; L.kind = 'all'; $('#txState').value = 'all'; $('#txFilter').value = 'all'; saveListPrefs();
+  if (b.dataset.act === 'clearfilter'){   // 絞り込みで 0 件: 状態・種類の絞り込みを消す(M8)
+    L.state = 'all'; L.kind = 'all'; $('#txState').value = 'all'; $('#txFilter').value = 'all'; saveListPrefs();
     txLimit.clear();
-    renderList(); $('#txSearch').focus(); return;
+    renderList(); $('#txState').focus(); return;
   }
   const row = b.closest('.txi'); if (!row) return; const id = row.dataset.id;
   if (b.dataset.act === 'pick'){ if (b.checked) PICK.ids.add(id); else PICK.ids.delete(id); renderPickBar(); return; }
@@ -1144,23 +1042,10 @@ $('#txList').addEventListener('click', e => {
     const t = ED_TABS.includes(b.dataset.tab) ? b.dataset.tab : 'tx';
     (S.docId === id ? Promise.resolve(true) : openDoc(id)).then(ok => { if (ok && S.docId === id) setEditTab(t, { focus: true }); });
   }
-  else if (b.dataset.act === 'hide' || b.dataset.act === 'unhide'){
-    const it = S.list.find(x => x.id === id), menu = b.closest('details'); if (menu) menu.open = false;
-    UIKit.hide.set('transcripts', [id], b.dataset.act === 'hide', { label: it && it.title ? it.title : '無題' });
-  }
   else if (b.dataset.act === 'relink'){   // 動画が見つからない文書: 開いてから、付け替えのダイアログ(段2 B-4)
     const menu = b.closest('details'); if (menu) menu.open = false;
     (S.docId === id ? Promise.resolve(true) : openDoc(id)).then(ok => { if (ok && S.docId === id) openRelink(); });
   }
-  else if (b.dataset.act === 'del') armDelete(b, async () => {
-    /* 開いている文書を消すときは、待っている自動保存を止め、送信中の保存が終わるのを待ってから消す
-       (消したあとに保存が届くと失敗し続け、「未保存」が残って他の文書を開けなくなるため) */
-    if (S.docId === id){ clearTimeout(markDirty.t); if (docSaveP) await docSaveP.catch(() => {}); }
-    try { await api('/api/transcript?id=' + encodeURIComponent(id), { method: 'DELETE' }); } catch (er){ return toast(er.message, 3800, 'err'); }
-    if (S.docId === id) closeDoc();
-    toast('削除しました', 2500);
-    loadList();
-  });
 });
 window.addEventListener('keydown', e => {
   if (!S.doc || wideTab() || isTextEntry(e.target) || modalOpen() || menuHasKeys(e.target)) return;   // メニューがキーを持つ間は戻さない(3-1)
@@ -1242,8 +1127,7 @@ async function boot(){
   if (!EDIT_HOST) takeUrlParams();   // ?media= / ?clip=(他のツールからのリンク)。設定を読んだあとに入れる(タブの切り替えで上書きされないように)
   loadSiblings();
   try { const j = await api('/api/jobs'); for (const x of j.jobs) if (x.state === 'done' || x.state === 'error') S.seen.add(x.id); } catch {}   // 開く前に終わっていたものは知らせない
-  UIKit.hide.onChange(l => { if (!l || l === 'transcripts') renderList(); }); UIKit.hide.load().then(() => renderList());
-  await Promise.all(EDIT_HOST ? [loadList(), pollJobs()] : [loadList(), pollJobs(), loadLearned(), loadAcc(), loadDrillStat()]);   // 案件の画面ではメニューの中身(マーク・学習・精度・ドリル)を読まない
+  await Promise.all([loadList(), pollJobs()]);
   if (S.jobs.some(j => ACTIVE.has(j.state))) startPolling();
 }
 const BOOTED = boot();   // 案件の画面(src/app/ui/cases/edhost.js)が起動し終えるのを待つ

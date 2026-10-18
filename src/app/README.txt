@@ -46,7 +46,7 @@ v0.10.0(2026-09-26)から、文字起こしツールは「編集」(文字起こ
   画面も黒い画面も出さずにホームを起動します。友人からの依頼の受付・まとめて実行は、画面を開いていなくても進みます。
   - start-background.bat(リポジトリ直下)をダブルクリック。画面を見たいときは、いつもどおり start.bat(裏で動いているホームにつながります)
   - Windows にログインしたときに自動で裏で起動するには、スタートアップのフォルダ(エクスプローラーのアドレス欄に shell:startup)に
-    src\app\start_hidden.vbs へのショートカットを置きます(前の場所 src\home\start_hidden.vbs を指すショートカットも、転送で動きます)。やめるときはそのショートカットを消します
+    src\app\start_hidden.vbs へのショートカットを置きます(前の場所 src\home\start_hidden.vbs の転送は 2026-10-19 に消しました)。やめるときはそのショートカットを消します
   - 止めるときは、画面の「詳しく」→「すべて終了」
   - PC がスリープしている間は進みません(Windows の電源の設定でスリープまでの時間を長くするか、使わないときだけスリープに)
   - 記録は %LOCALAPPDATA%\youtube-tools\app\logs\launcher.log
@@ -133,7 +133,6 @@ v0.10.0(2026-09-26)から、文字起こしツールは「編集」(文字起こ
     まとめて実行の段の中身・実行の記録の読み・ライブの失敗の集約・配信ごとの記録   src\flow\(run.py・runlog.py・live_failures.py・live_report.py)
     窓で開く                                 src\ytt\appwindow.py
     精度の自動測定                           src\eval\drill\accuracy.py
-  src\home\ に残るのは start_hidden.vbs(スタートアップのショートカットのための転送)だけです
 
 ■ コマンド(上級者向け)
   python src\app\server.py [--no-open] [--port 8700] [--only studio,transcribe]

@@ -60,8 +60,6 @@
       date: function (ms) { return UIKit.fmt.date(ms); },
       isVideoId: function (s) { return /^[\w-]{11}$/.test(s || ''); },
       watchUrl: function (id, t) { return 'https://www.youtube.com/watch?v=' + encodeURIComponent(id) + (t >= 1 ? '&t=' + Math.floor(t) + 's' : ''); },
-      matchWords: function (words, hay) { return String(words || '').trim().toLowerCase().split(/\s+/).filter(Boolean).every(function (w) { return String(hay).toLowerCase().indexOf(w) >= 0; }); },
-      groupBy: function (list, key) { var m = new Map(); list.forEach(function (x) { var k = key(x); if (!m.has(k)) m.set(k, []); m.get(k).push(x); }); return m; },
       /* 入力中か: ui-kit の判定 + 時刻の欄(UIKit.timebox)。キーの判定は殻が先にするので、ここは review.js の中の確かめ用 */
       isTyping: function (el) { return !!el && ((el.classList && el.classList.contains('ui-time')) || UIKit.keys.isTyping(el)); },
       inMenu: function (el) { return !!(el && el.closest && el.closest('details.ui-menu[open]')); },

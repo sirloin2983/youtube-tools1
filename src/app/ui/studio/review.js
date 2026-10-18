@@ -26,10 +26,6 @@ function parseTime(str){
   for (const p of parts){ if (!/^\d+(\.\d+)?$/.test(p)) return NaN; t = t * 60 + parseFloat(p); }
   return t;
 }
-function looksLikeYouTube(s){
-  s = String(s).trim();
-  return Studio.isVideoId(s) || /(?:youtu\.be\/|youtube\.com\/|[?&]v=)/i.test(s);
-}
 
 /* ---------- 定数・設定 ---------- */
 const MAX_MARKS = 500, MAX_MARK_SEC = 3600;
@@ -112,35 +108,11 @@ const SVG = {
   play: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.9l10.2-6.5a1 1 0 0 0 0-1.7L9.5 4.6A1 1 0 0 0 8 5.5z"/></svg>',
   x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>'
 };
-const PICK_FILTERS = [['all', 'すべて'], ['cand', '判定待ちの候補がある'], ['adopt', '書き出し待ちの採用がある'], ['done', '書き出し済みがある'], ['none', 'マークがない']];
-/* 上の行: 配信の選択(探す・開く)・保存の状態・まとめて実行・シアター・配信の操作 */
+/* 上の行: 保存の状態・まとめて実行・シアター・配信の操作(配信は案件の画面の左の一覧で選ぶ) */
 function topBarHTML(){
   return `  <div class="rv-warn notice cs-notice-act" id="rvWarn" role="alert" hidden></div>
   <div class="rv-autobar" id="rvAutoBar" role="status" hidden></div>
   <div class="rv-top" id="rvTop">
-    <details class="ui-menu rv-pick" id="rvPick">
-      <summary class="rv-pickbtn" id="rvPickBtn" title="配信を選ぶ・開く(全部の配信から探せます)">
-        <span class="rv-lbl">配信</span>
-        <span class="rv-pickcur"><span class="rv-curlabel" id="rvCurLabel"></span><span class="rv-chips" id="rvChips"></span></span>
-        <svg class="rv-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
-      </summary>
-      <div class="rv-pickpop" role="dialog" aria-label="配信を選ぶ">
-        <div class="ui-listbar rv-pickbar">
-          <input type="search" id="rvPickQ" placeholder="題名・配信者で探す" aria-label="配信を探す" autocomplete="off">
-          <select id="rvPickF" aria-label="絞り込み">${PICK_FILTERS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select>
-          <select id="rvPickSort" aria-label="並び順"><option value="recent">新しい順</option><option value="channel">配信者ごと</option></select>
-          <span class="ui-count" id="rvPickN"></span>
-          <button type="button" class="btn small ghost" id="rvPickHidden" hidden></button>
-        </div>
-        <div class="rv-picklist" id="rvPickList"></div>
-        <form class="rv-open" id="rvOpenForm" autocomplete="off">
-          <label class="rv-fl" for="rvOpenIn">一覧に無い配信・動画ファイルを開く(解析せずに手でマークを付けるとき)<span class="rv-openlive" hidden>。配信中・配信前の URL なら録画を始めて開きます</span></label>
-          <div class="rv-openrow"><input id="rvOpenIn" type="text" spellcheck="false" placeholder="YouTube の URL・配信の ID、または動画ファイルのフルパス">
-          <button class="btn" type="submit" id="rvOpenBtn">開く</button></div>
-          <p class="hint rv-openmsg" id="rvOpenMsg" role="status" hidden></p>
-        </form>
-      </div>
-    </details>
     <button type="button" class="rv-save" id="rvSave" data-k="idle" role="status" title="マークは自動で保存します。失敗したときはここを押すと保存し直します">準備中</button>
     <span class="rv-topsp"></span>
     <details class="ui-menu rv-auto" id="rvAuto" hidden>
@@ -178,12 +150,7 @@ function jumpHTML(){
     <button type="button" class="btn small ghost rv-jumpb rv-jump-n" data-jump="player">プレーヤー</button>
     <button type="button" class="btn small ghost rv-jumpb rv-jump-n" data-jump="marks">マーク <b class="num" id="rvJumpMarks">0</b></button>
     <button type="button" class="btn small rv-jumpb rv-jump-exp" data-jump="export" title="書き出しの欄を開く">書き出し <b id="rvJumpExp"></b><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
-  </nav>
-  <div class="rv-emptybox empty" id="rvEmpty" hidden>
-    <b>まだ配信が開かれていません</b>
-    <span>① 探す の「URL から入れる」で配信を入れると、終わったものから、ここで自動のマークを確かめられます。解析せずに手でマークを付けるときは、上の「配信」から URL か動画ファイルを開きます。</span>
-    <div class="cs-emptyacts"><button type="button" class="btn" id="rvEmptyOpen">配信を選ぶ・開く</button><button type="button" class="btn ghost" id="rvEmptyRank" data-go-step="rank">① 探すで選ぶ</button><button type="button" class="btn ghost" id="rvEmptyQueue" data-go-step="queue">URL から入れる</button></div>
-  </div>`;
+  </nav>`;
 }
 /* プレーヤー・タイムライン・盛り上がりグラフ・再生の操作。
    タイムライン(#rvTl)のクリックで移動はマウスだけの便利(A-25 の例外): キーでは ← →(1秒・Shift で5秒)・, .(1コマ)・現在位置の欄に時刻を入れて Enter で動かせる。
@@ -507,7 +474,7 @@ const inList = () => !!(document.activeElement && document.activeElement.closest
 /* ---------- 動画一覧・切り替え ---------- */
 async function refreshList(){
   try { S.videos = (await Studio.api('/api/videos')).videos || []; } catch (e){ return; }
-  renderVideoSelect(); updateBadge(); renderExportUI();
+  updateBadge(); renderExportUI();
 }
 let quietT = null;
 function refreshListQuiet(){ clearTimeout(quietT); quietT = setTimeout(() => { quietT = null; refreshList(); }, 300); }
@@ -515,63 +482,6 @@ function refreshListQuiet(){ clearTimeout(quietT); quietT = setTimeout(() => { q
 function updateBadge(){
   const n = S.videos.filter(v => (Number(v.candidates) || 0) + (Number(v.adopted) || 0) > 0).length;
   Studio.setBadge('review', n ? String(n) : '', n ? `判定か書き出しが残っている配信 ${n}本` : '');
-}
-function vLabel(v){ return v.title || v.fileName || v.id; }
-const nz = x => Number(x) || 0;
-const vWho = v => (v.kind === 'file' ? '動画ファイル' : (v.channel || (v.kind === 'live' ? 'ライブの録画' : '配信者不明')));
-/* ---------- 配信の選択(ヘッダーの下の「配信」。50本以上でも探せるように、検索・絞り込み・配信者ごと) ----------
-   関数名は以前の <select> のまま(renderVideoSelect)。選ぶ部分(ボタン)はいつも、一覧は開いているときだけ描く */
-const PK = { q: '', f: 'all', sort: 'recent', limit: 80 };
-function pickMatch(v){
-  const f = PK.f;
-  if (f === 'cand' && !nz(v.candidates)) return false;
-  if (f === 'adopt' && !nz(v.adopted)) return false;
-  if (f === 'done' && !nz(v.exported)) return false;
-  if (f === 'none' && nz(v.marks)) return false;
-  return Studio.matchWords(PK.q, vLabel(v) + ' ' + vWho(v) + ' ' + v.id);
-}
-/* 非表示にした配信(UIKit.hide の一覧 'videos'。入口から開いたときだけ)。今開いている配信は隠していても一覧に残す */
-const HIDE = UIKit.hide;
-const pickHidden = v => !!(HIDE.available() && HIDE.has('videos', v.id) && !(S.cur && S.cur.id === v.id));
-function pickRowHTML(v){
-  const cur = S.cur && S.cur.id === v.id, t = v.createdAt || v.updatedAt;
-  const hid = HIDE.available() && HIDE.has('videos', v.id);
-  const pills = [v.kind === 'live' ? (liveRecActive(v) ? '<span class="pill run">録画中</span>' : '<span class="pill">録画</span>') : '', nz(v.candidates) ? `<span class="pill warn">候補 ${nz(v.candidates)}</span>` : '', nz(v.adopted) ? `<span class="pill ok">採用 ${nz(v.adopted)}</span>` : '',
-    nz(v.exported) ? `<span class="pill">書き出し済み ${nz(v.exported)}</span>` : '', !v.analysis && v.kind === 'youtube' ? '<span class="pill wait">解析前</span>' : '', v.groupId ? '<span class="pill info">コラボ</span>' : '', hid ? '<span class="ui-hidden-tag">非表示</span>' : ''].join('');
-  const row = `<button type="button" class="rv-prow${cur ? ' is-cur' : ''}" data-vid="${esc(v.id)}"${cur ? ' aria-current="true"' : ''} title="${esc(vLabel(v))}">
-    <span class="rv-prow-t">${esc(vLabel(v))}</span>
-    <span class="rv-prow-m"><span>${esc(vWho(v))}</span>${t ? `<span class="q-dot">・</span><span title="スタジオに追加: ${esc(Studio.date(t))}">${esc(Studio.ago(t))}</span>` : ''}${pills ? `<span class="rv-prow-p">${pills}</span>` : ''}</span></button>`;
-  if (!HIDE.available()) return row;
-  const tip = hid ? '表示に戻す' : '一覧で非表示にする(配信のデータは消しません)';
-  return `<div class="rv-prow-wrap${hid ? ' ui-hidden-item' : ''}">${row}<button type="button" class="btn small ghost rv-prow-hide" data-hide-vid="${esc(v.id)}" data-hide-on="${hid ? '0' : '1'}" title="${tip}" aria-label="${esc(vLabel(v))}: ${tip}">${hid ? '戻す' : '隠す'}</button></div>`;
-}
-function renderPickList(){
-  const box = $('#rvPickList'); if (!box || !$('#rvPick').open) return;
-  const vs = S.videos.map(v0 => (S.cur && S.cur.id === v0.id ? { ...v0, title: S.cur.title } : v0));
-  const base = vs.filter(pickMatch), showHid = HIDE.showing('videos');
-  const hit = showHid ? base : base.filter(v => !pickHidden(v));
-  HIDE.toggle($('#rvPickHidden'), 'videos', base.filter(pickHidden).length);
-  $('#rvPickN').textContent = `${hit.length} / ${vs.length} 本`;
-  if (!vs.length){ box.innerHTML = '<div class="empty"><b>まだ配信がありません</b>① の「URL から入れる」で配信を入れるか、下の欄で URL・動画ファイルを開くと、ここに出ます。</div>'; return; }
-  if (!hit.length){ box.innerHTML = '<div class="empty"><b>条件に合う配信はありません</b>探す文字と絞り込みを消すと、全部の配信が出ます<div class="cs-emptyacts"><button type="button" class="btn small" data-pick-clear>探す文字と絞り込みを消す</button></div></div>'; return; }
-  const list = hit.slice(0, PK.limit);
-  let html;
-  if (PK.sort === 'channel'){
-    const m = Studio.groupBy(list, vWho);
-    const curK = S.cur ? vWho(S.cur) : '', searching = !!PK.q.trim() || PK.f !== 'all';
-    html = [...m.entries()].sort((a, b) => a[0].localeCompare(b[0], 'ja')).map(([k, items]) =>
-      `<details class="ui-group rv-pg"${searching || k === curK ? ' open' : ''}><summary>${esc(k)} <span class="ui-group-n">${items.length}本</span></summary><div class="rv-pg-body">${items.map(pickRowHTML).join('')}</div></details>`).join('');
-  } else html = list.map(pickRowHTML).join('');
-  if (hit.length > list.length) html += `<div class="rv-pickmore"><button type="button" class="btn small" data-pick-more>もっと見る(残り ${hit.length - list.length} 本)</button></div>`;
-  box.innerHTML = html;
-}
-function renderVideoSelect(){
-  renderPickList();
-}
-function openPicker(focusOpen){
-  const d = $('#rvPick'); if (!d) return;
-  d.open = true;
-  setTimeout(() => { const f = focusOpen ? $('#rvOpenIn') : $('#rvPickQ'); if (f) f.focus(); }, 0);
 }
 /* ---------- 前回の場所(S-8): 配信ごとに、再生位置と選んでいたマークを覚えて、開いたときに戻す ----------
    置き場所はこのブラウザ(localStorage の ytt:studio.place)。ホームの設定(UIKit.prefs)は節が決まっていて(app/prefs.py の PATCHABLE)スタジオの節が無いこと、
@@ -619,7 +529,7 @@ function placeScroll(){
 async function loadVideo(id){
   const seq = ++S.loadSeq;
   if (S.join) S.join.clear();   // つなぐのは同じ配信の中だけ(テストの状態には join が無いことがある)
-  try { await flushSave(); } catch (e){ renderVideoSelect(); toast(e.message); return false; }
+  try { await flushSave(); } catch (e){ toast(e.message); return false; }
   if (seq !== S.loadSeq) return false;
   const editSeq = S.editSeq;
   let j;
@@ -627,7 +537,7 @@ async function loadVideo(id){
   catch (e){ if (seq === S.loadSeq){ toast('配信を読み込めません: ' + e.message, 0, 'err'); refreshList(); } return false; }   // 失敗の形で(見直し S4)
   if (seq !== S.loadSeq) return false;
   if (S.dirty || saveP || S.editSeq !== editSeq){
-    renderVideoSelect(); toast('読み込み中に編集されたため、切り替えを止めました。保存後にもう一度選んでください'); return false;
+    toast('読み込み中に編集されたため、切り替えを止めました。保存後にもう一度選んでください'); return false;
   }
   S.cur = j.video; S.series = j.series || null; S.sel = null; S.live = false;
   setTimeout(pollAuto, 0);   // この配信の「まとめて実行」の進み具合
@@ -664,33 +574,6 @@ async function syncFromServer(){
   if (applyServer(v0, j.video, j.series)) markDirty();
   refreshList();
   loadTranscripts();   // 書き出しが終わったマークのセリフ(文字起こし済みなら)
-}
-async function openFromInput(){
-  const inp = $('#rvOpenIn'), text = inp.value.trim();
-  if (!text) return toast('YouTube の URL・配信の ID、または動画ファイルのパスを入力してください');
-  const body = looksLikeYouTube(text) ? { kind: 'youtube', url: text } : { kind: 'file', path: text.replace(/^["']|["']$/g, '') };
-  const btn = $('#rvOpenBtn'); if (btn.disabled) return;   // begin は数秒かかる: 二度押しを防ぐ
-  btn.disabled = true;
-  const msg = t => { const m = $('#rvOpenMsg'); if (m){ m.textContent = t || ''; m.hidden = !t; } };
-  try {
-    /* 配信中・配信前の URL なら録画を始めて、その録画を開く(線 D の P3。ライブの機能が使えるときだけ。違えば今までどおり) */
-    if (body.kind === 'youtube' && Studio.live && await Studio.live.available()){
-      msg('配信の状態を確かめています…(配信中・配信前なら録画を始めます)');
-      const b = await Studio.live.begin(text);
-      if (b){
-        inp.value = '';
-        const pk = $('#rvPick'); if (pk) pk.open = false;
-        toast(Studio.live.begunText(b), 5000, 'ok');   // ② にいるので Studio.openReview ではなく loadVideo(文は ② ① と同じ)
-        await loadVideo(b.video.id);
-        return;
-      }
-    }
-    const r = await Studio.api('/api/videos/open', { method: 'POST', body });
-    inp.value = '';
-    const pk = $('#rvPick'); if (pk) pk.open = false;
-    await loadVideo(r.video.id);
-  } catch (e){ toast('開けませんでした: ' + e.message, 0, 'err'); }
-  finally { btn.disabled = false; msg(''); }
 }
 async function deleteCurrentVideo(){
   const v = S.cur; if (!v || S.deleting) return;   // 削除の通信中にもう一度押しても、2回目の削除(404)を送らない
@@ -2355,7 +2238,7 @@ function foldAll(on){ S.settings.foldDefault = on; S.fold = new Map(); touchSett
 function setAutoTitle(v, title){
   title = String(title || '').trim().slice(0, 120);
   if (!v || S.cur !== v || v.title || !title) return;
-  v.title = title; markDirty(); renderMeta(); renderVideoSelect();
+  v.title = title; markDirty(); renderMeta();
 }
 async function fetchAutoTitle(v){
   if (!v || v.kind !== 'youtube' || v.title) return;
@@ -2770,25 +2653,13 @@ function totalDur(){
 const pct = t => Math.min(100, Math.max(0, t / totalDur() * 100));
 function renderMeta(){
   const v = S.cur;
-  $('#rvMain').hidden = !v; $('#rvEmpty').hidden = !!v;
+  $('#rvMain').hidden = !v;
   for (const id of ['#rvJump', '#rvTheater', '#rvVMenu', '#rvSave']) $(id).hidden = !v;
   renderAutoMenu(v);
   if (!v){
-    $('#rvCurLabel').textContent = S.videos.length ? '選んでください' : 'まだありません'; $('#rvCurLabel').classList.add('is-empty'); $('#rvChips').textContent = S.videos.length ? `${S.videos.length}本から探せます` : ''; closeExportDrawer();
-    /* 空の状態の次の一手(S-13): 配信があれば「選ぶ・開く」、まだ無ければ「URL から入れる」を主なボタンに */
-    const has = !!S.videos.length;
-    $('#rvEmptyOpen').className = 'btn' + (has ? ' primary' : ' ghost'); $('#rvEmptyQueue').className = 'btn' + (has ? ' ghost' : ' primary');
+    closeExportDrawer();
     return;
   }
-  const has = !!v.title, el = $('#rvCurLabel');
-  el.classList.toggle('is-empty', !has);   // 'empty' は ui-kit の「空の状態」の枠と名前がぶつかるので使わない
-  el.textContent = has ? v.title : '(名前なし)';
-  /* だれの・いつの(同じ題名の配信を見分ける)。ID・ファイル名は title で */
-  const auto = v.marks.filter(m => m.src === 'auto').length, exp = v.marks.filter(m => m.status === 'exported').length;
-  const row = S.videos.find(x => x.id === v.id), t0 = row ? (row.createdAt || row.updatedAt) : v.createdAt;
-  const ch = $('#rvChips');
-  ch.innerHTML = `<span class="rv-chip-who">${esc(vWho(v))}</span>${t0 ? `<span class="q-dot">・</span><span>${esc(Studio.ago(t0))}</span>` : ''}${auto ? `<span class="rv-chip auto">自動 ${auto}</span>` : ''}${exp ? `<span class="rv-chip done">書き出し済み ${exp}</span>` : ''}`;
-  ch.title = v.kind === 'file' ? '動画ファイル: ' + (v.fileName || v.id) : v.kind === 'live' ? 'ライブの録画: ' + ((v.live && v.live.url) || v.id) : 'YouTube: ' + v.id;
   const t = $('#rvTitle'); if (document.activeElement !== t) t.value = v.title || '';
   $('#rvAnalyze').hidden = v.kind !== 'youtube';   // ライブの録画は解析しない(サーバーも断る)
   /* YouTube で開く: ライブの録画は動画の id が分かるときだけ。時刻は付けない(録画の秒は配信の秒ではない) */
@@ -3041,7 +2912,7 @@ function renderStats(){
   renderExportUI();
 }
 function renderAll(){
-  renderVideoSelect(); renderMeta(); renderDraft();
+  renderMeta(); renderDraft();
   if (S.cur){ renderTimeline(); renderStats(); renderList(); renderLiveCount(); }
   else { renderExportUI(); renderLiveCount(); }
   setSaveState('idle');
@@ -3284,50 +3155,7 @@ function wire(){
   }
   $('#rvGLegend').addEventListener('change', e => { if (e.target.id === 'rvGLines'){ S.settings.graphLines = e.target.checked; renderGraph(); touchSettings(); } });
 
-  // 配信の選択・開く・保存
-  const pick = $('#rvPick'), plist = $('#rvPickList');
-  pick.addEventListener('toggle', () => {
-    if (pick.open){ PK.limit = 80; renderPickList(); setTimeout(() => { if (pick.open && !pick.contains(document.activeElement)) $('#rvPickQ').focus(); }, 0); }
-    else if (pick.contains(document.activeElement)) $('#rvPickBtn').focus({ preventScroll: true });   // Esc で閉じたとき、隠れた入力欄にフォーカスが残ってキー操作が効かなくならないように
-  });
   $('#rvVMenu').addEventListener('toggle', e => { const m = e.currentTarget; if (!m.open && m.contains(document.activeElement)) m.querySelector('summary').focus({ preventScroll: true }); });
-  let pqT = null;
-  $('#rvPickQ').addEventListener('input', e => { PK.q = e.target.value; PK.limit = 80; clearTimeout(pqT); pqT = setTimeout(renderPickList, 100); });
-  $('#rvPickF').addEventListener('change', e => { PK.f = e.target.value; PK.limit = 80; renderPickList(); });
-  $('#rvPickSort').addEventListener('change', e => { PK.sort = e.target.value === 'channel' ? 'channel' : 'recent'; renderPickList(); });
-  plist.addEventListener('click', e => {
-    if (e.target.closest('[data-pick-more]')){ PK.limit += 200; renderPickList(); return; }
-    if (e.target.closest('[data-pick-clear]')){   // 0 件のときの次の一手(見直し M6)
-      e.stopPropagation(); PK.q = ''; PK.f = 'all'; $('#rvPickQ').value = ''; $('#rvPickF').value = 'all'; renderPickList(); $('#rvPickQ').focus(); return;
-    }
-    const hb = e.target.closest('[data-hide-vid]');
-    if (hb){
-      e.stopPropagation();   // 描き直しで押した行が DOM から外れると、ui-kit の「外側のクリックで閉じる」が外側と見なして一覧を閉じるため
-      const hv = S.videos.find(x => x.id === hb.dataset.hideVid);
-      HIDE.set('videos', [hb.dataset.hideVid], hb.dataset.hideOn === '1', { label: hv ? vLabel(hv) : hb.dataset.hideVid }).catch(() => {});
-      return;
-    }
-    const r = e.target.closest('.rv-prow'); if (!r) return;
-    pick.open = false; $('#rvPickBtn').focus({ preventScroll: true });
-    if (!S.cur || r.dataset.vid !== S.cur.id) loadVideo(r.dataset.vid);
-  });
-  /* 一覧の中は ↑ ↓ で移動、探す欄から ↓ で一覧へ */
-  pick.addEventListener('keydown', e => {
-    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
-    const rows = [...plist.querySelectorAll('.rv-prow')].filter(x => x.offsetParent !== null); if (!rows.length) return;
-    const i = rows.indexOf(document.activeElement);
-    if (e.target.id === 'rvPickQ' && e.key === 'ArrowDown'){ e.preventDefault(); rows[0].focus(); return; }
-    if (i < 0) return;
-    e.preventDefault();
-    if (e.key === 'ArrowUp' && i === 0) $('#rvPickQ').focus(); else rows[Math.max(0, Math.min(rows.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)))].focus();
-  });
-  $('#rvEmptyOpen').addEventListener('click', () => openPicker(!S.videos.length));
-  /* 空の状態から ① 探す・URL の欄へ(S-13。go-step=queue は ① の先頭の URL の欄 = Studio.go が ① に読み替える)。URL はその欄へフォーカス */
-  $('#rvEmpty').addEventListener('click', e => {
-    const b = e.target.closest('[data-go-step]'); if (!b) return;
-    Studio.go(b.dataset.goStep);
-    const f = b.dataset.goStep === 'queue' ? $('#qUrls') : null; if (f) f.focus();
-  });
   $('#rvJump').addEventListener('click', e => { const b = e.target.closest('[data-jump]'); if (b) jumpTo(b.dataset.jump); });
   /* YouTube で開くリンクは、押したときの再生位置から */
   const ytNow = a => { if (S.cur && S.cur.kind === 'youtube') a.href = Studio.watchUrl(S.cur.id, S.now); };
@@ -3336,13 +3164,10 @@ function wire(){
     const a = e.target.closest('a[data-yt-now]'); if (a) ytNow(a);
   });
   $('#rvYtLink').addEventListener('click', e => ytNow(e.currentTarget));
-  $('#rvOpenForm').addEventListener('submit', e => { e.preventDefault(); openFromInput(); });
   $('#rvSave').addEventListener('click', () => { if (S.dirty || saveP) save(); });
   $('#rvTitle').addEventListener('input', e => {
     if (!S.cur) return; S.cur.title = e.target.value; markDirty();
-    const el = $('#rvCurLabel'); el.classList.toggle('is-empty', !S.cur.title); el.textContent = S.cur.title || '(名前なし)';
   });
-  $('#rvTitle').addEventListener('change', () => { renderVideoSelect(); });
   $('#rvTitle').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); $('#rvVMenu').open = false; } });
   $('#rvDelVideo').addEventListener('click', e => armDelete(e.currentTarget, deleteCurrentVideo));
   const runAnalyze = async () => {
@@ -3598,7 +3423,6 @@ function showDataWarning(){ Studio.dataWarning($('#rvWarn')); }   // 文・閉�
 Studio.onReady(() => {
   buildDOM(); mountSettings(); S.built = true; placeJump();
   UIKit.icon.fill($('#paneReview'));   // buildDOM は DOMContentLoaded の一括の埋め込みより後に動くので、ここで埋める
-  HIDE.onChange(list => { if (!list || list === 'videos') renderPickList(); }); HIDE.load().then(() => renderPickList(), () => {});
   /* まとめて実行はホームから開いたときだけ(12 ⑦(a))。使えないときは押せない理由を出す(renderAutoMenu → UIKit.menuOff が、押したら理由を知らせる。S-25) */
   UIKit.packLoud.mount($('#rvAutoLoud'));   // パックの音量(編集の設定の1か所。2026-09-29)
   if (Studio.token){   // まとめて実行の設定の要約と「設定を変える」(どの入口も同じ部品。段4)・採用数はホームの設定
@@ -3614,10 +3438,8 @@ Studio.onReady(() => {
     pollAuto();
   });
   showDataWarning();
-  /* ヘッダーの「録画中」の札(UIKit.liveBadge): 「開く」でページを移らずにその録画を ② で開く・録画中の札が変わったら配信の一覧の「録画中」も合わせる */
+  /* ヘッダーの「録画中」の札(UIKit.liveBadge): 「開く」でページを移らずにその録画を ② で開く */
   UIKit.liveBadge.onOpen(rec => { openLiveRecording(rec); });
-  UIKit.liveBadge.onChange(() => renderPickList());
-  if (Studio.live) Studio.live.available().then(i => { const el = $('#rvOpenForm .rv-openlive'); if (el) el.hidden = !i; }, () => {});   // ライブの機能が使えるときだけ「録画を始めて開きます」と添える
   wireSettings(); wire(); renderKeyUI();
   renderAll();
   Studio.on('step', st => { if (st === 'review') activate(); else deactivate(); renderLiveCount(); });   // ⚙ の [適用] が押せるかは ② にいるか次第

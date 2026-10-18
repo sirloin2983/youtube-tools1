@@ -7,23 +7,6 @@
   'use strict';
   var T = window.EditProofTpl = window.EditProofTpl || {};
   T.tx = `   <div class="tt-tabpanel" id="tabTx" role="tabpanel" aria-labelledby="edtab-tx" data-edpanel="tx">
-   <!-- 評価ドリル(URL の ?drill=1。マスタープラン Q4 = git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md の (c))。評価用の動画を 1 本ずつ、この校正の画面で全部聞いて直す帯。
-        「済みにして次へ」= 保存し終えてから api/drill/reviewed → api/drill/next → その文書を開く。app-learn.js の drill*・状態は app.js の DR -->
-   <section class="tt-drill" id="drillBar" hidden aria-label="評価ドリル">
-     <div class="tt-drill-main"><b>評価ドリル</b><span class="pill" id="drPill"></span><span id="drLeft"></span><span class="hint" id="drCount"></span></div>
-     <p class="hint" id="drConds"></p>
-     <p class="hint" id="drHelp">動画をはじめから終わりまで聞いて、文字・行と行のすき間(抜け)・話していない所の行・結合・分割・時刻・話者まで直したら「済みにして次へ」。聞き取れない所は「聞き取れない」の印を付けます。</p>
-     <p class="hint" id="drAutoSpk" hidden></p>
-     <p class="hint" id="drNone" role="status" hidden></p>
-     <div class="row"><button type="button" class="btn small primary" id="drDone" title="編集中の内容を保存してから、この動画を「全部聞いて確かめた」にして(残りの行も校正済みに)、次の動画を開きます">済みにして次へ<span id="drDoneKey"></span></button>
-       <button type="button" class="btn small" id="drSkip" title="この動画は今回のドリルでは出しません(直した分は保存します)">飛ばして次へ<span id="drSkipKey"></span></button>
-       <button type="button" class="btn small ghost" id="drEnd">ドリルを終える</button>
-       <!-- 2026-10-05: この動画だけを今の設定で作り直す(後処理の調整の効き目を 1 本ずつ確かめる。api/eval-batch/redo-one。app-learn.js の redoOneHere)。キーは割り当てない(押し間違いで消さない) -->
-       <button type="button" class="btn small" id="drRedo">この動画を作り直す(今の設定で)</button>
-       <!-- v0.49.1: 話者の道具(自動判別・全行をこの人に・名前)は「…」の中のカードで、ドリルの帯から見つけにくかった → 帯から直接開く(app.js が「…」の中の「話者」と同じ動きをさせる) -->
-       <button type="button" class="btn small" id="drSpk" title="話者のカードを開きます(話者を自動で判別・全行をこの人に・名前の変更と割り当て)">話者を付ける…</button>
-       <span class="hint" id="drSpkHint" role="status"></span></div>
-   </section>
    <div class="tx-grid">
     <section class="tx-list" aria-label="行の一覧">
      <!-- v0.15.0: 行の一覧の上の道具(検索・絞り込み・件数。notes:docs/spec/ui.md 4.)と、主なキー操作の手がかり。広い画面では一覧の上に固定する -->
@@ -58,7 +41,7 @@
       <div class="tt-docmeta"><label class="lag" title="精度を測るためだけに取っておく文字起こし。辞書・提案・用語の自動追加・追加学習に使わず、再認識もできません。校正を始める前に決めてください"><input type="checkbox" id="evalSet">評価用にする(学習・辞書に使わない)</label></div>
       <div id="docClip" class="tt-clip" hidden></div>
       <div id="evalBanner" class="notice" hidden><b>評価用の文字起こしです。</b>辞書・提案・追加学習の元にはなりません。再認識はできません。一括置換と提案の採用は使えません(正解が機械で書き換わってしまうため)。</div>
-      <!-- 評価用の文書の「確かめ済み」(動画を全部聞いて直した印 evalReviewed。定点に数えるのはこれだけ)。ドリルの間は上の帯に出すので隠す。app-learn.js の renderEvalReview -->
+      <!-- 評価用の文書の「確かめ済み」(動画を全部聞いて直した印 evalReviewed。定点に数えるのはこれだけ)。app-learn.js の renderEvalReview -->
       <div class="tt-evrev" id="evrBox" hidden><span class="pill" id="evrPill"></span><span class="hint" id="evrText"></span>
         <button type="button" class="btn small" id="evrMark" title="編集中の内容を保存してから、この動画を「全部聞いて確かめた」にします(残りの行も校正済みに)">全部聞いて直したので済みにする</button>
         <button type="button" class="btn small ghost" id="evrUndo" hidden>取り消す</button>
@@ -196,18 +179,6 @@
     <p class="hint" style="margin:10px 0 0">前の状態は、付け替えたあとも「以前の版に戻す」で戻せます。</p>
     <div class="row" style="justify-content:flex-end;margin-top:12px"><button type="button" class="btn" id="rlCancel">やめる</button><button type="button" class="btn primary" id="rlGo" disabled>付け替える</button></div>
   </div>
-</dialog>
-<dialog id="relinkAllDlg" aria-labelledby="raT">
-  <div class="ui-dlg-head"><h2 id="raT">見つからない動画をまとめて付け替える</h2><form method="dialog"><button class="btn ghost small icon" aria-label="閉じる" title="閉じる(Esc)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></form></div>
-  <div class="ui-dlg-body">
-    <p style="margin:0">動画を移したフォルダを選ぶと、その中(下のフォルダも)から<b>同じファイル名</b>の動画を探して入れます。見つからないものは行の「参照…」で選べます。行・校正・話者・カットはそのまま残ります。</p>
-    <div class="fld"><label class="l" for="raFolder">動画を移したフォルダ</label>
-      <div class="tt-rl-old"><input type="text" id="raFolder" class="mono" spellcheck="false" autocomplete="off" placeholder="例: D:\\動画"><button type="button" class="btn small" id="raBrowse">フォルダを選ぶ…</button><button type="button" class="btn small" id="raFind">探す</button></div></div>
-    <p class="hint" id="raNote" style="margin:4px 0 0" role="status"></p>
-    <div class="tt-ra-list" id="raList"></div>
-    <p class="hint" style="margin:10px 0 0">長さが元の動画と違うものは、別の動画の可能性があるので最初は選びません(確かめてから選べます)。前の状態は、付け替えたあとも各文書の「以前の版に戻す」で戻せます。</p>
-    <div class="row" style="justify-content:flex-end;margin-top:12px"><button type="button" class="btn" id="raCancel">閉じる</button><button type="button" class="btn primary" id="raGo" disabled>付け替える</button></div>
-  </div>
 </dialog>`;
   T.menu = `<nav class="tt-mstrip" id="menuStrip" aria-label="メニュー(畳んだ帯)">
   <button type="button" class="btn ghost small icon" data-strip="menu" title="メニューを開く" data-key-title="menu" aria-label="メニューを開く"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
@@ -220,8 +191,6 @@
   <nav class="side-tabs" aria-label="管理パネル">
     <button type="button" data-side-tab="start" aria-selected="true">新規</button>
     <button type="button" data-side-tab="files" aria-selected="false">履歴</button>
-    <button type="button" data-side-tab="quality" aria-selected="false">精度</button>
-    <button type="button" data-side-tab="data" aria-selected="false">学習</button>
   </nav>
 
   <details class="card side-pane" data-side-pane="start" id="newBox" open>
@@ -263,27 +232,16 @@
     <div class="row" style="margin-top:12px"><button type="button" class="btn primary" id="btnStart">文字起こしを開始</button></div>
   </details>
 
-  <!-- 評価ドリル(マスタープラン Q4)。定点(確かめ済みの評価用の動画 15 分)の「あと何分」と条件(GET api/drill/status。app-learn.js の renderDrillStat)と評価ドリルへの入口。
-       0.68.0 までは「進行度(校正済みの量)」のカード #goalCard の中にあった(校正の目標と進行度は 0.69.0(段 D2)で消した) -->
-  <details class="card side-pane" data-side-pane="quality" id="drillCard" open><summary>評価ドリル(定点)</summary>
-    <div id="drillStat" style="margin-top:6px">
-      <div style="font-weight:600;font-size:13.5px">定点(全部聞いて確かめた評価用の動画 15 分)</div>
-      <p id="drillLeft" style="margin:4px 0 0;font-size:13.5px"></p>
-      <p class="hint" id="drillConds" style="margin:2px 0 0"></p>
-      <div class="row" style="margin-top:6px"><button type="button" class="btn small primary" id="drillGo" title="まだ確かめていない評価用の動画を 1 本ずつ(乱数で)開きます。全部聞いて直したら「済みにして次へ」">評価ドリルを始める →</button></div></div>
-    <p class="hint" style="margin:8px 0 0">評価用の動画を 1 本ずつ、すき間も含めて全部聞いて直すと「確かめ済み」になり、認識精度を測るときの正解(定点)に数えます。評価用の文字起こしは学習・辞書には使いません。</p></details>
   <details class="card side-pane" data-side-pane="start" id="jobsCard" open><summary>処理状況</summary><div id="jobs"><p class="hint" style="margin:6px 0 0">ジョブはありません</p></div></details>
   <details class="card side-pane" data-side-pane="files" id="txCard" open><summary>保存済みの文字起こし <span class="hint" id="txTotal"></span></summary>
     <a href="/" id="txHomeLink" class="ui-next" data-ui-portal hidden>すべての文字起こし → ホーム</a>
-    <!-- v0.15.0: 一覧の道具(notes:docs/spec/ui.md 4.)。検索は題名・配信の題名・配信者・ファイル名が対象。選んだ条件はこのブラウザに覚える -->
+    <!-- v0.15.0: 一覧の道具(notes:docs/spec/ui.md 4.)。選んだ条件はこのブラウザに覚える -->
     <div class="ui-listbar tt-listbar" role="search">
-      <input id="txSearch" type="search" placeholder="題名・配信・配信者・ファイル名" aria-label="保存済みの文字起こしを検索" autocomplete="off">
       <select id="txState" aria-label="校正の状態で絞り込む"><option value="all">状態: すべて</option><option value="todo">状態: 未校正</option><option value="doing">状態: 校正中</option><option value="done">状態: 校正済み</option></select>
       <select id="txFilter" aria-label="種類で絞り込む"><option value="all">種類: すべて</option><option value="clip">種類: 切り抜き</option><option value="other">種類: それ以外</option><option value="eval">種類: 評価用</option></select>
       <select id="txSort" aria-label="並び替え" title="並び替え"><option value="updated">更新が新しい順</option><option value="created">作った順</option><option value="remain" title="校正が残っている行が多い順">未校正が多い順</option><option value="title">題名順</option></select>
       <select id="txGroup" aria-label="まとめ方" title="まとめ方"><option value="stream">配信ごと</option><option value="channel">配信者ごと</option><option value="none">まとめない</option></select>
       <span class="ui-count" id="txCount" aria-live="polite"></span>
-      <button type="button" class="btn small ghost" id="txHiddenToggle" hidden></button>
     </div>
     <!-- 12 ⑦(b): 選んだ文書をまとめて「文字起こし → パック」(入口の「まとめて実行」。入口から開いたときだけ使える。開いていないときは隠さず理由を出す = 段7 E-17) -->
     <div class="tt-batch" id="txBatchBox">
@@ -302,20 +260,7 @@
           ホームの「まとめて実行」の順番で1本ずつ進みます(案件の画面と同じ順番待ち)</span></div>
       <div id="txRuns" aria-live="polite"></div>
     </div>
-    <p class="notice tt-rl-missing" id="txMissing" hidden role="status"><span id="txMissingText"></span><button type="button" class="btn small" id="txMissingGo">まとめて付け替える</button></p>
     <div id="txList"><p class="hint" style="margin:6px 0 0">まだありません</p></div></details>
-  <details class="card side-pane" data-side-pane="quality" id="accCard" open><summary>認識精度の測定</summary>
-    <p class="hint" style="margin:6px 0 0">行の「校正済み」(聞いて確認して、文字が正しいと判断した印<span data-key="proof" data-key-fmt="。{k}">。Shift+Space</span>)を正解として、機械の出力との文字誤り率(<abbr class="ui-term" title="Character Error Rate。正解の文字数に対する、間違えた文字(別の字・聞き逃し・余計な字)の割合。低いほど良い">CER</abbr>)を出します。句読点・空白・記号・全角半角の違いは数えません。校正した行が増えるほど、数値が安定します。</p>
-    <div class="row" style="margin-top:8px"><label class="lag">対象 <select id="accScope" style="width:auto"><option value="all">すべて</option><option value="eval">評価用のみ</option><option value="train">評価用でない</option></select></label><button type="button" class="btn small" id="accRefresh">測定を更新</button></div>
-    <div id="accOut"></div>
-</details>
-  <details class="card side-pane" data-side-pane="data" id="learnCard" open><summary>修正から学習した候補</summary>
-    <p class="hint" style="margin:6px 0 0">直した文章と、元の認識結果の違いから「誤=>正」の候補を集めます。「登録」すると置換辞書に入り、次の文字起こしから自動で直ります。同じ間違いが何度も出るものから登録すると効果的です。1文字だけの修正は、前後の1文字を含めた形で候補に出ます。<br>登録しなくても、直した回数が多い間違いは、文字起こしの各行に「候補」として出ます(採用・却下できます。却下すると出にくくなります)。</p>
-    <p class="hint" id="lnStat" style="margin:4px 0 0"></p>
-    <div class="row" style="margin-top:8px"><label class="lag">回数 <select id="lnMin" style="width:auto"><option value="1">1回以上</option><option value="2" selected>2回以上</option><option value="3">3回以上</option></select></label>
-      <button type="button" class="btn small" id="lnRefresh">更新</button><label class="lag" title="用語集は先頭から約150文字までが認識のヒントに使われます"><input type="checkbox" id="lnGloss" checked>用語集にも追加</label></div>
-    <div class="fld"><label for="lnSearch">候補を検索</label><input id="lnSearch" type="search" placeholder="誤り・正しい表記"></div>
-    <div id="lnList"></div><button type="button" class="btn small list-more" id="lnMore" hidden></button></details>
 </aside>`;
   T.nodoc = `  <div class="empty" id="noDoc">
     <div class="tt-empty-ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 10h4M14 10h3M7 14h7"/></svg></div>

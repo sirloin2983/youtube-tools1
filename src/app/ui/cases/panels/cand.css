@@ -16,7 +16,6 @@
 /* ---- 上の行: 配信の選択(押すと探せる一覧が開く)・保存の状態・シアター・配信の操作 ---- */
 .rv-top{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;padding:2px 0 8px;margin-bottom:8px;border-bottom:1px solid var(--line)}
 .rv-topsp{flex:1 1 0}
-.rv-lbl{font-size:12px;font-weight:600;color:var(--ink-3);flex:none}
 /* 保存の状態(自動保存。失敗したときだけ押せる) */
 .rv-save{border:0;background:transparent;font-size:12px;color:var(--ink-3);display:inline-flex;align-items:center;gap:6px;padding:2px 6px;cursor:default;white-space:nowrap;border-radius:var(--r-pill);min-height:28px}
 .rv-save::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--ok)}
@@ -56,8 +55,6 @@
 .rv-jump:not(.is-bar) .rv-jump-n{display:none}   /* 広い画面では「書き出し」への入口だけ(マークの一覧は右に見えている) */
 .rv-jump.is-bar{position:sticky;top:var(--cs-head);z-index:30;margin:-4px -8px 8px;padding:6px 8px;background:var(--header-bg);backdrop-filter:saturate(1.4) blur(10px);-webkit-backdrop-filter:saturate(1.4) blur(10px);border-bottom:1px solid var(--line)}
 .rv-jump.is-bar .rv-jumpb{flex:1 1 0;justify-content:center;min-width:0;padding:0 6px}
-.rv-emptybox{display:grid;gap:8px;margin-top:24px;padding:40px 20px}
-.rv-emptybox b{font-size:15px}
 
 /* ---- レイアウト: 左 = プレーヤーと操作、右 = マーク一覧(右は画面の高さに収め、一覧だけをスクロールする)。
    書き出しは右の列の中ではなく、ui-drawer(#rvExport)として別に浮く(1680px 以上は docked = 主画面が右を空けて並ぶ、それより狭いときは重ねる) ---- */
@@ -250,7 +247,6 @@
 .rv-seg.cand.bench{border-color:var(--ink-4);background:color-mix(in srgb,var(--ink-4) 10%,transparent)}
 .rv-seg.cand.sel{border-style:solid;background:color-mix(in srgb,var(--accent) 28%,transparent)}
 /* 設定の「ライブの録画」の中の「配信中の候補」の群(settings.js の #livePeaksBox) */
-.rv-openmsg{margin:6px 0 0}
 
 /* ---- IN / OUT / 追加(既定で閉じた「細かく決める」の中。今をマークが主役なので、こちらは控えめに) ---- */
 .rv-markdetails{border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel);padding:6px 10px}
@@ -455,7 +451,6 @@
 
 /* ---- パネルの枠(cand.js が作る箱)---- */
 /* 配信の選択(探す一覧・URL を開く)と「配信が開かれていない」の案内はパネルでは出さない(案件は左の一覧で選ぶ。読み込み中・失敗は .cd-status) */
-.cd-panel #rvPick,.cd-panel #rvEmpty{display:none!important}
 .cd-panel{display:flex;flex-direction:column;gap:12px;min-width:0}
 .cd-status{display:grid;gap:6px;justify-items:center;text-align:center;padding:32px 16px;color:var(--ink-2)}
 .cd-status b{font-size:15px;color:var(--ink)}

@@ -50,7 +50,7 @@
 
 ## src/app/ui/cases/panels/
 
-- **cand.js** (226 行) — 案件の画面の「候補」のパネル(#cand。配信全体の候補の採用・不採用・書き出し・LIVE の帯。RS8 C2a)。口の形は cases.js の先頭の説明。
+- **cand.js** (224 行) — 案件の画面の「候補」のパネル(#cand。配信全体の候補の採用・不採用・書き出し・LIVE の帯。RS8 C2a)。口の形は cases.js の先頭の説明。
 - **cut.js** (634 行) — 案件の画面の「カット・パック」のパネル(#cut。残す区間を決めて、末尾で DaVinci Resolve へ渡すパックを作る)。口の形は cases.js の先頭の説明。RS8 C2c。
 - **machpick.js** (159 行) — 校正のパネルの 3 択(RS8 C2b。作り方 notes:docs/design/rs8-cases-build.md の 4 節・決定 3-37 の案 A)。
 - **new.js** (295 行) — 新しい案件のパネル(ホームの引き出し #newDrawer で開く。配信を探す・URL から入れる・解析の順番待ち。RS8 C3)。
@@ -73,21 +73,21 @@
 
 ## src/app/ui/editor/
 
-- **app-core.js** (472 行) — app-core.js — 「編集」の画面: 共通の小道具・表示の好み・⚙・他のツール・設定・準備状況・評価ドリルの数の読み直し(進行度は 0.69.0 で消した)(段10 で app.js から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-spl…
-  - 名前: `fmtT` :8・`parseT` :15・`uiIcon` :24・`toast` :27・`showErr` :34・`undoToast` :48・`stopAtEnd` :60・`armPlayEnd` :81・`httpFailText` :86・`api` :87・`apiBlob` :92・`busy` :98・ほか 50
-- **app-jobs.js** (399 行) — app-jobs.js — 「編集」の画面: 新規ジョブ・スタジオ/マーカー連携・ジョブの進捗・話者の自動判別・声を覚える・再認識(段10 で app.js から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
-  - 名前: `jobOpts` :8・`startFile` :13・`askTxAgain` :27・`onStart` :40・`startPolling` :52・`pollJobs` :54・`namedBy` :104・`renderJobBadge` :106・`transcribeInto` :113・`renderIntoState` :125・`jobProg` :136・`jobPhase` :137・ほか 31
-- **app-learn.js** (465 行) — app-learn.js — 「編集」の画面: 修正から学習した候補・修正の提案・校正済み・進み具合の帯・認識精度の測定・名簿と用語集・保存データへの保管(段10 で app.js から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md…
-  - 名前: `scheduleLearn` :8・`loadLearned` :10・`renderLearned` :15・`putSettingsNow` :36・`sugList` :44・`sugHTML` :46・`renderChips` :55・`loadSuggest` :65・`sugFeedback` :72・`altJob` :79・`renderAlt` :82・`applySug` :101・ほか 41
-- **app-list.js** (265 行) — app-list.js — 「編集」の画面: 保存済み一覧(履歴)・選んだ文書をまとめて実行(段10 で app.js から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
-  - 名前: `loadList` :11・`lastOpened` :22・`rememberLast` :26・`renderResume` :27・`emptyPrimary` :37・`resumeLast` :42・`txGroupKey` :44・`txGroupHead` :50・`txSortFn` :58・`hideOn` :68・`txIsHidden` :69・`txFiltered` :71・ほか 16
+- **app-core.js** (468 行) — app-core.js — 「編集」の画面: 共通の小道具・表示の好み・⚙・他のツール・設定・準備状況・評価ドリルの数の読み直し(進行度は 0.69.0 で消した)(段10 で app.js から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-spl…
+  - 名前: `fmtT` :8・`parseT` :15・`uiIcon` :24・`toast` :27・`showErr` :34・`undoToast` :48・`stopAtEnd` :60・`armPlayEnd` :81・`httpFailText` :86・`api` :87・`apiBlob` :92・`busy` :98・ほか 49
+- **app-jobs.js** (397 行) — app-jobs.js — 「編集」の画面: 新規ジョブ・スタジオ/マーカー連携・ジョブの進捗・話者の自動判別・声を覚える・再認識(段10 で app.js から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
+  - 名前: `jobOpts` :8・`startFile` :13・`askTxAgain` :27・`onStart` :40・`startPolling` :52・`pollJobs` :54・`namedBy` :103・`renderJobBadge` :105・`transcribeInto` :112・`renderIntoState` :124・`jobProg` :135・`jobPhase` :136・ほか 31
+- **app-learn.js** (286 行) — app-learn.js — 「編集」の画面: 修正から学習した候補・修正の提案・校正済み・進み具合の帯・認識精度の測定・名簿と用語集・保存データへの保管・評価用の確かめ済み(段10 で app.js から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-cod…
+  - 名前: `scheduleSuggest` :8・`putSettingsNow` :10・`sugList` :18・`sugHTML` :20・`renderChips` :29・`loadSuggest` :39・`sugFeedback` :46・`altJob` :53・`renderAlt` :56・`applySug` :75・`acceptSug` :80・`rejectSug` :89・ほか 21
+- **app-list.js** (249 行) — app-list.js — 「編集」の画面: 保存済み一覧(履歴)・選んだ文書をまとめて実行(段10 で app.js から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
+  - 名前: `loadList` :11・`lastOpened` :22・`rememberLast` :26・`renderResume` :27・`emptyPrimary` :37・`resumeLast` :42・`txGroupKey` :44・`txGroupHead` :50・`txSortFn` :58・`txFiltered` :67・`txShortTitle` :77・`txRowHTML` :86・ほか 14
 - **app-rows.js** (1073 行) — app-rows.js — 「編集」の画面: 編集画面(保存・開く・行の描画と操作)・字幕の文字数・行の移動・話者の色・キー配置・用語の挿入・履歴・行の追加(段10 で app.js から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.m…
   - 名前: `spById` :8・`markDirty` :10・`setSaveState` :18・`paintSaveState` :22・`saveDoc` :30・`subNum` :66・`readSubtitle` :68・`fillSubtitle` :81・`subtitleReq` :91・`openDoc` :93・`docInfoText` :152・`setUrlDoc` :164・ほか 110
-- **app-tools.js** (663 行) — app-tools.js — 「編集」の画面: 動画を選び直す・まとめて付け替える・検索と置換・書き出し・左パネル・受け渡し・cut2resolve の API・確認のダイアログ・カットとパックのタブとのつなぎ(段10 で app.js から分けた。git の履歴(679ff01 以前)の doc…
-  - 名前: `rlSync` :8・`rlReset` :10・`openRelink` :16・`renderRlResult` :23・`rlCheck` :42・`pickPath` :58・`renderMissing` :66・`raSync` :72・`raUpdate` :79・`raCheck` :102・`raSetPath` :117・`renderRa` :119・ほか 46
-- **app-tpl.js** (386 行) — app-tpl.js — 「編集」の画面の HTML のうち「1 文字起こし」の欄(tx)とダイアログ(dialogs)。index.html の中身をここへ移した(RS8 C2b-0。動きは同じ)。
-- **app.js** (1250 行) — 案件の画面(/cases)の校正のパネルに載せたとき(RS8 C2b)の口。src/app/ui/cases/edhost.js が app.js より先に window.EditHost を置く = {base(API の頭), keybar(帯), tab(タブ), open(別の文書), o…
-  - 名前: `$` :6・`isOtherSp` :17・`apiUrl` :28・`safeName` :32・`spColor` :35・`uid` :36・`norm` :37・`wideTab` :48・`menuOpen` :49・`isDrawer` :54・`setSnap` :97・`setStatus` :98・ほか 46
+- **app-tools.js** (518 行) — app-tools.js — 「編集」の画面: 動画を選び直す・まとめて付け替える・検索と置換・書き出し・左パネル・受け渡し・cut2resolve の API・確認のダイアログ・カットとパックのタブとのつなぎ(段10 で app.js から分けた。git の履歴(679ff01 以前)の doc…
+  - 名前: `rlSync` :8・`rlReset` :10・`openRelink` :16・`renderRlResult` :23・`rlCheck` :42・`pickPath` :58・`updateDocTitle` :64・`docLength` :70・`renderDocBar` :77・`renderDocBarNow` :79・`syncEval` :96・`evNote` :104・ほか 37
+- **app-tpl.js** (331 行) — app-tpl.js — 「編集」の画面の HTML のうち「1 文字起こし」の欄(tx)とダイアログ(dialogs)。index.html の中身をここへ移した(RS8 C2b-0。動きは同じ)。
+- **app.js** (1134 行) — 案件の画面(/cases)の校正のパネルに載せたとき(RS8 C2b)の口。src/app/ui/cases/edhost.js が app.js より先に window.EditHost を置く = {base(API の頭), keybar(帯), tab(タブ), open(別の文書), o…
+  - 名前: `$` :6・`isOtherSp` :17・`apiUrl` :28・`safeName` :32・`spColor` :35・`uid` :36・`norm` :37・`wideTab` :48・`menuOpen` :49・`isDrawer` :54・`setSnap` :97・`setStatus` :98・ほか 44
 - **cut.js** (1216 行) — 「編集」2 カット のタブ(notes:docs/design/edit-tool-design.md の 3・4・8)。app.js より先に読み込み、app.js が EditCut.create(host) で起動する。
   - 名前: `create` :24
 - **pack-tab.js** (612 行) — 「編集」のパック(2 カット の末尾 #packArea。notes:docs/design/edit-tool-design.md の 3・5)。app.js より先に読み、app.js が EditPack.create(host) で起動する。
@@ -110,8 +110,8 @@
   - 名前: `$` :7・`mmss` :11・`entryHtml` :14・`settings` :51・`loadOpts` :55・`unquote` :60・`looksYt` :61・`entries` :62・`paintKinds` :72・`syncAdd` :77・`refocusForm` :87・`setMsg` :94・ほか 20
 - **rank.js** (785 行) — 切り抜きスタジオ: ① 探す(配信ランキング)。検索 → 結果(全部まとめて再生数の順 / 事務所ごと)→ チェックして「解析に追加」か「まとめて実行」(入口から開いたときだけ)
   - 名前: `$` :5・`lsGet` :8・`lsSet` :9・`fmtN` :10・`fmtDur` :11・`ymd` :12・`okThumb` :13・`atMs` :16・`saveReg` :27・`agKey` :32・`captureReg` :35・`restoreReg` :51・ほか 69
-- **review.js** (3654 行) — 切り抜きスタジオ ② 確認・書き出し(切り抜きマーカー由来)。
-  - 名前: `create` :9・`round1` :14・`uid` :15・`toast` :16・`parseTime` :20・`looksLikeYouTube` :29・`isAutoLike` :38・`marksPayload` :39・`sec1` :52・`sanitizeKeymap` :53・`spanLabel` :64・`sanitizeSettings` :68・ほか 296
+- **review.js** (3476 行) — 切り抜きスタジオ ② 確認・書き出し(切り抜きマーカー由来)。
+  - 名前: `create` :9・`round1` :14・`uid` :15・`toast` :16・`parseTime` :20・`isAutoLike` :34・`marksPayload` :35・`sec1` :48・`sanitizeKeymap` :49・`spanLabel` :60・`sanitizeSettings` :64・`marks` :100・ほか 285
 
 ## テスト
 

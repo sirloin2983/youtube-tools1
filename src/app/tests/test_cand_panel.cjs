@@ -53,7 +53,7 @@ function harness(respond) {
     pollJob() { polls++; },
     inList: () => false,
   };
-  for (const name of ['renderVideoSelect', 'refreshList', 'refreshListQuiet', 'renderExportUI',
+  for (const name of ['refreshList', 'refreshListQuiet', 'renderExportUI',
     'renderTimeline', 'renderStats', 'renderMeta', 'renderLiveCount', 'renderList',
     'renderListKeep', 'renderAll', 'setNow', 'mountPlayer', 'fetchAutoTitle', 'syncFromServer', 'loadTranscripts', 'pollAuto',
     // 0.23.4: loadVideo・startExportAll は typeof で確かめずに呼ぶ(前回の場所・ライブの録画・配信者の欄・書き出しの欄・書き出しのあとの文字起こし)
@@ -1015,7 +1015,7 @@ test('buildDOM: the parts put together keep every id exactly once (the split did
   const html = box['#paneReview'].innerHTML;
   const ids = [...html.matchAll(/\sid="([^"$]+)"/g)].map(m => m[1]);
   assert.equal(new Set(ids).size, ids.length, 'ids are unique: ' + ids.filter((x, i) => ids.indexOf(x) !== i));
-  for (const id of ['rvRoot', 'rvPick', 'rvJump', 'rvEmpty', 'rvMain', 'rvPlayerBox', 'rvLiveBar', 'rvQuickbar', 'rvMarkDetails', 'rvExport', 'rvClipbox', 'rvList'])
+  for (const id of ['rvRoot', 'rvJump', 'rvMain', 'rvPlayerBox', 'rvLiveBar', 'rvQuickbar', 'rvMarkDetails', 'rvExport', 'rvClipbox', 'rvList'])
     assert.ok(ids.includes(id), id);
   /* 0.22.3(見直し M9): 操作の設定は ② の中ではなく ⚙ の節(#opsHost)に入れる(mountSettings) */
   assert.ok(!ids.includes('rvSettings') && !ids.includes('rvAutoNext'), 'the operation settings are not in the review pane');

@@ -10,7 +10,7 @@
 
 async function loadList(){
   try { S.list = (await api('/api/transcripts')).items; } catch { S.list = []; }
-  renderList(); renderMissing(); scheduleDrillStat(); renderResume(); if (S.doc){ renderCutPack(); renderDocBar(); }
+  renderList(); renderResume(); if (S.doc){ renderCutPack(); renderDocBar(); }
 }
 
 /* ---------- 前回の続き(段7 E-7) ----------
@@ -64,20 +64,12 @@ function txSortFn(){
   return up;
 }
 
-/* 非表示の操作は ui-kit の UIKit.hide(入口から開いたときだけ使える)。隠していても、今開いている文書は一覧から消さない */
-const hideOn = () => UIKit.hide.available();
-const txIsHidden = i => hideOn() && UIKit.hide.has('transcripts', i.id);
-
-function txFiltered(opt){
-  const q = norm($('#txSearch').value.trim());
-  const keepHidden = (opt && opt.withHidden) || !hideOn() || UIKit.hide.showing('transcripts');
+function txFiltered(){
   return S.list.filter(i => {
-    if (!keepHidden && i.id !== S.docId && UIKit.hide.has('transcripts', i.id)) return false;
     if (L.kind === 'clip' && !i.hasClip) return false;
     if (L.kind === 'other' && i.hasClip) return false;
     if (L.kind === 'eval' && !i.evalSet) return false;
-    if (L.state !== 'all' && txStatus(i) !== L.state) return false;
-    return !q || norm(`${i.title || ''} ${txStream(i)} ${i.clipTitle || ''} ${i.channel || ''} ${i.sourceName || ''} ${i.markLabel || ''}`).includes(q);
+    return L.state === 'all' || txStatus(i) === L.state;
   }).sort(txSortFn());
 }
 
@@ -113,11 +105,8 @@ function txRowHTML(i){
     : `<span class="pill ok" title="パック(${i.pack.textplus ? 'Text+ 字幕つき' : 'カットだけ'})を作ってあります">パック済み</span>`);
   else if (st === 'done') side.push(i.hasClip && i.mediaOk !== false ? next('パックを作る', '校正が終わりました') : '<span class="pill ok">校正済み</span>');
   const info = [i.sourceName, txStream(i) && txStream(i) !== full ? '元の配信: ' + txStream(i) : '', i.channel, `${Number(i.segments) || 0}行`, String(i.model || '').split('/').pop()].filter(Boolean).join(' ・ ');
-  const hid = txIsHidden(i);
-  if (hid) side.push('<span class="ui-hidden-tag">非表示</span>');
-  const hideBtn = hideOn() ? (hid ? '<button type="button" class="btn small" data-act="unhide" title="一覧にまた出します">表示に戻す</button>' : '<button type="button" class="btn small" data-act="hide" title="履歴に出さないだけで、文字起こしは消しません">一覧で非表示にする</button>') : '';
-  return `<div class="txi${i.id === S.docId ? ' cur' : ''}${hid ? ' ui-hidden-item' : ''}" data-id="${esc(i.id)}">
-    <div class="txi-head">${pick}<button type="button" class="t" data-act="open" title="${esc(full)}"${i.id === S.docId ? ' aria-current="true"' : ''}>${esc(txShortTitle(i))}</button><details class="pop txi-menu"><summary aria-label="${esc(full)} の操作と詳しい情報" title="操作と詳しい情報">${uiIcon('more', { size: 16 })}</summary><div class="vpop"><p class="tt-full">${esc(full)}</p><span class="hint">${esc(info)}</span>${i.mediaOk === false ? '<button type="button" class="btn small" data-act="relink">動画を選び直す</button>' : ''}${hideBtn}<button type="button" class="btn small danger" data-act="del">この文字起こしを消す</button></div></details></div>
+  return `<div class="txi${i.id === S.docId ? ' cur' : ''}" data-id="${esc(i.id)}">
+    <div class="txi-head">${pick}<button type="button" class="t" data-act="open" title="${esc(full)}"${i.id === S.docId ? ' aria-current="true"' : ''}>${esc(txShortTitle(i))}</button><details class="pop txi-menu"><summary aria-label="${esc(full)} の操作と詳しい情報" title="操作と詳しい情報">${uiIcon('more', { size: 16 })}</summary><div class="vpop"><p class="tt-full">${esc(full)}</p><span class="hint">${esc(info)}</span>${i.mediaOk === false ? '<button type="button" class="btn small" data-act="relink">動画を選び直す</button>' : ''}</div></details></div>
     <div class="txi-sub"><span class="txi-meta">${esc(meta.filter(Boolean).join(' ・ '))}</span><span class="txi-side">${side.join('')}</span></div>
   </div>`;
 }
@@ -232,23 +221,18 @@ function txRowsHTML(key, items){
 function renderList(){
   const box = $('#txList'), total = S.list.length;
   $('#txTotal').textContent = total ? `(${total}件)` : '';   // 折りたたんでも件数が見えるように
-  if (!total){ $('#txCount').textContent = ''; if (hideOn()) UIKit.hide.toggle($('#txHiddenToggle'), 'transcripts', 0); box.innerHTML = '<div class="tt-list-empty"><p class="hint">まだ文字起こしはありません。新規から動画を文字起こしすると、ここに出ます。</p><button type="button" class="btn small" data-act="gostart">新規を開く</button></div>'; return; }   // 空の状態に次のボタン(M8)
+  if (!total){ $('#txCount').textContent = ''; box.innerHTML = '<div class="tt-list-empty"><p class="hint">まだ文字起こしはありません。新規から動画を文字起こしすると、ここに出ます。</p><button type="button" class="btn small" data-act="gostart">新規を開く</button></div>'; return; }   // 空の状態に次のボタン(M8)
   const found = txFiltered();
-  if (hideOn()){   // 隠れている数 = 非表示以外の絞り込みに合うもののうち、非表示のもの(今の文書は除く)
-    const hn = txFiltered({ withHidden: true }).filter(i => i.id !== S.docId && UIKit.hide.has('transcripts', i.id)).length;
-    UIKit.hide.toggle($('#txHiddenToggle'), 'transcripts', hn);
-  }
   $('#txCount').textContent = found.length === total ? `${total}件` : `${found.length} / ${total}件`;
-  if (!found.length){ box.innerHTML = '<div class="tt-list-empty"><p class="hint">条件に合う文字起こしはありません。検索の文字や、状態・種類の絞り込みを変えると出ます。</p><button type="button" class="btn small" data-act="clearfilter">絞り込みを消す</button></div>'; return; }   // M8
+  if (!found.length){ box.innerHTML = '<div class="tt-list-empty"><p class="hint">条件に合う文字起こしはありません。状態・種類の絞り込みを変えると出ます。</p><button type="button" class="btn small" data-act="clearfilter">絞り込みを消す</button></div>'; return; }   // M8
   if (L.group === 'none'){ txGroups = new Map([['all', found]]); box.innerHTML = `<div class="tt-g-rows tt-flat">${txRowsHTML('all', found)}</div>`; return; }
   txGroups = new Map();
   for (const i of found){ const k = txGroupKey(i); if (!txGroups.has(k)) txGroups.set(k, []); txGroups.get(k).push(i); }
   const cur = curItem(), curKey = cur ? txGroupKey(cur) : null;
   if (curKey){ txOpen.add(curKey); if (txAuto && txAuto !== curKey) txOpen.delete(txAuto); txAuto = null; }   // 今開いている文書のまとまりだけ開く
   if (!txInitDone){ txInitDone = true; if (!txOpen.size){ txAuto = txGroups.keys().next().value; txOpen.add(txAuto); } }   // 文書を開いていなければ、先頭のまとまりを開く
-  const q = $('#txSearch').value.trim();
   box.innerHTML = [...txGroups].map(([k, items]) => {
-    const h = txGroupHead(k, items), open = !!q || txOpen.has(k);   // 検索中は、当たったまとまりを全部開く
+    const h = txGroupHead(k, items), open = txOpen.has(k);
     return `<details class="ui-group" data-g="${esc(k)}"${open ? ' open' : ''}><summary><span class="tt-g-main"><b title="${esc(h.title)}">${esc(h.title)}</b><small>${esc(h.sub)}</small></span><span class="ui-group-n" title="${items.length}本のうち、校正済み ${h.done}本">${items.length}本${h.done ? `<span class="tt-g-done"> ・ 済${h.done === items.length ? 'み' : ' ' + h.done}</span>` : ''}</span></summary><div class="tt-g-rows">${open ? txRowsHTML(k, items) : ''}</div></details>`;
   }).join('');
 }

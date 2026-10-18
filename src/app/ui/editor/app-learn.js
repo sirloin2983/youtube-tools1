@@ -1,37 +1,11 @@
-/* app-learn.js — 「編集」の画面: 修正から学習した候補・修正の提案・校正済み・進み具合の帯・認識精度の測定・名簿と用語集・保存データへの保管(段10 で app.js から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
+/* app-learn.js — 「編集」の画面: 修正から学習した候補・修正の提案・校正済み・進み具合の帯・認識精度の測定・名簿と用語集・保存データへの保管・評価用の確かめ済み(段10 で app.js から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
    ここは関数の定義だけ。状態(S・V など)・定数・ボタンの配線・起動は app.js(この後に読む)。
    関数はトップレベルの宣言なので、ほかの app-*.js・app.js から名前で呼べる(読む順番は src/app/ui/cases/edhost.js の ED_SCRIPTS の1か所。RS8 C4 で編集の画面のページは消した) */
 'use strict';
 
-/* ---------- 修正から学習した候補 ---------- */
+/* ---------- 修正の提案の読み直し(保存のあと。学習した候補の一覧と登録はホームの運用の「編集の精度と学習」= src/app/ui/home/portal-edit.js) ---------- */
 
-function scheduleLearn(){ clearTimeout(scheduleLearn.t); scheduleLearn.t = setTimeout(loadLearned, 4000); }
-
-async function loadLearned(){
-  try { learned = await api('/api/learned?min=' + encodeURIComponent($('#lnMin').value)); } catch { return; }
-  renderLearned(); loadSuggest();
-}
-
-function renderLearned(){
-  const box = $('#lnList'), items = learned.items;
-  $('#lnStat').textContent = learned.docs ? `修正した行: ${learned.lines || 0}行(学習の対象: ${learned.docs}件の文字起こし)` : '';
-  if (!items.length){
-    box.innerHTML = `<p class="hint" style="margin:8px 0 0">${learned.docs ? '候補はありません(文字起こしを直すと、ここに出ます)' : 'v0.5 以降で文字起こしした分から学習します。文字起こしを直すと、ここに候補が出ます'}</p>`;
-    $('#lnMore').hidden = true;
-    return;
-  }
-  const q = norm($('#lnSearch').value.trim());
-  const found = items.map((x, i) => ({ x, i })).filter(({ x }) => !q || norm(`${x.wrong} ${x.right}`).includes(q));
-  if (!found.length){ box.innerHTML = '<p class="hint" style="margin:8px 0">条件に合う候補はありません。検索の文字を消すと、すべての候補が出ます。</p>'; $('#lnMore').hidden = true; return; }
-  const shown = learnedShowAll ? found : found.slice(0, 10);
-  box.innerHTML = shown.map(({ x, i }) => {
-    const d = lnDraft[lnKey(x)] || { w: x.wrong, r: x.right }, edited = d.w !== x.wrong || d.r !== x.right;
-    return `<div class="ln${edited ? ' edited' : ''}" data-i="${i}">
-    <div class="row" style="flex-wrap:nowrap;gap:4px"><input class="lw" type="text" value="${esc(d.w)}" maxlength="40" aria-label="誤(置換される文字)" style="flex:1;min-width:0"><span>→</span><input class="lr" type="text" value="${esc(d.r)}" maxlength="40" aria-label="正(置換後の文字)" style="flex:1;min-width:0"></div>
-    <div class="row" style="margin-top:3px"><span class="pill">${x.count}回</span><button type="button" class="btn small" data-act="lnadd">登録</button><button type="button" class="btn small" data-act="lnign">無視</button><button type="button" class="btn small" data-act="lnrev"${edited ? '' : ' hidden'}>編集を戻す</button></div></div>`;
-  }).join('') + '<p class="hint" style="margin:6px 0 0">「誤」「正」は、その場で直してから登録できます(例: 前後の文字を消して短くする)。</p>';
-  const more = $('#lnMore'); more.hidden = found.length <= 10; more.textContent = learnedShowAll ? '上位10件だけ表示' : `残り${found.length - shown.length}件を表示`;
-}
+function scheduleSuggest(){ clearTimeout(scheduleSuggest.t); scheduleSuggest.t = setTimeout(loadSuggest, 4000); }
 
 async function putSettingsNow(){   // すぐ保存する(辞書への登録・カットの設定など)。保存できなければ投げる(呼んだ側が知らせる)
   clearTimeout(setT); setT = null;
@@ -187,105 +161,12 @@ function moveStripHead(){
   hd.style.left = Math.min(100, Math.max(0, (player().currentTime - r[0]) / (r[1] - r[0]) * 100)) + '%';
 }
 
-/* ---------- 認識精度の測定 ---------- */
+/* ---------- 評価用の文書の「確かめ済み」(動画を全部聞いて直した印 evalReviewed。校正の画面の右の上。定点に数えるのはこれだけ。サーバーは eval/drill/drill.py) ---------- */
 
-function scheduleAcc(){ clearTimeout(accT); accT = setTimeout(loadAcc, 4000); }
-
-async function loadAcc(){
-  try { renderAcc(await api('/api/metrics?scope=' + encodeURIComponent($('#accScope').value))); } catch (e){ $('#accOut').innerHTML = `<p class="hint" style="margin:8px 0 0;color:var(--danger)">${esc(e.message)}</p>`; }
-}
-
-function renderAcc(m){
-  const o = m.overall, box = $('#accOut');
-  if (!o.groups){
-    box.innerHTML = `<p class="hint" style="margin:8px 0 0">校正済みの行がまだありません(${m.docs}件の文字起こしのうち、校正済みの行があるのは${m.docsProofed}件)。聞いて確認した行の「校正済み」ボタン${keyParen('proof')}で印を付けると、ここに文字誤り率が出ます。</p>`;
-    return;
-  }
-  const errs = o.errs || 0, share = v => errs ? Math.round(v / errs * 100) + '%' : '—';
-  const rows = list => list.map(c => `<tr><td>${esc(c.config || c.title || '')}</td><td>${c.groups}</td><td>${c.refChars}</td><td><b>${pct(c.cer)}</b></td><td>${c.sub}/${c.del}/${c.ins}</td></tr>`).join('');
-  box.innerHTML = `<div class="accmain">文字誤り率(CER) <b>${pct(o.cer)}</b> <span class="hint">誤り ${errs}字 ÷ 正解 ${o.refChars}字</span></div>
-    <p class="hint" style="margin:4px 0 0">内訳: 置換(別の字に間違い) ${o.sub}字(${share(o.sub)}) ・ 脱落(聞き逃し) ${o.del}字(${share(o.del)}) ・ 挿入(余計な字。幻覚など) ${o.ins}字(${share(o.ins)})<br>
-    機械が出したが人が消した行: ${o.machineOnly}行(${o.machineOnlyChars}字) ・ 用語が正しく出た率: ${o.termRef ? `${o.termHit}/${o.termRef}(${pct(o.termRate)})` : '—'} ・ 用語の誤挿入: ${o.termExtra}回</p>
-    <p class="hint" style="margin:4px 0 0">${o.refChars < 1000 ? '※ 正解が1000字未満なので、数値は目安です(同じ動画を何度も文字起こしした分は、重複して数えられます)。' : ''}校正済み ${m.proofedLines}行 ・ 対象 ${m.byDoc.length}件</p>
-    <table class="acct"><tr><th>設定</th><th>行数</th><th>正解字</th><th>CER</th><th>置換/脱落/挿入</th></tr>${rows(m.byConfig)}</table>
-    <details style="margin-top:6px"><summary class="hint">文字起こしごと</summary><table class="acct"><tr><th>文字起こし</th><th>行数</th><th>正解字</th><th>CER</th><th>置換/脱落/挿入</th></tr>${rows(m.byDoc)}</table></details>
-    <details style="margin-top:6px"><summary class="hint">誤りが多い場所(上位)</summary>${o.worst.map(w => `<div class="wl"><span class="mono">${esc(w.doc || '')} ${fmtT(w.start)}</span><br>正: ${esc(w.ref) || '(人が消した行)'}<br>機: ${esc(w.hyp) || '(聞き逃し)'}</div>`).join('')}</details>`;
-}
-
-/* ---------- 評価ドリル(動画 1 本ずつ・この画面で。マスタープラン Q4。git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md の (c)) ----------
-   評価用の動画 1 本(30〜40 秒)を、いつもの 1 文字起こし の校正で全部聞いて直す(結合・分割・行の追加・削除・時刻・話者・全行をこの人に がそのまま使える)。
-   「済みにして次へ」= 編集中の内容を保存し終えてから api/drill/reviewed(印 evalReviewed と残りの行の校正済み)→ api/drill/next → openDoc で開く
-   (画面の再読み込みはしない)。URL の ?drill=1(?doc= と並べる)で帯を出す。状態は app.js の DR(済ませた本数・飛ばした文書はこのタブの sessionStorage)。
-   定点(全部聞いて確かめた評価用の動画 15 分)の残りと条件は api/drill/status(「評価ドリル」のカード #drillCard と帯で同じ数字) */
-
-async function loadDrillStat(){
-  try { DR.status = await api('/api/drill/status'); } catch { return; }   // 古いサーバー・つながらない: 前の表示のまま
-  renderDrillStat(DR.status); renderDrillBar();
-}
-
-const drillLeftText = st => st.leftSec > 0 ? `定点まであと ${Math.ceil(st.leftSec / 60)} 分` : '定点の 15 分に届きました';
-const drillCondsText = st => (st.conds || []).map(c => `・${c.label} ${c.have}/${c.need}${c.unit}${c.ok ? '(済)' : ''}`).join('  ');
-
-function renderDrillStat(st){
-  if (!st || !$('#drillLeft') || st.reviewedSec === undefined) return;
-  $('#drillLeft').textContent = `${drillLeftText(st)}(確かめ済み ${st.reviewedDocs} 本・${fmtDur(st.reviewedSec)} / 15 分。まだ ${st.pendingDocs} 本${st.untranscribed ? `・文字起こし前 ${st.untranscribed} 本` : ''})`;
-  $('#drillConds').textContent = drillCondsText(st) + (st.ready ? '  — 条件がそろいました。「認識精度の測定」の「基準を記録」で出発点を残せます' : '');
-  const go = $('#drillGo');
-  go.disabled = DR.on || !st.pendingDocs;
-  go.title = DR.on ? '評価ドリルの途中です(1 文字起こし のタブの上の帯)' : !st.pendingDocs ? 'まだ確かめていない評価用の動画(文字起こし済み)がありません' : 'まだ確かめていない評価用の動画を 1 本ずつ(乱数で)開きます。全部聞いて直したら「済みにして次へ」';
-}
-
-function drillLoad(){
-  try {
-    const o = JSON.parse(sessionStorage.getItem('tx.drill') || 'null');
-    if (o && typeof o === 'object'){ DR.done = Math.max(0, Number(o.done) || 0); DR.skip = Array.isArray(o.skip) ? o.skip.filter(x => /^[0-9a-f]{12}$/.test(x)).slice(-200) : []; }
-  } catch {}
-}
-function drillSave(){ try { sessionStorage.setItem('tx.drill', JSON.stringify({ done: DR.done, skip: DR.skip })); } catch {} }
-
-function setUrlDrill(on){ setUrlParam('drill', on ? '1' : ''); }   // ?drill=1 を URL に残す(再読み込み・窓の開き直しでドリルを続ける)。?doc= は setUrlDoc が並べて残す
-
-/* ドリルの帯(1 文字起こし のタブの上)。この動画の状態・定点の残り・済ませた本数・ボタン(キーは今の割り当て) */
-function renderDrillBar(){
-  const bar = $('#drillBar'); if (!bar) return;
-  bar.hidden = !DR.on;
-  renderEvalReview();
-  if (!DR.on) return;
-  const d = S.doc, pill = $('#drPill'), st = DR.status;
-  const [cls, txt] = !d ? ['wait', '動画を選んでいます'] : d.evalSet !== true ? ['warn', 'この文字起こしは評価用ではありません'] : d.evalReviewed ? ['ok', 'この動画: 確かめ済み'] : ['wait', 'この動画: まだ'];
-  pill.className = 'pill ' + cls; pill.textContent = txt;
-  $('#drLeft').textContent = st && st.reviewedSec !== undefined ? `${drillLeftText(st)}(確かめ済み ${fmtDur(st.reviewedSec)} / 15 分)` : '';
-  $('#drCount').textContent = `このドリルで ${DR.done} 本済み${DR.skip.length ? `・飛ばした ${DR.skip.length} 本` : ''}${st && st.reviewedSec !== undefined ? `・まだの動画 ${st.pendingDocs} 本` : ''}`;
-  $('#drConds').textContent = st && st.conds ? '条件: ' + drillCondsText(st) : '';
-  $('#drNone').hidden = !DR.none; $('#drNone').textContent = DR.none || '';
-  const km = keymap(), kb = id => km[id] ? ' ' + kbdHTML(km[id]) : '';
-  $('#drDoneKey').innerHTML = kb('drillDone'); $('#drSkipKey').innerHTML = kb('drillSkip');
-  const off = DR.busy || !d || !!lockJob();
-  $('#drDone').disabled = off || d.evalSet !== true; $('#drSkip').disabled = DR.busy;
-  renderDrillSpk();
-}
-
-/* ドリルの帯の「話者を付ける…」の隣: 話者の無い行の数(評価用のフォルダへ移すには全行に話者が要る)。話者を付けたら renderSpAll からも呼ばれて数が変わる */
-function renderDrillSpk(){
-  const el = $('#drSpkHint'); if (!el || !DR.on) return;
-  const d = S.doc;
-  if (!d){ el.textContent = ''; return; }
-  const ids = new Set((d.speakers || []).map(s => s.id)), rows = d.segments.filter(hasText);
-  const none = rows.filter(s => !ids.has(s.speaker)).length;
-  el.textContent = !rows.length ? '' : none ? `話者の無い行 ${none} 行` : '話者: 全行に付いています';
-  // 機械が付けた話者(文字起こしのあとの自動の判別。文書の diarization.auto。人が判別し直す・全行をこの人に で消える。v0.50.0)
-  const au = $('#drAutoSpk'), dz = d.diarization && typeof d.diarization === 'object' ? d.diarization : null;
-  if (au){
-    au.hidden = !(dz && dz.auto && rows.length);
-    au.textContent = au.hidden ? '' : '話者は自動で付けてあります' + (dz.contextName ? `(「${dz.contextName}」は動画の入ったフォルダ・配信から推測)` : '') + '。違っていたら直してください';
-  }
-}
-
-/* 評価用の文書の「確かめ済み」(ドリルの外。校正の画面の右の上)。ドリルの間は帯に出すので隠す(同じ操作の入口を2つ並べない) */
 function renderEvalReview(){
   const box = $('#evrBox'); if (!box) return;
-  renderRedoOne();   // 「この動画を作り直す」(ドリルの帯と、この欄の両方)
-  const d = S.doc, on = !!(d && d.evalSet === true) && !DR.on;
+  renderRedoOne();   // 「この動画を作り直す」
+  const d = S.doc, on = !!(d && d.evalSet === true);
   box.hidden = !on; if (!on) return;
   const rv = d.evalReviewed && typeof d.evalReviewed === 'object' ? d.evalReviewed : null;
   $('#evrPill').className = 'pill ' + (rv ? 'ok' : 'wait'); $('#evrPill').textContent = rv ? '確かめ済み' : 'まだ確かめていない';
@@ -295,7 +176,7 @@ function renderEvalReview(){
   $('#evrMark').disabled = !!lockJob();
 }
 
-/* 「全部聞いて直したので済みにする」(ドリルの「済みにして次へ」とドリルの外のボタン)。via: 'drill' | 'editor'。
+/* 「全部聞いて直したので済みにする」。via: 'editor'(サーバーの記録に残す入口の名前)。
    話者の無い行があれば確かめる → 編集中の内容を保存し終える(未保存の変更を失わない)→ api/drill/reviewed。-> 付けたか */
 async function markReviewed(via){
   if (!S.doc || !S.docId) return false;
@@ -318,7 +199,6 @@ async function markReviewed(via){
   }
   if (S.docId === id){ S.baseUpdatedAt = r.updatedAt; S.doc.evalReviewed = r.evalReviewed; }
   toast(`確かめ済みにしました${r.proofed ? `(残りの ${r.proofed} 行を校正済みに)` : ''}`, 4000, 'ok');
-  loadDrillStat();
   return true;
 }
 
@@ -335,10 +215,10 @@ async function unmarkReviewed(){
     return toast('取り消せませんでした: ' + e.message, 7000, 'err');
   }
   if (S.docId === id) await openDoc(id, true);   // 戻した行の校正済みを画面にも(見ていた行はそのまま)
-  toast('確かめ済みを取り消しました', 4000); loadDrillStat(); syncListItem();
+  toast('確かめ済みを取り消しました', 4000); syncListItem();
 }
 
-/* ドリルの外の「全部聞いて直したので済みにする」: 印を付けたら読み直す(校正済みにした行を画面にも。見ていた行はそのまま) */
+/* 「全部聞いて直したので済みにする」: 印を付けたら読み直す(校正済みにした行を画面にも。見ていた行はそのまま) */
 async function evalReviewHere(){
   const id = S.docId;
   if (await markReviewed('editor') && S.docId === id){ await openDoc(id, true); syncListItem(); }
@@ -357,7 +237,7 @@ function redoOneState(){   // -> [押せるか, 理由(ボタンの title)]
 }
 function renderRedoOne(){
   const [ok, why] = redoOneState();
-  for (const id of ['drRedo', 'evrRedo']){ const b = $('#' + id); if (b){ b.disabled = !ok; b.title = why; } }
+  const b = $('#evrRedo'); if (b){ b.disabled = !ok; b.title = why; }
 }
 async function redoOneHere(){
   const id = S.docId;
@@ -376,65 +256,6 @@ async function redoOneHere(){
     if (e.code === 'conflict') showConflict();   // 保存の 409 と同じ案内
     toast('作り直せませんでした: ' + e.message, 7000, 'err');
   } finally { REDO1.busy = false; renderRedoOne(); }
-}
-
-/* 始める(「評価ドリル」のカード #drillCard のボタン。URL の ?drill=1 で文書が無いときも)。続きの数(済ませた本数・飛ばした文書)は新しく数え直す */
-async function drillStart(fresh = true){
-  DR.on = true; DR.none = '';
-  if (fresh){ DR.done = 0; DR.skip = []; drillSave(); }
-  setUrlDrill(true);
-  if (EDT.tab !== 'tx') setEditTab('tx');
-  renderDrillBar(); txKeybarScene();
-  if (!DR.status) loadDrillStat();
-  return drillNext();
-}
-
-/* 次の 1 本を選んで開く(無ければ帯に理由)。-> 開いたか */
-async function drillNext(){
-  let r;
-  try { r = await api('/api/drill/next?skip=' + encodeURIComponent(DR.skip.join(','))); }
-  catch (e){ toast('次の動画を選べませんでした: ' + e.message, 6000, 'err'); return false; }
-  if (!DR.on) return false;   // 待っている間にドリルを終えた
-  if (!r.id){ DR.none = (r.reason || '次に出せる評価用の動画がありません') + '。「ドリルを終える」で閉じられます'; renderDrillBar(); toast(r.reason || '次に出せる評価用の動画がありません', 7000, 'info'); return false; }
-  DR.none = '';
-  const ok = await openDoc(r.id);
-  if (!ok) toast('次の動画を開けませんでした(保存の状態を確かめてから、もう一度押してください)', 6000, 'err');
-  renderDrillBar(); loadDrillStat();
-  return ok;
-}
-
-async function drillDone(){
-  if (!DR.on || DR.busy) return;
-  DR.busy = true; renderDrillBar();
-  const id = S.docId;
-  try {
-    if (!(await markReviewed('drill'))) return;
-    DR.done++; drillSave();
-    if (!(await drillNext()) && S.docId === id) await openDoc(id, true);   // 次が無い: 今の文書を読み直して、校正済みにした行を画面にも
-  } finally { DR.busy = false; renderDrillBar(); }
-}
-
-async function drillSkip(){
-  if (!DR.on || DR.busy) return;
-  DR.busy = true; renderDrillBar();
-  try {
-    if (S.docId && !DR.skip.includes(S.docId)){ DR.skip.push(S.docId); drillSave(); }
-    await drillNext();   // 直した分は openDoc が保存してから切り替える
-  } finally { DR.busy = false; renderDrillBar(); }
-}
-
-function drillEnd(){
-  const n = DR.done;
-  DR.on = false; DR.none = ''; DR.done = 0; DR.skip = [];
-  try { sessionStorage.removeItem('tx.drill'); } catch {}
-  setUrlDrill(false); renderDrillBar(); txKeybarScene(); renderDrillStat(DR.status);
-  toast(n ? `評価ドリルを終えました(このドリルで ${n} 本を済ませました)` : '評価ドリルを終えました', 5000, 'ok');
-}
-
-/* キー(⚙ のキー配置・? の一覧の「評価ドリル」)。帯が出ていないときは何もしないで知らせる */
-function drillKey(act){
-  if (!DR.on) return toast('評価ドリルの間だけ使えるキーです(メニューの「精度」の「評価ドリルを始める」)', 3000);
-  if (act === 'drillDone') drillDone(); else drillSkip();
 }
 
 /* ---------- ホロライブの名簿 / 用語集の「認識に効く長さ」 ---------- */

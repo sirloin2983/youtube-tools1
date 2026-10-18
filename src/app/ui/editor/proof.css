@@ -143,13 +143,6 @@ h2{margin:0;font-size:15px}
 .tt-clip.warn .ic{background:transparent;color:var(--warn)}
 
 /* ---------- 精度・学習・保管のカードの中 ---------- */
-.acct{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px}
-.acct th,.acct td{padding:4px 5px;border-bottom:1px solid var(--line);text-align:right;vertical-align:top;background:transparent}
-.acct th:first-child,.acct td:first-child{text-align:left}
-.acct tbody tr:hover,.acct tr:hover{background:transparent}
-.accmain{font-size:15px;margin-top:8px}.accmain b{font-variant-numeric:tabular-nums}
-.wl{font-size:12px;border-bottom:1px solid var(--line);padding:4px 0;word-break:break-all}
-.ln{border-bottom:1px solid var(--line);padding:7px 0}.ln input.lw,.ln input.lr{font-family:var(--mono);font-size:13px;padding:4px 7px;min-height:30px}.ln.edited input{border-color:var(--accent)}.ln:last-child{border-bottom:0}
 .sp-row{display:flex;gap:6px;align-items:center;margin-top:6px}.sp-row input[type=color]{width:34px;height:30px;padding:2px;flex:none}
 .sp-row .n{font-size:12px;color:var(--ink-3);white-space:nowrap;font-variant-numeric:tabular-nums}
 .tt-sp-member{flex:none;width:34px;height:30px;border-radius:var(--r-sm);border:1px solid var(--line-2)}   /* 話者の名前がメンバーと合ったときの色(気が利く画面へ 段2) */
@@ -215,12 +208,7 @@ html.vid-audio #player{height:54px;max-height:none}   /* 校正の映像だけ(�
 #playerMsg .btn{margin-left:6px;vertical-align:baseline}
 #diarBanner{margin:8px 0 0}
 #conflictBar{margin:0 0 8px}#conflictBar .row{margin-top:6px}
-/* 評価ドリルの帯(?drill=1。マスタープラン Q4)と、評価用の文書の「確かめ済み」(app-learn.js の renderDrillBar・renderEvalReview) */
-.tt-drill{margin:0 0 10px;padding:8px 12px;border:1px solid var(--accent-line);border-left:4px solid var(--accent);border-radius:var(--r);background:var(--accent-soft)}
-.tt-drill-main{display:flex;align-items:center;gap:4px 10px;flex-wrap:wrap;font-size:13.5px}
-.tt-drill p{margin:4px 0 0}
-.tt-drill .row{margin-top:6px}
-.tt-drill .btn kbd{margin-left:4px}
+/* 評価用の文書の「確かめ済み」(app-learn.js の renderEvalReview) */
 .tt-evrev{display:flex;align-items:center;gap:6px 10px;flex-wrap:wrap;margin:0 0 8px;font-size:12.5px}
 .tt-evrev .hint{flex:1 1 220px;margin:0}
 /* 道具の段(再生・編集・探す)。段ごとに細い線で区切る */
@@ -272,20 +260,6 @@ dialog.ui-dialog .ui-dlg-body{white-space:pre-line;overflow-wrap:anywhere;max-he
 .tt-rl-res dt{color:var(--ink-2);font-size:12.5px}
 .tt-rl-res dd{margin:0;overflow-wrap:anywhere}
 .tt-rl-res ul{margin:6px 0 0;padding-left:18px}
-#relinkAllDlg{width:min(860px,calc(100% - 32px));padding:0}
-.tt-rl-missing{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin:6px 0}
-.tt-ra-list{margin:10px 0 0;display:flex;flex-direction:column;gap:8px;max-height:min(52vh,520px);overflow:auto}
-.tt-ra-row{border:1px solid var(--line);border-radius:8px;padding:8px 10px;display:grid;grid-template-columns:auto 1fr;gap:4px 10px;align-items:start}
-.tt-ra-row > input[type=checkbox]{margin-top:3px}
-.tt-ra-main{min-width:0;display:flex;flex-direction:column;gap:4px}
-.tt-ra-title{font-weight:600;overflow-wrap:anywhere}
-.tt-ra-old{color:var(--ink-2);font-size:12.5px;overflow-wrap:anywhere}
-.tt-ra-path{display:flex;gap:6px;align-items:center}
-.tt-ra-path input,.tt-ra-path select{flex:1;min-width:0}
-.tt-ra-st{font-size:12.5px;color:var(--ink-2)}
-.tt-ra-st.ok{color:var(--ok-ink)}
-.tt-ra-st.err{color:var(--danger-ink)}
-.tt-ra-st.warn{color:var(--warn-ink)}
 .tt-dev-hint{color:var(--warn-ink);margin:6px 0 0}   /* 処理方式 GPU(whisper.cpp)で使えないモデル */
 /* ---------- 行の一覧の上: 道具の行(検索・絞り込み・件数)とキー操作の手がかり ---------- */
 .tt-listhead{margin:0 0 8px}

@@ -60,135 +60,6 @@ async function pickPath(kind, hint){
   catch (e){ toast(e.message, 6000, 'err'); return null; }
 }
 
-/* ---------- 見つからない動画をまとめて付け替える(2026-10-01)。候補は「選んだフォルダの中の同じファイル名」か行ごとの「参照…」。
-   付け替えは1件ずつ /api/relink(控え・長さ・競合の確認は1件のときと同じ)。長さが違うものは最初は選ばない ---------- */
-
-function renderMissing(){
-  const n = S.list.filter(i => i.mediaOk === false && i.sourceName).length;
-  $('#txMissingText').textContent = `元の動画が見つからない文書が ${n} 件あります(移した・名前を変えた動画は、付け替えると再生・カット・パックに使えます)`;
-  $('#txMissing').hidden = !n;
-}
-
-function raSync(){
-  const n = RA.rows.filter(r => r.pick && r.check && !r.done).length;
-  $('#raGo').disabled = RA.busy || !n;
-  $('#raGo').textContent = n ? `付け替える(${n} 件)` : '付け替える';
-  for (const id of ['#raCancel', '#raBrowse', '#raFind']) $(id).disabled = RA.busy;
-}
-
-function raUpdate(r){
-  const st = r.elSt, c = r.check;
-  if (!st) return;
-  let text = '', cls = '';
-  if (r.done){ text = '付け替えました'; cls = 'ok'; }
-  else if (r.state === 'checking') text = '確かめています…(「オンラインのみ」のファイルは時間がかかることがあります)';
-  else if (r.state === 'saving') text = '付け替えています…';
-  else if (r.err){ text = '選べません: ' + r.err; cls = 'err'; }
-  else if (c && c.sameAsNow){ text = '今と同じ動画です'; cls = 'err'; }
-  else if (c && c.mismatch){
-    text = `長さが元の動画と違います(元 ${c.docDuration != null ? fmtT(c.docDuration) : '不明'} / 選んだ動画 ${fmtT(c.durationSec)})。別の動画でないか確かめてください。選ぶと、違うのを分かったうえで付け替えます`;
-    cls = 'warn';
-  } else if (c){
-    text = ['長さは元の動画と同じです', ...(c.warnings || [])].join('。'); cls = (c.warnings || []).length ? 'warn' : 'ok';
-  } else text = '動画を選んでください';
-  if (r.note && !r.done) text += '。' + r.note;
-  st.textContent = text; st.className = 'tt-ra-st' + (cls ? ' ' + cls : '');
-  r.elPick.checked = !!(r.pick && !r.done);
-  r.elPick.disabled = RA.busy || r.done || !c || c.sameAsNow || !!r.err || !!r.state;
-  r.elPath.disabled = r.elBrowse.disabled = RA.busy || r.done;
-  raSync();
-}
-
-function raCheck(r){
-  r.check = null; r.err = ''; r.pick = false; r.state = r.path ? 'checking' : ''; raUpdate(r);
-  if (!r.path) return;
-  const tok = r.tok = (r.tok || 0) + 1, seq = RA.seq;
-  RA.q = RA.q.then(async () => {   // 動画を調べる(ffprobe)のは1件ずつ
-    if (tok !== r.tok || seq !== RA.seq) return;
-    try {
-      const c = await api('/api/relink/check', { body: { id: r.id, path: r.path } });
-      if (tok !== r.tok || seq !== RA.seq) return;
-      r.check = c; r.pick = !c.mismatch && !c.sameAsNow;
-    } catch (e){ if (tok !== r.tok) return; r.err = e.message; }
-    r.state = ''; raUpdate(r);
-  });
-}
-
-function raSetPath(r, p, fromFind){ r.path = p; r.fromFind = fromFind; r.elPath.value = p; raCheck(r); }
-
-function renderRa(){
-  const box = $('#raList'); box.textContent = '';
-  for (const r of RA.rows){
-    const name = r.title || r.sourceName || '無題';
-    const row = document.createElement('div'); row.className = 'tt-ra-row'; row.dataset.id = r.id;
-    const pick = document.createElement('input'); pick.type = 'checkbox'; pick.setAttribute('aria-label', `${name} を付け替える`);
-    pick.addEventListener('change', () => { r.pick = pick.checked; raSync(); });
-    const main = document.createElement('div'); main.className = 'tt-ra-main';
-    const t = document.createElement('div'); t.className = 'tt-ra-title'; t.textContent = name;
-    const old = document.createElement('div'); old.className = 'tt-ra-old mono'; old.textContent = '元: ' + r.sourcePath;
-    const line = document.createElement('div'); line.className = 'tt-ra-path';
-    const inp = document.createElement('input'); inp.type = 'text'; inp.className = 'mono'; inp.spellcheck = false; inp.autocomplete = 'off';
-    inp.placeholder = '新しいパス'; inp.setAttribute('aria-label', `${name} の新しいパス`);
-    inp.addEventListener('input', () => { r.check = null; r.err = ''; r.pick = false; r.note = ''; r.tok = (r.tok || 0) + 1; r.state = ''; raUpdate(r); });   // 確かめ直すまで選べない
-    inp.addEventListener('change', () => { const v = inp.value.trim(); if (v !== r.path || !r.check){ r.path = v; r.fromFind = false; raCheck(r); } });
-    const br = document.createElement('button'); br.type = 'button'; br.className = 'btn small'; br.textContent = '参照…';
-    br.addEventListener('click', async () => {
-      br.disabled = true;
-      try { const p = await pickPath('file', r.path || r.sourcePath); if (p && $('#relinkAllDlg').open){ r.note = ''; raSetPath(r, p, false); } }
-      finally { raUpdate(r); }
-    });
-    const st = document.createElement('div'); st.className = 'tt-ra-st'; st.setAttribute('role', 'status');
-    line.append(inp, br); main.append(t, old, line, st); row.append(pick, main); box.append(row);
-    Object.assign(r, { elPick: pick, elPath: inp, elBrowse: br, elSt: st });
-    raUpdate(r);
-  }
-}
-
-function openRelinkAll(){
-  const dlg = $('#relinkAllDlg');
-  if (dlg.open) return;
-  RA.seq++; RA.rows = []; RA.busy = false; $('#raList').textContent = ''; $('#raFolder').value = '';
-  $('#raNote').textContent = '元の動画が見つからない文書を調べています…'; raSync();
-  dlg.showModal(); $('#raFolder').focus();
-  const seq = RA.seq;
-  api('/api/relink/missing', { body: {} }).then(res => {
-    if (seq !== RA.seq) return;
-    RA.rows = res.items.map(i => ({ ...i, path: '', check: null, err: '', note: '', pick: false, state: '', done: false, fromFind: false }));
-    $('#raNote').textContent = (RA.rows.length ? `元の動画が見つからない文書: ${RA.rows.length} 件。動画を移したフォルダを選んでください` : '元の動画が見つからない文書はありません')
-      + (res.skipped ? `(ネットワーク上の動画を使う ${res.skipped} 件は調べていません)` : '');
-    renderRa();
-  }).catch(e => { if (seq === RA.seq) $('#raNote').textContent = '調べられませんでした: ' + e.message; });
-}
-
-async function raFind(){
-  const folder = $('#raFolder').value.trim();
-  if (!folder){ toast('フォルダを選ぶか、フォルダのパスを入れてください', 3000, 'err'); $('#raFolder').focus(); return; }
-  const rows = RA.rows.filter(r => !r.done && (!r.path || r.fromFind));   // 自分で選んだ動画は上書きしない
-  if (!rows.length || RA.busy) return;
-  const seq = RA.seq;
-  RA.busy = true; RA.rows.forEach(raUpdate);
-  $('#raNote').textContent = 'フォルダの中を探しています…';
-  try {
-    const res = await api('/api/relink/find', { body: { folder, ids: rows.map(r => r.id) } });
-    if (seq !== RA.seq) return;
-    RA.busy = false;
-    let hit = 0;
-    for (const r of rows){
-      const c = res.candidates[r.id] || [];
-      if (c.length){
-        hit++; r.note = c.length > 1 ? `同じ名前の動画が ${c.length} 件あります(1件目を入れました。違えば「参照…」で選んでください)` : '';
-        raSetPath(r, c[0], true);
-      } else {
-        r.note = 'このフォルダには同じ名前の動画がありません(「参照…」で選べます)';
-        if (r.fromFind){ r.path = ''; r.elPath.value = ''; r.check = null; r.pick = false; r.fromFind = false; }
-        raUpdate(r);
-      }
-    }
-    $('#raNote').textContent = `${hit} / ${rows.length} 件の動画が見つかりました` + (res.truncated ? '(フォルダが大きいので途中までしか探していません。動画のあるフォルダを選ぶと確実です)' : '');
-  } catch (e){ if (seq === RA.seq) $('#raNote').textContent = '探せませんでした: ' + e.message; }
-  finally { RA.busy = false; RA.rows.forEach(raUpdate); raSync(); }
-}
-
 /* ブラウザのタブの題名: 「● タイトル - 編集」(● は未保存・保存できていない) */
 function updateDocTitle(){
   const d = S.doc, st = $('#saveState').getAttribute('data-state');
@@ -220,25 +91,13 @@ function renderDocBarNow(){
   else { const sp = cpApproxSpans(); pc.hidden = !sp.length; pc.textContent = `残す ${sp.length}区間 ・ カット後 約${fmtCs(sp.reduce((x, [p, q]) => x + q - p, 0))}`; }
 }
 
-/* 文書を閉じる(開いている文書を削除したとき) */
-function closeDoc(){
-  clearTimeout(markDirty.t);
-  S.doc = null; S.docId = null; S.dirty = false; S.conflict = false; S.forceNext = false; S.undo = []; S.sel = new Set(); S.navIdx = -1; S.curIdx = -1; S.handoff = null;
-  if (CUT) CUT.unload();
-  if (PACK) PACK.load(null);
-  $('#doc').hidden = true; $('#noDoc').hidden = false; $('#conflictBar').hidden = true; $('.app').classList.remove('has-doc');
-  setUrlDoc(null);
-  S.mediaSeq = (S.mediaSeq || 0) + 1; player().removeAttribute('src'); player().load();
-  renderList(); updateDocTitle(); renderResume();
-}
-
 /* ---------- 検索・話者・置換 ---------- */
 
 function syncEval(){
   const on = !!(S.doc && S.doc.evalSet), lock = !!(S.doc && S.doc.evalLocked), cb = $('#evalSet');
   cb.checked = on || lock; cb.disabled = lock; cb.parentElement.title = lock ? EVAL_LOCK_MSG : EVAL_TITLE;
   $('#evalBanner').hidden = !(on || lock); renderVoiceLearn();   // 評価用では「声を覚える」を押せない(監査02)
-  renderDrillBar();   // 評価ドリルの帯と「確かめ済み」(開いた文書・評価用の切り替えに合わせる。renderEvalReview も呼ぶ)
+  renderEvalReview();   // 「確かめ済み」(開いた文書・評価用の切り替えに合わせる)
 }
 
 /* 評価用のフォルダ(⚙。サーバーの設定 evalDirs = api/settings/patch。整理 = 動画の名前をそろえて文書を付け替える) */
@@ -415,10 +274,6 @@ function takeUrlParams(){
   let q; try { q = new URLSearchParams(location.search); } catch { return false; }
   const media = (q.get('media') || '').trim().slice(0, 1000), clip = (q.get('clip') || '').trim().slice(0, 1000);
   const docId = /^[0-9a-f]{12}$/.test(q.get('doc') || '') ? q.get('doc') : '';   // ホームからは文書 ID で開く(B-1。同じ動画の文書が複数あっても選んだ文書)
-  if (q.get('drill') === '1'){   // 評価ドリル(Q4)。?drill=1 は URL に残す(再読み込みで続ける)。文書が無ければ次の 1 本を選ぶ
-    DR.on = true; drillLoad(); renderDrillBar(); txKeybarScene();
-    if (!docId && !q.has('media') && !q.has('clip')){ drillStart(false); return true; }
-  } else if (q.has('drill')){ q.delete('drill'); setUrlDrill(false); }
   const list = LIST_OPTS.kind.includes(q.get('list') || '') ? q.get('list') : '';   // ?list=other|clip|all|eval: 履歴を種類で絞って開く(ホームの「編集の履歴で見る」。段5 5-1・B-5)
   if (!q.has('media') && !q.has('clip') && !q.has('doc') && !list) return false;
   q.delete('media'); q.delete('clip'); q.delete('list');   // ?doc= は残す(開いた文書を URL に残す。監査 06。開けなければ下で消す)

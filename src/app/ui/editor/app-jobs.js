@@ -79,8 +79,7 @@ async function pollJobs(){
     if (S.doc && normDone.some(x => x.tid === S.docId && x.normOk)) await openDoc(S.docId, true);   // 開いている文書の動画を 30fps の写しに付け替えた → 読み直す(更新日時は変わらないので保存は競合しない)
     if (diar){
       if (diar.kind === 'diarize'){ try { S.tools = await api('/api/tools'); renderDiarSetup(); } catch {} }
-      loadLearned();
-      if (diar.tid === S.docId) await openDoc(diar.tid, true);
+      if (diar.tid === S.docId) await openDoc(diar.tid, true); else loadSuggest();
       toast(diar.kind === 'retranscribe' ? `${diar.segments}行を再認識しました。` + (diar.kept || diar.emptyKept ? [diar.kept ? `直した ${diar.kept} 行は元のまま(機械が変わった行には印)` : '', diar.emptyKept ? `文字が出なかった ${diar.emptyKept} 行は元のまま` : ''].filter(Boolean).join('。') + '。' : '')
           + (diar.loose ? `声が重なる所などを緩い条件で ${diar.loose} 行拾いました(要確認)。` : '') + (diar.unsure ? `まだ不確かな行が${diar.unsure}行あります。` : '') + (diar.vadNote ? diar.vadNote : '')
         : diar.autoSkipped ? `話者の自動判別: ${diar.phase || '判別しませんでした'}`
@@ -247,7 +246,6 @@ function spAllNeeded(){
 
 function renderSpAll(){
   const box = $('#spAllBox'); if (!box) return;
-  renderDrillSpk();   // ドリルの帯の「話者の無い行 n 行」も合わせる
   const on = spAllNeeded(); box.hidden = !on;
   if (!on) return;
   if (SPALL.id !== S.docId){ SPALL.id = S.docId; SPALL.cands = []; SPALL.suggest = ''; fillSpAll(); loadSpAll(S.docId); }
