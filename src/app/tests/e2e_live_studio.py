@@ -29,12 +29,12 @@
   9 札 → 一覧(「開く」は /cases?c=<録画 id>#cand)→「停止」二度押し → 帯「録画は終わりました…」・札「録画終了」・duration が有限・最後まで再生
   10 終わった録画でマーク → 採用 →「書き出す」  11 画質(live.quality)→ 次の begin・置き場所と空きは「調子」(/api/health の live)
      (スタジオの ⚙ の「ライブの録画」の欄はスタジオの画面と一緒に消えた。案件の画面の ⚙ はテーマなどだけ)
-  12 古い URL /studio/?video=<id> は /cases?c=<id>#cand へ転送され、開き直すとマークが残っている  14 コンソールのエラー・404・CSP 違反なし・375px で横にはみ出さない
+  12 古い URL /studio/?video=<id> は /cases?c=<id>#cand へ転送され、開き直すとマークが残っている  14 コンソールのエラー・404・CSP 違反なし
   15 書き出したあと(帯の select。設定 liveAfter)と配信者(字幕の色): begin のチャンネル名がスタジオの配信に入る・帯の「配信者」がチャンネル名から自動で入る・
      「全自動」にしてマーク → 入口がまとめて実行へ flow auto と配信者の名前を渡す・帯で名前を直すと次の書き出しに渡り、録画とチャンネルに覚える・
      見回りで select・欄が作り直されない(値も戻らない)・開き直しても選んだ値と直した名前
   L3(線 D。スタジオ 0.23.0)配信中の候補: LIVE の帯の一覧・見出し・タイムラインの印・グラフ・[再生]・[採用](本物の adopt)・[見送り]・控えも見る・[戻す]・p / z・
-     見回りで作り直さない・マウスが乗っている行は入れ替えで外れても消さない・375px(本物の候補の API + 偽のワーカー tests/fake_excite_worker.py。_scene_peaks)
+     見回りで作り直さない・マウスが乗っている行は入れ替えで外れても消さない(本物の候補の API + 偽のワーカー tests/fake_excite_worker.py。_scene_peaks)
   D-11 案 b(入口 0.48.0・スタジオ 0.23.2)配信中の候補の文字起こし: 入口が候補に付けた文字が見回りで行に出る(80 字で切る・title に全文)・whisper.cpp の無い入口では
      見出しに「文字起こしなし(理由)」・⚙ の #liveTx で live.liveTx.enabled が変わる(_scene_peak_text・_scene_live_tx_switch)
   M1(線 D。入口 0.39.0)サーバー側の「マーク + 書き出し」POST /live/api/adopt: スタジオの画面を閉じたまま → 書き出しまで通る・スタジオの一覧にマークが出て
@@ -83,7 +83,6 @@ INIT_JS = r"""
   document.addEventListener('securitypolicyviolation', e => window.__csp.push(e.violatedDirective + ' ' + e.blockedURI));
 })();
 """
-NO_HSCROLL_JS = "() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1"
 VIDEO = "document.querySelector('#rvHost video')"
 # 案件の画面の候補のパネル(panels/cand.js)に録画が開いて、LIVE の帯(録画の行)が出ている
 CAND_LIVE = ("() => !!window.CasesShell && CasesShell.state().panel === 'cand' && !!document.querySelector('#csPane .cd-panel #rvLiveRec')"
@@ -323,7 +322,7 @@ def run(tmp, shots, force_chromium):
                 _scene_after_end(cx)
                 _scene_adopt_api(cx)
                 _scene_peaks(cx)
-                _scene_narrow_and_errors(cx)
+                _scene_errors(cx)
             finally:
                 browser.close()
     finally:
@@ -936,7 +935,7 @@ def _pw_wait(pg, fn, timeout=15.0, step=250):
 def _scene_peaks(cx):
     """L2 + L3(線 D)配信中の候補: 本物の候補の API(入口の live_detect)と偽のワーカー(tests/fake_excite_worker.py = テストが置いた候補を本物と同じ形で
     peaks.json・worker.json に書き、decisions.json を本物と同じに当てる)で、帯の一覧・見出し・タイムラインの印・グラフ・[再生]・[採用](POST /live/api/peaks → M1 の adopt)・
-    [見送り]・控えも見る・[戻す]・採用した候補の見送りは 409・p / z・見回りで作り直さない・⚙ の設定(live.detect / live.autoAdopt)・「調子」・375px。
+    [見送り]・控えも見る・[戻す]・採用した候補の見送りは 409・p / z・見回りで作り直さない・⚙ の設定(live.detect / live.autoAdopt)・「調子」。
     音・チャット・ffmpeg は使わない(ワーカーの計算は src/pipeline/analyze/tests/test_live_excite_worker.py)"""
     api, cases_url, check, pg, rid, shots, srv, live = cx.api, cx.cases_url, cx.check, cx.pg, cx.rid, cx.shots, cx.srv, cx.live
     det = live.detector
@@ -1124,16 +1123,6 @@ def _scene_peaks(cx):
     done = _pw_wait(pg, jobs, 90, 500)
     check(done and all(j["state"] == "done" for j in done), "L3 採用した候補の書き出しが済む: %s" % [(j.get("state"), j.get("error")) for j in done or []])
 
-    # 狭い画面
-    pg.set_viewport_size({"width": 375, "height": 812})
-    pg.wait_for_timeout(400)
-    check(pg.evaluate(NO_HSCROLL_JS) and pg.evaluate("() => { const r = document.querySelector('#rvPeaks').getBoundingClientRect(); return r.width > 0 && r.left >= 0 && r.right <= innerWidth + 1; }"),
-          "L3 375px で候補の一覧がはみ出さない")
-    if shots:
-        pg.locator("#rvLiveBar").screenshot(path=os.path.join(shots, "live_11_peaks_narrow.png"))
-    pg.set_viewport_size({"width": 1440, "height": 900})
-    pg.wait_for_timeout(300)
-
     # 後始末: 検出をオフ → 見回りがワーカーを止める → 帯の候補の部分は隠れる
     srv.prefs.patch("live", {"detect": {"enabled": False, "sens": "normal", "perHour": 6}})
     check(det.tick() == "off" and wait_for(lambda: det.proc is None or det.proc.poll() is not None, 10), "L2 検出をオフにすると、見回りがワーカーを止める")
@@ -1184,25 +1173,9 @@ def _scene_live_tx_switch(cx):
     check(srv.prefs.get(["live"])["live"]["autoDeliver"] is True, "0.48.1 戻すと live.autoDeliver が True")
 
 
-def _scene_narrow_and_errors(cx):
-    """14. 狭い画面・エラー"""
-    check, errors, not_found, pg, shots = cx.check, cx.errors, cx.not_found, cx.pg, cx.shots
-    # ---------------- 14. 狭い画面・エラー ----------------
-    pg.set_viewport_size({"width": 375, "height": 812})
-    pg.wait_for_timeout(400)
-    check(pg.evaluate(NO_HSCROLL_JS), "14 375px の案件の画面(候補のパネルで録画を開いている)で横にはみ出さない")
-    wait_js(pg, "() => { const b = document.querySelector('[data-ui-live]'); return b && !b.hidden; }", 15000)
-    if pg.evaluate("() => { const b = document.querySelector('[data-ui-live]'); return !!b && !b.hidden; }"):
-        pg.click("[data-ui-live] .ui-live-btn")
-        pg.wait_for_timeout(300)
-        check(pg.evaluate(NO_HSCROLL_JS) and pg.evaluate("() => { const r = document.querySelector('.ui-live-panel').getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth + 1; }"),
-              "14 375px で札の一覧が画面に収まる")
-        if shots:
-            pg.screenshot(path=os.path.join(shots, "live_06_narrow_badge.png"))
-        pg.keyboard.press("Escape")
-    if shots:
-        pg.evaluate("window.scrollTo(0, 0)")
-        pg.screenshot(path=os.path.join(shots, "live_07_narrow.png"), full_page=True)
+def _scene_errors(cx):
+    """14. エラーの集め(狭い画面のはみ出しは画面の道から外した: テストの見直し 10-18。ui_audit の A-20)"""
+    check, errors, not_found, pg = cx.check, cx.errors, cx.not_found, cx.pg
     # 想定内: ホームの画面は「編集」の /transcribe/api/transcripts を読むが、このテストはスタジオだけを取り込む(編集は無い)ので 404
     #   (録画はホームの /#new から始めるので、"off"・"cases"(ホームから案件の画面へ移るページ)・"home" のどれでもホームの分が出る)
     # 想定内: Edge は /favicon.ico を自分で読みに行く(どのツールの画面にもアイコンは無い。画面のコードの要求ではない)

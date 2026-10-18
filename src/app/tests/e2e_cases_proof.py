@@ -10,7 +10,7 @@
 タブを素早く切り替える(開いてすぐ閉じても画面のエラーが出ない・直した直後にカット・パックへ移っても直した文字で 409 にならない)。
 RS8 C4 で消した編集の旧 e2e から移した場面(仮の案件 orphan / eval の文書で): 行の移動と再生のキー・音のメモ・話者・⚙ の編集の節・自動で再生・Alt+Enter /
 行を足す(＋後に・N・＋前に・再生位置に)・元に戻す・行の ▶ は行の終わりで止まる / つなぐ・分ける(Shift+M・M・Y)・Z の 2 回押し /
-全行を校正済み → 「カットへ」/ 2 列の追いかけは一覧の列だけが動く / 評価用の確かめ済み・取り消し・全行をこの人に / 2 つ目のエンジンの候補 /
+全行を校正済み → 「カットへ」/ 評価用の確かめ済み・取り消し・全行をこの人に / 2 つ目のエンジンの候補 /
 「別の読み」の札 / 声を覚える・同じ人ですか・評価用は覚えない・忘れる。"""
 import json
 import os
@@ -76,7 +76,7 @@ def main():
         t1 = srv.transcribe(v1, title="切り抜き 1")
         t2 = srv.transcribe(v2, title="切り抜き 2")
         studio_data(srv, [("m1", 600, 612, v1), ("m2", 1800, 1810, v2), ("m3", 3000, 3010, os.path.join(srv.media, "clip3.webm"))])
-        docs = _more_docs(srv)   # 行の編集・追いかけ・評価用・候補・声の場面の文書(配信に入れない = 仮の案件 orphan / eval)
+        docs = _more_docs(srv)   # 行の編集・評価用・候補・声の場面の文書(配信に入れない = 仮の案件 orphan / eval)
         base = "http://localhost:%d/" % srv.port
         with sync_playwright() as p:
             browser = p.chromium.launch()
@@ -96,13 +96,11 @@ def main():
                 _scene_no_transcript(ck, pg)
                 _scene_stream_player(ck, pg)
                 _scene_machpick(ck, pg, srv, base, t1)
-                _scene_no_changes(ck, pg, base, t1)
                 # ---- 旧 e2e(RS8 C4 で消した編集の画面の e2e)から移した場面 ----
                 _scene_row_keys(ck, pg, srv, base, docs["keys"])
                 _scene_row_tools(ck, pg, srv, base, docs["tools"])
                 _scene_join_split_z(ck, pg, srv, base, docs["join"])
                 _scene_proof_all(ck, pg, srv, base, docs["tools"])
-                _scene_follow_scroll(ck, pg, base, docs["long"])
                 _scene_eval_doc(ck, pg, srv, base, docs["eval"])
                 _scene_alt(ck, pg, srv, base, docs["alt"])
                 _scene_fill(ck, pg, srv, base, docs["fill"])
@@ -316,21 +314,6 @@ def _scene_machpick(ck, pg, srv, base, t1):
     ck(wait_js(pg, "!document.querySelector('#segs [data-mc-tag]') && S.doc.segments[1].text === 'もういちど変わった読み'"), "今の機械にする = 行が今の機械の文字に")
 
 
-def _scene_no_changes(ck, pg, base, t1):
-    """印の行が無ければ(層の無い古い文書など = 一覧が空)札も数も出さない"""
-    fake = {"updatedAt": 1, "rows": []}
-    pg.route(re.compile(r".*/transcribe/api/mach-changes\?.*"), lambda r: r.fulfill(status=200, content_type="application/json", body=json.dumps(fake)))
-    pg.goto(base + "cases?d=%s#proof" % t1)
-    ck(wait_js(pg, "typeof S === 'object' && S.docId === %s && !!document.querySelector('#csPane #segs .seg')" % json.dumps(t1), 30000), "開く")
-    time.sleep(0.5)
-    ck(not pg.evaluate("!!document.querySelector('#csPane [data-pf-mc]') || !!document.querySelector('#segs [data-mc-tag]')"), "印の行が無ければ札も数も出さない")
-    pg.set_viewport_size({"width": 390, "height": 800})
-    time.sleep(0.5)
-    ck(pg.evaluate("document.scrollingElement.scrollWidth <= document.scrollingElement.clientWidth + 1"),
-       "幅 390 で横にはみ出さない: %s" % pg.evaluate("[document.scrollingElement.scrollWidth, document.scrollingElement.clientWidth]"))
-    pg.set_viewport_size({"width": 1440, "height": 900})
-
-
 # ======== 旧 e2e(src/editor/tests/e2e_proofread_keys・row_editing・proofread_accuracy・follow_scroll・drill・alt・fill・edit_voices)から移した場面 ========
 
 GAP_SEGS = [{"id": "a", "start": 0, "end": 2, "text": "一"}, {"id": "b", "start": 5, "end": 7, "text": "二"}, {"id": "c", "start": 7, "end": 9, "text": "三"}]
@@ -371,7 +354,6 @@ def _more_docs(srv):
     _put(srv, tools, "行の道具", GAP_SEGS)
     join = srv.transcribe(make_video(os.path.join(srv.media, "join.webm"), sec=12), title="つなぐ分ける")
     _put(srv, join, "つなぐ分ける", JOIN_SEGS)
-    long_ = srv.transcribe(make_video(os.path.join(srv.media, "long.webm"), sec=150), title="追いかけ")
     ev = srv.transcribe(make_video(os.path.join(srv.media, "eval.webm"), sec=12), title="さくらみこ 雑談")
     d = srv.get("/api/transcript?id=" + ev)
     _put(srv, ev, "さくらみこ 雑談", [dict(g, speaker="", proofed=False) for g in d["segments"]], evalSet=True)
@@ -382,7 +364,7 @@ def _more_docs(srv):
     voice = srv.transcribe(make_video(os.path.join(srv.media, "voice.webm"), sec=30), title="声の確認")
     j = _wait_job(srv, srv.call("POST", "/api/diarize", {"tid": voice, "numSpeakers": 2})["id"])
     assert j["state"] == "done" and j["speakers"] == 2, j
-    return {"keys": keys, "tools": tools, "join": join, "long": long_, "eval": ev, "alt": alt, "fill": fill, "voice": voice}
+    return {"keys": keys, "tools": tools, "join": join, "eval": ev, "alt": alt, "fill": fill, "voice": voice}
 
 
 def _open(pg, base, tid, timeout=30000):
@@ -602,40 +584,6 @@ def _scene_proof_all(ck, pg, srv, base, tid):
     ck(all(g.get("proofed") for g in srv.get("/api/transcript?id=" + tid)["segments"] if g["text"].strip()), "サーバーにも校正済み")
     pg.keyboard.press("Alt+1")
     wait_js(pg, "CasesShell.state().tab === 'proof' && EditHost.active", 10000)
-
-
-def _scene_follow_scroll(ck, pg, base, tid):
-    """2 列では再生の追いかけ・行の移動で窓は動かず、行の一覧の列だけが動く / 1 列では一覧は自分でスクロールしない(旧 e2e_follow_scroll)"""
-    pg.set_viewport_size({"width": 1500, "height": 900})
-    ck(_open(pg, base, tid) and wait_js(pg, "document.querySelectorAll('#segs .seg').length > 20"), "長い文書(追いかけ)を開く")
-    pg.evaluate("document.querySelector('#follow').checked = true")
-    lst = "document.querySelector('#csPane .tx-list')"
-    s = pg.evaluate("(() => { const b = %s, cs = getComputedStyle(b); return {ov: cs.overflowY, pos: cs.position, sh: b.scrollHeight, ch: b.clientHeight}; })()" % lst)
-    ck(s["ov"] in ("auto", "scroll") and s["pos"] == "sticky" and s["sh"] > s["ch"], "2 列では行の一覧が自分でスクロールする箱: %s" % s)
-    y0 = pg.evaluate("window.scrollY")
-    for frac in (0.5, 0.9, 1.0):   # 最後の行(1.0)も一覧の見える所・窓の中(一覧の固定を殻の見出しと下の帯の分だけ下げた。RS8 の小さな直し)
-        pg.evaluate("(f => { const g = S.doc.segments, i = Math.min(g.length - 1, Math.floor(g.length * f)), v = document.querySelector('#player'); "
-                    "v.currentTime = g[i].start + 0.1; v.dispatchEvent(new Event('timeupdate')); })(%s)" % frac)
-        time.sleep(0.9)
-        r = pg.evaluate("({y: window.scrollY, ly: %s.scrollTop, cur: (() => { const c = document.querySelector('#segs .seg.cur'); if (!c) return null; const a = c.getBoundingClientRect(), "
-                        "b = %s.getBoundingClientRect(); return {top: a.top, bottom: a.bottom, bt: b.top, bb: Math.min(b.bottom, innerHeight)}; })()})" % (lst, lst))
-        c = r["cur"]
-        if frac < 1.0:
-            ck(r["y"] == y0 and r["ly"] > 0, "%d%% の所: 窓は動かず(scrollY %s)一覧の列だけが動く(scrollTop %s)" % (frac * 100, r["y"], r["ly"]))
-            ck(c is not None and c["top"] >= c["bt"] - 1 and c["bottom"] <= c["bb"] + 1, "%d%% の所: 今の行は一覧の見える所にある: %s" % (frac * 100, c))
-        if frac == 1.0:
-            kb = pg.evaluate("(() => { const k = document.querySelector('.ui-keybar'); return k ? k.getBoundingClientRect().top : innerHeight; })()")
-            ck(c is not None and c["bottom"] <= kb + 1 and c["top"] >= 0, "最後の行は窓の中・下の帯の上にある(足りない分だけ窓も動く。bottom %s・帯の上端 %s)" % (c and c["bottom"], kb))
-    y0 = pg.evaluate("window.scrollY")   # 最後の行で足りない分だけ窓が動いた後の位置
-    pg.evaluate("document.activeElement && document.activeElement.blur()")
-    for _ in range(5):
-        pg.keyboard.press("w")
-    time.sleep(0.5)
-    ck(pg.evaluate("window.scrollY") == y0, "キーで行を移っても窓は動かない")
-    pg.set_viewport_size({"width": 700, "height": 800})
-    time.sleep(0.4)
-    ck(pg.evaluate("getComputedStyle(%s).overflowY" % lst) == "visible", "1 列では一覧は自分でスクロールしない(窓が動く)")
-    pg.set_viewport_size({"width": 1440, "height": 900})
 
 
 def _scene_eval_doc(ck, pg, srv, base, tid):

@@ -4,15 +4,15 @@
 入口(app/server.py)にスタジオを取り込んで動かす(消した旧 e2e_ui.py --mounted と同じ形。STUDIO_FAKE=1・生成した短い webm・一時フォルダだけ)。
 ④ の案件の一覧(cases_mod.snapshot)は見本に差し替え、案件の id = スタジオの配信の id にする。
 見るもの(旧 e2e_ui.py の ② の場面から): パネルが載る(配信の選択は出さない)・動画を再生できる・盛り上がりグラフ・採用 / 不採用がスタジオに保存される・
-キー(y・n・?)は殻の keydown からパネルへ届く・下の帯にパネルのキーと殻のキー・書き出し → 済みの行と「編集で開く」・離れたら再生を止める・
-別の行(切り抜き)へ移るとパネルを片付ける(キーが効かない・プレーヤーが消える)・戻ると作り直す・幅 390 ではみ出さない・コンソールのエラーが無い。
+キー(y・n)は殻の keydown からパネルへ届く・書き出し → 済みの行と「編集で開く」・離れたら再生を止める・
+別の行(切り抜き)へ移るとパネルを片付ける(キーが効かない・プレーヤーが消える)・戻ると作り直す・コンソールのエラーが無い。
 RS8 C4 で旧 e2e_ui.py(25 場面)から候補のパネルに残る物を足した: 外から来る文字列(題名・ラベル)が HTML にならない・開始 / 終了の時刻の欄(数字だけで確定・欄の中の ← → は再生位置を動かさない)・
-? の一覧の上のキー配置の組み合わせ・まとめて実行(配信ごと・マークの「この後を ▸」)・採用が無いと「書き出す」は押せず理由を出す・書き出しの知らせの [編集で開く]・
+まとめて実行(配信ごと・マークの「この後を ▸」)・採用が無いと「書き出す」は押せず理由を出す・書き出しの知らせの [編集で開く]・
 書き出したマークのセリフ(元の配信の時刻・校正の進み具合・カットの行・押すとその時刻へ)・一瞬をマーク(C)・つなげて1本に・前回の場所(開き直すと戻る)・
-1720 では書き出しの引き出しを横に並べる・390 で重ねて開いている間は裏のキーが効かない・YouTube のプレーヤーが使えないとき・設定の保存の失敗は ⚙(設定)の印。"""
+1720 では書き出しの引き出しを横に並べる・390 で重ねて開いている間は裏のキーが効かない・YouTube のプレーヤーが使えないとき。
+? の一覧・下の帯の文字・幅 390 のはみ出し・設定の保存の失敗の ⚙ の印は画面の道から外した(テストの見直し 10-18。写真の関所・ui_audit の A-20)。"""
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -249,19 +249,7 @@ def main():
                 while time.time() < end and len(marks()) != n0 + 1:
                     time.sleep(0.2)
                 check(len(marks()) == n0 + 1, "今をマークがスタジオに保存される")
-                pg.keyboard.press("?")
-                check(wait_js(pg, "document.querySelector('#keyHelp').open", 3000) and "今をマーク①" in (pg.text_content("#keyHelpBody") or ""), "? でキー操作の一覧(パネルの中のダイアログ)")
-                kh = pg.text_content("#keyHelpBody") or ""
-                check("共通の再生キー" in kh and kh.index("共通の再生キー") < kh.index("今をマーク①"), "共通の再生キーが一覧の先頭")
-                check(pg.is_visible("#keyPresetRow #rvKeyPreset") and pg.input_value("#rvKeyPreset") == "standard", "一覧の上にキー配置の組み合わせ(標準・左手だけ)")
-                pg.select_option("#rvKeyPreset", "left")
-                check(wait_js(pg, "document.querySelector('#rvKeyPreset').value === 'left'", 3000), "「左手だけ」を選べる")
-                pg.select_option("#rvKeyPreset", "standard")
-                check(wait_js(pg, "document.querySelector('#rvKeyPreset').value === 'standard'", 3000), "「標準」に戻せる")
-                pg.keyboard.press("Escape")
-                check(wait_js(pg, "!document.querySelector('#keyHelp').open", 3000), "Esc で閉じる")
-                kb = pg.text_content(".ui-keybar") or ""
-                check("今をマーク①" in kb and "Space" in kb and "Shift+N" in kb, "下の帯にパネルのキーと殻のキー(Shift+N): %s" % kb[:120])
+                # ? のキー操作の一覧・キー配置の組み合わせ・下の帯の文字は画面の道から外した(テストの見直し 10-18。写真の関所で見る)
 
                 # 4c. まとめて実行(入口の /api/flow/submit。偽物で頼んだ中身だけ見る): 配信ごと・マークの行の「この後を ▸」(旧 check_review_autorun)
                 check(pg.is_visible("#rvAuto"), "「まとめて実行」が出る(入口の中)")
@@ -403,14 +391,12 @@ def main():
                 pg.set_viewport_size({"width": 1440, "height": 900})
                 check(wait_js(pg, "document.querySelector('#rvExport').hidden", 3000), "1440 に戻すと、並べていた引き出しは閉じる")
 
-                # 8. 幅 390: 横にはみ出さない
+                # 8. 幅 390: 重ねて開いた書き出しの欄の裏では、配信のキー(→・採用)が効かない(B-2。旧 check_narrow_contrast)。
+                # 横にはみ出さないことは ui_audit の A-20 が見る(テストの見直し 10-18 で外した)
                 pg.set_viewport_size({"width": 390, "height": 800})
                 pg.goto(base + "cases?c=%s#cand" % VID)
                 check(wait_js(pg, "!!document.querySelector('#rvList .rv-mark-row')", 20000), "390 でも開ける")
                 time.sleep(0.5)
-                check(pg.evaluate("document.scrollingElement.scrollWidth <= document.scrollingElement.clientWidth + 1"),
-                      "390 で横にはみ出さない: %s" % pg.evaluate("[document.scrollingElement.scrollWidth, document.scrollingElement.clientWidth]"))
-                # 重ねて開いた書き出しの欄の裏では、配信のキー(→・採用)が効かない(B-2。旧 check_narrow_contrast)
                 check(pg.evaluate("document.querySelector('#rvJump').classList.contains('is-bar')"), "390: プレーヤー・マーク・書き出しへ飛ぶ案内")
                 check(wait_js(pg, "(() => { const v = document.querySelector('#rvHost video'); return !!v && v.readyState > 0; })()", 10000), "390: プレーヤーの準備")
                 pg.evaluate("document.querySelector('#rvHost video').pause()")
@@ -422,38 +408,9 @@ def main():
                 pg.keyboard.press("n")
                 time.sleep(0.8)
                 check(pg.input_value("#rvNow") == now2 and len(marks()) == n2, "重ねて開いている間は、裏の配信のキー(→・今をマーク)が効かない: %s → %s" % (now2, pg.input_value("#rvNow")))
-                check(pg.evaluate("document.scrollingElement.scrollWidth <= document.scrollingElement.clientWidth + 1"), "390: 引き出しを開いても横にはみ出さない")
                 pg.click("#rvExpClose")
                 check(wait_js(pg, "document.querySelector('#rvExport').hidden", 3000), "閉じるボタンで引き出しを閉じる")
                 pg.set_viewport_size({"width": 1440, "height": 900})
-
-                # 9. 設定の保存の失敗は、ヘッダーの設定(⚙)の印で知らせる(旧 check_settings_failure。引き出しの中の再試行は ui-kit)
-                fail = {"on": True}
-                spat = re.compile(r".*/studio/api/settings$")
-
-                def st_route(route):
-                    if route.request.method == "PUT" and fail["on"]:
-                        route.fulfill(status=500, content_type="application/json", body=json.dumps({"error": "boom", "message": "テストで失敗させた"}))
-                    else:
-                        route.continue_()
-                pg.route(spat, st_route)
-                toggle = "(v => { const e = document.querySelector('#rvExpTarget'); e.value = v; e.dispatchEvent(new Event('change', { bubbles: true })); })('%s')"
-                pg.evaluate(toggle % "pending")
-
-                def wait_page(expr, ms=8000):   # 同期版の route は Playwright を呼んでいる間しか動かないので、画面の側で待つ
-                    for _ in range(ms // 100):
-                        if pg.evaluate(expr):
-                            return True
-                        pg.wait_for_timeout(100)
-                    return False
-                check(wait_page("document.querySelector('#btnSettings').getAttribute('data-ui-status') === 'err'")
-                      and "テストで失敗させた" in (pg.get_attribute("#btnSettings", "title") or ""), "保存の失敗: ヘッダーの設定に印と理由")
-                fail["on"] = False
-                pg.evaluate(toggle % "adopted")
-                check(wait_page("!document.querySelector('#btnSettings').hasAttribute('data-ui-status')")
-                      and (serve.STORE.get_ui().get("review") or {}).get("exportTarget", "adopted") == "adopted", "次に保存できたら印が消える")
-                pg.unroute(spat)
-                bad_status[:] = [b for b in bad_status if not (b.startswith("500 ") and b.endswith("/studio/api/settings"))]
 
                 # 10. YouTube のプレーヤーが使えないとき: 1 か所に知らせる・判定は保存できる・自動では知らせず、自分で再生を押したときだけ(旧 check_player_unavailable)
                 pg.route("https://www.youtube.com/**", lambda route: route.abort())

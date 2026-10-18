@@ -117,6 +117,7 @@
 
 ## テスト
 
+- src/app/check/tests/_checkkit.py — src/app/check/tests の共通の下ごしらえ(2026-10-18 テストの見直し)。test_ で始めない(流す対象ではない)。
 - src/app/check/tests/test_cut_sources.py — 「確かめる」の自動カットのカードの出どころ(src/app/check/cut_sources.py)の単体テスト: スイッチが切れていれば空・評価用の文書は出ない・
 - src/app/check/tests/test_eval_sources.py — 評価のレーンの区間カードの出どころ(src/app/check/eval_sources.py。C-EVAL)の単体テスト: 区切り方・行の持ち主・スイッチ・
 - src/app/check/tests/test_lineup.py — 「確かめる」の待ち行列の順と数え方(src/app/check/lineup.py・goals.py)の単体テスト。純粋な関数だけ。
@@ -125,20 +126,14 @@
 - src/app/check/tests/test_speech_sources.py — 「確かめる」の「この行は声ですか?」の出どころ(src/app/check/speech_sources.py)の単体テスト: 声の区間との重なりの割合・除外(校正済み・noSub・短い・空)・
 - src/app/tests/_pagetest.py — 入口(src/app/server.py)を一時のデータで立てて GET で画面の配り方を確かめるテストの共通の土台(test_cases_page・test_check_page)。
 - src/app/tests/e2e_autorun.py — まとめて実行(src/app/autorun.py)の通し確認。本物の3ツールを疑似モードで一時フォルダに写し、入口に取り込んだ形で動かす(空きポートだけを使う)。
-- src/app/tests/e2e_backup_ui.py — ホームの「作業データのバックアップ」(src/manage/keep/backup.py。notes:docs/spec/data.md の「バックアップ」)の画面の確認(Playwright)。
-- src/app/tests/e2e_cases.py — 案件の画面(/cases。部品は src/app/ui/cases/。RS8 C1 = 殻)の通し確認(Playwright)。リポジトリ直下で:
 - src/app/tests/e2e_cases_cand.py — 案件の画面(/cases)の「候補」のパネル(src/app/ui/cases/panels/cand.js。RS8 C2a)の通し確認(Playwright)。リポジトリ直下で:
 - src/app/tests/e2e_cases_cut.py — 案件の画面(/cases)の「カット・パック」パネル(src/app/ui/cases/panels/cut.js。RS8 C2c)の通し確認(Playwright)。リポジトリ直下で:
 - src/app/tests/e2e_cases_proof.py — 案件の画面(/cases)の「校正」のパネル(RS8 C2b。panels/proof.js・edhost.js・machpick.js)の通し確認(Playwright)。リポジトリ直下で:
 - src/app/tests/e2e_check.py — 確かめる(/check。部品は src/app/ui/check/。RS8 V1 = 殻)の通し確認(Playwright)。リポジトリ直下で:
-- src/app/tests/e2e_intake_ui.py — ホームの「依頼の受付」(友人の依頼の自動受付。notes:docs/spec/friend.md の 6)の画面の確認(Playwright)。
-- src/app/tests/e2e_keymap.py — キーの一覧 = キー配置(UIKit.keymap。気が利く画面へ 段6)の通し確認。3ツールを疑似モードで一時フォルダに写し、入口に取り込んだ形で動かす。
 - src/app/tests/e2e_live.py — リアルタイム切り抜き(試験中。線 D)の入口の側の通しの確認。本物の YouTube には繋がない。
 - src/app/tests/e2e_live_archive.py — リアルタイム切り抜き LD-1(録画に無い区間だけをアーカイブから書き出す・アーカイブ化を確かめて録画をごみ箱へ移す。notes:plan/line-d-live-clipping.md の 0-9)の通しの確認。
 - src/app/tests/e2e_live_studio.py — リアルタイム切り抜き(線 D の P3。notes:plan/line-d-live-clipping.md の 0-8)の通しの確認: 入口にスタジオを取り込み、録画の部品を別のプロセスで立て、
 - src/app/tests/e2e_portal.py — ホーム(src/app/ui/home/portal.html。段階5: 入口 + 案件を1つにした)の通し確認(Playwright。本物の3ツールを疑似モードで
-- src/app/tests/e2e_settings.py — 設定の画面(/settings。部品は src/app/ui/settings/。設定を 1 つに S5)の通し確認(Playwright)。リポジトリ直下で:
-- src/app/tests/e2e_window.py — 段階7(画面の形の準備と窓)の通し確認(Playwright。本物の3ツールを疑似モードで一時フォルダに写し、3つとも入口に取り込む)。
 - src/app/tests/fake_excite_worker.py — 偽の検出ワーカー(e2e 用)。本物の src/pipeline/analyze/live_excite_worker.py の代わりに入口(live_detect.Detector)が起動し、
 - src/app/tests/test_accuracy_api.py — 入口の API(GET api/accuracy・POST api/accuracy/run・調子の accuracy・設定の節)と、手が空いた判定のつなぎ。精度の自動測定の本体のテストは src/eval/drill/tests/test_accuracy.py。
 - src/app/tests/test_adopt_defaults.py — 採用の数・余白・待ちの既定が束(flow/spec.py の DEFAULTS adopt)の 1 か所から来て、今までの値のままであることを固定する(RS6 b-R1)

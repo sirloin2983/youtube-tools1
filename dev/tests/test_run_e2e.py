@@ -35,6 +35,10 @@ class TestSuiteList(unittest.TestCase):
         missing = sorted(repo_e2e_scripts() - listed)
         self.assertEqual(missing, [], "e2e を足したら dev/run_e2e.py の SUITE か NOT_IN_SUITE に入れる")
 
+    def test_suite_stays_one_per_path(self):
+        """e2e は主な道 1 つに 1 本(テストの見直し 10-18)。一式が 15 本を超えたら、足す前にどの道の 1 本に入るかを決める(細かい場面は単体・ui_audit へ)"""
+        self.assertLessEqual(len(run_e2e.SUITE), 15, [run_e2e.label(s, a) for _g, s, a, _w in run_e2e.SUITE])
+
     def test_no_duplicates_and_known_groups(self):
         names = [run_e2e.label(s, a) for _g, s, a, _w in run_e2e.SUITE]
         self.assertEqual(len(names), len(set(names)))

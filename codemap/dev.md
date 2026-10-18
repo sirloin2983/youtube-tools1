@@ -9,8 +9,8 @@
 - **code_map.py** (467 行) — コードの地図と言葉の索引を作る道具(AI のセッションがコードの場所を早く見つけるため。2026-10-18)。
   - 名前: `git_files` :52・`skipped` :57・`is_test` :61・`read` :65・`one_line` :73・`comment_head` :85・`py_info` :112・`js_info` :143・`cs_info` :164・`info` :186・`layer_of` :199・`norm_route` :206・ほか 12
   - 受ける口: 
-- **demo_env.py** (303 行) — 見本のデータで入口と3ツールを動かす(画面の見直し・画面の写真・手での確認用)。本物の作業データには触らない。
-  - 名前: `run` :47・`make_media` :51・`seed` :65・`seed_check` :180・`main` :248
+- **demo_env.py** (300 行) — 見本のデータで入口と3ツールを動かす(画面の見直し・画面の写真・手での確認用)。本物の作業データには触らない。
+  - 名前: `run` :47・`make_media` :51・`seed` :65・`seed_check` :177・`main` :245
 - **doc_state.py** (241 行) — 計画の資料の頭の `状態`・`線` を計画の正(保管庫の plan/data/)から決めて書く・食い違いを止める(2026-10-18)。
   - 名前: `plan_data` :27・`task_lines` :33・`decide` :42・`derived` :50・`front` :74・`read_props` :85・`write_props` :109・`read` :142・`write` :147・`plan_docs` :156・`check` :166・`sync` :203・ほか 1
 - **drift_report.py** (176 行) — 資料どうし・資料とコードの食い違いをまとめて流し、1 枚の一覧(保管庫の plan/食い違いの一覧.md。自動)に出す(2026-10-18)。
@@ -47,8 +47,8 @@
   - 名前: `plan_dir_default` :49・`data_dir` :53・`has_split` :57・`read_text` :63・`write_atomic` :68・`ordered_keys` :77・`dumps` :82・`slug` :86・`file_name` :105・`items` :113・`sort_key` :129・`main_version` :135・ほか 11
 - **push_helper.py** (263 行) — push.bat の補助(2026-09-26)。標準ライブラリだけ。リポジトリ直下で git が使えることが前提。
   - 名前: `git` :61・`read_removals` :70・`tracked` :90・`apply_removals` :95・`staged_files` :115・`staged_blob` :121・`problems_for` :125・`check` :160・`notes_root` :179・`push_notes` :186・`main` :232
-- **run_e2e.py** (139 行) — 画面テスト(e2e)の一式を 1 本ずつ流して、1 本 1 行(所要秒・OK/FAIL の数)で出す。一式の正はこのファイルの SUITE。
-  - 名前: `label` :64・`summary` :69・`selected` :76・`run_one` :89・`main` :103
+- **run_e2e.py** (141 行) — 画面テスト(e2e)の一式を 1 本ずつ流して、1 本 1 行(所要秒・OK/FAIL の数)で出す。一式の正はこのファイルの SUITE。
+  - 名前: `label` :66・`summary` :71・`selected` :78・`run_one` :91・`main` :105
 - **run_editor_suite.py** (100 行) — 「編集」まわりのテストをまとめて流し、結果の1行ずつを出す(段10 のコードの整理で、分ける前と後の結果を比べるため)。
   - 名前: `find_node` :26・`summary` :49・`main` :62
 - **run_unit.py** (175 行) — unittest を層ごと・フォルダごとに流す道具(1 本ずつ別のプロセス)。リポジトリ直下で:
@@ -73,11 +73,15 @@
 
 - **build_whisper_vulkan.py** (167 行) — whisper.cpp を AMD などの GPU(Vulkan)用に、この PC で作る(精度改善の計画 段2-2。build-whisper-vulkan.bat から呼ぶ)。
   - 名前: `say` :33・`fail` :37・`run` :43・`find_cmake` :50・`find_vulkan_sdk` :67・`rmtree_all` :77・`sha256` :90・`main` :98
+- **cleanup_legacy_data.py** (167 行) — 以前の場所(各ツールのフォルダの中)に残った作業データを片付ける(段階4。notes:docs/spec/data.md)。
+  - 名前: `plan` :52・`running_tools` :86・`to_recycle_bin` :97・`remove` :114・`main` :129
 
 ## テスト
 
+- dev/tests/e2e_datadir.py — 作業データの置き場所(統合計画の段階4)の通し確認。本物の入口(src/app/server.py)を、以前の場所にデータがある状態で起動する。
 - dev/tests/e2e_pipeline.py — 3つのツールをつないだ通し確認(疑似モード・一時フォルダ・空きポート)。
 - dev/tests/test_build_friend_zip.py — dev/build_friend_zip.py(友人の PC に配る zip を作る。F1 の F4a)のテスト。ネットは使わない(偽のキャッシュ・取る関数は差し替えて呼ばれたら落とす)。
+- dev/tests/test_cleanup_legacy_data.py — setup/cleanup_legacy_data.py(以前の場所に残った作業データの片付け)のテスト。本物の AppData・ごみ箱は使わない。
 - dev/tests/test_code_map.py — dev/code_map.py(コードの地図と言葉の索引を作る道具)の部品のテスト。リポジトリ直下で:
 - dev/tests/test_doc_state.py — 資料の食い違いの検査(dev/doc_state.py・dev/spec_check.py・dev/drift_report.py)のテスト。一時フォルダの偽の保管庫だけを使う
 - dev/tests/test_dropbox_auth.py — dev/dropbox_auth.py(切り抜き依頼の鍵を作る)のテスト。通信はしない(urlopen を差し替える)。

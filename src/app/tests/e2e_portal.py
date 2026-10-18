@@ -8,9 +8,10 @@
 
   (A) 本番と同じ形(python src/app/server.py と同じ mounts=tuple(mount.MOUNTS)): 3つとも入口に取り込み。
       2枚のカードが「ホームに取り込み」で動作中になる → ヘッダーの appnav(ホーム / 案件 / 確かめる / 設定)→ 案件の画面(/cases の候補・校正・
-      カット。#ver・合言葉・appnav)→ 古い画面の URL の転送(RS8 C4 で /studio/・/transcribe/ の画面を消した。src/app/redirects.py の表・
-      /cases.html・/live/・/cut2resolve/)→ 「次にやること」・案件(配信ごと)の一覧・単体の文字起こし → テーマ → 狭い画面 →
-      すべて終了(2回押し)→ 切断の表示、を確かめる。
+      カット。#ver・合言葉・appnav・#tx #pack の読み替え・引数なしで前の案件)→ 古い画面の URL の転送(RS8 C4 で /studio/・/transcribe/ の画面を消した。
+      src/app/redirects.py の表・/cases.html・/live/・/cut2resolve/)→ 「次にやること」・案件(配信ごと)の一覧・単体の文字起こし・依頼の受付の外の文字 →
+      新しい案件(探す・URL から入れる)→ 自動でできた切り抜き → すべて終了(2回押し)→ 切断の表示、を確かめる。
+      細かい操作(一覧の検索・並び替え・非表示・テーマ・空の表示・フォーカス・はみ出し)は画面の道から外した(テストの見直し 10-18。ui_audit・写真の関所)。
   (B) 文字起こしが子プロセスの形(--no-mount 相当・取り込めなかったときの落ち先。mounts=("studio", "cut2resolve")):
       文字起こしだけ黒い画面(別プロセス)で動く形で、子プロセスの管理(停止・起動・再起動・異常終了の表示・
       異常終了後の起動し直し・ログの表示と XSS 対策)を確かめる(「詳しく」の中)。studio・cut2resolve は (A) と同じく取り込み。
@@ -324,16 +325,23 @@ def _mounted_open_tools(cx):
           "[A] 案件の画面の版(全体で 1 つ): %s" % tab.evaluate("document.querySelector('#ver') && document.querySelector('#ver').textContent"))
     check_appnav(check, tab, base, "cases", "案件の画面")
 
-    # 2c. 校正(#proof)は取り込んだ編集の部品(edhost)が文書を読む・カット(#cut)へ切り替わる(旧 /transcribe/ の画面の確かめの代わり)
-    tab.goto(base + "cases?d=deadbeef0001#proof")
+    # 2c. 校正は取り込んだ編集の部品(edhost)が文書を読む・カットへ切り替わる(旧 /transcribe/ の画面の確かめの代わり)。
+    # 古いハッシュ #tx・#pack の読み替え(棚卸し G5。旧 e2e_cases の場面 6 から移した)もここで通す: #tx は校正・#pack はカット・パック・URL は c つきの #proof に直す
+    tab.goto(base + "cases?d=deadbeef0001#tx")
     check(wait_js(tab, "CasesShell.state().caseId === 'e2eCase0001' && CasesShell.state().tab === 'proof' && CasesShell.state().sel === 'd:deadbeef0001'"
                        " && typeof S === 'object' && S.docId === 'deadbeef0001' && document.querySelectorAll('#csPane #segs .seg').length === 2", 30000),
-          "[A] /cases?d=…#proof は文書から案件を引いて、校正のパネルが /transcribe/ の API で文書の 2 行を出す: %s"
+          "[A] /cases?d=…#tx は文書から案件を引いて校正(#tx の読み替え)、校正のパネルが /transcribe/ の API で文書の 2 行を出す: %s"
           % tab.evaluate("[CasesShell.state(), typeof S === 'object' && S.docId, document.querySelectorAll('#csPane #segs .seg').length,"
                          " (document.querySelector('#csPane') || {}).textContent.slice(0, 200)]"))
-    tab.goto(base + "cases?d=deadbeef0001#cut")
+    check(tab.evaluate("location.search + location.hash") == "?c=e2eCase0001&d=deadbeef0001#proof",
+          "[A] d だけ・#tx の URL は c つきの #proof に直す: %s" % tab.evaluate("location.search + location.hash"))
+    tab.goto(base + "cases?d=deadbeef0001#pack")
     check(wait_js(tab, "CasesShell.state().tab === 'cut' && CasesShell.state().panel === 'cut'", 20000),
-          "[A] /cases?d=…#cut はカット・パックのパネル: %s" % tab.evaluate("CasesShell.state()"))
+          "[A] /cases?d=…#pack はカット・パックのパネル(旧 #pack の読み替え): %s" % tab.evaluate("CasesShell.state()"))
+    # 引数なし(ヘッダーの「案件」)は、このブラウザで前に開いた案件を開く(RS8 C4。旧 e2e_cases の場面 9b から移した)
+    tab.goto(base + "cases")
+    check(wait_js(tab, "typeof CasesShell === 'object' && CasesShell.state().caseId === 'e2eCase0001'", 20000),
+          "[A] /cases(引数なし)は前に開いた案件を開く: %s" % tab.evaluate("typeof CasesShell === 'object' && CasesShell.state()"))
     tab.close()
 
 
@@ -415,7 +423,7 @@ def _mounted_cases(cx):
     check(len(ctx.pages) == n_pages, "[A] S-15: 「案件の画面で開く」は同じタブで移る(新しいタブを開かない): %d → %d" % (n_pages, len(ctx.pages)))
     tab.close()
     # 2d-2. 保存していない配信者の入力(まとめて実行の欄)は、alt-tab で離れて戻ったとき(UIKit.life の blur→focus → refreshCases)の
-    # 再描画でも消えない(E2 finding 1)。blur→focus の起こし方は src/app/tests/e2e_window.py の「7-2 離れた・戻った」と同じ
+    # 再描画でも消えない(E2 finding 1)。blur→focus は document.hasFocus を差し替えて window の blur・focus を送る(UIKit.life の blurTimer より長く待つ)
     if not pg.evaluate("document.querySelector('.pt-case').open"):
         pg.click(".pt-case .pt-case-row")
     check(wait_js(pg, "document.querySelector('.pt-case').open === true", 5000), "[A] 下書きを試すため行を開く")
@@ -479,9 +487,10 @@ def _mounted_todo_and_unlinked(cx):
 
 
 def _mounted_list_tools(cx):
-    """[A] 2g. 一覧の道具・2g-2. 一覧の非表示"""
+    """[A] 2g. 一覧の件数と「もっと見る」"""
     check, errors, pg = cx.check, cx.errors, cx.pg
-    # 2g. 一覧の道具(検索・絞り込み・並び替え・まとめ方・件数・「もっと見る」)。配信をたくさんに増やして確かめる
+    # 2g. 一覧の件数と「もっと見る」。配信をたくさんに増やして確かめる(後の場面 2i もこの配信を使う)。
+    # 検索・並び替え・まとめ方・非表示の細かい操作は画面の道から外した(テストの見直し 10-18。写真の関所 ui_audit で見る)
     studio_home = os.environ["STUDIO_HOME"]
     seed_more_cases(os.path.join(studio_home, "data.json"), n=34)
     pg.click("#btnReload")
@@ -492,59 +501,6 @@ def _mounted_list_tools(cx):
     pg.click("#btnMore")
     check(wait_js(pg, "document.querySelectorAll('#list .pt-case').length === 35", 10000), "[A] 「もっと見る」で残りも描く")
 
-    pg.fill("#fText", "一覧テスト 0")
-    check(wait_js(pg, "document.querySelectorAll('#list .pt-case').length === 10", 10000),
-          "[A] 検索(題名・配信者)で絞り込む: %s" % pg.evaluate("document.querySelectorAll('#list .pt-case').length"))
-    pg.fill("#fText", "")
-    check(wait_js(pg, "document.querySelectorAll('#list .pt-case').length === 30", 10000), "[A] 検索を消すと絞り込みも戻る(もっと見るは30件から)")
-
-    pg.select_option("#fSort", "channel")
-    check(wait_js(pg, "/^ch(\\s|$)/.test(document.querySelector('#list .pt-case .pt-case-sub').textContent)", 5000),
-          "[A] 配信者順の並び替え(いちばん短い配信者名 ch が先頭): %s" % pg.text_content("#list .pt-case .pt-case-sub"))
-
-    pg.select_option("#fGroup", "channel")
-    check(wait_js(pg, "document.querySelectorAll('#list .ui-group').length === 4", 10000),
-          "[A] 配信者ごとにまとめる(配信者4人ぶんの見出し): %s" % pg.evaluate("document.querySelectorAll('#list .ui-group').length"))
-    check(pg.evaluate("[...document.querySelectorAll('#list .ui-group')].every(g => !g.open)"),
-          "[A] まとまりは既定で閉じている(まとめて実行が動いている配信は無いので)")
-    pg.click("#list .ui-group:first-child summary")
-    check(wait_js(pg, "document.querySelector('#list .ui-group').open === true", 5000), "[A] まとまりをクリックで開ける")
-    pg.reload()
-    pg.evaluate("document.getElementById('advancedBox').open = true")
-    check(wait_js(pg, "document.querySelector('#fGroup').value === 'channel' && document.querySelector('#fSort').value === 'channel'", 10000),
-          "[A] 並び替え・まとめ方はブラウザに覚えている(読み込み直しても)")
-    pg.select_option("#fGroup", "")
-    pg.select_option("#fSort", "new")
-
-    # 2g-2. 一覧の非表示(UIKit.hide。2026-10-04): 案件を隠す → 消える → 読み込み直しても隠れたまま → 「非表示 n件を表示」で薄く出る → 戻す
-    check(wait_js(pg, "document.querySelectorAll('#list .pt-case .pt-hide').length >= 1 && document.getElementById('casesHidden').hidden", 10000),
-          "[A] 非表示: 案件の行に「非表示にする」があり、隠したものが無いときは切り替えを出さない")
-    hid_id = pg.evaluate("document.querySelector('#list .pt-case').dataset.id")
-    pg.evaluate("document.querySelector('#list .pt-case .pt-hide').click()")
-    check(wait_js(pg, "!document.getElementById('case-' + %r) && !document.getElementById('casesHidden').hidden" % hid_id, 10000),
-          "[A] 非表示: 隠した案件が一覧から消え、「非表示 n件を表示」が出る")
-    check(pg.text_content("#casesHidden").strip() == "非表示 1件を表示" and "非表示 1 本" in pg.text_content("#summary"),
-          "[A] 非表示: 切り替えと要約に隠した数: %s / %s" % (pg.text_content("#casesHidden"), pg.text_content("#summary")))
-    check(wait_js(pg, "[...document.querySelectorAll('.ui-toast-msg')].some(e => e.textContent.indexOf('非表示にしました') >= 0)", 5000),
-          "[A] 非表示: 知らせ(元に戻す つき)が出る")
-    pg.reload()
-    pg.evaluate("document.getElementById('advancedBox').open = true")   # あとの「すべて終了」のため(読み込み直すと閉じる)
-    check(wait_js(pg, "document.querySelectorAll('#list .pt-case').length >= 1 && !document.getElementById('case-' + %r) && !document.getElementById('casesHidden').hidden" % hid_id, 15000),
-          "[A] 非表示: 読み込み直しても隠れたまま(ホームの設定に覚えている)")
-    pg.click("#casesHidden")
-    check(wait_js(pg, "!!document.getElementById('case-' + %r) && document.getElementById('case-' + %r).classList.contains('ui-hidden-item')" % (hid_id, hid_id), 10000),
-          "[A] 非表示: 「非表示 n件を表示」で薄く出る")
-    check(pg.evaluate("document.querySelector('#case-' + CSS.escape(%r) + ' .pt-hide').textContent" % hid_id) == "表示に戻す", "[A] 非表示: 出した行のボタンは「表示に戻す」")
-    pg.evaluate("document.querySelector('#case-' + CSS.escape(%r) + ' .pt-hide').click()" % hid_id)
-    check(wait_js(pg, "!document.getElementById('case-' + %r).classList.contains('ui-hidden-item')" % hid_id, 10000), "[A] 非表示: 「表示に戻す」で戻る")
-    pg.click("#casesHidden")   # 「非表示のものを隠す」→ 隠したものが無いので切り替えは消える
-    check(wait_js(pg, "document.getElementById('casesHidden').hidden", 5000), "[A] 非表示: 隠したものが無くなれば切り替えも消える")
-    # 次にやること: 1行を隠す → 「元に戻す」で戻る(書き出し待ちが増えて 5 件を超えるので、先に「すべて見る」。入口 0.42.0)
-    if pg.is_visible("#todoMore") and pg.text_content("#todoMore").startswith("すべて見る"):
-        pg.click("#todoMore")
-    # RS8 C3: やることは種類ごとの件数なので、行を個別には隠さない(隠した案件・見送りの案件は数えない = 案件の非表示がそのまま効く)
-    check(pg.evaluate("document.querySelectorAll('#todoList .pt-todo-hide').length") == 0 and pg.evaluate("document.getElementById('todoHidden').hidden"),
-          "[A] 非表示: やることの件数の行に隠すボタンは無い(案件を隠すと件数から外れる)")
     real = [e for e in errors if "Failed to load resource" not in e and "ERR_CONNECTION_REFUSED" not in e]
     check(not real, "[A] 一覧の道具を操作しても画面のエラーなし: %s" % real[:3])
 
@@ -586,17 +542,15 @@ def wait_routed(pg, fn, timeout):
 
 def _mounted_next_steps(cx):
     """[A] 2i. 気が利く画面へ 段 7〜8(入口 0.42.0): 次にやることの種類と並び(S-6)・同じ題名の副題(S-26)・案件の行のボタン(S-18)・
-    リンクの開き方(S-15)・配信が無いときの空の表示(S-13)・消えた配信のまとめて実行(S-25)・フォーカスと Enter(S-24)"""
+    リンクの開き方(S-15)・依頼の受付の外の文字。空の表示(S-13)・消えた配信(S-25)・フォーカスと Enter(S-24)・UI の見直し 1 周目(M2〜M10)の
+    細かい場面は画面の道から外した(テストの見直し 10-18)"""
     check, pg = cx.check, cx.pg
     seed_next_cases(os.path.join(os.environ["STUDIO_HOME"], "data.json"), cx.tmp)
     pg.click("#btnReload")
     check(wait_js(pg, "!!document.getElementById('case-e2eNext0002')", 15000), "[A] 2i: 足した配信が一覧に出た")
     _next_todo(cx)
     _next_case_buttons(cx)
-    _next_empty_state(cx)
-    _next_gone_case(cx)
-    _next_focus_and_enter(cx)
-    _ui_review_checks(cx)
+    _intake_untrusted_text(cx)
 
 
 def _mounted_new_case_and_ops(cx):
@@ -729,8 +683,6 @@ def _new_case_search_settings(cx):
 
 
 AGC_JS = "[...document.querySelectorAll('#newDrawer #agChecks .agc')].map(e => [e.value, e.checked])"
-NO_HSCROLL_JS = ("document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1"
-                 " && document.getElementById('newDrawer').scrollWidth <= document.getElementById('newDrawer').clientWidth + 1")
 
 
 def _watch_errors(p, errs):
@@ -829,7 +781,7 @@ def _rank_autorun(cx, p):
 
 def _new_case_queue_narrow(cx):
     """[A] 2j-4. 新しい案件の「URL から入れる」(旧スタジオ e2e_ui.py の check_queue の要点): 「解析に追加」で順番待ち → 疑似の解析が終わると「確認する」→
-    案件の画面の候補へ / 失敗は「何が起きたか + どうすればいいか」/ 幅 390 で ① が横にはみ出さない(?url= を欄に入れるだけは 2j で確かめた)"""
+    案件の画面の候補へ / 失敗は「何が起きたか + どうすればいいか」(?url= を欄に入れるだけは 2j で確かめた。幅 390 のはみ出しは ui_audit の A-20)"""
     check, ctx = cx.check, cx.ctx
     media = os.path.join(cx.tmp, "fake-media.webm")   # 疑似のスタジオの解析が「取ってきた」ことにする見本の動画(STUDIO_FAKE_MEDIA。main の環境の patch が戻す)
     subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-f", "lavfi", "-i", "testsrc=size=320x180:rate=15:duration=40",
@@ -861,15 +813,7 @@ def _new_case_queue_narrow(cx):
     p.wait_for_url(lambda u: "/cases?c=abcdefghijk" in u and u.endswith("#cand"), timeout=20000)
     check(True, "[A] 2j-4: 「確認する」は案件の画面の候補(/cases?c=…#cand)へ: %s" % p.url)
     p.close()
-    m = ctx.new_page()
-    _watch_errors(m, errs)
-    m.set_viewport_size({"width": 390, "height": 844})
-    m.goto(cx.base + "#new")
-    check(wait_js(m, "!!document.querySelector('#newDrawer #rkCond') && !!document.querySelector('#newDrawer #qUrls')", 25000) and wait_js(m, NO_HSCROLL_JS, 3000),
-          "[A] 2j-4: 幅 390 で新しい案件の ① が横にはみ出さない: %s" % m.evaluate("[document.documentElement.scrollWidth, document.getElementById('newDrawer').scrollWidth,"
-                                                                   " document.getElementById('newDrawer').clientWidth]"))
-    m.close()
-    check(not errs, "[A] 2j-4: URL から入れる・狭い幅で画面のエラーなし: %s" % errs[:3])
+    check(not errs, "[A] 2j-4: URL から入れても画面のエラーなし: %s" % errs[:3])
 
 
 def _next_todo(cx):
@@ -932,207 +876,39 @@ def _next_case_buttons(cx):
     p2.close()
 
 
-def _next_empty_state(cx):
-    """S-13: 配信が 1 本も無いときの空の表示に、次に押すボタン(案件の一覧の応答を空にした別のタブ)"""
+def _intake_untrusted_text(cx):
+    """依頼の受付の一覧(ホームの運用の枠)で、外から来る題名・知らせの題は文字のまま(HTML として解釈しない)。
+    旧 e2e_intake_ui の場面 4 から移した(友人の依頼の題名は YouTube の題名 = 外の文字)。受付の API は偽物"""
     check, ctx = cx.check, cx.ctx
-    p3 = ctx.new_page()
-    p3.on("pageerror", lambda e: cx.errors.append(str(e)))
-    p3.route("**/api/cases", lambda route: route.fulfill(json={"cases": [], "unlinked": [], "casesFile": ""}))
-    p3.route("**/transcribe/api/transcripts", lambda route: route.fulfill(json={"items": []}))   # 次にやることを空にする(文書ごとの校正待ちも無し)
-    p3.goto(cx.base)
-    check(wait_js(p3, "!!document.getElementById('emptyStudio')", 15000), "[A] S-13: 配信が無いときの空の表示")
-    et = p3.text_content("#list .empty")
-    check("まだ配信はありません" in et and "ここに出ます" in et, "[A] S-13: 空の表示は 2 文(何が無い + どうすると出る): %s" % et)
-    check(p3.text_content("#emptyStudio") == "新しい案件を始める" and p3.get_attribute("#emptyStudio", "href") is None,
-          "[A] S-13: 「新しい案件を始める」(引き出しで配信を探す・URL から入れる。RS8 C3)")
-    check(wait_js(p3, "!document.getElementById('intakeBox').hidden && !!document.getElementById('emptyIntake')", 10000), "[A] S-13: 「依頼の受付を設定する」が出る")
-    check(wait_js(p3, "!document.getElementById('todoEmpty').hidden && document.getElementById('todoEmptyBtn').textContent === '新しい案件を始める'", 10000)
-          and "ここに出ます" in p3.text_content("#todoEmpty"), "[A] M5: やることが 0 件のときも 2 文 + [新しい案件を始める]: %s" % p3.text_content("#todoEmpty"))
-    p3.click("#emptyIntake")
-    check(wait_js(p3, "document.getElementById('intakeBox').open && document.activeElement && document.activeElement.id === 'intakeEnabled'", 5000),
-          "[A] S-13: 押すと依頼の受付が開き、オン/オフのスイッチへフォーカス(0.54.0: フォルダの欄は設定の画面): %s" % p3.evaluate("document.activeElement && document.activeElement.id"))
-    p3.close()
-
-
-def _next_gone_case(cx):
-    """S-25: スタジオから消えた配信は、まとめて実行を隠さずに押せなくして理由を出す(案件の一覧の応答の e2eCase0001 を gone に)"""
-    check, ctx = cx.check, cx.ctx
-
-    def gone_cases(route):
-        resp = route.fetch()
-        j = resp.json()
-        for c in j.get("cases", []):
-            if c.get("id") == "e2eCase0001":
-                c["gone"] = True
-        route.fulfill(response=resp, json=j)
-    p4 = ctx.new_page()
-    p4.on("pageerror", lambda e: cx.errors.append(str(e)))
-    p4.route("**/api/cases", gone_cases)
-    p4.goto(cx.base)
-    check(wait_js(p4, "!!document.getElementById('case-e2eNext0002')", 15000), "[A] S-25: ホーム")
-    p4.fill("#fText", "案件の通し確認")
-    check(wait_js(p4, "!!document.getElementById('case-e2eCase0001')", 10000), "[A] S-25: 消えた配信の行")
-    time.sleep(1.0)   # まとめて実行の読み込み(renderAuto)のあとも押せないまま
-    g = p4.evaluate("""() => { const n = document.getElementById('case-e2eCase0001'); if (!n) return null;
-        const box = n.querySelector('.pt-auto'), run = n.querySelector('.pt-auto-run'), why = n.querySelector('.pt-auto-why');
-        return [box.hidden, run.disabled, why.hidden, why.textContent, run.getAttribute('aria-describedby') === why.id,
-                n.querySelector('.pt-auto-streamer').disabled, !!n.querySelector('.pt-case-studio a')]; }""")
-    check(g and g[0] is False and g[1] is True and g[2] is False and "スタジオから消えた配信" in g[3] and "入れ直す" in g[3] and g[4] and g[5] and g[6],   # RS8 C3: 案件の画面の校正・パックは開けるので、リンクは消えた配信にも出す
-          "[A] S-25: まとめて実行の欄は出したまま押せない・理由と戻し方を出す: %s" % g)
-    p4.close()
-
-
-def _next_focus_and_enter(cx):
-    """S-24: 実行を押したら中止へフォーカス・終わったら実行へ戻す・配信者の欄の Enter で実行(まとめて実行の API は偽物)"""
-    check, ctx = cx.check, cx.ctx
-    st = {"state": None, "starts": []}
-
-    def fake_run():
-        return {"id": "e2erun00001", "kind": "video", "videoId": "e2eCase0001", "docId": None, "mode": "adopted", "modeLabel": "採用後を全部",
-                "title": CASE_TITLE, "state": st["state"], "created": int(time.time() * 1000), "finished": None, "message": "", "error": "",
-                "steps": [{"key": "pack", "label": "パック", "state": "run" if st["state"] == "running" else "done", "detail": ""}]}
-
-    def fake_start(route):
-        st["starts"].append(route.request.post_data_json)
-        st["state"] = "running"
-        route.fulfill(json={"run": fake_run()})
-    p5 = ctx.new_page()
-    p5.on("pageerror", lambda e: cx.errors.append(str(e)))
-    p5.route("**/api/flow/estimate", lambda route: route.fulfill(json={"steps": [{"label": "パック", "count": 1}], "nothing": False}))
-    p5.route("**/api/flow/submit", fake_start)
-    p5.route("**/api/flow/runs", lambda route: route.fulfill(json={"runs": [fake_run()] if st["state"] else [], "past": [], "modes": {}}))
-    p5.goto(cx.base)
-    check(wait_js(p5, "!!document.getElementById('case-e2eNext0002')", 15000), "[A] S-24: ホーム")
-    p5.fill("#fText", "案件の通し確認")
-    check(wait_js(p5, "!!document.getElementById('case-e2eCase0001')", 10000), "[A] S-24: 案件の行")
-    p5.click("#case-e2eCase0001 .pt-case-title")   # 人と同じく行を押して開く
-    check(wait_js(p5, "document.getElementById('case-e2eCase0001').open === true", 5000), "[A] S-24: 行を開いた")
-    who = "#case-e2eCase0001 .pt-auto-streamer"
-    p5.fill(who, "")   # 色なし(見つからない名前の確かめを出さない)
-    p5.evaluate("s => document.querySelector(s).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true, cancelable: true }))", who)
-    time.sleep(0.5)
-    check(not st["starts"], "[A] S-24: かな漢字変換を確定する Enter では実行しない")
-    p5.press(who, "Enter")
-    check(wait_routed(p5, lambda: len(st["starts"]) == 1, 10) and (((st["starts"][0] or {}).get("envelope") or {}).get("input") or {}).get("videoId") == "e2eCase0001",
-          "[A] S-24: 配信者の欄の Enter で実行した: %s" % st["starts"])
-    check(wait_js(p5, "document.activeElement === document.querySelector('#case-e2eCase0001 .pt-auto-cancel')", 10000),
-          "[A] S-24: 実行を押したらフォーカスは中止へ: %s" % p5.evaluate("document.activeElement && document.activeElement.className"))
-    st["state"] = "done"
-    check(wait_js(p5, "document.querySelector('#case-e2eCase0001 .pt-auto-cancel').hidden"
-                      " && document.activeElement === document.querySelector('#case-e2eCase0001 .pt-auto-run')", 20000),
-          "[A] S-24: 終わったら中止は消えて、フォーカスは実行へ戻る: %s" % p5.evaluate("document.activeElement && document.activeElement.className"))
-    p5.close()
-
-
-def _ui_review_checks(cx):
-    """[A] 2j. UI の見直し 1 周目(B の指摘 M2・M5〜M10・S10・S12): やることが無いときの次の一手・空の表示・フォーカス・札の色・中止・⚙ の「ホーム」の節・失敗の文"""
-    check, ctx, pg = cx.check, cx.ctx, cx.pg
-    # M7: 回る輪の札(run)は本当に動いているときだけ(切り抜きの校正の途中には使わない)
-    check(pg.evaluate("document.querySelectorAll('.pt-clip-steps .pill.run').length") == 0, "[A] M7: 校正の途中の札に回る輪(run)を使わない")
-    # M8: 中止は取り消せる(済んだ段は残る)ので danger にしない
-    check(pg.evaluate("[...document.querySelectorAll('.pt-auto-cancel')].every(b => !b.classList.contains('danger') && b.title.indexOf('続きから') >= 0)"),
-          "[A] M8: 中止は danger でなく、済んだ段が残ることを title に")
-    # S10: すべて見る ⇄ 少なく表示
-    if pg.is_visible("#todoMore"):
-        t0 = pg.text_content("#todoMore")
-        n0 = pg.evaluate("document.querySelectorAll('#todoList .pt-todo-item').length")
-        if t0.startswith("すべて見る"):
-            pg.click("#todoMore")
-            check(pg.text_content("#todoMore") == "少なく表示" and pg.evaluate("document.querySelectorAll('#todoList .pt-todo-item').length") > n0
-                  and pg.evaluate("document.activeElement.classList.contains('pt-todo-link')"), "[A] S10・M6: すべて見る → 最初に増えた行へフォーカス・「少なく表示」に変わる")
-            pg.click("#todoMore")
-            check(pg.text_content("#todoMore").startswith("すべて見る") and pg.evaluate("document.querySelectorAll('#todoList .pt-todo-item').length") == n0,
-                  "[A] S10: 少なく表示で戻る")
-    # M6: 非表示にしたあとフォーカスは次の行へ(body に落ちない)
-    if pg.evaluate("document.querySelectorAll('#todoList .pt-todo-hide').length"):
-        pg.focus("#todoList .pt-todo-hide")
-        pg.keyboard.press("Enter")
-        check(wait_js(pg, "!!document.activeElement && !!document.activeElement.closest('#todoBox')", 5000),
-              "[A] M6: 非表示にしたあと、フォーカスは一覧の中に残る: %s" % pg.evaluate("document.activeElement && document.activeElement.className"))
-        wait_js(pg, "[...document.querySelectorAll('.ui-toast')].some(t => t.querySelector('.ui-toast-act'))", 5000)
-        pg.evaluate("[...document.querySelectorAll('.ui-toast')].reverse().find(t => t.textContent.indexOf('非表示にしました') >= 0).querySelector('.ui-toast-act').click()")
-    # M5: 絞り込みで 0 件 → 2 文 + [絞り込みを消す]
-    pg.fill("#fText", "存在しない配信の名前zzzz")
-    check(wait_js(pg, "!!document.querySelector('#list .empty button')", 5000) and "全部の配信が出ます" in pg.text_content("#list .empty"),
-          "[A] M5: 絞り込みで 0 件のとき 2 文とボタン: %s" % pg.text_content("#list .empty"))
-    check("0 / " in pg.text_content("#count"), "[A] S5: 件数の分母は全体の数: %s" % pg.text_content("#count"))
-    pg.click("#list .empty button")
-    check(wait_js(pg, "document.querySelectorAll('#list .pt-case').length > 0 && document.getElementById('fText').value === ''", 5000), "[A] M5: 絞り込みを消すと戻る")
-    # M10: ⚙ の「ホーム」の節(窓で開く・まとめて実行の既定・試験中の機能)。「詳しく」の中には無い
-    check(pg.evaluate("!document.querySelector('#advancedBox #winBox, #advancedBox #labBox')"), "[A] M10: 窓で開く・試験中の機能は「詳しく」から ⚙ の「ホーム」の節へ移った(二重にしない)")
-    pg.click("[data-ui-settings]")
-    check(wait_js(pg, "!!document.querySelector('#uiSettingsDrawer #homeSettings #winBox') && !!document.querySelector('#uiSettingsDrawer #homeSettings #setGoPage')", 5000)
-          and pg.evaluate("document.querySelector('#uiSettingsDrawer #homeSettings > h3').textContent") == "ホーム"
-          and pg.evaluate("!document.querySelector('#homeSettings #labBox, #homeSettings .ui-ar-sum, #homeSettings #setAutorun')"),
-          "[A] M10: ⚙ に「ホーム」の節(窓で開く と 設定の画面へのリンク。0.54.0: まとめて実行の既定・試験中の機能の欄は設定の画面へ)")
-    check((pg.get_attribute("#setGoBackup", "href") or "").endswith("settings#uiSetGroup-backup") and (pg.get_attribute("#setGoPage", "href") or "").endswith("settings#sec-home"),
-          "[A] M10: ⚙ の「バックアップ」「設定の画面を開く」は設定の画面の節へのリンク")
-    pg.click("#uiSettingsDrawer .ui-drawer-head button[aria-label=閉じる]")   # 閉じる(開いたままだと後の場面でキーが届かない)
-    check(wait_js(pg, "!document.getElementById('uiSettingsDrawer').classList.contains('in')", 5000), "[A] M10: ⚙ を閉じる")
-    # M2: 候補だけの配信で [実行] → やることが無い。理由だけでなく次の一手のボタンを出す
-    p6 = ctx.new_page()
-    p6.on("pageerror", lambda e: cx.errors.append(str(e)))
-    p6.route("**/api/flow/estimate", lambda route: route.fulfill(json={"steps": [{"label": "書き出し", "count": 0, "note": "採用したマークがありません"}],
-                                                                           "nothing": True, "reason": "採用したマークがありません"}))
-    p6.goto(cx.base)
-    check(wait_js(p6, "document.querySelectorAll('.pt-case').length > 0", 15000), "[A] M2: ホーム")
-    p6.fill("#fText", "次テスト 候補")
-    check(wait_js(p6, "!!document.getElementById('case-e2eNext0001')", 10000), "[A] M2: 候補だけの配信の行")
-    p6.click("#case-e2eNext0001 .pt-case-title")
-    p6.fill("#case-e2eNext0001 .pt-auto-streamer", "")
-    p6.click("#case-e2eNext0001 .pt-auto-run")
-    check(wait_js(p6, "[...document.querySelectorAll('.ui-toast')].some(t => t.textContent.indexOf('やることがありません') >= 0 && t.textContent.indexOf('候補を採用') >= 0"
-                      " && t.querySelector('.ui-toast-act') && t.querySelector('.ui-toast-act').textContent === '候補の確認へ')", 10000),
-          "[A] M2: やることが無いとき、理由 + 次の一歩 + [候補の確認へ]: %s" % p6.evaluate("[...document.querySelectorAll('.ui-toast')].map(t => t.textContent)"))
-    p6.evaluate("document.querySelector('.ui-toast-act').click()")
-    p6.wait_for_url(lambda u: "/cases" in u and "c=e2eNext0001" in u and u.endswith("#cand"), timeout=20000)
-    check(True, "[A] M2: [候補の確認へ] は案件の画面の候補でその配信を開く: %s" % p6.url)
-    p6.close()
-    # M9: 案件の一覧を読めなかったとき: 欄の中に 2 文 + [読み込み直す](赤い帯は接続の文だけ。接続の確認で消えない)・次にやることも帯を指さない
-    fail = {"on": True}
-    p8 = ctx.new_page()
-    p8.on("pageerror", lambda e: cx.errors.append(str(e)))
-    p8.route("**/api/cases", lambda route: route.fulfill(status=500, json={}) if fail["on"] else route.continue_())
-    p8.goto(cx.base)
-    check(wait_js(p8, "!!document.querySelector('#list .empty button')", 15000), "[A] M9: 一覧を読めないとき、欄の中に 2 文とボタンが出る")
-    time.sleep(3.5)   # 接続の確認(/api/status)が何度か回っても、一覧の文は消えない
-    et = p8.text_content("#list .empty")
-    check("案件の一覧を読めませんでした" in et and "読み込み直す" in et and "HTTP" not in et and p8.is_hidden("#errbar"),
-          "[A] M9: 一覧の失敗の文は欄に残り(何が + どうすれば)、本文に HTTP の番号を出さず、赤い帯は出さない: %s" % et)
-    check("案件の一覧の欄" in p8.text_content("#todoEmpty") and "上の赤い帯" not in p8.text_content("#todoEmpty"), "[A] M9: 次にやることは存在しない帯を指さない: %s" % p8.text_content("#todoEmpty"))
-    fail["on"] = False
-    p8.click("#list .empty button")
-    check(wait_js(p8, "document.querySelectorAll('#list .pt-case').length > 0", 15000), "[A] M9: [読み込み直す] で一覧が戻る")
-    # N1: 案件の行の「パックの音量」は出さない(「設定を変える」の中だけ。1 行に 2 か所にしない)
-    check(p8.evaluate("document.querySelectorAll('.pt-auto-loud, .pt-auto-loudsel').length") == 0, "[A] N1: 案件の行にパックの音量の欄を二重に出さない")
-    p8.close()
+    now = int(time.time() * 1000)
+    intake = {"enabled": True, "folder": "C:\\Dropbox\\アプリ\\切り抜き依頼", "top": 3, "maxHours": 6, "maxGB": 10, "state": "watching", "stateLabel": "見張り中",
+              "message": "", "lastScan": now - 90000, "today": 1,
+              "requests": [{"id": "r1", "kind": "url", "source": "app", "title": "【雑談】<b>朝の配信</b>", "streamer": "さくらみこ", "memo": "",
+                            "received": now - 300000, "state": "accepted", "stateLabel": "受け付けた", "reason": "", "runIds": [],
+                            "items": [{"label": "https://www.youtube.com/watch?v=AAAAAAAAAAA", "state": "accepted", "reason": ""}]}],
+              "notices": [{"at": now - 600000, "receivedAt": now - 60000, "requestId": "r1", "title": "さくらみこ|<i>朝の配信</i>", "message": "直りませんでした",
+                           "detail": "", "code": "transcribe", "appVersion": "1.0.0", "hasLog": False}]}
+    p = ctx.new_page()
+    p.on("pageerror", lambda e: cx.errors.append(str(e)))
+    p.route("**/api/intake", lambda route: route.fulfill(json=intake))
+    p.goto(cx.base)
+    p.evaluate("document.getElementById('opsBox').open = true; document.getElementById('intakeBox').open = true")
+    check(wait_js(p, "document.querySelectorAll('#intakeList .pt-intake-item').length === 1 && !document.getElementById('intakeNotices').hidden", 15000),
+          "[A] 依頼の受付: 依頼の一覧と友人からの知らせが出る: %s" % p.evaluate("(document.getElementById('intakeList') || {}).textContent"))
+    check("【雑談】<b>朝の配信</b>" in (p.inner_text("#intakeList") or "") and p.eval_on_selector_all("#intakeList b", "e => e.length") == 0
+          and "<i>朝の配信</i>" in (p.text_content("#intakeNoticeList") or "") and p.eval_on_selector_all("#intakeNoticeList i", "e => e.length") == 0,
+          "[A] 依頼の題名・知らせの題の HTML は要素にならない(文字のまま)")
+    p.close()
 
 
 def _mounted_theme_narrow(cx):
-    """[A] 7. テーマ・8. 狭い画面(/cases.html の転送は 2h の表へ移した)"""
-    base, check, ctx, pg, shots = cx.base, cx.check, cx.ctx, cx.pg, cx.shots
-    # 7. テーマ(ui-kit)
-    before = pg.get_attribute("html", "data-theme")
-    check(pg.locator("[data-theme-toggle]").count() == 0, "[A] ヘッダーに明暗の切り替えボタンは無い(⚙ 設定のテーマで選ぶ)")
-    want = "dark" if before != "dark" else "light"
-    pg.click("[data-ui-settings]")
-    theme_sel = "#uiSettingsDrawer .ui-settings-row:has-text('テーマ') select"
-    pg.wait_for_selector(theme_sel, state="visible")
-    pg.select_option(theme_sel, want)
-    after = pg.get_attribute("html", "data-theme")
-    check(before != after and after == want, "[A] ⚙ 設定のテーマで切り替え %s → %s" % (before, after))
-    pg.keyboard.press("Escape")
-
-    # 8. 狭い画面(縦に並ぶ・横にはみ出さない)。案件の一覧(いまの主役)で確かめる
-    mob = ctx.new_page()
+    """[A] 8. 狭い画面のタブを開いておく(10. の切断の表示に使う)。テーマの切り替え・はみ出しは画面の道から外した(テストの見直し 10-18。ui_audit の A-20)"""
+    mob = cx.ctx.new_page()
     mob.set_viewport_size({"width": 375, "height": 800})
-    mob.goto(base)
-    check(wait_js(mob, "document.querySelectorAll('.pt-case').length >= 2"), "[A] 狭い画面でも案件の一覧が出る")
-    check(mob.evaluate("document.documentElement.scrollWidth <= window.innerWidth"), "[A] 狭い画面で横にはみ出さない")
-    xs = mob.evaluate("[...document.querySelectorAll('#list .pt-case')].slice(0, 3).map(e => Math.round(e.getBoundingClientRect().left))")
-    check(len(set(xs)) == 1, "[A] 狭い画面では縦に並ぶ: %s" % xs)
-    if shots:
-        mob.screenshot(path=os.path.join(shots, "portal-mobile.png"), full_page=True)
+    mob.goto(cx.base)
+    cx.check(wait_js(mob, "document.querySelectorAll('.pt-case').length >= 2"), "[A] 狭い画面でも案件の一覧が出る")
+    if cx.shots:
+        mob.screenshot(path=os.path.join(cx.shots, "portal-mobile.png"), full_page=True)
     cx.mob = mob
 
 

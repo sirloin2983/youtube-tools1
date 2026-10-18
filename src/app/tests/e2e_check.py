@@ -6,7 +6,7 @@
 見るもの: 開く(帯 = 今日 n 件・この確認で決まる物・このあと・最初のカード)・URL の c / kind を口へ渡す / A で答える → 送った中身・すぐ次へ /
 Z で 1 つ前に戻す(undo の id・カードが戻る・今日の数)/ N で飛ばす(skip を送る・Z では戻らない)/ 答えのボタン = キーと同じ道 /
 誰の声のカード = 再生が終わるまで Enter は効かない・自動で再生して区間で止まる / 時刻のカード = 波形の帯 / 10 件ごとのまとめ(Enter で続ける)/
-全部答えた空の状態(back=cases なら案件へ戻る)/ 答えを記録できない(カードが戻る)/ 一覧を読めない(もう一度)/ 幅 390 で横にはみ出さない /
+全部答えた空の状態(back=cases なら案件へ戻る)/ 答えを記録できない(カードが戻る)/ 一覧を読めない(もう一度)/
 ヘッダー(appnav・版・設定)/ コンソールにエラーが無い。"""
 import json
 import os
@@ -507,25 +507,6 @@ def _scene_eval_lane(cx):
         _restore_queue(cx, eval_routes)
 
 
-def _scene_eval_empty(cx):
-    """評価のレーンが空: スイッチが切れているとき(sectionCards false)は「試験中」の文 + 設定へ"""
-    pg, check = cx.pg, cx.check
-    fe = FakeQueue([])
-    fe.section_cards = False
-    _swap_queue(cx, fe)
-    try:
-        pg.goto(cx.base + "check?lane=eval")
-        check(wait_js(pg, "CheckShell.state().empty"), "空の状態: %s" % state(pg))
-        check("区間カードは試験中" in pg.text_content("#chkEmpty") and pg.get_attribute("#chkEmpty a.btn.primary", "href") == "settings",
-              "スイッチが切れていれば 試験中 の文と設定へ: %r" % pg.text_content("#chkEmpty")[:80])
-        fe.section_cards = True
-        pg.goto(cx.base + "check?lane=eval")
-        check(wait_js(pg, "CheckShell.state().empty") and "区間カードは試験中" not in pg.text_content("#chkEmpty") and "評価用の動画はありません" in pg.text_content("#chkEmpty"),
-              "スイッチが入っていて空なら 別の文: %r" % pg.text_content("#chkEmpty")[:80])
-    finally:
-        _restore_queue(cx)
-
-
 def wait_for(fn, timeout=8):
     end = time.time() + timeout
     while time.time() < end:
@@ -533,15 +514,6 @@ def wait_for(fn, timeout=8):
             return True
         time.sleep(0.1)
     return False
-
-
-def _scene_narrow(cx):
-    pg, check = cx.pg, cx.check
-    pg.set_viewport_size({"width": 390, "height": 844})
-    pg.goto(cx.base + "check")
-    check(wait_js(pg, "!!CheckShell.state().cur"), "幅 390 で開く")
-    check(pg.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), "幅 390 で横にはみ出さない: %s" % pg.evaluate("document.documentElement.scrollWidth"))
-    pg.set_viewport_size({"width": 1280, "height": 900})
 
 
 def fixture_cards():
@@ -605,13 +577,11 @@ def main():
                 _scene_kinds(cx)
                 _scene_summary_and_end(cx)
                 _scene_failures(cx)
-                _scene_narrow(cx)
                 _scene_read_type(cx)
                 _scene_voice(cx)
                 _scene_speech(cx)
                 _scene_cut(cx)
                 _scene_eval_lane(cx)
-                _scene_eval_empty(cx)
                 check(all("lane" not in q for q in fq.next_q), "普段のレーンは lane=eval を渡さない")
                 _scene_real_api(cx)
                 unexpected = [s for s in bad_status if not s.startswith("500 ")]
