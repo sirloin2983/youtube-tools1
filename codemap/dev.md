@@ -35,7 +35,7 @@
   - 名前: `layer_of_dir` :58・`dependents` :65・`select` :70・`pick_units` :89・`run_units` :96・`count_of` :107・`run_check` :113・`run_tool` :127・`table_folders` :139・`table_drift` :153・`git` :177・`worktree_of` :182・ほか 8
 - **layer_map.py** (133 行) — 役割の層と、今のファイルの行き先(役割で組み直す計画 `notes:plan/done/role-restructure.md` の 7 節を機械で読める形にしたもの。RS0。RS6 a-0 で 5 つの層に)。
   - 名前: `layer_of` :113・`allowed` :123
-- **lint.py** (409 行) — コードの見直しの合格の基準を測る道具(読むだけ。基準は `notes:docs/spec/code.md`)。
+- **lint.py** (395 行) — コードの見直しの合格の基準を測る道具(読むだけ。基準は `notes:docs/spec/code.md`)。
   - 名前: `walk` :64・`read` :72・`rel` :80・`is_test` :84・`class Corpus` :88・`py_files` :109・`has_mark` :116・`unused_imports` :121・`dead_names` :145・`long_functions` :160・`dup_helpers` :171・`js_dead` :187・ほか 7
 - **members_channels.py** (151 行) — 名簿 friend-apps/holo-colors/members.json の JP・DEV_IS の各メンバーに YouTube のチャンネル ID(channel)を入れる・確かめる道具。
   - 名前: `read_text` :29・`targets` :34・`norm` :43・`fetch_rss` :48・`verdict` :69・`cmd_check` :81・`cmd_set` :106・`main` :140
@@ -57,8 +57,8 @@
   - 名前: `find_node` :26・`summary` :49・`main` :62
 - **run_unit.py** (189 行) — unittest を層ごと・フォルダごとに流す道具(1 本ずつ別のプロセス)。リポジトリ直下で:
   - 名前: `find_files` :46・`matches` :61・`build_units` :78・`run_one` :100・`report` :115・`run_all` :130・`print_summary` :149・`main` :159
-- **session_start.py** (442 行) — セッションの入口の要約(2026-10-18)。新しい AI のセッションが最初に流し、今の状態を 1 画面(150 行以内)で見る。
-  - 名前: `cut` :50・`run` :55・`git` :65・`read` :69・`git_block` :79・`versions` :99・`worklog_block` :108・`boundary_dirs` :124・`boundary_notes` :132・`boundary_block` :147・`load_items` :161・`plan_block` :171・ほか 15
+- **session_start.py** (441 行) — セッションの入口の要約(2026-10-18)。新しい AI のセッションが最初に流し、今の状態を 1 画面(150 行以内)で見る。
+  - 名前: `cut` :49・`run` :54・`git` :64・`read` :68・`git_block` :78・`versions` :98・`worklog_block` :107・`boundary_dirs` :123・`boundary_notes` :131・`boundary_block` :146・`load_items` :160・`plan_block` :170・ほか 15
 - **spec_check.py** (222 行) — 仕様(保管庫の docs/spec/)とコードの食い違いを探す(2026-10-18)。
   - 名前: `git_files` :45・`read` :51・`class Code` :59・`spec_files` :77・`live_lines` :86・`norm_api` :103・`clean_path` :111・`setting_keys` :116・`check` :132・`gone` :183・`main` :200
   - 受ける口: 

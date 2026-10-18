@@ -37,19 +37,19 @@
   - 名前: `friend_ranges` :75・`load_archive` :90・`candidates` :110・`peak_ratio` :134・`samples` :146・`suggest` :163・`compute` :186・`usable` :206・`describe` :216・`change` :228
 - **live_adopt.py** (276 行) — ライブの採用 = サーバー側の「マーク + 書き出し」(線 D の M1。役割で組み直す RS7-2 G1b。資料の git:cbe1a64:docs/design/surveys/rs7-survey-2026-10-10/plan_order_v3.md)。
   - 名前: `adopt_secs` :42・`pad_secs` :63・`top_of` :75・`class StudioMarks` :85・`class LocalMarks` :128・`class Adopter` :220
-- **live_archive.py** (1538 行) — 録画に無い区間をアーカイブ(YouTube)から書き出す(線 D の P4 の残り。notes:plan/line-d-live-clipping.md の 0-9)と、配信後の全自動(M7)の入口の側の中身。
-  - 名前: `from_archive` :148・`needs_archive` :153・`class ArchiveError` :159・`class Later` :163・`run_proc` :172・`probe_archive` :204・`readiness` :246・`fetch_full_audio` :264・`worker_python` :294・`run_align` :299・`inside` :313・`ended_at` :319・ほか 5
+- **live_archive.py** (1533 行) — 録画に無い区間をアーカイブ(YouTube)から書き出す(線 D の P4 の残り。notes:plan/line-d-live-clipping.md の 0-9)と、配信後の全自動(M7)の入口の側の中身。
+  - 名前: `from_archive` :146・`needs_archive` :151・`class ArchiveError` :157・`class Later` :161・`run_proc` :170・`probe_archive` :202・`readiness` :244・`fetch_full_audio` :262・`worker_python` :292・`run_align` :297・`inside` :311・`ended_at` :317・ほか 5
 - **live_detect.py** (755 行) — 配信中の盛り上がりの検出(線 D の L2)と自動の採用(M11)の入口の側。計画は notes:plan/line-d-detect.md(3 の「候補の API の約束」は線 2 = スタジオの画面との境目。変えない)。
   - 名前: `clean_spec` :81・`overlay` :95・`merge_spans` :115・`measured_holes` :126・`class Detector` :146
-- **live_export.py** (1389 行) — リアルタイム切り抜き(線 D の P2: マークと書き出し。notes:plan/line-d-live-clipping.md の 0・5・6)の入口の側の中身。
-  - 名前: `class LiveError` :114・`pick_folder` :126・`rec_list` :135・`latest_per_mark` :144・`cleaned_up` :154・`check_after` :166・`check_origin` :178・`clean_auto` :187・`check_streamer` :193・`deliver_pool` :205・`job_after` :216・`studio_mark_id` :222・ほか 6
+- **live_export.py** (1388 行) — リアルタイム切り抜き(線 D の P2: マークと書き出し。notes:plan/line-d-live-clipping.md の 0・5・6)の入口の側の中身。
+  - 名前: `class LiveError` :114・`pick_folder` :126・`rec_list` :135・`latest_per_mark` :144・`cleaned_up` :154・`check_after` :165・`check_origin` :177・`clean_auto` :186・`check_streamer` :192・`deliver_pool` :204・`job_after` :215・`studio_mark_id` :221・ほか 6
 - **live_failures.py** (173 行) — リアルタイム切り抜き(線 D)の失敗の集約(M3。notes:plan/line-d-auto-pack.md の 4)。
   - 名前: `failure_of` :49・`after_stream_failure` :74・`detect_failure` :91・`keep_failure` :107・`delete_notice` :117・`class Reader` :126・`collect` :154
 - **live_patrol.py** (64 行) — ライブの見回りの糸の骨組み(OPT2。live_export.Exporter・live_archive.Archiver・live_tx.LiveTx が継ぐ)と中止の例外 1 組。
   - 名前: `class Halted` :14・`class Patrol` :18
 - **live_report.py** (242 行) — 配信(録画)ごとの結果の記録(線 D の D-12。10-08 ユーザー決定。長い配信の確かめ U4 と、数の決め直し D-15・当たり具合 L5 の材料)。
   - 名前: `key_of` :60・`class Reporter` :64
-- **live_retire.py** (188 行) — 録画の片付けの ② の口(OPT2 の 7x-1。plan/opt-manage.md の 7e・7f): 「この録画を消してよいか(理由)」の読み口と、
+- **live_retire.py** (156 行) — 録画の片付けの ② の口(OPT2 の 7x-1。plan/opt-manage.md の 7e・7f): 「この録画を消してよいか(理由)」の読み口と、
   - 名前: `stale_ok` :27・`near` :32・`exported_why` :37・`adopted_why` :52・`class Retire` :66
 - **live_tx.py** (481 行) — 配信中の候補の文字起こし(線 D の D-11 案 b。ホーム 0.48.0。notes:plan/line-d-live-clipping.md の 0-11。2026-10-08 ユーザー決定「b をやる」)。
   - 名前: `shift_rows` :59・`class LiveTx` :73
@@ -67,8 +67,8 @@
   - 名前: `new_id` :29・`people_of` :34・`spec_diff` :52・`order` :103
 - **outbox.py** (264 行) — ② 管理の層 flow: 送り返しの zip(F1 の F2。docs/design/f1-build.md の 2・3 の (f1d)(f1m)・plan/f1-friend-pc.md の決めたこと 11)。
   - 名前: `outbox_dir` :48・`scrub` :57・`default_health` :92・`build` :131・`list_outbox` :223・`mark_done` :246
-- **pack.py** (66 行) — ② パックの口(役割で組み直す RS6 a-5a。2026-10-10)。人とデータの層(③・④)が Resolve のパックの部品(① pipeline/pack/resolve_export)を直に読まずに済む動詞。
-  - 名前: `cut_draft` :26・`cut_preview` :32・`handoff_files` :37・`media_plan` :54・`instructions` :61
+- **pack.py** (65 行) — ② パックの口(役割で組み直す RS6 a-5a。2026-10-10)。人とデータの層(③・④)が Resolve のパックの部品(① pipeline/pack/resolve_export)を直に読まずに済む動詞。
+  - 名前: `cut_draft` :25・`cut_preview` :31・`handoff_files` :36・`media_plan` :53・`instructions` :60
 - **packjobs.py** (127 行) — ② 管理の層 flow: パックのジョブの器(OPT2 後半 J3・J6。2026-10-11)。cut2resolve/serve.py の Job・AppState のジョブの部分を移した。
   - 名前: `class Job` :23・`board_job` :51・`class PackJobs` :78
 - **packrec.py** (131 行) — ② 管理の層 flow: パックを作った記録(作業データの packs/<フォルダのハッシュ>.json)の持ち主(OPT-M2。notes:plan/done/opt-manage.md の 3b-1)。
@@ -77,8 +77,8 @@
   - 名前: `studio_data` :50・`case_root` :63・`doc_home` :91・`configured_out_dir` :125・`request_root` :133・`case_parents` :156・`case_roots` :162・`find_request_dir` :183・`work_dir` :204・`runs_dir` :210・`case_path` :228・`read_case` :233・ほか 10
 - **prio.py** (88 行) — ② 管理の層 flow: 処理の優先度の表(PRIO。決定 3-49・notes:plan/done/opt-series.md の 11)。
   - 名前: `name_ok` :35・`rank` :39・`idle_only` :43・`os_priority` :47・`label` :51・`slot_kw` :55・`of_run` :60・`of_spec` :69・`watch` :80・`idle_now` :85
-- **run.py** (1433 行) — ① 自動の流れの経路(役割で組み直す RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。
-  - 名前: `class Cancelled` :117・`class StepError` :121・`mode_of` :142・`steps_of` :165・`analyze_verdict` :203・`adopted_ids` :208・`tx_verdict` :213・`pack_verdict` :220・`doc_pack_hint` :230・`class Run` :242・`class Runner` :529・`run` :1414
+- **run.py** (1432 行) — ① 自動の流れの経路(役割で組み直す RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。
+  - 名前: `class Cancelled` :117・`class StepError` :121・`mode_of` :141・`steps_of` :164・`analyze_verdict` :202・`adopted_ids` :207・`tx_verdict` :212・`pack_verdict` :219・`doc_pack_hint` :229・`class Run` :241・`class Runner` :528・`run` :1413
 - **runlog.py** (93 行) — まとめて実行の「終わった実行の記録」の形と読み方(役割で組み直す RS3-0B。入口 src/app/autorun.py から移した。動きは変えていない)。
   - 名前: `read_runs_log` :47・`read_result` :77
 - **runqueue.py** (834 行) — ② 管理の層 flow: 待ち行列と実行の糸(役割で組み直す RS7-1 S5。2026-10-10。決定 3-30・
@@ -104,7 +104,7 @@
 - src/flow/tests/_runfields.py — テストが共有する部品: 以前の Run の欄の形(Run(video_id, title, mode, top, 欄...))から Run を作る(RV A2 で Run を作るのは封筒 + 束だけになった)。
 - src/flow/tests/test_board.py — flow/board.py(② のジョブの掲示板。RS8 の ② の口 S1)のテスト。  py -3.12 -m unittest src/flow/tests/test_board.py -v
 - src/flow/tests/test_casebook.py — src/flow/casebook.py(案件の候補と採用のファイル。RS8 B3-3)のテスト。リポジトリ直下で:
-- src/flow/tests/test_deliver.py — パックを友人へ届ける(src/human/friend/deliver.py・入口の api/ytt/deliver)の単体テスト。一時フォルダだけを使う。
+- src/flow/tests/test_deliver.py — パックを友人へ届ける(src/flow/deliver.py・入口の api/ytt/deliver)の単体テスト。一時フォルダだけを使う。
 - src/flow/tests/test_diar.py — flow/diar(② 話者判別と声の段取り)のうち、行の選び方と照合のつなぎ・覚えた声の記録のテスト(RS7-1 1e)。
 - src/flow/tests/test_envelope.py — flow/envelope.py(依頼の封筒。RS7-1 S3)のテスト。  py -3.12 -m unittest src/flow/tests/test_envelope.py -v
 - src/flow/tests/test_export_jobs.py — ② 書き出しの器 flow/export.ExportJobs(OPT2 の J2)。① の中身(exporter.run)は差し替える。
