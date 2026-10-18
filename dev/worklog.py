@@ -4,6 +4,8 @@
     python dev/worklog.py new <セッションの名前> [--date YYYY-MM-DD] [--title 見出し] [--who "Claude Code(…。Opus)"]
         # docs/worklog/<その週の月曜>週/<日付>-<名前>.md を作り(あればそのまま)、パスを出す。続けて週のまとめを作り直す
     python dev/worklog.py build      # 週のまとめ docs/worklog/<週>週.md の自動の部分と docs/worklog/README.md(記録の書式と週の一覧)の週の一覧を作り直す
+    python dev/worklog.py check <セッションの名前かパス>   # 報告の型の検査(決まった見出し・英字の割合)。見出しが欠けたら終了コード 1
+        # dev/land.py が main に入れる前に、入れるセッションの記録について流す(名前の既定 = ブランチの claude/ と末尾の -16 進を外した物)
 
 セッションのファイルは、そのセッションだけが書く(ほかのセッションの記録を巻き込まない・末尾の取り合いが無い)。
 頭のプロパティ「まとめ」(1 行)を、週のまとめの「## まとめ」に新しい順で並べる。1 つのセッションで何度か書くときは同じファイルに「## 」で足す。
@@ -26,16 +28,29 @@ SESSION_FILE = re.compile(r"^(\d{4}-\d{2}-\d{2})-(.+)\.md$")
 NAME_OK = re.compile(r"^[^\\/:*?\"<>|\s]+$")
 LIST_HEAD = "## 週のファイル(新しい週が上)"
 PLACEHOLDER = "(1 行で。週のまとめに出る)"
+# 報告の型(2026-10-18。AGENTS.md の「作業の記録」)。各見出しが 1 回は要る(中身が無ければ「なし」)。「## 見出し」か「- 見出し:」の形
+HEADINGS = ("直した物", "確かめた物", "本物ではまだ確かめていない物", "ユーザーがすること")
 TEMPLATE = """---
 種類: 記録
 状態: 有効
 まとめ: {summary}
 ---
 # {date} {who}— {title}
-- 変更:
-- 確かめ:
+- 直した物:
+- 確かめた物:
+- 本物ではまだ確かめていない物:
+- ユーザーがすること: なし
+- 仮で決めたこと: なし
 - 未コミット: なし
 """
+# 英字の割合: コードの名前・パス・コマンド(`…`・``` の塊・リンクの先・URL・. / \ : を含む語)は数えない。
+# 10-18 までの日本語の記録は 0.18〜0.29(仮名と漢字は 1 字ずつ・英字も 1 字ずつ数える)。英語の文が混ざると 0.5 を超える
+EN_LIMIT = 0.45
+EN_MIN_CHARS = 300   # これより短い記録は割合を見ない(雛形のままなど)
+_DROP = [re.compile(p, re.S) for p in (r"```.*?```", r"`[^`\n]*`", r"\]\([^)]*\)", r"https?://\S+",
+                                         r"[A-Za-z0-9_.\-]*[/\\.:][A-Za-z0-9_./\\\-]+")]
+_ASCII = re.compile(r"[A-Za-z]")
+_JP = re.compile(r"[぀-ヿ㐀-鿿＀-￯]")
 
 
 def worklog_dir(notes=None):
@@ -167,6 +182,60 @@ def new(name, day=None, title="", who="Claude Code ", notes=None):
     return path
 
 
+def body_of(text):
+    """頭の YAML を外した本文"""
+    if text.startswith("---\n"):
+        end = text.find("\n---", 4)
+        if end >= 0:
+            return text[end + 4:]
+    return text
+
+
+def english_ratio(text):
+    """-> (英字の割合, 英字の数, 日本語の字の数)。コードの名前・パス・コマンドは数えない"""
+    t = body_of(text)
+    for r in _DROP:
+        t = r.sub(" ", t)
+    a, j = len(_ASCII.findall(t)), len(_JP.findall(t))
+    return a / max(1, a + j), a, j
+
+
+def missing_headings(text):
+    """決まった見出しのうち、無い物"""
+    body = body_of(text)
+    return [h for h in HEADINGS
+            if not re.search(r"^(#{2,4}\s*|[-*]\s*(\*\*)?)%s(\*\*)?\s*([:：(]|$)" % re.escape(h), body, re.M)]
+
+
+def find_session(name, notes=None):
+    """セッションの名前 → 記録のファイル(いちばん新しい物)。パスならそのまま。無ければ None"""
+    if os.path.isfile(name):
+        return name
+    d = worklog_dir(notes)
+    if not os.path.isdir(d):
+        return None
+    found = []
+    for w in os.listdir(d):
+        wp = os.path.join(d, w)
+        if WEEK_DIR.match(w) and os.path.isdir(wp):
+            for n in os.listdir(wp):
+                m = SESSION_FILE.match(n)
+                if m and m.group(2) == name:
+                    found.append((m.group(1), os.path.join(wp, n)))
+    return max(found)[1] if found else None
+
+
+def check(path):
+    """報告の型の検査 -> (止める問題, 警告)。見出しが欠けたら止める・英字の割合は警告だけ"""
+    text = read(path)
+    probs = ["見出し「%s」が無い(中身が無ければ「- %s: なし」)" % (h, h) for h in missing_headings(text)]
+    ratio, a, j = english_ratio(text)
+    warns = []
+    if a + j >= EN_MIN_CHARS and ratio > EN_LIMIT:
+        warns.append("英字が多い(%.0f%%。目安 %.0f%% 以下。コードの名前・パスは `…` で囲むと数えない)" % (ratio * 100, EN_LIMIT * 100))
+    return probs, warns
+
+
 def main(argv):
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -180,7 +249,21 @@ def main(argv):
     p.add_argument("--title", default="")
     p.add_argument("--who", default="Claude Code ")
     sub.add_parser("build")
+    p = sub.add_parser("check")
+    p.add_argument("name")
     a = ap.parse_args(argv)
+    if a.cmd == "check":
+        path = find_session(a.name)
+        if not path:
+            print("記録のファイルが無い: %s(dev/worklog.py new %s で作る)" % (a.name, a.name))
+            return 1
+        probs, warns = check(path)
+        for s in probs:
+            print("[止める] " + s)
+        for s in warns:
+            print("[警告] " + s)
+        print("%s: 問題 %d・警告 %d" % (path, len(probs), len(warns)))
+        return 1 if probs else 0
     if a.cmd == "new":
         day = datetime.date.fromisoformat(a.date) if a.date else None
         print(new(a.name, day, a.title, a.who))

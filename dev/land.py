@@ -5,6 +5,8 @@
         # worktree の中から流してよい(ブランチの既定 = 今のブランチ)。main をチェックアウトしている作業フォルダで merge する
 
 各セッションは版を上げない(version.py と README の見出しを触らない)。main に入れる時にこの道具が上げるので、取り込みが重なっても番号がかぶらない:
+  0. 関所(dev/land_gate.py。錠の外 = ほかの取り込みを待たせない): lint・計画のデータ・資料のパス・変えた層の単体テスト・作業の記録の型。
+     落ちたら止める。抜けるのは --skip-tests・--skip-checks・--skip-worklog の明示だけ(git の共通ディレクトリの ytt-land.log に残る)
   1. 錠(git の共通ディレクトリの ytt-land.lock)を取る = 同時に流しても 1 つずつ
   2. main の作業フォルダの追跡中のファイルに未コミットの変更があれば止める(ほかの人の作業途中)
   3. git merge <ブランチ>(ff できれば ff)。ぶつかったら merge --abort して止める(版の 2 か所だけのぶつかりは main の側を取る)
@@ -272,14 +274,30 @@ def main(argv):
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--wait", type=int, default=600, help="ほかの取り込みを待つ秒")
     ap.add_argument("--repair", action="store_true", help="取り込まずに、上げ忘れ(前回の版上げのあとに動く物が変わった)だけを直す")
+    import land_gate
+    land_gate.add_args(ap)
     a = ap.parse_args(argv)
+    gate, landed = None, False
     try:
         branch = None if a.repair else (a.branch or git("rev-parse", "--abbrev-ref", "HEAD").strip())
-        land(branch, a.mode or "auto", a.message, a.dry_run, a.wait)
+        if branch and branch not in ("main", "HEAD") and git("rev-list", "main.." + branch).strip():
+            gate = land_gate.run(branch, REPO, land_gate.skips(a), a.worklog, a.jobs)
+            land_gate.report(gate)
+            if gate.problems:
+                raise Stop("関所で止めた(上の [落ちた] を直して流し直す)")
+        msg = a.message
+        if gate and gate.skipped:
+            msg = (msg + "・" if msg else "") + "関所を抜いた: " + "・".join(gate.skipped)
+        land(branch, a.mode or "auto", msg, a.dry_run, a.wait)
+        landed = not a.dry_run
         return 0
     except Stop as e:
         print("[止めた] %s" % e)
         return 1
+    finally:
+        if gate and not a.dry_run:
+            common = os.path.normpath(os.path.join(REPO, git("rev-parse", "--git-common-dir").strip()))
+            land_gate.record(common, branch, gate, landed)
 
 
 if __name__ == "__main__":

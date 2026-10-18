@@ -29,8 +29,10 @@
   - 名前: `install` :246
 - **guard_hook.py** (434 行) — Claude Code の PreToolUse のフック: 事故のもとになる操作を機械が断る(2026-10-18)。標準ライブラリだけ・速く。
   - 名前: `class Tok` :51・`tok` :56・`tokenize` :62・`pipelines` :137・`word_of` :155・`norm_path` :171・`is_main_checkout` :184・`generated_kind` :198・`check_kill` :216・`check_sed` :242・`git_sub` :255・`check_git` :271・ほか 9
-- **land.py** (287 行) — 作業のブランチを main に入れ、版(src/ytt/version.py の VERSION と README.txt の見出し)を道具が 1 つ上げる(2026-10-18)。
-  - 名前: `class Stop` :36・`git` :40・`main_worktree` :49・`bump` :60・`read_version` :65・`set_version` :72・`set_readme` :76・`needs_bump` :86・`read_file` :91・`write_file` :96・`pid_alive` :101・`class Lock` :119・ほか 5
+- **land.py** (305 行) — 作業のブランチを main に入れ、版(src/ytt/version.py の VERSION と README.txt の見出し)を道具が 1 つ上げる(2026-10-18)。
+  - 名前: `class Stop` :38・`git` :42・`main_worktree` :51・`bump` :62・`read_version` :67・`set_version` :74・`set_readme` :78・`needs_bump` :88・`read_file` :93・`write_file` :98・`pid_alive` :103・`class Lock` :121・ほか 5
+- **land_gate.py** (318 行) — main に入れる前の関所(dev/land.py が版を上げる前に流す。2026-10-18)。単独でも流せる:
+  - 名前: `layer_of_dir` :58・`dependents` :65・`select` :70・`pick_units` :89・`run_units` :96・`count_of` :107・`run_check` :113・`run_tool` :127・`table_folders` :139・`table_drift` :153・`git` :177・`worktree_of` :182・ほか 8
 - **layer_map.py** (139 行) — 役割の層と、今のファイルの行き先(役割で組み直す計画 `notes:plan/done/role-restructure.md` の 7 節を機械で読める形にしたもの。RS0。RS6 a-0 で 5 つの層に)。
   - 名前: `layer_of` :119・`allowed` :129
 - **lint.py** (400 行) — コードの見直しの合格の基準を測る道具(読むだけ。基準は `notes:docs/spec/code.md`)。
@@ -59,8 +61,12 @@
 - **ui_audit.py** (842 行) — 画面(UI)の見直しの合格の基準のうち、機械で測れるものを測る道具(読むだけ。基準は `notes:docs/spec/ui.md` の A)。
   - 名前: `class Findings` :101・`read` :117・`rel` :125・`screen_files` :129・`allowed` :138・`each_line` :143・`regex_starts` :151・`scan_string` :161・`scan_code` :175・`strip_js_comments` :225・`html_texts` :232・`py_strings` :247・ほか 19
   - 受ける口: `/api/info` :94
-- **worklog.py** (197 行) — 作業の記録(保管庫の docs/worklog/)をセッションごとのファイルに分けて書き、週のまとめを集めて作る(2026-10-18)。
-  - 名前: `worklog_dir` :41・`monday` :45・`week_name` :49・`read` :53・`write` :58・`front_matter` :63・`session_entry` :76・`sessions` :86・`auto_block` :93・`merge_week` :106・`update_index` :120・`build` :135・ほか 2
+- **worklog.py** (280 行) — 作業の記録(保管庫の docs/worklog/)をセッションごとのファイルに分けて書き、週のまとめを集めて作る(2026-10-18)。
+  - 名前: `worklog_dir` :56・`monday` :60・`week_name` :64・`read` :68・`write` :73・`front_matter` :78・`session_entry` :91・`sessions` :101・`auto_block` :108・`merge_week` :121・`update_index` :135・`build` :150・ほか 7
+- **worklog.py** (280 行) — 作業の記録(保管庫の docs/worklog/)をセッションごとのファイルに分けて書き、週のまとめを集めて作る(2026-10-18)。
+  - 名前: `worklog_dir` :56・`monday` :60・`week_name` :64・`read` :68・`write` :73・`front_matter` :78・`session_entry` :91・`sessions` :101・`auto_block` :108・`merge_week` :121・`update_index` :135・`build` :150・ほか 7
+- **worklog.py** (280 行) — 作業の記録(保管庫の docs/worklog/)をセッションごとのファイルに分けて書き、週のまとめを集めて作る(2026-10-18)。
+  - 名前: `worklog_dir` :56・`monday` :60・`week_name` :64・`read` :68・`write` :73・`front_matter` :78・`session_entry` :91・`sessions` :101・`auto_block` :108・`merge_week` :121・`update_index` :135・`build` :150・ほか 7
 
 ## dev/obsidian/graph-history-toggle/
 
@@ -87,6 +93,7 @@
 - dev/tests/test_friend_preflight.py — 配る前の検査(dev/friend_preflight.py・dev/friend_preflight_shim.py)と、build_friend_zip.py --publish の関所のテスト。
 - dev/tests/test_guard_hook.py — dev/guard_hook.py(PreToolUse のフックの守り)のテスト。よくある命令を並べて、通す / 断るを確かめる。一時フォルダだけを使う
 - dev/tests/test_land.py — dev/land.py(main に入れる・版を道具が上げる)のテスト。一時フォルダの git リポジトリと worktree だけを使う
+- dev/tests/test_land_gate.py — dev/land_gate.py(main に入れる前の関所)と dev/worklog.py check(報告の型)のテスト。一時フォルダだけを使う(テストは流さない)
 - dev/tests/test_layering.py — 役割の層の import の向きを守るテスト(役割で組み直す計画 `notes:plan/done/role-restructure.md` の 4 節 1。RS0)。
 - dev/tests/test_lint.py — dev/lint.py(コードの基準を測る道具)の部品のテスト。リポジトリ直下で:
 - dev/tests/test_no_src_workdata.py — YTT_DATA_DIR=inplace のとき、作業データ(ログ・起動中の印・書き出し先)が src の中にできないことを見張る。リポジトリ直下で:
