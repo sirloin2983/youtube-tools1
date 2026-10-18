@@ -163,12 +163,11 @@ def _text(v, n):
 
 
 def check_after(body, default="check"):
-    """POST /live/api/export・adopt の after("none"|"check"|"auto")。無ければ以前の transcribe(真偽)から: false → none・true → check。
-    どちらも無ければ default(ホームの設定 live.auto.after。M2)"""
+    """POST /live/api/export・adopt の after("none"|"check"|"auto")。無ければ default(ホームの設定 live.auto.after。M2)。
+    以前の入口の transcribe(真偽)は 10-19 から読まない(画面は after を必ず送る)"""
     a = body.get("after") if isinstance(body, dict) else None
     if a is None:
-        t = body.get("transcribe") if isinstance(body, dict) else None
-        return "none" if t is False else "check" if t is True else (default if default in AFTERS else "check")
+        return default if default in AFTERS else "check"
     if a not in AFTERS:
         raise LiveError("書き出したあと(after)は none・check・auto のどれかにしてください")
     return a

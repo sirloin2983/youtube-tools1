@@ -131,13 +131,6 @@ class Handler(BaseHTTPRequestHandler):
     def _fetch_site_ok(self):    # 他サイトからのAPI消費(クォータ浪費)対策
         return httpsec.fetch_site_ok(self.headers)
 
-    def _navigation_ok(self, path):
-        """他のツールの画面のリンク(「他のツール」メニュー・?url=)でこの画面を開くのは許す。
-        ポートが違うだけでもブラウザは Sec-Fetch-Site: same-site(localhost と 127.0.0.1 なら cross-site)を送るため、以前は 403 になっていた。
-        画面を新しいタブで開くだけで、URL で処理は始まらない(notes:docs/spec/pipeline.md の 3)。API・静的ファイルは同じ画面からだけ。
-        iframe への埋め込みは X-Frame-Options / frame-ancestors で拒否する(文字起こしツール・cut2resolve と同じ扱い)"""
-        return httpsec.navigation_ok(self.headers, path)
-
     def _send(self, code, body=b"", ctype="text/plain; charset=utf-8", extra=None):
         httpsec.send(self, code, body, ctype, extra)   # 見出し(no-store・nosniff)は ytt の 1 か所(動画の _media も同じ send_head)
 
@@ -187,7 +180,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         u = urllib.parse.urlsplit(self.path)
-        if not (self._host_ok() and (self._fetch_site_ok() or self._navigation_ok(u.path))):
+        if not (self._host_ok() and self._fetch_site_ok()):   # 画面のページは配らない(部品の JS と API だけ)ので、他のツールのリンクからの遷移の別扱いは棚卸しで消した
             return self._send(403, b"forbidden")
         q = urllib.parse.parse_qs(u.query)
         arg = lambda k: (q.get(k) or [""])[0]

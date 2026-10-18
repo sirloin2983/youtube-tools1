@@ -525,13 +525,13 @@ class PortalLiveTest(unittest.TestCase):
                                                                              "firstPdt": "2026-10-05T09:53:00.000Z", "lastPdt": "2026-10-05T09:53:05.000Z",
                                                                              "segments": [], "gaps": []})   # まだ届いていない = 録画待ちのまま
         st = {"video": rec, "mark": "m1a2b3", "n": 4, "label": "見どころ\n", "start": 10, "end": 22.5}
-        body = {"recorder": "fake", "recording": rec, "title": "配信<b>", "url": "https://www.youtube.com/watch?v=abcdefghijk", "transcribe": False, "studio": st}
+        body = {"recorder": "fake", "recording": rec, "title": "配信<b>", "url": "https://www.youtube.com/watch?v=abcdefghijk", "after": "none", "studio": st}
         code, d = self.jreq("POST", "/live/api/export", body)
         self.assertEqual(code, 200, d)
         j = d["job"]
         mid = "lm-" + __import__("hashlib").sha1(b"m1a2b3").hexdigest()[:12]
         self.assertEqual((j["markId"], j["state"], j["n"], j["label"], j["transcribe"]), (mid, "wait", 4, "見どころ", False))
-        self.assertEqual((j["after"], j["streamer"]), ("none", ""))   # 以前の transcribe: false = 何もしない
+        self.assertEqual((j["after"], j["streamer"]), ("none", ""))   # after none = 何もしない
         self.assertEqual(j["studio"], {"video": rec, "mark": "m1a2b3", "start": 10.0, "end": 22.5})
         self.assertEqual((j["start"], j["end"]), ("2026-10-05T09:53:10.000Z", "2026-10-05T09:53:22.500Z"))   # firstPdt + 秒
         self.assertIn("/live/%s/status?since=999999999" % rec, [x["path"] for x in self.fake.seen])   # セグメントの一覧は要らない
@@ -563,8 +563,8 @@ class PortalLiveTest(unittest.TestCase):
             self.assertEqual((code, d.get("error")), (400, "bad_request"), bad)
         self.assertEqual(self.jreq("POST", "/live/api/export", dict(body, studio="x"))[0], 400)
         # 書き出したあと(after)と配信者の名前(streamer)
-        nb = {k: v for k, v in body.items() if k != "transcribe"}
-        for extra, want in (({}, ("check", True, "")), ({"transcribe": True}, ("check", True, "")), ({"after": "none"}, ("none", False, "")),
+        nb = {k: v for k, v in body.items() if k != "after"}
+        for extra, want in (({}, ("check", True, "")), ({"transcribe": False}, ("check", True, "")), ({"after": "none"}, ("none", False, "")),
                             ({"after": "auto", "transcribe": False, "streamer": " 兎田ぺこら "}, ("auto", True, "兎田ぺこら")),
                             ({"after": "check", "streamer": ""}, ("check", True, "")), ({"after": "check", "streamer": None}, ("check", True, ""))):
             code, d = self.jreq("POST", "/live/api/export", dict(nb, studio=dict(st, mark="after1"), **extra))
@@ -634,14 +634,14 @@ class PortalLiveTest(unittest.TestCase):
         live.requests.put("fake", rec_a, ctx_a)
         want_a = {k: ctx_a[k] for k in ("rid", "deliverDir", "speakers", "videoTracks", "cut")}
         st = {"video": rec_a, "mark": "m1a2b3", "n": 1, "label": "人のマーク", "start": 10, "end": 22.5}
-        code, d = self.jreq("POST", "/live/api/export", {"recorder": "fake", "recording": rec_a, "transcribe": False, "studio": st})
+        code, d = self.jreq("POST", "/live/api/export", {"recorder": "fake", "recording": rec_a, "after": "none", "studio": st})
         self.assertEqual(code, 200, d)
         self.assertEqual((d["job"]["origin"], d["job"]["after"], d["job"]["transcribe"], d["job"]["streamer"], d["job"]["request"]),
                          ("manual", "auto", True, "兎田ぺこら", want_a))
         self.assertEqual((d["job"]["studio"]["start"], d["job"]["studio"]["end"]), (10.0, 22.5))   # 人の区間に余白は足さない
-        code, d = self.jreq("POST", "/live/api/export", {"recorder": "fake", "recording": rec_c, "transcribe": False, "studio": dict(st, video=rec_c)})
+        code, d = self.jreq("POST", "/live/api/export", {"recorder": "fake", "recording": rec_c, "after": "none", "studio": dict(st, video=rec_c)})
         self.assertEqual(code, 200, d)
-        self.assertEqual((d["job"]["after"], "request" in d["job"]), ("none", False))   # 結びついていない録画は今までどおり(transcribe false = 何もしない)
+        self.assertEqual((d["job"]["after"], "request" in d["job"]), ("none", False))   # 結びついていない録画は送った after のまま
         for jj in self.jreq("GET", "/live/api/exports")[1]["jobs"]:
             self.jreq("POST", "/live/api/export/cancel", {"id": jj["id"]})
 

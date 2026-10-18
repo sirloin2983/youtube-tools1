@@ -68,8 +68,6 @@ EDIT_KEEPS = {"base": "list", "handles": 0.0, "min_len": 0.0, "join_frames": 0, 
 MAX_KEEPS = 5000
 PACK_FILE_KINDS = ("edl", "srt", "readme", "plan", "roughcut", "video",
                    "textplus_script", "textplus_install", "textplus_launcher", "textplus_readme", "textplus_template")
-OLD_MEDIA_DIR = "media"                       # 2026-09-27 まで Text+ パックの動画を入れていたフォルダ(今はパックの直下)
-OLD_BACKUP_README = "予備_EDLで開く手順.txt"   # 2026-10-18 まで Text+ パックに入れられた「予備」の手順書(EDL・SRT と組。決定 3-34 で消した)
 
 
 @dataclass
@@ -624,7 +622,7 @@ def pack_paths(video, out_dir, has_subs, render=False, copy_video=False, textplu
                plan_file=True, readme_file=True):
     """パックに書くファイル {種類: パス}。media: 同梱する動画が video と違うとき(スタジオの余白つき素材)。名前は video にそろえる。
     EDL・カット後の SRT・EDL の手順書(友人へ.txt)は Text+ でないパックだけ(EDL が本体)。Text+ パックには入れない
-    (2026-10-18 まで backup で入れられた「予備」は決定 3-34 で消した。古いパックの名前は OLD_BACKUP_README)。
+    (2026-10-18 まで backup で入れられた「予備」は決定 3-34 で消した)。
     plan_file: cut-plan.json をフォルダに書く(コマンド。画面・API は作業データに記録する)。
     readme_file: 手順書の「友人へ.txt」をフォルダに書く(コマンド。画面・API は書かずに画面の「手順を見る」で出す。2026-09-27 ユーザー: 要らない)。
     動画はパックのフォルダの直下(2026-09-27 まで Text+ パックは media フォルダの中。1つだけなので分けない = ユーザー)"""
@@ -761,7 +759,7 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, textplus=Fals
     warnings = list(m["warnings"])
     if "edl" in paths:   # 動画のファイル名の注意は EDL を書くときだけ(EDL がファイル名で元動画と結び付くため。2026-10-01 ユーザー決定。試算 plan_cut には入れない)
         warnings += C.name_warnings(video)
-    stale = _stale_warning(video, out_dir, paths, mvideo)
+    stale = _stale_warning(video, out_dir, paths)
     if stale:
         warnings.append(stale)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -851,13 +849,10 @@ def _stage_video(m, out_dir, final, tmp, gain, prev_copy, task=None, log=None):
     return tmp, None, key
 
 
-def _stale_warning(video, out_dir, paths, mvideo):
+def _stale_warning(video, out_dir, paths):
     """前に作ったかもしれない・今回は作らないファイルがフォルダに残っていれば、その注意の文(無ければ None)"""
     known = pack_paths(video, out_dir, True, render=True, textplus=True)
-    known["old_fcpxml"] = out_dir / f"{video.stem}_cut.fcpxml"           # FCPXML は 2026-10-16 まで補助で書けた(今は作らない)
-    known["old_video"] = out_dir / OLD_MEDIA_DIR / mvideo.name        # 2026-09-27 までの Text+ パックの動画の場所
-    # 2026-10-18 まで Text+ パックに入れられた予備(EDL・カット後の SRT・予備の手順書。決定 3-34)。Text+ でないパックでは EDL・SRT は今の中身
-    known.update(old_edl=out_dir / f"{video.stem}.edl", old_srt=out_dir / f"{video.stem}_cut.srt", old_backup_readme=out_dir / OLD_BACKUP_README)
+    # 前の版の名前(media\ の動画・予備の EDL と手順書・補助の FCPXML)は見ない: 書き出し先のパック 150 本で 0(10-19)
     now = set(paths.values())   # 種類の名前ではなくパスで比べる(Text+ でないパックの EDL・SRT・友人へ.txt を「残っている」と言わない)
     stale = [p for p in dict.fromkeys(known.values()) if p not in now and p.exists()]
     if stale:
