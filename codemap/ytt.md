@@ -21,8 +21,8 @@
   - 名前: `tx_root` :53・`loc_path` :58・`check_folder` :67・`placed` :108・`doc_dir` :119・`doc_file` :132・`hist_dir` :139・`bak_dir` :144・`iter_tids` :149・`doc_files` :155・`unseen` :184・`place` :203・ほか 2
 - **errors.py** (26 行) — API の失敗の形(役割で組み直す RS2-1a。2026-10-10 に編集の ed_state から移した)。
   - 名前: `class ApiError` :13・`class Cancelled` :19・`class ResolveExportError` :23
-- **fsio.py** (461 行) — ファイルの読み書き(スタジオの common.atomic_write と、文字起こしの atomic_write / pipeline_io の書き込みを1つにしたもの)。
-  - 名前: `replace_retry` :18・`unlink_quiet` :31・`temp_in` :39・`atomic_write` :58・`create_new` :76・`write_json` :98・`append_jsonl` :108・`class TooLarge` :115・`read_json_file` :123・`is_network_path` :143・`norm_path` :150・`long_path` :155・ほか 15
+- **fsio.py** (472 行) — ファイルの読み書き(スタジオの common.atomic_write と、文字起こしの atomic_write / pipeline_io の書き込みを1つにしたもの)。
+  - 名前: `replace_retry` :18・`unlink_quiet` :31・`temp_in` :39・`atomic_write` :58・`create_new` :76・`write_json` :98・`append_jsonl` :108・`class TooLarge` :115・`read_json_file` :123・`is_network_path` :143・`norm_path` :150・`long_path` :155・ほか 16
 - **gpuinfo.py** (165 行) — この PC の GPU の名前と VRAM を調べる(F1 F0-2。notes:docs/design/f1-build.md の 2 の F0-2・3 の (f1b))。標準ライブラリと ytt だけ。
   - 名前: `vendor_of` :28・`gb` :37・`parse_nvidia_smi` :46・`parse_cim` :62・`pick` :80・`from_nvidia_smi` :97・`from_registry` :104・`from_cim` :136・`probe` :144・`info` :158
 - **httpsec.py** (232 行) — ローカルサーバー(127.0.0.1)の安全検査。スタジオ・文字起こし・入口で同じ規則を1か所に持つ。

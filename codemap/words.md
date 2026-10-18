@@ -20,31 +20,31 @@
   - コード: `speech_diar` src/app/check/speech_sources.py:41・`src/app/check/speech_sources.py`・`src/human/check/speech.py`
   - 画面: src/app/ui/check/check.js:258
 - **受け取る** — 友人のアプリの受け取る画面。残す判定と受信箱
-  - コード: `src/friendapp/inbox.py`・`receive_view` src/friendapp/inbox.py:1002・`src/friendapp/ui/receive.js`・`Inbox.decide` src/friendapp/inbox.py:710
+  - コード: `src/friendapp/inbox.py`・`receive_view` src/friendapp/inbox.py:988・`src/friendapp/ui/receive.js`・`Inbox.decide` src/friendapp/inbox.py:700
   - 画面: src/app/ui/cases/panels/cut.js:182・src/app/ui/editor/pack-tab.js:551・src/app/ui/home/portal.js:504・src/friendapp/ui/friend.html:29 ほか 7
 - **見送った物** — 受け取る画面で 3 日は戻せる skip・bad の物
-  - コード: `Inbox.undo` src/friendapp/inbox.py:751・`Inbox.decide` src/friendapp/inbox.py:710・`VERDICTS` src/friendapp/inbox.py:54・`/api/friend/undo` src/friendapp/server.py:417
+  - コード: `Inbox.undo` src/friendapp/inbox.py:740・`Inbox.decide` src/friendapp/inbox.py:700・`VERDICTS` src/friendapp/inbox.py:55・`/api/friend/undo` src/friendapp/server.py:408
   - 画面: src/friendapp/ui/friend.html:175・src/friendapp/ui/guide.html:144・src/friendapp/ui/receive.js:65
 - **送る** — 友人のアプリの送る欄・受付の口。自動で送る判定は flow/sendpolicy
-  - コード: `src/friendapp/api.py`・`src/friendapp/ui/send-form.js`・`/api/friend/send` src/friendapp/server.py:404・`src/flow/sendpolicy.py`
-  - 画面: src/app/ui/cases/panels/cut.js:137・src/app/ui/check/cards/value.js:11・src/app/ui/editor/app-learn.js:164・src/app/ui/editor/app.js:428 ほか 17
+  - コード: `src/friendapp/api.py`・`src/friendapp/ui/send-form.js`・`/api/friend/send` src/friendapp/server.py:395・`src/flow/sendpolicy.py`
+  - 画面: src/app/ui/cases/panels/cut.js:137・src/app/ui/check/cards/value.js:11・src/app/ui/editor/app-learn.js:164・src/app/ui/editor/app.js:428 ほか 16
 - **送った物** — 友人のアプリの送った物の行と、失敗の言葉・進み具合
-  - コード: `src/friendapp/ui/sent.js`・`src/friendapp/progress.py`・`/api/friend/inbox` src/friendapp/server.py:291
+  - コード: `src/friendapp/ui/sent.js`・`src/friendapp/progress.py`・`/api/friend/inbox` src/friendapp/server.py:290
   - 画面: src/app/ui/home/portal.html:152・src/friendapp/ui/friend.html:140・src/friendapp/ui/guide.html:37・src/friendapp/ui/receive.js:65
 - **片付ける** — 友人のアプリのフォルダの整理(新しい版の後と ⚙)。ごみ箱へ移す
-  - コード: `src/friendapp/tidy.py`・`Tidy` src/friendapp/tidy.py:134・`/api/friend/tidy` src/friendapp/server.py:296
-  - 画面: src/friendapp/ui/guide.html:186・src/friendapp/ui/settings.js:82・src/friendapp/ui/setup.html:40・src/friendapp/ui/update.js:78
+  - コード: `src/friendapp/tidy.py`・`Tidy` src/friendapp/tidy.py:137・`/api/friend/tidy` src/friendapp/server.py:295
+  - 画面: src/friendapp/ui/settings.js:84・src/friendapp/ui/update.js:78
 - **片付け** — 入口の作業データの片付けの候補。ごみ箱フォルダへ移す
   - コード: `src/manage/keep/cleanup.py`・`Cleanup` src/manage/keep/cleanup.py:123・`/api/cleanup` src/app/server.py:663
-  - 画面: src/app/ui/home/portal.html:229・src/app/ui/home/portal.js:472・src/friendapp/ui/friend.js:82・src/friendapp/ui/guide.html:186 ほか 5
+  - 画面: src/app/ui/home/portal.html:229・src/app/ui/home/portal.js:472・src/friendapp/ui/friend.js:85・src/friendapp/ui/settings.js:84 ほか 2
 - **ごみ箱フォルダ** — ④ ごみ箱へ移す・戻すの 1 か所。片付けが通る
   - コード: `src/manage/keep/trash.py`・`to_trash` src/manage/keep/trash.py:30・`put_back` src/manage/keep/trash.py:95・`trash_days` src/app/server.py:1233
   - 画面: src/app/ui/home/portal.html:230・src/app/ui/home/portal.js:512
 - **初回の準備** — 友人のアプリの初回の取得と道具の確かめ
-  - コード: `src/friendapp/setup.py`・`src/friendapp/ui/setup.js`・`src/friendapp/toolcheck.py`・`/api/friend/setup` src/friendapp/server.py:300
-  - 画面: src/friendapp/ui/guide.html:40・src/friendapp/ui/setup.html:6・friend-apps/launcher/src/Core.cs:285
+  - コード: `src/friendapp/setup.py`・`src/friendapp/ui/setup.js`・`src/friendapp/toolcheck.py`・`/api/friend/setup` src/friendapp/server.py:299
+  - 画面: src/friendapp/ui/guide.html:40・src/friendapp/ui/setup.html:6・friend-apps/launcher/src/Core.cs:279
 - **新しい版** — 友人のアプリの新しい版の帯と、exe の側の版の選び方
-  - コード: `src/friendapp/ui/update.js`・`/api/friend/update` src/friendapp/server.py:298・`friend-apps/launcher/src/Core.cs`
+  - コード: `src/friendapp/ui/update.js`・`/api/friend/update` src/friendapp/server.py:297・`friend-apps/launcher/src/Core.cs`
   - 画面: src/friendapp/ui/friend.js:77・src/friendapp/ui/update.js:2・friend-apps/launcher/src/Launcher.cs:404・friend-apps/launcher/src/MainForm.cs:568 ほか 1
 - **送り返す zip** — 友人の PC から送り返す zip を作る ②(outbox)
   - コード: `src/flow/outbox.py`・`list_outbox` src/flow/outbox.py:223・`mark_done` src/flow/outbox.py:246・`/api/flow/outbox` src/app/server.py:814
@@ -140,7 +140,7 @@
   - コード: `src/manage/ops/analytics/render.py`・`src/manage/ops/analytics/service.py`
   - 画面: src/app/ui/home/portal.html:19・src/app/ui/settings/settings.js:78・src/manage/ops/analytics/web/app.js:4・src/manage/ops/analytics/web/index.html:6
 - **配色** — ホロカラーは C# の色の一覧アプリ。配色は友人の画面の A〜D
-  - コード: `friend-apps/holo-colors/src/Core.cs`・`src/friendapp/ui/palette.js`・`/api/friend/palette` src/friendapp/server.py:421
+  - コード: `friend-apps/holo-colors/src/Core.cs`・`src/friendapp/ui/palette.js`・`/api/friend/palette` src/friendapp/server.py:412
   - 画面: src/friendapp/ui/guide.html:167・src/friendapp/ui/palette.js:36・friend-apps/launcher/src/MainForm.cs:278・src/ui-kit/ui-kit.js:67
 - **起動** — 入口のランチャーと友人の FriendApp.exe。起動し直しは restart
   - コード: `src/app/server.py`・`Supervisor` src/app/server.py:350・`friend-apps/launcher/src/Launcher.cs`・`src/manage/ops/restart.py`
@@ -329,3 +329,4 @@
 - -14(YouTube の目安・おすすめ)(1)— src/app/ui/studio/review.js:344
 - -16 LUFS(少し小さめ)(1)— src/app/ui/cases/panels/cut.js:155
 - -16(控えめ)(1)— src/app/ui/studio/review.js:344
+- -18 LUFS(小さめ)(1)— src/app/ui/cases/panels/cut.js:155

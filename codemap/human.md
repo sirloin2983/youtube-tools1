@@ -49,14 +49,14 @@
 ## src/human/friend/
 
 - **__init__.py** (2 行) — ③ 友人: 受付(Dropbox)→ まとめて実行(②)に流す → 届ける。友人の返事・送り返し・ライブの依頼の結びつき
-- **friend_feedback.py** (198 行) — 友人の「要らない」を PC 側に戻す(送るアプリ 2.6.0。notes:docs/spec/friend.md の 2-14。2026-10-08 ユーザー「不採用の場合こちらにフィードバック」)。
-  - 名前: `record_delivery` :35・`find_delivery` :46・`parse` :68・`apply` :127・`read_text` :191
-- **intake.py** (956 行) — 友人からの依頼の受付(notes:docs/spec/friend.md。2026-09-30)。
-  - 名前: `configured_folder` :78・`out_dir_of` :89・`submit_urls` :99・`submit_file` :126・`youtube_id` :136・`parse_lines` :142・`parse_url_file` :168・`decode_text` :176・`probe_video` :190・`youtube_info` :202・`parse_speakers` :269・`parse_ranges` :304・ほか 5
-- **live_requests.py** (131 行) — 友人のライブ配信の依頼と録画の結びつき(notes:docs/spec/friend.md の 2-15。ホーム 0.47.0)。
-  - 名前: `clean_settings` :32・`settings_label` :52・`key_of` :59・`class Store` :63
-- **returns.py** (536 行) — ③ 人の層: 友人からの送り返しを受け取って並べる(F1 の F2。notes:docs/design/f1-build.md の (f1d))。
-  - 名前: `class Refused` :57・`returns_dir` :61・`extract` :99・`parse_verdict` :133・`parse_notice` :193・`scan` :228・`recent_notices` :424・`iter_requests` :485・`requested_videos` :521
+- **friend_feedback.py** (142 行) — 友人の「要らない」を PC 側で片付ける(notes:docs/spec/friend.md の 2-14。2026-10-08 ユーザー「不採用の場合こちらにフィードバック」)。
+  - 名前: `record_delivery` :26・`find_delivery` :37・`apply` :99
+- **intake.py** (906 行) — 友人からの依頼の受付(notes:docs/spec/friend.md。2026-09-30)。
+  - 名前: `configured_folder` :74・`out_dir_of` :85・`submit_urls` :95・`submit_file` :122・`youtube_id` :132・`parse_lines` :138・`parse_url_file` :164・`decode_text` :172・`probe_video` :186・`youtube_info` :198・`parse_speakers` :265・`parse_ranges` :300・ほか 4
+- **live_requests.py** (129 行) — 友人のライブ配信の依頼と録画の結びつき(notes:docs/spec/friend.md の 2-15。ホーム 0.47.0)。
+  - 名前: `clean_settings` :31・`settings_label` :51・`key_of` :58・`class Store` :62
+- **returns.py** (494 行) — ③ 人の層: 友人からの送り返しを受け取って並べる(F1 の F2。notes:docs/design/f1-build.md の (f1d))。
+  - 名前: `class Refused` :54・`returns_dir` :58・`extract` :96・`parse_verdict` :130・`parse_notice` :177・`scan` :212・`recent_notices` :404・`iter_requests` :443・`requested_videos` :479
 
 ## src/human/proof/
 
@@ -98,7 +98,7 @@
 - src/human/check/tests/test_timerow.py — 時刻のカードの反映(src/human/check/timerow.py)の単体テスト。一時の作業データに文書を作って、答える・戻すを確かめる。
 - src/human/check/tests/test_value.py — 価値のカードの反映(src/human/check/value.py)の単体テスト。入口が渡す口(studio)は偽物。value:auto は記録だけ(案件の口を呼ばない)。
 - src/human/check/tests/test_voice.py — 「確かめる」の誰の声のカード(src/human/check/voice.py。V1 V2c)の単体テスト: 答えの形・選択肢と予想・文書の行への反映(commit why check:voice)と Z・
-- src/human/friend/tests/test_friend_feedback.py — 友人の「要らない」を PC 側に戻す(src/human/friend/friend_feedback.py)の単体テスト。ごみ箱は本物の cleanup.Cleanup(一時フォルダ)。
+- src/human/friend/tests/test_friend_feedback.py — 友人の「要らない」を PC 側で片付ける(src/human/friend/friend_feedback.py)の単体テスト。ごみ箱は本物の cleanup.Cleanup(一時フォルダ)。
 - src/human/friend/tests/test_intake.py — 友人からの依頼の受付(src/human/friend/intake.py)の単体テスト。まとめて実行・ffprobe・yt-dlp は偽物。
 - src/human/friend/tests/test_live_requests.py — 友人のライブ配信の依頼と録画の結びつきの Store(src/human/friend/live_requests.py。入口の作業データの live/requests.json。2-15)のテスト。
 - src/human/friend/tests/test_returns.py — src/human/friend/returns.py(友人の送り返しの受け取り。F1 の F2)のテスト。リポジトリ直下で:
