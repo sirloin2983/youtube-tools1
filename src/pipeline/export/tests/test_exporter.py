@@ -22,6 +22,7 @@ HERE = os.path.join(SRC, "studio")   # テストが使うスタジオの殻 comm
 sys.path.insert(0, HERE)
 sys.path.insert(0, SRC)
 import startup  # noqa: E402  (src を sys.path に足し、スタジオのフォルダを ytt/studio_env に知らせる)
+from ytt import testkit  # noqa: E402
 from ytt import errors, jobs, mediainfo, studio_env  # noqa: E402
 from pipeline.export import exporter
 from flow import export as _fexport  # noqa: E402  (指定は ② の build_spec = 台帳から引く口。① の spec_from_video は配信の dict を受けるだけ)
@@ -43,7 +44,7 @@ def _make_clip(path, sec=2.0):
 @unittest.skipUnless(studio_env.find_tool("ffmpeg"), "ffmpeg が無い環境ではスキップ")
 class TestApplyVolume(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp()
+        self.tmp = testkit.tempdir(self)
         self.clip = os.path.join(self.tmp, "01_clip.mp4")
         if not _make_clip(self.clip):
             self.skipTest("テスト用動画を作れなかった(ffmpeg のビルドを確認してください)")
@@ -151,11 +152,6 @@ def _spec(src, clips, fast=False, volume=75):
             "kind": "file", "sourceTitle": "テスト 配信", "sourceFile": src, "sourceDuration": 30.0, "mode": "file", "sourcePath": src}
 
 
-def _read(path):
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
-
-
 def _fps(path):
     """r_frame_rate(ffprobe が無ければ None)"""
     i = normalize.probe(path)
@@ -177,11 +173,8 @@ class TestClipManifestExport(unittest.TestCase):
         shutil.rmtree(cls.src_dir, ignore_errors=True)
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp()
+        self.tmp = testkit.tempdir(self)
         studio_env.set_home(self.tmp)
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def export(self, clips, fast=False, recorded=True):
         spec = _spec(self.src, clips, fast)
@@ -200,9 +193,13 @@ class TestClipManifestExport(unittest.TestCase):
         it = job["items"][0]
         self.assertEqual((job["state"], it["status"], it.get("warning", "")), ("done", "done", ""))
         self.assertTrue(it["path"].endswith(".mp4") and os.path.isfile(it["path"]))
+        # 完了の呼び返し: (配信 ID・マーク ID・出力の相対名・始め・終わり・書き出した mp4 の絶対パス = マークに残す)
+        self.assertEqual(len(calls), 1, calls)
+        self.assertEqual(calls[0][:2], ("f0123456789", "m1"))
+        self.assertEqual(calls[0][3:], (7.0, 12.0, it["path"]))
         work = os.path.join(os.path.dirname(it["path"]), schemas.WORK_DIR)   # 途中のファイル(2026-09-27)
         self.assertEqual(it["manifest"], os.path.join(work, os.path.splitext(os.path.basename(it["path"]))[0] + ".clip.json"))
-        d = _read(it["manifest"])
+        d = testkit.read_json(it["manifest"])
         self.assertEqual(d["schema"], "youtube-tools-clip/v1")
         self.assertEqual(d["media"]["path"], it["path"])
         self.assertAlmostEqual(d["media"]["durationSec"], 5.0, delta=0.3)
@@ -213,7 +210,7 @@ class TestClipManifestExport(unittest.TestCase):
         if studio_env.find_tool("ffprobe"):   # 60fps の元から、切り抜きも編集用素材も 30fps に作り直される(Q1)
             self.assertEqual((_fps(it["path"]), _fps(it["editPath"])), ("30/1", "30/1"))
         # 前後10秒の編集用素材にも、その範囲の .clip.json が付く
-        e = _read(it["editManifest"])
+        e = testkit.read_json(it["editManifest"])
         self.assertEqual(e["media"]["path"], it["editPath"])
         self.assertTrue(it["editPath"].endswith("_edit.mp4") and os.path.isfile(it["editPath"]) and os.path.dirname(it["editPath"]) == work)
         self.assertEqual(it["editManifest"], os.path.splitext(it["editPath"])[0] + ".clip.json")      # 編集用素材の .clip.json も 作業用/ に(二重にしない)
@@ -238,7 +235,7 @@ class TestClipManifestExport(unittest.TestCase):
         _run(job, spec, lambda *a, **k: calls.append((a, k)) or True)
         it = job["items"][0]
         self.assertEqual((it["status"], it["start"], it["end"]), ("done", 7.0, 12.0))   # 画面へ返す区間はマークのまま
-        d = _read(it["manifest"])
+        d = testkit.read_json(it["manifest"])
         self.assertEqual(d["range"], {"start": 7.0, "end": 12.0})
         self.assertAlmostEqual(d["media"]["durationSec"], 11.0, delta=0.3)
         self.assertEqual(d["export"]["actualStart"], 4.0)
@@ -250,20 +247,20 @@ class TestClipManifestExport(unittest.TestCase):
         self.assertEqual(args[3:5], (7.0, 12.0))
         self.assertEqual(kw["clip"][0], 4.0)
         self.assertAlmostEqual(kw["clip"][1], 15.0, delta=0.3)
-        self.assertEqual(_read(it["editManifest"])["range"]["start"], 0.0)   # 編集用素材 = 余白つきの動画の前後 10 秒
+        self.assertEqual(testkit.read_json(it["editManifest"])["range"]["start"], 0.0)   # 編集用素材 = 余白つきの動画の前後 10 秒
 
     def test_status_when_mark_changed_during_export(self):
         clip = {"id": "m2", "start": 1.0, "end": 3.0, "title": "x", "label": "", "src": "auto", "markStatus": "adopted"}
         job, _ = self.export([clip], recorded=False)   # 書き出し中にマークを動かした → 書き出し済みにはならない
-        d = _read(job["items"][0]["manifest"])
+        d = testkit.read_json(job["items"][0]["manifest"])
         self.assertEqual((d["mark"]["status"], d["mark"]["src"]), ("adopted", "auto"))
 
     def test_end_is_clamped_to_source_length(self):
         clip = {"id": "m3", "start": 25.0, "end": 40.0, "title": "x", "label": "", "src": "manual", "markStatus": ""}
         job, _ = self.export([clip])
         it = job["items"][0]
-        self.assertEqual(_read(it["manifest"])["range"], {"start": 25.0, "end": 30.0})
-        self.assertEqual(_read(it["editManifest"])["range"], {"start": 15.0, "end": 30.0})
+        self.assertEqual(testkit.read_json(it["manifest"])["range"], {"start": 25.0, "end": 30.0})
+        self.assertEqual(testkit.read_json(it["editManifest"])["range"], {"start": 15.0, "end": 30.0})
 
     def test_fast_reencodes_to_30fps_at_exact_position(self):
         """高速 = 速い設定(ultrafast)での作り直し(2026-10-04 Q1。以前のコピーは fps を変えられず、開始もキーフレームへずれた)。
@@ -279,7 +276,7 @@ class TestClipManifestExport(unittest.TestCase):
             job, _ = self.export([clip], fast=True)
         it = job["items"][0]
         self.assertEqual(it["status"], "done", it.get("error"))
-        d = _read(it["manifest"])
+        d = testkit.read_json(it["manifest"])
         self.assertEqual(d["export"], {"mode": "fast", "volume": 75})
         self.assertEqual(d["range"], {"start": 7.0, "end": 12.0})
         self.assertAlmostEqual(d["media"]["durationSec"], 5.0, delta=0.2)
@@ -341,7 +338,7 @@ class TestClipManifestExport(unittest.TestCase):
         self.assertFalse(exporter.is_partial(it["path"]) or exporter.is_partial(it["editPath"]))
         self.assertEqual(it["file"], job["folder"] + "/" + os.path.basename(it["path"]))
         side = os.path.join(os.path.dirname(it["editPath"]), os.path.splitext(os.path.basename(it["path"]))[0] + ".edit.json")
-        self.assertEqual(_read(side)["media"], os.path.basename(it["editPath"]))   # .edit.json は本当の名前を指す
+        self.assertEqual(testkit.read_json(side)["media"], os.path.basename(it["editPath"]))   # .edit.json は本当の名前を指す
 
     def test_failure_after_cut_leaves_no_file(self):
         """切り出しのあと(ラウドネスの調整など)で失敗しても、完成品の名前のファイル・書きかけ・.edit.json を残さない"""
@@ -463,10 +460,7 @@ class TestManifestFailure(unittest.TestCase):
 
 class TestNames(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp()
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
+        self.tmp = testkit.tempdir(self)
 
     def touch(self, name):
         with open(os.path.join(self.tmp, name), "w") as f:
@@ -571,11 +565,8 @@ class TestLoudness(unittest.TestCase):
         shutil.rmtree(cls.src_dir, ignore_errors=True)
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp()
+        self.tmp = testkit.tempdir(self)
         studio_env.set_home(self.tmp)
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def measure(self, path):
         return exporter.measure_loudness(jobs.Ctl(), {"start": 0.0, "end": 1.0, "progress": 0.0}, path)
@@ -611,7 +602,7 @@ class TestLoudness(unittest.TestCase):
         self.assertAlmostEqual(lo["gainDb"], -14.0 - lo["measured"], delta=0.2)
         self.assertAlmostEqual(lo["measured"], before, delta=1.0)
         for m in (it["manifest"], it["editManifest"]):
-            ex = _read(m)["export"]
+            ex = testkit.read_json(m)["export"]
             self.assertEqual(ex["loudness"], lo)
             self.assertNotIn("volume", ex)   # 音量(%)は使っていない
         self.assertEqual(exporter.result_public(job)["items"][0]["loudness"], lo)
@@ -700,12 +691,9 @@ class TestYoutubeTwoStage(unittest.TestCase):
         shutil.rmtree(cls.dir, ignore_errors=True)
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp()
+        self.tmp = testkit.tempdir(self)
         studio_env.set_home(self.tmp)
         self.log = os.path.join(self.tmp, "ytdlp-args.jsonl")
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def export(self, clip, fast=False, preroll=False):
         spec = dict(_spec(None, [clip], fast), kind="youtube", videoId="abcdefghijk", sourceFile=None, mode="url")
@@ -758,7 +746,7 @@ class TestYoutubeTwoStage(unittest.TestCase):
         self.assertEqual((_fps(it["path"]), _fps(it["editPath"])), ("30/1", "30/1"))
         self.assertAlmostEqual(_y_avg(it["path"]), 56, delta=3)      # 最初のコマ = 元の 7 秒(余裕の 2 秒ぶんずれていない)
         self.assertAlmostEqual(_y_avg(it["editPath"]), 0, delta=3)   # 編集用素材は 0 秒から
-        d = _read(it["manifest"])
+        d = testkit.read_json(it["manifest"])
         self.assertEqual((d["range"], d["export"]["mode"], d["source"]["kind"]), ({"start": 7.0, "end": 12.0}, "precise", "youtube"))
         # 取った区間(_dl)は残さない
         folder = os.path.dirname(it["path"])
@@ -779,7 +767,7 @@ class TestYoutubeTwoStage(unittest.TestCase):
         self.assertEqual(it["status"], "done", it.get("error"))
         cut = [c for c in cmds if "-preset" in c]
         self.assertEqual([c[c.index("-preset") + 1] for c in cut], ["ultrafast", "ultrafast"])
-        self.assertEqual(_read(it["manifest"])["export"]["mode"], "fast")
+        self.assertEqual(testkit.read_json(it["manifest"])["export"]["mode"], "fast")
         self.assertAlmostEqual(_y_avg(it["path"]), 56, delta=3)
 
     def test_unknown_start_falls_back_and_cleans_up(self):
@@ -816,7 +804,7 @@ class TestLiveSection(unittest.TestCase):
         shutil.rmtree(cls.dir, ignore_errors=True)
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp()
+        self.tmp = testkit.tempdir(self)
         studio_env.set_home(self.tmp)
         self.folder = os.path.join(studio_env.get_out_dir(), "配信フォルダ")
         os.makedirs(self.folder)
@@ -832,7 +820,6 @@ class TestLiveSection(unittest.TestCase):
     def tearDown(self):
         for p in self.patches:
             p.stop()
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def req(self, **kw):
         return dict({"videoId": "abcdefghijk", "start": 7, "end": 12, "path": self.final}, **kw)

@@ -9,21 +9,20 @@
 import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない(一時フォルダだけ)。ほかのテストとそろえる
-import shutil
 import sys
-import tempfile
 import unittest
 from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> transcribe -> pipeline -> src
 sys.path.insert(0, SRC)
+from ytt import testkit  # noqa: E402
 from pipeline.transcribe import records, roster as roster_mod  # noqa: E402
 from ytt import txwords, workdata  # noqa: E402
 
 
 class _Env(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="txrecords_")
+        self.tmp = testkit.tempdir(self, prefix="txrecords_")
         self.saved = dict(records._dict_inputs)
         roster = os.path.join(self.tmp, "roster.json")
         with open(roster, "w", encoding="utf-8") as f:
@@ -36,7 +35,6 @@ class _Env(unittest.TestCase):
     def tearDown(self):
         records._dict_inputs.clear()
         records._dict_inputs.update(self.saved)
-        shutil.rmtree(self.tmp, True)
 
 
 class TestDictVersion(_Env):

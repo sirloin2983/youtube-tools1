@@ -10,6 +10,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))   # tests → analyze → pipeline → src
 from human.review import feedback  # noqa: E402
+from ytt import testkit  # noqa: E402
 from pipeline.analyze import analyze, fetch  # noqa: E402
 from ytt import studio_env  # noqa: E402
 from ytt.errors import ApiError, Cancelled  # noqa: E402
@@ -215,13 +216,8 @@ class TestMeta(unittest.TestCase):
 
 class TestArchive(unittest.TestCase):
     def setUp(self):
-        import tempfile
-        self.tmp = tempfile.mkdtemp()
+        self.tmp = testkit.tempdir(self)
         studio_env.set_home(self.tmp)
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_roundtrip_and_run_history_capped(self):
         for i in range(7):

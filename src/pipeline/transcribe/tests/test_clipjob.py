@@ -10,15 +10,14 @@ run_job が作っていた行(行の id・範囲の開始を足した時刻・�
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない(一時フォルダだけ)。ほかのテストとそろえる
-import shutil
 import subprocess
 import sys
-import tempfile
 import unittest
 from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> transcribe -> pipeline -> src
 sys.path.insert(0, SRC)
+from ytt import testkit  # noqa: E402
 from pipeline.transcribe import backend, clipjob, recognize, replace  # noqa: E402
 from ytt import tools, txtext, workdata  # noqa: E402
 
@@ -42,7 +41,7 @@ class _FakeEngine(backend.Backend):
 
 class TestMakeDocRows(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="clipjob_")
+        self.tmp = testkit.tempdir(self, prefix="clipjob_")
         for mod, name, value in ((workdata, "TX_DIR", self.tmp), (tools, "media_duration", lambda path: 10.0),
                                  (recognize, "extract_audio", lambda job, spec, wav: None)):
             p = mock.patch.object(mod, name, value)
@@ -51,9 +50,6 @@ class TestMakeDocRows(unittest.TestCase):
         saved = backend._selector[0]
         backend.set_selector(lambda: _FakeEngine())
         self.addCleanup(backend.set_selector, saved)
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, True)
 
     def run_rows(self, pairs=(), learned=None):
         job = {"id": "j1", "cancel": False, "state": "queued"}

@@ -10,14 +10,13 @@
 import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない(一時フォルダだけ)。ほかのテストとそろえる
-import shutil
 import sys
-import tempfile
 import unittest
 from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> transcribe -> pipeline -> src
 sys.path.insert(0, SRC)
+from ytt import testkit  # noqa: E402
 from pipeline.transcribe import roster  # noqa: E402
 from ytt import studiodata  # noqa: E402
 from ytt import txtext  # noqa: E402   用語の区切り split_terms(RS6 a-3 に roster から)
@@ -34,7 +33,7 @@ class TestSplitTerms(unittest.TestCase):
 
 class TestStreamContext(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="txroster_")
+        self.tmp = testkit.tempdir(self, prefix="txroster_")
         path = os.path.join(self.tmp, "roster.json")
         with open(path, "w", encoding="utf-8") as f:
             json.dump({"groups": [{"id": "gen0", "label": "0期生", "names": ["ときのそら"]},
@@ -51,9 +50,6 @@ class TestStreamContext(unittest.TestCase):
             p = mock.patch.object(mod, name, value)   # 試験の間だけ(終わったら元に戻す)
             p.start()
             self.addCleanup(p.stop)
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, True)
 
     def doc(self, vid="vidA"):
         return {"clip": {"source": {"kind": "youtube", "videoId": vid, "title": "【】"}}, "title": "01_00h01m",

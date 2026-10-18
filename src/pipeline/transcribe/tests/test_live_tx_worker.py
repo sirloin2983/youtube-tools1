@@ -11,10 +11,8 @@
 """
 import json
 import os
-import shutil
 import subprocess
 import sys
-import tempfile
 import unittest
 import wave
 from unittest import mock
@@ -25,6 +23,7 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(TESTS)))   # tests -> transcribe -> pipeline -> src
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
+from ytt import testkit  # noqa: E402
 from pipeline.transcribe import live_tx_worker as TW  # noqa: E402
 
 WORKER = os.path.abspath(TW.__file__)
@@ -56,14 +55,11 @@ class WorkerTest(unittest.TestCase):
     """live_tx_worker.py(子プロセス)。本物の認識はしない"""
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-livetx-w-")
+        self.tmp = testkit.tempdir(self, prefix="ytt-livetx-w-")
         self.wav = os.path.join(self.tmp, "in.wav")
         write_wav(self.wav, 10.0)
         self.data = os.path.join(self.tmp, "editor")
         self.out = os.path.join(self.tmp, "out.json")
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def cli(self, *args):
         p = subprocess.run([sys.executable, WORKER] + list(args), stdin=subprocess.DEVNULL, capture_output=True, timeout=60)

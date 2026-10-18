@@ -8,15 +8,14 @@ serve の名前で読む)が確かめる。ここは「① が serve なしで�
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない(一時フォルダだけ)。ほかのテストとそろえる
-import shutil
 import sys
-import tempfile
 import types
 import unittest
 from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> transcribe -> pipeline -> src
 sys.path.insert(0, SRC)
+from ytt import testkit  # noqa: E402
 from pipeline.transcribe import backend, fill, recognize, tx_engines  # noqa: E402
 from ytt import errors, tools, workdata  # noqa: E402
 
@@ -25,7 +24,7 @@ SPEC = {"range": [10.0, 20.0], "language": "ja", "wordSplit": False}
 
 class _Env(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="txrecognize_")
+        self.tmp = testkit.tempdir(self, prefix="txrecognize_")
         self.patch(workdata, "TX_DIR", self.tmp)
         self.patch(tools, "find_ffmpeg", lambda: None)
 
@@ -34,10 +33,6 @@ class _Env(unittest.TestCase):
         p = mock.patch.object(mod, name, value)
         p.start()
         self.addCleanup(p.stop)
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, True)
-
 
 class TestTranscribeRows(_Env):
     """transcribe_rows(RS2-8e): 取り出し → 長さ(ytt/tools の media_duration)→ backend.select().transcribe → 生出力を控えながら整えた行。serve なし"""

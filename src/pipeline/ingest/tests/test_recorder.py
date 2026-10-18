@@ -32,6 +32,7 @@ SRC = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, SRC)
 sys.path.insert(0, TESTS)
 import hls_fixture as F  # noqa: E402
+from ytt import testkit  # noqa: E402
 from pipeline.ingest import rec_core as R  # noqa: E402
 from ytt import trashbin  # noqa: E402
 
@@ -164,7 +165,7 @@ class TestRecording(unittest.TestCase):
 
     def setUp(self):
         self.src_dir, self.segs = source(40)
-        self.tmp = tempfile.mkdtemp(prefix="ytt-rec-")
+        self.tmp = testkit.tempdir(self, prefix="ytt-rec-")
         self.folder = os.path.join(self.tmp, "live-rec")
         os.makedirs(self.folder)
         self.logs = []
@@ -174,7 +175,6 @@ class TestRecording(unittest.TestCase):
     def tearDown(self):
         self.rec.close()
         self.srv.close()
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_record_reconnect_stop(self):
         s = self.rec.start(self.srv.url, "best", "テスト<b>")
@@ -412,7 +412,7 @@ class TestStreamlinkPipe(unittest.TestCase):
         if importlib.util.find_spec("streamlink") is None:
             self.skipTest("streamlink が入っていません(py -3.10 -m pip install -r setup/requirements.txt)")
         self.src_dir, self.segs = source(40)
-        self.tmp = tempfile.mkdtemp(prefix="ytt-rec-sl-")
+        self.tmp = testkit.tempdir(self, prefix="ytt-rec-sl-")
         self.folder = os.path.join(self.tmp, "live-rec")
         os.makedirs(self.folder)
         self.logs = []
@@ -425,7 +425,6 @@ class TestStreamlinkPipe(unittest.TestCase):
         R.validate_url = self._orig
         self.rec.close()
         self.srv.close()
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_commands_are_argument_lists(self):
         r = R.Recording(self.rec, "20261004-000000-x", os.path.join(self.folder, "x"),
@@ -545,7 +544,7 @@ class TestTitle(unittest.TestCase):
         cls.httpd.server_close()
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-rec-title-")
+        self.tmp = testkit.tempdir(self, prefix="ytt-rec-title-")
         self.folder = os.path.join(self.tmp, "live-rec")
         os.makedirs(self.folder)
         self.rec = R.Recorder(self.folder, **FAST)
@@ -555,7 +554,6 @@ class TestTitle(unittest.TestCase):
             if r.active:
                 self.rec.stop(r.id)
         self.rec.close()
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_fetch_title(self):
         url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=1"

@@ -3,25 +3,21 @@ RS3-5(2026-10-10)で studio/tests/test_handoff.py から移した。OPT1(10-11)�
 import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
-import shutil
 import sys
-import tempfile
 import unittest
 from unittest.mock import patch
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests → export → pipeline → src
 sys.path.insert(0, SRC)
+from ytt import testkit  # noqa: E402
 from pipeline.export import exporter  # noqa: E402
 from ytt import schemas, studio_env  # noqa: E402
 
 
 class TestClipManifest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp()
+        self.tmp = testkit.tempdir(self)
         studio_env.set_home(self.tmp)
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_manifest_path_replaces_extension(self):
         # 途中のファイルは 作業用\ に書く(2026-09-27。出力先の直下はパックと元動画だけ)

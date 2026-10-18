@@ -25,10 +25,8 @@ import http.client
 import json
 import math
 import os
-import shutil
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 import unittest
@@ -42,6 +40,7 @@ SRC = os.path.dirname(os.path.dirname(os.path.dirname(TESTS)))   # tests -> anal
 HERE = os.path.join(SRC, "app")                                  # 入口(NoNumpyTest が子プロセスで読む)
 if SRC not in sys.path:   # src(層のパッケージ pipeline・ytt。server.py と同じく後ろに)
     sys.path.append(SRC)
+from ytt import testkit  # noqa: E402
 from pipeline.analyze import live_excite_worker as W  # noqa: E402
 from flow import live_export as LX  # noqa: E402   (SameAsExportTest が flow の写しと比べる)
 from pipeline.analyze import excite, levels  # noqa: E402
@@ -233,11 +232,8 @@ class WorkerSimTest(unittest.TestCase):
     """ワーカーの中身を早送りで(ffmpeg も yt-dlp もプロセスを起動しない)"""
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-detect-")
+        self.tmp = testkit.tempdir(self, prefix="ytt-detect-")
         self.dir = os.path.join(self.tmp, "excite")
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_twelve_hours_fast_forward(self):
         """12 時間を早送り: 状態(state.json・Online・PeakBook の中の辞書)が増え続けない・候補が出る・1 時間の枠を超えない・チャットも数える"""
@@ -412,7 +408,7 @@ class ChatFeedTest(unittest.TestCase):
     """チャットの読み方(偽の yt-dlp = 本物のプロセス。時間は縮める)"""
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-detect-chat-")
+        self.tmp = testkit.tempdir(self, prefix="ytt-detect-chat-")
         self.folder = os.path.join(self.tmp, "chat")
         self.log = os.path.join(self.tmp, "launch.log")
         self.spec = os.path.join(self.tmp, "spec.json")
@@ -425,7 +421,6 @@ class ChatFeedTest(unittest.TestCase):
             f.close()
         os.environ.clear()
         os.environ.update(self.env)
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def feed(self, runs, **kw):
         with open(self.spec, "w", encoding="utf-8") as f:
@@ -633,10 +628,7 @@ class SegRecorder:
 @unittest.skipUnless(FF, "ffmpeg が見つかりません")
 class FfmpegTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-detect-ff-")
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
+        self.tmp = testkit.tempdir(self, prefix="ytt-detect-ff-")
 
     def test_measure_matches_studio_audio_levels(self):
         """同じ wav を、ワーカーの measure_levels とスタジオの analyze.audio_levels(どちらも levels.py の asplit で 1 回)で測ると同じ値で、
@@ -752,11 +744,8 @@ class WorkerRestTest(unittest.TestCase):
     途中から受け持つ・1 本の例外で止めない・まだ無い候補の決定・壊れた値)"""
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-detect-rest-")
+        self.tmp = testkit.tempdir(self, prefix="ytt-detect-rest-")
         self.dir = os.path.join(self.tmp, "excite")
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_provisional_comes_first_and_final_is_unchanged(self):
         """仮の候補は山から 60 秒以内に出て、本番(チャット込み・90 秒ほど)に同じ id で置き換わる。本番の候補は仮の候補なしのときと同じ"""

@@ -8,16 +8,15 @@
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない(一時フォルダだけ)。ほかのテストとそろえる
-import shutil
 import subprocess
 import sys
-import tempfile
 import unittest
 import wave
 from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> transcribe -> pipeline -> src
 sys.path.insert(0, SRC)
+from ytt import testkit  # noqa: E402
 from pipeline.transcribe import models, worker_client as W  # noqa: E402
 from ytt import workdata  # noqa: E402
 from ytt import errors  # noqa: E402
@@ -104,10 +103,7 @@ class TestWorkerModule(unittest.TestCase):
 
 class TestWav(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="txworker_")
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, True)
+        self.tmp = testkit.tempdir(self, prefix="txworker_")
 
     def _wav(self, rate=16000, n=16000):
         p = os.path.join(self.tmp, "a%d.wav" % rate)

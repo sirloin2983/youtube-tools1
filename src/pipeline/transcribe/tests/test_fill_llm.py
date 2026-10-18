@@ -10,15 +10,14 @@
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしないが、ほかのテストとそろえる
 import json
-import shutil
 import subprocess
 import sys
-import tempfile
 import unittest
 from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> transcribe -> pipeline -> src
 sys.path.insert(0, SRC)
+from ytt import testkit  # noqa: E402
 from pipeline.transcribe import backend, diarize, fill, llm, roster  # noqa: E402
 from ytt import errors, studiodata, workdata  # noqa: E402
 
@@ -38,7 +37,7 @@ class _FakeBackend(backend.Backend):
 
 class _Base(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp()
+        self.tmp = testkit.tempdir(self)
         self.roster = os.path.join(self.tmp, "roster.json")
         with open(self.roster, "w", encoding="utf-8") as f:
             json.dump({"groups": [{"id": "t", "label": "試し", "names": ["テスト分子"]}],
@@ -51,7 +50,6 @@ class _Base(unittest.TestCase):
 
     def _restore(self):
         backend.set_selector(lambda: backend.REAL)
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
 
 class TestFill(_Base):
