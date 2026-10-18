@@ -12,7 +12,6 @@ import io
 import json
 import os
 import sys
-import tempfile
 import time
 import unittest
 
@@ -22,6 +21,7 @@ REPO = os.path.dirname(os.path.dirname(HERE))   # src(ツールと共通部品 y
 sys.path.insert(0, REPO)
 from eval.tools import eval_alt as E  # noqa: E402
 from human.proof import alt as _alt  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 
 def ms(day, hhmm="12:00:00"):
@@ -64,15 +64,11 @@ def human_a(at=T1):
 class Env:
     """一時の作業データ(<root>/transcribe/ の transcripts/ と learn-feedback.json)"""
 
-    def __init__(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.root = self._tmp.name
+    def __init__(self, case):
+        self.root = testkit.tempdir(case)   # case の終わりに消す
         self.tx = os.path.join(self.root, "transcribe")
         self.tdir = os.path.join(self.tx, "transcripts")
         os.makedirs(self.tdir)
-
-    def close(self):
-        self._tmp.cleanup()
 
     def doc(self, tid, segments, original=ORIG, alt=ALT, engine="llama.cpp", model="qwen3-asr-1.7b", updated=1, **kw):
         d = {"schema": "youtube-tools-transcript/v1", "id": tid, "title": "t" + tid, "sourcePath": "", "start": 0, "end": None, "language": "ja",
@@ -209,10 +205,7 @@ class TestEvaluate(unittest.TestCase):
         E.C.prepare()
 
     def setUp(self):
-        self.env = Env()
-
-    def tearDown(self):
-        self.env.close()
+        self.env = Env(self)
 
     def test_counts_rates_and_read_only(self):
         self.env.doc("aaaaaaaaaaa1", human_a())
@@ -389,8 +382,7 @@ class TestNoSub(unittest.TestCase):
         self.assertEqual(len(r["cands"]), 5)
 
     def test_evaluate_reports_nosub_separately(self):
-        env = Env()
-        self.addCleanup(env.close)
+        env = Env(self)
         segs = human_a()
         segs[0] = dict(segs[0], noSub=True)
         env.doc("aaaaaaaaaaa1", segs)

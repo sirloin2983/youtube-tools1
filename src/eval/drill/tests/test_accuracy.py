@@ -6,9 +6,7 @@
 import datetime
 import json
 import os
-import shutil
 import sys
-import tempfile
 import unittest
 from unittest import mock
 
@@ -21,7 +19,7 @@ for p in (HOME, ROOT):
 
 from eval.drill import accuracy  # noqa: E402
 from app import prefs as prefs_mod  # noqa: E402
-from ytt import fsio, jobs  # noqa: E402
+from ytt import fsio, jobs, testkit  # noqa: E402
 
 # 偽の道具: 引数 = 領域の id・結果の置き場所。環境変数 FAKE_FAIL(領域の id をカンマ区切り)で失敗・FAKE_HANG(同)で居座る・
 # FAKE_NOLINE(同)で「保存: 」の行を出さない・FAKE_OUTSIDE(同)で置き場所の外のファイルを知らせる。結果に環境変数 FAKE_MARK(引き継ぎの確認)と FAKE_VALUE を入れる
@@ -97,8 +95,7 @@ class Busy:
 
 class AccuracyTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-accuracy-")
-        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.tmp = testkit.tempdir(self, prefix="ytt-accuracy-")
         self.app = os.path.join(self.tmp, "app")
         self.fake = os.path.join(self.tmp, "fake_eval.py")
         with open(self.fake, "w", encoding="utf-8") as f:
@@ -132,16 +129,18 @@ class AccuracyTest(unittest.TestCase):
 
     # ---- 夜の窓
     def test_in_window(self):
-        cfg = {"nightFrom": 1, "nightTo": 6}
-        self.assertFalse(accuracy.in_window(at(5, 0, 59), cfg))
-        self.assertTrue(accuracy.in_window(at(5, 1), cfg))
-        self.assertTrue(accuracy.in_window(at(5, 5, 59), cfg))
-        self.assertFalse(accuracy.in_window(at(5, 6), cfg))
-        wrap = {"nightFrom": 22, "nightTo": 6}     # 日をまたぐ
-        self.assertTrue(accuracy.in_window(at(5, 23), wrap))
-        self.assertTrue(accuracy.in_window(at(5, 3), wrap))
-        self.assertFalse(accuracy.in_window(at(5, 12), wrap))
-        self.assertTrue(accuracy.in_window(at(5, 12), {"nightFrom": 0, "nightTo": 24}))   # 一日中
+        for cfg, hm, want, case in [
+            ({"nightFrom": 1, "nightTo": 6}, (0, 59), False, "窓の始まりの 1 分前"),
+            ({"nightFrom": 1, "nightTo": 6}, (1, 0), True, "窓の始まり"),
+            ({"nightFrom": 1, "nightTo": 6}, (5, 59), True, "窓の終わりの 1 分前"),
+            ({"nightFrom": 1, "nightTo": 6}, (6, 0), False, "窓の終わり"),
+            ({"nightFrom": 22, "nightTo": 6}, (23, 0), True, "日をまたぐ窓の夜側"),   # 日をまたぐ
+            ({"nightFrom": 22, "nightTo": 6}, (3, 0), True, "日をまたぐ窓の朝側"),
+            ({"nightFrom": 22, "nightTo": 6}, (12, 0), False, "日をまたぐ窓の外"),
+            ({"nightFrom": 0, "nightTo": 24}, (12, 0), True, "一日中"),
+        ]:
+            with self.subTest(case):
+                self.assertEqual(accuracy.in_window(at(5, *hm), cfg), want)
 
     # ---- 設定
     def test_prefs_section(self):

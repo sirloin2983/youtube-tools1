@@ -10,7 +10,6 @@ import io
 import json
 import os
 import sys
-import tempfile
 import time
 import unittest
 from unittest import mock
@@ -21,6 +20,7 @@ REPO = os.path.dirname(os.path.dirname(HERE))   # src(ツールと共通部品 y
 sys.path.insert(0, REPO)
 from eval.tools import eval_timing as T  # noqa: E402
 from pipeline.transcribe import postproc  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 
 def ms(day, hhmm="12:00:00"):
@@ -41,14 +41,10 @@ REVIEWED = {"at": 1, "via": "drill", "durationSec": 60.0}
 class Env:
     """一時の作業データ(<root>/transcribe/transcripts/)に文書を作る"""
 
-    def __init__(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.root = self._tmp.name
+    def __init__(self, case):
+        self.root = testkit.tempdir(case)   # case の終わりに消す
         self.tdir = os.path.join(self.root, "transcribe", "transcripts")
         os.makedirs(self.tdir)
-
-    def close(self):
-        self._tmp.cleanup()
 
     def doc(self, tid, segments, original, reviewed=True, run=None, start=0.0, params=None, title="t"):
         d = {"schema": "transcribe/v1", "id": tid, "title": title, "start": start, "end": start + 60.0, "duration": 600.0,
@@ -76,10 +72,7 @@ FIVE_ORIG = [orig(1.2, 2.0, "こんにちは"),      # 頭が 0.2 秒遅い → 
 
 class TimingTest(unittest.TestCase):
     def setUp(self):
-        self.env = Env()
-
-    def tearDown(self):
-        self.env.close()
+        self.env = Env(self)
 
     def test_five_numbers(self):
         self.env.doc("aaaaaaaaaaaa", FIVE_SEGS, FIVE_ORIG)
@@ -132,11 +125,13 @@ class TimingTest(unittest.TestCase):
         self.assertAlmostEqual(o["extraMean"], 0.1, places=3)                                # 2 行目のはみ出し 0.1 + 0.1 の平均
 
     def test_text_match(self):
-        self.assertTrue(T.text_match("こんにちは、みんな", "こんにちはみんなー"))                   # 頭の 3 文字
-        self.assertTrue(T.text_match("えっと今日は", "今日は"))                               # 末の 3 文字
-        self.assertTrue(T.text_match("ＡＢＣです", "ABCです!"))                             # NFKC・記号は比べない(大文字と小文字は区別する)
-        self.assertFalse(T.text_match("全然違う", "ほかの言葉"))
-        self.assertFalse(T.text_match("", "あ"))
+        for a, b, want in [("こんにちは、みんな", "こんにちはみんなー", True),      # 頭の 3 文字
+                           ("えっと今日は", "今日は", True),                          # 末の 3 文字
+                           ("ＡＢＣです", "ABCです!", True),                        # NFKC・記号は比べない(大文字と小文字は区別する)
+                           ("全然違う", "ほかの言葉", False),
+                           ("", "あ", False)]:
+            with self.subTest(a=a, b=b):
+                self.assertEqual(T.text_match(a, b), want)
 
     def test_only_reviewed_docs(self):
         self.env.doc("aaaaaaaaaaaa", FIVE_SEGS, FIVE_ORIG)
@@ -196,11 +191,8 @@ class CheckTest(unittest.TestCase):
     """--check: 「確かめる」の時刻のカードの答え(app の check/answers.jsonl)を数える。戻した答えは数えない"""
 
     def setUp(self):
-        self.env = Env()
+        self.env = Env(self)
         self.app = os.path.join(self.env.root, "app")
-
-    def tearDown(self):
-        self.env.close()
 
     def add(self, i, choice, ds=0.0, de=0.0, kind="time", at=None, undo=False):
         from human.check import answerlog
@@ -245,10 +237,7 @@ class ApplyTest(unittest.TestCase):
     """--apply: 保存してある生出力(asr.json)に後処理(0.57.0 / 7-1 だけ / 0.57.1)を当て直す。editor の expand_segments をそのまま使う"""
 
     def setUp(self):
-        self.env = Env()
-
-    def tearDown(self):
-        self.env.close()
+        self.env = Env(self)
 
     def test_variants(self):
         # 範囲の先頭が 10 秒の文書。生出力の時刻は元の動画の秒。続いている 2 行(すき間 0.2 秒)

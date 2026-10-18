@@ -10,7 +10,6 @@ import json
 import os
 import shutil
 import sys
-import tempfile
 import unittest
 import urllib.error
 import wave
@@ -22,6 +21,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/eval/
 REPO = os.path.dirname(os.path.dirname(HERE))   # src(ツールと共通部品 ytt の置き場所)
 sys.path.insert(0, REPO)
 from eval.tools import eval_cloud as EC  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 KEY = "sk-test-secret-key-0123456789"
 
@@ -104,7 +104,7 @@ class RunTest(unittest.TestCase):
     """run の流れ(通信は偽)"""
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="test_eval_cloud_")
+        self.tmp = testkit.tempdir(self, prefix="test_eval_cloud_")
         self.data = os.path.join(self.tmp, "data")
         os.makedirs(os.path.join(self.data, "transcripts"))
         self.src = os.path.join(self.tmp, "clip.wav")
@@ -117,7 +117,6 @@ class RunTest(unittest.TestCase):
 
     def tearDown(self):
         self.env.stop()
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def write(self, i, **doc):
         path = os.path.join(self.data, "transcripts", i + ".json")

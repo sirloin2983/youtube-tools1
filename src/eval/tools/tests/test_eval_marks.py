@@ -10,7 +10,6 @@ import io
 import json
 import os
 import sys
-import tempfile
 import time
 import unittest
 
@@ -22,6 +21,7 @@ from eval.tools import eval_marks as M  # noqa: E402
 from manage.cases import txindex  # noqa: E402
 from flow import lengthhint  # noqa: E402
 from human import judgments  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 V1, V2 = "v1aaaaaaaaa", "v2bbbbbbbbb"
 
@@ -50,9 +50,7 @@ class Env:
     """一時フォルダの作業データ: <root>/studio・<root>/app・<root>/cut2resolve"""
 
     def __init__(self, test):
-        self.tmp = tempfile.TemporaryDirectory()
-        test.addCleanup(self.tmp.cleanup)
-        self.root = self.tmp.name
+        self.root = testkit.tempdir(test)
         self.studio = os.path.join(self.root, "studio")
         self.logs = os.path.join(self.root, "app", "logs")
         os.makedirs(self.studio)
@@ -636,13 +634,17 @@ class FriendRanges(unittest.TestCase):
         return env.evaluate(**kw)["friendRanges"]
 
     def test_hit_rule_boundaries(self):
-        self.assertTrue(M.friend_hit((10.0, 110.0), (60.0, 100.0)))     # 候補の真ん中(60)が区間の端ちょうど = 中
-        self.assertFalse(M.friend_hit((10.0, 110.0), (60.5, 100.0)))    # 真ん中が区間の外・重なりも半分に足りない
-        self.assertTrue(M.friend_hit((10.0, 110.0), (0.0, 60.0)))
-        self.assertFalse(M.friend_hit((10.0, 110.0), (0.0, 59.0)))
-        self.assertFalse(M.friend_hit((10.0, 20.0), (30.0, 40.0)))      # 離れている
-        self.assertTrue(M.friend_hit((100.0, 140.0), (120.0, 121.0)))   # 区間が短く、候補の真ん中を含む
-        self.assertFalse(M.friend_hit((100.0, 140.0), (101.0, 102.0)))
+        for rng, cand, want, case in [
+            ((10.0, 110.0), (60.0, 100.0), True, "候補の真ん中(60)が区間の端ちょうど = 中"),
+            ((10.0, 110.0), (60.5, 100.0), False, "真ん中が区間の外・重なりも半分に足りない"),
+            ((10.0, 110.0), (0.0, 60.0), True, "候補の真ん中が区間の端ちょうど"),
+            ((10.0, 110.0), (0.0, 59.0), False, "候補の真ん中が区間の外"),
+            ((10.0, 20.0), (30.0, 40.0), False, "離れている"),
+            ((100.0, 140.0), (120.0, 121.0), True, "区間が短く、候補の真ん中を含む"),
+            ((100.0, 140.0), (101.0, 102.0), False, "区間が短く、候補の真ん中を含まない"),
+        ]:
+            with self.subTest(case):
+                self.assertEqual(M.friend_hit(rng, cand), want)
         self.assertEqual(M.friend_gap((300.0, 340.0), (345.0, 400.0)), 5.0)
         self.assertEqual(M.friend_gap((300.0, 340.0), (330.0, 400.0)), 0.0)
 

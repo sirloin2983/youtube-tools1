@@ -19,6 +19,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/eval/
 REPO = os.path.dirname(os.path.dirname(HERE))   # src(ツールと共通部品 ytt の置き場所)
 sys.path.insert(0, REPO)
 from eval.tools import _evalcommon as C  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 
 def put(path, data, mode="wb"):
@@ -134,16 +135,12 @@ class TestReadJson(unittest.TestCase):
 
 class TestAudioSpan(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.data = self.tmp.name
+        self.data = testkit.tempdir(self)
         self.full = os.path.join(self.data, "dataset", "docs", "d1", "full.flac")
         os.makedirs(os.path.dirname(self.full))
         put(self.full, b"x")
         self.video = os.path.join(self.data, "v.mp4")
         put(self.video, b"x")
-
-    def tearDown(self):
-        self.tmp.cleanup()
 
     def test_video_first_then_stored_audio(self):
         doc = {"id": "d1", "sourcePath": self.video, "start": 10, "end": 50}

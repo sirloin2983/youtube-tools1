@@ -18,6 +18,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/eval/
 REPO = os.path.dirname(os.path.dirname(HERE))   # src(ツールと共通部品 ytt の置き場所)
 sys.path.insert(0, REPO)
 from eval.tools import eval_cut as E  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 FPS30 = [30, 1]
 
@@ -113,13 +114,14 @@ class TestCompare(unittest.TestCase):
         r = E.compare(fr((0, 100), (150, 300)), fr((0, 300)), 30)      # つないだ
         self.assertEqual(r["reshaped"], 1)
 
-    def test_touching_draft_intervals_are_one(self):
-        r = E.compare([(0.0, 5.0), (5.0, 10.0)], [(0.0, 10.0)], 30)
-        self.assertEqual((r["same"], r["reshaped"]), (1, 0))
-
-    def test_touching_final_does_not_overlap_next(self):
-        r = E.compare(fr((0, 30)), fr((30, 60)), 30)                   # 端が接するだけは重ならない = 消して足した
-        self.assertEqual((r["removed"], r["added"], r["same"]), (1, 1, 0))
+    def test_touching_intervals(self):
+        for case, D, F, keys, want in [
+            ("たたき台の接する 2 区間は 1 つ", [(0.0, 5.0), (5.0, 10.0)], [(0.0, 10.0)], ("same", "reshaped"), (1, 0)),
+            ("端が接するだけは重ならない = 消して足した", fr((0, 30)), fr((30, 60)), ("removed", "added", "same"), (1, 1, 0)),
+        ]:
+            with self.subTest(case):
+                r = E.compare(D, F, 30)
+                self.assertEqual(tuple(r[k] for k in keys), want)
 
     def test_empty(self):
         for D, F in (([], []), (fr((0, 30)), []), ([], fr((0, 30)))):
@@ -152,9 +154,8 @@ class TestEvaluate(unittest.TestCase):
         self.assertIn("測れる文書がありません", buf.getvalue())
 
     def test_missing_dirs_do_not_fail(self):
-        with tempfile.TemporaryDirectory() as t:
-            res = E.evaluate(t)
-            self.assertEqual(res["meta"]["docs"], 0)
+        res = E.evaluate(testkit.tempdir(self))
+        self.assertEqual(res["meta"]["docs"], 0)
 
     def test_final_from_edit_clips_and_counts(self):
         # 行から: 開始を 3 コマ早く・終了は同じ → 端のずれ -3 と 0、区間 1 つを足した

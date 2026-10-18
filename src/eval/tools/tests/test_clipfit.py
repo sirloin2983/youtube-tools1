@@ -8,7 +8,6 @@ import gzip
 import json
 import os
 import sys
-import tempfile
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
@@ -16,6 +15,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/eval/
 REPO = os.path.dirname(os.path.dirname(HERE))   # src(ツールと共通部品の置き場所)
 sys.path.insert(0, REPO)
 from eval.tools import clipfit as K  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 VID = "v1aaaaaaaaa"
 OTHER = "v2bbbbbbbbb"
@@ -37,9 +37,8 @@ class Env(unittest.TestCase):
     """一時フォルダの作業データ: <root>/studio/archive/"""
 
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
-        self.studio = os.path.join(self.tmp.name, "studio")
+        self.tmp = testkit.tempdir(self)
+        self.studio = os.path.join(self.tmp, "studio")
         self.archive = os.path.join(self.studio, "archive")
         os.makedirs(self.archive)
 
@@ -102,16 +101,13 @@ class MaterialTest(Env):
         peak = max(range(N), key=lambda i: total[i])
         self.assertTrue(300 <= peak < 320, peak)
 
-    def test_broken_gz_is_none(self):
+    def test_unreadable_material_is_none(self):
+        """材料が読めないときは None: 壊れた gz・無いファイル・危ない ID(../x は存在しても読まない)"""
         self.write_raw(VID, b"not json at all")
-        self.assertIsNone(K.load_material(self.studio, VID))
-
-    def test_missing_file_is_none(self):
-        self.assertIsNone(K.load_material(self.studio, OTHER))
-
-    def test_bad_id_is_none(self):
         self.write_gz("x", material_obj())
-        self.assertIsNone(K.load_material(self.studio, "../x"))
+        for case, vid in [("壊れた gz", VID), ("無いファイル", OTHER), ("危ない ID", "../x")]:
+            with self.subTest(case):
+                self.assertIsNone(K.load_material(self.studio, vid))
 
 
 class EvaluateTest(Env):
@@ -120,7 +116,7 @@ class EvaluateTest(Env):
         variants = [{"name": "fixed", "shape": "fixed", "length": 60, "pre": 0.5},
                     {"name": "scene", "shape": "scene", "length": 60, "pre": 0.5}]
         records = [{"videoId": VID, "ranges": [[280, 360]]}]
-        res = K.evaluate(self.studio, self.tmp.name, variants, records=records, hint={})
+        res = K.evaluate(self.studio, self.tmp, variants, records=records, hint={})
         self.assertEqual(len(res["variants"]), 2)
         self.assertEqual(res["ranges"], 1)
         self.assertEqual(res["withMaterial"], 1)
@@ -138,7 +134,7 @@ class EvaluateTest(Env):
         variants = [{"name": "fixed", "shape": "fixed", "length": 60, "pre": 0.5}]
         records = [{"videoId": VID, "ranges": [[280, 360]]},
                    {"videoId": OTHER, "ranges": [[100, 200]]}]
-        res = K.evaluate(self.studio, self.tmp.name, variants, records=records, hint={})
+        res = K.evaluate(self.studio, self.tmp, variants, records=records, hint={})
         self.assertEqual(res["ranges"], 2)
         self.assertEqual(res["withMaterial"], 1)
         self.assertEqual(res["videos"], 1)

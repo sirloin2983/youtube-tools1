@@ -11,7 +11,6 @@ import json
 import os
 import shutil
 import sys
-import tempfile
 import time
 import unittest
 import wave
@@ -25,6 +24,7 @@ from eval.tools import eval_speakers as E  # noqa: E402
 from pipeline.transcribe import worker_client  # noqa: E402
 from pipeline.transcribe import diarize as _diarize  # noqa: E402
 from ytt import errors as _errors  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 
 def ms(day, hhmm="12:00:00"):
@@ -34,14 +34,10 @@ def ms(day, hhmm="12:00:00"):
 class Env:
     """一時の作業データ(<root>/transcribe/transcripts/)に、文書と判別の記録を作る"""
 
-    def __init__(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.root = self._tmp.name
+    def __init__(self, case):
+        self.root = testkit.tempdir(case)   # case の終わりに消す
         self.tdir = os.path.join(self.root, "transcribe", "transcripts")
         os.makedirs(self.tdir)
-
-    def close(self):
-        self._tmp.cleanup()
 
     def doc(self, tid, speakers, rows, diar=None, history=None, original=None, eval_set=False, updated=None, title="t", proofed=False, reviewed=False, source=None):
         """speakers: {id: 名前}。rows: [(行 id, 人の話者 id or "", 機械のラベル or None, 追加の項目(mixed・weak・proofed・proofedAt・start・end・tags))]。
@@ -114,8 +110,7 @@ class TestMapping(unittest.TestCase):
 
 class TestRows(unittest.TestCase):
     def setUp(self):
-        self.env = Env()
-        self.addCleanup(self.env.close)
+        self.env = Env(self)
 
     def test_swapped_labels_are_correct_and_counts(self):
         # 機械の S1 = 人の B、機械の S2 = 人の A(入れ替わり)。1行は取り違え・1行は機械が付けなかった・1行は重なり(mixed)で取り違え
@@ -208,8 +203,7 @@ class TestRows(unittest.TestCase):
 
 class TestVoices(unittest.TestCase):
     def setUp(self):
-        self.env = Env()
-        self.addCleanup(self.env.close)
+        self.env = Env(self)
 
     def make(self):
         # 機械の S1 = 人の A(照合も A で正解・点数 0.80・差 0.30)/ S2 = 人の B(照合は C で間違い・点数 0.70・差 0.20)/
@@ -277,8 +271,7 @@ class TestVoices(unittest.TestCase):
 
 class TestCli(unittest.TestCase):
     def setUp(self):
-        self.env = Env()
-        self.addCleanup(self.env.close)
+        self.env = Env(self)
 
     def snapshot(self):
         out = {}
@@ -296,12 +289,8 @@ class TestCli(unittest.TestCase):
         with contextlib.redirect_stdout(buf):
             E.print_report(res)
         self.assertIn("まだ少ない(参考)", buf.getvalue())
-        shutil_root = tempfile.mkdtemp()
-        try:
-            r = E.evaluate(os.path.join(shutil_root, "nothing"))   # transcribe フォルダも無い
-            self.assertEqual(r["meta"]["docs"], 0)
-        finally:
-            os.rmdir(shutil_root)
+        r = E.evaluate(os.path.join(testkit.tempdir(self), "nothing"))   # transcribe フォルダも無い
+        self.assertEqual(r["meta"]["docs"], 0)
 
     def test_report_and_json_save_and_read_only(self):
         rows = [("r%d" % i, "S1", "S1", {}) for i in range(5)]
@@ -350,8 +339,7 @@ class TestConfirmed(unittest.TestCase):
     """人が確かめた行だけを数える(I-2a。機械の下書きのまま・確かめられない行を外す)"""
 
     def setUp(self):
-        self.env = Env()
-        self.addCleanup(self.env.close)
+        self.env = Env(self)
 
     def test_machine_draft_and_unverified_rows_are_excluded(self):
         # X: 名前は動画の手がかり(context)・行は判別のまま・誰も確かめていない = 機械の下書きのまま(全部外れて文書も数えない)
@@ -413,8 +401,7 @@ class TestConfirmed(unittest.TestCase):
             E.print_report(r)
         self.assertIn("only から戻した", buf.getvalue())
         # 評価用が 1 本も無いときは戻さない(注意も出さない)
-        env2 = Env()
-        self.addCleanup(env2.close)
+        env2 = Env(self)
         env2.doc("cccccccccccc", {"S1": "A"}, rows, diar={}, proofed=True)
         r2 = env2.run()
         self.assertEqual((r2["meta"]["docs"], r2["meta"]["reviewed"]["fallback"]), (1, False))
@@ -422,8 +409,7 @@ class TestConfirmed(unittest.TestCase):
 
 class TestOverlap(unittest.TestCase):
     def setUp(self):
-        self.env = Env()
-        self.addCleanup(self.env.close)
+        self.env = Env(self)
 
     def test_precision_and_recall(self):
         # 確かめ済みの文書: 人の重なりのメモ o1・o2・o3 / 機械の mixed は o1・m1 / 区間の重なり(overlaps)は o2 の所(4.0〜4.5)と m2 の所(とても短い 0.05 秒)
@@ -465,8 +451,7 @@ class TestRun(unittest.TestCase):
         self.envp = mock.patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "fake", "TRANSCRIBE_FAKE_DELAY": "0"})
         self.envp.start()
         self.addCleanup(self.envp.stop)
-        self.env = Env()
-        self.addCleanup(self.env.close)
+        self.env = Env(self)
         self.media = os.path.join(self.env.root, "media")
         os.makedirs(self.media)
         # A: 25 秒・1 人(12 行)。疑似の判別は 2 人に分ける(0〜10 秒・20 秒〜 = 0、10〜20 秒 = 1)
@@ -572,8 +557,7 @@ class TestSmooth(unittest.TestCase):
     """--smooth off,on(話者の細切れをならす S2。src/pipeline/transcribe/diarize.py の smooth_labels を読んで計算する)"""
 
     def setUp(self):
-        self.env = Env()
-        self.addCleanup(self.env.close)
+        self.env = Env(self)
 
     def put(self, tid, human_mid, smoothed_rec=False):
         """3 行: 前後はラベル 0(S1)・真ん中の短い行だけラベル 1(S2)で根拠が弱い(ratio 0.3)。人の最終は前後が A・真ん中が human_mid"""
@@ -639,8 +623,7 @@ class TestOrStored(unittest.TestCase):
     """夜の測定(src/eval/drill/accuracy.py)の呼び方 run --or-stored: 確かめ済みの評価用を今の既定で判別し直す。モデルが無い・測れる文書が 0 本なら stored に切り替える"""
 
     def setUp(self):
-        self.env = Env()
-        self.addCleanup(self.env.close)
+        self.env = Env(self)
         self.media = os.path.join(self.env.root, "media")
         os.makedirs(self.media)
         patch = mock.patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "fake", "TRANSCRIBE_FAKE_DELAY": "0"})
@@ -700,8 +683,7 @@ class TestNoSub(unittest.TestCase):
     """字幕に出さない行(noSub・組み込みの話者「ゲーム音声など」)は、話者の正しさ・重なりの見つけ方の数に入れない(件数だけ別に出す)"""
 
     def setUp(self):
-        self.env = Env()
-        self.addCleanup(self.env.close)
+        self.env = Env(self)
 
     def test_nosub_and_game_voice_rows_are_excluded(self):
         rows = [("r%d" % i, "S1", "S1", {}) for i in range(5)] + [("b%d" % i, "S2", "S2", {}) for i in range(5)]

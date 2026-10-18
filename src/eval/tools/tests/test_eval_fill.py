@@ -10,7 +10,6 @@ import io
 import json
 import os
 import sys
-import tempfile
 import time
 import unittest
 
@@ -19,6 +18,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/eval/
 REPO = os.path.dirname(os.path.dirname(HERE))   # src(ツールと共通部品 ytt の置き場所)
 sys.path.insert(0, REPO)
 from eval.tools import eval_fill as F  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 NAME_FLAG = "名簿の呼び名に直した(別のエンジンも同じ呼び名)"
 
@@ -49,14 +49,10 @@ def machine(a, b, text, filled=False):
 class Env:
     """一時の作業データ(<root>/transcribe/transcripts/)に文書を作る"""
 
-    def __init__(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.root = self._tmp.name
+    def __init__(self, case):
+        self.root = testkit.tempdir(case)   # case の終わりに消す
         self.tdir = os.path.join(self.root, "transcribe", "transcripts")
         os.makedirs(self.tdir)
-
-    def close(self):
-        self._tmp.cleanup()
 
     def doc(self, tid, segments, original, auto_fill=True, eval_set=False, runs=None, raw=None, updated=None, **extra):
         d = {"id": tid, "title": "t-" + tid, "segments": segments, "original": original, "updatedAt": updated or ms("2026-10-09"),
@@ -102,17 +98,14 @@ class FoldTest(unittest.TestCase):
         self.assertEqual(F.fold("ＡＢＣ１"), "abc1")
 
     def test_edit_distance(self):
-        self.assertEqual(F.edit_distance("あいう", "あいう"), 0)
-        self.assertEqual(F.edit_distance("あいう", "あえう"), 1)
-        self.assertIsNone(F.edit_distance("あ" * (F.MAX_EDIT_CHARS + 1), "あ"))
+        for a, b, want in [("あいう", "あいう", 0), ("あいう", "あえう", 1), ("あ" * (F.MAX_EDIT_CHARS + 1), "あ", None)]:   # 最後は上限超え = None
+            with self.subTest(a=a[:6], b=b):
+                self.assertEqual(F.edit_distance(a, b), want)
 
 
 class EvalFillTest(unittest.TestCase):
     def setUp(self):
-        self.env = Env()
-
-    def tearDown(self):
-        self.env.close()
+        self.env = Env(self)
 
     def run_eval(self, **kw):
         return F.evaluate(self.env.root, **kw)
@@ -252,10 +245,7 @@ class AnswerTest(unittest.TestCase):
     """5b-1: 確かめるの read:fill の答え(1 = 残した・2 = 戻した・打つ = 直した)を人の判断の正として読む"""
 
     def setUp(self):
-        self.env = Env()
-
-    def tearDown(self):
-        self.env.close()
+        self.env = Env(self)
 
     def test_answers_are_the_judgement(self):
         e, tid = self.env, "acacacacaca1"

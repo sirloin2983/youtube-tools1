@@ -11,7 +11,6 @@ import json
 import os
 import shutil
 import sys
-import tempfile
 import types
 import unittest
 import wave
@@ -29,6 +28,7 @@ from pipeline.transcribe import tx_engines as _tx_engines  # noqa: E402
 from pipeline.transcribe import worker_client as _worker_client  # noqa: E402
 from pipeline.transcribe import models as _txmodels  # noqa: E402
 from ytt import workdata as _workdata  # noqa: E402
+from ytt import testkit  # noqa: E402
 from pipeline.transcribe import backend as _backend  # noqa: E402
 from pipeline.transcribe import backend as _backend  # noqa: E402
 from ytt import txtext as _txtext  # noqa: E402
@@ -60,7 +60,7 @@ def quiet(fn, *a):
 
 class EvalAsrTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="test_eval_asr_")
+        self.tmp = testkit.tempdir(self, prefix="test_eval_asr_")
         self.data = os.path.join(self.tmp, "data")
         os.makedirs(os.path.join(self.data, "transcripts"))
         os.environ["TRANSCRIBE_FAKE_DELAY"] = "0"
@@ -72,8 +72,6 @@ class EvalAsrTest(unittest.TestCase):
                       {"start": 12.0, "end": 13.0, "text": "ご視聴ありがとうございました"}, {"start": 30.0, "end": 34.0, "text": "まだ見てない"}])
         self.write("bbbbbbbbbbb2", segments=[seg(1, 0.0, 2.0, "学習用")], original=[{"start": 0.0, "end": 2.0, "text": "学習よう"}])
 
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def write(self, tid, **kw):
         doc = {"schema": "transcribe/v1", "id": tid, "title": tid, "sourcePath": "", "start": 0, "end": None, "language": "ja",
@@ -418,7 +416,7 @@ class EvalAsrSelectTest(unittest.TestCase):
     """マスタープラン Q3: 時期で分ける・出どころ(評価用・普段)・下書きのエンジンの注意・エンジン別の集計・少ないデータ"""
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="test_eval_asr_sel_")
+        self.tmp = testkit.tempdir(self, prefix="test_eval_asr_sel_")
         self.data = os.path.join(self.tmp, "data")
         os.makedirs(os.path.join(self.data, "transcripts"))
         os.environ["TRANSCRIBE_FAKE_DELAY"] = "0"
@@ -437,8 +435,6 @@ class EvalAsrSelectTest(unittest.TestCase):
         self.write("dddddddddd04", segments=[pseg(1, 0, 4, "あいう", ms(2026, 10, 4)), pseg(2, 4, 8, "えお", ms(2026, 10, 4))], original=orig,
                    recognition={"runs": [run_rec("whisper.cpp", "large-v3", {"glossary": "zzz"})]})
 
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def write(self, tid, **kw):
         doc = {"schema": "transcribe/v1", "id": tid, "title": tid, "sourcePath": "", "start": 0, "end": None, "language": "ja",
@@ -620,7 +616,7 @@ class EvalAsrReviewedTest(unittest.TestCase):
     """確かめ済み(evalReviewed = 動画を全部聞いて直した印)の文書は、動画全体が正解。--reviewed の選び分け・確かめ済みが 0 本のときの戻り"""
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="test_eval_asr_rev_")
+        self.tmp = testkit.tempdir(self, prefix="test_eval_asr_rev_")
         self.data = os.path.join(self.tmp, "data")
         os.makedirs(os.path.join(self.data, "transcripts"))
         # 人の行は 10〜14 と 30〜33(足した行 = 機械が出していない)。機械は 0〜3(ええと)と 50〜54(ご視聴…)に人の行の無い所へ出した
@@ -631,8 +627,6 @@ class EvalAsrReviewedTest(unittest.TestCase):
         self.write("bbbbbbbbbb01", evalSet=True, segments=self.human, original=self.machine)        # 同じ中身で確かめ済みの印なし
         self.write("dddddddddd01", segments=self.human, original=self.machine)                     # 普段の文書(評価用でない)
 
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def write(self, tid, **kw):
         doc = {"schema": "transcribe/v1", "id": tid, "title": tid, "sourcePath": "", "start": 0, "end": None, "language": "ja",
@@ -753,7 +747,7 @@ class EvalAsrGateRepeatTest(unittest.TestCase):
     """量の関門(gate_of・表示・compare の判定)と、run --repeat N(N 回の認識の中央)。認識は偽(recognize_doc を差し替える)"""
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="test_eval_asr_gate_")
+        self.tmp = testkit.tempdir(self, prefix="test_eval_asr_gate_")
         self.data = os.path.join(self.tmp, "data")
         os.makedirs(os.path.join(self.data, "transcripts"))
         os.environ["TRANSCRIBE_BACKEND"] = "fake"
@@ -975,13 +969,11 @@ class EvalAsrOriginTest(unittest.TestCase):
     CLIP = {"schema": "youtube-tools-clip/v1", "source": {"kind": "youtube", "videoId": "abcdefghijk"}}
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="test_eval_asr_origin_")
+        self.tmp = testkit.tempdir(self, prefix="test_eval_asr_origin_")
         self.data = os.path.join(self.tmp, "data")
         os.makedirs(os.path.join(self.data, "transcripts"))
         os.environ["TRANSCRIBE_FAKE_DELAY"] = "0"
 
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def write(self, tid, dur, heard="こんにちは", **kw):
         """確かめ済みの評価用の文書(正解は「こんにちは」。機械の出力が heard)"""
@@ -1132,12 +1124,10 @@ class EvalAsrNoSubOverlapTest(unittest.TestCase):
     """字幕に出さない行(noSub)の別集計と、重なりのまとまりの別集計(overlap・nonOverlap)。noSub も重なりも無い文書は今までと同じ数"""
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="test_eval_asr_nosub_")
+        self.tmp = testkit.tempdir(self, prefix="test_eval_asr_nosub_")
         self.data = os.path.join(self.tmp, "data")
         os.makedirs(os.path.join(self.data, "transcripts"))
 
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def write(self, tid, **kw):
         doc = {"schema": "transcribe/v1", "id": tid, "title": tid, "sourcePath": "", "start": 0, "end": None, "language": "ja",
@@ -1201,12 +1191,13 @@ class EvalAsrNoSubOverlapTest(unittest.TestCase):
         self.assertEqual((s["overlap"]["groups"], s["overlap"]["miss"], s["overlap"]["cer"]), (1, 5, 0.5))
 
     def test_overlap_needs_different_speakers_and_0_3_sec(self):
-        self.write("aaaaaaaaaa01", segments=[sg(1, 0.0, 3.0, "あいう", speaker="A"), sg(2, 1.0, 4.0, "えおか", speaker="A")], original=[{"start": 0.0, "end": 4.0, "text": "あいうえおか"}])
-        self.assertEqual(self.stored()["summary"]["overlap"]["groups"], 0)                              # 同じ話者
-        self.write("aaaaaaaaaa01", segments=[sg(1, 0.0, 1.29, "あいう", speaker="A"), sg(2, 1.0, 4.0, "えおか", speaker="B")], original=[{"start": 0.0, "end": 4.0, "text": "あいうえおか"}])
-        self.assertEqual(self.stored()["summary"]["overlap"]["groups"], 0)                              # 0.29 秒
-        self.write("aaaaaaaaaa01", segments=[sg(1, 0.0, 1.3, "あいう", speaker="A"), sg(2, 1.0, 4.0, "えおか", speaker="B")], original=[{"start": 0.0, "end": 4.0, "text": "あいうえおか"}])
-        self.assertEqual(self.stored()["summary"]["overlap"]["groups"], 1)                              # 0.3 秒ちょうど
+        for case, end1, spk2, want in [("同じ話者は数えない", 3.0, "A", 0),
+                                        ("重なりが 0.29 秒", 1.29, "B", 0),
+                                        ("重なりが 0.3 秒ちょうど", 1.3, "B", 1)]:
+            with self.subTest(case):
+                self.write("aaaaaaaaaa01", segments=[sg(1, 0.0, end1, "あいう", speaker="A"), sg(2, 1.0, 4.0, "えおか", speaker=spk2)],
+                           original=[{"start": 0.0, "end": 4.0, "text": "あいうえおか"}])
+                self.assertEqual(self.stored()["summary"]["overlap"]["groups"], want)
 
     def test_nosub_is_removed_before_counting_overlap(self):
         """字幕に出さない行は先に外す: ゲーム音声と重なっても重なりのまとまりにならない"""
