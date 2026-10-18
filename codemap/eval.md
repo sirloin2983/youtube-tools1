@@ -9,14 +9,14 @@
 ## src/eval/check/
 
 - **__init__.py** (2 行) — ⑤ 確かめるの待ち行列(V1。カードの出どころ sources・並び lineup・目標との対応 goals・組み立て deck。notes:docs/design/v1-check-build.md)
-- **goals.py** (71 行) — 「確かめる」のカードの種類 → 入口の条件(src/eval/drill/accuracy.py の GOALS)の対応と、答えの数え方(V1 の V0。notes:docs/design/v1-check-build.md の 2-3)。
-  - 名前: `register` :21・`goal_of` :29・`extra_counter` :34・`extra_from` :51・`by_kind` :59・`view` :65
+- **goals.py** (72 行) — 「確かめる」のカードの種類 → 入口の条件(src/eval/drill/accuracy.py の GOALS)の対応と、答えの数え方(V1 の V0。notes:docs/design/v1-check-build.md の 2-3)。
+  - 名前: `register` :22・`goal_of` :30・`extra_counter` :35・`extra_from` :52・`by_kind` :60・`view` :66
 
 ## src/eval/drill/
 
 - **__init__.py** (2 行) — ⑤ 評価ドリル・評価用フォルダ・精度のカード・A/B・精度の自動測定
-- **accuracy.py** (626 行) — 精度の自動測定(マスタープラン Q3。git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md の (a))。
-  - 名前: `class ToolError` :80・`summarize_asr` :99・`summarize_marks` :114・`summarize_speakers` :133・`summarize_cut` :157・`summarize_alt` :170・`summarize_fill` :185・`summarize_timing` :200・`summarize_generic` :222・`count_daily` :245・`goals_of` :279・`in_window` :311・ほか 2
+- **accuracy.py** (633 行) — 精度の自動測定(マスタープラン Q3。git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md の (a))。
+  - 名前: `class ToolError` :87・`summarize_asr` :106・`summarize_marks` :121・`summarize_speakers` :140・`summarize_cut` :164・`summarize_alt` :177・`summarize_fill` :192・`summarize_timing` :207・`summarize_generic` :229・`count_daily` :252・`goals_of` :286・`in_window` :318・ほか 2
 - **drill.py** (452 行) — 「編集」のサーバーの部品: 評価ドリルと定点の「あと何分」(マスタープラン Q4。git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md の (c))。
   - 名前: `drill_reviewed_sec` :51・`drill_stream_key` :58・`drill_doc_summary` :77・`drill_docs` :130・`drill_status` :163・`drill_next` :206・`drill_reviewed` :272・`drill_unreviewed` :303・`drill_candidates_for` :388・`drill_candidates` :427
 - **evalbatch.py** (807 行) — 「編集」のサーバーの部品: 評価用の動画を、手が空いたとき少しずつまとめて文字起こしする(マスタープラン Q4(b)。git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md)。
