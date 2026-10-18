@@ -313,7 +313,7 @@ def run(tmp, shots, force_chromium):
         ff("-i", arc, "-vn", "-c:a", "aac", "-b:a", "128k", p)
         return p
     live.archive_opts = {"probe": fake_probe, "audio": fake_audio, "first_delay": 8.0, "interval": 2.0, "poll": 1.0, "retry_sec": 2.0, "step": 0.5}
-    live.cleanup_opts = {"interval": 0, "no_mark_sec": 6.0, "keep_sec": 40.0}
+    live.cleanup_opts = {"interval": 0, "no_mark_sec": 6.0}
     live.watch_sec = 1.0   # 入口の見回り(録画を消す見回り・作り直しの自動)を 1 秒ごとに
     live.start()
 

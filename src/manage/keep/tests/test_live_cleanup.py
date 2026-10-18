@@ -19,7 +19,7 @@ if SRC not in sys.path:
 from flow import live_archive as A  # noqa: E402
 from flow import live_export as LX  # noqa: E402
 from manage.keep import live_cleanup as LC  # noqa: E402
-from ytt import fsio, schemas  # noqa: E402
+from ytt import fsio  # noqa: E402
 
 RELEASE = 1790000000.0            # 配信の開始時刻
 
@@ -90,7 +90,7 @@ class CleanupTest(unittest.TestCase):
         self.arch = {}              # 録画の id -> アーカイブ化を確かめた結果(無い = 確かめた "")
         self.asked = []
         self.cl = LC.Cleaner(self.live, enabled=lambda: self.on, studio=self.studio, log=self.logs.append,
-                             no_mark_sec=2.0, keep_sec=2.0, interval=0, archived=self.archived)
+                             no_mark_sec=2.0, interval=0, archived=self.archived)
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -266,7 +266,7 @@ class CleanupTest(unittest.TestCase):
         self.studio_videos[self.R1] = [self.smark(1)]
         self.live.add(self.R2, ended_ago=99999)   # マークなし・1 日より前
         self.on = False   # 設定オフ: 何も消さない(録画元にも聞かない)
-        self.assertEqual(self.cl.tick(), {"deleted": [], "keeps": 0})
+        self.assertEqual(self.cl.tick(), {"deleted": []})
         self.assertEqual(self.live.calls, [])
         self.assertFalse(self.cl.check("local", self.R1))
         self.on = True
@@ -337,40 +337,6 @@ class CleanupTest(unittest.TestCase):
         self.cl.hold = lambda rc, r: 1 / 0                  # 確かめられなければ消さない
         self.live.add(self.R3, ended_ago=10)
         self.assertEqual(self.cl.tick()["deleted"], [])
-
-    def test_keeps_after_7_days(self):
-        folder = os.path.join(self.out, "配信", schemas.WORK_DIR, A.SPEED_DIR)
-        os.makedirs(folder)
-        old = os.path.join(folder, "01_a.mp4")
-        new = os.path.join(folder, "02_b.mp4")
-        for p in (old, new):
-            with open(p, "wb") as f:
-                f.write(b"x")
-        outside = os.path.join(self.tmp, "elsewhere", schemas.WORK_DIR, A.SPEED_DIR, "03_c.mp4")
-        os.makedirs(os.path.dirname(outside))
-        with open(outside, "wb") as f:
-            f.write(b"x")
-        other = os.path.join(self.out, "配信", "04_d.mp4")   # 作業用\速報版 の外(書き出した本体)
-        with open(other, "wb") as f:
-            f.write(b"x")
-        long_ago = LX.epoch_iso(time.time() - 10)
-        j1 = self.job(self.R1, 1, keep=old, at=long_ago)
-        j2 = self.job(self.R1, 2, keep=new)            # 入れ替えたばかり
-        j3 = self.job(self.R1, 3, keep=outside, at=long_ago)
-        j4 = self.job(self.R1, 4, keep=other, at=long_ago)
-        j5 = self.job(self.R1, 5, keep=os.path.join(folder, "05_gone.mp4"), at=long_ago)   # 手で消した
-        self.on = False
-        self.assertEqual(self.cl.tick()["keeps"], 0)
-        self.assertTrue(os.path.isfile(old))
-        self.on = True
-        self.assertEqual(self.cl.tick()["keeps"], 2)
-        self.assertFalse(os.path.exists(old))
-        self.assertTrue(os.path.isfile(new) and os.path.isfile(outside) and os.path.isfile(other))
-        self.assertTrue(j1["archive"]["keepDeleted"] and j5["archive"]["keepDeleted"])
-        self.assertNotIn("keepDeleted", j2["archive"])
-        self.assertNotIn("keepDeleted", j3["archive"])
-        self.assertNotIn("keepDeleted", j4["archive"])
-        self.assertEqual(self.cl.tick()["keeps"], 0)   # 2 回は消さない
 
 
 if __name__ == "__main__":

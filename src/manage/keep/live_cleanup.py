@@ -20,20 +20,17 @@
      - スタジオにマークが1つも無い(GET /studio/api/video?id=<録画>。スタジオに登録が無い録画も「マークなし」。つながらない・答えが読めなければ消さない)
      → スタジオの一覧の行を先に消す(POST /studio/api/video/delete {ifNoMarks: true} = 調べてから消すまでの間にマークが付いたら 409 で消さない)
      → 録画を消す(使用中で消せなければ、次の見回りでまた消す。スタジオの行はもう無いので 2 の条件のまま)
-  3. 前の版で退避した速報版(<配信のフォルダ>/作業用/速報版/…。ジョブの archive.keep): 入れ替え(archive.at)から keep_sec(3 日)たったら消す。
-     消すのはジョブが自分で退避したパスだけ(書き出し先の中・作業用/速報版/ の直下・.mp4・リンクでない普通のファイル)→ archive.keepDeleted
-     (入れ替えは 2026-10-16 に廃止したので、新しくは増えない。残っている物の片付けだけ)
-  4. 1 を満たさない録画(10-09 ユーザー決定「終わって 3 日で消す」= decisions 3-15 (fc) の変更): 消せない理由が「書き出していないマークがある」
+  3. 1 を満たさない録画(10-09 ユーザー決定「終わって 3 日で消す」= decisions 3-15 (fc) の変更): 消せない理由が「書き出していないマークがある」
      「アーカイブ化をまだ確かめられていない」だけ(live_retire.stale_ok)の録画は、終わって STALE_SEC(3 日)たったら消す。
      スタジオに「採用のまま書き出していないマーク」がある・スタジオに確かめられないときは消さない。
      消す 1 日前(WARN_SEC)から「調子」に予告(live_failures.delete_notice)。ほかの理由(書き出しの途中など)は今までどおり消さずに知らせる(keep_failure)
 録画中・配信待ち・つなぎ直し中の録画は消さない(録画元も 409 で断る)。録画元につながらない・一覧を読めないときは何もしない。
 配信後の全自動(線 D の M7。設定 live.autoAfterStream)がオンで、その録画の自動の切り抜きがまだ済んでいない間も消さない(hold。src/flow/live_archive.py の after_stream_hold)。
 消したことは入口の記録(log)に1行ずつ残す。録画を消す API(録画元の …/delete)は入口のこの処理だけが呼ぶ(画面からの中継 /live/r/… は通さない)。
-ここ(④)が持つのは 見回り(tick・check)・期限(24 時間・3 日・予告と知らせ)・録画元へ delete を送る・速報版のファイルを消す(場所の確かめ _keep_ok)・記録の 1 行。
-書き出しのジョブ・マークの正本・検出の記録は直に読み書きせず、② の Retire(verdict・has_marks・keeps の読み口と recording_deleted・keep_deleted の書き口)を通す。
+ここ(④)が持つのは 見回り(tick・check)・期限(24 時間・3 日・予告と知らせ)・録画元へ delete を送る・記録の 1 行。
+書き出しのジョブ・マークの正本・検出の記録は直に読み書きせず、② の Retire(verdict・has_marks の読み口と recording_deleted の書き口)を通す。
+(前の版で退避した速報版を 3 日で消す片付けは、速報版が 0 本になったので 10-19 に消した。入れ替えは 10-16 に廃止)
 """
-import os
 import threading
 import time
 import urllib.parse
@@ -41,11 +38,9 @@ import urllib.parse
 from ytt import schemas
 from flow import live_failures   # 残っている録画の知らせの文。D-14
 from flow import live_export as LX
-from flow import live_archive as LA
 from flow import live_retire   # 録画を消してよいかの判断と、消したことを記す ② の口(OPT2 の 7x-1)
 
 NO_MARK_SEC = 24 * 3600.0      # マークの無い録画を消すまで(録画が終わってから)
-KEEP_SEC = 3 * 86400.0         # 退避した速報版を消すまで(入れ替えてから。ただの控えは早めに消す = notes:docs/spec/data.md の保存の方針)
 INTERVAL = 600.0               # 見回り(入口の録画の見回り src/app/live.py の tick から)で調べる間隔
 STALE_SEC = 3 * 86400.0        # D-14: 終わってからこれだけたっても消せない録画を「調子」に知らせる。理由が live_retire.stale_ok だけなら、このとき消す(10-09 ユーザー決定)
 WARN_SEC = 2 * 86400.0         # stale_ok の理由の録画を消す 1 日前から「調子」に予告する
@@ -55,7 +50,7 @@ REC_ACTIVE = ("waiting", "recording", "reconnecting")   # src/pipeline/ingest/re
 
 
 class Cleaner:
-    def __init__(self, live, enabled=None, studio=None, log=None, no_mark_sec=NO_MARK_SEC, keep_sec=KEEP_SEC, interval=INTERVAL, clock=time.time, hold=None,
+    def __init__(self, live, enabled=None, studio=None, log=None, no_mark_sec=NO_MARK_SEC, interval=INTERVAL, clock=time.time, hold=None,
                  archived=None):
         """live: src/app/live.py の Live(録画元の一覧と要求。書き出しのジョブ・マーク・検出の記録は ② の口 live_retire.Retire(live) を通して読み書きする)。
         enabled(): 消してよいか(リアルタイム切り抜きがオンで、設定 live.autoDelete がオン)。
@@ -63,7 +58,7 @@ class Cleaner:
         hold(録画元の id, 録画元の一覧の 1 行) -> 消すのを待つ理由(空 = 待たない。M7 の配信後の全自動がまだ)。
         archived(録画元の id, 録画元の一覧の 1 行) -> アーカイブ化を確かめたか("" = 確かめた / 理由。live_archive の Archiver.archived。
         無ければ確かめられない = 終わって 3 日の期限まで消さない)。
-        時間(no_mark_sec・keep_sec・interval)はテストで縮める"""
+        時間(no_mark_sec・interval)はテストで縮める"""
         self.live = live
         self.enabled = enabled or (lambda: False)
         self.hold = hold or (lambda rc_id, r: "")
@@ -71,7 +66,7 @@ class Cleaner:
         self.studio = studio or (lambda method, path, body=None: (None, {}))
         self.log = log or (lambda m: None)
         self.retire = live_retire.Retire(live, studio_marks=lambda rec: self._studio_marks(rec)[0])   # 親がマークの置き場を持たなければスタジオに聞く
-        self.no_mark_sec, self.keep_sec, self.interval, self.clock = no_mark_sec, keep_sec, interval, clock
+        self.no_mark_sec, self.interval, self.clock = no_mark_sec, interval, clock
         self.lock = threading.Lock()
         self._last = 0.0
         self._said = {}   # 録画 -> 前に記録した「消せなかった」理由(見回りのたびに同じ行を書かない)
@@ -79,8 +74,8 @@ class Cleaner:
 
     # --- 入口から ---
     def tick(self, force=False):
-        """見回り(interval ごと。force なら今すぐ)。-> {"deleted": [録画の id], "keeps": 消した速報版の数}"""
-        out = {"deleted": [], "keeps": 0}
+        """見回り(interval ごと。force なら今すぐ)。-> {"deleted": [録画の id]}"""
+        out = {"deleted": []}
         if not self.enabled():
             return out
         now = self.clock()
@@ -88,7 +83,6 @@ class Cleaner:
             return out
         self._last = now
         with self.lock:
-            out["keeps"] = self._clean_keeps(now)
             for rc in self.live.recorders():
                 for r in LX.rec_list(self.live.call, rc) or []:   # つながらない・読めない録画元は何もしない
                     if self._consider(rc, r, now):
@@ -218,46 +212,3 @@ class Cleaner:
         if self._said.get(rec) != msg:
             self._said[rec] = msg
             self.log("リアルタイム切り抜き: %s %s" % (rec, msg))
-
-    # --- 退避した速報版 ---
-    def _clean_keeps(self, now):
-        """入れ替えから keep_sec たった、退避した速報版を消す。-> 消した数"""
-        root, cand = self.retire.keeps()   # 書き出し先が分からなければ候補は無い
-        gone = []
-        for j in cand:
-            at = j["at"]
-            if at is None or now - at < self.keep_sec:
-                continue
-            p = j["keep"]
-            if not self._keep_ok(p, root):
-                self._say(j["id"], "退避した速報版の場所が思っていた所ではないので消しません: %s" % p)
-                continue
-            try:
-                os.unlink(p)
-            except FileNotFoundError:
-                pass   # 手で消した: 消したことにする
-            except OSError as e:
-                self._say(j["id"], "退避した速報版を消せませんでした(%s): %s" % (e.strerror or e.__class__.__name__, p))
-                continue
-            try:
-                os.rmdir(os.path.dirname(p))   # 空になった 速報版 のフォルダ(中身があれば消えない)
-            except OSError:
-                pass
-            gone.append(j["id"])
-            self.log("リアルタイム切り抜き: 退避した速報版を消しました(入れ替えから %d 日)%s" % (int(self.keep_sec // 86400), p))
-        self.retire.keep_deleted(gone)   # ジョブの archive.keepDeleted(② の記録)
-        return len(gone)
-
-    @staticmethod
-    def _keep_ok(p, root):
-        """消してよい退避先か: 絶対パス・.mp4・書き出し先の中・…\\作業用\\速報版\\<名前> の形・リンクでない普通のファイル(無ければ消したことにする)"""
-        if not isinstance(p, str) or not os.path.isabs(p) or not p.lower().endswith(".mp4") or not root:
-            return False
-        d = os.path.dirname(p)
-        if os.path.basename(d) != LA.SPEED_DIR or os.path.basename(os.path.dirname(d)) != schemas.WORK_DIR:
-            return False
-        if not LA.inside(p, root):
-            return False
-        if os.path.lexists(p) and (os.path.islink(p) or not os.path.isfile(p)):
-            return False
-        return True

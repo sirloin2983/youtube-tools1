@@ -152,10 +152,9 @@ def latest_per_mark(js):
 
 
 def cleaned_up(job):
-    """録画の片付け(src/flow/live_retire.py の口。④ live_cleanup が記す)が済んだジョブか: 録画を消した(recordingDeleted)うえで、
-    退避した速報版が無いか消した(archive.keepDeleted)。済んだ物から記録を切ってよい(Exporter._trim。7e-3)"""
-    a = job.get("archive") if isinstance(job.get("archive"), dict) else {}
-    return bool(job.get("recordingDeleted")) and (not a.get("keep") or bool(a.get("keepDeleted")))
+    """録画の片付け(src/flow/live_retire.py の口。④ live_cleanup が記す)が済んだジョブか = 録画を消した(recordingDeleted)。
+    済んだ物から記録を切ってよい(Exporter._trim。7e-3。前の版の archive.keep・keepDeleted は 10-19 から見ない)"""
+    return bool(job.get("recordingDeleted"))
 
 
 # ---------- マーク(正本) ----------

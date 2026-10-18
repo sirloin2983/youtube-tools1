@@ -315,21 +315,6 @@ class ArchiveTest(unittest.TestCase):
         self.assertTrue(A.needs_archive({"state": "wait", "from": "archive"}))
         self.assertFalse(A.needs_archive({"state": "done", "from": "archive"}) or A.needs_archive({"state": "wait"}) or A.needs_archive({"state": "error"}))
 
-    def test_old_replace_jobs_are_dropped(self):
-        """前の版で入れ替え(速報版 → 本番版)を待っていたジョブ(done + archive wait)は、何もせずに取り消しにする"""
-        speed = os.path.join(self.out, "速報版.mp4")
-        with open(speed, "wb") as f:
-            f.write(b"x")
-        j1 = self.job(150.0, 6.0, 1, "done", archive={"state": "wait", "label": "待ち"}, after="check", path=speed)
-        studio = FakeStudio(self.arc)
-        ar = self.archiver(studio)
-        ar.start()
-        self.assertTrue(self.wait_state(j1))
-        a = self.arc_of(j1)
-        self.assertEqual(a["state"], "cancelled")
-        self.assertIn("入れ替えはやめました", a["message"])
-        self.assertFalse(studio.calls)
-
     def test_board_follows_archive(self):
         """掲示板(RS8 の ② の口 S2): 書き出しの状態が変わったら la:<ジョブの id> がその state で載る・配信後の全自動は la:as-<録画元>.<録画>"""
         j1 = self.job(150.0, 6.0, 1, "error", "山場")

@@ -153,41 +153,20 @@ class RetireTest(unittest.TestCase):
         self.assertIs(self.rt.has_marks("local", REC), True)
         self.assertIsNone(self.rt.has_marks("local", "../x"))   # 読めない = 消さない
 
-    def test_keeps_and_keep_deleted(self):
-        at = LX.epoch_iso(RELEASE)
-        j1 = self.job(1, keep=os.path.join(self.out, "a.mp4"), at=at)
-        self.job(2, keep=None)                                   # 退避していない
-        self.job(3, arc="error", keep=os.path.join(self.out, "c.mp4"))   # 入れ替えていない
-        j4 = self.job(4, keep=os.path.join(self.out, "d.mp4"))
-        j4["archive"]["keepDeleted"] = LX.now_iso()            # もう消した
-        root, cand = self.rt.keeps()
-        self.assertEqual(root, self.out)
-        self.assertEqual(cand, [{"id": j1["id"], "keep": j1["archive"]["keep"], "at": RELEASE}])
-        self.assertEqual(self.rt.keep_deleted([]), 0)
-        self.assertEqual(self.rt.keep_deleted([j1["id"], "lx-0000000000"]), 1)
-        self.assertTrue(j1["archive"]["keepDeleted"])
-        self.assertTrue(any(j["id"] == j1["id"] and j["archive"].get("keepDeleted") for j in self.saved()))
-        self.assertEqual(self.rt.keep_deleted([j1["id"]]), 0)   # 2 回は記さない
-        self.assertEqual(self.rt.keeps()[1], [])
-        self.ex.out_dir = lambda: 1 / 0                         # 書き出し先が分からない: 候補なし
-        self.assertEqual(self.rt.keeps(), (None, []))
-
     def test_trim_cleaned_up_first(self):
-        """7e-3: 終わったジョブを切るときは、録画と速報版の片付けが済んだ物から切る(足りなければ残りの古い順)"""
+        """7e-3: 終わったジョブを切るときは、録画の片付けが済んだ物から切る(足りなければ残りの古い順)。前の版の keep は見ない"""
         stamp = LX.now_iso()
         old = [self.job(1, keep="k1"), self.job(2), self.job(3)]           # 片付けがまだ(古い)
-        done1 = self.job(4, recordingDeleted=stamp)                        # 退避なし・録画を消した = 済み
-        half = self.job(5, keep="k5", recordingDeleted=stamp)              # 速報版がまだ
-        done2 = self.job(6, keep="k6", recordingDeleted=stamp)
-        done2["archive"]["keepDeleted"] = stamp
+        done1 = self.job(4, recordingDeleted=stamp)                        # 録画を消した = 済み
+        done2 = self.job(5, keep="k5", recordingDeleted=stamp)             # 前の版の keep があっても済み
         running = self.job(7, state="encode", arc=None)
-        self.assertEqual([LX.cleaned_up(j) for j in old + [done1, half, done2]], [False, False, False, True, False, True])
-        with mock.patch.object(LX, "KEEP_JOBS", 4):
+        self.assertEqual([LX.cleaned_up(j) for j in old + [done1, done2]], [False, False, False, True, True])
+        with mock.patch.object(LX, "KEEP_JOBS", 3):
             self.ex._trim()
-        self.assertEqual(self.ex.jobs, old + [half, running])
+        self.assertEqual(self.ex.jobs, old + [running])
         with mock.patch.object(LX, "KEEP_JOBS", 2):
             self.ex._trim()
-        self.assertEqual(self.ex.jobs, old[2:] + [half, running])   # 済んだ物が無ければ古い順
+        self.assertEqual(self.ex.jobs, old[1:] + [running])   # 済んだ物が無ければ古い順
         with mock.patch.object(LX, "KEEP_JOBS", 5):
             self.ex._trim()
         self.assertEqual(len(self.ex.jobs), 3)

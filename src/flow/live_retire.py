@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """録画の片付けの ② の口(OPT2 の 7x-1。plan/opt-manage.md の 7e・7f): 「この録画を消してよいか(理由)」の読み口と、
-「録画を消したことを記す」「退避した速報版を消したことを記す」の書き口。書き出しのジョブ(live_export の Exporter)・
+「録画を消したことを記す」の書き口。書き出しのジョブ(live_export の Exporter)・
 マークの正本(MarkStore)・配信中の検出の記録(live_detect の Detector)の持ち主の側に置く。
 
 使うのは ④ の録画の片付け(src/manage/keep/live_cleanup.py の Cleaner)。④ は見回り(tick・check)・期限(3 日・24 時間・予告と知らせ)・
-録画元へ delete を送る・速報版のファイルを消す(場所の確かめ)・記録の 1 行だけを持ち、② の記録を直に書かない。
+録画元へ delete を送る・記録の 1 行だけを持ち、② の記録を直に書かない。
 親(host)は flow/livesession.py の LiveSession(exporter・marks・detector)。marks と detector は呼ぶときに読む(use_headless の差し替えが効く)。
 
 2026-10-16 の見直し(決定 3-73): 「本番版に全部入れ替えたら消す」をやめ、「マークが全部書き出し済み(録画に無い区間はアーカイブから)で、
@@ -124,20 +124,6 @@ class Retire:
         except LX.LiveError:
             return None
 
-    def keeps(self):
-        """消す候補の退避した速報版 -> (書き出し先の根か None, [{"id", "keep"(パス), "at"(入れ替えた時刻の epoch か None)}])。
-        前の版で本番版に入れ替えた(archive.state done)ジョブで、keep があって keepDeleted の無いものだけ。期限と場所の確かめは ④"""
-        ex = self._ex
-        try:
-            root = ex.out_dir()
-        except Exception:   # noqa: BLE001
-            return None, []
-        with ex.lock:
-            out = [{"id": j.get("id"), "keep": j["archive"]["keep"], "at": LX.iso_epoch(j["archive"].get("at"))} for j in ex.jobs
-                   if isinstance(j.get("archive"), dict) and j["archive"].get("state") == "done"
-                   and isinstance(j["archive"].get("keep"), str) and j["archive"]["keep"] and not j["archive"].get("keepDeleted")]
-        return root, out
-
     # --- 書き口 ---
     def recording_deleted(self, rc_id, rec, replaced=False):
         """録画を消したことを記す(④ が録画元の delete を済ませたあと): その録画のジョブに recordingDeleted(スタジオの画面が「録画は消しました」と出す)・
@@ -167,21 +153,3 @@ class Retire:
                 return "dropped" if ms.drop(rc_id, rec) else "gone"
         except (OSError, LX.LiveError) as e:
             return "error: %s" % e
-
-    def keep_deleted(self, ids):
-        """退避した速報版を消したことを記す(ジョブの archive.keepDeleted)。ids: 消した(または手で消してもう無い)ジョブの id。-> 記した数"""
-        ids = set(ids or ())
-        if not ids:
-            return 0
-        ex = self._ex
-        stamp = LX.now_iso()
-        n = 0
-        with ex.lock:
-            for j in ex.jobs:
-                a = j.get("archive")
-                if j.get("id") in ids and isinstance(a, dict) and not a.get("keepDeleted"):
-                    j["archive"] = dict(a, keepDeleted=stamp)
-                    n += 1
-        if n:
-            ex._save()
-        return n

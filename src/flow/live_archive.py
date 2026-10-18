@@ -13,7 +13,7 @@ src/manage/keep/live_cleanup.py。判断は src/flow/live_retire.py)。設定 li
            archiveStart・archiveEnd(アーカイブの秒), at(済んだ時刻), auto(自動で始めた), aligned(録画の音で照合した = ほかのマークの見当に使える), retryAt}
   対象 = 録画1本の、マークごとの最新のジョブで、録画に無い区間のもの:
     error + needsArchive(欠け・止めていた間・録画が区間まで届かなかった)と、wait + from "archive"(M7 が採用した候補 = 最初からアーカイブから書き出す)。
-  録画から書き出せたジョブ(done)は対象にしない(前の版で退避した速報版の片付けは live_cleanup が続ける)。
+  録画から書き出せたジョブ(done)は対象にしない。
 
 流れ(1本ずつ順に):
   1. probe  … yt-dlp で live_status(was_live = 用意できた / post_live・is_live = まだ)・配信の開始時刻 release_timestamp・長さ duration を取る
@@ -136,7 +136,6 @@ HOLE_CHUNK = 2 * 3600.0     # 録画の欠けを録画元に聞くときの 1 �
 BOARD_STATES = dict({s: "running" for s in RUN}, wait="queued", done="done", error="error", cancelled="cancelled")
 AFTER_BOARD = {"wait": "queued", "analyze": "running", "export": "running", "done": "done", "none": "skipped", "measured": "done", "error": "error"}
 AFTER_PREFIX = "as-"   # 掲示板の id「la:as-<録画元>.<録画>」= 配信後の全自動(録画 1 本)。それ以外の la: は書き出しのジョブの id
-SPEED_DIR = "速報版"                      # 作業用/速報版/(前の版で入れ替えのときに退避した速報版。片付けは live_cleanup)
 BUILD_DIR = "本番版の作りかけ"            # 作業用/本番版の作りかけ/<ジョブ>/(スタジオが書く先。済んだら消す。名前は前の版のまま)
 UNAVAILABLE = ("subscriber_only", "premium_only", "needs_auth", "private")
 
@@ -1288,9 +1287,6 @@ class Archiver(LX.Patrol):
         wdir = os.path.join(self.ex.work, "archive-" + job["id"])
         tdir = None
         try:
-            if not needs_archive(job):   # 前の版で入れ替え(速報版 → 本番版)を待っていたジョブ: 入れ替えは廃止したので何もしない
-                self._aset(job, state="cancelled", message="本番版への入れ替えはやめました(録画から書き出した切り抜きのままです)", progress=0, retryAt=None)
-                return
             if self.ex._disk_low():   # 空きが少ない(M4): アーカイブからの書き出し(書き出し先へ書く・丸ごとの音)も空くまで待つ
                 raise Later(self.ex.disk()["message"], LX.DISK_POLL)
             self._aset(job, state="probe", message="アーカイブを確かめています", progress=0.02, retryAt=None)
