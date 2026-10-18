@@ -122,8 +122,6 @@
 - src/flow/tests/test_live_retire.py — 録画の片付けの ② の口(src/flow/live_retire.py の Retire。OPT2 の 7x-1)と、書き出しのジョブの切り詰め(live_export の _trim・cleaned_up。7e-3)のテスト。
 - src/flow/tests/test_live_tx.py — 配信中の候補の文字起こし(線 D の D-11 案 b。ホーム 0.48.0)のテスト。② の側 src/flow/live_tx.py(入口 home の Live は使わず、ライブ係 flow/livesession.LiveSession で組む)。
 - src/flow/tests/test_livehost.py — flow/livehost(ライブの親の口。役割で組み直す RS7-2 G0)のテスト。  py -3.10 -m unittest src/flow/tests/test_livehost.py -v
-- src/flow/tests/test_livehost.py — flow/livehost(ライブの親の口。役割で組み直す RS7-2 G0)のテスト。  py -3.10 -m unittest src/flow/tests/test_livehost.py -v
-- src/flow/tests/test_livehost.py — flow/livehost(ライブの親の口。役割で組み直す RS7-2 G0)のテスト。  py -3.10 -m unittest src/flow/tests/test_livehost.py -v
 - src/flow/tests/test_livesession.py — flow/livesession(ライブ係。役割で組み直す RS7-2 G2b)のテスト。  py -3.10 -m unittest src/flow/tests/test_livesession.py -v
 - src/flow/tests/test_machine.py — flow/machine(この PC の設定。役割で組み直す RS7-1 S1)のテスト。  py -3.10 -m unittest src/flow/tests/test_machine.py -v
 - src/flow/tests/test_order.py — flow/order.py(欄 → 封筒 + 束の差分。RV A1)のテスト。  py -3.10 -m unittest src/flow/tests/test_order.py -v
@@ -134,10 +132,6 @@
 - src/flow/tests/test_prio.py — flow/prio(処理の優先度の 1 つの表。PRIO・決定 3-49): 表・級の決め方・重い処理の枠の順番と「空いているときだけ」・
 - src/flow/tests/test_run.py — pipeline/run.py(① の経路。RS1-7)のテスト。  py -3.10 -m unittest src/flow/tests/test_run.py -v
 - src/flow/tests/test_runlog.py — pipeline/runlog.py(終わった実行の記録の形と読み方。RS3-0B で autorun.py から移した)のテスト。  py -3.10 -m unittest src/flow/tests/test_runlog.py -v
-- src/flow/tests/test_runlog.py — pipeline/runlog.py(終わった実行の記録の形と読み方。RS3-0B で autorun.py から移した)のテスト。  py -3.10 -m unittest src/flow/tests/test_runlog.py -v
-- src/flow/tests/test_runlog.py — pipeline/runlog.py(終わった実行の記録の形と読み方。RS3-0B で autorun.py から移した)のテスト。  py -3.10 -m unittest src/flow/tests/test_runlog.py -v
-- src/flow/tests/test_runqueue.py — flow/runqueue.py(② の待ち行列と実行の糸。RS7-1 S5)のテスト。  py -3.10 -m unittest src/flow/tests/test_runqueue.py -v
-- src/flow/tests/test_runqueue.py — flow/runqueue.py(② の待ち行列と実行の糸。RS7-1 S5)のテスト。  py -3.10 -m unittest src/flow/tests/test_runqueue.py -v
 - src/flow/tests/test_runqueue.py — flow/runqueue.py(② の待ち行列と実行の糸。RS7-1 S5)のテスト。  py -3.10 -m unittest src/flow/tests/test_runqueue.py -v
 - src/flow/tests/test_sendpolicy.py — flow/sendpolicy.py(友人へ自動で送る判定。D-SEND の段 1)と flow/deliveries.py の書き口・読み口のテスト。
 - src/flow/tests/test_spec.py — pipeline/spec.py(① に渡す指定の束の形・既定値・検査。RS1-6)のテスト。  py -3.10 -m unittest src/flow/tests/test_spec.py -v

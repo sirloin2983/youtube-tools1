@@ -114,11 +114,7 @@
 - src/pipeline/pack/tests/test_cut2resolve.py — cut2resolve のテスト。 python test_cut2resolve.py  (ffmpeg が無ければ通しテストは自動スキップ)
 - src/pipeline/pack/tests/test_pack.py — cut2resolve の見直し(2026-09)で直した所・足した所のテスト。
 - src/pipeline/transcribe/tests/test_clipjob.py — pipeline/transcribe/clipjob(文字起こしのジョブの機械の文書の行。役割で組み直す RS6 a-3 に human/proof/doc_jobs の run_job から切り出した)を、
-- src/pipeline/transcribe/tests/test_clipjob.py — pipeline/transcribe/clipjob(文字起こしのジョブの機械の文書の行。役割で組み直す RS6 a-3 に human/proof/doc_jobs の run_job から切り出した)を、
-- src/pipeline/transcribe/tests/test_clipjob.py — pipeline/transcribe/clipjob(文字起こしのジョブの機械の文書の行。役割で組み直す RS6 a-3 に human/proof/doc_jobs の run_job から切り出した)を、
 - src/pipeline/transcribe/tests/test_diarize.py — pipeline/transcribe/diarize(話者判別の計算・判別の記録・声の特徴。役割で組み直す RS2-9)を、編集の serve を読まずに使うテスト。
-- src/pipeline/transcribe/tests/test_fill_llm.py — pipeline/transcribe の fill(認識のあとの後処理 A・B・C・D)と llm(LLM の後処理 E)を、編集の serve・ed_state を読まずに使うテスト(役割で組み直す RS2-9)。
-- src/pipeline/transcribe/tests/test_fill_llm.py — pipeline/transcribe の fill(認識のあとの後処理 A・B・C・D)と llm(LLM の後処理 E)を、編集の serve・ed_state を読まずに使うテスト(役割で組み直す RS2-9)。
 - src/pipeline/transcribe/tests/test_fill_llm.py — pipeline/transcribe の fill(認識のあとの後処理 A・B・C・D)と llm(LLM の後処理 E)を、編集の serve・ed_state を読まずに使うテスト(役割で組み直す RS2-9)。
 - src/pipeline/transcribe/tests/test_live_tx_worker.py — 配信中の候補の文字起こしの子プロセス src/pipeline/transcribe/live_tx_worker.py のテスト(D-11 案 b)。本物の認識はしない。
 - src/pipeline/transcribe/tests/test_postproc.py — pipeline/transcribe/postproc(行の後処理と要確認の印。役割で組み直す RS2-4b)を、編集の serve を読まずに使うテスト。
@@ -126,6 +122,4 @@
 - src/pipeline/transcribe/tests/test_txbackend.py — pipeline/transcribe の本物と疑似の差し込み口 backend のテスト(役割で組み直す RS2-2)。
 - src/pipeline/transcribe/tests/test_txrecords.py — pipeline/transcribe/records(認識の記録・辞書の版・生出力・単語の時刻。役割で組み直す RS2-5)を、編集の serve を読まずに使うテスト。
 - src/pipeline/transcribe/tests/test_txroster.py — pipeline/transcribe/roster の配信ごとの文脈 stream_context と用語の区切り split_terms(役割で組み直す RS2-8a に編集の ed_jobs から移した。RS6 a-3 から ytt/txtext)を、
-- src/pipeline/transcribe/tests/test_worker_client.py — pipeline/transcribe/worker_client(認識ワーカーとのやり取り・モデル・wav を読まずに渡す形。役割で組み直す RS2-6)を、編集の serve を読まずに使うテスト。
-- src/pipeline/transcribe/tests/test_worker_client.py — pipeline/transcribe/worker_client(認識ワーカーとのやり取り・モデル・wav を読まずに渡す形。役割で組み直す RS2-6)を、編集の serve を読まずに使うテスト。
 - src/pipeline/transcribe/tests/test_worker_client.py — pipeline/transcribe/worker_client(認識ワーカーとのやり取り・モデル・wav を読まずに渡す形。役割で組み直す RS2-6)を、編集の serve を読まずに使うテスト。
