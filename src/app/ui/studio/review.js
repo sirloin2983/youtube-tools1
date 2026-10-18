@@ -76,10 +76,10 @@ function sanitizeSettings(x){
     exportTarget: ['adopted', 'pending', 'all'].includes(x.exportTarget) ? x.exportTarget : 'adopted', sortBy: x.sortBy === 'score' ? 'score' : 'time',
     lag: [0, 2, 3, 5].includes(Number(x.lag)) ? Number(x.lag) : 0,
     momentBefore: sec1(x.momentBefore, 2), momentAfter: sec1(x.momentAfter, 3),   // 一瞬をマーク(C)の前・後の秒数
-    liveAutoExport: x.liveAutoExport !== false,   // ライブの録画: マークしたらすぐ書き出す(既定オン。線 D の P3)
+    liveAutoExport: x.liveAutoExport !== false,   // ライブの録画: マークしたらすぐ書き出す(既定オン)
     liveDuck: ['low', 'mute', 'off'].includes(x.liveDuck) ? x.liveDuck : 'low',   // ライブの録画: ほかの窓(編集)で再生している間の配信の音(下げる / 消す / そのまま)
-    /* 書き出しのあと自動で文字起こし(設定の「書き出し」節。入口から開いたときだけ効く。既定オン)。0.22.0 でこのブラウザ(localStorage の ytt:studio.autoTx)から
-       この節(サーバー)へ移した(窓とブラウザで値が変わらないように)。サーバーにまだ無いときは、前のこのブラウザの値を引き継ぐ(loadSettings が1回だけ送る) */
+    /* 書き出しのあと自動で文字起こし(設定の「書き出し」節。入口から開いたときだけ効く。既定オン)。値はこの節(サーバー)に置く(窓とブラウザで値が変わらないように)。
+       サーバーにまだ無いときは、このブラウザの古い値(localStorage の ytt:studio.autoTx)を引き継ぐ(loadSettings が1回だけ送る) */
     autoTx,
     /* ライブの録画: 書き出したあと。まだ選んでいなければ、「書き出しのあと自動で文字起こし」(autoTx)がオンなら文字起こしまで・オフなら何もしない */
     liveAfter: LIVE_AFTERS.includes(x.liveAfter) ? x.liveAfter : (autoTx ? 'check' : 'none')
@@ -199,7 +199,7 @@ function liveBarHTML(){
           <span class="rv-live-k rv-live-edgeinfo">ライブ端との差</span><span class="mono rv-live-edgeinfo" id="rvLiveGap">--</span>
           <span class="rv-live-k">ライブ印のマーク</span><span class="mono" id="rvLiveMarks">0件</span></div>
         <div class="rv-live-r"><button class="btn small" id="rvEdge" type="button">ライブ端へ</button>
-          <!-- 音量と消音(0.26.0): 録画のプレーヤーは標準のコントロールを出さない(時間が食い違う)ので、音量を変える口はここと ↑↓・M のキー。値は ② の設定 volume・muted -->
+          <!-- 音量と消音: 録画のプレーヤーは標準のコントロールを出さない(時間が食い違う)ので、音量を変える口はここと ↑↓・M のキー。値は ② の設定 volume・muted -->
           <span class="rv-livevol"><label for="rvLiveVol">音量</label><input type="range" id="rvLiveVol" min="0" max="100" step="5" value="100" title="配信の音量(↑ ↓ キーでも 5 ずつ変わります)"><output class="mono" id="rvLiveVolOut" for="rvLiveVol">100</output>
             <button class="btn small ghost" id="rvLiveMute" type="button" aria-pressed="false" title="配信の音を消す・戻す(M キー)">消音</button></span></div>
         <div class="rv-liverec" id="rvLiveRec" hidden>
@@ -277,7 +277,7 @@ function settingsHTML(){
         </div>
       </div>`;
 }
-/* ⚙ の節の器(#opsHost。案件の画面の候補のパネル panels/cand.js が作る。RS8 C4 でスタジオの画面と settings.js は消した)に入れる */
+/* ⚙ の節の器(#opsHost。案件の画面の候補のパネル panels/cand.js が作る)に入れる */
 function mountSettings(){ $('#opsHost').innerHTML = settingsHTML(); }
 /* 書き出しの引き出し(書き出す・つなげて1本に・設定・一覧) */
 function exportDrawerHTML(){
@@ -436,7 +436,7 @@ function renderListKeep(){
   const el = id && $(`.rv-mark-row[data-id="${CSS.escape(id)}"] [data-f="${f}"]`);
   if (el){ el.focus(); try { if (f === 'label'){ el.value = val; el.setSelectionRange(ss, se); } } catch {} }
 }
-/* 一覧を描き直したあと、押したボタンへフォーカスを戻す(見直し M2。行は innerHTML で作り直すので、そのままだと body に落ちる)。
+/* 一覧を描き直したあと、押したボタンへフォーカスを戻す(行は innerHTML で作り直すので、そのままだと body に落ちる)。
    同じマークの行の同じボタン(sel)へ。行が一覧から消えた(削除・絞り込み)ときは、同じ位置の行(無ければ前の行)の折りたたみのボタン、行が無ければ一覧の見出し */
 const rowIndex = li => [...$$('#rvList .rv-mark-row')].indexOf(li);
 function focusRow(id, sel, idx){
@@ -483,7 +483,7 @@ function updateBadge(){
   const n = S.videos.filter(v => (Number(v.candidates) || 0) + (Number(v.adopted) || 0) > 0).length;
   Studio.setBadge('review', n ? String(n) : '', n ? `判定か書き出しが残っている配信 ${n}本` : '');
 }
-/* ---------- 前回の場所(S-8): 配信ごとに、再生位置と選んでいたマークを覚えて、開いたときに戻す ----------
+/* ---------- 前回の場所: 配信ごとに、再生位置と選んでいたマークを覚えて、開いたときに戻す ----------
    置き場所はこのブラウザ(localStorage の ytt:studio.place)。ホームの設定(UIKit.prefs)は節が決まっていて(app/prefs.py の PATCHABLE)スタジオの節が無いこと、
    再生位置は再生中に数秒ごとに変わる値で、配信のデータ(マークの保存。rev で重なりを見ている)に書くとマークの保存と競合することから。
    形: { 配信の id: [秒, マークの id, 覚えた時刻(ms)] }。新しい順に PLACE_MAX 本まで(古いものから捨てる)。書くのは変わったときだけ・2 秒に1回まで */
@@ -534,7 +534,7 @@ async function loadVideo(id){
   const editSeq = S.editSeq;
   let j;
   try { j = await Studio.api('/api/video?id=' + enc(id)); }
-  catch (e){ if (seq === S.loadSeq){ toast('配信を読み込めません: ' + e.message, 0, 'err'); refreshList(); } return false; }   // 失敗の形で(見直し S4)
+  catch (e){ if (seq === S.loadSeq){ toast('配信を読み込めません: ' + e.message, 0, 'err'); refreshList(); } return false; }   // 失敗の形で
   if (seq !== S.loadSeq) return false;
   if (S.dirty || saveP || S.editSeq !== editSeq){
     toast('読み込み中に編集されたため、切り替えを止めました。保存後にもう一度選んでください'); return false;
@@ -546,7 +546,7 @@ async function loadVideo(id){
   for (const m of marks()) S.seen.add(m.id);
   S.dirty = false; setSaveState('idle'); S.base = snap(S.cur.marks); S.baseTitle = S.cur.title;
   S.duration = S.cur.duration > 0 ? S.cur.duration : 0;
-  /* 前回の場所(S-8): 選んでいたマークと再生位置へ戻す。位置はプレーヤーの準備ができたら合わせる(S.resumeAt。YouTube は playerVars の start) */
+  /* 前回の場所: 選んでいたマークと再生位置へ戻す。位置はプレーヤーの準備ができたら合わせる(S.resumeAt。YouTube は playerVars の start) */
   const back = placeOf(S.cur);
   if (back && back.sel){ S.sel = back.sel; S.fold.set(back.sel, false); }
   S.resumeAt = back && back.t > 0 ? back.t : null;
@@ -556,7 +556,7 @@ async function loadVideo(id){
   mountPlayer();
   renderAll();
   if (S.sel) placeScroll();
-  fillAutoWho();   // まとめて実行の配信者の欄を、この配信の覚えた名前 → チャンネル名から(段5)
+  fillAutoWho();   // まとめて実行の配信者の欄を、この配信の覚えた名前 → チャンネル名から
   syncExportDock();   // 配信を開いたとき(の1回だけ)欄の開閉を合わせる(test_review.cjs の harness は、これらを何もしない関数で渡す)
   refreshList();
   fetchAutoTitle(S.cur);
@@ -677,7 +677,7 @@ class LocalPlayer extends VideoPlayer {
   playVideo(){ const r = this.el.play(); if (r && r.catch) r.catch(() => {}); }
 }
 
-/* ---------- ライブの録画(kind live。線 D の P3)の時刻: 「録画の最初のセグメントの受信時刻(PDT)」からの秒 ----------
+/* ---------- ライブの録画(kind live)の時刻: 「録画の最初のセグメントの受信時刻(PDT)」からの秒 ----------
    スタジオのマーク・書き出し(入口の live_export の基準 = 録画元の firstPdt)はこの秒で持つ。繋ぎ直しで欠けた間も時間は進む。
    hls.js の再生位置(video.currentTime。欠けを詰めた「メディアの秒」)とは、フラグメントごとの programDateTime で行き来する。
    DOM も hls.js も使わない純粋な関数(test_review.cjs が切り出して試す)。frags は [{ pdt: 受信時刻(ms), start: メディアの秒, dur: 秒 }](時刻の順) */
@@ -823,7 +823,7 @@ async function mountPlayer(){
     if (timedOut){ timedOut = false; S.playerErr = false; hideNotice(); }   // 遅れて準備ができた: 案内を消して使えるようにする
     S.playerAlive = true; phMsg('');
     const d = e.target.getDuration(); if (d > 0) setDuration(d);
-    /* 前回の場所(S-8)へ。録画中のライブの録画はライブ端から(戻さない)。YouTube は作るときの start で合わせてある(seekTo は止めている動画を再生してしまう) */
+    /* 前回の場所へ。録画中のライブの録画はライブ端から(戻さない)。YouTube は作るときの start で合わせてある(seekTo は止めている動画を再生してしまう) */
     if (S.resumeAt != null){
       if (e.target.recording) S.resumeAt = null;
       else if (v.kind !== 'youtube'){ try { e.target.seekTo(S.resumeAt); } catch {} }
@@ -877,7 +877,7 @@ const LIVE_PLAY_ERR = {
 async function mountLivePlayer(host, token, v, onReady, onState){
   const keep = 'マークの時刻の手入力・書き出しは続けられます。';
   if (!Studio.token || !v.live || !v.live.recorder || !v.live.recording){ showNotice('ライブの録画は、ホーム(start.bat)から開いたときだけ再生できます。' + keep); return; }
-  if (LV.vid === v.id && LV.deletedShown){ LV.deletedShown = false; liveDeletedShown(v); return; }   // 自動で消した録画(P4): 案内をもう一度出す
+  if (LV.vid === v.id && LV.deletedShown){ LV.deletedShown = false; liveDeletedShown(v); return; }   // 自動で消した録画: 案内をもう一度出す
   const st = LV.vid === v.id ? LV.status : null;
   if (!st || !(Number(st.segments) > 0)){
     LV.waitPlay = true;
@@ -920,7 +920,7 @@ function startPoll(){
 function stopPoll(){ if (pollTimer){ clearInterval(pollTimer); pollTimer = null; } }
 function pausePlayback(){
   S.previewEnd = null;
-  // 読み込み中(3)も止める: ライブの録画・動画ファイルは、読み込みを待っている間に離れると、読めたあとで再生が始まっていた
+  // 読み込み中(3)も止める: ライブの録画・動画ファイルは、読み込みを待っている間に離れると、読めたあとで再生が始まってしまう
   try { if (yt && yt.pauseVideo && (S.playerState === 1 || S.playerState === 3)) yt.pauseVideo(); } catch {}
 }
 function setNow(t){
@@ -953,7 +953,7 @@ function reclaimFocus(){
 }
 
 /* ---------- 音量・設定の保存(/api/settings の settings.review だけを読み書き)---------- */
-/* 監査 11(全体の計画 段2): 保存の失敗は ⚙ の印と設定の引き出しの先頭に出して [もう一度](UIKit.settings.status)。成功したら消す。
+/* 保存の失敗は ⚙ の印と設定の引き出しの先頭に出して [もう一度](UIKit.settings.status)。成功したら消す。
    読み込みに失敗したら既定値で始めるが、読み直すまで保存しない(既定値で保存済みの設定を上書きしないため) */
 let setTimer = null, setFailed = false, setLoadErr = '';
 const settingsStatus = (...a) => UIKit.settings.status(...a);
@@ -977,7 +977,7 @@ async function loadSettings(){
     const j = await Studio.api('/api/settings'), raw = j && j.settings && j.settings.review;
     S.settings = sanitizeSettings(raw);
     if (setLoadErr){ setLoadErr = ''; settingsStatus(''); }
-    if (!(raw && typeof raw.autoTx === 'boolean') && autoTxLegacy() !== null) touchSettings();   // 前のこのブラウザの「書き出しのあと自動で文字起こし」を1回だけサーバーへ(0.22.0)
+    if (!(raw && typeof raw.autoTx === 'boolean') && autoTxLegacy() !== null) touchSettings();   // このブラウザの古い「書き出しのあと自動で文字起こし」を1回だけサーバーへ
   } catch (e){
     S.settings = sanitizeSettings({});
     setLoadErr = (e && e.message) || 'エラー';
@@ -986,16 +986,16 @@ async function loadSettings(){
   KM.reload();
   syncSettingsUI(); applyTheater();
 }
-/* ② の設定と欄の対応の表(G4 の 2。0.23.4): [欄, 設定の鍵, 欄の値の場所('value' | 'checked'), 変えたあとに呼ぶ関数, 受けるイベント(既定 'change')]。
+/* ② の設定と欄の対応の表: [欄, 設定の鍵, 欄の値の場所('value' | 'checked'), 変えたあとに呼ぶ関数, 受けるイベント(既定 'change')]。
    欄へ書くのは syncSettingsUI、欄から読むのは wireSettings。値の検め方は sanitizeSettings の 1 か所(設定を足すときは sanitizeSettings とこの表の 2 か所)。
    音量の数字(output)・押せない欄・「書き出しのあと自動で文字起こし」(settings.js の欄)は syncSettingsUI に別に書く */
-/* 0.25.0: volume・muted・lag・liveMode・autoPlay・autoNext の欄は設定の画面へ(ここには無い。値は S.settings のまま読み書き)。0.26.0: 音量と消音は LIVE の帯に(#rvLiveVol・#rvLiveMute。ライブの録画だけ) */
+/* volume・muted・lag・liveMode・autoPlay・autoNext の欄は設定の画面にある(ここには無い。値は S.settings のまま読み書き)。音量と消音は LIVE の帯に(#rvLiveVol・#rvLiveMute。ライブの録画だけ) */
 const SET_UI = [
   ['#rvExpVol', 'exportVolume', 'value', () => { $('#rvExpVolOut').textContent = S.settings.exportVolume; expSetSummary(); }, 'input'],
   ['#rvExpLoud', 'exportLoudness', 'value', () => syncSettingsUI()],   // 書き出しの音量の欄を押せなくする・戻す
   ['#rvAutoExp', 'liveAutoExport', 'checked', () => renderLiveRec()],   // LIVE の帯(ライブの録画)
   ['#rvDuck', 'liveDuck', 'value', () => applyToPlayer()],
-  ['#rvLiveVol', 'volume', 'value', () => { const vo = $('#rvLiveVolOut'); if (vo) vo.textContent = S.settings.volume; applyToPlayer(); }, 'input'],   // LIVE の帯の音量(0.26.0。数字も合わせる)
+  ['#rvLiveVol', 'volume', 'value', () => { const vo = $('#rvLiveVolOut'); if (vo) vo.textContent = S.settings.volume; applyToPlayer(); }, 'input'],   // LIVE の帯の音量(数字も合わせる)
   ['#rvAfter', 'liveAfter', 'value'],
   ['#rvSort', 'sortBy', 'value', () => renderList()],
   ['#rvExpTarget', 'exportTarget', 'value', () => { renderExportUI(); expSetSummary(); }]
@@ -1003,12 +1003,12 @@ const SET_UI = [
 function syncSettingsUI(){
   const s = S.settings;
   for (const [sel, k, prop] of SET_UI){ const el = $(sel); if (el) el[prop] = prop === 'checked' ? !!s[k] : String(s[k]); }
-  { const vo = $('#rvLiveVolOut'); if (vo) vo.textContent = s.volume; }   // LIVE の帯の音量の数字(0.26.0。⚙ の欄は 0.25.0 で無くした)
+  { const vo = $('#rvLiveVolOut'); if (vo) vo.textContent = s.volume; }   // LIVE の帯の音量の数字
   { const mb = $('#rvLiveMute'); if (mb){ mb.setAttribute('aria-pressed', String(!!s.muted)); mb.textContent = s.muted ? '音を戻す' : '消音'; } }
   $('#rvExpVolOut').textContent = s.exportVolume;
   renderKeyUI();
   $('#rvExpVol').disabled = !!s.exportLoudness;
-  /* 音量をそろえるときは使わない欄: 薄く見せ、押せない欄であることと理由を属性で伝える(押せない物は薄くてよい。A-22・A-34) */
+  /* 音量をそろえるときは使わない欄: 薄く見せ、押せない欄であることと理由を属性で伝える(押せない物は薄くてよい) */
   { const vb = $('#rvExpVolBox'), off = !!s.exportLoudness; vb.classList.toggle('rv-off', off); vb.setAttribute('aria-disabled', String(off)); vb.title = off ? '音量のそろえ方が「そろえない」のときだけ使います' : ''; }
   expSetSummary();
 }
@@ -1047,7 +1047,7 @@ function toggleMute(){ S.settings.muted = !S.settings.muted; syncSettingsUI(); a
 /* 欄を変えた: 欄の値を sanitizeSettings で検めて設定へ入れ、保存を頼んでから、表の「変えたあと」を呼ぶ */
 function wireSettings(){
   for (const [sel, k, prop, after, ev] of SET_UI){
-    const el = $(sel); if (!el) continue;   // 0.25.0: 音量・確認の進め方・遅れ補正・ライブ判定の欄は ⚙ に無い(値は設定の画面)
+    const el = $(sel); if (!el) continue;   // 音量・確認の進め方・遅れ補正・ライブ判定の欄は ⚙ に無い(値は設定の画面)
     el.addEventListener(ev || 'change', e => {
       S.settings[k] = sanitizeSettings({ ...S.settings, [k]: e.target[prop] })[k];
       touchSettings();
@@ -1076,13 +1076,13 @@ const KEY_GROUPS = [['マークの操作', ['addClip', 'moment']], ['今をマ�
 /* 割り当てられないキー(固定の意味がある)。値は使い道 */
 const STUDIO_FIXED = { Escape: '閉じる・取り消し', Enter: '確定', Tab: 'フォーカスの移動', 'Shift+Tab': 'フォーカスの移動', '?': 'キー操作の一覧' };
 const PRESET_NAMES = { standard: '標準', left: '左手だけ' };
-/* プリセットの名前は実際の割り当てから(S-28。以前は「標準(I O A ・矢印)」と実際と違う文字だった) */
+/* プリセットの名前は実際の割り当てから */
 function presetLabel(n){
   const p = KEY_PRESETS[n], k = id => keyText(p[id]);
   return `${PRESET_NAMES[n]}(マーク追加 ${k('addClip')}・採用 ${k('adopt')}・不採用 ${k('reject')}・前後のマーク ${k('prevMark')} ${k('nextMark')})`;
 }
-/* キーの一覧 = キー配置(UIKit.keymap。気が利く画面へ 段6): ? の一覧と「操作の設定 → キー配置」は同じ部品。共通の再生キー(Space・J/K/L など)も
-   ここで変えられる(ホームの設定。編集と同じ割り当て。S-27)。重なりの検査は部品の 1 か所 */
+/* キーの一覧 = キー配置(UIKit.keymap): ? の一覧と「操作の設定 → キー配置」は同じ部品。共通の再生キー(Space・J/K/L など)も
+   ここで変えられる(ホームの設定。編集と同じ割り当て)。重なりの検査は部品の 1 か所 */
 const KM = UIKit.keymap.create({
   groups: KEY_GROUPS.map(([h], i) => ['g' + i, h]),
   actions: ACTION_DEFS.map(([id, label]) => ({ id, def: KEY_PRESETS.standard[id], label, group: 'g' + KEY_GROUPS.findIndex(g => g[1].includes(id)) })),
@@ -1090,7 +1090,7 @@ const KM = UIKit.keymap.create({
   intro: '② 確認・書き出しで配信を開いているときに使えます(文字の入力欄にいる間は効きません)。キーのボタンを押してから、割り当てたいキーを押します(Esc = 取り消し・Delete = 外す)。すでに使っているキーを選ぶと、そちらの割り当てが外れます(すぐ下の「戻す」で戻せます)。',
   fixed: [{ title: '全体', rows: [['?', 'この一覧を開く・閉じる', '一覧を開くキー'], ['Esc', '一覧・設定を閉じる', '閉じるキー']] },
     { title: 'その他', why: '入力欄のキー', rows: [['Enter', '時刻の欄: 確定して移動 / ラベル: 確定']] }],
-  /* 今をマークの長さは見せるだけ(変えるのは ② のボタンの横の − ＋ の1か所。設定の場所を重ねない 2026-10-04) */
+  /* 今をマークの長さは見せるだけ(変えるのは ② のボタンの横の − ＋ の1か所。設定の場所を重ねない) */
   extra: id => { const m = /^quickMark(\d?)$/.exec(id); return m ? `<span class="muted rv-kmspan">前後${spanLabel((S.settings ? S.settings.quickSpans : DEFAULT_QUICK_SPANS)[m[1] ? Number(m[1]) - 1 : 0])}</span>` : ''; },
   footNote: '「すべて標準に戻す」は共通の再生キーも標準に戻します(編集も同じ割り当てです)。',
   load: () => (S.settings && S.settings.keymap) || {},
@@ -1158,7 +1158,7 @@ function updateLive(){
   $('#rvLiveGap').textContent = (gap >= 0 ? '−' : '+') + Math.round(Math.abs(gap)) + '秒';
 }
 
-/* ---------- ライブの録画(kind live。線 D の P3。notes:plan/line-d-live-clipping.md の 0-8) ----------
+/* ---------- ライブの録画(kind live。notes:plan/line-d-live-clipping.md) ----------
    録画 = スタジオの配信1本。マークはいつものマーク(保存も PUT /api/video)で、時刻は「録画の最初のセグメントの受信時刻」からの秒(LT)。
    画面が入口の ../live/… を呼ぶ(Studio.live): 録画の状態(r/<録画元>/<録画>/status。3 秒ごと・見えている間だけ)・停止・書き出し(api/export)・書き出しの一覧(api/exports)。
    入口の書き出しが済んだマークは POST /api/live/exported でスタジオの「書き出し済み」にする(閉じていた間に済んだ分は、次に開いたときに突き合わせる)。
@@ -1172,7 +1172,7 @@ const ARCH_RUN = ['probe', 'align', 'fetch', 'verify'];
 const ARCH_ACTIVE = ['wait', ...ARCH_RUN];
 const ARCH_LABEL = { wait: '待ち', probe: 'アーカイブを確かめ中', align: '照合中', fetch: '取得中', verify: '検証中', done: 'アーカイブから', error: '失敗', cancelled: '取り消し' };
 const ARCH_TITLE = 'アーカイブから書き出しました';
-/* 配信後の全自動(線 D の M7)の afterStream.state のうち、もう進まないもの(入口の src/flow/live_archive.py の AFTER_END と同じ) */
+/* 配信後の全自動の afterStream.state のうち、もう進まないもの(入口の src/flow/live_archive.py の AFTER_END と同じ) */
 const AFTER_END = ['done', 'none', 'error'];
 const LV = { vid: null, status: null, err: null, seq: 0, timer: 0, waitPlay: false, wasActive: null, endedShown: false,
   jobs: [], jobsKnown: false, jobsSeq: 0, jobsAt: 0, prevJobs: new Map(), busy: new Set(), queued: new Set(), applied: new Set(), chain: Promise.resolve(), starting: false,
@@ -1220,7 +1220,7 @@ function liveArchView(a){
   return { state, label: String(a.label || ARCH_LABEL[state] || state), progress: Math.max(0, Math.min(1, Number(a.progress) || 0)),
     message: String(a.message || ''), active: ARCH_ACTIVE.includes(state), packOld: state === 'done' && !!a.packOld };
 }
-/* 入口が録画を自動で消したか(P4 の「録画を自動で消す」)。録画の状態が 404 で、入口のジョブに recordingDeleted がある
+/* 入口が録画を自動で消したか(「録画を自動で消す」)。録画の状態が 404 で、入口のジョブに recordingDeleted がある
    (ジョブの記録が古くて消えていても、書き出し済みのマークが全部「アーカイブから」なら同じ)。マークが本番版でないのに 404 は「録画が見つかりません」のまま */
 function liveRecDeleted(err, jobs, marks){
   if (!err || err.status !== 404) return false;
@@ -1231,7 +1231,7 @@ function liveRecDeleted(err, jobs, marks){
 const LIVE_DELETED = '録画は消しました(ごみ箱へ移しました)。マークと書き出した切り抜きはそのまま使えます';
 const liveArchBusy = j => !!(j && j.archive && ARCH_ACTIVE.includes(j.archive.state));
 const liveArchRunning = j => !!(j && j.archive && ARCH_RUN.includes(j.archive.state));
-/* 録画に無い区間をアーカイブから書き出す対象(入口と同じ決め方): マークごとの最新のジョブで、欠けで書き出せなかった(error + needsArchive)か、M7 の採用で待っている(wait + from archive)もの */
+/* 録画に無い区間をアーカイブから書き出す対象(入口と同じ決め方): マークごとの最新のジョブで、欠けで書き出せなかった(error + needsArchive)か、配信後の全自動の採用で待っている(wait + from archive)もの */
 function liveArchTargets(jobs){
   const last = new Map();
   for (const j of jobs || []){
@@ -1270,7 +1270,7 @@ function liveArchSummary(jobs, info, o){
     : !pending ? 'すべてアーカイブから書き出しました' : o.starting ? '頼んでいます…' : '';
   return r;
 }
-/* 配信後の全自動(M7)の帯の 1 行: 入口の GET ../live/api/exports の archiveInfo.afterStream(入口 0.41.0)の text をそのまま出す。
+/* 配信後の全自動の帯の 1 行: 入口の GET ../live/api/exports の archiveInfo.afterStream の text をそのまま出す。
    → {text, warn(失敗がある), running(まだ進む = 一覧を早めに読み直す。済んだあとも、まとめて実行へ渡した分の文字起こし → パックが残っている間)} */
 function liveAfterView(info){
   const a = info && typeof info === 'object' && info.afterStream && typeof info.afterStream === 'object' ? info.afterStream : null;
@@ -1362,7 +1362,7 @@ async function pollLiveStatus(){
   const arch = () => LV.jobs.some(liveArchRunning);
   /* 終わった録画は、書き出しが無くても 1 分ごとに一覧を読み直す(入口が自動で本番版への作り直しを始めた・待ちから進んだのに気づくため) */
   const stale = () => !!st && !st.active && Date.now() - LV.jobsAt > 60000;
-  const after = () => liveAfterView(LV.archiveInfo).running && Date.now() - LV.jobsAt > 15000;   // 配信後の自動の切り抜き(M7)が進んでいる間は、帯の 1 行を 15 秒ごとに
+  const after = () => liveAfterView(LV.archiveInfo).running && Date.now() - LV.jobsAt > 15000;   // 配信後の自動の切り抜きが進んでいる間は、帯の 1 行を 15 秒ごとに
   if (!LV.jobsKnown || busy() || arch() || (LV.jobs.some(liveArchBusy) && Date.now() - LV.jobsAt > 15000) || stale() || after()) await pollLiveJobs();
   if (seq !== LV.seq || S.cur !== v || !visible()) return;
   pollPeaks(v);   // 配信中の候補(検出がオンのときだけ。待たない = 録画の状態の見回りを遅らせない)
@@ -1410,7 +1410,7 @@ function liveEndedNotice(){
 function renderLiveRec(){
   const v = S.cur; if (!v || v.kind !== 'live') return;
   const st = LV.status, err = LV.err, active = !!(st && st.active), waiting = active && !(Number(st.segments) > 0);
-  const gone = !!err && LV.deletedShown;   // 自動で消した録画(P4)。エラーにしない
+  const gone = !!err && LV.deletedShown;   // 自動で消した録画。エラーにしない
   let cls = 'wait', label = '確かめています…', msg = '';
   if (gone){ cls = 'ok'; label = '録画を消しました'; }
   else if (err){ cls = 'err'; label = err.status === 404 ? '録画が見つかりません' : '録画元につながりません'; msg = err.message || ''; }
@@ -1466,7 +1466,7 @@ function renderLiveArch(){
   const info = LV.archiveInfo, it = info && info.message ? String(info.message) : '';
   if (msg.title !== it) msg.title = it;
 }
-/* 帯の「配信後の自動の切り抜き」の 1 行(M7)。開いている録画の分だけ(録画を消したあとも最後の文を残す)。文字と属性だけを直す */
+/* 帯の「配信後の自動の切り抜き」の 1 行。開いている録画の分だけ(録画を消したあとも最後の文を残す)。文字と属性だけを直す */
 function renderLiveAfter(){
   const el = $('#rvAfterStream'); if (!el) return;
   const v = S.cur, av = liveAfterView(v && v.kind === 'live' && LV.vid === v.id ? LV.archiveInfo : null);
@@ -1537,7 +1537,7 @@ function liveJobNotices(own){
   for (const x of own){
     const p = LV.prevJobs.get(x.id); if (!p || !LIVE_ACTIVE.includes(p) || p === x.state) continue;
     const name = x.label ? `「${x.label}」` : `${fmt(Number(x.studio.start) || 0)} – ${fmt(Number(x.studio.end) || 0)}`;
-    if (x.state === 'done') doneToast(`切り抜きを書き出しました(${name})`, 'ok', [typeof x.path === 'string' ? x.path : '']);   // [編集で開く](S-7)
+    if (x.state === 'done') doneToast(`切り抜きを書き出しました(${name})`, 'ok', [typeof x.path === 'string' ? x.path : '']);   // [編集で開く]
     else if (x.state === 'error') toast(`書き出せませんでした(${name}): ${x.error || x.message || ''}`, 0, 'err');
   }
 }
@@ -1596,7 +1596,7 @@ function liveExportBody(v, m){
   const n = sortedMarks().findIndex(x => x.id === m.id) + 1;
   const after = LIVE_AFTERS.includes(S.settings.liveAfter) ? S.settings.liveAfter : 'check';
   return { recorder: v.live.recorder, recording: v.live.recording, title: v.title || '', url: v.live.url || '',
-    after, transcribe: after !== 'none',   // 帯の「書き出したあと」(入口の書き出しがまとめて実行へ渡す。スタジオからは頼まない = 二重にしない)。transcribe は以前の入口の形
+    after, transcribe: after !== 'none',   // 帯の「書き出したあと」(入口の書き出しがまとめて実行へ渡す。スタジオからは頼まない = 二重にしない)。transcribe は入口の書き出しの body の形
     streamer: liveWhoName(v),   // 配信者の名前(字幕の色)。帯の「配信者」= 覚えた名前かチャンネル名から。空 = まとめて実行が決める(たいてい既定の色)
     studio: { video: v.id, mark: m.id, n, label: m.label || '', start: m.start, end: m.end } };
 }
@@ -1679,7 +1679,7 @@ function peakNorm(p){
   const pk = Number(p.peak), sc = Number(p.score), h = Number(p.hour);
   return { id: p.id, start: Math.max(0, start), end, peak: Number.isFinite(pk) ? pk : start, score: p.score != null && Number.isFinite(sc) ? sc : null,
     parts: p.parts && typeof p.parts === 'object' ? p.parts : {}, reasons: Array.isArray(p.reasons) ? p.reasons.filter(r => typeof r === 'string').slice(0, 6) : [],
-    hour: Number.isFinite(h) ? Math.max(0, Math.floor(h)) : Math.floor((Number.isFinite(pk) ? pk : start) / 3600),   // 1 時間の区切りは山の秒で決まる(0-10-3 の 6)
+    hour: Number.isFinite(h) ? Math.max(0, Math.floor(h)) : Math.floor((Number.isFinite(pk) ? pk : start) / 3600),   // 1 時間の区切りは山の秒で決まる
     state: PEAK_STATE[p.state] ? p.state : 'frame', endPending: p.endPending === true, origin: p.origin === 'auto' || p.origin === 'manual' ? p.origin : '',
     text: typeof p.text === 'string' ? p.text.slice(0, 2000) : '' };   // 配信中の文字起こし(入口の D-11 案 b。行の [data-pf="tx"])
 }
@@ -2074,7 +2074,7 @@ function newMark(start, end, live){
 }
 function pushMark(m){
   const v = S.cur;
-  const autoExp = liveAutoExportOn(v);   // ライブの録画で「マークしたらすぐ書き出す」: 採用にして保存し、すぐ入口の書き出しへ(線 D の P3)
+  const autoExp = liveAutoExportOn(v);   // ライブの録画で「マークしたらすぐ書き出す」: 採用にして保存し、すぐ入口の書き出しへ
   if (autoExp) m.status = 'adopted';
   v.marks.push(m); S.seen.add(m.id); S.sel = m.id; S.fold.set(m.id, false);
   markDirty(); renderTimeline(); renderStats(); renderLiveCount();
@@ -2105,7 +2105,7 @@ function quickMark(slot = 0){
   pushMark(newMark(start, end, markLive()));
   toast(`マーク ${fmt(start)} – ${fmt(end)}(前後${spanLabel(span)})`);
 }
-/* ---------- 一瞬を切り取る(2026-09-28 ユーザー要望): 今の位置の前 2 秒・後 3 秒から始め、始まり・終わりを 0.1 秒刻みで合わせて、
+/* ---------- 一瞬を切り取る: 今の位置の前 2 秒・後 3 秒から始め、始まり・終わりを 0.1 秒刻みで合わせて、
    マーク「一瞬」(採用)を作り、そのマークだけを書き出す。マークとして残すのは、書き出しのあとの自動の文字起こし・「この後を」・
    入口の案件がマークを手がかりに動くため(ユーザー決定)。書き出しの設定(方式・画質・音量)は「書き出しの設定」のとおり ---------- */
 const MOMENT_LABEL = '一瞬';
@@ -2173,7 +2173,7 @@ function refresh(keyToFocus){
   renderTimeline(); renderStats(); renderList(); renderLiveCount();
   if (keyToFocus){ const el = $(`[data-key="${CSS.escape(keyToFocus)}"]`); if (el) el.focus(); }
 }
-/* 2回押しの確認(戻せない操作だけ)。部品は ui-kit の UIKit.confirmTwice の1つ(気が利く画面へ 段1。実行したらすぐ元に戻る) */
+/* 2回押しの確認(戻せない操作だけ)。部品は ui-kit の UIKit.confirmTwice の1つ(実行したらすぐ元に戻る) */
 function armDelete(btn, run, text){ UIKit.confirmTwice(btn, run, text || 'もう一度押すと削除'); }
 const statusOf = c => c.status || '';
 const isFolded = id => (S.fold.has(id) ? S.fold.get(id) : S.settings.foldDefault);
@@ -2199,7 +2199,7 @@ function selectMark(c, jump){
   const li = $(`.rv-mark-row[data-id="${CSS.escape(c.id)}"]`); if (li) li.scrollIntoView({ block: 'nearest' });
   if (jump){ if (S.settings.autoPlay) previewClip(c, true); else seek(c.start); }
 }
-/* 前/次のマークへ。一覧の並び順(時刻順 / 点数順)どおりに動く(以前は点数順で表示していても時刻順に飛んでいた)。
+/* 前/次のマークへ。一覧の並び順(時刻順 / 点数順)どおりに動く。
    onlyCand なら「候補」だけを渡り歩く(採用・不採用の直後に次の候補へ)。from は判定を変えたばかりのマーク(絞り込みで一覧から消えていても、その位置から数える) */
 function goMark(dir, onlyCand, from){
   const all = orderedMarks(); if (!all.length) return toast('マークがありません');
@@ -2218,7 +2218,7 @@ function decideSel(st){
   if (!c) return toast('先にマークを選んでください(行の再生ボタン・行のクリック・前後移動キー)');
   if (!setStatus(c, st, true)) return;
 }
-/* 候補をすべて採用: 戻せる操作なので確認はしない(気が利く画面へ 段1)。知らせの [元に戻す] で、まだ採用のままのマークだけ候補に戻す */
+/* 候補をすべて採用: 戻せる操作なので確認はしない。知らせの [元に戻す] で、まだ採用のままのマークだけ候補に戻す */
 function bulkAdopt(){
   const cs = marks().filter(m => statusOf(m) === '');
   if (!cs.length) return toast('候補がありません');
@@ -2251,9 +2251,9 @@ function autoTitleFromPlayer(){
 
 /* ---------- 書き出し(サーバーが store から組み立てる。クライアントは id とマークIDだけ送る)---------- */
 let expTimer = null;
-const EXP_LABEL = { queued: '待ち', running: '実行中', done: '済み', error: '失敗', cancelled: '中止' };   // 状態の言葉は 3 画面で同じ(見直し S7)
+const EXP_LABEL = { queued: '待ち', running: '実行中', done: '済み', error: '失敗', cancelled: '中止' };   // 状態の言葉は 3 画面で同じ
 const EXP_CLS = { done: 'ok', error: 'err', running: 'run', cancelled: 'warn' };   // 状態の色(ほかは wait。順番待ちの解析の一覧と同じ色)
-/* 書き出したファイルの名前の見せ方: 名前の中の開始時刻 00h29m21s は 0:29:21 の形で見せる(ファイル名そのものは変えない。title に本当の名前。見直し S6) */
+/* 書き出したファイルの名前の見せ方: 名前の中の開始時刻 00h29m21s は 0:29:21 の形で見せる(ファイル名そのものは変えない。title に本当の名前) */
 const fileLabel = f => String(f || '').replace(/(\d{2})h(\d{2})m(\d{2})s/g, (_, h, m, sec) => `${Number(h)}:${m}:${sec}`);
 function errHint(msg){
   if (/空か短すぎ|取得|ストリーム|方法1/.test(msg || '')) return 'ライブ終了直後はアーカイブが未完成で失敗しやすくなります。数時間〜半日ほど置いてから「失敗した分だけやり直す」を試してください。';
@@ -2297,8 +2297,8 @@ function handoffHTML(j, it){
 /* 書き出した切り抜きを「編集」で開く URL(書き出しの行のリンクと、書き出し完了の知らせの [編集で開く] で同じ)。
    案件の画面に動画のパスを渡す(?v=。文書があればその校正・無ければホームの新しい案件の欄。棚卸し G5 で /transcribe/?media= から) */
 function editorHref(path){ return path ? '/cases?v=' + enc(path) + '#proof' : ''; }
-/* 「編集」を開く(行のリンク・知らせのボタンで同じ開き方。窓の決まり S-15): 窓(Edge のアプリの窓)で開いているときはホームに頼んで窓で(UIKit.win)、
-   ブラウザのタブならいつもの新しいタブで。スタジオの画面はそのまま残す(配信を見ながら隣の窓で字幕を直す流れ。v0.20.2 の音を下げる仕組みもこの形が前提)。
+/* 「編集」を開く(行のリンク・知らせのボタンで同じ開き方): 窓(Edge のアプリの窓)で開いているときはホームに頼んで窓で(UIKit.win)、
+   ブラウザのタブならいつもの新しいタブで。スタジオの画面はそのまま残す(配信を見ながら隣の窓で字幕を直す流れ。音を下げる仕組みもこの形が前提)。
    ホームへのリンク(案件の一覧)は data-ui-portal(ホームが開いていれば前に出す) */
 function openEditor(href){
   if (!href) return;
@@ -2306,7 +2306,7 @@ function openEditor(href){
   if (Studio.token && w.isApp()){ w.open(href).catch(() => { window.open(href, '_blank', 'noopener'); }); return; }
   window.open(href, '_blank', 'noopener');
 }
-/* 書き出しが済んだ知らせ(S-7)。paths: 書き出した mp4 の絶対パス(書き出しの順)。最初の1本を [編集で開く](行のリンクと同じ URL・同じ開き方)。
+/* 書き出しが済んだ知らせ。paths: 書き出した mp4 の絶対パス(書き出しの順)。最初の1本を [編集で開く](行のリンクと同じ URL・同じ開き方)。
    ボタンのある知らせは 8 秒(読んで押す間)。開けるものが無ければ今までどおりの知らせ */
 function doneToast(msg, kind, paths){
   const ok = (paths || []).filter(Boolean), href = ok.length ? editorHref(ok[0]) : '';
@@ -2352,7 +2352,7 @@ function renderExpRun(live, t, running, noTool){
 function renderExpMore(live, running, noTool){
   { const ok = x => x.kind !== 'live', n = S.videos.filter(ok).reduce((a, x) => a + (Number(x.adopted) || 0), 0), nv = S.videos.filter(x => ok(x) && x.adopted > 0).length, b = $('#rvExpAll');
     b.textContent = `全部の配信の採用を書き出す(${nv}本・${n}件)`; b.disabled = running || !n || !!S.live || noTool || live;
-    /* 押せないときは、いつも理由を title に(S-25。以前は押せる理由の説明のまま) */
+    /* 押せないときは、いつも理由を title に */
     b.title = live ? 'ライブの録画を開いている間は使えません(録画の配信は、開いて「書き出す」で書き出します)'
       : running ? '書き出しの実行中は使えません(終わるか「中止」を押してから)'
       : S.live ? '配信中は書き出せません(配信が終わってから)'
@@ -2367,7 +2367,7 @@ function renderExpMore(live, running, noTool){
     b.disabled = running || n < 2 || noTool || !!S.live || live;
     b.title = live ? 'ライブの録画は、つなげて1本にできません(1件ずつ書き出してから「編集」でつないでください)' : n < 2 ? '2 件以上チェックしてください' : S.live ? '配信中は書き出せません' : noTool ? 'ffmpeg が見つからないため書き出せません' : '時刻の順につないで、1本の mp4 にします(つなぎ目はそのまま)'; }
 }
-/* 押したボタンが押せなく・見えなくなったら、フォーカスを欄の中の次の操作へ移す(そのままだと body に落ちて、重ねた欄の外へ出ていた。見直し M2)。
+/* 押したボタンが押せなく・見えなくなったら、フォーカスを欄の中の次の操作へ移す(そのままだと body に落ちて、重ねた欄の外へ出る)。
    書き出す・つなげて1本に → 中止、中止(終わった)→ 書き出す、どれも押せなければ閉じるボタン */
 const EXP_BTNS = ['rvExpRun', 'rvJoinRun', 'rvExpCancel', 'rvExpAll', 'rvExpRetry'];
 function keepExportFocus(fa){
@@ -2391,7 +2391,7 @@ function renderExportUI(){
   const lact = live ? LV.jobs.filter(x => LIVE_ACTIVE.includes(x.state)) : [];
   const count = exportCountText(v, live, t, j, jrun, done, lact);
   $('#rvExpCount').textContent = count;
-  /* 見出しの横は、動いていないときの対象の数だけ。動いている間の「書き出し中 n/m件」は本文(#rvExpCount)の 1 か所に出す(二重に出していた。見直し S13) */
+  /* 見出しの横は、動いていないときの対象の数だけ。動いている間の「書き出し中 n/m件」は本文(#rvExpCount)の 1 か所に出す(二重に出さない) */
   $('#rvExpSum').textContent = (S.exportAll && !live) || jrun || lact.length ? '' : t.length ? `対象 ${t.length}件` : '';
   { const je = $('#rvJumpExp'); if (je) je.textContent = (S.exportAll && !live) || jrun || lact.length ? '実行中' : t.length ? t.length + '件' : ''; }
   { const b = $('#rvExpRun'); if (b) b.textContent = t.length && !jrun && !(S.exportAll && !live) ? `${t.length}件を書き出す` : '書き出す'; }
@@ -2403,7 +2403,7 @@ function renderExportUI(){
   keepExportFocus(fa);
 }
 function joinIds(){ return sortedMarks().filter(c => S.join.has(c.id)).sort((a, b) => a.start - b.start).map(c => c.id); }
-/* チェックしたマークを時刻の順につないで1本の mp4 に(2026-09-28 ユーザー要望。同じ配信の中だけ・つなぎ目はそのまま)。
+/* チェックしたマークを時刻の順につないで1本の mp4 に(同じ配信の中だけ・つなぎ目はそのまま)。
    つないだ動画は元の配信の1つの区間ではないので、.clip.json・マークの「書き出し済み」・自動の文字起こしは付けない(「編集で開く」から) */
 async function startJoin(){
   if (exportBusy()) return;
@@ -2447,7 +2447,7 @@ function jobItemHTML(j, it, i){
   /* ライブの録画(入口の書き出し。j.live): 状態は入口の言葉(録画待ち・取得中・作り直し中 n%)。行ごとに取り消す・やり直すは「書き出す」から */
   const lv = !!j.live, act = lv && (it.status === 'queued' || it.status === 'running');
   const label = (lv && it.stateLabel) || EXP_LABEL[it.status] || it.status;
-  const ar = lv ? it.archive : null;   // 本番版への作り直し(P4。入口のジョブの archive)
+  const ar = lv ? it.archive : null;   // 本番版への作り直し(入口のジョブの archive)
   return `<li class="rv-ejob st-${cls}"${lv ? ` data-ljob="${esc(it.jobId || '')}"` : ''}><div class="rv-ejob-h">
       <span class="mono rv-ejob-t">${i + 1}. ${fmt(it.start)} – ${fmt(it.end)}</span><span class="rv-ejob-n">${esc(it.title || '無題')}</span>
       <span class="pill ${cls}">${esc(label)}${it.status === 'running' && (!lv || pct > 0) ? ' ' + pct + '%' : ''}</span>${ar && ar.state === 'done' ? `<span class="rv-chip arch" title="${ARCH_TITLE}">アーカイブ</span>` : ''}${act ? `<button type="button" class="btn small ghost" data-act="lxcancel" data-job="${esc(it.jobId || '')}">取り消す</button>` : ''}</div>
@@ -2521,12 +2521,12 @@ function pollJob(){
       else if (fin) refreshList();
       if (fin){
         rememberJob(null);
-        /* 済んだ知らせに [編集で開く](S-7。つないだ1本・書き出した最初の1本。行のリンクと同じ URL) */
+        /* 済んだ知らせに [編集で開く](つないだ1本・書き出した最初の1本。行のリンクと同じ URL) */
         const cdone = j.combined && j.combined.status === 'done', paths = j.state === 'cancelled' ? []
           : j.combined ? (cdone ? [clipPathOf(j, { path: j.combined.path, file: j.combined.file })] : []) : j.items.filter(i => i.status === 'done').map(i => clipPathOf(j, i));
         if (j.combined) doneToast(j.state === 'cancelled' ? 'つなぐ書き出しを中止しました' : cdone ? `つなげて1本にしました(${j.combined.count}件)。「編集で開く」で文字起こしできます` : 'つなげられませんでした: ' + (j.combined.error || ''), j.state === 'cancelled' ? '' : cdone ? 'ok' : 'err', paths);
         else if (j.state === 'cancelled') doneToast('書き出しを中止しました(済んだ分は残ります。「書き出す」で残りを書き出せます)', '', paths);
-        else if (done < j.items.length){   // 失敗があれば「完了」と言わず、知らせから [失敗した分をやり直す](見直し S16)
+        else if (done < j.items.length){   // 失敗があれば「完了」と言わず、知らせから [失敗した分をやり直す]
           const nf = j.items.length - done;
           toast(done ? `${done}件を書き出しました。${nf}件は失敗しました` : `書き出しに失敗しました(${nf}件)`, { kind: 'err', ms: 0, action: { label: '失敗した分をやり直す', fn: () => { const ids = failedIds(); if (ids.size) startExport(ids); } } });
         } else doneToast(`書き出しました(${done}件)`, 'ok', paths);
@@ -2667,7 +2667,7 @@ function renderMeta(){
   const yl = $('#rvYtLink'); yl.hidden = !ytHref; if (ytHref) yl.href = ytHref;
   yl.title = v.kind === 'live' ? 'YouTube で配信を開きます(録画の時刻とは合わないので、頭から開きます)' : 'YouTube で、いまの位置から開きます';
 }
-/* まとめて実行の入口(上の行)。使えないときも隠さず、押せない理由を出す(S-25): ホームから開いていない・ライブの録画(まとめて実行はスタジオの書き出しを使う)。
+/* まとめて実行の入口(上の行)。使えないときも隠さず、押せない理由を出す: ホームから開いていない・ライブの録画(まとめて実行はスタジオの書き出しを使う)。
    配信を開いていないときは、ほかの配信ごとの操作と同じく出さない */
 function autoOffReason(v){
   if (!Studio.token) return 'まとめて実行は、ホーム(start.bat)から開いたときだけ使えます';
@@ -2679,7 +2679,7 @@ function renderAutoMenu(v){
   d.hidden = !v;
   const why = autoOffReason(v);
   d.classList.toggle('is-off', !!why);
-  /* 押せないときは押しても開かずに理由を知らせる(ui-kit v21 の共通の書き方 UIKit.menuOff。Enter・Space も) */
+  /* 押せないときは押しても開かずに理由を知らせる(ui-kit の共通の書き方 UIKit.menuOff。Enter・Space も) */
   UIKit.menuOff(d, why, '案件の画面と同じ「まとめて実行」を、この配信で始めます');
 }
 function renderDuration(){
@@ -2882,7 +2882,7 @@ async function loadTranscripts(){
 function renderList(){
   const ol = $('#rvList'); if (!ol) return;
   const list = listMarks();
-  /* 空の表示は 2 文と次のボタン 1 つ(見直し M6)。まだ解析していない YouTube の配信なら「解析する」、それ以外は主役の「今をマーク」へ */
+  /* 空の表示は 2 文と次のボタン 1 つ。まだ解析していない YouTube の配信なら「解析する」、それ以外は主役の「今をマーク」へ */
   if (!S.cur || !marks().length){
     const v = S.cur, ana = v && v.kind === 'youtube' && !v.analysis && !S.live;
     ol.innerHTML = `<li class="rv-emptylist empty"><b>まだマークはありません</b>配信を再生して「今をマーク ①」を押すと、ここに出ます${ana ? '。解析すると、盛り上がった所に自動でマークが付きます' : ''}` +
@@ -2894,7 +2894,7 @@ function renderList(){
     return;
   }
   S.rendering = true;
-  try { ol.innerHTML = list.map(markHTML).join(''); UIKit.timebox.attachAll(ol); } finally { S.rendering = false; }   // 時刻の欄(時:分:秒.0.1秒。数字だけで入れる。ui-kit v11)
+  try { ol.innerHTML = list.map(markHTML).join(''); UIKit.timebox.attachAll(ol); } finally { S.rendering = false; }   // 時刻の欄(時:分:秒.0.1秒。数字だけで入れる)
   UIKit.icon.fill(ol);   // 行の中の「…」の SVG(動的に描くので、読み込み後の一括の埋め込みには乗らない)
 }
 function renderStats(){
@@ -2907,7 +2907,7 @@ function renderStats(){
     const f = b.dataset.filter, n = f === 'all' ? v.marks.length : cnt[f];
     b.querySelector('.n').textContent = n; b.setAttribute('aria-pressed', String(S.filter === f));
   }
-  { const b = $('#rvBulkAdopt'); b.disabled = !cnt[''];   // 押せないときは理由を(見直し S17。以前は操作の説明のままだった)
+  { const b = $('#rvBulkAdopt'); b.disabled = !cnt[''];   // 押せないときは理由を
     b.title = cnt[''] ? `候補のマーク ${cnt['']}件をすべて採用にします` : '候補がありません(自動のマークか「今をマーク」で増えます)'; }
   renderExportUI();
 }
@@ -2939,7 +2939,7 @@ function placeJump(){
 }
 /* ---------- 書き出しの欄(ui-drawer)。1680px 以上は映像・マークと横に並ぶ「docked」(裏も操作できる。主な画面は右に空ける)、
    それより狭いときは重ねる「overlay」(閉じるまで畳んでおく) ---------- */
-const WIDE_EXPORT = '(min-width:1680px)';   // 1440px では並べるとマークの一覧が細くなりすぎた(2026-09-27。以前は 1280px)
+const WIDE_EXPORT = '(min-width:1680px)';   // 1440px では並べるとマークの一覧が細くなりすぎる
 const exportDockActive = () => window.matchMedia(WIDE_EXPORT).matches;
 /* 主画面の余白(rv-dock)は、実際に欄が docked で開いているときだけ付ける(× で閉じている間は余白を残さない) */
 function updateDockClass(){
@@ -3008,18 +3008,18 @@ const rvMedia = {
    media は yt が無くても常に rvMedia を返す(rvMedia の各操作が yt の有無を自分で見るので、プレーヤーが無い間も S.now は , . ← → で動かせる)。
    再生できない画面(埋め込み不可・通信不調)で Space・L(再生を試みるキー)を押したときだけ、これまでどおり案内を出す */
 const handlePlayback = UIKit.keys.playback({
-  media: () => rvMedia, keymap: () => curKeymap(),   // 割り当ては共通(ホームの設定。? の一覧で変えられる。段6)
+  media: () => rvMedia, keymap: () => curKeymap(),   // 割り当ては共通(ホームの設定。? の一覧で変えられる)
   onIn: () => markIn(), onOut: () => markOut(),
   onKey: (name, act) => {
     if (!canPlay() && (act === 'playPause' || act === 'play')) noPlayerToast();
     if (act === 'stop' || act === 'play'){ const r = $('#rvRate'); if (r) r.value = String(S.rate); }   // 止める・再生は再生速度を変えるので、速度の選択も合わせる
   }
 });
-/* キーの帯(下の細い帯)の中身。② の場面(配信を開いている間)に合わせて置き換える。場面に合ったキー 7 個まで。名前はボタンと同じ(「今をマーク①」「IN / OUT」。見直し S18)。
+/* キーの帯(下の細い帯)の中身。② の場面(配信を開いている間)に合わせて置き換える。場面に合ったキー 7 個まで。名前はボタンと同じ(「今をマーク①」「IN / OUT」)。
    書き出しの欄を重ねて開いている間(② のキーは効かない)は、その欄で使うキーだけにする(重ねているかは属性で見る。S.expModal は開いたあとで入るため) */
 function keybarScene(){
   { const ex = $('#rvExport'); if (ex && UIKit.drawer.isOpen(ex) && ex.getAttribute('aria-modal') === 'true'){ env.keybar([{ k: 'Tab', l: '次の項目' }, { k: 'Esc', l: '書き出しの欄を閉じる' }]); return; } }
-  const km = curKeymap(), t = id => (km[id] ? keyText(km[id]) : ''), row = (k, label) => (k ? { k, l: label } : null);   // 今の割り当てから(固定の文字をなくす。段6)
+  const km = curKeymap(), t = id => (km[id] ? keyText(km[id]) : ''), row = (k, label) => (k ? { k, l: label } : null);   // 今の割り当てから(固定の文字を持たない)
   /* ライブの録画で配信中の候補が出ている間は、マークの採用・不採用の代わりに候補のキー(7 個までに収める) */
   const pb = $('#rvPeaks'), pk = !!pb && !pb.hidden;
   env.keybar([row(t('playPause'), '再生/停止'), row([t('seekBack'), t('seekFwd')].filter(Boolean).join(' '), '1秒(Shift 5秒)'), row(t('quickMark'), '今をマーク①'),
@@ -3047,7 +3047,7 @@ function wire(){
         seek(t); S.previewEnd = Number.isFinite(e2) && e2 > t ? e2 : null; yt.playVideo(); break; }
       case 'st': { const idx = rowIndex(li), st = b.dataset.st;
         setStatus(c, st, st === 'adopted' || st === 'rejected'); focusRow(c.id, `.rv-stb[data-st="${st}"]`, idx); break; }
-      case 'auto1': { const pop = b.closest('details.ui-pop'); if (pop) pop.open = false; startAuto('adopted', [c.id]); break; }   // このマークだけ、残りの作業をまとめて(git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 3)
+      case 'auto1': { const pop = b.closest('details.ui-pop'); if (pop) pop.open = false; startAuto('adopted', [c.id]); break; }   // このマークだけ、残りの作業をまとめて
       case 'nudge': {
         const w = b.dataset.w;
         if (setBound(c, w, c[w] + Number(b.dataset.d))){ if (yt) seek(c[w]); refresh(key); }
@@ -3061,7 +3061,7 @@ function wire(){
       }); break;
     }
   });
-  list.addEventListener('click', e => {   // 空の表示の次の一手(見直し M6)
+  list.addEventListener('click', e => {   // 空の表示の次の一手
     const b = e.target.closest('[data-empty]'); if (!b) return;
     if (b.dataset.empty === 'analyze') runAnalyze();
     else if (b.dataset.empty === 'all'){ S.filter = 'all'; renderStats(); renderList(); const f = $('#rvFilters [data-filter="all"]'); if (f) f.focus(); }
@@ -3075,7 +3075,7 @@ function wire(){
     const li = e.target.closest('.rv-mark-row'); if (!li || e.target.closest('input,button,label')) return;
     markSel(li.dataset.id);
   });
-  /* B-11: 微調整のボタンは選んだマークにだけ出す。時刻・ラベルの欄に入ったら(Tab でも)そのマークを選ぶ */
+  /* 微調整のボタンは選んだマークにだけ出す。時刻・ラベルの欄に入ったら(Tab でも)そのマークを選ぶ */
   list.addEventListener('focusin', e => {
     const li = e.target.closest('.rv-mark-row'); if (!li || li.classList.contains('sel') || !e.target.closest('input, .ui-time') || e.target.classList.contains('rv-join')) return;   // つなぐのチェックでは選ばない(選び直すと上の行の微調整が畳まれて一覧がずれ、押したつもりが外れる)
     markSel(li.dataset.id);
@@ -3134,7 +3134,7 @@ function wire(){
   };
   tl.addEventListener('pointerup', end); tl.addEventListener('pointercancel', end);
   $('#rvGraph').addEventListener('click', e => {
-    const p = e.target.closest('.rv-gpeak');   // 山の札: その山の少し前へ(順位と理由。notes:docs/design/edit-tool-design.md 系ではなく IMPLEMENTATION.md 4)
+    const p = e.target.closest('.rv-gpeak');   // 山の札: その山の少し前へ(順位と理由)
     if (p){ seek(Math.max(0, Number(p.dataset.t) - PEAK_PRE)); return; }
     seek(timeAt(e, $('#rvGraph')));
   });
@@ -3200,7 +3200,7 @@ function wire(){
   $('#rvMomBefore').addEventListener('change', e => setMomentSec('momentBefore', e.target));
   $('#rvMomAfter').addEventListener('change', e => setMomentSec('momentAfter', e.target));
   renderMomentSet();
-  /* キー配置は ? の一覧の1か所(2026-10-04。以前は ② の「操作の設定」にも同じ一覧があった)。組み合わせの選択も一覧の上(index.html の #keyPresetRow) */
+  /* キー配置は ? の一覧の1か所(② の「操作の設定」には置かない)。組み合わせの選択も一覧の上(index.html の #keyPresetRow) */
   $('#rvKeysOpen').addEventListener('click', () => Studio.openKeyHelp());
   $('#keyPresetRow').hidden = false;
   $('#rvKeyPreset').addEventListener('change', e => {
@@ -3208,7 +3208,7 @@ function wire(){
     KM.setMany(sanitizeKeymap(pr), `キー配置を「${PRESET_NAMES[e.target.value]}」にしました`);
   });
   $('#rvEdge').addEventListener('click', () => { if (yt && yt.goLive) yt.goLive(); else if (yt && S.duration) seek(S.duration); });   // ライブの録画はライブ端の少し手前へ(終わりちょうどだと読み込みを待ち続ける)
-  $('#rvLiveMute').addEventListener('click', () => toggleMute());   // LIVE の帯の消音(0.26.0。M キーと同じ)
+  $('#rvLiveMute').addEventListener('click', () => toggleMute());   // LIVE の帯の消音(M キーと同じ)
   $('#rvRecStop').addEventListener('click', e => stopLiveRec(e.currentTarget));
   $('#rvArchRun').addEventListener('click', startLiveArchive);
   $('#rvArchCancel').addEventListener('click', cancelLiveArchive);
@@ -3235,7 +3235,7 @@ function wire(){
     if (!n) return toast('配信の範囲外になるため、ずらせませんでした');
     markDirty(); refresh(); toast(`${n}件を ${d > 0 ? '+' : ''}${d}秒ずらしました` + (n < targets.length ? `(範囲外の${targets.length - n}件は除く)` : ''));
   });
-  $('#rvTheater').addEventListener('click', () => { $('#rvVMenu').open = false; toggleTheater(); });   // 0.22.3: 上の行の操作を 3 つにするため「配信の操作」の中へ(見直し S11。T キーはそのまま)
+  $('#rvTheater').addEventListener('click', () => { $('#rvVMenu').open = false; toggleTheater(); });   // 上の行の操作を 3 つにするため「配信の操作」の中へ(T キーでも開閉できる)
   $('#rvPlayerBox').addEventListener('mouseleave', reclaimFocus);
   $('#rvFilters').addEventListener('click', e => { const b = e.target.closest('[data-filter]'); if (!b) return; S.filter = b.dataset.filter; renderStats(); renderList(); });
   $('#rvFoldAll').addEventListener('click', () => foldAll(true));
@@ -3284,7 +3284,7 @@ function wire(){
     if (Studio.step !== 'review' || !S.cur) return;
     if (e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented || e.isComposing || e.keyCode === 229) return;   // 日本語の変換中は受け取らない
     if (Studio.overlayOpen()) return;   // 設定の引き出し・キー一覧を開いている間は、裏の配信を操作しない
-    /* 書き出しの欄: 重ねて開いている(1680px 未満)間と、欄の中にフォーカスがある間は、裏の配信を操作しない(B-2。→ で裏の再生位置が動いていた)。
+    /* 書き出しの欄: 重ねて開いている(1680px 未満)間と、欄の中にフォーカスがある間は、裏の配信を操作しない(→ で裏の再生位置が動いてしまう)。
        1680px 以上で横に並べている(docked)ときは、欄の外ではこれまでどおり効く */
     { const ex = $('#rvExport'); if (ex && UIKit.drawer.isOpen(ex) && (S.expModal || ex.contains(e.target))) return; }
     if (Studio.inMenu(e.target)) return;      // 配信の選択・配信の操作のメニューの中では、そのメニューの操作を優先する
@@ -3319,7 +3319,7 @@ async function activate(){
 }
 function deactivate(){
   pausePlayback(); stopPoll(); liveStopPoll();   // ② を離れたら再生を止める(ライブの録画も。録画そのものは裏で続く)
-  placeFlush();   // 前回の場所(S-8)をすぐ書く
+  placeFlush();   // 前回の場所をすぐ書く
   env.keybar(null);
   if (setTimer) saveSettings();
   if (S.dirty || saveTimer) save();
@@ -3341,7 +3341,7 @@ Studio.review = {
   /* 片付ける(案件の画面のパネルを閉じるとき。スタジオの画面は呼ばない): 離れたときと同じ保存と停止に加えて、プレーヤー・書き出しとまとめて実行の確かめを止め、書き出しの欄を閉じる */
   dispose(){ deactivate(); unmountPlayer(); stopExpPoll(); clearTimeout(AUTO.t); clearTimeout(quietT); closeExportDrawer(); peaksOpened(null); }
 };
-/* ---------- まとめて実行(notes:docs/design/edit-tool-design.md の 12 ⑦(a)。入口の ② の口 /api/flow/submit(RV A1)。案件の画面と同じ API・同じ形。入口の中だけ) ---------- */
+/* ---------- まとめて実行(notes:docs/design/edit-tool-design.md。入口の ② の口 /api/flow/submit。案件の画面と同じ API・同じ形。入口の中だけ) ---------- */
 const AUTO = { t: 0, active: false };
 const AUTO_STATE = { queued: 'wait', running: 'run', done: 'ok', error: 'err', cancelled: 'wait' };   // 実行の状態の色(言葉は UIKit.autorun.runLabel の 1 か所)
 /* 入口の API(/api/...)。① 探す のまとめて実行と同じ core.js の Studio.portalApi */
@@ -3349,7 +3349,7 @@ const portalApi = (path, body) => Studio.portalApi(path, body);
 /* 友人へ自動で送る届け先(受付のフォルダの 出力。入口の api/intake の outDir)。決まっていなければ null(D-SEND。解析から全部の既定はオン) */
 async function sendOutDir(){ try { return (await portalApi('api/intake')).outDir || null; } catch { return null; } }
 /* ---------- 書き出しのあと自動で文字起こし(入口から開いたときだけ。設定「書き出しのあと自動で文字起こし」既定オン。IMPLEMENTATION.md 4) ----------
-   入口の ② の口 /api/flow/submit に「書き出しから文字起こしまで」+ marks(書き出したものだけ)で頼む(UIKit.flow.order。RV A1)。
+   入口の ② の口 /api/flow/submit に「書き出しから文字起こしまで」+ marks(書き出したものだけ)で頼む(UIKit.flow.order)。
    もう書き出し済みのマークは、その段だけ飛ばして続く(flow/run.py の _step_export) */
 function autoTxEnabled(){ return S.settings.autoTx !== false; }
 /* 0.21 までの保存(このブラウザの localStorage の ytt:studio.autoTx)→ true / false / null(無い)。サーバーの設定に autoTx が無いときだけ読む(消さない) */
@@ -3358,19 +3358,19 @@ async function maybeAutoTranscribe(videoId, markIds){
   if (!Studio.token || !autoTxEnabled() || !markIds || !markIds.length) return;
   try {
     const r = await portalApi('api/flow/submit', UIKit.flow.order({ kind: 'url', videoId, from: 'export', upto: 'transcribe', marks: markIds }));
-    if (r && r.run) UIKit.autorun.watch(r.run.id);   // 終わったら知らせる(段4)
+    if (r && r.run) UIKit.autorun.watch(r.run.id);   // 終わったら知らせる
     toast('書き出しに続けて、文字起こしを始めました', 4000, 'ok');
     if (S.cur && S.cur.id === videoId) pollAuto();
   } catch (e){
     // 「この配信はすでに実行中・順番待ちです」(同じ配信のまとめて実行が別に動いている)だけを見分ける。
-    // 「順番待ちが多すぎます」(容量の上限)は別の理由の失敗なので、ここに含めて info 扱いにしない(以前は同じ正規表現が両方に一致して誤報していた)
+    // 「順番待ちが多すぎます」(容量の上限)は別の理由の失敗なので、ここに含めて info 扱いにしない(同じ正規表現が両方に一致して誤報する)
     if (/実行中・順番待ちです/.test(e.message || '')) toast('この配信はすでに別のまとめて実行が動いています。終わってから「この後を」でやり直せます', 7000, 'info');
     else toast('文字起こしを自動では始められませんでした: ' + e.message, 7000, 'err');
   }
 }
-/* まとめて実行(② のメニュー・マークの行の「この後を」)。見積もり → 始める → 終わったら知らせる、は共通の部品 UIKit.autorun(どの入口も同じ。段4)。
+/* まとめて実行(② のメニュー・マークの行の「この後を」)。見積もり → 始める → 終わったら知らせる、は共通の部品 UIKit.autorun(どの入口も同じ)。
    採用数・上書き・失敗したときはホームの設定(どの入口で変えても同じ) */
-/* マークの行の「この後を」: 実行する前に字幕の色(② のまとめて実行の配信者の欄の名前)を見せる(S-10。以前は閉じたメニューの欄を黙って使っていた) */
+/* マークの行の「この後を」: 実行する前に字幕の色(② のまとめて実行の配信者の欄の名前)を見せる(閉じたメニューの欄を黙って使わない) */
 function autoWhoText(){ const el = $('#rvAutoWho'), v = el ? el.value.trim() : ''; return '字幕の色: ' + (v || 'なし(黒い文字)'); }
 function fillAutoWho(){
   if (Studio.token && S.cur) UIKit.streamer.autoFill($('#rvAutoWho'), { videoId: S.cur.id, channel: S.cur.channel || '' });
@@ -3381,13 +3381,13 @@ async function startAuto(mode, marks){
   try {
     if (S.dirty) await flushSave();   // 手で付けたマークを先に保存してから(まとめて実行は保存済みのマークを読む)
     const who = await UIKit.streamer.check($('#rvAutoWho'));
-    if (who === null) return;   // 見つからない名前で「やめる」を選んだ(S-20)
+    if (who === null) return;   // 見つからない名前で「やめる」を選んだ
     const st = UIKit.autorun.state(), full = mode === 'full';
     if (full && marks) throw new Error('マークを選んだまとめて実行は「採用後を全部」「文字起こしまで」だけです');
-    // 欄 → 封筒 + 束の差分(UIKit.flow.order。RV A1): 解析から全部 = 頭からパックまで・採用後を全部 = 書き出しからパックまで・文字起こしまで = 書き出しから文字起こしまで
+    // 欄 → 封筒 + 束の差分(UIKit.flow.order): 解析から全部 = 頭からパックまで・採用後を全部 = 書き出しからパックまで・文字起こしまで = 書き出しから文字起こしまで
     const f = { kind: 'url', videoId: S.cur.id, title: S.cur.title || '', from: full ? null : 'export', upto: mode === 'transcribe' ? 'transcribe' : 'pack',
                 streamer: who, repack: !!(st && st.overwrite), ...(full ? { top } : {}), ...(marks ? { marks } : {}) };   // 空 = 色なし(欄は自動で入る)
-    if (full){ const out = await sendOutDir(); if (out) f.deliver = { origin: 'auto', dir: out }; }   // 解析から全部は友人へ自動で送る(既定オン = 以前と同じ)
+    if (full){ const out = await sendOutDir(); if (out) f.deliver = { origin: 'auto', dir: out }; }   // 解析から全部は友人へ自動で送る(既定オン)
     const r = await UIKit.autorun.start([UIKit.flow.order(f)]);
     if (!r) return;   // やることが無い(見積もり。知らせは部品が出す)
     $('#rvAuto').open = false;
@@ -3419,13 +3419,13 @@ async function pollAuto(){
   if (active) AUTO.t = setTimeout(pollAuto, 3000);
 }
 
-function showDataWarning(){ Studio.dataWarning($('#rvWarn')); }   // 文・閉じる・知らせ 1 回は core.js の 1 か所(② の帯と同じ。見直し M8)
+function showDataWarning(){ Studio.dataWarning($('#rvWarn')); }   // 文・閉じる・知らせ 1 回は core.js の 1 か所(② の帯と同じ)
 Studio.onReady(() => {
   buildDOM(); mountSettings(); S.built = true; placeJump();
   UIKit.icon.fill($('#paneReview'));   // buildDOM は DOMContentLoaded の一括の埋め込みより後に動くので、ここで埋める
-  /* まとめて実行はホームから開いたときだけ(12 ⑦(a))。使えないときは押せない理由を出す(renderAutoMenu → UIKit.menuOff が、押したら理由を知らせる。S-25) */
-  UIKit.packLoud.mount($('#rvAutoLoud'));   // パックの音量(編集の設定の1か所。2026-09-29)
-  if (Studio.token){   // まとめて実行の設定の要約と「設定を変える」(どの入口も同じ部品。段4)・採用数はホームの設定
+  /* まとめて実行はホームから開いたときだけ。使えないときは押せない理由を出す(renderAutoMenu → UIKit.menuOff が、押したら理由を知らせる) */
+  UIKit.packLoud.mount($('#rvAutoLoud'));   // パックの音量(編集の設定の1か所)
+  if (Studio.token){   // まとめて実行の設定の要約と「設定を変える」(どの入口も同じ部品)・採用数はホームの設定
     UIKit.autorun.panel($('#paneReview .rv-autopanel'), { kind: 'video' });
     UIKit.autorun.load().then(st => { $('#rvAutoTop').value = String(st.top); }, () => {});
     $('#rvAutoTop').addEventListener('change', () => { const n = Math.round(Number($('#rvAutoTop').value)); if (n >= 1 && n <= 20) UIKit.prefs.patch('autorun', { top: n }).catch(() => {}); });
@@ -3434,7 +3434,7 @@ Studio.onReady(() => {
   $('#rvAuto').addEventListener('click', e => { const b = e.target.closest('[data-auto]'); if (b) startAuto(b.dataset.auto); });
   $('#rvAutoBar').addEventListener('click', async e => {
     if (!e.target.closest('[data-act=autocancel]')) return;
-    try { await portalApi('api/flow/cancel', { id: 'run:' + $('#rvAutoBar').dataset.run }); } catch (er){ toast(er.message, 5000, 'err'); }   // 掲示板の id(RV A1)
+    try { await portalApi('api/flow/cancel', { id: 'run:' + $('#rvAutoBar').dataset.run }); } catch (er){ toast(er.message, 5000, 'err'); }   // 掲示板の id
     pollAuto();
   });
   showDataWarning();
@@ -3449,11 +3449,11 @@ Studio.onReady(() => {
   const onLeft = reason => {
     if (setTimer) saveSettings();
     if (S.dirty) save();
-    placeFlush();   // 前回の場所(S-8)
+    placeFlush();   // 前回の場所
     if (reason !== 'blur'){ pausePlayback(); stopPoll(); liveStopPoll(); }
   };
   const onBack = () => {
-    if (setFailed && !setLoadErr) saveSettings();   // 離れるときの保存が失敗していたら送り直す(監査 11)
+    if (setFailed && !setLoadErr) saveSettings();   // 離れるときの保存が失敗していたら送り直す
     if (Studio.step === 'review'){ startPoll(); loadTranscripts(); liveResume(); }   // 文字起こしのタブ・窓で直してから戻ったとき
   };
   env.life(onLeft, onBack);
@@ -3466,7 +3466,7 @@ Studio.onReady(() => {
 });
 }
 window.StudioReview = { create };
-/* スタジオの画面(core.js の window.Studio がある)では、今までどおり document に ② を作る */
+/* スタジオの画面(core.js の window.Studio がある)では、document に ② を作る */
 const Studio = window.Studio;
 if (Studio) create({ Studio, $: s => document.querySelector(s), $$: s => document.querySelectorAll(s),
   listen: (target, type, fn, opt) => target.addEventListener(type, fn, opt),

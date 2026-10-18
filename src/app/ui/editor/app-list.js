@@ -1,9 +1,9 @@
-/* app-list.js — 「編集」の画面: 保存済み一覧(履歴)・選んだ文書をまとめて実行(段10 で app.js から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
+/* app-list.js — 「編集」の画面: 保存済み一覧(履歴)・選んだ文書をまとめて実行。
    ここは関数の定義だけ。状態(S・V など)・定数・ボタンの配線・起動は app.js(この後に読む)。
-   関数はトップレベルの宣言なので、ほかの app-*.js・app.js から名前で呼べる(読む順番は src/app/ui/cases/edhost.js の ED_SCRIPTS の1か所。RS8 C4 で編集の画面のページは消した) */
+   関数はトップレベルの宣言なので、ほかの app-*.js・app.js から名前で呼べる(読む順番は src/app/ui/cases/edhost.js の ED_SCRIPTS の1か所) */
 'use strict';
 
-/* ---------- 保存済み一覧(履歴。v0.15.0 で作り直し: notes:docs/spec/ui.md 4.) ----------
+/* ---------- 保存済み一覧(履歴。notes:docs/spec/ui.md 4.) ----------
    サーバーの /api/transcripts が、校正の進み具合・長さ・元の配信・配信者・元の動画とパックの有無を返す(serve.py の list_transcripts)。
    画面では 絞り込み → 並び替え → まとめる(配信ごと/配信者ごと/まとめない)→ 開いているまとまりの分だけ描く(「もっと見る」で足す)。
    同じ題名が並んでも見分けられるように、配信ごとのときは見出しの配信の題名を省いて、マークの名前・元の配信の時刻・いつ・長さを出す */
@@ -13,7 +13,7 @@ async function loadList(){
   renderList(); renderResume(); if (S.doc){ renderCutPack(); renderDocBar(); }
 }
 
-/* ---------- 前回の続き(段7 E-7) ----------
+/* ---------- 前回の続き ----------
    前に開いていた文書とタブをこのブラウザに覚え(localStorage tx.last.v1 = {id, tab})、文書を開いていない空の状態に「前回の続き: ○○」を出す(自動では開かない)。
    サーバーの設定にしないのは、窓ごとの道すじの便利(表示の好み V と同じ扱い)で、タブを移るたびに設定のファイルを書き換えないため。
    再読み込み・窓で開き直したときは、今までどおり URL の ?doc= と #タブ で同じ所に戻る */
@@ -33,7 +33,7 @@ function renderResume(){
   $('#noDocResumeBtn').title = String(it.title || '無題');
   $('#noDocResumeSub').textContent = [it.channel, '最終更新 ' + ago(Number(it.updatedAt) || 0)].filter(Boolean).join(' ・ ');
 }
-/* 何も開いていない画面の primary は 1 つ(2 周目 N1): 前回の続きがあればそれだけ。無ければ「メニューを開く」(メニューが開いていれば「文字起こしを開始」) */
+/* 何も開いていない画面の primary は 1 つ:前回の続きがあればそれだけ。無ければ「メニューを開く」(メニューが開いていれば「文字起こしを開始」) */
 function emptyPrimary(){
   const resume = !S.doc && !$('#noDocResume').hidden;
   $('#noDocMenu').classList.toggle('primary', !resume);
@@ -98,7 +98,7 @@ function txRowHTML(i){
   if (i.mediaOk === false) side.push(`<span class="pill warn" title="元の動画が見つかりません(移動・削除した可能性があります)。文字の直しと書き出しはできます">動画なし</span>`);
   if (st === 'todo') side.push(`<span class="pill wait" title="まだ1行も校正していません(${r}行)">未校正</span>`);
   else if (st === 'doing') side.push(`<span class="tt-prog" title="校正済み ${p}行 / ${r}行"><i><b style="width:${Math.round(p / Math.max(1, r) * 100)}%"></b></i>${p}/${r}</span>`);
-  /* 次の一手は押せるボタン(札は押せない表示だけ。段7 E-13): 開いてカット・パックのタブへ */
+  /* 次の一手は押せるボタン(札は押せない表示だけ):開いてカット・パックのタブへ */
   const next = (label, why) => `<button type="button" class="btn small ui-next-btn tt-txi-next" data-act="gotab" data-tab="cut" title="${why}。押すと開いてカット・パックのタブへ移ります">${label}</button>`;
   if (i.pack) side.push(Number(i.pack.updatedAt) < (Number(i.updatedAt) || 0) - 2000
     ? next('作り直す', 'パックを作ったあとに、行を直しています')
@@ -111,14 +111,14 @@ function txRowHTML(i){
   </div>`;
 }
 
-/* ---------- 選んだ文書をまとめて(12 ⑦(b)。入口の ② の口 /api/flow/submit に文書 1 本ずつ = UIKit.flow.order。RV A1。入口から開いたときだけ) ---------- */
+/* ---------- 選んだ文書をまとめて(入口の ② の口 /api/flow/submit に文書 1 本ずつ = UIKit.flow.order。入口から開いたときだけ) ---------- */
 
 /* 入口の API(/api/...)。画面は入口の /transcribe/ の下にあるので、画面の場所から1つ上(UIKit.homeApi。絶対パスを書かない。エラーの形は api() と同じ) */
 function portalApi(path, body){
   return UIKit.homeApi(path, { body, offline: 'ホームのサーバーに接続できません(start.bat の黒い画面が閉じていないか確かめてください)', fail: httpFailText });
 }
 
-/* ホームから開いていない(合言葉なし)ときの「まとめて実行」(段7 E-17): 隠さず、押せない見た目と理由を出す(以前は丸ごと隠していて、機能があること自体が分からなかった) */
+/* ホームから開いていない(合言葉なし)ときの「まとめて実行」: 隠さず、押せない見た目と理由を出す(機能があること自体が分かるように) */
 const NEED_HOME = 'ホーム(start.bat)から開くと使えます(まとめて実行はホームの順番待ちで進みます)';
 function applyNeedHome(){
   if (TOKEN) return;
@@ -133,7 +133,7 @@ function renderPickBar(){
   $('#txBatchGo').disabled = !n || n > PICK_MAX;
 }
 
-/* 表示中を全部選ぶ / パックが無いものだけ選ぶ(S-11)。20 本までにして、あふれたら知らせる */
+/* 表示中を全部選ぶ / パックが無いものだけ選ぶ。20 本までにして、あふれたら知らせる */
 function pickTx(onlyNoPack){
   const items = txFiltered().filter(i => !onlyNoPack || !i.pack);
   PICK.ids.clear(); for (const i of items.slice(0, PICK_MAX)) PICK.ids.add(i.id);
@@ -169,7 +169,7 @@ async function pollRuns(){
   if (active.size) PICK.polling = setTimeout(pollRuns, 2000);
 }
 
-/* 今の文書を最後まで(題名の行の「まとめて実行 ▾」。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 3): 履歴の「選んで、まとめて実行」と同じ入口の API を1本で。
+/* 今の文書を最後まで(題名の行の「まとめて実行 ▾」):履歴の「選んで、まとめて実行」と同じ入口の API を1本で。
    先に文書とカットを保存する(まとめて実行は保存済みの内容を読む)。進み具合は pollRuns が題名の行の札に出す */
 async function startDocAuto(){
   const id = S.docId; if (!id || !TOKEN) return;
@@ -177,9 +177,9 @@ async function startDocAuto(){
   try {
     if (!(await savedAll())) return;
     const who = await UIKit.streamer.check($('#docAutoWho'));
-    if (who === null) return;   // 見つからない名前で「やめる」を選んだ(S-20)
+    if (who === null) return;   // 見つからない名前で「やめる」を選んだ
     const order = UIKit.flow.order({ kind: 'docs', docId: id, repack: $('#docAutoOverwrite').checked, streamer: who });   // 空 = 色なし(欄は自動で入る)
-    const r = await UIKit.autorun.start([order]);   // 見積もり → 始める → 終わったら知らせる(どの入口も同じ部品。段4)
+    const r = await UIKit.autorun.start([order]);   // 見積もり → 始める → 終わったら知らせる(どの入口も同じ部品)
     if (!r) return;   // やることが無い(知らせは部品が出す)
     if ((r.runs || []).length) $('#docAuto').open = false;
     else toast('始められませんでした: ' + ((r.skipped || [])[0] ? r.skipped[0].reason : '理由が分かりません'), 7000, 'err');
@@ -206,7 +206,7 @@ async function startBatch(){
     const who = $('#txBatchWho').value.trim();   // 手で入れたときだけ字幕の色に
     const over = $('#txOverwrite').checked;
     const orders = ids.map(id => UIKit.flow.order({ kind: 'docs', docId: id, repack: over, ...(who ? { streamer: who } : {}) }));   // 文書 1 本ずつ(見積もりも 1 本ずつ足す)
-    const r = await UIKit.autorun.start(orders);   // 見積もり → 始める → 終わったら知らせる(どの入口も同じ部品。段4)
+    const r = await UIKit.autorun.start(orders);   // 見積もり → 始める → 終わったら知らせる(どの入口も同じ部品)
     if (!r) return;
     PICK.ids.clear(); renderList(); renderPickBar(); pollRuns();
   } catch (e){ toast('まとめて実行を始められませんでした: ' + e.message, 7000, 'err'); }
@@ -221,10 +221,10 @@ function txRowsHTML(key, items){
 function renderList(){
   const box = $('#txList'), total = S.list.length;
   $('#txTotal').textContent = total ? `(${total}件)` : '';   // 折りたたんでも件数が見えるように
-  if (!total){ $('#txCount').textContent = ''; box.innerHTML = '<div class="tt-list-empty"><p class="hint">まだ文字起こしはありません。新規から動画を文字起こしすると、ここに出ます。</p><button type="button" class="btn small" data-act="gostart">新規を開く</button></div>'; return; }   // 空の状態に次のボタン(M8)
+  if (!total){ $('#txCount').textContent = ''; box.innerHTML = '<div class="tt-list-empty"><p class="hint">まだ文字起こしはありません。新規から動画を文字起こしすると、ここに出ます。</p><button type="button" class="btn small" data-act="gostart">新規を開く</button></div>'; return; }   // 空の状態に次のボタン
   const found = txFiltered();
   $('#txCount').textContent = found.length === total ? `${total}件` : `${found.length} / ${total}件`;
-  if (!found.length){ box.innerHTML = '<div class="tt-list-empty"><p class="hint">条件に合う文字起こしはありません。状態・種類の絞り込みを変えると出ます。</p><button type="button" class="btn small" data-act="clearfilter">絞り込みを消す</button></div>'; return; }   // M8
+  if (!found.length){ box.innerHTML = '<div class="tt-list-empty"><p class="hint">条件に合う文字起こしはありません。状態・種類の絞り込みを変えると出ます。</p><button type="button" class="btn small" data-act="clearfilter">絞り込みを消す</button></div>'; return; }
   if (L.group === 'none'){ txGroups = new Map([['all', found]]); box.innerHTML = `<div class="tt-g-rows tt-flat">${txRowsHTML('all', found)}</div>`; return; }
   txGroups = new Map();
   for (const i of found){ const k = txGroupKey(i); if (!txGroups.has(k)) txGroups.set(k, []); txGroups.get(k).push(i); }

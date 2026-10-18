@@ -1,6 +1,6 @@
-/* app-rows.js — 「編集」の画面: 編集画面(保存・開く・行の描画と操作)・字幕の文字数・行の移動・話者の色・キー配置・用語の挿入・履歴・行の追加(段10 で app.js から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
+/* app-rows.js — 「編集」の画面: 編集画面(保存・開く・行の描画と操作)・字幕の文字数・行の移動・話者の色・キー配置・用語の挿入・履歴・行の追加。
    ここは関数の定義だけ。状態(S・V など)・定数・ボタンの配線・起動は app.js(この後に読む)。
-   関数はトップレベルの宣言なので、ほかの app-*.js・app.js から名前で呼べる(読む順番は src/app/ui/cases/edhost.js の ED_SCRIPTS の1か所。RS8 C4 で編集の画面のページは消した) */
+   関数はトップレベルの宣言なので、ほかの app-*.js・app.js から名前で呼べる(読む順番は src/app/ui/cases/edhost.js の ED_SCRIPTS の1か所) */
 'use strict';
 
 /* ---------- 編集画面 ---------- */
@@ -11,17 +11,17 @@ function markDirty(){
   if (CUT){ clearTimeout(markDirty.c); markDirty.c = setTimeout(() => CUT.docChanged(), 300); }
   S.dirty = true; setSaveState(S.conflict ? '競合しています' : '未保存…', S.conflict ? 'err' : '');
   clearTimeout(markDirty.t); markDirty.t = setTimeout(saveDoc, 700);
-  scheduleRead();   // 読む速さの札と件数(変わった行だけ描き直す。2026-10-05)
+  scheduleRead();   // 読む速さの札と件数(変わった行だけ描き直す)
 }
 
 /* 保存の状態の表示。kind: ''(未保存)/ 'busy'(保存中)/ 'ok'(保存済み)/ 'err'(競合・失敗)。色の印は CSS の [data-state] */
 function setSaveState(text, kind){ S.saveSt = { text, kind: kind || '' }; paintSaveState(); }
 
-/* ヘッダーの保存の状態(1 か所。UI の見直し S4): 1 文字起こし は文書の保存(カットの保存の途中・失敗も)。2 カット・3 パック では、文書が保存済み(か何もしていない)ならカットの保存
-   (「カット: 保存しました」。以前は 2 カット の下の行の末尾 #cutSaveSt に出て、1440 ではキーの帯に隠れていた)。文書の失敗・保存中・未保存は文書を先に出す */
+/* ヘッダーの保存の状態(1 か所): 1 文字起こし は文書の保存(カットの保存の途中・失敗も)。2 カット・3 パック では、文書が保存済み(か何もしていない)ならカットの保存
+   (「カット: 保存しました」)。文書の失敗・保存中・未保存は文書を先に出す */
 function paintSaveState(){
   const el = $('#saveState'), d = S.saveSt || { text: '', kind: '' }, c = S.cutSaveSt;
-  /* 1 でも、行の「カット」で保存しているカットの途中・未保存・失敗は出す(2 周目 N5)。済んだら文書の状態に戻す */
+  /* 1 でも、行の「カット」で保存しているカットの途中・未保存・失敗は出す。済んだら文書の状態に戻す */
   const cut = c && c.text && (d.kind === 'ok' || !d.text) && (EDT.tab !== 'tx' || c.kind !== 'ok' || !d.text);
   el.textContent = cut ? c.text : d.text; el.setAttribute('data-state', cut ? c.kind : d.kind);
   updateDocTitle();
@@ -50,7 +50,7 @@ function saveDoc(){
       } catch (e){
         if (S.docId !== id) return false;   // 保存を待つ間に文書が閉じられた(削除など)。閉じた文書の「未保存」を残さない
         S.dirty = true;
-        if (e.code === 'conflict'){ showConflict(); toast('別の場所で先に更新されています。映像の上の案内から選んでください', 6000, 'err'); if (CUT) CUT.refresh(); }   // 2 カット の字幕の段にも出す(段6 6-6)
+        if (e.code === 'conflict'){ showConflict(); toast('別の場所で先に更新されています。映像の上の案内から選んでください', 6000, 'err'); if (CUT) CUT.refresh(); }   // 2 カット の字幕の段にも出す
         else { setSaveState('保存できません(5秒後にもう一度試します)', 'err'); toast('保存に失敗: ' + e.message, 3800, 'err'); clearTimeout(markDirty.t); markDirty.t = setTimeout(saveDoc, 5000); }
         return false;
       }
@@ -68,8 +68,8 @@ function subNum(v, lo, hi, dv){ const n = Math.round(Number(v)); return Number.i
 function readSubtitle(){
   const d = SUB_DEFAULT, cur = S.settings && S.settings.subtitle && typeof S.settings.subtitle === 'object' ? S.settings.subtitle : {};
   const m = cur.maxChars || {}, w = cur.wrapChars || {};
-  /* 0.66.0: 字幕の向きと最大文字数の欄は設定の画面へ(保存した値をそのまま)。1 段の文字数(改行)は ⚙ の「パック」の欄のまま。
-     保存した subtitle のほかの鍵(splitChars・read)は消さない(以前は欄の 3 つだけで作り直していた) */
+  /* 字幕の向きと最大文字数の欄は設定の画面にある(保存した値をそのまま)。1 段の文字数(改行)は ⚙ の「パック」の欄。
+     保存した subtitle のほかの鍵(splitChars・read)は消さない */
   const so = $('#optSubOrient');
   const orientation = (so ? so.value : cur.orientation) === 'horizontal' ? 'horizontal' : 'vertical';
   const num = (sel, saved, lo, hi, fb) => { const e = $(sel); return subNum(e ? e.value : saved, lo, hi, fb); };
@@ -80,7 +80,7 @@ function readSubtitle(){
 
 function fillSubtitle(v){
   const d = SUB_DEFAULT, o = v && typeof v === 'object' ? v : {}, m = o.maxChars || {}, w = o.wrapChars || {};
-  const set = (sel, val) => { const e = $(sel); if (e) e.value = val; };   // 0.66.0: 向きと最大文字数の欄は設定の画面へ(無ければ飛ばす)
+  const set = (sel, val) => { const e = $(sel); if (e) e.value = val; };   // 向きと最大文字数の欄は設定の画面にある(無ければ飛ばす)
   set('#optSubOrient', o.orientation === 'horizontal' ? 'horizontal' : 'vertical');
   set('#optMaxV', subNum(m.vertical, 4, 80, d.maxChars.vertical)); set('#optMaxH', subNum(m.horizontal, 4, 80, d.maxChars.horizontal));
   set('#optWrapV', subNum(w.vertical, 2, 40, d.wrapChars.vertical)); set('#optWrapH', subNum(w.horizontal, 2, 40, d.wrapChars.horizontal));
@@ -103,7 +103,7 @@ async function openDoc(id, keep){
     const prev = S.docId; setTimeout(() => evalSettle(prev), 1500);   // 評価用の仮置きの動画なら、条件を満たせばメンバーのフォルダへ(再生が切り替わってから)
   }
   const navId = keep ? navSnapshot() : null;   // keep=true(再認識・話者判別が終わっての読み直しなど)は、見ていた行を id で覚えておく
-  const scrollY = window.scrollY, listY = $('.tx-list') ? $('.tx-list').scrollTop : 0;   // 2列では行の一覧が自分でスクロールする(v0.56.1)
+  const scrollY = window.scrollY, listY = $('.tx-list') ? $('.tx-list').scrollTop : 0;   // 2列では行の一覧が自分でスクロールする
   let d; try { d = await api('/api/transcript?id=' + encodeURIComponent(id)); } catch (e){ toast(e.message); return false; }
   if (request !== docOpenSeq) return false;
   if (S.doc !== previousDoc || S.dirty || S.saving || S.conflict || S.baseUpdatedAt !== previousVersion){
@@ -116,9 +116,9 @@ async function openDoc(id, keep){
   const pos = keep ? null : loadPos(id), resumeIdx = pos ? d.segments.findIndex(x => x.id === pos.id) : -1;
   $('#noDoc').hidden = true; $('#doc').hidden = false;
   let autoClosed = false;   // 画面が狭いとき(メニューを開いたままだと一覧が細くなる)は、文字起こしを開いた時点でメニューを閉じる
-  if (!keep && V.menu && ($('.editor').clientWidth < 1300 || (window.matchMedia && matchMedia(OVERLAY_MID).matches))){ toggleMenu(false); autoClosed = true; }   // 重ねて開く幅(B-7)では、選んだら閉じて本文を見せる   // 1300: 1440px の画面でメニューを開いたままだと、映像・行が細くなるため(2026-09-27。以前は 1000)
-  $('.app').classList.add('has-doc');   // 文字起こしを開いている間は、メニューを少し細く(GPT 版)
-  /* 並べて出すメニュー(1600px 以上)の履歴から開いたら、フォーカスをメニューの外へ(メニューの中のキーは文書を動かさないので、開いてすぐ ↓・S が効くように。3-1) */
+  if (!keep && V.menu && ($('.editor').clientWidth < 1300 || (window.matchMedia && matchMedia(OVERLAY_MID).matches))){ toggleMenu(false); autoClosed = true; }   // 重ねて開く幅では、選んだら閉じて本文を見せる   // 1300: 1440px の画面でメニューを開いたままだと、映像・行が細くなるため
+  $('.app').classList.add('has-doc');   // 文字起こしを開いている間は、メニューを少し細く
+  /* 並べて出すメニュー(1600px 以上)の履歴から開いたら、フォーカスをメニューの外へ(メニューの中のキーは文書を動かさないので、開いてすぐ ↓・S が効くように) */
   if (!keep && menuOpen() && !isDrawer() && document.activeElement && $('#menuPanel').contains(document.activeElement)) document.activeElement.blur();
   if (wideTab() && EDT.overlay){ EDT.overlay = false; applyView(); }   // カット・パックのタブで、帯から開いたメニューで選んだ → 閉じてタイムラインを見せる
   $('#docTitle').value = d.title || ''; setSaveState('', ''); syncEval(); renderDocExtras(d);
@@ -135,16 +135,16 @@ async function openDoc(id, keep){
     $('#q').value = ''; $('#flagKind').value = '';
   }
   if (CUT){ if (!keep || !sameDoc) CUT.load(id); else CUT.docChanged(); }
-  if (PACK && (!keep || !sameDoc)) PACK.load(id);   // 前回のパック(編集の内容の pack)を読む   // カット(編集の内容)を読む。話者判別・再認識のあとの読み直しでは、行の印だけ付け直す
-  lookupSpeakerNames((d.speakers || []).map(s => s.name));   // 話者の色: 名前をまとめて1回で照らし合わせる(行ごとに通信しない。段2)
+  if (PACK && (!keep || !sameDoc)) PACK.load(id);   // 前回のパック(編集の内容の pack)を読む。カット(編集の内容)も読む。話者判別・再認識のあとの読み直しでは、行の印だけ付け直す
+  lookupSpeakerNames((d.speakers || []).map(s => s.name));   // 話者の色: 名前をまとめて1回で照らし合わせる(行ごとに通信しない)
   renderDocBar(); renderDoc(); renderList(); updateUndo(); applyLock(); loadSuggest(); renderTerms(); $('#hiList').innerHTML = ''; txKeybarScene();
-  fillDiarNum(); rememberLast();   // 話者の人数はこの文書の値(段7 E-6)・前回の文書とタブを覚える(E-7)
-  if (!keep || !sameDoc){ renderDocAuto(PICK.lastRuns || []); $('#docAuto').open = false; UIKit.streamer.autoFill($('#docAutoWho'), { docId: id }); }   // 覚えた名前 → チャンネル名から(段5)   // 題名の行のまとめて実行の札は、開いた文書のもの
+  fillDiarNum(); rememberLast();   // 話者の人数はこの文書の値・前回の文書とタブを覚える
+  if (!keep || !sameDoc){ renderDocAuto(PICK.lastRuns || []); $('#docAuto').open = false; UIKit.streamer.autoFill($('#docAutoWho'), { docId: id }); }   // 覚えた名前 → チャンネル名から   // 題名の行のまとめて実行の札は、開いた文書のもの
   if (keep){ window.scrollTo(0, scrollY); if ($('.tx-list')) $('.tx-list').scrollTop = listY; }
   else if (resumeIdx >= 0){ setNav(resumeIdx); const row = rowsEl()[resumeIdx]; if (row) ensureVisible(row, 0.5); toast(`前回の続き(${fmtT(d.segments[resumeIdx].start)} の行)に移動しました。先頭から見るには、上へスクロールしてください`, 5000); }
   else { window.scrollTo(0, 0); if ($('.tx-list')) $('.tx-list').scrollTop = 0; }
-  if (autoClosed && resumeIdx < 0 && !isDrawer() && !S.menuToldOnce){ S.menuToldOnce = true; toast('編集欄を広くするため、メニューを閉じました(左上の「メニューを開く」か G で開けます)', 4000); }   // 知らせるのはこの画面を開いている間に1回だけ(毎回だとうるさい。段3-3)
-  setUrlDoc(id);   // 再読み込み・窓の開き直しで同じ文書に戻る(監査 06)
+  if (autoClosed && resumeIdx < 0 && !isDrawer() && !S.menuToldOnce){ S.menuToldOnce = true; toast('編集欄を広くするため、メニューを閉じました(左上の「メニューを開く」か G で開けます)', 4000); }   // 知らせるのはこの画面を開いている間に1回だけ(毎回だとうるさい)
+  setUrlDoc(id);   // 再読み込み・窓の開き直しで同じ文書に戻る
   return true;
 }
 
@@ -159,7 +159,7 @@ function docInfoText(d){
     + (rt ? ' / ' + (rt.whole ? '全体を再認識' : '再認識') + ': ' + String(rt.model).split('/').pop() + '(' + rt.lines + '行)' : '');
 }
 
-/* 開いている文書を URL の ?doc= に残す(監査 06)。replaceState にする: pushState にすると、戻るボタンで文書を行き来させたときに
+/* 開いている文書を URL の ?doc= に残す。replaceState にする: pushState にすると、戻るボタンで文書を行き来させたときに
    未保存の保存・カットの flush と戻る操作がぶつかる(replace なら今の保存の順番のまま)。タブの # はそのまま */
 function setUrlDoc(id){ setUrlParam('doc', id); }
 
@@ -169,7 +169,7 @@ function opts(sel){
     + numberedSpeakers().map(s => `<option value="${esc(s.id)}"${s.id === sel ? ' selected' : ''}>${esc(s.name)}</option>`).join('');
 }
 
-/* ---------- 組み込みの話者「ゲーム音声など」と、行の印「字幕に出さない」(noSub。2026-10-05) ---------- */
+/* ---------- 組み込みの話者「ゲーム音声など」と、行の印「字幕に出さない」(noSub) ---------- */
 
 /* 番号の付く話者(Alt+数字・数字キー・話者の欄の「・ n」)= 組み込みの話者を除いた並び。今までの番号は変えない */
 function numberedSpeakers(){ return S.doc ? S.doc.speakers.filter(s => !isOtherSp(s)) : []; }
@@ -222,7 +222,7 @@ function setSubColor(sp, hex){
 /* 字幕の色の欄に打った文字 → 16 進だけ(貼り付けた # や空白は外す)・大文字・6 文字まで */
 function subHexInput(v){ return String(v || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase().slice(0, 6); }
 
-/* 行どうしの時刻の重なりを赤くして知らせる(2026-10-05: 同じ話者どうしのときだけ)。
+/* 行どうしの時刻の重なりを赤くして知らせる(同じ話者どうしのときだけ)。
    両方に話者があって別の人なら赤くしない(同時にしゃべっている = 正しい入力。字幕は上下に積んで両方出る)。同じ話者・どちらかに話者が無いときは今までどおり赤。
    字幕に出さない行(noSub)との重なりも赤くしない。
    時刻の欄は 0.1 秒までしか見せない(UIKit.timebox の丸めと同じ Math.round(x*10))ので、見えている時刻で重なっていなければ赤くしない。
@@ -257,7 +257,7 @@ function snapEdge(i, f, toward){
   s[f] = nv; return true;
 }
 
-/* ---------- 字幕の読む速さの印(T2。2026-10-05。表示だけ = 行は書き換えない。校正済みにする操作も止めない) ----------
+/* ---------- 字幕の読む速さの印(表示だけ = 行は書き換えない。校正済みにする操作も止めない) ----------
    読む速さ = 字幕として数える文字(NFKC にして文字と数字だけ。記号・空白・句読点・〜 は数えない・ー は数える)÷ 行の長さ(秒)。
    印は「速い」(1 秒あたり READ_FAST_CPS 字を超える)と「短い」(READ_SHORT_SEC 秒未満)。どちらも READ_MIN_CHARS 字以上の行だけ。
    対象外: 字幕に出さない行・文字の無い行・カット済の行。規則と値はサーバーの pipeline/transcribe/retime.py の subread_mark と同じ(例は tests/subread_cases.json)。
@@ -327,7 +327,7 @@ function syncRead(fresh){
 }
 function scheduleRead(){ clearTimeout(syncRead.t); syncRead.t = setTimeout(syncRead, 300); }
 
-/* ---------- 直した行の時刻を、単語の時刻(認識のときの words.json)から配り直す(T1 の簡易版。2026-10-05) ----------
+/* ---------- 直した行の時刻を、単語の時刻(認識のときの words.json)から配り直す ----------
    **候補を見せて人が 1 押しで採る**(自動では書き換えない・行を分けた/つなげた直後にも動かさない)。サーバーの POST /api/retime(human/proof/retime.py。読むだけ)が
    保存済みの文書で計算するので、押したら先に保存する(saveDoc のあと)。採った行は今の時刻の変更と同じ道(元に戻す 1 回・並べ直し・重なりの赤・保存で cutState を付け直す)。
    選んだ行(.seg.nav)の操作の欄(.adj)に「時刻を言葉に合わせる」(RT.el)。行を選んで少し止まると候補の有無を先に調べる(保存済みのときだけ。無ければ押せない) */
@@ -437,8 +437,8 @@ function rowTitles(){
     tag: Object.fromEntries(Object.keys(TAG_LABEL).map(t => [t, esc(titleTag(t))])) };
 }
 
-/* 行の「残す / カット」の 2 択(UI の見直し M1。仮決め (ax)): 今の状態の側が押された形(aria-pressed=true)。押した側の状態になる。
-   以前の 1 つの札は字が今の状態(「残す」)なので、押すとカット済になり逆に読めた。2 カット の字幕の一覧(cut.js)も同じ形・同じ文 */
+/* 行の「残す / カット」の 2 択: 今の状態の側が押された形(aria-pressed=true)。押した側の状態になる。
+   2 カット の字幕の一覧(cut.js)も同じ形・同じ文 */
 const KEEP_TITLE = 'この行を残す', CUT_TITLE = 'この行をカット済にする(Resolve の仮編集から外します。元の素材は残るので、あとで「残す」に戻せます)';
 function keepCutHTML(cut, act = ['keep', 'cut'], dis = ''){
   return `<span class="tt-kc" role="group" aria-label="この行を残すかカットするか"><button type="button" data-act="${act[0]}" aria-pressed="${cut ? 'false' : 'true'}" title="${KEEP_TITLE}"${dis}>残す</button>`
@@ -467,19 +467,19 @@ function segHTML(s, i, T = rowTitles()){
 function renderDoc(){
   const segs = S.doc.segments;
   const T = rowTitles();
-  /* 行が 0 の文書(段7 E-14。前の版の「文字起こしせずに開いた」文書も同じ): もう一度この文書に文字起こし(intoDoc)か、手で行を足す */
+  /* 行が 0 の文書: もう一度この文書に文字起こし(intoDoc)か、手で行を足す */
   $('#segs').innerHTML = segs.length ? segs.map((s, i) => segHTML(s, i, T)).join('') : '<div class="empty tt-norec"><b>文字が認識されませんでした</b>'
     + '音声がない、または小さすぎる可能性があります。設定を変えてもう一度文字起こしするか、行を足すと、ここに出ます'
     + '<div class="row tt-norec-btns"><button type="button" class="btn small primary" id="btnTxAgain" data-act="txagain">もう一度文字起こしする</button><button type="button" class="btn small" data-act="addfirst">＋行を追加(再生位置に)</button></div>'
     + '<span class="hint" id="txIntoHint">認識の設定は、メニューの「新規」のものを使います(「声の検出」を「なし」にすると拾えることがあります)</span></div>';
   renderIntoState();   // 「もう一度文字起こしする」の押せる/押せない
-  UIKit.timebox.attachAll($('#segs'));   // 行の時刻の欄(分:秒.0.1秒。数字だけで入れる・← → で場所・↑ ↓ で動かす。ui-kit v11)
+  UIKit.timebox.attachAll($('#segs'));   // 行の時刻の欄(分:秒.0.1秒。数字だけで入れる・← → で場所・↑ ↓ で動かす)
   autoSizeAll(true);
   S.curIdx = -1;   // 描き直すと「再生中」の印(.cur)も消えるので、次の timeupdate で付け直す
   if (S.navIdx >= segs.length) S.navIdx = segs.length - 1;
   { const r = rowsEl()[S.navIdx]; if (S.navIdx >= 0 && r && r.classList && r.classList.contains('seg')) r.classList.add('nav'); }
   renderSpeakers(); applyFilter(); updateSel(); updatePfStat(); renderCutPack(); updateCaption(); renderNoSubCount();
-  syncRead(true); rtPaint(); rtSoon();   // 読む速さの件数・選んだ行の「時刻を言葉に合わせる」(2026-10-05)
+  syncRead(true); rtPaint(); rtSoon();   // 読む速さの件数・選んだ行の「時刻を言葉に合わせる」
 }
 
 function autoSize(ta){ if (NATIVE_FS) return; ta.style.height = 'auto'; ta.style.height = (ta.scrollHeight + 2) + 'px'; }
@@ -516,7 +516,7 @@ function applyFilter(){
 }
 
 function renderSpeakers(){
-  if (document.querySelector('#spDetails[open]')) renderVoiceLearn();   // 名前を付けたら「声を覚える」を押せるように(A-3)
+  if (document.querySelector('#spDetails[open]')) renderVoiceLearn();   // 名前を付けたら「声を覚える」を押せるように
   const box = $('#spList');
   const focused = document.activeElement && box.contains(document.activeElement) ? document.activeElement : null;
   if (focused && focused.type === 'text') return;   // 名前を打っている間は描き直さない(打った文字・候補を消さない。確定(change)のあとで描き直す)
@@ -533,14 +533,14 @@ function renderSpeakers(){
   renderSpNames();
   const cur = $('#spBulk').value;
   $('#spBulk').innerHTML = opts(cur);
-  renderSpAll();   // 評価用で話者の無い行があれば「全行をこの人に」(マスタープラン Q4。app-jobs.js)
+  renderSpAll();   // 評価用で話者の無い行があれば「全行をこの人に」(app-jobs.js)
 }
 
-function pushUndo(seq){   // seq: 2 カット の字幕の段の1回の操作(行の時刻 + 残す区間)は、カットの元に戻すと同じ番号で積む(段6 6-4)
+function pushUndo(seq){   // seq: 2 カット の字幕の段の1回の操作(行の時刻 + 残す区間)は、カットの元に戻すと同じ番号で積む
   S.undo.push({ seq: seq || nextOp(), snap: JSON.stringify({ speakers: S.doc.speakers, segments: S.doc.segments, sug: S.sug }) }); if (S.undo.length > 30) S.undo.shift(); updateUndo();
 }
 
-/* 一番上の控えが seq の操作なら、その1つを戻す(2 カット の Ctrl+Z から。段6 6-4)-> 戻したか */
+/* 一番上の控えが seq の操作なら、その1つを戻す(2 カット の Ctrl+Z から)-> 戻したか */
 function undoDocIf(seq){
   if (!S.doc || !seq || !S.undo.length || S.undo[S.undo.length - 1].seq !== seq) return false;
   restoreUndo(); return true;
@@ -557,14 +557,14 @@ function restoreUndo(){
 function updateUndo(){
   const n = S.undo.length + (CUT && CUT.undoCount ? CUT.undoCount() : 0);   // ボタンの数 = 2つの合計
   $('#btnUndo').disabled = !n; $('#btnUndo').textContent = n ? `元に戻す(${n})` : '元に戻す';
-  $('#btnUndo').title = n ? '直前の変更を戻します(Ctrl+Z)' : '戻すものがありません';   // 押せないときは理由(UI の見直し A-34)
+  $('#btnUndo').title = n ? '直前の変更を戻します(Ctrl+Z)' : '戻すものがありません';   // 押せないときは理由
 }
 
 /* only = 'tx': 文字起こしの側だけ(全行を校正済みにした知らせの「元に戻す」) */
 function doUndo(only, quiet){   // quiet: 2 カット のタブから(カットを戻した知らせは要らない)
   if (!S.doc || lockJob()) return;   // 処理中(話者判別・再認識など)はどちらも戻さない
   const tx = S.undo.length ? S.undo[S.undo.length - 1].seq : 0, ct = only !== 'tx' && CUT && CUT.undoTop ? CUT.undoTop() : 0;
-  if (ct && ct >= tx){   // カットの方が新しい: カットを1つ戻す(同じ番号 = 字幕の段の1回の操作なら、CUT.undo が文書も一緒に戻す。段6 6-4)。1 文字起こし からは見えない変化なので知らせる
+  if (ct && ct >= tx){   // カットの方が新しい: カットを1つ戻す(同じ番号 = 字幕の段の1回の操作なら、CUT.undo が文書も一緒に戻す)。1 文字起こし からは見えない変化なので知らせる
     if (CUT.undo() && ct > tx && !quiet) toast('カットを1つ戻しました(2 カット のタブの区間)', 2500);
     updateUndo(); return;
   }
@@ -595,13 +595,13 @@ function nudge(s, row, f, dir){
   if (S.playEnd !== null || player().paused){ const p = player(); p.currentTime = f === 'end' ? Math.max(s.start, s.end - 1.2) : s.start; S.playEnd = s.end; p.play().catch(() => {}); armPlayEnd(); }   // 動かした端を、すぐ聞き直せるように
 }
 
-function sortSegs(){ S.doc.segments.sort((a, b) => a.start - b.start); }   // v0.9.8: 開始が同じ行は、今の並びのまま(安定ソート)。終了で並べ替えると、足した行が意図と違う位置に動くため
+function sortSegs(){ S.doc.segments.sort((a, b) => a.start - b.start); }   // 開始が同じ行は、今の並びのまま(安定ソート)。終了で並べ替えると、足した行が意図と違う位置に動くため
 
 function updateSel(){
   const n = S.sel.size; $('#selCount').textContent = n ? `${n}行を選択中` : '';
   $('#selAll').checked = n > 0 && n === S.doc.segments.length;
   updateRt(); $('#btnProofSel').disabled = !n; $('#btnProofSel').title = n ? '左端のチェックで選んだ行を校正済みにします' : '行の左端のチェックで行を選ぶと押せます'; renderCutPack();
-  { const b = $('#rtSelected'); if (b){ b.disabled = !n; b.title = n ? b.dataset.title : '行の左端のチェックで行を選ぶと押せます'; } }   // 押せない間は理由(S16)   // 選んだ行の時刻を言葉に合わせる(2026-10-05)
+  { const b = $('#rtSelected'); if (b){ b.disabled = !n; b.title = n ? b.dataset.title : '行の左端のチェックで行を選ぶと押せます'; } }   // 押せない間は理由   // 選んだ行の時刻を言葉に合わせる
 }
 
 function closeCtxMenu(){ if (!ctxMenuEl) return; const m = ctxMenuEl; ctxMenuEl = null; m.remove(); document.removeEventListener('click', onCtxOutside, true); document.removeEventListener('contextmenu', onCtxOutside, true); }
@@ -612,7 +612,7 @@ function onCtxOutside(e){ if (ctxMenuEl && !ctxMenuEl.contains(e.target)) closeC
 
 function curNav(){ const a = rowIdxOf(document.activeElement); return a >= 0 ? a : (S.navIdx >= 0 ? S.navIdx : S.curIdx); }
 
-/* v0.9.6: 行の分割・削除・結合・元に戻す・再読み込みで一覧の並びや行数が変わっても、キーボードの「今の行」(S.navIdx)が
+/* 行の分割・削除・結合・元に戻す・再読み込みで一覧の並びや行数が変わっても、キーボードの「今の行」(S.navIdx)が
    同じ行を指し続けるようにする(そうしないと、直前に見ていた行と違う行にShiftキー操作が効いてしまう)。
    変更の直前に navSnapshot() で行の id を覚え、直後に navRestore() でその id の新しい位置を探し直す
    (その行自体が無くなっていれば、fallbackIdx で渡した位置に近い行のままにする)。 */
@@ -629,7 +629,7 @@ function savePos(){ if (!S.doc || S.navIdx < 0) return; const g = S.doc.segments
 function loadPos(id){ try { const o = JSON.parse(localStorage.getItem(posKey(id)) || 'null'); return o && typeof o.id === 'string' ? o : null; } catch { return null; } }
 
 /* 行が見える範囲(固定の再生欄・一覧の上の道具の下〜画面の下)に収まっていれば動かさない。外れるときだけ、一定の位置(上から35%)に、なめらかに寄せる。
-   2列のときは行の一覧(.tx-list)が自分でスクロールする箱なので、その箱だけを動かす(窓 = 映像の列・メニュー・題名の行は動かさない。v0.56.1)。
+   2列のときは行の一覧(.tx-list)が自分でスクロールする箱なので、その箱だけを動かす(窓 = 映像の列・メニュー・題名の行は動かさない)。
    1列のときは今までどおり窓を動かす */
 function listScroller(row){
   const box = row.closest('.tx-list');
@@ -660,10 +660,10 @@ function setNav(i){
   if (was >= 0 && was !== i && rows[was] && rows[was].classList){ const w = rows[was]; w.classList.remove('was'); void w.offsetWidth; w.classList.add('was'); setTimeout(() => w.classList.remove('was'), 1500); }
   capFollow = false;
   updateCaption();
-  rtPaint(); rtSoon();   // 選んだ行の「時刻を言葉に合わせる」(少し止まったら候補の有無を調べる。2026-10-05)
+  rtPaint(); rtSoon();   // 選んだ行の「時刻を言葉に合わせる」(少し止まったら候補の有無を調べる)
 }
 
-/* 映像の上に重ねる今の行の字幕(段2): capFollow なら再生位置の行(S.curIdx)と、それと重なる行(capStack)、そうでなければ選んだ行(S.navIdx)だけ。
+/* 映像の上に重ねる今の行の字幕:capFollow なら再生位置の行(S.curIdx)と、それと重なる行(capStack)、そうでなければ選んだ行(S.navIdx)だけ。
    字幕に出さない行(noSub)は出さない */
 function updateCaption(){
   const el = $('#playerCaption'); if (!el) return;
@@ -674,7 +674,7 @@ function updateCaption(){
   paintCaps(el, idxs, segs);
 }
 
-/* ---------- 重なる行の字幕(2026-10-05。notes:plan/done/line-b-overlap.md の 2-2・6)----------
+/* ---------- 重なる行の字幕 ----------
    1 文字起こし の映像の上(#playerCaption)と 2 カット のプレビュー(#cutCaption)が同じ関数を使う(cut.js には app.js が渡す) */
 const CAP_SCAN = 40;   // 再生位置より前に始まった行を何行さかのぼって見るか(長い行が続く所でも足りる数。全部は見ない)
 const capOk = g => hasText(g) && !g.noSub;
@@ -716,11 +716,11 @@ function paintCaps(el, idxs, segs){
   el.innerHTML = items.slice().reverse().map(x => `<span class="tt-cap-line"${/^#[0-9a-fA-F]{6}$/.test(x.hex) ? ` style="--tt-cap-color:${x.hex}"` : ''}>${esc(x.text)}</span>`).join('');
 }
 
-/* ---------- 話者の色(気が利く画面へ 段2)----------
+/* ---------- 話者の色 ----------
    色を決めるのはここ1つ: 行の左端の線・話者の欄・映像の上の字幕・カットのプレビュー・パックの見本(cut.js・pack-tab.js にも渡す)。
    話者の名前がメンバーと合えばメンバーカラー(照らし合わせは入口の api/ytt/streamer-colors → ytt/colors.py。名前の一覧をまとめて1回)。
    合わなければ、行の線・話者の欄は今の自動の色、字幕は配信者の色(--tt-cap-color)。**文字起こしの行の文字の色は変えない**(明るい色は白い背景で読めない)。
-   スイッチは編集の設定 speakerColors(パックのタブの「話者の名前がメンバーと合えば…」。まとめて実行も同じ値に従う。以前はこのブラウザの tx.pk.speakerColors) */
+   スイッチは編集の設定 speakerColors(パックのタブの「話者の名前がメンバーと合えば…」。まとめて実行も同じ値に従う) */
 
 function lookupSpeakerNames(names){
   if (!TOKEN) return;
@@ -733,7 +733,7 @@ function lookupSpeakerNames(names){
   }, () => { for (const n of want) SPKC.delete(n); });
 }
 
-/* 話者の名前 → メンバーカラー(照らし合わせの1か所。段4 4-5: パックの見積もりの sampleSpeakers(名前)からも同じ道で色を出す)。
+/* 話者の名前 → メンバーカラー(照らし合わせの1か所。パックの見積もりの sampleSpeakers(名前)からも同じ道で色を出す)。
    -> {hex: '' = 合わない・照らし合わせ中・使わない, member: 合った人の名前, pending: 照らし合わせ中} */
 function speakerColorByName(name){
   name = String(name || '').trim();
@@ -750,7 +750,7 @@ function speakerColor(spId){
   const sp = spById(spId), auto = spColor(sp), name = sp ? String(sp.name || '').trim() : '';
   if (!sp) return { hex: '', auto: '', member: '', reason: '' };
   const sub = subColorOf(sp);
-  if (sub) return { hex: sub, auto, member: '', sub: true, reason: `字幕の色を指定しています(#${sub.slice(1)}。メンバーの色より優先)` };   // 文書の話者の字幕の色(sub。2026-10-05)が最優先
+  if (sub) return { hex: sub, auto, member: '', sub: true, reason: `字幕の色を指定しています(#${sub.slice(1)}。メンバーの色より優先)` };   // 文書の話者の字幕の色(sub)が最優先
   if (!TOKEN) return { hex: '', auto, member: '', reason: 'ホームから開くと、名前をメンバーと照らし合わせて色を付けます' };
   if (!speakerColorsOn()) return { hex: '', auto, member: '', reason: 'パックの「話者の名前がメンバーと合えば…」を切っているので、メンバーの色は使いません' };
   const c = speakerColorByName(name);
@@ -815,7 +815,7 @@ function proofOk(){   // 校正済みにして、次の行へ(すでに校正済
   if (!c.g.proofed){ setProof(c.g, true, c.row); markDirty(); updatePfStat(); }
   const ni = findRow(c.i, 1); if (ni >= 0) gotoRow(ni, { play: V.autoNext });
   if (proofNext(before) || ni >= 0) return;
-  /* 最後の行(S-17): 未校正が残っていれば数と [最初の未校正へ]。以前は残っていても「すべて確認しました」と出ていた */
+  /* 最後の行: 未校正が残っていれば数と [最初の未校正へ] */
   const n = unproofedCount();
   if (n) toast(`最後の行です。まだ未校正の行が ${n} 行あります`, { ms: 8000, action: { label: '最初の未校正へ', fn: gotoFirstUnproofed } });
   else toast('最後の行です。すべての行を校正済みにしました', { ms: 8000, kind: 'ok', action: TO_CUT });
@@ -824,7 +824,7 @@ function proofOk(){   // 校正済みにして、次の行へ(すでに校正済
 /* 未校正の行(文字のある行で、校正済みでない)の数 */
 function unproofedCount(){ return S.doc ? S.doc.segments.filter(isUnproofed).length : 0; }
 
-/* 校正済みにした操作で、未校正が 0 になった(before > 0 → 0)ら知らせて [2 カットへ](次の一手。段7 S-17)-> 知らせたか */
+/* 校正済みにした操作で、未校正が 0 になった(before > 0 → 0)ら知らせて [2 カットへ](次の一手)-> 知らせたか */
 function proofNext(before){
   if (!(before > 0) || unproofedCount() > 0) return false;
   toast('すべての行を校正済みにしました。次はカットを決めます', { ms: 8000, kind: 'ok', action: TO_CUT });
@@ -841,7 +841,7 @@ function gotoFirstUnproofed(){
 
 function deleteCur(){
   const c = rowAndSeg(); if (!c) return;
-  /* v0.9.8: 1文字キーになったので、Z は2回押し(1.5秒以内)で削除する(行のボタンの「削除」と同じ考え方) */
+  /* 1文字キーなので、2回押し(1.5秒以内)で削除する(行のボタンの「削除」と同じ考え方) */
   if (!zArm || zArm.id !== c.g.id || Date.now() - zArm.t > 1500){ zArm = { id: c.g.id, t: Date.now() }; return toast(`もう一度 ${keymap().del ? keyText(keymap().del) : '削除のキー'} で、この行を削除します`, 1500); }
   zArm = null;
   pushUndo(); S.sel.delete(c.g.id); S.doc.segments.splice(c.i, 1); S.navIdx = Math.min(c.i, S.doc.segments.length - 1);
@@ -859,7 +859,7 @@ function editCur(){ const c = rowAndSeg(); if (c){ const ta = c.row.querySelecto
 
 /* 編集の設定の keymap は「送ったキーだけ直す」(api/settings/patch。丸ごとの保存ではサーバーの値が残る = 窓を並べても戻らない) */
 function saveKeymap(part){
-  if (S.settingsLoadErr) return toast('設定を読み込めていないため、キー配置を保存しません(設定の「読み直す」を押してください)', 6000, 'err');   // 空の配置で上書きしない(監査 11)
+  if (S.settingsLoadErr) return toast('設定を読み込めていないため、キー配置を保存しません(設定の「読み直す」を押してください)', 6000, 'err');   // 空の配置で上書きしない
   const km = { ...((S.settings && S.settings.keymap) || {}), ...part };
   patchSettings({ keymap: km }, 'キー配置を保存できませんでした', { keep: true, ms: 0 });   // 失敗しても画面の配置は戻さない(今の窓では使える)。知らせは閉じるまで出す
 }
@@ -868,7 +868,7 @@ function keymap(){ return KM.map(); }
 
 function txActionOf(combo){ return KM.actionOf(combo); }
 
-/* ---------- キー配置の表示と変更(⚙ 設定の「キー配置」。2026-09-27) ----------
+/* ---------- キー配置の表示と変更(⚙ 設定の「キー配置」) ----------
    割り当てを変えたら、下の帯・一覧の上の手がかり・キー操作の一覧(?)・設定の欄をまとめて描き直す(renderKeyUI) */
 
 function renderKeyUI(){
@@ -889,7 +889,7 @@ function renderKeyUI(){
   /* 行のボタンのツールチップ(描き直さずに title だけ合わせる) */
   const tt = { play: titlePlay(), proof: titleProof(), adda: titleAddAfter(), del: titleDel() }, tg = Object.fromEntries(Object.keys(TAG_LABEL).map(t => [t, titleTag(t)]));
   document.querySelectorAll('#segs button[data-act]').forEach(b => { const a = b.dataset.act, t = a === 'tag' ? tg[b.dataset.t] : tt[a]; if (t !== undefined) b.title = t; });
-  /* 静的な HTML の中のキー(段3 3-3 監査 16): data-key-title = title の後ろに「(キー)」・data-key = 中の文字(data-key-fmt の {k} に入れる)。未設定なら出さない */
+  /* 静的な HTML の中のキー:data-key-title = title の後ろに「(キー)」・data-key = 中の文字(data-key-fmt の {k} に入れる)。未設定なら出さない */
   document.querySelectorAll('[data-key-title]').forEach(el => {
     if (el.dataset.keyTitleBase === undefined) el.dataset.keyTitleBase = el.title;
     const t = el.dataset.keyTitleBase + keyParen(el.dataset.keyTitle);
@@ -901,14 +901,14 @@ function renderKeyUI(){
   window.dispatchEvent(new CustomEvent('ytt-keys-changed'));   // 2 カット のタブ(cut.js)の帯・ツールチップも合わせる
 }
 
-/* 動画の fps が分からない文書では、キー操作の一覧に「1コマは約 1/30 秒」(段3 3-4)。カットの読み込みが終わったとき(onCutState)と文書を閉じたとき */
+/* 動画の fps が分からない文書では、キー操作の一覧に「1コマは約 1/30 秒」。カットの読み込みが終わったとき(onCutState)と文書を閉じたとき */
 function renderFpsNote(){
   const el = $('#keysFpsNote'); if (!el) return;
   const st = CUT ? CUT.state() : null;
   el.hidden = !(S.doc && st && st.loaded && !CUT.fps());
 }
 
-/* キー操作の一覧(? とヘッダーの「キー」)。? をもう一度押すと閉じる(スタジオと同じ。S-29) */
+/* キー操作の一覧(? とヘッダーの「キー」)。? をもう一度押すと閉じる(スタジオと同じ) */
 function openKeys(){ const d = $('#keys'); if (d.open) return; KM.clearNote(); renderFpsNote(); d.showModal(); }
 
 /* ---------- 用語のワンクリック挿入 ---------- */
@@ -939,7 +939,7 @@ function doSplit(i, row){
   splitRowAt(i, pos, cut);
 }
 
-/* 行 i を文字の位置 pos・時刻 cut で2つに(1 文字起こし の分割と、2 カット の字幕の段の「再生位置でこの行を分ける」が共用。段6 6-5)。
+/* 行 i を文字の位置 pos・時刻 cut で2つに(1 文字起こし の分割と、2 カット の字幕の段の「再生位置でこの行を分ける」が共用)。
    話者・校正済み・メモは両方の行へそのまま。右の行は新しい id・flag は空。区間は変えない(カット済の印は区間から付け直す)-> 分けたか */
 function splitRowAt(i, pos, cut){
   const segs = S.doc.segments, s = segs[i];
@@ -953,7 +953,7 @@ function splitRowAt(i, pos, cut){
   return true;
 }
 
-/* 行 i と次の行を 1 行に(行の下の「次と結合」・右クリック・キー M / Shift+M が共用。A6 = 校正でいちばん時間を食うのが行をつなぐ・分ける)-> つないだか。
+/* 行 i と次の行を 1 行に(行の下の「次と結合」・右クリック・キー M / Shift+M が共用。校正でいちばん時間を食うのが行をつなぐ・分ける)-> つないだか。
    終了は遅い方(次の行が重なって先に終わる場合に、この行の後ろを失わない)。音の状態のメモはまとめ、カット済は両方ともカット済のときだけ残す */
 function mergeRows(i){
   const segs = S.doc.segments, s = segs[i], n = segs[i + 1];
@@ -971,7 +971,7 @@ function mergeRows(i){
   renderDoc(); markDirty();
   return true;
 }
-/* キー M(dir 1)= 今の行を次の行と / Shift+M(dir -1)= 前の行と つなぎ、つないだ行を頭から聞き直す(つないだ直後に文字と時刻を確かめるため。A6) */
+/* キー M(dir 1)= 今の行を次の行と / Shift+M(dir -1)= 前の行と つなぎ、つないだ行を頭から聞き直す(つないだ直後に文字と時刻を確かめるため) */
 function mergeKey(dir){
   const c = rowAndSeg(); if (!c) return;
   if (lockJob()) return toast('処理中のため、今は行をつなげません');
@@ -984,7 +984,7 @@ function mergeKey(dir){
   toast(dir < 0 ? '前の行とつなぎました(Ctrl+Z で取り消し)' : '次の行とつなぎました(Ctrl+Z で取り消し)', 1800);
 }
 /* キー Y: 再生位置で今の行を 2 つに分ける。文字は再生位置の割合の所で分ける(入力欄でカーソルを置いていればその位置 = 行の下の「分割」と同じ)。
-   再生位置が行の外(端から 0.3 秒以内を含む)なら分けない。再生は止めない(聞きながら続けて分けられるように。A6) */
+   再生位置が行の外(端から 0.3 秒以内を含む)なら分けない。再生は止めない(聞きながら続けて分けられるように) */
 function splitKey(){
   const c = rowAndSeg(); if (!c) return;
   if (lockJob()) return toast('処理中のため、今は行を分けられません');
@@ -996,10 +996,10 @@ function splitKey(){
   if (splitRowAt(c.i, pos, t)) toast('再生位置で分けました(文字の分け目は時刻の割合の所。Ctrl+Z で取り消し)', 2200);
 }
 
-/* 2 カット の字幕の段で行の時刻を直した(段6 6-3): 1 文字起こし のタブを描き直し、文書を保存する(markDirty → 0.7 秒後。CUT.docChanged も呼ばれる) */
+/* 2 カット の字幕の段で行の時刻を直した:1 文字起こし のタブを描き直し、文書を保存する(markDirty → 0.7 秒後。CUT.docChanged も呼ばれる) */
 function rowChanged(){ if (!S.doc) return; renderDoc(); markDirty(); }
 
-/* ---------- v0.9.8: 行の追加(認識で抜けたセリフを書き足す) ----------
+/* ---------- 行の追加(認識で抜けたセリフを書き足す) ----------
    時刻は前後の行の「すき間」に置く(すき間が 8 秒より長ければ 8 秒まで)。すき間が無いときは 1.5 秒の仮の長さで置き、重なりを案内する。
    並び順(開始時刻順)を必ず保つため、足したあと sortSegs() して id で位置を探し直す。原文(original)には何も足さないので、
    サーバー側の精度測定では「人が足した行 = 認識の脱落」として正しく数えられ、置換の学習には使われない */
@@ -1046,7 +1046,7 @@ function playSeg(s, one){
   const p = player(); p.currentTime = s.start;
   S.playEnd = one ? s.end : null;
   p.play().catch(() => {});
-  armPlayEnd();   // 行の終わりで正確に止める(timeupdate は粗くて、終わりを平均 0.1 秒過ぎていた)
+  armPlayEnd();   // 行の終わりで正確に止める(timeupdate は粗く、終わりを平均 0.1 秒過ぎるため)
 }
 
 function curIndex(t){
@@ -1054,14 +1054,14 @@ function curIndex(t){
   return ans >= 0 && t < segs[ans].end + 0.4 ? ans : -1;
 }
 
-/* 再生できないときの案内(段2 B-4)。動画が見つからない(カットのタブの offCode = source_missing)なら元のパスと「動画を選び直す」、
+/* 再生できないときの案内。動画が見つからない(カットのタブの offCode = source_missing)なら元のパスと「動画を選び直す」、
    それ以外(mkv など)は形式の案内だけ(付け替えても直らないのでボタンを出さない)。カットの読み込みが終わるまでは短い文 */
 function renderPlayerMsg(){
   const m = $('#playerMsg');
   if (!S.doc || S.playerErr !== S.docId){ m.hidden = true; return; }
   const cs = CUT ? CUT.state() : null, known = !!(cs && cs.loaded && cs.docId === S.docId);
   const missing = known && cs.offCode === 'source_missing', tail = '文字の編集と書き出しは、再生できなくても使えます。';
-  /* 案件の画面(EDIT_HOST)ではカットの欄が別のパネル = 見つからないのか形式なのかを CUT から読めない。パスがあれば「選び直す」を出す(確かめは選び直しのダイアログ。RS8 C4) */
+  /* 案件の画面(EDIT_HOST)ではカットの欄が別のパネル = 見つからないのか形式なのかを CUT から読めない。パスがあれば「選び直す」を出す(確かめは選び直しのダイアログ) */
   const hostGuess = !known && !!EDIT_HOST && !!S.doc.sourcePath;
   $('#playerMsgText').textContent = missing ? `元の動画が見つかりません: ${S.doc.sourcePath || '(パスの記録なし)'}。${tail}`
     : known && cs.offCode === 'network_path' ? `${cs.off}。${tail}`

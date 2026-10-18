@@ -1,6 +1,6 @@
-/* app-jobs.js — 「編集」の画面: 新規ジョブ・スタジオ/マーカー連携・ジョブの進捗・話者の自動判別・声を覚える・再認識(段10 で app.js から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
+/* app-jobs.js — 「編集」の画面: 新規ジョブ・スタジオ/マーカー連携・ジョブの進捗・話者の自動判別・声を覚える・再認識。
    ここは関数の定義だけ。状態(S・V など)・定数・ボタンの配線・起動は app.js(この後に読む)。
-   関数はトップレベルの宣言なので、ほかの app-*.js・app.js から名前で呼べる(読む順番は src/app/ui/cases/edhost.js の ED_SCRIPTS の1か所。RS8 C4 で編集の画面のページは消した) */
+   関数はトップレベルの宣言なので、ほかの app-*.js・app.js から名前で呼べる(読む順番は src/app/ui/cases/edhost.js の ED_SCRIPTS の1か所) */
 'use strict';
 
 /* ---------- 新規ジョブ ---------- */
@@ -22,7 +22,7 @@ async function startFile(){
   toast('待機列に追加しました');
 }
 
-/* 同じ動画の二度目の文字起こし(段7 E-3。重い認識を 2 本走らせない): 行のある文書が前にあれば [開く](主・Enter)[作り直す]・Esc でやめる。
+/* 同じ動画の二度目の文字起こし(重い認識を 2 本走らせない): 行のある文書が前にあれば [開く](主・Enter)[作り直す]・Esc でやめる。
    -> 新しく文字起こしするか。UIKit.dialog.confirm は Esc も「キャンセル」と同じ false なので、Esc(dialog の cancel)だけは別に見て「やめる」にする */
 async function askTxAgain(path){
   let r; try { r = await api('/api/doc-for?path=' + encodeURIComponent(path)); } catch { return true; }   // 調べられなければ今までどおり始める
@@ -44,7 +44,7 @@ async function onStart(){
   try { await startFile(); await kickJobs(); ok = true; }
   catch (e){ toast(e.message); }
   finally { btn.disabled = false; }
-  if (ok){ const jb = $('#jobBadge'); if (!jb.hidden && jb.offsetParent) jb.focus(); }   // 始めたら処理中の札へ(押すと処理状況。S18)
+  if (ok){ const jb = $('#jobBadge'); if (!jb.hidden && jb.offsetParent) jb.focus(); }   // 始めたら処理中の札へ(押すと処理状況)
 }
 
 /* ---------- ジョブの進捗 ---------- */
@@ -64,11 +64,11 @@ async function pollJobs(){
   // 開いている評価用の文書の作り直し(1 本ずつ・まとめての)が終わった: 読み直す(下の「文字起こしが終わりました」には数えない)
   const redone = S.doc ? txDone.find(x => x.redo && x.tid === S.docId) : null;
   if (redone) txDone = txDone.filter(x => x !== redone);
-  for (const x of txDone) if (x.vadNote) toast(`「${x.title || '無題'}」: ${x.vadNote}`, 9000);   // 声の検出を緩めてやり直した(4-2)。今回終わった文字起こしだけ
-  for (const x of txDone.concat(normDone)) if (x.normNote) toast(`「${x.title || '無題'}」: ${x.normNote}`, 9000, x.normOk ? 'ok' : undefined);   // 30fps にそろえた・そろえられなかった(Q1)
+  for (const x of txDone) if (x.vadNote) toast(`「${x.title || '無題'}」: ${x.vadNote}`, 9000);   // 声の検出を緩めてやり直した。今回終わった文字起こしだけ
+  for (const x of txDone.concat(normDone)) if (x.normNote) toast(`「${x.title || '無題'}」: ${x.normNote}`, 9000, x.normOk ? 'ok' : undefined);   // 30fps にそろえた・そろえられなかった
   if (failed) toast(jobFailText(failed), { ms: 15000, kind: 'err', detail: failed.errorDetail || undefined,
-    action: failed.canRetry ? { label: 'やり直す', fn: () => retryJob(failed.id) } : undefined });   // 原文は「詳しく」の中だけ・[やり直す](M9)
-  if (altDone.some(x => x.tid === S.docId)){ await loadSuggest(); toast(`別のエンジンで聞き終えました。食い違う所に候補を ${S.sug.filter(x => x.tier === 'alt').length} 件出しました(行の「別」)`, 6000, 'ok'); }   // D1-b: 文書は書き換えないので、候補だけ読み直す
+    action: failed.canRetry ? { label: 'やり直す', fn: () => retryJob(failed.id) } : undefined });   // 原文は「詳しく」の中だけ・[やり直す]
+  if (altDone.some(x => x.tid === S.docId)){ await loadSuggest(); toast(`別のエンジンで聞き終えました。食い違う所に候補を ${S.sug.filter(x => x.tier === 'alt').length} 件出しました(行の「別」)`, 6000, 'ok'); }   // 文書は書き換えないので、候補だけ読み直す
   if (voiceDone){ toast(`声を覚えました: ${(voiceDone.learned || []).join('・')}。次からの話者判別で、この声の話者に名前を付けます`, 6000, 'ok'); loadVoices(); }
   if (doneNew){
     await loadList();
@@ -90,7 +90,7 @@ async function pollJobs(){
     } else if (S.doc && txDone.some(x => x.tid === S.docId) && !S.doc.segments.length){   // 開いている文字起こしの無い文書に、文字起こしが入った
       if (await openDoc(S.docId, true)) toast(`文字起こしが終わりました(${S.doc.segments.length}行)`, 5000, 'ok');
     } else if (!S.doc){ const last = S.jobs.find(x => x.state === 'done' && x.tid); if (last) openDoc(last.tid); }
-    else if (txDone.length){   // 別の文書を開いている間に終わった: [開く](1 本)・[履歴を見る](2 本以上)。次の一手(段7)
+    else if (txDone.length){   // 別の文書を開いている間に終わった: [開く](1 本)・[履歴を見る](2 本以上)。次の一手
       const one = txDone.length === 1 ? txDone[0] : null;
       toast(one ? `「${one.title || '無題'}」の文字起こしが終わりました` : `${txDone.length}本の文字起こしが終わりました`,
         { ms: 8000, kind: 'ok', action: one ? { label: '開く', fn: () => openDoc(one.tid) } : { label: '履歴を見る', fn: () => setSideTab('files') } });
@@ -99,7 +99,7 @@ async function pollJobs(){
   if (!S.jobs.some(x => ACTIVE.has(x.state))){ clearInterval(S.pollT); S.pollT = null; }
 }
 
-/* 話者判別のジョブの named を、覚えた声(と消去法)と動画の手がかり(by: context。評価用の自動の判別。v0.50.0)に分ける */
+/* 話者判別のジョブの named を、覚えた声(と消去法)と動画の手がかり(by: context。評価用の自動の判別)に分ける */
 function namedBy(j, ctx){ return (j.named || []).filter(x => (x.by === 'context') === ctx); }
 
 function renderJobBadge(){
@@ -107,7 +107,7 @@ function renderJobBadge(){
   b.hidden = !act.length; if (act.length){ const j = act[0]; b.textContent = `処理中 ${act.length}件 ${jobProg(j)}`; }
 }
 
-/* 行の無い文書の「もう一度文字起こしする」(#btnTxAgain。段7 E-14。前の版の「文字起こしせずに開いた」文書もここから):
+/* 行の無い文書の「もう一度文字起こしする」(#btnTxAgain):
    この文書に入れる文字起こし(intoDoc)を始める。認識の設定はメニューの「新規」のもの */
 async function transcribeInto(btn){
   if (!S.doc || !S.doc.sourcePath) return;
@@ -129,7 +129,7 @@ function renderIntoState(){
   else if (hint && !S.doc.sourcePath) hint.textContent = 'この文書には動画のパスが無いため、文字起こしできません';
 }
 
-/* 失敗の文(M9): 想定外の失敗(errorDetail がある)は決まった文 + 次の一手。原文は知らせ・カードの「詳しく」の中だけ */
+/* 失敗の文:想定外の失敗(errorDetail がある)は決まった文 + 次の一手。原文は知らせ・カードの「詳しく」の中だけ */
 const JOB_KIND_NAME = { transcribe: '文字起こし', diarize: '話者の判別', retranscribe: '再認識', 'voice-learn': '声を覚える処理', alt: '別のエンジンでの聞き直し', normalize: '30fps にそろえる処理' };
 /* 進み具合の文: 「n% か状態」(札・文字起こし中の 1 行)と「段階 + n%」(カード・別のエンジンの欄) */
 const jobProg = j => j.state === 'running' ? pctOf(j) + '%' : STATE_LABEL[j.state] || '';
@@ -142,7 +142,7 @@ function jobFailText(j){
   const t = j.title || '無題', k = JOB_KIND_NAME[j.kind] || '処理';
   return j.internal ? `「${t}」の${k}が途中で止まりました。もう一度始めてください` : `「${t}」の${k}に失敗しました: ${j.error || '理由は不明です'}`;
 }
-/* 失敗した文字起こしを、同じ指定でもう一度待機列に入れる(知らせ・処理状況のカードの [やり直す]。M9) */
+/* 失敗した文字起こしを、同じ指定でもう一度待機列に入れる(知らせ・処理状況のカードの [やり直す]) */
 async function retryJob(id){
   try { await api('/api/jobs/retry', { body: { id } }); await kickJobs(); toast('もう一度、待機列に入れました(メニューの「処理状況」に進み具合が出ます)', 4000); }
   catch (er){ toast(er.message, 6000, 'err'); }
@@ -152,7 +152,7 @@ function renderJobs(){
   renderJobBadge(); renderIntoState(); renderAlt();
   const box = $('#jobs');
   let html;
-  if (!S.jobs.length) html = '<p class="hint" style="margin:6px 0 0">まだ処理中のものはありません。文字起こしを始めると、ここに進み具合が出ます。</p>';   // 空の状態は 2 文(S13)
+  if (!S.jobs.length) html = '<p class="hint" style="margin:6px 0 0">まだ処理中のものはありません。文字起こしを始めると、ここに進み具合が出ます。</p>';   // 空の状態は 2 文
   else html = S.jobs.slice(0, 10).map(j => `<div class="job" data-id="${esc(j.id)}">
     <div class="row" style="justify-content:space-between;flex-wrap:nowrap"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500">${esc(j.title)}</span>
       <span class="pill ${j.state === 'done' ? 'ok' : j.state === 'error' ? 'err' : ACTIVE.has(j.state) ? (j.state === 'queued' ? 'wait' : 'run') : ''}">${esc(STATE_LABEL[j.state] || j.state)}</span></div>
@@ -198,7 +198,7 @@ function applyLock(){
   if (on) b.textContent = `${j.redoOne ? 'この動画を今の設定で作り直' : LOCK_LABEL[j.kind] || '処理'}しています(${j.phase}${j.state === 'running' ? ' ' + Math.round(j.progress * 100) + '%' : ''})。終わると自動で読み込み直します。それまで編集はできません(中止は左の「処理状況」から)。`;
 }
 
-/* 話者判別の人数(段7 E-6): 文書ごと(文書の diarNum = 選んだとき POST api/doc-diarnum。文書の updatedAt は変えない)。
+/* 話者判別の人数:文書ごと(文書の diarNum = 選んだとき POST api/doc-diarnum。文書の updatedAt は変えない)。
    選んでいない文書は、その文書の話者の数(組み込みの「ゲーム音声など」を除く。1〜8)、話者もいなければ全体の既定(設定 diarNum = 最後に選んだ人数)。
    -> {n, why: 'doc' | 'speakers' | 'default'} */
 function diarNumFor(d){
@@ -233,7 +233,7 @@ async function startDiarize(){
   await kickJobs(); toast('話者の判別を待機列に追加しました');
 }
 
-/* ---------- 全行をこの人に(評価用。マスタープラン Q4。git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md の (c)) ----------
+/* ---------- 全行をこの人に(評価用) ----------
    評価用の文書で話者の無い行があるとき(評価用のフォルダへ移すには全行に話者が要る)、候補(GET api/drill/candidates =
    この文書の覚えた声 → メンバーのフォルダ → 配信の文脈 → ほかの覚えた声・メンバー)から1人選び、既存の 1人指定
    (POST api/diarize の numSpeakers 1 + names。サーバーの single_speaker が全行をその人にして diar.json も書く)で付ける。状態は app.js の SPALL */
@@ -287,14 +287,14 @@ async function spAllGo(){
   await kickJobs(); toast(`全行の話者を「${name}」にしています`);
 }
 
-/* ---------- 声を覚える(A-3)。覚えるのはジョブ(/api/voices/learn)、照らし合わせは話者判別のジョブの中(recognize)。
+/* ---------- 声を覚える。覚えるのはジョブ(/api/voices/learn)、照らし合わせは話者判別のジョブの中(recognize)。
    声の特徴そのものは画面に来ない(一覧は名前・行の数・秒だけ) ---------- */
 
 function namedSpeakers(){ return S.doc ? (S.doc.speakers || []).filter(s => s.name && !DEFAULT_SPK.test(s.name)) : []; }
 
 function renderVoiceLearn(){
   const b = $('#voiceLearn'), n = namedSpeakers(), d = S.tools && S.tools.diarize, ev = !!(S.doc && S.doc.evalSet);
-  b.disabled = !S.doc || ev || !n.length || !(d && d.ready) || !!lockJob();   // 評価用は押せなくし、理由をヒントに出す(隠さない。監査02)
+  b.disabled = !S.doc || ev || !n.length || !(d && d.ready) || !!lockJob();   // 評価用は押せなくし、理由をヒントに出す(隠さない)
   $('#voiceLearnHint').textContent = ev ? EVAL_VOICE_MSG : !(d && d.ready) ? '話者判別の部品(sherpa-onnx)が要ります' : !n.length ? '先に下の一覧で話者に名前を付けてください'
     : n.map(s => s.name).slice(0, 6).join('・') + ' の声を覚えます(校正済みの行だけを使います。押すと、覚える前に確かめます)';
 }
@@ -391,6 +391,6 @@ async function startRetranscribe(){
   const target = { text: 'rows', sel: 'rows', all: 'rows', range: 'span', whole: 'whole', flagged: 'flagged' }[k] || 'rows';   // サーバーの受付 POST /api/rerun の対象(flagged の ids はサーバーが選ぶ)
   if (!(await saveFirst())) return;
   await api('/api/rerun', { body: { tid: S.docId, target, engine: 'main', result: 'replace', ids, vadMode: vadModeOf(), wordSplit: optCheck('wordSplit'), ...subtitleReq(), stripPunct: optCheck('stripPunct'), model: $('#rtModel').value, language: $('#optLang').value, device: $('#optDevice').value,
-    boost: optCheck('boost'), glossary: $('#optGloss').value, autoDict: optCheck('autoDict'), autoGloss: optCheck('autoGloss'), autoContext: optCheck('autoContext') } });   // 0.66.0: チェックは設定の画面へ(保存した設定から)
+    boost: optCheck('boost'), glossary: $('#optGloss').value, autoDict: optCheck('autoDict'), autoGloss: optCheck('autoGloss'), autoContext: optCheck('autoContext') } });   // チェックは設定の画面の値(保存した設定から)
   await kickJobs(); toast(whole ? '動画全体の再認識を待機列に追加しました(終わると読み込み直します)' : flagged ? '疑わしい行の再認識を待機列に追加しました' : `${ids.length}行の再認識を待機列に追加しました`);
 }

@@ -1,6 +1,6 @@
-/* app-core.js — 「編集」の画面: 共通の小道具・表示の好み・⚙・他のツール・設定・準備状況・評価ドリルの数の読み直し(進行度は 0.69.0 で消した)(段10 で app.js から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
+/* app-core.js — 「編集」の画面: 共通の小道具・表示の好み・⚙・他のツール・設定・準備状況・評価ドリルの数の読み直し。
    ここは関数の定義だけ。状態(S・V など)・定数・ボタンの配線・起動は app.js(この後に読む)。
-   関数はトップレベルの宣言なので、ほかの app-*.js・app.js から名前で呼べる(読む順番は src/app/ui/cases/edhost.js の ED_SCRIPTS の1か所。RS8 C4 で編集の画面のページは消した) */
+   関数はトップレベルの宣言なので、ほかの app-*.js・app.js から名前で呼べる(読む順番は src/app/ui/cases/edhost.js の ED_SCRIPTS の1か所) */
 'use strict';
 
 /* ---------- 共通 ---------- */
@@ -20,7 +20,7 @@ function parseT(str){
   return p.reduce((a, x) => a * 60 + Number(x), 0);
 }
 
-/* SVG の線のアイコン(UIKit.icon)の文字列。文字記号(✓ × ⋮ ▶)の代わり(UI の見直し A-10)。ui-kit は index.html の head で必ず読む(0.60.1 で予備の経路を外した) */
+/* SVG の線のアイコン(UIKit.icon)の文字列。文字記号(✓ × ⋮ ▶)の代わり。ui-kit は必ず先に読み込む */
 function uiIcon(name, opts){ return UIKit.icon(name, opts); }
 
 /* kind: 'ok' | 'err' | 'info'(左の色の印。省略可)。ui-kit の UIKit.toast を呼ぶだけ(重ねて最大3つ・入れ物は #toast) */
@@ -28,7 +28,7 @@ function toast(msg, ms, kind = ''){   // ms にオブジェクト({ms, kind, act
   return UIKit.toast(msg, ms && typeof ms === 'object' ? ms : { ms, kind });
 }
 
-/* 画面の赤い帯(段8 E-26): 何が起きたか + 次の一手([読み込み直す]・ホームから開いたときは [ホームへ])+ 閉じる(×)。
+/* 画面の赤い帯:何が起きたか + 次の一手([読み込み直す]・ホームから開いたときは [ホームへ])+ 閉じる(×)。
    opt.plain: msg をそのまま本文に(起動の失敗など、文が決まっているもの)。そうでなければ決まった文 + 原文は「詳しく」の中。
    版の違いの帯(UIKit.restart の「起動し直す」)が出ている間は上書きしない(起動し直すと直ることが多い) */
 function showErr(msg, opt = {}){
@@ -44,13 +44,13 @@ function showErr(msg, opt = {}){
   b.append(acts); b.hidden = false;
 }
 
-/* 知らせの次の一手(段7): 「元に戻す」(1 文字起こし の元に戻す)・「2 カットへ」 */
+/* 知らせの次の一手:「元に戻す」(1 文字起こし の元に戻す)・「2 カットへ」 */
 function undoToast(msg, ms = 5000){ return toast(msg, { kind: 'ok', ms, action: { label: '元に戻す', fn: () => doUndo('tx') } }); }
-const TO_CUT = Object.freeze({ label: window.EditHost ? 'カット・パックへ' : '2 カットへ', fn: () => setEditTab('cut', { focus: true }) });   // 案件の画面ではタブの名前(RS8 C4)
+const TO_CUT = Object.freeze({ label: window.EditHost ? 'カット・パックへ' : '2 カットへ', fn: () => setEditTab('cut', { focus: true }) });   // 案件の画面ではタブの名前
 
 /* ---------- 区間の終わりで止める見張り(「この行だけ再生」・▶・評価ドリルの帯の「聞く」・端を動かしたあとの聞き直し) ----------
-   以前は timeupdate(Chromium で約 250ms ごと)で止めていて、止まるまでに 9〜236ms(平均 約 116ms)行の終わりを過ぎた。機械の行の終わりは次の声の出だしの
-   0.05〜0.1 秒前にあることが多いので、行の終わりに次の行の頭の言葉が聞こえていた(2026-10-04)。
+   timeupdate(Chromium で約 250ms ごと)で止めると行の終わりを平均 約 116ms 過ぎ、機械の行の終わりは次の声の出だしの
+   0.05〜0.1 秒前にあることが多いので、次の行の頭の言葉が聞こえてしまう。そのため
    ここでは終わりの手前までは setTimeout で眠り(残り時間 ÷ 再生の速さ。長く眠りすぎないよう 0.5 秒まで)、近づいたら requestVideoFrameCallback(コマごと)と
    requestAnimationFrame の早いほうで currentTime を見て、終わりの STOP_LEAD(pause が効くまでの遅れの分)手前で pause する。止めたあと終わりを過ぎていたら currentTime を終わりへ戻す。
    getEnd() が null を返す(S.playEnd が解かれた)・一時停止・別の見張りに替わったら、見張りは自然に終わる。timeupdate 側の止め(app.js)は、タブが隠れて
@@ -80,7 +80,7 @@ function stopAtEnd(media, getEnd, onStop){
 /* S.playEnd を立てて play() したあとに呼ぶ(再生の速さが変わったときも呼び直す) */
 function armPlayEnd(){ if (S.playEnd !== null) stopAtEnd(player(), () => S.playEnd, () => { S.playEnd = null; }); }
 
-/* 編集のサーバーの API。中身は ui-kit の UIKit.http の 1 本(合言葉 X-YTT-Token を付ける条件・エラーの形はそこの 1 か所。0.60.1)。
+/* 編集のサーバーの API。中身は ui-kit の UIKit.http の 1 本(合言葉 X-YTT-Token を付ける条件・エラーの形はそこの 1 か所)。
    失敗は Error: message(サーバーの message、無ければ「エラー n」)・code(サーバーの error、無ければ 'http'。つながらないときは 'network')・status・data(本文) */
 const NO_SERVER = 'サーバーに接続できません。黒い画面(ターミナル)が閉じていないか確認してください';
 const httpFailText = st => 'エラー ' + st;
@@ -149,23 +149,21 @@ function download(blob, name){
 
 function setRowSp(row, sp){ const c = sp ? rowSpColor(sp.id) : ''; if (c) row.style.setProperty('--sp', c); else row.style.removeProperty('--sp'); }
 
-/* 2回押しの確認(戻せない操作だけ)。部品は ui-kit の UIKit.confirmTwice の1つ(気が利く画面へ 段1)。
-   以前のこの版は実行後も3秒間「確認済み」のままで、続けて押すと同じ操作がもう一度走り、文言も「もう一度押す」だけだった */
+/* 2回押しの確認(戻せない操作だけ)。部品は ui-kit の UIKit.confirmTwice の1つ */
 function armDelete(btn, run, text){ UIKit.confirmTwice(btn, run, text); }
 
 /* ---------- 表示の好み(長時間の作業向け。このブラウザにだけ保存) ---------- */
 
-/* v0.9.8: 左のメニューの開閉(V.menu)は保存する(上の「☰」ボタンがいつも見えているので、閉じたままでも迷わない)。
+/* メニューの開閉(V.menu)は保存する(上の「☰」ボタンがいつも見えているので、閉じたままでも迷わない)。
    文字起こしを開いていないときに閉じていると何も見えないので、その場合は案内にボタンを出す(showNoDoc) */
 function loadView(){
   try {
     const o = JSON.parse(localStorage.getItem(VIEW_KEY) || '{}');
     if (o && typeof o === 'object'){
       for (const k of Object.keys(V)) if (k in o && typeof o[k] === typeof V[k]) V[k] = o[k];
-      /* 画面の色は ui-kit(localStorage の ytt:theme)に1本化した(設定の引き出しで変える。保存先は1か所。ヘッダーの切り替えボタンは v14 でやめた)。
-         以前の版が tx.view.v1 の theme に保存していた選択は、ui-kit にまだ選択が無いときだけ引き継ぐ。
-         v6 から ytt:theme が無いときの既定は 'system' ではなく 'light' になったので、「無い」の判定は UIKit.theme.get() ではなく
-         localStorage を直接見る(以前は既定が 'system' だったことを前提にしていたため、v6 のままだと引き継ぎが動かなかった) */
+      /* 画面の色は ui-kit(localStorage の ytt:theme)に1本化している(設定の引き出しで変える。保存先は1か所)。
+         tx.view.v1 の theme に保存してある選択は、ui-kit にまだ選択が無いときだけ引き継ぐ。
+         ytt:theme が無いときの既定は 'light' なので、「無い」の判定は UIKit.theme.get() ではなく localStorage を直接見る */
       if (o.theme === 'light' || o.theme === 'dark'){ try { if (localStorage.getItem('ytt:theme') === null) UIKit.theme.set(o.theme); } catch {} }
       if ('theme' in o){ delete o.theme; saveView(); }
     }
@@ -174,37 +172,37 @@ function loadView(){
 
 function saveView(){ try { localStorage.setItem(VIEW_KEY, JSON.stringify(V)); } catch {} }
 
-/* 編集のタブ(tx・cut)。URL のハッシュは読まない・書かない(編集は案件の画面の中だけで動く = URL は殻 cases.js のもの。旧 #pack の読み替えは棚卸し G5 で消した) */
+/* 編集のタブ(tx・cut)。URL のハッシュは読まない・書かない(編集は案件の画面の中だけで動く = URL は殻 cases.js のもの) */
 function setEditTab(t, opt = {}){
   if (EDIT_HOST && !opt.host && t !== EDT.tab){ EDIT_HOST.tab(t); return; }   // 案件の画面ではタブは殻のもの(「2 カットへ」= 殻のカット・パックのタブへ)
   if (!ED_TABS.includes(t)) t = 'tx';
   const was = EDT.tab;
   EDT.tab = t; EDT.overlay = false;
   document.querySelectorAll('[data-edtab]').forEach(b => { const on = b.dataset.edtab === t; b.setAttribute('aria-selected', on ? 'true' : 'false'); b.tabIndex = on ? 0 : -1; });
-  /* 監査01(段1): 隠れるタブの中で開いている引き出し(書き出しの欄など)は、隠す前に閉じる。modal の引き出しは裏を inert にし、close まで残すので、
+  /* 隠れるタブの中で開いている引き出し(書き出しの欄など)は、隠す前に閉じる。modal の引き出しは裏を inert にし、close まで残すので、
      開いたまま隠すと見えない引き出しが全部の操作を塞ぐ(Alt+数字は下で止めるが、戻る・# のリンク・プログラムからの切り替えでも残さないための保険) */
   let closedDrawer = false;
   document.querySelectorAll('[data-edpanel]').forEach(p => {
     if (p.dataset.edpanel === t) return;
     p.querySelectorAll('.ui-drawer:not([hidden])').forEach(d => { closedDrawer = true; UIKit.drawer.close(d); });
   });
-  /* 0.62.0: パックの設定は ⚙ の引き出し(全体)に移った。タブを移る(# のリンク・履歴の「パックを作る」・プログラムから)ときは以前のパックの引き出しと同じく閉じる
+  /* パックの設定は ⚙ の引き出し(全体)にある。タブを移る(# のリンク・履歴の「パックを作る」・プログラムから)ときは閉じる
      (modal の引き出しが開いたままだと裏が inert のまま = 新しいタブの操作ができない。Alt+数字は modalOpen で先に止まる) */
   { const g = $('#uiSettingsDrawer'); if (was !== t && g && !g.hidden){ closedDrawer = true; UIKit.drawer.close(g); } }
   document.querySelectorAll('[data-edpanel]').forEach(p => { p.hidden = p.dataset.edpanel !== t; });
   document.documentElement.dataset.edtabNow = t;   // CSS 用(html[data-edtab-now])。[data-edtab] はタブのボタンだけに使う
   applyView();
-  if (was !== t){ onEditTab(was, t); rememberLast(); }   // 前回の文書とタブ(段7 E-7。文書を開いていなければ何もしない)
+  if (was !== t){ onEditTab(was, t); rememberLast(); }   // 前回の文書とタブ(文書を開いていなければ何もしない)
   if (opt.focus || closedDrawer){ const b = document.querySelector(`[data-edtab="${t}"]`); if (b) b.focus(); }
   if (opt.into) focusTabStart(t);   // 閉じた引き出しは隠れたタブのボタンへフォーカスを返すので、移った先のタブのボタンへ置き直す
 }
-/* 2 カット の末尾の「パック」へ(0.62.0。カットの「パックへ」)。見える所まで送り、押せるなら「パックを作る」へフォーカス */
+/* 2 カット の末尾の「パック」へ(カットの「パックへ」)。見える所まで送り、押せるなら「パックを作る」へフォーカス */
 function showPackArea(){
   const el = $('#packArea'); if (!el) return;
   requestAnimationFrame(() => { el.scrollIntoView({ block: 'start' }); const b = $('#pkBuild'); if (b && !b.disabled && b.offsetParent) b.focus({ preventScroll: true }); });
 }
 
-/* キー(Alt+2/3)でタブを移ったあと: そのタブの最初の操作へ(フォーカスが隠れたタブの中に残って body に落ちないように。UI の見直し S18)。
+/* キー(Alt+2/3)でタブを移ったあと: そのタブの最初の操作へ(フォーカスが隠れたタブの中に残って body に落ちないように)。
    2 カット = 再生(読み込みが終わって押せるようになるまで少し待つ)。1 文字起こし は行の操作のキーがどこからでも効くので動かさない */
 function focusTabStart(t, tries = 30){
   const el = t === 'cut' ? $('#cutPlay') : null;
@@ -218,15 +216,15 @@ function onEditTab(from, to){
   if (from === 'tx' && S.doc) player().pause();
   if (from === 'cut' && CUT) CUT.onHidden();   // カットのタブの再生位置を、文字起こしの映像へ引き継ぐ・未保存のカットを保存
   if (to === 'tx' && S.doc){ autoSizeSoon(); drawStripSoon(); }
-  if (to === 'cut' && CUT){ CUT.onShown(); if (PACK) PACK.shown(); }   // パックは 2 カット の末尾(0.62.0)。帯の場面はカットのもの(PACK.shown は帯を触らない)
-  paintSaveState();   // ヘッダーの保存の状態(1 は文書・2 はカットも。S4)
+  if (to === 'cut' && CUT){ CUT.onShown(); if (PACK) PACK.shown(); }   // パックは 2 カット の末尾。帯の場面はカットのもの(PACK.shown は帯を触らない)
+  paintSaveState();   // ヘッダーの保存の状態(1 は文書・2 はカットも)
   /* カットのタブは CUT.onShown()(上)が自分の帯をすでに出している(M.sel に応じた場面)。
-     ここで tx 以外もまとめて「from が tx なら clear」としてしまうと、その直後の帯を上書きして消してしまう(2026-09-27 に見つけて直した) */
+     ここで tx 以外もまとめて「from が tx なら clear」としてしまうと、その直後の帯を上書きして消してしまう */
   if (to === 'tx') txKeybarScene();
   renderDocBar();
 }
 
-/* 画面の下の帯(UIKit.keybar。段2)。1 文字起こし のタブだけ、2つの場面(行を選んでいる/文字を直している)で置き換える */
+/* 画面の下の帯(UIKit.keybar)。1 文字起こし のタブだけ、2つの場面(行を選んでいる/文字を直している)で置き換える */
 function txKeybarScene(){
   if (wideTab()) return;
   if (!S.doc){ keybarSet(null); return; }
@@ -235,7 +233,7 @@ function txKeybarScene(){
   else {   // 割り当て(⚙ 設定の「キー配置」)のとおりに出す
     const km = keymap(), k = id => km[id] ? keyText(km[id]) : '';
     keybarSet([{ k: keyWithAlt('rowNext'), l: '次の行' }, { k: keyWithAlt('rowPrev'), l: '前の行' }, { k: k('unNext'), l: '次の未校正' }, { k: k('proof'), l: '校正済みで次へ' },
-      { k: k('replay'), l: '聞く' }, { k: k('edit'), l: '直す' },   // 「3秒戻る・進む」は ? の一覧に(帯は 7 個まで。UI の見直し S17)
+      { k: k('replay'), l: '聞く' }, { k: k('edit'), l: '直す' },   // 「3秒戻る・進む」は ? の一覧に(帯は 7 個まで)
       { k: '?', l: 'キー操作' }].filter(x => x.k));
   }
 }
@@ -249,7 +247,7 @@ function applySideTab(){
   document.querySelectorAll('[data-side-pane]').forEach(p => { p.hidden = p.dataset.sidePane !== V.sideTab; });
 }
 
-function setSideTab(tab, openPanel = true){ V.sideTab = tab; if (openPanel){ if (wideTab()) EDT.overlay = true; else V.menu = true; } saveView(); applyView(); }   // タブの切り替え(v0.9.9: GPT 版のタブを ☰ のメニューの中に統合)
+function setSideTab(tab, openPanel = true){ V.sideTab = tab; if (openPanel){ if (wideTab()) EDT.overlay = true; else V.menu = true; } saveView(); applyView(); }   // タブの切り替え(☰ のメニューの中)
 
 function applyView(){
   const r = document.documentElement;
@@ -286,13 +284,13 @@ function toggleMenu(open){
 /* メニューの中の項目へ移動する(閉じていれば開く) */
 function showInMenu(el){ const pane = el.closest('[data-side-pane]'); if (pane) V.sideTab = pane.dataset.sidePane; if (wideTab()) EDT.overlay = true; else V.menu = true; saveView(); applyView(); if (el.tagName === 'DETAILS') el.open = true; el.scrollIntoView({ block: 'center' }); }
 
-/* ---------- ヘッダーの ⚙(ui-kit v6。UIKit.settings)。「表示」の内容(旧 #viewMenu)をツールの節にし、画面の色は全体の節(ui-kit)へ一本化 ---------- */
+/* ---------- ヘッダーの ⚙(UIKit.settings)。「表示」の内容はツールの節・画面の色は全体の節(ui-kit) ---------- */
 
 /* ヘッダー左の ui-appnav(ホーム/案件/確かめる/設定)に版を出す。appnav は DOMContentLoaded で描かれるので、間に合わなければそこでも試す */
 function setAppnavVersion(){ UIKit.appnav.setVersion('v' + APP_VERSION); }
 
 /* ---------- 他のツール(実際のポートはサーバーの /api/siblings。答えない・古いサーバーなら既定のポート) ----------
-   v6: ヘッダーの「他のツール」メニューは ui-appnav(今はホーム/案件/確かめる/設定)に置き換えたので、ここでは S.ports と
+   ヘッダーの「他のツール」メニューは ui-appnav(ホーム/案件/確かめる/設定)なので、ここでは S.ports と
    UIKit.tools.setPaths(cut2resolve の URL・c2rBase() が使う)だけを整える */
 
 function loadSiblings(){
@@ -308,7 +306,7 @@ function loadSiblings(){
 }
 
 /* ---------- 設定(用語集・置換辞書など) ----------
-   監査 11(全体の計画 段2): 保存は「最後に保存した内容との差のキーだけ」を PUT /api/settings {"patch"}(サーバーはロックの中で今のファイルに合わせる。
+   保存は「最後に保存した内容との差のキーだけ」を PUT /api/settings {"patch"}(サーバーはロックの中で今のファイルに合わせる。
    窓を2つ開いても、別々の設定なら消し合わない。同じキーを同時に変えたときだけ後勝ち)。失敗は ⚙ の印と設定の引き出しの先頭に [もう一度](UIKit.settings.status)。
    読み込みに失敗したら「設定を読み込めませんでした [読み直す]」にして、読み直すまで保存しない(空の設定で用語集・置換辞書・キー配置を上書きしないため) */
 
@@ -383,22 +381,22 @@ async function reloadSettings(){
 
 /* 設定のチェック [設定の鍵, 欄の id, 無いときの扱い](readOpts・applySettings・jobOpts と、変えたら保存する配線(app.js)が同じ表を使う)。
    扱い: true = 明示の false のときだけ外す / false = true のときだけ付ける / null = 真らしい値なら付ける。
-   OPT_CHECKS = 「認識の設定」(文字起こしの要求にも付ける)。YouTube の字幕の候補 autoYtcap・評価用でない自動の判別 autoDiarize は OPT-H1 で消した(決定 3-47 Q7・Q10)。
-   0.66.0: OPT_CHECKS の欄は 1 文字起こし から外して設定の画面へ(notes:docs/spec/data.md の 6)。表は鍵と既定の扱いのために残し、欄が無ければ S.settings を読む */
+   OPT_CHECKS = 「認識の設定」(文字起こしの要求にも付ける)。
+   OPT_CHECKS の欄は設定の画面にある(notes:docs/spec/data.md の 6)。表は鍵と既定の扱いのために使い、欄が無ければ S.settings を読む */
 const OPT_CHECKS = [['boost', 'optBoost', null], ['autoDict', 'optAutoDict', true], ['wordSplit', 'optWordSplit', true], ['stripPunct', 'optStripPunct', true],
   ['autoGloss', 'optAutoGloss', true], ['autoContext', 'optAutoContext', false], ['autoLearned', 'optAutoLearned', false],
   ['autoAlt', 'optAutoAlt', false],
-  ['autoFill', 'optAutoFill', true],   // autoFill = 認識のあとの後処理(文字の少ない行を別の読みで埋める。既定オン。0.60.0)
-  ['autoLlm', 'optAutoLlm', true],   // autoLlm = 名簿の呼び名の聞き違いらしい所だけを手元の LLM で直す(既定オン。0.61.0 のサーバー・画面のチェックは 0.63.0)
-  ['stripNames', 'optStripNames', true]];   // stripNames = 行の頭の話者名(「名前:」)を外す(既定オン。0.67.0。欄は設定の画面だけ)
+  ['autoFill', 'optAutoFill', true],   // autoFill = 認識のあとの後処理(文字の少ない行を別の読みで埋める。既定オン)
+  ['autoLlm', 'optAutoLlm', true],   // autoLlm = 名簿の呼び名の聞き違いらしい所だけを手元の LLM で直す(既定オン)
+  ['stripNames', 'optStripNames', true]];   // stripNames = 行の頭の話者名(「名前:」)を外す(既定オン。欄は設定の画面だけ)
 const SET_CHECKS = OPT_CHECKS.concat([['exSpk', 'exSpk', null], ['exTs', 'exTs', null]]);
-/* 0.66.0: 欄の無い鍵(認識の設定の自動の後処理 = 設定の画面へ移した)は、保存した設定 S.settings の値(無いときの扱い dv で既定)を使う */
+/* 欄の無い鍵(認識の設定の自動の後処理 = 設定の画面にある)は、保存した設定 S.settings の値(無いときの扱い dv で既定)を使う */
 const checksOf = list => Object.fromEntries(list.map(([k, id, dv]) => {
   const el = $('#' + id);
   return [k, el ? el.checked : (dv === true ? S.settings[k] !== false : dv === false ? S.settings[k] === true : !!S.settings[k])];
 }));
 
-/* 0.66.0: 声の検出の欄は設定の画面へ。欄があれば欄、無ければ保存した設定(既定 weak) */
+/* 声の検出の欄は設定の画面にある。欄があれば欄、無ければ保存した設定(既定 weak) */
 function vadModeOf(){ const e = $('#optVad'); const v = e ? e.value : (S.settings && S.settings.vadMode); return ['normal', 'off'].includes(v) ? v : 'weak'; }
 /* 認識の設定のチェック 1 つの今の値(欄が無ければ保存した設定から。checksOf と同じ決まり) */
 function optCheck(k){ return checksOf(OPT_CHECKS.filter(c => c[0] === k))[k] === true; }
@@ -411,10 +409,10 @@ function readOpts(){
   s.glossary = $('#optGloss').value.slice(0, 4000); s.replacements = $('#repDict').value.slice(0, 20000);
   s.exBase = $('#exBase').value; s.exWrap = $('#exWrap').value; s.diarEmb = $('#diarEmb').value;   // 話者の人数は文書ごと(diarNumChanged。欄の値は開いている文書のもの)
   saveSettings(); if (S.doc) renderTerms(); renderOptSummary();
-  if (PACK) PACK.changed();   // 字幕の1段の文字数(subtitle.wrapChars)はパックの見積もりの鍵(段4 4-1。監査 07)
+  if (PACK) PACK.changed();   // 字幕の1段の文字数(subtitle.wrapChars)はパックの見積もりの鍵
 }
 
-/* 「認識の設定」は既定で閉じるので(段2)、開かなくても分かるように「始める」の上へ1行の要約を出す */
+/* 「認識の設定」は既定で閉じるので、開かなくても分かるように「始める」の上へ1行の要約を出す */
 function renderOptSummary(){
   // GPU(AMD など・whisper.cpp)で使えないモデルなら、始める前にその場で案内する(サーバーも断る)。「認識の設定」は閉じていることが多いので要約にも出す
   const w = S.tools && S.tools.wcpp, vk = $('#optDevice').value === 'vulkan';
@@ -422,7 +420,7 @@ function renderOptSummary(){
   const badText = bad ? `GPU(whisper.cpp)で使えるモデルは ${(w.models || []).join('・')} です。モデルを選び直してください。` : '';
   const dh = $('#optDevHint');
   if (dh){ dh.hidden = !bad; dh.textContent = badText; }
-  const gd = $('#glossDev'); if (gd) gd.hidden = !vk;   // GPU(whisper.cpp)では用語集がヒントに渡らない(tx_engines の -mc 0。0.59.8)
+  const gd = $('#glossDev'); if (gd) gd.hidden = !vk;   // GPU(whisper.cpp)では用語集がヒントに渡らない(tx_engines の -mc 0)
   const el = $('#optSummary'); if (!el) return;
   const model = $('#optModel').selectedOptions[0], lang = $('#optLang').selectedOptions[0];
   const q = $('#optQuality').value === 'fast' ? '速度優先' : '精度優先';
@@ -431,19 +429,19 @@ function renderOptSummary(){
 
 function applySettings(){
   const s = S.settings;
-  // 選択肢に無い保存値(0.58.0 で外した small・kotoba など・処理方式の auto・cuda・cpu)は最初の選択肢(large-v3・GPU(whisper.cpp))に読み替える = 次の保存で直る
+  // 選択肢に無い保存値(small・kotoba など・処理方式の auto・cuda・cpu)は最初の選択肢(large-v3・GPU(whisper.cpp))に読み替える = 次の保存で直る
   { const m = $('#optModel'); if (m.options.length) m.value = [...m.options].some(o => o.value === s.model) ? s.model : m.options[0].value; }
   if (s.language && [...$('#optLang').options].some(o => o.value === s.language)) $('#optLang').value = s.language;
   $('#optQuality').value = s.quality === 'fast' ? 'fast' : 'best'; $('#optDevice').value = [...$('#optDevice').options].some(o => o.value === s.device && o.value) ? s.device : $('#optDevice').options[0].value; { const vd = $('#optVad'); if (vd) vd.value = ['normal', 'off'].includes(s.vadMode) ? s.vadMode : 'weak'; } fillSubtitle(s.subtitle);
-  for (const [k, id, dv] of SET_CHECKS){ const el = $('#' + id); if (el) el.checked = dv === true ? s[k] !== false : dv === false ? s[k] === true : !!s[k]; }   // 0.66.0: 欄の無い鍵(設定の画面へ)は飛ばす
+  for (const [k, id, dv] of SET_CHECKS){ const el = $('#' + id); if (el) el.checked = dv === true ? s[k] !== false : dv === false ? s[k] === true : !!s[k]; }   // 欄の無い鍵(設定の画面にある)は飛ばす
   $('#optGloss').value = s.glossary || ''; $('#repDict').value = s.replacements || ''; renderGlossFit();
   if (s.exBase) $('#exBase').value = s.exBase; if (s.exWrap) $('#exWrap').value = s.exWrap;
-  fillDiarNum();   // 話者の人数: 開いている文書の人数(無ければ話者の数 → 全体の既定 s.diarNum。段7 E-6)
+  fillDiarNum();   // 話者の人数: 開いている文書の人数(無ければ話者の数 → 全体の既定 s.diarNum)
 }
 
 /* ---------- 準備状況 ---------- */
 
-// 処理の機器の表示(ジョブ・文書の認識の設定)。vulkan = AMD などの GPU で whisper.cpp(精度改善の計画 段2-2)
+// 処理の機器の表示(ジョブ・文書の認識の設定)。vulkan = AMD などの GPU で whisper.cpp
 function devLabel(d){ return d === 'cuda' ? 'GPU' : d === 'vulkan' ? 'GPU(whisper.cpp)' : 'CPU'; }
 
 function renderSetup(){
@@ -455,7 +453,7 @@ function renderSetup(){
   const hint = html => `<p class="hint" style="margin:0 0 10px">${html}</p>`;
   let gpu = '';
   if (t.backend !== 'fake' && !miss.length){
-    // 0.58.0: 文字起こしは GPU(whisper.cpp・large-v3)だけ。作っていなければ始める前に案内する(始めてもサーバーが同じ理由で断る = 黙って CPU にしない)
+    // 文字起こしは GPU(whisper.cpp・large-v3)だけ。作っていなければ始める前に案内する(始めてもサーバーが同じ理由で断る = 黙って CPU にしない)
     if (t.wcpp && t.wcpp.ready) gpu = hint('GPU(whisper.cpp)で文字起こしします(モデルは large-v3)。');
     else gpu = `<div class="notice">GPU(whisper.cpp)がまだ用意されていないため、文字起こしできません。setup フォルダの <code>build-whisper-vulkan.bat</code> を実行してから起動し直してください。${t.wcpp && t.wcpp.why ? '<br>' + esc(t.wcpp.why) : ''}</div>`;
   }

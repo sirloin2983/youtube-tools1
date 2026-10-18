@@ -1,9 +1,9 @@
-/* app-tools.js — 「編集」の画面: 動画を選び直す・まとめて付け替える・検索と置換・書き出し・左パネル・受け渡し・cut2resolve の API・確認のダイアログ・カットとパックのタブとのつなぎ(段10 で app.js から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
+/* app-tools.js — 「編集」の画面: 動画を選び直す・まとめて付け替える・検索と置換・書き出し・左パネル・受け渡し・cut2resolve の API・確認のダイアログ・カットとパックのタブとのつなぎ。
    ここは関数の定義だけ。状態(S・V など)・定数・ボタンの配線・起動は app.js(この後に読む)。
-   関数はトップレベルの宣言なので、ほかの app-*.js・app.js から名前で呼べる(読む順番は src/app/ui/cases/edhost.js の ED_SCRIPTS の1か所。RS8 C4 で編集の画面のページは消した) */
+   関数はトップレベルの宣言なので、ほかの app-*.js・app.js から名前で呼べる(読む順番は src/app/ui/cases/edhost.js の ED_SCRIPTS の1か所) */
 'use strict';
 
-/* ---------- 動画を選び直す(段2 B-4。git の履歴(679ff01 以前)の docs/plan/phase2-data-safety.md の 1)。付け替えの API は POST だけ(URL の引数では付け替えない) ---------- */
+/* ---------- 動画を選び直す。付け替えの API は POST だけ(URL の引数では付け替えない) ---------- */
 
 function rlSync(){ const c = RL.check; $('#rlGo').disabled = !c || c.sameAsNow || (c.mismatch && !$('#rlAccept').checked); }
 
@@ -54,7 +54,7 @@ async function rlCheck(){
   finally { b.disabled = false; rlSync(); }
 }
 
-/* 「参照…」(2026-10-01): PC の標準の窓で選ぶ。窓はサーバーが開く(ブラウザからは実際のパスを知れないため。ytt/pick.py)。やめたら null */
+/* 「参照…」: PC の標準の窓で選ぶ。窓はサーバーが開く(ブラウザからは実際のパスを知れないため。ytt/pick.py)。やめたら null */
 async function pickPath(kind, hint){
   try { const r = await api('/api/pick', { body: { kind, hint: hint || '' } }); return r.path || null; }
   catch (e){ toast(e.message, 6000, 'err'); return null; }
@@ -96,7 +96,7 @@ function renderDocBarNow(){
 function syncEval(){
   const on = !!(S.doc && S.doc.evalSet), lock = !!(S.doc && S.doc.evalLocked), cb = $('#evalSet');
   cb.checked = on || lock; cb.disabled = lock; cb.parentElement.title = lock ? EVAL_LOCK_MSG : EVAL_TITLE;
-  $('#evalBanner').hidden = !(on || lock); renderVoiceLearn();   // 評価用では「声を覚える」を押せない(監査02)
+  $('#evalBanner').hidden = !(on || lock); renderVoiceLearn();   // 評価用では「声を覚える」を押せない
   renderEvalReview();   // 「確かめ済み」(開いた文書・評価用の切り替えに合わせる)
 }
 
@@ -139,7 +139,7 @@ function renderSpNames(){
   dl.dataset.key = key; dl.innerHTML = names.map(n => `<option value="${esc(n)}">`).join('');
 }
 
-/* 話者判別が終わったら: 名前が付いていない話者の最初の名前の欄へ(E-10・E-12) */
+/* 話者判別が終わったら: 名前が付いていない話者の最初の名前の欄へ */
 function focusSpeakerNames(){
   const d = $('#spDetails'); if (!d || !S.doc) return;
   d.hidden = false; d.open = true;
@@ -267,16 +267,16 @@ async function lookupClip(path){
 /* URL の ?media=<動画のパス> / ?clip=<.clip.json のパス>(他のツールの画面からのリンク)。
    ファイル欄に入れるだけで、文字起こしは始めない(別のサイトのリンクからでも開けるので、重い処理を URL だけで動かさない。notes:docs/spec/pipeline.md 3)。
    読んだら URL から消す(再読み込み・ブックマークで、同じ値が何度も入らないように) */
-/* まだ文書の無い動画の「文字起こしをする」。ボタンにフォーカスを置く(次に押す所。段8 E-27) */
+/* まだ文書の無い動画の「文字起こしをする」。ボタンにフォーカスを置く(次に押す所) */
 function showMediaChoice(){ $('#mediaChoice').hidden = false; requestAnimationFrame(() => { const b = $('#mcTx'); if (b && b.offsetParent) b.focus({ preventScroll: true }); }); }
 
 function takeUrlParams(){
   let q; try { q = new URLSearchParams(location.search); } catch { return false; }
   const media = (q.get('media') || '').trim().slice(0, 1000), clip = (q.get('clip') || '').trim().slice(0, 1000);
-  const docId = /^[0-9a-f]{12}$/.test(q.get('doc') || '') ? q.get('doc') : '';   // ホームからは文書 ID で開く(B-1。同じ動画の文書が複数あっても選んだ文書)
-  const list = LIST_OPTS.kind.includes(q.get('list') || '') ? q.get('list') : '';   // ?list=other|clip|all|eval: 履歴を種類で絞って開く(ホームの「編集の履歴で見る」。段5 5-1・B-5)
+  const docId = /^[0-9a-f]{12}$/.test(q.get('doc') || '') ? q.get('doc') : '';   // ホームからは文書 ID で開く(同じ動画の文書が複数あっても選んだ文書)
+  const list = LIST_OPTS.kind.includes(q.get('list') || '') ? q.get('list') : '';   // ?list=other|clip|all|eval: 履歴を種類で絞って開く(ホームの「編集の履歴で見る」)
   if (!q.has('media') && !q.has('clip') && !q.has('doc') && !list) return false;
-  q.delete('media'); q.delete('clip'); q.delete('list');   // ?doc= は残す(開いた文書を URL に残す。監査 06。開けなければ下で消す)
+  q.delete('media'); q.delete('clip'); q.delete('list');   // ?doc= は残す(開いた文書を URL に残す。開けなければ下で消す)
   if (!docId) q.delete('doc');
   const rest = q.toString();
   try { history.replaceState(history.state, '', location.pathname + (rest ? '?' + rest : '') + location.hash); } catch {}
@@ -320,8 +320,6 @@ function renderDocExtras(d){
   renderClipBox($('#docClip'), d && d.clip);
   if (S.handoff && S.handoff.id !== S.docId) S.handoff = null;
   renderHandoff();
-  /* 以前はヘッダーの appnav の「スタジオ」に元の配信を引き継いでいた(setLink('studio', …))。RS8 C4 で appnav は「ホーム / 案件 / 設定」になり、
-     案件の画面では元の配信は同じ案件の候補のタブ = 引き継ぐ物が無いので消した */
 }
 
 function renderHandoff(){
@@ -415,7 +413,7 @@ function renderCutPackNow(){
   if (!S.doc) return;
   const n = S.sel.size, locked = !!lockJob();
   $('#cutSelected').disabled = $('#keepSelected').disabled = !n || locked;
-  $('#cutSelected').title = $('#keepSelected').title = locked ? '処理中は変えられません(終わると押せます)' : (n ? '' : '行の左端のチェックで行を選ぶと押せます');   // 押せない理由(A-34)
+  $('#cutSelected').title = $('#keepSelected').title = locked ? '処理中は変えられません(終わると押せます)' : (n ? '' : '行の左端のチェックで行を選ぶと押せます');   // 押せない理由
   $('#cpSelHint').textContent = n ? `チェックした${n}行を、まとめて変えます` : '行の左端のチェックで選んだ行を、まとめて変えます';
   renderDocBar();   // 題名の行の札(カットが使えない文書では、行の印からの目安)
   if (PACK) PACK.refresh();
@@ -424,9 +422,9 @@ function renderCutPackNow(){
 /* 文書を保存したあと: 3 パック のタブの見積もり(字幕の数など)を出し直す */
 function cpAfterSave(){ if (S.doc && PACK) PACK.changed(); }
 
-/* 案件の画面(EDIT_HOST。RS8 C4)では、カットの欄(EditCut)は別のパネルにあって校正の中には無い。カットの区間(edit.json)が決まっている文書で行の印だけを
+/* 案件の画面(EDIT_HOST)では、カットの欄(EditCut)は別のパネルにあって校正の中には無い。カットの区間(edit.json)が決まっている文書で行の印だけを
    変えると、保存のときにサーバーが区間から印を付け直して黙って消える(区間は変わらない)。区間があるときは何も変えずにカット・パックのタブへ案内し、
-   まだ無いとき(行の印がカットの正)だけ今までどおり印を変える。idx = 行の番号の並び */
+   まだ無いとき(行の印がカットの正)だけ印を変える。idx = 行の番号の並び */
 async function hostRowsCut(idx, cut){
   const id = S.docId;
   let edit = null;
@@ -448,7 +446,7 @@ function bulkCut(cut){
   if (CUT && CUT.active()){
     const idx = S.doc.segments.map((g, i) => S.sel.has(g.id) ? i : -1).filter(i => i >= 0);
     CUT.rowsCut(idx, cut);
-    return toast(`${idx.length}行を${cut ? 'カット済' : '残す'}にしました(「元に戻す」(Ctrl+Z)で戻せます)`, 4000);   // 1 行ずつの経路と同じ言葉(S8)
+    return toast(`${idx.length}行を${cut ? 'カット済' : '残す'}にしました(「元に戻す」(Ctrl+Z)で戻せます)`, 4000);   // 1 行ずつの経路と同じ言葉
   }
   if (EDIT_HOST) return hostRowsCut(S.doc.segments.map((g, i) => S.sel.has(g.id) ? i : -1).filter(i => i >= 0), cut);
   pushUndo(); let n = 0;
@@ -461,7 +459,7 @@ function bulkCut(cut){
 function applyKeyHint(){ const on = khOn(); $('#keyHint').hidden = !on; $('#keyHintOn').checked = on; }
 
 /* ---------- 確認のダイアログ(はい/やめる) ----------
-   ui-kit の UIKit.dialog.confirm(画面ごとに作った #dlgConfirm・#dlgOverwrite はやめた。UI の見直し M3。仮決め (az))。本文の改行は残す(index.html の .ui-dlg-body) */
+   ui-kit の UIKit.dialog.confirm。本文の改行は残す(.ui-dlg-body) */
 function confirmDlg(title, text, okLabel){
   return UIKit.dialog.confirm({ title, body: text || '', ok: okLabel || 'はい', cancel: 'やめる' });
 }
@@ -471,25 +469,25 @@ function confirmDlg(title, text, okLabel){
 /* 行の「残す/カット済」の見た目(行の印と右のボタン) */
 function paintCut(row, cut){
   row.classList.toggle('cut', cut);
-  const k = row.querySelector('.tt-kc [data-act=keep]'), b = row.querySelector('.tt-kc [data-act=cut]');   // 2 択の今の側(M1)
+  const k = row.querySelector('.tt-kc [data-act=keep]'), b = row.querySelector('.tt-kc [data-act=cut]');   // 2 択の今の側
   if (k) k.setAttribute('aria-pressed', cut ? 'false' : 'true');
   if (b) b.setAttribute('aria-pressed', cut ? 'true' : 'false');
 }
 
 /* 編集の内容から付け直した行の「カット済」を、1 文字起こし のタブの行に出す(文書は保存しない。サーバーが編集の内容から付ける) */
 function onCutMarks(changed){
-  updateUndo();   // カットが変わった(変更・元に戻す・やり直す)→ 「元に戻す(n)」の数も(3-5)
+  updateUndo();   // カットが変わった(変更・元に戻す・やり直す)→ 「元に戻す(n)」の数も
   const rows = rowsEl();   // 行の要素は i 番目 = data-i が i(描き直しは行の並びのとおり。数千行で 1 行ずつ探さない)
   for (const i of changed){
     const row = rows[i], g = S.doc && S.doc.segments[i];
     if (row && g && row.classList.contains('seg')) paintCut(row, g.cutState === 'cut');
   }
   if (changed.length){ renderCutPack(); syncListItem(); if ($('#flagKind').value === 'cut') applyFilter(); }
-  if (changed.length) scheduleRead();   // カット済の行は読む速さの印の対象外(札と件数を合わせる。2026-10-05)
+  if (changed.length) scheduleRead();   // カット済の行は読む速さの印の対象外(札と件数を合わせる)
   renderDocBar();
 }
 
-/* 2 カット の字幕の無い案内のボタン(段7 E-14): 1 文字起こし のタブへ移り、行 0 の文書の「もう一度文字起こしする」にフォーカス */
+/* 2 カット の字幕の無い案内のボタン:1 文字起こし のタブへ移り、行 0 の文書の「もう一度文字起こしする」にフォーカス */
 function goTxInto(){
   setEditTab('tx');
   requestAnimationFrame(() => {

@@ -1,6 +1,6 @@
-/* app-learn.js — 「編集」の画面: 修正から学習した候補・修正の提案・校正済み・進み具合の帯・認識精度の測定・名簿と用語集・保存データへの保管・評価用の確かめ済み(段10 で app.js から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
+/* app-learn.js — 「編集」の画面: 修正から学習した候補・修正の提案・校正済み・進み具合の帯・認識精度の測定・名簿と用語集・保存データへの保管・評価用の確かめ済み。
    ここは関数の定義だけ。状態(S・V など)・定数・ボタンの配線・起動は app.js(この後に読む)。
-   関数はトップレベルの宣言なので、ほかの app-*.js・app.js から名前で呼べる(読む順番は src/app/ui/cases/edhost.js の ED_SCRIPTS の1か所。RS8 C4 で編集の画面のページは消した) */
+   関数はトップレベルの宣言なので、ほかの app-*.js・app.js から名前で呼べる(読む順番は src/app/ui/cases/edhost.js の ED_SCRIPTS の1か所) */
 'use strict';
 
 /* ---------- 修正の提案の読み直し(保存のあと。学習した候補の一覧と登録はホームの運用の「編集の精度と学習」= src/app/ui/home/portal-edit.js) ---------- */
@@ -103,7 +103,7 @@ function updatePfStat(){
   if (!S.doc) return;
   const n = S.doc.segments.filter(s => s.proofed).length, t = S.doc.segments.length;
   $('#btnProofAll').textContent = t && n === t ? '校正済みを全解除' : '全行を校正済みに';
-  $('#btnProofSel').disabled = !S.sel.size; $('#btnProofSel').title = S.sel.size ? '左端のチェックで選んだ行を校正済みにします' : '行の左端のチェックで行を選ぶと押せます';   // 押せない理由(S16)
+  $('#btnProofSel').disabled = !S.sel.size; $('#btnProofSel').title = S.sel.size ? '左端のチェックで選んだ行を校正済みにします' : '行の左端のチェックで行を選ぶと押せます';   // 押せない理由
   $('#btnNextUn').classList.toggle('primary', S.doc.segments.some(isUnproofed));   // 未校正がある間は次の一手(S3)
   updateSess(); drawStripSoon();
 }
@@ -224,7 +224,7 @@ async function evalReviewHere(){
   if (await markReviewed('editor') && S.docId === id){ await openDoc(id, true); syncListItem(); }
 }
 
-/* この動画だけを今の設定で作り直す(2026-10-05。評価ドリルで校正しながら、後処理の調整の効き目を 1 本ずつ確かめる)。
+/* この動画だけを今の設定で作り直す(評価ドリルで校正しながら、後処理の調整の効き目を 1 本ずつ確かめる)。
    サーバーの eval/drill/evalbatch.py の eval_batch_redo_one: 見回りを待たずにすぐ待機列へ・確かめ済みは断る・人が手を入れた文書は確認のあと force。
    作り直しの間は編集を止める(lockJob が public_job の redoOne を見る)・終わると pollJobs が読み直す。キーは割り当てない(押し間違いで消さない) */
 function redoOneState(){   // -> [押せるか, 理由(ボタンの title)]

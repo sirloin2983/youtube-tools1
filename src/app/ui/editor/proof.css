@@ -22,7 +22,7 @@ h2{margin:0;font-size:15px}
 @media (max-width:1180px){#btnMenu{width:auto;padding:0 8px}}
 @media (max-width:560px){.top .ui-ver{display:none}#btnMenuT{display:none}#btnKeys{display:none}.top .ui-header-actions{gap:2px}}
 .errbar{position:sticky;top:var(--toph);z-index:39}
-/* 画面の赤い帯の次の一手と閉じる(段8 E-26。app-core.js の showErr)。版の違いの帯(UIKit.restart)はこの形にしない */
+/* 画面の赤い帯の次の一手と閉じる(app-core.js の showErr)。版の違いの帯(UIKit.restart)はこの形にしない */
 .errbar:has(> .tt-err-msg){display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
 .errbar .tt-err-msg{flex:1 1 360px;min-width:0}
 .errbar .tt-err-detail{font-weight:400;font-size:12px}
@@ -31,16 +31,16 @@ h2{margin:0;font-size:15px}
 .errbar .tt-err-acts{display:inline-flex;align-items:center;gap:6px;margin-left:auto}
 .errbar .tt-err-acts a.btn{color:var(--ink)}
 .errbar .tt-err-x svg{width:14px;height:14px}
-.errbar .tt-err-x{background:transparent;color:var(--danger-on);border-color:color-mix(in srgb,var(--danger-on) 65%,transparent)}   /* 0.59.2: 赤い帯の上の文字は --danger-on(暗いテーマで白は読みにくい。段9) */
+.errbar .tt-err-x{background:transparent;color:var(--danger-on);border-color:color-mix(in srgb,var(--danger-on) 65%,transparent)}   /* 赤い帯の上の文字は --danger-on(暗いテーマで白は読みにくい) */
 
 /* ---------- 全体の配置: 左のメニュー + 編集欄 ---------- */
 .app{display:grid;grid-template-columns:340px minmax(0,1fr);gap:16px;padding:16px;align-items:start;max-width:1760px;margin:0 auto}
 .app.has-doc{grid-template-columns:310px minmax(0,1fr)}
-/* v0.9.8: 左のメニューを閉じる(旧「集中モード」)。.tx-stage も <aside> なので、必ず .app の直下だけを対象にする */
+/* 左のメニューを閉じる。.tx-stage も <aside> なので、必ず .app の直下だけを対象にする */
 .app.menu-closed{grid-template-columns:minmax(0,1fr)}.app.menu-closed>aside{display:none}
 @media (max-width:960px){.app,.app.has-doc{grid-template-columns:minmax(0,1fr)}}
 #menuPanel{min-width:0}
-/* v0.15.0: 狭い画面(720px 未満)では、左のメニューを本文の上に重ねる引き出しにする(本文を押しのけない)。
+/* 狭い画面(720px 未満)では、左のメニューを本文の上に重ねる引き出しにする(本文を押しのけない)。
    後ろの暗い幕(.tt-scrim)を押すか Esc・G で閉じる。文字起こしを開くと自動で閉じる */
 .tt-scrim{display:none}
 @media (max-width:719.98px){
@@ -51,8 +51,8 @@ h2{margin:0;font-size:15px}
   .app:not(.menu-closed)>#menuPanel .side-tabs{top:-12px}
 }
 @keyframes tt-drawer{from{transform:translateX(-16px);opacity:.6}to{transform:none;opacity:1}}
-/* B-7(2026-09-27): 文書を開いている間、720〜1600px では左のメニュー(履歴など)を本文の上に重ねる(列を取らない)。
-   列を取ると、1440px で字幕の行が2段に割れて一度に見える行が減っていた。履歴はそのまま(開閉は ☰ / G、幕・Esc で閉じる)。映像の大きさは閉じているときと同じ */
+/* 文書を開いている間、720〜1600px では左のメニュー(履歴など)を本文の上に重ねる(列を取らない)。
+   列を取ると、1440px で字幕の行が2段に割れて一度に見える行が減る。履歴はそのまま(開閉は ☰ / G、幕・Esc で閉じる)。映像の大きさは閉じているときと同じ */
 @media (min-width:720px) and (max-width:1599.98px){
   .app.has-doc:not(.tab-wide){grid-template-columns:minmax(0,1fr)}
   .app.has-doc:not(.tab-wide) .tx-grid{grid-template-columns:minmax(300px,min(760px,44%)) minmax(420px,1fr)}
@@ -81,8 +81,8 @@ h2{margin:0;font-size:15px}
 .job{border-bottom:1px solid var(--line);padding:9px 0}.job:last-child{border-bottom:0}
 .job .tt-jwarn{margin:6px 0 0;padding:6px 9px;font-size:12px}
 .job .tt-jerr{color:var(--danger-ink);margin-top:3px}
-.job .tt-jerr-detail{font-size:12px;margin-top:2px;color:var(--ink-3)}.job .tt-jerr-detail summary{cursor:pointer;min-height:24px}.job .tt-jerr-detail .mono{display:block;overflow-wrap:anywhere}   /* 想定外の失敗の原文は畳む(M9) */
-/* ---------- 履歴(保存済みの文字起こし)の一覧(v0.15.0。notes:docs/spec/ui.md 4.) ----------
+.job .tt-jerr-detail{font-size:12px;margin-top:2px;color:var(--ink-3)}.job .tt-jerr-detail summary{cursor:pointer;min-height:24px}.job .tt-jerr-detail .mono{display:block;overflow-wrap:anywhere}   /* 想定外の失敗の原文は畳む */
+/* ---------- 履歴(保存済みの文字起こし)の一覧(notes:docs/spec/ui.md 4.) ----------
    道具の行(検索・状態・種類・並び替え・まとめ方・件数)→ まとまり(details.ui-group。既定は配信ごと)→ 1件1行。
    1行 = 題名(見分けやすいように、配信ごとのときは配信の題名を省いてマークの名前を出す)+ だれの・いつの + 校正の進み具合 + 状態の札 */
 #txHomeLink{display:inline-flex;margin:0 0 8px}
@@ -126,7 +126,7 @@ h2{margin:0;font-size:15px}
 .txi-menu .vpop .hint{display:block;overflow-wrap:anywhere;font-size:12px;margin:0 0 8px}
 .txi-menu .vpop .btn{width:100%}
 .list-more{width:100%;margin-top:6px}
-.tt-list-empty{margin:8px 0 0}.tt-list-empty .hint{display:block;margin:0 0 8px}   /* 履歴の空の状態: 2 文 + 次のボタン(M8) */
+.tt-list-empty{margin:8px 0 0}.tt-list-empty .hint{display:block;margin:0 0 8px}   /* 履歴の空の状態: 2 文 + 次のボタン */
 /* 狭い画面(指で使う)では、長い題名を2行まで出す(末尾で見分けることが多いため) */
 @media (max-width:719.98px){.txi .t{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}}
 .setup-banner{background:var(--warn-soft);border:1px solid color-mix(in srgb,var(--warn) 40%,transparent);border-radius:var(--r);margin:0 0 10px;font-size:13px}
@@ -137,7 +137,7 @@ h2{margin:0;font-size:15px}
 .tt-clip .ic{flex:none;width:18px;height:18px;border-radius:5px;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent);margin-top:1px}
 .tt-clip .ic svg{width:12px;height:12px}
 .tt-clip b{font-weight:600}
-.tt-clip a{padding:7px 0}   /* 文の中のリンク(元の配信)の当たり判定を上下に広げる(見た目と行の高さは変わらない。A-29) */
+.tt-clip a{padding:7px 0}   /* 文の中のリンク(元の配信)の当たり判定を上下に広げる(見た目と行の高さは変わらない) */
 .tt-clip .mono{color:var(--ink-2)}
 .tt-clip.warn{background:var(--warn-soft);border-color:color-mix(in srgb,var(--warn) 35%,transparent)}
 .tt-clip.warn .ic{background:transparent;color:var(--warn)}
@@ -145,9 +145,9 @@ h2{margin:0;font-size:15px}
 /* ---------- 精度・学習・保管のカードの中 ---------- */
 .sp-row{display:flex;gap:6px;align-items:center;margin-top:6px}.sp-row input[type=color]{width:34px;height:30px;padding:2px;flex:none}
 .sp-row .n{font-size:12px;color:var(--ink-3);white-space:nowrap;font-variant-numeric:tabular-nums}
-.tt-sp-member{flex:none;width:34px;height:30px;border-radius:var(--r-sm);border:1px solid var(--line-2)}   /* 話者の名前がメンバーと合ったときの色(気が利く画面へ 段2) */
+.tt-sp-member{flex:none;width:34px;height:30px;border-radius:var(--r-sm);border:1px solid var(--line-2)}   /* 話者の名前がメンバーと合ったときの色 */
 .tt-sp-why{margin:2px 0 0 40px}
-.sp-row .btn svg{width:12px;height:12px}   /* 「聞く」の再生の印(以前の ▶ の文字と同じくらい) */
+.sp-row .btn svg{width:12px;height:12px}   /* 「聞く」の再生の印 */
 
 /* ---------- 空の状態 ---------- */
 #noDoc{padding:48px 24px;margin-top:4px}
@@ -155,27 +155,26 @@ h2{margin:0;font-size:15px}
 .tt-empty-ic svg{width:22px;height:22px}
 .tt-steps{display:inline-grid;gap:6px;margin:14px auto 0;text-align:left;font-size:13px;color:var(--ink-2)}
 .tt-steps li{display:flex;gap:8px;align-items:baseline}
-.tt-steps b{display:inline;margin:0;font-size:inherit}   /* 手順の中の太字は文の中のまま(.empty b の 1 行にしない。段7 E-9) */
+.tt-steps b{display:inline;margin:0;font-size:inherit}   /* 手順の中の太字は文の中のまま(.empty b の 1 行にしない) */
 .tt-resume{display:flex;flex-direction:column;align-items:center;gap:4px;margin:14px auto 0;max-width:100%}
 .tt-resume .btn{max-width:100%}
 .tt-resume-t{min-width:0;max-width:46ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tt-steps .n{display:inline-grid;place-items:center;flex:none;width:18px;height:18px;border-radius:6px;background:var(--panel-3);color:var(--ink-2);font:700 11px/1 var(--mono)}
 
 /* ---------- 編集画面: 左 = 映像と道具(.tx-stage)・右 = セリフの一覧(.tx-list) ----------
-   v0.9.6: 表示部(映像)を左、セリフの一覧を右に配置。HTML の並び順は変えず(セリフの一覧が先)、order だけで見た目を入れ替えている */
+   表示部(映像)を左、セリフの一覧を右に配置。HTML の並び順は変えず(セリフの一覧が先)、order だけで見た目を入れ替えている */
 .editor{min-width:0;container:editor / inline-size}
 /* 映像の列は最大 460px(メニューを閉じたら 540px)だが、編集欄の 40% を超えない(校正の主役はセリフの一覧なので、狭い画面では一覧を優先) */
-.tx-grid{display:grid;grid-template-columns:minmax(300px,min(640px,40%)) minmax(420px,1fr);gap:16px;align-items:start}   /* 広い画面では映像を大きく(以前は 460px まで) */
+.tx-grid{display:grid;grid-template-columns:minmax(300px,min(640px,40%)) minmax(420px,1fr);gap:16px;align-items:start}   /* 広い画面では映像を大きく */
 .app.menu-closed .tx-grid{grid-template-columns:minmax(300px,min(760px,44%)) minmax(420px,1fr)}   /* メニューを閉じたら、映像を少し大きく */
 .tx-list{min-width:0;order:2}
-/* v0.9.8: 2カラムのときは、映像の列(.tx-stage)ごと画面に固定し、列の中だけでスクロールする。
-   (以前は .pbox だけが固定で、その下の「話者・置換・書き出し」が映像の裏に潜って見えなかった) */
+/* 2カラムのときは、映像の列(.tx-stage)ごと画面に固定し、列の中だけでスクロールする(.pbox だけを固定すると、その下の道具のカードが映像の裏に潜って見えない) */
 .tx-stage{min-width:0;order:1;position:sticky;top:calc(var(--toph,52px) + 8px);max-height:calc(100dvh - var(--toph,52px) - 16px);overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;padding-bottom:8px}
 .pbox{position:sticky;top:var(--toph,52px);z-index:5;background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:12px;box-shadow:var(--shadow-1)}
 .tx-stage>.pbox{position:static}
 /* 1カラムに戻すかどうかは、ビューポートではなく編集欄そのものの幅で決める(メニューの開閉で幅が変わるため)。
-   v0.15.0: 1カラムのときは .tx-stage と .pbox を display:contents にして、映像と再生の道具(.tt-player)だけを一覧の上に固定し、道具のカードは一覧の後ろに置く
-   (以前は題名・道具・進み具合まで固定していて、狭い画面では一覧がほとんど見えなかった。sticky は親の箱の中でしか効かないため contents にする) */
+   1カラムのときは .tx-stage と .pbox を display:contents にして、映像と再生の道具(.tt-player)だけを一覧の上に固定し、道具のカードは一覧の後ろに置く
+   (題名・道具・進み具合まで固定すると、狭い画面では一覧がほとんど見えない。sticky は親の箱の中でしか効かないため contents にする) */
 @container editor (max-width:780px){
   .tx-grid,.app.menu-closed .tx-grid{grid-template-columns:minmax(0,1fr);row-gap:10px}
   .tx-stage,.tx-stage>.pbox{display:contents}
@@ -231,7 +230,7 @@ html.vid-audio #player{height:54px;max-height:none}   /* 校正の映像だけ(�
 .tt-strip-legend{display:flex;flex-wrap:wrap;gap:2px 12px;margin:4px 0 0;font-size:11.5px;color:var(--ink-3)}
 .tt-strip-legend span{display:inline-flex;align-items:center;gap:4px}.tt-strip-legend i{width:10px;height:6px;border-radius:2px;background:var(--line-2)}.tt-strip-legend i.ok{background:var(--ok)}.tt-strip-legend i.warn{background:var(--warn)}   /* 帯(#strip)と同じ色 */
 .tx-stage>.card{margin-top:10px}
-/* 映像の下の道具のカード(話者・文字をまとめて直す・書き出し・以前の版)。v0.15.0 で「話者・置換・書き出し」を役割ごとに分けた */
+/* 映像の下の道具のカード(話者・文字をまとめて直す・書き出し・以前の版) */
 .tt-tool>summary{font-size:14px}
 .tt-tool>summary .hint{font-weight:450;font-size:12px}
 .tt-tool .fld{border-top:1px solid var(--line);margin-top:12px;padding-top:12px}
@@ -240,18 +239,18 @@ html.vid-audio #player{height:54px;max-height:none}   /* 校正の映像だけ(�
 .tt-tool .fld>.hint,.tt-tool .fld>span.hint{display:block;margin-top:6px;font-size:12px;color:var(--ink-3);line-height:1.5}
 .tt-tool .row+.row{margin-top:8px}
 /* 道具への移動(「道具 ▾」) */
-/* ---------- パックのタブの進み具合・手順書(v0.15.0 の「カットとパック」のカードの名残の名前。カードは v0.16.0 で 2 カット・3 パック のタブへ移した)---------- */
+/* ---------- パックのタブの進み具合・手順書 ---------- */
 .tt-cp-job{margin-top:8px;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel-2);font-size:12.5px}
 .tt-cp-job .row{margin-top:6px;justify-content:space-between;flex-wrap:nowrap}
 .tt-cp-job .bar{margin-top:6px}
 .tt-cp-readme{white-space:pre-wrap;font:12px/1.55 var(--mono);max-height:260px;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:8px 10px;margin:6px 0 0;color:var(--ink-2)}
 .tt-player{position:relative}
-/* 映像の上に重ねる今の行の字幕(段2。1 文字起こし のタブ)。飾り扱い(aria-hidden。同じ情報は一覧から読める) */
+/* 映像の上に重ねる今の行の字幕(1 文字起こし のタブ)。飾り扱い(aria-hidden。同じ情報は一覧から読める) */
 .tt-vbox{position:relative}
 html.vid-audio #playerCaption{display:none}   /* 音声だけのとき(映像が 54px)は重ねない */
 .tt-caption{position:absolute;left:6%;right:6%;bottom:14%;text-align:center;font-size:clamp(14px,2.4vw,26px);line-height:1.3;pointer-events:none;white-space:pre-wrap;word-break:break-word;z-index:1}
-dialog.ui-dialog .ui-dlg-body{white-space:pre-line;overflow-wrap:anywhere;max-height:min(60vh,520px)}   /* UIKit.dialog の本文の改行を残す(上書きするファイルの一覧・声を覚える人の一覧。M3) */
-/* 動画を選び直す(段2 B-4) */
+dialog.ui-dialog .ui-dlg-body{white-space:pre-line;overflow-wrap:anywhere;max-height:min(60vh,520px)}   /* UIKit.dialog の本文の改行を残す(上書きするファイルの一覧・声を覚える人の一覧) */
+/* 動画を選び直す */
 #relinkDlg{width:min(620px,calc(100% - 32px));padding:0}
 .tt-rl-old{display:flex;gap:6px;align-items:center}
 .tt-rl-old input{flex:1;min-width:0;color:var(--ink-2)}
@@ -275,7 +274,7 @@ dialog.ui-dialog .ui-dlg-body{white-space:pre-line;overflow-wrap:anywhere;max-he
 /* ⚙ 設定の「名前 + select」の1行の下に小さい説明を置く(ui-kit の1行の形は変えず、折り返して下の段に) */
 #edSettings .tt-set-hinted:has(>select){flex-wrap:wrap}
 #edSettings .tt-set-hinted>.hint{flex:0 0 100%;margin:-2px 0 0;font-size:12px;color:var(--ink-3);line-height:1.5}
-/* 行の右クリックのメニュー(段2)。押した位置に浮かせる(.ui-pop-body の既定の absolute/right ではなく) */
+/* 行の右クリックのメニュー。押した位置に浮かせる(.ui-pop-body の既定の absolute/right ではなく) */
 .tt-ctxmenu{position:fixed;top:auto;right:auto;left:0;min-width:200px;z-index:65}
 .tt-keyhint{display:flex;flex-wrap:wrap;align-items:center;gap:3px 12px;margin:6px 0 0;padding:4px 4px 4px 10px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel-2);font-size:12px;color:var(--ink-2)}
 .tt-keyhint kbd{font-size:10.5px}
@@ -284,7 +283,7 @@ dialog.ui-dialog .ui-dlg-body{white-space:pre-line;overflow-wrap:anywhere;max-he
 .tt-kh-end{margin-left:auto;display:inline-flex;gap:2px;align-items:center}
 .tt-kh-end .btn{min-height:24px}
 /* 2列のときは、一覧の上に固定する(長い一覧のどこにいても、検索・絞り込み・キーの手がかりが見える) */
-/* v0.56.1(2026-10-06 ユーザーの指摘「再生で行が切り替わるとき、画面全体が動くのはよくない」): 2列のときは、行の一覧(.tx-list)も映像の列と同じく
+/* 2列のときは、行の一覧(.tx-list)も映像の列と同じく
    画面に固定し、列の中だけでスクロールする。再生に合わせた行の追いかけ(ensureVisible)は、この列の中だけを動かす(窓は動かさない)。
    一覧の端まで来たら窓へ続けてスクロールする(contain にしない。上の題名の行の分だけ窓を動かして、一覧の下の端を見られるように) */
 @container editor (min-width:781px){.tx-list{position:sticky;top:calc(var(--toph,52px) + 8px);max-height:calc(100dvh - var(--toph,52px) - 16px);overflow:auto;scrollbar-width:thin}
@@ -301,7 +300,7 @@ dialog.ui-dialog .ui-dlg-body{white-space:pre-line;overflow-wrap:anywhere;max-he
 .pop{position:relative}.pop>summary{list-style:none;cursor:pointer;display:inline-flex}.pop>summary::-webkit-details-marker{display:none}
 .vpop{position:absolute;right:0;top:100%;margin-top:6px;z-index:60;background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-lg);padding:12px 14px;width:280px;box-shadow:var(--shadow-3);animation:ui-pop .14s var(--ease)}
 .pop.l .vpop{left:0;right:auto}
-.vpop.tt-vpop-fixed{position:fixed;margin-top:0;overflow-y:auto;z-index:70}   /* 「まとめて」: 映像の列の overflow で切れないよう画面に固定(S1。app.js の placeMoreTools) */
+.vpop.tt-vpop-fixed{position:fixed;margin-top:0;overflow-y:auto;z-index:70}   /* 「まとめて」: 映像の列の overflow で切れないよう画面に固定(app.js の placeMoreTools) */
 .vpop .fld:first-child{margin-top:0}
 .vpop .fld>label,.vpop .fld>.l{display:block;font-size:12.5px;font-weight:550;color:var(--ink-2);margin-bottom:4px}
 .vpop .fld>select{width:100%}
@@ -310,18 +309,18 @@ dialog.ui-dialog .ui-dlg-body{white-space:pre-line;overflow-wrap:anywhere;max-he
 
 /* ---------- セリフの行(.seg) ----------
    校正はこのツールで一番長くやる作業なので、文字を主役にする(入力欄の枠は、触れたときだけ出す)。
-   行の数が数千になっても重くならないように、content-visibility で画面外の行の描画を省く(v0.7.1 から) */
+   行の数が数千になっても重くならないように、content-visibility で画面外の行の描画を省く */
 #segs{container-type:inline-size;border:1px solid var(--line);border-bottom:0;border-radius:var(--r-lg);overflow:clip;background:var(--panel)}
 #segs:empty{border:0}
 .seg{display:grid;grid-template-columns:18px 30px 140px 118px minmax(0,1fr) auto;gap:6px 8px;align-items:start;padding:7px 10px 7px 8px;
-  border:0;border-bottom:1px solid var(--line);border-left:4px solid var(--sp,var(--line));border-radius:0;background:var(--panel);margin:0;   /* 段3 の仕上げ: 行は1枚の紙の上に細い線で並べる */
+  border:0;border-bottom:1px solid var(--line);border-left:4px solid var(--sp,var(--line));border-radius:0;background:var(--panel);margin:0;   /* 行は1枚の紙の上に細い線で並べる */
   content-visibility:auto;contain-intrinsic-size:auto 58px;scroll-margin-top:calc(var(--toph,52px) + 8px);scroll-margin-bottom:24px;
   transition:background-color .2s}
 .seg[hidden]{display:none}
 .seg>input.sel{margin-top:8px}
 .seg .play{width:30px;height:30px;display:grid;place-items:center;border:1px solid var(--line-2);background:var(--panel);border-radius:50%;cursor:pointer;color:var(--ink-2);font-size:10px;padding:0;transition:background var(--dur),color var(--dur),border-color var(--dur)}
 .seg .play:hover{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
-.seg .times{display:flex;align-items:center;gap:2px;font-size:12px;color:var(--ink-3);padding-top:2px}   /* 時刻の間の「–」は情報の文字なので --ink-3(--ink-4 は 3.6:1。A-22) */
+.seg .times{display:flex;align-items:center;gap:2px;font-size:12px;color:var(--ink-3);padding-top:2px}   /* 時刻の間の「–」は情報の文字なので --ink-3(--ink-4 は 3.6:1) */
 .seg .t{width:66px;min-width:0;min-height:28px;padding:3px 4px;font-family:var(--mono);font-size:12px;text-align:center;background:var(--panel-2);border-color:transparent;color:var(--ink-2);font-variant-numeric:tabular-nums}   /* 時刻の欄(UIKit.timebox の .ui-time) */
 .seg .t:hover{border-color:var(--line-2)}
 .seg .t:focus{background:var(--field);color:var(--ink);border-color:var(--accent)}
@@ -336,7 +335,7 @@ dialog.ui-dialog .ui-dlg-body{white-space:pre-line;overflow-wrap:anywhere;max-he
 html.fsz .seg textarea{field-sizing:content;height:auto}
 /* 右端の状態の切り替え(残す/カット済・校正済み) */
 .seg .ops{display:flex;gap:4px;flex-wrap:nowrap;justify-content:flex-end;align-items:center;padding-top:1px}
-/* 0.59.3(UI の見直し M1・S15): 行の「残す / カット」は 2 択の切り替え(.tt-kc。今の状態の側が押された形。2 カット の字幕の一覧も同じ)、「校正済み」は .btn.small + aria-pressed */
+/* 行の「残す / カット」は 2 択の切り替え(.tt-kc。今の状態の側が押された形。2 カット の字幕の一覧も同じ)、「校正済み」は .btn.small + aria-pressed */
 .seg .ops .btn.pf{min-height:28px;padding:0 10px;font-size:12px;font-weight:600;color:var(--ink-2)}
 .seg .ops .btn.pf[aria-pressed=true]{background:var(--ok-soft);color:var(--ok-ink);border-color:color-mix(in srgb,var(--ok) 45%,transparent)}
 .seg .ops .btn.pf[aria-pressed=true]::before{content:"";width:8px;height:4px;margin:-3px 0 0;border-left:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(-45deg);flex:none}   /* 済みの印(線で描く。文字の ✓ はやめた) */
@@ -352,7 +351,7 @@ html.fsz .seg textarea{field-sizing:content;height:auto}
 .seg.proofed{border-right:4px solid var(--ok)}
 .seg.flag{background:var(--tt-flag-soft)}
 .seg.cur{background:var(--tt-play-soft);box-shadow:inset 3px 0 0 0 var(--accent)}
-.seg:has(.sel:checked){background:var(--tt-pick-soft);border-color:color-mix(in srgb,var(--tt-pick) 55%,transparent)}   /* v0.9.6: 一括操作のチェック(複数選択)は、今の行(太枠)と見た目を分ける */
+.seg:has(.sel:checked){background:var(--tt-pick-soft);border-color:color-mix(in srgb,var(--tt-pick) 55%,transparent)}   /* 一括操作のチェック(複数選択)は、今の行(太枠)と見た目を分ける */
 .seg.cut{background-image:repeating-linear-gradient(135deg,transparent 0 9px,var(--tt-cut-stripe) 9px 18px)}
 .seg.cut textarea{text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--danger) 70%,transparent);color:var(--ink-3)}
 .seg.cut .times .t,.seg.cut .spk{opacity:.7}
@@ -360,7 +359,7 @@ html.fsz .seg textarea{field-sizing:content;height:auto}
 .seg.was{animation:wasfade 1.4s ease-out forwards}@keyframes wasfade{from{outline:3px solid color-mix(in srgb,var(--accent) 45%,transparent);outline-offset:-1px}to{outline:3px solid transparent;outline-offset:-1px}}
 @media (prefers-reduced-motion:reduce){.seg.was{animation:none}}
 /* 要確認の印・提案・音の状態のメモ・選んだ行の操作 */
-/* 0.59.3: 要確認の印は押せるので .btn.small.ghost の形(押すと確認済み・知らせに [元に戻す]。UI の見直し S15)。文字は --warn-ink を少し濃く(A-22) */
+/* 要確認の印は押せるので .btn.small.ghost の形(押すと確認済み・知らせに [元に戻す])。文字は --warn-ink を少し濃く */
 .seg .btn.fl{grid-column:5;justify-self:start;justify-content:flex-start;gap:5px;font-size:12px;font-weight:550;color:color-mix(in srgb,var(--warn-ink) 85%,var(--ink));padding:3px 8px 3px 4px;max-width:100%;white-space:normal;text-align:left;line-height:1.4}
 .seg .btn.fl::before{content:"!";display:inline-grid;place-items:center;flex:none;width:14px;height:14px;border-radius:50%;background:var(--warn);color:var(--panel);font:800 10px/1 var(--font)}
 .seg .btn.fl:hover:not(:disabled){color:var(--ink);background:var(--warn-soft)}
@@ -384,13 +383,13 @@ html.fsz .seg textarea{field-sizing:content;height:auto}
 .adj .rowops{gap:4px;flex-wrap:wrap}.adj .rowops button{padding:0 9px}
 .adj .rowops button.del{color:var(--danger)}
 .adj .rowops button.del:hover{background:var(--danger-soft);border-color:color-mix(in srgb,var(--danger) 45%,transparent)}
-/* 字幕に出さない行(noSub。ゲームの声など。2026-10-05): 薄く出して札を付ける(行は消さない・時刻も文字も直せる) */
+/* 字幕に出さない行(noSub。ゲームの声など): 薄く出して札を付ける(行は消さない・時刻も文字も直せる) */
 .seg.nosub textarea,.seg.nosub .times .t,.seg.nosub .spk{opacity:.5}
 .seg.nosub textarea:focus{opacity:.85}
 .seg .tt-nosub-pill{grid-column:5;justify-self:start}
 .seg:not(.nosub) .tt-nosub-pill{display:none}
 .adj button.tt-nosub-btn[aria-pressed=true]{background:var(--info-soft);border-color:color-mix(in srgb,var(--info) 45%,transparent);color:var(--info-ink);font-weight:600}
-/* 字幕の読む速さの札(2026-10-05。app-rows.js の readHTML。速い n字/秒・短い n秒)と、選んだ行の「時刻を言葉に合わせる」(.adj の中の .tt-rt) */
+/* 字幕の読む速さの札(app-rows.js の readHTML。速い n字/秒・短い n秒)と、選んだ行の「時刻を言葉に合わせる」(.adj の中の .tt-rt) */
 .seg .tt-read{grid-column:5;justify-self:start;display:flex;gap:6px;flex-wrap:wrap}.seg .tt-read:empty{display:none}
 .tt-read-count{white-space:nowrap}
 .adj .tt-rt{gap:4px;flex-wrap:wrap}
@@ -399,7 +398,7 @@ html.fsz .seg textarea{field-sizing:content;height:auto}
 .adj .tt-rt button:disabled{opacity:.5;cursor:default}
 @container (max-width:700px){ #segs .seg .tt-read{grid-column:1/-1} }
 @container (max-width:520px){ #segs .seg .tt-read{order:2} }
-/* 映像の上の字幕で、重なる行を積んだとき(2026-10-05)。1 行ずつ話者の色(--tt-cap-color。無ければ外側の色のまま) */
+/* 映像の上の字幕で、重なる行を積んだとき。1 行ずつ話者の色(--tt-cap-color。無ければ外側の色のまま) */
 .tt-cap-line{display:block;color:var(--tt-cap-color,#000)}   /* ui-audit: allow A-08 字幕の既定の黒(仕上がりと同じ色。両テーマで同じ) */
 .tt-cap-line+.tt-cap-line{margin-top:.15em}
 /* 話者の欄の「字幕の色」(16 進 6 桁・# なし) */
@@ -410,7 +409,7 @@ html.fsz .seg textarea{field-sizing:content;height:auto}
 .tt-sp-subsw[hidden]{display:none}
 .sp-row.tt-sp-other input[type=text]{color:var(--ink-3)}
 /* 一覧が狭いとき: 1段目に「□ ▶ 時刻 話者 校正済み」、2段目から文字(全幅)と、選んだ行の操作
-   (v0.9.6: 一覧の実際の幅で判断する。2カラム化でビューポート幅と一覧の幅が一致しなくなったため、コンテナクエリにした) */
+   (一覧の実際の幅で判断する。2カラムではビューポート幅と一覧の幅が一致しないため、コンテナクエリ) */
 @container (max-width:700px){
   #segs .seg{grid-template-columns:18px 30px auto minmax(0,1fr) auto}
   #segs .seg .times{grid-column:3}#segs .seg .spk{grid-column:4;min-width:0;max-width:170px}#segs .seg .ops{grid-column:5;grid-row:1}
@@ -418,7 +417,7 @@ html.fsz .seg textarea{field-sizing:content;height:auto}
   #segs .seg textarea{margin-top:-2px}
 }
 @container (max-width:520px){
-  /* v0.15.0: とても狭いとき(スマホ)は「残す/カット済・校正済み」を文字の下の段に(話者の欄と重ならないように) */
+  /* とても狭いとき(スマホ)は「残す/カット済・校正済み」を文字の下の段に(話者の欄と重ならないように) */
   #segs .seg{gap:6px;grid-template-columns:18px 30px auto minmax(0,1fr)}
   #segs .seg .ops{grid-column:1/-1;grid-row:auto;order:1}
   #segs .seg .sug,#segs .seg .tg,#segs .seg .adj,#segs .seg .fl,#segs .seg .tt-nosub-pill{order:2}
@@ -435,7 +434,7 @@ html.dense .seg{padding:3px 8px 3px 6px;margin-bottom:3px;gap:3px 6px}html.dense
 .tt-flow{margin:12px 0 0;padding:10px 12px;border-radius:var(--r);background:var(--accent-soft);font-size:13px;color:var(--ink)}
 
 
-/* ---------- 保存の状態と題名の行(タブの並び .tt-edtabs は案件の画面へ移って消した) ---------- */
+/* ---------- 保存の状態と題名の行 ---------- */
 .ui-header-actions>.savest{margin-right:4px}
 @media (max-width:720px){.ui-header-actions>.savest{display:none}}
 /* 題名の行: どのタブにも出す */
@@ -445,8 +444,8 @@ html.dense .seg{padding:3px 8px 3px 6px;margin-bottom:3px;gap:3px 6px}html.dense
 .tt-docbar-pills{display:inline-flex;flex-wrap:wrap;gap:6px;margin-left:auto}
 .tt-docbar-pills .pill{font-variant-numeric:tabular-nums}
 .tt-tabpanel{min-width:0}
-.tt-norec-btns{justify-content:center;margin:10px 0 6px}   /* 文字が認識されなかった文書の次の一手(段7 E-14) */
-/* ホームから開いていないときの「まとめて実行」(段7 E-17): 隠さず、押せない見た目と理由 */
+.tt-norec-btns{justify-content:center;margin:10px 0 6px}   /* 文字が認識されなかった文書の次の一手 */
+/* ホームから開いていないときの「まとめて実行」: 隠さず、押せない見た目と理由 */
 .tt-need-home{display:block;margin:2px 0 0}
 .tt-batch label:has(> input:disabled){opacity:.6;cursor:not-allowed}
 .tt-bulkcut{margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}
@@ -463,7 +462,7 @@ html[data-edtab-now=cut] #btnMenu{display:none}   /* カットのタブでは帯
 .app.tab-wide.menu-overlay+.tt-scrim{display:block;position:fixed;left:0;right:0;bottom:0;top:var(--toph,52px);z-index:44;background:rgba(8,10,14,.45)}   /* ui-audit: allow A-08 幕(両テーマで同じ暗さ) */
 @media (max-width:719.98px){.app.tab-wide{grid-template-columns:minmax(0,1fr)}.app.tab-wide>.tt-mstrip{flex-direction:row;position:static}}
 
-/* ---------- 2 カット(E3。cut.js) ---------- */
-/* カット・パックのタブの見た目の正は src/app/ui/cases/cases.css(案件の画面がいつも読む)。ここにあった同じ 167 行の写しは C-EVAL(S2)で消した */
+/* ---------- 2 カット(cut.js) ---------- */
+/* カット・パックのタブの見た目の正は src/app/ui/cases/cases.css(案件の画面がいつも読む)。ここには書かない */
 html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは、ページの縦のスクロールバーの出入りで、タイムラインの幅(と倍率)が変わらないように */
-.tt-cut-status .tt-cut-next{margin-left:auto}   /* 次の一手「3 パックへ」は状態の行の右端(M6) */
+.tt-cut-status .tt-cut-next{margin-left:auto}   /* 次の一手「3 パックへ」は状態の行の右端 */

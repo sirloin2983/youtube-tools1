@@ -1,6 +1,5 @@
-/* 案件の画面(/cases)の「候補」のパネル(src/app/ui/cases/panels/cand.js。RS8 C2a)の見た目。もとはスタジオ ② の review.css と app.css の要る分の写しで、
-   スタジオの画面は RS8 C4 で消した = 今はここが正。クラス名は rv- のまま。
-   写すときに変えた所: 配信の選択(探す一覧・開く)の規則は消した(パネルでは案件を左の一覧で選ぶ)・幅の区切りは左の一覧(280px)の分だけ広げた(960/961 → 1240/1241・1180 → 1460)・シアター表示の列の幅は 100vw でなく 100%(パネルの幅)から */
+/* 案件の画面(/cases)の「候補」のパネル(src/app/ui/cases/panels/cand.js)の見た目。クラス名は rv-。
+   パネルの形: 配信の選択(探す一覧・開く)の規則は持たない(パネルでは案件を左の一覧で選ぶ)・幅の区切りは左の一覧(280px)の分だけ広げてある(1240/1241・1460)・シアター表示の列の幅は 100vw でなく 100%(パネルの幅)から */
 :root{--cs-head:var(--header-h,52px);--cs-in:#0a6e78;--cs-out:#a8420e;--cs-auto:var(--c-4);--cs-cand:var(--warn)}
 :root[data-theme=dark]{--cs-in:var(--c-5);--cs-out:#ff9358}
 @media (prefers-color-scheme:dark){:root:not([data-theme]){--cs-in:var(--c-5);--cs-out:#ff9358}}
@@ -41,12 +40,12 @@
 .rv-autosteps{flex:1 1 100%;overflow-wrap:anywhere;font-size:12px}
 .rv-vmenu>summary svg{width:16px;height:16px}
 .rv-vmenupop{position:absolute;right:0;top:calc(100% + 6px);z-index:60;width:min(380px,calc(100vw - 24px));padding:12px;background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-lg);box-shadow:var(--shadow-3);animation:ui-pop .14s var(--ease);display:flex;flex-direction:column;gap:6px}
-.rv-vmenupop>input{width:100%}   /* 幅いっぱいは名前の欄(#rvTitle)だけ。label.lag の中の欄(配信者・パックの音量の %)まで 100% にすると、ラベルが 1 文字ずつ縦に割れていた(見直し M4) */
+.rv-vmenupop>input{width:100%}   /* 幅いっぱいは名前の欄(#rvTitle)だけ。label.lag の中の欄(配信者・パックの音量の %)まで 100% にすると、ラベルが 1 文字ずつ縦に割れる */
 .rv-vmenuacts{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
 .rv-vmenuacts .btn{white-space:normal;text-align:left}
 /* 画面の中の移動(プレーヤー・マーク・書き出し) */
 .rv-jump{display:flex;gap:4px;align-items:center}
-.rv-jumpb{gap:5px;white-space:nowrap}   /* 0.22.3: 押せるものは .btn(以前は丸い札の形。見直し S12) */
+.rv-jumpb{gap:5px;white-space:nowrap}   /* 押せるものは .btn */
 .rv-jumpb b{font-weight:700;color:var(--ink)}
 .rv-jumpb svg{width:13px;height:13px}
 .rv-jump-exp{border-color:var(--accent-line);color:var(--accent-ink2);background:var(--accent-soft)}
@@ -90,7 +89,7 @@
 .rv-chip.live{color:var(--danger-ink);border-color:color-mix(in srgb,var(--danger) 40%,transparent);background:var(--danger-soft)}
 .rv-chip.score{color:var(--ink);font-family:var(--mono)}
 .rv-chip.st.exported{color:var(--ink-2);background:var(--panel-3)}
-.rv-chip.arch{color:var(--info-ink);border-color:color-mix(in srgb,var(--info-ink) 35%,transparent);background:var(--info-soft)}   /* 本番版(アーカイブから作り直して入れ替えた。ライブの録画の P4) */
+.rv-chip.arch{color:var(--info-ink);border-color:color-mix(in srgb,var(--info-ink) 35%,transparent);background:var(--info-soft)}   /* 本番版(アーカイブから作り直して入れ替えた) */
 
 /* ---- プレーヤー(映像の背景は常に黒) ---- */
 .rv-player{aspect-ratio:16/9;max-width:100%;background:#000;border-radius:var(--r-lg);overflow:hidden;position:relative;box-shadow:var(--shadow-2)}
@@ -119,7 +118,7 @@
 .rv-draft{position:absolute;top:3px;bottom:3px;border-radius:4px;border:1.5px dashed var(--cs-in);background:color-mix(in srgb,var(--cs-in) 18%,transparent);pointer-events:none;z-index:1}
 .rv-ph{position:absolute;top:0;bottom:0;width:2px;margin-left:-1px;background:var(--accent);pointer-events:none;z-index:3}
 .rv-ph::before{content:"";position:absolute;top:0;left:-4px;width:10px;height:6px;background:var(--accent);clip-path:polygon(0 0,100% 0,50% 100%)}
-/* 盛り上がりグラフ(2026-10-04 見やすく。横幅と時間はタイムラインの .rv-tl とそろえたまま)。
+/* 盛り上がりグラフ(横幅と時間はタイムラインの .rv-tl とそろえたまま)。
    上から: 山の札の段(--g-top。段の数で JS が決める)→ 曲線(.rv-gplot)→ 時間の目盛りの帯(--g-axis)。帯と補助線(.rv-gbg)は上から目盛りの帯まで */
 .rv-graph{--g-top:28px;--g-axis:17px;position:relative;height:152px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel-2);overflow:hidden;cursor:crosshair}
 @media (max-width:640px){.rv-graph{height:128px}}
@@ -205,7 +204,7 @@
 .rv-live-l{display:flex;flex-wrap:wrap;gap:2px 12px;align-items:baseline}
 .rv-live-badge{background:var(--danger);color:var(--danger-on);font-weight:700;font-size:11px;padding:1px 8px;border-radius:4px}
 .rv-live-k{font-size:11.5px;color:var(--ink-3)}
-/* 「ライブ端へ」と音量・消音(0.26.0。録画のプレーヤーは標準のコントロールを出さないので、音量を変える口はここ) */
+/* 「ライブ端へ」と音量・消音(録画のプレーヤーは標準のコントロールを出さないので、音量を変える口はここ) */
 .rv-live-r{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
 .rv-livevol{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink-2);white-space:nowrap}
 .rv-livevol input[type=range]{width:110px}
@@ -270,7 +269,7 @@
 .rv-addcell .hint{font-size:12px}
 
 /* ---- 操作の設定(音量・キー) ---- */
-/* 0.22.3: ⚙ 設定の「② の操作」の節の中(#opsHost)に置く。節のカードの中なので、自分の枠は持たない */
+/* ⚙ 設定の「② の操作」の節の中(#opsHost)に置く。節のカードの中なので、自分の枠は持たない */
 .rv-setpanel{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr));gap:0 24px}
 .rv-setpanel>.rv-sec:first-child{border-top:0;padding-top:0}
 .rv-sec{padding:10px 0;border-top:1px solid var(--line);min-width:0}
@@ -329,7 +328,7 @@
 .rv-filters>button[aria-pressed=true] .n{color:var(--accent-ink2)}
 .rv-listtools2{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
 #rvSort{min-height:var(--ctl-h-sm);padding-top:2px;padding-bottom:2px;font-size:12.5px}
-/* 5-4: マークの一覧は、ホーム・編集と同じ「1枚の紙」(.ui-sheet と同じ: 外枠1つ・行の間は細い線・行ごとの角丸/影なし)。
+/* マークの一覧は、ホーム・編集と同じ「1枚の紙」(.ui-sheet と同じ: 外枠1つ・行の間は細い線・行ごとの角丸/影なし)。
    左の状態の色の線は border ではなく inset の影で描く(border-top の線と左上で斜めに噛み合わないため)。選んだ行は outline(隣の線と重ならない) */
 .rv-list{list-style:none;margin:2px 0 0;padding:0;display:flex;flex-direction:column;gap:0;overflow-y:auto;overscroll-behavior:contain;flex:0 1 auto;min-height:0;scrollbar-gutter:stable;container-type:inline-size;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel)}
 @media (max-width:1240px){.rv-list{max-height:none;overflow:visible}}
@@ -388,7 +387,7 @@
 .rv-trow .ui-time{min-width:0;width:11ch;flex:0 0 auto;min-height:28px;padding:1px 4px;font-size:13px}   /* 開始・終了の時刻の欄(UIKit.timebox。0:01:23.5) */
 .rv-trow .btn{min-height:28px;padding:0 8px;font-size:12px;flex:0 0 auto;box-shadow:none}
 .rv-nudges .btn{flex:1 1 0;min-width:0;padding:0;font-family:var(--mono)}
-/* B-11: 微調整(±5/±1/±0.5・現在位置)は選んだマークにだけ出す。一覧では時刻・長さ・ラベル・判定を比べやすく */
+/* 微調整(±5/±1/±0.5・現在位置)は選んだマークにだけ出す。一覧では時刻・長さ・ラベル・判定を比べやすく */
 .rv-mark-row:not(.sel) .rv-nudges,.rv-mark-row:not(.sel) [data-act=setnow]{display:none}
 .rv-labelrow input{width:100%;min-height:30px;padding:2px 8px;font-size:13px}
 .rv-file{overflow-wrap:anywhere;font-size:12px}
@@ -434,12 +433,12 @@
 .rv-livewhobody input[type=text]{width:calc(100% - 28px)}
 .rv-livewhobody .hint{margin:6px 0 0}
 
-/* ---- スタジオの app.css から写した、パネルの中で使う部品 ---- */
+/* ---- パネルの中で使う部品 ---- */
 .cs-notice-act{display:flex;align-items:center;gap:10px 16px;flex-wrap:wrap}
 .cs-notice-act>div{flex:1 1 320px;min-width:0}
 .q-dot{color:var(--ink-3)}
 .q-raw{font-size:11.5px;color:var(--ink-3)}
-.q-raw>summary{cursor:pointer;width:max-content;max-width:100%;min-height:28px;line-height:28px;font-weight:400}   /* 開閉の印は ui-disclosure の線の山形(ブラウザの三角をやめた。2 周目 N5) */   /* 押せる部品は 28px 以上(A-21) */
+.q-raw>summary{cursor:pointer;width:max-content;max-width:100%;min-height:28px;line-height:28px;font-weight:400}   /* 開閉の印は ui-disclosure の線の山形 */   /* 押せる部品は 28px 以上(A-21) */
 .q-raw code{display:block;margin-top:2px;white-space:pre-wrap}
 .cs-emptyacts{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-top:10px}
 .cs-keyhelp{width:min(820px,calc(100% - 32px));max-width:none;max-height:calc(100dvh - 48px);padding:0;overflow:hidden}

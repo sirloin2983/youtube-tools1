@@ -1,9 +1,9 @@
-/* 案件の画面の「候補」のパネル(#cand。配信全体の候補の採用・不採用・書き出し・LIVE の帯。RS8 C2a)。口の形は cases.js の先頭の説明。
-   中身はスタジオ ② の部品 src/app/ui/studio/review.js(window.StudioReview.create(env))をそのまま使う = 古い画面と同じコード・同じ動き(古い画面は凍結。C4 で review.js をここへ移して古い画面を消す)。
+/* 案件の画面の「候補」のパネル(#cand。配信全体の候補の採用・不採用・書き出し・LIVE の帯)。口の形は cases.js の先頭の説明。
+   中身はスタジオ ② の部品 src/app/ui/studio/review.js(window.StudioReview.create(env))をそのまま使う。
    このファイルは「つなぎ」だけ: review.js を studio/review.js から 1 回読み(タブを開いたときだけ)、パネルの箱の中で作り、core.js の window.Studio の代わり(Studio の写し)を渡す。
      DOM はパネルの箱(el の子)の中だけを引く(document.getElementById・document.querySelector は使わない)・keydown は殻の 1 本から keys(e) で受ける・
      離れた / 戻ったは殻の leave / back で受ける・下のキーの帯は keybar() で殻へ渡す・API はスタジオの今の口(ctx.api('studio', …)。合言葉は ui-kit)。
-   古い画面との違い(パネルの中だけ): 配信の選択(探す一覧・URL を開く)は出さない(案件は左の一覧で選ぶ)・キー操作の一覧(?)はパネルの中のダイアログ・
+   パネルの中だけの形: 配信の選択(探す一覧・URL を開く)は出さない(案件は左の一覧で選ぶ)・キー操作の一覧(?)はパネルの中のダイアログ・
      「② の操作」(キー配置・ライブのマークをまとめてずらす)はパネルの下の畳んだ欄・「この配信を解析する」は解析の順番待ちへ直に入れる・
      出力先の「変更」は設定の画面へ・「編集で開く」は案件の画面(/cases?v=<動画のパス>#proof。文書があればその校正・無ければホームの新しい案件の欄)・ヘッダーの録画中の札の「開く」は札の既定の行き先。
    CSS は panels/cand.css(review.css の写し)。 */
@@ -87,7 +87,7 @@
       },
       /* 出力先などスタジオの設定は設定の画面(入口の /settings のスタジオの節)で変える */
       openSettings: function () { location.assign(UIKit.homeUrl('settings') + '#sec-studio'); },
-      /* 「この配信を解析する」: 解析の順番待ちへ入れる(スタジオ ① の queue.js と同じ口。解析の設定はスタジオの設定の analyze の節) */
+      /* 「この配信を解析する」: 解析の順番待ちへ入れる(スタジオ ① の queue.js と同じ口。解析の設定は設定の analyze の節) */
       enqueue: function (items) {
         return Studio.api('/api/settings').then(function (j) {
           var opts = j && j.settings && j.settings.analyze && typeof j.settings.analyze === 'object' ? j.settings.analyze : {};
@@ -158,7 +158,7 @@
       Studio.refreshState().catch(function () { /* ffmpeg の有無が分からないだけ */ });
       openVideo();
     }
-    /* ② のジョブ(この配信の解析・書き出しなど)が終わった = マークが増えた・書き出し済みになった → 読み直す(スタジオの画面で ② に戻ったときと同じ) */
+    /* ② のジョブ(この配信の解析・書き出しなど)が終わった = マークが増えた・書き出し済みになった → 読み直す */
     function watchJobs(ctx) {
       var all = (ctx.status && ctx.status.all) || [], now = {}, finished = false;
       all.forEach(function (j) {
@@ -207,7 +207,7 @@
         var dlg = q('#keyHelp'); if (dlg && dlg.open) dlg.close();
         if (started) UIKit.liveBadge.onOpen(null);
       },
-      /* 殻の keydown から(入力中・変換中・引き出しやダイアログの中は殻が除く)。? = キー操作の一覧(スタジオの画面と同じ)。ほかは review.js の keydown */
+      /* 殻の keydown から(入力中・変換中・引き出しやダイアログの中は殻が除く)。? = キー操作の一覧。ほかは review.js の keydown */
       keys: function (e) {
         if (e.key === '?' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.repeat) { Studio.openKeyHelp(); return true; }
         if (!keyFn) return false;

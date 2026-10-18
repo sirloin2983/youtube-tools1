@@ -1,16 +1,16 @@
 'use strict';
-/* 案件の画面(/cases)の校正のパネルに載せたとき(RS8 C2b)の口。src/app/ui/cases/edhost.js が app.js より先に window.EditHost を置く = {base(API の頭), keybar(帯), tab(タブ), open(別の文書), opening}。
-   古い編集の画面(/transcribe/)では null で、動きは今までどおり。載せたときは URL・左のメニュー・タブ・カットとパック(panels/cut.js が持つ)を殻に任せる */
+/* 案件の画面(/cases)の校正のパネルに載せたときの口。src/app/ui/cases/edhost.js が app.js より先に window.EditHost を置く = {base(API の頭), keybar(帯), tab(タブ), open(別の文書), opening}。
+   載せていないときは null。載せたときは URL・左のメニュー・タブ・カットとパック(panels/cut.js が持つ)を殻に任せる */
 const EDIT_HOST = window.EditHost || null;
 const APP_VERSION = (document.querySelector('meta[name="ytt-version"]') || {}).content || '';   // 全体の版(ytt/version.py)。入口が画面を返すときに meta ytt-version へ入れる(JS に版の文字は書かない)。入口なしだと空 = 版の比べはしない
 const $ = s => document.querySelector(s);
-const esc = UIKit.esc;   // ui-kit の 1 か所(null・undefined は ''。0.60.1 まで自前で 'null' になっていた)
+const esc = UIKit.esc;   // ui-kit の 1 か所(null・undefined は '')
 const S = { tools: null, settings: {}, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
   undo: [], sel: new Set(), curIdx: -1, playEnd: null, seen: new Set(), pollT: null,
   navIdx: -1, conflict: false, forceNext: false, baseUpdatedAt: null, stripR: null, sess: { n: 0, activeMs: 0, lastBreak: 0, lastAct: Date.now() },
   eff: { id: null, ms: 0 } };   // eff = 操作中の知らせ(effortFlush = 文書の effort.lastAt)を送るまでの、たまった操作の時間
 const PALETTE = ['#2f62d6', '#d9534f', '#2e9e5b', '#c98a12', '#8a4fd6', '#0f9aa8', '#d6479a', '#6b7280'];
-/* 組み込みの話者「ゲーム音声など」(ゲームのキャラ・NPC・動画の音声など、その場かぎりの声。2026-10-05)。サーバーの ed_state.OTHER_SPK_* と同じ値(変えるときは両方)。
+/* 組み込みの話者「ゲーム音声など」(ゲームのキャラ・NPC・動画の音声など、その場かぎりの声)。サーバーの ed_state.OTHER_SPK_* と同じ値(変えるときは両方)。
    話者の選択の候補に常に出し(話者なしの次・文書の話者より前)、選ぶと文書の speakers に 1 つだけ足す。名前は変えられない・声を覚えない・Alt+数字の番号に入らない。
    この話者を付けた行は「字幕に出さない」(行の印 noSub)が自動でオン、別の話者へ変えるとオフ */
 const OTHER_SP = Object.freeze({ id: 'other', name: 'ゲーム音声など', builtin: 'other', color: '#8a8f98' });
@@ -41,16 +41,16 @@ const VIEW_KEY = 'tx.view.v1';
 const V = { menu: true, fs: '15', dense: false, vid: 'l', follow: true, frameFollow: false, adjStep: '0.1', autoNext: false, rate: '1', brk: '45', sideTab: 'start' };
 const VID_H = { s: '18vh', m: '28vh', l: '38vh' };
 /* 「編集」の 2 つのタブ(notes:docs/design/edit-tool-design.md 3)。編集は案件の画面の中だけで動くので、タブは URL に残さない(URL は殻 cases.js のもの)。
-   0.62.0: 「3 パック」のタブは無くした(パックを作るのは 2 カット の末尾 #packArea・設定は ⚙ の「パック」。旧 #pack の読み替えは棚卸し G5 で消した)。
+   パックを作るのは 2 カット の末尾 #packArea・設定は ⚙ の「パック」。
    カット・パックのタブでは、左のメニューを細い帯に畳む(overlay = 帯から開いて本文の上に重ねている間)。V.menu(文字起こしのタブの開閉)とは別に持つ */
 const ED_TABS = ['tx', 'cut'];
 const EDT = { tab: 'tx', overlay: false };
 const wideTab = () => EDT.tab !== 'tx';
 const menuOpen = () => !EDIT_HOST && (wideTab() ? EDT.overlay : V.menu);   // 案件の画面では左のメニューを出さない(隠したメニューがキーを持たないように)
-/* 画面の色: v6 からは設定の引き出し(UIKit.settings。全体の節)に一本化(以前の #vTheme はなくした)。ここは帯の色の描き直しだけ */
+/* 画面の色は設定の引き出し(UIKit.settings。全体の節)で変える。ここは帯の色の描き直しだけ */
 UIKit.theme.onChange(() => { if (S.doc) drawStripSoon(); });   // ヘッダーのボタン・別のタブ・OS の設定・設定の引き出しで変わったとき(帯の色も描き直す)
-/* v0.15.0: 720px 未満では、左のメニューは本文の上に重ねる引き出し(CSS)。開いたら中へ、閉じたら ☰ へフォーカスを移す(キーボードで迷わないように) */
-const OVERLAY_MID = '(max-width: 1599.98px)';   // B-7: 文書を開いている間は、この幅まで左のメニューを重ねて開く(index.html の同じ幅の @media)
+/* 720px 未満では、左のメニューは本文の上に重ねる引き出し(CSS)。開いたら中へ、閉じたら ☰ へフォーカスを移す(キーボードで迷わないように) */
+const OVERLAY_MID = '(max-width: 1599.98px)';   // 文書を開いている間は、この幅まで左のメニューを重ねて開く(CSS の同じ幅の @media と合わせる)
 const isDrawer = () => wideTab() || !!(window.matchMedia && (matchMedia('(max-width: 719.98px)').matches || ($('.app').classList.contains('has-doc') && matchMedia(OVERLAY_MID).matches)));   // カット・パックのタブでも重ねて開く
 {
   const bind = (id, key, get) => $('#' + id).addEventListener('change', e => { V[key] = get(e.target); saveView(); applyView(); });
@@ -59,7 +59,7 @@ const isDrawer = () => wideTab() || !!(window.matchMedia && (matchMedia('(max-wi
   $('#btnMenu').addEventListener('click', () => toggleMenu());
   $('#btnMenuClose').addEventListener('click', () => toggleMenu(false));
   $('#noDocMenu').addEventListener('click', () => toggleMenu(true));
-  $('#noDocResumeBtn').addEventListener('click', resumeLast);   // 前回の続き(段7 E-7)
+  $('#noDocResumeBtn').addEventListener('click', resumeLast);   // 前回の続き
   $('#menuScrim').addEventListener('click', () => toggleMenu(false));   // 引き出しの外(暗い幕)を押したら閉じる
   document.querySelectorAll('[data-strip]').forEach(b => b.addEventListener('click', () => { if (b.dataset.strip === 'menu') toggleMenu(true); else setSideTab(b.dataset.strip, true); }));
   document.querySelectorAll('[data-edtab]').forEach(b => b.addEventListener('click', () => setEditTab(b.dataset.edtab)));
@@ -80,9 +80,9 @@ const isDrawer = () => wideTab() || !!(window.matchMedia && (matchMedia('(max-wi
   });
 }
 
-/* ---------- ヘッダーの ⚙(ui-kit v6。UIKit.settings)。「表示」の内容(旧 #viewMenu)をツールの節にし、画面の色は全体の節(ui-kit)へ一本化 ---------- */
+/* ---------- ヘッダーの ⚙(ui-kit v6。UIKit.settings)。「表示」の内容はツールの節、画面の色は全体の節(ui-kit) ---------- */
 $('#edSettings').hidden = false; UIKit.settings.mount({ tool: $('#edSettings'), title: '設定', version: 'v' + APP_VERSION });
-/* 左メニューの「すべての文字起こし → ホーム」(段2。履歴の一覧そのものはホーム(段5)ができるまでここに残す)。入口に取り込まれているときだけ */
+/* 左メニューの「すべての文字起こし → ホーム」。入口に取り込まれているときだけ */
 $('#txHomeLink').hidden = !UIKit.tools.mounted();
 document.addEventListener('DOMContentLoaded', setAppnavVersion);
 setAppnavVersion();
@@ -91,19 +91,19 @@ setAppnavVersion();
 S.ports = null;
 let sibP = null;
 
-/* ---------- 設定(用語集・置換辞書など。保存は差のキーだけ = app-core.js の sendSettings。監査 11) ---------- */
+/* ---------- 設定(用語集・置換辞書など。保存は差のキーだけ = app-core.js の sendSettings) ---------- */
 let setT = null, setSaved = {}, setFailed = false, setChain = Promise.resolve(true);
 S.settingsLoadErr = '';
 const setSnap = o => { const m = {}; for (const k of Object.keys(o || {})) m[k] = JSON.stringify(o[k]); return m; };
 const setStatus = (...a) => UIKit.settings.status(...a);
 /* 画面を離れた(ui-kit の UIKit.life: タブの切り替え 'hidden'・別の窓へ移った 'blur'・閉じる直前 'pagehide')。
-   窓を並べて使うと、隣の窓をクリックしてもタブの切り替え(visibilitychange)は来ないため(段階7-2)。visibilitychange を直接は使わない(0.60.1 で予備の経路を外した) */
+   窓を並べて使うと、隣の窓をクリックしてもタブの切り替え(visibilitychange)は来ないため。visibilitychange を直接は使わない */
 const onLeave = fn => UIKit.life.onLeave(fn);
 /* 入力の直後(0.6秒以内)にタブを閉じても設定が消えないように、画面を離れるときは待たずに送る(keepalive: 閉じたあとも送り切る) */
 onLeave(() => { if (setT){ clearTimeout(setT); setT = null; sendSettings(true); } });
 UIKit.life.onReturn(() => { if (setFailed && !S.settingsLoadErr) sendSettings(); });   // 離れるときの送信が失敗していたら送り直す
 
-/* ---------- 時間の長さの表示(評価ドリルの定点の秒。0.69.0 で進行度を消したあとも使う) ---------- */
+/* ---------- 時間の長さの表示(評価ドリルの定点の秒) ---------- */
 const fmtDur = s => { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60); return h ? `${h}時間${String(m).padStart(2, '0')}分` : m >= 1 ? `${m}分${String(s % 60).padStart(2, '0')}秒` : `${s}秒`; };
 /* 左の各カードの開閉を覚える */
 document.querySelectorAll('aside details.card[id]').forEach(d => {
@@ -134,7 +134,7 @@ const txStream = i => i.streamTitle || i.clipTitle || '';
 /* ---------- 選んだ文書をまとめて(12 ⑦(b)。入口の ② の口 /api/flow/submit。入口から開いたときだけ) ---------- */
 const PICK = { on: false, ids: new Set(), polling: 0, active: new Set() };
 const PICK_MAX = 20;   // まとめて実行に一度に入れられる文書の数(flow/runqueue.py の MAX_WAITING)
-/* 状態の言葉は共通の部品(UIKit.autorun。どの入口も同じ言葉。段4)。ここは札の色だけ */
+/* 状態の言葉は共通の部品(UIKit.autorun。どの入口も同じ言葉)。ここは札の色だけ */
 const RUN_CLS = { queued: 'wait', running: 'run', done: 'ok', error: 'err', cancelled: 'wait' };
 const runLabelOf = r => UIKit.autorun.runLabel(r);
 const stepLabelOf = s => UIKit.autorun.stepLabel(s);
@@ -163,18 +163,18 @@ $('#txList').addEventListener('toggle', e => {
 /* ---------- 話者の自動判別 ---------- */
 const LOCK_KINDS = ['diarize', 'retranscribe'];
 const LOCK_LABEL = { retranscribe: '再認識', diarize: '話者を判別' };
-/* ---------- 声を覚える(A-3。関数は app-jobs.js) ---------- */
+/* ---------- 声を覚える(関数は app-jobs.js) ---------- */
 const DEFAULT_SPK = /^話者\d+$/;
 const EVAL_VOICE_MSG = '評価用の文字起こしでは声を覚えません(評価用のデータを、ほかの文書の話者の名前付けに使わないため)。評価用を外すと覚えられます';
-/* 覚える前の確認の本文(段1。監査17・18)。一般的な名前の判定・行の選び方はサーバー(/api/voices/preview)の1か所で、ここは結果を並べるだけ */
+/* 覚える前の確認の本文。一般的な名前の判定・行の選び方はサーバー(/api/voices/preview)の1か所で、ここは結果を並べるだけ */
 const VOICE_SKIP = [['unproofed', '未校正'], ['tagged', '音のメモ(重なり・BGM・聞き取れない)'], ['mixed', '声が混ざる'], ['short', '1秒未満']];
 const voiceSec = s => s >= 60 ? `${Math.round(s / 6) / 10}分` : `${Math.round(s)}秒`;
 /* 全行をこの人に(評価用。マスタープラン Q4。app-jobs.js の renderSpAll)。候補は文書ごとに api/drill/candidates から1回 */
 const SPALL = { id: null, cands: [], suggest: '' };
-/* この動画だけを今の設定で作り直す(app-learn.js の redoOneHere。2026-10-05): busy = 保存・確認・送るの途中 */
+/* この動画だけを今の設定で作り直す(app-learn.js の redoOneHere): busy = 保存・確認・送るの途中 */
 const REDO1 = { busy: false };
 const SPALL_FROM = { voice: '覚えた声', folder: 'メンバーのフォルダ', stream: '配信の文脈' };
-/* 行の時刻を言葉に合わせる(app-rows.js の rt*。2026-10-05): cache = 行の中身ごとの候補({c: 候補 | null, why})・el = 選んだ行の操作の欄に置いた部品・
+/* 行の時刻を言葉に合わせる(app-rows.js の rt*): cache = 行の中身ごとの候補({c: 候補 | null, why})・el = 選んだ行の操作の欄に置いた部品・
    open = 見せている候補 {id, key, c}・t = 少し止まったら調べる予約 */
 const RT = { cache: new Map(), el: null, open: null, t: 0 };
 $('#voiceList').addEventListener('click', e => {
@@ -186,7 +186,7 @@ $('#voiceList').addEventListener('click', e => {
     loadVoices();
   }, `もう一度押すと「${row.dataset.name}」の声を忘れます`);
 });
-/* 押すと: 保存 → 覚える前の確認(誰・何行・何秒・覚えない名前・使わなかった行)→ 既にある名前は1人ずつ「同じ人ですか」→ 確かめた人だけ送る(段1。監査17・18)。
+/* 押すと: 保存 → 覚える前の確認(誰・何行・何秒・覚えない名前・使わなかった行)→ 既にある名前は1人ずつ「同じ人ですか」→ 確かめた人だけ送る。
    確認のあとで文書が変わっても、サーバーの検査(409/400)が正(知らせに出す) */
 $('#voiceLearn').addEventListener('click', async () => {
   if (!S.doc) return;
@@ -228,7 +228,7 @@ document.querySelectorAll('[data-jump]').forEach(b => b.addEventListener('click'
   el.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' });
   const sm = el.querySelector('summary'); if (sm) sm.focus({ preventScroll: true });
 }));
-/* 段3 の見直し(design-review): 話者・文字をまとめて直す・書き出し・以前の版の4枚は、一覧の上の「…」からだけ開く(ブリーフ: 操作の入口は役割ごとに1つ)。
+/* 話者・文字をまとめて直す・書き出し・以前の版の4枚は、一覧の上の「…」からだけ開く(ブリーフ: 操作の入口は役割ごとに1つ)。
    閉じている間は隠し、どこから開いても(「…」・ほかの画面の案内・覚えていた開閉)出す。閉じればまた隠す */
 for (const id of ['spDetails', 'fixDetails', 'exDetails', 'hiDetails']){
   const d = $('#' + id); if (!d) continue;
@@ -254,7 +254,7 @@ $('#spAllGo').addEventListener('click', async e => {
 const SPK_FLAGS = ['声が混ざっている可能性', '話者が不確か', '話者を判別できなかった'];
 const RANGE_MAX = 900;
 /* 動画全体(docs/design/whole-retranscribe-design.md の 3-1): 範囲・残す行・差し替える行・かかる時間の目安。
-   目安は large-v3 の CPU で測った速さ(実時間の約 0.37 倍。2026-09-28 src/eval/tools/eval_asr.py)だけ。ほかのモデルは出さない(でたらめな数字を出さない) */
+   目安は large-v3 の CPU で測った速さ(実時間の約 0.37 倍。src/eval/tools/eval_asr.py)だけ。ほかのモデルは出さない(でたらめな数字を出さない) */
 const WHOLE_RTF = { 'large-v3': 0.37 };
 $('#rtGo').addEventListener('click', e => {
   const b = e.currentTarget, first = !b.dataset.armed;
@@ -307,14 +307,14 @@ $('#strip').addEventListener('click', e => {
   if (!gotoRow(i, { center: true })) return toast('その位置の行は、絞り込みで隠れています');
   player().currentTime = segs[i].start; S.playEnd = null;
 });
-/* 全行を校正済みに / 全解除: 元に戻せる操作なので確認はしない(気が利く画面へ 段1。以前は二度押し)。知らせの [元に戻す] で戻す */
+/* 全行を校正済みに / 全解除: 元に戻せる操作なので確認はしない。知らせの [元に戻す] で戻す */
 $('#btnProofAll').addEventListener('click', () => {
   if (!S.doc) return;
   const all = S.doc.segments.length && S.doc.segments.every(s => s.proofed);
   pushUndo(); const before = unproofedCount();
   for (const s of S.doc.segments){ if (all) delete s.proofed; else if (s.text.trim()) s.proofed = true; }
   renderDoc(); markDirty();
-  if (!all && before > 0 && unproofedCount() === 0)   // 全部済んだ: 1 行ずつの経路と同じ次の一手 [2 カットへ](M7)。元に戻すは Ctrl+Z・「元に戻す」のボタンで
+  if (!all && before > 0 && unproofedCount() === 0)   // 全部済んだ: 1 行ずつの経路と同じ次の一手 [2 カットへ]。元に戻すは Ctrl+Z・「元に戻す」のボタンで
     return toast('全行を校正済みにしました(戻すときは Ctrl+Z)。次はカットを決めます', { kind: 'ok', ms: 8000, action: TO_CUT });
   undoToast(all ? '校正済みを全て解除しました' : '全行を校正済みにしました', 8000);   // この知らせの「元に戻す」は文字起こしの側だけ(あとでカットを変えていても、カットは戻さない)
 });
@@ -339,7 +339,7 @@ $('#btnProofSel').addEventListener('click', () => {
   pushUndo(); let n = 0; const before = unproofedCount();
   for (const s of S.doc.segments) if (S.sel.has(s.id) && s.text.trim()){ s.proofed = true; n++; }
   renderDoc(); markDirty();
-  if (!proofNext(before)) toast(`${n}行を校正済みにしました(「元に戻す」で戻せます)`);   // 未校正が 0 になったら [2 カットへ](段7 S-17)
+  if (!proofNext(before)) toast(`${n}行を校正済みにしました(「元に戻す」で戻せます)`);   // 未校正が 0 になったら [2 カットへ]
 });
 
 /* ---------- ホロライブの名簿 / 用語集の「認識に効く長さ」 ---------- */
@@ -388,7 +388,7 @@ if (window.ResizeObserver){
   new ResizeObserver(() => { document.documentElement.style.setProperty('--toph', $('.top').offsetHeight + 'px'); }).observe($('.top'));
   new ResizeObserver(drawStripSoon).observe($('#stripBox'));
 }
-/* 元に戻す(段3 3-5 監査 05・ユーザー決定 09-29): 文字起こしの履歴 S.undo とカットの履歴(cut.js の M.undo)は別々に持ち、
+/* 元に戻す: 文字起こしの履歴 S.undo とカットの履歴(cut.js の M.undo)は別々に持ち、
    積むときに操作の通し番号(seq)を付ける。1 文字起こし の「元に戻す」・Ctrl+Z は、2つの一番上を比べて新しい方を1つ戻す(2 カット のタブの Ctrl+Z はカットだけ) */
 let opSeq = 0;
 const nextOp = () => ++opSeq;
@@ -431,11 +431,11 @@ $('#btnAddAt').addEventListener('click', () => { if (S.doc) insertAtTime(player(
 $('#segs').addEventListener('click', e => {
   const b = e.target.closest('[data-act]'); if (!b) return;
   if (b.dataset.act === 'addfirst'){ if (!lockJob()) insertAtTime(player().currentTime || 0); return; }
-  if (b.dataset.act === 'txagain'){ transcribeInto(b); return; }   // 文字が認識されなかった文書: この文書にもう一度文字起こし(段7 E-14)
+  if (b.dataset.act === 'txagain'){ transcribeInto(b); return; }   // 文字が認識されなかった文書: この文書にもう一度文字起こし
   const row = b.closest('.seg'), i = Number(row.dataset.i), segs = S.doc.segments, s = segs[i]; if (!s) return;
   if (S.navIdx !== i){ setNav(i); savePos(); }   // 押したボタンの行を「今の行」にする(mousedown ではフォーカスを移さないため、ここで)
   switch (b.dataset.act){
-    case 'keep': case 'cut': {   // 2 択の「残す」「カット」(M1): 押した側の状態にする(今と同じなら何もしない)
+    case 'keep': case 'cut': {   // 2 択の「残す」「カット」:押した側の状態にする(今と同じなら何もしない)
       const want = b.dataset.act === 'cut'; if ((s.cutState === 'cut') === want) break;
       if (CUT && CUT.active()){ CUT.rowsCut([i], want); break; }   // 行の時間を削る区間にする/戻す(印は編集の内容から付く)
       if (EDIT_HOST){ hostRowsCut([i], want); break; }   // 案件の画面: 区間が決まっていればカット・パックのタブへ(app-tools.js)
@@ -448,22 +448,22 @@ $('#segs').addEventListener('click', e => {
     case 'play': playSeg(s, true); break;   // 行の▶は、必ずその行だけ再生する(勝手に次の行へ続けない)
     case 'adj': nudge(s, row, b.dataset.f, Number(b.dataset.d)); break;
     case 'setnow': setTimeNow(s, b.dataset.f); break;
-    case 'proof': { const before = unproofedCount(); setProof(s, !s.proofed, row); markDirty(); updatePfStat(); proofNext(before); break; }   // 未校正が 0 になったら [2 カットへ](段7 S-17)
-    case 'nosub': pushUndo(); setNoSub(s, !s.noSub, row); markDirty(); break;   // 字幕に出さない ⇄ 出す(どの話者の行でも)
+    case 'proof': { const before = unproofedCount(); setProof(s, !s.proofed, row); markDirty(); updatePfStat(); proofNext(before); break; }   // 未校正が 0 になったら [2 カットへ]
+  case 'nosub': pushUndo(); setNoSub(s, !s.noSub, row); markDirty(); break;   // 字幕に出さない ⇄ 出す(どの話者の行でも)
     case 'tag': toggleTag(s, b.dataset.t, row); break;
     case 'unfill': {   // 別の読みで埋めた行を whisper の文字に戻す(ed_fill)。後処理の印も外し、行を描き直す(元に戻せる)
       pushUndo(); s.text = (s.fill && s.fill.from) || ''; delete s.fill;
       s.flag = (s.flag || '').split('、').filter(f => f && !/^(別の読みで埋めた|名簿の呼び名に直した|話者名を外した)/.test(f)).join('、');
       rowChanged(); undoToast('whisper の文字に戻しました'); break; }
     case 'unflag': pushUndo(); s.flag = ''; row.classList.remove('flag'); b.remove(); markDirty(); updateRt(); drawStripSoon();
-      undoToast('要確認の印を外しました(確認済み)'); break;   // S15
+      undoToast('要確認の印を外しました(確認済み)'); break;
     case 'sgok': { const x = S.sug.find(y => y.n === Number(b.dataset.n)); if (x) acceptSug(s, x); break; }
     case 'sgno': { const x = S.sug.find(y => y.n === Number(b.dataset.n)); if (x) rejectSug(x); break; }
     case 'split': doSplit(i, row); break;
     case 'adda': insertAfter(i); break;
     case 'addb': insertBefore(i); break;
     case 'merge': mergeRows(i); break;   // 中身は app-rows.js(キー M・Shift+M と共用。A6)
-    case 'del': {   // 元に戻せる操作なので確認しない。消したら知らせに [元に戻す](UI の見直し S14。Z のキーは押し間違いを防ぐため 2 回押しのまま)
+    case 'del': {   // 元に戻せる操作なので確認しない。消したら知らせに [元に戻す](Z のキーは押し間違いを防ぐため 2 回押しのまま)
       const navId = navSnapshot(); pushUndo(); S.sel.delete(s.id); segs.splice(i, 1); navRestore(navId, i); renderDoc(); markDirty();
       undoToast('行を削除しました', 6000);
       break;
@@ -472,10 +472,10 @@ $('#segs').addEventListener('click', e => {
     case 'rtok': case 'rtno': rtAnswer(b.dataset.act === 'rtok'); break;
   }
 });
-/* 読む速さの札で絞り込む(2026-10-05。関数は app-rows.js の read*) */
+/* 読む速さの札で絞り込む(関数は app-rows.js の read*) */
 $('#flagKind').add(new Option('読みにくい行だけ(速い・短い)', 'read'));
 $('#rtSelected').addEventListener('click', () => { $('#moreTools').open = false; rtSelected(); });
-/* 行の右クリックのメニュー(段2): 選んだ行の下に出るボタンと同じ操作(data-act はそのまま)。
+/* 行の右クリックのメニュー:選んだ行の下に出るボタンと同じ操作(data-act はそのまま)。
    キーボードだけの操作は今までどおり(選んだ行の下のボタン)なので、この方が必ず要るわけではない代わりの入口。
    .seg は content-visibility:auto(見えない行を描かない)で、これが position:fixed の子の基準になってしまい
    画面の外へ出す前に切り取られる(clip)ため、メニューは document.body の直下に置く。その代わり、行の中の
@@ -489,10 +489,10 @@ const CTX_ITEMS = [
   ['addb', () => '＋前に行を足す'],
   ['adda', () => '＋後ろに行を足す'],
   ['merge', () => '次の行と結合'],
-  ['nosub', s => s.noSub ? '字幕に出す(印を外す)' : '字幕に出さない'],   // 2026-10-05。前からの項目の並び(↓ の回数)は変えない
+  ['nosub', s => s.noSub ? '字幕に出す(印を外す)' : '字幕に出さない'],   // 項目の並び(↓ の回数)は変えない
   ['del', () => 'この行を削除']
 ];
-/* B-9(段1): 文字を打つ欄・時刻の欄の上は、普通の右クリックはブラウザ既定のメニュー(コピー・貼り付け)、Shift+右クリックで行のメニュー。
+/* 文字を打つ欄・時刻の欄の上は、普通の右クリックはブラウザ既定のメニュー(コピー・貼り付け)、Shift+右クリックで行のメニュー。
    日本語の変換中は出さない(メニューへフォーカスが移ると、変換中の文字が確定してしまう。contextmenu には isComposing が無いので自分で覚える) */
 let segsComposing = false;
 $('#segs').addEventListener('compositionstart', () => { segsComposing = true; });
@@ -524,7 +524,7 @@ $('#segs').addEventListener('contextmenu', e => {
   setTimeout(() => { document.addEventListener('click', onCtxOutside, true); document.addEventListener('contextmenu', onCtxOutside, true); }, 0);
   m.querySelector('button').focus({ preventScroll: true });
 });
-/* 右クリックのメニューを開いている間は、キーはメニューだけが受け取る(B-3: ↓ で裏の行が動き、メニューの対象 = 右クリックした行とずれていた)。
+/* 右クリックのメニューを開いている間は、キーはメニューだけが受け取る(↓ で裏の行が動くと、メニューの対象 = 右クリックした行とずれるため)。
    ↑ ↓・Home・End = メニューの中の移動 / Enter・Space = 選ぶ(ボタンの既定の動き)/ Esc・Tab = 閉じる / それ以外のキー = 何もしない(裏の行の操作に渡さない) */
 window.addEventListener('keydown', e => {
   if (!ctxMenuEl) return;
@@ -559,7 +559,7 @@ $('#segs').addEventListener('keydown', e => {
     return;
   }
   if (e.key === 'Escape' && e.target.matches('textarea')){ e.target.blur(); return; }   // 入力欄から抜ける(Space で再生・停止できるように)
-  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && e.target.matches('textarea')){   // 入力中にこの行を聞き直す(段2 でやめたが戻した)
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && e.target.matches('textarea')){   // 入力中にこの行を聞き直す
     e.preventDefault(); const s = S.doc.segments[Number(e.target.closest('.seg').dataset.i)]; if (s) playSeg(s, true);
   }
 });
@@ -568,16 +568,16 @@ const rowsEl = () => $('#segs').children;
 const rowIdxOf = el => { const r = el && el.closest && el.closest('.seg'); return r ? Number(r.dataset.i) : -1; };
 const posKey = id => 'tx.pos.' + id;
 /* 字幕がどちらを見せるか(capFollow)。true = 再生位置(S.curIdx。timeupdate・シークで付く)、false = 選んだ行(S.navIdx。setNav で付く)。
-   以前は「止まっているか」だけで切り替えていたので、止めたまま時間軸を手でつまんで動かす(シーク)と、再生位置は動いたのに
-   字幕は前に選んでいた行のまま(コマとずれる)になっていた。timeupdate はシークでも来るので、そこで再生位置の側へ切り替える */
+   「止まっているか」だけで切り替えると、止めたまま時間軸を手でつまんで動かす(シーク)と、再生位置は動いたのに
+   字幕は前に選んでいた行のまま(コマとずれる)になる。timeupdate はシークでも来るので、そこで再生位置の側へ切り替える */
 let capFollow = false;
-/* ---------- 話者の色(気が利く画面へ 段2。決め方は app-rows.js の speakerColor の 1 か所) ---------- */
+/* ---------- 話者の色(決め方は app-rows.js の speakerColor の 1 か所) ---------- */
 const SPKC = new Map();   // 話者の名前 → {name, hex}(合う人)| null(合わない)| undefined(照らし合わせ中)
 const speakerColorsOn = () => !S.settings || S.settings.speakerColors !== false;
 const rowSpColor = spId => { const c = speakerColor(spId); return c.hex || c.auto; };
-/* v0.9.6: 一括操作用のチェック(左端の□。複数行を選んでまとめて処理する)は、キーボードの「今の行」を動かさない。
+/* 一括操作用のチェック(左端の□。複数行を選んでまとめて処理する)は、キーボードの「今の行」を動かさない。
    これを分けないと、マウスでチェックを付けているだけで、Shiftキー操作の対象が知らない間にそちらへ移ってしまう */
-/* v0.9.8: 行のボタンを押すとき、押した瞬間(mousedown)にフォーカスが移ると「今の行」が変わり、前の行の操作ボタンの段が消えて
+/* 行のボタンを押すとき、押した瞬間(mousedown)にフォーカスが移ると「今の行」が変わり、前の行の操作ボタンの段が消えて
    一覧が上にずれ、指を離した位置が別のボタンになって押し損じる。ボタン・チェックは mousedown でフォーカスを移さず、
    「今の行」は click の時点で切り替える(ボタンにフォーカスが残らないので、そのあとの1文字キーや Space も誤爆しない) */
 $('#segs').addEventListener('mousedown', e => {
@@ -594,21 +594,20 @@ $('#btnNextUn').addEventListener('click', () => navigate('unproofed', 1));
 const isTextEntry = t => !!(t && t.matches && (t.matches('textarea,select,.ui-time,[contenteditable=""],[contenteditable=true]') || (t.matches('input') && !/^(checkbox|radio|button|submit|range|color|file)$/i.test(t.type))));
 let zArm = null;
 /* 左手だけの操作: キー単体(Shift 不要)。文字を入力しているとき(入力欄にカーソルがあるとき)は使えません(Esc で抜けます)。
-   画面の全面見直し(段2)で W/S・A/D・Q/E・B・Tab をやめたが、ユーザーの指摘(「左手での操作が使いやすかった」2026-09-27)で戻した。
    ↓/↑・Shift+↓/↑ も残す(固定の別の手段)。S の分割は 2 カット のタブだけ(校正のキーは 1 文字起こし のタブだけなので重ならない)。
-   キー配置(2026-09-27): 割り当ては ⚙ 設定の「キー配置」で変えられる。保存は S.settings.keymap(サーバーの config.json。どのブラウザ・窓でも同じ)。
+   キー配置: 割り当ては ⚙ 設定の「キー配置」で変えられる。保存は S.settings.keymap(サーバーの config.json。どのブラウザ・窓でも同じ)。
    共通の再生キー(UIKit.keys.PLAYBACK_ACTIONS)も同じ keymap に入れ、1 文字起こし・2 カット の両方の共通キーに渡す */
 const TX_ACTIONS_ALL = [   // [id, 既定のキー(UIKit.keys.comboOf の表記), 説明, まとまり]
   ['rowNext', 's', '次の行', 'move'], ['rowPrev', 'w', '前の行', 'move'], ['unNext', 'd', '次の未校正', 'move'], ['unPrev', 'a', '前の未校正', 'move'], ['flagNext', 'f', '次の要確認', 'move'],
   ['replay', 'r', 'この行をもう一度聞く', 'listen'], ['back3', 'q', '3秒戻る', 'listen'], ['fwd3', 'e', '3秒進む', 'listen'], ['proof', 'Shift+Space', '校正済みにして次へ', 'listen'],
   ['edit', 't', 'この行の文字を直す(入力欄へ)', 'listen'], ['autoNext', 'b', '「移動したら自動で再生」のオン/オフ', 'listen'],
   ['tagUnclear', 'x', '聞き取れない', 'memo'], ['tagOverlap', 'c', '声が重なる', 'memo'], ['tagBgm', 'v', 'BGM・音が大きい', 'memo'], ['insert', 'n', '後ろに行を追加', 'memo'], ['del', 'z', 'この行を削除(2回押し)', 'memo'],
-  /* つなぐ・分ける(0.63.0。A6 = 校正でいちばん時間を食うのが行をつなぐ・分ける。それまでは行の下のボタンと右クリックだけ) */
+  /* つなぐ・分ける(校正でいちばん時間を食う操作) */
   ['mergeNext', 'm', '次の行とつなぐ', 'memo'], ['mergePrev', 'Shift+m', '前の行とつなぐ', 'memo'], ['splitPlay', 'y', '再生位置で行を分ける', 'memo'],
   ['menu', 'g', '左のメニューを開く/閉じる', 'screen']
 ];
 /* 案件の画面(EDIT_HOST)では、左のメニュー(G)が無い = 一覧・キー配置に載せない。
-   Shift+N は殻の「次の案件へ」・Alt+1/2 は殻のタブなので、割り当てさせない(KEY_SHELL。RS8 の小さな直し) */
+   Shift+N は殻の「次の案件へ」・Alt+1/2 は殻のタブなので、割り当てさせない(KEY_SHELL) */
 const HOST_NO_KEY = new Set(['menu']);
 const TX_ACTIONS = EDIT_HOST ? TX_ACTIONS_ALL.filter(a => !HOST_NO_KEY.has(a[0])) : TX_ACTIONS_ALL;
 const KEY_SHELL = EDIT_HOST ? { 'Shift+n': '次の案件へ(案件の画面)', 'Shift+N': '次の案件へ(案件の画面)', 'Alt+1': 'タブの切り替え(案件の画面)', 'Alt+2': 'タブの切り替え(案件の画面)' } : {};
@@ -617,11 +616,11 @@ const KEY_ALT = { rowNext: '↓', rowPrev: '↑', unNext: 'Shift+↓', unPrev: '
 /* 割り当てられないキー(固定の意味がある)。値は使い道(「X は『使い道』に使っているので割り当てられません」) */
 const KEY_FIXED = { ArrowDown: '次の行(固定)', ArrowUp: '前の行(固定)', 'Shift+ArrowDown': '次の未校正(固定)', 'Shift+ArrowUp': '前の未校正(固定)',
   Tab: '入力欄に入る/抜ける', 'Shift+Tab': 'ふつうのフォーカスの移動', Escape: '入力欄から抜ける・取り消し', Enter: 'ボタンを押す', '?': 'キー操作の一覧' };
-/* 2 カット のタブのキー(cut.js の onKey。変えられない)。一覧はこの表から作る(以前は index.html と cut.js に二重に書いていた。S-30) */
-const CUT_KEY_ROWS = window.EditCut ? EditCut.KEY_ROWS : [];   // 表の正は cut.js(キーを変えたら一覧・知らせ・title が一緒に変わるように。2 周目 R1)
-const CUT_FIXED = (window.EditCut && EditCut.FIXED_KEYS) || {};   // 2 カット の固定のキー: 1 文字起こし のキー・共通の再生キーに割り当てさせない(2 周目 N3)
+/* 2 カット のタブのキー(cut.js の onKey。変えられない)。一覧はこの表から作る */
+const CUT_KEY_ROWS = window.EditCut ? EditCut.KEY_ROWS : [];   // 表の正は cut.js(キーを変えたら一覧・知らせ・title が一緒に変わるように)
+const CUT_FIXED = (window.EditCut && EditCut.FIXED_KEYS) || {};   // 2 カット の固定のキー: 1 文字起こし のキー・共通の再生キーに割り当てさせない
 const keyText = k => UIKit.keys.keyText(k);
-/* キーの一覧 = キー配置(UIKit.keymap。気が利く画面へ 段6): ? の一覧と ⚙ 設定の「キー配置」は同じ部品。重なりの検査(固定・共通の再生キー・
+/* キーの一覧 = キー配置(UIKit.keymap):? の一覧と ⚙ 設定の「キー配置」は同じ部品。重なりの検査(固定・共通の再生キー・
    派生キー = ← → に当たるキー + Shift)も部品の 1 か所。共通の再生キーはホームの設定(スタジオと同じ)。校正のキーは編集の設定 keymap(送ったキーだけ直す) */
 const KM = UIKit.keymap.create({
   groups: KEY_GROUPS,
@@ -640,7 +639,7 @@ const KM = UIKit.keymap.create({
   footNote: 'キー配置は、どのブラウザ・窓でも同じです。',
   load: () => (S.settings && S.settings.keymap) || {},
   save: km => saveKeymap(km),
-  fallbackPlayback: { load: () => (S.settings && S.settings.keymap) || {}, save: pb => saveKeymap(pb) },   // 入口の外で開いたとき(以前と同じく編集の設定に)
+  fallbackPlayback: { load: () => (S.settings && S.settings.keymap) || {}, save: pb => saveKeymap(pb) },   // 入口の外で開いたとき(編集の設定に)
   onChange: () => renderKeyUI()
 });
 const KEY_FN = {
@@ -652,7 +651,7 @@ const KEY_FN = {
   del: () => deleteCur(), menu: () => toggleMenu(),
   mergeNext: () => mergeKey(1), mergePrev: () => mergeKey(-1), splitPlay: () => splitKey()   // app-rows.js
 };
-/* 左のメニューがキーを持つ間は、文書を操作するキー(校正のキー・共通の再生キー・Ctrl+Z・Tab・2 カット のキー)を効かせない(GPT-04・段3 3-1 監査 04):
+/* 左のメニューがキーを持つ間は、文書を操作するキー(校正のキー・共通の再生キー・Ctrl+Z・Tab・2 カット のキー)を効かせない:
    (a) 本文の上に重ねて開いている間(フォーカスが幕・本文のどこにあっても)または (b) フォーカスがメニューの中にある間(並べて出す 1600px 以上でも)。
    (a) だけだと並べて出す幅で、(b) だけだと幕の上で押したキーが後ろへ漏れるので両方。残すのは G(開閉)・Esc(閉じる)・Alt+1/2/3(タブ)・?(一覧) */
 const menuHasKeys = t => !!((menuOpen() && isDrawer()) || (t && t.closest && t.closest('#menuPanel')));
@@ -660,10 +659,10 @@ const menuHasKeys = t => !!((menuOpen() && isDrawer()) || (t && t.closest && t.c
    それ以外(特に Z の2回押しの削除・Shift+Space の校正済み)は、押しっぱなしで「2回目」や「聞かずに校正済み」にならないように、繰り返しを無視する */
 const REPEAT_OK = new Set(['rowNext', 'rowPrev', 'unNext', 'unPrev', 'flagNext', 'back3', 'fwd3']);
 window.addEventListener('keydown', e => {
-  if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || imeKey(e) || e.defaultPrevented || modalOpen()) return;   // 引き出しが開いている間はタブを変えない(ダイアログと同じ扱い。監査01)
-  const m = /^Digit([12])$/.exec(e.code); if (!m) return;   // タブは 2 つ(0.62.0。Alt+3 は何もしない)
+  if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || imeKey(e) || e.defaultPrevented || modalOpen()) return;   // 引き出しが開いている間はタブを変えない(ダイアログと同じ扱い)
+  const m = /^Digit([12])$/.exec(e.code); if (!m) return;   // タブは 2 つ(Alt+3 は何もしない)
   if (e.target && e.target.closest && e.target.closest('#segs') && isTextEntry(e.target)) return;   // 行の文字の入力中の Alt+数字 は話者(#segs の keydown)
-  e.preventDefault(); if (!e.repeat) setEditTab(ED_TABS[Number(m[1]) - 1], { into: true });   // タブの中の最初の操作へ(S18)
+  e.preventDefault(); if (!e.repeat) setEditTab(ED_TABS[Number(m[1]) - 1], { into: true });   // タブの中の最初の操作へ
 });
 /* 共通の再生キー(ui-kit.js の UIKit.keys.playback。既定は Space・J/K/L・← →(Shift で5秒)・, .・I/O。割り当ては keymap())。
    1 文字起こし のタブだけ・ダイアログが開いていないときだけ有効にし、自分のキー処理(下)より先に呼ぶ。処理したら true が返るので、そのときは自分の処理をしない(1つのキーは全体で1つの意味) */
@@ -681,7 +680,7 @@ function hostFps(){
 }
 const editPlaybackKeys = UIKit.keys.playback({
   media: () => player(), keymap: () => keymap(),
-  /* 1コマ = 素材の fps(2 カット と同じ。段3 3-4 監査 15)。フレームの境目にそろえて動かす(押し続けても浮動小数のずれが溜まらない)。
+  /* 1コマ = 素材の fps(2 カット と同じ)。フレームの境目にそろえて動かす(押し続けても浮動小数のずれが溜まらない)。
      fps が分からない文書・開いた直後(カットの読み込み中)は ui-kit の既定(1/30 秒) */
   fps: () => { const f = CUT ? CUT.fps() : hostFps(); return f ? f[0] / f[1] : 30; },
   onFrame: dir => {
@@ -703,7 +702,7 @@ window.addEventListener('keydown', e => {
   if (e.key === '?'){ e.preventDefault(); if (!e.repeat) openKeys(); return; }   // キー操作の一覧(配列によって Shift が要るので、Shift の判定より先に)
   const act = txActionOf(UIKit.keys.comboOf(e));
   if (act === 'menu'){ e.preventDefault(); if (!e.repeat) toggleMenu(); return; }   // メニューは文書を開いていなくても
-  if (menuHasKeys(e.target)) return;   // 重ねて開いたメニューの中では、メニューの操作(↓ で次の項目など)を優先する(GPT-04)
+  if (menuHasKeys(e.target)) return;   // 重ねて開いたメニューの中では、メニューの操作(↓ で次の項目など)を優先する
   if (!S.doc || lockJob() || wideTab()) return;   // 校正のキーは 1 文字起こし のタブだけ(カットのタブは cut.js のキー)
   if (c === 'ArrowDown' || c === 'ArrowUp'){
     e.preventDefault();
@@ -717,15 +716,14 @@ window.addEventListener('keydown', e => {
 });
 
 /* Esc: 編集画面のどの入力欄(検索・絞り込み・速さ・タイトル・行の時刻や話者)からでも抜けて、操作キーを使えるようにする
-   (以前は行の文字の欄だけだったので、検索や速さを変えたあとに ↓ や Shift+↓ が効かず「取りこぼし」に見えた)。日本語の変換中は変換の取り消しにだけ使う */
+   (検索や速さを変えたあとに ↓ や Shift+↓ が効かないと「取りこぼし」に見えるため)。日本語の変換中は変換の取り消しにだけ使う */
 window.addEventListener('keydown', e => {
   if (e.key !== 'Escape' || imeKey(e) || document.querySelector('dialog[open]')) return;
   const t = e.target;
   if (isTextEntry(t) && t.closest && t.closest('#doc')) t.blur();
 });
 
-/* Tab: 入力欄の中 → 抜ける(コマンドモード) / 行を選んでいて入力欄の外 → その行の入力欄に入る。日本語変換中・Shift+Tab・ダイアログ中は、ふつうの動き
-   (段2 でやめたが、左手の操作と一緒に戻した。2026-09-27) */
+/* Tab: 入力欄の中 → 抜ける(コマンドモード) / 行を選んでいて入力欄の外 → その行の入力欄に入る。日本語変換中・Shift+Tab・ダイアログ中は、ふつうの動き */
 window.addEventListener('keydown', e => {
   if (e.key !== 'Tab' || e.shiftKey || anyMod(e) || imeKey(e) || !S.doc || wideTab() || modalOpen() || menuHasKeys(e.target)) return;   // メニューの中の Tab はふつうのフォーカスの移動(3-1)
   const t = e.target;
@@ -737,12 +735,12 @@ window.addEventListener('keydown', e => {
 /* ---------- キー配置の表示(描き直しは app-rows.js の renderKeyUI) ---------- */
 const kbdHTML = combo => combo ? keyText(combo).split('+').map(p => `<kbd>${esc(p)}</kbd>`).join('+') : '<span class="muted">未設定</span>';
 const keyWithAlt = id => { const km = keymap(), a = KEY_ALT[id]; return [km[id] ? keyText(km[id]) : '', a || ''].filter(Boolean).join(' / ') || '未設定'; };
-/* ツールチップ・知らせの中のキー(今の割り当てから作る。割り当てを外したら出さない。GPT-16) */
+/* ツールチップ・知らせの中のキー(今の割り当てから作る。割り当てを外したら出さない) */
 const keyParen = id => { const k = keymap()[id]; return k ? '(' + keyText(k) + ')' : ''; };
 const titlePlay = () => `この行だけ再生${keyParen('replay')}。行の終わりで止まります`;
 const titleProof = () => `聞いて確認して、この行の文字が正しいと判断したら押す${keyParen('proof').replace(/\)$/, '。次の行へ進みます)') || '(次の行へ進みます)'}`;
 const TAG_ACT = { unclear: 'tagUnclear', overlap: 'tagOverlap', bgm: 'tagBgm' };
-/* BGM の付け方の基準(2026-10-06 ユーザー決定。notes:docs/spec/subtitles.md) */
+/* BGM の付け方の基準(notes:docs/spec/subtitles.md) */
 const TAG_RULE = { bgm: '付けるのは BGM・ゲーム音のせいで聞き取りにくい行だけ(聞き直したくなった・声と同じくらいか大きい・歌声が流れている・効果音が言葉にかぶる)。鳴っているだけで楽に聞き取れる行・迷う行には付けません' };
 const titleTag = t => `この行の音の状態のメモ${keyParen(TAG_ACT[t])}。` + (TAG_RULE[t] || '「聞き取れない」の行は、精度の測定と学習の正解に使いません');
 const titleAddAfter = () => `この行の後に、空の行を足します${keyParen('insert')}`;
@@ -812,7 +810,7 @@ player().addEventListener('timeupdate', () => {
 player().addEventListener('error', () => { if (!S.doc) return; S.playerErr = S.docId; renderPlayerMsg(); });
 $('#playerRelink').addEventListener('click', () => openRelink());
 
-/* ---------- 動画を選び直す(段2 B-4。git の履歴(679ff01 以前)の docs/plan/phase2-data-safety.md の 1)。付け替えの API は POST だけ(URL の引数では付け替えない) ---------- */
+/* ---------- 動画を選び直す(付け替えの API は POST だけ(URL の引数では付け替えない) ---------- */
 const RL = { id: null, seq: 0, check: null, path: '' };
 $('#rlCheck').addEventListener('click', rlCheck);
 $('#rlPath').addEventListener('input', rlReset);   // 確かめたあとにパスを変えたら、確かめ直すまで付け替えない
@@ -851,7 +849,7 @@ $('#rlBrowse').addEventListener('click', async () => {
 });
 
 player().addEventListener('playing', () => { $('#playerMsg').hidden = true; updateCaption(); });
-/* v0.9.6: 行の▶などで「そこだけ再生」した直後に手動で止めた場合、S.playEnd が残ったままだと、
+/* 行の▶などで「そこだけ再生」した直後に手動で止めた場合、S.playEnd が残ったままだと、
    表示部(動画本体)の再生ボタンで再開したときにも、またそこで止まってしまう。
    一時停止するたびに必ずクリアして、表示部の再生は常に最後まで続けて流れるようにする(字幕も、選んだ行のものへ戻す) */
 player().addEventListener('pause', () => { S.playEnd = null; updateCaption(); });
@@ -938,7 +936,7 @@ $('#spList').addEventListener('change', e => {
   if (e.target.type === 'text') e.target.blur();   // 確定したら描き直せるように(打っている間は renderSpeakers が描き直さない)
   renderDoc(); markDirty(); lookupSpeakerNames([sp.name]);
 });
-/* 話者の名前の欄の候補(気が利く画面へ 段2・E-1): 覚えた声の名前・この文書の配信者・名簿の名前 */
+/* 話者の名前の欄の候補:覚えた声の名前・この文書の配信者・名簿の名前 */
 let spVoiceNames = [];
 $('#spList').addEventListener('click', e => {
   const pb = e.target.closest('[data-act="spplay"]');
@@ -985,29 +983,29 @@ document.querySelectorAll('[data-ex]').forEach(b => b.addEventListener('click', 
 ['exBase', 'exWrap'].forEach(id => $('#' + id).addEventListener('change', readOpts));   // exSpk・exTs のチェックは下の SET_CHECKS の配線で
 
 /* ---------- 左パネルのイベント ---------- */
-$('#diarNum').addEventListener('change', diarNumChanged);   // 文書ごとに覚える(段7 E-6)
+$('#diarNum').addEventListener('change', diarNumChanged);   // 文書ごとに覚える
 $('#diarEmb').addEventListener('change', () => { readOpts(); renderDiarSetup(); });
-// 設定のチェックは表(app-core.js の SET_CHECKS)から配線する。手で並べていたときは表に足したチェックが漏れた(0.58.1 まで #optAutoContext は、ほかの設定を変えるまで保存されなかった)
-SET_CHECKS.map(c => c[1]).concat(['optModel', 'optLang', 'optQuality', 'optDevice', 'optVad', 'optSubOrient', 'optMaxV', 'optMaxH', 'optWrapV', 'optWrapH', 'rtModel', 'rtTarget']).forEach(id => { const e = $('#' + id); if (e) e.addEventListener('change', readOpts); });   // 0.66.0: 設定の画面へ移した欄は無い
+// 設定のチェックは表(app-core.js の SET_CHECKS)から配線する。手で並べると表に足したチェックが漏れるため
+SET_CHECKS.map(c => c[1]).concat(['optModel', 'optLang', 'optQuality', 'optDevice', 'optVad', 'optSubOrient', 'optMaxV', 'optMaxH', 'optWrapV', 'optWrapH', 'rtModel', 'rtTarget']).forEach(id => { const e = $('#' + id); if (e) e.addEventListener('change', readOpts); });
 ['optGloss', 'repDict'].forEach(id => $('#' + id).addEventListener('input', readOpts));
 $('#txPick').addEventListener('change', () => { PICK.on = $('#txPick').checked; if (!PICK.on) PICK.ids.clear(); renderList(); renderPickBar(); });
 $('#txBatchGo').addEventListener('click', startBatch);
 $('#docAutoGo').addEventListener('click', startDocAuto);
-{   // まとめて実行の設定の要約と「設定を変える」・上書きのチェックはホームの設定(どの入口で変えても同じ。段4)
+{   // まとめて実行の設定の要約と「設定を変える」・上書きのチェックはホームの設定(どの入口で変えても同じ)
   const syncOw = st => { if (st){ $('#docAutoOverwrite').checked = st.overwrite; $('#txOverwrite').checked = st.overwrite; } };
   document.addEventListener('ui-autorun-settings', e => syncOw(e.detail));
   for (const id of ['#docAutoOverwrite', '#txOverwrite']) $(id).addEventListener('change', e => { UIKit.prefs.patch('autorun', { overwrite: e.target.checked }).catch(() => {}); syncOw(Object.assign({}, UIKit.autorun.state() || {}, { overwrite: e.target.checked })); });
   $('#docAuto').addEventListener('toggle', () => { if ($('#docAuto').open && TOKEN){ UIKit.autorun.panel($('#docAutoPanel'), { kind: 'docs' }); UIKit.autorun.load().then(syncOw, () => {}); } });
   $('#txPick').addEventListener('change', () => { if ($('#txPick').checked && TOKEN){ UIKit.autorun.panel($('#txBatchPanel'), { kind: 'docs' }); UIKit.autorun.load().then(syncOw, () => {}); } });
 }
-{   // パックの音量(編集の設定 packLoudness の1か所。ほかの画面のまとめて実行の欄で変えたときも、この画面の値を合わせる。2026-09-29)
+{   // パックの音量(編集の設定 packLoudness の1か所。ほかの画面のまとめて実行の欄で変えたときも、この画面の値を合わせる)
   UIKit.packLoud.mount($('#docAutoLoud'));
   document.addEventListener('ui-packloud', e => { if (S.settings && e.detail){ S.settings.packLoudness = e.detail.loud; S.settings.packVolume = e.detail.vol; } if (PACK) PACK.changed(); });
 }
-$('#docAuto').addEventListener('toggle', () => {   // 開いたとき、配信者の欄を入れ直す(パックのタブで直した名前も覚えた名前になっている。段5)
+$('#docAuto').addEventListener('toggle', () => {   // 開いたとき、配信者の欄を入れ直す(パックのタブで直した名前も覚えた名前になっている)
   if ($('#docAuto').open && S.docId) UIKit.streamer.autoFill($('#docAutoWho'), { docId: S.docId });
 });
-/* 配信者の欄(題名の行)で名前を直したら、パックの配信者(隠した欄 #pkWho。文書に覚えた名前をそのまま使う。0.62.0)も入れ直す(覚えるのは ui-kit の change のあと) */
+/* 配信者の欄(題名の行)で名前を直したら、パックの配信者(隠した欄 #pkWho。文書に覚えた名前をそのまま使う)も入れ直す(覚えるのは ui-kit の change のあと) */
 $('#docAutoWho').addEventListener('change', () => { setTimeout(() => { if (PACK) PACK.refreshWho(); }, 400);
 });
 $('#txRuns').addEventListener('click', async e => {
@@ -1020,7 +1018,7 @@ $('#jobs').addEventListener('click', async e => {
   const b = e.target.closest('[data-act]'); if (!b) return;
   if (b.dataset.act === 'open') openDoc(b.dataset.tid);
   else if (b.dataset.act === 'cancel'){ try { await api('/api/transcribe/cancel', { body: { id: b.closest('.job').dataset.id } }); pollJobs(); } catch (er){ toast(er.message); } }
-  else if (b.dataset.act === 'retry') retryJob(b.closest('.job').dataset.id);   // 失敗した文字起こしをもう一度(M9)
+  else if (b.dataset.act === 'retry') retryJob(b.closest('.job').dataset.id);   // 失敗した文字起こしをもう一度
 });
 $('#txList').addEventListener('click', e => {
   const b = e.target.closest('[data-act]'); if (!b) return;
@@ -1029,8 +1027,8 @@ $('#txList').addEventListener('click', e => {
     const rows = b.closest('.tt-g-rows'); if (rows) rows.innerHTML = txRowsHTML(k, txGroups.get(k) || []);
     return;
   }
-  if (b.dataset.act === 'gostart'){ setSideTab('start'); const p = $('#srcPath'); if (p) p.focus(); return; }   // 履歴が 0 件: 新規へ(M8)
-  if (b.dataset.act === 'clearfilter'){   // 絞り込みで 0 件: 状態・種類の絞り込みを消す(M8)
+  if (b.dataset.act === 'gostart'){ setSideTab('start'); const p = $('#srcPath'); if (p) p.focus(); return; }   // 履歴が 0 件: 新規へ
+  if (b.dataset.act === 'clearfilter'){   // 絞り込みで 0 件: 状態・種類の絞り込みを消す
     L.state = 'all'; L.kind = 'all'; $('#txState').value = 'all'; $('#txFilter').value = 'all'; saveListPrefs();
     txLimit.clear();
     renderList(); $('#txState').focus(); return;
@@ -1038,11 +1036,11 @@ $('#txList').addEventListener('click', e => {
   const row = b.closest('.txi'); if (!row) return; const id = row.dataset.id;
   if (b.dataset.act === 'pick'){ if (b.checked) PICK.ids.add(id); else PICK.ids.delete(id); renderPickBar(); return; }
   if (b.dataset.act === 'open') openDoc(id);
-  else if (b.dataset.act === 'gotab'){   // 履歴の行の「パックを作る」「作り直す」: 開いてそのタブへ(段7 E-13)
+  else if (b.dataset.act === 'gotab'){   // 履歴の行の「パックを作る」「作り直す」: 開いてそのタブへ
     const t = ED_TABS.includes(b.dataset.tab) ? b.dataset.tab : 'tx';
     (S.docId === id ? Promise.resolve(true) : openDoc(id)).then(ok => { if (ok && S.docId === id) setEditTab(t, { focus: true }); });
   }
-  else if (b.dataset.act === 'relink'){   // 動画が見つからない文書: 開いてから、付け替えのダイアログ(段2 B-4)
+  else if (b.dataset.act === 'relink'){   // 動画が見つからない文書: 開いてから、付け替えのダイアログ
     const menu = b.closest('details'); if (menu) menu.open = false;
     (S.docId === id ? Promise.resolve(true) : openDoc(id)).then(ok => { if (ok && S.docId === id) openRelink(); });
   }
@@ -1050,7 +1048,7 @@ $('#txList').addEventListener('click', e => {
 window.addEventListener('keydown', e => {
   if (!S.doc || wideTab() || isTextEntry(e.target) || modalOpen() || menuHasKeys(e.target)) return;   // メニューがキーを持つ間は戻さない(3-1)
   if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z'){ e.preventDefault(); if (!lockJob()) doUndo(); }
-  /* Space の再生・停止は共通の再生キー(editPlaybackKeys)だけが受け持つ。ここにも残っていたため1回押すと「再生 → すぐ停止」の2回分になっていた(2026-09-27 に削除) */
+  /* Space の再生・停止は共通の再生キー(editPlaybackKeys)だけが受け持つ(ここでも扱うと1回押すと「再生 → すぐ停止」の2回分になる) */
 });
 window.addEventListener('beforeunload', e => { if (S.dirty || S.saving){ e.preventDefault(); e.returnValue = ''; } });   // 送信中の保存も、閉じると届かないことがある
 
@@ -1084,7 +1082,7 @@ $('#keepSelected').addEventListener('click', () => bulkCut(false));
 
 /* ---------- キー操作の手がかり(行の一覧の上。閉じたら覚える) ---------- */
 const KH_KEY = 'tx.keyhint';
-const khOn = () => { try { return localStorage.getItem(KH_KEY) === '1'; } catch { return false; } };   // 段3 の仕上げ: 既定は出さない(画面の下のキーの帯と同じ中身のため)。出したいときだけ '1'
+const khOn = () => { try { return localStorage.getItem(KH_KEY) === '1'; } catch { return false; } };   // 既定は出さない(画面の下のキーの帯と同じ中身のため)。出したいときだけ '1'
 $('#keyHintClose').addEventListener('click', () => { try { localStorage.setItem(KH_KEY, '0'); } catch {} applyKeyHint(); toast('キー操作の手がかりを閉じました(右上の「キー操作」から、また出せます)', 4000); });
 $('#keyHintAll').addEventListener('click', () => openKeys());
 $('#keyHintOn').addEventListener('change', e => { try { localStorage.setItem(KH_KEY, e.target.checked ? '1' : '0'); } catch {} applyKeyHint(); });
@@ -1103,11 +1101,11 @@ const PACK = !EDIT_HOST && window.EditPack ? EditPack.create({ S, $, esc, fmtT, 
 async function boot(){
   if (!EDIT_HOST) $('#ver').textContent = 'v' + APP_VERSION;   // 案件の画面の版は殻が出す
   loadView(); setEditTab('tx');
-  applyNeedHome();   // まとめて実行(履歴の「選んで」・題名の行)は入口から開いたときだけ。開いていなければ押せない理由を出す(段7 E-17。サーバーに届かないときも)
+  applyNeedHome();   // まとめて実行(履歴の「選んで」・題名の行)は入口から開いたときだけ。開いていなければ押せない理由を出す(サーバーに届かないときも)
   try {
     const ping = await api('/api/ping');
     if (!APP_VERSION){ if (!EDIT_HOST) $('#ver').textContent = 'v' + ping.version; }
-    else if (ping.version !== APP_VERSION && !UIKit.restart.check($('#errBar'), APP_VERSION, ping.version))   // 帯に「起動し直す」(段9 9-3)
+    else if (ping.version !== APP_VERSION && !UIKit.restart.check($('#errBar'), APP_VERSION, ping.version))   // 帯に「起動し直す」
       showErr(`画面(v${APP_VERSION})とサーバー(v${ping.version})の版が違います。黒い画面を閉じて、起動し直してください`, { plain: true });
   } catch (e){ return showErr(e.message + '。youtube-tools フォルダの start.bat で起動して、ホームから開いてください', { plain: true }); }
   try { S.tools = await api('/api/tools'); } catch {}
@@ -1115,10 +1113,10 @@ async function boot(){
   await loadRoster();
   if (S.tools){
     $('#optModel').innerHTML = S.tools.models.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('');
-    // 処理方式は GPU(whisper.cpp)だけ(0.58.0。index.html の #optDevice。まだ作っていない PC は文字起こしを始めたときにサーバーが理由を出す = 黙って CPU にしない)
+    // 処理方式は GPU(whisper.cpp)だけ(#optDevice。まだ作っていない PC は文字起こしを始めたときにサーバーが理由を出す = 黙って CPU にしない)
     $('#optLang').innerHTML = S.tools.langs.map(l => `<option value="${esc(l)}">${esc({ ja: '日本語', en: '英語', ko: '韓国語', zh: '中国語', auto: '自動判定' }[l] || l)}</option>`).join('');
   }
-  await loadSettings();   // 読めなければ ⚙ に「読み直す」を出し、読み直すまで保存しない(監査 11)
+  await loadSettings();   // 読めなければ ⚙ に「読み直す」を出し、読み直すまで保存しない
   KM.reload();   // 校正のキーは編集の設定。共通の再生キーを以前ここに保存していたら、ホームの設定へ移す(部品が 1 回だけ)
   if (S.settings.speakerColors === undefined){   // 話者の色のスイッチは、以前はこのブラウザ(tx.pk.speakerColors)。初回だけサーバーへ移す(localStorage は消さない)
     try { if (localStorage.getItem('tx.pk.speakerColors') === '0'){ S.settings.speakerColors = false; saveSettings(); } } catch {}

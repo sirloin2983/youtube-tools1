@@ -1,23 +1,21 @@
-/* app-tpl.js — 「編集」の画面の HTML のうち「1 文字起こし」の欄(tx)とダイアログ(dialogs)。index.html の中身をここへ移した(RS8 C2b-0。動きは同じ)。
-   RS8 C2b で左のメニュー(menu)・空の状態(nodoc)・題名の行(docbar)・⚙ の編集の節(settings)も移した(案件の画面の校正のパネルが同じ欄を組み立てて app.js を動かすため。src/app/ui/cases/edhost.js)。
-   CSP(script-src 'self')でインラインのスクリプトは動かないので、index.html は <script src="app-tpl.js" data-slot="tx|dialogs"> を置いた場所へ
-   この文字列を差し込む(読んだ直後・同期。差し込んだら自分の <script> は外す)。案件の画面(校正のパネル)は EditProofTpl.tx / .dialogs を自分の欄へ入れて使う。
-   中身の id・class・構造は index.html に直書きしていたときと同じ(app-*.js・cut.js・e2e は id で引く) */
+/* app-tpl.js — 「編集」の画面の HTML(window.EditProofTpl)。「1 文字起こし」の欄(tx)・ダイアログ(dialogs)・左のメニュー(menu)・空の状態(nodoc)・題名の行(docbar)・⚙ の編集の節(settings)。
+   案件の画面(src/app/ui/cases/edhost.js)が T.tx・T.menu・T.docbar・T.nodoc・T.settings・T.dialogs を自分の欄へ入れて校正のパネルを組み立てる。
+   中身の id・class・構造は app-*.js・cut.js・e2e が id で引くので変えない。 */
 (function () {
   'use strict';
   var T = window.EditProofTpl = window.EditProofTpl || {};
   T.tx = `   <div class="tt-tabpanel" id="tabTx" role="tabpanel" aria-labelledby="edtab-tx" data-edpanel="tx">
    <div class="tx-grid">
     <section class="tx-list" aria-label="行の一覧">
-     <!-- v0.15.0: 行の一覧の上の道具(検索・絞り込み・件数。notes:docs/spec/ui.md 4.)と、主なキー操作の手がかり。広い画面では一覧の上に固定する -->
+     <!-- 行の一覧の上の道具(検索・絞り込み・件数。notes:docs/spec/ui.md 4.)と、主なキー操作の手がかり。広い画面では一覧の上に固定する -->
      <div class="tt-listhead" id="listHead">
       <div class="ui-listbar tt-rowbar" role="search">
         <input type="search" id="q" placeholder="行を検索(該当する行だけ表示)" aria-label="行を検索" autocomplete="off">
         <select id="flagKind" aria-label="表示する行の絞り込み" title="表示する行の絞り込み"><option value="">すべての行</option><option value="unproofed">未校正の行だけ</option><option value="proofed">校正済みの行だけ</option><option value="any">要確認すべて</option><option value="text">文字の要確認だけ</option><option value="spk">話者の要確認だけ</option><option value="sug">修正の提案がある行だけ</option><option value="cut">カット済の行だけ</option></select>
-        <!-- 「次の未校正」・「…」・件数は1つの箱に入れ、折り返すときは3つ一緒に次の行へ(「…」だけが落ちない。段5 5-6) -->
+        <!-- 「次の未校正」・「…」・件数は1つの箱に入れ、折り返すときは3つ一緒に次の行へ(「…」だけが落ちない) -->
         <span class="tt-rb-end">
         <button type="button" class="btn small" id="btnNextUn" title="次の未校正の行へ移動します(Shift+↓。前へは Shift+↑)">次の未校正 <kbd class="ui-kbd">Shift</kbd><kbd class="ui-kbd">↓</kbd></button>
-        <!-- 話者・まとめて直す・書き出し・以前の版は、同じ操作の置き場をほかに残さずここへ1つにまとめる(画面の全面見直し 段2) -->
+        <!-- 話者・まとめて直す・書き出し・以前の版は、同じ操作の置き場をほかに残さずここへ1つにまとめる -->
         <details class="ui-pop" id="jumpMenu"><summary class="btn ghost small icon" id="btnSpk" aria-label="話者・文字をまとめて直す・書き出し・以前の版" title="話者・文字をまとめて直す・書き出し・以前の版"><span class="ui-icon" data-icon="more" aria-hidden="true"></span></summary><div class="ui-pop-body" data-align="left">
           <button type="button" data-jump="spDetails">話者(自動判別・名前)</button>
           <button type="button" data-jump="fixDetails">文字をまとめて直す(置換・再認識)</button>
@@ -52,7 +50,7 @@
       <div class="tt-player">
         <div class="tt-vbox">   <!-- 映像と、映像の上に重ねる字幕だけの箱(字幕の位置の基準。下の再生の道具を含めない) -->
           <video id="player" controls preload="metadata" playsinline></video>
-          <!-- 映像の上に今の行を字幕として重ねる(段2)。止まっているときは選んだ行、再生中は再生位置の行。装飾扱い(同じ情報は一覧から読める) -->
+          <!-- 映像の上に今の行を字幕として重ねる。止まっているときは選んだ行、再生中は再生位置の行。装飾扱い(同じ情報は一覧から読める) -->
           <div class="tt-caption tt-cap-look" id="playerCaption" aria-hidden="true" hidden></div>
         </div>
         <p class="hint" id="playerMsg" hidden><span id="playerMsgText"></span><button type="button" class="btn small" id="playerRelink" hidden>動画を選び直す</button></p>
@@ -77,13 +75,13 @@
           <span class="hint" id="sessStat"></span>
         </div>
         <div class="terms" id="terms" hidden></div>
-        <!-- 進み具合の帯のクリックはマウスの便利(キーでは S / W・↓ / ↑ で行を移動できる)。A-25 の例外 --><div class="stripbox" id="stripBox" data-ui-audit-allow="A-25" title="全体の進み具合。クリックでその位置へ移動します"><canvas id="strip"></canvas><i id="stripHead"></i></div>
-        <p class="tt-strip-legend" id="stripLegend"><span><i class="ok" aria-hidden="true"></i>校正済み</span><span><i class="warn" aria-hidden="true"></i>要確認</span><span><i class="off" aria-hidden="true"></i>未校正</span></p>   <!-- 色だけで伝えない(凡例を文字で。S25) -->
+        <!-- 進み具合の帯のクリックはマウスの便利(キーでは S / W・↓ / ↑ で行を移動できる) --><div class="stripbox" id="stripBox" data-ui-audit-allow="A-25" title="全体の進み具合。クリックでその位置へ移動します"><canvas id="strip"></canvas><i id="stripHead"></i></div>
+        <p class="tt-strip-legend" id="stripLegend"><span><i class="ok" aria-hidden="true"></i>校正済み</span><span><i class="warn" aria-hidden="true"></i>要確認</span><span><i class="off" aria-hidden="true"></i>未校正</span></p>   <!-- 色だけで伝えない(凡例を文字で) -->
       </div>
     </div>
 
     <details class="card tt-tool tt-lockable" id="spDetails"><summary>話者 <span class="hint">自動判別・名前・割り当て</span></summary>
-      <!-- 評価用で話者の無い行があるとき(マスタープラン Q4): 候補(覚えた声 → メンバーのフォルダ → 配信の文脈)から1人選んで全行に(既存の 1人指定 = 話者判別の「1人」)。app-jobs.js の renderSpAll -->
+      <!-- 評価用で話者の無い行があるとき:候補(覚えた声 → メンバーのフォルダ → 配信の文脈)から1人選んで全行に(既存の 1人指定 = 話者判別の「1人」)。app-jobs.js の renderSpAll -->
       <div class="fld" id="spAllBox" hidden><span class="l">全行をこの人に(評価用)</span>
         <div class="row"><select id="spAllName" aria-label="全行に付ける話者" style="width:auto;max-width:300px"></select>
           <input id="spAllNew" type="text" maxlength="30" placeholder="名前(例: さくらみこ)" aria-label="全行に付ける話者の名前" hidden style="width:12em">
@@ -158,7 +156,7 @@
   <div class="ui-dlg-head"><h2 id="keysT">キー操作の一覧</h2><form method="dialog"><button class="btn ghost small icon" aria-label="閉じる" title="閉じる(Esc・?)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></form></div>
   <div class="ui-dlg-body">
   <div id="keysList"></div>   <!-- キーの一覧 = キー配置(UIKit.keymap)。キーを変える場所はここだけ(設定の歯車には開くボタンだけ) -->
-  <p class="hint" id="keysFpsNote" hidden style="margin:8px 0 0">動画の fps が分からないため、1 文字起こし の「1コマ」は約 1/30 秒です(2 カット のタブを使えない文書)。</p>   <!-- 段3 3-4。renderFpsNote() -->
+  <p class="hint" id="keysFpsNote" hidden style="margin:8px 0 0">動画の fps が分からないため、1 文字起こし の「1コマ」は約 1/30 秒です(2 カット のタブを使えない文書)。</p>   <!-- renderFpsNote() -->
   <p class="tt-flow" id="keysFlow"></p>   <!-- 基本の流れ(今の割り当てから renderKeyUI() が書く) -->
   <p class="hint" style="margin:8px 0 0">キーのない操作: 選んだ行の下に出るボタンで、時刻の微調整(開始 −/＋・終了 −/＋。幅は右上の「設定」の「再生・行の操作」)・時刻を再生位置に・行の追加(前/後)・分割・結合・削除。行の右の「残す/カット済」で、Resolve の仮編集に残すかを決めます(まとめては「まとめて」のメニュー。区間を細かく決めるのは 2 カット のタブ)。2 カット のタブでは、ホイールで拡大縮小(マウスの位置が中心)・Shift+ホイールで横に移動。区間の端のドラッグ中は Alt で吸い付きません。字幕の段の行を押して選ぶと、端のつまみのドラッグ(または Q / W で端を選んで , . で1コマ)で行の時刻を直せ(前後の行は越えない。残す行を外へ広げると残す区間も広がる)、「再生位置でこの行を分ける」で行を分けられます。</p>
   <label class="lag" style="margin-top:10px"><input type="checkbox" id="keyHintOn">行の一覧の上に、主なキー操作の手がかりを出す</label>
@@ -214,7 +212,7 @@
         <label class="lag">品質 <select id="optQuality" style="width:auto"><option value="best">精度優先</option><option value="fast">速度優先</option></select></label>
         <label class="lag">処理方式 <select id="optDevice" style="width:auto"><option value="vulkan">GPU(whisper.cpp)</option></select></label></div>
       <p class="hint tt-dev-hint" id="optDevHint" role="status" hidden></p>
-      <!-- 0.66.0: 声の検出・小さい声・単語の時刻・字幕の向きと最大文字数・自動の後処理のチェックは設定の画面(入口の /settings の編集の節)へ(notes:docs/spec/data.md の 6)。
+      <!-- 声の検出・小さい声・単語の時刻・字幕の向きと最大文字数・自動の後処理のチェックは設定の画面(入口の /settings の編集の節)へ(notes:docs/spec/data.md の 6)。
            文字起こしの要求には保存した設定が付く(app-core.js の checksOf・readSubtitle が S.settings から読む) -->
       <p class="hint" style="margin-top:8px">声の検出・小さい声を持ち上げる・単語の時刻・字幕の文字数・終わったあとの自動の後処理(置換辞書・用語集・LLM・話者の自動判別など)は、
         <a href="../settings#sec-editor">設定の画面(編集の節)</a>で変えます(保存した設定を次の文字起こしに使います)。</p>
@@ -235,7 +233,7 @@
   <details class="card side-pane" data-side-pane="start" id="jobsCard" open><summary>処理状況</summary><div id="jobs"><p class="hint" style="margin:6px 0 0">ジョブはありません</p></div></details>
   <details class="card side-pane" data-side-pane="files" id="txCard" open><summary>保存済みの文字起こし <span class="hint" id="txTotal"></span></summary>
     <a href="/" id="txHomeLink" class="ui-next" data-ui-portal hidden>すべての文字起こし → ホーム</a>
-    <!-- v0.15.0: 一覧の道具(notes:docs/spec/ui.md 4.)。選んだ条件はこのブラウザに覚える -->
+    <!-- 一覧の道具(notes:docs/spec/ui.md 4.)。選んだ条件はこのブラウザに覚える -->
     <div class="ui-listbar tt-listbar" role="search">
       <select id="txState" aria-label="校正の状態で絞り込む"><option value="all">状態: すべて</option><option value="todo">状態: 未校正</option><option value="doing">状態: 校正中</option><option value="done">状態: 校正済み</option></select>
       <select id="txFilter" aria-label="種類で絞り込む"><option value="all">種類: すべて</option><option value="clip">種類: 切り抜き</option><option value="other">種類: それ以外</option><option value="eval">種類: 評価用</option></select>
@@ -243,7 +241,7 @@
       <select id="txGroup" aria-label="まとめ方" title="まとめ方"><option value="stream">配信ごと</option><option value="channel">配信者ごと</option><option value="none">まとめない</option></select>
       <span class="ui-count" id="txCount" aria-live="polite"></span>
     </div>
-    <!-- 12 ⑦(b): 選んだ文書をまとめて「文字起こし → パック」(入口の「まとめて実行」。入口から開いたときだけ使える。開いていないときは隠さず理由を出す = 段7 E-17) -->
+    <!-- 選んだ文書をまとめて「文字起こし → パック」(入口の「まとめて実行」。入口から開いたときだけ使える。開いていないときは隠さず理由を出す) -->
     <div class="tt-batch" id="txBatchBox">
       <label class="lag"><input type="checkbox" id="txPick">選んで、まとめて実行(文字起こし → パック)</label>
       <span class="hint tt-need-home" id="txBatchOff" hidden>ホーム(start.bat)から開くと使えます(まとめて実行はホームの順番待ちで進みます)</span>
@@ -266,7 +264,7 @@
     <div class="tt-empty-ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 10h4M14 10h3M7 14h7"/></svg></div>
     <b>まだ何も開いていません</b>
     <span>動画から字幕を作り(文字起こし)、カットを決めて、Resolve へ渡すパックを作ります。処理はすべてこのパソコンの中で行います。</span>
-    <!-- 前回の続き(段7 E-7。app-list.js の renderResume。前に開いていた文書とタブ = このブラウザの tx.last.v1) -->
+    <!-- 前回の続き(app-list.js の renderResume。前に開いていた文書とタブ = このブラウザの tx.last.v1) -->
     <div class="tt-resume" id="noDocResume" hidden><button type="button" class="btn primary" id="noDocResumeBtn"><span class="tt-resume-l">前回の続き:</span> <span class="tt-resume-t" id="noDocResumeT"></span></button><span class="hint" id="noDocResumeSub"></span></div>
     <ol class="tt-steps" role="list">
       <li><span class="n">1</span><span>左のメニューの「新規」に、動画のパスを入れて「文字起こしを開始」</span></li>
@@ -281,7 +279,7 @@
      <input id="docTitle" type="text" maxlength="120" aria-label="タイトル" title="タイトル(押して直せます)">
      <span class="tt-docbar-meta hint" id="docMeta"></span>
      <span class="tt-docbar-pills" id="docPills"><span class="pill ok" id="pillProof" hidden title="校正済み = 聞いて確認して、この行の文字が正しいと判断した行。精度の測定と、将来の追加学習の正解データになります"></span><span class="pill warn" id="pillCut" hidden></span><span class="pill" id="pillAuto" hidden></span></span>
-     <!-- まとめて実行(今の文書。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 3。入口の ② の口 /api/flow/submit。入口から開いたときだけ使える。開いていないときは押せない理由 = 段7 E-17) -->
+     <!-- まとめて実行(今の文書。入口の ② の口 /api/flow/submit。入口から開いたときだけ使える。開いていないときは押せない理由を出す) -->
      <details class="ui-menu tt-docauto" id="docAuto">
        <summary class="btn small ghost" title="この文書の残りの作業(文字起こし → パック)を、ホームの「まとめて実行」の順番待ちで進めます"><span>まとめて実行</span></summary>
        <div class="ui-menu-pop tt-docauto-pop">
@@ -296,7 +294,7 @@
        </div>
      </details>
    </div>`;
-  T.settings = `<!-- ⚙ 設定の引き出し(UIKit.settings.mount)のツールの節。旧「表示」ポップオーバーの中身(画面の色は全体の節へ一本化したので、ここには無い) -->
+  T.settings = `<!-- ⚙ 設定の引き出し(UIKit.settings.mount)のツールの節。画面の色は全体の節にあり、ここには無い -->
 <section id="edSettings" hidden>
   <h3>編集</h3>
   <div class="fld"><label for="vFs">文字の大きさ(行の文字)</label><select id="vFs"><option value="13">小</option><option value="15">標準</option><option value="17">大</option><option value="20">特大</option></select></div>
