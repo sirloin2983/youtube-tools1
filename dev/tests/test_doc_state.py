@@ -102,7 +102,7 @@ class SpecCheckTest(unittest.TestCase):
                 "口 `/api/cases/list` と `/friend/api/setup/start` と `/api/nope`",
                 "パス `dev/spec_check.py:12` と `src/nothing_here.py` と `src/<層>/`",
                 "旧 `src/old.py` <!-- spec-check: 旧 -->",
-                "前のアプリ RequestSender の形", "## 経緯", "`YTT_HISTORY`", "RequestSender から移った", "## 今",
+                "## 経緯", "`YTT_HISTORY`", "## 今",
                 "<!-- spec-check: 設定 -->", "| 鍵 | 説明 |", "| --- | --- |", "| `liveDetect` | 説明 |", "| `missingKey` | 説明 |"]))
             code = FakeCode('os.environ.get("YTT_HERE")\nos.environ["YTT_SECRET_ONLY"]\nd = {"liveDetect": 1}',
                             {"/api/cases", "/api/setup/start"})
@@ -111,8 +111,19 @@ class SpecCheckTest(unittest.TestCase):
             self.assertEqual(msgs, ["パスがリポジトリに無い: src/nothing_here.py", "口がコードに無い: /api/nope",
                                     "環境変数がコードに無い: YTT_GONE"])
             wmsgs = sorted(m for _r, _l, m in warn)
-            self.assertEqual(wmsgs, ["消した道具の名前が仕様に残っている: RequestSender",   # 経緯の節の物は数えない
-                                     "環境変数が docs/spec に書いていない: YTT_SECRET_ONLY", "設定の鍵がコードの文字列に無い: missingKey"])
+            self.assertEqual(wmsgs, ["環境変数が docs/spec に書いていない: YTT_SECRET_ONLY", "設定の鍵がコードの文字列に無い: missingKey"])
+
+    def test_gone_names_in_repo_and_notes(self):
+        """消した道具の名前: リポジトリのファイル(GONE_OK を除く)と保管庫の AGENTS.md・docs/spec・codemap。経緯の場所(docs/design・plan/done)は見ない"""
+        with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as repo:
+            write(os.path.join(repo, "src", "a.py"), "x = 1\n# 前の Request" + "Sender の口\n")
+            write(os.path.join(repo, ".gitignore"), "friend-apps/request-" + "sender/\n")
+            write(os.path.join(root, "AGENTS.md"), "依頼" + "ボックス\n")
+            write(os.path.join(root, "docs", "spec", "f.md"), "# 仕様\n## 経緯\n送る" + "アプリ 2.0\n")
+            write(os.path.join(root, "docs", "design", "history.md"), "Request" + "Sender\n")
+            write(os.path.join(root, "plan", "done", "x.md"), "Request" + "Sender\n")
+            hits = spec_check.gone(root, repo, files=["src/a.py", ".gitignore", "src/missing.py"])
+            self.assertEqual(sorted((w, ln) for w, ln, _n in hits), [("notes:AGENTS.md", 1), ("notes:docs/spec/f.md", 3), ("src/a.py", 2)])
 
 
 class DriftReportTest(unittest.TestCase):

@@ -2,6 +2,7 @@
 """仕様(保管庫の docs/spec/)とコードの食い違いを探す(2026-10-18)。
 
     python dev/spec_check.py          # 止める物と警告を並べる(終了コード 1 = 止める物がある)
+    python dev/spec_check.py --gone   # 消した道具の名前だけを探す(終了コード 1 = 残っている。main に入れる関所 dev/land_gate.py が止める)
 
 食い違い(終了コード 1。警告として週 1 回の食い違いの一覧 dev/drift_report.py に出す。lint・push.bat は止めない =
 保管庫は全部の worktree で共有なので、まだ main に入っていない別の worktree のコードを書いた仕様で止まらないように):
@@ -11,7 +12,8 @@
 警告(終了コード に関わらない):
   - 設定の鍵: 表の直前に `<!-- spec-check: 設定 -->` の印がある表の 1 列目のバッククォートが、コードの文字列に無い
   - 逆向き: src/・friend-apps/ のコード(テストを除く)が使う `YTT_*` が docs/spec のどこにも書いていない
-  - 消した道具の名前(GONE。前の友人のアプリ RequestSender など)が仕様に残っている(仕様は今の形だけ。経緯は docs/design・作業の記録へ)
+消した道具の名前(--gone。GONE の名前。止める): 今の正に 1 つでも出たら止める。今の正 = リポジトリの git のファイル全部(配る zip の中身 =
+src・friend-apps を含む。GONE_OK の物を除く)と、保管庫の AGENTS.md・docs/spec・codemap。経緯は docs/design・作業の記録・plan/done へ(そこは見ない)。
 除くもの: 行に `<!-- spec-check: 旧 -->` の印・見出しに「経緯」「履歴」「過去」「旧い名前」が入る節(次の同じ深さの見出しまで)。
 コードのブロック(``` の中)は除かない(環境変数の例はそこにある)。
 """
@@ -32,7 +34,10 @@ SKIP_HEAD = re.compile(r"経緯|履歴|過去|旧い名前")
 OLD_MARK = "<!-- spec-check: 旧 -->"
 KEY_MARK = "<!-- spec-check: 設定 -->"
 CODE_DIRS = ("src/", "dev/", "setup/", "friend-apps/", "chrome-ext/")
-GONE = ("RequestSender",)   # 消した道具の名前(仕様に残ったら警告。10-18 前の友人のアプリを消した)
+GONE = re.compile(r"RequestSender|request-sender|送るアプリ|依頼ボックス", re.I)   # 消した道具の名前(10-18 前の友人のアプリを消した)
+# 名前を出してよい物: この検査とそのテスト・手元に残った前のアプリのフォルダの鍵を git に入れない守り(.gitignore・push の鍵の検査)
+GONE_OK = ("dev/spec_check.py", "dev/tests/test_doc_state.py", ".gitignore", "dev/push_helper.py", "dev/tests/test_push_helper.py")
+GONE_NOTES = ("AGENTS.md", "docs/spec", "codemap")
 CODE_EXTS = (".py", ".js", ".cjs", ".mjs", ".cs", ".bat", ".vbs", ".ps1", ".html", ".json", ".txt", ".command", ".gs", ".css")
 SELF = ("dev/spec_check.py", "dev/tests/test_spec_check.py")
 
@@ -138,9 +143,6 @@ def check(root=None, code=None):
         mentioned.update(n for n in YTT.findall(text))
         lines = live_lines(text)
         for ln, line in lines:
-            for name in GONE:
-                if name in line:
-                    warn.append((rel, ln, "消した道具の名前が仕様に残っている: " + name))
             for m in YTT.finditer(line):
                 name = m.group(0)
                 if name.endswith("_") or line[m.end():m.end() + 1] in "*<{":
@@ -173,11 +175,39 @@ def check(root=None, code=None):
     return bad, warn
 
 
+def _gone_in(text):
+    """-> [(行, 名前)]"""
+    return [(i, m.group(0)) for i, line in enumerate(text.splitlines(), 1) for m in GONE.finditer(line)]
+
+
+def gone(root=None, repo=REPO, files=None):
+    """消した道具の名前の残り -> [(場所, 行, 名前)]。場所は リポジトリのパス か notes:<保管庫のパス>"""
+    out = []
+    for p in (git_files() if files is None else files):
+        if p in GONE_OK or not os.path.isfile(os.path.join(repo, p)):
+            continue
+        out += [(p, ln, name) for ln, name in _gone_in(read(os.path.join(repo, p)))]
+    root = root if root is not None else layout.notes_root()
+    for top in GONE_NOTES if root and os.path.isdir(root) else ():
+        base = os.path.join(root, *top.split("/"))
+        paths = [base] if os.path.isfile(base) else [os.path.join(d, f) for d, _ds, fs in os.walk(base) for f in sorted(fs) if f.endswith(".md")]
+        for p in paths:
+            rel = os.path.relpath(p, root).replace(os.sep, "/")
+            out += [("notes:" + rel, ln, name) for ln, name in _gone_in(read(p))]
+    return out
+
+
 def main():
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except (AttributeError, ValueError):
         pass
+    if "--gone" in sys.argv[1:]:
+        hits = gone()
+        for where, ln, name in hits:
+            print("%s:%d 消した道具の名前が残っている: %s" % (where, ln, name))
+        print("消した道具の名前 %d 件" % len(hits))
+        return 1 if hits else 0
     bad, warn = check()
     for where, ln, msg in bad:
         print("%s:%d %s" % (where, ln, msg))

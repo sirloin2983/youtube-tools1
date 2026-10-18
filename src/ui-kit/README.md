@@ -280,10 +280,9 @@
   明るい/暗い(`ytt:theme`)とは別に持つので、「OSに合わせる」・以前の保存はそのまま使える(暗くしたときに、最後に選んだ暗い配色になる)
 - ⚙ 設定の「テーマ」: アイスライト(明るい)/ ネオンシアン / 鋼の白 / ターミナルグリーン(暗い)/ OSに合わせる
 - 色は必ず変数で書く決まりは今までどおり(固定の色は、配色を替えたときに浮く)。スイッチのつまみは `--knob`(鋼の白・ターミナルグリーンは明るいアクセントの上で見えるように地の色)
-- 前の送るアプリ(消した request-sender)の配色は別だった(A ネオンシアン・B シンセウェーブ・C ターミナルグリーン・D アイスライト)
 
 ## v11(2026-10-02・時刻の欄 `UIKit.timebox`)
-時刻(1:23:45)を「:」を打たずに入れる欄。前の送るアプリ(消した request-sender の TimeBox)で決めた動き(`notes:docs/spec/friend.md の 2-10` の「時刻の欄」)を、Web の画面でも使い回すための部品。
+時刻(1:23:45)を「:」を打たずに入れる欄。
 **時刻を手で入れる欄を新しく作るときは、これを使う**(`notes:docs/spec/ui.md` の 3-2)。スタジオの「現在位置」の欄だけは今までの入力欄のまま(5025 のような秒の数字でジャンプする使い方があるため)。
 - 置き方: `<span data-ui-time aria-label="開始の時刻"></span>`(DOMContentLoaded で自動)。画面をあとから作るときは `UIKit.timebox.attach(el, opt)` か `UIKit.timebox.create(opt)`(要素を返す)
 - 形は3つ: **時:分:秒**(既定。`1:23:45`)/ **時:分:秒.0.1秒**(`data-ui-time-tenths` / `tenths`。`0:01:23.5`。スタジオのマーク・コラボ)/
@@ -348,7 +347,7 @@
   戻り値 `{run, runs, skipped}`(全部断られたら 1 本目の理由で reject)。以前の `start(path, body, estBody)` と `api/autorun/*` は消した。`UIKit.version` は 28
 
 ## v30(2026-10-17)暗いときの配色 シンセウェーブ
-- `UIKit.theme.palette('synth')` = シンセウェーブ(`:root[data-theme=dark][data-palette=synth]`)。前の送るアプリ(消した request-sender の Theme.cs)の配色 B と同じ地・面・線・文字・アクセント。友人のアプリの配色の切り替え(A ネオンシアン = cyan・B シンセウェーブ = synth・C ターミナルグリーン = green・D アイスライト = 明るい)で使う
+- `UIKit.theme.palette('synth')` = シンセウェーブ(`:root[data-theme=dark][data-palette=synth]`)。友人のアプリの配色の切り替え(A ネオンシアン = cyan・B シンセウェーブ = synth・C ターミナルグリーン = green・D アイスライト = 明るい)で使う
 
 ## v31(2026-10-18)使われていない公開の口を外した
 - 呼ぶ所が無かった `UIKit.theme.resolved()`・`UIKit.settings.statusOf()`・`UIKit.keymap.BLOCKED`(中の `PB_BLOCKED` は残す)・`UIKit.flow.newId()` を外した(コードの棚卸し `notes:plan/done/legacy-review.md`)。`UIKit.version` は 31

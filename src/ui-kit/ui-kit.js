@@ -64,13 +64,13 @@
        Python の src/flow/order.py と同じ変換)・UIKit.autorun.start(orders, opts)(見積もり api/flow/estimate を 1 本ずつ足す → 1 本ずつ submit →
        終わるまで api/flow/runs を見て知らせる)。以前の start(path, body, estBody) と api/autorun/* は消した。README.md の「v28」
     v29(2026-10-17・友人のアプリの区間の欄 F3-3): UIKit.timebox に ホイール(opt.wheel / data-ui-time-wheel。マウスの下の単位を ±1・Shift で ±10・動いた単位を一瞬光らせる)・add(秒)(今の値に足す・動いた一番上の単位を光らせる)・貼り付けの前の口 ui-time-beforepaste(取り消せる。画面が止めたら値も reject も出さない)。README.md の「v29」
-    v30(2026-10-17・友人のアプリの配色): 暗いときの配色に シンセウェーブ(synth)を足した(UIKit.theme.palette('synth')。前の送るアプリの配色 B と同じ色) */
+    v30(2026-10-17・友人のアプリの配色): 暗いときの配色に シンセウェーブ(synth)を足した(UIKit.theme.palette('synth')。友人のアプリの配色 B) */
 (function () {
   'use strict';
   var KEY = 'ytt:theme';
   /* v12: 暗いときの配色(cyan = ネオンシアン・steel = 鋼の白・green = ターミナルグリーン)。明るいときはアイスライト(ice)だけ。
      明るい/暗い(ytt:theme)と分けて持つ = 切り替えボタン・OSに合わせる・以前の保存がそのまま使える */
-  var PAL_KEY = 'ytt:palette', DARK_PALETTES = { cyan: 'ネオンシアン', steel: '鋼の白', green: 'ターミナルグリーン', synth: 'シンセウェーブ' };   /* v30: synth = 前の送るアプリの配色 B */
+  var PAL_KEY = 'ytt:palette', DARK_PALETTES = { cyan: 'ネオンシアン', steel: '鋼の白', green: 'ターミナルグリーン', synth: 'シンセウェーブ' };   /* v30: synth = 友人のアプリの配色 B */
   function darkPalette() {
     try { var v = localStorage.getItem(PAL_KEY); return DARK_PALETTES[v] ? v : 'cyan'; } catch (e) { return 'cyan'; }
   }
@@ -2321,7 +2321,7 @@
   };
 
   /* ==== v11(2026-10-02): 時刻の欄 UIKit.timebox。使い方は README.md の「v11」 ====
-     時刻(1:23:45)を「:」を打たずに入れる欄。前の送るアプリ(消した request-sender の TimeBox)と同じ動き(notes:docs/spec/friend.md の 2-10):
+     時刻(1:23:45)を「:」を打たずに入れる欄。動き:
        欄は1つ。時・分・秒 のどれか1つが選ばれていて(反転)、数字は 時(1桁)→ 分(2桁)→ 秒(2桁)の順に入る(分・秒の最初が 6〜9 なら1桁で次へ)。
        ← → で場所を選ぶ(クリックでも)・↑ ↓ で選んだ単位を ±1(Shift で ±10)・BackSpace = 選んだ所を 0(もう 0 なら左へ)・Delete = 空に・
        貼り付け(1:23:45 / 83:45 / 1h23m45s。youtube: true のときだけ YouTube の URL の t= も読む)。
