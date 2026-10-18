@@ -343,13 +343,6 @@ def _live_exported(o):
     return {"ok": bool(recorded), "video": STORE.get(vid)[0]}
 
 
-def _live_section(o):
-    """入口の「アーカイブで本番版に作り直す」(線 D の P4)から: YouTube の videoId の区間を、ちょうど path へ書き出す。
-    マーク・配信のデータは触らない(入口が /api/live/exported で自分で記録する)。進み具合は GET /api/export?id=・取り消しは POST /api/export/cancel"""
-    spec = exporter.build_section_spec(o)
-    return EXPORTS.public_of(EXPORTS.start(spec))
-
-
 def _video_delete(o):
     vid = str(o.get("id") or "")
     if not STORE.has(vid):
@@ -448,7 +441,6 @@ POST_ROUTES = {
     "/api/videos/open": _open_video,
     "/api/live/adopt": _live_adopt,   # 入口のライブの採用(登録 + 同じ区間の使い回し + 採用のマーク。RS8 B3-5)
     "/api/live/exported": _live_exported,   # 入口のライブの書き出しが済んだマークを書き出し済みに(path は書き出し先の中の mp4 だけ)
-    "/api/live/section": _live_section,   # YouTube の区間を、書き出し先の中の指定のパスへ(線 D の P4。マークは触らない)
     "/api/video/delete": _video_delete,
     "/api/video/request-marks": _request_marks,   # 友人からの依頼: 区間を採用済みのマークに + 自動の上位で埋める(学習の記録は書かない)
     "/api/export": _export,

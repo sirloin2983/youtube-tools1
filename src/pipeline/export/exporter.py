@@ -213,7 +213,7 @@ def _youtube_source(spec):
 
 
 def check_section_path(raw):
-    """POST /api/live/section の path(入口から来る値)を検査して、絶対パスを返す。
+    """区間の書き出し(部品)の path(入口から来る値)を検査して、絶対パスを返す。
     絶対パス・.mp4・書き出し先の中(realpath で比べる)・親フォルダが実在・まだ無いファイル(上書きしない)だけ。"""
     if not isinstance(raw, str) or not raw or len(raw) > 1000 or "\x00" in raw or not os.path.isabs(raw):
         raise _bad("path は絶対パスで指定してください")
@@ -234,7 +234,7 @@ def check_section_path(raw):
 
 
 def build_section_spec(req):
-    """POST /api/live/section の依頼 {videoId, start, end, path, volume?, loudness?, maxHeight?, precision?} → spec(器の start に渡す)。
+    """区間の書き出し(部品)の依頼 {videoId, start, end, path, volume?, loudness?, maxHeight?, precision?} → spec(器の start に渡す)。
     スタジオの配信・マークは見ない(登録の無い videoId でもよい)。作るのは YouTube の videoId の start〜end(アーカイブの秒)を、
     今の YouTube の書き出し(run_ytdlp: 区間取得 → 正確に切る → 30fps → 音量/ラウドネス)と同じ中身で、ちょうど path へ。"""
     vid = req.get("videoId")
@@ -810,7 +810,7 @@ def run(spec, res, ctl, on_done=None):
 
 
 def _run_section(res, ctl, spec):
-    """POST /api/live/section: 1本(YouTube の videoId の区間)を、ちょうど spec["finalPath"] へ作る。
+    """区間の書き出し(部品): 1本(YouTube の videoId の区間)を、ちょうど spec["finalPath"] へ作る。
     マーク・配信のデータ・.clip.json・学習の記録・編集用素材は作らない・書かない(呼ぶ側の入口が自分で扱う)。
     中身は _run_job の1本ぶんと同じ(run_ytdlp(音量も)→ ラウドネス → 書きかけを本当の名前へ)"""
     it = res["items"][0]

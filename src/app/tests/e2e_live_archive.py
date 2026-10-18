@@ -15,7 +15,7 @@
   - 録画の部品(src/pipeline/ingest/recorder.py)は本物を --source direct で。入口 → 録画元の要求だけ、YouTube の形の URL を手元の HLS の URL に読み替える
   - yt-dlp の所だけ偽物(Live.archive_opts): 用意の確認 = was_live(手で post_live にもする)・開始時刻 = 録画の頭(firstPdt)・
     窓の音 = アーカイブの mp4 から ffmpeg で切る。照合は本物(src/pipeline/ingest/live_align_worker.py)
-  - スタジオの section(POST /studio/api/live/section)は本物: 疑似モード(STUDIO_FAKE=1)で STUDIO_FAKE_MEDIA = アーカイブの mp4 を切る
+  - スタジオの区間の書き出し(部品 exporter.build_section_spec・_run_section)は本物: 疑似モード(STUDIO_FAKE=1)で STUDIO_FAKE_MEDIA = アーカイブの mp4 を切る
     (入口 → スタジオの API の呼び方・409 busy の待ち・path の検査が本物で通る)
   - 時間は縮める: アーカイブからの自動の書き出し(録画が終わって 8 秒・確かめる間隔 2 秒)・録画を消す見回り(毎回)・マークの無い録画(6 秒)
 
@@ -368,7 +368,7 @@ def run(tmp, shots, force_chromium):
     rid1 = rid2 = rid3 = rid4 = None
     errors, not_found = [], []
     deleted_rids = set()
-    busy_path = os.path.join(out_dir, "busy", "busy.mp4")
+    busy_vid = "TESTbusy001"   # 「ほかの書き出し」用に開くスタジオの YouTube の行(11 字の videoId)
     cx = types.SimpleNamespace()   # 場面の関数(下の _scene_*)と分け合う値
     try:
         from playwright.sync_api import sync_playwright
@@ -500,7 +500,7 @@ def _scene_record_marks(cx):
 
 def _scene_rebuild_by_hand(cx):
     """2. 止める → 帯 → 用意がまだ / 3. 押す → 進み具合 → アーカイブから書き出し(欠けのマークだけ)"""
-    LA, LX, api, base_t, busy_path, check, first, fsio = cx.LA, cx.LX, cx.api, cx.base_t, cx.busy_path, cx.check, cx.first, cx.fsio
+    LA, LX, api, base_t, busy_vid, check, first, fsio = cx.LA, cx.LX, cx.api, cx.base_t, cx.busy_vid, cx.check, cx.first, cx.fsio
     g0, jobs_of, normalize, out_dir, pg, probe, rid1, schemas = cx.g0, cx.jobs_of, cx.normalize, cx.out_dir, cx.pg, cx.probe, cx.rid1, cx.schemas
     serve, shots, speed, tmp = cx.serve, cx.shots, cx.speed, cx.tmp
     # ---------------- 2. 止める → 帯 → 用意がまだ ----------------
@@ -522,21 +522,21 @@ def _scene_rebuild_by_hand(cx):
     # ---------------- 3. 押す → 進み具合 → アーカイブから書き出し(欠けのマーク B だけ)----------------
     seen_msgs, seen_band, busy = [], [], {"cancelled": False}
     stop_poll = threading.Event()
-    # 押す前に、スタジオでほかの書き出しを始めておく(スタジオは同時に 1 本だけ = 入口の section は 409 busy になる)。
+    # 押す前に、スタジオでほかの書き出し(POST /studio/api/export)を始めておく(スタジオは同時に 1 本だけ = 区間の書き出しは 409 busy になる)。
     # 入口が「待っています」と出したのを見てから、その書き出しを取り消す(確実に重なる)
-    os.makedirs(os.path.dirname(busy_path), exist_ok=True)
     sx = serve.exporter
     real_cut = sx.run_ffmpeg
 
     def held_cut(ctl, spec, it, base):   # この書き出しだけ、取り消されるまで終わらない(重なりを確実にする。ほかは本物のまま)
-        if spec.get("finalPath") == busy_path:
+        if spec.get("videoId") == busy_vid:
             while not ctl.cancelled:   # OPT2 の J2 から 1 つ目は ytt/jobs.Ctl
                 time.sleep(0.1)
             raise sx.ExportError("取り消しました")
         return real_cut(ctl, spec, it, base)
     sx.run_ffmpeg = held_cut
-    code, bj = api("POST", "/studio/api/live/section", {"videoId": "TESTarch001", "start": 0, "end": 60, "path": busy_path,
-                                                        "volume": 100, "precision": "accurate"})
+    api("POST", "/studio/api/videos/open", {"kind": "youtube", "url": "https://youtu.be/" + busy_vid})
+    api("PUT", "/studio/api/video", {"id": busy_vid, "marks": [{"id": "bm1", "start": 0, "end": 30, "status": "adopted"}]})
+    code, bj = api("POST", "/studio/api/export", {"id": busy_vid, "markIds": ["bm1"], "precision": "accurate", "volume": 100})
     busy.update(code=code, id=(bj or {}).get("id"))
 
     def poll_jobs():
@@ -581,9 +581,16 @@ def _scene_rebuild_by_hand(cx):
     check(seen_band and seen_band[-1].startswith("アーカイブから書き出しました 1/1 本"), "3 帯の最後: %s" % (seen_band[-1] if seen_band else ""))
     check(busy["code"] == 200 and any("スタジオの書き出しが終わるのを待っています" in m for m in seen_msgs),
           "3 スタジオがほかの書き出しで 409 busy の間は、失敗にせず待つ(busy の書き出し HTTP %s)" % busy["code"])
-    check(busy["cancelled"] and not os.path.exists(busy_path), "3 先に始めた書き出しを取り消すと、待っていたアーカイブからの書き出しが進む(書きかけは残らない)")
-    code, d = api("POST", "/studio/api/live/section", {"videoId": "TESTarch001", "start": 0, "end": 5, "path": os.path.join(tmp, "outside.mp4")})
-    check(code == 400 and "書き出し先" in (d or {}).get("message", ""), "3 section の path は書き出し先の中だけ(本物の検査): %s" % (d or {}).get("message"))
+    code, bd = api("GET", "/studio/api/export?id=%s" % busy["id"])
+    check(busy["cancelled"] and code == 200 and (bd or {}).get("state") == "cancelled",
+          "3 先に始めた書き出しを取り消すと、待っていたアーカイブからの書き出しが進む(取り消した書き出しは cancelled): %s" % (bd or {}).get("state"))
+    api("POST", "/studio/api/video/delete", {"id": busy_vid})
+    try:   # 区間の書き出しの path は書き出し先の中だけ(本物の検査。HTTP の口は無いので部品を直に呼ぶ)
+        sx.build_section_spec({"videoId": "TESTarch001", "start": 0, "end": 5, "path": os.path.join(tmp, "outside.mp4")})
+        msg = ""
+    except Exception as e:
+        msg = getattr(e, "message", "") or str(e)
+    check("書き出し先" in msg, "3 section の path は書き出し先の中だけ(本物の検査): %s" % msg)
     js1 = jobs_of(rid1)
     by = {}
     for j in js1:

@@ -30,7 +30,7 @@ src/manage/keep/live_cleanup.py。判断は src/flow/live_retire.py)。設定 li
               無ければ配信後の全自動(M7)が求めた録画のずれ(afterStream.offset)を使う。どれも無ければできない。
               2026-10-05 に本物の配信で確かめて変えた: yt-dlp の区間取得(--download-sections)は遅く(±600 秒で 570 秒)、m4a と opus で頭が 35ms ずれる /
               合わない区間で ratio 1.58 が出た(MIN_RATIO 3.0)/ yt-dlp の一時的な 403 は 30 秒あけて 2 回までやり直す
-  3. fetch  … ② の書き出しの器 flow/export(スタジオの POST /studio/api/live/section と同じ束 {videoId, start, end, path, volume, loudness, maxHeight,
+  3. fetch  … ② の書き出しの器 flow/export(区間の書き出し(部品)と同じ束 {videoId, start, end, path, volume, loudness, maxHeight,
               precision} = ① の build_section_spec。YouTube の書き出しの中身を使う。二重に書かない)を直に呼んで待つ。
               path は書き出し先の中の、まだ無い .mp4(<配信のフォルダ>\\作業用\\本番版の作りかけ\\<ジョブ>\\)
   4. verify … 30fps・長さ(区間 ±0.2 秒)

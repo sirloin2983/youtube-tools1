@@ -546,7 +546,7 @@ v0.10.0(2026-09-26)から、文字起こしツールは「編集」(文字起こ
 ■ v0.37.0(2026-10-06・リアルタイム切り抜き(試験中): アーカイブで本番版に作り直す・録画を自動で消す)
   - 本番版に作り直す(src\home\live_archive.py・live_align_worker.py): 書き出した切り抜き(速報版)を、配信のあとアーカイブから作り直して同じ名前で入れ替えます。
     yt-dlp でアーカイブの用意と開始時刻を確かめ、配信の音を 1 回だけ取り、速報版の音と照らし合わせて(別のプロセス。numpy)アーカイブの秒を求め、
-    スタジオの書き出し(POST /studio/api/live/section)で作って、速報版との音のずれが 1 コマ以内なら入れ替えます。使い方はスタジオの README の v0.21.0
+    スタジオの書き出し(区間の書き出しの部品)で作って、速報版との音のずれが 1 コマ以内なら入れ替えます。使い方はスタジオの README の v0.21.0
     API: POST /live/api/archive・/live/api/archive/cancel、GET /live/api/exports の archive・archiveInfo。設定 live.autoArchive(既定オン)
   - 録画を自動で消す(src\home\live_cleanup.py。設定 live.autoDelete 既定オン): 全部入れ替わった録画はすぐ・マークの無い録画は 24 時間・退避した速報版は 7 日。
     録画の部品 v0.3.0 の POST /live/<録画>/delete を使います(画面からは呼べません)
