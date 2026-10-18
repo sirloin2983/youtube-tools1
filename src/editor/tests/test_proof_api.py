@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""校正まわりの API の確かめ(旧 e2e = RS8 C4 で消した編集の画面の e2e が、画面の裏で API だけで確かめていた物を unittest に移した)。
+"""校正まわりの API の確かめ(編集の画面の裏の API だけで確かめる)。
 
     py -3.12 -m unittest src/editor/tests/test_metrics.py     # test_metrics がこのファイルのテストも読み込む
     py -3.12 -m unittest src/editor/tests/test_proof_api.py   # これだけ
 
-- 学習の候補 GET /api/learned(human/proof/learn.py。評価用は数えない・登録済みは出さない)  旧 e2e_eval_set.py
-- 精度の測定 all_metrics の scope(eval/drill/metrics.py)                        旧 e2e_eval_set.py
-- 範囲の再認識 mode=range(human/proof/rerun.py・doc_jobs.validate_retranscribe)               旧 e2e_folder_marker_range.py
-- 話者の色の整形(sanitize_transcript。CSS を差し込めない)                                   旧 e2e_ui_handoff.py
-- GET /api/transcript の evalLocked                                                           旧 e2e_eval_set.py
-- 声を覚える -> 判別し直すと名前が付く鎖(recognize の有無・忘れたあと)                       旧 e2e_edit_voices.py
+- 学習の候補 GET /api/learned(human/proof/learn.py。評価用は数えない・登録済みは出さない)
+- 精度の測定 all_metrics の scope(eval/drill/metrics.py)
+- 範囲の再認識 mode=range(human/proof/rerun.py・doc_jobs.validate_retranscribe)
+- 話者の色の整形(sanitize_transcript。CSS を差し込めない)
+- GET /api/transcript の evalLocked
+- 声を覚える -> 判別し直すと名前が付く鎖(recognize の有無・忘れたあと)
 """
 import json
 import os
@@ -67,7 +67,7 @@ class _ProofStore(StoreDir):
 
 
 class TestLearnedCandidates(_ProofStore):
-    """旧 e2e_eval_set.py 91-104: 評価用の修正は学習の元にしない(答えを見てから測ることになるため)"""
+    """評価用の修正は学習の元にしない(答えを見てから測ることになるため)"""
 
     def pair(self):
         """学習の候補 [(誤, 正)]。1 文字だけの違いは前後 1 文字を足す(learn_events)ので、中身は固定の文字でなく出てきた物を見る"""
@@ -113,7 +113,7 @@ class TestLearnedCandidates(_ProofStore):
 
 
 class TestMetricsScope(_ProofStore):
-    """旧 e2e_eval_set.py 110-119: 精度の測定の対象(評価用のみ / 評価用でない)"""
+    """精度の測定の対象(評価用のみ / 評価用でない)"""
 
     def setUp(self):
         super().setUp()
@@ -135,7 +135,7 @@ class TestMetricsScope(_ProofStore):
 
 
 class TestSanitizeSpeakerColor(unittest.TestCase):
-    """旧 e2e_ui_handoff.py 290-293: 話者の色に CSS を書かれても、保存の時点で差し込めない形にする"""
+    """話者の色に CSS を書かれても、保存の時点で差し込めない形にする"""
 
     def test_css_injection_is_stripped(self):
         evil = "red;background-image:url(http://127.0.0.1:1/leak.png)"
@@ -157,7 +157,7 @@ class TestSanitizeSpeakerColor(unittest.TestCase):
 
 
 class TestTranscriptEvalLocked(_ProofStore):
-    """旧 e2e_eval_set.py 190: 評価用のフォルダの動画の文書は evalLocked(画面の評価用のチェックを固定する印)"""
+    """評価用のフォルダの動画の文書は evalLocked(画面の評価用のチェックを固定する印)"""
 
     def test_eval_locked_follows_eval_dirs(self):
         ev = testkit.tempdir(self)
@@ -175,7 +175,7 @@ class TestTranscriptEvalLocked(_ProofStore):
 
 @unittest.skipUnless(HAVE_FF, "ffmpeg が必要")
 class TestRangeRetranscribe(_ProofStore):
-    """旧 e2e_folder_marker_range.py 113-132: 範囲の再認識(mode=range)。認識は疑似(3 秒ごとに「範囲再認識N」)"""
+    """範囲の再認識(mode=range)。認識は疑似(3 秒ごとに「範囲再認識N」)"""
 
     @classmethod
     def setUpClass(cls):
@@ -243,7 +243,7 @@ class TestRangeRetranscribe(_ProofStore):
         starts = [g["start"] for g in segs]
         self.assertEqual(starts, sorted(starts))                                   # 時刻順
         self.assertEqual(len({g["id"] for g in segs}), len(segs))                  # id は重複しない
-        self.assertTrue(S.hist_stamps(TID_A))                                      # 実行前の状態を履歴に退避(.bak の控えはやめた = 決定 3-47 の 1b-1)
+        self.assertTrue(S.hist_stamps(TID_A))                                      # 実行前の状態を履歴に退避(.bak の控えは作らない)
         self.assertEqual(os.listdir(S.TMP_DIR) if os.path.isdir(S.TMP_DIR) else [], [])                    # 一時ファイルは残さない
 
     def test_backup_is_the_state_before_the_run(self):
@@ -267,7 +267,7 @@ class TestRangeRetranscribe(_ProofStore):
 
 
 class TestVoiceChain(_ProofStore):
-    """旧 e2e_edit_voices.py 148-170: 声を覚える -> 判別し直すと名前が付く。recognize: false なら付かない・忘れたあとは付かない
+    """声を覚える -> 判別し直すと名前が付く。recognize: false なら付かない・忘れたあとは付かない
     (サーバー側は test_voices.py が部品ごとに確かめている。ここは覚える -> 判別の続けた流れ)"""
 
     def setUp(self):

@@ -55,7 +55,7 @@
 - src/editor/tests/test_names.py — serve の名前の受付(役割で組み直す RS2。2026-10-10)のテスト。旧い名前の転送だけの殻 ed_*(ed_jobs ほか 9 本)は RS5-A で消した。
 - src/editor/tests/test_normalize30.py — 素材を 30fps にそろえる(マスタープラン Q1)のテスト: ② flow/normalize の段・動画を選び直す(④ の付け替え)。
 - src/editor/tests/test_nosub_metrics.py — 「字幕に出さない」行(noSub)と、同時にしゃべっている所(重なり)の数え方・学習のテスト(数え方は eval/drill/metrics.py・noSub の外し方と学習は human/proof/learn.py。RS3-E5c まで editor/ed_learn.py。保管は 0.68.…
-- src/editor/tests/test_proof_api.py — 校正まわりの API の確かめ(旧 e2e = RS8 C4 で消した編集の画面の e2e が、画面の裏で API だけで確かめていた物を unittest に移した)。
+- src/editor/tests/test_proof_api.py — 校正まわりの API の確かめ(編集の画面の裏の API だけで確かめる)。
 - src/editor/tests/test_qwen3.py — Qwen3-ASR のエンジン(tx_engines.LlamaQwen3 = llama.cpp の 1.7B。sherpa-onnx の 0.6B Qwen3Asr は 0.58.0 で消した。精度改善の計画 段2-3)のテスト。test_metrics から読み込まれる。
 - src/editor/tests/test_records.py — 記録の土台(マスタープラン Q2。notes:plan/line-bc-master-plan.md)のテスト。
 - src/editor/tests/test_resolve_export.py — resolve_export(Resolve パッケージ = cut2resolve の Text+ パックを zip にしたもの)と「残す行」の規則のテスト。

@@ -397,7 +397,7 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(d["row"]["form"]["useWeights"], False)
 
     def test_send_long_range_has_no_length_limit(self):
-        """区間 1 つの長さは上限なし(C-2-7・C-5-5。前は ② の 60 分で断っていた): 3 時間の区間もそのまま束の hints.ranges へ"""
+        """区間 1 つの長さは上限なし(C-2-7・C-5-5): 3 時間の区間もそのまま束の hints.ranges へ"""
         st, d = self.send(top=None, ranges=[[600, 600 + 3 * 3600], [0, 3601]])
         self.assertEqual(st, 200, d)
         env, spec = self.engine.queue.submitted[-1]
@@ -641,7 +641,7 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(st4, 400)
 
     def test_remove_failed_row_and_refuse_others(self):
-        """失敗の行の [消す] は cancel の口 1 つ(remove の口はやめた = 確認を抜ける道を作らない)。受信箱の remove は失敗の行だけを消す"""
+        """失敗の行の [消す] は cancel の口 1 つ(remove の口は使わない = 確認を抜ける道を作らない)。受信箱の remove は失敗の行だけを消す"""
         st, d = self.send()
         rid, run = d["row"]["id"], d["row"]["runId"]
         self.assertEqual(self.post("/api/friend/remove", {"id": rid})[0], 404)   # 口は無い
@@ -1418,7 +1418,7 @@ class ServerTest(unittest.TestCase):
     BOT = "書き出しに失敗しました(1 本): 方法1(区間取得): ERROR: [youtube] poERFwoVxxE: Sign in to confirm you’re not a bot. Use --cookies-from-browser or --cookies for the authentication.【全角】「'」"
 
     def test_failure_bot_retries_once_after_a_long_wait(self):
-        """YouTube の bot 判定: 友人の言葉は「ログインしてください」・自動のやり直しは間を空けて 1 回だけ・[もう一度送る] は出せる(10-18)"""
+        """YouTube の bot 判定: 友人の言葉は「ログインしてください」・自動のやり直しは間を空けて 1 回だけ・[もう一度送る] は出せる"""
         t = self.fake_clock()
         self.app.api.login_at = lambda: 0
         rid = self.failing_row(self.BOT)
@@ -1446,7 +1446,7 @@ class ServerTest(unittest.TestCase):
         self.assertEqual((doc["code"], doc["detail"]), ("bot", self.BOT))
 
     def test_bot_rows_retry_when_logged_in_again(self):
-        """YouTube にログインし直したら、前に bot で止まった行をすぐ 1 回やり直す(回数・間隔を待たない)。また止まれば「切れた可能性」(10-18)"""
+        """YouTube にログインし直したら、前に bot で止まった行をすぐ 1 回やり直す(回数・間隔を待たない)。また止まれば「切れた可能性」"""
         t = self.fake_clock()
         login = [0]
         self.app.api.login_at = lambda: login[0]

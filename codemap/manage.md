@@ -77,7 +77,7 @@
 - src/manage/cases/tests/test_cases.py — 案件(配信1本)ごとの紐づけ(src/manage/cases/cases.py)と、入口の /api/cases のテスト。本物の作業データは使わない。
 - src/manage/cases/tests/test_docloc_listing.py — 文書の一覧が、案件の 作業用 に置いた文書(索引 .loc.json があるもの)も拾うことの確かめ(RS8 B-2-1b)。
 - src/manage/cases/tests/test_outdirs.py — 書き出し先を変えたあとの案件の繋ぎ直し(src/manage/cases/outdirs.py。決定 3-37 の (r8o))の確かめ。移行の道具(docmove・markmove の移す所)は消した。
-- src/manage/cases/tests/test_perf_listing.py — 案件の一覧の速さの直し(PERF O5・O15)が、前の実装と同じ結果を返すことの突き合わせ。
+- src/manage/cases/tests/test_perf_listing.py — 案件の一覧の速さの工夫(PERF O5・O15)が、ふつうの経路と同じ結果を返すことの突き合わせ。
 - src/manage/keep/tests/test_backup.py — 作業データのバックアップ(src/manage/keep/backup.py。設定は入口の Prefs を借りる。prefs の節の検査は src/app/tests/test_backup_prefs.py)の単体テスト。一時フォルダだけを使う。
 - src/manage/keep/tests/test_cleanup.py — src/manage/keep/cleanup.py(作業データの片付け。段9 9-2)の単体テスト。
 - src/manage/keep/tests/test_learnpack.py — manage/keep/learnpack(学習の束を作る側。F1)のテスト。  py -3.12 -m unittest src/manage/keep/tests/test_learnpack.py -v

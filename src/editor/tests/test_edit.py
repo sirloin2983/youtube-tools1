@@ -43,7 +43,7 @@ def edit_obj(clips=((0.3, 5.6), (8.6, 11.2)), fps=(30, 1), duration=12.0, **over
 
 
 def put_empty_doc(tx_dir, path, title=""):
-    """行の無い文書のファイルを tx_dir に直に置く(テストの下ごしらえ。以前の「文字起こしせずに開く」open_video が作っていた形)-> 文書の id"""
+    """行の無い文書のファイルを tx_dir に直に置く(テストの下ごしらえ)-> 文書の id"""
     import uuid
     from ytt import schemas, tools
     src = os.path.abspath(path)
@@ -169,7 +169,7 @@ class TestEditStore(StoreDir):
         self.assertEqual(self.cut_ids(), [])
 
     def test_without_edit_rows_keep_their_own_cut_state(self):
-        """編集の内容が無い文書(以前の使い方)は、画面から来た cutState をそのまま保存する"""
+        """編集の内容が無い文書は、画面から来た cutState をそのまま保存する"""
         d = self.doc()
         d["segments"][1]["cutState"] = "cut"
         S.save_transcript(TID, d)
@@ -188,7 +188,7 @@ class TestEditStore(StoreDir):
         e3 = S.sanitize_edit(edit_obj(clips=((0, 5.6166),)))                            # 0.0166 秒 = 30fps の半フレーム → カット済
         self.assertEqual(S.edit_cut_flags([{"start": 5.6, "end": 8.0}], e3), [True])
         self.assertEqual(S.edit_cut_flags([{"start": 0, "end": 1}], S.sanitize_edit(edit_obj(clips=()))), [True])   # 全部削った
-        # 字幕に出さない行(noSub。2026-10-05)も「残す」の判定は同じ(映像は削られない。cut.js の rowCutFlags も印を見ない)
+        # 字幕に出さない行(noSub)も「残す」の判定は同じ(映像は削られない。cut.js の rowCutFlags も印を見ない)
         self.assertEqual(S.edit_cut_flags([dict(g, noSub=True, speaker="other") for g in segs], e), [True, False, False, True, False, False])
 
     @unittest.skipUnless(sys.platform == "win32", "Windows のパス(円記号の区切り・ドライブ名 C:)が前提(段1: Windows 以外では飛ばす)")
@@ -242,7 +242,7 @@ class TestEditStore(StoreDir):
         self.assertEqual(rec(full).get("output"), full)                                     # 全部の鍵が入る
         p = rec(dict(full, junk=1, advanced=dict(full["advanced"], other="x")))
         self.assertEqual(p["output"], full)                                                 # 余計な鍵は黙って捨てる(全体は捨てない)
-        for old in (True, False, "yes"):                                                    # 古い画面の backup(予備。決定 3-34 で消した)も黙って捨てる
+        for old in (True, False, "yes"):                                                    # 古い画面の backup(予備。今は持たない)も黙って捨てる
             self.assertEqual(rec(dict(full, backup=old))["output"], full)
         mini = {"fps": "60", "size": "1920x1080", "wrap": 0, "textplus": False, "render": True, "speakerColors": False}
         self.assertEqual(rec(mini)["output"], mini)                                         # 任意の鍵(streamer・loudness・volume・advanced)は無くてよい
@@ -356,7 +356,7 @@ class TestEditHttp(unittest.TestCase):
             return dict(json.loads(d or b"{}"), _status=e.code)
 
     def test_settings_patch_keeps_other_values(self):
-        """ほかの画面から直す設定(api/settings/patch。送ったキーだけ・許可した項目だけ)。丸ごとの保存(PUT)ではその値を残す(パックの音量。2026-09-29)"""
+        """ほかの画面から直す設定(api/settings/patch。送ったキーだけ・許可した項目だけ)。丸ごとの保存(PUT)ではその値を残す(パックの音量)"""
         orig = {k: v for k, v in self.call("GET", "/api/settings").items() if k != "_status"}
         try:
             self.assertEqual(self.call("PUT", "/api/settings", dict(orig, packLoudness=-11))["_status"], 200)
@@ -378,8 +378,8 @@ class TestEditHttp(unittest.TestCase):
             return [os.path.join(d, "machine.json") for d, _n, fs in os.walk(self.tmp) if "machine.json" in fs]
         orig = {k: v for k, v in self.call("GET", "/api/settings").items() if k != "_status"}
         try:
-            self.assertEqual(self.call("PUT", "/api/settings", dict(orig, device="cpu"))["_status"], 200)   # 丸ごとの保存(旧い cpu は断らない)
-            self.assertEqual(self.call("GET", "/api/settings").get("device"), "vulkan")   # 0.58.0: 機器は GPU だけ = vulkan に読み替えて書く
+            self.assertEqual(self.call("PUT", "/api/settings", dict(orig, device="cpu"))["_status"], 200)   # 丸ごとの保存(古い cpu も断らない)
+            self.assertEqual(self.call("GET", "/api/settings").get("device"), "vulkan")   # 機器は GPU だけ = vulkan に読み替えて書く
             files = machine_files()
             self.assertEqual(len(files), 1)
             with open(files[0], encoding="utf-8") as f:
@@ -438,8 +438,8 @@ class TestEditHttp(unittest.TestCase):
                 self.call("POST", "/api/settings/patch", {"values": {"cutSilence": orig["cutSilence"]}})
 
     def empty_doc(self, path, title=""):
-        """行の無い文書を作る(テストの下ごしらえ。「文字起こしせずに開く」/api/open-video は消した = 決定 3-47 の Q1)。
-        同じ動画の文書があればそれ(以前の open_video と同じ)。-> {"id", "created"}"""
+        """行の無い文書を作る(テストの下ごしらえ。「文字起こしせずに開く」の API は無い)。
+        同じ動画の文書があればそれ。-> {"id", "created"}"""
         hit = self.call("GET", "/api/doc-for?path=" + urllib.parse.quote(path))["doc"]
         if hit:
             return {"id": hit["id"], "created": False}
@@ -457,7 +457,7 @@ class TestEditHttp(unittest.TestCase):
         self.fail("波形ができません")
 
     def test_doc_for_and_open_video_is_gone(self):
-        """「文字起こしせずに開く」(/api/open-video)は消した(決定 3-47 の Q1)。動画の文書を探す /api/doc-for は残る(パスを比べるだけ)"""
+        """「文字起こしせずに開く」の API は無い。動画の文書を探す /api/doc-for はある(パスを比べるだけ)"""
         video = os.path.join(self.media_dir, "開く.mkv")   # 他のテストが使っていない動画
         shutil.copy(self.video, video)
         self.assertEqual(self.call("POST", "/api/open-video", {"path": video})["_status"], 404)
@@ -507,7 +507,7 @@ class TestEditHttp(unittest.TestCase):
         self.assertEqual((r["_status"], r["fps"], r["base"], r["planBeside"]), (200, [30, 1], "all", ""))
         self.assertAlmostEqual(r["durationSec"], 6.0, delta=0.05)
         self.assertEqual(r["keepsSec"], [[0.0, r["durationSec"]]])
-        doc = self.call("GET", "/api/transcript?id=" + tid)                         # 行を入れて、2行目をカット済に(以前の使い方)
+        doc = self.call("GET", "/api/transcript?id=" + tid)                         # 行を入れて、2行目をカット済に
         segs = [{"id": "a", "start": 0.5, "end": 1.5, "text": "一"}, {"id": "b", "start": 1.5, "end": 3.0, "text": "二", "cutState": "cut"},
                 {"id": "c", "start": 3.0, "end": 4.25, "text": "三"}, {"id": "d", "start": 4.5, "end": 5.0, "text": " "}]
         self.call("PUT", "/api/transcript?id=" + tid, {"title": doc["title"], "speakers": [], "segments": segs})
@@ -640,7 +640,7 @@ class TestEditHttp(unittest.TestCase):
             plan = json.load(f)
         self.assertEqual([(g["start"], g["end"]) for g in plan["segments"]], [(0.5, 1.8), (2.0, 2.2), (3.0, 5.1)])
         # 前回のパックの手順書: 記録したフォルダが cut2resolve のパック(パックを作った記録がある)のときだけ読む。
-        # 以前の形(フォルダの中の cut-plan.json)は読まない(2026-10-18 に消した)
+        # フォルダの中の cut-plan.json の形は読まない
         out = os.path.join(self.media_dir, "パック_pack")
         os.makedirs(out, exist_ok=True)
         self.call("POST", "/api/edit/pack", {"id": tid, "rev": 1, "docUpdatedAt": 0, "dir": out, "files": ["友人へ.txt"]})
@@ -649,12 +649,12 @@ class TestEditHttp(unittest.TestCase):
         self.assertEqual(self.call("GET", "/api/edit/pack-readme?id=" + tid)["_status"], 404)   # 記録が無い = パックではない
         with open(os.path.join(out, "cut-plan.json"), "w", encoding="utf-8") as f:
             json.dump({"schema": "youtube-tools-cut-plan/v1", "tool": {"name": "cut2resolve"}}, f)
-        self.assertEqual(self.call("GET", "/api/edit/pack-readme?id=" + tid)["_status"], 404)   # 以前の形の cut-plan.json だけでもパックではない
+        self.assertEqual(self.call("GET", "/api/edit/pack-readme?id=" + tid)["_status"], 404)   # cut-plan.json だけではパックではない
         from flow import packrec
         packrec.write_record({"out_dir": out, "files": [("readme", os.path.join(out, "友人へ.txt"))]}, self.video, False,
                              c2r_dir=os.path.join(self.tmp, "cut2resolve"))   # サーバーと同じ置き場所(start_server の YTT_CUT2RESOLVE_DIR)
         r = self.call("GET", "/api/edit/pack-readme?id=" + tid)
-        self.assertEqual((r["name"], r["text"]), ("友人へ.txt", "Resolve で開く手順"))                # 2026-09-27 より前のパック
+        self.assertEqual((r["name"], r["text"]), ("友人へ.txt", "Resolve で開く手順"))                # 手順書のファイルがあるパック
         # 今のパック(手順書のファイルが無い): パックの Lua に埋め込んだ計画から手順を作り直す
         from pipeline.pack import resolve_export
         _pk, tp = resolve_export._load_pack()
@@ -671,7 +671,7 @@ class TestEditHttp(unittest.TestCase):
         self.assertIn("1080 x 1920", r["text"])
 
     def test_delete_removes_words_and_history(self):
-        """文書を消すと、横の単語の時刻(words.json)と履歴(.hist/<id>/)も消える(store.delete_doc。1b-3)。長い行の分け直し /api/resplit は消した(決定 3-47 の Q4)"""
+        """文書を消すと、横の単語の時刻(words.json)と履歴(.hist/<id>/)も消える(store.delete_doc。1b-3)"""
         tid = self.empty_doc(self.wav)["id"]
         doc = self.call("GET", "/api/transcript?id=" + tid)
         self.assertEqual(self.call("POST", "/api/resplit", {"id": tid})["_status"], 404)
@@ -805,9 +805,9 @@ class TestRelinkStore(StoreDir):
         for k in ("segments", "speakers", "original", "clip", "start", "end", "duration", "title", "createdAt"):
             self.assertEqual(d[k], before[k], k)                                   # 行・校正・話者・元の出力・clip・範囲は変えない
         bak = os.path.join(self.tmp, ".bak")
-        self.assertFalse(os.path.exists(os.path.join(bak, TID + ".pre-relink.json")))   # 1) 直前の文書は履歴だけ(.bak の控えはやめた = 決定 3-47 の 1b-1)
-        self.assertFalse(os.path.exists(os.path.join(bak, TID + ".edit.pre-relink.json")))   # 2) カットの写しもやめた(付け替えはカットを書き換えない = opt-human 2a-4)
-        stamps = S.hist_stamps(TID)                                                # 3) 履歴(「以前の版に戻す」)
+        self.assertFalse(os.path.exists(os.path.join(bak, TID + ".pre-relink.json")))   # 1) 直前の文書は履歴だけ(.bak の控えは作らない)
+        self.assertFalse(os.path.exists(os.path.join(bak, TID + ".edit.pre-relink.json")))   # 2) カットの写しも作らない(付け替えはカットを書き換えない = opt-human 2a-4)
+        stamps = S.hist_stamps(TID)                                                # 3) 履歴(「前の版に戻す」)
         self.assertEqual(len(stamps), 1)
         S.restore_history(TID, stamps[0])
         self.assertEqual(self.doc()["sourcePath"], "C:\\x\\clip.mp4")
@@ -901,7 +901,7 @@ class TestRelinkStore(StoreDir):
 
 
 class TestRelinkFind(StoreDir):
-    """まとめて付け替える・参照…(v0.31.0)のサーバー側: 見つからない文書の一覧・フォルダの中の同じファイル名の候補・参照の窓の API(窓そのものは差し替える)"""
+    """まとめて付け替える・参照…のサーバー側: 見つからない文書の一覧・フォルダの中の同じファイル名の候補・参照の窓の API(窓そのものは差し替える)"""
     T1, T2, T3, T4 = "0123456789ab", "0123456789ac", "0123456789ad", "0123456789ae"
 
     def setUp(self):
@@ -1172,7 +1172,7 @@ class TestRelinkHttp(unittest.TestCase):
 
 
 class TestEvalFolder(StoreDir):
-    """評価用のフォルダ(2026-10-01): 中の動画は評価用で外せない・整理で「フォルダ名_番号_状態」にそろえて付け替える"""
+    """評価用のフォルダ: 中の動画は評価用で外せない・整理で「フォルダ名_番号_状態」にそろえて付け替える"""
 
     def setUp(self):
         super().setUp()
@@ -1386,7 +1386,7 @@ class TestEvalFolder(StoreDir):
             self.assertEqual(r["renamed"], [])
 
     def test_staging_copy_adopts_the_original_doc(self):
-        """2026-10-02: 仮置きに置いたコピー(文書なし)は、同じ名前・同じ大きさの動画を指す文書が1つだけなら、その文書を付け替えてから移す"""
+        """仮置きに置いたコピー(文書なし)は、同じ名前・同じ大きさの動画を指す文書が1つだけなら、その文書を付け替えてから移す"""
         orig_dir = testkit.tempdir(self)
         stg = os.path.join(self.ev, S.EVAL_STAGING)
         os.makedirs(stg)
@@ -1434,7 +1434,7 @@ class TestEvalFolder(StoreDir):
         self.assertFalse(os.path.exists(p))
         self.assertEqual(S.eval_settle({"id": TID}), {"moved": None, "reason": None})   # もう仮置きではない
 
-    # ---- 2026-10-04: 評価用にした文書の動画を、評価用のフォルダの外から取り込む
+    # ---- 評価用にした文書の動画を、評価用のフォルダの外から取り込む
     def outside(self, name="外の切り抜き.mp4", proofed=True, eval_set=True, tid=TID, names=("ときのそら", "さくらみこ")):
         src = testkit.tempdir(self)
         p = os.path.join(src, name)
@@ -1487,7 +1487,7 @@ class TestEvalFolder(StoreDir):
 
     def test_intake_across_drives_and_rollback(self):
         from unittest import mock
-        from ytt import fsio   # 別のドライブへ移す move_file・same_drive の持ち主(RS3-1 に ed_relink の _move・_same_drive から)
+        from ytt import fsio   # 別のドライブへ移す move_file・same_drive の持ち主
         real = os.rename
 
         def no_rename_across(a, b):   # 別のドライブ: 名前の変更ができない(WinError 17)。.part → 本名 の同じフォルダの中だけ通す
