@@ -493,7 +493,8 @@ class ChatFeedTest(unittest.TestCase):
 
     def test_size_limit_rotates_without_counting(self):
         """ファイルが上限(64MB を小さくして 4KB)を超えたら新しいファイルへ(起動し直しの数に入れない・待たない)・古い方は読み切ってから消す"""
-        f = self.feed([{"mode": "write", "interval": 0.01, "pad": 300}], limit=4000)
+        # 止まりの見張りはこのテストの中身ではない = 長めに(並べて流す負荷で偽の yt-dlp の起動が 1 秒を超え、起動し直しに数えて揺れた。10-18)
+        f = self.feed([{"mode": "write", "interval": 0.01, "pad": 300}], limit=4000, stall=5.0)
         msgs = self.drive(f, lambda f, m: f.launches >= 3 and len(m) > 40)
         self.assertEqual(f.total_restarts, 0)
         self.assertEqual(len(msgs), len({t for t, _w in msgs}))

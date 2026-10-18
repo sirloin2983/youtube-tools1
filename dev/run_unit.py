@@ -120,11 +120,20 @@ def report(r):
             print("    " + line, file=sys.stderr)
 
 
+def _size(path):
+    try:
+        return os.path.getsize(path)
+    except OSError:
+        return 0
+
+
 def run_all(units, jobs, failfast):
     """jobs 本ずつ並べて流す。failfast なら最初の失敗で残りを取りやめる。"""
     results = []
+    # 大きいファイル(だいたい遅い)から先に始める = 最後に遅い 1 本だけが残って待つのを減らす(10-18 テストの見直し)
+    order = sorted(units, key=lambda u: -_size(os.path.join(REPO, u.rel)))
     with ThreadPoolExecutor(max_workers=max(1, jobs)) as ex:
-        futs = [ex.submit(run_one, u) for u in units]
+        futs = [ex.submit(run_one, u) for u in order]
         for f in as_completed(futs):
             if f.cancelled():
                 continue
