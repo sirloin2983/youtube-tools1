@@ -20,6 +20,8 @@
   6b. YouTube のログイン: 本物の Google は開かず、exe が書くのと同じ所に偽の cookie を置く → ⚙ が「ログインしています」・[ログイン] が押せる・
      同梱の Python が yt-dlp へ写しを --cookies で渡す → ログアウトで消える。最後に偽の値が Dropbox・送り返し・ログに無いこと
   7. 依頼: 小さな動画(同梱の ffmpeg で作る。名前の頭に【配信者】)を本物のドロップ(CDP の drop)で 2 回落とし 1 本だけ入る → [送る] → ② が処理 → 届いた
+  7b. URL の依頼・区間 5 つ: 疑似モード(STUDIO_FAKE。YouTube の代わりに手元の 80 秒の動画を切る)で区間 5 つを送り、受け取る画面に 5 本そろう
+     (どれも確認用の動画つき・頼んだ区間を含む長さ)。同梱の yt-dlp.exe は隣の yt-dlp.conf でネットへ出られなくする(呼ばれないはずの守り)
   8. 届く物: この PC で作った確認用の動画(h264・yuv420p・高さ 480 以下)が受け取る画面の <video> で再生できる。
      ユーザーの PC の届け方(flow/deliver.deliver_one = 1 本ずつの zip・.preview.mp4・.meta.json)を偽の Dropbox の /出力/ に置き、同期で取り込まれて再生できる
   9. 判断: 受け取る(保存先へ移る)・見送る → .verdict.json(v 2)が /送り返し/ に上がる
@@ -211,8 +213,13 @@ def friend_env(work, cdp_port, shim_conf):
         "YTT_FRIEND_SHOT_STEPS": os.path.join(work, "steps.json"),   # 手順 = 長く待つだけ(写真は撮らない。つないで調べる間、窓を開けておく)
         "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS": "--remote-debugging-port=%d" % cdp_port,
         SHIM_ENV: shim_conf,
+        "STUDIO_FAKE": "1", "STUDIO_FAKE_MEDIA": fake_media(work),   # URL の依頼(区間 5 つ)は YouTube の代わりにこの動画を切る(7b。動画ファイルの依頼には効かない)
     })
     return env
+
+
+def fake_media(work):
+    return os.path.join(work, "home", "Videos", "疑似の配信.mp4")
 
 
 def make_work(work, zip_path, args, rep):  # lint: long 置き場所を作る一続き(展開 → 壊す → 鍵 → モデル → 取得元 → 差し替え)
@@ -536,6 +543,48 @@ def send_request(w, media, rep, timeout):  # lint: long 送るの一続き(落�
     return r
 
 
+# ---------------------------------------------------------------- 7b URL の依頼・区間 5 つ(疑似モード = YouTube の代わりに手元の動画)
+RANGES = [[5, 11], [20, 26], [35, 41], [50, 56], [65, 71]]   # 5 本(友人が 5 本頼んで 1 本しか来ない、が無いこと)
+FAKE_VID = "pfFiveClip1"
+
+
+def block_ytdlp_net(app):
+    """同梱の yt-dlp.exe がネットへ出ない守り(疑似モードでは呼ばれないはず。呼ばれてもつながらない)= 隣の yt-dlp.conf(yt-dlp の置き場所の設定)"""
+    d = os.path.join(app, "tools", "yt-dlp")
+    os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, "yt-dlp.conf"), "w", encoding="utf-8") as f:
+        f.write("--proxy http://127.0.0.1:9\n--socket-timeout 5\n")
+
+
+def send_five(w, app, work, rep, timeout):
+    """区間 5 つの URL の依頼を送る → ② が作る → 受け取る画面に 5 本そろう -> 行か None"""
+    make_video(app, fake_media(work), sec=80)
+    st, j = w.api("POST", "/api/friend/send", {"url": "https://www.youtube.com/watch?v=" + FAKE_VID, "ranges": RANGES, "streamer": STREAMER,
+                                                "people": [], "videoTracks": 1, "title": "区間 5 つの検査", "channel": STREAMER})
+    row = (j or {}).get("row") or {}
+    if not rep.check("区間 5 つの URL の依頼を送れる", st == 200 and row.get("id"), j):
+        return None
+    rid, got = row["id"], {}
+
+    def finished():
+        w.watch_tree()
+        st, j = w.api("GET", "/api/friend/inbox")
+        r = next((x for x in (j or {}).get("rows") or [] if x.get("id") == rid), None)
+        if r:
+            got["row"] = r
+        return r is not None and r.get("state") in ("arrived", "failed", "done")
+    wait_for(finished, timeout, every=5)
+    r = got.get("row") or {}
+    rep.check("区間 5 つ: ② が処理して届いた", r.get("state") == "arrived", "%s %s" % (r.get("state"), r.get("error") or ""))
+    mine = lambda: [it for it in receive_items(w) if it.get("id") == rid]
+    items = wait_for(lambda: (lambda x: x if len(x) == len(RANGES) and all(it.get("preview") for it in x) else None)(mine()), 180, every=4) or mine()
+    rep.check("区間 5 つ: 受け取る画面に 5 本そろう(1 本ずつ・確認用の動画つき)", len(items) == len(RANGES) and all(it.get("preview") for it in items),
+              [(it.get("num"), it.get("seconds"), it.get("preview")) for it in items])
+    secs = sorted(round(it.get("seconds") or 0) for it in items)   # パックの素材 = 区間(前後 2 秒)+ 余白 10 秒 + 編集の前後 10 秒(元の動画の端で短くなる)
+    rep.check("区間 5 つ: どれも頼んだ区間を含む長さ(6〜50 秒)", secs and all(6 <= s <= 50 for s in secs), secs)
+    return r
+
+
 # ---------------------------------------------------------------- 8 届く物・再生
 def probe(app, path):
     """同梱の ffprobe で 1 本目の映像と音 -> {vcodec, pix, h, acodec}"""
@@ -803,6 +852,8 @@ def run(args):  # lint: long 検査の一本の流れ(上の説明の 1〜11 の
         if not check_setup(w, app, rep, args.timeout_min * 60 * 0.4):
             return rep
         check_login(w, app, rep)
+        block_ytdlp_net(app)
+        send_five(w, app, work, rep, args.timeout_min * 60 * 0.4)
         media_dir = os.path.join(work, "home", "Videos")
         media = os.path.join(media_dir, "【%s】配る前の検査.mp4" % STREAMER)
         make_video(app, media)

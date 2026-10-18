@@ -181,7 +181,7 @@ def download_chat(ctl, run, vid, wdir, timeout):
     yt = _env.find_tool("yt-dlp")
     if not yt:
         return None, "yt-dlp が見つからないため、チャットは使えません"
-    cmd = [yt, "--encoding", "utf-8", "--no-playlist", "--no-warnings", "--newline", "--skip-download", "--write-subs", "--sub-langs", "live_chat", "-o", _yturl.ytdlp_out(wdir, "chat.%(ext)s"), "--", _yturl.watch_url(vid)]
+    cmd = [yt, "--encoding", "utf-8"] + _tools.ytdlp_auth_args() + ["--no-playlist", "--no-warnings", "--newline", "--skip-download", "--write-subs", "--sub-langs", "live_chat", "-o", _yturl.ytdlp_out(wdir, "chat.%(ext)s"), "--", _yturl.watch_url(vid)]
     stop = threading.Event()
 
     def watch():   # 出力ファイルの大きさを見せる(yt-dlp は進捗を出さないため、動いている目安になる)

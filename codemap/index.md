@@ -6,7 +6,7 @@
 | 層 | md | ファイル | 行 |
 |---|---|---|---|
 | ytt(基盤) | [ytt.md](ytt.md) | 49 | 10959 |
-| ① pipeline(道具 = データを加工する) | [pipeline.md](pipeline.md) | 64 | 23997 |
+| ① pipeline(道具 = データを加工する) | [pipeline.md](pipeline.md) | 64 | 24075 |
 | ② flow(管理 = いつ・どの順で・どこに置くか) | [flow.md](flow.md) | 87 | 29085 |
 | ③ human(人の操作) | [human.md](human.md) | 59 | 17176 |
 | ④ manage(データ) | [manage.md](manage.md) | 42 | 11712 |
@@ -14,7 +14,7 @@
 | src/app(入口と画面) | [app.md](app.md) | 86 | 37664 |
 | src/friendapp(友人の玄関) | [friendapp.md](friendapp.md) | 48 | 19143 |
 | その他の画面(editor・studio・ui-kit・cut2resolve) | [tools.md](tools.md) | 49 | 20574 |
-| dev・setup(開発の道具) | [dev.md](dev.md) | 55 | 15589 |
+| dev・setup(開発の道具) | [dev.md](dev.md) | 55 | 15640 |
 | friend-apps・chrome-ext(C# のアプリ・拡張) | [apps.md](apps.md) | 19 | 8967 |
 
 ## `/api/...` の口(受ける所 → 呼ぶ所)
@@ -101,7 +101,7 @@
 - `/api/friend/receive` — src/friendapp/server.py:318 ← friend_preflight.py
 - `/api/friend/report` — src/friendapp/server.py:425・src/friendapp/server.py:116
 - `/api/friend/retry` — src/friendapp/server.py:430・src/friendapp/server.py:116
-- `/api/friend/send` — src/friendapp/server.py:404・src/friendapp/server.py:116
+- `/api/friend/send` — src/friendapp/server.py:404・src/friendapp/server.py:116 ← friend_preflight.py
 - `/api/friend/settings` — src/friendapp/server.py:339・src/friendapp/server.py:461 ← friend_preflight.py
 - `/api/friend/settings/key` — src/friendapp/server.py:467
 - `/api/friend/setup` — src/friendapp/server.py:300・src/friendapp/server.py:457 ← friend_preflight.py・server.py
