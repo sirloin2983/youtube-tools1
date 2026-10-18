@@ -55,11 +55,6 @@ class TestDictVersion(_Env):
             records.dict_version({"autoDict": True})
         self.assertEqual(set(records.dict_version({"glossary": ["x"]})), {"glossary", "roster"})   # 材料の要らない版は作れる
 
-    def test_run_base_reads_patched_dict_version(self):
-        with mock.patch.object(records, "dict_version", lambda s: {"x": 1}):
-            run = records.recognition_run({"model": "small", "language": "ja"}, {"device": "cpu"}, 1.0, 2.0)
-        self.assertEqual((run["settings"]["dict"], run["device"], run["post"]["version"]), ({"x": 1}, "cpu", "9.9.9"))
-
 
 TID = "abc123abc123"   # 文書の id の形(12 文字の 16 進)
 

@@ -30,23 +30,19 @@ class CutsTest(unittest.TestCase):
         cs = breaks.cuts([row(0, 1, "あ"), row(11, 12, "い")])
         self.assertAlmostEqual(cs[0]["score"], breaks.GAP_CAP)
 
-    def test_punct_bonus(self):
-        cs = breaks.cuts([row(0, 2, "はい。"), row(3, 5, "次")])
-        self.assertEqual(cs[0]["kind"], "punct")
-        self.assertAlmostEqual(cs[0]["score"], 1.0 + breaks.PUNCT_BONUS)
-
-    def test_ascii_question_is_punct(self):
-        cs = breaks.cuts([row(0, 2, "本当?"), row(3, 5, "次")])
-        self.assertEqual(cs[0]["kind"], "punct")
-
-    def test_tail_bonus(self):
-        cs = breaks.cuts([row(0, 2, "そうだよ"), row(3, 5, "次")])
-        self.assertEqual(cs[0]["kind"], "punct")
-        self.assertAlmostEqual(cs[0]["score"], 1.0 + breaks.TAIL_BONUS)
-
-    def test_trailing_spaces_ignored(self):
-        cs = breaks.cuts([row(0, 2, "はい。   "), row(3, 5, "次")])
-        self.assertEqual(cs[0]["kind"], "punct")
+    def test_punct_and_tail_bonus(self):
+        """句読点・半角の ?・語尾の空白・終助詞は punct。点は 間 + 加点(句読点 PUNCT_BONUS・終助詞 TAIL_BONUS)。点を見ない物は None"""
+        for text, score, why in (
+            ("はい。", 1.0 + breaks.PUNCT_BONUS, "句読点の加点"),
+            ("本当?", None, "半角の ? も句読点"),
+            ("そうだよ", 1.0 + breaks.TAIL_BONUS, "終助詞の加点"),
+            ("はい。   ", None, "語尾の空白を無視"),
+        ):
+            with self.subTest(why):
+                cs = breaks.cuts([row(0, 2, text), row(3, 5, "次")])
+                self.assertEqual(cs[0]["kind"], "punct")
+                if score is not None:
+                    self.assertAlmostEqual(cs[0]["score"], score)
 
     def test_short_gap_with_punct_is_cut(self):
         cs = breaks.cuts([row(0, 2, "はい。"), row(2.1, 4, "次")])
@@ -68,24 +64,19 @@ class CutsTest(unittest.TestCase):
         self.assertAlmostEqual(cs[1]["t"], 6.2)
         self.assertAlmostEqual(cs[1]["score"], breaks.GAP_CAP)
 
-    def test_no_head_cut_when_speech_starts_early(self):
+    def test_head_edge_near_zero(self):
+        """話が 0 秒近くから始まるなら頭の切れ目は作らない・0.5 秒始まりでも頭の切れ目は 0 で止まらず 0.3"""
         cs = breaks.cuts([row(0.2, 1, "あ")])
         self.assertEqual([c["t"] for c in cs], [1.2])
-
-    def test_head_clamped_at_zero(self):
         cs = breaks.cuts([row(0.5, 1, "あ")])
         self.assertAlmostEqual(cs[0]["t"], 0.3)
 
-    def test_broken_rows_skipped(self):
+    def test_broken_input_and_missing_text(self):
         rows = [{"start": "x", "end": 1, "text": "a"}, row(3, 2, "b"), None, row(5, 6, "c")]
         cs = breaks.cuts(rows)
         self.assertEqual([round(c["t"], 2) for c in cs], [4.8, 6.2])
-
-    def test_missing_text_is_gap(self):
-        cs = breaks.cuts([{"start": 0, "end": 2}, {"start": 3, "end": 4}])
+        cs = breaks.cuts([{"start": 0, "end": 2}, {"start": 3, "end": 4}])   # 文字が無い行は間として扱う
         self.assertEqual(cs[0]["kind"], "gap")
-
-    def test_empty(self):
         self.assertEqual(breaks.cuts([]), [])
         self.assertEqual(breaks.cuts(None), [])
 
@@ -113,23 +104,21 @@ class SnapTest(unittest.TestCase):
         self.assertAlmostEqual(a2, 10.0)
         self.assertEqual(info["in"][2], "gap")
 
-    def test_outside_radius_not_moved(self):
-        a2, b2, info = breaks.snap(-1.0, 50.0, self.CS)   # 最も近い 10 までは距離 11
-        self.assertEqual((a2, b2), (-1.0, 50.0))
-        self.assertEqual(info["in"], [-1.0, -1.0, None])
-        self.assertEqual(info["out"], [50.0, 50.0, None])
-
-    def test_too_short_not_moved(self):
-        # 両端とも 12 へ寄ると長さが 0 になるので、どちらも動かさない
-        a2, b2, info = breaks.snap(10.0, 14.0, [self.CS[1]])
-        self.assertEqual((a2, b2), (10.0, 14.0))
-        self.assertEqual(info["in"], [10.0, 10.0, None])
-        self.assertEqual(info["out"], [14.0, 14.0, None])
-
-    def test_no_cuts(self):
-        a2, b2, info = breaks.snap(3.0, 40.0, [])
-        self.assertEqual((a2, b2), (3.0, 40.0))
-        self.assertIsNone(info["in"][2])
+    def test_not_moved(self):
+        """動かさない境目: 半径の外(最も近い 10 まで距離 11)・両端とも 12 へ寄ると長さ 0 になる・切れ目が無い"""
+        for why, a, b, cuts, info in (
+            ("半径の外", -1.0, 50.0, self.CS, {"in": [-1.0, -1.0, None], "out": [50.0, 50.0, None]}),
+            ("短くなりすぎ", 10.0, 14.0, [self.CS[1]], {"in": [10.0, 10.0, None], "out": [14.0, 14.0, None]}),
+            ("切れ目なし", 3.0, 40.0, [], None),
+        ):
+            with self.subTest(why):
+                a2, b2, got = breaks.snap(a, b, cuts)
+                self.assertEqual((a2, b2), (a, b))
+                if info is None:
+                    self.assertIsNone(got["in"][2])
+                else:
+                    self.assertEqual(got["in"], info["in"])
+                    self.assertEqual(got["out"], info["out"])
 
     def test_custom_radius(self):
         a2, _b2, _info = breaks.snap(9.0, 100.0, self.CS, radius=2.0)
@@ -139,15 +128,13 @@ class SnapTest(unittest.TestCase):
 
 
 class InsideRowTest(unittest.TestCase):
-    def test_inside_only_strict(self):
+    def test_inside_only_strict_and_broken_rows(self):
         rows = [row(1, 3, "あ")]
         self.assertTrue(breaks.inside_row(2, rows))
         self.assertFalse(breaks.inside_row(1, rows))
         self.assertFalse(breaks.inside_row(3, rows))
         self.assertFalse(breaks.inside_row(0, rows))
-
-    def test_broken_rows_ignored(self):
-        self.assertFalse(breaks.inside_row(2, [row(3, 1, "x"), None]))
+        self.assertFalse(breaks.inside_row(2, [row(3, 1, "x"), None]))   # 壊れた行・空の行は無視
         self.assertFalse(breaks.inside_row(2, []))
 
 

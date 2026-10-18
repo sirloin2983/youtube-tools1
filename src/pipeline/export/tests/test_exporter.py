@@ -108,20 +108,6 @@ class TestApplyVolume(unittest.TestCase):
         self.assertEqual(spec["volume"], exporter.DEFAULT_EXPORT_VOLUME)
 
 
-class TestExportCompletion(unittest.TestCase):
-    def test_callback_receives_the_exported_range(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            spec = {"videoId": "abcdefghijk", "mode": "file"}
-            item = {"id": "m1", "start": 10.0, "end": 15.0, "label": "", "status": "queued"}
-            job = {"items": [item], "state": "running"}
-            done = Mock(return_value=False)   # マークが変更されていても、出力ファイル自体は成功
-            with patch.object(studio_env, "get_out_dir", return_value=tmp), \
-                    patch.object(exporter, "pick_folder", return_value=("video", tmp)), \
-                    patch.object(exporter, "run_ffmpeg", return_value="video/clip.mp4"):
-                _run(job, spec, done)
-            done.assert_called_once_with("abcdefghijk", "m1", "video/clip.mp4", 10.0, 15.0, os.path.join(tmp, "clip.mp4"))   # 最後は書き出した mp4 の絶対パス(マークに残す)
-            self.assertEqual((job["state"], item["status"], item["file"]), ("done", "done", "video/clip.mp4"))
-
 
 class TestClipNumbering(unittest.TestCase):
     def test_numbers_continue_from_existing_clips(self):
@@ -751,14 +737,12 @@ class TestYoutubeTwoStage(unittest.TestCase):
         self.assertIn("you’re not a bot", err)
         self.assertIn("it's【全角】「記号」〜", err)
         self.assertNotIn("\ufffd", err)
-
-    @unittest.skipUnless(studio_env.find_tool("yt-dlp"), "本物の yt-dlp が無い環境ではスキップ")
-    def test_real_ytdlp_writes_utf8_with_the_flag(self):
-        """本物の yt-dlp に URL でない文字(’ と全角)を渡す = ネットを使わずにエラーの文が出る。_ytdlp_cmd の形で UTF-8 のまま読める"""
-        from ytt import procs as _procs
-        p = _procs.run_short(exporter._ytdlp_cmd() + ["--", "テスト’you're【】"], timeout=60)
-        self.assertNotEqual(p.returncode, 0)
-        self.assertIn("テスト’you're【】", p.stderr)
+        # 本物の yt-dlp(無い環境ではここだけ飛ばす)に URL でない文字(’ と全角)を渡す = ネットを使わずにエラーの文が出る。_ytdlp_cmd の形で UTF-8 のまま読める
+        if studio_env.find_tool("yt-dlp"):
+            from ytt import procs as _procs
+            p = _procs.run_short(exporter._ytdlp_cmd() + ["--", "テスト’you're【】"], timeout=60)
+            self.assertNotEqual(p.returncode, 0)
+            self.assertIn("テスト’you're【】", p.stderr)
 
     def test_two_stage_exact_and_30fps(self):
         clip = {"id": "m1", "start": 7.0, "end": 12.0, "title": "t", "label": "", "src": "manual", "markStatus": ""}

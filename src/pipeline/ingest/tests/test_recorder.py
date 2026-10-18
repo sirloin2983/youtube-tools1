@@ -449,7 +449,7 @@ class TestStreamlinkPipe(unittest.TestCase):
         for q in ("best", "720p"):
             self.assertIn(q, R.QUALITIES)
 
-    def test_disconnect_is_not_the_end(self):
+    def test_disconnect_is_not_the_end_and_clean_end(self):
         """streamlink は切断でも終了コード 0 で終わる。記録の「No new segments」で見分けて、終わりにせず繋ぎ直す"""
         self.srv.end = False
         s = self.rec.start("hls://" + self.srv.url)
@@ -461,8 +461,8 @@ class TestStreamlinkPipe(unittest.TestCase):
         self.srv.down = False
         self.assertTrue(wait_for(lambda: r.summary()["sessions"] >= 2 and r.summary()["segments"] > n1, 60), (r.summary(), self.logs))
         self.assertEqual(self.rec.stop(s["id"])["state"], "stopped")
-
-    def test_clean_end(self):
+        # 配信の終わりで締める(切断のない通常の終わり = セッション 1 つで「終了」)
+        self.srv.end = True
         self.srv.rate = 4.0
         s = self.rec.start("hls://" + self.srv.url)
         r = self.rec.get(s["id"])

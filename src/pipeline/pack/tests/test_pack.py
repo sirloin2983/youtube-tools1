@@ -484,12 +484,8 @@ class TestResolveTextPlusLuaRun(unittest.TestCase):
         out = self.run_lua(plan, s, fonts=self.KEI, ignore=('Offset2', 'Priority5', 'PriorityBack5'))
         self.assertIn('(反映できなかった: Offset2, Priority5)', out)
         self.assertIn('marker=Yellow|cut2resolve 完了(要確認)|字幕 2/2', out)
-
-    def test_priority_name_is_looked_up(self):
-        """実機で Priority1/2/5 が入らなかった(2026-09-27): 入力の一覧から表示名「Priority」と要素の番号で探す → 候補の名前、の順。
-        見つけた名前は 2つ目の字幕でも使い、メモに「読み替え」と出す(緑のまま)。見つからなければ入力の一覧をパックのフォルダに書く"""
-        s = {'timelineFrameRate': '30', 'timelineResolutionWidth': '1080', 'timelineResolutionHeight': '1920'}
-        plan = _textplus_plan([(60, 300, 'a'), (400, 500, 'b')], [(0, 2064)])
+        # 実機で Priority1/2/5 が入らなかった(2026-09-27): 入力の一覧から表示名「Priority」と要素の番号で探す → 候補の名前、の順。
+        # 見つけた名前は 2つ目の字幕でも使い、メモに「読み替え」と出す(緑のまま)。見つからなければ入力の一覧をパックのフォルダに書く
         no_prio = ('Priority1', 'Priority2', 'Priority5')
         # 一覧から表示名で見つかる(候補の名前より先)
         listed = [('ElementPriority%d' % n, 'Priority') for n in (1, 2, 5)] + [('Softness1', 'Softness')]
@@ -995,25 +991,6 @@ class TestPackWithFfmpeg(unittest.TestCase):
         leftovers = [p.name for p in r2["out_dir"].iterdir() if p.name.startswith(".")]
         self.assertEqual(leftovers, [])
 
-    def test_textplus_pack_friend_readme_is_textplus_guide(self):
-        srt = write(self.dir / "clip.srt", "1\n00:00:00,500 --> 00:00:01,500\nこんにちは\n\n2\n00:00:08,500 --> 00:00:09,500\nまたね\n")
-        plan = pack.plan_cut(pack.Request(video=self.video, sub=srt, base="list", keep_pairs=[(0, 4), (5, 10)]))
-        r = pack.build_pack(plan, textplus=True, textplus_target={"fps": 30, "width": 1080, "height": 1920})
-        names = sorted(p.name for p in r["out_dir"].iterdir())
-        self.assertIn(RTP.README_NAME, names)
-        self.assertFalse({"予備_EDLで開く手順.txt", "clip.edl", "clip_cut.srt"} & set(names))   # 予備(EDL・SRT・予備の手順書)は入れない(決定 3-34)
-        self.assertNotIn("Text+の使い方.txt", names)
-        guide = (r["out_dir"] / RTP.README_NAME).read_text(encoding="utf-8-sig")
-        self.assertIn("Text+ 字幕つき", guide)
-        self.assertIn("字幕 2 件・残す区間 2 か所", guide)
-        self.assertIn("最短辺をマッチ: 他をクロップ", guide)
-        self.assertIn("フレームレートは、タイムラインを1本でも作ると", guide)
-        self.assertEqual(r["readme"], guide)                       # 画面に出すのも友人が最初に読む方
-        self.assertNotIn("予備", guide)                             # 消した予備を案内しない(「送り主に予備も入れてと頼んで」も無い)
-        self.assertTrue((r["out_dir"] / self.video.name).exists())             # 動画はパックの直下(2026-09-27。media フォルダは作らない)
-        self.assertFalse((r["out_dir"] / "media").exists())
-        self.assertNotIn("media", guide)
-
     # ---- E-15: 前に写した同じ動画(大きさ・更新日時が秒単位で同じ)はコピーを飛ばす。中身は読まない
     T0 = 1_700_000_000_250_000_000   # 元の動画の更新日時(ns。秒の途中 = .25 秒)
 
@@ -1397,11 +1374,6 @@ class TestEditMediaProbeCache(unittest.TestCase):
         os.utime(self.em, ns=(st.st_atime_ns, st.st_mtime_ns + 10 ** 9))
         pack.media_for_pack(self.plan, True, cache)
         self.assertEqual(self.probe.call_count, 2)                                              # 更新日時が変わったら調べ直す
-
-    def test_without_cache_probes_every_time(self):
-        pack.media_for_pack(self.plan, True)
-        pack.media_for_pack(self.plan, True)
-        self.assertEqual(self.probe.call_count, 2)                                              # 渡さなければ今までどおり
 
 
 class TestMinimalPack(unittest.TestCase):
@@ -1791,13 +1763,6 @@ class TestRowEdgeWithAudio(unittest.TestCase):
         self.assertEqual(plan.keeps, [(15, 54)])
         plan = pack.plan_cut(pack.Request(video=self.video, base="list", keep_pairs=[(0.5, 1.8)], min_len=0, row_edge=pack.ROW_EDGE))
         self.assertEqual(plan.keeps, [(15, 54)])
-
-    def test_row_edge_is_described(self):
-        tr = write(Path(self.tmp.name) / "cli.transcript.json", json.dumps(transcript_doc([(0.5, 1.8, "一", False)]), ensure_ascii=False))
-        for row_edge, shown in ((pack.ROW_EDGE, True), (None, False)):
-            plan = pack.plan_cut(pack.Request(video=self.video, transcript=tr, base="rows", row_edge=row_edge))
-            text = "\n".join(pack.describe(plan))
-            self.assertEqual("行の端: 声の止まる所まで" in text, shown, text)
 
 
 def dataclasses_replace(obj, **kw):

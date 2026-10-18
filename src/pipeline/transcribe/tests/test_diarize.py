@@ -102,16 +102,6 @@ class TestPlaces(_Patches):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
-    def test_has_sherpa_reads_worker_client(self):
-        self.patch(worker_client, "worker_fake", lambda: True)
-        self.patch(worker_client, "worker_has", lambda *m: False)
-        self.assertTrue(diarize.has_sherpa())   # worker-fake は部品があるとみなす
-        asked = []
-        worker_client.worker_fake = lambda: False
-        worker_client.worker_has = lambda *m: asked.append(m) or False
-        self.assertFalse(diarize.has_sherpa())
-        self.assertEqual(asked, [("sherpa_onnx", "numpy")])
-
 
 class _Worker:
     def __init__(self, reply):

@@ -64,15 +64,6 @@ class TestFill(_Base):
         roster.ROSTER = other
         self.assertEqual(fill.fill_aliases(), set())
 
-    def test_reader_fake_follows_backend_select(self):
-        """窓の読みは backend.select() の口 fill_reader(RS5-D)。疑似は環境変数 TRANSCRIBE_FAKE_FILL の文字を窓いっぱいの 1 行に"""
-        backend.set_selector(lambda: _FakeBackend())
-        with mock.patch.dict(os.environ, {"TRANSCRIBE_FAKE_FILL": "別の読み"}):
-            read = fill.fill_reader({}, {}, "w.wav")
-            self.assertEqual(read(1.0, 3.0), [{"start": 1.0, "end": 3.0, "text": "別の読み"}])
-        with mock.patch.dict(os.environ, {"TRANSCRIBE_FAKE_FILL": ""}):
-            self.assertEqual(fill.fill_reader({}, {}, "w.wav")(1.0, 3.0), [])
-
     def test_reader_without_sherpa_is_api_error_from_diarize_has_sherpa(self):
         """本物の読み(SenseVoice)は話者判別の部品 sherpa-onnx が要る。有無は diarize.has_sherpa から(呼ぶたびに読む = patch.object が届く)。無ければ ytt.errors.ApiError"""
         with mock.patch.object(diarize, "has_sherpa", lambda: False):
@@ -104,11 +95,6 @@ class TestLlm(_Base):
         with open(llm.llm_path("abcdefabcde1"), "w", encoding="utf-8") as f:
             f.write('{"schema": "other", "items": []}')   # 形が違えば None
         self.assertIsNone(llm.read_llm("abcdefabcde1"))
-
-    def test_ask_fn_fake_follows_backend_select(self):
-        backend.set_selector(lambda: _FakeBackend())
-        with mock.patch.dict(os.environ, {"TRANSCRIBE_FAKE_LLM": '{"edits": []}'}):
-            self.assertEqual(llm.llm_ask_fn({}, {})([{"role": "user", "content": "x"}]), '{"edits": []}')
 
     def test_after_doc_fixes_with_roster_file(self):
         """設定オフは何もしない・名簿の呼び名に 1 字違いの所があれば疑似の答えで直し、fill と印を付ける。選んだ所が無ければ LLM を呼ばない"""

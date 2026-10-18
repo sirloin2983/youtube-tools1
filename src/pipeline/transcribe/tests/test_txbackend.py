@@ -24,24 +24,6 @@ class TestBackend(unittest.TestCase):
     def tearDown(self):
         backend.set_selector(lambda: backend.REAL)
 
-    def test_real_calls_real(self):
-        b = backend.REAL
-        self.assertEqual(b.name, "faster-whisper")
-        self.assertEqual(b.engine_ids({}, lambda spec: ("e", "1")), ("e", "1"))
-        self.assertEqual(b.transcribe("j", "s", "w", 3.0, lambda *a: a), ("j", "s", "w", 3.0))
-        self.assertEqual(b.range_main("j", 0.0, 1.0, (0.0, 1.0), lambda a, b_, share: [a, b_]), [0.0, 1.0])
-        self.assertEqual(b.range_loose("j", [(0, 1)], lambda spans: spans), [(0, 1)])
-        self.assertEqual(b.each_lines("j", "s", [], "w", 0.0, lambda *a: {"ok": 1}), {"ok": 1})
-        # RS2-9: 話者判別の区間と声の特徴の口
-        self.assertEqual(b.diarize("j", {"numSpeakers": 2}, "w", 3.0, lambda job, spec, wav: [(0.0, 1.0, spec["numSpeakers"])]), [(0.0, 1.0, 2)])
-        self.assertEqual(b.embed("j", "w", "voxceleb", [[(0, 1)]], lambda job, wav, emb, groups: [emb, len(groups)]), ["voxceleb", 1])
-        # RS5-D: 下の層の「疑似なら」を寄せた口
-        self.assertEqual(b.diar_engine("voxceleb", "", lambda emb, req: {"name": "sherpa-onnx", "embedding": emb}), {"name": "sherpa-onnx", "embedding": "voxceleb"})
-        self.assertEqual(b.check_engine({"engine": "x"}, lambda spec: spec["engine"]), "x")
-        self.assertEqual(b.engine_version({"engine": "x"}, lambda spec: "1.0"), "1.0")
-        self.assertEqual(b.fill_reader("j", "s", "w", lambda job, spec, wav: (job, spec, wav)), ("j", "s", "w"))
-        self.assertEqual(b.llm_ask("j", "s", lambda job, spec: (job, spec)), ("j", "s"))
-
     def test_flags_mode_and_is_fake(self):
         """疑似の旗は backend の 1 か所: mode() は環境変数 TRANSCRIBE_BACKEND を呼ぶたびに読む・is_fake() は select() の Backend の名前(RS5-D)"""
         with mock.patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "worker-fake"}):

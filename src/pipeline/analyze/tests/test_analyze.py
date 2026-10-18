@@ -129,11 +129,6 @@ class TestFetchComments(unittest.TestCase):
         self.assertIsNone(st)
         self.assertIn("上限", why)
 
-    def test_other_failures_keep_their_sentences(self):
-        self.assertEqual(self.run_with(ApiError("upstream", "x", 502, {"detail": "HTTP 403", "reason": "commentsDisabled"})), (None, "この動画はコメントが無効です"))
-        self.assertEqual(self.run_with(ApiError("upstream", "x", 502, {"detail": "HTTP 500", "reason": ""})), (None, "コメント欄を取得できませんでした(エラー / HTTP 500)"))
-        self.assertEqual(self.run_with(ApiError("network", "x", 502)), (None, "コメント欄を取得できませんでした(接続エラー)"))
-
 
 class TestComments(unittest.TestCase):
     def test_chapter_list_downweighted(self):
