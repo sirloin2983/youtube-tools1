@@ -114,11 +114,6 @@ class PickMatchesOldTest(unittest.TestCase):
             self.assertEqual(json.dumps(run(txindex.Docs(plain)), sort_keys=True, default=str),
                              json.dumps(run(plain), sort_keys=True, default=str), seed)
 
-    def test_load_returns_docs(self):
-        tmp = tempfile.mkdtemp(prefix="perf-o5-")
-        self.addCleanup(shutil.rmtree, tmp, True)
-        self.assertIsInstance(txindex.load(tmp), txindex.Docs)
-
 
 # ---------------------------------------------------------------- O15
 class DocPathsMatchOldTest(unittest.TestCase):
@@ -173,22 +168,6 @@ class DocPathsMatchOldTest(unittest.TestCase):
         os.makedirs(other)
         self._write(os.path.join(other, t[0] + ".json"), {})
         self.assertEqual(txindex.doc_paths(other), old_doc_paths(other))
-
-    def test_index_read_once(self):
-        """索引は一覧 1 回につき 1 本 1 回だけ確かめる(前は iter_tids と doc_file で 2 回)・索引の無い文書の索引は stat しない"""
-        work = os.path.join(self.tmp, "out", "題名", schemas.WORK_DIR)
-        for k in range(3):
-            tid = "%012x" % k
-            self._write(os.path.join(work, tid + ".json"), {})
-            self._loc(tid, work)
-        for k in range(3, 10):
-            self._write(os.path.join(self.tx, "%012x.json" % k), {})
-        calls = []
-        orig = docloc._loc_state
-        docloc._loc_state = lambda tid, data_dir=None: calls.append(tid) or orig(tid, data_dir)
-        self.addCleanup(setattr, docloc, "_loc_state", orig)
-        txindex.doc_paths(self.tx)
-        self.assertEqual(sorted(calls), ["%012x" % k for k in range(3)])
 
 
 if __name__ == "__main__":

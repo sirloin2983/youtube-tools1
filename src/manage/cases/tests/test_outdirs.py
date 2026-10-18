@@ -66,6 +66,12 @@ class Base(unittest.TestCase):
         """スタジオを起動し直したときの配信 1 本(公開の形)"""
         return store.Store(self.data).get(vid)[0]
 
+    def cli(self, argv):
+        with mock.patch.object(O._placement, "studio_data", return_value=self.data), \
+                mock.patch.object(O._placement, "acquire", return_value=object()), mock.patch.object(O._placement, "release"), \
+                mock.patch("builtins.print"):
+            return O.main(argv)
+
 
 class RelinkTest(Base):
     def setUp(self):
@@ -91,6 +97,10 @@ class RelinkTest(Base):
         self.assertEqual([m["id"] for m in got["marks"]], [m["id"] for m in self.before["marks"]])
         self.assertEqual(store.Store(self.data).internal(self.vid)["marks"][0]["path"], os.path.join(os.path.normpath(moved), "01.mp4"))
         self.assertIsNone(O.status(self.data))   # 見えない案件が 0 に戻ったら行を出さない(繋ぎ直した本数は 0 のまま)
+        # CLI から流す入口(終了コード 1 = 見つからない・0 = 繋ぎ直した)も同じ道を通る
+        self.assertEqual(self.cli(["--relink", self.vid, os.path.join(self.tmp, "無い")]), 1)
+        self.assertEqual(self.cli(["--relink", self.vid, moved]), 0)
+        self.assertEqual(self.row(self.vid)["case"], os.path.normpath(moved))
 
     def test_relink_needs_source_in_adoptions(self):
         other = os.path.join(self.tmp, "持ち主だけ")
@@ -129,20 +139,6 @@ class RelinkTest(Base):
 class StatusAndCliTest(Base):
     def test_status_none_when_nothing(self):
         self.assertIsNone(O.status(self.data))
-
-    def cli(self, argv):
-        with mock.patch.object(O._placement, "studio_data", return_value=self.data), \
-                mock.patch.object(O._placement, "acquire", return_value=object()), mock.patch.object(O._placement, "release"), \
-                mock.patch("builtins.print"):
-            return O.main(argv)
-
-    def test_cli_relink(self):
-        vid = self.video()
-        moved = os.path.join(self.tmp, "動かした先")
-        shutil.move(self.root, moved)
-        self.assertEqual(self.cli(["--relink", vid, os.path.join(self.tmp, "無い")]), 1)
-        self.assertEqual(self.cli(["--relink", vid, moved]), 0)
-        self.assertEqual(self.row(vid)["case"], os.path.normpath(moved))
 
     def test_cli_lock_busy(self):
         busy = O._placement.LockBusy({"pid": 1, "port": 8700})

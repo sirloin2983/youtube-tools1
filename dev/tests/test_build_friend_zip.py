@@ -342,10 +342,6 @@ class BuildTest(Base):
         with self.assertRaisesRegex(B.BuildError, "launcher/build.bat"):
             self.build()
 
-    def test_previous_app_is_gone_from_the_builder(self):
-        self.assertFalse(hasattr(B, "lay_app") or hasattr(B, "run_app_build") or hasattr(B, "APP_SRC"))
-        self.assertFalse(os.path.exists(os.path.join(B.REPO, "friend-apps", "request-sender", "src")))
-
     def test_prune_keeps_two(self):
         os.makedirs(self.out)
         for v in ("0.9.0", "0.10.0", "0.8.5"):

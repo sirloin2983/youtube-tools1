@@ -60,6 +60,8 @@
   - 名前: `set_code_dir` :29・`code_dir` :35・`set_home` :40・`home` :48・`p` :60・`fake` :65・`fake_media` :70・`find_tool` :78・`old_log_name` :87・`rotate_log` :94・`log_failure` :100・`default_out_dir` :114・ほか 6
 - **studiodata.py** (176 行) — 切り抜きスタジオの data.json の配信の情報(読む側。書くのは盛り上がりグラフの save_series だけ)。
   - 名前: `load_live` :24・`load_video` :35・`save_series` :82・`read` :96・`load_all` :108・`videos` :116・`video` :121・`studio_videos` :157・`studio_stream` :162
+- **testkit.py** (114 行) — テストの共通の下ごしらえ(2026-10-18 テストの見直し TESTREV。notes:plan/test-review.md の 6)。
+  - 名前: `write_json` :24・`read_json` :32・`write_text` :41・`tempdir` :49・`env` :57・`data_dir` :75・`serve` :84・`class TempCase` :94
 - **textutil.py** (69 行) — ログ・画面に出す文と数の小物(役割で組み直す RS3-4。2026-10-10 にスタジオの common.py から移した。標準ライブラリだけ)。
   - 名前: `redact` :18・`permission_message` :23・`tail_reason` :31・`fmt_ts` :38・`fmt_ms` :44・`num` :50・`person_key` :64
 - **tools.py** (596 行) — 外部プログラム(ffmpeg・ffprobe・yt-dlp)の場所と、子プロセスを動かすときの小道具。

@@ -567,18 +567,17 @@ class KnownFixes(ResolvePackContract):
         self.assertEqual(old[0], new[0])
         self.assertEqual(old[1], [(0, 9, "え"), (9, 35, "はい")])
         self.assertEqual(new[1], [(0, 9, "え"), (9, 36, "はい")])
+        # 時刻順でない行(旧は文書の順のまま並べた・SRT の番号の並び)も同じ確かめで見る
+        old, new = self.both(self.doc([seg(1, 4, 5, "後"), seg(2, 0.5, 1.5, "前"), seg(3, 2, 3, "中", cut=True)]))
+        self.assertEqual(old[0], new[0])
+        self.assertEqual([c[2] for c in old[1]], ["後", "前"])   # 旧: 文書の順(SRT の番号が時刻順でない)
+        self.assertEqual([c[2] for c in new[1]], ["前", "後"])
 
     def test_caption_crossing_end_of_video(self):
         old, new = self.both(self.doc([seg(1, 1, 2, "a"), seg(2, 11, 13.5, "終わりをまたぐ")]))
         self.assertEqual(old[0], new[0])
         self.assertEqual(old[1], [(0, 30, "a")])                                  # 旧: 捨てた
         self.assertEqual(new[1], [(0, 30, "a"), (30, 60, "終わりをまたぐ")])      # 今: 終わりで切って残す
-
-    def test_rows_out_of_order(self):
-        old, new = self.both(self.doc([seg(1, 4, 5, "後"), seg(2, 0.5, 1.5, "前"), seg(3, 2, 3, "中", cut=True)]))
-        self.assertEqual(old[0], new[0])
-        self.assertEqual([c[2] for c in old[1]], ["後", "前"])   # 旧: 文書の順(SRT の番号が時刻順でない)
-        self.assertEqual([c[2] for c in new[1]], ["前", "後"])
 
     def test_end_of_video_counted_from_frames(self):
         """29.97fps・12 秒の動画の実際のフレーム数は 359。旧は 12 秒 × 29.97 = 359.64 → 360 まで残した"""

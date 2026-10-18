@@ -102,9 +102,7 @@ class TimeTest(unittest.TestCase):
         self.assertEqual(T.pt_offset(datetime.datetime(2026, 3, 8, 9, 59, tzinfo=UTC)), datetime.timedelta(hours=-8))
         self.assertEqual(T.pt_offset(datetime.datetime(2026, 3, 8, 10, 0, tzinfo=UTC)), datetime.timedelta(hours=-7))
         self.assertEqual(T.pt_day_start_utc(datetime.date(2026, 10, 7)), datetime.datetime(2026, 10, 7, 7, tzinfo=UTC))
-
-    def test_elapsed_counts_the_publish_day(self):
-        """日本時間の昼の公開は、PT ではその前日。公開日の数時間ぶんを落とさない(監査の E2)"""
+        # 日本時間の昼の公開は、PT ではその前日。公開日の数時間ぶんを落とさない(監査の E2)
         pub = datetime.datetime(2026, 10, 7, 12, 0, tzinfo=T.JST).astimezone(UTC)   # PT 10/6 20:00
         self.assertEqual(T.to_pt(pub).date(), datetime.date(2026, 10, 6))
         self.assertAlmostEqual(T.elapsed_hours_at_day_end(pub, datetime.date(2026, 10, 6)), 4.0)
@@ -381,9 +379,7 @@ class ServiceTest(unittest.TestCase):
         self.assertEqual([(r["kind"], r["period"]) for r in out["sent"]], [("daily", "2026-10-08")])
         self.assertEqual(self.fb.reports[-1][2], "id_second_bbb")
         self.assertEqual(len(self.svc.st["ledger"]), 1)   # 同じ確定日の見込みは置き換える
-
-    def test_manual_run_resends(self):
-        self.svc.tick()
+        # 手動の実行から送り直す道(入口が違うだけ。送るかどうかは同じ道で決まる)
         n = len(self.fb.reports)
         self.svc.run_now("weekly", True)
         self.assertEqual(len(self.fb.reports), n + 1)

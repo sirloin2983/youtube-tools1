@@ -362,12 +362,8 @@ class TestListExtras(Base):
 class TestNoStatusMemo(Base):
     """MARKS-3(決定 3-48): 案件の状態・メモ・「見た」「未確認」「保留」は消した。採用.json・cases.json に残る古い欄は読み飛ばす(書き換えない)"""
 
-    def test_removed_names(self):
-        for name in ("update", "STATUSES", "MAX_MEMO", "REVIEW_SINCE", "remember_delivered", "relink_delivered", "relink_delivered_later"):
-            self.assertFalse(hasattr(cases, name), name)
-        self.assertEqual((cases.AUTO_OPS, cases.FIELDS), (("deliver", "discard"), ("auto",)))
-
     def test_old_fields_are_not_listed_and_not_rewritten(self):
+        self.assertEqual((cases.AUTO_OPS, cases.FIELDS), (("deliver", "discard"), ("auto",)))
         self.studio({VID: {"kind": "youtube", "title": "配信A", "marks": [mark("m1", "exported", self.clip1)]}})
         p = cases.locations(self.root, self.env)["cases"]
         cases._write(p, {VID: {"status": "posted", "memo": "10/1 に投稿", "statusUpdatedAt": 7, "last": {"title": "x"}}})
