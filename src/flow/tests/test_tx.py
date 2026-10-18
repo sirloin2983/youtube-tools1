@@ -11,14 +11,13 @@
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない(一時フォルダだけ)。ほかのテストとそろえる
 import json
-import shutil
 import sys
-import tempfile
 import unittest
 from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
 sys.path.insert(0, SRC)
+from ytt import testkit  # noqa: E402
 from flow import tx  # noqa: E402
 from pipeline.transcribe import backend, recognize, roster  # noqa: E402
 from ytt import errors, tools, workdata  # noqa: E402
@@ -47,7 +46,7 @@ class _FakeEngine(backend.Backend):
 
 class _Env(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="flowtx_")
+        self.tmp = testkit.tempdir(self, "flowtx_")
         for mod, name, value in ((workdata, "TX_DIR", self.tmp), (workdata, "TMP_DIR", self.tmp), (workdata, "ROOT", self.tmp), (tools, "media_duration", lambda path: 4.0),
                                  (recognize, "extract_audio", lambda job, spec, wav: None),
                                  (roster, "ROSTER", os.path.join(self.tmp, "no-roster.json"))):
@@ -57,9 +56,6 @@ class _Env(unittest.TestCase):
         saved = backend._selector[0]
         backend.set_selector(lambda: _FakeEngine())
         self.addCleanup(backend.set_selector, saved)
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, True)
 
 
 class TestTranscribe(_Env):
@@ -126,8 +122,7 @@ class TestTranscribe(_Env):
         mach = self.read("abc123def456.mach.json")
         self.assertEqual((mach["schema"], mach["rev"]), (schemas.MACH_SCHEMA, 1))
         self.assertEqual([r["text"] for r in mach["rows"]], ["テスト文1", "テスト文2"])
-        with open(os.path.join(self.tmp, "abc123def456.hum.json"), "w", encoding="utf-8") as fp:
-            json.dump({"schema": schemas.HUM_SCHEMA, "rows": []}, fp)
+        testkit.write_json(os.path.join(self.tmp, "abc123def456.hum.json"), {"schema": schemas.HUM_SCHEMA, "rows": []})
         doc_before = self.read("abc123def456.json")
         fields = dict(clip["fields"], segments=[dict(clip["fields"]["segments"][0], text="新しい")])
         path = tx.write_machine_doc("abc123def456", fields, SPEC)
@@ -150,8 +145,7 @@ class TestTranscribe(_Env):
         tx.write_machine_doc("abc123def456", clip["fields"], SPEC)
         self.assertEqual(self.read("abc123def456.json")[schemas.COMPOSED_FROM], {"mach": 2, "hum": None})
         self.assertEqual(self.read("abc123def456.mach.json")["rev"], 2)
-        with open(os.path.join(self.tmp, "abc123def456.hum.json"), "w", encoding="utf-8") as fp:
-            json.dump({"schema": schemas.HUM_SCHEMA, "rev": 1, "rows": []}, fp)
+        testkit.write_json(os.path.join(self.tmp, "abc123def456.hum.json"), {"schema": schemas.HUM_SCHEMA, "rev": 1, "rows": []})
         before = self.read("abc123def456.json")
         tx.write_machine_doc("abc123def456", clip["fields"], SPEC)
         self.assertEqual(self.read("abc123def456.json"), before)   # 写しは ③ が組み立て直す

@@ -9,7 +9,6 @@ import json
 import os
 import shutil
 import sys
-import tempfile
 import threading
 import unittest
 from unittest import mock
@@ -236,7 +235,7 @@ class PathTest(unittest.TestCase):
 
 class ReadWriteTest(unittest.TestCase):
     def setUp(self):
-        self.root = tempfile.mkdtemp(prefix="casebook-rw-")
+        self.root = testkit.tempdir(self, "casebook-rw-")
         self.addCleanup(shutil.rmtree, self.root, True)
         self.v = video([auto("a1", 10, 40), mark("m1", 50, 80, status="adopted")])
 
@@ -355,15 +354,14 @@ class ReadWriteTest(unittest.TestCase):
 class StudiodataCaseTest(unittest.TestCase):
     """ytt/studiodata の読み口: data.json の行が case を持つ配信は 候補.json・採用.json を重ねて返す(B3-4a)"""
     def setUp(self):
-        self.root = tempfile.mkdtemp(prefix="casebook-sd-")
+        self.root = testkit.tempdir(self, "casebook-sd-")
         self.addCleanup(shutil.rmtree, self.root, True)
         self.v = video([auto("a1", 10, 40), mark("m1", 50, 80, status="adopted")])
         CB.write(self.root, *CB.split(self.v, self.root))
         self.data = os.path.join(self.root, "data.json")
 
     def put(self, videos):
-        with open(self.data, "w", encoding="utf-8") as f:
-            json.dump({"schema": "clip-studio/v1", "videos": videos, "groups": {}}, f, ensure_ascii=False)
+        testkit.write_json(self.data, {"schema": "clip-studio/v1", "videos": videos, "groups": {}})
 
     def index_row(self, **kw):
         r = {k: self.v[k] for k in ("id", "kind", "title", "channel", "rev", "createdAt", "updatedAt")}

@@ -16,13 +16,13 @@ import json
 import re
 import shutil
 import sys
-import tempfile
 import time
 import unittest
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
 sys.path.insert(0, SRC)
 sys.path.insert(0, os.path.join(SRC, "app"))   # 入口の Live(app)と設定(prefs)
+from ytt import testkit  # noqa: E402
 from flow import live_adopt as LA, live_detect as D, live_export as LX, livesession as LS, run as R, runqueue as Q, spec as S  # noqa: E402
 from pipeline.analyze import live_excite_worker as W  # noqa: E402
 from ytt import fsio  # noqa: E402
@@ -76,7 +76,7 @@ class FakeQueue:
 
 class Base(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-livesession-")
+        self.tmp = testkit.tempdir(self, "ytt-livesession-")
         self.cfg = {"enabled": True, "detect": {"enabled": True, "sens": "low", "perHour": 4}, "autoAdopt": {"enabled": True, "waitMin": 9}}
         self.logs = []
         self.queue = FakeQueue()
@@ -353,7 +353,7 @@ class LiveAppTest(unittest.TestCase):
         from app import live as LV
         from app import prefs as P
         self.LV = LV
-        self.tmp = tempfile.mkdtemp(prefix="ytt-livesession-app-")
+        self.tmp = testkit.tempdir(self, "ytt-livesession-app-")
         self.prefs = P.Prefs(os.path.join(self.tmp, "prefs.json"), fsio.atomic_write)
         self.live = LV.Live(self.prefs, self.tmp, os.path.join(self.tmp, "logs"), spawn=False, store_dir=os.path.join(self.tmp, "live"),
                             out_dir=lambda: os.path.join(self.tmp, "out"), runner=lambda: None)

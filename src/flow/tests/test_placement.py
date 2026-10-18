@@ -389,11 +389,9 @@ class TestDocHome(_Tmp):
     def test_eval(self):
         _touch(os.path.join(self.wd, names.OWNER_FILE), b"vid")
         self.assertIsNone(placement.doc_home(self.video, self.out, eval_set=True))
-        with open(workdata.SETTINGS, "w", encoding="utf-8") as f:
-            json.dump({"evalDirs": [self.out]}, f)
+        testkit.write_json(workdata.SETTINGS, {"evalDirs": [self.out]})
         self.assertIsNone(placement.doc_home(self.video, self.out))   # 設定の評価用のフォルダの中
-        with open(workdata.SETTINGS, "w", encoding="utf-8") as f:
-            json.dump({"evalDirs": [os.path.join(self.tmp, "ev")]}, f)
+        testkit.write_json(workdata.SETTINGS, {"evalDirs": [os.path.join(self.tmp, "ev")]})
         os.makedirs(os.path.join(self.tmp, "ev"))
         self.assertEqual(placement.doc_home(self.video, self.out), os.path.normpath(self.wd))
 
@@ -405,8 +403,7 @@ class TestDocHome(_Tmp):
         os.makedirs(tdir)
         with mock.patch.object(placement._datadir, "resolve", return_value=tdir):
             self.assertEqual(placement.doc_home(self.video, self.out), os.path.normpath(self.wd))
-            with open(os.path.join(tdir, "settings.json"), "w", encoding="utf-8") as f:
-                json.dump({"evalDirs": [self.case]}, f)
+            testkit.write_json(os.path.join(tdir, "settings.json"), {"evalDirs": [self.case]})
             self.assertIsNone(placement.doc_home(self.video, self.out))
 
     def test_never_raises(self):
@@ -450,8 +447,7 @@ class TestRequestRoot(_Tmp):
         os.makedirs(d)
         with mock.patch.object(placement._datadir, "resolve", return_value=d):
             self.assertIsNone(placement.configured_out_dir())
-            with open(os.path.join(d, "settings.json"), "w", encoding="utf-8") as f:
-                json.dump({"outDir": self.out}, f)
+            testkit.write_json(os.path.join(d, "settings.json"), {"outDir": self.out})
             self.assertEqual(placement.configured_out_dir(), self.out)
 
 

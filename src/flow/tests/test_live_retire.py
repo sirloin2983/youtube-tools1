@@ -3,9 +3,7 @@
 実行(リポジトリ直下から): python -m unittest src/flow/tests/test_live_retire.py -v
 """
 import os
-import shutil
 import sys
-import tempfile
 import unittest
 from unittest import mock
 
@@ -14,6 +12,7 @@ SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
+from ytt import testkit  # noqa: E402
 from flow import live_export as LX  # noqa: E402
 from flow import live_retire as LR  # noqa: E402
 from ytt import fsio  # noqa: E402
@@ -55,16 +54,13 @@ class Book:
 
 class RetireTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-live-retire-")
+        self.tmp = testkit.tempdir(self, "ytt-live-retire-")
         self.out = os.path.join(self.tmp, "out")
         os.makedirs(self.out)
         self.host = Host(os.path.join(self.tmp, "live"), self.out)
         self.ex = self.host.exporter
         self.studio = []
         self.rt = LR.Retire(self.host, studio_marks=lambda rec: self.studio)
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def job(self, n, rec=REC, state="done", arc="done", keep=None, at=None, **kw):
         j = {"id": "lx-%010x" % (n + 100 * len(self.ex.jobs)), "recorder": "local", "recording": rec, "markId": "lm-%012x" % n, "n": n,

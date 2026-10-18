@@ -34,6 +34,7 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データ
 TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, TESTS)
 import _livefix as LF  # noqa: E402
+from ytt import testkit  # noqa: E402
 from flow import board as Board  # noqa: E402
 from flow import live_archive as A  # noqa: E402
 from flow import live_export as LX  # noqa: E402
@@ -106,7 +107,7 @@ class ArchiveTest(unittest.TestCase):
         shutil.rmtree(cls.fix, ignore_errors=True)
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-live-arc-")
+        self.tmp = testkit.tempdir(self, "ytt-live-arc-")
         self.out = os.path.join(self.tmp, "out")
         self.store = os.path.join(self.tmp, "live")
         os.makedirs(self.out)
@@ -451,10 +452,7 @@ class ArchiveTest(unittest.TestCase):
 @unittest.skipUnless(FF, "ffmpeg が無い")
 class WorkerTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-live-align-")
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
+        self.tmp = testkit.tempdir(self, "ytt-live-align-")
 
     def wav(self, name, expr, d, ss=None, t=None, af=None):
         src = os.path.join(self.tmp, name + ".src.wav")
@@ -492,7 +490,7 @@ class AfterStreamTest(unittest.TestCase):
     HOURS = 3.0
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-live-after-")
+        self.tmp = testkit.tempdir(self, "ytt-live-after-")
         self.out = os.path.join(self.tmp, "out")
         os.makedirs(self.out)
         self.ex = LX.Exporter(FakeExLive(), os.path.join(self.tmp, "live"), lambda: self.out, disk_usage=lambda p: (100 * LX.GB, 200 * LX.GB))
@@ -836,11 +834,8 @@ class YtdlpRetryTest(unittest.TestCase):
     """yt-dlp の一時的な失敗(HTTP 403 など)は、あけて 2 回までやり直す(用意の確認・音の取得)。照合のしきい値"""
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-live-ytdlp-")
+        self.tmp = testkit.tempdir(self, "ytt-live-ytdlp-")
         self.calls = []
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def fake_run(self, answers, folder=None):
         def run(cmd, timeout, cancelled=None):

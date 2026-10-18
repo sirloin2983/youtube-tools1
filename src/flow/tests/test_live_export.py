@@ -29,6 +29,7 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(TESTS))   # tests -> flow -> src
 sys.path.insert(0, TESTS)
 import _livefix as FIX  # noqa: E402
+from ytt import testkit  # noqa: E402
 from flow import board as Board  # noqa: E402
 from flow import live_adopt as LA  # noqa: E402
 from flow import live_export as LX  # noqa: E402
@@ -93,7 +94,7 @@ class FailuresTest(unittest.TestCase):
     LIVE の帯(GET /live/api/exports のジョブ)と「調子」(Live.health の failures)に同じ文で出す。exports.json と autorun-runs.jsonl を読むだけ"""
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-live-fail-")
+        self.tmp = testkit.tempdir(self, "ytt-live-fail-")
         self.fake = FIX.FakeRecorder()
         self.cfg = FIX.live_cfg(recorders=[{"id": "local", "name": "この PC", "url": self.fake.url, "token": TOKEN}])
         self.logs = os.path.join(self.tmp, "logs")
@@ -113,8 +114,7 @@ class FailuresTest(unittest.TestCase):
                 job(6, state="cancelled", message="取り消しました"),
                 job(7, state="error", error="古い失敗", updated=old, created=old)]   # 7 日より前は「調子」に出さない
         os.makedirs(os.path.join(self.tmp, "live"))
-        with open(os.path.join(self.tmp, "live", "exports.json"), "w", encoding="utf-8") as f:
-            json.dump({"schema": LX.JOBS_SCHEMA, "jobs": jobs}, f, ensure_ascii=False)
+        testkit.write_json(os.path.join(self.tmp, "live", "exports.json"), {"schema": LX.JOBS_SCHEMA, "jobs": jobs})
 
         def run(rid, state, steps, error=""):
             return {"v": 1, "id": rid, "kind": "file", "sourcePath": "x.mp4", "state": state, "error": error, "created": 1, "mode": "file_auto",
@@ -193,7 +193,7 @@ class ExportTest(unittest.TestCase):
         _SRC.clear()
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-live-export-")
+        self.tmp = testkit.tempdir(self, "ytt-live-export-")
         self.src = FIX.hls_fixture().LiveServer(self.src_dir, self.segs, start=3, rate=1.0)
         self.src.end = False
         self.port = FIX.free_port()
@@ -474,10 +474,7 @@ class ExportPiecesTest(unittest.TestCase):
     tearDownClass = ExportTest.tearDownClass   # lavfi の HLS(source)を片付ける
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-live-pieces-")
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
+        self.tmp = testkit.tempdir(self, "ytt-live-pieces-")
 
     def test_names_like_studio(self):
         self.assertEqual(LX.compact_ts(3725.9), "01h02m05s")

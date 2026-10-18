@@ -310,8 +310,7 @@ class TestRestore(Base):
         old = {"id": "0123456789", "mode": "file", "title": "版 1", "sourcePath": self.media[0], "created": time.time() - 60,
                "steps": [{"key": "transcribe", "state": "wait", "detail": ""}]}
         for ver in (1, 99):
-            with open(os.path.join(self.logs, Q.ACTIVE_FILE), "w", encoding="utf-8") as f:
-                json.dump({"v": ver, "runs": [old]}, f)
+            testkit.write_json(os.path.join(self.logs, Q.ACTIVE_FILE), {"v": ver, "runs": [old]})
             logs, tools = [], Tools()
             q = Q.Queue(None, env=self.env, poll=0.01, tools=tools, log_dir=self.logs, log=logs.append)
             self.addCleanup(q.close)

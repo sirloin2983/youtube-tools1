@@ -18,7 +18,6 @@ import json
 import os
 import shutil
 import sys
-import tempfile
 import threading
 import time
 import unittest
@@ -29,6 +28,7 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データ
 TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, TESTS)
 import _livefix as LF  # noqa: E402
+from ytt import testkit  # noqa: E402
 from flow import live_detect as D  # noqa: E402
 from flow import live_export as LX  # noqa: E402
 from pipeline.analyze import live_excite_worker as W  # noqa: E402
@@ -106,7 +106,7 @@ class DetectApiTest(unittest.TestCase):
     """② の側(src/flow/live_detect.py。ライブ係 LiveSession で組む)。ワーカーは起動しない(peaks.json・worker.json はテストが置く)"""
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-detect-api-")
+        self.tmp = testkit.tempdir(self, "ytt-detect-api-")
         self.rec = ListRecorder()
         self.cfg = LF.recorder_cfg(self.rec.url, TOKEN)
         self.logs = []

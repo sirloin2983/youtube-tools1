@@ -11,7 +11,6 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 import unittest
 from unittest import mock
@@ -22,6 +21,7 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(TESTS))   # tests -> flow -> src
 sys.path.insert(0, TESTS)
 import _livefix as FIX  # noqa: E402
+from ytt import testkit  # noqa: E402
 from flow import live_export as LX  # noqa: E402
 from flow import livesession as LS  # noqa: E402
 
@@ -42,11 +42,8 @@ class ProbeTest(unittest.TestCase):
     """yt-dlp の呼び方(probe_live)。偽の yt-dlp(この Python で動く小さなスクリプト)で、本物の YouTube へは繋がない"""
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-live-probe-")
+        self.tmp = testkit.tempdir(self, "ytt-live-probe-")
         self.args = os.path.join(self.tmp, "args.json")
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def fake(self, out="", err="", code=0, sleep=0):
         """find_tool が返す yt-dlp を、この Python で動くスクリプトに置き換える(.bat を通すと cmd が引数の % を読むので、実行の直前で差し替える)"""
@@ -109,7 +106,7 @@ class StopRecorderTest(unittest.TestCase):
     """入口の終了で録画の部品を止める(src/app/live.py の stop_recorder。入口 0.38.1)。止める相手・応答が無いとき・終わらないとき"""
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-live-stop-")
+        self.tmp = testkit.tempdir(self, "ytt-live-stop-")
         self.logs = []
         self.fake = FIX.FakeRecorder()
         self.procs = []
@@ -173,7 +170,7 @@ class SpawnTest(unittest.TestCase):
     """見回りが本物の録画の部品(src/pipeline/ingest/recorder.py)を切り離して起動する"""
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-live-spawn-")
+        self.tmp = testkit.tempdir(self, "ytt-live-spawn-")
         self.port = FIX.free_port()
         self.rec_folder = os.path.join(self.tmp, "live-rec")
         self.cfg = FIX.live_cfg(folder=self.rec_folder, recorders=[{"id": "local", "name": "この PC", "url": "http://127.0.0.1:%d" % self.port}])

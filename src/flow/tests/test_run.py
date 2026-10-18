@@ -15,6 +15,7 @@ from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> pipeline -> src
 sys.path.insert(0, SRC)
+from ytt import testkit  # noqa: E402
 from flow import run as R  # noqa: E402
 from flow import envelope as E, spec as SP, tools as T  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # 共有の部品 _runfields(以前の Run の欄の形 → 封筒 + 束。RV A2)
@@ -884,7 +885,7 @@ class TestStepNormalize(unittest.TestCase):
     本物の ffmpeg で lavfi の短い動画を「作業データへ写した動画」にする"""
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="run-norm-")
+        self.tmp = testkit.tempdir(self, "run-norm-")
         self.env = mock.patch.dict(os.environ, {"TRANSCRIBE_NORMALIZE": ""})
         self.env.start()
         self.marks = []

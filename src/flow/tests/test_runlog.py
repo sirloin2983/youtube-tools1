@@ -74,8 +74,7 @@ class TestRunlog(unittest.TestCase):
         bundle_path = os.path.join(self.tmp, "case", "作業用", "runs", "r001.json")
         os.makedirs(os.path.dirname(bundle_path))
         bundle = {"schema": runlog.RESULT_SCHEMA, "id": "r001", "state": "done"}
-        with open(bundle_path, "w", encoding="utf-8") as f:
-            json.dump(bundle, f, ensure_ascii=False)
+        testkit.write_json(bundle_path, bundle)
         self.write(runlog.RUNS_LOG, line(rec(1, resultPath=bundle_path)) + line(rec(2)))
         got = runlog.read_runs_log(self.path)
         self.assertEqual([r.get("resultPath") for r in got], [bundle_path, None])

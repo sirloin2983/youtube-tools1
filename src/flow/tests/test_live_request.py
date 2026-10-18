@@ -10,7 +10,6 @@
 import os
 import shutil
 import sys
-import tempfile
 import unittest
 from unittest import mock
 
@@ -19,6 +18,7 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データ
 TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, TESTS)
 import _livefix as FIX  # noqa: E402
+from ytt import testkit  # noqa: E402
 from flow import live_export as LX  # noqa: E402
 from ytt import fsio  # noqa: E402
 
@@ -27,7 +27,7 @@ TOKEN = FIX.TOKEN
 
 class FriendRequestTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-live-request-")
+        self.tmp = testkit.tempdir(self, "ytt-live-request-")
         self.fake = FIX.FakeRecorder()
         self.cfg = FIX.recorder_cfg(self.fake.url, TOKEN, enabled=False)
         self.limit = [None]   # 同時に録画する依頼の上限(入口は live_requests.MAX_ACTIVE。None = 上限なし)

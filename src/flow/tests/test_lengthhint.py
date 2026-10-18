@@ -11,13 +11,12 @@ import gzip
 import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない。ほかのテストとそろえる
-import shutil
 import sys
-import tempfile
 import unittest
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
 sys.path.insert(0, SRC)
+from ytt import testkit  # noqa: E402
 from flow import lengthhint as LH  # noqa: E402
 
 
@@ -27,7 +26,7 @@ def run(vid, ranges, i=0):
 
 class Base(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="lh_")
+        self.tmp = testkit.tempdir(self, "lh_")
         self.studio = os.path.join(self.tmp, "studio")
         self.app = os.path.join(self.tmp, "app")
         os.makedirs(os.path.join(self.studio, "archive"))
@@ -35,12 +34,8 @@ class Base(unittest.TestCase):
         self.videos = {}
         LH._CACHE.clear()
 
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
-
     def write(self, records):
-        with open(os.path.join(self.studio, "data.json"), "w", encoding="utf-8") as f:
-            json.dump({"schema": "x", "videos": self.videos}, f)
+        testkit.write_json(os.path.join(self.studio, "data.json"), {"schema": "x", "videos": self.videos})
         with open(os.path.join(self.app, "logs", "autorun-runs.jsonl"), "w", encoding="utf-8") as f:
             for r in records:
                 f.write(json.dumps(r) + "\n")

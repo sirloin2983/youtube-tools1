@@ -17,27 +17,33 @@ H = 3600
 
 
 class TestDecide(unittest.TestCase):
-    def test_five_ways(self):
+    def test_decide(self):
+        """送る・送らない・理由の全部(五つの道・境目の 48 時間と判定の順・依頼と手の出どころは必ず送る)"""
         fresh = NOW - 2 * H
-        self.assertEqual(P.decide("auto", fresh, NOW, False, True), (True, None))
-        self.assertEqual(P.decide("auto", fresh, NOW, False, False), (False, "unchecked"))
-        self.assertEqual(P.decide("auto", fresh, NOW, True, True), (False, "requested"))
-        self.assertEqual(P.decide("auto", None, NOW, False, True), (False, "unknown_end"))
-        self.assertEqual(P.decide("auto", NOW - 49 * H, NOW, False, True), (False, "stale"))
-
-    def test_boundary_and_order(self):
-        self.assertEqual(P.decide("auto", NOW - P.FRESH_SEC, NOW, False, True), (True, None), "ちょうど 48 時間は送る")
-        self.assertEqual(P.decide("auto", NOW - P.FRESH_SEC - 1, NOW, False, True), (False, "stale"))
-        self.assertEqual(P.decide("auto", NOW + 5, NOW, False, True), (True, None), "未来は新しい扱い")
-        self.assertEqual(P.decide("auto", NOW - 99 * H, NOW, True, False), (False, "unchecked"), "チェックが先")
-        self.assertEqual(P.decide("auto", NOW - 99 * H, NOW, True, True), (False, "requested"), "依頼が古さより先")
-        for bad in (0, -1, True, "x"):
-            self.assertEqual(P.decide("auto", bad, NOW, False, True), (False, "unknown_end"), bad)
-
-    def test_request_and_manual_always_send(self):
-        for origin in ("request", "manual"):
-            self.assertEqual(P.decide(origin, None, NOW, True, False), (True, None))
-            self.assertEqual(P.decide(origin, NOW - 999 * H, NOW, True, False), (True, None))
+        cases = [
+            # (名前, origin, 終わった時刻, 依頼の有無, チェック済み, 答え)
+            ("fresh_sends", "auto", fresh, False, True, (True, None)),
+            ("unchecked", "auto", fresh, False, False, (False, "unchecked")),
+            ("requested", "auto", fresh, True, True, (False, "requested")),
+            ("unknown_end", "auto", None, False, True, (False, "unknown_end")),
+            ("stale", "auto", NOW - 49 * H, False, True, (False, "stale")),
+            ("exactly_48h_sends", "auto", NOW - P.FRESH_SEC, False, True, (True, None)),   # ちょうど 48 時間は送る
+            ("48h_plus_1s_stale", "auto", NOW - P.FRESH_SEC - 1, False, True, (False, "stale")),
+            ("future_is_fresh", "auto", NOW + 5, False, True, (True, None)),   # 未来は新しい扱い
+            ("unchecked_first", "auto", NOW - 99 * H, True, False, (False, "unchecked")),   # チェックが先
+            ("requested_before_stale", "auto", NOW - 99 * H, True, True, (False, "requested")),   # 依頼が古さより先
+            ("end_zero", "auto", 0, False, True, (False, "unknown_end")),
+            ("end_negative", "auto", -1, False, True, (False, "unknown_end")),
+            ("end_bool", "auto", True, False, True, (False, "unknown_end")),
+            ("end_str", "auto", "x", False, True, (False, "unknown_end")),
+            ("request_none_end", "request", None, True, False, (True, None)),
+            ("request_old", "request", NOW - 999 * H, True, False, (True, None)),
+            ("manual_none_end", "manual", None, True, False, (True, None)),
+            ("manual_old", "manual", NOW - 999 * H, True, False, (True, None)),
+        ]
+        for name, origin, ended, requested, checked, want in cases:
+            with self.subTest(name):
+                self.assertEqual(P.decide(origin, ended, NOW, requested, checked), want)
 
     def test_reason_text(self):
         self.assertEqual(P.reason_text("stale", hours=50), "古い配信なので送りません(終わってから 50 時間)")
@@ -56,17 +62,18 @@ class TestDecide(unittest.TestCase):
 
 
 class TestEndedAt(unittest.TestCase):
-    def test_was_live_and_post_live(self):
-        for st in ("was_live", "post_live"):
-            self.assertEqual(P.ended_at_of({"liveStatus": st, "releaseTs": 1000, "duration": 500}), 1500.0)
-
-    def test_unknown_is_none(self):
-        for a in (None, "x", {}, {"liveStatus": "not_live", "releaseTs": 1000, "duration": 500},
-                  {"liveStatus": "is_live", "releaseTs": 1000, "duration": 500},
-                  {"liveStatus": "was_live", "duration": 500}, {"liveStatus": "was_live", "releaseTs": 1000},
-                  {"liveStatus": "was_live", "releaseTs": 0, "duration": 500}, {"liveStatus": "was_live", "releaseTs": 1000, "duration": 0},
-                  {"liveStatus": "was_live", "releaseTs": "1000", "duration": 500}, {"liveStatus": "was_live", "releaseTs": True, "duration": 500}):
-            self.assertIsNone(P.ended_at_of(a), a)
+    def test_ended_at_of(self):
+        good = {"releaseTs": 1000, "duration": 500}
+        cases = [(st, dict(good, liveStatus=st), 1500.0) for st in ("was_live", "post_live")]
+        cases += [(repr(a), a, None) for a in (
+            None, "x", {}, {"liveStatus": "not_live", "releaseTs": 1000, "duration": 500},
+            {"liveStatus": "is_live", "releaseTs": 1000, "duration": 500},
+            {"liveStatus": "was_live", "duration": 500}, {"liveStatus": "was_live", "releaseTs": 1000},
+            {"liveStatus": "was_live", "releaseTs": 0, "duration": 500}, {"liveStatus": "was_live", "releaseTs": 1000, "duration": 0},
+            {"liveStatus": "was_live", "releaseTs": "1000", "duration": 500}, {"liveStatus": "was_live", "releaseTs": True, "duration": 500})]
+        for name, a, want in cases:
+            with self.subTest(name):
+                self.assertEqual(P.ended_at_of(a), want)
 
 
 class FakeRun:

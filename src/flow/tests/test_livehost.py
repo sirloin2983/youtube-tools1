@@ -10,11 +10,11 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書
 import inspect
 import shutil
 import sys
-import tempfile
 import unittest
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
 sys.path.insert(0, SRC)
+from ytt import testkit  # noqa: E402
 from flow import livehost as H, livesession as LS  # noqa: E402
 
 
@@ -28,7 +28,7 @@ class LiveTest(unittest.TestCase):
     """ライブ係(LiveSession)"""
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-livehost-live-")
+        self.tmp = testkit.tempdir(self, "ytt-livehost-live-")
         self.logs = []
         self.live = LS.LiveSession(self.tmp, os.path.join(self.tmp, "logs"), cfg=lambda: {}, log=self.logs.append, spawn=False,
                                    store_dir=os.path.join(self.tmp, "live"), out_dir=lambda: os.path.join(self.tmp, "out"))

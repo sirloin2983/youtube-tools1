@@ -11,12 +11,12 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書
 import json
 import shutil
 import sys
-import tempfile
 import unittest
 from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
 sys.path.insert(0, SRC)
+from ytt import testkit  # noqa: E402
 from flow import casebook as CB, live_adopt as LA, live_export as LX, livehost as H, run as R, spec as S  # noqa: E402
 from ytt import casefiles as CF, schemas  # noqa: E402
 
@@ -117,13 +117,10 @@ def feedback(tmp):
 
 class LocalMarksTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-live-adopt-")
+        self.tmp = testkit.tempdir(self, "ytt-live-adopt-")
         self.host = Host(self.tmp)
         self.view = Strict(self.host)
         self.ad = LA.Adopter(self.view)
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def no_strays(self):
         self.assertEqual((self.view.bad, self.host.ex_view.bad), ([], []))

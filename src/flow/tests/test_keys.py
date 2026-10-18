@@ -10,14 +10,13 @@
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない(一時フォルダだけ)
 import json
-import shutil
 import sys
-import tempfile
 import unittest
 from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
 sys.path.insert(0, SRC)
+from ytt import testkit  # noqa: E402
 from flow import keys, live_archive, packrec  # noqa: E402
 from ytt import schemas, workdata  # noqa: E402
 
@@ -26,7 +25,7 @@ TID = "abc123def456"
 
 class _Env(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="flowkeys_")
+        self.tmp = testkit.tempdir(self, "flowkeys_")
         self.tx = os.path.join(self.tmp, "transcripts")
         os.makedirs(self.tx)
         p = mock.patch.object(workdata, "TX_DIR", self.tx)
@@ -40,9 +39,6 @@ class _Env(unittest.TestCase):
         p = mock.patch.object(packrec, "packs_dir", lambda env=None, c2r_dir=None: packs)   # パックを作った記録は一時フォルダへ
         p.start()
         self.addCleanup(p.stop)
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, True)
 
     def built(self, out):
         """out にパックの中身(動画 1 つ)と、パックを作った記録を置く(作り終えたパックの形 = keys.pack_state の same の条件)"""
@@ -82,8 +78,7 @@ class TestWriteReadStale(_Env):
         with open(kp, "w", encoding="utf-8") as f:
             f.write("{not json")
         self.assertIsNone(keys.read(kp, "export"))
-        with open(kp, "w", encoding="utf-8") as f:
-            json.dump(dict(schemas.make_key("export", {"a": 1}), inputs={"a": 2}), f)   # 書き換えられた鍵(hash が合わない)
+        testkit.write_json(kp, dict(schemas.make_key("export", {"a": 1}), inputs={"a": 2}))   # 書き換えられた鍵(hash が合わない)
         self.assertIsNone(keys.read(kp, "export"))
         self.assertEqual(keys.stale(kp, "export", {"a": 1}), "none")
 
@@ -268,8 +263,7 @@ class TestReadK2(_Env):
         tr = os.path.join(self.tmp, "t.transcript.json")
 
         def write_tr(text, at):
-            with open(tr, "w", encoding="utf-8") as f:
-                json.dump({"createdAt": at, "tool": {"version": at}, "segments": [{"start": 0, "end": 1, "text": text}]}, f)
+            testkit.write_json(tr, {"createdAt": at, "tool": {"version": at}, "segments": [{"start": 0, "end": 1, "text": text}]})
         write_tr("あ", "1")
         body = {"spec": {"video": self.media, "transcript": tr, "preset": "transcript-rows"}, "output": {"textplus": True}}
         out = str(keys._pack.default_out_dir(self.media))

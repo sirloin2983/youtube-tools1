@@ -142,8 +142,7 @@ class BookTest(Base):
     def test_keeps_other_rows_and_groups(self):
         os.makedirs(self.home)
         other = {"id": "zzzzzzzzzzz", "kind": "youtube", "title": "別", "marks": [], "rev": 4, "extra": "そのまま"}
-        with open(self.data, "w", encoding="utf-8") as f:
-            json.dump({"schema": "clip-studio/v1", "videos": {other["id"]: other}, "groups": {"g1": {"id": "g1"}}}, f)
+        testkit.write_json(self.data, {"schema": "clip-studio/v1", "videos": {other["id"]: other}, "groups": {"g1": {"id": "g1"}}})
         self.analyzed()
         d = self.raw()
         self.assertEqual((d["videos"][other["id"]], d["groups"]), (other, {"g1": {"id": "g1"}}))

@@ -40,8 +40,7 @@ class Base(unittest.TestCase):
         self.env = {"YTT_DATA_DIR": self.tmp, M.FILE_ENV: self.file}
 
     def write(self, obj, path=None):
-        with open(path or self.file, "w", encoding="utf-8") as f:
-            json.dump(obj, f)
+        testkit.write_json(path or self.file, obj)
 
 
 class TestLoad(Base):

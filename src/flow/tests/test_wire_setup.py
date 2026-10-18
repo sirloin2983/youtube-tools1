@@ -9,12 +9,12 @@
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない。ほかのテストとそろえる
 import sys
-import tempfile
 import unittest
 from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
 sys.path.insert(0, SRC)
+from ytt import testkit  # noqa: E402
 from flow import jobs, wire  # noqa: E402
 from pipeline.transcribe import backend, models, roster, worker_client  # noqa: E402
 from ytt import layout, workdata  # noqa: E402
@@ -29,7 +29,7 @@ class TestSetup(unittest.TestCase):
             for n in names:
                 saved[(obj, n)] = getattr(obj, n)
         self.addCleanup(lambda: [setattr(o, n, v) for (o, n), v in saved.items()])
-        self.tmp = tempfile.mkdtemp(prefix="wire_setup_")
+        self.tmp = testkit.tempdir(self, "wire_setup_")
 
     def test_places_explicit(self):
         wire.setup_places(data_dir=self.tmp, studio_data=os.path.join(self.tmp, "s.json"), roster=os.path.join(self.tmp, "r.json"))

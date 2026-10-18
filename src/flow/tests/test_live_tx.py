@@ -19,7 +19,6 @@ import json
 import os
 import shutil
 import sys
-import tempfile
 import threading
 import time
 import unittest
@@ -33,6 +32,7 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データ
 TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, TESTS)
 import _livefix as LF  # noqa: E402
+from ytt import testkit  # noqa: E402
 from flow import board as Board  # noqa: E402
 from flow import live_export as LX  # noqa: E402
 from flow import live_tx as TX  # noqa: E402
@@ -191,7 +191,7 @@ class LiveTxBase(unittest.TestCase):
     """ライブ係(偽の録画元・設定はテストの一時フォルダの辞書)と、偽の ffmpeg・偽の認識(run)を渡した LiveTx"""
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-livetx-")
+        self.tmp = testkit.tempdir(self, "ytt-livetx-")
         env = {k: v for k, v in os.environ.items() if k != "TRANSCRIBE_DATA_DIR"}   # 編集の作業データ = <root>/editor(datadir の inplace)
         env["YTT_DATA_DIR"] = "inplace"
         for p in (mock.patch.dict(os.environ, env, clear=True), mock.patch.dict(datadir._registered, {}, clear=True)):
