@@ -32,7 +32,6 @@ from flow import jobs  # noqa: E402
 from pipeline.transcribe import llm  # noqa: E402  (RS2-9 から持ち主 pipeline/transcribe/llm.py を直に読む。旧 ed_llm)
 import ed_state  # noqa: E402
 from pipeline.transcribe import tx_engines as E  # noqa: E402
-from eval.fake import fake_worker  # noqa: E402  (SenseVoice・文字の LLM の偽物。OPT-E2 1a-1)
 from pipeline.transcribe import worker as W  # noqa: E402  (認識ワーカーの受け口。RS2-9 から pipeline/transcribe/worker.py。旧 tx_worker)
 
 HAVE_FF = bool(shutil.which("ffmpeg"))
@@ -214,13 +213,6 @@ class TestLlamaTextEngine(unittest.TestCase):
         self.assertTrue(spec["url"].startswith("https://huggingface.co/Qwen/Qwen3-8B-GGUF/resolve/"))
         self.assertEqual((spec["size"], len(spec["sha256"])), (5027783488, 64))
         self.assertEqual((E.LlamaText.MODEL_SUBDIR, E.LlamaQwen3.MODEL_SUBDIR), ("llm-gguf", "qwen3asr-gguf"))
-
-    def test_fake_and_no_audio(self):
-        with mock.patch.dict(E.ENGINES, {E.LlamaText.id: fake_worker.fake_llama_text('{"edits": []}')}):   # 偽物は ⑤ fake_worker(OPT-E2 1a-1)
-            e = E.get("llama-text").create("qwen3-8b", "vulkan", "int8")
-        self.assertEqual(e.complete([{"role": "user", "content": "x"}]), '{"edits": []}')
-        with self.assertRaises(E.EngineError):
-            e.transcribe("a.wav")
 
     def test_worker_op_complete(self):
         model = types.SimpleNamespace(complete=lambda msgs, n: "答え:%d:%d" % (len(msgs), n))

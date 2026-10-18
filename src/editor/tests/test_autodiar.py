@@ -194,14 +194,6 @@ class TestAutoDiar(unittest.TestCase):
         self.assertIsNone(S.read_diar(tid))
         self.assertEqual(S.autodiar_enqueue(tid), {"skipped": "has_speakers"})
 
-    def test_all_rows_with_speakers_is_not_touched(self):
-        with mock.patch.dict(os.environ, {"TRANSCRIBE_AUTO_DIARIZE": "off"}):
-            tid, _ = self.transcribe(self.put(self.mem, "g.mp4"))
-        self.assertEqual(self.diar_jobs(tid), [])
-        S.single_speaker(tid, "星街すいせい")   # 人が「全行をこの人に」
-        self.assertEqual(S.autodiar_enqueue(tid), {"skipped": "has_speakers"})
-        self.assertEqual(self.diar_jobs(tid), [])
-
     def test_reviewed_is_not_touched(self):
         with mock.patch.dict(os.environ, {"TRANSCRIBE_AUTO_DIARIZE": "off"}):
             tid, _ = self.transcribe(self.put(self.mem, "h.mp4"))

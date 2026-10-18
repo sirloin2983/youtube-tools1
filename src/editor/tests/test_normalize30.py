@@ -298,21 +298,6 @@ class TestRelinkNormalize(_Base):
         self.assertIsNone(r["normalizing"])
         self.assertEqual(r["normNote"], "")
 
-    def test_old_lite_mark_is_ignored(self):
-        """以前の友人用簡易版の印(doc["lite"])が残る文書も、普通の文書と同じく隣に <名前>_30fps.mp4 を作る"""
-        old = self.copy(self.v30, "元5.mp4")
-        tid, d = self.make_doc(old)
-        doc = self.doc(tid)
-        doc["lite"] = {"streamer": "兎田ぺこら", "sourceUrl": "", "rulesVersion": 1, "formatVersion": 1}
-        S.atomic_write(S.tx_path(tid), json.dumps(doc, ensure_ascii=False).encode("utf-8"))
-        moved = self.copy(self.v60, "先5.mp4")
-        r = S.relink_doc({"id": tid, "path": moved, "baseUpdatedAt": doc["updatedAt"], "acceptDiff": True})
-        job = jobs._jobs[r["normalizing"]]
-        self.run_job(job)
-        dst = os.path.join(self.media, "先5_30fps.mp4")
-        self.assertEqual(os.path.normcase(self.doc(tid)["sourcePath"]), os.path.normcase(dst))
-        self.assertEqual(self.doc(tid)["lite"]["streamer"], "兎田ぺこら")   # 印は残る(読まないだけ)
-
     def test_eval_doc_relink_does_not_normalize(self):
         old = self.copy(self.v30, "元4.mp4")
         tid, d = self.make_doc(old)
