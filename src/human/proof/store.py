@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""③ 文書の置き場: 文書を書く唯一の口 commit と機械の層・人の層(影のモードと層が正のときの読み直し fresh_copy)・保存の錠 saving・
+"""③ 文書の置き場: 文書を書く唯一の口 commit と機械の層・人の層(層が正 = 文書は組み立て済みの写し・古い写しの読み直し fresh_copy)・保存の錠 saving・
 履歴(自動スナップショット)と戻す・消す delete_doc・画面から来た文書の整形・校正の行の数と作業中の印(effort)・要約のキャッシュ・
 編集の内容(残す区間 edit.json)とパックの記録・行の無い文書へ文字起こしを入れる fill_doc。
 
@@ -21,8 +21,7 @@ from ytt import errors as _errors, fsio as _fsio, schemas as _yschemas  # noqa: 
 from flow import pack as _flowpack  # noqa: E402   カットのたたき台・見積もり(呼ぶたびに _flowpack.名前 で読む)
 from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings・評価用のフォルダの判定
 from ytt import docloc as _docloc, workdata as _workdata  # noqa: E402   文書の置き場所(索引・履歴のフォルダ)と作業データの場所
-from ytt import txbase as _txbase  # noqa: E402   ロガー log・1 行の文字数の上限 MAX_TEXT・層のモード
-from . import overrides as _overrides  # noqa: E402   校正の上書きの控え <id>.over.json(保存のたびに save_after)
+from ytt import txbase as _txbase  # noqa: E402   ロガー log・1 行の文字数の上限 MAX_TEXT
 from . import layers as _layers  # noqa: E402   機械の層・人の層の組み立てと差分(commit が使う)
 
 
@@ -86,11 +85,11 @@ def read_layers(tid):
             _read_layer(tid, _yschemas.HUM_SUFFIX, _yschemas.HUM_SCHEMA))
 
 
-def _shadow_prepare(tid, doc, why, given, hum=None):
-    """影のモード(RS8 O2-2)の下ごしらえ = 書く前の文書と層を読んで、新しい機械の層・人の層と、組み立てた文書が doc と合うかを決める(ファイルは書かない)。
+def _prepare_layers(tid, doc, why, given, hum=None):
+    """commit の下ごしらえ = 書く前の文書と層を読んで、新しい機械の層・人の層と、組み立てた文書が doc と合うかを決める(ファイルは書かない)。
     -> {"mach", "hum", "writeMach", "reasons", "copy"}。機械の層が無い文書は、操作の前の文書(無ければ doc)から layers.mach_from_doc で作る(移行もここで)。
     人の操作は機械の層をそのまま・機械の操作は機械の層を進めてから(FULL_WHYS は文書の行・ほかは layers.advance_mach)人の層を作る。
-    hum = 呼び手が決めた人の層(層が正のときだけ。O2-3): 差分を取らずにそれを使い(rev は前の人の層の次)、copy = 組み立てた文書。渡さなければ copy は None"""
+    hum = 呼び手が決めた人の層(O2-3): 差分を取らずにそれを使い(rev は前の人の層の次)、copy = 組み立てた文書。渡さなければ copy は None"""
     prev_mach = _read_layer(tid, _yschemas.MACH_SUFFIX, _yschemas.MACH_SCHEMA)
     prev_hum = _read_layer(tid, _yschemas.HUM_SUFFIX, _yschemas.HUM_SCHEMA)
     rev = (_yschemas.plain_int(prev_mach.get("rev")) or 0) + 1 if prev_mach else 1
@@ -112,11 +111,8 @@ def _shadow_prepare(tid, doc, why, given, hum=None):
     return {"mach": mach, "hum": hum, "writeMach": moved, "reasons": reasons, "copy": None}
 
 
-def _shadow_write(tid, why, sh):
-    """影の層を書く(人の層 → 機械の層。機械の層は変わったときだけ)。合わなければ警告(書くのはやめない = 次の commit がこの層から続ける)"""
-    if sh["reasons"]:
-        _txbase.log.warning("影の層の組み立てが文書と合いません %s why=%s: %s", tid, why,
-                            "・".join("%s(%s)" % (_layers.REASONS.get(c, c), str(x)[:40]) for c, x in sh["reasons"]))
+def _write_layers(tid, sh):
+    """層を書く(人の層 → 機械の層。機械の層は変わったときだけ)"""
     for sfx in (_yschemas.HUM_SUFFIX, _yschemas.MACH_SUFFIX):   # 層の rev の控え(fresh_copy)を捨てる
         _layer_rev_cache.pop((tid, sfx), None)
     _fsio.write_json(_doc_file(tid, _yschemas.HUM_SUFFIX, for_write=True), sh["hum"], indent=1)
@@ -125,46 +121,26 @@ def _shadow_write(tid, why, sh):
 
 
 def commit(tid, doc, *, why, mach=None, hum=None, folder=None):
-    """文書 <id>.json を書く唯一の口(RS8 O2-0)。why = どの操作か(HUMAN_WHYS か MACHINE_WHYS の名前)。文書は write_doc と同じ書き方で書き、ログに 1 行残す。
-    **影のモード(RS8 O2-2。スイッチ TRANSCRIBE_LAYERS。既定 shadow・off で書かない)**: 文書を書いたあと、横に人の層 <id>.hum.json → 機械の層 <id>.mach.json を書き、
-    layers.compose(機械, 人) が文書と合わなければ警告をログに。**正は文書のまま**(読み手は文書を読む)。影の層を作れない・書けないときもログだけで保存は成功のまま。
-    文書を先に書くのは、新しい文書の置き場所(folder = 案件の 作業用)が決まってから層を同じ所に置くため・文書が書けなかったときに層だけ進まないため。
-    **層が正(TRANSCRIBE_LAYERS=primary。RS8 O2-3)**: _commit_primary(人の層 → 機械の層 → 組み立て済みの写し)。shadow・off では文書から composedFrom を外す(文書が正)。
-    mach = 機械の層(呼び手が機械の行を知っているとき。whole の新しい文書 = 引き継いだ人の行を機械に入れない・再認識と話者の判別の層が正の道 = O2-5)。
-    hum = 人の層(層が正のときだけ。差分を取らずにそれを使い、写しは組み立てた文書。3 択の口・O2-5)。-> 書いた文書(層が正で hum を渡したときは組み立てた写し)。
+    """文書 <id>.json を書く唯一の口(RS8 O2-0)。why = どの操作か(HUMAN_WHYS か MACHINE_WHYS の名前)。ログに 1 行残す。
+    **層が正(RS8 O2-3。10-18 の決定 3-61 pp2 = B で文書が正の古い枝 shadow・off を消した)**: 人の層 <id>.hum.json → 機械の層 <id>.mach.json →
+    組み立て済みの写し <id>.json(欄 composedFrom)の順に書く(_commit_primary)。層の無い古い文書は、操作の前の文書から機械の層を作る(移行もここで)。
+    mach = 機械の層(呼び手が機械の行を知っているとき。whole の新しい文書 = 引き継いだ人の行を機械に入れない・再認識と話者の判別 = O2-5)。
+    hum = 人の層(差分を取らずにそれを使い、写しは組み立てた文書。3 択の口・O2-5)。-> 書いた文書(hum を渡したときは組み立てた写し)。
     行の「カット済」は書く前に必ず編集の内容に合わせる(apply_edit_cuts。編集の内容が無ければ何もしない = 呼び手が忘れても古い印で書かない)。
     錠(saving)・履歴は呼び手の側"""
     if why not in HUMAN_WHYS and why not in MACHINE_WHYS:
         raise ValueError("commit: unknown why " + repr(why))
     apply_edit_cuts(tid, doc)
-    if _txbase.layers_mode() == _txbase.LAYERS_PRIMARY:
-        return _commit_primary(tid, doc, why, mach, hum, folder)
-    if hum is not None:   # 人の層を呼び手が渡すのは層が正のときだけ
-        raise ValueError("commit: hum は層が正のとき(TRANSCRIBE_LAYERS=primary)だけ")
-    doc.pop(_yschemas.COMPOSED_FROM, None)   # 文書が正: 組み立てた版の印は持たない(層が正に戻したとき、古い印で組み立て直さない)
-    sh = None
-    if _txbase.layers_on():
-        try:   # 書く前の文書と層を読む(文書を書いたあとでは前の文書が読めない)
-            sh = _shadow_prepare(tid, doc, why, mach)
-        except Exception as e:   # 影の層は保存を止めない(壊れた層・組み立ての不具合でも文書は書く)
-            _txbase.log.warning("影の層を作れませんでした %s why=%s: %s %s", tid, why, e.__class__.__name__, str(e)[:200])
-    write_doc(tid, doc, folder)
-    _txbase.log.info("commit %s why=%s by=%s", tid, why, "human" if why in HUMAN_WHYS else "machine")
-    if sh is not None:
-        try:
-            _shadow_write(tid, why, sh)
-        except Exception as e:   # 書けなくても保存は成功のまま(ログだけ)
-            _txbase.log.warning("影の層を書けませんでした %s why=%s: %s %s", tid, why, e.__class__.__name__, str(e)[:200])
-    return doc
+    return _commit_primary(tid, doc, why, mach, hum, folder)
 
 
 def _commit_primary(tid, doc, why, given_mach, given_hum, folder):
-    """層が正(RS8 O2-3。決定 3-37 の (r8t))の commit。書く順は 人の層 → 機械の層 → 組み立て済みの写し(写しの欄 composedFrom = 組み立てた層の rev)。
+    """commit の本体(RS8 O2-3。決定 3-37 の (r8t))。書く順は 人の層 → 機械の層 → 組み立て済みの写し(写しの欄 composedFrom = 組み立てた層の rev)。
     新しい文書(folder)は置き場所が決まってから層を同じ所に置くので 写し → 層(層が無い間の写しはそのまま読まれる = 同じ中身)。
     写し = hum を渡したときは組み立てた文書・渡さないときは doc(差分の往復が合わなければ警告して doc のまま = 人の保存を失わない)。
     守り: 層を作れない・書けないときは composedFrom の無い写しを書く(= 開いても組み立て直さない・次の commit が写しから層を作り直す)"""
     try:
-        sh = _shadow_prepare(tid, doc, why, given_mach, given_hum)
+        sh = _prepare_layers(tid, doc, why, given_mach, given_hum)
     except Exception as e:
         if given_hum is not None:   # 呼び手の人の層を組み立てられない = その操作は書かない
             raise
@@ -187,7 +163,7 @@ def _commit_primary(tid, doc, why, given_mach, given_hum, folder):
         copy[_yschemas.COMPOSED_FROM] = stamp
         write_doc(tid, copy, folder)
     try:
-        _shadow_write(tid, why, dict(sh, reasons=[]))
+        _write_layers(tid, sh)
     except Exception as e:
         _txbase.log.warning("層を書けませんでした(写しから版を外します) %s why=%s: %s %s", tid, why, e.__class__.__name__, str(e)[:200])
         copy.pop(_yschemas.COMPOSED_FROM, None)
@@ -202,15 +178,15 @@ def _commit_primary(tid, doc, why, given_mach, given_hum, folder):
 
 
 def layers_for(tid, doc):
-    """機械の操作の前の層(層が正のとき。RS8 O2-5)-> (機械の層, 人の層)。ファイルは書かない。
-    機械の層が無い・壊れていれば doc から作る(影のモードの移行と同じ割り方)。人の層は doc との差分(前の人の層の base・消す印・話者の対応表を引き継ぐ)"""
+    """機械の操作の前の層(RS8 O2-5)-> (機械の層, 人の層)。ファイルは書かない。
+    機械の層が無い・壊れていれば doc から作る(commit の移行と同じ割り方 = 層の無い古い文書は original から)。人の層は doc との差分(前の人の層の base・消す印・話者の対応表を引き継ぐ)"""
     mach = _read_layer(tid, _yschemas.MACH_SUFFIX, _yschemas.MACH_SCHEMA)
     if mach is None:
         mach = _layers.mach_from_doc(doc, rev=1)
     return mach, _layers.diff(mach, doc, _read_layer(tid, _yschemas.HUM_SUFFIX, _yschemas.HUM_SCHEMA))
 
 
-# ---------- 層が正のときの読み(RS8 O2-3): 写しが古ければ組み立て直す ----------
+# ---------- 写しの読み(RS8 O2-3): 写しが古ければ組み立て直す ----------
 _layer_rev_cache = {}   # (tid, suffix) -> (パスと stamp, rev か _BROKEN)
 _BROKEN = object()
 
@@ -232,7 +208,7 @@ def _layer_rev(tid, suffix, schema):
 
 
 def fresh_copy(tid, d):
-    """層が正のとき、読んだ写し d が層より古ければ組み立て直して書き、新しい写しを返す(古くなければ d のまま)。
+    """読んだ写し d が層より古ければ組み立て直して書き、新しい写しを返す(古くなければ d のまま)。
     古い = 写しに composedFrom があって、今の層の rev と違う(composedFrom の無い写し = 文書が正だったころ・層の書けなかった写しは組み立て直さない)。
     守り: 機械の層が無い・層が読めない・組み立てられないときは写しのまま読み、ログを出す。行・話者の表が変わったときだけ updatedAt を進める
     (開いている画面の古い文書で上書きされないよう 409 にする)。書けなくても(OSError・ApiError = ディスク・置き場所が見えない)組み立てた文書を返す。
@@ -530,20 +506,18 @@ def read_transcript(tid):
     d = _load_doc(tx_path(tid))
     if d is None:
         raise _errors.ApiError("broken", "文字起こしファイルを読み込めません", 500)
-    if _txbase.layers_mode() == _txbase.LAYERS_PRIMARY:   # 層が正: 写しが古ければ組み立て直す(RS8 O2-3)
-        d = fresh_copy(tid, d)
-    return d
+    return fresh_copy(tid, d)   # 写しが古ければ組み立て直す(RS8 O2-3。composedFrom の無い古い文書はそのまま)
 
 
 # ---------- 履歴(自動スナップショット)と保存の競合検出 ----------
 HIST_INTERVAL = 600     # 秒。保存のたびではなく、前回の履歴からこれだけ経っていたら1つ残す
 HIST_KEEP = 30          # 1本あたりの保持数(古いものから消す)
 _save_lock = threading.RLock()   # 文書の読み直し → 書き込みの錠(commit の中では取らない = 呼び手が持つ)。新しい呼び手は saving() で。
-# 再入できる(P-PRIMARY: 層が正のとき read_transcript の組み立て直し fresh_copy も取る。保存の錠の中から read_transcript を呼ぶ道があるため)
+# 再入できる(P-PRIMARY: read_transcript の組み立て直し fresh_copy も取る。保存の錠の中から read_transcript を呼ぶ道があるため)
 
 
 def saving():
-    """文書を読み直して書く間の錠(`with store.saving():`)。保存・戻す・消す・機械の書き込み・層が正のときの写しの組み立て直しが重ならないように。
+    """文書を読み直して書く間の錠(`with store.saving():`)。保存・戻す・消す・機械の書き込み・写しの組み立て直しが重ならないように。
     同じスレッドなら取り直してよい(RLock)。ほかの錠を持ったまま取るときは、その錠を _save_lock の中で取る所が無いこと(逆順で止まる)"""
     return _save_lock
 
@@ -602,7 +576,7 @@ def list_history(tid):
 def save_transcript(tid, obj):
     """PUT /api/transcript: 画面の編集内容の保存。baseUpdatedAt が付いていて、保存済みの版とずれていれば 409(別のタブ・再認識などで先に更新されている。force で上書き)。
     錠の中で: 整形(sanitize_transcript)→ 校正済みにした行・外した行を数える(effort_rows)→ 履歴(前の履歴から 10 分経っていれば)→ commit
-    (行の「カット済」は編集の内容から決まる = 画面の古い印で上書きしない)→ 人の行の控え <id>.over.json(overrides.save_after。書けなくても保存は成功)"""
+    (行の「カット済」は編集の内容から決まる = 画面の古い印で上書きしない)"""
     with _save_lock:
         base = read_transcript(tid)
         b = obj.get("baseUpdatedAt")
@@ -612,7 +586,6 @@ def save_transcript(tid, obj):
         effort_rows(base, doc)   # 校正済みにした行・外した行の数
         snapshot(tid, False)   # 履歴が残せなくても保存は止めない
         commit(tid, doc, why="save")
-        _overrides.save_after(tid, doc)
         return doc
 
 

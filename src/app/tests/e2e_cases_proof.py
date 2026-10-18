@@ -2,11 +2,11 @@
     set PYTHONIOENCODING=utf-8
     py -3.10 src/app/tests/e2e_cases_proof.py
 入口(app/server.py --only transcribe,cut2resolve)を疑似の文字起こしで動かす(src/editor/tests/e2e_edit_common.py の Server)。
-層が正(TRANSCRIBE_LAYERS=primary)の一時の作業データで 3 択まで確かめる。スタジオの data.json に配信 1 本(切り抜き 3 本・うち 1 本は文字起こし前)を置く。
+層が正(機械の層 + 人の層)の一時の作業データで 3 択まで確かめる。スタジオの data.json に配信 1 本(切り抜き 3 本・うち 1 本は文字起こし前)を置く。
 見るもの(旧 e2e_proofread_keys・e2e_row_editing の要点): 編集の欄が載る(左のメニュー・空の状態は出ない)/ 左手のキー(S・Shift+Space)・? の一覧 /
 文字を直すと保存・離れたら(UIKit.life の blur)すぐ保存 / 別の切り抜きへ移ると保存してから開く / カット・パックのタブの間は校正のキーが効かない /
 保存の競合(409)の案内と読み直し / 文字起こし前の案内 / 小さい配信のプレーヤー(押したときだけ・前後 30 秒)/
-3 択(札・比較欄・自分の直しのまま・今の機械にする・409 の案内・層が正でなければ札を出さない)/ 下の帯 / コンソールのエラーなし。
+3 択(札・比較欄・自分の直しのまま・今の機械にする・409 の案内・印の行が無ければ札を出さない)/ 下の帯 / コンソールのエラーなし。
 タブを素早く切り替える(開いてすぐ閉じても画面のエラーが出ない・直した直後にカット・パックへ移っても直した文字で 409 にならない)。
 RS8 C4 で消した編集の旧 e2e から移した場面(仮の案件 orphan / eval の文書で): 行の移動と再生のキー・音のメモ・話者・⚙ の編集の節・自動で再生・Alt+Enter /
 行を足す(＋後に・N・＋前に・再生位置に)・元に戻す・行の ▶ は行の終わりで止まる / つなぐ・分ける(Shift+M・M・Y)・Z の 2 回押し /
@@ -19,7 +19,6 @@ import shutil
 import sys
 import time
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所に書かない(ytt.datadir)
-os.environ["TRANSCRIBE_LAYERS"] = "primary"   # 3 択は層が正のときだけ(サーバーの子プロセスへ渡る)
 os.environ["TRANSCRIBE_FAKE_ALT"] = "文=>分"   # 2 つ目のエンジン(疑似)は「テスト分n」と聞く(_scene_alt。alt のジョブだけが読む)
 
 from playwright.sync_api import sync_playwright
@@ -97,7 +96,7 @@ def main():
                 _scene_no_transcript(ck, pg)
                 _scene_stream_player(ck, pg)
                 _scene_machpick(ck, pg, srv, base, t1)
-                _scene_not_primary(ck, pg, base, t1)
+                _scene_no_changes(ck, pg, base, t1)
                 # ---- 旧 e2e(RS8 C4 で消した編集の画面の e2e)から移した場面 ----
                 _scene_row_keys(ck, pg, srv, base, docs["keys"])
                 _scene_row_tools(ck, pg, srv, base, docs["tools"])
@@ -317,14 +316,14 @@ def _scene_machpick(ck, pg, srv, base, t1):
     ck(wait_js(pg, "!document.querySelector('#segs [data-mc-tag]') && S.doc.segments[1].text === 'もういちど変わった読み'"), "今の機械にする = 行が今の機械の文字に")
 
 
-def _scene_not_primary(ck, pg, base, t1):
-    """層が正でなければ(今の既定 shadow)、行があっても札も数も出さない"""
-    fake = {"layers": "shadow", "updatedAt": 1, "rows": [{"id": "x", "human": {"text": "a"}, "before": [], "now": []}]}
+def _scene_no_changes(ck, pg, base, t1):
+    """印の行が無ければ(層の無い古い文書など = 一覧が空)札も数も出さない"""
+    fake = {"updatedAt": 1, "rows": []}
     pg.route(re.compile(r".*/transcribe/api/mach-changes\?.*"), lambda r: r.fulfill(status=200, content_type="application/json", body=json.dumps(fake)))
     pg.goto(base + "cases?d=%s#proof" % t1)
     ck(wait_js(pg, "typeof S === 'object' && S.docId === %s && !!document.querySelector('#csPane #segs .seg')" % json.dumps(t1), 30000), "開く")
     time.sleep(0.5)
-    ck(not pg.evaluate("!!document.querySelector('#csPane [data-pf-mc]') || !!document.querySelector('#segs [data-mc-tag]')"), "shadow では札も数も出さない")
+    ck(not pg.evaluate("!!document.querySelector('#csPane [data-pf-mc]') || !!document.querySelector('#segs [data-mc-tag]')"), "印の行が無ければ札も数も出さない")
     pg.set_viewport_size({"width": 390, "height": 800})
     time.sleep(0.5)
     ck(pg.evaluate("document.scrollingElement.scrollWidth <= document.scrollingElement.clientWidth + 1"),

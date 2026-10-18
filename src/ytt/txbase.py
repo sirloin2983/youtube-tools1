@@ -80,24 +80,6 @@ def env_off(name):
     return os.environ.get(name, "").strip().lower() in ("off", "0", "no", "false")
 
 
-LAYERS_ENV = "TRANSCRIBE_LAYERS"   # 文書の機械の層・人の層(RS8 O2-2): primary = 層が正・shadow = 文書を書くたびに影の層も書いて比べる(正は文書のまま)・off = 書かない
-LAYERS_PRIMARY = "primary"          # RS8 O2-3: 層が正(文書 <id>.json は組み立て済みの写し。開いたときに古ければ組み立て直す)
-LAYERS_DEFAULT = LAYERS_PRIMARY     # 環境変数が無い・空・知らない値のときのモード(10-16 ユーザー決定 3-61 pp1 = 今切り替える。戻すときはここを "shadow" に)
-
-
-def layers_on():
-    """文書の機械の層・人の層を書くか(環境変数 TRANSCRIBE_LAYERS が off・0・no・false でなければ書く)。呼ぶたびに読む"""
-    return not env_off(LAYERS_ENV)
-
-
-def layers_mode():
-    """層のモード -> "off" | "shadow" | "primary"(TRANSCRIBE_LAYERS。off・0・no・false = off・shadow = 影・primary = 層が正・それ以外と空 = 既定 LAYERS_DEFAULT。
-    呼ぶたびに読む。RS8 O2-3)。primary でも保存のたびの往復の検査(組み立てが文書と合わなければ警告のログ)は続く"""
-    if env_off(LAYERS_ENV):
-        return "off"
-    v = os.environ.get(LAYERS_ENV, "").strip().lower()
-    return v if v in ("shadow", LAYERS_PRIMARY) else LAYERS_DEFAULT
-
 # ---------- whisper.cpp の置き場所の決まり(F1 F0-2。① tx_engines・② flow/live_tx・① live_tx_worker が読む 1 か所) ----------
 WCPP_VERSION = "v1.9.4"   # whisper.cpp の版(tx_engines.WHISPER_CPP の version。コミットと取得の表は tx_engines)
 WCPP_EXE = "whisper-cli.exe" if os.name == "nt" else "whisper-cli"

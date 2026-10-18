@@ -33,7 +33,7 @@
   POST /api/effort           {"id"} 操作中の知らせ = 文書の effort.lastAt を今に(updatedAt は変えない。作業した時間は数えない。
                              校正済みにした行の数は保存のときにサーバーが数える。本体は human/proof/store.touch_effort)
   POST /api/doc-diarnum      {"id", "diarNum"} 文書ごとの話者判別の人数(0 = 自動・1〜8。updatedAt は変えない。段7 E-6)
-  GET  /api/mach-changes?id=&row=  機械の結果が変わって人の直しと食い違う行(印 MACH_CHANGED)の 前の機械・今の機械・人の直し(層が正のときだけ。RS8 O2-4)
+  GET  /api/mach-changes?id=&row=  機械の結果が変わって人の直しと食い違う行(印 MACH_CHANGED)の 前の機械・今の機械・人の直し(RS8 O2-4)
   POST /api/mach-changes/pick {"id", "row", "pick": mine|machine, "baseUpdatedAt"?} 自分の直しのまま / 今の機械にする(本体は human/proof/machpick.py)
   POST /api/thumb-ideas      {"id", "crop"?: alt|center|right} サムネの案(6 案を 1 枚の PNG に。作業用/<名前>_thumb-ideas.png。ジョブ kind thumb。文書は読むだけ。P5。本体は ed_thumb.py → thumb_ideas.py)
   GET  /api/thumb-ideas?id=   その文書のサムネの案の有無・作った時刻・案ごとの型と文字 / GET /api/thumb-ideas/image?id= で PNG
@@ -114,7 +114,6 @@ from pipeline.transcribe import models as _txmodels, worker_client as _txworker 
 from pipeline.transcribe import recognize as _txrecognize  # noqa: E402  (音声の取り出し・認識・範囲の行・全体の再認識の続きからを移した。RS2-7)
 from pipeline.transcribe import fill as _txfill, llm as _txllm, retime as _txretime  # noqa: E402  (認識のあとの後処理 A・B・C・D と LLM の後処理 E と、読む速さと時刻の候補の計算を移した。RS2-9)
 from human.proof import doc_jobs as _docjobs  # noqa: E402  (文字起こしのジョブの本体・書く先・受付)
-from human.proof import overrides as _overrides  # noqa: E402  (校正の上書き over.json。文書の削除で一緒に消す。RS6 b-O1)
 from human.proof import rerun as _rerun  # noqa: E402  (再認識の本体・反映・記録。RS2-8c に doc_jobs から割った)
 from pipeline.transcribe import diarize as _txdiarize  # noqa: E402  (話者判別の計算・判別の記録・声の特徴と照らし合わせ。RS2-9 に ed_speakers から分けた)
 from flow import pack as _flowpack  # noqa: E402  (② パックの動詞。RS6 a-5a)
@@ -260,7 +259,7 @@ GET_API = {
     "/api/thumb-ideas": lambda a: ed_thumb.thumb_info(a("id")),   # サムネの案の有無・作った時刻・案ごとの型と文字(P5)
     "/api/edit/pack-readme": lambda a: _doclist.pack_readme(a("id")),
     "/api/doc-for": lambda a: {"doc": _store.find_doc_for_media(a("path"))},
-    "/api/mach-changes": lambda a: _machpick.changes(a("id"), a("row", "")),   # 3 択: 機械の結果が変わった人の行(前の機械・今の機械・人の直し。RS8 O2-4。層が正のときだけ)
+    "/api/mach-changes": lambda a: _machpick.changes(a("id"), a("row", "")),   # 3 択: 機械の結果が変わった人の行(前の機械・今の機械・人の直し。RS8 O2-4)
 }
 
 

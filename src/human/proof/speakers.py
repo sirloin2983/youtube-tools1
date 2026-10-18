@@ -20,7 +20,7 @@ from ytt import txbase as _txbase  # noqa: E402
 from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings
 from flow import diar as _diar  # noqa: E402   ② 判別と声の段取り(判別・割り当て・判別の記録・声の特徴と照合・覚えた声の置き場所。呼ぶたびに _diar.名前 で読む)
 from . import store  # noqa: E402   文書の読み書き・保存のロック・控え(呼ぶたびに store.名前 で読む)
-from . import layers as _layers  # noqa: E402   層が正のときの話者の判別(機械の層・話者の対応表)
+from . import layers as _layers  # noqa: E402   話者の判別(機械の層・話者の対応表)
 
 # ---------- serve が登録する口(⑤ eval の drill を ③ から読まない) ----------
 _namer = {}
@@ -109,8 +109,8 @@ def _diar_kept_speakers(doc, segs, keep, taken):
     return out, remap
 
 
-def _commit_diar_primary(tid, before, doc, keep_ids):
-    """層が正のときの話者の判別の書き込み(決定 3-37 の (r8r) = notes:plan/decisions.md): 機械の層に判別の結果(話者 S…・話者の印)を入れ、判別の鍵 keys.diar を新しくする。
+def _commit_diar(tid, before, doc, keep_ids):
+    """話者の判別の書き込み(決定 3-37 の (r8r) = notes:plan/decisions.md): 機械の層に判別の結果(話者 S…・話者の印)を入れ、判別の鍵 keys.diar を新しくする。
     判別し直し(前の文書に話者の付いた行がある)なら、人の層の話者の表はそのまま(付け直さない)で、機械の S… → 人の話者の対応表 spkMap を
     重なり時間で当てる(layers.assign_speakers。当たらない話者だけ新しい H… と弱い印 SPK_CHANGED)。人が決めた話者は残し、層より前の判別の話者は判別に従う
     (layers.after_rediar)。初めての判別は今と同じ(文書の話者 = 機械の話者)"""
@@ -128,8 +128,7 @@ def _commit_diar_primary(tid, before, doc, keep_ids):
 
 def _apply_diarization(tid, turns, offset, requested, emb, auto=None, smooth=False):
     doc = store.read_transcript(tid)
-    primary = _txbase.layers_mode() == _txbase.LAYERS_PRIMARY   # 層が正: 人の層が話者の表を持つ((r8r))
-    before = copy.deepcopy(doc) if primary else None
+    before = copy.deepcopy(doc)   # 人の層が話者の表を持つ((r8r))
     ids = _spk_ids(doc)
     # 定型の幻覚で声の区間と重ならない行を捨ててから(autoFill の文書だけ)割り当てる。手で決めた行(字幕に出さない・ゲーム音声など・重なりのメモつき)は話者を変えない
     a = _diar.assign(doc, turns, offset, lambda g: diar_keep_row(g, ids), smooth)
@@ -162,10 +161,7 @@ def _apply_diarization(tid, turns, offset, requested, emb, auto=None, smooth=Fal
                 "diarization": dict({"engine": "sherpa-onnx", "embedding": emb, "requested": requested, "found": len(order), "unsure": unsure, "at": int(time.time() * 1000)},
                                     **({"auto": True} if auto else {}), **({"smoothed": len(smoothed)} if smoothed is not None else {}),
                                     **({"fillDropped": dropped} if dropped else {}))})
-    if primary:
-        _commit_diar_primary(tid, before, doc, {str(g.get("id")) for g, k in zip(segs, keep) if k})
-    else:
-        store.commit(tid, doc, why="diar")
+    _commit_diar(tid, before, doc, {str(g.get("id")) for g, k in zip(segs, keep) if k})
     _diar.record_run(tid, a, turns, offset, requested, emb, idmap, auto)   # 機械の最初の結果(人が直す前)を <id>.diar.json に
     return len(order), unsure
 

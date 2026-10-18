@@ -22,7 +22,7 @@ EDITOR = os.path.join(SRC, "editor")
 for _p in (EDITOR, SRC):
     if _p not in sys.path:
         sys.path.insert(0, _p)
-from human.proof import doc_jobs, overrides  # noqa: E402
+from human.proof import doc_jobs, layers  # noqa: E402
 
 
 class TestHooks(unittest.TestCase):
@@ -44,7 +44,8 @@ class TestImportWithoutServe(unittest.TestCase):
 
 
 class TestCarryOverrides(unittest.TestCase):
-    """同じ動画の文書を作り直す(force の再文字起こし・エンジンを変えた再実行)と、前の文書の人の行が新しい文書に引き継がれる(RS6 b-O1)。
+    """同じ動画の文書を作り直す(force の再文字起こし・エンジンを変えた再実行)と、前の文書の人の行が新しい文書に引き継がれる(RS6 b-O1。
+    10-18 から重ね方は層の組み立て layers.carry・控え <id>.over.json は書かない・読まない)。
     認識(② flow/tx.transcribe_clip)と続きの処理は差し替えて、run_job の ③ の分だけを動かす"""
     OLD = "0123456789ab"
 
@@ -108,15 +109,49 @@ class TestCarryOverrides(unittest.TestCase):
         segs = doc["segments"]
         self.assertEqual([g["text"] for g in segs], ["こんばんは(新)", "待って", "えーと", "人が足した行"])   # 触っていない行だけ新しい
         self.assertEqual((segs[1]["proofed"], segs[1]["proofedAt"], segs[1]["speaker"]), (True, 900, "A"))
-        self.assertIn(overrides.STALE_FLAG, segs[3]["flag"])                       # 対応する行が無い人の行は印つきで残す
+        self.assertIn(layers.STALE_FLAG, segs[3]["flag"])                       # 対応する行が無い人の行は印つきで残す
         self.assertEqual([s["id"] for s in doc["speakers"]], ["A"])
         st = doc["recognition"]["runs"][-1]["override"]
         self.assertEqual((st["matched"], st["stale"], st["total"], st["from"]), (2, 1, 3, self.OLD))
         self.assertEqual([g["text"] for g in doc["original"]], ["こんばんは(新)", "まってて", "えー(新)"])   # 機械の出力は新しい認識のまま
         self.assertTrue(any("引き継ぎました" in w for w in job.get("warnings") or []))
-        self.assertEqual(overrides.read(doc["id"])["at"], doc["updatedAt"])          # 新しい文書の控えも書く
+        self.assertFalse(os.path.exists(os.path.join(self.workdata.TX_DIR, doc["id"] + ".over.json")))   # 控えはもう書かない
         old = self.store.read_transcript(self.OLD)
         self.assertEqual(old["segments"][1]["text"], "待って")                      # 前の文書はそのまま
+
+    def test_old_over_json_is_ignored(self):
+        """層より前の文書の横に古い控え <id>.over.json が残っていても読まない(控えは文書から取り出した写し = 文書から引き継げば直しは失わない)"""
+        self.put_old()
+        with open(os.path.join(self.workdata.TX_DIR, self.OLD + ".over.json"), "w", encoding="utf-8") as f:
+            json.dump({"schema": "youtube-tools-over/v1", "clipKey": None, "at": 99999, "speakers": [],
+                       "rows": [{"start": 2.5, "end": 4.0, "text": "控えの古い文字", "proofed": True}]}, f, ensure_ascii=False)
+        doc, _job = self.run_new([{"id": "s1", "start": 2.5, "end": 4.0, "text": "まって", "speaker": "", "flag": ""}])
+        self.assertEqual(doc["segments"][0]["text"], "待って")   # 文書の直し(控えの文字ではない)
+
+    def test_carry_from_layered_doc(self):
+        """層のある文書(人の層・機械の層)からも引き継ぐ: 機械の層と同じ文字の校正済みの行(人の層では属性の行)も、文字ごと残す。
+        話者だけの行は新しい機械の行に話者を重ね、作り直した範囲の外の行は数えない"""
+        self.put_old()
+        old = self.store.read_transcript(self.OLD)
+        self.store.commit(self.OLD, old, why="save")   # 層を書く(機械の層は original から)
+        old = self.store.read_transcript(self.OLD)
+        old["segments"][0].update(proofed=True)         # 機械と同じ文字で校正済み
+        old["segments"][2].update(text="えー", speaker="A")   # 文字は機械に戻して話者だけ
+        old["segments"].append({"id": "s9", "start": 30.0, "end": 31.0, "text": "範囲の外", "speaker": "", "flag": "", "proofed": True})
+        self.store.commit(self.OLD, old, why="save")
+        self.assertTrue(os.path.isfile(os.path.join(self.workdata.TX_DIR, self.OLD + ".hum.json")))
+        doc, _job = self.run_new([{"id": "s1", "start": 0.0, "end": 2.0, "text": "こんばんは(新)", "speaker": "", "flag": ""},
+                                  {"id": "s2", "start": 5.0, "end": 6.0, "text": "えー(新)", "speaker": "", "flag": "要確認"}])
+        segs = doc["segments"]
+        self.assertEqual([g["text"] for g in segs], ["こんばんわ", "待って", "えー(新)", "人が足した行"])
+        self.assertTrue(segs[0].get("proofed"))
+        self.assertEqual((segs[2]["speaker"], segs[2]["flag"]), ("A", "要確認"))   # 話者だけ重ね、文字と印は新しい機械
+        self.assertIn(layers.STALE_FLAG, segs[1]["flag"])   # 新しい機械に対応する行が無い
+        st = doc["recognition"]["runs"][-1]["override"]
+        self.assertEqual((st["total"], st["outside"]), (4, 1))
+        self.assertNotIn("範囲の外", [g["text"] for g in segs])
+        again = self.store.read_transcript(doc["id"])   # 新しい文書の層も書けている(開き直しても同じ)
+        self.assertEqual([g["text"] for g in again["segments"]], [g["text"] for g in segs])
 
     def test_run_warnings_move_from_spec_to_job(self):
         """走っている間に指定 spec へ足された注意(入れる文書が変わっていた)は、終わったら job の注意へ移る = [やり直す] が前の回の注意を引き継がない(3c-3)"""
@@ -148,7 +183,7 @@ class TestCarryOverrides(unittest.TestCase):
         self.assertEqual([g["text"] for g in doc["segments"]], ["まって"])   # 前の文書が評価用でも当てない
 
     def test_new_doc_goes_to_case_work_dir(self):
-        """新しい文書は ② placement.doc_home が返す 作業用 に置く(索引は TX_DIR)。引き継いだ人の行の控えも同じ場所(RS8 B2-2)"""
+        """新しい文書は ② placement.doc_home が返す 作業用 に置く(索引は TX_DIR)。層も同じ場所(RS8 B2-2)"""
         from ytt import docloc, schemas
         wd = os.path.join(self.tmp, "out", "題名", schemas.WORK_DIR)
         os.makedirs(os.path.dirname(wd))
@@ -165,9 +200,9 @@ class TestCarryOverrides(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(wd, tid + ".json")))
         self.assertFalse(os.path.exists(os.path.join(self.workdata.TX_DIR, tid + ".json")))
         self.assertEqual(docloc.placed(tid), os.path.normpath(wd))
-        self.assertTrue(os.path.isfile(os.path.join(wd, tid + ".over.json")))   # 引き継いだので控えも案件へ
+        self.assertFalse(os.path.exists(os.path.join(wd, tid + ".over.json")))   # 控えはもう書かない
         self.assertEqual(doc["segments"][0]["text"], "待って")
-        # 影の層(RS8 O2-2)も文書と同じ 作業用 に。機械の層は引き継ぐ前の機械の行・引き継いだ人の直しは人の層
+        # 層(RS8 O2-2)も文書と同じ 作業用 に。機械の層は引き継ぐ前の機械の行・引き継いだ人の直しは人の層
         for sfx in (".mach.json", ".hum.json"):
             self.assertTrue(os.path.isfile(os.path.join(wd, tid + sfx)), sfx)
             self.assertFalse(os.path.exists(os.path.join(self.workdata.TX_DIR, tid + sfx)), sfx)

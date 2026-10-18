@@ -341,12 +341,9 @@ class TestVoiceChain(_ProofStore):
         super().setUp()
         self.saved_vdir = S.VOICES_DIR
         S.VOICES_DIR = os.path.join(self.tmp, "voices")
-        self.env = mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": "shadow"})     # 層のスイッチを固定(判別し直すと名前が「話者n」に戻る形)
-        self.env.start()
         self.start_mocks()
 
     def tearDown(self):
-        self.env.stop()
         S.VOICES_DIR = self.saved_vdir
         super().tearDown()
 

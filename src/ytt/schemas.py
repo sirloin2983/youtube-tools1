@@ -136,7 +136,7 @@ HUM_SCHEMA = "youtube-tools-hum/v1"
 MACH_SUFFIX = ".mach.json"
 HUM_SUFFIX = ".hum.json"
 MACH_ROW_KEYS = ("id", "start", "end", "text", "flag", "speaker", "fill")   # 機械の行の欄(文書の行のうち機械が決める物)
-COMPOSED_FROM = "composedFrom"   # 組み立て済みの写しの欄(RS8 O2-3。層が正のとき): どの版の層から組み立てたか {"mach": 機械の層の rev, "hum": 人の層の rev}(無い層は None)
+COMPOSED_FROM = "composedFrom"   # 組み立て済みの写しの欄(RS8 O2-3): どの版の層から組み立てたか {"mach": 機械の層の rev, "hum": 人の層の rev}(無い層は None)
 
 
 def composed_from(mach_rev, hum_rev):
@@ -148,7 +148,7 @@ def composed_from(mach_rev, hum_rev):
 FLAG_MAX = 100   # 行の印の文字数の上限(決まった印は数えても切らない)
 MACH_CHANGED = "機械の結果が変わりました(前の機械・今の機械・あなたの直しを比べてください)"   # 3 択の印(③ human/proof/layers。案 A)
 SPK_CHANGED = "話者の判別が変わりました"   # 話者だけが変わった弱い印(layers)
-STALE_FLAG = "古い認識を元にした直し(作り直した文字起こしに対応する行がありません)"   # O1 の上書き(③ human/proof/overrides)
+STALE_FLAG = "古い認識を元にした直し(作り直した文字起こしに対応する行がありません)"   # 作り直しの引き継ぎ(③ human/proof/layers.carry)
 EMPTY_FLAG = "再認識で文字が出なかった(元の行のまま)"   # 範囲の再認識(③ human/proof/rerun)
 MIXED_FLAG = "声が混ざっている可能性"   # 話者判別の要確認の印(ytt/txbase が再公開)
 FIXED_FLAGS = (MACH_CHANGED, SPK_CHANGED, STALE_FLAG, EMPTY_FLAG, MIXED_FLAG)   # 決まった印: 先に並べ、100 字で切らない(探す側が完全一致で探すため)

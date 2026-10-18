@@ -329,7 +329,7 @@ class MachFromDocTest(unittest.TestCase):
         self.assertEqual(L.roundtrip(m, dict(d, speakers=[{"id": "S1", "name": "a", "color": ""}]))[1], [])
 
     def test_loose_compare_for_missing_row_fields(self):
-        """行に speaker・flag の欄が無い文書: 厳しい比べ方では「違う」・loose(影のモード)では同じ(読み手は空として読む)"""
+        """行に speaker・flag の欄が無い文書: 厳しい比べ方では「違う」・loose(保存のたびの往復の検査)では同じ(読み手は空として読む)"""
         d = base_doc()
         for g in d["segments"]:
             if not g["flag"]:
@@ -350,7 +350,7 @@ class MachFromDocTest(unittest.TestCase):
 
 
 class AdvanceMachTest(unittest.TestCase):
-    """機械の操作のあとの機械の層(RS8 O2-2 の影のモード。store.commit が機械の why で使う)"""
+    """機械の操作のあとの機械の層(RS8 O2-2。store.commit が機械の why で使う)"""
 
     def test_nothing_written(self):
         d = base_doc()

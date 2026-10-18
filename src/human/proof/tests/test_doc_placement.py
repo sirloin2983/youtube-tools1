@@ -3,7 +3,7 @@
 
     py -3.10 -m unittest src/human/proof/tests/test_doc_placement.py -v
 
-索引 transcripts/<id>.loc.json が案件の 作業用 を指す文書を、store(読み書き・履歴・一覧・消す)・alt・overrides が
+索引 transcripts/<id>.loc.json が案件の 作業用 を指す文書を、store(読み書き・履歴・一覧・消す)・alt が
 その場所で読み書きすること。索引が無い・id の形が正しくない呼び手は今までどおり TX_DIR。
 """
 import json
@@ -17,7 +17,7 @@ SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.ab
 for _p in (os.path.join(SRC, "editor"), SRC):
     if _p not in sys.path:
         sys.path.insert(0, _p)
-from human.proof import alt, overrides, store  # noqa: E402
+from human.proof import alt, store  # noqa: E402
 from ytt import docloc, schemas, workdata  # noqa: E402
 from human.tests._workdata import temporary_workdata  # noqa: E402
 
@@ -42,7 +42,6 @@ class PlacementTest(unittest.TestCase):
         self.assertEqual(store.edit_path(TID), os.path.join(self.tx, TID + ".edit.json"))
         self.assertEqual(store._hist_dir(TID), os.path.join(self.tx, ".hist", TID))
         self.assertEqual(alt.alt_path(TID), os.path.join(self.tx, TID + ".alt.json"))
-        self.assertEqual(overrides.over_path(TID), os.path.join(self.tx, TID + ".over.json"))
 
     def test_bad_id_keeps_old_path(self):
         self.assertEqual(store.tx_path("../x"), os.path.join(self.tx, "../x.json"))
@@ -54,7 +53,6 @@ class PlacementTest(unittest.TestCase):
         self.assertEqual(store.edit_path(TID), os.path.join(self.case, TID + ".edit.json"))
         self.assertEqual(store._hist_dir(TID), os.path.join(self.case, ".hist", TID))
         self.assertEqual(alt.alt_path(TID), os.path.join(self.case, TID + ".alt.json"))
-        self.assertEqual(overrides.over_path(TID), os.path.join(self.case, TID + ".over.json"))
         self.assertEqual(store.read_transcript(TID)["id"], TID)
 
     def test_placed_doc_write_backup_and_list(self):
@@ -97,13 +95,6 @@ class PlacementTest(unittest.TestCase):
             store.delete_doc(TID)
         self.assertEqual(cm.exception.status, 404)
 
-    def test_placed_over_roundtrip(self):
-        self._place()
-        overrides.write(TID, {"rows": [], "speakers": []}, "k")
-        self.assertTrue(os.path.isfile(os.path.join(self.case, TID + ".over.json")))
-        self.assertFalse(os.path.exists(os.path.join(self.tx, TID + ".over.json")))
-        self.assertIsNotNone(overrides.read(TID))
-
     # ---------- 索引があるのに置き場所が見えない(ドライブが外れた)ときは書きを断る・読みは 404(RS8 B2-2) ----------
     def _unseen(self):
         self._place()
@@ -119,7 +110,6 @@ class PlacementTest(unittest.TestCase):
         self.assertEqual(cm.exception.status, 404)
         writes = (lambda: store.write_doc(TID, {"id": TID, "segments": []}),
                   lambda: store._hist_dir(TID, for_write=True), lambda: store.edit_path(TID, for_write=True),
-                  lambda: overrides.write(TID, {"rows": []}),
                   lambda: txwords.write_words(TID, [[0.0, 1.0, "a"]]), lambda: records.write_asr(TID, [], {}))
         for w in writes:
             with self.assertRaises(errors.ApiError) as cm:

@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
-"""層が正(TRANSCRIBE_LAYERS=primary)のときの機械の操作(RS8 O2-5)のテスト。
+"""層が正(機械の層 + 人の層)のときの機械の操作(RS8 O2-5)のテスト。
 
     py -3.10 -m unittest src/human/proof/tests/test_primary_ops.py -v
 
 - (r8s)・X-RERUN 再認識 each・範囲・全体: 機械の層の選んだ区間だけ差し替え、人の行(校正済みでない直し・話者だけの直しも)は残る(機械が変わったら印 MACH_CHANGED)。直していない行は置き換わる
 - (r8r) 話者の判別: 人の層が話者の表を持ち(付け直さない)、判別し直したら機械の S… → 人の話者を重なり時間で当てる。当たらない話者だけ新しい H… と弱い印
-- 再認識は shadow・off でも同じ守り方(X-RERUN)。話者の判別は shadow・off では今の動きのまま
 """
 import json
 import os
@@ -64,13 +63,8 @@ class LayerFunctionsTest(unittest.TestCase):
 
 
 class _Env(unittest.TestCase):
-    MODE = "primary"
-
     def setUp(self):
         self.tmp = temporary_workdata(self, "primary-ops-")
-        p = mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": self.MODE})
-        p.start()
-        self.addCleanup(p.stop)
         from pipeline.transcribe import roster   # 再認識の記録が名簿の版を読む(無いファイル)
         p = mock.patch.object(roster, "ROSTER", os.path.join(self.tmp, "no-roster.json"))
         p.start()
@@ -120,19 +114,6 @@ class RerunEachPrimaryTest(_Env):
         rerun.apply_retranscribe(SPEC, {"s1": ("あ", "")})   # 機械は前と同じ
         g = store.read_transcript(TID)["segments"][0]
         self.assertEqual((g["text"], g["flag"]), ("あー", ""))
-
-
-class RerunEachShadowTest(_Env):
-    MODE = "shadow"
-
-    def test_shadow_keeps_human_rows_like_primary(self):
-        d = self.start([row(1, 0.0, "あ")])
-        d["segments"][0].update(text="あー", proofed=True)
-        self.save(d)
-        rerun.apply_retranscribe(SPEC, {"s1": ("ああ", "")})
-        g = store.read_transcript(TID)["segments"][0]
-        self.assertEqual((g["text"], g.get("proofed")), ("あー", True))   # X-RERUN: 影のモードでも守り方は層と同じ(人の行は残る)
-        self.assertEqual(store.read_transcript(TID)["retranscribed"]["keptProofed"], 1)
 
 
 class RerunRangeTest(_Env):
@@ -231,21 +212,6 @@ class DiarLegacyTest(_Env):
         self.assertEqual([h.get("speaker") for h in out["rows"]], ["S2", "S2"])
         self.assertNotIn("flag", out["rows"][0])   # 話者の印を除けば機械と同じ印 = 機械のまま
         self.assertEqual(hum["rows"][0]["flag"], "")   # 元は書き換えない
-
-
-class DiarShadowTest(_Env):
-    MODE = "shadow"
-
-    def test_shadow_renumbers_like_before(self):
-        self.start([row(1, 0.0, "あ"), row(2, 2.0, "い"), row(3, 4.0, "う")])
-        with mock.patch.object(speakers._diar, "record_run"):
-            speakers.apply_diarization(TID, TURNS2, 0.0, 0, emb="e")
-            d = store.read_transcript(TID)
-            d["speakers"][0]["name"] = "ぺこら"
-            self.save(d)
-            speakers.apply_diarization(TID, [(0.0, 1.6, 1), (2.0, 3.6, 0), (4.0, 5.6, 1)], 0.0, 0, emb="e")
-        got = store.read_transcript(TID)
-        self.assertEqual(got["speakers"][0]["name"], "話者1")   # 今と同じ: 判別が表を作り直す
 
 
 if __name__ == "__main__":

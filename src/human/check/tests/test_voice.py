@@ -44,14 +44,11 @@ def card(rid, guess=None):
 
 
 class Base(unittest.TestCase):
-    LAYERS = "shadow"   # 今の既定(TRANSCRIBE_LAYERS)
-
     def setUp(self):
         self.tmp = temporary_workdata(self, "check-voice-")
-        for p in (mock.patch.object(_diar, "VOICES_DIR", os.path.join(self.tmp, "voices")),
-                  mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": self.LAYERS})):
-            p.start()
-            self.addCleanup(p.stop)
+        p = mock.patch.object(_diar, "VOICES_DIR", os.path.join(self.tmp, "voices"))
+        p.start()
+        self.addCleanup(p.stop)
         self.app = os.path.join(self.tmp, "app")
         self.ctx = apply.Context(self.app)
         self.put(make_doc())
@@ -164,8 +161,8 @@ class ApplyTest(Base):
         self.assertEqual(cm.exception.error, "eval")
         self.assertEqual(answerlog.state(self.app).order, [])           # 断った答えは記録しない
 
-    def test_layers_shadow_matches(self):
-        """影のモード(今の既定): 人の層の話者の表と行の話者が文書と同じ(O2 の話者の表と矛盾しない)"""
+    def test_layers_match(self):
+        """人の層の話者の表と行の話者が文書と同じ(O2 の話者の表と矛盾しない)"""
         self.answer("s2", {"name": "みこ"})
         self.answer("s4", {"choice": "other"})
         d = self.doc()
@@ -179,10 +176,8 @@ class ApplyTest(Base):
 
 
 class PrimaryLayersTest(Base):
-    LAYERS = "primary"
-
     def test_primary_roundtrip(self):
-        """層が正(primary): 答えも Z も組み立てた文書に出る"""
+        """層が正: 答えも Z も組み立てた文書に出る"""
         got = self.answer("s2", {"name": "みこ"})
         d = self.doc()
         self.assertEqual(self.seg("s2")["speaker"], "S3")

@@ -103,9 +103,6 @@ class ApiTest(unittest.TestCase):
 
     def setUp(self):
         self.tmp = temporary_workdata(self, "machpick-")
-        p = mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": "primary"})
-        p.start()
-        self.addCleanup(p.stop)
         d = L.compose(M1, None, META)
         store.commit(TID, d, why="whole")
         d = store.read_transcript(TID)
@@ -121,7 +118,8 @@ class ApiTest(unittest.TestCase):
 
     def test_changes_and_pick_mine(self):
         r = machpick.changes(TID)
-        self.assertEqual((r["layers"], [x["id"] for x in r["rows"]]), ("primary", ["s2"]))
+        self.assertEqual([x["id"] for x in r["rows"]], ["s2"])
+        self.assertNotIn("layers", r)   # 層のモードは無くなった(10-18 決定 3-61 pp2 = B)
         self.assertEqual(r["rows"][0]["now"][0]["text"], "いい")
         self.assertEqual(machpick.changes(TID, "s1")["rows"], [])
         with self.assertRaises(errors.ApiError) as cm:
@@ -145,16 +143,14 @@ class ApiTest(unittest.TestCase):
         self.assertNotIn("proofed", d["segments"][1])
         self.assertEqual(d["composedFrom"]["mach"], 2)
 
-    def test_bad_request_and_not_primary(self):
+    def test_bad_request(self):
         for bad in ({"id": TID, "row": "s2", "pick": "x"}, {"id": TID, "pick": "mine"}):
             with self.assertRaises(errors.ApiError) as cm:
                 machpick.pick(bad)
             self.assertEqual(cm.exception.status, 400)
-        with mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": "shadow"}):
-            self.assertEqual(machpick.changes(TID)["rows"], [])
-            with self.assertRaises(errors.ApiError) as cm:
-                machpick.pick({"id": TID, "row": "s2", "pick": "mine"})
-            self.assertEqual((cm.exception.status, cm.exception.code), (409, "not_primary"))
+        with self.assertRaises(errors.ApiError) as cm:   # 印の無い行
+            machpick.pick({"id": TID, "row": "s1", "pick": "mine"})
+        self.assertEqual((cm.exception.status, cm.exception.code), (404, "not_changed"))
 
     def test_routes(self):
         S = self.S

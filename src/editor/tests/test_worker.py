@@ -364,14 +364,6 @@ class WorkerTest(unittest.TestCase):
         finally:
             S.VOICES_DIR = saved
 
-    @mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": "shadow"})   # 層のスイッチを固定(primary の対は *_primary)
-    def test_voice_learn_and_recognize_through_worker(self):
-        """A-3: 名前を付けた話者の声を覚え(ワーカーで声の特徴)、もう一度判別すると、覚えた声の話者に名前が付く"""
-        j3, d, _tid = self._voice_learn_and_rediarize()
-        self.assertEqual([n["name"] for n in j3.get("named") or []], ["兎田ぺこら"])
-        self.assertEqual([s["name"] for s in d["speakers"]], ["兎田ぺこら", "話者2"])
-
-    @mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": "primary"})
     def test_voice_learn_and_recognize_through_worker_primary(self):
         """層が正: 判別し直すと人の層の話者の表が残るので、名前は「話者n」に戻らず、覚えた声で付け直すこともしない"""
         j3, d, _tid = self._voice_learn_and_rediarize()

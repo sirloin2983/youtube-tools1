@@ -119,54 +119,52 @@ class TestTranscribe(_Env):
             return json.load(fp)
 
     def test_machine_layer(self):
-        """② は機械の層 <id>.mach.json(fields の行)を書く。人の層があれば文書は ③ の物なので書かない (r8t)。スイッチ off なら今までどおり(RS8 O2-2)"""
+        """② は機械の層 <id>.mach.json(fields の行)を書く。人の層があれば文書は ③ の物なので書かない (r8t。RS8 O2-2)"""
         from ytt import schemas
         _job, clip = self.clip()
-        with mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": ""}):
-            tx.write_machine_doc("abc123def456", clip["fields"], SPEC)
-            mach = self.read("abc123def456.mach.json")
-            self.assertEqual((mach["schema"], mach["rev"]), (schemas.MACH_SCHEMA, 1))
-            self.assertEqual([r["text"] for r in mach["rows"]], ["テスト文1", "テスト文2"])
-            with open(os.path.join(self.tmp, "abc123def456.hum.json"), "w", encoding="utf-8") as fp:
-                json.dump({"schema": schemas.HUM_SCHEMA, "rows": []}, fp)
-            doc_before = self.read("abc123def456.json")
-            fields = dict(clip["fields"], segments=[dict(clip["fields"]["segments"][0], text="新しい")])
-            path = tx.write_machine_doc("abc123def456", fields, SPEC)
-            self.assertEqual(path, os.path.join(self.tmp, "abc123def456.json"))
-            self.assertEqual(self.read("abc123def456.json"), doc_before)   # 文書は書かない
-            mach = self.read("abc123def456.mach.json")
-            self.assertEqual((mach["rev"], [r["text"] for r in mach["rows"]]), (2, ["新しい"]))
-        with mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": "off"}):
+        tx.write_machine_doc("abc123def456", clip["fields"], SPEC)
+        mach = self.read("abc123def456.mach.json")
+        self.assertEqual((mach["schema"], mach["rev"]), (schemas.MACH_SCHEMA, 1))
+        self.assertEqual([r["text"] for r in mach["rows"]], ["テスト文1", "テスト文2"])
+        with open(os.path.join(self.tmp, "abc123def456.hum.json"), "w", encoding="utf-8") as fp:
+            json.dump({"schema": schemas.HUM_SCHEMA, "rows": []}, fp)
+        doc_before = self.read("abc123def456.json")
+        fields = dict(clip["fields"], segments=[dict(clip["fields"]["segments"][0], text="新しい")])
+        path = tx.write_machine_doc("abc123def456", fields, SPEC)
+        self.assertEqual(path, os.path.join(self.tmp, "abc123def456.json"))
+        self.assertEqual(self.read("abc123def456.json"), doc_before)   # 文書は書かない
+        mach = self.read("abc123def456.mach.json")
+        self.assertEqual((mach["rev"], [r["text"] for r in mach["rows"]]), (2, ["新しい"]))
+        with mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": "off"}):   # 古いスイッチ(10-18 に消した)が残っていても層を見る
             tx.write_machine_doc("abc123def456", fields, SPEC)
-        self.assertEqual(self.read("abc123def456.json")["segments"][0]["text"], "新しい")   # off は層を見ずに文書を書く
-        self.assertEqual(self.read("abc123def456.mach.json")["rev"], 2)   # 機械の層は書かない
+        self.assertEqual(self.read("abc123def456.json"), doc_before)
+        self.assertEqual(self.read("abc123def456.mach.json")["rev"], 3)
 
     def test_machine_layer_primary(self):
-        """層が正(primary。RS8 O2-3): 人の層が無ければ 機械の層 → 写し(composedFrom = 機械の層の rev)。人の層があれば機械の層だけ。
+        """層が正(RS8 O2-3): 人の層が無ければ 機械の層 → 写し(composedFrom = 機械の層の rev)。人の層があれば機械の層だけ。
         新しい文書(folder)は 写し → 機械の層。機械の層を書けなければ写しに版を付けない"""
         from ytt import schemas
         _job, clip = self.clip()
-        with mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": "primary"}):
-            tx.write_machine_doc("abc123def456", clip["fields"], SPEC)
-            self.assertEqual(self.read("abc123def456.json")[schemas.COMPOSED_FROM], {"mach": 1, "hum": None})
-            tx.write_machine_doc("abc123def456", clip["fields"], SPEC)
-            self.assertEqual(self.read("abc123def456.json")[schemas.COMPOSED_FROM], {"mach": 2, "hum": None})
-            self.assertEqual(self.read("abc123def456.mach.json")["rev"], 2)
-            with open(os.path.join(self.tmp, "abc123def456.hum.json"), "w", encoding="utf-8") as fp:
-                json.dump({"schema": schemas.HUM_SCHEMA, "rev": 1, "rows": []}, fp)
-            before = self.read("abc123def456.json")
-            tx.write_machine_doc("abc123def456", clip["fields"], SPEC)
-            self.assertEqual(self.read("abc123def456.json"), before)   # 写しは ③ が組み立て直す
-            self.assertEqual(self.read("abc123def456.mach.json")["rev"], 3)
-            wd = os.path.join(self.tmp, "out", "題名", schemas.WORK_DIR)
-            os.makedirs(os.path.dirname(wd))
-            path = tx.write_machine_doc("bbb123def456", clip["fields"], SPEC, wd)
-            with open(path, encoding="utf-8") as fp:
-                self.assertEqual(json.load(fp)[schemas.COMPOSED_FROM], {"mach": 1, "hum": None})
-            self.assertTrue(os.path.isfile(os.path.join(wd, "bbb123def456.mach.json")))
-            with mock.patch.object(tx._yschemas, "make_mach", side_effect=OSError("disk")), self.assertLogs("tx", level="WARNING"):
-                tx.write_machine_doc("ccc123def456", clip["fields"], SPEC)
-            self.assertNotIn(schemas.COMPOSED_FROM, self.read("ccc123def456.json"))
+        tx.write_machine_doc("abc123def456", clip["fields"], SPEC)
+        self.assertEqual(self.read("abc123def456.json")[schemas.COMPOSED_FROM], {"mach": 1, "hum": None})
+        tx.write_machine_doc("abc123def456", clip["fields"], SPEC)
+        self.assertEqual(self.read("abc123def456.json")[schemas.COMPOSED_FROM], {"mach": 2, "hum": None})
+        self.assertEqual(self.read("abc123def456.mach.json")["rev"], 2)
+        with open(os.path.join(self.tmp, "abc123def456.hum.json"), "w", encoding="utf-8") as fp:
+            json.dump({"schema": schemas.HUM_SCHEMA, "rev": 1, "rows": []}, fp)
+        before = self.read("abc123def456.json")
+        tx.write_machine_doc("abc123def456", clip["fields"], SPEC)
+        self.assertEqual(self.read("abc123def456.json"), before)   # 写しは ③ が組み立て直す
+        self.assertEqual(self.read("abc123def456.mach.json")["rev"], 3)
+        wd = os.path.join(self.tmp, "out", "題名", schemas.WORK_DIR)
+        os.makedirs(os.path.dirname(wd))
+        path = tx.write_machine_doc("bbb123def456", clip["fields"], SPEC, wd)
+        with open(path, encoding="utf-8") as fp:
+            self.assertEqual(json.load(fp)[schemas.COMPOSED_FROM], {"mach": 1, "hum": None})
+        self.assertTrue(os.path.isfile(os.path.join(wd, "bbb123def456.mach.json")))
+        with mock.patch.object(tx._yschemas, "make_mach", side_effect=OSError("disk")), self.assertLogs("tx", level="WARNING"):
+            tx.write_machine_doc("ccc123def456", clip["fields"], SPEC)
+        self.assertNotIn(schemas.COMPOSED_FROM, self.read("ccc123def456.json"))
 
     def test_machine_layer_failure_keeps_doc(self):
         _job, clip = self.clip()

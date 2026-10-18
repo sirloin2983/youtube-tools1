@@ -485,21 +485,6 @@ class TestOtherVoice(StoreDir):
         self.assertEqual(j["state"], "done", j.get("error"))
         return self.read()
 
-    @mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": "shadow"})   # 層のスイッチを固定(primary の対は *_primary)
-    def test_rediarize_keeps_manual_rows(self):
-        """判別のやり直しは、字幕に出さない行・ゲーム音声などの行・重なりのメモつきで話者のある行の話者を変えない"""
-        d = self._rediarize_manual()
-        g = {x["id"]: x for x in d["segments"]}
-        names = {s["id"]: s["name"] for s in d["speakers"]}
-        self.assertEqual((g["s2"]["speaker"], g["s2"]["noSub"], g["s2"]["flag"]), ("other", True, "要確認"))   # 印もそのまま
-        self.assertEqual((g["s3"]["speaker"], g["s3"]["noSub"]), ("", True))
-        self.assertEqual(names[g["s4"]["speaker"]], "ぺこら")                       # 重なる行の話者は同じ人のまま(id は新しい S2 と重ならないよう付け替え)
-        self.assertNotEqual(g["s4"]["speaker"], "S2")
-        self.assertIn(g["s1"]["speaker"], ("S1", "S2"))                            # 守らない行は判別のとおり
-        self.assertEqual(d["speakers"][-1]["id"], "other")                         # 組み込みは最後(Alt+数字の番号に入らない)
-        self.assertEqual(len({s["id"] for s in d["speakers"]}), len(d["speakers"]))
-
-    @mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": "primary"})
     def test_rediarize_keeps_manual_rows_primary(self):
         """層が正: 判別し直しても人の話者の表(id と名前)はそのまま。手で決めた行の話者も印も変わらない(付け替えの S2p は起きない)"""
         d = self._rediarize_manual()
@@ -586,7 +571,6 @@ class TestOtherVoice(StoreDir):
         r = S.speakers_sub_apply({"id": TID, "styles": {"pekora": {"color": "#111111"}, "兎田ぺこら": {"color": "#222222"}}})
         self.assertEqual(sorted(r["applied"]), ["Pekora", "兎田ペコラ"])
 
-    @mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": "shadow"})
     def test_kept_speaker_survives_max_speakers(self):
         """判別が 20 人を見つけ、守る行の話者が 1 人いても、保存で守った話者が消えない(新しい話者は 20 − 守った人数まで。4d-2)"""
         rows = [(i * 2.0, i * 2.0 + 1.5, "", "") for i in range(22)] + [(50.0, 52.0, "S1", "", False, ["overlap"])]

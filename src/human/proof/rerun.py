@@ -20,7 +20,7 @@ from flow import tx as _flowtx  # noqa: E402   ② 再認識の動詞(extract_sp
 from ytt import txbase as _txbase  # noqa: E402
 from . import store  # noqa: E402   文書の読み書き・保存のロック・控え(呼ぶたびに store.名前 で読む)
 from . import doc_jobs  # noqa: E402   受付の側の _fresh_id(呼ぶたびに doc_jobs.名前 で読む)
-from . import layers as _layers  # noqa: E402   層が正のときの再認識 each(機械の層の差し替え・印 MACH_CHANGED)
+from . import layers as _layers  # noqa: E402   再認識(機械の層の差し替え・印 MACH_CHANGED)
 
 
 # ---------- 再認識で差し替えた機械の出力の記録(マスタープラン Q2 = notes:plan/line-bc-master-plan.md の Q2。original を差し替える前の分を recognition.runs に残す) ----------
@@ -122,7 +122,7 @@ def _apply_retranscribe(spec, results):
 def _commit_rerun(tid, doc, layers0, spans, mrows, why, extra=None, empty_cover=None):
     """認識し直しの書き込み(X-RERUN の 1 か所)。doc = 書く前の文書(original・recognition.runs はもう新しくしてある)。
     layers0 = 差し替える前の (機械の層, 人の層)(store.layers_for。doc の original を変える前に取る)。機械の層の spans の中を mrows に差し替え(layers.replace_mach_span)、人の層は今のまま(差分を取り直さない = 認識し直しは人の層を変えない)で
-    組み立てた文書を commit(why, mach=)する。層が正なら hum も渡す。影のモード・off でも同じ組み立てを書く(守り方がモードで変わらない)。
+    組み立てた文書を commit(why, mach=)する。人の層があれば hum も渡す(人の層を持たない評価用の丸ごとの作り直しは mach だけ)。
     extra(stats) -> 文書の欄(retranscribed など)。-> {組み立ての stats + replace_mach_span の数}"""
     mach0, hum0 = layers0
     if hum0 is not None:
@@ -138,7 +138,7 @@ def _commit_rerun(tid, doc, layers0, spans, mrows, why, extra=None, empty_cover=
         meta.update({k: doc[k] for k in _layers.DOC_FIELDS if k in doc})
     new = _layers.compose(mach1, hum0, meta, rows)
     store.apply_edit_cuts(tid, new)   # 差し替えた行の「カット済」は、編集の内容(時刻)から付け直す
-    if _txbase.layers_mode() == _txbase.LAYERS_PRIMARY and hum0 is not None:
+    if hum0 is not None:
         store.commit(tid, new, why=why, mach=mach1, hum=hum0)
     else:
         store.commit(tid, new, why=why, mach=mach1)

@@ -71,16 +71,14 @@ class TestProofedAt(StoreDir):
                 S.save_transcript(TID, dict(cur, baseUpdatedAt=cur["updatedAt"]))
                 self.assertEqual(_rd()["segments"][0]["proofedAt"], at)
 
-    @patch.dict(os.environ, {"TRANSCRIBE_LAYERS": "shadow"})   # 層のスイッチを固定(primary の対は *_primary)
     def test_retranscribe_drops_proofed_at(self):
         d = doc_obj(original=[{"start": 0.4, "end": 2.8, "text": "こんばんわ"}])
         d["segments"][0].update(proofed=True, proofedAt=1111)
         self.put_doc(d)
         S.apply_retranscribe({"tid": TID, "model": "m", "autoDict": False}, {"s1": ("こんばんは", "")})
         g = _rd()["segments"][0]
-        self.assertEqual((g.get("proofed"), g.get("proofedAt")), (True, 1111))   # X-RERUN: 影のモードでも校正済みの行は残る
+        self.assertEqual((g.get("proofed"), g.get("proofedAt")), (True, 1111))   # X-RERUN: 校正済みの行は残る
 
-    @patch.dict(os.environ, {"TRANSCRIBE_LAYERS": "primary"})
     def test_retranscribe_keeps_proofed_at_primary(self):
         """層が正: 校正済みの行は置き換えないので proofed・proofedAt も残り、印 MACH_CHANGED が付く"""
         from human.proof import layers

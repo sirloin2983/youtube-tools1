@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """③ 文書を「機械の層 + 人の層」から組み立てる純粋な関数(O2-1。RS8・2026-10-11。決定 3-37 の (r8r)〜(r8u)・notes:plan/rs8-cases-ui.md の決めたこと 3)。
 
-ファイルも store も触らない。呼び手は store(commit の影のモードと層が正の道・fresh_copy・layers_for)・再認識 rerun・話者 speakers・3 択 machpick
-(機械の操作のあとの機械の層は advance_mach)。O1 の overrides(extract・apply)を一般にした物で、対応づけの決まり(match・COVER_DROP・TEXT_DROP)は O1 と同じ値
-(O1 は層が正に切り替えたあとで消す = それまで overrides に同じ決まりの写しがある。notes:plan/opt-human.md の 1a-6・1f-1)。
+ファイルも store も触らない。呼び手は store(commit・fresh_copy・layers_for)・再認識 rerun・話者 speakers・3 択 machpick・
+作り直しの引き継ぎ doc_jobs.carry_overrides(carry。機械の操作のあとの機械の層は advance_mach)。
+対応づけの決まり(match・COVER_DROP・TEXT_DROP)はここだけが持つ(第 1 版 O1 の overrides は 10-18 の決定 3-61 pp2 = B で消した。
+人の行を新しい文書へ引き継ぐ仕事も carry = 組み立て compose_rows が同じ決まりで担う。notes:plan/opt-human.md の 1a-6・1f-1)。
 
 - 機械の層 mach = {schema, rev, keys{transcribe, post, diar}, rows[{id, start, end, text, flag, fill?, speaker?}], speakers}
   (① の後処理まで当てた行。rev は機械の行が変わるたびに上がる)
@@ -29,11 +30,12 @@ from ytt import schemas as _ys
 
 MACH_SCHEMA = _ys.MACH_SCHEMA   # 形の名前は ytt/schemas(② flow/tx も機械の層を書くため)
 HUM_SCHEMA = _ys.HUM_SCHEMA
-MACH_CHANGED = _ys.MACH_CHANGED   # 案 A の印(O1 の STALE_FLAG を広げた物。文字は ytt/schemas の決まった印)
+MACH_CHANGED = _ys.MACH_CHANGED   # 案 A の印(STALE_FLAG を広げた物。文字は ytt/schemas の決まった印)
 SPK_CHANGED = _ys.SPK_CHANGED   # 弱い印(話者だけが変わった)
-HALF = 0.5          # 重なりが短い方の長さのこの割合以上なら対応づける(O1 の overrides もこの値を読む)
+STALE_FLAG = _ys.STALE_FLAG     # 作り直しの引き継ぎ(carry)で、新しい機械の行に対応づかない人の文字の行に付ける印
+HALF = 0.5          # 重なりが短い方の長さのこの割合以上なら対応づける
 COVER_DROP = 0.5    # 機械の行は、人の文字の行が長さのこの割合以上を覆うか、
-TEXT_DROP = 0.5     # 機械の文字のこの割合以上が人の行の文字に現れるときだけ人の行に置き換える(overrides もこの値を読む)
+TEXT_DROP = 0.5     # 機械の文字のこの割合以上が人の行の文字に現れるときだけ人の行に置き換える
 FLAG_MAX = _ys.FLAG_MAX   # 行の印の文字数の上限(決まった印は切らない。つなぎ方は ytt/schemas.join_flags の 1 か所)
 MAX_SPEAKERS = 20   # 組み込みの「ゲーム音声など」を除いた話者の上限(store.sanitize_transcript と同じ)
 DOC_FIELDS = ("title", "evalSet", "evalReviewed", "effort", "diarNum", "relinks", "sourcePath")   # 人の層が持つ文書の欄
@@ -61,8 +63,8 @@ def _center(sp):
 
 
 def match(a, b):
-    """2 つの区間を対応づけるか(O1 と同じ): 片方の中心が相手の区間に入る、か、重なりが短い方の長さの HALF 以上。
-    O1 に足したこと: 同じ区間・長さ 0 の行(開始 = 終了)は、その点が相手の区間(両端を含む)に入れば対応づける"""
+    """2 つの区間を対応づけるか: 片方の中心が相手の区間に入る、か、重なりが短い方の長さの HALF 以上。
+    同じ区間・長さ 0 の行(開始 = 終了)は、その点が相手の区間(両端を含む)に入れば対応づける"""
     if a == b:
         return True
     ca, cb = _center(a), _center(b)
@@ -109,7 +111,7 @@ def _near(a_spans, b_spans):
 
 
 def _replaced(msp, mtext, hums):
-    """機械の行を、対応づいた人の文字の行 hums [(区間, 文字)…] で置き換えるか(O1 と同じ): 長さの COVER_DROP 以上を覆う、
+    """機械の行を、対応づいた人の文字の行 hums [(区間, 文字)…] で置き換えるか: 長さの COVER_DROP 以上を覆う、
     か、機械の文字の TEXT_DROP 以上が人の行の文字に現れる。どちらでもなければ残す(長い機械の行の中の小さな人の行で、ほかの言葉を消さない)"""
     if not hums:
         return False
@@ -363,7 +365,7 @@ def compose_rows(mach, hum, covers_out=None):
             loose_attr.append(i)
     free = [j for j in range(len(M)) if j not in taken]
     free_set = set(free)
-    cands = [i for i in loose_text if _norm(H[i].get("text"))]   # 3 機械が変わった文字の行: 時刻の重なりで(O1 の apply と同じ決まり。空の行は覆わない)
+    cands = [i for i in loose_text if _norm(H[i].get("text"))]   # 3 機械が変わった文字の行: 時刻の重なりで(引き継ぎ carry と同じ決まり。空の行は覆わない)
     near = _near([_span(H[i]) for i in cands], sp)
     hits = {i: [j for j in near[n] if j in free_set and _hit(_span(H[i]), H[i].get("text"), sp[j], M[j]["text"])] for n, i in enumerate(cands)}
     by_m = {}
@@ -547,7 +549,7 @@ def _new_hum(mach, doc, prev):
 
 
 def diff(mach, doc, prev_hum=None, rows_out=None):
-    """文書と機械の層の差 -> 人の層(O1 の extract を一般にした物)。prev_hum = 前の人の層(消す印・話者の対応表・まだ選んでいない印の base を引き継ぐ)。
+    """文書と機械の層の差 -> 人の層。prev_hum = 前の人の層(消す印・話者の対応表・まだ選んでいない印の base を引き継ぐ)。
     - 機械の行そのままの行(同じ id・時刻・文字・印・話者)は人の層に入れない
     - 時刻と文字が機械の行と同じで、話者・印・音のメモ・id などだけ違う行 = 属性の行(text なし。covers は 1 つ)
     - それ以外の行 = 文字の行(直した・時刻を動かした・分けた・つないだ・足した・校正済み)。covers = 時刻の決まりで対応づき、
@@ -741,6 +743,88 @@ def assign_speakers(mach, hum, rows):
     return out
 
 
+# ---------- 作り直しの引き継ぎ(同じ動画の前の文書の人の行を、新しい文書の機械の行へ) ----------
+def carry(prev_doc, prev_mach, new_mach, span=None, speakers=None):
+    """前の文書 prev_doc(その機械の層 prev_mach)の人の行を、新しい機械の層 new_mach の行へ組み立てで重ねる -> (行, 話者の表, stats)。
+    force の再文字起こし・エンジンを変えた再実行などで人の直しが消えないように(呼び手は doc_jobs.carry_overrides。ファイルは触らない)。
+    - 人の行 = 校正済み・文字が前の機械の行(時刻の決まり match で対応づく行をつないだ物)と違う・話者・noSub・tags のいずれかを持つ行。
+      文字の行(校正済みか、文字が違う)は文字と話者を持ち、話者・noSub・tags だけの行(属性の行)は文字を持たない。
+      前の機械の層に行が無ければ校正済みの行だけを文字の行に数える。後処理が埋めた行(印 fill)は校正済みでなければ文字を人の直しに数えない。
+      空のままの下書き(印 draft・文字なし)の行は入れない。消した行(消す印)は引き継がない
+    - 重ね方は組み立て compose_rows(機械が変わった行と同じ決まり = 時刻の重なり・COVER_DROP・TEXT_DROP)。文字の行の印は覆った新しい機械の行の印
+      (校正済みなら空)・どの機械の行とも対応づかない文字の行は印 STALE_FLAG を付けて残す。属性の行は対応づかなければ捨てる(dropped)
+    - span = (開始, 終了 か None): 作り直した範囲。中心が範囲の外の人の行は数えない(outside)
+    - 人の行の id は o1, o2…(新しい機械の行の id と重ならない)。話者の表 = speakers(新しい文書の表)+ 人の行が使う前の文書の話者
+    stats = {"matched", "stale", "dropped", "total", "replaced": 人の行に置き換えた機械の行, "outside"}"""
+    orig = sorted((_span(m), _norm(m["text"])) for m in _mrows(prev_mach))
+    mids = {m["id"] for m in _mrows(new_mach)}
+    rows, used, outside, n = [], set(), 0, 0
+    for g in (prev_doc or {}).get("segments") or []:
+        if not isinstance(g, dict) or _ys.blank_draft_row(g):
+            continue
+        sp = _span(g)
+        if sp is None:
+            continue
+        if span is not None:
+            c = _center(sp)
+            if c < span[0] or (span[1] is not None and c > span[1]):
+                outside += 1
+                continue
+        proofed = g.get("proofed") is True
+        edited = (bool(orig) and not proofed and not isinstance(g.get("fill"), dict)   # 長さ 0 の機械の行は行の終わりの点を含めない(隣の行の頭の点)
+                  and _norm(g.get("text")) != "".join(t for osp, t in orig if match(sp, osp) and not (osp[0] == osp[1] == sp[1] > sp[0])))
+        speaker = str(g.get("speaker") or "")
+        tags = [t for t in g.get("tags") if t in _ys.ROW_TAGS] if isinstance(g.get("tags"), list) else []
+        nosub = g.get("noSub") is True
+        if not (proofed or edited or speaker or tags or nosub):
+            continue
+        while True:
+            n += 1
+            if "o%d" % n not in mids:
+                break
+        one = {"id": "o%d" % n, "start": round(sp[0], 2), "end": round(sp[1], 2), "covers": [], "base": {"rows": []}}
+        if proofed or edited:
+            one["text"], one["speaker"] = str(g.get("text") or ""), speaker
+        elif speaker:
+            one["speaker"] = speaker
+        if proofed:
+            one["proofed"] = True
+            if (_ys.plain_int(g.get("proofedAt")) or 0) > 0:
+                one["proofedAt"] = g["proofedAt"]
+        if nosub:
+            one["noSub"] = True
+        if tags:
+            one["tags"] = tags
+        if speaker:
+            used.add(speaker)
+        rows.append(one)
+    spk = _speakers_of({"speakers": speakers})
+    have = {s.get("id") for s in spk}
+    for s in (prev_doc or {}).get("speakers") or []:
+        if isinstance(s, dict) and s.get("id") in used and s.get("id") not in have:
+            spk.append(copy.deepcopy(s))
+            have.add(s.get("id"))
+    hum = {"schema": HUM_SCHEMA, "rev": 0, "machRev": None, "rows": rows, "dead": [], "speakers": spk, "spkMap": {}, "docFields": {}}
+    covers = {}
+    out, st = compose_rows(new_mach, hum, covers)
+    text_rows = {r["id"]: r for r in rows if "text" in r}
+    stale, replaced = 0, set()
+    for r in out:
+        h = text_rows.get(r["id"])
+        if h is None:
+            continue
+        cov = covers.get(r["id"]) or []
+        replaced.update(m.get("id") for m in cov)
+        flag = "" if h.get("proofed") is True else join_flags(*[m.get("flag") for m in cov])   # 前から続く印(機械が変わった)は付けない
+        if not cov:
+            flag = join_flags(STALE_FLAG, flag)
+            stale += 1
+        r["flag"] = flag
+    stats = {"matched": len(text_rows) - stale + st["attr"], "stale": stale, "dropped": st["dropped"], "total": len(rows),
+             "replaced": len(replaced), "outside": outside}
+    return out, spk, stats
+
+
 # ---------- 移行と往復の検査 ----------
 def mach_from_doc(doc, rev=1):
     """今の文書から機械の層を作る(移行と往復の検査用): 機械の出力 original の各行(id は作ったときの行と同じ s1, s2…)+
@@ -784,7 +868,7 @@ def _speaker_rows(rows, segs):
 
 
 def advance_mach(mach, old_doc, new_doc, speakers=False):
-    """機械の操作(再認識・疑わしい所・話者の判別など)のあとの機械の層 -> (新しい機械の層, 変わったか)(store._shadow_prepare が影のモードでも層が正でも呼ぶ)。
+    """機械の操作(再認識・疑わしい所・話者の判別など)のあとの機械の層 -> (新しい機械の層, 変わったか)(store._prepare_layers が呼ぶ)。
     old_doc = 操作の前の文書・new_doc = 操作のあとの文書。mach は書き換えない。操作が書いた行だけを機械の層で入れ替える:
     - 機械が書いた行 = 新しい文書の行のうち、前の文書に同じ id が無いか、同じ id の行と時刻か文字が違う行(印・話者・校正済みなどだけの違いは人の層へ)
     - 書き換えた範囲(機械が書いた行と、消えた・書き換えられた前の行の区間)に match で当たる機械の行は捨てる。
@@ -830,7 +914,7 @@ def advance_mach(mach, old_doc, new_doc, speakers=False):
     return out, changed
 
 
-# ---------- 層が正のときの機械の操作(RS8 O2-5。(r8s)(r8r)) ----------
+# ---------- 機械の操作(RS8 O2-5。(r8s)(r8r)) ----------
 def put_mach_rows(mach, rows):
     """機械の層の行を差し替える(再認識 each。(r8s))-> 新しい機械の層(写し・rev + 1)。rows = 新しい機械の行(文書の行の形)。
     rows の各行の区間に match で当たる機械の行を捨てて rows を足す。新しい行に話者が無ければ、捨てた行でいちばん重なる行の話者。
@@ -961,7 +1045,7 @@ def after_rediar(mach, hum, keep_ids, flags):
 
 def _row_diff(a, b, loose=False):
     """同じ id の 2 つの行の違う所 -> 理由の名前の一覧。loose = 話者・印の欄が無いのと空の文字を同じに数える
-    (読み手はどれも g.get(…) or "" で読む。組み立ては欄をいつも書く。影のモードの比べ方 = store.commit。O2-2)"""
+    (読み手はどれも g.get(…) or "" で読む。組み立ては欄をいつも書く。保存のたびの往復の検査 = store.commit。O2-2)"""
     out = []
     if (a.get("start"), a.get("end")) != (b.get("start"), b.get("end")):
         out.append("time")

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """③ 人の操作の層 human/proof: 文字起こしのジョブの本体(run_job)と書く先の決め方・受付(validate_job・
-validate_retranscribe と疑わしい行の選び方 redo_targets)・字幕の文字数の設定・人の直しの引き継ぎ carry_overrides・新しい行の id。
+validate_retranscribe と疑わしい行の選び方 redo_targets)・字幕の文字数の設定・人の直しの引き継ぎ carry_overrides(layers.carry)・新しい行の id。
 再認識(each・range・whole)のジョブの本体・文書への反映・再認識の記録は隣の rerun.py(rerun → doc_jobs の一方向 =
 ここは rerun を読まない。例外は評価用の作り直しの書き込み rerun.rebuild_whole を呼ぶときだけ読む)。ジョブの表と器は ② flow/jobs・flow/wire(本体は入口 editor/serve.py が渡す)。
 名前は serve.py からも見える(serve.py が受け付けて、この部品へ転送する。テストの S.名前 = … もここに入る)。
@@ -25,7 +25,7 @@ from flow import tx as _flowtx  # noqa: E402  ② 文字起こしの動詞(trans
 from . import alt  # noqa: E402   2つ目のエンジンの候補(run_job の autoAlt。呼ぶたびに alt.名前 で読む)
 from . import learn  # noqa: E402   学習・提案・確度「高」の自動置換の選び方・用語の自動追加(呼ぶたびに learn.名前 で読む)
 from . import store  # noqa: E402   文書の読み書き・行の無い文書へ入れる fill_doc(呼ぶたびに store.名前 で読む)
-from . import overrides as _overrides  # noqa: E402   校正の上書き(人の行を新しい文書へ引き継ぐ・<id>.over.json)
+from . import layers as _layers  # noqa: E402   機械の層・人の層(人の行を新しい文書へ引き継ぐ carry)
 from . import speakers  # noqa: E402   話者の自動判別 autodiar_after_transcribe(呼ぶたびに speakers.名前 で読む)
 
 # 評価用のフォルダの判定(eval_name_guard・in_eval_dir)は ytt/settings を直に呼ぶたびに読む
@@ -228,11 +228,13 @@ def _fresh_id(used, make, n=0):
 
 
 def carry_overrides(job, spec, doc):
-    """新しく作る文書 doc に、同じ動画の既存の文書(store.find_doc_for_media = 行のある・新しいもの)の人の行(上書き)を重ねる(O1。notes:plan/role-restructure.md の 5-5 の F-3)。
+    """新しく作る文書 doc に、同じ動画の既存の文書(store.find_doc_for_media = 行のある・新しいもの)の人の行を重ねる(notes:plan/role-restructure.md の 5-5 の F-3)。
     force の再文字起こし・エンジンを変えた再実行などで人の直しが消えないように。評価用(作る側・元の側)と評価用の作り直しには当てない。
     環境変数 TRANSCRIBE_CARRY_OVERRIDES=off で止める(前の文書はそのまま残る = 引き継がなくても直しは失わない)。
+    重ね方は層の組み立て(layers.carry。前の文書の機械の層 = store.layers_for = 層の無い古い文書は文書の original から作る)。
+    横に古い控え <id>.over.json があっても読まない(保存のたびに文書から取り出した写しで、文書より多くを持たない)。
     doc の segments・speakers を書き換え、recognition.runs[-1] に override = 数の辞書を入れる
-    -> overrides.apply の数の辞書 {"matched", "stale", "total", …, "from": 元の文書の id} か None(重ねなかった)"""
+    -> layers.carry の数の辞書 {"matched", "stale", "total", …, "from": 元の文書の id} か None(重ねなかった)"""
     if spec.get("evalSet") or spec.get("evalRedo") or _txbase.env_off("TRANSCRIBE_CARRY_OVERRIDES"):   # 止めるスイッチ(困ったとき用)
         return None
     hit = store.find_doc_for_media(spec["sourcePath"])
@@ -244,15 +246,15 @@ def carry_overrides(job, spec, doc):
         return None
     if prev.get("evalSet") is True:
         return None
-    over = _overrides.current(hit["id"], prev)
-    if not over.get("rows"):
-        return None
-    rows, stats = _overrides.apply(doc.get("segments") or [], over, (spec.get("start") or 0.0, spec.get("end")))
+    prev_mach, _hum = store.layers_for(hit["id"], prev)
+    new_mach = _yschemas.make_mach(doc.get("segments"), speakers=doc.get("speakers"))
+    rows, spk, stats = _layers.carry(prev, prev_mach, new_mach, (spec.get("start") or 0.0, spec.get("end")), doc.get("speakers"))
     if not stats["total"]:
         return None
     stats["from"] = hit["id"]
     doc["segments"] = rows
-    doc["speakers"] = _overrides.merge_speakers(doc.get("speakers"), over, rows)
+    if "speakers" in doc or spk:
+        doc["speakers"] = spk
     runs = list((doc.get("recognition") or {}).get("runs") or [])
     if runs:
         runs[-1] = dict(runs[-1], override=stats)   # 写しに入れる(生出力 asr.json に書く記録は機械の分のまま)
@@ -312,11 +314,9 @@ def _run_transcribe(job, spec):
             tid = uuid.uuid4().hex[:12]
             doc = _flowtx.new_doc(tid, fields, spec)   # 文書の頭(schema・id・題名・動画・作った日・clip・評価用の印)は ② と同じ形
             mach = _yschemas.make_mach(doc["segments"], speakers=doc.get("speakers"))   # 機械の層 = 引き継ぐ前の機械の行(引き継いだ人の行は人の層へ)
-            carried = carry_overrides(job, spec, doc)   # 同じ動画の文書があれば人の行を引き継ぐ(評価用には当てない)
+            carry_overrides(job, spec, doc)   # 同じ動画の文書があれば人の行を引き継ぐ(評価用には当てない)
             # 書き出し先の案件の動画なら、その 作業用 に置く(② flow/placement.doc_home。評価用・案件でなければ transcripts)
             store.commit(tid, doc, why="whole", mach=mach, folder=_placement.doc_home(spec["sourcePath"], eval_set=spec.get("evalSet") is True))
-            if carried:
-                _overrides.save_after(tid, doc)
         _flowtx.write_clip_records(tid, clip, spec)   # 単語の時刻・生出力・LLM の生の提案(② が文書の横に書く。書けなくても文書は残す)
         # 話者の自動判別(評価用だけ。決定 3-47 Q7)。「完了」にする前に足す = 判別の待ちの文書をドリルが開く間を作らない
         speakers.autodiar_after_transcribe(job, spec, tid)

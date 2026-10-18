@@ -2,7 +2,6 @@
    機械の結果が変わって人の直しと食い違う行(印「機械の結果が変わりました」= layers.MACH_CHANGED)に札を付け、押すと(キー Shift+C も)行の下に
    前の機械 / 今の機械 / あなたの直し を並べ、[自分の直しのまま](既定)/ [今の機械にする] を選ぶ。
    口は編集のサーバー GET transcribe/api/mach-changes?id= と POST transcribe/api/mach-changes/pick {id, row, pick, baseUpdatedAt}(src/human/proof/machpick.py)。
-   層が正(TRANSCRIBE_LAYERS=primary)でなければ札も数も出さない(応答の layers を見る。今の既定 shadow では何も変わらない)。
    行の一覧(#segs)は編集が描き直すので、描き直しのたびに(MutationObserver)札と開いた欄を付け直す。開いた行は覚えておく。
    CasesMachPick.create(env) -> {refresh, stop, count, openAt(i), first()}。env = {api, segs() = 行の一覧の要素, doc() = 開いている文書, docId(), base(),
    save() = 保存し終えるまで, reload() = 文書を読み直す, goto(i) = その行へ, onCount(n)}。DOM は env.segs() の中だけを触る */
@@ -11,7 +10,6 @@
   var esc = function (s) { return UIKit.esc(s); };
   var LABEL = '機械の結果が変わりました';
   var WHY = { conflict: '別の所で先に変わりました。「読み込み直す」を押してから、もう一度選んでください',
-    not_primary: '機械の層と人の層が正のときだけ選べます(今の設定では選べません)。設定を変えたあとなら、読み込み直してください',
     not_changed: 'この行の印はもうありません(別の所で選んだか、機械が元に戻りました)。読み込み直すと消えます' };
 
   function texts(rows) {
@@ -21,9 +19,9 @@
 
   window.CasesMachPick = {
     create: function (env) {
-      var rows = {}, order = [], mode = '', open = {}, err = {}, busy = false, seq = 0, docObj = null, mo = null, raf = 0, stopped = false;
+      var rows = {}, order = [], open = {}, err = {}, busy = false, seq = 0, docObj = null, mo = null, raf = 0, stopped = false;
 
-      function count() { return mode === 'primary' ? order.length : 0; }
+      function count() { return order.length; }
       function idxOf(id) { var d = env.doc(); return d ? d.segments.findIndex(function (s) { return s.id === id; }) : -1; }
       function boxHTML(r) {
         var e = err[r.id];
@@ -75,18 +73,17 @@
       function refresh() {
         var id = env.docId(), my = ++seq;
         docObj = env.doc();
-        if (!id) { rows = {}; order = []; mode = ''; env.onCount(0); soon(); return Promise.resolve(); }
+        if (!id) { rows = {}; order = []; env.onCount(0); soon(); return Promise.resolve(); }
         return env.api('transcribe', 'api/mach-changes?id=' + encodeURIComponent(id), { timeout: 30000 }).then(function (j) {
           if (my !== seq || stopped) return;
-          mode = j && j.layers || '';
           rows = {}; order = [];
-          if (mode === 'primary') (j.rows || []).forEach(function (r) { if (r && r.id) { rows[r.id] = r; order.push(r.id); } });
+          ((j && j.rows) || []).forEach(function (r) { if (r && r.id) { rows[r.id] = r; order.push(r.id); } });
           Object.keys(open).forEach(function (k) { if (!rows[k]) delete open[k]; });
           env.onCount(count());
           soon();
         }, function () {
           if (my !== seq) return;
-          mode = ''; rows = {}; order = []; env.onCount(0); soon();   // 読めなければ札を出さない(古い編集のサーバーなど)。校正はそのまま続けられる
+          rows = {}; order = []; env.onCount(0); soon();   // 読めなければ札を出さない(古い編集のサーバーなど)。校正はそのまま続けられる
         });
       }
       function toggle(id, want) {

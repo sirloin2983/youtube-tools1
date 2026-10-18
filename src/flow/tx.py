@@ -211,37 +211,29 @@ def write_machine_doc(tid, fields, spec=None, folder=None):
     spec があれば題名・動画(title・sourcePath・sourceName)・clip・評価用の印も入れる。-> 書いたパス。
     folder = 新しい文書を置く 作業用(placement.doc_home が決める。None = 今までどおり。あれば docloc.place_new = 本体のあとに索引。RS8 B2-2)。
     機械の層 (r8t。RS8 O2-2): 文書の横に機械の層 <id>.mach.json(fields の行 = ① の後処理まで当てた行)も書く。人の層 <id>.hum.json があれば
-    文書は ③ の物なので書かない(機械の層だけ)。スイッチ TRANSCRIBE_LAYERS=off なら層を見ずに今までどおり文書だけ。機械の層を書けなくても文書は残す(ログだけ)。
-    層が正(TRANSCRIBE_LAYERS=primary。RS8 O2-3): 人の層が無いときの文書は機械の層だけから組み立てた写し = 欄 composedFrom {"mach": 機械の層の rev, "hum": None} を付け、
+    文書は ③ の物なので書かない(機械の層だけ)。機械の層を書けなくても文書は残す(ログだけ)。
+    層が正(RS8 O2-3): 人の層が無いときの文書は機械の層だけから組み立てた写し = 欄 composedFrom {"mach": 機械の層の rev, "hum": None} を付け、
     今ある文書は 機械の層 → 写し の順に書く(写しの版が先に進んで層が無い、を作らない)。新しい文書(folder)は置き場所が決まってから層を置くので 写し → 機械の層。
     機械の層を書けなければ写しに composedFrom を付けない(= ③ が開いても組み立て直さない)。
     ② が足すこと = 置き場所(ytt/workdata の TX_DIR か案件の 作業用)と原子的な書き込み(ytt/fsio。③ の store.write_doc と同じ形の JSON)"""
     if not _yschemas.TID_RE.match(str(tid or "")):
         raise _errors.ApiError("bad_request", "文書の id が正しくありません", 400)
-    mode = _txbase.layers_mode()
-    layers = mode != "off"
-    if layers and os.path.isfile(_docloc.doc_file(tid, _yschemas.HUM_SUFFIX)):   # 人の層がある = 文書(組み立て済みの写し)は ③ が書く
+    if os.path.isfile(_docloc.doc_file(tid, _yschemas.HUM_SUFFIX)):   # 人の層がある = 文書(組み立て済みの写し)は ③ が書く
         _write_mach(tid, fields)
         return _docloc.doc_file(tid, ".json")
-    primary = mode == _txbase.LAYERS_PRIMARY
     doc = new_doc(tid, fields, spec)
     def _write(path):
         _fsio.write_json(path, doc, indent=1, fsync_required=True)
-    if primary and not folder:   # 層が正: 機械の層 → 写し(書けた版を写しに記す)
+    if not folder:   # 今ある文書: 機械の層 → 写し(書けた版を写しに記す)
         rev = _write_mach(tid, fields)
         if rev is not None:
             doc[_yschemas.COMPOSED_FROM] = _yschemas.composed_from(rev, None)
         path = _docloc.doc_file(tid, ".json", for_write=True)
         _write(path)
         return path
-    if primary:   # 新しい文書: 写し → 機械の層(rev は前の機械の層の次 = 先に決めて写しに記す)
-        doc[_yschemas.COMPOSED_FROM] = _yschemas.composed_from(_next_mach_rev(tid), None)
-    if folder:
-        path = _docloc.place_new(tid, folder, _write)
-    else:
-        path = _docloc.doc_file(tid, ".json", for_write=True)
-        _write(path)
-    if layers and _write_mach(tid, fields) is None and primary:   # 文書のあと(新しい文書の置き場所が決まってから同じ所へ)
+    doc[_yschemas.COMPOSED_FROM] = _yschemas.composed_from(_next_mach_rev(tid), None)   # 新しい文書: 写し → 機械の層(rev は前の機械の層の次 = 先に決めて写しに記す)
+    path = _docloc.place_new(tid, folder, _write)
+    if _write_mach(tid, fields) is None:   # 文書のあと(新しい文書の置き場所が決まってから同じ所へ)
         doc.pop(_yschemas.COMPOSED_FROM, None)   # 機械の層が書けなかった: 写しから版を外す(③ が組み立て直さない)
         _write(path)
     return path
@@ -258,7 +250,7 @@ def _next_mach_rev(tid):
 
 
 def _write_mach(tid, fields):
-    """機械の層 <id>.mach.json を書く(rev は前の機械の層の次)-> 書いた rev。書けなければログだけで None(影のモード。正は文書)"""
+    """機械の層 <id>.mach.json を書く(rev は前の機械の層の次)-> 書いた rev。書けなければログだけで None"""
     try:
         path = _docloc.doc_file(tid, _yschemas.MACH_SUFFIX, for_write=True)
         rev = _next_mach_rev(tid)
