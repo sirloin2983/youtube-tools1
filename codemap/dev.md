@@ -4,7 +4,7 @@
 
 ## dev/
 
-- **build_friend_zip.py** (639 行) — 友人の PC に配る zip(新しいアプリ FriendApp + ② + ① の Python のコード + 埋め込み用 Python + 部品)を作る道具(設計 notes:docs/design/f1-build.md の 2・3 節)。
+- **build_friend_zip.py** (643 行) — 友人の PC に配る zip(新しいアプリ FriendApp + ② + ① の Python のコード + 埋め込み用 Python + 部品)を作る道具(設計 notes:docs/design/f1-build.md の 2・3 節)。
   - 名前: `class BuildError` :92・`say` :96・`sha256_file` :100・`download` :113・`cached` :125・`wheel_pins` :160・`pip_download` :178・`wheels` :188・`unzip_into` :226・`lay_python` :251・`src_files` :272・`lay_src` :287・ほか 19
 - **code_map.py** (467 行) — コードの地図と言葉の索引を作る道具(AI のセッションがコードの場所を早く見つけるため。2026-10-18)。
   - 名前: `git_files` :52・`skipped` :57・`is_test` :61・`read` :65・`one_line` :73・`comment_head` :85・`py_info` :112・`js_info` :143・`cs_info` :164・`info` :186・`layer_of` :199・`norm_route` :206・ほか 12

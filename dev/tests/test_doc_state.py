@@ -123,7 +123,7 @@ class SpecCheckTest(unittest.TestCase):
             write(os.path.join(root, "docs", "design", "history.md"), "Request" + "Sender\n")
             write(os.path.join(root, "plan", "done", "x.md"), "Request" + "Sender\n")
             hits = spec_check.gone(root, repo, files=["src/a.py", ".gitignore", "src/missing.py"])
-            self.assertEqual(sorted((w, ln) for w, ln, _n in hits), [("notes:AGENTS.md", 1), ("notes:docs/spec/f.md", 3), ("src/a.py", 2)])
+            self.assertEqual(sorted((w, ln) for w, ln, _n in hits), [("notes:AGENTS.md", 1), ("notes:" + "docs/spec/f.md", 3), ("src/a.py", 2)])
 
 
 class DriftReportTest(unittest.TestCase):
