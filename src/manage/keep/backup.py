@@ -41,7 +41,7 @@ from ytt import docloc, fsio, names, schemas, settings, tools  # noqa: E402
 
 STATE_FILE = "backup-state.json"
 DEST_NAME = "youtube-tools-data"
-FIRST_WAIT = 90            # 起動してから最初に見るまで(秒。ツールの起動・以前の場所からのコピーとぶつけない)
+FIRST_WAIT = 90            # 起動してから最初に見るまで(秒。ツールの起動とぶつけない)
 CHECK_EVERY = 180          # 時間が来たかを見る間隔(秒)
 RETRY_SEC = 3600           # 完全に写せなかった(読めないフォルダ・写せないファイルがあった)ときに、もう一度試すまで(秒)
 SKIP_DIRS = {"cache", "work", "logs", "models", "bin", "browser-profile", "exports", ".runtime", "__pycache__", "intake",   # intake = app/intake の友人の依頼の動画の写し(元は友人の Dropbox)
@@ -49,7 +49,7 @@ SKIP_DIRS = {"cache", "work", "logs", "models", "bin", "browser-profile", "expor
              "friend-build-cache", ".tmp"}   # friend-build-cache = dev/build_friend_zip.py がダウンロードした zip(取り直せる)・.tmp = 一時ファイル
 SKIP_TOP = {"analytics"}   # 作業データの直下で写さないフォルダ(分析の記録 = 守る物の外。10-14 ユーザー「ログと分析は外す」)
 SKIP_SUFFIX = (".log", ".tmp", ".lock")
-SKIP_MARK = ".part-"       # datadir.prepare・fsio の途中のファイル
+SKIP_MARK = ".part-"       # 写し・fsio の途中のファイル(以前の datadir.prepare の残りも)
 KEEP_BIN_PREFIX = "whisper.cpp-"   # transcribe\\bin の下で、これで始まるフォルダだけは写す(作り直しに Visual Studio が要る)
 COPY_MEDIA = True          # 評価用・学習用の動画を写す(スイッチ。False = 今までどおり作業データと案件の 作業用 だけ)
 MEDIA_DIR = "media"        # 写す先の下の、評価用・学習用の動画を置くフォルダ(<写す先>/youtube-tools-data/media/<ドライブ>/<パス>)

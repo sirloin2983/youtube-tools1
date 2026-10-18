@@ -161,7 +161,7 @@ def use_data_dir(data_dir=None):
 def use_studio_data():
     """スタジオの作業データ(data.json・解析のキャッシュ・書き出し先の設定)を ytt/studio_env に入れ、同じプロセスの読み手(datadir.resolve =
     結果の束の書き出し先・文書の置き場所)へ知らせる -> スタジオなしの台帳(flow/studiobook.StudioBook)。URL を入口なしで流すときだけ呼ぶ
-    (入口のスタジオの prepare と同じ場所 = datadir の規則。以前の場所からの写しはしない = 入口の起動がする)"""
+    (入口のスタジオの prepare と同じ場所 = datadir の規則)"""
     home = os.path.abspath(_datadir.locate("studio"))
     _studio_env.set_home(home)
     _studio_env.load_out_dir()

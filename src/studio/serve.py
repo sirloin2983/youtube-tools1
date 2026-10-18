@@ -33,7 +33,7 @@ from pipeline.analyze import analyze  # noqa: E402
 from pipeline.analyze import fetch  # noqa: E402
 from pipeline.export import exporter  # noqa: E402
 from ytt import yturl as _yturl  # noqa: E402
-from ytt import apikey as _key, datadir, fsio as _fsio, httpsec, procs as _procs, runtime as ytt_runtime, studio_env as _env, tools as _tools  # noqa: E402  (startup が ytt を読めるようにしてある)
+from ytt import apikey as _key, datadir, httpsec, procs as _procs, runtime as ytt_runtime, studio_env as _env, tools as _tools  # noqa: E402  (startup が ytt を読めるようにしてある)
 from ytt import version as _version  # noqa: E402
 from ytt import marks as _marks, schemas as _schemas  # noqa: E402  (/api/live/exported の clip の検査。LD-2f)
 from ytt.errors import ApiError  # noqa: E402
@@ -571,39 +571,21 @@ def _setup_diagnostics():
     atexit.register(lambda: _log("プロセス終了"))
 
 
-# 以前の場所(このフォルダ)から新しい置き場へ写す名前(段階4。ytt.datadir)。ログ・作業用の work は写さない
-DATA_ITEMS = ("data.json", "data.json.bak", "feedback.jsonl", "feedback.jsonl.old", "registry.json", "config.json",
-              "settings.json", "settings-ui.json", "cache", "archive")
 DATA_STATE = None   # 起動時の datadir.prepare の結果(画面・入口に置き場所を出す用)
 
 
 def _data_home():
-    """データの置き場所。規則は ytt.datadir の1か所: 環境変数 STUDIO_HOME があればそれ(テスト用・以前からの指定。写さない)。
-    無ければ %LOCALAPPDATA%\\youtube-tools\\studio(最初の起動で、このフォルダにある以前のデータをコピーする)。
+    """データの置き場所。規則は ytt.datadir の1か所: 環境変数 STUDIO_HOME があればそれ(テスト用・以前からの指定)。
+    無ければ %LOCALAPPDATA%\\youtube-tools\\studio。
     決めた場所は datadir.prepare が登録する(入口の中の案件・「編集」が datadir.resolve で同じ場所を読む)"""
     global DATA_STATE
-    r = datadir.prepare(TOOL_ID, CODE_DIR, DATA_ITEMS, log=lambda m: print(m, flush=True))
+    r = datadir.prepare(TOOL_ID, CODE_DIR)
     if r["state"] == "override":
         return r["dir"]
     DATA_STATE = r
     for w in r["warnings"]:
         print("※ " + w, flush=True)
-    if r["state"] == "migrated":
-        _keep_legacy_exports(r)
     return r["dir"]
-
-
-def _keep_legacy_exports(r):
-    """以前の既定の書き出し先(このフォルダの exports)に動画があり、書き出し先を変えていなかったなら、そこを使い続ける
-    (置き場所を移したことで、既定の書き出し先が新しい置き場の exports に変わり、動画が2か所に分かれるのを防ぐ)"""
-    old = os.path.join(r["legacy"], "exports")
-    settings = os.path.join(r["dir"], "settings.json")
-    if not os.path.isdir(old) or os.path.exists(settings):
-        return
-    try:
-        _fsio.atomic_write(settings, json.dumps({"outDir": old}, ensure_ascii=False).encode("utf-8"))
-    except OSError:
-        pass
 
 
 def prepare(port, base_path="/"):

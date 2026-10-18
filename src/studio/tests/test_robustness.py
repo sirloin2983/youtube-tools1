@@ -318,7 +318,7 @@ class TestPorts(unittest.TestCase):
 
 
 class TestDataHome(unittest.TestCase):
-    """作業データの置き場所(段階4): STUDIO_HOME が無ければ ytt.datadir の場所。以前のデータはコピーし、元は残す"""
+    """作業データの置き場所(段階4): STUDIO_HOME が無ければ ytt.datadir の場所。以前の場所(スタジオのフォルダ)からは写さない(2026-10-18)"""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
@@ -340,20 +340,14 @@ class TestDataHome(unittest.TestCase):
         self.env.stop()
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def test_copies_legacy_data(self):
-        home = serve._data_home()
-        self.assertEqual(home, os.path.join(self.tmp, "data", "studio"))
-        self.assertTrue(os.path.isfile(os.path.join(home, "cache", "meta", "x.json")))
-        self.assertTrue(os.path.isfile(os.path.join(self.legacy, "data.json")))        # 元は消さない
-        self.assertEqual(serve.DATA_STATE["state"], "migrated")
-        self.assertEqual(serve.datadir.registered(serve.TOOL_ID), home)
-
-    def test_legacy_exports_stay_the_output_folder(self):
+    def test_new_place_without_copy(self):
         os.makedirs(os.path.join(self.legacy, "exports"))
         home = serve._data_home()
-        studio_env.set_home(home)
-        studio_env.load_out_dir()
-        self.assertEqual(studio_env.get_out_dir(), os.path.join(self.legacy, "exports"))
+        self.assertEqual(home, os.path.join(self.tmp, "data", "studio"))
+        self.assertEqual(os.listdir(home), [])                                          # 以前の場所の data.json・cache・exports を写さない
+        self.assertTrue(os.path.isfile(os.path.join(self.legacy, "data.json")))
+        self.assertEqual(serve.DATA_STATE["state"], "new")
+        self.assertEqual(serve.datadir.registered(serve.TOOL_ID), home)
 
     def test_studio_home_wins(self):
         with patch.dict(os.environ, {"STUDIO_HOME": os.path.join(self.tmp, "h")}):

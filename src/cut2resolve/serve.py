@@ -515,11 +515,11 @@ class MountContext:
 
 def _choose_work_dir():
     """作業用のフォルダ(ログ)を、作業データの置き場所の中にする(段階4)。
-    中身はログだけなので、以前の場所からは写さない。テストが先に差し替えていれば(既定でなければ)そのまま"""
+    テストが先に差し替えていれば(既定でなければ)そのまま"""
     global WORK_DIR, LOG_PATH
     if os.path.normcase(WORK_DIR) != os.path.normcase(DEFAULT_WORK_DIR):
         return
-    r = datadir.prepare(TOOL_ID, CODE_DIR, (), log=lambda m: print(m, flush=True))
+    r = datadir.prepare(TOOL_ID, CODE_DIR)
     for w in r["warnings"]:
         print("※ " + w, flush=True)
     WORK_DIR = os.path.join(r["dir"], "work")

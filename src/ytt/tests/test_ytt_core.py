@@ -1405,7 +1405,7 @@ class TestFfmpegInfo(unittest.TestCase):
 
 
 class TestDatadir(unittest.TestCase):
-    """作業データの置き場所と、以前の場所からのコピー(段階4)"""
+    """作業データの置き場所(段階4。以前の場所からの写しは 2026-10-18 に消した)"""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
@@ -1433,15 +1433,6 @@ class TestDatadir(unittest.TestCase):
                 f.write(body)
             self.assertEqual(datadir.studio_out_dir(env=env), want or os.path.join(sdir, "exports"), body)
 
-    def test_read_marker(self):
-        d = os.path.join(self.tmp, "m")
-        os.makedirs(d)
-        self.assertIsNone(datadir.read_marker(d))
-        for body, want in (('\ufeff{"items": []}', {"items": []}), ("[]", None), ("{壊れ", None), ('{"a": "' + "x" * datadir.MARKER_MAX + '"}', None)):
-            with open(os.path.join(d, datadir.MARKER), "w", encoding="utf-8") as f:
-                f.write(body)
-            self.assertEqual(datadir.read_marker(d), want, body[:20])
-
     def test_root(self):
         self.assertEqual(datadir.data_root({"LOCALAPPDATA": r"C:\Users\u\AppData\Local"}, "win32"),
                          os.path.join(r"C:\Users\u\AppData\Local", "youtube-tools"))
@@ -1453,90 +1444,18 @@ class TestDatadir(unittest.TestCase):
         self.assertEqual(datadir.tool_dir("studio", "/r/studio", {"YTT_DATA_DIR": "inplace"}), os.path.abspath("/r/studio"))   # src でない親(一時フォルダに写したテスト)は以前と同じツールのフォルダの中
         self.assertEqual(datadir.tool_dir("studio", "/r/src/studio", {"YTT_DATA_DIR": "inplace"}), os.path.abspath("/r/.data/studio"))   # src の下 = リポジトリ直下の .data/<ID>
         self.assertEqual(datadir.tool_dir("studio", "/x/y", {"YTT_DATA_DIR": "inplace"}, root="/r/src"), os.path.abspath("/r/.data/studio"))
-        self.assertEqual(datadir.prepare("studio", "/r/src/studio", [], {"YTT_DATA_DIR": "inplace"})["dir"], os.path.abspath("/r/.data/studio"))
+        self.assertEqual(datadir.prepare("studio", "/r/src/studio", {"YTT_DATA_DIR": "inplace"})["dir"], os.path.abspath("/r/.data/studio"))
 
-    def test_copy_once_and_keep_original(self):
-        logs = []
-        r = datadir.prepare("transcribe", self.legacy, ["transcripts", "settings.json", "dataset"], self.env, logs.append)
-        self.assertEqual((r["state"], r["dir"], r["migrated"]), ("migrated", self.new, ["transcripts", "settings.json"]))
-        with open(os.path.join(self.new, "transcripts", ".hist", "a", "1.json"), encoding="utf-8") as f:
-            self.assertEqual(f.read(), "old")                                   # 隠しフォルダの中も写す
-        self.assertTrue(os.path.isfile(os.path.join(self.legacy, "settings.json")))   # 元は消さない
-        self.assertTrue(logs and "消しません" in logs[0])
-        self.assertEqual(datadir.read_marker(self.new)["items"], ["transcripts", "settings.json"])
-        # 2回目は写さない(以前の場所が変わっても、新しい場所が正)
-        with open(os.path.join(self.legacy, "settings.json"), "w", encoding="utf-8") as f:
-            f.write("changed")
-        with open(os.path.join(self.new, "settings.json"), "w", encoding="utf-8") as f:
-            f.write("new")
-        self.assertEqual(datadir.prepare("transcribe", self.legacy, ["transcripts", "settings.json"], self.env)["state"], "done")
-        with open(os.path.join(self.new, "settings.json"), encoding="utf-8") as f:
-            self.assertEqual(f.read(), "new")
-
-    def test_existing_items_are_not_overwritten(self):
-        os.makedirs(self.new)
-        with open(os.path.join(self.new, "settings.json"), "w", encoding="utf-8") as f:
-            f.write("mine")
-        r = datadir.prepare("transcribe", self.legacy, ["transcripts", "settings.json"], self.env)
-        self.assertEqual(r["migrated"], ["transcripts"])
-        with open(os.path.join(self.new, "settings.json"), encoding="utf-8") as f:
-            self.assertEqual(f.read(), "mine")
-
-    def test_nothing_to_copy(self):
-        r = datadir.prepare("studio", os.path.join(self.tmp, "empty"), ["data.json"], self.env)
-        self.assertEqual((r["state"], r["dir"]), ("new", os.path.join(self.tmp, "data", "studio")))
+    def test_prepare_new_does_not_copy(self):
+        """以前の場所(ツールのフォルダ)にデータがあっても写さない(写しは 2026-10-18 に消した)。新しい場所を作るだけ"""
+        r = datadir.prepare("transcribe", self.legacy, self.env)
+        self.assertEqual((r["state"], r["dir"], r["warnings"]), ("new", self.new, []))
+        self.assertEqual(os.listdir(self.new), [])
 
     def test_inplace(self):
-        r = datadir.prepare("transcribe", self.legacy, ["transcripts"], {"YTT_DATA_DIR": "inplace"})
+        r = datadir.prepare("transcribe", self.legacy, {"YTT_DATA_DIR": "inplace"})
         self.assertEqual((r["state"], r["dir"]), ("inplace", os.path.abspath(self.legacy)))
         self.assertFalse(os.path.exists(self.new))
-
-    def test_not_enough_space_keeps_legacy(self):
-        r = datadir.prepare("transcribe", self.legacy, ["transcripts"], self.env, free_bytes=1024)
-        self.assertEqual((r["state"], r["dir"]), ("failed", os.path.abspath(self.legacy)))
-        self.assertIn("空き容量", r["warnings"][0])
-        self.assertFalse(os.path.exists(os.path.join(self.new, "transcripts")))
-        self.assertIsNone(datadir.read_marker(self.new))   # 次の起動でもう一度試す
-
-    def test_copy_failure_keeps_legacy_and_removes_partial(self):
-        real = datadir._copy_item
-        calls = []
-
-        def flaky(src, dst):
-            calls.append(src)
-            if src.endswith("settings.json"):
-                raise OSError("disk error")
-            return real(src, dst)
-        with mock.patch.object(datadir, "_copy_item", flaky):
-            r = datadir.prepare("transcribe", self.legacy, ["transcripts", "settings.json"], self.env)
-        self.assertEqual((r["state"], r["dir"]), ("failed", os.path.abspath(self.legacy)))
-        self.assertIn("disk error", r["warnings"][0])
-        self.assertFalse(os.path.exists(os.path.join(self.new, "transcripts")))   # 途中まで写した分も消す(古くなるため)
-        self.assertEqual(os.listdir(self.new), [])
-        r = datadir.prepare("transcribe", self.legacy, ["transcripts", "settings.json"], self.env)   # 次の起動で写し直す
-        self.assertEqual(r["state"], "migrated")
-
-    def test_size_mismatch_is_a_failure_and_leaves_no_part(self):
-        real_size = datadir._size
-        with mock.patch.object(datadir, "_size", side_effect=lambda p: (0, 0) if datadir.PART in p else real_size(p)):
-            r = datadir.prepare("transcribe", self.legacy, ["transcripts"], self.env)
-        self.assertEqual(r["state"], "failed")
-        self.assertEqual([n for n in os.listdir(self.new) if datadir.PART in n], [])
-
-    def test_leftover_part_is_cleaned(self):
-        os.makedirs(os.path.join(self.new, "transcripts" + datadir.PART + "123"))
-        r = datadir.prepare("transcribe", self.legacy, ["transcripts"], self.env)
-        self.assertEqual(r["state"], "migrated")
-        self.assertEqual(sorted(os.listdir(self.new)), [datadir.MARKER, "transcripts"])
-
-    @unittest.skipIf(os.name == "nt", "シンボリックリンクの作成に権限が要る")
-    def test_links_are_not_followed(self):
-        outside = os.path.join(self.tmp, "secret.txt")
-        with open(outside, "w") as f:
-            f.write("s")
-        os.symlink(outside, os.path.join(self.legacy, "transcripts", "link.json"))
-        datadir.prepare("transcribe", self.legacy, ["transcripts"], self.env)
-        self.assertFalse(os.path.lexists(os.path.join(self.new, "transcripts", "link.json")))
 
     def test_resolve_precedence(self):
         """置き場所の求め方は datadir の1か所(2026-10-01): 登録 → ツールごとの環境変数 → YTT_DATA_DIR・既定。env を渡したら登録を見ない"""
@@ -1565,28 +1484,28 @@ class TestDatadir(unittest.TestCase):
             self.assertEqual(datadir.resolve("transcribe", repo), os.path.join(self.tmp, "tx"))
 
     def test_prepare_override_and_register(self):
-        """prepare: ツールごとの環境変数があれば写さずにそこ(state=override)。env を渡さない(本物の起動)ときだけ登録する"""
+        """prepare: ツールごとの環境変数があればそこ(state=override)。env を渡さない(本物の起動)ときだけ登録する"""
         self.addCleanup(datadir.register, "transcribe", None)
         datadir.register("transcribe", None)
         tx = os.path.join(self.tmp, "tx")
-        r = datadir.prepare("transcribe", self.legacy, ["transcripts"], dict(self.env, TRANSCRIBE_DATA_DIR=tx))
-        self.assertEqual((r["dir"], r["state"], r["migrated"]), (tx, "override", []))
-        self.assertFalse(os.path.exists(self.new))                        # 写さない
+        r = datadir.prepare("transcribe", self.legacy, dict(self.env, TRANSCRIBE_DATA_DIR=tx))
+        self.assertEqual((r["dir"], r["state"]), (tx, "override"))
+        self.assertFalse(os.path.exists(self.new))                        # 新しい場所は作らない
         self.assertIsNone(datadir.registered("transcribe"))               # env を渡したら登録しない
-        datadir.prepare("transcribe", self.legacy, ["transcripts"], self.env)
+        datadir.prepare("transcribe", self.legacy, self.env)
         self.assertIsNone(datadir.registered("transcribe"))
         with mock.patch.dict(os.environ, self.env):
             os.environ.pop("TRANSCRIBE_DATA_DIR", None)
-            r = datadir.prepare("transcribe", self.legacy, ["transcripts"])
+            r = datadir.prepare("transcribe", self.legacy)
             self.assertEqual(r["dir"], self.new)
             self.assertEqual(datadir.registered("transcribe"), self.new)  # 本物の起動は決めた場所を登録する
             self.assertEqual(datadir.resolve("transcribe", os.path.join(self.tmp, "else")), self.new)
             os.environ["TRANSCRIBE_DATA_DIR"] = tx
-            self.assertEqual(datadir.prepare("transcribe", self.legacy, ["transcripts"])["state"], "override")
+            self.assertEqual(datadir.prepare("transcribe", self.legacy)["state"], "override")
             self.assertEqual(datadir.registered("transcribe"), tx)
         with mock.patch.dict(os.environ, {"YTT_DATA_DIR": "inplace"}):
             os.environ.pop("TRANSCRIBE_DATA_DIR", None)
-            self.assertEqual(datadir.prepare("transcribe", self.legacy, ["transcripts"])["state"], "inplace")
+            self.assertEqual(datadir.prepare("transcribe", self.legacy)["state"], "inplace")
             self.assertEqual(datadir.registered("transcribe"), os.path.abspath(self.legacy))   # inplace でも使う場所を登録する
 
     def test_every_server_test_isolates_data_dir(self):

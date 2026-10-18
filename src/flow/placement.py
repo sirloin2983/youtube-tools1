@@ -47,14 +47,10 @@ STEP_TIMES = ("startedAt", "finishedAt")   # 段の始まりと終わりの時�
 
 
 # ---------------------------------------------------------------- スタジオの data.json
-def studio_data(repo_root=None, env=None, legacy=False):
+def studio_data(repo_root=None, env=None):
     """スタジオの data.json の場所(読むだけの側が使う)。repo_root = ツールの親(src。None = このリポジトリ)・env = 環境変数(テスト用。
-    渡したときは登録を見ない)。legacy=True(編集の起動のとき)は、決めた場所に無く・登録も STUDIO_HOME も無ければ以前の場所
-    (スタジオのフォルダ = 移す前のデータ)"""
-    path = os.path.join(_datadir.resolve("studio", repo_root, env), STUDIO_DATA_NAME)
-    if not legacy or os.path.isfile(path) or _datadir.registered("studio") or _datadir.override("studio", env):
-        return path
-    return os.path.join(_layout.tool_dir("studio", repo_root), STUDIO_DATA_NAME)
+    渡したときは登録を見ない)"""
+    return os.path.join(_datadir.resolve("studio", repo_root, env), STUDIO_DATA_NAME)
 
 
 # ---------------------------------------------------------------- 案件の根

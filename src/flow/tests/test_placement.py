@@ -52,29 +52,17 @@ class TestStudioData(_Tmp):
     def old_cases(repo_root, env):   # manage/cases の locations の以前の式
         return os.path.join(datadir.resolve("studio", repo_root, env), "data.json")
 
-    @staticmethod
-    def old_editor(repo_root):   # 編集の serve.studio_data_path の以前の式(環境変数 TRANSCRIBE_STUDIO_DATA の無いとき)
-        legacy = layout.tool_dir("studio", repo_root)
-        new = os.path.join(datadir.resolve("studio", repo_root, legacy_dir=legacy), "data.json")
-        return new if os.path.isfile(new) or datadir.registered("studio") or datadir.override("studio") else os.path.join(legacy, "data.json")
-
     def test_same_as_cases(self):
         for env in ({"YTT_DATA_DIR": self.tmp}, {"YTT_DATA_DIR": "inplace"}, {"STUDIO_HOME": os.path.join(self.tmp, "s")}):
             self.assertEqual(placement.studio_data(self.tmp, env), self.old_cases(self.tmp, env), env)
         self.assertEqual(placement.studio_data(None, {"YTT_DATA_DIR": self.tmp}), os.path.join(self.tmp, "studio", "data.json"))
 
-    def test_same_as_editor(self):
+    def test_no_fallback_to_studio_folder(self):
+        """新しい置き場に data.json が無くても、以前の場所(スタジオのフォルダ)へは落ちない(2026-10-18 に消した)"""
         with mock.patch.dict(os.environ, {"YTT_DATA_DIR": os.path.join(self.tmp, "data")}):
             os.environ.pop("STUDIO_HOME", None)
-            # 新しい置き場に無い・登録も STUDIO_HOME も無い = 以前の場所(スタジオのフォルダ)
-            self.assertEqual(placement.studio_data(self.tmp, legacy=True), self.old_editor(self.tmp))
-            self.assertEqual(placement.studio_data(self.tmp, legacy=True), os.path.join(layout.tool_dir("studio", self.tmp), "data.json"))
-            # 新しい置き場にある = そちら
-            _touch(os.path.join(self.tmp, "data", "studio", "data.json"), b"{}")
-            self.assertEqual(placement.studio_data(self.tmp, legacy=True), self.old_editor(self.tmp))
-            self.assertEqual(placement.studio_data(self.tmp, legacy=True), os.path.join(self.tmp, "data", "studio", "data.json"))
-        with mock.patch.dict(os.environ, {"STUDIO_HOME": os.path.join(self.tmp, "home")}):
-            self.assertEqual(placement.studio_data(self.tmp, legacy=True), self.old_editor(self.tmp))
+            _touch(os.path.join(layout.tool_dir("studio", self.tmp), "data.json"), b"{}")
+            self.assertEqual(placement.studio_data(self.tmp), os.path.join(self.tmp, "data", "studio", "data.json"))
 
     def test_same_as_studio_itself(self):
         """スタジオの serve は決めた場所を set_home して datadir.register する = studio_env.p と同じ場所を読む"""
@@ -84,19 +72,17 @@ class TestStudioData(_Tmp):
         studio_env.set_home(home)
         datadir.register("studio", studio_env.home())
         self.assertEqual(placement.studio_data(), studio_env.p("data.json"))
-        self.assertEqual(placement.studio_data(legacy=True), studio_env.p("data.json"))
         self.assertEqual(placement.studio_data(), self.old_cases(None, None))
-        self.assertEqual(placement.studio_data(legacy=True), self.old_editor(None))
 
-    def test_workdata_default_is_the_legacy_value(self):
-        """編集の workdata.set_root の読み込み直後の既定(ytt の側。変えない)は、placement の legacy の値と同じ"""
+    def test_workdata_default_is_the_same(self):
+        """編集の workdata.set_root の読み込み直後の既定(ytt の側。変えない)は、inplace のとき placement の値と同じ"""
         saved = {k: getattr(workdata, k) for k in ("ROOT", "DATA_DIR", "TX_DIR", "TMP_DIR", "SETTINGS", "FEEDBACK", "MARKER_DATA", "STUDIO_DATA")}
         self.addCleanup(lambda: [setattr(workdata, k, v) for k, v in saved.items()])
         with mock.patch.dict(os.environ, {"YTT_DATA_DIR": "inplace"}):
             for k in ("TRANSCRIBE_STUDIO_DATA", "TRANSCRIBE_DATA_DIR", "STUDIO_HOME"):
                 os.environ.pop(k, None)
             workdata.set_root(os.path.join(self.tmp, "editor"))
-            self.assertEqual(workdata.STUDIO_DATA, placement.studio_data(self.tmp, legacy=True))
+            self.assertEqual(workdata.STUDIO_DATA, placement.studio_data(self.tmp))
 
 
 class TestCaseRoot(_Tmp):

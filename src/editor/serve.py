@@ -675,11 +675,6 @@ def startup_checks():
 _started = []
 
 
-# 以前の場所(このフォルダ)から新しい置き場へ写す名前。ログ・起動中の印・一時ファイル(transcripts/.tmp も)は写さなくてよいが、
-# transcripts はフォルダごと写す(.bak・.hist の控えも含めて)
-DATA_ITEMS = ("transcripts", "dataset", "evals", "models", "settings.json", "learn-feedback.json")
-
-
 def set_data_dir(d):
     """作業データの置き場所を切り替える(起動時に1回。ジョブが動く前)。ワーカーにも環境変数で伝える"""
     _workdata.set_data_dir(os.path.abspath(d))   # 文書・一時・保管・比較・基準・設定・提案の記録のパス(持ち主は ytt/workdata。RS3-0A)
@@ -693,20 +688,19 @@ def set_data_dir(d):
 
 def studio_data_path():
     """切り抜きスタジオの data.json(読むだけ)。環境変数 TRANSCRIBE_STUDIO_DATA(テスト用)が無ければ、置き場所の持ち主 flow/placement の
-    studio_data(legacy=True)(起動したスタジオが登録した場所 → STUDIO_HOME → 新しい置き場。そこに無く、登録も STUDIO_HOME も無ければ
-    以前の場所 = スタジオのフォルダ。RS6 b-B0 でここから移した。値は同じ)"""
+    studio_data(起動したスタジオが登録した場所 → STUDIO_HOME → 新しい置き場。RS6 b-B0 でここから移した)"""
     if os.environ.get("TRANSCRIBE_STUDIO_DATA"):
         return os.environ["TRANSCRIBE_STUDIO_DATA"]
-    return _placement.studio_data(os.path.dirname(_workdata.ROOT), legacy=True)
+    return _placement.studio_data(os.path.dirname(_workdata.ROOT))
 
 
 def choose_data_dir():
-    """起動時: 環境変数 TRANSCRIBE_DATA_DIR があればそれ。無ければ ytt.datadir(以前のデータがあれば新しい置き場へコピー)"""
+    """起動時: 環境変数 TRANSCRIBE_DATA_DIR があればそれ。無ければ ytt.datadir"""
     _workdata.STUDIO_DATA = studio_data_path()
     if os.environ.get("TRANSCRIBE_DATA_DIR"):
         set_data_dir(os.environ["TRANSCRIBE_DATA_DIR"])
         return
-    r = _datadir.prepare(ed_state.TOOL_ID, _workdata.ROOT, DATA_ITEMS, log=lambda m: print(m, flush=True))
+    r = _datadir.prepare(ed_state.TOOL_ID, _workdata.ROOT)
     for w in r["warnings"]:
         print("※ " + w, flush=True)
     set_data_dir(r["dir"])

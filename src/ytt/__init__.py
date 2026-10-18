@@ -10,7 +10,7 @@ Python 標準ライブラリだけで動く。読む側は src/ を sys.path に
 - schemas   … 受け渡しの形式(notes:docs/spec/pipeline.md)の名前・youtube-tools-clip/v1 の組み立てと検証・途中のファイルの置き場所(作業用/)
 - httpsec   … ローカルサーバーの安全検査(Host・Origin・Sec-Fetch-*・合言葉 token_ok)と画面の応答ヘッダー・JSON の本文 read_json_body・
               動画の Range 応答 send_file・使用中のポートに bind しないサーバー ExclusiveServer
-- datadir   … 作業データの置き場所(リポジトリの外)と、以前の場所からのコピー
+- datadir   … 作業データの置き場所(リポジトリの外)
 - layout    … リポジトリの中のフォルダ名(フォルダ名を知る場所はここだけ)・テストが写す共通のコードの一覧
 - jobs      … 重い処理の同時実行の上限(SLOTS)
 - colors    … 配信者の名前 → メンバーカラー(ホロカラーの一覧を読むだけ)

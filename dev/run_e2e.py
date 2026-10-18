@@ -34,9 +34,8 @@ SUITE = [
     ("cases", "src/app/tests/e2e_cases_cut.py", [], "カット・パックのパネル: 区間・保存・キー・パックの設定・パックを作る・作り直し・zip・2 つの窓の 409・切り替え・区間があるときの校正の行のカット(32 秒)"),
     # 確かめる /check(src/app/tests/。RS8 V1)
     ("cases", "src/app/tests/e2e_check.py", [], "確かめるの殻: 帯・カード 4 種類・キー・Z で戻す・飛ばす・自動で再生と区間で止まる・波形・10 件のまとめ・空・失敗・本物の口で空(13 秒)"),
-    # 3 ツールの通し・作業データの置き場所(dev/tests/)
+    # 3 ツールの通し(dev/tests/)
     ("dev", "dev/tests/e2e_pipeline.py", [], "スタジオ → 編集 → cut2resolve の API の通し(Playwright なし)(14 秒)"),
-    ("dev", "dev/tests/e2e_datadir.py", [], "作業データを外へ写す(入口を本物で起動)(7 秒)"),
     # 入口(src/app/tests/)
     ("home", "src/app/tests/e2e_portal.py", [], "ホーム(本番と同じ取り込み)・appnav・古い URL の転送・案件の画面の候補/校正/カット・新しい案件と探す設定・案件・次にやること・子プロセスの文字起こし(72 秒)"),
     ("home", "src/app/tests/e2e_autorun.py", [], "まとめて実行(画面と API・起動し直し後の記録)(27 秒)"),
