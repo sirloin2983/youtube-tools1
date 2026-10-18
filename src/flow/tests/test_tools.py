@@ -12,13 +12,13 @@ import json
 import shutil
 import subprocess
 import sys
-import tempfile
 import unittest
 import urllib.parse
 from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
 sys.path.insert(0, SRC)
+from ytt import testkit  # noqa: E402
 from flow import run as R, tools as T  # noqa: E402
 from pipeline.transcribe import backend, records, roster  # noqa: E402
 from ytt import workdata  # noqa: E402
@@ -204,8 +204,7 @@ class TestLocalPackSpecChecks(unittest.TestCase):
 @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg が無い")
 class TestLocalTranscribePack(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="flowtools_")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "flowtools_")
         data = os.path.join(self.tmp, "data")
         for name, value in (("ROOT", self.tmp), ("DATA_DIR", data), ("TX_DIR", os.path.join(data, "transcripts")), ("TMP_DIR", os.path.join(data, "transcripts", ".tmp")),
                             ("SETTINGS", os.path.join(data, "settings.json"))):

@@ -4,13 +4,12 @@ py -3.10 -m unittest src/flow/tests/test_sendpolicy.py -v"""
 import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-import shutil
 import sys
-import tempfile
 import unittest
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, SRC)
+from ytt import testkit  # noqa: E402
 from flow import deliveries as D, sendpolicy as P  # noqa: E402
 
 NOW = 1_800_000_000.0
@@ -77,8 +76,7 @@ class FakeRun:
 
 class TestDeliveries(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-deliv-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "ytt-deliv-")
 
     def test_record_and_read(self):
         row = D.record(self.tmp, os.path.join("x", "a.zip"), FakeRun("V1", "rid1"), ["p1"], {"p1": {"path": "c.mp4", "markId": "m1"}}, "request", 1500.0)

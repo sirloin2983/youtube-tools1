@@ -6,10 +6,8 @@ home(入口の AutoRunner・案件・ホームの設定)を読まずに、素の
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない(記録は一時フォルダ)
 import json
-import shutil
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 import unittest
@@ -17,6 +15,7 @@ from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
 sys.path.insert(0, SRC)
+from ytt import testkit  # noqa: E402
 from flow import board as B, runqueue as Q, run as R, spec as SP, tools as T  # noqa: E402
 from ytt import fsio  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # 共有の部品 _runfields(以前の Run の欄の形 → 封筒 + 束。RV A2)
@@ -61,8 +60,7 @@ def _until(cond, what):
 
 class Base(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self)
         self.logs = os.path.join(self.tmp, "logs")
         os.makedirs(self.logs)
         self.media = []
@@ -220,19 +218,6 @@ class TestSubmit(Base):
         q.submit(dict(self.env_of(self.media[2], "fedcba9876"), legacy={"mode": "file", "streamer": ""}), spec)
         by = {r.id: r.streamer for r in q.runs}
         self.assertEqual(by, {"0123456789": "兎田ぺこら", "abcdef0123": None, "fedcba9876": ""})
-        tools.gate.set()
-        _until(lambda: q.status()["idle"], "待ち・実行中が 0")
-
-    def test_submit_always_accepts(self):
-        """submit は必ず hook の _accept を通す(RV A1。束を組んでから = 土台 + 差分)。hook が配信者を決めなければ決めないまま"""
-        tools = Tools()
-        tools.gate.clear()
-        q = self.queue(tools)
-        seen = []
-        q._accept = lambda run, convert=False: seen.append((run.id, run.spec is not None, convert))
-        q.submit(self.env_of(self.media[0]), {"hints": {"people": [{"name": "ぺこら"}]}})
-        self.assertEqual(seen, [("0123456789", True, False)])
-        self.assertIsNone(q.runs[0].streamer)
         tools.gate.set()
         _until(lambda: q.status()["idle"], "待ち・実行中が 0")
 

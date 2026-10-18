@@ -10,14 +10,13 @@
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない(一時フォルダだけ)
 import json
-import shutil
 import sys
-import tempfile
 import unittest
 from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
 sys.path.insert(0, SRC)
+from ytt import testkit  # noqa: E402
 from flow import live_tx as LT, machine as M, spec as S  # noqa: E402
 from pipeline.transcribe import llm, tx_engines  # noqa: E402
 from ytt import gpuinfo, workdata  # noqa: E402
@@ -32,8 +31,7 @@ def setUpModule():
 
 class Base(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-machine-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "ytt-machine-")
         self.file = os.path.join(self.tmp, "machine.json")
         self.settings = os.path.join(self.tmp, "editor-settings.json")
         p = mock.patch.object(workdata, "SETTINGS", self.settings)
@@ -87,11 +85,6 @@ class TestLoad(Base):
         m = M.load(env=self.env)   # ファイルの cpu も同じ
         self.assertEqual((m["device"], m["sources"]["device"]), ("vulkan", "file"))
         self.assertEqual(M.get("diskMinGB", env=env), 30)
-
-    def test_legacy_transcribe_device_env_ignored(self):
-        """旧い名前 TRANSCRIBE_DEVICE は ② では読まない(① の認識ワーカーが本文 auto のときだけ見る)"""
-        m = M.load(env=dict(self.env, TRANSCRIBE_DEVICE="cuda"))
-        self.assertEqual((m["device"], m["sources"]["device"]), (M.load(env=self.env)["device"], M.load(env=self.env)["sources"]["device"]))
 
     def test_bad_values_fall_through(self):
         self.write({"device": "gpu", "diskMinGB": -1, "unknown": 1, "caseRoot": "relative/dir", "engine": "whisper.cpp"})

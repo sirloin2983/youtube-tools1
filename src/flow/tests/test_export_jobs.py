@@ -10,9 +10,7 @@
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-import shutil
 import sys
-import tempfile
 import threading
 import time
 import unittest
@@ -20,6 +18,7 @@ from unittest.mock import patch
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
 sys.path.insert(0, SRC)
+from ytt import testkit  # noqa: E402
 from flow import board as B, export as E  # noqa: E402
 from pipeline.export import exporter  # noqa: E402
 from ytt import jobs, studio_env  # noqa: E402
@@ -62,8 +61,7 @@ def wait(pred, sec=5):
 
 class Base(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self)
         saved = studio_env._home
         studio_env.set_home(self.tmp)
         self.addCleanup(setattr, studio_env, "_home", saved)

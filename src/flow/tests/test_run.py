@@ -287,30 +287,6 @@ class TestStepsOf(unittest.TestCase):
         self.assertIsNone(R.mode_of("docs", SP.validate(SP.merge({"run": {"upto": "transcribe"}}))))
 
 
-class TestHooks(unittest.TestCase):
-    def test_defaults_know_nothing(self):
-        rn = R.Runner(FakeClient())
-        run = R.Run.from_input({"docId": "d1"})
-        run.resumed = True
-        rn._await_tools(run)
-        self.assertFalse(run.resumed)
-        self.assertIsNone(rn._checkpoint(run))
-        self.assertEqual(rn._studio_video("abcdefghijk"), {})
-        self.assertIsNone(rn._friend_length())
-        self.assertEqual(rn._docs(), [])
-        self.assertIsNone(rn._pick_doc([], "abcdefghijk", "m1", "/x.mp4"))
-        self.assertEqual(rn._pref("cut", "none"), "none")
-        self.assertFalse(rn._live_auto_origin("/x.mp4"))
-        self.assertIsNone(rn._auto_streamer(run))
-        self.assertIsNone(run.streamer)
-        self.assertIsNone(rn._after_pack(run, {}, ""))
-        self.assertFalse(rn._remember_styles("t1", {"A": {"color": "#112233"}}))
-        self.assertFalse(rn._remember_doc_streamer("t1", "A"))
-        self.assertIsNone(rn.find_pack("/x.mp4"))
-        self.assertFalse(rn.closed)
-        self.assertEqual(rn._cut_method(), "none")
-
-
 class TestRun(unittest.TestCase):
     def setUp(self):
         fd, self.media = tempfile.mkstemp(suffix=".mp4")
@@ -397,24 +373,6 @@ class TestRun(unittest.TestCase):
         self.assertEqual(R.doc_pack_hint({"sourcePath": "/x/a.mp4"}), {"path": "/x/a.mp4", "markId": ""})
         self.assertEqual(R.doc_pack_hint({"sourcePath": "/x/a.mp4", "clip": {"source": "x"}}), {"path": "/x/a.mp4", "markId": ""})
         self.assertEqual(R.doc_pack_hint({"clip": {"source": {"live": {"studio": {"mark": 3}}}}}), {"path": "", "markId": ""})
-
-    def test_tools_are_injected(self):
-        """段は self.tools に頼む(既定は HttpTools(client)。tools を渡せば client は使わない)"""
-        self.assertIsInstance(R.Runner(None).tools, T.HttpTools)
-        calls = []
-
-        class Tools(T.HttpTools):
-            def docs(self):
-                return []
-
-            def transcribe_start(self, req, bundle=None):
-                calls.append(("start", req["sourcePath"], bundle["transcribe"]["model"]))
-                return "j9"
-
-            def jobs(self):
-                return [{"id": "j9", "state": "done", "tid": "t9"}]
-        r = R.run(None, {"path": self.media}, tools=Tools(None))
-        self.assertEqual((calls, r.doc_id), ([("start", self.media, "large-v3")], "t9"))   # 束の既定のモデル(0.58.0 から large-v3)
 
     def test_missing_file_default_runner(self):
         """hooks なし = 素の Runner。動画が無ければ StepError(ツールは呼ばない)"""

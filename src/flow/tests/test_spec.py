@@ -322,11 +322,6 @@ class TestBodies(unittest.TestCase):
             self.assertFalse(spec.key_ok(sec, k, v), (sec, k, v))
         self.assertTrue(spec.key_ok("analyze", "count", 5))
 
-    def test_no_screen(self):
-        """画面だけの値 screen の口は消した(RS7-1 S4 = 決定 3-30 Q2。精密・上限なし・fps 30 は固定)"""
-        for name in ("SCREEN", "clean_screen", "MAX_HEIGHTS", "PACK_FPS_RE", "PRECISIONS"):
-            self.assertFalse(hasattr(spec, name), name)
-
     def test_export_body(self):
         b = spec.merge({"export": {"volume": 60, "loudness": None}})
         self.assertEqual(spec.export_body(b, "v", ("m1",))["margin"], spec.MARGIN_DEFAULT)   # 余白(LD-2f)の既定

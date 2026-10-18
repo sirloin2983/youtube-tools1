@@ -10,14 +10,13 @@
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 import json
-import shutil
 import sys
-import tempfile
 import unittest
 from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
 sys.path.insert(0, SRC)
+from ytt import testkit  # noqa: E402
 from flow import diar, keys, learning, spec  # noqa: E402
 from manage.keep import learnpack  # noqa: E402  (束を作る側。テストの材料)
 from pipeline.transcribe import roster  # noqa: E402
@@ -36,8 +35,7 @@ def jwrite(path, obj):
 
 class Base(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-learning-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "ytt-learning-")
         data = os.path.join(self.tmp, "data", "transcribe")
         jwrite(os.path.join(data, "settings.json"), {"replacements": "a=>b"})
         rp = os.path.join(self.tmp, "roster.json")

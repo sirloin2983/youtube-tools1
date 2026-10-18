@@ -7,14 +7,13 @@
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 import json
-import shutil
 import subprocess
 import sys
-import tempfile
 import unittest
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> pipeline -> src
 sys.path.insert(0, SRC)
+from ytt import testkit  # noqa: E402
 from flow import runlog  # noqa: E402
 
 
@@ -30,8 +29,7 @@ def line(d):
 
 class TestRunlog(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-runlog-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "ytt-runlog-")
         self.path = os.path.join(self.tmp, runlog.RUNS_LOG)
 
     def write(self, name, data):

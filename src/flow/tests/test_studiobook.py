@@ -18,6 +18,7 @@ from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # src
+from ytt import testkit  # noqa: E402
 from flow import export as E, run as R, studiobook as SB, tools as T  # noqa: E402
 from pipeline.export import exporter as _exporter  # noqa: E402  (ffmpeg と yt-dlp の検査を外して ② の指定を組むだけを見る)
 from human.review import store as store_mod  # noqa: E402  (台帳の書いた物をスタジオの Store が読めるかを見るだけ。② の本体は ③ を読まない)
@@ -28,8 +29,7 @@ VID = "abcdefghijk"
 
 class Base(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt_sbook_")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "ytt_sbook_")
         self.home = os.path.join(self.tmp, "studio")
         self.out = os.path.join(self.tmp, "exports")
         os.makedirs(self.out)

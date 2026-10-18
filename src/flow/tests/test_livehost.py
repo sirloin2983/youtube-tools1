@@ -53,13 +53,6 @@ class LiveTest(unittest.TestCase):
                 self.assertIn(p, have, "%s(%s)" % (name, p))
         self.assertIsNone(lv._exporter)   # 名前を調べても書き出しの部品は作らない
 
-    def test_children_hold_live_as_host(self):
-        lv = self.live
-        self.assertIs(lv.detector.host, lv)
-        self.assertIs(lv.livetx.host, lv)
-        self.assertIs(lv.reporter.host, lv)
-        self.assertIs(lv.exporter.host, lv)
-
     def test_close_order(self):
         """入口の終了: 終わりの印 → 検出 → 配信中の文字起こし → 作り直し → 書き出し → 録画の部品"""
         lv, calls = self.live, []

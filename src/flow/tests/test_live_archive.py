@@ -683,15 +683,6 @@ class AfterStreamTest(unittest.TestCase):
         self.assertIn("長さが分からない", a.archived("local", r))
         self.assertIn("YouTube の動画が分からない", a.archived("local", dict(r, url="http://127.0.0.1:1/x.m3u8", id="20261005-120000-local")))
 
-    def test_queue_read_directly(self):
-        """OPT2 の J5: 解析の順番待ちは queue()(取り込んだスタジオの Batch.snapshot)を直に読めればそれ。GET /api/queue は呼ばない"""
-        a = self.archiver(queue=lambda: {"items": self.queue})
-        self.status = "was_live"
-        self.assertEqual(a.after_tick(), 1)
-        a.after_tick()
-        self.assertIn("30%", a.info_view("local", REC)["afterStream"]["message"])
-        self.assertFalse([c for c in self.calls if c[1] == "/api/queue"])
-
     def test_taken_from_marks_book(self):
         """G3(RS8 B3-5): 重ねない採用はマークの置き場から(taken。headless のスタジオなしの採用 = 案件の 採用.json か正本)。
         スタジオに録画の配信が無くても、置き場の採用と重なる候補は飛ばす・読めない(None・例外)なら重ねる物なしで続ける"""

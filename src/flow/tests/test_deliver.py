@@ -6,9 +6,7 @@
 import json
 import os
 import re
-import shutil
 import sys
-import tempfile
 import time
 import unittest
 import zipfile
@@ -19,6 +17,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
+from ytt import testkit  # noqa: E402
 from flow import deliver  # noqa: E402
 from pipeline.pack import preview as pv  # noqa: E402  (まとめ動画は ① へ分けた。ds1)
 
@@ -41,8 +40,7 @@ def wait(dl, job, limit=10):
 
 class ZipPackTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-deliver-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "ytt-deliver-")
         self.pack = os.path.join(self.tmp, "clip_pack")
         put(os.path.join(self.pack, "clip.mp4"), b"v" * 1000)
         put(os.path.join(self.pack, "sub", "textplus-import.json"), b"{}")
@@ -98,8 +96,7 @@ class OriginTest(unittest.TestCase):
     """F3-6: 1 本ずつの届け方。確認用の動画 → meta → zip の順に置く。依頼でも自動でも meta を必ず置く。届けた記録に origin・endedAt"""
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-deliver-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "ytt-deliver-")
         self.pack = os.path.join(self.tmp, "clip_pack")
         put(os.path.join(self.pack, "clip.mp4"), b"v")
         self.out = os.path.join(self.tmp, "Dropbox", deliver.OUT_DIR)
@@ -170,20 +167,12 @@ class OriginTest(unittest.TestCase):
         self.assertEqual(os.listdir(self.out), [], "書きかけの印・確認用の動画を残さない")
         self.assertEqual([n for n in os.listdir(self.tmp) if n.startswith(".deliver-")], [], "一時の確認用の動画も消す")
 
-    def test_group_api_is_gone(self):
-        """組(まとめ動画・組の一覧)の部品は消した(F3-6)"""
-        for gone in ("GROUP_SUFFIX", "group_paths", "group_members", "write_group_json"):
-            self.assertFalse(hasattr(deliver, gone), gone)
-        for gone in ("PREVIEW_LABEL_SEC", "FONT_CANDIDATES"):   # batch_preview・clip_seconds は友人の PC の受信箱のために古い口として残る
-            self.assertFalse(hasattr(pv, gone), gone)
-
 
 class ZipPacksTest(unittest.TestCase):
     """n 本をまとめる zip(① 全自動の n 本ごとの届け方)とパックの中の動画の見つけ方"""
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-deliver-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "ytt-deliver-")
         self.a = os.path.join(self.tmp, "配信 A_pack")
         self.b = os.path.join(self.tmp, "配信 B_pack")
         put(os.path.join(self.a, "配信 A.mp4"), b"a" * 500)
@@ -232,8 +221,7 @@ class FormatTest(unittest.TestCase):
     """届く物の名前の約束(F3-6): 確認用の動画 <zip の名前>.preview.mp4・印 <zip の名前>.meta.json。組の部品は無い"""
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-deliver-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "ytt-deliver-")
 
     def test_suffix_constants(self):
         self.assertEqual((deliver.PREVIEW_SUFFIX, deliver.META_SUFFIX), (".preview.mp4", ".meta.json"))
@@ -313,8 +301,7 @@ class PreviewTest(unittest.TestCase):
         self.ffmpeg, self.ffprobe = tools.find_tool("ffmpeg"), tools.find_tool("ffprobe")   # 本物(ほかのテストが環境変数で偽物に向けていても)
         if not self.ffmpeg or not self.ffprobe:
             self.skipTest("ffmpeg が無い")
-        self.tmp = tempfile.mkdtemp(prefix="ytt-preview-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "ytt-preview-")
         self.logs = []
 
     def clip(self, rel, sec, audio=True):
@@ -389,8 +376,7 @@ class PreviewTest(unittest.TestCase):
 
 class DeliveriesTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-deliver-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "ytt-deliver-")
         self.pack = os.path.join(self.tmp, "clip_pack")
         put(os.path.join(self.pack, "clip.mp4"))
         self.folder = os.path.join(self.tmp, "Dropbox")

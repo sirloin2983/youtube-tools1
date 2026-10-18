@@ -11,16 +11,15 @@
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない(一時フォルダだけ)
 import json
-import shutil
 import socket
 import subprocess
 import sys
-import tempfile
 import unittest
 from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
 sys.path.insert(0, SRC)
+from ytt import testkit  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # 共有の部品 _runfields(以前の Run の欄の形 → 封筒 + 束。RV A2)
 import _runfields as RF  # noqa: E402
 from flow import keys, placement, run as run_mod, runlog  # noqa: E402
@@ -38,8 +37,7 @@ def _touch(path, data=b"x"):
 
 class _Tmp(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="flowplace_")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "flowplace_")
 
 
 class TestStudioData(_Tmp):
@@ -526,8 +524,7 @@ class TestCaseRootsAndDeliveries(unittest.TestCase):
     """案件の根の一覧(placement.case_roots)と届けた記録の読み口(flow/deliveries)。OPT-M2"""
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="flowroots_")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "flowroots_")
 
     def test_case_roots(self):
         for d in ("b題", "a題", os.path.join(placement.REQUEST_DIR, "2026-10-01_x_abc123")):

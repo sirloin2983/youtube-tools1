@@ -6,9 +6,7 @@
 """
 import json
 import os
-import shutil
 import sys
-import tempfile
 import unittest
 import zipfile
 
@@ -17,6 +15,7 @@ SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
+from ytt import testkit  # noqa: E402
 from flow import outbox, runlog  # noqa: E402
 
 SECRET = "AIzaSyA1234567890abcdefghijklmnopqrstuv"
@@ -31,8 +30,7 @@ def put(path, data):
 
 class Base(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-outbox-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "ytt-outbox-")
         self.app = os.path.join(self.tmp, "app")
         self.case = os.path.join(self.tmp, "case")
         self.work = os.path.join(self.case, "作業用")

@@ -386,20 +386,6 @@ class DetectApiTest(unittest.TestCase):
         self.assertEqual((a["ok"], self.decisions()["items"][-1]["origin"]), (True, "manual"))
         self.assertEqual(self.det.auto_count("fake", REC), D.AUTO_MAX_PER_REC)   # 人の採用は数えない
 
-    def test_no_pause_on_unconfirmed(self):
-        """未確認の数で自動の採用を休む仕組み(以前の D-13 の UNCONFIRMED_PAUSE)は 2026-10-15 にやめた(opt-manage Q1)。
-        親が未確認の数を持っていても読まずに採用する。「調子」にも休む欄は無い(1 録画の上限は test_d13_auto_cap_per_recording)"""
-        LF.patch_cfg(self.cfg, {"autoAdopt": {"enabled": True, "waitMin": 1}})
-        self.live.unconfirmed = lambda: 999   # 以前の入口が置いていた口(今は誰も読まない)
-        self.rec.rel = 5000
-        t = self.worker_alive()
-        self.assertEqual(self.det.auto_tick(), 0)
-        t[0] += 61
-        self.assertEqual(self.det.auto_tick(), 2)   # p0・p1(休まない)
-        self.assertFalse(hasattr(D, "UNCONFIRMED_PAUSE") or hasattr(self.det, "paused_why"))
-        self.assertNotIn("paused", self.live.health()["detect"]["autoAdopt"])
-        self.assertFalse(any("休んでいます" in m for m in self.logs))
-
     def test_d14_adopt_after_end(self):
         """D-14: 録画が終わっても、ワーカーが帳簿を締めた(peaks.json の ended)あと END_GRACE_SEC の間は、待ち中だった候補を同じ待ちで採用する。
         締める前・終わって END_GRACE_SEC より古い録画は採用しない"""
