@@ -215,6 +215,7 @@ class TextTest(unittest.TestCase):
                          "パソコンの空きが少ないので待っています(あと 7 GB 空けると始まります)")
         self.assertEqual(P.text(None, None, False, blocked={"freeGB": 9.9, "minGB": 10}),
                          "パソコンの空きが少ないので待っています(あと 1 GB 空けると始まります)")
+        self.assertEqual(P.text(None, None, False), "")   # 段も待ちも無い
 
     def test_eta_formats(self):
         s = self.S
@@ -222,9 +223,6 @@ class TextTest(unittest.TestCase):
         self.assertEqual(P.text(s, 60, False), "2/5 見どころを探す・あと約 1 分")
         self.assertEqual(P.text(s, 80 * 60, False), "2/5 見どころを探す・あと約 1 時間 20 分")
         self.assertEqual(P.text(s, 2 * 3600, False), "2/5 見どころを探す・あと約 2 時間")
-
-    def test_none_stage(self):
-        self.assertEqual(P.text(None, None, False), "")
 
 
 if __name__ == "__main__":

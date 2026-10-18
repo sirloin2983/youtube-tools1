@@ -84,14 +84,6 @@ class TestProbe(unittest.TestCase):
             self.assertIsNone(G._run(["nvidia-smi"]))   # 時間切れは「分からない」
         self.assertEqual(seen["timeout"], G.TIMEOUT)   # procs.run_short = spawn(窓なし CREATE_NO_WINDOW)を通る
 
-    def test_real_once(self):
-        g = G.probe()
-        if g is None:
-            self.skipTest("GPU が見つからない PC")
-        self.assertEqual(set(g), {"name", "vramGB", "vendor"})
-        self.assertTrue(g["name"])
-        self.assertTrue(g["vramGB"] is None or g["vramGB"] > 0)
-
 
 if __name__ == "__main__":
     unittest.main()

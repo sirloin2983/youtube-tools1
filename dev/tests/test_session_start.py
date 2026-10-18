@@ -141,5 +141,6 @@ class SessionStartTest(unittest.TestCase):
         self.assertEqual(total, 1)
         self.assertEqual([r["ahead"] for r in act], [0])   # 未コミットがあるので出るが、先のコミットは無い
 
+
 if __name__ == "__main__":
     unittest.main()

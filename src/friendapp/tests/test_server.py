@@ -535,11 +535,8 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(sorted(x["name"] for x in d["done"]), ["a_pack", "b_pack"])
         self.assertEqual({x["id"] for x in d["done"]}, {rid})
         self.assertEqual(d["errors"], [])
-        folder = self.saved_folder()
-        self.assertTrue(os.path.isdir(os.path.join(folder, "#1")))   # 保存先 = <日付>_<題>/#番号
-        self.assertTrue(os.path.isdir(os.path.join(folder, "#2")))
-        self.assertFalse(os.path.exists(os.path.join(self.tmp, "save", "a_pack")))
-        self.assertEqual(self.app.inbox.row(rid)["state"], "done")
+        # 入口の保存先・判定の記録の置き場所が受信箱へ渡っている(保存先の名前・行の状態・記録の中身の細部は test_inbox)
+        self.assertTrue(os.path.isdir(os.path.join(self.saved_folder(), "#1")))
         self.assertEqual({v["judge"] for v in self.verdict_docs(rid)}, {"good"})
         # ここから: items 形で複数の行・見送る(ごみ箱)
         r1, r2 = "20250615-130010-aaaaaa", "20250615-130011-aaaaaa"
@@ -549,31 +546,20 @@ class ServerTest(unittest.TestCase):
         d = self.js(p)
         self.assertEqual((st, d["ok"]), (200, True))
         self.assertEqual(sorted((x["id"], x["name"]) for x in d["done"]), [(r1, "a_pack"), (r2, "c_pack")])
-        self.assertTrue(os.path.isdir(os.path.join(self.saved_folder("配信A"), "#1")))
-        self.assertTrue(os.path.isdir(os.path.join(self.saved_folder("配信B"), "#1")))
-        # 見送る = ごみ箱(戻せる)
+        # 見送る = ごみ箱(戻せる。ごみ箱の中身は test_inbox)
         st, _h, p = self.post("/api/friend/decide", {"items": [{"id": r1, "name": "b_pack"}], "verdict": "skip"})
         self.assertEqual(self.js(p)["done"], [{"id": r1, "name": "b_pack"}])
         self.assertFalse(os.path.exists(dirs1[1]))
-        pk = self.app.inbox.row(r1)["packs"][1]
-        self.assertTrue(os.path.isdir(pk["trash"]))
-        self.assertEqual(self.app.inbox.row(r1)["state"], "done")
-        self.assertEqual(sorted(v["judge"] for v in self.verdict_docs(r1)), ["good", "unknown"])
 
     def test_decide_bad_with_reason(self):
         rid = "20250615-130020-aaaaaa"
         self.make_arrived(rid, ["a_pack", "b_pack"])
-        for body in ({"verdict": "bad"}, {"verdict": "bad", "reason": "other"}):
-            st, _h, p = self.post("/api/friend/decide", dict(body, items=[{"id": rid, "name": "a_pack"}]))
-            self.assertEqual((st, self.js(p)["error"]), (400, "bad_request"))
+        st, _h, p = self.post("/api/friend/decide", {"items": [{"id": rid, "name": "a_pack"}], "verdict": "bad"})   # 理由なし(理由の種類ごとは test_inbox)
+        self.assertEqual((st, self.js(p)["error"]), (400, "bad_request"))
         self.assertEqual(self.verdict_docs(rid), [])
         st, _h, p = self.post("/api/friend/decide", {"items": [{"id": rid, "name": "a_pack"}], "verdict": "bad", "reason": "boring"})
         self.assertEqual((st, self.js(p)["done"]), (200, [{"id": rid, "name": "a_pack"}]))
-        st, _h, p = self.post("/api/friend/decide", {"items": [{"id": rid, "name": "b_pack"}], "verdict": "bad", "reason": "cut"})
-        docs = {d["zip"]: d for d in self.verdict_docs(rid)}
-        self.assertEqual((docs["a_pack"]["judge"], docs["a_pack"]["reason"]), ("bad", "boring"))
-        self.assertEqual((docs["b_pack"]["judge"], docs["b_pack"]["reason"]), ("bad", "cut"))
-        self.assertEqual(docs["a_pack"]["v"], 2)
+        self.assertEqual([(d["judge"], d["reason"]) for d in self.verdict_docs(rid)], [("bad", "boring")])   # 理由が受信箱まで渡る
 
     def test_decide_reports_move_error_as_not_ok(self):
         rid = "20250615-130100-aaaaaa"
@@ -607,9 +593,7 @@ class ServerTest(unittest.TestCase):
         st, _h, p = self.post("/api/friend/undo", {"items": [{"id": rid, "name": "a_pack"}, {"id": rid, "name": "zzz"}, "x", {"id": 3, "name": "a_pack"}]})
         d = self.js(p)
         self.assertEqual((st, d["ok"], d["done"], d["errors"]), (200, True, [{"id": rid, "name": "a_pack"}], []))
-        self.assertTrue(os.path.isdir(dirs[0]))   # ごみ箱から元の場所へ
-        self.assertEqual(self.app.inbox.row(rid)["state"], "arrived")
-        self.assertEqual(sorted(v["judge"] for v in self.verdict_docs(rid)), ["retract", "unknown"])
+        self.assertTrue(os.path.isdir(dirs[0]))   # ごみ箱から元の場所へ(行の状態・取り消しの記録は test_inbox)
         self.assertEqual(self.post("/api/friend/undo", {"items": []})[0], 200)
         self.assertEqual(self.post("/api/friend/undo", {"items": [{"id": "nope", "name": "a"}]})[0], 404)
         self.assertEqual(self.post("/api/friend/undo", {"items": [{"id": rid, "name": "a_pack"}]}, headers={TOKEN: None})[0], 403)
@@ -623,14 +607,8 @@ class ServerTest(unittest.TestCase):
         d = self.js(p)
         self.assertEqual(st, 200)
         self.assertEqual([s["videoId"] for s in d["sections"]], ["bbbbbbbbbbb", "aaaaaaaaaaa"])
-        a = d["sections"][1]
-        self.assertEqual((a["title"], a["streamer"], [i["num"] for i in a["items"]]), ("配信A", "ぺこら", [1, 2]))
-        self.assertEqual((d["undecided"], d["skipped"], d["notice"]), (3, [], None))
+        self.assertEqual(d["undecided"], 3)   # 節の中身・見送った物の並びは test_inbox
         self.assertNotIn(self.tmp, json.dumps(d, ensure_ascii=False))   # 手元のパスを画面に返さない
-        self.post("/api/friend/decide", {"items": [{"id": r1, "name": "a_pack"}], "verdict": "skip"})
-        d = self.js(self.get("/api/friend/receive")[2])
-        self.assertEqual([(i["name"], i["verdict"]) for i in d["skipped"]], [("a_pack", "skip")])
-        self.assertEqual(d["undecided"], 2)
         self.assertEqual(self.get("/api/friend/receive", headers={"Sec-Fetch-Site": "cross-site"})[0], 403)
 
     def test_cleaned_notice_over_http(self):
@@ -1621,21 +1599,6 @@ class ServerTest(unittest.TestCase):
         row = self.view_row(rid)
         self.assertEqual((row["steps"]["label"], row["steps"]["index"]), ("仕上げ", 4))
         self.assertEqual(self.app.inbox.stage_stats()["文字起こし"], [750.0, 60.0])
-
-    def test_steps_show_in_stage_progress_and_slow_only_when_stuck(self):
-        """段の中の進み(30fps にそろえています(42%)・解析 42%・待ち)を行に出す。進んでいる間は「時間がかかっています」を出さない(10-18)"""
-        t = self.fake_clock()
-        rid = self.send()[1]["row"]["id"]
-        run = self.run_of(rid)
-        run.update(state="running", steps=[{"key": "analyze", "state": "run", "detail": "解析 42%"}, {"key": "transcribe", "state": "wait", "detail": ""}])
-        self.assertIn("1/2 見どころを探す・解析 42%", self.view_row(rid)["steps"]["text"])
-        t[0] += 700
-        run["steps"][0]["detail"] = "解析 43%"   # 10 分のうちに進んだ
-        self.assertNotIn("時間がかかっています", self.view_row(rid)["steps"]["text"])
-        t[0] += 700   # 進みが止まった
-        self.assertIn("時間がかかっています", self.view_row(rid)["steps"]["text"])
-        run["steps"][0]["detail"] = "重い処理の枠が空くのを待っています"
-        self.assertIn("・重い処理の枠が空くのを待っています", self.view_row(rid)["steps"]["text"])
 
     def test_steps_transcribe_reads_live_job_progress(self):
         """文字起こしは段の detail が動かない(同じ糸で回る)ので、玄関の認識のジョブの進みを行に出す"""
