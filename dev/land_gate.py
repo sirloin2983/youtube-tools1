@@ -50,7 +50,7 @@ MANUAL = {"friend-apps/holo-colors/": r"friend-apps\holo-colors\build.bat",
           "friend-apps/common/": r"friend-apps\launcher\build.bat",
           "chrome-ext/yt-studio-time/": "node --test chrome-ext/yt-studio-time/tests/test_main.cjs"}
 # テストの要らない場所(lint・notes_tool が見る)
-NO_TESTS = ("codemap/", "docs/", "plan/", ".claude/", "README.txt", "AGENTS.md", "CLAUDE.md", ".gitignore", ".gitattributes", "push.bat")
+NO_TESTS = ("codemap/", ".claude/", "README.txt", "AGENTS.md", "CLAUDE.md", ".gitignore", ".gitattributes", "push.bat")
 TABLE_HEAD = "## 6. フォルダと、変えたら通すテスト"
 TAIL = 12
 

@@ -68,7 +68,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(REPO, "src")
 # 絶対パス禁止(A-01)の対象 = 案件の画面と、そこが相対パスで読む部品(RS8 C4 でスタジオ・編集の画面のページは消した。部品の JS・CSS は残る)
 MOUNTED = ("app/ui/studio", "app/ui/editor", "app/ui/cases", "app/ui/check")
-SCREENS = {"app/ui/home": ["portal.html", "portal.js", "portal.css", "portal-edit.js", "intake.html", "intake.js", "backup.html", "backup.js", "live.html", "live.js"],
+SCREENS = {"app/ui/home": ["portal.html", "portal.js", "portal.css", "portal-edit.js"],
            "app/ui/settings": ["index.html", "settings.js", "settings.css"],
            # 案件の画面(/cases。RS8。入口が配る 1 枚。panels/new.* はホームの「新しい案件」の引き出しも読む)
            "app/ui/cases": ["index.html", "cases.js", "cases.css", "edhost.js", "panels/cand.js", "panels/cand.css", "panels/proof.js", "panels/proof.css",
@@ -82,7 +82,7 @@ SCREENS = {"app/ui/home": ["portal.html", "portal.js", "portal.css", "portal-edi
            "friendapp/ui": ["friend.html", "friend.js", "friend.css", "setup.html", "setup.js", "settings.js", "settings.css", "host.js"],
            "ui-kit": ["ui-kit.css", "ui-kit.js", "styleguide.html", "styleguide.js"]}
 # ホームの画面に文が出る .py(server.py の argparse・backup.py の CLI の問いは黒い画面に出るだけなので見ない)。/ を含む物は src/ からのパス(役割の層へ移した物)
-HOME_PY = ["autorun.py", "manage/cases/cases.py", "flow/delivery.py", "live.py", "pipeline/ingest/live_archive.py", "pipeline/export/live_export.py", "pipeline/live_failures.py", "eval/drill/accuracy.py","manage/ops/health.py", "manage/keep/cleanup.py", "flow/deliver.py", "pipeline/pack/preview.py", "human/friend/intake.py", "manage/ops/restart.py"]
+HOME_PY = ["autorun.py", "manage/cases/cases.py", "flow/delivery.py", "live.py", "flow/live_archive.py", "flow/live_export.py", "flow/live_failures.py", "eval/drill/accuracy.py","manage/ops/health.py", "manage/keep/cleanup.py", "flow/deliver.py", "pipeline/pack/preview.py", "human/friend/intake.py", "manage/ops/restart.py"]
 # 用語集(notes:docs/spec/ui.md の 1)の「使わない言葉」のうち、文脈によらず使わないもの(「動画」「削除」「更新」「ショート」は別の意味で使うので見ない = B-04)
 BANNED_TERMS = ["ストリーム", "トランスクリプト", "セグメント", "カットリスト", "編集点", "削除区間", "自動カット", "パッケージ", "再生成", "ポータル", "一括実行", "操作キー", "ショートカット",
                 "文字起こしツール", "Resolve パック", "Resolveパック", "Resolve のパック", "クリップ", "プリセット", "入口"]

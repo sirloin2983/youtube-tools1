@@ -54,7 +54,7 @@ JS_FUNC = re.compile(r"^(?:\s*)function\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(", re.M
 VERSION_FILE = ("src/ytt/version.py", r'^VERSION\s*=\s*"(\d+\.\d+\.\d+)"')
 VERSION_LITERALS = [   # 版の数字そのものを書いてはいけない所(version.py から読む)
     ("src/studio/serve.py", r'^SERVER_VERSION\s*=\s*"(\d[^"]*)"'), ("src/editor/serve.py", r'^SERVER_VERSION\s*=\s*"(\d[^"]*)"'),
-    ("src/studio/core.js", r"APP_VERSION\s*=\s*['\"](\d[^'\"]*)['\"]"), ("src/app/ui/editor/app.js", r"APP_VERSION\s*=\s*['\"](\d[^'\"]*)['\"]"),
+    ("src/app/ui/editor/app.js", r"APP_VERSION\s*=\s*['\"](\d[^'\"]*)['\"]"),
     ("src/pipeline/pack/cut2resolve_core.py", r'^VERSION\s*=\s*"(\d[^"]*)"'), ("src/app/server.py", r'^VERSION\s*=\s*"(\d[^"]*)"'),
     ("src/pipeline/ingest/recorder.py", r'^VERSION\s*=\s*"(\d[^"]*)"'), ("src/manage/ops/analytics/__init__.py",r'^VERSION\s*=\s*"(\d[^"]*)"'),
     ("src/flow/live_export.py", r'^VERSION\s*=\s*"(\d[^"]*)"'),

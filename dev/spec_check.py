@@ -39,7 +39,7 @@ GONE = re.compile(r"RequestSender|request-sender|送るアプリ|依頼ボック
 GONE_OK = ("dev/spec_check.py", "dev/tests/test_doc_state.py", ".gitignore", "dev/push_helper.py", "dev/tests/test_push_helper.py")
 GONE_NOTES = ("AGENTS.md", "docs/spec", "codemap")
 CODE_EXTS = (".py", ".js", ".cjs", ".mjs", ".cs", ".bat", ".vbs", ".ps1", ".html", ".json", ".txt", ".command", ".gs", ".css")
-SELF = ("dev/spec_check.py", "dev/tests/test_spec_check.py")
+SELF = ("dev/spec_check.py",)
 
 
 def git_files():
