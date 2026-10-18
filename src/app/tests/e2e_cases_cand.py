@@ -152,7 +152,7 @@ def main():
 
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch()
+            browser = p.chromium.launch(args=["--mute-audio"])
             try:
                 ctx = browser.new_context(viewport={"width": 1440, "height": 900})
                 pg = ctx.new_page()
@@ -288,8 +288,9 @@ def main():
                                   "const b = x && x.querySelector('.ui-toast-act'); return !!b && b.textContent === '編集で開く'; })()", 8000),
                       "書き出しが済んだ知らせに [編集で開く]")
                 href = pg.get_attribute("#rvExpList .rv-ejob.st-ok a[data-edit-open]", "href") or ""
-                path = urllib.parse.unquote(href.split("?media=", 1)[1]) if "?media=" in href else ""
-                check(href.startswith("transcribe/?media=") and os.path.isfile(path), "「編集で開く」は相対パスで、実在する mp4: %s" % href[:80])
+                path = urllib.parse.unquote(href.split("?v=", 1)[1].split("#", 1)[0]) if "?v=" in href else ""
+                check(href.startswith("/cases?v=") and href.endswith("#proof") and os.path.isfile(path),
+                      "「編集で開く」は案件の画面(/cases?v=…#proof)で、実在する mp4: %s" % href[:80])
                 check(wait_js(pg, "!!document.querySelector('#rvList .rv-mark-row[data-id=\"m1\"].st-exported')", 10000), "書き出し済みの印")
                 end = time.time() + 8
                 while not sent_tx and time.time() < end:

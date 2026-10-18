@@ -2,7 +2,7 @@
 """リアルタイム切り抜き(線 D の P3。notes:plan/line-d-live-clipping.md の 0-8)の通しの確認: 入口にスタジオを取り込み、録画の部品を別のプロセスで立て、
 ブラウザでホームの「新しい案件」(/#new)から録画を始め、案件の画面の候補のパネル(/cases?c=<録画 id>#cand。panels/cand.js が
 スタジオの review.js と LivePlayer を載せる)で再生・マーク・書き出しを操作する。本物の YouTube には繋がない。
-(RS8 C4 でスタジオの画面のページ(/studio/)を消した。古い URL /studio/?video=<id> は入口が /cases?c=<id>#cand へ転送する = 12 で確かめる)
+(RS8 C4 でスタジオの画面のページ(/studio/)を消した。古い URL /studio/?video=<id> の転送も棚卸し G5 で消した = 12 は /cases?c=<id>#cand を開き直す)
 
     py -3.12 src/app/tests/e2e_live_studio.py                 # 確かめる(終了コード 0 = すべて OK)
     py -3.12 src/app/tests/e2e_live_studio.py --shots DIR     # あわせて ② などのスクリーンショットを DIR に残す
@@ -29,7 +29,7 @@
   9 札 → 一覧(「開く」は /cases?c=<録画 id>#cand)→「停止」二度押し → 帯「録画は終わりました…」・札「録画終了」・duration が有限・最後まで再生
   10 終わった録画でマーク → 採用 →「書き出す」  11 画質(live.quality)→ 次の begin・置き場所と空きは「調子」(/api/health の live)
      (スタジオの ⚙ の「ライブの録画」の欄はスタジオの画面と一緒に消えた。案件の画面の ⚙ はテーマなどだけ)
-  12 古い URL /studio/?video=<id> は /cases?c=<id>#cand へ転送され、開き直すとマークが残っている  14 コンソールのエラー・404・CSP 違反なし
+  12 /cases?c=<id>#cand を開き直すとマークが残っている  14 コンソールのエラー・404・CSP 違反なし
   15 書き出したあと(帯の select。設定 liveAfter)と配信者(字幕の色): begin のチャンネル名がスタジオの配信に入る・帯の「配信者」がチャンネル名から自動で入る・
      「全自動」にしてマーク → 入口がまとめて実行へ flow auto と配信者の名前を渡す・帯で名前を直すと次の書き出しに渡り、録画とチャンネルに覚える・
      見回りで select・欄が作り直されない(値も戻らない)・開き直しても選んだ値と直した名前
@@ -189,7 +189,6 @@ def run(tmp, shots, force_chromium):
         return 1
     serve.Handler.log_message = lambda self, fmt, *a: None
     base = "http://127.0.0.1:%d" % port
-    studio_url = base + "/studio/"   # 古い画面の URL(C4 で消した。入口が案件の画面へ転送する = 12 で確かめる)
 
     def cases_url(r):
         return base + "/cases?c=%s#cand" % r
@@ -295,11 +294,11 @@ def run(tmp, shots, force_chromium):
             browser, edge = None, False
             if not force_chromium:
                 try:
-                    browser, edge = p.chromium.launch(channel="msedge"), True
+                    browser, edge = p.chromium.launch(channel="msedge", args=["--mute-audio"]), True
                 except Exception as e:
                     print("(Edge を起動できませんでした: %s。Playwright の chromium で続けます)" % str(e).splitlines()[0])
             if browser is None:
-                browser = p.chromium.launch()
+                browser = p.chromium.launch(args=["--mute-audio"])
             print("ブラウザ: %s" % ("Edge(H.264 を再生できる)" if edge else "Playwright の chromium(再生が要る確認は飛ばす)"), flush=True)
             try:
                 ctx = browser.new_context(viewport={"width": 1440, "height": 900}, color_scheme="light")
@@ -774,7 +773,7 @@ def _scene_badge_stop(cx):
 def _scene_after_end(cx):
     """10. 終わった録画でマークして「書き出す」 / 12. 読み込み直す / 11 の続き: 次の begin はその画質で"""
     api, base, check, edge, handed, handed_who, live, n_jobs, normalize = cx.api, cx.base, cx.check, cx.edge, cx.handed, cx.handed_who, cx.live, cx.n_jobs, cx.normalize
-    ctx, pg, probes, rid, shots, srv, starts, studio_url, watch = cx.ctx, cx.pg, cx.probes, cx.rid, cx.shots, cx.srv, cx.starts, cx.studio_url, cx.watch
+    ctx, pg, probes, rid, shots, srv, starts, cases_url, watch = cx.ctx, cx.pg, cx.probes, cx.rid, cx.shots, cx.srv, cx.starts, cx.cases_url, cx.watch
     # ---------------- 10. 終わった録画でマークして「書き出す」 ----------------
     pg.click("#rvAutoExp")   # 「マークしたらすぐ書き出す」を外す(いつものスタジオと同じ: 採用 → 書き出す)
     check(not pg.is_checked("#rvAutoExp"), "10 「マークしたらすぐ書き出す」を外せる")
@@ -826,10 +825,11 @@ def _scene_after_end(cx):
               "10 2本目も 30fps・長さが区間と合う: %.2f 秒" % (info or {}).get("duration", 0))
     pg.click("#rvExpClose")
 
-    # ---------------- 12. 読み込み直す(古い URL /studio/?video=<id> → 入口が /cases?c=<id>#cand へ転送) ----------------
-    pg.goto(studio_url + "?video=" + rid)
+    # ---------------- 12. 読み込み直す(/cases?c=<id>#cand を開き直す。古い URL /studio/?video= の転送は棚卸し G5 で消した) ----------------
+    pg.goto("about:blank")   # 同じ URL(# だけ)への goto は読み込み直さないので、いったん離れる
+    pg.goto(cases_url(rid))
     here = pg.evaluate("() => location.pathname + location.search + location.hash")
-    check(here == "/cases?c=%s#cand" % rid, "12 古い URL /studio/?video=<id> は案件の画面の候補へ転送される: %s" % here)
+    check(here.startswith("/cases?c=%s" % rid) and here.endswith("#cand"), "12 案件の画面の候補を開き直す: %s" % here)
     check(wait_js(pg, "() => (%s)() && document.querySelectorAll('#rvList .rv-mark-row').length === %d" % (CAND_LIVE, n_jobs + 1), 15000),
           "12 開き直すと、その録画が開いてマークが残っている")
     check(wait_js(pg, "() => /停止|終了/.test(document.querySelector('#rvRecState').textContent)", 10000), "12 開き直しても録画の状態は「停止」")

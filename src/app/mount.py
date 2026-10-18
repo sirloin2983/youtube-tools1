@@ -36,8 +36,8 @@ MOUNTS = {
     # YouTube のプレイヤー(iframe_api)だけ外部のスクリプトを許す。スタイルの属性は画面が使うので制限しない
     "studio": _mount_spec("studio", "script-src 'self' https://www.youtube.com https://s.ytimg.com; object-src 'none'; base-uri 'none'; "
                                     "form-action 'none'; frame-ancestors 'none'"),
-    # cut2resolve の画面は「編集」に統合して消したので、画面を開いたら「編集」へ転送する(「編集」も取り込まれているときだけ。API は今までどおり /cut2resolve/api/...)
-    "cut2resolve": _mount_spec("cut2resolve", None, page_to={"prefix": "/transcribe", "params": {"video": "media"}}),
+    # cut2resolve の画面は「編集」に統合して消した(/ は案内の 1 枚だけ。API は今までどおり /cut2resolve/api/...)
+    "cut2resolve": _mount_spec("cut2resolve", None),
     # 文字起こし: 認識(faster-whisper・sherpa-onnx)は pipeline/transcribe/worker.py(別プロセス)で動くので、入口のプロセスにネイティブのライブラリは入らない
     "transcribe": _mount_spec("transcribe", "script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"),
 }
@@ -122,9 +122,8 @@ def send_redirect(h, code, location, extra=None):
     h.end_headers()
 
 
-def make_handler(mod, prefix, token, csp, access_log=None, page_to=None):
-    """ツールの Handler を、/prefix の下で動くように包んだクラス。
-    page_to: {"prefix", "params"} があれば、画面(/ と /index.html)を開いたときに、そのツールの画面へ転送する(そのツールも取り込まれているときだけ)"""
+def make_handler(mod, prefix, token, csp, access_log=None):
+    """ツールの Handler を、/prefix の下で動くように包んだクラス。"""
     base = mod.Handler
     tool_id = prefix.strip("/")
 
@@ -145,8 +144,6 @@ def make_handler(mod, prefix, token, csp, access_log=None, page_to=None):
                 self._json(404, {"error": "not_found", "message": "その場所はありません"})
                 return False
             self.path = self.path[len(prefix):]
-            if page_to and self.command in SAFE_METHODS and self._page_moved():
-                return False
             if self.command not in SAFE_METHODS and not httpsec.token_ok(self.headers, token, TOKEN_HEADER):
                 # 断る要求の本文は読み捨てる(読まずに閉じると Windows では接続ごと切られ、403 が届かないことがある。2026-10-03)
                 httpsec.drain_body(self.headers, self.rfile)
@@ -159,15 +156,6 @@ def make_handler(mod, prefix, token, csp, access_log=None, page_to=None):
                 else:
                     serve(self, tool_id, str(getattr(mod, "SERVER_VERSION", "")))
                 return False
-            return True
-
-        def _page_moved(self):
-            u = urllib.parse.urlsplit(self.path)
-            q = urllib.parse.parse_qs(u.query)
-            if u.path not in ("/", "/index.html") or page_to["prefix"] not in (getattr(self.server, "mounts", None) or {}):
-                return False
-            out = [(dst, q[src][0][:4000]) for src, dst in page_to["params"].items() if q.get(src) and q[src][0].strip()]
-            send_redirect(self, 302, page_to["prefix"] + "/" + ("?" + urllib.parse.urlencode(out) if out else ""), {"Cache-Control": "no-store"})
             return True
 
         def _send(self, code, body=b"", ctype="text/plain; charset=utf-8", extra=None):
@@ -211,7 +199,7 @@ class Mount:
             raise MountError("%s の CSP が取り込みの条件(script-src にインラインを許さない)を満たしません" % self.id)
         self.mod.ALLOWED_HOSTS = set(allowed_hosts)
         self.mod.prepare(port, self.path)
-        self.handler = make_handler(self.mod, self.prefix, token, csp, self._access_log, self.spec.get("page_to"))
+        self.handler = make_handler(self.mod, self.prefix, token, csp, self._access_log)
         return self.handler
 
     def version(self):

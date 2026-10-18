@@ -788,18 +788,18 @@ test('export done notice has [編集で開く] with the same URL as the row link
   // 0.23.4: copyText は UIKit.copy にしたので、切り出しの終わりは次の関数(jobDirText)。openEditor は UIKit.win を直接使う
   const ctx = load([['function editorHref(', 'function jobDirText(']], {
     enc: encodeURIComponent, toast: (m, ms, k) => shown.push({ m, ms, k }),
-    Studio: { token: 't', toolUrl: (id, p) => '/transcribe' + p, toast: (m, o) => shown.push({ m, o }) },
+    Studio: { token: 't', toast: (m, o) => shown.push({ m, o }) },
     UIKit: makeUIKit({ 'win.isApp': () => app, 'win.open': u => { opened.push(['win', u]); return Promise.resolve(); } }),
     window: { open: (u, t, f) => opened.push(['tab', u, t, f]) } });
-  assert.equal(ctx.editorHref('C:\\clips\\a b.mp4'), '/transcribe/?media=C%3A%5Cclips%5Ca%20b.mp4');
+  assert.equal(ctx.editorHref('C:\\clips\\a b.mp4'), '/cases?v=C%3A%5Cclips%5Ca%20b.mp4#proof');
   ctx.doneToast('書き出し完了: 1/1件', 'ok', ['C:\\clips\\a.mp4']);
   const t1 = shown.at(-1);
   assert.equal(t1.o.action.label, '編集で開く'); assert.equal(t1.o.ms, 8000); assert.equal(t1.o.kind, 'ok');
   t1.o.action.fn();
-  assert.deepEqual(opened.at(-1), ['tab', '/transcribe/?media=C%3A%5Cclips%5Ca.mp4', '_blank', 'noopener'], 'a browser tab: a new tab, like the row link');
+  assert.deepEqual(opened.at(-1), ['tab', '/cases?v=C%3A%5Cclips%5Ca.mp4#proof', '_blank', 'noopener'], 'a browser tab: a new tab, like the row link');
   app = true;
   t1.o.action.fn();
-  assert.deepEqual(opened.at(-1), ['win', '/transcribe/?media=C%3A%5Cclips%5Ca.mp4'], 'an app window: asks the home to open a window (UIKit.win)');
+  assert.deepEqual(opened.at(-1), ['win', '/cases?v=C%3A%5Cclips%5Ca.mp4#proof'], 'an app window: asks the home to open a window (UIKit.win)');
   ctx.doneToast('書き出し完了: 2/3件(失敗あり)', 'err', ['', 'C:\\b.mp4', 'C:\\c.mp4']);
   assert.equal(shown.at(-1).o.action.label, '1本目を編集で開く', 'several: the first one');
   ctx.doneToast('書き出しを中止しました', '', []);

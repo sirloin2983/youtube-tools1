@@ -181,9 +181,9 @@ class TestUrls(unittest.TestCase):
 
     def test_local_ok(self):
         for url, want in (("http://localhost:8700/", "http://localhost:8700/"),
-                          ("http://127.0.0.1:8700/cases.html", "http://localhost:8700/cases.html"),
-                          ("http://localhost:8700/studio/?url=https%3A%2F%2Fyoutu.be%2Fabc#x", "http://localhost:8700/studio/?url=https%3A%2F%2Fyoutu.be%2Fabc#x"),
-                          ("http://localhost:8700/transcribe/?media=C%3A%5Cclip.mp4", "http://localhost:8700/transcribe/?media=C%3A%5Cclip.mp4"),
+                          ("http://127.0.0.1:8700/cases?d=abc", "http://localhost:8700/cases?d=abc"),
+                          ("http://localhost:8700/studio/review.js?x=https%3A%2F%2Fyoutu.be%2Fabc#x", "http://localhost:8700/studio/review.js?x=https%3A%2F%2Fyoutu.be%2Fabc#x"),
+                          ("http://localhost:8700/cases?v=C%3A%5Cclip.mp4#proof", "http://localhost:8700/cases?v=C%3A%5Cclip.mp4#proof"),
                           ("http://localhost:8801/", "http://localhost:8801/")):
             with self.subTest(url=url):
                 self.assertEqual(W.local_url(url, 8700, [8801], self.P), want)
@@ -433,9 +433,9 @@ class TestPortalApi(unittest.TestCase):
         self.assertEqual(self.req("GET", "/api/status")[1]["window"]["mode"], "app")
 
     def test_open_window_and_external(self):
-        st, j = self.req("POST", "/api/ytt/open-window", {"url": "http://localhost:%d/cases.html" % self.port})
+        st, j = self.req("POST", "/api/ytt/open-window", {"url": "http://localhost:%d/cases?d=abc" % self.port})
         self.assertEqual(st, 200, j)
-        self.assertEqual(self.fake.spawned[-1][0][1], "--app=http://localhost:%d/cases.html" % self.port)
+        self.assertEqual(self.fake.spawned[-1][0][1], "--app=http://localhost:%d/cases?d=abc" % self.port)
         st, j = self.req("POST", "/api/ytt/open-window", {"url": "http://localhost:%d/studio/" % self.port})
         self.assertEqual(st, 400)   # 取り込んでいないツールの場所は開かない
         self.assertEqual(self.req("POST", "/api/ytt/open-window", {"url": "http://localhost:1/"})[0], 400)

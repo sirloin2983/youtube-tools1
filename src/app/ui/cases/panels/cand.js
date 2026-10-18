@@ -5,7 +5,7 @@
      離れた / 戻ったは殻の leave / back で受ける・下のキーの帯は keybar() で殻へ渡す・API はスタジオの今の口(ctx.api('studio', …)。合言葉は ui-kit)。
    古い画面との違い(パネルの中だけ): 配信の選択(探す一覧・URL を開く)は出さない(案件は左の一覧で選ぶ)・キー操作の一覧(?)はパネルの中のダイアログ・
      「② の操作」(キー配置・ライブのマークをまとめてずらす)はパネルの下の畳んだ欄・「この配信を解析する」は解析の順番待ちへ直に入れる・
-     出力先の「変更」は設定の画面へ・「編集で開く」は今の編集の画面(transcribe/?media=。C4 の転送で案件の画面へ)・ヘッダーの録画中の札の「開く」は札の既定の行き先。
+     出力先の「変更」は設定の画面へ・「編集で開く」は案件の画面(/cases?v=<動画のパス>#proof。文書があればその校正・無ければホームの新しい案件の欄)・ヘッダーの録画中の札の「開く」は札の既定の行き先。
    CSS は panels/cand.css(review.css の写し)。 */
 (function () {
   'use strict';
@@ -53,7 +53,6 @@
       },
       url: function (p) { return 'studio/' + String(p).replace(/^\/+/, ''); },
       portalApi: function (path, body) { return UIKit.homeApi(path, { body: body }); },
-      toolUrl: function (id, path) { return id + '/' + String(path || '').replace(/^\/+/, ''); },
       toast: function (msg, ms, kind) { return ms && typeof ms === 'object' ? UIKit.toast(msg, ms) : UIKit.toast(msg, { ms: ms || undefined, kind: kind }); },
       why: function (b, why, okTitle) { b.disabled = !!why; b.title = why || okTitle || ''; if (why) b.setAttribute('data-ui-why', why); else b.removeAttribute('data-ui-why'); },
       setBadge: function () {},

@@ -36,7 +36,8 @@ v0.10.0(2026-09-26)から、文字起こしツールは「編集」(文字起こ
 
 ■ v0.59.0(2026-10-11。RS8 の C4 = 案件の画面への切り替え)
   - スタジオの画面(/studio/)と編集の画面(/transcribe/)のページを消し、案件の画面(/cases)とホームにまとめました。
-    以前の URL(/studio/?video=…・/transcribe/?doc=…・?media=…・?drill=1・/cases.html・/live/)は、ホームが案件の画面かホームへ転送します(src/app/redirects.py)。
+    以前の URL(/studio/?video=…・/transcribe/?doc=…・?media=…・?drill=1・/cases.html・/live/)は、ホームが案件の画面かホームへ転送していました(src/app/redirects.py)。
+    この転送は棚卸し G5(2026-10-19)で消しました。今の画面は新しい URL だけを作ります(動画のパスで開くときは /cases?v=<動画のパス>#proof)。
   - ヘッダーの切り替えは「ホーム / 案件 / 設定」(ui-kit v27)。「案件」は前に開いていた案件を開きます(このブラウザの覚え)。
   - スタジオの ⚙ にあった YouTube Data API キー・事務所の登録・コラボは、ホームの「新しい案件」の末尾の「探す設定」へ(/#new?set=key|reg|collab で開く)。
   - 案件の画面の直し: カット・パックを開いてすぐ閉じたときの失敗の記録を出さない・校正とカット・パックを素早く切り替えても、前の欄の保存が終わってから文書を読む。
@@ -115,7 +116,7 @@ v0.10.0(2026-09-26)から、文字起こしツールは「編集」(文字起こ
 
 ■ ファイル
   start.bat / start.command   起動用(リポジトリ直下)
-  src\app\server.py                    ホームのサーバー(3つのツールの起動・監視・停止と、ホームの画面。/cases.html は #cases へ 302)
+  src\app\server.py                    ホームのサーバー(3つのツールの起動・監視・停止と、ホームの画面)
   src\home\portal.html / portal.js / portal.css   ホームの画面(次にやること・案件の一覧・単体の文字起こし・「詳しく」。見た目は src\ui-kit\ をそのまま使う)
   app\logs\                            以前のログ(v0.5.0 から %LOCALAPPDATA%\youtube-tools\app\logs。消してよい)
   src\home\tests\test_launch.py / e2e_portal.py   テスト
@@ -163,7 +164,7 @@ v0.10.0(2026-09-26)から、文字起こしツールは「編集」(文字起こ
   python src/home/tests/e2e_intake_ui.py                   (依頼の受付の画面。API は偽物)
   python src/home/tests/e2e_autorun.py                     (まとめて実行の通し確認。本物の3ツールを疑似モードでホームに取り込む。Playwright と ffmpeg が必要)
   python -m unittest src/home/tests/test_mount.py -v       (取り込み: /studio/・/transcribe/・/cut2resolve/ の画面・API・CSP・合言葉・二重起動の防止・認識ワーカーが落ちたときなど)
-  python src/home/tests/e2e_portal.py                      (画面の確認: 次にやること・案件の一覧・単体の文字起こし・/cases.html の転送を含む。Playwright(chromium)が必要)
+  python src/home/tests/e2e_portal.py                      (画面の確認: 次にやること・案件の一覧・単体の文字起こし・動画のパスで開く /cases?v= を含む。Playwright(chromium)が必要)
   python -m unittest src/home/tests/test_window.py -v      (段階7: 窓で開く・画面のエラーの記録・画面の共通の API。Edge は起動しない)
   python src/home/tests/e2e_window.py                      (段階7 の通し確認: 窓の中のリンク・解析の設定の引き継ぎ・離れた/戻った・エラーの記録。Edge の代わりに偽のプログラム)
 

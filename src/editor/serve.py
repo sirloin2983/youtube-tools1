@@ -55,7 +55,7 @@
   GET  /api/drill/status     定点(確かめ済みの評価用の動画 15 分)の残りと条件(話者・配信・重なり・BGM・呼び名)
   GET  /api/drill/candidates?id=  話者の候補(覚えた声 → メンバーのフォルダ → 配信の文脈)
 
-127.0.0.1 にのみバインドし、Host / Origin / Sec-Fetch-Site を検査する(画面 / への遷移だけは、他のツールのリンクから開けるよう別扱い)。
+127.0.0.1 にのみバインドし、Host / Origin / Sec-Fetch-Site を検査する(画面のページは配らないので、他のツールのリンクからの遷移の別扱いは棚卸し G5 で消した)。
 """
 import json
 import os
@@ -390,13 +390,6 @@ class Handler(BaseHTTPRequestHandler):
     def _fetch_site_ok(self):
         return httpsec.fetch_site_ok(self.headers)
 
-    def _navigation_ok(self, path):
-        """他のツールの画面のリンク(http://localhost:8800 → http://localhost:8775/?media=...)で、この画面を開くのは許す。
-        ポートが違うだけでも Sec-Fetch-Site は same-site(127.0.0.1 と localhost なら cross-site)になるため、以前は 403 になっていた。
-        画面(index.html)を新しいタブで開くだけで、URL で重い処理は始まらない(notes:docs/spec/pipeline.md の 3)。API は従来どおり同じ画面からだけ。
-        埋め込み(iframe)での悪用は X-Frame-Options / frame-ancestors で防ぐ。"""
-        return httpsec.navigation_ok(self.headers, path)
-
     def _send(self, code, body=b"", ctype="text/plain; charset=utf-8", extra=None):
         httpsec.send(self, code, body, ctype, extra)   # 見出し(no-store・nosniff)は ytt の 1 か所(スタジオ・入口と同じ)
 
@@ -432,17 +425,17 @@ class Handler(BaseHTTPRequestHandler):
             self._fail(e.status, code, msg.replace("{mb}", str(ed_state.MAX_BODY // 1048576)))
             return None
 
-    def _guard(self, write, path=""):
-        ok = self._guard_check(write, path)
+    def _guard(self, write):
+        ok = self._guard_check(write)
         if not ok and write:   # 断る書き込みの本文は読み捨てる(読まずに閉じると Windows では RST で 403 が届かないことがある。httpsec.drain_body)
             httpsec.drain_body(self.headers, self.rfile)
         return ok
 
-    def _guard_check(self, write, path):
+    def _guard_check(self, write):
         if not self._host_ok():
             self._fail(403, "forbidden", "このツールは http://localhost:%d%s から開いてください(Host が違います)" % (ed_state.PORT, ed_state.BASE_PATH))
             return False
-        if not (self._fetch_site_ok() or (not write and self._navigation_ok(path))) or (write and not self._origin_ok()):
+        if not self._fetch_site_ok() or (write and not self._origin_ok()):
             self._fail(403, "forbidden", "別のサイト・別のツールの画面からの操作は受け付けません")
             return False
         return True
@@ -479,7 +472,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _get(self):
         u = urllib.parse.urlsplit(self.path)
-        if not self._guard(False, u.path):
+        if not self._guard(False):
             return
         q = urllib.parse.parse_qs(u.query)
 

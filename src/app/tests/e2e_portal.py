@@ -8,8 +8,8 @@
 
   (A) 本番と同じ形(python src/app/server.py と同じ mounts=tuple(mount.MOUNTS)): 3つとも入口に取り込み。
       2枚のカードが「ホームに取り込み」で動作中になる → ヘッダーの appnav(ホーム / 案件 / 確かめる / 設定)→ 案件の画面(/cases の候補・校正・
-      カット。#ver・合言葉・appnav・#tx #pack の読み替え・引数なしで前の案件)→ 古い画面の URL の転送(RS8 C4 で /studio/・/transcribe/ の画面を消した。
-      src/app/redirects.py の表・/cases.html・/live/・/cut2resolve/)→ 「次にやること」・案件(配信ごと)の一覧・単体の文字起こし・依頼の受付の外の文字 →
+      カット。#ver・合言葉・appnav・d だけの URL・引数なしで前の案件)→ 動画のパスで開く /cases?v=(文書の校正か新しい案件の欄。
+      古い画面の URL の転送は棚卸し G5 で消した = 302 にならない)→ 「次にやること」・案件(配信ごと)の一覧・単体の文字起こし・依頼の受付の外の文字 →
       新しい案件(探す・URL から入れる)→ 自動でできた切り抜き → すべて終了(2回押し)→ 切断の表示、を確かめる。
       細かい操作(一覧の検索・並び替え・非表示・テーマ・空の表示・フォーカス・はみ出し)は画面の道から外した(テストの見直し 10-18。ui_audit・写真の関所)。
   (B) 文字起こしが子プロセスの形(--no-mount 相当・取り込めなかったときの落ち先。mounts=("studio", "cut2resolve")):
@@ -194,7 +194,7 @@ def run_mounted_phase(browser, tmp, shots, check, events):
         cx = types.SimpleNamespace(**locals())   # 場面の関数(下の _mounted_*)へ渡す値。場面が作って、あとで使う値は場面が cx に戻す
         _mounted_cards_and_health(cx)
         _mounted_open_tools(cx)
-        _mounted_old_urls(cx)
+        _mounted_media_urls(cx)
         _mounted_cases(cx)
         _mounted_todo_and_unlinked(cx)
         _mounted_list_tools(cx)
@@ -294,11 +294,11 @@ def _mounted_cards_and_health(cx):
 
 
 def _mounted_open_tools(cx):
-    """[A] 2. ツールのカードの「開く」・2b. 古い URL(/studio/?video=)をブラウザで開くと案件の画面の候補に着く・
+    """[A] 2. ツールのカードの「開く」・2b. 案件の画面の候補(/cases?c=…#cand)・
     2c. 案件の画面の校正・カット(同じポートの /cases で、取り込んだスタジオ・編集の API を読める)"""
     base, check, ctx, pg, port = cx.base, cx.check, cx.ctx, cx.pg, cx.port
-    # 2. 開く: 新しいタブで同じアドレスの画面が開く(noopener)。RS8 C4 でスタジオ・編集の画面を消したので、カードの「開く」(今も
-    # /studio/・/transcribe/ を指す)は入口の転送でホームに戻る。行き先の中身(旧 Studio.state・APP_VERSION・ツール切り替え)は下の案件の画面で確かめる
+    # 2. 開く: 新しいタブで同じアドレスの画面が開く(noopener)。RS8 C4 でスタジオ・編集の画面を消したので、カードの「開く」は
+    # 今その仕事をする画面(スタジオ = /#new・編集 = /cases)を指す。行き先の中身(旧 Studio.state・APP_VERSION・ツール切り替え)は下の案件の画面で確かめる
     for tid in SHOWN:
         href = pg.get_attribute(".pt-tool[data-tool=%s] .pt-open" % tid, "href") or ""
         check(href.startswith("http://127.0.0.1:%d/" % port), "[A] %s の「開く」は同じアドレス: %s" % (tid, href))
@@ -307,17 +307,17 @@ def _mounted_open_tools(cx):
     tab = info.value
     tab.wait_for_load_state()
     check(tab.url.startswith(base) and tab.evaluate("location.pathname") in ("/", "/cases"),
-          "[A] カードの「開く」は同じアドレスの画面に着く(古い /studio/ は転送でホームへ): %s" % tab.url)
+          "[A] カードの「開く」は同じアドレスの画面に着く(スタジオは新しい案件 /#new): %s" % tab.url)
     check(tab.evaluate("window.opener") is None, "[A] 開いたタブからホームを操作できない(noopener)")
     tab.close()
 
-    # 2b. 古い URL をブラウザで開くと転送を追って、案件の画面の候補(#cand)に着く。候補のパネルは取り込んだスタジオの API を読む(CSP・相対パス)
+    # 2b. 案件の画面の候補(#cand)を開く。候補のパネルは取り込んだスタジオの API を読む(CSP・相対パス)
     tab = ctx.new_page()
     tab.on("pageerror", lambda e: cx.errors.append(str(e)))
-    tab.goto(base + "studio/?video=e2eCase0001")
+    tab.goto(base + "cases?c=e2eCase0001#cand")
     check(wait_js(tab, "typeof CasesShell === 'object' && CasesShell.state().caseId === 'e2eCase0001' && CasesShell.state().tab === 'cand'", 20000)
           and tab.url == base + "cases?c=e2eCase0001#cand",
-          "[A] /studio/?video= をブラウザで開くと /cases?c=…#cand に着いて、その配信の候補が開く: %s" % tab.url)
+          "[A] /cases?c=…#cand でその配信の候補が開く: %s" % tab.url)
     check(wait_js(tab, "!!document.querySelector('#csPane .cd-panel #rvList .rv-mark-row[data-id=\"m1\"]')", 25000),
           "[A] 候補のパネルが /studio/ の API を読めた(マークの一覧。旧 Studio.state の確かめ)")
     check(bool(tab.evaluate("(document.querySelector('meta[name=\"ytt-token\"]') || {}).content")), "[A] 案件の画面も合言葉(ytt-token)を受け取っている")
@@ -326,18 +326,18 @@ def _mounted_open_tools(cx):
     check_appnav(check, tab, base, "cases", "案件の画面")
 
     # 2c. 校正は取り込んだ編集の部品(edhost)が文書を読む・カットへ切り替わる(旧 /transcribe/ の画面の確かめの代わり)。
-    # 古いハッシュ #tx・#pack の読み替え(棚卸し G5。旧 e2e_cases の場面 6 から移した)もここで通す: #tx は校正・#pack はカット・パック・URL は c つきの #proof に直す
-    tab.goto(base + "cases?d=deadbeef0001#tx")
+    # d だけの URL は文書から案件を引いて、URL を c つきに直す(古いハッシュ #tx・#pack の読み替えは棚卸し G5 で消した)
+    tab.goto(base + "cases?d=deadbeef0001#proof")
     check(wait_js(tab, "CasesShell.state().caseId === 'e2eCase0001' && CasesShell.state().tab === 'proof' && CasesShell.state().sel === 'd:deadbeef0001'"
                        " && typeof S === 'object' && S.docId === 'deadbeef0001' && document.querySelectorAll('#csPane #segs .seg').length === 2", 30000),
-          "[A] /cases?d=…#tx は文書から案件を引いて校正(#tx の読み替え)、校正のパネルが /transcribe/ の API で文書の 2 行を出す: %s"
+          "[A] /cases?d=…#proof は文書から案件を引いて校正、校正のパネルが /transcribe/ の API で文書の 2 行を出す: %s"
           % tab.evaluate("[CasesShell.state(), typeof S === 'object' && S.docId, document.querySelectorAll('#csPane #segs .seg').length,"
                          " (document.querySelector('#csPane') || {}).textContent.slice(0, 200)]"))
     check(tab.evaluate("location.search + location.hash") == "?c=e2eCase0001&d=deadbeef0001#proof",
-          "[A] d だけ・#tx の URL は c つきの #proof に直す: %s" % tab.evaluate("location.search + location.hash"))
-    tab.goto(base + "cases?d=deadbeef0001#pack")
+          "[A] d だけの URL は c つきに直す: %s" % tab.evaluate("location.search + location.hash"))
+    tab.goto(base + "cases?d=deadbeef0001#cut")
     check(wait_js(tab, "CasesShell.state().tab === 'cut' && CasesShell.state().panel === 'cut'", 20000),
-          "[A] /cases?d=…#pack はカット・パックのパネル(旧 #pack の読み替え): %s" % tab.evaluate("CasesShell.state()"))
+          "[A] /cases?d=…#cut はカット・パックのパネル: %s" % tab.evaluate("CasesShell.state()"))
     # 引数なし(ヘッダーの「案件」)は、このブラウザで前に開いた案件を開く(RS8 C4。旧 e2e_cases の場面 9b から移した)
     tab.goto(base + "cases")
     check(wait_js(tab, "typeof CasesShell === 'object' && CasesShell.state().caseId === 'e2eCase0001'", 20000),
@@ -345,45 +345,33 @@ def _mounted_open_tools(cx):
     tab.close()
 
 
-def _mounted_old_urls(cx):
-    """[A] 2h. 古い画面の URL の転送(RS8 C4。表は src/app/redirects.py・/cases.html と /live/ は入口・/cut2resolve/ は取り込みの page_to)。
-    転送を追わずに GET して 302 と Location を見る + /cut2resolve/?video= をブラウザで追って新しい案件の欄に入るところまで"""
+def _mounted_media_urls(cx):
+    """[A] 2h. 動画のパスで案件の画面を開く(/cases?v=<動画のパス>。スタジオ ② の「編集で開く」= 棚卸し G5)。
+    文書のある動画はその文書の校正・文書の無い動画はホームの新しい案件の欄。古い画面の URL の転送は消した(302 にならない)"""
     base, check, ctx, port = cx.base, cx.check, cx.ctx, cx.port
     q = lambda s: urllib.parse.quote(s, safe="")
-    yt, missing = "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "C:\\x\\無い動画.mp4"
+    missing = "C:\\x\\無い動画.mp4"
     clip = os.path.join(cx.tmp, "exports", "01_案件.mp4")   # seed_cases の文書 deadbeef0001 の元の動画
-    table = [("/studio/?video=e2eCase0001", "/cases?c=e2eCase0001#cand"),
-             ("/studio/?video=" + q("../x"), "/"),   # 案件の id の形でなければホーム
-             ("/studio/?step=rank", "/#new"),
-             ("/studio/?url=" + q(yt), "/#new?url=" + q(yt)),
-             ("/studio/", "/"),
-             ("/studio/index.html", "/"),
-             ("/transcribe/?doc=deadbeef0001", "/cases?d=deadbeef0001"),
-             ("/transcribe/?doc=" + q("../x"), "/"),
-             ("/transcribe/?drill=1", "/cases?c=eval#proof"),
-             ("/transcribe/?media=" + q(missing), "/#new?media=" + q(missing)),   # 文書の無い動画は新しい案件の欄へ
-             ("/transcribe/?clip=" + q(clip), "/cases?d=deadbeef0001#proof"),   # 文書のある動画はその文書の校正へ
-             ("/transcribe/", "/"),
-             ("/cases.html", "/"),
-             ("/cut2resolve/?video=" + q(missing), "/#new?media=" + q(missing)),   # ?video= は入口が 1 回で(引数なしは取り込みの page_to)
-             ("/cut2resolve/", "/transcribe/")]
-    got = [(path, http_get(port, path)) for path, _want in table]
-    bad = [(path, res, want) for (path, res), (_p, want) in zip(got, table) if res != (302, want)]
-    check(not bad, "[A] 古い URL はどれも 302 で表の行き先へ(%d 行): %s" % (len(table), bad))
-    # /live/ は線 D の設定がオンのときだけ入口が受け持つ(オフは今までどおり 404)。オンをこの 1 回の要求の糸だけに見せて確かめる(見回りの糸には見せない)
-    check(http_get(port, "/live/")[0] == 404, "[A] /live/ は線 D がオフなら 404")
-    on_req = lambda: "process_request" in threading.current_thread().name
-    with mock.patch.object(cx.srv.live, "enabled", on_req):
-        live = [http_get(port, p) for p in ("/live/", "/live")]
-    check(live == [(302, "/")] * 2, "[A] /live/ は線 D がオンならホームへ 302(以前の録画の画面): %s" % live)
-    # ブラウザで転送を追う: /cut2resolve/?video= → /#new?media= = 新しい案件の引き出しが開いて、動画のパスが欄に入る
     tab = ctx.new_page()
     tab.on("pageerror", lambda e: cx.errors.append(str(e)))
-    tab.goto(base + "cut2resolve/?video=" + q(missing))
+    tab.goto(base + "cases?v=" + q(clip) + "#proof")
+    check(wait_js(tab, "typeof CasesShell === 'object' && CasesShell.state().caseId === 'e2eCase0001' && CasesShell.state().tab === 'proof'"
+                       " && CasesShell.state().sel === 'd:deadbeef0001' && location.search + location.hash === '?c=e2eCase0001&d=deadbeef0001#proof'", 30000),
+          "[A] /cases?v=<文書のある動画>#proof はその文書の校正を開き、URL を ?c=&d= に直す: %s"
+          % tab.evaluate("[typeof CasesShell === 'object' && CasesShell.state(), location.search + location.hash]"))
+    tab.goto(base + "cases?v=" + q(missing) + "#proof")
     check(wait_js(tab, "location.pathname === '/' && location.hash.indexOf('#new?media=') === 0 && !document.getElementById('newDrawer').hidden"
                        " && !!document.getElementById('qPath') && document.getElementById('qPath').value.endsWith('無い動画.mp4')", 25000),
-          "[A] /cut2resolve/?video= をブラウザで開くと新しい案件の引き出しが開き、動画のパスが欄に入る: %s" % tab.url)
+          "[A] /cases?v=<文書の無い動画> はホームの新しい案件の引き出しを開き、動画のパスが欄に入る: %s" % tab.url)
     tab.close()
+    old = [(path, http_get(port, path)) for path in ("/studio/?video=e2eCase0001", "/transcribe/?doc=deadbeef0001", "/transcribe/?media=" + q(missing),
+                                                      "/cases.html", "/cut2resolve/?video=" + q(missing))]
+    check(not [x for x in old if x[1][0] == 302], "[A] 古い画面の URL は転送しない(棚卸し G5): %s" % old)
+    # /live/ は線 D の設定がオンのときだけ入口が受け持つ。以前の録画の画面への転送は消した = オンでも 404(オンをこの 1 回の要求の糸だけに見せる)
+    on_req = lambda: "process_request" in threading.current_thread().name
+    with mock.patch.object(cx.srv.live, "enabled", on_req):
+        live = [http_get(port, p)[0] for p in ("/live/", "/live")]
+    check(live == [404, 404], "[A] /live/ は線 D がオンでも 404(以前の録画の画面の転送は消した): %s" % live)
 
 
 def _mounted_cases(cx):
@@ -1200,7 +1188,7 @@ def main():
         seed_unlinked(tmp)
 
         with sync_playwright() as p:
-            browser = p.chromium.launch()
+            browser = p.chromium.launch(args=["--mute-audio"])
             try:
                 run_mounted_phase(browser, tmp, shots, check, events)          # (A) 本番と同じ形(3つとも取り込み)
                 run_child_process_phase(browser, tmp, shots, check, events)    # (B) 文字起こしが子プロセスの形

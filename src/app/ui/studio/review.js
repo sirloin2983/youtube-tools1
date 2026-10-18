@@ -2411,8 +2411,9 @@ function handoffHTML(j, it){
   const tt = editorHref(path);
   return `<div class="rv-ejob-a">${tt ? `<a class="btn small" href="${esc(tt)}" target="_blank" rel="noopener" data-edit-open title="「編集」(文字起こし・カット・Resolve へのパック)で、この切り抜きを開きます(文字起こしは自動では始めません)">編集で開く</a>` : ''}<button type="button" class="btn small ghost" data-act="copy" data-path="${esc(path)}" title="${esc(path)}">パスをコピー</button>${man ? `<span class="pill info" title="${esc(man)}">切り抜きの記録あり</span>` : ''}</div>`;
 }
-/* 書き出した切り抜きを「編集」で開く URL(書き出しの行のリンクと、書き出し完了の知らせの [編集で開く] で同じ) */
-function editorHref(path){ return path ? Studio.toolUrl('transcribe', '/?media=' + enc(path)) : ''; }
+/* 書き出した切り抜きを「編集」で開く URL(書き出しの行のリンクと、書き出し完了の知らせの [編集で開く] で同じ)。
+   案件の画面に動画のパスを渡す(?v=。文書があればその校正・無ければホームの新しい案件の欄。棚卸し G5 で /transcribe/?media= から) */
+function editorHref(path){ return path ? '/cases?v=' + enc(path) + '#proof' : ''; }
 /* 「編集」を開く(行のリンク・知らせのボタンで同じ開き方。窓の決まり S-15): 窓(Edge のアプリの窓)で開いているときはホームに頼んで窓で(UIKit.win)、
    ブラウザのタブならいつもの新しいタブで。スタジオの画面はそのまま残す(配信を見ながら隣の窓で字幕を直す流れ。v0.20.2 の音を下げる仕組みもこの形が前提)。
    ホームへのリンク(案件の一覧)は data-ui-portal(ホームが開いていれば前に出す) */

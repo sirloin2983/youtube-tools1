@@ -802,18 +802,16 @@ class TestPipelineHttp(unittest.TestCase):
                     pass
 
     # ---- HTTP の検査 ----
-    def test_navigation_from_other_tool_is_allowed_but_api_is_not(self):
+    def test_no_page_and_other_sites_are_refused(self):
         nav = {"Sec-Fetch-Site": "same-site", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document"}
-        # RS8 C4: 編集の画面のページ(/・/index.html)は配らない(入口が案件の画面へ転送する)= 404。
-        # 守りの検査(iframe・cors の断り)は、まだ配っている静的ファイルと API で確かめる
+        # RS8 C4: 編集の画面のページ(/・/index.html)は配らない = 404。他のツールのリンクからの遷移の別扱いも棚卸し G5 で消した = 別のサイトからは 403
         for p in ("/", "/index.html"):
-            st, hd, body = self.call("GET", p, headers=nav, raw=True)
+            st, hd, body = self.call("GET", p, headers={"Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "navigate"}, raw=True)
             self.assertEqual(st, 404, p)
             self.assertNotIn(b"<html", body.lower())
+            self.assertEqual(self.call("GET", p, headers=nav, raw=True)[0], 403, p)
         for p in ("/ui-kit.js", "/ui-kit.css"):   # ui-kit の写しも配らない
             self.assertEqual(self.call("GET", p, headers={"Sec-Fetch-Site": "same-origin"}, raw=True)[0], 404, p)
-        self.assertEqual(self.call("GET", "/", headers=dict(nav, **{"Sec-Fetch-Dest": "iframe"}), raw=True)[0], 403)
-        self.assertEqual(self.call("GET", "/", headers=dict(nav, **{"Sec-Fetch-Mode": "cors"}), raw=True)[0], 403)
         self.assertEqual(self.call("GET", "/app.js", headers={"Sec-Fetch-Site": "same-origin"}, raw=True)[0], 200)   # 案件の画面の校正のパネルが読む部品
         self.assertEqual(self.call("GET", "/app.js", headers={"Sec-Fetch-Site": "cross-site"}, raw=True)[0], 403)       # 別のサイトからは読めない
         self.assertEqual(self.call("GET", "/proof.css", headers={"Sec-Fetch-Site": "cross-site"}, raw=True)[0], 403)

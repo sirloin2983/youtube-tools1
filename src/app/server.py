@@ -113,8 +113,7 @@ if ROOT not in sys.path:   # 役割の層・共通部品 ytt(src)
     sys.path.append(ROOT)
 if CODE_DIR not in sys.path:   # 入口の部品を裸の名前で読む(import mount など)
     sys.path.insert(0, CODE_DIR)
-from manage.cases import handoff_io, txindex  # noqa: E402
-from app import redirects as redirects_mod  # noqa: E402  (古い画面の URL -> /cases の転送の表。RS8 C0・C4 でいつも有効)
+from manage.cases import txindex  # noqa: E402
 from flow import placement  # noqa: E402  (② の .flow.lock。RS6 b-B0)
 from flow import tools as flowtools_mod  # noqa: E402  (まとめて実行の段が仕事を頼む先 FlowTools = ① の動詞は取り込んだツールの ② の器を直に。OPT2 後半 J7)
 from flow import board as board_mod  # noqa: E402  (② のジョブの掲示板 = GET /api/flow/status の jobs・cases・rev と cancel・retry。RS8 の ② の口)
@@ -734,21 +733,6 @@ class PortalHandler(BaseHTTPRequestHandler):
     def _fail(self, code, err, message):
         self._json(code, {"error": err, "message": message})
 
-    def _doc_for_media(self, path):
-        """動画のパス -> その文書の id(無ければ "")。?media=・?clip= の転送用(文書の一覧を読んでパスを比べるだけ)"""
-        try:
-            hit = txindex.pick(txindex.load(cases_mod.locations(self.server.sup.root)["transcripts"]), "", "", path)[0]
-        except Exception:   # 読めなくても転送は止めない(新しい案件の欄へ)
-            return ""
-        return hit["id"] if hit else ""
-
-    def _media_of_clip(self, path):
-        """.clip.json のパス -> それが指す動画のパス(無ければ ""。?clip= の転送用)"""
-        try:
-            return handoff_io.clip_info(path).get("mediaPath") or ""
-        except Exception:
-            return ""
-
     def do_GET(self):
         u = urllib.parse.urlsplit(self.path)
         if not (self._host_ok() and (self._site_ok() or self._navigation_ok(u.path))):
@@ -757,11 +741,6 @@ class PortalHandler(BaseHTTPRequestHandler):
             return
         if (u.path == "/analytics" or u.path.startswith("/analytics/")) and self.server.analytics and self.server.analytics.handle_get(self, u):
             return
-        loc = redirects_mod.target(u.path, urllib.parse.parse_qs(u.query), self._doc_for_media, self._media_of_clip)   # 古い画面の URL を案件の画面へ(表は src/app/redirects.py。C4)
-        if loc:
-            return self._send(302, b"", "text/plain; charset=utf-8", {"Location": loc})
-        if u.path == "/cases.html":   # 案件の一覧はホーム(/)にまとめた(段階5)。以前のリンク・ブックマークはホームへ
-            return self._send(302, b"", "text/plain; charset=utf-8", {"Location": "/"})
         if u.path in ("/settings/", "/settings/index.html"):   # 設定の画面は /settings(入口の直下。相対パスが入口の API を指すように)
             return self._send(302, b"", "text/plain; charset=utf-8", {"Location": "/settings"})
         if u.path in ("/cases/", "/cases/index.html"):   # 案件の画面も入口の直下の 1 枚(引数 ?c=&d= はそのまま渡す)
@@ -1491,10 +1470,7 @@ class PortalServer(httpsec.ExclusiveServer):
 
     def handler_for(self, path):
         if path and self.mounts:
-            sp = urllib.parse.urlsplit(path)
-            p = sp.path
-            if redirects_mod.target(p, urllib.parse.parse_qs(sp.query)) is not None:   # 古い画面の URL は入口が転送する(取り込んだツールの Handler に渡さない。文書は引かずに形だけ見る)
-                return PortalHandler
+            p = urllib.parse.urlsplit(path).path
             for prefix, handler in self.mounts.items():
                 if p == prefix or p.startswith(prefix + "/"):
                     return handler

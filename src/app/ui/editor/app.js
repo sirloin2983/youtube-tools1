@@ -40,8 +40,8 @@ const norm = s => String(s).normalize('NFKC').toLowerCase();
 const VIEW_KEY = 'tx.view.v1';
 const V = { menu: true, fs: '15', dense: false, vid: 'l', follow: true, frameFollow: false, adjStep: '0.1', autoNext: false, rate: '1', brk: '45', sideTab: 'start' };
 const VID_H = { s: '18vh', m: '28vh', l: '38vh' };
-/* 「編集」の 2 つのタブ(notes:docs/design/edit-tool-design.md 3)。今のタブは URL の #tx / #cut に残す(再読み込み・窓で開いても同じタブ)。
-   0.62.0: 「3 パック」のタブは無くした(パックを作るのは 2 カット の末尾 #packArea・設定は ⚙ の「パック」。旧 #pack・tab=pack は setEditTab が cut に読み替えてパックの所へ)。
+/* 「編集」の 2 つのタブ(notes:docs/design/edit-tool-design.md 3)。編集は案件の画面の中だけで動くので、タブは URL に残さない(URL は殻 cases.js のもの)。
+   0.62.0: 「3 パック」のタブは無くした(パックを作るのは 2 カット の末尾 #packArea・設定は ⚙ の「パック」。旧 #pack の読み替えは棚卸し G5 で消した)。
    カット・パックのタブでは、左のメニューを細い帯に畳む(overlay = 帯から開いて本文の上に重ねている間)。V.menu(文字起こしのタブの開閉)とは別に持つ */
 const ED_TABS = ['tx', 'cut'];
 const EDT = { tab: 'tx', overlay: false };
@@ -68,7 +68,6 @@ const isDrawer = () => wideTab() || !!(window.matchMedia && (matchMedia('(max-wi
     e.preventDefault(); const i = ED_TABS.indexOf(EDT.tab);
     setEditTab(ED_TABS[(i + (e.key === 'ArrowRight' ? 1 : ED_TABS.length - 1)) % ED_TABS.length], { focus: true });
   });
-  window.addEventListener('hashchange', () => { if (EDIT_HOST) return; const t = tabFromHash(); if (t && t !== EDT.tab) setEditTab(t, { hash: false }); });
   document.querySelectorAll('[data-side-tab]').forEach(b => b.addEventListener('click', () => setSideTab(b.dataset.sideTab, false)));
   $('#btnKeys').addEventListener('click', () => openKeys());
   $('#jobBadge').addEventListener('click', () => showInMenu($('#jobsCard')));
@@ -1142,7 +1141,7 @@ $('#txList').addEventListener('click', e => {
   if (b.dataset.act === 'pick'){ if (b.checked) PICK.ids.add(id); else PICK.ids.delete(id); renderPickBar(); return; }
   if (b.dataset.act === 'open') openDoc(id);
   else if (b.dataset.act === 'gotab'){   // 履歴の行の「パックを作る」「作り直す」: 開いてそのタブへ(段7 E-13)
-    const t = b.dataset.tab === 'pack' || ED_TABS.includes(b.dataset.tab) ? b.dataset.tab : 'tx';   // 'pack' は setEditTab が 2 カット の末尾のパックへ読み替える(0.62.0)
+    const t = ED_TABS.includes(b.dataset.tab) ? b.dataset.tab : 'tx';
     (S.docId === id ? Promise.resolve(true) : openDoc(id)).then(ok => { if (ok && S.docId === id) setEditTab(t, { focus: true }); });
   }
   else if (b.dataset.act === 'hide' || b.dataset.act === 'unhide'){
@@ -1209,7 +1208,7 @@ if (window.ResizeObserver) new ResizeObserver(() => { document.documentElement.s
 
 /* ---------- 2 カット(cut.js)。区間の編集は cut.js、行の表示・文書の保存はこちら ---------- */
 const CUT = !EDIT_HOST && window.EditCut ? EditCut.create({ S, $, esc, fmtT, fmtCs, toast, api, patchSettings, apiUrl, player, isTextEntry, onLeave, saveDoc, putSettings: putSettingsNow, speakerColor, pushUndo, undoDocIf, splitRowAt, rowChanged, lockJob, doUndo: () => doUndo(undefined, true),
-  c2rApi, c2rWait, c2rBase, tab: () => EDT.tab, keymap: () => keymap(), menuHasKeys, modalOpen, imeKey, onCutMarks, onCutSaved, onCutState: () => { renderDocBar(); renderPlayerMsg(); renderFpsNote(); updateUndo(); if (PACK) PACK.changed(); }, relink: () => openRelink(), nextOp, capStack, paintCaps, toTx: goTxInto, keepCutHTML, toPack: () => setEditTab('pack', { focus: true }), onCutSave: (text, kind) => { S.cutSaveSt = { text, kind }; paintSaveState(); } }) : null;
+  c2rApi, c2rWait, c2rBase, tab: () => EDT.tab, keymap: () => keymap(), menuHasKeys, modalOpen, imeKey, onCutMarks, onCutSaved, onCutState: () => { renderDocBar(); renderPlayerMsg(); renderFpsNote(); updateUndo(); if (PACK) PACK.changed(); }, relink: () => openRelink(), nextOp, capStack, paintCaps, toTx: goTxInto, keepCutHTML, toPack: () => { setEditTab('cut', { focus: true }); showPackArea(); }, onCutSave: (text, kind) => { S.cutSaveSt = { text, kind }; paintSaveState(); } }) : null;
 
 /* ---------- 3 パック(pack-tab.js) ---------- */
 const PACK = !EDIT_HOST && window.EditPack ? EditPack.create({ S, $, esc, fmtT, fmtCs, toast, api, patchSettings, apiBlob, apiUrl, download, safeName, ago, TOKEN, rowSig, lockJob, saveDoc, saveSettings,
@@ -1218,7 +1217,7 @@ const PACK = !EDIT_HOST && window.EditPack ? EditPack.create({ S, $, esc, fmtT, 
 /* ---------- 起動 ---------- */
 async function boot(){
   if (!EDIT_HOST) $('#ver').textContent = 'v' + APP_VERSION;   // 案件の画面の版は殻が出す
-  loadView(); setEditTab(tabFromHash() || 'tx', { hash: !!tabFromHash() });
+  loadView(); setEditTab('tx');
   applyNeedHome();   // まとめて実行(履歴の「選んで」・題名の行)は入口から開いたときだけ。開いていなければ押せない理由を出す(段7 E-17。サーバーに届かないときも)
   try {
     const ping = await api('/api/ping');

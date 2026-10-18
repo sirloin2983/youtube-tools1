@@ -33,7 +33,7 @@ EDGE_REL = os.path.join("Microsoft", "Edge", "Application", "msedge.exe")
 MAC_EDGE = "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"
 URL_MAX = 2048
 RATE = (8, 10.0)   # 10 秒に 8 回まで(窓とブラウザを合わせて)
-PORTAL_PAGES = ("/", "/index.html", "/cases.html", "/cases", "/check")   # /cases = 案件の画面(RS8 C3。ホームの「案件の画面で開く」を窓の中で Ctrl を押しながら押したとき)・/check = 確かめる(RS8 V1)
+PORTAL_PAGES = ("/", "/index.html", "/cases", "/check")   # /cases = 案件の画面(RS8 C3。ホームの「案件の画面で開く」を窓の中で Ctrl を押しながら押したとき)・/check = 確かめる(RS8 V1)
 TOOL_PAGES = ("/", "/index.html")
 BAD_CHARS = set(' "\'<>\\^`{|}')
 

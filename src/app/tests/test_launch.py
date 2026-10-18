@@ -573,20 +573,12 @@ class PortalHttpTest(Base):
         self.assertEqual((r.status, r.getheader("Location")), (302, "/settings"))
         self.assertEqual(self.req("GET", "/server.py")[0].status, 404)   # コードや他のファイルは配らない
 
-    def test_cases_redirects_switch_and_doc_lookup(self):
-        """RS8 C0・C4: 今の URL -> /cases の転送はいつも有効(C4 でスイッチ YTT_CASES_REDIRECT を消した)。/api/cases の足した欄と ?doc="""
-        env = {k: v for k, v in os.environ.items() if k != "YTT_CASES_REDIRECT"}
-        with mock.patch.dict(os.environ, dict(env, YTT_CASES_REDIRECT="0"), clear=True):   # 古いスイッチの値は効かない(オフにできない)
-            r, _ = self.req("GET", "/studio/?video=abc")
-            self.assertEqual((r.status, r.getheader("Location")), (302, "/cases?c=abc#cand"))
-            r, _ = self.req("GET", "/transcribe/?drill=1")
-            self.assertEqual((r.status, r.getheader("Location")), (302, "/cases?c=eval#proof"))
-            r, _ = self.req("GET", "/studio/")
-            self.assertEqual((r.status, r.getheader("Location")), (302, "/"))
-            r, _ = self.req("GET", "/cases.html")
-            self.assertEqual((r.status, r.getheader("Location")), (302, "/"))
-            r, _ = self.req("GET", "/transcribe/api/jobs")   # API は転送しない
-            self.assertNotEqual(r.status, 302)
+    def test_no_old_page_redirects_and_doc_lookup(self):
+        """棚卸し G5: 古い画面の URL(/studio/?video=・/transcribe/?…・/cases.html)の転送は消した。/api/cases の足した欄と ?doc="""
+        for path in ("/studio/?video=abc", "/transcribe/?drill=1", "/studio/", "/cases.html"):
+            r, _ = self.req("GET", path)
+            self.assertNotEqual(r.status, 302, path)
+            self.assertIsNone(r.getheader("Location"), path)
         r, body = self.req("GET", "/api/cases")
         self.assertEqual(r.status, 200)
         d = json.loads(body)

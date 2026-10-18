@@ -427,7 +427,7 @@
       st.appendChild(el('span', 'pill wait', 'パック まだ'));
     }
     var open = null;
-    if (c.transcript && c.transcript.id) open = link('校正で開く', docHref(c.transcript.id, '', 'tx', kase && kase.id));
+    if (c.transcript && c.transcript.id) open = link('校正で開く', docHref(c.transcript.id, '', 'proof', kase && kase.id));
     else if (c.exists && c.path && kase && c.markId) open = link('校正で開く', markHref(kase.id, c.markId));
     if (open) {
       st.appendChild(open);
@@ -720,14 +720,14 @@
 
   /* 編集で文書を開くリンク。文書 ID で開く(B-1: 動画のパスだと、同じ動画から作った別の文書 = いちばん新しい文書が開いていた)。
      パスは文書が見つからなかったときの予備(編集の takeUrlParams が ?doc= を先に見る) */
-  /* RS8 C3: 行き先は案件の画面(/cases)。文書 ID だけで開ける(殻が ④ に ?doc= で案件を聞く)。タブ名は編集の古い呼び名(tx・pack)も受ける。
+  /* RS8 C3: 行き先は案件の画面(/cases)。文書 ID だけで開ける(殻が ④ に ?doc= で案件を聞く)。タブは proof・cut・cand(古い呼び名 tx・pack は棚卸し G5 で消した)。
      case を渡せば案件も決まる(仮の案件 eval・orphan・動画ファイルの案件を開くとき) */
-  var CASE_TAB = { tx: 'proof', proof: 'proof', pack: 'cut', cut: 'cut', cand: 'cand' };
+  var CASE_TAB = { proof: 'proof', cut: 'cut', cand: 'cand' };
   function docHref(id, path, tab, caseId) {
     var q = [];
     if (caseId) q.push('c=' + encodeURIComponent(caseId));
     if (id) q.push('d=' + encodeURIComponent(id));
-    return '/cases' + (q.length ? '?' + q.join('&') : '') + '#' + (CASE_TAB[tab || 'tx'] || 'proof');
+    return '/cases' + (q.length ? '?' + q.join('&') : '') + '#' + (CASE_TAB[tab] || 'proof');
   }
   /* その配信を案件の画面の候補で開く(案件の id = スタジオの配信の id。B-8) */
   function studioHref(id) { return '/cases?c=' + encodeURIComponent(id) + '#cand'; }
@@ -740,8 +740,8 @@
     var clips = c.clips || [];
     for (var i = 0; i < clips.length; i++) {
       var cl = clips[i], t = cl.transcript, path = cl.exists ? cl.path : '';
-      if (kind === 'proof' && t && t.proofed < t.segments) return docHref(t.id, path, 'tx', c.id);
-      if (kind === 'pack' && t && !cl.pack) return docHref(t.id, path, 'pack', c.id);
+      if (kind === 'proof' && t && t.proofed < t.segments) return docHref(t.id, path, 'proof', c.id);
+      if (kind === 'pack' && t && !cl.pack) return docHref(t.id, path, 'cut', c.id);
       if (kind === 'transcribe' && c.gone && !t && path) return markHref(c.id, cl.markId);
     }
     return kind === 'proof' || kind === 'pack' || c.gone ? '' : studioHref(c.id);
@@ -1087,7 +1087,7 @@
     chk.checked = !!docPicked[d.id];
     chk.addEventListener('change', function () { if (chk.checked) docPicked[d.id] = true; else delete docPicked[d.id]; syncDocRunButton(); });
     var openA = $('.pt-doc-open', li);
-    openA.href = docHref(d.id, '', 'tx'); openA.removeAttribute('aria-disabled');   // 文書 ID で開く(動画が無くても文書は開ける)
+    openA.href = docHref(d.id, '', 'proof'); openA.removeAttribute('aria-disabled');   // 文書 ID で開く(動画が無くても文書は開ける)
     if (hideApi()) $('.pt-doc-steps', li).appendChild(hideBtn('transcripts', d.id, d.title));
     markHid(li, 'transcripts', d.id, $('.pt-doc-main', li).parentNode);
     return li;
@@ -1880,7 +1880,7 @@
     pill.textContent = runLabel(r);
     var a = $('.pt-history-title', li);
     a.textContent = r.title || (r.kind === 'doc' ? r.docId : r.videoId) || (r.kind === 'file' ? '依頼の動画' : '');
-    if (r.kind === 'doc') { a.href = docHref(r.docId, null, 'tx'); a.title = '案件の画面で校正を開く'; }   // 文書 → 編集で開く(同じ窓。S-15)
+    if (r.kind === 'doc') { a.href = docHref(r.docId, null, 'proof'); a.title = '案件の画面で校正を開く'; }   // 文書 → 編集で開く(同じ窓。S-15)
     else if (r.kind === 'file' || !r.videoId) { a.href = '#intake'; a.title = '依頼の受付へ'; }
     else { a.href = '#case-' + encodeURIComponent(r.videoId || ''); a.title = '案件の行へ'; }   // 配信 → 案件の行
     var why = runReason(r);

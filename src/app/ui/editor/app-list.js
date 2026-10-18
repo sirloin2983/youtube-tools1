@@ -18,7 +18,7 @@ async function loadList(){
    サーバーの設定にしないのは、窓ごとの道すじの便利(表示の好み V と同じ扱い)で、タブを移るたびに設定のファイルを書き換えないため。
    再読み込み・窓で開き直したときは、今までどおり URL の ?doc= と #タブ で同じ所に戻る */
 const LAST_KEY = 'tx.last.v1';
-const TAB_NAME = { tx: '1 文字起こし', cut: '2 カット', pack: '3 パック' };
+const TAB_NAME = { tx: '1 文字起こし', cut: '2 カット' };
 function lastOpened(){
   try { const o = JSON.parse(localStorage.getItem(LAST_KEY) || 'null'); return o && typeof o.id === 'string' && /^[\w-]{1,64}$/.test(o.id) ? { id: o.id, tab: ED_TABS.includes(o.tab) ? o.tab : 'tx' } : null; }
   catch { return null; }
@@ -106,8 +106,8 @@ function txRowHTML(i){
   if (i.mediaOk === false) side.push(`<span class="pill warn" title="元の動画が見つかりません(移動・削除した可能性があります)。文字の直しと書き出しはできます">動画なし</span>`);
   if (st === 'todo') side.push(`<span class="pill wait" title="まだ1行も校正していません(${r}行)">未校正</span>`);
   else if (st === 'doing') side.push(`<span class="tt-prog" title="校正済み ${p}行 / ${r}行"><i><b style="width:${Math.round(p / Math.max(1, r) * 100)}%"></b></i>${p}/${r}</span>`);
-  /* 次の一手は押せるボタン(札は押せない表示だけ。段7 E-13): 開いて 3 パック のタブへ */
-  const next = (label, why) => `<button type="button" class="btn small ui-next-btn tt-txi-next" data-act="gotab" data-tab="pack" title="${why}。押すと開いて 3 パック のタブへ移ります">${label}</button>`;
+  /* 次の一手は押せるボタン(札は押せない表示だけ。段7 E-13): 開いてカット・パックのタブへ */
+  const next = (label, why) => `<button type="button" class="btn small ui-next-btn tt-txi-next" data-act="gotab" data-tab="cut" title="${why}。押すと開いてカット・パックのタブへ移ります">${label}</button>`;
   if (i.pack) side.push(Number(i.pack.updatedAt) < (Number(i.updatedAt) || 0) - 2000
     ? next('作り直す', 'パックを作ったあとに、行を直しています')
     : `<span class="pill ok" title="パック(${i.pack.textplus ? 'Text+ 字幕つき' : 'カットだけ'})を作ってあります">パック済み</span>`);

@@ -1,4 +1,4 @@
-/* ui-kit v31 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
+/* ui-kit v33 —テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
    画面の全面見直し(notes:docs/design/briefs/ui-overhaul/)の段階1。ES5 のまま(var・function。アロー関数・テンプレート文字列は使わない): <head> で同期に読み込むため。
    正本は src/ui-kit/ui-kit.js。写し先は無い(この正本を直接直す)。
    window.UIKit.theme  : get() 保存した選択('system'|'light'|'dark'。**v6: 保存が無いときは既定で 'light'**。以前は OS の設定(system)に従っていた) / set(p) / toggle() / onChange(fn)
@@ -2138,10 +2138,8 @@
     return e.steps.map(function (s) { return s.label + ' ' + (s.count == null ? 'あとで決まる' : s.count + ' 本'); }).join(' → ');
   }
   function arDocHref(run) {
-    var b = tools.paths && tools.paths.transcribe;
-    if (!b) return '';
     var id = run.docId || (run.docs && run.docs[0]);   /* 文書の実行はその文書・配信の実行は最初に文字起こし・パックした文書 */
-    return id ? b + '?doc=' + encodeURIComponent(id) + '#tx' : b + '#tx';
+    return id ? '/cases?d=' + encodeURIComponent(id) + '#proof' : '';   /* 案件の画面の校正(v33。以前は編集の画面 ?doc=…#tx) */
   }
   function arOpen(href) { if (href) location.href = href; }   /* 同じ窓で移る(窓・画面を増やさない。S-15) */
   function arFinished(run, again) {
@@ -2784,7 +2782,7 @@
   }
   var sound = { other: sndOther, onChange: function (fn) { if (typeof fn === 'function') snd.subs.push(fn); }, tool: snd.tool };
 
-  window.UIKit = { version: 32, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
+  window.UIKit = { version: 33, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
                    portal: portal, streamer: streamer, appnav: appnav, drawer: drawer, dialog: dialogApi, toast: toastFn, keybar: keybar, settings: settings, settingsForm: settingsForm, keys: keysApi, keymap: keymapApi, icon: icon,
                    confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud, autorun: autorun, flow: flow, restart: restart, timebox: timebox, hide: hide, liveBadge: liveBadge, menuOff: menuOff,
                    http: http, homeApi: homeApi, homeUrl: homeUrl, copy: copyText };

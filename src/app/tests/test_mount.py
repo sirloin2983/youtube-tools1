@@ -144,11 +144,12 @@ class TestStudioMounted(unittest.TestCase):
         self.assertEqual(self.sup.by_id["studio"].snapshot()["state"], "running")   # 入口と一緒にしか止まらない
 
     def test_page_assets_and_security_headers(self):
-        # RS8 C4: スタジオの画面のページは消えた。入口が案件の画面(ホーム)へ転送する(取り込んだスタジオの Handler には渡さない)
-        for path, want in (("/studio/", "/"), ("/studio/index.html", "/"), ("/studio/?video=abc", "/cases?c=abc#cand"), ("/studio?url=abc", "/#new?url=abc")):
+        # RS8 C4: スタジオの画面のページは消えた(古い URL の転送も棚卸し G5 で消した = 取り込んだスタジオが 404)
+        for path in ("/studio/", "/studio/index.html", "/studio/?video=abc"):
             r, body = self.req("GET", path)
-            self.assertEqual((r.status, r.getheader("Location")), (302, want), path)
-            self.assertEqual(body, b"", path)
+            self.assertEqual((r.status, r.getheader("Location")), (404, None), path)
+        r, _ = self.req("GET", "/studio?url=abc")   # 末尾の / を足す 301 は取り込みの決まりのまま
+        self.assertEqual((r.status, r.getheader("Location")), (301, "/studio/?url=abc"))
         # 取り込み(MOUNTS)の CSP は今のまま(script-src にインラインを許さない・YouTube のプレイヤーだけ外部。起動のとき Mount.start が検査する)
         csp = M.MOUNTS["studio"]["csp"]
         self.assertIn("script-src 'self' https://www.youtube.com", csp)
@@ -304,23 +305,19 @@ class TestCut2ResolveMounted(unittest.TestCase):
         r, _ = self.req("GET", "/studio/api/ping")   # スタジオも並んで動く(画面のページは RS8 C4 で消した)
         self.assertEqual(r.status, 200)
 
-    def test_page_moves_to_edit_tool_when_mounted(self):
-        """「編集」(/transcribe)も取り込まれているときは、cut2resolve の画面は編集へ転送する(?video= → ?media=)。API はそのまま"""
+    def test_page_is_notice_even_when_edit_tool_mounted(self):
+        """「編集」(/transcribe)も取り込まれていても、cut2resolve の画面は案内だけ(編集への転送 page_to は棚卸し G5 で消した)。API はそのまま"""
         self.srv.mounts["/transcribe"] = object   # 編集が取り込まれている印だけ(このテストでは /transcribe/ には要求しない)
         try:
-            r, _ = self.req("GET", "/cut2resolve/?video=C%3A%5Ca.mp4&srt=x")   # RS8 C4: ?video= は入口が 1 回で新しい案件の欄(文書が無い)へ
-            self.assertEqual((r.status, r.getheader("Location")), (302, "/#new?media=C%3A%5Ca.mp4"))
-            r, _ = self.req("GET", "/cut2resolve/index.html")
-            self.assertEqual((r.status, r.getheader("Location")), (302, "/transcribe/"))
-            r, _ = self.req("GET", "/cut2resolve/?classic=1")
-            self.assertEqual(r.status, 302)   # 前の画面は消したので、いつも転送
+            for path in ("/cut2resolve/?video=C%3A%5Ca.mp4&srt=x", "/cut2resolve/index.html"):
+                r, body = self.req("GET", path)
+                self.assertEqual((r.status, r.getheader("Location")), (200, None), path)
+                self.assertIn("「編集」に統合しました".encode("utf-8"), body)
             for path in ("/cut2resolve/api/ping", "/cut2resolve/api/siblings"):
                 r, _ = self.req("GET", path)
                 self.assertEqual(r.status, 200, path)
         finally:
             self.srv.mounts.pop("/transcribe", None)
-        r, _ = self.req("GET", "/cut2resolve/")   # 編集が取り込まれていなければ、案内だけを出す(cut2resolve の画面は消した)
-        self.assertEqual(r.status, 200)
 
     def test_api_token_and_guards(self):
         r, body = self.req("GET", "/cut2resolve/api/ping")
@@ -464,12 +461,10 @@ class TestTranscribeMounted(unittest.TestCase):
         snap = self.sup.by_id["transcribe"].snapshot()
         self.assertEqual((snap["state"], snap["mounted"], snap["path"]), ("running", True, "/transcribe/"), self.events)
         self.assertIsNone(self.sup.by_id["transcribe"].proc)
-        # RS8 C4: 編集の画面のページは消えた。入口が案件の画面(ホーム)へ転送する(取り込んだ編集の Handler には渡さない)
-        for path, want in (("/transcribe/", "/"), ("/transcribe/index.html", "/"), ("/transcribe/?drill=1", "/cases?c=eval#proof"),
-                           ("/transcribe?media=x", "/#new?media=x")):
+        # RS8 C4: 編集の画面のページは消えた(古い URL の転送も棚卸し G5 で消した = 取り込んだ編集が 404)
+        for path in ("/transcribe/", "/transcribe/index.html", "/transcribe/?drill=1", "/transcribe/?media=x"):
             r, body = self.req("GET", path)
-            self.assertEqual((r.status, r.getheader("Location")), (302, want), path)
-            self.assertEqual(body, b"", path)
+            self.assertEqual((r.status, r.getheader("Location")), (404, None), path)
         csp = M.MOUNTS["transcribe"]["csp"]   # 取り込みの CSP(インラインのスクリプトを許さない)は今のまま
         self.assertIn("script-src 'self';", csp)
         self.assertNotIn("unsafe-inline", csp)

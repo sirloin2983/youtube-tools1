@@ -316,11 +316,8 @@ class PortalLiveTest(unittest.TestCase):
         self.assertEqual(d["prefs"]["live"]["recorders"][0]["token"], "")
         code, d = self.jreq("POST", "/api/ytt/prefs", {"op": "get"})   # 全部の節を読んでも同じ
         self.assertEqual(d["prefs"]["live"]["recorders"][0]["token"], "")
-        # 以前の録画の画面はホームへ(P3 でスタジオへ統合 → RS8 C4 でスタジオの画面を消したのでホーム)
-        for path in ("/live", "/live/", "/live/index.html"):
-            code, h, raw = self.req("GET", path)
-            self.assertEqual((code, h.get("location")), (302, "/"), path)
-        for path in ("/live/live.js", "/live/live.css", "/live/live.html"):
+        # 以前の録画の画面は無い(P3 でスタジオへ統合 → RS8 C4 でスタジオの画面を消した。ホームへの転送も棚卸し G5 で消した)
+        for path in ("/live", "/live/", "/live/index.html", "/live/live.js", "/live/live.css", "/live/live.html"):
             self.assertEqual(self.req("GET", path)[0], 404, path)
         self.assertFalse([n for n in ("live.html", "live.js", "live.css") if os.path.exists(os.path.join(HERE, n))])
         code, h, raw = self.req("GET", "/live/hls.min.js")   # スタジオの画面が ../live/hls.min.js で読む

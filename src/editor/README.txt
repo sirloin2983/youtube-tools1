@@ -8,7 +8,7 @@
     2 カット・パック            … 案件の画面の「カット・パック」(#cut。中身は cut.js・pack-tab.js のまま。パックの設定は同じ欄の下)
     左のメニューの「精度」「学習」 … ホームの運用の中
     新規・履歴                  … ホームの「新しい案件」と案件の一覧(評価用の文書は一覧の末尾の「評価用」の案件)
-  /transcribe/?doc=… ?media=… ?drill=1 などの以前の URL は、ホームが案件の画面へ転送します。API(/transcribe/api/…)・作業データ・識別子(transcribe-tool)は変わりません。
+  /transcribe/?doc=… ?media=… ?drill=1 などの以前の URL の転送は棚卸し G5(2026-10-19)で消しました(文書は /cases?d=<文書の id>#proof・動画のパスは /cases?v=<動画のパス>#proof で開きます)。API(/transcribe/api/…)・作業データ・識別子(transcribe-tool)は変わりません。
   画面の部品 app-tpl.js・app-*.js・app.js・cut.js・pack-tab.js・proof.css は src/app/ui/editor/ に移しました(RV C2。URL の /transcribe/app.js などはそのまま。ed_state.UI_DIR から配ります。テストが serve.py を一時フォルダに写すときは環境変数 YTT_EDITOR_UI_DIR で場所を教えます)。以前のこのフォルダには(index.html と ui-kit の写しは消しました)。
   以下の説明の「タブ」「左のメニュー」「⚙」は消した画面のものです(経緯として残します)。
 

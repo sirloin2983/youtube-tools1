@@ -189,7 +189,7 @@ def main():
                 check(wait_js(pg, "(document.querySelector('[data-ui-set-key=\"live.enabled\"] .ui-set-mark')||{}).textContent === '保存しました'"), "設定の画面で「保存しました」")
                 check(srv.prefs.get(["live"])["live"]["enabled"] is True, "設定に残る")
                 code, _, _, loc = api.call("GET", "/live/", redirect=False)
-                check((code, loc) == (302, "/"), "/live/ はホームへ 302(RS8 C4 でスタジオの画面を消した): %s %s" % (code, loc))
+                check(code == 404, "/live/ は 404(以前の録画の画面への転送は棚卸し G5 で消した): %s %s" % (code, loc))
                 code, raw, ctype, _ = api.call("GET", "/live/hls.min.js")
                 check(code == 200 and ctype.startswith("application/javascript") and len(raw) > 100000, "hls.js(../live/hls.min.js)")
                 code, info, _, _ = api.call("GET", "/live/api/info")

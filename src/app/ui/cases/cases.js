@@ -1,5 +1,6 @@
 /* 案件の画面(/cases = 入口の直下の 1 枚。部品は src/app/ui/cases/。RS8 C1 = 殻。作り方 notes:docs/design/rs8-cases-build.md・何を作るか notes:docs/design/briefs/rs8-cases/)。
-   URL: /cases?c=<案件 id>&d=<文書 id>#cand|proof|cut(#tx は proof・#pack は cut と読む)。d だけでも開ける(④ に ?doc= で案件を聞く)。
+   URL: /cases?c=<案件 id>&d=<文書 id>#cand|proof|cut。d だけでも開ける(④ に ?doc= で案件を聞く)。
+     v=<動画のパス> だけでも開ける(編集の api/doc-for で文書を引く。無ければホームの新しい案件の欄 /#new?media=)。
      文字起こしがまだの切り抜きは d の代わりに m=<マーク id>。根のパスは URL に出さない。
    読む口: 案件の中身 = ④ GET api/cases(?doc=)/ 今動いている物 = ② GET api/flow/status?case=<根>(動いていれば 2 秒・止まっていれば 15 秒。rev が同じなら描き直さない)。
    殻が持つ物: ヘッダー・URL の読み書き(replaceState)・左の一覧・タブ・「次の未校正の切り抜き」・keydown 1 本・UIKit.life・問い合わせ。
@@ -70,7 +71,6 @@
   var esc = UIKit.esc;
   var $ = function (s) { return document.querySelector(s); };
   var TABS = { cand: { label: '候補', n: 1 }, proof: { label: '校正', n: 1 }, cut: { label: 'カット・パック', n: 2 } };
-  var HASH_ALIAS = { tx: 'proof', pack: 'cut' };
   var NO_CAND = { file: 1, eval: 1, orphan: 1 };   // 候補(配信全体)の無い案件 = 動画ファイル 1 本・仮の案件
   var PSEUDO = { eval: '評価用', orphan: 'どの案件にも入らない文字起こし' };
   var TOOL_BASE = { home: '', studio: 'studio/', transcribe: 'transcribe/', cut2resolve: 'cut2resolve/' };
@@ -109,9 +109,20 @@
   function rememberCase(id) { try { if (id) localStorage.setItem(LAST_KEY, id); else localStorage.removeItem(LAST_KEY); } catch (e) { /* 覚えられなくてよい */ } }
   function readUrl() {
     var q = new URLSearchParams(location.search), h = location.hash.replace(/^#/, '');
-    var w = { c: q.get('c') || '', d: q.get('d') || '', m: q.get('m') || '', tab: HASH_ALIAS[h] || (TABS[h] ? h : '') };
-    if (!w.c && !w.d) { w.c = lastCase(); w.last = !!w.c; }
+    var w = { c: q.get('c') || '', d: q.get('d') || '', m: q.get('m') || '', v: q.get('v') || '', tab: TABS[h] ? h : '' };
+    if (!w.c && !w.d && !w.v) { w.c = lastCase(); w.last = !!w.c; }
     return w;
+  }
+  /* ?v=<動画のパス>(c も d も無いとき。スタジオ ② の「編集で開く」= 棚卸し G5): 編集の口でその動画の文書を引いて開く(URL は writeUrl が ?c=&d= に直す)。
+     文書が無い・引けないときは、ホームの新しい案件の動画ファイルの欄へ */
+  function openMedia(w) {
+    var toNew = function () { location.replace('./#new?media=' + encodeURIComponent(w.v)); };
+    return api('transcribe', 'api/doc-for?path=' + encodeURIComponent(w.v)).then(function (j) {
+      var id = j && j.doc && typeof j.doc.id === 'string' ? j.doc.id : '';
+      if (!id) return toNew();
+      S.want = { c: '', d: id, m: '', tab: w.tab || 'proof' };
+      return load(false);
+    }, toNew);
   }
   function writeUrl() {
     var q = new URLSearchParams(), it = curItem();
@@ -552,7 +563,7 @@
     $('#csNext').addEventListener('click', goNext);
     document.addEventListener('keydown', onKey);
     window.addEventListener('hashchange', function () {
-      var h = location.hash.replace(/^#/, ''), t = HASH_ALIAS[h] || h;
+      var t = location.hash.replace(/^#/, '');
       if (!TABS[t] || !S.kase) return;
       if (tabsOf(curItem()).indexOf(t) >= 0) setTab(t);
       else select(defaultKey({ tab: t }), t);   // 候補を開いているときに #proof = 最初の未校正の切り抜きへ
@@ -566,7 +577,8 @@
       if (!S.timer) poll();
     });
     S.want = readUrl();
-    load(false);
+    if (S.want.v && !S.want.c && !S.want.d) openMedia(S.want);
+    else load(false);
   });
 
   /* 画面のテスト(src/app/tests/e2e_cases.py)と確かめる(V1)が今の状態を読む口 */

@@ -31,7 +31,7 @@ PY = sys.executable
 # (組, スクリプト, 追加の引数, 何を確かめるか)。所要秒は 2026-10-18(テストの見直し。ほかのテストと同時に流した 1 本ずつ)の実測(i9-12900KF)。RS8 C4(0.59.0)で古いスタジオ・編集の画面と、その e2e 18 本
 # (編集 15 本・スタジオの e2e_ui 2 回・見本の e2e_review)を消し、確かめの要点を案件の画面の 4 本(組 cases)・e2e_portal・unittest へ移した。
 # テストの見直し(10-18)で道ごとに 1 本へ: 案件の画面の殻 e2e_cases・e2e_window・e2e_keymap・e2e_settings・e2e_intake_ui・e2e_backup_ui を消し、
-# 道に要る所(#tx #pack の読み替え・引数なしで前の案件・依頼の題名を文字のまま)は e2e_portal へ移した。残りは単体(test_window・test_backup・
+# 道に要る所(d だけの URL・引数なしで前の案件・依頼の題名を文字のまま)は e2e_portal へ移した。残りは単体(test_window・test_backup・
 # test_intake_prefs・test_settings_schema・test_cases_poll.cjs)と ui_audit が見る。
 SUITE = [
     # 案件の画面 /cases(src/app/tests/。RS8)
@@ -43,7 +43,7 @@ SUITE = [
     # 道 10 API の通し(Playwright なし): 3 ツールの通し(dev/tests/)
     ("dev", "dev/tests/e2e_pipeline.py", [], "道 10 スタジオ → 編集 → cut2resolve の API の通し(Playwright なし)(14 秒)"),
     # 入口(src/app/tests/)
-    ("home", "src/app/tests/e2e_portal.py", [], "道 1 ホーム → 新しい案件 → 案件の画面: 本番と同じ取り込み・appnav・古い URL の転送(#tx #pack)・案件の画面の候補/校正/カット・新しい案件と探す設定・案件・次にやること・依頼の受付の外の文字・自動の切り抜き・子プロセスの文字起こし(91 秒)"),
+    ("home", "src/app/tests/e2e_portal.py", [], "道 1 ホーム → 新しい案件 → 案件の画面: 本番と同じ取り込み・appnav・動画のパスで開く /cases?v=・案件の画面の候補/校正/カット・新しい案件と探す設定・案件・次にやること・依頼の受付の外の文字・自動の切り抜き・子プロセスの文字起こし(91 秒)"),
     ("home", "src/app/tests/e2e_autorun.py", [], "道 6 まとめて実行(画面と API・起動し直し後の記録)(27 秒)"),
     ("home", "src/app/tests/e2e_live.py", [], "道 10 ライブ(線 D)の入口の API(録画の部品は本物)(8 秒)"),
     ("home", "src/app/tests/e2e_live_studio.py", [], "道 7 ライブ: ホームの /#new から録画 → 案件の画面の候補で再生 → マーク → 書き出し・候補(約 3 分)"),

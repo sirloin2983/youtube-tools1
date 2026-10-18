@@ -1040,7 +1040,7 @@ function create(h){
     $('#cutSplitCancel').addEventListener('click', () => { M.splitPending = null; $('#cutSplitDlg').close(''); });
     $('#cutSplitDlg').addEventListener('close', () => { if ($('#cutSplitDlg').returnValue !== 'ok') M.splitPending = null; });   // Esc で閉じた
     $('#cutSplitDlg form').addEventListener('submit', e => { e.preventDefault(); commitSplit(); });   // 「分ける」ボタン
-    $('#cutDocConflictGo').addEventListener('click', () => { if (h.docConflictGo) h.docConflictGo(); else location.hash = '#tx'; });
+    $('#cutDocConflictGo').addEventListener('click', () => { if (h.docConflictGo) h.docConflictGo(); else location.hash = '#proof'; });
     $('#cutSubs').addEventListener('click', e => {
       const b = e.target.closest('[data-act]'); if (!b) return;
       if (b.dataset.act === 'totx'){ h.toTx(); return; }   // 字幕の無い文書: 1 文字起こし のタブの「文字起こしする」へ(段7 E-14)

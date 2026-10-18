@@ -174,12 +174,9 @@ function loadView(){
 
 function saveView(){ try { localStorage.setItem(VIEW_KEY, JSON.stringify(V)); } catch {} }
 
-function tabFromHash(){ const h = String(location.hash || '').replace(/^#/, ''); return h === 'pack' || ED_TABS.includes(h) ? h : null; }   // 'pack'(旧 3 パック)は setEditTab が 2 カット のパックへ読み替える(0.62.0)
-
+/* 編集のタブ(tx・cut)。URL のハッシュは読まない・書かない(編集は案件の画面の中だけで動く = URL は殻 cases.js のもの。旧 #pack の読み替えは棚卸し G5 で消した) */
 function setEditTab(t, opt = {}){
-  if (EDIT_HOST && !opt.host && (t === 'pack' ? 'cut' : t) !== EDT.tab){ EDIT_HOST.tab(t); return; }   // 案件の画面ではタブは殻のもの(「2 カットへ」= 殻のカット・パックのタブへ)
-  let toPack = false;
-  if (t === 'pack'){ t = 'cut'; toPack = true; }   // 0.62.0: 旧「3 パック」(URL の #pack・履歴の「パックを作る」・前回のタブ)は 2 カット の末尾のパックへ
+  if (EDIT_HOST && !opt.host && t !== EDT.tab){ EDIT_HOST.tab(t); return; }   // 案件の画面ではタブは殻のもの(「2 カットへ」= 殻のカット・パックのタブへ)
   if (!ED_TABS.includes(t)) t = 'tx';
   const was = EDT.tab;
   EDT.tab = t; EDT.overlay = false;
@@ -196,14 +193,12 @@ function setEditTab(t, opt = {}){
   { const g = $('#uiSettingsDrawer'); if (was !== t && g && !g.hidden){ closedDrawer = true; UIKit.drawer.close(g); } }
   document.querySelectorAll('[data-edpanel]').forEach(p => { p.hidden = p.dataset.edpanel !== t; });
   document.documentElement.dataset.edtabNow = t;   // CSS 用(html[data-edtab-now])。[data-edtab] はタブのボタンだけに使う
-  if (!EDIT_HOST && opt.hash !== false && location.hash !== '#' + t){ try { history.replaceState(history.state, '', location.pathname + location.search + '#' + t); } catch {} }
   applyView();
   if (was !== t){ onEditTab(was, t); rememberLast(); }   // 前回の文書とタブ(段7 E-7。文書を開いていなければ何もしない)
   if (opt.focus || closedDrawer){ const b = document.querySelector(`[data-edtab="${t}"]`); if (b) b.focus(); }
   if (opt.into) focusTabStart(t);   // 閉じた引き出しは隠れたタブのボタンへフォーカスを返すので、移った先のタブのボタンへ置き直す
-  if (toPack) showPackArea();
 }
-/* 2 カット の末尾の「パック」へ(0.62.0。旧 #pack・履歴の「パックを作る」)。見える所まで送り、押せるなら「パックを作る」へフォーカス */
+/* 2 カット の末尾の「パック」へ(0.62.0。カットの「パックへ」)。見える所まで送り、押せるなら「パックを作る」へフォーカス */
 function showPackArea(){
   const el = $('#packArea'); if (!el) return;
   requestAnimationFrame(() => { el.scrollIntoView({ block: 'start' }); const b = $('#pkBuild'); if (b && !b.disabled && b.offsetParent) b.focus({ preventScroll: true }); });
