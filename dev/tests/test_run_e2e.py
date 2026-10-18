@@ -2,7 +2,6 @@
 
     py -3.10 -m unittest dev/tests/test_run_e2e.py
 """
-import glob
 import os
 import sys
 import unittest
@@ -12,29 +11,8 @@ sys.path.insert(0, os.path.join(REPO, "dev"))
 import run_e2e  # noqa: E402
 
 
-def repo_e2e_scripts():
-    """リポジトリにある e2e_*.py(共通部品 e2e_edit_common は除く)をリポジトリからの相対パス(/ 区切り)で"""
-    found = set()
-    for top in ("src", "dev", "chrome-ext", "friend-apps"):
-        for p in glob.glob(os.path.join(REPO, top, "**", "e2e_*.py"), recursive=True):
-            rel = os.path.relpath(p, REPO).replace(os.sep, "/")
-            if not rel.endswith("/e2e_edit_common.py"):
-                found.add(rel)
-    return found
-
-
 class TestSuiteList(unittest.TestCase):
-    def test_every_listed_script_exists(self):
-        for _g, script, _a, _w in run_e2e.SUITE:
-            self.assertTrue(os.path.isfile(os.path.join(REPO, script)), script)
-        for script in run_e2e.NOT_IN_SUITE:
-            self.assertTrue(os.path.isfile(os.path.join(REPO, script)), script)
-
-    def test_every_repo_script_is_listed_or_excluded(self):
-        listed = {s for _g, s, _a, _w in run_e2e.SUITE} | run_e2e.NOT_IN_SUITE
-        missing = sorted(repo_e2e_scripts() - listed)
-        self.assertEqual(missing, [], "e2e を足したら dev/run_e2e.py の SUITE か NOT_IN_SUITE に入れる")
-
+    # 一覧が実在する物と一致するか・編集の一式が流す物は一覧にあるかは、lint の規則 R-04(dev/rule_checks.py)が見る
     def test_suite_stays_one_per_path(self):
         """e2e は主な道 1 つに 1 本(テストの見直し 10-18)。一式が 15 本を超えたら、足す前にどの道の 1 本に入るかを決める(細かい場面は単体・ui_audit へ)"""
         self.assertLessEqual(len(run_e2e.SUITE), 15, [run_e2e.label(s, a) for _g, s, a, _w in run_e2e.SUITE])
@@ -72,13 +50,6 @@ class TestSuiteList(unittest.TestCase):
 
     def test_summary_counts_ok_and_fail(self):
         self.assertEqual(run_e2e.summary("OK   a\nOK   b\nFAIL c\nNG   d\n"), "OK 2 / FAIL 2")
-
-    def test_editor_suite_runner_agrees(self):
-        """dev/run_editor_suite.py が流す e2e(編集の部品を載せた案件の画面の 2 本)は、一式の cases の組にある。編集だけの e2e は RS8 C4 で無くなった"""
-        import run_editor_suite
-        cases = {run_e2e.label(s, a) for g, s, a, _w in run_e2e.SUITE if g == "cases"}
-        self.assertEqual(run_editor_suite.E2E, [])
-        self.assertTrue(set(run_editor_suite.CASES_E2E) <= cases, run_editor_suite.CASES_E2E)
 
 
 if __name__ == "__main__":
