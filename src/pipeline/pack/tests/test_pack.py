@@ -741,13 +741,6 @@ class TestGainCopyRecord(unittest.TestCase):
         self.assertEqual(C.gain_copy_key(self.src, self.dst, -10.457, self.meta), key)      # → 条件は同じ(same_copy と同じ秒単位)
 
 
-class TestStartTcFrames(unittest.TestCase):
-    def test_start_tc_frames(self):
-        self.assertEqual(S.start_tc_frames(None, FPS30), (0, []))
-        self.assertEqual(S.start_tc_frames("01:00:00;00", (30000, 1001))[0], 108000)
-        self.assertEqual(len(S.start_tc_frames("01:00:00;00", (30000, 1001))[1]), 1)
-
-
 class TestCutPlanDocs(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

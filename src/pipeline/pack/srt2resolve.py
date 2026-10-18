@@ -324,18 +324,6 @@ def frames_to_tc(n, nominal):
     return f"{s // 3600:02d}:{s // 60 % 60:02d}:{s % 60:02d}:{n % nominal:02d}"
 
 
-def start_tc_frames(tc, fps):
-    """開始タイムコード → 元動画の先頭のフレーム番号(タイムコードの数え方)。(フレーム, 警告)。
-    ドロップフレーム表記(;)はノンドロップとして読み替えて警告する(EDL と同じ扱い)"""
-    if not tc:
-        return 0, []
-    warns = []
-    if ";" in tc:
-        warns.append(f"開始タイムコード {tc} はドロップフレーム表記です。ノンドロップとして扱うため、数フレームずれることがあります。")
-        tc = tc.replace(";", ":")
-    return tc_to_frames(tc, nominal_rate(fps)), warns
-
-
 def round_half_up(x):
     """四捨五入(0.5 は大きい方へ)。Python の round() は偶数への丸め(2.5 -> 2)で、30fps の x.x5 秒のような
     ちょうど半フレームの時刻が、行ごとに上下ばらばらに丸まる。文字起こしツール(resolve_export・画面の SRT)と同じ規則にそろえる"""
