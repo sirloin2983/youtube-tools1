@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.join(REPO, "dev"))
 import session_start as ss  # noqa: E402
 
 NOWIN = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # サーバーは動かさないが、test_ytt_core の見張り(serve の語を含むテスト)に合わせる
 
 
 def write(path, text):
