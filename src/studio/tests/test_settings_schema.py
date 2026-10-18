@@ -52,16 +52,6 @@ class TestStudioSchema(unittest.TestCase):
                 self.assertIs(analyze.validate_settings({k: True})[k], True, it["key"])
                 self.assertIs(analyze.validate_settings({k: False})[k], False, it["key"])
 
-    def test_analyze_covers_all_keys(self):
-        keys = {it["key"].split(".", 1)[1] for it in self.items}
-        missing = [k for k in analyze.validate_settings({}) if k not in keys and k != "noCache"]   # noCache は 1 回だけの印(保存しない)
-        self.assertEqual(missing, [], "画面に無い解析の設定")
-
-    def test_review_items_shape(self):
-        for it in studio_items():
-            if it["key"].startswith("review."):
-                self.assertIn(it["type"], ("bool", "enum", "int", "number"), it["key"])
-
 
 if __name__ == "__main__":
     unittest.main()

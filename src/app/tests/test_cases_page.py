@@ -11,7 +11,6 @@
 (名前は test_cases_page = manage/cases/tests/test_cases.py と重ねない)"""
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所に書かない(ytt.datadir)
-import re
 import sys
 import unittest
 
@@ -96,75 +95,6 @@ class CasesPageHttpTest(PageServerTest):
         r, _ = self.req("/cases.js", headers={"Sec-Fetch-Site": "cross-site"})   # 部品は同じ画面からだけ
         self.assertEqual(r.status, 403)
         self.assertIn("/cases", L.NAV_PAGES)
-
-
-class CasesPageFilesTest(unittest.TestCase):
-    def test_no_inline_script_or_handlers(self):
-        html = read(os.path.join(UI, "index.html"))
-        for m in re.finditer(r"<script\b([^>]*)>", html):
-            self.assertIn("src=", m.group(1), "インラインの script は CSP で動かない: " + m.group(0))
-        self.assertIsNone(re.search(r"\son[a-z]+\s*=", html), "on〇〇= は CSP で動かない")
-        self.assertNotRegex(html, r"(src|href)=\"/", "画面の部品は相対パスで読む")
-        for n in PANELS:   # パネルは殻(cases.js)のあとに読む(CasesPanels.define を使うため)
-            self.assertLess(html.index('src="cases.js"'), html.index('src="cases-panels/%s.js"' % n), n)
-
-    def test_panels_share_the_contract(self):
-        for n in PANELS:
-            js = read(os.path.join(UI, "panels", n + ".js"))
-            self.assertIn("CasesPanels.define('%s'" % n, js)
-            for key in ("mount:", "update:", "unmount:", "keys:", "keybar:"):
-                self.assertIn(key, js, "%s に %s が無い" % (n, key))
-            self.assertNotRegex(js, r"document\.(getElementById|querySelector(All)?)\(",
-                                "%s: パネルの中は root.querySelector で引く(殻・ほかのパネルの id とぶつけない)" % n)
-            self.assertNotRegex(js, r"addEventListener\(\s*['\"]visibilitychange", "UIKit.life を使う")
-
-    def test_proof_panel_parts(self):
-        """校正のパネル(C2b): 3 択の部品もパネルと同じ決まり・編集の部品は transcribe/ の相対パスで読む・殻より後・パネルより前に読む"""
-        js = read(os.path.join(UI, "panels", "machpick.js"))
-        self.assertNotRegex(js, r"document\.(getElementById|querySelector(All)?)\(")
-        host = read(os.path.join(UI, "edhost.js"))
-        self.assertIn("'transcribe/' + n", host)
-        self.assertNotRegex(host, r"['\"]/(api|transcribe)/", "相対パスで読む")
-        self.assertIn("window.EditHost", host)
-        html = read(os.path.join(UI, "index.html"))
-        self.assertLess(html.index('src="cases.js"'), html.index('src="cases-edhost.js"'))
-        self.assertLess(html.index('src="cases-edhost.js"'), html.index('src="cases-panels/proof.js"'))
-        self.assertLess(html.index('src="cases-panels/machpick.js"'), html.index('src="cases-panels/proof.js"'))
-        self.assertIn('class="ui-header top"', html, "編集の app.js が .top の高さを見る")
-        for name in ("app.js", "app-core.js", "app-rows.js"):   # 古い編集の画面の動きは変えない口(window.EditHost が無ければ今までどおり)
-            self.assertIn("EDIT_HOST", read(os.path.join(SRC, "app", "ui", "editor", name)), name)
-
-    def test_shell_uses_life_and_one_keydown(self):
-        js = read(os.path.join(UI, "cases.js"))
-        self.assertEqual(len(re.findall(r"addEventListener\(\s*'keydown'", js)), 1, "keydown は殻の 1 本")
-        self.assertIn("UIKit.life.onLeave", js)
-        self.assertNotIn("visibilitychange", js)
-        self.assertNotRegex(js, r"['\"]/(api|studio|transcribe|cut2resolve)/", "API は相対パス(api() の 1 か所)")
-
-    def test_home_new_panel_shape(self):
-        js = read(os.path.join(UI, "panels", "new.js"))
-        self.assertIn("window.NewCasePanel", js)
-        self.assertIn("CasesPanels.define('new'", js)
-        for key in ("mount:", "update:", "unmount:", "setVisible:"):
-            self.assertIn(key, js)
-        self.assertNotRegex(js, r"document\.(getElementById|querySelector(All)?)\(")
-        self.assertNotIn("visibilitychange", js)
-
-    def test_home_ids_do_not_collide_with_new_panel(self):
-        """rank.js・queue.js は document.querySelector('#id') で引くので、引き出しの中の id はホームの id と重ならないこと"""
-        ids = lambda text: set(re.findall(r'\bid="([A-Za-z][\w-]*)"', text))
-        home = ids(read(os.path.join(SRC, "app", "ui", "home", "portal.html")))
-        mine = set()
-        for name in ("rank.js", "queue.js"):
-            mine |= ids(read(os.path.join(SRC, "app", "ui", "studio", name)))
-        mine |= {"paneRank"}
-        self.assertGreater(len(mine), 40)   # 取り損ねていない
-        self.assertEqual(sorted(home & mine), [])
-
-    def test_static_table_points_to_files(self):
-        for url, (name, base) in L.STATIC.items():
-            if url.startswith("/cases") or url == "/portal-edit.js":
-                self.assertTrue(os.path.isfile(os.path.join(base, name)), url)
 
 
 if __name__ == "__main__":

@@ -148,11 +148,6 @@ class TestSiblingsApi(RuntimeDir):
 class ToolIdentityTests(unittest.TestCase):
     """ツールの識別子(/api/ping の app・.clip.json の tool.name)は ytt.runtime.TOOL_APPS が正。写しが食い違っていない(値は互換のため固定)"""
 
-    def test_same_as_runtime_table(self):
-        self.assertEqual(serve.APP_ID, runtime.TOOL_APPS["studio"])
-        self.assertEqual(serve.Handler.server_version, runtime.TOOL_APPS["studio"])
-        self.assertEqual(exporter.TOOL["name"], runtime.TOOL_APPS["studio"])
-
 
 if __name__ == "__main__":
     unittest.main(verbosity=1)

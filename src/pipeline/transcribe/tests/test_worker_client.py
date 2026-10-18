@@ -8,7 +8,6 @@
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない(一時フォルダだけ)。ほかのテストとそろえる
-import subprocess
 import sys
 import unittest
 import wave
@@ -57,15 +56,6 @@ class TestPaths(unittest.TestCase):
 
 class TestWorkerModule(unittest.TestCase):
     """認識ワーカーの本体 worker.py(RS2-9 に編集の tx_worker.py から移した)を serve なしで読む"""
-
-    def test_import_reads_no_app_eval_or_native(self):
-        """import しただけでは、編集の serve・ed_*・eval(疑似)・numpy などを読まない(疑似は worker-fake のときに main が名前で読む)"""
-        code = ("import sys; sys.path.insert(0, sys.argv[1]); import pipeline.transcribe.worker as w; "
-                "native = ('numpy', 'faster_whisper', 'ctranslate2', 'sherpa_onnx', 'onnxruntime'); "
-                "print(sorted(m for m in sys.modules if m in native or m == 'serve' or m.startswith('ed_') or m == 'eval' or m.startswith('eval.')))")
-        p = subprocess.run([sys.executable, "-c", code, SRC], capture_output=True, text=True, timeout=60)
-        self.assertEqual(p.returncode, 0, p.stderr[-2000:])
-        self.assertEqual(p.stdout.strip(), "[]")
 
     def test_handle_routes_to_owner_modules(self):
         """要求は呼ぶたびに持ち主のモジュールの名前を読む(diarize._diarize_local の差し替えが届く)・知らない要求は bad_op"""

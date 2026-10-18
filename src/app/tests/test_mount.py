@@ -46,16 +46,6 @@ def _purge_studio_modules(tool_dir, tool_id="studio"):
 
 
 class TestModuleNames(unittest.TestCase):
-    def test_tools_do_not_share_module_names(self):
-        """1つのプロセスに取り込むので、ツール間で同じ名前の部品を作らない(notes:docs/design/integration-plan.md)"""
-        seen = {}
-        for d in TOOL_DIRS + ("app",):   # 入口の部品(src/app。作業データの置き場所 layout.TOOL_DIRS["app"] とは別)。各フォルダの直下だけ(tests/ は取り込まないので対象外)
-            path = os.path.join(REPO, d)
-            if not os.path.isdir(path):
-                continue
-            for name in M.tool_modules(path):
-                self.assertNotIn(name, seen, "%s が %s と %s の両方にある" % (name, seen.get(name), d))
-                seen[name] = d
 
     def test_collision_is_refused_at_runtime(self):
         with tempfile.TemporaryDirectory() as tmp:

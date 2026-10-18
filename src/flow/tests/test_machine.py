@@ -64,11 +64,6 @@ class TestLoad(Base):
             m = M.load(env=self.env)
             self.assertEqual((m["device"], m["engine"]), ("vulkan", "whisper.cpp"), old)
 
-    def test_llm_default_matches_llm_py(self):
-        self.assertEqual(M.LLM_MODEL, llm.LLM_MODEL)
-        self.assertEqual(S.DEFAULTS["post"]["llmModel"], llm.LLM_MODEL)
-        self.assertIn(M.LLM_MODEL, tx_engines.LLAMA_TEXT_MODELS)
-
     def test_order_arg_env_file_default(self):
         self.write({"device": "cpu", "diskMinGB": 50, "llmModel": "file-model"})
         env = dict(self.env, YTT_MACHINE_DEVICE="cuda", YTT_MACHINE_DISK_MIN_GB="30")

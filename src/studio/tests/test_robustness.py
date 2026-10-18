@@ -269,13 +269,6 @@ class TestYtdlpTemplate(unittest.TestCase):
         self.assertEqual(yturl.ytdlp_out(os.path.join("C:", "100%", "exports"), "a.%(ext)s"), os.path.join("C:", "100%%", "exports", "a.%(ext)s"))
         self.assertEqual(yturl.ytdlp_out("/plain", "chat.%(ext)s"), os.path.join("/plain", "chat.%(ext)s"))
 
-    def test_all_ytdlp_calls_use_the_escaped_template(self):
-        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        for fn in (os.path.join("..", "pipeline", "analyze", "analyze.py"), os.path.join("..", "pipeline", "export", "exporter.py")):   # analyze は RS3-5 で pipeline/analyze へ・exporter は RS1-4 で pipeline/export へ
-            with open(os.path.join(here, fn), encoding="utf-8") as f:
-                src = f.read()
-            self.assertNotIn('"-o", os.path.join(', src, fn)   # yt-dlp の -o は必ず yturl.ytdlp_out を通す
-
 
 class TestPorts(unittest.TestCase):
     def test_busy_port_is_skipped(self):

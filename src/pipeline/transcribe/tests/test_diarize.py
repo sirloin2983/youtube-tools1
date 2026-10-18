@@ -10,7 +10,6 @@
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしないが、ほかのテストとそろえる
 import shutil
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -137,17 +136,6 @@ class TestBackendAndWorker(unittest.TestCase):
         worker_client.WORKER = _Worker([[0, 1.5, 2]])
         self.assertEqual(diarize.diarize_real({}, "a.wav", 0, "voxceleb"), [(0.0, 1.5, 2)])
         self.assertEqual(worker_client.WORKER.calls, [("diarize", {"wav": "a.wav", "num": 0, "emb": "voxceleb"})])   # 設定を渡さなければ以前と同じ形
-
-
-class TestImportsAlone(unittest.TestCase):
-    def test_no_native_app_or_eval(self):
-        """diarize は numpy・sherpa_onnx などのネイティブの部品・serve と editor の ed_*(app)・eval を読まずに import できる"""
-        code = ("import sys; sys.path.insert(0, %r); from pipeline.transcribe import diarize; "
-                "native = ('numpy', 'faster_whisper', 'ctranslate2', 'sherpa_onnx', 'onnxruntime'); "
-                "bad = [m for m in sys.modules if m in native or m.startswith('ed_') or m == 'serve' or m == 'eval' or m.startswith('eval.') or m.startswith('human')]; "
-                "print(bad); sys.exit(1 if bad else 0)") % SRC
-        p = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60)
-        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
 
 
 if __name__ == "__main__":

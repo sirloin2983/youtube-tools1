@@ -40,40 +40,6 @@ def small_roster(tmp):
 class TestRosterFile(unittest.TestCase):
     """同梱の名簿(hololive-roster.json)の形"""
 
-    def test_members_are_in_groups(self):
-        with open(ROSTER, encoding="utf-8") as f:
-            d = json.load(f)
-        people = {n for g in d["groups"] if g["id"] != "units" for n in g["names"]}
-        seen = {}
-        for m in d["members"]:
-            self.assertIn(m["name"], people, m["name"])                                   # 名簿の人だけ
-            self.assertTrue(m["aliases"], m["name"])
-            self.assertTrue(set(m.get("common") or []) <= set(m["aliases"]), m["name"])   # 普通の言葉と重なる印は呼び名から
-            for a in m["aliases"]:
-                self.assertNotIn(a, seen, "同じ呼び名が2人に: %s(%s・%s)" % (a, seen.get(a), m["name"]))
-                seen[a] = m["name"]
-            for x in m.get("misrecognitions") or []:
-                self.assertTrue(x["wrong"] and x["right"] and x["wrong"] != x["right"])
-        r = R.load(ROSTER)
-        self.assertGreaterEqual(len(r["members"]), 50)
-        self.assertNotIn("ホロライブ", r["people"])                                          # グループ名は人ではない
-
-    def test_member_regions_follow_groups(self):
-        """members の region は groups の id から決めた地域(ホロライブ・DEV_IS = JP・EN・ID)と合い、決まらない人(alum だけ)は欄が無い"""
-        with open(ROSTER, encoding="utf-8") as f:
-            d = json.load(f)
-        in_groups = {}
-        for g in d["groups"]:
-            for n in g["names"]:
-                in_groups.setdefault(n, []).append(g["id"])
-        for m in d["members"]:
-            want = {R.GROUP_REGION[g] for g in in_groups.get(m["name"], []) if g in R.GROUP_REGION}
-            self.assertLessEqual(len(want), 1, m["name"])
-            self.assertEqual(m.get("region"), (want or {None}).pop(), m["name"])
-            self.assertIn(m.get("region"), (None,) + R.REGIONS)
-        self.assertEqual(R.channel_regions(ROSTER)["UCp6993wxpyDPHUpavwDFqgg"], "JP")      # ときのそら
-        self.assertEqual(R.channel_regions(os.path.join(HERE, "no-such-roster.json")), {})  # 読めないときは空 = 全部不明
-
     def test_channel_regions_small(self):
         with tempfile.TemporaryDirectory() as tmp:
             p = os.path.join(tmp, "roster.json")

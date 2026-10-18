@@ -32,7 +32,6 @@ static class CoreTests
         Run("作業データ: 開けなかったファイルは上書きしない・保存の失敗は元に戻す", StoreLocked);
         Run("作業データ: メンバーの色を直す・元に戻す・知らない id は残す(member-colors.json)", StoreMemberColors);
         Run("作業データ: 直した色のファイルが壊れている・開けない・保存の失敗", StoreMemberColorsBroken);
-        Run("members.json: 同梱のデータが正しい形", BundledMembers);
         Run("members.json: おかしなデータは読まない", BadMembers);
         Run("members.json: 1人に複数の色(colors)・古い形・壊れた色は飛ばす・2つ目の色で検索", MultiColors);
         Run("自動起動: 登録・外す・別の場所を指す", AutostartRegistry);
@@ -461,53 +460,6 @@ static class CoreTests
     }
 
     // ---- 同梱のデータ ----
-    static void BundledMembers()
-    {
-        string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "members.json");
-        True(File.Exists(path), "members.json が無い: " + path);
-        var p = Palette.Load(path);
-        True(p.Groups.Count > 0, "グループが無い");
-        True(p.Updated.Length == 10, "updated(YYYY-MM-DD)が無い");
-        var names = new HashSet<string>();
-        foreach (var g in p.Groups)
-        {
-            True(g.Items.Count > 0, "空のグループ: " + g.Name);
-            True(!string.IsNullOrWhiteSpace(g.Name), "グループの名前が空");
-            foreach (var e in g.Items)
-            {
-                True(!string.IsNullOrWhiteSpace(e.Sub), "ローマ字・英語名が無い: " + e.Name);
-                True(names.Add(g.Branch + "/" + e.Name), "同じ人が同じ所に2回: " + e.Name);
-                True(e.Hex.Length == 7 && e.Hex[0] == '#', "カラーコード: " + e.Name);
-            }
-        }
-        foreach (string b in new[] { "JP", "DEV_IS", "EN", "ID", "GRAD" })
-            True(p.Groups.Any(g => g.Branch == b), "このグループが無い: " + b);
-
-        // version 2 の形: 全員に colors があり、先頭が hex(主な色)と同じ・メンバーの id は全体で一意(直した色のキー)・ラベルは 12 文字まで
-        var root = Json.Parse(File.ReadAllText(path, Encoding.UTF8));
-        Eq(2, Json.Int(root, "version", 0), "version");
-        var memberIds = new HashSet<string>();
-        foreach (var g in Json.List(root, "groups"))
-            foreach (var m in Json.List(g, "members"))
-            {
-                string id = Json.Str(m, "id"), name = Json.Str(m, "name");
-                True(!string.IsNullOrEmpty(id) && memberIds.Add(id), "メンバーの id が無いか重なっている: " + name + " / " + id);
-                var colors = Json.List(m, "colors").ToList();
-                True(colors.Count >= 1, "colors が無い: " + name);
-                string h0, hx;
-                True(HexColor.TryNormalize(Json.Str(colors[0], "hex"), out h0) && HexColor.TryNormalize(Json.Str(m, "hex"), out hx) && h0 == hx,
-                    "colors の先頭と hex が違う: " + name);
-                foreach (var c in colors)
-                {
-                    string h;
-                    True(HexColor.TryNormalize(Json.Str(c, "hex"), out h), "色のカラーコード: " + name);
-                    True((Json.Str(c, "label") ?? "").Length <= ColorOption.MaxLabel, "ラベルが長い: " + name + " / " + Json.Str(c, "label"));
-                    string conf = Json.Str(c, "confidence");
-                    True(conf == "high" || conf == "medium" || conf == "low", "確かさ(confidence)が無い: " + name + " " + h);
-                }
-            }
-    }
-
     static void BadMembers()
     {
         string dir = TempDir();

@@ -59,16 +59,6 @@ class FakeClient:
         return obj
 
 
-class TestImport(unittest.TestCase):
-    def test_imports_without_home(self):
-        """home(案件・設定・届ける部品)を sys.path に置かずに読める = 層の向き"""
-        code = ("import sys; sys.path.insert(0, %r); import flow.run as r; "
-                "bad = [m for m in ('autorun', 'cases', 'prefs', 'deliver', 'friend_feedback', 'manage') if m in sys.modules]; "
-                "print(bad); sys.exit(1 if bad else 0)") % SRC
-        p = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60)
-        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-
-
 class TestFromInput(unittest.TestCase):
     def test_from_mode(self):
         self.assertEqual(R.FROM_MODE, {None: "full", "analyze": "full", "export": "adopted", "transcribe": R.DOC_MODE})

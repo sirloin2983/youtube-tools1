@@ -178,14 +178,6 @@ class TestEdSpeakersNames(unittest.TestCase):
         finally:
             S.VOICES_DIR = saved
 
-    def test_speakers_reads_no_pipeline(self):
-        """③ の speakers は ① を直に読まない(RS6 a-4。② flow/diar の動詞と ytt だけ)"""
-        import types
-        from human.proof import speakers
-        mods = {v.__name__ for v in vars(speakers).values() if isinstance(v, types.ModuleType)}
-        self.assertEqual(sorted(m for m in mods if m.startswith("pipeline")), [])
-        self.assertIn("flow.diar", mods)
-
     def test_patches_reach_owner(self):
         """S の差し替えは持ち主に届き、speakers は呼ぶたびに diarize.名前 を読む(テストの patch.object(S, "has_sherpa") などの形)"""
         from human.proof import speakers
@@ -291,11 +283,6 @@ class TestEdAltRetimeNames(unittest.TestCase):
         self.assertIs(S.alt_diffs, alt.alt_diffs)
         self.assertIs(S._alt_fake, fake_asr._alt_fake)
         self.assertIs(S.retime_doc, retime.retime_doc)
-
-    def test_owners_do_not_read_editor_parts(self):
-        for m in self.owners():
-            for name in ("ed_state", "ed_jobs", "ed_store", "ed_relink", "ed_learn", "ed_alt"):
-                self.assertNotIn(name, vars(m), "%s.%s" % (m.__name__, name))
 
     def test_retime_wrapper_keeps_only_the_wrapper(self):
         _alt, retime = self.owners()
@@ -447,12 +434,6 @@ class TestDrillEvalbatchMovedWithoutShell(unittest.TestCase):
         for name in ("ed_drill", "ed_evalbatch"):
             with self.assertRaises(ImportError):
                 __import__(name)
-
-    def test_owners_do_not_read_editor_parts(self):
-        import types
-        for m in self.owners():
-            mods = {k for k, v in vars(m).items() if isinstance(v, types.ModuleType)}
-            self.assertEqual(sorted(k for k in mods if k.startswith("ed_") or k == "serve"), [], m.__name__)
 
     def test_patches_reach_owner(self):
         drill, evalbatch = self.owners()

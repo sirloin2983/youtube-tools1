@@ -152,10 +152,6 @@ class TestFocusWindow(unittest.TestCase):
         with self.assertRaises(W.TooMany):
             o.focus("x", focus=lambda t: True)
 
-    def test_portal_title_matches_page(self):
-        with open(os.path.join(L.HOME_UI_DIR, "portal.html"), encoding="utf-8") as f:
-            self.assertIn("<title>%s</title>" % L.PORTAL_TITLE, f.read())
-
 
 class TestFindEdge(unittest.TestCase):
     def test_env_override(self):

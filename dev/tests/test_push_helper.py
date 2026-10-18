@@ -209,17 +209,6 @@ class TestNotes(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(self.vault, "plan", "c.md")))   # 別の所のコミットを取り込んでから送った
 
 
-class TestPushBat(unittest.TestCase):
-    def test_order_in_push_bat(self):
-        with open(os.path.join(REPO, "push.bat"), encoding="ascii") as f:
-            s = f.read()   # ASCII だけ(cmd.exe が UTF-8 の長い行を読み違えるため)
-        a, b, c = s.index("push_helper.py removals"), s.index("git add -A"), s.index("push_helper.py check")
-        self.assertTrue(a < b < c, "削除 → git add → 検査 の順")
-        self.assertIn("git reset -q", s[c:c + 400])   # 検査で止まったらコミットしない(git add を取り消す)
-        self.assertGreaterEqual(s.count("call :notes"), 2)   # 送ったあと・送る物が無いとき、どちらも保管庫を送る
-        self.assertIn("push_helper.py notes", s)
-
-
 class TestDataJs(unittest.TestCase):
     def test_broken_plan_data_js_stops(self):
         bad = "window.PLAN = {\n tasks: [\n  {a: 1}\n  {a: 2},\n ],\n};\n".encode()

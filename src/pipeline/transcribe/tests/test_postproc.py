@@ -8,7 +8,6 @@
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしないが、ほかのテストとそろえる
-import subprocess
 import sys
 import unittest
 from unittest import mock
@@ -74,20 +73,6 @@ class TestPostRecord(unittest.TestCase):
         self.assertEqual(list(postproc.expand_segments(gen, {"joinGap": 0.0}))[0]["end"], 1.0)   # つながない
         with mock.patch.object(postproc, "trim_ends", lambda rows, sec: [dict(r, end=r["end"] - sec) for r in rows]):
             self.assertEqual(list(postproc.expand_segments(gen, {"engine": "whisper.cpp", "endTrim": 0.2, "joinGap": 0.0}))[0]["end"], 0.8)
-
-
-class TestImportsAlone(unittest.TestCase):
-    def test_no_native_app_or_eval(self):
-        """postproc と兄弟(backend・roster・tx_engines・txbase・records(RS2-5)・worker_client(RS2-6)・recognize(RS2-7)・diarize・fill・llm・retime(RS2-9))は、numpy などのネイティブの部品・serve などの app・eval を読まずに import できる
-        (serve の import で読まれる = 編集のサーバーのプロセスにネイティブの部品を入れない決まり。src/editor/tests/test_worker.py と同じ)"""
-        code = ("import sys; sys.path.insert(0, %r); "
-                "from pipeline.transcribe import postproc, backend, roster, tx_engines, records, worker_client, recognize, diarize, fill, llm, retime, clipjob, replace; "
-                "from ytt import txbase; "
-                "native = ('numpy', 'faster_whisper', 'ctranslate2', 'sherpa_onnx', 'onnxruntime'); "
-                "bad = [m for m in sys.modules if m in native or m.startswith('ed_') or m == 'serve' or m == 'eval' or m.startswith('eval.')]; "
-                "print(bad); sys.exit(1 if bad else 0)") % SRC
-        p = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60)
-        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
 
 
 if __name__ == "__main__":

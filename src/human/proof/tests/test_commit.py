@@ -6,7 +6,6 @@
 import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データ(AppData など)に触らない
-import re
 import sys
 import unittest
 from unittest import mock
@@ -59,21 +58,6 @@ class CommitTest(unittest.TestCase):
         self.assertIn("fill", store.MACHINE_WHYS)   # 行の無い文書へ文字起こしを入れる = 機械(O2-2 で直した)
         self.assertIn("drill", store.HUMAN_WHYS)    # 評価ドリルの「全部聞いた」= 人
 
-    def test_every_doc_write_in_src_uses_commit(self):
-        """文書を書く呼び出しは store.commit だけ(write_doc は store.py の中の commit からだけ)"""
-        pat = re.compile(r"\bwrite_doc\(")
-        bad = []
-        for base, dirs, files in os.walk(SRC):
-            dirs[:] = [d for d in dirs if d not in ("tests", "__pycache__", ".runtime")]
-            for fn in files:
-                if not fn.endswith(".py"):
-                    continue
-                path = os.path.join(base, fn)
-                with open(path, encoding="utf-8") as f:
-                    for i, ln in enumerate(f, 1):
-                        if pat.search(ln) and not ln.lstrip().startswith(("#", "def write_doc")):
-                            bad.append((os.path.relpath(path, SRC), i))
-        self.assertEqual(sorted({b[0] for b in bad}), [os.path.join("human", "proof", "store.py")], bad)   # store.py の中は commit・組み立て直し(fresh_copy)だけ
 
 
 def _row(i, a, text, **kw):
@@ -179,12 +163,6 @@ class LayersTest(unittest.TestCase):
         doc = {"id": TID, "segments": [{"id": "s1", "start": 0, "end": 1, "text": "あ"}]}
         self.commit(doc, "whole")
         self.commit(doc, "save")
-
-    def test_layer_suffixes_go_with_the_doc(self):
-        """移動・削除・バックアップの一覧(docloc.DOC_SUFFIXES)に機械の層・人の層が入る"""
-        from ytt import docloc, schemas
-        self.assertIn(schemas.MACH_SUFFIX, docloc.DOC_SUFFIXES)
-        self.assertIn(schemas.HUM_SUFFIX, docloc.DOC_SUFFIXES)
 
 
 class PrimaryTest(unittest.TestCase):

@@ -16,6 +16,8 @@
   7 no-docstring  … モジュールの先頭に説明(docstring)が無い .py(tests/ は除く)。テストの .py・.js・.cs(git の全部)は頭の説明
                     (docstring か最初のコメント)が無い物(dev/code_map.py の --missing と同じ)
  10 code-map      … コードの地図 codemap/ が古い(dev/code_map.py --check。作り直しは python dev/code_map.py)
+ 11 rule          … 規則の見張り(テストから移した分): ファイルの形(.bat の CRLF・requirements の ASCII)・push.bat の順・e2e の一覧・members.json と名簿の形・ソースの書き方(write_doc・yt-dlp の -o・TOOL_APPS・
+                    編集の部品を読まない)・定数や既定値が 2 か所で食い違わない・入口やサーバーにネイティブ部品を読み込まない。規則 1 つ = dev/rule_checks.py か dev/rule_imports.py の関数 1 つ(python dev/rule_checks.py --list)
   8 version       … 版は全体で 1 つ(ytt/version.py)。そこが正しい形か、各ツールの定数・画面に版の数字を直に書いていないか
   9 ref-path/ref-gone/ref-layer … 説明文(docstring とコメント。tests/ は除く)の参照が戻らない検査: 無い .py のパス・もう無い名前(ed_alt など)・先頭の説明の層の番号がフォルダと合わない。
                     過去の経緯として書くなら行に `lint: ref <理由>`。`notes:`・`git:` の後ろは見ない(notes_tool check が見る)
@@ -45,6 +47,7 @@ DUP_HELPERS = {"_unlink": "fsio.unlink_quiet", "_unlink_quiet": "fsio.unlink_qui
                "_python": "tools.python_exe", "_why": "tools.why", "rss_mb": "tools.process_memory_mb", "memory_mb": "tools.process_memory_mb",
                "peak_memory_mb": "tools.process_memory_mb(peak=True)", "parse_version_line": "tools.tool_version(first_line=True)",
                "plain_int": "schemas.plain_int", "_num_sec": "schemas.num", "drain_body": "httpsec.drain_body"}
+REGISTER_DECORATORS = {"rule", "check"}   # dev/rule_checks.py の @rule・dev/rule_imports.py の @check(2 の dead-name で見ない)
 IDENT = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
 JS_FUNC = re.compile(r"^(?:\s*)function\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(", re.M)
 # 版は全体で 1 つ(RS5-E。ytt/version.py)。正の VERSION が正しい形で、ほかに版の文字そのものを書いた所が無いこと
@@ -147,6 +150,8 @@ def dead_names(path, tree, src, corpus):
             name = node.name
             if name.startswith("__") or name == "main" or has_mark(lines, node.lineno, "lint: keep"):
                 continue
+            if any(isinstance(d, ast.Call) and getattr(d.func, "id", "") in REGISTER_DECORATORS for d in getattr(node, "decorator_list", [])):
+                continue   # 一覧に登録して使う関数(規則の見張り @rule・@check。名前では呼ばれない)
             if corpus.count(name) <= 1:
                 out.append((node.lineno, name))
     return out
@@ -337,7 +342,7 @@ def main():
     except Exception:
         pass
     corpus = Corpus()
-    issues = {k: [] for k in ("unused-import", "dead-name", "long-function", "dup-helper", "js-dead", "dup-block", "no-docstring", "version", "notes-path", "ref-path", "ref-gone", "ref-layer", "code-map")}
+    issues = {k: [] for k in ("unused-import", "dead-name", "long-function", "dup-helper", "js-dead", "dup-block", "no-docstring", "version", "notes-path", "ref-path", "ref-gone", "ref-layer", "code-map", "rule")}
 
     def add(kind, file, line, name, **extra):
         issues[kind].append(dict({"file": file, "line": line, "name": name}, **extra))
@@ -382,7 +387,11 @@ def main():
             add("no-docstring", it["path"], 1, "頭の説明")
     for name in code_map.stale(pages):
         add("code-map", "codemap/" + name, 1, "古い(python dev/code_map.py で作り直す)")
-    total = sum(len(v) for v in issues.values())
+    # 規則(書き方・置き場所・ファイルの形・import の向き)の見張り = dev/rule_checks.py・dev/rule_imports.py(子プロセスで流す)
+    import rule_checks
+    for rid, msg in rule_checks.run_all(REPO):
+        add("rule", rid, 0, msg)
+    total =sum(len(v) for v in issues.values())
     if a.json:
         print(json.dumps({"total": total, "issues": issues}, ensure_ascii=False, indent=1))
     else:

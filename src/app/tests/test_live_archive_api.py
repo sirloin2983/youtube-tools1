@@ -6,7 +6,6 @@
 """
 import os
 import shutil
-import subprocess
 import sys
 import tempfile
 import threading
@@ -28,13 +27,6 @@ from flow import live_export as LX  # noqa: E402
 
 RELEASE = 1790000000.0            # 配信の開始時刻(偽の yt-dlp の release_timestamp)
 VID = "abcdefghijk"
-
-
-class NoNumpyTest(unittest.TestCase):
-    def test_no_numpy_in_portal(self):
-        code = "import sys; sys.path[:0] = [%r, %r]; import live; from app import server; import flow.live_archive, flow.live_export; print('numpy' in sys.modules)" % (HERE, REPO)
-        r = subprocess.run([sys.executable, "-c", code], capture_output=True, timeout=60, env=dict(os.environ, YTT_DATA_DIR="inplace"))
-        self.assertEqual(r.stdout.decode().strip().splitlines()[-1], "False", r.stderr.decode("utf-8", "replace"))
 
 
 class ApiTest(unittest.TestCase):

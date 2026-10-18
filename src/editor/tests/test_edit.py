@@ -1504,12 +1504,6 @@ class TestEvalFolder(StoreDir):
 class TestToolIdentity(unittest.TestCase):
     """ツールの識別子(/api/ping の app・受け渡しの tool.name)は ytt.runtime.TOOL_APPS が正。写しが食い違っていない(値は互換のため固定)"""
 
-    def test_same_as_runtime_table(self):
-        from ytt import runtime
-        from manage.cases import pipeline_io
-        self.assertEqual(S.APP_ID, runtime.TOOL_APPS["transcribe"])
-        self.assertEqual(pipeline_io.TOOL_NAME, runtime.TOOL_APPS["transcribe"])
-
 
 if __name__ == "__main__":
     unittest.main()

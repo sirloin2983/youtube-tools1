@@ -10,7 +10,6 @@ RS3-0A に test_txenv.py から名前を変えた(一時の口 txenv は消し�
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしないが、ほかのテストとそろえる
-import subprocess
 import sys
 import unittest
 from unittest import mock
@@ -45,17 +44,6 @@ class TestBackend(unittest.TestCase):
         self.assertIs(backend.select(), backend.REAL)
         flag["on"] = True
         self.assertIs(backend.select(), other)
-
-
-class TestImportsAlone(unittest.TestCase):
-    def test_no_app_or_eval(self):
-        """backend は serve・ed_state(app)と eval を読まずに import できる(層の向き)。一時の口 txenv は無い(RS3-0A で消した)"""
-        code = ("import sys, importlib.util; sys.path.insert(0, %r); from pipeline.transcribe import backend; "
-                "bad = [m for m in sys.modules if m in ('serve', 'ed_state', 'ed_jobs') or m == 'eval' or m.startswith('eval.')]; "
-                "bad += ['txenv'] if importlib.util.find_spec('pipeline.transcribe.txenv') else []; "
-                "print(bad); sys.exit(1 if bad else 0)") % SRC
-        p = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60)
-        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
 
 
 if __name__ == "__main__":

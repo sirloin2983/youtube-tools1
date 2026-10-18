@@ -7,7 +7,6 @@
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 import json
-import subprocess
 import sys
 import unittest
 
@@ -91,13 +90,6 @@ class TestRunlog(unittest.TestCase):
             self.assertIsNone(runlog.read_result(got[0]), bad)
         os.remove(bundle_path)
         self.assertIsNone(runlog.read_result(got[0]))   # 案件のフォルダを人が動かした・消した
-
-    def test_autorun_is_not_needed(self):
-        """autorun(app)を読み込まずに読める(ライブの失敗の集約が使う)。別のプロセスで読み込んで、読んだモジュールを調べる"""
-        code = ("import sys; sys.path.insert(0, %r); from flow import runlog; "
-                "sys.exit(0 if not [m for m in sys.modules if m in ('autorun', 'launch', 'cases', 'prefs')] else 1)" % SRC)
-        r = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True, timeout=60)
-        self.assertEqual(r.returncode, 0, r.stderr)
 
 
 if __name__ == "__main__":

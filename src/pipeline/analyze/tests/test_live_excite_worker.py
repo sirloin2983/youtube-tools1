@@ -1139,22 +1139,6 @@ class SameAsExportTest(unittest.TestCase):
     同じ物(ytt/recproto.py)を使う(以前は写しを持っていて、値の一致をここで確かめていた。notes:docs/design/reviews/code-review-simplify-2026-10-08.md の
     4 節の 7・T8)。値そのものの検査は src/ytt/tests/test_ytt_core.py の RecprotoTest"""
 
-    def test_same_objects(self):
-        from ytt import recproto
-        for w, lx, core in ((W.ID_RE, LX.ID_RE, recproto.RECORDER_ID_RE), (W.REC_RE, LX.REC_RE, recproto.REC_ID_RE),
-                            (W.SEG_URI_RE, LX.SEG_URI_RE, recproto.SEG_URI_RE), (W.iso_epoch, LX.iso_epoch, recproto.iso_epoch),
-                            (W.epoch_iso, LX.epoch_iso, recproto.epoch_iso), (W.video_id, LX.video_id_of, recproto.video_id_of)):
-            self.assertIs(w, core)
-            self.assertIs(lx, core)
-
-
-class NoNumpyTest(unittest.TestCase):
-    def test_no_numpy_in_portal_or_worker(self):
-        """入口のプロセス(live・live_detect)とワーカー(live_excite_worker)は numpy を読まない(0-10-2)"""
-        code = "import sys; sys.path[:0] = [%r, %r]; import live; from app import server; import flow.live_detect, pipeline.analyze.live_excite_worker; print('numpy' in sys.modules)" % (HERE, SRC)
-        r = subprocess.run([sys.executable, "-c", code], capture_output=True, timeout=60, env=dict(os.environ, YTT_DATA_DIR="inplace"))
-        self.assertEqual(r.stdout.decode().strip().splitlines()[-1], "False", r.stderr.decode("utf-8", "replace"))
-
 
 if __name__ == "__main__":
     unittest.main()

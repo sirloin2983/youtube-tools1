@@ -72,6 +72,8 @@
 - src/friendapp/tests/test_progress.py — friendapp/progress.py の確かめ(F3-3)。ファイルもネットも使わない。
 - src/friendapp/tests/test_server.py — src/friendapp/server.py と api.py の HTTP の口のテスト(本物のソケットで 127.0.0.1 のポート 0 に起こす。② は偽の engine)。リポジトリ直下で: py -3.10 -m unittest src/friendapp/tests/test_s…
 - src/friendapp/tests/test_settings.py — 友人の玄関の ⚙ と初回の準備の口のテスト(F2-5。src/friendapp/settings.py・setup.py・server.py)。本物のソケットで 127.0.0.1 のポート 0 に起こす。
+- src/friendapp/tests/test_settings.py — 友人の玄関の ⚙ と初回の準備の口のテスト(F2-5。src/friendapp/settings.py・setup.py・server.py)。本物のソケットで 127.0.0.1 のポート 0 に起こす。
+- src/friendapp/tests/test_settings.py — 友人の玄関の ⚙ と初回の準備の口のテスト(F2-5。src/friendapp/settings.py・setup.py・server.py)。本物のソケットで 127.0.0.1 のポート 0 に起こす。
 - src/friendapp/tests/test_setup.py — src/friendapp/setup.py(初回の取得。F2-5)のテスト。本物のネットには出ない(偽の取り方)。リポジトリ直下で: py -3.10 -m unittest src/friendapp/tests/test_setup.py
 - src/friendapp/tests/test_streams.py — F3-2 友人のアプリの配信の一覧(friendapp/streams.py)のテスト。リポジトリ直下で: py -3.10 -m unittest src/friendapp/tests/test_streams.py
 - src/friendapp/tests/test_sync.py — src/friendapp/sync.py のテスト(本物の Dropbox につながない = 偽の io。受信箱は本物の一時フォルダ)。

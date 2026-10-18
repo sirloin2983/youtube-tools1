@@ -9,7 +9,6 @@
 (名前は test_check_page = 案件の画面の test_cases_page と同じ形)"""
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所に書かない(ytt.datadir)
-import re
 import sys
 import unittest
 
@@ -80,44 +79,6 @@ class CheckPageHttpTest(PageServerTest):
         self.assertEqual(r.status, 403)
         self.assertIn("/check", L.NAV_PAGES)
         self.assertIn("/check", L.appwindow_mod.PORTAL_PAGES)
-
-
-class CheckPageFilesTest(unittest.TestCase):
-    def test_no_inline_script_or_handlers(self):
-        html = read(os.path.join(UI, "index.html"))
-        for m in re.finditer(r"<script\b([^>]*)>", html):
-            self.assertIn("src=", m.group(1), "インラインの script は CSP で動かない: " + m.group(0))
-        self.assertIsNone(re.search(r"\son[a-z]+\s*=", html), "on〇〇= は CSP で動かない")
-        self.assertNotRegex(html, r"(src|href)=\"/", "画面の部品は相対パスで読む")
-        shell = html.index('src="check.js"')
-        self.assertLess(shell, html.index('src="check-player.js"'))
-        for n in CARDS:   # カードは殻(check.js)のあとに読む(CheckCards.define を使うため)
-            self.assertLess(shell, html.index('src="check-cards/%s.js"' % n), n)
-        self.assertEqual(sorted(L.CHECK_CARDS), sorted(CARDS))
-
-    def test_cards_share_the_contract(self):
-        for n in CARDS:
-            js = read(os.path.join(UI, "cards", n + ".js"))
-            self.assertIn("CheckCards.define('%s'" % n, js)
-            self.assertNotRegex(js, r"document\.(getElementById|querySelector)", "%s: カードの中の要素は el.querySelector で引く" % n)
-            self.assertNotRegex(js, r"\son[a-z]+=", n)
-        shell = read(os.path.join(UI, "check.js"))
-        for key in ("render(card, el, ctx)", "keys(e, card)", "keybar(card)", "unmount()", "typingKeys"):   # 口の説明(V2 への申し送り)が殻の先頭にある
-            self.assertIn(key, shell, key)
-        for path in ("check.js", "player.js") + tuple("cards/%s.js" % n for n in CARDS):
-            code = read(os.path.join(UI, path))
-            self.assertNotRegex(code, r"""(?:fetch|URL|http)\(\s*['"]/(?!/)""", "%s: 絶対パスを書かない" % path)
-            self.assertNotRegex(code, r"\b(confirm|alert|prompt)\(", path)
-            self.assertNotIn("visibilitychange", code, path)   # 離れた・戻ったは UIKit.life
-
-    def test_held_send_is_confirmed_by_this_page_only(self):
-        """6b-1(決定 Q12 (a)): 保留の [送る] は別の窓へ移っただけ(blur)では確定しない・答え / 飛ばす / flush は画面の印 page を送る"""
-        shell = read(os.path.join(UI, "check.js"))
-        leave = shell[shell.index("UIKit.life.onLeave"):]
-        leave = leave[:leave.index("});")]
-        self.assertRegex(leave, r"if \(reason !== 'blur'\) \{.*\n\s*flush\(\);", "flush は blur の外だけ")
-        for api in ("api/check/flush', { body: { page: PAGE }", "api/check/skip', { body: { card: card.id, page: PAGE }", "page: PAGE };"):
-            self.assertIn(api, shell, api)
 
 
 if __name__ == "__main__":

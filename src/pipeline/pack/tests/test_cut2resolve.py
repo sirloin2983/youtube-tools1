@@ -326,23 +326,6 @@ class TestOutputSafety(unittest.TestCase):
 class TestDefaultsInOnePlace(unittest.TestCase):
     """指定を省いたときの値は、cut2resolve_core の DEFAULT_* と pack.Request の既定の 1 か所(API のサーバーは読むだけ。サーバーは動かさない)"""
 
-    def test_defaults_agree(self):
-        import dataclasses
-        import inspect
-        from pipeline.pack import pack
-        req ={f.name: f.default for f in dataclasses.fields(pack.Request)}
-        self.assertEqual((req["noise"], req["silence_min"], req["silence_pad"], req["rec_start"], req["reel"]),
-                         (C.DEFAULT_NOISE_DB, C.DEFAULT_SILENCE_MIN, C.DEFAULT_SILENCE_PAD, C.DEFAULT_REC_START, C.DEFAULT_REEL))
-        param = lambda fn, name: inspect.signature(fn).parameters[name].default   # noqa: E731
-        self.assertEqual([param(C.detect_silence, n) for n in ("noise_db", "min_sec", "pad_sec")],
-                         [C.DEFAULT_NOISE_DB, C.DEFAULT_SILENCE_MIN, C.DEFAULT_SILENCE_PAD])
-        self.assertEqual((param(C.build_edl, "reel"), param(C.build_edl, "rec_start"), param(C.write_pack, "args_reel"),
-                          param(C.write_pack, "rec_start"), param(C.check_timecodes, "rec_start")),
-                         (C.DEFAULT_REEL, C.DEFAULT_REC_START, C.DEFAULT_REEL, C.DEFAULT_REC_START, C.DEFAULT_REC_START))
-        self.assertEqual((param(C.render_rough_cut, "crf"), param(pack.build_pack, "crf")), (C.DEFAULT_CRF, C.DEFAULT_CRF))
-        self.assertEqual(C._reel(""), C.DEFAULT_REEL)
-        self.assertEqual(AC.SCHEMA, C.CUT_PLAN_SCHEMA)
-
 
 class TestStagedWrite(unittest.TestCase):
     """一時ファイルに書いて付け替える処理(srt2resolve.staged。付け替えのやり直しは ytt/fsio.py の replace_retry で、そのテストは test_ytt_core)"""

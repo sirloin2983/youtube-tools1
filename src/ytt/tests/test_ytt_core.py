@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """ytt のテスト。  python -m unittest src/ytt/tests/test_ytt_core.py -v
 ネットワークは 127.0.0.1 の空きポートだけを使う。"""
-import ast
 import http.server
 import json
 import os
@@ -608,17 +607,6 @@ class TestRuntime(unittest.TestCase):
         runtime.write_runtime(self.dir, "studio", 8800, "v")
         with open(os.path.join(self.dir, "studio.json"), encoding="utf-8") as f:
             self.assertNotIn("path", json.load(f))   # 直下のときは書かない(以前の形のまま)
-
-    def test_cut2resolve_uses_ytt_core(self):
-        """cut2resolve も 2026-09-26 から ytt.runtime を使う(自分の写しを持たない)。TOOL_APPS を自分で書き直していないこと"""
-        path = os.path.join(REPO, "cut2resolve", "serve.py")
-        if not os.path.isfile(path):
-            self.skipTest("cut2resolve が無い")
-        with open(path, encoding="utf-8") as f:
-            tree = ast.parse(f.read())
-        found = [node.value for node in ast.walk(tree)
-                 if isinstance(node, ast.Assign) and any(getattr(t, "id", None) == "TOOL_APPS" for t in node.targets)]
-        self.assertEqual([ast.unparse(v) for v in found], ["_runtime.TOOL_APPS"])
 
 
 class TestSchemas(unittest.TestCase):
@@ -1538,25 +1526,6 @@ class TestDatadir(unittest.TestCase):
 class TestLayout(unittest.TestCase):
     """リポジトリの中のフォルダの並び(ytt/layout.py。段0・2026-10-07 の src/ と friend-apps/)"""
 
-    def test_tool_dirs(self):
-        self.assertEqual(layout.src_root(), REPO)
-        self.assertEqual(layout.repo_root(), TOP)
-        self.assertEqual(layout.repo_root("/x/src"), os.path.dirname(os.path.abspath("/x/src")))
-        self.assertEqual(os.path.basename(REPO), layout.SRC_DIR)
-        self.assertTrue(os.path.isfile(os.path.join(layout.src_root(), "ytt", "layout.py")))
-        self.assertTrue(os.path.isfile(os.path.join(TOP, "start.bat")))
-        want = {"app": "app", "studio": "studio", "transcribe": "editor", "cut2resolve": "cut2resolve"}
-        for tool, name in want.items():
-            self.assertEqual(layout.tool_dir(tool), os.path.join(REPO, name))
-            self.assertEqual(layout.tool_dir(tool, "/r"), os.path.join("/r", name))
-        for tool in ("studio", "transcribe", "cut2resolve"):
-            self.assertTrue(os.path.isfile(os.path.join(layout.tool_dir(tool), "serve.py")), tool)
-        self.assertTrue(os.path.isfile(os.path.join(layout.src_root(), "app", "server.py")))
-        self.assertTrue(os.path.isfile(os.path.join(TOP, layout.HOLO_COLORS_DIR, "members.json")))
-        self.assertEqual(layout.holo_colors_dir(), os.path.join(TOP, "friend-apps", "holo-colors"))
-        with self.assertRaises(KeyError):
-            layout.tool_dir("clip-studio")   # 識別子はツールの ID(フォルダ名ではない)
-
 
 class TestHeavySlots(unittest.TestCase):
     """重い処理の同時実行数の上限(ytt.jobs)"""
@@ -1975,30 +1944,6 @@ class TestColors(unittest.TestCase):
     def test_hex(self):
         self.assertEqual(colors.norm_hex("ff8fdf"), "#FF8FDF")
         self.assertIsNone(colors.norm_hex("#ff8fd"))
-
-    def test_repo_members_json_is_readable(self):
-        es = colors.load({"YTT_DATA_DIR": "inplace"})                                     # リポジトリの holo-colors/members.json
-        self.assertGreater(len(es), 50)
-        self.assertTrue(all(colors.norm_hex(e["hex"]) == e["hex"] for e in es))
-        with open(colors.members_path({}), encoding="utf-8") as f:                         # version 2 の形(notes:docs/design/holo-colors.md)
-            d = json.load(f)
-        self.assertEqual(d["version"], 2)
-        ids = [m["id"] for g in d["groups"] for m in g["members"]]
-        self.assertEqual(len(ids), len(set(ids)), "メンバーの id は全体で一意(直した色のキー)")
-        known = {s["id"] for s in d["sources"]}
-        for g in d["groups"]:
-            for m in g["members"]:
-                cs = m.get("colors")
-                self.assertTrue(cs, m["name"])
-                self.assertEqual(colors.norm_hex(cs[0]["hex"]), colors.norm_hex(m["hex"]), "colors の先頭 = hex: " + m["name"])
-                for c in cs:
-                    self.assertTrue(colors.norm_hex(c["hex"]), m["name"])
-                    self.assertLessEqual(len(c.get("label", "")), colors.LABEL_MAX, m["name"])
-                    self.assertIn(c.get("confidence"), ("high", "medium", "low"), m["name"])
-                    self.assertTrue(set(c.get("src", [])) <= known, "知らない出典: %s %s" % (m["name"], c.get("src")))
-                self.assertTrue(set(m.get("src", [])) <= known, "知らない出典: %s" % m["name"])
-                if "subtitle" in m:
-                    self.assertTrue(colors.norm_hex(m["subtitle"]), "subtitle の形: " + m["name"])
 
 
 class TestPick(unittest.TestCase):

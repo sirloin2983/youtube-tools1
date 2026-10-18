@@ -102,15 +102,6 @@ class TestResolveTextPlusScript(unittest.TestCase):
         RTP.importer_script(plan)
         self.assertEqual(json.dumps(plan, sort_keys=True), before)
 
-    def test_template_is_bundled(self):
-        import zipfile
-        template = Path(RTP.__file__).with_name(RTP.TEMPLATE_NAME)
-        with zipfile.ZipFile(template) as archive:
-            self.assertIn('project.xml', archive.namelist())
-        install = RTP.installer_script('test.mov')
-        self.assertIn('textplus-template.drb', install)
-        self.assertIn('__C2R_TEMPLATE_PATH__', install)
-
     def test_generated_pack_contains_template_target_and_script(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)

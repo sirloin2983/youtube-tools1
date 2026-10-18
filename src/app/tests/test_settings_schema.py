@@ -55,33 +55,6 @@ def leaves(d, prefix=""):
             yield prefix + k
 
 
-class TestSchemaShape(unittest.TestCase):
-    def test_shape(self):
-        sc = load_schema()
-        ids, keys = [], []
-        for sec in sc["sections"]:
-            ids.append(sec["id"])
-            self.assertTrue(sec.get("title"))
-            for g in sec.get("groups", []):
-                self.assertTrue(g.get("store") or sec.get("store") or sec.get("kind"), sec["id"])
-                for it in g["items"]:
-                    keys.append(it["key"])
-                    self.assertIn(it["type"], TYPES, it["key"])
-                    self.assertTrue(it.get("label"), it["key"])
-                    if it["type"] == "enum":
-                        self.assertTrue(it.get("options"), it["key"])
-                        self.assertIn(it["default"], [o[0] for o in it["options"]], it["key"])
-                    if it["type"] in ("int", "number"):
-                        self.assertIn("min", it, it["key"]); self.assertIn("max", it, it["key"])
-                        self.assertTrue(it["min"] <= it["default"] <= it["max"], it["key"])
-                    if it["type"] == "link":
-                        self.assertTrue(it.get("link", {}).get("href"), it["key"])
-                    if it.get("when"):
-                        self.assertIn(it["when"]["key"], [x["key"] for s2 in sc["sections"] for g2 in s2.get("groups", []) for x in g2["items"]], it["key"])
-        self.assertEqual(len(ids), len(set(ids)), "節の id が重なる")
-        self.assertEqual(len(keys), len(set(keys)), "鍵が重なる")
-
-
 class TestHomeStore(unittest.TestCase):
     """store home の項目を prefs.py の検査に通す"""
 
@@ -105,21 +78,6 @@ class TestHomeStore(unittest.TestCase):
     def reject(self, section, parts, v, key):
         with self.assertRaises(PR.PrefsError, msg="%s = %r は断るはず" % (key, v)):
             PR.CLEANERS[section](nest(parts, v), self.cur(section))
-
-    def test_keys_exist_and_defaults_match(self):
-        for _sec, it in self.items:
-            parts = it["key"].split(".")
-            self.assertIn(parts[0], PR.PATCHABLE, it["key"])
-            d = leaf(PR.DEFAULTS[parts[0]], parts[1:])
-            self.assertIsNot(d, KeyError, "prefs.py に無い鍵: %s" % it["key"])
-            if "default" in it:
-                self.assertEqual(it["default"], d, "既定値が違う: %s" % it["key"])
-
-    def test_all_leaves_are_in_schema(self):
-        keys = {it["key"] for _s, it in self.items}
-        sections = {it["key"].split(".")[0] for _s, it in self.items}
-        missing = [k for sec in sections for k in (sec + "." + x for x in leaves(PR.DEFAULTS[sec])) if k not in keys and k not in NO_UI]
-        self.assertEqual(missing, [], "画面に無い設定(出すか NO_UI に書く)")
 
     def test_values_pass_cleaners(self):
         for _sec, it in self.items:

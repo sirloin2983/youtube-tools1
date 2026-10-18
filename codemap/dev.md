@@ -35,8 +35,8 @@
   - 名前: `layer_of_dir` :58・`dependents` :65・`select` :70・`pick_units` :89・`run_units` :96・`count_of` :107・`run_check` :113・`run_tool` :127・`table_folders` :139・`table_drift` :153・`git` :177・`worktree_of` :182・ほか 8
 - **layer_map.py** (133 行) — 役割の層と、今のファイルの行き先(役割で組み直す計画 `notes:plan/done/role-restructure.md` の 7 節を機械で読める形にしたもの。RS0。RS6 a-0 で 5 つの層に)。
   - 名前: `layer_of` :113・`allowed` :123
-- **lint.py** (400 行) — コードの見直しの合格の基準を測る道具(読むだけ。基準は `notes:docs/spec/code.md`)。
-  - 名前: `walk` :61・`read` :69・`rel` :77・`is_test` :81・`class Corpus` :85・`py_files` :106・`has_mark` :113・`unused_imports` :118・`dead_names` :142・`long_functions` :155・`dup_helpers` :166・`js_dead` :182・ほか 7
+- **lint.py** (409 行) — コードの見直しの合格の基準を測る道具(読むだけ。基準は `notes:docs/spec/code.md`)。
+  - 名前: `walk` :64・`read` :72・`rel` :80・`is_test` :84・`class Corpus` :88・`py_files` :109・`has_mark` :116・`unused_imports` :121・`dead_names` :145・`long_functions` :160・`dup_helpers` :171・`js_dead` :187・ほか 7
 - **members_channels.py** (151 行) — 名簿 friend-apps/holo-colors/members.json の JP・DEV_IS の各メンバーに YouTube のチャンネル ID(channel)を入れる・確かめる道具。
   - 名前: `read_text` :29・`targets` :34・`norm` :43・`fetch_rss` :48・`verdict` :69・`cmd_check` :81・`cmd_set` :106・`main` :140
 - **notes_tool.py** (470 行) — 資料のフォルダ(Obsidian の保管庫の中。layout.notes_root())のパスの検査と、資料を動かす道具(2026-10-13)。
@@ -47,6 +47,10 @@
   - 名前: `plan_dir_default` :49・`data_dir` :53・`has_split` :57・`read_text` :63・`write_atomic` :68・`ordered_keys` :77・`dumps` :82・`slug` :86・`file_name` :105・`items` :113・`sort_key` :129・`main_version` :135・ほか 11
 - **push_helper.py** (263 行) — push.bat の補助(2026-09-26)。標準ライブラリだけ。リポジトリ直下で git が使えることが前提。
   - 名前: `git` :61・`read_removals` :70・`tracked` :90・`apply_removals` :95・`staged_files` :115・`staged_blob` :121・`problems_for` :125・`check` :160・`notes_root` :179・`push_notes` :186・`main` :232
+- **rule_checks.py** (452 行) — 規則(書き方・置き場所・ファイルの形)の見張り。テストに置いていた「規則の見張り」(分け ②a)をここへ移した(test-trim の規則の担当)。
+  - 名前: `rule` :27・`read_text` :34・`read_bytes` :39・`rel` :44・`repo_files` :48・`src_py_files` :57・`non_ascii_lines` :67・`bat_problems` :72・`requirements_problems` :83・`rule_bat_ascii_crlf` :97・`rule_requirements_ascii` :108・`push_bat_problems` :117・ほか 20
+- **rule_imports.py** (706 行) — 規則の見張りのうち、ソースを import して突き合わせる物(`dev/rule_checks.py` の続き。テストの分け ②a から移した分)。
+  - 名前: `check` :37・`c_adopt_defaults` :86・`c_live_tx_constants` :99・`c_port_ranges` :127・`c_tool_module_names` :134・`schema_shape_problems` :153・`schema_items` :208・`c_settings_schema` :223・`c_studio_schema` :248・`c_portal_title` :263・`c_static_table` :270・`c_spec_consistency` :278・ほか 21
 - **run_e2e.py** (141 行) — 画面テスト(e2e)の一式を 1 本ずつ流して、1 本 1 行(所要秒・OK/FAIL の数)で出す。一式の正はこのファイルの SUITE。
   - 名前: `label` :66・`summary` :71・`selected` :78・`run_one` :91・`main` :105
 - **run_editor_suite.py** (100 行) — 「編集」まわりのテストをまとめて流し、結果の1行ずつを出す(段10 のコードの整理で、分ける前と後の結果を比べるため)。
@@ -58,9 +62,9 @@
 - **spec_check.py** (187 行) — 仕様(保管庫の docs/spec/)とコードの食い違いを探す(2026-10-18)。
   - 名前: `git_files` :38・`read` :44・`class Code` :52・`spec_files` :70・`live_lines` :79・`norm_api` :96・`clean_path` :104・`setting_keys` :109・`check` :125・`main` :171
   - 受ける口: 
-- **ui_audit.py** (842 行) — 画面(UI)の見直しの合格の基準のうち、機械で測れるものを測る道具(読むだけ。基準は `notes:docs/spec/ui.md` の A)。
-  - 名前: `class Findings` :101・`read` :117・`rel` :125・`screen_files` :129・`allowed` :138・`each_line` :143・`regex_starts` :151・`scan_string` :161・`scan_code` :175・`strip_js_comments` :225・`html_texts` :232・`py_strings` :247・ほか 19
-  - 受ける口: `/api/info` :94
+- **ui_audit.py** (1052 行) — 画面(UI)の見直しの合格の基準のうち、機械で測れるものを測る道具(読むだけ。基準は `notes:docs/spec/ui.md` の A)。
+  - 名前: `class Findings` :107・`read` :123・`rel` :131・`screen_files` :135・`allowed` :144・`each_line` :149・`regex_starts` :157・`scan_string` :167・`scan_code` :181・`strip_js_comments` :231・`html_texts` :238・`py_strings` :253・ほか 31
+  - 受ける口: `/api/info` :100
 - **worklog.py** (280 行) — 作業の記録(保管庫の docs/worklog/)をセッションごとのファイルに分けて書き、週のまとめを集めて作る(2026-10-18)。
   - 名前: `worklog_dir` :56・`monday` :60・`week_name` :64・`read` :68・`write` :73・`front_matter` :78・`session_entry` :91・`sessions` :101・`auto_block` :108・`merge_week` :121・`update_index` :135・`build` :150・ほか 7
 
@@ -98,8 +102,8 @@
 - dev/tests/test_plan_data.py — dev/plan_data.py(計画のデータ plan/data/ の 1 件 1 ファイルと data.js の生成・仮決めの自動の確定)のテスト。一時フォルダだけを使う
 - dev/tests/test_push_helper.py — dev/push_helper.py(push.bat の補助: ファイルの削除・コミット前の検査)のテスト。一時フォルダの git リポジトリだけを使う。
 - dev/tests/test_resolve_pack_contract.py — Resolve パックの契約テスト(文字起こしの「Resolveパッケージ(zip)」と cut2resolve の Text+ パック)。
+- dev/tests/test_rule_checks.py — 規則の見張り(dev/rule_checks.py・dev/rule_imports.py・dev/ui_audit.py の A-16〜A-19・A-37)が、破った見本で止まり、正しい見本で通ることを確かめる。
 - dev/tests/test_run_e2e.py — dev/run_e2e.py(e2e の一式)の一覧が、リポジトリの e2e_*.py と食い違っていないかを確かめる。
 - dev/tests/test_run_unit.py — dev/run_unit.py(層ごとに unittest を流す道具)の一覧の作り方と、1 本だけの実行。リポジトリ直下で:
 - dev/tests/test_session_start.py — dev/session_start.py(セッションの入口の要約・子への指示文の下書き)のテスト。一時フォルダの git と偽の保管庫だけを使う
-- dev/tests/test_setup_ascii.py — Windows の cmd・pip がシステムの文字コード(日本語の Windows では cp932)で読むファイルが ASCII だけか・.bat が CRLF かのテスト。
 - dev/tests/test_worklog.py — dev/worklog.py(作業の記録のセッションごとのファイルと週のまとめ)のテスト。一時フォルダだけを使う

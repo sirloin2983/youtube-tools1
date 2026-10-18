@@ -10,7 +10,6 @@
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしないが、ほかのテストとそろえる
 import json
-import subprocess
 import sys
 import unittest
 from unittest import mock
@@ -125,17 +124,6 @@ class TestLlm(_Base):
         self.assertIn("llama-server", rec["error"])
         self.assertEqual(segs[0]["text"], "テスト文1")
         self.assertTrue(any("LLM" in w for w in job["warnings"]))
-
-
-class TestImportsAlone(unittest.TestCase):
-    def test_no_native_app_or_eval(self):
-        """fill・llm は numpy などのネイティブの部品・serve と ed_*(app)・eval を読まずに import できる"""
-        code = ("import sys; sys.path.insert(0, %r); from pipeline.transcribe import fill, llm; "
-                "native = ('numpy', 'faster_whisper', 'ctranslate2', 'sherpa_onnx', 'onnxruntime'); "
-                "bad = [m for m in sys.modules if m in native or m.startswith('ed_') or m == 'serve' or m == 'eval' or m.startswith('eval.')]; "
-                "print(bad); sys.exit(1 if bad else 0)") % SRC
-        p = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60)
-        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
 
 
 if __name__ == "__main__":

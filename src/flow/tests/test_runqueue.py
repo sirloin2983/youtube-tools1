@@ -6,7 +6,6 @@ home(入口の AutoRunner・案件・ホームの設定)を読まずに、素の
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない(記録は一時フォルダ)
 import json
-import subprocess
 import sys
 import threading
 import time
@@ -83,16 +82,6 @@ class Base(unittest.TestCase):
     def active_file(self):
         with open(os.path.join(self.logs, Q.ACTIVE_FILE), encoding="utf-8") as f:
             return json.load(f)
-
-
-class TestImport(unittest.TestCase):
-    def test_imports_without_home(self):
-        """home・human・manage を読まずに読める = 層の向き(画面なし・③ なしの ②)"""
-        code = ("import sys; sys.path.insert(0, %r); import flow.runqueue as q; "
-                "bad = [m for m in ('autorun', 'cases', 'prefs', 'deliver', 'delivery', 'friend_feedback', 'manage', 'human', 'home') "
-                "if m in sys.modules]; print(bad); sys.exit(1 if bad else 0)") % SRC
-        p = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60)
-        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
 
 
 class TestSubmitLive(Base):

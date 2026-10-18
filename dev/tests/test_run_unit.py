@@ -77,10 +77,6 @@ class TestBuildUnits(unittest.TestCase):
     def test_only_unknown_is_empty(self):
         self.assertEqual(self.rels(["nosuch"]), [])
 
-    def test_layer_names_are_src_folders(self):
-        for layer in R.LAYERS:
-            self.assertTrue(os.path.isdir(os.path.join(R.REPO, "src", layer)), layer)
-
     def test_run_one_tiny_real_test(self):
         with tempfile.TemporaryDirectory() as d:
             touch(d, "tests/test_tiny.py", "import unittest\n\nclass T(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n")

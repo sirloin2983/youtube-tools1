@@ -495,11 +495,6 @@ class HelpersTest(unittest.TestCase):
         with open(path, encoding="utf-8") as f:
             self.assertEqual(f.read().count("行"), 5)
 
-    def test_port_ranges_do_not_overlap_tools(self):
-        portal = set(range(L.DEFAULT_PORT, L.DEFAULT_PORT + L.PORT_RANGE))
-        for spec in L.TOOLS:
-            self.assertFalse(portal & set(range(spec["port"], spec["port"] + 20)), spec["id"])
-
 
 class PortalHttpTest(Base):
     """入口の画面とAPI。本物のブラウザが送るヘッダー(Host・Origin・Sec-Fetch-*)で安全検査を確かめる"""

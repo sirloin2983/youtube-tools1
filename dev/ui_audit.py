@@ -27,6 +27,12 @@ static で見るもの(ID は基準の文書と同じ):
   A-12 html-base     … <html lang>・<title>・<meta viewport> がある
   A-13 transition-all… transition: all を書いていない
   A-15 abbr-term     … 専門用語(EDL・Text+・FCPXML・LUFS・CER)を出す画面に abbr.ui-term の説明がある
+  A-16 script-order  … 案件の画面(/cases)は殻 cases.js のあとにパネル・編集の口を読み、編集の口と 3 択の部品はプルーフのパネルより前。確かめる画面(/check)は殻 check.js のあとにプレイヤーとカードを読み、読むカードは cards/ の中身と同じ
+  A-17 parts-contract… 案件の画面のパネルは CasesPanels.define と口(mount・update・unmount・keys・keybar。新しい案件は setVisible)を持ち、確かめるのカードは CheckCards.define で登録する。
+                       どちらも document.getElementById/querySelector で引かない(root・el から引く)。殻は keydown 1 本・UIKit.life.onLeave・API は相対パス・保留の [送る] は blur で確定しない。編集の口 edhost.js は相対パス + window.EditHost
+  A-18 id-collision  … ホームの HTML の id が、新しい案件の引き出し(rank.js・queue.js)の id とぶつからない(querySelector で引くため)
+  A-19 help-links    … 友人の画面の [?] が guide.html#send・#receive(主画面)・#settings(設定)・#setup(初回の準備)へ
+  A-37 guide         … 友人の説明ページ guide.html: インラインの script・on〇〇= なし・旧い言葉なし・画像は 6 枚以上で PNG・300KB 以内
   (target="_blank" は見ない: 窓の中では UIKit.win が自動で「このパソコンの画面 → 窓・外のサイト → ブラウザ」に振り分ける決まり)
 
 live で見るもの(場面 × 幅 390/960/1440(主な作業の場面は 1920 も)× 明・暗。文字「大きい」は 390/960 で はみ出し・縦割れ だけ):
@@ -86,7 +92,7 @@ EMOJI = re.compile("[\U0001F300-\U0001FAFF☀-➿]")
 ABBR_TERMS = ["EDL", "Text+", "FCPXML", "LUFS", "CER"]
 ALLOW = re.compile(r"ui-audit:\s*allow\s+(A-\d\d)")
 HTML_ATTRS = ("title", "placeholder", "aria-label", "alt", "data-ui-why", "data-l", "value")
-MUST = {"A-01", "A-02", "A-03", "A-05", "A-06", "A-07", "A-09", "A-10", "A-11", "A-12", "A-13", "A-14",
+MUST = {"A-01", "A-02", "A-03", "A-05", "A-06", "A-07", "A-09", "A-10", "A-11", "A-12", "A-13", "A-14", "A-16", "A-17", "A-18", "A-19", "A-37",
         "A-20", "A-21", "A-22", "A-23", "A-24", "A-25", "A-26", "A-27", "A-28", "A-30", "A-31", "A-32", "A-33"}
 WIDTHS = (390, 960, 1440)
 WIDE = 1920
@@ -349,7 +355,211 @@ def static_js(screen, path, text, out):
     check_terms(path, text, out, texts)
 
 
+# ---------- 画面の部品の約束(A-16〜A-19・A-37。テストの「ソースを読んで見る決まり」から移した = test-trim の規則の担当) ----------
+# 以下の *_problems は、本文(文字列)を受け取り「問題の文」の一覧を返す(dev/tests/test_rule_checks.py の TestUiContracts が破った見本で止まることを確かめる)
+CASES_PANELS = ("cand", "proof", "cut")        # 案件の画面のパネル(CasesPanels.define を持つ)
+CASES_PANEL_KEYS = ("mount:", "update:", "unmount:", "keys:", "keybar:")
+CHECK_SHELL_DOC = ("render(card, el, ctx)", "keys(e, card)", "keybar(card)", "unmount()", "typingKeys")   # 殻の先頭にある口の説明(V2 への申し送り)
+GUIDE_OLD_WORDS = ("ユーザーの PC", "要らない", "依頼なし", "5 本ずつ", "スタジオ")
+NO_DOC_QUERY = r"document\.(getElementById|querySelector(All)?)\("
+
+
+def order_problems(html, pairs, what):
+    """HTML の中で、前の script が後の script より先に読まれる(pairs = [(前の src, 後の src)])"""
+    out = []
+    for a, b in pairs:
+        ia, ib = html.find('src="%s"' % a), html.find('src="%s"' % b)
+        if ia < 0 or ib < 0:
+            out.append("%s: script が無い(%s か %s)" % (what, a, b))
+        elif ia > ib:
+            out.append("%s: %s は %s より先に読む" % (what, a, b))
+    return out
+
+
+def cases_html_problems(html):
+    """案件の画面: 殻 cases.js のあとにパネル・編集の口(edhost)を読む・編集の口と 3 択の部品はプルーフのパネルより前・編集の app.js が見る .top のヘッダー"""
+    pairs = [("cases.js", "cases-panels/%s.js" % n) for n in CASES_PANELS] + [("cases.js", "cases-edhost.js"), ("cases-edhost.js", "cases-panels/proof.js"),
+                                                                           ("cases-panels/machpick.js", "cases-panels/proof.js")]
+    out = order_problems(html, pairs, "案件の画面")
+    if 'class="ui-header top"' not in html:
+        out.append('案件の画面: class="ui-header top" が無い(編集の app.js が .top の高さを見る)')
+    return out
+
+
+def check_html_problems(html, cards):
+    """確かめる画面: 殻 check.js のあとにプレイヤーとカードを読む"""
+    return order_problems(html, [("check.js", "check-player.js")] + [("check.js", "check-cards/%s.js" % n) for n in cards], "確かめる画面")
+
+
+def panel_problems(name, js, kind="panel"):
+    """案件の画面のパネル・部品: 口(define・mount・update・unmount・keys・keybar。ホームの新しい案件は setVisible)を持ち、
+    document.getElementById / querySelector で引かない(殻・ほかのパネルの id とぶつけない。root.querySelector で引く)"""
+    out = []
+    if kind == "panel":
+        if "CasesPanels.define('%s'" % name not in js:
+            out.append("%s: CasesPanels.define('%s' が無い" % (name, name))
+        out += ["%s: %s が無い" % (name, k) for k in CASES_PANEL_KEYS if k not in js]
+        if re.search(r"addEventListener\(\s*['\"]visibilitychange", js):
+            out.append("%s: visibilitychange を直に使っている(UIKit.life を使う)" % name)
+    elif kind == "new":
+        out += ["new: %s が無い" % w for w in ("window.NewCasePanel", "CasesPanels.define('new'") if w not in js]
+        out += ["new: %s が無い" % k for k in ("mount:", "update:", "unmount:", "setVisible:") if k not in js]
+        if "visibilitychange" in js:
+            out.append("new: visibilitychange を使っている")
+    if re.search(NO_DOC_QUERY, js):
+        out.append("%s: パネルの中で document.getElementById/querySelector を使っている(root.querySelector で引く)" % name)
+    return out
+
+
+def cases_shell_problems(js):
+    """案件の画面の殻 cases.js: keydown は 1 本・UIKit.life.onLeave・visibilitychange を使わない・API は相対パス"""
+    out = []
+    if len(re.findall(r"addEventListener\(\s*'keydown'", js)) != 1:
+        out.append("cases.js: keydown の登録が 1 本でない")
+    if "UIKit.life.onLeave" not in js:
+        out.append("cases.js: UIKit.life.onLeave が無い")
+    if "visibilitychange" in js:
+        out.append("cases.js: visibilitychange を使っている")
+    if re.search(r"""['"]/(api|studio|transcribe|cut2resolve)/""", js):
+        out.append("cases.js: API の絶対パスを書いている(相対パス。api() の 1 か所)")
+    return out
+
+
+def edhost_problems(host, editor_js):
+    """編集の口 edhost.js: transcribe/ の相対パスで読む・window.EditHost を出す。編集の app*.js は EDIT_HOST の口を持つ(editor_js = {名前: 本文})"""
+    out = []
+    if "'transcribe/' + n" not in host:
+        out.append("edhost.js: 'transcribe/' + n(相対パス)が無い")
+    if re.search(r"""['"]/(api|transcribe)/""", host):
+        out.append("edhost.js: 絶対パスを書いている")
+    if "window.EditHost" not in host:
+        out.append("edhost.js: window.EditHost が無い")
+    for name, js in editor_js.items():
+        if "EDIT_HOST" not in js:
+            out.append("%s: EDIT_HOST の口が無い" % name)
+    return out
+
+
+def check_card_problems(name, js):
+    """確かめる画面のカード: CheckCards.define で登録・getElementById/querySelector を使わず(el.querySelector で引く)・on〇〇= を書かない"""
+    out = []
+    if "CheckCards.define('%s'" % name not in js:
+        out.append("カード %s: CheckCards.define('%s' が無い" % (name, name))
+    if re.search(r"document\.(getElementById|querySelector)", js):
+        out.append("カード %s: document.getElementById/querySelector を使っている(el.querySelector で引く)" % name)
+    if re.search(r"\son[a-z]+=", js):
+        out.append("カード %s: on〇〇= を書いている" % name)
+    return out
+
+
+def check_shell_problems(shell, parts):
+    """確かめる画面の殻 check.js: 先頭に口の説明がある・保留の [送る] は画面の印 page で確定する(blur では確定しない)。
+    parts = {名前: 本文}(殻・player・カード)は絶対パスで fetch せず、confirm/alert/prompt/visibilitychange を使わない"""
+    out = ["check.js: 口の説明「%s」が無い" % k for k in CHECK_SHELL_DOC if k not in shell]
+    i = shell.find("UIKit.life.onLeave")
+    leave = shell[i:] if i >= 0 else ""
+    leave = leave[:leave.find("});")] if "});" in leave else leave
+    if not re.search(r"if \(reason !== 'blur'\) \{.*\n\s*flush\(\);", leave):
+        out.append("check.js: flush は blur の外(reason !== 'blur')だけでなければならない")
+    for api in ("api/check/flush', { body: { page: PAGE }", "api/check/skip', { body: { card: card.id, page: PAGE }", "page: PAGE };"):
+        if api not in shell:
+            out.append("check.js: 画面の印 page を送る呼び出しが無い: %s" % api)
+    for name, code in parts.items():
+        if re.search(r"""(?:fetch|URL|http)\(\s*['"]/(?!/)""", code):
+            out.append("%s: 絶対パスを書いている" % name)
+        if re.search(r"\b(confirm|alert|prompt)\(", code):
+            out.append("%s: ブラウザのダイアログを使っている" % name)
+        if "visibilitychange" in code:
+            out.append("%s: visibilitychange を使っている(UIKit.life)" % name)
+    return out
+
+
+def id_collision_problems(home_html, studio_js):
+    """ホームの HTML と、新しい案件の引き出しの中の id(rank.js・queue.js が document.querySelector で引く)が重ならない。
+    studio_js = {名前: 本文}"""
+    def ids(text):
+        return set(re.findall(r'\bid="([A-Za-z][\w-]*)"', text))
+    mine = {"paneRank"}
+    for js in studio_js.values():
+        mine |= ids(js)
+    out = []
+    if len(mine) <= 40:
+        out.append("引き出しの id を取り損ねている(%d 個)" % len(mine))
+    out += ["id=%s がホームと新しい案件の引き出しで重なる(querySelector で引くため)" % i for i in sorted(ids(home_html) & mine)]
+    return out
+
+
+def help_links_problems(pages):
+    """友人の画面の [?]: pages = {名前: 本文}。主画面は送る・受け取る、設定の画面は settings、初回の準備は setup の説明へのリンクを持つ"""
+    want = {"friend.html": ("send", "receive"), "settings.js": ("settings",), "setup.html": ("setup",)}
+    return ["%s に guide.html#%s のリンクが無い" % (n, sec) for n, secs in want.items() for sec in secs if "guide.html#%s" % sec not in pages.get(n, "")]
+
+
+def guide_problems(page, images):
+    """友人の説明ページ(guide.html): インラインの script・on〇〇= が無い(説明ページは A-09/A-10 の対象外なので A-02 と同じ見方をここで)・
+    旧い言葉が無い・画像は 6 枚以上で PNG・300KB 以内。images = {src: bytes か None(実在しない)}"""
+    out = ["guide.html に使わない言葉「%s」" % w for w in GUIDE_OLD_WORDS if w in page]
+    if re.search(r"<script(?![^>]*\ssrc=)", page):
+        out.append("guide.html にインラインの script")
+    if re.search(r"\son[a-z]+=", page):
+        out.append("guide.html に on〇〇= 属性")
+    srcs = re.findall(r'<img[^>]*\ssrc="(guide/[^"]+\.png)"', page)
+    if len(srcs) < 6:
+        out.append("guide.html の画像が 6 枚未満(%d)" % len(srcs))
+    for src in srcs:
+        body = images.get(src)
+        if body is None:
+            out.append("%s が実在しない" % src)
+        elif not body.startswith(b"\x89PNG"):
+            out.append("%s が PNG でない" % src)
+        elif len(body) > 300 * 1024:
+            out.append("%s が 300KB を超える(%d)" % (src, len(body)))
+    return out
+
+
+def static_contracts(out):
+    """A-16 script-order・A-17 parts-contract・A-18 id-collision・A-19 help-links・A-37 guide"""
+    ui = os.path.join(SRC, "app", "ui")
+    cases, check = os.path.join(ui, "cases"), os.path.join(ui, "check")
+
+    def add(fid, where, problems):
+        for p in problems:
+            out.add(fid, where, p)
+    cases_html = read(os.path.join(cases, "index.html"))
+    add("A-16", rel(os.path.join(cases, "index.html")), cases_html_problems(cases_html))
+    check_html = read(os.path.join(check, "index.html"))
+    cards = re.findall(r'src="check-cards/(\w+)\.js"', check_html)
+    cards_dir = sorted(f[:-3] for f in os.listdir(os.path.join(check, "cards")) if f.endswith(".js")) if os.path.isdir(os.path.join(check, "cards")) else []
+    add("A-16", rel(os.path.join(check, "index.html")), check_html_problems(check_html, cards))
+    if sorted(cards) != cards_dir:
+        out.add("A-16", rel(os.path.join(check, "index.html")), "読むカード %s と cards/ の中身 %s が違う" % (sorted(cards), cards_dir))
+    for n in CASES_PANELS:
+        add("A-17", rel(os.path.join(cases, "panels", n + ".js")), panel_problems(n, read(os.path.join(cases, "panels", n + ".js"))))
+    add("A-17", rel(os.path.join(cases, "panels", "new.js")), panel_problems("new", read(os.path.join(cases, "panels", "new.js")), "new"))
+    add("A-17", rel(os.path.join(cases, "panels", "machpick.js")), panel_problems("machpick", read(os.path.join(cases, "panels", "machpick.js")), "machpick"))
+    add("A-17", rel(os.path.join(cases, "cases.js")), cases_shell_problems(read(os.path.join(cases, "cases.js"))))
+    editor_js = {n: read(os.path.join(ui, "editor", n)) for n in ("app.js", "app-core.js", "app-rows.js")}
+    add("A-17", rel(os.path.join(cases, "edhost.js")), edhost_problems(read(os.path.join(cases, "edhost.js")), editor_js))
+    for n in cards:
+        add("A-17", rel(os.path.join(check, "cards", n + ".js")), check_card_problems(n, read(os.path.join(check, "cards", n + ".js"))))
+    parts = {p: read(os.path.join(check, *p.split("/"))) for p in ["check.js", "player.js"] + ["cards/%s.js" % n for n in cards]}
+    add("A-17", rel(os.path.join(check, "check.js")), check_shell_problems(parts["check.js"], parts))
+    studio = {n: read(os.path.join(ui, "studio", n)) for n in ("rank.js", "queue.js")}
+    add("A-18", rel(os.path.join(ui, "home", "portal.html")), id_collision_problems(read(os.path.join(ui, "home", "portal.html")), studio))
+    fr = os.path.join(SRC, "friendapp", "ui")
+    add("A-19", rel(fr), help_links_problems({n: read(os.path.join(fr, n)) for n in ("friend.html", "settings.js", "setup.html")}))
+    guide = read(os.path.join(fr, "guide.html"))
+    images = {}
+    for src in set(re.findall(r'<img[^>]*\ssrc="(guide/[^"]+\.png)"', guide)):
+        p = os.path.join(fr, *src.split("/"))
+        if os.path.isfile(p):
+            with open(p, "rb") as f:
+                images[src] = f.read()
+    add("A-37", rel(os.path.join(fr, "guide.html")), guide_problems(guide, images))
+
+
 def static_checks(out):
+    static_contracts(out)
     for screen, path in screen_files((".html",)):
         static_html(screen, path, read(path), out)
     for screen, path in screen_files((".css",)):

@@ -149,7 +149,6 @@
 - src/app/tests/test_live.py — リアルタイム切り抜き(線 D の P1)の入口の側(src/app/live.py・prefs の節 live・server.py の /live/…・「調子」の行)のテスト。
 - src/app/tests/test_live_archive_api.py — アーカイブで本番版に作り直す(線 D の P4)の入口 home を通す分: POST /live/api/archive・…/cancel・GET /live/api/exports の archiveInfo(server.py を通して)と、
 - src/app/tests/test_live_detect_api.py — 配信中の盛り上がりの検出の入口 home の側(app の殻 Live の GET|POST /live/api/peaks の振り分け・ホームの設定 prefs の検査)のテスト。
-- src/app/tests/test_live_tx_prefs.py — 配信中の候補の文字起こし(D-11 案 b)の設定との一致のテスト。入口 home の prefs と ② flow/live_tx・編集の tx_engines の値がそろっていること。
 - src/app/tests/test_mount.py — 入口への取り込み(src/app/mount.py・段階3)のテスト。  python -m unittest src/app/tests/test_mount.py -v
 - src/app/tests/test_redirects.py — 今の URL -> /cases の転送の表(src/app/redirects.py。RS8 C0)のテスト。
 - src/app/tests/test_settings_schema.py — 設定の画面のスキーマ(src/app/ui/settings/schema.json。S5)と、ホームの設定の検査(prefs.py)が食い違っていないか。リポジトリ直下で:

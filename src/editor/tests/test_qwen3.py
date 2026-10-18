@@ -140,12 +140,6 @@ class Qwen3EngineTest(unittest.TestCase):
             S.req_engine({"engine": "llama.cpp"}, "large-v3")
         self.assertEqual(c.exception.code, "bad_model")
 
-    def test_engine_module_has_no_native_imports(self):
-        with open(E.__file__, encoding="utf-8") as f:
-            src = f.read()
-        top = [l for l in src.splitlines() if l.startswith(("import ", "from "))]
-        self.assertFalse([l for l in top if any(m in l for m in ("numpy", "sherpa_onnx", "faster_whisper"))], top)
-
 
 @unittest.skipUnless(os.name == "nt" or shutil.which("python3"), "子プロセスの偽の server")
 class LlamaServerTest(unittest.TestCase):

@@ -676,12 +676,6 @@ class EngineTest(unittest.TestCase):
             self.assertEqual(e.transcribe(x[:16000 * 15], language="xx")[1].language, "auto")
             self.assertEqual(e.model["asked"], "auto")
 
-    def test_engine_module_has_no_native_imports(self):
-        """tx_engines はサーバー側でも読む(名前と版)。ファイルの先頭でネイティブの部品を読み込まない"""
-        code = "import sys; sys.path.insert(0, sys.argv[1]); from pipeline.transcribe import tx_engines; print([m for m in ('numpy', 'faster_whisper', 'ctranslate2') if m in sys.modules])"
-        p = subprocess.run([sys.executable, "-c", code, os.path.dirname(HERE)], capture_output=True, text=True, timeout=60)
-        self.assertEqual(p.stdout.strip(), "[]", p.stderr)
-
 
 class ProtocolTest(unittest.TestCase):
     """ワーカーの出力が壊れていても、サーバー側は読み飛ばす・異常終了として扱う。"""

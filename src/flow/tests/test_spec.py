@@ -103,26 +103,8 @@ class TestMoved(unittest.TestCase):
         for bad in (None, 1, "x", {"on": 1}, {"after": 2.1}, {"before": -0.1}, {"after": True}, {"after": "1"}):
             self.assertFalse(spec.row_edge_ok(bad), bad)
 
-    def test_autorun_still_exposes_the_names(self):
-        """autorun は同じ名前で読み直している(test_autorun.py・ほかの使い手がそのまま動く)"""
-        sys.path.insert(0, os.path.join(SRC, "app"))
-        from app import autorun as A   # noqa: E402
-        for name in ("RANGE_MAX", "CUTS", "TX_ENGINES", "TX_MODEL_RE", "WEIGHT_KEYS", "MAX_MARKS", "DEFAULT_TOP", "LIVE_AUTO_CUT",
-                     "clean_ranges", "clean_weights"):
-            self.assertIs(getattr(A, name), getattr(spec, name), name)
-        self.assertIs(A._top_arg, spec.top_arg)
-        self.assertIs(A._num, spec.num_ok)
-        self.assertFalse(hasattr(A.AutoRunner, "_marks_arg"), "受付の欄の検査は flow/order.py・envelope(RV A1)")
-
 
 class TestMerge(unittest.TestCase):
-    def test_defaults_are_valid_and_complete(self):
-        self.assertEqual(spec.validate(spec.merge(None)), spec.DEFAULTS)
-        self.assertEqual(spec.merge({}), spec.DEFAULTS)
-        self.assertEqual(tuple(spec.DEFAULTS), spec.SECTIONS)
-        self.assertEqual(set(spec.SCHEMA), set(spec.SECTIONS))
-        for sec in spec.SECTIONS:   # 検査の表と既定値の鍵は同じ(片方だけ増やした食い違いを落とす)
-            self.assertEqual(set(spec.SCHEMA[sec]), set(spec.DEFAULTS[sec]), sec)
 
     def test_known_defaults(self):
         d = spec.merge(None)
@@ -132,14 +114,6 @@ class TestMerge(unittest.TestCase):
         self.assertNotIn("backup", d["pack"])   # パックの予備は消した(決定 3-34)
         self.assertEqual(d["adopt"]["top"], spec.DEFAULT_TOP)
         self.assertEqual((d["analyze"]["wAudio"], d["analyze"]["wChat"], d["analyze"]["wComments"]), (1.0, 1.0, 0.7))
-
-    def test_fixed_items_are_not_keys(self):
-        for k in spec.FIXED:
-            for sec in spec.SECTIONS:
-                self.assertNotIn(k, spec.DEFAULTS[sec], "%s.%s" % (sec, k))
-        self.assertEqual(spec.FIXED["fps"], 30)
-        self.assertNotIn("upto", spec.FIXED)   # RV A2: どこまで・失敗したときは束の run.upto・run.onFail
-        self.assertEqual((spec.DEFAULTS["run"]["upto"], spec.DEFAULTS["run"]["onFail"], spec.DEFAULTS["hints"]["streamer"]), ("pack", "next", None))
 
     def test_renamed_pinned_reads_as_requested(self):
         """RV A2: 旧い鍵 run.pinned は run.requested として読む(待ちの記録・録画の束を書き換えない)。両方あれば今の名前"""
@@ -353,20 +327,6 @@ class TestBodies(unittest.TestCase):
         self.assertEqual(out, {"textplusWrap": 14, "textplusSize": "1920x1080", "textplusFps": "30", "render": True, "speakerColors": False,
                                "loudness": -14, "videoTracks": 3})
         self.assertNotIn("volume", spec.pack_output(spec.merge({"pack": {"volume": 100}}))[1])   # 元の音量は書かない
-
-    def test_defaults_match_the_tools(self):
-        """束の既定 = 各ツールが項目の無い要求に当てる既定(入口の束が無い項目を既定で埋めても、ツールが決める値は前と同じ)"""
-        from pipeline.analyze import analyze
-        from pipeline.export import exporter
-        from pipeline.pack import cut2resolve_core as C, pack, resolve_textplus as TP
-        got = analyze.validate_settings({})
-        got.pop("noCache")
-        self.assertIn(got.pop("shape"), ("scene", "fixed"))   # 区間の形は束に入れない(既定は ① のスイッチ excite.SHAPE_DEFAULT の 1 か所。LD-2b)
-        self.assertEqual(got, spec.DEFAULTS["analyze"])
-        self.assertEqual(spec.DEFAULTS["export"]["volume"], exporter.DEFAULT_EXPORT_VOLUME)
-        self.assertEqual(spec.DEFAULTS["pack"]["cutSilence"], {"noise": C.DEFAULT_NOISE_DB, "min": C.DEFAULT_SILENCE_MIN, "pad": C.DEFAULT_SILENCE_PAD})
-        self.assertEqual(spec.DEFAULTS["pack"]["wrapChars"], TP.WRAP_DEFAULT)
-        self.assertEqual(pack.row_edge_from(spec.DEFAULTS["pack"]["rowEdge"]), pack.row_edge_from(None))
 
 
 if __name__ == "__main__":

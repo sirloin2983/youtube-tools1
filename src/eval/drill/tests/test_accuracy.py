@@ -485,18 +485,6 @@ class AccuracyTest(unittest.TestCase):
         self.assertTrue(any("普段" in m for m in self.logs))
         self.assertEqual(accuracy.count_daily(os.path.join(self.tmp, "無い")), {"sec": 0.0, "docs": 0, "lines": 0})
 
-    def test_every_area_tool_exists(self):
-        """AREAS の道具はぜんぶ実在する(スクリプト名を変えると夜の測定が黙って「なし」になるのを防ぐ)。呼び方の引数も、道具の側で受けられる形"""
-        for a in accuracy.AREAS:
-            path = os.path.join(ROOT, "eval", "tools", a["script"])
-            self.assertTrue(os.path.isfile(path), "%s(領域 %s)が src/eval/tools/ に無い" % (a["script"], a["id"]))
-        real = accuracy.Accuracy(self.prefs, self.app, ROOT)
-        for a in accuracy.AREAS:
-            self.assertIsNotNone(real.commands(a), a["id"])
-        by = {a["id"]: a["args"] for a in accuracy.AREAS}
-        self.assertEqual(by["speakers"], ("run", "--or-stored", "--json"))   # 夜の話者 = 今の既定で判別し直す(モデルが無ければ stored)
-        self.assertIn("--apply", by["timing"])                                # 夜の時刻 = 今の既定の後処理を当て直す
-
     def test_unchanged_result_keeps_latest_and_only_advances_at(self):
         """道具が「変わらず: <前のファイル>」を出したら失敗にせず、latest はそのまま(ファイル名・要約)で at だけ進める。一覧に同じ名前を重ねない"""
         self.assertEqual(self.acc.tick()["asr"], "ok")
@@ -514,31 +502,6 @@ class AccuracyTest(unittest.TestCase):
         self.assertEqual(e2["files"], e1["files"])        # 同じ名前を重ねない
         self.assertEqual(len(os.listdir(self.edir({"id": "asr"}))), 1)   # 新しいファイルは増えない
         self.assertEqual(len(os.listdir(self.edir({"id": "marks"}))), 2)  # 変わらずを出さない領域は今までどおり書く
-
-    def test_goal_thresholds_match_the_tools(self):
-        """しきい値は accuracy.py の GOALS の 1 か所。道具の「まだ少ない」の値(src/eval/tools/eval_*.py の定数)と食い違わない(道具は読むだけ。import しない)"""
-        import ast
-        tools_dir = os.path.join(ROOT, "eval", "tools")
-
-        def const(script, name):
-            path = os.path.join(tools_dir, script)
-            self.assertTrue(os.path.isfile(path), "eval/tools/%s が無い(AREAS の道具は実在する)" % script)
-            with open(path, encoding="utf-8") as f:
-                tree = ast.parse(f.read())
-            for node in tree.body:
-                if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == name for t in node.targets):
-                    return eval(compile(ast.Expression(node.value), path, "eval"), {"__builtins__": {}})   # 定数の式(15 * 60 など)だけ
-            self.fail("eval/tools/%s に %s が無い" % (script, name))
-        by = {g["id"]: g["target"] for g in accuracy.GOALS}
-        gates = dict(const("eval_asr.py", "GATES"))
-        self.assertEqual((by["g1"], by["g2fixed"]), (gates["G1"], gates["G2"]))
-        self.assertEqual(by["speakers"], const("eval_speakers.py", "FEW_ROWS"))
-        self.assertEqual(by["marks"], const("eval_marks.py", "FEW_VIDEOS"))
-        self.assertEqual(by["packs"], const("eval_cut.py", "FEW_PACKS"))
-        self.assertEqual(by["alt"], const("eval_alt.py", "FEW_CANDS"))
-        self.assertEqual(by["fill"], const("eval_fill.py", "FEW_ROWS"))      # V1 確かめる(V0)
-        self.assertEqual(by["timing"], const("eval_timing.py", "FEW_ROWS"))
-        self.assertEqual(accuracy.TIMING_FEW_ROWS, const("eval_timing.py", "FEW_ROWS"))
 
     def test_summarize_fill_and_timing(self):
         fill = accuracy.summarize_fill({"a": {"docs": 4, "judged": 12, "keptRate": 0.75, "revertRate": 0.2, "editRate": 0.05, "few": True}})

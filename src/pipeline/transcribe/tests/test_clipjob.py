@@ -10,7 +10,6 @@ run_job が作っていた行(行の id・範囲の開始を足した時刻・�
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない(一時フォルダだけ)。ほかのテストとそろえる
-import subprocess
 import sys
 import unittest
 from unittest import mock
@@ -83,16 +82,6 @@ class TestMakeDocRows(unittest.TestCase):
     def test_auto_learned_replace_is_pure(self):
         self.assertEqual(replace.auto_learned_replace("あいう", lambda t: [{"i": 1, "wrong": "い", "right": "イイ"}]), ("あイイう", 1))
         self.assertEqual(replace.auto_learned_replace("あいう", lambda t: []), ("あいう", 0))
-
-
-class TestImportsAlone(unittest.TestCase):
-    def test_reads_no_flow_human_or_app(self):
-        """① の clipjob は ② ③ と app を読まない(serve なしで import できる)"""
-        code = ("import sys; sys.path.insert(0, %r); from pipeline.transcribe import clipjob; "
-                "bad = [m for m in sys.modules if m.split('.')[0] in ('flow', 'human', 'manage', 'eval') or m == 'serve' or m.startswith('ed_')]; "
-                "print(bad); sys.exit(1 if bad else 0)") % SRC
-        p = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60)
-        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
 
 
 if __name__ == "__main__":

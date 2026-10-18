@@ -249,12 +249,6 @@ class BuildTest(Base):
         with self.assertRaisesRegex(B.BuildError, "members.json|members-src"):
             self.build()
 
-    def test_default_members_and_key_sources(self):
-        self.assertTrue(B.MEMBERS_SRC.replace("\\", "/").endswith("friend-apps/holo-colors/members.json"))
-        self.assertTrue(os.path.isfile(B.MEMBERS_SRC))
-        self.assertTrue(B.KEY_SRC.replace("\\", "/").endswith("friend-apps/launcher/config.json"))
-        self.assertTrue(B.default_out(True).replace("\\", "/").endswith("friend-apps/launcher/dist"))
-
     def test_with_key_without_key_file_stops(self):
         os.remove(self.key)
         with self.assertRaisesRegex(B.BuildError, "dropbox_auth"):
@@ -297,11 +291,6 @@ class BuildTest(Base):
         with self.assertRaises(SystemExit) as cm:
             B.main(["--with-key", "--out", self.out])
         self.assertEqual(cm.exception.code, 2)
-
-    def test_required_src_is_tracked(self):
-        B.check_src()   # 新しいアプリの必須の物(REQUIRED_SRC)が git に入っている
-        self.assertTrue(set(B.REQUIRED_SRC) <= set(B.src_files()))
-        self.assertFalse(any("FriendInbox" in n for n in B.REQUIRED_SRC))
 
     def test_default_out_refuses_without_out(self):
         with self.assertRaisesRegex(B.BuildError, "--out"):
@@ -356,11 +345,6 @@ class BuildTest(Base):
 
 
 class CacheTest(Base):
-    def test_ytdlp_pinned_to_official_hash(self):
-        t = next(t for t in REAL_TOOLS if t["name"] == "yt-dlp")
-        self.assertRegex(t["url"], r"/releases/download/\d{4}\.\d{2}\.\d{2}/yt-dlp\.exe$")
-        self.assertRegex(t["sha256"], r"^[0-9a-f]{64}$")
-        self.assertGreater(t["size"], 1000000)
 
     def test_official_hash_mismatch_stops(self):
         item = dict(FAKE_TOOLS[1], size=len(b"fake yt-dlp"), sha256="0" * 64)
@@ -462,18 +446,6 @@ class AuditTest(unittest.TestCase):
         self.assertEqual(sorted(bad), sorted(["個人データ・鍵の名前: config.json", "個人データ・鍵の名前: src/ytt/transcripts/x.json",
                                               "個人のパス: src/ytt/b.py", "個人のパス: src/ytt/c.json"]))
         self.assertNotIn("個人データ・鍵の名前: config.json", B.audit(self.stage, True, home="C:\\Users\\alice", user="alice"))
-
-    def test_real_src_is_clean(self):
-        """本物の src(git の管理分・tests なし)に個人データの名前・この PC の家のパスが無い"""
-        B.lay_src(self.stage)
-        self.assertEqual(B.audit(self.stage, False), [])
-
-
-class PinsTest(unittest.TestCase):
-    def test_pins_from_requirements(self):
-        pins = B.wheel_pins()
-        self.assertEqual([p.split("==")[0] for p in pins], list(B.WHEEL_NAMES))
-        self.assertTrue(all("==" in p for p in pins))
 
 
 if __name__ == "__main__":

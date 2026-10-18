@@ -17,19 +17,6 @@ class AdoptDefaults(unittest.TestCase):
         a = spec.DEFAULTS["adopt"]
         self.assertEqual((a["perHour"], a["waitMin"], a["pad"]), (6, 5, 2.0))
 
-    def test_prefs_reads_spec(self):
-        a = spec.DEFAULTS["adopt"]
-        live = prefs.DEFAULTS["live"]
-        self.assertEqual(live["afterStreamPerHour"], a["perHour"])
-        self.assertEqual(live["detect"]["perHour"], a["perHour"])
-        self.assertEqual(live["autoAdopt"]["waitMin"], a["waitMin"])
-        self.assertEqual(live["auto"]["pad"], a["pad"])
-
-    def test_live_detect_reads_spec(self):
-        a = spec.DEFAULTS["adopt"]
-        self.assertEqual(live_detect.DETECT_DEFAULT["perHour"], a["perHour"])
-        self.assertEqual(live_detect.ADOPT_DEFAULT["waitMin"], a["waitMin"])
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -161,11 +161,6 @@ class TestPaths(ServerBase):
             finally:
                 serve.remove_runtime(8899)
 
-    def test_work_dir_matches_ytt_core(self):
-        """途中のファイルの下のフォルダの名前は ytt と同じ(コマンドは ytt を読まないので cut2resolve_core にも持つ)"""
-        from ytt import schemas as ys
-        self.assertEqual(serve.C.WORK_DIR, ys.WORK_DIR)
-
     def test_open_folder_only_for_pack_dirs(self):
         st, j = self.c.json("POST", "/api/open-folder", {"path": str(self.dir)})
         self.assertEqual(st, 403)

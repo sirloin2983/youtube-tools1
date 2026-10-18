@@ -7,7 +7,6 @@
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない(一時フォルダだけ)
-import inspect
 import shutil
 import sys
 import unittest
@@ -37,21 +36,6 @@ class LiveTest(unittest.TestCase):
         self.live.detector.stop()
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def test_live_has_every_name(self):
-        """LiveSession が口の名前を全部持つ(property の exporter は作らずに確かめる)・メソッドは口の引数を受けられる"""
-        lv = self.live
-        names = host_names()
-        self.assertIn("_rec_status", names)
-        for name in sorted(names):
-            self.assertTrue(name in vars(lv) or hasattr(type(lv), name), name)
-            want = vars(H.LiveHost).get(name)
-            got = inspect.getattr_static(lv, name, None)
-            if not callable(want) or isinstance(got, property) or not callable(got):
-                continue
-            have = inspect.signature(getattr(lv, name)).parameters
-            for p in list(inspect.signature(want).parameters)[1:]:
-                self.assertIn(p, have, "%s(%s)" % (name, p))
-        self.assertIsNone(lv._exporter)   # 名前を調べても書き出しの部品は作らない
 
     def test_close_order(self):
         """入口の終了: 終わりの印 → 検出 → 配信中の文字起こし → 作り直し → 書き出し → 録画の部品"""

@@ -5,17 +5,17 @@
 
 | 層 | md | ファイル | 行 |
 |---|---|---|---|
-| ytt(基盤) | [ytt.md](ytt.md) | 49 | 11127 |
-| ① pipeline(道具 = データを加工する) | [pipeline.md](pipeline.md) | 64 | 24168 |
-| ② flow(管理 = いつ・どの順で・どこに置くか) | [flow.md](flow.md) | 87 | 29232 |
-| ③ human(人の操作) | [human.md](human.md) | 59 | 17205 |
-| ④ manage(データ) | [manage.md](manage.md) | 42 | 11721 |
-| ⑤ eval(検証) | [eval.md](eval.md) | 33 | 14657 |
-| src/app(入口と画面) | [app.md](app.md) | 87 | 38281 |
-| src/friendapp(友人の玄関) | [friendapp.md](friendapp.md) | 48 | 18999 |
-| その他の画面(editor・studio・ui-kit・cut2resolve) | [tools.md](tools.md) | 49 | 20978 |
-| dev・setup(開発の道具) | [dev.md](dev.md) | 56 | 14425 |
-| friend-apps・chrome-ext(C# のアプリ・拡張) | [apps.md](apps.md) | 18 | 8716 |
+| ytt(基盤) | [ytt.md](ytt.md) | 49 | 11093 |
+| ① pipeline(道具 = データを加工する) | [pipeline.md](pipeline.md) | 70 | 24744 |
+| ② flow(管理 = いつ・どの順で・どこに置くか) | [flow.md](flow.md) | 93 | 30559 |
+| ③ human(人の操作) | [human.md](human.md) | 63 | 18228 |
+| ④ manage(データ) | [manage.md](manage.md) | 42 | 11720 |
+| ⑤ eval(検証) | [eval.md](eval.md) | 33 | 14620 |
+| src/app(入口と画面) | [app.md](app.md) | 86 | 38031 |
+| src/friendapp(友人の玄関) | [friendapp.md](friendapp.md) | 50 | 19810 |
+| その他の画面(editor・studio・ui-kit・cut2resolve) | [tools.md](tools.md) | 49 | 20801 |
+| dev・setup(開発の道具) | [dev.md](dev.md) | 58 | 15977 |
+| friend-apps・chrome-ext(C# のアプリ・拡張) | [apps.md](apps.md) | 18 | 8668 |
 
 ## `/api/...` の口(受ける所 → 呼ぶ所)
 
@@ -115,7 +115,7 @@
 - `/api/friend/upload` — src/friendapp/server.py:358 ← send-form.js
 - `/api/health` — src/app/server.py:790 ← portal.js
 - `/api/history` — src/editor/serve.py:253 ← app-rows.js
-- `/api/info` — dev/ui_audit.py:94・src/app/live.py:296 ← new.js・ui-kit.js
+- `/api/info` — dev/ui_audit.py:100・src/app/live.py:296 ← new.js・ui-kit.js
 - `/api/intake` — src/app/server.py:651 ← portal.js・rank.js・review.js
 - `/api/intake/scan` — src/app/server.py:660 ← portal.js
 - `/api/job` — src/cut2resolve/serve.py:366・src/cut2resolve/serve.py:97 ← cut.js・app-tools.js

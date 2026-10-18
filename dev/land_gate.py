@@ -5,7 +5,7 @@
         # 既定のブランチ = 今のブランチ。--list は選んだテストの一覧だけ(流さない)
 
 流す物(落ちたら止める。e2e は入れない = 一式は今までどおり大きな区切りで dev/run_e2e.py):
-  1 検査: dev/lint.py(0 件)・dev/plan_data.py check・dev/notes_tool.py check(保管庫。中身は notes_tool に任せる)。
+  1 検査: dev/lint.py(0 件。規則の見張り dev/rule_checks.py・dev/rule_imports.py もここ)・dev/ui_audit.py static(画面の約束 A-xx の Must 0)・dev/plan_data.py check・dev/notes_tool.py check(保管庫。中身は notes_tool に任せる)。
     落ちても main の作業フォルダで同じ数以上なら警告だけ(保管庫は 1 つ = ほかのセッションの途中の資料の変更でこの枝が止まらない)
   2 単体テスト: `git diff --name-only main...<ブランチ>` の変えたファイルから、docs/spec/code.md の 6「フォルダと、変えたら通すテスト」の
     行に当たる層を選び、dev/run_unit.py と同じ流し方(1 本ずつ別のプロセス・YTT_DATA_DIR=inplace・窓なし)で並べて流す。
@@ -238,7 +238,7 @@ def run(branch, root=REPO, skip=(), worklog_name=None, jobs=None, list_only=Fals
     if "checks" not in skip:
         t0 = time.monotonic()
         main_wt = worktree_of(root, "main")
-        for name, args in (("lint", ["dev/lint.py"]), ("計画のデータ", ["dev/plan_data.py", "check"]),
+        for name, args in (("lint", ["dev/lint.py"]), ("画面の静的な検査", ["dev/ui_audit.py", "static"]), ("計画のデータ", ["dev/plan_data.py", "check"]),
                            ("資料のパス", ["dev/notes_tool.py", "check"])):
             prob, warn = run_check(wt, main_wt, name, args)
             g.problems += [prob] if prob else []
