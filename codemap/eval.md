@@ -27,9 +27,9 @@
 ## src/eval/fake/
 
 - **__init__.py** (3 行) — ④ 疑似モード(偽のエンジン・偽の YouTube API・偽の録画元)。各段の登録の口から差し込む。本体に if fake を置かない
-- **fake_asr.py** (187 行) — 疑似の文字起こし(環境変数 TRANSCRIBE_BACKEND=fake のテスト・画面の通し確認用。役割で組み直す RS2-2 で編集の ed_jobs から移した)。
+- **fake_asr.py** (187 行) — 疑似の文字起こし(環境変数 TRANSCRIBE_BACKEND=fake のテスト・画面の通し確認用。役割で組み直す RS2-2 で編集の部品から移した)。
   - 名前: `fake_wait` :19・`transcribe_fake` :24・`fake_range_lines` :66・`diarize_fake` :87・`embed_fake` :101・`class FakeBackend` :118
-- **fake_worker.py** (128 行) — 認識ワーカーの中の疑似(環境変数 TRANSCRIBE_BACKEND=worker-fake のテスト用。役割で組み直す RS2-9 に、認識ワーカー(旧 src/editor/tx_worker.py)の
+- **fake_worker.py** (128 行) — 認識ワーカーの中の疑似(環境変数 TRANSCRIBE_BACKEND=worker-fake のテスト用。役割で組み直す RS2-9 に、認識ワーカー(今の pipeline/transcribe/worker.py)の
   - 名前: `install` :25・`fake_sense_voice` :93・`fake_llama_text` :112
 
 ## src/eval/tools/

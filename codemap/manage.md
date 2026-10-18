@@ -37,8 +37,8 @@
   - 名前: `eval_organize` :319・`eval_settle` :395・`eval_folders_info` :491
 - **learnpack.py** (163 行) — ④ データ: 学習の束を作る側(F1。notes:docs/design/f1-build.md の 2 の F1・3 の (f1c))。
   - 名前: `roster_names` :41・`filter_voices` :51・`collect` :58・`content_sha8` :87・`versions` :95・`build` :104・`verify` :147
-- **live_cleanup.py** (264 行) — 録画を自動で消す(線 D。notes:plan/line-d-live-clipping.md の 0-9 の最後。2026-10-05 ユーザー決定・2026-10-16 に条件を変えた = 決定 3-73)の入口の側。
-  - 名前: `class Cleaner` :57
+- **live_cleanup.py** (215 行) — 録画を自動で消す(線 D。notes:plan/line-d-live-clipping.md の 0-9 の最後。2026-10-05 ユーザー決定・2026-10-16 に条件を変えた = 決定 3-73)の入口の側。
+  - 名前: `class Cleaner` :52
 - **trash.py** (124 行) — ④ データの keep: ごみ箱フォルダへ移す・戻すの 1 か所(OPT-M2。notes:plan/done/opt-manage.md の 7c-1・2c-1)。
   - 名前: `to_trash` :30・`record` :80・`put_back` :95
 

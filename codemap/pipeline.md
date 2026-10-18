@@ -15,7 +15,7 @@
   - 名前: `sig_cache_dir` :36・`validate_live` :43・`validate_source` :49・`validate_settings` :64・`make_spec` :78・`chat_public` :87・`sig_path` :94・`load_sig` :98・`save_sig` :115・`archive_path` :128・`load_archive` :132・`save_archive` :142・ほか 3
 - **breaks.py** (123 行) — 話の切れ目(breaks)。切り抜きの区間の両端を、文字起こしの話の切れ目へ寄せて言葉の途中で切らないための関数(線 LD-2c。notes:plan/done/ld2-clip-length.md)。
   - 名前: `cuts` :61・`snap` :106・`inside_row` :120
-- **excite.py** (990 行) — 盛り上がり(excitement)の式。スタジオのアーカイブの解析(src/pipeline/analyze/analyze.py)と、配信中の検出(src/pipeline/analyze/live_excite_worker.py。線 D の L2)が同じ式を読む(線 D の L1。notes…
+- **excite.py** (984 行) — 盛り上がり(excitement)の式。スタジオのアーカイブの解析(src/pipeline/analyze/analyze.py)と、配信中の検出(src/pipeline/analyze/live_excite_worker.py。線 D の L2)が同じ式を読む(線 D の L1。notes…
   - 名前: `smooth` :60・`median` :71・`local_baseline` :77・`robust_scale` :96・`audio_score` :102・`chat_z` :114・`shift_chat` :123・`chat_score` :129・`estimate_lag` :133・`ramp` :157・`head_ramp` :162・`comment_score` :169・ほか 14
 - **fetch.py** (482 行) — 解析の材料を取ってくる仕事(音声のダウンロード・チャットのリプレイの取得と先読み・コメント欄・動画の付加情報)と、そのキャッシュの置き場と掃除。
   - 名前: `work_dir` :30・`chat_cache_dir` :34・`download_audio` :49・`chat_cache_path` :69・`chat_cache_limit` :78・`use_chat_cache` :93・`prune_chat_cache` :103・`download_chat` :151・`prefetch_chat` :233・`cancel_prefetch` :276・`cancel_all_prefetch` :283・`start_chat` :292・ほか 7
@@ -84,8 +84,8 @@
   - 名前: `latin_suspect` :31・`sparse_row` :59・`stock_phrase` :74・`repeats_in_line` :91・`make_flags` :102・`expand_segments` :135・`post_values` :175・`clip_rows` :202・`merge_repeats` :219・`trim_ends` :268・`join_rows` :281・`machine_conf` :292・ほか 2
 - **recognize.py** (480 行) — ① 音声の認識: 動画から音声を取り出す(extract_audio)・声の検出が捨てすぎたら緩めてやり直す(transcribe_vad_fallback)・文字起こしの行(transcribe_real)・
   - 名前: `wav_args` :29・`extract_audio` :60・`seg_to_dict` :89・`vad_kept` :107・`vad_note` :115・`transcribe_vad_fallback` :129・`transcribe_real` :172・`transcribe_rows` :200・`audio_span` :219・`recognize_chunk` :229・`class ChunkModel` :251・`finish_range_lines` :271・ほか 8
-- **records.py** (179 行) — ① 文字起こしの記録: recognition.runs の 1 件(エンジンと版・設定・辞書の版・後処理)・配信ごとの文脈と声の検出の記録・
-  - 名前: `set_dict_inputs` :24・`pkg_version` :37・`engine_version` :46・`run_engine` :60・`recognition_run` :77・`short_hash` :91・`roster_hash` :104・`dict_version` :112・`context_record` :136・`vad_record` :144・`asr_path` :156・`capture_raw` :161・ほか 1
+- **records.py** (178 行) — ① 文字起こしの記録: recognition.runs の 1 件(エンジンと版・設定・辞書の版・後処理)・配信ごとの文脈と声の検出の記録・
+  - 名前: `set_dict_inputs` :24・`pkg_version` :37・`engine_version` :46・`run_engine` :60・`recognition_run` :77・`short_hash` :91・`roster_hash` :104・`dict_version` :112・`context_record` :136・`vad_record` :144・`asr_path` :155・`capture_raw` :160・ほか 1
 - **replace.py** (59 行) — ① 自動の流れの層 pipeline/transcribe: 確度「高」の学習済み置換を機械の出力に当てる(`auto_learned_replace`)。純粋な関数だけ(ファイル・設定を読まない)。
   - 名前: `fixed_finder` :15・`pick_glossary` :37・`auto_learned_replace` :52
 - **retime.py** (268 行) — ① 字幕の読む速さの印(T2)と、直した行の時刻を単語の時刻から配り直す候補(T1 の簡易版)の計算。2026-10-05 に作った。

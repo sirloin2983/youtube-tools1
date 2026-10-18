@@ -29,8 +29,8 @@
   - 名前: `allowed_hosts` :31・`host_ok` :35・`origin_ok` :39・`fetch_site_ok` :44・`navigation_ok` :48・`send_head` :53・`send` :66・`class BodyError` :79・`drain_body` :92・`read_json_body` :107・`token_ok` :145・`byte_range` :155・ほか 3
 - **jobs.py** (266 行) — 重い処理の同時実行数の上限(統合計画の段階4)。
   - 名前: `limit_from_env` :42・`class HeavySlots` :51・`check_cancel` :190・`class Ctl` :198
-- **layout.py** (76 行) — リポジトリの中のフォルダの並び(2026-10-07 に整理。段0 2026-09-30 の改名は `notes:docs/design/phase0-restructure.md`)。
-  - 名前: `src_root` :32・`repo_root` :37・`inplace_root` :42・`tool_dir` :50・`holo_colors_dir` :55・`notes_root` :63・`copy_shared_code` :69
+- **layout.py** (75 行) — リポジトリの中のフォルダの並び(2026-10-07 に整理。段0 2026-09-30 の改名は `notes:docs/design/phase0-restructure.md`)。
+  - 名前: `src_root` :31・`repo_root` :36・`inplace_root` :41・`tool_dir` :49・`holo_colors_dir` :54・`notes_root` :62・`copy_shared_code` :68
 - **loudness.py** (110 行) — 聞こえ方の音量(ラウドネス。LUFS)をそろえる決まりの1か所(スタジオの書き出し・パック作りが共通で使う。2026-09-29)。
   - 名前: `check_target` :19・`check_volume` :32・`pct_to_db` :45・`parse` :49・`gain` :65・`select_filter` :71・`result` :80・`volume_filter` :89・`gain_filter` :94・`measure_args` :99・`reencode_args` :104
 - **marks.py** (380 行) — マークの純粋な語彙(スタジオの data.json の配信のマーク。RS8 B3-2 で human/review/store.py から下ろした)。
@@ -52,7 +52,7 @@
 - **runtime.py** (209 行) — 実行中のポートの共有(notes:docs/spec/pipeline.md の 4)。スタジオの handoff.py・文字起こしの pipeline_io.py・入口の server.py にあった同じ処理を1つにしたもの。
   - 名前: `valid_port` :28・`runtime_dir` :33・`runtime_path` :43・`valid_path` :49・`write_runtime` :53・`read_runtime` :79・`remove_runtime` :95・`ping` :107・`ping_app` :130・`port_open` :135・`siblings` :147・`safe_stdio` :185・ほか 1
   - 受ける口: `/api/ping` :116
-- **schemas.py** (488 行) — 受け渡しの形式(notes:docs/spec/pipeline.md の 1・2)。youtube-tools-clip/v1 は、スタジオが書き(build_clip)、文字起こしが読む(load_clip_file)。
+- **schemas.py** (484 行) — 受け渡しの形式(notes:docs/spec/pipeline.md の 1・2)。youtube-tools-clip/v1 は、スタジオが書き(build_clip)、文字起こしが読む(load_clip_file)。
   - 名前: `iso_now` :21・`now_ms` :26・`num` :31・`is_num` :42・`is_int` :47・`plain_int` :52・`int_in` :57・`num_or` :62・`union_spans` :71・`fmt_hms` :82・`other_speaker` :105・`no_sub_row` :110・ほか 28
 - **settings.py** (361 行) — 設定ファイル(JSON の辞書)の読み書きの共通部品(設定を 1 つにまとめる 段 2 = S4。notes:docs/spec/data.md の 4)。
   - 名前: `class SettingsError` :37・`class SettingsTooLarge` :41・`section_name_ok` :45・`retire_broken` :50・`class SettingsFile` :62・`load_settings` :191・`register_patch_key` :223・`patch_settings` :259・`merge_settings` :274・`replace_settings` :289・`eval_dirs` :326・`in_eval_dir` :342・ほか 1
@@ -68,8 +68,8 @@
   - 名前: `remember` :32・`recent` :46・`ytt_env` :51・`find_tool` :65・`find_ffmpeg` :115・`media_tool` :120・`ffmpeg_info` :127・`parse_ffmpeg_info` :140・`duration_in` :151・`media_duration` :156・`check_source` :162・`probe_media` :172・ほか 17
 - **trashbin.py** (57 行) — ごみ箱フォルダの決まりの 1 か所(どの層からも使う。LD-1 で ① の録画の部品も使うので ytt に置いた)。
   - 名前: `day_name` :15・`free_path` :20・`append_manifest` :30・`old_day_dirs` :38
-- **txbase.py** (106 行) — 認識の部品が共有する小さな物: 記録(ロガー)・決まった値(文字・言語・長さの上限)・要確認の印の文と幻覚の決まり文句・ジョブの注意。
-  - 名前: `char_class` :41・`alt_fold` :57・`add_warning` :72・`env_off` :77・`wcpp_flavor` :90・`wcpp_bin_dir` :95・`wcpp_exe` :100・`wcpp_model_dir` :104
+- **txbase.py** (105 行) — 認識の部品が共有する小さな物: 記録(ロガー)・決まった値(文字・言語・長さの上限)・要確認の印の文と幻覚の決まり文句・ジョブの注意。
+  - 名前: `char_class` :41・`alt_fold` :57・`add_warning` :72・`env_off` :77・`wcpp_flavor` :89・`wcpp_bin_dir` :94・`wcpp_exe` :99・`wcpp_model_dir` :103
 - **txtext.py** (97 行) — 文字起こしの文字の語彙(標準ライブラリと ytt/txbase だけの純粋な関数と決まった値)。役割で組み直す RS6 a-3(2026-10-10)に
   - 名前: `text_chars` :20・`strip_punct` :36・`split_segment` :67・`split_terms` :94
 - **txwords.py** (42 行) — 文字起こしの単語の時刻 transcripts/<id>.words.json の読み書き(標準ライブラリ・ytt の fsio と workdata だけ = 純粋な形の記録)。

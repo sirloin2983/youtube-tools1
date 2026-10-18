@@ -5,8 +5,8 @@
 ## src/human/
 
 - **__init__.py** (2 行) — ③ 人の操作。① ② の成果物とは別に人の直し(人の層・上書き)を書き、その段からやり直しを頼む。人の直しから学習データを作る。ytt と ② flow を import してよい(① pipeline は ② を通す)
-- **judgments.py** (195 行) — 人の判断の記録(judgments.jsonl。MARKS-3 の S1a)。人か友人が切り抜きを判断したときだけ 1 行足す。評価と学習が読む人の判断はここだけ。
-  - 名前: `friend_value` :39・`path` :48・`record` :115・`rows` :146・`keys` :161・`fold` :172
+- **judgments.py** (194 行) — 人の判断の記録(judgments.jsonl。MARKS-3 の S1a)。人か友人が切り抜きを判断したときだけ 1 行足す。評価と学習が読む人の判断はここだけ。
+  - 名前: `friend_value` :38・`path` :47・`record` :114・`rows` :145・`keys` :160・`fold` :171
 - **judgments_migrate.py** (395 行) — 今の記録から人の判断だけを人の判断の記録(judgments.jsonl)へ 1 回写す道具(MARKS-3 の S2)。元の記録は読むだけで、消さない・直さない。
   - 名前: `dirs` :104・`build` :314・`apply` :350・`report` :362・`main` :376
 
@@ -85,8 +85,8 @@
 - **__init__.py** (3 行) — ③ 候補の確認(手動マーク・採用と不採用・端の調整・その記録)
 - **feedback.py** (115 行) — 判定の記録(feedback.jsonl)。確認画面での人の結果(採用・不採用・削除・書き出し)と、人の最終の操作(手で足した・消した・採用の取り消し)を
   - 名前: `feedback_path` :17・`feedback_for_mark` :66・`nearest_auto` :83・`feedback_event` :106
-- **store.py** (1045 行) — ③ 動画とマークの保存(data.json)。スレッドセーフ・原子的に書き込む。スタジオの `Store` が書き手(スタジオなしの書き手は ② flow/studiobook の StudioBook)。
-  - 名前: `offset_from_anchors` :105・`class SeriesCache` :204・`class Store` :243
+- **store.py** (1044 行) — ③ 動画とマークの保存(data.json)。スレッドセーフ・原子的に書き込む。スタジオの `Store` が書き手(スタジオなしの書き手は ② flow/studiobook の StudioBook)。
+  - 名前: `offset_from_anchors` :104・`class SeriesCache` :203・`class Store` :242
 
 ## テスト
 

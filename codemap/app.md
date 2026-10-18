@@ -5,8 +5,8 @@
 ## src/app/
 
 - **__init__.py** (3 行) — 入口と画面。起動・1 つのポート・API の配線・設定の画面の API。全部の層を使ってよい
-- **autorun.py** (508 行) — まとめて実行(統合計画の段階5。2026-09-26)。入口の「案件」の画面から、配信1本ぶんの作業を順に自動で流す。
-  - 名前: `class ToolClient` :108・`spec_from_settings` :189・`live_auto_origin` :207・`class AutoRunner` :218
+- **autorun.py** (503 行) — まとめて実行(統合計画の段階5。2026-09-26)。入口の「案件」の画面から、配信1本ぶんの作業を順に自動で流す。
+  - 名前: `class ToolClient` :107・`spec_from_settings` :188・`live_auto_origin` :206・`class AutoRunner` :217
 - **cli.py** (548 行) — ② 管理 + ① 道具で動くコマンド(役割で組み直す RS6 b-S1。決定 3-29・資料の git:cbe1a64:docs/design/surveys/rs6-survey-2026-10-10/plan_order_v2.md の b-S1)。
   - 名前: `class UsageError` :55・`class PortalError` :59・`parse_args` :70・`load_spec` :97・`classify_input` :122・`check_from` :137・`use_data_dir` :146・`use_studio_data` :161・`class Learning` :182・`find_doc` :198・`class Progress` :213・`class Portal` :239・ほか 10
 - **live.py** (517 行) — リアルタイム切り抜き(線 D。notes:plan/line-d-live-clipping.md の 0)の入口の側。**既定はオフ**(ホームの設定の節 live.enabled)。
@@ -96,7 +96,7 @@
 ## src/app/ui/home/
 
 - **portal-edit.js** (162 行) — ホームの運用の中の「編集の精度と学習」(src/app/ui/home/portal.html の #editOpsBox。RS8 C3)。
-- **portal.js** (2100 行) — ホーム(src/app/ui/home/portal.html。段階5で入口 + 案件を1つにした)。
+- **portal.js** (2099 行) — ホーム(src/app/ui/home/portal.html。段階5で入口 + 案件を1つにした)。
 
 ## src/app/ui/settings/
 
@@ -135,13 +135,13 @@
 - src/app/tests/fake_excite_worker.py — 偽の検出ワーカー(e2e 用)。本物の src/pipeline/analyze/live_excite_worker.py の代わりに入口(live_detect.Detector)が起動し、
 - src/app/tests/test_accuracy_api.py — 入口の API(GET api/accuracy・POST api/accuracy/run・調子の accuracy・設定の節)と、手が空いた判定のつなぎ。精度の自動測定の本体のテストは src/eval/drill/tests/test_accuracy.py。
 - src/app/tests/test_adopt_defaults.py — 採用の数・余白・待ちの既定が束(flow/spec.py の DEFAULTS adopt)の 1 か所から来て、今までの値のままであることを固定する(RS6 b-R1)
-- src/app/tests/test_autorun.py — まとめて実行(src/home/autorun.py)の段取りのテスト。ツールの API は偽物(FakeTools)で、本物の通し確認は src/home/tests/e2e_autorun.py。
+- src/app/tests/test_autorun.py — まとめて実行(src/app/autorun.py)の段取りのテスト。ツールの API は偽物(FakeTools)で、本物の通し確認は src/app/tests/e2e_autorun.py。
 - src/app/tests/test_backup_prefs.py — 設定 prefs の backup の節(src/app/prefs.py。入口の側に残した検査)。バックアップの本体のテストは src/manage/keep/tests/test_backup.py。
 - src/app/tests/test_cases_page.py — 案件の画面(/cases。src/app/ui/cases/。RS8 C1 = 殻)の配り方と、画面のファイルの決まりのテスト。  python -m unittest src/app/tests/test_cases_page.py -v
 - src/app/tests/test_check_api.py — 入口の「確かめる」の口(GET api/check/next・POST api/check/answer(undo も)・skip・flush。V1 の V0)のつなぎ。
 - src/app/tests/test_check_page.py — 確かめる(/check。src/app/ui/check/。RS8 V1 = 殻)の配り方と、画面のファイルの決まりのテスト。  python -m unittest src/app/tests/test_check_page.py -v
 - src/app/tests/test_cli.py — app/cli(② + ① で動くコマンド。役割で組み直す RS6 b-S1)のテスト。  py -3.12 -m unittest src/app/tests/test_cli.py -v
-- src/app/tests/test_deliver_api.py — 入口の ytt_api("deliver") の受け渡し(src/app/server.py の PortalServer.ytt_api)のテスト。deliver の本体のテストは src/human/friend/tests/test_deliver.py。
+- src/app/tests/test_deliver_api.py — 入口の ytt_api("deliver") の受け渡し(src/app/server.py の PortalServer.ytt_api)のテスト。deliver の本体のテストは src/flow/tests/test_deliver.py。
 - src/app/tests/test_intake_prefs.py — 入口の設定 prefs の intake の節(src/app/prefs.py。入口の側に残した検査)。intake の本体のテストは src/human/friend/tests/test_intake.py。
 - src/app/tests/test_launch.py — 入口(src/app/server.py)のテスト。  python -m unittest src/app/tests/test_launch.py -v
 - src/app/tests/test_live.py — リアルタイム切り抜き(線 D の P1)の入口の側(src/app/live.py・prefs の節 live・server.py の /live/…・「調子」の行)のテスト。
