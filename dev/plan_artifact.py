@@ -4,9 +4,11 @@
     python dev/plan_artifact.py [--out <フォルダ>] [--plan <保管庫の plan フォルダ>] [--no-index]
     # --out の既定: <リポジトリ直下>/.artifact-build/plan/   --plan の既定: <保管庫>/plan
 
-あわせて、保管庫の plan/data.js から計画の索引 <plan>/計画の索引.md・線ごとのまとめ <plan>/線*.md・ホームの自動の部分 <保管庫>/ホーム.md を書き出す
+計画の正が plan/data/ に分けてあれば(2026-10-18〜)、先に軽い仮決めの自動の確定(dev/plan_data.py sweep)と plan/data.js の生成をする。
+あわせて、計画のデータから計画の索引 <plan>/計画の索引.md・線ごとのまとめ <plan>/線*.md・ホームの自動の部分 <保管庫>/ホーム.md を書き出す
 (Obsidian で読む用。--no-index で止める)。--graph で保管庫の根の ホーム.md(無いとき)と .obsidian/graph.json の colorGroups・search も書く。
-data.js の全体の版(versions の「全体」)は毎回 src/ytt/version.py の VERSION に書き直す(手で書かない)。
+data.js の全体の版(versions の「全体」)は毎回 main の src/ytt/version.py の VERSION に書き直す(手で書かない)。
+週の記録のまとめ(docs/worklog/<週>週.md の自動の部分)も dev/worklog.py で作り直す。
 data.js は JSON ではない JS なので、コメントと引用符なしのキーを外して Python だけで読む(node は使わない)。
 
 Artifact は外部の CSS・JS を読めない(CDN 以外)ので、plan.css・data.js・plan.js(2 ページ共通の表示部品)を各ページに埋め込む。
@@ -368,10 +370,21 @@ def write_text(path, text):
         f.write(notes_tool.unlink_prose(text) if path.endswith(".md") else text)
 
 
+def load_plan(plan_dir):
+    """計画のデータ(分けてあれば plan/data/、まだなら data.js)"""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import plan_data
+    if plan_data.has_split(plan_dir):
+        return plan_data.load(plan_dir)
+    with open(os.path.join(plan_dir, "data.js"), encoding="utf-8") as f:
+        return parse_plan_js(f.read())
+
+
 def write_index(plan_dir):
     """計画の索引・線ごとのまとめ・ホームを書く(plan_dir は <保管庫>/plan)"""
-    with open(os.path.join(plan_dir, "data.js"), encoding="utf-8") as f:
-        plan = parse_plan_js(f.read())
+    plan = load_plan(plan_dir)
+    import worklog
+    worklog.build(os.path.dirname(plan_dir))
 
     def warn(path, name):
         print("無い資料: %s(%s)" % (path, name), file=sys.stderr)
@@ -447,11 +460,20 @@ def main():
         PLAN = os.path.abspath(a.plan)
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import notes_tool
-    broken = notes_tool.explain_data_js(read("data.js"), os.path.join(PLAN, "data.js"))
-    if broken:   # 並行の書き足しでカンマが抜けると計画のページが何も出ない = 公開ページを作らずに止める
-        print(broken, file=sys.stderr)
-        return 1
-    sync_data_js(PLAN)
+    import plan_data
+    if plan_data.has_split(PLAN):   # 正は plan/data/(1 件 1 ファイル)。軽い仮決めの自動の確定 → data.js を作る
+        plan_data.sweep(PLAN)
+        _wrote, probs = plan_data.build(PLAN)
+        if probs:
+            for f, ln, msg in probs:
+                print("%s:%d %s" % (f, ln, msg), file=sys.stderr)
+            return 1
+    else:
+        broken = notes_tool.explain_data_js(read("data.js"), os.path.join(PLAN, "data.js"))
+        if broken:   # 並行の書き足しでカンマが抜けると計画のページが何も出ない = 公開ページを作らずに止める
+            print(broken, file=sys.stderr)
+            return 1
+        sync_data_js(PLAN)
     if not a.no_index:
         write_index(PLAN)
     if a.graph:
