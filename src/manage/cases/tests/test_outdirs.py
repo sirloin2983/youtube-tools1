@@ -91,16 +91,15 @@ class RelinkTest(Base):
         names.write_owner(wrong, "someone-else")
         self.assertIn("持ち主", O.relink(self.data, self.vid, wrong, log=self.logs.append))
         self.assertIn("案件にした配信", O.relink(self.data, "nonexistent00", moved, log=self.logs.append))
-        self.assertIsNone(O.relink(self.data, self.vid, moved, log=self.logs.append))
+        # 繋ぎ直しは CLI の入口から(終了コード 1 = 見つからない・0 = 繋ぎ直した)。関数の道も同じ
+        self.assertEqual(self.cli(["--relink", self.vid, os.path.join(self.tmp, "無い")]), 1)
+        self.assertEqual(self.cli(["--relink", self.vid, moved]), 0)
         self.assertEqual(self.row(self.vid)["case"], os.path.normpath(moved))
         got = self.full(self.vid)
         self.assertEqual([m["id"] for m in got["marks"]], [m["id"] for m in self.before["marks"]])
         self.assertEqual(store.Store(self.data).internal(self.vid)["marks"][0]["path"], os.path.join(os.path.normpath(moved), "01.mp4"))
         self.assertIsNone(O.status(self.data))   # 見えない案件が 0 に戻ったら行を出さない(繋ぎ直した本数は 0 のまま)
-        # CLI から流す入口(終了コード 1 = 見つからない・0 = 繋ぎ直した)も同じ道を通る
-        self.assertEqual(self.cli(["--relink", self.vid, os.path.join(self.tmp, "無い")]), 1)
-        self.assertEqual(self.cli(["--relink", self.vid, moved]), 0)
-        self.assertEqual(self.row(self.vid)["case"], os.path.normpath(moved))
+        self.assertIsNone(O.relink(self.data, self.vid, moved, log=self.logs.append))   # 関数の入口は成功で None
 
     def test_relink_needs_source_in_adoptions(self):
         other = os.path.join(self.tmp, "持ち主だけ")

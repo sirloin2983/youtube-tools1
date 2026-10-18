@@ -196,6 +196,7 @@ class TestClipManifestExport(unittest.TestCase):
         # 完了の呼び返し: (配信 ID・マーク ID・出力の相対名・始め・終わり・書き出した mp4 の絶対パス = マークに残す)
         self.assertEqual(len(calls), 1, calls)
         self.assertEqual(calls[0][:2], ("f0123456789", "m1"))
+        self.assertEqual(calls[0][2], it["file"])   # 出力の相対名(画面へ返す物と同じ)
         self.assertEqual(calls[0][3:], (7.0, 12.0, it["path"]))
         work = os.path.join(os.path.dirname(it["path"]), schemas.WORK_DIR)   # 途中のファイル(2026-09-27)
         self.assertEqual(it["manifest"], os.path.join(work, os.path.splitext(os.path.basename(it["path"]))[0] + ".clip.json"))

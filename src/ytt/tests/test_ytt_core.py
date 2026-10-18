@@ -98,6 +98,14 @@ class TestFsio(unittest.TestCase):
         self.assertEqual(len(calls), 3)
         self.assertEqual([c.args[0] for c in sl.call_args_list], [0.1, 0.2])
 
+    def test_other_permission_errors_are_not_retried(self):
+        # ロック(32・33 など)以外の PermissionError は待たずにそのまま投げる(書き込みが何秒も固まらない)
+        for err in (PermissionError(), locked(1314)):
+            with mock.patch.object(fsio.os, "replace", side_effect=err) as rep:
+                with self.assertRaises(PermissionError):
+                    fsio.replace_retry("a", "b")
+            self.assertEqual(rep.call_count, 1)
+
     def test_permanent_lock_keeps_original(self):
         p = os.path.join(self.tmp, "a.json")
         fsio.atomic_write(p, b"original")
@@ -1171,6 +1179,19 @@ class TestTools(unittest.TestCase):
         self.assertEqual(tools.why(FileNotFoundError(2, "見つかりません", "C:/秘密/x")), "見つかりません")   # パスは出さない
         self.assertEqual(tools.why(OSError("strerror の無い OSError")), "OSError")
         self.assertEqual(tools.why(ValueError("中身")), "ValueError")
+
+    def test_kill_tree_fake_and_done(self):
+        # 終わったプロセスには taskkill を打たない(番号が別のプロセスに使い回されていても巻き込まない)
+        tools.kill_tree(None)
+        fake = mock.Mock(poll=mock.Mock(return_value=None))
+        tools.kill_tree(fake, wait=1)                               # Popen でなければ kill_quiet だけ(待たない)
+        fake.kill.assert_called_once()
+        fake.wait.assert_not_called()
+        p = subprocess.Popen([sys.executable, "-c", "pass"], creationflags=tools.no_window_flags())
+        p.wait(30)
+        with mock.patch.object(tools.subprocess, "run") as run:
+            tools.kill_tree(p)                                      # 終わっていれば何もしない
+            run.assert_not_called()
 
     def test_kill_tree_kills_grandchild(self):
         code = ("import subprocess, sys, time; c = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); "

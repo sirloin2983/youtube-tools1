@@ -72,6 +72,10 @@ class ReadSourcesTest(unittest.TestCase):
         self.assertEqual((c["_cand"]["wrong"], c["_cand"]["right"], c["_cand"]["i"]), ("晴", "腫", 3))
         self.assertEqual(c["_cand"]["tier"], "alt")
 
+    def test_find_returns_card_with_inner_key(self):
+        card = deck.find(self.ctx, "read:alt:%s#s1" % DOC)
+        self.assertEqual(card["_cand"]["right"], "腫")   # 答える前の引き直しは内側の鍵も持つ
+
     def test_dismissed_candidate_is_not_shown(self):
         learn.record_feedback({"tid": DOC, "action": "reject", "items": [{"seg": "s1", "wrong": "晴", "right": "腫", "tier": "alt"}]})
         self.assertEqual(self.cards("alt"), [])

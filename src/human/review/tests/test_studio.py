@@ -287,6 +287,8 @@ class TestFeedback(Base):
         self.assertEqual([(r["verdict"], r["src"], r["event"]) for r in rows], [("good", "manual", "adopt")])
         self.assertNotIn("auto0", rows[0])
         self.assertEqual(len(self.fb_at(500)), 2)
+        self.put(self.marks() + [{"id": "m2", "start": 700, "end": 730, "status": "adopted"}])   # 最初から採用で作った: 見逃しと良いの両方
+        self.assertEqual(sorted(self.fb_at(700)), [("good", "manual", "adopt"), ("miss", "manual", "manual_add")])
 
     def test_manual_add_records_nearest_auto(self):
         a, b, c = self.ms   # (10,40) (100,130) (200,230)、点数はどれも 5.0
@@ -379,6 +381,11 @@ class TestFeedback(Base):
         self.st.mark_exported(YT["videoId"], "m3", "f/m.mp4", 900, 960)
         self.st.mark_exported(YT["videoId"], "m3", "f/m.mp4", 900, 960)
         self.assertEqual(self.fb_at(900, "export"), [("good", "manual", "export")])
+        a = self.ms[0]   # 自動のマークも、書き出しを 2 回しても良いは 1 回だけ
+        n = len(self.verdicts())
+        self.st.mark_exported(YT["videoId"], a["id"], "f/a.mp4", a["start"], a["end"])
+        self.st.mark_exported(YT["videoId"], a["id"], "f/a.mp4", a["start"], a["end"])
+        self.assertEqual(self.verdicts()[n:], ["good"])
 
 
 class TestReplaceAuto(Base):

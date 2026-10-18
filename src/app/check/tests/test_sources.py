@@ -149,6 +149,8 @@ class SourcesTest(unittest.TestCase):
         self.assertTrue(any("time:boom" in e for e in view.errors))
 
     def test_deck_next_and_find(self):
+        # 本番の山に載るカードの種類(cut・speech・read の出どころの import が外れると無言で消える)
+        self.assertTrue({("cut", "edge"), ("cut", "gap"), ("cut", "whole"), ("speech", "diar"), ("read", "alt")} <= set(sources.registered()))
         got = deck.next_cards(self.ctx, n=3)
         self.assertEqual(len(got["cards"]), 3)
         self.assertGreater(got["total"], 3)

@@ -57,7 +57,12 @@ class ClassifyTest(unittest.TestCase):
         self.check("区間が長すぎます(3 時間まで)", "rangeOver")
 
     def test_range_over_not_for_file(self):
-        self.check("区間が配信の長さを超えています", "unknown", kind="file")
+        r = self.check("区間が配信の長さを超えています", "unknown", kind="file")
+        self.assertTrue(r["retry"])   # 当たらない失敗は「もう一度送る」を出す
+        self.assertEqual(P.classify(None)["detail"], "")
+        r = self.check("解析中に動画が削除されました", "unavailable", kind="file")   # 消えた動画は送り直しても同じ
+        self.assertFalse(r["retry"])
+        self.assertEqual(r["message"], P.FILE_UNAVAILABLE)
 
     def test_disk(self):
         self.check("パソコンの空きが足りません", "disk")

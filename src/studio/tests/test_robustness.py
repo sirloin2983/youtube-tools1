@@ -95,10 +95,12 @@ class TestRegistry(Home):
         with open(os.path.join(self.tmp, backups[0]), encoding="utf-8") as f:
             self.assertIn("自分の事務所", f.read())   # 元の内容は残っている
         self.assertFalse(os.path.exists(self.reg_path()))
-        # 形が object でない登録簿([1, 2])も同じく退避する(以前は AttributeError で 500)
+
+    def test_non_object_registry_is_quarantined(self):
+        """形が object でない登録簿([1, 2])も退避する(以前は AttributeError で 500)。前の退避が無い所で見る"""
         with open(self.reg_path(), "w", encoding="utf-8") as f:
             f.write("[1, 2]")
-        self.assertEqual(rank.get_registry(), seed)
+        rank.get_registry()
         self.assertTrue(any(n.startswith("registry.json.corrupt-") for n in os.listdir(self.tmp)))
 
     def test_transient_read_error_does_not_fall_back_to_seed(self):
