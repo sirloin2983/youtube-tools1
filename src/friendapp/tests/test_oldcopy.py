@@ -286,8 +286,8 @@ class OldCopyTest(unittest.TestCase):
 class HomeCleanTest(unittest.TestCase):
     """アプリのフォルダ(home の直下)に残った前のアプリの物の片付け。一覧の名前だけ消す。"""
     KEEP = ("config.json", "keys.json", "FriendApp.exe", "app-0.1.0/app.dll", "python/python.exe", "src/a.py",
-            "tools/ffmpeg.exe", "data/x.txt", "作業/a.txt", "fetch.json", "members.json")
-    OLD = ("RequestSender.exe", "README.txt", "guide.html", "friend-defaults.json", "FriendApp-はじめに.txt",
+            "tools/ffmpeg.exe", "data/x.txt", "作業/a.txt", "fetch.json", "members.json", "FriendApp-はじめに.txt")
+    OLD = ("RequestSender.exe", "README.txt", "guide.html", "friend-defaults.json",
            "settings.json", "update.cmd", "new/a.bin", "update-download/b.zip")
 
     def setUp(self):
@@ -308,9 +308,9 @@ class HomeCleanTest(unittest.TestCase):
         return os.path.exists(os.path.join(self.home, *rel.split("/")))
 
     def test_only_listed_names_removed(self):
-        self.assertEqual(oldcopy.home_pending(self.home), {"bytes": 90, "count": 9})
+        self.assertEqual(oldcopy.home_pending(self.home), {"bytes": 80, "count": 8})
         got = oldcopy.clean_home(self.home)
-        self.assertEqual(got, {"deleted": 9, "freed": 90, "skipped": []})
+        self.assertEqual(got, {"deleted": 8, "freed": 80, "skipped": []})
         for rel in self.OLD:
             self.assertFalse(self.exists(rel), rel)
         for rel in self.KEEP:
@@ -325,7 +325,7 @@ class HomeCleanTest(unittest.TestCase):
             os.remove(path)
         logs = []
         got = oldcopy.clean_home(self.home, log=logs.append, remove=remove)
-        self.assertEqual(got, {"deleted": 7, "freed": 70, "skipped": ["RequestSender.exe", "new"]})
+        self.assertEqual(got, {"deleted": 6, "freed": 60, "skipped": ["RequestSender.exe", "new"]})
         self.assertTrue(self.exists("RequestSender.exe"))
         self.assertTrue(self.exists("new/a.bin"))                  # フォルダの中に残った物があるので new は残す
         self.assertFalse(self.exists("README.txt"))
@@ -348,7 +348,7 @@ class HomeCleanTest(unittest.TestCase):
             if r.returncode != 0:
                 self.skipTest("リンクも接合点も作れない")
         got = oldcopy.clean_home(self.home)
-        self.assertEqual(got["deleted"], 8)                                  # リンク以外の一覧の物は消す
+        self.assertEqual(got["deleted"], 7)                                  # リンク以外の一覧の物は消す
         self.assertEqual(got["skipped"], [])                                 # リンクは一覧から外すだけ(飛ばしの記録にもしない)
         self.assertTrue(os.path.isfile(os.path.join(target, "keep.txt")))   # 辿らない
         self.assertTrue(oldcopy._is_link(link))                             # 残っている(リンクとして)

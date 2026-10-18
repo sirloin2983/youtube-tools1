@@ -323,9 +323,10 @@ def _finish_old(catalog, old_root, say):
     return deleted, freed
 
 
-# アプリのフォルダ(home の直下)に前のアプリが残した物。この一覧の名前だけ消す(目録と同じ考え方 = 一覧に無い物(config.json・keys.json・FriendApp.exe・app-*・python・src・tools・data・作業・fetch.json・members.json)には触らない)
+# アプリのフォルダ(home の直下)に前のアプリが残した物。この一覧の名前だけ消す(目録と同じ考え方 = 一覧に無い物(config.json・keys.json・FriendApp.exe・app-*・python・src・tools・data・作業・fetch.json・members.json・FriendApp-はじめに.txt)には触らない)。
+# FriendApp-はじめに.txt は今の zip も直下に置く(dev/build_friend_zip.py の INSTALL_NAME)ので数えない = まっさらな PC で「前のアプリを片付けます」と聞かない(10-18 配る前の検査で見つけた)
 HOME_FILES = ("RequestSender.exe", "RequestSender.exe.config", "README.txt", "guide.html", "friend-defaults.json",
-              "FriendApp-はじめに.txt", "settings.json", "update.cmd")
+              "settings.json", "update.cmd")
 HOME_DIRS = ("new", "update-download")
 
 

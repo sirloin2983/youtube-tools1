@@ -20,7 +20,8 @@ config.json(Dropbox の鍵)は入れない。--first --with-key のときだけ 
     --first: friend-apps/launcher/dist/FriendApp-<版>-first.zip(latest.json は書かない。手で渡す)
     --handoff: 前のアプリから移る最後の 1 回の zip。RequestSender-<版>.zip(latest.json の file もこの名前)で、中に RequestSender.exe(FriendApp.exe の写し)が入る。--first とは同時に使えない
     --publish(--out なし): <ホームの設定の intake.folder>/更新/FriendApp-<版>.zip(--handoff なら RequestSender-<版>.zip)+ latest.json(古い zip は名前ごとに 2 つ残して消す。(f1h))。
-        intake.folder は Dropbox の中 = 友人のアプリが「更新」で取る場所。ユーザーの OK のあとだけ。--out も --first も無い呼び出しは断る
+        intake.folder は Dropbox の中 = 友人のアプリが「更新」で取る場所。ユーザーの OK のあとだけ。--out も --first も無い呼び出しは断る。
+        置く前に必ず配る前の検査(dev/friend_preflight.py = 友人の PC と同じ状態で通しで試す)を流し、落ちたら置かない(抜けるのは --skip-preflight の明示だけ)
 
 Python の本体・wheel・ffmpeg などはキャッシュのフォルダ(--cache。既定 %LOCALAPPDATA%/youtube-tools/app/friend-build-cache)から読み、
 無ければ取りに行く(https の固定の URL・wheel は pip download)。ffmpeg・yt-dlp・Deno・Python の本体は表に SHA-256 が無いので、
@@ -577,6 +578,41 @@ def build(out_dir, cache, wcpp_dir, first=False, with_key=False, fetch=True, not
     return got
 
 
+def default_cache():
+    """キャッシュの既定(%LOCALAPPDATA%/youtube-tools/app/friend-build-cache)"""
+    return os.path.join(datadir.locate("app", SRC), "friend-build-cache")
+
+
+def default_wcpp():
+    """whisper.cpp の Vulkan 版の既定(作業データの transcribe/bin/whisper.cpp-<版>-vulkan)"""
+    return _tx.wcpp_bin_dir(datadir.tool_dir(TX_TOOL, os.path.join(SRC, "editor")))
+
+
+def publish(a, out):
+    """--publish: 一時のフォルダに作り、配る前の検査(dev/friend_preflight.py)に通ったら更新の置き場所へ写す(zip → latest.json → 古い zip を消す)。
+    落ちたら置かない。検査を抜けるのは --skip-preflight の明示だけ -> build と同じ形"""
+    tmp = tempfile.mkdtemp(prefix="friend-publish-")
+    try:
+        got = build(tmp, a.cache, a.wcpp, with_key=False, fetch=not a.no_fetch, notes=a.notes, launcher_build=a.launcher_build, handoff=a.handoff)
+        if a.skip_preflight:
+            say("[警告] 配る前の検査を飛ばします(--skip-preflight)")
+        else:
+            import friend_preflight   # 読むのは置くときだけ(Playwright を使う)
+            say("配る前の検査を流します(数分。窓は画面の外・音は出しません)…")
+            if not friend_preflight.preflight_zip(got["zip"]):
+                raise BuildError("配る前の検査に落ちたので、更新の置き場所には置きません(記録は上の不合格の行)")
+        os.makedirs(out, exist_ok=True)
+        name = os.path.basename(got["zip"])
+        shutil.copy2(got["zip"], os.path.join(out, name + ".part"))
+        os.replace(os.path.join(out, name + ".part"), os.path.join(out, name))
+        shutil.copy2(os.path.join(tmp, "latest.json"), os.path.join(out, "latest.json"))   # zip が置けてから(友人のアプリは latest.json を見て取る)
+        prune(out)
+        got["zip"] = os.path.join(out, name)
+        return got
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="build_friend_zip.py", description="友人の PC に配る zip を作る(F1 の F4a)")
     ap.add_argument("--out", default="", help="出力先(一時のフォルダ。--first は既定 friend-apps/launcher/dist/)")
@@ -589,7 +625,10 @@ def main(argv=None):
     ap.add_argument("--handoff", action="store_true", help="前のアプリから移る最後の 1 回の zip(RequestSender-<版>.zip・中に RequestSender.exe = FriendApp.exe の写し)。--first と同時は不可")
     ap.add_argument("--no-fetch", action="store_true", help="キャッシュに無い物を取りに行かない(無ければ失敗)")
     ap.add_argument("--notes", default="", help="latest.json の notes(更新の説明)")
+    ap.add_argument("--skip-preflight", action="store_true", help="--publish のときだけ: 配る前の検査(dev/friend_preflight.py)を飛ばす(明示のときだけ)")
     a = ap.parse_args(argv)
+    if a.skip_preflight and not a.publish:
+        ap.error("--skip-preflight は --publish のときだけ使えます")
     if a.with_key and not a.first:
         ap.error("--with-key は --first のときだけ使えます")
     if a.handoff and a.first:
@@ -598,10 +637,13 @@ def main(argv=None):
         ap.error("--publish は --out・--first と一緒に使えません")
     try:
         out = a.out or default_out(a.first, a.publish)
-        cache = a.cache or os.path.join(datadir.locate("app", SRC), "friend-build-cache")
-        wcpp = a.wcpp_dir or _tx.wcpp_bin_dir(datadir.tool_dir(TX_TOOL, os.path.join(SRC, "editor")))
-        got = build(out, cache, wcpp, first=a.first, with_key=a.with_key, fetch=not a.no_fetch, notes=a.notes,
-                    launcher_build=a.launcher_build, handoff=a.handoff)
+        a.cache = a.cache or default_cache()
+        a.wcpp = a.wcpp_dir or default_wcpp()
+        if a.publish:
+            got = publish(a, out)
+        else:
+            got = build(out, a.cache, a.wcpp, first=a.first, with_key=a.with_key, fetch=not a.no_fetch, notes=a.notes,
+                        launcher_build=a.launcher_build, handoff=a.handoff)
     except (BuildError, OSError) as e:
         say("[失敗] %s" % e)
         return 1
