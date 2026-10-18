@@ -103,7 +103,6 @@ function makeUIKit(overrides = {}) {
     flow: {   // v28: 欄 → {envelope, spec}(本物と同じ形の軽い写し。id は固定)
       order: rec('flow.order', f => ({ envelope: { id: '0123456789', kind: (f && f.kind) || 'url', input: {}, specVersion: 2 }, spec: { run: { upto: (f && f.upto) || 'pack' } } })),
       again: rec('flow.again', o => o),
-      newId: rec('flow.newId', () => '0123456789'),
     },
     autorun: {
       start: rec('autorun.start', () => Promise.resolve(null)),

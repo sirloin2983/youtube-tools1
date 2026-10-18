@@ -110,7 +110,7 @@
 - 変え方: キーのボタン → その場で次のキーを待つ(捕捉の段階で受け、ほかのキー処理に渡さない)。Esc = 取り消しだけ(一覧は閉じない)・Delete / Backspace = 外す・
   Ctrl / Alt / Meta つきと日本語の変換中は受け取らない・断ったら理由を一覧の中に出して待ち続ける
 - 重なり: 別の操作に使っているキーを選ぶと、そちらを外して「「X」から外しました [戻す]」(一覧はモーダルの上なので、知らせ(トースト)ではなく一覧の中に出す)。行ごとの「標準」・すべて標準に戻す
-- **重なりの検査は部品の1か所**: 共通の再生キーにできないキー `UIKit.keymap.BLOCKED`(全ツールの固定キー・編集の 2 カット のキー・数字)・ツールの `refuse`・
+- **重なりの検査は部品の1か所**: 共通の再生キーにできないキー `PB_BLOCKED`(ui-kit.js の中。全ツールの固定キー・編集の 2 カット のキー・数字)・ツールの `refuse`・
   派生キー(← → に当たるキー + Shift = 5 秒。1文字の記号は派生しない。GPT-03)。キーの形は `src/app/prefs.py` の `COMBO_RE` と同じ(サーバーは fullmatch で検査)
 - 新しいキーを足すとき: ツールのキーは `actions` に、共通の再生キーにできなくなるキー(どこかのツールで固定の意味を持つもの)は `PB_BLOCKED`(ui-kit.js)に足す。確かめるテストは `src/app/tests/e2e_keymap.py`
 
@@ -118,7 +118,7 @@
 設定の保存・読み込みの失敗を、文書の保存の表示とは別の場所に出す(黙って捨てない)。
 - **`UIKit.settings.status(state, message, retry, label)`**: `state = 'err'` で ⚙ ボタン(`[data-ui-settings]`)に赤い印(`data-ui-status="err"`)・title と aria-label に理由、
   設定の引き出しの先頭に `.notice.err.ui-settings-status`「message [label]」(`retry` を押すと呼ぶ。Promise を返せば終わるまでボタンを止める。label の既定は「もう一度」)。
-  `''`・`null` で消す。**成功したら必ず消す**(印が出っぱなしにならないように)。`statusOf()` → `{state, message}`
+  `''`・`null` で消す。**成功したら必ず消す**(印が出っぱなしにならないように)
 - 使い方の約束(編集・スタジオ): 保存の失敗 → `status('err', '設定を保存できていません: 理由', 再送)`。読み込みの失敗 → `status('err', '設定を読み込めませんでした…', 読み直す, '読み直す')` にして、
   **読み直すまで保存しない**(空・既定値で保存済みの設定を上書きしないため)
 - (段3 3-2・監査 03。版は v9 のまま)**`UIKit.keys.derived(km)`** → `{ 'Shift+ArrowLeft': 'seekBack', … }`(← → に当たるキー + Shift = 5 秒の派生キー)。
@@ -342,10 +342,13 @@
 - **`UIKit.flow.order(f)`** … 画面の欄 → ② の口 `POST api/flow/submit` の本文 `{envelope, spec}`(封筒 = `src/flow/envelope.py` の版 2・`spec` = 束の差分)。
   Python の `src/flow/order.py` の `order` と同じ変換(画面が使う欄だけ: `kind`(url・docs・file)・`videoId`・`docId`・`path`・`title`・`fresh`・`marks`・
   `from`(null か `'export'`)・`upto`(`'pack'`・`'transcribe'`)・`top`・`streamer`(null = 自動・`''` = 色なし)・`repack`・`deliver: {origin, dir}`)。
-  `flow.again(o)` = 同じ指定で新しい id の封筒(やり直す)・`flow.newId()` = 10 桁の 16 進
+  `flow.again(o)` = 同じ指定で新しい id の封筒(やり直す)
 - **`UIKit.autorun.start(orders, opts)`** … `orders` = `flow.order` の並び。1 本ずつ見積もって足す(`api/flow/estimate`。`opts.estimate === false` で見積もらない)→
   やることが 0 なら始めない → 1 本ずつ `api/flow/submit` → 終わるまで `api/flow/runs` を見て知らせる。
   戻り値 `{run, runs, skipped}`(全部断られたら 1 本目の理由で reject)。以前の `start(path, body, estBody)` と `api/autorun/*` は消した。`UIKit.version` は 28
 
 ## v30(2026-10-17)暗いときの配色 シンセウェーブ
 - `UIKit.theme.palette('synth')` = シンセウェーブ(`:root[data-theme=dark][data-palette=synth]`)。前の送るアプリ(消した request-sender の Theme.cs)の配色 B と同じ地・面・線・文字・アクセント。友人のアプリの配色の切り替え(A ネオンシアン = cyan・B シンセウェーブ = synth・C ターミナルグリーン = green・D アイスライト = 明るい)で使う
+
+## v31(2026-10-18)使われていない公開の口を外した
+- 呼ぶ所が無かった `UIKit.theme.resolved()`・`UIKit.settings.statusOf()`・`UIKit.keymap.BLOCKED`(中の `PB_BLOCKED` は残す)・`UIKit.flow.newId()` を外した(コードの棚卸し `notes:plan/legacy-review.md`)。`UIKit.version` は 31

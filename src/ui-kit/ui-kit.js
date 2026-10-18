@@ -1,7 +1,7 @@
-/* ui-kit v27 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
+/* ui-kit v31 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
    画面の全面見直し(notes:docs/design/briefs/ui-overhaul/)の段階1。ES5 のまま(var・function。アロー関数・テンプレート文字列は使わない): <head> で同期に読み込むため。
    正本は src/ui-kit/ui-kit.js。写し先は無い(この正本を直接直す)。
-   window.UIKit.theme  : get() 保存した選択('system'|'light'|'dark'。**v6: 保存が無いときは既定で 'light'**。以前は OS の設定(system)に従っていた) / resolved() 実際の見た目 / set(p) / toggle() / onChange(fn)
+   window.UIKit.theme  : get() 保存した選択('system'|'light'|'dark'。**v6: 保存が無いときは既定で 'light'**。以前は OS の設定(system)に従っていた) / set(p) / toggle() / onChange(fn)
    window.UIKit.tools  : 既定のポートとツール名。render(el, {current, ports}) で「他のツール」メニューを作る。
                          setPaths(/api/siblings の paths) で、入口の統合サーバーに取り込まれたツールの場所(/studio/ など)を覚える
    window.UIKit.life   : onLeave(fn(reason)) / onReturn(fn(reason)) / isAway()。画面を離れた・戻ったの合図(段階7-2)。
@@ -107,7 +107,6 @@
   }
   var theme = {
     get: pref,
-    resolved: function () { return resolve(pref()); },
     set: set,
     toggle: function () { set(resolve(pref()) === 'dark' ? 'light' : 'dark'); },
     /* v12: 暗いときの配色。palette() → 'cyan' | 'steel' | 'green'、palette(name) で変えて保存する(明るい/暗いは変えない) */
@@ -1232,7 +1231,7 @@
     paintSettingsStatus();
     return el;
   }
-  var settings = { mount: settingsMount, status: settingsStatus, statusOf: function () { return { state: setStatus.state, message: setStatus.message }; },
+  var settings = { mount: settingsMount, status: settingsStatus,
                    general: buildGeneralSection };   /* v25: 「全体」の節(テーマ・文字の大きさ・キーの帯)を /settings/ の画面にも置く */
 
   /* ---- settingsForm(v25。設定を 1 つに S5。notes:docs/spec/data.md の 4)---- 宣言的なスキーマから設定の節を描く。
@@ -1822,7 +1821,7 @@
     kmCap = null; km.set(c.id, combo);
   }, true);
   document.addEventListener('cancel', function (e) { if (kmCap || Date.now() - kmEscAt < 400) e.preventDefault(); }, true);   // キーを待っている間の Esc で一覧(dialog)を閉じない
-  var keymapApi = { create: kmCreate, capturing: function () { return !!kmCap; }, BLOCKED: PB_BLOCKED };
+  var keymapApi = { create: kmCreate, capturing: function () { return !!kmCap; } };
 
   /* ---- icon(SVG の線のアイコン。24x24・stroke currentColor・stroke-width 2・角丸) ---- UIKit.icon(name, opts) は文字列を返す。
      <span class="ui-icon" data-icon="play"></span> は読み込み後に中身が入る(UIKit.icon.fill(root)) */
@@ -2022,7 +2021,7 @@
     env.id = flowId();
     return { envelope: env, spec: o.spec };
   }
-  var flow = { order: flowOrder, again: flowAgain, newId: flowId };
+  var flow = { order: flowOrder, again: flowAgain };
   function arLoad() {
     var pr = prefs.available() ? prefs.get(['autorun']).then(function (p) { return p.autorun || {}; }, function () { return {}; }) : Promise.resolve({});
     var u = txApiUrl('api/settings');
@@ -2790,7 +2789,7 @@
   }
   var sound = { other: sndOther, onChange: function (fn) { if (typeof fn === 'function') snd.subs.push(fn); }, tool: snd.tool };
 
-  window.UIKit = { version: 30, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
+  window.UIKit = { version: 31, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
                    portal: portal, streamer: streamer, appnav: appnav, drawer: drawer, dialog: dialogApi, toast: toastFn, keybar: keybar, settings: settings, settingsForm: settingsForm, keys: keysApi, keymap: keymapApi, icon: icon,
                    confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud, autorun: autorun, flow: flow, restart: restart, timebox: timebox, hide: hide, liveBadge: liveBadge, menuOff: menuOff,
                    http: http, homeApi: homeApi, homeUrl: homeUrl, copy: copyText };
