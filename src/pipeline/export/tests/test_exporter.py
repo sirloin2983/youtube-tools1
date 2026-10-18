@@ -707,6 +707,27 @@ class TestYoutubeTwoStage(unittest.TestCase):
             calls = [json.loads(l) for l in f]
         return job, calls
 
+    def test_blocked_by_youtube_stops_asking_again(self):
+        """YouTube に止められた(bot 判定)ら、方法2(-g)も同じ動画の残りの切り抜きも yt-dlp を呼ばない = 1 回だけ問い合わせて全部同じ失敗(10-18 友人の PC)"""
+        msg = "ERROR: [youtube] abcdefghijk: Sign in to confirm you’re not a bot. Use --cookies-from-browser or --cookies"
+        bad = os.path.join(self.tmp, "bot_ytdlp.py")
+        with open(bad, "w", encoding="utf-8") as f:
+            f.write("import json, os, sys\nopen(os.environ['FAKE_YTDLP_LOG'], 'a').write(json.dumps(sys.argv[1:]) + '\\n')\n"
+                    "sys.stderr.buffer.write(%r.encode('utf-8') + b'\\n')\nsys.exit(1)\n" % msg)
+        clips = [{"id": "m%d" % i, "start": 3.0 * i, "end": 3.0 * i + 2, "title": "t", "label": "", "src": "manual", "markStatus": ""} for i in range(1, 4)]
+        spec = dict(_spec(None, clips, False), kind="youtube", videoId="abcdefghijk", sourceFile=None, mode="url")
+        spec.pop("sourcePath")
+        job = _job(clips, studio_env.get_out_dir())
+        with patch.dict(os.environ, {"FAKE_YTDLP_LOG": self.log}), patch.object(exporter, "_ytdlp_cmd", return_value=[sys.executable, bad]):
+            _run(job, spec, lambda *a: True)
+        with open(self.log, encoding="utf-8") as f:
+            calls = [json.loads(l) for l in f]
+        self.assertEqual(len(calls), 1, calls)   # 区間取得の 1 回だけ(-g も 2 本目・3 本目も呼ばない)
+        self.assertEqual([it["status"] for it in job["items"]], ["error"] * 3)
+        self.assertTrue(all("not a bot" in it["error"] for it in job["items"]))
+        self.assertIn("試していません", job["items"][0]["error"])
+        self.assertTrue(exporter.blocked("HTTP Error 429: Too Many Requests") and not exporter.blocked("timed out"))
+
     def test_ytdlp_error_text_is_read_as_utf8(self):
         """yt-dlp のエラーの文(UTF-8)が化けない: ’ ' と全角の記号がそのまま失敗の文に(10-18 友人の PC で you’re が you�fre に化けた)。
         本物の yt-dlp.exe は --encoding utf-8 が無いと管に cp932 で書くので、起こすコマンドに必ず付ける"""
@@ -738,9 +759,10 @@ class TestYoutubeTwoStage(unittest.TestCase):
         job, calls = self.export(clip)
         it = job["items"][0]
         self.assertEqual((job["state"], it["status"]), ("done", "done"), it.get("error"))
-        # 1段目: 前後に SECTION_PAD 秒の余裕・作り直さない(--force-keyframes-at-cuts を付けない)。本体と前後10秒の編集用素材の2回
+        # 1段目: 前後に編集用素材の 10 秒(EDIT_HANDLE_SEC。SECTION_PAD より広い)の余裕・作り直さない(--force-keyframes-at-cuts を付けない)。
+        # 本体と前後10秒の編集用素材は同じ 1 回の取得から切る(YouTube への問い合わせは 1 本に 1 回。10-18)
         sections = [c[c.index("--download-sections") + 1] for c in calls]
-        self.assertEqual(sections, ["*00:00:05.000-00:00:14.000", "*00:00:00.000-00:00:24.000"])
+        self.assertEqual(sections, ["*00:00:00.000-00:00:22.000"])
         self.assertFalse(any("--force-keyframes-at-cuts" in c for c in calls))
         # 2段目: 正確な区間・30fps・crf 18
         self.assertAlmostEqual(mediainfo.media_info(it["path"])[0], 5.0, delta=0.2)
@@ -773,7 +795,7 @@ class TestYoutubeTwoStage(unittest.TestCase):
 
     def test_unknown_start_falls_back_and_cleans_up(self):
         """取ったファイルが頼んだより長い(手前のキーフレームから見えている)ときは、位置が分からないので方法2(直接指定)へ回す"""
-        clip = {"id": "m1", "start": 9.5, "end": 12.0, "title": "t", "label": "", "src": "manual", "markStatus": ""}
+        clip = {"id": "m1", "start": 15.0, "end": 17.5, "title": "t", "label": "", "src": "manual", "markStatus": ""}   # 取る始まり 5 秒より手前から取れる所
         job, calls = self.export(clip, preroll=True)
         it = job["items"][0]
         self.assertEqual(it["status"], "error")

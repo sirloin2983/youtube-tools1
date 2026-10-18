@@ -395,6 +395,7 @@ ENC = _norm.ENC_ARGS + PROGRESS              # 精密(veryfast)
 ENC_FAST = _norm.ENC_FAST_ARGS + PROGRESS    # 高速(ultrafast。画質の設定 crf は同じで、ファイルが大きくなる代わりに速い)
 SECTION_PAD = 2.0   # YouTube の区間取得で、前後に足す秒数(yt-dlp ではそのまま取り、正確な区間は ffmpeg で切る)
 DL_TAG = "_dl"      # 区間取得の途中のファイルの名前(<base>_dl.partial.mp4。作業用/ に置き、切り出したら消す)
+RAW_KEEP_TAG = "_dlkeep"   # 編集用素材を切るために残す取ったファイル(<base>_dlkeep.partial.mp4。1 本を作り終えたら消す)
 
 
 def _enc(spec):
@@ -478,10 +479,13 @@ def _ytdlp_sections(ctl, spec, it, base):
     2) ffmpeg で正確な区間に切り、30fps に作り直す(書き出しと同じ ENC。crf 18)。取った区間のファイルは最後に消す。
     以前は yt-dlp の --force-keyframes-at-cuts に作り直しを任せていて、画質の設定(crf 18)を通っていなかった。
     yt-dlp は区間を ffmpeg の入力側の -ss + コピーで取るので、取ったファイルの 0 秒 = 頼んだ開始(手前のキーフレームからの分は
-    mp4 の edit list で隠れる)。万一、頼んだより長い(手前のキーフレームから見えている)ときは位置が分からないので、方法2(直接指定)に回す"""
+    mp4 の edit list で隠れる)。万一、頼んだより長い(手前のキーフレームから見えている)ときは位置が分からないので、方法2(直接指定)に回す。
+    it["keepRaw"](秒)があれば前後をその秒だけ広く取り、取ったファイルを 作業用/<base>_dlkeep.partial.mp4 に残して it["rawKeep"] に書く
+    = 編集用素材(前後 10 秒)を yt-dlp をもう 1 回呼ばずに同じファイルから切る(_cut_raw。1 本の切り抜きで YouTube への問い合わせは 1 回。10-18)"""
     lim = spec.get("sourceDuration") or 0
-    dl_start = max(0.0, float(it["start"]) - SECTION_PAD)
-    dl_end = float(it["end"]) + SECTION_PAD
+    pad = max(SECTION_PAD, float(it.get("keepRaw") or 0))
+    dl_start = max(0.0, float(it["start"]) - pad)
+    dl_end = float(it["end"]) + pad
     if lim and lim > it["start"]:
         dl_end = min(dl_end, lim)
     dl_len = dl_end - dl_start
@@ -517,6 +521,10 @@ def _ytdlp_sections(ctl, spec, it, base):
         tail = _pump(ctl, cmd, it, dur, span=(0.5, 1.0))
         verify_output(out, dur, tail)
         it["method"] = _method(spec)
+        if it.get("keepRaw"):
+            keep = os.path.join(work, base + RAW_KEEP_TAG + PARTIAL + ".mp4")
+            os.replace(raw, keep)
+            it["rawKeep"] = {"path": keep, "start": dl_start, "len": raw_len}
         return out
     except ExportError as e:
         log_export("yt-dlp 区間取得 → 切り出し 失敗: %s" % e, cmd, tail)
@@ -557,12 +565,25 @@ def _ytdlp_stream(ctl, spec, it, base):
     return out
 
 
+# YouTube に止められた(bot 判定・429・ログインの切れ)ときの yt-dlp の字句(小文字)。この失敗のあとは同じ動画へすぐ問い合わせ直さない
+# (方法2 も同じ動画の残りの切り抜きも。重ねるほど回線が疑われる = 10-18 友人の PC で 1 件 5 本 × 2 方法 = 10 回前後で止まった)
+BLOCKED_WORDS = ("not a bot", "http error 429", "too many requests", "cookies are no longer valid")
+
+
+def blocked(text):
+    """YouTube に止められた失敗の文か"""
+    low = str(text or "").lower()
+    return any(w in low for w in BLOCKED_WORDS)
+
+
 def run_ytdlp(ctl, spec, it, base):
     try:
         out = _ytdlp_sections(ctl, spec, it, base)
     except ExportError as e1:
         if ctl.cancelled:
             raise
+        if blocked(e1):   # 止められた: 方法2(yt-dlp -g)で叩き直さない
+            raise ExportError("方法1(区間取得): %s / 方法2(直接指定): YouTube に止められたので試していません" % str(e1)[:300])
         it["progress"] = 0
         try:
             out = _ytdlp_stream(ctl, spec, it, base)
@@ -722,7 +743,11 @@ def export_edit_media(ctl, spec, it, base, runner):
     # 編集用素材と .edit.json は途中のファイルなので 作業用/ に書く(出力先の直下はパックと元動画だけ。2026-09-27)
     wspec = dict(spec, outDir=os.path.join(spec["outDir"], schemas.WORK_DIR), folder=spec.get("folder", "") + "/" + schemas.WORK_DIR)
     os.makedirs(wspec["outDir"], exist_ok=True)
-    rel = runner(ctl, wspec, edit_it, base + "_edit")   # 書きかけ(<base>_edit.partial.mp4。音量は本体と同じ spec で作り直しの中で)
+    raw = it.get("rawKeep")
+    if raw and os.path.isfile(raw["path"]):   # 本体と同じ取ったファイルから(YouTube へもう問い合わせない)
+        rel = _cut_raw(ctl, wspec, edit_it, base + "_edit", raw)
+    else:
+        rel = runner(ctl, wspec, edit_it, base + "_edit")   # 書きかけ(<base>_edit.partial.mp4。音量は本体と同じ spec で作り直しの中で)
     media_path = os.path.join(wspec["outDir"], os.path.basename(rel))
     actual, _v, _a, _line = _media.media_info(media_path)
     selection_in = float(it["start"]) - edit_it["start"]
@@ -741,6 +766,22 @@ def export_edit_media(ctl, spec, it, base, runner):
     it["editMethod"] = edit_it.get("method")
     it["editSrcLen"] = edit_it.get("srcLen")
     return rel
+
+
+def _cut_raw(ctl, spec, it, base, raw):
+    """区間取得で残したファイル(_ytdlp_sections の rawKeep)から it の区間を切る(本体と同じ作り直し)-> 出力の相対パス"""
+    off = max(0.0, float(it["start"]) - raw["start"])
+    dur = float(it["end"]) - float(it["start"])
+    if raw.get("len"):
+        dur = min(dur, raw["len"] - off)
+    if dur < 0.5:
+        raise ExportError("取った区間が短すぎます(%.1f 秒)" % dur)
+    out = partial_path(spec["outDir"], base)
+    ff = _env.find_tool("ffmpeg")
+    cmd = [ff, "-hide_banner", "-nostdin", "-y", "-protocol_whitelist", "file,pipe", "-ss", "%.3f" % off, "-i", raw["path"], "-t", "%.3f" % dur] + _enc(spec) + [out]
+    _make(ctl, cmd, it, dur, out, "取った区間から切り出し")
+    it["method"] = _method(spec)
+    return spec["folder"] + "/" + os.path.basename(out)
 
 
 # ---------- youtube-tools-clip/v1(.clip.json) ----------
@@ -850,9 +891,13 @@ def _run_job(res, ctl, spec, on_done=None):
     res["folder"] = spec["folder"]
     if spec.get("combine"):
         return _run_combine(res, ctl, spec)
+    stop = None   # YouTube に止められた失敗の文(このあとの切り抜きは yt-dlp を呼ばずに同じ失敗にする)
     for idx, it in enumerate(res["items"], _names.next_clip_number(spec["outDir"])):   # 同じ配信のフォルダにある書き出しの続きの番号から
         if ctl.cancelled:
             it["status"] = "cancelled"
+            continue
+        if stop:
+            it["status"], it["error"] = "error", stop
             continue
         it["status"] = "running"
         try:
@@ -863,6 +908,9 @@ def _run_job(res, ctl, spec, on_done=None):
             if it["status"] != "done":   # 失敗・中止: 書きかけを残さない(仕上がって本当の名前になったものは消さない)
                 drop_partial(it.get("path"))
                 _drop_edit(it)
+        if spec.get("mode") == "url" and (it.get("blocked") or (it["status"] == "error" and blocked(it.get("error")))):
+            stop = it.get("blocked") if it["status"] != "error" else it["error"]
+            it.pop("blocked", None)
     res["state"] = "cancelled" if ctl.cancelled else ("error" if any(i["status"] == "error" for i in res["items"]) else "done")
 
 
@@ -890,6 +938,8 @@ def _export_clip(ctl, spec, it, idx, on_done):
     warnings = []
     mark = (it["start"], it["end"])
     clip_from = _pad_item(spec, it)   # 余白(LD-2f): 切り出し・編集用素材の間だけ it の区間を広げる(名前・マーク・.clip.json の range はマークのまま)
+    if spec.get("mode") == "url":
+        it["keepRaw"] = EDIT_HANDLE_SEC   # 編集用素材の分まで 1 回で取る(_ytdlp_sections)
     try:
         it["file"] = runner(ctl, spec, it, base)   # 書きかけ(<base>.partial.mp4)
         it["path"] = os.path.join(spec["outDir"], os.path.basename(it["file"]))
@@ -904,8 +954,14 @@ def _export_clip(ctl, spec, it, idx, on_done):
                 raise ExportError("中止しました")
             _env.log_failure("Resolve edit media", e)
             warnings.append("Resolve用の前後10秒素材を作れませんでした: %s" % str(e)[:180])
+            if blocked(e):
+                it["blocked"] = str(e)[:400]   # 素材で止められた: 次の切り抜きも yt-dlp を呼ばない(_run_job)
     finally:
         it["start"], it["end"] = mark
+        it.pop("keepRaw", None)
+        raw = it.pop("rawKeep", None)
+        if raw:
+            _rm(raw["path"])
     apply_loudness(ctl, spec, it)   # 編集用素材ができてから、両方に同じ量をかける
     # 仕上がったので本当の名前へ(ここまでに止まったら、書きかけは _run_job の finally で消える)。切り抜き本体 → 編集用素材の順
     it["path"] = promote(it["path"])

@@ -27,8 +27,8 @@
 ## src/pipeline/export/
 
 - **__init__.py** (3 行) — ① 書き出し: 区間 → 動画(今の studio/exporter・home/live_export)
-- **exporter.py** (940 行) — ③ 書き出し(クリップマーカー cm/serve.py 由来): store の動画・マークから ffmpeg / yt-dlp でクリップを mp4 にする。
-  - 名前: `class ExportError` :51・`log_export` :55・`reason` :71・`verify_output` :78・`pick_folder` :87・`promote` :96・`drop_partial` :113・`clean_partials` :119・`check_section_path` :215・`build_section_spec` :236・`spec_from_video` :262・`new_result` :314・ほか 12
+- **exporter.py** (996 行) — ③ 書き出し(クリップマーカー cm/serve.py 由来): store の動画・マークから ffmpeg / yt-dlp でクリップを mp4 にする。
+  - 名前: `class ExportError` :51・`log_export` :55・`reason` :71・`verify_output` :78・`pick_folder` :87・`promote` :96・`drop_partial` :113・`clean_partials` :119・`check_section_path` :215・`build_section_spec` :236・`spec_from_video` :262・`new_result` :314・ほか 13
 - **thumb_cards.py** (175 行) — サムネの案の描く部分(提案 P5 の S。notes:plan/thumb-ideas.md の 7・8)。ffmpeg で動画から 1 枚ずつ切り取って文字を載せ、6 案を 1 枚の PNG にまとめる。
   - 名前: `class ThumbError` :21・`ffmpeg_path` :28・`probe` :35・`loud_times` :45・`scene_times` :60・`font_path` :69・`fpath` :76・`text_filter` :81・`card_filters` :90・`crop_box` :120・`render_card` :138・`tile` :153・ほか 1
 

@@ -23,8 +23,8 @@
   - 名前: `demo_fetch` :31・`demo_probe` :36・`class StubQueue` :41・`class StubEngine` :66・`demo_thumb` :93・`class DemoStreams` :102・`seed` :141・`write_demo_fetch` :211・`class DemoDownloader` :225・`demo_file` :238・`main` :248
 - **friend_diag.py** (186 行) — 友人のアプリから届いた診断の記録を読む(ユーザーの PC。notes:docs/spec/friend.md の 13-11)。AI が原因を調べるときに流す。
   - 名前: `default_dir` :34・`prune` :45・`load` :59・`is_error` :82・`lines_of` :102・`main` :146
-- **friend_preflight.py** (921 行) — 友人に配る zip を、配る前にこの PC で「友人の PC と同じ状態」にして通しで試す(配る前の検査。notes:docs/spec/friend.md の 13-11)。
-  - 名前: `class Preflight` :68・`class Report` :72・`free_port` :98・`link_or_copy` :104・`unpack` :113・`break_fetch` :132・`place_models` :142・`mirror_map` :166・`lay_shim` :182・`friend_env` :192・`make_work` :218・`class Window` :241・ほか 26
+- **friend_preflight.py** (972 行) — 友人に配る zip を、配る前にこの PC で「友人の PC と同じ状態」にして通しで試す(配る前の検査。notes:docs/spec/friend.md の 13-11)。
+  - 名前: `class Preflight` :70・`class Report` :74・`free_port` :100・`link_or_copy` :106・`unpack` :115・`break_fetch` :134・`place_models` :144・`mirror_map` :168・`lay_shim` :184・`friend_env` :194・`fake_media` :221・`make_work` :225・ほか 29
 - **friend_preflight_shim.py** (270 行) — 配る前の検査(dev/friend_preflight.py)の通信の差し替え。検査が、展開した写しの python/Lib/site-packages/sitecustomize.py として置く
   - 名前: `install` :246
 - **guard_hook.py** (434 行) — Claude Code の PreToolUse のフック: 事故のもとになる操作を機械が断る(2026-10-18)。標準ライブラリだけ・速く。
