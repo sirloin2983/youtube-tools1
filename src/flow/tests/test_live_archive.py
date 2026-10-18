@@ -158,7 +158,10 @@ class ArchiveTest(unittest.TestCase):
         self.fetches.append(vid)
         os.makedirs(folder, exist_ok=True)
         p = os.path.join(folder, "full.m4a")
-        ff("-i", self.arc, "-vn", "-c:a", "aac", "-b:a", "128k", p)
+        full = os.path.join(self.fix, "full.m4a")   # 作るのは 1 回だけ(360 秒の音の作り直しは 1 回 2 秒ほど)。あとは同じ中身を写す
+        if not os.path.isfile(full):
+            ff("-i", self.arc, "-vn", "-c:a", "aac", "-b:a", "128k", full)
+        shutil.copyfile(full, p)
         return p
 
     def align(self, ref, win):

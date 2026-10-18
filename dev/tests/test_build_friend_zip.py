@@ -142,11 +142,26 @@ class Base(unittest.TestCase):
 
 
 class BuildTest(Base):
+    @classmethod
+    def setUpClass(cls):
+        """既定の更新の zip(notes="n")を 1 回だけ作る。中を読むだけのテストはこれを使う(1 回 4〜5 秒かかるので)"""
+        cls.shared_tmp = tempfile.mkdtemp(prefix="bfz-shared-")
+        with mock.patch.object(B, "TOOLS", FAKE_TOOLS):
+            cls.shared_cache = make_cache(cls.shared_tmp)
+            members, key = make_inputs(cls.shared_tmp)
+            cls.shared_out = os.path.join(cls.shared_tmp, "out")
+            cls.shared = B.build(cls.shared_out, cls.shared_cache, make_wcpp(cls.shared_tmp), fetcher=_no_fetch, downloader=_no_fetch,
+                                 members_src=members, key_src=key, launcher_build=make_launcher(cls.shared_tmp), notes="n")
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.shared_tmp, ignore_errors=True)
+
     def test_update_zip_contents(self):
-        got = self.build(notes="n")
+        got = self.shared   # = self.build(notes="n")
         name = "FriendApp-%s.zip" % V.VERSION
         self.assertEqual(os.path.basename(got["zip"]), name)
-        with open(os.path.join(self.out, "latest.json"), encoding="utf-8") as f:
+        with open(os.path.join(self.shared_out, "latest.json"), encoding="utf-8") as f:
             latest = json.load(f)
         self.assertEqual((latest["version"], latest["file"], latest["size"], latest["sha256"], latest["notes"]),
                          (V.VERSION, name, got["size"], got["sha256"], "n"))
@@ -183,7 +198,7 @@ class BuildTest(Base):
         self.assertNotIn("ingest/data", " ".join(names))   # 追跡外の作業データは入らない
 
     def test_fetch_json_reads_the_tables(self):
-        got = self.build()
+        got = self.shared   # 既定の build()(notes は fetch.json に入らない)
         with zipfile.ZipFile(got["zip"]) as z:
             items = {i["name"]: i for i in json.loads(z.read("fetch.json"))["items"]}
         for name, s in E.WCPP_MODELS.items():
@@ -201,7 +216,7 @@ class BuildTest(Base):
         self.assertEqual(items["diar/" + D.DIAR_EMB_DEFAULT]["sha256"], D.DIAR_EMBS[D.DIAR_EMB_DEFAULT]["sha256"])
         self.assertEqual(items["diar/segmentation"]["dest"], "transcribe/models/diar")
         for t in B.TOOLS:   # 道具はキャッシュの記録の値
-            with open(os.path.join(self.cache, "tools", t["file"] + ".sha256.json"), encoding="utf-8") as f:
+            with open(os.path.join(self.shared_cache, "tools", t["file"] + ".sha256.json"), encoding="utf-8") as f:
                 rec = json.load(f)
             self.assertEqual((items[t["name"]]["sha256"], items[t["name"]]["base"]), (rec["sha256"], "app"))
         for i in items.values():
@@ -210,7 +225,7 @@ class BuildTest(Base):
 
     def test_extracted_src_imports(self):
         """外した後も ② の headless(server.py)と CLI が import で落ちない(展開した src だけを読む)"""
-        got = self.build()
+        got = self.shared
         app = os.path.join(self.tmp, "friend", "FriendApp")
         with zipfile.ZipFile(got["zip"]) as z:
             z.extractall(app)
@@ -242,7 +257,7 @@ class BuildTest(Base):
             self.assertNotIn("config.json", z.namelist())
 
     def test_members_copied_from_source(self):
-        got = self.build()
+        got = self.shared   # 名簿の写し元は make_inputs の同じ中身
         with zipfile.ZipFile(got["zip"]) as z:
             self.assertEqual(z.read("members.json"), b'{"members": []}')
         os.remove(self.members)

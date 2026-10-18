@@ -16,6 +16,7 @@ import json
 import shutil
 import subprocess
 import sys
+import time
 import unittest
 from http.server import BaseHTTPRequestHandler
 from unittest import mock
@@ -28,6 +29,7 @@ from ytt import datadir, studio_env, testkit, workdata  # noqa: E402
 from eval.fake import fake_asr  # noqa: E402  (疑似の認識。CLI は eval を読まないので、テストの側で差し込む)
 
 HAS_FFMPEG = bool(shutil.which("ffmpeg"))
+_REAL_SLEEP = time.sleep   # 待ちは短く(0 にすると待つ骨組みが空回りして書き出しのスレッドに番が回らず遅くなる = ごく短く本当に眠る)
 
 
 def _make_video(path, sec=6):
@@ -86,7 +88,7 @@ class Base(unittest.TestCase):
         # main は環境変数・作業データの場所・名簿の場所を入れ替える = テストの終わりに戻す。URL の実行はスタジオの置き場所を入れる = 同じく戻す
         patches = [mock.patch.dict(os.environ, {"YTT_RUNTIME_DIR": os.path.join(self.tmp, "runtime"), "TRANSCRIBE_FAKE_DELAY": "0"}),
                    mock.patch.object(roster, "ROSTER", roster.ROSTER), mock.patch.dict(datadir._registered),
-                   mock.patch.object(worker_client, "WORKER", self.worker), mock.patch.object(cli.time, "sleep", lambda s: None),
+                   mock.patch.object(worker_client, "WORKER", self.worker), mock.patch.object(cli.time, "sleep", lambda s: _REAL_SLEEP(min(s, 0.002))),
                    mock.patch.object(cli, "_placement", lambda: self.pl)]
         patches += [mock.patch.object(workdata, name, getattr(workdata, name))
                     for name in ("ROOT", "DATA_DIR", "TX_DIR", "TMP_DIR", "SETTINGS", "FEEDBACK", "MARKER_DATA", "STUDIO_DATA")]

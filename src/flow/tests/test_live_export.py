@@ -41,7 +41,7 @@ from ytt import fsio, jobs, loudness, normalize, schemas, tools  # noqa: E402
 TOKEN = FIX.TOKEN
 
 
-def wait_for(fn, timeout=20.0, step=0.2):
+def wait_for(fn, timeout=20.0, step=0.05):
     end = time.time() + timeout
     while time.time() < end:
         v = fn()
@@ -212,19 +212,23 @@ class ExportTest(unittest.TestCase):
         self.rc = self.live.find("local")
         self.assertTrue(wait_for(lambda: self.live.ping(self.rc), 20))
         self.ex = self.live.exporter
-        self.ex.poll, self.ex.down_sec = 0.3, 3.0
+        self.ex.poll, self.ex.down_sec = 0.1, 3.0
 
     def tearDown(self):
         self.live.close()
         try:
-            for r in (self.live.call(self.rc, "GET", "/live/list")[1] or {}).get("recordings") or []:
-                if r.get("active"):
-                    self.live.call(self.rc, "POST", "/live/%s/stop" % r["id"], {}, timeout=40)
-            self.live.call(self.rc, "POST", "/live/quit", {})
-            self.proc.wait(20)
+            if self.proc.poll() is None:   # もう止めた録画元へはつながない(Windows は断られるまで 1 回 0.3〜1 秒待つ)
+                self._stop_recorder()
         except Exception:
             self.proc.kill()
         self.src.close()   # 一時フォルダは testkit.tempdir が後で消す
+
+    def _stop_recorder(self):
+        for r in (self.live.call(self.rc, "GET", "/live/list")[1] or {}).get("recordings") or []:
+            if r.get("active"):
+                self.live.call(self.rc, "POST", "/live/%s/stop" % r["id"], {}, timeout=40)
+        self.live.call(self.rc, "POST", "/live/quit", {})
+        self.proc.wait(20)
 
     def start_rec(self, n=4):
         code, d = self.live.call(self.rc, "POST", "/live/start", {"url": self.src.url, "title": "テストの配信"}, timeout=10)
@@ -245,7 +249,7 @@ class ExportTest(unittest.TestCase):
         return next(j for j in self.ex.snapshot() if j["id"] == jid)
 
     def wait_state(self, jid, states, timeout=60):
-        return wait_for(lambda: self.job(jid)["state"] in states and self.job(jid), timeout, 0.3)
+        return wait_for(lambda: self.job(jid)["state"] in states and self.job(jid), timeout, 0.05)
 
     def test_mark_wait_export_transcribe_cancel(self):
         rid = self.start_rec()
@@ -455,6 +459,20 @@ class ExportTest(unittest.TestCase):
         d3 = self.wait_state(j3["id"], ("done", "error"), 30)
         self.assertEqual(d3["state"], "error", d3)
         self.assertIn("つながりませんでした", d3["error"])
+
+
+class PadSecsTest(unittest.TestCase):
+    """計算だけ(録画の部品は起こさない。ExportTest の setUp を通さない)"""
+
+    def test_pad_secs(self):
+        """M8: 自動・アーカイブの採用の区間を前後 pad 秒だけ広げる。0 より前・録れている範囲(lastPdt)の外・1 つのマークの上限の外へは広げない"""
+        first = 1_700_000_000.0
+        st = lambda rel: {"lastPdt": LX.epoch_iso(first + rel)}
+        self.assertEqual(LA.pad_secs(10.0, 20.0, 2, st(100), first), (8.0, 22.0))   # 本体は flow/live_adopt.py(RS7-2 G1b)
+        self.assertEqual(LA.pad_secs(1.0, 20.0, 2, st(21), first), (0.0, 21.0))      # 頭は 0 まで・後ろは録れている所まで
+        self.assertEqual(LA.pad_secs(10.0, 20.0, 2, st(19), first), (8.0, 20.0))     # 終わりがまだ録れていない = 後ろは足さない
+        self.assertEqual(LA.pad_secs(10.0, 20.0, 1.5, {}, first), (8.5, 21.5))     # lastPdt が無ければ両側に
+        self.assertEqual(LA.pad_secs(0.0, LX.MAX_MARK_SEC, 2, {}, first), (0.0, float(LX.MAX_MARK_SEC)))
 
 
 class ExportPiecesTest(unittest.TestCase):

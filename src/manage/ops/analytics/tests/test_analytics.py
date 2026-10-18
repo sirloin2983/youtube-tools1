@@ -4,6 +4,7 @@
     py -3.10 -m unittest src/manage/ops/analytics/tests/test_analytics.py
 """
 import datetime
+import functools
 import json
 import math
 import os
@@ -13,6 +14,7 @@ import sys
 import tempfile
 import unittest
 import urllib.parse
+from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
@@ -23,6 +25,13 @@ from manage.ops.analytics import bridge, calc, data, render, service, timeutil a
 
 UTC = T.UTC
 DAY = datetime.timedelta(days=1)
+
+
+def setUpModule():
+    """速さのため: PT の日の始まり(日付だけで決まる・答えは同じ)を覚えておく。見込みの計算が同じ日を何百万回も聞くので"""
+    p = mock.patch.object(T, "pt_day_start_utc", functools.lru_cache(maxsize=None)(T.pt_day_start_utc))
+    p.start()
+    unittest.addModuleCleanup(p.stop)
 
 
 def cum(h, a, tau=40.0):
@@ -361,7 +370,7 @@ class ServiceTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
         self.fb = FakeBridge({"id_first_aaaa": ("2026-10-08.json", "2026-10-07T23:11:00Z", make_raw())})
-        self.svc = service.Service(base_dir=self.tmp, members=data.member_matcher(ENTRIES), bridge_factory=lambda url, secret: self.fb, sims=50)
+        self.svc = service.Service(base_dir=self.tmp, members=data.member_matcher(ENTRIES), bridge_factory=lambda url, secret: self.fb, sims=10)   # 送る道を見る(見込みの数は見ない)ので試行は少なく
         self.svc.set_config(URL, SECRET)
 
     def tearDown(self):

@@ -207,6 +207,7 @@ class TestRecording(unittest.TestCase):
 
     def test_stream_end(self):
         self.srv.rate = 4.0   # 早く出し終える → 終わりの印 → 「終了」
+        self.srv.segs = self.segs[:16]   # 40 本を出し終えるのを待たない(16 本 = 約 3 秒)
         s = self.rec.start(self.srv.url)
         r = self.rec.get(s["id"])
         self.assertTrue(wait_for(lambda: r.summary()["state"] == "ended", 40), (r.summary(), self.logs))
@@ -535,6 +536,8 @@ class TestTitle(unittest.TestCase):
         cls.httpd = ThreadingHTTPServer(("127.0.0.1", 0), H)
         cls.httpd.daemon_threads = True
         cls.base = "http://127.0.0.1:%d" % cls.httpd.server_address[1]
+        # 配信の無い手元の URL の番号: 待ち受けはあるので ffmpeg はすぐ断られる(空きの番号だと Windows はつなぐのに 2 秒ほど粘り、止めるのが遅い)
+        cls.no_live = cls.httpd.server_address[1]
         import threading
         threading.Thread(target=cls.httpd.serve_forever, daemon=True).start()
 
@@ -576,7 +579,7 @@ class TestTitle(unittest.TestCase):
     def test_untitled_recording_gets_title(self):
         calls = []
         self.rec.title_lookup = lambda url: (calls.append(url), "配信の題")[1]
-        url = "https://127.0.0.1:%d/live.m3u8" % free_port()   # https の手元の URL(つながらないので録画は「待ち」のまま)
+        url = "https://127.0.0.1:%d/live.m3u8" % self.no_live   # https の手元の URL(配信が無いので録画は「待ち」のまま)
         s = self.rec.start(url)
         r = self.rec.get(s["id"])
         self.assertTrue(wait_for(lambda: r.meta.get("title") == "配信の題", 10), (r.meta, calls))
@@ -588,15 +591,15 @@ class TestTitle(unittest.TestCase):
     def test_named_or_http_is_not_looked_up(self):
         calls = []
         self.rec.title_lookup = lambda url: (calls.append(url), "配信の題")[1]
-        s = self.rec.start("https://127.0.0.1:%d/live.m3u8" % free_port(), title="付けた名前")
-        s2 = self.rec.start("http://127.0.0.1:%d/live.m3u8" % free_port())   # 手元の http(テストの配信)では聞かない
+        s = self.rec.start("https://127.0.0.1:%d/live.m3u8" % self.no_live, title="付けた名前")
+        s2 = self.rec.start("http://127.0.0.1:%d/live.m3u8" % self.no_live)   # 手元の http(テストの配信)では聞かない
         time.sleep(1.0)
         self.assertEqual(calls, [])
         self.assertEqual(self.rec.get(s["id"]).meta["title"], "付けた名前")
         self.assertEqual(self.rec.get(s2["id"]).meta["title"], "")
 
     def test_fill_title_does_not_overwrite_and_retries(self):
-        s = self.rec.start("https://127.0.0.1:%d/live.m3u8" % free_port())   # title_lookup が None なので、ここでは聞かない
+        s = self.rec.start("https://127.0.0.1:%d/live.m3u8" % self.no_live)   # title_lookup が None なので、ここでは聞かない
         r = self.rec.get(s["id"])
         # 聞いている間に名前が付いた → 上書きしない
         self.rec.title_lookup = lambda url: (r.set(title="手で付けた"), "配信の題")[1]

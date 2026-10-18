@@ -1386,7 +1386,7 @@ class RealToolsTest(unittest.TestCase):
                 # 監視の接続確認(つないですぐ切る)で、ツールのログにアクセスの行が増え続けない
                 tx = sup.by_id["transcribe"]
                 before = len(L.tail(tx.log_path, 10000) or [])
-                time.sleep(7)
+                time.sleep(3)   # 見回りは poll=0.2 秒ごと = 15 回つなぐ(1 回ごとに行が増えるなら必ず見える)
                 after = len(L.tail(tx.log_path, 10000) or [])
                 self.assertLessEqual(after - before, 1, "\n".join((L.tail(tx.log_path, 20) or [])))
                 self.assertEqual(sup.by_id["transcribe"].snapshot()["state"], "running")
