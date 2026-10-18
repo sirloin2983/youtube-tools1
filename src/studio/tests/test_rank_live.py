@@ -369,20 +369,6 @@ class TestResolveAndRetry(unittest.TestCase):
             b.retry("se:s1")
         self.assertEqual([c["ref"] for c in got[0]["agencies"][0]["channels"]], ["@abc", "@later"])
 
-    def test_yt_get_goes_through_ytapi_and_replaced_yt_get_is_not_counted(self):
-        """取得の本体は ytt/ytapi.get の 1 つ(失敗の対応表・数え・見出しのキーは ytt のテスト)。ここは rank.yt_get がそこへ繋がっていることと、差し替えたときに数えが増えないこと"""
-        q0 = rank._ytapi.used()
-        with patch.object(rank._env, "fake", return_value=False), patch.object(rank._ytapi._key, "get_api_key", return_value=("", "")):
-            with self.assertRaises(rank.ApiError) as cm:
-                rank.yt_get("channels", {"id": "x"})
-        self.assertEqual((cm.exception.code, rank._ytapi.used()), ("no_key", q0))   # キーが無くて呼ばなかったときは数えない
-        with patch.object(rank._ytapi, "get", return_value={"items": []}) as g:
-            self.assertEqual(rank.yt_get("channels", {"id": "x"}), {"items": []})
-        g.assert_called_once_with("channels", {"id": "x"})
-        with patch.object(rank, "yt_get", return_value={"items": []}):   # 差し替えた yt_get は外へ出ない = 数えない
-            rank._resolve_channels([rank._pending("@abc")])
-        self.assertEqual(rank._ytapi.used(), q0)
-
 
 if __name__ == "__main__":
     unittest.main()

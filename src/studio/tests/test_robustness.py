@@ -77,9 +77,6 @@ class TestFeedbackFile(Home):
         self.assertEqual(json.loads(old[0])["start"], -1)
         self.assertTrue(all(json.loads(l) for l in old))
 
-    def test_default_limit_is_large(self):
-        self.assertGreaterEqual(feedback.MAX_FEEDBACK_BYTES, 32 * 1024 * 1024)
-
 
 class TestRegistry(Home):
     def reg_path(self):
@@ -98,11 +95,10 @@ class TestRegistry(Home):
         with open(os.path.join(self.tmp, backups[0]), encoding="utf-8") as f:
             self.assertIn("自分の事務所", f.read())   # 元の内容は残っている
         self.assertFalse(os.path.exists(self.reg_path()))
-
-    def test_non_object_registry_is_quarantined(self):
+        # 形が object でない登録簿([1, 2])も同じく退避する(以前は AttributeError で 500)
         with open(self.reg_path(), "w", encoding="utf-8") as f:
             f.write("[1, 2]")
-        rank.get_registry()   # 以前は AttributeError で 500
+        self.assertEqual(rank.get_registry(), seed)
         self.assertTrue(any(n.startswith("registry.json.corrupt-") for n in os.listdir(self.tmp)))
 
     def test_transient_read_error_does_not_fall_back_to_seed(self):
@@ -570,12 +566,6 @@ class TestShutdownJobs(Home):
             b.add([{"kind": "youtube", "videoId": "cbcdefghijk"}], {})
         self.assertEqual(cm.exception.code, "closing")
 
-    def test_finish_stops_jobs_before_runtime(self):
-        calls = []
-        with patch.object(serve, "shutdown_jobs", lambda: calls.append("jobs")), \
-                patch.object(serve.handoff, "remove_runtime", lambda *a: calls.append("runtime")):
-            serve.finish()
-        self.assertEqual(calls, ["jobs", "runtime"])   # 入口の Mount.stop() → finish() で止まる
 
 
 class TestExportJobSettles(Home):

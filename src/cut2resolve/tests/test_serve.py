@@ -103,6 +103,12 @@ class TestGuards(ServerBase):
         self.assertIn("Host", json.loads(body)["message"])
         st, _, _ = self.c.req("GET", "/api/ping", headers={"Host": "localhost:%d" % self.port})
         self.assertEqual(st, 200)
+        # 画面の / は CSP つき(スクリプトは外から読めない)。配るのは / だけで、ほかのファイル・../ の先は 404
+        st, hd, _ = self.c.req("GET", "/")
+        self.assertEqual(st, 200)
+        self.assertIn("script-src 'self'", hd["Content-Security-Policy"])
+        for path in ("/serve.py", "/../serve.py", "/app.js", "/ui-kit.js"):
+            self.assertEqual(self.c.req("GET", path)[0], 404, path)
 
     def test_post_origin_and_content_type(self):
         st, _, _ = self.c.req("POST", "/api/plan", {}, headers={"Origin": "http://evil.example"})
@@ -117,21 +123,6 @@ class TestGuards(ServerBase):
         self.assertEqual((st, json.loads(body)["error"]), (400, "bad_json"))
         st, _, body = self.c.req("POST", "/api/plan", raw=b"[]")
         self.assertEqual((st, json.loads(body)["error"]), (400, "bad_json"))
-
-    def test_page_moved_to_edit_tool(self):
-        """画面は「編集」に統合した(2026-09-26)。/ は案内だけ(スクリプトなし・CSP つき)。前の画面の部品は無い"""
-        st, hd, body = self.c.req("GET", "/")
-        html = body.decode("utf-8")
-        self.assertEqual(st, 200)
-        self.assertIn("「編集」に統合しました", html)
-        self.assertNotIn("<script", html)
-        self.assertIn("script-src 'self'", hd["Content-Security-Policy"])
-        for path in ("/app.js", "/app.css", "/ui-kit.js", "/ui-kit.css"):
-            st, _, _ = self.c.req("GET", path)
-            self.assertEqual(st, 404, path)
-        self.assertEqual(self.c.req("GET", "/serve.py")[0], 404)
-        self.assertEqual(self.c.req("GET", "/../serve.py")[0], 404)
-
 
 class TestPaths(ServerBase):
     def test_clean_path(self):
@@ -158,25 +149,8 @@ class TestPaths(ServerBase):
         st, j = self.c.json("POST", "/api/plan", {"spec": {"video": str(self.dir / "clip.mp4"), "plan": str(srt)}})
         self.assertEqual((st, j["error"]), (400, "not_found"))   # 動画から順に確かめる
 
-    def test_removed_apis_answer_404(self):
-        """消した画面のための API(0.22.0 で消した): api/state・api/inspect・api/upload・media/。検査(Origin)は消す前と同じく先に効く"""
-        for method, path, kw in (("GET", "/api/state", {}), ("POST", "/api/inspect", {"body": {}}),
-                                 ("POST", "/api/upload?kind=srt&name=a.srt", {"raw": b"x", "ctype": "application/octet-stream"})):
-            st, _, body = self.c.req(method, path, **kw)
-            self.assertEqual((st, json.loads(body)["error"]), (404, "not_found"), path)
-        st, _, _ = self.c.req("POST", "/api/inspect", {}, headers={"Origin": "http://evil.example"})
-        self.assertEqual(st, 403)
-
-    def test_removed_helpers_are_gone(self):
-        for gone in ("inspect_inputs", "sibling_suggestions", "save_upload", "clean_uploads", "safe_upload_name", "UPLOAD_DIR",
-                     "UPLOAD_LIMITS", "MEDIA_TYPES", "AC"):
-            self.assertFalse(hasattr(serve, gone), gone)
-        for gone in ("register_media", "media_path"):
-            self.assertFalse(hasattr(serve.AppState, gone), gone)
-        self.assertFalse(hasattr(serve.C, "resolve_media_path"))
-
-    def test_startup_makes_no_upload_folder(self):
-        """起動の準備(_startup): 作業用のフォルダにアップロードの置き場を作らない・消さない。.runtime とログは今までどおり"""
+    def test_startup_writes_runtime_and_log(self):
+        """起動の準備(_startup): .runtime とログを作る(ほかのツールが読む場所の約束)"""
         work = self.dir / "work_startup"
         with mock.patch.object(serve, "WORK_DIR", str(work)), mock.patch.object(serve, "LOG_PATH", str(work / "serve.log")), \
                 mock.patch.object(serve, "BASE_PATH", "/"), mock.patch.dict(os.environ, {"YTT_RUNTIME_DIR": str(self.dir / "rt")}):
@@ -184,7 +158,6 @@ class TestPaths(ServerBase):
             try:
                 self.assertTrue(rt and os.path.isfile(rt))
                 self.assertTrue((work / "serve.log").is_file())
-                self.assertFalse((work / "uploads").exists())
             finally:
                 serve.remove_runtime(8899)
 
@@ -240,11 +213,6 @@ class TestPaths(ServerBase):
         new = [p for p in recs.iterdir() if p.name not in ("a.json", "d.json")][0]
         self.assertEqual(json.loads(new.read_text(encoding="utf-8"))["dir"], str(alive2))
         self.assertTrue(new.read_text(encoding="utf-8").endswith("}\n"))   # 今までと同じ形(indent=1・最後に改行)
-
-    def test_media_unknown_token(self):
-        for tok in ("nope-nope-nope", "..%2Fserve.py", "a"):
-            self.assertEqual(self.c.req("GET", "/media/" + tok)[0], 404, tok)
-
 
 class TestHeavyJobLimit(unittest.TestCase):
     """パックの作成は、他のツールの重い処理と順番を待つ(ytt.jobs)。試算は、無音の検出が要るとき(heavy が真)だけ待つ
@@ -773,14 +741,6 @@ class TestTextPlusTargetOption(unittest.TestCase):
         self.assertEqual(o["textplusTarget"], {"fps": 60, "width": 1920, "height": 1080})
         self.assertTrue(o["copyVideo"])
 
-    def test_removed_output_keys_are_ignored(self):
-        """0.23.0: 消した画面のための output.fcpxml・output.crf は受けない。送っても黙って無視する(形が違っても 400 にしない)"""
-        v = Path(tempfile.gettempdir()) / "x.mp4"
-        for o in ({"fcpxml": True, "crf": 99}, {"fcpxml": "yes", "crf": "bad"}):
-            got = serve.output_from_spec(o, v)
-            self.assertFalse({"fcpxml", "crf"} & set(got))
-            self.assertEqual(got, serve.output_from_spec({}, v))
-        self.assertTrue(serve.output_from_spec({"copyVideo": True, "fcpxml": True}, v)["copyVideo"])
 
     def test_output_loudness_and_volume(self):
         """output.loudness(LUFS)と output.volume(%)。LUFS があれば % は使わない"""

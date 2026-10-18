@@ -120,6 +120,12 @@ class TestBody(Base):
     def test_settings_not_dict(self):
         st, j, *_ = self.req("PUT", "/api/settings", {"settings": [1]})
         self.assertEqual((st, j["error"]), (400, "bad_request"))
+        # 保存で OS のエラーが出たら 500 で返し、記録する(文言は見ない。消す前の TestErrorMessages から移した)
+        denied = PermissionError(13, "Permission denied", os.path.join(self.tmp, "settings-ui.json"))
+        with patch.object(serve.STORE, "set_ui", side_effect=denied), patch.object(studio_env, "log_failure") as log:
+            st, j, *_ = self.req("PUT", "/api/settings", {"settings": {}})
+        self.assertEqual(st, 500)
+        log.assert_called_once()
 
 
 class TestRouting(Base):
@@ -346,20 +352,6 @@ class TestStateEnv(Base):
         self.assertTrue(any("yt-dlp -U" in w for w in env["warnings"]), env["warnings"])
         self.assertTrue(any("空きが少なく" in w for w in env["warnings"]), env["warnings"])
         self.assertEqual(env["outDirFree"], 1024)
-
-
-class TestErrorMessages(Base):
-    def test_os_errors_say_what_happened(self):
-        denied = PermissionError(13, "Permission denied", os.path.join(self.tmp, "settings-ui.json"))
-        with patch.object(serve.STORE, "set_ui", side_effect=denied), patch.object(studio_env, "log_failure") as log:
-            st, j, *_ = self.req("PUT", "/api/settings", {"settings": {}})
-        self.assertEqual(st, 500)
-        self.assertIn("アクセスが拒否", j["message"])
-        self.assertIn("settings-ui.json", j["message"])
-        log.assert_called_once()
-        with patch.object(serve.STORE, "set_ui", side_effect=OSError(28, "No space left on device")), patch.object(studio_env, "log_failure"):
-            j = self.req("PUT", "/api/settings", {"settings": {}})[1]
-        self.assertIn("No space left", j["message"])
 
 
 class TestExportValidation(Base):

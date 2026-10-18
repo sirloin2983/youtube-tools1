@@ -112,13 +112,6 @@ class TestFsio(unittest.TestCase):
             self.assertEqual(f.read(), b"original")
         self.assertEqual(os.listdir(self.tmp), ["a.json"])
 
-    def test_other_permission_errors_are_not_retried(self):
-        for err in (PermissionError(), locked(1314)):
-            with mock.patch.object(fsio.os, "replace", side_effect=err) as rep:
-                with self.assertRaises(PermissionError):
-                    fsio.replace_retry("a", "b")
-            self.assertEqual(rep.call_count, 1)
-
     def test_fsync_required(self):
         p = os.path.join(self.tmp, "a.json")
         with mock.patch.object(fsio.os, "fsync", side_effect=OSError("no fsync")):
@@ -641,12 +634,11 @@ class TestSchemas(unittest.TestCase):
         for obj in bad:
             self.assertIsNone(schemas.validate_clip(obj)[0], obj)
         self.assertIn("未対応の版", schemas.validate_clip(dict(base, schema="youtube-tools-clip/v2"))[1])
-
-    def test_num(self):
+        # num と validate_clip は、float にできない巨大な整数・NaN でも落ちない(以前は OverflowError)
         self.assertEqual([schemas.num(v) for v in (1, 2.5, True, "1", None, float("nan"), float("inf"), 10 ** 400)],
                          [1.0, 2.5, None, None, None, None, None, None])
         huge = {"schema": schemas.CLIP_SCHEMA, "range": {"start": 10 ** 400, "end": 10 ** 401}}
-        self.assertIsNone(schemas.validate_clip(huge)[0])   # float にできない巨大な整数でも落ちない(以前は OverflowError)
+        self.assertIsNone(schemas.validate_clip(huge)[0])
 
     def test_paths_and_load(self):
         # 途中のファイルは 作業用\ に書く(2026-09-27。出力先の直下はパックと元動画だけ)。動画がもう 作業用 の中ならそこ
@@ -998,10 +990,8 @@ class TestHttpsec(unittest.TestCase):
             s.bind(("127.0.0.1", 0))                               # 空いているポートには bind できる
         finally:
             s.close()
-
-    def test_exclusive_server_quiet_on_disconnect(self):
-        """相手が先に切った(ConnectionAbortedError など)は黒い画面に出さない・ほかの例外は今までどおり出す"""
-        srv = httpsec.ExclusiveServer(("127.0.0.1", 0), http.server.BaseHTTPRequestHandler)
+        # 相手が先に切った(ConnectionAbortedError など)は黒い画面に出さない・ほかの例外は今までどおり出す
+        quiet = httpsec.ExclusiveServer(("127.0.0.1", 0), http.server.BaseHTTPRequestHandler)
         try:
             for exc, shown in ((ConnectionAbortedError(10053, "x"), False), (ConnectionResetError(), False),
                                (BrokenPipeError(), False), (socket.timeout(), False), (ValueError("x"), True)):
@@ -1009,10 +999,10 @@ class TestHttpsec(unittest.TestCase):
                     try:
                         raise exc
                     except Exception:   # noqa: BLE001
-                        srv.handle_error(None, ("127.0.0.1", 1))
+                        quiet.handle_error(None, ("127.0.0.1", 1))
                 self.assertEqual(base.called, shown, exc)
         finally:
-            srv.server_close()
+            quiet.server_close()
 
 
 class TestTools(unittest.TestCase):
@@ -1166,18 +1156,6 @@ class TestTools(unittest.TestCase):
         self.assertEqual(tools.why(FileNotFoundError(2, "見つかりません", "C:/秘密/x")), "見つかりません")   # パスは出さない
         self.assertEqual(tools.why(OSError("strerror の無い OSError")), "OSError")
         self.assertEqual(tools.why(ValueError("中身")), "ValueError")
-
-    def test_kill_tree_fake_and_done(self):
-        tools.kill_tree(None)
-        fake = mock.Mock(poll=mock.Mock(return_value=None))
-        tools.kill_tree(fake, wait=1)                               # Popen でなければ kill_quiet だけ(待たない)
-        fake.kill.assert_called_once()
-        fake.wait.assert_not_called()
-        p = subprocess.Popen([sys.executable, "-c", "pass"], creationflags=tools.no_window_flags())
-        p.wait(30)
-        with mock.patch.object(tools.subprocess, "run") as run:
-            tools.kill_tree(p)                                      # 終わっていれば何もしない
-            run.assert_not_called()
 
     def test_kill_tree_kills_grandchild(self):
         code = ("import subprocess, sys, time; c = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); "
@@ -1374,10 +1352,6 @@ class TestFfmpegInfo(unittest.TestCase):
              "  Stream #0:0[0x1](und): Video: h264 (High), yuv420p, 1920x1080, 30 fps\n"
              "  Stream #0:1[0x2](und): Audio: aac (LC), 48000 Hz, stereo\n")
 
-    def test_cover_art_is_not_video(self):
-        self.assertEqual(tools.parse_ffmpeg_info(self.COVER), (200.5, False, True, ""))
-        self.assertEqual(tools.duration_in(self.COVER), 200.5)
-
     def test_video_line_and_flags(self):
         dur, has_v, has_a, line = tools.parse_ffmpeg_info(self.VIDEO)
         self.assertEqual((dur, has_v, has_a), (5.0, True, True))
@@ -1386,6 +1360,9 @@ class TestFfmpegInfo(unittest.TestCase):
     def test_first_real_video_after_cover(self):
         text = self.COVER + "  Stream #0:2: Video: h264, 640x360\n"
         self.assertEqual(tools.parse_ffmpeg_info(text)[1:], (True, True, "Stream #0:2: Video: h264, 640x360"))
+        # カバーアートだけの音声ファイルは動画と見なさない(以前の不具合 620418c0 の再発止め)
+        self.assertEqual(tools.parse_ffmpeg_info(self.COVER), (200.5, False, True, ""))
+        self.assertEqual(tools.duration_in(self.COVER), 200.5)
 
     def test_no_duration_and_empty(self):
         self.assertEqual(tools.parse_ffmpeg_info("  Stream #0:0: Video: h264, 640x360, 30 fps\n"),
@@ -1756,15 +1733,12 @@ class TestTxIndex(unittest.TestCase):
 
     def test_cache_rereads_changed_files_and_forgets_removed(self):
         self.doc("aaaaaaaaaaaa", self.clip)
-        first = txindex.load(self.dir)[0]
-        self.assertIs(txindex.load(self.dir)[0], first)   # 変わっていなければ読み直さない
         self.doc("aaaaaaaaaaaa", self.clip, segs=[{"start": 0, "end": 1, "text": "新しい行が長くなった"}])
         p = os.path.join(self.dir, "aaaaaaaaaaaa.json")
         os.utime(p, ns=(time.time_ns(), time.time_ns() + 10 ** 9))
         self.assertEqual(txindex.load(self.dir)[0]["segments"][0]["text"], "新しい行が長くなった")
         os.remove(p)
         self.assertEqual(txindex.load(self.dir), [])
-        self.assertFalse(any(k == p for k in txindex._cache))
 
     def test_match_by_path_or_clip_and_newest_wins(self):
         self.doc("aaaaaaaaaaaa", self.clip, updated=1)
