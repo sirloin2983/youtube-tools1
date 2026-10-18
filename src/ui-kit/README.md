@@ -352,3 +352,7 @@
 
 ## v31(2026-10-18)使われていない公開の口を外した
 - 呼ぶ所が無かった `UIKit.theme.resolved()`・`UIKit.settings.statusOf()`・`UIKit.keymap.BLOCKED`(中の `PB_BLOCKED` は残す)・`UIKit.flow.newId()` を外した(コードの棚卸し `notes:plan/legacy-review.md`)。`UIKit.version` は 31
+
+## v32(2026-10-18)まとめて実行の欄からパックの「予備」を外した
+- `UIKit.autorun` の設定の欄の「予備も入れる(EDL・SRT)」と、要約 1 行の「予備あり」を外した(パックの予備 = Text+ パックに足す EDL・SRT・予備の手順書を消した = 決定 3-34)。
+  編集の設定に残っている `packBackup` は読まない・送らない。`UIKit.version` は 32

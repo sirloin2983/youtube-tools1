@@ -1977,7 +1977,7 @@
   /* ---- autorun(まとめて実行の部品。v7・気が利く画面へ 段4)----
      どの入口(ホームの案件・紐づかない文書・スタジオ ①/③・編集の題名の行・履歴)でも、同じ設定の要約1行 +「設定を変える」+ 始める前の見積もり +
      終わったときの知らせ(ボタンつき)。値は1か所: まとめて実行の形・採用数・カットの方法・上書き・失敗したとき = ホームの設定 autorun(UIKit.prefs)、
-     パックの出力(fps・縦横・話者の色・予備・音量)= 編集の設定(3 パック のタブと同じ。送ったキーだけ直す api/settings/patch)。
+     パックの出力(fps・縦横・話者の色・音量)= 編集の設定(3 パック のタブと同じ。送ったキーだけ直す api/settings/patch)。
      状態の言葉もここ(サーバーの stateLabel が正。無いときの予備) */
   var AR_STEP = { wait: '待ち', run: '実行中', done: '済み', skip: '飛ばした', warn: '一部失敗', error: '失敗' };
   var AR_RUN = { queued: '待ち', running: '実行中', done: '済み', error: '失敗', cancelled: '中止', nothing: 'やることがありませんでした' };
@@ -2029,7 +2029,7 @@
     return Promise.all([pr, tx]).then(function (x) {
       var a = x[0], t = x[1] || {};
       arState = { mode: a.mode || null, top: +a.top || 3, cut: AR_CUT[a.cut] ? a.cut : 'rows', overwrite: a.overwrite === true, onFail: a.onFail === 'stop' ? 'stop' : 'next',
-                  size: t.packSize === '1920x1080' ? '1920x1080' : '1080x1920', spk: t.speakerColors !== false, backup: t.packBackup === true,
+                  size: t.packSize === '1920x1080' ? '1920x1080' : '1080x1920', spk: t.speakerColors !== false,
                   loud: loudNorm(t.packLoudness), vol: volNorm(t.packVolume), pack: !!u };
       return arState;
     });
@@ -2044,7 +2044,6 @@
       bits.push((st.size === '1920x1080' ? '横' : '縦'));
       bits.push(st.spk ? '話者の色あり' : '話者の色なし');
       bits.push(st.loud ? '音量 ' + st.loud + ' LUFS' : '音量 ' + st.vol + '%');
-      if (st.backup) bits.push('予備あり');
     }
     bits.push(st.overwrite ? 'パックがあれば作り直す' : 'パックがあれば飛ばす');
     bits.push(st.onFail === 'stop' ? '失敗したら止める' : '失敗したら次へ');
@@ -2104,11 +2103,7 @@
       var spk = arEl('input', { type: 'checkbox' }); spk.checked = st.spk;
       spk.addEventListener('change', function () { arSave('tx', { speakerColors: spk.checked }); });
       var sl = arEl('label', { 'class': 'ui-ar-c' }); sl.appendChild(spk); sl.appendChild(document.createTextNode('話者の名前がメンバーと合えば、その話者の字幕をその色に'));
-      box.appendChild(sl);
-      var bk = arEl('input', { type: 'checkbox' }); bk.checked = st.backup;
-      bk.addEventListener('change', function () { arSave('tx', { packBackup: bk.checked }); });
-      var bl = arEl('label', { 'class': 'ui-ar-c' }); bl.appendChild(bk); bl.appendChild(document.createTextNode('予備も入れる(EDL・SRT)'));
-      box.appendChild(bl);
+      box.appendChild(sl);   // 「予備も入れる(EDL・SRT)」の欄は v32 で消した(決定 3-34)
     } else {
       box.appendChild(arEl('p', { 'class': 'ui-ar-h' }, 'パックの出力(fps・縦横・話者の色・音量)は、「編集」が動いていると ここでも変えられます'));
     }
@@ -2789,7 +2784,7 @@
   }
   var sound = { other: sndOther, onChange: function (fn) { if (typeof fn === 'function') snd.subs.push(fn); }, tool: snd.tool };
 
-  window.UIKit = { version: 31, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
+  window.UIKit = { version: 32, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
                    portal: portal, streamer: streamer, appnav: appnav, drawer: drawer, dialog: dialogApi, toast: toastFn, keybar: keybar, settings: settings, settingsForm: settingsForm, keys: keysApi, keymap: keymapApi, icon: icon,
                    confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud, autorun: autorun, flow: flow, restart: restart, timebox: timebox, hide: hide, liveBadge: liveBadge, menuOff: menuOff,
                    http: http, homeApi: homeApi, homeUrl: homeUrl, copy: copyText };

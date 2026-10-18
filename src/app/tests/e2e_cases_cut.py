@@ -5,7 +5,7 @@
 入口を編集と cut2resolve を取り込んだ形で動かし(編集の e2e と同じ Server。疑似の文字起こし)、/cases?d=<文書 id>#cut を開く(仮の案件 orphan に入る)。
 旧 e2e_edit_cut(カットのタブ)と e2e_edit_pack(パック)の要点だけを 1 本に: 行からのたたき台・波形・区間の選択と削る / 戻す / 元に戻す・自動保存・
 殻のキー(Alt+1/2)とパネルのキーの両立・下の帯・字幕の一覧の「残す / カット」・カットしない・パックの設定(大きさ・音量・行の後の余白)が編集の設定に残る・
-「予備」の欄が無い(決定 3-34)・パックを作る(区間 = カットのとおり・EDL を入れない)・別の切り抜きを選んでも未保存のカットが残る・コンソールにエラーが無い。
+「予備」の欄が無い(決定 3-34)・パックを作る(区間 = カットのとおり・EDL・SRT を入れない)・別の切り抜きを選んでも未保存のカットが残る・コンソールにエラーが無い。
 RS8 C4 で足した場面: パックの記録と「作り直しが要る」の理由・同じ場所は確認なしで作り直す・別の場所は 3 択・zip でダウンロード(旧 e2e_ui_mounted)/
 カット・パックで行を分けてすぐ校正へ(閉じる側の保存を待つ)/ キーボードだけで区間と端を選んで 1 コマ動かす・2 つの窓の 409 と読み直す・文書の競合の案内(旧 e2e_edit_cut)。"""
 import json
@@ -182,7 +182,7 @@ def _scene_pack_settings(cx):
 
 
 def _scene_build(cx):
-    """パックを作る: 見積もり(区間 5・字幕 5)→ 作る → 前回のパック・パックの区間 = カットのとおり・EDL(予備)を入れない"""
+    """パックを作る: 見積もり(区間 5・字幕 5)→ 作る → 前回のパック・パックの区間 = カットのとおり・EDL・SRT を入れない"""
     check, pg, srv, v1 = cx.check, cx.pg, cx.srv, cx.v1
     wait_js(pg, "document.querySelector('#pkCount').textContent === '5' && document.querySelector('#pkCaps').textContent === '5'", 40000)
     check(True, "これから作るパックの見積もり(5 区間・字幕 5)")
@@ -192,7 +192,7 @@ def _scene_build(cx):
     check(pg.is_hidden("#pkErr"), "パックができる(エラーが出ない): " + pg.inner_text("#pkErr"))
     packdir = os.path.splitext(v1)[0] + "_pack"
     names = sorted(os.path.relpath(os.path.join(r, n), packdir).replace(os.sep, "/") for r, _, ns in os.walk(packdir) for n in ns)
-    check(not [n for n in names if n.lower().endswith((".edl", ".srt"))] and any(n.endswith(".lua") for n in names), "EDL・SRT(予備)は入らず Text+ のスクリプトが入る: %s" % names)
+    check(not [n for n in names if n.lower().endswith((".edl", ".srt"))] and any(n.endswith(".lua") for n in names), "EDL・SRT は入らず Text+ のスクリプトが入る: %s" % names)
     ip = read_pack_plan(os.path.join(packdir, "create_resolve_textplus_project.lua"))
     got = [(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip.get("cuts", [])]
     want = [(round(a * FPS), round(b * FPS)) for a, b in ROWS]
@@ -200,7 +200,7 @@ def _scene_build(cx):
     check(len(ip.get("captions", [])) == 5, "字幕 5 件")
     check(wait_js(pg, "!document.querySelector('#pkLast').hidden && document.querySelector('#pkLastDir').textContent.indexOf('_pack') > 0", 5000), "前回のパックの欄が出る: " + pg.inner_text("#pkLastDir"))
     e = srv.get("/api/edit?id=" + cx.tid)["edit"]
-    check(e and e.get("pack") and (e["pack"].get("output") or {}).get("backup") in (False, None), "パックの記録の output.backup は偽: %s" % (e and e.get("pack", {}).get("output")))
+    check(e and e.get("pack") and "backup" not in (e["pack"].get("output") or {}), "パックの記録の output に backup(予備)が無い(決定 3-34): %s" % (e and e.get("pack", {}).get("output")))
     check(wait_js(pg, "document.querySelector('#csRail [data-cs-key=\"d:%s\"] .pill').textContent === 'パック済み'" % cx.tid, 20000), "左の一覧の札が「パック済み」に変わる")
 
 
