@@ -581,6 +581,5 @@ class TestFill(unittest.TestCase):
         self.assertEqual(len(excite.pick_clips(w, lv, dict(SPEC, sensitivity="low", fill=8, count=2), n)), 2)   # 解析の数 count が上限
 
 
-
 if __name__ == "__main__":
     unittest.main()

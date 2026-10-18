@@ -46,8 +46,6 @@
 ## src/app/ui/cases/
 
 - **cases.js** (590 行) — 案件の画面(/cases = 入口の直下の 1 枚。部品は src/app/ui/cases/。RS8 C1 = 殻。作り方 notes:docs/design/rs8-cases-build.md・何を作るか notes:docs/design/briefs/rs8-cases/)。
-- **cases.js** (590 行) — 案件の画面(/cases = 入口の直下の 1 枚。部品は src/app/ui/cases/。RS8 C1 = 殻。作り方 notes:docs/design/rs8-cases-build.md・何を作るか notes:docs/design/briefs/rs8-cases/)。
-- **cases.js** (590 行) — 案件の画面(/cases = 入口の直下の 1 枚。部品は src/app/ui/cases/。RS8 C1 = 殻。作り方 notes:docs/design/rs8-cases-build.md・何を作るか notes:docs/design/briefs/rs8-cases/)。
 - **edhost.js** (140 行) — 案件の画面に「編集」の校正(1 文字起こし)をそのまま載せる台(RS8 C2b。作り方 notes:docs/design/rs8-cases-build.md の C2b)。
 
 ## src/app/ui/cases/panels/
@@ -81,10 +79,6 @@
   - 名前: `jobOpts` :8・`startFile` :13・`askTxAgain` :27・`onStart` :40・`startPolling` :52・`pollJobs` :54・`namedBy` :104・`renderJobBadge` :106・`transcribeInto` :113・`renderIntoState` :125・`jobProg` :136・`jobPhase` :137・ほか 31
 - **app-learn.js** (465 行) — app-learn.js — 「編集」の画面: 修正から学習した候補・修正の提案・校正済み・進み具合の帯・認識精度の測定・名簿と用語集・保存データへの保管(段10 で app.js から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md…
   - 名前: `scheduleLearn` :8・`loadLearned` :10・`renderLearned` :15・`putSettingsNow` :36・`sugList` :44・`sugHTML` :46・`renderChips` :55・`loadSuggest` :65・`sugFeedback` :72・`altJob` :79・`renderAlt` :82・`applySug` :101・ほか 41
-- **app-list.js** (265 行) — app-list.js — 「編集」の画面: 保存済み一覧(履歴)・選んだ文書をまとめて実行(段10 で app.js から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
-  - 名前: `loadList` :11・`lastOpened` :22・`rememberLast` :26・`renderResume` :27・`emptyPrimary` :37・`resumeLast` :42・`txGroupKey` :44・`txGroupHead` :50・`txSortFn` :58・`hideOn` :68・`txIsHidden` :69・`txFiltered` :71・ほか 16
-- **app-list.js** (265 行) — app-list.js — 「編集」の画面: 保存済み一覧(履歴)・選んだ文書をまとめて実行(段10 で app.js から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
-  - 名前: `loadList` :11・`lastOpened` :22・`rememberLast` :26・`renderResume` :27・`emptyPrimary` :37・`resumeLast` :42・`txGroupKey` :44・`txGroupHead` :50・`txSortFn` :58・`hideOn` :68・`txIsHidden` :69・`txFiltered` :71・ほか 16
 - **app-list.js** (265 行) — app-list.js — 「編集」の画面: 保存済み一覧(履歴)・選んだ文書をまとめて実行(段10 で app.js から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
   - 名前: `loadList` :11・`lastOpened` :22・`rememberLast` :26・`renderResume` :27・`emptyPrimary` :37・`resumeLast` :42・`txGroupKey` :44・`txGroupHead` :50・`txSortFn` :58・`hideOn` :68・`txIsHidden` :69・`txFiltered` :71・ほか 16
 - **app-rows.js** (1073 行) — app-rows.js — 「編集」の画面: 編集画面(保存・開く・行の描画と操作)・字幕の文字数・行の移動・話者の色・キー配置・用語の挿入・履歴・行の追加(段10 で app.js から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.m…
@@ -136,8 +130,6 @@
 - src/app/tests/e2e_check.py — 確かめる(/check。部品は src/app/ui/check/。RS8 V1 = 殻)の通し確認(Playwright)。リポジトリ直下で:
 - src/app/tests/e2e_live.py — リアルタイム切り抜き(試験中。線 D)の入口の側の通しの確認。本物の YouTube には繋がない。
 - src/app/tests/e2e_live_archive.py — リアルタイム切り抜き LD-1(録画に無い区間だけをアーカイブから書き出す・アーカイブ化を確かめて録画をごみ箱へ移す。notes:plan/line-d-live-clipping.md の 0-9)の通しの確認。
-- src/app/tests/e2e_live_studio.py — リアルタイム切り抜き(線 D の P3。notes:plan/line-d-live-clipping.md の 0-8)の通しの確認: 入口にスタジオを取り込み、録画の部品を別のプロセスで立て、
-- src/app/tests/e2e_live_studio.py — リアルタイム切り抜き(線 D の P3。notes:plan/line-d-live-clipping.md の 0-8)の通しの確認: 入口にスタジオを取り込み、録画の部品を別のプロセスで立て、
 - src/app/tests/e2e_live_studio.py — リアルタイム切り抜き(線 D の P3。notes:plan/line-d-live-clipping.md の 0-8)の通しの確認: 入口にスタジオを取り込み、録画の部品を別のプロセスで立て、
 - src/app/tests/e2e_portal.py — ホーム(src/app/ui/home/portal.html。段階5: 入口 + 案件を1つにした)の通し確認(Playwright。本物の3ツールを疑似モードで
 - src/app/tests/fake_excite_worker.py — 偽の検出ワーカー(e2e 用)。本物の src/pipeline/analyze/live_excite_worker.py の代わりに入口(live_detect.Detector)が起動し、

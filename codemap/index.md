@@ -6,12 +6,12 @@
 | 層 | md | ファイル | 行 |
 |---|---|---|---|
 | ytt(基盤) | [ytt.md](ytt.md) | 49 | 10954 |
-| ① pipeline(道具 = データを加工する) | [pipeline.md](pipeline.md) | 64 | 24114 |
+| ① pipeline(道具 = データを加工する) | [pipeline.md](pipeline.md) | 64 | 24113 |
 | ② flow(管理 = いつ・どの順で・どこに置くか) | [flow.md](flow.md) | 87 | 29228 |
 | ③ human(人の操作) | [human.md](human.md) | 59 | 16870 |
 | ④ manage(データ) | [manage.md](manage.md) | 42 | 11624 |
 | ⑤ eval(検証) | [eval.md](eval.md) | 33 | 14614 |
-| src/app(入口と画面) | [app.md](app.md) | 90 | 41541 |
+| src/app(入口と画面) | [app.md](app.md) | 84 | 37447 |
 | src/friendapp(友人の玄関) | [friendapp.md](friendapp.md) | 46 | 17916 |
 | その他の画面(editor・studio・ui-kit・cut2resolve) | [tools.md](tools.md) | 49 | 20582 |
 | dev・setup(開発の道具) | [dev.md](dev.md) | 57 | 16188 |
