@@ -74,7 +74,7 @@ class CountTest(unittest.TestCase):
 class ClassifyTest(unittest.TestCase):
     def test_layers_and_kinds(self):
         cases = {
-            "src/app/server.py": ("src/app", "本体"),
+            "src/app/cards.py": ("src/app", "本体"),
             "src/app/tests/test_x.py": ("src/app", "テスト"),
             "src/flow/tests/helper.js": ("src/flow", "テスト"),
             "src/pipeline/e2e_run.py": ("src/pipeline", "テスト"),
