@@ -13,7 +13,9 @@
   4 dup-helper    … ytt にある小道具の写し(_unlink / _no_window / KillJob の定義が ytt の外にある。残すなら `# lint: keep <理由>`)
   5 js-dead       … JS のトップレベルの function が、同じツールの .js/.html のどこからも参照されていない(名前が 1 回だけ)
   6 dup-block     … 同じ行の並びが --dup 行以上、別の場所にもある(空白と行末のコメントをそろえて比べる。src/ と dev/ の .py・.js。tests/ は除く)
-  7 no-docstring  … モジュールの先頭に説明(docstring)が無い .py(tests/ は除く)
+  7 no-docstring  … モジュールの先頭に説明(docstring)が無い .py(tests/ は除く)。テストの .py・.js・.cs(git の全部)は頭の説明
+                    (docstring か最初のコメント)が無い物(dev/code_map.py の --missing と同じ)
+ 10 code-map      … コードの地図 codemap/ が古い(dev/code_map.py --check。作り直しは python dev/code_map.py)
   8 version       … 版は全体で 1 つ(ytt/version.py)。そこが正しい形か、各ツールの定数・画面に版の数字を直に書いていないか
   9 ref-path/ref-gone/ref-layer … 説明文(docstring とコメント。tests/ は除く)の参照が戻らない検査: 無い .py のパス・もう無い名前(ed_alt など)・先頭の説明の層の番号がフォルダと合わない。
                     過去の経緯として書くなら行に `lint: ref <理由>`。`notes:`・`git:` の後ろは見ない(notes_tool check が見る)
@@ -335,7 +337,7 @@ def main():
     except Exception:
         pass
     corpus = Corpus()
-    issues = {k: [] for k in ("unused-import", "dead-name", "long-function", "dup-helper", "js-dead", "dup-block", "no-docstring", "version", "notes-path", "ref-path", "ref-gone", "ref-layer")}
+    issues = {k: [] for k in ("unused-import", "dead-name", "long-function", "dup-helper", "js-dead", "dup-block", "no-docstring", "version", "notes-path", "ref-path", "ref-gone", "ref-layer", "code-map")}
 
     def add(kind, file, line, name, **extra):
         issues[kind].append(dict({"file": file, "line": line, "name": name}, **extra))
@@ -372,6 +374,14 @@ def main():
     import notes_tool
     for where, ln, path in notes_tool.check():
         add("notes-path", where, ln, path)
+    # 頭の説明(上の .py の検査が見ない テストの .py・.js・.cs)とコードの地図の古さ = dev/code_map.py
+    import code_map
+    pages, infos = code_map.build()
+    for it in infos:
+        if not it["head"] and (it["test"] or not it["path"].endswith(".py")):
+            add("no-docstring", it["path"], 1, "頭の説明")
+    for name in code_map.stale(pages):
+        add("code-map", "codemap/" + name, 1, "古い(python dev/code_map.py で作り直す)")
     total = sum(len(v) for v in issues.values())
     if a.json:
         print(json.dumps({"total": total, "issues": issues}, ensure_ascii=False, indent=1))

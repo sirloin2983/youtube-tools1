@@ -1,0 +1,50 @@
+# 言葉の索引の手で書く表(dev/code_map.py が読み、codemap/words.md に場所を引いて出す)。
+# 1 行 = 画面の言葉<TAB>コードの名前(カンマ区切り。関数・クラス・設定の鍵・/api の口・パス)<TAB>メモ
+# 名前の場所は道具が引く(書くのは名前だけ)。言葉を足したら python dev/code_map.py
+区間カード	checkSectionCardsOn,human/check/section.py,app/check/eval_sources.py,section_eval	③ 確かめる(評価のレーン)の区間カード。設定の鍵と反映・出どころ
+機械のカットのカード	checkCutCardsOn,human/check/cutcard.py,app/check/cut_sources.py,cut_edge	③ 確かめるの自動カットのカード。鍵・反映・出どころ
+確かめる	human/check/apply.py,app/check/deck.py,app/check/sources.py,next_cards	確かめるの待ち行列(GET /api/check/next)・答えの反映。画面は src/app/ui/check/
+評価のレーン	section_eval,app/check/eval_sources.py,app/check/lineup.py,eval/check/goals.py	確かめるのうち評価用動画の区間カードの流れ
+普段のレーン	speech_diar,speech_sources.py,human/check/speech.py	確かめるの普段のレーン(この行は声ですか)のカード
+受け取る	friendapp/inbox.py,receive_view,friendapp/ui/receive.js,Inbox.decide	友人のアプリの受け取る画面。残す判定と受信箱
+見送った物	Inbox.undo,Inbox.decide,VERDICTS,/api/friend/undo	受け取る画面で 3 日は戻せる skip・bad の物
+送る	friendapp/api.py,friendapp/ui/send-form.js,/api/friend/send,flow/sendpolicy.py	友人のアプリの送る欄・受付の口。自動で送る判定は flow/sendpolicy
+送った物	friendapp/ui/sent.js,friendapp/progress.py,/api/friend/inbox	友人のアプリの送った物の行と、失敗の言葉・進み具合
+片付ける	friendapp/tidy.py,Tidy,/api/friend/tidy	友人のアプリのフォルダの整理(新しい版の後と ⚙)。ごみ箱へ移す
+片付け	manage/keep/cleanup.py,Cleanup,/api/cleanup	入口の作業データの片付けの候補。ごみ箱フォルダへ移す
+ごみ箱フォルダ	manage/keep/trash.py,to_trash,put_back,trash_days	④ ごみ箱へ移す・戻すの 1 か所。片付けが通る
+初回の準備	friendapp/setup.py,friendapp/ui/setup.js,friendapp/toolcheck.py,/api/friend/setup	友人のアプリの初回の取得と道具の確かめ
+新しい版	friendapp/ui/update.js,/api/friend/update,friend-apps/launcher/src/Core.cs	友人のアプリの新しい版の帯と、exe の側の版の選び方
+送り返す zip	flow/outbox.py,list_outbox,mark_done,/api/flow/outbox	友人の PC から送り返す zip を作る ②(outbox)
+案件	manage/cases/cases.py,flow/casebook.py,app/ui/cases/cases.js,/api/cases	配信 1 本の束ね。④ が組み、案件の画面(/cases)で見る
+まとめて実行	app/autorun.py,AutoRunner,/api/flow/submit,flow/runqueue.py	入口の案件から配信 1 本ぶんを順に自動で流す
+封筒	flow/envelope.py,flow/order.py	② の依頼の封筒の形と検査。欄から封筒への変換は order
+束	flow/spec.py,spec_from_settings	① に渡す指定の束(spec)の形・既定値・検査
+見積もり	/api/flow/estimate,flow/runqueue.py	② の実行と同じ規則の見積もり(書き込まない)
+掲示板	flow/board.py,flow/jobs.py	② のジョブの掲示板(RS8 の口 S1)
+調子	manage/ops/health.py,/api/health	入口の「調子」。空き容量・失敗・道具の版などの集計
+依頼の受付	human/friend/intake.py,flow/envelope.py,/api/intake	友人の依頼を見張るフォルダ。入口の設定の節 intake
+バックアップ	manage/keep/backup.py,/api/backup	作業データの自動バックアップ。設定の節 backup
+精度の自動測定	eval/drill/accuracy.py,/api/accuracy,/api/accuracy/run	夜に 1 日 1 回、校正済みで認識の精度を測る。設定の節 accuracy
+作業データ	flow/placement.py,app_data_dir,flow/machine.py	置き場所の持ち主は flow/placement。入口と友人の玄関に各々ある
+パック	pipeline/pack/pack.py,flow/pack.py,flow/packrec.py,flow/packjobs.py	Resolve へ渡すパック。作る ①・口 ②・作った記録・ジョブ
+自動カット	pipeline/pack/auto_cut.py,human/check/cutcard.py	パックの自動カットの ① と、確かめるの自動カットのカード
+切り抜き	flow/live_export.py,cut2resolve/serve.py,studio/serve.py	切り抜きスタジオ = studio、パック = cut2resolve、ライブの書き出しは flow
+リアルタイム切り抜き	app/live.py,flow/livesession.py	配信中の録画〜採用の線 D。設定の節 live(既定オフ)
+マーク	flow/live_export.py,flow/live_adopt.py,ytt/marks.py,eval/tools/eval_marks.py	マークの語彙・ライブの「マーク + 書き出し」・盛り上がりの評価
+採用	flow/adopt.py,pipeline/analyze/adopt.py,flow/live_adopt.py,app/ui/cases/panels/cand.js	候補の採用の規則(①)・口(②)・ライブの採用・案件の候補パネル
+候補	flow/casebook.py,ytt/casefiles.py,app/ui/cases/panels/cand.js,human/review/store.py	案件の候補と採用のファイル(読む側 ytt・書く側 ②)と候補パネル
+文字起こし	flow/tx.py,pipeline/transcribe/worker.py,transcribe_clip	② の文字起こしの動詞と ① の認識の部品
+校正	app/ui/cases/panels/proof.js,human/proof/store.py,editor/serve.py	案件の校正パネルと「編集」。人の直しを書く ③
+3 択	app/ui/cases/panels/machpick.js,human/proof/machpick.py	校正パネルの 3 択(機械の結果が変わった行)
+話者	flow/diar.py,human/proof/speakers.py,pipeline/transcribe/diarize.py	話者の判別の段取り(②)・人の直し(③)・判別の部品(①)
+声を覚える	validate_voice_learn,run_voice_learn,/api/voices/learn	「編集」の話者に名前を付けて声を覚えるジョブ
+用語集	pick_glossary_terms,app/ui/editor/app-learn.js	編集の設定の用語集(1 行 1 語)。② tx が選び ① が使う
+書き出し	pipeline/export/exporter.py,flow/export.py,ExportJobs,/api/export	書き出しの ① と ② のジョブ表。スタジオの確認の画面から頼む
+スタジオ	studio/serve.py,app/ui/studio/,human/review/store.py,flow/studiobook.py	切り抜きスタジオ(解析・確認・コラボ)
+編集	editor/serve.py,app/ui/editor/,editor/ed_state.py,/api/edit	文字起こしを直す「編集」の画面とサーバー
+解析の順番待ち	flow/batch.py,app/ui/studio/queue.js	解析の待ち(最大 10 本)と、スタジオの URL から入れる欄
+事務所の登録	mountRegistry,app/ui/studio/rank.js,flow/live_watch.py	新しい案件の探す設定の事務所の登録(#new?set=reg)
+日報	manage/ops/analytics/render.py,manage/ops/analytics/service.py	分析と日報(週報・月報も)。LINE の文面と HTML。設定の節 analytics
+配色	friend-apps/holo-colors/src/Core.cs,friendapp/ui/palette.js,/api/friend/palette	ホロカラーは C# の色の一覧アプリ。配色は友人の画面の A〜D
+起動	app/server.py,Supervisor,friend-apps/launcher/src/Launcher.cs,manage/ops/restart.py	入口のランチャーと友人の FriendApp.exe。起動し直しは restart

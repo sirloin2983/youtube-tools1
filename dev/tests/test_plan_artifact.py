@@ -1,3 +1,4 @@
+"""dev/plan_artifact.py(計画のページ plan/ を 1 枚の公開用 HTML に組む道具)のテスト。目次と Artifact 用の 1 枚・ホームの自動の部分・版と参照・図を見る。"""
 import json
 import os
 import subprocess
