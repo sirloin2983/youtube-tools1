@@ -28,7 +28,7 @@ ALLOWED = {
 
 # 今のパス(リポジトリ直下から。区切りは /)→ (層, 行き先, 備考)
 FILES = {
-    # ---- ytt_core → ytt(基盤)は RS1-1 で移した(DIRS で読む)。残るのは旧い名前の転送だけ(FORWARDERS)
+    # ---- ytt_core → ytt(基盤)は RS1-1 で移した(DIRS で読む)。旧い名前の転送は RS5-G で全部消した
     "src/ytt/docloc.py": ("ytt", "ytt", "文字起こしの文書の置き場所を引く口(RS8 B2-1a。索引 transcripts/<id>.loc.json が無ければ workdata.TX_DIR。標準ライブラリと ytt だけ)"),
     "src/ytt/casefiles.py": ("ytt", "ytt", "案件の 候補.json・採用.json の読む側(RS8 B3-4a。形・パスの相対 ⇔ 絶対・読み read(cached)・重ね merge・ロック。flow/casebook から下ろした。ytt/studiodata が data.json の行の case から読むため。書く側は flow/casebook)"),
     "src/ytt/gpuinfo.py": ("ytt", "ytt", "この PC の GPU の名前と VRAM(F1 F0-2。nvidia-smi → レジストリ → CIM。窓を出さない子プロセス・結果を覚える。flow/machine の llmModel の既定と ② の状態が読む)"),
@@ -109,12 +109,6 @@ FILES = {
 
 # 新しいフォルダ(RS1 以降に移した先)。フォルダ名 → 層。ここにある物は FILES に書かなくてよい
 DIRS = {"src/ytt": "ytt", "src/pipeline": "pipeline", "src/flow": "flow", "src/human": "human", "src/manage": "manage", "src/eval": "eval", "src/app": "app", "src/friendapp": "friendapp"}
-
-# 旧い名前の転送(移したあとも旧い名前の import を動かすためだけのファイル。RS5-G で消して空になった = 今は転送は無い。仕組みはテスト用に残す)。
-# 転送のファイル → {旧い名前の中の名前: 実体のパス, "*": 表に無い名前の実体のパスの型}。test_layering は転送を import する側としては
-# 検査せず、転送に落ちた import を実体へ付け替えて向きを見る(転送のせいで違反が「直った」と見えないように)
-FORWARDERS = {}
-
 
 def layer_of(relpath):
     """リポジトリ直下からのパス(区切り /)→ 層の名前。知らないファイルは None"""

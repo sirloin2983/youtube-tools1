@@ -68,15 +68,6 @@ def find_module(base, parts):
     return None, []
 
 
-def forward(f, rest):
-    """転送のファイル(layer_map.FORWARDERS)に落ちた import を実体へ付け替える。転送でなければそのまま"""
-    table = LM.FORWARDERS.get(rel(f)) if f else None
-    if not table or not rest:
-        return f
-    real = table.get(rest[0]) or table["*"].format(name=rest[0])
-    return os.path.join(REPO, *real.split("/"))
-
-
 def imports_of(path, idx):
     """path が import しているリポジトリの中のファイル(src/ の中)→ 裸の名前で解いたか(bool)の辞書"""
     tree = parse(path)
@@ -92,7 +83,7 @@ def imports_of(path, idx):
             for a in n.names:
                 parts = a.name.split(".")
                 if os.path.isdir(os.path.join(SRC, parts[0])):   # import ytt_core / import pipeline.pack.pack
-                    add(forward(*find_module(SRC, parts)))
+                    add(find_module(SRC, parts)[0])
                 else:
                     add(resolve(parts[0], here, idx), bare=True)
         elif isinstance(n, ast.ImportFrom):
@@ -102,12 +93,12 @@ def imports_of(path, idx):
                     base = os.path.dirname(base)
                 mod = n.module.split(".") if n.module else []
                 for a in n.names:
-                    add(forward(*find_module(base, mod + [a.name])))
+                    add(find_module(base, mod + [a.name])[0])
                 continue
             parts = (n.module or "").split(".")
             if os.path.isdir(os.path.join(SRC, parts[0])):   # from ytt_core import fsio / from pipeline.pack import pack
                 for a in n.names:
-                    add(forward(*find_module(SRC, parts + [a.name])))
+                    add(find_module(SRC, parts + [a.name])[0])
             else:
                 add(resolve(parts[0], here, idx), bare=True)
     return found
@@ -120,8 +111,6 @@ def violations():
     bad, unmapped, bare_bad = [], [], []
     for p in files:
         r = rel(p)
-        if r in LM.FORWARDERS:   # 転送は旧い名前を残すためだけの物。読み手は実体へ付け替えて検査する
-            continue
         src_layer = LM.layer_of(r)
         if src_layer is None:
             unmapped.append(r)
@@ -271,18 +260,9 @@ class TestLayering(unittest.TestCase):
         self.assertFalse(msg, "\n".join(msg))
 
     def test_resolver(self):
-        """入れ子のパッケージ(from manage.cases import txindex)と、転送の付け替え"""
+        """入れ子のパッケージ(from manage.cases import txindex)"""
         f, rest = find_module(SRC, ["pipeline", "pack", "nothing_here"])
         self.assertEqual((rel(f), rest), ("src/pipeline/pack/__init__.py", ["nothing_here"]))
-        init = os.path.join(SRC, "pipeline", "pack", "__init__.py")
-        saved = LM.FORWARDERS
-        try:
-            LM.FORWARDERS = {"src/pipeline/pack/__init__.py": {"a": "src/x/a.py", "*": "src/y/{name}.py"}}
-            self.assertEqual(rel(forward(init, ["a"])), "src/x/a.py")
-            self.assertEqual(rel(forward(init, ["b", "c"])), "src/y/b.py")
-            self.assertEqual(forward(init, []), init)
-        finally:
-            LM.FORWARDERS = saved
 
     def test_layer_order(self):
         """ALLOWED の表(RS6 a-0): ③④ は ① を直に読まず ② を通す・⑤ は ① を読んでよい・app は全部"""
