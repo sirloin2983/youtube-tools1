@@ -27,7 +27,7 @@
   - 画面: src/friendapp/ui/friend.html:175・src/friendapp/ui/guide.html:144・src/friendapp/ui/receive.js:65
 - **送る** — 友人のアプリの送る欄・受付の口。自動で送る判定は flow/sendpolicy
   - コード: `src/friendapp/api.py`・`src/friendapp/ui/send-form.js`・`/api/friend/send` src/friendapp/server.py:404・`src/flow/sendpolicy.py`
-  - 画面: src/app/ui/cases/panels/cut.js:137・src/app/ui/check/cards/value.js:11・src/app/ui/editor/app-learn.js:164・src/app/ui/editor/app.js:428 ほか 16
+  - 画面: src/app/ui/cases/panels/cut.js:137・src/app/ui/check/cards/value.js:11・src/app/ui/editor/app-learn.js:164・src/app/ui/editor/app.js:428 ほか 17
 - **送った物** — 友人のアプリの送った物の行と、失敗の言葉・進み具合
   - コード: `src/friendapp/ui/sent.js`・`src/friendapp/progress.py`・`/api/friend/inbox` src/friendapp/server.py:291
   - 画面: src/app/ui/home/portal.html:152・src/friendapp/ui/friend.html:140・src/friendapp/ui/guide.html:37・src/friendapp/ui/receive.js:65
@@ -213,6 +213,7 @@
 - 2回以上(2)— src/app/ui/editor/app-tpl.js:315
 - 3 パック(2)— src/app/ui/editor/app-tools.js:477
 - 3回以上(2)— src/app/ui/editor/app-tpl.js:315
+- YouTube にログイン(2)— friend-apps/launcher/src/YtLogin.cs:140
 - この動画を作り直す(今の設定で)(2)— src/app/ui/editor/app-tpl.js:22
 - この配信(2)— src/app/ui/studio/collab.js:153
 - この配信を解析する(2)— src/app/ui/studio/review.js:168
@@ -328,4 +329,3 @@
 - -14(YouTube の目安・おすすめ)(1)— src/app/ui/studio/review.js:344
 - -16 LUFS(少し小さめ)(1)— src/app/ui/cases/panels/cut.js:155
 - -16(控えめ)(1)— src/app/ui/studio/review.js:344
-- -18 LUFS(小さめ)(1)— src/app/ui/cases/panels/cut.js:155

@@ -41,6 +41,8 @@
   - 名前: `class Job` :26・`Add` :40・`Kill` :45・`Dispose` :50・`class JOBOBJECT_BASIC_LIMIT_INFORMATION` :56・`class IO_COUNTERS` :67・`class JOBOBJECT_EXTENDED_LIMIT_INFORMATION` :73・`CreateJobObject` :81・`SetInformationJobObject` :83・`AssignProcessToJobObject` :85・`TerminateJobObject` :87・`CloseHandle` :89・ほか 21
 - **MainForm.cs** (934 行) — FriendApp.exe の窓 1 枚: WebView2 で Python の画面を出し、時計の横のアイコン・× と止める確認・スリープ止め・●n を持つ。C# 5 で書く
   - 名前: `class MainForm` :20・`OnHandleCreated` :97・`WebViewAvailable` :107・`ProbeWebView` :120・`SetVisibleCore` :134・`OnLoad` :140・`PrintWindow` :180・`class RECT` :183・`GetWindowRect` :186・`DwmGetWindowAttribute` :189・`Capture` :191・`TakeStepShots` :213・ほか 26
+- **YtLogin.cs** (242 行) — YouTube のログイン(notes:docs/spec/friend.md の 13-13)。友人の PC の yt-dlp が bot 判定で止められないように、アプリの小窓で
+  - 名前: `class CookieRow` :23・`class YtCookies` :30・`CookiesPath` :37・`ProfileDir` :38・`LoggedIn` :41・`IsYouTube` :47・`IsRobots` :53・`Pick` :60・`Bad` :76・`Line` :79・`Text` :87・`Save` :95・ほか 6
 
 ## テスト
 
