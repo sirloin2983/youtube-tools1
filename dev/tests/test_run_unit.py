@@ -55,12 +55,19 @@ class TestBuildUnits(unittest.TestCase):
         self.assertIn("dev/tests/test_lint.py", got)
         self.assertFalse(any("e2e_" in r or "helper" in r for r in got))
 
-    def test_editor_is_one_unit_with_its_own_cwd(self):
-        units = [u for u in R.build_units(self.tmp.name) if u.rel.startswith("src/editor/")]
-        self.assertEqual(len(units), 1)
-        u = units[0]
-        self.assertEqual(u.args, ["test_metrics"])
-        self.assertTrue(u.cwd.replace(os.sep, "/").endswith("src/editor/tests"))
+    def test_editor_runs_by_module_with_its_own_cwd(self):
+        units = {u.rel: u for u in R.build_units(self.tmp.name) if u.rel.startswith("src/editor/")}
+        self.assertEqual(sorted(units), ["src/editor/tests/test_backend.py", "src/editor/tests/test_metrics.py"])
+        self.assertEqual(units["src/editor/tests/test_backend.py"].args, ["test_backend"])
+        self.assertEqual(units["src/editor/tests/test_metrics.py"].args, ["test_metrics"])   # クラスが無ければモジュールごと
+        self.assertTrue(all(u.cwd.replace(os.sep, "/").endswith("src/editor/tests") for u in units.values()))
+        with open(os.path.join(self.tmp.name, "src/editor/tests/test_metrics.py"), "w", encoding="utf-8") as f:
+            f.write("class TestPure(unittest.TestCase):\n    pass\nfrom test_backend import *\nclass TestX(unittest.TestCase):\n    pass\n")
+        try:
+            got = [u for u in R.build_units(self.tmp.name) if u.rel == "src/editor/tests/test_metrics.py"][0]
+            self.assertEqual(got.args, ["test_metrics.TestPure", "test_metrics.TestX"])   # 星の import で読んだ物はそのモジュールの回で
+        finally:
+            open(os.path.join(self.tmp.name, "src/editor/tests/test_metrics.py"), "w").close()
 
     def test_contract_is_marked_solo(self):
         labels = {u.rel: u.label for u in R.build_units(self.tmp.name)}
@@ -70,7 +77,7 @@ class TestBuildUnits(unittest.TestCase):
     def test_only_by_layer_folder_and_dev(self):
         self.assertEqual(sorted(set(r.split("/")[1] for r in self.rels(["manage"]))), ["manage"])
         self.assertEqual(self.rels(["src/manage/keep"]), ["src/manage/keep/tests/test_backup.py", "src/manage/keep/tests/test_cleanup.py"])
-        self.assertEqual(self.rels(["editor"]), ["src/editor/tests/test_metrics.py"])
+        self.assertEqual(self.rels(["editor"]), ["src/editor/tests/test_backend.py", "src/editor/tests/test_metrics.py"])
         self.assertTrue(all(r.startswith("dev/") for r in self.rels(["dev"])))
         self.assertEqual(self.rels(["manage", "flow"]), sorted(self.rels(["manage"]) + self.rels(["flow"])))
 

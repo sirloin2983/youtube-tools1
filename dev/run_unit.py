@@ -9,7 +9,8 @@
 
 対象: src/**/tests/test_*.py と dev/tests/test_*.py(e2e_*.py と test_ で始まらない物は流さない)。
 同じプロセスに混ぜると名前が重なるテストがあるので、1 本ずつ `py -3.10 -m unittest <ファイル>` を別のプロセスで流す。
-例外 1: src/editor/tests/ は 1 本ずつだと test_backend の import で落ちるので、そのフォルダを cwd にして test_metrics を 1 回だけ流す(編集の一式)。
+例外 1: src/editor/tests/ はリポジトリ直下からだと test_backend の import で落ちるので、そのフォルダを cwd にしてモジュール名で 1 本ずつ流す
+        (test_metrics は自分で定義したクラスだけ。前は test_metrics を 1 回 = 星の import で全部を 1 本にしていて、一番遅い束だった。10-18 テストの見直し)。
 例外 2: dev/tests/test_resolve_pack_contract.py は単独で流す(表示に「単独」と付ける)。
 環境: YTT_DATA_DIR=inplace。PYTHONIOENCODING は外す。Windows の子プロセスは窓を出さない(CREATE_NO_WINDOW)。
 終了コード: 落ちた物があれば 1。使い方の誤りは 2。
@@ -84,10 +85,14 @@ def build_units(root, only=None):
             continue
         label = rel + (" (単独)" if rel in SOLO else "")
         units.append(Unit(rel, root, [rel], label))
-    if editor_files:
-        entry = EDITOR_TESTS + "/" + EDITOR_ENTRY + ".py"
-        units.append(Unit(entry, os.path.join(root, EDITOR_TESTS), [EDITOR_ENTRY],
-                          EDITOR_TESTS + " (編集の一式: " + EDITOR_ENTRY + " を 1 回)"))
+    edir = os.path.join(root, EDITOR_TESTS)
+    for rel in editor_files:
+        mod = os.path.basename(rel)[:-3]
+        args = [mod]
+        if mod == EDITOR_ENTRY:   # 星の import で読み込んだほかのモジュールのテストは、そのモジュールの回で流す
+            with open(os.path.join(root, rel), encoding="utf-8") as f:
+                args = [mod + "." + c for c in re.findall(r"^class (\w+)\(unittest\.TestCase\)", f.read(), re.M)] or [mod]
+        units.append(Unit(rel, edir, args, rel + " (編集)"))
     units = [u for u in units if matches(u.rel, only)]
     return sorted(units, key=lambda u: u.rel)
 
