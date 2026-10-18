@@ -128,7 +128,7 @@ class TestExportJobs(Base):
 
 
 class TestHeavySlot(Base):
-    """書き出しは、他のツールの重い処理と順番を待つ(ytt.jobs)。待っている間は waiting、取り消せる(test_exporter から移した)"""
+    """書き出しは、他のツールの重い処理と順番を待つ(ytt.jobs)。待っている間は waiting、取り消せる"""
 
     def test_waits_and_cancels(self):
         slots = jobs.HeavySlots(1)

@@ -1,5 +1,4 @@
-"""human/review/store.py の単体テスト(ネットワーク・ffmpeg 不要)。 実行(リポジトリ直下): py -3.12 -m unittest src/human/review/tests/test_studio.py
-RS3-5(2026-10-10)で studio/tests から移した。"""
+"""human/review/store.py の単体テスト(ネットワーク・ffmpeg 不要)。 実行(リポジトリ直下): py -3.12 -m unittest src/human/review/tests/test_studio.py"""
 import glob
 import json
 import os
@@ -204,7 +203,7 @@ class TestAdoptRule(Base):
         self.assertEqual((self.starts(r["autoIds"]), r["humanIds"], r["added"]), ([100, 300], [], []))
 
     def test_human_adoption_counts_and_rest_is_filled(self):
-        """人が 1 本採用した配信の再実行: 人の分を数に入れ、上限までの残りを自動で足す(以前の adopt_top は「人が採用済みなら自動は 0」)"""
+        """人が 1 本採用した配信の再実行: 人の分を数に入れ、上限までの残りを自動で足す(人が採用済みでも自動は 0 にならない)"""
         self.set_status(10, "adopted")
         ids = self.st.adopt_marks(YT["videoId"], [], 3)["added"]
         self.assertEqual(self.starts(ids), [100, 300])
@@ -481,7 +480,7 @@ class TestPersistence(Base):
         self.st.mark_exported(YT["videoId"], a["id"], "f.mp4", a["start"], a["end"])
         s = self.st.list()[0]
         self.assertEqual((s["marks"], s["exported"], s["adopted"], s["candidates"]), (3, 1, 0, 1))
-        # v0.8.0: 一覧で「いつの配信か」を出すため、スタジオに追加した時刻も返す(足しただけ。更新の時刻より後にはならない)
+        # 一覧で「いつの配信か」を出すため、スタジオに追加した時刻も返す(更新の時刻より後にはならない)
         self.assertTrue(isinstance(s["createdAt"], int) and 0 < s["createdAt"] <= s["updatedAt"])
 
 
@@ -675,7 +674,7 @@ class TestCollab(Base):
         self.assertEqual(len(st2.groups), 1)
         self.assertTrue(st2.take_warning()[0])
 
-    # ---- 転写先に近い位置のマークがあるとき(スタジオの API の試験から移した。API を通さず store を直に呼ぶ) ----
+    # ---- 転写先に近い位置のマークがあるとき(API を通さず store を直に呼ぶ) ----
     def _anchored(self):
         g = self.group()
         self.st.set_anchor(g["id"], YT2["videoId"], [[100.0, 110.0]])   # v2の100秒 = 基準の110秒
@@ -918,7 +917,7 @@ class TestCheckLive(unittest.TestCase):
                    dict(url="https://example.com/watch?v=U972n0ncl4k"), dict(url="https://www.youtube.com/" + "a" * 300), dict(url=1)):
             with self.assertRaises(ApiError, msg=kw):
                 yturl.check_live(dict(LIVE, **kw))
-        # 末尾の改行・形の違う値(スタジオの API の試験から移した。正規表現の $ が改行を通す穴を塞いでいる)
+        # 末尾の改行・形の違う値(正規表現の $ が改行を通す穴を塞いでいる)
         for kw in (dict(recording=LIVE["recording"] + "\n"), dict(recording="../x"), dict(recording=None), dict(recorder=""), dict(recorder=5),
                    dict(url="https://evil.example/watch?v=U972n0ncl4k"), dict(url="youtube.com/watch?v=U972n0ncl4k"), dict(url=""), dict(url=None),
                    dict(url="https://www.youtube.com/watch?v=U972n0ncl4k\n"), dict(url="https://www.youtube.com.evil.example/x")):

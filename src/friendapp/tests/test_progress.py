@@ -34,7 +34,7 @@ class ClassifyTest(unittest.TestCase):
         r = self.check(bot, "bot")
         self.assertTrue(r["retry"])
         self.assertEqual((r["retryMax"], r["retryEvery"]), (1, 1800))   # 間を空けて 1 回だけ
-        self.assertIn("[YouTube にログイン] でログインしてください", r["message"])   # ログインしていない = ログインを勧める(10-18)
+        self.assertIn("[YouTube にログイン] でログインしてください", r["message"])   # ログインしていない = ログインを勧める
         self.assertNotIn("処理する PC", r["message"])
         self.assertIn("ログインが切れた可能性", P.classify(bot, login=True)["message"])   # ログインしてあっても止められた = 切れた
         self.assertIn("ログインが切れた可能性", P.classify("WARNING: The provided YouTube account cookies are no longer valid.")["message"])

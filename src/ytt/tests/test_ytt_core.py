@@ -146,7 +146,7 @@ class TestFsio(unittest.TestCase):
         self.assertEqual(sorted(os.listdir(self.tmp)), ["a.srt", "b.srt"])
 
     def test_move_file_across_drives(self):
-        """move_file(RS3-1 に editor/ed_relink の _move から): 名前の変更が効かない別のドライブはコピー → 元を消す。元を消せなければ元のまま"""
+        """move_file:名前の変更が効かない別のドライブはコピー → 元を消す。元を消せなければ元のまま"""
         a, b = os.path.join(self.tmp, "a.bin"), os.path.join(self.tmp, "sub", "b.bin")
         os.makedirs(os.path.dirname(b))
         with open(a, "wb") as f:
@@ -354,7 +354,7 @@ class TestFsio(unittest.TestCase):
         self.assertFalse(fsio.rotate(os.path.join(self.tmp, "無い.log"), 1))   # 無くても上げない
 
     def test_append_line(self):
-        """記録の 1 行の書き足し(RS3-0B で clientlog から移した): フォルダが無ければ作る・UTF-8・上限を超えていたら先に <名前>.1 へ 1 世代回す・書けなければ OSError"""
+        """記録の 1 行の書き足し:フォルダが無ければ作る・UTF-8・上限を超えていたら先に <名前>.1 へ 1 世代回す・書けなければ OSError"""
         p = os.path.join(self.tmp, "新しい", "rec.jsonl")
         fsio.append_line(p, '{"a": "あ"}\n', 100)
         fsio.append_line(p, '{"a": 2}\n', 100)
@@ -606,12 +606,12 @@ class TestRuntime(unittest.TestCase):
         self.assertEqual(runtime.read_runtime(self.dir, "studio")["path"], "/")   # 形の違う場所は使わない
         runtime.write_runtime(self.dir, "studio", 8800, "v")
         with open(os.path.join(self.dir, "studio.json"), encoding="utf-8") as f:
-            self.assertNotIn("path", json.load(f))   # 直下のときは書かない(以前の形のまま)
+            self.assertNotIn("path", json.load(f))   # 直下のときは書かない
 
 
 class TestSchemas(unittest.TestCase):
     def test_now_ms(self):
-        """今の時刻のミリ秒(整数。文書・記録の at・updatedAt と同じ単位。RS3-0B でスタジオの store.now_ms から出した)"""
+        """今の時刻のミリ秒(整数。文書・記録の at・updatedAt と同じ単位)"""
         import time
         before = int(time.time() * 1000)
         v = schemas.now_ms()
@@ -645,14 +645,14 @@ class TestSchemas(unittest.TestCase):
         for obj in bad:
             self.assertIsNone(schemas.validate_clip(obj)[0], obj)
         self.assertIn("未対応の版", schemas.validate_clip(dict(base, schema="youtube-tools-clip/v2"))[1])
-        # num と validate_clip は、float にできない巨大な整数・NaN でも落ちない(以前は OverflowError)
+        # num と validate_clip は、float にできない巨大な整数・NaN でも落ちない(OverflowError を上げない)
         self.assertEqual([schemas.num(v) for v in (1, 2.5, True, "1", None, float("nan"), float("inf"), 10 ** 400)],
                          [1.0, 2.5, None, None, None, None, None, None])
         huge = {"schema": schemas.CLIP_SCHEMA, "range": {"start": 10 ** 400, "end": 10 ** 401}}
         self.assertIsNone(schemas.validate_clip(huge)[0])
 
     def test_paths_and_load(self):
-        # 途中のファイルは 作業用\ に書く(2026-09-27。出力先の直下はパックと元動画だけ)。動画がもう 作業用 の中ならそこ
+        # 途中のファイルは 作業用\ に書く(出力先の直下はパックと元動画だけ)。動画がもう 作業用 の中ならそこ
         W = schemas.WORK_DIR
         self.assertEqual(schemas.clip_path_for(os.path.join("x", "a.b.mp4")), os.path.abspath(os.path.join("x", W, "a.b.clip.json")))
         self.assertEqual(schemas.clip_path_for(os.path.join("x", W, "a_edit.mp4")), os.path.abspath(os.path.join("x", W, "a_edit.clip.json")))
@@ -662,7 +662,7 @@ class TestSchemas(unittest.TestCase):
             v = os.path.join(tmp, "v.mp4")
             self.assertEqual(schemas.sidecar_candidates(v, ".srt"), [os.path.join(tmp, W, "v.srt"), os.path.join(tmp, "v.srt")])
             self.assertIsNone(schemas.find_sidecar(v, ".srt"))
-            with open(os.path.join(tmp, "v.srt"), "w") as f:            # 以前の置き方(動画の隣)も読む
+            with open(os.path.join(tmp, "v.srt"), "w") as f:            # 動画の隣の置き方も読む
                 f.write("1")
             self.assertEqual(schemas.find_sidecar(v, ".srt"), os.path.join(tmp, "v.srt"))
             os.makedirs(os.path.join(tmp, W))
@@ -877,7 +877,7 @@ class TestHttpsec(unittest.TestCase):
         self.assertEqual((cm.exception.kind, cm.exception.status), ("json", 400))
         self.assertEqual(httpsec.read_json_body(self.body_handler(b"", length=None), 100, empty_ok=True), {})   # 本文なし = {}
         nan = httpsec.read_json_body(self.body_handler(b'{"a": NaN}'), 100, allow_nan=True)["a"]
-        self.assertNotEqual(nan, nan)                             # allow_nan=True なら NaN も通す(以前の入口と同じ)
+        self.assertNotEqual(nan, nan)                             # allow_nan=True なら NaN も通す
         h = self.body_handler(b"x" * 50, "text/plain")
         with self.assertRaises(httpsec.BodyError):
             httpsec.read_json_body(h, 100)
@@ -1393,7 +1393,7 @@ class TestFfmpegInfo(unittest.TestCase):
     def test_first_real_video_after_cover(self):
         text = self.COVER + "  Stream #0:2: Video: h264, 640x360\n"
         self.assertEqual(tools.parse_ffmpeg_info(text)[1:], (True, True, "Stream #0:2: Video: h264, 640x360"))
-        # カバーアートだけの音声ファイルは動画と見なさない(以前の不具合 620418c0 の再発止め)
+        # カバーアートだけの音声ファイルは動画と見なさない(再発止め)
         self.assertEqual(tools.parse_ffmpeg_info(self.COVER), (200.5, False, True, ""))
         self.assertEqual(tools.duration_in(self.COVER), 200.5)
 
@@ -1415,7 +1415,7 @@ class TestFfmpegInfo(unittest.TestCase):
 
 
 class TestDatadir(unittest.TestCase):
-    """作業データの置き場所(段階4。以前の場所からの写しは 2026-10-18 に消した)"""
+    """作業データの置き場所"""
 
     def setUp(self):
         self.tmp = testkit.tempdir(self)
@@ -1448,13 +1448,13 @@ class TestDatadir(unittest.TestCase):
         self.assertEqual(datadir.data_root({"XDG_DATA_HOME": "/x"}, "linux", "/h"), os.path.join("/x", "youtube-tools"))
         self.assertEqual(datadir.data_root({}, "darwin", "/h"), os.path.join("/h", "Library", "Application Support", "youtube-tools"))
         self.assertIsNone(datadir.data_root({"YTT_DATA_DIR": "InPlace"}, "win32"))
-        self.assertEqual(datadir.tool_dir("studio", "/r/studio", {"YTT_DATA_DIR": "inplace"}), os.path.abspath("/r/studio"))   # src でない親(一時フォルダに写したテスト)は以前と同じツールのフォルダの中
+        self.assertEqual(datadir.tool_dir("studio", "/r/studio", {"YTT_DATA_DIR": "inplace"}), os.path.abspath("/r/studio"))   # src でない親(一時フォルダに写したテスト)はツールのフォルダの中
         self.assertEqual(datadir.tool_dir("studio", "/r/src/studio", {"YTT_DATA_DIR": "inplace"}), os.path.abspath("/r/.data/studio"))   # src の下 = リポジトリ直下の .data/<ID>
         self.assertEqual(datadir.tool_dir("studio", "/x/y", {"YTT_DATA_DIR": "inplace"}, root="/r/src"), os.path.abspath("/r/.data/studio"))
         self.assertEqual(datadir.prepare("studio", "/r/src/studio", {"YTT_DATA_DIR": "inplace"})["dir"], os.path.abspath("/r/.data/studio"))
 
     def test_prepare_new_does_not_copy(self):
-        """以前の場所(ツールのフォルダ)にデータがあっても写さない(写しは 2026-10-18 に消した)。新しい場所を作るだけ"""
+        """ツールのフォルダにデータがあっても写さない。新しい場所を作るだけ"""
         r = datadir.prepare("transcribe", self.legacy, self.env)
         self.assertEqual((r["state"], r["dir"], r["warnings"]), ("new", self.new, []))
         self.assertEqual(os.listdir(self.new), [])
@@ -1465,7 +1465,7 @@ class TestDatadir(unittest.TestCase):
         self.assertFalse(os.path.exists(self.new))
 
     def test_resolve_precedence(self):
-        """置き場所の求め方は datadir の1か所(2026-10-01): 登録 → ツールごとの環境変数 → YTT_DATA_DIR・既定。env を渡したら登録を見ない"""
+        """置き場所の求め方は datadir の1か所:登録 → ツールごとの環境変数 → YTT_DATA_DIR・既定。env を渡したら登録を見ない"""
         repo = os.path.join(self.tmp, "repo")
         reg = os.path.join(self.tmp, "registered")
         env = dict(self.env)
@@ -1533,7 +1533,7 @@ class TestDatadir(unittest.TestCase):
 
 
 class TestLayout(unittest.TestCase):
-    """リポジトリの中のフォルダの並び(ytt/layout.py。段0・2026-10-07 の src/ と friend-apps/)"""
+    """リポジトリの中のフォルダの並び(ytt/layout.py。src/ と friend-apps/)"""
 
 
 class TestHeavySlots(unittest.TestCase):
@@ -1670,7 +1670,7 @@ class TestTxIndex(unittest.TestCase):
 
     def test_pack_info_needs_record(self):
         """パックの有無の規則(入口の案件・文字起こしの一覧で共通): パックを作った記録だけで決める。
-        フォルダだけ・以前の形(フォルダの中の cut-plan.json。2026-10-18 に読む口を消した)は「あり」にしない"""
+        フォルダだけ・フォルダの中の cut-plan.json は「あり」にしない"""
         from manage.cases import txindex
         env = {"YTT_DATA_DIR": os.path.join(self.tmp, "data")}
         self.assertIsNone(txindex.pack_info(self.clip, env))
@@ -1686,7 +1686,7 @@ class TestTxIndex(unittest.TestCase):
         self.assertFalse(txindex.is_pack_dir(d, env))
 
     def test_pack_record(self):
-        """2026-09-26(④)から: パックに cut-plan.json を置かず、cut2resolve の作業データ packs/ の記録で「パック済み」を決める"""
+        """パックに cut-plan.json を置かず、cut2resolve の作業データ packs/ の記録で「パック済み」を決める"""
         import json as _json
         from manage.cases import txindex
         env = {"YTT_DATA_DIR": os.path.join(self.tmp, "data")}
@@ -1759,7 +1759,7 @@ class TestTxIndex(unittest.TestCase):
         self.assertEqual(txindex.summary(best), {"id": "bbbbbbbbbbbb", "title": "tbbbbbbbbbbbb", "segments": 2, "proofed": 1, "cut": 1, "updatedAt": 5})
 
     def test_match_by_path_before_normalize30(self):
-        """2026-10-04 Q1: 「編集」が 30fps の写しへ付け替えた文書は、付け替える前のパス(relinks の why normalize30)でも見つかる"""
+        """Q1: 「編集」が 30fps の写しへ付け替えた文書は、付け替える前のパス(relinks の why normalize30)でも見つかる"""
         p = os.path.join(self.dir, "aaaaaaaaaaaa.json")
         self.doc("aaaaaaaaaaaa", self.clip.replace(".mp4", "_30fps.mp4"))
         with open(p, encoding="utf-8") as f:
@@ -1832,7 +1832,7 @@ class TestTxIndex(unittest.TestCase):
         self.assertEqual(datadir.registered("cut2resolve"), os.path.abspath("/c2r"))
         self.assertEqual(txindex.folder("/r"), os.path.join(os.path.abspath("/tx"), "transcripts"))
         self.assertEqual(txindex.packs_dir(), os.path.join(os.path.abspath("/c2r"), "packs"))
-        self.assertEqual(txindex.packs_dir(c2r_dir="/other"), os.path.join(os.path.abspath("/c2r"), "packs"))   # 登録が先(以前と同じ)
+        self.assertEqual(txindex.packs_dir(c2r_dir="/other"), os.path.join(os.path.abspath("/c2r"), "packs"))   # 登録が先
         self.assertEqual(txindex.folder("/r", {"YTT_DATA_DIR": "inplace"}), os.path.join(os.path.abspath("/r/editor"), "transcripts"))
         self.assertEqual(txindex.packs_dir({"YTT_DATA_DIR": "inplace"}, "/other"), os.path.join(os.path.abspath("/other"), "packs"))
         datadir.register("cut2resolve", None)
@@ -1840,7 +1840,7 @@ class TestTxIndex(unittest.TestCase):
 
 
 class TestColors(unittest.TestCase):
-    """配信者の名前 → メンバーカラー(ytt/colors.py。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 4)"""
+    """配信者の名前 → メンバーカラー(ytt/colors.py)"""
 
     def setUp(self):
         self.tmp = testkit.tempdir(self, "ytt-colors-")
@@ -1930,7 +1930,7 @@ class TestColors(unittest.TestCase):
         self.assertEqual(colors.speaker_colors(["さくらみこ"], entries=es)[0], {"さくらみこ": "#FE4B74"})
         self.assertNotIn("gone", by)                                                                     # members.json に無い id は使わない
 
-        miko["subtitle"] = "#fe4b74"                                                                     # 字幕の既定の色(subtitle。2026-10-05)
+        miko["subtitle"] = "#fe4b74"                                                                     # 字幕の既定の色(subtitle)
         d["groups"][0]["members"][1]["subtitle"] = "#5683c8"
         d["groups"][1]["members"][0]["subtitle"] = "bad"
         with open(self.members, "w", encoding="utf-8") as f:
@@ -1956,7 +1956,7 @@ class TestColors(unittest.TestCase):
 
 
 class TestPick(unittest.TestCase):
-    """参照…の窓(ytt/pick.py。2026-10-01)。subprocess.run を差し替えるので本物の窓は開かない"""
+    """参照…の窓(ytt/pick.py)。subprocess.run を差し替えるので本物の窓は開かない"""
 
     def run_result(self, stdout=b"", returncode=0, stderr=b""):
         return mock.Mock(returncode=returncode, stdout=stdout, stderr=stderr)
@@ -2043,7 +2043,7 @@ class TestPick(unittest.TestCase):
             with open(f, "wb") as fh:
                 fh.write(b"x")
             self.assertEqual(pick.initial_dir(f), os.path.abspath(sub))   # ファイルならその入っているフォルダ
-            self.assertEqual(pick.initial_dir(os.path.join(sub, "a\0b.mp4")), "")   # NUL を含むパスは上のフォルダへたどらない(以前と同じ)
+            self.assertEqual(pick.initial_dir(os.path.join(sub, "a\0b.mp4")), "")   # NUL を含むパスは上のフォルダへたどらない
         for bad in ("", None, "   ", "相対/パス/a.mp4", "clip.mp4"):
             self.assertEqual(pick.initial_dir(bad), "", repr(bad))
 
@@ -2058,7 +2058,7 @@ class TestLoudness(unittest.TestCase):
     """ラウドネスの決まり(ytt/loudness.py。スタジオの書き出し・パック作りが共通で使う)"""
 
     def test_ffmpeg_args(self):
-        """OPT2: 音量・ラウドネスの引数は 1 か所(スタジオの書き出しとライブの書き出しの引数の列は移す前と同じ)"""
+        """OPT2: 音量・ラウドネスの引数は 1 か所(スタジオの書き出しとライブの書き出しの引数の列は固定)"""
         from ytt import loudness as L
         P = ["-progress", "pipe:1", "-nostats"]
         self.assertEqual((L.volume_filter(75), L.gain_filter(-3.456)), ("volume=0.750", "volume=-3.46dB"))
@@ -2087,7 +2087,7 @@ class TestLoudness(unittest.TestCase):
         self.assertEqual(L.parse('{"input_i" : "-inf", "input_tp" : "-inf"}'), (None, None))   # 無音
         self.assertEqual(L.parse(""), (None, None))
         self.assertEqual(L.gain(-14, -18.8, -4.1), 3.1)            # ピーク(-1 dBTP)で止まる
-        self.assertEqual(L.gain(-18, -18.8, -4.1), 0.8)            # 2026-09-29 の実例: 「小さめ」でも元より少し上がる
+        self.assertEqual(L.gain(-18, -18.8, -4.1), 0.8)            # 実例: 「小さめ」でも元より少し上がる
         self.assertEqual(L.gain(-14, -50, -45), 20.0)              # 上げる量の上限
         self.assertEqual(L.gain(-14, -10, -2), -4.0)               # 下げる
         self.assertEqual(L.gain(-14, -20, -8, -2.0), 1.0)          # ほかのピーク(編集用素材)も見る
@@ -2098,7 +2098,7 @@ class TestLoudness(unittest.TestCase):
 
 class TestNames(unittest.TestCase):
     """書き出しの名前の規則(スタジオの exporter と入口の live_export が同じ物を読む。T8)。
-    値は 2026-10-09 に一本化する前の両方の実装の出力(名前が 1 バイトでも変わると、前に書き出したフォルダと別になる)"""
+    値は固定(名前が 1 バイトでも変わると、前に書き出したフォルダと別になる)"""
 
     def setUp(self):
         from ytt import names
@@ -2139,7 +2139,7 @@ class TestNames(unittest.TestCase):
         os.makedirs(long_root)
         got = N.pick_folder(long_root, "あ" * 80, "o", "x")[0]
         self.assertEqual(got, "あ" * max(8, min(60, N.MAX_PATH_UNITS - N.path_units(long_root) - 5 - N.BASE_ROOM - N.SUFFIX_ROOM)))
-        old = os.path.join(self.tmp, "以前")                                                       # 以前の置き方(直下の印)も読む
+        old = os.path.join(self.tmp, "以前")                                                       # 直下の印の置き方も読む
         os.makedirs(old)
         with open(os.path.join(old, ".studio-id"), "w", encoding="utf-8") as f:
             f.write("old\n")
@@ -2170,8 +2170,7 @@ class TestNames(unittest.TestCase):
 
 
 class TestRecproto(unittest.TestCase):
-    """録画元との約束(録画の部品 rec_core・入口の live_export・配信中の検出のワーカーが同じ物を読む。T8)。
-    以前は 3 か所の写しの一致を test_live_detect の SameAsExportTest で確かめていた(その例をここへ移した)"""
+    """録画元との約束(録画の部品 rec_core・入口の live_export・配信中の検出のワーカーが同じ物を読む。T8)"""
 
     def setUp(self):
         from ytt import recproto

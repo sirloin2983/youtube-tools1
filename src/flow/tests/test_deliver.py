@@ -58,7 +58,7 @@ class ZipPackTest(unittest.TestCase):
         self.assertEqual(os.listdir(self.out), [])
 
     def test_file_older_than_1980_is_zipped(self):
-        """更新時刻が 1980 年より前のファイルも zip にできる(前は ValueError で手で届ける仕事が「届けている途中」のまま残った。9c-2)"""
+        """更新時刻が 1980 年より前のファイルも zip にできる(ValueError で手で届ける仕事が「届けている途中」のまま残らない。9c-2)"""
         old = os.path.join(self.pack, "old.txt")
         put(old, b"old")
         os.utime(old, (315000000, 315000000))   # 1979 年
@@ -303,7 +303,7 @@ class PreviewTest(unittest.TestCase):
         self.assertTrue(pv.make_preview(a, out, ffmpeg=self.ffmpeg, ffprobe=self.ffprobe, log=self.logs.append), self.logs)
         info = normalize.probe(out, ffprobe=self.ffprobe)
         self.assertEqual((info["height"], info["has_audio"]), (480, True))
-        self.assertAlmostEqual(info["duration"], 2.0, delta=0.5)   # 等速(2026-10-08 ユーザー決定)
+        self.assertAlmostEqual(info["duration"], 2.0, delta=0.5)   # 等速
         self.assertEqual(self.logs, [])
 
     def test_silent_clip_makes_a_silent_preview(self):
