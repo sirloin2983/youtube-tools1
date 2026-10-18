@@ -11,7 +11,7 @@ import tempfile
 
 from ytt import workdata
 
-_NAMES = ("DATA_DIR", "TX_DIR", "TMP_DIR", "EVAL_BASE", "SETTINGS", "FEEDBACK")
+_NAMES = ("DATA_DIR", "TX_DIR", "TMP_DIR", "SETTINGS", "FEEDBACK")
 
 
 def temporary_workdata(testcase, prefix):

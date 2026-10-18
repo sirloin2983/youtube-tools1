@@ -88,7 +88,7 @@ class Base(unittest.TestCase):
         p = mock.patch.dict(os.environ, {"YTT_RUNTIME_DIR": os.path.join(self.tmp, "runtime"), "TRANSCRIBE_FAKE_DELAY": "0"})
         p.start()
         self.addCleanup(p.stop)
-        for name in ("ROOT", "DATA_DIR", "TX_DIR", "TMP_DIR", "EVAL_BASE", "SETTINGS", "FEEDBACK", "MARKER_DATA", "STUDIO_DATA"):
+        for name in ("ROOT", "DATA_DIR", "TX_DIR", "TMP_DIR", "SETTINGS", "FEEDBACK", "MARKER_DATA", "STUDIO_DATA"):
             p = mock.patch.object(workdata, name, getattr(workdata, name))
             p.start()
             self.addCleanup(p.stop)

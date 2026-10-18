@@ -90,7 +90,7 @@ class TestStudioData(_Tmp):
 
     def test_workdata_default_is_the_legacy_value(self):
         """編集の workdata.set_root の読み込み直後の既定(ytt の側。変えない)は、placement の legacy の値と同じ"""
-        saved = {k: getattr(workdata, k) for k in ("ROOT", "DATA_DIR", "TX_DIR", "TMP_DIR", "EVAL_BASE", "SETTINGS", "FEEDBACK", "MARKER_DATA", "STUDIO_DATA")}
+        saved = {k: getattr(workdata, k) for k in ("ROOT", "DATA_DIR", "TX_DIR", "TMP_DIR", "SETTINGS", "FEEDBACK", "MARKER_DATA", "STUDIO_DATA")}
         self.addCleanup(lambda: [setattr(workdata, k, v) for k, v in saved.items()])
         with mock.patch.dict(os.environ, {"YTT_DATA_DIR": "inplace"}):
             for k in ("TRANSCRIBE_STUDIO_DATA", "TRANSCRIBE_DATA_DIR", "STUDIO_HOME"):
@@ -354,7 +354,7 @@ class TestDocHome(_Tmp):
 
     def setUp(self):
         super().setUp()
-        saved = {n: getattr(workdata, n) for n in ("DATA_DIR", "TX_DIR", "TMP_DIR", "EVAL_BASE", "SETTINGS", "FEEDBACK")}
+        saved = {n: getattr(workdata, n) for n in ("DATA_DIR", "TX_DIR", "TMP_DIR", "SETTINGS", "FEEDBACK")}
         self.addCleanup(lambda: [setattr(workdata, n, v) for n, v in saved.items()])
         workdata.set_data_dir(os.path.join(self.tmp, "data"))
         os.makedirs(workdata.DATA_DIR)

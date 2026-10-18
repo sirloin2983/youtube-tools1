@@ -23,7 +23,7 @@ from ytt import layout, workdata  # noqa: E402
 class TestSetup(unittest.TestCase):
     def setUp(self):
         saved = {}
-        for obj, names in ((workdata, ("ROOT", "DATA_DIR", "TX_DIR", "TMP_DIR", "EVAL_BASE", "SETTINGS", "FEEDBACK", "STUDIO_DATA", "MARKER_DATA")),
+        for obj, names in ((workdata, ("ROOT", "DATA_DIR", "TX_DIR", "TMP_DIR", "SETTINGS", "FEEDBACK", "STUDIO_DATA", "MARKER_DATA")),
                            (roster, ("ROSTER",)), (worker_client, ("IN_WORKER", "FAKES_MODULE", "WORKER_LOG")), (backend, ("_selector",)),
                            (jobs, ("_conf",))):
             for n in names:

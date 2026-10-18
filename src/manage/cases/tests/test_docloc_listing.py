@@ -32,7 +32,7 @@ class DocListingTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="doclisting-")
         self.addCleanup(shutil.rmtree, self.tmp, True)
-        saved = {n: getattr(workdata, n) for n in ("DATA_DIR", "TX_DIR", "TMP_DIR", "EVAL_BASE", "SETTINGS", "FEEDBACK")}
+        saved = {n: getattr(workdata, n) for n in ("DATA_DIR", "TX_DIR", "TMP_DIR", "SETTINGS", "FEEDBACK")}
         self.addCleanup(lambda: [setattr(workdata, n, v) for n, v in saved.items()])
         self.data = os.path.join(self.tmp, "data")
         workdata.set_data_dir(self.data)

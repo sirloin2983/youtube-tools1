@@ -54,7 +54,7 @@ class ReadSourcesTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="ytt-check-readsrc-")
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
-        saved = {n: getattr(workdata, n) for n in ("DATA_DIR", "TX_DIR", "TMP_DIR", "EVAL_BASE", "SETTINGS", "FEEDBACK")}
+        saved = {n: getattr(workdata, n) for n in ("DATA_DIR", "TX_DIR", "TMP_DIR", "SETTINGS", "FEEDBACK")}
         self.addCleanup(lambda: [setattr(workdata, n, v) for n, v in saved.items()])
         workdata.set_data_dir(os.path.join(self.tmp, "data"))   # learn-feedback.json の置き場所(読むだけ)
         self.env = {"YTT_DATA_DIR": self.tmp}
