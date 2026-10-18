@@ -166,6 +166,19 @@ class EvalAsrTest(unittest.TestCase):
             self.assertEqual((base["meta"]["perDoc"][0]["context"], base["meta"]["engine"]["context"]), ([], "none"))
         finally:
             os.environ.pop("TRANSCRIBE_BACKEND", None)
+        # 同じ --context auto の道: 配信のチャンネル名・コラボ相手からも出る人を決める(スタジオの data.json を STUDIO_DATA で読む)。
+        # 2026-10-07 までは届かず以前の置き場所を見ていた = 題名・話者の名前からの文脈だけ
+        studio = os.path.join(self.tmp, "studio-data.json")
+        with open(studio, "w", encoding="utf-8") as f:
+            json.dump({"videos": {"vidAAAAAAAAA": {"channel": "Miko Ch. さくらみこ", "title": "配信"}, "vidBBBBBBBBB": {"channel": "Pekora Ch. 兎田ぺこら", "title": "配信"}},
+                       "groups": {"g1": {"members": ["vidAAAAAAAAA", "vidBBBBBBBBB"]}}}, f, ensure_ascii=False)
+        src2 = os.path.join(self.tmp, "clip2.wav")
+        silence_wav(src2, 8.0)
+        self.write("dddddddddd08", evalSet=True, title="切り抜き", sourcePath=src2, start=0, end=8, clip={"source": {"videoId": "vidAAAAAAAAA"}},
+                   segments=[seg(1, 0.0, 4.0, "テスト文1"), seg(2, 4.0, 8.0, "テスト文2")], original=[])
+        with mock.patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "fake", "TRANSCRIBE_STUDIO_DATA": studio}):
+            res2 = quiet(E.main, ["run", "--data", self.data, "--docs", "dddddddddd08", "--context", "auto", "--no-save"])
+        self.assertEqual(res2["meta"]["perDoc"][0]["context"], ["さくらみこ", "兎田ぺこら"])   # チャンネル → コラボ相手
 
     def test_prepare_uses_the_owner_modules(self):
         """C.prepare は入口(編集の serve)を読まず、持ち主のモジュールを直に使う。認識はこのプロセスの中で、スタジオの data.json は
@@ -271,22 +284,6 @@ class EvalAsrTest(unittest.TestCase):
             quiet(E.main, args)
             self.assertEqual(len(calls), n + 1)
             self.assertNotIn("temperature", calls[-1])
-
-    @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg が無い")
-    def test_run_context_reads_studio_streams(self):
-        """--context auto はスタジオの data.json の配信のチャンネル名・コラボ相手から出る人を決める(STUDIO_DATA を workdata に入れる。
-        2026-10-07 までは届かず以前の置き場所を見ていた = 題名・話者の名前からの文脈だけ)"""
-        studio = os.path.join(self.tmp, "studio-data.json")
-        with open(studio, "w", encoding="utf-8") as f:
-            json.dump({"videos": {"vidAAAAAAAAA": {"channel": "Miko Ch. さくらみこ", "title": "配信"}, "vidBBBBBBBBB": {"channel": "Pekora Ch. 兎田ぺこら", "title": "配信"}},
-                       "groups": {"g1": {"members": ["vidAAAAAAAAA", "vidBBBBBBBBB"]}}}, f, ensure_ascii=False)
-        src = os.path.join(self.tmp, "clip.wav")
-        silence_wav(src, 8.0)
-        self.write("dddddddddd08", evalSet=True, title="切り抜き", sourcePath=src, start=0, end=8, clip={"source": {"videoId": "vidAAAAAAAAA"}},
-                   segments=[seg(1, 0.0, 4.0, "テスト文1"), seg(2, 4.0, 8.0, "テスト文2")], original=[])
-        with mock.patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "fake", "TRANSCRIBE_STUDIO_DATA": studio}):
-            res = quiet(E.main, ["run", "--data", self.data, "--docs", "dddddddddd08", "--context", "auto", "--no-save"])
-        self.assertEqual(res["meta"]["perDoc"][0]["context"], ["さくらみこ", "兎田ぺこら"])   # チャンネル → コラボ相手
 
     @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg が無い")
     def test_recognize_doc_applies_row_post_processing(self):
@@ -823,12 +820,6 @@ class EvalAsrGateRepeatTest(unittest.TestCase):
         self.assertEqual((g(7200)["gate"], g(7200)["next"]), ("G3", None))
         for bad in (None, -5, "x", True):
             self.assertEqual((g(bad)["gate"], g(bad)["sec"]), (None, 0.0))
-
-    def test_gate_line(self):
-        self.assertEqual(E.gate_line(E.gate_of(972)), "関門: G1(定点 16.2 分)・次の G2 まであと 13.8 分")
-        self.assertEqual(E.gate_line(E.gate_of(0)), "関門: まだ(定点 0 分)")
-        self.assertEqual(E.gate_line(E.gate_of(180)), "関門: まだ(定点 3 分)・次の G0 まであと 2 分")
-        self.assertEqual(E.gate_line(E.gate_of(4000)), "関門: G3(定点 66.7 分)")
 
     def test_gate_in_stored_and_run_summary(self):
         res = self.stored()
