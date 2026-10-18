@@ -380,7 +380,8 @@ class PortalLiveTest(unittest.TestCase):
         rec = "20261004-000000-a"
         q = "/live/api/marks?recorder=fake&recording=" + rec
         code, d = self.jreq("GET", q)
-        self.assertEqual((code, d["marks"], d["exports"]), (200, [], []))
+        self.assertEqual((code, d.get("error")), (404, "not_found"), d)   # GET も消した(10-18。呼ぶ画面が 0 件)
+        self.assertEqual(self.srv.live.exporter.marks.load("fake", rec)["marks"], [])
         # 画面からマークを直に足す POST /live/api/marks は消した(RS8 B3-5。呼ぶ画面が 0 件)= 今は無い操作の 404
         code, d = self.jreq("POST", "/live/api/marks", {"op": "add", "recorder": "fake", "recording": rec, "start": "2026-10-04T06:00:00.000Z"})
         self.assertEqual((code, d.get("error")), (404, "not_found"), d)
@@ -392,8 +393,8 @@ class PortalLiveTest(unittest.TestCase):
         with open(path, encoding="utf-8") as f:   # 正本(押すたびに置き換える)
             saved = json.load(f)
         self.assertEqual((saved["schema"], saved["title"], len(saved["marks"])), (LX.MARKS_SCHEMA, "配信<b>", 1))
-        code, d = self.jreq("GET", q)
-        self.assertEqual((code, [x["id"] for x in d["marks"]], d["title"]), (200, [m["id"]], "配信<b>"))
+        d = ms.load("fake", rec)
+        self.assertEqual(([x["id"] for x in d["marks"]], d["title"]), ([m["id"]], "配信<b>"))
         code, d = self.jreq("POST", "/live/api/export", {"recorder": "fake", "recording": rec, "markId": m["id"]})
         self.assertEqual(code, 400)   # 終了が無いと書き出せない
         for bad in ({"op": "update", "id": m["id"], "end": "2026-10-04T05:59:59.000Z"},     # 開始より前
@@ -537,14 +538,14 @@ class PortalLiveTest(unittest.TestCase):
         self.assertEqual(j["studio"], {"video": rec, "mark": "m1a2b3", "start": 10.0, "end": 22.5})
         self.assertEqual((j["start"], j["end"]), ("2026-10-05T09:53:10.000Z", "2026-10-05T09:53:22.500Z"))   # firstPdt + 秒
         self.assertIn("/live/%s/status?since=999999999" % rec, [x["path"] for x in self.fake.seen])   # セグメントの一覧は要らない
-        d2 = self.jreq("GET", "/live/api/marks?recorder=fake&recording=" + rec)[1]
+        d2 = self.srv.live.exporter.marks.load("fake", rec)
         self.assertEqual([(m["id"], m["n"], m["start"], m["end"], m["label"]) for m in d2["marks"]],
                          [(mid, 4, "2026-10-05T09:53:10.000Z", "2026-10-05T09:53:22.500Z", "見どころ")])   # マークの正本(fsync)
         self.assertEqual((d2["title"], d2["url"]), ("配信<b>", "https://www.youtube.com/watch?v=abcdefghijk"))
         # 同じマークが途中 → 409(正本は書き換えない)
         code, d = self.jreq("POST", "/live/api/export", dict(body, studio=dict(st, start=0, end=5)))
         self.assertEqual((code, d["error"]), (409, "conflict"))
-        self.assertEqual(self.jreq("GET", "/live/api/marks?recorder=fake&recording=" + rec)[1]["marks"][0]["start"], "2026-10-05T09:53:10.000Z")
+        self.assertEqual(self.srv.live.exporter.marks.load("fake", rec)["marks"][0]["start"], "2026-10-05T09:53:10.000Z")
         # 書き出しの一覧(録画1本に絞る・studio を含む)
         jobs = self.jreq("GET", "/live/api/exports?recorder=fake&recording=" + rec)[1]["jobs"]
         self.assertEqual([(x["id"], x["studio"]["mark"]) for x in jobs], [(j["id"], "m1a2b3")])
@@ -554,7 +555,7 @@ class PortalLiveTest(unittest.TestCase):
         self.assertEqual(self.jreq("POST", "/live/api/export/cancel", {"id": j["id"]})[1]["job"]["state"], "cancelled")
         code, d = self.jreq("POST", "/live/api/export", dict(body, studio=dict(st, n=5, start=1, end=3, label="")))
         self.assertEqual(code, 200, d)
-        marks = self.jreq("GET", "/live/api/marks?recorder=fake&recording=" + rec)[1]["marks"]
+        marks = self.srv.live.exporter.marks.load("fake", rec)["marks"]
         self.assertEqual([(m["id"], m["n"], m["start"], m["end"], m["label"]) for m in marks], [(mid, 5, "2026-10-05T09:53:01.000Z", "2026-10-05T09:53:03.000Z", "")])
         self.jreq("POST", "/live/api/export/cancel", {"id": d["job"]["id"]})
         # 値の検査
@@ -589,7 +590,7 @@ class PortalLiveTest(unittest.TestCase):
         code, d = self.jreq("POST", "/live/api/export", dict(body, recording=rec2, studio=dict(st, video=rec2)))
         self.assertEqual((code, d["error"]), (409, "conflict"))
         self.assertIn("まだ始まっていません", d["message"])
-        self.assertFalse(self.jreq("GET", "/live/api/marks?recorder=fake&recording=" + rec2)[1]["marks"])
+        self.assertFalse(self.srv.live.exporter.marks.load("fake", rec2)["marks"])
         self.assertEqual(self.req("POST", "/live/api/export", body, token=False)[0], 403)
 
     # ---------- 友人のライブ配信の依頼(notes:docs/spec/friend.md の 2-15) ----------

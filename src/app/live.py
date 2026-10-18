@@ -16,8 +16,7 @@ P3(2026-10-05。計画の 0-8): 録画と再生・マークは**スタジオの�
   GET|POST /live/r/<録画元>/<残り>        録画元(src/pipeline/ingest/recorder.py)の /live/<残り> へ中継する(同じオリジンのまま。合言葉は入口が付ける)
                                           例: /live/r/local/<録画>/index.m3u8・…/status・…/stop・…/session_001/seg_000000.ts
                                           POST は <録画>/stop だけ(録画を消す …/delete・終わる quit などは中継しない = 入口の中の処理だけが呼ぶ。P4)
-  GET  /live/api/marks?recorder=&recording=   録画1本のマークの正本と書き出し(P2。中身は src/flow/live_export.py)
-  (POST /live/api/marks は RS8 B3-5 で消した = 画面から呼ぶ所が 0 件。マークの正本は書き出しのジョブの入力と、スタジオなしの採用の書き出しまでの置き場
+  (/live/api/marks は消した = 画面から呼ぶ所が 0 件。POST は RS8 B3-5・GET は 10-18 のコードの棚卸し。マークの正本は書き出しのジョブの入力と、スタジオなしの採用の書き出しまでの置き場
    = flow/live_export.py の MarkStore・flow/live_adopt.py の LocalMarks)
   GET  /live/api/exports?recorder=&recording=  書き出しのジョブの一覧(状態: 録画待ち・取得中・作り直し中・済み・失敗と理由・取り消し。studio を含む)
   POST /live/api/export  {recorder, recording, title, url, transcribe, studio: {video, mark, n, label, start, end}}
@@ -282,20 +281,15 @@ class Live(livesession.LiveSession):
             except live_export.LiveError as e:
                 h._fail(e.code, "bad_request" if e.code == 400 else "not_found", str(e))
             return True
-        if u.path in ("/live/api/marks", "/live/api/exports"):
+        if u.path == "/live/api/exports":   # ?recorder=&recording= で録画1本に絞る(空 = 全部)
             self._server = h.server
             q = urllib.parse.parse_qs(u.query)
             try:
-                if u.path == "/live/api/exports":   # ?recorder=&recording= で録画1本に絞る(空 = 全部)
-                    rc, rec = (q.get("recorder") or [""])[0][:40], (q.get("recording") or [""])[0][:60]
-                    out = {"jobs": self.exporter.snapshot(rc or None, rec or None)}
-                    if rc and rec and live_export.ID_RE.match(rc) and live_export.REC_RE.match(rec):   # その録画のアーカイブの用意(P4)
-                        out["archiveInfo"] = self.archiver.info_view(rc, rec, out["jobs"])   # afterStream の進み具合はこの jobs から(M7。0.41.0)
-                    return h._json(200, out) or True
-                rc, rec = (q.get("recorder") or [""])[0], (q.get("recording") or [""])[0]
-                d = self.exporter.marks.load(rc, rec)
-                h._json(200, {"marks": d["marks"], "title": d.get("title") or "", "url": d.get("url") or "",
-                              "exports": self.exporter.snapshot(rc, rec)})
+                rc, rec = (q.get("recorder") or [""])[0][:40], (q.get("recording") or [""])[0][:60]
+                out = {"jobs": self.exporter.snapshot(rc or None, rec or None)}
+                if rc and rec and live_export.ID_RE.match(rc) and live_export.REC_RE.match(rec):   # その録画のアーカイブの用意(P4)
+                    out["archiveInfo"] = self.archiver.info_view(rc, rec, out["jobs"])   # afterStream の進み具合はこの jobs から(M7。0.41.0)
+                h._json(200, out)
             except live_export.LiveError as e:
                 h._fail(e.code, "bad_request" if e.code == 400 else "not_found" if e.code == 404 else "error", str(e))
             return True
