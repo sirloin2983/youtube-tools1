@@ -76,13 +76,12 @@ def _spk_ids(doc):
 
 def diar_keep_row(g, ids):
     """話者判別のやり直し・1人指定・「全行をこの人に」で話者を変えない行(2026-10-05): 字幕に出さない行(noSub)・
-    組み込みの話者「ゲーム音声など」の行・音のメモ「声が重なる」(overlap)が付いていて話者のある行(手で作った重なる行を守る)・
-    機械の下書きのままの空の行(重なりの所に置いた行。判別は行を作り直さないので、そのまま残して話者も変えない。話者なしの下書きを主の話者で埋めない)。
+    組み込みの話者「ゲーム音声など」の行・音のメモ「声が重なる」(overlap)が付いていて話者のある行(手で作った重なる行を守る)。
     ids = 文書の話者の id の集まり(無い id の話者は守らない)"""
     if not isinstance(g, dict):
         return False
     sp = str(g.get("speaker") or "")
-    if _yschemas.no_sub_row(g) or sp == _yschemas.OTHER_SPK_ID or _yschemas.blank_draft_row(g):
+    if _yschemas.no_sub_row(g) or sp == _yschemas.OTHER_SPK_ID:
         return True
     return bool(sp) and sp in ids and "overlap" in (g.get("tags") if isinstance(g.get("tags"), list) else [])
 

@@ -178,7 +178,6 @@ const SPALL = { id: null, cands: [], suggest: '' };
 const DR = { on: false, done: 0, skip: [], none: '', status: null, busy: false };
 /* この動画だけを今の設定で作り直す(app-learn.js の redoOneHere。2026-10-05): busy = 保存・確認・送るの途中 */
 const REDO1 = { busy: false };
-const DRAFT_KINDS = ['overlap', 'missing'];   // 行の印 draft の値の全部(重なり・抜けの所に置いた空の行。置く機能は OPT-H1 で消した。ytt/schemas の ROW_DRAFT_KINDS と同じ)
 const SPALL_FROM = { voice: '覚えた声', folder: 'メンバーのフォルダ', stream: '配信の文脈' };
 /* 行の時刻を言葉に合わせる(app-rows.js の rt*。2026-10-05): cache = 行の中身ごとの候補({c: 候補 | null, why})・el = 選んだ行の操作の欄に置いた部品・
    open = 見せている候補 {id, key, c}・t = 少し止まったら調べる予約 */
@@ -458,7 +457,6 @@ $('#segs').addEventListener('input', e => {
   const i = Number(row.dataset.i), s = S.doc.segments[i]; if (!s) return;
   if (e.target.dataset.f === 'text'){
     s.text = e.target.value.slice(0, 2000); autoSize(e.target); markDirty();
-    if (s.draft) clearDraftMark(s, row);   // 重なりの下書きに文字を打った = 人の行(札を外す)
     const bx = row.querySelector('.sug'); if (bx && (bx.children.length || S.sug.some(x => x.seg === s.id))) bx.innerHTML = sugHTML(s);
     if (i === (capFollow ? S.curIdx : S.navIdx)) updateCaption();   // 映像に重ねた字幕が、いま直している行なら打った文字にすぐ追従させる
     paintRead(row, s);   // 読む速さの札(打っている行だけすぐ。件数は保存の予約のあとの syncRead)

@@ -359,8 +359,6 @@ def sanitize_transcript(obj, base=None):
             one["noSub"] = True
         if isinstance(sg.get("fill"), dict) and isinstance(sg["fill"].get("from"), str):   # 別の読みで埋めた行の元の文字(① pipeline/transcribe/fill.py。画面の「別の読み」の札で戻す)
             one["fill"] = {"from": sg["fill"]["from"][:_txbase.MAX_TEXT], "by": str(sg["fill"].get("by") or "")[:20]}
-        if sg.get("draft") in _yschemas.ROW_DRAFT_KINDS:   # 機械の下書き(重なりの所に置いた空の行など。決まった文字列のときだけ。文字を打ったら画面が外す)
-            one["draft"] = sg["draft"]
         segs.append(one)
     if dropped:
         _txbase.log.warning("保存で時刻の正しくない行を %d 行捨てました %s", dropped, str((base or {}).get("id") or "")[:16])

@@ -393,7 +393,7 @@ class TestEdStateNames(unittest.TestCase):
 
     def test_old_ed_state_names_still_resolve(self):
         names = _old_names("data_ed_state_names.txt")
-        self.assertGreater(len(names), 90)
+        self.assertGreater(len(names), 80)
         missing = [n for n in names if not hasattr(S, n)]
         self.assertEqual(missing, [])
 

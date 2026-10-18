@@ -234,18 +234,6 @@ async function startDiarize(){
   await kickJobs(); toast('話者の判別を待機列に追加しました');
 }
 
-/* ---------- 前に置いた空の下書き(行の印 draft)。置く機能(空の行の下書き ovdraft)は OPT-H1 で消した(決定 3-47 Q6)。行の見た目は app-rows.js の isBlankDraft ---------- */
-/* 空のままの下書きを消す本体(「済みにして次へ」の前にも使う)。-> 消した行の数 */
-function removeBlankDrafts(){
-  const k = blankDrafts().length; if (!k) return 0;
-  const navId = navSnapshot();
-  pushUndo();
-  for (const g of S.doc.segments) if (isBlankDraft(g)) S.sel.delete(g.id);
-  S.doc.segments = S.doc.segments.filter(g => !isBlankDraft(g));
-  navRestore(navId, S.navIdx); renderDoc(); markDirty();
-  return k;
-}
-
 /* ---------- 全行をこの人に(評価用。マスタープラン Q4。git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md の (c)) ----------
    評価用の文書で話者の無い行があるとき(評価用のフォルダへ移すには全行に話者が要る)、候補(GET api/drill/candidates =
    この文書の覚えた声 → メンバーのフォルダ → 配信の文脈 → ほかの覚えた声・メンバー)から1人選び、既存の 1人指定
@@ -340,7 +328,7 @@ async function loadVoices(){
 
 function flagParts(s){ const p = String(s.flag || '').split('、').filter(Boolean); return { spk: p.filter(x => SPK_FLAGS.includes(x)), text: p.filter(x => !SPK_FLAGS.includes(x)) }; }
 
-function flagMatch(s, kind){ if (kind === 'read') return !!readMark(s); if (kind === 'draft') return isBlankDraft(s); if (kind === 'proofed') return !!s.proofed; if (kind === 'unproofed') return !s.proofed; if (kind === 'cut') return s.cutState === 'cut'; if (kind === 'sug') return sugList(s).length > 0; const f = flagParts(s); return kind === 'any' ? !!s.flag : kind === 'text' ? f.text.length > 0 : f.spk.length > 0; }
+function flagMatch(s, kind){ if (kind === 'read') return !!readMark(s); if (kind === 'proofed') return !!s.proofed; if (kind === 'unproofed') return !s.proofed; if (kind === 'cut') return s.cutState === 'cut'; if (kind === 'sug') return sugList(s).length > 0; const f = flagParts(s); return kind === 'any' ? !!s.flag : kind === 'text' ? f.text.length > 0 : f.spk.length > 0; }
 
 function renderRtSetup(){
   const t = S.tools, sel = $('#rtModel'); if (!t) return;

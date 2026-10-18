@@ -112,21 +112,10 @@ def no_sub_row(g):
     return isinstance(g, dict) and g.get("noSub") is True
 
 
-# 行の印 draft(機械が置いた下書き・まだ人が打っていない。2026-10-05。置く機能 ovdraft は OPT-H1 で消した = 前に置いた行の印として読むだけ)。決まった文字列のときだけ持つ。
-# "overlap" = 声があるのに行の無い所に置いた空の行(重なりの下書き)。文字を打ったら画面が外す。文字の無い行なので字幕・カット・パックには出ない
-# "missing" = 主の話者も含めて、声があるのにどの行も無い所(抜けの下書き。音のメモ overlap は付けない。決まりは overlap と同じ)
-ROW_DRAFT_KINDS = ("overlap", "missing")
-
-
 def is_eval_reviewed(doc):
     """評価用で、動画を全部聞いて確かめた文書か(文書の印 evalSet が True で evalReviewed が dict)。定点に数える・測る道具が「確かめ済みだけ」を選ぶ・
     確かめるの評価のレーン(③ human/check)が区間カードを出すかの判定の 1 か所(C-EVAL 2a-1。⑤ drill と _evalcommon の写しを寄せた)"""
     return isinstance(doc, dict) and doc.get("evalSet") is True and isinstance(doc.get("evalReviewed"), dict)
-
-
-def blank_draft_row(g):
-    """機械の下書きのまま(印 draft があって文字が空)の行か"""
-    return isinstance(g, dict) and g.get("draft") in ROW_DRAFT_KINDS and not str(g.get("text") or "").strip()
 
 
 # ---------- 文書の機械の層 <id>.mach.json と人の層 <id>.hum.json(RS8 O2-2。決定 3-37 の (r8r)〜(r8u)) ----------

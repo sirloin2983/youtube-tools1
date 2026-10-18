@@ -21,8 +21,7 @@
     [{"start": 0, "end": 0.2, "text": "うわっ"}, [true, true]],
     [{"start": 0, "end": 0.2, "text": "うわっ", "noSub": true}, null],
     [{"start": 0, "end": 0.2, "text": "うわっ", "cutState": "cut"}, null],
-    [{"start": 0, "end": 0.2, "text": "", "draft": "overlap"}, null],
-    [{"start": 0, "end": 0.2, "text": "うわっ", "draft": "overlap"}, [true, true]],
+    [{"start": 0, "end": 0.2, "text": ""}, null],
     [{"start": 2.0, "end": 2.0, "text": "ああ"}, [true, true]],
     [{"start": 10.0, "end": 12.4, "text": "絵本の中でしか知らないんじゃないのルーナ姫"}, null]
   ]

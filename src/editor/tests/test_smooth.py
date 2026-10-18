@@ -140,7 +140,7 @@ class TestSmoothApply(StoreDir):
         self.assertAlmostEqual(r2["ratio"], 0.3)
         self.assertNotIn("smoothed", run["rows"]["s1"])
         self.assertEqual(run["smooth"], {"on": True, "rows": 1, "short": S.DIAR_SMOOTH_SHORT, "gap": S.DIAR_SMOOTH_GAP, "ratio": S.DIAR_SMOOTH_RATIO})
-        self.assertEqual([t["label"] for t in run["turns"]], [0, 1, 0, 1])   # 生の結果は変えない(空の行の下書きが読む)
+        self.assertEqual([t["label"] for t in run["turns"]], [0, 1, 0, 1])   # 生の結果は変えない
         self.assertEqual(run["labelMap"], {"0": "S1", "1": "S2"})
 
     def test_on_nothing_to_smooth_still_records(self):

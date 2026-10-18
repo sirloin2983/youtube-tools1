@@ -35,13 +35,11 @@ MAX_BODY = 32 * 1024 * 1024
 MAX_SEGMENTS = _yschemas.MAX_SEGMENTS   # 別名(RS3-E5a。正は ytt/schemas = 文書の置き場 human/proof/store が読む。差し替えない値)
 TAGS = _yschemas.ROW_TAGS   # 別名(RS3-E5a。正は ytt/schemas の ROW_TAGS)= 行に付けるメモ。unclear(聞き取れない)の行は、精度測定・学習の正解に使わない
 MAX_TEXT = _txbase.MAX_TEXT   # 別名(RS2-1a。下の別名も同じ: 差し替えない名前なので、認識の部品が読む正へ移して同じ物を残した)
-# 組み込みの話者「ゲーム音声など」・行の印 noSub(字幕に出さない)・draft(機械の下書き)・文書の id の形の正は ytt/schemas.py(RS2-9 に移した。
+# 組み込みの話者「ゲーム音声など」・行の印 noSub(字幕に出さない)・文書の id の形の正は ytt/schemas.py(RS2-9 に移した。
 # 話者の部品(pipeline/transcribe/diarize・human/proof/speakers)が ed_state を読まずに済むように)。どれも差し替えない名前なので別名(同じ物)
 OTHER_SPK_ID, OTHER_SPK_NAME, OTHER_SPK_BUILTIN, OTHER_SPK_COLOR = _yschemas.OTHER_SPK_ID, _yschemas.OTHER_SPK_NAME, _yschemas.OTHER_SPK_BUILTIN, _yschemas.OTHER_SPK_COLOR
 other_speaker = _yschemas.other_speaker       # lint: keep 別名(RS2-9)= 文書の話者が組み込みの「ゲーム音声など」か
 no_sub_row = _yschemas.no_sub_row             # lint: keep 別名(RS2-9)= 行の印 noSub(字幕に出さない)
-ROW_DRAFT_KINDS = _yschemas.ROW_DRAFT_KINDS   # lint: keep 別名(RS2-9)= 行の印 draft の値(overlap・missing)
-blank_draft_row = _yschemas.blank_draft_row   # lint: keep 別名(RS2-9)= 機械の下書きのまま(印 draft があって文字が空)の行か
 
 
 MAX_SPAN_SEC = _txbase.MAX_SPAN_SEC

@@ -158,7 +158,7 @@ def fill_clean_turns(doc, turns, offset):
     keep, n = [], 0
     for g in doc.get("segments") or []:
         if (isinstance(g, dict) and fill_stock(g.get("text")) and g.get("proofed") is not True and not g.get("tags") and not g.get("noSub")
-                and not g.get("draft") and g.get("cutState") != "cut"
+                and g.get("cutState") != "cut"
                 and machine.get((round(float(g["start"]), 2), round(float(g["end"]), 2))) == g.get("text")
                 and fill_voice_frac(g, spans) < FILL_MIN_VOICE):
             n += 1

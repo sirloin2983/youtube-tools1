@@ -3,7 +3,7 @@
 
 human/proof/speakers.py(③)が ① の pipeline/transcribe(diarize・backend・recognize・fill・worker_client)を直に読んでいた所 =
 「① の半身が ③ に残っている所」(判別のジョブの計算の糸・判別の記録・声の特徴と照合・覚えた声の置き場所)をここへ移した。
-③ に残るのは、文書への反映・空の行の下書き・自動の判別の判断・字幕の見た目・声の登録簿の編集の受付・判別のジョブの受付と文書への書き込み。
+③ に残るのは、文書への反映・自動の判別の判断・字幕の見た目・声の登録簿の編集の受付・判別のジョブの受付と文書への書き込み。
 
 動詞(③ が呼ぶ口。どれも ① を呼ぶ前後で ② が足すことを docstring の「② が足すこと」に書いた):
 - 部品と判別モデル: models_ready・default_embedding・embedding・embeddings

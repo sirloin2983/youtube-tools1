@@ -36,7 +36,6 @@ function saveDoc(){
   const run = async () => {
     while (S.doc && S.dirty){   // 保存を待っている間に編集された分も、順番に保存する
       S.dirty = false; setSaveState('保存中…', 'busy');
-      for (const g of S.doc.segments) if (g.draft && String(g.text || '').trim()) delete g.draft;   // 文字の入った下書きの印は保存しない(入力のほかの道 = 提案の採用・置換などで文字が入ったとき)
       const id = S.docId, force = S.forceNext;
       const body = { title: S.doc.title, evalSet: S.doc.evalSet === true, speakers: S.doc.speakers, segments: S.doc.segments, baseUpdatedAt: S.baseUpdatedAt, ...(force ? { force: true } : {}) };
       try {
@@ -205,29 +204,6 @@ function paintNoSub(row, s){
   const b = row.querySelector('[data-act=nosub]'); if (b) b.setAttribute('aria-pressed', s.noSub ? 'true' : 'false');
 }
 
-/* ---------- 重なり・抜けの所に置いた空の行(行の印 draft。2026-10-05。置く機能は OPT-H1 で消した = 前に置いた行の見た目と印の外し方だけ。消すのは app-jobs.js の removeBlankDrafts) ----------
-   draft = 機械が置いた下書きで、まだ人が打っていない印(サーバーの ytt/schemas の ROW_DRAFT_KINDS = DRAFT_KINDS。overlap = 重なり・missing = 抜け)。文字を打ったら外す(clearDraftMark・保存の前にも)。
-   空のままの行は字幕・カット・パックに出ない(文字の無い行は今も数えない)・重なりの赤にしない。決まりは種類によらず同じで、札と案内の文だけ変える */
-const DRAFT_NAME = { overlap: '重なり', missing: '抜け' };
-const draftName = g => DRAFT_NAME[g && g.draft] || DRAFT_NAME.overlap;
-const draftPh = g => `聞いて打ってください(${draftName(g)}の下書き。打つと札が外れます。要らなければ「削除」)`;
-const draftTitle = g => (g && g.draft === 'missing' ? '話者の判別で声が見つかったのに、どの行も無かった所に置いた空の行です(認識が落としたかもしれない所)。'
-  : '話者の判別で声が見つかったのに行が無かった所(声が重なっている所)に置いた空の行です。') + '聞いて文字を打ってください。空のままなら字幕・カット・パックに出ません';
-function isBlankDraft(g){ return !!g && DRAFT_KINDS.includes(g.draft) && !String(g.text || '').trim(); }
-function blankDrafts(){ return S.doc ? S.doc.segments.filter(isBlankDraft) : []; }
-
-/* 文字が入った下書きの印を外す(行の文字の入力から)。札・placeholder・重なりの赤・「空のままを消す」の数を合わせる */
-function clearDraftMark(s, row){
-  if (!s.draft || !hasText(s)) return;
-  delete s.draft;
-  if (row){
-    row.classList.remove('tt-draft');
-    const p = row.querySelector('.tt-draft-pill'); if (p) p.remove();
-    const ta = row.querySelector('textarea'); if (ta) ta.placeholder = '(空の行)文字を入力。不要なら「削除」';
-  }
-  const i = S.doc.segments.indexOf(s); if (i >= 0) markOvl(i);
-}
-
 /* 字幕に出さない行の数(書き出しのカード・3 パック の「これから作るパック」に出す。0 なら出さない) */
 function noSubCount(){ return S.doc ? S.doc.segments.filter(g => g.noSub && hasText(g)).length : 0; }
 function renderNoSubCount(){
@@ -253,7 +229,7 @@ function subHexInput(v){ return String(v || '').replace(/[^0-9a-fA-F]/g, '').toU
    必ず真偽値を返す(markOvl の classList.toggle に undefined を渡すと「付け外しの反転」になり、前後に行の無い先頭・最後の行が押すたびに赤白を繰り返した) */
 const t10 = x => Math.round((Number(x) || 0) * 10);
 const overlaps = (a, b) => !!a && !!b && t10(a.end) > t10(b.start);   // a の終わりが、次の行 b の始まりより(見える時刻で)後ろ
-const badOverlap = (a, b) => overlaps(a, b) && !a.noSub && !b.noSub && !isBlankDraft(a) && !isBlankDraft(b) && !(a.speaker && b.speaker && a.speaker !== b.speaker);   // 重なりの下書き(空の行)は、重なる所に置いたものなので赤くしない(打ったら今までどおり)
+const badOverlap = (a, b) => overlaps(a, b) && !a.noSub && !b.noSub && !(a.speaker && b.speaker && a.speaker !== b.speaker);
 const OVL_BACK = 8;   // 前の行は 8 行前まで見る(別の話者の行をはさんで、同じ話者の長い行と重なることがあるため。全部は見ない = 4000 行でも重くしない)
 const OVL_TITLE = '同じ話者の行(か、話者の無い行)と時刻が重なっています。別の人が同時に話しているなら、それぞれの行に話者を付けると赤くなくなります';
 function ovl(i){
@@ -284,7 +260,7 @@ function snapEdge(i, f, toward){
 /* ---------- 字幕の読む速さの印(T2。2026-10-05。表示だけ = 行は書き換えない。校正済みにする操作も止めない) ----------
    読む速さ = 字幕として数える文字(NFKC にして文字と数字だけ。記号・空白・句読点・〜 は数えない・ー は数える)÷ 行の長さ(秒)。
    印は「速い」(1 秒あたり READ_FAST_CPS 字を超える)と「短い」(READ_SHORT_SEC 秒未満)。どちらも READ_MIN_CHARS 字以上の行だけ。
-   対象外: 字幕に出さない行・空の下書き・文字の無い行・カット済の行。規則と値はサーバーの pipeline/transcribe/retime.py の subread_mark と同じ(例は tests/subread_cases.json)。
+   対象外: 字幕に出さない行・文字の無い行・カット済の行。規則と値はサーバーの pipeline/transcribe/retime.py の subread_mark と同じ(例は tests/subread_cases.json)。
    値は設定の subtitle.read = {fastCps, shortSec} で変えられる(欄は無い)。根拠の数字は pipeline/transcribe/retime.py の先頭 */
 const READ_FAST_CPS = 10, READ_SHORT_SEC = 0.5, READ_MIN_CHARS = 2;
 const READ_CH = /[\p{L}\p{N}]/gu;
@@ -297,7 +273,7 @@ function readLimits(){
 /* 行の印 -> null か {chars, sec, cps, fast, short}。同じ行の同じ中身なら覚えた結果を返す(4000 行を描き直しても数え直さない) */
 const READ_MEMO = new WeakMap();
 function readMark(g, lim){
-  if (!g || g.noSub === true || isBlankDraft(g) || g.cutState === 'cut') return null;
+  if (!g || g.noSub === true || g.cutState === 'cut') return null;
   lim = lim || readLimits();
   const sig = `${g.text}\u0001${g.start}\u0001${g.end}\u0001${lim.fastCps}\u0001${lim.shortSec}`, memo = READ_MEMO.get(g);
   if (memo && memo.sig === sig) return memo.m;
@@ -470,16 +446,15 @@ function keepCutHTML(cut, act = ['keep', 'cut'], dis = ''){
 }
 
 function segHTML(s, i, T = rowTitles()){
-  const c = s.speaker ? rowSpColor(s.speaker) : '', cut = s.cutState === 'cut', ov = ovl(i), dr = isBlankDraft(s);
-  return `<div class="seg${s.flag ? ' flag' : ''}${s.proofed ? ' proofed' : ''}${(s.tags || []).length ? ' tagged' : ''}${cut ? ' cut' : ''}${s.noSub ? ' nosub' : ''}${dr ? ' tt-draft' : ''}" data-i="${i}"${c ? ` style="--sp:${c}"` : ''}>
+  const c = s.speaker ? rowSpColor(s.speaker) : '', cut = s.cutState === 'cut', ov = ovl(i);
+  return `<div class="seg${s.flag ? ' flag' : ''}${s.proofed ? ' proofed' : ''}${(s.tags || []).length ? ' tagged' : ''}${cut ? ' cut' : ''}${s.noSub ? ' nosub' : ''}" data-i="${i}"${c ? ` style="--sp:${c}"` : ''}>
     <input type="checkbox" class="sel" ${S.sel.has(s.id) ? 'checked' : ''} aria-label="この行を選択">
     <button type="button" class="play" data-act="play" title="${T.play}" aria-label="この行だけ再生">${T.playIc}</button>
     <div class="times${ov ? ' ovl' : ''}"${ov ? ` title="${esc(OVL_TITLE)}"` : ''}><span class="t" data-f="start" data-ui-time="${Number(s.start) || 0}" data-ui-time-short aria-label="開始"></span><span>–</span><span class="t" data-f="end" data-ui-time="${Number(s.end) || 0}" data-ui-time-short aria-label="終了"></span></div>
     <select class="spk" data-f="speaker" aria-label="話者">${opts(s.speaker)}</select>
-    <textarea data-f="text" rows="1" spellcheck="false" aria-label="文字" placeholder="${dr ? draftPh(s) : '(空の行)文字を入力。不要なら「削除」'}">${esc(s.text)}</textarea>
+    <textarea data-f="text" rows="1" spellcheck="false" aria-label="文字" placeholder="(空の行)文字を入力。不要なら「削除」">${esc(s.text)}</textarea>
     <span class="ops">${keepCutHTML(cut)}<button type="button" class="btn small pf" data-act="proof" aria-pressed="${s.proofed ? 'true' : 'false'}" title="${T.proof}">校正済み</button></span>
     <span class="pill info tt-nosub-pill" title="この行は字幕(映像の上・書き出しの SRT・パック)に出しません。カットでは今までどおり残します">字幕に出さない</span>
-    ${dr ? `<span class="pill wait tt-draft-pill" title="${esc(draftTitle(s))}">下書き(${draftName(s)})</span>` : ''}
     ${readHTML(s, T.lim)}
     <div class="sug">${sugHTML(s)}</div>
     <div class="tg">${tagsHTML(s, T.tag)}</div>

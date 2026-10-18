@@ -4,7 +4,7 @@
     py -3.10 -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
     py -3.10 -m unittest test_retime -q                 # これだけ(src/editor/tests で)
 
-- 読む速さ: 文字の数え方・速い/短いの印・対象外(noSub・カット済・空の下書き・1 文字)・設定 subtitle.read。
+- 読む速さ: 文字の数え方・速い/短いの印・対象外(noSub・カット済・1 文字)・設定 subtitle.read。
   例は tests/subread_cases.json(画面の readMark も同じ例で確かめる = test_document_save.cjs)
 - 時刻の候補 retime_candidates(純粋な関数): 当て方・人が足した文字・当たりが少ない・差が小さい・前後の行で詰める(同じ話者だけ)・
   伸ばしの単語・短すぎる・大きく動かした行・単語の途中・終わりの端を出さない
@@ -158,7 +158,7 @@ class TestRetimeCandidates(unittest.TestCase):
 
     def test_skips_blank_and_unknown(self):
         words = _chars(1.0, "こんにちは")
-        segs = [_row(1, 0.5, 2.5, "", draft="overlap"), _row(2, 0.5, 2.5, "   "), _row(3, 0.5, 2.5, "こんにちは")]
+        segs = [_row(1, 0.5, 2.5, ""), _row(2, 0.5, 2.5, "   "), _row(3, 0.5, 2.5, "こんにちは")]
         self.assertEqual([x["id"] for x in retime.retime_candidates(segs, words)], ["s3"])
         self.assertEqual(retime.retime_candidates(segs, words, ["nope"]), [])
         self.assertEqual(retime.retime_candidates(segs, []), [])

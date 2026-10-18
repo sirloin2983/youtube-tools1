@@ -10,7 +10,7 @@ retime には別名・転送を置かない(差し替えが別名に当たる)�
 1. 読む速さ(表示だけ。行を書き換えない)
    行ごとに「読む速さ」= 字幕として数える文字数(NFKC にして文字と数字だけ = 記号・空白・句読点・伸ばしの〜を除く。ー は数える)÷ 行の長さ(秒)。
    印は 2 つ: 速い(1 秒あたりの文字が SUBREAD_FAST_CPS を超える)・短い(表示の時間が SUBREAD_SHORT_SEC 未満)。どちらも文字が SUBREAD_MIN_CHARS 以上の行だけ。
-   対象から外す: 字幕に出さない行(noSub)・空の下書き・文字の無い行・カット済の行。
+   対象から外す: 字幕に出さない行(noSub)・文字の無い行・カット済の行。
    画面(app-rows.js の readMark)と同じ規則・同じ値(変えるときは両方。tests/test_retime.py が同じ例を固定)。
    値は設定の subtitle.read = {"fastCps", "shortSec"} で変えられる(任意の鍵。画面の欄は無い。subread_limits が範囲を確かめる)。
    しきい値の根拠(2026-10-05。本物の作業データを読むだけで測った): 確かめ済みの評価用 10 本の校正済み 148 行で 1 秒あたりの文字は
@@ -24,7 +24,7 @@ retime には別名・転送を置かない(差し替えが別名に当たる)�
    単語の文字の並びのうち行の文字にいちばん合う所(両端は自由な編集距離 = fitting alignment)を探し、
    行の文字の最初・最後が当たった単語の開始・終了を候補にする(単語の途中の字なら字数で割り振る)。人が足した文字(単語に無い)は当たった所だけで決める。
    出す条件: 当たった文字の割合 RETIME_MIN_MATCH 以上・端ごとに、その端の字が当たっている・今との差 RETIME_MIN_DELTA 秒以上・
-   同じ話者(か話者の無い行)の前後の行と重ならない所まで詰める(違う話者・字幕に出さない行・空の下書きとの重なりはそのまま)・行の長さが RETIME_MIN_LEN 秒以上。
+   同じ話者(か話者の無い行)の前後の行と重ならない所まで詰める(違う話者・字幕に出さない行との重なりはそのまま)・行の長さが RETIME_MIN_LEN 秒以上。
    最後に当たった単語のすぐ後ろの「ー」「~」「!?」だけの単語(寄せると何も残らない)は行の終わりに含める(RETIME_JOIN)。
    行の終わりの調整(pipeline/transcribe/postproc の END_TRIM)は候補にかけない(かけると人から遠くなった。下の RETIME_END_SKIP の測った数字)。
 """
@@ -61,8 +61,8 @@ def subread_limits(settings=None):
 
 def subread_mark(row, limits=None):
     """行の読む速さの印 -> None(印なし・対象外)か {"chars", "sec", "cps", "fast", "short"}。
-    対象外: 字幕に出さない行・空の下書き・文字の無い行・カット済の行。秒は終了 − 開始(負なら 0)"""
-    if not isinstance(row, dict) or _yschemas.no_sub_row(row) or _yschemas.blank_draft_row(row) or row.get("cutState") == "cut":
+    対象外: 字幕に出さない行・文字の無い行・カット済の行。秒は終了 − 開始(負なら 0)"""
+    if not isinstance(row, dict) or _yschemas.no_sub_row(row) or row.get("cutState") == "cut":
         return None
     n = subread_chars(row.get("text"))
     if n < SUBREAD_MIN_CHARS:
@@ -95,8 +95,8 @@ RETIME_END_SKIP = ()
 
 
 def _retime_same_group(a, b):
-    """重なってはいけない 2 行か(画面の badOverlap と同じ: どちらかが字幕に出さない行・空の下書きなら気にしない・両方に話者があって違う人なら気にしない)"""
-    if _yschemas.no_sub_row(a) or _yschemas.no_sub_row(b) or _yschemas.blank_draft_row(a) or _yschemas.blank_draft_row(b):
+    """重なってはいけない 2 行か(画面の badOverlap と同じ: どちらかが字幕に出さない行なら気にしない・両方に話者があって違う人なら気にしない)"""
+    if _yschemas.no_sub_row(a) or _yschemas.no_sub_row(b):
         return False
     sa, sb = str(a.get("speaker") or ""), str(b.get("speaker") or "")
     return not (sa and sb and sa != sb)
@@ -211,7 +211,7 @@ def retime_candidates(segments, words, ids=None, end_ok=True):
     for k, g in enumerate(segs):
         if want is not None and str(g.get("id")) not in want:
             continue
-        if len(raw) >= RETIME_MAX_ROWS or _yschemas.blank_draft_row(g) or not str(g.get("text") or "").strip():
+        if len(raw) >= RETIME_MAX_ROWS or not str(g.get("text") or "").strip():
             continue
         c = retime_raw(g, ws, starts)
         if not c or c["matched"] < RETIME_MIN_MATCH:

@@ -36,7 +36,6 @@ REP_MIN
 REP_RE
 ROOT
 ROSTER
-ROW_DRAFT_KINDS
 RUN_MARK
 SERVER_VERSION
 SETTINGS
@@ -59,7 +58,6 @@ _run_state
 add_warning
 atomic_write
 backend_name
-blank_draft_row
 check_previous_run
 check_source
 clear_mark

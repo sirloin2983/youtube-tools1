@@ -46,11 +46,10 @@ def align_groups(orig, segs):
 
 
 def prep_rows(doc):
-    """文書 -> (機械の出力の行, 人の行)(どちらも開始の順。時刻の無い機械の行と空のままの下書きは除く)"""
+    """文書 -> (機械の出力の行, 人の行)(どちらも開始の順。時刻の無い機械の行は除く)"""
     orig = sorted([o for o in (doc.get("original") or []) if isinstance(o, dict) and _yschemas.num_or(o.get("start")) is not None and _yschemas.num_or(o.get("end")) is not None],
                   key=lambda o: o["start"])
-    # 空のままの下書き(印 draft・文字なし。重なりの所に置いた空の行)は数えない: 残っている間、重なる校正済みのまとまりを丸ごと数から外してしまうため
-    segs = sorted([g for g in (doc.get("segments") or []) if isinstance(g, dict) and not _yschemas.blank_draft_row(g)], key=lambda g: g["start"])
+    segs = sorted([g for g in (doc.get("segments") or []) if isinstance(g, dict)], key=lambda g: g["start"])
     return orig, segs
 
 

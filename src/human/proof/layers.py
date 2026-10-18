@@ -449,9 +449,9 @@ def split_meta(doc):
 
 # ---------- 差分 ----------
 def _compat(g, m):
-    """文書の行が機械の行そのまま(属性の行にできる)か: 校正済みでも下書きでもなく、時刻が同じで、
+    """文書の行が機械の行そのまま(属性の行にできる)か: 校正済みでなく、時刻が同じで、
     文字と別の読みが機械と同じ・か、別の読みを戻した(機械の fill があって文書に無く、文字が fill.from)"""
-    if g.get("proofed") is True or g.get("draft") or g.get("start") != m["start"] or g.get("end") != m["end"]:
+    if g.get("proofed") is True or g.get("start") != m["start"] or g.get("end") != m["end"]:
         return False
     text = str(g.get("text") or "")
     if text == m["text"] and g.get("fill") == m.get("fill"):
@@ -750,7 +750,7 @@ def carry(prev_doc, prev_mach, new_mach, span=None, speakers=None):
     - 人の行 = 校正済み・文字が前の機械の行(時刻の決まり match で対応づく行をつないだ物)と違う・話者・noSub・tags のいずれかを持つ行。
       文字の行(校正済みか、文字が違う)は文字と話者を持ち、話者・noSub・tags だけの行(属性の行)は文字を持たない。
       前の機械の層に行が無ければ校正済みの行だけを文字の行に数える。後処理が埋めた行(印 fill)は校正済みでなければ文字を人の直しに数えない。
-      空のままの下書き(印 draft・文字なし)の行は入れない。消した行(消す印)は引き継がない
+      消した行(消す印)は引き継がない
     - 重ね方は組み立て compose_rows(機械が変わった行と同じ決まり = 時刻の重なり・COVER_DROP・TEXT_DROP)。文字の行の印は覆った新しい機械の行の印
       (校正済みなら空)・どの機械の行とも対応づかない文字の行は印 STALE_FLAG を付けて残す。属性の行は対応づかなければ捨てる(dropped)
     - span = (開始, 終了 か None): 作り直した範囲。中心が範囲の外の人の行は数えない(outside)
@@ -760,7 +760,7 @@ def carry(prev_doc, prev_mach, new_mach, span=None, speakers=None):
     mids = {m["id"] for m in _mrows(new_mach)}
     rows, used, outside, n = [], set(), 0, 0
     for g in (prev_doc or {}).get("segments") or []:
-        if not isinstance(g, dict) or _ys.blank_draft_row(g):
+        if not isinstance(g, dict):
             continue
         sp = _span(g)
         if sp is None:

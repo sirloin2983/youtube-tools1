@@ -149,14 +149,14 @@ class RoundTripTest(unittest.TestCase):
         self.assertEqual(texts(out), texts(d))
         self.assertFalse(any(L.MACH_CHANGED in g["flag"] for g in out["segments"]))
 
-    def test_speaker_tags_nosub_draft_order(self):
+    def test_speaker_tags_nosub_blank_order(self):
         d = base_doc()
         d["speakers"] = [{"id": "S1", "name": "ぺこら", "color": "#39f"}]
         seg(d, "s1").update(speaker="S1", tags=["bgm"], noSub=True)
         seg(d, "s5")["id"] = "z9"   # id だけ違う行も属性の行
-        d["segments"].append({"id": "d1", "start": 9.0, "end": 12.0, "text": "", "speaker": "", "flag": "", "draft": "overlap"})   # 同じ時刻の下書き
+        d["segments"].append({"id": "d1", "start": 9.0, "end": 12.0, "text": "", "speaker": "", "flag": ""})   # 同じ時刻の空の行
         d["segments"].sort(key=lambda g: (g["start"], g["end"]))
-        d["segments"][-2:] = [d["segments"][-1], d["segments"][-2]]   # 同じ時刻の行の並び: 下書きを先に
+        d["segments"][-2:] = [d["segments"][-1], d["segments"][-2]]   # 同じ時刻の行の並び: 空の行を先に
         d["evalSet"] = True
         hum = self.assertRoundTrip(M0, d)
         self.assertEqual(hum["order"], ["d1", "z9"])

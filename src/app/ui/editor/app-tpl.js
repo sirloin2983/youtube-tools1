@@ -30,7 +30,7 @@
      <div class="tt-listhead" id="listHead">
       <div class="ui-listbar tt-rowbar" role="search">
         <input type="search" id="q" placeholder="行を検索(該当する行だけ表示)" aria-label="行を検索" autocomplete="off">
-        <select id="flagKind" aria-label="表示する行の絞り込み" title="表示する行の絞り込み"><option value="">すべての行</option><option value="unproofed">未校正の行だけ</option><option value="proofed">校正済みの行だけ</option><option value="any">要確認すべて</option><option value="text">文字の要確認だけ</option><option value="spk">話者の要確認だけ</option><option value="sug">修正の提案がある行だけ</option><option value="cut">カット済の行だけ</option><option value="draft">下書きだけ(重なり・抜けの空の行)</option></select>
+        <select id="flagKind" aria-label="表示する行の絞り込み" title="表示する行の絞り込み"><option value="">すべての行</option><option value="unproofed">未校正の行だけ</option><option value="proofed">校正済みの行だけ</option><option value="any">要確認すべて</option><option value="text">文字の要確認だけ</option><option value="spk">話者の要確認だけ</option><option value="sug">修正の提案がある行だけ</option><option value="cut">カット済の行だけ</option></select>
         <!-- 「次の未校正」・「…」・件数は1つの箱に入れ、折り返すときは3つ一緒に次の行へ(「…」だけが落ちない。段5 5-6) -->
         <span class="tt-rb-end">
         <button type="button" class="btn small" id="btnNextUn" title="次の未校正の行へ移動します(Shift+↓。前へは Shift+↑)">次の未校正 <kbd class="ui-kbd">Shift</kbd><kbd class="ui-kbd">↓</kbd></button>
