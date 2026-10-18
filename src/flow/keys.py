@@ -291,7 +291,8 @@ def _pack_settings(o):
     styles = o.get("speakerStyles") if isinstance(o.get("speakerStyles"), dict) else {}
     loud = _loud.check_target(o.get("loudness"))
     return {"textplus": textplus, "copyVideo": _pack.normalize_outputs(o.get("copyVideo"), textplus), "render": bool(o.get("render")),
-            "backup": o.get("backup") is True, "target": [target["fps"], target["width"], target["height"]],
+            # backup(Text+ パックの予備)は 2026-10-18 に消した(決定 3-34)が、鍵の形は残す: 外すと鍵の hash が変わり、作ったパックが全部「作り直し」に見える
+            "backup": False, "target": [target["fps"], target["width"], target["height"]],
             "textplusWrap": None if o.get("textplusWrap") in (None, "") else int(o["textplusWrap"]), "color": hex_ or None, "who": who if hex_ else None,
             "speakerColors": o.get("speakerColors") is not False,
             "speakerStyles": {_colors.normalize(k): _colors.norm_hex((v or {}).get("color")) for k, v in sorted(styles.items()) if isinstance(v, dict)} or None,

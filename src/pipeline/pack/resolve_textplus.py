@@ -815,10 +815,10 @@ def launcher_script():
 
 
 README_NAME = "友人へ.txt"                    # Text+ パックの手順書(コマンドで作るときだけ書く。画面・API は画面の「手順を見る」で出す)
-EDL_README_NAME = "予備_EDLで開く手順.txt"     # スクリプトが使えないときの予備(字幕は字幕トラックになる)
+# 2026-10-18 まで入れられた予備の手順書(予備_EDLで開く手順.txt)と EDL・SRT は、決定 3-34 で消した(古いパックの名前は pack.OLD_BACKUP_README)
 
 
-def instructions(video_name, target=None, meta=None, n_captions=None, n_cuts=None, backup=True, look=None, video_tracks=1, caption_lanes=1):
+def instructions(video_name, target=None, meta=None, n_captions=None, n_cuts=None, look=None, video_tracks=1, caption_lanes=1):
     """Text+ パックの手順書(コマンドのパックの 友人へ.txt・画面の「手順を見る」)。簡潔に、ただし手順と注意は省かない。
     caption_lanes: 重なる字幕の段の数(stack_captions)。2 以上のときだけ、字幕のトラックの範囲と段の説明を足す(1 なら今までと同じ文)"""
     t = dict(target or DEFAULT_TARGET)
@@ -851,8 +851,6 @@ def instructions(video_name, target=None, meta=None, n_captions=None, n_cuts=Non
     pos_tip = ("""・映す位置を変える: V1 のクリップを選び、インスペクタ →「変形」→「位置 X」。
   画面の外に残っている部分を映せます。途中で位置を変えるときは、キーフレームを打ちます。
 """ if vertical else "")
-    backup_note = (f"・{EDL_README_NAME} はスクリプトが使えないときの予備です(字幕は Text+ ではなく字幕トラックになり、手順も別です)\n"
-                   if backup else "・スクリプトが使えないときは、送り主に「予備も入れて」と頼んでください(EDL と字幕のファイルで開く方法があります)\n")
     scale_trouble = ("""・上下に黒い帯がある / 位置 X を動かしても画面の外が出ない
     → 手順 1-c の設定が「黒帯を挿入」のまま。「最短辺をマッチ: 他をクロップ」にして保存(置いたクリップにもそのまま反映)
 """ if vertical else "")
@@ -933,19 +931,19 @@ Resolve の中でスクリプトを実行すると、カット済みのタイム
 
 ■ 注意
 ・動画({video_name})の名前を変えない。パックのフォルダを動かしたら、2-b〜c をやり直す
-{backup_note}"""
+"""
 
 
-def write_files(paths, plan, out_dir, target=None, backup=True, wrap=None, color=None, fills=None, outlines=None, style="default",
+def write_files(paths, plan, out_dir, target=None, wrap=None, color=None, fills=None, outlines=None, style="default",
                 video_tracks=1, order=None):
     """Text+固有ファイルを書き、kind -> Path を返す(鍵 readme_text だけは手順書の中身の文字列)。target: Text+ を置くプロジェクトの fps・解像度(既定 30fps・1080x1920)。
     計画(区間・字幕・動画)は Lua に埋め込む(2026-09-26 まで別に書いていた textplus-import.json は出さない。読み直すのは read_script_plan)。
-    backup: 予備(EDL と手順書)を入れたか(手順書の注意の書き方が変わる)。order: 同時に始まる字幕の段の順(stack_captions)"""
+    order: 同時に始まる字幕の段の順(stack_captions)"""
     target = dict(target or DEFAULT_TARGET)
     import_plan = build_import_plan(plan, paths["video"].relative_to(out_dir), target, wrap, color, fills, outlines, style, video_tracks,
                                     order)
     script = importer_script(import_plan)
-    readme = readme_from_data(import_plan, backup)   # 計画は 1 回だけ作る(段の数・字幕の数・見た目の名前はこの計画から読む = 前のパックの「手順を見る」と必ず同じ)
+    readme = readme_from_data(import_plan)   # 計画は 1 回だけ作る(段の数・字幕の数・見た目の名前はこの計画から読む = 前のパックの「手順を見る」と必ず同じ)
     S.write_text_atomic(paths["textplus_script"], script, encoding="utf-8", newline="\n")
     # Windows PowerShell 5.1はBOMなしUTF-8をANSIとして読むため、日本語文字列内のバイトを引用符扱いすることがある。
     S.write_text_atomic(paths["textplus_install"], installer_script(paths["video"].name), encoding="utf-8-sig", newline="\r\n")
@@ -961,18 +959,18 @@ def write_files(paths, plan, out_dir, target=None, backup=True, wrap=None, color
     return files
 
 
-def readme_from_data(d, backup=True):
+def readme_from_data(d):
     """Text+ の計画(build_import_plan の結果か、read_script_plan で Lua から読み直したもの)-> 手順書の中身。
     書くとき・画面に出すとき・前のパックの「手順を見る」で共通(計画に無い項目は既定で補う)"""
     num, den = (int(x) for x in str(d["fps"]).split("/"))
     meta = {"w": d["media"]["width"], "h": d["media"]["height"], "fps": (num, den)}
-    return instructions(d["media"]["name"], d.get("target"), meta, len(d.get("captions") or []), len(d.get("cuts") or []), backup,
+    return instructions(d["media"]["name"], d.get("target"), meta, len(d.get("captions") or []), len(d.get("cuts") or []),
                         (d.get("style") or {}).get("name"), d.get("videoTracks") or 1, d.get("captionLanes") or 1)
 
 
-def readme_from_script(text, backup=True):
+def readme_from_script(text):
     """パックの Lua(importer_script が書いたもの)から手順書の中身を作り直す(手順書のファイルが無いパックの「手順を見る」)"""
-    return readme_from_data(read_script_plan(text), backup)
+    return readme_from_data(read_script_plan(text))
 
 
 def read_script_plan(text):

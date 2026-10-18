@@ -286,8 +286,9 @@ def apply_speaker_styles(plan, styles, color_map, shown):
 
 
 def output_from_spec(o, video):
-    """出力の指定(JSON)→ build_pack の引数のもと。fcpxml(補助の FCPXML。2026-10-16 に書き出しごと消した)・crf(粗編集の画質)は受けない
-    (送っても黙って無視する = 古い要求は断らない。FCPXML は作らない・粗編集は既定の画質 C.DEFAULT_CRF)"""
+    """出力の指定(JSON)→ build_pack の引数のもと。fcpxml(補助の FCPXML。2026-10-16 に書き出しごと消した)・crf(粗編集の画質)・
+    backup(Text+ パックの予備 EDL・SRT。2026-10-18 に消した = 決定 3-34)は受けない
+    (送っても黙って無視する = 古い要求は断らない。FCPXML・予備は作らない・粗編集は既定の画質 C.DEFAULT_CRF)"""
     o = o if isinstance(o, dict) else {}
     out = clean_path(o.get("dir"), "out")
     textplus = bool(o.get("textplus"))
@@ -318,7 +319,6 @@ def output_from_spec(o, video):
             "speakerColors": o.get("speakerColors") is not False,
             # 話者ごとの字幕の見た目の指定(今は色だけ)。speakerColors より優先(speakerColors が false でも効く)。形が違えば無かったことにする
             "speakerStyles": speaker_styles_from(o.get("speakerStyles")),
-            "backup": o.get("backup") is True,   # Text+ パックに予備(EDL・予備の手順書・SRT)も入れる(既定は入れない = 最小限。④)
             # Text+ 字幕の1段の文字数(2段にする。省略 = 置き先の向きの既定・0 = 改行しない。②)
             "textplusWrap": None if o.get("textplusWrap") in (None, "") else _num(o.get("textplusWrap"), "字幕の1段の文字数", 0, 40, integer=True),
             "loudness": loud, "volume": vol}

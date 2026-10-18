@@ -1040,7 +1040,7 @@ class Runner:
 
     def _pack_settings(self, run):
         """パックの作り方(束の pack 節 = 入口では編集の設定の 3 パック のタブと同じ値。気が利く画面へ 段4):
-        行から作るときの端の広げ方(rowEdge)・Text+ の置き先(fps・大きさ)・1段の文字数(縦横に合わせる)・話者の色・音量・予備・無音で削るときの値(cutSilence)。
+        行から作るときの端の広げ方(rowEdge)・Text+ の置き先(fps・大きさ)・1段の文字数(縦横に合わせる)・話者の色・音量・無音で削るときの値(cutSilence)。
         fps は固定の 30(素材は 30fps にそろえる = 2026-10-04 Q1・決定 3-30 Q2)。知らせ = 受付で入口が設定を束にするときに直した所(Run.notes。
         行からの設定の形が変なら既定で作った、など)。-> (rowEdge, output に足すもの, cutSilence, 知らせ)"""
         row_edge, wrap_out, cut_silence = _spec.pack_output(self._bundle(run))

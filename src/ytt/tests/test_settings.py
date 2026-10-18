@@ -193,14 +193,18 @@ class TestEditorSettings(unittest.TestCase):
         self.assertEqual(self.st.load_settings(), {"other": 1, "packSize": "1920x1080"})
         with open(self.path, encoding="utf-8") as f:
             self.assertEqual(json.load(f), {"other": 1, "packSize": "1920x1080"})
-        # 廃止した鍵(packFps): 直させない。古い設定ファイルに残っていても断らず、読み飛ばして消さない
+        # 廃止した鍵(packFps・packBackup): 直させない。古い設定ファイルに残っていても断らず、読み飛ばして消さない。
+        # 古い画面が api/settings/patch で送っても断らずに黙って捨てる(10-18。packBackup = パックの予備 = 決定 3-34)
         with open(self.path, "w", encoding="utf-8") as f:
-            json.dump({"other": 1, "packSize": "1920x1080", "packFps": "30"}, f)
+            json.dump({"other": 1, "packSize": "1920x1080", "packFps": "30", "packBackup": True}, f)
+        self.assertEqual(self.st.patch_settings({"values": {"packFps": "60"}}), {"ok": True, "values": {}})
+        self.assertEqual(self.st.patch_settings({"values": {"packBackup": False, "packSize": "1080x1920"}}),
+                         {"ok": True, "values": {"packSize": "1080x1920"}})
         with self.assertRaises(errors.ApiError):
-            self.st.patch_settings({"values": {"packFps": "60"}})
-        self.st.merge_settings({"patch": {"packFps": "60", "glossary": "みこ"}})
+            self.st.patch_settings({"values": {"nope": 1}})                              # 知らない鍵は今までどおり断る
+        self.st.merge_settings({"patch": {"packFps": "60", "packBackup": False, "glossary": "みこ"}})
         self.st.replace_settings({"other": 2})
-        self.assertEqual(self.st.load_settings(), {"other": 2, "packSize": "1920x1080", "packFps": "30"})
+        self.assertEqual(self.st.load_settings(), {"other": 2, "packSize": "1080x1920", "packFps": "30", "packBackup": True})
 
     def test_register_patch_key(self):
         from ytt import errors

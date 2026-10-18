@@ -199,11 +199,6 @@ class PackageTests(unittest.TestCase):
         lua = z.read("テスト_pack/create_resolve_textplus_project.lua").decode("utf-8")
         self.assertNotIn("CreateProject", lua)                     # プロジェクトは手で作る(スクリプトは作らない)
         self.assertNotIn(self.tmp, lua)                            # PC のパスを入れない
-        z2, _ = self.package(self.doc(), backup=True)              # 「予備も入れる」
-        rel2 = {n.split("/", 1)[1] for n in z2.namelist()}
-        self.assertTrue({"clip.edl", "clip_cut.srt", "予備_EDLで開く手順.txt"} <= rel2, rel2)
-        self.assertNotIn("cut-plan.json", rel2)
-        self.assertIn("もう一度残す", z2.read("テスト_pack/clip_cut.srt").decode("utf-8"))
 
     def test_uses_studio_edit_media(self):
         """切り抜きスタジオの余白つき素材(前後10秒)があれば、それを入れて、区間を余白の分だけ後ろへずらす"""

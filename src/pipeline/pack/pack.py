@@ -3,8 +3,8 @@
 
   plan_cut(Request)   … 動画を調べ、カットの決め方を組み合わせて「残す区間」を出す。ファイルは作らない(= --dry-run)
   build_pack(Plan, …) … EDL・カット後の字幕・友人へ.txt・cut-plan.json(+ 任意で粗編集 mp4・元動画のコピー・Text+パック)を作る。
-                        Text+ パックは最小限にできる(backup=False: EDL・予備の手順書・SRT を入れない、plan_file=False: cut-plan.json を書かない
-                        = 画面・API。記録は作業データ側。notes:docs/design/edit-tool-design.md の 12 ④)
+                        Text+ パックには EDL・カット後の SRT を入れない(2026-10-18 に「予備」の道を消した = 決定 3-34。Text+ でないパックは EDL が本体)。
+                        plan_file=False: cut-plan.json を書かない = 画面・API。記録は作業データ側。notes:docs/design/edit-tool-design.md の 12 ④)
 
 残す区間の決め方:
   base(土台): "all"(動画全体)/ "list"(時刻リストの残す区間)/ "plan"(cut-plan の採用区間 + 前後の余白)
@@ -70,6 +70,7 @@ PACK_FILE_KINDS = ("edl", "srt", "readme", "plan", "roughcut", "video",
                    "textplus_script", "textplus_install", "textplus_launcher", "textplus_readme", "textplus_template")
 OLD_TEXTPLUS_PLAN = "textplus-import.json"   # 2026-09-26 まで Text+ パックに入れていた計画(中身は Lua に埋め込み済みなので、もう書かない。④)
 OLD_MEDIA_DIR = "media"                       # 2026-09-27 まで Text+ パックの動画を入れていたフォルダ(今はパックの直下)
+OLD_BACKUP_README = "予備_EDLで開く手順.txt"   # 2026-10-18 まで Text+ パックに入れられた「予備」の手順書(EDL・SRT と組。決定 3-34 で消した)
 
 
 @dataclass
@@ -621,21 +622,20 @@ def describe(plan, lay=None):
 
 
 def pack_paths(video, out_dir, has_subs, render=False, copy_video=False, textplus=False, media=None,
-               backup=True, plan_file=True, readme_file=True):
+               plan_file=True, readme_file=True):
     """パックに書くファイル {種類: パス}。media: 同梱する動画が video と違うとき(スタジオの余白つき素材)。名前は video にそろえる。
-    backup: Text+ パックに予備(EDL・予備_EDLで開く手順.txt・カット後の SRT)も入れる(Text+ でないパックは、EDL が本体なのでいつも入れる)。
+    EDL・カット後の SRT・EDL の手順書(友人へ.txt)は Text+ でないパックだけ(EDL が本体)。Text+ パックには入れない
+    (2026-10-18 まで backup で入れられた「予備」は決定 3-34 で消した。古いパックの名前は OLD_BACKUP_README)。
     plan_file: cut-plan.json をフォルダに書く(コマンド。画面・API は作業データに記録する)。
-    readme_file: 手順書の「友人へ.txt」をフォルダに書く(コマンド。画面・API は書かずに画面の「手順を見る」で出す。
-    2026-09-27 ユーザー: 要らない)。予備の手順書(予備_EDLで開く手順.txt)は、予備を入れたときいつも書く(予備の道の手順なので)。
+    readme_file: 手順書の「友人へ.txt」をフォルダに書く(コマンド。画面・API は書かずに画面の「手順を見る」で出す。2026-09-27 ユーザー: 要らない)。
     動画はパックのフォルダの直下(2026-09-27 まで Text+ パックは media フォルダの中。1つだけなので分けない = ユーザー)"""
     video, out_dir = Path(video), Path(out_dir)
     media = Path(media) if media else video
     p = {}
-    if not textplus or backup:
-        # Text+ パックでは「友人へ.txt」を Text+ の手順書にし、EDL の手順書は予備として別の名前にする(手順が2つあると迷うため)
+    if not textplus:
         p["edl"] = out_dir / f"{video.stem}.edl"
-        if textplus or readme_file:
-            p["readme"] = out_dir / (TP.EDL_README_NAME if textplus else "友人へ.txt")
+        if readme_file:
+            p["readme"] = out_dir / "友人へ.txt"
         if has_subs:
             p["srt"] = out_dir / f"{video.stem}_cut.srt"
     if plan_file:
@@ -705,30 +705,27 @@ def media_for_pack(plan, include_video, cache=None):
                              f"後ろへ {max(0.0, after):.1f} 秒まで延ばせます)。"]}
 
 
-def expected_paths(req, out_dir, has_subs, render=False, copy_video=False, textplus=False, backup=True, plan_file=True,
-                   readme_file=True):
+def expected_paths(req, out_dir, has_subs, render=False, copy_video=False, textplus=False, plan_file=True, readme_file=True):
     """作る予定のファイル {種類: パス}(pack_paths。同梱する余白つき素材の名前も。ffprobe を使わない下見)"""
     copy_video = normalize_outputs(copy_video, textplus)
     media = edit_media_path(req.video, req, copy_video)
-    return pack_paths(req.video, out_dir, has_subs, render, copy_video, textplus, media, backup, plan_file, readme_file)
+    return pack_paths(req.video, out_dir, has_subs, render, copy_video, textplus, media, plan_file, readme_file)
 
 
-def planned_outputs(plan, out_dir=None, render=False, copy_video=False, textplus=False, backup=True, plan_file=True,
-                    readme_file=True):
+def planned_outputs(plan, out_dir=None, render=False, copy_video=False, textplus=False, plan_file=True, readme_file=True):
     """作る予定のファイルと、すでにあるもの(画面の上書き確認用)"""
     out_dir = Path(out_dir) if out_dir else default_out_dir(plan.video)
-    paths = expected_paths(plan.req, out_dir, plan.cues_out is not None, render, copy_video, textplus, backup, plan_file,
-                           readme_file)
+    paths = expected_paths(plan.req, out_dir, plan.cues_out is not None, render, copy_video, textplus, plan_file, readme_file)
     return out_dir, paths, [p for p in paths.values() if p.exists()]
 
 
 def build_pack(plan, out_dir=None, render=False, copy_video=False, textplus=False, force=False, crf=C.DEFAULT_CRF,
-               task=None, log=None, textplus_target=None, backup=True, plan_file=True, textplus_wrap=None, readme_file=True,
+               task=None, log=None, textplus_target=None, plan_file=True, textplus_wrap=None, readme_file=True,
                textplus_color=None, speaker_colors=None, loudness=None, volume=None, textplus_style="default", speaker_outlines=None,
                video_tracks=1, prev_copy=None, cache=None):
     """パックを作る。-> {"out_dir", "files": [(種類, パス)], "readme": 手順書の中身(書かなくても返す。画面の「手順を見る」),
     "warnings", "plan": cut-plan の中身(書かなくても返す), "videoCopy": 音量をかけて写した動画の記録(C.gain_copy_record。それ以外は None)}。
-    backup・plan_file・readme_file は pack_paths(画面・API の既定は最小限: backup=False・plan_file=False・readme_file=False。④)。
+    plan_file・readme_file は pack_paths(画面・API は最小限: plan_file=False・readme_file=False。④)。Text+ パックに EDL・SRT は入れない(決定 3-34)。
     textplus_color: Text+ の文字の色 {"hex", "who"}(配信者のメンバーカラー。resolve_textplus.text_style。None = 黒い文字)。
     speaker_colors: {話者の名前: "#RRGGBB"}(A-2)。字幕の話者(cue_speakers)がここにあれば、その字幕だけ文字をその色に(無ければ textplus_color)。
     textplus_style: 字幕の見た目の種類(resolve_textplus.TEXT_STYLES のキー。"default" = けいふぉんと / "lite" = 簡易版の MS ゴシック)。
@@ -759,8 +756,7 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, textplus=Fals
     copy_video = normalize_outputs(copy_video, textplus)
     m = media_for_pack(plan, copy_video, cache)   # 同梱する動画(余白つき素材なら、残す区間もそれに合わせる)。cache は画面用(probe を覚える)
     mvideo, mmeta, mkeeps = m["video"], m["meta"], m["keeps"]
-    paths = pack_paths(video, out_dir, plan.cues_out is not None, render, copy_video, textplus, mvideo, backup, plan_file,
-                       readme_file)
+    paths = pack_paths(video, out_dir, plan.cues_out is not None, render, copy_video, textplus, mvideo, plan_file, readme_file)
     C.validate_output_paths(list(paths.values()), force, protected=plan.req.inputs() + ((mvideo,) if m["edit"] else ()))
     req = plan.req
     warnings = list(m["warnings"])
@@ -792,15 +788,11 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, textplus=Fals
                 warnings.append(skipped)
         if task:
             task.check()
-        extras = []
-        if textplus:
-            extras.append((paths["textplus_launcher"].name, "Resolve のスクリプト一覧に Text+ 作成機能を登録する(明示実行)"))
-            if "textplus_readme" in paths:
-                extras.append((paths["textplus_readme"].name, "本来の手順(Text+ 字幕つきのタイムラインを作る)。まずこちらを読んでください"))
+        extras = []   # EDL の手順書(友人へ.txt)に載せる追加のファイル(EDL を書くのは Text+ でないパックだけ)
         if plan_file:
             extras.append(("cut-plan.json", "カットの記録(残す・削る区間)。ツールで読み直す用で、Resolve では使いません"))
         files = {}
-        if "edl" in paths:   # EDL・カット後の SRT・EDL の手順書(Text+ パックでは予備。最小限のときは入れない)
+        if "edl" in paths:   # EDL・カット後の SRT・EDL の手順書(Text+ でないパックだけ = EDL が本体)
             files = C.write_pack(out_dir, mvideo, mmeta, mkeeps, plan.cues_out, req.reel, req.rec_start,
                                  m["src_start"], paths.get("roughcut"), req.name, extras, readme_path=paths.get("readme", False),
                                  stem=video.stem)
@@ -824,7 +816,7 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, textplus=Fals
             fills, outlines, order = _cue_rgba(names, speaker_colors), _cue_rgba(names, speaker_outlines), cue_order(plan, names)
             tplan = plan if not m["edit"] else dataclasses.replace(
                 plan, video=mvideo, meta=mmeta, keeps=mkeeps, req=dataclasses.replace(req, name=req.name or video.stem))
-            files.update(TP.write_files(paths, tplan, out_dir, textplus_target, backup="edl" in paths, wrap=textplus_wrap,
+            files.update(TP.write_files(paths, tplan, out_dir, textplus_target, wrap=textplus_wrap,
                                         color=textplus_color, fills=fills, outlines=outlines, style=textplus_style,
                                         video_tracks=video_tracks, order=order))
     finally:
@@ -836,8 +828,8 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, textplus=Fals
     how = {"loudness": loudness} if loudness is not None else {"volume": volume}
     video_copy = C.gain_copy_record(copy_key, paths["video"], **how) if copy_key else None
     ordered = [(k, files[k]) for k in PACK_FILE_KINDS if k in files]
-    # 画面に出す手順書: Text+ パックは Text+ の手順(予備の EDL の手順ではなく)。ファイルに書かなかったときも中身は返す
-    # (どちらも書いた側が files["readme_text"] に入れる。Text+ のほうが後に入るので予備の EDL の手順より優先)
+    # 画面に出す手順書: Text+ パックは Text+ の手順・それ以外は EDL の手順。ファイルに書かなかったときも中身は返す
+    # (書いた側が files["readme_text"] に入れる。Text+ パックは EDL を書かないので Text+ の手順だけ)
     return {"out_dir": out_dir, "files": ordered, "readme": files["readme_text"], "warnings": warnings, "editMedia": m["edit"],
             "mediaKeeps": [list(x) for x in mkeeps], "plan": doc, "loudness": loud, "videoCopy": video_copy}
 
@@ -866,7 +858,10 @@ def _stale_warning(video, out_dir, paths, mvideo):
     known["old_fcpxml"] = out_dir / f"{video.stem}_cut.fcpxml"           # FCPXML は 2026-10-16 まで補助で書けた(今は作らない)
     known["textplus_plan"] = out_dir / OLD_TEXTPLUS_PLAN
     known["old_video"] = out_dir / OLD_MEDIA_DIR / mvideo.name        # 2026-09-27 までの Text+ パックの動画の場所
-    stale = [p for k, p in known.items() if k not in paths and p.exists()]
+    # 2026-10-18 まで Text+ パックに入れられた予備(EDL・カット後の SRT・予備の手順書。決定 3-34)。Text+ でないパックでは EDL・SRT は今の中身
+    known.update(old_edl=out_dir / f"{video.stem}.edl", old_srt=out_dir / f"{video.stem}_cut.srt", old_backup_readme=out_dir / OLD_BACKUP_README)
+    now = set(paths.values())   # 種類の名前ではなくパスで比べる(Text+ でないパックの EDL・SRT・友人へ.txt を「残っている」と言わない)
+    stale = [p for p in dict.fromkeys(known.values()) if p not in now and p.exists()]
     if stale:
         return ("前に作った " + "・".join(p.relative_to(out_dir).as_posix() for p in stale) + " がフォルダに残っています"
                 "(今回のカットとは合いません。要らなければ消してください)。")

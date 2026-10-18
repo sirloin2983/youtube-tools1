@@ -1036,7 +1036,8 @@ def _pack_text(v, limit):
 _PACK_REQUIRED = (("fps", lambda v: isinstance(v, str) and re.fullmatch(r"\d{1,3}", v, re.A) is not None),
                   ("size", lambda v: v in ("1080x1920", "1920x1080")),
                   ("wrap", lambda v: _yschemas.int_in(v, 0, 40) is not None),
-                  *((k, lambda v: isinstance(v, bool)) for k in ("textplus", "backup", "render", "speakerColors")))
+                  *((k, lambda v: isinstance(v, bool)) for k in ("textplus", "render", "speakerColors")))
+# 2026-10-18 まで必須だった backup(Text+ パックの予備。決定 3-34 で消した)は、古い画面が送っても余計な鍵として黙って捨てる
 _PACK_OPTIONAL = (("streamer", lambda v: _pack_text(v, 200) is not None),
                   ("loudness", lambda v: _yschemas.is_num(v) and v in PACK_OUTPUT_LOUDNESS),
                   ("volume", lambda v: _yschemas.int_in(v, 1, 200) is not None))

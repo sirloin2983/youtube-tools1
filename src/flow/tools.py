@@ -420,7 +420,7 @@ class LocalTools:
         out_dir = out["dir"]
         if not out["force"]:
             names = _pack.expected_paths(req, out_dir, bool(req.sub or req.transcript), render=out["render"], copy_video=out["copyVideo"],
-                                         textplus=out["textplus"], backup=out["backup"], plan_file=False, readme_file=False)
+                                         textplus=out["textplus"], plan_file=False, readme_file=False)
             existing = [p.name for p in names.values() if p.exists()]
             if existing:
                 return 409, {"error": "exists", "message": "出力ファイルが既にあります", "files": existing}
@@ -435,7 +435,7 @@ class LocalTools:
                 view = {"outDir": str(res["out_dir"]), "files": [{"kind": k, "name": Path(p).name, "path": str(p)} for k, p in res["files"]],
                         "warnings": list(res["warnings"])}
                 # 作れたあとの記録(パックを作った記録 + pack.key.json)は cut2resolve の API と同じ口(設計原則の指摘 3。書けなくても注意だけ)
-                view["warnings"] += _packrec.after_build(res, req.video, sp, o, out["textplus"], out["backup"], out["textplusColor"],
+                view["warnings"] += _packrec.after_build(res, req.video, sp, o, out["textplus"], out["textplusColor"],
                                                          tool={"name": "flow", "version": _version.VERSION})
                 job.update(state="done", result=view)
             except (_core.ToolError, ValueError, OSError) as e:
@@ -464,7 +464,7 @@ def _build(req, out_dir, out):
     plan = _pack.plan_cut(req)
     spk_map, _shown = _packreq.speaker_colors_for(plan, out)
     res = _pack.build_pack(plan, out_dir, render=out["render"], copy_video=out["copyVideo"], textplus=out["textplus"], textplus_target=out["textplusTarget"],
-                           force=out["force"], backup=out["backup"], plan_file=False, readme_file=False, textplus_wrap=out["textplusWrap"],
+                           force=out["force"], plan_file=False, readme_file=False, textplus_wrap=out["textplusWrap"],
                            textplus_color=out["textplusColor"], speaker_colors=spk_map or None,
                            loudness=out["loudness"], volume=out["volume"], video_tracks=out["videoTracks"])
     return res

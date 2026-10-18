@@ -340,7 +340,7 @@ class TestCaptionLanes(unittest.TestCase):
         self.assertIn('V2〜V3 の Text+ を選び', readme)
         self.assertIn('重なる字幕(V3)の高さを直す', readme)
         self.assertEqual(RTP.readme_from_data(RTP.build_import_plan(self.plan(self.OVER), 'v.mp4')),
-                         RTP.instructions('v.mp4', None, self.plan(self.OVER).meta, 4, 1, True, RTP.TEXT_STYLE['name'], 1, 2))
+                         RTP.instructions('v.mp4', None, self.plan(self.OVER).meta, 4, 1, RTP.TEXT_STYLE['name'], 1, 2))
 
     def test_video_tracks_and_three_lanes(self):
         """映像トラック 3 + 段 3: 字幕は V4〜V6(Lua は captionTrack = 映像の数 + 1 から cap.trackUp だけ上)"""
@@ -1001,7 +1001,7 @@ class TestPackWithFfmpeg(unittest.TestCase):
         r = pack.build_pack(plan, textplus=True, textplus_target={"fps": 30, "width": 1080, "height": 1920})
         names = sorted(p.name for p in r["out_dir"].iterdir())
         self.assertIn(RTP.README_NAME, names)
-        self.assertIn(RTP.EDL_README_NAME, names)
+        self.assertFalse({"予備_EDLで開く手順.txt", "clip.edl", "clip_cut.srt"} & set(names))   # 予備(EDL・SRT・予備の手順書)は入れない(決定 3-34)
         self.assertNotIn("Text+の使い方.txt", names)
         guide = (r["out_dir"] / RTP.README_NAME).read_text(encoding="utf-8-sig")
         self.assertIn("Text+ 字幕つき", guide)
@@ -1009,9 +1009,7 @@ class TestPackWithFfmpeg(unittest.TestCase):
         self.assertIn("最短辺をマッチ: 他をクロップ", guide)
         self.assertIn("フレームレートは、タイムラインを1本でも作ると", guide)
         self.assertEqual(r["readme"], guide)                       # 画面に出すのも友人が最初に読む方
-        backup = (r["out_dir"] / RTP.EDL_README_NAME).read_text(encoding="utf-8-sig")
-        self.assertIn("DaVinci Resolve", backup)
-        self.assertIn(RTP.README_NAME, backup)                    # 予備の手順書から本来の手順書を案内する
+        self.assertNotIn("予備", guide)                             # 消した予備を案内しない(「送り主に予備も入れてと頼んで」も無い)
         self.assertTrue((r["out_dir"] / self.video.name).exists())             # 動画はパックの直下(2026-09-27。media フォルダは作らない)
         self.assertFalse((r["out_dir"] / "media").exists())
         self.assertNotIn("media", guide)
@@ -1299,7 +1297,7 @@ class TestEditMediaPack(unittest.TestCase):
         files = dict(res["files"])
         self.assertEqual(files["video"], out / "clip_edit.mp4")
         self.assertTrue(files["video"].is_file())
-        self.assertEqual((files["edl"].name, files["srt"].name), ("clip.edl", "clip_cut.srt"))   # 名前は元の切り抜き
+        self.assertFalse({"edl", "srt", "readme"} & set(files))        # Text+ パックに EDL・SRT は入れない(決定 3-34)
         self.assertEqual(res["mediaKeeps"], [[300, 360], [420, 480]])
         self.assertEqual((res["editMedia"]["handleBefore"], res["editMedia"]["handleAfter"]), (10.0, 10.0))
         ip = RTP.read_script_plan((out / "create_resolve_textplus_project.lua").read_text(encoding="utf-8"))
@@ -1311,9 +1309,6 @@ class TestEditMediaPack(unittest.TestCase):
         ps1 = (out / "install_resolve_textplus_script.ps1").read_text(encoding="utf-8-sig")
         self.assertIn("Join-Path $packageDir 'clip_edit.mp4'", ps1)                # 登録するときも直下の動画を探す
         self.assertNotIn("media\\", ps1)
-        ev = parse_edl(files["edl"].read_text(encoding="utf-8"))
-        self.assertEqual([(tc2f(e[3], 30), tc2f(e[4], 30)) for e in ev], [(300, 360), (420, 480)])
-        self.assertIn("FROM CLIP NAME: clip_edit.mp4", ev[0][7])
         cp = json.loads((out / "cut-plan.json").read_text(encoding="utf-8"))
         self.assertEqual(cp["editMedia"]["keep_frames"], [[300, 360], [420, 480]])
         self.assertEqual(cp["keep_frames"], [[0, 60], [120, 180]])   # 読み直す用の区間は元の切り抜きの時刻
@@ -1321,6 +1316,12 @@ class TestEditMediaPack(unittest.TestCase):
         # 上書き確認の下見も同じ名前を出す
         _, paths, _ = pack.planned_outputs(plan, out, textplus=True)
         self.assertEqual(paths["video"], out / "clip_edit.mp4")
+        # EDL が本体のパック(Text+ でない)に動画を入れるときも余白つき素材。EDL・SRT の名前は元の切り抜き
+        files_e = dict(pack.build_pack(plan, Path(self.tmp.name) / "pack_edl_media", copy_video=True)["files"])
+        self.assertEqual((files_e["edl"].name, files_e["srt"].name, files_e["video"].name), ("clip.edl", "clip_cut.srt", "clip_edit.mp4"))
+        ev = parse_edl(files_e["edl"].read_text(encoding="utf-8"))
+        self.assertEqual([(tc2f(e[3], 30), tc2f(e[4], 30)) for e in ev], [(300, 360), (420, 480)])
+        self.assertIn("FROM CLIP NAME: clip_edit.mp4", ev[0][7])
 
     def test_not_used_without_video_or_when_disabled(self):
         res = pack.build_pack(self.plan(), Path(self.tmp.name) / "pack_edl")          # EDL だけ(動画を入れない)
@@ -1405,7 +1406,7 @@ class TestEditMediaProbeCache(unittest.TestCase):
 
 class TestMinimalPack(unittest.TestCase):
     """パックの出力を最小限に(notes:docs/design/edit-tool-design.md の 12 ④): 画面・API の Text+ パックは動画(直下)・Lua・雛形・登録用の ps1/bat だけ
-    (readme_file=False: 手順書は画面の「手順を見る」。2026-09-27 ユーザー)。backup=True で EDL・予備_EDLで開く手順.txt・カット後の SRT も。
+    (readme_file=False: 手順書は画面の「手順を見る」。2026-09-27 ユーザー)。EDL・予備_EDLで開く手順.txt・カット後の SRT の予備は消した(決定 3-34)。
     plan_file=False で cut-plan.json を書かない(画面・API。記録は作業データ)。コマンドは今までどおり 友人へ.txt も書く"""
 
     @classmethod
@@ -1430,7 +1431,7 @@ class TestMinimalPack(unittest.TestCase):
 
     MINIMAL = ["ResolveにText+スクリプトを登録.bat", "clip.mp4", "create_resolve_textplus_project.lua",
                "install_resolve_textplus_script.ps1", "textplus-template.drb"]
-    SCREEN = dict(backup=False, plan_file=False, readme_file=False)                 # 画面・API の既定
+    SCREEN = dict(plan_file=False, readme_file=False)                               # 画面・API の既定
 
     def test_minimal_by_default_for_screen(self):
         out, res = self.build("min", **self.SCREEN)
@@ -1441,26 +1442,24 @@ class TestMinimalPack(unittest.TestCase):
         readme = res["readme"]                                                      # 手順書は書かないが、中身は返す(画面の「手順を見る」)
         self.assertIn("Text+ 字幕つき", readme)
         self.assertIn("動画: clip.mp4", readme)
-        self.assertNotIn("予備_EDLで開く手順", readme)                             # 入っていない予備を案内しない
-        self.assertIn("予備も入れて", readme)
+        self.assertNotIn("予備", readme)                                           # 消した予備を案内しない(決定 3-34)
         lua = (out / "create_resolve_textplus_project.lua").read_text(encoding="utf-8")
         ip = RTP.read_script_plan(lua)
         self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], [(15, 60), (90, 150)])
         self.assertEqual([c["text"] for c in ip["captions"]], ["一", "二"])
-        self.assertEqual(RTP.readme_from_script(lua, backup=False), readme)         # 前回のパックの「手順を見る」は Lua から作り直す
+        self.assertEqual(RTP.readme_from_script(lua), readme)                       # 前回のパックの「手順を見る」は Lua から作り直す
 
-    def test_backup_adds_edl_readme_and_srt(self):
-        out, res = self.build("bk", **dict(self.SCREEN, backup=True))
-        self.assertEqual(self.names(out), sorted(self.MINIMAL + ["clip.edl", "clip_cut.srt", "予備_EDLで開く手順.txt"]))
-        self.assertIn("予備_EDLで開く手順.txt", res["readme"])
-        backup = (out / "予備_EDLで開く手順.txt").read_text(encoding="utf-8-sig")
-        self.assertNotIn("cut-plan.json", backup)                                   # 入れていないものを載せない
-        self.assertNotIn(RTP.README_NAME, backup)
+    def test_no_backup_path(self):
+        """予備(EDL・カット後の SRT・予備_EDLで開く手順.txt)の道は消した(決定 3-34)。Text+ でないパックは今までどおり EDL が本体"""
+        out = Path(self.tmp.name) / "nobk"
+        self.assertFalse({"edl", "srt", "readme"} & set(pack.pack_paths(self.video, out, True, textplus=True)))
+        self.assertTrue({"edl", "srt", "readme"} <= set(pack.pack_paths(self.video, out, True, textplus=False)))
+        with self.assertRaises(TypeError):
+            self.build("nobk", backup=True, **self.SCREEN)                          # 部品の引数は無い(古い要求の backup は request が読み捨てる)
 
     def test_command_keeps_full_output(self):
-        out, res = self.build("cli")                                                # コマンドの既定(予備・cut-plan.json・友人へ.txt も)。.json だけは出さない
-        self.assertEqual(self.names(out), sorted(self.MINIMAL + ["clip.edl", "clip_cut.srt", "予備_EDLで開く手順.txt", "cut-plan.json",
-                                                                 RTP.README_NAME]))
+        out, res = self.build("cli")                                                # コマンドの既定(cut-plan.json・友人へ.txt も)。.json・予備は出さない
+        self.assertEqual(self.names(out), sorted(self.MINIMAL + ["cut-plan.json", RTP.README_NAME]))
         self.assertEqual((out / RTP.README_NAME).read_text(encoding="utf-8-sig"), res["readme"])
 
     def test_member_color_text(self):
@@ -1472,7 +1471,7 @@ class TestMinimalPack(unittest.TestCase):
         self.assertEqual((inputs["Red1"], inputs["Green1"], inputs["Blue1"]), (0.4941, 0.7608, 0.9961))
         self.assertIn("兎田ぺこらの色の文字(#7EC2FE)", ip["style"]["name"])
         self.assertIn("兎田ぺこらの色の文字", res["readme"])
-        self.assertEqual(RTP.readme_from_script(lua, backup=False), res["readme"])
+        self.assertEqual(RTP.readme_from_script(lua), res["readme"])
         _, plain = self.build("plain", **self.SCREEN)
         self.assertEqual(ip["cuts"], RTP.read_script_plan((Path(self.tmp.name) / "plain" / "create_resolve_textplus_project.lua").read_text(encoding="utf-8"))["cuts"])
         self.assertIn("黒い文字", plain["readme"])
@@ -1570,11 +1569,10 @@ class TestMinimalPack(unittest.TestCase):
         self.assertEqual([c.get("trackUp") for c in ip["captions"]], [None, 1, None, None])
         self.assertEqual([c.get("fill") for c in ip["captions"]], [[1.0, 0.0, 0.0, 1.0], [0.0, 0.0, 1.0, 1.0], [1.0, 0.0, 0.0, 1.0], None])
         self.assertIn("V2〜V3 Text+ 字幕", res["readme"])
-        self.assertEqual(RTP.readme_from_script((out / "create_resolve_textplus_project.lua").read_text(encoding="utf-8"), backup=False),
-                         res["readme"])
-        # SRT・EDL(予備)は変えない(SRT は重なったまま)
-        out2 = Path(self.tmp.name) / "over_bk"
-        pack.build_pack(plan, out2, textplus=True, **dict(self.SCREEN, backup=True))
+        self.assertEqual(RTP.readme_from_script((out / "create_resolve_textplus_project.lua").read_text(encoding="utf-8")), res["readme"])
+        # EDL が本体のパック(Text+ でない)の SRT は段に分けない(重なったまま)
+        out2 = Path(self.tmp.name) / "over_edl"
+        pack.build_pack(plan, out2, **self.SCREEN)
         srt = (out2 / "clip_cut.srt").read_text(encoding="utf-8-sig")
         self.assertEqual(S.parse_subs(srt)[1][2], "二")
         self.assertGreater(S.parse_subs(srt)[0][1], S.parse_subs(srt)[1][0])          # 一 の終わり > 二 の始まり(重なったまま)
@@ -1623,7 +1621,9 @@ class TestMinimalPack(unittest.TestCase):
         self.assertIn("clip.edl", res["readme"])
 
     def test_overwrite_check_and_leftovers(self):
-        out, _ = self.build("again", backup=True, plan_file=True)                 # 以前の中身(予備・cut-plan.json・友人へ.txt)のフォルダ
+        out, _ = self.build("again", plan_file=True)                              # 以前の中身(cut-plan.json・友人へ.txt)のフォルダ
+        for n in ("clip.edl", "clip_cut.srt", "予備_EDLで開く手順.txt"):             # 2026-10-18 まで入れられた予備(決定 3-34)
+            (out / n).write_text("old", encoding="utf-8")
         (out / "textplus-import.json").write_text("{}", encoding="utf-8")         # 以前の版の .json
         (out / "media").mkdir()
         (out / "media" / "clip.mp4").write_bytes(b"old")                          # 2026-09-27 までの動画の場所
@@ -1904,15 +1904,11 @@ class TestNameWarningOnlyWithEdl(unittest.TestCase):
         self.assertFalse(self.has_name_warning(plan.warnings))
         self.assertFalse(self.has_name_warning(pack.describe(plan)))
 
-    def test_textplus_without_backup_has_none(self):
-        res = pack.build_pack(self.plan(), Path(self.tmp.name) / "tp_min", textplus=True, backup=False, plan_file=False, readme_file=False)
+    def test_textplus_has_none(self):   # Text+ パックは EDL を入れない(決定 3-34)ので、ファイル名の注意も出さない
+        out = Path(self.tmp.name) / "tp_min"
+        res = pack.build_pack(self.plan(), out, textplus=True, plan_file=False, readme_file=False)
         self.assertFalse(self.has_name_warning(res["warnings"]))
-
-    def test_textplus_with_backup_edl_has_it(self):
-        out = Path(self.tmp.name) / "tp_bk"
-        res = pack.build_pack(self.plan(), out, textplus=True, backup=True, plan_file=False, readme_file=False)
-        self.assertTrue((out / "さくらみこ.edl").is_file())
-        self.assertEqual(sum(self.has_name_warning([w]) for w in res["warnings"]), 1)
+        self.assertFalse((out / "さくらみこ.edl").exists())
 
     def test_non_textplus_edl_pack_has_it(self):
         out = Path(self.tmp.name) / "edl_main"

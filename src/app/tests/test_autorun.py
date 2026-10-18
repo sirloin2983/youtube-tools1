@@ -799,8 +799,10 @@ class TestStage4(Base):
         run = self.run_one("adopted")
         self.assertEqual(run["state"], "done", run)
         out = self.tools.c2r["body"]["output"]
-        # 横なら横の改行。fps は固定の 30(設定に残っている packFps は読まない = RS7-1 S4・決定 3-30 Q2)
-        self.assertEqual((out["textplusFps"], out["textplusSize"], out["backup"], out["textplusWrap"]), ("30", "1920x1080", True, 14))
+        # 横なら横の改行。fps は固定の 30(設定に残っている packFps は読まない = RS7-1 S4・決定 3-30 Q2)。
+        # 設定に残っている packBackup も読まない(パックの予備は消した = 決定 3-34。要求に backup を書かない)
+        self.assertEqual((out["textplusFps"], out["textplusSize"], out["textplusWrap"]), ("30", "1920x1080", 14))
+        self.assertNotIn("backup", out)
 
     def test_bad_row_edge_is_reported_not_failed(self):
         self.tools.row_edge = {"on": "yes"}

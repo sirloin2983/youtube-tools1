@@ -86,13 +86,14 @@ def ready(dirpath, env=None, c2r_dir=None):
     return True, ""
 
 
-def write_record(res, video, textplus, backup, color=None, tool=None, env=None, c2r_dir=None):
-    """記録を書く(after_build から)。res = ① build_pack の結果(out_dir・files・plan・editMedia・videoCopy)。書けなければ OSError・ValueError"""
+def write_record(res, video, textplus, color=None, tool=None, env=None, c2r_dir=None):
+    """記録を書く(after_build から)。res = ① build_pack の結果(out_dir・files・plan・editMedia・videoCopy)。書けなければ OSError・ValueError。
+    2026-10-18 まで記録に入れていた backup(Text+ パックの予備。決定 3-34 で消した)は書かない(読む所も無い。古い記録に残っていても使わない)"""
     out_dir = Path(res["out_dir"])
     d = packs_dir(env, c2r_dir)
     os.makedirs(d, exist_ok=True)
     rec = {"schema": SCHEMA, "tool": tool or {"name": "youtube-tools"},
-           "dir": str(out_dir), "video": str(video), "textplus": bool(textplus), "backup": bool(backup),
+           "dir": str(out_dir), "video": str(video), "textplus": bool(textplus),
            "builtAt": int(time.time() * 1000), "files": [Path(p).relative_to(out_dir).as_posix() for _, p in res["files"]],
            "editMedia": res.get("editMedia"), "cutPlan": res.get("plan"),
            "videoCopy": res.get("videoCopy"),   # 音量をかけて写した動画の条件(C.gain_copy_record)。次のパックで同じなら作り直さない(E-15 の続き)
@@ -115,13 +116,13 @@ def _trim(d):
         pass
 
 
-def after_build(res, video, spec, output, textplus, backup, color=None, tool=None, env=None, c2r_dir=None):
+def after_build(res, video, spec, output, textplus, color=None, tool=None, env=None, c2r_dir=None):
     """パックを作れたあとの記録(API と CLI が同じこれを呼ぶ)= 記録 + <パック>/pack.key.json。
     -> 注意の文の一覧(書けなかった物。パックはできているので失敗にしない)"""
     from . import keys as _keys   # keys.pack_state がここの ready を読むので、呼ぶときだけ(読み込みの輪を作らない)
     warnings = []
     try:
-        write_record(res, video, textplus, backup, color, tool, env, c2r_dir)
+        write_record(res, video, textplus, color, tool, env, c2r_dir)
     except (OSError, ValueError, TypeError) as e:
         log.warning("パックの記録を書けません: %s", e)
         warnings.append("パックを作った記録を残せませんでした(一覧の「パック済み」が出ないことがあります): %s" % e)

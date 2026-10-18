@@ -201,7 +201,6 @@ SETTINGS_PATCH_KEYS = {"packLoudness": lambda v: not isinstance(v, bool) and v i
                        # パックの出力(3 パック のタブ・まとめて実行の欄が同じ値を読み書きする。気が利く画面へ 段4)
                        "packSize": lambda v: v in ("1080x1920", "1920x1080"),
                        "speakerColors": lambda v: isinstance(v, bool),
-                       "packBackup": lambda v: isinstance(v, bool),
                        "packRender": lambda v: isinstance(v, bool),   # 粗編集の動画つき(段4 4-2: 覚える)
                        # キー配置(校正のキー。キーの一覧 = 設定の部品 UIKit.keymap が送る。気が利く画面へ 段6)
                        "keymap": lambda v: _keymap_ok(v),
@@ -247,8 +246,9 @@ def _settings_error(e):
     return _errors.ApiError("bad_request", str(e), 400)
 
 
-# 画面の欄を消した鍵(RS7-1 S4 で packFps は読まなくなった)。直させない・読まない・消さない = 古い設定ファイルに残っていても断らず、そのまま残す
-RETIRED_SETTINGS_KEYS = ("packFps",)
+# 画面の欄を消した鍵(RS7-1 S4 で packFps・10-18 に packBackup = パックの予備 = 決定 3-34 は読まなくなった)。
+# 直させない・読まない・消さない = 古い設定ファイルに残っていても断らず、そのまま残す。api/settings/patch で送られても断らずに黙って捨てる(古い画面)
+RETIRED_SETTINGS_KEYS = ("packFps", "packBackup")
 
 
 def _guarded_keys():
@@ -257,9 +257,15 @@ def _guarded_keys():
 
 
 def patch_settings(obj):
-    """POST /api/settings/patch {"values": {鍵: 値}}: SETTINGS_PATCH_KEYS の項目だけを、値を検査して直す(送った鍵だけ)"""
+    """POST /api/settings/patch {"values": {鍵: 値}}: SETTINGS_PATCH_KEYS の項目だけを、値を検査して直す(送った鍵だけ)。
+    廃止した鍵(RETIRED_SETTINGS_KEYS)は黙って捨てる(古い画面が送っても断らない・直さない)"""
+    values = obj.get("values")
+    if isinstance(values, dict) and values:
+        values = {k: v for k, v in values.items() if k not in RETIRED_SETTINGS_KEYS}
+        if not values:
+            return {"ok": True, "values": {}}
     try:
-        out = _settings_file().update_keys(obj.get("values"), SETTINGS_PATCH_KEYS)
+        out = _settings_file().update_keys(values, SETTINGS_PATCH_KEYS)
     except SettingsError as e:
         raise _settings_error(e)
     return {"ok": True, "values": out}

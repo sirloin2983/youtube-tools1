@@ -226,7 +226,7 @@ class TestEditStore(StoreDir):
         """4-3: パックを作ったときの出力の設定(output)。決まった鍵だけ・型と長さを確かめる。壊れていれば output なしで記録する(エラーにしない)"""
         S.save_edit(TID, {"edit": edit_obj(), "baseRev": 0})
         out = os.path.join(self.tmp, "clip_pack")
-        full = {"fps": "30", "size": "1080x1920", "wrap": 8, "textplus": True, "backup": False, "render": False, "speakerColors": True,
+        full = {"fps": "30", "size": "1080x1920", "wrap": 8, "textplus": True, "render": False, "speakerColors": True,
                 "streamer": "さくらみこ", "loudness": -14, "volume": 100,
                 "advanced": {"srcStartTc": "01:00:00:00", "recStart": "01:00:00:00", "reel": "A001"}}
 
@@ -241,7 +241,9 @@ class TestEditStore(StoreDir):
         self.assertEqual(rec(full).get("output"), full)                                     # 全部の鍵が入る
         p = rec(dict(full, junk=1, advanced=dict(full["advanced"], other="x")))
         self.assertEqual(p["output"], full)                                                 # 余計な鍵は黙って捨てる(全体は捨てない)
-        mini = {"fps": "60", "size": "1920x1080", "wrap": 0, "textplus": False, "backup": True, "render": True, "speakerColors": False}
+        for old in (True, False, "yes"):                                                    # 古い画面の backup(予備。決定 3-34 で消した)も黙って捨てる
+            self.assertEqual(rec(dict(full, backup=old))["output"], full)
+        mini = {"fps": "60", "size": "1920x1080", "wrap": 0, "textplus": False, "render": True, "speakerColors": False}
         self.assertEqual(rec(mini)["output"], mini)                                         # 任意の鍵(streamer・loudness・volume・advanced)は無くてよい
         self.assertEqual(rec(dict(mini, loudness=0, volume=200, streamer="", advanced={}))["output"],
                          dict(mini, loudness=0, volume=200, streamer="", advanced={}))
@@ -250,12 +252,12 @@ class TestEditStore(StoreDir):
         self.assertEqual(S.get_edit(TID)["packStale"], False)
         for bad in (None, "x", [], 3, dict(full, fps=30), dict(full, fps="1000"), dict(full, fps="3a"), dict(full, fps="3\n"), dict(full, size="abc"),
                     dict(full, size="1080x1080"), dict(full, wrap=41), dict(full, wrap=-1), dict(full, wrap="8"), dict(full, wrap=True), dict(full, wrap=8.5),
-                    dict(full, backup="yes"), dict(full, backup=1), dict(full, textplus=None), dict(full, render=0), dict(full, speakerColors="true"),
+                    dict(full, textplus=None), dict(full, render=0), dict(full, speakerColors="true"),
                     dict(full, streamer="あ" * 201), dict(full, streamer=5), dict(full, streamer="a\nb"), dict(full, loudness=-20), dict(full, loudness="-14"),
                     dict(full, loudness=True), dict(full, volume=500), dict(full, volume=0), dict(full, volume=True), dict(full, volume=100.5),
                     dict(full, advanced="x"), dict(full, advanced={"reel": "a\nb"}), dict(full, advanced={"reel": "x" * 41}),
                     dict(full, advanced={"srcStartTc": 5}), dict(full, advanced={"recStart": "a\x00"}),
-                    {k: v for k, v in full.items() if k != "fps"}, {k: v for k, v in full.items() if k != "backup"}):
+                    {k: v for k, v in full.items() if k != "fps"}):
             self.assertNotIn("output", rec(bad), bad)
         self.assertEqual(rec(dict(full, streamer="あ" * 200))["output"]["streamer"], "あ" * 200)   # 上限ちょうどは通る
         self.assertEqual(S.get_edit(TID)["edit"]["pack"]["files"], [])

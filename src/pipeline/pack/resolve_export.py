@@ -3,7 +3,7 @@
 パックの中身は pipeline/pack の pack.py で作る(2026-09-26 一本化。以前はここに別の実装があり、Python の取り込みスクリプトで
 新しいプロジェクトを作っていた)。zip の中身は cut2resolve の Text+ パックと同じ:
   動画(パックの直下。スタジオの余白つき素材があればそれ)・Text+ を作る Lua と雛形・登録用の bat と ps1(最小限。④。手順書は画面で見る)。
-  backup=True のときだけ予備(EDL・予備_EDLで開く手順.txt・SRT)も。cut-plan.json は入れない(zip はダウンロードなので記録も残さない)
+  EDL・SRT は入れない(2026-10-18 まで backup で入れられた予備は決定 3-34 で消した)。cut-plan.json も入れない(zip はダウンロードなので記録も残さない)
 残す区間の決め方は pack.TRANSCRIPT_ROWS(行の時間・短い行も残す・1フレームの隙間はつなぐ・端を声の止まる所まで広げる)。
 端を広げるか(設定の rowEdge)は pack.row_edge_from で読む(規則はここに書かない)。
 同じ入力から同じ中身になることは dev/tests/test_resolve_pack_contract.py が確かめる。
@@ -179,7 +179,7 @@ def pack_instructions(folder):
     try:
         with open(lua, "rb") as f:
             text = f.read(64 * 1024 * 1024).decode("utf-8", "replace")
-        return tp.readme_from_script(text, backup=(Path(folder) / tp.EDL_README_NAME).is_file())
+        return tp.readme_from_script(text)
     except (OSError, ValueError, KeyError, TypeError):
         return None
 
@@ -338,7 +338,7 @@ def speaker_sub_colors(doc: dict) -> dict:
 
 
 def create_package(doc: dict, fps_text: str = "30", size_text: str | None = None, version: str = "", keeps=None,
-                   row_edge=None, backup: bool = False, wrap=None, color=None, speaker_colors=None) -> tuple[str, str, dict]:
+                   row_edge=None, wrap=None, color=None, speaker_colors=None) -> tuple[str, str, dict]:
     """文字起こしの文書 → Resolve 用の Text+ パック(zip)。-> (zip のパス, 一時フォルダ, 情報)。一時フォルダは呼び出し側が消す。
     fps_text・size_text: Text+ を置くプロジェクト(友人が手で作る)の fps・解像度。既定 30fps・1080x1920(縦)。
     情報: {"cuts": 残す区間の数, "captions": 字幕の数, "media": {"file", "hasEditHandles"}, "warnings": [...]}
@@ -360,7 +360,7 @@ def create_package(doc: dict, fps_text: str = "30", size_text: str | None = None
         warns = []
         try:
             plan = pack.plan_cut(_edit_request(pack, source, tpath, keeps, row_edge, warns))
-            res = pack.build_pack(plan, out_dir, textplus=True, textplus_target=target, backup=backup, plan_file=False, textplus_wrap=wrap,
+            res = pack.build_pack(plan, out_dir, textplus=True, textplus_target=target, plan_file=False, textplus_wrap=wrap,
                                   readme_file=False, textplus_color=color, speaker_colors=speaker_colors or None)
         except pack.ToolError as e:
             raise _errors.ResolveExportError(str(e))

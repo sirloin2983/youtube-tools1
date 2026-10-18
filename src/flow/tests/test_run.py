@@ -595,7 +595,7 @@ class TestKeys(unittest.TestCase):
         with open(v, "wb") as f:
             f.write(b"x")
         with mock.patch.object(packrec, "packs_dir", lambda env=None, c2r_dir=None: recs):   # 作り終えたパック(記録と中身)= 鍵が同じなら same(部品 F3)
-            packrec.write_record({"out_dir": pack, "files": [("video", v)]}, self.media, False, False)
+            packrec.write_record({"out_dir": pack, "files": [("video", v)]}, self.media, False)
             state, built = rn._pack_state(run, self.doc, self.media, opts)
         self.assertEqual(state, "same")
         self.assertIn("contents", built[0])

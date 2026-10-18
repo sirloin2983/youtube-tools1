@@ -50,7 +50,7 @@ class _Env(unittest.TestCase):
         v = os.path.join(out, "a_0001.mp4")
         with open(v, "wb") as f:
             f.write(b"pack-movie")
-        packrec.write_record({"out_dir": out, "files": [("video", v)]}, self.media, False, False)
+        packrec.write_record({"out_dir": out, "files": [("video", v)]}, self.media, False)
 
 
 class TestKeysIgnoreAdopt(unittest.TestCase):
@@ -302,11 +302,13 @@ class TestPackRecord(_Env):
             f.write(b"pack-movie")
         res = {"out_dir": out, "files": [("video", v)], "plan": {"cuts": 1}, "editMedia": None}
         body = {"spec": {"video": self.media, "keeps": [[0, 1]]}, "output": {"textplus": False}}
-        self.assertEqual(packrec.after_build(res, self.media, body["spec"], body["output"], False, False, tool={"name": "flow"}), [])
+        self.assertEqual(packrec.after_build(res, self.media, body["spec"], body["output"], False, tool={"name": "flow"}), [])
         rec = packrec.read_record(out)
         self.assertEqual((rec["tool"], rec["files"], rec["cutPlan"]), ({"name": "flow"}, ["a_0001.mp4"], {"cuts": 1}))
         self.assertEqual(packrec.ready(out), (True, ""))
         self.assertEqual(keys.pack_state(self.media, lambda: body)[0], "same")   # 鍵も同じ口で書いた
+        old = {"spec": body["spec"], "output": dict(body["output"], backup=True)}   # 古い要求の backup(予備。決定 3-34)は鍵を変えない
+        self.assertEqual(keys.pack_state(self.media, lambda: old)[0], "same")
         os.unlink(v)
         self.assertIsNone(packrec.read_record(out))   # 中身が 1 つも無い = 記録は無効
         self.assertEqual(keys.pack_state(self.media, lambda: body)[0], "differ")
@@ -317,12 +319,12 @@ class TestPackRecord(_Env):
         v = os.path.join(out, "a.mp4")
         with open(v, "wb") as f:
             f.write(b"x")
-        packrec.write_record({"out_dir": out, "files": [("video", v)]}, self.media, True, False)
+        packrec.write_record({"out_dir": out, "files": [("video", v)]}, self.media, True)
         self.assertEqual(packrec.ready(out)[0], False)
 
     def test_write_failure_is_a_warning(self):
         with mock.patch.object(packrec, "write_record", side_effect=OSError("書けない")):
-            w = packrec.after_build({"out_dir": self.tmp, "files": []}, self.media, {"video": self.media}, {}, False, False)
+            w = packrec.after_build({"out_dir": self.tmp, "files": []}, self.media, {"video": self.media}, {}, False)
         self.assertEqual(len(w), 1)
 
 

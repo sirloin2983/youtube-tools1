@@ -10,8 +10,8 @@ API(「編集」の cut.js・pack-tab.js・app-tools.js と、入口の「まと
   GET  /api/ping                 {"app": "cut2resolve", "version"}
   GET  /api/siblings             {"tools": {"studio": 8800, "transcribe": 8775, "cut2resolve": 8810}}(notes:docs/spec/pipeline.md の 4)
   POST /api/plan                 {spec} → ジョブ(試算。ファイルは作らない。無音の検出が要る試算は、build と同じく他のツールの重い処理と順番を待つ。0.22.3)。結果の warnings と同じ順番・同じ長さの warningLevels("warn"|"info")付き(問題5)
-  POST /api/build                {spec, output: {dir?, render, copyVideo, textplus, textplusFps?, textplusSize?, backup?, force}} → ジョブ。既存の出力があれば 409 exists。
-                                  パックは最小限(Text+ パックは media の動画・Lua・雛形・登録用の ps1/bat・友人へ.txt。backup: true で EDL・予備の手順書・SRT も)。
+  POST /api/build                {spec, output: {dir?, render, copyVideo, textplus, textplusFps?, textplusSize?, force}} → ジョブ。既存の出力があれば 409 exists。
+                                  パックは最小限(Text+ パックは動画・Lua・雛形・登録用の ps1/bat。EDL・SRT は入れない。古い backup は受けて黙って無視 = 決定 3-34)。
                                   cut-plan.json はフォルダに置かず、作業データの packs/ に「パックを作った記録」を残す(書くのは ② flow/packrec.after_build =
                                   入口なしの CLI と同じ口。④ manage.cases.txindex が読む)
                                   spec.keeps = 残す区間の秒 [[a, b], …](「編集」のカットのとおり。pack.EDIT_KEEPS。preset とは一緒に使えない)
@@ -220,7 +220,7 @@ def open_folder(path):
         subprocess.Popen(["xdg-open", path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-FILE_NOTES = {"edl": "カット(EDL)", "srt": "カット後の字幕", "readme": "予備の EDL で開く手順", "plan": "カットの記録",
+FILE_NOTES = {"edl": "カット(EDL)", "srt": "カット後の字幕", "readme": "EDL で開く手順", "plan": "カットの記録",
               "roughcut": "粗編集の動画", "video": "元動画のコピー",
               "textplus_script": "Resolve内で実行するLua Text+生成スクリプト",
               "textplus_install": "Luaスクリプト登録用PowerShell", "textplus_launcher": "Luaスクリプト登録バッチ",
@@ -393,8 +393,7 @@ class Handler(BaseHTTPRequestHandler):
         def work(task):
             plan = pack.plan_cut(req, task=task, cache=app.cache)
             out_dir, paths, existing = pack.planned_outputs(plan, out_opts["dir"], render=out_opts["render"], copy_video=out_opts["copyVideo"],
-                                                            textplus=out_opts["textplus"], backup=out_opts["backup"], plan_file=False,
-                                                            readme_file=False)
+                                                            textplus=out_opts["textplus"], plan_file=False, readme_file=False)
             res = with_warning_levels(pack.summary(plan))
             res["outputs"] = {"dir": str(out_dir), "files": [p.name for p in paths.values()], "existing": [p.name for p in existing]}
             return res
@@ -430,7 +429,7 @@ def start_build(app, o):
         raise ApiError("bad_out", "出力先がフォルダではありません: %s" % out["dir"])
     if not out["force"]:   # 先に分かる範囲で上書きの確認(字幕の有無は入力から見積もる。最終的な確認はジョブの中でも行う)
         names = pack.expected_paths(req, out["dir"], bool(req.sub or req.transcript), render=out["render"], copy_video=out["copyVideo"],
-                                    textplus=out["textplus"], backup=out["backup"], plan_file=False, readme_file=False)
+                                    textplus=out["textplus"], plan_file=False, readme_file=False)
         existing = [p for p in names.values() if p.exists()]
         if existing:
             raise ApiError("exists", "出力ファイルが既にあります", 409, {"files": [p.name for p in existing], "dir": str(out["dir"])})
@@ -442,13 +441,13 @@ def start_build(app, o):
         prev = _packrec.read_record(str(out["dir"]), c2r_dir=CODE_DIR) or {}   # 前にこのフォルダへ作ったパックの記録(音量をかけた写しを比べる)
         res = pack.build_pack(plan, out["dir"], render=out["render"], copy_video=out["copyVideo"],
                               textplus=out["textplus"], textplus_target=out["textplusTarget"],
-                              force=out["force"], task=task, backup=out["backup"], plan_file=False,
+                              force=out["force"], task=task, plan_file=False,
                               textplus_wrap=out["textplusWrap"], readme_file=False, textplus_color=out["textplusColor"],
                               speaker_colors=spk_map or None, loudness=out["loudness"], volume=out["volume"],
                               video_tracks=out["videoTracks"], prev_copy=prev.get("videoCopy"), cache=app.cache)   # 余白つき素材の probe も覚える(O2)
         app.allow_out_dir(res["out_dir"])
         # 作れたあとの記録(パックを作った記録 + <パック>/pack.key.json)は入口なしの CLI(flow/tools)と同じ ② の口(設計原則の指摘 3)
-        res["warnings"].extend(_packrec.after_build(res, plan.video, o.get("spec") or {}, o.get("output") or {}, out["textplus"], out["backup"],
+        res["warnings"].extend(_packrec.after_build(res, plan.video, o.get("spec") or {}, o.get("output") or {}, out["textplus"],
                                                     out["textplusColor"], tool={"name": "cut2resolve", "version": SERVER_VERSION}, c2r_dir=CODE_DIR))
         files = [file_info(k, p) for k, p in res["files"]]
         r = {"outDir": str(res["out_dir"]), "files": files, "readme": res["readme"], "warnings": res["warnings"],

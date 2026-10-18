@@ -128,7 +128,8 @@ class TestMerge(unittest.TestCase):
         d = spec.merge(None)
         self.assertEqual((d["export"]["volume"], d["export"]["loudness"]), (75, -14))
         self.assertEqual((d["pack"]["size"], d["pack"]["volume"], d["pack"]["loudness"]), ("1080x1920", 30, 0))
-        self.assertEqual((d["pack"]["backup"], d["pack"]["speakerColors"], d["pack"]["cut"]), (False, True, "none"))
+        self.assertEqual((d["pack"]["speakerColors"], d["pack"]["cut"]), (True, "none"))
+        self.assertNotIn("backup", d["pack"])   # パックの予備は消した(決定 3-34)
         self.assertEqual(d["adopt"]["top"], spec.DEFAULT_TOP)
         self.assertEqual((d["analyze"]["wAudio"], d["analyze"]["wChat"], d["analyze"]["wComments"]), (1.0, 1.0, 0.7))
 
@@ -282,12 +283,21 @@ class TestValidate(unittest.TestCase):
         o = spec.tx_opts(spec.merge({"post": {"learning": {"version": "v2"}}}))
         self.assertEqual(o["learningVersion"], "v2")
 
+    def test_old_pack_backup_is_dropped(self):
+        """古い束・待ちの記録・録画の束の pack.backup(パックの予備。決定 3-34 で消した)は断らずに黙って捨てる"""
+        for v in (True, False, 1):
+            b = spec.validate(spec.merge({"pack": {"backup": v, "render": True}}))
+            self.assertNotIn("backup", b["pack"])
+            self.assertIs(b["pack"]["render"], True)
+        base = spec.validate(spec.merge(None))
+        self.assertNotIn("backup", spec.validate(spec.merge_onto(base, {"pack": {"backup": True}}))["pack"])
+
     def test_pack(self):
-        spec.validate(spec.merge({"pack": {"size": "1920x1080", "loudness": -16, "volume": 100, "backup": True, "render": True, "rowEdge": {"after": 1.0},
+        spec.validate(spec.merge({"pack": {"size": "1920x1080", "loudness": -16, "volume": 100, "render": True, "rowEdge": {"after": 1.0},
                                            "cut": "silence", "videoTracks": 5, "wrapChars": {"vertical": 2, "horizontal": 40},
                                            "cutSilence": {"noise": -90, "min": 0.05, "pad": 10}}}))
         spec.validate(spec.merge({"pack": {"cut": "rows"}}))   # 行から(ホームの設定 autorun.cut の選択肢)も束で表せる
-        for kw in ({"size": "1280x720"}, {"loudness": -12}, {"loudness": None}, {"volume": 0}, {"backup": 1}, {"speakerColors": None},
+        for kw in ({"size": "1280x720"}, {"loudness": -12}, {"loudness": None}, {"volume": 0}, {"speakerColors": None},
                    {"rowEdge": {"after": 3}}, {"rowEdge": None}, {"cut": "words"}, {"cut": ""}, {"videoTracks": 0}, {"videoTracks": 6},
                    {"wrapChars": {"vertical": 41, "horizontal": 14}}, {"cutSilence": {"noise": 1, "min": 0.6, "pad": 0.15}},
                    {"cutSilence": {"noise": -35, "min": 0.01, "pad": 0.15}}, {"cutSilence": {"noise": -35, "min": 0.6}}):
@@ -344,8 +354,8 @@ class TestBodies(unittest.TestCase):
         self.assertEqual(out, {"textplusWrap": 8, "textplusSize": "1080x1920", "textplusFps": "30", "speakerColors": True, "volume": 30})
         self.assertEqual(cs, {"noise": -35.0, "min": 0.6, "pad": 0.15})
         b = spec.merge({"pack": {"size": "1920x1080", "loudness": -14, "backup": True, "render": True, "videoTracks": 3, "speakerColors": False}})
-        _re, out, _cs = spec.pack_output(b)
-        self.assertEqual(out, {"textplusWrap": 14, "textplusSize": "1920x1080", "textplusFps": "30", "backup": True, "render": True, "speakerColors": False,
+        _re, out, _cs = spec.pack_output(b)   # 古い束の pack.backup: true は読み捨てる(要求に backup を書かない = 決定 3-34)
+        self.assertEqual(out, {"textplusWrap": 14, "textplusSize": "1920x1080", "textplusFps": "30", "render": True, "speakerColors": False,
                                "loudness": -14, "videoTracks": 3})
         self.assertNotIn("volume", spec.pack_output(spec.merge({"pack": {"volume": 100}}))[1])   # 元の音量は書かない
 

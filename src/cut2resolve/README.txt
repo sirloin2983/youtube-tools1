@@ -55,7 +55,8 @@ cut2resolve(「編集」の部品・コマンド。版は全体で 1 つ = ytt/v
   - / と /index.html は「画面は「編集」に統合しました」の案内だけを返す(スクリプトなし)
   - パックは最小限(v0.12.0・v0.13.0): Text+ パックは動画(フォルダの直下)・create_resolve_textplus_project.lua・textplus-template.drb・登録用の .ps1 と .bat だけ。
     手順書(友人へ.txt)は API では書かず、結果の readme(画面の「Resolve での手順を見る」)で返す。コマンドは今までどおり 友人へ.txt も書く。
-    output.backup = true のときだけ予備(EDL・予備_EDLで開く手順.txt・カット後の SRT)も。Text+ の計画の .json(textplus-import.json)は出さない(Lua に埋め込み済み)。
+    EDL・カット後の SRT は入れない(2026-10-18 まで output.backup で入れられた予備は消した。古い backup は送っても黙って無視)。
+    Text+ の計画の .json(textplus-import.json)は出さない(Lua に埋め込み済み)。
     cut-plan.json はフォルダに置かず、作業データの packs\<ハッシュ>.json(パックを作った記録。%LOCALAPPDATA%\youtube-tools\cut2resolve\packs)に残す。
     「パック済み」「フォルダを開く」はこの記録か、以前のパックの cut-plan.json で決める(src/manage/cases/txindex.py)
   - コマンド(cut2resolve.py)は今までどおり、EDL・SRT・友人へ.txt・cut-plan.json をフォルダに書く(Text+ の .json だけは出さない)

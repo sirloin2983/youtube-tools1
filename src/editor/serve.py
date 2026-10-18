@@ -558,7 +558,7 @@ class Handler(BaseHTTPRequestHandler):
             ed, _broken = _store.read_edit(tid)   # 「編集」のカットがあれば、そのとおりに(3 パック のタブのパックと同じ区間)
             zp, tmp_dir, info = resolve_export.create_package(tdoc, str(obj.get("fps") or "30"), str(obj.get("size") or "") or None, _workdata.SERVER_VERSION,
                                                               keeps=_store.edit_keeps_sec(ed) if ed and ed["clips"] else None,
-                                                              row_edge=_settings.load_settings().get("rowEdge"), backup=obj.get("backup") is True,
+                                                              row_edge=_settings.load_settings().get("rowEdge"),   # 古い画面の backup(予備)は黙って無視(決定 3-34)
                                                               wrap=_store.wrap_arg(obj.get("wrap"), obj.get("size")),
                                                               color={"hex": hex_, "who": who} if hex_ else None, speaker_colors=spk_map)
             self._send_zip(zp, "resolve-package.zip", {"X-Resolve-Cuts": str(info["cuts"]), "X-Resolve-Captions": str(info["captions"]),

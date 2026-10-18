@@ -173,7 +173,7 @@ def _settings_want(studio, editor, autorun):
         "transcribe": dict({k: tx[k] for k in _spec.TX_TRANSCRIBE_KEYS if k in tx}, engine=_spec.implied_engine(tx.get("device"))),
         "post": dict({k: tx[k] for k in post_keys if k in tx}, **({"splitChars": sub["splitChars"]} if "splitChars" in sub else {})),
         "pack": {"size": tx.get("packSize"), "loudness": pack_loud if _lufs(pack_loud) else 0, "volume": tx.get("packVolume", 30),
-                 "backup": tx.get("packBackup") is True, "speakerColors": tx.get("speakerColors") is not False,
+                 "speakerColors": tx.get("speakerColors") is not False,
                  "wrapChars": {k: wrap[k] for k in ("vertical", "horizontal") if k in wrap},
                  "cutSilence": {k: cs[k] for k in ("noise", "min", "pad") if _num(cs.get(k))}, "cut": autorun.get("cut")},
     }

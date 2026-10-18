@@ -236,7 +236,7 @@ class TestPaths(ServerBase):
             os.utime(recs / name, (1000 * i, 1000 * i))
         res = {"out_dir": alive2, "files": [("edl", alive2 / "x.edl")], "editMedia": None, "plan": {}}
         with mock.patch.object(serve._packrec, "packs_dir", return_value=str(recs)), mock.patch.object(serve._packrec, "MAX_RECORDS", 2):
-            serve._packrec.write_record(res, self.dir / "v.mp4", True, False)
+            serve._packrec.write_record(res, self.dir / "v.mp4", True)
         left = sorted(p.name for p in recs.iterdir())
         self.assertEqual(len(left), 3, left)              # 新しい記録 + 残したもの a(フォルダがある)・d(最後まで古い順の外)
         self.assertIn("a.json", left)
@@ -594,20 +594,22 @@ class TestJobs(ServerBase):
             st, j5 = self.c.json("POST", "/api/open-folder", {"path": str(out)})
         self.assertEqual(st, 200, j5)
 
-    def test_build_textplus_minimal_and_backup(self):
-        """Text+ パックは最小限(④)。output.backup で予備(EDL・予備の手順書・SRT)も入れる。記録は textplus: true"""
+    def test_build_textplus_minimal_and_old_backup(self):
+        """Text+ パックは最小限(④)。記録は textplus: true。古い output.backup: true は断らずに黙って無視(予備の EDL・SRT・手順書は入れない = 決定 3-34)"""
         out = self.dir / "tp_min"
         spec = {"video": str(self.video), "srt": str(self.srt), "keeps": [[0.5, 2.5], [4.5, 6.5]]}
         j = self.run_job("/api/build", {"spec": spec, "output": {"dir": str(out), "textplus": True}})
         self.assertEqual(j["state"], "done", j)
         rec = json.loads((Path(serve._txi.packs_dir(c2r_dir=serve.CODE_DIR)) / serve._txi.pack_key(out)).read_text(encoding="utf-8"))
-        self.assertEqual((rec["textplus"], rec["backup"], "clip.mp4" in rec["files"]), (True, False, True))
+        self.assertEqual((rec["textplus"], "backup" in rec, "clip.mp4" in rec["files"]), (True, False, True))   # 記録に backup は書かない
         st, e = self.c.json("POST", "/api/build", {"spec": spec, "output": {"dir": str(out), "textplus": True, "backup": True}})
-        self.assertEqual((st, e["error"]), (409, "exists"))                      # 上書きの確認
-        self.assertNotIn("clip.edl", e["files"])                                  # まだ無いもの(予備)は並べない
+        self.assertEqual((st, e["error"]), (409, "exists"))                      # 古い backup で 400 にしない。上書きの確認
+        self.assertFalse({"clip.edl", "clip_cut.srt", "予備_EDLで開く手順.txt"} & set(e["files"]))
         j = self.run_job("/api/build", {"spec": spec, "output": {"dir": str(out), "textplus": True, "backup": True, "force": True}})
+        self.assertEqual(j["state"], "done", j)
         names = sorted(f["name"] for f in j["result"]["files"])
-        self.assertIn("clip.edl", names)
+        self.assertFalse({"clip.edl", "clip_cut.srt", "予備_EDLで開く手順.txt"} & set(names), names)   # 予備は入らない
+        self.assertFalse((out / "clip.edl").exists() or (out / "clip_cut.srt").exists())
         self.assertIn("clip.mp4", names)
         # E-15: 前に写した同じ動画(大きさ・更新日時)はコピーを飛ばし、注意に 1 行(ただの案内 = info)
         r = j["result"]

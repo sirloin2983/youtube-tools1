@@ -584,7 +584,7 @@ class TestOtherVoice(StoreDir):
         self.assertEqual({s["id"]: s["name"] for s in d["speakers"]}[kept["speaker"]], "ぺこら")
 
     def test_pack_output_speaker_styles(self):
-        base = {"fps": "30", "size": "1080x1920", "wrap": 8, "textplus": True, "backup": False, "render": False, "speakerColors": False}
+        base = {"fps": "30", "size": "1080x1920", "wrap": 8, "textplus": True, "render": False, "speakerColors": False}
         out = S.sanitize_pack_output(dict(base, speakerStyles={"ぺこら": {"color": "7ec2fe", "x": 1}}))
         self.assertEqual(out["speakerStyles"], {"ぺこら": {"color": "#7EC2FE"}})
         mixed = S.sanitize_pack_output(dict(base, speakerStyles={"ぺこら": {"color": "bad"}, "みこ": {"color": "#FF0000"}, "": {"color": "#000000"}}))

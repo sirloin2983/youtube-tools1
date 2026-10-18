@@ -564,7 +564,7 @@ def write_pack(out_dir, video, meta, keeps, cues_out, args_reel=DEFAULT_REEL, re
                src_start="00:00:00:00", rough_path=None, edl_title=None, extras=None, readme_path=None, stem=None):
     """EDL・字幕・手順書を書く(どれも一時ファイル経由で置き換える)。書いたファイルのパス辞書を返す。
     extras: 友人へ.txt に載せる追加のファイル [(名前, 説明)](書くのは呼び出し側)
-    readme_path: EDL の手順書の置き場所(既定は 友人へ.txt。Text+ パックでは予備の手順書にする。False = 書かない)
+    readme_path: EDL の手順書の置き場所(既定は 友人へ.txt。False = 書かない。Text+ パックは EDL を入れないので呼ばない = 決定 3-34)
     stem: EDL・SRT の名前(既定は video の名前。余白つき素材を使うときも、名前は元の切り抜きにそろえる)
     返す辞書の "readme_text" は手順書の中身(書かなかったときも。画面に出す用。パスではない)"""
     out_dir = Path(out_dir)
