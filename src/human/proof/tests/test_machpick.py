@@ -6,7 +6,6 @@
 機械の結果が変わって人の直しと食い違う行(印 MACH_CHANGED)の 前の機械・今の機械・人の直しを返す・[自分の直しのまま] / [今の機械にする] を選ぶ。
 """
 import copy
-import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データ(AppData など)に触らない
 import sys
@@ -20,6 +19,7 @@ for _p in (os.path.join(SRC, "editor"), SRC):
 from human.proof import layers as L, machpick, store  # noqa: E402
 from ytt import errors, workdata  # noqa: E402
 from human.tests._workdata import temporary_workdata  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 TID = "0123456789ab"
 META = {"schema": "transcribe/v1", "id": TID, "title": "t", "updatedAt": 1}
@@ -103,12 +103,10 @@ class ApiTest(unittest.TestCase):
         d["segments"][1].update(text="いー", proofed=True)
         store.commit(TID, d, why="save")
         mp = os.path.join(workdata.TX_DIR, TID + ".mach.json")   # ② が機械の層だけを書き換えた
-        with open(mp, encoding="utf-8") as f:
-            m = json.load(f)
+        m = testkit.read_json(mp)
         m["rev"] += 1
         m["rows"][1]["text"] = "いい"
-        with open(mp, "w", encoding="utf-8") as f:
-            json.dump(m, f, ensure_ascii=False)
+        testkit.write_json(mp, m)
 
     def test_changes_and_pick_mine(self):
         r = machpick.changes(TID)

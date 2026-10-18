@@ -4,9 +4,7 @@ import glob
 import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
-import shutil
 import sys
-import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -18,6 +16,7 @@ from ytt import studio_env  # noqa: E402
 from ytt import casefiles, marks, names, schemas, studiodata  # noqa: E402
 from flow import casebook  # noqa: E402
 from ytt.errors import ApiError  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 YT = {"kind": "youtube", "videoId": "abcdefghijk", "name": "abcdefghijk"}
 YT2 = {"kind": "youtube", "videoId": "bbbbbbbbbbb", "name": "bbbbbbbbbbb"}
@@ -30,15 +29,13 @@ def cand(s, e, score=5.0):
 
 class Base(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp()
+        self.tmp = testkit.tempdir(self)
         studio_env.set_home(self.tmp)
         self.path = os.path.join(self.tmp, "data.json")
         self.app = os.path.join(self.tmp, "app")   # 人の判断の記録(judgments.jsonl)の置き場所(作業データの app。実際の場所には書かない)
         self.st = store.Store(self.path, app_dir=self.app)
         self.st.ensure(YT, "t", "c")
 
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def video(self):
         return self.st.get(YT["videoId"])[0]
@@ -447,11 +444,9 @@ class TestPersistence(Base):
         self.assertEqual(st2.take_warning(), ("", ""))   # 一度だけ
 
     def test_one_bad_video_skipped_others_kept(self):
-        with open(self.path, encoding="utf-8") as f:
-            d = json.load(f)
+        d = testkit.read_json(self.path)
         d["videos"]["badbadbad11"] = {"id": "other", "kind": "youtube"}
-        with open(self.path, "w", encoding="utf-8") as f:
-            json.dump(d, f)
+        testkit.write_json(self.path, d)
         st2 = store.Store(self.path, app_dir=self.app)
         self.assertIn(YT["videoId"], st2.videos)
         self.assertNotIn("badbadbad11", st2.videos)
@@ -675,11 +670,9 @@ class TestCollab(Base):
 
     def test_corrupt_group_skipped_others_kept(self):
         self.group()
-        with open(self.path, encoding="utf-8") as f:
-            d = json.load(f)
+        d = testkit.read_json(self.path)
         d["groups"]["badbadbad11"] = {"id": "other"}
-        with open(self.path, "w", encoding="utf-8") as f:
-            json.dump(d, f)
+        testkit.write_json(self.path, d)
         st2 = store.Store(self.path, app_dir=self.app)
         self.assertEqual(len(st2.groups), 1)
         self.assertTrue(st2.take_warning()[0])
@@ -774,16 +767,14 @@ class TestLive(Base):
         self.st.put_video(LIVE["recording"], "配信", [{"id": "m1", "start": 5, "end": 20, "status": "adopted"}])
         st2 = store.Store(self.path, app_dir=self.app)
         self.assertEqual(st2.get(LIVE["recording"])[0], self.st.get(LIVE["recording"])[0])
-        with open(self.path, encoding="utf-8") as f:
-            d = json.load(f)
+        d = testkit.read_json(self.path)
         bad1 = json.loads(json.dumps(d["videos"][LIVE["recording"]]))
         bad1["id"] = "20261005-185301"      # live の録画 ID と違う
         bad2 = json.loads(json.dumps(d["videos"][LIVE["recording"]]))
         bad2["id"], bad2["live"] = "20261005-185302", {"recorder": "rec", "recording": "20261005-185302", "url": "http://evil.example/"}
         bad3 = {"id": "20261005-185303", "kind": "live"}     # live が無い
         d["videos"].update({"20261005-185301": bad1, "20261005-185302": bad2, "20261005-185303": bad3})
-        with open(self.path, "w", encoding="utf-8") as f:
-            json.dump(d, f)
+        testkit.write_json(self.path, d)
         st3 = store.Store(self.path, app_dir=self.app)
         self.assertEqual(sorted(st3.videos), sorted([YT["videoId"], LIVE["recording"]]))
         self.assertTrue(st3.take_warning()[0])
@@ -894,11 +885,9 @@ class TestLive(Base):
         self.st.put_video(rid, "配信", [dict(self.mark(), status="rejected")])
         self.assertNotIn("archived", self.mark())
         # 古い記録(書き出し済みでない)に archived が付いていても読み込みで落ちる
-        with open(self.path, encoding="utf-8") as f:
-            d = json.load(f)
+        d = testkit.read_json(self.path)
         d["videos"][rid]["marks"][0]["archived"] = True   # status は rejected
-        with open(self.path, "w", encoding="utf-8") as f:
-            json.dump(d, f)
+        testkit.write_json(self.path, d)
         self.assertNotIn("archived", store.Store(self.path, app_dir=self.app).get(rid)[0]["marks"][0])
 
     def test_archived_never_on_non_live(self):
@@ -910,8 +899,7 @@ class TestLive(Base):
         with open(self.path, encoding="utf-8") as f:   # data.json を手で直されても、読み込みで外す
             d = json.load(f)
         d["videos"][yid]["marks"][0]["archived"] = True
-        with open(self.path, "w", encoding="utf-8") as f:
-            json.dump(d, f)
+        testkit.write_json(self.path, d)
         self.assertNotIn("archived", store.Store(self.path, app_dir=self.app).get(yid)[0]["marks"][0])
 
     def test_conflict_with_other_kind(self):

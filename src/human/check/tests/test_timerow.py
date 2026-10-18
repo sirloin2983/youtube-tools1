@@ -60,7 +60,7 @@ class TimeApplyTest(unittest.TestCase):
         row = answerlog.state(self.ctx.app_dir).answers[r["answer"]]
         self.assertEqual(row["answer"], {"choice": "head", "dStart": 0.0, "dEnd": 0.0})
 
-    def test_move_and_undo(self):
+    def test_move_and_undo_and_one_edge_only(self):
         r = apply.answer(self.ctx, card(), {"answer": {"choice": "both", "dStart": -0.2, "dEnd": 0.3}})
         self.assertTrue(r["applied"]["moved"])
         g = self.seg()
@@ -72,8 +72,8 @@ class TimeApplyTest(unittest.TestCase):
         g = self.seg()
         self.assertEqual((g["start"], g["end"]), (10.0, 12.0))
 
-    def test_one_edge_only(self):
-        r = apply.answer(self.ctx, card(), {"answer": {"choice": "tail", "dEnd": 0.5}})
+        # 片方の端だけ
+        r =apply.answer(self.ctx, card(), {"answer": {"choice": "tail", "dEnd": 0.5}})
         g = self.seg()
         self.assertEqual((g["start"], g["end"]), (10.0, 12.5))
         # 頭の端はあとで人が直した -> 末だけ動かした答えは戻せる(動かしていない端は見ない)

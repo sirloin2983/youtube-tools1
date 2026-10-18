@@ -18,6 +18,7 @@ for _p in (os.path.join(SRC, "editor"), SRC):
 from human.proof import layers, store  # noqa: E402
 from ytt import workdata  # noqa: E402
 from human.tests._workdata import temporary_workdata  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 TID = "0123456789ab"
 
@@ -45,8 +46,7 @@ class CommitTest(unittest.TestCase):
     def test_commit_resets_cut_flags_from_edit(self):
         """行の「カット済」は commit が必ず編集の内容から付け直す(確かめるの時刻のカード check:time のように apply_edit_cuts を呼ばない書き手でも。2a-1)"""
         edit = {"schema": store.EDIT_SCHEMA, "rev": 1, "sources": [{"fps": [30, 1], "duration": 40.0}], "clips": [{"src": 0, "in": 0.0, "out": 10.0}, {"src": 0, "in": 20.0, "out": 30.0}]}
-        with open(store.edit_path(TID, for_write=True), "w", encoding="utf-8") as f:
-            json.dump(edit, f)
+        testkit.write_json(store.edit_path(TID, for_write=True), edit)
         doc = {"id": TID, "segments": [{"id": "a", "start": 8.0, "end": 9.5, "text": "あ", "cutState": "cut"},
                                        {"id": "b", "start": 10.5, "end": 12.0, "text": "い"}]}
         store.commit(TID, doc, why="check:time")
@@ -201,8 +201,7 @@ class PrimaryTest(unittest.TestCase):
             return json.load(f)
 
     def put(self, sfx, obj):
-        with open(self.path(sfx), "w", encoding="utf-8") as f:
-            json.dump(obj, f, ensure_ascii=False)
+        testkit.write_json(self.path(sfx), obj)
 
     def test_order_and_composed_from(self):
         order = []

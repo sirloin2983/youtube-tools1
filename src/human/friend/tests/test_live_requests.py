@@ -4,9 +4,7 @@
 """
 import json
 import os
-import shutil
 import sys
-import tempfile
 import unittest
 from unittest import mock
 
@@ -16,6 +14,7 @@ if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
 from human.friend import live_requests as LR  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 
 class LiveRequestsStoreTest(unittest.TestCase):
@@ -23,13 +22,11 @@ class LiveRequestsStoreTest(unittest.TestCase):
     REC = "20261008-200000-abcdefghijk"
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-live-req-")
+        self.tmp = testkit.tempdir(self, "ytt-live-req-")
         self.path = os.path.join(self.tmp, "live", "requests.json")
         self.now = 1_800_000_000.0
         self.logs = []
 
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def store(self):
         return LR.Store(self.path, clock=lambda: self.now, log=self.logs.append)
@@ -100,8 +97,7 @@ class LiveRequestsStoreTest(unittest.TestCase):
             with open(self.path, "wb") as f:
                 f.write(raw)
             self.assertEqual(self.store().all(), {}, raw)
-        with open(self.path, "w", encoding="utf-8") as f:
-            json.dump({"v": 1, "items": {"local/rec": {"rid": "r1", "settings": {"pad": 9, "sens": "low"}, "createdAt": "きのう"}}}, f)
+        testkit.write_json(self.path, {"v": 1, "items": {"local/rec": {"rid": "r1", "settings": {"pad": 9, "sens": "low"}, "createdAt": "きのう"}}})
         s = self.store()
         got = s.get("local", "rec")
         self.assertEqual((got["settings"], got["createdAt"]), (dict(LR.SETTINGS_DEFAULT, sens="low"), 0))

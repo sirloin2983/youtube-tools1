@@ -20,6 +20,7 @@ for _p in (os.path.join(SRC, "editor"), SRC):
 from human.proof import alt, store  # noqa: E402
 from ytt import docloc, schemas, workdata  # noqa: E402
 from human.tests._workdata import temporary_workdata  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 TID = "0123456789ab"
 
@@ -53,9 +54,7 @@ class PlacementTest(unittest.TestCase):
         self.assertEqual(store._hist_dir(TID), os.path.join(self.case, ".hist", TID))
         self.assertEqual(alt.alt_path(TID), os.path.join(self.case, TID + ".alt.json"))
         self.assertEqual(store.read_transcript(TID)["id"], TID)
-
-    def test_placed_doc_write_backup_and_list(self):
-        self._place()
+        # 書く・履歴・一覧も案件の場所
         store.write_doc(TID, {"id": TID, "segments": [], "n": 1})
         self.assertFalse(os.path.exists(os.path.join(self.tx, TID + ".json")))
         self.assertEqual(store.read_transcript(TID)["n"], 1)
@@ -79,8 +78,7 @@ class PlacementTest(unittest.TestCase):
         for n in (TID + ".pre-diarize.json", other + ".pre-diarize.json"):   # 以前の版が残した控え(ほかの文書の分は残す)
             with open(os.path.join(self.case, ".bak", n), "w", encoding="utf-8") as f:
                 f.write("{}")
-        with open(workdata.FEEDBACK, "w", encoding="utf-8") as f:
-            json.dump({"stat": {"あ=>い": {"acc": 1, "rej": 1}}, "dismissed": {TID: ["s1|あ=>い"], other: ["s2|う=>え"]}}, f)
+        testkit.write_json(workdata.FEEDBACK, {"stat": {"あ=>い": {"acc": 1, "rej": 1}}, "dismissed": {TID: ["s1|あ=>い"], other: ["s2|う=>え"]}})
         self.assertIsNotNone(store.transcript_summary(TID))
         store.delete_doc(TID)
         self.assertEqual(sorted(os.listdir(self.case)), [".bak"])

@@ -8,7 +8,6 @@ import json
 import os
 import shutil
 import sys
-import tempfile
 import time
 import types
 import unittest
@@ -22,6 +21,7 @@ if SRC not in sys.path:
 from flow import deliveries, outbox  # noqa: E402
 from human import judgments as J  # noqa: E402
 from human.friend import returns as R  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 RID = "20261011-120000-abcdef"
 
@@ -37,8 +37,7 @@ def make_zip(path, members):
 
 class Base(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-ret-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "ytt-ret-")
         self.sync = os.path.join(self.tmp, "Dropbox")
         self.app = os.path.join(self.tmp, "app")
         self.inbox = os.path.join(self.sync, R.IN_DIR)
@@ -120,8 +119,7 @@ class TestVerdict(Base):
         self.good_zip()
         make_zip(os.path.join(self.inbox, "%s__パック1.verdict.json" % RID), {})   # 後で上書き
         vp = os.path.join(self.inbox, "%s__パック1.verdict.json" % RID)
-        with open(vp, "w", encoding="utf-8") as f:
-            json.dump({"verdict": "made_video", "at": 1760000000000}, f)
+        testkit.write_json(vp, {"verdict": "made_video", "at": 1760000000000})
         old = time.time() - 600
         os.utime(vp, (old, old))
         res = self.scan()
@@ -147,8 +145,7 @@ class TestVerdict(Base):
         self.assertNotIn("origin", R.parse_verdict(b'{"verdict":"reject","at":5,"origin":"x"}'))
         for name, origin in (("p1", "auto"), ("p2", None)):
             vp = os.path.join(self.inbox, "%s__%s.verdict.json" % (RID, name))
-            with open(vp, "w", encoding="utf-8") as f:
-                json.dump(dict({"verdict": "keep", "at": 1760000000000}, **({"origin": origin} if origin else {})), f)
+            testkit.write_json(vp, dict({"verdict": "keep", "at": 1760000000000}, **({"origin": origin} if origin else {})))
             os.utime(vp, (time.time() - 600,) * 2)
         self.scan()
         self.assertEqual(R.iter_requests(self.app)[0]["verdicts"], {"p1": {"verdict": "keep", "at": 1760000000000, "origin": "auto"},
@@ -216,35 +213,26 @@ class TestVerdict(Base):
 
 
 class TestRoundTrip(Base):
-    def test_outbox_zip_to_returns(self):
-        work = os.path.join(self.tmp, "case", "作業用")
-        os.makedirs(os.path.join(work, "runs"))
+    def to_inbox(self, run_id, envelope, **kw):
+        """友人の PC の実行結果(run.json)を送り返しの zip にして受信箱へ置く"""
         from flow import runlog
-        rp = os.path.join(work, "runs", "r9.json")
-        with open(rp, "w", encoding="utf-8") as f:
-            json.dump({"schema": runlog.RESULT_SCHEMA, "id": "r9", "envelope": {"requestId": RID}, "state": "done", "outputs": {}, "packs": []}, f)
-        z = outbox.build(rp, self.app)
+        work = os.path.join(self.tmp, "case", "作業用")
+        os.makedirs(os.path.join(work, "runs"), exist_ok=True)
+        rp = testkit.write_json(os.path.join(work, "runs", run_id + ".json"),
+                                {"schema": runlog.RESULT_SCHEMA, "id": run_id, "envelope": envelope, "state": "done", "outputs": {}, "packs": []})
+        z = outbox.build(rp, self.app, **kw)
         dst = os.path.join(self.inbox, os.path.basename(z))
         shutil.copy(z, dst)
         os.utime(dst, (time.time() - 600,) * 2)
+
+    def test_outbox_zip_to_returns_and_requested_videos(self):
+        self.to_inbox("r9", {"requestId": RID})
         self.assertEqual(self.scan()[0]["state"], "accepted")
         run = R.iter_requests(self.app)[0]["runs"][0]
         self.assertEqual((run["runId"], run["manifest"]["schema"], run["result"]["state"]), ("r9", outbox.SCHEMA, "done"))
         self.assertEqual(R.requested_videos(self.app), {}, "封筒に配信の id が無い実行は数えない")
-
-    def test_requested_videos(self):
-        """D-SEND 2-9: 友人の PC で処理した依頼の配信(送り返しの run.json の封筒 input.videoId)-> {配信: 受け取った時刻(秒)}"""
-        work = os.path.join(self.tmp, "case", "作業用")
-        os.makedirs(os.path.join(work, "runs"))
-        from flow import runlog
-        rp = os.path.join(work, "runs", "r8.json")
-        with open(rp, "w", encoding="utf-8") as f:
-            json.dump({"schema": runlog.RESULT_SCHEMA, "id": "r8", "envelope": {"requestId": RID, "input": {"videoId": "abcdefghijk"}},
-                       "state": "done", "outputs": {}, "packs": []}, f)
-        z = outbox.build(rp, self.app, now=1760000000)
-        dst = os.path.join(self.inbox, os.path.basename(z))
-        shutil.copy(z, dst)
-        os.utime(dst, (time.time() - 600,) * 2)
+        # D-SEND 2-9: 友人の PC で処理した依頼の配信(送り返しの run.json の封筒 input.videoId)-> {配信: 受け取った時刻(秒)}
+        self.to_inbox("r8", {"requestId": RID, "input": {"videoId": "abcdefghijk"}}, now=1760000000)
         self.scan()
         self.assertEqual(R.requested_videos(self.app), {"abcdefghijk": 1760000000.0})
         self.assertEqual(R.requested_videos(os.path.join(self.tmp, "無い")), {})
@@ -310,8 +298,7 @@ class TestV2(Base):
 
     def v2(self, pack, body, at):
         p = os.path.join(self.inbox, "%s__%s~%013d.verdict.json" % (RID, pack, at))
-        with open(p, "w", encoding="utf-8") as f:
-            json.dump(dict({"v": 2, "at": at, "zip": "%s__r1.zip" % RID}, **body), f)
+        testkit.write_json(p, dict({"v": 2, "at": at, "zip": "%s__r1.zip" % RID}, **body))
         os.utime(p, (time.time() - 600,) * 2)
 
     def test_good_bad_unknown_and_retract(self):

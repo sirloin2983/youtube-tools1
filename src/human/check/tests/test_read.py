@@ -17,6 +17,7 @@ for _p in (os.path.join(ROOT, "editor"), ROOT):
 from human.check import answerlog, apply, read  # noqa: E402,F401
 from human.proof import learn, store  # noqa: E402
 from human.tests._workdata import temporary_workdata  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 TID = "aaaaaaaaaaaa"
 FLAG = "別の読みで埋めた(元の文字は「別の読み」の札)"
@@ -43,8 +44,7 @@ CAND = {"i": 3, "wrong": "晴", "right": "腫", "tier": "alt", "also": []}
 class ReadTest(unittest.TestCase):
     def setUp(self):
         self.tmp = temporary_workdata(self, "ytt-check-read-")
-        with open(store.tx_path(TID), "w", encoding="utf-8") as f:
-            json.dump(doc(), f, ensure_ascii=False)
+        testkit.write_json(store.tx_path(TID), doc())
         self.app = os.path.join(self.tmp, "app")
         self.ctx = apply.Context(self.app, ROOT)
 
@@ -97,7 +97,7 @@ class ReadTest(unittest.TestCase):
         s = self.seg("s1")
         self.assertEqual((s["text"], s.get("fill"), s.get("proofed")), ("梅田分", None, None))
 
-    def test_alt_accept_records_feedback_and_undo(self):
+    def test_alt_accept_and_keep_record_feedback_and_undo(self):
         got = apply.answer(self.ctx, card("alt", "s2", CAND), {"answer": {"choice": "2"}})
         self.assertEqual(self.seg("s2")["text"], "今日は腫れです")
         fb = self.fb()
@@ -108,7 +108,7 @@ class ReadTest(unittest.TestCase):
         self.assertEqual(self.seg("s2")["text"], "今日は晴れです")
         self.assertEqual(self.fb()["alt"], {"acc": 0, "rej": 0})
 
-    def test_alt_keep_dismisses_candidate(self):
+        # 「そのまま」は候補を出さない印にする
         got = apply.answer(self.ctx, card("alt", "s2", dict(CAND, also=[])), {"answer": {"choice": "1"}})
         self.assertEqual(self.seg("s2")["text"], "今日は晴れです")
         fb = self.fb()
@@ -120,8 +120,7 @@ class ReadTest(unittest.TestCase):
     def test_stale_row_is_refused(self):
         d = doc()
         d["segments"][1]["text"] = "全然違う文"
-        with open(store.tx_path(TID), "w", encoding="utf-8") as f:
-            json.dump(d, f, ensure_ascii=False)
+        testkit.write_json(store.tx_path(TID), d)
         with self.assertRaises(apply.Refused) as e:
             apply.answer(self.ctx, card("alt", "s2", CAND), {"answer": {"choice": "2"}})
         self.assertEqual(e.exception.error, "gone")
@@ -135,8 +134,7 @@ class ReadTest(unittest.TestCase):
         got = apply.answer(self.ctx, card("alt", "s2", CAND), {"answer": {"choice": "2"}})
         d = doc()
         d["segments"][1]["text"] = "人が直した"
-        with open(store.tx_path(TID), "w", encoding="utf-8") as f:
-            json.dump(d, f, ensure_ascii=False)
+        testkit.write_json(store.tx_path(TID), d)
         with self.assertRaises(apply.Refused) as e:
             apply.undo(self.ctx, got["answer"])
         self.assertEqual(e.exception.error, "changed")

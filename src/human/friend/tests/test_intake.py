@@ -5,10 +5,8 @@
 """
 import json
 import os
-import shutil
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 import unittest
@@ -25,6 +23,7 @@ from human.friend import intake  # noqa: E402
 from human.friend import live_requests  # noqa: E402
 from app import prefs as prefs_mod  # noqa: E402
 from ytt import fsio, jobs, normalize, tools  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 
 class FakeRunner:
@@ -55,7 +54,7 @@ class FakeRunner:
 
 class Base(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="intake-")
+        self.tmp = testkit.tempdir(self, "intake-")
         self.folder = os.path.join(self.tmp, "Dropbox", "切り抜き依頼")
         self.data = os.path.join(self.tmp, "app")
         os.makedirs(self.folder)
@@ -73,8 +72,6 @@ class Base(unittest.TestCase):
                                 probe=lambda p: self.probes.get(os.path.basename(p), {"ok": True, "duration": 60.0, "reason": ""}),
                                 info=lambda vid: self.infos.get(vid, {"duration": 3600.0, "live": "not_live", "title": "題名 " + vid, "channel": "ch"}))
 
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def put(self, name, data):
         p = os.path.join(self.folder, name)
@@ -677,11 +674,10 @@ class TestRequestFolder(Base):
                 mock.patch.object(intake.placement._fsio, "is_fixed_drive", return_value=False):
             self.send("20261001-120000-abc127", ["y.mp4"])
         self.assertEqual(os.path.dirname(self.runner.files[1]["path"]), os.path.join(self.data, "intake", self.it._today(), "20261001-120000-abc127"))
-
-    def test_manual_video_has_own_folder(self):
+        # 手で置いた動画は自分のフォルダ
         self.put("手で置いた.mp4", b"manual")
         self.scan2()
-        d = os.path.dirname(self.runner.files[0]["path"])
+        d = os.path.dirname(self.runner.files[-1]["path"])
         self.assertEqual(os.path.dirname(d), os.path.join(self.data, "intake", self.it._today()))
 
 
@@ -797,8 +793,7 @@ class TestFeedback(Base):
 
     def test_old_feedback_records_are_dropped_on_load(self):
         """前に 1 件ずつ入れていた友人の返事の記録(kind feedback)は読み込むときに外す(受付の記録の枠を友人の依頼に返す)"""
-        with open(os.path.join(self.data, intake.STATE_FILE), "w", encoding="utf-8") as f:
-            json.dump({"v": 1, "files": {"x": 1}, "requests": [{"kind": "feedback", "title": "要らない: a"}, {"kind": "url", "title": "配信"}]}, f)
+        testkit.write_json(os.path.join(self.data, intake.STATE_FILE), {"v": 1, "files": {"x": 1}, "requests": [{"kind": "feedback", "title": "要らない: a"}, {"kind": "url", "title": "配信"}]})
         it = intake.Intake(self.prefs, lambda: self.runner, self.data, clock=lambda: self.now)
         self.assertEqual([r["title"] for r in it.st["requests"]], ["配信"])
         self.assertNotIn("files", it.st, "使っていなかった欄は持たない")

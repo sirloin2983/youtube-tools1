@@ -1,19 +1,17 @@
 # -*- coding: utf-8 -*-
 """人の判断の記録(human/judgments)のテスト: 書いて読む・壊れた行・key の重複・fold の 3 レーンと retract と時刻順・.old・知らない what"""
 import os
-import shutil
 import sys
-import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests → human → src
 from human import judgments as J  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 
 class JudgmentsTest(unittest.TestCase):
     def setUp(self):
-        self.d = tempfile.mkdtemp(prefix="jdg-")
-        self.addCleanup(shutil.rmtree, self.d, True)
+        self.d = testkit.tempdir(self, "jdg-")
 
     def rec(self, key, what="adopt", at=1000, **kw):
         base = {"videoId": "v1", "markId": "m1", "origin": "manual", "via": "review", "key": key, "at": at, "what": what}

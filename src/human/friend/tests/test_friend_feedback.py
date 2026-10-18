@@ -5,9 +5,7 @@
 """
 import json
 import os
-import shutil
 import sys
-import tempfile
 import types
 import unittest
 
@@ -20,6 +18,7 @@ from manage.cases import cases  # noqa: E402
 from manage.keep import cleanup  # noqa: E402
 from human import judgments as J  # noqa: E402
 from human.friend import friend_feedback as F  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 
 def put(path, data=b"x"):
@@ -31,8 +30,7 @@ def put(path, data=b"x"):
 
 class Base(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-ffb-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "ytt-ffb-")
         self.logs = os.path.join(self.tmp, "app", "logs")
         self.trash = cleanup.Cleanup(os.path.join(self.tmp, "app"), env={"YTT_DATA_DIR": os.path.join(self.tmp, "data")})
         self.lines = []
@@ -60,8 +58,7 @@ class TestParse(unittest.TestCase):
 
     def test_read_text_limit_and_bom(self):
         """.feedback.json の読み取り: BOM は外す・上限ちょうどは読む・1 バイトでも超えれば ValueError・無ければ OSError"""
-        tmp = tempfile.mkdtemp(prefix="ytt-ffb-read-")
-        self.addCleanup(shutil.rmtree, tmp, True)
+        tmp = testkit.tempdir(self, "ytt-ffb-read-")
         p = put(os.path.join(tmp, "a.feedback.json"), b"\xef\xbb\xbf{\"v\":1}")
         self.assertEqual(F.read_text(p), '{"v":1}')
         put(p, b"x" * 10)

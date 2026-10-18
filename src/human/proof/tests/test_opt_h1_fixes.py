@@ -12,9 +12,7 @@
 import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データ(AppData など)に触らない
-import shutil
 import sys
-import tempfile
 import unittest
 from unittest import mock
 
@@ -27,6 +25,7 @@ from flow import tx as flowtx  # noqa: E402
 from pipeline.transcribe import replace, roster  # noqa: E402
 from ytt import textutil, workdata  # noqa: E402
 from human.tests._workdata import temporary_workdata  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 TID = "0123456789ab"
 
@@ -53,8 +52,7 @@ class PersonKeyTest(unittest.TestCase):
 class FeedbackTest(_Tmp):
     def test_unrecord_alt_does_not_touch_stat(self):
         """取り消す候補に出どころ(alt・yt)があれば、記録にその欄が無くても学習の統計 stat を減らさない"""
-        with open(workdata.FEEDBACK, "w", encoding="utf-8") as f:
-            json.dump({"stat": {"天気=>電気": {"acc": 3, "rej": 0}}, "dismissed": {}}, f, ensure_ascii=False)
+        testkit.write_json(workdata.FEEDBACK, {"stat": {"天気=>電気": {"acc": 3, "rej": 0}}, "dismissed": {}})
         item = {"seg": "s1", "wrong": "天気", "right": "電気", "tier": "alt"}
         learn.unrecord_feedback({"tid": TID, "action": "accept", "items": [item]})
         self.assertEqual(learn.load_feedback()["stat"]["天気=>電気"], {"acc": 3, "rej": 0})
@@ -83,8 +81,7 @@ class FeedbackTest(_Tmp):
 
 class RosterTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="opth1-roster-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "opth1-roster-")
         saved = roster.ROSTER
         self.addCleanup(lambda: setattr(roster, "ROSTER", saved))
 

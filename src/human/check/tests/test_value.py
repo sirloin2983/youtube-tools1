@@ -3,9 +3,7 @@
 実行(リポジトリ直下から): py -3.10 -m unittest src/human/check/tests/test_value.py -v
 """
 import os
-import shutil
 import sys
-import tempfile
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
@@ -15,6 +13,7 @@ if ROOT not in sys.path:
 
 from human import judgments  # noqa: E402
 from human.check import answerlog, apply, value  # noqa: E402,F401
+from ytt import testkit  # noqa: E402
 
 VID = "abcdefghijk"
 
@@ -53,8 +52,7 @@ class FakeStudio:
 
 class ValueTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-check-value-")
-        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.tmp = testkit.tempdir(self, "ytt-check-value-")
         self.studio = FakeStudio()
         self.hook_calls = []
 

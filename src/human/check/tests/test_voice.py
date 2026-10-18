@@ -4,7 +4,6 @@ human/proof/speakers.voice_learn_plan の rows=。一時フォルダの作業デ
 
 実行(リポジトリ直下から): py -3.10 -m unittest src/human/check/tests/test_voice.py -v
 """
-import json
 import os
 import sys
 import unittest
@@ -20,6 +19,7 @@ from human.check import answerlog, apply, voice  # noqa: E402
 from human.proof import layers, speakers, store  # noqa: E402
 from ytt import schemas, txbase, workdata  # noqa: E402
 from human.tests._workdata import temporary_workdata  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 TID = "0123456789ab"
 EMB = _diar.default_embedding()
@@ -166,10 +166,8 @@ class ApplyTest(Base):
         self.answer("s2", {"name": "みこ"})
         self.answer("s4", {"choice": "other"})
         d = self.doc()
-        with open(os.path.join(workdata.TX_DIR, TID + schemas.MACH_SUFFIX), encoding="utf-8") as f:
-            mach = json.load(f)
-        with open(os.path.join(workdata.TX_DIR, TID + schemas.HUM_SUFFIX), encoding="utf-8") as f:
-            hum = json.load(f)
+        mach = testkit.read_json(os.path.join(workdata.TX_DIR, TID + schemas.MACH_SUFFIX))
+        hum = testkit.read_json(os.path.join(workdata.TX_DIR, TID + schemas.HUM_SUFFIX))
         out = layers.compose(mach, hum, layers.split_meta(d))
         self.assertEqual(out["speakers"], d["speakers"])
         self.assertEqual([(g["id"], g.get("speaker"), g.get("noSub")) for g in out["segments"]], [(g["id"], g.get("speaker"), g.get("noSub")) for g in d["segments"]])

@@ -4,9 +4,7 @@
 """
 import json
 import os
-import shutil
 import sys
-import tempfile
 import unittest
 from unittest import mock
 
@@ -16,6 +14,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from human.check import answerlog, apply  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 
 def card(key, kind="read", source="fake"):
@@ -49,8 +48,7 @@ class Fake:
 
 class ApplyTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-check-apply-")
-        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.tmp = testkit.tempdir(self, "ytt-check-apply-")
         self.ctx = apply.Context(self.tmp, ROOT)
         self.fake = Fake()
 

@@ -5,9 +5,7 @@ import contextlib
 import io
 import json
 import os
-import shutil
 import sys
-import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests → human → src
@@ -15,6 +13,7 @@ from human import judgments as J  # noqa: E402
 from human import judgments_migrate as M  # noqa: E402
 from human.check import answerlog  # noqa: E402
 from ytt import casefiles  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 
 def jl(path, rows):
@@ -30,13 +29,11 @@ def aid(n):
 
 class MigrateTest(unittest.TestCase):
     def setUp(self):
-        self.d = tempfile.mkdtemp(prefix="jmig-")
-        self.addCleanup(shutil.rmtree, self.d, True)
+        self.d = testkit.tempdir(self, "jmig-")
         self.studio, self.app = os.path.join(self.d, "studio"), os.path.join(self.d, "app")
         out = os.path.join(self.d, "out")
         os.makedirs(self.studio)
-        with open(os.path.join(self.studio, "settings.json"), "w", encoding="utf-8") as f:
-            json.dump({"outDir": out}, f)
+        testkit.write_json(os.path.join(self.studio, "settings.json"), {"outDir": out})
         fb = lambda ts, ev, mid, **kw: dict({"ts": ts, "videoId": "V1", "kind": "youtube", "markId": mid, "source": "review", "src": "auto", "event": ev,
                                               "verdict": "good"}, **kw)
         jl(os.path.join(self.studio, "feedback.jsonl"), [
@@ -53,8 +50,7 @@ class MigrateTest(unittest.TestCase):
             {"v": 1, "at": "2026-10-02T00:04:00Z", "event": "detect_compare"}])
         root = os.path.join(out, "case1")
         os.makedirs(os.path.join(root, "作業用"))
-        with open(os.path.join(root, "作業用", "case.json"), "w", encoding="utf-8") as f:
-            json.dump({"schema": "youtube-tools-case/v1", "id": "V1"}, f)
+        testkit.write_json(os.path.join(root, "作業用", "case.json"), {"schema": "youtube-tools-case/v1", "id": "V1"})
         with open(os.path.join(root, "作業用", "採用.json"), "w", encoding="utf-8") as f:
             json.dump({"schema": casefiles.ADOPTIONS_SCHEMA, "sources": {"V1": {"kind": "youtube"}}, "marks": [],
                        "auto": {"m6": {"discardedAt": 1760000000000}, "m7": {"discardedAt": 1760000001000},
@@ -70,8 +66,7 @@ class MigrateTest(unittest.TestCase):
         os.makedirs(vd)
         for name, body in (("pack1.verdict.json", {"verdict": "keep", "at": 1760300000000, "requestId": "REQ1", "pack": "pack1"}),   # 受け取った後の本物の形(returns が並べる)
                            ("REQ1__pack2.verdict.json", {"verdict": "reject", "at": 1760300001000, "by": "auto"})):
-            with open(os.path.join(vd, name), "w", encoding="utf-8") as f:
-                json.dump(body, f)
+            testkit.write_json(os.path.join(vd, name), body)
         ans = lambda n, mid, choice, **kw: {"id": aid(n), "at": 1760400000000 + n, "kind": "value", "source": "auto", "card": "c%d" % n, "case": "V1",
                                               "target": {"videoId": "V1", "markId": mid}, "answer": dict({"choice": choice}, **kw), "applied": {}}
         for r in (ans(1, "m1", "good"), ans(2, "m2", "bad", reason="boring"), ans(3, "m3", "good"),
