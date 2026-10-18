@@ -938,7 +938,7 @@ def live_checks(base, out, shots=None, scenes=None, widths=WIDTHS, variants=VARI
         browser.close()
 
 
-def friend_scenes(base, setup_base=None):
+def friend_scenes(base, setup_base=None, update_base=None):
     """友人の受信箱(dev/friend_demo.py の見本 = 送った・作っている・届いた 1 組と 2 組・失敗)。決める・送る・終了のボタンは押さない。
     ヘッダーの A-28(ホーム・案件の画面と同じ部品)は見ない = 友人の PC の画面は受信箱 1 枚でほかの画面へのリンクが無い"""
     page = base + "/friend/"
@@ -958,13 +958,14 @@ def friend_scenes(base, setup_base=None):
             # F2-5: ⚙ の引き出し(見本は本物の窓を開かない)・初回の準備(--missing の見本 = 部品が足りない形の確認)
             {"name": "friend-settings", "url": page, "actions": [("wait", 500), ("click", "#btnSettings"), ("wait", 800)],
              "modal": {"root": "#settingsDrawer", "opener": "#btnSettings"}}] + \
-           ([{"name": "friend-setup", "url": setup_base + "/friend/", "actions": [("wait", 1500)]}] if setup_base else [])   # F3-5: /friend/ → 準備だけの画面
+           ([{"name": "friend-setup", "url": setup_base + "/friend/", "actions": [("wait", 1500)]}] if setup_base else []) + \
+           ([{"name": "friend-update", "url": update_base + "/friend/", "actions": [("wait", 1500)]}] if update_base else [])   # 帯の「新しい版 n があります [更新する]」(--update の見本 = 今の版 + 1)
 
 
-def start_friend_demo(port, missing=False):
-    """友人の受信箱の見本(dev/friend_demo.py)を起動して待つ(戻り値: プロセス)。missing = 初回の取得の部品が足りない形(F2-5)"""
+def start_friend_demo(port, missing=False, update=False):
+    """友人の受信箱の見本(dev/friend_demo.py)を起動して待つ(戻り値: プロセス)。missing = 初回の取得の部品が足りない形(F2-5)・update = 新しい版が入っている形"""
     env = dict(os.environ, PYTHONIOENCODING="utf-8")
-    proc = subprocess.Popen([sys.executable, os.path.join(REPO, "dev", "friend_demo.py"), "--port", str(port)] + (["--missing"] if missing else []), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", env=env)
+    proc = subprocess.Popen([sys.executable, os.path.join(REPO, "dev", "friend_demo.py"), "--port", str(port)] + (["--missing"] if missing else []) + (["--update"] if update else []), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", env=env)
     deadline = time.time() + 60
     while time.time() < deadline:
         line = proc.stdout.readline()
@@ -1035,7 +1036,8 @@ def main():
                 procs.append(start_demo(a.port))
                 procs.append(start_friend_demo(a.port + 10))   # 友人の受信箱(別のポートの 2 つ目の玄関の見本)
                 procs.append(start_friend_demo(a.port + 11, missing=True))   # 初回の準備の形(F2-5)
-                scenes = default_scenes(base) + friend_scenes(f"http://localhost:{a.port + 10}", f"http://localhost:{a.port + 11}")
+                procs.append(start_friend_demo(a.port + 12, update=True))    # 新しい版が入っている形(帯の [更新する])
+                scenes = default_scenes(base) + friend_scenes(f"http://localhost:{a.port + 10}", f"http://localhost:{a.port + 11}", f"http://localhost:{a.port + 12}")
             live_checks(base, out, a.shots, scenes=scenes, widths=[int(w) for w in a.widths.split(",")], variants=a.variants.split(","), names=a.scenes.split(",") if a.scenes else None)
         finally:
             for proc in procs:

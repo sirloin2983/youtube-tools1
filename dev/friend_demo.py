@@ -10,6 +10,8 @@ LIVE_URL を貼るとライブの 6 つの設定が出る。[動画ファイル�
 ② は疑似(StubEngine: 送った物を待ちに積むだけで処理しない)。Ctrl+C で終わる(一時フォルダは消す。--dir を指定したときは残す)。
 F2-5: ⚙ の [選ぶ] は本物の窓を開かず見本のフォルダを選んだことにする・API キーの確かめはネットへ出ない(どのキーも「使えます」)。
 --missing を付けると、初回の取得の部品が足りない形(見本の fetch.json)で起こす(ui_audit の friend-setup)。[始める] はネットへ出ず、少しずつ進んだことにする。
+--update を付けると、今の版より 1 つ新しい版が入っている形(<home>/app-<版>/)で起こす = 帯に「新しい版 n があります [更新する]」(ui_audit の friend-update)。
+[更新する] を押しても exe の無い見本は開き直しの案内だけ。
 """
 import argparse
 import os
@@ -245,11 +247,24 @@ def demo_file(home):
     return p
 
 
+def write_demo_update(home):
+    """--update: 今の版より 1 つ新しい版を <home>/app-<版>/ に入れた形にする(server.update_version が見る 2 つのファイルだけ。中身は空)。-> 版"""
+    from ytt import version as V
+    a, b, c = (int(x) for x in V.VERSION.split(".")[:3])
+    ver = "%d.%d.%d" % (a, b, c + 1)
+    for rel in (("src", "friendapp", "server.py"), ("python", "python.exe")):
+        p = os.path.join(home, "app-" + ver, *rel)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        open(p, "ab").close()
+    return ver
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8760)
     ap.add_argument("--dir")
     ap.add_argument("--missing", action="store_true", help="初回の取得の部品が足りない形で起こす(F2-5)")
+    ap.add_argument("--update", action="store_true", help="新しい版が入っている形で起こす(帯の [更新する])")
     a = ap.parse_args(argv)
     tmp_root = tempfile.gettempdir()
     for n in os.listdir(tmp_root):   # 前の見本の残り(ui_audit が止めると finally を通らない)を消す
@@ -263,6 +278,8 @@ def main(argv=None):
     from friendapp import places as P, server as S
     if a.missing:
         write_demo_fetch(home)
+    if a.update:
+        write_demo_update(home)
     key = os.path.join(home, "config.json")
     if not os.path.exists(key):   # 見本の鍵(形だけ。同期の糸は起こさない = Dropbox へつながない。あれば触らない)
         with open(key, "w", encoding="utf-8") as f:
