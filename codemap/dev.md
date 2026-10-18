@@ -23,6 +23,8 @@
   - 名前: `class Preflight` :65・`class Report` :69・`free_port` :95・`link_or_copy` :101・`unpack` :110・`break_fetch` :129・`place_models` :139・`mirror_map` :163・`lay_shim` :179・`friend_env` :189・`make_work` :215・`class Window` :238・ほか 24
 - **friend_preflight_shim.py** (270 行) — 配る前の検査(dev/friend_preflight.py)の通信の差し替え。検査が、展開した写しの python/Lib/site-packages/sitecustomize.py として置く
   - 名前: `install` :246
+- **guard_hook.py** (434 行) — Claude Code の PreToolUse のフック: 事故のもとになる操作を機械が断る(2026-10-18)。標準ライブラリだけ・速く。
+  - 名前: `class Tok` :51・`tok` :56・`tokenize` :62・`pipelines` :137・`word_of` :155・`norm_path` :171・`is_main_checkout` :184・`generated_kind` :198・`check_kill` :216・`check_sed` :242・`git_sub` :255・`check_git` :271・ほか 9
 - **land.py** (287 行) — 作業のブランチを main に入れ、版(src/ytt/version.py の VERSION と README.txt の見出し)を道具が 1 つ上げる(2026-10-18)。
   - 名前: `class Stop` :36・`git` :40・`main_worktree` :49・`bump` :60・`read_version` :65・`set_version` :72・`set_readme` :76・`needs_bump` :86・`read_file` :91・`write_file` :96・`pid_alive` :101・`class Lock` :119・ほか 5
 - **layer_map.py** (139 行) — 役割の層と、今のファイルの行き先(役割で組み直す計画 `notes:plan/role-restructure.md` の 7 節を機械で読める形にしたもの。RS0。RS6 a-0 で 5 つの層に)。
@@ -73,6 +75,7 @@
 - dev/tests/test_dropbox_auth.py — dev/dropbox_auth.py(切り抜き依頼の鍵を作る)のテスト。通信はしない(urlopen を差し替える)。
 - dev/tests/test_friend_diag.py — dev/friend_diag.py(届いた診断を読む道具)のテスト。一時フォルダだけ(本物の Dropbox は読まない)。
 - dev/tests/test_friend_preflight.py — 配る前の検査(dev/friend_preflight.py・dev/friend_preflight_shim.py)と、build_friend_zip.py --publish の関所のテスト。
+- dev/tests/test_guard_hook.py — dev/guard_hook.py(PreToolUse のフックの守り)のテスト。よくある命令を並べて、通す / 断るを確かめる。一時フォルダだけを使う
 - dev/tests/test_land.py — dev/land.py(main に入れる・版を道具が上げる)のテスト。一時フォルダの git リポジトリと worktree だけを使う
 - dev/tests/test_layering.py — 役割の層の import の向きを守るテスト(役割で組み直す計画 `notes:plan/role-restructure.md` の 4 節 1。RS0)。
 - dev/tests/test_lint.py — dev/lint.py(コードの基準を測る道具)の部品のテスト。リポジトリ直下で:
