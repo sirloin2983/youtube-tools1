@@ -95,8 +95,6 @@ now_ms = _yschemas.now_ms   # lint: keep 別名(正は ytt/schemas)
 env_off = _txbase.env_off   # lint: keep 別名(RS2-9)= 環境変数が「止める」の値(off・0・no・false)か(裏の処理を止めるスイッチ)
 
 
-
-
 # ---------- 記録(落ちたときの手がかり) ----------
 # serve.log: 起動・終了・ジョブの開始と終了(使っているメモリつき)・例外。serve.crash.log: Python が捕まえられない異常終了(ネイティブの落ち)のときの手がかり。
 # .running.json: 起動中の印(実行中のジョブつき)。正常に終了すれば消える。次の起動で残っていれば「前回は異常終了」と表示する。

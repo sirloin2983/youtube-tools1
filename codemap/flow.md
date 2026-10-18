@@ -11,8 +11,8 @@
   - 名前: `class Batch` :40
 - **board.py** (428 行) — ② 管理の層 flow: ジョブの掲示板(RS8 の ② の口 S1。2026-10-11。形は notes:docs/spec/pipeline.md 2.9・設計 notes:docs/design/rs8-flow-api.md)。
   - 名前: `class NotFound` :53・`class Refused` :57・`split_id` :65・`norm_case` :73・`normalize` :131・`class Board` :159・`default` :398・`guess_case` :407
-- **casebook.py** (327 行) — ② 管理の層 flow: 案件の候補と採用のファイルの書く側(RS8 B3-3・B3-4a。決定 3-37 の (r8j)〜(r8q)。下調べは WORKLOG の 10-11)。
-  - 名前: `owners` :43・`case_of` :57・`split` :89・`carry_over` :141・`write` :169・`live_video` :208・`live_mark` :217・`live_into` :252・`live_adopt` :273・`live_exported` :296・`live_marks` :311・`live_has` :318
+- **casebook.py** (326 行) — ② 管理の層 flow: 案件の候補と採用のファイルの書く側(RS8 B3-3・B3-4a。決定 3-37 の (r8j)〜(r8q)。下調べは WORKLOG の 10-11)。
+  - 名前: `owners` :43・`case_of` :57・`split` :88・`carry_over` :140・`write` :168・`live_video` :207・`live_mark` :216・`live_into` :251・`live_adopt` :272・`live_exported` :295・`live_marks` :310・`live_has` :317
 - **deliver.py** (293 行) — ② パックを友人へ届ける(Dropbox の見張るフォルダの 出力\ に zip で置く。友人のアプリの「受け取る」が読む)。
   - 名前: `safe_name` :42・`request_id` :46・`delivery_name` :51・`face_origin` :56・`meta_path_for` :66・`meta_doc` :78・`write_meta_json` :90・`unique_zip` :96・`zip_packs` :104・`preview_path_for` :140・`place_preview` :145・`deliver_one` :153・ほか 1
 - **deliveries.py** (202 行) — ② 管理の層 flow: 友人へ届けた記録(入口の作業データの logs/deliveries.jsonl)の読み口(OPT-M2。notes:plan/done/opt-manage.md の 7x-2)。

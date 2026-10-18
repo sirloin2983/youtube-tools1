@@ -1761,7 +1761,6 @@ def dataclasses_replace(obj, **kw):
     return dataclasses.replace(obj, **kw)
 
 
-
 class TestSnapEdges(unittest.TestCase):
     """LD-2c: 切り抜きの両端を話の切れ目へ詰める(pack.snap_base・Request.snap_edges・spec の snapEdges)。30fps"""
 

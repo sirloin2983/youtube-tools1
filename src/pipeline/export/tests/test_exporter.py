@@ -109,7 +109,6 @@ class TestApplyVolume(unittest.TestCase):
         self.assertEqual(spec["volume"], exporter.DEFAULT_EXPORT_VOLUME)
 
 
-
 class TestClipNumbering(unittest.TestCase):
     def test_numbers_continue_from_existing_clips(self):
         """同じ配信のフォルダに書き出しがあれば、開き直した 2 回目の書き出しは続きの番号から(01 から振り直さない)"""

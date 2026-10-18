@@ -78,7 +78,6 @@ def need_root(root):
         raise unseen(root, why)
 
 
-
 # ---------------------------------------------------------------- パス(案件の根からの相対)
 def abs_path(path, root):
     """相対のパス(区切り /)-> 案件の根の下の絶対パス。根の外に出るなら None。root が無い・絶対パス・空ならそのまま"""
@@ -270,7 +269,6 @@ def read_doc(path, parse):
         return None, False
     raw = _fsio.read_json_or(path, None, MAX_BYTES, kind=dict, allow_nan=True)
     return (parse(raw) if raw is not None else None), True
-
 
 
 def forget(root):

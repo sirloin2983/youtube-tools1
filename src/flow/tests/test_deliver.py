@@ -487,6 +487,5 @@ class DeliveriesTest(unittest.TestCase):
         self.assertEqual(wait(self.dl, self.dl.start(self.pack, "t"))["state"], "done")
 
 
-
 if __name__ == "__main__":
     unittest.main()

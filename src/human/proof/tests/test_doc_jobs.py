@@ -24,8 +24,6 @@ for _p in (EDITOR, SRC):
 from human.proof import doc_jobs, layers  # noqa: E402
 
 
-
-
 class TestCarryOverrides(unittest.TestCase):
     """同じ動画の文書を作り直す(force の再文字起こし・エンジンを変えた再実行)と、前の文書の人の行が新しい文書に引き継がれる(RS6 b-O1。
     10-18 から重ね方は層の組み立て layers.carry・控え <id>.over.json は書かない・読まない)。

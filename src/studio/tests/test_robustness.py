@@ -562,7 +562,6 @@ class TestShutdownJobs(Home):
         self.assertEqual(cm.exception.code, "closing")
 
 
-
 class TestExportJobSettles(Home):
     """書き出しのジョブが想定外の例外で「実行中」のまま残らない(設計レビューの 2)。"""
 

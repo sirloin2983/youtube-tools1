@@ -54,7 +54,6 @@ class FakeTool:
         self.srv.server_close()
 
 
-
 class RuntimeDir(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()

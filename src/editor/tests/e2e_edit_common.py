@@ -27,7 +27,6 @@ from ytt import layout as _layout  # noqa: E402
 os.environ.setdefault("YTT_CORE_DIR", REPO)   # 一時フォルダに写した serve.py が共通部品(ytt・パックの部品 pipeline.pack)を見つけられるように
 
 
-
 def read_pack_plan(path):
     """パックの Lua に埋め込んだ計画(区間・字幕・置き先)。2026-09-26(④)から textplus-import.json は出さない"""
     from pipeline.pack import resolve_textplus   # REPO(src)は上で sys.path に足してある

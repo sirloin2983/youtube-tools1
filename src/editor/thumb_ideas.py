@@ -205,7 +205,6 @@ def make(video, doc=None, name=None, out=None, crop="alt", rect=None):
     return out, rec
 
 
-
 def main(argv=None):
     p = argparse.ArgumentParser(description="サムネの案を 6 つ並べた 1 枚を作る(LLM なしの試作。完成品ではなく参照)")
     p.add_argument("video", help="切り抜きの動画")

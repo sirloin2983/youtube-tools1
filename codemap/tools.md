@@ -12,14 +12,14 @@
 
 - **ed_media.py** (156 行) — 「編集」のサーバーの部品: 音の波形(カットのタイムライン)(段10 で editor/serve.py から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
   - 名前: `peaks_rate` :33・`compute_peaks` :54・`get_peaks` :123
-- **ed_state.py** (186 行) — 「編集」のサーバーの部品: 置き場所・設定の値・共通の小道具・記録(落ちたときの手がかり)・作業データの切り替え(段10 で editor/serve.py から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
-  - 名前: `replace_retry` :64・`atomic_write` :70・`runtime_path_dir` :115・`setup_logging` :120・`write_mark` :146・`check_previous_run` :155・`clear_mark` :166・`backend_name` :178
+- **ed_state.py** (184 行) — 「編集」のサーバーの部品: 置き場所・設定の値・共通の小道具・記録(落ちたときの手がかり)・作業データの切り替え(段10 で editor/serve.py から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
+  - 名前: `replace_retry` :64・`atomic_write` :70・`runtime_path_dir` :113・`setup_logging` :118・`write_mark` :144・`check_previous_run` :153・`clear_mark` :164・`backend_name` :176
 - **ed_thumb.py** (90 行) — 「編集」のサムネの案(提案 P5 の S。notes:plan/thumb-ideas.md の 7・8)。作る本体は thumb_ideas.py(コマンドとしても使える独立の部品)。
   - 名前: `thumb_paths` :25・`thumb_spec` :37・`run_thumb` :52・`thumb_info` :70・`thumb_image_path` :83
 - **serve.py** (820 行) — 文字起こしツール用のローカルサーバー(標準ライブラリ + faster-whisper)。
   - 名前: `class Handler` :369・`probe` :614・`make_server` :620・`startup_checks` :642・`set_data_dir` :671・`studio_data_path` :682・`choose_data_dir` :690・`prepare` :702・`busy` :744・`finish` :749・`mounted_elsewhere` :763・`main` :772・ほか 1
   - 受ける口: `/api/ping` :238・`/api/siblings` :239・`/api/clip-info` :240・`/api/roster` :241・`/api/tools` :242・`/api/voices` :243・`/api/voices/preview` :244・`/api/jobs` :245・`/api/transcripts` :246・`/api/learned` :247・`/api/suggest` :248・`/api/metrics` :249・`/api/drill/status` :250・`/api/drill/next` :251・`/api/drill/candidates` :252・`/api/history` :253・`/api/transcript` :254・`/api/eval-folders` :255・`/api/eval-batch` :256・`/api/edit` :257・`/api/edit/draft` :258・`/api/thumb-ideas` :259・`/api/edit/pack-readme` :260・`/api/doc-for` :261・`/api/mach-changes` :262・`/api/transcribe` :286・`/api/diarize` :287・`/api/voices/learn` :288・`/api/speakers/sub` :289・`/api/voices/delete` :290・`/api/rerun` :291・`/api/settings/patch` :293・`/api/restore` :294・`/api/suggest/feedback` :295・`/api/export-file` :296・`/api/relink/check` :297・`/api/relink` :298・`/api/relink/missing` :299・`/api/relink/find` :300・`/api/eval-folders/organize` :301・`/api/eval-folders/settle` :302・`/api/eval-batch/start` :303・`/api/eval-batch/stop` :304・`/api/eval-batch/redo` :305・`/api/eval-batch/redo-one` :306・`/api/pick` :307・`/api/retime` :308・`/api/edit/pack` :309・`/api/edit/preview` :310・`/api/effort` :311・`/api/doc-diarnum` :312・`/api/mach-changes/pick` :313・`/api/drill/reviewed` :314・`/api/drill/unreviewed` :315・`/api/transcribe/cancel` :316・`/api/jobs/retry` :317・`/api/settings` :492・`/api/peaks` :494・`/api/thumb-ideas/image` :498・`/api/resolve-package` :531
-- **thumb_ideas.py** (246 行) — サムネの案を 6 つ並べた 1 枚を作る試作(提案 P5 の S = LLM なし。notes:plan/thumb-ideas.md)。完成品ではなく、サムネを作るときの参照。
+- **thumb_ideas.py** (245 行) — サムネの案を 6 つ並べた 1 枚を作る試作(提案 P5 の S = LLM なし。notes:plan/thumb-ideas.md)。完成品ではなく、サムネを作るときの参照。
   - 名前: `excite_score` :41・`clean` :49・`lines_of` :56・`one_word` :74・`row_at` :80・`select_times` :90・`card_texts` :110・`find_doc` :126・`doc_rows` :151・`member_color` :160・`mmss` :174・`crops_for` :178・ほか 2
 
 ## src/studio/

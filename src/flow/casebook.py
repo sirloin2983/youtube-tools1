@@ -81,7 +81,6 @@ def case_of(video, out_dir=None):
         return None
 
 
-
 def _rejected_of(c, sid, at):
     return {"source": sid, "id": c["id"], "start": c["start"], "end": c["end"], "at": at}
 

@@ -115,7 +115,6 @@ def studio_out_dir(repo_root=None, env=None):
     return out if isinstance(out, str) and out and os.path.isabs(out) else os.path.join(sdir, "exports")
 
 
-
 def prepare(tool, legacy_dir, env=None):
     """データのフォルダを決める。起動時に1回呼ぶ。legacy_dir = ツールのフォルダ(inplace のときの置き場所を決めるだけ)。
     -> {"dir": 使うフォルダ, "warnings": [...], "state": "override"|"inplace"|"new"|"failed"}

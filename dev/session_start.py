@@ -389,16 +389,29 @@ def brief(domain, task, repo, notes, act=None):
 
 # ---- まとめ ----
 
+def loc_line(repo):
+    """今の行数の合計を 1 行(dev/loc.py --line と同じ。行数の報告は dev/loc.py --since の数で)。数えられないときは空"""
+    try:
+        import loc
+        return loc.one_line(loc.totals(loc.tally(loc.files_at(repo=repo)))) + "・差は dev/loc.py --since <rev>"
+    except (Exception, SystemExit):
+        return ""
+
+
 def summary(domain, repo, notes, today):
     with ThreadPoolExecutor(4) as ex:
         f_repo = ex.submit(git_block, "リポジトリ", repo, True)
         f_notes = ex.submit(git_block, "保管庫", notes)
         f_ver = ex.submit(versions, repo)
         f_act = ex.submit(active_worktrees, repo)
+        f_loc = ex.submit(loc_line, repo)
         repo_lines, notes_lines, (v_main, v_here), (act, total, stale) = (
             f_repo.result(), f_notes.result(), f_ver.result(), f_act.result())
+        loc_text = f_loc.result()
     out = ["# セッションの入口 %s 版: main %s / ここ %s" % (
-        datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), v_main, v_here), "## git"]
+        datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), v_main, v_here)]
+    out += [loc_text] if loc_text else []
+    out.append("## git")
     out += repo_lines + notes_lines
     out += worklog_block(notes, today)
     out += boundary_block(boundary_dirs(notes))

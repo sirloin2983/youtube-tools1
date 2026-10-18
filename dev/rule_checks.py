@@ -401,6 +401,36 @@ def rule_owners_do_not_read_editor_parts(repo=REPO):
     return out
 
 
+# ---------------------------------------------------------------- 空行の続きすぎ(10-19。行数の数え方をそろえたとき。2 行までは PEP 8 のとおりよい)
+
+def blank_run_problems(name, text, limit=3):
+    """空白だけの行が limit 行以上続く所"""
+    out, run = [], 0
+    for i, s in enumerate(text.splitlines() + ["x"], 1):
+        if not s.strip():
+            run += 1
+            continue
+        if run >= limit:
+            out.append("%s:%d から空行が %d 行続く(2 行まで)" % (name, i - run, run))
+        run = 0
+    return out
+
+
+@rule("R-12", "プログラムのファイル(dev/loc.py が数える物)に空行が 3 行以上続かない", "(新しく足した規則・10-19)")
+def rule_blank_runs(repo=REPO):
+    sys.path.insert(0, HERE)
+    try:
+        import loc
+    finally:
+        sys.path.remove(HERE)
+    out = []
+    for path in repo_files(repo, "*"):
+        name = rel(path, repo)
+        if loc.classify(name):
+            out += blank_run_problems(name, read_text(path))
+    return out
+
+
 # ---------------------------------------------------------------- 流す
 
 def run(repo=REPO, only=None):

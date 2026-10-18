@@ -59,7 +59,6 @@ class CommitTest(unittest.TestCase):
         self.assertIn("drill", store.HUMAN_WHYS)    # 評価ドリルの「全部聞いた」= 人
 
 
-
 def _row(i, a, text, **kw):
     return dict({"id": "s%d" % i, "start": a, "end": a + 1.0, "text": text, "speaker": "", "flag": ""}, **kw)
 

@@ -560,7 +560,5 @@ class AccuracyTest(unittest.TestCase):
         self.assertEqual(accuracy.summarize_cut({"meta": {"docs": 6, "fromPack": 2}, "total": {"untouchedRate": 0.5}})["fromPack"], 2.0)
 
 
-
-
 if __name__ == "__main__":
     unittest.main()

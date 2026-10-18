@@ -78,8 +78,8 @@
   - 名前: `recognize` :29・`main` :54
 - **llm.py** (341 行) — 「編集」のサーバーの部品: LLM の後処理(提案 P18。notes:plan/done/llm-postfix.md。編集 0.61.0)。
   - 名前: `llm_fold` :54・`llm_dist` :65・`llm_members` :76・`llm_targets` :87・`llm_near` :100・`llm_pick` :117・`llm_messages` :138・`llm_parse` :150・`llm_names` :168・`llm_guard` :178・`llm_cap` :199・`llm_apply` :212・ほか 7
-- **models.py** (164 行) — ① 認識ワーカーの中で動く物: 読み込んだモデルの使い回し(_models)と読み込み(_load_model_local)・しばらく使わなければ手放す(release_idle_local)・
-  - 名前: `models_touched` :31・`release_idle_local` :36・`setup_cuda_paths` :105・`cuda_count` :130・`cuda_libs_ok` :138・`cuda_compute` :160
+- **models.py** (163 行) — ① 認識ワーカーの中で動く物: 読み込んだモデルの使い回し(_models)と読み込み(_load_model_local)・しばらく使わなければ手放す(release_idle_local)・
+  - 名前: `models_touched` :31・`release_idle_local` :36・`setup_cuda_paths` :105・`cuda_count` :130・`cuda_libs_ok` :138・`cuda_compute` :159
 - **postproc.py** (315 行) — ① 文字起こしの行の後処理: 要確認の印(make_flags)・認識の出力を整える流れ(expand_segments = 行を単語の時刻で分ける split_segment・
   - 名前: `latin_suspect` :31・`sparse_row` :59・`stock_phrase` :74・`repeats_in_line` :91・`make_flags` :102・`expand_segments` :135・`post_values` :175・`clip_rows` :202・`merge_repeats` :219・`trim_ends` :268・`join_rows` :281・`machine_conf` :292・ほか 2
 - **recognize.py** (480 行) — ① 音声の認識: 動画から音声を取り出す(extract_audio)・声の検出が捨てすぎたら緩めてやり直す(transcribe_vad_fallback)・文字起こしの行(transcribe_real)・
@@ -90,8 +90,8 @@
   - 名前: `fixed_finder` :15・`pick_glossary` :37・`auto_learned_replace` :52
 - **retime.py** (268 行) — ① 字幕の読む速さの印(T2)と、直した行の時刻を単語の時刻から配り直す候補(T1 の簡易版)の計算。2026-10-05 に作った。
   - 名前: `subread_chars` :44・`subread_limits` :49・`subread_mark` :62・`retime_raw` :154・`retime_candidates` :201
-- **roster.py** (306 行) — 名簿(hololive-roster.json)と、配信ごとの文脈(文字起こしの改善の計画 段1。notes:plan/line-b-transcription.md(付録))。
-  - 名前: `fold` :39・`load` :50・`channel_regions` :89・`find_in_text` :119・`match_name` :132・`build_context` :143・`member_terms` :167・`fit` :178・`prompt_terms` :193・`stream_context` :203・`leak_only` :228・`alias_variants` :263・ほか 1
+- **roster.py** (305 行) — 名簿(hololive-roster.json)と、配信ごとの文脈(文字起こしの改善の計画 段1。notes:plan/line-b-transcription.md(付録))。
+  - 名前: `fold` :39・`load` :50・`channel_regions` :89・`find_in_text` :119・`match_name` :132・`build_context` :143・`member_terms` :167・`fit` :178・`prompt_terms` :193・`stream_context` :203・`leak_only` :228・`alias_variants` :262・ほか 1
 - **tx_engines.py** (1203 行) — 文字起こしの認識エンジンの口(精度改善の計画 段2。notes:plan/line-b-transcription.md(付録))。
   - 名前: `engine_home` :52・`engine_of` :61・`env_num` :66・`is_16k_mono` :75・`half_cpu` :80・`class EngineError` :85・`class Engine` :93・`class FasterWhisper` :146・`wcpp_env` :214・`wcpp_bin_dir` :223・`wcpp_model_dir` :228・`wcpp_binary_ok` :232・ほか 18
 - **worker.py** (322 行) — ① 文字起こしの認識ワーカー(統合計画の段階3-3)。編集のサーバーが別プロセスとして起動する(worker_client.WorkerClient)。人が直接起動するものではない。

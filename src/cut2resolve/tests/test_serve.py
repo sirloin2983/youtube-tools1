@@ -726,7 +726,6 @@ class TestJobs(ServerBase):
         self.assertEqual(st, 404)
 
 
-
 class TestTextPlusTargetOption(unittest.TestCase):
     def test_default_and_explicit_target(self):
         v = Path(tempfile.gettempdir()) / "x.mp4"
@@ -766,7 +765,6 @@ class TestTextPlusTargetOption(unittest.TestCase):
         with self.assertRaises(serve.ApiError) as cm:
             serve.output_from_spec({"textplus": True, "textplusFps": "29"}, v)
         self.assertEqual(cm.exception.code, "bad_textplus")
-
 
 
 class SpeakerColorMapTest(unittest.TestCase):

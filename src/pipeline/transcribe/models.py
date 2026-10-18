@@ -153,7 +153,6 @@ def _gpu_ready_local():
     return cuda_count() > 0 and cuda_libs_ok()
 
 
-
 CUDA_COMPUTE_TYPES = ("float16", "int8_float16", "int8", "float32")
 
 

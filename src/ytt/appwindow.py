@@ -119,7 +119,6 @@ def local_url(url, portal_port, tool_ports=(), prefixes=()):
     return urllib.parse.urlunsplit(("http", "localhost:%d" % port, path, u.query, u.fragment))
 
 
-
 def external_url(url):
     u = _clean(url)
     if u.scheme not in ("http", "https") or not u.hostname or u.username or u.password:

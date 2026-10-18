@@ -620,7 +620,5 @@ class RunWorkerTest(LiveTxBase):
         self.assertTrue(missing._run_worker(self.edir, "large-v3", self.wav)["reason"].startswith("子プロセスを起動できませんでした"))
 
 
-
-
 if __name__ == "__main__":
     unittest.main()

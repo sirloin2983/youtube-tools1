@@ -7,14 +7,14 @@
 - **__init__.py** (37 行) — ytt — 基盤(役割で組み直す計画 notes:plan/done/role-restructure.md の 3 節。2026-10-09 の RS1-1 で移した。どの層からも読める)。
 - **apikey.py** (37 行) — YouTube Data API のキー(役割で組み直す RS3-4。2026-10-10 にスタジオの common.py から移した)。
   - 名前: `get_api_key` :16・`set_api_key` :27
-- **appwindow.py** (297 行) — 画面を「窓」(Edge のアプリモード)で開く(統合計画の段階7-3。2026-09-27 ユーザー決定で既定を窓に = 専用の窓。pywebview は使わない)。
-  - 名前: `class Unavailable` :41・`class TooMany` :45・`find_edge` :49・`app_command` :86・`local_url` :99・`external_url` :123・`read_mode` :140・`write_mode` :145・`focus_window` :155・`class Opener` :212
-- **casefiles.py** (317 行) — 案件の 候補.json・採用.json の純粋な部分(RS8 B3-4a。flow/casebook から ytt へ下ろした。決定 3-37 の (r8j)〜(r8q))。
-  - 名前: `work_path` :38・`lock` :43・`is_remote` :53・`problem` :57・`unseen` :69・`need_root` :75・`abs_path` :83・`rel_path` :91・`empty_candidates` :105・`empty_adoptions` :109・`index_row` :118・`stored` :127・ほか 9
+- **appwindow.py** (296 行) — 画面を「窓」(Edge のアプリモード)で開く(統合計画の段階7-3。2026-09-27 ユーザー決定で既定を窓に = 専用の窓。pywebview は使わない)。
+  - 名前: `class Unavailable` :41・`class TooMany` :45・`find_edge` :49・`app_command` :86・`local_url` :99・`external_url` :122・`read_mode` :139・`write_mode` :144・`focus_window` :154・`class Opener` :211
+- **casefiles.py** (315 行) — 案件の 候補.json・採用.json の純粋な部分(RS8 B3-4a。flow/casebook から ytt へ下ろした。決定 3-37 の (r8j)〜(r8q))。
+  - 名前: `work_path` :38・`lock` :43・`is_remote` :53・`problem` :57・`unseen` :69・`need_root` :75・`abs_path` :82・`rel_path` :90・`empty_candidates` :104・`empty_adoptions` :108・`index_row` :117・`stored` :126・ほか 9
 - **colors.py** (211 行) — 配信者の名前 → メンバーカラー(字幕の文字の色。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 4)。
   - 名前: `members_path` :31・`mine_path` :43・`member_colors_path` :48・`norm_hex` :76・`normalize` :82・`load` :126・`lookup` :145・`from_channel` :163・`speaker_colors` :181・`resolve` :197
-- **datadir.py** (148 行) — 作業データの置き場所(統合計画の段階4)。データはリポジトリの外に置く(Public のリポジトリに個人データを混ぜないため)。
-  - 名前: `data_root` :36・`inplace_dir` :53・`tool_dir` :61・`override` :67・`register` :75・`registered` :85・`locate` :91・`resolve` :100・`studio_out_dir` :109・`prepare` :119
+- **datadir.py** (147 行) — 作業データの置き場所(統合計画の段階4)。データはリポジトリの外に置く(Public のリポジトリに個人データを混ぜないため)。
+  - 名前: `data_root` :36・`inplace_dir` :53・`tool_dir` :61・`override` :67・`register` :75・`registered` :85・`locate` :91・`resolve` :100・`studio_out_dir` :109・`prepare` :118
 - **dictfmt.py** (80 行) — 置換辞書の読み方と当て方(語彙。標準ライブラリと ytt.txbase だけの純粋な関数)。役割で組み直す RS6 a-1(2026-10-10)に pipeline/transcribe/replace から読み方を、
   - 名前: `parse_replacements` :15・`spans` :37・`wb_split` :53・`apply_replacements` :60
 - **docloc.py** (267 行) — 文字起こしの文書の置き場所を引く口(文書 id → フォルダ。RS8 B-2)。

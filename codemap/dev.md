@@ -37,6 +37,8 @@
   - 名前: `layer_of` :113・`allowed` :123
 - **lint.py** (395 行) — コードの見直しの合格の基準を測る道具(読むだけ。基準は `notes:docs/spec/code.md`)。
   - 名前: `walk` :64・`read` :72・`rel` :80・`is_test` :84・`class Corpus` :88・`py_files` :109・`has_mark` :116・`unused_imports` :121・`dead_names` :145・`long_functions` :160・`dup_helpers` :171・`js_dead` :187・ほか 7
+- **loc.py** (342 行) — コードの行数を数える共通の道具(10-19 ユーザーと決めた数え方。セッションごとの数の食い違いを無くす)。
+  - 名前: `classify` :39・`count_text` :64・`py_docstring_starts` :78・`py_code_lines` :89・`scan_code_lines` :104・`skip_to` :158・`skip_string` :163・`prefix_code_lines` :186・`git` :214・`files_at` :221・`tally` :244・`totals` :257・ほか 4
 - **members_channels.py** (151 行) — 名簿 friend-apps/holo-colors/members.json の JP・DEV_IS の各メンバーに YouTube のチャンネル ID(channel)を入れる・確かめる道具。
   - 名前: `read_text` :29・`targets` :34・`norm` :43・`fetch_rss` :48・`verdict` :69・`cmd_check` :81・`cmd_set` :106・`main` :140
 - **notes_tool.py** (470 行) — 資料のフォルダ(Obsidian の保管庫の中。layout.notes_root())のパスの検査と、資料を動かす道具(2026-10-13)。
@@ -47,8 +49,8 @@
   - 名前: `plan_dir_default` :49・`data_dir` :53・`has_split` :57・`read_text` :63・`write_atomic` :68・`ordered_keys` :77・`dumps` :82・`slug` :86・`file_name` :105・`items` :113・`sort_key` :129・`main_version` :135・ほか 11
 - **push_helper.py** (263 行) — push.bat の補助(2026-09-26)。標準ライブラリだけ。リポジトリ直下で git が使えることが前提。
   - 名前: `git` :61・`read_removals` :70・`tracked` :90・`apply_removals` :95・`staged_files` :115・`staged_blob` :121・`problems_for` :125・`check` :160・`notes_root` :179・`push_notes` :186・`main` :232
-- **rule_checks.py** (452 行) — 規則(書き方・置き場所・ファイルの形)の見張り。テストに置いていた「規則の見張り」(分け ②a)をここへ移した(test-trim の規則の担当)。
-  - 名前: `rule` :27・`read_text` :34・`read_bytes` :39・`rel` :44・`repo_files` :48・`src_py_files` :57・`non_ascii_lines` :67・`bat_problems` :72・`requirements_problems` :83・`rule_bat_ascii_crlf` :97・`rule_requirements_ascii` :108・`push_bat_problems` :117・ほか 20
+- **rule_checks.py** (482 行) — 規則(書き方・置き場所・ファイルの形)の見張り。テストに置いていた「規則の見張り」(分け ②a)をここへ移した(test-trim の規則の担当)。
+  - 名前: `rule` :27・`read_text` :34・`read_bytes` :39・`rel` :44・`repo_files` :48・`src_py_files` :57・`non_ascii_lines` :67・`bat_problems` :72・`requirements_problems` :83・`rule_bat_ascii_crlf` :97・`rule_requirements_ascii` :108・`push_bat_problems` :117・ほか 22
 - **rule_imports.py** (706 行) — 規則の見張りのうち、ソースを import して突き合わせる物(`dev/rule_checks.py` の続き。テストの分け ②a から移した分)。
   - 名前: `check` :37・`c_adopt_defaults` :86・`c_live_tx_constants` :99・`c_port_ranges` :127・`c_tool_module_names` :134・`schema_shape_problems` :153・`schema_items` :208・`c_settings_schema` :223・`c_studio_schema` :248・`c_portal_title` :263・`c_static_table` :270・`c_spec_consistency` :278・ほか 21
 - **run_e2e.py** (140 行) — 画面テスト(e2e)の一式を 1 本ずつ流して、1 本 1 行(所要秒・OK/FAIL の数)で出す。一式の正はこのファイルの SUITE。
@@ -57,8 +59,8 @@
   - 名前: `find_node` :26・`summary` :49・`main` :62
 - **run_unit.py** (189 行) — unittest を層ごと・フォルダごとに流す道具(1 本ずつ別のプロセス)。リポジトリ直下で:
   - 名前: `find_files` :46・`matches` :61・`build_units` :78・`run_one` :100・`report` :115・`run_all` :130・`print_summary` :149・`main` :159
-- **session_start.py** (441 行) — セッションの入口の要約(2026-10-18)。新しい AI のセッションが最初に流し、今の状態を 1 画面(150 行以内)で見る。
-  - 名前: `cut` :49・`run` :54・`git` :64・`read` :68・`git_block` :78・`versions` :98・`worklog_block` :107・`boundary_dirs` :123・`boundary_notes` :131・`boundary_block` :146・`load_items` :160・`plan_block` :170・ほか 15
+- **session_start.py** (454 行) — セッションの入口の要約(2026-10-18)。新しい AI のセッションが最初に流し、今の状態を 1 画面(150 行以内)で見る。
+  - 名前: `cut` :49・`run` :54・`git` :64・`read` :68・`git_block` :78・`versions` :98・`worklog_block` :107・`boundary_dirs` :123・`boundary_notes` :131・`boundary_block` :146・`load_items` :160・`plan_block` :170・ほか 16
 - **spec_check.py** (222 行) — 仕様(保管庫の docs/spec/)とコードの食い違いを探す(2026-10-18)。
   - 名前: `git_files` :45・`read` :51・`class Code` :59・`spec_files` :77・`live_lines` :86・`norm_api` :103・`clean_path` :111・`setting_keys` :116・`check` :132・`gone` :183・`main` :200
   - 受ける口: 
@@ -92,6 +94,7 @@
 - dev/tests/test_land_gate.py — dev/land_gate.py(main に入れる前の関所)と dev/worklog.py check(報告の型)のテスト。一時フォルダだけを使う(テストは流さない)
 - dev/tests/test_layering.py — 役割の層の import の向きを守るテスト(役割で組み直す計画 `notes:plan/done/role-restructure.md` の 4 節 1。RS0)。
 - dev/tests/test_lint.py — dev/lint.py(コードの基準を測る道具)の部品のテスト。リポジトリ直下で:
+- dev/tests/test_loc.py — dev/loc.py(コードの行数を数える道具)のテスト。小さな見本の文字列で、言語ごとのコメント・空行・docstring・コードの後ろのコメントと分け方を確かめる
 - dev/tests/test_no_src_workdata.py — YTT_DATA_DIR=inplace のとき、作業データ(ログ・起動中の印・書き出し先)が src の中にできないことを見張る。リポジトリ直下で:
 - dev/tests/test_notes_tool.py — dev/notes_tool.py(資料のフォルダのパスの検査と、資料を動かす道具)のテスト。一時フォルダの資料のフォルダと git で確かめる
 - dev/tests/test_plan_artifact.py — dev/plan_artifact.py(計画のページ plan/ を 1 枚の公開用 HTML に組む道具)のテスト。目次と Artifact 用の 1 枚・ホームの自動の部分・版と参照・図を見る。
