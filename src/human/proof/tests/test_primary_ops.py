@@ -35,23 +35,6 @@ def doc(rows, speakers=None):
 
 
 class LayerFunctionsTest(unittest.TestCase):
-    def test_put_mach_rows(self):
-        m = YS.make_mach([row(1, 0.0, "あ", speaker="S1"), row(2, 2.0, "い", speaker="S2"), row(3, 4.0, "う")], rev=3)
-        m2 = L.put_mach_rows(m, [row(2, 2.0, "いい", flag="要確認"), dict(row(9, 8.0, "新"), id="s1")])
-        self.assertEqual(m2["rev"], 4)
-        self.assertEqual([(r["id"], r["text"], r.get("speaker")) for r in m2["rows"]],
-                         [("s1", "あ", "S1"), ("s2", "いい", "S2"), ("s3", "う", None), ("s1x", "新", None)])   # 話者は捨てた行から・id の重なりは x
-        self.assertEqual(m["rev"], 3)   # 元は書き換えない
-
-    def test_mach_moved(self):
-        m = YS.make_mach([row(1, 0.0, "あ")])
-        d = L.compose(m, None, {})
-        d["segments"][0].update(text="あー", proofed=True)
-        hum = L.diff(m, d)
-        self.assertTrue(L.mach_moved(hum, "s1", "ああ", "あー"))
-        self.assertFalse(L.mach_moved(hum, "s1", "あ", "あー"))   # 機械は前と同じ
-        self.assertFalse(L.mach_moved(hum, "s1", "あー", "あー"))   # 機械が人に合った
-
     def test_assign_other_speaker_is_itself(self):
         m = YS.make_mach([row(1, 0.0, "あ", speaker="S1"), row(2, 2.0, "い", speaker=YS.OTHER_SPK_ID)])
         m["keys"] = {"diar": "k2"}

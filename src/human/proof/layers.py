@@ -915,33 +915,6 @@ def advance_mach(mach, old_doc, new_doc, speakers=False):
 
 
 # ---------- 機械の操作(RS8 O2-5。(r8s)(r8r)) ----------
-def put_mach_rows(mach, rows):
-    """機械の層の行を差し替える(再認識 each。(r8s))-> 新しい機械の層(写し・rev + 1)。rows = 新しい機械の行(文書の行の形)。
-    rows の各行の区間に match で当たる機械の行を捨てて rows を足す。新しい行に話者が無ければ、捨てた行でいちばん重なる行の話者。
-    id が残した行と重なれば末尾に x"""
-    base = _mrows(mach)
-    new = [_ys.mach_row(r) for r in rows or [] if isinstance(r, dict) and _span(r)]
-    spans = [_span(r) for r in new]
-    near = _near([_span(m) for m in base], spans)
-    keep, gone = [], []
-    for k, m in enumerate(base):
-        (gone if any(match(_span(m), spans[x]) for x in near[k]) else keep).append(m)
-    used = {m["id"] for m in keep}
-    out = list(keep)
-    for r in new:
-        if "speaker" not in r:
-            best = max(gone, key=lambda m: _overlap(_span(m), _span(r)), default=None)
-            if best is not None and _overlap(_span(best), _span(r)) > 0 and best.get("speaker"):
-                r["speaker"] = best["speaker"]
-        while r["id"] in used:
-            r["id"] += "x"
-        used.add(r["id"])
-        out.append(r)
-    out.sort(key=lambda m: (m["start"], m["end"]))
-    return {"schema": MACH_SCHEMA, "rev": (_ys.plain_int((mach or {}).get("rev")) or 0) + 1, "keys": copy.deepcopy((mach or {}).get("keys") or {}),
-            "rows": out, "speakers": _speakers_of(mach)}
-
-
 def replace_mach_span(mach, spans, rows, empty_cover=None, empty_flag=""):
     """認識し直しの機械の層(X-RERUN。each・range・whole の共通)-> (新しい機械の層(写し・rev + 1), {"dropped", "emptyKept", "emptySpans": 残した行の区間, "added"})。
     中心が spans [(a, b)] のどれか(両端を含む)に入る機械の行を捨て、rows(新しい機械の行。文書の行の形)を足す。人の層は触らない
@@ -980,16 +953,6 @@ def replace_mach_span(mach, spans, rows, empty_cover=None, empty_flag=""):
     out.sort(key=lambda m: (m["start"], m["end"]))
     return ({"schema": MACH_SCHEMA, "rev": (_ys.plain_int((mach or {}).get("rev")) or 0) + 1, "keys": copy.deepcopy((mach or {}).get("keys") or {}),
              "rows": out, "speakers": _speakers_of(mach)}, {"dropped": len(gone), "emptyKept": len(kept_empty), "emptySpans": kept_empty, "added": len(new)})
-
-
-def mach_moved(hum, rid, new_text, human_text):
-    """人の文字の行 rid を覆ったときの機械(base)と新しい機械の文字 new_text が違い、新しい機械が人の文字とも違うか(= 印 MACH_CHANGED を付ける)。
-    人の層にその行が無ければ、新しい機械が人の文字と違うか"""
-    h = next((x for x in (hum or {}).get("rows") or [] if isinstance(x, dict) and "text" in x and str(x.get("id")) == str(rid)), None)
-    now = _norm(new_text)
-    if now == _norm(human_text):
-        return False
-    return h is None or _joined((h.get("base") or {}).get("rows") or []) != now
 
 
 def set_spk_flags(mach, doc, flags):
