@@ -65,8 +65,8 @@
   - 名前: `alt_engine_key` :61・`alt_info` :70・`alt_first_run` :79・`alt_spec` :88・`alt_path` :121・`read_alt` :126・`run_alt` :136・`alt_after_transcribe` :160・`alt_notation_only` :193・`alt_diffs` :220・`alt_cached` :331・`alt_spans_of` :343・ほか 3
 - **doc_jobs.py** (405 行) — ③ 人の操作の層 human/proof: 文字起こしのジョブの本体(run_job)と書く先の決め方・受付(validate_job・
   - 名前: `set_learning` :40・`glossary_of` :45・`validate_job` :62・`public_job` :131・`subtitle_settings` :169・`split_chars_for` :183・`learned_finder` :201・`dict_learned` :212・`carry_overrides` :230・`run_job` :269・`validate_retranscribe` :331・`redo_targets` :383
-- **layers.py** (1098 行) — ③ 文書を「機械の層 + 人の層」から組み立てる純粋な関数(O2-1。RS8・2026-10-11。決定 3-37 の (r8r)〜(r8u)・notes:plan/done/rs8-cases-ui.md の決めたこと 3)。
-  - 名前: `match` :65・`join_flags` :126・`compose_rows` :328・`compose` :424・`split_meta` :445・`diff` :551・`mach_changes` :636・`pick` :656・`assign_speakers` :692・`carry` :747・`mach_from_doc` :829・`advance_mach` :870・ほか 7
+- **layers.py** (1061 行) — ③ 文書を「機械の層 + 人の層」から組み立てる純粋な関数(O2-1。RS8・2026-10-11。決定 3-37 の (r8r)〜(r8u)・notes:plan/done/rs8-cases-ui.md の決めたこと 3)。
+  - 名前: `match` :65・`join_flags` :126・`compose_rows` :328・`compose` :424・`split_meta` :445・`diff` :551・`mach_changes` :636・`pick` :656・`assign_speakers` :692・`carry` :747・`mach_from_doc` :829・`advance_mach` :870・ほか 5
 - **learn.py** (471 行) — ③ 人の操作の層 human/proof: 人が直した内容からの学習(機械の出力と人の行の対応づけ・「誤=>正」の統計・確度)と、行への修正の提案・
   - 名前: `align_groups` :29・`prep_rows` :48・`is_nosub` :64・`split_nosub` :68・`row_text` :93・`learn_events` :104・`learn_groups` :146・`learned_candidates` :199・`load_feedback` :229・`unrecord_feedback` :259・`record_feedback` :281・`forget_doc` :303・ほか 7
 - **machpick.py** (46 行) — ③ 3 択の口(RS8 O2-4。決定 3-37・notes:plan/done/rs8-cases-ui.md の決めたこと 3 の案 A): 機械の結果が変わって人の直しと食い違う行(印 layers.MACH_CHANGED)を

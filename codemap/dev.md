@@ -33,8 +33,8 @@
   - 名前: `class Stop` :38・`git` :42・`main_worktree` :51・`bump` :62・`read_version` :67・`set_version` :74・`set_readme` :78・`needs_bump` :88・`read_file` :93・`write_file` :98・`pid_alive` :103・`class Lock` :121・ほか 5
 - **land_gate.py** (318 行) — main に入れる前の関所(dev/land.py が版を上げる前に流す。2026-10-18)。単独でも流せる:
   - 名前: `layer_of_dir` :58・`dependents` :65・`select` :70・`pick_units` :89・`run_units` :96・`count_of` :107・`run_check` :113・`run_tool` :127・`table_folders` :139・`table_drift` :153・`git` :177・`worktree_of` :182・ほか 8
-- **layer_map.py** (139 行) — 役割の層と、今のファイルの行き先(役割で組み直す計画 `notes:plan/done/role-restructure.md` の 7 節を機械で読める形にしたもの。RS0。RS6 a-0 で 5 つの層に)。
-  - 名前: `layer_of` :119・`allowed` :129
+- **layer_map.py** (133 行) — 役割の層と、今のファイルの行き先(役割で組み直す計画 `notes:plan/done/role-restructure.md` の 7 節を機械で読める形にしたもの。RS0。RS6 a-0 で 5 つの層に)。
+  - 名前: `layer_of` :113・`allowed` :123
 - **lint.py** (400 行) — コードの見直しの合格の基準を測る道具(読むだけ。基準は `notes:docs/spec/code.md`)。
   - 名前: `walk` :61・`read` :69・`rel` :77・`is_test` :81・`class Corpus` :85・`py_files` :106・`has_mark` :113・`unused_imports` :118・`dead_names` :142・`long_functions` :155・`dup_helpers` :166・`js_dead` :182・ほか 7
 - **members_channels.py** (151 行) — 名簿 friend-apps/holo-colors/members.json の JP・DEV_IS の各メンバーに YouTube のチャンネル ID(channel)を入れる・確かめる道具。

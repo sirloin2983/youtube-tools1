@@ -122,7 +122,7 @@
   - コード: `pick_glossary_terms` src/flow/tx.py:69・`src/app/ui/editor/app-learn.js`
   - 画面: src/app/ui/editor/app-core.js:430・src/app/ui/editor/app-tpl.js:252・src/app/ui/editor/app.js:414・src/app/ui/home/portal-edit.js:5 ほか 1
 - **書き出し** — 書き出しの ① と ② のジョブ表。スタジオの確認の画面から頼む
-  - コード: `src/pipeline/export/exporter.py`・`src/flow/export.py`・`ExportJobs` src/flow/export.py:38・`/api/export` src/app/live.py:341
+  - コード: `src/pipeline/export/exporter.py`・`src/flow/export.py`・`ExportJobs` src/flow/export.py:38・`/api/export` src/app/live.py:335
   - 画面: src/app/ui/cases/cases.js:79・src/app/ui/cases/panels/cand.js:31・src/app/ui/cases/panels/new.js:151・src/app/ui/check/cards/value.js:10 ほか 12
 - **スタジオ** — 切り抜きスタジオ(解析・確認・コラボ)
   - コード: `src/studio/serve.py`・`src/app/ui/studio`・`src/human/review/store.py`・`src/flow/studiobook.py`

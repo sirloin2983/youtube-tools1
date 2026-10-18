@@ -37,8 +37,8 @@
   - 名前: `friend_ranges` :75・`load_archive` :90・`candidates` :110・`peak_ratio` :134・`samples` :146・`suggest` :163・`compute` :186・`usable` :206・`describe` :216・`change` :228
 - **live_adopt.py** (276 行) — ライブの採用 = サーバー側の「マーク + 書き出し」(線 D の M1。役割で組み直す RS7-2 G1b。資料の git:cbe1a64:docs/design/surveys/rs7-survey-2026-10-10/plan_order_v3.md)。
   - 名前: `adopt_secs` :42・`pad_secs` :63・`top_of` :75・`class StudioMarks` :85・`class LocalMarks` :128・`class Adopter` :220
-- **live_archive.py** (1553 行) — 録画に無い区間をアーカイブ(YouTube)から書き出す(線 D の P4 の残り。notes:plan/line-d-live-clipping.md の 0-9)と、配信後の全自動(M7)の入口の側の中身。
-  - 名前: `from_archive` :148・`needs_archive` :153・`class ArchiveError` :159・`class Later` :163・`run_proc` :172・`probe_archive` :204・`readiness` :246・`fetch_full_audio` :264・`worker_python` :294・`run_align` :299・`inside` :313・`free_name` :318・ほか 6
+- **live_archive.py** (1543 行) — 録画に無い区間をアーカイブ(YouTube)から書き出す(線 D の P4 の残り。notes:plan/line-d-live-clipping.md の 0-9)と、配信後の全自動(M7)の入口の側の中身。
+  - 名前: `from_archive` :148・`needs_archive` :153・`class ArchiveError` :159・`class Later` :163・`run_proc` :172・`probe_archive` :204・`readiness` :246・`fetch_full_audio` :264・`worker_python` :294・`run_align` :299・`inside` :313・`ended_at` :319・ほか 5
 - **live_detect.py** (755 行) — 配信中の盛り上がりの検出(線 D の L2)と自動の採用(M11)の入口の側。計画は notes:plan/line-d-detect.md(3 の「候補の API の約束」は線 2 = スタジオの画面との境目。変えない)。
   - 名前: `clean_spec` :81・`overlay` :95・`merge_spans` :115・`measured_holes` :126・`class Detector` :146
 - **live_export.py** (1402 行) — リアルタイム切り抜き(線 D の P2: マークと書き出し。notes:plan/line-d-live-clipping.md の 0・5・6)の入口の側の中身。

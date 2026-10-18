@@ -35,7 +35,7 @@
 ## src/ui-kit/
 
 - **styleguide.js** (130 行) — ui-kit/styleguide.html の見本を動かす部品(CSP の script-src 'self' に合わせてインラインの <script> を使わず、この外部ファイルにした)。
-- **ui-kit.js** (2798 行) — ui-kit v27 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
+- **ui-kit.js** (2797 行) — ui-kit v31 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
 
 ## テスト
 

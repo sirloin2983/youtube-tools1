@@ -60,8 +60,8 @@
   - 名前: `srt_time` :38・`srt_text` :44・`is_kept` :50・`kept_spans` :56・`tool_info` :83・`sorted_segments` :87・`build_transcript_v1` :106・`build_cut_plan_v1` :134・`wrap_text` :147・`build_srt` :154・`pack_instructions` :174・`edit_draft` :237・ほか 3
 - **resolve_textplus.py** (1021 行) — Resolve Free向け Text+ 試験パック。Luaスクリプトを同梱する。
   - 名前: `hex_rgba` :70・`text_style` :81・`style_inputs` :97・`video_tracks_value` :119・`parse_target` :126・`caption_segments` :149・`stack_captions` :180・`default_wrap` :252・`wrap_caption` :257・`build_import_plan` :295・`importer_script` :363・`installer_script` :781・ほか 6
-- **srt2resolve.py** (370 行) — パックの部品(動画の情報の読み取り・字幕の読み込み・フレームの計算・SRT の組み立ての小道具)。
-  - 名前: `class ToolError` :28・`same_path` :32・`staged` :45・`write_text_atomic` :57・`tool` :66・`arg_path` :71・`clean_text` :95・`parse_subs` :102・`read_sub_file` :126・`snap_fps` :150・`codec_warnings` :162・`probe` :199・ほか 10
+- **srt2resolve.py** (358 行) — パックの部品(動画の情報の読み取り・字幕の読み込み・フレームの計算・SRT の組み立ての小道具)。
+  - 名前: `class ToolError` :28・`same_path` :32・`staged` :45・`write_text_atomic` :57・`tool` :66・`arg_path` :71・`clean_text` :95・`parse_subs` :102・`read_sub_file` :126・`snap_fps` :150・`codec_warnings` :162・`probe` :199・ほか 9
 
 ## src/pipeline/transcribe/
 

@@ -74,8 +74,8 @@
   - 名前: `words_path` :17・`read_words` :22・`write_words` :34
 - **version.py** (31 行) — 全体の版の 1 か所(役割で組み直す RS5-E。2026-10-10。決定 notes:plan/decisions.md の 3-28)。
   - 名前: `on_disk` :21
-- **workdata.py** (54 行) — 編集の作業データの置き場所と版の「今の値」(役割で組み直す RS3-0A。2026-10-10)。
-  - 名前: `set_root` :33・`set_data_dir` :44
+- **workdata.py** (52 行) — 編集の作業データの置き場所と版の「今の値」(役割で組み直す RS3-0A。2026-10-10)。
+  - 名前: `set_root` :32・`set_data_dir` :43
 - **ytapi.py** (152 行) — YouTube Data API を 1 回呼ぶ口(OPT-H2 D。③ 配信の検索の rank.yt_get と ① のコメント欄 fetch_comments が別々に持っていた取得を 1 つに)。
   - 名前: `used` :36・`set_fake` :47・`get` :53・`soft` :101・`parse_dt` :114・`cache_get` :128・`cache_put` :136・`cached` :143
 - **yturl.py** (103 行) — YouTube の URL・動画 ID の形(語彙。標準ライブラリだけ・状態を持たない)。役割で組み直す RS6 a-1(2026-10-10)に pipeline/ingest/sources から移した。
