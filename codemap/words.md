@@ -33,10 +33,10 @@
   - 画面: src/app/ui/home/portal.html:152・src/friendapp/ui/friend.html:140・src/friendapp/ui/guide.html:37・src/friendapp/ui/receive.js:65
 - **片付ける** — 友人のアプリのフォルダの整理(新しい版の後と ⚙)。ごみ箱へ移す
   - コード: `src/friendapp/tidy.py`・`Tidy` src/friendapp/tidy.py:134・`/api/friend/tidy` src/friendapp/server.py:296
-  - 画面: src/friendapp/ui/guide.html:183・src/friendapp/ui/settings.js:77・src/friendapp/ui/setup.html:40・src/friendapp/ui/update.js:78
+  - 画面: src/friendapp/ui/guide.html:186・src/friendapp/ui/settings.js:82・src/friendapp/ui/setup.html:40・src/friendapp/ui/update.js:78
 - **片付け** — 入口の作業データの片付けの候補。ごみ箱フォルダへ移す
   - コード: `src/manage/keep/cleanup.py`・`Cleanup` src/manage/keep/cleanup.py:123・`/api/cleanup` src/app/server.py:663
-  - 画面: src/app/ui/home/portal.html:229・src/app/ui/home/portal.js:472・src/friendapp/ui/friend.js:82・src/friendapp/ui/guide.html:183 ほか 5
+  - 画面: src/app/ui/home/portal.html:229・src/app/ui/home/portal.js:472・src/friendapp/ui/friend.js:82・src/friendapp/ui/guide.html:186 ほか 5
 - **ごみ箱フォルダ** — ④ ごみ箱へ移す・戻すの 1 か所。片付けが通る
   - コード: `src/manage/keep/trash.py`・`to_trash` src/manage/keep/trash.py:30・`put_back` src/manage/keep/trash.py:95・`trash_days` src/app/server.py:1233
   - 画面: src/app/ui/home/portal.html:230・src/app/ui/home/portal.js:512
@@ -45,7 +45,7 @@
   - 画面: src/friendapp/ui/guide.html:40・src/friendapp/ui/setup.html:6・friend-apps/launcher/src/Core.cs:285
 - **新しい版** — 友人のアプリの新しい版の帯と、exe の側の版の選び方
   - コード: `src/friendapp/ui/update.js`・`/api/friend/update` src/friendapp/server.py:298・`friend-apps/launcher/src/Core.cs`
-  - 画面: src/friendapp/ui/friend.js:77・src/friendapp/ui/update.js:2・friend-apps/launcher/src/Launcher.cs:404・friend-apps/launcher/src/MainForm.cs:549 ほか 1
+  - 画面: src/friendapp/ui/friend.js:77・src/friendapp/ui/update.js:2・friend-apps/launcher/src/Launcher.cs:404・friend-apps/launcher/src/MainForm.cs:568 ほか 1
 - **送り返す zip** — 友人の PC から送り返す zip を作る ②(outbox)
   - コード: `src/flow/outbox.py`・`list_outbox` src/flow/outbox.py:223・`mark_done` src/flow/outbox.py:246・`/api/flow/outbox` src/app/server.py:814
   - 画面: (画面の文字列に無い)
@@ -141,7 +141,7 @@
   - 画面: src/app/ui/home/portal.html:19・src/app/ui/settings/settings.js:78・src/manage/ops/analytics/web/app.js:4・src/manage/ops/analytics/web/index.html:6
 - **配色** — ホロカラーは C# の色の一覧アプリ。配色は友人の画面の A〜D
   - コード: `friend-apps/holo-colors/src/Core.cs`・`src/friendapp/ui/palette.js`・`/api/friend/palette` src/friendapp/server.py:421
-  - 画面: src/friendapp/ui/guide.html:167・src/friendapp/ui/palette.js:36・friend-apps/launcher/src/MainForm.cs:277・src/ui-kit/ui-kit.js:67
+  - 画面: src/friendapp/ui/guide.html:167・src/friendapp/ui/palette.js:36・friend-apps/launcher/src/MainForm.cs:278・src/ui-kit/ui-kit.js:67
 - **起動** — 入口のランチャーと友人の FriendApp.exe。起動し直しは restart
   - コード: `src/app/server.py`・`Supervisor` src/app/server.py:350・`friend-apps/launcher/src/Launcher.cs`・`src/manage/ops/restart.py`
   - 画面: src/app/ui/cases/cases.js:338・src/app/ui/cases/edhost.js:19・src/app/ui/cases/panels/new.js:151・src/app/ui/cases/panels/proof.js:183 ほか 17

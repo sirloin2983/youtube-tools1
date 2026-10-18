@@ -1098,6 +1098,32 @@ class TestTools(unittest.TestCase):
         self.assertEqual((out.returncode, added), (3, "True"))
         self.assertTrue(gone, "親が落ちたのに子が残った")   # 親(このテストの子)が落ちてジョブが閉じた = 孫も終わる
 
+    def test_ytdlp_auth_args_copies_cookies(self):
+        """YouTube のログイン(友人の PC): cookie のファイルがあれば yt-dlp に呼ぶたびの写しを --cookies で渡す・無ければ何も足さない・古い写しは消す(偽の cookie)"""
+        tmp = testkit.tempdir(self, "ytt_cookies_")
+        src = os.path.join(tmp, "secrets", "youtube-cookies.txt")
+        env = {tools.COOKIES_ENV: src}
+        self.assertEqual((tools.ytdlp_auth_args({}), tools.ytdlp_auth_args(env), tools.ytdlp_login_at(env)), ([], [], 0))   # 無い
+        os.makedirs(os.path.dirname(src))
+        open(src, "w").close()
+        self.assertEqual(tools.ytdlp_auth_args(env), [])   # 空 = ログインしていない
+        with open(src, "w", encoding="utf-8") as f:
+            f.write("# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t0\tSAPISID\tfake\n")
+        a, b = tools.ytdlp_auth_args(env), tools.ytdlp_auth_args(env)
+        self.assertEqual((a[0], b[0]), ("--cookies", "--cookies"))
+        self.assertNotEqual(a[1], b[1])   # 同時に動く yt-dlp が同じファイルに書き戻さない
+        self.assertEqual(os.path.dirname(a[1]), os.path.join(os.path.dirname(src), tools.COOKIES_RUN))
+        with open(a[1], encoding="utf-8") as f:
+            self.assertIn("SAPISID", f.read())
+        old = time.time() - tools.COOKIES_RUN_KEEP - 60
+        os.utime(a[1], (old, old))
+        tools.ytdlp_auth_args(env)
+        self.assertFalse(os.path.exists(a[1]))   # 古い写しは消す
+        self.assertTrue(os.path.exists(b[1]))
+        self.assertGreater(tools.ytdlp_login_at(env), 0)
+        cmd = tools.ytdlp_print_cmd("yt-dlp", "https://www.youtube.com/watch?v=x", "%(id)s")
+        self.assertEqual(cmd[-2:], ["--", "https://www.youtube.com/watch?v=x"])   # URL は最後のまま
+
     def test_find_tool_ytt_env(self):
         """OPT1: 固有の環境変数 → YTT_<名前> → PATH(どの部品も YTT_ を見る)"""
         with tempfile.TemporaryDirectory() as d:

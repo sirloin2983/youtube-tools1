@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """友人のアプリの「送った物」の行に出す、失敗の言葉と進み具合を作る部品(F3-3。notes:plan/f1-friend-requirements.md の C-2-15・C-2-16)。純粋な関数だけ(ファイルもネットも触らない。時計は引数で受ける)。
 
-- classify(text, kind) = ② や同期が出した失敗の文を、友人の言葉(次にすること 1 つ)と再試行の可否に直す。表 CODES は上から順に当てる。
-  RETRY_PLAN の種類は retryMax・retryEvery(自動のやり直しの回数と間隔)も付ける
+- classify(text, kind, login) = ② や同期が出した失敗の文を、友人の言葉(次にすること 1 つ)と再試行の可否に直す。表 CODES は上から順に当てる。
+  RETRY_PLAN の種類は retryMax・retryEvery(自動のやり直しの回数と間隔)も付ける。login = YouTube にログインしてあるか(bot の言葉を変える。
+  ログインの形は notes:docs/spec/friend.md の 13-13。ログインし直したら bot・age の行は玄関が自動でやり直す = api.tick)
 - stage(steps, kind, ranged) = ② の実行の段を友人の 5 段(動画を取得・見どころを探す・切り抜き・文字起こし・仕上げ)に読み替えて、今の段を返す
 - eta(stats, kind, ranged, label, elapsed) = 残り時間の見積もり(記録は玄関が持つ。ここは読むだけ)。record(stats, label, seconds) = 記録の写しに 1 つ足す
 - slow(...) = 1 つの段で 10 分進みが無いか。text(...) = 画面に出す 1 行
@@ -28,13 +29,23 @@ FILE_UNAVAILABLE = "動画ファイルが見つかりません。もう一度選
 UNKNOWN_MSG = "うまくいきませんでした。[もう一度送る] を押してください"
 
 # 自動のやり直しの回数と間隔(秒)を表の既定(玄関の RETRY_MAX 回・RETRY_EVERY 秒おき)から変える種類。
-# bot = YouTube の bot 判定: 重ねるほど長引くので、間を空けて 1 回だけ(10-18 友人の PC で 0.99.11 から依頼して出た)
-RETRY_PLAN = {"bot": (1, 1800)}
+# bot = YouTube の bot 判定・rate = 429: 重ねるほど長引くので、間を空けて 1 回だけ(10-18 友人の PC で 0.99.11 から依頼して出た)。
+# bot はログインで直るので、ログインし直したときにも 1 回やり直す(api.tick。回数に数えない)
+RETRY_PLAN = {"bot": (1, 1800), "rate": (1, 1800)}
 
-# 失敗の言葉の表(上から順に当てる)。(code, 当てる文の字句, message, retry)。字句は小文字にして照らす
+# bot の言葉(login = ログインしてあるか)。ログインの情報が切れたときの yt-dlp の字句(LOGIN_EXPIRED)は、ログインしてあっても「切れた」の言葉
+BOT_LOGIN_MSG = "YouTube に「ロボットではないか」の確認で止められました。⚙ の [YouTube にログイン] でログインしてください(ログインすると自動でやり直します)"
+BOT_EXPIRED_MSG = "YouTube に止められました。ログインが切れた可能性があります。⚙ の [YouTube にログイン] でもう一度ログインしてください(ログインし直すと自動でやり直します)"
+LOGIN_EXPIRED = ("cookies are no longer valid",)
+LOGIN_CODES = ("bot", "age")   # ログインし直したら自動でやり直す種類
+
+# 失敗の言葉の表(上から順に当てる)。(code, 当てる文の字句, message, retry)。字句は小文字にして照らす。bot の message は classify が login で選ぶ
 CODES = (
-    ("bot", ("not a bot", "HTTP Error 429", "Too Many Requests"),
-     "YouTube に一時的に止められました。しばらく待つか、⚙ の『処理する PC』を『依頼する』にして送り直してください", True),
+    ("bot", ("not a bot", "cookies are no longer valid"), BOT_LOGIN_MSG, True),
+    ("rate", ("HTTP Error 429", "Too Many Requests"),
+     "YouTube に一時的に止められました。30 分ほどあとに自動でやり直します", True),
+    ("age", ("confirm your age", "age-restricted", "inappropriate for some users"),
+     "年齢の確認が要る動画です。⚙ の [YouTube にログイン] で、年齢の確認が済んだアカウントでログインしてください", False),
     ("members", ("メンバー限定", "members only", "Join this channel"),
      "メンバー限定の配信は切り抜けません。別の配信を選んでください", False),
     ("unavailable", ("非公開", "削除", "Private video", "Video unavailable", "This live event will begin", "まだ公開"),
@@ -59,8 +70,9 @@ CODES = (
 )
 
 
-def classify(text, kind="url"):
-    """失敗の文 -> {code, message, retry, detail}。kind が file なら unavailable の言い換えと rangeOver を外す。当たらなければ unknown"""
+def classify(text, kind="url", login=False):
+    """失敗の文 -> {code, message, retry, detail}。kind が file なら unavailable の言い換えと rangeOver を外す。当たらなければ unknown。
+    login = YouTube にログインしてあるか(bot の言葉: 無ければ「ログインしてください」・あれば「切れた可能性」)"""
     raw = "" if text is None else str(text)
     low = raw.lower()
     detail = raw[:DETAIL_MAX]
@@ -72,6 +84,8 @@ def classify(text, kind="url"):
         if code == "unavailable" and kind == "file":
             message = FILE_UNAVAILABLE
             retry = False
+        if code == "bot" and (login or any(p in low for p in LOGIN_EXPIRED)):
+            message = BOT_EXPIRED_MSG
         out = {"code": code, "message": message, "retry": retry, "detail": detail}
         if code in RETRY_PLAN:
             out["retryMax"], out["retryEvery"] = RETRY_PLAN[code]

@@ -141,6 +141,7 @@ namespace FriendInbox
         {
             base.OnLoad(e);
             if (!webview) return;
+            ThreadPool.QueueUserWorkItem(delegate { YtCookies.DeleteProfile(friendDir); });   // ログインの小窓の残り(YtLogin.cs)
             try
             {
                 string udf = Path.Combine(friendDir, "webview2");
@@ -364,6 +365,24 @@ namespace FriendInbox
             if (type == "quit") RequestQuit();
             else if (type == "theme") ApplyTheme(Theme.From(j));
             else if (type == "files") SendFiles(Json.Int(j, "id", 0), e);
+            else if (type == "ytlogin") OpenLogin();
+        }
+
+        // ⚙ の [YouTube にログイン](YtLogin.cs)。済んだか・やめたかを画面へ {type:"ytlogin", ok, message}
+        LoginForm login;
+
+        void OpenLogin()
+        {
+            if (login != null && !login.IsDisposed) { login.Activate(); return; }
+            var f = new LoginForm(friendDir, appIcon);
+            login = f;
+            f.FormClosed += delegate
+            {
+                string reply = "{\"type\":\"ytlogin\",\"ok\":" + (f.Ok ? "true" : "false") + ",\"message\":" + Quote(f.Message) + "}";
+                login = null;
+                if (view != null && view.CoreWebView2 != null) view.CoreWebView2.PostWebMessageAsJson(reply);
+            };
+            f.Show(this);
         }
 
         // 画面の配色(host.js が ui-kit の変数を色にして送る)を窓のタイトルの帯と確認の窓に合わせる

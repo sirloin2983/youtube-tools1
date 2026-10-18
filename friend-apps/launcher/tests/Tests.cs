@@ -31,6 +31,7 @@ static class Tests
         Run("更新: [更新する] は作業と預かりが無いときだけ入れ替える・状態の読み取り", UpdateRules);
         Run("更新: exe と DLL を写す(動いている物は *.old に)・次の起動で *.old を消す・前のアプリの名前", SwapRules);
         Run("診断: 名前と形・ユーザー名と合言葉を伏せる・最後の 20 行・3 日で消す・ユーザーの PC では書かない", DiagRules);
+        Run("YouTube のログイン: ログインの印・書く cookie を選ぶ・Netscape 形式・入れ替えて書く・小窓のプロファイルを消す(偽の cookie)", YtCookieRules);
         Console.WriteLine(failures == 0 ? "OK " + passed + " 件" : "NG " + failures + " 件失敗 / " + passed + " 件成功");
         return failures == 0 ? 0 : 1;
     }
@@ -328,6 +329,43 @@ static class Tests
         File.WriteAllText(Path.Combine(h, "data", "app", "prefs.json"), "{\"intake\":{\"folder\":\"D:/Dropbox\"}}");
         Eq(null, Diag.Write(h, "start", null, null, "x", null, null, null, now, null), "ユーザーの PC の作業データでは書かない");
         Directory.Delete(h, true);
+    }
+
+    static void YtCookieRules()
+    {
+        True(YtCookies.LoggedIn(new[] { "YSC", "LOGIN_INFO", "SAPISID" }), "LOGIN_INFO と SAPISID");
+        True(YtCookies.LoggedIn(new[] { "LOGIN_INFO", "__Secure-3PAPISID" }), "__Secure-3PAPISID でもよい");
+        True(!YtCookies.LoggedIn(new[] { "YSC", "VISITOR_INFO1_LIVE" }), "ログイン前");
+        True(!YtCookies.LoggedIn(null), "無い");
+        True(YtCookies.IsYouTube("https://www.youtube.com/") && !YtCookies.IsYouTube("http://www.youtube.com/") && !YtCookies.IsYouTube("https://accounts.google.com/x"), "youtube のページ");
+        True(YtCookies.IsRobots("https://www.youtube.com/robots.txt") && !YtCookies.IsRobots("https://www.youtube.com/"), "robots.txt");
+        var rows = new List<CookieRow> {
+            new CookieRow { Domain = ".youtube.com", Name = "SAPISID", Value = "fake-sapisid", Secure = true, Expires = 1900000000 },
+            new CookieRow { Domain = ".youtube.com", Name = "SAPISID", Value = "dup", Secure = true, Expires = 1900000000 },
+            new CookieRow { Domain = "www.youtube.com", Path = "/", Name = "YSC", Value = "fake-ysc", HttpOnly = true, Secure = true },
+            new CookieRow { Domain = ".google.com", Name = "SID", Value = "fake-sid", HttpOnly = true, Expires = 1900000001 },
+            new CookieRow { Domain = ".example.com", Name = "X", Value = "other" },
+            new CookieRow { Domain = ".notyoutube.com", Name = "X", Value = "other" },
+            new CookieRow { Domain = ".youtube.com", Name = "BAD", Value = "a\tb" },
+        };
+        var picked = YtCookies.Pick(rows);
+        Eq(3, picked.Count, "youtube.com・google.com だけ・重ならない・タブの入った物は書かない");
+        Eq(".youtube.com\tTRUE\t/\tTRUE\t1900000000\tSAPISID\tfake-sapisid", YtCookies.Line(picked[0]), "ドメインの cookie");
+        Eq("#HttpOnly_www.youtube.com\tFALSE\t/\tTRUE\t0\tYSC\tfake-ysc", YtCookies.Line(picked[1]), "ホストだけ・HttpOnly・セッション");
+        string text = YtCookies.Text(rows);
+        True(text.StartsWith("# Netscape HTTP Cookie File\n"), "頭の行");
+        True(!text.Contains("\r") && !text.Contains("other"), "LF・ほかのサイトは入らない");
+        string d = Path.Combine(Path.GetTempPath(), "fi-yt-" + Guid.NewGuid().ToString("N"));
+        Eq(3, YtCookies.Save(d, rows), "書いた件数");
+        Eq(text, File.ReadAllText(YtCookies.CookiesPath(d)), "中身");
+        True(YtCookies.CookiesPath(d).EndsWith(Path.Combine("secrets", "youtube-cookies.txt")), "Python の places.cookies_path と同じ所");
+        Eq(1, YtCookies.Save(d, rows.Skip(3).Take(1)), "書き直し(入れ替え)");
+        Eq(1, File.ReadAllLines(YtCookies.CookiesPath(d)).Count(l => l.Contains("\t")), "前の物は残らない");
+        True(!File.Exists(YtCookies.CookiesPath(d) + ".tmp"), "一時のファイルは残らない");
+        Directory.CreateDirectory(Path.Combine(YtCookies.ProfileDir(d), "Default"));
+        True(YtCookies.DeleteProfile(d) && !Directory.Exists(YtCookies.ProfileDir(d)), "小窓のプロファイルを消す");
+        True(YtCookies.DeleteProfile(d), "無くてもよい");
+        Directory.Delete(d, true);
     }
 
     static void ThemeParse()

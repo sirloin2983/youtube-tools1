@@ -138,6 +138,11 @@ class Api:
         self.sync = None   # Dropbox の同期(friendapp/sync.Sync。玄関が入れる。無ければ依頼できない)
         self.parts_missing = lambda: None   # 初回の取得の部品が足りない理由か None(この PC で作る依頼を断る。玄関が setup.Setup.block_reason を入れる)
         self.log_path = os.path.join(places["friend"], "logs", "friendapp.log")   # [作る人に知らせる] に付けるログ
+        self.login_at = _tools.ytdlp_login_at   # YouTube にログインした時刻(ミリ秒)か 0(notes:docs/spec/friend.md の 13-13。テストが差し替える)
+
+    def classify(self, r):
+        """失敗の行 -> progress.classify(bot の言葉はログインしてあるかで変わる)"""
+        return _progress.classify(r.get("error") or "", r.get("kind") or "url", login=bool(self.login_at()))
 
     def _need_parts(self):
         why = self.parts_missing()
@@ -752,7 +757,7 @@ class Api:
         r = self.inbox.row(rid)
         if r is None:
             raise KeyError(rid)
-        cls = _progress.classify(r.get("error") or "", r.get("kind") or "url")
+        cls = self.classify(r)
         now = int(self.clock() * 1000)
         doc = {"v": 1, "kind": "failure", "requestId": rid, "title": rowtitle(r), "code": cls["code"], "message": cls["message"],
                "detail": (r.get("error") or "")[:2000], "appVersion": _version.VERSION, "at": now, "log": _log_tail(self.log_path, NOTICE_LOG_MAX)}
@@ -787,10 +792,17 @@ class Api:
             self.inbox.wait_checked(r["id"])
             if info.get("status") in ARCHIVE_OK:
                 self._start_waited(r["id"])
+        login = self.login_at()
         for r in self.inbox.view():
             if r["state"] != "failed" or r.get("cancelled") or not r.get("form"):
                 continue
-            cls = _progress.classify(r.get("error") or "", r.get("kind") or "url")
+            cls = self.classify(r)
+            if login and cls["code"] in _progress.LOGIN_CODES and r.get("pc") != "user" and (r.get("failedAt") or 0) < login:
+                try:   # ログインし直した: 前に bot・年齢で止まった行をやり直す(1 回。また落ちれば failedAt がログインより後になる)
+                    self.retry(r["id"])
+                except (FormError, KeyError):
+                    pass
+                continue
             if cls["retry"] and (r.get("autoRetries") or 0) < cls.get("retryMax", RETRY_MAX) and \
                     now - (r.get("failedAt") or 0) / 1000.0 >= cls.get("retryEvery", RETRY_EVERY):
                 try:
@@ -874,7 +886,7 @@ class Api:
                 live_ids.add(r["id"])
                 r["steps"] = self._progress(r, runs, blocked, stats, eng)
             if r["state"] == "failed":
-                cls = _progress.classify(r.get("error") or "", r.get("kind") or "url")
+                cls = self.classify(r)
                 retrying = cls["retry"] and (r.get("autoRetries") or 0) < cls.get("retryMax", RETRY_MAX) and not r.get("cancelled")
                 r["fail"] = {"code": cls["code"], "message": cls["message"], "detail": cls["detail"], "retrying": retrying,
                              "repeat": not retrying and (r.get("failCodes") or []).count(cls["code"]) >= 2, "reported": bool(r.get("reportedAt"))}

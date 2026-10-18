@@ -4,11 +4,12 @@
 (function () {
   'use strict';
   var wv = window.chrome && window.chrome.webview ? window.chrome.webview : null;
-  var seq = 0, waiting = {};
+  var seq = 0, waiting = {}, loginCb = null;
 
   if (wv) {
     wv.addEventListener('message', function (ev) {
       var m = ev.data;
+      if (m && m.type === 'ytlogin' && loginCb) { var lc = loginCb; loginCb = null; lc(!!m.ok, m.message || ''); return; }
       if (!m || m.type !== 'files' || !waiting[m.id]) return;
       var cb = waiting[m.id];
       delete waiting[m.id];
@@ -65,6 +66,14 @@
     quit: function () {
       if (wv) { wv.postMessage({ type: 'quit' }); return Promise.resolve(true); }
       return UIKit.http('api/shutdown', { body: {} }).then(function () { return true; });
+    },
+
+    /* ⚙ の [YouTube にログイン]: exe がログインの小窓を開き(friend-apps/launcher/src/YtLogin.cs)、閉じたら cb(ok, message)。
+       窓の外では開けない(cb(false, 理由))。cookie は exe と Python の間だけ(画面には来ない) */
+    youtubeLogin: function (cb) {
+      if (!wv) { cb(false, 'アプリの窓の中でだけログインできます'); return; }
+      loginCb = cb;
+      wv.postMessage({ type: 'ytlogin' });
     },
 
     /* 落とした動画ファイル(DataTransfer.files)を送る係へ。exe が本物のパスを読んで POST /api/friend/files {paths} を送り、答えを cb(err, json) へ。

@@ -30,13 +30,21 @@ class ClassifyTest(unittest.TestCase):
         self.assertEqual(P.classify("members only")["retry"], False)
 
     def test_bot(self):
-        r = self.check("方法1(区間取得): ERROR: [youtube] x: Sign in to confirm you’re not a bot. Use --cookies-from-browser", "bot")
+        bot = "方法1(区間取得): ERROR: [youtube] x: Sign in to confirm you’re not a bot. Use --cookies-from-browser"
+        r = self.check(bot, "bot")
         self.assertTrue(r["retry"])
         self.assertEqual((r["retryMax"], r["retryEvery"]), (1, 1800))   # 間を空けて 1 回だけ
-        self.assertIn("YouTube に一時的に止められました", r["message"])
+        self.assertIn("[YouTube にログイン] でログインしてください", r["message"])   # ログインしていない = ログインを勧める(10-18)
+        self.assertNotIn("処理する PC", r["message"])
+        self.assertIn("ログインが切れた可能性", P.classify(bot, login=True)["message"])   # ログインしてあっても止められた = 切れた
+        self.assertIn("ログインが切れた可能性", P.classify("WARNING: The provided YouTube account cookies are no longer valid.")["message"])
         self.check("Sign in to confirm you�fre not a bot", "bot")   # 化けた文でも当たる
-        self.check("HTTP Error 429: Too Many Requests", "bot")
-        self.check("Sign in to confirm your age. Use --cookies-from-browser", "unknown")   # 年齢の確認は別(bot ではない)
+        r = self.check("HTTP Error 429: Too Many Requests", "rate")   # 429 はログインと別(待てば直る)
+        self.assertEqual((r["retryMax"], r["retryEvery"]), (1, 1800))
+        r = self.check("Sign in to confirm your age. Use --cookies-from-browser", "age")   # 年齢の確認 = ログインが要る(やり直さない)
+        self.assertFalse(r["retry"])
+        self.assertIn("YouTube にログイン", r["message"])
+        self.assertEqual(P.LOGIN_CODES, ("bot", "age"))
         self.assertNotIn("retryMax", P.classify("timed out"))
 
     def test_unavailable(self):

@@ -15,6 +15,8 @@
     解析の重み          weights: null(既定の重み)か {wAudio, wChat, wComments} 0〜3(form.json の useWeights と weights)
     ライブの感度・待ち・余白  live: {sens: high|normal|low, waitMin: 分, pad: 秒}(form.json の live。範囲は friendapp/live.RANGES。画面の選択肢は view の liveSensOptions)
     前のアプリの片付け   view の oldApp: {canClean(片付けられる物がある), bytes}。update の cleanOld: true で片付ける(写して同じと確かめた物だけ)
+    YouTube のログイン   view の ytLogin: {state: none|ok|expired, at: ログインした ms}。ログインは FriendApp.exe の窓(LoginForm)が cookie を書く =
+                        ここは読むだけ。expired = ログインのあとに bot の失敗があった。update の ytLogout: true で cookie を消す(notes:docs/spec/friend.md の 13-13)
     これらは送る係が form.json から読む(cut と同じ置き場所)。送る欄のその場の変更は form.json の同じ値を書き換える(最後に書いた方が次の初めの値)
 フォルダは画面から打たせない: [選ぶ] で玄関が Windows のフォルダを選ぶ窓を開く(FriendApp.pick_folder。テストと見本は偽物)。
 """
@@ -26,7 +28,7 @@ import urllib.parse
 import urllib.request
 
 from flow import machine as _machine, spec as _spec
-from ytt import fsio as _fsio, studio_env as _studio_env
+from ytt import fsio as _fsio, studio_env as _studio_env, tools as _tools
 
 from . import live as _live
 
@@ -195,7 +197,39 @@ class Settings:
                 "engine": "C" if m.get("device") == "cuda" else "A", "gpu": gpu,
                 "apiKey": bool(load_key(self.places["data"]) or self.env.get(KEY_ENV)), "apiKeyHelp": KEY_HELP,
                 "diskMinGB": m.get("diskMinGB"), "cut": self.api.form().get("cut", CUT_DEFAULT),
-                **self._form_view(), "oldApp": self.old_app(), "cuda": self.cuda()}
+                **self._form_view(), "oldApp": self.old_app(), "cuda": self.cuda(), "ytLogin": self.yt_login()}
+
+    def yt_login(self):
+        """YouTube のログインの状態(上の説明)。cookie の中身は読まない"""
+        at = self.api.login_at()
+        if not at:
+            return {"state": "none", "at": 0}
+        expired = False
+        for r in self.api.inbox.view():
+            if r.get("state") == "failed" and (r.get("failedAt") or 0) > at and r.get("pc") != "user" and self.api.classify(r)["code"] == "bot":
+                expired = True
+                break
+        return {"state": "expired" if expired else "ok", "at": at}
+
+    def yt_logout(self):
+        """cookie と yt-dlp に渡した写しを消す -> 消したか"""
+        src = (self.env.get(_tools.COOKIES_ENV) or "").strip()
+        if not src:
+            return False
+        had = os.path.isfile(src)
+        try:
+            if had:
+                os.remove(src)
+        except OSError as e:
+            raise SettingsError("ログアウトできませんでした(%s)" % (e.strerror or e.__class__.__name__))
+        run = os.path.join(os.path.dirname(src), _tools.COOKIES_RUN)
+        if os.path.isdir(run):
+            for n in os.listdir(run):
+                try:
+                    os.remove(os.path.join(run, n))
+                except OSError:
+                    pass   # 動いている yt-dlp の写し = 24 時間で消える
+        return had
 
     def _form_view(self):
         f = self.api.form()
@@ -295,7 +329,7 @@ class Settings:
     # ---- エンジン・空き容量・カット
     def update(self, body):
         """{engine?: A|C, diskMinGB?: 数, cut?: none|silence, processing?: local|remote, weights?: null|{volume,chat,comment},
-        live?: {sensitivity?, wait?, margin?}, cleanOld?: true, fetchCuda?: true} -> {"message", "fetching"}。合わなければ SettingsError(どれも書かない)"""
+        live?: {sensitivity?, wait?, margin?}, cleanOld?: true, fetchCuda?: true, ytLogout?: true} -> {"message", "fetching"}。合わなければ SettingsError(どれも書かない)"""
         patch, msgs, cut = {}, [], None
         form_patch, form_msgs = self._check_form(body)
         if body.get("cleanOld") is True and not callable(getattr(self.setup, "clean_old", None)):
@@ -327,6 +361,8 @@ class Settings:
             _machine.save(patch, p=self.machine_file)
         self._write_form(form_patch)
         msgs.extend(form_msgs)
+        if body.get("ytLogout") is True:
+            msgs.append("YouTube からログアウトしました(この PC のログインの情報を消しました)" if self.yt_logout() else "ログインしていません")
         if body.get("cleanOld") is True:
             got = self.setup.clean_old()
             msgs.append("前のアプリの部品を片付けました(%.1f GB 空きました)" % (got["freed"] / 1e9) if got["deleted"] else "片付けられる物はありませんでした")

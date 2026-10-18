@@ -445,7 +445,53 @@ def ytdlp_print_cmd(yd, url, template):
     """yt-dlp で URL を 1 回調べる(ダウンロードしない)コマンド。template = --print の書式(項目はタブで区切る)。
     配信の前(予約)は形式が無くてエラーになるが live_status は出してほしいので --ignore-no-formats-error。URL は -- の後(オプションとして読ませない)。
     動かすのは呼ぶ側(run = シェルを通さない・窓を出さない・時間の上限)。配信中か(flow/livesession.probe_live)とアーカイブの状態(flow/live_archive)が使う(OPT1)"""
-    return [yd, "--encoding", "utf-8", "--skip-download", "--no-warnings", "--no-playlist", "--ignore-no-formats-error", "--print", template, "--", url]
+    return [yd, "--encoding", "utf-8", "--skip-download", "--no-warnings", "--no-playlist", "--ignore-no-formats-error"] + ytdlp_auth_args() + \
+        ["--print", template, "--", url]
+
+
+# ---------- YouTube のログイン(友人の PC。notes:docs/spec/friend.md の 13-13)----------
+COOKIES_ENV = "YTT_YTDLP_COOKIES"   # yt-dlp に渡す cookies.txt(Netscape 形式)。友人のアプリ(friendapp/places)だけが入れる。無ければ今までどおり
+COOKIES_RUN = "run"                 # 呼ぶたびの写しを置く、cookies.txt の隣のフォルダ
+COOKIES_RUN_KEEP = 24 * 3600        # 写しを消すまでの秒(長い取得の途中の物は消さない)
+
+
+def ytdlp_auth_args(env=None):
+    """yt-dlp に足す ["--cookies", <写し>](COOKIES_ENV のファイルがあるときだけ。無ければ [])。
+    写しを渡す: yt-dlp は終わると cookie のファイルに書き戻すので、同時に動く複数の yt-dlp が 1 つのファイルを壊さないように(元は C# のログインだけが書く)。
+    中身は読まない・ログに出さない(パスだけ)。古い写しはここで消す"""
+    env = os.environ if env is None else env
+    src = (env.get(COOKIES_ENV) or "").strip()
+    try:
+        if not src or os.path.getsize(src) <= 0:
+            return []
+    except OSError:
+        return []
+    run = os.path.join(os.path.dirname(src), COOKIES_RUN)
+    try:
+        os.makedirs(run, exist_ok=True)
+        now = time.time()
+        for n in os.listdir(run):
+            p = os.path.join(run, n)
+            try:
+                if now - os.path.getmtime(p) > COOKIES_RUN_KEEP:
+                    os.remove(p)
+            except OSError:
+                pass
+        dst = os.path.join(run, "%d-%d-%s.txt" % (int(now * 1000), os.getpid(), os.urandom(3).hex()))
+        shutil.copyfile(src, dst)
+    except OSError:
+        return ["--cookies", src]   # 写せないとき(空きが無いなど)は元を渡す
+    return ["--cookies", dst]
+
+
+def ytdlp_login_at(env=None):
+    """yt-dlp に渡す cookie を書いた時刻(ミリ秒。= ログインした時刻)か 0(ログインしていない)"""
+    env = os.environ if env is None else env
+    src = (env.get(COOKIES_ENV) or "").strip()
+    try:
+        return int(os.path.getmtime(src) * 1000) if src and os.path.getsize(src) > 0 else 0
+    except OSError:
+        return 0
 
 
 def start_logged(cmd, log_path, cwd, flags, rotate=None):

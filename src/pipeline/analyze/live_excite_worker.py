@@ -433,7 +433,7 @@ class ChatFeed:
         self.dedupe_ts = self.max_ts
         os.makedirs(self.folder, exist_ok=True)
         exe = [sys.executable, self.ytdlp] if self.ytdlp.lower().endswith(".py") else [self.ytdlp]
-        cmd = exe + ["--encoding", "utf-8", "--no-playlist", "--no-warnings", "--newline", "--skip-download", "--write-subs", "--sub-langs", "live_chat",
+        cmd = exe + tools.ytdlp_auth_args() + ["--encoding", "utf-8", "--no-playlist", "--no-warnings", "--newline", "--skip-download", "--write-subs", "--sub-langs", "live_chat",
                      "-o", self.stem(self.gen) + ".%(ext)s", "--", self.url]
         try:
             self.logf = open(self.stem(self.gen) + ".log", "ab")

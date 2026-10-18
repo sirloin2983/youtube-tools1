@@ -1444,13 +1444,13 @@ class ServerTest(unittest.TestCase):
     BOT = "書き出しに失敗しました(1 本): 方法1(区間取得): ERROR: [youtube] poERFwoVxxE: Sign in to confirm you’re not a bot. Use --cookies-from-browser or --cookies for the authentication.【全角】「'」"
 
     def test_failure_bot_retries_once_after_a_long_wait(self):
-        """YouTube の bot 判定: 友人の言葉は「一時的に止められました」・自動のやり直しは間を空けて 1 回だけ・[もう一度送る] は出せる(10-18)"""
+        """YouTube の bot 判定: 友人の言葉は「ログインしてください」・自動のやり直しは間を空けて 1 回だけ・[もう一度送る] は出せる(10-18)"""
         t = self.fake_clock()
+        self.app.api.login_at = lambda: 0
         rid = self.failing_row(self.BOT)
         f = self.view_row(rid)["fail"]
         self.assertEqual((f["code"], f["retrying"], f["repeat"]), ("bot", True, False))
-        self.assertIn("YouTube に一時的に止められました", f["message"])
-        self.assertIn("処理する PC", f["message"])
+        self.assertIn("[YouTube にログイン] でログインしてください", f["message"])
         self.assertEqual(f["detail"], self.BOT)   # 詳しく・[コピー] の元 = ’ や全角の記号がそのまま
         t[0] += A.RETRY_EVERY   # 普通の失敗の間隔では、まだやり直さない
         self.app.api.tick()
@@ -1470,6 +1470,28 @@ class ServerTest(unittest.TestCase):
         with open(os.path.join(self.places["outbox"], notes[0]), encoding="utf-8") as fh:
             doc = json.load(fh)
         self.assertEqual((doc["code"], doc["detail"]), ("bot", self.BOT))
+
+    def test_bot_rows_retry_when_logged_in_again(self):
+        """YouTube にログインし直したら、前に bot で止まった行をすぐ 1 回やり直す(回数・間隔を待たない)。また止まれば「切れた可能性」(10-18)"""
+        t = self.fake_clock()
+        login = [0]
+        self.app.api.login_at = lambda: login[0]
+        rid = self.failing_row(self.BOT)
+        other = self.failing_row("メンバー限定の配信です(Join this channel)")
+        self.app.api.tick()
+        self.assertEqual(len(self.engine.queue.submitted), 2)   # ログインの前はやり直さない(間隔の前)
+        login[0] = int(t[0] * 1000) + 1000   # ⚙ でログインした
+        t[0] += 5
+        self.app.api.tick()
+        self.assertEqual(len(self.engine.queue.submitted), 3)   # bot の行だけ・すぐ
+        self.assertEqual(self.app.inbox.row(other)["state"], "failed")
+        self.app.api.tick()
+        self.assertEqual(len(self.engine.queue.submitted), 3)   # 1 回だけ
+        self.fail_again(rid, self.BOT)
+        f = self.view_row(rid)["fail"]
+        self.assertIn("ログインが切れた可能性", f["message"])
+        self.app.api.tick()
+        self.assertEqual(len(self.engine.queue.submitted), 3)   # ログインより後の失敗 = ログインし直すまで待つ
 
     def test_failure_not_fixable_is_not_retrying_at_once(self):
         t = self.fake_clock()

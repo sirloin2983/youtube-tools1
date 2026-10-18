@@ -25,6 +25,8 @@
   - ●n: まだ決めていない本数を窓のタイトルとタスクバーの重ねる絵に
   - 窓の大きさを覚える(data\app\friendapp\window.json。初めは 1280×800 で真ん中)
   - 外へのリンク(YouTube など)は既定のブラウザ・同じ画面の [?] は小さな説明の窓
+  - ⚙ の [YouTube にログイン]: 別のプロファイルの小窓(src\YtLogin.cs の LoginForm)で Google にログイン → robots.txt へ移して cookie を
+    data\app\friendapp\secrets\youtube-cookies.txt に書いて閉じる・プロファイルは消す(notes:docs/spec/friend.md の 13-13。中身はログに出さない)
   - WebView2 の本体が無い PC: Edge のアプリの窓で開く逃げ道(このときだけ画面に本物の合言葉を入れる。止めるのはアイコンから)
 
 ■ 更新(8 章・A-15。新しい版の入れ方と前の版へ戻す)

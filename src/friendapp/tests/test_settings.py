@@ -14,7 +14,7 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
-from ytt import testkit  # noqa: E402
+from ytt import testkit, tools as YT  # noqa: E402
 from friendapp import places as P, server as S, settings as T, setup as SU  # noqa: E402
 from friendapp.tests.test_server import FakeEngine  # noqa: E402
 
@@ -128,6 +128,28 @@ class SettingsServerTest(unittest.TestCase):
     def post(self, path, body=None, token=True):
         st, raw = self.request("POST", path, body if body is not None else {}, token)
         return st, json.loads(raw.decode("utf-8"))
+
+    # ---- YouTube のログイン(notes:docs/spec/friend.md の 13-13。cookie は偽物)
+    def test_youtube_login_state_and_logout(self):
+        cookies = os.path.join(self.places["friend"], "secrets", "youtube-cookies.txt")
+        os.environ[YT.COOKIES_ENV] = cookies
+        self.assertEqual(self.get("/api/friend/settings")[1]["settings"]["ytLogin"], {"state": "none", "at": 0})
+        os.makedirs(os.path.dirname(cookies))
+        with open(cookies, "w", encoding="utf-8") as f:
+            f.write("# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t0\tSAPISID\tfake\n")
+        y = self.get("/api/friend/settings")[1]["settings"]["ytLogin"]
+        self.assertEqual(y["state"], "ok")
+        self.assertGreater(y["at"], 0)
+        args = YT.ytdlp_auth_args()   # 呼ぶたびの写しを作っておく(ログアウトで一緒に消える)
+        self.assertTrue(os.path.isfile(args[1]))
+        raw = self.request("GET", "/api/friend/settings")[1]
+        self.assertNotIn(b"fake", raw)   # 中身は画面へ出さない
+        st, j = self.post("/api/friend/settings", {"ytLogout": True})
+        self.assertEqual(st, 200)
+        self.assertIn("ログアウトしました", j["message"])
+        self.assertFalse(os.path.exists(cookies) or os.path.exists(args[1]))
+        self.assertEqual(j["settings"]["ytLogin"]["state"], "none")
+        self.assertIn("ログインしていません", self.post("/api/friend/settings", {"ytLogout": True})[1]["message"])
 
     # ---- 初回の準備(F3-5。準備だけの画面)
     def test_setup_runs_by_itself_then_main_page(self):

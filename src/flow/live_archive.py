@@ -270,7 +270,7 @@ def fetch_full_audio(video_id, folder, cancelled=None, timeout=FETCH_TIMEOUT, re
     if not yd:
         raise ArchiveError("yt-dlp が見つかりません")
     os.makedirs(folder, exist_ok=True)
-    cmd = [yd, "--encoding", "utf-8", "--no-warnings", "--no-playlist", "--no-part", "--force-overwrites", "--no-progress",
+    cmd = [yd, "--encoding", "utf-8"] + tools.ytdlp_auth_args() + ["--no-warnings", "--no-playlist", "--no-part", "--force-overwrites", "--no-progress",
            "-f", "ba", "-o", os.path.join(folder, "full.%(ext)s")]
     ff = tools.find_tool("ffmpeg")
     if ff:

@@ -17,6 +17,8 @@
   4. 本物の FriendApp.exe を画面の外・消音(YTT_FRIEND_SHOTS)で起こし、WebView2 に Playwright でつなぐ(--remote-debugging-port)
   5. 合言葉: 画面から合言葉なしで口が通る(exe が足す)・meta は置き物 host・外から合言葉なしでは 403
   6. 初回の準備: 道具の取得 → 浅く置く → 全部の道具と文字起こしを動かす → 済み(tools\\<名前>\\ の直下に exe)
+  6b. YouTube のログイン: 本物の Google は開かず、exe が書くのと同じ所に偽の cookie を置く → ⚙ が「ログインしています」・[ログイン] が押せる・
+     同梱の Python が yt-dlp へ写しを --cookies で渡す → ログアウトで消える。最後に偽の値が Dropbox・送り返し・ログに無いこと
   7. 依頼: 小さな動画(同梱の ffmpeg で作る。名前の頭に【配信者】)を本物のドロップ(CDP の drop)で 2 回落とし 1 本だけ入る → [送る] → ② が処理 → 届いた
   8. 届く物: この PC で作った確認用の動画(h264・yuv420p・高さ 480 以下)が受け取る画面の <video> で再生できる。
      ユーザーの PC の届け方(flow/deliver.deliver_one = 1 本ずつの zip・.preview.mp4・.meta.json)を偽の Dropbox の /出力/ に置き、同期で取り込まれて再生できる
@@ -28,6 +30,7 @@
 終了コード 0 合格 / 1 不合格 / 2 引数・前提が無い(Playwright・キャッシュ・モデル)
 """
 import argparse
+import glob
 import hashlib
 import json
 import os
@@ -406,6 +409,69 @@ def check_setup(w, app, rep, timeout):
     return ok
 
 
+# ---------------------------------------------------------------- 6b YouTube のログイン(偽の cookie。notes:docs/spec/friend.md の 13-13)
+FAKE_COOKIE = "preflight-fake-cookie-value"   # 検査の偽の値(最後に Dropbox・送り返し・ログへ漏れていないかを探す)
+LOGIN_JS = """async () => {
+  document.getElementById('btnSettings').click();
+  for (let i = 0; i < 40 && !document.getElementById('fsYtH'); i++) await new Promise(r => setTimeout(r, 150));
+  await new Promise(r => setTimeout(r, 600));
+  const h = document.getElementById('fsYtH'); if (!h) return null;
+  const sec = h.parentElement, b = sec.querySelector('button');
+  const out = {text: sec.querySelector('p').textContent, enabled: !!b && !b.disabled, isApp: !!(window.FriendHost && FriendHost.isApp)};
+  const d = document.getElementById('settingsDrawer'); if (d && window.UIKit) UIKit.drawer.close(d);
+  return out; }"""
+
+
+def check_login(w, app, rep):
+    """ログインの小窓(本物の Google)は開かない。exe が書くのと同じ所に偽の cookie を置き、⚙ の状態・yt-dlp へ渡す写し・ログアウトを確かめる"""
+    path = os.path.join(app, "data", "app", "friendapp", "secrets", "youtube-cookies.txt")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write("# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t0\tSAPISID\t%s\n" % FAKE_COOKIE)
+    st, j = w.api("GET", "/api/friend/settings")
+    y = ((j or {}).get("settings") or {}).get("ytLogin") or {}
+    rep.check("YouTube のログイン: cookie を置くと ⚙ が「ログインしています」", st == 200 and y.get("state") == "ok", y)
+    rep.check("YouTube のログイン: ⚙ の口に cookie の中身が出ない", FAKE_COOKIE not in json.dumps(j or {}))
+    v = w.eval(LOGIN_JS) or {}
+    rep.check("YouTube のログイン: ⚙ の節が出て、アプリの窓の中なので [ログイン] が押せる", v.get("enabled") and v.get("isApp") and "ログインしています" in (v.get("text") or ""), v)
+    py = next(iter(sorted(glob.glob(os.path.join(app, "app-*", "python", "python.exe")) + glob.glob(os.path.join(app, "python", "python.exe")))), None)
+    if py:
+        code = "from ytt import tools as t; import json; print(json.dumps(t.ytdlp_auth_args()))"
+        env = dict(w.env, YTT_YTDLP_COOKIES=path, PYTHONPATH=os.path.join(os.path.dirname(os.path.dirname(py)), "src"))
+        r = subprocess.run([py, "-c", code], capture_output=True, env=env, creationflags=CHILD_FLAGS, timeout=60)
+        try:
+            args = json.loads(r.stdout.decode("utf-8", "replace").strip().splitlines()[-1])
+        except (ValueError, IndexError):
+            args = []
+        ok = len(args) == 2 and args[0] == "--cookies" and os.path.isfile(args[1]) and os.path.dirname(args[1]) == os.path.join(os.path.dirname(path), "run")
+        rep.check("YouTube のログイン: yt-dlp には呼ぶたびの写しを --cookies で渡す(同梱の Python で)", ok, args or r.stderr.decode("utf-8", "replace")[-300:])
+    else:
+        rep.info("YouTube のログイン: yt-dlp へ渡す口", "同梱の Python が見つからない")
+    st, j = w.api("POST", "/api/friend/settings", {"ytLogout": True})
+    y = ((j or {}).get("settings") or {}).get("ytLogin") or {}
+    rep.check("YouTube のログイン: ログアウトで cookie と写しを消す", st == 200 and y.get("state") == "none" and not os.path.exists(path)
+              and not (os.path.isdir(os.path.join(os.path.dirname(path), "run")) and os.listdir(os.path.join(os.path.dirname(path), "run"))),
+              (j or {}).get("message"))
+
+
+def check_secret_leak(work, rep):
+    """偽の cookie の値が、Dropbox(診断・送り返し)・アプリのログに入っていない"""
+    hits = []
+    for top in (os.path.join(work, "dropbox"), os.path.join(work, "FriendApp", "data", "app", "outbox"), os.path.join(work, "FriendApp", "data", "app", "friendapp", "logs")):
+        for root, _dirs, files in os.walk(top):
+            for n in files:
+                p = os.path.join(root, n)
+                try:
+                    if os.path.getsize(p) > 50 * 1024 ** 2:
+                        continue
+                    with open(p, "rb") as f:
+                        if FAKE_COOKIE.encode("ascii") in f.read():
+                            hits.append(os.path.relpath(p, work))
+                except OSError:
+                    pass
+    rep.check("YouTube のログインの cookie が Dropbox・送り返し・ログに入っていない", not hits, ", ".join(hits))
+
+
 # ---------------------------------------------------------------- 7 依頼(ドロップ → 送る → 作る)
 def make_video(app, path, sec=12):
     """同梱の ffmpeg で小さな動画(音つき・話し声は無い)。開発の ffmpeg は使わない"""
@@ -736,6 +802,7 @@ def run(args):  # lint: long 検査の一本の流れ(上の説明の 1〜11 の
         check_token(w, rep)
         if not check_setup(w, app, rep, args.timeout_min * 60 * 0.4):
             return rep
+        check_login(w, app, rep)
         media_dir = os.path.join(work, "home", "Videos")
         media = os.path.join(media_dir, "【%s】配る前の検査.mp4" % STREAMER)
         make_video(app, media)
@@ -765,6 +832,7 @@ def run(args):  # lint: long 検査の一本の流れ(上の説明の 1〜11 の
         rep.check("判断の記録 .verdict.json(v 2)が /送り返し/ に上がる(受け取る = good・見送る = unknown)",
                   all(v.get("v") == 2 for v in vds) and "good" in judges and (not auto or "unknown" in judges), judges)
         check_diag(work, rep)
+        check_secret_leak(work, rep)
         if not args.skip_update:
             check_update(w, app, work, zip_path, lay["man"]["version"], rep, 240)
         return rep

@@ -72,6 +72,11 @@
       return h('label', { class: 'fs-radio' }, [w[1] + ' ', num('fsW_' + w[0], 0, 3, 1, w[1] + 'の重み')]);
     }));
     ui.sens = h('select', { 'aria-labelledby': 'fsLiveSensL' });
+    /* YouTube のログイン(notes:docs/spec/friend.md の 13-13)。ログインは exe の小窓(FriendHost.youtubeLogin)・ログアウトは POST settings {ytLogout} */
+    ui.ytState = h('p', { 'aria-live': 'polite' });
+    ui.ytLogin = h('button', { type: 'button', class: 'btn small', text: 'YouTube にログイン' });
+    ui.ytLogout = h('button', { type: 'button', class: 'btn ghost small', text: 'ログアウト' });
+    ui.ytWhy = h('p', { class: 'hint' });
     ui.oldWrap = h('section', { class: 'ui-settings-sec fs-set', 'aria-labelledby': 'fsOldH', hidden: '' });
     ui.oldText = h('p', {});
     ui.oldBtn = h('button', { type: 'button', class: 'btn small', text: '片付ける' });
@@ -98,6 +103,8 @@
     var body = h('div', { class: 'ui-drawer-body' }, [
       section('fsPcH', '処理する PC', [radios('fsPc', 'fsPcH', [['local', 'この PC で処理する'], ['remote', '依頼する']]), ui.remoteWhy],
               '「依頼する」にすると、この PC では処理せず、作る人の PC に頼みます(Dropbox で送ります)。'),
+      section('fsYtH', 'YouTube のログイン', [ui.ytState, h('div', { class: 'fs-line' }, [ui.ytLogin, ui.ytLogout]), ui.ytWhy],
+              'YouTube に「ロボットではないか」の確認で止められないように、この PC の取り込みで使います。メインではなく、サブの Google アカウントでログインしてください(止められても困らないように)。ログインの情報はこの PC の中だけに置き、外へは出しません。'),
       section('fsSaveH', '受け取った物の保存先', [ui.save, h('div', { class: 'fs-line' }, [ui.pickSave, ui.resetSave])],
               '[受け取る] を押した切り抜きを置く場所です。変えても、今ある物は移しません。'),
       section('fsCasesH', '一時保管', [ui.cases, h('div', { class: 'fs-line' }, [ui.pickCases, ui.resetCases])],
@@ -145,6 +152,8 @@
     ui.sens.addEventListener('change', putLive);
     ui.fsLiveWait.addEventListener('change', putLive);
     ui.fsLivePad.addEventListener('change', putLive);
+    ui.ytLogin.addEventListener('click', ytLogin);
+    ui.ytLogout.addEventListener('click', function () { put({ ytLogout: true }); });
     ui.oldBtn.addEventListener('click', function () {
       ui.oldBtn.disabled = true;
       api('setup/clean-old', {}).then(function () { UIKit.toast('前のアプリを片付けました', { ms: 3500 }); load(); },
@@ -203,9 +212,33 @@
     ui.sens.value = lv.sens || '';
     if (document.activeElement !== ui.fsLiveWait) ui.fsLiveWait.value = lv.waitMin == null ? '' : lv.waitMin;
     if (document.activeElement !== ui.fsLivePad) ui.fsLivePad.value = lv.pad == null ? '' : lv.pad;
+    fillYt(s.ytLogin || {});
     var old = s.oldApp || {};
     if (old.canClean) ui.oldWrap.removeAttribute('hidden'); else ui.oldWrap.setAttribute('hidden', '');
     ui.oldText.textContent = old.canClean ? '前のアプリの部品(約 ' + sizeText(old.bytes) + ')が残っています。このアプリへ写して同じだと確かめてあります。' : '';
+  }
+
+  function dayText(ms) { var d = new Date(ms); return (d.getMonth() + 1) + ' 月 ' + d.getDate() + ' 日'; }
+
+  function fillYt(y) {
+    var app = !!(window.FriendHost && FriendHost.isApp);
+    ui.ytState.className = y.state === 'expired' ? 'fs-yt-bad' : '';
+    ui.ytState.textContent = y.state === 'ok' ? 'ログインしています(' + dayText(y.at) + ')' :
+      y.state === 'expired' ? 'ログインが切れた可能性があります。もう一度ログインしてください' : 'まだログインしていません';
+    ui.ytLogin.textContent = y.state === 'none' ? 'YouTube にログイン' : 'もう一度ログイン';
+    ui.ytLogin.disabled = !app;
+    ui.ytLogin.title = app ? 'ログインの小窓を開きます。済むと自動で閉じます' : 'アプリの窓の中でだけログインできます';
+    ui.ytLogout.hidden = y.state === 'none';
+    ui.ytWhy.textContent = app ? '' : 'この窓ではログインできません。アプリ(FriendApp)の窓で開いてください';
+  }
+
+  function ytLogin() {
+    ui.ytLogin.disabled = true;
+    ui.ytState.textContent = 'ログインの小窓で続けてください…';
+    FriendHost.youtubeLogin(function (ok, message) {
+      if (message) UIKit.toast(message, { ms: 4000 });
+      load();
+    });
   }
 
   var cudaTimer = 0;

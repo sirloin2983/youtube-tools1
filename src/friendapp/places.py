@@ -6,6 +6,8 @@
     <home>/tools/          ffmpeg・yt-dlp・Deno・whisper.cpp(初回の取得・zip の中。版をまたぐ)
     <home>/data/           ② の作業データ(YTT_DATA_DIR。モデル・この PC の設定 machine.json・学習データ・待ちの記録)
     <home>/data/app/friendapp/   玄関の記録(受信箱 inbox.json・窓のプロファイル・ログ)
+    <home>/data/app/friendapp/secrets/youtube-cookies.txt   YouTube のログインの cookie(FriendApp.exe の LoginForm が書く。秘密 =
+                                 Dropbox・診断・送り返し・ログに入れない。yt-dlp には ytt/tools.ytdlp_auth_args が写しで渡す。notes:docs/spec/friend.md の 13-13)
     <home>/data/app/outbox/      送り返し(zip と採否の .verdict.json。F2-3 の同期が Dropbox へ上げる)
     <home>/作業/            一時保管の既定(スタジオの書き出し先 outDir = machine の caseRoot の既定。案件・パック)
 home の決め方: 環境変数 YTT_FRIEND_HOME > src の親(親が app-<版> ならもう 1 つ上)。
@@ -17,12 +19,13 @@ import os
 import shutil
 
 from flow import learning as _learning, machine as _machine, placement as _placement, studiobook as _studiobook, wire as _wire
-from ytt import colors as _colors, datadir as _datadir, fsio as _fsio, layout as _layout, studio_env as _studio_env
+from ytt import colors as _colors, datadir as _datadir, fsio as _fsio, layout as _layout, studio_env as _studio_env, tools as _tools
 
 HOME_ENV = "YTT_FRIEND_HOME"
 DATA_NAME, CASES_NAME, TOOLS_NAME = "data", "作業", "tools"
 FRIEND_DIR = os.path.join("app", "friendapp")
 OUTBOX_DIR = os.path.join("app", "outbox")
+COOKIES_REL = os.path.join("secrets", "youtube-cookies.txt")   # friend_dir の下(C# の Core.CookiesPath と同じ)
 FETCH_NAME = "fetch.json"
 KEYS_NAME = "keys.json"
 TOOL_EXES = (("YTT_FFMPEG", "ffmpeg.exe"), ("YTT_FFPROBE", "ffprobe.exe"), ("YTT_YTDLP", "yt-dlp.exe"),
@@ -52,6 +55,11 @@ def data_root(env=None):
 
 def friend_dir(env=None):
     return os.path.join(data_root(env), FRIEND_DIR)
+
+
+def cookies_path(env=None):
+    """YouTube のログインの cookie のファイル(上の説明。無くてもよい)"""
+    return os.path.join(friend_dir(env), COOKIES_REL)
 
 
 def outbox_dir(env=None):
@@ -220,6 +228,7 @@ def setup(env=None, log=None):
     _learning.apply_places(_learning.learning_dir())
     lay_whisper(os.path.join(h, TOOLS_NAME), tx, log)
     api_key_env([root, old_data_root(env)], env)
+    env[_tools.COOKIES_ENV] = cookies_path(env)   # ログインしていなければファイルが無い = yt-dlp に何も足さない(ログインはアプリを起こしたままでよい)
     studio_home = os.path.abspath(_datadir.locate("studio"))
     _studio_env.set_home(studio_home)
     _studio_env.load_out_dir()

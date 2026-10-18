@@ -12,7 +12,7 @@ import threading
 import time
 
 from ytt import yturl as _yturl
-from ytt import apikey as _key, fsio as _fsio, procs as _procs, studio_env as _env, ytapi as _ytapi
+from ytt import apikey as _key, fsio as _fsio, procs as _procs, studio_env as _env, tools as _tools, ytapi as _ytapi
 from ytt.jobs import Ctl
 from ytt.errors import ApiError, Cancelled
 from ytt.textutil import redact, tail_reason
@@ -52,7 +52,7 @@ def download_audio(ctl, vid, wdir):
     yt = _env.find_tool("yt-dlp")
     if not yt:
         raise ApiError("no_ytdlp", "yt-dlp が見つかりません(README の準備手順を確認してください)")
-    cmd = [yt, "--encoding", "utf-8", "--no-playlist", "--no-warnings", "--newline", "--ffmpeg-location", _env.find_tool("ffmpeg") or "", "-f", "ba/b", "-o", _yturl.ytdlp_out(wdir, "audio.%(ext)s"),
+    cmd = [yt, "--encoding", "utf-8"] + _tools.ytdlp_auth_args() + ["--no-playlist", "--no-warnings", "--newline", "--ffmpeg-location", _env.find_tool("ffmpeg") or "", "-f", "ba/b", "-o", _yturl.ytdlp_out(wdir, "audio.%(ext)s"),
            "--", _yturl.watch_url(vid)]
 
     def on(line):
@@ -444,7 +444,7 @@ def fetch_meta(ctl, vid):
         return None, "yt-dlp が見つかりません"
     buf = []
     try:
-        rc, err = _procs.run_capture(ctl, [yt, "--encoding", "utf-8", "--no-playlist", "--no-warnings", "--skip-download", "-J", "--", _yturl.watch_url(vid)],
+        rc, err = _procs.run_capture(ctl, [yt, "--encoding", "utf-8"] + _tools.ytdlp_auth_args() + ["--no-playlist", "--no-warnings", "--skip-download", "-J", "--", _yturl.watch_url(vid)],
                               lambda l: buf.append(l) if len(buf) < 20000 else None, timeout=META_TIMEOUT, what="動画情報の取得")
     except ApiError as e:
         return None, e.message

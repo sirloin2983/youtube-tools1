@@ -64,8 +64,8 @@
   - 名前: `write_json` :24・`read_json` :32・`write_text` :41・`tempdir` :49・`env` :57・`data_dir` :75・`serve` :84・`class TempCase` :94
 - **textutil.py** (69 行) — ログ・画面に出す文と数の小物(役割で組み直す RS3-4。2026-10-10 にスタジオの common.py から移した。標準ライブラリだけ)。
   - 名前: `redact` :18・`permission_message` :23・`tail_reason` :31・`fmt_ts` :38・`fmt_ms` :44・`num` :50・`person_key` :64
-- **tools.py** (596 行) — 外部プログラム(ffmpeg・ffprobe・yt-dlp)の場所と、子プロセスを動かすときの小道具。
-  - 名前: `remember` :32・`recent` :46・`ytt_env` :51・`find_tool` :65・`find_ffmpeg` :115・`media_tool` :120・`ffmpeg_info` :127・`parse_ffmpeg_info` :140・`duration_in` :151・`media_duration` :156・`check_source` :162・`probe_media` :172・ほか 15
+- **tools.py** (642 行) — 外部プログラム(ffmpeg・ffprobe・yt-dlp)の場所と、子プロセスを動かすときの小道具。
+  - 名前: `remember` :32・`recent` :46・`ytt_env` :51・`find_tool` :65・`find_ffmpeg` :115・`media_tool` :120・`ffmpeg_info` :127・`parse_ffmpeg_info` :140・`duration_in` :151・`media_duration` :156・`check_source` :162・`probe_media` :172・ほか 17
 - **trashbin.py** (57 行) — ごみ箱フォルダの決まりの 1 か所(どの層からも使う。LD-1 で ① の録画の部品も使うので ytt に置いた)。
   - 名前: `day_name` :15・`free_path` :20・`append_manifest` :30・`old_day_dirs` :38
 - **txbase.py** (106 行) — 認識の部品が共有する小さな物: 記録(ロガー)・決まった値(文字・言語・長さの上限)・要確認の印の文と幻覚の決まり文句・ジョブの注意。

@@ -31,6 +31,7 @@
 .fs-gear{width:18px;height:18px;flex:none;display:block}
 .fs-cuda{margin-top:4px}
 .fs-cuda-text{color:var(--ink-2);font-size:var(--fs-sm)}
+.fs-yt-bad{color:var(--danger-ink);font-weight:600}   /* YouTube のログインが切れた可能性 */
 /* フォルダを整理する(settings.js の節。候補が多いときは一覧の中だけ動かす) */
 .fs-tidy{display:flex;flex-direction:column;gap:8px}
 .fs-tidy .fs-items{max-height:240px;overflow:auto;margin:0;padding-right:4px}
