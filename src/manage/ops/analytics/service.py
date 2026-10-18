@@ -43,11 +43,11 @@ STATE_LABELS = {"off": "連携の設定がまだです", "idle": "動いてい�
 KIND_NAMES = {"daily": "日報", "weekly": "週報", "monthly": "月報"}
 
 
-def data_dir(legacy=None):
+def data_dir():
     """作業データのフォルダ(ytt.datadir の規則。inplace ならリポジトリ直下の .data/analytics)"""
     from ytt import datadir
     here = os.path.dirname(os.path.abspath(__file__))
-    legacy = legacy or os.path.join(here, "data")
+    legacy = os.path.join(here, "data")
     return datadir.tool_dir("analytics", legacy, root=os.path.dirname(os.path.dirname(os.path.dirname(here))))   # src = service.py の 3 つ上
 
 
