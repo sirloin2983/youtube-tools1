@@ -19,7 +19,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 TOP = os.path.dirname(REPO)   # リポジトリ直下(dev/・friend-apps/・setup/)
 sys.path.insert(0, REPO)
 from manage.cases import txindex  # noqa: E402
-from ytt import colors, datadir, errors, fsio, httpsec, jobs, layout, mediainfo, pick, procs, runtime, schemas, studio_env, tools  # noqa: E402
+from ytt import colors, datadir, errors, fsio, httpsec, jobs, layout, mediainfo, pick, procs, runtime, schemas, studio_env, testkit, tools  # noqa: E402
 
 
 def locked(winerror=32):
@@ -74,10 +74,7 @@ def dead_port():
 
 class TestFsio(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp()
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
+        self.tmp = testkit.tempdir(self)
 
     def test_atomic_write_and_no_temp_left(self):
         p = os.path.join(self.tmp, "sub", "a.json")
@@ -476,6 +473,24 @@ class TestRuntime(unittest.TestCase):
         runtime.write_runtime(self.dir, "studio", 8801, "0.2.0")
         self.assertTrue(runtime.remove_runtime(self.dir, "studio", 8801))
         self.assertFalse(os.path.exists(p))
+
+    def test_runtime_file_contract(self):
+        """.runtime の見本(fixtures/contracts/runtime/v1.json): 書いた物は見本と同じ鍵の形・読める・見本そのものも読める"""
+        sample = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "contracts", "runtime", "v1.json")
+        with open(sample, encoding="utf-8") as f:
+            want = json.load(f)
+        p = runtime.write_runtime(self.dir, "studio", want["port"], want["version"])
+        with open(p, encoding="utf-8") as f:
+            got = json.load(f)
+        self.assertEqual(set(got), set(want))
+        self.assertEqual({k: got[k] for k in ("tool", "port", "version")}, {k: want[k] for k in ("tool", "port", "version")})
+        self.assertRegex(got["startedAt"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d$")
+        self.assertIsInstance(got["pid"], int)
+        os.remove(p)
+        with open(os.path.join(self.dir, "studio.json"), "w", encoding="utf-8") as f:
+            json.dump(want, f)
+        info = runtime.read_runtime(self.dir, "studio")
+        self.assertEqual((info["port"], info["version"]), (want["port"], want["version"]))
 
     def test_ids_and_unwritable(self):
         for bad in ("../evil", "Studio", "", "a/b", None, "x" * 40):
@@ -1385,7 +1400,7 @@ class TestDatadir(unittest.TestCase):
     """作業データの置き場所(段階4。以前の場所からの写しは 2026-10-18 に消した)"""
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp()
+        self.tmp = testkit.tempdir(self)
         self.legacy = os.path.join(self.tmp, "repo", "editor")
         os.makedirs(os.path.join(self.legacy, "transcripts", ".hist", "a"))
         for rel, body in (("transcripts/a.json", "{}"), ("transcripts/.hist/a/1.json", "old"), ("settings.json", '{"x": 1}')):
@@ -1393,9 +1408,6 @@ class TestDatadir(unittest.TestCase):
                 f.write(body)
         self.env = {"YTT_DATA_DIR": os.path.join(self.tmp, "data")}
         self.new = os.path.join(self.tmp, "data", "transcribe")
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_studio_out_dir(self):
         """スタジオの書き出し先(入口の live.py・server.py が読む): settings.json の outDir(絶対パス)か、無ければ作業データの exports"""
@@ -1649,16 +1661,13 @@ class TestTxIndex(unittest.TestCase):
     VID = "abcdefghijk"
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp()
+        self.tmp = testkit.tempdir(self)
         self.dir = os.path.join(self.tmp, "transcripts")
         os.makedirs(self.dir)
         self.clip = os.path.join(self.tmp, "exports", "01_a.mp4")
         os.makedirs(os.path.dirname(self.clip))
         with open(self.clip, "wb") as f:
             f.write(b"x")
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_pack_info_needs_record(self):
         """パックの有無の規則(入口の案件・文字起こしの一覧で共通): パックを作った記録だけで決める。
@@ -1835,7 +1844,7 @@ class TestColors(unittest.TestCase):
     """配信者の名前 → メンバーカラー(ytt/colors.py。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 4)"""
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-colors-")
+        self.tmp = testkit.tempdir(self, "ytt-colors-")
         self.members = os.path.join(self.tmp, "members.json")
         with open(self.members, "w", encoding="utf-8") as f:
             json.dump({"version": 1, "groups": [
@@ -1846,9 +1855,6 @@ class TestColors(unittest.TestCase):
                                                          {"id": "bad", "name": "壊れた色", "hex": "red"}]}]}, f, ensure_ascii=False)
         self.mine = os.path.join(self.tmp, "my-colors.json")
         self.env = {"YTT_DATA_DIR": "inplace", colors.MEMBERS_ENV: self.members}
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def entries(self, mine=True, fixed=""):
         return colors.load(self.env, mine=self.mine if mine else "", member_colors=fixed)
