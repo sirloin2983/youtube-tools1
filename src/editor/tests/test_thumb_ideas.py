@@ -18,6 +18,7 @@ sys.path.insert(0, HERE)
 import thumb_ideas as T  # noqa: E402
 from pipeline.export import thumb_cards as _cards  # noqa: E402  (fpath・crop_box・font_path・W・H は ① の名前。③ の殻(thumb_ideas)は ① を読まないので直に読む)
 from ytt import tools  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 
 def row(a, b, text):
@@ -86,8 +87,7 @@ class DocTest(unittest.TestCase):
             d = {"id": "aaaaaaaaaaaa", "start": 10.0, "sourcePath": video,
                  "segments": [{"start": 11, "end": 12, "text": "あ"}, {"start": 12, "end": 13, "text": "い", "noSub": True},
                               {"start": 13, "end": 14, "text": "う", "cutState": "cut"}, {"start": 14, "end": 15, "text": ""}]}
-            with open(os.path.join(tmp, "aaaaaaaaaaaa.json"), "w", encoding="utf-8") as f:
-                json.dump(d, f)
+            testkit.write_json(os.path.join(tmp, "aaaaaaaaaaaa.json"), d)
             got = T.find_doc(video, tdir=tmp)
             self.assertEqual(got["id"], "aaaaaaaaaaaa")
             self.assertIsNone(T.find_doc(os.path.join(tmp, "other.mp4"), tdir=tmp))

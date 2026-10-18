@@ -32,6 +32,7 @@ from human.proof import store  # noqa: E402
 from flow import jobs  # noqa: E402
 from manage.keep import evalfolders as EF  # noqa: E402   評価用のフォルダの整理(RS3-E7 に ed_relink から。OPT-M2 で manage/keep/evalfolders へ)
 from test_evalbatch import FFMPEG, MEMBER, _make_video  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 OLD = 1000   # 10 分より前に直した、の updatedAt(ミリ秒)
 
@@ -51,8 +52,8 @@ class TestAutoDiar(unittest.TestCase):
         shutil.rmtree(cls.src, ignore_errors=True)
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp()
-        self.ev = tempfile.mkdtemp()
+        self.tmp = testkit.tempdir(self)
+        self.ev = testkit.tempdir(self)
         self.saved = (S.TX_DIR, S.TMP_DIR, S.SETTINGS, S.VOICES_DIR)
         S.TX_DIR, S.TMP_DIR, S.SETTINGS = os.path.join(self.tmp, "transcripts"), os.path.join(self.tmp, ".tmp"), os.path.join(self.tmp, "settings.json")
         S.VOICES_DIR = os.path.join(self.tmp, "voices")
@@ -76,13 +77,10 @@ class TestAutoDiar(unittest.TestCase):
         jobs._jobs.update(self.old_jobs)
         S.TX_DIR, S.TMP_DIR, S.SETTINGS, S.VOICES_DIR = self.saved
         ed_drill._drill_cache.clear()
-        shutil.rmtree(self.tmp, ignore_errors=True)
-        shutil.rmtree(self.ev, ignore_errors=True)
 
     # -- 道具
     def settings(self, d):
-        with open(S.SETTINGS, "w", encoding="utf-8") as f:
-            json.dump(d, f, ensure_ascii=False)
+        testkit.write_json(S.SETTINGS, d)
 
     def put(self, folder, name, long=False):
         p = os.path.join(folder, name)

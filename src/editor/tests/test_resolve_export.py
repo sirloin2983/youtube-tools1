@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.dirname(HERE))   # src(ytt・pipeline・manage の層
 
 from pipeline.pack import resolve_export  # noqa: E402
 from ytt import errors as _errors  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 HAVE_FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
 
@@ -255,8 +256,7 @@ class HttpTests(unittest.TestCase):
         cls.tid = "0123456789ab"
         doc = {"id": cls.tid, "title": "HTTP", "sourcePath": cls.video, "whole": True, "duration": 8, "updatedAt": 1,
                "segments": [{"id": "s1", "start": 1, "end": 3, "text": "こんにちは"}, {"id": "s2", "start": 3, "end": 5, "text": "x", "cutState": "cut"}]}
-        with open(os.path.join(cls.tmp, "transcripts", cls.tid + ".json"), "w", encoding="utf-8") as f:
-            json.dump(doc, f, ensure_ascii=False)
+        testkit.write_json(os.path.join(cls.tmp, "transcripts", cls.tid + ".json"), doc)
         cls.port = test_backend.free_port()
         cls.proc = test_backend.start_server(cls.tmp, cls.port, os.path.join(cls.tmp, ".runtime"))
         cls.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))

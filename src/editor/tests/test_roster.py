@@ -17,6 +17,7 @@ import urllib.request
 
 from test_backend import HERE, S, free_port, start_server, write_json
 from pipeline.transcribe import roster as R  # noqa: E402   (test_backend が serve を読んで src を sys.path に足したあと)
+from ytt import testkit  # noqa: E402
 
 ROSTER = os.path.join(HERE, "hololive-roster.json")
 
@@ -88,11 +89,8 @@ class TestRosterFile(unittest.TestCase):
 
 class TestRosterRules(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp()
+        self.tmp = testkit.tempdir(self)
         self.r = R.load(small_roster(self.tmp))
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_load_cleans(self):
         self.assertEqual(sorted(self.r["members"]), ["さくらみこ", "ときのそら", "兎田ぺこら", "宝鐘マリン"])   # 名前の無い行・壊れた行は捨てる

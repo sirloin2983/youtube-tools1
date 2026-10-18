@@ -22,6 +22,7 @@ import urllib.parse
 import urllib.request
 
 from test_backend import HERE, S, TID, StoreDir, free_port, start_server, write_json  # noqa: F401  (S = serve)
+from ytt import testkit  # noqa: E402
 
 
 def doc_obj(**over):
@@ -408,35 +409,31 @@ class TestEditHttp(unittest.TestCase):
         finally:
             self.call("PUT", "/api/settings", orig)
 
-    def test_settings_patch_keymap(self):
-        """キー配置(UIKit.keymap が送る。段6)は「送ったキーだけ直す」。丸ごとの保存(古い画面)では戻らない・形の正しくない割り当ては断る"""
+    def test_settings_patch_keymap_and_cut_silence(self):
+        """送ったキーだけ直す設定の値の検査(段6 キー配置 keymap・段7 E-5 無音 cutSilence)。どちらも「POST /api/settings/patch で受ける・開いたままの古い画面の丸ごとの保存では戻らない・
+        形や範囲の正しくない値は 400」。cutSilence は 3 つの値がそろい cut2resolve と同じ範囲のときだけ受ける(まとめて実行 pipeline/run.py の _pack_settings は同じ鍵の noise・min・pad を読む)"""
         orig = {k: v for k, v in self.call("GET", "/api/settings").items() if k != "_status"}
+        km = {"rowNext": "h", "proof": "Shift+Space", "seekBack": "ArrowLeft", "del": "", "insert": "+"}
+        cs = {"noise": -30, "min": 0.8, "pad": 0.2}
+        table = [
+            ("keymap", km, {"rowNext": "s"},
+             [{"rowNext": "Ctrl+s"}, {"rowNext": "s\n"}, {"1bad": "s"}, {"rowNext": 1}, ["s"], {"a%d" % i: "s" for i in range(61)}]),
+            ("cutSilence", cs, {"noise": -35, "min": 0.6, "pad": 0.15},
+             [{"noise": -91, "min": 0.6, "pad": 0.1}, {"noise": 1, "min": 0.6, "pad": 0.1}, {"noise": -35, "min": 0.01, "pad": 0.1},
+              {"noise": -35, "min": 61, "pad": 0.1}, {"noise": -35, "min": 0.6, "pad": 11}, {"noise": -35, "min": 0.6},
+              {"noise": -35, "min": 0.6, "pad": 0.1, "x": 1}, {"noise": "-35", "min": 0.6, "pad": 0.1}, {"noise": True, "min": 0.6, "pad": 0.1}, [-35, 0.6, 0.1]]),
+        ]
         try:
-            km = {"rowNext": "h", "proof": "Shift+Space", "seekBack": "ArrowLeft", "del": "", "insert": "+"}
-            self.assertEqual(self.call("POST", "/api/settings/patch", {"values": {"keymap": km}})["_status"], 200)
-            self.call("PUT", "/api/settings", dict(orig, keymap={"rowNext": "s"}))   # 開いたままの古い画面の保存
-            self.assertEqual(self.call("GET", "/api/settings")["keymap"], km)
-            for bad in ({"rowNext": "Ctrl+s"}, {"rowNext": "s\n"}, {"1bad": "s"}, {"rowNext": 1}, ["s"], {"a%d" % i: "s" for i in range(61)}):
-                self.assertEqual(self.call("POST", "/api/settings/patch", {"values": {"keymap": bad}})["_status"], 400, bad)
+            for key, good, stale, bads in table:
+                with self.subTest(key):
+                    self.assertEqual(self.call("POST", "/api/settings/patch", {"values": {key: good}})["_status"], 200)
+                    self.call("PUT", "/api/settings", dict(orig, **{key: stale}))   # 開いたままの古い画面の丸ごとの保存では戻らない
+                    self.assertEqual(self.call("GET", "/api/settings")[key], good)
+                    for bad in bads:
+                        self.assertEqual(self.call("POST", "/api/settings/patch", {"values": {key: bad}})["_status"], 400, bad)
         finally:
             self.call("PUT", "/api/settings", orig)
             self.call("POST", "/api/settings/patch", {"values": {"keymap": orig.get("keymap") or {}}})
-
-    def test_settings_patch_cut_silence(self):
-        """2 カット の「無音 ▾」の値(cutSilence。段7 E-5)は「送ったキーだけ直す」。3 つの値がそろい、cut2resolve と同じ範囲のときだけ受ける。
-        まとめて実行(pipeline/run.py の _pack_settings)は同じ鍵の noise・min・pad を読む"""
-        orig = {k: v for k, v in self.call("GET", "/api/settings").items() if k != "_status"}
-        try:
-            v = {"noise": -30, "min": 0.8, "pad": 0.2}
-            self.assertEqual(self.call("POST", "/api/settings/patch", {"values": {"cutSilence": v}})["_status"], 200)
-            self.call("PUT", "/api/settings", dict(orig, cutSilence={"noise": -35, "min": 0.6, "pad": 0.15}))   # 開いたままの古い画面の丸ごとの保存では戻らない
-            self.assertEqual(self.call("GET", "/api/settings")["cutSilence"], v)
-            for bad in ({"noise": -91, "min": 0.6, "pad": 0.1}, {"noise": 1, "min": 0.6, "pad": 0.1}, {"noise": -35, "min": 0.01, "pad": 0.1},
-                        {"noise": -35, "min": 61, "pad": 0.1}, {"noise": -35, "min": 0.6, "pad": 11}, {"noise": -35, "min": 0.6},
-                        {"noise": -35, "min": 0.6, "pad": 0.1, "x": 1}, {"noise": "-35", "min": 0.6, "pad": 0.1}, {"noise": True, "min": 0.6, "pad": 0.1}, [-35, 0.6, 0.1]):
-                self.assertEqual(self.call("POST", "/api/settings/patch", {"values": {"cutSilence": bad}})["_status"], 400, bad)
-        finally:
-            self.call("PUT", "/api/settings", orig)
             if "cutSilence" in orig:
                 self.call("POST", "/api/settings/patch", {"values": {"cutSilence": orig["cutSilence"]}})
 
@@ -514,8 +511,7 @@ class TestEditHttp(unittest.TestCase):
         segs = [{"id": "a", "start": 0.5, "end": 1.5, "text": "一"}, {"id": "b", "start": 1.5, "end": 3.0, "text": "二", "cutState": "cut"},
                 {"id": "c", "start": 3.0, "end": 4.25, "text": "三"}, {"id": "d", "start": 4.5, "end": 5.0, "text": " "}]
         self.call("PUT", "/api/transcript?id=" + tid, {"title": doc["title"], "speakers": [], "segments": segs})
-        with open(os.path.splitext(video)[0] + ".cut-plan.json", "w", encoding="utf-8") as f:
-            json.dump({"schema": "youtube-tools-cut-plan/v1", "segments": [{"start": 1, "end": 2}]}, f)
+        testkit.write_json(os.path.splitext(video)[0] + ".cut-plan.json", {"schema": "youtube-tools-cut-plan/v1", "segments": [{"start": 1, "end": 2}]})
         r = self.call("GET", "/api/edit/draft?id=" + tid)
         # 行の端を声の止まる所まで広げる(⑥ pack.ROW_EDGE。音は 0〜1.5 秒・3〜4.5 秒):
         # 一 0.5〜1.5 → 前は無音が無いので 0.1 秒・後ろはカット済の行(二)を越えない。三 3.0〜4.25 → 無音の始まり 4.5 まで(前は無音の中なので動かさない)
@@ -548,8 +544,7 @@ class TestEditHttp(unittest.TestCase):
         # 保存したカット(0〜2 秒)で行の印が付け直された(二 は残す行・三 はカット済)→ 一・二 の 0.5〜3.0 を広げる(三 は越えない)
         self.assertEqual((r["base"], r["keepsSec"]), ("rows", [[0.4, 3.0]]))
         # ネットワーク上の動画は調べない・動画の無い文書
-        with open(os.path.join(self.tmp, "transcripts", "abcdefabcdef.json"), "w", encoding="utf-8") as f:
-            json.dump({"id": "abcdefabcdef", "title": "n", "sourcePath": r"\\server\share\x.mp4", "segments": [], "updatedAt": 1}, f)
+        testkit.write_json(os.path.join(self.tmp, "transcripts", "abcdefabcdef.json"), {"id": "abcdefabcdef", "title": "n", "sourcePath": r"\\server\share\x.mp4", "segments": [], "updatedAt": 1})
         r = self.call("GET", "/api/edit/draft?id=abcdefabcdef")
         self.assertEqual((r["_status"], r["unavailable"]["code"]), (200, "network_path"))
         self.assertEqual(self.call("GET", "/api/edit/draft?id=zzz")["_status"], 404)
@@ -683,8 +678,7 @@ class TestEditHttp(unittest.TestCase):
         segs = [{"id": "a", "start": 0.0, "end": 1.0, "text": "あ"}]
         self.assertEqual(self.call("PUT", "/api/transcript?id=" + tid, {"title": doc["title"], "speakers": [], "segments": segs})["_status"], 200)
         wp = os.path.join(self.tmp, "transcripts", tid + ".words.json")
-        with open(wp, "w", encoding="utf-8") as f:
-            json.dump({"schema": "youtube-tools-words/v1", "words": [[0.0, 1.0, "あ"]]}, f, ensure_ascii=False)
+        testkit.write_json(wp, {"schema": "youtube-tools-words/v1", "words": [[0.0, 1.0, "あ"]]})
         hist = os.path.join(self.tmp, "transcripts", ".hist", tid)
         self.assertTrue(os.path.isdir(hist))                                                # 保存で履歴が 1 つ
         self.assertEqual(self.call("DELETE", "/api/transcript?id=" + tid)["_status"], 200)
@@ -906,13 +900,12 @@ class TestRelinkFind(StoreDir):
     def setUp(self):
         super().setUp()
         S._summary_cache.clear()   # 一時フォルダごとに同じ id・同じ大きさの文書を作るので、前のテストの要約を引かない
-        self.media = tempfile.mkdtemp()
+        self.media = testkit.tempdir(self)
         self.saved_data = S.DATA_DIR
 
     def tearDown(self):
         S.DATA_DIR = self.saved_data
         S._summary_cache.clear()
-        shutil.rmtree(self.media, ignore_errors=True)
         super().tearDown()
 
     def touch(self, *parts):
@@ -1176,14 +1169,10 @@ class TestEvalFolder(StoreDir):
 
     def setUp(self):
         super().setUp()
-        self.ev = tempfile.mkdtemp()
+        self.ev = testkit.tempdir(self)
         self.mem = os.path.join(self.ev, "1_JP", "01_0期生", "評価用データ01_ときのそら")
         os.makedirs(self.mem)
         write_json(S.SETTINGS, {"evalDirs": [self.ev]})
-
-    def tearDown(self):
-        shutil.rmtree(self.ev, ignore_errors=True)
-        super().tearDown()
 
     def video(self, name, mtime):
         p = os.path.join(self.mem, name)
@@ -1209,8 +1198,7 @@ class TestEvalFolder(StoreDir):
 
     def test_glossary_from_settings_when_request_has_none(self):
         """要求に用語集の鍵が無ければ(② のまとめて実行。RS7-1 S4 で用語集は束の外 = 学習データ)保存した設定の用語集。鍵があれば(空でも)要求のまま"""
-        other = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, other, ignore_errors=True)
+        other = testkit.tempdir(self)
         plain = os.path.join(other, "y.mp4")
         with open(plain, "wb") as f:
             f.write(b"x")
@@ -1234,8 +1222,7 @@ class TestEvalFolder(StoreDir):
 
     def test_unset_eval_dirs_stops_eval_named_folder(self):
         """評価用のフォルダの設定が消えている(空)のに、フォルダ名に「評価用」を含む動画を文字起こし・付け替えしようとしたら止める(master-plan Q0)"""
-        other = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, other, ignore_errors=True)
+        other = testkit.tempdir(self)
         folder = os.path.join(other, "評価用データ", "評価用_仮置き")
         os.makedirs(folder)
         p = os.path.join(folder, "x.mp4")
@@ -1374,8 +1361,7 @@ class TestEvalFolder(StoreDir):
 
     def test_staging_copy_adopts_the_original_doc(self):
         """2026-10-02: 仮置きに置いたコピー(文書なし)は、同じ名前・同じ大きさの動画を指す文書が1つだけなら、その文書を付け替えてから移す"""
-        orig_dir = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, orig_dir, True)
+        orig_dir = testkit.tempdir(self)
         stg = os.path.join(self.ev, S.EVAL_STAGING)
         os.makedirs(stg)
 
@@ -1424,8 +1410,7 @@ class TestEvalFolder(StoreDir):
 
     # ---- 2026-10-04: 評価用にした文書の動画を、評価用のフォルダの外から取り込む
     def outside(self, name="外の切り抜き.mp4", proofed=True, eval_set=True, tid=TID, names=("ときのそら", "さくらみこ")):
-        src = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, src, True)
+        src = testkit.tempdir(self)
         p = os.path.join(src, name)
         with open(p, "wb") as f:
             f.write(b"video")

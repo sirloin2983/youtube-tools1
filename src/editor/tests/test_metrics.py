@@ -28,6 +28,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 import serve as S  # noqa: E402
 from pipeline.transcribe import diarize as transcribe_diarize  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 
 def lev(a, b):
@@ -238,20 +239,18 @@ class TestStore(unittest.TestCase):
     """校正済みの印が、再認識で外れること。"""
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp()
+        self.tmp = testkit.tempdir(self)
         self.saved = (S.TX_DIR, S.TMP_DIR, S.SETTINGS)
         S.TX_DIR, S.TMP_DIR, S.SETTINGS = self.tmp, os.path.join(self.tmp, ".tmp"), os.path.join(self.tmp, "settings.json")
 
     def tearDown(self):
         S.TX_DIR, S.TMP_DIR, S.SETTINGS = self.saved
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_retranscribe_clears_proofed(self):
         tid = "0123456789ab"
         doc = {"id": tid, "original": [{"start": 0, "end": 2, "text": "a"}, {"start": 2, "end": 4, "text": "b"}],
                "segments": [seg(1, 0, 2, "a", True), seg(2, 2, 4, "b", True)]}
-        with open(S.tx_path(tid), "w", encoding="utf-8") as f:
-            json.dump(doc, f)
+        testkit.write_json(S.tx_path(tid), doc)
         S.apply_retranscribe({"tid": tid, "model": "large-v3", "autoDict": False}, {"s1": ("A", "")})
         d = S.read_transcript(tid)
         self.assertTrue(d["segments"][0].get("proofed"))   # X-RERUN: 校正済みの行は機械で置き換えない(印 MACH_CHANGED)
@@ -264,8 +263,7 @@ class TestStore(unittest.TestCase):
         tid = "0123456789ab"
         doc = {"id": tid, "original": [{"start": 0, "end": 2, "text": "a"}, {"start": 2, "end": 4, "text": "b"}],
                "segments": [seg(1, 0, 2, "a", True), seg(2, 2, 4, "b", True)]}
-        with open(S.tx_path(tid), "w", encoding="utf-8") as f:
-            json.dump(doc, f)
+        testkit.write_json(S.tx_path(tid), doc)
         S.apply_retranscribe({"tid": tid, "model": "large-v3", "autoDict": False}, {"s1": ("A", "")})
         d = S.read_transcript(tid)
         self.assertTrue(d["segments"][0].get("proofed"))   # 校正済みはそのまま
@@ -277,8 +275,7 @@ class TestStore(unittest.TestCase):
 
     def test_hist_snapshot_interval_and_cap(self):
         tid = "0123456789ab"
-        with open(S.tx_path(tid), "w", encoding="utf-8") as f:
-            json.dump({"segments": [], "updatedAt": 1}, f)
+        testkit.write_json(S.tx_path(tid), {"segments": [], "updatedAt": 1})
         self.assertIsNotNone(S.hist_snapshot(tid))
         self.assertIsNone(S.hist_snapshot(tid))                      # 10分以内は増やさない
         old = S.HIST_INTERVAL
@@ -565,8 +562,7 @@ class TestHttp(unittest.TestCase):
             shutil.copy(os.path.join(HERE, n), cls.tmp)
         cls.wav = os.path.join(cls.tmp, "sample.wav")
         subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=24", cls.wav], check=True)
-        with open(os.path.join(cls.tmp, "settings.json"), "w", encoding="utf-8") as f:
-            json.dump({"glossary": "ホロライブ\nトワ", "replacements": "よっきゃ=>陽キャ"}, f)
+        testkit.write_json(os.path.join(cls.tmp, "settings.json"), {"glossary": "ホロライブ\nトワ", "replacements": "よっきゃ=>陽キャ"})
         cls.port = free_port()
         env = dict(os.environ, YTT_EDITOR_UI_DIR=UI_DIR, TRANSCRIBE_BACKEND="fake", TRANSCRIBE_FAKE_DELAY="0.01", YTT_RUNTIME_DIR=os.path.join(cls.tmp, ".runtime"))
         cls.proc =subprocess.Popen([sys.executable, os.path.join(cls.tmp, "serve.py"), str(cls.port), "--no-open"], cwd=cls.tmp, env=env,

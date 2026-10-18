@@ -30,6 +30,7 @@ from test_voices import doc_with_speakers, unit
 from human.proof import learn  # noqa: E402
 from ytt import docloc  # noqa: E402
 from ytt import txtext as _txtext  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 TID_A, TID_B, TID_C = "aaaaaaaaaaaa", "bbbbbbbbbbbb", "cccccccccccc"
 HAVE_FF = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
@@ -180,8 +181,7 @@ class TestTranscriptEvalLocked(_ProofStore):
     """旧 e2e_eval_set.py 190: 評価用のフォルダの動画の文書は evalLocked(画面の評価用のチェックを固定する印)"""
 
     def test_eval_locked_follows_eval_dirs(self):
-        ev = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, ev, ignore_errors=True)
+        ev = testkit.tempdir(self)
         inside = os.path.join(ev, "1_JP", "評価用データ01_ときのそら", "a.mp4")
         os.makedirs(os.path.dirname(inside))
         write_json(S.SETTINGS, {"evalDirs": [ev]})

@@ -11,7 +11,6 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データ
 import shutil
 import sys
 import tarfile
-import tempfile
 import unittest
 import urllib.error
 import urllib.request
@@ -24,6 +23,7 @@ os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 import serve as S  # noqa: E402
 from pipeline.transcribe import tx_engines as E  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 FAKE = [sys.executable, os.path.join(TESTS, "fake_llama_server.py")]
 
@@ -81,10 +81,7 @@ class Qwen3TextTest(unittest.TestCase):
 
 class Qwen3ArchiveTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="test_qwen3_")
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
+        self.tmp = testkit.tempdir(self, prefix="test_qwen3_")
 
     def _tar(self, names):
         p = os.path.join(self.tmp, "m.tar.bz2")
@@ -153,7 +150,7 @@ class Qwen3EngineTest(unittest.TestCase):
 @unittest.skipUnless(os.name == "nt" or shutil.which("python3"), "子プロセスの偽の server")
 class LlamaServerTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="test_llama_")
+        self.tmp = testkit.tempdir(self, prefix="test_llama_")
         self.log = os.path.join(self.tmp, "req.jsonl")
         self.env = mock.patch.dict(os.environ, {"FAKE_LLAMA_LOG": self.log})
         self.env.start()
@@ -169,7 +166,6 @@ class LlamaServerTest(unittest.TestCase):
         self.fetch.stop()
         self.cmd.stop()
         self.env.stop()
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def make(self, device="vulkan"):
         e = E.LlamaQwen3.create("qwen3-asr-1.7b", device, "int8", data_dir=self.tmp)

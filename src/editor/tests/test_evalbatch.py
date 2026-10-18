@@ -12,7 +12,6 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データ
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 import unittest
 from unittest import mock
@@ -28,6 +27,7 @@ from human.proof import doc_jobs  # noqa: E402
 from human.proof import store  # noqa: E402
 from flow import jobs as ytt_jobs  # noqa: E402
 from manage.keep import evalfolders as EF  # noqa: E402   評価用のフォルダの整理(RS3-E7 に ed_relink から。OPT-M2 で manage/keep/evalfolders へ)
+from ytt import testkit  # noqa: E402
 
 FFMPEG = shutil.which("ffmpeg")
 MEMBER = "評価用データ01_ときのそら"
@@ -42,8 +42,8 @@ def _make_video(path, seconds=2):
 @unittest.skipUnless(FFMPEG, "ffmpeg が必要")
 class TestEvalBatch(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp()    # 作業データの代わり(設定・eval-batch.json・文書)
-        self.ev = tempfile.mkdtemp()     # 評価用のフォルダ(動画)
+        self.tmp = testkit.tempdir(self)    # 作業データの代わり(設定・eval-batch.json・文書)
+        self.ev = testkit.tempdir(self)     # 評価用のフォルダ(動画)
         self.saved = (S.TX_DIR, S.TMP_DIR, S.SETTINGS)
         S.TX_DIR, S.TMP_DIR, S.SETTINGS = os.path.join(self.tmp, "transcripts"), os.path.join(self.tmp, ".tmp"), os.path.join(self.tmp, "settings.json")
         os.makedirs(S.TX_DIR)
@@ -65,13 +65,10 @@ class TestEvalBatch(unittest.TestCase):
         ytt_jobs._jobs.clear()
         ytt_jobs._jobs.update(self.old_jobs)
         S.TX_DIR, S.TMP_DIR, S.SETTINGS = self.saved
-        shutil.rmtree(self.tmp, ignore_errors=True)
-        shutil.rmtree(self.ev, ignore_errors=True)
 
     # -- 道具
     def settings(self, d):
-        with open(S.SETTINGS, "w", encoding="utf-8") as f:
-            json.dump(d, f, ensure_ascii=False)
+        testkit.write_json(S.SETTINGS, d)
 
     def video(self, folder, name):
         p = os.path.join(folder, name)
@@ -370,8 +367,7 @@ class TestEvalBatch(unittest.TestCase):
         fn(d)
         if old:
             d["updatedAt"] = int(time.time() * 1000) - 3600 * 1000
-        with open(store.tx_path(tid), "w", encoding="utf-8") as f:
-            json.dump(d, f, ensure_ascii=False)
+        testkit.write_json(store.tx_path(tid), d)
         return d
 
     def auto_speakers(self, tid, name="話者1", by=None):

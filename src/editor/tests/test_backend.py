@@ -32,6 +32,7 @@ sys.path.insert(0, TESTS)
 import serve as S  # noqa: E402
 from manage.cases import pipeline_io as P  # noqa: E402   (読み・保存・.runtime)
 from pipeline.pack import resolve_export as RE  # noqa: E402   (受け渡しの JSON と SRT の組み立て build_*。RS3-E5b)
+from ytt import testkit  # noqa: E402
 
 TID = "0123456789ab"
 
@@ -42,9 +43,7 @@ def free_port():
         return s.getsockname()[1]
 
 
-def write_json(path, obj):
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(obj, f, ensure_ascii=False)
+write_json = testkit.write_json   # 他の試験ファイルがここから読む
 
 
 def clip_obj(**over):
@@ -61,13 +60,12 @@ class StoreDir(unittest.TestCase):
     """serve の保存先を一時フォルダに差し替える。"""
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp()
+        self.tmp = testkit.tempdir(self)
         self.saved = (S.TX_DIR, S.TMP_DIR, S.SETTINGS)
         S.TX_DIR, S.TMP_DIR, S.SETTINGS = self.tmp, os.path.join(self.tmp, ".tmp"), os.path.join(self.tmp, "settings.json")
 
     def tearDown(self):
         S.TX_DIR, S.TMP_DIR, S.SETTINGS = self.saved
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def put_doc(self, doc, tid=TID):
         write_json(S.tx_path(tid), doc)
@@ -481,13 +479,10 @@ class TestFormats(unittest.TestCase):
 
 class TestSaveBeside(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp()
+        self.tmp = testkit.tempdir(self)
         self.media = os.path.join(self.tmp, "動画 A.mp4")
         with open(self.media, "wb") as f:
             f.write(b"x")
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def own(self, schema):
         return json.dumps({"schema": schema, "tool": {"name": "transcribe-tool", "version": "1"}}).encode()
@@ -555,10 +550,7 @@ class TestSaveBeside(unittest.TestCase):
 
 class TestRuntime(unittest.TestCase):
     def setUp(self):
-        self.dir = tempfile.mkdtemp()
-
-    def tearDown(self):
-        shutil.rmtree(self.dir, ignore_errors=True)
+        self.dir = testkit.tempdir(self)
 
     def test_runtime_dir_env(self):
         old = os.environ.get("YTT_RUNTIME_DIR")
@@ -962,15 +954,22 @@ class TestSettingsMerge(StoreDir):
             return json.load(f)
 
     def test_merge_keeps_other_keys(self):
-        write_json(S.SETTINGS, {"glossary": "ぺこら", "replacements": "a=>b", "packFps": "30", "old": 1})
-        self.assertEqual(S.merge_settings({"patch": {"glossary": "みこ", "new": [1, 2], "old": None, "packFps": "60"}}), {"ok": True})
-        self.assertEqual(self.st(), {"glossary": "みこ", "replacements": "a=>b", "packFps": "30", "new": [1, 2]})   # 送らないキーは残る・null で消す・パックの項目は変えない
-        S.merge_settings({"patch": {}})
-        self.assertEqual(self.st()["replacements"], "a=>b")
-
-    def test_merge_without_file(self):
-        S.merge_settings({"patch": {"glossary": "x"}})
-        self.assertEqual(self.st(), {"glossary": "x"})
+        # (名前, 保存前の設定ファイル(None = ファイルなし), 送る patch, 保存後の中身)
+        for name, before, patch, want in [
+            ("送らないキーは残る・null で消す・パックの項目は変えない",
+             {"glossary": "ぺこら", "replacements": "a=>b", "packFps": "30", "old": 1},
+             {"glossary": "みこ", "new": [1, 2], "old": None, "packFps": "60"},
+             {"glossary": "みこ", "replacements": "a=>b", "packFps": "30", "new": [1, 2]}),
+            ("空の patch は何も変えない", {"replacements": "a=>b"}, {}, {"replacements": "a=>b"}),
+            ("設定ファイルが無いときは空から作る", None, {"glossary": "x"}, {"glossary": "x"}),
+        ]:
+            with self.subTest(name):
+                if os.path.exists(S.SETTINGS):
+                    os.remove(S.SETTINGS)
+                if before is not None:
+                    write_json(S.SETTINGS, before)
+                self.assertEqual(S.merge_settings({"patch": patch}), {"ok": True})
+                self.assertEqual(self.st(), want)
 
     def test_merge_rejects(self):
         write_json(S.SETTINGS, {"glossary": "ぺこら"})
@@ -1011,7 +1010,7 @@ class TestHeavyJobLimit(unittest.TestCase):
     def setUp(self):
         from ytt import jobs
         self.jobs = jobs
-        self.tmp = tempfile.mkdtemp()
+        self.tmp = testkit.tempdir(self)
         self.saved = (S.RUN_MARK, jobs.SLOTS, S.run_job)
         S.RUN_MARK = os.path.join(self.tmp, ".running.json")
         jobs.SLOTS = jobs.HeavySlots(1)
@@ -1022,7 +1021,6 @@ class TestHeavyJobLimit(unittest.TestCase):
         S.RUN_MARK, self.jobs.SLOTS, S.run_job = self.saved
         for jid in ("hj1", "hj2"):
             S._jobs.pop(jid, None)
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def job(self, jid):
         j = {"id": jid, "kind": "transcribe", "state": "queued", "phase": "待機中", "cancel": False, "spec": {"title": "t", "model": "m"}}

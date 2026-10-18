@@ -27,6 +27,7 @@ os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 import serve as S  # noqa: E402
 from human.proof import doc_jobs  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 HAVE_FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
 
@@ -54,7 +55,7 @@ class WorkerTest(unittest.TestCase):
         shutil.rmtree(cls.dir, ignore_errors=True)
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="tx-worker-store-")
+        self.tmp = testkit.tempdir(self, prefix="tx-worker-store-")
         self.saved = (S.TX_DIR, S.TMP_DIR, S.SETTINGS, S.WORKER, S.WORKER_LOG, S.WORKER_CANCEL_GRACE, S.RUN_MARK, S.WORKER_SILENCE_TIMEOUT)
         S.RUN_MARK = os.path.join(self.tmp, ".running.json")   # 起動中の印もリポジトリのフォルダに書かない
         S.TX_DIR, S.TMP_DIR = self.tmp, os.path.join(self.tmp, ".tmp")
@@ -69,7 +70,6 @@ class WorkerTest(unittest.TestCase):
         S.WORKER.close()
         self.env.stop()
         S.TX_DIR, S.TMP_DIR, S.SETTINGS, S.WORKER, S.WORKER_LOG, S.WORKER_CANCEL_GRACE, S.RUN_MARK, S.WORKER_SILENCE_TIMEOUT = self.saved
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     # ---- 手伝い
     def transcribe(self, **req):

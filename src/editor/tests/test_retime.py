@@ -23,6 +23,7 @@ from test_backend import S, TID, StoreDir  # noqa: F401,E402  (S = serve)
 from human.proof import retime as R  # noqa: E402  (文書を読む包み = retime_engine・retime_doc)
 from pipeline.transcribe import retime  # noqa: E402  (計算 = subread_*・retime_candidates)
 import ed_state  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 with open(os.path.join(TESTS, "subread_cases.json"), encoding="utf-8") as _f:
     CASES = json.load(_f)
@@ -181,8 +182,7 @@ class TestRetimeApi(StoreDir):
         self.put_doc(self.doc)
 
     def _words(self, words):
-        with open(S.words_path(TID), "w", encoding="utf-8") as f:
-            json.dump({"schema": "youtube-tools-words/v1", "words": words}, f, ensure_ascii=False)
+        testkit.write_json(S.words_path(TID), {"schema": "youtube-tools-words/v1", "words": words})
 
     def _bytes(self):
         with open(S.tx_path(TID), "rb") as f:

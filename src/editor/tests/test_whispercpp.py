@@ -25,6 +25,7 @@ os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 import serve as S  # noqa: E402
 from pipeline.transcribe import tx_engines as E  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 FAKE = [sys.executable, os.path.join(TESTS, "fake_whisper_cli.py")]
 
@@ -39,7 +40,7 @@ def make_wav(path, sec=10.0):
 
 class WhisperCppTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="wcpp-test-")
+        self.tmp = testkit.tempdir(self, prefix="wcpp-test-")
         self.wav = os.path.join(self.tmp, "a.wav")
         make_wav(self.wav)
         open(os.path.join(self.tmp, "m.bin"), "wb").close()
@@ -51,7 +52,6 @@ class WhisperCppTest(unittest.TestCase):
 
     def tearDown(self):
         self.env.stop()
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def engine(self, device="vulkan"):
         return E.WhisperCpp("large-v3", device, {"cmd": FAKE, "model": os.path.join(self.tmp, "m.bin")})
@@ -236,10 +236,7 @@ class RowTidyTest(unittest.TestCase):
     """行の後処理(2026-10-04): 音声の長さで切る・同じ文字の行をまとめる(whisper.cpp の行の終わりを声の終わりへ寄せる pull_ends は 0.65.0 で消した)"""
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="tidy-test-")
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
+        self.tmp = testkit.tempdir(self, prefix="tidy-test-")
 
     def test_clip_rows_to_duration(self):
         rows = [row(0.0, 2.0, "はい"), row(39.0, 42.0, "ああ", [(39.0, 40.5, "あ"), (40.5, 42.0, "あ")]), row(41.0, 43.0, "うう")]

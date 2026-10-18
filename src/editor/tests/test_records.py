@@ -26,6 +26,7 @@ from pipeline.transcribe import recognize  # noqa: E402
 from pipeline.transcribe import records  # noqa: E402
 from pipeline.transcribe import models  # noqa: E402
 from flow import jobs  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 
 def _rd(tid=TID):
@@ -159,14 +160,12 @@ class TestDictVersion(StoreDir):
         self.assertNotEqual(a["glossary"], S.dict_version({"glossary": ["兎田ぺこら"]})["glossary"])
         self.assertNotIn("replacements", a)                                                  # 使っていない辞書は入れない
         self.assertTrue(a.get("roster"))
-        with open(S.SETTINGS, "w", encoding="utf-8") as f:
-            json.dump({"replacements": "ぺこら=>ぺこら\nとわ様=>トワ様"}, f, ensure_ascii=False)
+        testkit.write_json(S.SETTINGS, {"replacements": "ぺこら=>ぺこら\nとわ様=>トワ様"})
         from ytt import dictfmt
         r0 = S.dict_version({"autoDict": True})["replacements"]
         with patch.object(dictfmt, "USER_DICT", True):
             r1 = S.dict_version({"autoDict": True})["replacements"]
-        with open(S.SETTINGS, "w", encoding="utf-8") as f:
-            json.dump({"replacements": "とわ様=>トワ様"}, f, ensure_ascii=False)
+        testkit.write_json(S.SETTINGS, {"replacements": "とわ様=>トワ様"})
         self.assertEqual(r0, S.dict_version({"autoDict": True})["replacements"])             # 人の置換辞書が今はオフ(10-14)= 変えても版は同じ(名簿の表だけ)
         with patch.object(dictfmt, "USER_DICT", True):
             self.assertNotEqual(r1, S.dict_version({"autoDict": True})["replacements"])      # オンなら辞書を変えたら版が変わる
