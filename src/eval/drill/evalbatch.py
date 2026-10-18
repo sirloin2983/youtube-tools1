@@ -22,7 +22,7 @@
   - 1 本ずつの作り直し(2026-10-05 ユーザー要望): `POST api/eval-batch/redo-one {id, baseUpdatedAt}`(eval_batch_redo_one)。
     開いている評価用の動画だけを、見回りを通さずすぐ待機列へ。人が手を入れた文書も作り直す(人の層 = 直しは残る。X-RERUN)
 
-RS4-2(2026-10-10)に src/editor/ed_evalbatch.py から移した(殻なし。決定 3-25 #7)。
+RS4-2(2026-10-10)に編集の部品から移した(殻なし。決定 3-25 #7)。
 名前は serve.py からも見える(serve.py が部品の名前を集めるので、**ほかの部品と重ならないよう eb_ / EB_ / eval_batch_ を付ける**)。
 ほかの部品は `_store.名前` などモジュールの属性として呼ぶたびに読む。編集(app)の部品は読まない: 文字起こしのジョブ(human/proof/doc_jobs の run_job)が
 見回りの裏のスレッド eb_start_background は serve が起動する(② は ④ を読まない)。
@@ -33,10 +33,10 @@ import os
 import re
 import threading
 
-from ytt import errors as _errors, fsio as _fsio, schemas as _yschemas  # noqa: E402   ApiError・書き込み・ジョブの表と待機列・TID_RE・now_ms・num_or・plain_int(RS4-2 まで ed_state・ed_jobs の別名で読んでいた)
+from ytt import errors as _errors, fsio as _fsio, schemas as _yschemas  # noqa: E402   ApiError・書き込み・ジョブの表と待機列・TID_RE・now_ms・num_or・plain_int(RS4-2 までは編集の部品の別名で読んでいた)
 from flow import jobs as _heavy  # noqa: E402
-from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings(RS3-1 に ed_learn から ytt/settings へ)
-from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
+from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings(RS3-1 に ytt/settings へ)
+from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ytt へ移した)
 from pipeline.transcribe import diarize as _diarize  # noqa: E402   判別の記録 read_diar・diar_path・ロガー log・スイッチ env_off
 from ytt import txbase as _txbase  # noqa: E402
 from human.proof import doc_jobs as _docjobs, rerun as _rerun, speakers as _speakers, store as _store  # noqa: E402   文字起こしの受付 validate_job・public_job / 再認識の記録 record_rerun / 自動の判別 autodiar_* / 文書の読み書き(呼ぶたびに 名前 で読む)

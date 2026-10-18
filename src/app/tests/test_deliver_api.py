@@ -1,4 +1,4 @@
-"""入口の ytt_api("deliver") の受け渡し(src/app/server.py の PortalServer.ytt_api)のテスト。deliver の本体のテストは src/human/friend/tests/test_deliver.py。
+"""入口の ytt_api("deliver") の受け渡し(src/app/server.py の PortalServer.ytt_api)のテスト。deliver の本体のテストは src/flow/tests/test_deliver.py。
 
 実行(リポジトリ直下から): python -m unittest src/app/tests/test_deliver_api.py -v
 """

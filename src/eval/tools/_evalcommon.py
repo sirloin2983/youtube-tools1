@@ -254,7 +254,7 @@ class InProcessModel:
     """このプロセスの中で読んだモデル(IN_WORKER)の包み。transcribe に来た音声を、認識ワーカーの受け口(pipeline/transcribe/worker の _audio)と同じ形に直して渡す。
     editor のサーバー側の書き方は、モデルの代理(RemoteModel)に WavSlice・WavRef(wav のパスとサンプルの範囲だけ。ワーカーが読む)を渡す。
     道具ではそれが faster-whisper に直接届き、読めずに落ちる("File object has no read() method")。
-    2026-10-07 夜に分かった: 見直し 2 周目で IN_WORKER が届くようになってから、1 秒丸めの聞き直し(ed_jobs.quant_words_provider。編集 0.65.0 で消した)がこれで落ち、
+    2026-10-07 夜に分かった: 見直し 2 周目で IN_WORKER が届くようになってから、1 秒丸めの聞き直し(quant_words_provider。編集 0.65.0 で消した)がこれで落ち、
     eval_asr run は丸まった窓のある文書を「とばしました」で数えていなかった。ほかの属性(params・hooks など)は中のモデルのものを読み書きする"""
 
     def __init__(self, model, audio_of):

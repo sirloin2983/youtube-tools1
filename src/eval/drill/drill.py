@@ -16,7 +16,7 @@
   - 行の文字・時刻・話者を人が後から直しても残す(直したのは人なので)。機械が行を書いたら外す(human/proof/rerun の record_rerun = 再認識・
     human/proof/store の fill_doc = 行の無い文書への文字起こし)。以前の版に戻すと、その版の印のまま
 
-RS4-2(2026-10-10)に src/editor/ed_drill.py から移した(殻なし。決定 3-25 #7)。名前は serve.py からも見える(serve.py の _ED_MODULES の最後。
+RS4-2(2026-10-10)に編集の部品から移した(殻なし。決定 3-25 #7)。名前は serve.py からも見える(serve.py の _ED_MODULES の最後。
 ほかの部品と重ならないよう、名前は drill_ / DRILL_ で始める)。ほかの部品の名前は `_store.名前` などモジュールの属性として呼ぶたびに読む
 (差し替えが効くように。from … import で名前を写さない)。編集(app)の部品は読まない。
 """

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""認識ワーカーの中の疑似(環境変数 TRANSCRIBE_BACKEND=worker-fake のテスト用。役割で組み直す RS2-9 に、認識ワーカー(旧 src/editor/tx_worker.py)の
+"""認識ワーカーの中の疑似(環境変数 TRANSCRIBE_BACKEND=worker-fake のテスト用。役割で組み直す RS2-9 に、認識ワーカー(今の pipeline/transcribe/worker.py)の
 install_fakes から移した。中身は同じ)。
 
 サーバー(編集の serve)は本物の経路(認識ワーカーとのやり取り・RemoteModel)を通り、ワーカーの中だけ偽のモデルを使う。差し込み方:

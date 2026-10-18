@@ -9,7 +9,7 @@
     py -3.12 src/app/tests/e2e_live_studio.py --chromium      # Edge があっても Playwright の chromium で(再生が要る確認は飛ばす)
 
 作り(e2e_live.py と同じ部品):
-  - 入口(server.py)に studio を取り込む(src/studio/tests/e2e_ui.py の --mounted と同じ形。STUDIO_FAKE=1)。作業データ・書き出し先・録画の置き場所は全部一時フォルダ
+  - 入口(server.py)に studio を取り込む(STUDIO_FAKE=1)。作業データ・書き出し先・録画の置き場所は全部一時フォルダ
     (YTT_DATA_DIR はこのテストの間だけ一時フォルダにする。先頭の setdefault は ytt のテストの決まり)
   - 録画の部品(src/pipeline/ingest/recorder.py)は本物を --source direct で。ffmpeg の lavfi で作った H.264 の HLS を手元の HTTP サーバーで配信中のように出して録る
   - 配信の状態は偽の yt-dlp(Live.probe)。URL はスタジオの登録の検査(YouTube の https だけ)を通すため、画面には YouTube の形の URL を入れ、

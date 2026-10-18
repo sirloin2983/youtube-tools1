@@ -48,7 +48,7 @@ import wave
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.dirname(os.path.dirname(HERE))   # transcribe -> pipeline -> src
-if not __package__:   # スクリプトとして起動したとき(python worker.py・旧い場所の転送の runpy)だけ。兄弟を裸の名前で読まないように、このフォルダを外して src を先頭に
+if not __package__:   # スクリプトとして起動したとき(python worker.py)だけ。兄弟を裸の名前で読まないように、このフォルダを外して src を先頭に
     sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
 from pipeline.transcribe import diarize, models, tx_engines, worker_client  # noqa: E402  (スクリプトとして動くので相対 import は使えない = 絶対 import。RS2-9)
 from ytt import errors as _errors, jobs as _heavy, layout as _layout, workdata as _workdata  # noqa: E402

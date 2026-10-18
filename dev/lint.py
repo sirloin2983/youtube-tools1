@@ -262,21 +262,7 @@ PATH_RE = re.compile(r"(?<![A-Za-z0-9_./:\\-])((?:[A-Za-z0-9_-]+/)+[A-Za-z0-9_-]
 LAYER_OF = {"pipeline": "①", "flow": "②", "human": "③", "manage": "④", "eval": "⑤"}   # src/ の直下のフォルダ → 層の番号(正は notes:docs/spec/overview.md の 2)
 LAYER_RE = re.compile(r"([①②③④⑤])\s*(?:道具|管理|人の操作|人|データ|検証|テスト)")
 # 一時的に許す物(件数を減らす方向だけ。OPT-M1・E1 で直したら外す)。キーは (kind, ファイル) → 理由
-REF_ALLOW = {
-    ("ref-path", "src/eval/drill/drill.py"): "OPT-E1 で直す",
-    ("ref-path", "src/eval/drill/evalbatch.py"): "OPT-E1 で直す",
-    ("ref-path", "src/eval/drill/metrics.py"): "OPT-E1 で直す",
-    ("ref-path", "src/eval/fake/fake_worker.py"): "OPT-E1 で直す",
-    ("ref-gone", "src/eval/drill/evalbatch.py"): "OPT-E1 で直す",
-    ("ref-gone", "src/eval/drill/metrics.py"): "OPT-E1 で直す",
-    ("ref-gone", "src/eval/fake/fake_asr.py"): "OPT-E1 で直す",
-    ("ref-gone", "src/eval/tools/_evalcommon.py"): "OPT-E1 で直す",
-    ("ref-gone", "src/eval/tools/eval_asr.py"): "OPT-E1 で直す",
-    ("ref-gone", "src/eval/tools/eval_fill.py"): "OPT-E1 で直す",
-    ("ref-gone", "src/eval/tools/eval_timing.py"): "OPT-E1 で直す",
-    ("ref-layer", "src/eval/__init__.py"): "OPT-E1 で直す",
-    ("ref-layer", "src/eval/drill/metrics.py"): "OPT-E1 で直す",
-}
+REF_ALLOW = {}   # 10-19 の棚卸しで eval の 13 件を直して空にした
 
 
 def doc_texts(tree, src):

@@ -41,7 +41,7 @@
 - 「字幕に出さない」行 noSub(ゲームのキャラ・NPC の声など。行の印 noSub: true)は正解に入れない。その時間(行の半分以上が noSub の行の時間に入る)に機械が書いた文字も本体の数え方から外し、
   結果の summary.noSub = {docs, rows, sec, machineChars, byDoc} に別に出す(確かめ済みの文書で「何も話していない所の機械の文字 = 余分」に数えられないように。判定は src/human/proof/learn.py の split_nosub)。
   noSub の行も重なる行も無い文書の数は今までと同じ。
-- 同時にしゃべっている所(人の行どうしが、違う話者で 0.3 秒以上時刻が重なるまとまり = 重なりのまとまり。noSub は先に外す。音のメモ overlap は見ない。判定は ed_learn.is_overlap_group の 1 か所)は、
+- 同時にしゃべっている所(人の行どうしが、違う話者で 0.3 秒以上時刻が重なるまとまり = 重なりのまとまり。noSub は先に外す。音のメモ overlap は見ない。判定は eval/drill/metrics.is_overlap_group の 1 か所)は、
   主な数字(CER・抜け・余分)にはこれまでどおり入れたうえで、別にも出す: summary.overlap = {groups, sec, refChars, cer, miss} と summary.nonOverlap = {refChars, cer}(重なりを除いた本体と同じ数え方)。
   重なりの CER は、機械の出力に話者が無く同時発話は書く順番が決まらないので、人の行の並べ方(開始時刻の順と、話者ごとにまとめた順。話者の並びの入れ替えは 3 人まで全部)のうち小さい方を採る(まとまりの ovl)。
   compare も nonOverlap と overlap の差を並べる。

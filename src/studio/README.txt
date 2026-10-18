@@ -24,10 +24,11 @@
     ブラウザ上での保存失敗と復旧も確認しています。実際のYouTube(取得・埋め込み・ライブ配信)は未検証です。
 
 【コードの場所】(2026-10-10・役割で組み直す RS3 で移した。動きは同じ。版は 0.26.0 のまま)
-  このフォルダに残るのは serve.py(API の配線)・handoff.py(実行中のポートの共有)・common.py は RS5 で消しました・画面(index.html・js・css)です。
+  このフォルダに残るのは serve.py(API の配線)・handoff.py(実行中のポートの共有)・startup.py です(common.py は RS5 で消しました)。
+  画面のページは RS8 C4 で消し、案件の画面が読む部品(rank.js・queue.js・review.js・collab.js)は src/app/ui/studio/ にあります。
   解析 analyze と盛り上がりの式 excite → src/pipeline/analyze/・まとめて解析 batch → src/flow/batch.py・書き出し exporter と .clip.json の組み立て manifest → src/pipeline/export/・
   マークの保存 store と判定の記録 feedback → src/human/review/・探す rank と seed.json → src/human/find/・文字起こしとの紐づけ txlink → src/manage/cases/txlink.py。
-  common.py に入っていた共通の道具(子プロセス・ffprobe・API キーなど)は src/ytt/ と src/pipeline/ingest/sources.py へ。
+  common.py に入っていた共通の道具(子プロセス・ffprobe・API キーなど)は src/ytt/ へ(sources.py の 3 関数は OPT1 で src/ytt/yturl.py へ畳みました)。
   テスト: src/human/review/tests/test_studio.py・src/pipeline/analyze/tests/test_analyze.py・src/pipeline/export/tests/test_exporter.py(画面と API のテストはこのフォルダの tests/)
 
 【v0.24.1 の変更(2026-10-09・内部の整理。動きは同じ)】

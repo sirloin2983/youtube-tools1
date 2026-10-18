@@ -1,4 +1,4 @@
-cut2resolve(「編集」の部品・コマンド。版は全体で 1 つ = ytt/version.py)
+cut2resolve(「編集」の部品・API。版は全体で 1 つ = ytt/version.py)
 ==================================================
 
 切り抜いた動画に「カット」と「字幕」を入れて、DaVinci Resolve(以下 Resolve)で続きを編集できる形(パック)にして渡すツールです。
@@ -10,7 +10,7 @@ cut2resolve(「編集」の部品・コマンド。版は全体で 1 つ = ytt/v
 ■ 準備
   - Python 3(https://www.python.org/downloads/ 。インストール時に「Add python.exe to PATH」にチェック)
   - ffmpeg / ffprobe(文字起こしツール・切り抜きスタジオと同じもの)
-  - serve.py(API)はリポジトリのフォルダのまま使う(src の ytt フォルダ(旧 ytt_core)の共通部品を使う。コマンドの cut2resolve.py は単体でも動く)
+  - serve.py(API)はリポジトリのフォルダのまま使う(src の ytt フォルダ(旧 ytt_core)の共通部品を使う)
 
 
 ■ 画面は「編集」に統合しました(v0.11.0・2026-09-26)
@@ -36,15 +36,15 @@ cut2resolve(「編集」の部品・コマンド。版は全体で 1 つ = ytt/v
     plan・build の結果の mediaUrl・roughcutUrl。消した API は 404 を返す
   - v0.23.0 で受けなくした指定(消した画面のためのもので、送る側が無かった): spec.silenceExtra(②③に無音を重ねる)・spec.handles(② の前後の余白)・
     spec.joinGap(近い区間をつなぐ隙間)・output.fcpxml(補助の FCPXML)・output.crf(粗編集の画質)。送っても黙って無視する(知らない鍵と同じ。400 にしない)。
-    API では余白・つなぐ隙間は既定の 0、FCPXML は作らない、粗編集は既定の画質(crf 18)。どれもコマンドの cut2resolve.py(--handles・--join-gap・--fcpxml・--crf)に残る。
+    API では余白・つなぐ隙間は既定の 0、FCPXML は作らない、粗編集は既定の画質(crf 18)。単独のコマンドは 2026-10-16 に消したので、変える道は無い。
     spec.listKind "drop"(時刻リストを削る区間として読む)は、入口のまとめて実行の「カットしない」(listText 空 = 動画全体)が使うので残した
   - spec.keeps(v0.11.0): 残す区間を秒の組 [[開始, 終了], …] でそのまま渡す(「編集」のカット)。余白・最短・つなぎ・無音検出はしない(pack.EDIT_KEEPS)。
     preset と一緒には使えない。0.5 秒より短い区間は注意を出す。上限 5000 区間
-  - 文字起こしの行から作るとき(preset "transcript-rows"・mode keep の keepSource "transcript"・コマンドの --keep-rows)は、
+  - 文字起こしの行から作るとき(preset "transcript-rows"・mode keep の keepSource "transcript")は、
     区間の端を声の止まる所まで広げる(pack.ROW_EDGE。語頭・語尾が切れないように。終わりは 0.5 秒先・始まりは 0.3 秒前までの無音
     (-35dB・0.15 秒以上)まで。無音が無ければ 前 0.1 秒・後 0.2 秒。カット済の行は越えない)。spec.rowEdge = false で広げない・
     {"after": 秒, "before": 秒} で上限を変える(0〜2 秒)・{"padAfter": 秒}(v0.16.0)で無音が無いときの「後の余白」を変える(0〜2 秒。前の余白 0.1 秒は変えない。
-    padAfter が after より大きいときは after も padAfter まで上げる)。{"on": false} でも広げない(padAfter は無視)。コマンドは --no-row-edge で広げない。keeps・時刻リスト・スタジオの区間には使わない
+    padAfter が after より大きいときは after も padAfter まで上げる)。{"on": false} でも広げない(padAfter は無視)。keeps・時刻リスト・スタジオの区間には使わない
   - 重なる字幕(v0.21.0): Text+ のパックは、カットで詰めたあとの時刻で 0.3 秒以上重なる字幕を別の段に分ける(最大 3 段。計算は resolve_textplus.stack_captions の 1 か所)。
     段 1 = 今までの字幕のトラック、段 2・3 = その上のトラック(映像トラックが N 本なら V(N+1)〜V(N+3))で、縦の位置を上へ 0.2 ずつずらす(LANE_STEP_Y。仮の値 = 実機で見て決める)。
     0.3 秒未満の重なりは、前の字幕の終わりを次の始まりで切る。一度置いた字幕は動かさず、空いているいちばん下の段へ入れる。重なりの無いパックは今までと同じ中身。
@@ -54,12 +54,11 @@ cut2resolve(「編集」の部品・コマンド。版は全体で 1 つ = ytt/v
     色の決まり方: 指定の色 → メンバーカラー(speakerColors が真のとき)→ 配信者の色 → 黒。指定は speakerColors が false でも効く。名前は ytt.colors.normalize でそろえて同じときだけ
   - / と /index.html は「画面は「編集」に統合しました」の案内だけを返す(スクリプトなし)
   - パックは最小限(v0.12.0・v0.13.0): Text+ パックは動画(フォルダの直下)・create_resolve_textplus_project.lua・textplus-template.drb・登録用の .ps1 と .bat だけ。
-    手順書(友人へ.txt)は API では書かず、結果の readme(画面の「Resolve での手順を見る」)で返す。コマンドは今までどおり 友人へ.txt も書く。
+    手順書(友人へ.txt)は API では書かず、結果の readme(画面の「Resolve での手順を見る」)で返す。
     EDL・カット後の SRT は入れない(2026-10-18 まで output.backup で入れられた予備は消した。古い backup は送っても黙って無視)。
     Text+ の計画の .json(textplus-import.json)は出さない(Lua に埋め込み済み)。
     cut-plan.json はフォルダに置かず、作業データの packs\<ハッシュ>.json(パックを作った記録。%LOCALAPPDATA%\youtube-tools\cut2resolve\packs)に残す。
     「パック済み」「フォルダを開く」はこの記録か、以前のパックの cut-plan.json で決める(src/manage/cases/txindex.py)
-  - コマンド(cut2resolve.py)は今までどおり、EDL・SRT・友人へ.txt・cut-plan.json をフォルダに書く(Text+ の .json だけは出さない)
 
 
 ■ Resolve での読み込み(友人へ.txt にも同じ手順が入ります)
@@ -71,13 +70,13 @@ cut2resolve(「編集」の部品・コマンド。版は全体で 1 つ = ytt/v
 
 
 ■ 単独のコマンドは 2026-10-16 に消しました(パックは入口と ② の CLI src/app/cli.py の道だけ。旧 cut2resolve.py の使い方は git の履歴に残っています)。
-  出力先にファイルがあるときは止まります。上書きは --force。
+  出力先にファイルがあるときは止まります(上書きは API の force・② の CLI の --force)。
   上書きのとき、前に写した動画が元の動画と同じ大きさ・更新日時なら、動画のコピーは飛ばします(v0.22.1。音量をそろえるときは作り直す。
   音量をかけた写しを飛ばすのは「編集」・まとめて実行(API)のときだけ。v0.22.2)。
 
 
 ■ 受け渡しの形式
-  notes:docs/spec/pipeline.md(リポジトリ直下)を参照。youtube-tools-transcript/v1・youtube-tools-cut-plan/v1 を読みます。
+  notes:docs/spec/pipeline.md を参照。youtube-tools-transcript/v1・youtube-tools-cut-plan/v1 を読みます。
 
 
 ■ 注意

@@ -72,7 +72,7 @@ NOW_KEY = "now"
 VARIANTS = (("v0570", "0.57.0 の後処理(END_TRIM 0.1 秒・つながない)", {"END_TRIM": 0.1, "JOIN_GAP": 0.0}),
             ("trim0", "7-1 だけ(END_TRIM 0・つながない)", {"END_TRIM": 0.0, "JOIN_GAP": 0.0}),
             ("v0571", "0.57.1 の後処理(END_TRIM 0・すき間 0.5 秒以下をつなぐ)", {"END_TRIM": 0.0, "JOIN_GAP": 0.5}),
-            ("split40", "0.59.5(0.57.1 の後処理 + 行を分ける文字数 40)", {"END_TRIM": 0.0, "JOIN_GAP": 0.5, "splitChars": 40}),   # splitChars は spec に入れる(ed_jobs の値ではない)
+            ("split40", "0.59.5(0.57.1 の後処理 + 行を分ける文字数 40)", {"END_TRIM": 0.0, "JOIN_GAP": 0.5, "splitChars": 40}),   # splitChars は spec に入れる(後処理の定数ではない)
             ("split24", "0.59.6(0.57.1 の後処理 + 行を分ける文字数 24 = 今の既定)", {"END_TRIM": 0.0, "JOIN_GAP": 0.5, "splitChars": 24}))
 
 

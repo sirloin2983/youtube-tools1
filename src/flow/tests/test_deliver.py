@@ -1,6 +1,6 @@
-"""パックを友人へ届ける(src/human/friend/deliver.py・入口の api/ytt/deliver)の単体テスト。一時フォルダだけを使う。
+"""パックを友人へ届ける(src/flow/deliver.py・入口の api/ytt/deliver)の単体テスト。一時フォルダだけを使う。
 
-実行(リポジトリ直下から): python -m unittest src/human/friend/tests/test_deliver.py -v
+実行(リポジトリ直下から): python -m unittest src/flow/tests/test_deliver.py -v
 (入口の ytt_api の受け渡しは src/app/tests/test_deliver_api.py)
 """
 import json

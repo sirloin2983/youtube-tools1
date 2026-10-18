@@ -1,5 +1,5 @@
-/* 案件の画面(/cases)の「候補」のパネル(src/app/ui/cases/panels/cand.js。RS8 C2a)の見た目。中身はスタジオ ② の src/studio/review.css の写し + src/studio/app.css の要る分
-   (古い画面は凍結 = 動きを変えない。C4 で古い画面を消すとき、この写しが正になる)。クラス名は rv- のまま。
+/* 案件の画面(/cases)の「候補」のパネル(src/app/ui/cases/panels/cand.js。RS8 C2a)の見た目。もとはスタジオ ② の review.css と app.css の要る分の写しで、
+   スタジオの画面は RS8 C4 で消した = 今はここが正。クラス名は rv- のまま。
    写すときに変えた所: 配信の選択(探す一覧・開く)の規則は消した(パネルでは案件を左の一覧で選ぶ)・幅の区切りは左の一覧(280px)の分だけ広げた(960/961 → 1240/1241・1180 → 1460)・シアター表示の列の幅は 100vw でなく 100%(パネルの幅)から */
 :root{--cs-head:var(--header-h,52px);--cs-in:#0a6e78;--cs-out:#a8420e;--cs-auto:var(--c-4);--cs-cand:var(--warn)}
 :root[data-theme=dark]{--cs-in:var(--c-5);--cs-out:#ff9358}

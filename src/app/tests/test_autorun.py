@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""まとめて実行(src/home/autorun.py)の段取りのテスト。ツールの API は偽物(FakeTools)で、本物の通し確認は src/home/tests/e2e_autorun.py。
-実行(リポジトリ直下): python -m unittest src/home/tests/test_autorun.py"""
+"""まとめて実行(src/app/autorun.py)の段取りのテスト。ツールの API は偽物(FakeTools)で、本物の通し確認は src/app/tests/e2e_autorun.py。
+実行(リポジトリ直下): python -m unittest src/app/tests/test_autorun.py"""
 import json
 import os
 import re
