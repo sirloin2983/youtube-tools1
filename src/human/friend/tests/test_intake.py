@@ -179,12 +179,12 @@ class TestState(Base):
 
 
 class TestSend(Base):
-    """D-SEND: 友人のアプリの「届け方」(2-4)・依頼済みの配信の引き方(2-9)・見回りの終わりの送り直し(2-6)"""
+    """D-SEND: 下のフォルダを読まない・依頼済みの配信の引き方(2-9)・見回りの終わりの送り直し(2-6)"""
 
     def test_settings_folder_is_not_a_request(self):
-        """友人のアプリが置く 設定\\届け方.json は依頼として読まない(下のフォルダは見ない)"""
+        """受付のフォルダの下のフォルダ(設定 など)の JSON は依頼として読まない(下のフォルダは見ない)"""
         os.makedirs(os.path.join(self.folder, "設定"))
-        with open(os.path.join(self.folder, "設定", "届け方.json"), "w", encoding="utf-8") as f:
+        with open(os.path.join(self.folder, "設定", "x.json"), "w", encoding="utf-8") as f:
             f.write('{"v":1}')
         self.scan2()
         self.assertEqual((self.runner.requests, self.runner.files, self.it.snapshot()["requests"]), ([], [], []))

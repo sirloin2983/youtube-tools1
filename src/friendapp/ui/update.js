@@ -1,4 +1,4 @@
-/* 新しい版の帯の 1 行(更新。notes:plan/f1-friend-requirements.md の 8 章・A-15。形は friend-apps/launcher/README.txt)。
+/* 新しい版の帯の 1 行(更新。notes:docs/design/friend-history.md の 7 章)。
    画面(F3-B)は帯に <div data-fr-update></div> を置き <script src="update.js" defer> を読むだけ。新しい版が無ければ何も出さない。
    新しい版は同期が <home>/app-<版>/ に入れておく → 「新しい版 n があります [更新する]」→ 押すと、作業と預かりが無ければ exe がすぐ入れ替えて開き直す・
    あれば「作業が終わったら更新します(…)」で待つ。外の文字は textContent で入れる(CSP の下で動く)。 */

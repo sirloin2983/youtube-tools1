@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""友人の玄関のライブ係(notes:plan/f1-friend-requirements.md の A-5・A-13・A-14、docs/spec/friend.md の 2-15)。
+"""友人の玄関のライブ係(notes:docs/design/friend-history.md の 7 章、docs/spec/friend.md の 2-15)。
 
 友人の PC の ② のライブ係 = flow/livesession.LiveSession を継いだ FriendLive。入口 app の src/app/live.py の use_headless と同じ形を、app を読まずに作る:
   設定に関わらずオン(always_on)・どの封筒も依頼の決まりで(request_all = 検出・自動の採用・パックまで)・スタジオなしの採用(LocalMarks = 親の既定)・

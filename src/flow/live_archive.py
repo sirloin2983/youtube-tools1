@@ -2,7 +2,7 @@
 """録画に無い区間をアーカイブ(YouTube)から書き出す(線 D の P4 の残り。notes:plan/line-d-live-clipping.md の 0-9)と、配信後の全自動(M7)の入口の側の中身。
 API は src/app/live.py(設定 live.enabled がオンのときだけ)。
 
-2026-10-16 の見直し(決定 3-73・notes:plan/f1-friend-requirements.md の A-14)で、録画から作った速報版を本番版に入れ替える(P4 の入れ替え)は廃止した。
+2026-10-16 の見直し(決定 3-73・notes:docs/design/friend-history.md の 7 章)で、録画から作った速報版を本番版に入れ替える(P4 の入れ替え)は廃止した。
 材料: 10-05〜10-15 の 140 本で音のずれはほぼ 0 秒・友人へは配信中に速報版のパックで届いていて入れ替えても何も届かない。
 P4 の本当の役目は「録画を消してよい合図」だったので、それは archived(アーカイブ化したかの確かめ)に置き換えた(録画を消すのは
 src/manage/keep/live_cleanup.py。判断は src/flow/live_retire.py)。設定 live.autoArchive も消した(欠けのジョブは自動で必ずアーカイブから)。

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """② 管理の層 flow: 待ち行列と実行の糸(役割で組み直す RS7-1 S5。2026-10-10。決定 3-30・
-資料の git:cbe1a64:docs/design/surveys/rs7-survey-2026-10-10/plan_order_v2.md の S5・notes:plan/f1-friend-pc.md の「RS7(② の側)へ渡すこと」)。
+資料の git:cbe1a64:docs/design/surveys/rs7-survey-2026-10-10/plan_order_v2.md の S5・notes:plan/done/f1-friend-pc.md の「RS7(② の側)へ渡すこと」)。
 
 友人の依頼の受付・ユーザーの入口・CLI が同じ ② の口を使えるように、待ち行列と糸をここに置く(以前は入口の AutoRunner の中)。
 画面なし・③ なしでも動く: Queue(client, log_dir=...) だけで submit → 糸が段を進める → status / snapshot / history で見る。

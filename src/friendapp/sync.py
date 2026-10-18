@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""友人の玄関の Dropbox の同期(notes:plan/f1-friend-requirements.md の A-2・5 章・8b 章、docs/spec/friend.md の 2-14〜2-17・5-1)。
+"""友人の玄関の Dropbox の同期(notes:docs/design/friend-history.md の 7 章、docs/spec/friend.md の 2-14〜2-17・5-1)。
 
 玄関の裏の糸で数分ごと(EVERY 秒)と、起動の直後・画面の操作のあと(kick)に 1 回ずつ回す。② = flow は Dropbox を知らない(ここが玄関の中で全部持つ)。
 鍵は <home>/config.json(探し方・形 = friendapp/dropbox.py)。無ければ何もしない(画面に小さく知らせる)。

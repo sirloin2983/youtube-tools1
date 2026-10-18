@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""② 管理の層 flow: この PC の設定(機械の都合)を 1 か所に(役割で組み直す RS7-1 の S1。決定 3-30 の Q1・notes:plan/f1-friend-pc.md の決めたこと 8・9)。
+"""② 管理の層 flow: この PC の設定(機械の都合)を 1 か所に(役割で組み直す RS7-1 の S1。決定 3-30 の Q1・notes:plan/done/f1-friend-pc.md の決めたこと 8・9)。
 
 束(flow/spec.py)は「何を作るか」。ここは「この PC でどう動かすか」= 束に入れない機械の都合:
   engine       文字起こしのエンジン(spec.TX_ENGINES = whisper.cpp だけ。0.58.0。旧い faster-whisper などは読むときに whisper.cpp)

@@ -133,7 +133,7 @@ class TestVerdict(Base):
 
     def test_bad_verdict_rejected(self):
         for name, body in (("%s__p.verdict.json" % RID, '{"v":2,"id":"a","judge":"great"}'), ("%s__p.verdict.json" % RID, "nope"),
-                           ("%s__p.verdict.json" % RID, '{"verdict":"keep","at":5}'),   # v 2 でない形(前のアプリの形)は断る
+                           ("%s__p.verdict.json" % RID, '{"verdict":"keep","at":5}'),   # v 2 でない形は断る
                            ("no-sep.verdict.json", '{"v":2,"id":"a","judge":"good"}')):
             p = os.path.join(self.inbox, name)
             with open(p, "w", encoding="utf-8") as f:

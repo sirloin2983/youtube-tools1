@@ -166,7 +166,7 @@ class Live(livesession.LiveSession):
         self._pool_at = 0.0                # 組の溜めの残りを最後に見た時刻(POOL_EVERY ごと)
 
     def use_headless(self, disk_min_gb=None):
-        """画面なし(server.py --headless。notes:plan/f1-friend-pc.md の決めたこと 6・7): 設定に関わらずオン・どの封筒も依頼の決まりで(検出・採用・パックまで)・
+        """画面なし(server.py --headless。notes:plan/done/f1-friend-pc.md の決めたこと 6・7): 設定に関わらずオン・どの封筒も依頼の決まりで(検出・採用・パックまで)・
         スタジオなしの採用(LocalMarks)・友人へ届けない・6 時間で止めない・同時の上限なし・自動の採用の上限は束の adopt.top・
         空き容量が disk_min_gb(GB)より少なければ新しい録画を始めない"""
         self.headless = True

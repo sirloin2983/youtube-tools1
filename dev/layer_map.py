@@ -23,7 +23,7 @@ ALLOWED = {
     "manage": {"ytt", "flow", "human"},    # ① は直に読まない(② を通す)
     "eval": {"ytt", "pipeline", "flow", "human", "manage"},
     "app": set(LAYERS) - {"friendapp"},
-    "friendapp": {"ytt", "pipeline", "flow"},   # 友人の玄関(F2。notes:plan/f1-friend-requirements.md の A-1)。③④⑤ と入口 app は読まない
+    "friendapp": {"ytt", "pipeline", "flow"},   # 友人の玄関(F2。notes:docs/design/friend-history.md の 7 章)。③④⑤ と入口 app は読まない
 }
 
 # 今のパス(リポジトリ直下から。区切りは /)→ (層, 行き先, 備考)

@@ -21,7 +21,7 @@
   - 名前: `class Delivery` :68
 - **diar.py** (301 行) — ② 管理の層 flow: 話者判別と声の段取り(役割で組み直す RS6 a-4。2026-10-10。決定 3-29)。
   - 名前: `models_ready` :30・`default_embedding` :41・`embedding` :46・`embeddings` :51・`diarize` :57・`assign` :87・`record_run` :111・`record_single` :118・`latest_run` :128・`embed` :135・`match_known_voices` :151・`voice_learn_rows` :164・ほか 10
-- **envelope.py** (171 行) — ② 管理の層 flow: 依頼の封筒(役割で組み直す RS7-1 S3。2026-10-10。決定 3-30・notes:plan/f1-friend-pc.md の決めたこと 9・
+- **envelope.py** (171 行) — ② 管理の層 flow: 依頼の封筒(役割で組み直す RS7-1 S3。2026-10-10。決定 3-30・notes:plan/done/f1-friend-pc.md の決めたこと 9・
   - 名前: `clean_pool` :45・`version_of` :136・`check` :144・`read` :168
 - **export.py** (147 行) — ② 書き出しの器(OPT2 の J2・J6。notes:docs/design/opt2-jobs-plan.md): ① の書き出し(pipeline/export/exporter.run)を 1 本ずつ動かすジョブの表。
   - 名前: `build_spec` :24・`class ExportJobs` :38・`default` :140
@@ -57,9 +57,9 @@
   - 名前: `channel_regions` :39・`live_row` :57・`live_list` :152
 - **livehost.py** (87 行) — ライブの親(host)の口(役割で組み直す RS7-2 G0。資料の git:cbe1a64:docs/design/surveys/rs7-survey-2026-10-10/plan_order_v3.md)。
   - 名前: `class RequestBook` :25・`class MarkBook` :37・`class LiveHost` :47
-- **livesession.py** (1143 行) — ② 管理の層 flow: ライブ係(役割で組み直す RS7-2 G2b。資料の git:cbe1a64:docs/design/surveys/rs7-survey-2026-10-10/plan_order_v3.md の 1 節 5・notes:plan/f1-friend-pc.md)。
+- **livesession.py** (1143 行) — ② 管理の層 flow: ライブ係(役割で組み直す RS7-2 G2b。資料の git:cbe1a64:docs/design/surveys/rs7-survey-2026-10-10/plan_order_v3.md の 1 節 5・…
   - 名前: `validate_url` :80・`probe_live` :108・`rec_view` :134・`recorder_data_dir` :150・`is_local_url` :163・`stream_url` :171・`live_envelope` :177・`cfg_bundle` :187・`now_bundle` :208・`request_bundle` :227・`request_settings` :260・`speakers_of` :267・ほか 4
-- **machine.py** (303 行) — ② 管理の層 flow: この PC の設定(機械の都合)を 1 か所に(役割で組み直す RS7-1 の S1。決定 3-30 の Q1・notes:plan/f1-friend-pc.md の決めたこと 8・9)。
+- **machine.py** (303 行) — ② 管理の層 flow: この PC の設定(機械の都合)を 1 か所に(役割で組み直す RS7-1 の S1。決定 3-30 の Q1・notes:plan/done/f1-friend-pc.md の決めたこと 8・9)。
   - 名前: `check` :68・`root` :102・`path` :107・`read_file` :119・`read_env` :136・`llm_for_vram` :163・`auto_llm` :173・`overlay_llm` :179・`explicit` :212・`load` :221・`get` :239・`save` :247・ほか 1
 - **normalize.py** (167 行) — ② 管理の層 flow: 素材を 30fps(H.264・yuv420p・AAC)にそろえる 1 つの段(役割で組み直す OPT-M2 5b-1・2026-10-16。
   - 名前: `enabled` :29・`sibling_name` :34・`usable` :40・`plan` :49・`room` :87・`run` :107・`set_note` :138・`run_job` :147

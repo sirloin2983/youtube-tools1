@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""友人の玄関の Dropbox の部品(notes:plan/f1-friend-requirements.md の 8b 章・docs/spec/friend.md の 2-17・4 章)。
+"""友人の玄関の Dropbox の部品(notes:docs/design/friend-history.md の 7 章・docs/spec/friend.md の 2-17・4 章)。
 
 標準ライブラリだけ。使い方・やり直しの規則:
 - 鍵: <home>/config.json の appKey + refreshToken(PKCE で得た物。secret は使わない)-> /oauth2/token で短い期間の access token

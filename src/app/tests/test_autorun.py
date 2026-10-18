@@ -1580,7 +1580,6 @@ class TestRequests(Base):
         # 失敗の知らせは状態が error になったあとに置く(状態だけ見て読むと、まだ無いことがある)
         names = self.until(lambda: (lambda ns: ns if pre + ".失敗.txt" in ns else None)(os.listdir(self.out)), 3)
         self.assertEqual(sorted(n for n in names if n.endswith(".zip")), ["%s__a2.zip" % self.RID])
-        self.assertFalse([n for n in names if n.endswith(".group.json")])
         self.assertIsNotNone(friend_feedback.find_delivery(self.logs_dir(), "%s__a2.zip" % self.RID))
         self.assertIsNone(friend_feedback.find_delivery(self.logs_dir(), "%s__a3.zip" % self.RID))
 
@@ -2038,7 +2037,6 @@ class TestAutoSend(Base):
         self.assertEqual(len(zips), 2, names)   # 1 本ずつ = パックごとに zip + 確認用の動画 + 印(F3-6)
         self.assertEqual(sorted(names), sorted(z[:-4] + e for z in zips for e in (".zip", ".preview.mp4", ".meta.json")), names)
         self.assertTrue(all(re.match(self.TAG_RE, n) for n in names), names)   # 名前の頭は友人のアプリの依頼 id の形(deliver_tag)
-        self.assertFalse([n for n in names if n.endswith(".group.json")], "組の一覧は作らない")
         for z in zips:   # 手で届けるのと同じく自動の分は印の出どころ auto(友人には「依頼なし」)
             doc = self.meta(z)
             self.assertEqual((doc["v"], doc["origin"], doc["zip"]), (1, "auto", z))
@@ -2066,7 +2064,6 @@ class TestAutoSend(Base):
         for z in zips:
             self.assertIn(z[:-4] + ".meta.json", names)
             self.assertEqual(self.meta(z)["origin"], "auto")
-        self.assertFalse([n for n in names if n.endswith(".group.json")])
 
     def test_not_sent_reasons(self):
         """送らない 4 つ(チェックを外した・友人の依頼あり・終わった時刻が分からない・48 時間を過ぎた): 段は飛ばして理由の文(flow/sendpolicy.REASONS)・

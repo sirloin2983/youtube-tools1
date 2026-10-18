@@ -73,7 +73,7 @@ def pad_secs(a, b, pad, st, first):
 
 
 def top_of(bundle):
-    """束の adopt.top(友人の PC の 1 録画の自動の採用の上限 = 親の auto_max が返す値。notes:plan/f1-friend-pc.md 決めたこと 7)。
+    """束の adopt.top(友人の PC の 1 録画の自動の採用の上限 = 親の auto_max が返す値。notes:plan/done/f1-friend-pc.md 決めたこと 7)。
     無い・形が違えば束の既定(spec.DEFAULTS)"""
     a = bundle.get("adopt") if isinstance(bundle, dict) else None
     try:
