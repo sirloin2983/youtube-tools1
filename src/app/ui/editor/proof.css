@@ -18,17 +18,9 @@ h2{margin:0;font-size:15px}
 
 /* ---------- ヘッダー(ui-kit の .ui-header。ここは中身の並びだけ) ---------- */
 .top{--hb:var(--ctl-h-sm)}
-.tt-hbtn{gap:6px;position:relative}
-.tt-hbtn svg{width:16px;height:16px}
-.ui-menu>summary.tt-hbtn,.pop>summary.tt-hbtn{display:inline-flex}
 #btnMenu .ic{display:inline-grid;place-items:center}
-.tt-hstat{display:flex;align-items:center;gap:6px;min-width:0;flex-wrap:wrap}
-/* 処理中の件数(押すとメニューの「処理状況」を開く。押せるので .btn。校正の目標の札 .tt-hgoal は 0.69.0 で消した) */
-.tt-hjob{font-variant-numeric:tabular-nums;gap:7px}
-.tt-hjob{color:var(--accent-ink2)}
-.tt-hjob::before{content:"";width:8px;height:8px;border-radius:50%;flex:none;border:2px solid color-mix(in srgb,currentColor 30%,transparent);border-top-color:currentColor;animation:ui-rot .8s linear infinite}   /* 0.59.3: 点滅をやめて .pill.run と同じ静かな回転の輪(notes:docs/spec/ui.md 2「実行中の札は点滅させない」。A-32) */
-@media (max-width:1180px){.tt-hlabel{display:none}.tt-hbtn{width:var(--ctl-h-sm);padding:0;justify-content:center}#btnMenu{width:auto;padding:0 8px}}
-@media (max-width:560px){.top .ui-ver{display:none}#btnMenuT{display:none}.tt-hjob{padding:0 6px}#btnKeys{display:none}.top .ui-header-actions{gap:2px}}
+@media (max-width:1180px){#btnMenu{width:auto;padding:0 8px}}
+@media (max-width:560px){.top .ui-ver{display:none}#btnMenuT{display:none}#btnKeys{display:none}.top .ui-header-actions{gap:2px}}
 .errbar{position:sticky;top:var(--toph);z-index:39}
 /* 画面の赤い帯の次の一手と閉じる(段8 E-26。app-core.js の showErr)。版の違いの帯(UIKit.restart)はこの形にしない */
 .errbar:has(> .tt-err-msg){display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
@@ -469,8 +461,7 @@ html.dense .seg{padding:3px 8px 3px 6px;margin-bottom:3px;gap:3px 6px}html.dense
 .tt-flow{margin:12px 0 0;padding:10px 12px;border-radius:var(--r);background:var(--accent-soft);font-size:13px;color:var(--ink)}
 
 
-/* ---------- 「編集」の3つのタブ(notes:docs/design/edit-tool-design.md 3。E2 = 骨組み) ---------- */
-.tt-edtabs .ui-tab{min-height:32px}
+/* ---------- 保存の状態と題名の行(タブの並び .tt-edtabs は案件の画面へ移って消した) ---------- */
 .ui-header-actions>.savest{margin-right:4px}
 @media (max-width:720px){.ui-header-actions>.savest{display:none}}
 /* 題名の行: どのタブにも出す */

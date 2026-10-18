@@ -183,7 +183,6 @@
 .tt-th-img{display:block;width:100%;height:auto;margin-top:8px;border:1px solid var(--line);border-radius:var(--r)}
 .tt-pk-card{padding:14px 16px}
 .tt-pk-h{display:flex;align-items:center;gap:8px;margin:0 0 10px;font:650 15px/1.35 var(--font-display)}
-.tt-pk-n{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--panel-3);color:var(--ink-2);font:700 12px/1 var(--mono);flex:none}   /* 0.59.3: .ui-tab-n と同じ色(白 on 黄色は 2:1 で読めなかった。A-22) */
 .tt-pk-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:8px 0}
 .tt-pk-l{min-width:7em;color:var(--ink-2);font-size:13px}
 .tt-pk-p{margin:8px 0 0;line-height:1.6}
@@ -205,7 +204,6 @@
 .tt-pk-map{position:relative;height:22px;margin:12px 0 0;background:var(--panel-2);border-radius:6px;overflow:hidden}
 .tt-pk-map i{position:absolute;top:3px;bottom:3px;background:var(--accent);border-radius:3px}
 .tt-pk-sub{display:flex;align-items:center;gap:8px;margin:14px 0 8px;font-size:13.5px;color:var(--ink-2)}
-.tt-pk-who{flex-wrap:wrap;margin:0 0 8px}
 .tt-pk-look{display:flex;gap:14px;align-items:flex-start}
 .tt-pk-phone{position:relative;flex:none;width:118px;aspect-ratio:9/16;border-radius:10px;background:var(--stage-bg);overflow:hidden}
 .tt-pk-phone.land{width:180px;aspect-ratio:16/9}

@@ -66,8 +66,8 @@
 - 文字の大きさ「大きい」: `html[data-fs=lg]` で `--fs-*` を少し(1〜1.5px)大きく(設定の「文字の大きさ」から)
 
 ### 部品(JS は `window.UIKit`。CSS クラスは ui-kit.css)
-- **`UIKit.appnav`**: `<nav data-ui-appnav="studio|transcribe|portal">` に、ホーム/スタジオ/編集の3つを DOMContentLoaded で描く(ホームは入口に取り込まれているときだけ)。**v27 で「ホーム / 案件 / 設定」(`portal|cases|settings`)に変えた**
-  今の場所は `aria-current="page"`。`setLink(id, suffix)`(`'?media=…'` のように `?`/`#` で始まる文字列だけ受け付け、そのツールへ今の動画を引き継ぐ)・`setVersion(text)`(今の場所の項目の `title` に版を出す)
+- **`UIKit.appnav`**: `<nav data-ui-appnav="portal|cases|check|settings">` に、ホーム / 案件 / 確かめる / 設定 の 4 つを DOMContentLoaded で描く(v6 はホーム/スタジオ/編集。v27 で今の形に)
+  今の場所は `aria-current="page"`。`setVersion(text)`(今の場所の項目の `title` に版を出す)。動画を引き継ぐ `setLink` は呼ぶ所が無くなったので 10-19 に消した
 - **`UIKit.drawer`**: 右から出る引き出し(設定・書き出し・パックの詳しい設定などで共通)。`<aside class="ui-drawer" hidden>` + `.ui-drawer-head` / `.ui-drawer-body`。
   `open(el, {modal, opener})` / `close(el)` / `isOpen(el)`。`modal:true`(既定)は幕つき・裏(body 直下。引き出し自身・幕・トースト・下の帯は除く)を `inert` にしてフォーカスを閉じ込め、Esc で閉じる。
   `modal:false`(docked)は幕なし・裏も操作できる(開いたまま他の作業を続けられる。書き出し中など)。閉じたら `opener`(渡さなければ開いた時の `document.activeElement`)へフォーカスを戻す。`focus:false` で開いたときにフォーカスを中へ動かさない(画面が自動で開く docked の欄)

@@ -369,7 +369,7 @@ td.n,th.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 
 /* ---------- v6(2026-09-27・画面の全面見直し 段階1): ui-appnav・ui-drawer・ui-dialog・ui-pop・ui-toasts・ui-keybar・ui-kbd・ui-miniprogress・SVG アイコン ---------- */
 
-/* ホーム/スタジオ/編集(ヘッダーの左端)。中身は ui-kit.js の UIKit.appnav が作る(data-ui-appnav="studio|transcribe|portal") */
+/* ホーム / 案件 / 確かめる / 設定(ヘッダーの左端)。中身は ui-kit.js の UIKit.appnav が作る(data-ui-appnav="portal|cases|check|settings") */
 .ui-appnav{display:flex;align-items:center;gap:2px;flex:none}
 .ui-appnav a{display:inline-flex;align-items:center;min-height:var(--ctl-h-sm);padding:0 10px;border:1px solid transparent;border-radius:var(--r);color:var(--ink-2);text-decoration:none;font-weight:600;font-size:13px;white-space:nowrap}
 .ui-appnav a:hover{background:var(--panel-2);color:var(--ink)}

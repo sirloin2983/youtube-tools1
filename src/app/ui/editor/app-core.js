@@ -162,12 +162,7 @@ function loadView(){
     const o = JSON.parse(localStorage.getItem(VIEW_KEY) || '{}');
     if (o && typeof o === 'object'){
       for (const k of Object.keys(V)) if (k in o && typeof o[k] === typeof V[k]) V[k] = o[k];
-      /* 画面の色は ui-kit(localStorage の ytt:theme)に1本化した(設定の引き出しで変える。保存先は1か所。ヘッダーの切り替えボタンは v14 でやめた)。
-         以前の版が tx.view.v1 の theme に保存していた選択は、ui-kit にまだ選択が無いときだけ引き継ぐ。
-         v6 から ytt:theme が無いときの既定は 'system' ではなく 'light' になったので、「無い」の判定は UIKit.theme.get() ではなく
-         localStorage を直接見る(以前は既定が 'system' だったことを前提にしていたため、v6 のままだと引き継ぎが動かなかった) */
-      if (o.theme === 'light' || o.theme === 'dark'){ try { if (localStorage.getItem('ytt:theme') === null) UIKit.theme.set(o.theme); } catch {} }
-      if ('theme' in o){ delete o.theme; saveView(); }
+      /* 画面の色は ui-kit(localStorage の ytt:theme)に1本化した。以前の版の tx.view.v1 の theme を引き継ぐ処理は、残っている物が 0 なので 10-19 に消した */
     }
   } catch {}
 }
@@ -288,11 +283,11 @@ function showInMenu(el){ const pane = el.closest('[data-side-pane]'); if (pane) 
 
 /* ---------- ヘッダーの ⚙(ui-kit v6。UIKit.settings)。「表示」の内容(旧 #viewMenu)をツールの節にし、画面の色は全体の節(ui-kit)へ一本化 ---------- */
 
-/* ヘッダー左の ui-appnav(ホーム/スタジオ/編集)に版を出す。appnav は DOMContentLoaded で描かれるので、間に合わなければそこでも試す */
+/* ヘッダー左の ui-appnav(ホーム/案件/確かめる/設定)に版を出す。appnav は DOMContentLoaded で描かれるので、間に合わなければそこでも試す */
 function setAppnavVersion(){ UIKit.appnav.setVersion('v' + APP_VERSION); }
 
 /* ---------- 他のツール(実際のポートはサーバーの /api/siblings。答えない・古いサーバーなら既定のポート) ----------
-   v6: ヘッダーの「他のツール」メニューは ui-appnav(ホーム/スタジオ/編集)に置き換えたので、ここでは S.ports と
+   v6: ヘッダーの「他のツール」メニューは ui-appnav(今はホーム/案件/確かめる/設定)に置き換えたので、ここでは S.ports と
    UIKit.tools.setPaths(cut2resolve の URL・c2rBase() が使う)だけを整える */
 
 function loadSiblings(){

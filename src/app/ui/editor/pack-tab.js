@@ -107,14 +107,10 @@ function create(h){
   }
 
   /* ---------- 配信者の名前(字幕の文字の色。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 4)----------
-     手で入れたときだけ(自動では入れない)。文書ごとにこのブラウザに覚える(tx.streamer.v1。{文書の id: 名前}・新しい 300 件まで)。
-     名前 → 色の照らし合わせは入口(ui-kit の UIKit.streamer → ytt/colors.py)。パックには名前のまま渡す(cut2resolve が同じ規則で照らし合わせる) */
-  const WHO_KEY = 'tx.streamer.v1';
-  const whoMap = () => { try { const m = JSON.parse(localStorage.getItem(WHO_KEY) || '{}'); return m && typeof m === 'object' ? m : {}; } catch { return {}; } };
-  const whoFor = id => { const v = whoMap()[id]; return typeof v === 'string' ? v : ''; };
+     名前 → 色の照らし合わせは入口(ui-kit の UIKit.streamer → ytt/colors.py)。パックには名前のまま渡す(cut2resolve が同じ規則で照らし合わせる)。
+     配信者の名前は、ホームの設定に文書ごとに覚える(UIKit.streamer.autoFill。直したら文書・配信・チャンネルに。段5)。
+     以前のこのブラウザの記憶(tx.streamer.v1)を 1 回だけ移す処理は、残っている物が 0 なので 10-19 に消した */
   const whoOf = () => $('#pkWho').value.trim();
-  /* 配信者の名前は、ホームの設定に文書ごとに覚える(UIKit.streamer.autoFill。直したら文書・配信・チャンネルに。段5)。
-     以前のこのブラウザの記憶(tx.streamer.v1)は、初めて開いた文書で1回だけ移す(消さない) */
   $('#pkWho').addEventListener('ui-streamer', e => {   // 合う人が決まったら、字幕の見本(パック・カットのタブ)の色と見出しを変える
     if (disposed) return;   // 案件の画面でパネルを開いてすぐ閉じたとき、照らし合わせの答えは閉じたあとに届く = 消えた欄に書かない(RS8 C4)
     const who = e.detail;
@@ -161,11 +157,7 @@ function create(h){
     Object.assign(P, { docId, pack: null, rev: 0, preview: null, previewKey: '', previewErr: '', pv: 'idle', pvErrKey: '', err: '', readme: '', lastRes: null, notes: [], focusOpen: false });
     $('#pkReadmeText').hidden = true; $('#pkDir').value = '';
     thLoad(docId);
-    const old = docId ? whoFor(docId) : '';
-    if (old && UIKit.prefs.available()) UIKit.prefs.get(['streamer']).then(p => {
-      if (!(docId in ((p.streamer || {}).docs || {}))) return UIKit.prefs.remember('docs', docId, old);
-    }).catch(() => {}).then(() => { if (!disposed && P.docId === docId) UIKit.streamer.autoFill($('#pkWho'), { docId }); });   // 閉じた・別の文書へ移ったあとの答えは捨てる(RS8 C4)
-    else if (docId) UIKit.streamer.autoFill($('#pkWho'), { docId });
+    if (docId) UIKit.streamer.autoFill($('#pkWho'), { docId });
     else UIKit.streamer.set($('#pkWho'), '');
     if (!docId) return render();
     try {

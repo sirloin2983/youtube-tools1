@@ -128,8 +128,6 @@
 .pt-intake-settings{padding:10px 12px;margin-bottom:6px}
 .pt-intake-settings .row{gap:8px 14px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
 .pt-intake-settings .hint{margin:0 0 8px}
-.pt-intake-folder input{width:min(56ch,100%)}
-.pt-intake-nums input{width:5em}
 .pt-intake-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
 .pt-intake-list:empty{display:none}
 .pt-intake-item{display:flex;flex-direction:column;gap:2px;padding:8px 2px}
@@ -194,16 +192,10 @@
    ここで nowrap にして防ぐ(足りなければ select 側が丸ごと次の行へ。audit #2) */
 .lag{white-space:nowrap}
 /* 書き出したあとの自動の流れ(試験中の機能の中。live.auto)。ラベルは上・欄は下に並べて、狭い画面でもはみ出さない */
-.pt-live-auto{margin-top:8px}
-.pt-live-auto>summary{cursor:pointer}
-.pt-live-auto .row{margin-top:6px}
-.pt-live-auto .lag{white-space:normal;display:flex;flex-direction:column;align-items:flex-start;gap:2px;max-width:100%}
-.pt-live-auto .lag select,.pt-live-auto .lag input{max-width:100%}
 /* 一覧の非表示(UIKit.hide。2026-10-04): 「非表示にする」は行の右に控えめに(触れる・フォーカスで濃く) */
 .pt-todo-item{display:flex;align-items:center;background:var(--panel)}
 .pt-todo-item>.pt-todo-link{flex:1;min-width:0}
 .btn.pt-hide{flex:none;color:var(--ink-3)}   /* 控えめは色で(opacity は文字のコントラストを下げる。A-22)。触れると .btn.ghost:hover の --ink */
-.pt-todo-hide{margin-right:8px}
 /* 非表示ボタン: 狭い幅(390)では文字をやめてアイコンだけにして、題名の幅を確保する(S11。名前は aria-label・title) */
 .pt-hide-ic{display:none;align-items:center}
 @media (max-width:640px){

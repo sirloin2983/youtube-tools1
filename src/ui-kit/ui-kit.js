@@ -631,7 +631,7 @@
   /* ---- appnav(ホーム/案件/確かめる/設定の切り替え。ヘッダーの左。v27 = RS8 C4 でスタジオ・編集の画面を消した) ---- <nav data-ui-appnav="portal|cases|check|settings"> に中身を作る。
      どの画面も入口の直下(/・/cases・/check・/settings)= 行き先は入口の直下からの相対(homeUrl。絶対パスを書かない) */
   var APPNAV_ITEMS = [{ id: 'portal', label: 'ホーム' }, { id: 'cases', label: '案件' }, { id: 'check', label: '確かめる' }, { id: 'settings', label: '設定' }];
-  var appnavSuffix = {}, appnavVersion = '';
+  var appnavVersion = '';
   function appnavHref(id) { return id === 'portal' ? homeUrl('') : homeUrl(id); }
   function renderAppNav() {
     var navs = document.querySelectorAll('[data-ui-appnav]');
@@ -639,8 +639,7 @@
       var nav = navs[n], current = nav.getAttribute('data-ui-appnav') || '', html = '';
       for (var i = 0; i < APPNAV_ITEMS.length; i++) {
         var it = APPNAV_ITEMS[i];
-        var base = appnavHref(it.id), href = base + (appnavSuffix[it.id] || '');
-        html += '<a href="' + esc(href) + '" data-ui-appnav-item="' + it.id + '" data-ui-appnav-base="' + esc(base) + '"' +
+        html += '<a href="' + esc(appnavHref(it.id)) + '" data-ui-appnav-item="' + it.id + '"' +
           (it.id === current ? ' aria-current="page"' : '') + (it.id === 'portal' ? ' data-ui-portal' : '') + '>' + esc(it.label) + '</a>';
       }
       nav.innerHTML = html;
@@ -648,15 +647,7 @@
     }
   }
   document.addEventListener('DOMContentLoaded', renderAppNav);
-  var APPNAV_SUFFIX_RE = /^[?#]/;
   var appnav = {
-    /* 画面が開いている動画を引き継ぐ('?media=…' のように ? か # で始まる文字列だけ受け付ける) */
-    setLink: function (id, suffix) {
-      if (typeof suffix !== 'string' || !APPNAV_SUFFIX_RE.test(suffix)) return;
-      appnavSuffix[id] = suffix;
-      var els = document.querySelectorAll('[data-ui-appnav-item="' + id + '"]');
-      for (var i = 0; i < els.length; i++) els[i].setAttribute('href', (els[i].getAttribute('data-ui-appnav-base') || appnavHref(id)) + suffix);
-    },
     /* 今の場所の項目の title に版を出す */
     setVersion: function (text) {
       appnavVersion = String(text || '');

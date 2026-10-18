@@ -186,10 +186,9 @@
     return 'http://' + location.hostname + ':' + t.port + path;
   }
 
-  /* ui-appnav(ヘッダー左の「ホーム/スタジオ/編集」)の「スタジオ」「編集」の項目は、DOMContentLoaded の時点(/api/status を
-     まだ読んでいない)で作られるので、ホームに取り込まれているかどうかに関わらず既定の場所(base の '/')のままになる。
-     UIKit.tools.setPaths(v6)は渡した場所を覚えて appnav のリンクを描き直してくれる(UIKit.appnav.setVersion の title は
-     描き直しても保たれる)ので、ここでは /api/status から場所だけ取り出して渡す(href を直接書き換えない) */
+  /* 取り込んだツールの場所(/studio/・/transcribe/・/cut2resolve/)を UIKit.tools.setPaths(v6)に渡す(ツールの API の base を引く部品のため)。
+     ヘッダー左の ui-appnav は今は ホーム/案件/確かめる/設定 で、入口の画面だけを指す(以前の「スタジオ」「編集」の項目は消えた)。
+     ここでは /api/status から場所だけ取り出して渡す(href を直接書き換えない) */
   function toolPaths(tools) {
     var out = {};
     tools.forEach(function (t) { if (t.mounted && t.path) out[t.id] = t.path; });

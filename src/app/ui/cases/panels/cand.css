@@ -250,8 +250,6 @@
 .rv-seg.cand.bench{border-color:var(--ink-4);background:color-mix(in srgb,var(--ink-4) 10%,transparent)}
 .rv-seg.cand.sel{border-style:solid;background:color-mix(in srgb,var(--accent) 28%,transparent)}
 /* 設定の「ライブの録画」の中の「配信中の候補」の群(settings.js の #livePeaksBox) */
-.rv-setgroup{margin-top:10px;padding-top:8px;border-top:1px solid var(--line)}
-.rv-setgroup input[type=number]{width:8ch}
 .rv-openmsg{margin:6px 0 0}
 
 /* ---- IN / OUT / 追加(既定で閉じた「細かく決める」の中。今をマークが主役なので、こちらは控えめに) ---- */
@@ -287,8 +285,6 @@
 .rv-setrow+.rv-setrow{margin-top:6px}
 .rv-setrow input[type=range]{flex:1;min-width:120px}
 .rv-setrow select{width:auto}
-.rv-adv{margin-top:10px}
-.rv-adv>summary{font-size:12.5px;font-weight:550}
 
 .ui-km-row .rv-kmspan{flex:none;font-size:12px}   /* キー配置(UIKit.keymap)の「今をマーク」の行の長さ(見せるだけ) */
 .btn.armed{background:var(--danger-soft);border-color:color-mix(in srgb,var(--danger) 45%,transparent);color:var(--danger-ink)}
