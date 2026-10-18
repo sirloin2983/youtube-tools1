@@ -423,6 +423,14 @@ class AuditTest(unittest.TestCase):
                                               "個人のパス: src/ytt/b.py", "個人のパス: src/ytt/c.json"]))
         self.assertNotIn("個人データ・鍵の名前: config.json", B.audit(self.stage, True, home="C:\\Users\\alice", user="alice"))
 
+    def test_finds_gone_tool_names(self):
+        """前の友人のアプリの名前(dev/spec_check.GONE)が配る文に残っていたら止める"""
+        self.put("FriendApp-はじめに.txt", "前の Request" + "Sender から移る\n")
+        self.put("src/friendapp/ui/a.js", "// 送る" + "アプリと同じ\n")
+        self.put("src/friendapp/ui/b.js", "// 今の形\n")
+        bad = B.audit(self.stage, False, home="C:\\Users\\alice", user="alice")
+        self.assertEqual(sorted(bad), ["消した道具の名前: FriendApp-はじめに.txt", "消した道具の名前: src/friendapp/ui/a.js"])
+
 
 if __name__ == "__main__":
     unittest.main()

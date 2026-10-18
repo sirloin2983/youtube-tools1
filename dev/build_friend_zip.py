@@ -440,7 +440,9 @@ def tool_entries(cache, fetch, fetcher=download):
 
 # ---------------------------------------------------------------- 検査・zip・置き場所
 def audit(stage, with_key, home=None, user=None):
-    """個人データ・鍵・個人のパスが無いか。見つけた物の一覧(空なら合格)。src と直下だけ見る(python/ は公式の配布物)"""
+    """個人データ・鍵・個人のパス・消した道具の名前(dev/spec_check.GONE = 前の友人のアプリ)が無いか。見つけた物の一覧(空なら合格)。
+    src と直下だけ見る(python/ は公式の配布物)"""
+    import spec_check
     home = (home or os.path.expanduser("~")).replace("\\", "/").lower().rstrip("/")
     user = (user if user is not None else getpass.getuser()).lower()
     pats = [home, home.replace("/", "\\")]
@@ -464,6 +466,8 @@ def audit(stage, with_key, home=None, user=None):
                     text = f.read().decode("utf-8", "replace").lower().replace("\\\\", "\\")
                 if any(s and s in text for s in pats):
                     bad.append("個人のパス: " + p)
+                if spec_check.GONE.search(text):
+                    bad.append("消した道具の名前: " + p)
     return bad
 
 
