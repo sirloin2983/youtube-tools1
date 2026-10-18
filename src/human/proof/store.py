@@ -925,7 +925,7 @@ def edit_draft(tid, rows=False):
         if "動画ストリーム" in msg:
             return unavailable("no_video", "映像の無いファイル(音声だけ)は、カットとパックに使えません")
         return unavailable("draft_failed", msg)
-    out["planBeside"] = _yschemas.find_sidecar(src, ".cut-plan.json") or ""   # 作業用\ の中
+    out["planBeside"] = _yschemas.find_sidecar(src, ".cut-plan.json") or ""   # 作業用\ → 以前の置き方(動画の隣)
     return out
 
 

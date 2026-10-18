@@ -354,10 +354,9 @@ class TestClipValidation(unittest.TestCase):
         media = os.path.join(tmp, "動画_0012.mp4")
         with open(media, "wb") as f:
             f.write(b"x")
-        cj = os.path.join(tmp, P.schemas.WORK_DIR, "動画_0012.clip.json")      # 読むのも書くのも 作業用\(動画の隣は 10-19 から読まない)
-        self.assertEqual(P.clip_path_for(media), cj)
+        cj = os.path.join(tmp, "動画_0012.clip.json")                          # 以前の置き方(動画の隣)も読む
+        self.assertEqual(P.clip_path_for(media), os.path.join(tmp, P.schemas.WORK_DIR, "動画_0012.clip.json"))   # 書くのは 作業用\
         self.assertEqual(P.find_clip(media), (None, None, None))           # 無ければ何もしない
-        os.makedirs(os.path.dirname(cj))
         with open(cj, "w", encoding="utf-8-sig") as f:                     # BOM 付きでも読む
             json.dump(clip_obj(), f, ensure_ascii=False)
         clip, warn, path = P.find_clip(media, 24.5)
@@ -632,8 +631,7 @@ class TestPipelineHttp(unittest.TestCase):
         return urllib.parse.quote(v)
 
     def write_clip(self, obj, name="動画_0012.clip.json"):
-        os.makedirs(os.path.join(self.media_dir, P.schemas.WORK_DIR), exist_ok=True)   # 途中のファイルは 作業用\ だけを読む(動画の隣は 10-19 から読まない)
-        write_json(os.path.join(self.media_dir, P.schemas.WORK_DIR, name), obj)
+        write_json(os.path.join(self.media_dir, name), obj)
 
     def tearDown(self):
         for n in os.listdir(self.media_dir):
@@ -696,7 +694,7 @@ class TestPipelineHttp(unittest.TestCase):
         r = self.call("GET", "/api/clip-info?path=" + self.q(self.wav))
         self.assertEqual(r["clip"]["source"]["videoId"], "abcdefghijk")
         self.assertTrue(r["clipPath"].endswith("動画_0012.clip.json"))
-        cj = os.path.join(self.media_dir, P.schemas.WORK_DIR, "動画_0012.clip.json")
+        cj = os.path.join(self.media_dir, "動画_0012.clip.json")
         r = self.call("GET", "/api/clip-info?path=" + self.q(cj))            # ?clip= 用: .clip.json から動画を探す
         self.assertEqual(r["mediaPath"], os.path.abspath(self.wav))
         self.write_clip({"schema": "youtube-tools-clip/v1", "range": {"start": 5}})

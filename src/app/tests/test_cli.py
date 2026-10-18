@@ -204,15 +204,17 @@ class TestLearningPlaces(Base):
 
 class FakePortal:
     """入口の HTTP の偽物: 頼まれたことを並べ、GET /api/flow/runs は 1 回目は実行中・2 回目から済み。
-    refuse = submit を 400 で断る理由"""
+    old = submit の無い古い入口(POST /api/flow/submit が 404)。refuse = submit を 400 で断る理由"""
 
-    def __init__(self, final="done", interrupt=False, refuse=None):
+    def __init__(self, final="done", interrupt=False, old=False, refuse=None):
         self.port, self.calls, self.polls, self.final, self.interrupt = 8700, [], 0, final, interrupt
-        self.refuse = refuse
+        self.old, self.refuse = old, refuse
 
     def call(self, method, path, body=None):
         self.calls.append((method, path, body))
         if path == "/api/flow/submit":
+            if self.old:
+                return 404, {"error": "not_found", "message": "その操作はありません"}
             if self.refuse:
                 return 400, {"error": "bad_request", "message": self.refuse}
             return 200, {"run": {"id": "r1"}}
@@ -289,6 +291,16 @@ class TestPortal(Base):
         code, res, err = self.main(self.dummy())
         self.assertEqual((code, res["state"]), (1, "error"))
         self.assertIn("すでに実行中", err)
+
+    def test_old_portal_fails(self):
+        """submit の無い古い入口(404)には頼まない = 起動し直しを促して終了コード 1(2 段で頼む今までの形は消した)"""
+        for target in ("https://www.youtube.com/watch?v=abcdefghijk", self.dummy()):
+            portal = self.use_portal(FakePortal(old=True))
+            code, res, err = self.main(target)
+            self.assertEqual((code, res["state"]), (1, "error"), target)
+            self.assertIn("start.bat", res["error"])
+            self.assertEqual([p for p, _b in portal.posts()], ["/api/flow/submit"])
+            self.assertEqual((self.pl.acquired, portal.polls), ([], 0))
 
     def test_ctrl_c_cancels_portal_run(self):
         portal = self.use_portal(FakePortal(interrupt=True))

@@ -660,13 +660,13 @@ class TestSchemas(unittest.TestCase):
         self.assertEqual(schemas.media_folder(os.path.join("x", "a.clip.json")), os.path.abspath("x"))
         with tempfile.TemporaryDirectory() as tmp:
             v = os.path.join(tmp, "v.mp4")
-            self.assertEqual(schemas.sidecar_candidates(v, ".srt"), [os.path.join(tmp, W, "v.srt")])
+            self.assertEqual(schemas.sidecar_candidates(v, ".srt"), [os.path.join(tmp, W, "v.srt"), os.path.join(tmp, "v.srt")])
             self.assertIsNone(schemas.find_sidecar(v, ".srt"))
-            with open(os.path.join(tmp, "v.srt"), "w") as f:            # 以前の置き方(動画の隣)は 10-19 から読まない
+            with open(os.path.join(tmp, "v.srt"), "w") as f:            # 以前の置き方(動画の隣)も読む
                 f.write("1")
-            self.assertIsNone(schemas.find_sidecar(v, ".srt"))
+            self.assertEqual(schemas.find_sidecar(v, ".srt"), os.path.join(tmp, "v.srt"))
             os.makedirs(os.path.join(tmp, W))
-            with open(os.path.join(tmp, W, "v.srt"), "w") as f:         # 作業用\ の中だけ
+            with open(os.path.join(tmp, W, "v.srt"), "w") as f:         # 作業用\ が先
                 f.write("2")
             self.assertEqual(schemas.find_sidecar(v, ".srt"), os.path.join(tmp, W, "v.srt"))
             self.assertEqual(schemas.find_clip_path(v), None)
@@ -1029,7 +1029,7 @@ class TestTools(unittest.TestCase):
         self.addCleanup(shutil.rmtree, tmp, True)
         empty = os.path.join(tmp, "empty")
         os.makedirs(empty)
-        env = {"LOCALAPPDATA": tmp, "PATH": empty, "YTT_FFMPEG": "", "YTT_FFPROBE": ""}
+        env = {"LOCALAPPDATA": tmp, "PATH": empty, "TRANSCRIBE_FFMPEG": "", "YTT_FFMPEG": "", "YTT_FFPROBE": ""}
         with mock.patch.dict(os.environ, env):
             self.assertEqual((tools.media_tool("ffmpeg"), tools.media_tool("ffprobe"), tools.find_ffmpeg()), ("ffmpeg", "ffprobe", None))
             bin_dir = os.path.join(tmp, "Microsoft", "WinGet", "Packages", "Gyan.FFmpeg_x", "ffmpeg-9.0-full_build", "bin")
@@ -1043,7 +1043,7 @@ class TestTools(unittest.TestCase):
             os.makedirs(other)
             for n in ("ffmpeg.exe", "ffprobe.exe"):
                 open(os.path.join(other, n), "wb").close()
-            with mock.patch.dict(os.environ, {"YTT_FFMPEG": os.path.join(other, "ffmpeg.exe")}):   # 環境変数で決めた ffmpeg の隣の ffprobe
+            with mock.patch.dict(os.environ, {"TRANSCRIBE_FFMPEG": os.path.join(other, "ffmpeg.exe")}):   # 環境変数で決めた ffmpeg の隣の ffprobe
                 self.assertEqual(os.path.normcase(tools.media_tool("ffprobe")), os.path.normcase(os.path.join(other, "ffprobe.exe")))
 
     def test_subprocess_helpers(self):
@@ -1141,7 +1141,7 @@ class TestTools(unittest.TestCase):
         empty = os.path.join(tmp, "empty")
         os.makedirs(empty)
         env = {"LOCALAPPDATA": tmp, "PATH": empty}
-        for v in ("STUDIO_FFMPEG", "STUDIO_FFPROBE", "STUDIO_YTDLP", "YTT_FFMPEG", "YTT_FFPROBE", "YTT_YTDLP"):
+        for v in ("STUDIO_FFMPEG", "STUDIO_FFPROBE", "STUDIO_YTDLP", "YTT_FFMPEG", "YTT_FFPROBE", "YTT_YTDLP", "TRANSCRIBE_FFMPEG"):
             env[v] = ""
         with mock.patch.dict(os.environ, env):
             self.assertIsNone(tools.find_tool("ffmpeg", "STUDIO_FFMPEG"))
@@ -2150,11 +2150,11 @@ class TestNames(unittest.TestCase):
         os.makedirs(long_root)
         got = N.pick_folder(long_root, "あ" * 80, "o", "x")[0]
         self.assertEqual(got, "あ" * max(8, min(60, N.MAX_PATH_UNITS - N.path_units(long_root) - 5 - N.BASE_ROOM - N.SUFFIX_ROOM)))
-        old = os.path.join(self.tmp, "以前")                                                       # 以前の置き方(直下の印)は 10-19 から読まない
+        old = os.path.join(self.tmp, "以前")                                                       # 以前の置き方(直下の印)も読む
         os.makedirs(old)
         with open(os.path.join(old, ".studio-id"), "w", encoding="utf-8") as f:
             f.write("old\n")
-        self.assertIsNone(N.read_owner(old))
+        self.assertEqual(N.read_owner(old), "old")
         self.assertIsNone(N.read_owner(os.path.join(self.tmp, "無い")))
 
     def test_clip_names(self):

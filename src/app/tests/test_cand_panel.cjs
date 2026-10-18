@@ -511,7 +511,7 @@ test('live export: one portal request per mark, saved first, busy marks skipped,
   await ctx.startLiveExport();
   assert.equal(saved, 1, 'the studio marks are saved before asking the portal');
   assert.deepEqual(calls.map(c => c.rest), ['api/export', 'api/export'], 'the mark already being exported (c) is not sent again');
-  assert.deepEqual(plain(calls[0].body), { recorder: 'local', recording: 'R1', title: '配信', url: 'https://youtu.be/x', after: 'check',
+  assert.deepEqual(plain(calls[0].body), { recorder: 'local', recording: 'R1', title: '配信', url: 'https://youtu.be/x', after: 'check', transcribe: true,
     streamer: '兎田ぺこら', studio: { video: 'V', mark: 'a', n: 1, label: 'A', start: 1, end: 5 } });   // 設定が無い = 文字起こしまで
   assert.equal(calls[1].body.studio.n, 2);
   assert.ok(notes.at(-1).includes('書き出しの途中です'));
@@ -852,10 +852,10 @@ test('live export body: after / streamer follow the band (settings and the strea
   const ctx = load([['function liveWhoName(', '/* 録画を開いたとき'], ['function liveExportBody(', '/* ライブの録画の書き出し(']],
     { S, LV, LIVE_AFTERS: ['none', 'check', 'auto'], sortedMarks: () => v.marks });
   let b = ctx.liveExportBody(v, v.marks[0]);
-  assert.equal(b.after, 'auto'); assert.equal(b.transcribe, undefined); assert.equal(b.streamer, '兎田ぺこら');
+  assert.equal(b.after, 'auto'); assert.equal(b.transcribe, true); assert.equal(b.streamer, '兎田ぺこら');
   S.settings.liveAfter = 'none';
   b = ctx.liveExportBody(v, v.marks[0]);
-  assert.equal(b.after, 'none');
+  assert.equal(b.after, 'none'); assert.equal(b.transcribe, false);
   LV.who = { vid: 'OTHER', name: '宝鐘マリン' };
   assert.equal(ctx.liveExportBody(v, v.marks[0]).streamer, '', 'the name for another recording is not used');
   LV.who = null;

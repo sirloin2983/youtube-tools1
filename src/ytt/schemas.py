@@ -196,7 +196,7 @@ def make_mach(rows, rev=1, keys=None, speakers=None):
 # ---------- 途中のファイルの置き場所(2026-09-27。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 1) ----------
 # 出力先(動画のフォルダ)の直下に並べるのはパックと元動画(書き出した切り抜き)だけ(ユーザー決定)。それ以外の途中のファイル
 # (.clip.json・.edit.json・_edit.mp4・.transcript.json・.srt・.cut-plan.json・.studio-id)は下のフォルダ「作業用」に書く。
-# 以前の置き方(動画の隣)は 10-19 から読まない(書き出し先に 0 本)。読む側は 作業用/ だけを見る(find_sidecar)。
+# 以前の置き方(動画の隣)のファイルは動かさない。読む側は「作業用/ → 動画の隣」の順に探す(find_sidecar)。
 # cut2resolve(ytt を読まないコマンドもある)は cut2resolve_core.WORK_DIR に同じ名前を持つ(test_serve が同じか確かめる)
 WORK_DIR = "作業用"
 
@@ -219,8 +219,9 @@ def sidecar_path(media_path, suffix):
 
 
 def sidecar_candidates(media_path, suffix):
-    """途中のファイルを読む場所の候補 = [作業用/ の中](以前の置き方の動画の隣は 10-19 から読まない)"""
-    return [sidecar_path(media_path, suffix)]
+    """途中のファイルを読む場所の候補(作業用/ → 以前の置き方 = 動画の隣)"""
+    new, old = sidecar_path(media_path, suffix), os.path.splitext(os.path.abspath(media_path))[0] + suffix
+    return [new] if os.path.normcase(new) == os.path.normcase(old) else [new, old]
 
 
 def find_sidecar(media_path, suffix):

@@ -9,8 +9,8 @@
 - 1 つの作業データに ② は 1 つ(flow/placement の .flow.lock):
   - 入口(start.bat の ②)が動いていれば、その入口に頼んで待つ = ② の口 POST /api/flow/submit に封筒 + 束を 1 回(RS7-1 S4。--spec・--force・--from も
     入口でそのまま効く = 入口なしで動かしたときと同じ束)。URL = 解析から(--from analyze か無し)か書き出しから(--from export)・動画ファイル = 文字起こし → パック
-    (--from pack = 文字起こし済みの文書でパックだけ。届けない)。
-    入口の場所は lock の port。合言葉は入口の画面の HTML の meta から読む
+    (--from pack = 文字起こし済みの文書でパックだけ。届けない)。submit の無い古い入口(404)には頼まない(起動し直しを促して失敗で終わる)。
+    入口の場所は lock の port(無ければ .runtime/portal.json で、同じ作業データの入口だけ)。合言葉は入口の画面の HTML の meta から読む
   - 動いていなければ、自分で lock を取って ① を直に動かす(flow/tools の LocalTools。③ の人の部品は、学習のもとの文書があるときだけ学習した置換・用語を読むために遅延で読む = 無ければ読まない。RS7-1 F-k)。
     URL も同じ(RS8 の「URL も CLI で」。B-3 のあと): 配信の読み・解析・採用・書き出しは ② flow/studiobook の LocalStudio(スタジオなしの台帳)が、
     スタジオの作業データの data.json と案件の 候補.json・採用.json へスタジオの Store と同じ形で書く(入口をあとで起動すると画面に出る)。
@@ -36,7 +36,7 @@ if SRC not in sys.path:
 from flow import order as _order, keys as _keys, learning as _learning, machine as _machine, placement as _flow_placement, run as _run, spec as _spec, tools as _tools, wire as _wire  # noqa: E402
 from pipeline.transcribe import worker_client as _worker_client  # noqa: E402
 from flow import studiobook as _studiobook  # noqa: E402  スタジオなしの配信の台帳(URL を入口なしで。RS8)
-from ytt import datadir as _datadir, docloc as _docloc, fsio as _fsio, runtime as _runtime, schemas as _schemas  # noqa: E402
+from ytt import datadir as _datadir, docloc as _docloc, fsio as _fsio, layout as _layout, runtime as _runtime, schemas as _schemas  # noqa: E402
 from ytt import studio_env as _studio_env, tools as _ytools, workdata as _workdata, yturl as _yturl  # noqa: E402
 
 EXIT_OK, EXIT_FAIL, EXIT_USAGE, EXIT_BUSY, EXIT_INTERRUPT = 0, 1, 2, 4, 130   # 3(URL なのに入口が無い)は RS8 で欠番
@@ -291,6 +291,24 @@ def portal_at(port):
     return Portal(port)
 
 
+def _same_root(a, b):
+    norm = lambda p: os.path.normcase(os.path.abspath(p)) if p else None
+    return norm(a) == norm(b)
+
+
+def runtime_portal(root):
+    """lock を持たない入口(.flow.lock より前の版)を .runtime/portal.json から探す。同じ作業データの入口だけ(/api/status の dataDir)"""
+    info = _runtime.read_runtime(_runtime.runtime_dir(_layout.tool_dir("app")), "portal")
+    p = portal_at(info["port"]) if info else None
+    if p is None:
+        return None
+    try:
+        st, obj = p.call("GET", "/api/status")
+    except PortalError:
+        return None
+    return p if st == 200 and _same_root(obj.get("dataDir"), root) else None
+
+
 def _wait_portal_run(portal, rid, prog):
     """入口のまとめて実行 1 つが終わるまで待つ -> その public。Ctrl+C なら入口の実行も取り消して上げる"""
     lost = 0
@@ -328,10 +346,12 @@ def envelope_for(kind, target, title, bundle=None):
 
 
 def delegate(portal, kind, target, bundle, title, prog):
-    """入口に頼んで待つ -> (結果の辞書, 終了コード)。② の口 submit に封筒 + 束を 1 回(RS7-1 S4)。断られたら PortalError"""
+    """入口に頼んで待つ -> (結果の辞書, 終了コード)。② の口 submit に封筒 + 束を 1 回(RS7-1 S4)。submit の無い古い入口(404)は PortalError"""
     prog.line("入口(ポート %d)が動いているので、入口に頼みます" % portal.port)
     env = envelope_for(kind, target, title, bundle)
     st, res = portal.call("POST", "/api/flow/submit", {"envelope": env, "spec": bundle})
+    if st == 404:
+        raise PortalError("入口の版が古く、コマンドからの依頼を受けられません(入口を「すべて終了」→ start.bat で起動し直してください)")
     if st != 200:
         raise PortalError("入口に断られました: %s" % (res.get("message") or "HTTP %d" % st))
     rid = (res.get("run") or {}).get("id") if isinstance(res.get("run"), dict) else None
@@ -481,14 +501,17 @@ def dispatch(kind, target, bundle, title, root, prog):
     """入口が動いていれば頼む・無ければ自分で(動画ファイルも URL も)-> (結果, 終了コード)"""
     pl = _placement()
     info = pl.lock_info(data_root=root)
-    if not info:
-        return run_local(target, bundle, title, root, prog, kind)
-    portal = portal_at(info.get("port")) if info.get("port") else None
-    if portal is None:
-        if info.get("port"):
-            return _failed("入口(pid %s・ポート %s)が応答しません。少し待ってからやり直してください" % (info.get("pid"), info.get("port")), prog), EXIT_BUSY
-        return _busy(info, prog)
-    return delegate(portal, kind, target, bundle, title, prog)
+    if info:
+        portal = portal_at(info.get("port")) if info.get("port") else None
+        if portal is None:
+            if info.get("port"):
+                return _failed("入口(pid %s・ポート %s)が応答しません。少し待ってからやり直してください" % (info.get("pid"), info.get("port")), prog), EXIT_BUSY
+            return _busy(info, prog)
+    else:
+        portal = runtime_portal(root)
+    if portal is not None:
+        return delegate(portal, kind, target, bundle, title, prog)
+    return run_local(target, bundle, title, root, prog, kind)
 
 
 def _interrupt(signum, frame):

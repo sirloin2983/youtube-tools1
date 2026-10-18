@@ -1713,7 +1713,7 @@ function liveExportBody(v, m){
   const n = sortedMarks().findIndex(x => x.id === m.id) + 1;
   const after = LIVE_AFTERS.includes(S.settings.liveAfter) ? S.settings.liveAfter : 'check';
   return { recorder: v.live.recorder, recording: v.live.recording, title: v.title || '', url: v.live.url || '',
-    after,   // 帯の「書き出したあと」(入口の書き出しがまとめて実行へ渡す。スタジオからは頼まない = 二重にしない)
+    after, transcribe: after !== 'none',   // 帯の「書き出したあと」(入口の書き出しがまとめて実行へ渡す。スタジオからは頼まない = 二重にしない)。transcribe は以前の入口の形
     streamer: liveWhoName(v),   // 配信者の名前(字幕の色)。帯の「配信者」= 覚えた名前かチャンネル名から。空 = まとめて実行が決める(たいてい既定の色)
     studio: { video: v.id, mark: m.id, n, label: m.label || '', start: m.start, end: m.end } };
 }

@@ -19,7 +19,7 @@ SUFFIX_ROOM = 36    # base のあとに付く最長の名前(作業用/ + _edit.
 BASE_ROOM = 26      # 01_00h00m00s-00h00m00s(22文字)+ 連番 _NN の分。ラベルは余った分だけ付ける
 # 書きかけの印(2026-09-30。設計レビュー studio の 4)。拡張子は .mp4 のまま(ffmpeg は拡張子で形式を決める)
 PARTIAL = ".partial"
-OWNER_FILE = ".studio-id"   # フォルダの持ち主の印(作業用/ の中。以前の置き方のフォルダの直下は 10-19 から読まない = 書き出し先に 0)
+OWNER_FILE = ".studio-id"   # フォルダの持ち主の印(作業用/ の中。以前の置き方はフォルダの直下)
 # Windows の予約名(拡張子を付けても・後ろに空白があっても使えない)。上付き数字の COM¹ などと CONIN$ / CONOUT$ も予約されている
 _RES_DIGITS = [str(i) for i in range(1, 10)] + ["¹", "²", "³"]
 WIN_RESERVED = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"} | {"COM" + d for d in _RES_DIGITS} | {"LPT" + d for d in _RES_DIGITS}
@@ -56,12 +56,14 @@ def trim_units(s, n):
 
 # ---------- フォルダの持ち主の印 ----------
 def read_owner(folder):
-    """印を読む(作業用/ の中)。無ければ None"""
-    try:
-        with open(os.path.join(folder, WORK_DIR, OWNER_FILE), encoding="utf-8") as f:
-            return f.read().strip()
-    except OSError:
-        return None
+    """印を読む(作業用/ → 以前の置き方 = フォルダの直下)。無ければ None"""
+    for m in (os.path.join(folder, WORK_DIR, OWNER_FILE), os.path.join(folder, OWNER_FILE)):
+        try:
+            with open(m, encoding="utf-8") as f:
+                return f.read().strip()
+        except OSError:
+            continue
+    return None
 
 
 def write_owner(folder, owner):
