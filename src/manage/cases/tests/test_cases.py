@@ -155,13 +155,13 @@ class TestFullAuto(Base):
         self.assertIsNone(cases.snapshot(self.root, self.env)["cases"][0]["clips"][2]["auto"])
         self.assertFalse(hasattr(cases, "remember_auto"), "案件へ写す口は消した(ds1)")
 
-    def test_old_case_marks_still_read(self):
-        """前の版が案件の auto[マーク] に書いた origin "full"・notSent は読むだけで今までどおり出る(ds1)"""
+    def test_old_case_marks_not_read(self):
+        """前の版 0.84〜0.86 が案件の auto[マーク] に書いた origin "full"・notSent は読まない(10-19。本物の記録に 0 本)"""
         self.studio({VID: {"kind": "youtube", "title": "配信A", "marks": [mark("m1", "exported", self.clip1)]}})
         cases._write(cases.locations(self.root, self.env)["cases"],
                      {VID: {"auto": {"m1": {"origin": "full", "notSent": {"code": "stale", "text": "古い", "at": 5}}}}})
         m1 = cases.snapshot(self.root, self.env)["cases"][0]["clips"][0]
-        self.assertEqual((m1["auto"]["origin"], m1["review"]["notSent"]), ("full", {"code": "stale", "text": "古い", "at": 5}))
+        self.assertIsNone(m1["auto"])
 
 
 class TestCaseFile(Base):

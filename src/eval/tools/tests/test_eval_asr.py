@@ -102,7 +102,7 @@ class EvalAsrTest(unittest.TestCase):
         self.assertEqual(res["summary"]["byTag"]["声が重なる"]["errs"], 0)
         self.assertTrue(all(g["start"] < 30 for g in res["groups"]))    # 未校正の行は数えない
         self.assertEqual(self.snapshot(), before)                       # 文書は書き換えない
-        allres = quiet(E.main, ["stored", "--data", self.data, "--scope", "all", "--no-save"])
+        allres = quiet(E.main, ["stored", "--data", self.data, "--source", "all", "--no-save"])
         self.assertEqual(sorted(allres["meta"]["docs"]), ["aaaaaaaaaaa1", "bbbbbbbbbbb2"])
         # 時刻によらない数え方(段2-3): 数えたまとまりの文字を通しでつないで比べる。まとまりの数え方と同じ文字数・誤りはそれ以下
         dt = res["summary"]["docText"]
@@ -466,22 +466,22 @@ class EvalAsrSelectTest(unittest.TestCase):
 
     def test_since_until(self):
         every = ["dddddddddd01", "dddddddddd03", "dddddddddd04", "eeeeeeeeee01", "eeeeeeeeee02"]   # 時期が分からない dddddddddd02 は、時期の指定がなければ数える
-        res = self.stored("--scope", "all")
+        res = self.stored("--source", "all")
         self.assertEqual(self.ids(res), sorted(every + ["dddddddddd02"]))
         # --since: その日を含む。eeeeeeeeee01 は行の proofedAt の最大(09-10)で決まる(最初の行 09-01 ではない)
-        res = self.stored("--scope", "all", "--since", "2026-09-10")
+        res = self.stored("--source", "all", "--since", "2026-09-10")
         self.assertEqual(self.ids(res), ["dddddddddd01", "dddddddddd04", "eeeeeeeeee01", "eeeeeeeeee02"])
         self.assertEqual((res["meta"]["since"], res["meta"]["selection"]["unknownTime"], res["meta"]["selection"]["excludedByTime"]), ("2026-09-10", 1, 1))
-        res = self.stored("--scope", "all", "--since", "2026-09-11")
+        res = self.stored("--source", "all", "--since", "2026-09-11")
         self.assertNotIn("eeeeeeeeee01", self.ids(res))
         # --until: その日の終わりまで含む(updatedAt が 10-02 の昼でも 10-02 を含む)
-        res = self.stored("--scope", "all", "--until", "2026-10-02")
+        res = self.stored("--source", "all", "--until", "2026-10-02")
         self.assertEqual(self.ids(res), ["dddddddddd03", "eeeeeeeeee01", "eeeeeeeeee02"])
-        res = self.stored("--scope", "all", "--since", "2026-09-11", "--until", "2026-10-02")
+        res = self.stored("--source", "all", "--since", "2026-09-11", "--until", "2026-10-02")
         self.assertEqual(self.ids(res), ["eeeeeeeeee02"])
-        self.assertEqual(self.stored("--scope", "all", "--since", "2026-10-05")["meta"]["docs"], [])
+        self.assertEqual(self.stored("--source", "all", "--since", "2026-10-05")["meta"]["docs"], [])
         # 結果の「正解のデータの版」は選んだ文書で決まる(時期を変えれば別の正解 = compare が警告する)
-        self.assertNotEqual(res["meta"]["dataFingerprint"], self.stored("--scope", "all")["meta"]["dataFingerprint"])
+        self.assertNotEqual(res["meta"]["dataFingerprint"], self.stored("--source", "all")["meta"]["dataFingerprint"])
         with self.assertRaises(SystemExit):
             self.stored("--since", "10/01")
 
@@ -492,7 +492,6 @@ class EvalAsrSelectTest(unittest.TestCase):
         self.assertEqual(self.ids(self.stored("--source", "eval")), ["eeeeeeeeee01", "eeeeeeeeee02"])
         daily = ["dddddddddd01", "dddddddddd02", "dddddddddd03", "dddddddddd04"]
         self.assertEqual(self.ids(self.stored("--source", "daily")), daily)
-        self.assertEqual(self.ids(self.stored("--scope", "train")), daily)                                             # 古い --scope も同じ
         self.assertEqual(self.ids(self.stored("--source", "all")), sorted(daily + ["eeeeeeeeee01", "eeeeeeeeee02"]))
         with self.assertRaises(SystemExit):   # 友人の zip の道(--source friend)は 10-15 に消した
             quiet(E.main, ["stored", "--data", self.data, "--no-save", "--source", "friend"])

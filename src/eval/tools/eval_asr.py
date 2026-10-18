@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """文字起こしの精度を、校正済みの文字起こし(評価用)で測る道具(文字起こしの改善の計画 段0-2。notes:plan/line-b-transcription.md(付録))。
 
-    python src/eval/tools/eval_asr.py stored  [--scope eval|train|all] [--label 名前]
+    python src/eval/tools/eval_asr.py stored  [--source eval|daily|all] [--label 名前]
         保存してある機械の出力(original)と、人が直した行を比べる(認識はしない。今の基準)
-    python src/eval/tools/eval_asr.py run     [--model large-v3] [--vad normal] [--beam 5] [--glossary "トワ、スバル"] [--context none|auto] [--temp0] [--scope eval] [--label 名前]
+    python src/eval/tools/eval_asr.py run     [--model large-v3] [--vad normal] [--beam 5] [--glossary "トワ、スバル"] [--context none|auto] [--temp0] [--source eval] [--label 名前]
         評価用の音声を、指定のモデル・設定で認識し直して比べる(指定しない項目は、文字起こしの今の設定 settings.json のまま)。
         --repeat N = N 回認識して、全体の CER が中央の回を代表にする(温度のやり直しありは回ごとにぶれるので 3 回。既定 1。meta.repeat に各回の CER と幅)
         --context auto = 配信ごとの文脈(出る人の名前と呼び名。計画 段1-2)を文書ごとに作って渡す(既定 none = 渡さない = 基準)。
@@ -19,7 +19,7 @@
 
   どのモードでも(マスタープラン Q3。notes:plan/line-bc-master-plan.md の 2 の原則 4・8 のリスク):
     --source eval|daily|all          測る文書の出どころ。eval = 評価用(既定。今までどおり)/ daily = 普段の校正済みの文書(評価用以外)/
-                                     all = 評価用 + 普段。--scope(eval|train|all)は今までどおり使える。
+                                     all = 評価用 + 普段。古い --scope は 10-19 に消した(--source を使う)。
                                      友人の送る用 zip の道(--source friend・--intake)は 10-15 に消した(OPT-E1 9d-1。使い道が無くなった)
     --since YYYY-MM-DD --until YYYY-MM-DD   時期で分ける(その日を含む)。文書の時刻 = 校正済みの行の proofedAt(初めて校正済みにした時刻)の最大。
                                      無い文書は updatedAt。どちらも無い文書は、時期を指定したときは数えない
@@ -154,12 +154,11 @@ def reviewed_sec(d):
 
 # ---------------------------------------------------------------- 出どころ(評価用・普段)・時期・下書きのエンジン
 
-SCOPE_SOURCE = {"eval": "eval", "train": "daily", "all": "own"}          # 古い --scope -> 出どころ(own = 評価用 + 普段)
-SOURCE_SCOPE = {"eval": "eval", "daily": "train", "own": "all", "all": "all"}   # 出どころ -> 結果の meta.scope(古い値のまま。all は今は own と同じ)
+SOURCE_SCOPE = {"eval": "eval", "daily": "train", "all": "all"}   # 出どころ -> 結果の meta.scope(前の結果と比べられるように古い値のまま)
 
 
 def resolve_source(args):
-    return getattr(args, "source", None) or SCOPE_SOURCE[args.scope]
+    return getattr(args, "source", None) or "eval"
 
 
 def doc_time(d):
@@ -1025,11 +1024,10 @@ def cmd_list(data):
 
 
 def add_select_args(p, label_help="結果に付ける名前", no_save_help="結果を保存しない"):
-    """測る文書の選び方(--data・--scope・--source・--reviewed・--since・--until・--docs)と --label・--no-save。eval_cloud も同じ"""
+    """測る文書の選び方(--data・--source・--reviewed・--since・--until・--docs)と --label・--no-save。eval_cloud も同じ"""
     p.add_argument("--data", "--data-dir", dest="data", help="文字起こしの作業データのフォルダ(既定 %%LOCALAPPDATA%%\\youtube-tools\\transcribe)")
-    p.add_argument("--scope", choices=("eval", "train", "all"), default="eval", help="eval = 評価用(既定)/ train = 評価用以外 / all = 自分の文書すべて。--source が優先")
     p.add_argument("--source", choices=("eval", "daily", "all"),
-                   help="測る文書の出どころ(--scope より優先)。eval = 評価用(既定)/ daily = 普段の校正済み(評価用以外)/ all = 全部")
+                   help="測る文書の出どころ。eval = 評価用(既定)/ daily = 普段の校正済み(評価用以外)/ all = 全部")
     p.add_argument("--reviewed", choices=("only", "prefer", "ignore"),
                    help="確かめ済み(動画を全部聞いて直した評価用の文書)の扱い。確かめ済みは動画全体が正解(人の行の無い所の機械の文字 = 余分・機械の無い所の人の行 = 抜け)。"
                         "only = 確かめ済みだけ(--source eval で --docs なしの既定。0 本なら今までの選び方に戻す)/ prefer = 確かめ済みは全体で・ほかも混ぜる(それ以外の既定)/ ignore = 印を見ない")
