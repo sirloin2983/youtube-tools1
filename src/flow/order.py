@@ -12,7 +12,7 @@ order(kind, ...) の欄(どれも無ければ既定):
     weights → analyze.w* + run.requested "weights" / cut → pack.cut + "cut" / video_tracks → pack.videoTracks + "videoTracks" /
     speakers {count, names, styles} → transcribe.diarize(人数)+ hints.people(名前と色)/ engine・model → transcribe.engine・model + "engine"・"model" /
     force → run.force / repack → run.repack / streamer → hints.streamer(None = 自動・"" = 色なし)
-  届け方: request_id・deliver_dir・batch・pool・origin・tag / ほか: note・eid(封筒の id。None = 新しく 10 桁の 16 進 = 実行の id にもなる)・created(秒)
+  届け先: request_id・deliver_dir・pool・origin・tag / ほか: eid(封筒の id。None = 新しく 10 桁の 16 進 = 実行の id にもなる)・created(秒)
 形が違えば理由つきの ValueError(封筒の検査は envelope.check)。
 
 純粋(ファイル・ネットワークを読まない)。import してよいのは標準ライブラリ・ytt・同じ flow の envelope・spec だけ。
@@ -103,7 +103,7 @@ def spec_diff(top=None, ranges=None, weights=None, cut=None, video_tracks=None, 
 def order(kind, video_id=None, url=None, path=None, doc_id=None, title="", duration=None, fresh=None, marks=None, normalize=False, recorder=None,
           from_=None, upto="pack", on_fail=None, top=None, ranges=None, weights=None, cut=None, video_tracks=None, speakers=None,
           engine=None, model=None, force=False, repack=False, streamer=None,
-          request_id=None, deliver_dir=None, batch=None, pool=None, origin=None, tag=None, note="", eid=None, created=None):
+          request_id=None, deliver_dir=None, pool=None, origin=None, tag=None, eid=None, created=None):
     """欄 -> (封筒(版 2。検査済み), 束の差分)。表は先頭の説明。題は封筒の上限で切る。形が違えば理由つきの ValueError"""
     title = str(title or "")[:_envelope.TITLE_MAX]
     if kind in ("url", "live"):
@@ -126,9 +126,8 @@ def order(kind, video_id=None, url=None, path=None, doc_id=None, title="", durat
     else:
         raise ValueError("封筒.kind は %s のどれかにしてください" % "・".join(_envelope.KINDS))
     env = {"id": eid or new_id(), "kind": kind, "input": inp, "requestId": request_id or None,
-           "deliver": {"dir": deliver_dir or None, "batch": batch if _envelope.batch_ok(batch) else None, "pool": _envelope.clean_pool(pool),
-                       "origin": origin, "tag": tag or None},
-           "note": str(note or "")[:_envelope.NOTE_MAX], "specVersion": 2}
+           "deliver": {"dir": deliver_dir or None, "pool": _envelope.clean_pool(pool), "origin": origin, "tag": tag or None},
+           "specVersion": _envelope.SPEC_VERSION}
     if created is not None:
         env["createdAt"] = int(created * 1000)
     env = _envelope.check(env)

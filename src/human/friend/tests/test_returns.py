@@ -114,22 +114,27 @@ class TestZip(Base):
         self.assertTrue(os.path.isfile(p))
 
 
+G = '{"v":2,"id":"g1","judge":"good","at":%s}'   # 時刻だけ変える判断
+
+
 class TestVerdict(Base):
     def test_verdict_stored_beside_request(self):
         self.good_zip()
         make_zip(os.path.join(self.inbox, "%s__パック1.verdict.json" % RID), {})   # 後で上書き
         vp = os.path.join(self.inbox, "%s__パック1.verdict.json" % RID)
-        testkit.write_json(vp, {"verdict": "made_video", "at": 1760000000000})
+        testkit.write_json(vp, {"v": 2, "id": "g1", "judge": "good", "at": 1760000000000})
         old = time.time() - 600
         os.utime(vp, (old, old))
         res = self.scan()
         self.assertEqual(sorted((r["kind"], r["state"]) for r in res), [("run", "accepted"), ("verdict", "accepted")])
         req = R.iter_requests(self.app)[0]
-        self.assertEqual(req["verdicts"], {"パック1": {"verdict": "made_video", "at": 1760000000000}})
+        self.assertEqual(req["verdicts"], {"パック1": {"judge": "good", "at": 1760000000000}})
         self.assertTrue(os.path.isfile(os.path.join(self.inbox, R.DONE_DIR, time.strftime("%Y-%m-%d"), os.path.basename(vp))))
 
     def test_bad_verdict_rejected(self):
-        for name, body in (("%s__p.verdict.json" % RID, '{"verdict": "great"}'), ("%s__p.verdict.json" % RID, "nope"), ("no-sep.verdict.json", '{"verdict":"keep"}')):
+        for name, body in (("%s__p.verdict.json" % RID, '{"v":2,"id":"a","judge":"great"}'), ("%s__p.verdict.json" % RID, "nope"),
+                           ("%s__p.verdict.json" % RID, '{"verdict":"keep","at":5}'),   # v 2 でない形(前のアプリの形)は断る
+                           ("no-sep.verdict.json", '{"v":2,"id":"a","judge":"good"}')):
             p = os.path.join(self.inbox, name)
             with open(p, "w", encoding="utf-8") as f:
                 f.write(body)
@@ -140,30 +145,30 @@ class TestVerdict(Base):
 
 
     def test_verdict_origin(self):
-        """D-SEND 2-7: 採否の任意の origin(request・auto)を受けて並べた verdicts\\ と一覧に残す。知らない値・無い = 鍵ごと無し(古い形)"""
-        self.assertEqual(R.parse_verdict(b'{"verdict":"reject","at":5,"origin":"auto"}'), {"verdict": "reject", "at": 5, "origin": "auto"})
-        self.assertNotIn("origin", R.parse_verdict(b'{"verdict":"reject","at":5,"origin":"x"}'))
+        """D-SEND 2-7: 判断の任意の origin(request・auto)を受けて並べた verdicts\\ と一覧に残す。知らない値・無い = 鍵ごと無し"""
+        self.assertEqual(R.parse_verdict(b'{"v":2,"id":"a","judge":"good","at":5,"origin":"auto"}'), {"v": 2, "judge": "good", "id": "a", "at": 5, "origin": "auto"})
+        self.assertNotIn("origin", R.parse_verdict(b'{"v":2,"id":"a","judge":"good","at":5,"origin":"x"}'))
         for name, origin in (("p1", "auto"), ("p2", None)):
             vp = os.path.join(self.inbox, "%s__%s.verdict.json" % (RID, name))
-            testkit.write_json(vp, dict({"verdict": "keep", "at": 1760000000000}, **({"origin": origin} if origin else {})))
+            testkit.write_json(vp, dict({"v": 2, "id": name, "judge": "good", "at": 1760000000000}, **({"origin": origin} if origin else {})))
             os.utime(vp, (time.time() - 600,) * 2)
         self.scan()
-        self.assertEqual(R.iter_requests(self.app)[0]["verdicts"], {"p1": {"verdict": "keep", "at": 1760000000000, "origin": "auto"},
-                                                                    "p2": {"verdict": "keep", "at": 1760000000000}})
+        self.assertEqual(R.iter_requests(self.app)[0]["verdicts"], {"p1": {"judge": "good", "at": 1760000000000, "origin": "auto"},
+                                                                    "p2": {"judge": "good", "at": 1760000000000}})
 
     def test_parse_verdict(self):
         """正常な形・配列は断る。at が大きすぎる・無限・NaN・0 以下・数でない = 時刻なし(前は大きすぎる at で OSError / OverflowError になり、送り返し\\ に残り続けた。9e-1)。
         大きすぎる at の採否も受付済みへ片付け、送り返しに残さない"""
-        self.assertEqual(R.parse_verdict(b'{"verdict":"keep","at":5}'), {"verdict": "keep", "at": 5})
+        self.assertEqual(R.parse_verdict(b'{"v":2,"id":"a","judge":"good","at":5}'), {"v": 2, "judge": "good", "id": "a", "at": 5})
         with self.assertRaises(ValueError):
             R.parse_verdict(b"[]")
         for raw in ('1e15', '1000000000000000', 'Infinity', '-Infinity', 'NaN', '0', '-5', '"5"', 'true', 'null'):
-            self.assertIsNone(R.parse_verdict(('{"verdict":"keep","at":%s}' % raw).encode())["at"], raw)
-        self.assertEqual(R.parse_verdict(b'{"verdict":"keep","at":1760000000000.0}')["at"], 1760000000000)
+            self.assertIsNone(R.parse_verdict((G % raw).encode())["at"], raw)
+        self.assertEqual(R.parse_verdict(b'{"v":2,"id":"g1","judge":"good","at":1760000000000.0}')["at"], 1760000000000)
         vp = os.path.join(self.inbox, "%s__p.verdict.json" % RID)
         for raw in ('1e15', 'Infinity'):
             with open(vp, "w", encoding="utf-8") as f:
-                f.write('{"verdict":"keep","at":%s}' % raw)
+                f.write(G % raw)
             os.utime(vp, (time.time() - 600,) * 2)
             self.assertEqual([r["state"] for r in self.scan()], ["accepted"], raw)
             self.assertFalse(os.path.exists(vp), raw)
@@ -174,7 +179,7 @@ class TestVerdict(Base):
         from unittest import mock
         vp = os.path.join(self.inbox, "%s__p.verdict.json" % RID)
         with open(vp, "w", encoding="utf-8") as f:
-            f.write('{"verdict":"keep","at":5}')
+            f.write(G % 5)
         os.utime(vp, (time.time() - 600,) * 2)
         with mock.patch.object(R, "parse_verdict", side_effect=OSError(13, "busy")):
             self.assertEqual(self.scan(), [])
@@ -187,9 +192,9 @@ class TestVerdict(Base):
         with open(os.path.splitext(failed)[0] + ".理由.txt", encoding="utf-8-sig") as f:
             self.assertIn("OverflowError", f.read())
 
-    def test_reject_of_dropbox_pack_discards_like_feedback(self):
-        """新しい友人のアプリ(F2-3)は Dropbox で届けたパックの要らないも .verdict.json(zip = Dropbox の zip の名前)で返す
-        = .feedback.json と同じ片付け(feedback)へ。keep・zip の無い物(友人の PC で作った物)・片付けの失敗は採否の受け取りを止めない"""
+    def test_bad_of_dropbox_pack_discards(self):
+        """Dropbox で届けたパックの bad・unknown(zip = Dropbox の zip の名前)は片付け(feedback)へ。good・zip の無い物(友人の PC で作った物)・
+        片付けの失敗は判断の受け取りを止めない"""
         seen = []
 
         def fb(d):
@@ -197,8 +202,9 @@ class TestVerdict(Base):
             if d["zip"] == "boom.zip":
                 raise OSError("busy")
             return {"ok": True, "summary": "片付けた"}
-        bodies = {"a": '{"verdict":"reject","at":5,"zip":"%s__a.zip","origin":"auto"}' % RID, "b": '{"verdict":"keep","at":5,"zip":"x.zip"}',
-                  "c": '{"verdict":"reject","at":5,"zip":"p_pack"}', "d": '{"verdict":"reject","at":5}', "e": '{"verdict":"reject","at":5,"zip":"boom.zip"}'}
+        bodies = {"a": '{"v":2,"id":"a","judge":"unknown","at":5,"zip":"%s__a.zip","origin":"auto"}' % RID, "b": '{"v":2,"id":"b","judge":"good","at":5,"zip":"x.zip"}',
+                  "c": '{"v":2,"id":"c","judge":"unknown","at":5,"zip":"p_pack"}', "d": '{"v":2,"id":"d","judge":"unknown","at":5}',
+                  "e": '{"v":2,"id":"e","judge":"bad","reason":"cut","at":5,"zip":"boom.zip"}'}
         for name, body in bodies.items():
             vp = os.path.join(self.inbox, "%s__%s.verdict.json" % (RID, name))
             with open(vp, "w", encoding="utf-8") as f:
@@ -243,7 +249,7 @@ class TestRoundTrip(Base):
 
 
 class TestJudgments(Base):
-    """送り返しの採否を人の判断の記録(judgments)に: keep → adopt・reject → reject・made_video → made_video。by auto は書かない。届けた記録のパックは名前で引く"""
+    """送り返しの判断を人の判断の記録(judgments)に。届けた記録のパックは名前で引く"""
 
     def deliver(self, pack, mid):
         run = types.SimpleNamespace(request_id=RID, id="r1", video_id="VID", title="配信")
@@ -256,44 +262,20 @@ class TestJudgments(Base):
             f.write(body)
         os.utime(p, (time.time() - 600,) * 2)
 
-    def test_verdicts_are_judged(self):
-        self.deliver("パック1", "m1")
-        self.deliver("パック2", "m2")
-        self.verdict("パック1", '{"verdict":"keep","at":1760000000000}')
-        self.verdict("パック2", '{"verdict":"reject","at":1760000000001}')
-        self.verdict("パック3", '{"verdict":"made_video","at":1760000000002}')   # 届けた記録に無い = 配信・マークを空にしてパック名で残す
-        self.scan()
-        rows = J.rows(self.app)
-        self.assertEqual(sorted((r["what"], r["markId"], r["videoId"], r["who"], r["via"], r["origin"]) for r in rows),
-                         [("adopt", "m1", "VID", "friend", "friend_verdict", "request"), ("made_video", "", "", "friend", "friend_verdict", "request"),
-                          ("reject", "m2", "VID", "friend", "friend_verdict", "request")])
-        self.assertEqual([x["ref"]["pack"] for x in rows if not x["markId"]], ["パック3"])
-        r = [x for x in rows if x["markId"] == "m1"][0]
-        self.assertEqual(r["key"], "vd:%s:パック1:1760000000000" % RID)
-        self.assertEqual((r["ref"]["pack"], r["ref"]["zip"], r["ref"]["runId"], r["ref"]["requestId"]), ("パック1", "%s__r1.zip" % RID, "r1", RID))
-        self.assertEqual(sorted(R.iter_requests(self.app)[0]["verdicts"]), ["パック1", "パック2", "パック3"], "採否の記録は今のまま残す")
-
-    def test_auto_is_not_judged(self):
-        self.deliver("パック1", "m1")
-        self.verdict("パック1", '{"verdict":"reject","at":1760000000000,"by":"auto"}')
-        self.scan()
-        self.assertEqual(J.rows(self.app), [], "3 日で自動の要らないは人の判断ではない")
-        self.assertIn("パック1", R.iter_requests(self.app)[0]["verdicts"])
-
     def test_missing_mark_or_pack_is_kept_by_pack_name(self):
         """マークの分からないパック(古い届けた記録・届けた記録に無い)は配信・マークを空にしてパック名で残す(物差しがパック名で突き合わせる)"""
         self.deliver("パック1", "")
-        self.verdict("パック1", '{"verdict":"keep","at":1760000000000}')
-        self.verdict("パック9", '{"verdict":"keep","at":1760000000001}')
+        self.verdict("パック1", '{"v":2,"id":"k1","judge":"good","at":1760000000000}')
+        self.verdict("パック9", '{"v":2,"id":"k9","judge":"good","at":1760000000001}')
         self.scan()
         rows = J.rows(self.app)
-        self.assertEqual([(r["what"], r["videoId"], r["markId"], r["ref"]["pack"]) for r in rows], [("adopt", "", "", "パック1"), ("adopt", "", "", "パック9")])
+        self.assertEqual([(r["what"], r["videoId"], r["markId"], r["ref"]["pack"]) for r in rows], [("good", "", "", "パック1"), ("good", "", "", "パック9")])
         self.assertEqual(J.fold(rows), {}, "マークの分からない行は切り抜きごとに畳まない")
         self.assertEqual(len(R.iter_requests(self.app)[0]["verdicts"]), 2)
 
 
 class TestV2(Base):
-    """新しい形 v 2(F3-6): good・bad(reason)・unknown(by auto)・retract。名前の ~<at> で同じ切り抜きの記録を並べる。zip の名前で届けた記録を引く"""
+    """v 2: good・bad(reason)・unknown(by auto)・retract。名前の ~<at> で同じ切り抜きの記録を並べる。zip の名前で届けた記録を引く"""
     deliver = TestJudgments.deliver
 
     def v2(self, pack, body, at):

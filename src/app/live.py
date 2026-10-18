@@ -245,8 +245,8 @@ class Live(livesession.LiveSession):
         """友人のライブ配信の依頼(src/human/friend/intake.py の live_begin。2-15): 欄 ctx から封筒 + 束(自分の配信と同じ束に依頼の設定・
         自動の採用の上限 live_requests.TOP_DEFAULT を明示)を組んで submit へ。requests.json は ctx のまま。-> {"recorder", "recording", "existing"}"""
         try:
-            env = livesession.live_envelope(url, ctx.get("title"), request_id=ctx.get("rid"), deliver_dir=ctx.get("deliverDir"), batch=ctx.get("deliverBatch"),
-                                            note=ctx.get("memo"), eid=ctx.get("rid"))   # 配信者は束の hints.streamer(request_bundle。RV A2)
+            env = livesession.live_envelope(url, ctx.get("title"), request_id=ctx.get("rid"), deliver_dir=ctx.get("deliverDir"),
+                                            eid=ctx.get("rid"))   # 配信者は束の hints.streamer(request_bundle)
         except ValueError:   # 封筒にできない URL(テストの手元の録画元など): 束なしで今までどおり
             return self.begin_request(url, ctx)
         out = self.submit(env, livesession.request_bundle(ctx, self.live_bundle(), top=live_requests.TOP_DEFAULT), ctx=ctx)

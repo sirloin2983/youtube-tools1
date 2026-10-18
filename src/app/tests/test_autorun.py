@@ -21,7 +21,7 @@ import autorun as A  # noqa: E402
 from flow import deliver as deliver_mod  # noqa: E402  (届ける部品。RS3-3 で AutoRunner の届けは Delivery へ・ds1 で ② flow/delivery.py へ)
 from flow import delivery as DL  # noqa: E402
 from flow import packrec  # noqa: E402
-from pipeline.pack import preview as pv  # noqa: E402  (まとめ動画は ① へ分けた。ds1)
+from pipeline.pack import preview as pv  # noqa: E402  (確認用の動画は ① へ分けた。ds1)
 from human.friend import friend_feedback  # noqa: E402
 import prefs as prefs_mod  # noqa: E402
 from flow import runlog  # noqa: E402
@@ -103,11 +103,11 @@ def start_request(ar, items, **kw):
 
 
 def start_file(ar, path, title="", streamer=None, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None, cut=None,
-               engine=None, model=None, deliver_batch=None, pool=None, normalize=True):
+               engine=None, model=None, pool=None, normalize=True):
     """友人の動画の依頼(intake.submit_file)・ライブの書き出しの受け渡し(engine・model・pool。live_export.file_order と同じ欄)"""
     env, diff = O.order("file", path=path, title=title or __import__("os").path.basename(str(path)), normalize=normalize, upto="pack" if flow == "auto" else "transcribe",
                         streamer=streamer, request_id=request_id, deliver_dir=deliver_dir, speakers=speakers, video_tracks=video_tracks, cut=cut,
-                        engine=engine, model=model, batch=deliver_batch, pool=pool)
+                        engine=engine, model=model, pool=pool)
     return ar.submit(env, diff)
 
 
@@ -348,7 +348,7 @@ class FakeTools:
             d = os.path.splitext(v)[0] + "_pack"
             os.makedirs(d, exist_ok=True)
             open(os.path.join(d, "cut-plan.json"), "w").close()
-            with open(os.path.join(d, os.path.basename(v)), "wb") as f:   # 切り抜きの動画の写し(まとめ動画の材料)
+            with open(os.path.join(d, os.path.basename(v)), "wb") as f:   # 切り抜きの動画の写し(確認用の動画の材料)
                 f.write(b"v")
             self.mark_pack(d, [os.path.join(d, os.path.basename(v))], v)
             self.c2r["job"]["result"] = {"outDir": d, "files": [{"name": "cut-plan.json"}, {"name": "m1.edl"}]}
@@ -1584,43 +1584,6 @@ class TestRequests(Base):
         self.assertIsNotNone(friend_feedback.find_delivery(self.logs_dir(), "%s__a2.zip" % self.RID))
         self.assertIsNone(friend_feedback.find_delivery(self.logs_dir(), "%s__a3.zip" % self.RID))
 
-    def test_deliver_batch_is_not_a_setting_any_more(self):
-        """届け方は 1 本ずつだけ(F3-6)。依頼の deliverBatch は封筒に残るだけで届け方を変えない(組の一覧は作らない)"""
-        self.tools.known = False
-        run = self.auto_request(deliver_batch=5)
-        self.assertEqual(run["state"], "done", run)
-        self.assertEqual(self.real(run).deliver_batch, 5)
-        self.assertEqual(sorted(os.listdir(self.out)), sorted(["%s__a%d.%s" % (self.RID, i, e) for i in (2, 3) for e in ("zip", "preview.mp4", "meta.json")]))
-
-    def test_run_deliver_batch_range_and_saved_restore(self):
-        """Run の deliver_batch: 1〜10 の整数だけ(範囲の外・bool・文字列・小数は None = ホームの設定)。saved/restore で残る・壊れた値は None に戻る"""
-        for bad in (None, 0, -1, 11, 100, True, False, "3", 2.5, [2], {}):
-            self.assertIsNone(RF.run_of(VID, "配信", "request_auto", None, deliver_batch=bad).deliver_batch, repr(bad))
-        for good in (1, 2, 5, 10):
-            run = RF.run_of(VID, "配信", "request_auto", None, request_id=self.RID, deliver_dir=self.tmp, deliver_batch=good)
-            self.assertEqual(run.deliver_batch, good)
-            saved = json.loads(json.dumps(run.saved()))   # 待ちの記録(autorun-active.json)を通した形
-            self.assertEqual(saved["deliverBatch"], good)
-            back = A.Run.restore(saved)
-            self.assertEqual((back.id, back.deliver_batch, back.request_id), (run.id, good, self.RID))
-        none = RF.run_of(VID, "配信", "request_auto", None)
-        self.assertIsNone(none.saved()["deliverBatch"])
-        self.assertIsNone(A.Run.restore(json.loads(json.dumps(none.saved()))).deliver_batch)
-        for broken in (99, 0, "x", True, 3.5, [1]):
-            self.assertIsNone(A.Run.restore(dict(none.saved(), deliverBatch=broken)).deliver_batch, repr(broken))
-        old = none.saved()
-        del old["deliverBatch"]   # 0.46 までの待ちの記録(鍵が無い)も読める
-        self.assertIsNone(A.Run.restore(old).deliver_batch)
-
-    def test_start_file_deliver_batch(self):
-        """動画の依頼(start_file)にも deliver_batch を渡せる(範囲の外は None)"""
-        run = self.file_run("依頼.mp4", title="依頼", request_id="rid1", flow="auto", deliver_dir=self.out, deliver_batch=4)
-        self.assertEqual((run["state"], self.real(run).deliver_batch, self.real(run).saved()["deliverBatch"]), ("done", 4, 4), run)
-        run = self.file_run("二本目.mp4", title="二本目", request_id="rid2", flow="auto", deliver_dir=self.out, deliver_batch=99)
-        # 範囲の外は指定なし(None)。届け方は 1 本ずつだけなので、読まれる値は無い(F3-6)
-        self.assertIsNone(self.real(run).deliver_batch)
-        self.assertEqual(sorted(n for n in os.listdir(self.out) if n.endswith(".zip")), ["rid1__依頼.zip", "rid2__二本目.zip"])
-
     def test_file_auto_delivers_and_failure_note(self):
         """① 全自動(動画): 文字起こし → パック → zip。止まったら 出力\\ に理由の .txt"""
         run = self.file_run("依頼.mp4", title="依頼", streamer="さくらみこ", request_id="rid1", flow="auto", deliver_dir=self.out)
@@ -2093,9 +2056,8 @@ class TestAutoSend(Base):
                           for k, cl in got.items()}, {"a2": ("full", True, True, False), "a3": ("full", True, True, False)})
         self.assertFalse([n for n in names if n.endswith(".失敗.txt")])
 
-    def test_friend_delivery_prefs_one_by_one(self):
-        """友人のアプリの「届け方」(<受付のフォルダ>/設定/届け方.json。2-4)が 1 本ずつなら、1 本の zip + 出どころの印 .meta.json"""
-        testkit.write_text(os.path.join(self.folder, "設定", "届け方.json"), '{"v":1,"deliverBatch":1,"at":"2026-10-16T21:00:00+09:00"}')
+    def test_delivers_one_by_one_with_meta(self):
+        """1 本ずつ: 1 本の zip + 出どころの印 .meta.json"""
         run = self.go()
         self.assertEqual(self.step(run)["state"], "done", run)
         names = self.outs()
@@ -2284,22 +2246,19 @@ class TestSubmitBase(Base):
             b = self.queued(self.r.submit(*O.order("url", video_id="zzzzzzzzzzz", from_="export", on_fail="next")))
         self.assertEqual((a.on_fail, a.spec["run"]["onFail"], b.on_fail), ("stop", "stop", "next"))
 
-    def test_friend_app_v2_and_v1_bodies(self):
-        """送るアプリの本文: 版 2(RV A2 = run.upto・hints.streamer・run.requested)も 0.87 までの版 1(legacy・run.pinned・specVersion なし)も同じ実行"""
+    def test_friend_app_body(self):
+        """友人の依頼の本文(版 2 = run.upto・hints.streamer・run.requested)。前に書いていた deliver.batch・note は読んで捨てる(断らない・待ちの記録に残さない)"""
         v2 = {"id": "0123456789", "kind": "url", "input": {"url": "https://www.youtube.com/watch?v=" + VID}, "requestId": "20261016-120000-abcdef",
-              "deliver": {"batch": 2}, "createdAt": 1, "specVersion": 2}
+              "deliver": {"batch": 2}, "note": "メモ", "createdAt": 1, "specVersion": 2}
         s2 = {"adopt": {"top": 2}, "pack": {"cut": "silence", "videoTracks": 2}, "hints": {"streamer": "さくらみこ"},
               "run": {"requested": ["cut", "videoTracks"], "repack": True, "upto": "pack"}}
-        v1 = dict({k: v for k, v in v2.items() if k != "specVersion"}, id="abcdef0123", legacy={"mode": "request_auto", "streamer": "さくらみこ"})
-        s1 = {"adopt": {"top": 2}, "pack": {"cut": "silence", "videoTracks": 2}, "run": {"pinned": ["cut", "videoTracks"], "repack": True}}
         with mock.patch.object(self.r, "_wake", lambda: None):
-            a = self.queued(self.r.submit(v2, s2))
-            self.r.cancel(a.id)
-            b = self.queued(self.r.submit(v1, s1))
-        for r in (a, b):
-            self.assertEqual((r.mode, r.streamer, r.cut, r.video_tracks, r.overwrite, r.deliver_batch, r.top), ("request_auto", "さくらみこ", "silence", 2, True, 2, 2))
-            self.assertEqual([s["key"] for s in r.steps], list(A.MODE_STEPS["request_auto"]))
-        self.assertEqual(a.spec, b.spec)
+            r = self.queued(self.r.submit(v2, s2))
+        self.assertEqual((r.mode, r.streamer, r.cut, r.video_tracks, r.overwrite, r.top), ("request_auto", "さくらみこ", "silence", 2, True, 2))
+        self.assertEqual([s["key"] for s in r.steps], list(A.MODE_STEPS["request_auto"]))
+        env = r.saved()["envelope"]
+        self.assertNotIn("note", env)
+        self.assertNotIn("batch", env["deliver"])
 
     def test_streamer_checked_unless_friend(self):
         """配信者の名前は色の一覧と照らし合わせる(合わなければ 400 = ValueError)。友人の依頼(requestId あり)はそのまま(以前の submit と同じ)・空 = 色なし"""

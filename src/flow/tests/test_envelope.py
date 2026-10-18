@@ -9,22 +9,36 @@ SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SRC)
 from flow import envelope as E  # noqa: E402
 
+V = {"specVersion": 2}
+
+
+def env(**kw):
+    return dict(V, **kw)
+
 
 class TestCheck(unittest.TestCase):
     def test_minimal_forms_get_defaults(self):
-        got = E.check({"id": "a1", "kind": "docs", "input": {"docId": "d1"}}, now=12.5)
+        got = E.check(env(id="a1", kind="docs", input={"docId": "d1"}), now=12.5)
         self.assertEqual(got, {"id": "a1", "kind": "docs", "input": {"title": "", "docId": "d1"}, "requestId": None,
-                               "deliver": {"dir": None, "batch": None, "pool": None, "origin": None}, "note": "", "createdAt": 12500,
-                               "specVersion": 1, "legacy": {"mode": None, "onFail": None, "streamer": None}})   # 版の無い封筒 = 版 1(0.87 までの送るアプリ)
-        url = E.check({"id": "a", "kind": "url", "input": {"url": "https://youtu.be/abcdefghijk", "marks": ["m1", "m1"]}})
+                               "deliver": {"dir": None, "pool": None, "origin": None, "tag": None}, "createdAt": 12500, "specVersion": 2})
+        url = E.check(env(id="a", kind="url", input={"url": "https://youtu.be/abcdefghijk", "marks": ["m1", "m1"]}))
         self.assertEqual((url["input"]["videoId"], url["input"]["marks"]), ("abcdefghijk", ["m1"]))
-        f = E.check({"id": "a", "kind": "file", "input": {"path": "C:/x.mp4", "title": "題"},
-                     "deliver": {"dir": "D:/out", "batch": 3, "pool": {"key": "k", "meta": {"phase": "live", "x": 1}}}, "note": "メモ"})
-        self.assertEqual(f["deliver"], {"dir": "D:/out", "batch": 3, "pool": {"key": "k", "rid": "", "title": "", "meta": {"phase": "live"}}, "origin": None})
+        f = E.check(env(id="a", kind="file", input={"path": "C:/x.mp4", "title": "題"},
+                        deliver={"dir": "D:/out", "pool": {"key": "k", "meta": {"phase": "live", "x": 1}}}))
+        self.assertEqual(f["deliver"], {"dir": "D:/out", "pool": {"key": "k", "rid": "", "title": "", "meta": {"phase": "live"}}, "origin": None, "tag": None})
+
+    def test_dropped_keys_are_read_and_discarded(self):
+        """前に書いていた note・deliver.batch は断らずに読んで捨てる(出力に入れない。保存済みの待ちの列・録画の束のため)"""
+        got = E.check(env(id="a", kind="docs", input={"docId": "d1"}, note="メモ", deliver={"dir": "D:/out", "batch": 3}), now=1)
+        self.assertNotIn("note", got)
+        self.assertEqual(got["deliver"], {"dir": "D:/out", "pool": None, "origin": None, "tag": None})
+        got = E.check(env(id="a", kind="docs", input={"docId": "d1"}, note=None, deliver={"batch": None}), now=1)
+        self.assertNotIn("note", got)
+        self.assertNotIn("batch", got["deliver"])
 
     def test_deliver_origin(self):
         """D-SEND: 届けるときの出どころ(request・auto・manual。無ければ None = 自動で決める)。ほかは理由つきの ValueError"""
-        base = {"id": "a", "kind": "docs", "input": {"docId": "d1"}}
+        base = env(id="a", kind="docs", input={"docId": "d1"})
         for o in E.DELIVER_ORIGINS:
             self.assertEqual(E.check(dict(base, deliver={"dir": "D:/out", "origin": o}))["deliver"]["origin"], o)
         self.assertEqual(E.check(dict(base, deliver={"dir": "D:/out"}))["deliver"]["origin"], None)
@@ -37,88 +51,60 @@ class TestCheck(unittest.TestCase):
 
     def test_live_input(self):
         url = "https://www.youtube.com/watch?v=" + VID
-        got = E.check({"id": "L1", "kind": "live", "input": {"url": url, "title": "配信", "recorder": "rec1"}})
+        got = E.check(env(id="L1", kind="live", input={"url": url, "title": "配信", "recorder": "rec1"}))
         self.assertEqual(got["input"], {"title": "配信", "videoId": VID, "url": url, "recorder": "rec1"})
-        self.assertEqual(E.check({"id": "L1", "kind": "live", "input": {"videoId": VID}})["input"], {"title": "", "videoId": VID, "recorder": None})
+        self.assertEqual(E.check(env(id="L1", kind="live", input={"videoId": VID}))["input"], {"title": "", "videoId": VID, "recorder": None})
         for inp, why in (({"videoId": VID, "marks": []}, "封筒.input.marks"), ({"url": "https://example.com/"}, "YouTube"), ({}, "videoId"),
                          ({"videoId": VID, "recorder": ""}, "recorder")):
             with self.assertRaises(ValueError, msg=inp) as cm:
-                E.check({"id": "L1", "kind": "live", "input": inp})
+                E.check(env(id="L1", kind="live", input=inp))
             self.assertIn(why, str(cm.exception))
 
+    def test_file_normalize(self):
+        got = E.check(env(id="a", kind="file", input={"path": "C:/x.mp4", "normalize": True}, deliver={"origin": "auto", "tag": "20261016-010203-abcdef"}), now=1)
+        self.assertEqual((got["input"]["normalize"], got["deliver"]["tag"]), (True, "20261016-010203-abcdef"))
+        self.assertIs(E.check(env(id="a", kind="file", input={"path": "C:/x.mp4"}))["input"]["normalize"], False)
+        with self.assertRaises(ValueError) as cm:
+            E.check(env(id="a", kind="file", input={"path": "C:/x.mp4", "normalize": 1}))
+        self.assertIn("normalize", str(cm.exception))
+
     def test_refusals_say_why(self):
-        ok = {"id": "a", "kind": "docs", "input": {"docId": "d1"}}
+        ok = env(id="a", kind="docs", input={"docId": "d1"})
         bad = [
             (dict(ok, extra=1), "知らない項目です: 封筒.extra"),
             (dict(ok, specVersion=3), "知らない束の版"),
-            (dict(ok, specVersion=2, legacy={"mode": "doc"}), "知らない項目です: 封筒.legacy"),   # 版 2 に legacy は無い
-            (dict(ok, deliver={"tag": "t"}), "封筒.deliver.tag"),   # 版 1 に tag は無い
-            ({"id": "a", "kind": "file", "input": {"path": "C:/x.mp4", "normalize": True}}, "封筒.input.normalize"),
+            (dict(ok, specVersion=1), "知らない束の版"),
+            (dict(ok, legacy={"mode": "doc"}), "知らない項目です: 封筒.legacy"),
             (dict(ok, specVersion=True), "知らない束の版"),
+            (dict(ok, specVersion=None), "知らない束の版"),
             (dict(ok, kind="nai"), "封筒.kind"),
             (dict(ok, id="../x"), "封筒.id"),
             (dict(ok, input={"docId": "d1", "path": "x"}), "封筒.input.path"),
             (dict(ok, input={}), "docId"),
-            (dict(ok, deliver={"batch": 11}), "封筒.deliver.batch"),
             (dict(ok, deliver={"pool": {"x": 1}}), "封筒.deliver.pool"),
             (dict(ok, deliver={"where": 1}), "封筒.deliver.where"),
-            (dict(ok, legacy={"onFail": "x"}), "封筒.legacy.onFail"),
             (dict(ok, createdAt=-1), "createdAt"),
             (dict(ok, requestId=""), "requestId"),
-            ({"id": "a", "kind": "url", "input": {"url": "https://example.com/"}}, "YouTube"),
-            ({"id": "a", "kind": "url", "input": {"videoId": VID, "duration": -3}}, "duration"),
-            ({"id": "a", "kind": "url", "input": {"videoId": VID, "fresh": {"title": "t", "x": 1}}}, "fresh.x"),
-            ({"id": "a", "kind": "file", "input": {"title": "t"}}, "path"),
+            (env(id="a", kind="url", input={"url": "https://example.com/"}), "YouTube"),
+            (env(id="a", kind="url", input={"videoId": VID, "duration": -3}), "duration"),
+            (env(id="a", kind="url", input={"videoId": VID, "fresh": {"title": "t", "x": 1}}), "fresh.x"),
+            (env(id="a", kind="file", input={"title": "t"}), "path"),
             ("abc", "封筒"),
         ]
-        for env, why in bad:
-            with self.assertRaises(ValueError, msg=env) as cm:
-                E.check(env)
-            self.assertIn(why, str(cm.exception), env)
+        for e, why in bad:
+            with self.assertRaises(ValueError, msg=e) as cm:
+                E.check(e)
+            self.assertIn(why, str(cm.exception), e)
 
+    def test_missing_version_is_current(self):
+        self.assertEqual(E.check({"id": "a", "kind": "docs", "input": {"docId": "d1"}}, now=1)["specVersion"], E.SPEC_VERSION)
 
-class TestVersion2(unittest.TestCase):
-    """RV A2: 版 2(legacy なし・deliver.tag・file の input.normalize)と、版 1 を読み替える upgrade"""
-
-    def test_v2_shape(self):
-        got = E.check({"id": "a", "kind": "file", "specVersion": 2, "input": {"path": "C:/x.mp4", "normalize": True},
-                       "deliver": {"origin": "auto", "tag": "20261016-010203-abcdef"}}, now=1)
-        self.assertNotIn("legacy", got)
-        self.assertEqual((got["specVersion"], got["input"]["normalize"], got["deliver"]["tag"]), (2, True, "20261016-010203-abcdef"))
-        self.assertIs(E.check({"id": "a", "kind": "file", "specVersion": 2, "input": {"path": "C:/x.mp4"}})["input"]["normalize"], False)
-        for bad, why in (({"path": "C:/x.mp4", "normalize": 1}, "normalize"),):
-            with self.assertRaises(ValueError) as cm:
-                E.check({"id": "a", "kind": "file", "specVersion": 2, "input": bad})
-            self.assertIn(why, str(cm.exception))
-        env, spec = E.upgrade(got, {"run": {"upto": "transcribe"}})
-        self.assertEqual((env, spec), (got, {"run": {"upto": "transcribe"}}), "版 2 はそのまま")
-
-    def test_upgrade_moves_legacy_to_bundle(self):
-        """版 1 の legacy.mode → run.from・run.upto(表 LEGACY_MODES)・onFail → run.onFail・streamer → hints.streamer。束の run.from(CLI の --from pack)は消さない"""
-        cases = {"full": (None, "pack"), "adopted": ("export", "pack"), "transcribe": ("export", "transcribe"), "request": (None, "transcribe"),
-                 "request_auto": (None, "pack"), "doc": (None, "pack"), "file": (None, "transcribe"), "file_auto": (None, "pack")}
-        self.assertEqual({m: v[1:] for m, v in E.LEGACY_MODES.items()}, cases)
-        inp = {"url": {"videoId": VID}, "docs": {"docId": "d1"}, "file": {"path": "C:/x.mp4"}}
-        for mode, (frm, upto) in cases.items():
-            kind = E.LEGACY_MODES[mode][0]
-            env, spec = E.read({"id": "a", "kind": kind, "input": inp[kind], "legacy": {"mode": mode, "onFail": "stop", "streamer": "ぺこら"}},
-                               {"run": {"force": True}})
-            self.assertEqual(env["specVersion"], 2, mode)
-            self.assertNotIn("legacy", env)
-            want = dict({"force": True, "upto": upto, "onFail": "stop"}, **({"from": frm} if frm else {}))
-            self.assertEqual(spec, {"run": want, "hints": {"streamer": "ぺこら"}}, mode)
-            self.assertIsNone(env["deliver"]["tag"])
-            if kind == "file":
-                self.assertIs(env["input"]["normalize"], False)
-        _env, spec = E.read({"id": "a", "kind": "file", "input": {"path": "C:/x.mp4"}, "legacy": {"mode": "file_auto"}}, {"run": {"from": "pack"}})
-        self.assertEqual(spec["run"], {"from": "pack", "upto": "pack"})
-        _env, spec = E.read({"id": "a", "kind": "url", "input": {"videoId": VID}})   # mode なし = full・streamer null は書かない
-        self.assertEqual(spec, {"run": {"upto": "pack"}})
-        _env, spec = E.read({"id": "L", "kind": "live", "input": {"videoId": VID}, "legacy": {"streamer": "x"}})
-        self.assertEqual(spec, {"hints": {"streamer": "x"}})
-        with self.assertRaises(ValueError) as cm:
-            E.read({"id": "a", "kind": "docs", "input": {"docId": "d1"}, "legacy": {"mode": "full"}})
-        self.assertIn("封筒.legacy.mode", str(cm.exception))
+    def test_read_copies_bundle(self):
+        spec = {"run": {"upto": "transcribe"}}
+        got, out = E.read(env(id="a", kind="docs", input={"docId": "d1"}), spec, now=1)
+        self.assertEqual(out, spec)
+        self.assertIsNot(out, spec)
+        self.assertEqual(E.read(env(id="a", kind="docs", input={"docId": "d1"}), now=1)[1], {})
 
 
 VID = "abcdefghijk"

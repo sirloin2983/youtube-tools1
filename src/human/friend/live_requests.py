@@ -6,8 +6,8 @@ src/flow/livesession.py の begin_request)ここに結びつけ、録画の候�
 この結びつきを見て友人の設定で動き、パックを友人へ届ける。
 
 置き場所: 入口の作業データの live/requests.json
-  {"v": 1, "items": {"<録画元の id>/<録画の id>": {"rid", "deliverDir", "url", "title", "streamer", "speakers", "videoTracks", "cut", "memo",
-                                                   "settings": {"sens", "perHour", "length", "waitMin", "pad", "afterStream"}, "createdAt", "deliverBatch"}}}
+  {"v": 1, "items": {"<録画元の id>/<録画の id>": {"rid", "deliverDir", "url", "title", "streamer", "speakers", "videoTracks", "cut",
+                                                   "settings": {"sens", "perHour", "length", "waitMin", "pad", "afterStream"}, "createdAt"}}}
 settings = 友人のベータの設定(依頼の JSON の live)。範囲の外・無い鍵は既定(SETTINGS_DEFAULT)。
 lengthMode "auto"(長さ「自動(場面ごと)」。友人の受信箱のアプリ C-2-11)があれば settings にも残し、検出は場面ごとの形で切る。無い = 固定の長さ。
 """
@@ -15,7 +15,6 @@ import copy
 import threading
 import time
 
-from flow import envelope
 from ytt import fsio, schemas, tools
 
 SENS = ("high", "normal", "low")
@@ -44,7 +43,7 @@ def clean_settings(v):
         out["pad"] = float(v["pad"])
     if isinstance(v.get("afterStream"), bool):
         out["afterStream"] = v["afterStream"]
-    if v.get("lengthMode") == "auto":   # 長さ「自動(場面ごと)」(友人の受信箱のアプリ。C-2-11)。無い = 前の形の依頼 = 固定の長さ
+    if v.get("lengthMode") == "auto":   # 長さ「自動(場面ごと)」(友人の受信箱のアプリ。C-2-11)。無い = 固定の長さ
         out["lengthMode"] = "auto"
     return out
 
@@ -100,8 +99,7 @@ class Store:
                 "speakers": ctx.get("speakers") if isinstance(ctx.get("speakers"), dict) else None,
                 "videoTracks": ctx["videoTracks"] if isinstance(ctx.get("videoTracks"), int) and not isinstance(ctx.get("videoTracks"), bool) else None,
                 "cut": ctx.get("cut") if isinstance(ctx.get("cut"), str) and ctx.get("cut") else None,
-                "memo": str(ctx.get("memo") or "")[:500], "settings": clean_settings(ctx.get("settings")), "createdAt": self.clock(),
-                "deliverBatch": ctx["deliverBatch"] if envelope.batch_ok(ctx.get("deliverBatch")) else None}   # 届け方(2.9.0 のアプリ。None = ホームの設定 intake.deliverBatch)
+                "settings": clean_settings(ctx.get("settings")), "createdAt": self.clock()}
         with self.lock:
             items = self._load()
             items[key_of(rc, rec)] = item

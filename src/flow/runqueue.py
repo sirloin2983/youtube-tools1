@@ -2,7 +2,7 @@
 """② 管理の層 flow: 待ち行列と実行の糸(役割で組み直す RS7-1 S5。2026-10-10。決定 3-30・
 資料の git:cbe1a64:docs/design/surveys/rs7-survey-2026-10-10/plan_order_v2.md の S5・notes:plan/f1-friend-pc.md の「RS7(② の側)へ渡すこと」)。
 
-送るアプリ(友人の入口)・ユーザーの入口・CLI が同じ ② の口を使えるように、待ち行列と糸をここに置く(以前は入口の AutoRunner の中)。
+友人の依頼の受付・ユーザーの入口・CLI が同じ ② の口を使えるように、待ち行列と糸をここに置く(以前は入口の AutoRunner の中)。
 画面なし・③ なしでも動く: Queue(client, log_dir=...) だけで submit → 糸が段を進める → status / snapshot / history で見る。
 
 - Queue は flow/run.py の Runner を継ぐ(段の中身と hook はそのまま)。入口の AutoRunner(src/app/autorun.py)は Queue を継いで、
@@ -12,7 +12,7 @@
   status() = 待ち・実行中の数と進み具合(「終わったら閉じる」のため)/ cancel・snapshot・history・estimate・close。
   HTTP の口は入口の POST /api/flow/submit・GET /api/flow/status(src/app/server.py。RS7-1 S4)
 - 束は受けたときに組む(RS7-1 S4): submit は土台(hook の build_spec = 画面の設定 + この PC の設定)+ 受けた差分。hook の _accept(
-  友人の区間の長さ・配信者・届け方の n 本)。待ちの間に設定を変えても、その実行の中身は変わらない
+  友人の区間の長さ・配信者・届ける名前の頭)。待ちの間に設定を変えても、その実行の中身は変わらない
 - 糸 _loop: 待ちを 1 本ずつ、優先度の表(flow/prio.py。録画中のライブ > 友人の依頼 > 自分の配信のまとめて実行・同じなら入れた順。PRIO)の順で _execute(Run の束で流す。束の無い Run = 直に積んだ物だけ、ここで hook の build_spec で組む)
 - 待ちの記録(起動し直しで戻す。線 D の M5): 待ち・実行中の実行を log_dir/autorun-active.json に Run.saved()(封筒 + 束 + 状態)で残し
   (入れたとき・始めたとき・段が済むたび・終わったとき。一時ファイルから置き換える)、作るときに読んで同じ id のまま「待ち」に戻す。
@@ -74,7 +74,7 @@ def check_spec(envelope, spec):
     版の違い -> SpecVersionError・束の知らない項目・合わない値 -> BadSpecError。封筒そのものの形は Run.from_envelope が確かめる"""
     if isinstance(envelope, dict) and "specVersion" in envelope:
         try:
-            _envelope.version_of(envelope)   # 読めるのは版 1・2(1 は読み替える。RV A2)
+            _envelope.version_of(envelope)   # 読めるのは今の版だけ
         except ValueError as e:
             raise SpecVersionError(str(e))
     try:
@@ -252,7 +252,7 @@ class Queue(run_mod.Runner):
     def _accept(self, run, convert=False):
         """受けたときに決める物を Run に置く(RS7-1 S4。submit は必ず通す = RV A1)。既定 = 束が無ければ build_spec で組む(知らせは run.notes)・
         配信者が決まっていなければ(束の hints.streamer が null)束の hints.people の先頭を照らし合わせた名前(合わなければ決めない)。
-        入口の AutoRunner は友人の区間の長さ・覚えた名前からの配信者・届け方の n 本・届ける名前の頭も決める。
+        入口の AutoRunner は友人の区間の長さ・覚えた名前からの配信者・届ける名前の頭も決める。
         convert = 束の無い待ちの記録を戻すとき(まだ決めていない物だけ)"""
         if run.spec is None:
             bundle, notes = self._base()
@@ -362,10 +362,10 @@ class Queue(run_mod.Runner):
         return env, bundle, notes
 
     def submit(self, envelope, spec=None):
-        """② の口(受付はこの 1 本だけ = RV A1。HTTP は POST /api/flow/submit): 封筒(flow/envelope.py。版 1・2)+ 束(flow/spec.py の差分。
+        """② の口(受付はこの 1 本だけ = RV A1。HTTP は POST /api/flow/submit): 封筒(flow/envelope.py)+ 束(flow/spec.py の差分。
         変えたい所だけでよい。全部でもよい)を受けて待ち行列に積む -> run.public()。欄から封筒と差分を作るのは flow/order.py(画面は UIKit.flow.order)。
         束 = 土台(hook の build_spec。素の Queue = 既定 + この PC・入口 = 画面の設定)+ 差分 + この PC の設定 = 受けたときの束のまま流す。
-        受けたときに決める物は hook の _accept(必ず通す。配信者・友人の区間の長さ・届け方の n 本・届ける名前の頭)。
+        受けたときに決める物は hook の _accept(必ず通す。配信者・友人の区間の長さ・届ける名前の頭)。
         動画ファイルの封筒(kind file)は、実在する絶対パスで拡張子が動画・音声(ytt/tools.MEDIA_TYPES)の物だけ。届け先が無ければ届けない(既定)。
         配信者: 名前があれば色の一覧と照らし合わせる(ytt/colors.resolve。合わなければ ValueError。友人の依頼(requestId あり)は照らし合わせずそのまま =
         以前と同じ)・空 = 色なし・null = _accept が決める(束の hints.people の先頭 → 入口は覚えた名前・チャンネル名から。決まらなければ実行中に)。
@@ -421,7 +421,7 @@ class Queue(run_mod.Runner):
 
     def _submit_live(self, envelope, spec):
         """kind live は Run を作らず(待ち行列に積まない)live の hook へ。hook が無ければ理由つきの ValueError"""
-        env, spec = _envelope.read(envelope, spec)   # 版 1 の legacy.streamer は束の hints.streamer へ(RV A2)
+        env, spec = _envelope.read(envelope, spec)
         bundle = _spec.validate(_spec.merge(spec))
         hook = self.live_hook
         if hook is None:
@@ -584,7 +584,7 @@ class Queue(run_mod.Runner):
         return out
 
     def status(self):
-        """待ち・実行中が 0 か と進み具合(送るアプリの「終わったら閉じる」・CLI が聞く口。HTTP は入口の GET /api/flow/status)。
+        """待ち・実行中が 0 か と進み具合(画面・CLI が聞く口。HTTP は入口の GET /api/flow/status)。
         -> {"queued", "running", "done"(この起動で終わった数 = 済み・失敗・中止。メモリに残る MAX_KEEP 件まで),
         "idle"(待ち・実行中が 0 かつ live の数がどれも 0), "closed",
         "live": {"recording", "detecting", ...}(set_status_hook の数。録画中・検出中。読めなければ None と error。RS7-2 G5a),
@@ -740,7 +740,7 @@ class Queue(run_mod.Runner):
                 self.cv.notify_all()
 
     def _next_queued(self):
-        """次に始める待ちの実行(呼ぶのは self.cv を持っている間): 優先度の表(flow/prio.py)の順 = 録画中のライブ(組の溜め)> 友人の依頼 >
+        """次に始める待ちの実行(呼ぶのは self.cv を持っている間): 優先度の表(flow/prio.py)の順 = 録画中のライブ(切り抜きの溜め)> 友人の依頼 >
         自分の配信のまとめて実行、同じなら入れた順(PRIO。動いている実行は止めない)"""
         queued = [r for r in self.runs if r.state == "queued"]
         return min(queued, key=lambda r: _prio.rank(_prio.of_run(r))) if queued else None

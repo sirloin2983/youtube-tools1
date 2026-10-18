@@ -2,7 +2,7 @@
 """入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
 
     python src/app/server.py [--no-open] [--port 8700] [--only studio,transcribe,cut2resolve]
-    python src/app/server.py --headless [--port 8700]   画面なし(送るアプリが子プロセスとして起こす ②。RS7-2 G5a。下の「画面なし」)
+    python src/app/server.py --headless [--port 8700]   画面なし(ほかのアプリが子プロセスとして起こす ②。RS7-2 G5a。下の「画面なし」)
 
 統合計画の段階1(notes:docs/design/integration-plan.md)。ツールのコードは変えず、各ツールのフォルダで
 `serve.py <既定のポート> --no-open` を子プロセスとして起動する。ツール間の受け渡し・ポートの共有は従来どおり(notes:docs/spec/pipeline.md)。
@@ -15,14 +15,14 @@
                                           案件の状態・メモ(/api/cases/update)と「見た」(op seen)は MARKS-3 で消した
   GET  /api/flow/runs                     まとめて実行の状態(src/flow/runqueue.py の snapshot)。runs = この起動の実行(public。mode・modeLabel・docs…)・
                                           past = 配信・文書ごとの前回の結果(記録のファイルから)・modes(RV A1 で GET /api/autorun から改名)
-  POST /api/flow/submit                   {envelope, spec?} ② の口 = 受付はこれ 1 本(RS7-1 S4・RV A1): 封筒(src/flow/envelope.py。版 1・2)+ 束の差分(src/flow/spec.py)を
+  POST /api/flow/submit                   {envelope, spec?} ② の口 = 受付はこれ 1 本(RS7-1 S4・RV A1): 封筒(src/flow/envelope.py)+ 束の差分(src/flow/spec.py)を
                                           待ち行列に積む → {run}。欄から封筒と差分を作るのは src/flow/order.py(画面は UIKit.flow.order)。束の土台は画面の設定(build_spec)。
                                           形が違う・同じ入力が待ち・実行中は 400 と理由。動画ファイルの封筒は実在するパス・動画か音声の拡張子だけ。届け先が無ければ届けない。
                                           F1 F0-1: 束の版(封筒.specVersion)が違えば 400 error spec_version・束に知らない節・項目・合わない値があれば 400 error bad_spec
-                                          (送るアプリは「更新してください」)。ほかの理由は今までどおり bad_request
-  GET  /api/flow/status                   ② の待ち・実行中の数と進み具合 {queued, running, done, idle, closed, live, runs}(src/flow/runqueue.py の status。CLI・送るアプリが聞く)。
+                                          (呼ぶアプリは「更新してください」と出せる)。ほかの理由は bad_request
+  GET  /api/flow/status                   ② の待ち・実行中の数と進み具合 {queued, running, done, idle, closed, live, runs}(src/flow/runqueue.py の status。CLI・起こしたアプリが聞く)。
                                           live = {recording, detecting, exporting}(ライブの録画中・検出中・書き出しの途中の数。PortalServer.live_activity)。
-                                          idle は待ち・実行中が 0 かつ live の数がどれも 0 のときだけ真(送るアプリの「終わったら閉じる」。RS7-2 G5a)。
+                                          idle は待ち・実行中が 0 かつ live の数がどれも 0 のときだけ真(起こしたアプリの「終わったら閉じる」。RS7-2 G5a)。
                                           RS8: + rev(変わるたびに増える)・jobs(掲示板 src/flow/board.py の Job。待ち・実行中 + 終わった直近 30 件・入れた順)・
                                           cases({案件の根: {active, lastState, lastFinished}})。?case=<案件の根> で jobs だけ絞る(ほかの項目は絞らない)。notes:docs/spec/pipeline.md 2.9
                                           F1 F0-1: + blocked(null か {reason: "disk", freeGB, minGB} = 空き容量が下限を切って次の実行を始めていない)・
@@ -80,9 +80,9 @@
   どちらも各ツールが .runtime を消してから終わる合図。一定時間で終わらなければ強制終了する
 
 画面なし(--headless。RS7-2 G5a・notes:plan/f1-friend-pc.md の 2〜4)
-- 友人の送るアプリが ② を子プロセスとして起こす形。ブラウザ・窓を開かない。取り込み(3 ツール)と ②(まとめて実行 = flow の Queue・ライブ)は載せる。
+- ほかのアプリが ② を子プロセスとして起こす形。ブラウザ・窓を開かない。取り込み(3 ツール)と ②(まとめて実行 = flow の Queue・ライブ)は載せる。
   ③④⑤ の常駐(依頼の受付の見張り・バックアップ・精度の自動測定・分析と日報・ごみ箱フォルダの片付け)は起こさない(部品は作るので API は今までどおり答える)。
-  「起動し直す」(api/ytt/restart-self)は 409 で断る(新しい入口は送るアプリの子にならないため。起こし直すのは送るアプリ)
+  「起動し直す」(api/ytt/restart-self)は 409 で断る(新しい入口は起こしたアプリの子にならないため。起こし直すのは起こしたアプリ)
 - 標準出力・標準エラーは UTF-8。標準出力は 1 行の JSON だけ: 待ち受けて ② を準備できたら {"event": "ready", "port", "token"(書き込み系の X-YTT-Token), "pid"}(HEADLESS_READY)。
   黒い画面への記録・取り込んだツールの print は標準エラーへ
 - 入口がすでに動いている(そのポート範囲の入口・同じ作業データの .flow.lock)ときは、読める文を標準エラーへ出して EXIT_RUNNING で終わる(ブラウザは開かない)
@@ -171,7 +171,7 @@ SUBMIT_START_WAIT = 120  # 起動直後の POST /api/flow/submit がツールの
 PORTAL_TITLE = "動画編集ツール — ホーム"   # ホームの画面(portal.html)の <title>。窓を前に出すときに題名で探す(test_launch が portal.html と比べる)
 YTT_API = mount_mod.YTT_API   # 画面の共通の API の場所(入口の画面・取り込んだツールの画面の両方から。PortalServer.ytt_request)
 YTT_BODY_MAX = 16 * 1024   # エラーのスタックが入るので、他の API より大きめ
-HEADLESS_READY = "ready"   # 画面なしの入口が標準出力に出す 1 行の event(送るアプリ・CLI が読む)
+HEADLESS_READY = "ready"   # 画面なしの入口が標準出力に出す 1 行の event(起こしたアプリ・CLI が読む)
 EXIT_RUNNING = 3           # 画面なし: 入口がすでに動いている(ポート・.flow.lock)ので起動しない
 HEADLESS_RUNNING = "ホームはすでに起動しています(ポート %d)。画面なしでは起動しません。動いているホームを「すべて終了」してから起動してください"
 HEADLESS_NO_RESTART = "画面なしのホームは起動し直せません(起こしたアプリから起動し直してください)"
@@ -806,14 +806,14 @@ class PortalHandler(BaseHTTPRequestHandler):
         case = (q.get("case") or [None])[0] if u.path in ("/api/flow/status", "/api/flow/history") else None   # 案件の根の絶対パス(RS8)
         if case is not None and board_mod.norm_case(case) is None:
             return self._fail(400, "bad_request", "case は案件のフォルダの絶対パスにしてください")
-        if u.path == "/api/flow/machine":   # この PC の設定(F1 F0-1。送るアプリの設定の画面が読む)
+        if u.path == "/api/flow/machine":   # この PC の設定(F1 F0-1)
             try:
                 return self._json(200, machine_mod.load())
             except (OSError, ValueError) as e:
                 return self._fail(500, "machine", "この PC の設定を読めませんでした: %s" % e.__class__.__name__)
-        if u.path == "/api/flow/outbox":   # 送り返す zip の一覧(F1 F6a。送るアプリが Dropbox へ上げる)
+        if u.path == "/api/flow/outbox":   # 送り返す zip の一覧(F1 F6a)
             return self._json(200, {"files": outbox_mod.list_outbox(self.server.app_dir)})
-        if u.path == "/api/flow/status":   # ② の待ち・実行中の数と進み具合(RS7-1 S4。CLI・送るアプリの「終わったら閉じる」)+ 掲示板(RS8)
+        if u.path == "/api/flow/status":   # ② の待ち・実行中の数と進み具合(RS7-1 S4。CLI・起こしたアプリの「終わったら閉じる」)+ 掲示板(RS8)
             st = self.server.autorun.status()   # autorun を作る = 掲示板に Run を載せる(PortalServer.autorun)
             st.update(self.server.board.snapshot(case=case))
             return self._json(200, st)
@@ -1206,7 +1206,7 @@ class PortalServer(httpsec.ExclusiveServer):
         -> (HTTP の番号, JSON)"""
         if self.closing.is_set():
             return 409, {"ok": False, "error": "closing", "message": "終了の途中です"}
-        if self.headless:   # 新しい入口は送るアプリの子にならない(画面ありの形で起きてしまう)= 起こし直すのは起こしたアプリ
+        if self.headless:   # 新しい入口は起こしたアプリの子にならない(画面ありの形で起きてしまう)= 起こし直すのは起こしたアプリ
             return 409, {"ok": False, "error": "headless", "message": HEADLESS_NO_RESTART}
         ar = self._autorun
         info = ar.restart_info() if ar is not None else {}
@@ -1469,7 +1469,7 @@ class PortalServer(httpsec.ExclusiveServer):
                 return
 
     def live_activity(self):
-        """② の status の live 欄: ライブ(線 D)の録画中・検出中・書き出しの途中の数(送るアプリの「終わったら閉じる」= どれかが 0 でなければ閉じない)。
+        """② の status の live 欄: ライブ(線 D)の録画中・検出中・書き出しの途中の数(起こしたアプリの「終わったら閉じる」= どれかが 0 でなければ閉じない)。
         recording = 録画元の録画中の録画(Live.recent。数秒のキャッシュ)/ detecting = 盛り上がりの検出のワーカーが測っている録画(worker.json)/
         exporting = 書き出しの途中・まとめて実行へ渡すのを待っている書き出し(作ってあるときだけ。オフの間は作業データに何も作らない)。
         リアルタイム切り抜きがオフなら全部 0(録画元に問い合わせない)。G2b でライブが ② へ移ったら、そちらが持つ"""
@@ -1649,7 +1649,7 @@ def parse_args(argv):
                     help="ツールを入口に取り込まず、以前と同じく別のプログラムとして起動する(取り込みで問題が出たときの戻し方)")
     ap.add_argument("--headless", action="store_true",
                     help="画面なし: ブラウザ・窓を開かず、依頼の受付・バックアップ・精度の自動測定などの見張りを起こさない。"
-                         "準備できたら標準出力に 1 行の JSON {event: ready, port, token, pid}(送るアプリが子プロセスとして起こす形)")
+                         "準備できたら標準出力に 1 行の JSON {event: ready, port, token, pid}(ほかのアプリが子プロセスとして起こす形)")
     ap.add_argument("--parent-pid", type=int, default=0,
                     help="画面なしだけ: 起こしたアプリの pid。そのプロセスが終わるか標準入力が閉じられたら、後始末をして終わる(F1 F0-1)")
     a = ap.parse_args(argv)
@@ -1686,7 +1686,7 @@ def say_error(log, msg, headless):
 
 
 def emit_ready(out, port, token):
-    """画面なしの入口: 準備できたことを標準出力に 1 行の JSON で(送るアプリ・CLI が読む。ASCII だけ)"""
+    """画面なしの入口: 準備できたことを標準出力に 1 行の JSON で(起こしたアプリ・CLI が読む。ASCII だけ)"""
     out.write(json.dumps({"event": HEADLESS_READY, "port": port, "token": token, "pid": os.getpid()}) + "\n")
     out.flush()
 
@@ -1780,7 +1780,7 @@ def main(argv=None):
     opts = parse_args(sys.argv[1:] if argv is None else argv)
     if not opts.headless:
         return _main(opts)
-    for stream in (sys.stdout, sys.stderr):   # 画面なし: 読む側(送るアプリ)が決めた文字コードで読めるように UTF-8 に固定(既定は cp932 になる)
+    for stream in (sys.stdout, sys.stderr):   # 画面なし: 読む側(起こしたアプリ)が決めた文字コードで読めるように UTF-8 に固定(既定は cp932 になる)
         try:
             stream.reconfigure(encoding="utf-8", errors="replace")
         except Exception:
@@ -1806,7 +1806,7 @@ def _main(opts, ready_out=None):
             return 1
     srv, port = make_server(opts.port, sup)
     url = "http://localhost:%d%s" % (port, opts.open_path)
-    if srv is None and headless:   # 画面を開かない・読める文で非 0(送るアプリが標準エラーを読む)
+    if srv is None and headless:   # 画面を開かない・読める文で非 0(起こしたアプリが標準エラーを読む)
         say_error(log, HEADLESS_RUNNING % port, headless)
         return EXIT_RUNNING
     if srv is None:
@@ -1871,7 +1871,7 @@ def _main(opts, ready_out=None):
             threading.Thread(target=srv.learnpack_loop, daemon=True, name="learnpack").start()   # 学習の束を <依頼の受付のフォルダ>/学習 へ(起動の少しあとと 1 日ごと。F1 F6a)
         if opts.parent_pid:   # 親の見張り(F1 F0-1): 親が終わる・標準入力が閉じられたら「すべて終了」と同じ後始末(待ちは次の起動で続く)
             watch_parent(opts.parent_pid, sys.stdin, lambda why: threading.Thread(target=srv.request_shutdown, daemon=True).start(), log)
-        if headless:   # 待ち受けて ② を準備できた = 送るアプリに合言葉とポートを渡す(画面は開かない)
+        if headless:   # 待ち受けて ② を準備できた = 起こしたアプリに合言葉とポートを渡す(画面は開かない)
             emit_ready(ready_out, port, srv.token)
         elif opts.app_window:   # 設定にかかわらず窓で開く(設定には保存しない)
             srv.window.force_mode = "app"

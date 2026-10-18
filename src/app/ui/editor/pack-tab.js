@@ -548,7 +548,7 @@ function create(h){
     const pk = P.pack, b = $('#pkDeliver'); if (!pk || !pk.dir || b.disabled) return;
     const title = String(h.S.doc && h.S.doc.title || '').trim();
     const ok = await UIKit.dialog.confirm({ title: '友人へ届けますか', ok: '届ける',
-      body: `このパックを zip にして Dropbox の「出力」に置きます。同期が終わると、友人の送るアプリの「受け取る」に「${title || 'パック'}」として出ます。`
+      body: `このパックを zip にして Dropbox の「出力」に置きます。同期が終わると、友人のアプリの「受け取る」に「${title || 'パック'}」として出ます。`
         + (isStale() ? ' 注意: カットか字幕が、パックを作ったあとに変わっています。今の内容で届けるなら、先にパックを作り直してください。' : '') });
     if (!ok) return;
     b.disabled = true; deliverMsg('zip にしています…');

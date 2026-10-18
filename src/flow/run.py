@@ -23,9 +23,9 @@ RS7-1 S4(2026-10-11): 束は受けたときに組む(② の口 submit。RV A1 �
 その実行の中身は変わらない。Run.screen(束に入れない画面の値)は消した(精密・画質の上限なし・fps 30 は固定 = 決定 3-30 Q2。用語集は編集の受付が
 自分の設定から読む)。受付で決めた物: 束・知らせ Run.notes(入口が画面の設定を束にするときに直した所。パックの段の文と結果の束に出す)・
 友人の区間の長さ Run.friend_plan(束の analyze.length・preRatio に入れ、解析したときに Run.friend_length = 使った印)・配信者(決まれば束の
-hints.streamer。決まらなければ実行中に _auto_streamer)・届け方の n 本(封筒の deliver.batch)・届ける名前の頭(封筒の deliver.tag)。
+hints.streamer。決まらなければ実行中に _auto_streamer)・届ける名前の頭(封筒の deliver.tag)。
 
-RS7-1 S3(2026-10-10): 依頼 = 封筒(flow/envelope.py。何を入れたか・どの依頼か・届け方)+ 束(何を作るか)。段は束だけを読む。
+RS7-1 S3(2026-10-10): 依頼 = 封筒(flow/envelope.py。何を入れたか・どの依頼か・届け先)+ 束(何を作るか)。段は束だけを読む。
 RV A2(2026-10-16): Run を作るのは封筒(版 2)+ 束だけ(Run.from_envelope。欄 → 封筒 + 束の差分は flow/order.py の 1 か所)。
 段の並びは束の run.from・run.upto と封筒の kind・依頼の id から(mode_of = 派生の mode。記録の mode・modeLabel・溜めの鍵は今のまま)+ steps_of。
 束から読む欄(top・ranges・weights・cut・video_tracks・speakers・engine・model・force・overwrite・on_fail)は束を読む読み取りだけの属性:
@@ -34,7 +34,7 @@ RV A2(2026-10-16): Run を作るのは封筒(版 2)+ 束だけ(Run.from_envelope
   engine・model = transcribe.engine・model + "engine"・"model" / force = run.force / overwrite = run.repack / on_fail = run.onFail
 封筒の側の欄(video_id・doc_id・source_path・title・request_id・deliver_*・pool・fresh・duration・marks)は Run の属性(③ の hook が読む。
 Run.envelope() が封筒の形にする)。marks・streamer・doc_id は段と hook が実行中に書く状態でもある。
-待ちの記録(saved・restore)は封筒 + 束から戻す(0.87 までの版 1 の封筒は読み替える)。段の始まりと終わりの時刻は steps[].startedAt・finishedAt(ミリ秒)。
+待ちの記録(saved・restore)は封筒 + 束から戻す。段の始まりと終わりの時刻は steps[].startedAt・finishedAt(ミリ秒)。
 ツールの仕事は self.tools(flow/tools.py の HttpTools(client) = 今の API の形・LocalTools = 入口なし)に頼む。
 
 RS6 b-A(2026-10-10): 採用は 1 つの段 _step_adopt(規則 F-5 は pipeline/analyze/adopt.py の 1 か所 = 区間 ∪ 人の採用 ∪ 自動の上位で上限まで。RS8 B3-2 でスタジオの store.adopt_marks から出した)。
@@ -71,7 +71,7 @@ NORMALIZE_STEP = "normalize"
 # (③ 全部人が行う manual = 解析まで は RS5-F で無くした。② check は自分の配信の書き出しのあと(L2)と手で置いた動画・URL が使う)。request* = 配信の URL(解析 → 上位 N 個を採用 → 書き出し → …)/ file* = 友人が切り抜いた動画
 REQUEST_MODES = {"request_auto": "依頼 ① 全自動: 解析 → パック", "request": "依頼 ② 軽く確認: 解析 → 文字起こし",
                  "file_auto": "依頼 ① 全自動: 文字起こし → パック", "file": "依頼 ② 軽く確認: 文字起こし"}
-# 友人が時刻で指定した区間(送るアプリ 2.0.0。notes:docs/spec/friend.md の 2-6): 前後に余白を足してスタジオの手動マーク(採用)にする。
+# 友人が時刻で指定した区間(notes:docs/spec/friend.md の 2-6): 前後に余白を足してスタジオの手動マーク(採用)にする。
 # 区間が切り抜く数(top)に足りない分だけ、自動マークの上位で埋める(スタジオの /api/video/request-marks)
 REQUEST_URL_MODES = ("request", "request_auto")
 # 文書単位の実行(notes:docs/design/edit-tool-design.md の 12 ⑦(b)): 「編集」の履歴で選んだ文書を、行が無ければ文字起こし → パック。
@@ -131,7 +131,10 @@ def _job_why(j):
 
 
 KIND_MODES = {"url": ("full", "adopted", "transcribe", "request", "request_auto"), "docs": (DOC_MODE,), "file": ("file", "file_auto")}   # 封筒の kind ごとの形(mode_of の答え)
-KIND_DEFAULT_MODE = _envelope.KIND_DEFAULT_MODE   # 版 1 の封筒に段の並びの形(legacy.mode)が無いとき
+# 派生の mode -> (封筒の kind, 束の run.from, 束の run.upto)。mode_of の逆(どれか 1 つの組。テストと道具が mode から封筒 + 束を組むのに使う)
+MODE_RUN = {"full": ("url", None, "pack"), "adopted": ("url", "export", "pack"), "transcribe": ("url", "export", "transcribe"),
+            "request": ("url", None, "transcribe"), "request_auto": ("url", None, "pack"), DOC_MODE: ("docs", None, "pack"),
+            "file": ("file", None, "transcribe"), "file_auto": ("file", None, "pack")}
 MODE_HINT = {"url": "run.from は null・analyze・export、run.upto は transcribe か pack", "docs": "run.upto は pack",
              "file": "run.upto は transcribe か pack"}
 
@@ -140,7 +143,7 @@ def mode_of(kind, bundle, request_id=None):
     """封筒の kind + 束の run.from・run.upto + 依頼の id -> 実行の形(MODE_STEPS の鍵。記録の mode・modeLabel・届ける溜めの鍵の元)か None(合わない組)。
     url: from が export = 採用後(upto pack → adopted・transcribe → transcribe)/ 頭から(null・analyze)= upto pack なら依頼の id で request_auto か full・
     transcribe なら request / transcribe(run() の from_ = 配信の文字起こしから)= doc。docs: pack だけ(doc)。file: pack → file_auto・transcribe → file
-    (RV A2。以前は封筒の legacy.mode)"""
+    (RV A2)"""
     frm, upto = bundle["run"]["from"], bundle["run"]["upto"]
     if kind == "docs":
         return DOC_MODE if upto == "pack" else None
@@ -238,12 +241,12 @@ def doc_pack_hint(doc):
 
 class Run:
     """1 回の実行(配信・文書・動画ファイル 1 つぶん)の状態。作るのは from_envelope(封筒 + 束)だけ(RV A2)。段の並びは steps_of。
-    封筒の側(何を入れたか・どの依頼か・届け方)は属性(video_id・doc_id・source_path・title・request_id・deliver_*・pool・fresh・duration・marks)に、
+    封筒の側(何を入れたか・どの依頼か・届け先)は属性(video_id・doc_id・source_path・title・request_id・deliver_*・pool・fresh・duration・marks)に、
     何を作るかは束 Run.spec に。束から読む欄(top・ranges・cut・weights・video_tracks・speakers・engine・model・force・overwrite・on_fail)は
     束を読む読み取りだけの属性(③ の hook・public・記録の形のため)。配信者 streamer は束の hints.streamer から始まり、実行中に決まる状態でもある"""
 
     def __init__(self, env, bundle):
-        """env = 版 2 の封筒(検査済み。envelope.read の結果)・bundle = 検査済みの束(全部)。合わない組(kind と run.from・run.upto)は ValueError"""
+        """env = 封筒(検査済み。envelope.read の結果)・bundle = 検査済みの束(全部)。合わない組(kind と run.from・run.upto)は ValueError"""
         kind, inp, dl = env["kind"], env["input"], env["deliver"]
         self.id = env["id"] if RUN_ID_RE.match(env["id"]) else uuid.uuid4().hex[:10]
         self._kind = kind
@@ -262,11 +265,9 @@ class Run:
         self.marks = tuple(inp["marks"]) if inp.get("marks") else None   # このマークだけ(スタジオのマークの行の「この後を」。依頼の URL は採用の段が置く)
         self.request_id = env["requestId"]   # 友人からの依頼の id(src/human/friend/intake.py)
         self.deliver_dir = dl["dir"]         # ① 全自動: パックを zip にして置く所(Dropbox の 出力\)。失敗したら理由の .txt も
-        self.deliver_batch = dl["batch"]     # 友人の依頼ごとの届け方(古い依頼の欄。F3-6 から届けるのはいつも 1 本ずつ = 読まない)
         self.pool = dl["pool"]               # ライブの切り抜きの組の溜め {"key", "rid", "title", "meta"}(None = この実行の中で届ける)
         self.deliver_origin = dl["origin"]   # 届けるときの出どころ(request・auto・manual。None = 依頼の id があれば request・無ければ auto。D-SEND)
         self.deliver_tag = dl.get("tag")     # 届ける zip の名前の頭(友人のアプリの名前の形 YYYYMMDD-HHMMSS-xxxxxx。None = 依頼の id か実行の id。D-SEND)
-        self.note = env["note"]              # 封筒のメモ
         self.created = env["createdAt"] / 1000.0
         self.streamer = bundle["hints"]["streamer"]   # 字幕の文字の色にする配信者(照らし合わせ済みの名前。None = 決めていない・"" = 色なし)
         self.streamer_from = None  # 配信者を自動で決めたときの出どころ(doc / video / channel = 覚えた名前・auto = チャンネル名から。段5)
@@ -375,8 +376,8 @@ class Run:
         else:
             inp = {"docId": self.doc_id, "title": self.title}
         return {"id": self.id, "kind": kind, "input": inp, "requestId": self.request_id,
-                "deliver": {"dir": self.deliver_dir, "batch": self.deliver_batch, "pool": self.pool, "origin": self.deliver_origin, "tag": self.deliver_tag},
-                "note": self.note, "createdAt": int(self.created * 1000), "specVersion": _envelope.SPEC_VERSION}
+                "deliver": {"dir": self.deliver_dir, "pool": self.pool, "origin": self.deliver_origin, "tag": self.deliver_tag},
+                "createdAt": int(self.created * 1000), "specVersion": _envelope.SPEC_VERSION}
 
     def _saved_spec(self):
         """待ちの記録・結果の束に残す束(実行中に決まった配信者を hints.streamer に。束が無ければ None)"""
@@ -389,9 +390,8 @@ class Run:
 
     @classmethod
     def from_envelope(cls, env, spec=None):
-        """封筒(版 1・2)+ 束(変えたい所だけでもよい。None = 既定)-> 「待ち」の Run(受け口・待ちの記録から)。版 1 は envelope.read が版 2 に読み替える。
-        形が違えば理由つきの ValueError"""
-        env, spec = _envelope.read(env, spec)   # 版 1(legacy つき)は版 2 に読み替える(RV A2)
+        """封筒 + 束(変えたい所だけでもよい。None = 既定)-> 「待ち」の Run(受け口・待ちの記録から)。形が違えば理由つきの ValueError"""
+        env, spec = _envelope.read(env, spec)
         kind, inp = env["kind"], env["input"]
         if kind == "live":
             raise ValueError("ライブの依頼は Run にしません(Queue.submit が live の hook へ回す)")
@@ -409,7 +409,7 @@ class Run:
                 "overwrite": self.overwrite, "streamer": self.streamer, "streamerFrom": self.streamer_from, "marks": list(self.marks) if self.marks else None,
                 "fresh": self.fresh, "onFail": self.on_fail, "sourcePath": self.source_path, "requestId": self.request_id, "deliverDir": self.deliver_dir,
                 "speakers": self.speakers, "videoTracks": self.video_tracks, "ranges": [list(r) for r in self.ranges], "cut": self.cut, "weights": self.weights,
-                "duration": self.duration, "engine": self.engine, "model": self.model, "friendLength": self.friend_length, "deliverBatch": self.deliver_batch, "deliverTag": self.deliver_tag, "deliverOrigin": self.deliver_origin,
+                "duration": self.duration, "engine": self.engine, "model": self.model, "friendLength": self.friend_length, "deliverTag": self.deliver_tag, "deliverOrigin": self.deliver_origin,
                 "pool": self.pool, "docs": list(self.docs), "newDocs": list(self.new_docs), "txBefore": copy.deepcopy(self.tx_before), "packs": list(self.packs), "keptPacks": list(self.kept_packs), "delivered": list(self.delivered),
                 "packMarks": dict(self.pack_marks), "force": self.force, "normalize": self.normalize,
                 "friendPlan": copy.deepcopy(self.friend_plan), "notes": list(self.notes),   # 受付で決めた物(RS7-1 S4)
@@ -420,20 +420,13 @@ class Run:
     @classmethod
     def restore(cls, d):
         """saved() の形 -> 「待ち」の Run(同じ id。済んだ段はそのまま・途中の段は待ちに)。形が違えば None(手で直した・壊れた記録は読み飛ばす)。
-        戻すのは封筒 + 束だけ(RV A2。版 1 の封筒は読み替える。0.87 までの記録 = 版 1 の封筒 + 束 + 欄)。版 1 の記録にしか無い物だけ欄から:
-        届ける名前の頭(deliverTag)・動画ファイルの段 normalize(normalize の欄の無い古い記録 = 受付が 30fps にしてから渡していた = True。30fps 済みなら段が飛ばす)・
-        動画ファイルの実行が文字起こしで作った文書(docId)。束が合わなければ束なしで戻す(入口が組み直す)。封筒の無い記録は戻さない"""
+        戻すのは封筒 + 束だけ(RV A2)。欄から戻すのは動画ファイルの実行が文字起こしで作った文書(docId)だけ。束が合わなければ束なしで戻す(入口が組み直す)。
+        封筒の無い・読めない(知らない版など)記録は戻さない"""
         if not isinstance(d, dict) or not RUN_ID_RE.match(str(d.get("id") or "")) or not isinstance(d.get("envelope"), dict):
             return None
         spec = d.get("spec") if isinstance(d.get("spec"), dict) else None
         try:
             env, spec2 = _envelope.read(d["envelope"], spec)
-            if d["envelope"].get("specVersion", 1) == 1:   # 版 1 の封筒(0.87 まで)
-                if env["kind"] == "file":
-                    env["input"]["normalize"] = d.get("normalize") is not False
-                tag = d.get("deliverTag")
-                if not env["deliver"]["tag"] and isinstance(tag, str) and 0 < len(tag) <= _envelope.TAG_MAX:
-                    env["deliver"]["tag"] = tag
             try:
                 run = cls.from_envelope(env, spec2)
             except ValueError:
@@ -461,7 +454,7 @@ class Run:
         run.streamer_from = sf if isinstance(sf, str) and 0 < len(sf) <= 20 else None
         run.friend_length = d.get("friendLength") if isinstance(d.get("friendLength"), dict) else None
         fp = d.get("friendPlan")
-        run.friend_plan = fp if isinstance(fp, dict) and _num(fp.get("length")) else None   # 受付で決めた友人の区間の長さ(RS7-1 S4。版 1 の記録には無い)
+        run.friend_plan = fp if isinstance(fp, dict) and _num(fp.get("length")) else None   # 受付で決めた友人の区間の長さ(RS7-1 S4)
         run.notes = strs("notes", 20)
         run.docs, run.new_docs = strs("docs"), strs("newDocs")
         tb = d.get("txBefore") if isinstance(d.get("txBefore"), dict) else {}
@@ -607,7 +600,7 @@ class Runner:
         """指定の無い実行の配信者を決める(段5)。既定は決めない(字幕の色なし)"""
 
     def _after_pack(self, run, st, prefix):
-        """パックが 1 本できたとき(① 全自動は n 本たまるごとに届ける)。既定は何もしない"""
+        """パックが 1 本できたとき(① 全自動はできるたびに 1 本ずつ届ける)。既定は何もしない"""
 
     def _remember_styles(self, tid, styles):
         """字幕の色を文書の話者に覚える。-> 覚えたか。既定は False"""
@@ -1146,7 +1139,7 @@ class Runner:
             run.packs.append(out)   # ① 全自動で Dropbox へ届けるもの
             run.pack_marks[out] = dict(run.pack_hint or {})   # どの切り抜き・どのマークのパックか(_step_pack が hint を置く。友人の「要らない」で引く)
             run.pack_hint = None
-            self._after_pack(run, st, prefix)   # ① 全自動: n 本たまるごとに届ける(全部を待たない。AutoRunner)
+            self._after_pack(run, st, prefix)   # ① 全自動: できるたびに 1 本ずつ届ける(全部を待たない。AutoRunner)
         if keeps:   # 作った記録(packRev)を「編集」に残す(カット・字幕を直したら「作り直し」と知らせるため)。残せなくてもパックはできている
             self.tools.record_pack({"id": doc["id"], "rev": rev, "docUpdatedAt": int(doc.get("updatedAt") or 0),
                                     "dir": r.get("outDir") or "", "files": [f.get("name") for f in r.get("files") or [] if isinstance(f, dict)]})

@@ -179,7 +179,7 @@
        <div class="tt-pk-diff" id="pkLastDiff" hidden></div>
        <ul class="hint tt-pk-notes" id="pkLastNotes" hidden aria-label="作ったときの案内"></ul>
        <div id="pkLastFiles"></div>
-       <div class="row tt-pk-lastbtns"><button type="button" class="btn small" id="pkOpen">フォルダを開く</button><button type="button" class="btn small" id="pkReadme">Resolve での手順を見る</button><button type="button" class="btn small" id="pkCopy">パスをコピー</button><button type="button" class="btn small" id="pkDeliver" hidden title="パックを zip にして Dropbox の「出力」に置きます。友人の送るアプリの「受け取る」に出ます">友人へ届ける</button></div>
+       <div class="row tt-pk-lastbtns"><button type="button" class="btn small" id="pkOpen">フォルダを開く</button><button type="button" class="btn small" id="pkReadme">Resolve での手順を見る</button><button type="button" class="btn small" id="pkCopy">パスをコピー</button><button type="button" class="btn small" id="pkDeliver" hidden title="パックを zip にして Dropbox の「出力」に置きます。友人のアプリの「受け取る」に出ます">友人へ届ける</button></div>
        <p class="hint" id="pkDeliverMsg" role="status" hidden></p>
        <pre class="tt-cp-readme" id="pkReadmeText" hidden></pre>
      </div>

@@ -174,15 +174,14 @@ def stream_url(env):
     return inp.get("url") or "https://www.youtube.com/watch?v=" + inp["videoId"]
 
 
-def live_envelope(url, title="", request_id=None, deliver_dir=None, batch=None, note="", eid=None):
+def live_envelope(url, title="", request_id=None, deliver_dir=None, eid=None):
     """録画を始める依頼の封筒(kind live・版 2。検査済み)。YouTube の動画の URL でなければ ValueError(手元のテストの録画元など = 束なしで録る)。
-    eid = 封筒の id(英数字と - _ の 64 字まで。合わない・無ければ新しく作る)。配信者は束の hints.streamer(request_bundle。RV A2 で封筒の legacy から)"""
+    eid = 封筒の id(英数字と - _ の 64 字まで。合わない・無ければ新しく作る)。配信者は束の hints.streamer(request_bundle)"""
     eid = eid if isinstance(eid, str) and _envelope.ID_RE.match(eid) else "lv-" + os.urandom(6).hex()
     return _envelope.check({"id": eid, "kind": "live", "input": {"url": url, "title": str(title or "")[:_envelope.TITLE_MAX]},
                             "requestId": str(request_id)[:120] if request_id else None,
-                            "deliver": {"dir": str(deliver_dir)[:_envelope.PATH_MAX] if deliver_dir else None,
-                                        "batch": batch if _envelope.batch_ok(batch) else None},
-                            "note": str(note or "")[:_envelope.NOTE_MAX], "specVersion": _envelope.SPEC_VERSION})
+                            "deliver": {"dir": str(deliver_dir)[:_envelope.PATH_MAX] if deliver_dir else None},
+                            "specVersion": _envelope.SPEC_VERSION})
 
 
 def cfg_bundle(base, cfg):
@@ -227,7 +226,7 @@ def now_bundle(bundle, analyze=None, audio=None):
 
 def request_bundle(ctx, base=None, top=None):
     """友人のライブ配信の依頼の欄 ctx(human/friend/intake.py の _handle_live_request の形)-> 束: base に依頼の設定(感度・枠・待ち・余白・配信後の追加)・
-    カット・映像トラック・話す人(run.requested に)・配信者(hints.streamer。RV A2 で封筒の legacy から)と、自動の採用の上限 top(友人の依頼の欄の既定 10 を
+    カット・映像トラック・話す人(run.requested に)・配信者(hints.streamer)と、自動の採用の上限 top(友人の依頼の欄の既定 10 を
     呼ぶ側が明示する)を重ねる。
     長さ(settings.length)は束の analyze に入れない(検出は依頼の長さで測る = requests.json のまま。配信後の解析はスタジオの設定のまま)"""
     b = copy.deepcopy(_spec.validate(_spec.merge(base)))
@@ -281,7 +280,7 @@ def bundle_ctx(env, bundle, url):
             "streamer": bundle["hints"]["streamer"] or "", "speakers": speakers_of(bundle),
             "videoTracks": pk["videoTracks"] if "videoTracks" in pins else None,
             "cut": pk["cut"] if "cut" in pins and pk["cut"] in _spec.CUTS else None,
-            "memo": env["note"], "settings": request_settings(bundle), "deliverBatch": env["deliver"]["batch"]}
+            "settings": request_settings(bundle)}
 
 
 class BundleBook:
@@ -308,7 +307,7 @@ class BundleBook:
             rc, _sep, rec = k.partition("/") if isinstance(k, str) else ("", "", "")
             raw = v.get("spec") if isinstance(v, dict) else None
             env = v.get("envelope") if isinstance(v, dict) else None
-            try:   # 版 1 の封筒は版 2 に読み替える(legacy.streamer は束の hints.streamer へ。RV A2)。読めない封筒は記録だけなので無しにする
+            try:   # 読めない封筒(知らない版など)は記録だけなので無しにする(束は残す)
                 env, raw = _envelope.read(env, raw) if env is not None else (None, raw)
             except (AttributeError, TypeError, ValueError, KeyError):
                 env = None
@@ -442,7 +441,7 @@ class LiveSession:
         self._recent_lock = threading.Lock()
         self._stop_lock = threading.Lock()
         self._stopped = None              # 入口の終了で録画の部品を止めた結果(stop_recorder。2 回目からはこれを返す)
-        self.always_on = False            # 設定に関わらずオン(画面なし = 送るアプリの依頼で動く。use_headless)
+        self.always_on = False            # 設定に関わらずオン(画面なし = 友人の依頼で動く。use_headless)
         self.request_all = False          # どの封筒も友人の依頼の結びつきを作る(画面なし = 依頼の決まりで検出・採用・パックまで)
         self.disk_min_gb = None           # 空き容量の下限(GB。下回ったら新しい録画を始めない。画面なし = machine.json の diskMinGB。None = 見ない)
         self.disk_usage = fsio.disk_space     # (空き, 全体)(テストは偽の小さな空きにする)
@@ -721,7 +720,7 @@ class LiveSession:
         画面なしで空き容量が下限(disk_min_gb)より少なければ録画を始めない。
         -> {"id": 封筒の id, "live", "recorder", "recording": 録画の id, "existing", "title"?} か 配信中でなければ {"id", "live": False, "status", "message"?}。
         形が違う・録画を始められなければ LiveError(ValueError)"""
-        env, bundle = _envelope.read(envelope, bundle)   # 版 1 の legacy.streamer は束の hints.streamer へ(RV A2)
+        env, bundle = _envelope.read(envelope, bundle)
         if env["kind"] != "live":
             raise LX.LiveError("ライブの依頼(封筒の kind live)ではありません")
         b = _spec.validate(_spec.merge(bundle))
@@ -825,7 +824,7 @@ class LiveSession:
 
     def begin_request(self, url, ctx, envelope=None, bundle=None, recorder=None):
         """友人のライブ配信の依頼(notes:docs/spec/friend.md の 2-15。submit から・入口の intake の live_begin から): 録画を始めて(begin)、その録画を依頼に結びつける。
-        ctx = {rid, deliverDir, url, title, streamer, speakers, videoTracks, cut, memo, settings, deliverBatch}。封筒 + 束があれば録画の束として残す(置き換える)。
+        ctx = {rid, deliverDir, url, title, streamer, speakers, videoTracks, cut, settings}。封筒 + 束があれば録画の束として残す(置き換える)。
         -> {"recorder", "recording", "existing"}。だめなら LiveError"""
         if not self.enabled():
             raise LX.LiveError("リアルタイム切り抜きがオフです", 409)
@@ -1017,7 +1016,7 @@ class LiveSession:
         return []
 
     def _app_watch(self):
-        """配信の記録のあとに入れる見回り(入口は届け方の組の溜め・見ていない自動の切り抜きの片付け)-> [(what, fn)]"""
+        """配信の記録のあとに入れる見回り(入口はライブの切り抜きの溜め・見ていない自動の切り抜きの片付け)-> [(what, fn)]"""
         return []
 
     def _watch_steps(self):

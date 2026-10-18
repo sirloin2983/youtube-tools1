@@ -2,7 +2,7 @@
 """テストが共有する部品: 以前の Run の欄の形(Run(video_id, title, mode, top, 欄...))から Run を作る(RV A2 で Run を作るのは封筒 + 束だけになった)。
 
 テストの名前ではない(unittest は読まない)。flow の tests と入口 app のテストが `import _runfields as RF` で使う(app のテストは sys.path に src/flow/tests を足す)。
-欄 → 封筒 + 束の差分は本物の flow/order.py(画面・友人の受付と同じ変換)、mode → run.from・run.upto は flow/envelope.py の LEGACY_MODES。
+欄 → 封筒 + 束の差分は本物の flow/order.py(画面・友人の受付と同じ変換)、mode → run.from・run.upto は flow/run.py の MODE_RUN。
 """
 import os
 import sys
@@ -11,15 +11,15 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.dirname(os.path.dirname(TESTS))
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
-from flow import envelope as E, order as O, run as R, spec as SP  # noqa: E402
+from flow import order as O, run as R, spec as SP  # noqa: E402
 
-RENAME = {"overwrite": "repack", "deliver_batch": "batch", "deliver_origin": "origin", "deliver_tag": "tag", "source_path": "path"}
+RENAME = {"overwrite": "repack", "deliver_origin": "origin", "deliver_tag": "tag", "source_path": "path"}
 
 
 def run_of(video_id, title, mode, top=None, base=None, **kw):
     """以前の Run(video_id, title, mode, top, **欄) と同じ実行の Run(base = 土台の束。None = 既定)。
     依頼の形(request・request_auto)は依頼の id が要る(無ければ "r-test")"""
-    kind, frm, upto = E.LEGACY_MODES[mode]
+    kind, frm, upto = R.MODE_RUN[mode]
     o = {RENAME.get(k, k): v for k, v in kw.items()}
     if kind == "url":
         o["video_id"] = video_id

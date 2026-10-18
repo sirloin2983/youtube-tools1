@@ -19,7 +19,7 @@ if ROOT not in sys.path:
 
 from ytt import testkit  # noqa: E402
 from flow import deliver  # noqa: E402
-from pipeline.pack import preview as pv  # noqa: E402  (まとめ動画は ① へ分けた。ds1)
+from pipeline.pack import preview as pv  # noqa: E402  (確認用の動画は ① へ分けた。ds1)
 
 
 def put(path, data=b"x"):
@@ -82,7 +82,7 @@ class ZipPackTest(unittest.TestCase):
             self.assertIn("clip_pack/old.txt", [n.replace("\\", "/") for n in z.namelist()])
 
     def test_request_id_matches_friend_app(self):
-        # 前のアプリ(消した request-sender)の Core.cs の NameRx と同じ形(アプリが先頭の id を除いて題名を出す)
+        # 友人のアプリの依頼 id と同じ形(アプリが先頭の id を除いて題名を出す)
         self.assertRegex(deliver.request_id(), r"^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$")
 
 
@@ -93,7 +93,7 @@ def fake_make_preview(video, out_path, **_kw):
 
 
 class OriginTest(unittest.TestCase):
-    """F3-6: 1 本ずつの届け方。確認用の動画 → meta → zip の順に置く。依頼でも自動でも meta を必ず置く。届けた記録に origin・endedAt"""
+    """1 本ずつ届ける。確認用の動画 → meta → zip の順に置く。依頼でも自動でも meta を必ず置く。届けた記録に origin・endedAt"""
 
     def setUp(self):
         self.tmp = testkit.tempdir(self, "ytt-deliver-")
@@ -169,7 +169,7 @@ class OriginTest(unittest.TestCase):
 
 
 class ZipPacksTest(unittest.TestCase):
-    """n 本をまとめる zip(① 全自動の n 本ごとの届け方)とパックの中の動画の見つけ方"""
+    """パックの zip(zip_packs)とパックの中の動画の見つけ方"""
 
     def setUp(self):
         self.tmp = testkit.tempdir(self, "ytt-deliver-")
@@ -201,7 +201,7 @@ class ZipPacksTest(unittest.TestCase):
         self.assertEqual(pv.pack_title(os.path.join(self.tmp, "そのまま")), "そのまま")
 
     def test_names_and_place_preview(self):
-        """名前 <依頼 id>__<題>(使えない文字は _)・まとめ動画を zip の隣に写す(元の一時ファイルは呼ぶ側が消す)・動画の無いパックがあれば作らない"""
+        """名前 <依頼 id>__<題>(使えない文字は _)・確認用の動画を zip の隣に写す(元の一時ファイルは呼ぶ側が消す)・動画の無いパックがあれば作らない"""
         self.assertEqual(deliver.delivery_name("rid", "題/1:2"), "rid__題_1_2")
         preview = os.path.join(self.tmp, "p.mp4")
         put(preview, b"PV")
@@ -395,13 +395,13 @@ class DeliveriesTest(unittest.TestCase):
         j = wait(self.dl, self.dl.start(self.pack, "【雑談】校正済み/1"))
         self.assertEqual(j["state"], "done")
         self.assertRegex(j["name"], r"^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}__【雑談】校正済み_1\.zip$")
-        # 手で届けるのも 1 本ずつの届け方: 確認用の動画 + 出どころの印 <zip の名前>.meta.json(友人には「依頼なし」= origin auto。D-SEND 2-7・2-8)
+        # 手で届けるのも 1 本ずつ: 確認用の動画 + 出どころの印 <zip の名前>.meta.json(友人には「依頼なし」= origin auto。D-SEND 2-7・2-8)
         stem = j["name"][:-4]
         self.assertEqual(sorted(os.listdir(os.path.join(self.folder, deliver.OUT_DIR))), sorted([j["name"], stem + deliver.PREVIEW_SUFFIX, stem + deliver.META_SUFFIX]))
         self.assertTrue(self.logs)
 
     def test_same_as_auto_preview_zip_and_record(self):
-        """手で届けるのも全自動と同じ 1 本の届け方(deliver_one): 確認用の動画を zip の隣に・届けた記録 deliveries.jsonl に 1 行(友人の「要らない」が引ける。Q16)"""
+        """手で届けるのも全自動と同じ 1 本ずつ(deliver_one): 確認用の動画を zip の隣に・届けた記録 deliveries.jsonl に 1 行(友人の「要らない」が引ける。Q16)"""
         from human.friend import friend_feedback
         clip = os.path.join(self.tmp, "clip.mp4")
         j = wait(self.dl, self.dl.start(self.pack, "題", clip={"path": clip, "markId": "m1", "videoId": "abcdefghijk"}))

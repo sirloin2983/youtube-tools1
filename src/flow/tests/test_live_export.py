@@ -57,7 +57,7 @@ def handed(env, spec):
     kw = {k: getattr(run, k) for k in ("cut", "engine", "model") if getattr(run, k)}
     if run.request_id:
         kw.update(request_id=run.request_id, deliver_dir=run.deliver_dir, speakers=run.speakers, video_tracks=run.video_tracks,
-                  deliver_batch=run.deliver_batch, pool=run.pool)
+                  pool=run.pool)
     return run.source_path, run.title, "auto" if run.mode == "file_auto" else "check", run.streamer, kw
 
 
@@ -710,14 +710,14 @@ class ExportPiecesTest(unittest.TestCase):
 
     def test_handoff_with_friend_request(self):
         """友人のライブ配信の依頼の録画(2-15): 書き出したら まとめて実行の start_file に 依頼 id・届け先・話者・トラック・カット(依頼のものが live.auto より先)と
-        deliver_batch=1(1 本ずつ届ける)を渡す。ジョブの request は記録に残る(起動し直しても届け先が分かる)。依頼の無いジョブには渡さない"""
+        溜めの指定を渡す。ジョブの request は記録に残る(起動し直しても届け先が分かる)。依頼の無いジョブには渡さない"""
         free = {"v": 50 * LX.GB}
         runner = FakeRunner()
         ex, _logs = self._pieces_exporter(free, runner)
         rec = "20261004-000000-a"
         deliver = os.path.join(self.tmp, "Dropbox", "切り抜き依頼", "出力")
         req = {"rid": "20261008-200000-abc123", "deliverDir": deliver, "url": "https://www.youtube.com/watch?v=abcdefghijk", "title": "配信", "streamer": "兎田ぺこら",
-               "speakers": {"count": 2, "names": ["兎田ぺこら", "宝鐘マリン"], "styles": {}}, "videoTracks": 2, "cut": "silence", "memo": "",
+               "speakers": {"count": 2, "names": ["兎田ぺこら", "宝鐘マリン"], "styles": {}}, "videoTracks": 2, "cut": "silence",
                "settings": dict(LR.SETTINGS_DEFAULT), "createdAt": 1.0}
         auto = {"cut": "none", "engine": "whisper.cpp", "model": "large-v3"}
         media = self.media("03_z.mp4")
@@ -733,12 +733,12 @@ class ExportPiecesTest(unittest.TestCase):
         self.assertEqual((j["state"], j["runId"], j["handoffError"]), ("done", "run-1", ""))
         self.assertEqual((runner.files[-1][0], runner.files[-1][2], runner.streamers[-1]), (media, "auto", "兎田ぺこら"))
         self.assertEqual(runner.kws[-1], {"cut": "silence", "engine": "whisper.cpp", "model": "large-v3", "request_id": req["rid"], "deliver_dir": deliver,
-                                          "speakers": req["speakers"], "video_tracks": 2, "deliver_batch": None, "pool": LX.deliver_pool(j, j["request"])})
+                                          "speakers": req["speakers"], "video_tracks": 2, "pool": LX.deliver_pool(j, j["request"])})
         self.assertEqual(LX.deliver_pool(j, j["request"])["key"], "live|%s|local/%s" % (req["rid"], rec))   # 溜めは 依頼 × 段 × 録画(10-09 ユーザー決定)
         # 依頼にカットの指定が無ければ live.auto のカット・届け先が空なら None(まとめて実行が断る = 失敗として見える)
         j = run("2026-10-04T06:01:00Z", dict(req, cut=None, deliverDir="", speakers=None, videoTracks=None))
         self.assertEqual(runner.kws[-1], {"cut": "none", "engine": "whisper.cpp", "model": "large-v3", "request_id": req["rid"], "deliver_dir": None,
-                                          "speakers": None, "video_tracks": None, "deliver_batch": None, "pool": LX.deliver_pool(j, j["request"])})
+                                          "speakers": None, "video_tracks": None, "pool": LX.deliver_pool(j, j["request"])})
         # 依頼 id の無い request・依頼なし: 今までどおり(依頼の引数を渡さない)
         for k, bad in enumerate((dict(req, rid=""), None, "x")):
             j = run("2026-10-04T06:0%d:00Z" % (2 + k), bad)

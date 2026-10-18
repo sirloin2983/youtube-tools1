@@ -541,11 +541,11 @@ class PortalHttpTest(Base):
         return self.post_json("/api/ytt/prefs", {"op": "patch", "section": section, "value": value})
 
     def file_envelope(self):
-        """一時フォルダの動画 1 本の封筒(kind file)-> (動画のパス, 封筒)"""
+        """一時フォルダの動画 1 本の封筒(kind file。文字起こしだけにするのは束の run.upto transcribe)-> (動画のパス, 封筒)"""
         media = os.path.join(self.tmp, "切り抜き.mp4")
         with open(media, "wb") as f:
             f.write(b"x")
-        return media, {"id": "0123456789", "kind": "file", "input": {"path": media, "title": "切り抜き"}, "legacy": {"mode": "file"}}
+        return media, {"id": "0123456789", "kind": "file", "input": {"path": media, "title": "切り抜き"}, "specVersion": 2}
 
     def wait_stops(self, stops):
         """後始末の頼み(request_shutdown)は裏で届くので、届くまで少し待つ"""
@@ -724,7 +724,7 @@ class PortalHttpTest(Base):
         return R, calls, stops
 
     def test_restart_self_refused_when_headless(self):
-        """画面なしの入口(--headless)は起動し直さない(新しい入口が送るアプリの子にならない)= 409 で新しい入口を起こさない"""
+        """画面なしの入口(--headless)は起動し直さない(新しい入口が起こしたアプリの子にならない)= 409 で新しい入口を起こさない"""
         _R, calls, _stops = self.fake_restart()
         with mock.patch.object(self.srv, "headless", True):
             r, body = self.post("/api/ytt/restart-self")
@@ -868,7 +868,7 @@ class PortalHttpTest(Base):
         j = json.loads(body)
         self.assertEqual((r.status, j["queued"], j["running"], j["idle"], j["runs"]), (200, 0, 0, True, []))
         media, env = self.file_envelope()
-        payload = json.dumps({"envelope": env, "spec": {"transcribe": {"model": "large-v3"}}}, ensure_ascii=False).encode("utf-8")
+        payload = json.dumps({"envelope": env, "spec": {"transcribe": {"model": "large-v3"}, "run": {"upto": "transcribe"}}}, ensure_ascii=False).encode("utf-8")
         self.assertEqual(self.post("/api/flow/submit", headers={"X-YTT-Token": "x"}, body=payload)[0].status, 403)   # 書き込み系 = 合言葉が要る
         for bad, why in (({"envelope": dict(env, kind="nai")}, "封筒.kind"),
                          ({"envelope": dict(env, input={"path": os.path.join(self.tmp, "nai.mp4")})}, "見つかりません"),
@@ -903,7 +903,7 @@ class PortalHttpTest(Base):
         finally:
             self.srv.tools_started = None
     def test_flow_submit_spec_errors(self):
-        """F1 F0-1: 束の版の違いは 400 spec_version・束の知らない節・項目は 400 bad_spec(送るアプリは「更新してください」)・封筒の形は今までどおり bad_request"""
+        """F1 F0-1: 束の版の違いは 400 spec_version・束の知らない節・項目は 400 bad_spec(呼ぶアプリは「更新してください」と出せる)・封筒の形は今までどおり bad_request"""
         _media, env = self.file_envelope()
         for bad, code in (({"envelope": dict(env, specVersion=3)}, "spec_version"), ({"envelope": env, "spec": {"nai": {}}}, "bad_spec"),
                           ({"envelope": env, "spec": {"transcribe": {"nai": 1}}}, "bad_spec"), ({"envelope": dict(env, kind="nai")}, "bad_request")):
@@ -1022,7 +1022,7 @@ class PortalHttpTest(Base):
             r, body = self.req("GET", path)
             self.assertEqual((r.status, json.loads(body)["error"]), (400, "bad_request"), path)
         media, env = self.file_envelope()
-        self.assertEqual(self.post_json("/api/flow/submit", {"envelope": env})[0], 200)
+        self.assertEqual(self.post_json("/api/flow/submit", {"envelope": env, "spec": {"run": {"upto": "transcribe"}}})[0], 200)
         st = self.get_json("/api/flow/status")[1]
         job = next(j for j in st["jobs"] if j["id"] == "run:0123456789")
         self.assertEqual((job["kind"], job["target"]["path"], [s["key"] for s in job["steps"]]), ("run", media, ["transcribe"]))

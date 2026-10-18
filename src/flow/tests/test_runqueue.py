@@ -77,7 +77,14 @@ class Base(unittest.TestCase):
 
     @staticmethod
     def env_of(path, eid="0123456789"):
-        return {"id": eid, "kind": "file", "input": {"path": path, "title": "切り抜き"}, "legacy": {"mode": "file"}}   # 文字起こしだけ
+        return {"id": eid, "kind": "file", "input": {"path": path, "title": "切り抜き"}, "specVersion": 2}
+
+    @staticmethod
+    def sub(q, env, spec=None):
+        """文字起こしだけ(束の run.upto transcribe)で submit"""
+        spec = dict(spec or {})
+        spec["run"] = dict(spec.get("run") or {}, upto="transcribe")
+        return q.submit(env, spec)
 
     def active_file(self):
         with open(os.path.join(self.logs, Q.ACTIVE_FILE), encoding="utf-8") as f:
@@ -116,7 +123,7 @@ class TestSubmit(Base):
         """封筒 + 束を積む → 糸が束のとおりに進める → status で 0 本に戻る・記録と history に 1 行"""
         tools = Tools()
         q = self.queue(tools, env=dict(self.env, YTT_MACHINE_LLM_MODEL="qwen3-4b"))
-        pub = q.submit(self.env_of(self.media[0]), {"transcribe": {"model": "large-v3"}})
+        pub = self.sub(q, self.env_of(self.media[0]), {"transcribe": {"model": "large-v3"}})
         self.assertEqual((pub["id"], pub["kind"], pub["sourcePath"]), ("0123456789", "file", self.media[0]))
         _until(lambda: q.status()["idle"], "待ち・実行中が 0")
         st = q.status()
@@ -148,11 +155,11 @@ class TestSubmit(Base):
             done.append((run.id, run.state))
             raise RuntimeError("壊れた hook")
         q.set_finished_hook(hook)
-        q.submit(self.env_of(self.media[0]))
+        self.sub(q, self.env_of(self.media[0]))
         _until(lambda: q.status()["idle"] and done, "終わったあとの hook")
         self.assertEqual(seen, ["20261011-120000-abcdef12"])
         self.assertEqual(done, [("0123456789", "done")])
-        q.submit(self.env_of(self.media[1], eid="0123456780"), {"post": {"learning": {"version": "given"}}})   # 束に版があればそのまま
+        self.sub(q, self.env_of(self.media[1], eid="0123456780"), {"post": {"learning": {"version": "given"}}})   # 束に版があればそのまま
         _until(lambda: len(done) == 2, "2 本目")
         self.assertEqual(seen[-1], "given")
 
@@ -164,12 +171,12 @@ class TestSubmit(Base):
         with self.assertRaises(ValueError):
             q.submit({"id": "x", "kind": "nai", "input": {}})
         with self.assertRaises(ValueError):
-            q.submit(self.env_of(self.media[0]), {"transcribe": {"engine": "nai"}})
-        q.submit(self.env_of(self.media[0]))
+            self.sub(q, self.env_of(self.media[0]), {"transcribe": {"engine": "nai"}})
+        self.sub(q, self.env_of(self.media[0]))
         with self.assertRaisesRegex(ValueError, "すでに実行中・順番待ち"):
-            q.submit(self.env_of(self.media[0], "abcdef0123"))
+            self.sub(q, self.env_of(self.media[0], "abcdef0123"))
         with self.assertRaisesRegex(ValueError, "もう待ち・実行中"):
-            q.submit(self.env_of(self.media[1]))
+            self.sub(q, self.env_of(self.media[1]))
         self.assertEqual(len(q.status()["runs"]), 1)
         tools.gate.set()
         _until(lambda: q.status()["idle"], "待ち・実行中が 0")
@@ -179,7 +186,7 @@ class TestSubmit(Base):
         q = self.queue()
         q.close()
         with self.assertRaisesRegex(ValueError, "終了しているところです"):
-            q.submit(self.env_of(self.media[0]))
+            self.sub(q, self.env_of(self.media[0]))
         with self.assertRaisesRegex(ValueError, "終了しているところです"):
             q._enqueue([1], lambda it, active: {"id": "x", "title": "", "reason": "x"})
         self.assertEqual(q.status()["runs"], [])
@@ -193,7 +200,7 @@ class TestSubmit(Base):
             f.write(b"x")
         for path, why in ((os.path.join(self.tmp, "nai.mp4"), "見つかりません"), ("clip0.mp4", "見つかりません"), (txt, "動画・音声")):
             with self.assertRaisesRegex(ValueError, why, msg=path):
-                q.submit(self.env_of(path))
+                self.sub(q, self.env_of(path))
         self.assertEqual(q.status()["runs"], [])
 
     def test_people_head_is_streamer(self):
@@ -202,9 +209,9 @@ class TestSubmit(Base):
         tools.gate.clear()
         q = self.queue(tools)
         spec = {"hints": {"people": [{"name": "ぺこら"}, {"name": "ゲスト"}]}}
-        q.submit(self.env_of(self.media[0]), spec)
-        q.submit(self.env_of(self.media[1], "abcdef0123"), {"hints": {"people": [{"name": "だれでもない人"}]}})
-        q.submit(dict(self.env_of(self.media[2], "fedcba9876"), legacy={"mode": "file", "streamer": ""}), spec)
+        self.sub(q, self.env_of(self.media[0]), spec)
+        self.sub(q, self.env_of(self.media[1], "abcdef0123"), {"hints": {"people": [{"name": "だれでもない人"}]}})
+        self.sub(q, self.env_of(self.media[2], "fedcba9876"), dict(spec, hints=dict(spec["hints"], streamer="")))
         by = {r.id: r.streamer for r in q.runs}
         self.assertEqual(by, {"0123456789": "兎田ぺこら", "abcdef0123": None, "fedcba9876": ""})
         tools.gate.set()
@@ -227,8 +234,8 @@ class TestRestore(Base):
         tools = Tools()
         tools.gate.clear()
         q = self.queue(tools)
-        q.submit(self.env_of(self.media[0]), {"transcribe": {"model": "large-v3"}})
-        q.submit(self.env_of(self.media[1], "abcdef0123"))
+        self.sub(q, self.env_of(self.media[0]), {"transcribe": {"model": "large-v3"}})
+        self.sub(q, self.env_of(self.media[1], "abcdef0123"))
         _until(lambda: q.status()["running"] == 1 and tools.started, "実行中")
         st = q.status()
         self.assertEqual((st["queued"], st["running"], st["idle"], st["runs"][0]["step"]), (1, 1, False, "transcribe"))
@@ -258,7 +265,7 @@ class TestRestore(Base):
         tools.gate.clear()
         q = Shaped(None, env=self.env, poll=0.01, tools=tools, log_dir=self.logs)
         self.addCleanup(q.close)
-        q.submit(self.env_of(self.media[0]))
+        self.sub(q, self.env_of(self.media[0]))
         _until(lambda: q.status()["running"] == 1 and tools.started, "実行中")
         self.assertEqual(calls, ["0123456789"])
         q.close()
@@ -270,21 +277,21 @@ class TestRestore(Base):
         self.assertEqual(calls, ["0123456789"])
 
     def test_old_form_and_too_old(self):
-        """0.87 までの形(版 1 の封筒 + 欄・束なし)の待ちの記録も戻す(束なし = hook が組む)。封筒の無い記録は戻さない(RV A2)。
-        RESTORE_MAX_AGE より前の物は戻さず記録に「中止」"""
+        """10-18 までの形(封筒に deliver.batch・note)の待ちの記録も戻す(batch・note は読んで捨てる)。封筒の無い記録・前の版の封筒(legacy つき)は
+        戻さない(RV A2)。RESTORE_MAX_AGE より前の物は戻さず記録に「中止」"""
         now = time.time()
 
         def env(rid, path):
             return {"id": rid, "kind": "file", "input": {"path": path, "title": "古い形"}, "requestId": None,
-                    "deliver": {"dir": None, "batch": None, "pool": None, "origin": None}, "note": "", "createdAt": 0, "specVersion": 1,
-                    "legacy": {"mode": "file", "onFail": "next", "streamer": None}}
+                    "deliver": {"dir": None, "batch": None, "pool": None, "origin": None, "tag": None}, "note": "", "createdAt": 0, "specVersion": 2}
         old = {"id": "0123456789", "mode": "file", "title": "古い形", "sourcePath": self.media[0], "created": now - 60,
-               "steps": [{"key": "transcribe", "state": "wait", "detail": ""}], "envelope": env("0123456789", self.media[0])}
+               "steps": [{"key": "transcribe", "state": "wait", "detail": ""}], "envelope": env("0123456789", self.media[0]), "spec": {"run": {"upto": "transcribe"}}}
+        v1 = dict(old, id="abcdef0124", envelope=dict(env("abcdef0124", self.media[2]), specVersion=1, legacy={"mode": "file"}))
         stale = dict(old, id="abcdef0123", sourcePath=self.media[1], created=now - Q.RESTORE_MAX_AGE - 60, envelope=env("abcdef0123", self.media[1]))
         fields_only = {k: v for k, v in dict(old, id="fedcba9876").items() if k != "envelope"}
         with open(os.path.join(self.logs, Q.ACTIVE_FILE), "w", encoding="utf-8") as f:
             json.dump({"v": Q.ACTIVE_VERSION, "runs": [{"id": "../x", "mode": "file"}, old, {"id": "abcdefabcd", "mode": "nope"}, stale, "壊れた",
-                                                       fields_only]}, f)   # 壊れた行・形の違う id・知らない mode は読み飛ばす(入口の試験から移した)
+                                                       fields_only, v1]}, f)   # 壊れた行・形の違う id・知らない mode は読み飛ばす(入口の試験から移した)
         tools = Tools()
         q = self.queue(tools)
         _until(lambda: q.status()["idle"], "戻した 1 本が済む")
@@ -315,8 +322,8 @@ class TestCancel(Base):
         tools = Tools()
         tools.gate.clear()
         q = self.queue(tools)
-        q.submit(self.env_of(self.media[0]))
-        q.submit(self.env_of(self.media[1], "abcdef0123"))
+        self.sub(q, self.env_of(self.media[0]))
+        self.sub(q, self.env_of(self.media[1], "abcdef0123"))
         _until(lambda: q.status()["running"] == 1, "実行中")
         self.assertEqual(q.cancel("abcdef0123")["state"], "cancelled")
         self.assertEqual([r["id"] for r in self.active_file()["runs"]], ["0123456789"])
@@ -348,7 +355,7 @@ class TestBoard(Base):
         tools.gate.clear()
         q = self.queue(tools)
         b = self.board(q)
-        q.submit(self.env_of(self.media[0]))
+        self.sub(q, self.env_of(self.media[0]))
         _until(lambda: q.runs[0].owned, "編集のジョブを待つ")
         j = self.job_of(b, "run:0123456789")
         self.assertEqual((j["kind"], j["state"], j["target"], j["canCancel"], j["canRetry"]),
@@ -374,7 +381,7 @@ class TestBoard(Base):
         tools.gate.clear()
         q = self.queue(tools)
         b = self.board(q)
-        q.submit(self.env_of(self.media[0]), {"transcribe": {"model": "large-v3"}})
+        self.sub(q, self.env_of(self.media[0]), {"transcribe": {"model": "large-v3"}})
         _until(lambda: q.status()["running"] == 1, "実行中")
         with self.assertRaises(B.Refused):   # 実行中はやり直せない
             b.retry("run:0123456789")
@@ -445,7 +452,7 @@ class TestStatusLive(Base):
         tools.gate.clear()
         q = self.queue(tools)
         q.set_status_hook(lambda: {"recording": 0, "detecting": 0})
-        q.submit(self.env_of(self.media[0]))
+        self.sub(q, self.env_of(self.media[0]))
         _until(lambda: q.status()["running"] == 1, "実行中")
         self.assertFalse(q.status()["idle"])
         tools.gate.set()
@@ -484,7 +491,7 @@ class TestFriendIntake(Base):
         """diskMinGB=100000 で submit -> 実行を始めず status.blocked が出る。空きが戻れば(見直しで)始まる"""
         tools = Tools()
         q = self.queue(tools, env=dict(self.env, YTT_MACHINE_DISK_MIN_GB="100000", YTT_MACHINE_CASE_ROOT=self.tmp))
-        q.submit(self.env_of(self.media[0]))
+        self.sub(q, self.env_of(self.media[0]))
         _until(lambda: q.status()["blocked"] is not None, "blocked")
         st = q.status()
         self.assertEqual((st["blocked"]["reason"], st["blocked"]["minGB"], st["queued"], st["running"], st["idle"]),
@@ -527,9 +534,9 @@ class TestFriendIntake(Base):
             q.submit(dict(self.env_of(self.media[0]), specVersion=99))
         self.assertIn("99", str(c.exception))
         with self.assertRaises(Q.BadSpecError):
-            q.submit(self.env_of(self.media[0]), {"nai": {}})
+            self.sub(q, self.env_of(self.media[0]), {"nai": {}})
         with self.assertRaises(Q.BadSpecError):
-            q.submit(self.env_of(self.media[0]), {"transcribe": {"nai": 1}})
+            self.sub(q, self.env_of(self.media[0]), {"transcribe": {"nai": 1}})
         self.assertTrue(issubclass(Q.SpecVersionError, ValueError) and issubclass(Q.BadSpecError, ValueError))   # 今の呼び手は ValueError のまま
         self.assertEqual(q.status()["runs"], [])
 

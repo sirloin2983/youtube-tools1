@@ -259,7 +259,7 @@ def _verdict(plan, app, by_req):
         # 依頼 id はフォルダ・パック名は中身(無ければファイル名)から。古い形の名前も読める
         m = _returns.VERDICT_RE.match(n)
         v = _fsio.read_json_or(path, None, kind=dict)
-        if not v or v.get("verdict") not in _returns.VERDICTS:
+        if not v or v.get("verdict") not in ("keep", "reject", "made_video"):   # 写す前の形の採否(今の送り返しは v 2 の judge で、受け取るときに記録に書く)
             plan.no("verdict", "形が違う")
             continue
         if v.get("by") == "auto":

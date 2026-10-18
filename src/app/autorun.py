@@ -14,7 +14,7 @@
   欄 → 封筒 + 束の差分の変換は flow/order.py(画面は UIKit.flow.order)の 1 か所。
   RS7-1 S4: 受付で束を組む(_accept = build_spec + 友人の区間の長さ・配信者・届ける名前の頭)。待ちの間に画面の設定を変えても、その実行の中身は変わらない。
   切り出しの精密・画質の上限・パックの fps は固定(決定 3-30 Q2)・用語集は編集の受付が自分の設定から読む。
-  届けることと組の溜めは RS3-3 で Delivery(mixin)へ切り出した(AutoRunner が継ぐ。ds1 で ② src/flow/delivery.py へ)
+  届けることと溜めは RS3-3 で Delivery(mixin)へ切り出した(AutoRunner が継ぐ。ds1 で ② src/flow/delivery.py へ)
 - 各ツールの**公開している API を HTTP で呼ぶ**(入口と同じ 127.0.0.1。取り込んだツールは入口のポートの /studio/ など、子プロセスのツールはそのポート)。
   ツールの中の関数を直接呼ばないのは、画面から使うときと同じ検査・同じジョブ管理(重い処理の順番待ち ytt.jobs を含む)を通すため。
 - どの段も「まだ無いものだけ」作る(書き出し済み・文字起こし済み・パック済みは飛ばす)。途中で止めても、もう一度押せば続きから進む。
@@ -37,7 +37,7 @@
   リアルタイム切り抜きの自動の採用(.clip.json の source.live.origin が auto・archive)の切り抜きは、カットを指定していなければ区間の全体
   (LIVE_AUTO_CUT。線 D の M8。区間は検出が静かな所に合わせて絞ってある)。ホームの設定 live.auto.cut(none・silence)を選べばそれ(M2)。
 - ① 全自動の Dropbox へ届ける段: パックができるたびに 1 本ずつ(1 本の zip + 480p の確認用の動画 <同じ名前>.preview.mp4 + .meta.json)Dropbox の 出力 へ置く
-  (F3-6。notes:plan/f1-friend-requirements.md の C-6。5 本ずつの組・まとめ動画・届け方の設定はやめた)。作り方・名前は src/flow/deliver.py(確認用の動画は
+  (notes:plan/f1-friend-requirements.md の C-6)。作り方・名前は src/flow/deliver.py(確認用の動画は
   ① src/pipeline/pack/preview.py)、届ける段と置けなかった分の溜めの中身は src/flow/delivery.py(RS3-3 で human/friend へ出し、ds1 で ② へ移した)
 - 友人へ自動で送る(D-SEND。notes:plan/done/d-send-requirements.md): 画面の「友人へ自動で送る」(既定 = 解析から全部のときだけオン・保存しない)。
   画面は、依頼の受付の Dropbox のフォルダが決まっていれば(GET /api/intake の outDir)封筒の deliver に出どころ auto を置き、
@@ -71,7 +71,7 @@ from flow import runqueue as queue_mod  # noqa: E402  (② の待ち行列と糸
 from flow.runqueue import (ACTIVE_FILE, ACTIVE_VERSION, HISTORY_DEFAULT, HISTORY_MAX, LOG_MAX_BYTES, LOG_READ_BYTES, MAX_WAITING, PAST_MAX,  # noqa: E402,F401
                         RESTORE_MAX_AGE, busy_reason as _busy_reason, doc_id_ok as _doc_id_ok)
 from manage.cases import cases  # noqa: E402  (src/manage/cases/cases.py: パックの有無・.clip.json の読み方・スタジオの一覧を案件の画面とそろえる。friend_feedback も先頭で読む = 循環しない)
-from flow import delivery as delivery_mod  # noqa: E402  (友人へ届ける段と組の溜め = AutoRunner が継ぐ Delivery。RS3-3 で切り出し、ds1 で ② へ)
+from flow import delivery as delivery_mod  # noqa: E402  (友人へ届ける段と溜め = AutoRunner が継ぐ Delivery。RS3-3 で切り出し、ds1 で ② へ)
 from flow import deliver as deliver_mod  # noqa: E402  (自動で送る分の名前の頭 = 友人のアプリの依頼 id の形。D-SEND)
 from human.friend import intake as intake_mod  # noqa: E402  (受付のフォルダの読み方の 1 か所。D-SEND の届け先)
 from human.friend import returns as returns_mod  # noqa: E402  (友人の PC で処理した依頼の配信 = 依頼済みの 3 つ目の引き方。D-SEND 2-9)
@@ -218,7 +218,7 @@ _top_arg = _spec.top_arg   # 採用する数(src/flow/spec.py)
 class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
     """入口のまとめて実行: ② の待ち行列(受付は submit の 1 本 = RV A1)の hook(案件・ホームの設定・友人へ届ける)。
     待ち行列・糸・中止・状態と記録・起動し直しで戻す・見積もりは src/flow/runqueue.py の Queue(RS7-1 S5)、段の中身は src/flow/run.py の Runner。
-    友人へ届ける段と組の溜めは src/flow/delivery.py の Delivery(RS3-3・ds1)を継ぎ、そこが要る入口と ③ の物
+    友人へ届ける段と溜めは src/flow/delivery.py の Delivery(RS3-3・ds1)を継ぎ、そこが要る入口と ③ の物
     (送り返しの依頼)は下の _returned_request で渡す。
     届けた・送らなかったは案件に写さない(② flow/deliveries の届けた記録・送らなかった記録を案件が読む。MARKS-3・ds1)"""
 
@@ -232,7 +232,7 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
         self.prefs = prefs   # ホームの設定(src/app/prefs.py)。カットの無い文書のカットの方法 autorun.cut
         self.memo_sec = MEMO_SEC   # 1 回の受付の間だけ覚える秒(_memo。テストは 0 にできる)
         self._memo_items = {}
-        self._delivery_init(log_dir)   # ライブの切り抜きの組の溜めの置き場所とロック(src/flow/delivery.py の Delivery)
+        self._delivery_init(log_dir)   # 届ける溜めの置き場所とロック(src/flow/delivery.py の Delivery)
         # パックの有無の見方は案件の画面とそろえる(cases.find_pack)。client・env・poll・sleep・log(入口のログ launcher.log に1行)・clock・closed は Runner、
         # 待ち行列・記録・待ちの記録(log_dir の autorun-runs.jsonl・autorun-active.json)は Queue が持つ
         super().__init__(client, env=env, poll=poll, sleep=sleep, log=log, clock=clock, find_pack=cases.find_pack if find_pack is None else find_pack,

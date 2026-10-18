@@ -237,7 +237,7 @@ class HeadlessTest(Base):
 
     def setUp(self):
         super().setUp()
-        self.cfg = {"enabled": False}   # 設定はオフでも動く(画面なし = 送るアプリの依頼で動く)
+        self.cfg = {"enabled": False}   # 設定はオフでも動く(画面なし = 友人の依頼で動く)
         self.s.always_on = self.s.request_all = True
         self.s.auto_max = self.s.bundle_top
 
@@ -315,13 +315,16 @@ class HeadlessTest(Base):
             s2.detector.stop()
 
     def test_old_bundles_file_reads(self):
-        """RV A2: 0.87 までの live/bundles.json(封筒の版 1 = legacy.streamer・束の run.pinned)を固定の見本にして読む。
-        配信者は束の hints.streamer・cut・engine・model は書き出したあとの設定に・ファイルは読むだけでは書き換えない"""
+        """10-18 までの live/bundles.json(封筒に deliver.batch・note・束の run.pinned)を固定の見本にして読む。batch・note は読んで捨てる。
+        前の版の封筒(legacy つき)は封筒だけ無しにして束は読む。配信者は束の hints.streamer・cut・engine・model は書き出したあとの設定に・
+        ファイルは読むだけでは書き換えない"""
         old = {"local/" + REC: {"envelope": {"id": "lv-0123456789ab", "kind": "live", "input": {"title": "", "videoId": VID, "url": URL, "recorder": None},
-                                             "requestId": None, "deliver": {"dir": None, "batch": None, "pool": None, "origin": None}, "note": "",
-                                             "createdAt": 1790000000000, "specVersion": 1, "legacy": {"mode": None, "onFail": None, "streamer": "兎田ぺこら"}},
-                                "spec": {"pack": {"cut": "silence"}, "transcribe": {"engine": "whisper.cpp", "model": "large-v3"},
-                                         "run": {"pinned": ["cut", "engine", "model"]}, "adopt": {"pad": 1.5}}, "at": T0}}
+                                             "requestId": None, "deliver": {"dir": None, "batch": None, "pool": None, "origin": None, "tag": None}, "note": "",
+                                             "createdAt": 1790000000000, "specVersion": 2},
+                                "spec": {"pack": {"cut": "silence"}, "transcribe": {"engine": "whisper.cpp", "model": "large-v3"}, "hints": {"streamer": "兎田ぺこら"},
+                                         "run": {"pinned": ["cut", "engine", "model"]}, "adopt": {"pad": 1.5}}, "at": T0},
+               "local/20261011-210000-" + VID: {"envelope": {"id": "lv-0123456789ac", "kind": "live", "input": {"videoId": VID}, "specVersion": 1,
+                                              "legacy": {"streamer": "兎田ぺこら"}}, "spec": {"adopt": {"pad": 1.5}}, "at": T0}}
         os.makedirs(os.path.dirname(self.bundles_path), exist_ok=True)
         raw = json.dumps(old, ensure_ascii=False).encode("utf-8")
         fsio.atomic_write(self.bundles_path, raw)
@@ -332,16 +335,17 @@ class HeadlessTest(Base):
             self.assertNotIn("pinned", b["run"])
             self.assertEqual(s2.auto_cfg("local", REC), {"after": "check", "cut": "silence", "engine": "whisper.cpp", "model": "large-v3", "pad": 1.5})
             got = s2.bundles.get("local", REC)["envelope"]
-            self.assertEqual((got["specVersion"], "legacy" in got), (2, False))
+            self.assertEqual((got["specVersion"], "note" in got, "batch" in got["deliver"]), (2, False, False))
+            self.assertIsNone(s2.bundles.get("local", "20261011-210000-" + VID)["envelope"], "前の版の封筒は無しに(束は残す)")
             with open(self.bundles_path, "rb") as f:
                 self.assertEqual(f.read(), raw, "読むだけでは書き換えない")
         finally:
             s2.detector.stop()
 
-    def test_legacy_streamer_to_request(self):
-        """版 1 の封筒の legacy.streamer は、依頼の結びつきの配信者に(束の hints.streamer を通る)"""
-        out = self.s.submit({"id": "live000013", "kind": "live", "input": {"videoId": VID}, "requestId": "req-2", "legacy": {"streamer": "兎田ぺこら"}},
-                            self.SPEC)
+    def test_streamer_to_request(self):
+        """束の hints.streamer は、依頼の結びつきの配信者に"""
+        out = self.s.submit({"id": "live000013", "kind": "live", "input": {"videoId": VID}, "requestId": "req-2", "specVersion": 2},
+                            dict(self.SPEC, hints={"streamer": "兎田ぺこら"}))
         self.assertTrue(out["live"])
         self.assertEqual(self.s.requests.get("local", REC)["streamer"], "兎田ぺこら")
 
@@ -385,17 +389,16 @@ class LiveAppTest(unittest.TestCase):
         束は自動の採用の上限 10(依頼の欄の既定)・依頼のカット・映像トラック・話す人を run.requested に"""
         self.prefs.patch("live", {"enabled": True})
         ctx = {"rid": "20261011-200000-abc123", "deliverDir": os.path.join(self.tmp, "出力"), "url": URL, "title": "配信の題", "streamer": "兎田ぺこら",
-               "speakers": {"count": 1, "names": ["兎田ぺこら"], "styles": {}}, "videoTracks": 2, "cut": "silence", "memo": "歌のところ",
-               "settings": {"sens": "high", "perHour": 12, "length": 60, "waitMin": 3, "pad": 1.5, "afterStream": False}, "deliverBatch": 3}
+               "speakers": {"count": 1, "names": ["兎田ぺこら"], "styles": {}}, "videoTracks": 2, "cut": "silence",
+               "settings": {"sens": "high", "perHour": 12, "length": 60, "waitMin": 3, "pad": 1.5, "afterStream": False}}
         out = self.live.submit_request(URL, ctx)
         self.assertEqual(out, {"recorder": "local", "recording": REC, "existing": False})
         item = self.live.requests.get("local", REC)
-        self.assertEqual({k: item[k] for k in ("rid", "deliverDir", "url", "title", "streamer", "speakers", "videoTracks", "cut", "memo", "deliverBatch")},
-                         {k: ctx[k] for k in ("rid", "deliverDir", "url", "title", "streamer", "speakers", "videoTracks", "cut", "memo", "deliverBatch")})
+        self.assertEqual({k: item[k] for k in ("rid", "deliverDir", "url", "title", "streamer", "speakers", "videoTracks", "cut")},
+                         {k: ctx[k] for k in ("rid", "deliverDir", "url", "title", "streamer", "speakers", "videoTracks", "cut")})
         self.assertEqual(item["settings"], ctx["settings"])
         b = self.live.bundles.get("local", REC)
-        self.assertEqual((b["envelope"]["id"], b["envelope"]["requestId"], b["envelope"]["deliver"]["batch"], b["envelope"]["note"]),
-                         (ctx["rid"], ctx["rid"], 3, "歌のところ"))
+        self.assertEqual((b["envelope"]["id"], b["envelope"]["requestId"]), (ctx["rid"], ctx["rid"]))
         sp = b["spec"]
         self.assertEqual((sp["adopt"]["top"], sp["adopt"]["sens"], sp["adopt"]["waitMin"], sp["adopt"]["afterStream"], sp["pack"]["cut"], sp["pack"]["videoTracks"],
                           sp["transcribe"]["diarize"], sp["hints"]["people"], sorted(sp["run"]["requested"])),

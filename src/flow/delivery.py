@@ -1,6 +1,6 @@
 """② 友人へ届ける: まとめて実行の「Dropbox へ届ける」段と、置けなかった自動の分の溜め(まとめて実行 AutoRunner が継ぐ mixin)。
 ds1(要件 1-5「届ける段と溜めは ② へ」・仮決め 3-70 ds1・3-71 m3i)で ③ human/friend から移した。
-① 確認用の動画は pipeline/pack/preview・1 本の届け方は同じフォルダの deliver。③(受付・送り返し)は読まない(友人の PC には ③ が無い)。
+① 確認用の動画は pipeline/pack/preview・1 本を届ける部品は同じフォルダの deliver。③(受付・送り返し)は読まない(友人の PC には ③ が無い)。
 
 形: AutoRunner(入口の src/app/autorun.py)が `class AutoRunner(Delivery, Queue)` で継ぐ(Queue = src/flow/runqueue.py)。ここは入口の部品
 (autorun・launch・live・prefs)も案件の部品(manage/cases)も ③ も読まない = 要るものは継いだクラスが埋める:
@@ -8,10 +8,9 @@ ds1(要件 1-5「届ける段と溜めは ② へ」・仮決め 3-70 ds1・3-71
   - 属性 log_path(終わった実行の記録のパス。隣に deliveries.jsonl)・cv・log・clock・find_pack と Runner の _check・_clips
 溜めの置き場所とロックは _delivery_init(log_dir) で作る(AutoRunner の __init__ が呼ぶ)。
 
-届け方(F3-6。notes:plan/f1-friend-requirements.md の C-3-1・C-6): **パックはできた順に 1 本ずつ**届ける(1 本の zip + 480p の確認用の動画 + .meta.json。
-作り方は同じフォルダの deliver.deliver_one = 手で届けるのも同じ)。5 本ずつの組・まとめ動画・届け方の設定(依頼の deliverBatch・ホームの設定 intake.deliverBatch・
-友人のアプリの 設定/届け方.json)はやめた(封筒の deliver.batch は古い依頼・古い記録を読めるように欄だけ残し、読まない)。
-組の溜め(logs/deliver-pool.json)は、置けなかった自動の分(下)と、この変更の前に溜めてあったライブの切り抜きの残り(flush_pools が 1 本ずつ届ける)にだけ使う。
+届ける形(notes:plan/f1-friend-requirements.md の C-3-1・C-6): **パックはできた順に 1 本ずつ**届ける(1 本の zip + 480p の確認用の動画 + .meta.json。
+作り方は同じフォルダの deliver.deliver_one = 手で届けるのも同じ)。
+溜め(logs/deliver-pool.json)は、置けなかった自動の分(下)とライブの切り抜きの残りに使う(flush_pools が 1 本ずつ届ける)。
 
 友人へ自動で送る(D-SEND。要件 notes:plan/done/d-send-requirements.md・判定と理由の文は ② flow/sendpolicy):
   - 出どころ(_origin): run.deliver_origin(request・auto・manual)。無ければ依頼の id があれば request・無ければ auto。友人に見せる形は deliver.face_origin
@@ -67,13 +66,13 @@ class _PoolRun:
 
 
 class Delivery:
-    """まとめて実行(AutoRunner)が継ぐ、友人へ届ける段と組の溜め。継ぐ側が埋めるものはこのファイルの先頭の説明"""
+    """まとめて実行(AutoRunner)が継ぐ、友人へ届ける段と溜め。継ぐ側が埋めるものはこのファイルの先頭の説明"""
 
     def _delivery_init(self, log_dir):
         """溜めの置き場所(log_dir の中。None = メモリだけ)とロック"""
-        self.pool_path = os.path.join(log_dir, POOL_FILE) if log_dir else None   # ライブの切り抜きの組の溜め(None = メモリだけ)
+        self.pool_path = os.path.join(log_dir, POOL_FILE) if log_dir else None   # 届ける溜め(None = メモリだけ)
         self._pool_lock = threading.RLock()   # 溜めの読み書きと溜めから届ける間(これを持ったまま self.cv を取ってよい。逆に self.cv を持ったまま取らない)
-        self._pools = None                    # {溜めの鍵: {rid, title, deliverDir, (batch = 古い溜めだけ・読まない), meta, packs, delivered, marks, created, updated, (tag, origin, mode)}}(初めて使うときに読む)
+        self._pools = None                    # {溜めの鍵: {rid, title, deliverDir, meta, packs, delivered, marks, created, updated, (tag, origin, mode)}}(初めて使うときに読む)
         self.requested_hook = None            # 配信 id -> 友人の依頼で受け付けた時刻か None(入口が受付の Intake.requested_at を渡す。D-SEND 2-9)
 
     def _remember_not_sent(self, video_id, mark_id, code, text):
@@ -247,7 +246,7 @@ class Delivery:
         return None
 
     def _deliver_pending(self, run):
-        """まだ届けていないパックを 1 本ずつ届ける(F3-6。5 本ずつの組はやめた)"""
+        """まだ届けていないパックを 1 本ずつ届ける"""
         for p in [p for p in run.packs if p not in run.delivered and os.path.isdir(p)]:
             self._deliver_one(run, p)
 
@@ -291,7 +290,7 @@ class Delivery:
             self._mark_delivered(run, [d])
             return dest
 
-    # ------------------------------------------------------------ 溜め(置けなかった自動の分・前の版のライブの切り抜きの組の残り)
+    # ------------------------------------------------------------ 溜め(置けなかった自動の分・ライブの切り抜きの残り)
     def _pools_load(self):
         """溜めの一覧(呼ぶのは self._pool_lock を持っている間)"""
         if self._pools is None:
@@ -306,7 +305,7 @@ class Delivery:
         try:
             fsio.atomic_write(self.pool_path, json.dumps({"schema": POOL_SCHEMA, "pools": self._pools or {}}, ensure_ascii=False, indent=1).encode("utf-8"))
         except OSError as e:
-            self.log("まとめて実行: 組の溜めを書けませんでした(%s)" % tools.why(e))
+            self.log("まとめて実行: 届ける溜めを書けませんでした(%s)" % tools.why(e))
 
     def pools(self):
         """溜めの今(画面・テスト用)-> {鍵: {rid, title, waiting(まだ届けていない本数), meta}}"""
@@ -371,7 +370,7 @@ class Delivery:
                 try:
                     total += self._pool_deliver(key, final=True)
                 except Exception as e:   # noqa: BLE001  (置けなければ次の見回りでまた試す)
-                    self.log("まとめて実行: 組の残りを届けられませんでした(%s)" % (str(e)[:120] or e.__class__.__name__))
+                    self.log("まとめて実行: 溜めの残りを届けられませんでした(%s)" % (str(e)[:120] or e.__class__.__name__))
         return total
 
     def _flush_parked(self, key, p, now):

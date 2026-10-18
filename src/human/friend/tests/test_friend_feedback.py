@@ -1,4 +1,4 @@
-"""友人の「要らない」を PC 側に戻す(src/human/friend/friend_feedback.py)の単体テスト。ごみ箱は本物の cleanup.Cleanup(一時フォルダ)。
+"""友人の「要らない」を PC 側で片付ける(src/human/friend/friend_feedback.py)の単体テスト。ごみ箱は本物の cleanup.Cleanup(一時フォルダ)。
 スタジオは呼ばない(マークは変えない。2026-10-08 ユーザー決定)。
 
 実行(リポジトリ直下から): python -m unittest src/human/friend/tests/test_friend_feedback.py -v
@@ -41,32 +41,9 @@ class Base(unittest.TestCase):
         put(os.path.join(self.pack2, "cut-plan.json"), b"{}")
         self.run = types.SimpleNamespace(request_id="20261002-120000-0a1b2c", id="run1", video_id="VID", title="配信A")
 
-    def fb(self, zip_name="20261002-120000-0a1b2c__配信A 1-2.zip"):
-        return F.parse(json.dumps({"v": 1, "kind": "feedback", "verdict": "reject", "zip": zip_name, "requestId": "20261002-120000-0a1b2c",
-                                   "title": "配信A 1-2", "sentAt": "2026-10-08T01:02:03+09:00"}))
-
-
-class TestParse(unittest.TestCase):
-    def test_parse(self):
-        fb = F.parse('{"v":1,"kind":"feedback","verdict":"reject","zip":"a__b 1-2.zip","requestId":"a","title":"b 1-2"}')
-        self.assertEqual((fb["zip"], fb["verdict"], fb["requestId"], fb["title"]), ("a__b 1-2.zip", "reject", "a", "b 1-2"))
-        for bad in ("{", "[]", '{"v":2,"kind":"feedback","verdict":"reject","zip":"a.zip"}', '{"v":1,"kind":"x","verdict":"reject","zip":"a.zip"}',
-                    '{"v":1,"kind":"feedback","verdict":"keep","zip":"a.zip"}', '{"v":1,"kind":"feedback","verdict":"reject","zip":"../a.zip"}',
-                    '{"v":1,"kind":"feedback","verdict":"reject","zip":"a.txt"}', '{"v":1,"kind":"feedback","verdict":"reject"}'):
-            with self.assertRaises(ValueError, msg=bad):
-                F.parse(bad)
-
-    def test_read_text_limit_and_bom(self):
-        """.feedback.json の読み取り: BOM は外す・上限ちょうどは読む・1 バイトでも超えれば ValueError・無ければ OSError"""
-        tmp = testkit.tempdir(self, "ytt-ffb-read-")
-        p = put(os.path.join(tmp, "a.feedback.json"), b"\xef\xbb\xbf{\"v\":1}")
-        self.assertEqual(F.read_text(p), '{"v":1}')
-        put(p, b"x" * 10)
-        self.assertEqual(F.read_text(p, limit=10), "x" * 10)
-        with self.assertRaises(ValueError):
-            F.read_text(p, limit=9)
-        with self.assertRaises(OSError):
-            F.read_text(os.path.join(tmp, "無い.feedback.json"))
+    def fb(self, zip_name="20261002-120000-0a1b2c__配信A 1-2.zip", **kw):
+        """送り返しの受け取り(returns._discard)が渡す形"""
+        return dict({"zip": zip_name, "verdict": "reject", "requestId": "20261002-120000-0a1b2c", "title": "配信A 1-2"}, **kw)
 
 
 class TestApply(Base):
@@ -93,39 +70,17 @@ class TestApply(Base):
         self.assertEqual(sorted(p["markId"] for p in recs[-1]["packs"]), ["m1", "m2"], "あとで精度の道具が読めるように配信の id とマークの id を残す")
         self.assertTrue(any("要らない" in x for x in self.lines))
 
-    def test_made_video_records_only(self):
-        """動画にした(F1 F6a): 何も片付けず friend_feedback.jsonl に verdict made_video の 1 行。名前は送り返しの採否(returns.VERDICTS)と同じ"""
-        from human.friend import returns
-        self.assertTrue(set(F.VERDICTS) <= set(returns.VERDICTS))
-        marks = {self.pack1: {"path": self.clip1, "markId": "m1"}}
-        z = "20261002-120000-0a1b2c__配信A 1-2.zip"
-        F.record_delivery(self.logs, os.path.join(self.tmp, "出力", z), self.run, [self.pack1], marks)
-        fb = F.parse(json.dumps({"v": 1, "kind": "feedback", "verdict": "made_video", "zip": z, "requestId": "20261002-120000-0a1b2c"}))
-        res = F.apply(self.logs, fb, trash=None, log=self.lines.append, discard=None)
-        self.assertTrue(res["ok"], res)
-        self.assertTrue(os.path.exists(self.clip1) and os.path.isdir(self.pack1), "片付けない")
-        res2 = F.apply(self.logs, dict(fb, zip="無い.zip"), log=self.lines.append)   # 届けた記録が無くても数える
-        self.assertTrue(res2["ok"])
-        with open(os.path.join(self.logs, F.FEEDBACK_LOG), encoding="utf-8") as f:
-            recs = [json.loads(l) for l in f if l.strip()]
-        self.assertEqual([(r["verdict"], r["videoId"]) for r in recs], [("made_video", "VID"), ("made_video", "")])
-        self.assertEqual(recs[0]["packs"], [{"dir": self.pack1, "markId": "m1"}])
-
     def test_origin_is_recorded(self):
-        """D-SEND 2-7: 友人の返事の記録に出どころ(request・auto)。.feedback.json の任意の origin → 無ければ届けた記録の出どころ(手で届けるは auto)→ 無ければ null"""
-        self.assertNotIn("origin", self.fb(), "古い形(origin 無し)も読める")
+        """D-SEND 2-7: 友人の返事の記録に出どころ(request・auto)。判断の任意の origin → 無ければ届けた記録の出どころ(手で届けるは auto)→ 無ければ null"""
         z_auto, z_req, z_man = "20261002-120000-0a1b2c__自動.zip", "20261002-120000-0a1b2c__依頼.zip", "20261002-120000-0a1b2c__手.zip"
         F.record_delivery(self.logs, os.path.join(self.tmp, "出力", z_auto), self.run, [self.pack1], {}, "auto", 1000)
         F.record_delivery(self.logs, os.path.join(self.tmp, "出力", z_req), self.run, [self.pack1], {})
         F.record_delivery(self.logs, os.path.join(self.tmp, "出力", z_man), self.run, [self.pack1], {}, "manual")
-        made = lambda z, extra="": F.parse('{"v":1,"kind":"feedback","verdict":"made_video","zip":"%s"%s}' % (z, extra))
-        self.assertEqual(made(z_req, ',"origin":"auto"')["origin"], "auto")
-        self.assertNotIn("origin", made(z_req, ',"origin":"weird"'), "知らない値は鍵ごと無し")
-        for fb in (made(z_auto), made(z_req), made(z_man), made(z_req, ',"origin":"auto"'), made("無い.zip")):
-            F.apply(self.logs, fb, log=self.lines.append)
+        for fb in (self.fb(z_auto), self.fb(z_req), self.fb(z_man), self.fb(z_req, origin="auto"), self.fb(z_req, origin="weird")):
+            F.apply(self.logs, fb, trash=self.trash, log=self.lines.append, discard=lambda *a: ([], "", None))
         with open(os.path.join(self.logs, F.FEEDBACK_LOG), encoding="utf-8") as f:
             recs = [json.loads(l) for l in f if l.strip()]
-        self.assertEqual([r["origin"] for r in recs], ["auto", "request", "auto", "auto", None])
+        self.assertEqual([r["origin"] for r in recs], ["auto", "request", "auto", "auto", "request"])
 
     def test_no_record_or_no_parts(self):
         res = F.apply(self.logs, self.fb(), trash=self.trash, discard=cases.discard_clip)
@@ -180,20 +135,18 @@ class TestApply(Base):
         with open(os.path.join(self.logs, F.FEEDBACK_LOG), encoding="utf-8") as f:
             self.assertEqual(len([l for l in f if l.strip()]), 1, "友人の返事の記録は今のまま 1 行")
 
-    def test_judgments_made_video_and_old_row_without_mark(self):
-        """動画にした: 人の判断の記録に made_video(who friend)。markId の無い古い行は配信・マークを空にしてパック名で残し、友人の返事の記録も残す"""
+    def test_judgments_row_without_mark_and_judged(self):
+        """markId の無いパックは配信・マークを空にしてパック名で残す。judged(送り返しが判断の記録を書いた物)は片付けだけで判断の記録を足さない"""
         app = os.path.join(self.tmp, "app")
-        z = "20261002-120000-0a1b2c__配信A 1-2.zip"
-        F.record_delivery(self.logs, os.path.join(self.tmp, "出力", z), self.run, [self.pack1], {self.pack1: {"path": self.clip1, "markId": "m1"}})
-        fb = F.parse(json.dumps({"v": 1, "kind": "feedback", "verdict": "made_video", "zip": z, "requestId": "20261002-120000-0a1b2c"}))
-        self.assertTrue(F.apply(self.logs, fb, log=self.lines.append)["ok"])
-        self.assertEqual([(r["who"], r["what"], r["markId"], r["via"]) for r in J.rows(app)], [("friend", "made_video", "m1", "friend_file")])
         z2 = "20261002-120000-0a1b2c__古い.zip"
         F.record_delivery(self.logs, os.path.join(self.tmp, "出力", z2), self.run, [self.pack2], {})
-        res = F.apply(self.logs, dict(fb, zip=z2), log=self.lines.append)
+        res = F.apply(self.logs, self.fb(z2), trash=self.trash, log=self.lines.append, discard=cases.discard_clip)
         self.assertTrue(res["ok"], res)
-        rows = J.rows(app)
-        self.assertEqual([(r["videoId"], r["markId"], r["ref"]["pack"]) for r in rows[1:]], [("", "", os.path.basename(self.pack2))], "markId の無い行はパック名で残す")
+        self.assertEqual([(r["videoId"], r["markId"], r["ref"]["pack"]) for r in J.rows(app)], [("", "", os.path.basename(self.pack2))], "markId の無い行はパック名で残す")
+        z = "20261002-120000-0a1b2c__配信A 1-2.zip"
+        F.record_delivery(self.logs, os.path.join(self.tmp, "出力", z), self.run, [self.pack1], {self.pack1: {"path": self.clip1, "markId": "m1"}})
+        self.assertTrue(F.apply(self.logs, self.fb(z, judged=True), trash=self.trash, log=self.lines.append, discard=cases.discard_clip)["ok"])
+        self.assertEqual(len(J.rows(app)), 1, "judged は判断の記録を足さない")
         with open(os.path.join(self.logs, F.FEEDBACK_LOG), encoding="utf-8") as f:
             self.assertEqual(len([l for l in f if l.strip()]), 2, "友人の返事の記録は残す")
 

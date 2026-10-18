@@ -1715,7 +1715,7 @@
     if (r.id && hideApi()) head.appendChild(hideBtn('intake', r.id, r.title));
     if (r.id) markHid(li, 'intake', r.id, head);
     li.appendChild(head);
-    var sub = [r.flowLabel || '', r.rangesLabel || '', r.cutLabel || '', r.weightsLabel || '', r.speakersLabel || '', r.tracksLabel || '', r.streamer ? '字幕の色: ' + r.streamer : '', r.source === 'manual' ? 'フォルダに直接置かれた' : 'アプリから', r.memo ? 'メモ: ' + r.memo : ''].filter(Boolean).join(' ・ ');
+    var sub = [r.flowLabel || '', r.rangesLabel || '', r.cutLabel || '', r.weightsLabel || '', r.speakersLabel || '', r.tracksLabel || '', r.streamer ? '字幕の色: ' + r.streamer : '', r.source === 'manual' ? 'フォルダに直接置かれた' : 'アプリから'].filter(Boolean).join(' ・ ');
     if (sub) li.appendChild(el('span', 'hint pt-intake-sub', sub));
     if (r.reason) li.appendChild(el('span', 'hint pt-intake-sub', (r.state === 'rejected' ? '断った理由: ' : '') + r.reason));
     if (r.items && r.items.length) { var ul = el('ul', 'pt-intake-items'); r.items.forEach(function (it) { ul.appendChild(intakeItemRow(it)); }); li.appendChild(ul); }

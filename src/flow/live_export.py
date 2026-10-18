@@ -203,7 +203,7 @@ def check_streamer(v):
 
 
 def deliver_pool(job, req):
-    """(前の版の)ライブの切り抜きを n 本の組で届けるときの溜めの指定(src/flow/run.py の Run.pool)。溜めは 依頼(自分の配信の自動で届ける分は録画)× 段
+    """ライブの切り抜きの溜めの指定(src/flow/run.py の Run.pool。届ける側の溜めの鍵 = 送り直しの間は同じ溜めの実行を待つ)。溜めは 依頼(自分の配信の自動で届ける分は録画)× 段
     (配信中の live = 自動の採用・人のマーク / 配信後の追加 archive)ごと。10-09 ユーザー決定 = decisions 3-20"""
     phase = "archive" if job.get("origin") == "archive" else "live"
     who = "auto" if req.get("autoDeliver") is True else str(req.get("rid") or "")
@@ -511,12 +511,12 @@ class MarkStore:
 
 FILE_UPTO = {"check": "transcribe", "auto": "pack"}   # 書き出したあと → 動画ファイルの実行のどこまで(束の run.upto)
 ORDER_KEYS = {"cut": "cut", "engine": "engine", "model": "model", "request_id": "request_id", "deliver_dir": "deliver_dir", "speakers": "speakers",
-              "video_tracks": "video_tracks", "deliver_batch": "batch", "pool": "pool", "deliver_origin": "origin"}   # _handoff の欄 → flow/order.py の欄
+              "video_tracks": "video_tracks", "pool": "pool", "deliver_origin": "origin"}   # _handoff の欄 → flow/order.py の欄
 
 
 def file_order(media, title, after, streamer, base, **kw):
     """書き出した切り抜き 1 本 -> まとめて実行の口 Queue.submit へ渡す (封筒 kind file, 束)(RS7-2 G2b・RV A1)。
-    欄 kw(cut・engine・model・request_id・deliver_dir・speakers・video_tracks・deliver_batch・pool・deliver_origin)は flow/order.py の変換で
+    欄 kw(cut・engine・model・request_id・deliver_dir・speakers・video_tracks・pool・deliver_origin)は flow/order.py の変換で
     封筒と束の差分(依頼が決めた印 run.requested)へ。base = 録画の束(差分を重ねた束を渡す。None = 差分だけ = submit が今の画面の設定に重ねる)。
     書き出した切り抜きは 30fps 済みなので段 normalize は持たない"""
     from . import order as _order
@@ -726,8 +726,6 @@ class Exporter(Patrol):
                 job["score"] = round(float(score), 2)   # 候補の点数(自動の採用。.clip.json の source.live.score へ)
             if isinstance(request, dict) and request.get("rid"):
                 job["request"] = {k: request.get(k) for k in ("rid", "deliverDir", "speakers", "videoTracks", "cut")}   # 友人の依頼(2-15)
-                if isinstance(request.get("deliverBatch"), int) and not isinstance(request.get("deliverBatch"), bool):   # 届け方(2.9.0 のアプリ)
-                    job["request"]["deliverBatch"] = request["deliverBatch"]
                 if request.get("autoDeliver") is True:   # 自分の配信の自動の切り抜きを確認なしで届ける(live.autoDeliver)= 友人の依頼と分ける印
                     job["request"]["autoDeliver"] = True
             self.jobs.append(job)
@@ -1335,7 +1333,7 @@ class Exporter(Patrol):
             req = job.get("request") if isinstance(job.get("request"), dict) and job["request"].get("rid") else None
             if req:   # 友人のライブ配信の依頼の録画(2-15): 依頼 id・届け先・配信者の設定を渡す = パックを 1 本ずつ友人へ届ける
                 kw.update(request_id=req["rid"], deliver_dir=req.get("deliverDir") or None, speakers=req.get("speakers"), video_tracks=req.get("videoTracks"),
-                          deliver_batch=req.get("deliverBatch"), pool=deliver_pool(job, req),   # 届け方の欄は古い依頼のまま渡す(F3-6 から 1 本ずつ = 届ける段は読まない)
+                          pool=deliver_pool(job, req),
                           deliver_origin="auto" if req.get("autoDeliver") is True else "request")   # 出どころ(D-SEND 2-7。自分の配信の自動 = 友人の札「依頼なし」)
                 if req.get("cut"):
                     kw["cut"] = req["cut"]

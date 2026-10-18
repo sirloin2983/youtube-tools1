@@ -143,32 +143,29 @@ class TestFromInput(unittest.TestCase):
         self.assertIsNone(R.Run.restore(new_only).deliver_origin)
 
     def test_restore_skips_removed_post_analyze(self):
-        """消した「あとから解析」(mode post_analyze。RS4)が以前の待ちの記録に残っていても、落ちずに読み飛ばす(同じ形の full は戻る)"""
+        """消した「あとから解析」(mode post_analyze。RS4)は段の並びに無い。前の版の封筒(legacy つき)の記録は落ちずに読み飛ばす"""
         d = R.Run.from_input({"videoId": "abcdefghijk"}).saved()
         self.assertIsNotNone(R.Run.restore(d))
         self.assertNotIn("post_analyze", R.MODE_STEPS)
-        v1 = dict(d, envelope=dict({k: v for k, v in d["envelope"].items() if k != "deliver"}, specVersion=1,
-                                   deliver={k: v for k, v in d["envelope"]["deliver"].items() if k != "tag"},
-                                   legacy={"mode": "post_analyze", "onFail": None, "streamer": None}))   # 0.87 までの記録の形
-        self.assertIsNone(R.Run.restore(dict(v1, steps=[{"key": "analyze", "state": "run", "detail": ""}])))
-        self.assertEqual(R.Run.restore(dict(v1, envelope=dict(v1["envelope"], legacy={"mode": "full"}))).mode, "full")
+        old = dict(d, envelope=dict({k: v for k, v in d["envelope"].items() if k != "specVersion"}, legacy={"mode": "full"}))
+        self.assertIsNone(R.Run.restore(old), "版の無い(前の版の)封筒の記録は戻さない")
 
 
 class TestRestoreGolden(unittest.TestCase):
-    """RV A2: 0.87 までの待ちの記録(autorun-active.json の 1 件 = 欄 + 版 1 の封筒 + 束(run.pinned))を固定の見本にして restore。
-    段の並び・済んだ段・名前の頭・配信者・友人の区間の長さ・知らせ・途中の段が待ちに戻る、が以前と同じ"""
+    """待ちの記録(autorun-active.json の 1 件 = 欄 + 封筒 + 束)を固定の見本にして restore。
+    段の並び・済んだ段・名前の頭・配信者・友人の区間の長さ・知らせ・途中の段が待ちに戻る。前に書いていた deliver.batch・note は読んで捨てる"""
 
-    BASE = {"hints": {"ranges": [[10.0, 20.0], [30.0, 40.0]], "people": [{"name": "兎田ぺこら", "color": "#FF0000"}]},
+    BASE = {"hints": {"ranges": [[10.0, 20.0], [30.0, 40.0]], "people": [{"name": "兎田ぺこら", "color": "#FF0000"}], "streamer": "兎田ぺこら"},
             "analyze": {"wAudio": 1.5, "wChat": 0.5, "wComments": 2.0, "length": 38, "preRatio": 0.61},
             "adopt": {"top": 2}, "transcribe": {"diarize": 2}, "pack": {"cut": "silence", "videoTracks": 3},
-            "run": {"from": None, "force": False, "repack": True, "pinned": ["weights", "cut", "videoTracks"]}}
+            "run": {"from": None, "upto": "pack", "onFail": "stop", "force": False, "repack": True, "requested": ["weights", "cut", "videoTracks"]}}
 
     def record(self, **kw):
         d = {"id": "0123456789", "videoId": "abcdefghijk", "title": "配信", "mode": "request_auto", "top": 2, "docId": None, "overwrite": True,
              "streamer": "兎田ぺこら", "streamerFrom": None, "marks": ["r1", "r2"], "fresh": {"title": "配信", "channel": "ch"}, "onFail": "stop",
              "sourcePath": None, "requestId": "20261016-120000-abcdef", "deliverDir": "D:/out", "speakers": {"count": 2, "names": ["兎田ぺこら"]},
              "videoTracks": 3, "ranges": [[10.0, 20.0], [30.0, 40.0]], "cut": "silence", "weights": {"wAudio": 1.5, "wChat": 0.5, "wComments": 2.0},
-             "duration": 3600.0, "engine": None, "model": None, "friendLength": None, "deliverBatch": 3, "deliverTag": None, "deliverOrigin": "request",
+             "duration": 3600.0, "engine": None, "model": None, "friendLength": None, "deliverTag": None, "deliverOrigin": "request",
              "pool": None, "docs": ["t1"], "newDocs": ["t1"], "txBefore": {}, "packs": [], "keptPacks": [], "delivered": [], "packMarks": {}, "force": False,
              "normalize": False, "friendPlan": {"length": 38, "preRatio": 0.61, "file": "flow/lengthhint", "samples": 9, "videos": 3, "base": {"length": 45}},
              "notes": ["「行から」の設定の形が正しくないので、既定の広げ方で作りました"], "created": 1790000000.0, "state": "running", "message": "パック",
@@ -178,8 +175,8 @@ class TestRestoreGolden(unittest.TestCase):
                        {"key": "deliver", "state": "wait", "detail": ""}, {"key": "analyze_later", "state": "wait", "detail": ""}],
              "envelope": {"id": "0123456789", "kind": "url", "input": {"title": "配信", "videoId": "abcdefghijk", "duration": 3600.0,
                                                                      "fresh": {"title": "配信", "channel": "ch"}, "marks": ["r1", "r2"]},
-                          "requestId": "20261016-120000-abcdef", "deliver": {"dir": "D:/out", "batch": 3, "pool": None, "origin": "request"}, "note": "",
-                          "createdAt": 1790000000000, "specVersion": 1, "legacy": {"mode": "request_auto", "onFail": "stop", "streamer": "兎田ぺこら"}},
+                          "requestId": "20261016-120000-abcdef", "deliver": {"dir": "D:/out", "batch": 3, "pool": None, "origin": "request", "tag": None},
+                          "note": "", "createdAt": 1790000000000, "specVersion": 2},   # batch・note = 10-18 までに保存した封筒(読んで捨てる)
              "spec": SP.validate(SP.merge(self.BASE))}
         d.update(kw)
         return json.loads(json.dumps(d))
@@ -191,40 +188,38 @@ class TestRestoreGolden(unittest.TestCase):
                          [("adopt", "done"), ("export", "done"), ("transcribe", "done"), ("diarize", "warn"), ("pack", "wait"), ("deliver", "wait"),
                           ("analyze_later", "wait")])
         self.assertEqual((back.steps[0]["startedAt"], back.steps[0]["finishedAt"]), (1, 2))
-        self.assertEqual((back.streamer, back.on_fail, back.top, back.cut, back.video_tracks, back.overwrite, back.marks, back.deliver_batch),
-                         ("兎田ぺこら", "stop", 2, "silence", 3, True, ("r1", "r2"), 3))
+        self.assertEqual((back.streamer, back.on_fail, back.top, back.cut, back.video_tracks, back.overwrite, back.marks),
+                         ("兎田ぺこら", "stop", 2, "silence", 3, True, ("r1", "r2")))
         self.assertEqual((back.weights, back.speakers["count"], back.ranges), ({"wAudio": 1.5, "wChat": 0.5, "wComments": 2.0}, 2, [(10.0, 20.0), (30.0, 40.0)]))
         self.assertEqual((back.friend_plan["length"], back.notes, back.docs, back.new_docs), (38, self.record()["notes"], ["t1"], ["t1"]))
         self.assertEqual(sorted(back.spec["run"]["requested"]), ["cut", "videoTracks", "weights"])
         self.assertEqual(back.public()["modeLabel"], R.REQUEST_MODES["request_auto"])
-        again = json.loads(json.dumps(back.saved()))   # 書き直した記録は版 2(legacy なし)で、もう一度戻しても同じ
-        self.assertEqual((again["envelope"]["specVersion"], "legacy" in again["envelope"], again["spec"]["hints"]["streamer"]), (2, False, "兎田ぺこら"))
+        again = json.loads(json.dumps(back.saved()))   # 書き直した記録に batch・note は無く、もう一度戻しても同じ
+        self.assertEqual((again["envelope"]["specVersion"], "note" in again["envelope"], "batch" in again["envelope"]["deliver"],
+                          again["spec"]["hints"]["streamer"]), (2, False, False, "兎田ぺこら"))
         back2 = R.Run.restore(again)
         self.assertEqual([(s["key"], s["state"]) for s in back2.steps], [(s["key"], s["state"]) for s in back.steps])
         self.assertEqual((back2.mode, back2.streamer, back2.on_fail, back2.deliver_tag), (back.mode, back.streamer, back.on_fail, None))
 
     def test_full_auto_send_and_file(self):
-        """まとめて実行の自動で送る形(full・出どころ auto・deliverTag は欄だけ)と動画ファイル(normalize の欄・docId)"""
+        """まとめて実行の自動で送る形(full・出どころ auto・名前の頭は封筒の deliver.tag)と動画ファイル(封筒の input.normalize・欄の docId)"""
         env = {"id": "abcdef0123", "kind": "url", "input": {"title": "配信", "videoId": "abcdefghijk", "duration": None, "fresh": None, "marks": None},
-               "requestId": None, "deliver": {"dir": None, "batch": None, "pool": None, "origin": "auto"}, "note": "", "createdAt": 1790000000000,
-               "specVersion": 1, "legacy": {"mode": "full", "onFail": "next", "streamer": ""}}
+               "requestId": None, "deliver": {"dir": None, "pool": None, "origin": "auto", "tag": "20261016-120000-aaaaaa"}, "createdAt": 1790000000000,
+               "specVersion": 2}
         d = self.record(id="abcdef0123", envelope=env, mode="full", deliverTag="20261016-120000-aaaaaa", deliverOrigin="auto", requestId=None,
                         steps=[{"key": "analyze", "state": "done", "detail": ""}, {"key": "deliver", "state": "wait", "detail": ""}],
-                        spec=SP.validate(SP.merge(None)))
+                        spec=SP.validate(SP.merge({"run": {"onFail": "next"}, "hints": {"streamer": ""}})))
         back = R.Run.restore(d)
         self.assertEqual((back.mode, back.deliver_tag, back.deliver_origin, back.deliver_dir, back.streamer), ("full", "20261016-120000-aaaaaa", "auto", None, ""))
         self.assertEqual([s["key"] for s in back.steps], ["analyze", "adopt", "export", "transcribe", "pack", "deliver"])   # 届け先なし = notSent(D-SEND)
-        fenv = {"id": "fedcba9876", "kind": "file", "input": {"title": "依頼", "path": "C:/x/依頼.mp4"}, "requestId": "rid",
-                "deliver": {"dir": "D:/out", "batch": None, "pool": None, "origin": None}, "note": "", "createdAt": 1790000000000, "specVersion": 1,
-                "legacy": {"mode": "file_auto", "onFail": None, "streamer": None}}
+        fenv = {"id": "fedcba9876", "kind": "file", "input": {"title": "依頼", "path": "C:/x/依頼.mp4", "normalize": True}, "requestId": "rid",
+                "deliver": {"dir": "D:/out", "pool": None, "origin": None, "tag": None}, "createdAt": 1790000000000, "specVersion": 2}
         f = self.record(id="fedcba9876", envelope=fenv, mode="file_auto", docId="t9", sourcePath="C:/x/依頼.mp4",
                         steps=[{"key": "normalize", "state": "done", "detail": ""}, {"key": "transcribe", "state": "done", "detail": ""}],
                         spec=SP.validate(SP.merge(None)))
-        f.pop("normalize")   # 段 normalize の前の記録 = True で読む
         back = R.Run.restore(f)
         self.assertEqual((back.mode, back.kind(), back.doc_id, back.normalize, back.source_path), ("file_auto", "file", "t9", True, "C:/x/依頼.mp4"))
         self.assertEqual([(s["key"], s["state"]) for s in back.steps], [("normalize", "done"), ("transcribe", "done"), ("pack", "wait"), ("deliver", "wait")])
-        self.assertEqual(R.Run.restore(dict(f, normalize=False)).normalize, False)
 
 
 class TestStepsOf(unittest.TestCase):
@@ -250,9 +245,9 @@ class TestStepsOf(unittest.TestCase):
     def test_all_combinations(self):
         import itertools
         n = 0
-        for mode, dir_, origin, nr, dz, norm in itertools.product(list(E.LEGACY_MODES), (None, "D:/out"), (None, "auto", "request"), (0, 1, 3),
+        for mode, dir_, origin, nr, dz, norm in itertools.product(list(R.MODE_RUN), (None, "D:/out"), (None, "auto", "request"), (0, 1, 3),
                                                                   (None, 2), (False, True)):
-            kind = E.LEGACY_MODES[mode][0]
+            kind = R.MODE_RUN[mode][0]
             kw = {"deliver_dir": dir_, "deliver_origin": origin, "speakers": {"count": dz, "names": []} if dz else None}
             if kind == "url":
                 kw["ranges"] = [(i * 10.0, i * 10.0 + 5) for i in range(nr)]
@@ -269,9 +264,9 @@ class TestStepsOf(unittest.TestCase):
             n += 1
         self.assertGreater(n, 500)
 
-    def test_mode_of_matches_legacy_table(self):
-        """派生の mode = 以前の mode(記録の mode・modeLabel・溜めの鍵・届けた記録の mode が変わらない)"""
-        for mode, (kind, frm, upto) in E.LEGACY_MODES.items():
+    def test_mode_of_matches_mode_run(self):
+        """派生の mode と表 MODE_RUN(mode_of の逆)が合う(記録の mode・modeLabel・溜めの鍵・届けた記録の mode が変わらない)"""
+        for mode, (kind, frm, upto) in R.MODE_RUN.items():
             b = SP.validate(SP.merge({"run": dict({"upto": upto}, **({"from": frm} if frm else {}))}))
             self.assertEqual(R.mode_of(kind, b, "r1" if mode.startswith("request") else None), mode)
         self.assertIsNone(R.mode_of("url", SP.validate(SP.merge({"run": {"from": "adopt"}}))))
@@ -634,7 +629,7 @@ class TestFieldsToBundle(unittest.TestCase):
         return {
             "request": dict(video_id=VID, title="配信", mode="request_auto", top=4, ranges=[(100.0, 120.0)],
                             weights={"wAudio": 1.5, "wChat": 0.5, "wComments": 2.0}, fresh={"title": "題", "channel": "ch"}, duration=1000.0,
-                            request_id="r1", deliver_dir="/out", deliver_batch=3, streamer="ぺこら", cut="silence", video_tracks=1,
+                            request_id="r1", deliver_dir="/out", streamer="ぺこら", cut="silence", video_tracks=1,
                             speakers={"count": 2, "names": ["A"], "styles": {"A": {"color": "#112233"}}}),
             "live_file": dict(video_id=None, title="ライブ", mode="file_auto", top=None, source_path=m, engine="whisper.cpp", model="large-v3",
                               cut="none", pool={"key": "k1", "rid": "x"}),
@@ -681,7 +676,7 @@ class TestFieldsToBundle(unittest.TestCase):
             self.assertEqual(r2.spec, r1.spec, name)
             self.assertEqual([s["key"] for s in r2.steps], [s["key"] for s in r1.steps], name)
             for f in ("id", "mode", "top", "ranges", "weights", "cut", "video_tracks", "speakers", "engine", "model", "overwrite", "force", "streamer",
-                      "request_id", "deliver_dir", "deliver_batch", "pool", "fresh", "duration", "marks", "source_path", "doc_id", "title", "on_fail"):
+                      "request_id", "deliver_dir", "pool", "fresh", "duration", "marks", "source_path", "doc_id", "title", "on_fail"):
                 self.assertEqual(getattr(r2, f), getattr(r1, f), "%s.%s" % (name, f))
             b1, b2 = self.bodies(r1), self.bodies(r2)
             self.assertEqual(b2, b1, name)
@@ -797,8 +792,8 @@ class TestFieldsToBundle(unittest.TestCase):
     def test_run_keeps_spec_of_envelope_run(self):
         """封筒 + 束で作った Run は、run(spec=None) でもその束のまま(既定に戻さない)"""
         c = FakeClient()
-        r = R.Run.from_envelope({"id": "a", "kind": "file", "input": {"path": self.media}, "legacy": {"mode": "file"}},
-                                {"transcribe": {"model": "large-v3"}})
+        r = R.Run.from_envelope({"id": "a", "kind": "file", "input": {"path": self.media}},
+                                {"transcribe": {"model": "large-v3"}, "run": {"upto": "transcribe"}})
         R.run(c, r, hooks=R.Runner(c, poll=0, sleep=lambda s: None))
         self.assertEqual(c.bodies["/api/transcribe"]["model"], "large-v3")
 
@@ -1003,21 +998,17 @@ class TestStepNormalize(unittest.TestCase):
 
 
 class TestEnvelopeV2(unittest.TestCase):
-    """RV A2: 版 2 の封筒(legacy なし)+ 束の run.from・run.upto・run.onFail・hints.streamer から同じ Run になる(版 1 と同じ形)"""
+    """RV A2: 封筒 + 束の run.from・run.upto・run.onFail・hints.streamer から Run の形(mode・段の並び)が決まる"""
 
-    def test_v2_same_as_v1(self):
+    def test_mode_run_table(self):
         inp = {"url": {"videoId": "abcdefghijk"}, "docs": {"docId": "d1"}, "file": {"path": "C:/x.mp4"}}
-        for mode, (kind, frm, upto) in E.LEGACY_MODES.items():
+        for mode, (kind, frm, upto) in R.MODE_RUN.items():
             rid = "r1" if mode in R.REQUEST_MODES else None
-            v1 = {"id": "0123456789", "kind": kind, "input": inp[kind], "requestId": rid, "legacy": {"mode": mode, "onFail": "stop", "streamer": "x"}}
             v2 = {"id": "0123456789", "kind": kind, "input": inp[kind], "requestId": rid, "specVersion": 2}
             spec2 = {"run": dict({"upto": upto, "onFail": "stop"}, **({"from": frm} if frm else {})), "hints": {"streamer": "x"}}
-            a, b = R.Run.from_envelope(v1, None), R.Run.from_envelope(v2, spec2)
-            for f in ("mode", "on_fail", "streamer", "top", "request_id", "doc_id", "source_path"):
-                self.assertEqual(getattr(b, f), getattr(a, f), "%s.%s" % (mode, f))
-            self.assertEqual([s["key"] for s in b.steps], [s["key"] for s in a.steps], mode)
+            b = R.Run.from_envelope(v2, spec2)
             self.assertEqual((b.mode, b.on_fail, b.streamer), (mode, "stop", "x"))
-            self.assertEqual(b.spec, a.spec, mode)
+            self.assertEqual([s["key"] for s in b.steps], [k for k in R.MODE_STEPS[mode] if k != "normalize"], mode)
 
     def test_v2_normalize_and_bad_pairs(self):
         r = R.Run.from_envelope({"id": "0123456789", "kind": "file", "specVersion": 2, "input": {"path": "C:/x.mp4", "normalize": True}})

@@ -5,7 +5,7 @@
   streamer … 配信者(字幕の色)の記憶: 文書 id / 配信(video id)/ チャンネル → 名前(空 = 「色なし」を覚えた)
   keymap   … 共通の再生キーの割り当て(編集・スタジオで同じ)
   intake   … 友人からの依頼の受付(src/human/friend/intake.py。notes:docs/spec/friend.md): 見張るフォルダ・オン/オフ・既定の切り抜く数・
-             配信の長さと動画の大きさの上限・見る間隔(まとめて届ける本数 deliverBatch は F3-6 でやめた = 1 本ずつだけ)
+             配信の長さと動画の大きさの上限・見る間隔
   backup   … 作業データのバックアップ(src/manage/keep/backup.py。notes:docs/spec/data.md): オン/オフ・写す先のフォルダ・間隔(時間)
   accuracy … 精度の自動測定(src/eval/drill/accuracy.py。git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md の (a)): enabled(**既定オン**。読むだけで軽い)・夜の窓 nightFrom〜nightTo(時。既定 1〜6。from > to は日をまたぐ)
   live     … リアルタイム切り抜き(線 D。src/app/live.py。**既定はオフ**): enabled・録画の置き場所 folder(空 = 録画の部品の前回の設定か既定 E:/Video/live-rec)・
@@ -62,7 +62,7 @@ DEFAULTS = {"autorun": {"mode": None, "top": 3, "cut": "none", "friendLength": T
                          "overwrite": False, "onFail": "next"},
             "streamer": {k: {} for k in STREAMER_KINDS},
             "keymap": {"playback": {}},
-            "intake": {"enabled": False, "folder": "", "top": 3, "maxHours": 8, "maxGB": 20, "interval": 30},   # 知らないキー(古い dailyMax・deliverBatch など)は _clean_intake が捨てる
+            "intake": {"enabled": False, "folder": "", "top": 3, "maxHours": 8, "maxGB": 20, "interval": 30},   # 知らないキーは _clean_intake が捨てる
             "backup": {"enabled": False, "folder": "", "everyHours": 24},   # 守る物は学習データ・ツール・関連資料 = 1 日 1 回で足りる(10-14 ユーザー)
             "hidden": {k: {} for k in HIDE_LISTS},
             "live": {"enabled": False, "folder": "", "recorders": [], "quality": "1080p", "autoDelete": True,

@@ -34,21 +34,18 @@ class FakeRunner:
         self.requests, self.files = [], []
         self.fail = None
 
-    def start_request(self, items, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None, cut=None, weights=None, streamer=None,
-                      deliver_batch=None):
+    def start_request(self, items, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None, cut=None, weights=None, streamer=None):
         if self.fail:
             raise ValueError(self.fail)
         self.requests.append((items, request_id))
-        self.last = {"flow": flow, "deliver": deliver_dir, "speakers": speakers, "tracks": video_tracks, "cut": cut, "weights": weights, "streamer": streamer,
-                     "batch": deliver_batch}
+        self.last = {"flow": flow, "deliver": deliver_dir, "speakers": speakers, "tracks": video_tracks, "cut": cut, "weights": weights, "streamer": streamer}
         return {"runs": [{"id": "r%d" % len(self.requests) + it["id"][:3], "videoId": it["id"]} for it in items], "skipped": []}
 
-    def start_file(self, path, title="", streamer=None, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None, cut=None,
-                   deliver_batch=None):
+    def start_file(self, path, title="", streamer=None, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None, cut=None):
         if self.fail:
             raise ValueError(self.fail)
         self.files.append({"path": path, "title": title, "streamer": streamer, "rid": request_id, "flow": flow, "deliver": deliver_dir, "speakers": speakers,
-                           "tracks": video_tracks, "cut": cut, "batch": deliver_batch})
+                           "tracks": video_tracks, "cut": cut})
         return {"id": "f%d" % len(self.files)}
 
 
@@ -110,14 +107,15 @@ class TestSubmitOrders(unittest.TestCase):
         out = intake.submit_urls(rec, [{"id": "aaaaaaaaaaa", "top": 3, "title": "配信", "channel": "ch", "ranges": [(10, 20)], "duration": 100.0},
                                        {"id": "bbbbbbbbbbb", "top": 2}, {"id": "bad", "top": 2}, {"id": "ccccccccccc", "top": 99}],
                                  request_id="20261016-120000-abc123", flow="auto", deliver_dir="D:/out", speakers={"count": 2, "names": ["A"]},
-                                 video_tracks=2, cut="silence", weights={"wAudio": 1.5, "wChat": 0.5, "wComments": 2.0}, streamer="兎田ぺこら", deliver_batch=3)
+                                 video_tracks=2, cut="silence", weights={"wAudio": 1.5, "wChat": 0.5, "wComments": 2.0}, streamer="兎田ぺこら")
         self.assertEqual(sorted(out), ["runs", "skipped"])
         self.assertEqual([r["videoId"] for r in out["runs"]], ["aaaaaaaaaaa"])
         self.assertEqual([(s["id"], s["reason"]) for s in out["skipped"]],
                          [("bbbbbbbbbbb", "同じ入力がすでに実行中・順番待ちです"), ("bad", "配信の指定が正しくありません"), ("ccccccccccc", "配信の指定が正しくありません")])
         env, spec = rec.got[0]
-        self.assertEqual((env["kind"], env["specVersion"], env["requestId"], env["deliver"]["dir"], env["deliver"]["batch"], env["input"]["duration"],
-                          env["input"]["fresh"]), ("url", 2, "20261016-120000-abc123", "D:/out", 3, 100.0, {"title": "配信", "channel": "ch"}))
+        self.assertEqual((env["kind"], env["specVersion"], env["requestId"], env["deliver"]["dir"], env["input"]["duration"],
+                          env["input"]["fresh"]), ("url", 2, "20261016-120000-abc123", "D:/out", 100.0, {"title": "配信", "channel": "ch"}))
+        self.assertNotIn("batch", env["deliver"])
         self.assertEqual(spec["run"], {"upto": "pack", "repack": True, "requested": ["weights", "cut", "videoTracks"]})
         self.assertEqual((spec["adopt"]["top"], spec["hints"]["ranges"], spec["hints"]["streamer"], spec["pack"], spec["transcribe"]),
                          (3, [[10.0, 20.0]], "兎田ぺこら", {"cut": "silence", "videoTracks": 2}, {"diarize": 2}))
@@ -129,10 +127,10 @@ class TestSubmitOrders(unittest.TestCase):
         intake.submit_urls(rec, [{"id": "aaaaaaaaaaa", "top": 1, "ranges": [[5, 1]]}, {"id": "ddddddddddd", "top": 1}])
         self.assertEqual(len(rec.got), 1, "形の違う区間の配信は断る")
         self.assertEqual(rec.got[0][1]["run"], {"upto": "transcribe"})
-        intake.submit_file(rec, "C:/x/依頼.mp4", title="依頼", streamer="さくらみこ", request_id="rid", flow="auto", deliver_dir="D:/out", deliver_batch=4)
+        intake.submit_file(rec, "C:/x/依頼.mp4", title="依頼", streamer="さくらみこ", request_id="rid", flow="auto", deliver_dir="D:/out")
         env, spec = rec.got[-1]
-        self.assertEqual((env["kind"], env["input"], env["requestId"], env["deliver"]["dir"], env["deliver"]["batch"]),
-                         ("file", {"title": "依頼", "path": "C:/x/依頼.mp4", "normalize": True}, "rid", "D:/out", 4))
+        self.assertEqual((env["kind"], env["input"], env["requestId"], env["deliver"]["dir"]),
+                         ("file", {"title": "依頼", "path": "C:/x/依頼.mp4", "normalize": True}, "rid", "D:/out"))
         self.assertEqual((spec["run"], spec["hints"]), ({"upto": "pack"}, {"streamer": "さくらみこ"}))
         intake.submit_file(rec, "C:/x/b.mp4")
         self.assertEqual((rec.got[-1][0]["input"]["title"], rec.got[-1][1]["run"]), ("b.mp4", {"upto": "transcribe"}))
@@ -187,7 +185,7 @@ class TestSend(Base):
         """友人のアプリが置く 設定\\届け方.json は依頼として読まない(下のフォルダは見ない)"""
         os.makedirs(os.path.join(self.folder, "設定"))
         with open(os.path.join(self.folder, "設定", "届け方.json"), "w", encoding="utf-8") as f:
-            f.write('{"v":1,"deliverBatch":3}')
+            f.write('{"v":1}')
         self.scan2()
         self.assertEqual((self.runner.requests, self.runner.files, self.it.snapshot()["requests"]), ([], [], []))
 
@@ -360,12 +358,13 @@ class TestVideo(Base):
         self.it.scan()
         self.assertEqual(self.runner.files, [], "JSON が届くまで待つ")
         self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "video", "id": rid, "files": [rid + "__にぇの叫び.mp4"],
-                                                     "streamer": "さくらみこ", "memo": "最後のところ", "sentAt": ""}, ensure_ascii=False))
+                                                     "streamer": "さくらみこ", "sentAt": ""}, ensure_ascii=False))
         self.scan2()
         f, = self.runner.files
         self.assertEqual((f["title"], f["streamer"], f["rid"], f["flow"]), ("にぇの叫び", "さくらみこ", rid, "auto"))   # flow の無い 1.0.0 のアプリ = ① (RS5-F。②③ をやめた)
         r = self.it.snapshot()["requests"][0]
-        self.assertEqual((r["source"], r["memo"], r["state"]), ("app", "最後のところ", "accepted"))
+        self.assertEqual((r["source"], r["state"]), ("app", "accepted"))
+        self.assertNotIn("memo", r)
         self.assertTrue(os.path.isfile(self.done(rid + ".request.json")))
         self.assertTrue(os.path.isfile(self.done(rid + "__にぇの叫び.mp4")))
 
@@ -542,7 +541,7 @@ class TestVideo(Base):
         self.infos["bbbbbbbbbbb"] = {"duration": 600.0, "live": "not_live", "title": "短い配信", "channel": "ch"}
         rid = "20261002-120000-abc201"
         self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "url", "id": rid, "flow": "auto", "videoTracks": 2, "cut": "silence",
-                                                     "weights": {"audio": 1.5, "chat": 1.0, "comments": 0.7}, "memo": "",
+                                                     "weights": {"audio": 1.5, "chat": 1.0, "comments": 0.7},
                                                      "items": [{"url": "https://youtu.be/abcdefghijk", "top": 1, "ranges": [{"start": 5025, "end": 5110}, {"start": 60, "end": 90}]},
                                                                {"url": "https://youtu.be/bbbbbbbbbbb", "top": 3, "ranges": [{"start": 590, "end": 650}, {"start": 700, "end": 720}, {"start": 9, "end": 3}]},
                                                                {"url": "https://youtu.be/ccccccccccc", "top": 2}]}))
@@ -745,60 +744,6 @@ class TestVideoNoSlots(Base):
         self.assertEqual(self.it.message, "")
 
 
-class TestFeedback(Base):
-    """友人のアプリの「要らない」(<zip の名前>.feedback.json。アプリ 2.6.0): 読んで feedback= に渡し、受付済み へ。
-    受付の記録(最近の依頼)には入れず、片付けた「要らない」を日ごとの数だけ(画面の「今日 要らない n 本」。10-13 Q17)"""
-
-    def reason_txt(self, path):
-        with open(os.path.splitext(path)[0] + ".理由.txt", encoding="utf-8-sig") as f:
-            return f.read()
-
-    def test_reject_is_applied_and_counted(self):
-        got = []
-        self.it.feedback = lambda fb: (got.append(fb), {"ok": True, "summary": "2 本をごみ箱フォルダへ(スタジオのマークを不採用 2 本)"})[1]
-        self.put("20261002-120000-0a1b2c__配信A 1-2.feedback.json",
-                 '{"v":1,"kind":"feedback","verdict":"reject","zip":"20261002-120000-0a1b2c__配信A 1-2.zip","requestId":"20261002-120000-0a1b2c",'
-                 '"title":"配信A 1-2","sentAt":"2026-10-08T01:02:03+09:00"}')
-        self.put("made.feedback.json", '{"v":1,"kind":"feedback","verdict":"made_video","zip":"made.zip"}')
-        self.scan2()
-        self.assertEqual([f["zip"] for f in got], ["20261002-120000-0a1b2c__配信A 1-2.zip", "made.zip"])
-        self.assertEqual(self.it.st["requests"], [], "受付の記録には入れない")
-        snap = self.it.snapshot()
-        self.assertEqual((snap["today"], snap["todayRejects"], snap["requests"]), (0, 1, []), "数えるのは片付けた「要らない」だけ(動画にした は数えない)")
-        done = self.done("20261002-120000-0a1b2c__配信A 1-2.feedback.json")
-        self.assertTrue(os.path.exists(done), "受付済み へ")
-        self.assertIn("2 本をごみ箱フォルダへ", self.reason_txt(done))
-        self.assertTrue(os.path.exists(self.done("made.feedback.json")))
-        self.assertEqual((self.runner.files, self.runner.requests), ([], []), "依頼としては扱わない")
-        with open(os.path.join(self.data, intake.STATE_FILE), encoding="utf-8") as f:
-            self.assertEqual(json.load(f)["rejects"], {self.it._today(): 1})
-
-    def test_unreadable_or_unapplied_goes_to_failed(self):
-        self.it.feedback = lambda fb: {"ok": False, "reason": "届けた記録に見つかりません: x.zip"}
-        self.put("x.feedback.json", '{"v":1,"kind":"feedback","verdict":"reject","zip":"x.zip"}')
-        self.put("y.feedback.json", "{broken")
-        self.scan2()
-        self.assertEqual(self.it.st["requests"], [])
-        self.assertEqual(self.it.snapshot()["todayRejects"], 0)
-        self.assertTrue(os.path.exists(self.failed("x.feedback.json")) and os.path.exists(self.failed("y.feedback.json")), os.listdir(self.folder))
-        self.assertIn("届けた記録に", self.reason_txt(self.failed("x.feedback.json")))
-        self.assertIn("読めませんでした", self.reason_txt(self.failed("y.feedback.json")))
-        self.assertFalse(os.path.isdir(os.path.join(self.folder, intake.OUT_DIR)), "友人には知らせない(もう消したあと)")
-
-    def test_without_handler_is_refused(self):
-        self.put("x.feedback.json", '{"v":1,"kind":"feedback","verdict":"reject","zip":"x.zip"}')
-        self.scan2()
-        self.assertEqual(self.it.st["requests"], [])
-        self.assertIn("部品", self.reason_txt(self.failed("x.feedback.json")))
-
-    def test_old_feedback_records_are_dropped_on_load(self):
-        """前に 1 件ずつ入れていた友人の返事の記録(kind feedback)は読み込むときに外す(受付の記録の枠を友人の依頼に返す)"""
-        testkit.write_json(os.path.join(self.data, intake.STATE_FILE), {"v": 1, "files": {"x": 1}, "requests": [{"kind": "feedback", "title": "要らない: a"}, {"kind": "url", "title": "配信"}]})
-        it = intake.Intake(self.prefs, lambda: self.runner, self.data, clock=lambda: self.now)
-        self.assertEqual([r["title"] for r in it.st["requests"]], ["配信"])
-        self.assertNotIn("files", it.st, "使っていなかった欄は持たない")
-
-
 class TestReturns(Base):
     """友人の送り返し(同期フォルダの 送り返し\\。F1 の F2): 見回りのたびに returns.scan が app/friend-returns へ並べる。依頼の一覧には出さない"""
 
@@ -818,38 +763,6 @@ class TestReturns(Base):
                                                     "20261011-120000-abcdef", "r1", "run.json")))
         self.assertTrue(os.path.isfile(os.path.join(inbox, "受付済み", self.it._today(), "20261011-120000-abcdef__r1.zip")))
         self.assertEqual(self.it.st["requests"], [])
-
-
-class TestDeliverBatch(Base):
-    """依頼ごとの届け方(notes:docs/spec/friend.md の 2-16。2.8.0 のアプリの deliverBatch 1〜10): url・video の依頼はまとめて実行へ渡す。
-    無い・範囲の外・手で置いた依頼は None(= ホームの設定 intake.deliverBatch のまま)"""
-
-    def test_parse_deliver_batch(self):
-        for v, want in ((1, 1), (5, 5), (10, 10), (0, None), (11, None), (-1, None), (5.0, None), (True, None), (False, None), ("3", None), (None, None),
-                        ([2], None)):
-            self.assertEqual(intake.parse_deliver_batch(v), want, repr(v))
-
-    def test_url_and_video_requests_pass_batch(self):
-        for i, (v, want) in enumerate(((5, 5), (1, 1), (10, 10), (11, None), (0, None), ("5", None), (None, None))):
-            rid = "20261008-120000-abc1%02d" % i
-            d = {"v": 1, "kind": "url", "id": rid, "flow": "auto", "items": [{"url": "https://youtu.be/abcdefghijk", "top": 2}]}
-            if v is not None:
-                d["deliverBatch"] = v
-            self.put(rid + ".request.json", json.dumps(d))
-            self.scan2()
-            self.assertEqual((self.runner.requests[-1][1], self.runner.last["batch"]), (rid, want), repr(v))
-        self.assertEqual(len(self.runner.requests), 7)
-        rid = "20261008-120000-abc1a0"
-        self.put(rid + "__clip.mp4", b"clip-batch")
-        self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "video", "id": rid, "files": [rid + "__clip.mp4"], "flow": "auto", "deliverBatch": 3}))
-        self.scan2()
-        self.assertEqual((self.runner.files[-1]["rid"], self.runner.files[-1]["batch"]), (rid, 3))
-        # 手で置いた動画・テキスト(依頼の JSON が無い)はホームの設定のまま
-        self.put("手で.mp4", b"manual-batch")
-        self.put("手で.txt", "https://youtu.be/bbbbbbbbbbb 2\n")
-        self.scan2()
-        self.assertEqual((self.runner.files[-1]["path"].endswith(".mp4"), self.runner.files[-1]["rid"], self.runner.files[-1]["batch"]), (True, None, None))
-        self.assertEqual((self.runner.requests[-1][1], self.runner.last["batch"]), (None, None))
 
 
 class TestLiveSettings(unittest.TestCase):
@@ -880,7 +793,7 @@ class TestLiveSettings(unittest.TestCase):
 
 
 class TestLiveRequest(Base):
-    """ライブ配信の依頼(notes:docs/spec/friend.md の 2-15。2.8.0 のアプリの kind live): 配信中・配信前なら live_begin(= Live.begin_request)で録画を始めて結びつける。
+    """ライブ配信の依頼(notes:docs/spec/friend.md の 2-15。kind live): 配信中・配信前なら live_begin(= Live.begin_request)で録画を始めて結びつける。
     終わっていれば kind url の ① 全自動(切り抜く数はホームの既定・1 本ずつ届ける)。終わった直後(post_live)・live_begin が無い・だめなら断る(出力 に .失敗.txt)"""
     VID = "abcdefghijk"
     SPEAKERS = {"count": 1, "names": ["さくらみこ"], "styles": {}}
@@ -903,7 +816,7 @@ class TestLiveRequest(Base):
 
     def send(self, rid, **extra):
         d = {"v": 1, "kind": "live", "id": rid, "flow": "auto", "url": "https://www.youtube.com/live/abcdefghijk?si=xyz", "streamer": "さくらみこ",
-             "memo": "歌のところ", "speakers": {"count": 1, "names": ["さくらみこ"]}, "videoTracks": 3, "cut": "silence",
+             "speakers": {"count": 1, "names": ["さくらみこ"]}, "videoTracks": 3, "cut": "silence",
              "live": {"sens": "high", "perHour": 12, "length": 60, "waitMin": 3, "pad": 1.5, "afterStream": False}, "sentAt": "2026-10-08T20:00:00+09:00"}
         d.update(extra)
         self.put(rid + ".request.json", json.dumps(d, ensure_ascii=False))
@@ -921,12 +834,11 @@ class TestLiveRequest(Base):
         return names, texts
 
     def test_live_request_options_reach_link(self):
-        """10-09 ユーザー決定(decisions 3-20): ライブ配信の依頼も届け方(2.9.0 のアプリの deliverBatch)を結びつきに残し、受付の記録の文も合わせる。
-        友人の受信箱のアプリの長さ「自動(場面ごと)」(live.lengthMode auto。C-2-11)も結びつきの settings に残す(検出が場面ごとに切る)"""
+        """ライブ配信の依頼の受付の記録の文(1 本ずつ届ける)。友人の受信箱のアプリの長さ「自動(場面ごと)」(live.lengthMode auto。C-2-11)も
+        結びつきの settings に残す(検出が場面ごとに切る)"""
         self.infos[self.VID] = {"duration": None, "live": "is_live", "title": "配信中", "channel": "Miko Ch."}
-        rec = self.send("20261008-200000-abc302", deliverBatch=3)
+        rec = self.send("20261008-200000-abc302")
         (_url, ctx), = self.begun
-        self.assertEqual(ctx["deliverBatch"], 3)
         self.assertIn("1 本ずつ届けます", rec["items"][0]["reason"])
         self.begun.clear()
         rec = self.send("20261017-200000-abc303", live={"sens": "high", "perHour": 12, "length": 60, "waitMin": 3, "pad": 1.5, "afterStream": False,
@@ -943,11 +855,10 @@ class TestLiveRequest(Base):
         self.assertEqual(url, "https://www.youtube.com/watch?v=abcdefghijk")   # 書き方の違う URL(/live/…?si=)はそろえる
         want = {"sens": "high", "perHour": 6, "length": 60, "waitMin": 5, "pad": 1.5, "afterStream": False}   # 範囲の外(31・0)は既定
         self.assertEqual(ctx, {"rid": rid, "deliverDir": os.path.join(self.folder, intake.OUT_DIR), "url": url, "title": "【歌枠】配信中",
-                               "streamer": "さくらみこ", "speakers": self.SPEAKERS, "videoTracks": 3, "cut": "silence", "memo": "歌のところ", "settings": want,
-                               "deliverBatch": None})   # 届け方の指定が無い依頼(2.8.x のアプリ)= ホームの設定
+                               "streamer": "さくらみこ", "speakers": self.SPEAKERS, "videoTracks": 3, "cut": "silence", "settings": want})
         self.assertEqual((self.runner.requests, self.runner.files), ([], []), "録画の依頼はまとめて実行へ入れない(切り抜きごとに入口が入れる)")
-        self.assertEqual((rec["kind"], rec["state"], rec["source"], rec["title"], rec["flowLabel"], rec["streamer"], rec["memo"]),
-                         ("live", "accepted", "app", "【歌枠】配信中", "① 全自動", "さくらみこ", "歌のところ"))
+        self.assertEqual((rec["kind"], rec["state"], rec["source"], rec["title"], rec["flowLabel"], rec["streamer"]),
+                         ("live", "accepted", "app", "【歌枠】配信中", "① 全自動", "さくらみこ"))
         self.assertEqual((rec["tracksLabel"], rec["cutLabel"], rec["speakersLabel"]), ("映像トラック: 3本", "カット: 無音で削る", "配信者: 1人(さくらみこ)"))
         self.assertEqual((rec["items"][0]["label"], rec["items"][0]["state"]), ("【歌枠】配信中(ライブ配信)", "accepted"))
         self.assertIn("録画を始めました", rec["items"][0]["reason"])
@@ -974,16 +885,16 @@ class TestLiveRequest(Base):
         self.assertTrue(os.path.isfile(self.done(rid + ".request.json")))
 
     def test_ended_stream_goes_as_auto_url_request(self):
-        """終わった配信(not_live・was_live)は kind url の ① 全自動と同じ: 切り抜く数はホームの既定・届け方は依頼の指定(2.9.0。10-09 ユーザー決定)・知らせの行「ライブ配信」"""
+        """終わった配信(not_live・was_live)は kind url の ① 全自動と同じ: 切り抜く数はホームの既定・知らせの行「ライブ配信」"""
         for i, (live, title) in enumerate((("not_live", "終わった配信"), ("was_live", "アーカイブ"))):
             self.infos[self.VID] = {"duration": 3600.0, "live": live, "title": title, "channel": "ch"}
             rid = "20261008-200000-abc31%d" % i
-            rec = self.send(rid, deliverBatch=5)   # 届け方の指定(5 本ごと)をそのまま
+            rec = self.send(rid)
             self.assertEqual(self.begun, [], "録画は始めない")
             items, got = self.runner.requests[-1]
             self.assertEqual(([(x["id"], x["top"], x["ranges"]) for x in items], got), ([(self.VID, 4, [])], rid))
             self.assertEqual(self.runner.last, {"flow": "auto", "deliver": os.path.join(self.folder, intake.OUT_DIR), "speakers": self.SPEAKERS, "tracks": 3,
-                                                "cut": "silence", "weights": None, "streamer": "さくらみこ", "batch": 5})
+                                                "cut": "silence", "weights": None, "streamer": "さくらみこ"})
             self.assertEqual((rec["kind"], rec["state"], rec["title"], rec["flowLabel"]), ("url", "accepted", title, "① 全自動"))
             note = [x for x in rec["items"] if x["label"] == "ライブ配信"]
             self.assertEqual([(x["state"], "配信は終わっていた" in x["reason"]) for x in note], [("accepted", True)])

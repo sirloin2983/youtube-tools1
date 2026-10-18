@@ -2,7 +2,7 @@
 notes:docs/spec/friend.md の 2-7。ds1(要件 1-5「届ける段と溜めは ② へ」)で ③ human/friend から移した。
 確認用の動画(ffmpeg)は ① pipeline/pack/preview。ここは ytt と ① と ② だけを読む(友人の PC には ③ が無い)。
 
-届く物の形(F3-6。notes:plan/f1-friend-requirements.md の C-3・C-6。5 本ずつの組・まとめ動画・届け方の設定はやめた = 1 本ずつだけ):
+届く物の形(notes:plan/f1-friend-requirements.md の C-3・C-6。パックは 1 本ずつ):
   出力\\<頭>__<パックの題>.zip + 隣に同じ名前の .preview.mp4(480p・字幕なし)と .meta.json(依頼の分にも必ず)。置く順 = 確認用の動画 → meta → zip
 - deliver_one: 1 本を届ける(確認用の動画 → meta → zip → 届けた記録 deliveries.jsonl)。まとめて実行の届ける段(同じフォルダの delivery.py の _deliver_one)と
   手で届ける(Deliveries = 「編集」の「友人へ届ける」・案件の「採用(友人へ届ける)」)が同じこれを使う(10-13 ユーザー決定 Q16)
@@ -11,7 +11,6 @@ notes:docs/spec/friend.md の 2-7。ds1(要件 1-5「届ける段と溜めは �
 - 名前: zip は <依頼 id>__<題>(delivery_name)。同じ名前があれば末尾に 4 文字足す(unique_zip)
 - 出どころ(D-SEND 2-7。notes:plan/done/d-send-requirements.md): 届けた記録の origin は request(友人の依頼)・auto(自分の配信から自動で)・manual(手で届ける)。
   友人に見せる出どころ(face_origin)は request か auto(手で届けるも auto = 札「自動で届いた」)。.meta.json の origin(meta_doc の欄の説明)
-- 古い友人のアプリ(RequestSender)は .meta.json の v と origin だけを読む = v は 1 のまま欄を足した(前のアプリは 2026-10-18 に消した。入っている友人の PC が残る間は読めるように)
 - Deliveries: 手で「友人へ届ける」(画面の api/ytt/deliver)の裏の仕事。数 GB の zip は時間がかかるので、画面は状態を聞き直す
 送れるのは cut2resolve が作ったパックのフォルダだけ(manage.cases.txindex.is_pack_dir。画面から任意のフォルダを Dropbox へ出させない)。
 zip は動画を圧縮しない(ZIP_STORED)ので CPU はほとんど使わない → 重い処理の枠(jobs.SLOTS)は通さない(文字起こしの後ろで何時間も待たせないため)。
@@ -36,7 +35,7 @@ BAD_NAME_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f]')   # ファイル名に使�
 VIDEO_EXT = (".mp4", ".mov", ".mkv", ".webm", ".m4v", ".wav", ".m4a")   # 圧縮しても小さくならない物は ZIP_STORED
 PREVIEW_SUFFIX = ".preview.mp4"        # zip の隣の名前(<zip の名前>.preview.mp4。友人のアプリが先にこれだけ取ってきて見る。zip の中には入れない)
 META_SUFFIX = ".meta.json"             # 1 本のパックのメタ(<zip の名前>.meta.json。友人のアプリの OutputFolder.MetaSuffix と同じ)
-BAD_CHARS = BAD_NAME_CHARS   # 古い名前(受付と同じ決まり)
+BAD_CHARS = BAD_NAME_CHARS   # 同じ物の別名(受付と同じ決まり)
 KEEP_JOBS = 20
 
 
@@ -69,7 +68,7 @@ def meta_path_for(zip_path):
     return os.path.splitext(zip_path)[0] + META_SUFFIX
 
 
-TEXT_MAX = 300   # meta の文字の欄(題・配信のタイトル・配信者)の長さの上限(.meta.json は 16KB 未満 = 古いアプリの MetaInfo.TextCap)
+TEXT_MAX = 300   # meta の文字の欄(題・配信のタイトル・配信者)の長さの上限(.meta.json は 16KB 未満)
 
 
 def _text(v):
@@ -77,7 +76,7 @@ def _text(v):
 
 
 def meta_doc(zip_path, origin, preview=None, title="", video_id="", mark_id="", stream_title="", streamer="", seconds=None, now=None):
-    """届く物の .meta.json の中身(F3-6):
+    """届く物の .meta.json の中身:
     {"v":1, "kind":"clip", "origin": request|auto, "sentAt", "requestId"(zip の名前の頭), "zip", "preview"(名前か None), "title"(パックの題),
      "videoId", "markId", "streamTitle", "streamer"(分からなければ ""), "seconds"(切り抜きの長さ。分からなければ None)}。
     #番号(配信ごとの通し番号)は友人のアプリが付ける(友人の PC で処理した物も同じ受信箱に入るため)"""
@@ -152,7 +151,7 @@ def place_preview(preview, zip_path):
 
 
 def deliver_one(d, out_dir, name, log_dir=None, run=None, marks=None, check=None, progress=None, log=None, origin="request", ended_at=None):
-    """1 本のパックを友人へ届ける(notes:docs/spec/friend.md の 2-7・F3-6。まとめて実行の 1 本ずつ・手で届ける の 1 か所):
+    """1 本のパックを友人へ届ける(notes:docs/spec/friend.md の 2-7。まとめて実行の 1 本ずつ・手で届ける の 1 か所):
     ① その切り抜きの確認用の動画 <zip の名前>.preview.mp4 を zip より先に隣へ(480p・字幕なし。作れなければ無し = meta の preview が None)
     ② メタ <zip の名前>.meta.json を zip より先に隣へ(依頼の分にも必ず。meta_doc の形)
     ③ zip <name>.zip(同じ名前があれば末尾に 4 文字)④ 届けた記録 deliveries.jsonl に 1 行(log_dir と run があるとき。友人の判断が引く。書けなくても止めない)。

@@ -37,11 +37,11 @@ class LiveRequestsStoreTest(unittest.TestCase):
         self.assertFalse(os.path.exists(self.path), "読むだけでは書かない")
         ctx = {"rid": "20261008-200000-abc123", "deliverDir": "D:/Dropbox/切り抜き依頼/出力", "url": "https://www.youtube.com/watch?v=abcdefghijk",
                "title": "配信" + "x" * 400, "streamer": "兎田ぺこら", "speakers": {"count": 1, "names": ["兎田ぺこら"], "styles": {}}, "videoTracks": 2,
-               "cut": "silence", "memo": "m", "settings": {"sens": "low", "perHour": 99, "pad": 0.5}, "extra": "捨てる"}
+               "cut": "silence", "settings": {"sens": "low", "perHour": 99, "pad": 0.5}, "extra": "捨てる"}
         item = s.put("local", self.REC, ctx)
         self.assertEqual(item["settings"], dict(LR.SETTINGS_DEFAULT, sens="low", pad=0.5))   # 範囲の外(99)は既定
         self.assertEqual((len(item["title"]), item["createdAt"], "extra" in item), (LR.TEXT_MAX, self.now, False))
-        self.assertEqual(sorted(item), ["createdAt", "cut", "deliverBatch", "deliverDir", "memo", "rid", "settings", "speakers", "streamer", "title", "url", "videoTracks"])
+        self.assertEqual(sorted(item), ["createdAt", "cut", "deliverDir", "rid", "settings", "speakers", "streamer", "title", "url", "videoTracks"])
         got = s.get("local", self.REC)
         self.assertEqual(got, item)
         got["settings"]["pad"] = 9   # 写しを返す(中の記録は変わらない)

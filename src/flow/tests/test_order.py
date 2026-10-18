@@ -32,14 +32,14 @@ class TestOrder(unittest.TestCase):
                             weights={"wAudio": 1.5, "wChat": 0.5, "wComments": 2.0}, cut="silence", video_tracks=2,
                             speakers={"count": 2, "names": ["A", " A", "B" * 50], "styles": {"A": {"color": "112233"}}},
                             engine="faster-whisper", model="large-v3", force=True, repack=True, streamer="",
-                            request_id="r1", deliver_dir="D:/out", batch=3, origin="auto", tag="20261016-010203-abcdef", marks=("m1",))
+                            request_id="r1", deliver_dir="D:/out", origin="auto", tag="20261016-010203-abcdef", marks=("m1",))
         self.assertEqual(diff, {"adopt": {"top": 4}, "hints": {"ranges": [[1, 2]], "people": [{"name": "A", "color": "#112233"}, {"name": "B" * 40}],
                                                                "streamer": ""},
                                 "analyze": {"wAudio": 1.5, "wChat": 0.5, "wComments": 2.0}, "pack": {"cut": "silence", "videoTracks": 2},
                                 "transcribe": {"diarize": 2, "model": "large-v3"},
                                 "run": {"force": True, "repack": True, "requested": ["weights", "cut", "videoTracks", "model"], "from": "export",
                                         "upto": "transcribe", "onFail": "stop"}})
-        self.assertEqual(env["deliver"], {"dir": "D:/out", "batch": 3, "pool": None, "origin": "auto", "tag": "20261016-010203-abcdef"})
+        self.assertEqual(env["deliver"], {"dir": "D:/out", "pool": None, "origin": "auto", "tag": "20261016-010203-abcdef"})
         self.assertEqual(env["input"]["marks"], ["m1"])
         _env, bad = O.order("url", video_id=VID, top=99, cut="rows", video_tracks=9, weights={"wAudio": 9}, speakers={"count": 0})
         self.assertEqual(bad, {"run": {"upto": "pack"}}, "合わない欄は写さない")
