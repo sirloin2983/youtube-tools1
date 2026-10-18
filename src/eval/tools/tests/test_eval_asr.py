@@ -1,6 +1,6 @@
 """src/eval/tools/eval_asr.py(文字起こしの精度を測る道具。計画 段0-2)のテスト。リポジトリ直下で:
 
-    py -3.10 -m unittest src/eval/tools/tests/test_eval_asr.py
+    py -3.12 -m unittest src/eval/tools/tests/test_eval_asr.py
 
 作業データは一時フォルダに作る(本物の作業データは読まない)。run は偽の認識(TRANSCRIBE_BACKEND=fake)で流れだけ確かめる(ffmpeg が必要)。
 """

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """flow/jobs.Table(② の 1 つの器。OPT2 後半 J6): 積む・糸・枠・状態・取り消し・やり直し・履歴・busy・終了の流れ・掲示板
 
-    py -3.10 -m unittest src/flow/tests/test_jobs_table.py -v
+    py -3.12 -m unittest src/flow/tests/test_jobs_table.py -v
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")

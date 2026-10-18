@@ -114,7 +114,7 @@ def render(res, today):
     out = ["---", "種類: 索引", "状態: 有効", "---", "", "# 食い違いの一覧(資料どうし・資料とコード)", "",
            "更新(%s): 自動で作る(`dev/drift_report.py`。`dev/plan_artifact.py` も流す)・手で直さない。週に 1 回、"
            "[仮決めの一覧](仮決めの一覧.md) と同じ日に見て、警告を減らす" % today.isoformat(), "",
-           "- 止める物 %d 件(0 でないと lint・push.bat が止まる。`py -3.10 dev/notes_tool.py check`。資料の頭の状態だけなら `check --fix`)" % len(res["bad"]),
+           "- 止める物 %d 件(0 でないと lint・push.bat が止まる。`py -3.12 dev/notes_tool.py check`。資料の頭の状態だけなら `check --fix`)" % len(res["bad"]),
            "- 警告 %d 件(止めない。仕様とコード %d・行数 %d・同じ文 %d)" % (total_warn, len(res["spec"]), len(res["caps"]), len(res["dups"])), ""]
 
     def section(title, rows):

@@ -1,5 +1,5 @@
 """src/friendapp/toolcheck.py と places の道具の置き方(F3-5)のテスト。本物の道具・文字起こし・ネットは動かさない(偽の run・偽の transcribe)。
-リポジトリ直下で: py -3.10 -m unittest src/friendapp/tests/test_toolcheck.py"""
+リポジトリ直下で: py -3.12 -m unittest src/friendapp/tests/test_toolcheck.py"""
 import os
 import sys
 import unittest

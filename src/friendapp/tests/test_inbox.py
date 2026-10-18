@@ -1,4 +1,4 @@
-"""src/friendapp/inbox.py のテスト(受信箱の記録・決める・3 日の片付け・画面へ出す形)。リポジトリ直下で: py -3.10 -m unittest src/friendapp/tests/test_inbox.py"""
+"""src/friendapp/inbox.py のテスト(受信箱の記録・決める・3 日の片付け・画面へ出す形)。リポジトリ直下で: py -3.12 -m unittest src/friendapp/tests/test_inbox.py"""
 import datetime
 import glob
 import json

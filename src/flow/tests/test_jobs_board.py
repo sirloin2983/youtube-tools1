@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """flow/jobs の掲示板への見せ方(RS8 の ② の口 S2。頭 tx)。
 
-    py -3.10 -m unittest src/flow/tests/test_jobs_board.py -v
+    py -3.12 -m unittest src/flow/tests/test_jobs_board.py -v
 
 - ジョブの状態が変わると、掲示板にその id(tx:<ジョブの id>)がその state で載る(引く形)
 - 取り消し・失敗のやり直しが掲示板の口から器の cancel_job・retry_job に届く

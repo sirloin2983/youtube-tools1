@@ -1,6 +1,6 @@
 """dev/lint.py(コードの基準を測る道具)の部品のテスト。リポジトリ直下で:
 
-    py -3.10 -m unittest dev/tests/test_lint.py
+    py -3.12 -m unittest dev/tests/test_lint.py
 
 2026-10-09 に「木をなめるのを 1 ファイル 1 回に」「窓のキーをハッシュからタプルに」変えた(出力は前後で同じ)ので、その境目を守る。
 """

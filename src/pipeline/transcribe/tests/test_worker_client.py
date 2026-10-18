@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """pipeline/transcribe/worker_client(認識ワーカーとのやり取り・モデル・wav を読まずに渡す形。役割で組み直す RS2-6)を、編集の serve を読まずに使うテスト。
 
-    py -3.10 -m unittest src/pipeline/transcribe/tests/test_worker_client.py -v
+    py -3.12 -m unittest src/pipeline/transcribe/tests/test_worker_client.py -v
 
 ワーカーの起動・取り消し・落ちたときの立ち直りは編集のテスト(src/editor/tests/test_worker.py。serve の名前で読む・本物の経路)が確かめる。
 ここは「① が serve なしで読めて、ワーカーの本体と記録のパスを差し替えか ytt/workdata から読む(RS3-0A まで txenv の口)・サーバーのプロセスでは wav を読まない」ことだけ。

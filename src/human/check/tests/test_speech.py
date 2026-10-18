@@ -1,7 +1,7 @@
 """「この行は声ですか?」の反映(src/human/check/speech.py)の単体テスト: 答えの形・keep は文書を触らない・drop は noSub と novoice を付ける(行は消さない・
 校正済みにしない・ほかのメモは残す)・Z で戻す・直されたら断る・評価用を断る。一時の作業データの文書だけを使う。
 
-実行(リポジトリ直下から): py -3.10 -m unittest src/human/check/tests/test_speech.py -v
+実行(リポジトリ直下から): py -3.12 -m unittest src/human/check/tests/test_speech.py -v
 """
 import os
 import sys

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """案件の画面(/cases)の「カット・パック」パネル(src/app/ui/cases/panels/cut.js。RS8 C2c)の通し確認(Playwright)。リポジトリ直下で:
     set PYTHONIOENCODING=utf-8
-    py -3.10 src/app/tests/e2e_cases_cut.py
+    py -3.12 src/app/tests/e2e_cases_cut.py
 入口を編集と cut2resolve を取り込んだ形で動かし(編集の e2e と同じ Server。疑似の文字起こし)、/cases?d=<文書 id>#cut を開く(仮の案件 orphan に入る)。
 旧 e2e_edit_cut(カットのタブ)と e2e_edit_pack(パック)の要点だけを 1 本に: 行からのたたき台・波形・区間の選択と削る / 戻す / 元に戻す・自動保存・
 殻のキー(Alt+1/2)とパネルのキーの両立・下の帯・字幕の一覧の「残す / カット」・カットしない・パックの設定(大きさ・音量・行の後の余白)が編集の設定に残る・

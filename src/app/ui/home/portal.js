@@ -1381,7 +1381,7 @@
     if (pl.cases) parts.push('案件のフォルダが見えない配信が ' + pl.cases + ' 本');
     if (pl.relinked) subs.push('書き出し先を変えて繋ぎ直した案件 ' + pl.relinked + ' 本');
     var text = parts.join('・');
-    if (text) text += '(ドライブがつながっているか確かめてください。動かしたなら py -3.10 src/manage/cases/outdirs.py --relink <配信の id> <フォルダ> で繋ぎ直せます)';
+    if (text) text += '(ドライブがつながっているか確かめてください。動かしたなら py -3.12 src/manage/cases/outdirs.py --relink <配信の id> <フォルダ> で繋ぎ直せます)';
     var row = healthRow(parts.length ? 'warn' : 'ok', '置き場所', text || '案件のフォルダは見えています', subs);
     row.id = 'placesHealth';
     return row;

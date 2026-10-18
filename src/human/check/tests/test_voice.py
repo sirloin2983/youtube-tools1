@@ -2,7 +2,7 @@
 評価用と処理中を断る・層(O2)と食い違わない・声の覚え直し(1 人 30 秒・rows= で行を明示・learnedFrom で 2 度覚えない・待っている覚え直しを数えない)・
 human/proof/speakers.voice_learn_plan の rows=。一時フォルダの作業データだけを使う。
 
-実行(リポジトリ直下から): py -3.10 -m unittest src/human/check/tests/test_voice.py -v
+実行(リポジトリ直下から): py -3.12 -m unittest src/human/check/tests/test_voice.py -v
 """
 import os
 import sys

@@ -1,6 +1,6 @@
 """「確かめる」の答えの記録(src/human/check/answerlog.py)と反映の土台(apply.py)の単体テスト。一時フォルダと偽の反映の部品だけを使う。
 
-実行(リポジトリ直下から): py -3.10 -m unittest src/human/check/tests/test_apply.py -v
+実行(リポジトリ直下から): py -3.12 -m unittest src/human/check/tests/test_apply.py -v
 """
 import json
 import os

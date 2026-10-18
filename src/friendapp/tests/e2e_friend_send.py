@@ -3,7 +3,7 @@
 画面(/friend/)を実際に操作する。リポジトリ直下で:
 
     set PYTHONIOENCODING=utf-8
-    py -3.10 src/friendapp/tests/e2e_friend_send.py
+    py -3.12 src/friendapp/tests/e2e_friend_send.py
 
 流れ: 偽の配信の一覧のカードを押す → 区間 2 つ(数字だけで打つ・Enter で次の欄・[+30秒])→ [送る] → 送った物の行(順番待ち → 進み具合)→
       [取り消す](確認の窓)/ URL を貼って送る / 失敗(上の段 = 友人の言葉・下の段 = 詳しく)→ [もう一度送る] →

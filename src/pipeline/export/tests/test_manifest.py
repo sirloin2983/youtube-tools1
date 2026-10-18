@@ -1,5 +1,5 @@
 """切り抜き 1 本の素性(.clip.json = youtube-tools-clip/v1)の組み立てと書き込み(書き出しの exporter.write_clip = ytt/schemas の build_clip・clip_path_for)のテスト。
-RS3-5(2026-10-10)で studio/tests/test_handoff.py から移した。OPT1(10-11)で manifest.py を畳んだ。  実行(リポジトリ直下): py -3.10 -m unittest src/pipeline/export/tests/test_manifest.py"""
+RS3-5(2026-10-10)で studio/tests/test_handoff.py から移した。OPT1(10-11)で manifest.py を畳んだ。  実行(リポジトリ直下): py -3.12 -m unittest src/pipeline/export/tests/test_manifest.py"""
 import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """配る前の検査(dev/friend_preflight.py・dev/friend_preflight_shim.py)と、build_friend_zip.py --publish の関所のテスト。
 本物の exe・ネット・Dropbox は使わない(通信の差し替えは一時フォルダ・publish は build と検査を差し替える)。
-実行(リポジトリ直下): py -3.10 -m unittest dev/tests/test_friend_preflight.py"""
+実行(リポジトリ直下): py -3.12 -m unittest dev/tests/test_friend_preflight.py"""
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 全テストの決まり(作業データに触らない)
 import json

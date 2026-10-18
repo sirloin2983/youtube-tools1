@@ -2,7 +2,7 @@
 """配信中の盛り上がりの検出(線 D の L2)のワーカー src/pipeline/analyze/live_excite_worker.py のテスト(子プロセスの中身を直に)。
 ② の側(flow/live_detect.py。API・自動の採用 M11・友人の依頼など)は src/flow/tests/test_live_detect.py、設定の検査と入口を通す分は src/app/tests/test_live_detect_api.py。
 
-    py -3.10 -m unittest src/pipeline/analyze/tests/test_live_excite_worker.py
+    py -3.12 -m unittest src/pipeline/analyze/tests/test_live_excite_worker.py
 
 確かめること:
   - ワーカーをクラスのまま(プロセスを起動せずに)、偽の録画元・偽の「音を測る」・注入した時計で 12 時間を早送り: 状態が増え続けない・候補が出る・

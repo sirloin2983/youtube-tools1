@@ -1,6 +1,6 @@
 """入口の API(GET api/accuracy・POST api/accuracy/run・調子の accuracy・設定の節)と、手が空いた判定のつなぎ。精度の自動測定の本体のテストは src/eval/drill/tests/test_accuracy.py。
 
-実行(リポジトリ直下から): py -3.10 -m unittest src/app/tests/test_accuracy_api.py -v
+実行(リポジトリ直下から): py -3.12 -m unittest src/app/tests/test_accuracy_api.py -v
 """
 import http.client
 import json

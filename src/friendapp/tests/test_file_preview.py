@@ -1,6 +1,6 @@
 """動画ファイルの依頼(映像 2 本の mkv・長い題)の確認用の動画が、URL の依頼と同じ道で作られ、受け取るの media が読む所に置かれること。
 本物の ffmpeg・ffprobe を使う(無ければ飛ばす)。② の待ち行列は偽物。画面・音は出さない。
-リポジトリ直下で: py -3.10 -m unittest src/friendapp/tests/test_file_preview.py"""
+リポジトリ直下で: py -3.12 -m unittest src/friendapp/tests/test_file_preview.py"""
 import json
 import os
 import shutil

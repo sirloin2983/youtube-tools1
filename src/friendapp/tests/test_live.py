@@ -1,4 +1,4 @@
-"""F2-6 送る欄を広げる(動画ファイル・ライブ)のテスト。リポジトリ直下で: py -3.10 -m unittest src/friendapp/tests/test_live.py
+"""F2-6 送る欄を広げる(動画ファイル・ライブ)のテスト。リポジトリ直下で: py -3.12 -m unittest src/friendapp/tests/test_live.py
 
 - ライブの設定の検査(長さ 10〜180 = A-5b の仮)と、依頼と録画の結びつき RequestBook(③ の live_requests を読まない)
 - ② のライブ係 FriendLive: 送る → ② の待ち行列(本物の flow/runqueue.Queue)の live の hook → 録画を始めて結びつける(長さは送った欄から)→

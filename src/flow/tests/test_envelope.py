@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""flow/envelope.py(依頼の封筒。RS7-1 S3)のテスト。  py -3.10 -m unittest src/flow/tests/test_envelope.py -v"""
+"""flow/envelope.py(依頼の封筒。RS7-1 S3)のテスト。  py -3.12 -m unittest src/flow/tests/test_envelope.py -v"""
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 import sys

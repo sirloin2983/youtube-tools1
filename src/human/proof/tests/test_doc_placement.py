@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """文書の置き場所(ytt/docloc の索引)を人の側の部品が使うことのテスト(RS8 B-2-1b)。
 
-    py -3.10 -m unittest src/human/proof/tests/test_doc_placement.py -v
+    py -3.12 -m unittest src/human/proof/tests/test_doc_placement.py -v
 
 索引 transcripts/<id>.loc.json が案件の 作業用 を指す文書を、store(読み書き・履歴・一覧・消す)・alt が
 その場所で読み書きすること。索引が無い・id の形が正しくない呼び手は今までどおり TX_DIR。

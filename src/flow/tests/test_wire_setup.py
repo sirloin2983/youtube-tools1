@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """flow/wire の入口なしの準備(setup_places・setup_headless。OPT-E2 1c-1・設計原則のレビューの指摘 4)のテスト。編集の serve は読まない。
 
-    py -3.10 -m unittest src/flow/tests/test_wire_setup.py -v
+    py -3.12 -m unittest src/flow/tests/test_wire_setup.py -v
 
 - 置き場所・スタジオの data.json・名簿を持ち主(ytt/workdata・① roster.ROSTER)へ明示して入れる・省いたものは set_root の既定
 - setup_headless は install も呼び(疑似の選び方)、in_process なら ① worker_client.IN_WORKER。環境変数 TRANSCRIBE_DATA_DIR は書き換えない

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""flow/livehost(ライブの親の口。役割で組み直す RS7-2 G0)のテスト。  py -3.10 -m unittest src/flow/tests/test_livehost.py -v
+"""flow/livehost(ライブの親の口。役割で組み直す RS7-2 G0)のテスト。  py -3.12 -m unittest src/flow/tests/test_livehost.py -v
 
 - ライブ係 LiveSession(flow/livesession.py。入口の Live はそれを継ぐ)が口 LiveHost の名前を全部持ち、メソッドは口の引数を受けられる
 - 子 4 つは LiveSession を親に持つ

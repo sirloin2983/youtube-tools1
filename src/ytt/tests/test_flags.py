@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""行の印(flag)のつなぎ方・探し方(ytt.schemas の join_flags・has_flag・flag_parts)のテスト。  py -3.10 -m unittest src/ytt/tests/test_flags.py -v
+"""行の印(flag)のつなぎ方・探し方(ytt.schemas の join_flags・has_flag・flag_parts)のテスト。  py -3.12 -m unittest src/ytt/tests/test_flags.py -v
 純粋な関数だけ(ファイル・ffmpeg は使わない)。"""
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしないが、ほかのテストとそろえる

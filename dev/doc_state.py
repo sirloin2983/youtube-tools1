@@ -21,7 +21,7 @@ from ytt import layout  # noqa: E402
 DONE_STATES = ("済み", "取り下げ", "置き換え済み")
 LINE_ORDER = ("A", "B", "C", "D", "別件", "全体")
 LINE_ALIAS = {"運用": "全体"}
-FIX_HINT = "py -3.10 dev/notes_tool.py check --fix で直す"
+FIX_HINT = "py -3.12 dev/notes_tool.py check --fix で直す"
 
 
 def plan_data():
@@ -196,7 +196,7 @@ def check(root=None):
         if rel.startswith("plan/done/") and st not in DONE_STATES:
             bad.append((rel, 1, "plan/done/ にあるのに 状態: %s(済んでいないなら plan/ へ戻す)" % st))
         elif not rel.startswith("plan/done/") and st in DONE_STATES:
-            bad.append((rel, 1, "状態: %s の計画は plan/done/ へ(py -3.10 dev/notes_tool.py mv。有効な決まりが残るなら先に decisions か spec へ)" % st))
+            bad.append((rel, 1, "状態: %s の計画は plan/done/ へ(py -3.12 dev/notes_tool.py mv。有効な決まりが残るなら先に decisions か spec へ)" % st))
     return bad
 
 

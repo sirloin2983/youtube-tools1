@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""app/cli(② + ① で動くコマンド。役割で組み直す RS6 b-S1)のテスト。  py -3.10 -m unittest src/app/tests/test_cli.py -v
+"""app/cli(② + ① で動くコマンド。役割で組み直す RS6 b-S1)のテスト。  py -3.12 -m unittest src/app/tests/test_cli.py -v
 
 - 引数・束の検査(形が違えば終了コード 2・API キーを書いた束は断る)
 - lock があって入口が動いていれば入口に頼む(HTTP は差し替え)・入口が応答しない / 別の実行が使っている = 4

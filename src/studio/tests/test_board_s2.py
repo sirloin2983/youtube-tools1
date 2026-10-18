@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""RS8 の ② の口 S2: スタジオの解析(an)・書き出し(ex)・配信の検索(se)が掲示板(flow/board.py)に載る。  py -3.10 -m unittest src/studio/tests/test_board_s2.py
+"""RS8 の ② の口 S2: スタジオの解析(an)・書き出し(ex)・配信の検索(se)が掲示板(flow/board.py)に載る。  py -3.12 -m unittest src/studio/tests/test_board_s2.py
 状態が変わったら、その id がその state で載る。取り消し・やり直しは掲示板の id で。"""
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない

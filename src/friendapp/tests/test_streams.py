@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""F3-2 友人のアプリの配信の一覧(friendapp/streams.py)のテスト。リポジトリ直下で: py -3.10 -m unittest src/friendapp/tests/test_streams.py
+"""F3-2 友人のアプリの配信の一覧(friendapp/streams.py)のテスト。リポジトリ直下で: py -3.12 -m unittest src/friendapp/tests/test_streams.py
 
 本物のネットには出ない(取りに行く口は偽物 = Web)。時計も偽物(Clock)。覚えの JSON は一時フォルダに書く。
 """

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """pipeline/transcribe/diarize(話者判別の計算・判別の記録・声の特徴。役割で組み直す RS2-9)を、編集の serve を読まずに使うテスト。
 
-    py -3.10 -m unittest src/pipeline/transcribe/tests/test_diarize.py -v
+    py -3.12 -m unittest src/pipeline/transcribe/tests/test_diarize.py -v
 
 細かい決まり(割り当て・ならし・記録・照らし合わせの条件)は編集のテスト(test_voices・test_smooth・test_autodiar。serve の名前で読む)が確かめる。
 ここは「① が serve なしで読めて同じ物が動く」こと・置き場所が ytt/workdata から決まること(RS3-0A まで txenv の口)・本物と疑似の口(backend)・

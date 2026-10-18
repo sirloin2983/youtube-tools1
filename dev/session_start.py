@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """セッションの入口の要約(2026-10-18)。新しい AI のセッションが最初に流し、今の状態を 1 画面(150 行以内)で見る。
 
-    py -3.10 dev/session_start.py [<領域>]                    # 両方の git・版・今週の作業の記録・境目のメモ・計画・重い仮決め・動いている worktree
-    py -3.10 dev/session_start.py --brief <領域> --task "<一言>"   # 子への指示文の下書き(雛形・関係する地図と spec・重なりそうな worktree)
+    py -3.12 dev/session_start.py [<領域>]                    # 両方の git・版・今週の作業の記録・境目のメモ・計画・重い仮決め・動いている worktree
+    py -3.12 dev/session_start.py --brief <領域> --task "<一言>"   # 子への指示文の下書き(雛形・関係する地図と spec・重なりそうな worktree)
 
 読むだけ(何も書き換えない)・新しい「正」は作らない。どの行も元の場所から読んで出す:
   git(リポジトリ・保管庫)・main の src/ytt/version.py・docs/worklog/<週>/ のセッションのファイル(dev/worklog.py の形)・

@@ -1,6 +1,6 @@
 """src/flow/casebook.py(案件の候補と採用のファイル。RS8 B3-3)のテスト。リポジトリ直下で:
 
-    py -3.10 -m unittest src/flow/tests/test_casebook.py
+    py -3.12 -m unittest src/flow/tests/test_casebook.py
 
 案件のフォルダは一時フォルダに作る(本物の作業データは読まない・書かない)。
 """

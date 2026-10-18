@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """字幕の読む速さの印(T2)と、行の時刻を単語の時刻に合わせる候補(T1 の簡易版)のテスト(計算は pipeline/transcribe/retime.py・文書を読む包みは editor/ed_retime.py。RS2-9)。
 
-    py -3.10 -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
-    py -3.10 -m unittest test_retime -q                 # これだけ(src/editor/tests で)
+    py -3.12 -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
+    py -3.12 -m unittest test_retime -q                 # これだけ(src/editor/tests で)
 
 - 読む速さ: 文字の数え方・速い/短いの印・対象外(noSub・カット済・1 文字)・設定 subtitle.read。
   例は tests/subread_cases.json(画面の readMark も同じ例で確かめる = test_document_save.cjs)

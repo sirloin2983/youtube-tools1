@@ -1,4 +1,4 @@
-"""src/friendapp/places.py のテスト。リポジトリ直下で: py -3.10 -m unittest src/friendapp/tests/test_places.py"""
+"""src/friendapp/places.py のテスト。リポジトリ直下で: py -3.12 -m unittest src/friendapp/tests/test_places.py"""
 import os
 import sys
 import unittest

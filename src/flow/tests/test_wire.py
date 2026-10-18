@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """flow/wire(② 文字起こしの配線。役割で組み直す RS6 a-5b)の最小のテスト。編集の serve を読まず、③⑤ の物なしで install を呼ぶ。
 
-    py -3.10 -m unittest src/flow/tests/test_wire.py -v
+    py -3.12 -m unittest src/flow/tests/test_wire.py -v
 
 - ③ なし(引数なし)で呼べる・二度呼んでも壊れない
 - bodies に渡した種類だけ登録する(優先度・同時に入れない組・文書の id・やり直しは flow/wire の表どおり)・知らない種類は KeyError

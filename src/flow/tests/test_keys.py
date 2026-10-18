@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """flow/keys(② 成果物の鍵を書く・読む。役割で組み直す RS6 b-K1)のテスト。
 
-    py -3.10 -m unittest src/flow/tests/test_keys.py -v
+    py -3.12 -m unittest src/flow/tests/test_keys.py -v
 
 - 書く・読む・壊れた鍵・stale の 3 通り(same / differ / none)・消す
 - 段ごとの inputs・文書の鍵(transcribe・post・diar)・パックの鍵・スタジオの export の鍵

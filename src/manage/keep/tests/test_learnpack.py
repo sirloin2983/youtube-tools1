@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""manage/keep/learnpack(学習の束を作る側。F1)のテスト。  py -3.10 -m unittest src/manage/keep/tests/test_learnpack.py -v
+"""manage/keep/learnpack(学習の束を作る側。F1)のテスト。  py -3.12 -m unittest src/manage/keep/tests/test_learnpack.py -v
 
 - 束ができる(learning.json の sha256・size が中身と合う・latest.json・設定は置換辞書と用語集だけ)
 - 元が変わらなければ作らない / 変われば新しい版 / 直近 3 版を残して古い版は消す

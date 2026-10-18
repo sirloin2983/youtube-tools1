@@ -2,7 +2,7 @@
 """flow/prio(処理の優先度の 1 つの表。PRIO・決定 3-49): 表・級の決め方・重い処理の枠の順番と「空いているときだけ」・
 ジョブの器の待ちの順・まとめて実行の待ち行列の選び方・後回しの仕事の OS の優先度
 
-    py -3.10 -m unittest src/flow/tests/test_prio.py -v
+    py -3.12 -m unittest src/flow/tests/test_prio.py -v
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")

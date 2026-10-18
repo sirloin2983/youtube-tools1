@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """pipeline/transcribe の fill(認識のあとの後処理 A・B・C・D)と llm(LLM の後処理 E)を、編集の serve・ed_state を読まずに使うテスト(役割で組み直す RS2-9)。
 
-    py -3.10 -m unittest src/pipeline/transcribe/tests/test_fill_llm.py -v
+    py -3.12 -m unittest src/pipeline/transcribe/tests/test_fill_llm.py -v
 
 細かい決まり(置き換えの 3 倍の条件・名簿の呼び名・検査と上限・ジョブの記録)は編集のテスト(src/editor/tests/test_fill.py・test_llm.py。serve の名前で読む)が確かめる。
 ここは「① が serve なしで読めて、名簿のファイルは roster.ROSTER・作業データの置き場所は ytt/workdata(RS3-0A まで txenv の口)・疑似かどうかは backend・話者判別の部品の有無は diarize.has_sherpa から読む」ことと、

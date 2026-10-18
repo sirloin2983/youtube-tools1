@@ -1,6 +1,6 @@
 """src/human/friend/returns.py(友人の送り返しの受け取り。F1 の F2)のテスト。リポジトリ直下で:
 
-    py -3.10 -m unittest src/human/friend/tests/test_returns.py
+    py -3.12 -m unittest src/human/friend/tests/test_returns.py
 
 一時フォルダだけを使う(本物の作業データ・Dropbox には触らない)。
 """

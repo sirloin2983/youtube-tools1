@@ -3,7 +3,7 @@
 結びついた録画の採用(adopt。after は auto に固定・余白は依頼の pad・配信者は依頼のもの・アーカイブは afterStream が真のときだけ)。
 入口 home の Live は使わない(同時の上限 _request_limit は入口の物 = 本テストでは差し替える。入口の既定は src/app/tests/test_live.py)。
 
-    py -3.10 -m unittest src/flow/tests/test_live_request.py
+    py -3.12 -m unittest src/flow/tests/test_live_request.py
 
 偽の録画元(HTTP。合言葉)・偽の yt-dlp(probe の差し替え)・偽のスタジオで、本物の YouTube へは繋がない。
 """

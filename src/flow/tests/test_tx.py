@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """flow/tx(② 文字起こしの動詞。役割で組み直す RS6 a-3)の最小のテスト。編集の serve を読まずに、疑似のエンジンで使う。
 
-    py -3.10 -m unittest src/flow/tests/test_tx.py -v
+    py -3.12 -m unittest src/flow/tests/test_tx.py -v
 
 - transcribe_clip: ① clipjob の行に、② が文書の機械の分 fields(recognition.runs・params)と後処理の記録を足す
 - write_clip_records・write_machine_doc: 記録と機械の分の文書を作業データ(ytt/workdata の TX_DIR)に書く

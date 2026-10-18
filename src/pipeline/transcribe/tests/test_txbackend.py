@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """pipeline/transcribe の本物と疑似の差し込み口 backend のテスト(役割で組み直す RS2-2)。
 
-    py -3.10 -m unittest src/pipeline/transcribe/tests/test_txbackend.py -v
+    py -3.12 -m unittest src/pipeline/transcribe/tests/test_txbackend.py -v
 
 編集の serve を読まずに動く(この層は app = serve・ed_state と ⑤ = eval を読まない)。serve の登録で S.backend_name に合わせて
 切り替わることは src/editor/tests/test_names.py(test_metrics から)が確かめる。

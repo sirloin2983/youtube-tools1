@@ -4,7 +4,7 @@
     python src/eval/tools/eval_speakers.py [stored] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--json] [--data-dir 作業データの親フォルダ] [--no-eval] [--include-draft]
                                 [--reviewed only|prefer|ignore] [--docs id,…]
         保存してある判別の記録(<id>.diar.json)を人の最終と比べる(既定。引数なしはこれ)
-    py -3.10 src/eval/tools/eval_speakers.py run --threshold 0.5,0.6,0.7 [--num auto,2] [--emb voxceleb] [--min-on 0.1] [--min-off 0.3] [--docs id,…] [--reviewed …] [--json]
+    py -3.12 src/eval/tools/eval_speakers.py run --threshold 0.5,0.6,0.7 [--num auto,2] [--emb voxceleb] [--min-on 0.1] [--min-off 0.3] [--docs id,…] [--reviewed …] [--json]
         文書の音声をもう一度判別して(設定の組ごと)人の最終と比べる。本番と同じ道(音声の取り出し extract_audio → diarize_real → assign_speakers)。
         判別はこの道具のプロセスの中で動かす(eval_asr.py の run と同じ。サーバーではないので sherpa-onnx を読んでよい。認識ワーカーは起動しない)。
         モデルは作業データの models/diar のもの(無ければ取得せずに止める)。文書・diar.json は書かない(--json のときだけ evals/speakers/<日時>-run.json)。
@@ -59,7 +59,7 @@ import unicodedata
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.dirname(os.path.dirname(HERE))   # tools -> eval -> src
-if not __package__:   # スクリプトとして起動したとき(py -3.10 src/eval/tools/eval_speakers.py)だけ。src を先頭に・この道具のフォルダは外す(兄弟は絶対 import で読む。見本 pipeline/transcribe/worker.py)
+if not __package__:   # スクリプトとして起動したとき(py -3.12 src/eval/tools/eval_speakers.py)だけ。src を先頭に・この道具のフォルダは外す(兄弟は絶対 import で読む。見本 pipeline/transcribe/worker.py)
     sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
 from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・分布・git の rev・保存・editor の読み込み。src を sys.path に足す)
 from eval.tools._evalcommon import dist, is_reviewed, pct, rate, read_json  # noqa: E402
@@ -778,7 +778,7 @@ def check_models(root, grid):
     try:
         import sherpa_onnx  # noqa: F401  (道具のプロセスで読む。サーバーではない)
     except ImportError:
-        raise SystemExit("話者判別の部品(sherpa-onnx)が入っていません(setup の install-diarize.bat)。py -3.10 で動かしているか確かめてください")
+        raise SystemExit("話者判別の部品(sherpa-onnx)が入っていません(setup の install-diarize.bat)。py -3.12 で動かしているか確かめてください")
     transcribe_diarize.DIAR_DIR = d
 
 

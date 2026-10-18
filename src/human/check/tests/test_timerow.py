@@ -1,6 +1,6 @@
 """時刻のカードの反映(src/human/check/timerow.py)の単体テスト。一時の作業データに文書を作って、答える・戻すを確かめる。
 
-実行(リポジトリ直下から): py -3.10 -m unittest src/human/check/tests/test_timerow.py -v
+実行(リポジトリ直下から): py -3.12 -m unittest src/human/check/tests/test_timerow.py -v
 """
 import os
 import sys

@@ -7,7 +7,7 @@ Studio の本物の作り(内部 API の鍵の名前・行の class)が変わっ
 ブラウザ: 拡張を --load-extension で入れられるものが要る。本物の Chrome は 137 以降この引数を受け付けない(拡張は入らない)ので、
 Edge(Windows に最初から入っている)→ Playwright の chromium(headless → 窓あり)の順に試す。
 必要: playwright。1 本ずつ・PYTHONIOENCODING=utf-8 で:
-  py -3.10 chrome-ext/yt-studio-time/tests/e2e_fake_studio.py
+  py -3.12 chrome-ext/yt-studio-time/tests/e2e_fake_studio.py
 """
 import json
 import os

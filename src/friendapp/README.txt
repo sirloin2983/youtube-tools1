@@ -15,9 +15,9 @@
     × ・[すべて止めて終了]・時計の横のアイコンの「止める」は、作業中・預かりがあるときだけ確認([裏で続ける] / [止めて閉じる])。
     待っている依頼は残り、次に開くと続きから。
     ログ: datappriendapp\logs\launcher.log(exe)・friendapp.log(Python)
-  開発の PC: py -3.10 srcriendapp\server.py [--port 8720] [--no-open]
+  開発の PC: py -3.12 srcriendapp\server.py [--port 8720] [--no-open]
     exe なしで起こすので、Ctrl+C か [すべて止めて終了] まで動き続けます。窓は Edge のアプリの窓(画面に本物の合言葉を入れる形)。
-    見本のデータで画面だけ見るとき: py -3.10 devriend_demo.py(本物の作業データには触りません。--missing で初回の準備の画面)
+    見本のデータで画面だけ見るとき: py -3.12 devriend_demo.py(本物の作業データには触りません。--missing で初回の準備の画面)
 
 ■ 置き場所(アプリのフォルダ 1 つに全部入る)
   <アプリのフォルダ>\data\          処理の部品の作業データ(モデル・この PC の設定・待ちの記録)
@@ -65,7 +65,7 @@
   (出さない = プレミア公開・投稿動画・ショート・メンバー限定。読む前は「確かめ中」)。画面が開いている間はライブの可能性がある物を 90 秒おき。
   段 = ライブ中・これから / 今日 / 昨日(前日の 0 時から。予定は今から 12 時間と今日の 24 時の遅いほうまで)。YouTube に断られたら(429・403)10 分待つ。
   覚えた一覧は data\app\friendapp\streams.json(開いた瞬間は前回の一覧)。各カードの右上の印 = 同じ配信の一番新しい依頼の行の状態。
-  名簿のチャンネル ID の確かめ: py -3.10 dev\members_channels.py check
+  名簿のチャンネル ID の確かめ: py -3.12 dev\members_channels.py check
 
 ■ 送る欄と送った物(F3-3。friendapppi.py・progress.py・画面 ui\send-form.js・sent.js。要件 C-2-6〜C-2-19)
   送る欄 = 一覧のカードか URL(どこでも Ctrl+V)か動画ファイル(落とす・[ファイルを選ぶ]・20 本まで)。区間は 5 つまで(数字だけで打つ・ホイール・
@@ -115,7 +115,7 @@
   data\app\outbox\<依頼 id か app>__diag-<ミリ秒>.diag.json へ書き、同期が Dropbox の 診断\ へ上げる。
   ユーザー名を含むパス・合言葉・鍵・API キー・動画の中身は入れない(伏せる)。3 日で消す(友人の側は箱と Dropbox・ユーザーの PC は読む道具が)。
   止めるのは環境変数 YTT_FRIEND_DIAG=0。ユーザーの PC の作業データでは書かない。
-  読む(ユーザーの PC): py -3.10 -X utf8 dev\friend_diag.py [-n 10] [--errors] [--id <依頼 id>] [--json]
+  読む(ユーザーの PC): py -3.12 -X utf8 dev\friend_diag.py [-n 10] [--errors] [--id <依頼 id>] [--json]
   確かめ: src\friendapp\tests\test_diag.py・dev\tests\test_friend_diag.py
 
 ■ 動画ファイル(F2-6。friendapp\api.py)
@@ -141,7 +141,7 @@
 
 ■ 友人に渡す物の作り方(F2-2 の確かめ用)
   1. friend-apps\launcher\build.bat(窓 FriendApp.exe と WebView2 の DLL。zip の直下に入る。build_friend_zip.py が古ければ自分で流す)
-  2. py -3.10 dev\build_friend_zip.py
+  2. py -3.12 dev\build_friend_zip.py
      → --publish で Dropbox の 更新\ に FriendApp-<版>.zip + latest.json(新しいアプリの [更新する] で友人の PC へ届く)。zip の直下に members.json(friend-apps\holo-colors の名簿の写し)も入る
      前のアプリ RequestSender から移る最後の 1 回だけ --handoff(RequestSender-<版>.zip。中に RequestSender.exe = FriendApp.exe の写し。前のアプリの [更新する] が取る)
      初めて渡すときは --first --with-key(friend-apps\launcher\dist\ にでき、手で渡す。鍵は friend-apps\launcher\config.json = git の外・dev\dropbox_auth.py が作る)

@@ -1,4 +1,4 @@
-"""src/friendapp/dropbox.py のテスト(本物の Dropbox につながない = 偽の通信 transport)。リポジトリ直下で: py -3.10 -m unittest src/friendapp/tests/test_dropbox.py"""
+"""src/friendapp/dropbox.py のテスト(本物の Dropbox につながない = 偽の通信 transport)。リポジトリ直下で: py -3.12 -m unittest src/friendapp/tests/test_dropbox.py"""
 import hashlib
 import io
 import json

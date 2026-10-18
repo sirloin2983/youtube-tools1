@@ -651,7 +651,7 @@ def startup_checks():
     どれも起動は止めない(文字の編集だけなら使えるため)。"""
     out = []
     if sys.version_info < (3, 8):
-        out.append("Python %s は古すぎます。Python 3.10〜3.12 を入れ直してください" % sys.version.split()[0])
+        out.append("Python %s は古すぎます。Python 3.12 を入れ直してください" % sys.version.split()[0])
     if not _tools.find_ffmpeg():
         out.append("ffmpeg が見つかりません。文字起こし・話者判別ができません(README の ① の 2)。入れたあとは黒い画面を閉じて起動し直してください")
     try:

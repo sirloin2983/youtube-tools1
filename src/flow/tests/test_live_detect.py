@@ -3,7 +3,7 @@
 入口 home の Live は使わず、ライブ係 flow/livesession.LiveSession(偽の録画元・偽のスタジオ)で組む。ワーカーの中身は
 src/pipeline/analyze/tests/test_live_excite_worker.py、設定(prefs)の検査と Live を通す振り分けは src/app/tests/test_live_detect_api.py。
 
-    py -3.10 -m unittest src/flow/tests/test_live_detect.py
+    py -3.12 -m unittest src/flow/tests/test_live_detect.py
 
 確かめること(ワーカーは起動しない。peaks.json・worker.json はテストが置く):
   - GET /live/api/peaks の中身(Detector.api_get。since の差分・series・重ねた決定・無い録画・形の悪い id)/ POST adopt・dismiss・restore

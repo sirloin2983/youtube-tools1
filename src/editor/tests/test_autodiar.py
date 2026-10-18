@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """評価用の文書の文字起こしのあとの話者の自動判別(human/proof/speakers の autodiar_*・eval/drill/evalbatch の後追い)のテスト。
 
-    py -3.10 -m unittest src/editor/tests/test_metrics.py    # test_metrics がこのファイルのテストも読み込む
-    py -3.10 -m unittest src/editor/tests/test_autodiar.py   # これだけ
+    py -3.12 -m unittest src/editor/tests/test_metrics.py    # test_metrics がこのファイルのテストも読み込む
+    py -3.12 -m unittest src/editor/tests/test_autodiar.py   # これだけ
 ffmpeg が必要(小さな動画を lavfi で作る)。ワーカーのスレッドは動かさず、待機列のジョブをテストがその場で動かす(疑似の認識・疑似の話者判別
 diarize_fake = 10 秒ごとに入れ替わる・声の特徴 embed_fake = 同じ入れ替わり)。
 評価用の文書: 文字起こしのあと判別のジョブが足される → 覚えた声 → 名前の候補(suggest)をいちばん長く話した人に → diar.json に by: context。

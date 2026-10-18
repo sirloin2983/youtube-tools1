@@ -254,8 +254,8 @@ def land(branch, mode="auto", message="", dry_run=False, wait=600, cwd=REPO, log
         commit(main, "[Claude] 版を %s に(%s)" % (new, message or ("%s を取り込んだ" % branch if branch else "上げ忘れの直し")),
                "dev/land.py が上げた。理由のファイル: " + (why or "指定"))
     log("版 %s → %s" % (cur, new))
-    log("このあと: 入口を起動し直す(赤い帯)・配る zip は main の作業フォルダで py -3.10 dev/build_friend_zip.py・"
-        "計画の版は py -3.10 dev/plan_artifact.py で公開し直す")
+    log("このあと: 入口を起動し直す(赤い帯)・配る zip は main の作業フォルダで py -3.12 dev/build_friend_zip.py・"
+        "計画の版は py -3.12 dev/plan_artifact.py で公開し直す")
     return new
 
 

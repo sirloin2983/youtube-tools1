@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """③ 校正の小物の直し(OPT-H1。notes:plan/done/opt-human.md の役割 4・5)のテスト。serve なしで読める。
 
-    py -3.10 -m unittest src/human/proof/tests/test_opt_h1_fixes.py -v
+    py -3.12 -m unittest src/human/proof/tests/test_opt_h1_fixes.py -v
 
 - 名前の比べ方を ytt.textutil.person_key 1 つに(決定 3-47 Q8): 一般的な名前の判定
 - 採否の記録の取り消しが学習の統計を減らさない(5d-1)・辞書の版の材料は確度「高」の組だけ(5d-2)

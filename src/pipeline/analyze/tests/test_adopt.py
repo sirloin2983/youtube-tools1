@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """pipeline/analyze/adopt.py(採用の規則 F-5 の純粋な関数。RS8 B3-2 の G1a)と ② の口 flow/adopt のテスト。
-    py -3.10 -m unittest src/pipeline/analyze/tests/test_adopt.py -v
+    py -3.12 -m unittest src/pipeline/analyze/tests/test_adopt.py -v
 期待値は store のテスト(src/human/review/tests/test_studio.py の TestAdoptRule)と同じ。保存を通した動きはそちらが確かめる。
 """
 import os

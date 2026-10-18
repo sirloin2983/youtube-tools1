@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """friendapp/progress.py の確かめ(F3-3)。ファイルもネットも使わない。
 
-    py -3.10 -m unittest src/friendapp/tests/test_progress.py
+    py -3.12 -m unittest src/friendapp/tests/test_progress.py
 """
 import os
 import sys

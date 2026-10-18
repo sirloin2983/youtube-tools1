@@ -1,6 +1,6 @@
 """src/eval/tools/eval_fill.py(認識のあとの後処理の様子見の物差し)のテスト。リポジトリ直下で:
 
-    py -3.10 -m unittest src/eval/tools/tests/test_eval_fill.py
+    py -3.12 -m unittest src/eval/tools/tests/test_eval_fill.py
 
 作業データは一時フォルダに作る(本物の作業データは読まない・書かない)。サーバー・ネットワーク・③ の部品は使わない
 (確かめるの答えは app/check/answers.jsonl を一時フォルダに書いて読ませる)。

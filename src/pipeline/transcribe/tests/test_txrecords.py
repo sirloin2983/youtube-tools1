@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """pipeline/transcribe/records(認識の記録・辞書の版・生出力・単語の時刻。役割で組み直す RS2-5)を、編集の serve を読まずに使うテスト。
 
-    py -3.10 -m unittest src/pipeline/transcribe/tests/test_txrecords.py -v
+    py -3.12 -m unittest src/pipeline/transcribe/tests/test_txrecords.py -v
 
 細かい決まり(記録の項目・辞書の版の中身)は編集のテスト(src/editor/tests/test_records.py・test_whispercpp.py。serve の名前で読む)が確かめる。
 ここは「① が serve なしで読めて、置き場所と辞書の材料を持ち主(ytt/workdata・roster.ROSTER)・口(set_dict_inputs)か引数から読む」ことだけ。

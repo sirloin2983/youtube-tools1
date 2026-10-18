@@ -1,7 +1,7 @@
 @echo off
 rem Run the node tests and make dist\YtStudioTime.zip (the Chrome extension) to send to a friend. Details: README.txt
 rem The zip has one folder yt-studio-time with manifest.json, main.js and README.txt (no tests, no build.bat).
-rem node: the one on PATH, or the node.exe that ships with Playwright (python 3.10). The e2e (tests\e2e_fake_studio.py) is not run here.
+rem node: the one on PATH, or the node.exe that ships with Playwright (python 3.12). The e2e (tests\e2e_fake_studio.py) is not run here.
 setlocal
 cd /d "%~dp0"
 
@@ -9,7 +9,7 @@ echo [1/3] tests
 set "NODE=node"
 where node >nul 2>nul
 if errorlevel 1 (
-  for /f "usebackq delims=" %%p in (`py -3.10 -c "import playwright,os;print(os.path.join(os.path.dirname(playwright.__file__),'driver','node.exe'))"`) do set "NODE=%%p"
+  for /f "usebackq delims=" %%p in (`py -3.12 -c "import playwright,os;print(os.path.join(os.path.dirname(playwright.__file__),'driver','node.exe'))"`) do set "NODE=%%p"
 )
 if not exist "%NODE%" (
   if /i not "%NODE%"=="node" (

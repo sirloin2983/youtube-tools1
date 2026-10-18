@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """pipeline/transcribe/recognize(音声の取り出し・認識・範囲の行・全体の再認識の続きから。役割で組み直す RS2-7)を、編集の serve を読まずに使うテスト。
 
-    py -3.10 -m unittest src/pipeline/transcribe/tests/test_recognize.py -v
+    py -3.12 -m unittest src/pipeline/transcribe/tests/test_recognize.py -v
 
 認識の流れ(声の検出のやり直し・GPU から CPU・全体の区間ごとの続き)は編集のテスト(src/editor/tests/test_metrics.py・test_worker.py・test_whispercpp.py。
 serve の名前で読む)が確かめる。ここは「① が serve なしで読めて、行の頭の名前を外す決まり(同じ ① の fill)と ffmpeg(ytt/tools)を読む」ことだけ。

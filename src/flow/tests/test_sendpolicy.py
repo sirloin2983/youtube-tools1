@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """flow/sendpolicy.py(友人へ自動で送る判定。D-SEND の段 1)と flow/deliveries.py の書き口・読み口のテスト。
-py -3.10 -m unittest src/flow/tests/test_sendpolicy.py -v"""
+py -3.12 -m unittest src/flow/tests/test_sendpolicy.py -v"""
 import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")

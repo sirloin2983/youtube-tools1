@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """校正まわりの API の確かめ(旧 e2e = RS8 C4 で消した編集の画面の e2e が、画面の裏で API だけで確かめていた物を unittest に移した)。
 
-    py -3.10 -m unittest src/editor/tests/test_metrics.py     # test_metrics がこのファイルのテストも読み込む
-    py -3.10 -m unittest src/editor/tests/test_proof_api.py   # これだけ
+    py -3.12 -m unittest src/editor/tests/test_metrics.py     # test_metrics がこのファイルのテストも読み込む
+    py -3.12 -m unittest src/editor/tests/test_proof_api.py   # これだけ
 
 - 学習の候補 GET /api/learned(human/proof/learn.py。評価用は数えない・登録済みは出さない)  旧 e2e_eval_set.py
 - 精度の測定 all_metrics の scope(eval/drill/metrics.py)                        旧 e2e_eval_set.py
@@ -24,7 +24,7 @@ import urllib.error
 import urllib.request
 from unittest import mock
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # リポジトリ直下から py -3.10 -m unittest src/editor/tests/test_proof_api.py でも読めるように
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # リポジトリ直下から py -3.12 -m unittest src/editor/tests/test_proof_api.py でも読めるように
 from test_backend import HERE, S, StoreDir, free_port, write_json  # noqa: E402
 from test_voices import doc_with_speakers, unit
 from human.proof import learn  # noqa: E402

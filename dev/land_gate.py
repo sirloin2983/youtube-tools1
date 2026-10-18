@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """main に入れる前の関所(dev/land.py が版を上げる前に流す。2026-10-18)。単独でも流せる:
 
-    py -3.10 dev/land_gate.py [<ブランチ>] [--skip-tests] [--skip-checks] [--skip-worklog] [--worklog 名前] [-j 数] [--list]
+    py -3.12 dev/land_gate.py [<ブランチ>] [--skip-tests] [--skip-checks] [--skip-worklog] [--worklog 名前] [-j 数] [--list]
         # 既定のブランチ = 今のブランチ。--list は選んだテストの一覧だけ(流さない)
 
 流す物(落ちたら止める。e2e は入れない = 一式は今までどおり大きな区切りで dev/run_e2e.py):
@@ -121,7 +121,7 @@ def run_check(wt, main_wt, name, args):
         m = count_of(run_tool(main_wt, args)[1])
         if m is not None and n <= m:
             return None, "%s: %d 件あるが main でも %d 件(保管庫の途中の変更など。この枝のせいではない)" % (name, n, m)
-    return "%s が落ちた(py -3.10 %s):\n%s" % (name, " ".join(args), tail), None
+    return "%s が落ちた(py -3.12 %s):\n%s" % (name, " ".join(args), tail), None
 
 
 def run_tool(root, args, timeout=600):
@@ -254,7 +254,7 @@ def run(branch, root=REPO, skip=(), worklog_name=None, jobs=None, list_only=Fals
         name = worklog_name or session_name(branch)
         path = worklog.find_session(name, notes)
         if not path:
-            g.problems.append("作業の記録が無い: %s(py -3.10 dev/worklog.py new %s で作る。名前が違えば --worklog)" % (name, name))
+            g.problems.append("作業の記録が無い: %s(py -3.12 dev/worklog.py new %s で作る。名前が違えば --worklog)" % (name, name))
         else:
             probs, warns = worklog.check(path)
             g.problems += ["作業の記録 %s: %s" % (os.path.basename(path), s) for s in probs]

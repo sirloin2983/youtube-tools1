@@ -1,6 +1,6 @@
 """src/eval/tools/eval_alt.py(2つ目のエンジンとの食い違いの候補の当たり率を測る道具)のテスト。リポジトリ直下で:
 
-    py -3.10 -m unittest src/eval/tools/tests/test_eval_alt.py
+    py -3.12 -m unittest src/eval/tools/tests/test_eval_alt.py
 
 作業データは一時フォルダに作る(本物の作業データは読まない・書かない)。ネットワーク・ffmpeg・本物のエンジンは使わない。
 ③ の部品を serve の名前の受付で読み込むので、test_eval_asr.py と同じ環境変数の決まり(YTT_DATA_DIR = inplace)に従う。

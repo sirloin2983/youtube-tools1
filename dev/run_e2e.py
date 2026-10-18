@@ -5,12 +5,12 @@ e2e は「主な道 1 つに 1 本」(テストの見直し 10-18。plan/test-re
 確かめる・まとめて実行・ライブ・友人の送る / 受け取る・API の通し。キー 1 つ・欄 1 つ・空の状態・文言・はみ出しのような細かい場面は
 e2e に足さず、単体(/api・JS の小さな関数)と写真の関所(dev/ui_audit.py)へ。新しい e2e を足す前に、どの道の 1 本に入るかを決める。
 
-    py -3.10 dev/run_e2e.py                      # 一式(大きな区切りに 1 回。AGENTS.md の「e2e は少なめに」)
-    py -3.10 dev/run_e2e.py --only cases         # 組(cases / home / studio / dev / ui-kit)か、名前の一部で絞る
-    py -3.10 dev/run_e2e.py --only live_studio --only cases_cut
-    py -3.10 dev/run_e2e.py --skip live_          # ライブを触っていないときは重い 2 本(約 7 分)を飛ばす
-    py -3.10 dev/run_e2e.py --list               # 一覧だけ
-    py -3.10 dev/run_e2e.py --out 結果.json
+    py -3.12 dev/run_e2e.py                      # 一式(大きな区切りに 1 回。AGENTS.md の「e2e は少なめに」)
+    py -3.12 dev/run_e2e.py --only cases         # 組(cases / home / studio / dev / ui-kit)か、名前の一部で絞る
+    py -3.12 dev/run_e2e.py --only live_studio --only cases_cut
+    py -3.12 dev/run_e2e.py --skip live_          # ライブを触っていないときは重い 2 本(約 7 分)を飛ばす
+    py -3.12 dev/run_e2e.py --list               # 一覧だけ
+    py -3.12 dev/run_e2e.py --out 結果.json
 
 リポジトリ直下から流す。各テストは別のプロセス・PYTHONIOENCODING=utf-8・同時に流さない(待ちのあるテストが揺れる)。
 一式に入れないもの: chrome-ext の e2e_fake_studio(Edge で別に)・

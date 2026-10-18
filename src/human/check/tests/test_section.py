@@ -1,6 +1,6 @@
 """評価のレーンの区間カードの反映(src/human/check/section.py。C-EVAL)の単体テスト。一時の作業データに評価用の文書を作って、答える・戻すを確かめる。
 
-実行(リポジトリ直下から): py -3.10 -m unittest src/human/check/tests/test_section.py -v
+実行(リポジトリ直下から): py -3.12 -m unittest src/human/check/tests/test_section.py -v
 """
 import os
 import sys

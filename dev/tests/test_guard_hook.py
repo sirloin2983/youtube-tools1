@@ -101,7 +101,7 @@ class GuardTest(unittest.TestCase):
     def test_commit_elsewhere_passes(self):
         self.assertPass(["git commit -m x", "git -C %s commit -m x" % self.vault], cwd=self.wt)
         self.assertPass(["git commit -m x"], cwd=self.vault)
-        self.assertPass(["git -C %s commit -m x" % self.wt, "git status", "git merge x", "py -3.10 dev/land.py"],
+        self.assertPass(["git -C %s commit -m x" % self.wt, "git status", "git merge x", "py -3.12 dev/land.py"],
                         cwd=self.main)
 
     def test_main_commit_escape(self):
@@ -125,8 +125,8 @@ class GuardTest(unittest.TestCase):
                                        "Copy-Item a.js -Destination %s" % dj], tool="PowerShell")
         self.assertBlocked("codemap", ["echo x > %s/codemap/dev.md" % self.main])
         self.assertBlocked("prov", ["echo x > %s/plan/仮決めの一覧.md" % self.vault])
-        self.assertPass(["cat %s" % dj, "sed -n 1,5p %s" % dj, "py -3.10 dev/plan_data.py build",
-                         "py -3.10 dev/code_map.py", "cp %s /tmp/backup.js" % dj, "echo x > %s/plan/notes.md" % self.vault,
+        self.assertPass(["cat %s" % dj, "sed -n 1,5p %s" % dj, "py -3.12 dev/plan_data.py build",
+                         "py -3.12 dev/code_map.py", "cp %s /tmp/backup.js" % dj, "echo x > %s/plan/notes.md" % self.vault,
                          "echo x > %s/plan/data/tasks/a.json" % self.vault, "echo x 2>&1 > out.txt"])
 
     def test_generated_edit_tools(self):
@@ -144,12 +144,12 @@ class GuardTest(unittest.TestCase):
     # 足す物: テストの起動の知らせ
     def test_test_run_warning(self):
         warn = lambda c, t="Bash": guard_hook.check_command(c, t, self.wt)[1]  # noqa: E731
-        self.assertTrue(warn("py -3.10 -m unittest dev/tests/test_land.py"))
+        self.assertTrue(warn("py -3.12 -m unittest dev/tests/test_land.py"))
         self.assertTrue(warn("python -m pytest -q"))
-        self.assertIsNone(warn("YTT_DATA_DIR=inplace py -3.10 -m unittest x"))
-        self.assertIsNone(warn("$env:YTT_DATA_DIR='inplace'; py -3.10 -m unittest x", "PowerShell"))
-        self.assertIsNone(warn("py -3.10 dev/run_unit.py --only dev"))
-        self.assertIsNone(warn("py -3.10 -c 'import unittest'"))
+        self.assertIsNone(warn("YTT_DATA_DIR=inplace py -3.12 -m unittest x"))
+        self.assertIsNone(warn("$env:YTT_DATA_DIR='inplace'; py -3.12 -m unittest x", "PowerShell"))
+        self.assertIsNone(warn("py -3.12 dev/run_unit.py --only dev"))
+        self.assertIsNone(warn("py -3.12 -c 'import unittest'"))
 
     # 語に分ける
     def test_heredoc_and_herestring_are_data(self):

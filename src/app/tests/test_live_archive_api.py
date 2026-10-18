@@ -2,7 +2,7 @@
 """アーカイブで本番版に作り直す(線 D の P4)の入口 home を通す分: POST /live/api/archive・…/cancel・GET /live/api/exports の archiveInfo(server.py を通して)と、
 入口のプロセスで numpy を import しない検査。本体(照合・入れ替え・自動の見回り)は ② の src/flow/tests/test_live_archive.py。
 
-    py -3.10 -m unittest src/app/tests/test_live_archive_api.py
+    py -3.12 -m unittest src/app/tests/test_live_archive_api.py
 """
 import os
 import shutil

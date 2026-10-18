@@ -1,6 +1,6 @@
 """src/flow/outbox.py(送り返しの zip。F1 の F2)のテスト。リポジトリ直下で:
 
-    py -3.10 -m unittest src/flow/tests/test_outbox.py
+    py -3.12 -m unittest src/flow/tests/test_outbox.py
 
 一時フォルダだけを使う(本物の作業データ・Dropbox には触らない)。
 """

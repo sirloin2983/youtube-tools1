@@ -1,6 +1,6 @@
 """dev/code_map.py(コードの地図と言葉の索引を作る道具)の部品のテスト。リポジトリ直下で:
 
-    py -3.10 -m unittest dev/tests/test_code_map.py
+    py -3.12 -m unittest dev/tests/test_code_map.py
 """
 import os
 import sys

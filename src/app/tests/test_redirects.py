@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """今の URL -> /cases の転送の表(src/app/redirects.py。RS8 C0)のテスト。
-実行(リポジトリ直下): py -3.10 -m unittest src/app/tests/test_redirects.py"""
+実行(リポジトリ直下): py -3.12 -m unittest src/app/tests/test_redirects.py"""
 import os
 import sys
 import unittest

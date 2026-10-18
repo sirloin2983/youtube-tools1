@@ -2,7 +2,7 @@
 """ライブ係(flow/livesession.LiveSession)の録画元まわりのテスト: 配信の状態を調べる yt-dlp の呼び方(probe_live・validate_url)・
 入口の終了で録画の部品を止める(stop_recorder)・見回りが本物の録画の部品を切り離して起動する(tick)。入口 home の Live は使わない。
 
-    py -3.10 -m unittest src/flow/tests/test_live_recorder.py
+    py -3.12 -m unittest src/flow/tests/test_live_recorder.py
 
 偽の yt-dlp(この Python で動く小さなスクリプト)・偽の録画元(HTTP。合言葉)で、本物の YouTube へは繋がない。
 """

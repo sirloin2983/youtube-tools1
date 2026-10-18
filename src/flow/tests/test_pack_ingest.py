@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""② flow/pack.py・flow/ingest.py の動詞の最小の検査(RS6 a-5a)。  py -3.10 -m unittest src/flow/tests/test_pack_ingest.py -v
+"""② flow/pack.py・flow/ingest.py の動詞の最小の検査(RS6 a-5a)。  py -3.12 -m unittest src/flow/tests/test_pack_ingest.py -v
 - pack: 形式の見分け・カットの区間の差し替え・版の付与・手順の None → 空の文字・たたき台の順番待ち(重い処理の札)を resolve_export に渡す
 - ingest: 文字だけの入力の見分け・ライブの録画・不正な入力
 - ytt に下ろした check_live・prune_cache の動き

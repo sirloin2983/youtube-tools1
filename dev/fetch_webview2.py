@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """友人のアプリ FriendApp.exe が使う WebView2 の部品(DLL 3 つ)を NuGet の公式パッケージから取る(F3-1。notes:plan/f1-friend-requirements.md の C-1-1)。
 
-    py -3.10 dev/fetch_webview2.py [--out friend-apps/launcher/lib]
+    py -3.12 dev/fetch_webview2.py [--out friend-apps/launcher/lib]
 
 - 版と SHA-256 はここに固定(変えるときは両方)。違えば置かない
 - 置く物: Microsoft.Web.WebView2.Core.dll・Microsoft.Web.WebView2.WinForms.dll(lib/net462)・WebView2Loader.dll(runtimes/win-x64/native)

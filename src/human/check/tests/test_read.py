@@ -1,7 +1,7 @@
 """「確かめる」の読みのカードの反映(src/human/check/read.py。V2b)の単体テスト。一時フォルダの文書と learn-feedback.json だけを使う。
 決まり: 行を校正済みにしない・時刻に触れない・文書は commit(why='check:read')・採否は編集の「提案」と同じ記録・Z で戻る。
 
-実行(リポジトリ直下から): py -3.10 -m unittest src/human/check/tests/test_read.py -v
+実行(リポジトリ直下から): py -3.12 -m unittest src/human/check/tests/test_read.py -v
 """
 import json
 import os

@@ -8,8 +8,11 @@ Set sh = CreateObject("WScript.Shell")
 ' This file is in src\app\, so the repository root is three levels up.
 root = fso.GetParentFolderName(fso.GetParentFolderName(fso.GetParentFolderName(WScript.ScriptFullName)))
 sh.CurrentDirectory = root
-' Same choice of Python as start.bat: py -3.10 first, then the py launcher, then python on PATH.
-If sh.Run("cmd /c py -3.10 --version >nul 2>&1", 0, True) = 0 Then
+' Same choice of Python as start.bat: py -3.12 when its packages are installed, then py -3.10,
+' then the py launcher, then python on PATH.
+If sh.Run("cmd /c py -3.12 -c ""import faster_whisper"" >nul 2>&1", 0, True) = 0 Then
+  py = "py -3.12"
+ElseIf sh.Run("cmd /c py -3.10 --version >nul 2>&1", 0, True) = 0 Then
   py = "py -3.10"
 ElseIf sh.Run("cmd /c py -3 --version >nul 2>&1", 0, True) = 0 Then
   py = "py -3"

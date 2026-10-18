@@ -1,6 +1,6 @@
 """「確かめる」の待ち行列の順と数え方(src/app/check/lineup.py・goals.py)の単体テスト。純粋な関数だけ。
 
-実行(リポジトリ直下から): py -3.10 -m unittest src/app/check/tests/test_lineup.py -v
+実行(リポジトリ直下から): py -3.12 -m unittest src/app/check/tests/test_lineup.py -v
 """
 import os
 import sys

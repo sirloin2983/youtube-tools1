@@ -1,6 +1,6 @@
 """src/eval/tools/eval_timing.py(行の時刻を原則の数字で測る道具)のテスト。リポジトリ直下で:
 
-    py -3.10 -m unittest src/eval/tools/tests/test_eval_timing.py
+    py -3.12 -m unittest src/eval/tools/tests/test_eval_timing.py
 
 作業データは一時フォルダに作る(本物の作業データは読まない・書かない)。サーバー・ネットワーク・ffmpeg は使わない
 (--apply は editor の serve を読まず、pipeline/transcribe/postproc.expand_segments を直に呼ぶ)。

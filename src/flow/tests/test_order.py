@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""flow/order.py(欄 → 封筒 + 束の差分。RV A1)のテスト。  py -3.10 -m unittest src/flow/tests/test_order.py -v"""
+"""flow/order.py(欄 → 封筒 + 束の差分。RV A1)のテスト。  py -3.12 -m unittest src/flow/tests/test_order.py -v"""
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 import sys

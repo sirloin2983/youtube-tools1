@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """友人のアプリから届いた診断の記録を読む(ユーザーの PC。notes:docs/spec/friend.md の 13-11)。AI が原因を調べるときに流す。
 
-    py -3.10 dev/friend_diag.py                  # 最新の 10 件を、段ごとの秒・エラー・道具の終了コードで一覧
-    py -3.10 dev/friend_diag.py -n 30            # 30 件
-    py -3.10 dev/friend_diag.py --errors         # 失敗(kind run の error と、run・preview 以外)だけ
-    py -3.10 dev/friend_diag.py --id <依頼 id>   # 1 つの依頼の物だけ(全部の欄)
-    py -3.10 dev/friend_diag.py --json           # 読んだ物をそのまま JSON で(AI が細かく読む)
-    py -3.10 dev/friend_diag.py --dir D          # 読む場所を変える(既定 <ホームの設定 intake.folder>/診断 = Dropbox の /診断/)
+    py -3.12 dev/friend_diag.py                  # 最新の 10 件を、段ごとの秒・エラー・道具の終了コードで一覧
+    py -3.12 dev/friend_diag.py -n 30            # 30 件
+    py -3.12 dev/friend_diag.py --errors         # 失敗(kind run の error と、run・preview 以外)だけ
+    py -3.12 dev/friend_diag.py --id <依頼 id>   # 1 つの依頼の物だけ(全部の欄)
+    py -3.12 dev/friend_diag.py --json           # 読んだ物をそのまま JSON で(AI が細かく読む)
+    py -3.12 dev/friend_diag.py --dir D          # 読む場所を変える(既定 <ホームの設定 intake.folder>/診断 = Dropbox の /診断/)
 
 置き場所は Dropbox のアプリのフォルダの 診断\(友人のアプリの同期 src/friendapp/sync.py が上げる)。名前 <依頼 id か app か launcher>__diag-<ミリ秒 13 桁>.diag.json。
 片付け: 流すたびに 3 日より古い診断を消す(友人の側の同期も Dropbox の /診断/ の 3 日より古い物を消す = 同じ基準)。--keep で消さない。

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""flow/machine(この PC の設定。役割で組み直す RS7-1 S1)のテスト。  py -3.10 -m unittest src/flow/tests/test_machine.py -v
+"""flow/machine(この PC の設定。役割で組み直す RS7-1 S1)のテスト。  py -3.12 -m unittest src/flow/tests/test_machine.py -v
 
 - 読む順の強さ: 引数 > 環境変数 > ファイル > 既定(sources も)・既定 = 今の値(編集の設定の device・qwen3-8b・スタジオの outDir・20・作業データの根)
 - machine.json が無ければ書かない・save の検査(知らない項目・合わない値はファイルを変えない)・None で既定へ

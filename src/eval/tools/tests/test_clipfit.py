@@ -1,6 +1,6 @@
 """src/eval/tools/clipfit.py(自動の区間が友人の区間にどれだけ合うかの物差し。LD-2a)のテスト。リポジトリ直下で:
 
-    py -3.10 -m unittest src/eval/tools/tests/test_clipfit.py -v
+    py -3.12 -m unittest src/eval/tools/tests/test_clipfit.py -v
 
 作業データは一時フォルダに作る(本物の作業データは読まない・書かない)。
 """

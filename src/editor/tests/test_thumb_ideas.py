@@ -1,6 +1,6 @@
 """src/editor/thumb_ideas.py(サムネの案。提案 P5 の S。10-09 に dev/ から移した)のテスト。リポジトリ直下で:
 
-    py -3.10 -m unittest src/editor/tests/test_thumb_ideas.py
+    py -3.12 -m unittest src/editor/tests/test_thumb_ideas.py
 
 作業データは使わない(文字起こしの文書は一時フォルダに作る)。最後の 1 件だけ ffmpeg で 4 秒の試しの動画を作って 1 枚を描く(ffmpeg が無ければ飛ばす)。
 """

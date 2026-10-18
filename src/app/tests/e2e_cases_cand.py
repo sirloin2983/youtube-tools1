@@ -1,6 +1,6 @@
 """案件の画面(/cases)の「候補」のパネル(src/app/ui/cases/panels/cand.js。RS8 C2a)の通し確認(Playwright)。リポジトリ直下で:
     set PYTHONIOENCODING=utf-8
-    py -3.10 src/app/tests/e2e_cases_cand.py
+    py -3.12 src/app/tests/e2e_cases_cand.py
 入口(app/server.py)にスタジオを取り込んで動かす(消した旧 e2e_ui.py --mounted と同じ形。STUDIO_FAKE=1・生成した短い webm・一時フォルダだけ)。
 ④ の案件の一覧(cases_mod.snapshot)は見本に差し替え、案件の id = スタジオの配信の id にする。
 見るもの(旧 e2e_ui.py の ② の場面から): パネルが載る(配信の選択は出さない)・動画を再生できる・盛り上がりグラフ・採用 / 不採用がスタジオに保存される・

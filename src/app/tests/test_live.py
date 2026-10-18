@@ -2,7 +2,7 @@
 """リアルタイム切り抜き(線 D の P1)の入口の側(src/app/live.py・prefs の節 live・server.py の /live/…・「調子」の行)のテスト。
 ② の部分は src/flow/tests に移した: 録画元まわり(probe・stop_recorder・見回りの起動)= test_live_recorder.py、マークと書き出し・採用・失敗の集約・ディスク・重い処理の枠 = test_live_export.py。
 
-    py -3.10 -m unittest src/app/tests/test_live.py
+    py -3.12 -m unittest src/app/tests/test_live.py
 
 確かめること:
   - 設定 live: 既定はオフ・形の検査・合言葉は空で送っても今の値を残す・画面へ返す設定に合言葉を出さない・配信中の候補の文字起こし liveTx(D-11 案 b)の検査

@@ -1,7 +1,7 @@
 """書き出しの音量調整(切り出しの作り直しに入る音量 / build_spec の volume 検証)のテスト。
 実際に ffmpeg を1回動かして確認する(合成した2秒の無音動画を使う。数秒で終わる)。
 
-    py -3.10 -m unittest src/pipeline/export/tests/test_exporter.py
+    py -3.12 -m unittest src/pipeline/export/tests/test_exporter.py
 """
 import hashlib
 import json

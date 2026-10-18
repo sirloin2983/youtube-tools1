@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""flow/live_adopt(ライブの採用 = マーク + 書き出し。役割で組み直す RS7-2 G1b)のテスト。  py -3.10 -m unittest src/flow/tests/test_live_adopt.py -v
+"""flow/live_adopt(ライブの採用 = マーク + 書き出し。役割で組み直す RS7-2 G1b)のテスト。  py -3.12 -m unittest src/flow/tests/test_live_adopt.py -v
 
 - スタジオなし(LocalMarks): 偽の親(Live を使わない・studio_call を持たない)で、採用 → マークの正本の採用の印 → 書き出しのジョブ →
   (書き出しが済んだ所から).clip.json → まとめて実行へ渡す → 印が「書き出し済み」まで。採用の id・ジョブ・.clip.json の形はスタジオのとき(StudioMarks)と同じ

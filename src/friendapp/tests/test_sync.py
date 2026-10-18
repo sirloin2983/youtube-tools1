@@ -1,5 +1,5 @@
 """src/friendapp/sync.py のテスト(本物の Dropbox につながない = 偽の io。受信箱は本物の一時フォルダ)。
-リポジトリ直下で: py -3.10 -m unittest src/friendapp/tests/test_sync.py"""
+リポジトリ直下で: py -3.12 -m unittest src/friendapp/tests/test_sync.py"""
 import datetime
 import glob
 import hashlib

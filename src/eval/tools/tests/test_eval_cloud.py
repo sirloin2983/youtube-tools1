@@ -1,6 +1,6 @@
 """src/eval/tools/eval_cloud.py(クラウドの文字起こしとの比較。計画 B2 = E1)のテスト。リポジトリ直下で:
 
-    py -3.10 -m unittest src/eval/tools/tests/test_eval_cloud.py
+    py -3.12 -m unittest src/eval/tools/tests/test_eval_cloud.py
 
 作業データは一時フォルダに作る(本物の作業データは読まない)。通信は http_json を差し替えて偽の応答にする(外へは何も送らない)。
 音声の取り出しは ffmpeg が要る(無ければ run のテストは skip)。

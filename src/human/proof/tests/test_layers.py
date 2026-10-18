@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """文書を「機械の層 + 人の層」から組み立てる関数(human/proof/layers。RS8 O2-1)のテスト。
 
-    py -3.10 -m unittest src/human/proof/tests/test_layers.py -v
+    py -3.12 -m unittest src/human/proof/tests/test_layers.py -v
 
 純粋な関数だけ(ファイル・サーバーは使わない)。人の操作ごとに 往復 compose(mach, diff(mach, doc)) == doc と、
 機械を作り直したとき(行 id が変わる・文字が変わる)に人の直しが残るか・印 MACH_CHANGED / SPK_CHANGED を確かめる。

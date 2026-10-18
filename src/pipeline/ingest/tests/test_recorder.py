@@ -2,7 +2,7 @@
 """録画の部品(recorder/)のテスト。本物の YouTube には繋がない: ffmpeg の lavfi で作った HLS を、手元の HTTP サーバーで
 配信中のように少しずつ出し(tests/hls_fixture.py)、--source direct(HLS の URL を直接 ffmpeg に渡す)で録る。
 
-    py -3.10 -m unittest src/pipeline/ingest/tests/test_recorder.py
+    py -3.12 -m unittest src/pipeline/ingest/tests/test_recorder.py
 
 確かめること: 再生リストの読み書き・URL の検査・置き場所(無いドライブ・空き容量)・書きかけの片付け /
 録画 → 切断 → 繋ぎ直し(新しいセッション・#EXT-X-DISCONTINUITY)→ 停止(#EXT-X-ENDLIST)/ 配信の終わり /
@@ -411,7 +411,7 @@ class TestStreamlinkPipe(unittest.TestCase):
     def setUp(self):
         import importlib.util
         if importlib.util.find_spec("streamlink") is None:
-            self.skipTest("streamlink が入っていません(py -3.10 -m pip install -r setup/requirements.txt)")
+            self.skipTest("streamlink が入っていません(py -3.12 -m pip install -r setup/requirements.txt)")
         self.src_dir, self.segs = source(40)
         self.tmp = testkit.tempdir(self, prefix="ytt-rec-sl-")
         self.folder = os.path.join(self.tmp, "live-rec")

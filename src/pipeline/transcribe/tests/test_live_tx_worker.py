@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """配信中の候補の文字起こしの子プロセス src/pipeline/transcribe/live_tx_worker.py のテスト(D-11 案 b)。本物の認識はしない。
 
-    py -3.10 -m unittest src/pipeline/transcribe/tests/test_live_tx_worker.py
+    py -3.12 -m unittest src/pipeline/transcribe/tests/test_live_tx_worker.py
 
 確かめること:
   - 引数の数が違えば 2・知らないモデル・whisper-cli が無ければ ok false の json

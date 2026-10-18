@@ -1,7 +1,7 @@
 """入口の「確かめる」の口(GET api/check/next・POST api/check/answer(undo も)・skip・flush。V1 の V0)のつなぎ。
 待ち行列の中身のテストは src/app/check/tests/、記録と反映は src/human/check/tests/test_apply.py。
 
-実行(リポジトリ直下から): py -3.10 -m unittest src/app/tests/test_check_api.py -v
+実行(リポジトリ直下から): py -3.12 -m unittest src/app/tests/test_check_api.py -v
 """
 import http.client
 import json

@@ -1,8 +1,8 @@
 """名簿 friend-apps/holo-colors/members.json の JP・DEV_IS の各メンバーに YouTube のチャンネル ID(channel)を入れる・確かめる道具。
 
-  py -3.10 dev/members_channels.py check
+  py -3.12 dev/members_channels.py check
       channel が無い人は「無い」。あれば新着 RSS を取って作者名を出し、名前と合うかを 1 行ずつ出す。
-  py -3.10 dev/members_channels.py set <member id> <UC...>
+  py -3.12 dev/members_channels.py set <member id> <UC...>
       その人の channel を足す・直す。ファイルの他の行は変えない(改行・インデント・順を保つ)。
 
 標準ライブラリだけ。読むのは RSS だけで、外へ書くのは members.json だけ。

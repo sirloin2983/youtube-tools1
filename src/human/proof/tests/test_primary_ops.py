@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """層が正(機械の層 + 人の層)のときの機械の操作(RS8 O2-5)のテスト。
 
-    py -3.10 -m unittest src/human/proof/tests/test_primary_ops.py -v
+    py -3.12 -m unittest src/human/proof/tests/test_primary_ops.py -v
 
 - (r8s)・X-RERUN 再認識 each・範囲・全体: 機械の層の選んだ区間だけ差し替え、人の行(校正済みでない直し・話者だけの直しも)は残る(機械が変わったら印 MACH_CHANGED)。直していない行は置き換わる
 - (r8r) 話者の判別: 人の層が話者の表を持ち(付け直さない)、判別し直したら機械の S… → 人の話者を重なり時間で当てる。当たらない話者だけ新しい H… と弱い印

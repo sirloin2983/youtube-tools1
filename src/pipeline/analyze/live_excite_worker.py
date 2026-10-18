@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """配信中の盛り上がりの検出のワーカー(線 D の L2。notes:plan/line-d-detect.md・notes:plan/line-d-live-clipping.md の 0-10)。入口(src/flow/live_detect.py)が起動する子プロセス。
 
-    py -3.10 -u src/pipeline/analyze/live_excite_worker.py --config <入口の作業データ>/live/excite/config.json [--parent <入口の pid>]
+    py -3.12 -u src/pipeline/analyze/live_excite_worker.py --config <入口の作業データ>/live/excite/config.json [--parent <入口の pid>]
     (旧い場所の転送は RS5-G で消した)
 
 録画中の全部の録画を 1 つのワーカーで受け持つ(0-10-4)。**同時に測るのは MAX_ACTIVE(2)本まで**: 3 本目からは「順番待ち」(peaks.json の message・

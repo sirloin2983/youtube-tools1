@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """認識のあとの後処理 A・B・C・D(pipeline/transcribe/fill.py。旧 src/editor/ed_fill.py。10-08 の実験ループ。編集 0.60.0。B = 行の頭の話者名は 0.67.0)のテスト。test_metrics から読み込まれる。
 
-    py -3.10 -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
-    py -3.10 -m unittest test_fill -q                        # これだけ(src/editor/tests で)
+    py -3.12 -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
+    py -3.12 -m unittest test_fill -q                        # これだけ(src/editor/tests で)
 
 - 純粋な関数: 文字の少ない行の見分け・窓の読みでの置き換え(3 倍の条件・印と元の文字)・末尾の重複・定型の幻覚と声の区間・名簿の呼び名の 1 字違い
 - ジョブ(疑似の認識 TRANSCRIBE_BACKEND=fake + TRANSCRIBE_FAKE_FILL): 行が置き換わり fill と印が付く・記録 recognition.runs[].fill・設定 autoFill(既定オン・評価用はオフ)・保存で fill が残る

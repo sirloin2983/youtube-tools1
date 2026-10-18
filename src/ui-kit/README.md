@@ -161,7 +161,7 @@
 - 文字の青(`a`・`.ui-next-btn`)は `--accent-ink2`(明るいテーマの `--accent` は薄い面の上で 4.3:1 と足りない。A-22)。`--ink-4` は placeholder・空の欄・押せない物・飾りにだけ(決定 P-4)
 - `.card>summary`・`.ui-disclosure>summary` に `min-height:28px`(押せる部品は 28px 以上。A-21)。`.ui-live-panel:focus-visible` の輪(A-07)
 - 設定の「全体」の節のテーマ・文字の大きさの名前を `<label for>` に(`#uiSetTheme`・`#uiSetFs`。A-24)
-- 測る道具: `py -3.10 dev/ui_audit.py all --demo`(基準の A)。見本 `styleguide.html` もその対象(入力欄に label・ボタンの長い名前は title に)
+- 測る道具: `py -3.12 dev/ui_audit.py all --demo`(基準の A)。見本 `styleguide.html` もその対象(入力欄に label・ボタンの長い名前は title に)
 - `UIKit.dialog.choose({title, body, buttons: [{label, value, kind: 'primary'|'danger'|'ghost'|''}], cancel})` → Promise<value>(3 択以上の確認。Esc・背景は `cancel`(既定 null)。danger があれば既定のフォーカスは最初の ghost)。編集の画面ごとの確認(#dlgConfirm・#dlgOverwrite)を置き換える
 - `UIKit.autorun` の「設定を変える」: 音量の欄に値が入らなかった(select が文書に入る前に loudRefresh が落としていた)のを直し、fps の欄の名前「パックの置き先」→「フレームレート」(下の PC 側と同じ)(ホームの見直し M3・M4)
 (段9 の直し。PC 側)

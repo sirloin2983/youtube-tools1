@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """2つ目のエンジンとの食い違いに候補を出す(精度改善の計画 第2版 D1-b。editor/ed_alt.py)のテスト。
 
-    py -3.10 -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
-    py -3.10 -m unittest test_alt -q                    # これだけ(src/editor/tests で)
+    py -3.12 -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
+    py -3.12 -m unittest test_alt -q                    # これだけ(src/editor/tests で)
 
 - alt_diffs(純粋な関数): 置き換え・表記だけの違いは出さない・片方だけの文字・長すぎ・行またぎ・行の大半が違う・校正済み・窓
 - 提案(GET /api/suggest の suggest_for_doc)に足す・却下で消える・学習の提案を優先・評価用には出さない・採用/却下の数え方(学習の統計に入れない)

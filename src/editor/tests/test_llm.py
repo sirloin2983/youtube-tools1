@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """LLM の後処理 E(pipeline/transcribe/llm.py。旧 src/editor/ed_llm.py。提案 P18。編集 0.61.0)のテスト。test_metrics から読み込まれる。
 
-    py -3.10 -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
-    py -3.10 -m unittest test_llm -q                         # これだけ(src/editor/tests で)
+    py -3.12 -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
+    py -3.12 -m unittest test_llm -q                         # これだけ(src/editor/tests で)
 
 - 規則: 選ぶ(名簿の呼び名に 1 字違い・誤りやすい形・カタカナの規則・後処理の行は選ばない)・答えの読み方・検査・上限・当てる(印と元の文字)
 - ジョブ(疑似の認識 TRANSCRIBE_BACKEND=fake + TRANSCRIBE_FAKE_LLM): 行が直り fill {by: llm} と印・記録 recognition.runs[].llm・<id>.llm.json・

@@ -5,7 +5,7 @@
       "name": "rs8-mock",
       "runtimeExecutable": "py",
       "runtimeArgs": [
-        "-3.10",
+        "-3.12",
         "-m",
         "http.server",
         "8791",
@@ -20,7 +20,7 @@
       "name": "friend-demo",
       "runtimeExecutable": "py",
       "runtimeArgs": [
-        "-3.10",
+        "-3.12",
         "dev/friend_demo.py",
         "--port",
         "8760"

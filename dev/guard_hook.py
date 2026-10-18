@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Claude Code の PreToolUse のフック: 事故のもとになる操作を機械が断る(2026-10-18)。標準ライブラリだけ・速く。
 
-    py -3.10 dev/guard_hook.py                    # フックとして(標準入力に Claude Code の JSON。断るときは標準出力に deny の JSON)
-    py -3.10 dev/guard_hook.py --check "<命令>"   # 試し: 命令を 1 つ判定して結果を出す(--tool PowerShell・--cwd で場所)
-    py -3.10 dev/guard_hook.py --install [settings.json]   # .claude/settings.json にこのフックを足す(あれば何もしない)
+    py -3.12 dev/guard_hook.py                    # フックとして(標準入力に Claude Code の JSON。断るときは標準出力に deny の JSON)
+    py -3.12 dev/guard_hook.py --check "<命令>"   # 試し: 命令を 1 つ判定して結果を出す(--tool PowerShell・--cwd で場所)
+    py -3.12 dev/guard_hook.py --install [settings.json]   # .claude/settings.json にこのフックを足す(あれば何もしない)
 
 断る物(確かな形だけ。断る理由と代わりのやり方を 1 行で返す):
   1. 名前でまとめてプロセスを止める(taskkill /IM・/FI IMAGENAME・Stop-Process -Name・Get-Process 名前 | Stop-Process・pkill・killall)
@@ -27,14 +27,14 @@ MSG = {
     "sed": "sed -i は改行(CRLF)を壊す。Edit の道具か、Python で newline='' を付けて書き換える。",
     "add": "git add -A / . / commit -a はほかのセッションの差分を巻き込む。自分が直したファイルを名前で git add し、"
            "git diff --cached --stat で確かめてからコミットする。",
-    "main": "main の作業フォルダでは直にコミットしない。worktree でコミットして py -3.10 dev/land.py で入れる"
+    "main": "main の作業フォルダでは直にコミットしない。worktree でコミットして py -3.12 dev/land.py で入れる"
             "(まとめ役が main で直すときだけ、頭に YTT_MAIN_COMMIT=1 を付ける。PowerShell は $env:YTT_MAIN_COMMIT=1; )。",
     "data.js": "plan/data.js は dev/plan_data.py build が作る生成物(直しても次の build で消える)。plan/data/ の JSON を直して build する。",
     "prov": "plan/仮決めの一覧.md は dev/plan_data.py sweep が作る生成物。plan/data/provisional/ を直して sweep する。",
-    "codemap": "codemap/ は dev/code_map.py が作る生成物。コードを直してから py -3.10 dev/code_map.py で作り直す。",
+    "codemap": "codemap/ は dev/code_map.py が作る生成物。コードを直してから py -3.12 dev/code_map.py で作り直す。",
 }
 WARN_DATA_DIR = ("[守り] テストを直に流すときは作業データを切り離す(頭に YTT_DATA_DIR=inplace、"
-                 "PowerShell は $env:YTT_DATA_DIR='inplace'; )。py -3.10 dev/run_unit.py なら道具が付ける。")
+                 "PowerShell は $env:YTT_DATA_DIR='inplace'; )。py -3.12 dev/run_unit.py なら道具が付ける。")
 
 SEPS = (";", "&&", "||", "|", "&", "\n")
 REDIRECTS = (">", ">>", "1>", "2>", "1>>", "2>>", "*>", "*>>", "&>")
@@ -386,7 +386,7 @@ def respond(why, warn):
 
 # ---- 設定に足す
 
-HOOK_COMMAND = 'py -3.10 "C:/dev/youtube-tools/dev/guard_hook.py" || true'
+HOOK_COMMAND = 'py -3.12 "C:/dev/youtube-tools/dev/guard_hook.py" || true'
 MATCHER = "Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit"
 
 

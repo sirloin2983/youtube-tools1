@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """文書を書く唯一の口 human/proof/store.commit のテスト(RS8 O2-0。動きは write_doc と同じ・why をログに残す)。
 
-    py -3.10 -m unittest src/human/proof/tests/test_commit.py -v
+    py -3.12 -m unittest src/human/proof/tests/test_commit.py -v
 """
 import json
 import os

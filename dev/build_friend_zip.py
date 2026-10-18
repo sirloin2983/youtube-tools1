@@ -27,7 +27,7 @@ Python の本体・wheel・ffmpeg などはキャッシュのフォルダ(--cach
 無ければ取りに行く(https の固定の URL・wheel は pip download)。ffmpeg・yt-dlp・Deno・Python の本体は表に SHA-256 が無いので、
 キャッシュに取った物の大きさと SHA-256 を fetch.json・manifest.json に書く(取ったときに 1 回だけ信じる。以後はキャッシュの記録と照らす)。
 
-    py -3.10 dev/build_friend_zip.py [--out D | --publish] [--cache C] [--wcpp-dir W] [--launcher-build L] [--first [--with-key] | --handoff] [--no-fetch]
+    py -3.12 dev/build_friend_zip.py [--out D | --publish] [--cache C] [--wcpp-dir W] [--launcher-build L] [--first [--with-key] | --handoff] [--no-fetch]
 終了コード 0 済み / 1 失敗 / 2 引数
 """
 import argparse

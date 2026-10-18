@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """unittest を層ごと・フォルダごとに流す道具(1 本ずつ別のプロセス)。リポジトリ直下で:
 
-    py -3.10 dev/run_unit.py --only manage            # 層かフォルダで絞る(複数可)
-    py -3.10 dev/run_unit.py --only src/manage/keep   # フォルダでも絞れる
-    py -3.10 dev/run_unit.py --list                   # 流す物の一覧だけ
-    py -3.10 dev/run_unit.py -j 2 --failfast          # 並べて流す数・最初の失敗で止める
-    py -3.10 dev/run_unit.py                          # 全部
+    py -3.12 dev/run_unit.py --only manage            # 層かフォルダで絞る(複数可)
+    py -3.12 dev/run_unit.py --only src/manage/keep   # フォルダでも絞れる
+    py -3.12 dev/run_unit.py --list                   # 流す物の一覧だけ
+    py -3.12 dev/run_unit.py -j 2 --failfast          # 並べて流す数・最初の失敗で止める
+    py -3.12 dev/run_unit.py                          # 全部
 
 対象: src/**/tests/test_*.py と dev/tests/test_*.py(e2e_*.py と test_ で始まらない物は流さない)。
-同じプロセスに混ぜると名前が重なるテストがあるので、1 本ずつ `py -3.10 -m unittest <ファイル>` を別のプロセスで流す。
+同じプロセスに混ぜると名前が重なるテストがあるので、1 本ずつ `py -3.12 -m unittest <ファイル>` を別のプロセスで流す。
 例外 1: src/editor/tests/ はリポジトリ直下からだと test_backend の import で落ちるので、そのフォルダを cwd にしてモジュール名で 1 本ずつ流す
         (test_metrics は自分で定義したクラスだけ。前は test_metrics を 1 回 = 星の import で全部を 1 本にしていて、一番遅い束だった。10-18 テストの見直し)。
 例外 2: dev/tests/test_resolve_pack_contract.py は単独で流す(表示に「単独」と付ける)。
@@ -37,7 +37,7 @@ SOLO = {"dev/tests/test_resolve_pack_contract.py"}
 SKIP_DIRS = {"__pycache__", "node_modules", "build", "dist", "work", "logs", "fixtures", ".venv"}
 TAIL_LINES = 25
 SLOWEST = 10
-PY = ["py", "-3.10"] if os.name == "nt" else [sys.executable]
+PY = [sys.executable]   # この道具を動かした Python(py -3.12)で流す
 
 Unit = namedtuple("Unit", "rel cwd args label")
 Result = namedtuple("Result", "unit ok count secs err")

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """素材を 30fps にそろえる(マスタープラン Q1)のテスト: ② flow/normalize の段・動画を選び直す(④ の付け替え)。
 
-    py -3.10 -m unittest src/editor/tests/test_metrics.py        # test_metrics がこのファイルのテストも読み込む
-    py -3.10 -m unittest src/editor/tests/test_normalize30.py    # これだけ
+    py -3.12 -m unittest src/editor/tests/test_metrics.py        # test_metrics がこのファイルのテストも読み込む
+    py -3.12 -m unittest src/editor/tests/test_normalize30.py    # これだけ
 
 ffmpeg・ffprobe で数秒の合成動画(lavfi)を作り、疑似の認識(TRANSCRIBE_BACKEND=fake)で文字起こしのジョブをその場で動かす。
 """

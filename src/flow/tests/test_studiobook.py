@@ -1,6 +1,6 @@
 """src/flow/studiobook.py(スタジオなしの配信の台帳と URL の段の動詞。RS8 の「URL も CLI で」)のテスト。リポジトリ直下で:
 
-    py -3.10 -m unittest src/flow/tests/test_studiobook.py
+    py -3.12 -m unittest src/flow/tests/test_studiobook.py
 
 - 台帳が書く data.json と案件のファイルを、スタジオの Store(③)が同じ形で読める(入口を後から起動したとき画面に出る)
 - 初めて書き出したとき案件にする(data.json は索引の行)・ほかの配信の行とコラボのまとまりはそのまま・壊れた data.json には書かない

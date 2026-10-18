@@ -16,7 +16,7 @@ if not exist "%CSC%" (
 )
 
 echo [1/3] WebView2 DLLs
-py -3.10 ..\..\dev\fetch_webview2.py --out lib
+py -3.12 ..\..\dev\fetch_webview2.py --out lib
 if errorlevel 1 goto fail
 
 if not exist build mkdir build

@@ -1,4 +1,4 @@
-"""src/friendapp/engine.py(玄関の ② の組み立て)と oldcopy の写すだけの形のテスト。リポジトリ直下で: py -3.10 -m unittest src/friendapp/tests/test_engine.py
+"""src/friendapp/engine.py(玄関の ② の組み立て)と oldcopy の写すだけの形のテスト。リポジトリ直下で: py -3.12 -m unittest src/friendapp/tests/test_engine.py
 
 本物の ② の待ち行列は起こさない(queue_factory を差し替える)。一時フォルダだけを使う。
 """

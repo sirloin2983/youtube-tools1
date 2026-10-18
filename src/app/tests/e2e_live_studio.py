@@ -4,9 +4,9 @@
 スタジオの review.js と LivePlayer を載せる)で再生・マーク・書き出しを操作する。本物の YouTube には繋がない。
 (RS8 C4 でスタジオの画面のページ(/studio/)を消した。古い URL /studio/?video=<id> は入口が /cases?c=<id>#cand へ転送する = 12 で確かめる)
 
-    py -3.10 src/app/tests/e2e_live_studio.py                 # 確かめる(終了コード 0 = すべて OK)
-    py -3.10 src/app/tests/e2e_live_studio.py --shots DIR     # あわせて ② などのスクリーンショットを DIR に残す
-    py -3.10 src/app/tests/e2e_live_studio.py --chromium      # Edge があっても Playwright の chromium で(再生が要る確認は飛ばす)
+    py -3.12 src/app/tests/e2e_live_studio.py                 # 確かめる(終了コード 0 = すべて OK)
+    py -3.12 src/app/tests/e2e_live_studio.py --shots DIR     # あわせて ② などのスクリーンショットを DIR に残す
+    py -3.12 src/app/tests/e2e_live_studio.py --chromium      # Edge があっても Playwright の chromium で(再生が要る確認は飛ばす)
 
 作り(e2e_live.py と同じ部品):
   - 入口(server.py)に studio を取り込む(src/studio/tests/e2e_ui.py の --mounted と同じ形。STUDIO_FAKE=1)。作業データ・書き出し先・録画の置き場所は全部一時フォルダ

@@ -1,6 +1,6 @@
 """src/eval/tools/eval_speakers.py(話者の判別・声の照合を、人が直した最終で測る道具)のテスト。リポジトリ直下で:
 
-    py -3.10 -m unittest src/eval/tools/tests/test_eval_speakers.py
+    py -3.12 -m unittest src/eval/tools/tests/test_eval_speakers.py
 
 作業データは一時フォルダに作る(本物の作業データは読まない・書かない)。サーバーは動かさない。
 """

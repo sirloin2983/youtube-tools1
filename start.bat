@@ -4,7 +4,10 @@ rem Details: src\app\README.txt
 setlocal
 cd /d "%~dp0"
 title youtube-tools
-rem Python 3.10 first (the versions in setup\requirements.txt are tested there), then any Python 3.
+rem Python 3.12 when its packages are installed (setup\requirements.txt is tested there),
+rem then 3.10 (the old one, kept for a while), then any Python 3.
+py -3.12 -c "import faster_whisper" >nul 2>&1
+if %errorlevel%==0 goto usepy312
 py -3.10 --version >nul 2>&1
 if %errorlevel%==0 goto usepy310
 py -3 --version >nul 2>&1
@@ -17,6 +20,9 @@ echo Install it from https://www.python.org/downloads/  (check "Add python.exe t
 echo.
 pause
 goto :eof
+:usepy312
+py -3.12 src\app\server.py %*
+goto finish
 :usepy310
 py -3.10 src\app\server.py %*
 goto finish

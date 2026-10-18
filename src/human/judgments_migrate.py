@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """今の記録から人の判断だけを人の判断の記録(judgments.jsonl)へ 1 回写す道具(MARKS-3 の S2)。元の記録は読むだけで、消さない・直さない。
 
-  py -3.10 src/human/judgments_migrate.py [--data-dir D] [--apply]
+  py -3.12 src/human/judgments_migrate.py [--data-dir D] [--apply]
 
 既定は下見(出どころごとに「写す数・重複で飛ばす数・人の判断でないので写さない数」を出すだけ。何も書かない)。
 書くのは --apply が付いていて、かつ定数 ENABLED が True のときだけ(既定 False。ユーザーの確認のあとでオンにする)。ENABLED が False のとき

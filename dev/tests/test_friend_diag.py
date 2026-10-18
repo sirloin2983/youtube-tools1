@@ -1,5 +1,5 @@
 """dev/friend_diag.py(届いた診断を読む道具)のテスト。一時フォルダだけ(本物の Dropbox は読まない)。
-リポジトリ直下で: py -3.10 -m unittest dev/tests/test_friend_diag.py"""
+リポジトリ直下で: py -3.12 -m unittest dev/tests/test_friend_diag.py"""
 import contextlib
 import io
 import json

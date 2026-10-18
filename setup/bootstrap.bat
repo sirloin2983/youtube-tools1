@@ -3,7 +3,7 @@ setlocal
 cd /d "%~dp0"
 
 rem One-shot setup after reinstalling Windows. ASCII only (no Japanese in .bat files).
-rem Installs with winget (skips what is already installed): Python 3.10, ffmpeg, yt-dlp, Deno.
+rem Installs with winget (skips what is already installed): Python 3.12, ffmpeg, yt-dlp, Deno.
 rem Then runs install.bat (Python packages). Dev tools (Playwright) are optional.
 rem Visual Studio Build Tools and Vulkan SDK need a license agreement, so they are NOT installed here.
 
@@ -12,7 +12,7 @@ echo  youtube-tools bootstrap
 echo ============================================================
 echo.
 echo This will install with winget (only what is missing):
-echo   Python 3.10, ffmpeg, yt-dlp, Deno
+echo   Python 3.12, ffmpeg, yt-dlp, Deno
 echo and then run setup\install.bat for the Python packages.
 echo.
 echo NOTE: by running this file you ACCEPT the winget package and
@@ -30,12 +30,12 @@ if errorlevel 1 (
 )
 
 echo.
-echo [1/5] Python 3.10
-py -3.10 --version >nul 2>&1
+echo [1/5] Python 3.12
+py -3.12 --version >nul 2>&1
 if not errorlevel 1 (
   echo   already installed: skip
 ) else (
-  call :wingetinstall Python.Python.3.10
+  call :wingetinstall Python.Python.3.12
   if errorlevel 1 goto fail
 )
 
@@ -57,19 +57,19 @@ if errorlevel 1 goto fail
 echo.
 echo NOTE: commands installed just now (py, ffmpeg, yt-dlp, deno) are found only in a NEW
 echo command prompt (PATH is read when a prompt starts). If the next step cannot find
-echo py -3.10, close this window, open a new command prompt and run setup\bootstrap.bat again.
+echo py -3.12, close this window, open a new command prompt and run setup\bootstrap.bat again.
 
 echo.
 echo [5/5] Python packages (setup\install.bat)
-py -3.10 --version >nul 2>&1
+py -3.12 --version >nul 2>&1
 if errorlevel 1 (
   echo.
-  echo [FAILED] py -3.10 is not available in this window yet. Open a NEW command prompt and run setup\bootstrap.bat again.
+  echo [FAILED] py -3.12 is not available in this window yet. Open a NEW command prompt and run setup\bootstrap.bat again.
   goto fail
 )
 rem install.bat cannot report failure through its exit code, so run it in a child cmd and check the result below.
 cmd /c ""%~dp0install.bat""
-py -3.10 -c "import faster_whisper" >nul 2>&1
+py -3.12 -c "import faster_whisper" >nul 2>&1
 if errorlevel 1 (
   echo.
   echo [FAILED] Python packages: faster_whisper could not be imported after install.bat. See the messages above.
@@ -82,13 +82,13 @@ set "DEVANS="
 set /p DEVANS=Install dev tools for tests (Playwright + chromium)? Not needed to use the tools. [y/N]: 
 if /i not "%DEVANS%"=="y" goto afterdev
 echo.
-py -3.10 -m pip install -r "%~dp0requirements-dev.txt"
+py -3.12 -m pip install -r "%~dp0requirements-dev.txt"
 if errorlevel 1 (
   echo.
   echo [FAILED] pip install of requirements-dev.txt
   goto fail
 )
-py -3.10 -m playwright install chromium
+py -3.12 -m playwright install chromium
 if errorlevel 1 (
   echo.
   echo [FAILED] playwright install chromium

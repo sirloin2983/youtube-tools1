@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""pipeline/analyze/breaks.py(話の切れ目)のテスト。  py -3.10 -m unittest src/pipeline/analyze/tests/test_breaks.py -v
+"""pipeline/analyze/breaks.py(話の切れ目)のテスト。  py -3.12 -m unittest src/pipeline/analyze/tests/test_breaks.py -v
 - cuts: 間の切れ目・句読点と終助詞の加点・間が短くても句読点なら切れ目・最初と最後・壊れた行・空
 - snap: 近くて点の高い方を選ぶ・radius の外は動かさない・短くなりすぎるなら動かさない
 - inside_row: 端が行の中か

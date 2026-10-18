@@ -292,7 +292,7 @@ def fetch_full_audio(video_id, folder, cancelled=None, timeout=FETCH_TIMEOUT, re
 
 
 def worker_python(python=None):
-    """照合の子プロセスの Python(入口と同じ = numpy が入っている 3.10)。窓の無い pythonw は標準出力を返せないことがあるので python.exe にする"""
+    """照合の子プロセスの Python(入口と同じ = numpy が入っている Python)。窓の無い pythonw は標準出力を返せないことがあるので python.exe にする"""
     return tools.python_exe(python)
 
 

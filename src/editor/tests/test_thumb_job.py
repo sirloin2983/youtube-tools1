@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """サムネの案のジョブ(提案 P5。editor/ed_thumb.py → thumb_ideas.py)のテスト。
 
-    py -3.10 -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
+    py -3.12 -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
 
 - 指定(thumb_spec): 切り取りの値・同じ文書で作っている最中は 409・文書が無い・動画が無い
 - ジョブ(本物の ffmpeg で 4 秒の動画を描く): 作業用/<名前>_thumb-ideas.png と .json・案は 6 つ・切り取りの指定・文書は書き換えない(updatedAt も)・thumb_info と画像のパス

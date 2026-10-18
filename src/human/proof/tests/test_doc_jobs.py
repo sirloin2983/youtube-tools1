@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """human/proof/doc_jobs のテスト(差し込みの口 set_hooks は X-RERUN で消した・serve なしで読める・人の行の引き継ぎ)。
 
-    py -3.10 -m unittest src/human/proof/tests/test_doc_jobs.py -v
+    py -3.12 -m unittest src/human/proof/tests/test_doc_jobs.py -v
 
 doc_jobs は editor の部品を裸の名前(import ed_store など)で読むので、src と src/editor を sys.path に足す。編集の serve は読まない
 (serve の登録で口が埋まり、評価用の作り直しの差し替えが本体に届くことは src/editor/tests/test_evalbatch.py・test_names.py が確かめる)。

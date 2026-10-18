@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""flow/learning(学習データを読む側。F1)のテスト。  py -3.10 -m unittest src/flow/tests/test_learning.py -v
+"""flow/learning(学習データを読む側。F1)のテスト。  py -3.12 -m unittest src/flow/tests/test_learning.py -v
 
 - 学習の束(learning.json がある learningDir)は、文書も ③ も読まずに計算済みの規則で用語・置換・辞書の版を返す(= 友人の PC は文書なしで動く)
 - 束がなければ今のまま(文書が無い・③ の読み込みを渡されなければ「学習なし」)

@@ -1,6 +1,6 @@
 """案件の画面(/cases)の「校正」のパネル(RS8 C2b。panels/proof.js・edhost.js・machpick.js)の通し確認(Playwright)。リポジトリ直下で:
     set PYTHONIOENCODING=utf-8
-    py -3.10 src/app/tests/e2e_cases_proof.py
+    py -3.12 src/app/tests/e2e_cases_proof.py
 入口(app/server.py --only transcribe,cut2resolve)を疑似の文字起こしで動かす(src/editor/tests/e2e_edit_common.py の Server)。
 層が正(機械の層 + 人の層)の一時の作業データで 3 択まで確かめる。スタジオの data.json に配信 1 本(切り抜き 3 本・うち 1 本は文字起こし前)を置く。
 見るもの(旧 e2e_proofread_keys・e2e_row_editing の要点): 編集の欄が載る(左のメニュー・空の状態は出ない)/ 左手のキー(S・Shift+Space)・? の一覧 /

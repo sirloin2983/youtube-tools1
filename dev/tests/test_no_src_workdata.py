@@ -1,6 +1,6 @@
 """YTT_DATA_DIR=inplace のとき、作業データ(ログ・起動中の印・書き出し先)が src の中にできないことを見張る。リポジトリ直下で:
 
-    py -3.10 -m unittest dev/tests/test_no_src_workdata.py
+    py -3.12 -m unittest dev/tests/test_no_src_workdata.py
 
 2026-10-16 の RV C5: inplace の作業データは <リポジトリ直下>/.data/<ツールID>/ に置く決めなのに、編集の .running.json・スタジオの exports/export-log.txt・
 cut2resolve の work/serve.log が、各モジュールの「既定 = ツールのフォルダ」の置き場所のまま src の中にできていた(.gitignore で無視されて気づきにくい)。

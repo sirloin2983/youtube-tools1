@@ -1,5 +1,5 @@
 """友人の玄関の ⚙ と初回の準備の口のテスト(F2-5。src/friendapp/settings.py・setup.py・server.py)。本物のソケットで 127.0.0.1 のポート 0 に起こす。
-② は偽物・ネット(取得と API キーの確かめ)は偽物・フォルダを選ぶ窓は偽物(画面を取らない)。リポジトリ直下で: py -3.10 -m unittest src/friendapp/tests/test_settings.py"""
+② は偽物・ネット(取得と API キーの確かめ)は偽物・フォルダを選ぶ窓は偽物(画面を取らない)。リポジトリ直下で: py -3.12 -m unittest src/friendapp/tests/test_settings.py"""
 import hashlib
 import http.client
 import json

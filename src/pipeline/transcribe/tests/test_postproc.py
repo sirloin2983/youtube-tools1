@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """pipeline/transcribe/postproc(行の後処理と要確認の印。役割で組み直す RS2-4b)を、編集の serve を読まずに使うテスト。
 
-    py -3.10 -m unittest src/pipeline/transcribe/tests/test_postproc.py -v
+    py -3.12 -m unittest src/pipeline/transcribe/tests/test_postproc.py -v
 
 細かい決まり(印の条件・行の分け方・つなぎ方の数字)は編集のテスト(src/editor/tests/test_metrics.py・test_whispercpp.py。serve の名前で読む)が確かめる。
 ここは「① が serve なしで読めて同じ物が動く」ことと、読み込みでネイティブの部品・app・eval を読まないことだけ。

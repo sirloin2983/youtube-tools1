@@ -1,5 +1,5 @@
 """260 文字を超える深いフォルダでも、zip の展開と受信箱の動かす所(保存先へ・ごみ箱へ・戻す)が通ること(Windows だけ)。
-リポジトリ直下で: py -3.10 -m unittest src/friendapp/tests/test_longpath.py"""
+リポジトリ直下で: py -3.12 -m unittest src/friendapp/tests/test_longpath.py"""
 import os
 import shutil
 import sys

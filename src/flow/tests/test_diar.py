@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """flow/diar(② 話者判別と声の段取り)のうち、行の選び方と照合のつなぎ・覚えた声の記録のテスト(RS7-1 1e)。
 
-    py -3.10 -m unittest src/flow/tests/test_diar.py -v
+    py -3.12 -m unittest src/flow/tests/test_diar.py -v
 
 - voice_learn_rows: 短い行・混声は ② が数え、校正済みか音のメモかは accept(③)に任せる。数える順は 1 秒未満 → 混ざる → accept の理由
 - match_known_voices: 行 → 声の特徴 → 照合をつなぐ(特徴の取り出しと照合は差し替え)

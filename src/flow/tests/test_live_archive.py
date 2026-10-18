@@ -2,7 +2,7 @@
 """録画に無い区間をアーカイブから書き出す・配信後の全自動(線 D。src/flow/live_archive.py・src/pipeline/ingest/live_align_worker.py)のテスト。
 入口を通す API の分は src/app/tests/test_live_archive_api.py。本物の YouTube には繋がない。
 
-    py -3.10 -m unittest src/flow/tests/test_live_archive.py
+    py -3.12 -m unittest src/flow/tests/test_live_archive.py
 
 作るもの(ffmpeg の lavfi): 「アーカイブ」= 映像 testsrc2 の 60fps + 時間で変わる音(周波数が動く sine + ノイズ)。
 「録画」の音 = その途中を別の符号化(AAC の作り直し・音量 60%)で切り出したもの(録画元への問い合わせと取得を偽物にする)。

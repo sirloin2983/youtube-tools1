@@ -3,7 +3,7 @@
 画面(/friend/)を実際に操作する。リポジトリ直下で:
 
     set PYTHONIOENCODING=utf-8
-    py -3.10 src/friendapp/tests/e2e_friend_receive.py
+    py -3.12 src/friendapp/tests/e2e_friend_receive.py
 
 準備: 偽の ② で 1 配信 3 本のパックを作って「届いた」にする。#1 #2 には短い確認用の動画(ffmpeg で作る。作れなければ全部「確認用の動画なし」の形)・#3 は動画なし。
 流れ: 段の見出し・通し番号 → 再生画面 → 速度と音量を変える(値で確かめる = 音は出さない)→ 読み直しても覚えている →

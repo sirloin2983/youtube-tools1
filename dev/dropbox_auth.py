@@ -156,7 +156,7 @@ def main(argv=None, input_fn=input, urlopen=urllib.request.urlopen, out=print):
             "(このままでは友人のプログラムの「受け取る」が使えません)")
     write_config(a.out, app_key, data["refresh_token"])
     out("3. 書きました: %s(鍵の値は表示しません。人に見せない・コミットしない)" % a.out)
-    out("   次は py -3.10 dev\\build_friend_zip.py --first --with-key → friend-apps\\launcher\\dist\\ の zip を友人に渡す")
+    out("   次は py -3.12 dev\\build_friend_zip.py --first --with-key → friend-apps\\launcher\\dist\\ の zip を友人に渡す")
     return 0
 
 

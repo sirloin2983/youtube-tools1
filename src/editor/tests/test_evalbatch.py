@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """評価用の動画の「手が空いたとき少しずつまとめて文字起こし」(eval/drill/evalbatch.py。RS4-2 まで editor/ed_evalbatch.py。マスタープラン Q4(b))のテスト。
 
-    py -3.10 -m unittest src/editor/tests/test_metrics.py     # test_metrics がこのファイルのテストも読み込む
-    py -3.10 -m unittest src/editor/tests/test_evalbatch.py   # これだけ
+    py -3.12 -m unittest src/editor/tests/test_metrics.py     # test_metrics がこのファイルのテストも読み込む
+    py -3.12 -m unittest src/editor/tests/test_evalbatch.py   # これだけ
 ffmpeg が必要(2 秒の小さな動画を lavfi で作る)。ワーカーのスレッドは動かさず、テストが待機列のジョブを疑似の認識(TRANSCRIBE_BACKEND=fake)で
 その場で動かして「終わった」ことにする(= 偽のワーカー)。
 """

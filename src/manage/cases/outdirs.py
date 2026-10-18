@@ -10,7 +10,7 @@
 書き先: 覚える書き出し先と繋ぎ直した本数は data.json の隣(スタジオの作業データ)の OUT_DIRS_NAME。data.json の書き換えは flow/studiobook の set_cases。
 
 コマンド(入口を終了してから。.flow.lock を取る):
-    py -3.10 src/manage/cases/outdirs.py --relink <配信の id> <フォルダ>
+    py -3.12 src/manage/cases/outdirs.py --relink <配信の id> <フォルダ>
 """
 import argparse
 import os

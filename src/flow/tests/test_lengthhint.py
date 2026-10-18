@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """flow/lengthhint(長さの目安を ② でその場で数える。OPT-E2 7f-1)のテスト。作業データは一時フォルダに作る。
 
-    py -3.10 -m unittest src/flow/tests/test_lengthhint.py -v
+    py -3.12 -m unittest src/flow/tests/test_lengthhint.py -v
 
 - 見本 = 実行記録の ranges(同じ区間は 1 つ・外れ値は数だけ)・長さは中央値を 10〜300 秒に丸める(上限 300 = LD-2d。10-16 まで 180)
 - 山の前の割合は区間の中の自動の候補の山(data.json のマーク・archive の候補)から・見本 10 個未満なら出さない

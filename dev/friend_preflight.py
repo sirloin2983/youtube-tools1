@@ -4,7 +4,7 @@
 今までの「合言葉が違います」「ffmpeg が見つかりません」「確認用の動画が見られない」「依頼が届かない」は、どれも配ってから友人の PC で見つかった。
 開発の PC には Python・ffmpeg・PATH・作業データ・リポジトリがそろっていて、zip に足りない物があっても気づけないため。
 
-    py -3.10 dev/friend_preflight.py [--zip Z] [--work W] [--keep] [--skip-update] [--break ffmpeg] [--timeout-min 25]
+    py -3.12 dev/friend_preflight.py [--zip Z] [--work W] [--keep] [--skip-update] [--break ffmpeg] [--timeout-min 25]
 
 --zip が無ければ dev/build_friend_zip.py の build で今のコードから作る(キャッシュの物だけ = --no-fetch と同じ)。
 流れ(1 つでも落ちたら不合格。結果は <work>/report.json と 1 行ずつの OK / FAIL):
@@ -173,7 +173,7 @@ def mirror_map(fetch, cache, rep):
             continue
         p = os.path.join(cache, "tools", it["file"])
         if not os.path.isfile(p):
-            raise Preflight("キャッシュに %s がありません(py -3.10 dev/build_friend_zip.py --out <一時> で一度取ってから)" % p)
+            raise Preflight("キャッシュに %s がありません(py -3.12 dev/build_friend_zip.py --out <一時> で一度取ってから)" % p)
         if bfz.sha256_file(p) != it["sha256"]:
             raise Preflight("キャッシュの %s が fetch.json の SHA-256 と違います" % it["file"])
         out[it["url"]] = p

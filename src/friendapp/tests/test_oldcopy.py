@@ -1,4 +1,4 @@
-"""src/friendapp/oldcopy.py のテスト。リポジトリ直下で: py -3.10 -m unittest src/friendapp/tests/test_oldcopy.py"""
+"""src/friendapp/oldcopy.py のテスト。リポジトリ直下で: py -3.12 -m unittest src/friendapp/tests/test_oldcopy.py"""
 import hashlib
 import json
 import os

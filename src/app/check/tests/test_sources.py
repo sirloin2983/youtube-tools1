@@ -1,7 +1,7 @@
 """「確かめる」のカードの出どころ(src/app/check/sources.py)と組み立て(deck.py)の単体テスト。一時フォルダの文書・.diar.json・スタジオの data.json だけを使う。
 評価用の文書(evalSet・評価用のフォルダの動画)が 1 枚でも出たら落ちる。
 
-実行(リポジトリ直下から): py -3.10 -m unittest src/app/check/tests/test_sources.py -v
+実行(リポジトリ直下から): py -3.12 -m unittest src/app/check/tests/test_sources.py -v
 """
 import json
 import os

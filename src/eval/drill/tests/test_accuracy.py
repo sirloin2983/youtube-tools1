@@ -1,6 +1,6 @@
 """精度の自動測定(src/eval/drill/accuracy.py)の単体テスト。一時フォルダと、src/eval/tools/eval_*.py の代わりの偽の道具(小さな Python スクリプト)だけを使う。
 
-実行(リポジトリ直下から): py -3.10 -m unittest src/eval/drill/tests/test_accuracy.py -v
+実行(リポジトリ直下から): py -3.12 -m unittest src/eval/drill/tests/test_accuracy.py -v
 (入口の API の検査は src/app/tests/test_accuracy_api.py)
 """
 import datetime

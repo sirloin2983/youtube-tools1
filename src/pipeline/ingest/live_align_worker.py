@@ -2,7 +2,7 @@
 """音の照合(線 D の P4。notes:plan/line-d-live-clipping.md の 0-9)の子プロセス。**入口のプロセスから import しない**
 (入口では numpy を読み込まない決まり。src/flow/live_archive.py が `python live_align_worker.py <ref.wav> <window.wav>` で動かす)。
 
-    py -3.10 src/pipeline/ingest/live_align_worker.py <ref.wav> <window.wav>
+    py -3.12 src/pipeline/ingest/live_align_worker.py <ref.wav> <window.wav>
     (旧い場所の転送は RS5-G で消した)
 
 ref(速報版の音)が window(アーカイブの窓の音)のどこから始まるかを、正規化した相互相関の山で求める。
@@ -107,7 +107,7 @@ def main(argv):
     try:
         import numpy as np
     except ImportError:
-        return fail("numpy が無いので照合できません(py -3.10 に入っている Python で動かしてください)")
+        return fail("numpy が無いので照合できません(py -3.12 に入っている Python で動かしてください)")
     try:
         ref, r1 = read_wav(argv[1], np)
         win, r2 = read_wav(argv[2], np)

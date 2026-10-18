@@ -1,6 +1,6 @@
 """dev/run_e2e.py(e2e の一式)の一覧が、リポジトリの e2e_*.py と食い違っていないかを確かめる。
 
-    py -3.10 -m unittest dev/tests/test_run_e2e.py
+    py -3.12 -m unittest dev/tests/test_run_e2e.py
 """
 import os
 import sys

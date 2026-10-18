@@ -2,7 +2,7 @@
 """pipeline/transcribe/roster の配信ごとの文脈 stream_context と用語の区切り split_terms(役割で組み直す RS2-8a に編集の ed_jobs から移した。RS6 a-3 から ytt/txtext)を、
 編集の serve を読まずに使うテスト。
 
-    py -3.10 -m unittest src/pipeline/transcribe/tests/test_txroster.py -v
+    py -3.12 -m unittest src/pipeline/transcribe/tests/test_txroster.py -v
 
 名簿のファイルは roster.ROSTER、スタジオの配信の情報は ytt/studiodata.studio_stream から読む(RS3-0A まで txenv の口)。本物のスタジオの data.json を読む形
 (serve の登録 = ytt/studiodata.studio_stream。RS3-0A まで ed_store)は編集のテスト(src/editor/tests/test_roster.py の TestStreamContext。serve の名前で読む)が確かめる。

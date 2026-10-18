@@ -1,6 +1,6 @@
 """dev/run_unit.py(層ごとに unittest を流す道具)の一覧の作り方と、1 本だけの実行。リポジトリ直下で:
 
-    py -3.10 -m unittest dev/tests/test_run_unit.py
+    py -3.12 -m unittest dev/tests/test_run_unit.py
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所に書かない(ytt.datadir)

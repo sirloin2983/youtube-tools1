@@ -5,9 +5,9 @@
 (RS8 C4 でスタジオの画面のページと、その ⚙ の「ライブの録画」の欄を消した。案件の画面の帯は開いたときに入口の設定 live.autoDelete を読む。
  LD-1 で「速報版を本番版に入れ替える(P4)」と設定 live.autoArchive は無くなった = アーカイブから書き出すのは録画に無い区間だけで、いつも自動)
 
-    py -3.10 src/app/tests/e2e_live_archive.py                 # 確かめる(終了コード 0 = すべて OK)
-    py -3.10 src/app/tests/e2e_live_archive.py --shots DIR     # あわせてスクリーンショットを DIR に残す
-    py -3.10 src/app/tests/e2e_live_archive.py --chromium      # Edge があっても Playwright の chromium で
+    py -3.12 src/app/tests/e2e_live_archive.py                 # 確かめる(終了コード 0 = すべて OK)
+    py -3.12 src/app/tests/e2e_live_archive.py --shots DIR     # あわせてスクリーンショットを DIR に残す
+    py -3.12 src/app/tests/e2e_live_archive.py --chromium      # Edge があっても Playwright の chromium で
 
 作り(e2e_live_studio.py と同じ形。全部一時フォルダ):
   - 「アーカイブ」= ffmpeg の lavfi で作った mp4(testsrc2 の 30fps + 時間で変わる音。照合できる音)。それを -c copy で 1 秒ごとの HLS にして、

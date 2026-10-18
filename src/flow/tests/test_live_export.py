@@ -2,7 +2,7 @@
 """マークと書き出し(線 D の P2。② の src/flow/live_export.py の Exporter)・採用(M1)・失敗の集約(M3。src/flow/live_failures.py)・ディスク・重い処理の枠のテスト。
 入口 home の Live は使わず、ライブ係 flow/livesession.LiveSession(本物の録画の部品 --source direct・偽のまとめて実行・偽のスタジオ)で組む。
 
-    py -3.10 -m unittest src/flow/tests/test_live_export.py
+    py -3.12 -m unittest src/flow/tests/test_live_export.py
 
   - 本物の録画の部品(--source direct)で配信中のふりの HLS を録り、マーク → 録画待ち → 届いたら取得 → 30fps → スタジオと同じ置き場所・名前・.clip.json →
     文字起こしへ(偽のまとめて実行)・取り消し・録画が先に終わった・録画元が落ちた・欠け・起動し直したらやり直す・書き出しの音量(スタジオと同じ)

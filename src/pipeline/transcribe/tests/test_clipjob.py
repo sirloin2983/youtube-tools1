@@ -2,7 +2,7 @@
 """pipeline/transcribe/clipjob(文字起こしのジョブの機械の文書の行。役割で組み直す RS6 a-3 に human/proof/doc_jobs の run_job から切り出した)を、
 編集の serve を読まずに疑似のエンジンで使うテスト。
 
-    py -3.10 -m unittest src/pipeline/transcribe/tests/test_clipjob.py -v
+    py -3.12 -m unittest src/pipeline/transcribe/tests/test_clipjob.py -v
 
 run_job が作っていた行(行の id・範囲の開始を足した時刻・要確認の印・学習した置換は original にも・置換辞書は segments だけ・単語の時刻・
 「長い区間に文字が少ない」行の avg_logprob)と同じになることを、手で決めた期待値で確かめる。文字起こしの通し(文書・words.json・asr.json)は

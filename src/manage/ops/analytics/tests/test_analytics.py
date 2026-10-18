@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """分析と日報(src/manage/ops/analytics)のテスト。本物のチャンネルの数字は使わない(リポジトリは Public)。make_raw が規則どおりに伸びる架空のチャンネルを作る。
 
-    py -3.10 -m unittest src/manage/ops/analytics/tests/test_analytics.py
+    py -3.12 -m unittest src/manage/ops/analytics/tests/test_analytics.py
 """
 import datetime
 import functools

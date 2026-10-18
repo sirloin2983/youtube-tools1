@@ -42,7 +42,7 @@ import uuid
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.dirname(os.path.dirname(HERE))   # tools -> eval -> src
-if not __package__:   # スクリプトとして起動したとき(py -3.10 src/eval/tools/eval_cloud.py)だけ。src を先頭に・この道具のフォルダは外す(兄弟は絶対 import で読む。見本 pipeline/transcribe/worker.py)
+if not __package__:   # スクリプトとして起動したとき(py -3.12 src/eval/tools/eval_cloud.py)だけ。src を先頭に・この道具のフォルダは外す(兄弟は絶対 import で読む。見本 pipeline/transcribe/worker.py)
     sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
 from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・保存・editor の読み込み)
 from eval.tools import eval_asr as E  # noqa: E402  文書の選び方・採点・まとめ・表示(同じ物差しで測るため)

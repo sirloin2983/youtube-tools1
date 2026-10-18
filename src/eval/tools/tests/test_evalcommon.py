@@ -1,6 +1,6 @@
 """src/eval/tools/_evalcommon.py(測る道具の共通の部品)の、引数・保存・音声の出どころ・JSON の読み込みのテスト。リポジトリ直下で:
 
-    py -3.10 -m unittest src/eval/tools/tests/test_evalcommon.py
+    py -3.12 -m unittest src/eval/tools/tests/test_evalcommon.py
 
 作業データは一時フォルダに作る(本物の作業データは読まない・書かない)。
 """

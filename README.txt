@@ -16,7 +16,7 @@ AI(Claude・GPT)向けの決まりは AGENTS.md です。
     src\                動くコード。ツール本体(home・studio・editor・cut2resolve。録画の部品 recorder は pipeline\ingest)・共通部品(ytt = 基盤。旧 ytt_core・ui-kit)と、役割の層(pipeline = 自動の流れ・human = 人の操作・manage = データの管理・eval = 検証)が入っている。部品は少しずつ役割の層へ移していて、2026-10-10 に RS4 まで済み
     friend-apps\        友人に渡す Windows のアプリ(holo-colors = ホロカラー・launcher = 友人のアプリの窓 FriendApp.exe。C#)
     codemap\            コードの地図(AI が探す用。dev\code_map.py が作る)
-    dev\                開発の道具(テストの補助・push.bat の検査・消すファイルの一覧 removals.txt。精度を測る道具 eval_*.py は src\eval\tools\ へ移した = 使い方は py -3.10 src\eval\tools\eval_asr.py のように)
+    dev\                開発の道具(テストの補助・push.bat の検査・消すファイルの一覧 removals.txt。精度を測る道具 eval_*.py は src\eval\tools\ へ移した = 使い方は py -3.12 src\eval\tools\eval_asr.py のように)
   計画・仕様・作業の記録などの資料は Obsidian の保管庫 D:\Obsidian保管庫\youtube-tools にあります(入口は ホーム.md)。
   AGENTS.md・CLAUDE.md は AI 向けの決まりです。以下の説明にある「home」「studio」「editor」などのツールのフォルダは src\ の中にあります。
 
@@ -43,9 +43,9 @@ AI(Claude・GPT)向けの決まりは AGENTS.md です。
     入っているものは飛ばします。winget の同意を代わりに受け入れるので、最初の表示を読んでから進めてください。
     Visual Studio Build Tools と Vulkan SDK(GPU 用の whisper.cpp を作るときだけ)は同意が要るので入れず、入れ方の案内だけ出します。
     入れたあとの ffmpeg などは、新しい黒い画面から使えます)
-  1. Python 3.10(https://www.python.org/downloads/ 。Windows はインストール時に「Add python.exe to PATH」にチェック。
-       winget なら Windows: winget install Python.Python.3.10 。入れたあとは py -3.10 で動かせます)
-       部品の版は 3.10 で確かめています(setup\requirements.txt)。start.bat・install.bat は 3.10 があればそれを使い、無ければほかの Python 3 を使います
+  1. Python 3.12(https://www.python.org/downloads/ 。Windows はインストール時に「Add python.exe to PATH」にチェック。
+       winget なら Windows: winget install Python.Python.3.12 。入れたあとは py -3.12 で動かせます)
+       部品の版は 3.12 で確かめています(setup\requirements.txt)。install.bat は 3.12 があればそれを使います。start.bat は 3.12 に部品が入っていればそれを、無ければ 3.10(前の版。しばらく残す)→ ほかの Python 3 の順に使います
   2. ffmpeg     Windows: winget install Gyan.FFmpeg   / Mac: brew install ffmpeg
   3. yt-dlp     Windows: winget install yt-dlp.yt-dlp / Mac: brew install yt-dlp
      Deno       Windows: winget install DenoLand.Deno  / Mac: brew install deno

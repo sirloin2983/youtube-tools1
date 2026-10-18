@@ -2,7 +2,9 @@
 setlocal
 cd /d "%~dp0"
 
-rem Python 3.10 first (versions in requirements*.txt are tested there), then any Python 3.
+rem Python 3.12 first (versions in requirements*.txt are tested there), then 3.10 (the old one), then any Python 3.
+py -3.12 --version >nul 2>&1
+if %errorlevel%==0 goto usepy312
 py -3.10 --version >nul 2>&1
 if %errorlevel%==0 goto usepy310
 py -3 --version >nul 2>&1
@@ -10,6 +12,10 @@ if %errorlevel%==0 goto usepy
 python --version >nul 2>&1
 if %errorlevel%==0 goto usepython
 goto nopython
+
+:usepy312
+py -3.12 -m pip install -r requirements-diarize.txt
+goto finish
 
 :usepy310
 py -3.10 -m pip install -r requirements-diarize.txt

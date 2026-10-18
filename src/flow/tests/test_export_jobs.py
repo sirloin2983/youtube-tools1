@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """② 書き出しの器 flow/export.ExportJobs(OPT2 の J2)。① の中身(exporter.run)は差し替える。
 
-    py -3.10 -m unittest src/flow/tests/test_export_jobs.py -v
+    py -3.12 -m unittest src/flow/tests/test_export_jobs.py -v
 
 - 同時に 1 本(動いている間の start は 409 busy)・取り消し・終了の流れの cancel_all(interrupted)
 - 履歴は 20 件(動いている物は消さない)・public は GET /api/export の形

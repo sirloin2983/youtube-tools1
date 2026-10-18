@@ -1,6 +1,6 @@
 """規則の見張り(dev/rule_checks.py・dev/rule_imports.py・dev/ui_audit.py の A-16〜A-19・A-37)が、破った見本で止まり、正しい見本で通ることを確かめる。
 
-    py -3.10 -m unittest dev/tests/test_rule_checks.py
+    py -3.12 -m unittest dev/tests/test_rule_checks.py
 
 規則 1 つ 1 行の表: (名前, 検査の関数, 入力, 止まるときの文言の一部 / None = 通る)。検査そのものの計算の芯(⑤a)。
 規則を実物のリポジトリに当てた結果(0 件)は dev/lint.py の `rule`・dev/ui_audit.py static が見る。

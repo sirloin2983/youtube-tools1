@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """3 択の口(human/proof/machpick と layers.mach_changes・pick。RS8 O2-4)のテスト。
 
-    py -3.10 -m unittest src/human/proof/tests/test_machpick.py -v
+    py -3.12 -m unittest src/human/proof/tests/test_machpick.py -v
 
 機械の結果が変わって人の直しと食い違う行(印 MACH_CHANGED)の 前の機械・今の機械・人の直しを返す・[自分の直しのまま] / [今の機械にする] を選ぶ。
 """

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""flow/livesession(ライブ係。役割で組み直す RS7-2 G2b)のテスト。  py -3.10 -m unittest src/flow/tests/test_livesession.py -v
+"""flow/livesession(ライブ係。役割で組み直す RS7-2 G2b)のテスト。  py -3.12 -m unittest src/flow/tests/test_livesession.py -v
 
 - 入口の Live を使わず、偽の録画元・偽の まとめて実行で: ② の口(Queue.submit の kind live)→ submit → 録画を始める → live/bundles.json →
   束から検出の設定(config.json の bundles)・自動の採用の待ち・配信後の解析の設定・書き出したあとの設定

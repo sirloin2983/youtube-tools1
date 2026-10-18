@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """flow/placement(② 置き場所の持ち主・結果の束・.flow.lock。役割で組み直す RS6 b-B0)のテスト。
 
-    py -3.10 -m unittest src/flow/tests/test_placement.py -v
+    py -3.12 -m unittest src/flow/tests/test_placement.py -v
 
 - 値が今と同じ: スタジオの data.json(案件の locations の以前の式・編集の studio_data_path の以前の式・スタジオ自身の studio_env)
 - 案件の根: 配信 = 書き出しと同じ規則のフォルダ(作らない)・動画ファイル = 動画のあるフォルダ・作業用 / runs
