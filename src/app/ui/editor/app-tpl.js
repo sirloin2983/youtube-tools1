@@ -51,8 +51,6 @@
         <span class="tt-kh-end"><button type="button" class="btn ghost small" id="keyHintAll">すべて <kbd>?</kbd></button><button type="button" class="btn ghost small icon" id="keyHintClose" aria-label="キー操作の手がかりを閉じる" title="閉じる(「キー操作」の一覧からまた出せます)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></span>
       </div>
      </div>
-      <div class="notice tt-norows" id="noRows" hidden role="status"><b>この動画はまだ文字起こししていません。</b>文字起こしすると、ここに行(字幕)が出ます。カットは <b>2 カット</b> のタブで、文字起こしをしなくても決められます。
-        <div class="row" style="margin-top:8px"><button type="button" class="btn small primary" id="btnTxInto">この動画を文字起こしする</button><span class="hint" id="txIntoHint">認識の設定は、メニューの「新規」のものを使います</span></div></div>
       <div id="segs"></div>
     </section>
     <aside class="tx-stage" aria-label="映像と道具">

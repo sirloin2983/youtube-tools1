@@ -108,7 +108,7 @@ function renderJobBadge(){
   b.hidden = !act.length; if (act.length){ const j = act[0]; b.textContent = `処理中 ${act.length}件 ${jobProg(j)}`; }
 }
 
-/* 文字起こしの無い文書の「この動画を文字起こしする」(#btnTxInto)と、文字が認識されなかった文書の「もう一度文字起こしする」(#btnTxAgain。段7 E-14):
+/* 行の無い文書の「もう一度文字起こしする」(#btnTxAgain。段7 E-14。前の版の「文字起こしせずに開いた」文書もここから):
    この文書に入れる文字起こし(intoDoc)を始める。認識の設定はメニューの「新規」のもの */
 async function transcribeInto(btn){
   if (!S.doc || !S.doc.sourcePath) return;
@@ -121,14 +121,13 @@ async function transcribeInto(btn){
   finally { renderIntoState(); }
 }
 
-/* 文字起こしの無い文書の「この動画を文字起こしする」: この文書に入れる文字起こし(intoDoc)が動いている間は押せない */
+/* 「もう一度文字起こしする」: この文書に入れる文字起こし(intoDoc)が動いている間は押せない */
 function renderIntoState(){
   if (!S.doc) return;
   const j = S.jobs.find(x => x.kind === 'transcribe' && x.into === S.docId && ACTIVE.has(x.state));
-  $('#btnTxInto').disabled = !!j || !S.doc.sourcePath;
   const again = $('#btnTxAgain'); if (again) again.disabled = !!j || !S.doc.sourcePath;
-  $('#txIntoHint').textContent = j ? `文字起こし中 ${jobProg(j)}(終わると、ここに行が出ます)`
-    : S.doc.sourcePath ? (EDIT_HOST ? '認識の設定は、ホームの「新規」で決めたものを使います' : '認識の設定は、メニューの「新規」のものを使います') : 'この文書には動画のパスが無いため、文字起こしできません';
+  const hint = $('#txIntoHint'); if (hint && j) hint.textContent = `文字起こし中 ${jobProg(j)}(終わると、ここに行が出ます)`;
+  else if (hint && !S.doc.sourcePath) hint.textContent = 'この文書には動画のパスが無いため、文字起こしできません';
 }
 
 /* 失敗の文(M9): 想定外の失敗(errorDetail がある)は決まった文 + 次の一手。原文は知らせ・カードの「詳しく」の中だけ */

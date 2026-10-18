@@ -136,7 +136,7 @@ def public_job(j):
     sp = j.get("spec") or {}
     out["warnings"] = list(sp.get("warnings") or [])   # 例: 隣の .clip.json が壊れている・別の版(文字起こしは続ける)
     out["hasClip"] = bool(sp.get("clip"))
-    out["into"] = sp.get("intoDoc") or None   # 「編集」: 文字起こしの無い文書に入れる文字起こし(画面の「この動画を文字起こしする」)
+    out["into"] = sp.get("intoDoc") or None   # 「編集」: 文字起こしの無い文書に入れる文字起こし(画面の行 0 の文書の「もう一度文字起こしする」・② の全自動・⑤ の評価用のまとめて)
     out["named"] = list(j.get("named") or [])       # A-3: 話者判別のあと、覚えている声で名前を付けた話者 [{"speaker", "name", "score"}]
     out["learned"] = list(j.get("learned") or [])   # A-3: 声を覚えた人の名前
     out["auto"] = bool(sp.get("auto"))   # 文字起こしのあとの自動の話者判別(v0.50.0)

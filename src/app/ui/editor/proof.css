@@ -484,7 +484,6 @@ html.dense .seg{padding:3px 8px 3px 6px;margin-bottom:3px;gap:3px 6px}html.dense
 .tt-docbar-pills{display:inline-flex;flex-wrap:wrap;gap:6px;margin-left:auto}
 .tt-docbar-pills .pill{font-variant-numeric:tabular-nums}
 .tt-tabpanel{min-width:0}
-.tt-norows{margin:0 0 10px}
 .tt-norec-btns{justify-content:center;margin:10px 0 6px}   /* 文字が認識されなかった文書の次の一手(段7 E-14) */
 /* ホームから開いていないときの「まとめて実行」(段7 E-17): 隠さず、押せない見た目と理由 */
 .tt-need-home{display:block;margin:2px 0 0}

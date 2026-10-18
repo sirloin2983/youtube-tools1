@@ -1185,7 +1185,6 @@ const HANDOFF_KEY = { 'transcript-v1': 'transcript', srt: 'srt', 'cut-plan-v1': 
 const handoffRow = (h, k, l) => `<div><span class="hint">${l}:</span> <span class="path">${esc(h[k])}</span> <button type="button" class="btn ghost small" data-act="copy" data-k="${k}" title="このパスをコピー">コピー</button></div>`;
 document.querySelectorAll('[data-beside]').forEach(b => b.addEventListener('click', () => exportBeside(b.dataset.beside, b)));
 $('#mcTx').addEventListener('click', () => { $('#mediaChoice').hidden = true; onStart(); });
-$('#btnTxInto').addEventListener('click', () => transcribeInto($('#btnTxInto')));
 /* #cpPlanOut は 2 カット の欄(案件の画面ではカット・パックのパネルが持つ = 無い) */
 [$('#handoffOut'), $('#cpPlanOut')].filter(Boolean).forEach(el => el.addEventListener('click', async e => {
   const b = e.target.closest('[data-act=copy]'); if (!b || !S.handoff) return;

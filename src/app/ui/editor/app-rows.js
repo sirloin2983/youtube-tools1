@@ -490,15 +490,14 @@ function segHTML(s, i, T = rowTitles()){
 }
 
 function renderDoc(){
-  const segs = S.doc.segments, untranscribed = !segs.length && !S.doc.model;   // まだ文字起こしの入っていない文書(model が空)
-  $('#noRows').hidden = !untranscribed;
+  const segs = S.doc.segments;
   const T = rowTitles();
-  /* 文字起こししたのに行が 0 の文書(段7 E-14): もう一度この文書に文字起こし(#btnTxInto と同じ intoDoc)か、手で行を足す */
-  $('#segs').innerHTML = segs.length ? segs.map((s, i) => segHTML(s, i, T)).join('') : untranscribed ? '' : '<div class="empty tt-norec"><b>文字が認識されませんでした</b>'
+  /* 行が 0 の文書(段7 E-14。前の版の「文字起こしせずに開いた」文書も同じ): もう一度この文書に文字起こし(intoDoc)か、手で行を足す */
+  $('#segs').innerHTML = segs.length ? segs.map((s, i) => segHTML(s, i, T)).join('') : '<div class="empty tt-norec"><b>文字が認識されませんでした</b>'
     + '音声がない、または小さすぎる可能性があります。設定を変えてもう一度文字起こしするか、行を足すと、ここに出ます'
     + '<div class="row tt-norec-btns"><button type="button" class="btn small primary" id="btnTxAgain" data-act="txagain">もう一度文字起こしする</button><button type="button" class="btn small" data-act="addfirst">＋行を追加(再生位置に)</button></div>'
-    + '<span class="hint">認識の設定は、メニューの「新規」のものを使います(「声の検出」を「なし」にすると拾えることがあります)</span></div>';
-  renderIntoState();   // 「この動画を文字起こしする」・「もう一度文字起こしする」の押せる/押せない
+    + '<span class="hint" id="txIntoHint">認識の設定は、メニューの「新規」のものを使います(「声の検出」を「なし」にすると拾えることがあります)</span></div>';
+  renderIntoState();   // 「もう一度文字起こしする」の押せる/押せない
   UIKit.timebox.attachAll($('#segs'));   // 行の時刻の欄(分:秒.0.1秒。数字だけで入れる・← → で場所・↑ ↓ で動かす。ui-kit v11)
   autoSizeAll(true);
   S.curIdx = -1;   // 描き直すと「再生中」の印(.cur)も消えるので、次の timeupdate で付け直す

@@ -634,11 +634,11 @@ function onCutMarks(changed){
   renderDocBar();
 }
 
-/* 2 カット の字幕の無い案内のボタン(段7 E-14): 1 文字起こし のタブへ移り、「この動画を文字起こしする」(行 0 の文書は「もう一度文字起こしする」)にフォーカス */
+/* 2 カット の字幕の無い案内のボタン(段7 E-14): 1 文字起こし のタブへ移り、行 0 の文書の「もう一度文字起こしする」にフォーカス */
 function goTxInto(){
   setEditTab('tx');
   requestAnimationFrame(() => {
-    const b = [$('#btnTxInto'), $('#btnTxAgain')].find(x => x && x.offsetParent && !x.disabled) || document.querySelector('[data-edtab="tx"]');
+    const b = [$('#btnTxAgain')].find(x => x && x.offsetParent && !x.disabled) || document.querySelector('[data-edtab="tx"]');
     if (b) b.focus();
   });
 }
