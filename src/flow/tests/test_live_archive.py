@@ -307,7 +307,6 @@ class ArchiveTest(unittest.TestCase):
         self.assertEqual(self.arc_of(j1)["message"], "開始時刻が分からないので照合できません")
 
     def test_helpers(self):
-        self.assertEqual(A.free_name(self.tmp, "x.mp4"), os.path.join(self.tmp, "x.mp4"))
         self.assertFalse(A.inside(os.path.join(self.out, "..", "x.mp4"), self.out))
         self.assertEqual(A.probe_archive("bad id!")["status"], "unknown")   # 動画の id は 11 文字の形だけ
         self.assertTrue(A.needs_archive({"state": "error", "needsArchive": True}))

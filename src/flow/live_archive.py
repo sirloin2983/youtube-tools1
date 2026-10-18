@@ -315,16 +315,6 @@ def inside(path, root):
     return fsio.is_inside(path, root, strict=True)
 
 
-def free_name(folder, name):
-    """folder の中で使われていない名前(重なれば <名前>_2.mp4 …)"""
-    stem, ext = os.path.splitext(name)
-    cand, i = name, 2
-    while os.path.lexists(os.path.join(folder, cand)):
-        cand = "%s_%d%s" % (stem, i, ext)
-        i += 1
-    return os.path.join(folder, cand)
-
-
 # ---------- 配信後の全自動(M7)の決め方 ----------
 def ended_at(r):
     """録画の一覧の行 r の「終わった時刻」(epoch 秒): endedAt、無ければ lastPdt(最後のセグメントの時刻)。分からなければ None。
