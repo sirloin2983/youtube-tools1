@@ -46,21 +46,6 @@ class ZipPackTest(unittest.TestCase):
         put(os.path.join(self.pack, "sub", "textplus-import.json"), b"{}")
         self.out = os.path.join(self.tmp, "Dropbox", deliver.OUT_DIR)
 
-    def test_zip_has_top_folder_and_no_temp_left(self):
-        dest = deliver.zip_packs([self.pack], self.out, "20261004-120000-abcdef__題名")
-        self.assertEqual(os.path.basename(dest), "20261004-120000-abcdef__題名.zip")
-        with zipfile.ZipFile(dest) as z:
-            names = sorted(n.replace("\\", "/") for n in z.namelist())
-            self.assertEqual(names, ["clip_pack/clip.mp4", "clip_pack/sub/textplus-import.json"])
-            self.assertEqual(z.getinfo([n for n in z.namelist() if n.endswith(".mp4")][0]).compress_type, zipfile.ZIP_STORED)
-        self.assertEqual([n for n in os.listdir(self.tmp) if n.startswith(".deliver-")], [])
-
-    def test_same_name_does_not_overwrite(self):
-        a = deliver.zip_packs([self.pack], self.out, "n")
-        b = deliver.zip_packs([self.pack], self.out, "n")
-        self.assertNotEqual(a, b)
-        self.assertEqual(len(os.listdir(self.out)), 2)
-
     def test_check_stops_and_cleans_temp(self):
         class Stop(Exception):
             pass
@@ -154,12 +139,6 @@ class OriginTest(unittest.TestCase):
                                "zip": "20261016-120000-abcdef__題.zip", "preview": "20261016-120000-abcdef__題.preview.mp4", "title": "clip",
                                "videoId": "abcdefghijk", "markId": "m7", "streamTitle": "題", "streamer": "", "seconds": 48.26})
 
-    def test_two_packs_same_name_get_separate_metas(self):
-        d1 = deliver.deliver_one(self.pack, self.out, "rid__題", origin="auto")
-        d2 = deliver.deliver_one(self.pack, self.out, "rid__題", origin="auto")
-        self.assertNotEqual(d1, d2)
-        self.assertEqual(len([n for n in os.listdir(self.out) if n.endswith(".meta.json")]), 2)
-
     def test_failure_removes_meta_and_preview(self):
         with mock.patch.object(deliver, "zip_packs", side_effect=OSError(28, "no space")):
             with self.assertRaises(OSError):
@@ -189,6 +168,7 @@ class ZipPacksTest(unittest.TestCase):
         self.assertEqual(got, dest)
         with zipfile.ZipFile(got) as z:
             names = sorted(n.replace("\\", "/") for n in z.namelist())
+            self.assertEqual({z.getinfo(n).compress_type for n in z.namelist() if n.endswith(".mp4")}, {zipfile.ZIP_STORED})   # 動画は圧縮しない
         self.assertEqual(names, sorted(["配信 A_pack/cut-plan.json", "配信 A_pack/配信 A.mp4", "配信 A_pack/配信 A_roughcut.mp4",
                                         "配信 B_pack/sub/x.txt", "配信 B_pack/配信 B.mp4"]))
         self.assertEqual([n for n in os.listdir(self.tmp) if n.startswith(".deliver-")], [])

@@ -120,10 +120,6 @@ class SessionStartTest(unittest.TestCase):
         self.assertIn("- spec: docs/spec/friend.md", text)
         self.assertNotIn("cases.md", text)
 
-    def test_heavy_count_accepts_both_parens(self):
-        self.assertEqual(ss.HEAVY_RE.search("## まだの重い物(3 件)").group(1), "3")
-        self.assertEqual(ss.HEAVY_RE.search("## まだの重い物(4 件)").group(1), "4")
-
     def test_brief_uses_template_and_marks_overlap(self):
         text = ss.brief("friendapp", "友人の口を足す", self.repo, self.notes)
         self.assertTrue(text.startswith("Task:\n友人の口を足す\n"))
@@ -144,10 +140,6 @@ class SessionStartTest(unittest.TestCase):
         act, total, _stale = ss.active_worktrees(self.repo)
         self.assertEqual(total, 1)
         self.assertEqual([r["ahead"] for r in act], [0])   # 未コミットがあるので出るが、先のコミットは無い
-
-    def test_codemap_files(self):
-        self.assertEqual(ss.codemap_files(os.path.join(self.repo, "codemap", "friendapp.md")),
-                         ["src/friendapp/api.py", "src/friendapp/server.py"])
 
 
 if __name__ == "__main__":

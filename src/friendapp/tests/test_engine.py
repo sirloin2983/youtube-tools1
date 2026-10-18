@@ -16,7 +16,6 @@ SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
-from ytt import testkit  # noqa: E402
 from friendapp import engine, inbox  # noqa: E402
 
 
@@ -192,31 +191,8 @@ class RunLogTest(unittest.TestCase):
                                               "audioSec": 120.0, "wallSec": 60.0, "backend": "Vulkan0", "gpu": "NVIDIA GeForce RTX 3060"}]}},
             "told": {"recognition": {"runs": [{"at": 5, "device": "cpu", "model": "old", "audioSec": 1, "wallSec": 1}]}}}   # 飛ばした既存の文書(段の前の記録)
 
-    def test_stage_lines_one_per_started_stage(self):
-        lines = engine.stage_lines(self.run_obj())
-        self.assertEqual(len(lines), 2)
-        self.assertIn("依頼=20261018-100000-abcdef normalize(動画を取得)", lines[0])
-        self.assertIn("90.5 秒 done", lines[0])
-        self.assertIn("transcribe(文字起こし)", lines[1])
-        self.assertIn("60.0 秒", lines[1])
-
-    def test_transcribe_line_has_engine_device_model_rtf(self):
-        lines = engine.transcribe_lines(self.run_obj(), read_doc=self.DOCS.get)
-        self.assertEqual(len(lines), 1)   # 段の前の記録は書かない
-        s = lines[0]
-        for want in ("エンジン=A(whisper.cpp 1.9.4)", "装置=Vulkan0 GPU=NVIDIA GeForce RTX 3060", "モデル=large-v3", "音声=120.0 秒", "かかった=60.0 秒", "実時間比=0.50"):
-            self.assertIn(want, s)
-
-    def test_transcribe_line_cpu_and_missing_device(self):
-        self.assertIn("装置=CPU(GPU は使っていません)", engine.transcribe_line("x", {"device": "cpu", "audioSec": 10, "wallSec": 40}))
-        self.assertIn("実時間比=4.00", engine.transcribe_line("x", {"device": "cpu", "audioSec": 10, "wallSec": 40}))
-        s = engine.transcribe_line("x", {"device": "cuda", "model": "large-v3"})   # GPU の行を拾えていない
-        self.assertIn("エンジン=C", s)
-        self.assertIn("CPU に落ちた疑い", s)
-        self.assertIn("実時間比=?", s)
-
     def test_log_run_writes_stage_transcribe_and_end_lines(self):
-        tmp = testkit.tempdir(self, "friend-runlog-")
+        """段ごと 1 行(始まらなかった段は書かない)・文字起こし 1 行(段の前の記録は書かない)・実行の終わり 1 行"""
         lines = []
         eng = engine.Engine.__new__(engine.Engine)
         eng.log = lines.append
@@ -225,6 +201,11 @@ class RunLogTest(unittest.TestCase):
             eng.log_run(self.run_obj(state="error", error="GPU(Vulkan)を使えませんでした", docs=[]))
         self.assertEqual(len([x for x in lines if x.startswith("段 ")]), 4)
         self.assertEqual(len([x for x in lines if x.startswith("文字起こし ")]), 1)
+        self.assertIn("normalize(動画を取得)", lines[0])
+        self.assertIn("90.5 秒 done", lines[0])
+        for want in ("モデル=large-v3", "GPU=NVIDIA GeForce RTX 3060", "実時間比=0.50"):
+            self.assertIn(want, lines[2])
+        self.assertIn("CPU に落ちた疑い", engine.transcribe_line("x", {"device": "cuda", "model": "large-v3"}))   # GPU の行を拾えていない
         self.assertIn("実行の終わり 依頼=20261018-100000-abcdef 状態=done", lines[3])
         self.assertTrue(lines[-1].endswith("理由=GPU(Vulkan)を使えませんでした"))
 

@@ -52,18 +52,13 @@ class TestPackJobs(unittest.TestCase):
 
         def tool(task):
             raise C.ToolError("だめ")
-        self.assertEqual(wait(pj.start_job("plan", tool)).error["code"], "tool")
-
-    def test_history_is_trimmed(self):
-        pj = PackJobs("t")
-        ids = []
-        for _ in range(KEEP_JOBS + 3):
-            ids.append(wait(pj.start_job("plan", lambda task: 1)).id)
-        self.assertEqual(len(pj.table.jobs), KEEP_JOBS)
+        last = wait(pj.start_job("plan", tool))
+        self.assertEqual(last.error["code"], "tool")
+        self.assertIs(pj.job(last.id).id, last.id)
         with self.assertRaises(ApiError):
-            pj.job(ids[0])
-        self.assertIs(pj.job(ids[-1]).id, ids[-1])
+            pj.job("nothere")
         self.assertIsNone(pj.running_now())
+        self.assertEqual(pj.table.keep, KEEP_JOBS)   # 履歴の削り方そのものは test_jobs_table の test_retry_and_history
 
     def test_build_always_waits_plan_only_when_heavy(self):
         slots = jobs.HeavySlots(1)

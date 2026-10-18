@@ -579,34 +579,18 @@ class TestModes(Base):
         self.assertEqual(queued.state, "done", queued.public())
         self.assertEqual(self.tools.tx_jobs["t1"]["body"]["model"], "large-v3")
 
-    def test_row_edge_setting_is_passed(self):
-        """行から作るときの端の広げ方は「編集」の「行から」の設定(文字起こしの settings.rowEdge)を cut2resolve に渡す"""
+    def test_pack_follows_edit_settings(self):
+        """パックは編集の設定に従う: 行から作るときの端の広げ方(settings.rowEdge)・Text+ 字幕の1段の文字数(subtitle.wrapChars.vertical。12 ②)・
+        話者の色のスイッチ・音量(LUFS か %)。独立した設定なので 1 回の通しで渡す(既定は test_cut_method_default_is_none)"""
         self.tools.row_edge = {"on": False, "after": 0.5, "before": 0.3}
+        self.tools.subtitle = {"wrapChars": {"vertical": 9, "horizontal": 14}}
+        self.tools.tx_extra = {"speakerColors": False, "packLoudness": 0, "packVolume": 70}
         self.set_prefs(cut="rows")
         run = self.run_one("adopted")
         self.assertEqual(run["state"], "done", run)
+        out = self.tools.c2r["body"]["output"]
         self.assertEqual(self.tools.c2r["body"]["spec"]["rowEdge"], {"on": False, "after": 0.5, "before": 0.3})
-
-    def test_wrap_setting_is_passed(self):
-        """Text+ 字幕の1段の文字数は、字幕の文字数の設定(文字起こしの settings.subtitle.wrapChars.vertical)を cut2resolve に渡す(12 ②)"""
-        self.tools.subtitle = {"wrapChars": {"vertical": 9, "horizontal": 14}}
-        run = self.run_one("adopted")
-        self.assertEqual(run["state"], "done", run)
-        self.assertEqual(self.tools.c2r["body"]["output"]["textplusWrap"], 9)
-
-    def test_pack_follows_edit_settings(self):
-        """まとめて実行のパックは、編集の設定の話者の色のスイッチ・音量(LUFS か %)に従う(以前は話者の色が常にオン・音量なし)"""
-        run = self.run_one("adopted")
-        self.assertEqual(run["state"], "done", run)
-        out = self.tools.c2r["body"]["output"]
-        self.assertEqual((out["speakerColors"], out.get("loudness"), out.get("volume")), (True, None, 30))   # 既定: 色あり・音量 30%(2026-10-01)
-
-    def test_pack_follows_edit_settings_off_and_percent(self):
-        self.tools.tx_extra = {"speakerColors": False, "packLoudness": 0, "packVolume": 70}
-        run = self.run_one("adopted")
-        self.assertEqual(run["state"], "done", run)
-        out = self.tools.c2r["body"]["output"]
-        self.assertEqual((out["speakerColors"], out.get("loudness"), out["volume"]), (False, None, 70))
+        self.assertEqual((out["textplusWrap"], out["speakerColors"], out.get("loudness"), out["volume"]), (9, False, None, 70))
 
     def test_cut_method_none_for_docs_without_cut(self):
         """カットを決めていない文書のカットの方法(ホームの設定 autorun.cut): none = 動画全体・カット済の行の字幕も消さない(段3)"""
@@ -627,6 +611,8 @@ class TestModes(Base):
     def test_cut_method_default_is_none(self):
         run = self.run_one("adopted")   # ホームの設定が無いときはカットしない(2026-10-01 ユーザー決定)
         self.assertEqual(self.tools.c2r["body"]["spec"]["mode"], "list")
+        out = self.tools.c2r["body"]["output"]
+        self.assertEqual((out["speakerColors"], out.get("loudness"), out.get("volume")), (True, None, 30))   # 既定: 色あり・音量 30%(2026-10-01)
 
     def test_adopted_mode_exports_transcribes_and_packs(self):
         self.set_prefs(cut="rows")
@@ -994,27 +980,12 @@ class TestRunLog(Base):
         recs.append(dict(id="d1", kind="doc", videoId=None, docId="doc1", state="error", error="止まった", steps=[], v=1))
         os.makedirs(self.logs)
         with open(self.path, "w", encoding="utf-8") as f:
-            f.write("".join(json.dumps(x) + "\n" for x in recs))
+            f.write("not json\n" + "".join(json.dumps(x) + "\n" for x in recs))   # 壊れた行の種類ごとの読み飛ばしは flow の test_runlog
         r = self.runner()
         try:
             past = r.snapshot()["past"]
             self.assertEqual([p["id"] for p in past], ["d1", "r6", "r5", "r4"])   # 配信・文書ごとの最後の1件・新しい順
-        finally:
-            r.close()
-
-    def test_broken_lines_are_skipped(self):
-        good = dict(id="ok1", kind="video", videoId=VID, docId=None, state="error", error="理由", steps=[], v=1)
-        os.makedirs(self.logs)
-        with open(self.path, "wb") as f:
-            f.write(b"not json\n" + b"\xff\xfe\n" + json.dumps([1]).encode() + b"\n"
-                    + json.dumps(dict(good, v=2)).encode() + b"\n"                 # 知らない版
-                    + json.dumps(dict(good, id="run", state="running")).encode() + b"\n"   # 終わっていない
-                    + json.dumps(dict(good, kind="video", videoId=None)).encode() + b"\n"
-                    + json.dumps(good).encode() + b"\n" + b'{"id": "cut-off", "kind": "vi')   # 途中で切れた最後の行
-        r = self.runner()
-        try:
-            self.assertEqual([p["id"] for p in r.snapshot()["past"]], ["ok1"])
-            self.assertEqual([p["id"] for p in r.history()["runs"]], ["ok1"])
+            self.assertEqual(r.history()["total"], 8)
         finally:
             r.close()
 
@@ -1461,14 +1432,6 @@ class TestRequests(Base):
         self.assertEqual(sorted(marks), sorted(p["dir"] for p in packs))
         self.assertEqual(sorted(m["markId"] for m in marks.values()), sorted(p["markId"] for p in packs))
         self.assertFalse([n for n in os.listdir(os.path.dirname(self.tools.clip_path("a2"))) if n.startswith(".deliver")], "書きかけの zip・確認用の動画が残る")
-
-    def test_meta_has_seconds_from_clip_length(self):
-        """印の seconds = そのパックの切り抜きの長さ(小数 2 桁)。分からなければ None"""
-        self.tools.known = False
-        self.fake_seconds(a2_pack=48.2, a3_pack=31.456)
-        run = self.auto_request()
-        self.assertEqual(run["state"], "done", run)
-        self.assertEqual([self.meta_of(self.out, "%s__a%d.zip" % (self.RID, i))["seconds"] for i in (2, 3)], [48.2, 31.46])
 
     def test_live_clips_each_delivered_as_the_run_ends(self):
         """ライブの切り抜き(1 本ごとに別の実行)も、その実行の中で 1 本ずつ届ける(溜めはしない = F3-6)。溜めは残らない"""

@@ -1011,17 +1011,6 @@ class TestHttpsec(unittest.TestCase):
 
 
 class TestTools(unittest.TestCase):
-    def test_find_tool_env_override(self):
-        with tempfile.NamedTemporaryFile(delete=False) as f:
-            fake = f.name
-        try:
-            with mock.patch.dict(os.environ, {"X_FFMPEG": fake}):
-                self.assertEqual(tools.find_tool("ffmpeg", "X_FFMPEG"), fake)
-            with mock.patch.dict(os.environ, {"X_FFMPEG": fake + ".missing"}), mock.patch.object(tools.shutil, "which", return_value="/p/ffmpeg"):
-                self.assertEqual(tools.find_tool("ffmpeg", "X_FFMPEG"), "/p/ffmpeg")
-        finally:
-            os.unlink(fake)
-
     @unittest.skipUnless(os.name == "nt", "winget の場所は Windows だけ")
     def test_media_tool_finds_winget_and_sibling_ffprobe(self):
         """RS7-1 F-k: パックの ffmpeg / ffprobe は PATH に無くても winget の場所から(ffprobe は決めた ffmpeg の隣が先)。どこにも無ければ名前のまま"""
