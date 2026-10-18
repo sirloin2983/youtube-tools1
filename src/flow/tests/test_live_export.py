@@ -668,9 +668,9 @@ class ExportPiecesTest(unittest.TestCase):
         again = LX.Exporter(mock.Mock(), os.path.join(self.tmp, "live"), lambda: os.path.join(self.tmp, "out"))   # 記録に残る
         self.assertEqual((again.jobs[0]["handoffWait"], again.jobs[0]["runId"]), ("", "run-1"))
 
-    def test_hold_for_archive_then_release(self):
+    def test_hold_for_archive(self):
         """M7(LD-1): hold archive のジョブは from archive の印で、録画からは書き出さない(_next_ready が飛ばす・pending に数えない = Archiver が受け持つ)。
-        前の版の本番版待ち(handoffWait archive)は release_hold で渡す。空きが少なければ空き待ちに。アーカイブから書き出したものはすぐ渡す"""
+        アーカイブから書き出したものはすぐ渡す"""
         free = {"v": 50 * LX.GB}
         runner = FakeRunner()
         ex, _logs = self._pieces_exporter(free, runner)
@@ -691,17 +691,7 @@ class ExportPiecesTest(unittest.TestCase):
         ans = {"url": "https://www.youtube.com/watch?v=abcdefghijk", "firstPdt": "2026-10-04T05:00:00.000Z"}
         a, b = LX.iso_epoch(j["start"]), LX.iso_epoch(j["end"])
         ex._finish(j, {"id": "local"}, rec, ans, {"path": media, "duration": 5.0, "title": "配信"}, a, b, archive={"videoId": "abcdefghijk"})
-        self.assertEqual((j["handoffWait"], j["runId"], j["state"]), ("", "run-1", "done"))   # アーカイブから書き出したものはすぐ渡す
-        # 前の版の本番版待ち
-        j2 = dict(j, id="lx-00000000b2", handoffWait="archive", runId="")
-        ex.jobs.append(j2)
-        free["v"] = 1 * LX.GB
-        self.assertEqual(ex.release_hold(j2), "")                            # 空きが少ない → 空き待ちへ
-        self.assertEqual(j2["handoffWait"], "disk")
-        self.assertEqual(ex.release_hold(j2), "")                            # もう本番版の待ちではない
-        free["v"] = 50 * LX.GB
-        ex._retry_handoffs()
-        self.assertEqual((j2["handoffWait"], j2["runId"], runner.files[-1][2]), ("", "run-2", "auto"))
+        self.assertEqual((j["handoffWait"], j["runId"], j["state"], runner.files[-1][2]), ("", "run-1", "done", "auto"))   # アーカイブから書き出したものはすぐ渡す
 
     def test_handoff_with_friend_request(self):
         """友人のライブ配信の依頼の録画(2-15): 書き出したら まとめて実行の start_file に 依頼 id・届け先・話者・トラック・カット(依頼のものが live.auto より先)と

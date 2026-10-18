@@ -46,7 +46,6 @@
 アーカイブから書き出すジョブ(M7。2026-10-16 の見直し = 決定 3-73): 配信後の全自動(src/flow/live_archive.py)が採用した候補は hold "archive" で頼まれ、
 from "archive" の印を付けた wait のジョブになる。録画からは書き出さず(_next_ready が飛ばす・pending に数えない)、Archiver がアーカイブから書き出して
 _finish(archive=…)で済ませ、すぐ まとめて実行へ渡す。録画に無い区間(欠け・録画が区間まで届かなかった)は error + needsArchive で、同じく Archiver が書き出す。
-前の版の handoffWait "archive"(速報版を書き出して本番版を待っていた)は Archiver が release_hold で そのまま渡す(入れ替えは廃止)。
 
 .clip.json の source(pipeline.md の 2.1 に足す値): kind "live"。range は「録画の最初のセグメントの受信時刻」からの秒、
 絶対時刻と録画の素性は source.live に入れる(P4 でアーカイブの時刻へ置き換えるため)。videoId は YouTube の動画の id(分かるとき)。
@@ -1347,8 +1346,8 @@ class Exporter(Patrol):
             handoff = ("パックへ" if after == "auto" else "文字起こしへ") + "渡せませんでした: %s" % str(e)[:160]
         return run_id, handoff, warn
 
-    def _hand_over(self, job, note=""):
-        """待っていた まとめて実行への受け渡しを今する(M4 の空き待ち・前の版の M7 の本番版待ち)。空きが少なければ「空き待ち」に。-> run の id か "\""""
+    def _hand_over(self, job):
+        """待っていた まとめて実行への受け渡しを今する(M4 の空き待ち)。空きが少なければ「空き待ち」に。-> run の id か "\""""
         after = job_after(job)
         media = job.get("path") or ""
         if after == "none" or not media or not os.path.isfile(media):
@@ -1356,8 +1355,6 @@ class Exporter(Patrol):
                       ("パックへ" if after == "auto" else "文字起こしへ") + "渡せませんでした: 書き出した動画が見つかりません(動かしたか消したかもしれません)")
             return ""
         notes = [x for x in str(job.get("warning") or "").split(" / ") if x]
-        if note and note not in notes:
-            notes.append(note)
         if self._disk_low():
             self._set(job, handoffWait="disk", warning=" / ".join(notes), message="書き出しました" + self._after_note(after, "", "disk"))
             return ""
@@ -1369,14 +1366,6 @@ class Exporter(Patrol):
         elif handoff:
             self.log("リアルタイム切り抜き: " + live_failures.failure_of(dict(job, handoffError=handoff))["text"])
         return run_id
-
-    def release_hold(self, job, note=""):
-        """前の版で本番版への入れ替えを待っていた書き出し(handoffWait "archive"。M7)を まとめて実行へ渡す(src/flow/live_archive.py から。
-        入れ替えは廃止したので note に理由を付けて そのまま渡す)。-> run の id か ""(渡さなかった・空き待ち)"""
-        with self.lock:
-            if job.get("state") != "done" or job.get("handoffWait") != "archive":
-                return ""
-        return self._hand_over(job, note)
 
     def _retry_handoffs(self):
         """空きを待っていた受け渡し(handoffWait "disk")を、空きが戻ったら渡す(M4)"""

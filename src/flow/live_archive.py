@@ -1189,9 +1189,6 @@ class Archiver(LX.Patrol):
                 waiting += 1
             elif j.get("state") in LX.ACTIVE or arc.get("state") in ACTIVE:
                 waiting += 1
-            elif j.get("state") == "done" and j.get("handoffWait") == "archive":   # 前の版: 速報版を書き出して本番版を待っていた(入れ替えは廃止)
-                self.ex.release_hold(j, "本番版への入れ替えはやめたので、速報版のまま文字起こし・パックへ渡しました")
-                waiting += 1 if j.get("handoffWait") else 0
             elif j.get("state") == "done" and j.get("handoffWait"):
                 waiting += 1   # 空き待ち(M4)
         if todo:
@@ -1292,8 +1289,6 @@ class Archiver(LX.Patrol):
         tdir = None
         try:
             if not needs_archive(job):   # 前の版で入れ替え(速報版 → 本番版)を待っていたジョブ: 入れ替えは廃止したので何もしない
-                if job.get("handoffWait") == "archive":   # 先に渡す(取り消しの印を見た側が、待っていた受け渡しを見ないように)
-                    self.ex.release_hold(job, "本番版への入れ替えはやめたので、録画から書き出した切り抜きのまま文字起こし・パックへ渡しました")
                 self._aset(job, state="cancelled", message="本番版への入れ替えはやめました(録画から書き出した切り抜きのままです)", progress=0, retryAt=None)
                 return
             if self.ex._disk_low():   # 空きが少ない(M4): アーカイブからの書き出し(書き出し先へ書く・丸ごとの音)も空くまで待つ

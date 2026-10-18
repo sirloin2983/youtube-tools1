@@ -314,11 +314,11 @@ class ArchiveTest(unittest.TestCase):
         self.assertFalse(A.needs_archive({"state": "done", "from": "archive"}) or A.needs_archive({"state": "wait"}) or A.needs_archive({"state": "error"}))
 
     def test_old_replace_jobs_are_dropped(self):
-        """前の版で入れ替え(速報版 → 本番版)を待っていたジョブ(done + archive wait)は、何もせずに取り消しにする(本番版を待っていた受け渡しは渡す)"""
+        """前の版で入れ替え(速報版 → 本番版)を待っていたジョブ(done + archive wait)は、何もせずに取り消しにする"""
         speed = os.path.join(self.out, "速報版.mp4")
         with open(speed, "wb") as f:
             f.write(b"x")
-        j1 = self.job(150.0, 6.0, 1, "done", archive={"state": "wait", "label": "待ち"}, handoffWait="archive", after="check", path=speed)
+        j1 = self.job(150.0, 6.0, 1, "done", archive={"state": "wait", "label": "待ち"}, after="check", path=speed)
         studio = FakeStudio(self.arc)
         ar = self.archiver(studio)
         ar.start()
@@ -327,8 +327,6 @@ class ArchiveTest(unittest.TestCase):
         self.assertEqual(a["state"], "cancelled")
         self.assertIn("入れ替えはやめました", a["message"])
         self.assertFalse(studio.calls)
-        self.assertNotEqual(j1.get("handoffWait"), "archive")   # 待っていた受け渡しは渡した(このテストにまとめて実行は無い = 渡せなかった印)
-        self.assertIn("入れ替えはやめた", j1.get("warning") or "")
 
     def test_board_follows_archive(self):
         """掲示板(RS8 の ② の口 S2): 書き出しの状態が変わったら la:<ジョブの id> がその state で載る・配信後の全自動は la:as-<録画元>.<録画>"""
@@ -656,19 +654,6 @@ class AfterStreamTest(unittest.TestCase):
         # 録画元につながらない: 欠けは分からない(None)まま比べる
         self.ex._query = lambda rc, rec, a_, b_: (None, None)
         self.assertIsNone(a._rec_holes("local", REC, {"first": self.first, "last": self.first + 10}))
-
-    def test_old_hold_is_released(self):
-        """前の版で速報版を書き出して本番版を待っていたジョブ(done + handoffWait archive)は、そのまま まとめて実行へ渡す"""
-        a = self.archiver()
-        a._after_set("local", REC, state="export", jobs=["lx-old0000001"], message="")
-        with open(os.path.join(self.out, "a.mp4"), "wb") as f:
-            f.write(b"x")
-        self.ex.jobs.append({"id": "lx-old0000001", "recorder": "local", "recording": REC, "markId": "lm-000000000001", "state": "done",
-                             "after": "check", "transcribe": True, "handoffWait": "archive", "path": os.path.join(self.out, "a.mp4"), "warning": ""})
-        a.after_tick()
-        j = self.ex.jobs[-1]
-        self.assertIn("入れ替えはやめた", j.get("warning") or "")
-        self.assertNotEqual(j.get("handoffWait"), "archive")
 
     def test_archived(self):
         """アーカイブ化したか(録画を消す合図): was_live・限定でない・開始と長さが分かる・アーカイブが録画の終わりまである。消す直前に必ず確かめ直す"""
