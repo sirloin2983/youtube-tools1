@@ -4,8 +4,8 @@
 
 ## dev/
 
-- **build_friend_zip.py** (616 行) — 友人の PC に配る zip(新しいアプリ FriendApp + ② + ① の Python のコード + 埋め込み用 Python + 部品)を作る道具(F1 の F4a。設計 notes:docs/design/f1-build.md の 2・3 節)。
-  - 名前: `class BuildError` :96・`say` :100・`sha256_file` :104・`download` :117・`cached` :129・`wheel_pins` :164・`pip_download` :182・`wheels` :192・`unzip_into` :230・`lay_python` :255・`src_files` :276・`lay_src` :291・ほか 17
+- **build_friend_zip.py** (658 行) — 友人の PC に配る zip(新しいアプリ FriendApp + ② + ① の Python のコード + 埋め込み用 Python + 部品)を作る道具(F1 の F4a。設計 notes:docs/design/f1-build.md の 2・3 節)。
+  - 名前: `class BuildError` :97・`say` :101・`sha256_file` :105・`download` :118・`cached` :130・`wheel_pins` :165・`pip_download` :183・`wheels` :193・`unzip_into` :231・`lay_python` :256・`src_files` :277・`lay_src` :292・ほか 20
 - **code_map.py** (462 行) — コードの地図と言葉の索引を作る道具(AI のセッションがコードの場所を早く見つけるため。2026-10-18)。
   - 名前: `git_files` :52・`skipped` :57・`is_test` :61・`read` :65・`one_line` :73・`comment_head` :85・`py_info` :112・`js_info` :143・`cs_info` :164・`info` :186・`layer_of` :199・`norm_route` :206・ほか 11
   - 受ける口: 
@@ -19,6 +19,10 @@
   - 名前: `demo_fetch` :31・`demo_probe` :36・`class StubQueue` :41・`class StubEngine` :66・`demo_thumb` :93・`class DemoStreams` :102・`seed` :141・`write_demo_fetch` :211・`class DemoDownloader` :225・`demo_file` :238・`main` :248
 - **friend_diag.py** (186 行) — 友人のアプリから届いた診断の記録を読む(ユーザーの PC。notes:docs/spec/friend.md の 13-11)。AI が原因を調べるときに流す。
   - 名前: `default_dir` :34・`prune` :45・`load` :59・`is_error` :82・`lines_of` :102・`main` :146
+- **friend_preflight.py** (853 行) — 友人に配る zip を、配る前にこの PC で「友人の PC と同じ状態」にして通しで試す(配る前の検査。notes:docs/spec/friend.md の 13-11)。
+  - 名前: `class Preflight` :65・`class Report` :69・`free_port` :95・`link_or_copy` :101・`unpack` :110・`break_fetch` :129・`place_models` :139・`mirror_map` :163・`lay_shim` :179・`friend_env` :189・`make_work` :215・`class Window` :238・ほか 24
+- **friend_preflight_shim.py** (270 行) — 配る前の検査(dev/friend_preflight.py)の通信の差し替え。検査が、展開した写しの python/Lib/site-packages/sitecustomize.py として置く
+  - 名前: `install` :246
 - **land.py** (287 行) — 作業のブランチを main に入れ、版(src/ytt/version.py の VERSION と README.txt の見出し)を道具が 1 つ上げる(2026-10-18)。
   - 名前: `class Stop` :36・`git` :40・`main_worktree` :49・`bump` :60・`read_version` :65・`set_version` :72・`set_readme` :76・`needs_bump` :86・`read_file` :91・`write_file` :96・`pid_alive` :101・`class Lock` :119・ほか 5
 - **layer_map.py** (139 行) — 役割の層と、今のファイルの行き先(役割で組み直す計画 `notes:plan/role-restructure.md` の 7 節を機械で読める形にしたもの。RS0。RS6 a-0 で 5 つの層に)。
@@ -68,6 +72,7 @@
 - dev/tests/test_code_map.py — dev/code_map.py(コードの地図と言葉の索引を作る道具)の部品のテスト。リポジトリ直下で:
 - dev/tests/test_dropbox_auth.py — dev/dropbox_auth.py(切り抜き依頼の鍵を作る)のテスト。通信はしない(urlopen を差し替える)。
 - dev/tests/test_friend_diag.py — dev/friend_diag.py(届いた診断を読む道具)のテスト。一時フォルダだけ(本物の Dropbox は読まない)。
+- dev/tests/test_friend_preflight.py — 配る前の検査(dev/friend_preflight.py・dev/friend_preflight_shim.py)と、build_friend_zip.py --publish の関所のテスト。
 - dev/tests/test_land.py — dev/land.py(main に入れる・版を道具が上げる)のテスト。一時フォルダの git リポジトリと worktree だけを使う
 - dev/tests/test_layering.py — 役割の層の import の向きを守るテスト(役割で組み直す計画 `notes:plan/role-restructure.md` の 4 節 1。RS0)。
 - dev/tests/test_lint.py — dev/lint.py(コードの基準を測る道具)の部品のテスト。リポジトリ直下で:

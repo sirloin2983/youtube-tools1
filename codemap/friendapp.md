@@ -20,8 +20,8 @@
 - **live_session.py** (223 行) — 友人の玄関のライブ係(F2-6。notes:plan/f1-friend-requirements.md の A-5・A-13・A-14、docs/spec/friend.md の 2-15)。
   - 名前: `recorders` :34・`class FriendLive` :43
   - 受ける口: `/api/queue/add` :88・`/api/queue` :91
-- **oldcopy.py** (466 行) — 友人の PC の古い作業データ(old_root)から、初回の取得の表(fetch.json)に載った物を新しい作業データ(new_root)へ写す。
-  - 名前: `load_items` :74・`plan` :112・`notice` :168・`pending` :176・`clean` :194・`skip` :204・`mark_notice_shown` :213・`home_pending` :397・`clean_home` :406・`mark_asked` :429・`migrate` :436
+- **oldcopy.py** (467 行) — 友人の PC の古い作業データ(old_root)から、初回の取得の表(fetch.json)に載った物を新しい作業データ(new_root)へ写す。
+  - 名前: `load_items` :74・`plan` :112・`notice` :168・`pending` :176・`clean` :194・`skip` :204・`mark_notice_shown` :213・`home_pending` :398・`clean_home` :407・`mark_asked` :430・`migrate` :437
 - **places.py** (236 行) — 友人の玄関の置き場所(F2-1。notes:plan/f1-friend-requirements.md の 7 章・A-15・A-16)。
   - 名前: `home` :33・`data_root` :45・`friend_dir` :53・`outbox_dir` :57・`old_data_root` :61・`is_maker_data` :73・`tool_env` :102・`lay_tools_shallow` :123・`lay_whisper` :151・`api_key_env` :176・`members_env` :195・`setup` :206
 - **progress.py** (236 行) — 友人のアプリの「送った物」の行に出す、失敗の言葉と進み具合を作る部品(F3-3。notes:plan/f1-friend-requirements.md の C-2-15・C-2-16)。純粋な関数だけ(ファイルもネットも触らない。時計は引数で受ける)。
