@@ -183,8 +183,8 @@ def seed_check(tmp, txdir, samples, videos, write_tx, now):
       voice:diar  話者の判別(.diar.json)の行(1 秒以上・混ざり無し・校正していない)
       time:row    校正済みの行
       speech:diar 声の区間(.diar.json の turns)と重ならない行(C-EVAL)
-      section:eval 評価用の文書の区間(評価のレーン。見本ではスイッチをオンにする = main の YTT_CHECK_SECTION。C-EVAL)
-      cut:edge・gap・whole 自動カットのたたき台(edit.json の draft.keepsSec。見本ではスイッチをオン = YTT_CHECK_CUT。CUT-CARD)"""
+      section:eval 評価用の文書の区間(評価のレーン。既定オン。C-EVAL)
+      cut:edge・gap・whole 自動カットのたたき台(edit.json の draft.keepsSec。既定オン。CUT-CARD)"""
     from ytt import schemas
     created = int((now - 86400) * 1000)
     title = "【自分の配信】まったり雑談"
@@ -252,8 +252,7 @@ def main(argv=None):
     tmp = os.path.abspath(a.dir) if a.dir else tempfile.mkdtemp(prefix="ytt-demo-")
     keep = bool(a.dir)
     os.environ.update({"YTT_DATA_DIR": "inplace", "YTT_RUNTIME_DIR": os.path.join(tmp, ".runtime"), "STUDIO_FAKE": "1",
-                       "TRANSCRIBE_BACKEND": "fake", "STUDIO_HOME": os.path.join(tmp, "studio-home"),
-                       "YTT_CHECK_SECTION": "on", "YTT_CHECK_CUT": "on"})   # 見本では評価のレーンの区間カードを出す(既定はオフ。human/check/section.enabled)
+                       "TRANSCRIBE_BACKEND": "fake", "STUDIO_HOME": os.path.join(tmp, "studio-home")})   # 区間カード・機械のカットのカードは既定オン(10-18。human/check/section・cutcard の enabled)= 見本も既定の道で出す
     from app import server as L   # noqa: E402  (環境変数を決めてから読む)
     from app import mount as M    # noqa: E402
     from test_launch import _copy_tool  # noqa: E402

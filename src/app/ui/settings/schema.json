@@ -115,8 +115,8 @@
         { "key": "autoAlt", "type": "bool", "label": "別のエンジンでも聞いて、食い違う所に候補を出す(試験中)", "default": false },
         { "key": "altEngine", "type": "enum", "label": "別のエンジン", "default": "llama.cpp", "options": [["llama.cpp", "Qwen3-ASR 1.7B(GPU)"]], "validated": true, "when": { "key": "autoAlt", "eq": true } },
         { "key": "diarSmooth", "type": "bool", "label": "短い 1 行だけ別の人になるのをならす(試験中)", "default": false, "validated": true },
-        { "key": "checkSectionCards", "type": "bool", "label": "確かめるの評価のレーンに区間カードを出す(試験中)", "default": false, "validated": true, "hint": "評価用の動画を頭から 20〜40 秒の区間に分けて聞き、行を直す・足す・話者を選ぶカードです。答えた行は正解(校正済み)になります。編集の画面の評価ドリルはそのまま使えます。" },
-        { "key": "checkCutCards", "type": "bool", "label": "確かめるに機械のカットのカードを出す(試験中)", "default": false, "validated": true, "hint": "自動で切った切れ目・消した所・仕上がりを 1 本 5 枚まで聞いて答えます。答えは機械のカットの物差しの記録になるだけで、カットもパックも変えません。" }
+        { "key": "checkSectionCardsOn", "type": "bool", "label": "確かめるの評価のレーンに区間カードを出す", "default": true, "validated": true, "hint": "評価用の動画を頭から 20〜40 秒の区間に分けて聞き、行を直す・足す・話者を選ぶカードです。答えた行は正解(校正済み)になります。編集の画面の評価ドリルはそのまま使えます。" },
+        { "key": "checkCutCardsOn", "type": "bool", "label": "確かめるに機械のカットのカードを出す", "default": true, "validated": true, "hint": "自動で切った切れ目・消した所・仕上がりを 1 本 5 枚まで聞いて答えます。答えは機械のカットの物差しの記録になるだけで、カットもパックも変えません。" }
       ] },
       { "id": "text", "title": "用語集・置換辞書", "items": [
         { "key": "glossary", "type": "textarea", "label": "用語集(1 行に 1 語。名前や固有名詞)", "default": "", "maxlength": 4000, "placeholder": "例:\n白上フブキ\nホロライブ", "hint": "認識のヒントとして渡します。効き目は限定的なので、直らないものは置換辞書で直します。名前や呼び名はここに 1 行ずつ足します。" },

@@ -5,7 +5,7 @@
   gap   消した所 = ok(消してよい)/ keep(残すべき・笑い・反応など)
   whole 仕上がり = good / tempo(テンポが悪い)/ unnatural(不自然な所がある)
 人の答えが自動カットの物差しの正解になる。文書(.json)と編集の内容(.edit.json)には触らない(反映の部品は何もしない)。
-スイッチ enabled(): 環境変数 YTT_CHECK_CUT か、編集の設定 checkCutCards が真のときだけ出どころが出す(既定オフ)。
+スイッチ enabled(): 既定オン(10-18 ユーザー決定 3-64 (cc1) B)。編集の設定 checkCutCardsOn を明示でオフにしたか、環境変数 YTT_CHECK_CUT が off 系のときだけ出さない。
 入口が import すると register される(server が import する)。
 """
 import os
@@ -21,14 +21,21 @@ CHOICES = {
 }
 
 
+SETTING = "checkCutCardsOn"   # 編集の設定の鍵(既定オン)。既定オフのころの鍵 checkCutCards は読まない = 前に保存されたオフは既定オンに読み替える
+
+
 def enabled():
-    """カットのカードのスイッチ(既定オフ)。環境変数 YTT_CHECK_CUT が on 系、または編集の設定 checkCutCards が真なら有効"""
-    if str(os.environ.get(SWITCH_ENV) or "").strip().lower() in ("1", "on", "true", "yes"):
+    """カットのカードのスイッチ(既定オン)。環境変数 YTT_CHECK_CUT が on 系なら出す・off 系(0・off・false・no)なら出さない。
+    それ以外は編集の設定 checkCutCardsOn を明示でオフにしたときだけ出さない"""
+    v = str(os.environ.get(SWITCH_ENV) or "").strip().lower()
+    if v in ("1", "on", "true", "yes"):
         return True
-    try:
-        return _settings.load_settings().get("checkCutCards") is True
-    except Exception:
+    if v in ("0", "off", "false", "no"):
         return False
+    try:
+        return _settings.load_settings().get(SETTING) is not False
+    except Exception:
+        return True
 
 
 def _checker(source):

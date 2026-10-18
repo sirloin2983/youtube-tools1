@@ -52,12 +52,16 @@ class CutCardTest(unittest.TestCase):
             self.assertTrue(apply._registered("cut", src), src)
 
     def test_switch(self):
-        with mock.patch.dict(os.environ, {cutcard.SWITCH_ENV: ""}), mock.patch.object(cutcard._settings, "load_settings", return_value={}):
+        """既定オン(3-64 (cc1) B)。明示でオフにした新しい鍵だけが効き、既定オフのころの鍵のオフは読み替える"""
+        def with_settings(d, env=""):
+            return mock.patch.dict(os.environ, {cutcard.SWITCH_ENV: env}), mock.patch.object(cutcard._settings, "load_settings", return_value=d)
+        for d, want in (({}, True), ({"checkCutCards": False}, True), ({cutcard.SETTING: False}, False), ({cutcard.SETTING: True}, True)):
+            e, s = with_settings(d)
+            with e, s:
+                self.assertEqual(cutcard.enabled(), want, d)
+        e, s = with_settings({}, "off")
+        with e, s:
             self.assertFalse(cutcard.enabled())
-        with mock.patch.dict(os.environ, {cutcard.SWITCH_ENV: "on"}):
-            self.assertTrue(cutcard.enabled())
-        with mock.patch.dict(os.environ, {cutcard.SWITCH_ENV: ""}), mock.patch.object(cutcard._settings, "load_settings", return_value={"checkCutCards": True}):
-            self.assertTrue(cutcard.enabled())
 
     def test_check_per_source(self):
         ok = {"edge": ("good", "early", "late", "keep"), "gap": ("ok", "keep"), "whole": ("good", "tempo", "unnatural")}

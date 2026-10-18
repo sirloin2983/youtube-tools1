@@ -92,7 +92,7 @@ class SectionSourceTest(unittest.TestCase):
         self.assertEqual([(r["id"], r["owned"]) for r in c["rows"]], [("r4", False), ("r5", True), ("r6", True)])   # 区間にかかる前の区間の行は灰色(持ち主は中心の区間)
 
     def test_switch_off(self):
-        with mock.patch.dict(os.environ, {section.SWITCH_ENV: ""}), mock.patch.object(section._settings, "load_settings", return_value={}):
+        with mock.patch.dict(os.environ, {section.SWITCH_ENV: ""}), mock.patch.object(section._settings, "load_settings", return_value={section.SETTING: False}):
             self.assertEqual(eval_sources.section_eval(self.view()), [])
 
     def test_lanes_do_not_mix(self):

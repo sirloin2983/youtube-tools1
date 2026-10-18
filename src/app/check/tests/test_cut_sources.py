@@ -68,7 +68,7 @@ class CutSourcesTest(unittest.TestCase):
         return mock.patch.dict(os.environ, {cutcard.SWITCH_ENV: "on"})
 
     def off(self):
-        return mock.patch.dict(os.environ, {cutcard.SWITCH_ENV: ""}), mock.patch.object(cutcard._settings, "load_settings", return_value={})
+        return mock.patch.dict(os.environ, {cutcard.SWITCH_ENV: ""}), mock.patch.object(cutcard._settings, "load_settings", return_value={cutcard.SETTING: False})
 
     def test_registered(self):
         for src in ("edge", "gap", "whole"):
@@ -82,7 +82,7 @@ class CutSourcesTest(unittest.TestCase):
 
     def test_settings_switch_on(self):
         with mock.patch.dict(os.environ, {cutcard.SWITCH_ENV: ""}), \
-                mock.patch.object(cutcard._settings, "load_settings", return_value={"checkCutCards": True}):
+                mock.patch.object(cutcard._settings, "load_settings", return_value={}):   # 既定オン
             self.assertTrue(cutcard.enabled())
             self.assertTrue(cut_sources.cut_edge(self.view()))
 

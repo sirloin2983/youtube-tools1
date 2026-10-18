@@ -16,7 +16,7 @@ for _p in (os.path.join(ROOT, "editor"), ROOT):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from app.check import deck, read_sources, sources  # noqa: E402
+from app.check import deck, lineup, read_sources, sources  # noqa: E402
 from human.check import apply  # noqa: E402
 from human.proof import alt, learn  # noqa: E402
 from ytt import workdata  # noqa: E402
@@ -82,7 +82,7 @@ class ReadSourcesTest(unittest.TestCase):
         self.assertEqual(self.cards("alt"), [])
 
     def test_eval_docs_never_appear(self):
-        for c in sources.collect(self.ctx)[0]:
+        for c in sources.collect(self.ctx, kinds=lineup.NORMAL_KINDS)[0]:   # 普段のレーン(区間カードは評価用の文書だけ)
             self.assertNotIn(EVAL_DOC, c["id"])
 
     def test_no_files_no_cards(self):

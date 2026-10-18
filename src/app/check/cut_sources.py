@@ -4,7 +4,7 @@
   edge   切れ目カード: 消した所の前後 2 秒をつないで聞く(切れ目が早すぎ・遅すぎ・切ってはいけない所か)。切れ目の first・middle・last の 3 枚まで
   gap    消した所カード: 機械が消した所だけ聞く(2.0 秒以上の所だけ。笑い・反応などを残すべきか)。いちばん長い 1 枚
   whole  仕上がりカード: 残した所を通しで聞く(残した合計が 120 秒以下の本だけ)
-答えは src/human/check/cutcard.py が記録する(文書と edit.json には触らない)。スイッチは cutcard.enabled()(既定オフ)。
+答えは src/human/check/cutcard.py が記録する(文書と edit.json には触らない)。スイッチは cutcard.enabled()(既定オン・設定で消せる)。
 評価用の文書は View.docs が外す(ここでは読まない)。1 本の文書から出すのは最大 5 枚。
 """
 import os

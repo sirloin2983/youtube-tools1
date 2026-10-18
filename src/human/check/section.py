@@ -239,15 +239,21 @@ def _revert_section(ctx, row):
     return {"docId": tid, "from": ap.get("from"), "to": ap.get("to"), "reverted": True}
 
 
+SETTING = "checkSectionCardsOn"   # 編集の設定の鍵(既定オン)。既定オフのころの鍵 checkSectionCards は読まない = 前に保存されたオフは既定オンに読み替える
+
+
 def enabled():
-    """区間カードのスイッチ(既定オフ = C-EVAL の仮決め。正解に書くので、ユーザーが 1〜2 本試してからオンに)。
-    編集の設定 checkSectionCards(設定の画面の「編集」)が真か、環境変数 YTT_CHECK_SECTION=on(テスト・試し)"""
-    if str(os.environ.get(SWITCH_ENV) or "").strip().lower() in ("1", "on", "true", "yes"):
+    """区間カードのスイッチ(既定オン = 10-18 ユーザー決定 3-63 (ce1) B)。編集の設定 checkSectionCardsOn(設定の画面の「編集」)を
+    明示でオフにしたときだけ出さない。環境変数 YTT_CHECK_SECTION が on 系なら出す・off 系(0・off・false・no)なら出さない(テスト・試し)"""
+    v = str(os.environ.get(SWITCH_ENV) or "").strip().lower()
+    if v in ("1", "on", "true", "yes"):
         return True
-    try:
-        return _settings.load_settings().get("checkSectionCards") is True
-    except Exception:
+    if v in ("0", "off", "false", "no"):
         return False
+    try:
+        return _settings.load_settings().get(SETTING) is not False
+    except Exception:
+        return True
 
 
 SWITCH_ENV = "YTT_CHECK_SECTION"

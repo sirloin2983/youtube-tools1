@@ -124,12 +124,19 @@ class SectionApplyTest(unittest.TestCase):
         self.assertEqual(cm.exception.error, "changed")
 
     def test_switch(self):
-        with mock.patch.dict(os.environ, {section.SWITCH_ENV: ""}), mock.patch.object(section._settings, "load_settings", return_value={}):
+        """既定オン(3-63 (ce1) B)。明示でオフにした新しい鍵だけが効き、既定オフのころの鍵のオフは読み替える"""
+        def with_settings(d, env=""):
+            return mock.patch.dict(os.environ, {section.SWITCH_ENV: env}), mock.patch.object(section._settings, "load_settings", return_value=d)
+        for d, want in (({}, True), ({"checkSectionCards": False}, True), ({section.SETTING: False}, False), ({section.SETTING: True}, True)):
+            e, s = with_settings(d)
+            with e, s:
+                self.assertEqual(section.enabled(), want, d)
+        e, s = with_settings({section.SETTING: False}, "on")
+        with e, s:
+            self.assertTrue(section.enabled())
+        e, s = with_settings({}, "off")
+        with e, s:
             self.assertFalse(section.enabled())
-        with mock.patch.dict(os.environ, {section.SWITCH_ENV: "on"}):
-            self.assertTrue(section.enabled())
-        with mock.patch.dict(os.environ, {section.SWITCH_ENV: ""}), mock.patch.object(section._settings, "load_settings", return_value={"checkSectionCards": True}):
-            self.assertTrue(section.enabled())
 
 
 if __name__ == "__main__":

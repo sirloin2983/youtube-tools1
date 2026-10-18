@@ -83,7 +83,7 @@ class SourcesTest(unittest.TestCase):
         self.assertEqual(sources.DIAR_SCHEMA, diarize.DIAR_SCHEMA)
 
     def test_eval_docs_never_appear(self):
-        cards = self.collect()
+        cards = sources.collect(self.ctx, kinds=lineup.NORMAL_KINDS)[0]   # 普段のレーン(評価のレーンの区間カードは既定オン = 評価用の文書だけを出す)
         self.assertTrue(cards)
         for c in cards:
             self.assertNotIn(EVAL_DOC, c["id"])
