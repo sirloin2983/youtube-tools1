@@ -20,6 +20,7 @@
   - 大きすぎるファイル(5MB 超。動画・キャッシュの混入)
   誤検出で止まったときは、その表示を Claude に見せる(ALLOW に足すか、検査を直す)。
 """
+import json
 import os
 import re
 import subprocess
@@ -148,6 +149,11 @@ def problems_for(path, data):
         why = notes_tool.explain_data_js(data.decode("utf-8", "replace"), path)
         if why:
             out.append("JavaScript として読めない\n" + why)
+    if path.startswith("plan/data/") and path.endswith(".json"):   # 計画の正(1 件 1 ファイル。2026-10-18)。読めないと data.js が作れない
+        try:
+            json.loads(data.decode("utf-8"))
+        except ValueError as e:
+            out.append("JSON として読めない(%s)" % e)
     return out
 
 
@@ -187,6 +193,15 @@ def push_notes(root=None, log=print, stamp=None):
     if "origin" not in git("remote", cwd=root).stdout.decode("utf-8", "replace").split():
         log("保管庫に送り先(origin)がまだ無いので送りません")
         return 0
+    try:   # 週のまとめ(セッションごとの記録から)と計画の data.js(plan/data/ から。git には入れない)を作り直してから
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import plan_data
+        import worklog
+        worklog.build(root)
+        if plan_data.has_split(os.path.join(root, "plan")):
+            plan_data.build(os.path.join(root, "plan"))
+    except (OSError, ValueError) as e:
+        log("[注意] 週のまとめ・計画の data.js を作り直せませんでした: %s" % e)
     git("add", "-A", cwd=root)
     files = staged_files(root)
     if check(files, read=lambda p: staged_blob(p, root), log=log):

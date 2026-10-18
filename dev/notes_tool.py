@@ -9,10 +9,11 @@
 
 check が見る物(dev/lint.py も同じ物を数える):
   - 資料のフォルダの md の相対リンク(外の URL・#だけ・obsidian: は見ない)と、リンクになってしまう本文のかっこ書き
-  - plan/data.js の docs の並び(plan/ からの相対)と、文の中の docs/… plan/… の .md・.html
+  - 計画のデータ(plan/data/ の JSON と summary.md。分ける前は plan/data.js)の docs の並び(plan/ からの相対)と、文の中の docs/… plan/… の .md・.html。
+    JSON が読めるか・id・必須の欄・参照は dev/plan_data.py の check
   - リポジトリのコード・README の notes:docs/… notes:plan/…
 mv が直す物: md の相対リンク(動かした文書の中のリンクも)・リンクの表示が旧いパスそのものならその文字・
-  data.js の両方の書き方・リポジトリの notes: の参照。リンクでない文字のパス(過去の記録の中など)は直さない。
+  計画のデータ(plan/data/。直したら data.js を作り直す)・リポジトリの notes: の参照。リンクでない文字のパス(過去の記録の中など)は直さない。
 Obsidian の中で動かすと md のリンクだけは Obsidian が直すが、data.js と notes: は直らない = 動かしたら check を流す。
 """
 import os
@@ -26,7 +27,7 @@ from ytt import layout  # noqa: E402
 
 LINK = re.compile(r"(!?\[)([^\]\n]*)(\]\()(<[^>\n]+>|[^)\s]+)((?:\s+\"[^\"\n]*\")?\))")
 NOTE_REF = re.compile(r"notes:((?:docs|plan)/[A-Za-z0-9_\-][A-Za-z0-9_./\-]*)")
-DATA_DOCS = re.compile(r"docs:\s*\[([^\]]*)\]")
+DATA_DOCS = re.compile(r"\"?docs\"?:\s*\[([^\]]*)\]")
 DATA_TEXT = re.compile(r"(?<![A-Za-z0-9_./\-:])((?:docs|plan)/[A-Za-z0-9_./\-]+\.(?:md|html))")
 QUOTED = re.compile(r"\"([^\"]+)\"")
 FILE_EXT = re.compile(r"\.(md|html|js|css|png|jpg|jpeg|gif|svg|tsv|csv|json|txt|pdf|py)$", re.I)
@@ -41,6 +42,37 @@ SKIP_DIRS = {".git", "node_modules", "dist", "__pycache__", ".artifact-build", "
 
 def vault():
     return layout.notes_root()
+
+
+def plan_data():
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import plan_data as pd
+    return pd
+
+
+def data_files(root):
+    """計画のデータのファイル [(資料のフォルダからの相対, 絶対)]。plan/data/ に分けてあればその JSON と summary.md
+    (plan/data.js はそこから作る物 = 直さない・見ない)、まだなら手書きの plan/data.js"""
+    plan = os.path.join(root, "plan")
+    if not plan_data().has_split(plan):
+        data = os.path.join(plan, "data.js")
+        return [("plan/data.js", data)] if os.path.isfile(data) else []
+    out = []
+    for d, dirs, files in os.walk(os.path.join(plan, "data")):
+        dirs.sort()
+        for f in sorted(files):
+            if f.endswith((".json", ".md")):
+                full = os.path.join(d, f)
+                out.append((vrel(full, root), full))
+    return out
+
+
+def rebuild_data(root):
+    """分けてあれば plan/data.js を作り直す(mv・drop のあと)"""
+    pd = plan_data()
+    plan = os.path.join(root, "plan")
+    if pd.has_split(plan):
+        pd.build(plan)
 
 
 def read(p):
@@ -215,10 +247,10 @@ def check():
                 lt = local_target(m.group(4))
                 if lt and lt[0] and not os.path.exists(os.path.normpath(os.path.join(os.path.dirname(p), lt[0]))):
                     bad.append((vrel(p, root), ln, lt[0]))
-    data = os.path.join(root, "plan", "data.js")
-    if os.path.isfile(data):
-        for ln, msg in data_js_problems(read(data)):
-            bad.append(("plan/data.js", ln, "JavaScript として読めない: " + msg))
+    for rel, data in data_files(root):
+        if rel == "plan/data.js":
+            for ln, msg in data_js_problems(read(data)):
+                bad.append(("plan/data.js", ln, "JavaScript として読めない: " + msg))
         for ln, line in enumerate(read(data).splitlines(), 1):
             for m in DATA_DOCS.finditer(line):
                 for q in QUOTED.findall(m.group(1)):
@@ -226,10 +258,12 @@ def check():
                     # ../chrome-ext/… のようにリポジトリのファイルを指す物はリポジトリで探す
                     alt = os.path.join(REPO, os.path.relpath(full, root))
                     if not os.path.exists(full) and not os.path.exists(alt):
-                        bad.append(("plan/data.js", ln, q))
+                        bad.append((rel, ln, q))
             for m in DATA_TEXT.finditer(line):
                 if not os.path.exists(os.path.join(root, m.group(1))):
-                    bad.append(("plan/data.js", ln, m.group(1)))
+                    bad.append((rel, ln, m.group(1)))
+    if plan_data().has_split(os.path.join(root, "plan")):   # 1 件 1 ファイルの JSON が読めるか・id・必須の欄・参照
+        bad += plan_data().check(os.path.join(root, "plan"))
     for p in code_files():
         try:
             text = read(p)
@@ -314,8 +348,7 @@ def mv(pairs, move=True):
         if new != text:
             write(p, new)
             n += 1
-    data = os.path.join(root, "plan", "data.js")
-    if os.path.isfile(data):
+    for _rel, data in data_files(root):
         text = new = read(data)
         for old, nw in pairs:
             new = re.sub(r"(?<![A-Za-z0-9_./\-])" + re.escape(old) + r"(?![A-Za-z0-9_\-]|\.[A-Za-z0-9])", nw, new)
@@ -326,6 +359,7 @@ def mv(pairs, move=True):
         if new != text:
             write(data, new)
             n += 1
+    rebuild_data(root)
     for p in code_files():
         try:
             text = read(p)
@@ -373,13 +407,13 @@ def drop(paths, rev):
             write(p, new)
             n += 1
     pats = [re.escape(vrel(g, root)) for g in gone]
-    data = os.path.join(root, "plan", "data.js")
-    if os.path.isfile(data):
+    for _rel, data in data_files(root):
         text = read(data)
         new = re.sub(r"(?<![A-Za-z0-9_./\-:])((?:%s)[A-Za-z0-9_./\-]*)" % "|".join(pats), lambda m: "git:%s:%s" % (rev, m.group(1)), text)
         if new != text:
             write(data, new)
             n += 1
+    rebuild_data(root)
     for p in code_files():
         try:
             text = read(p)
