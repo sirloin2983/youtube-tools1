@@ -1,22 +1,20 @@
 """src/friendapp/toolcheck.py と places の道具の置き方(F3-5)のテスト。本物の道具・文字起こし・ネットは動かさない(偽の run・偽の transcribe)。
 リポジトリ直下で: py -3.10 -m unittest src/friendapp/tests/test_toolcheck.py"""
 import os
-import shutil
 import sys
-import tempfile
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
+from ytt import testkit  # noqa: E402
 from friendapp import places as P, toolcheck as T  # noqa: E402
 
 
 class ToolCheckTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="toolcheck-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "toolcheck-")
         self.paths = {}
         for var, name in (("YTT_FFMPEG", "ffmpeg.exe"), ("YTT_FFPROBE", "ffprobe.exe"), ("YTT_YTDLP", "yt-dlp.exe"), ("YTT_DENO", "deno.exe")):
             p = os.path.join(self.tmp, name)
@@ -87,8 +85,7 @@ class ToolCheckTest(unittest.TestCase):
 
 class PlacesToolsTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="placestools-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "placestools-")
         self.tools = os.path.join(self.tmp, "tools")
 
     def put(self, *parts):

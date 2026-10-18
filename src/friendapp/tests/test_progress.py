@@ -157,8 +157,7 @@ class EtaTest(unittest.TestCase):
     def test_remaining(self):
         # 切り抜き 平均 200・経った 50 → 150 + 文字起こし 300 + 仕上げ 30
         self.assertEqual(P.eta(self.STATS, "url", False, "切り抜き", 50), 480)
-
-    def test_elapsed_longer_than_average(self):
+        # ---- test_elapsed_longer_than_average
         self.assertEqual(P.eta(self.STATS, "url", False, "切り抜き", 999), 330)
 
     def test_missing_record_is_none(self):
@@ -190,12 +189,10 @@ class SlowTest(unittest.TestCase):
     def test_boundary(self):
         self.assertFalse(P.slow(0, 0, 599999))
         self.assertTrue(P.slow(0, 0, 600000))
-
-    def test_change_resets(self):
+        # ---- test_change_resets
         self.assertFalse(P.slow(0, 500000, 1000000))
         self.assertTrue(P.slow(0, 500000, 1100000))
         self.assertFalse(P.slow(700000, 0, 1000000))
-
 
 class TextTest(unittest.TestCase):
     S = {"index": 2, "total": 5, "label": "見どころを探す", "detail": ""}

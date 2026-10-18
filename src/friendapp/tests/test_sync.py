@@ -6,9 +6,7 @@ import hashlib
 import io
 import json
 import os
-import shutil
 import sys
-import tempfile
 import time
 import unittest
 import zipfile
@@ -17,6 +15,7 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
+from ytt import testkit  # noqa: E402
 from friendapp import dropbox as D, inbox as I, sync as S  # noqa: E402
 
 RID = "20261016-100000-abcdef"
@@ -109,8 +108,7 @@ def zip_bytes(entries):
 
 class SyncTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="friendsync-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "friendsync-")
         self.t = [NOW]
         self.places = {"home": os.path.join(self.tmp, "home"), "data": os.path.join(self.tmp, "data"),
                        "friend": os.path.join(self.tmp, "data", "app", "friendapp"), "outbox": os.path.join(self.tmp, "data", "app", "outbox"),
@@ -130,8 +128,7 @@ class SyncTest(unittest.TestCase):
         return self.t[0]
 
     def key(self):
-        with open(os.path.join(self.places["home"], "config.json"), "w", encoding="utf-8") as f:
-            json.dump({"appKey": "k", "refreshToken": "r"}, f)
+        testkit.write_json(os.path.join(self.places["home"], "config.json"), {"appKey": "k", "refreshToken": "r"})
 
     def verdict(self, rid, name, nth=-1):
         """判断の記録(<依頼 id>__<パック名>~<13 桁>.verdict.json。送り返しへ上げるまでの outbox)"""
@@ -517,8 +514,7 @@ class SyncTest(unittest.TestCase):
     def test_learning_skipped_on_maker_pc(self):
         self.key()
         os.makedirs(os.path.join(self.places["data"], "app"), exist_ok=True)
-        with open(os.path.join(self.places["data"], "app", "prefs.json"), "w", encoding="utf-8") as f:
-            json.dump({"intake": {"folder": "D:/Dropbox"}}, f)
+        testkit.write_json(os.path.join(self.places["data"], "app", "prefs.json"), {"intake": {"folder": "D:/Dropbox"}})
         self.put_learning("20261016-120000-0123abcd", {"a.json": b"{}"})
         self.run_sync()
         self.assertEqual(self.applied, [])
@@ -581,8 +577,7 @@ class SyncTest(unittest.TestCase):
         self.put_update("0.91.0", self.update_entries(), sha="0" * 64)
         probs = self.run_sync()
         self.assertTrue(any("SHA-256" in p for p in probs))
-        with open(os.path.join(self.places["home"], S.VERSIONS_NAME), "w", encoding="utf-8") as f:
-            json.dump({"v": 1, "bad": ["0.91.0"]}, f)
+        testkit.write_json(os.path.join(self.places["home"], S.VERSIONS_NAME), {"v": 1, "bad": ["0.91.0"]})
         self.put_update("0.91.0", self.update_entries())
         self.assertEqual(self.run_sync(), [])
         self.assertEqual([n for n in os.listdir(self.places["home"]) if n.startswith("app-0")], [])

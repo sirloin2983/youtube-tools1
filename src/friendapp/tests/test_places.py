@@ -1,22 +1,20 @@
 """src/friendapp/places.py のテスト。リポジトリ直下で: py -3.10 -m unittest src/friendapp/tests/test_places.py"""
 import os
-import shutil
 import sys
-import tempfile
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
+from ytt import testkit  # noqa: E402
 from friendapp import places  # noqa: E402
 from ytt import colors  # noqa: E402
 
 
 class MembersEnvTest(unittest.TestCase):
     def setUp(self):
-        self.home = tempfile.mkdtemp(prefix="places-")
-        self.addCleanup(shutil.rmtree, self.home, True)
+        self.home = testkit.tempdir(self, "places-")
 
     def put_members(self):
         p = os.path.join(self.home, "members.json")
@@ -36,13 +34,11 @@ class MembersEnvTest(unittest.TestCase):
         env = {}
         self.assertFalse(places.members_env(self.home, env))
         self.assertNotIn(colors.MEMBERS_ENV, env)
-
-    def test_explicit_env_wins(self):
+        # ---- test_explicit_env_wins
         self.put_members()
         env = {colors.MEMBERS_ENV: "X:/mine.json"}
         self.assertFalse(places.members_env(self.home, env))
         self.assertEqual(env[colors.MEMBERS_ENV], "X:/mine.json")
-
 
 if __name__ == "__main__":
     unittest.main()

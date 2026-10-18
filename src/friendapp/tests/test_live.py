@@ -10,9 +10,7 @@
 import json
 import os
 import re
-import shutil
 import sys
-import tempfile
 import time
 import types
 import unittest
@@ -23,6 +21,7 @@ SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
+from ytt import testkit  # noqa: E402
 from flow import live_export as LX, runqueue as Q  # noqa: E402
 from friendapp import api as A, engine as E, inbox as I, live as L, live_session as LS, server as SV  # noqa: E402
 
@@ -91,8 +90,7 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual(L.clean_settings(dict(SETTINGS, lengthMode="auto"))["lengthMode"], "auto")   # 自動(場面ごと)だけ残す(C-2-11)
 
     def test_request_book(self):
-        tmp = tempfile.mkdtemp(prefix="friend-livebook-")
-        self.addCleanup(shutil.rmtree, tmp, True)
+        tmp = testkit.tempdir(self, "friend-livebook-")
         now = [T0]
         book = L.RequestBook(os.path.join(tmp, "requests.json"), clock=lambda: now[0])
         item = book.put("local", REC, {"rid": "20261016-120000-abcdef", "deliverDir": "C:/x", "settings": SETTINGS, "videoTracks": 2, "deliverBatch": 5})
@@ -107,8 +105,7 @@ class SettingsTest(unittest.TestCase):
 
 class LiveFlowTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="friend-live-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "friend-live-")
         self.places = {"data": os.path.join(self.tmp, "data"), "friend": os.path.join(self.tmp, "data", "app", "friendapp"),
                        "cases": os.path.join(self.tmp, "作業"), "studio": None, "save": lambda: os.path.join(self.tmp, "save")}
         os.makedirs(self.places["friend"])
@@ -363,8 +360,7 @@ class LiveFlowTest(unittest.TestCase):
 
 class FileTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="friend-file-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "friend-file-")
         self.places = {"data": os.path.join(self.tmp, "data"), "friend": os.path.join(self.tmp, "friend"), "cases": os.path.join(self.tmp, "作業"),
                        "save": lambda: os.path.join(self.tmp, "save")}
         for k in ("friend", "cases"):
@@ -472,8 +468,7 @@ class FileTest(unittest.TestCase):
 
 class AppTest(unittest.TestCase):
     def test_recording_count_from_live(self):
-        tmp = tempfile.mkdtemp(prefix="friend-app-live-")
-        self.addCleanup(shutil.rmtree, tmp, True)
+        tmp = testkit.tempdir(self, "friend-app-live-")
         places = {"home": tmp, "data": tmp, "friend": os.path.join(tmp, "friend"), "outbox": os.path.join(tmp, "outbox"), "cases": tmp,
                   "save": lambda: os.path.join(tmp, "save")}
         os.makedirs(places["friend"])

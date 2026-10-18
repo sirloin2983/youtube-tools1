@@ -3,14 +3,13 @@ import hashlib
 import io
 import json
 import os
-import shutil
 import sys
-import tempfile
 import unittest
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
+from ytt import testkit  # noqa: E402
 from friendapp import dropbox as D  # noqa: E402
 
 TOKEN = "sl.SECRET-ACCESS-TOKEN"
@@ -61,8 +60,7 @@ NOT_FOUND = err(409, {"error_summary": "path/not_found/..", "error": {".tag": "p
 
 class DropboxTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="dbx-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "dbx-")
         self.logs = []
         self.slept = []
 
@@ -71,8 +69,7 @@ class DropboxTest(unittest.TestCase):
 
     def test_config_load_and_repr_hides_keys(self):
         self.assertIsNone(D.load_config(self.tmp))
-        with open(os.path.join(self.tmp, "config.json"), "w", encoding="utf-8") as f:
-            json.dump({"appKey": "k"}, f)
+        testkit.write_json(os.path.join(self.tmp, "config.json"), {"appKey": "k"})
         self.assertIsNone(D.load_config(self.tmp))   # refreshToken が無い
         with open(os.path.join(self.tmp, "config.json"), "w", encoding="utf-8-sig") as f:
             json.dump({"appKey": " k ", "refreshToken": REFRESH}, f)
@@ -159,8 +156,7 @@ class DropboxTest(unittest.TestCase):
         self.assertTrue(self.client(FakeNet(first, second)).download("/出力/a.zip", part, rev="r1"))
         with open(part, "rb") as f:
             self.assertEqual(f.read(), data)
-
-    def test_download_rev_changed_and_missing(self):
+        # ---- test_download_rev_changed_and_missing
         part = os.path.join(self.tmp, "a.part")
         net = FakeNet((200, {"dropbox-api-result": json.dumps({"rev": "r2"})}, b"abc"))
         with self.assertRaises(D.DropboxError) as cm:

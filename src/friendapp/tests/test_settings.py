@@ -5,9 +5,7 @@ import http.client
 import json
 import os
 import re
-import shutil
 import sys
-import tempfile
 import threading
 import unittest
 from collections import namedtuple
@@ -17,6 +15,7 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
+from ytt import testkit  # noqa: E402
 from friendapp import places as P, server as S, settings as T, setup as SU  # noqa: E402
 from friendapp.tests.test_server import FakeEngine  # noqa: E402
 
@@ -41,8 +40,7 @@ class FakeDl:
 
 class SettingsServerTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="friendset-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "friendset-")
         env = mock.patch.dict(os.environ, {"YTT_MACHINE_FILE": os.path.join(self.tmp, "machine.json"), "USERPROFILE": os.path.join(self.tmp, "user")})
         env.start()
         self.addCleanup(env.stop)
@@ -213,6 +211,13 @@ class SettingsServerTest(unittest.TestCase):
             st, j = self.post("/api/friend/settings", body)
             self.assertEqual(st, 400, body)
         self.assertFalse(os.path.exists(os.environ["YTT_MACHINE_FILE"]))
+        # ---- test_bad_values_write_nothing
+        for body in ({"weights": {"wAudio": 4, "wChat": 0, "wComments": 0}}, {"weights": {"wAudio": 1}}, {"live": {"sens": "max"}},
+                     {"live": {"waitMin": 0}}, {"live": {"pad": 9}}, {"processing": "x"}):
+            st, j = self.upd(dict(body, cut="silence"))
+            self.assertEqual(st, 400, body)
+        self.assertEqual(self.app.api.form()["cut"], "none")
+        self.assertFalse(self.app.api.form()["useWeights"])
 
     def test_engine_c_needs_parts_first(self):
         """f1 の 10 章の 8: C は部品を取り終えるまで選べない(理由つきで断る)・[取る] で C の部品だけを取る(エンジンは変えない)・取り終えたら選べる"""
@@ -292,14 +297,6 @@ class SettingsServerTest(unittest.TestCase):
         st, j = self.upd({"processing": "local"})
         self.assertEqual(j["settings"]["processing"], "local")
 
-    def test_bad_values_write_nothing(self):
-        for body in ({"weights": {"wAudio": 4, "wChat": 0, "wComments": 0}}, {"weights": {"wAudio": 1}}, {"live": {"sens": "max"}},
-                     {"live": {"waitMin": 0}}, {"live": {"pad": 9}}, {"processing": "x"}):
-            st, j = self.upd(dict(body, cut="silence"))
-            self.assertEqual(st, 400, body)
-        self.assertEqual(self.app.api.form()["cut"], "none")
-        self.assertFalse(self.app.api.form()["useWeights"])
-
     def test_clean_old_via_settings(self):
         class FakeSetup:
             checked = True
@@ -337,8 +334,7 @@ class SettingsServerTest(unittest.TestCase):
         self.assertNotIn("YTT_YT_API_KEY", os.environ)
         old = os.path.join(self.tmp, "old")
         os.makedirs(os.path.join(old, "app"))
-        with open(os.path.join(old, "app", "keys.json"), "w", encoding="utf-8") as f:
-            json.dump({"youtubeApiKey": KEY}, f)
+        testkit.write_json(os.path.join(old, "app", "keys.json"), {"youtubeApiKey": KEY})
         env = {}
         self.assertFalse(P.api_key_env([self.places["data"], old], env))
         self.assertEqual(env, {})
@@ -390,8 +386,7 @@ class SettingsServerTest(unittest.TestCase):
         # 知らない場所は断る
         st, j = self.post("/api/friend/pick-folder", {"what": "data"})
         self.assertEqual(st, 400)
-
-    def test_pick_folder_bad_path(self):
+        # ---- test_pick_folder_bad_path
         self.pick_answer = "relative\\path"
         st, j = self.post("/api/friend/pick-folder", {"what": "save"})
         self.assertEqual(st, 400)

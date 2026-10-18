@@ -5,9 +5,7 @@
 """
 import json
 import os
-import shutil
 import sys
-import tempfile
 import threading
 import time
 import unittest
@@ -18,6 +16,7 @@ SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
+from ytt import testkit  # noqa: E402
 from friendapp import streams as S  # noqa: E402
 
 CH_A = "UC" + "a" * 22
@@ -135,8 +134,7 @@ class Web:
 
 class StreamsTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="streams-test-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "streams-test-")
         self.members = os.path.join(self.tmp, "members.json")
         self.write_members(MEMBERS)
         self.cache = os.path.join(self.tmp, "cache", "streams.json")

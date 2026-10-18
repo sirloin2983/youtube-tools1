@@ -3,10 +3,8 @@
 許可の一覧に載る形の物だけが候補・載らない物は「分からない」・黙る / 聞くの振り分け・触らない物・ごみ箱と記録・新しい版のあとの 1 回の条件"""
 import json
 import os
-import shutil
 import subprocess
 import sys
-import tempfile
 import time
 import unittest
 
@@ -15,6 +13,7 @@ if SRC not in sys.path:
     sys.path.insert(0, SRC)
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 
+from ytt import testkit  # noqa: E402
 from friendapp import tidy as T  # noqa: E402
 
 OLD = time.time() - 10 * 86400
@@ -40,8 +39,7 @@ def age(path):
 class FakeInbox:
     def __init__(self, path, rows):
         self.path, self.rows = path, rows
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump({"rows": rows}, f)
+        testkit.write_json(path, {"rows": rows})
 
     def view(self):
         return [r for r in self.rows if r.get("state") != "done"]
@@ -98,8 +96,7 @@ class FakeSync:
 
 class TidyTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="friendtidy-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "friendtidy-")
         h = self.home = os.path.join(self.tmp, "home")
         self.data = os.path.join(h, "data")
         self.cases = os.path.join(h, "作業")
@@ -110,8 +107,7 @@ class TidyTest(unittest.TestCase):
         for v in ("0.1.0", "0.0.9", "0.0.5", "0.0.7"):
             put(os.path.join(h, "app-" + v, "src", "friendapp", "server.py"))
             put(os.path.join(h, "app-" + v, "python", "python.exe"))
-        with open(os.path.join(h, "app-versions.json"), "w", encoding="utf-8") as f:
-            json.dump({"v": 1, "current": "0.1.0", "previous": "0.0.9", "bad": ["0.0.7"]}, f)
+        testkit.write_json(os.path.join(h, "app-versions.json"), {"v": 1, "current": "0.1.0", "previous": "0.0.9", "bad": ["0.0.7"]})
         put(os.path.join(h, "FriendApp.exe.old"))
         put(os.path.join(h, "app-0.0.8.tmp", "a.txt"))
         age(os.path.join(h, "app-0.0.8.tmp"))
@@ -200,8 +196,7 @@ class TidyTest(unittest.TestCase):
         self.setup.missing = lambda: [{"name": "x"}]
         self.assertFalse([it for it in self.t.scan()["items"] if it["kind"] in ("unused-model", "unused-tool")])
         self.setup.missing = lambda: []
-        with open(os.path.join(self.friend, "setup.json"), "w", encoding="utf-8") as f:
-            json.dump({"model": "ggml-old.bin"}, f)   # 設定に名前がある = 手で選んだ物
+        testkit.write_json(os.path.join(self.friend, "setup.json"), {"model": "ggml-old.bin"})   # 設定に名前がある = 手で選んだ物
         self.assertFalse([it for it in self.t.scan()["items"] if it["kind"] == "unused-model"])
 
     def test_junction_is_never_followed(self):

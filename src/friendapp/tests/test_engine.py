@@ -16,6 +16,7 @@ SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
+from ytt import testkit  # noqa: E402
 from friendapp import engine, inbox, oldcopy  # noqa: E402
 
 
@@ -183,8 +184,7 @@ class CopyOnlyTest(unittest.TestCase):
 
     def test_copy_without_remove(self):
         import hashlib
-        tmp = tempfile.mkdtemp(prefix="friend-oldcopy-")
-        self.addCleanup(shutil.rmtree, tmp, True)
+        tmp = testkit.tempdir(self, "friend-oldcopy-")
         old, new = os.path.join(tmp, "old"), os.path.join(tmp, "new")
         os.makedirs(os.path.join(old, "transcribe", "models"))
         data = b"model" * 100
@@ -242,8 +242,7 @@ class RunLogTest(unittest.TestCase):
         self.assertIn("実時間比=?", s)
 
     def test_log_run_writes_stage_transcribe_and_end_lines(self):
-        tmp = tempfile.mkdtemp(prefix="friend-runlog-")
-        self.addCleanup(shutil.rmtree, tmp, True)
+        tmp = testkit.tempdir(self, "friend-runlog-")
         lines = []
         eng = engine.Engine.__new__(engine.Engine)
         eng.log = lines.append

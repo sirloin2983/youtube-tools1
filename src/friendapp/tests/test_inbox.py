@@ -5,7 +5,6 @@ import json
 import os
 import shutil
 import sys
-import tempfile
 import unittest
 from unittest import mock
 
@@ -13,6 +12,7 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
+from ytt import testkit  # noqa: E402
 from friendapp import inbox  # noqa: E402
 
 T0 = 1750000000.0          # 基準の時刻(秒)
@@ -50,8 +50,7 @@ class ClipLabelTest(unittest.TestCase):
 
 class InboxTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="inbox-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "inbox-")
         self.path = os.path.join(self.tmp, "friend", "inbox.json")
         self.outbox = os.path.join(self.tmp, "outbox")
         self.save = os.path.join(self.tmp, "save")
@@ -599,11 +598,9 @@ class InboxTest(unittest.TestCase):
         good = {"id": RID, "state": "failed", "failedAt": int(T0 * 1000)}
         bad_id = {"id": "../x", "state": "failed"}
         bad_state = {"id": RID2, "state": "weird"}
-        with open(self.path, "w", encoding="utf-8") as f:
-            json.dump({"v": inbox.V, "rows": [good, bad_id, bad_state, "text"]}, f)
+        testkit.write_json(self.path, {"v": inbox.V, "rows": [good, bad_id, bad_state, "text"]})
         self.assertEqual([r["id"] for r in self.new_box().rows], [RID])
-        with open(self.path, "w", encoding="utf-8") as f:
-            json.dump({"v": 99, "rows": [good]}, f)
+        testkit.write_json(self.path, {"v": 99, "rows": [good]})
         self.assertEqual(self.new_box().rows, [])
         with open(self.path, "w", encoding="utf-8") as f:
             f.write("{ こわれた")
@@ -617,8 +614,7 @@ class InboxTest(unittest.TestCase):
                "packs": [{"name": "a_pack", "title": "a", "dir": None, "verdict": "reject", "at": int(T0 * 1000), "by": None},
                          {"name": "b_pack", "title": "b", "dir": None, "verdict": None, "at": None, "by": None},
                          {"name": "c_pack", "title": "c", "dir": None, "verdict": "keep", "at": None, "by": None}]}
-        with open(self.path, "w", encoding="utf-8") as f:
-            json.dump({"v": inbox.V, "rows": [row]}, f)
+        testkit.write_json(self.path, {"v": inbox.V, "rows": [row]})
         again = self.new_box()
         ps = again.row(RID)["packs"]
         self.assertEqual([p["verdict"] for p in ps], ["skip", None, "keep"])

@@ -5,7 +5,6 @@ import json
 import os
 import shutil
 import sys
-import tempfile
 import threading
 import types
 import unittest
@@ -16,6 +15,7 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
+from ytt import testkit  # noqa: E402
 from friendapp import server as S  # noqa: E402
 from friendapp import api as _api  # noqa: E402
 from friendapp import api as A  # noqa: E402
@@ -109,8 +109,7 @@ class FakeDropbox:
 
 class ServerTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="friendsrv-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "friendsrv-")
         self.places = {
             "home": os.path.join(self.tmp, "home"),
             "data": os.path.join(self.tmp, "data"),
@@ -289,11 +288,6 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(h["x-frame-options"], "DENY")
         self.assertEqual(h["cache-control"], "no-store")
 
-    def test_root_redirects_to_friend(self):
-        st, h, p = self.get("/")
-        self.assertEqual(st, 302)
-        self.assertEqual(h["location"], "/friend/")
-
     def test_token_differs_per_server(self):
         other = S.Server(("127.0.0.1", 0), self.app)
         try:
@@ -333,11 +327,6 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(st2, 200)
         self.assertTrue(os.path.isfile(os.path.join(self.places["friend"], "logs", "client-errors.jsonl")))
 
-    def test_post_with_text_body_is_400(self):
-        st, _h, p = self.request("POST", "/api/friend/send", body=None, headers={TOKEN: self.srv.token, "Content-Type": "text/plain"})
-        self.assertEqual(st, 400)
-        self.assertEqual(self.js(p)["error"], "json")
-
     def test_friend_api_prefix_is_same_route(self):
         st, _h, p = self.get("/friend/api/friend/inbox")
         self.assertEqual(st, 200)
@@ -352,6 +341,14 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.js(p)["error"], "not_found")
         st2, _h, _p = self.post("/api/nope", {})
         self.assertEqual(st2, 404)
+        # ---- test_root_redirects_to_friend
+        st, h, p = self.get("/")
+        self.assertEqual(st, 302)
+        self.assertEqual(h["location"], "/friend/")
+        # ---- test_post_with_text_body_is_400
+        st, _h, p = self.request("POST", "/api/friend/send", body=None, headers={TOKEN: self.srv.token, "Content-Type": "text/plain"})
+        self.assertEqual(st, 400)
+        self.assertEqual(self.js(p)["error"], "json")
 
     # ------------------------------------------------------------ 受信箱・送る
     def test_inbox_empty_shows_defaults(self):
@@ -491,8 +488,7 @@ class ServerTest(unittest.TestCase):
         self.send(top=20)
         self.assertEqual(self.app.api.form()["top"], 20)
         # 壊れた値は既定に戻る(他の値は残す)
-        with open(form_path, "w", encoding="utf-8") as fh:
-            json.dump({"top": 99, "deliverBatch": 1, "videoTracks": 0, "pc": "x"}, fh)
+        testkit.write_json(form_path, {"top": 99, "deliverBatch": 1, "videoTracks": 0, "pc": "x"})
         f3 = self.app.api.form()
         self.assertEqual(f3["top"], 5)
         self.assertNotIn("deliverBatch", f3)
@@ -694,16 +690,16 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(st3, 400)
         self.assertIn("取り消せる行ではありません", self.js(p3)["message"])
         self.assertEqual(self.post("/api/friend/cancel", {"id": "nope"})[0], 404)
-
-    def test_cancel_waiting_row_drops_it_without_queueing(self):
+        # ---- test_cancel_waiting_row_drops_it_without_queueing
+        n_sub, n_can = len(self.engine.queue.submitted), len(self.engine.queue.cancelled)   # 上の送りの分
         st, d = self.send(kind="wait", top=4)
         self.assertEqual((st, d["row"]["state"], d["row"]["runId"], d["row"]["kind"]), (200, "waiting", None, "url"))
         rid = d["row"]["id"]
-        self.assertEqual(self.engine.queue.submitted, [])   # アーカイブ待ちは ② に積まない
+        self.assertEqual(len(self.engine.queue.submitted), n_sub)   # アーカイブ待ちは ② に積まない
         st, _h, p = self.post("/api/friend/cancel", {"id": rid})
         self.assertEqual((st, self.js(p)["result"]), (200, {"id": rid, "state": "cancelled"}))
         self.assertIsNone(self.app.inbox.row(rid))
-        self.assertEqual(self.engine.queue.cancelled, [])
+        self.assertEqual(len(self.engine.queue.cancelled), n_can)
 
     def test_cancel_making_row_with_arrived_packs_keeps_them(self):
         """作っている途中で 1 本届いていた: ② の実行を止め、行は「届いた」で cancelled(送った物の一覧から外れ、届いた物は受け取るに残る)"""
@@ -865,8 +861,7 @@ class ServerTest(unittest.TestCase):
     # ------------------------------------------------------------ ユーザーの PC に頼む(F2-3。A-2)
     def use_fake_dropbox(self):
         os.makedirs(self.places["home"], exist_ok=True)
-        with open(os.path.join(self.places["home"], "config.json"), "w", encoding="utf-8") as f:
-            json.dump({"appKey": "k", "refreshToken": "r"}, f)
+        testkit.write_json(os.path.join(self.places["home"], "config.json"), {"appKey": "k", "refreshToken": "r"})
         dbx = FakeDropbox()
         self.app.sync.client_factory = lambda cfg, cancelled: dbx
         return dbx
@@ -1652,8 +1647,7 @@ class ServerTest(unittest.TestCase):
         rid = self.send()[1]["row"]["id"]
         self.run_of(rid).update(state="running", steps=[{"key": "something", "state": "run", "detail": ""}])
         self.assertEqual(self.view_row(rid)["steps"]["text"], "仕上げています")
-
-    def test_steps_for_ranged_url_skip_the_search_stage(self):
+        # ---- test_steps_for_ranged_url_skip_the_search_stage
         self.fake_clock()
         rid = self.send(top=None, ranges=[[1, 30]])[1]["row"]["id"]
         self.run_of(rid).update(state="running", steps=[{"key": "analyze", "state": "done", "detail": ""}, {"key": "export", "state": "run", "detail": ""},
@@ -1736,8 +1730,7 @@ class ServerTest(unittest.TestCase):
         self.make_version("0.0.1")       # 今より古い版は出さない
         self.make_version("999.0.0")
         self.make_version("999.1.0")
-        with open(os.path.join(self.places["home"], "app-versions.json"), "w", encoding="utf-8") as f:
-            json.dump({"v": 1, "bad": ["999.1.0"]}, f)   # 起動できなかった版は出さない
+        testkit.write_json(os.path.join(self.places["home"], "app-versions.json"), {"v": 1, "bad": ["999.1.0"]})   # 起動できなかった版は出さない
         u = self.js(self.get("/api/friend/update")[2])
         self.assertEqual((u["available"], u["version"], u["requested"]), (True, "999.0.0", False))
         d = self.js(self.get("/api/friend/state", headers={TOKEN: self.srv.token})[2])

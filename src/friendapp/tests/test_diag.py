@@ -2,9 +2,7 @@
 本物の Dropbox・GPU の調べ・道具は動かさない(偽の io・gpu_fn・一時フォルダ)。リポジトリ直下で: py -3.10 -m unittest src/friendapp/tests/test_diag.py"""
 import json
 import os
-import shutil
 import sys
-import tempfile
 import time
 import unittest
 
@@ -12,6 +10,7 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
+from ytt import testkit  # noqa: E402
 from friendapp import diag as G, inbox as I, sync as S  # noqa: E402
 from friendapp.tests.test_sync import FakeIo  # noqa: E402
 from ytt import tools as T  # noqa: E402
@@ -51,8 +50,7 @@ class MaskTest(unittest.TestCase):
 
 class DiagTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="frienddiag-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "frienddiag-")
         self.t = [NOW]
         self.places = {"home": os.path.join(self.tmp, "home"), "data": os.path.join(self.tmp, "data"),
                        "friend": os.path.join(self.tmp, "data", "app", "friendapp"), "outbox": os.path.join(self.tmp, "data", "app", "outbox"),
@@ -121,8 +119,7 @@ class DiagTest(unittest.TestCase):
         self.assertIsNone(self.d.write("error", summary="x"))
         del self.d.env[G.SWITCH_ENV]
         os.makedirs(os.path.join(self.places["data"], "app"), exist_ok=True)
-        with open(os.path.join(self.places["data"], "app", "prefs.json"), "w", encoding="utf-8") as f:
-            json.dump({"intake": {"folder": "D:/Dropbox/Apps/x"}}, f)
+        testkit.write_json(os.path.join(self.places["data"], "app", "prefs.json"), {"intake": {"folder": "D:/Dropbox/Apps/x"}})
         self.assertIsNone(self.d.write("error", summary="x"))   # ユーザーの PC の作業データでは書かない
         self.assertFalse(os.path.isdir(self.places["outbox"]) and self.files())
 
@@ -153,8 +150,7 @@ class DiagTest(unittest.TestCase):
 
 class SyncDiagTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="frienddiagsync-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "frienddiagsync-")
         self.t = [NOW]
         self.places = {"home": os.path.join(self.tmp, "home"), "data": os.path.join(self.tmp, "data"),
                        "friend": os.path.join(self.tmp, "data", "app", "friendapp"), "outbox": os.path.join(self.tmp, "data", "app", "outbox"),

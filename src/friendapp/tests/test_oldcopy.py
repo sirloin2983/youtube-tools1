@@ -5,13 +5,13 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
+from ytt import testkit  # noqa: E402
 from friendapp import oldcopy  # noqa: E402
 
 
@@ -26,8 +26,7 @@ def _file_sha(path):
 
 class OldCopyTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="oldcopy-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "oldcopy-")
         self.old = os.path.join(self.tmp, "old")
         self.new = os.path.join(self.tmp, "new")
         self.catalog = os.path.join(self.tmp, "state", "catalog.json")
@@ -49,8 +48,7 @@ class OldCopyTest(unittest.TestCase):
         return r
 
     def write_fetch(self, rows):
-        with open(self.fetch, "w", encoding="utf-8") as f:
-            json.dump({"version": "t", "items": rows}, f)
+        testkit.write_json(self.fetch, {"version": "t", "items": rows})
 
     def migrate(self, **kw):
         return oldcopy.migrate(self.fetch, self.old, self.new, self.catalog, **kw)
@@ -200,8 +198,7 @@ class OldCopyTest(unittest.TestCase):
         self.assertEqual((r["copied"], r["deleted"], r["skipped"]), (0, 0, []))
         self.assertTrue(os.path.exists(old_path))
         self.assertFalse(os.path.exists(self.catalog))
-
-    def test_nested_root_does_nothing(self):
+        # ---- test_nested_root_does_nothing
         data = b"nested"
         old_path = self.put(self.old, "m/a.bin", data)
         inner = os.path.join(self.old, "sub")
@@ -291,8 +288,7 @@ class HomeCleanTest(unittest.TestCase):
            "settings.json", "update.cmd", "new/a.bin", "update-download/b.zip")
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="homeclean-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "homeclean-")
         self.home = os.path.join(self.tmp, "FriendApp")
         self.catalog = os.path.join(self.tmp, "state", "catalog.json")
         for rel in self.KEEP + self.OLD:

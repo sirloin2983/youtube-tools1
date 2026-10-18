@@ -6,7 +6,6 @@ import os
 import shutil
 import sys
 import tarfile
-import tempfile
 import threading
 import time
 import unittest
@@ -18,6 +17,7 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
+from ytt import testkit  # noqa: E402
 from friendapp import setup as S  # noqa: E402
 
 Usage = namedtuple("Usage", "total used free")
@@ -75,8 +75,7 @@ class FakeDownloader:
 
 class SetupTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="friendsetup-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "friendsetup-")
         self.home = os.path.join(self.tmp, "home")
         self.data = os.path.join(self.home, "data")
         self.friend = os.path.join(self.data, "app", "friendapp")
@@ -108,8 +107,7 @@ class SetupTest(unittest.TestCase):
         return p
 
     def write_fetch(self, items):
-        with open(self.fetch, "w", encoding="utf-8") as f:
-            json.dump({"schema": "youtube-tools-friend-fetch/v1", "version": "0.93.0", "items": items}, f)
+        testkit.write_json(self.fetch, {"schema": "youtube-tools-friend-fetch/v1", "version": "0.93.0", "items": items})
 
     def make(self, **kw):
         kw.setdefault("downloader", self.dl)
@@ -384,8 +382,7 @@ class FakeOpener:
 
 class HttpDownloaderTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="friendhttp-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "friendhttp-")
         self.part = os.path.join(self.tmp, "a", "x.part")
 
     def test_resume_with_range(self):
@@ -439,8 +436,7 @@ class FlowTest(unittest.TestCase):
     """本物のネット・本物の道具・本物の文字起こしは動かさない(偽の取り方・偽の run・偽の whisper)"""
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="friendflow-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "friendflow-")
         self.home = os.path.join(self.tmp, "home")
         self.data = os.path.join(self.home, "data")
         self.friend = os.path.join(self.data, "app", "friendapp")
@@ -472,8 +468,7 @@ class FlowTest(unittest.TestCase):
         self.copied = []
 
     def write_fetch(self, items):
-        with open(self.fetch, "w", encoding="utf-8") as f:
-            json.dump({"schema": "youtube-tools-friend-fetch/v1", "version": "0.93.0", "items": items}, f)
+        testkit.write_json(self.fetch, {"schema": "youtube-tools-friend-fetch/v1", "version": "0.93.0", "items": items})
 
     def fake_run(self, cmd, timeout):
         self.cmds.append(list(cmd))
