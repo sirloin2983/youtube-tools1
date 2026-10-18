@@ -644,19 +644,20 @@ class TestEditHttp(unittest.TestCase):
         with open(r["path"], encoding="utf-8") as f:
             plan = json.load(f)
         self.assertEqual([(g["start"], g["end"]) for g in plan["segments"]], [(0.5, 1.8), (2.0, 2.2), (3.0, 5.1)])
-        # 前回のパックの手順書: 記録したフォルダが cut2resolve のパックのときだけ読む(cut2resolve の記録か、以前のパックなら cut2resolve の cut-plan.json。
-        # 記録で読めることは ytt の test_pack_record・cut2resolve の test_serve で確かめる)
+        # 前回のパックの手順書: 記録したフォルダが cut2resolve のパック(パックを作った記録がある)のときだけ読む。
+        # 以前の形(フォルダの中の cut-plan.json)は読まない(2026-10-18 に消した)
         out = os.path.join(self.media_dir, "パック_pack")
         os.makedirs(out, exist_ok=True)
         self.call("POST", "/api/edit/pack", {"id": tid, "rev": 1, "docUpdatedAt": 0, "dir": out, "files": ["友人へ.txt"]})
         with open(os.path.join(out, "友人へ.txt"), "w", encoding="utf-8") as f:
             f.write("Resolve で開く手順")
-        self.assertEqual(self.call("GET", "/api/edit/pack-readme?id=" + tid)["_status"], 404)   # cut-plan.json が無い = パックではない
-        with open(os.path.join(out, "cut-plan.json"), "w", encoding="utf-8") as f:
-            json.dump({"schema": "youtube-tools-cut-plan/v1", "tool": {"name": "transcribe"}}, f)
-        self.assertEqual(self.call("GET", "/api/edit/pack-readme?id=" + tid)["_status"], 404)   # 他のツールの cut-plan.json はパックではない
+        self.assertEqual(self.call("GET", "/api/edit/pack-readme?id=" + tid)["_status"], 404)   # 記録が無い = パックではない
         with open(os.path.join(out, "cut-plan.json"), "w", encoding="utf-8") as f:
             json.dump({"schema": "youtube-tools-cut-plan/v1", "tool": {"name": "cut2resolve"}}, f)
+        self.assertEqual(self.call("GET", "/api/edit/pack-readme?id=" + tid)["_status"], 404)   # 以前の形の cut-plan.json だけでもパックではない
+        from flow import packrec
+        packrec.write_record({"out_dir": out, "files": [("readme", os.path.join(out, "友人へ.txt"))]}, self.video, False,
+                             c2r_dir=os.path.join(self.tmp, "cut2resolve"))   # サーバーと同じ置き場所(start_server の YTT_CUT2RESOLVE_DIR)
         r = self.call("GET", "/api/edit/pack-readme?id=" + tid)
         self.assertEqual((r["name"], r["text"]), ("友人へ.txt", "Resolve で開く手順"))                # 2026-09-27 より前のパック
         # 今のパック(手順書のファイルが無い): パックの Lua に埋め込んだ計画から手順を作り直す

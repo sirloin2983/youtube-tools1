@@ -68,7 +68,6 @@ EDIT_KEEPS = {"base": "list", "handles": 0.0, "min_len": 0.0, "join_frames": 0, 
 MAX_KEEPS = 5000
 PACK_FILE_KINDS = ("edl", "srt", "readme", "plan", "roughcut", "video",
                    "textplus_script", "textplus_install", "textplus_launcher", "textplus_readme", "textplus_template")
-OLD_TEXTPLUS_PLAN = "textplus-import.json"   # 2026-09-26 まで Text+ パックに入れていた計画(中身は Lua に埋め込み済みなので、もう書かない。④)
 OLD_MEDIA_DIR = "media"                       # 2026-09-27 まで Text+ パックの動画を入れていたフォルダ(今はパックの直下)
 OLD_BACKUP_README = "予備_EDLで開く手順.txt"   # 2026-10-18 まで Text+ パックに入れられた「予備」の手順書(EDL・SRT と組。決定 3-34 で消した)
 
@@ -856,7 +855,6 @@ def _stale_warning(video, out_dir, paths, mvideo):
     """前に作ったかもしれない・今回は作らないファイルがフォルダに残っていれば、その注意の文(無ければ None)"""
     known = pack_paths(video, out_dir, True, render=True, textplus=True)
     known["old_fcpxml"] = out_dir / f"{video.stem}_cut.fcpxml"           # FCPXML は 2026-10-16 まで補助で書けた(今は作らない)
-    known["textplus_plan"] = out_dir / OLD_TEXTPLUS_PLAN
     known["old_video"] = out_dir / OLD_MEDIA_DIR / mvideo.name        # 2026-09-27 までの Text+ パックの動画の場所
     # 2026-10-18 まで Text+ パックに入れられた予備(EDL・カット後の SRT・予備の手順書。決定 3-34)。Text+ でないパックでは EDL・SRT は今の中身
     known.update(old_edl=out_dir / f"{video.stem}.edl", old_srt=out_dir / f"{video.stem}_cut.srt", old_backup_readme=out_dir / OLD_BACKUP_README)

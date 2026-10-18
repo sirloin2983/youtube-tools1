@@ -1180,10 +1180,13 @@ def seed_auto_clips(cx):
     out_dir = pg.evaluate("fetch('/studio/api/state', {cache: 'no-store'}).then(r => r.json()).then(j => j.outDir)")
     clips = {"a1": _live_clip(out_dir, "01_自動.mp4", "auto", recording=AUTO_REC_A), "a2": _live_clip(out_dir, "02_解析.mp4", "archive", recording=AUTO_REC_A, bench=True),
              "b1": _live_clip(out_dir, "03_人.mp4", "manual", recording=AUTO_REC_B)}
-    pack = os.path.join(os.path.dirname(clips["a1"]), "01_自動_pack")   # cut2resolve が作ったパック(以前の形: 中の cut-plan.json)
+    pack = os.path.join(os.path.dirname(clips["a1"]), "01_自動_pack")   # cut2resolve が作ったパック(パックを作った記録 = flow/packrec と中身の動画)
     os.makedirs(pack, exist_ok=True)
-    with open(os.path.join(pack, "cut-plan.json"), "w", encoding="utf-8") as f:
-        json.dump({"schema": schemas.CUT_PLAN_SCHEMA, "tool": {"name": "cut2resolve"}}, f)
+    video = os.path.join(pack, "01_自動.mp4")
+    with open(video, "wb") as f:
+        f.write(b"x")
+    from flow import packrec
+    packrec.write_record({"out_dir": pack, "files": [("video", video)]}, clips["a1"], False)   # 取り込んだ cut2resolve が登録した置き場所(同じプロセス)
     for rec, keys in ((AUTO_REC_A, ("a1", "a2")), (AUTO_REC_B, ("b1",))):
         st, _v = pg.evaluate(STUDIO_CALL, ["POST", "/api/videos/open", {"kind": "live", "recorder": "local", "recording": rec,
                                                                          "url": "https://www.youtube.com/watch?v=e2eLiveAAAA", "title": "e2e ライブ " + rec[-6:]}])

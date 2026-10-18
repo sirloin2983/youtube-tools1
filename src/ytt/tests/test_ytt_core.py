@@ -1683,26 +1683,22 @@ class TestTxIndex(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def test_pack_info(self):
-        """パックの有無の規則(入口の案件・文字起こしの一覧で共通): 切り抜きの隣の <名前>_pack に cut-plan.json があれば「あり」"""
+    def test_pack_info_needs_record(self):
+        """パックの有無の規則(入口の案件・文字起こしの一覧で共通): パックを作った記録だけで決める。
+        フォルダだけ・以前の形(フォルダの中の cut-plan.json。2026-10-18 に読む口を消した)は「あり」にしない"""
         from manage.cases import txindex
-        self.assertIsNone(txindex.pack_info(self.clip))
-        self.assertIsNone(txindex.pack_info(""))
+        env = {"YTT_DATA_DIR": os.path.join(self.tmp, "data")}
+        self.assertIsNone(txindex.pack_info(self.clip, env))
+        self.assertIsNone(txindex.pack_info("", env))
         d = os.path.join(os.path.dirname(self.clip), "01_a_pack")
         os.makedirs(d)
-        self.assertIsNone(txindex.pack_info(self.clip))   # フォルダだけでは「あり」にしない(作りかけ)
-        with open(os.path.join(d, "cut-plan.json"), "w") as f:
-            f.write("{}")
-        p = txindex.pack_info(self.clip)
-        self.assertEqual((p["dir"], p["textplus"]), (d, False))
-        self.assertGreater(p["updatedAt"], 0)
-        with open(os.path.join(d, "textplus-import.json"), "w") as f:
-            f.write("{}")
-        self.assertTrue(txindex.pack_info(self.clip)["textplus"])
-        self.assertFalse(txindex.is_pack_dir(d))   # 以前のパックでも、cut2resolve の書いた cut-plan.json でなければ「フォルダを開く」は許さない
+        self.assertIsNone(txindex.pack_info(self.clip, env))   # フォルダだけでは「あり」にしない(作りかけ)
         with open(os.path.join(d, "cut-plan.json"), "w") as f:
             json.dump({"schema": "youtube-tools-cut-plan/v1", "tool": {"name": "cut2resolve"}}, f)
-        self.assertTrue(txindex.is_pack_dir(d))
+        with open(os.path.join(d, "textplus-import.json"), "w") as f:
+            f.write("{}")
+        self.assertIsNone(txindex.pack_info(self.clip, env))
+        self.assertFalse(txindex.is_pack_dir(d, env))
 
     def test_pack_record(self):
         """2026-09-26(④)から: パックに cut-plan.json を置かず、cut2resolve の作業データ packs/ の記録で「パック済み」を決める"""

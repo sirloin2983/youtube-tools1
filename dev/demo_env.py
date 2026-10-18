@@ -63,6 +63,7 @@ def make_media(dirpath, n=3, sec=40):
 
 
 def seed(tmp, rnd, streams, samples):
+    from flow import packrec
     from manage.cases import txindex
     from ytt import schemas
     studio_home = os.path.join(tmp, "studio-home")
@@ -137,12 +138,14 @@ def seed(tmp, rnd, streams, samples):
                               "language": "ja", "speakers": SPEAKERS if genre == "コラボ" else SPEAKERS[:1],
                               "segments": segments(rnd.randint(12, 30), 40.0, proof, 0.15 if proof > 0 else 0.0, genre == "コラボ"),
                               "createdAt": tcreated, "updatedAt": tcreated + int(rnd.uniform(0, 3) * 86400000), "clip": cj})
-                    if r > 0.6:   # パックも作った(中身は印だけ。パックの有無は中の cut-plan.json で判定する: src/manage/cases/txindex.pack_info)
+                    if r > 0.6:   # パックも作った(中身は印だけ。パックの有無はパックを作った記録で判定する: src/manage/cases/txindex.pack_info)
                         pd = txindex.pack_dir(clip)
                         os.makedirs(pd, exist_ok=True)
-                        for n in ("cut-plan.json", "textplus-import.json"):
-                            with open(os.path.join(pd, n), "w", encoding="utf-8") as f:
-                                f.write("{}")
+                        lua = os.path.join(pd, "create_resolve_textplus_project.lua")
+                        with open(lua, "w", encoding="utf-8") as f:
+                            f.write("-- demo")
+                        packrec.write_record({"out_dir": pd, "files": [("textplus_script", lua)]}, clip, True,
+                                             c2r_dir=os.path.join(tmp, "cut2resolve"))   # 写した cut2resolve の作業データ(inplace = そのフォルダの中)
             marks.append(mk)
         videos[vid] = {"id": vid, "kind": "youtube", "title": title, "channel": ch, "duration": dur, "marks": marks,
                        "analysis": {"at": created, "counts": {"audio": 1}} if analyzed else None, "createdAt": created, "updatedAt": created}

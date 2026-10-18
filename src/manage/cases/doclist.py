@@ -87,8 +87,8 @@ PACK_README_NAMES = ("友人へ.txt", "予備_EDLで開く手順.txt")   # 2026-
 
 def pack_readme(tid):
     """GET /api/edit/pack-readme?id=: 前回のパックの Resolve での手順。記録したフォルダが cut2resolve のパック
-    (cut2resolve のパックを作った記録があるか、以前のパックなら中に cut-plan.json。txindex.is_pack_dir)のときだけ読む。
-    今のパックは手順書のファイルが無いので、パックの Lua から作り直す(flow.pack.instructions)。以前のパックはファイルを読む"""
+    (cut2resolve のパックを作った記録がある。txindex.is_pack_dir)のときだけ読む。
+    今のパックは手順書のファイルが無いので、パックの Lua から作り直す(flow.pack.instructions)。Lua が無ければ手順書のファイルを読む"""
     store.read_transcript(tid)
     d, _ = store.read_edit(tid)
     pk = (d or {}).get("pack") or {}

@@ -259,14 +259,20 @@ class TestPerformance(StoreDir):
             b = items[other]
             self.assertEqual((b["durationSec"], b["videoId"], b["channel"], b["hasClip"]), (60.0, "", "", False))
             self.assertIsNone(b["mediaOk"])   # ネットワーク上のパスは調べない(資格情報を送らない)
-            # パック(案件の画面と同じ判定: <名前>_pack/cut-plan.json)
+            # パック(案件の画面と同じ判定: <名前>_pack のパックを作った記録。記録は YTT_CUT2RESOLVE_DIR の下 = リポジトリの .data に書かない)
+            from flow import packrec
             pk = os.path.join(media_dir, "01_見どころ_pack")
             os.makedirs(pk)
-            write_json(os.path.join(pk, "cut-plan.json"), {})
-            write_json(os.path.join(pk, "textplus-import.json"), {})
+            write_json(os.path.join(pk, "cut-plan.json"), {})                   # 以前の形(フォルダの中の cut-plan.json)だけでは「パックあり」にしない
+            self.assertIsNone({x["id"]: x for x in S.list_transcripts()}[TID]["pack"])
+            c2r = os.path.join(self.tmp, "cut2resolve")
+            lua = os.path.join(pk, "create_resolve_textplus_project.lua")
+            write_json(lua, {})
             time.sleep(0.01)
             write_json(studio, {"videos": {"abcdefghijk": {"title": "", "channel": "朝霧ソラ"}}})   # スタジオの data.json が変われば読み直す
-            a = {x["id"]: x for x in S.list_transcripts()}[TID]
+            with patch.dict(os.environ, {"YTT_CUT2RESOLVE_DIR": c2r}):
+                packrec.write_record({"out_dir": pk, "files": [("textplus_script", lua)]}, media, True, c2r_dir=c2r)
+                a = {x["id"]: x for x in S.list_transcripts()}[TID]
             self.assertEqual((a["pack"]["textplus"], a["pack"]["updatedAt"] > 0, a["channel"], a.get("streamTitle")), (True, True, "朝霧ソラ", None))
             os.unlink(media)
             self.assertIs({x["id"]: x for x in S.list_transcripts()}[TID]["mediaOk"], False)
@@ -615,7 +621,8 @@ def start_server(tmp, port, runtime):
     for n in ("serve.py", "hololive-roster.json") + tuple(n for n in sorted(os.listdir(HERE)) if n.startswith("ed_") and n.endswith(".py")):   # 段10 で serve.py から分けた部品。画面の部品は src/app/ui/editor(RV C2。YTT_EDITOR_UI_DIR で教える)
         shutil.copy(os.path.join(HERE, n), tmp)
     env = dict(os.environ, YTT_EDITOR_UI_DIR=UI_DIR,TRANSCRIBE_BACKEND="fake", TRANSCRIBE_FAKE_DELAY="0.005", YTT_RUNTIME_DIR=runtime,
-               YTT_MACHINE_FILE=os.path.join(tmp, "machine.json"))   # この PC の設定は一時フォルダへ(src に書かない。RS7-1 S6b)
+               YTT_MACHINE_FILE=os.path.join(tmp, "machine.json"),   # この PC の設定は一時フォルダへ(src に書かない。RS7-1 S6b)
+               YTT_CUT2RESOLVE_DIR=os.path.join(tmp, "cut2resolve"))   # パックを作った記録(flow/packrec)も一時フォルダへ(リポジトリの .data に書かない)
     proc = subprocess.Popen([sys.executable, os.path.join(tmp, "serve.py"), str(port), "--no-open"], cwd=tmp, env=env,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     for _ in range(150):

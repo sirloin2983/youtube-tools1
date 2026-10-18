@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> cases -> manage -> src
@@ -16,7 +17,7 @@ if SRC not in sys.path:
     sys.path.insert(0, SRC)
 from manage.cases import cases  # noqa: E402
 from manage.keep import cleanup  # noqa: E402
-from flow import deliver  # noqa: E402
+from flow import deliver, packrec  # noqa: E402
 from manage.cases import txindex  # noqa: E402
 from flow import casebook  # noqa: E402
 from ytt import casefiles, schemas  # noqa: E402
@@ -39,6 +40,11 @@ class Base(unittest.TestCase):
         os.makedirs(self.exports)
         self.clip1 = self.touch(os.path.join(self.exports, "01_見どころ.mp4"))
         self.clip2 = self.touch(os.path.join(self.exports, "02_次.mp4"))
+        # パックを作った記録の置き場所(cases は env を渡さずに txindex.pack_info を読む = 環境変数 YTT_CUT2RESOLVE_DIR の下。リポジトリの .data に書かない)
+        self.c2r = os.path.join(self.tmp, "cut2resolve")
+        p = mock.patch.dict(os.environ, {"YTT_CUT2RESOLVE_DIR": self.c2r})
+        p.start()
+        self.addCleanup(p.stop)
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -49,6 +55,13 @@ class Base(unittest.TestCase):
         with open(path, "w", encoding="utf-8") as f:
             f.write(text)
         return path
+
+    def make_pack(self, d, textplus=False):
+        """cut2resolve が作ったパック(パックを作った記録 = ② flow/packrec と、中身の動画 1 本)。d = パックのフォルダ(書き出し先からの名前でも)"""
+        d = os.path.join(self.exports, d)
+        video = self.touch(os.path.join(d, "clip.mp4"), "v")
+        packrec.write_record({"out_dir": d, "files": [("video", video)]}, video, textplus, c2r_dir=self.c2r)
+        return d
 
     def studio(self, videos):
         p = os.path.join(self.data, "studio", "data.json")
@@ -76,8 +89,7 @@ class TestBuild(Base):
         self.transcript("bbbbbbbbbbbb", os.path.join(self.tmp, "moved", "02_次.mp4"),
                         clip={"source": {"videoId": VID}, "mark": {"id": "m2"}})              # 動画を動かしても .clip.json の配信・マークで
         self.transcript("cccccccccccc", os.path.join(self.tmp, "other.mp4"))                  # どこにも紐づかない
-        self.touch(os.path.join(self.exports, "01_見どころ_pack", "cut-plan.json"), "{}")
-        self.touch(os.path.join(self.exports, "01_見どころ_pack", "textplus-import.json"), "{}")
+        self.make_pack("01_見どころ_pack", textplus=True)
         res = cases.snapshot(self.root, self.env)
         self.assertEqual(len(res["cases"]), 1)
         c = res["cases"][0]
@@ -248,7 +260,7 @@ class TestListExtras(Base):
         self.studio({VID: {"kind": "youtube", "title": "配信A", "channel": "ch",
                            "marks": [mark("m1", "exported", self.clip1), mark("m2", "exported", self.clip2), mark("m3", "adopted")]}})
         self.transcript("aaaaaaaaaaaa", self.clip2, proofed=1, total=4)
-        self.touch(os.path.join(self.exports, "02_次_pack", "cut-plan.json"), "{}")
+        self.make_pack("02_次_pack")
         c = cases.snapshot(self.root, self.env)["cases"][0]
         # 次にやることは仕掛かりを先に(TODO_ORDER = 校正 → パック → 文字起こし → 書き出し → 候補の確認。UI の見直し M1): 校正が残っている 1 本が先
         self.assertEqual(c["next"], {"kind": "proof", "label": "校正", "count": 1})
@@ -277,12 +289,12 @@ class TestListExtras(Base):
             order.append(c["next"]["kind"])
             if step == 0:
                 self.transcript("bbbbbbbbbbbb", self.clip2, proofed=4, total=4)               # 校正を済ませる → パック(m1 がまだ。m2 は作ってある)
-                self.touch(os.path.join(self.exports, "02_次_pack", "cut-plan.json"), "{}")
+                self.make_pack("02_次_pack")
             elif step == 1:
-                self.touch(os.path.join(self.exports, "01_見どころ_pack", "cut-plan.json"), "{}")   # パックを作る → 文字起こし(m3)
+                self.make_pack("01_見どころ_pack")   # パックを作る → 文字起こし(m3)
             else:
                 self.transcript("cccccccccccc", clip3, proofed=1, total=1)                   # 文字起こし → 書き出し(m4)。校正済みなのでパックの次はまた pack
-                self.touch(os.path.join(self.exports, "03_三_pack", "cut-plan.json"), "{}")
+                self.make_pack("03_三_pack")
         self.assertEqual(order, ["proof", "pack", "transcribe", "export"])
         # 「パックがまだ」でも校正が残っている切り抜きは、パックではなく校正(校正の前にパックを勧めない)
         self.studio({VID: {"kind": "youtube", "title": "配信A", "marks": [mark("m1", "exported", self.clip1)]}})
@@ -329,7 +341,7 @@ class TestListExtras(Base):
         self.transcript("aaaaaaaaaaaa", self.clip1, proofed=2, total=2)   # 校正済み・パックだけまだ
         c = cases.snapshot(self.root, self.env)["cases"][0]
         self.assertEqual(c["next"], {"kind": "pack", "label": "パックを作る", "count": 1})
-        self.touch(os.path.join(self.exports, "01_見どころ_pack", "cut-plan.json"), "{}")
+        self.make_pack("01_見どころ_pack")
         c = cases.snapshot(self.root, self.env)["cases"][0]
         self.assertIsNone(c["next"])   # 書き出し・文字起こし・校正・パックが全部済み
         self.assertEqual(c["remaining"], 0)
@@ -444,11 +456,8 @@ class TestAutoClips(Base):
         return media
 
     def pack(self, media):
-        """cut2resolve が作ったパック(以前の形: フォルダの中の cut-plan.json)"""
-        d = txindex.pack_dir(media)
-        self.touch(os.path.join(d, "cut-plan.json"), json.dumps({"schema": schemas.CUT_PLAN_SCHEMA, "tool": {"name": "cut2resolve"}}))
-        self.touch(os.path.join(d, "clip.mp4"), "v")
-        return d
+        """cut2resolve が作ったパック(パックを作った記録と中身の動画)"""
+        return self.make_pack(txindex.pack_dir(media))
 
     def review(self, op, mid, **kw):
         kw = dict({"deliveries": self.dl, "studio": self.fs, "trash": self.trash, "hide": self.hidden.append, "env": self.env}, **kw)
@@ -619,7 +628,7 @@ class TestAutoClips(Base):
         dest = r["trash"]
         self.assertTrue(dest.startswith(os.path.join(self.data, "app", cleanup.TRASH_DIR)), dest)
         self.assertEqual(os.path.basename(os.path.dirname(dest)), cases.DISCARD_KIND)
-        self.assertTrue(os.path.isfile(os.path.join(dest, "10_自動.mp4")) and os.path.isfile(os.path.join(dest, "10_自動_pack", "cut-plan.json"))
+        self.assertTrue(os.path.isfile(os.path.join(dest, "10_自動.mp4")) and os.path.isfile(os.path.join(dest, "10_自動_pack", "clip.mp4"))
                         and os.path.isfile(os.path.join(dest, schemas.WORK_DIR, "10_自動.clip.json")))
         with open(os.path.join(os.path.dirname(os.path.dirname(dest)), cleanup.MANIFEST), encoding="utf-8") as f:
             self.assertEqual(len(f.read().splitlines()), 3)   # 元の場所の記録(片付けと同じ)

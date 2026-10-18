@@ -205,8 +205,7 @@ def attach_board(board):
 
 
 def is_pack_dir(path):
-    """cut2resolve が作ったパックのフォルダか(パックを作った記録があるか、以前のパックなら中の cut-plan.json が cut2resolve の書いたもの。
-    規則は manage.cases.txindex.is_pack_dir)。「編集」の前回のパックは、入口を起動し直したあとでも「フォルダを開く」で開けるようにする"""
+    """cut2resolve が作ったパックのフォルダか(パックを作った記録があるか。規則は manage.cases.txindex.is_pack_dir)。「編集」の前回のパックは、入口を起動し直したあとでも「フォルダを開く」で開けるようにする"""
     return _txi.is_pack_dir(str(path), c2r_dir=CODE_DIR)
 
 

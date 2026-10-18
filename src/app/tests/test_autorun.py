@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.dirname(HERE))
 import autorun as A  # noqa: E402
 from flow import deliver as deliver_mod  # noqa: E402  (届ける部品。RS3-3 で AutoRunner の届けは Delivery へ・ds1 で ② flow/delivery.py へ)
 from flow import delivery as DL  # noqa: E402
+from flow import packrec  # noqa: E402
 from pipeline.pack import preview as pv  # noqa: E402  (まとめ動画は ① へ分けた。ds1)
 from human.friend import friend_feedback  # noqa: E402
 import prefs as prefs_mod  # noqa: E402
@@ -155,6 +156,7 @@ class FakeTools:
 
     def __init__(self, tmp, marks, analysis=True):
         self.tmp = tmp
+        self.c2r_dir = os.path.join(tmp, "cut2resolve")   # パックを作った記録(flow/packrec)の置き場所 = Base が YTT_CUT2RESOLVE_DIR に入れる
         self.txdir = os.path.join(tmp, "txdata", "transcripts")
         os.makedirs(self.txdir)
         self.video = {"id": VID, "kind": "youtube", "title": "配信A", "analysis": {"at": 1} if analysis else None, "marks": marks}
@@ -342,8 +344,13 @@ class FakeTools:
             open(os.path.join(d, "cut-plan.json"), "w").close()
             with open(os.path.join(d, os.path.basename(v)), "wb") as f:   # 切り抜きの動画の写し(まとめ動画の材料)
                 f.write(b"v")
+            self.mark_pack(d, [os.path.join(d, os.path.basename(v))], v)
             self.c2r["job"]["result"] = {"outDir": d, "files": [{"name": "cut-plan.json"}, {"name": "m1.edl"}]}
         return 200, self.c2r["job"]
+
+    def mark_pack(self, d, files, video=""):
+        """パックを作った記録を書く(本物の cut2resolve の after_build の代わり。「パック済み」は記録で決める = txindex.pack_info)"""
+        packrec.write_record({"out_dir": d, "files": [("video", f) for f in files]}, video, False, c2r_dir=self.c2r_dir)
 
 
 class Base(unittest.TestCase):
@@ -355,6 +362,9 @@ class Base(unittest.TestCase):
         self.addCleanup(setattr, pv, "make_preview", pv.make_preview)
         pv.make_preview = _fake_preview
         self.tools = FakeTools(self.tmp, json.loads(json.dumps(self.marks)), self.analysis)
+        c2r_env = mock.patch.dict(os.environ, {"YTT_CUT2RESOLVE_DIR": self.tools.c2r_dir})   # find_pack は env を渡さずに読む(リポジトリの .data に書かない)
+        c2r_env.start()
+        self.addCleanup(c2r_env.stop)
         self.env = {"TRANSCRIBE_DATA_DIR": os.path.join(self.tmp, "txdata"), "YTT_DATA_DIR": os.path.join(self.tmp, "data")}
         from manage.cases import cases
         self.r = A.AutoRunner(self.tools, os.path.join(self.tmp, "repo"), self.env, poll=0, sleep=lambda s: None, find_pack=cases.find_pack)
@@ -484,8 +494,9 @@ class TestDocs(Base):
     def test_existing_pack_is_skipped_unless_overwrite(self):
         d = os.path.splitext(self.media["bbbbbbbbbbb2"])[0] + "_pack"
         os.makedirs(d)
-        with open(os.path.join(d, "cut-plan.json"), "w") as f:
-            f.write("{}")
+        with open(os.path.join(d, "clip.mp4"), "wb") as f:
+            f.write(b"v")
+        self.tools.mark_pack(d, [os.path.join(d, "clip.mp4")], self.media["bbbbbbbbbbb2"])
         got = self.wait_all(start_docs(self.r, ["bbbbbbbbbbb2"])["runs"])
         st = got["bbbbbbbbbbb2"]["steps"][1]
         self.assertEqual(st["state"], "skip")

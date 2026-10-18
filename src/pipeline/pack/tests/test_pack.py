@@ -1624,7 +1624,6 @@ class TestMinimalPack(unittest.TestCase):
         out, _ = self.build("again", plan_file=True)                              # 以前の中身(cut-plan.json・友人へ.txt)のフォルダ
         for n in ("clip.edl", "clip_cut.srt", "予備_EDLで開く手順.txt"):             # 2026-10-18 まで入れられた予備(決定 3-34)
             (out / n).write_text("old", encoding="utf-8")
-        (out / "textplus-import.json").write_text("{}", encoding="utf-8")         # 以前の版の .json
         (out / "media").mkdir()
         (out / "media" / "clip.mp4").write_bytes(b"old")                          # 2026-09-27 までの動画の場所
         plan = pack.plan_cut(pack.Request(video=self.video, transcript=self.tr, **dict(pack.TRANSCRIPT_ROWS, row_edge=None)))
@@ -1634,7 +1633,7 @@ class TestMinimalPack(unittest.TestCase):
             pack.build_pack(plan, out, textplus=True, **self.SCREEN)
         res = pack.build_pack(plan, out, textplus=True, force=True, **self.SCREEN)
         left = next(w for w in res["warnings"] if "前に作った" in w)
-        for n in ("clip.edl", "clip_cut.srt", "予備_EDLで開く手順.txt", "cut-plan.json", "textplus-import.json", RTP.README_NAME,
+        for n in ("clip.edl", "clip_cut.srt", "予備_EDLで開く手順.txt", "cut-plan.json", RTP.README_NAME,
                   "media/clip.mp4"):
             self.assertIn(n, left)                                                  # 残っている以前のファイルを知らせる(消さない)
         self.assertEqual((out / "media" / "clip.mp4").read_bytes(), b"old")
