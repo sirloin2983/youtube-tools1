@@ -118,6 +118,7 @@ class Inbox:
         self.nums = {}                  # 配信ごとの通し番号の最後 {配信の鍵: n}(C-3-2。見送って消えた番号も使い回さない)
         self.notice = None              # 3 日の自動の片付けの知らせ {n, at}(画面に 1 行。見たら消す)
         self.stream_info = lambda vid: None   # 配信の一覧の 1 件(題・配信者・始まった時刻。玄関が streams.lookup を入れる)
+        self.on_fail = None             # fail で行を失敗にしたとき on_fail(行の写し)(② の前の失敗の診断。玄関が friendapp/diag を入れる)
         self.rows = self._load()
 
     # ------------------------------------------------------------ 記録
@@ -224,6 +225,11 @@ class Inbox:
             r.update(state="failed", failedAt=now, error=str(text or "失敗しました")[:500], updatedAt=now)
             self._failed_code(r)
             self._save()
+            if self.on_fail is not None:
+                try:
+                    self.on_fail(json.loads(json.dumps(r)))
+                except Exception:   # noqa: BLE001  (診断で受信箱を止めない)
+                    pass
             return r
 
     @staticmethod

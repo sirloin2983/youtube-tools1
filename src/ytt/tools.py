@@ -6,6 +6,7 @@
 - run … 子プロセスを最後まで動かして出力を集める(取り消し・時間切れで止める)。run_progress … ffmpeg・yt-dlp の出力(-progress の進み具合)を 1 行ずつ読みながら動かす(取り消し・時間切れ・無出力で止める。窓なし・優先度「低」。ffmpeg を動かす形はこの 1 つ)
 - kill_quiet … 止める(上げない)。kill_tree … 孫ごと止める。KillJob … 親が落ちても子を残さない
 - process_memory_mb … このプロセスのメモリ。why … 例外 → 画面に出せる短い理由
+- remember・recent … run・run_progress・procs.run_short で動かした道具の名前・終了コード・秒・失敗の最後の数行(引数は持たない)を最近の 40 件だけ覚える(友人の診断 friendapp/diag が読む)
 - MEDIA_TYPES・find_ffmpeg・ffmpeg_info・parse_ffmpeg_info・duration_in・media_duration・check_source・probe_media … 編集の動画・音声のファイルの小道具(拡張子・ffmpeg の場所と -i の出力・-i の読み方(parse_ffmpeg_info。mediainfo も使う)・長さ・元のファイルの検査・映像と音声の有無)
 """
 import collections
@@ -24,6 +25,27 @@ from . import errors as _errors, fsio as _fsio
 PRIORITY = {"low": "BELOW_NORMAL_PRIORITY_CLASS", "high": "ABOVE_NORMAL_PRIORITY_CLASS", "idle": "IDLE_PRIORITY_CLASS"}   # no_window_flags の priority(idle = 後回しの仕事。PRIO)
 KILL_TREE_TIMEOUT = 15   # taskkill /T /F を待つ秒数
 OUT_TIME = re.compile(r"^out_time_(?:us|ms)=(\d+)$")    # ffmpeg の -progress の進み具合の行(us も ms もマイクロ秒)
+RECENT = collections.deque(maxlen=40)   # 最近動かした道具の記録(remember)
+RECENT_TAIL = 8                         # 失敗したときに覚える最後の行数
+
+
+def remember(cmd, code, lines, why, t0):
+    """動かした道具を 1 件覚える: {name(exe の名前だけ。引数は持たない), code, why, at(終わったミリ秒), sec, tail(失敗のときだけ最後の数行)}。
+    t0 = 始めた time.monotonic()。覚えられなくても呼んだ側は止めない"""
+    try:
+        name = os.path.splitext(os.path.basename(str(cmd[0] if isinstance(cmd, (list, tuple)) else cmd)))[0][:40] if cmd else "?"
+        tail = []
+        if code or why:
+            for x in list(lines or [])[-RECENT_TAIL:]:
+                tail.append((x.decode("utf-8", "replace") if isinstance(x, bytes) else str(x)).rstrip()[:300])
+        RECENT.append({"name": name, "code": code, "why": why, "at": int(time.time() * 1000), "sec": round(time.monotonic() - t0, 1), "tail": tail})
+    except Exception:   # noqa: BLE001  (記録で道具の呼び出しを壊さない)
+        pass
+
+
+def recent(since_ms=0):
+    """覚えた道具の記録のうち at が since_ms 以降の物(古い順の写し)"""
+    return [dict(r) for r in list(RECENT) if r.get("at", 0) >= since_ms]
 
 
 def ytt_env(name):
@@ -263,6 +285,7 @@ def run(cmd, timeout=None, cancelled=None, flags=None, stdout=True, err_tail=Non
     - popen_kw: cwd・env・preexec_fn など、そのまま Popen へ
     起動できなければ OSError をそのまま上げる(呼ぶ側が自分の例外・文にする。理由の文は why(e))。
     止めるのは子だけ(kill)。孫ごと止めたいものは on_start で覚えて kill_tree を使う。止めたあと、出力のパイプは最大 5 秒で読み終える"""
+    t0 = time.monotonic()
     proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE if stdout else subprocess.DEVNULL, stderr=subprocess.PIPE,
                             creationflags=no_window_flags() if flags is None else flags, **popen_kw)
     out, err = [], (collections.deque(maxlen=err_tail) if err_tail else [])
@@ -304,6 +327,7 @@ def run(cmd, timeout=None, cancelled=None, flags=None, stdout=True, err_tail=Non
                     f.close()
                 except OSError:
                     pass
+    remember(cmd, proc.returncode, err, reason, t0)
     return RunResult(proc.returncode, b"".join(out), b"".join(err), reason)
 
 
@@ -413,6 +437,7 @@ def run_progress(cmd, flags=None, cancelled=None, idle_sec=None, on_time=None, p
                     pass
         if procs is not None:
             procs.forget(proc)
+    remember(cmd, proc.returncode, lines, state["why"], t0)
     return proc.returncode, list(lines), state["why"]
 
 

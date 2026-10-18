@@ -16,6 +16,8 @@
   exe なしで開発の PC から起こしたときは Ctrl+C か [すべて止めて終了] まで動く(待ちは残り、次に開いたとき続きから = 4-6)
 - 環境変数(exe が渡す): YTT_FRIEND_TOKEN(合言葉。無ければ乱数)・YTT_FRIEND_HOST(webview2 / edge。無ければ開発の PC)・
   YTT_FRIEND_REC_PORT(録画の部品の番号。無ければ 8730)・YTT_FRIEND_ROLLBACK(起動できなかった新しい版 = 前の版で開いた知らせを 1 回出す)
+- 診断の記録(friendapp/diag。notes:docs/spec/friend.md の 13-11): 依頼 1 件ごと・失敗・合言葉の違い・思わぬ例外・前の版へ戻した・② を起こせない、を
+  送り返しの箱へ .diag.json で書き、同期が Dropbox の /診断/ へ上げる(YTT_FRIEND_DIAG=0 で書かない)
 - exe なしで、もう動いていれば標準出力に {"event":"already","port":…} を出して終了コード 0。起こせたら {"event":"ready","port":…,"pid":…}
 口(書き込み系は合言葉。全部 JSON):
   GET  /api/ping                          {app, version}
@@ -70,7 +72,7 @@ if SRC not in sys.path:
 
 from flow import placement as _placement, runqueue as _runqueue  # noqa: E402
 from ytt import appwindow as _appwindow, colors as _colors, fsio as _fsio, httpsec, version as _version  # noqa: E402
-from friendapp import api as _api, inbox as _inbox, oldcopy as _oldcopy, places as _places, settings as _settings, setup as _setup, streams as _streams, sync as _sync  # noqa: E402
+from friendapp import api as _api, diag as _diag, inbox as _inbox, oldcopy as _oldcopy, places as _places, settings as _settings, setup as _setup, streams as _streams, sync as _sync  # noqa: E402
 from friendapp import tidy as _tidy  # noqa: E402
 
 APP_ID = "ytt-friend"
@@ -78,6 +80,7 @@ DEFAULT_PORT = 8720
 PORT_TRIES = 20
 MAX_BODY = 256 * 1024
 TOKEN_HEADER = "X-YTT-Token"
+TOKEN_DIAG_EVERY = 600              # 合言葉の違いの診断を書く間隔(秒)
 TOKEN_FAIL = {"error": "token", "message": "画面を開き直してから、もう一度操作してください(合言葉が違います)"}
 UI_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui")
 UIKIT_DIR = os.path.join(SRC, "ui-kit")
@@ -247,6 +250,14 @@ class Handler(BaseHTTPRequestHandler):
     def _fail(self, code, err, message):
         self._json(code, {"error": err, "message": message})
 
+    def _token_fail(self):
+        """合言葉が違う(0.95.0 の「合言葉が違います」)。診断は 10 分に 1 回(合言葉が入っていたかと口の名前だけ。中身は書かない)"""
+        d = getattr(self.server.app, "diag", None)
+        if d is not None:
+            d.once("token", TOKEN_DIAG_EVERY, "token", summary="合言葉が違います", path=urllib.parse.urlsplit(self.path).path[:80],
+                   method=self.command, hadToken=bool(self.headers.get(TOKEN_HEADER)), host=(os.environ.get(HOST_ENV) or "").strip() or "browser")
+        return self._json(403, TOKEN_FAIL)
+
     def _host_ok(self):
         return httpsec.host_ok(self.headers, self.server.allowed_hosts)
 
@@ -290,7 +301,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, {"ok": True, "setup": app.setup.view(), "done": app.setup_done()})
         if path == "/api/friend/state":   # exe の見回り(GET でも合言葉を要る = 画面を開いていない人に仕事の中身を見せない)
             if not httpsec.token_ok(self.headers, self.server.token, TOKEN_HEADER):
-                return self._json(403, TOKEN_FAIL)
+                return self._token_fail()
             return self._json(200, app.state())
         if path == "/api/friend/peek":
             try:
@@ -343,7 +354,7 @@ class Handler(BaseHTTPRequestHandler):
         if not (self._host_ok() and httpsec.origin_ok(h, self.server.allowed_hosts) and httpsec.fetch_site_ok(h)):
             return self._send(403, b"forbidden")
         if not httpsec.token_ok(h, self.server.token, TOKEN_HEADER):
-            return self._json(403, TOKEN_FAIL)
+            return self._token_fail()
         if path != "/api/friend/upload":
             return self._fail(404, "not_found", "その操作はありません")
         q = urllib.parse.parse_qs(u.query)
@@ -368,7 +379,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(403, b"forbidden")
         if not httpsec.token_ok(h, self.server.token, TOKEN_HEADER):
             httpsec.drain_body(h, self.rfile)
-            return self._json(403, TOKEN_FAIL)
+            return self._token_fail()
         try:
             body = httpsec.read_json_body(self, MAX_BODY, empty_ok=True)
         except httpsec.BodyError:
@@ -567,6 +578,16 @@ class Server(httpsec.ExclusiveServer):
         self.token = os.environ.get(TOKEN_ENV) or secrets.token_urlsafe(24)
         self.allowed_hosts = httpsec.allowed_hosts(self.server_address[1])
 
+    def handle_error(self, request, client_address):
+        """口の思わぬ例外: 今まで通り標準エラーへ出し、診断にも残す(同じ例外の名前は 10 分に 1 回)"""
+        super().handle_error(request, client_address)
+        d = getattr(self.app, "diag", None)
+        if d is not None:
+            import traceback
+            et = sys.exc_info()[0]
+            d.once("exception:%s" % getattr(et, "__name__", "?"), TOKEN_DIAG_EVERY, "exception", summary="口の思わぬ例外 %s" % getattr(et, "__name__", "?"),
+                   detail=traceback.format_exc()[-3000:])
+
 
 class FriendApp:
     """玄関の中身(サーバーと別に作れる = テストは make_engine を差し替える)"""
@@ -597,6 +618,14 @@ class FriendApp:
         self.setup = _setup.Setup(places.get("fetch"), places["data"], places.get("home") or os.path.dirname(places["data"]), places["friend"],
                                   device=_machine_device, log=self.log, after=self.after_setup)
         self.api.parts_missing = self.setup.block_reason
+        # 診断の記録(friendapp/diag。友人の PC でしか出ない不具合を記録で追う)。② の前の失敗・同期・準備の失敗もここへ
+        self.diag = _diag.Diag(places, clock=clock, log=self.log, device_fn=_machine_device)
+        self.sync.diag = self.diag
+        self.inbox.on_fail = lambda r: self.diag.write("error", rid=r.get("id"), summary=(r.get("error") or "").splitlines()[0] if r.get("error") else "",
+                                                      detail=r.get("error") or "", stage="before-run", request={"kind": r.get("kind"), "pc": r.get("pc")})
+        self.setup.on_fail = lambda msg, detail: self.diag.write("setup", summary=msg, detail=detail, stage="setup")
+        if self.rollback:
+            self.diag.write("rollback", summary="新しい版 %s を起動できなかったので前の版で開きました" % self.rollback[:40], fromVersion=self.rollback[:40])
         self.settings = _settings.Settings(places, self.api, self.setup, engine_fn=lambda: self.engine, log=self.log)
         # フォルダの整理(新しい版で起動できたあとの 1 回と ⚙。動かす・消す口はテストで差し替える)
         self.tidy = _tidy.Tidy(places, self.inbox, queue_fn=lambda: getattr(self.engine, "queue", None), setup=self.setup, sync=self.sync,
@@ -818,9 +847,13 @@ class FriendApp:
             if self.closing.is_set():
                 return
             self.engine = self.make_engine(self.places, self.inbox, self.log)
+            if hasattr(self.engine, "diag"):
+                self.engine.diag = self.diag
             self.prep = {"state": "ready", "message": ""}
         except Exception as e:   # 起こせなくても画面は出す(理由を見せる)
             self.log("② を起こせませんでした: %s %s" % (e.__class__.__name__, str(e)[:300]))
+            import traceback
+            self.diag.write("start", summary="② を起こせませんでした(%s)" % e.__class__.__name__, detail=traceback.format_exc()[-3000:])
             self.prep = {"state": "error", "message": "処理の部品を起動できませんでした(%s)。アプリを開き直してください" % e.__class__.__name__}
 
     def busy(self):

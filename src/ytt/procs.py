@@ -85,6 +85,7 @@ def stop_children(wait=None):
 def run_short(cmd, timeout, merge_stderr=False):
     """すぐ終わる外部コマンド(情報を読むだけ: ffmpeg -i・ffprobe・yt-dlp -g)。subprocess.run の代わりに spawn を通す
     (終了の流れで止められる・窓を出さない)。時間切れは孫ごと止めて subprocess.TimeoutExpired。戻り値は CompletedProcess"""
+    t0 = time.monotonic()
     proc = spawn(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT if merge_stderr else subprocess.PIPE,
                  text=True, encoding="utf-8", errors="replace")
     try:
@@ -101,6 +102,7 @@ def run_short(cmd, timeout, merge_stderr=False):
         if proc.poll() is None:
             hard_kill(proc)
         forget(proc)
+    _tools.remember(cmd, proc.returncode, ((out if merge_stderr else err) or "").splitlines(), None, t0)
     return subprocess.CompletedProcess(cmd, proc.returncode, out or "", err or "")
 
 

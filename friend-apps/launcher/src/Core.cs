@@ -356,4 +356,147 @@ namespace FriendInbox
             return recent.Count < 3;
         }
     }
+
+    // 診断の記録(notes:docs/spec/friend.md の 13-11。Python の src/friendapp/diag.py と同じ形 v 1・source exe)。
+    // 起動・起こし直し・更新の失敗・合言葉の違い・思わぬ例外を <home>\data\app\outbox\launcher__diag-<ミリ秒 13 桁>.diag.json に書く。
+    // 上げるのは Python の同期(Dropbox の /診断/。Python が起きなかった回の物は次に起きたとき)。ユーザー名を含むパス・合言葉は伏せる。
+    // 3 日より古い物は書くたびに消す。書けなくても止めない。YTT_FRIEND_DIAG=0・ユーザーの PC の作業データ(prefs.json の intake.folder)では書かない
+    public static class Diag
+    {
+        public const int KeepDays = 3, TailLines = 20, SummaryMax = 300, DetailMax = 4000;
+        public static readonly System.Text.RegularExpressions.Regex NameRx = new System.Text.RegularExpressions.Regex(@"^[0-9A-Za-z_-]{1,64}__diag-(\d{13})\.diag\.json$");
+        static readonly System.Text.RegularExpressions.Regex UsersRx = new System.Text.RegularExpressions.Regex(
+            @"([A-Za-z]:[\\/]+(?:Users|Documents and Settings)[\\/]+)[^\\/""'<>|\r\n\t]+", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        static readonly System.Text.RegularExpressions.Regex HexToken = new System.Text.RegularExpressions.Regex(@"\b[0-9a-f]{48}\b");
+        static readonly object gate = new object();
+
+        // 実行中の値(Program と Backend が入れる)。Note はこれを使う
+        public static string Home, AppVersion, Token, Host;
+
+        public static string Box(string home) { return Path.Combine(home, "data", "app", "outbox"); }
+
+        static string ReplaceNoCase(string s, string find, string rep)
+        {
+            if (string.IsNullOrEmpty(find)) return s;
+            return System.Text.RegularExpressions.Regex.Replace(s, System.Text.RegularExpressions.Regex.Escape(find), rep.Replace("$", "$$"),
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        }
+
+        // 文から伏せる: 合言葉 -> <secret>・48 桁の 16 進 -> <token>・アプリのフォルダ -> <app>・%USERPROFILE% と C:\Users\<名前> -> <user>・ユーザー名(3 字以上)-> <user>
+        public static string Mask(string s, string home, string profile, string user, string token)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            if (!string.IsNullOrEmpty(token) && token.Length >= 8) s = s.Replace(token, "<secret>");
+            s = HexToken.Replace(s, "<token>");
+            if (!string.IsNullOrEmpty(home)) { s = ReplaceNoCase(s, home, "<app>"); s = ReplaceNoCase(s, home.Replace('\\', '/'), "<app>"); }
+            if (!string.IsNullOrEmpty(profile) && profile.Length > 3) { s = ReplaceNoCase(s, profile, "<user>"); s = ReplaceNoCase(s, profile.Replace('\\', '/'), "<user>"); }
+            s = UsersRx.Replace(s, "$1<user>");
+            if (!string.IsNullOrEmpty(user) && user.Trim().Length >= 3)
+                s = System.Text.RegularExpressions.Regex.Replace(s, "(?<![0-9A-Za-z])" + System.Text.RegularExpressions.Regex.Escape(user.Trim()) + "(?![0-9A-Za-z])", "<user>",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            return s;
+        }
+
+        // Windows の版(例: Windows 11 10.0.26100。app.manifest で Windows 10 以降と言っているので本当の番号が読める)
+        public static string WindowsText()
+        {
+            var v = Environment.OSVersion.Version;
+            return "Windows " + (v.Major == 10 && v.Build >= 22000 ? "11" : v.Major.ToString()) + " " + v.Major + "." + v.Minor + "." + v.Build;
+        }
+
+        static bool Off(string home)
+        {
+            string sw = (Environment.GetEnvironmentVariable("YTT_FRIEND_DIAG") ?? "").Trim().ToLowerInvariant();
+            if (sw == "0" || sw == "off" || sw == "false" || sw == "no") return true;
+            try
+            {
+                var p = Json.ReadFileOrNull(Path.Combine(home, "data", "app", "prefs.json"));
+                var intake = p != null ? Json.Dict(p, "intake") : null;
+                return intake != null && !string.IsNullOrEmpty((Json.Str(intake, "folder") ?? "").Trim());
+            }
+            catch (Exception ex)
+            {
+                if (!(ex is IOException || ex is UnauthorizedAccessException || ex is FormatException || ex is ArgumentException || ex is InvalidOperationException)) throw;
+                return false;
+            }
+        }
+
+        static long Ms(DateTime utc) { return (long)(utc - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds; }
+
+        // 1 つ書く -> パスか null(書かない・書けない)。extra はそのまま足す(呼ぶ側で伏せた物だけ)
+        public static string Write(string home, string kind, string version, string host, string summary, string detail, IEnumerable<string> tail,
+                                   IDictionary<string, object> extra, DateTime utcNow, string token)
+        {
+            if (string.IsNullOrEmpty(home) || Off(home)) return null;
+            string profile = Environment.GetEnvironmentVariable("USERPROFILE"), user = Environment.UserName;
+            Func<string, string> m = x => Mask(x, home, profile, user, token);
+            try
+            {
+                long at = Ms(utcNow);
+                var doc = new Dictionary<string, object>
+                {
+                    { "v", 1 }, { "kind", kind }, { "source", "exe" }, { "at", at }, { "requestId", null },
+                    { "app", new Dictionary<string, object> { { "version", version ?? "?" }, { "host", host ?? "" } } },
+                    { "pc", new Dictionary<string, object> { { "windows", WindowsText() }, { "gpu", null }, { "device", null } } },
+                };
+                string sum = m(summary);
+                doc["summary"] = sum.Length > SummaryMax ? sum.Substring(0, SummaryMax) : sum;
+                if (!string.IsNullOrEmpty(detail)) { string d = m(detail); doc["detail"] = d.Length > DetailMax ? d.Substring(0, DetailMax) : d; }
+                if (tail != null)
+                {
+                    var lines = tail.Select(x => { string t = m(x); return t.Length > 300 ? t.Substring(0, 300) : t; }).ToList();
+                    doc["tail"] = lines.Skip(Math.Max(0, lines.Count - TailLines)).ToList();
+                }
+                if (extra != null) foreach (var kv in extra) doc[kv.Key] = kv.Value;
+                string box = Box(home);
+                lock (gate)
+                {
+                    Directory.CreateDirectory(box);
+                    string path;
+                    while (true)
+                    {
+                        path = Path.Combine(box, "launcher__diag-" + at.ToString("D13") + ".diag.json");
+                        if (!File.Exists(path)) break;
+                        at++;
+                    }
+                    doc["at"] = at;
+                    string tmp = path + ".tmp";
+                    File.WriteAllText(tmp, Json.Pretty(doc), new UTF8Encoding(false));
+                    File.Move(tmp, path);
+                    Prune(box, utcNow);
+                    return path;
+                }
+            }
+            catch (Exception ex)
+            {
+                if (!(ex is IOException || ex is UnauthorizedAccessException || ex is InvalidOperationException || ex is ArgumentException)) throw;
+                return null;
+            }
+        }
+
+        // 実行中の値で書く(Home が無ければ何もしない)
+        public static string Note(string kind, string summary, string detail = null, IEnumerable<string> tail = null, IDictionary<string, object> extra = null)
+        {
+            string p = Write(Home, kind, AppVersion, Host, summary, detail, tail, extra, DateTime.UtcNow, Token);
+            if (p != null) Log.Write("診断を書きました: " + Path.GetFileName(p));
+            return p;
+        }
+
+        // 箱の 3 日より古い診断を消す(診断の名前の物だけ)-> 消した数
+        public static int Prune(string box, DateTime utcNow)
+        {
+            int n = 0;
+            if (!Directory.Exists(box)) return 0;
+            long now = Ms(utcNow);
+            foreach (string f in Directory.GetFiles(box))
+            {
+                var mm = NameRx.Match(Path.GetFileName(f));
+                if (!mm.Success || now - long.Parse(mm.Groups[1].Value) < KeepDays * 86400000L) continue;
+                try { File.Delete(f); n++; }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
+            return n;
+        }
+    }
 }

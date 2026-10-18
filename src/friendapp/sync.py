@@ -11,7 +11,8 @@
   3. /出力/ の取り込み: 組(.group.json + まとめ動画 + 1 本ずつの zip)・1 本(zip + 同じ名前の .preview.mp4・.meta.json の origin)・.失敗.txt を
      受信箱の行へ(依頼 id の行か、無ければ新しい行)。まとめ動画は先に取って見られるように。zip は [受け取る] のときだけ取り(大きさと
      content_hash を確かめ)保存先へ展開(zip slip を断る)。組の全部を決めたら /出力/ の zip・まとめ動画・.group.json・.meta.json を消す
-  4. 送り返し: <data>/app/outbox の zip と .verdict.json を /送り返し/ へ上げ、上がった物は outbox から消す(失敗は次の回・3 日上がらなければ消す = 6 章)
+  4. 送り返し: <data>/app/outbox の zip と .verdict.json を /送り返し/ へ上げ、上がった物は outbox から消す(失敗は次の回・3 日上がらなければ消す = 6 章)。
+     診断(.diag.json = friendapp/diag)だけは /診断/ へ。/診断/ の 3 日より古い物は DIAG_PRUNE_EVERY 秒に 1 回消す
   5. 学習の束: /学習/latest.json が新しければ /学習/<版>/ を sha256 を確かめて <data>/learning/<版>/ へ・machine の learningDir を向ける・直近 3 版
      (C# の FetchLearning・ApplyLearning と同じ。束を作る側の PC = places.is_maker_data では取らない)
   6. 更新(FriendApp.exe との約束。形は friend-apps/launcher/README.txt): exe から動いているとき(YTT_FRIEND_LAUNCHER=1)だけ、/更新/latest.json が
@@ -32,11 +33,14 @@ import zipfile
 from flow import learning as _learning, machine as _machine
 from ytt import fsio, version as _version
 
-from . import dropbox as _dropbox, inbox as _inbox, places as _places
+from . import diag as _diag, dropbox as _dropbox, inbox as _inbox, places as _places
 
 EVERY = 180                        # 見回りの間隔(秒。数分ごと)
 OUT = "/出力"
 RETURNS = "/送り返し"
+DIAG = "/診断"                     # 診断の記録(friendapp/diag。ユーザーの PC は dev/friend_diag.py で読む)
+DIAG_PRUNE_EVERY = 6 * 3600        # /診断/ の 3 日より古い物を消す間隔(秒)
+DIAG_ERROR_EVERY = 6 * 3600        # 同じ段の同じ失敗の診断を書く間隔(秒。3 分おきに同じ失敗を積まない)
 LEARNING = "/学習"
 UPDATES = "/更新"
 DELIVER_PREFS = "/設定/届け方.json"
@@ -388,6 +392,8 @@ class Sync:
         self.last = {"at": None, "problem": ""}
         self.receiving = 0
         self.uploads = {}                       # 上げている動画 {依頼 id: [上げた, 全部]}(F2-6)
+        self.diag = None                        # 診断の係(friendapp/diag.Diag。玄関が入れる。None = 同期の失敗を診断に書かない)
+        self._diag_pruned = 0.0
 
     # ------------------------------------------------------------ 鍵と口
     def config(self):
@@ -466,6 +472,9 @@ class Sync:
                 except (_dropbox.DropboxError, SyncError, OSError, ValueError, zipfile.BadZipFile) as e:
                     problems.append("%s: %s" % (label, e))
                     self.log("同期の %s: %s %s" % (label, e.__class__.__name__, str(e)[:200]))
+                    if self.diag is not None:
+                        self.diag.once("sync:%s:%s" % (label, str(e)[:80]), DIAG_ERROR_EVERY, "sync", summary="同期の %s: %s" % (label, str(e)[:200]),
+                                       detail="%s %s" % (e.__class__.__name__, e), stage=label, status=getattr(e, "status", None))
             self.last = {"at": int(self.clock() * 1000), "problem": problems[0] if problems else ""}
             return problems
         finally:
@@ -721,10 +730,11 @@ class Sync:
         failed = []
         for name in sorted(os.listdir(box)):
             p = os.path.join(box, name)
-            if not os.path.isfile(p) or not (RETURN_ZIP_RE.match(name) or VERDICT_NAME_RE.match(name) or NOTICE_NAME_RE.match(name)):
+            diag = bool(_diag.NAME_RE.match(name))
+            if not os.path.isfile(p) or not (RETURN_ZIP_RE.match(name) or VERDICT_NAME_RE.match(name) or NOTICE_NAME_RE.match(name) or diag):
                 continue
             try:
-                io.upload(p, "%s/%s" % (RETURNS, name))
+                io.upload(p, "%s/%s" % (DIAG if diag else RETURNS, name))
                 fsio.unlink_quiet(p)
                 self.log("送り返しを上げました: %s" % name)
             except _dropbox.DropboxError as e:
@@ -732,8 +742,27 @@ class Sync:
                     fsio.unlink_quiet(p)
                     self.log("送り返しを 3 日上げられなかったので消しました: %s" % name)
                 failed.append("%s(%s)" % (name, e))
+        self._prune_diag(io)
         if failed:
             raise SyncError("上げられなかった物 %d 件(次の回でもう一度)" % len(failed))
+
+    def _prune_diag(self, io):
+        """Dropbox の /診断/ の 3 日より古い診断を消す(名前の時刻で決める。DIAG_PRUNE_EVERY 秒に 1 回)"""
+        now = self.clock()
+        if now - self._diag_pruned < DIAG_PRUNE_EVERY:
+            return
+        self._diag_pruned = now
+        try:
+            names = [e.get("name") for e in io.list_folder(DIAG) or [] if e.get(".tag", "file") == "file"]
+            old = _diag.prune_names(names, int(now * 1000))
+            for n in old:
+                io.delete("%s/%s" % (DIAG, n))
+        except _dropbox.DropboxError as e:   # 消せなくても送り返しは止めない(次の間隔でもう一度)
+            self._diag_pruned = 0.0
+            self.log("Dropbox の診断の片付けに失敗: %s" % str(e)[:200])
+            return
+        if old:
+            self.log("Dropbox の診断を %d 件消しました(3 日より前)" % len(old))
 
     # ------------------------------------------------------------ 5. 学習の束
     def learn_root(self):
@@ -792,6 +821,8 @@ class Sync:
         self.state["updated"] = ver
         self._save_state()
         self.log("新しい版 %s を入れました(次に開いたときから)" % ver)
+        if self.diag is not None:
+            self.diag.write("update", summary="新しい版 %s を取って入れました" % ver, toVersion=ver)
 
 
 def fetch_learning(io, root, log):

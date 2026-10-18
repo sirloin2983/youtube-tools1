@@ -30,6 +30,7 @@ static class Tests
         Run("更新: 前の形の版も比べる・起動できなければ飛ばす・版のフォルダが 2 つそろえば前の形を消す", LegacyRules);
         Run("更新: [更新する] は作業と預かりが無いときだけ入れ替える・状態の読み取り", UpdateRules);
         Run("更新: exe と DLL を写す(動いている物は *.old に)・次の起動で *.old を消す・前のアプリの名前", SwapRules);
+        Run("診断: 名前と形・ユーザー名と合言葉を伏せる・最後の 20 行・3 日で消す・ユーザーの PC では書かない", DiagRules);
         Console.WriteLine(failures == 0 ? "OK " + passed + " 件" : "NG " + failures + " 件失敗 / " + passed + " 件成功");
         return failures == 0 ? 0 : 1;
     }
@@ -292,6 +293,41 @@ static class Tests
         Eq(0, Updater.Swap(h, "0.99.99"), "版のフォルダに exe が無ければ写さない");
         True(Updater.IsHandoffName(@"C:\x\RequestSender.exe") && Updater.IsHandoffName(@"C:\x\requestsender.EXE"), "前のアプリの名前");
         True(!Updater.IsHandoffName(@"C:\x\FriendApp.exe"), "新しいアプリの名前");
+    }
+
+    static void DiagRules()
+    {
+        string tok = new string('a', 48);
+        string m = Diag.Mask(@"C:\Users\taro\x と c:/users/taro/y と D:\友人\App\data と C:\Users\hanako\z と taro さん " + tok + " tok=secret12345",
+                             @"D:\友人\App", @"C:\Users\taro", "taro", "secret12345");
+        foreach (var bad in new[] { "taro", "hanako", tok, "secret12345", "友人" }) True(!m.Contains(bad), "伏せる: " + bad + " / " + m);
+        True(m.Contains(@"<app>\data") && m.Contains(@"C:\Users\<user>\z"), "置き換えの形: " + m);
+        Eq("ab cd", Diag.Mask("ab cd", null, null, "ab", null), "2 字の名前は伏せない");
+
+        string h = Temp();
+        var now = new DateTime(2026, 10, 18, 3, 0, 0, DateTimeKind.Utc);
+        var tail = Enumerable.Range(1, 30).Select(i => "line " + i + @" C:\Users\taro\a").ToList();
+        string p = Diag.Write(h, "start", "0.99.18", "webview2", "起きませんでした", "detail", tail, new Dictionary<string, object> { { "exitCode", 3 } }, now, tok);
+        True(p != null && Diag.NameRx.IsMatch(Path.GetFileName(p)) && Path.GetFileName(p).StartsWith("launcher__diag-"), "名前: " + p);
+        Eq(Path.Combine(h, "data", "app", "outbox"), Path.GetDirectoryName(p), "送り返しの箱");
+        var d = FriendApps.Json.Parse(File.ReadAllText(p, Encoding.UTF8));
+        Eq("start", FriendApps.Json.Str(d, "kind"), "kind");
+        Eq("exe", FriendApps.Json.Str(d, "source"), "source");
+        Eq(3, FriendApps.Json.Int(d, "exitCode", 0), "extra");
+        Eq("0.99.18", FriendApps.Json.Str(FriendApps.Json.Dict(d, "app"), "version"), "版");
+        var lines = ((System.Collections.IEnumerable)d["tail"]).Cast<object>().Select(x => x.ToString()).ToList();
+        Eq(20, lines.Count, "最後の 20 行");
+        Eq(@"line 30 C:\Users\<user>\a", lines[19], "行も伏せる");
+        string p2 = Diag.Write(h, "start", null, null, "x", null, null, null, now, null);
+        True(p2 != null && p2 != p, "同じミリ秒でも別の名前");
+        string old = Path.Combine(h, "data", "app", "outbox", "launcher__diag-" + ((long)(now.AddDays(-3).AddSeconds(-1) - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds).ToString("D13") + ".diag.json");
+        File.WriteAllText(old, "{}");
+        File.WriteAllText(Path.Combine(h, "data", "app", "outbox", "x__y.verdict.json"), "{}");
+        Eq(1, Diag.Prune(Path.Combine(h, "data", "app", "outbox"), now), "3 日より古い物を消す");
+        True(File.Exists(Path.Combine(h, "data", "app", "outbox", "x__y.verdict.json")), "診断でない物は残す");
+        File.WriteAllText(Path.Combine(h, "data", "app", "prefs.json"), "{\"intake\":{\"folder\":\"D:/Dropbox\"}}");
+        Eq(null, Diag.Write(h, "start", null, null, "x", null, null, null, now, null), "ユーザーの PC の作業データでは書かない");
+        Directory.Delete(h, true);
     }
 
     static void ThemeParse()

@@ -427,8 +427,15 @@ namespace FriendInbox
                         return;
                     }
                     Log.Write("Python が先に終わりました(終了コード " + SafeExit(g) + ")");
+                    Diag.Note("crash", "Python が途中で終わりました(終了コード " + SafeExit(g) + ")", null, g.ErrTail(),
+                              new Dictionary<string, object> { { "exitCode", SafeExit(g) }, { "stage", "running" } });
                     if (be.Restart()) Ui(Reload);
-                    else { Ui(() => { Program.Fail("処理の部品が止まりました。アプリを開き直してください"); StopAll(); }); return; }
+                    else
+                    {
+                        Diag.Note("start", "Python を起こし直せませんでした(10 分に 3 回まで)", null, be.Gw != null ? be.Gw.ErrTail() : null);
+                        Ui(() => { Program.Fail("処理の部品が止まりました。アプリを開き直してください"); StopAll(); });
+                        return;
+                    }
                 }
                 var st = be.State();
                 Ui(() => Apply(st));
@@ -548,6 +555,8 @@ namespace FriendInbox
                 {
                     if (!(ex is IOException || ex is UnauthorizedAccessException)) throw;
                     Log.Write("exe を写せませんでした(Python だけ新しい版で開きます): " + ex.Message);
+                    Diag.Note("update", "新しい版 " + version + " の exe を写せませんでした", ex.GetType().Name + " " + ex.Message, null,
+                              new Dictionary<string, object> { { "toVersion", version }, { "stage", "swap" } });
                 }
                 Program.RestartAfterExit = true;
                 Ui(() =>

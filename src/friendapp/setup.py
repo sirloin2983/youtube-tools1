@@ -729,11 +729,19 @@ class Setup:
             self._flow_fail("準備を止めました。もう一度始めると続きから進みます")
         except Exception as e:   # noqa: BLE001  (思わぬ失敗でも画面に理由を出す)
             self.log("初回の準備が止まりました: %s %s" % (e.__class__.__name__, str(e)[:200]))
-            self._flow_fail("準備が止まりました(%s)。ネットを確かめて [もう一度] を押してください" % e.__class__.__name__)
+            self._flow_fail("準備が止まりました(%s)。ネットを確かめて [もう一度] を押してください" % e.__class__.__name__,
+                            "%s %s" % (e.__class__.__name__, str(e)[:500]))
 
-    def _flow_fail(self, msg):
+    def _flow_fail(self, msg, detail=""):
         self.flow_error = msg
         self._flow_set("failed", msg)
+        cb = getattr(self, "on_fail", None)   # 診断(玄関が friendapp/diag を入れる)
+        if cb is not None:
+            try:
+                cb(msg, detail or "\n".join("%s: %s" % (r.get("name"), r.get("text")) for r in getattr(self, "rows", None) or []
+                                            if isinstance(r, dict) and r.get("state") == "failed"))
+            except Exception:   # noqa: BLE001  (診断で準備の画面を壊さない)
+                pass
 
     def tools_dir(self):
         return os.path.join(self.home, _places.TOOLS_NAME)

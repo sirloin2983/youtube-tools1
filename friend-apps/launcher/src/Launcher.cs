@@ -5,6 +5,7 @@
 //   - 合言葉は exe が作って YTT_FRIEND_TOKEN で渡し、WebView2 が要求ごとに X-YTT-Token を足す(画面の meta に頼らない)
 //   - ジョブオブジェクト(閉じたら全部止める)= exe が落ちても Python と孫(ffmpeg・whisper.cpp・録画の部品)が残らない
 // 手元の記録: <home>\data\app\friendapp\logs\launcher.log(../common/Log.cs。数百 KB で切る)
+// 診断の記録: 起動・起こし直し・更新の失敗・合言葉の違い・思わぬ例外を Core.cs の Diag で送り返しの箱へ(Python の同期が Dropbox の /診断/ へ上げる)
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -97,11 +98,26 @@ namespace FriendInbox
         public int Port, RecPort;
         public bool Ready, Bye;   // Bye = Python が「止めてと言われて終わる」と言った(起こし直さない)
         public int ExitCode = -1;
+        readonly Queue<string> errTail = new Queue<string>();   // Python の標準エラーの最後の Diag.TailLines 行(診断へ)
         readonly ManualResetEvent readyEvt = new ManualResetEvent(false), exitEvt = new ManualResetEvent(false);
 
         public bool Alive
         {
             get { try { return Proc != null && !Proc.HasExited; } catch (InvalidOperationException) { return false; } }
+        }
+
+        public void AddErr(string line)
+        {
+            lock (errTail)
+            {
+                errTail.Enqueue(line);
+                while (errTail.Count > Diag.TailLines) errTail.Dequeue();
+            }
+        }
+
+        public List<string> ErrTail()
+        {
+            lock (errTail) return new List<string>(errTail);
         }
 
         // 標準出力の 1 行 JSON {"event":"ready","port":…} / {"event":"bye"}
@@ -147,7 +163,7 @@ namespace FriendInbox
             if (rollback != null) env["YTT_FRIEND_ROLLBACK"] = rollback; else env.Remove("YTT_FRIEND_ROLLBACK");
             g.Proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
             g.Proc.OutputDataReceived += (s, e) => { if (e.Data != null) { log("Python: " + e.Data); g.OnLine(e.Data); } };
-            g.Proc.ErrorDataReceived += (s, e) => { if (e.Data != null) log("Python(エラー): " + e.Data); };
+            g.Proc.ErrorDataReceived += (s, e) => { if (e.Data != null) { log("Python(エラー): " + e.Data); g.AddErr(e.Data); } };
             g.Proc.Exited += (s, e) => g.exitEvt.Set();
             log("起こします: " + (l.Version ?? "(app-版なしの形)") + " " + l.Script + " 番号 " + g.Port + "・録画 " + g.RecPort);
             g.Proc.Start();
@@ -232,6 +248,8 @@ namespace FriendInbox
         public readonly string Token = NewToken();
         public Gateway Gw;
         public string RolledFrom;
+        public string Version;   // 動かしている版(app-<版> か前の形の src\ytt\version.py。診断へ)
+        bool tokenNoted;
         public volatile bool Stopping;
         readonly List<DateTime> restarts = new List<DateTime>();
 
@@ -239,6 +257,7 @@ namespace FriendInbox
         {
             this.home = home;
             this.tokenInPage = tokenInPage;
+            Diag.Token = Token;
         }
 
         public int Port { get { var g = Gw; return g != null ? g.Port : 0; } }
@@ -261,9 +280,12 @@ namespace FriendInbox
                 used = Versions.Pick(home, rec.Bad, skipLegacy);
                 if (used == null) return "起動できる版がありません(python と src が見つかりません)";
                 var g = StartOn(used, RolledFrom);
+                Diag.AppVersion = used.Version ?? Versions.LegacyVersion(home);
                 if (g == null) return "受信箱を起動できませんでした(番号を 3 回選び直しても使えませんでした)";
                 if (g.Ready) { Gw = g; break; }
                 g.Kill();
+                Diag.Note("start", "版 " + (Diag.AppVersion ?? "?") + " の Python が起きませんでした(終了コード " + g.ExitCode + ")", null, g.ErrTail(),
+                          new Dictionary<string, object> { { "exitCode", g.ExitCode }, { "stage", "start" } });
                 if (g.ExitCode == Gateway.LockBusyExit) return "ほかの処理が同じ作業データを使っています。閉じてから開き直してください";
                 if (used.Version == null)   // 前の形が起動できない: 版のフォルダがあればそちらで(無ければ止める)
                 {
@@ -277,6 +299,7 @@ namespace FriendInbox
                 RolledFrom = used.Version;
                 SaveQuietly(rec);
             }
+            Version = Diag.AppVersion;
             if (used.Version != null)
             {
                 Versions.MarkStarted(rec, used.Version);
@@ -319,6 +342,12 @@ namespace FriendInbox
             try { return HostState.Parse(Http.Call("GET", g.Port, "/api/friend/state", Token, 3000)); }
             catch (Exception ex)
             {
+                var res = ex is WebException ? ((WebException)ex).Response as HttpWebResponse : null;
+                if (res != null && (int)res.StatusCode == 403 && !tokenNoted)   // 合言葉の違い(起動ごとに 1 回)
+                {
+                    tokenNoted = true;
+                    Diag.Note("token", "exe の見回りで合言葉が違うと言われました", null, null, new Dictionary<string, object> { { "stage", "state" } });
+                }
                 if (!(ex is WebException || ex is IOException || ex is FormatException || ex is ArgumentException || ex is InvalidOperationException)) throw;
                 return null;
             }
@@ -378,6 +407,7 @@ namespace FriendInbox
             {
                 if (!(ex is Win32Exception || ex is InvalidOperationException || ex is FileNotFoundException)) throw;
                 Log.Write("新しい版で開き直せませんでした: " + ex.Message);
+                Diag.Note("update", "新しい版で開き直せませんでした", ex.GetType().Name + " " + ex.Message);
             }
             return 0;
         }
@@ -397,6 +427,14 @@ namespace FriendInbox
         {
             string home = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\', '/');
             Log.Init(Path.Combine(home, "data", "app", "friendapp", "logs"), "launcher.log");
+            Diag.Home = home;
+            Diag.AppVersion = Versions.LegacyVersion(home);
+            AppDomain.CurrentDomain.UnhandledException += (s, e) =>   // 思わぬ例外(落ちる前に診断へ。動きは変えない)
+            {
+                var ex = e.ExceptionObject as Exception;
+                Log.Write("思わぬ例外: " + (ex != null ? ex.ToString() : "?"));
+                Diag.Note("exception", "exe の思わぬ例外 " + (ex != null ? ex.GetType().Name : "?"), ex != null ? ex.ToString() : null);
+            };
             string self = Process.GetCurrentProcess().MainModule.FileName;
             string main = Path.Combine(home, "FriendApp.exe");
             if (Updater.IsHandoffName(self) && File.Exists(main))   // 前のアプリの名前で起こされた(移る最後の 1 回の写し・前のショートカット)= 新しいアプリを起こして終わる
@@ -422,10 +460,11 @@ namespace FriendInbox
                     Application.EnableVisualStyles();
                     Application.SetCompatibleTextRenderingDefault(false);
                     bool webview = MainForm.WebViewAvailable();
-                    if (!webview) Log.Write("WebView2 の部品がないので、Edge の窓で開きます");
+                    if (!webview) { Log.Write("WebView2 の部品がないので、Edge の窓で開きます"); Diag.Note("webview", "WebView2 を使えないので Edge の窓で開きました"); }
+                    Diag.Host = webview ? "webview2" : "edge";
                     var be = new Backend(home, !webview);
                     string err = be.StartFirst();
-                    if (err != null) { Fail(err); be.Stop(); return 1; }
+                    if (err != null) { Diag.Note("start", err, null, be.Gw != null ? be.Gw.ErrTail() : null, new Dictionary<string, object> { { "stage", "start" } }); Fail(err); be.Stop(); return 1; }
                     using (var form = new MainForm(home, be, webview, show)) Application.Run(form);
                 }
                 finally

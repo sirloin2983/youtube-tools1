@@ -109,6 +109,15 @@
     src\ と python\ を <アプリのフォルダ>\app-<版>.tmp\ に展開 → そろっていれば app-<版>\ へ。受信箱に「新しい版 x を入れました(次に開いたときから)」
   確かめ: 同期のログは data\app\friendapp\logs\friendapp.log(「同期の …」の行)。テストは src\friendapp\tests\test_sync.py・test_dropbox.py(本物の Dropbox にはつながない)
 
+■ 診断の記録(friendapp\diag.py。exe の分は friend-apps\launcher\src\Core.cs の Diag。notes:docs/spec/friend.md の 13-11)
+  依頼 1 件ごと(段ごとの始めと終わりと秒・文字起こしの装置と実時間比・外の道具の終了コードと失敗の最後の数行)と、失敗のとき
+  (② の前・確認用の動画・同期・初回の準備・② を起こせない・前の版へ戻した・合言葉の違い・思わぬ例外)に、版・Windows の版・GPU の名前と一緒に
+  data\app\outbox\<依頼 id か app>__diag-<ミリ秒>.diag.json へ書き、同期が Dropbox の 診断\ へ上げる。
+  ユーザー名を含むパス・合言葉・鍵・API キー・動画の中身は入れない(伏せる)。3 日で消す(友人の側は箱と Dropbox・ユーザーの PC は読む道具が)。
+  止めるのは環境変数 YTT_FRIEND_DIAG=0。ユーザーの PC の作業データでは書かない。
+  読む(ユーザーの PC): py -3.10 -X utf8 dev\friend_diag.py [-n 10] [--errors] [--id <依頼 id>] [--json]
+  確かめ: src\friendapp\tests\test_diag.py・dev\tests\test_friend_diag.py
+
 ■ 動画ファイル(F2-6。friendapp\api.py)
   送る欄の [動画ファイルを選ぶ] で、玄関が Windows のファイルを選ぶ窓を開きます(画面からパスは打たせない。選んだパスは玄関が覚えて id で受ける)。
   題 = ファイル名・配信者は名前の頭の【名前】が名簿に合えば推して「(自動)」(A-7 の仮)。区間・本数・重みは出しません(動画 1 本 = パック 1 本)。

@@ -62,6 +62,8 @@
 
 ■ 記録
   data\app\friendapp\logs\launcher.log(exe)・friendapp.log(Python)
+  診断: 起動・起こし直し・更新の失敗・合言葉の違い・思わぬ例外を data\app\outbox\launcher__diag-<ミリ秒>.diag.json に(src\Core.cs の Diag。
+  ユーザー名を含むパスと合言葉は伏せる・3 日で消す・YTT_FRIEND_DIAG=0 で書かない)。Python の同期が Dropbox の 診断\ へ上げる(notes:docs/spec/friend.md の 13-11)
 
 ■ 確かめ
   build.bat の中のテスト(tests\Tests.cs = 版の選び方・閉じるときの判断・アイコンの文・起こし直しの回数・状態の読み取り)。

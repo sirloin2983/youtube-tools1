@@ -73,6 +73,11 @@ def transcribe_line(who, rec):
 def transcribe_lines(run, read_doc=None):
     """この実行が文字起こしした文書ごとの transcribe_line(段の始まりより後の認識の記録だけ = 飛ばした既存の文書は書かない)"""
     who = getattr(run, "request_id", None) or run.id
+    return [transcribe_line(who, rec) for rec in transcribe_records(run, read_doc)]
+
+
+def transcribe_records(run, read_doc=None):
+    """この実行が文字起こしした文書ごとの認識の記録(recognition.runs の最後。段の始まりより後の物だけ)。ログの行と診断(friendapp/diag)が読む"""
     read_doc = read_doc or _read_doc
     t0 = next((s.get("startedAt") for s in getattr(run, "steps", None) or [] if s.get("key") == "transcribe" and isinstance(s.get("startedAt"), int)), None)
     out = []
@@ -82,7 +87,7 @@ def transcribe_lines(run, read_doc=None):
         rec = runs[-1] if isinstance(runs, list) and runs and isinstance(runs[-1], dict) else None
         if rec is None or (t0 is not None and isinstance(rec.get("at"), (int, float)) and rec["at"] < t0):
             continue
-        out.append(transcribe_line(who, rec))
+        out.append(rec)
     return out
 
 
@@ -128,6 +133,7 @@ class Engine:
         """live_factory(places, queue_fn, log) -> ライブ係(friendapp/live.FriendLive)か None(ライブなし = テスト)。玄関は本物を渡し、見回りの糸を起こす"""
         self.places, self.inbox = places, inbox
         self.log = log or (lambda msg: None)
+        self.diag = None   # 診断の係(friendapp/diag.Diag。玄関が起こしたあとに入れる。テストは None)
         self.app_dir = os.path.join(places["data"], "app")
         self.queue = queue_factory(places["studio"], os.path.join(self.app_dir, "logs"), log=self.log)
         self.queue.set_finished_hook(self.after_run)
@@ -197,6 +203,11 @@ class Engine:
             clip = row is not None and row.get("kind") == "live"
         if row is None or (row.get("runId") != run.id and not clip):
             return
+        if self.diag is not None:   # 依頼 1 件ごとの診断(段ごとの秒・道具の終了コード。friendapp/diag)
+            try:
+                self.diag.run(run, row, transcribe_records(run))
+            except Exception as e:   # noqa: BLE001  (診断で届けるのを止めない)
+                self.log("診断を書けませんでした: %s" % e.__class__.__name__)
         if run.result_path:
             try:
                 path = _outbox.build(run.result_path, self.app_dir, request_id=row["id"], log_path=os.path.join(self.app_dir, "logs", "friendapp.log"))
@@ -285,6 +296,20 @@ class Engine:
             self._make_previews(rid)
 
     def _make_previews(self, rid):
+        t0, made, err = time.time(), [0, 0], ""   # made = [作れた本数, 作れなかった本数]
+        try:
+            self._make_previews_of(rid, made)
+        except Exception as e:
+            err = "%s %s" % (e.__class__.__name__, str(e)[:300])
+            raise
+        finally:
+            if self.diag is not None and (made[0] or made[1] or err):   # 確認用の動画づくりの秒(10-18 友人の PC で見られなかった・遅い)
+                bad = bool(err) or (made[1] and not made[0])
+                self.diag.write("error" if bad else "preview", rid=rid, summary=err or "確認用の動画 %d 本・作れなかった %d 本 %.1f 秒" % (
+                    made[0], made[1], time.time() - t0), stage="preview", sec=round(time.time() - t0, 1), count=made[0], missed=made[1],
+                    tools=self.diag.tools_since(int(t0 * 1000) - 1000))
+
+    def _make_previews_of(self, rid, made):
         r = self.inbox.row(rid)
         if r is None:
             return
@@ -301,10 +326,12 @@ class Engine:
             else:
                 tmp = _preview.batch_preview(dirs, log=self.log) if dirs else None
             if not tmp:
+                made[1] += 1 if dirs else 0
                 continue
             dest = os.path.join(folder, "%s-%d.mp4" % (rid, g["n"]))
             shutil.move(_fsio.long_path(tmp), _fsio.long_path(dest))
             self.inbox.set_preview(rid, g["n"], dest)
+            made[0] += 1
 
     def reload_learning(self):
         """学習の束を取り直したとき(F2-3 の同期): machine の learningDir の束を、② の読み手に入れ直す(同じ物を道具と辞書の版が使う)"""
