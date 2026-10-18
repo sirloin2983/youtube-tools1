@@ -1098,6 +1098,8 @@ class TestRestore(Base):
                 return json.load(f)["runs"]
         except FileNotFoundError:
             return []
+        except PermissionError:   # 置き換えの最中(Windows。3.12 で当たりやすくなった)= まだ。until がもう一度読む
+            return None
 
     def lines(self):
         return runlog.read_runs_log(os.path.join(self.logs, runlog.RUNS_LOG))
@@ -1116,7 +1118,7 @@ class TestRestore(Base):
         self.tools.hold = True
         run = start_file(self.r, media, title="ライブの切り抜き", flow="auto", engine="whisper.cpp", model="large-v3", normalize=False)   # ライブの書き出しは 30fps 済み
         self.until(lambda: (self.snap(run["id"]) or {}).get("steps", [{}])[0].get("state") == "run")
-        saved = self.active()
+        saved = self.until(self.active)
         self.assertEqual([(x["id"], x["state"], x["mode"], x["engine"], x["steps"][0]["state"]) for x in saved],
                          [(run["id"], "running", "file_auto", "whisper.cpp", "run")])
         self.restart()
@@ -1141,7 +1143,7 @@ class TestRestore(Base):
         jobs = self.tools.h_transcribe_GET_api_jobs
         self.tools.h_transcribe_GET_api_jobs = lambda p, b: (200, {"jobs": list(self.tools.tx_jobs.values())}) if tx_hold["on"] else jobs(p, b)
         run = start(self.r, VID, "adopted")
-        saved = self.until(lambda: (lambda a: a if a and a[0]["steps"][0]["state"] == "done" else None)(self.active()))
+        saved = self.until(lambda: (lambda a: a if a and [s["state"] for s in a[0]["steps"][:2]] == ["done", "run"] else None)(self.active()))   # 段の間(1 段目が済み・2 段目はまだ wait)の記録を拾わない
         self.assertEqual([s["state"] for s in saved[0]["steps"]], ["done", "run", "wait"])
         exports = sum(1 for c in self.tools.calls if c[1:3] == ("POST", "/api/export"))
         self.restart(saved=saved)   # 強制終了のふり: 止める前の記録のまま起動する
