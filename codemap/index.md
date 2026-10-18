@@ -11,7 +11,7 @@
 | ③ human(人の操作) | [human.md](human.md) | 59 | 16833 |
 | ④ manage(データ) | [manage.md](manage.md) | 42 | 11585 |
 | ⑤ eval(検証) | [eval.md](eval.md) | 33 | 14622 |
-| src/app(入口と画面) | [app.md](app.md) | 84 | 36704 |
+| src/app(入口と画面) | [app.md](app.md) | 85 | 36727 |
 | src/friendapp(友人の玄関) | [friendapp.md](friendapp.md) | 46 | 17827 |
 | その他の画面(editor・studio・ui-kit・cut2resolve) | [tools.md](tools.md) | 49 | 20522 |
 | dev・setup(開発の道具) | [dev.md](dev.md) | 57 | 16180 |
@@ -22,22 +22,22 @@
 受ける所は .py の処理(比べる・表の鍵)。呼ぶ所は画面の .js・.cs・ほかの .py(テストは除く)。
 
 - `/api` — dev/code_map.py:208・dev/spec_check.py:105・src/app/live.py:312
-- `/api/accuracy` — src/app/server.py:654 ← portal.js
-- `/api/accuracy/run` — src/app/server.py:662 ← portal.js
+- `/api/accuracy` — src/app/server.py:655 ← portal.js
+- `/api/accuracy/run` — src/app/server.py:663 ← portal.js
 - `/api/adopt` — src/app/live.py:336
 - `/api/archive` — src/app/live.py:345・src/app/live.py:342 ← review.js
 - `/api/archive/cancel` — src/app/live.py:342 ← review.js
-- `/api/backup` — src/app/server.py:653 ← portal.js
-- `/api/backup/run` — src/app/server.py:661 ← portal.js
+- `/api/backup` — src/app/server.py:654 ← portal.js
+- `/api/backup/run` — src/app/server.py:662 ← portal.js
 - `/api/begin` — src/app/live.py:326 ← new.js
 - `/api/build` — src/cut2resolve/serve.py:380 ← pack-tab.js・tools.py
-- `/api/cases` — src/app/server.py:810 ← cases.js・portal.js
-- `/api/cases/auto` — src/app/server.py:657 ← portal.js
-- `/api/check/answer` — src/app/server.py:663 ← check.js
-- `/api/check/flush` — src/app/server.py:663 ← check.js
-- `/api/check/next` — src/app/server.py:804 ← cases.js・check.js・portal.js
-- `/api/check/skip` — src/app/server.py:663 ← check.js
-- `/api/cleanup` — src/app/server.py:664・src/app/server.py:773 ← portal.js
+- `/api/cases` — src/app/server.py:811 ← cases.js・portal.js
+- `/api/cases/auto` — src/app/server.py:658 ← portal.js
+- `/api/check/answer` — src/app/server.py:664 ← check.js
+- `/api/check/flush` — src/app/server.py:664 ← check.js
+- `/api/check/next` — src/app/server.py:805 ← cases.js・check.js・portal.js
+- `/api/check/skip` — src/app/server.py:664 ← check.js
+- `/api/cleanup` — src/app/server.py:665・src/app/server.py:774 ← portal.js
 - `/api/clip-info` — src/editor/serve.py:240・src/editor/serve.py:193 ← app-tools.js
 - `/api/collab/anchor` — src/studio/serve.py:445 ← collab.js
 - `/api/collab/group` — src/studio/serve.py:214・src/studio/serve.py:441 ← collab.js・queue.js
@@ -72,16 +72,16 @@
 - `/api/export-file` — src/editor/serve.py:296 ← cut.js・app-tools.js・tools.py
 - `/api/export/cancel` — src/app/live.py:340・src/studio/serve.py:440 ← review.js・tools.py・value.py
 - `/api/exports` — src/app/live.py:278 ← review.js
-- `/api/flow/cancel` — src/app/server.py:659・src/friendapp/server.py:494 ← cli.py・app.js・portal.js・review.js
-- `/api/flow/estimate` — src/app/server.py:658 ← portal.js・ui-kit.js
-- `/api/flow/history` — src/app/server.py:801・src/app/server.py:787 ← portal.js
-- `/api/flow/machine` — src/app/server.py:790・src/app/server.py:863
-- `/api/flow/outbox` — src/app/server.py:795
-- `/api/flow/outbox/done` — src/app/server.py:660
-- `/api/flow/retry` — src/app/server.py:659
-- `/api/flow/runs` — src/app/server.py:655 ← cli.py・app-list.js・portal.js・rank.js・review.js ほか 1
-- `/api/flow/status` — src/app/server.py:797・src/app/server.py:787・src/friendapp/server.py:334 ← cases.js
-- `/api/flow/submit` — src/app/server.py:658・src/friendapp/server.py:485 ← cli.py・review.js・ui-kit.js
+- `/api/flow/cancel` — src/app/server.py:660・src/friendapp/server.py:494 ← cli.py・app.js・portal.js・review.js
+- `/api/flow/estimate` — src/app/server.py:659 ← portal.js・ui-kit.js
+- `/api/flow/history` — src/app/server.py:802・src/app/server.py:788 ← portal.js
+- `/api/flow/machine` — src/app/server.py:791・src/app/server.py:864
+- `/api/flow/outbox` — src/app/server.py:796
+- `/api/flow/outbox/done` — src/app/server.py:661
+- `/api/flow/retry` — src/app/server.py:660
+- `/api/flow/runs` — src/app/server.py:656 ← cli.py・app-list.js・portal.js・rank.js・review.js ほか 1
+- `/api/flow/status` — src/app/server.py:798・src/app/server.py:788・src/friendapp/server.py:334 ← cases.js
+- `/api/flow/submit` — src/app/server.py:659・src/friendapp/server.py:485 ← cli.py・review.js・ui-kit.js
 - `/api/friend/cancel` — src/friendapp/server.py:423
 - `/api/friend/decide` — src/friendapp/server.py:406・src/friendapp/server.py:115 ← friend_preflight.py
 - `/api/friend/files` — src/friendapp/server.py:414 ← MainForm.cs
@@ -113,11 +113,11 @@
 - `/api/friend/update` — src/friendapp/server.py:297 ← friend_preflight.py
 - `/api/friend/update/apply` — src/friendapp/server.py:442 ← friend_preflight.py
 - `/api/friend/upload` — src/friendapp/server.py:349 ← send-form.js
-- `/api/health` — src/app/server.py:771 ← portal.js
+- `/api/health` — src/app/server.py:772 ← portal.js
 - `/api/history` — src/editor/serve.py:253 ← app-rows.js
 - `/api/info` — dev/ui_audit.py:100・src/app/live.py:290 ← new.js・ui-kit.js
-- `/api/intake` — src/app/server.py:652 ← portal.js・rank.js・review.js
-- `/api/intake/scan` — src/app/server.py:661 ← portal.js
+- `/api/intake` — src/app/server.py:653 ← portal.js・rank.js・review.js
+- `/api/intake/scan` — src/app/server.py:662 ← portal.js
 - `/api/job` — src/cut2resolve/serve.py:365・src/cut2resolve/serve.py:97 ← cut.js・app-tools.js
 - `/api/job/cancel` — src/cut2resolve/serve.py:380 ← pack-tab.js・tools.py
 - `/api/jobs` — src/editor/serve.py:245・src/editor/serve.py:193 ← autorun.py・server.py・app-jobs.js・app.js・pack-tab.js ほか 1
@@ -125,7 +125,7 @@
 - `/api/learned` — src/editor/serve.py:247 ← portal-edit.js
 - `/api/live/adopt` — src/studio/serve.py:435 ← live_adopt.py
 - `/api/live/exported` — src/studio/serve.py:436 ← review.js・live_export.py
-- `/api/log` — src/app/server.py:775 ← portal.js
+- `/api/log` — src/app/server.py:776 ← portal.js
 - `/api/mach-changes` — src/editor/serve.py:262 ← machpick.js
 - `/api/mach-changes/pick` — src/editor/serve.py:313 ← machpick.js
 - `/api/metrics` — src/editor/serve.py:249 ← portal-edit.js
@@ -133,7 +133,7 @@
 - `/api/outdir` — src/studio/serve.py:449 ← settings.js
 - `/api/peaks` — src/app/live.py:271・src/app/live.py:338・src/editor/serve.py:494 ← cut.js・review.js
 - `/api/pick` — src/editor/serve.py:307 ← app-tools.js
-- `/api/ping` — src/app/server.py:765・src/cut2resolve/serve.py:363・src/cut2resolve/serve.py:97 ← server.py・cut.js・app.js・portal.js・livesession.py ほか 2
+- `/api/ping` — src/app/server.py:766・src/cut2resolve/serve.py:363・src/cut2resolve/serve.py:97 ← server.py・cut.js・app.js・portal.js・livesession.py ほか 2
 - `/api/plan` — src/cut2resolve/serve.py:380 ← cut.js
 - `/api/queue` — src/friendapp/live_session.py:91・src/studio/serve.py:207 ← autorun.py・queue.js・rank.js・live_archive.py・tools.py
 - `/api/queue/add` — src/friendapp/live_session.py:88・src/studio/serve.py:429 ← cand.js・queue.js・live_archive.py・tools.py
@@ -158,11 +158,11 @@
 - `/api/roster` — src/editor/serve.py:241 ← app-learn.js
 - `/api/settings` — src/editor/serve.py:492・src/editor/serve.py:576・src/studio/serve.py:203 ← cand.js・cut.js・app-core.js・pack-tab.js・portal-edit.js ほか 7
 - `/api/settings/patch` — src/editor/serve.py:293 ← cut.js・app-core.js・settings.js・ui-kit.js
-- `/api/shutdown` — src/app/server.py:664・src/friendapp/server.py:481 ← friend_preflight.py・Launcher.cs・portal.js・host.js
+- `/api/shutdown` — src/app/server.py:665・src/friendapp/server.py:481 ← friend_preflight.py・Launcher.cs・portal.js・host.js
 - `/api/siblings` — src/cut2resolve/serve.py:364・src/cut2resolve/serve.py:97・src/editor/serve.py:239 ← app-core.js
 - `/api/speakers/sub` — src/editor/serve.py:289 ← autorun.py
 - `/api/state` — src/studio/serve.py:202 ← cand.js・new.js・settings.js・app.js
-- `/api/status` — src/app/server.py:767 ← cli.py・cases.js・edhost.js・check.js・portal.js ほか 1
+- `/api/status` — src/app/server.py:768 ← cli.py・cases.js・edhost.js・check.js・portal.js ほか 1
 - `/api/suggest` — src/editor/serve.py:248 ← app-learn.js
 - `/api/suggest/feedback` — src/editor/serve.py:295 ← app-learn.js
 - `/api/thumb-ideas` — src/editor/serve.py:259・src/editor/serve.py:292 ← pack-tab.js
@@ -182,7 +182,7 @@
 - `/api/voices/delete` — src/editor/serve.py:290 ← app.js
 - `/api/voices/learn` — src/editor/serve.py:288 ← app.js
 - `/api/voices/preview` — src/editor/serve.py:244 ← app.js
-- `/api/window` — src/app/server.py:662 ← portal.js
+- `/api/window` — src/app/server.py:663 ← portal.js
 - `/api/ytt` — src/app/mount.py:46 ← ui_audit.py・ui-kit.js
 - `/api/ytt/client-log` — src/friendapp/server.py:500
 - `/api/ytt/streamer-colors` — src/friendapp/server.py:498 ← cut.js・app-rows.js・send-form.js

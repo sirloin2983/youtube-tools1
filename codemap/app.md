@@ -17,9 +17,9 @@
   - 受ける口: `/api/ytt` :46
 - **prefs.py** (493 行) — ホームの設定(画面の直し「気が利く画面へ」の土台。notes:docs/design/briefs/ux-consistency/DESIGN_BRIEF.md)。
   - 名前: `class PrefsError` :96・`guess_streamer` :387・`class Prefs` :399
-- **server.py** (1891 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
+- **server.py** (1892 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
   - 名前: `runtime_dir` :210・`ping` :220・`port_open` :225・`tail` :231・`expected_version` :252・`tool_python` :258・`rel_or_abs` :268・`signal_stop` :276・`class Tool` :289・`app_data_dir` :339・`logs_dir_for` :345・`class Supervisor` :351・ほか 20
-  - 受ける口: `/api/intake` :652・`/api/backup` :653・`/api/accuracy` :654・`/api/flow/runs` :655・`/api/cases/auto` :657・`/api/flow/submit` :658・`/api/flow/estimate` :658・`/api/flow/cancel` :659・`/api/flow/retry` :659・`/api/flow/outbox/done` :660・`/api/intake/scan` :661・`/api/backup/run` :661・`/api/accuracy/run` :662・`/api/window` :662・`/api/check/answer` :663・`/api/check/skip` :663・`/api/check/flush` :663・`/api/cleanup` :664・`/api/shutdown` :664・`/api/ping` :765・`/api/status` :767・`/api/health` :771・`/api/log` :775・`/api/flow/machine` :790・`/api/flow/outbox` :795・`/api/flow/status` :797・`/api/flow/history` :801・`/api/check/next` :804・`/api/cases` :810
+  - 受ける口: `/api/intake` :653・`/api/backup` :654・`/api/accuracy` :655・`/api/flow/runs` :656・`/api/cases/auto` :658・`/api/flow/submit` :659・`/api/flow/estimate` :659・`/api/flow/cancel` :660・`/api/flow/retry` :660・`/api/flow/outbox/done` :661・`/api/intake/scan` :662・`/api/backup/run` :662・`/api/accuracy/run` :663・`/api/window` :663・`/api/check/answer` :664・`/api/check/skip` :664・`/api/check/flush` :664・`/api/cleanup` :665・`/api/shutdown` :665・`/api/ping` :766・`/api/status` :768・`/api/health` :772・`/api/log` :776・`/api/flow/machine` :791・`/api/flow/outbox` :796・`/api/flow/status` :798・`/api/flow/history` :802・`/api/check/next` :805・`/api/cases` :811
 
 ## src/app/check/
 
@@ -45,7 +45,8 @@
 
 ## src/app/ui/cases/
 
-- **cases.js** (590 行) — 案件の画面(/cases = 入口の直下の 1 枚。部品は src/app/ui/cases/。RS8 C1 = 殻。作り方 notes:docs/design/rs8-cases-build.md・何を作るか notes:docs/design/briefs/rs8-cases/)。
+- **caselink.js** (31 行) — 案件の画面へのリンクと切り抜きの校正の進み(ホームの案件の一覧 portal.js と案件の画面 cases.js の両方が読む。/cases-caselink.js)。
+- **cases.js** (587 行) — 案件の画面(/cases = 入口の直下の 1 枚。部品は src/app/ui/cases/。RS8 C1 = 殻。作り方 notes:docs/design/rs8-cases-build.md・何を作るか notes:docs/design/briefs/rs8-cases/)。
 - **edhost.js** (140 行) — 案件の画面に「編集」の校正(1 文字起こし)をそのまま載せる台(RS8 C2b。作り方 notes:docs/design/rs8-cases-build.md の C2b)。
 
 ## src/app/ui/cases/panels/
@@ -96,7 +97,7 @@
 ## src/app/ui/home/
 
 - **portal-edit.js** (162 行) — ホームの運用の中の「編集の精度と学習」(src/app/ui/home/portal.html の #editOpsBox。RS8 C3)。
-- **portal.js** (2100 行) — ホーム(src/app/ui/home/portal.html。段階5で入口 + 案件を1つにした)。
+- **portal.js** (2094 行) — ホーム(src/app/ui/home/portal.html。段階5で入口 + 案件を1つにした)。
 
 ## src/app/ui/settings/
 
