@@ -11,6 +11,7 @@
 警告(終了コード に関わらない):
   - 設定の鍵: 表の直前に `<!-- spec-check: 設定 -->` の印がある表の 1 列目のバッククォートが、コードの文字列に無い
   - 逆向き: src/・friend-apps/ のコード(テストを除く)が使う `YTT_*` が docs/spec のどこにも書いていない
+  - 消した道具の名前(GONE。前の友人のアプリ RequestSender など)が仕様に残っている(仕様は今の形だけ。経緯は docs/design・作業の記録へ)
 除くもの: 行に `<!-- spec-check: 旧 -->` の印・見出しに「経緯」「履歴」「過去」「旧い名前」が入る節(次の同じ深さの見出しまで)。
 コードのブロック(``` の中)は除かない(環境変数の例はそこにある)。
 """
@@ -31,6 +32,7 @@ SKIP_HEAD = re.compile(r"経緯|履歴|過去|旧い名前")
 OLD_MARK = "<!-- spec-check: 旧 -->"
 KEY_MARK = "<!-- spec-check: 設定 -->"
 CODE_DIRS = ("src/", "dev/", "setup/", "friend-apps/", "chrome-ext/")
+GONE = ("RequestSender",)   # 消した道具の名前(仕様に残ったら警告。10-18 前の友人のアプリを消した)
 CODE_EXTS = (".py", ".js", ".cjs", ".mjs", ".cs", ".bat", ".vbs", ".ps1", ".html", ".json", ".txt", ".command", ".gs", ".css")
 SELF = ("dev/spec_check.py", "dev/tests/test_spec_check.py")
 
@@ -136,6 +138,9 @@ def check(root=None, code=None):
         mentioned.update(n for n in YTT.findall(text))
         lines = live_lines(text)
         for ln, line in lines:
+            for name in GONE:
+                if name in line:
+                    warn.append((rel, ln, "消した道具の名前が仕様に残っている: " + name))
             for m in YTT.finditer(line):
                 name = m.group(0)
                 if name.endswith("_") or line[m.end():m.end() + 1] in "*<{":

@@ -102,7 +102,7 @@ class SpecCheckTest(unittest.TestCase):
                 "口 `/api/cases/list` と `/friend/api/setup/start` と `/api/nope`",
                 "パス `dev/spec_check.py:12` と `src/nothing_here.py` と `src/<層>/`",
                 "旧 `src/old.py` <!-- spec-check: 旧 -->",
-                "## 経緯", "`YTT_HISTORY`", "## 今",
+                "前のアプリ RequestSender の形", "## 経緯", "`YTT_HISTORY`", "RequestSender から移った", "## 今",
                 "<!-- spec-check: 設定 -->", "| 鍵 | 説明 |", "| --- | --- |", "| `liveDetect` | 説明 |", "| `missingKey` | 説明 |"]))
             code = FakeCode('os.environ.get("YTT_HERE")\nos.environ["YTT_SECRET_ONLY"]\nd = {"liveDetect": 1}',
                             {"/api/cases", "/api/setup/start"})
@@ -111,7 +111,8 @@ class SpecCheckTest(unittest.TestCase):
             self.assertEqual(msgs, ["パスがリポジトリに無い: src/nothing_here.py", "口がコードに無い: /api/nope",
                                     "環境変数がコードに無い: YTT_GONE"])
             wmsgs = sorted(m for _r, _l, m in warn)
-            self.assertEqual(wmsgs, ["環境変数が docs/spec に書いていない: YTT_SECRET_ONLY", "設定の鍵がコードの文字列に無い: missingKey"])
+            self.assertEqual(wmsgs, ["消した道具の名前が仕様に残っている: RequestSender",   # 経緯の節の物は数えない
+                                     "環境変数が docs/spec に書いていない: YTT_SECRET_ONLY", "設定の鍵がコードの文字列に無い: missingKey"])
 
 
 class DriftReportTest(unittest.TestCase):
