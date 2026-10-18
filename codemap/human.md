@@ -36,7 +36,7 @@
 
 ## src/human/cut/
 
-- **__init__.py** (2 行) — ③ カット(残す区間・たたき台)。今は空 = カットとパックの口は human/proof/store の後半(割るのは OPT2。notes:plan/opt-human.md の 2e-1)
+- **__init__.py** (2 行) — ③ カット(残す区間・たたき台)。今は空 = カットとパックの口は human/proof/store の後半(割るのは OPT2。notes:plan/done/opt-human.md の 2e-1)
 
 ## src/human/find/
 
@@ -65,11 +65,11 @@
   - 名前: `alt_engine_key` :61・`alt_info` :70・`alt_first_run` :79・`alt_spec` :88・`alt_path` :121・`read_alt` :126・`run_alt` :136・`alt_after_transcribe` :160・`alt_notation_only` :193・`alt_diffs` :220・`alt_cached` :331・`alt_spans_of` :343・ほか 3
 - **doc_jobs.py** (405 行) — ③ 人の操作の層 human/proof: 文字起こしのジョブの本体(run_job)と書く先の決め方・受付(validate_job・
   - 名前: `set_learning` :40・`glossary_of` :45・`validate_job` :62・`public_job` :131・`subtitle_settings` :169・`split_chars_for` :183・`learned_finder` :201・`dict_learned` :212・`carry_overrides` :230・`run_job` :269・`validate_retranscribe` :331・`redo_targets` :383
-- **layers.py** (1098 行) — ③ 文書を「機械の層 + 人の層」から組み立てる純粋な関数(O2-1。RS8・2026-10-11。決定 3-37 の (r8r)〜(r8u)・notes:plan/rs8-cases-ui.md の決めたこと 3)。
+- **layers.py** (1098 行) — ③ 文書を「機械の層 + 人の層」から組み立てる純粋な関数(O2-1。RS8・2026-10-11。決定 3-37 の (r8r)〜(r8u)・notes:plan/done/rs8-cases-ui.md の決めたこと 3)。
   - 名前: `match` :65・`join_flags` :126・`compose_rows` :328・`compose` :424・`split_meta` :445・`diff` :551・`mach_changes` :636・`pick` :656・`assign_speakers` :692・`carry` :747・`mach_from_doc` :829・`advance_mach` :870・ほか 7
 - **learn.py** (471 行) — ③ 人の操作の層 human/proof: 人が直した内容からの学習(機械の出力と人の行の対応づけ・「誤=>正」の統計・確度)と、行への修正の提案・
   - 名前: `align_groups` :29・`prep_rows` :48・`is_nosub` :64・`split_nosub` :68・`row_text` :93・`learn_events` :104・`learn_groups` :146・`learned_candidates` :199・`load_feedback` :229・`unrecord_feedback` :259・`record_feedback` :281・`forget_doc` :303・ほか 7
-- **machpick.py** (46 行) — ③ 3 択の口(RS8 O2-4。決定 3-37・notes:plan/rs8-cases-ui.md の決めたこと 3 の案 A): 機械の結果が変わって人の直しと食い違う行(印 layers.MACH_CHANGED)を
+- **machpick.py** (46 行) — ③ 3 択の口(RS8 O2-4。決定 3-37・notes:plan/done/rs8-cases-ui.md の決めたこと 3 の案 A): 機械の結果が変わって人の直しと食い違う行(印 layers.MACH_CHANGED)を
   - 名前: `changes` :15・`pick` :24
 - **rerun.py** (357 行) — ③ 人の操作の層 human/proof: 再認識(選んだ行 each・範囲 range・全体 whole)のジョブの本体と、文書への反映・
   - 名前: `record_rerun` :47・`apply_retranscribe` :83・`replace_original_multi` :152・`thin_rows` :171・`apply_range` :184・`run_retranscribe` :229・`rebuild_whole` :275・`validate_rerun` :330
@@ -107,7 +107,7 @@
 - src/human/proof/tests/test_doc_placement.py — 文書の置き場所(ytt/docloc の索引)を人の側の部品が使うことのテスト(RS8 B-2-1b)。
 - src/human/proof/tests/test_layers.py — 文書を「機械の層 + 人の層」から組み立てる関数(human/proof/layers。RS8 O2-1)のテスト。
 - src/human/proof/tests/test_machpick.py — 3 択の口(human/proof/machpick と layers.mach_changes・pick。RS8 O2-4)のテスト。
-- src/human/proof/tests/test_opt_h1_fixes.py — ③ 校正の小物の直し(OPT-H1。notes:plan/opt-human.md の役割 4・5)のテスト。serve なしで読める。
+- src/human/proof/tests/test_opt_h1_fixes.py — ③ 校正の小物の直し(OPT-H1。notes:plan/done/opt-human.md の役割 4・5)のテスト。serve なしで読める。
 - src/human/proof/tests/test_primary_ops.py — 層が正(機械の層 + 人の層)のときの機械の操作(RS8 O2-5)のテスト。
 - src/human/review/tests/test_studio.py — human/review/store.py の単体テスト(ネットワーク・ffmpeg 不要)。 実行(リポジトリ直下): py -3.10 -m unittest src/human/review/tests/test_studio.py
 - src/human/tests/_workdata.py — 人の操作のテストが共有する、一時の作業データの準備(S4)。

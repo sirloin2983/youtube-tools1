@@ -144,7 +144,7 @@ def composed_from(mach_rev, hum_rev):
     return {"mach": plain_int(mach_rev), "hum": plain_int(hum_rev)}
 
 
-# ---------- 行の印(flag)。「、」でつないだ文字。つなぎ方・探し方はここ 1 か所(P-PRIMARY。notes:plan/opt-human.md の 1e-1a・1e-3a・4a-3・6f-1) ----------
+# ---------- 行の印(flag)。「、」でつないだ文字。つなぎ方・探し方はここ 1 か所(P-PRIMARY。notes:plan/done/opt-human.md の 1e-1a・1e-3a・4a-3・6f-1) ----------
 FLAG_MAX = 100   # 行の印の文字数の上限(決まった印は数えても切らない)
 MACH_CHANGED = "機械の結果が変わりました(前の機械・今の機械・あなたの直しを比べてください)"   # 3 択の印(③ human/proof/layers。案 A)
 SPK_CHANGED = "話者の判別が変わりました"   # 話者だけが変わった弱い印(layers)
@@ -348,7 +348,7 @@ def find_clip(media_path, media_duration=None):
     return clip, warn, p
 
 
-# ---------- youtube-tools-key/v1(成果物の鍵。notes:plan/role-restructure.md 4 の 4・5-2。2026-10-09 RS1-5) ----------
+# ---------- youtube-tools-key/v1(成果物の鍵。notes:plan/done/role-restructure.md 4 の 4・5-2。2026-10-09 RS1-5) ----------
 # 成果物(切り抜き 1 本・認識・パックなど)の横に置く小さな JSON。「同じ鍵の成果物があれば作らない = 使い回し」の判定に使う。
 # RS1 では形と純粋な関数だけを置く(どこにも書かない)。書く側は RS6。
 KEY_SCHEMA = "youtube-tools-key/v1"

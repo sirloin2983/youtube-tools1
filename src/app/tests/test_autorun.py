@@ -2189,7 +2189,7 @@ class TestToolSettingsFiles(Base):
 
 
 class TestAutoSend(Base):
-    """D-SEND(notes:plan/d-send-requirements.md): まとめて実行(full)で友人へ自動で送る。届け先は一時フォルダだけ(本物の Dropbox は使わない)"""
+    """D-SEND(notes:plan/done/d-send-requirements.md): まとめて実行(full)で友人へ自動で送る。届け先は一時フォルダだけ(本物の Dropbox は使わない)"""
     marks = []
     analysis = False
     TAG_RE = r"^\d{8}-\d{6}-[0-9a-f]{6}__"

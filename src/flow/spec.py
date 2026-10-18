@@ -1,4 +1,4 @@
-"""① に渡す指定の束(spec)の形・既定値・検査(役割で組み直す RS1-6。計画 notes:plan/role-restructure.md の 5-4)。
+"""① に渡す指定の束(spec)の形・既定値・検査(役割で組み直す RS1-6。計画 notes:plan/done/role-restructure.md の 5-4)。
 
 純粋な関数と定数だけ(ファイル・ネットワーク・設定ファイルを読まない。ytt と標準ライブラリだけを import する)。
 束は 8 つの節: hints(人の指定)・analyze(解析)・adopt(自動採用)・export(書き出し)・transcribe(認識)・post(後処理)・pack(パック)・run(流れ)。

@@ -1,4 +1,4 @@
-"""analytics — チャンネルの分析と日報・週報・月報(設計 notes:plan/analytics-daily-report.md)。
+"""analytics — チャンネルの分析と日報・週報・月報(設計 notes:plan/done/analytics-daily-report.md)。
 
 入口(src/app/server.py)が /analytics/ で受け持つ(取り込むツールではなく、録画の /live/ と同じ形)。
 データは既存の「Youtube日次」のブックマーク(iPhone の Safari で Studio を開いてタップ)が Google Drive に置く raw を、

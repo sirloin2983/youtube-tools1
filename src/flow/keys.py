@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""② 管理の層 flow: 成果物の鍵を書く・読む(役割で組み直す RS6 b-K1。2026-10-10。決定 3-29 / notes:plan/role-restructure.md 4 節の決まり 4・5-2)。
+"""② 管理の層 flow: 成果物の鍵を書く・読む(役割で組み直す RS6 b-K1。2026-10-10。決定 3-29 / notes:plan/done/role-restructure.md 4 節の決まり 4・5-2)。
 
 鍵(youtube-tools-key/v1。形と hash の計算は ytt/schemas の make_key・validate_key)は「この成果物は何から作ったか」の印。① pipeline は鍵を知らず、
 ② の段が終わったところ(ここの write_*)で書く。読むのは ② の段(RS6 b-K2。flow/run.py): 文字起こしは transcribe_state(違えば飛ばして印・

@@ -43,7 +43,7 @@ SNAP_RADIUS = 4                      # 静かな所を探す前後の秒数(snap
 SNAP_RATIO = (0.7, 1.3)              # 合わせた区間の長さがこの倍率の中なら合わせる(山を含むときだけ)
 PARTS_RADIUS = 6                     # 点数の内訳(parts)を取る山の前後の秒数
 EXCLUDE_BEFORE, EXCLUDE_AFTER = 5, 6   # 確定した区間の前後(pick_clips の [s-5, e+6))は次の山にしない
-# 場面ごとの長さ(LD-2b。notes:plan/ld2-clip-length.md): 区間 = 上りの始まり − 前振りの余白 〜 収まり + 余韻を 60〜300 秒に丸める。
+# 場面ごとの長さ(LD-2b。notes:plan/done/ld2-clip-length.md): 区間 = 上りの始まり − 前振りの余白 〜 収まり + 余韻を 60〜300 秒に丸める。
 # 守り: 候補に印 shape と固定の長さの区間 fixed を残す・下のスイッチ 1 つで今までの形(山から固定の長さ)に戻る・測る道具(src/eval/tools/clipfit.py)は形を自分で選ぶ
 SHAPE_DEFAULT = "scene"   # スイッチ: "scene" = 場面ごと / "fixed" = 山から固定の長さ(0.88 まで)。解析の設定・配信中の spec の shape が上書きする
 SHAPES = ("scene", "fixed")

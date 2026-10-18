@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-"""③ 文書を「機械の層 + 人の層」から組み立てる純粋な関数(O2-1。RS8・2026-10-11。決定 3-37 の (r8r)〜(r8u)・notes:plan/rs8-cases-ui.md の決めたこと 3)。
+"""③ 文書を「機械の層 + 人の層」から組み立てる純粋な関数(O2-1。RS8・2026-10-11。決定 3-37 の (r8r)〜(r8u)・notes:plan/done/rs8-cases-ui.md の決めたこと 3)。
 
 ファイルも store も触らない。呼び手は store(commit・fresh_copy・layers_for)・再認識 rerun・話者 speakers・3 択 machpick・
 作り直しの引き継ぎ doc_jobs.carry_overrides(carry。機械の操作のあとの機械の層は advance_mach)。
 対応づけの決まり(match・COVER_DROP・TEXT_DROP)はここだけが持つ(第 1 版 O1 の overrides は 10-18 の決定 3-61 pp2 = B で消した。
-人の行を新しい文書へ引き継ぐ仕事も carry = 組み立て compose_rows が同じ決まりで担う。notes:plan/opt-human.md の 1a-6・1f-1)。
+人の行を新しい文書へ引き継ぐ仕事も carry = 組み立て compose_rows が同じ決まりで担う。notes:plan/done/opt-human.md の 1a-6・1f-1)。
 
 - 機械の層 mach = {schema, rev, keys{transcribe, post, diar}, rows[{id, start, end, text, flag, fill?, speaker?}], speakers}
   (① の後処理まで当てた行。rev は機械の行が変わるたびに上がる)
@@ -226,7 +226,7 @@ def _centers(sp):
 
 def _like_dead(d, m):
     """mid の行が変わったあと、消す印の範囲に出た機械の行 m を印で消すか: 文字が空か、m の文字の TEXT_DROP 以上が消した行の文字にある
-    (同じ雑音・言い直しの出し直し)。違う言葉は消さない(P-PRIMARY。notes:plan/opt-human.md の 1e-2a = 雑音を消した所に作り直しで本当の言葉が出ても見えなかった)"""
+    (同じ雑音・言い直しの出し直し)。違う言葉は消さない(P-PRIMARY。notes:plan/done/opt-human.md の 1e-2a = 雑音を消した所に作り直しで本当の言葉が出ても見えなかった)"""
     now = _norm(m.get("text"))
     return not now or bool(_norm(d.get("text"))) and _contained(now, d.get("text")) >= TEXT_DROP - 1e-9
 

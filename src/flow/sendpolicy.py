@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""② 管理の層 flow: 友人へ自動で送るかの判定(D-SEND の段 1。要件は notes:plan/d-send-requirements.md の 2-1・2-8・2-9)。
+"""② 管理の層 flow: 友人へ自動で送るかの判定(D-SEND の段 1。要件は notes:plan/done/d-send-requirements.md の 2-1・2-8・2-9)。
 
 純粋(ファイル・ネットワークを読まない)。送る・送らないの決まりと、送らなかった理由の文(案件の画面とログで同じ言い方にそろえる 1 か所)だけを持つ。
 出どころ(origin): "request" = 友人の依頼 / "auto" = 自分の配信から自動で / "manual" = 案件の画面の [友人へ届ける](人が決めた)。

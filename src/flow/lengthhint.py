@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """② 管理の層 flow: 自動の切り抜きの長さの目安(友人が依頼で指定した区間の長さから。OPT-E2 7f-1・7f-2。決定 3-49 の Q1)。
-LD-2d(10-16。notes:plan/ld2-clip-length.md): 区間は場面ごと(① excite の scene_region。スイッチ excite.SHAPE_DEFAULT)になったので、
+LD-2d(10-16。notes:plan/done/ld2-clip-length.md): 区間は場面ごと(① excite の scene_region。スイッチ excite.SHAPE_DEFAULT)になったので、
 この目安の役目は「場面が取れないとき(点数が無い・山が平ら)の固定の長さ」と、スイッチを fixed に戻したときの長さ。
 
 今まで ⑤ の測る道具(src/eval/tools/eval_marks.py --json)が夜に結果のファイル(evals/marks/<日時>.json の clipLength)へ書き、

@@ -223,7 +223,7 @@ class Cleanup:
                 pk = cl.get("pack")
                 if not pk:
                     # 自動の切り抜きで、届けたあとパックだけが片付いた物(友人の「要らない」はパックしか消さない = mp4 が残る。
-                    # notes:plan/opt-manage.md の 2a-1)。届けてから PACK_AGE_DAYS 日で候補に出す
+                    # notes:plan/done/opt-manage.md の 2a-1)。届けてから PACK_AGE_DAYS 日で候補に出す
                     rv = cl.get("review") if cl.get("auto") else None
                     sent = rv.get("deliveredAt") if isinstance(rv, dict) else 0
                     if isinstance(sent, (int, float)) and sent > 0 and now - sent / 1000.0 > PACK_AGE_DAYS * 86400:

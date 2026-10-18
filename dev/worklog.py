@@ -3,7 +3,7 @@
 
     python dev/worklog.py new <セッションの名前> [--date YYYY-MM-DD] [--title 見出し] [--who "Claude Code(…。Opus)"]
         # docs/worklog/<その週の月曜>週/<日付>-<名前>.md を作り(あればそのまま)、パスを出す。続けて週のまとめを作り直す
-    python dev/worklog.py build      # 週のまとめ docs/worklog/<週>週.md の自動の部分と docs/WORKLOG.md の週の一覧を作り直す
+    python dev/worklog.py build      # 週のまとめ docs/worklog/<週>週.md の自動の部分と docs/worklog/README.md(記録の書式と週の一覧)の週の一覧を作り直す
 
 セッションのファイルは、そのセッションだけが書く(ほかのセッションの記録を巻き込まない・末尾の取り合いが無い)。
 頭のプロパティ「まとめ」(1 行)を、週のまとめの「## まとめ」に新しい順で並べる。1 つのセッションで何度か書くときは同じファイルに「## 」で足す。
@@ -118,13 +118,13 @@ def merge_week(existing, week, block):
 
 
 def update_index(notes, weeks):
-    """docs/WORKLOG.md の週の一覧に、まだ無い週の行を足す(新しい週が上)"""
-    path = os.path.join(notes, "docs", "WORKLOG.md")
+    """docs/worklog/README.md の週の一覧に、まだ無い週の行を足す(新しい週が上)"""
+    path = os.path.join(notes, "docs", "worklog", "README.md")
     if not os.path.isfile(path):
         return False
     text = read(path)
-    add = ["- [%s](worklog/%s.md)(%s〜。セッションごとのファイルは worklog/%s/)" % (w, w, w[5:10], w)
-           for w in sorted(weeks, reverse=True) if "](worklog/%s.md)" % w not in text]
+    add = ["- [%s](%s.md)(%s〜。セッションごとのファイルは %s/)" % (w, w, w[5:10], w)
+           for w in sorted(weeks, reverse=True) if "](%s.md)" % w not in text]
     if not add or LIST_HEAD not in text:
         return False
     i = text.index(LIST_HEAD) + len(LIST_HEAD)

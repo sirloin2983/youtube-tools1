@@ -1,6 +1,6 @@
 """入口の中で動く「分析と日報」: 見張り(新しい raw を受け取って分析し LINE へ)・画面と API(/analytics/)。
 
-流れ(notes:plan/analytics-daily-report.md の先頭の決定):
+流れ(notes:plan/done/analytics-daily-report.md の先頭の決定):
 1. iPhone でブックマークをタップ → 既存の Apps Script が Drive の raw/<日付>.json に置く
 2. ここが連携(gas/Code.gs)から合言葉付きで新しい raw を受け取り、作業データ analytics/raw/ に保存
 3. 日付ごとにいちばん新しい raw で日報を作り、連携へ送り返す(→ LINE)。送ったあとに同じ日の新しい raw が来たら作り直して送り直す

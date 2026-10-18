@@ -9,11 +9,11 @@
 ## src/pipeline/analyze/
 
 - **__init__.py** (3 行) — ① 解析: 盛り上がりの式(excite)・チャットとコメント・候補・自動採用・配信中の検出
-- **adopt.py** (76 行) — 採用の規則 F-5(notes:plan/role-restructure.md 5-5・決定 3-29 Q3。RS8 B3-2 の G1a で human/review/store.py の Store.adopt_marks から出した純粋な関数)。
+- **adopt.py** (76 行) — 採用の規則 F-5(notes:plan/done/role-restructure.md 5-5・決定 3-29 Q3。RS8 B3-2 の G1a で human/review/store.py の Store.adopt_marks から出した純粋な関数)。
   - 名前: `check_args` :21・`adopt` :38
 - **analyze.py** (409 行) — 解析(自動切り抜き ac/serve.py 由来。書き出し・手動の○×は持たない)。
   - 名前: `sig_cache_dir` :36・`validate_live` :43・`validate_source` :49・`validate_settings` :64・`make_spec` :78・`chat_public` :87・`sig_path` :94・`load_sig` :98・`save_sig` :115・`archive_path` :128・`load_archive` :132・`save_archive` :142・ほか 3
-- **breaks.py** (123 行) — 話の切れ目(breaks)。切り抜きの区間の両端を、文字起こしの話の切れ目へ寄せて言葉の途中で切らないための関数(線 LD-2c。notes:plan/ld2-clip-length.md)。
+- **breaks.py** (123 行) — 話の切れ目(breaks)。切り抜きの区間の両端を、文字起こしの話の切れ目へ寄せて言葉の途中で切らないための関数(線 LD-2c。notes:plan/done/ld2-clip-length.md)。
   - 名前: `cuts` :61・`snap` :106・`inside_row` :120
 - **excite.py** (990 行) — 盛り上がり(excitement)の式。スタジオのアーカイブの解析(src/pipeline/analyze/analyze.py)と、配信中の検出(src/pipeline/analyze/live_excite_worker.py。線 D の L2)が同じ式を読む(線 D の L1。notes…
   - 名前: `smooth` :60・`median` :71・`local_baseline` :77・`robust_scale` :96・`audio_score` :102・`chat_z` :114・`shift_chat` :123・`chat_score` :129・`estimate_lag` :133・`ramp` :157・`head_ramp` :162・`comment_score` :169・ほか 14

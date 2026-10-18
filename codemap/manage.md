@@ -39,7 +39,7 @@
   - 名前: `roster_names` :41・`filter_voices` :51・`collect` :58・`content_sha8` :87・`versions` :95・`build` :104・`verify` :147
 - **live_cleanup.py** (264 行) — 録画を自動で消す(線 D。notes:plan/line-d-live-clipping.md の 0-9 の最後。2026-10-05 ユーザー決定・2026-10-16 に条件を変えた = 決定 3-73)の入口の側。
   - 名前: `class Cleaner` :57
-- **trash.py** (124 行) — ④ データの keep: ごみ箱フォルダへ移す・戻すの 1 か所(OPT-M2。notes:plan/opt-manage.md の 7c-1・2c-1)。
+- **trash.py** (124 行) — ④ データの keep: ごみ箱フォルダへ移す・戻すの 1 か所(OPT-M2。notes:plan/done/opt-manage.md の 7c-1・2c-1)。
   - 名前: `to_trash` :30・`record` :80・`put_back` :95
 
 ## src/manage/ops/
@@ -54,10 +54,10 @@
 
 ## src/manage/ops/analytics/
 
-- **__init__.py** (15 行) — analytics — チャンネルの分析と日報・週報・月報(設計 notes:plan/analytics-daily-report.md)。
+- **__init__.py** (15 行) — analytics — チャンネルの分析と日報・週報・月報(設計 notes:plan/done/analytics-daily-report.md)。
 - **bridge.py** (108 行) — Apps Script の連携(gas/Code.gs のウェブアプリ)との通信。標準ライブラリだけ。
   - 名前: `class BridgeError` :20・`check_url` :26・`check_secret` :33・`class Bridge` :50
-- **calc.py** (1146 行) — 計算(notes:plan/analytics-daily-report.md の 4 節と 12-4 の方針)。入力は data.Dataset、出力は JSON にできる dict。
+- **calc.py** (1146 行) — 計算(notes:plan/done/analytics-daily-report.md の 4 節と 12-4 の方針)。入力は data.Dataset、出力は JSON にできる dict。
   - 名前: `confirmed` :40・`day_end_utc` :48・`points` :54・`cum_at` :69・`covered` :79・`shorts_with_days` :84・`class Curve` :88・`quality` :152・`count_posts` :166・`posts_summary` :171・`ypp_now` :183・`class Model` :193・ほか 35
 - **data.py** (209 行) — raw(ブックマークが Studio の内部 API から取った JSON)→ 形をそろえたデータ。
   - 名前: `class DataError` :31・`class Video` :35・`class Dataset` :73・`member_matcher` :109・`parse` :132
@@ -65,7 +65,7 @@
   - 名前: `esc` :15・`man` :19・`pct` :30・`usd` :37・`d_md` :41・`d_mdw` :45・`page` :76・`provenance` :84・`scenario` :92・`pool_keys` :97・`probs` :101・`prob_range` :105・ほか 22
 - **service.py** (441 行) — 入口の中で動く「分析と日報」: 見張り(新しい raw を受け取って分析し LINE へ)・画面と API(/analytics/)。
   - 名前: `data_dir` :46・`class Service` :54
-- **timeutil.py** (89 行) — 日付と時刻の定義(1 か所。監査の E2・E3・E4。notes:plan/analytics-daily-report.md の 12-4 の 2)。
+- **timeutil.py** (89 行) — 日付と時刻の定義(1 か所。監査の E2・E3・E4。notes:plan/done/analytics-daily-report.md の 12-4 の 2)。
   - 名前: `pt_offset` :21・`to_pt` :29・`pt_day_start_utc` :34・`parse_utc` :41・`day_from_int` :58・`jst_date` :67・`md` :71・`md_w` :76・`elapsed_hours_at_day_end` :81・`add_months` :86
 
 ## src/manage/ops/analytics/web/

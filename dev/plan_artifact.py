@@ -5,6 +5,7 @@
     # --out の既定: <リポジトリ直下>/.artifact-build/plan/   --plan の既定: <保管庫>/plan
 
 計画の正が plan/data/ に分けてあれば(2026-10-18〜)、先に軽い仮決めの自動の確定(dev/plan_data.py sweep)と plan/data.js の生成をする。
+索引を書くときは、計画の資料の頭の状態・線(dev/doc_state.py)と食い違いの一覧 plan/食い違いの一覧.md(dev/drift_report.py)も作り直す。
 あわせて、計画のデータから計画の索引 <plan>/計画の索引.md・線ごとのまとめ <plan>/線*.md・ホームの自動の部分 <保管庫>/ホーム.md を書き出す
 (Obsidian で読む用。--no-index で止める)。--graph で保管庫の根の ホーム.md(無いとき)と .obsidian/graph.json の colorGroups・search も書く。
 data.js の全体の版(versions の「全体」)は毎回 main の src/ytt/version.py の VERSION に書き直す(手で書かない)。
@@ -226,7 +227,7 @@ HOME_HAND = """---
 - 計画: [全体の計画](plan/index.html)・[やること](plan/user-tasks.html)・[計画の索引](plan/計画の索引.md)
 - 決めたこと [decisions](plan/decisions.md)・改善案 [improvements](plan/improvements.md)
 - 仕様: [受け渡し](docs/spec/pipeline.md)・[作業データの置き場所](docs/spec/data.md)・[設定](docs/spec/data.md)
-- AI 向け: [AGENTS](AGENTS.md)・[索引 ROADMAP](docs/ROADMAP.md)・[作業の記録](docs/WORKLOG.md)
+- AI 向け: [AGENTS](AGENTS.md)・[資料の索引](docs/資料の索引.md)・[作業の記録](docs/worklog/README.md)・[食い違いの一覧](plan/食い違いの一覧.md)
 """
 WEEK_FILE = re.compile(r"^\d{4}-\d{2}-\d{2}週\.md$")
 STATE_ORDER = ("doing", "next", "wait")
@@ -380,9 +381,51 @@ def load_plan(plan_dir):
         return parse_plan_js(f.read())
 
 
+DOC_INDEX = "docs/資料の索引.md"
+DOC_GROUPS = (("入口", ("AGENTS.md", "ホーム.md"), False), ("製品の今の正(docs/spec/)", ("docs/spec",), True),
+              ("これからの計画・決めたこと(plan/)", ("plan",), False), ("済んだ計画(plan/done/)", ("plan/done",), False),
+              ("経緯(docs/design/)", ("docs/design",), True), ("作業の記録", ("docs/worklog/README.md",), False))
+
+
+def doc_title(text):
+    m = re.search(r"^# (.+)$", text, re.M)
+    st = re.search(r"^状態:\s*(\S+)", text, re.M)
+    return (m.group(1).strip() if m else ""), (st.group(1) if st else "")
+
+
+def build_doc_index(notes):
+    """資料の索引(どの資料に何があるか)。資料の頭の 状態 と最初の見出しから作る = 手で説明を書き写さない"""
+    out = ["---", "種類: 索引", "状態: 有効", "---", "", "# 資料の索引", "",
+           "自動で作る(dev/plan_artifact.py)・手で直さない。説明は各資料の最初の見出し、状態は資料の頭のプロパティ"
+           "(計画の物は計画のデータから = dev/doc_state.py)。入口は [AGENTS.md](../AGENTS.md)(AI)と [ホーム](../ホーム.md)(人)", ""]
+    for head, roots, deep in DOC_GROUPS:
+        rows = []
+        for r in roots:
+            full = os.path.join(notes, *r.split("/"))
+            if os.path.isfile(full):
+                paths = [r]
+            elif os.path.isdir(full):
+                paths = []
+                for base, dirs, files in os.walk(full):
+                    dirs.sort()
+                    paths += [os.path.relpath(os.path.join(base, f), notes).replace(os.sep, "/") for f in sorted(files) if f.endswith(".md")]
+                    if not deep:
+                        break
+            else:
+                continue
+            for p in paths:
+                with open(os.path.join(notes, *p.split("/")), encoding="utf-8") as f:
+                    title, st = doc_title(f.read())
+                rows.append("- [`%s`](%s)%s — %s" % (p, posixpath.relpath(p, "docs").replace(" ", "%20"),
+                                                    "(%s)" % st if st else "", cell(title, 80)))
+        out += ["## %s" % head, ""] + (rows or ["(無し)"]) + [""]
+    return "\n".join(out).rstrip("\n") + "\n"
+
+
 def write_index(plan_dir):
-    """計画の索引・線ごとのまとめ・ホームを書く(plan_dir は <保管庫>/plan)"""
+    """計画の索引・線ごとのまとめ・資料の索引・ホームを書く(plan_dir は <保管庫>/plan)"""
     plan = load_plan(plan_dir)
+    write_text(os.path.join(os.path.dirname(plan_dir), *DOC_INDEX.split("/")), build_doc_index(os.path.dirname(plan_dir)))
     import worklog
     worklog.build(os.path.dirname(plan_dir))
 
@@ -475,7 +518,12 @@ def main():
             return 1
         sync_data_js(PLAN)
     if not a.no_index:
+        import doc_state
+        import drift_report
+        doc_state.sync(os.path.dirname(PLAN))   # 計画の資料の頭の状態・線は計画のデータから(手で書かない)
         write_index(PLAN)
+        if os.path.normcase(os.path.dirname(PLAN)) == os.path.normcase(layout.notes_root()):   # 本物の保管庫だけ(リポジトリ全体を読むので重い)
+            drift_report.write_report(os.path.dirname(PLAN))   # 食い違いの一覧(仮決めの一覧と同じ時に作り直す)
     if a.graph:
         write_vault_extras(os.path.dirname(PLAN))
     css, data, common = read("plan.css"), read("data.js"), read("plan.js")

@@ -1,4 +1,4 @@
-"""計算(notes:plan/analytics-daily-report.md の 4 節と 12-4 の方針)。入力は data.Dataset、出力は JSON にできる dict。
+"""計算(notes:plan/done/analytics-daily-report.md の 4 節と 12-4 の方針)。入力は data.Dataset、出力は JSON にできる dict。
 
 方針(監査の誤り E1〜E7 を繰り返さない):
 - 固定のファイルに頼らない。すべてその raw から計算し直す(E1)

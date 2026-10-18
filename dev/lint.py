@@ -250,7 +250,7 @@ def version_mismatch():
     return out
 
 
-# 説明文の参照が戻らない検査(OPT-H1 ③-R2。notes:plan/opt-human.md の ③ 全体)。対象は src/ dev/ setup/ の .py の docstring とコメント(tests/ と lint.py 自身は除く)
+# 説明文の参照が戻らない検査(OPT-H1 ③-R2。notes:plan/done/opt-human.md の ③ 全体)。対象は src/ dev/ setup/ の .py の docstring とコメント(tests/ と lint.py 自身は除く)
 GONE_NAMES = ("ed_alt", "ed_jobs", "ed_learn", "ed_retime", "ed_ytcap", "ed_store", "ed_fill", "ed_llm", "ytt_core", "studio/common.py", "home/live_cleanup.py")
 GONE_RE = re.compile(r"(?<![A-Za-z0-9_])(?:%s)(?![A-Za-z0-9_])" % "|".join(re.escape(n) for n in GONE_NAMES))
 PATH_RE = re.compile(r"(?<![A-Za-z0-9_./:\\-])((?:[A-Za-z0-9_-]+/)+[A-Za-z0-9_-]+\.py)(?![A-Za-z0-9_])")

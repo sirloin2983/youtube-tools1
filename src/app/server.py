@@ -153,7 +153,7 @@ from manage.keep import cleanup as cleanup_mod  # noqa: E402  (src/manage/keep/c
 from manage.ops import restart as restart_mod  # noqa: E402  (src/manage/ops/restart.py: 入口ごと起動し直す。段9 9-3)
 from app import prefs as prefs_mod  # noqa: E402  (src/app/prefs.py: ホームの設定。まとめて実行の既定・配信者の記憶・共通の再生キー)
 from app import live as live_mod  # noqa: E402  (src/app/live.py: リアルタイム切り抜き(線 D)。既定はオフ)
-try:   # src/manage/ops/analytics: 分析と日報(/analytics/ を受け持つ。notes:plan/analytics-daily-report.md)。入口を一時フォルダに写すテストでは無いことがある
+try:   # src/manage/ops/analytics: 分析と日報(/analytics/ を受け持つ。notes:plan/done/analytics-daily-report.md)。入口を一時フォルダに写すテストでは無いことがある
     from manage.ops.analytics import service as analytics_mod  # noqa: E402
 except ImportError:
     analytics_mod = None

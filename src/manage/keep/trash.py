@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""④ データの keep: ごみ箱フォルダへ移す・戻すの 1 か所(OPT-M2。notes:plan/opt-manage.md の 7c-1・2c-1)。
+"""④ データの keep: ごみ箱フォルダへ移す・戻すの 1 か所(OPT-M2。notes:plan/done/opt-manage.md の 7c-1・2c-1)。
 
 片付けの move(manage/keep/cleanup.Cleanup)と案件の「要らない」(manage/cases/cases.discard_clip。友人の「要らない」も)が同じこれを呼ぶ。
 置き場所は ごみ箱\\<日付>\\<種類>\\<名前>\\(作業用 の物は その中の 作業用\\)。どのごみ箱フォルダかは Cleanup.trash_for(動画と同じドライブ)。

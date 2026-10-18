@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""② 管理の層 flow: 友人へ届けた記録(入口の作業データの logs/deliveries.jsonl)の読み口(OPT-M2。notes:plan/opt-manage.md の 7x-2)。
+"""② 管理の層 flow: 友人へ届けた記録(入口の作業データの logs/deliveries.jsonl)の読み口(OPT-M2。notes:plan/done/opt-manage.md の 7x-2)。
 
 データの持ち主は ②(届けた = 起きた事実は起こした層。決定 3-48 の「切り抜きの印を 3 本に」)。④ の片付けは記録のファイルを直に読まず、
 ここの delivered_requests だけを読む。書く口 record は D-SEND の段 1 でここへ寄せた(③ human/friend/friend_feedback.record_delivery は

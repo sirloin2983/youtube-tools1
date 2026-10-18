@@ -1,4 +1,4 @@
-"""ytt — 基盤(役割で組み直す計画 notes:plan/role-restructure.md の 3 節。2026-10-09 の RS1-1 で移した。どの層からも読める)。
+"""ytt — 基盤(役割で組み直す計画 notes:plan/done/role-restructure.md の 3 節。2026-10-09 の RS1-1 で移した。どの層からも読める)。
 
 Python 標準ライブラリだけで動く。読む側は src/ を sys.path に入れて `from ytt import fsio` のように読む(層のパッケージの中は兄弟を相対で)。
 旧い名前の転送は RS5-G で消した。excite は pipeline/analyze、txindex は manage/cases に移した(evaldata は使い道がなくなり消した)。

@@ -13,7 +13,7 @@ ds1(要件 1-5「届ける段と溜めは ② へ」・仮決め 3-70 ds1・3-71
 友人のアプリの 設定/届け方.json)はやめた(封筒の deliver.batch は古い依頼・古い記録を読めるように欄だけ残し、読まない)。
 組の溜め(logs/deliver-pool.json)は、置けなかった自動の分(下)と、この変更の前に溜めてあったライブの切り抜きの残り(flush_pools が 1 本ずつ届ける)にだけ使う。
 
-友人へ自動で送る(D-SEND。要件 notes:plan/d-send-requirements.md・判定と理由の文は ② flow/sendpolicy):
+友人へ自動で送る(D-SEND。要件 notes:plan/done/d-send-requirements.md・判定と理由の文は ② flow/sendpolicy):
   - 出どころ(_origin): run.deliver_origin(request・auto・manual)。無ければ依頼の id があれば request・無ければ auto。友人に見せる形は deliver.face_origin
   - まとめて実行(mode full)の届ける段は、先に sendpolicy.decide(チェック = 届け先があるか・友人の依頼済み = _requested・配信が終わった時刻 =
     スタジオの配信の analysis)。送らないなら段は飛ばして理由の文・切り抜きごとに _remember_not_sent(② の送らなかった記録 logs/not-sent.jsonl。

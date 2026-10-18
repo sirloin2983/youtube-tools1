@@ -14,14 +14,14 @@
 | src/app(入口と画面) | [app.md](app.md) | 92 | 40136 |
 | src/friendapp(友人の玄関) | [friendapp.md](friendapp.md) | 48 | 19137 |
 | その他の画面(editor・studio・ui-kit・cut2resolve) | [tools.md](tools.md) | 49 | 21705 |
-| dev・setup(開発の道具) | [dev.md](dev.md) | 50 | 13056 |
+| dev・setup(開発の道具) | [dev.md](dev.md) | 54 | 13853 |
 | friend-apps・chrome-ext(C# のアプリ・拡張) | [apps.md](apps.md) | 18 | 8716 |
 
 ## `/api/...` の口(受ける所 → 呼ぶ所)
 
 受ける所は .py の処理(比べる・表の鍵)。呼ぶ所は画面の .js・.cs・ほかの .py(テストは除く)。
 
-- `/api` — dev/code_map.py:208・src/app/live.py:324・src/friendapp/server.py:287
+- `/api` — dev/code_map.py:208・dev/spec_check.py:98・src/app/live.py:324
 - `/api/accuracy` — src/app/server.py:653 ← portal.js
 - `/api/accuracy/run` — src/app/server.py:661 ← portal.js
 - `/api/adopt` — src/app/live.py:348

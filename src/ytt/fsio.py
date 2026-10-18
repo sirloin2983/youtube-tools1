@@ -126,7 +126,7 @@ def read_json_file(path, max_bytes, allow_nan=False):
     allow_nan=True なら NaN / Infinity をそのまま float として通す(json.dump の既定で書いた自分のファイル。以前の読み方との互換)"""
     with open(path, "rb") as f:
         # 先に大きさを見て、その分だけ読む(f.read(max_bytes + 1) は上限ぶんの入れ物を毎回取るので、64MB・256MB の上限で
-        # 小さなファイルを読むたびに遅かった = 起動で約 2 秒。notes:plan/opt-manage.md の 4a-3)。読む間に伸びた分は下で止める
+        # 小さなファイルを読むたびに遅かった = 起動で約 2 秒。notes:plan/done/opt-manage.md の 4a-3)。読む間に伸びた分は下で止める
         size = os.fstat(f.fileno()).st_size
         if size > max_bytes:
             raise TooLarge("ファイルが大きすぎます")

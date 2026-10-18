@@ -1,4 +1,4 @@
-"""① 自動の流れの経路(役割で組み直す RS1-7。計画 notes:plan/role-restructure.md の 5-1)。
+"""① 自動の流れの経路(役割で組み直す RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。
 
 入力(配信の ID・文書の ID・動画ファイル)を、段(解析 → 採用 → 書き出し → 文字起こし → 話者分離 → パック)の順に、各ツールの公開している API を
 client(call・ok)で呼んで進める。Run = 1 回の実行の状態(段・進み具合・待ちの記録の形)、Runner = 段の中身と待つ骨組み、run() = 入口の関数。

@@ -11,13 +11,13 @@ AI(Claude・GPT)向けの決まりは AGENTS.md です。
     start.bat(Mac は start.command)   起動。ダブルクリック(start-background.bat は画面なしで裏で動かす)
     push.bat                            変更を GitHub に保存する
     setup\                              最初のインストールと片付け(bootstrap.bat・install.bat など)
-    plan\                               これからの計画(読む用)
     README.txt                          このファイル(全体の使い方)
   ふだん開かないもの:
     src\                動くコード。ツール本体(home・studio・editor・cut2resolve。録画の部品 recorder は pipeline\ingest)・共通部品(ytt = 基盤。旧 ytt_core・ui-kit)と、役割の層(pipeline = 自動の流れ・human = 人の操作・manage = データの管理・eval = 検証)が入っている。部品は少しずつ役割の層へ移していて、2026-10-10 に RS4 まで済み
     friend-apps\        友人に渡す Windows のアプリ(holo-colors = ホロカラー・launcher = 友人のアプリの窓 FriendApp.exe。C#)
-    docs\               AI の作業記録(ROADMAP・WORKLOG)と、仕様・計画・設計・古い資料
+    codemap\            コードの地図(AI が探す用。dev\code_map.py が作る)
     dev\                開発の道具(テストの補助・push.bat の検査・消すファイルの一覧 removals.txt。精度を測る道具 eval_*.py は src\eval\tools\ へ移した = 使い方は py -3.10 src\eval\tools\eval_asr.py のように)
+  計画・仕様・作業の記録などの資料は Obsidian の保管庫 D:\Obsidian保管庫\youtube-tools にあります(入口は ホーム.md)。
   AGENTS.md・CLAUDE.md は AI 向けの決まりです。以下の説明にある「home」「studio」「editor」などのツールのフォルダは src\ の中にあります。
 
 【これは何?】

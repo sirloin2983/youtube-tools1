@@ -37,7 +37,7 @@
 - **__init__.py** (2 行) — ⑤ 物差し(今の src/eval/tools/eval_*・_evalcommon・demo_env)
 - **_evalcommon.py** (293 行) — dev/ の測る道具(eval_asr.py・eval_speakers.py・eval_timing.py・eval_cut.py・eval_alt.py・eval_marks.py)の共通の部品
   - 名前: `add_period_args` :37・`split_ids` :46・`label_name` :51・`data_env` :56・`locate` :61・`day_ms` :68・`period` :79・`in_period` :84・`period_label` :93・`rate` :102・`pct` :106・`dist` :111・ほか 10
-- **clipfit.py** (357 行) — 自動の区間が友人の区間にどれだけ合うかの物差し(LD-2a。notes:plan/ld2-clip-length.md の L-2)。⑤ eval_marks が表示に使い、単独でも動く。
+- **clipfit.py** (357 行) — 自動の区間が友人の区間にどれだけ合うかの物差し(LD-2a。notes:plan/done/ld2-clip-length.md の L-2)。⑤ eval_marks が表示に使い、単独でも動く。
   - 名前: `load_material` :42・`rebuild` :66・`picks` :87・`fit` :96・`summarize` :108・`default_variants` :118・`friend_material` :126・`evaluate` :138・`edge_speech` :199・`scene_only` :257・`grid` :272・`print_fit` :304・ほか 1
 - **eval_alt.py** (564 行) — 「2つ目のエンジンとの食い違いの候補」(行に出る札「別」)が、校正を本当に速くしているかを数字で見る道具(候補の当たり率)。
   - 名前: `locate` :75・`name_checker` :80・`read_alt` :87・`read_feedback` :95・`read_answers` :106・`pct` :135・`num` :140・`clean_rows` :146・`fold_text` :153・`class Group` :163・`map_span` :188・`judge_candidate` :206・ほか 9

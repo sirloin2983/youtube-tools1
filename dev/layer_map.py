@@ -1,4 +1,4 @@
-"""役割の層と、今のファイルの行き先(役割で組み直す計画 `notes:plan/role-restructure.md` の 7 節を機械で読める形にしたもの。RS0。RS6 a-0 で 5 つの層に)。
+"""役割の層と、今のファイルの行き先(役割で組み直す計画 `notes:plan/done/role-restructure.md` の 7 節を機械で読める形にしたもの。RS0。RS6 a-0 で 5 つの層に)。
 
 層(RS6 の決定 3-29。`資料の git:cbe1a64:docs/design/surveys/rs6-survey-2026-10-10/plan_order_v2.md` の 2-3):
     ytt(基盤)/ pipeline(① 道具 = データを加工する)/ flow(② 管理 = ① をいつ・どの順で・どこに置いて・飛ばすか)/

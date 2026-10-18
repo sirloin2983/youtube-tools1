@@ -228,7 +228,7 @@ def _fresh_id(used, make, n=0):
 
 
 def carry_overrides(job, spec, doc):
-    """新しく作る文書 doc に、同じ動画の既存の文書(store.find_doc_for_media = 行のある・新しいもの)の人の行を重ねる(notes:plan/role-restructure.md の 5-5 の F-3)。
+    """新しく作る文書 doc に、同じ動画の既存の文書(store.find_doc_for_media = 行のある・新しいもの)の人の行を重ねる(notes:plan/done/role-restructure.md の 5-5 の F-3)。
     force の再文字起こし・エンジンを変えた再実行などで人の直しが消えないように。評価用(作る側・元の側)と評価用の作り直しには当てない。
     環境変数 TRANSCRIBE_CARRY_OVERRIDES=off で止める(前の文書はそのまま残る = 引き継がなくても直しは失わない)。
     重ね方は層の組み立て(layers.carry。前の文書の機械の層 = store.layers_for = 層の無い古い文書は文書の original から作る)。

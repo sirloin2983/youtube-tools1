@@ -6,7 +6,7 @@
   transcribe  文字起こしまで … 採用したマークの書き出し → 文字起こし(パックは校正してから人が作る)
 
 作り:
-- ① の経路(Run・段の表・段の中身・待つ骨組み)は RS1-7 で src/flow/run.py へ移した(役割で組み直す計画 notes:plan/role-restructure.md の 5-1)。
+- ① の経路(Run・段の表・段の中身・待つ骨組み)は RS1-7 で src/flow/run.py へ移した(役割で組み直す計画 notes:plan/done/role-restructure.md の 5-1)。
   順番待ちと糸・中止・状態と記録・起動し直しで戻す・見積もりは RS7-1 S5 で src/flow/runqueue.py の Queue へ移した(② が画面なしでも動くように。
   AutoRunner は Queue を継ぐ)。ここに残すのは、ToolClient・画面の設定から束を組む build_spec・起動し直すの確かめ restart_info と、
   Runner・Queue の hook(案件・ホームの設定・届けることを読む所)の中身。移した名前は同じ名前で読み直している。
@@ -39,7 +39,7 @@
 - ① 全自動の Dropbox へ届ける段: パックができるたびに 1 本ずつ(1 本の zip + 480p の確認用の動画 <同じ名前>.preview.mp4 + .meta.json)Dropbox の 出力 へ置く
   (F3-6。notes:plan/f1-friend-requirements.md の C-6。5 本ずつの組・まとめ動画・届け方の設定はやめた)。作り方・名前は src/flow/deliver.py(確認用の動画は
   ① src/pipeline/pack/preview.py)、届ける段と置けなかった分の溜めの中身は src/flow/delivery.py(RS3-3 で human/friend へ出し、ds1 で ② へ移した)
-- 友人へ自動で送る(D-SEND。notes:plan/d-send-requirements.md): 画面の「友人へ自動で送る」(既定 = 解析から全部のときだけオン・保存しない)。
+- 友人へ自動で送る(D-SEND。notes:plan/done/d-send-requirements.md): 画面の「友人へ自動で送る」(既定 = 解析から全部のときだけオン・保存しない)。
   画面は、依頼の受付の Dropbox のフォルダが決まっていれば(GET /api/intake の outDir)封筒の deliver に出どころ auto を置き、
   チェックが入っていれば届け先(出力)も置く(段 deliver が付く)。受付(_accept)が名前の頭 deliver.tag(友人のアプリの依頼 id の形)を決める。
   チェックを外した実行も段 deliver を付けて(flow/run.py の steps_of = 出どころ auto の full)、

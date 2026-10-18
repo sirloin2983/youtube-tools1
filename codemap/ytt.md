@@ -4,7 +4,7 @@
 
 ## src/ytt/
 
-- **__init__.py** (37 行) — ytt — 基盤(役割で組み直す計画 notes:plan/role-restructure.md の 3 節。2026-10-09 の RS1-1 で移した。どの層からも読める)。
+- **__init__.py** (37 行) — ytt — 基盤(役割で組み直す計画 notes:plan/done/role-restructure.md の 3 節。2026-10-09 の RS1-1 で移した。どの層からも読める)。
 - **apikey.py** (37 行) — YouTube Data API のキー(役割で組み直す RS3-4。2026-10-10 にスタジオの common.py から移した)。
   - 名前: `get_api_key` :16・`set_api_key` :27
 - **appwindow.py** (297 行) — 画面を「窓」(Edge のアプリモード)で開く(統合計画の段階7-3。2026-09-27 ユーザー決定で既定を窓に = 専用の窓。pywebview は使わない)。

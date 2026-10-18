@@ -40,7 +40,7 @@
     その文字起こしを一覧で非表示に(データは消さない)。どちらも人の判断を ③ human/judgments に 1 行(who self・adopt / reject・via cases)
   - 案件ファイルには cases[配信]["auto"][スタジオのマーク] = {discardedAt, tx, expiredAt} を持つ(要らないにした文字起こし tx は
     「単体の文字起こし」に出さない。前の版が書いた origin・notSent は読むだけ)
-  - まとめて実行で友人へ自動で送る形(D-SEND。notes:plan/d-send-requirements.md の 2-8): 送らなかったら届ける段が ② の送らなかった記録 logs/not-sent.jsonl に
+  - まとめて実行で友人へ自動で送る形(D-SEND。notes:plan/done/d-send-requirements.md の 2-8): 送らなかったら届ける段が ② の送らなかった記録 logs/not-sent.jsonl に
     {配信, マーク, code, text, at}(理由の鍵と文は ② flow/sendpolicy.REASONS)を書く(flow/deliveries.record_not_sent。ds1 = 3-71 m3e。前は案件の auto[マーク] に
     origin "full" と notSent)。送った物は届けた記録の mode full・origin auto で見分ける。
     どちらかがある切り抜きはライブでなくても clip["auto"] = {origin "full", originLabel "まとめて実行"}(品質のカードに出る)。

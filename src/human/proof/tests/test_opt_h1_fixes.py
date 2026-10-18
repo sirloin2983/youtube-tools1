@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""③ 校正の小物の直し(OPT-H1。notes:plan/opt-human.md の役割 4・5)のテスト。serve なしで読める。
+"""③ 校正の小物の直し(OPT-H1。notes:plan/done/opt-human.md の役割 4・5)のテスト。serve なしで読める。
 
     py -3.10 -m unittest src/human/proof/tests/test_opt_h1_fixes.py -v
 

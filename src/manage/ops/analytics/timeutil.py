@@ -1,4 +1,4 @@
-"""日付と時刻の定義(1 か所。監査の E2・E3・E4。notes:plan/analytics-daily-report.md の 12-4 の 2)。
+"""日付と時刻の定義(1 か所。監査の E2・E3・E4。notes:plan/done/analytics-daily-report.md の 12-4 の 2)。
 
 - Studio の数字の「日」は太平洋時間(PT)の日付。夏時間は 3 月の第 2 日曜 2:00 〜 11 月の第 1 日曜 2:00(UTC−7)、それ以外は UTC−8。
   Windows の Python には時間帯のデータベースが無いことがある(zoneinfo は tzdata が要る)ので、規則をここに書く

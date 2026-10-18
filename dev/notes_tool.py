@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """資料のフォルダ(Obsidian の保管庫の中。layout.notes_root())のパスの検査と、資料を動かす道具(2026-10-13)。
 
-    python dev/notes_tool.py check                 # 切れたパスを並べる(終了コード 1 = 切れた物がある)
+    python dev/notes_tool.py check [--fix]         # 切れたパスと食い違いを並べる(終了コード 1 = ある)。--fix は計画の資料の頭の状態・線だけ直す
     python dev/notes_tool.py mv <旧> <新> [...]   # 資料のフォルダの中で git mv して、指している所を全部直す
     python dev/notes_tool.py retarget <旧> <新> [...]   # 動かさずに、旧を指すリンク・data.js・notes: を新へ向け直す(文書をまとめたとき)
     python dev/notes_tool.py drop <コミット> <消す物> [...]   # 消す前に、指している所を git:<コミット>:<パス> の文字にする
@@ -12,6 +12,7 @@ check が見る物(dev/lint.py も同じ物を数える):
   - 計画のデータ(plan/data/ の JSON と summary.md。分ける前は plan/data.js)の docs の並び(plan/ からの相対)と、文の中の docs/… plan/… の .md・.html。
     JSON が読めるか・id・必須の欄・参照は dev/plan_data.py の check
   - リポジトリのコード・README の notes:docs/… notes:plan/…
+  - 計画の資料の頭の 状態・線 が計画のデータ(tasks の docs)と合うか・plan/done/ の置き場所(dev/doc_state.py)
 mv が直す物: md の相対リンク(動かした文書の中のリンクも)・リンクの表示が旧いパスそのものならその文字・
   計画のデータ(plan/data/。直したら data.js を作り直す)・リポジトリの notes: の参照。リンクでない文字のパス(過去の記録の中など)は直さない。
 Obsidian の中で動かすと md のリンクだけは Obsidian が直すが、data.js と notes: は直らない = 動かしたら check を流す。
@@ -225,12 +226,15 @@ def explain_data_js(text, path="plan/data.js", use_node=True):
     return "\n".join(out)
 
 
-def check():
-    """切れたパスを [(どこ, 行, パス)] で返す。資料のフォルダが無い PC では空"""
-    root = vault()
+def check(root=None):
+    """切れたパスと食い違いを [(どこ, 行, 説明)] で返す。資料のフォルダが無い PC では空。
+    計画の資料の頭の状態(dev/doc_state.py)も数える。仕様とコードの食い違い(dev/spec_check.py)は警告なのでここでは数えない"""
+    root = root or vault()
     if not os.path.isdir(root):
         return []
-    bad = []
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import doc_state
+    bad = doc_state.check(root)
     for p in md_files(root):
         fence = False
         for ln, line in enumerate(read(p).splitlines(), 1):
@@ -432,6 +436,9 @@ def main(argv):
     except Exception:
         pass
     if argv[:1] == ["check"]:
+        if "--fix" in argv:   # 計画の資料の頭の状態・線だけを計画のデータに合わせる(ほかは直さない)
+            import doc_state
+            doc_state.sync(vault())
         bad = check()
         for where, ln, p in bad:
             print("%s:%d %s" % (where, ln, p))

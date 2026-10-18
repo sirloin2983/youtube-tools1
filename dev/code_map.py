@@ -211,6 +211,11 @@ def norm_route(r):
     return r.rstrip("/") or r
 
 
+def routes(infos):
+    """受ける・呼ぶ `/api/...` の口(norm_route でそろえた集合)。docs/spec の検査(dev/spec_check.py)が使う"""
+    return {norm_route(r[0]) for it in infos for r in list(it["serve"]) + list(it["call"])}
+
+
 def fmt_syms(syms):
     shown = ["`%s` :%d" % s for s in syms[:SYM_MAX]]
     if len(syms) > SYM_MAX:

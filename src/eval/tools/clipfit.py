@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""自動の区間が友人の区間にどれだけ合うかの物差し(LD-2a。notes:plan/ld2-clip-length.md の L-2)。⑤ eval_marks が表示に使い、単独でも動く。
+"""自動の区間が友人の区間にどれだけ合うかの物差し(LD-2a。notes:plan/done/ld2-clip-length.md の L-2)。⑤ eval_marks が表示に使い、単独でも動く。
 
     python src/eval/tools/clipfit.py [--json] [--grid] [--data-dir 作業データの親フォルダ]
 

@@ -1,4 +1,4 @@
-"""採用の規則 F-5(notes:plan/role-restructure.md 5-5・決定 3-29 Q3。RS8 B3-2 の G1a で human/review/store.py の Store.adopt_marks から出した純粋な関数)。
+"""採用の規則 F-5(notes:plan/done/role-restructure.md 5-5・決定 3-29 Q3。RS8 B3-2 の G1a で human/review/store.py の Store.adopt_marks から出した純粋な関数)。
 
 入力 = 配信のマークの一覧・区間・上限 → 出力 = 採る印をつけたマークの一覧と、選んだ id。ファイル・ロック・HTTP に触らない(ytt/marks の語彙だけを読む)。
 保存は呼ぶ側(今はスタジオの Store.adopt_marks。② の flow/run.py の _step_adopt は今のまま HTTP の /api/video/request-marks を通す)。

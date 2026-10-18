@@ -28,8 +28,8 @@ class WorklogTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.notes = self.tmp.name
         self.wl = os.path.join(self.notes, "docs", "worklog")
-        write(os.path.join(self.notes, "docs", "WORKLOG.md"),
-              "# 記録\n\n## 週のファイル(新しい週が上)\n- [2026-10-12週](worklog/2026-10-12週.md)(10-12〜) — 前\n")
+        write(os.path.join(self.notes, "docs", "worklog", "README.md"),
+              "# 記録\n\n## 週のファイル(新しい週が上)\n- [2026-10-12週](2026-10-12週.md)(10-12〜) — 前\n")
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -53,8 +53,8 @@ class WorklogTest(unittest.TestCase):
         self.assertIn("## まとめ\n- 10-21 bbb: (まとめ未記入)\n- 10-19 aaa: A をした\n", week)
         self.assertIn("- [2026-10-21 Claude Code — 見出し (B)](2026-10-19週/2026-10-21-bbb.md)\n"
                       "- [2026-10-19 Claude Code — 見出し A](2026-10-19週/2026-10-19-aaa.md)\n", week)
-        index = read(os.path.join(self.notes, "docs", "WORKLOG.md"))
-        self.assertIn("## 週のファイル(新しい週が上)\n- [2026-10-19週](worklog/2026-10-19週.md)", index)
+        index = read(os.path.join(self.notes, "docs", "worklog", "README.md"))
+        self.assertIn("## 週のファイル(新しい週が上)\n- [2026-10-19週](2026-10-19週.md)", index)
         self.assertEqual(index.count("2026-10-19週.md"), 1)
         self.assertEqual(worklog.build(self.notes), 0)   # 同じなら書かない
 
