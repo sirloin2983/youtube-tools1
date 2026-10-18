@@ -364,3 +364,6 @@
 - `UIKit.http` が 403 `{"error":"token"}`(入口が起動し直されて合言葉が変わった)を受けたら、「ホームが起動し直されました [開き直す]」の知らせを 1 回だけ出す(押すと `location.reload()`)。`UIKit.http`・`homeApi` を通る書き込みは全部に効く。通らない書き込み(分析の画面の fetch など)は `UIKit.tokenStale()` を呼ぶ
 - `UIKit.settingsForm`: 保存が終わった描き直しで、フォーカスのある text・int・number・folder・textarea は書き戻さない(打っている途中の入力が消えて保存されなかった)。保存の失敗で値を戻すときだけ書き戻す
 - テスト: `src/ui-kit/tests/test_uikit_stub.cjs`(node)。`UIKit.version` は 34
+
+## v35(2026-10-19)設定の欄: 保存の答えが前後しても選んだ値が消えない
+- `UIKit.settingsForm`: 自分の保存が返るまでの欄は、先に返ったほかの欄の保存の描き直しで書き戻さない(ライブの設定でエンジンを選んですぐモデルを選ぶと、エンジンの答えでモデルが前の値に戻っていた)。`UIKit.version` は 35

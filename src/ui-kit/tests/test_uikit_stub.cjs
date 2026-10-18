@@ -141,6 +141,21 @@ test('settingsForm: a save finishing does not wipe a text field that is being ty
   assert.equal(model.value, '', 'a normal refresh (no focus) still writes the stored value');
 });
 
+test('settingsForm: another save finishing does not repaint a select whose own save is still on its way', async () => {
+  const store = { engine: 'a', model: 'm1' }, wait = {};
+  const m = mountForm([{ key: 'engine', type: 'enum', options: [['a', 'A'], ['b', 'B']], 'default': 'a' }, { key: 'model', type: 'enum', options: [['m1', '1'], ['m2', '2']], 'default': 'm1' }],
+    store, (k, v) => new Promise(r => { wait[k] = () => { store[k] = v; r(); }; }));
+  const engine = m.ctl('engine'), model = m.ctl('model');
+  engine.value = 'b'; engine.fire('change');
+  model.value = 'm2'; model.fire('change');   // the store still says m1 until the model save answers
+  await new Promise(r => setTimeout(r, 0));
+  wait.engine(); await new Promise(r => setTimeout(r, 0));
+  assert.equal(model.value, 'm2', 'the chosen model stays while its save is on its way');
+  wait.model(); await new Promise(r => setTimeout(r, 0));
+  assert.equal(store.model, 'm2');
+  assert.equal(model.value, 'm2');
+});
+
 test('settingsForm: a failed save puts the stored value back even in a focused field', async () => {
   const store = { model: 'old' };
   const m = mountForm([{ key: 'model', type: 'text', 'default': '' }], store, () => Promise.reject(new Error('no')));

@@ -72,6 +72,24 @@ def _int_in(v, lo, hi):
     return isinstance(v, int) and not isinstance(v, bool) and lo <= v <= hi
 
 
+def check_weights(w):
+    """⚙ の解析の重み {wAudio・wChat・wComments} -> 整えた辞書。どれかが 0〜3 の整数でなければ FormError(⚙ の 2 つの口が使う 1 か所)"""
+    if not (isinstance(w, dict) and all(_int_in(w.get(k), 0, 3) for k in _spec.WEIGHT_KEYS)):
+        raise FormError("解析の重みは 0〜3 の整数にしてください(音量・チャット・コメント)")
+    return {k: w[k] for k in _spec.WEIGHT_KEYS}
+
+
+def merge_live(cur, change):
+    """⚙ のライブの値(change の sens・waitMin・pad)を今の設定 cur に重ねて検べる -> 新しい設定(lengthMode は今のまま)。
+    違えば FormError(文は live.check_settings。⚙ の 2 つの口が使う 1 か所)"""
+    lv = dict(cur, **{k: change[k] for k in ("sens", "waitMin", "pad") if k in change})
+    try:
+        checked = _live.check_settings(lv)
+    except ValueError as e:
+        raise FormError("ライブの" + str(e))
+    return dict(checked, lengthMode=cur.get("lengthMode", "auto"))
+
+
 def oembed(vid, timeout=PEEK_TIMEOUT):
     """oEmbed(公開・キー不要)で題とチャンネル名 -> {"title", "channel"}(取れなければ空。接続先は固定・id は検査済み)"""
     target = OEMBED + urllib.parse.quote(_yturl.watch_url(vid), safe="")
@@ -198,21 +216,11 @@ class Api:
             cur["useWeights"] = body["useWeights"]
             msgs.append("解析の重みを%s" % ("使うにしました" if body["useWeights"] else "使わないにしました"))
         if "weights" in body:
-            w = body["weights"]
-            if not (isinstance(w, dict) and all(_int_in(w.get(k), 0, 3) for k in _spec.WEIGHT_KEYS)):
-                raise FormError("重みは 0〜3 にしてください")
-            cur["weights"] = {k: w[k] for k in _spec.WEIGHT_KEYS}
+            cur["weights"] = check_weights(body["weights"])
             msgs.append("解析の重みを変えました")
-        lv = dict(cur["live"])
-        for key, name in (("liveSens", "sens"), ("liveWait", "waitMin"), ("livePad", "pad")):
-            if key in body:
-                lv[name] = body[key]
-        if lv != cur["live"]:
-            try:
-                checked = _live.check_settings(lv)
-            except ValueError as e:
-                raise FormError(str(e))
-            cur["live"] = dict(checked, lengthMode=lv.get("lengthMode", "auto"))
+        change = {name: body[key] for key, name in (("liveSens", "sens"), ("liveWait", "waitMin"), ("livePad", "pad")) if key in body}
+        if dict(cur["live"], **change) != cur["live"]:
+            cur["live"] = merge_live(cur["live"], change)
             msgs.append("ライブの設定を変えました(次に頼む録画から)")
         if msgs:
             self._write_form(cur)

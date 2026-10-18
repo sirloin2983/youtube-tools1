@@ -29,7 +29,7 @@ import urllib.request
 from flow import machine as _machine, spec as _spec
 from ytt import fsio as _fsio, studio_env as _studio_env, tools as _tools
 
-from . import live as _live
+from . import api as _api, live as _live
 
 KEYS_NAME = "keys.json"
 KEY_FIELD = "youtubeApiKey"
@@ -258,32 +258,20 @@ class Settings:
                 patch["useWeights"] = False
                 msgs.append("解析の重みを既定に戻しました")
             else:
-                if not (isinstance(w, dict) and all(isinstance(w.get(k), int) and not isinstance(w.get(k), bool) and 0 <= w[k] <= 3 for k in _spec.WEIGHT_KEYS)):
-                    raise SettingsError("解析の重みは 音量・チャット・コメント をそれぞれ 0〜3 の整数で入れてください")
+                try:
+                    patch["weights"] = _api.check_weights(w)
+                except ValueError as e:
+                    raise SettingsError(str(e))
                 patch["useWeights"] = True
-                patch["weights"] = {k: w[k] for k in _spec.WEIGHT_KEYS}
                 msgs.append("解析の重みを変えました(次に送る物から)")
         if "live" in body:
             lv = body["live"]
-            cur = dict(self.api.form()["live"])
             if not isinstance(lv, dict):
                 raise SettingsError("ライブの設定が正しくありません")
-            if "sens" in lv:
-                if lv["sens"] not in _live.SENS:
-                    raise SettingsError("ライブの感度は 高い・ふつう・低い のどれかにしてください")
-                cur["sens"] = lv["sens"]
-            if "waitMin" in lv:
-                lo, hi = _live.RANGES["waitMin"]
-                if not (isinstance(lv["waitMin"], int) and not isinstance(lv["waitMin"], bool) and lo <= lv["waitMin"] <= hi):
-                    raise SettingsError("ライブの待ちは %d〜%d 分にしてください" % (lo, hi))
-                cur["waitMin"] = lv["waitMin"]
-            if "pad" in lv:
-                lo, hi = _live.RANGES["pad"]
-                m = lv["pad"]
-                if not (isinstance(m, (int, float)) and not isinstance(m, bool) and lo <= m <= hi):
-                    raise SettingsError("ライブの余白は %g〜%g 秒にしてください" % (lo, hi))
-                cur["pad"] = float(m)
-            patch["live"] = cur
+            try:
+                patch["live"] = _api.merge_live(self.api.form()["live"], lv)
+            except ValueError as e:
+                raise SettingsError(str(e))
             msgs.append("ライブの感度・待ち・余白を変えました(次に送る物から)")
         return patch, msgs
 
