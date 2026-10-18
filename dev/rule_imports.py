@@ -307,7 +307,7 @@ def c_spec_consistency():
     eq("run.upto・run.onFail・hints.streamer の既定", (spec.DEFAULTS["run"]["upto"], spec.DEFAULTS["run"]["onFail"], spec.DEFAULTS["hints"]["streamer"]), ("pack", "next", None))
     got = analyze.validate_settings({})
     got.pop("noCache")
-    got.pop("fill")   # 埋める数は束に入れない(② の段が採用の上限 adopt.top から渡す。10-19)
+    got.pop("fill")   # 埋める数は束に入れない(② の段が採用の上限 adopt.top から渡す)
     if got.pop("shape") not in ("scene", "fixed"):   # 区間の形は束に入れない(既定は ① のスイッチ excite.SHAPE_DEFAULT の 1 か所)
         out.append("analyze の shape の既定が scene/fixed でない")
     eq("束の analyze と analyze の既定", got, spec.DEFAULTS["analyze"])

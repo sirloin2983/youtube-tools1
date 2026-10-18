@@ -4,7 +4,7 @@
 client(call・ok)で呼んで進める。Run = 1 回の実行の状態(段・進み具合・待ちの記録の形)、Runner = 段の中身と待つ骨組み、run() = 入口の関数。
 どの段も「まだ無いものだけ」作る(済んだ段は飛ばす)。中止は Cancelled、続けられない失敗は StepError。
 
-import してよいのは標準ライブラリ・ytt・同じ flow の spec だけ(層の決まり。dev/tests/test_layering.py。10-19 から埋めた候補の文 pipeline/analyze/excite.FILL_REASON も)。案件・ホームの設定・届けることを知る所は
+import してよいのは標準ライブラリ・ytt・同じ flow の spec だけ(層の決まり。dev/tests/test_layering.py。埋めた候補の文 pipeline/analyze/excite.FILL_REASON も)。案件・ホームの設定・届けることを知る所は
 Runner の hook(_await_tools・_checkpoint・_studio_video・_friend_length・_docs・_pick_doc・_pref・_live_auto_origin・_auto_streamer・
 _after_pack・_remember_styles・_remember_doc_streamer)にして、既定は「何も知らない」安全な値にした。
 _friend_length は RS7-1 S4 から受付(入口の AutoRunner._accept)が読む(段は束の analyze と Run.friend_plan を読む)。
@@ -207,7 +207,7 @@ def analyze_verdict(has_analysis, weights_differ):
     return "skip" if has_analysis and not weights_differ else "make"
 
 
-# 頼まれた本数に届かないとき(10-19。10-18 の kYKmNCRiC40 = 配信の約 1.5 時間後でチャットのリプレイが 0 件・山が 1 つだけで 5 本のうち 1 本)
+# 頼まれた本数に届かないとき(例: 配信の直後でチャットのリプレイが 0 件・山が 1 つだけ → 5 本のうち 1 本)
 CHAT_RETRY_SEC = 3600          # チャットのリプレイを取り直すまでの間(前の解析から)
 CHAT_RETRY_MAX = 3             # 見回りで取り直す回数の上限
 CHAT_RETRY_FRESH = _sendpolicy.FRESH_SEC   # 終わってからこの秒数までの配信だけ取り直す(友人へ自動で送る鮮度と同じ 48 時間)
@@ -234,7 +234,7 @@ def chat_retry_ok(analysis, now):
 
 
 def redo_reason(analysis, top, marks, now):
-    """解析済みでも解析し直す理由(10-19)-> "chat" / "short" / None(使い回す)。
+    """解析済みでも解析し直す理由-> "chat" / "short" / None(使い回す)。
     chat = チャットが使えなかった新しい配信で、前の解析から CHAT_RETRY_SEC 秒たった(リプレイがもう揃っているかもしれない)。
     short = 前の解析は埋める数(spec.fill)が top より少なく、残っている候補(見送り以外のマーク)が top に届かない。
     解析の記録の形(spec・counts)が無い物は見ない(前の形のまま使い回す)"""
@@ -252,7 +252,7 @@ def redo_reason(analysis, top, marks, now):
 
 
 def short_why(analysis):
-    """候補が足りなかった理由の文(採用の段の文と記録に残す。10-19)"""
+    """候補が足りなかった理由の文(採用の段の文と記録に残す)"""
     a = _dict(analysis)
     counts, spec = _dict(a.get("counts")), _dict(a.get("spec"))
     why = []
@@ -769,7 +769,7 @@ class Runner:
                     start()
                 except Cancelled:
                     raise   # 下の except で取り消す
-                except Exception:   # 投入の途中の失敗(StepError など。10-19 P4): 投入済みの分を取り消してから上げる(取り消しの失敗で元の理由を隠さない)
+                except Exception:   # 投入の途中の失敗(StepError など): 投入済みの分を取り消してから上げる(取り消しの失敗で元の理由を隠さない)
                     if cancel is not None:
                         try:
                             cancel()
@@ -890,7 +890,7 @@ class Runner:
         return None
 
     def _after_analysis(self, run, st, item, settings):
-        """解析のあと(10-19): 埋めた数を文に足す・チャットのリプレイが無い新しい配信は、見回り(chat_retry_tick)で取り直す待ちに入れる"""
+        """解析のあと: 埋めた数を文に足す・チャットのリプレイが無い新しい配信は、見回り(chat_retry_tick)で取り直す待ちに入れる"""
         if item.get("kind") != "youtube":
             return
         a = self._video(run).get("analysis")
@@ -975,7 +975,7 @@ class Runner:
         own = base != _spec.DEFAULTS["analyze"]   # 既定と違う = スタジオの画面で変えた設定(重みの指定が無いときだけ文に出す。友人の長さを重ねる前の値で見る)
         if fl:
             run.friend_length = fl
-        if self._fill_top(run):   # 山がしきい値を超える数が採用の上限に届かなければ、しきい値の下の山で埋める(10-19。印 fill・pipeline/analyze/excite.pick_clips)
+        if self._fill_top(run):   # 山がしきい値を超える数が採用の上限に届かなければ、しきい値の下の山で埋める(印 fill・pipeline/analyze/excite.pick_clips)
             saved["fill"] = self._fill_top(run)
         res = self.tools.analyze_add(item, saved)
         added = res.get("added") or []
@@ -1050,7 +1050,7 @@ class Runner:
         fills = sum(1 for i in aids if i in added and _excite.FILL_REASON in reasons.get(i, ()))
         why = short_why(v.get("analysis")) if short > 0 else ""
         st["detail"] = "・".join(parts) + ("(うち %d 本は本数に届かないので、点数の低い山で埋めました)" % fills if fills else "") + \
-            ("。候補が足りず %d 本は選べませんでした" % short if short > 0 else "") + ("(%s)" % why if why else "")   # 足りなかった理由(10-19。記録 autorun-runs.jsonl に残る)
+            ("。候補が足りず %d 本は選べませんでした" % short if short > 0 else "") + ("(%s)" % why if why else "")   # 足りなかった理由(記録 autorun-runs.jsonl に残る)
         if not added and run.mode not in REQUEST_URL_MODES:   # 新しく採用したものが無い(前の採用をそのまま使う)
             st["state"] = "skip"
             st["detail"] += "(新しく採用したものはありません)"
@@ -1491,7 +1491,7 @@ class Runner:
             if not ok:
                 raise Cancelled()
             path, note = _norm.run(p, cancelled=stop, on_progress=progress, on_start=started)
-        if path:   # 置き換えた(元の写しはもう無い): 中止の検査より先に新しいパスを待ちの記録へ(再開が消えた写しを探さない。10-19 P2)
+        if path:   # 置き換えた(元の写しはもう無い): 中止の検査より先に新しいパスを待ちの記録へ(再開が消えた写しを探さない)
             run.source_path = path
             self._checkpoint(run)   # 封筒の input.path が新しい写しになる
         self._check(run)   # 作り直しの途中で中止(normalize.run は「取り消しました」で返る)

@@ -45,7 +45,7 @@ PARTS_RADIUS = 6                     # 点数の内訳(parts)を取る山の前�
 EXCLUDE_BEFORE, EXCLUDE_AFTER = 5, 6   # 確定した区間の前後(pick_clips の [s-5, e+6))は次の山にしない
 # 場面ごとの長さ(LD-2b。notes:plan/done/ld2-clip-length.md): 区間 = 上りの始まり − 前振りの余白 〜 収まり + 余韻を 60〜300 秒に丸める。
 # 守り: 候補に印 shape と固定の長さの区間 fixed を残す・下のスイッチ 1 つで今までの形(山から固定の長さ)に戻る・測る道具(src/eval/tools/clipfit.py)は形を自分で選ぶ
-# 本数に届かないときの埋め(10-19。守り: 候補に印 fill と理由の文 FILL_REASON・下のスイッチ 1 つで埋めない・spec に fill が無ければ今までと同じ
+# 本数に届かないときの埋め(守り: 候補に印 fill と理由の文 FILL_REASON・下のスイッチ 1 つで埋めない・spec に fill が無ければ今までと同じ
 # = 測る道具 src/eval は渡さない・archive の候補にも印が残る)
 FILL_ON = True
 FILL_REASON = "本数に届かないので埋めた(点数は低め)"
@@ -185,9 +185,9 @@ def comment_score(stamps, n):
 def pick_clips(total, level, spec, n):
     """合計スコアの山を高い順に選び、区間(開始・終了)にする。見つけた区間は重ならない。
     spec の shape が "scene" なら区間は場面ごと(scene_region。取れなければ固定の長さ)で、候補に shape と固定の長さの区間 fixed も付ける。
-    shape が無い・"fixed" なら 0.88 までと同じ(golden で固定)。
+    shape が無い・"fixed" なら 固定の形(golden で固定)。
     spec の fill(数)があれば、しきい値を超える山が fill 個に届かないとき、しきい値の下の山(点数が 0 より上)で fill 個まで埋める(印 fill。
-    10-18 の kYKmNCRiC40 = チャットが 0 件で音声だけ・山 1 つ。スイッチ FILL_ON)"""
+    例: チャットが 0 件で音声だけ・山 1 つ。スイッチ FILL_ON)"""
     length, pre = spec["length"], spec["preRatio"]
     scene = spec.get("shape") == "scene"
     sp = scene_params(spec.get("scene")) if scene else None

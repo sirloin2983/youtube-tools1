@@ -867,7 +867,7 @@ class VerdictTest(unittest.TestCase):
 
 class TestPollStartFailure(unittest.TestCase):
     def test_submit_failure_cancels_submitted_jobs(self):
-        """10-19 P4: 投入(start)の途中で失敗(StepError など中止以外)したら、投入済みの仕事を取り消してから上げる。取り消しの失敗で元の理由を隠さない"""
+        """投入(start)の途中で失敗(StepError など中止以外)したら、投入済みの仕事を取り消してから上げる。取り消しの失敗で元の理由を隠さない"""
         rn = R.Runner(None, poll=0, sleep=lambda s: None, tools=object())
         run = RF.run_of(VID, "配信", "full", 1)
         jobs, cancelled = [], []
@@ -884,7 +884,7 @@ class TestPollStartFailure(unittest.TestCase):
         self.assertEqual((cancelled, run.owned), (["j1"], None))
 
 
-NOW = 1792330000.0   # 10-18 22:26 ごろ(kYKmNCRiC40 の依頼のころ)
+NOW = 1792330000.0   # 配信が終わって約 1.5 時間後
 
 
 def analysis_of(chat=True, fill=0, cands=1, at=NOW - 60, ended=NOW - 5400, use_chat=True):
@@ -919,7 +919,7 @@ class ShortTools(T.HttpTools):
 
 
 class TestShortfall(unittest.TestCase):
-    """頼まれた本数に届かないとき(10-19。10-18 の kYKmNCRiC40: 配信の約 1.5 時間後でチャットのリプレイが 0 件・山が 1 つで 5 本のうち 1 本、
+    """頼まれた本数に届かないとき(配信の約 1.5 時間後でチャットのリプレイが 0 件・山が 1 つで 5 本のうち 1 本、
     同じ依頼の送り直しも「解析済み(前の結果を使います)」で 1 本のまま): 埋める・解析し直す・チャットを取り直す・理由を残す"""
 
     def setUp(self):
@@ -937,7 +937,7 @@ class TestShortfall(unittest.TestCase):
 
     def test_redo_reason(self):
         one = [{"id": "a1", "status": "exported"}]
-        self.assertEqual(R.redo_reason(analysis_of(), 5, one, NOW), "short")   # kYKmNCRiC40 の 2 回目: 1 本しか無い・埋めていない
+        self.assertEqual(R.redo_reason(analysis_of(), 5, one, NOW), "short")   # 同じ依頼の 2 回目: 1 本しか無い・埋めていない
         self.assertIsNone(R.redo_reason(analysis_of(fill=5), 5, one, NOW))   # もう埋めた(それでも無い)= 解析し直さない
         self.assertIsNone(R.redo_reason(analysis_of(), 5, one * 5, NOW))   # 足りている
         self.assertEqual(R.redo_reason(analysis_of(), 5, [{"id": "x", "status": "rejected"}] * 5 + one, NOW), "short")   # 見送りは数えない
@@ -1084,7 +1084,7 @@ class TestStepNormalize(unittest.TestCase):
         self.assertEqual([n for n in os.listdir(self.tmp) if vnorm.PART in n], [], "途中のファイルは残さない")
 
     def test_cancel_after_replace_still_saves_new_path(self):
-        """10-19 P2: 置き換えが済んだ直後に中止されても、新しいパスを待ちの記録へ書いてから止まる(再開が消えた元の写しを探さない)"""
+        """置き換えが済んだ直後に中止されても、新しいパスを待ちの記録へ書いてから止まる(再開が消えた元の写しを探さない)"""
         src = os.path.join(self.tmp, "元.mkv")
         open(src, "wb").close()
         new = os.path.join(self.tmp, "元.mp4")

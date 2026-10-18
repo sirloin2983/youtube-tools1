@@ -550,7 +550,7 @@ class TestScene(unittest.TestCase):
 
 
 class TestFill(unittest.TestCase):
-    """本数に届かないときの埋め(spec の fill。10-18 の kYKmNCRiC40: チャット 0 件・感度「低」で山が 1 つだけ → 頼んだ 5 本に届かなかった)"""
+    """本数に届かないときの埋め(spec の fill。例: チャット 0 件・感度「低」で山が 1 つだけ → 頼んだ 5 本に届かない)"""
 
     def total(self):
         n = 3000

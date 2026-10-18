@@ -316,7 +316,7 @@ class TestRunCtl(unittest.TestCase):
         self.assertEqual(res["stream"], {"releaseTs": 1760000000, "timestamp": 1760000100, "uploadDate": "20260920", "liveStatus": "was_live", "duration": 7856})
 
     def test_fill_reaches_requested_and_is_counted(self):
-        """本数に届かないとき(10-18 kYKmNCRiC40): 設定の fill で、しきい値の下の山で埋める。結果の spec・counts に残す(② が読む)"""
+        """本数に届かないとき: 設定の fill で、しきい値の下の山で埋める。結果の spec・counts に残す(② が読む)"""
         spec = dict(self.spec, sensitivity="low", count=8)
         with mock.patch.object(analyze, "_levels", self.levels()):
             plain = analyze.run(dict(spec), Ctl())

@@ -928,7 +928,7 @@ class PortalHttpTest(Base):
             self.assertEqual(put({}, path="/api/flow/nai")[0], 404)
             cross = {"Content-Type": "application/json", "Sec-Fetch-Site": "cross-site", "X-YTT-Token": self.srv.token}
             self.assertEqual(self.req("PUT", "/api/flow/machine", b"{}", cross)[0].status, 403)
-            # 案件の保存先 caseRoot を変えると、出来上がる場所(スタジオの書き出し先 outDir)も同じにそろう(以前は空き容量を測る所だけ変わった)
+            # 案件の保存先 caseRoot を変えると、出来上がる場所(スタジオの書き出し先 outDir)も同じにそろう
             from ytt import studio_env
             shome, cases = os.path.join(self.tmp, "studio-home"), os.path.join(self.tmp, "cases")
             with mock.patch.object(studio_env, "_home", shome), mock.patch.object(studio_env, "_out_dir", None):

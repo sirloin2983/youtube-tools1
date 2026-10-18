@@ -256,7 +256,7 @@ def build_videos(studio, rows, runs, packs, since=None, until=None, status_fallb
             if not isinstance(m, dict):
                 continue
             s, e = num(m.get("start")), num(m.get("end"))
-            if s is None or e is None or excite.FILL_REASON in (m.get("reasons") or ()):   # 本数に届かず埋めた候補は測らない(10-19。検出の当たりではない)
+            if s is None or e is None or excite.FILL_REASON in (m.get("reasons") or ()):   # 本数に届かず埋めた候補は測らない(検出の当たりではない)
                 continue
             a0 = pair(m.get("auto0")) or pair(m.get("auto0Orig"))
             item = {"a0": a0 or (s, e), "start": s, "end": e, "score": num(m.get("score")), "t": m.get("createdAt") if isinstance(m.get("createdAt"), int) else None,

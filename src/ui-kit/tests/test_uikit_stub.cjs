@@ -59,7 +59,7 @@ test('life handlers can be fired; withUIKit fills context.UIKit and window.UIKit
   assert.equal(vm.runInContext("UIKit.toast('x'); window.UIKit === UIKit && UIKit.esc('<')", ctx), '&lt;', 'works inside a vm context');
 });
 
-/* ---- ui-kit.js の http / settingsForm を本物から切り出して動かす(v33) ---- */
+/* ---- ui-kit.js の http / settingsForm を本物から切り出して動かす ---- */
 const fs = require('node:fs');
 const path = require('node:path');
 const KIT_TEXT = fs.readFileSync(path.join(__dirname, '..', 'ui-kit.js'), 'utf8').replace(/\r\n/g, '\n');

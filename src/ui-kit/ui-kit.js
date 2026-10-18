@@ -319,7 +319,7 @@
     e.reason = typeof b.message === 'string' ? b.message : ''; e.detail = detail || '';
     return e;
   }
-  /* v34: 入口を起動し直すと合言葉(X-YTT-Token)が変わり、開きっぱなしの画面の書き込みは 403 {"error":"token"} で断られる。
+  /* 入口を起動し直すと合言葉(X-YTT-Token)が変わり、開きっぱなしの画面の書き込みは 403 {"error":"token"} で断られる。
      待っても直らないので、「開き直す」の知らせを 1 回だけ出す(http が受けるので全部の画面に効く。http を通らない書き込みは UIKit.tokenStale() を呼ぶ) */
   var tokenStaleShown = false;
   function tokenStale() {
@@ -1359,7 +1359,7 @@
           mark.textContent = text; mark.classList.toggle('err', !!err);
           if (!err && text) markTimer = setTimeout(function () { mark.textContent = ''; }, 2000);
         }
-        /* v34: 打っている途中の欄(フォーカスのある text・int・number・folder・textarea)は、ほかの欄の保存の描き直しで書き戻さない
+        /* 打っている途中の欄(フォーカスのある text・int・number・folder・textarea)は、ほかの欄の保存の描き直しで書き戻さない
            (入力が消えて change も出ず保存されなかった)。保存の失敗で値を戻すときだけ force で書き戻す */
         function typingIn() { var a = document.activeElement; return a === c && (item.type === 'text' || item.type === 'folder' || item.type === 'int' || item.type === 'number' || item.type === 'textarea'); }
         function paint(force) {

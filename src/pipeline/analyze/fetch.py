@@ -71,7 +71,7 @@ def chat_cache_path(vid):
 
 
 def drop_chat_cache(vid):
-    """取っておいたチャットを捨てる(件数が少なすぎて使えなかった = 配信の直後でリプレイがまだ揃っていないかもしれない。次の解析で取り直す。10-19)。
+    """取っておいたチャットを捨てる(件数が少なすぎて使えなかった = 配信の直後でリプレイがまだ揃っていないかもしれない。次の解析で取り直す)。
     消せなくても上げない(次の機会に)"""
     if not isinstance(vid, str) or not _yturl.VID_RE.match(vid):
         return False

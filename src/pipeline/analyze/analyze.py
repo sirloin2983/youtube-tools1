@@ -30,7 +30,7 @@ AUDIO_LEVEL_IDLE = 900   # 音量の解析(ffmpeg)で、この秒数まったく
 HEAD_SEC_DEFAULT = 180   # 冒頭の減点をかける秒数(0で無効)
 ARCHIVE_KEEP = 2000
 STREAM_KEYS = ("releaseTs", "timestamp", "uploadDate", "liveStatus", "duration")   # 付加情報(fetch.slim_meta)から結果の stream に写す項目
-SPEC_KEYS = ("count", "length", "sensitivity", "preRatio", "lag", "lagAuto", "headSec", "wAudio", "wChat", "wComments", "shape", "fill", "useChat")   # 結果・archive に残す設定(fill・useChat は 10-19。② が解析し直すかを読む)
+SPEC_KEYS = ("count", "length", "sensitivity", "preRatio", "lag", "lagAuto", "headSec", "wAudio", "wChat", "wComments", "shape", "fill", "useChat")   # 結果・archive に残す設定(fill・useChat = ② が解析し直すかを読む)
 CHAT_MIN = 30   # チャットの件数がこれ未満なら使わない
 
 
@@ -275,7 +275,7 @@ def _chat_signal(ctl, run, spec, n, comps, info, warnings):
     out["act"], out["count"], out["warm"] = parse_chat(path, n, out["extra"])
     if out["count"] < CHAT_MIN:
         warnings.append("チャットの件数が少ない(%d件)ため、チャットは使っていません" % out["count"])
-        fetch.drop_chat_cache(spec["source"]["videoId"])   # 配信の直後はリプレイがまだ揃っていないことがある: 取っておかず、次の解析で取り直す(10-19)
+        fetch.drop_chat_cache(spec["source"]["videoId"])   # 配信の直後はリプレイがまだ揃っていないことがある: 取っておかず、次の解析で取り直す
         return out
     cz = chat_z(out["act"])
     used_lag = spec["lag"]

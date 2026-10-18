@@ -712,7 +712,7 @@ class TestFull(Base):
         self.assertEqual(self.states(run), {"analyze": "done", "adopt": "done", "export": "done", "transcribe": "done", "pack": "done"})
         self.assertEqual(sorted(self.tools.export_body["markIds"]), ["a2", "a3"])   # 点数の高い2件(9.0・5.0)
         add = [c for c in self.tools.calls if c[2] == "/api/queue/add"]
-        self.assertEqual(add[0][3], {"items": [{"kind": "youtube", "videoId": VID}], "settings": AN(fill=2)})   # 保存した設定が無ければ既定値(束の既定 = スタジオの既定)。fill = 採用の上限(足りなければ埋める。10-19)
+        self.assertEqual(add[0][3], {"items": [{"kind": "youtube", "videoId": VID}], "settings": AN(fill=2)})   # 保存した設定が無ければ既定値(束の既定 = スタジオの既定)。fill = 採用の上限(足りなければ埋める)
 
     def test_full_mode_uses_saved_analysis_settings(self):
         """スタジオの画面で保存した解析の設定(settings.analyze)で解析する(段階7-1)"""

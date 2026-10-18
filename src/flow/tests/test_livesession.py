@@ -102,7 +102,7 @@ class Base(unittest.TestCase):
 
 class ChatRetryWatchTest(Base):
     def test_patrol_calls_runner_chat_retry(self):
-        """10-19: 見回りの 1 つ = まとめて実行の chat_retry_tick(チャットのリプレイが無かった配信の取り直し)。持たない待ち行列なら何もしない"""
+        """見回りの 1 つ = まとめて実行の chat_retry_tick(チャットのリプレイが無かった配信の取り直し)。持たない待ち行列なら何もしない"""
         steps = dict(self.s._watch_steps())
         fn = steps["チャットの取り直しの見回りでエラー"]
         self.assertIsNone(fn())   # FakeQueue は持たない

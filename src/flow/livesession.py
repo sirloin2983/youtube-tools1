@@ -1027,7 +1027,7 @@ class LiveSession:
                 + self._request_watch()
                 + [("録画の束の片付けでエラー", self.bundles.prune),   # RS7-2 G2b: 古い録画の束を消す
                    ("配信の記録の見回りでエラー", self.reporter.tick),   # D-12: 配信ごとの結果の記録(録画中は 1 分ごと・終わったら最後に 1 回)
-                   ("チャットの取り直しの見回りでエラー", self._chat_retry)]   # 10-19: チャットのリプレイが無かった新しい配信を時間を置いて解析し直す(flow/run.py)
+                   ("チャットの取り直しの見回りでエラー", self._chat_retry)]   # チャットのリプレイが無かった新しい配信を時間を置いて解析し直す(flow/run.py)
                 + self._app_watch())
 
     def _chat_retry(self):

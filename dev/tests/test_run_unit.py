@@ -92,7 +92,7 @@ class TestBuildUnits(unittest.TestCase):
             self.assertEqual(r.count, 1)
 
     def test_cjs_runs_with_node_test(self):
-        """.cjs(node --test)も一覧に入り、node で流す(以前は流さず、落ちていても気づかなかった)"""
+        """.cjs(node --test)も一覧に入り、node で流す"""
         with tempfile.TemporaryDirectory() as d:
             touch(d, "src/app/tests/test_tiny.cjs",
                   "const { test } = require('node:test');\nconst assert = require('node:assert');\n"

@@ -461,7 +461,7 @@ class Queue(run_mod.Runner):
         for key in MODE_STEPS[mode]:
             label, count, note = STEP_LABELS[key], 0, ""
             if key == "analyze":
-                count, note = (0, "解析済み") if self._analyze_plan(run, v)[0] == "skip" else (1, "")   # 足りなければ解析し直す(10-19)も実行と同じ
+                count, note = (0, "解析済み") if self._analyze_plan(run, v)[0] == "skip" else (1, "")   # 足りなければ解析し直すも実行と同じ
                 pending = pending or count > 0
             elif key == "adopt":
                 if any(m.get("status") in ("adopted", "exported") for m in mine):
