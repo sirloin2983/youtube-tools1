@@ -47,6 +47,8 @@
   - 名前: `find_node` :26・`summary` :49・`main` :62
 - **run_unit.py** (175 行) — unittest を層ごと・フォルダごとに流す道具(1 本ずつ別のプロセス)。リポジトリ直下で:
   - 名前: `find_files` :45・`matches` :60・`build_units` :77・`run_one` :95・`report` :110・`run_all` :118・`print_summary` :135・`main` :145
+- **session_start.py** (442 行) — セッションの入口の要約(2026-10-18)。新しい AI のセッションが最初に流し、今の状態を 1 画面(150 行以内)で見る。
+  - 名前: `cut` :50・`run` :55・`git` :65・`read` :69・`git_block` :79・`versions` :99・`worklog_block` :108・`boundary_dirs` :124・`boundary_notes` :132・`boundary_block` :147・`load_items` :161・`plan_block` :171・ほか 15
 - **ui_audit.py** (842 行) — 画面(UI)の見直しの合格の基準のうち、機械で測れるものを測る道具(読むだけ。基準は `notes:docs/spec/ui.md` の A)。
   - 名前: `class Findings` :101・`read` :117・`rel` :125・`screen_files` :129・`allowed` :138・`each_line` :143・`regex_starts` :151・`scan_string` :161・`scan_code` :175・`strip_js_comments` :225・`html_texts` :232・`py_strings` :247・ほか 19
   - 受ける口: `/api/info` :94
@@ -87,5 +89,6 @@
 - dev/tests/test_resolve_pack_contract.py — Resolve パックの契約テスト(文字起こしの「Resolveパッケージ(zip)」と cut2resolve の Text+ パック)。
 - dev/tests/test_run_e2e.py — dev/run_e2e.py(e2e の一式)の一覧が、リポジトリの e2e_*.py と食い違っていないかを確かめる。
 - dev/tests/test_run_unit.py — dev/run_unit.py(層ごとに unittest を流す道具)の一覧の作り方と、1 本だけの実行。リポジトリ直下で:
+- dev/tests/test_session_start.py — dev/session_start.py(セッションの入口の要約・子への指示文の下書き)のテスト。一時フォルダの git と偽の保管庫だけを使う
 - dev/tests/test_setup_ascii.py — Windows の cmd・pip がシステムの文字コード(日本語の Windows では cp932)で読むファイルが ASCII だけか・.bat が CRLF かのテスト。
 - dev/tests/test_worklog.py — dev/worklog.py(作業の記録のセッションごとのファイルと週のまとめ)のテスト。一時フォルダだけを使う
