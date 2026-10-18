@@ -9,13 +9,14 @@
   E(LLM)・D(名簿)の行への答えは次の測定で入口の数から消える)。
   all の 2 つ: 話者は道具が評価用の文書しか数えず、確かめるは評価用を出さない・行の時刻は道具の --check が夜の測定に入っていない
 足すのは accuracy.goals_of(extra=)(入口の「調子」と /api/check/next の帯が同じ数を出す)。V2 の 4 本は register で組を足し・直してよい。
+対応と数え方の正は入口の条件の表(accuracy.GOALS の各行の check)。ここの 3 つの表はそこから作る。
 """
+from eval.drill.accuracy import GOALS
 from human.check import answerlog
 
-DEFAULT = {"value": "marks", "read": "fill", "voice": "speakers", "time": "timing"}
-KIND_GOAL = {("value", "auto"): "marks", ("value", "cand"): "marks", ("read", "fill"): "fill", ("read", "alt"): "alt",
-             ("voice", "diar"): "speakers", ("time", "row"): "timing"}
-COUNT = {"marks": ("case", "since"), "fill": ("card", "since"), "alt": ("card", "since"), "speakers": ("card", "all"), "timing": ("card", "all")}
+DEFAULT = {g["check"]["kind"]: g["id"] for g in GOALS if g.get("check") and g["check"].get("default", True)}
+KIND_GOAL = {(g["check"]["kind"], s): g["id"] for g in GOALS if g.get("check") for s in g["check"]["sources"]}
+COUNT = {g["id"]: tuple(g["check"]["count"]) for g in GOALS if g.get("check")}
 
 
 def register(kind, source, goal_id, unit=None, mode=None):

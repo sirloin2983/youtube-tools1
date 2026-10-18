@@ -61,19 +61,26 @@ DOC_NAME_RE = re.compile(r"^[0-9a-f]{12}\.json\Z")   # 文字起こしの文書(
 # 入口の条件(plan/README.md の 7「入口の条件と今」)。今の値 / 目標 / あと を「調子」に 1 行ずつ出す。**しきい値はここだけ**
 # (道具の「まだ少ない」と同じ値: src/eval/tools/eval_asr.py の GATES の G1・G2・eval_speakers.py の FEW_ROWS・eval_marks.py の FEW_VIDEOS・eval_cut.py の FEW_PACKS・
 #  eval_alt.py の FEW_CANDS。test_accuracy が食い違いを検査する)。src = (領域の id, 直近の要約の鍵)。"daily" = 入口が数えた評価用以外の校正済みの秒。
-# unit: "sec" = 秒(画面は分・時間で出す)・それ以外 = 数の単位
+# unit: "sec" = 秒(画面は分・時間で出す)・それ以外 = 数の単位。
+# check = 「確かめる」のカードがこの目標へ足す形(src/eval/check/goals.py がここから引く): kind = カードの種類・sources = 出どころ・
+#   count = (数える単位, 足す範囲)・default = 出どころが表に無いときのその種類の既定か(既定 True。1 つの種類に 1 つだけ)
 GOALS = (
     {"id": "g1", "label": "G1 定点 15 分", "opens": "B1 行の時刻・B2 エンジンの決定", "src": ("asr", "reviewedSec"), "target": 15 * 60, "unit": "sec"},
     {"id": "g2fixed", "label": "G2 定点 30 分", "opens": "B4 抜け・呼び名(普段 30 分も要る)", "src": ("asr", "reviewedSec"), "target": 30 * 60, "unit": "sec"},
     {"id": "g2daily", "label": "G2 普段の校正 30 分", "opens": "B4 抜け・呼び名(定点 30 分も要る)", "src": ("daily", "sec"), "target": 30 * 60, "unit": "sec"},
     {"id": "train", "label": "学習用の校正 3 時間", "opens": "B5 追加学習", "src": ("daily", "sec"), "target": 3 * 3600, "unit": "sec"},
-    {"id": "speakers", "label": "確かめ済みの話者の行 200", "opens": "A1 話者の既定(I-2a)", "src": ("speakers", "rows"), "target": 200, "unit": "行"},
-    {"id": "marks", "label": "採用の記録 配信 10 本", "opens": "C1 盛り上がりの重み(I-4a)", "src": ("marks", "docs"), "target": 10, "unit": "本"},
+    {"id": "speakers", "label": "確かめ済みの話者の行 200", "opens": "A1 話者の既定(I-2a)", "src": ("speakers", "rows"), "target": 200, "unit": "行",
+     "check": {"kind": "voice", "sources": ("diar",), "count": ("card", "all")}},
+    {"id": "marks", "label": "採用の記録 配信 10 本", "opens": "C1 盛り上がりの重み(I-4a)", "src": ("marks", "docs"), "target": 10, "unit": "本",
+     "check": {"kind": "value", "sources": ("auto", "cand"), "count": ("case", "since")}},
     {"id": "packs", "label": "たたき台つきのパック 20 本", "opens": "C3 カット(I-3a)", "src": ("cut", "fromPack"), "target": 20, "unit": "本"},
-    {"id": "alt", "label": "「別」の候補の判定 100 件", "opens": "D1-b 候補の既定オン", "src": ("alt", "judged"), "target": 100, "unit": "件"},
+    {"id": "alt", "label": "「別」の候補の判定 100 件", "opens": "D1-b 候補の既定オン", "src": ("alt", "judged"), "target": 100, "unit": "件",
+     "check": {"kind": "read", "sources": ("alt",), "count": ("card", "since"), "default": False}},
     # V1 確かめる(V0): 後処理の札(src/eval/tools/eval_fill.py の FEW_ROWS)・行の時刻(eval_timing.py の FEW_ROWS)。開く物の文言は仮
-    {"id": "fill", "label": "後処理の札の判定 30 行", "opens": "K1 後処理の既定", "src": ("fill", "judged"), "target": 30, "unit": "行"},
-    {"id": "timing", "label": "行の時刻の判定 100 行", "opens": "B1 行の時刻", "src": ("timing", "rows"), "target": 100, "unit": "行"},
+    {"id": "fill", "label": "後処理の札の判定 30 行", "opens": "K1 後処理の既定", "src": ("fill", "judged"), "target": 30, "unit": "行",
+     "check": {"kind": "read", "sources": ("fill",), "count": ("card", "since")}},
+    {"id": "timing", "label": "行の時刻の判定 100 行", "opens": "B1 行の時刻", "src": ("timing", "rows"), "target": 100, "unit": "行",
+     "check": {"kind": "time", "sources": ("row",), "count": ("card", "all")}},
 )
 
 
@@ -619,7 +626,7 @@ class Accuracy:
     def _check_extra(self):
         """「確かめる」の答え(app/check/answers.jsonl)から入口の条件に足す数の関数(src/eval/check/goals.py。読めなければ None)"""
         try:
-            from eval.check import goals as check_goals   # 同じ ⑤ の層(check の goals は accuracy を読まない)
+            from eval.check import goals as check_goals   # 同じ ⑤ の層。goals は GOALS を読むので、輪にならないようここで読む
             return check_goals.extra_from(self.data_dir)
         except Exception:
             return None
