@@ -148,7 +148,7 @@ class DoclocTest(unittest.TestCase):
         s = docloc.DOC_SUFFIXES
         self.assertEqual(s[0], ".json")
         self.assertEqual(len(set(s)), len(s))
-        for want in (".edit.json", ".edit.broken.json", ".words.json", ".asr.json", ".diar.json", ".alt.json", ".ytcap.json",
+        for want in (".edit.json", ".edit.broken.json", ".words.json", ".asr.json", ".diar.json", ".alt.json",
                      ".llm.json", ".over.json", ".mach.json", ".hum.json", ".transcribe.key.json", ".post.key.json", ".diar.key.json"):
             self.assertIn(want, s)
         self.assertNotIn(docloc.LOC_SUFFIX, s)   # 索引は根に残す物で、文書と一緒に動かさない

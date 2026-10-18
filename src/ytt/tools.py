@@ -64,7 +64,7 @@ def _env_file(names):
 
 def find_tool(name, env_var=None):
     """外部プログラム(ffmpeg・ffprobe・yt-dlp など)の場所。すべての部品の探し方はこの 1 つ(OPT1。2026-10-11)。順:
-    1. ツール固有の環境変数 env_var(STUDIO_FFMPEG・TRANSCRIBE_FFMPEG・TRANSCRIBE_YTDLP など。互換のため先に見る = 今までの指定がそのまま効く)
+    1. 呼び手が渡した固有の環境変数 env_var(今は渡す所が無い。以前の TRANSCRIBE_FFMPEG・TRANSCRIBE_YTDLP は 10-19 に外した = 未設定)
     2. 共通の環境変数 ytt_env(name)(YTT_FFMPEG・YTT_FFPROBE・YTT_YTDLP)
     3. ffprobe だけ: 1・2 の ffmpeg の環境変数(名前の FFPROBE を FFMPEG にした物)で決めた ffmpeg の隣
     4. PATH
@@ -113,15 +113,14 @@ def _in_dirs(name, dirs):
 
 
 def find_ffmpeg():
-    """編集の ffmpeg(find_tool の決め方。固有の環境変数は TRANSCRIBE_FFMPEG)。無ければ None"""
-    return find_tool("ffmpeg", "TRANSCRIBE_FFMPEG")
+    """編集の ffmpeg(find_tool の決め方)。無ければ None"""
+    return find_tool("ffmpeg")
 
 
 def media_tool(name):
-    """ffmpeg / ffprobe の実行ファイルのパス(パックが呼ぶ。RS7-1 F-k)。find_tool の決め方で、固有の環境変数は TRANSCRIBE_<名前>
-    (ffprobe は TRANSCRIBE_FFMPEG で決めた ffmpeg の隣も見る)。
+    """ffmpeg / ffprobe の実行ファイルのパス(パックが呼ぶ。RS7-1 F-k)。find_tool の決め方(ffprobe は YTT_FFMPEG で決めた ffmpeg の隣も見る)。
     どこにも無ければ名前のまま(呼ぶと FileNotFoundError = 呼ぶ側の「見つかりません」の案内)"""
-    return find_tool(name, "TRANSCRIBE_" + name.upper().replace("-", "")) or name
+    return find_tool(name) or name
 
 
 def ffmpeg_info(path, ff=None):

@@ -196,13 +196,9 @@ def make_mach(rows, rev=1, keys=None, speakers=None):
 # ---------- 途中のファイルの置き場所(2026-09-27。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 1) ----------
 # 出力先(動画のフォルダ)の直下に並べるのはパックと元動画(書き出した切り抜き)だけ(ユーザー決定)。それ以外の途中のファイル
 # (.clip.json・.edit.json・_edit.mp4・.transcript.json・.srt・.cut-plan.json・.studio-id)は下のフォルダ「作業用」に書く。
-# 以前の置き方(動画の隣)のファイルは動かさない。読む側は「作業用/ → 動画の隣」の順に探す(find_sidecar)。
+# 以前の置き方(動画の隣)は 10-19 から読まない(書き出し先に 0 本)。読む側は 作業用/ だけを見る(find_sidecar)。
 # cut2resolve(ytt を読まないコマンドもある)は cut2resolve_core.WORK_DIR に同じ名前を持つ(test_serve が同じか確かめる)
 WORK_DIR = "作業用"
-# 動画と同じ名前で持つ途中のファイルの名前の終わり(全部。2026-10-09 に一覧だけ置いた)。各ツールの一覧は目的ごとに少しずつ違うので、
-# まだここを読んでいない: 入口の片付け cleanup.SIDECARS(.studio-id 無し)・cleanup._media_stem(_edit.clip.json 無し)・
-# 評価用のフォルダの整理 manage/keep/evalfolders の EVAL_SIDECARS(_edit.clip.json・.studio-id 無し)。寄せるときは、足りない名前を足してよいかを確かめてから
-SIDECAR_SUFFIXES = (".clip.json", ".edit.json", ".transcript.json", ".cut-plan.json", ".srt", "_edit.mp4", "_edit.clip.json", ".studio-id")
 
 
 def work_dir(media_path):
@@ -223,9 +219,8 @@ def sidecar_path(media_path, suffix):
 
 
 def sidecar_candidates(media_path, suffix):
-    """途中のファイルを読む場所の候補(作業用/ → 以前の置き方 = 動画の隣)"""
-    new, old = sidecar_path(media_path, suffix), os.path.splitext(os.path.abspath(media_path))[0] + suffix
-    return [new] if os.path.normcase(new) == os.path.normcase(old) else [new, old]
+    """途中のファイルを読む場所の候補 = [作業用/ の中](以前の置き方の動画の隣は 10-19 から読まない)"""
+    return [sidecar_path(media_path, suffix)]
 
 
 def find_sidecar(media_path, suffix):

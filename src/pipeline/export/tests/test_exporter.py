@@ -478,7 +478,7 @@ class TestNames(unittest.TestCase):
         self.assertEqual(exporter.unique_base("01_b", self.tmp), "01_b_2")
 
     def test_folder_owner_marker_in_work_dir(self):
-        """フォルダの持ち主の印 .studio-id も 作業用/ に(2026-09-27)。以前の置き方(直下)の印も読む・書き換えない"""
+        """フォルダの持ち主の印 .studio-id も 作業用/ に(2026-09-27)。以前の置き方(直下)の印は 10-19 から読まない(書き出し先に 0)"""
         with patch.object(studio_env, "get_out_dir", return_value=self.tmp):
             folder, path = exporter.pick_folder({"title": "配信", "videoId": "abcdefghijk"})
             self.assertEqual(os.listdir(path), [schemas.WORK_DIR])
@@ -486,13 +486,6 @@ class TestNames(unittest.TestCase):
                 self.assertEqual(f.read(), "abcdefghijk")
             self.assertEqual(exporter.pick_folder({"title": "配信", "videoId": "abcdefghijk"})[1], path)          # 同じ動画は同じフォルダ
             self.assertEqual(exporter.pick_folder({"title": "配信", "videoId": "zzzzzzzzzzz"})[0], "配信_2")      # 別の動画は別のフォルダ
-            old = os.path.join(self.tmp, "以前")
-            os.makedirs(old)
-            with open(os.path.join(old, ".studio-id"), "w", encoding="utf-8") as f:
-                f.write("yyyyyyyyyyy")
-            self.assertEqual(exporter.pick_folder({"title": "以前", "videoId": "yyyyyyyyyyy"})[1], old)           # 以前の印(直下)も読む
-            self.assertEqual(exporter.pick_folder({"title": "以前", "videoId": "xxxxxxxxxxx"})[0], "以前_2")
-            self.assertEqual(os.listdir(old), [".studio-id"])                                                # 以前の印は動かさない
 
     def test_reserved_names(self):
         for name in ("CON", "con .txt", "Nul.mp4", "COM1", "COM¹", "lpt³.x", "CONIN$", "conout$.log"):
