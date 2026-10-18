@@ -72,8 +72,8 @@
   - 名前: `text_chars` :20・`strip_punct` :36・`split_segment` :67・`split_terms` :94
 - **txwords.py** (42 行) — 文字起こしの単語の時刻 transcripts/<id>.words.json の読み書き(標準ライブラリ・ytt の fsio と workdata だけ = 純粋な形の記録)。
   - 名前: `words_path` :17・`read_words` :22・`write_words` :34
-- **version.py** (30 行) — 全体の版の 1 か所(役割で組み直す RS5-E。2026-10-10。決定 notes:plan/decisions.md の 3-28)。
-  - 名前: `on_disk` :20
+- **version.py** (31 行) — 全体の版の 1 か所(役割で組み直す RS5-E。2026-10-10。決定 notes:plan/decisions.md の 3-28)。
+  - 名前: `on_disk` :21
 - **workdata.py** (54 行) — 編集の作業データの置き場所と版の「今の値」(役割で組み直す RS3-0A。2026-10-10)。
   - 名前: `set_root` :33・`set_data_dir` :44
 - **ytapi.py** (152 行) — YouTube Data API を 1 回呼ぶ口(OPT-H2 D。③ 配信の検索の rank.yt_get と ① のコメント欄 fetch_comments が別々に持っていた取得を 1 つに)。

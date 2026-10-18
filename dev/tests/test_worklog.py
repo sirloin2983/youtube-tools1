@@ -1,3 +1,4 @@
+"""dev/worklog.py(作業の記録のセッションごとのファイルと週のまとめ)のテスト。一時フォルダだけを使う"""
 import datetime
 import os
 import sys

@@ -1,3 +1,4 @@
+"""dev/land.py(main に入れる・版を道具が上げる)のテスト。一時フォルダの git リポジトリと worktree だけを使う"""
 import os
 import subprocess
 import sys

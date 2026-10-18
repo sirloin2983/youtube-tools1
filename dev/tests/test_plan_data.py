@@ -1,3 +1,4 @@
+"""dev/plan_data.py(計画のデータ plan/data/ の 1 件 1 ファイルと data.js の生成・仮決めの自動の確定)のテスト。一時フォルダだけを使う"""
 import datetime
 import json
 import os
