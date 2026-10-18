@@ -29,7 +29,7 @@
   - 名前: `probe` :13
 - **jobs.py** (727 行) — ジョブの表・待機列・種類の登録・ワーカーの繰り返し・取り消しの受付(② 管理。役割で組み直す RS6 a-2。2026-10-10 に ytt/jobs から移した)。
   - 名前: `configure` :39・`tool_slot` :51・`register` :57・`set_cancelled` :71・`set_internal_error` :75・`job_errors` :82・`job_temp_wav` :104・`job_done` :113・`job_title` :117・`tid_busy` :127・`doc_busy` :141・`active_jobs` :153・ほか 13
-- **keys.py** (430 行) — ② 管理の層 flow: 成果物の鍵を書く・読む(役割で組み直す RS6 b-K1。2026-10-10。決定 3-29 / notes:plan/done/role-restructure.md 4 節の決まり 4・5-2)。
+- **keys.py** (431 行) — ② 管理の層 flow: 成果物の鍵を書く・読む(役割で組み直す RS6 b-K1。2026-10-10。決定 3-29 / notes:plan/done/role-restructure.md 4 節の決まり 4・5-2)。
   - 名前: `media_key_path` :40・`doc_key_path` :45・`pack_key_path` :55・`write` :60・`read` :71・`stale` :83・`remove` :95・`key_hash` :107・`export_inputs` :114・`transcribe_inputs` :122・`post_inputs` :134・`diar_inputs` :142・ほか 16
 - **learning.py** (178 行) — ② 管理: 学習データを読む側(F1。notes:docs/design/f1-build.md の 2 の F1・3 の (f1c))。app/cli の Learning と learning_dir をここへ移した。
   - 名前: `is_pack` :29・`pack_version` :34・`maker_pc` :41・`learning_dir_checked` :53・`learning_dir` :66・`apply_places` :78・`class Learning` :109・`stamp` :168
@@ -71,8 +71,8 @@
   - 名前: `cut_draft` :26・`cut_preview` :32・`handoff_files` :37・`media_plan` :54・`instructions` :61
 - **packjobs.py** (127 行) — ② 管理の層 flow: パックのジョブの器(OPT2 後半 J3・J6。2026-10-11)。cut2resolve/serve.py の Job・AppState のジョブの部分を移した。
   - 名前: `class Job` :23・`board_job` :51・`class PackJobs` :78
-- **packrec.py** (130 行) — ② 管理の層 flow: パックを作った記録(作業データの packs/<フォルダのハッシュ>.json)の持ち主(OPT-M2。notes:plan/done/opt-manage.md の 3b-1)。
-  - 名前: `norm` :28・`packs_dir` :33・`record_name` :42・`read_record` :52・`ready` :68・`write_record` :89・`after_build` :118
+- **packrec.py** (131 行) — ② 管理の層 flow: パックを作った記録(作業データの packs/<フォルダのハッシュ>.json)の持ち主(OPT-M2。notes:plan/done/opt-manage.md の 3b-1)。
+  - 名前: `norm` :28・`packs_dir` :33・`record_name` :42・`read_record` :52・`ready` :68・`write_record` :89・`after_build` :119
 - **placement.py** (466 行) — ② 管理の層 flow: 置き場所の持ち主(役割で組み直す RS6 b-B0。2026-10-10。決定 3-29・
   - 名前: `studio_data` :50・`case_root` :67・`doc_home` :95・`configured_out_dir` :129・`request_root` :137・`case_parents` :160・`case_roots` :166・`find_request_dir` :187・`work_dir` :208・`runs_dir` :214・`case_path` :232・`read_case` :237・ほか 10
 - **prio.py** (88 行) — ② 管理の層 flow: 処理の優先度の表(PRIO。決定 3-49・notes:plan/done/opt-series.md の 11)。
@@ -85,7 +85,7 @@
   - 名前: `class SpecVersionError` :64・`class BadSpecError` :68・`check_spec` :72・`disk_blocked` :86・`gpu_info` :100・`busy_reason` :114・`doc_id_ok` :123・`result_case` :171・`board_job` :182・`class Queue` :200
 - **sendpolicy.py** (73 行) — ② 管理の層 flow: 友人へ自動で送るかの判定(D-SEND の段 1。要件は notes:plan/done/d-send-requirements.md の 2-1・2-8・2-9)。
   - 名前: `hours_since` :27・`decide` :32・`reason_text` :49・`ended_at_of` :57・`switched_off` :69
-- **spec.py** (596 行) — ① に渡す指定の束(spec)の形・既定値・検査(役割で組み直す RS1-6。計画 notes:plan/done/role-restructure.md の 5-4)。
+- **spec.py** (595 行) — ① に渡す指定の束(spec)の形・既定値・検査(役割で組み直す RS1-6。計画 notes:plan/done/role-restructure.md の 5-4)。
   - 名前: `num_ok` :48・`check_range` :58・`check_ranges` :73・`clean_ranges` :92・`pad_range` :108・`check_weights` :116・`clean_weights` :127・`top_arg` :132・`marks_arg` :141・`row_edge_ok` :151・`merge` :256・`merge_onto` :264・ほか 10
 - **studiobook.py** (475 行) — ② 管理の層 flow: スタジオなしの配信の台帳と、URL の段の動詞(RS8 の「URL も CLI で」。2026-10-11。B-3 = スタジオの候補と採用を案件へ、のあと)。
   - 名前: `class Ledger` :54・`class StudioBook` :265・`class LocalStudio` :380

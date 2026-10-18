@@ -4,7 +4,7 @@
 
 ## src/cut2resolve/
 
-- **serve.py** (617 行) — cut2resolve の API のサーバー(Python 標準ライブラリのみ。外部ツール: ffmpeg / ffprobe)。画面は「編集」(editor)に統合した(2026-09-26)。
+- **serve.py** (616 行) — cut2resolve の API のサーバー(Python 標準ライブラリのみ。外部ツール: ffmpeg / ffprobe)。画面は「編集」(editor)に統合した(2026-09-26)。
   - 名前: `log` :113・`runtime_dir` :130・`write_runtime` :134・`remove_runtime` :144・`siblings` :149・`class AppState` :163・`board_jobs` :190・`board_cancel` :195・`attach_board` :202・`is_pack_dir` :207・`open_folder` :213・`file_info` :230・ほか 14
   - 受ける口: `/api/ping` :364・`/api/siblings` :365・`/api/job` :366・`/api/plan` :381・`/api/build` :381・`/api/job/cancel` :381・`/api/open-folder` :381
 
@@ -35,7 +35,7 @@
 ## src/ui-kit/
 
 - **styleguide.js** (130 行) — ui-kit/styleguide.html の見本を動かす部品(CSP の script-src 'self' に合わせてインラインの <script> を使わず、この外部ファイルにした)。
-- **ui-kit.js** (2797 行) — ui-kit v31 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
+- **ui-kit.js** (2792 行) — ui-kit v31 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
 
 ## テスト
 

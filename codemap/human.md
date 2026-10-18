@@ -77,7 +77,7 @@
   - 名前: `retime_engine` :12・`retime_doc` :18
 - **speakers.py** (672 行) — ③ 人の操作の層 human/proof: 話者判別の結果を文書へ(apply_diarization・1 人指定 single_speaker・守る行 diar_keep_row)・判別のジョブの受付と文書への書き込み(validate_diarize・
   - 名前: `set_context_namer` :29・`check_context_namer` :38・`apply_diarization` :60・`diar_keep_row` :77・`validate_diarize` :169・`single_speaker` :192・`run_diarize` :220・`autodiar_enabled` :268・`autodiar_ready` :273・`autodiar_enqueue` :293・`autodiar_after_transcribe` :325・`is_generic_speaker_name` :406・ほか 7
-- **store.py** (1191 行) — ③ 文書の置き場: 文書を書く唯一の口 commit と機械の層・人の層(層が正 = 文書は組み立て済みの写し・古い写しの読み直し fresh_copy)・保存の錠 saving・
+- **store.py** (1192 行) — ③ 文書の置き場: 文書を書く唯一の口 commit と機械の層・人の層(層が正 = 文書は組み立て済みの写し・古い写しの読み直し fresh_copy)・保存の錠 saving・
   - 名前: `tx_path` :38・`write_doc` :42・`read_layers` :82・`commit` :123・`layers_for` :180・`fresh_copy` :210・`snapshot` :260・`backup_doc` :268・`sanitize_sub_style` :287・`sanitize_transcript` :300・`doc_length` :384・`good_row` :405・ほか 38
 
 ## src/human/review/

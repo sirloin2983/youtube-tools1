@@ -92,7 +92,7 @@
   - 名前: `$` :6・`isOtherSp` :17・`apiUrl` :28・`safeName` :32・`spColor` :35・`uid` :36・`norm` :37・`wideTab` :48・`menuOpen` :49・`isDrawer` :54・`setSnap` :98・`setStatus` :99・ほか 46
 - **cut.js** (1216 行) — 「編集」2 カット のタブ(notes:docs/design/edit-tool-design.md の 3・4・8)。app.js より先に読み込み、app.js が EditCut.create(host) で起動する。
   - 名前: `create` :24
-- **pack-tab.js** (622 行) — 「編集」のパック(2 カット の末尾 #packArea。notes:docs/design/edit-tool-design.md の 3・5)。app.js より先に読み、app.js が EditPack.create(host) で起動する。
+- **pack-tab.js** (612 行) — 「編集」のパック(2 カット の末尾 #packArea。notes:docs/design/edit-tool-design.md の 3・5)。app.js より先に読み、app.js が EditPack.create(host) で起動する。
   - 名前: `create` :11
 
 ## src/app/ui/home/

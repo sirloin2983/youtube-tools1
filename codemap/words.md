@@ -21,7 +21,7 @@
   - 画面: src/app/ui/check/check.js:258
 - **受け取る** — 友人のアプリの受け取る画面。残す判定と受信箱
   - コード: `src/friendapp/inbox.py`・`receive_view` src/friendapp/inbox.py:1002・`src/friendapp/ui/receive.js`・`Inbox.decide` src/friendapp/inbox.py:710
-  - 画面: src/app/ui/cases/panels/cut.js:182・src/app/ui/editor/pack-tab.js:561・src/app/ui/home/portal.js:504・src/friendapp/ui/friend.html:29 ほか 7
+  - 画面: src/app/ui/cases/panels/cut.js:182・src/app/ui/editor/pack-tab.js:551・src/app/ui/home/portal.js:504・src/friendapp/ui/friend.html:29 ほか 7
 - **見送った物** — 受け取る画面で 3 日は戻せる skip・bad の物
   - コード: `Inbox.undo` src/friendapp/inbox.py:751・`Inbox.decide` src/friendapp/inbox.py:710・`VERDICTS` src/friendapp/inbox.py:54・`/api/friend/undo` src/friendapp/server.py:417
   - 画面: src/friendapp/ui/friend.html:175・src/friendapp/ui/guide.html:144・src/friendapp/ui/receive.js:65
@@ -63,7 +63,7 @@
   - 画面: (画面の文字列に無い)
 - **見積もり** — ② の実行と同じ規則の見積もり(書き込まない)
   - コード: `/api/flow/estimate` src/app/server.py:657・`src/flow/runqueue.py`
-  - 画面: src/app/ui/editor/app-list.js:219・src/app/ui/editor/app.js:1198・src/app/ui/editor/pack-tab.js:38
+  - 画面: src/app/ui/editor/app-list.js:219・src/app/ui/editor/app.js:1198・src/app/ui/editor/pack-tab.js:37
 - **掲示板** — ② のジョブの掲示板(RS8 の口 S1)
   - コード: `src/flow/board.py`・`src/flow/jobs.py`
   - 画面: src/app/ui/home/portal.js:675・src/app/ui/studio/review.js:3612
@@ -238,7 +238,7 @@
 - パックが無いものだけ選ぶ(2)— src/app/ui/editor/app-tpl.js:296
 - パックの音量(2)— src/app/ui/editor/app-tpl.js:351
 - ファイルを選ぶ(2)— src/friendapp/ui/friend.html:63
-- ホームから開くと使えます(2)— src/app/ui/editor/pack-tab.js:146
+- ホームから開くと使えます(2)— src/app/ui/editor/pack-tab.js:145
 - モデル(2)— src/app/ui/editor/app-tpl.js:140
 - 不自然な所がある(2)— src/app/ui/check/cards/cut.js:21
 - 付け替える(2)— src/app/ui/editor/app-tpl.js:199
@@ -318,7 +318,7 @@
 - (キーなし)(1)— src/app/ui/editor/app-rows.js:910
 - (チャンネルの登録は「設定」の「事務所の登録」)(1)— src/app/ui/studio/rank.js:166
 - (任意)(1)— src/app/ui/studio/rank.js:164
-- (前の設定での見積もり)(1)— src/app/ui/editor/pack-tab.js:330
+- (前の設定での見積もり)(1)— src/app/ui/editor/pack-tab.js:329
 - (送った物の見方もここです)(1)— src/friendapp/ui/guide.html:37
 - )で入力 →(1)— src/app/ui/editor/app-rows.js:911
 - )も補正できます。(1)— src/app/ui/studio/collab.js:150
