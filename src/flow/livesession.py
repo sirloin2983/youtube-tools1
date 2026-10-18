@@ -1026,8 +1026,14 @@ class LiveSession:
                  ("友人の依頼の結びつきの片付けでエラー", self.requests.prune)]   # 2-15: 古い結びつきを消す(消すものがあるときだけ書く)
                 + self._request_watch()
                 + [("録画の束の片付けでエラー", self.bundles.prune),   # RS7-2 G2b: 古い録画の束を消す
-                   ("配信の記録の見回りでエラー", self.reporter.tick)]   # D-12: 配信ごとの結果の記録(録画中は 1 分ごと・終わったら最後に 1 回)
+                   ("配信の記録の見回りでエラー", self.reporter.tick),   # D-12: 配信ごとの結果の記録(録画中は 1 分ごと・終わったら最後に 1 回)
+                   ("チャットの取り直しの見回りでエラー", self._chat_retry)]   # 10-19: チャットのリプレイが無かった新しい配信を時間を置いて解析し直す(flow/run.py)
                 + self._app_watch())
+
+    def _chat_retry(self):
+        """まとめて実行(Runner)の chat_retry_tick を呼ぶ(待ち行列が無い・持たなければ何もしない)"""
+        fn = getattr(self.runner(), "chat_retry_tick", None)
+        return fn() if fn is not None else None
 
     def _tick(self):
         for what, fn in self._watch_steps():

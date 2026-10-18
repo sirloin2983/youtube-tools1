@@ -474,7 +474,7 @@ function renderHandoff(){
   if (!box) return;
   if (!S.doc || !h || h.id !== S.docId){ box.hidden = true; box.innerHTML = ''; if (pbox){ pbox.hidden = true; pbox.innerHTML = ''; } return; }
   const rows = [['transcript', '文字起こし'], ['srt', '字幕']].filter(([k]) => h[k]).map(([k, l]) => handoffRow(h, k, l)).join('');
-  box.innerHTML = rows + '<div class="row"><span class="hint">Resolve へ渡すパックは <b>3 パック</b> のタブで作ります</span></div>';
+  box.innerHTML = rows + '<div class="row"><span class="hint">Resolve へ渡すパックは <b>カット・パック</b> のタブで作ります</span></div>';
   box.hidden = !rows;
   if (pbox){ pbox.innerHTML = h.plan ? handoffRow(h, 'plan', '残す区間') : ''; pbox.hidden = !h.plan; }
 }

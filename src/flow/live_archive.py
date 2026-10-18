@@ -84,6 +84,7 @@ from pipeline.export import exporter as _exporter   # 区間の書き出しの�
 from pipeline.transcribe import recognize as _recognize   # wav の引数を組む所は ① の 1 か所(OPT2)
 from ytt import fsio, jobs, normalize, schemas, tools
 from ytt.errors import ApiError
+from . import batch as _batch   # 解析の順番の断りの種類(queued_already = 同じ配信がもう順番にある)
 from . import export as _export   # 書き出しの器(プロセスに 1 つ。OPT2 の J5)
 from . import live_failures   # 失敗の文は 1 か所。M3・M7
 from . import live_export as LX
@@ -1004,7 +1005,7 @@ class Archiver(LX.Patrol):
         d = d if isinstance(d, dict) else {}
         added = d.get("added") or []
         rej = str((((d.get("rejected") or [{}])[0]) or {}).get("reason") or "")
-        if code != 200 or (not added and "すでにキュー" not in rej):
+        if code != 200 or (not added and not _batch.queued_already(d)):   # もう順番にある = その解析を待つ(断りの文ではなく種類で見る)
             raise ArchiveError("アーカイブの解析を始められませんでした: %s" % (rej or d.get("message") or "HTTP %s" % code))
         self._after_set(rc, rec, state="analyze", qid=added[0].get("qid") if added else None,
                         message=("アーカイブを解析しています(配信中の検出を測ります。ずれ %.1f 秒・%s)" % (offset, how)) if mode == "measure" else

@@ -30,7 +30,8 @@ AUDIO_LEVEL_IDLE = 900   # 音量の解析(ffmpeg)で、この秒数まったく
 HEAD_SEC_DEFAULT = 180   # 冒頭の減点をかける秒数(0で無効)
 ARCHIVE_KEEP = 2000
 STREAM_KEYS = ("releaseTs", "timestamp", "uploadDate", "liveStatus", "duration")   # 付加情報(fetch.slim_meta)から結果の stream に写す項目
-SPEC_KEYS = ("count", "length", "sensitivity", "preRatio", "lag", "lagAuto", "headSec", "wAudio", "wChat", "wComments", "shape")   # 結果・archive に残す設定
+SPEC_KEYS = ("count", "length", "sensitivity", "preRatio", "lag", "lagAuto", "headSec", "wAudio", "wChat", "wComments", "shape", "fill", "useChat")   # 結果・archive に残す設定(fill・useChat は 10-19。② が解析し直すかを読む)
+CHAT_MIN = 30   # チャットの件数がこれ未満なら使わない
 
 
 def sig_cache_dir():
@@ -72,7 +73,8 @@ def validate_settings(req):
             "lag": num(req.get("lag"), 0, 30, 8), "lagAuto": req.get("lagAuto") is not False, "headSec": num(req.get("headSec"), 0, 600, HEAD_SEC_DEFAULT),
             "chatTimeout": int(num(req.get("chatTimeout"), 1, 120, 20)), "noCache": req.get("noCache") is True, "sensitivity": sens,
             "wAudio": num(req.get("wAudio"), 0, 3, 1.0), "wChat": num(req.get("wChat"), 0, 3, 1.0), "wComments": num(req.get("wComments"), 0, 3, 0.7),
-            "shape": req.get("shape") if req.get("shape") in excite.SHAPES else excite.SHAPE_DEFAULT}   # 区間の形(LD-2b。既定はスイッチ excite.SHAPE_DEFAULT)
+            "shape": req.get("shape") if req.get("shape") in excite.SHAPES else excite.SHAPE_DEFAULT,   # 区間の形(LD-2b。既定はスイッチ excite.SHAPE_DEFAULT)
+            "fill": int(num(req.get("fill"), 0, 30, 0))}   # 本数に届かないときに埋める数(② の自動の流れが採用の本数を渡す。0 = 埋めない。excite.pick_clips)
 
 
 def make_spec(src, settings):
@@ -271,8 +273,9 @@ def _chat_signal(ctl, run, spec, n, comps, info, warnings):
     ctl.report(None, "チャットを解析中")
     out["extra"] = {}
     out["act"], out["count"], out["warm"] = parse_chat(path, n, out["extra"])
-    if out["count"] < 30:
+    if out["count"] < CHAT_MIN:
         warnings.append("チャットの件数が少ない(%d件)ため、チャットは使っていません" % out["count"])
+        fetch.drop_chat_cache(spec["source"]["videoId"])   # 配信の直後はリプレイがまだ揃っていないことがある: 取っておかず、次の解析で取り直す(10-19)
         return out
     cz = chat_z(out["act"])
     used_lag = spec["lag"]
@@ -328,7 +331,7 @@ def _save_record(src, spec, dur, n, levels, chat, stamps, ctexts, meta, info, ca
         run = {"at": payload["at"], "spec": {k: spec.get(k) for k in SPEC_KEYS},
                "lagUsed": spec.get("lagUsed"), "signals": info,
                "candidates": [dict({"start": c["start"], "end": c["end"], "peak": c["peak"], "score": c["score"], "parts": c["parts"]},
-                               **{k: c[k] for k in ("shape", "fixed") if k in c}) for c in cands]}   # 生の結果(固定の長さの区間)も残す(LD-2b)
+                               **{k: c[k] for k in ("shape", "fixed", "fill") if k in c}) for c in cands]}   # 生の結果(固定の長さの区間・埋めた印)も残す(LD-2b)
         save_archive(src["videoId"], payload, run)
     except Exception:
         pass
@@ -390,7 +393,8 @@ def run(spec, ctl=None):
         series = {"n": n, "step": max(1.0, n / 600), "total": downsample(total), **{k: downsample(v) for k, v in comps.items()}}
         ctl.check()
         result = {"source": {**src, "duration": round(dur, 1)}, "candidates": cands, "series": series, "signals": info,
-                  "counts": {"chat": chat["count"], "chatWarm": chat["warm"], "commentStamps": len(stamps) if stamps else 0, "meta": bool(meta), "heatmap": len((meta or {}).get("heatmap") or [])},
+                  "counts": {"chat": chat["count"], "chatWarm": chat["warm"], "cands": len(cands), "fills": sum(1 for c in cands if c.get("fill")),
+"commentStamps": len(stamps) if stamps else 0, "meta": bool(meta), "heatmap": len((meta or {}).get("heatmap") or [])},
                   "warnings": warnings, "spec": dict({k: spec.get(k) for k in SPEC_KEYS}, lag=spec.get("lagUsed", spec["lag"])),
                   "stream": {k: meta[k] for k in STREAM_KEYS if (meta or {}).get(k) not in (None, "")}}   # 配信がいつ・どれだけ続いたか(② flow/sendpolicy.ended_at_of が読む。付加情報が取れなかったときは空)
         ctl.report(1.0, "解析が完了しました")

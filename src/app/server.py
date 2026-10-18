@@ -29,7 +29,8 @@
                                           machine({engine, device, llmModel, gpu: {name, vramGB, ...} か null}。src/flow/runqueue.py の machine_status)
   GET  /api/flow/machine                  この PC の設定(src/flow/machine.py の load。{engine, device, llmModel, caseRoot, diskMinGB, learningDir, sources})
   PUT  /api/flow/machine                  {device?, llmModel?, caseRoot?, diskMinGB?, learningDir?}(null = 既定へ戻す)を machine.json に書く(合言葉が要る)→
-                                          {machine: 書いたあとの load, file: ファイルの中身}。知らない項目・合わない値は 400 bad_request と理由(F1 F0-1)
+                                          {machine: 書いたあとの load, file: ファイルの中身}。知らない項目・合わない値は 400 bad_request と理由(F1 F0-1)。
+                                          caseRoot はスタジオの書き出し先にもそろえる(処理の実行中は 409 busy)
   POST /api/flow/cancel                   {id} 掲示板の id(「頭:id」)のジョブを止める → {job}。無い id は 404・止められない物は 409 cannot_cancel・形が違えば 400
   POST /api/flow/retry                    {id} 失敗・中止したジョブを同じ指定で入れ直す → {job}(新しい id)。無い id は 404・できない物は 409 cannot_retry
   GET  /api/flow/outbox                   送り返す zip の一覧 {files: [{id, requestId, runId, size, at}]}(src/flow/outbox.py の list_outbox。画面なしで
@@ -127,6 +128,7 @@ from flow import prio as prio_mod  # noqa: E402  (処理の優先度の表。後
 from manage.keep import learnpack as learnpack_mod  # noqa: E402  (学習の束を <依頼の受付のフォルダ>/学習 に置く。起動時と 1 日ごと。F1 F6a)
 from ytt import colors as colors_mod, datadir, docloc, fsio, httpsec, jobs, layout, runtime, tools, version as _version  # noqa: E402
 from ytt import errors as _yerrors  # noqa: E402  (確かめるの部品が上げる ApiError を状態の番号で返す)
+from ytt import studio_env  # noqa: E402  (PUT /api/flow/machine の caseRoot をスタジオの書き出し先にもそろえる)
 from app import mount as mount_mod  # noqa: E402  (src/app/mount.py: 統合サーバーへのツールの取り込み)
 from app import autorun as autorun_mod
 from human.friend import intake as intake_mod  # noqa: E402  (src/human/friend/intake.py: 友人からの依頼の受付)
@@ -866,15 +868,20 @@ class PortalHandler(BaseHTTPRequestHandler):
 
     def _put_machine(self, body):
         """この PC の設定を machine.json に書く(flow/machine.py の save。変えられるのは MACHINE_PUT_FIELDS だけ・null = 既定へ戻す)。
-        画面なしなら、録画の開始の空き容量の下限も新しい diskMinGB にそろえる(処理の開始は Queue が始めるたびに読む)"""
+        画面なしなら、録画の開始の空き容量の下限も新しい diskMinGB にそろえる(処理の開始は Queue が始めるたびに読む)。
+        caseRoot を決めたときはスタジオの書き出し先 outDir も同じ所へ(出来上がる場所 = 書き出し先。友人のアプリの一時保管と同じそろえ方。処理の実行中は 409)"""
         bad = [k for k in body if k not in MACHINE_PUT_FIELDS]
         if bad:
             return self._fail(400, "bad_request", "知らない項目です: %s(使えるのは %s)" % ("・".join(map(str, bad)), "・".join(MACHINE_PUT_FIELDS)))
         try:
+            if body.get("caseRoot") is not None:
+                studio_env.set_out_dir(machine_mod.check("caseRoot", body["caseRoot"]), self.server.tools_busy)
             saved = machine_mod.save(body)
             now = machine_mod.load()
         except ValueError as e:
             return self._fail(400, "bad_request", str(e))
+        except _yerrors.ApiError as e:   # 書き出し先にできない(400 bad_dir)・処理の実行中(409 busy)
+            return self._fail(e.status, e.code, e.message)
         except OSError as e:
             return self._fail(500, "write", "この PC の設定を書けませんでした: %s" % tools.why(e))
         if self.server.headless and "diskMinGB" in body:
@@ -1178,6 +1185,14 @@ class PortalServer(httpsec.ExclusiveServer):
         with self.cleanup_lock:
             return self.cleanup.candidates(cases, intake_dir=folder)
 
+    def _busy_tools(self):
+        """取り込んだツールのうち処理の途中の物 -> [(id, 名前)]"""
+        return [(t.id, t.spec["name"]) for t in self.sup.tools if t.mounted and t.mount and t.mount.busy()]
+
+    def tools_busy(self):
+        """取り込んだツールのどれかが処理の途中か(書き出し先を変えられるかの判定)"""
+        return bool(self._busy_tools())
+
     def restart_self(self):
         """新しい入口(同じポートが空くのを待つ)を起こしてから、この入口は「すべて終了」と同じ後始末をして終わる。
         重い処理・取り込んだツールの処理(人が始めたもの・まとめて実行の書き出し)が動いていれば 409 で断る(理由の文)。
@@ -1189,7 +1204,7 @@ class PortalServer(httpsec.ExclusiveServer):
             return 409, {"ok": False, "error": "headless", "message": HEADLESS_NO_RESTART}
         ar = self._autorun
         info = ar.restart_info() if ar is not None else {}
-        busy = [(t.id, t.spec["name"]) for t in self.sup.tools if t.mounted and t.mount and t.mount.busy()]
+        busy = self._busy_tools()
         why = restart_mod.can_restart(self.sup.status(), busy, info.get("redo"))
         if why:
             return 409, {"ok": False, "error": "busy", "message": why}

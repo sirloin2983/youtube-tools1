@@ -58,3 +58,95 @@ test('life handlers can be fired; withUIKit fills context.UIKit and window.UIKit
   vm.createContext(ctx);
   assert.equal(vm.runInContext("UIKit.toast('x'); window.UIKit === UIKit && UIKit.esc('<')", ctx), '&lt;', 'works inside a vm context');
 });
+
+/* ---- ui-kit.js の http / settingsForm を本物から切り出して動かす(v33) ---- */
+const fs = require('node:fs');
+const path = require('node:path');
+const KIT_TEXT = fs.readFileSync(path.join(__dirname, '..', 'ui-kit.js'), 'utf8').replace(/\r\n/g, '\n');
+function slice(start, end) {
+  const a = KIT_TEXT.indexOf(start), b = KIT_TEXT.indexOf(end, a);
+  assert.ok(a >= 0 && b > a, 'marker not found: ' + start);
+  return KIT_TEXT.slice(a, b);
+}
+
+test('http: 403 {"error":"token"} shows the "reopen" notice once (and only for that error)', async () => {
+  const toasts = []; let reloads = 0, status = 403, body = { error: 'token', message: 'm' };
+  const ctx = {
+    toastFn: (m, o) => { toasts.push([m, o]); }, token: () => 'tk', location: { href: 'http://x/a/', origin: 'http://x', reload: () => { reloads++; } },
+    URL, AbortController, setTimeout, clearTimeout, Promise, JSON,
+    fetch: () => Promise.resolve({ ok: false, status, json: () => Promise.resolve(body) }),
+  };
+  vm.createContext(ctx);
+  vm.runInContext(slice('  var HTTP_OFFLINE', '  /* 入口(ホーム)の API の場所') + '\nthis.http = http; this.tokenStale = tokenStale;', ctx);
+  await assert.rejects(ctx.http('api/x', { body: {} }), e => e.status === 403 && e.code === 'token');
+  await assert.rejects(ctx.http('api/x', { body: {} }), e => e.code === 'token');
+  assert.equal(toasts.length, 1, 'only once');
+  assert.match(toasts[0][0], /起動し直されました/);
+  assert.equal(toasts[0][1].action.label, '開き直す');
+  assert.equal(reloads, 0);
+  toasts[0][1].action.fn();
+  assert.equal(reloads, 1);
+  status = 403; body = { error: 'forbidden' };
+  const t0 = toasts.length;
+  await assert.rejects(ctx.http('api/x', { body: {} }));
+  status = 409; body = { error: 'token' };
+  await assert.rejects(ctx.http('api/x', { body: {} }));
+  assert.equal(toasts.length, t0);
+});
+
+/* 最小の偽 DOM(settingsForm の描画に要る分だけ) */
+function fakeDom() {
+  const doc = { activeElement: null };
+  function el(tag) {
+    const e = {
+      tagName: tag.toUpperCase(), children: [], attrs: {}, listeners: {}, _cls: new Set(), value: '', checked: false, hidden: false, disabled: false, style: {}, dataset: {},
+      set className(v) { this._cls = new Set(String(v).split(/\s+/).filter(Boolean)); }, get className() { return [...this._cls].join(' '); },
+      classList: null, appendChild(c) { this.children.push(c); return c; }, setAttribute(k, v) { this.attrs[k] = v; }, getAttribute(k) { return this.attrs[k]; },
+      addEventListener(t, f) { (this.listeners[t] = this.listeners[t] || []).push(f); }, dispatchEvent() {},
+      set textContent(v) { this._t = v; }, get textContent() { return this._t || ''; },
+    };
+    e.classList = { add: c => e._cls.add(c), toggle: (c, on) => { on ? e._cls.add(c) : e._cls.delete(c); }, contains: c => e._cls.has(c) };
+    e.fire = (t) => (e.listeners[t] || []).forEach(f => f({}));
+    return e;
+  }
+  doc.createElement = el;
+  return doc;
+}
+function mountForm(items, store, setImpl) {
+  const document = fakeDom();
+  const ctx = { document, CustomEvent: function (n, o) { this.n = n; this.detail = o && o.detail; }, setTimeout, clearTimeout, Promise, JSON, Math, Number, String, isFinite, RegExp };
+  vm.createContext(ctx);
+  vm.runInContext(slice('  function setFormId(', '  function settingsFormFilter(') + '\nthis.render = settingsFormRender;', ctx);
+  const host = document.createElement('div');
+  const io = { get: k => store[k], set: (k, v) => setImpl(k, v) };
+  const form = ctx.render(host, { id: 'g', items }, io);
+  const sec = host.children[0];
+  const rowOf = k => sec.children.find(r => r.attrs && r.attrs['data-ui-set-key'] === k);
+  const ctl = k => rowOf(k).children[0].children[1].children[0];
+  return { document, form, ctl };
+}
+
+test('settingsForm: a save finishing does not wipe a text field that is being typed in', async () => {
+  const store = { engine: 'a', model: '' };
+  const m = mountForm([{ key: 'engine', type: 'enum', options: [['a', 'A'], ['b', 'B']], 'default': 'a' }, { key: 'model', type: 'text', 'default': '' }],
+    store, (k, v) => { store[k] = v; return Promise.resolve(); });
+  const engine = m.ctl('engine'), model = m.ctl('model');
+  engine.value = 'b'; model.value = 'whisper-lar'; m.document.activeElement = model;   // typing in the model field
+  engine.fire('change');
+  await new Promise(r => setTimeout(r, 0));
+  assert.equal(store.engine, 'b');
+  assert.equal(model.value, 'whisper-lar', 'typed text kept');
+  m.document.activeElement = null;
+  m.form.refresh();
+  assert.equal(model.value, '', 'a normal refresh (no focus) still writes the stored value');
+});
+
+test('settingsForm: a failed save puts the stored value back even in a focused field', async () => {
+  const store = { model: 'old' };
+  const m = mountForm([{ key: 'model', type: 'text', 'default': '' }], store, () => Promise.reject(new Error('no')));
+  const model = m.ctl('model');
+  model.value = 'new'; m.document.activeElement = model;
+  model.fire('change');
+  await new Promise(r => setTimeout(r, 0));
+  assert.equal(model.value, 'old');
+});

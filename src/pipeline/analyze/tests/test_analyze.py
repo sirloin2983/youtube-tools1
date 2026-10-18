@@ -315,6 +315,40 @@ class TestRunCtl(unittest.TestCase):
             res = analyze.run(self.spec, Ctl())
         self.assertEqual(res["stream"], {"releaseTs": 1760000000, "timestamp": 1760000100, "uploadDate": "20260920", "liveStatus": "was_live", "duration": 7856})
 
+    def test_fill_reaches_requested_and_is_counted(self):
+        """本数に届かないとき(10-18 kYKmNCRiC40): 設定の fill で、しきい値の下の山で埋める。結果の spec・counts に残す(② が読む)"""
+        spec = dict(self.spec, sensitivity="low", count=8)
+        with mock.patch.object(analyze, "_levels", self.levels()):
+            plain = analyze.run(dict(spec), Ctl())
+            filled = analyze.run(dict(spec, fill=8), Ctl())
+        self.assertLess(len(plain["candidates"]), 8)
+        self.assertGreater(len(filled["candidates"]), len(plain["candidates"]))
+        self.assertEqual((plain["spec"]["fill"], filled["spec"]["fill"]), (0, 8))
+        self.assertEqual(filled["counts"]["cands"], len(filled["candidates"]))
+        self.assertEqual(filled["counts"]["fills"], len(filled["candidates"]) - len(plain["candidates"]))
+        self.assertEqual(analyze.validate_settings({})["fill"], 0)
+        self.assertEqual(analyze.validate_settings({"fill": 99})["fill"], 30)
+
+    def test_too_few_chat_drops_the_cache(self):
+        """チャットが 30 件未満(配信の直後でリプレイがまだ無い)なら、取っておいたチャットを捨てる = 次の解析で取り直す"""
+        td = tempfile.TemporaryDirectory()
+        self.addCleanup(td.cleanup)
+        tmp = td.name
+        path = os.path.join(tmp, "chat.json")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("{}\n")
+        run = {"chat": {"state": "done", "path": path, "why": "", "cached": True, "t0": 0}}
+        spec = dict(self.spec, source={"kind": "youtube", "videoId": "abcdefghijk"})
+        with mock.patch.object(fetch, "drop_chat_cache") as drop:
+            out = analyze._chat_signal(Ctl(), run, spec, 600, {}, {"chat": False}, [])
+        self.assertEqual(out["count"], 0)
+        drop.assert_called_once_with("abcdefghijk")
+        with mock.patch.object(fetch, "chat_cache_dir", lambda: tmp):
+            open(fetch.chat_cache_path("abcdefghijk"), "w").close()
+            self.assertTrue(fetch.drop_chat_cache("abcdefghijk"))
+            self.assertFalse(os.path.exists(fetch.chat_cache_path("abcdefghijk")))
+            self.assertFalse(fetch.drop_chat_cache("../x"))
+
     def test_cancel_and_failure_are_exceptions(self):
         ctl = Ctl()
         ctl.cancel()

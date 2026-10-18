@@ -865,6 +865,151 @@ class VerdictTest(unittest.TestCase):
         self.assertEqual(R.pack_verdict(False, "none", True), "skip")         # 鍵なしで既にある
 
 
+class TestPollStartFailure(unittest.TestCase):
+    def test_submit_failure_cancels_submitted_jobs(self):
+        """10-19 P4: 投入(start)の途中で失敗(StepError など中止以外)したら、投入済みの仕事を取り消してから上げる。取り消しの失敗で元の理由を隠さない"""
+        rn = R.Runner(None, poll=0, sleep=lambda s: None, tools=object())
+        run = RF.run_of(VID, "配信", "full", 1)
+        jobs, cancelled = [], []
+
+        def start():
+            jobs.append("j1")
+            raise R.StepError("2 本目を入れられませんでした")
+
+        def cancel():
+            cancelled.extend(jobs)
+            raise RuntimeError("取り消しも失敗")
+        with self.assertRaisesRegex(R.StepError, "2 本目"):
+            rn._poll(run, ("transcribe", jobs), lambda: None, cancel, start=start)
+        self.assertEqual((cancelled, run.owned), (["j1"], None))
+
+
+NOW = 1792330000.0   # 10-18 22:26 ごろ(kYKmNCRiC40 の依頼のころ)
+
+
+def analysis_of(chat=True, fill=0, cands=1, at=NOW - 60, ended=NOW - 5400, use_chat=True):
+    """スタジオの配信の analysis(flow/batch._apply の形)。ended = 配信が終わった時刻(releaseTs + duration)"""
+    return {"at": int(at * 1000), "signals": {"audio": True, "chat": chat, "comments": True},
+            "counts": {"chat": 12835 if chat else 0, "cands": cands, "fills": 0}, "warnings": [],
+            "spec": {"count": 8, "length": 160, "sensitivity": "low", "fill": fill, "useChat": use_chat},
+            "releaseTs": int(ended - 3560), "duration": 3560, "liveStatus": "was_live"}
+
+
+class ShortTools(T.HttpTools):
+    """本数が足りないときの段を見る道具: スタジオの配信 1 本(video)・解析の順番(覚えて、すぐ済み)・採用"""
+
+    def __init__(self, video, after=None):
+        super().__init__(None)
+        self.v, self.after, self.adds, self.adopt = video, after, [], None
+
+    def video(self, vid):
+        return 200, {"video": self.v}
+
+    def analyze_add(self, item, settings):
+        self.adds.append((item, settings))
+        if self.after is not None:   # 解析が済んだ = 配信の analysis が新しくなる
+            self.v = dict(self.v, analysis=self.after)
+        return {"added": [{"qid": "q%d" % len(self.adds)}]}
+
+    def analyze_items(self):
+        return [{"qid": "q%d" % len(self.adds), "status": "done", "marks": 5}]
+
+    def request_marks(self, body):
+        return self.adopt
+
+
+class TestShortfall(unittest.TestCase):
+    """頼まれた本数に届かないとき(10-19。10-18 の kYKmNCRiC40: 配信の約 1.5 時間後でチャットのリプレイが 0 件・山が 1 つで 5 本のうち 1 本、
+    同じ依頼の送り直しも「解析済み(前の結果を使います)」で 1 本のまま): 埋める・解析し直す・チャットを取り直す・理由を残す"""
+
+    def setUp(self):
+        self.now = [NOW]
+
+    def runner(self, tools):
+        self.logs = []
+        return R.Runner(None, poll=0, sleep=lambda s: None, tools=tools, clock=lambda: self.now[0], log=self.logs.append)
+
+    def step(self, rn, run, key="analyze", v=None):
+        st = run.step(key)
+        st["state"] = "run"
+        out = getattr(rn, "_step_" + key)(run, st, v if v is not None else rn.tools.v)
+        return out, st
+
+    def test_redo_reason(self):
+        one = [{"id": "a1", "status": "exported"}]
+        self.assertEqual(R.redo_reason(analysis_of(), 5, one, NOW), "short")   # kYKmNCRiC40 の 2 回目: 1 本しか無い・埋めていない
+        self.assertIsNone(R.redo_reason(analysis_of(fill=5), 5, one, NOW))   # もう埋めた(それでも無い)= 解析し直さない
+        self.assertIsNone(R.redo_reason(analysis_of(), 5, one * 5, NOW))   # 足りている
+        self.assertEqual(R.redo_reason(analysis_of(), 5, [{"id": "x", "status": "rejected"}] * 5 + one, NOW), "short")   # 見送りは数えない
+        self.assertIsNone(R.redo_reason({"at": 1}, 5, [], NOW))   # 記録の形が無い前の解析は使い回す(今までどおり)
+        self.assertIsNone(R.redo_reason(analysis_of(chat=False, fill=5), 5, one, NOW))   # 前の解析から 1 時間たっていない
+        late = NOW + R.CHAT_RETRY_SEC
+        self.assertEqual(R.redo_reason(analysis_of(chat=False, fill=5), 5, one, late), "chat")
+        self.assertIsNone(R.redo_reason(analysis_of(chat=False, fill=5, use_chat=False), 5, one, late))   # チャットを使わない設定
+        self.assertIsNone(R.redo_reason(analysis_of(chat=False, fill=5), 5, one, NOW + R.CHAT_RETRY_FRESH + 5400))   # 古い配信
+
+    def test_reused_short_analysis_is_redone_with_fill(self):
+        """解析済みでも本数に届かなければ、埋める数(採用の上限)を渡して解析し直す"""
+        tools = ShortTools({"id": VID, "kind": "youtube", "analysis": analysis_of(), "marks": [{"id": "a1", "status": "exported"}]},
+                           after=dict(analysis_of(fill=5, cands=5), counts={"chat": 12835, "cands": 5, "fills": 4}))
+        rn = self.runner(tools)
+        run = RF.run_of(VID, "配信", "request_auto", 5)
+        _out, st = self.step(rn, run)
+        self.assertEqual(len(tools.adds), 1)
+        self.assertEqual(tools.adds[0][1]["fill"], 5)
+        self.assertTrue(st["detail"].startswith(R.REDO_TEXT["short"] % 5), st["detail"])
+        self.assertIn("うち 4 件は本数に届かないので", st["detail"])
+        # 埋めた解析のあとは使い回す
+        tools.v["marks"] = [{"id": "a1", "status": "exported"}]
+        _out, st = self.step(rn, RF.run_of(VID, "配信", "request_auto", 5))
+        self.assertEqual((st["state"], len(tools.adds)), ("skip", 1))
+
+    def test_missing_chat_is_retried_by_the_patrol(self):
+        """チャットのリプレイが 0 件の新しい配信: 解析のあと、見回りが 1 時間後に解析し直す(後回しの仕事)。使えたら・3 回で・古くなったら終わり"""
+        tools = ShortTools({"id": VID, "kind": "youtube", "analysis": None, "marks": []}, after=analysis_of(chat=False, fill=5))
+        rn = self.runner(tools)
+        _out, st = self.step(rn, RF.run_of(VID, "配信", "request_auto", 5))
+        self.assertIn("チャットのリプレイがまだ無いので、60 分後に解析し直します", st["detail"])
+        self.assertEqual(rn.chat_retry_tick(), 0)   # まだ時間が来ていない
+        self.now[0] += R.CHAT_RETRY_SEC
+        self.assertEqual(rn.chat_retry_tick(), 1)
+        item, settings = tools.adds[-1]
+        self.assertEqual((item, settings["fill"]), ({"kind": "youtube", "videoId": VID, "prio": "later"}, 5))
+        self.assertEqual(rn.chat_retry_tick(), 0)   # 次は 1 時間後
+        tools.after = None
+        tools.v["analysis"] = analysis_of(chat=True, fill=5, at=self.now[0])
+        self.now[0] += R.CHAT_RETRY_SEC
+        self.assertEqual(rn.chat_retry_tick(), 0)
+        self.assertEqual(rn._chat_retry, {})   # チャットが使えた = 待ちから外す
+        self.assertTrue(any("チャットが使えました" in m for m in self.logs), self.logs)
+
+    def test_chat_retry_gives_up(self):
+        tools = ShortTools({"id": VID, "kind": "youtube", "analysis": None, "marks": []}, after=analysis_of(chat=False, fill=5))
+        rn = self.runner(tools)
+        self.step(rn, RF.run_of(VID, "配信", "request_auto", 5))
+        n = 0
+        for _ in range(R.CHAT_RETRY_MAX + 2):
+            self.now[0] += R.CHAT_RETRY_SEC
+            n += rn.chat_retry_tick()
+        self.assertEqual((n, rn._chat_retry), (R.CHAT_RETRY_MAX, {}))
+        old = ShortTools({"id": VID, "kind": "youtube", "analysis": None, "marks": []}, after=analysis_of(chat=False, ended=NOW - R.CHAT_RETRY_FRESH - 1))
+        rn = self.runner(old)
+        _out, st = self.step(rn, RF.run_of(VID, "配信", "request_auto", 5))
+        self.assertEqual(rn._chat_retry, {})   # 古い配信は取り直さない
+        self.assertNotIn("取り直", st["detail"])
+
+    def test_adopt_records_why_short(self):
+        """採用の段の文(記録 autorun-runs.jsonl に残る)に、埋めた数と足りなかった理由"""
+        marks = [{"id": "a1", "reasons": ["音量が急上昇"]}, {"id": "a2", "reasons": ["音声の変化", R._excite.FILL_REASON]}]
+        a = dict(analysis_of(chat=False, fill=5, cands=2), counts={"chat": 0, "cands": 2, "fills": 1})
+        tools = ShortTools({"id": VID, "kind": "youtube", "analysis": a, "marks": marks})
+        tools.adopt = {"rangeIds": [], "humanIds": [], "autoIds": ["a1", "a2"], "added": ["a1", "a2"]}
+        rn = self.runner(tools)
+        _out, st = self.step(rn, RF.run_of(VID, "配信", "request_auto", 5), key="adopt", v=dict(tools.v, duration=3560))
+        self.assertEqual(st["detail"], "自動で 2 本を足しました(点数の高い順)(うち 1 本は本数に届かないので、点数の低い山で埋めました)。候補が足りず 3 本は選べませんでした"
+                                       "(チャットのリプレイが使えなかった(0 件)・盛り上がりの山が 2 個しか見つからなかった(しきい値の下の山で埋めても))")
+
+
 class TestStepNormalize(unittest.TestCase):
     """段 normalize(動画ファイルの実行の最初。opt-human 9a-1 で友人の受付 intake から移した): 写しを 30fps に置き換える。
     本物の ffmpeg で lavfi の短い動画を「作業データへ写した動画」にする"""
@@ -937,6 +1082,21 @@ class TestStepNormalize(unittest.TestCase):
         self.assertEqual(self.marks, [run.source_path])
         self.assertEqual(run.envelope()["input"]["path"], run.source_path)
         self.assertEqual([n for n in os.listdir(self.tmp) if vnorm.PART in n], [], "途中のファイルは残さない")
+
+    def test_cancel_after_replace_still_saves_new_path(self):
+        """10-19 P2: 置き換えが済んだ直後に中止されても、新しいパスを待ちの記録へ書いてから止まる(再開が消えた元の写しを探さない)"""
+        src = os.path.join(self.tmp, "元.mkv")
+        open(src, "wb").close()
+        new = os.path.join(self.tmp, "元.mp4")
+        run = RF.run_of(None, "依頼", "file_auto", None, source_path=src, request_id="20261016-120000-abcdef", normalize=True)
+
+        def fake_run(p, cancelled=None, on_progress=None, on_start=None):
+            run.cancel = True   # 作り直しの終わりぎわに中止が来た
+            return new, "作り直しました"
+        with mock.patch.object(R._norm, "plan", lambda path, replace=True: {"why": ["60fps"]}), mock.patch.object(R._norm, "run", fake_run):
+            with self.assertRaises(R.Cancelled):
+                self.runner._file_normalize(run, run.step("normalize"))
+        self.assertEqual((run.source_path, self.marks), (new, [new]))
 
     def test_failure_keeps_copy_and_continues(self):
         src = self.make("失敗", 60)

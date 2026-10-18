@@ -1,4 +1,4 @@
-/* ui-kit v33 —テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
+/* ui-kit v34 —テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
    画面の全面見直し(notes:docs/design/briefs/ui-overhaul/)の段階1。ES5 のまま(var・function。アロー関数・テンプレート文字列は使わない): <head> で同期に読み込むため。
    正本は src/ui-kit/ui-kit.js。写し先は無い(この正本を直接直す)。
    window.UIKit.theme  : get() 保存した選択('system'|'light'|'dark'。**v6: 保存が無いときは既定で 'light'**。以前は OS の設定(system)に従っていた) / set(p) / toggle() / onChange(fn)
@@ -319,6 +319,14 @@
     e.reason = typeof b.message === 'string' ? b.message : ''; e.detail = detail || '';
     return e;
   }
+  /* v34: 入口を起動し直すと合言葉(X-YTT-Token)が変わり、開きっぱなしの画面の書き込みは 403 {"error":"token"} で断られる。
+     待っても直らないので、「開き直す」の知らせを 1 回だけ出す(http が受けるので全部の画面に効く。http を通らない書き込みは UIKit.tokenStale() を呼ぶ) */
+  var tokenStaleShown = false;
+  function tokenStale() {
+    if (tokenStaleShown) return;
+    tokenStaleShown = true;
+    toastFn('ホームが起動し直されました。この画面を開き直すと、また使えます', { kind: 'err', ms: 0, action: { label: '開き直す', fn: function () { location.reload(); } } });
+  }
   function sameOrigin(url) { try { return new URL(url, location.href).origin === location.origin; } catch (e) { return false; } }
   function http(url, opt) {
     opt = opt || {};
@@ -347,6 +355,7 @@
       if (opt.raw && r.ok) return r;
       return r.json().then(null, function (e) { if (init.signal && init.signal.aborted) throw noReply(e); return null; }).then(function (j) {
         if (r.ok) return j == null ? {} : j;
+        if (r.status === 403 && j && j.error === 'token') tokenStale();
         var fb = typeof opt.fail === 'function' ? opt.fail(r.status) : typeof opt.fail === 'string' ? opt.fail : httpFail(r.status);
         throw httpErr((j && j.message) ? String(j.message) : fb, (j && j.error) || 'http', r.status, j, 'HTTP ' + r.status);
       });
@@ -1350,9 +1359,12 @@
           mark.textContent = text; mark.classList.toggle('err', !!err);
           if (!err && text) markTimer = setTimeout(function () { mark.textContent = ''; }, 2000);
         }
-        function paint() {
+        /* v34: 打っている途中の欄(フォーカスのある text・int・number・folder・textarea)は、ほかの欄の保存の描き直しで書き戻さない
+           (入力が消えて change も出ず保存されなかった)。保存の失敗で値を戻すときだけ force で書き戻す */
+        function typingIn() { var a = document.activeElement; return a === c && (item.type === 'text' || item.type === 'folder' || item.type === 'int' || item.type === 'number' || item.type === 'textarea'); }
+        function paint(force) {
           var v = io.get(item.key);
-          setFormFill(item, c, v);
+          if (force === true || !typingIn()) setFormFill(item, c, v);
           if (item['default'] !== undefined && !off && item.type !== 'link') reset.hidden = setFormSame(v === undefined ? item['default'] : v, item['default']);
           row.hidden = !setFormWhen(item, io);
         }
@@ -1364,7 +1376,7 @@
             /* ほかの節の when(この鍵で出す・隠す)も描き直せるように知らせる(画面が document で聞いて全部の節の refresh を呼ぶ) */
             sec.dispatchEvent(new CustomEvent('ui-set-changed', { bubbles: true, detail: { key: item.key, value: value } }));
           }, function (e) {
-            c.disabled = !!off; showMark((e && e.message) || '保存できませんでした', true); paint();
+            c.disabled = !!off; showMark((e && e.message) || '保存できませんでした', true); paint(true);
             throw e;
           }).then(null, function () { /* 行に出した */ });
         }
@@ -1379,7 +1391,7 @@
         rows.push(paint);
       })(group.items[i]);
     }
-    function paintAll() { for (var k = 0; k < rows.length; k++) rows[k](); }
+    function paintAll() { for (var k = 0; k < rows.length; k++) rows[k](false); }
     paintAll();
     host.appendChild(sec);
     return { el: sec, refresh: paintAll };
@@ -2773,8 +2785,8 @@
   }
   var sound = { other: sndOther, onChange: function (fn) { if (typeof fn === 'function') snd.subs.push(fn); }, tool: snd.tool };
 
-  window.UIKit = { version: 33, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
+  window.UIKit = { version: 34, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
                    portal: portal, streamer: streamer, appnav: appnav, drawer: drawer, dialog: dialogApi, toast: toastFn, keybar: keybar, settings: settings, settingsForm: settingsForm, keys: keysApi, keymap: keymapApi, icon: icon,
                    confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud, autorun: autorun, flow: flow, restart: restart, timebox: timebox, hide: hide, liveBadge: liveBadge, menuOff: menuOff,
-                   http: http, homeApi: homeApi, homeUrl: homeUrl, copy: copyText };
+                   http: http, homeApi: homeApi, homeUrl: homeUrl, copy: copyText, tokenStale: tokenStale };
 })();

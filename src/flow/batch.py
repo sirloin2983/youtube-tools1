@@ -22,6 +22,13 @@ BOARD_STATE = {"waiting": "queued", "running": "running", "done": "done", "error
 RETRYABLE = ("error", "cancelled", "skipped")
 FULL_MSG = "一度に入れられるのは%d本までです" % MAX_ACTIVE
 DUP_MSG = "すでに解析の順番待ちにあります"
+DUP_CODE = "duplicate"   # 断り(rejected)の code。同じ配信がもう順番にある = 呼び手はその解析を待てばよい
+
+
+def queued_already(res):
+    """POST /api/queue/add の答え -> 入れられなかったのは同じ配信がもう順番にあるからか(1 本目の断りを見る)"""
+    rej = ((res or {}).get("rejected") or [{}])[0] or {}
+    return rej.get("code") == DUP_CODE
 PHASES = {"done": "完了", "error": "失敗", "cancelled": "中止しました", "skipped": "取り除きました"}
 
 
@@ -34,7 +41,7 @@ def _admit(active, spec, kind):
     if len(active) >= MAX_ACTIVE:
         raise ApiError("full", FULL_MSG, 409)
     if any(_vid(r) == spec["src"]["videoId"] for r in active):
-        raise ApiError("duplicate", DUP_MSG, 409)
+        raise ApiError(DUP_CODE, DUP_MSG, 409)
 
 
 class Batch:
@@ -103,8 +110,8 @@ class Batch:
                 spec["prio"] = raw["prio"]
             try:
                 rec = self.table.add(spec, prepare=prepare)
-            except ApiError as e:
-                rejected.append({"input": label, "reason": e.message})
+            except ApiError as e:   # code = 断りの種類(duplicate = 同じ配信がもう順番にある。呼び手は文ではなくこれで見る)
+                rejected.append({"input": label, "reason": e.message, "code": e.code})
                 continue
             added.append({"qid": rec["id"], "videoId": src["videoId"]})
         if added:

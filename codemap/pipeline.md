@@ -11,14 +11,14 @@
 - **__init__.py** (3 行) — ① 解析: 盛り上がりの式(excite)・チャットとコメント・候補・自動採用・配信中の検出
 - **adopt.py** (76 行) — 採用の規則 F-5(notes:plan/done/role-restructure.md 5-5・決定 3-29 Q3。RS8 B3-2 の G1a で human/review/store.py の Store.adopt_marks から出した純粋な関数)。
   - 名前: `check_args` :21・`adopt` :38
-- **analyze.py** (409 行) — 解析(自動切り抜き ac/serve.py 由来。書き出し・手動の○×は持たない)。
-  - 名前: `sig_cache_dir` :36・`validate_live` :43・`validate_source` :49・`validate_settings` :64・`make_spec` :78・`chat_public` :87・`sig_path` :94・`load_sig` :98・`save_sig` :115・`archive_path` :128・`load_archive` :132・`save_archive` :142・ほか 3
+- **analyze.py** (413 行) — 解析(自動切り抜き ac/serve.py 由来。書き出し・手動の○×は持たない)。
+  - 名前: `sig_cache_dir` :37・`validate_live` :44・`validate_source` :50・`validate_settings` :65・`make_spec` :80・`chat_public` :89・`sig_path` :96・`load_sig` :100・`save_sig` :117・`archive_path` :130・`load_archive` :134・`save_archive` :144・ほか 3
 - **breaks.py** (123 行) — 話の切れ目(breaks)。切り抜きの区間の両端を、文字起こしの話の切れ目へ寄せて言葉の途中で切らないための関数(線 LD-2c。notes:plan/done/ld2-clip-length.md)。
   - 名前: `cuts` :61・`snap` :106・`inside_row` :120
-- **excite.py** (984 行) — 盛り上がり(excitement)の式。スタジオのアーカイブの解析(src/pipeline/analyze/analyze.py)と、配信中の検出(src/pipeline/analyze/live_excite_worker.py。線 D の L2)が同じ式を読む(線 D の L1。notes…
-  - 名前: `smooth` :60・`median` :71・`local_baseline` :77・`robust_scale` :96・`audio_score` :102・`chat_z` :114・`shift_chat` :123・`chat_score` :129・`estimate_lag` :133・`ramp` :157・`head_ramp` :162・`comment_score` :169・ほか 14
-- **fetch.py** (482 行) — 解析の材料を取ってくる仕事(音声のダウンロード・チャットのリプレイの取得と先読み・コメント欄・動画の付加情報)と、そのキャッシュの置き場と掃除。
-  - 名前: `work_dir` :30・`chat_cache_dir` :34・`download_audio` :49・`chat_cache_path` :69・`chat_cache_limit` :78・`use_chat_cache` :93・`prune_chat_cache` :103・`download_chat` :151・`prefetch_chat` :233・`cancel_prefetch` :276・`cancel_all_prefetch` :283・`start_chat` :292・ほか 7
+- **excite.py** (997 行) — 盛り上がり(excitement)の式。スタジオのアーカイブの解析(src/pipeline/analyze/analyze.py)と、配信中の検出(src/pipeline/analyze/live_excite_worker.py。線 D の L2)が同じ式を読む(線 D の L1。notes…
+  - 名前: `smooth` :64・`median` :75・`local_baseline` :81・`robust_scale` :100・`audio_score` :106・`chat_z` :118・`shift_chat` :127・`chat_score` :133・`estimate_lag` :137・`ramp` :161・`head_ramp` :166・`comment_score` :173・ほか 14
+- **fetch.py** (494 行) — 解析の材料を取ってくる仕事(音声のダウンロード・チャットのリプレイの取得と先読み・コメント欄・動画の付加情報)と、そのキャッシュの置き場と掃除。
+  - 名前: `work_dir` :30・`chat_cache_dir` :34・`download_audio` :49・`chat_cache_path` :69・`drop_chat_cache` :73・`chat_cache_limit` :90・`use_chat_cache` :105・`prune_chat_cache` :115・`download_chat` :163・`prefetch_chat` :245・`cancel_prefetch` :288・`cancel_all_prefetch` :295・ほか 8
 - **levels.py** (64 行) — 1 秒ごとの音量(RMS, dB)を、ffmpeg 1 回のデコードで全帯域と高音域(2kHz 超)の 2 系列に測る決まり(OPT1。2026-10-11)。
   - 名前: `args` :23・`clear` :30・`level` :36・`read` :47・`collect` :56
 - **live_excite_worker.py** (1503 行) — 配信中の盛り上がりの検出のワーカー(線 D の L2。notes:plan/line-d-detect.md・notes:plan/line-d-live-clipping.md の 0-10)。入口(src/flow/live_detect.py)が起動する子プロセス。

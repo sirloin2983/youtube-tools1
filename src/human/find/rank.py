@@ -155,10 +155,13 @@ def load_registry():
 def _quarantine_registry(path, error):
     # 名前の末尾を .bak にするのは、.gitignore の *.bak に掛けるため(登録簿の置き場所がリポジトリの中のときに、push.bat の git add -A で公開リポジトリに載せない。
     # 今の置き場所は %LOCALAPPDATA% の studio フォルダでリポジトリの外)
-    dst = "%s.corrupt-%s.bak" % (path, time.strftime("%Y%m%d-%H%M%S"))
+    ts, n = time.strftime("%Y%m%d-%H%M%S"), 0
+    dst = "%s.corrupt-%s.bak" % (path, ts)
+    while os.path.exists(dst):   # 同じ秒に 2 回壊れても前の退避を上書きせず、壊れたファイルも置いたままにしない(review/store.py の _quarantine と同じ)
+        n += 1
+        dst = "%s.corrupt-%s-%d.bak" % (path, ts, n)
     try:
-        if not os.path.exists(dst):
-            os.replace(path, dst)
+        os.replace(path, dst)
         _env.log_failure("registry.json が壊れていたため %s に退避しました" % os.path.basename(dst), error)
     except OSError as e:
         _env.log_failure("壊れた registry.json を退避できませんでした", e)

@@ -8,6 +8,7 @@
     py -3.12 dev/run_unit.py                          # 全部
 
 対象: src/**/tests/test_*.py と dev/tests/test_*.py(e2e_*.py と test_ で始まらない物は流さない)。
+      同じ所の test_*.cjs は `node --test` で流す(node は PATH か Playwright に入っている node.exe。無ければ落ちた扱い)。
 同じプロセスに混ぜると名前が重なるテストがあるので、1 本ずつ `py -3.12 -m unittest <ファイル>` を別のプロセスで流す。
 例外 1: src/editor/tests/ はリポジトリ直下からだと test_backend の import で落ちるので、そのフォルダを cwd にしてモジュール名で 1 本ずつ流す
         (test_metrics は自分で定義したクラスだけ。前は test_metrics を 1 回 = 星の import で全部を 1 本にしていて、一番遅い束だった。10-18 テストの見直し)。
@@ -39,6 +40,23 @@ TAIL_LINES = 25
 SLOWEST = 10
 PY = [sys.executable]   # この道具を動かした Python(py -3.12)で流す
 
+
+def find_node():
+    """node(PATH に無ければ Playwright に入っている node.exe)。無ければ None"""
+    import shutil
+    n = shutil.which("node")
+    if n:
+        return n
+    try:
+        import playwright
+    except ImportError:
+        return None
+    p = os.path.join(os.path.dirname(playwright.__file__), "driver", "node.exe" if os.name == "nt" else "node")
+    return p if os.path.isfile(p) else None
+
+
+NODE = find_node()
+
 Unit = namedtuple("Unit", "rel cwd args label")
 Result = namedtuple("Result", "unit ok count secs err")
 
@@ -52,7 +70,7 @@ def find_files(root):
             if os.path.basename(dirpath) != "tests":
                 continue
             for name in filenames:
-                if name.startswith("test_") and name.endswith(".py"):
+                if name.startswith("test_") and name.endswith((".py", ".cjs")):
                     full = os.path.join(dirpath, name)
                     found.append(os.path.relpath(full, root).replace(os.sep, "/"))
     return sorted(found)
@@ -79,9 +97,9 @@ def build_units(root, only=None):
     """流す物の一覧。editor は 1 つにまとめ、単独の物には印を付ける。only で絞る。"""
     files = find_files(root)
     units = []
-    editor_files = [rel for rel in files if rel.startswith(EDITOR_TESTS + "/")]
+    editor_files = [rel for rel in files if rel.startswith(EDITOR_TESTS + "/") and rel.endswith(".py")]
     for rel in files:
-        if rel.startswith(EDITOR_TESTS + "/"):
+        if rel in editor_files:
             continue
         label = rel + (" (単独)" if rel in SOLO else "")
         units.append(Unit(rel, root, [rel], label))
@@ -98,16 +116,23 @@ def build_units(root, only=None):
 
 
 def run_one(unit):
-    """1 本を別のプロセスで流す。結果(成否・テストの数・秒・stderr)を返す。"""
+    """1 本を別のプロセスで流す。結果(成否・テストの数・秒・stderr)を返す。.cjs は node --test(数は「tests N」の行)"""
     env = dict(os.environ)
     env["YTT_DATA_DIR"] = "inplace"
     env.pop("PYTHONIOENCODING", None)
-    cmd = PY + ["-m", "unittest"] + unit.args
+    cjs = unit.rel.endswith(".cjs")
+    if cjs and not NODE:
+        return Result(unit, False, 0, 0.0, "node が見つかりません(PATH か Playwright の node.exe)")
+    cmd = [NODE, "--test"] + unit.args if cjs else PY + ["-m", "unittest"] + unit.args
     t0 = time.monotonic()
     p = subprocess.run(cmd, cwd=unit.cwd, env=env, capture_output=True, creationflags=tools.no_window_flags())
     secs = time.monotonic() - t0
     err = p.stderr.decode("utf-8", errors="replace")
-    m = re.search(r"^Ran (\d+) tests?", err, re.M)
+    if cjs:
+        err = p.stdout.decode("utf-8", errors="replace") + err
+        m = re.search(r"^(?:ℹ|#) tests (\d+)", err, re.M)
+    else:
+        m = re.search(r"^Ran (\d+) tests?", err, re.M)
     count = int(m.group(1)) if m else 0
     return Result(unit, p.returncode == 0, count, secs, err)
 

@@ -42,7 +42,7 @@ def main():
         tid2 = srv.transcribe(v2, "もう1本")
 
         with sync_playwright() as pw:
-            b = pw.chromium.launch()
+            b = pw.chromium.launch(args=["--mute-audio"])
             ctx = b.new_context(viewport={"width": 1440, "height": 950})
             pg = ctx.new_page()
             pg.on("pageerror", lambda e: errors.append(str(e)))

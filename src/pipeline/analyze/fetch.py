@@ -70,6 +70,18 @@ def chat_cache_path(vid):
     return os.path.join(chat_cache_dir(), vid + ".live_chat.json")
 
 
+def drop_chat_cache(vid):
+    """取っておいたチャットを捨てる(件数が少なすぎて使えなかった = 配信の直後でリプレイがまだ揃っていないかもしれない。次の解析で取り直す。10-19)。
+    消せなくても上げない(次の機会に)"""
+    if not isinstance(vid, str) or not _yturl.VID_RE.match(vid):
+        return False
+    try:
+        os.remove(chat_cache_path(vid))
+        return True
+    except OSError:
+        return False
+
+
 def _usable_chat(path):
     """取得済みのチャット(空でなく、大きすぎない)があるか"""
     return os.path.isfile(path) and 0 < os.path.getsize(path) <= MAX_CHAT_BYTES

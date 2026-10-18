@@ -168,5 +168,4 @@
       $('#stLoading').textContent = '設定を読み込めませんでした: ' + ((e && e.message) || '');
     });
   });
-  window.YttSettings = { stores: STORES, reload: load, filter: applyFilter };   /* 画面のテスト(e2e_settings.py)が読む */
 })();

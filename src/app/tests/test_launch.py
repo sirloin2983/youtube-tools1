@@ -928,6 +928,18 @@ class PortalHttpTest(Base):
             self.assertEqual(put({}, path="/api/flow/nai")[0], 404)
             cross = {"Content-Type": "application/json", "Sec-Fetch-Site": "cross-site", "X-YTT-Token": self.srv.token}
             self.assertEqual(self.req("PUT", "/api/flow/machine", b"{}", cross)[0].status, 403)
+            # 案件の保存先 caseRoot を変えると、出来上がる場所(スタジオの書き出し先 outDir)も同じにそろう(以前は空き容量を測る所だけ変わった)
+            from ytt import studio_env
+            shome, cases = os.path.join(self.tmp, "studio-home"), os.path.join(self.tmp, "cases")
+            with mock.patch.object(studio_env, "_home", shome), mock.patch.object(studio_env, "_out_dir", None):
+                os.makedirs(shome, exist_ok=True)
+                st, j = put({"caseRoot": cases})
+                self.assertEqual((st, j["machine"]["caseRoot"]), (200, cases))
+                self.assertEqual(studio_env.get_out_dir(), cases)
+                self.assertEqual(testkit.read_json(os.path.join(shome, "settings.json"))["outDir"], cases)
+                with mock.patch.object(L.PortalServer, "tools_busy", lambda s: True):   # 処理の実行中は変えない(machine.json も書かない)
+                    st, j = put({"caseRoot": os.path.join(self.tmp, "other")})
+                self.assertEqual((st, j["error"], testkit.read_json(mfile)["caseRoot"]), (409, "busy", cases))
 
     def test_flow_outbox_api(self):
         """F1 F6a: GET /api/flow/outbox = 送り返す zip の一覧・POST /api/flow/outbox/done {id} で 済み へ(無い・形が違う id は 404・合言葉が要る)"""

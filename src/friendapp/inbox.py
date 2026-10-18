@@ -724,10 +724,18 @@ class Inbox:
                 try:
                     if not remote:
                         self._place(r, p, verdict, by)
-                    self._record(r, p, JUDGE[verdict], reason=reason if verdict == "bad" else None, by=by)
                 except OSError as e:
                     errors.append({"name": p["name"], "message": self._move_failed(verdict, e)})
                     continue
+                try:
+                    self._record(r, p, JUDGE[verdict], reason=reason if verdict == "bad" else None, by=by)
+                except OSError as e:
+                    # 移したあとに記録が書けない: 移した物を元へ戻して「決めていない」のまま(もう一度押せば決まる)。
+                    # 戻せない(3 日の自動ですぐ消した・戻す移動も失敗)ときは、記録なしで決めたことにする(ごみ箱の物は 3 日は [戻す] が効く)
+                    self.log("判断の記録を書けませんでした: %s" % e.__class__.__name__)
+                    if not remote and self._unplace(p):
+                        errors.append({"name": p["name"], "message": self._move_failed(verdict, e)})
+                        continue
                 p.update(verdict=verdict, reason=reason if verdict == "bad" else None, at=self._now_ms(), by=by, want=None)
                 if verdict == "keep" or by == "auto":
                     self._drop_preview(p)
@@ -788,6 +796,19 @@ class Inbox:
             shutil.rmtree(fsio.long_path(src))
         else:
             p["trash"] = self._to_trash(src)
+
+    def _unplace(self, p):
+        """_place で移した物を元の場所(p["dir"])へ戻す -> 戻せたか(すぐ消した物・元の場所がふさがっている・移せないは False)"""
+        moved = p.get("savedTo") or p.get("trash")
+        if not moved or os.path.exists(fsio.long_path(p["dir"])):
+            return False
+        try:
+            shutil.move(fsio.long_path(moved), fsio.long_path(p["dir"]))
+        except OSError as e:
+            self.log("移した物を元へ戻せませんでした: %s" % e.__class__.__name__)
+            return False
+        p.update(savedTo=None, trash=None)
+        return True
 
     def keep_dest(self, r, p):
         """受け取った物の置き場所(C-3-8)-> (<保存先>\\<配信の日付>_<配信者名>_<配信タイトル 40 文字>, "#番号")"""

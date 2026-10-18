@@ -51,14 +51,14 @@
   - 名前: `git` :61・`read_removals` :70・`tracked` :90・`apply_removals` :95・`staged_files` :115・`staged_blob` :121・`problems_for` :125・`check` :160・`notes_root` :179・`push_notes` :186・`main` :232
 - **rule_checks.py** (482 行) — 規則(書き方・置き場所・ファイルの形)の見張り。テストに置いていた「規則の見張り」(分け ②a)をここへ移した(test-trim の規則の担当)。
   - 名前: `rule` :27・`read_text` :34・`read_bytes` :39・`rel` :44・`repo_files` :48・`src_py_files` :57・`non_ascii_lines` :67・`bat_problems` :72・`requirements_problems` :83・`rule_bat_ascii_crlf` :97・`rule_requirements_ascii` :108・`push_bat_problems` :117・ほか 22
-- **rule_imports.py** (706 行) — 規則の見張りのうち、ソースを import して突き合わせる物(`dev/rule_checks.py` の続き。テストの分け ②a から移した分)。
+- **rule_imports.py** (707 行) — 規則の見張りのうち、ソースを import して突き合わせる物(`dev/rule_checks.py` の続き。テストの分け ②a から移した分)。
   - 名前: `check` :37・`c_adopt_defaults` :86・`c_live_tx_constants` :99・`c_port_ranges` :127・`c_tool_module_names` :134・`schema_shape_problems` :153・`schema_items` :208・`c_settings_schema` :223・`c_studio_schema` :248・`c_portal_title` :263・`c_static_table` :270・`c_spec_consistency` :278・ほか 21
 - **run_e2e.py** (140 行) — 画面テスト(e2e)の一式を 1 本ずつ流して、1 本 1 行(所要秒・OK/FAIL の数)で出す。一式の正はこのファイルの SUITE。
   - 名前: `label` :65・`summary` :70・`selected` :77・`run_one` :90・`main` :104
 - **run_editor_suite.py** (100 行) — 「編集」まわりのテストをまとめて流し、結果の1行ずつを出す(段10 のコードの整理で、分ける前と後の結果を比べるため)。
   - 名前: `find_node` :26・`summary` :49・`main` :62
-- **run_unit.py** (189 行) — unittest を層ごと・フォルダごとに流す道具(1 本ずつ別のプロセス)。リポジトリ直下で:
-  - 名前: `find_files` :46・`matches` :61・`build_units` :78・`run_one` :100・`report` :115・`run_all` :130・`print_summary` :149・`main` :159
+- **run_unit.py** (214 行) — unittest を層ごと・フォルダごとに流す道具(1 本ずつ別のプロセス)。リポジトリ直下で:
+  - 名前: `find_node` :44・`find_files` :64・`matches` :79・`build_units` :96・`run_one` :118・`report` :140・`run_all` :155・`print_summary` :174・`main` :184
 - **session_start.py** (454 行) — セッションの入口の要約(2026-10-18)。新しい AI のセッションが最初に流し、今の状態を 1 画面(150 行以内)で見る。
   - 名前: `cut` :49・`run` :54・`git` :64・`read` :68・`git_block` :78・`versions` :98・`worklog_block` :107・`boundary_dirs` :123・`boundary_notes` :131・`boundary_block` :146・`load_items` :160・`plan_block` :170・ほか 16
 - **spec_check.py** (222 行) — 仕様(保管庫の docs/spec/)とコードの食い違いを探す(2026-10-18)。

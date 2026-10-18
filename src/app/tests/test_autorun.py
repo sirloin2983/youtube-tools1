@@ -712,7 +712,7 @@ class TestFull(Base):
         self.assertEqual(self.states(run), {"analyze": "done", "adopt": "done", "export": "done", "transcribe": "done", "pack": "done"})
         self.assertEqual(sorted(self.tools.export_body["markIds"]), ["a2", "a3"])   # 点数の高い2件(9.0・5.0)
         add = [c for c in self.tools.calls if c[2] == "/api/queue/add"]
-        self.assertEqual(add[0][3], {"items": [{"kind": "youtube", "videoId": VID}], "settings": AN()})   # 保存した設定が無ければ既定値(束の既定 = スタジオの既定)
+        self.assertEqual(add[0][3], {"items": [{"kind": "youtube", "videoId": VID}], "settings": AN(fill=2)})   # 保存した設定が無ければ既定値(束の既定 = スタジオの既定)。fill = 採用の上限(足りなければ埋める。10-19)
 
     def test_full_mode_uses_saved_analysis_settings(self):
         """スタジオの画面で保存した解析の設定(settings.analyze)で解析する(段階7-1)"""
@@ -720,7 +720,7 @@ class TestFull(Base):
         run = self.run_one("full", top=2)
         self.assertEqual(run["state"], "done", run)
         add = [c for c in self.tools.calls if c[2] == "/api/queue/add"]
-        self.assertEqual(add[0][3]["settings"], AN(count=5, length=30, sensitivity="high", useChat=False))
+        self.assertEqual(add[0][3]["settings"], AN(count=5, length=30, sensitivity="high", useChat=False, fill=2))
 
 
 class TestNew(Base):
@@ -1774,7 +1774,7 @@ class TestRequests(Base):
         run = self.request({"id": VID, "top": 1}, weights=w)
         self.assertEqual(self.states(run)["analyze"], "done", run)
         add = [c for c in self.tools.calls if c[2] == "/api/queue/add"]
-        self.assertEqual(add[-1][3]["settings"], AN(count=12, wAudio=1.5, wChat=0.5, wComments=0.7))   # ほかの設定はスタジオのまま
+        self.assertEqual(add[-1][3]["settings"], AN(count=12, wAudio=1.5, wChat=0.5, wComments=0.7, fill=1))   # ほかの設定はスタジオのまま
         self.tools.video["analysis"] = {"at": 3, "spec": dict(w, count=12)}
         run = self.request({"id": VID, "top": 1}, weights=dict(w))
         self.assertEqual(self.states(run)["analyze"], "skip")
@@ -1882,7 +1882,7 @@ class TestFriendLength(Base):
         self.write_runs()
         run = self.run_request(weights={"wAudio": 1.5, "wChat": 1.0, "wComments": 1.0})
         self.assertEqual(run["state"], "done", run)
-        self.assertEqual(self.settings(), AN(count=12, length=38, preRatio=0.65, wAudio=1.5, wChat=1.0, wComments=1.0))
+        self.assertEqual(self.settings(), AN(count=12, length=38, preRatio=0.65, wAudio=1.5, wChat=1.0, wComments=1.0, fill=3))
         self.assertEqual(run["friendLength"], {"length": 38, "file": "flow/lengthhint", "samples": 20, "videos": 5})
         self.assertIn("長さ 38 秒(友人の区間の実績から)", next(s for s in run["steps"] if s["key"] == "analyze")["detail"])
         self.assertIn("長さの目安を使います(場面が取れないときの長さ): 38 秒", self.logs[0])
@@ -1890,7 +1890,7 @@ class TestFriendLength(Base):
     def test_not_enough(self):
         self.write_runs(n=19, videos=5)
         run = self.run_request()
-        self.assertEqual((self.settings(), run["friendLength"]), (AN(count=12, length=45, preRatio=0.65), None))
+        self.assertEqual((self.settings(), run["friendLength"]), (AN(count=12, length=45, preRatio=0.65, fill=3), None))
         self.assertTrue(any("まだ少ない" in x for x in self.logs), self.logs)
 
     def test_clamp_and_switch_log(self):
@@ -1910,7 +1910,7 @@ class TestFriendLength(Base):
         self.write_runs()
         self.tools.known = True
         run = self.run_one("full")
-        self.assertEqual((run["state"], self.settings()), ("done", AN(count=12, length=45, preRatio=0.65)))
+        self.assertEqual((run["state"], self.settings()), ("done", AN(count=12, length=45, preRatio=0.65, fill=3)))
         self.assertIsNone(run["friendLength"])
         # 解析済み(スタジオの設定の長さで)の配信: 依頼でも解析し直さない
         self.tools.video["analysis"] = {"at": 5, "spec": {"length": 45}}

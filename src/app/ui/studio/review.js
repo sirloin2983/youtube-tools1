@@ -2591,7 +2591,7 @@ function liveTxText(tx){
 }
 /* 書き出しの行の、本番版への作り直しの1行(済み = 札だけなので無し)。外から来る文字は esc */
 function archLineHTML(a){
-  if (a && a.packOld) return '<div class="rv-ejob-s rv-warnline">前に作ったパックは速報版のままです。「編集」の 3 パック のタブで作り直してください</div>';   // 入口の archive.packOld(動画の写しを入れるパック)
+  if (a && a.packOld) return '<div class="rv-ejob-s rv-warnline">前に作ったパックは速報版のままです。「カット・パック」のタブで作り直してください</div>';   // 入口の archive.packOld(動画の写しを入れるパック)
   if (!a || a.state === 'done') return '';
   if (a.active) return `<div class="rv-ejob-s hint">アーカイブから: ${esc(a.label)}${a.progress > 0 ? ' ' + Math.round(a.progress * 100) + '%' : ''}${a.message ? '(' + esc(a.message) + ')' : ''}</div>`;
   if (a.state === 'error') return `<div class="rv-ejob-s rv-warnline">アーカイブから書き出せませんでした${a.message ? ': ' + esc(a.message) : ''}</div>`;

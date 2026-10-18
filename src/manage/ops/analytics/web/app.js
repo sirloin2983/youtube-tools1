@@ -20,7 +20,7 @@
     }
     return fetch(path, opt).then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (j) {
-        if (!r.ok) { var e = new Error(j.message || ('エラー ' + r.status)); e.code = j.error; throw e; }
+        if (!r.ok) { var e = new Error(j.message || ('エラー ' + r.status)); e.code = j.error; if (r.status === 403 && j.error === 'token' && window.UIKit && UIKit.tokenStale) UIKit.tokenStale(); throw e; }
         return j;
       });
     });

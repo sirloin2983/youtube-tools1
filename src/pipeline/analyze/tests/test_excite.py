@@ -549,5 +549,38 @@ class TestScene(unittest.TestCase):
         self.assertTrue(pk["start"] <= pk["peak"] <= pk["end"])
 
 
+class TestFill(unittest.TestCase):
+    """本数に届かないときの埋め(spec の fill。10-18 の kYKmNCRiC40: チャット 0 件・感度「低」で山が 1 つだけ → 頼んだ 5 本に届かなかった)"""
+
+    def total(self):
+        n = 3000
+        w = bump(n, 500, 5.0, 0)   # しきい値(低 3.2)を超える山は 1 つ
+        for c, amp in ((1200, 1.5), (1800, 1.2), (2400, 1.0)):   # しきい値に届かない小さな山(音声の盛り上がり)
+            w = [a + b for a, b in zip(w, bump(n, c, amp, 0))]
+        return w, [-30.0] * n, n
+
+    def test_no_fill_is_unchanged(self):
+        w, lv, n = self.total()
+        picks = excite.pick_clips(w, lv, dict(SPEC, sensitivity="low"), n)
+        self.assertEqual(len(picks), 1)
+        self.assertNotIn("fill", picks[0])
+
+    def test_fill_up_to_requested_with_mark(self):
+        w, lv, n = self.total()
+        picks = excite.pick_clips(w, lv, dict(SPEC, sensitivity="low", fill=3), n)
+        self.assertEqual([p["peak"] for p in picks], [500, 1200, 1800])   # 点数の高い順に、しきい値の下の山で 3 本まで
+        self.assertEqual([bool(p.get("fill")) for p in picks], [False, True, True])
+        cands = excite.candidates(picks, {"audio": w})
+        self.assertNotIn(excite.FILL_REASON, cands[0]["reasons"])
+        self.assertTrue(cands[1]["fill"])
+        self.assertIn(excite.FILL_REASON, cands[1]["reasons"])
+
+    def test_fill_stops_at_flat_and_at_count(self):
+        w, lv, n = self.total()
+        self.assertEqual(len(excite.pick_clips(w, lv, dict(SPEC, sensitivity="low", fill=8), n)), 4)   # 平ら(点数 0)は埋めに使わない
+        self.assertEqual(len(excite.pick_clips(w, lv, dict(SPEC, sensitivity="low", fill=8, count=2), n)), 2)   # 解析の数 count が上限
+
+
+
 if __name__ == "__main__":
     unittest.main()

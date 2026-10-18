@@ -562,7 +562,7 @@ def main():
 
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(args=["--autoplay-policy=no-user-gesture-required"])
+            browser = p.chromium.launch(args=["--autoplay-policy=no-user-gesture-required", "--mute-audio"])
             try:
                 ctx = browser.new_context(viewport={"width": 1280, "height": 900})
                 pg = ctx.new_page()

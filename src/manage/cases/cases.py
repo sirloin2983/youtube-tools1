@@ -630,7 +630,7 @@ def _find_auto(repo_root, case_id, mark_id, env):
     if cl is None:
         raise ReviewError("その切り抜きは一覧にありません(もう片付けたかもしれません。一覧を読み込み直してください)", 404, "not_found")
     if not cl.get("auto"):
-        raise ReviewError("自動でできた切り抜きではありません(人が書き出した切り抜きは「編集」の 3 パック から届けます)")
+        raise ReviewError("自動でできた切り抜きではありません(人が書き出した切り抜きは案件の画面の「カット・パック」のタブから届けます)")
     return c, cl
 
 

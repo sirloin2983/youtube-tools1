@@ -416,7 +416,7 @@ def main():
     base = "http://127.0.0.1:%d/" % httpd.server_address[1]
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch()
+            browser = p.chromium.launch(args=["--mute-audio"])
             try:
                 check_page(browser, base, check)
 

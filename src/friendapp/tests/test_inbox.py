@@ -336,6 +336,29 @@ class InboxTest(unittest.TestCase):
         self.assertIsNone(row["packs"][0]["verdict"])
         self.assertEqual(self.verdict_files(RID, "a_pack"), [])
 
+    def test_decide_record_failure_puts_the_pack_back(self):
+        """移したあとに判断の記録が書けない: 移した物を元の場所へ戻して「決めていない」のまま(もう一度押せば決まる。ごみ箱に残って日付で消えない)"""
+        for verdict in ("skip", "keep"):
+            with self.subTest(verdict=verdict):
+                rid = RID if verdict == "skip" else RID2
+                r, case, dirs = self.arrive(rid, ["a_pack"])
+                with mock.patch.object(self.box, "_record", side_effect=PermissionError("denied")):
+                    got = self.box.decide(rid, [], verdict)
+                self.assertEqual((got["done"], [e["name"] for e in got["errors"]]), ([], ["a_pack"]))
+                p = self.box.row(rid)["packs"][0]
+                self.assertEqual((p["verdict"], p.get("trash"), p.get("savedTo")), (None, None, None))
+                self.assertTrue(os.path.isdir(dirs[0]), "元の場所へ戻る")
+                got = self.box.decide(rid, [], verdict)   # もう一度押すと決まる
+                self.assertEqual(got["done"], ["a_pack"])
+
+    def test_decide_record_failure_after_auto_removal_still_decides(self):
+        """3 日の自動(すぐ消す)は戻せないので、記録が書けなくても決めたことにする(戻せない物を「決めていない」で残さない)"""
+        r, case, dirs = self.arrive(RID, ["a_pack"])
+        with mock.patch.object(self.box, "_record", side_effect=PermissionError("denied")):
+            got = self.box.decide(RID, [], "skip", by="auto")
+        self.assertEqual(got["done"], ["a_pack"])
+        self.assertEqual(self.box.row(RID)["packs"][0]["verdict"], "skip")
+
     def test_decide_skip_error_message(self):
         self.arrive(RID, ["a_pack"])
         with mock.patch("friendapp.inbox.shutil.move", side_effect=OSError("busy")):

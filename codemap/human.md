@@ -43,8 +43,8 @@
 - **__init__.py** (3 行) — ③ 配信の検索(YouTube Data API・事務所の登録)
 - **fake_yt.py** (119 行) — ① 配信の検索 rank.py の疑似 YouTube Data API(STUDIO_FAKE=1 のときだけ使う。ネットワークなし。e2e と画面の確かめが使う)。
   - 名前: `fake_channel_id` :20・`fake_video` :24・`fake_get` :34・`fake_live` :97
-- **rank.py** (652 行) — ③ 配信の検索: 事務所・所属チャンネルの登録と、YouTube Data API による検索ジョブ。
-  - 名前: `yt_get` :64・`parse_ref` :74・`sanitize_registry` :100・`load_registry` :133・`parse_regions` :272・`validate_search` :321・`run_search` :447・`parse_live_agencies` :540・`live_list` :553・`get_registry` :576・`put_registry` :580・`resolve` :587・ほか 8
+- **rank.py** (655 行) — ③ 配信の検索: 事務所・所属チャンネルの登録と、YouTube Data API による検索ジョブ。
+  - 名前: `yt_get` :64・`parse_ref` :74・`sanitize_registry` :100・`load_registry` :133・`parse_regions` :275・`validate_search` :324・`run_search` :450・`parse_live_agencies` :543・`live_list` :556・`get_registry` :579・`put_registry` :583・`resolve` :590・ほか 8
 
 ## src/human/friend/
 

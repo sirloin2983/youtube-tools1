@@ -100,8 +100,18 @@ class Base(unittest.TestCase):
         return os.path.join(self.tmp, "live", LS.BUNDLES_FILE)
 
 
+class ChatRetryWatchTest(Base):
+    def test_patrol_calls_runner_chat_retry(self):
+        """10-19: 見回りの 1 つ = まとめて実行の chat_retry_tick(チャットのリプレイが無かった配信の取り直し)。持たない待ち行列なら何もしない"""
+        steps = dict(self.s._watch_steps())
+        fn = steps["チャットの取り直しの見回りでエラー"]
+        self.assertIsNone(fn())   # FakeQueue は持たない
+        self.queue.chat_retry_tick = lambda: 2
+        self.assertEqual(fn(), 2)
+
+
 class SubmitTest(Base):
-    SPEC = {"analyze": {"length": 30, "wChat": 2.0, "preRatio": 0.5}, "adopt": {"sens": "high", "perHour": 12, "waitMin": 3, "top": 4},
+    SPEC ={"analyze": {"length": 30, "wChat": 2.0, "preRatio": 0.5}, "adopt": {"sens": "high", "perHour": 12, "waitMin": 3, "top": 4},
             "export": {"loudness": None, "volume": 120}}
 
     def test_queue_hook_to_bundle_and_detect(self):

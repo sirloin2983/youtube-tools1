@@ -376,11 +376,11 @@ def run(tmp, shots, force_chromium):
             browser, edge = None, False
             if not force_chromium:
                 try:
-                    browser, edge = p.chromium.launch(channel="msedge"), True
+                    browser, edge = p.chromium.launch(channel="msedge", args=["--mute-audio"]), True
                 except Exception as e:
                     print("(Edge を起動できませんでした: %s。Playwright の chromium で続けます)" % str(e).splitlines()[0])
             if browser is None:
-                browser = p.chromium.launch()
+                browser = p.chromium.launch(args=["--mute-audio"])
             print("ブラウザ: %s" % ("Edge" if edge else "Playwright の chromium"), flush=True)
             try:
                 ctx = browser.new_context(viewport={"width": 1440, "height": 900}, color_scheme="light")

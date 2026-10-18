@@ -7,8 +7,8 @@
 - **__init__.py** (2 行) — ② 管理(役割で組み直す計画 RS6。決定 3-29)。① 道具(pipeline)をいつ・どの順で・どこに置いて・飛ばすかを決める層。ytt と pipeline だけを import する。③ 人(human)と ④ データ(manage)は ① を直に読まず、ここの口を通す。② に変換のコー…
 - **adopt.py** (35 行) — ② 採用の口(RS8 B3-2 の G1a。2026-10-11)。③ のスタジオの台帳(human/review/store の Store.adopt_marks)が、採用の規則 F-5
   - 名前: `check` :18・`pick` :26
-- **batch.py** (246 行) — 解析キュー(バッチ): 最大10本(待ち+実行中)。1つの糸が古い順に1本ずつ analyze.run(spec, ctl) で解析する(OPT2 の J1)。
-  - 名前: `class Batch` :40
+- **batch.py** (253 行) — 解析キュー(バッチ): 最大10本(待ち+実行中)。1つの糸が古い順に1本ずつ analyze.run(spec, ctl) で解析する(OPT2 の J1)。
+  - 名前: `queued_already` :28・`class Batch` :47
 - **board.py** (428 行) — ② 管理の層 flow: ジョブの掲示板(RS8 の ② の口 S1。2026-10-11。形は notes:docs/spec/pipeline.md 2.9・設計 notes:docs/design/rs8-flow-api.md)。
   - 名前: `class NotFound` :53・`class Refused` :57・`split_id` :65・`norm_case` :73・`normalize` :131・`class Board` :159・`default` :398・`guess_case` :407
 - **casebook.py** (326 行) — ② 管理の層 flow: 案件の候補と採用のファイルの書く側(RS8 B3-3・B3-4a。決定 3-37 の (r8j)〜(r8q)。下調べは WORKLOG の 10-11)。
@@ -37,8 +37,8 @@
   - 名前: `friend_ranges` :75・`load_archive` :90・`candidates` :110・`peak_ratio` :134・`samples` :146・`suggest` :163・`compute` :186・`usable` :206・`describe` :216・`change` :228
 - **live_adopt.py** (276 行) — ライブの採用 = サーバー側の「マーク + 書き出し」(線 D の M1。役割で組み直す RS7-2 G1b。資料の git:cbe1a64:docs/design/surveys/rs7-survey-2026-10-10/plan_order_v3.md)。
   - 名前: `adopt_secs` :42・`pad_secs` :63・`top_of` :75・`class StudioMarks` :85・`class LocalMarks` :128・`class Adopter` :220
-- **live_archive.py** (1533 行) — 録画に無い区間をアーカイブ(YouTube)から書き出す(線 D の P4 の残り。notes:plan/line-d-live-clipping.md の 0-9)と、配信後の全自動(M7)の入口の側の中身。
-  - 名前: `from_archive` :146・`needs_archive` :151・`class ArchiveError` :157・`class Later` :161・`run_proc` :170・`probe_archive` :202・`readiness` :244・`fetch_full_audio` :262・`worker_python` :292・`run_align` :297・`inside` :311・`ended_at` :317・ほか 5
+- **live_archive.py** (1534 行) — 録画に無い区間をアーカイブ(YouTube)から書き出す(線 D の P4 の残り。notes:plan/line-d-live-clipping.md の 0-9)と、配信後の全自動(M7)の入口の側の中身。
+  - 名前: `from_archive` :147・`needs_archive` :152・`class ArchiveError` :158・`class Later` :162・`run_proc` :171・`probe_archive` :203・`readiness` :245・`fetch_full_audio` :263・`worker_python` :293・`run_align` :298・`inside` :312・`ended_at` :318・ほか 5
 - **live_detect.py** (755 行) — 配信中の盛り上がりの検出(線 D の L2)と自動の採用(M11)の入口の側。計画は notes:plan/line-d-detect.md(3 の「候補の API の約束」は線 2 = スタジオの画面との境目。変えない)。
   - 名前: `clean_spec` :81・`overlay` :95・`merge_spans` :115・`measured_holes` :126・`class Detector` :146
 - **live_export.py** (1388 行) — リアルタイム切り抜き(線 D の P2: マークと書き出し。notes:plan/line-d-live-clipping.md の 0・5・6)の入口の側の中身。
@@ -57,7 +57,7 @@
   - 名前: `channel_regions` :39・`live_row` :57・`live_list` :152
 - **livehost.py** (87 行) — ライブの親(host)の口(役割で組み直す RS7-2 G0。資料の git:cbe1a64:docs/design/surveys/rs7-survey-2026-10-10/plan_order_v3.md)。
   - 名前: `class RequestBook` :25・`class MarkBook` :37・`class LiveHost` :47
-- **livesession.py** (1143 行) — ② 管理の層 flow: ライブ係(役割で組み直す RS7-2 G2b。資料の git:cbe1a64:docs/design/surveys/rs7-survey-2026-10-10/plan_order_v3.md の 1 節 5・…
+- **livesession.py** (1149 行) — ② 管理の層 flow: ライブ係(役割で組み直す RS7-2 G2b。資料の git:cbe1a64:docs/design/surveys/rs7-survey-2026-10-10/plan_order_v3.md の 1 節 5・…
   - 名前: `validate_url` :80・`probe_live` :108・`rec_view` :134・`recorder_data_dir` :150・`is_local_url` :163・`stream_url` :171・`live_envelope` :177・`cfg_bundle` :187・`now_bundle` :208・`request_bundle` :227・`request_settings` :260・`speakers_of` :267・ほか 4
 - **machine.py** (303 行) — ② 管理の層 flow: この PC の設定(機械の都合)を 1 か所に(役割で組み直す RS7-1 の S1。決定 3-30 の Q1・notes:plan/done/f1-friend-pc.md の決めたこと 8・9)。
   - 名前: `check` :68・`root` :102・`path` :107・`read_file` :119・`read_env` :136・`llm_for_vram` :163・`auto_llm` :173・`overlay_llm` :179・`explicit` :212・`load` :221・`get` :239・`save` :247・ほか 1
@@ -77,8 +77,8 @@
   - 名前: `studio_data` :50・`case_root` :63・`doc_home` :91・`configured_out_dir` :125・`request_root` :133・`case_parents` :156・`case_roots` :162・`find_request_dir` :183・`work_dir` :204・`runs_dir` :210・`case_path` :228・`read_case` :233・ほか 10
 - **prio.py** (88 行) — ② 管理の層 flow: 処理の優先度の表(PRIO。決定 3-49・notes:plan/done/opt-series.md の 11)。
   - 名前: `name_ok` :35・`rank` :39・`idle_only` :43・`os_priority` :47・`label` :51・`slot_kw` :55・`of_run` :60・`of_spec` :69・`watch` :80・`idle_now` :85
-- **run.py** (1432 行) — ① 自動の流れの経路(役割で組み直す RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。
-  - 名前: `class Cancelled` :117・`class StepError` :121・`mode_of` :141・`steps_of` :164・`analyze_verdict` :202・`adopted_ids` :207・`tx_verdict` :212・`pack_verdict` :219・`doc_pack_hint` :229・`class Run` :241・`class Runner` :528・`run` :1413
+- **run.py** (1576 行) — ① 自動の流れの経路(役割で組み直す RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。
+  - 名前: `class Cancelled` :120・`class StepError` :124・`mode_of` :144・`steps_of` :167・`analyze_verdict` :205・`chat_missing` :222・`chat_retry_ok` :228・`redo_reason` :236・`short_why` :254・`adopted_ids` :266・`tx_verdict` :271・`pack_verdict` :278・ほか 4
 - **runlog.py** (93 行) — まとめて実行の「終わった実行の記録」の形と読み方(役割で組み直す RS3-0B。入口 src/app/autorun.py から移した。動きは変えていない)。
   - 名前: `read_runs_log` :47・`read_result` :77
 - **runqueue.py** (834 行) — ② 管理の層 flow: 待ち行列と実行の糸(役割で組み直す RS7-1 S5。2026-10-10。決定 3-30・

@@ -83,10 +83,10 @@ def _path_busy(path):
         return any(j["state"] in _heavy.ACTIVE_STATES and os.path.normcase(str((j.get("spec") or {}).get("sourcePath") or "")) == key for j in _heavy._jobs.values())
 
 
-def _rename_sidecars(old, new):
+def _rename_sidecars(old, new, done=None):
     """動画の途中のファイル(作業用/ と、以前の置き方の動画の隣)も動画に合わせて名前を変える・移す(仮置きから移すときは別のフォルダへ)。
-    中身は書き換えない。-> [(古い, 新しい)]"""
-    done = []
+    中身は書き換えない。-> [(古い, 新しい)]。done を渡すと移すたびにそこへ足す(途中で失敗しても、呼び手が移した分を戻せる)"""
+    done = [] if done is None else done
     ostem, nstem = os.path.splitext(os.path.basename(old))[0], os.path.splitext(os.path.basename(new))[0]
     for src, dst in ((_yschemas.work_dir(old), _yschemas.work_dir(new)), (os.path.dirname(old), os.path.dirname(new))):
         for suf in EVAL_SIDECARS:
@@ -459,7 +459,7 @@ def _eval_rename(old, new, tids, why="evalOrganize"):
     _fsio.move_file(old, new, log=_txbase.log)
     side, done = [], []
     try:
-        side = _rename_sidecars(old, new)
+        _rename_sidecars(old, new, side)   # 途中で失敗しても、移した分は side にある(下で戻す)
         for tid in tids:
             with _store.saving():
                 doc = _store.read_transcript(tid)

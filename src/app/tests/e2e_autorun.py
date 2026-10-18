@@ -125,7 +125,7 @@ def main():
 
             # ① 画面から「採用後を全部」
             with sync_playwright() as p:
-                browser = p.chromium.launch()
+                browser = p.chromium.launch(args=["--mute-audio"])
                 pg = browser.new_page(viewport={"width": 1200, "height": 900})
                 errors = []
                 pg.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
@@ -240,7 +240,7 @@ def main():
             check(j["runs"] == [] and {p["videoId"] for p in j["past"]} == {vid_a, vid_b, "zzzzzzzzzzz"},
                   "起動し直した入口の /api/flow/runs に前回の結果(past): %s" % [(p["videoId"], p["state"]) for p in j["past"]])
             with sync_playwright() as p:
-                browser = p.chromium.launch()
+                browser = p.chromium.launch(args=["--mute-audio"])
                 pg = browser.new_page(viewport={"width": 1200, "height": 900})
                 errors = []
                 pg.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)

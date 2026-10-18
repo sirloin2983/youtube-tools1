@@ -96,6 +96,18 @@ class TestRegistry(Home):
             self.assertIn("自分の事務所", f.read())   # 元の内容は残っている
         self.assertFalse(os.path.exists(self.reg_path()))
 
+    def test_two_corruptions_in_same_second_both_kept(self):
+        """同じ秒に 2 回壊れても、2 回目も退避する(名前が秒までで重なっても上書きせず、壊れたファイルを置いたままにしない)"""
+        with patch.object(rank.time, "strftime", return_value="20261019-010203"):
+            for text in ('{"a": 1', '{"b": 2'):
+                with open(self.reg_path(), "w", encoding="utf-8") as f:
+                    f.write(text)
+                rank.get_registry()
+        backups = sorted(n for n in os.listdir(self.tmp) if n.startswith("registry.json.corrupt-"))
+        self.assertEqual(len(backups), 2, backups)
+        self.assertTrue(all(n.endswith(".bak") for n in backups))
+        self.assertFalse(os.path.exists(self.reg_path()))
+
     def test_non_object_registry_is_quarantined(self):
         """形が object でない登録簿([1, 2])も退避する(以前は AttributeError で 500)。前の退避が無い所で見る"""
         with open(self.reg_path(), "w", encoding="utf-8") as f:

@@ -1516,9 +1516,12 @@ class ServerTest(unittest.TestCase):
         t = self.fake_clock()
         rid = self.failing_row()
         self.app.inbox.row(rid)["cancelled"] = True
+        formless = self.failing_row()
+        self.app.inbox.row(formless).pop("form", None)   # 依頼の中身(form)が無い行は送り直せない
+        n = len(self.engine.queue.submitted)
         t[0] += 10 * A.RETRY_EVERY
         self.app.api.tick()
-        self.assertEqual(len(self.engine.queue.submitted), 1)
+        self.assertEqual(len(self.engine.queue.submitted), n)
 
     def test_report_writes_notice_to_outbox(self):
         t = self.fake_clock(1_800_000_000.0)

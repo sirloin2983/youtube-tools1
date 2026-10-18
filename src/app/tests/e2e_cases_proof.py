@@ -79,7 +79,7 @@ def main():
         docs = _more_docs(srv)   # 行の編集・評価用・候補・声の場面の文書(配信に入れない = 仮の案件 orphan / eval)
         base = "http://localhost:%d/" % srv.port
         with sync_playwright() as p:
-            browser = p.chromium.launch()
+            browser = p.chromium.launch(args=["--mute-audio"])
             try:
                 ctx = browser.new_context(viewport={"width": 1440, "height": 900})
                 ctx.route(re.compile(r"https://www\.youtube-nocookie\.com/.*"), lambda r: r.fulfill(status=200, content_type="text/html", body="<!doctype html><title>yt</title>"))
@@ -189,7 +189,7 @@ def _scene_cut_tab_gates_keys(ck, pg):
     pg.keyboard.press("Alt+2")
     ck(wait_js(pg, "CasesShell.state().tab === 'cut' && !EditHost.active"), "Alt+2 でカット・パック(校正の欄は隠し場所へ)")
     ck(pg.evaluate("document.querySelector('#player').paused"), "離れたら切り抜きの映像は止まる")
-    # カット・パックのパネルが読み終わるまで待つ(配信者の色の照らし合わせの答えがパネルを閉じたあとに届くと pack-tab.js が消えた欄に書いて落ちる = C2c の側の件。まとめ役に報告)
+    # カット・パックのパネルが読み終わるまで待つ(閉じたあとに届く配信者の色の答えは pack-tab.js の disposed で捨てる。下のキーの確かめを読み込みの途中にしないため)
     wait_js(pg, "((document.querySelector('#csPane #pkLookName') || {}).textContent || '').includes('けいふぉんと')", 15000)
     time.sleep(1.5)
     pg.evaluate("document.activeElement && document.activeElement.blur()")

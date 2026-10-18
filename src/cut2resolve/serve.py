@@ -89,8 +89,8 @@ SOCKET_TIMEOUT = 120
 PAGE_PATHS = ("/", "/index.html")
 MOVED_PAGE = ("<!doctype html><html lang=\"ja\"><head><meta charset=\"utf-8\"><title>cut2resolve</title></head><body>"
               "<h1>cut2resolve の画面は「編集」に統合しました</h1>"
-              "<p>カットは「編集」の <b>2 カット</b>、Resolve へのパックは <b>3 パック</b> のタブで作ります。"
-              "入口(このフォルダの1つ上の start.bat)から「編集」を開いてください。</p>"
+              "<p>カットと Resolve へのパックは、案件の画面の <b>カット・パック</b> のタブで作ります。"
+              "入口(このフォルダの1つ上の start.bat)からホームを開いてください。</p>"
               "<p>コマンドで使うときは src/app/cli.py。</p></body></html>").encode("utf-8")
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; "
        "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")

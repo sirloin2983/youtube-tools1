@@ -308,10 +308,6 @@ class TestOldFfmpeg(unittest.TestCase):
         self.assertEqual(len(calls), 1)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestFastRules(unittest.TestCase):
     """速くする 2 つの決まり(10-18): 映像が条件どおりなら音声だけ・GPU(h264_nvenc)の引数と使えるかの確かめ"""
     def test_video_ok(self):
@@ -393,3 +389,7 @@ class TestFastPaths(unittest.TestCase):
         else:
             self.assertEqual((out["how"], len(calls)), ("GPU(h264_nvenc)", 1))
         self.assertEqual([n for n in os.listdir(self.tmp) if normalize.PART in n], [])
+
+
+if __name__ == "__main__":
+    unittest.main()

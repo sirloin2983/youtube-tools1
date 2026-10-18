@@ -63,7 +63,7 @@ class EvalAsrTest(unittest.TestCase):
         self.tmp = testkit.tempdir(self, prefix="test_eval_asr_")
         self.data = os.path.join(self.tmp, "data")
         os.makedirs(os.path.join(self.data, "transcripts"))
-        os.environ["TRANSCRIBE_FAKE_DELAY"] = "0"
+        self.enterContext(mock.patch.dict(os.environ, {"TRANSCRIBE_FAKE_DELAY": "0"}))   # 流し終わったら元に戻す
         # 評価用: 置換 1(祭り→まつり)・重なり・人が足した行(抜け)・人が消した行(余分)・未校正の行(数えない)
         self.write("aaaaaaaaaaa1", evalSet=True, segments=[
             seg(1, 0.0, 4.0, "まつりが来た"), seg(2, 4.0, 8.0, "二人で話す", tags=["overlap"]), seg(3, 20.0, 22.0, "足した行"),
@@ -419,7 +419,7 @@ class EvalAsrSelectTest(unittest.TestCase):
         self.tmp = testkit.tempdir(self, prefix="test_eval_asr_sel_")
         self.data = os.path.join(self.tmp, "data")
         os.makedirs(os.path.join(self.data, "transcripts"))
-        os.environ["TRANSCRIBE_FAKE_DELAY"] = "0"
+        self.enterContext(mock.patch.dict(os.environ, {"TRANSCRIBE_FAKE_DELAY": "0"}))   # 流し終わったら元に戻す
         orig = [{"start": 0.0, "end": 4.0, "text": "あいくお"}, {"start": 4.0, "end": 8.0, "text": "えお"}]   # 1 行目は「あいう」を聞き違えた
         # 評価用: 行ごとの proofedAt の最大が 09-10(最初の行は 09-01)/ proofedAt なしで updatedAt = 10-02
         self.write("eeeeeeeeee01", evalSet=True, segments=[pseg(1, 0, 4, "あいう", ms(2026, 9, 1)), pseg(2, 4, 8, "えお", ms(2026, 9, 10))],
@@ -971,7 +971,7 @@ class EvalAsrOriginTest(unittest.TestCase):
         self.tmp = testkit.tempdir(self, prefix="test_eval_asr_origin_")
         self.data = os.path.join(self.tmp, "data")
         os.makedirs(os.path.join(self.data, "transcripts"))
-        os.environ["TRANSCRIBE_FAKE_DELAY"] = "0"
+        self.enterContext(mock.patch.dict(os.environ, {"TRANSCRIBE_FAKE_DELAY": "0"}))   # 流し終わったら元に戻す
 
 
     def write(self, tid, dur, heard="こんにちは", **kw):
@@ -1246,7 +1246,6 @@ class EvalAsrNoSubOverlapTest(unittest.TestCase):
         res = self.stored("--group-by", "origin")
         self.assertEqual(list(res["summary"]["byGroup"]), ["ショート"])
         self.assertEqual(res["summary"]["overlap"]["groups"], 1)
-
 
 if __name__ == "__main__":
     unittest.main()

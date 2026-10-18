@@ -554,14 +554,14 @@ test('archive state of portal jobs is shown on the export rows (label, progress,
     fmt: t => 't' + t, esc, handoffHTML: () => '', loudHTML: () => '', ARCH_TITLE: 'アーカイブから作り直して、速報版と入れ替えました' });
   const row = (it, i) => html.jobItemHTML({ live: true }, it, i);
   const done = row(items[0], 0);
-  assert.ok(done.includes('rv-chip arch') && done.includes('>本番版<') && done.includes('速報版と入れ替えました'), 'done: 本番版 chip with the explanation');
+  assert.ok(done.includes('rv-chip arch') && done.includes('>アーカイブ<') && done.includes('アーカイブから作り直して'), 'done: アーカイブ chip with the explanation');
   const run = row(items[1], 1);
-  assert.ok(run.includes('本番版: 照合中 25%') && !run.includes('rv-chip arch'));
+  assert.ok(run.includes('アーカイブから: 照合中 25%') && !run.includes('rv-chip arch'));
   const err = row(items[2], 2);
-  assert.ok(err.includes('本番版に作り直せませんでした: &#60;b&#62;メンバー限定') && !err.includes('<b>'), 'the reason is escaped');
-  assert.ok(err.includes('アーカイブで作り直す') && !err.includes('「書き出す」でやり直せます'), 'gap errors point to the archive');
+  assert.ok(err.includes('アーカイブから書き出せませんでした: &#60;b&#62;メンバー限定') && !err.includes('<b>'), 'the reason is escaped');
+  assert.ok(err.includes('帯の「アーカイブから書き出す」') && !err.includes('「書き出す」でやり直せます'), 'gap errors point to the archive');
   const plainRow = row(items[3], 3);
-  assert.ok(!plainRow.includes('本番版'), 'no archive = no line');
+  assert.ok(!plainRow.includes('アーカイブ'), 'no archive = no line');
   assert.ok(row({ ...items[3], archive: ctx.liveArchView(arch('cancelled')) }, 3).includes('取り消しました'));
   assert.equal(row(items[1], 1), row(items[1], 1), 'the same state gives the same HTML (rows are not rebuilt by the poll)');
 });
@@ -592,36 +592,39 @@ test('reconcile: archived jobs mark exported marks as 本番版 once; adopted ma
   assert.deepEqual(plain(ctx.liveReconcile(marks, jobs, new Set(['lx-1#archive', 'lx-3#archive', 'lx-6']))), [], 'sent ones are not sent again in this opening');
 });
 
-test('the band line for rebuilding from the archive (progress, not ready, done, failed, nothing to do)', () => {
+test('the band line for exporting from the archive (progress, not ready, done, failed, nothing to do)', () => {
   const ctx = liveJobs();
-  const o = { videoId: 'abcdefghijk', known: true, autoOn: true };
+  const o = { videoId: 'abcdefghijk', known: true };
   const J = (id, mark, state, a, extra) => job(id, state, { video: 'V', mark, start: 0, end: 1 }, { path: state === 'done' ? 'C:\\c\\' + mark + '.mp4' : '', archive: a, ...extra });
-  const five = st => ['a', 'b', 'c', 'd', 'e'].map((m, i) => J('lx-' + i, m, 'done', st(i)));
-  let s = ctx.liveArchSummary(five(i => i < 2 ? arch('done') : i === 2 ? arch('align', { label: '照合中' }) : arch('wait')), null, o);
-  assert.equal(s.text, '本番版に作り直しています 2/5 本(照合中)');
+  const M = ['a', 'b', 'c', 'd', 'e'];
+  // 対象 = 録画に無い区間で書き出せなかった(error + needsArchive)か、M7 の採用で待っている(wait + from archive)か、アーカイブから書き出し済み
+  const pend = () => M.map((m, i) => J('lx-' + i, m, 'error', undefined, { needsArchive: true }));
+  const run = st => M.map((m, i) => i < 2 ? J('lx-' + i, m, 'done', arch('done')) : J('lx-' + i, m, 'wait', st(i), { from: 'archive' }));
+  let s = ctx.liveArchSummary(run(i => i === 2 ? arch('align', { label: '照合中' }) : arch('wait')), null, o);
+  assert.equal(s.text, 'アーカイブから書き出しています 2/5 本(照合中)');
   assert.equal(s.running, true); assert.equal(s.can, false);
-  s = ctx.liveArchSummary(five(() => arch('done')), null, o);
-  assert.equal(s.text, '本番版に入れ替えました 5/5 本');
-  assert.equal(s.can, false); assert.equal(s.why, 'すべて本番版に入れ替えました');
-  s = ctx.liveArchSummary(five(() => undefined), { ready: false, message: 'post_live' }, o);
+  s = ctx.liveArchSummary(M.map((m, i) => J('lx-' + i, m, 'done', arch('done'))), null, o);
+  assert.equal(s.text, 'アーカイブから書き出しました 5/5 本');
+  assert.equal(s.can, false); assert.equal(s.why, 'すべてアーカイブから書き出しました');
+  s = ctx.liveArchSummary(pend(), { ready: false, message: 'post_live' }, o);
   assert.equal(s.text, 'アーカイブがまだ用意できていません(自動で確かめ直します)');
   assert.equal(s.can, true, 'the user may still try (the portal answers 409 with the reason)');
-  assert.ok(ctx.liveArchSummary(five(() => undefined), { ready: false }, { ...o, autoOn: false }).text.includes('もう一度押して'));
-  s = ctx.liveArchSummary(five(i => i < 2 ? arch('done') : arch('error', { message: '配信者がアーカイブを切り貼りしています' })), { ready: true }, o);
-  assert.equal(s.text, '本番版に入れ替えました 2/5 本。3 本は作り直せませんでした: 配信者がアーカイブを切り貼りしています');
+  s = ctx.liveArchSummary(M.map((m, i) => i < 2 ? J('lx-' + i, m, 'done', arch('done')) : J('lx-' + i, m, 'error', arch('error', { message: '配信者がアーカイブを切り貼りしています' }), { needsArchive: true })), { ready: true }, o);
+  assert.equal(s.text, 'アーカイブから書き出しました 2/5 本。3 本はアーカイブから書き出せませんでした: 配信者がアーカイブを切り貼りしています');
   assert.equal(s.warn, true); assert.equal(s.can, true, 'failed ones can be tried again');
-  s = ctx.liveArchSummary(five(() => undefined), null, { ...o, msg: 'アーカイブがまだ用意できていません(配信が終わったばかりです)' });
+  s = ctx.liveArchSummary(pend(), null, { ...o, msg: 'アーカイブがまだ用意できていません(配信が終わったばかりです)' });
   assert.equal(s.text, 'アーカイブがまだ用意できていません(配信が終わったばかりです)', 'the 409 message is shown as is');
-  // 対象: マークごとの最新のジョブで、済み か 欠けで書き出せなかった もの
+  // 対象: マークごとの最新のジョブで、欠けで書き出せなかった物・待っている物・アーカイブから書き出し済みの物(前の版で入れ替えた keep ありは数えない)
   const mixed = [J('lx-1', 'a', 'error', undefined, { created: '2026-10-05T10:00:01Z' }), J('lx-2', 'a', 'done', undefined, { created: '2026-10-05T10:00:02Z' }),
-    J('lx-3', 'b', 'error', undefined, { needsArchive: true }), J('lx-4', 'c', 'error'), J('lx-5', 'd', 'encode'), J('lx-6', 'e', 'cancelled')];
-  assert.deepEqual(plain(ctx.liveArchTargets(mixed).map(j => j.id)).sort(), ['lx-2', 'lx-3']);
+    J('lx-3', 'b', 'error', undefined, { needsArchive: true }), J('lx-4', 'c', 'error'), J('lx-5', 'd', 'encode'), J('lx-6', 'e', 'cancelled'),
+    J('lx-7', 'f', 'done', arch('done')), J('lx-8', 'g', 'done', arch('done', { keep: true }))];
+  assert.deepEqual(plain(ctx.liveArchTargets(mixed).map(j => j.id)).sort(), ['lx-3', 'lx-7']);
   s = ctx.liveArchSummary([J('lx-4', 'c', 'error'), J('lx-5', 'd', 'encode')], null, o);
-  assert.equal(s.can, false); assert.ok(s.why.includes('書き出したマークがありません')); assert.equal(s.text, '');
-  s = ctx.liveArchSummary(five(() => undefined), null, { ...o, videoId: '' });
+  assert.equal(s.can, false); assert.ok(s.why.includes('録画に無い区間のマークがありません')); assert.equal(s.text, '');
+  s = ctx.liveArchSummary(pend(), null, { ...o, videoId: '' });
   assert.equal(s.can, false); assert.ok(s.text.includes('YouTube の動画が分からない'));
-  assert.equal(ctx.liveArchSummary(five(() => undefined), null, { ...o, known: false }).can, false, 'not before the job list is read');
-  assert.equal(ctx.liveArchSummary(five(() => undefined), null, { ...o, starting: true }).can, false, 'no double press');
+  assert.equal(ctx.liveArchSummary(pend(), null, { ...o, known: false }).can, false, 'not before the job list is read');
+  assert.equal(ctx.liveArchSummary(pend(), null, { ...o, starting: true }).can, false, 'no double press');
 });
 
 test('a recording deleted by the portal (P4 auto delete) is told apart from a missing one; old Resolve packs are pointed out', () => {
@@ -636,11 +639,11 @@ test('a recording deleted by the portal (P4 auto delete) is told apart from a mi
   assert.equal(ctx.liveRecDeleted(e404, jn, [{ status: 'exported', archived: true }, { status: 'exported' }]), false, 'a mark is not 本番版 = deleted by hand: 見つかりません');
   assert.equal(ctx.liveRecDeleted(e404, [], []), false, 'no marks, no record: 見つかりません');
   const msg = between('const LIVE_DELETED', ';');
-  assert.ok(msg.includes('録画は消しました(本番版に入れ替え済み)') && msg.includes('マークと本番版はそのまま使えます'));
-  // 前に作ったパックが速報版のまま(ホームの archive.packOld): 帯の1行と書き出しの行に出す(用語: 「Resolve のパック」ではなく「パック」・編集のタブは「3 パック」。段7 S-22)
+  assert.ok(msg.includes('録画は消しました(ごみ箱へ移しました)') && msg.includes('書き出した切り抜きはそのまま使えます'));
+  // 前に作ったパックが速報版のまま(ホームの archive.packOld): 書き出しの行に出す(帯の1行は LD-1 で無くした)。案内するタブ名は案件の画面の「カット・パック」(cases.js)
   const J = (id, mark, a) => job(id, 'done', { video: 'V', mark, start: 0, end: 1 }, { path: 'C:\\c\\' + mark + '.mp4', archive: a });
   const s = ctx.liveArchSummary([J('lx-1', 'a', arch('done', { packOld: true })), J('lx-2', 'b', arch('done'))], null, { videoId: 'abcdefghijk', known: true });
-  assert.ok(s.text.startsWith('本番版に入れ替えました 2/2 本') && s.text.includes('1 本は前に作ったパックが速報版のままです。「編集」の 3 パック のタブで'), s.text);
+  assert.equal(s.text, 'アーカイブから書き出しました 2/2 本', 'the band no longer carries the old-pack line');
   assert.equal(ctx.liveArchView(arch('done', { packOld: true })).packOld, true);
   assert.equal(ctx.liveArchView(arch('error', { packOld: true })).packOld, false);
   const esc = x => String(x).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';');
@@ -648,7 +651,7 @@ test('a recording deleted by the portal (P4 auto delete) is told apart from a mi
     fmt: t => 't' + t, esc, handoffHTML: () => '', loudHTML: () => '', ARCH_TITLE: 't' });
   const it = { id: 'a', start: 0, end: 1, title: '', status: 'done', stateLabel: '済み', progress: 1, path: 'C:\\c\\a.mp4', file: 'a.mp4', archive: ctx.liveArchView(arch('done', { packOld: true })) };
   const row = html.jobItemHTML({ live: true }, it, 0);
-  assert.ok(row.includes('>本番版<') && row.includes('前に作ったパックは速報版のまま'), row);
+  assert.ok(row.includes('>アーカイブ<') && row.includes('前に作ったパックは速報版のまま'), row);
   assert.ok(!html.jobItemHTML({ live: true }, { ...it, archive: ctx.liveArchView(arch('done')) }, 0).includes('速報版のまま'));
   // 画面のつなぎ: 404 のときは先にジョブを読んでから決める・消した録画はプレーヤーの所にも案内(もう一度試すは出さない)・帯の案内に「録画は消します」
   const poll = between('async function pollLiveStatus(){', 'function applyLiveStatus(');
@@ -656,7 +659,7 @@ test('a recording deleted by the portal (P4 auto delete) is told apart from a mi
   const shown = between('function liveDeletedShown(v){', '/* 録画が終わった');
   assert.ok(shown.includes('LIVE_DELETED') && !shown.includes('ytretry'));
   const rec = between('function renderLiveRec(){', '/* 終わった録画の帯の');
-  assert.ok(rec.includes('本番版に入れ替えたら、録画は消します') && rec.includes("LV.autoDelete === true"));
+  assert.ok(rec.includes('アーカイブになったと確かめたら、録画はごみ箱へ移します') && rec.includes("LV.autoDelete === true"));
 });
 
 test('the band line for the after-stream auto clipping (M7): the portal text as is, warn on failures, poll sooner while it moves', () => {
@@ -688,7 +691,7 @@ test('the band line for the after-stream auto clipping (M7): the portal text as 
 
 test('archived marks: 本番版 chip on the mark row, cleared with the exported state when the times change', () => {
   const row = between('function markHTML(c){', '</li>`;');
-  assert.ok(row.includes('exp && c.archived') && row.includes('ARCH_TITLE') && row.includes('>本番版</span>'));
+  assert.ok(row.includes('exp && c.archived') && row.includes('ARCH_TITLE') && row.includes('>アーカイブ</span>'));
   assert.ok(between('function mergeServerFields(', 'const inList =').includes('m.archived = !!s.archived'));
   assert.equal(between('function applyServer(', 'function renderListKeep(').match(/mm\.archived = false/g).length, 2);
   assert.ok(between('async function liveApplyDone(', 'function liveExportBody(').includes('body.archived = true'));
@@ -882,10 +885,10 @@ test('portal export rows: progress of the handed-off autorun (transcribe only / 
 });
 
 test('the band does not rebuild its select / streamer field on the 3-second check (static HTML, only text and attributes change)', () => {
-  const rec = between('function renderLiveRec(', '/* 終わった録画の帯の「アーカイブで作り直す」');
+  const rec = between('function renderLiveRec(', '/* 終わった録画の帯の「アーカイブから書き出す」');
   assert.ok(!rec.includes('innerHTML'), 'renderLiveRec only sets text / hidden');
   assert.ok(source.includes('<select id="rvAfter">'), 'the select is part of the band HTML (built once)');
-  assert.ok(between('function liveOpened(', '/* ホームの設定の live.autoArchive').includes("$('#rvAfter').value = S.settings.liveAfter"));
+  assert.ok(between('function liveOpened(', '/* ホームの設定の live.autoDelete').includes("$('#rvAfter').value = S.settings.liveAfter"));
   assert.ok(!between('function renderLiveWho(', '/* 録画を開いたとき').includes('innerHTML'));
 });
 

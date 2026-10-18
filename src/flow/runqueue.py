@@ -37,7 +37,7 @@ import uuid
 from ytt import colors as _colors, fsio, jobs as _yjobs, schemas as _schemas, tools as _ytools
 from . import board as _board, envelope as _envelope, learning as _learning, machine as _machine, placement as _placement, prio as _prio, run as run_mod, runlog, spec as _spec
 from .run import (DOC_MODE, MODE_STEPS, MODES, RUN_STATE_LABELS, STEP_LABELS, Cancelled, Run, StepError,
-                  adopted_ids, analyze_verdict, pack_verdict, tx_verdict)
+                  adopted_ids, pack_verdict, tx_verdict)
 
 MAX_KEEP = 30          # 終わった記録を残す数(メモリ。ファイルの記録は runlog.RUNS_LOG)
 LOG_MAX_BYTES = 1024 * 1024   # これを超えたら .1 に回す(1件 1〜2KB なので 500〜1000 件ぶん)
@@ -431,7 +431,7 @@ class Queue(run_mod.Runner):
     # ------------------------------------------------------------ 見積もり(気が利く画面へ 段4)
     def estimate(self, envelope, spec=None):
         """submit と同じ封筒 + 束の差分(RV A1。HTTP は POST /api/flow/estimate {envelope, spec})で、実行と同じ規則の段ごとの本数と飛ばす理由を返す
-        (何も書き込まない・積まない)。「飛ばすか」の判定は flow/run.py の analyze_verdict・adopted_ids・tx_verdict・pack_verdict で、実行の段と同じ関数
+        (何も書き込まない・積まない)。「飛ばすか」の判定は flow/run.py の _analyze_plan(analyze_verdict・redo_reason)・adopted_ids・tx_verdict・pack_verdict で、実行の段と同じ関数
         (鍵の比べも同じ _pack_state)。実行は実行したときの状態で決めるので、前の段の結果しだいの本数は None(分からない)で返す。
         文書の一覧と紐づけは hook の _docs・_pick_doc。-> {"steps": [{"key", "label", "count" (None = 前の段の結果しだい), "note"}],
         "total": 分かっている本数の合計, "nothing": bool, "reason", "notes"}。配信の形(MODES)と文書だけ数える(ほかは段だけ・本数は None)。
@@ -461,7 +461,7 @@ class Queue(run_mod.Runner):
         for key in MODE_STEPS[mode]:
             label, count, note = STEP_LABELS[key], 0, ""
             if key == "analyze":
-                count, note = (0, "解析済み") if analyze_verdict(bool(v.get("analysis")), self._weights_differ(run, v)) == "skip" else (1, "")
+                count, note = (0, "解析済み") if self._analyze_plan(run, v)[0] == "skip" else (1, "")   # 足りなければ解析し直す(10-19)も実行と同じ
                 pending = pending or count > 0
             elif key == "adopt":
                 if any(m.get("status") in ("adopted", "exported") for m in mine):

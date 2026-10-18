@@ -65,6 +65,7 @@
     return what + '。' + (why ? why.replace(/[。.]+$/, '') + '。' : '') + (next ? next + (/[。.]$/.test(next) ? '' : '。') : '');
   }
   function failToast(what, next, e, retry) {
+    if (e && e.code === 'token') return '';   /* ホームの起動し直し(合言葉の失効)は UIKit.http が「開き直す」の知らせを出す。ここで「少し待って」と重ねない */
     var text = failText(what, next, e), opt = { kind: 'err', detail: detailOf(e) };
     if (retry) { opt.action = { label: 'もう一度', fn: retry }; opt.ms = 0; }
     UIKit.toast(text, opt);
@@ -1785,7 +1786,7 @@
     if (intakeBusy) return;
     intakeBusy = true; $('#intakeScanBtn').disabled = true;
     api('api/intake/scan', 'POST', {}).then(function (d) { renderIntake(d); toast('確認しました'); },
-      function (e) { failToast('依頼を確認できませんでした', '少し待って、もう一度「今すぐ確認」を押してください', e); })
+      function (e) { failToast('依頼を確認できませんでした', 'もう一度「今すぐ確認」を押してください(直らないときは画面を開き直してください)', e); })
       .then(function () { intakeBusy = false; if (intakeData) renderIntakeStatus(intakeData); });
   }
   /* スイッチ(enabled)だけを保存する(フォルダ・数は設定の画面)。断られたら(フォルダが空など)理由を出してスイッチを戻す */

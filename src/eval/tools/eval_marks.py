@@ -256,7 +256,7 @@ def build_videos(studio, rows, runs, packs, since=None, until=None, status_fallb
             if not isinstance(m, dict):
                 continue
             s, e = num(m.get("start")), num(m.get("end"))
-            if s is None or e is None:
+            if s is None or e is None or excite.FILL_REASON in (m.get("reasons") or ()):   # 本数に届かず埋めた候補は測らない(10-19。検出の当たりではない)
                 continue
             a0 = pair(m.get("auto0")) or pair(m.get("auto0Orig"))
             item = {"a0": a0 or (s, e), "start": s, "end": e, "score": num(m.get("score")), "t": m.get("createdAt") if isinstance(m.get("createdAt"), int) else None,
@@ -270,7 +270,7 @@ def build_videos(studio, rows, runs, packs, since=None, until=None, status_fallb
         # 2. archive の最後の解析の候補(data.json から消えたものを補う。判定は無い)
         for c in (arch or {}).get("candidates") or []:
             s, e = num(c.get("start")), num(c.get("end"))
-            if s is None or e is None or find((s, e)):
+            if s is None or e is None or c.get("fill") or find((s, e)):
                 continue
             autos.append({"a0": (s, e), "start": s, "end": e, "score": num(c.get("score")), "t": arch.get("at") if isinstance(arch.get("at"), int) else None, "src": "archive",
                           "status": "", "path": "", "markId": "", "events": [], "a0known": True, "adoptedBy": None,

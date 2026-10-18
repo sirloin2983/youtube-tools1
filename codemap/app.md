@@ -17,9 +17,9 @@
   - 受ける口: `/api/ytt` :46
 - **prefs.py** (493 行) — ホームの設定(画面の直し「気が利く画面へ」の土台。notes:docs/design/briefs/ux-consistency/DESIGN_BRIEF.md)。
   - 名前: `class PrefsError` :96・`guess_streamer` :387・`class Prefs` :399
-- **server.py** (1876 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
-  - 名前: `runtime_dir` :208・`ping` :218・`port_open` :223・`tail` :229・`expected_version` :250・`tool_python` :256・`rel_or_abs` :266・`signal_stop` :274・`class Tool` :287・`app_data_dir` :337・`logs_dir_for` :343・`class Supervisor` :349・ほか 20
-  - 受ける口: `/api/intake` :650・`/api/backup` :651・`/api/accuracy` :652・`/api/flow/runs` :653・`/api/cases/auto` :655・`/api/flow/submit` :656・`/api/flow/estimate` :656・`/api/flow/cancel` :657・`/api/flow/retry` :657・`/api/flow/outbox/done` :658・`/api/intake/scan` :659・`/api/backup/run` :659・`/api/accuracy/run` :660・`/api/window` :660・`/api/check/answer` :661・`/api/check/skip` :661・`/api/check/flush` :661・`/api/cleanup` :662・`/api/shutdown` :662・`/api/ping` :763・`/api/status` :765・`/api/health` :769・`/api/log` :773・`/api/flow/machine` :788・`/api/flow/outbox` :793・`/api/flow/status` :795・`/api/flow/history` :799・`/api/check/next` :802・`/api/cases` :808
+- **server.py** (1891 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
+  - 名前: `runtime_dir` :210・`ping` :220・`port_open` :225・`tail` :231・`expected_version` :252・`tool_python` :258・`rel_or_abs` :268・`signal_stop` :276・`class Tool` :289・`app_data_dir` :339・`logs_dir_for` :345・`class Supervisor` :351・ほか 20
+  - 受ける口: `/api/intake` :652・`/api/backup` :653・`/api/accuracy` :654・`/api/flow/runs` :655・`/api/cases/auto` :657・`/api/flow/submit` :658・`/api/flow/estimate` :658・`/api/flow/cancel` :659・`/api/flow/retry` :659・`/api/flow/outbox/done` :660・`/api/intake/scan` :661・`/api/backup/run` :661・`/api/accuracy/run` :662・`/api/window` :662・`/api/check/answer` :663・`/api/check/skip` :663・`/api/check/flush` :663・`/api/cleanup` :664・`/api/shutdown` :664・`/api/ping` :765・`/api/status` :767・`/api/health` :771・`/api/log` :775・`/api/flow/machine` :790・`/api/flow/outbox` :795・`/api/flow/status` :797・`/api/flow/history` :801・`/api/check/next` :804・`/api/cases` :810
 
 ## src/app/check/
 
@@ -45,6 +45,8 @@
 
 ## src/app/ui/cases/
 
+- **cases.js** (590 行) — 案件の画面(/cases = 入口の直下の 1 枚。部品は src/app/ui/cases/。RS8 C1 = 殻。作り方 notes:docs/design/rs8-cases-build.md・何を作るか notes:docs/design/briefs/rs8-cases/)。
+- **cases.js** (590 行) — 案件の画面(/cases = 入口の直下の 1 枚。部品は src/app/ui/cases/。RS8 C1 = 殻。作り方 notes:docs/design/rs8-cases-build.md・何を作るか notes:docs/design/briefs/rs8-cases/)。
 - **cases.js** (590 行) — 案件の画面(/cases = 入口の直下の 1 枚。部品は src/app/ui/cases/。RS8 C1 = 殻。作り方 notes:docs/design/rs8-cases-build.md・何を作るか notes:docs/design/briefs/rs8-cases/)。
 - **edhost.js** (140 行) — 案件の画面に「編集」の校正(1 文字起こし)をそのまま載せる台(RS8 C2b。作り方 notes:docs/design/rs8-cases-build.md の C2b)。
 
@@ -81,6 +83,10 @@
   - 名前: `scheduleLearn` :8・`loadLearned` :10・`renderLearned` :15・`putSettingsNow` :36・`sugList` :44・`sugHTML` :46・`renderChips` :55・`loadSuggest` :65・`sugFeedback` :72・`altJob` :79・`renderAlt` :82・`applySug` :101・ほか 41
 - **app-list.js** (265 行) — app-list.js — 「編集」の画面: 保存済み一覧(履歴)・選んだ文書をまとめて実行(段10 で app.js から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
   - 名前: `loadList` :11・`lastOpened` :22・`rememberLast` :26・`renderResume` :27・`emptyPrimary` :37・`resumeLast` :42・`txGroupKey` :44・`txGroupHead` :50・`txSortFn` :58・`hideOn` :68・`txIsHidden` :69・`txFiltered` :71・ほか 16
+- **app-list.js** (265 行) — app-list.js — 「編集」の画面: 保存済み一覧(履歴)・選んだ文書をまとめて実行(段10 で app.js から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
+  - 名前: `loadList` :11・`lastOpened` :22・`rememberLast` :26・`renderResume` :27・`emptyPrimary` :37・`resumeLast` :42・`txGroupKey` :44・`txGroupHead` :50・`txSortFn` :58・`hideOn` :68・`txIsHidden` :69・`txFiltered` :71・ほか 16
+- **app-list.js** (265 行) — app-list.js — 「編集」の画面: 保存済み一覧(履歴)・選んだ文書をまとめて実行(段10 で app.js から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
+  - 名前: `loadList` :11・`lastOpened` :22・`rememberLast` :26・`renderResume` :27・`emptyPrimary` :37・`resumeLast` :42・`txGroupKey` :44・`txGroupHead` :50・`txSortFn` :58・`hideOn` :68・`txIsHidden` :69・`txFiltered` :71・ほか 16
 - **app-rows.js** (1073 行) — app-rows.js — 「編集」の画面: 編集画面(保存・開く・行の描画と操作)・字幕の文字数・行の移動・話者の色・キー配置・用語の挿入・履歴・行の追加(段10 で app.js から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.m…
   - 名前: `spById` :8・`markDirty` :10・`setSaveState` :18・`paintSaveState` :22・`saveDoc` :30・`subNum` :66・`readSubtitle` :68・`fillSubtitle` :81・`subtitleReq` :91・`openDoc` :93・`docInfoText` :152・`setUrlDoc` :164・ほか 110
 - **app-tools.js** (663 行) — app-tools.js — 「編集」の画面: 動画を選び直す・まとめて付け替える・検索と置換・書き出し・左パネル・受け渡し・cut2resolve の API・確認のダイアログ・カットとパックのタブとのつなぎ(段10 で app.js から分けた。git の履歴(679ff01 以前)の doc…
@@ -96,11 +102,11 @@
 ## src/app/ui/home/
 
 - **portal-edit.js** (162 行) — ホームの運用の中の「編集の精度と学習」(src/app/ui/home/portal.html の #editOpsBox。RS8 C3)。
-- **portal.js** (2099 行) — ホーム(src/app/ui/home/portal.html。段階5で入口 + 案件を1つにした)。
+- **portal.js** (2100 行) — ホーム(src/app/ui/home/portal.html。段階5で入口 + 案件を1つにした)。
 
 ## src/app/ui/settings/
 
-- **settings.js** (173 行) — 設定の画面(/settings = 入口の直下の 1 枚。部品は src/app/ui/settings/。設定を 1 つに S5。notes:docs/spec/data.md の 4)。
+- **settings.js** (172 行) — 設定の画面(/settings = 入口の直下の 1 枚。部品は src/app/ui/settings/。設定を 1 つに S5。notes:docs/spec/data.md の 4)。
 
 ## src/app/ui/studio/
 
@@ -130,6 +136,8 @@
 - src/app/tests/e2e_check.py — 確かめる(/check。部品は src/app/ui/check/。RS8 V1 = 殻)の通し確認(Playwright)。リポジトリ直下で:
 - src/app/tests/e2e_live.py — リアルタイム切り抜き(試験中。線 D)の入口の側の通しの確認。本物の YouTube には繋がない。
 - src/app/tests/e2e_live_archive.py — リアルタイム切り抜き LD-1(録画に無い区間だけをアーカイブから書き出す・アーカイブ化を確かめて録画をごみ箱へ移す。notes:plan/line-d-live-clipping.md の 0-9)の通しの確認。
+- src/app/tests/e2e_live_studio.py — リアルタイム切り抜き(線 D の P3。notes:plan/line-d-live-clipping.md の 0-8)の通しの確認: 入口にスタジオを取り込み、録画の部品を別のプロセスで立て、
+- src/app/tests/e2e_live_studio.py — リアルタイム切り抜き(線 D の P3。notes:plan/line-d-live-clipping.md の 0-8)の通しの確認: 入口にスタジオを取り込み、録画の部品を別のプロセスで立て、
 - src/app/tests/e2e_live_studio.py — リアルタイム切り抜き(線 D の P3。notes:plan/line-d-live-clipping.md の 0-8)の通しの確認: 入口にスタジオを取り込み、録画の部品を別のプロセスで立て、
 - src/app/tests/e2e_portal.py — ホーム(src/app/ui/home/portal.html。段階5: 入口 + 案件を1つにした)の通し確認(Playwright。本物の3ツールを疑似モードで
 - src/app/tests/fake_excite_worker.py — 偽の検出ワーカー(e2e 用)。本物の src/pipeline/analyze/live_excite_worker.py の代わりに入口(live_detect.Detector)が起動し、

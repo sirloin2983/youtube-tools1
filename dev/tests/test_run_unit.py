@@ -91,6 +91,23 @@ class TestBuildUnits(unittest.TestCase):
             self.assertTrue(r.ok, r.err)
             self.assertEqual(r.count, 1)
 
+    def test_cjs_runs_with_node_test(self):
+        """.cjs(node --test)も一覧に入り、node で流す(以前は流さず、落ちていても気づかなかった)"""
+        with tempfile.TemporaryDirectory() as d:
+            touch(d, "src/app/tests/test_tiny.cjs",
+                  "const { test } = require('node:test');\nconst assert = require('node:assert');\n"
+                  "test('a', () => assert.ok(true));\ntest('b', () => assert.ok(true));\n")
+            touch(d, "src/app/tests/helper.cjs")
+            units = [u for u in R.build_units(d) if u.rel.endswith(".cjs")]
+            self.assertEqual([u.rel for u in units], ["src/app/tests/test_tiny.cjs"])
+            if not R.NODE:
+                self.skipTest("node が無い")
+            r = R.run_one(units[0])
+            self.assertTrue(r.ok, r.err)
+            self.assertEqual(r.count, 2)
+            touch(d, "src/app/tests/test_tiny.cjs", "const { test } = require('node:test');\ntest('x', () => { throw new Error('落ちる'); });\n")
+            self.assertFalse(R.run_one(units[0]).ok)
+
 
 if __name__ == "__main__":
     unittest.main()

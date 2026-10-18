@@ -380,6 +380,7 @@
         x.id = j.file.id; x.size = j.file.size;
         if (x.who.auto && j.file.streamer) x.who = { name: j.file.streamer, hex: j.file.hex, auto: true };
       } else {
+        if (xhr.status === 403 && j && j.error === 'token' && UIKit.tokenStale) UIKit.tokenStale();   /* 玄関が起動し直された: 「開き直す」の知らせ */
         UIKit.toast(file.name + ': ' + ((j && j.message) || '受け取れませんでした'), { kind: 'err', ms: 6000 });
         f.files.splice(f.files.indexOf(x), 1);
       }

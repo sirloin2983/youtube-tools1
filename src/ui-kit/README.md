@@ -250,7 +250,7 @@
 - 引き出し(`UIKit.drawer.open(el, {modal: true})`。⚙ 設定など)は裏の要素を `inert` にする。そのとき、ページに最初からある `<dialog>`(編集の `#dlgConfirm` など)まで `inert` にしていたので、
   引き出しの中から `showModal` で開いた確認が、表示はされるのにクリックもキーも受け付けず固まっていた(ユーザーの報告: ⚙ の「仮置きをまとめて文字起こし」の確認)。
   → `drawerInert` は `<dialog>` を `inert` にしない(閉じた dialog は表示されず、開いた modal の dialog は showModal が裏を止める)。`UIKit.version` は 15(v14 の間は 13 のままだった)。
-  テスト: `src/editor/tests/e2e_eval_set.py` の「⚙ の中から開いた確認のダイアログを押せて閉じられる」(直す前の ui-kit では FAIL になることを確かめた)
+  テスト: 「⚙ の中から開いた確認のダイアログを押せて閉じられる」(直す前の ui-kit では FAIL になることを確かめた。確かめた `e2e_eval_set` は消えた。今は `src/ui-kit/tests/e2e_styleguide.py`)
 
 ## v14(2026-10-04・ヘッダーの明暗ボタンをやめる・キーを変える場所を1つに)
 - ヘッダーの明るい/暗いの切り替えボタン(`.ui-theme-toggle`)と、その CSS を消した。配色は ⚙ 設定の「テーマ」(4つ + OSに合わせる)から選ぶ。`UIKit.theme.toggle()` と `[data-theme-toggle]` のクリックの動きは残す(ボタンの無い軽い画面 `editor/lite.html` が使う)。
@@ -359,3 +359,8 @@
 ## v33(2026-10-19)まとめて実行が終わったときの「校正を始める」を案件の画面へ
 - 知らせの「校正を始める」の行き先を、消した編集の画面(`<transcribe の場所>?doc=<id>#tx`。入口の転送で案件の画面へ)から案件の画面 `/cases?d=<id>#proof` に直した。
   文書が無い実行はボタンを出さない(以前は編集の画面の一覧へ)。古い画面の URL の転送は入口から消した(棚卸し G5)。`UIKit.version` は 33
+
+## v34(2026-10-19)起動し直しの 403 と設定の入力が消える不具合
+- `UIKit.http` が 403 `{"error":"token"}`(入口が起動し直されて合言葉が変わった)を受けたら、「ホームが起動し直されました [開き直す]」の知らせを 1 回だけ出す(押すと `location.reload()`)。`UIKit.http`・`homeApi` を通る書き込みは全部に効く。通らない書き込み(分析の画面の fetch など)は `UIKit.tokenStale()` を呼ぶ
+- `UIKit.settingsForm`: 保存が終わった描き直しで、フォーカスのある text・int・number・folder・textarea は書き戻さない(打っている途中の入力が消えて保存されなかった)。保存の失敗で値を戻すときだけ書き戻す
+- テスト: `src/ui-kit/tests/test_uikit_stub.cjs`(node)。`UIKit.version` は 34

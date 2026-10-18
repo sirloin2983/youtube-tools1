@@ -327,7 +327,7 @@
       <li><span class="n">1</span><span>左のメニューの「新規」に、動画のパスを入れて「文字起こしを開始」</span></li>
       <li><span class="n">2</span><span>終わったら自動で開きます(保存済みのものは「履歴」から)</span></li>
       <li><span class="n">3</span><span><b>1 文字起こし</b>: 聞いて直して「校正済み」に。キーだけで回せます(一覧は右上の「キー操作」)</span></li>
-      <li><span class="n">4</span><span><b>2 カット</b> で残す・削る所を決めて、<b>3 パック</b> で Resolve へ渡すパックを作る</span></li>
+      <li><span class="n">4</span><span><b>カット・パック</b> のタブで残す・削る所を決めて、その下の <b>パック</b> で Resolve へ渡すパックを作る</span></li>
     </ol>
     <div style="margin-top:14px"><button type="button" class="btn" id="noDocMenu" hidden><span class="ui-icon" data-icon="menu" aria-hidden="true"></span>メニューを開く</button></div>
   </div>`;

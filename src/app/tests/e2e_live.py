@@ -168,7 +168,7 @@ def main():
     rid = None
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch()
+            browser = p.chromium.launch(args=["--mute-audio"])
             try:
                 pg = browser.new_context(viewport={"width": 1280, "height": 1000}).new_page()
                 pg.on("console", lambda m: errors.append(m.text) if m.type == "error" and "404" not in m.text else None)

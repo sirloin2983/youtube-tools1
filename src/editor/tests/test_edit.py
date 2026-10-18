@@ -1315,6 +1315,25 @@ class TestEvalFolder(StoreDir):
         self.assertTrue(os.path.exists(p))   # 名前は元に戻る
         self.assertEqual(self.doc()["sourcePath"], p)
 
+    def test_organize_rolls_back_sidecars_moved_before_a_failure(self):
+        """途中のファイルの 2 つ目の移動で失敗: 先に移した 1 つ目も元の名前へ戻す(動画とカット・受け渡しの対応が切れない)"""
+        from manage.keep import evalfolders as EF
+        p = self.video("a.mp4", 1000)
+        stem = os.path.splitext(p)[0]
+        for suf in (".clip.json", ".edit.json"):
+            with open(stem + suf, "w", encoding="utf-8") as f:
+                f.write("{}")
+        real = EF._fsio.move_file
+
+        def move(a, b, **k):
+            if a.endswith(".edit.json"):
+                raise OSError("locked")
+            return real(a, b, **k)
+        with unittest.mock.patch.object(EF._fsio, "move_file", move):
+            r = S.eval_organize("test")
+        self.assertEqual(len(r["skipped"]), 1)
+        self.assertEqual(sorted(os.listdir(self.mem)), sorted(os.path.basename(x) for x in (p, stem + ".clip.json", stem + ".edit.json")))
+
     def test_no_dirs_does_nothing(self):
         write_json(S.SETTINGS, {})
         self.assertEqual(S.eval_organize("test")["dirs"], 0)

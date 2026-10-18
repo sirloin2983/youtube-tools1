@@ -4,7 +4,7 @@
 client(call・ok)で呼んで進める。Run = 1 回の実行の状態(段・進み具合・待ちの記録の形)、Runner = 段の中身と待つ骨組み、run() = 入口の関数。
 どの段も「まだ無いものだけ」作る(済んだ段は飛ばす)。中止は Cancelled、続けられない失敗は StepError。
 
-import してよいのは標準ライブラリ・ytt・同じ flow の spec だけ(層の決まり。dev/tests/test_layering.py)。案件・ホームの設定・届けることを知る所は
+import してよいのは標準ライブラリ・ytt・同じ flow の spec だけ(層の決まり。dev/tests/test_layering.py。10-19 から埋めた候補の文 pipeline/analyze/excite.FILL_REASON も)。案件・ホームの設定・届けることを知る所は
 Runner の hook(_await_tools・_checkpoint・_studio_video・_friend_length・_docs・_pick_doc・_pref・_live_auto_origin・_auto_streamer・
 _after_pack・_remember_styles・_remember_doc_streamer)にして、既定は「何も知らない」安全な値にした。
 _friend_length は RS7-1 S4 から受付(入口の AutoRunner._accept)が読む(段は束の analyze と Run.friend_plan を読む)。
@@ -46,11 +46,14 @@ import copy
 import os
 import re
 import sys
+import threading
 import time
 import uuid
 
 from ytt import colors, fsio as _fsio, jobs as _slots, schemas as _schemas
-from . import envelope as _envelope, keys as _keys, order as _order, normalize as _norm, placement as _placement, prio as _prio, spec as _spec, tools as _tools
+from pipeline.analyze import excite as _excite   # 埋めた候補の理由の文(FILL_REASON)を数えるだけ
+from . import batch as _batch   # 解析の順番の断りの種類(queued_already)
+from . import envelope as _envelope, keys as _keys, order as _order, normalize as _norm, placement as _placement, prio as _prio, sendpolicy as _sendpolicy, spec as _spec, tools as _tools
 from .envelope import clean_pool  # noqa: F401  (src/app/autorun.py が同じ名前で読む。RS7-1 S3 で envelope へ移した)
 from .spec import (CUTS, LIVE_AUTO_CUT, WEIGHT_KEYS)
 
@@ -202,6 +205,62 @@ def _step_saved(s):
 def analyze_verdict(has_analysis, weights_differ):
     """解析: make = 解析する / skip = 解析済みの結果を使う(依頼の重みが違えば解析し直す)"""
     return "skip" if has_analysis and not weights_differ else "make"
+
+
+# 頼まれた本数に届かないとき(10-19。10-18 の kYKmNCRiC40 = 配信の約 1.5 時間後でチャットのリプレイが 0 件・山が 1 つだけで 5 本のうち 1 本)
+CHAT_RETRY_SEC = 3600          # チャットのリプレイを取り直すまでの間(前の解析から)
+CHAT_RETRY_MAX = 3             # 見回りで取り直す回数の上限
+CHAT_RETRY_FRESH = _sendpolicy.FRESH_SEC   # 終わってからこの秒数までの配信だけ取り直す(友人へ自動で送る鮮度と同じ 48 時間)
+REDO_TEXT = {"chat": "前の解析はチャットのリプレイが無かったので解析し直します",
+             "short": "前の解析は候補が %d 本に届かなかったので、足りない分を埋めて解析し直します"}
+
+
+def _dict(v):
+    return v if isinstance(v, dict) else {}
+
+
+def chat_missing(analysis):
+    """スタジオの配信の analysis で、チャットを使うつもりだった(spec.useChat)のに使えなかった(signals.chat が偽)か"""
+    a = _dict(analysis)
+    return _dict(a.get("spec")).get("useChat") is True and _dict(a.get("signals")).get("chat") is False
+
+
+def chat_retry_ok(analysis, now):
+    """チャットを取り直す意味があるか: 使えなかった・配信(was_live)が終わって CHAT_RETRY_FRESH 秒以内(終わった時刻が分からない動画は取り直さない)"""
+    if not chat_missing(analysis):
+        return False
+    ended = _sendpolicy.ended_at_of(analysis)
+    return ended is not None and now - ended <= CHAT_RETRY_FRESH
+
+
+def redo_reason(analysis, top, marks, now):
+    """解析済みでも解析し直す理由(10-19)-> "chat" / "short" / None(使い回す)。
+    chat = チャットが使えなかった新しい配信で、前の解析から CHAT_RETRY_SEC 秒たった(リプレイがもう揃っているかもしれない)。
+    short = 前の解析は埋める数(spec.fill)が top より少なく、残っている候補(見送り以外のマーク)が top に届かない。
+    解析の記録の形(spec・counts)が無い物は見ない(前の形のまま使い回す)"""
+    a = _dict(analysis)
+    if not isinstance(a.get("spec"), dict) or not isinstance(a.get("counts"), dict):
+        return None
+    at = a.get("at") / 1000.0 if _schemas.is_num(a.get("at")) else 0.0   # エポックのミリ秒(_num は 1e7 未満だけ)
+    if chat_retry_ok(a, now) and now - at >= CHAT_RETRY_SEC:
+        return "chat"
+    fill = a["spec"].get("fill") if _num(a["spec"].get("fill")) else 0
+    left = sum(1 for m in marks or [] if isinstance(m, dict) and m.get("status") != "rejected")
+    if top and fill < top and left < top:
+        return "short"
+    return None
+
+
+def short_why(analysis):
+    """候補が足りなかった理由の文(採用の段の文と記録に残す。10-19)"""
+    a = _dict(analysis)
+    counts, spec = _dict(a.get("counts")), _dict(a.get("spec"))
+    why = []
+    if chat_missing(a):
+        why.append("チャットのリプレイが使えなかった(%s 件)" % counts.get("chat", 0))
+    if _num(counts.get("cands")):
+        why.append("盛り上がりの山が %d 個しか見つからなかった%s" % (counts["cands"], "(しきい値の下の山で埋めても)" if spec.get("fill") else ""))
+    return "・".join(why)
 
 
 def adopted_ids(marks):
@@ -540,6 +599,8 @@ class Runner:
         self.clock = clock or time.time
         self.find_pack = find_pack or (lambda path: None)
         self.closed = False   # 入口の終了(_check が止める)
+        self._chat_retry = {}   # 動画 ID -> {"item", "settings", "due", "tries"}: チャットのリプレイを取り直す待ち(メモリだけ。chat_retry_tick)
+        self._chat_retry_lock = threading.Lock()
 
     # ------------------------------------------------------------ hook(既定 = 何も知らない。src/app/autorun.py の AutoRunner が埋める)
     def _await_tools(self, run):
@@ -704,7 +765,17 @@ class Runner:
         run.owned = owned
         try:
             if start is not None:
-                start()
+                try:
+                    start()
+                except Cancelled:
+                    raise   # 下の except で取り消す
+                except Exception:   # 投入の途中の失敗(StepError など。10-19 P4): 投入済みの分を取り消してから上げる(取り消しの失敗で元の理由を隠さない)
+                    if cancel is not None:
+                        try:
+                            cancel()
+                        except Exception:   # noqa: BLE001
+                            pass
+                    raise
             while True:
                 self._wait(run)
                 r = read()
@@ -789,8 +860,19 @@ class Runner:
         spec = spec if isinstance(spec, dict) else {}
         return any(not _num(spec.get(k)) or round(float(spec[k]), 1) != b["analyze"][k] for k in WEIGHT_KEYS)
 
+    def _fill_top(self, run):
+        """解析で埋める数 = 採用の上限(束の adopt.top)。採用の段の無い実行は 0(埋めない)"""
+        return self._bundle(run)["adopt"]["top"] if any(s["key"] == "adopt" for s in run.steps) else 0
+
+    def _analyze_plan(self, run, v):
+        """-> (analyze_verdict の答え, 解析し直す理由 redo_reason か None)。実行の段と見積もり(Queue.estimate)が同じ物を読む"""
+        verdict = analyze_verdict(bool(v.get("analysis")), self._weights_differ(run, v))
+        redo = redo_reason(v.get("analysis"), self._fill_top(run), v.get("marks"), self.clock()) if verdict == "skip" else None
+        return ("make" if redo else verdict), redo
+
     def _step_analyze(self, run, st, v):
-        if analyze_verdict(bool(v.get("analysis")), self._weights_differ(run, v)) == "skip":
+        verdict, redo = self._analyze_plan(run, v)
+        if verdict == "skip":
             st["state"], st["detail"] = "skip", "解析済み(前の結果を使います)" if run.request_id else "解析済み"
             return None
         item = {"kind": v.get("kind") or "youtube", "videoId": run.video_id}
@@ -801,8 +883,63 @@ class Runner:
             if not path:
                 raise StepError("元の動画ファイルの場所が分かりません")
             item = {"kind": "file", "path": path}
-        self._analyze_item(run, st, item, run.video_id)
+        settings = self._analyze_item(run, st, item, run.video_id)
+        if redo:
+            st["detail"] = (REDO_TEXT[redo] % self._fill_top(run) if redo == "short" else REDO_TEXT[redo]) + "。" + st["detail"]
+        self._after_analysis(run, st, item, settings)
         return None
+
+    def _after_analysis(self, run, st, item, settings):
+        """解析のあと(10-19): 埋めた数を文に足す・チャットのリプレイが無い新しい配信は、見回り(chat_retry_tick)で取り直す待ちに入れる"""
+        if item.get("kind") != "youtube":
+            return
+        a = self._video(run).get("analysis")
+        fills = _dict(_dict(a).get("counts")).get("fills")
+        if _num(fills) and fills > 0:
+            st["detail"] += "。うち %d 件は本数に届かないので、しきい値の下の山で埋めました" % fills
+        if chat_retry_ok(a, self.clock()):
+            with self._chat_retry_lock:
+                old = self._chat_retry.get(run.video_id) or {"tries": 0}
+                self._chat_retry[run.video_id] = {"item": {"kind": "youtube", "videoId": run.video_id}, "settings": dict(settings or {}),
+                                                  "due": self.clock() + CHAT_RETRY_SEC, "tries": old["tries"]}
+            st["detail"] += "。チャットのリプレイがまだ無いので、%d 分後に解析し直します" % (CHAT_RETRY_SEC // 60)
+            self.log("まとめて実行: %s はチャットのリプレイが無かったので、%d 分後に解析し直します" % (run.video_id, CHAT_RETRY_SEC // 60))
+
+    def chat_retry_tick(self):
+        """見回り(flow/livesession の _watch_steps。30 秒ごと)から: 時間の来た取り直しの待ちを、スタジオの解析の順番に入れる(後回しの仕事 = 空いているとき)。
+        チャットが使えた・配信が古くなった・CHAT_RETRY_MAX 回やった・配信が無くなったら待ちから外す。-> 入れた数"""
+        now = self.clock()
+        with self._chat_retry_lock:
+            due = [(vid, dict(e)) for vid, e in self._chat_retry.items() if e["due"] <= now]
+        n = 0
+        for vid, e in due:
+            code, obj = self.tools.video(vid)
+            a = _dict(_dict(obj).get("video")).get("analysis")
+            if code == 404:
+                why = "配信がスタジオにありません"
+            elif code != 200:   # スタジオが答えない = 次の見回りで
+                continue
+            elif not chat_missing(a):
+                why = "チャットが使えました"
+            elif not chat_retry_ok(a, now):
+                why = "配信が古くなりました"
+            elif e["tries"] >= CHAT_RETRY_MAX:
+                why = "%d 回取り直しても取れませんでした" % e["tries"]
+            else:
+                why = None
+            if why is None:
+                res = self.tools.analyze_add(dict(e["item"], prio="later"), e["settings"])
+                if res.get("added"):
+                    e["tries"] += 1
+                    n += 1
+                    self.log("まとめて実行: %s のチャットのリプレイを取り直します(%d 回目)" % (vid, e["tries"]))
+            with self._chat_retry_lock:
+                if why is not None:
+                    self._chat_retry.pop(vid, None)
+                    self.log("まとめて実行: %s のチャットの取り直しを終えました(%s)" % (vid, why))
+                elif vid in self._chat_retry:
+                    self._chat_retry[vid].update(tries=e["tries"], due=now + CHAT_RETRY_SEC)
+        return n
 
     def _step_analyze_later(self, run, st, v):
         """区間だけの依頼(解析の段なし)の最後: 配信の解析をスタジオの順番に入れるだけで、終わりを待たない(友人へ届くのを遅らせない。決定 3-49 Q6)。
@@ -820,7 +957,7 @@ class Runner:
             st["detail"] = "解析を順番に入れました(終わりは待ちません)"
         else:
             rej = (res.get("rejected") or [{}])[0].get("reason") or "理由不明"
-            st["state"], st["detail"] = "skip", ("解析はもう順番に入っています" if "すでにキュー" in rej else "解析を順番に入れられませんでした: %s" % rej)
+            st["state"], st["detail"] = "skip", ("解析はもう順番に入っています" if _batch.queued_already(res) else "解析を順番に入れられませんでした: %s" % rej)
         return None
 
     def _analyze_item(self, run, st, item, video_id):
@@ -838,12 +975,14 @@ class Runner:
         own = base != _spec.DEFAULTS["analyze"]   # 既定と違う = スタジオの画面で変えた設定(重みの指定が無いときだけ文に出す。友人の長さを重ねる前の値で見る)
         if fl:
             run.friend_length = fl
+        if self._fill_top(run):   # 山がしきい値を超える数が採用の上限に届かなければ、しきい値の下の山で埋める(10-19。印 fill・pipeline/analyze/excite.pick_clips)
+            saved["fill"] = self._fill_top(run)
         res = self.tools.analyze_add(item, saved)
         added = res.get("added") or []
         qid = added[0]["qid"] if added else None
         if not qid:
             rej = (res.get("rejected") or [{}])[0].get("reason") or ""
-            if "すでにキュー" not in rej:
+            if not _batch.queued_already(res):   # 同じ配信がもう順番にある = その解析を待つ(断りの code で見る。文の一致は文が変わると外れていた)
                 raise StepError("解析を始められませんでした: %s" % (rej or "理由不明"))
         st["detail"] = "解析中(%s)" % ("依頼の重み(音声 %s・チャット %s・コメント %s)" % weights if weights
                                     else "スタジオで保存した解析の設定" if own else "解析の設定は既定値。スタジオの ② で設定を変えると次から使います")
@@ -863,7 +1002,7 @@ class Runner:
             return None
         # 人が入れた解析(qid なし)を待つときは自分の仕事にしない・中止しても止めない(この実行が入れた解析だけ取り消す)
         self._poll(run, ("studio", [qid]) if qid else None, read, (lambda: self._cancel_analysis(qid)) if qid else None)
-        return None
+        return saved   # 送った設定(チャットの取り直しが同じ設定で解析し直す)
 
     def _cancel_analysis(self, qid):
         """スタジオの解析のキューの1件を取り消し(POST /api/queue/cancel)、止まるまで待つ(CANCEL_WAIT 秒まで)。
@@ -907,7 +1046,11 @@ class Runner:
             (["人が採用した %d 本" % len(hids)] if hids else []) + \
             (["前に自動で採用した %d 本" % (len(aids) - new_auto)] if len(aids) > new_auto else []) + \
             (["自動で %d 本を足しました(点数の高い順)" % new_auto] if new_auto else [])
-        st["detail"] = "・".join(parts) + ("。候補が足りず %d 本は選べませんでした" % short if short > 0 else "")
+        reasons = {m.get("id"): m.get("reasons") or [] for m in v.get("marks") or [] if isinstance(m, dict)}
+        fills = sum(1 for i in aids if i in added and _excite.FILL_REASON in reasons.get(i, ()))
+        why = short_why(v.get("analysis")) if short > 0 else ""
+        st["detail"] = "・".join(parts) + ("(うち %d 本は本数に届かないので、点数の低い山で埋めました)" % fills if fills else "") + \
+            ("。候補が足りず %d 本は選べませんでした" % short if short > 0 else "") + ("(%s)" % why if why else "")   # 足りなかった理由(10-19。記録 autorun-runs.jsonl に残る)
         if not added and run.mode not in REQUEST_URL_MODES:   # 新しく採用したものが無い(前の採用をそのまま使う)
             st["state"] = "skip"
             st["detail"] += "(新しく採用したものはありません)"
@@ -1348,15 +1491,16 @@ class Runner:
             if not ok:
                 raise Cancelled()
             path, note = _norm.run(p, cancelled=stop, on_progress=progress, on_start=started)
+        if path:   # 置き換えた(元の写しはもう無い): 中止の検査より先に新しいパスを待ちの記録へ(再開が消えた写しを探さない。10-19 P2)
+            run.source_path = path
+            self._checkpoint(run)   # 封筒の input.path が新しい写しになる
         self._check(run)   # 作り直しの途中で中止(normalize.run は「取り消しました」で返る)
         if not path:
             self.log("30fps にできませんでした。写しのまま進めます: %s(%s)" % (run.title, note))
             st["state"], st["detail"] = "warn", note or "30fps にそろえられませんでした。元の動画のまま進めます"
             return None
-        run.source_path = path
         self.log("30fps にそろえました: %s(%s)" % (run.title, note))   # 作り方(音声だけ・GPU・CPU)も残る
         st["detail"] = "30fps にそろえました(%s)" % " / ".join(p.get("why") or [])[:120]
-        self._checkpoint(run)   # 封筒の input.path が新しい写しになる(起動し直しで消えた古い写しを探さない)
         return None
 
     def _file_normalize(self, run, st):

@@ -253,7 +253,7 @@ def c_studio_schema():
     if not items:
         out.append("studio の analyze の項目が無い")
     keys = {it["key"].split(".", 1)[1] for it in items}
-    out += ["画面に無い解析の設定: %s" % k for k in analyze.validate_settings({}) if k not in keys and k != "noCache"]   # noCache は 1 回だけの印(保存しない)
+    out += ["画面に無い解析の設定: %s" % k for k in analyze.validate_settings({}) if k not in keys and k not in ("noCache", "fill")]   # noCache は 1 回だけの印・fill は自動の流れが採用の本数を渡す(どちらも保存しない)
     out += ["review の項目 %s の型が決まった 4 種でない: %s" % (it["key"], it["type"]) for it in schema_items(sc, "studio")
             if it["key"].startswith("review.") and it["type"] not in ("bool", "enum", "int", "number")]
     return out
@@ -307,6 +307,7 @@ def c_spec_consistency():
     eq("run.upto・run.onFail・hints.streamer の既定", (spec.DEFAULTS["run"]["upto"], spec.DEFAULTS["run"]["onFail"], spec.DEFAULTS["hints"]["streamer"]), ("pack", "next", None))
     got = analyze.validate_settings({})
     got.pop("noCache")
+    got.pop("fill")   # 埋める数は束に入れない(② の段が採用の上限 adopt.top から渡す。10-19)
     if got.pop("shape") not in ("scene", "fixed"):   # 区間の形は束に入れない(既定は ① のスイッチ excite.SHAPE_DEFAULT の 1 か所)
         out.append("analyze の shape の既定が scene/fixed でない")
     eq("束の analyze と analyze の既定", got, spec.DEFAULTS["analyze"])
