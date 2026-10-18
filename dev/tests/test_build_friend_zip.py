@@ -114,7 +114,6 @@ def make_launcher(root, exe=True):
     return d
 
 
-REAL_TOOLS = B.TOOLS
 # 表の公式の大きさ・SHA-256(yt-dlp)は、偽の道具では合わないので外す(照らす所は CacheTest で別に確かめる)
 FAKE_TOOLS = tuple({k: v for k, v in t.items() if k not in ("size", "sha256")} for t in B.TOOLS)
 

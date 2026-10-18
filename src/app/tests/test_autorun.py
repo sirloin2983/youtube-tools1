@@ -34,6 +34,11 @@ import _runfields as RF  # noqa: E402
 
 
 # ---- 受付の欄の写し(RV A1 で AutoRunner.start* を消し、受付は submit の 1 本に)。画面の UIKit.flow.order と友人の受付(intake)と同じ変換 ----
+def _send_folder(ar):
+    """友人へ自動で送る届け先の元 = 依頼の受付の Dropbox のフォルダ(ホームの設定 intake.folder。読み方は受付と同じ 1 か所)。決まっていなければ空の文字"""
+    return IN.configured_folder(ar.prefs, prefs_mod.DEFAULTS["intake"]) if ar.prefs else ""
+
+
 def start(ar, video_id, mode, top=None, streamer=None, marks=None, overwrite=False, auto_send=None):
     """ホームの案件の行・スタジオのマークの行の「まとめて実行」(画面の UIKit.flow.order → submit と同じ形)。
     友人へ自動で送る(D-SEND): 解析から全部で、受付のフォルダが決まっていれば出どころ auto。auto_send False = 届け先なし"""
@@ -42,7 +47,7 @@ def start(ar, video_id, mode, top=None, streamer=None, marks=None, overwrite=Fal
     if top is not None:
         SP.top_arg(top)   # 画面は 1〜20 に丸めてから送る(合わない数は ValueError)
     full = mode == "full"
-    folder = ar.send_folder() if full else ""
+    folder = _send_folder(ar) if full else ""
     dl = {"origin": "auto", "deliver_dir": IN.out_dir_of(folder) if auto_send is not False else None} if folder else {}
     env, diff = O.order("url", video_id=video_id, from_=None if full else "export", upto="transcribe" if mode == "transcribe" else "pack",
                         top=top, streamer=streamer, marks=marks, repack=overwrite, **dl)
@@ -67,7 +72,7 @@ def start_new(ar, items, top=None, streamer=None, auto_send=None):
     """スタジオの ① 探す で選んだ配信を「解析から全部」で(1 本ずつ submit。まだスタジオに無い配信の印 fresh)"""
     if top is not None:
         SP.top_arg(top)
-    folder = ar.send_folder()
+    folder = _send_folder(ar)
     dl = {"origin": "auto", "deliver_dir": IN.out_dir_of(folder) if auto_send is not False else None} if folder else {}
 
     def make(it):

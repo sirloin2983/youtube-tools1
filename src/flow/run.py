@@ -130,7 +130,6 @@ def _job_why(j):
     return str(j.get("error") or JOB_STATE_JA.get(j.get("state"), "理由は不明です"))
 
 
-KIND_MODES = {"url": ("full", "adopted", "transcribe", "request", "request_auto"), "docs": (DOC_MODE,), "file": ("file", "file_auto")}   # 封筒の kind ごとの形(mode_of の答え)
 # 派生の mode -> (封筒の kind, 束の run.from, 束の run.upto)。mode_of の逆(どれか 1 つの組。テストと道具が mode から封筒 + 束を組むのに使う)
 MODE_RUN = {"full": ("url", None, "pack"), "adopted": ("url", "export", "pack"), "transcribe": ("url", "export", "transcribe"),
             "request": ("url", None, "transcribe"), "request_auto": ("url", None, "pack"), DOC_MODE: ("docs", None, "pack"),

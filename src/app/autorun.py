@@ -73,7 +73,6 @@ from flow.runqueue import (ACTIVE_FILE, ACTIVE_VERSION, HISTORY_DEFAULT, HISTORY
 from manage.cases import cases  # noqa: E402  (src/manage/cases/cases.py: パックの有無・.clip.json の読み方・スタジオの一覧を案件の画面とそろえる。friend_feedback も先頭で読む = 循環しない)
 from flow import delivery as delivery_mod  # noqa: E402  (友人へ届ける段と溜め = AutoRunner が継ぐ Delivery。RS3-3 で切り出し、ds1 で ② へ)
 from flow import deliver as deliver_mod  # noqa: E402  (自動で送る分の名前の頭 = 友人のアプリの依頼 id の形。D-SEND)
-from human.friend import intake as intake_mod  # noqa: E402  (受付のフォルダの読み方の 1 か所。D-SEND の届け先)
 from human.friend import returns as returns_mod  # noqa: E402  (友人の PC で処理した依頼の配信 = 依頼済みの 3 つ目の引き方。D-SEND 2-9)
 from app import prefs as prefs_mod  # noqa: E402  (ホームの設定の既定値と範囲。読み書きは渡された Prefs で)
 
@@ -287,10 +286,6 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
         except (OSError, ValueError, KeyError):
             v = None
         return default if v is None else v
-
-    def send_folder(self):
-        """友人へ自動で送る届け先の元 = 依頼の受付の Dropbox のフォルダ(ホームの設定 intake.folder。読み方は受付と同じ 1 か所)。決まっていなければ空の文字"""
-        return intake_mod.configured_folder(self.prefs, prefs_mod.DEFAULTS["intake"]) if self.prefs else ""
 
     def _memo(self, key, fn):
         """1 回の受付(画面が配信・文書を 1 本ずつ submit する)の間だけ覚える(MEMO_SEC 秒。束の土台・スタジオの一覧・友人の区間の長さ)"""

@@ -35,7 +35,6 @@ PROV_REL = "plan/仮決めの一覧.md"
 VERSION_RE = re.compile(r'^VERSION\s*=\s*"([^"]+)"', re.M)
 HEAVY_RE = re.compile(r"^## まだの重い物[((](\d+) 件[))]", re.M)
 ACTIVE_DAYS = 2
-LINK_PATH = re.compile(r"\[`?([^`\]]+)`?\]\(([^)\s]+)\)|`((?:src|dev|plan|docs|setup)/[^`]+)`")
 # 領域の言葉に足す言葉(ファイル名・表の行に当てるだけ。中身の正ではない)
 ALIASES = {
     "friendapp": ["friend", "友人"], "friend": ["friendapp", "友人"],

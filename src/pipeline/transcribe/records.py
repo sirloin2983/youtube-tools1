@@ -150,7 +150,6 @@ def vad_record(vad):
 
 # ---------- 生出力(transcripts/<id>.asr.json。分ける前・置換の前の認識の結果。単語ごとの時刻と確信度。記録の土台 = 機械の最初の結果を書き換えずに残す) ----------
 ASR_SCHEMA = "youtube-tools-asr-raw/v1"
-MAX_ASR_BYTES = 64 * 1024 * 1024
 
 
 def asr_path(tid, for_write=False):

@@ -1341,7 +1341,7 @@ class MainShutdownTest(unittest.TestCase):
 def _copy_tool(src, dst):
     shutil.copytree(src, dst, ignore=shutil.ignore_patterns(
         "__pycache__", "*.log", "data.json*", "feedback.jsonl*", "config.json", "settings*.json", "registry.json", "cache", "archive",
-        "exports", "clips", "transcripts", "dataset", "models", "work", ".venv", "*.mp4", "resolve-ui-test", "node_modules", "tests"))
+        "exports", "clips", "transcripts", "dataset", "models", "work", ".venv", "*.mp4", "node_modules", "tests"))
 
 
 @unittest.skipUnless(all(os.path.isfile(os.path.join(REPO, s["dir"], "serve.py")) for s in L.TOOLS), "本物のツールのフォルダが無い")

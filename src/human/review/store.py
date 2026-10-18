@@ -57,7 +57,6 @@ ANCHOR_A_MIN, ANCHOR_A_MAX = 0.5, 1.5   # アンカー点から求めた傾き(�
 MIN_ANCHOR_GAP = 20.0   # 2点指定のとき、この動画の時刻でこれ以上離れていることを要求する(近すぎると傾きが不安定)
 
 # ---- 案件にした配信 ----
-_NOT_STORED = _casefiles.NOT_STORED    # メモリの全部の形にだけ付ける印(案件のファイルには書かない)
 _CASE_SKIP = (_casefiles.UNSEEN_CODE, _casefiles.BROKEN_CODE)   # 反映しない(ログだけ)で済ませる案件の読めなさ
 
 

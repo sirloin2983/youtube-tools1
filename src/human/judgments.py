@@ -32,7 +32,6 @@ _SELF_WHATS = {"adopt": "adopt", "reject": "adopt", "quality_good": "quality", "
 _FRIEND_WHATS = ("good", "bad", "unknown", "adopt", "reject", "made_video")
 _REASON_WHATS = ("quality_bad", "bad")
 FRIEND_REASONS = {"boring": "つまらない", "cut": "切り方が変"}   # 友人の「届かなくてよかった」の理由(boring = 場面の選び方・cut = 区間の決め方)
-FRIEND_VALUES = ("good", "bad", "unknown")
 _FRIEND_VALUE = {"good": "good", "bad": "bad", "unknown": "unknown", "adopt": "good", "made_video": "good", "reject": "unknown"}   # 古い行の読み替え(C-4-1)
 
 

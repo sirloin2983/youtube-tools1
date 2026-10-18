@@ -582,7 +582,7 @@ class PeakBook:
       録れたら区間を取り直す(その間は次の山にしない = 収まる前の上り下りは同じ場面)。候補に shape と固定の長さの区間 fixed を残す
     - 枠: 1 時間(録画の頭からの 1 時間ずつ)に per_hour 本。埋まっていたら、枠の中でいちばん低い点より高い新しい山と入れ替える(外れた方は控え)
     - 人が採用した候補(origin manual)は枠に数えない。見送りも数えない。自動で採用した候補(origin auto)は枠に数えたまま固定(入れ替えで外れない。仮決め (bl))
-    - 変更の番号 seq: 新しい・枠と控えの移動・採用・見送り・区間の確定のたびに増える。changes_since(seq) で差分だけ返せる(画面の 3 秒の見回り用)
+    - 変更の番号 seq: 新しい・枠と控えの移動・採用・見送り・区間の確定のたびに増える。changes と seq を記録へ書き、画面の 3 秒の見回りへの差分は flow/live_detect が作る
     - しきい値を上げる区間 thr_scale(t, 倍, 秒): 雰囲気の変わり目(MoodShift)のあと。上り始めの判定だけに効く(下りの判定・式は変えない)
     - 仮の候補(provisional。候補が出るまでの遅れを縮める): fast_push(t, 合計, 音の点数) に「音だけの先回りの計算」
       (チャットを待たない Online)の確定した秒を渡すと、上り始めた所で仮の候補(provisional: true・endPending: true = 採用できない・枠に数えない)を出し、
@@ -935,12 +935,6 @@ class PeakBook:
             del self.changes[:len(self.changes) - CHANGES_KEEP]
 
     # ---- 読む
-    def changes_since(self, seq):
-        """seq より後の変更 [(seq, id, state)]。古すぎて残っていなければ None(全部を取り直す)"""
-        if self.changes and seq < self.changes[0][0] - 1 and seq < self.seq:
-            return None
-        return [c for c in self.changes if c[0] > seq]
-
     def counts(self):
         """1 時間ごとの枠の数 {時間: 本数}"""
         out = {}

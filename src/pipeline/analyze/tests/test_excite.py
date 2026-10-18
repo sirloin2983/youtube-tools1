@@ -282,14 +282,12 @@ class TestPeakBook(unittest.TestCase):
         book.decide(other["id"], "restore")
         self.assertIn(book.peaks[other["id"]]["state"], ("bench", "frame"))
         # 差分
-        ch = book.changes_since(0)
-        self.assertEqual(ch[-1][0], book.seq)
-        self.assertEqual(book.changes_since(book.seq), [])
+        self.assertEqual(book.changes[-1][0], book.seq)
         # JSON の往復
         b2 = excite.PeakBook.from_json(json.loads(json.dumps(book.to_json())))
         self.assertEqual(b2.list(), book.list())
         self.assertEqual(b2.counts(), book.counts())
-        self.assertEqual(b2.changes_since(0), book.changes_since(0))
+        self.assertEqual([tuple(c) for c in b2.changes], [tuple(c) for c in book.changes])
 
     def test_hours_and_exclusion(self):
         n = 7400

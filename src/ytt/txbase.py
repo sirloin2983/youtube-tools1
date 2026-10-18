@@ -83,7 +83,6 @@ def env_off(name):
 # ---------- whisper.cpp の置き場所の決まり(F1 F0-2。① tx_engines・② flow/live_tx・① live_tx_worker が読む 1 か所) ----------
 WCPP_VERSION = "v1.9.4"   # whisper.cpp の版(tx_engines.WHISPER_CPP の version。コミットと取得の表は tx_engines)
 WCPP_EXE = "whisper-cli.exe" if os.name == "nt" else "whisper-cli"
-WCPP_BIN_FLAVORS = ("vulkan", "cuda")   # 実行ファイルの種類 = bin のフォルダの末尾(vulkan = この PC で作る・cuda = 公式の CUDA 版を取る)
 WCPP_MODEL_FILES = {"large-v3": "ggml-large-v3.bin"}   # モデルの名前 -> ggml のファイル(取得の URL・SHA は tx_engines.WCPP_MODELS)
 
 

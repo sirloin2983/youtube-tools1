@@ -15,7 +15,6 @@ from ytt import workdata
 from . import jobs
 
 DRAFT_SLOT_WAIT = 10.0   # 「行から」の行の端の無音を調べる順番(SLOTS)を待つ上限(秒)。過ぎたら無音を調べずに決まった余白で広げる
-HANDOFF_FORMATS = ("transcript-v1", "cut-plan-v1", "srt")
 
 
 def _draft_slot(label):
