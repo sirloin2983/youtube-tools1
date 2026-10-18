@@ -618,7 +618,8 @@ STATIC = {"/": ("portal.html", HOME_UI_DIR), "/index.html": ("portal.html", HOME
 # パネルは /cases-panels/<名前>.js(/cases/ で始めない = 画面の相対パスがずれない)。URL は完全一致の表だけ(フォルダを丸ごと配らない)
 CASES_DIR = os.path.join(ROOT, "app", "ui", "cases")
 CASES_PANELS = ("cand", "proof", "cut")   # 候補・校正・カットとパック(C2 で中身を移す)
-STATIC.update({"/cases": ("index.html", CASES_DIR), "/cases.js": ("cases.js", CASES_DIR), "/cases.css": ("cases.css", CASES_DIR)})
+STATIC.update({"/cases": ("index.html", CASES_DIR), "/cases.js": ("cases.js", CASES_DIR), "/cases.css": ("cases.css", CASES_DIR),
+               "/cases-caselink.js": ("caselink.js", CASES_DIR)})   # 案件の画面へのリンクと校正の進み(ホームと案件の画面の両方が読む)
 STATIC.update({"/cases-panels/%s.js" % n: (os.path.join("panels", n + ".js"), CASES_DIR) for n in CASES_PANELS})
 STATIC["/cases-panels/cand.css"] = (os.path.join("panels", "cand.css"), CASES_DIR)   # 候補のパネルの見た目(スタジオ ② の review.css の写し。C2a)
 # 新しい案件のパネル(ホームの引き出しで開く。スタジオ ① の rank.js + queue.js のつなぎ。RS8 C3)。ホームが読む(/cases の画面では使わない)

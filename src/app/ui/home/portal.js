@@ -413,7 +413,7 @@
     if (auto) autoFail(li, c);
     var st = el('div', 'row pt-clip-steps');
     if (c.transcript) {
-      var t = c.transcript, done = t.segments && t.proofed >= t.segments;
+      var t = c.transcript, done = CaseLink.txProgress(t) === 'proofed';
       st.appendChild(el('span', 'pill ' + (done ? 'ok' : 'info'), '文字起こし 校正 ' + t.proofed + '/' + t.segments + '行'));   // 校正の途中は動いているのではないので run(回る輪)にしない(M7)
     } else {
       st.appendChild(el('span', 'pill wait', '文字起こし まだ'));
@@ -720,19 +720,13 @@
 
   /* 編集で文書を開くリンク。文書 ID で開く(B-1: 動画のパスだと、同じ動画から作った別の文書 = いちばん新しい文書が開いていた)。
      パスは文書が見つからなかったときの予備(編集の takeUrlParams が ?doc= を先に見る) */
-  /* RS8 C3: 行き先は案件の画面(/cases)。文書 ID だけで開ける(殻が ④ に ?doc= で案件を聞く)。タブは proof・cut・cand(古い呼び名 tx・pack は棚卸し G5 で消した)。
+  /* 行き先は案件の画面(/cases。URL の形は caselink.js の 1 か所)。文書 ID だけで開ける(殻が ④ に ?doc= で案件を聞く)。
      case を渡せば案件も決まる(仮の案件 eval・orphan・動画ファイルの案件を開くとき) */
-  var CASE_TAB = { proof: 'proof', cut: 'cut', cand: 'cand' };
-  function docHref(id, path, tab, caseId) {
-    var q = [];
-    if (caseId) q.push('c=' + encodeURIComponent(caseId));
-    if (id) q.push('d=' + encodeURIComponent(id));
-    return '/cases' + (q.length ? '?' + q.join('&') : '') + '#' + (CASE_TAB[tab] || 'proof');
-  }
+  function docHref(id, path, tab, caseId) { return CaseLink.href({ c: caseId, d: id, tab: tab }); }
   /* その配信を案件の画面の候補で開く(案件の id = スタジオの配信の id。B-8) */
-  function studioHref(id) { return '/cases?c=' + encodeURIComponent(id) + '#cand'; }
+  function studioHref(id) { return CaseLink.href({ c: id, tab: 'cand' }); }
   /* 文字起こしがまだの切り抜きは、マーク id で校正の欄を開く(殻が ?m= を受ける) */
-  function markHref(caseId, markId) { return '/cases?c=' + encodeURIComponent(caseId) + (markId ? '&m=' + encodeURIComponent(markId) : '') + '#proof'; }
+  function markHref(caseId, markId) { return CaseLink.href({ c: caseId, m: markId, tab: 'proof' }); }
   /* 案件の「次にやること」の行き先(S-6・S-18)。候補の確認・書き出し・文字起こし = スタジオの ② でその配信を開く・
      校正・パック = 最初に残っている切り抜きの文書を編集で開く(そのタブへ)。スタジオから消えた配信は ② で開けないので、
      文字起こしは残っている切り抜きを編集で開く。行き先が無ければ '' */
@@ -740,7 +734,7 @@
     var clips = c.clips || [];
     for (var i = 0; i < clips.length; i++) {
       var cl = clips[i], t = cl.transcript, path = cl.exists ? cl.path : '';
-      if (kind === 'proof' && t && t.proofed < t.segments) return docHref(t.id, path, 'proof', c.id);
+      if (kind === 'proof' && /^(todo|proofing)$/.test(CaseLink.txProgress(t))) return docHref(t.id, path, 'proof', c.id);
       if (kind === 'pack' && t && !cl.pack) return docHref(t.id, path, 'cut', c.id);
       if (kind === 'transcribe' && c.gone && !t && path) return markHref(c.id, cl.markId);
     }
@@ -806,7 +800,7 @@
     });
 
     // RS8 C3: その配信を案件の画面で開く(案件の id = スタジオの配信の id。B-8)。スタジオから消えた配信は候補を開けないので、校正・パックのタブへ
-    $('.pt-case-studio', node).appendChild(link('案件の画面で開く', c.gone ? '/cases?c=' + encodeURIComponent(c.id) + '#proof' : studioHref(c.id)));
+    $('.pt-case-studio', node).appendChild(link('案件の画面で開く', CaseLink.href({ c: c.id, tab: c.gone ? 'proof' : 'cand' })));
     if (hideApi()) $('.pt-case-studio', node).parentNode.appendChild(hideBtn('cases', c.id, c.title || c.id));
     fillClips(node, c);
     wireAuto(node, c);

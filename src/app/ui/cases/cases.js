@@ -108,8 +108,7 @@
   function lastCase() { try { var v = localStorage.getItem(LAST_KEY) || ''; return /^[\w:.-]{1,80}$/.test(v) ? v : ''; } catch (e) { return ''; } }
   function rememberCase(id) { try { if (id) localStorage.setItem(LAST_KEY, id); else localStorage.removeItem(LAST_KEY); } catch (e) { /* 覚えられなくてよい */ } }
   function readUrl() {
-    var q = new URLSearchParams(location.search), h = location.hash.replace(/^#/, '');
-    var w = { c: q.get('c') || '', d: q.get('d') || '', m: q.get('m') || '', v: q.get('v') || '', tab: TABS[h] ? h : '' };
+    var w = CaseLink.parse(location);   // URL の形は caselink.js の 1 か所(ホームのリンクと同じ)
     if (!w.c && !w.d && !w.v) { w.c = lastCase(); w.last = !!w.c; }
     return w;
   }
@@ -156,9 +155,7 @@
     if (st === 'proofing' && tx && !(tx.proofed > 0)) return 'todo';   // C0 の proofing は「校正済みが足りない」= 1 行も済んでいなければ未校正
     if (STATE_PILL[st]) return st;
     if (cl.pack) return 'packed';
-    if (!tx || !(tx.segments > 0)) return 'none';
-    if (tx.proofed >= tx.segments) return 'proofed';
-    return tx.proofed > 0 ? 'proofing' : 'todo';
+    return CaseLink.txProgress(tx);
   }
   function pad2(n) { return (n < 10 ? '0' : '') + n; }
   function itemsOf(c) {
