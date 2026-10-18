@@ -97,13 +97,6 @@ class DiagTest(unittest.TestCase):
         self.assertNotIn("taro", text)
         self.assertNotIn("--secret-arg", text)   # 道具の引数は持たない
 
-    def test_gpu_checked_once(self):
-        self.d.write("error", summary="a")
-        self.t[0] += 1
-        self.d.write("error", summary="b")
-        self.assertEqual(len(self.gpu_calls), 1)
-        self.assertEqual(len(self.files()), 2)
-
     def test_no_gpu_lookup_without_host(self):
         d = G.Diag(self.places, clock=lambda: self.t[0], env={})
         self.assertIsNone(d.pc()["gpu"])

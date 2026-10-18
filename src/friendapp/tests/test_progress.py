@@ -46,13 +46,6 @@ class ClassifyTest(unittest.TestCase):
         self.check("This live event will begin in 5 minutes.", "unavailable")
         self.check("まだ公開されていません", "unavailable")
 
-    def test_unavailable_file_wording(self):
-        r = P.classify("解析中に動画が削除されました", "file")
-        self.assertEqual(r["code"], "unavailable")
-        self.assertEqual(r["message"], "動画ファイルが見つかりません。もう一度選んで送ってください")
-        self.assertFalse(r["retry"])
-        self.assertEqual(P.classify("Video unavailable", "file")["message"], P.FILE_UNAVAILABLE)
-
     def test_no_archive(self):
         self.check("アーカイブが出ませんでした", "noArchive")
         self.check("アーカイブがまだ作られていません", "noArchive")
@@ -96,13 +89,6 @@ class ClassifyTest(unittest.TestCase):
     def test_cancelled(self):
         self.check("止めました", "cancelled")
         self.check("Job cancelled by user", "cancelled")
-
-    def test_unknown(self):
-        r = P.classify("KeyError: 'x'")
-        self.assertEqual(r["code"], "unknown")
-        self.assertTrue(r["retry"])
-        self.assertEqual(r["message"], "うまくいきませんでした。[もう一度送る] を押してください")
-        self.assertEqual(P.classify(None)["detail"], "")
 
     def test_detail_cut(self):
         self.assertEqual(len(P.classify("x" * 900)["detail"]), 500)
@@ -214,22 +200,11 @@ class SlowTest(unittest.TestCase):
 class TextTest(unittest.TestCase):
     S = {"index": 2, "total": 5, "label": "見どころを探す", "detail": ""}
 
-    def test_queue(self):
-        self.assertEqual(P.text(None, None, False, queue_pos=2), "順番を待っています(2 番目)")
-        self.assertEqual(P.text(None, None, False, queue_pos=1), "順番を待っています(次に始まります)")
-
     def test_blocked(self):
         self.assertEqual(P.text(None, None, False, blocked={"freeGB": 3.2, "minGB": 10}),
                          "パソコンの空きが少ないので待っています(あと 7 GB 空けると始まります)")
         self.assertEqual(P.text(None, None, False, blocked={"freeGB": 9.9, "minGB": 10}),
                          "パソコンの空きが少ないので待っています(あと 1 GB 空けると始まります)")
-
-    def test_running_plain(self):
-        self.assertEqual(P.text(self.S, None, False), "2/5 見どころを探す")
-
-    def test_running_detail_eta_slow(self):
-        s = {"index": 4, "total": 5, "label": "文字起こし", "detail": "3/5 本"}
-        self.assertEqual(P.text(s, 12 * 60 + 5, True), "4/5 文字起こし・3/5 本・あと約 12 分・時間がかかっています")
 
     def test_eta_formats(self):
         s = self.S

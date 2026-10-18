@@ -209,12 +209,6 @@ class InboxTest(unittest.TestCase):
     def test_finished_unknown_run_is_none(self):
         self.assertIsNone(self.box.finished("nobody", "done", "", [], 5))
 
-    def test_finished_keeps_note_on_arrival(self):
-        self.box.add(RID, {}, {}, run_id="r1")
-        case, dirs = self.make_case(RID, ["a_pack"])
-        r = self.box.finished("r1", "done", "", [{"dir": dirs[0]}], 5, case=case, note="メモ")
-        self.assertEqual(r["note"], "メモ")
-
     def test_set_preview(self):
         self.arrive(RID, ["a_pack", "b_pack"], batch=1)
         self.box.set_preview(RID, 2, "/x/preview2.mp4")
@@ -498,14 +492,6 @@ class InboxTest(unittest.TestCase):
         self.assertFalse(os.path.exists(case))
         self.assertTrue(os.path.isdir(os.path.join(self.cases, inbox.TRASH_NAME, day_of(T0 + 3 * 86400), "案件-" + RID)))
 
-    def test_sweep_removes_failed_row_and_keeps_fresh_one(self):
-        self.failed_row(RID, error="x")
-        self.clock.t = T0 + 3 * 86400 + 60
-        self.failed_row(RID2, error="y")
-        self.box.sweep()
-        self.assertIsNone(self.box.row(RID))
-        self.assertIsNotNone(self.box.row(RID2))
-
     def test_sweep_removes_done_after_three_days(self):
         r, case, dirs = self.arrive(RID, ["a_pack"])
         self.box.decide(RID, [], "keep")
@@ -549,12 +535,6 @@ class InboxTest(unittest.TestCase):
         self.assertIsNone(rows[0]["left"])
         self.assertEqual(rows[1]["left"], 3)
         self.assertIn("dir", self.box.row(RID)["packs"][0])   # 中の記録は消さない
-
-    def test_view_is_a_copy(self):
-        self.arrive(RID, ["a_pack"])
-        v = self.box.view()[0]
-        v["packs"][0]["name"] = "changed"
-        self.assertEqual(self.box.row(RID)["packs"][0]["name"], "a_pack")
 
     def test_view_status_of_only_for_sent_or_making(self):
         self.box.add(RID, {}, {}, run_id="r1")

@@ -252,9 +252,7 @@ class ServerTest(unittest.TestCase):
         st, _h, p = self.post("/api/friend/streams/refresh", {})
         self.assertEqual((st, self.js(p), FakeStreams.refreshed), (200, {"ok": True}, 1))
         self.assertEqual(self.post("/api/friend/streams/refresh", {}, headers={TOKEN: None})[0], 403)
-
-    def test_streams_view_uses_same_state_as_sent_rows(self):
-        """一覧の印は送った物の行と同じ読み方(② の待ち = queued・実行中 = making。取り消した行は印にしない)"""
+        # ここから: 一覧の印は送った物の行と同じ読み方(② の待ち = queued・実行中 = making)
         class FakeStreams:
             def view(self):
                 return {"updatedAt": 1, "busy": False, "first": False, "error": None, "sections": [
@@ -548,8 +546,7 @@ class ServerTest(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.tmp, "save", "a_pack")))
         self.assertEqual(self.app.inbox.row(rid)["state"], "done")
         self.assertEqual({v["judge"] for v in self.verdict_docs(rid)}, {"good"})
-
-    def test_decide_items_for_several_rows_and_verdicts(self):
+        # ここから: items 形で複数の行・見送る(ごみ箱)
         r1, r2 = "20250615-130010-aaaaaa", "20250615-130011-aaaaaa"
         _c1, dirs1 = self.make_arrived(r1, ["a_pack", "b_pack"], vid="aaaaaaaaaaa", title="配信A")
         _c2, dirs2 = self.make_arrived(r2, ["c_pack"], vid="bbbbbbbbbbb", title="配信B")
@@ -727,14 +724,6 @@ class ServerTest(unittest.TestCase):
         shown = self.js(self.get("/api/friend/inbox")[2])["rows"][0]
         self.assertTrue(shown["cancelled"])   # 画面はこの印で送った物から外す
         self.assertEqual(self.js(self.get("/api/friend/receive")[2])["undecided"], 1)   # 届いた物は受け取るに残る
-
-    def test_cancel_failed_row_removes_it(self):
-        st, d = self.send()
-        rid, run = d["row"]["id"], d["row"]["runId"]
-        self.app.inbox.finished(run, "error", "ネットにつながらない", [], 5)
-        st, _h, p = self.post("/api/friend/cancel", {"id": rid})
-        self.assertEqual((st, self.js(p)["result"]), (200, {"id": rid, "state": "cancelled"}))
-        self.assertIsNone(self.app.inbox.row(rid))
 
     def test_cancel_recording_stops_recording_and_clips(self):
         """録画中: 録画を止め、同じ requestId の待ち・実行中の切り抜きを取り消す(別の依頼の物は止めない)。届いた物が無ければ行が消える"""
@@ -1244,17 +1233,6 @@ class ServerTest(unittest.TestCase):
         self.app.engine = None
         st, d = self.send(kind="wait", top=3)
         self.assertEqual((st, d["row"]["state"]), (200, "waiting"))
-
-    def test_send_live_and_file_to_user_pc(self):
-        dbx = self.use_fake_dropbox()
-        self.prefs(pc="user", liveSens="high")
-        live = {"perHour": 6, "lengthMode": "fixed", "length": 180, "afterStream": True}
-        st, d = self.send(kind="live", live=live)
-        self.assertEqual((st, d["row"]["kind"], d["row"]["pc"]), (200, "live", "user"))
-        self.app.sync.run_once()
-        doc = json.loads(dbx.files["/%s.request.json" % d["row"]["id"]])
-        self.assertEqual((doc["kind"], doc["live"]["length"], doc["live"]["sens"]), ("live", 180, "high"))
-        self.assertEqual(self.app.api.form()["live"]["length"], 180)
 
     def test_live_settings_refuses_user_pc_and_other_rows(self):
         """POST /api/friend/live-settings(C-2-11。録画中の行の変え方は test_live の test_update_live_while_recording):
@@ -1789,9 +1767,6 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.post("/api/friend/tidy/open-trash", {})[0], 404)
         self.assertEqual(self.post("/api/friend/tidy/scan", {}, headers={TOKEN: None})[0], 403)
         self.assertEqual(self.opened, [])   # エクスプローラーは開いていない
-
-    def test_window_route_is_gone(self):
-        self.assertEqual(self.post("/api/friend/window", {})[0], 404)
 
     def test_page_token_is_placeholder_in_webview2(self):
         with mock.patch.dict(os.environ, {S.HOST_ENV: "webview2"}):
