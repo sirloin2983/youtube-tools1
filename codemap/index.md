@@ -5,23 +5,23 @@
 
 | 層 | md | ファイル | 行 |
 |---|---|---|---|
-| ytt(基盤) | [ytt.md](ytt.md) | 48 | 11002 |
+| ytt(基盤) | [ytt.md](ytt.md) | 48 | 11029 |
 | ① pipeline(道具 = データを加工する) | [pipeline.md](pipeline.md) | 64 | 24314 |
 | ② flow(管理 = いつ・どの順で・どこに置くか) | [flow.md](flow.md) | 87 | 29422 |
 | ③ human(人の操作) | [human.md](human.md) | 59 | 17442 |
 | ④ manage(データ) | [manage.md](manage.md) | 42 | 11771 |
 | ⑤ eval(検証) | [eval.md](eval.md) | 33 | 14728 |
 | src/app(入口と画面) | [app.md](app.md) | 92 | 40136 |
-| src/friendapp(友人の玄関) | [friendapp.md](friendapp.md) | 46 | 18532 |
+| src/friendapp(友人の玄関) | [friendapp.md](friendapp.md) | 48 | 19136 |
 | その他の画面(editor・studio・ui-kit・cut2resolve) | [tools.md](tools.md) | 49 | 21705 |
-| dev・setup(開発の道具) | [dev.md](dev.md) | 41 | 10193 |
-| friend-apps・chrome-ext(C# のアプリ・拡張) | [apps.md](apps.md) | 18 | 8489 |
+| dev・setup(開発の道具) | [dev.md](dev.md) | 43 | 10475 |
+| friend-apps・chrome-ext(C# のアプリ・拡張) | [apps.md](apps.md) | 18 | 8716 |
 
 ## `/api/...` の口(受ける所 → 呼ぶ所)
 
 受ける所は .py の処理(比べる・表の鍵)。呼ぶ所は画面の .js・.cs・ほかの .py(テストは除く)。
 
-- `/api` — dev/code_map.py:208・src/app/live.py:324・src/friendapp/server.py:276
+- `/api` — dev/code_map.py:208・src/app/live.py:324・src/friendapp/server.py:287
 - `/api/accuracy` — src/app/server.py:653 ← portal.js
 - `/api/accuracy/run` — src/app/server.py:661 ← portal.js
 - `/api/adopt` — src/app/live.py:348
@@ -72,7 +72,7 @@
 - `/api/export-file` — src/editor/serve.py:296 ← cut.js・app-tools.js・tools.py
 - `/api/export/cancel` — src/app/live.py:352・src/studio/serve.py:455 ← review.js・tools.py・value.py
 - `/api/exports` — src/app/live.py:289・src/app/live.py:285 ← review.js
-- `/api/flow/cancel` — src/app/server.py:658・src/friendapp/server.py:494 ← cli.py・app.js・portal.js・review.js
+- `/api/flow/cancel` — src/app/server.py:658・src/friendapp/server.py:505 ← cli.py・app.js・portal.js・review.js
 - `/api/flow/estimate` — src/app/server.py:657 ← portal.js・ui-kit.js
 - `/api/flow/history` — src/app/server.py:820・src/app/server.py:806 ← portal.js
 - `/api/flow/machine` — src/app/server.py:809・src/app/server.py:882
@@ -80,39 +80,39 @@
 - `/api/flow/outbox/done` — src/app/server.py:659
 - `/api/flow/retry` — src/app/server.py:658
 - `/api/flow/runs` — src/app/server.py:654 ← cli.py・app-list.js・portal.js・rank.js・review.js ほか 1
-- `/api/flow/status` — src/app/server.py:816・src/app/server.py:806・src/friendapp/server.py:332 ← cases.js
-- `/api/flow/submit` — src/app/server.py:657・src/friendapp/server.py:485 ← cli.py・review.js・ui-kit.js
-- `/api/friend/cancel` — src/friendapp/server.py:421
-- `/api/friend/decide` — src/friendapp/server.py:404・src/friendapp/server.py:113
-- `/api/friend/files` — src/friendapp/server.py:412 ← MainForm.cs
-- `/api/friend/inbox` — src/friendapp/server.py:280
-- `/api/friend/live-settings` — src/friendapp/server.py:423
-- `/api/friend/local` — src/friendapp/server.py:425・src/friendapp/server.py:113
-- `/api/friend/media` — src/friendapp/server.py:310 ← receive.js
-- `/api/friend/notice-seen` — src/friendapp/server.py:473
-- `/api/friend/open` — src/friendapp/server.py:427・src/friendapp/server.py:433
-- `/api/friend/palette` — src/friendapp/server.py:410 ← palette.js
-- `/api/friend/peek` — src/friendapp/server.py:295
-- `/api/friend/peek-live` — src/friendapp/server.py:300
-- `/api/friend/pick-file` — src/friendapp/server.py:396
-- `/api/friend/pick-folder` — src/friendapp/server.py:461
-- `/api/friend/player` — src/friendapp/server.py:305・src/friendapp/server.py:408
-- `/api/friend/prefs` — src/friendapp/server.py:416
-- `/api/friend/receive` — src/friendapp/server.py:307
-- `/api/friend/report` — src/friendapp/server.py:414・src/friendapp/server.py:113
-- `/api/friend/retry` — src/friendapp/server.py:419・src/friendapp/server.py:113
-- `/api/friend/send` — src/friendapp/server.py:393・src/friendapp/server.py:113
-- `/api/friend/settings` — src/friendapp/server.py:328・src/friendapp/server.py:450
-- `/api/friend/settings/key` — src/friendapp/server.py:456
-- `/api/friend/setup` — src/friendapp/server.py:289・src/friendapp/server.py:446 ← server.py
-- `/api/friend/state` — src/friendapp/server.py:291 ← Launcher.cs
-- `/api/friend/streams` — src/friendapp/server.py:330 ← send-list.js
-- `/api/friend/streams/refresh` — src/friendapp/server.py:448 ← send-list.js
-- `/api/friend/tidy` — src/friendapp/server.py:285・src/friendapp/server.py:438 ← server.py
-- `/api/friend/undo` — src/friendapp/server.py:406・src/friendapp/server.py:113
-- `/api/friend/update` — src/friendapp/server.py:287
-- `/api/friend/update/apply` — src/friendapp/server.py:440
-- `/api/friend/upload` — src/friendapp/server.py:347 ← send-form.js
+- `/api/flow/status` — src/app/server.py:816・src/app/server.py:806・src/friendapp/server.py:343 ← cases.js
+- `/api/flow/submit` — src/app/server.py:657・src/friendapp/server.py:496 ← cli.py・review.js・ui-kit.js
+- `/api/friend/cancel` — src/friendapp/server.py:432
+- `/api/friend/decide` — src/friendapp/server.py:415・src/friendapp/server.py:116
+- `/api/friend/files` — src/friendapp/server.py:423 ← MainForm.cs
+- `/api/friend/inbox` — src/friendapp/server.py:291
+- `/api/friend/live-settings` — src/friendapp/server.py:434
+- `/api/friend/local` — src/friendapp/server.py:436・src/friendapp/server.py:116
+- `/api/friend/media` — src/friendapp/server.py:321 ← receive.js
+- `/api/friend/notice-seen` — src/friendapp/server.py:484
+- `/api/friend/open` — src/friendapp/server.py:438・src/friendapp/server.py:444
+- `/api/friend/palette` — src/friendapp/server.py:421 ← palette.js
+- `/api/friend/peek` — src/friendapp/server.py:306
+- `/api/friend/peek-live` — src/friendapp/server.py:311
+- `/api/friend/pick-file` — src/friendapp/server.py:407
+- `/api/friend/pick-folder` — src/friendapp/server.py:472
+- `/api/friend/player` — src/friendapp/server.py:316・src/friendapp/server.py:419
+- `/api/friend/prefs` — src/friendapp/server.py:427
+- `/api/friend/receive` — src/friendapp/server.py:318
+- `/api/friend/report` — src/friendapp/server.py:425・src/friendapp/server.py:116
+- `/api/friend/retry` — src/friendapp/server.py:430・src/friendapp/server.py:116
+- `/api/friend/send` — src/friendapp/server.py:404・src/friendapp/server.py:116
+- `/api/friend/settings` — src/friendapp/server.py:339・src/friendapp/server.py:461
+- `/api/friend/settings/key` — src/friendapp/server.py:467
+- `/api/friend/setup` — src/friendapp/server.py:300・src/friendapp/server.py:457 ← server.py
+- `/api/friend/state` — src/friendapp/server.py:302 ← Launcher.cs
+- `/api/friend/streams` — src/friendapp/server.py:341 ← send-list.js
+- `/api/friend/streams/refresh` — src/friendapp/server.py:459 ← send-list.js
+- `/api/friend/tidy` — src/friendapp/server.py:296・src/friendapp/server.py:449 ← server.py
+- `/api/friend/undo` — src/friendapp/server.py:417・src/friendapp/server.py:116
+- `/api/friend/update` — src/friendapp/server.py:298
+- `/api/friend/update/apply` — src/friendapp/server.py:451
+- `/api/friend/upload` — src/friendapp/server.py:358 ← send-form.js
 - `/api/health` — src/app/server.py:790 ← portal.js
 - `/api/history` — src/editor/serve.py:253 ← app-rows.js
 - `/api/info` — dev/ui_audit.py:94・src/app/live.py:302 ← new.js・ui-kit.js
@@ -160,7 +160,7 @@
 - `/api/roster` — src/editor/serve.py:241 ← app-learn.js
 - `/api/settings` — src/editor/serve.py:499・src/editor/serve.py:583・src/studio/serve.py:210 ← cand.js・cut.js・app-core.js・pack-tab.js・portal-edit.js ほか 7
 - `/api/settings/patch` — src/editor/serve.py:293 ← cut.js・app-core.js・settings.js・ui-kit.js
-- `/api/shutdown` — src/app/server.py:663・src/friendapp/server.py:481 ← Launcher.cs・portal.js・host.js
+- `/api/shutdown` — src/app/server.py:663・src/friendapp/server.py:492 ← Launcher.cs・portal.js・host.js
 - `/api/siblings` — src/cut2resolve/serve.py:365・src/cut2resolve/serve.py:97・src/editor/serve.py:239 ← app-core.js
 - `/api/speakers/sub` — src/editor/serve.py:289 ← autorun.py
 - `/api/state` — src/studio/serve.py:209 ← cand.js・new.js・settings.js・app.js
@@ -186,5 +186,5 @@
 - `/api/voices/preview` — src/editor/serve.py:244 ← app.js
 - `/api/window` — src/app/server.py:661 ← portal.js
 - `/api/ytt` — src/app/mount.py:46 ← ui_audit.py・ui-kit.js
-- `/api/ytt/client-log` — src/friendapp/server.py:500
-- `/api/ytt/streamer-colors` — src/friendapp/server.py:498 ← cut.js・app-rows.js・send-form.js
+- `/api/ytt/client-log` — src/friendapp/server.py:511
+- `/api/ytt/streamer-colors` — src/friendapp/server.py:509 ← cut.js・app-rows.js・send-form.js

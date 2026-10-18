@@ -45,8 +45,8 @@
   - 名前: `class NormalizeError` :51・`class Cancelled` :55・`fps_filter` :59・`encode_args` :65・`nvenc_args` :78・`nvenc_available` :90・`video_ok` :112・`legacy_args` :121・`is_fps_mode_error` :130・`probe` :166・`is_30fps` :206・`needs_normalize` :212・ほか 8
 - **pick.py** (97 行) — PC の標準の「ファイルを選ぶ」「フォルダを選ぶ」の窓(画面の「参照…」。2026-10-01)。
   - 名前: `class PickError` :40・`class PickBusy` :44・`initial_dir` :48・`pick` :71
-- **procs.py** (198 行) — 外部コマンドの子プロセスの管理(役割で組み直す RS3-4。2026-10-10 にスタジオの common.py から移した。標準ライブラリだけ)。
-  - 名前: `spawn` :28・`forget` :42・`children` :48・`stop_children` :56・`run_short` :85・`hard_kill` :107・`terminate` :113・`pid_alive` :138・`idle_message` :168・`run_capture` :173
+- **procs.py** (200 行) — 外部コマンドの子プロセスの管理(役割で組み直す RS3-4。2026-10-10 にスタジオの common.py から移した。標準ライブラリだけ)。
+  - 名前: `spawn` :28・`forget` :42・`children` :48・`stop_children` :56・`run_short` :85・`hard_kill` :109・`terminate` :115・`pid_alive` :140・`idle_message` :170・`run_capture` :175
 - **recproto.py** (62 行) — 録画元との約束(線 D。2026-10-09 見直し T8): 録画元・録画・セグメントの id の形、時刻の書き方(UTC の "…Z")、YouTube の動画の id の読み方。
   - 名前: `utc_text` :20・`epoch_iso` :25・`now_iso` :30・`iso_epoch` :34・`video_id_of` :47
 - **runtime.py** (209 行) — 実行中のポートの共有(notes:docs/spec/pipeline.md の 4)。スタジオの handoff.py・文字起こしの pipeline_io.py・入口の server.py にあった同じ処理を1つにしたもの。
@@ -62,8 +62,8 @@
   - 名前: `load_live` :24・`load_video` :35・`save_series` :82・`read` :96・`load_all` :108・`videos` :116・`video` :121・`studio_videos` :157・`studio_stream` :162
 - **textutil.py** (69 行) — ログ・画面に出す文と数の小物(役割で組み直す RS3-4。2026-10-10 にスタジオの common.py から移した。標準ライブラリだけ)。
   - 名前: `redact` :18・`permission_message` :23・`tail_reason` :31・`fmt_ts` :38・`fmt_ms` :44・`num` :50・`person_key` :64
-- **tools.py** (571 行) — 外部プログラム(ffmpeg・ffprobe・yt-dlp)の場所と、子プロセスを動かすときの小道具。
-  - 名前: `ytt_env` :29・`find_tool` :43・`find_ffmpeg` :93・`media_tool` :98・`ffmpeg_info` :105・`parse_ffmpeg_info` :118・`duration_in` :129・`media_duration` :134・`check_source` :140・`probe_media` :150・`no_window_flags` :163・`python_exe` :176・ほか 13
+- **tools.py** (596 行) — 外部プログラム(ffmpeg・ffprobe・yt-dlp)の場所と、子プロセスを動かすときの小道具。
+  - 名前: `remember` :32・`recent` :46・`ytt_env` :51・`find_tool` :65・`find_ffmpeg` :115・`media_tool` :120・`ffmpeg_info` :127・`parse_ffmpeg_info` :140・`duration_in` :151・`media_duration` :156・`check_source` :162・`probe_media` :172・ほか 15
 - **trashbin.py** (57 行) — ごみ箱フォルダの決まりの 1 か所(どの層からも使う。LD-1 で ① の録画の部品も使うので ytt に置いた)。
   - 名前: `day_name` :15・`free_path` :20・`append_manifest` :30・`old_day_dirs` :38
 - **txbase.py** (106 行) — 認識の部品が共有する小さな物: 記録(ロガー)・決まった値(文字・言語・長さの上限)・要確認の印の文と幻覚の決まり文句・ジョブの注意。

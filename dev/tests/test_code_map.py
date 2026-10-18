@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 本物の作業データに触らない(test_ytt_core の「serve の語があるテストは YTT_DATA_DIR」)
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 import code_map  # noqa: E402
 

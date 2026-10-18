@@ -35,11 +35,11 @@
 
 ## friend-apps/launcher/src/
 
-- **Core.cs** (360 行) — FriendApp.exe の決まり(版の選び方・版の記録・閉じるときの判断)。画面にも通信にも触らない = tests\Tests.cs で確かめる。C# 5 で書く
-  - 名前: `class Layout` :12・`class VersionRecord` :18・`class Versions` :24・`Parse` :30・`Compare` :45・`LayoutOf` :57・`Complete` :63・`Installed` :69・`LegacyVersion` :83・`Pick` :101・`Read` :111・`Q` :128・ほか 19
-- **Launcher.cs** (441 行) — FriendApp.exe の起こし方: 窓 1 枚(MainForm = WebView2)を持ち、Python(src\friendapp\server.py)を子としてジョブオブジェクトで起こす。C# 5 で書く
-  - 名前: `class Job` :25・`Add` :39・`Kill` :44・`Dispose` :49・`class JOBOBJECT_BASIC_LIMIT_INFORMATION` :55・`class IO_COUNTERS` :66・`class JOBOBJECT_EXTENDED_LIMIT_INFORMATION` :72・`CreateJobObject` :80・`SetInformationJobObject` :82・`AssignProcessToJobObject` :84・`TerminateJobObject` :86・`CloseHandle` :88・ほか 19
-- **MainForm.cs** (906 行) — FriendApp.exe の窓 1 枚: WebView2 で Python の画面を出し、時計の横のアイコン・× と止める確認・スリープ止め・●n を持つ。C# 5 で書く
+- **Core.cs** (503 行) — FriendApp.exe の決まり(版の選び方・版の記録・閉じるときの判断)。画面にも通信にも触らない = tests\Tests.cs で確かめる。C# 5 で書く
+  - 名前: `class Layout` :12・`class VersionRecord` :18・`class Versions` :24・`Parse` :30・`Compare` :45・`LayoutOf` :57・`Complete` :63・`Installed` :69・`LegacyVersion` :83・`Pick` :101・`Read` :111・`Q` :128・ほか 29
+- **Launcher.cs** (480 行) — FriendApp.exe の起こし方: 窓 1 枚(MainForm = WebView2)を持ち、Python(src\friendapp\server.py)を子としてジョブオブジェクトで起こす。C# 5 で書く
+  - 名前: `class Job` :26・`Add` :40・`Kill` :45・`Dispose` :50・`class JOBOBJECT_BASIC_LIMIT_INFORMATION` :56・`class IO_COUNTERS` :67・`class JOBOBJECT_EXTENDED_LIMIT_INFORMATION` :73・`CreateJobObject` :81・`SetInformationJobObject` :83・`AssignProcessToJobObject` :85・`TerminateJobObject` :87・`CloseHandle` :89・ほか 21
+- **MainForm.cs** (915 行) — FriendApp.exe の窓 1 枚: WebView2 で Python の画面を出し、時計の横のアイコン・× と止める確認・スリープ止め・●n を持つ。C# 5 で書く
   - 名前: `class MainForm` :20・`OnHandleCreated` :97・`WebViewAvailable` :107・`ProbeWebView` :120・`SetVisibleCore` :134・`OnLoad` :140・`PrintWindow` :179・`class RECT` :182・`GetWindowRect` :185・`DwmGetWindowAttribute` :188・`Capture` :190・`TakeStepShots` :212・ほか 26
 
 ## テスト

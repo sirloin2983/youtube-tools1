@@ -17,6 +17,8 @@
   - 名前: `have` :29・`extract` :38・`main` :54
 - **friend_demo.py** (309 行) — 友人の受信箱(src/friendapp)を見本のデータで動かす(画面の見直し・ui_audit・手での確認用)。本物の作業データ・② には触らない。
   - 名前: `demo_fetch` :31・`demo_probe` :36・`class StubQueue` :41・`class StubEngine` :66・`demo_thumb` :93・`class DemoStreams` :102・`seed` :141・`write_demo_fetch` :211・`class DemoDownloader` :225・`demo_file` :238・`main` :248
+- **friend_diag.py** (186 行) — 友人のアプリから届いた診断の記録を読む(ユーザーの PC。notes:docs/spec/friend.md の 13-11)。AI が原因を調べるときに流す。
+  - 名前: `default_dir` :34・`prune` :45・`load` :59・`is_error` :82・`lines_of` :102・`main` :146
 - **land.py** (287 行) — 作業のブランチを main に入れ、版(src/ytt/version.py の VERSION と README.txt の見出し)を道具が 1 つ上げる(2026-10-18)。
   - 名前: `class Stop` :36・`git` :40・`main_worktree` :49・`bump` :60・`read_version` :65・`set_version` :72・`set_readme` :76・`needs_bump` :86・`read_file` :91・`write_file` :96・`pid_alive` :101・`class Lock` :119・ほか 5
 - **layer_map.py** (139 行) — 役割の層と、今のファイルの行き先(役割で組み直す計画 `notes:plan/role-restructure.md` の 7 節を機械で読める形にしたもの。RS0。RS6 a-0 で 5 つの層に)。
@@ -65,6 +67,7 @@
 - dev/tests/test_cleanup_legacy_data.py — setup/cleanup_legacy_data.py(以前の場所に残った作業データの片付け)のテスト。本物の AppData・ごみ箱は使わない。
 - dev/tests/test_code_map.py — dev/code_map.py(コードの地図と言葉の索引を作る道具)の部品のテスト。リポジトリ直下で:
 - dev/tests/test_dropbox_auth.py — dev/dropbox_auth.py(切り抜き依頼の鍵を作る)のテスト。通信はしない(urlopen を差し替える)。
+- dev/tests/test_friend_diag.py — dev/friend_diag.py(届いた診断を読む道具)のテスト。一時フォルダだけ(本物の Dropbox は読まない)。
 - dev/tests/test_land.py — dev/land.py(main に入れる・版を道具が上げる)のテスト。一時フォルダの git リポジトリと worktree だけを使う
 - dev/tests/test_layering.py — 役割の層の import の向きを守るテスト(役割で組み直す計画 `notes:plan/role-restructure.md` の 4 節 1。RS0)。
 - dev/tests/test_lint.py — dev/lint.py(コードの基準を測る道具)の部品のテスト。リポジトリ直下で:
