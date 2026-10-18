@@ -36,7 +36,6 @@ class Base(unittest.TestCase):
         self.st = store.Store(self.path, app_dir=self.app)
         self.st.ensure(YT, "t", "c")
 
-
     def video(self):
         return self.st.get(YT["videoId"])[0]
 
@@ -57,20 +56,11 @@ class Base(unittest.TestCase):
             return [json.loads(l) for l in f if l.strip()]
 
 
-class TestCheckTimes(unittest.TestCase):
-    def test_ok_rounds(self):
-        self.assertEqual(marks.check_times(1.04, 10.26), (1.0, 10.3))
-
-    def test_rejects(self):
-        for a, b in [("1", 2), (True, 2), (float("nan"), 2), (-1, 5), (5, 5), (5, 4), (0, 3601), (0, 1e9), (None, 1)]:
-            with self.assertRaises(marks.BadMark, msg=(a, b)):
-                marks.check_times(a, b)
-
-
 class TestValidate(Base):
     def test_new_mark_is_manual_and_server_fields_ignored(self):
-        out = self.put([{"start": 1, "end": 9, "src": "auto", "score": 99, "status": "exported", "file": "x.mp4", "auto0": [1, 9]}])
+        out = self.put([{"start": 1.04, "end": 9.26, "src": "auto", "score": 99, "status": "exported", "file": "x.mp4", "auto0": [1, 9]}])
         m = out["marks"][0]
+        self.assertEqual((m["start"], m["end"]), (1.0, 9.3))   # 時刻の丸めの表は ytt の test_marks。ここは保存した結果
         self.assertEqual((m["src"], m["status"], m["file"], m["score"]), ("manual", "", "", None))
         self.assertNotIn("auto0", m)
         self.assertTrue(m["id"].startswith("m"))
@@ -85,6 +75,7 @@ class TestValidate(Base):
         for bad in ([{"id": "a1", "start": 1, "end": 9}, {"id": "a1", "start": 2, "end": 9}],   # 重複
                     [{"id": "bad id!", "start": 1, "end": 9}],
                     [{"id": "x", "start": 9, "end": 1}],
+                    [{"id": "x", "start": "1", "end": 9}],   # 型の違う時刻
                     ["notdict"]):
             with self.assertRaises(ApiError) as c:
                 self.put(bad)

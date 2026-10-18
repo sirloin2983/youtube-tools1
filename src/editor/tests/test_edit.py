@@ -22,7 +22,7 @@ import urllib.parse
 import urllib.request
 
 from test_backend import HERE, S, TID, StoreDir, free_port, start_server, write_json  # noqa: F401  (S = serve)
-from ytt import testkit  # noqa: E402
+from ytt import docloc, testkit  # noqa: E402
 
 
 def doc_obj(**over):
@@ -677,12 +677,19 @@ class TestEditHttp(unittest.TestCase):
         self.assertEqual(self.call("POST", "/api/resplit", {"id": tid})["_status"], 404)
         segs = [{"id": "a", "start": 0.0, "end": 1.0, "text": "あ"}]
         self.assertEqual(self.call("PUT", "/api/transcript?id=" + tid, {"title": doc["title"], "speakers": [], "segments": segs})["_status"], 200)
-        wp = os.path.join(self.tmp, "transcripts", tid + ".words.json")
+        txdir = os.path.join(self.tmp, "transcripts")
+        wp = os.path.join(txdir, tid + ".words.json")
         testkit.write_json(wp, {"schema": "youtube-tools-words/v1", "words": [[0.0, 1.0, "あ"]]})
-        hist = os.path.join(self.tmp, "transcripts", ".hist", tid)
+        for sfx in docloc.DOC_SUFFIXES[1:]:                                                  # 横のファイルの全種
+            if sfx != ".words.json":
+                testkit.write_json(os.path.join(txdir, tid + sfx), {"x": 1})
+        other = os.path.join(txdir, "zzzzzzzzzzzz.alt.json")                                # 別の文書の横のファイルは触らない
+        testkit.write_json(other, {"x": 1})
+        hist = os.path.join(txdir, ".hist", tid)
         self.assertTrue(os.path.isdir(hist))                                                # 保存で履歴が 1 つ
         self.assertEqual(self.call("DELETE", "/api/transcript?id=" + tid)["_status"], 200)
-        self.assertFalse(os.path.exists(wp))
+        self.assertEqual([n for n in os.listdir(txdir) if n.startswith(tid)], [])          # 本体も横のファイルも全部
+        self.assertTrue(os.path.isfile(other))
         self.assertFalse(os.path.exists(hist))
         self.assertEqual(self.call("DELETE", "/api/transcript?id=" + tid)["_status"], 404)
 

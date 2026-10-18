@@ -18,17 +18,13 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import time
 import unittest
-import urllib.error
-import urllib.request
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # リポジトリ直下から py -3.12 -m unittest src/editor/tests/test_proof_api.py でも読めるように
-from test_backend import HERE, S, StoreDir, free_port, write_json  # noqa: E402
+from test_backend import HERE, S, StoreDir, write_json  # noqa: E402
 from test_voices import doc_with_speakers, unit
 from human.proof import learn  # noqa: E402
-from ytt import docloc  # noqa: E402
 from ytt import txtext as _txtext  # noqa: E402
 from ytt import testkit  # noqa: E402
 
@@ -49,23 +45,6 @@ def fixed_doc(tid, eval_set=False, proofed=True, source="C:\\x\\clip.mp4"):
     if eval_set:
         d["evalSet"] = True
     return d
-
-
-def start_serve(tmp, port, runtime):
-    """疑似のサーバーを一時フォルダで起動する(test_backend.start_server と同じ。画面のファイルは案件の画面へ移って editor に無いので、ある物だけ写す)"""
-    for n in ["serve.py", "hololive-roster.json"] + [n for n in sorted(os.listdir(HERE)) if n.startswith("ed_") and n.endswith(".py")]:
-        shutil.copy(os.path.join(HERE, n), tmp)
-    env = dict(os.environ, TRANSCRIBE_BACKEND="fake", TRANSCRIBE_FAKE_DELAY="0.005", YTT_RUNTIME_DIR=runtime, YTT_MACHINE_FILE=os.path.join(tmp, "machine.json"))
-    proc = subprocess.Popen([sys.executable, os.path.join(tmp, "serve.py"), str(port), "--no-open"], cwd=tmp, env=env,
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    for _ in range(150):
-        try:
-            with urllib.request.build_opener(urllib.request.ProxyHandler({})).open("http://127.0.0.1:%d/api/ping" % port, timeout=1):
-                return proc
-        except Exception:
-            time.sleep(0.1)
-    proc.kill()
-    raise RuntimeError("サーバーが起動しません")
 
 
 class _ProofStore(StoreDir):
@@ -285,52 +264,6 @@ class TestRangeRetranscribe(_ProofStore):
         ok = [{"id": "y0", "start": 0, "end": 1, "text": "a"}, {"id": "y1", "start": 899, "end": 900, "text": "b"}]   # ちょうど 15 分は通る
         self.put(ok)
         self.assertEqual(S.validate_retranscribe({"tid": TID_A, "ids": ["y0", "y1"], "mode": "range", "model": "small"})["range"], [0, 900])
-
-
-class TestDeleteRemovesSideFiles(unittest.TestCase):
-    """文書の削除(DELETE /api/transcript = serve の _delete)で、横のファイルが全部消える(別の文書も使う)"""
-
-    @classmethod
-    def setUpClass(cls):
-        cls.tmp = tempfile.mkdtemp()
-        cls.port = free_port()
-        cls.proc = start_serve(cls.tmp, cls.port, os.path.join(cls.tmp, ".runtime"))
-        cls.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.proc.terminate()
-        cls.proc.wait(timeout=10)
-        shutil.rmtree(cls.tmp, ignore_errors=True)
-
-    def delete(self, tid):
-        req = urllib.request.Request("http://127.0.0.1:%d/api/transcript?id=%s" % (self.port, tid), method="DELETE")
-        try:
-            with self.opener.open(req, timeout=30) as r:
-                return r.status, json.loads(r.read())
-        except urllib.error.HTTPError as e:
-            return e.code, json.loads(e.read() or b"{}")
-
-    def test_delete_removes_every_side_file(self):
-        txdir = os.path.join(self.tmp, "transcripts")
-        os.makedirs(txdir, exist_ok=True)
-        write_json(os.path.join(txdir, TID_A + ".json"), fixed_doc(TID_A))
-        write_json(os.path.join(txdir, TID_B + ".json"), fixed_doc(TID_B))
-        sides = [TID_A + sfx for sfx in docloc.DOC_SUFFIXES[1:]]
-        for n in sides:
-            write_json(os.path.join(txdir, n), {"x": 1})
-        other = TID_B + ".alt.json"                                                  # 別の文書の横のファイルは触らない
-        write_json(os.path.join(txdir, other), {"x": 1})
-        self.assertIn(".alt.json", "".join(sides))
-        self.assertIn(".words.json", "".join(sides))
-        self.assertIn(".asr.json", "".join(sides))
-        self.assertEqual(self.delete(TID_A), (200, {"ok": True}))
-        left = sorted(n for n in os.listdir(txdir) if n.startswith(TID_A))
-        self.assertEqual(left, [])                                                   # .json も横のファイルも全部
-        self.assertTrue(os.path.isfile(os.path.join(txdir, TID_B + ".json")))
-        self.assertTrue(os.path.isfile(os.path.join(txdir, other)))
-        st, body = self.delete(TID_A)                                                # もう無い文書は 404
-        self.assertEqual(st, 404, body)
 
 
 class TestVoiceChain(_ProofStore):

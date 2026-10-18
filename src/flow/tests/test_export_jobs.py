@@ -98,16 +98,12 @@ class TestExportJobs(Base):
         self.assertEqual(rec["res"]["state"], "cancelled")
         self.assertEqual(self.ex.cancel_all(), [])
 
-    def test_history_keeps_20(self):
+    def test_done_public_and_keep(self):
         with patch.object(exporter, "run", side_effect=quick_run):
-            ids = []
-            for _ in range(25):
-                ids.append(self.ex.start(spec())["id"])
-                self.assertTrue(wait(lambda: not self.ex.is_busy()))
-        self.assertLessEqual(len(self.ex.table.jobs), 21)   # 登録した 1 本 + 前の 20 本まで
-        self.assertIn(ids[-1], self.ex.table.jobs)
-        self.assertNotIn(ids[0], self.ex.table.jobs)
-        p = self.ex.public(ids[-1])
+            rid = self.ex.start(spec())["id"]
+            self.assertTrue(wait(lambda: not self.ex.is_busy()))
+        self.assertEqual(self.ex.table.keep, E.KEEP)   # 履歴の削り方そのものは test_jobs_table の test_retry_and_history
+        p = self.ex.public(rid)
         self.assertEqual((p["state"], p["folder"], p["items"][0]["path"]), ("done", "f", os.path.abspath("a.mp4")))
 
     def test_out_dir_change_refused_while_busy(self):
