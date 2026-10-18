@@ -242,14 +242,12 @@ class RelearnTest(Base):
             self.answer("s2", {"choice": "S1"})                          # 材料が増えた = また試す
         self.assertEqual(self.jobs[0][1]["rows"], ["s1", "s2", "s4"])
 
-    def test_name_match_ignores_kana_and_width(self):
-        """Q8: 名前は ytt.textutil.person_key で比べる(カタカナ・全角半角・空白の違いは同じ人)"""
-        got = self.answer("s2", {"name": "ペコラ"})
-        self.assertEqual((self.seg("s2")["speaker"], got["applied"]["added"]), ("S1", None))
-
-    def test_no_learn_for_default_name(self):
+    def test_name_rules(self):
         self.answer("s4", {"choice": "S2"})                              # 「話者2」= 仮の名前は覚えない
         self.assertEqual(voice._pending(self.ctx), {})
+        # Q8: 名前は ytt.textutil.person_key で比べる(カタカナ・全角半角・空白の違いは同じ人)
+        got = self.answer("s2", {"name": "ペコラ"})
+        self.assertEqual((self.seg("s2")["speaker"], got["applied"]["added"]), ("S1", None))
 
     def test_not_ready(self):
         with mock.patch.object(_diar, "models_ready", return_value=False):

@@ -80,8 +80,7 @@ class SpeechApplyTest(unittest.TestCase):
         self.assertEqual(self.seg("s2")["tags"], ["bgm", "novoice"])
         apply.undo(self.ctx, r["answer"])
         self.assertEqual(self.seg("s2")["tags"], ["bgm"])
-
-    def test_drop_again_changes_nothing(self):
+        # 二度目の消すは文書を変えない(冪等)
         apply.answer(self.ctx, card(), {"answer": {"choice": "drop"}})
         before = store.read_transcript(TID)
         out = speech._apply_speech(self.ctx, card(), {"choice": "drop"})

@@ -196,11 +196,21 @@ class MachChangedTest(unittest.TestCase):
         seg(d, "s2").update(text="今日はいい天気だ", flag="")
         return d, L.diff(M0, d)
 
-    def test_same_text_rebuilt_no_flag(self):
+    def test_rebuilt_machine_variants(self):
+        """機械を作り直して文字が同じなら印を付けない・覆っていた機械の行が無くなったら印を付ける・rev だけ上がっても id と写しで当たる"""
         d, hum = self.edited()
-        out = L.compose(rebuild(M0), hum, L.split_meta(d))
-        self.assertEqual(seg(out, "s2")["flag"], "")
-        self.assertEqual(texts(out), texts(d))
+        with self.subTest("same_text_rebuilt_no_flag"):
+            out = L.compose(rebuild(M0), hum, L.split_meta(d))
+            self.assertEqual(seg(out, "s2")["flag"], "")
+            self.assertEqual(texts(out), texts(d))
+        with self.subTest("machine_row_gone"):
+            out = L.compose(rebuild(M0, drop=(1,)), hum, L.split_meta(d))
+            self.assertIn(L.MACH_CHANGED, seg(out, "s2")["flag"])   # 覆っていた機械の行が無くなった(O1 の STALE_FLAG)
+            self.assertEqual(seg(out, "s2")["text"], "今日はいい天気だ")
+        with self.subTest("rev_bump_same_rows"):
+            m2 = copy.deepcopy(M0)
+            m2["rev"] = 7   # rev だけ上がった(別の範囲の再認識など): id と写しで当たる
+            self.assertEqual(L.compose(m2, hum, L.split_meta(d)), d)
 
     def test_changed_machine_keeps_human_text_and_flags(self):
         d, hum = self.edited()
@@ -222,18 +232,6 @@ class MachChangedTest(unittest.TestCase):
         hum3 = L.diff(m2, out, hum2)
         self.assertEqual(next(h for h in hum3["rows"] if h["id"] == "s2")["base"]["rows"][0]["text"], "今日は良い天気")
         self.assertEqual(seg(L.compose(m2, hum3, L.split_meta(out)), "s2")["flag"], "")
-
-    def test_machine_row_gone(self):
-        d, hum = self.edited()
-        out = L.compose(rebuild(M0, drop=(1,)), hum, L.split_meta(d))
-        self.assertIn(L.MACH_CHANGED, seg(out, "s2")["flag"])   # 覆っていた機械の行が無くなった(O1 の STALE_FLAG)
-        self.assertEqual(seg(out, "s2")["text"], "今日はいい天気だ")
-
-    def test_rev_bump_same_rows(self):
-        d, hum = self.edited()
-        m2 = copy.deepcopy(M0)
-        m2["rev"] = 7   # rev だけ上がった(別の範囲の再認識など): id と写しで当たる
-        self.assertEqual(L.compose(m2, hum, L.split_meta(d)), d)
 
     def test_id_collision(self):
         d = base_doc()

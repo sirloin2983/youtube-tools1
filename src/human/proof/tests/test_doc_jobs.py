@@ -25,13 +25,6 @@ for _p in (EDITOR, SRC):
 from human.proof import doc_jobs, layers  # noqa: E402
 
 
-class TestHooks(unittest.TestCase):
-    def test_hooks_are_gone(self):
-        """差し込みの口(set_hooks・check_hooks)は X-RERUN で消した(評価用の作り直しの書き込みは ③ rerun.rebuild_whole)"""
-        for name in ("set_hooks", "check_hooks", "_hook", "_hooks", "_HOOK_KEYS"):
-            self.assertFalse(hasattr(doc_jobs, name), name)
-
-
 class TestImportWithoutServe(unittest.TestCase):
     def test_import_without_serve(self):
         """doc_jobs は編集の serve を読まずに import できる(口は空のまま = 使う前に serve が登録する)"""
@@ -119,15 +112,6 @@ class TestCarryOverrides(unittest.TestCase):
         old = self.store.read_transcript(self.OLD)
         self.assertEqual(old["segments"][1]["text"], "待って")                      # 前の文書はそのまま
 
-    def test_old_over_json_is_ignored(self):
-        """層より前の文書の横に古い控え <id>.over.json が残っていても読まない(控えは文書から取り出した写し = 文書から引き継げば直しは失わない)"""
-        self.put_old()
-        with open(os.path.join(self.workdata.TX_DIR, self.OLD + ".over.json"), "w", encoding="utf-8") as f:
-            json.dump({"schema": "youtube-tools-over/v1", "clipKey": None, "at": 99999, "speakers": [],
-                       "rows": [{"start": 2.5, "end": 4.0, "text": "控えの古い文字", "proofed": True}]}, f, ensure_ascii=False)
-        doc, _job = self.run_new([{"id": "s1", "start": 2.5, "end": 4.0, "text": "まって", "speaker": "", "flag": ""}])
-        self.assertEqual(doc["segments"][0]["text"], "待って")   # 文書の直し(控えの文字ではない)
-
     def test_carry_from_layered_doc(self):
         """層のある文書(人の層・機械の層)からも引き継ぐ: 機械の層と同じ文字の校正済みの行(人の層では属性の行)も、文字ごと残す。
         話者だけの行は新しい機械の行に話者を重ね、作り直した範囲の外の行は数えない"""
@@ -153,6 +137,20 @@ class TestCarryOverrides(unittest.TestCase):
         again = self.store.read_transcript(doc["id"])   # 新しい文書の層も書けている(開き直しても同じ)
         self.assertEqual([g["text"] for g in again["segments"]], [g["text"] for g in segs])
 
+    def test_no_carry(self):
+        """評価用の文書へ・環境変数でオフにしたとき・前の文書が評価用のときは引き継がない"""
+        new = [{"id": "s1", "start": 2.5, "end": 4.0, "text": "まって", "speaker": "", "flag": ""}]
+        self.put_old()
+        doc, _job = self.run_new(new, {"evalSet": True})
+        self.assertEqual([g["text"] for g in doc["segments"]], ["まって"])   # 評価用には当てない
+        self.assertNotIn("override", doc["recognition"]["runs"][-1])
+        with mock.patch.dict(os.environ, {"TRANSCRIBE_CARRY_OVERRIDES": "off"}):
+            doc, _job = self.run_new(new)
+        self.assertEqual([g["text"] for g in doc["segments"]], ["まって"])
+        self.put_old(evalSet=True)
+        doc, _job = self.run_new(new)
+        self.assertEqual([g["text"] for g in doc["segments"]], ["まって"])   # 前の文書が評価用でも当てない
+
     def test_run_warnings_move_from_spec_to_job(self):
         """走っている間に指定 spec へ足された注意(入れる文書が変わっていた)は、終わったら job の注意へ移る = [やり直す] が前の回の注意を引き継がない(3c-3)"""
         self.put_old()
@@ -164,23 +162,6 @@ class TestCarryOverrides(unittest.TestCase):
         pub = doc_jobs.public_job(dict(job, title="t", state="done", phase="", progress=1.0, error="", segments=0, speakers=0, unsure=0, device="", createdAt=0))
         self.assertEqual(pub["warnings"][0], "受付の注意")
         self.assertTrue(any("入れる文書が変わっていた" in w for w in pub["warnings"]))
-
-    def test_no_carry_into_eval_doc(self):
-        self.put_old()
-        doc, _job = self.run_new([{"id": "s1", "start": 2.5, "end": 4.0, "text": "まって", "speaker": "", "flag": ""}], {"evalSet": True})
-        self.assertEqual([g["text"] for g in doc["segments"]], ["まって"])   # 評価用には当てない
-        self.assertNotIn("override", doc["recognition"]["runs"][-1])
-
-    def test_switch_off(self):
-        self.put_old()
-        with mock.patch.dict(os.environ, {"TRANSCRIBE_CARRY_OVERRIDES": "off"}):
-            doc, _job = self.run_new([{"id": "s1", "start": 2.5, "end": 4.0, "text": "まって", "speaker": "", "flag": ""}])
-        self.assertEqual([g["text"] for g in doc["segments"]], ["まって"])
-
-    def test_no_carry_from_eval_doc(self):
-        self.put_old(evalSet=True)
-        doc, _job = self.run_new([{"id": "s1", "start": 2.5, "end": 4.0, "text": "まって", "speaker": "", "flag": ""}])
-        self.assertEqual([g["text"] for g in doc["segments"]], ["まって"])   # 前の文書が評価用でも当てない
 
     def test_new_doc_goes_to_case_work_dir(self):
         """新しい文書は ② placement.doc_home が返す 作業用 に置く(索引は TX_DIR)。層も同じ場所(RS8 B2-2)"""

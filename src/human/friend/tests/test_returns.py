@@ -90,8 +90,7 @@ class TestZip(Base):
         self.assertEqual(R.iter_requests(self.app), [])
         make_zip(os.path.join(self.inbox, "%s__r6.zip" % RID), {"console.txt": "1", "connect/a.txt": "1"})   # 予約名で始まるだけの名前は通す
         self.assertEqual(self.scan()[0]["state"], "accepted")
-
-    def test_too_many_files_refused(self):
+        # 上限 MAX_FILES を超える zip を断る
         make_zip(os.path.join(self.inbox, "%s__r3.zip" % RID), {"f%d" % i: "" for i in range(R.MAX_FILES + 1)})
         self.assertEqual(self.scan()[0]["state"], "rejected")
 
@@ -141,10 +140,6 @@ class TestVerdict(Base):
             shutil.rmtree(os.path.join(self.inbox, R.FAIL_DIR))
         self.assertEqual(R.iter_requests(self.app), [])
 
-    def test_parse_verdict(self):
-        self.assertEqual(R.parse_verdict(b'{"verdict":"keep","at":5}'), {"verdict": "keep", "at": 5})
-        with self.assertRaises(ValueError):
-            R.parse_verdict(b"[]")
 
     def test_verdict_origin(self):
         """D-SEND 2-7: 採否の任意の origin(request・auto)を受けて並べた verdicts\\ と一覧に残す。知らない値・無い = 鍵ごと無し(古い形)"""
@@ -159,13 +154,15 @@ class TestVerdict(Base):
         self.assertEqual(R.iter_requests(self.app)[0]["verdicts"], {"p1": {"verdict": "keep", "at": 1760000000000, "origin": "auto"},
                                                                     "p2": {"verdict": "keep", "at": 1760000000000}})
 
-    def test_parse_verdict_odd_at_is_none(self):
-        """at が大きすぎる・無限・NaN・0 以下・数でない = 時刻なし(前は大きすぎる at で OSError / OverflowError になり、送り返し\\ に残り続けた。9e-1)"""
+    def test_parse_verdict(self):
+        """正常な形・配列は断る。at が大きすぎる・無限・NaN・0 以下・数でない = 時刻なし(前は大きすぎる at で OSError / OverflowError になり、送り返し\\ に残り続けた。9e-1)。
+        大きすぎる at の採否も受付済みへ片付け、送り返しに残さない"""
+        self.assertEqual(R.parse_verdict(b'{"verdict":"keep","at":5}'), {"verdict": "keep", "at": 5})
+        with self.assertRaises(ValueError):
+            R.parse_verdict(b"[]")
         for raw in ('1e15', '1000000000000000', 'Infinity', '-Infinity', 'NaN', '0', '-5', '"5"', 'true', 'null'):
             self.assertIsNone(R.parse_verdict(('{"verdict":"keep","at":%s}' % raw).encode())["at"], raw)
         self.assertEqual(R.parse_verdict(b'{"verdict":"keep","at":1760000000000.0}')["at"], 1760000000000)
-
-    def test_huge_at_is_filed_not_left(self):
         vp = os.path.join(self.inbox, "%s__p.verdict.json" % RID)
         for raw in ('1e15', 'Infinity'):
             with open(vp, "w", encoding="utf-8") as f:

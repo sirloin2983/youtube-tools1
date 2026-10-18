@@ -42,8 +42,7 @@ class PlacementTest(unittest.TestCase):
         self.assertEqual(store.edit_path(TID), os.path.join(self.tx, TID + ".edit.json"))
         self.assertEqual(store._hist_dir(TID), os.path.join(self.tx, ".hist", TID))
         self.assertEqual(alt.alt_path(TID), os.path.join(self.tx, TID + ".alt.json"))
-
-    def test_bad_id_keeps_old_path(self):
+        # 壊れた id のときは古い場所のまま
         self.assertEqual(store.tx_path("../x"), os.path.join(self.tx, "../x.json"))
         self.assertEqual(store._hist_dir("zz"), os.path.join(self.tx, ".hist", "zz"))
 

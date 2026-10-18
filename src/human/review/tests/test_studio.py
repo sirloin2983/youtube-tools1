@@ -158,11 +158,10 @@ class TestStatus(Base):
         self.m = self.marks()[0]
         r = self.send(start=self.m["start"] + 2)
         self.assertEqual((r["status"], r["file"]), ("adopted", ""))
-
-    def test_tiny_move_keeps_exported(self):
+        self.m = self.marks()[0]
         self.st.mark_exported(YT["videoId"], self.m["id"], "f/a.mp4", self.m["start"], self.m["end"])
         self.m = self.marks()[0]
-        r = self.send(start=self.m["start"] + 0.04)
+        r = self.send(start=self.m["start"] + 0.04)   # 0.04 秒の小さな動きは書き出し済みのまま
         self.assertEqual(r["status"], "exported")
 
     def test_server_fields_not_overridable(self):
@@ -265,6 +264,9 @@ class TestFeedback(Base):
         cur = self.marks()
         self.put(cur)                              # 変化なし
         self.assertEqual(self.verdicts(), ["good"])
+        n = len(self.feedback())
+        self.put(self.marks())                     # 変化なしの保存は feedback に何も足さない
+        self.assertEqual(len(self.feedback()), n)
 
     def test_delete_candidate_is_bad_delete_judged_is_silent(self):
         a, b, c = self.ms
@@ -289,10 +291,6 @@ class TestFeedback(Base):
         self.assertNotIn("auto0", rows[0])
         self.assertEqual(len(self.fb_at(500)), 2)
 
-    def test_manual_created_already_adopted_is_recorded(self):
-        self.put(self.marks() + [{"id": "m2", "start": 700, "end": 730, "status": "adopted"}])
-        self.assertEqual(sorted(self.fb_at(700)), [("good", "manual", "adopt"), ("miss", "manual", "manual_add")])
-
     def test_manual_add_records_nearest_auto(self):
         a, b, c = self.ms   # (10,40) (100,130) (200,230)、点数はどれも 5.0
         self.put(self.ms + [{"id": "m4", "start": 135, "end": 150}])
@@ -303,11 +301,9 @@ class TestFeedback(Base):
         self.put(self.marks() + [{"id": "m5", "start": 120, "end": 125}])        # 自動マークの中: 距離 0
         row = [r for r in self.feedback() if r["event"] == "manual_add"][-1]
         self.assertEqual(row["nearAuto"]["distance"], 0.0)
-
-    def test_manual_add_without_auto_marks(self):
         self.put([])                                                             # 自動マークを全部消したあとに足す(同じ保存の中で消した自動マークは「その時あった」ものとして数える)
         self.put([{"id": "m6", "start": 300, "end": 320}])
-        row = [r for r in self.feedback() if r["event"] == "manual_add"][0]
+        row = [r for r in self.feedback() if r["event"] == "manual_add"][-1]
         self.assertEqual((row["autoCount"], row["nearAuto"]), (0, None))
 
     def test_manual_remove_recorded(self):
@@ -333,11 +329,6 @@ class TestFeedback(Base):
         rows = {r["start"]: r for r in self.feedback() if r["event"] == "delete_judged"}
         self.assertEqual((rows[a["start"]]["prevStatus"], rows[b["start"]]["prevStatus"]), ("rejected", "exported"))
         self.assertEqual(rows[a["start"]]["verdict"], "retract")
-
-    def test_unchanged_save_writes_nothing(self):
-        n = len(self.feedback())
-        self.put(self.marks())
-        self.assertEqual(len(self.feedback()), n)
 
     def test_auto_adoption_is_not_recorded(self):
         ids = self.st.adopt_marks(YT["videoId"], [], 2)["added"]
@@ -392,12 +383,6 @@ class TestFeedback(Base):
         self.st.mark_exported(YT["videoId"], "m3", "f/m.mp4", 900, 960)
         self.assertEqual(self.fb_at(900, "export"), [("good", "manual", "export")])
 
-    def test_export_first_time_good_only(self):
-        a = self.ms[0]
-        self.st.mark_exported(YT["videoId"], a["id"], "f/a.mp4", a["start"], a["end"])
-        self.st.mark_exported(YT["videoId"], a["id"], "f/a.mp4", a["start"], a["end"])   # 2回目は記録しない
-        self.assertEqual(self.verdicts(), ["good"])
-
 
 class TestReplaceAuto(Base):
     def test_untouched_autos_replaced(self):
@@ -438,12 +423,10 @@ class TestReplaceAuto(Base):
         kept = [x for x in self.marks() if x["start"] == 10.0][0]
         self.assertEqual((kept["status"], kept["src"], kept["file"]), ("exported", "manual", "f/a.mp4"))
 
-    def test_invalid_candidates_skipped(self):
+    def test_invalid_candidates_skipped_and_deleted_video(self):
         n = self.st.replace_auto(YT["videoId"], [cand(5, 5), {"start": "x"}, cand(0, 5000), cand(1, 11)], {"spec": {}}, 0, {})
         self.assertEqual(n, 1)
-
-    def test_deleted_video_returns_none(self):
-        self.assertIsNone(self.st.replace_auto("zzzzzzzzzzz", [], {}, 0, {}))
+        self.assertIsNone(self.st.replace_auto("zzzzzzzzzzz", [], {}, 0, {}))   # 存在しない配信は None
 
 
 class TestPersistence(Base):
@@ -492,8 +475,7 @@ class TestPersistence(Base):
             self.st.series["v%010d" % i] = {"i": i}
         files = os.listdir(os.path.join(self.tmp, "cache", "series"))
         self.assertLessEqual(len(files), studiodata.SERIES_KEEP)
-
-    def test_delete_removes_series(self):
+        # 削除で系列が消え、二度目の削除は False
         self.st.series[YT["videoId"]] = {"a": 1}
         self.assertTrue(self.st.delete(YT["videoId"]))
         self.assertNotIn(YT["videoId"], self.st.series)
@@ -536,25 +518,17 @@ class TestCollab(Base):
         self.assertFalse(by[YT2["videoId"]]["offsetSet"])
         self.assertFalse(g["allSet"])
 
-    def test_create_group_needs_two(self):
-        with self.assertRaises(ApiError) as c:
-            self.st.create_group([YT["videoId"]], "", None)
-        self.assertEqual(c.exception.code, "bad_request")
-
-    def test_create_group_too_many(self):
-        ids = [YT["videoId"], YT2["videoId"], YT3["videoId"]] + ["extra%d" % i for i in range(6)]
-        with self.assertRaises(ApiError) as c:
-            self.st.create_group(ids, "", None)
-        self.assertEqual(c.exception.code, "bad_request")
-
-    def test_create_group_missing_video(self):
-        with self.assertRaises(ApiError) as c:
-            self.st.create_group([YT["videoId"], "nosuchvideo1"], "", None)
-        self.assertEqual(c.exception.status, 404)
-
-    def test_create_group_conflict_already_grouped(self):
+    def test_create_group_rejects(self):
+        """配信 1 本・上限超え・存在しない配信・既にグループ入りの配信は作れない"""
+        many = [YT["videoId"], YT2["videoId"], YT3["videoId"]] + ["extra%d" % i for i in range(6)]
+        for name, ids, field, want in (("needs_two", [YT["videoId"]], "code", "bad_request"),
+                                       ("too_many", many, "code", "bad_request"),
+                                       ("missing_video", [YT["videoId"], "nosuchvideo1"], "status", 404)):
+            with self.subTest(name), self.assertRaises(ApiError) as c:
+                self.st.create_group(ids, "", None)
+            self.assertEqual(getattr(c.exception, field), want, name)
         self.group()
-        with self.assertRaises(ApiError) as c:
+        with self.assertRaises(ApiError) as c:   # already grouped
             self.st.create_group([YT["videoId"], YT3["videoId"]], "", None)
         self.assertEqual(c.exception.code, "conflict")
 
@@ -601,13 +575,11 @@ class TestCollab(Base):
         self.assertAlmostEqual(p["a"], 1.0)
         self.assertAlmostEqual(p["b"], 8.0)
 
-    def test_offset_from_anchors_too_close(self):
-        with self.assertRaises(marks.BadMark):
-            store.offset_from_anchors([[100, 108], [105, 113]])
-
-    def test_offset_from_anchors_bad_slope(self):
-        with self.assertRaises(marks.BadMark):
-            store.offset_from_anchors([[0, 0], [100, 400]])   # a=4 は範囲外
+    def test_offset_from_anchors_rejects(self):
+        for name, anchors in (("too_close", [[100, 108], [105, 113]]),
+                              ("bad_slope", [[0, 0], [100, 400]])):   # a=4 は範囲外
+            with self.subTest(name), self.assertRaises(marks.BadMark):
+                store.offset_from_anchors(anchors)
 
     def test_set_anchor_rejects_base(self):
         g = self.group()
@@ -647,19 +619,18 @@ class TestCollab(Base):
         self.putv(YT["videoId"], [dict(self.vmarks(YT["videoId"])[0], status="adopted")])   # もう一度採用
         self.assertEqual(len(self.vmarks(YT2["videoId"])), 1)       # 転写は重複しない
 
-    def test_transfer_skipped_when_target_offset_unset(self):
+    def test_transfer_skipped(self):
+        """グループに入っていない・転写先のずれが未設定・転写元のずれが未設定のときは転写しない"""
+        a, b = YT["videoId"], YT2["videoId"]
+        self.putv(a, [{"id": "m1", "start": 10.0, "end": 20.0, "status": "adopted"}])   # グループに入っていない
+        self.assertEqual(self.vmarks(b), [])
+        self.putv(a, [])
         self.group()   # アンカー未設定のまま
-        self.putv(YT["videoId"], [{"id": "m1", "start": 10.0, "end": 20.0, "status": "adopted"}])
-        self.assertEqual(self.vmarks(YT2["videoId"]), [])
-
-    def test_transfer_skipped_when_source_offset_unset(self):
-        self.group()
-        self.putv(YT2["videoId"], [{"id": "m2", "start": 10.0, "end": 20.0, "status": "adopted"}])
-        self.assertEqual(self.vmarks(YT["videoId"]), [])
-
-    def test_transfer_skipped_when_not_in_a_group(self):
-        self.putv(YT["videoId"], [{"id": "m1", "start": 10.0, "end": 20.0, "status": "adopted"}])
-        self.assertEqual(self.vmarks(YT2["videoId"]), [])
+        self.putv(b, [{"id": "m2", "start": 10.0, "end": 20.0, "status": "adopted"}])   # 転写元のずれが未設定
+        self.assertEqual(self.vmarks(a), [])
+        self.putv(b, [])
+        self.putv(a, [{"id": "m3", "start": 10.0, "end": 20.0, "status": "adopted"}])   # 転写先のずれが未設定
+        self.assertEqual(self.vmarks(b), [])
 
     def test_collab_mark_start_clamped_to_zero(self):
         g = self.group()

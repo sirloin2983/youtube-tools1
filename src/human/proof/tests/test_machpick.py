@@ -81,13 +81,7 @@ class LayersPickTest(unittest.TestCase):
             L.pick(m2, hum, "s1", "mine")
         with self.assertRaises(ValueError):
             L.pick(m2, hum, "s2", "both")
-
-    def test_pick_mine_strips_kept_flag(self):
-        """前の機械を引き継いだ行(保存し直しても印が残る = flag に印を持つ)も、自分の直しのまま で印が外れる"""
-        d, hum = edited()
-        m2 = copy.deepcopy(M1)
-        m2["rev"] = 2
-        m2["rows"][1]["text"] = "いい"
+        # 前の機械を引き継いだ行(保存し直しても印が残る = flag に印を持つ)も、自分の直しのまま で印が外れる
         out = L.compose(m2, hum, META)
         hum2 = L.diff(m2, out, hum)   # 印を残したまま保存した
         self.assertIn(L.MACH_CHANGED, next(h for h in hum2["rows"] if h["id"] == "s2")["flag"])

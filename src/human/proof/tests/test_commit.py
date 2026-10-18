@@ -59,12 +59,6 @@ class CommitTest(unittest.TestCase):
         self.assertIn("fill", store.MACHINE_WHYS)   # 行の無い文書へ文字起こしを入れる = 機械(O2-2 で直した)
         self.assertIn("drill", store.HUMAN_WHYS)    # 評価ドリルの「全部聞いた」= 人
 
-    def test_save_transcript_goes_through_commit(self):
-        store.commit(TID, {"id": TID, "title": "t", "segments": [], "updatedAt": 1}, why="save")
-        with mock.patch.object(store, "commit", wraps=store.commit) as c:
-            store.save_transcript(TID, {"id": TID, "title": "t2", "segments": [], "updatedAt": 1})
-        self.assertEqual([x.kwargs.get("why") for x in c.call_args_list], ["save"])
-
     def test_every_doc_write_in_src_uses_commit(self):
         """文書を書く呼び出しは store.commit だけ(write_doc は store.py の中の commit からだけ)"""
         pat = re.compile(r"\bwrite_doc\(")

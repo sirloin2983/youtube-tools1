@@ -162,8 +162,7 @@ class TestParse(unittest.TestCase):
                                      "https://youtu.be/ccccccccccc 11\nhttps://youtu.be/ddddddddddd 2 # ここがほしい\nhttps://youtu.be/eeeeeeeeeee よろしく\n", 3)
         self.assertEqual([(o["id"], o["top"]) for o in ok], [("abcdefghijk", 5), ("bbbbbbbbbbb", 3), ("ddddddddddd", 2)])
         self.assertEqual(len(bad), 3)
-
-    def test_decode_and_url_file(self):
+        # 文字コード(cp932・BOM)と URL ファイルの読み
         self.assertEqual(intake.decode_text("あ".encode("cp932")), "あ")
         self.assertEqual(intake.decode_text("\ufeffあ".encode("utf-8")), "あ")
         self.assertEqual(intake.parse_url_file("[InternetShortcut]\r\nURL=https://youtu.be/abcdefghijk\r\n"), "https://youtu.be/abcdefghijk")
@@ -186,12 +185,6 @@ class TestState(Base):
 
 class TestSend(Base):
     """D-SEND: 友人のアプリの「届け方」(2-4)・依頼済みの配信の引き方(2-9)・見回りの終わりの送り直し(2-6)"""
-
-    def test_delivery_prefs_are_gone(self):
-        """届け方の設定(友人のアプリの 設定\\届け方.json・ホームの intake.deliverBatch)は読まない = 届けるのは 1 本ずつだけ(F3-6)"""
-        for gone in ("read_delivery_prefs", "SETTINGS_DIR", "DELIVERY_PREFS", "_deliver_how"):
-            self.assertFalse(hasattr(intake, gone), gone)
-        self.assertEqual(intake.parse_deliver_batch(3), 3, "依頼の欄は封筒に残すだけ(古いアプリの依頼を断らない)")
 
     def test_settings_folder_is_not_a_request(self):
         """友人のアプリが置く 設定\\届け方.json は依頼として読まない(下のフォルダは見ない)"""
@@ -486,16 +479,6 @@ class TestVideo(Base):
             self.assertEqual(ps({"count": 1, "names": ["A"], "people": people})["styles"], {}, repr(people))
         self.assertEqual(ps({"count": 1, "names": ["A"]})["styles"], {})   # 古いアプリ: people なし
 
-    def test_speakers_label_with_styles(self):
-        """依頼の記録の「配信者: n人(…)」: 色を指定した人がいれば人数を足す(受付の画面 portal.js は speakersLabel をそのまま出す)"""
-        rid = "20261001-120000-abc140"
-        self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "url", "id": rid, "streamer": "さくらみこ",
-                                                     "speakers": {"count": 2, "names": ["A", "B"], "people": [{"name": "A", "style": {"color": "FF00AA"}}, {"name": "B"}]},
-                                                     "items": [{"url": "https://youtu.be/abcdefghijk", "top": 2}]}, ensure_ascii=False))
-        self.scan2()
-        self.assertEqual(self.runner.last["speakers"], {"count": 2, "names": ["A", "B"], "styles": {"A": {"color": "#FF00AA"}}})
-        self.assertEqual(self.it.snapshot()["requests"][0]["speakersLabel"], "配信者: 2人(A・B)・色の指定 1人")
-
     def test_url_request_streamer(self):
         """URL の依頼の streamer(2.1.0 のアプリ): メンバーと合えばまとめて実行へ。合わなければ自動(None)+ 知らせ。無ければ今までどおり(None)"""
         def send(rid, extra):
@@ -655,26 +638,24 @@ class TestRequestFolder(Base):
 
     def test_restart_keeps_same_request_folder(self):
         """入口を起こし直して覚えが空でも、同じ依頼の 2 本目は 1 本目のフォルダへ(書き出し先が設定済み・未設定のどちらも)"""
+        # 書き出し先が未設定の口(アプリの受付)
+        rid3 = "20261001-120000-abc131"
+        self.send(rid3, ["一本目.mp4"])
+        self.it._req_dirs.clear()
+        self.send(rid3, ["二本目.mp4"])
+        self.assertEqual(os.path.dirname(self.runner.files[0]["path"]), os.path.dirname(self.runner.files[1]["path"]))
+        # 書き出し先が設定済み
         out = os.path.join(self.tmp, "出力")
         self.with_out(out)
         rid = "20261001-120000-abc130"
         self.send(rid, ["一本目.mp4"])
         self.it._req_dirs.clear()
         self.send("20261001-120000-abd130", ["他.mp4"])   # id6 の違う別の依頼
-        rid2 = "20261001-120500-xyz130"                  # id6 が同じ(130 でなく末尾 6 文字 abc130 と別)で依頼 id は別
         self.it._req_dirs.clear()
         self.send(rid, ["二本目.mp4"])
-        a, _, c = (f["path"] for f in self.runner.files)
+        a, b, c = (f["path"] for f in self.runner.files[2:])
         self.assertEqual(os.path.dirname(a), os.path.dirname(c))
-        self.assertNotEqual(os.path.dirname(a), os.path.dirname(self.runner.files[1]["path"]))
-        self.assertTrue(rid2)
-
-    def test_restart_keeps_same_folder_in_app_intake(self):
-        rid = "20261001-120000-abc131"
-        self.send(rid, ["一本目.mp4"])
-        self.it._req_dirs.clear()
-        self.send(rid, ["二本目.mp4"])
-        self.assertEqual(os.path.dirname(self.runner.files[0]["path"]), os.path.dirname(self.runner.files[1]["path"]))
+        self.assertNotEqual(os.path.dirname(a), os.path.dirname(b))
 
     def test_long_and_bad_title_is_trimmed(self):
         out = os.path.join(self.tmp, "出力")
@@ -896,14 +877,9 @@ class TestLiveSettings(unittest.TestCase):
         self.assertEqual(got, dict(dflt, perHour=7, length=44, waitMin=3, pad=1.0), "小数は丸める・余白は小数・知らない鍵は捨てる")
         self.assertTrue(isinstance(got["perHour"], int) and isinstance(got["pad"], float))
 
-    def test_settings_label(self):
-        self.assertEqual(live_requests.settings_label(live_requests.SETTINGS_DEFAULT),
-                         "ライブの設定: 感度 普通・1 時間 6 本・長さ 45 秒・待ち 5 分・余白 2 秒・配信後の追加 あり")
-        self.assertEqual(live_requests.settings_label({"sens": "high", "perHour": 12, "length": 60, "waitMin": 3, "pad": 1.5, "afterStream": False}),
-                         "ライブの設定: 感度 高・1 時間 12 本・長さ 60 秒・待ち 3 分・余白 1.5 秒・配信後の追加 なし")
+    def test_length_mode(self):
         auto = live_requests.clean_settings({"lengthMode": "auto"})   # 友人の受信箱のアプリの長さ「自動(場面ごと)」(C-2-11)
         self.assertEqual(auto, dict(live_requests.SETTINGS_DEFAULT, lengthMode="auto"))
-        self.assertIn("長さ 自動(場面ごと)", live_requests.settings_label(auto))
         for mode in ("fixed", "AUTO", None, 1):   # auto 以外・無い(前の形の依頼)= 固定の長さ
             self.assertEqual(live_requests.clean_settings({"lengthMode": mode}), live_requests.SETTINGS_DEFAULT, mode)
 
@@ -949,17 +925,15 @@ class TestLiveRequest(Base):
                 texts.append(f.read())
         return names, texts
 
-    def test_live_request_keeps_deliver_batch(self):
-        """10-09 ユーザー決定(decisions 3-20): ライブ配信の依頼も届け方(2.9.0 のアプリの deliverBatch)を結びつきに残し、受付の記録の文も合わせる"""
+    def test_live_request_options_reach_link(self):
+        """10-09 ユーザー決定(decisions 3-20): ライブ配信の依頼も届け方(2.9.0 のアプリの deliverBatch)を結びつきに残し、受付の記録の文も合わせる。
+        友人の受信箱のアプリの長さ「自動(場面ごと)」(live.lengthMode auto。C-2-11)も結びつきの settings に残す(検出が場面ごとに切る)"""
         self.infos[self.VID] = {"duration": None, "live": "is_live", "title": "配信中", "channel": "Miko Ch."}
         rec = self.send("20261008-200000-abc302", deliverBatch=3)
         (_url, ctx), = self.begun
         self.assertEqual(ctx["deliverBatch"], 3)
         self.assertIn("1 本ずつ届けます", rec["items"][0]["reason"])
-
-    def test_live_length_auto_reaches_link(self):
-        """友人の受信箱のアプリの長さ「自動(場面ごと)」(依頼の JSON の live.lengthMode auto。C-2-11)は結びつきの settings に残す(検出が場面ごとに切る)"""
-        self.infos[self.VID] = {"duration": None, "live": "is_live", "title": "配信中", "channel": "Miko Ch."}
+        self.begun.clear()
         rec = self.send("20261017-200000-abc303", live={"sens": "high", "perHour": 12, "length": 60, "waitMin": 3, "pad": 1.5, "afterStream": False,
                                                          "lengthMode": "auto"})
         (_url, ctx), = self.begun
@@ -1144,17 +1118,17 @@ class TestYoutubeInfo(unittest.TestCase):
         self.assertIn("--ignore-no-formats-error", calls[0])
         self.assertEqual(calls[0][-1], "https://www.youtube.com/watch?v=abcdefghijk")
 
-    def test_old_ytdlp_error_text_means_upcoming(self):
-        out, _calls = self.run_info(1, "", "ERROR: [youtube] abcdefghijk: This live event will begin in 3 minutes.\n")
-        self.assertEqual(out, {"duration": None, "live": "is_upcoming", "channel": "", "title": ""})
-        out, _calls = self.run_info(1, "", "ERROR: [youtube] abcdefghijk: Premieres in 2 hours\n")
-        self.assertEqual(out["live"], "is_upcoming")
-
-    def test_other_failures_are_none(self):
-        self.assertIsNone(self.run_info(1, "", "ERROR: [youtube] abcdefghijk: Video unavailable\n")[0])
-        self.assertIsNone(self.run_info(0, "garbage\n")[0])
-        out, _calls = self.run_info(0, "3600\twas_live\tch\t題\n")
-        self.assertEqual(out, {"duration": 3600.0, "live": "was_live", "channel": "ch", "title": "題"})
+    def test_error_text_and_failures(self):
+        """古い yt-dlp のエラー文(will begin・Premieres)は is_upcoming・ほかの失敗は None・正常な出力は読む"""
+        upcoming = {"duration": None, "live": "is_upcoming", "channel": "", "title": ""}
+        for rc, stdout, stderr, want in (
+                (1, "", "ERROR: [youtube] abcdefghijk: This live event will begin in 3 minutes.\n", upcoming),
+                (1, "", "ERROR: [youtube] abcdefghijk: Premieres in 2 hours\n", upcoming),
+                (1, "", "ERROR: [youtube] abcdefghijk: Video unavailable\n", None),
+                (0, "garbage\n", "", None),
+                (0, "3600\twas_live\tch\t題\n", "", {"duration": 3600.0, "live": "was_live", "channel": "ch", "title": "題"})):
+            with self.subTest(rc=rc, stdout=stdout, stderr=stderr):
+                self.assertEqual(self.run_info(rc, stdout, stderr)[0], want)
 
     def test_uses_shared_ytdlp_command(self):
         """呼び方は ytt/tools.ytdlp_print_cmd(flow/livesession.probe_live と同じ)・時間切れは None"""

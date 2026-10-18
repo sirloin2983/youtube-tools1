@@ -29,18 +29,10 @@ class JudgmentsTest(unittest.TestCase):
         self.assertEqual(self.rec("k2", "made_video")["who"], "friend")
 
     def test_rejects(self):
-        with self.assertRaises(ValueError):
-            self.rec("k", "like")
-        with self.assertRaises(ValueError):
-            self.rec("k", "made_video", who="self")
-        with self.assertRaises(ValueError):
-            self.rec("k", "quality_good", who="friend")
-        with self.assertRaises(ValueError):
-            self.rec("k", "adopt", reason="boring")
-        with self.assertRaises(ValueError):
-            self.rec("k", "retract")
-        with self.assertRaises(ValueError):
-            self.rec("k", via="nowhere")
+        for args, kw in ((("k", "like"), {}), (("k", "made_video"), {"who": "self"}), (("k", "quality_good"), {"who": "friend"}),
+                         (("k", "adopt"), {"reason": "boring"}), (("k", "retract"), {}), (("k",), {"via": "nowhere"})):
+            with self.subTest(args=args, kw=kw), self.assertRaises(ValueError):
+                self.rec(*args, **kw)
         self.assertEqual(J.rows(self.d), [])
 
     def test_broken_lines_skipped(self):

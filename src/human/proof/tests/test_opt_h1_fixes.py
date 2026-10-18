@@ -37,14 +37,12 @@ class _Tmp(unittest.TestCase):
 
 
 class PersonKeyTest(unittest.TestCase):
-    def test_person_key(self):
+    def test_person_key_and_generic_names(self):
         k = textutil.person_key
         self.assertEqual(k("Pekora"), k("pekora"))
         self.assertEqual(k("兎田 ぺこら"), k("兎田　ペコラ"))
         self.assertEqual(k("ＭＣ"), "mc")
         self.assertNotEqual(k("pekora"), k("ぺこら"))   # ローマ字とかなは結ばない(名簿の呼び名で結ぶ)
-
-    def test_generic_names_use_person_key(self):
         for n in ("本人", "ゲスト", "ＭＣ", "Speaker 1", "スピーカー2", "すぴーかー", "話者A", "ゲーム音声など"):
             self.assertTrue(speakers.is_generic_speaker_name(n), n)
         for n in ("兎田ぺこら", "Pekora", "話者", ""):
@@ -101,8 +99,7 @@ class RosterTest(unittest.TestCase):
         r = learn.load_roster()
         self.assertEqual(r, {"asOf": "2026-10-01", "note": "n", "groups": [{"id": "h", "label": "H", "names": ["さくらみこ", "3"]}]})   # 文字列の names は 1 字ずつに割らない
         self.assertEqual(r["groups"], roster.load(roster.ROSTER)["groups"])   # 認識と同じ整え方
-
-    def test_missing_or_unset(self):
+        # 名簿が無い・未設定のとき空で返す
         roster.ROSTER = None
         self.assertEqual(learn.load_roster(), {"asOf": "", "note": "", "groups": []})
         roster.ROSTER = os.path.join(self.tmp, "無い.json")

@@ -92,9 +92,7 @@ class CutCardTest(unittest.TestCase):
             self.assertTrue(u.get("ok", True))
         self.assertEqual(store.read_transcript(TID), before_doc)   # 文書は更新日時も含めて同じ
         self.assertEqual(self.read_edit(), before_edit)            # 編集の内容は同じ
-
-    def test_bad_answer_is_refused_before_record(self):
-        with self.assertRaises(apply.Refused):
+        with self.assertRaises(apply.Refused):                     # 許されない答え(edge に ok など)は記録より前に断る
             apply.answer(self.ctx, card("edge"), {"answer": {"choice": "ok"}})
 
 

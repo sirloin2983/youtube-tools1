@@ -85,6 +85,10 @@ class ValueTest(unittest.TestCase):
     def test_auto_reason_only_for_bad_and_must_be_a_card_reason(self):
         got = apply.answer(self.ctx, auto_card(), {"answer": {"choice": "good", "reason": "long"}})
         self.assertNotIn("reason", got["applied"])   # 良いに付いた理由は捨てる
+        rows = judgments.rows(self.tmp)               # 判断の記録は quality_good で理由なし
+        self.assertEqual((rows[0]["what"], rows[0]["via"]), ("quality_good", "check"))
+        self.assertNotIn("reason", rows[0])
+        self.assertEqual(self.studio.calls, [])
         with self.assertRaises(apply.Refused) as e:
             apply.answer(self.ctx, dict(auto_card(), id="value:auto:%s#a9" % VID), {"answer": {"choice": "bad", "reason": "nope"}})
         self.assertEqual(e.exception.code, 400)
@@ -105,13 +109,6 @@ class ValueTest(unittest.TestCase):
         self.assertEqual((rows[1]["of"], rows[1]["key"]), (r["id"], r["key"] + ":retract"))
         self.assertIsNone(judgments.fold(rows)[(VID, "a1")]["quality"])   # 取り消したら品質のレーンは空
 
-    def test_auto_good_writes_quality_good_without_reason(self):
-        apply.answer(self.ctx, auto_card(), {"answer": {"choice": "good", "reason": "long"}})
-        rows = judgments.rows(self.tmp)
-        self.assertEqual((rows[0]["what"], rows[0]["via"]), ("quality_good", "check"))
-        self.assertNotIn("reason", rows[0])
-        self.assertEqual(self.studio.calls, [])
-
     def test_auto_unknown_writes_quality_unknown_without_reason_and_undo(self):
         got = apply.answer(self.ctx, auto_card(), {"answer": {"choice": "unknown", "reason": "boring"}})
         self.assertEqual((got["applied"]["choice"], self.hook_calls), ("unknown", []))
@@ -122,10 +119,6 @@ class ValueTest(unittest.TestCase):
         self.assertEqual(judgments.fold(rows)[(VID, "a1")]["quality"]["what"], "quality_unknown")
         apply.undo(self.ctx, got["answer"])
         self.assertIsNone(judgments.fold(judgments.rows(self.tmp))[(VID, "a1")]["quality"])
-
-    def test_cand_writes_no_judgment(self):
-        apply.answer(self.ctx, cand_card(), {"answer": {"choice": "reject"}})
-        self.assertEqual(judgments.rows(self.tmp), [])
 
     def test_retract_is_not_written_twice(self):
         got = apply.answer(self.ctx, auto_card(), {"answer": {"choice": "good"}})
@@ -180,6 +173,7 @@ class ValueTest(unittest.TestCase):
         got = apply.answer(self.ctx, cand_card(), {"answer": {"choice": "reject"}})
         self.assertEqual(self.studio.status, "rejected")
         self.assertNotIn("/api/export", [c[1] for c in self.studio.calls])
+        self.assertEqual(judgments.rows(self.tmp), [])   # 候補(cand)の答えは人の判断の記録を書かない
         apply.undo(self.ctx, got["answer"])
         self.assertEqual(self.studio.status, "")
         got = apply.answer(self.ctx, dict(cand_card(), id="value:cand:%s#m1b" % VID), {"answer": {"choice": "adopt"}})

@@ -129,6 +129,13 @@ class ApplyTest(unittest.TestCase):
         st = answerlog.state(self.tmp)
         self.assertEqual(([r["id"] for r in st.failed()], st.held(), st.effective()), ([a["answer"]], [], []))
         self.assertEqual(apply.undo(self.ctx, a["answer"])["reverted"], {"held": True})   # 届かなかった物の Z は記録だけ
+        # 6b-2: 確定の途中の想定外の例外も failed に記録し、以後の答え・飛ばす・確定を止めない
+        apply.register("value", "fake", lambda ctx, c, ans: {}["nope"], self.fake.revert, defer=lambda ans: True)
+        a2 = apply.answer(self.ctx, card("v2", kind="value"), {"answer": "send"})
+        got = apply.answer(self.ctx, card("s1"), {"answer": "1"})
+        self.assertIn("nope", got["flushed"][0]["failed"])
+        self.assertEqual(apply.skip(self.ctx, "read:fake:s2")["flushed"], [])
+        self.assertEqual([r["id"] for r in answerlog.state(self.tmp).failed()], [a2["answer"]])   # 1 つ目は Z で取り消し済み
 
     def test_skip_flushes_and_records(self):
         apply.answer(self.ctx, card("v1", kind="value"), {"answer": "send"})
@@ -230,15 +237,6 @@ class ApplyTest(unittest.TestCase):
         st = answerlog.state(self.tmp)
         self.assertEqual(([r["id"] for r in st.failed()], st.pending), ([a["answer"]], {}))
         self.assertEqual([c for c in self.fake.calls if c[0] == "apply"], [("apply", "value:fake:v1", "send")])   # 1 回だけ
-
-    def test_unexpected_flush_error_is_recorded(self):
-        """6b-2: 確定の途中の想定外の例外も failed に記録し、以後の答え・飛ばす・確定を止めない"""
-        apply.register("value", "fake", lambda ctx, c, ans: {}["nope"], self.fake.revert, defer=lambda ans: True)
-        a = apply.answer(self.ctx, card("v1", kind="value"), {"answer": "send"})
-        got = apply.answer(self.ctx, card("s1"), {"answer": "1"})
-        self.assertIn("nope", got["flushed"][0]["failed"])
-        self.assertEqual(apply.skip(self.ctx, "read:fake:s2")["flushed"], [])
-        self.assertEqual([r["id"] for r in answerlog.state(self.tmp).failed()], [a["answer"]])
 
     def test_flush_only_this_page(self):
         """6b-1: 確定はその画面の保留だけ(別の画面の答え・飛ばす・flush では届けない)。古い保留はどの画面からでも確定する"""

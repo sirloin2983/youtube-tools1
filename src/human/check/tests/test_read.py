@@ -76,8 +76,12 @@ class ReadTest(unittest.TestCase):
         self.assertTrue(got["ok"])
 
     def test_fill_revert_to_recognized_and_undo(self):
-        with self.assertLogs("tx", level="INFO") as cm:
+        from unittest import mock
+        # 6c-2: 読みの答えは編集の保存と同じく履歴を 10 分に 1 つ(必ず 1 つ残して 30 個の履歴を押し出さない)・.bak の控えを作らない
+        with self.assertLogs("tx", level="INFO") as cm, mock.patch.object(store, "snapshot") as snap, mock.patch.object(store, "backup_doc") as bak:
             got = apply.answer(self.ctx, card("fill", "s1"), {"answer": {"choice": "2"}})
+        snap.assert_called_once_with(TID, False)
+        bak.assert_not_called()
         self.assertTrue(any("why=check:read" in m and "by=human" in m for m in cm.output), cm.output)
         s = self.seg("s1")
         self.assertEqual((s["text"], s.get("fill"), s["flag"]), ("うめたぶん", None, "要確認"))   # 「別の読み」の札と同じ(印だけ外す)
@@ -148,14 +152,6 @@ class ReadTest(unittest.TestCase):
             apply.undo(self.ctx, got["answer"])
         self.assertEqual(e.exception.error, "changed")
         self.assertEqual(self.seg("s1")["flag"], "メモ、人が足した印")
-
-    def test_history_is_not_forced(self):
-        """6c-2: 読みの答えは編集の保存と同じく履歴を 10 分に 1 つ(必ず 1 つ残して 30 個の履歴を押し出さない)・.bak の控えを作らない"""
-        from unittest import mock
-        with mock.patch.object(store, "snapshot") as snap, mock.patch.object(store, "backup_doc") as bak:
-            apply.answer(self.ctx, card("fill", "s1"), {"answer": {"choice": "2"}})
-        snap.assert_called_once_with(TID, False)
-        bak.assert_not_called()
 
     def test_busy_and_eval_are_refused(self):
         """6c-3: 処理中の文書と評価用の文書には反映しない(声・時刻のカードと同じ守り)"""

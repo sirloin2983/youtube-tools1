@@ -95,22 +95,25 @@ class TimeApplyTest(unittest.TestCase):
         self.assertEqual(self.seg()["start"], 10.9)
 
     def test_refusals_leave_doc_and_record_unwritten(self):
-        for ans, err in (({"choice": "both", "dStart": 1.0, "dEnd": -1.0}, "too_short"),):
-            with self.assertRaises(apply.Refused) as cm:
-                apply.answer(self.ctx, card(), {"answer": ans})
+        """短すぎる・行が無い・処理中(busy)・評価用の文書(eval)は断り、文書も記録も変えない"""
+        from flow import jobs as _heavy
+        head = {"answer": {"choice": "head", "dStart": 0.1}}
+        for name, c, body, err in (("too_short", card(), {"answer": {"choice": "both", "dStart": 1.0, "dEnd": -1.0}}, "too_short"),
+                                   ("no_row", card("nope"), {"answer": {"choice": "ok"}}, "no_row")):
+            with self.subTest(name), self.assertRaises(apply.Refused) as cm:
+                apply.answer(self.ctx, c, body)
             self.assertEqual(cm.exception.error, err)
-        with self.assertRaises(apply.Refused) as cm:
-            apply.answer(self.ctx, card("nope"), {"answer": {"choice": "ok"}})
-        self.assertEqual(cm.exception.error, "no_row")
+        with mock.patch.object(_heavy, "doc_busy", return_value=True):
+            with self.assertRaises(apply.Refused) as cm:
+                apply.answer(self.ctx, card(), head)
+        self.assertEqual(cm.exception.error, "busy")
         self.assertEqual((self.seg()["start"], self.seg()["end"]), (10.0, 12.0))
         self.assertEqual(answerlog.state(self.ctx.app_dir).order, [])
-
-    def test_eval_doc_untouched(self):
         doc = store.read_transcript(TID)
         doc["evalSet"] = True
         store.commit(TID, doc, why="save")
         with self.assertRaises(apply.Refused) as cm:
-            apply.answer(self.ctx, card(), {"answer": {"choice": "head", "dStart": 0.1}})
+            apply.answer(self.ctx, card(), head)
         self.assertEqual(cm.exception.error, "eval")
 
     def test_undo_log_failure_then_retry(self):
@@ -143,13 +146,6 @@ class TimeApplyTest(unittest.TestCase):
         self.assertEqual(check_time.MAX_MOVE, 2.5)   # 画面 cards/time.js の LIMIT と同じ
         with self.assertRaises(ValueError):
             check_time._check({"choice": "head", "dStart": 3.0})
-
-    def test_busy_doc_is_refused(self):
-        from flow import jobs as _heavy
-        with mock.patch.object(_heavy, "doc_busy", return_value=True):
-            with self.assertRaises(apply.Refused) as cm:
-                apply.answer(self.ctx, card(), {"answer": {"choice": "head", "dStart": 0.1}})
-        self.assertEqual(cm.exception.error, "busy")
 
     def test_start_not_before_zero(self):
         doc = store.read_transcript(TID)
