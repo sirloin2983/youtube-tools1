@@ -4,9 +4,9 @@
 
 ## src/cut2resolve/
 
-- **serve.py** (616 行) — cut2resolve の API のサーバー(Python 標準ライブラリのみ。外部ツール: ffmpeg / ffprobe)。画面は「編集」(editor)に統合した(2026-09-26)。
-  - 名前: `log` :113・`runtime_dir` :130・`write_runtime` :134・`remove_runtime` :144・`siblings` :149・`class AppState` :163・`board_jobs` :190・`board_cancel` :195・`attach_board` :202・`is_pack_dir` :207・`open_folder` :213・`file_info` :230・ほか 14
-  - 受ける口: `/api/ping` :364・`/api/siblings` :365・`/api/job` :366・`/api/plan` :381・`/api/build` :381・`/api/job/cancel` :381・`/api/open-folder` :381
+- **serve.py** (615 行) — cut2resolve の API のサーバー(Python 標準ライブラリのみ。外部ツール: ffmpeg / ffprobe)。画面は「編集」(editor)に統合した(2026-09-26)。
+  - 名前: `log` :113・`runtime_dir` :130・`write_runtime` :134・`remove_runtime` :144・`siblings` :149・`class AppState` :163・`board_jobs` :190・`board_cancel` :195・`attach_board` :202・`is_pack_dir` :207・`open_folder` :212・`file_info` :229・ほか 14
+  - 受ける口: `/api/ping` :363・`/api/siblings` :364・`/api/job` :365・`/api/plan` :380・`/api/build` :380・`/api/job/cancel` :380・`/api/open-folder` :380
 
 ## src/editor/
 
@@ -16,8 +16,8 @@
   - 名前: `replace_retry` :64・`atomic_write` :70・`runtime_path_dir` :115・`setup_logging` :120・`write_mark` :146・`check_previous_run` :155・`clear_mark` :166・`backend_name` :178
 - **ed_thumb.py** (90 行) — 「編集」のサムネの案(提案 P5 の S。notes:plan/thumb-ideas.md の 7・8)。作る本体は thumb_ideas.py(コマンドとしても使える独立の部品)。
   - 名前: `thumb_paths` :25・`thumb_spec` :37・`run_thumb` :52・`thumb_info` :70・`thumb_image_path` :83
-- **serve.py** (833 行) — 文字起こしツール用のローカルサーバー(標準ライブラリ + faster-whisper)。
-  - 名前: `class Handler` :369・`probe` :621・`make_server` :627・`startup_checks` :649・`set_data_dir` :683・`studio_data_path` :694・`choose_data_dir` :703・`prepare` :715・`busy` :757・`finish` :762・`mounted_elsewhere` :776・`main` :785・ほか 1
+- **serve.py** (827 行) — 文字起こしツール用のローカルサーバー(標準ライブラリ + faster-whisper)。
+  - 名前: `class Handler` :369・`probe` :621・`make_server` :627・`startup_checks` :649・`set_data_dir` :678・`studio_data_path` :689・`choose_data_dir` :697・`prepare` :709・`busy` :751・`finish` :756・`mounted_elsewhere` :770・`main` :779・ほか 1
   - 受ける口: `/api/ping` :238・`/api/siblings` :239・`/api/clip-info` :240・`/api/roster` :241・`/api/tools` :242・`/api/voices` :243・`/api/voices/preview` :244・`/api/jobs` :245・`/api/transcripts` :246・`/api/learned` :247・`/api/suggest` :248・`/api/metrics` :249・`/api/drill/status` :250・`/api/drill/next` :251・`/api/drill/candidates` :252・`/api/history` :253・`/api/transcript` :254・`/api/eval-folders` :255・`/api/eval-batch` :256・`/api/edit` :257・`/api/edit/draft` :258・`/api/thumb-ideas` :259・`/api/edit/pack-readme` :260・`/api/doc-for` :261・`/api/mach-changes` :262・`/api/transcribe` :286・`/api/diarize` :287・`/api/voices/learn` :288・`/api/speakers/sub` :289・`/api/voices/delete` :290・`/api/rerun` :291・`/api/settings/patch` :293・`/api/restore` :294・`/api/suggest/feedback` :295・`/api/export-file` :296・`/api/relink/check` :297・`/api/relink` :298・`/api/relink/missing` :299・`/api/relink/find` :300・`/api/eval-folders/organize` :301・`/api/eval-folders/settle` :302・`/api/eval-batch/start` :303・`/api/eval-batch/stop` :304・`/api/eval-batch/redo` :305・`/api/eval-batch/redo-one` :306・`/api/pick` :307・`/api/retime` :308・`/api/edit/pack` :309・`/api/edit/preview` :310・`/api/effort` :311・`/api/doc-diarnum` :312・`/api/mach-changes/pick` :313・`/api/drill/reviewed` :314・`/api/drill/unreviewed` :315・`/api/transcribe/cancel` :316・`/api/jobs/retry` :317・`/api/settings` :499・`/api/peaks` :501・`/api/thumb-ideas/image` :505・`/api/resolve-package` :538
 - **thumb_ideas.py** (246 行) — サムネの案を 6 つ並べた 1 枚を作る試作(提案 P5 の S = LLM なし。notes:plan/thumb-ideas.md)。完成品ではなく、サムネを作るときの参照。
   - 名前: `excite_score` :41・`clean` :49・`lines_of` :56・`one_word` :74・`row_at` :80・`select_times` :90・`card_texts` :110・`find_doc` :126・`doc_rows` :151・`member_color` :160・`mmss` :174・`crops_for` :178・ほか 2
@@ -26,8 +26,8 @@
 
 - **handoff.py** (40 行) — ツール間の受け渡し(notes:docs/spec/pipeline.md の 4)。
   - 名前: `runtime_dir` :16・`write_runtime` :21・`remove_runtime` :32・`siblings` :37
-- **serve.py** (733 行) — 切り抜きスタジオ(ローカルサーバー・標準ライブラリのみ。外部ツール: ffmpeg、YouTube には yt-dlp)。
-  - 名前: `init` :65・`attach_board` :77・`flow_host` :84・`busy` :92・`fetch_title` :96・`api_state` :108・`class Handler` :120・`probe` :467・`make_server` :481・`prepare` :609・`shutdown_jobs` :650・`finish` :672・ほか 2
+- **serve.py** (715 行) — 切り抜きスタジオ(ローカルサーバー・標準ライブラリのみ。外部ツール: ffmpeg、YouTube には yt-dlp)。
+  - 名前: `init` :65・`attach_board` :77・`flow_host` :84・`busy` :92・`fetch_title` :96・`api_state` :108・`class Handler` :120・`probe` :467・`make_server` :481・`prepare` :591・`shutdown_jobs` :632・`finish` :654・ほか 2
   - 受ける口: `/api/ping` :207・`/api/siblings` :208・`/api/state` :209・`/api/settings` :210・`/api/rank/registry` :211・`/api/rank/search` :212・`/api/rank/live` :213・`/api/queue` :214・`/api/videos` :215・`/api/video` :216・`/api/transcripts` :217・`/api/title` :218・`/api/export` :219・`/api/collab/groups` :220・`/api/collab/group` :221・`/api/rank/resolve` :432・`/api/rank/import-official` :433・`/api/rank/search/cancel` :435・`/api/queue/add` :436・`/api/queue/cancel` :437・`/api/queue/skipchat` :438・`/api/queue/retry` :439・`/api/queue/clear` :440・`/api/videos/open` :441・`/api/live/adopt` :442・`/api/live/exported` :443・`/api/video/delete` :444・`/api/video/request-marks` :445・`/api/export/cancel` :447・`/api/collab/group/add` :449・`/api/collab/group/remove` :450・`/api/collab/group/delete` :451・`/api/collab/anchor` :452・`/api/config` :455・`/api/outdir` :456
 - **startup.py** (111 行) — 切り抜きスタジオの起動の小物(役割で組み直す RS5-B。2026-10-10。旧 common.py の殻を消して、残った起動の物だけここへ)。
   - 名前: `migrate_old_logs` :37・`check_tools` :63・`start_env_check` :80・`env_state` :85

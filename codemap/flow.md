@@ -37,12 +37,12 @@
   - 名前: `friend_ranges` :75・`load_archive` :90・`candidates` :110・`peak_ratio` :134・`samples` :146・`suggest` :163・`compute` :186・`usable` :206・`describe` :216・`change` :228
 - **live_adopt.py** (276 行) — ライブの採用 = サーバー側の「マーク + 書き出し」(線 D の M1。役割で組み直す RS7-2 G1b。資料の git:cbe1a64:docs/design/surveys/rs7-survey-2026-10-10/plan_order_v3.md)。
   - 名前: `adopt_secs` :42・`pad_secs` :63・`top_of` :75・`class StudioMarks` :85・`class LocalMarks` :128・`class Adopter` :220
-- **live_archive.py** (1543 行) — 録画に無い区間をアーカイブ(YouTube)から書き出す(線 D の P4 の残り。notes:plan/line-d-live-clipping.md の 0-9)と、配信後の全自動(M7)の入口の側の中身。
+- **live_archive.py** (1538 行) — 録画に無い区間をアーカイブ(YouTube)から書き出す(線 D の P4 の残り。notes:plan/line-d-live-clipping.md の 0-9)と、配信後の全自動(M7)の入口の側の中身。
   - 名前: `from_archive` :148・`needs_archive` :153・`class ArchiveError` :159・`class Later` :163・`run_proc` :172・`probe_archive` :204・`readiness` :246・`fetch_full_audio` :264・`worker_python` :294・`run_align` :299・`inside` :313・`ended_at` :319・ほか 5
 - **live_detect.py** (755 行) — 配信中の盛り上がりの検出(線 D の L2)と自動の採用(M11)の入口の側。計画は notes:plan/line-d-detect.md(3 の「候補の API の約束」は線 2 = スタジオの画面との境目。変えない)。
   - 名前: `clean_spec` :81・`overlay` :95・`merge_spans` :115・`measured_holes` :126・`class Detector` :146
-- **live_export.py** (1402 行) — リアルタイム切り抜き(線 D の P2: マークと書き出し。notes:plan/line-d-live-clipping.md の 0・5・6)の入口の側の中身。
-  - 名前: `class LiveError` :115・`pick_folder` :127・`rec_list` :136・`latest_per_mark` :145・`cleaned_up` :155・`check_after` :167・`check_origin` :179・`clean_auto` :188・`check_streamer` :194・`deliver_pool` :206・`job_after` :217・`studio_mark_id` :223・ほか 6
+- **live_export.py** (1391 行) — リアルタイム切り抜き(線 D の P2: マークと書き出し。notes:plan/line-d-live-clipping.md の 0・5・6)の入口の側の中身。
+  - 名前: `class LiveError` :114・`pick_folder` :126・`rec_list` :135・`latest_per_mark` :144・`cleaned_up` :154・`check_after` :166・`check_origin` :178・`clean_auto` :187・`check_streamer` :193・`deliver_pool` :205・`job_after` :216・`studio_mark_id` :222・ほか 6
 - **live_failures.py** (173 行) — リアルタイム切り抜き(線 D)の失敗の集約(M3。notes:plan/line-d-auto-pack.md の 4)。
   - 名前: `failure_of` :49・`after_stream_failure` :74・`detect_failure` :91・`keep_failure` :107・`delete_notice` :117・`class Reader` :126・`collect` :154
 - **live_patrol.py** (64 行) — ライブの見回りの糸の骨組み(OPT2。live_export.Exporter・live_archive.Archiver・live_tx.LiveTx が継ぐ)と中止の例外 1 組。
@@ -73,8 +73,8 @@
   - 名前: `class Job` :23・`board_job` :51・`class PackJobs` :78
 - **packrec.py** (131 行) — ② 管理の層 flow: パックを作った記録(作業データの packs/<フォルダのハッシュ>.json)の持ち主(OPT-M2。notes:plan/done/opt-manage.md の 3b-1)。
   - 名前: `norm` :28・`packs_dir` :33・`record_name` :42・`read_record` :52・`ready` :68・`write_record` :89・`after_build` :119
-- **placement.py** (466 行) — ② 管理の層 flow: 置き場所の持ち主(役割で組み直す RS6 b-B0。2026-10-10。決定 3-29・
-  - 名前: `studio_data` :50・`case_root` :67・`doc_home` :95・`configured_out_dir` :129・`request_root` :137・`case_parents` :160・`case_roots` :166・`find_request_dir` :187・`work_dir` :208・`runs_dir` :214・`case_path` :232・`read_case` :237・ほか 10
+- **placement.py** (462 行) — ② 管理の層 flow: 置き場所の持ち主(役割で組み直す RS6 b-B0。2026-10-10。決定 3-29・
+  - 名前: `studio_data` :50・`case_root` :63・`doc_home` :91・`configured_out_dir` :125・`request_root` :133・`case_parents` :156・`case_roots` :162・`find_request_dir` :183・`work_dir` :204・`runs_dir` :210・`case_path` :228・`read_case` :233・ほか 10
 - **prio.py** (88 行) — ② 管理の層 flow: 処理の優先度の表(PRIO。決定 3-49・notes:plan/done/opt-series.md の 11)。
   - 名前: `name_ok` :35・`rank` :39・`idle_only` :43・`os_priority` :47・`label` :51・`slot_kw` :55・`of_run` :60・`of_spec` :69・`watch` :80・`idle_now` :85
 - **run.py** (1440 行) — ① 自動の流れの経路(役割で組み直す RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。

@@ -21,8 +21,8 @@
   - 名前: `class PipelineError` :35・`load_clip_file` :55・`resolve_clip_media` :63・`written_by_us` :97・`save_beside` :111・`ping` :155・`siblings` :160
 - **relink.py** (341 行) — ④ 文書と動画の紐づけ: 動画を選び直す(付け替え)・まとめて付け替える・「参照…」・素材を 30fps にそろえる
   - 名前: `relink_path` :31・`relink_check` :72・`relink_doc` :128・`norm_swap` :195・`norm_start` :213・`relink_missing` :242・`relink_folder` :266・`relink_find` :294・`pick_path` :329
-- **txindex.py** (300 行) — 文字起こしの文書(文字起こしツールの transcripts/*.json)を、他のツールから**読むだけ**の部品(統合計画の段階4)。
-  - 名前: `folder` :34・`norm` :40・`doc_paths` :97・`load` :108・`class Docs` :121・`summary` :151・`matches` :166・`pick` :170・`offset` :194・`lines` :214・`pack_dir` :219・`packs_dir` :224・ほか 6
+- **txindex.py** (274 行) — 文字起こしの文書(文字起こしツールの transcripts/*.json)を、他のツールから**読むだけ**の部品(統合計画の段階4)。
+  - 名前: `folder` :31・`norm` :37・`doc_paths` :94・`load` :105・`class Docs` :118・`summary` :148・`matches` :163・`pick` :167・`offset` :191・`lines` :211・`pack_dir` :216・`packs_dir` :221・ほか 6
 - **txlink.py** (37 行) — 書き出し済みのマークの「セリフ」(文字起こしツールで作った文字起こし)を、元の配信の時刻にして返す(統合計画の段階4)。
   - 名前: `tx_folder` :15・`for_video` :19
 
