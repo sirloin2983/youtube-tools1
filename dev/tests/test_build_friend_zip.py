@@ -174,11 +174,9 @@ class BuildTest(Base):
         self.assertEqual(set(man["files"]) | {"manifest.json"}, names)
         self.assertEqual(man["version"], V.VERSION)
         self.assertFalse(man["withKey"])
-        self.assertFalse(man["handoff"])
-        self.assertNotIn("RequestSender.exe", names)   # 前のアプリの物は入れない(--handoff のときだけ FriendApp.exe の写し)
-        for old in ("README.txt", "friend-defaults.json", "guide.html"):
-            self.assertNotIn(old, names)               # 前のアプリの README・友人の設定・説明
-        self.assertEqual({n.split("/")[0] for n in names if n.startswith("RequestSender")}, set())
+        self.assertNotIn("handoff", man)
+        for n in ("README.txt", "friend-defaults.json", "guide.html"):
+            self.assertNotIn(n, names)                 # 直下に置くのは決めた物だけ
         self.assertNotIn("config.json", names)   # 鍵は既定で入れない(f1g)
         self.assertNotIn("inbox.bat", names)   # 仮の入口は窓 FriendApp.exe に替わった
         for n in ("FriendApp.exe", "WebView2Loader.dll", "Microsoft.Web.WebView2.Core.dll", "Microsoft.Web.WebView2.WinForms.dll",
@@ -251,7 +249,6 @@ class BuildTest(Base):
             self.assertIn("config.json", z.namelist())
             self.assertEqual(z.read("config.json"), b'{"fake": "FAKE-short"}')
             self.assertTrue(json.loads(z.read("manifest.json"))["withKey"])
-            self.assertNotIn("RequestSender.exe", z.namelist())
         got = self.build(first=True)
         with zipfile.ZipFile(got["zip"]) as z:
             self.assertNotIn("config.json", z.namelist())
@@ -268,39 +265,6 @@ class BuildTest(Base):
         os.remove(self.key)
         with self.assertRaisesRegex(B.BuildError, "dropbox_auth"):
             self.build(first=True, with_key=True)
-
-    def test_handoff_zip(self):
-        got = self.build(handoff=True, notes="移る")
-        name = "RequestSender-%s.zip" % V.VERSION
-        self.assertEqual(os.path.basename(got["zip"]), name)
-        with open(os.path.join(self.out, "latest.json"), encoding="utf-8") as f:
-            latest = json.load(f)
-        self.assertEqual((latest["version"], latest["file"], latest["sha256"]), (V.VERSION, name, got["sha256"]))
-        with zipfile.ZipFile(got["zip"]) as z:
-            names = set(z.namelist())
-            man = json.loads(z.read("manifest.json"))
-            self.assertEqual(z.read("RequestSender.exe"), z.read("FriendApp.exe"))   # FriendApp.exe の写し
-            self.assertEqual(z.read("RequestSender.exe"), b"MZlauncher")
-            for n, sha in man["files"].items():
-                self.assertEqual(_sha(z.read(n)), sha, n)
-        self.assertTrue(man["handoff"])
-        self.assertIn("RequestSender.exe", man["files"])
-        self.assertNotIn("config.json", names)
-        self.assertIn("FriendApp.exe", names)
-
-    def test_handoff_and_first_refused(self):
-        with self.assertRaisesRegex(B.BuildError, "--handoff"):
-            self.build(handoff=True, first=True)
-        with self.assertRaises(SystemExit) as cm:
-            B.main(["--handoff", "--first", "--out", self.out])
-        self.assertEqual(cm.exception.code, 2)
-        self.assertFalse(os.path.exists(self.out))
-
-    def test_handoff_and_normal_do_not_overwrite_each_other(self):
-        self.build()
-        self.build(handoff=True)
-        self.assertEqual(sorted(n for n in os.listdir(self.out) if n.endswith(".zip")),
-                         ["FriendApp-%s.zip" % V.VERSION, "RequestSender-%s.zip" % V.VERSION])
 
     def test_cli_rejects_key_without_first(self):
         with self.assertRaises(SystemExit) as cm:
@@ -350,13 +314,10 @@ class BuildTest(Base):
         os.makedirs(self.out)
         for v in ("0.9.0", "0.10.0", "0.8.5"):
             open(os.path.join(self.out, "FriendApp-%s.zip" % v), "wb").close()
-        for v in ("0.99.1", "0.99.2", "0.99.3"):   # 移る前の名前も名前ごとに 2 つまで
-            open(os.path.join(self.out, "RequestSender-%s.zip" % v), "wb").close()
         open(os.path.join(self.out, "FriendApp-0.1.0-first.zip"), "wb").close()
         open(os.path.join(self.out, "other.zip"), "wb").close()
         B.prune(self.out)
-        self.assertEqual(sorted(os.listdir(self.out)), ["FriendApp-0.1.0-first.zip", "FriendApp-0.10.0.zip", "FriendApp-0.9.0.zip",
-                                                         "RequestSender-0.99.2.zip", "RequestSender-0.99.3.zip", "other.zip"])
+        self.assertEqual(sorted(os.listdir(self.out)), ["FriendApp-0.1.0-first.zip", "FriendApp-0.10.0.zip", "FriendApp-0.9.0.zip", "other.zip"])
 
 
 class CacheTest(Base):

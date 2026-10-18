@@ -1,13 +1,11 @@
 # -*- coding: utf-8 -*-
-"""友人の PC に配る zip(新しいアプリ FriendApp + ② + ① の Python のコード + 埋め込み用 Python + 部品)を作る道具(F1 の F4a。設計 notes:docs/design/f1-build.md の 2・3 節)。
+"""友人の PC に配る zip(新しいアプリ FriendApp + ② + ① の Python のコード + 埋め込み用 Python + 部品)を作る道具(設計 notes:docs/design/f1-build.md の 2・3 節)。
 
-zip の中(アプリのフォルダ <任意>/FriendApp/ にそのまま展開する形。3 節 (f1i)。前のアプリ RequestSender の物は入れない = friend-apps/request-sender/ は消した):
-    FriendApp.exe    新しい友人のアプリの窓(friend-apps/launcher/build/。F3-1。WebView2 の DLL 3 つ = Microsoft.Web.WebView2.Core.dll・.WinForms.dll・WebView2Loader.dll と一緒に直下)。
+zip の中(アプリのフォルダ <任意>/FriendApp/ にそのまま展開する形。3 節 (f1i)):
+    FriendApp.exe    友人のアプリの窓(friend-apps/launcher/build/。WebView2 の DLL 3 つ = Microsoft.Web.WebView2.Core.dll・.WinForms.dll・WebView2Loader.dll と一緒に直下)。
                      無い・launcher の C# より古ければ friend-apps/launcher/build.bat を流してから入れる
     members.json     配信者の名簿(friend-apps/holo-colors/members.json の写し。友人のアプリが places.py で直下から読んで YTT_HOLO_MEMBERS に渡す)
-    FriendApp-はじめに.txt  アプリのフォルダの説明と、前のアプリから移る手順(friend-apps/launcher/INSTALL.txt)
-    RequestSender.exe  --handoff のときだけ: FriendApp.exe の写し(前のアプリの「更新する」は zip に RequestSender.exe が無いと断るため。
-                     FriendApp.exe は自分の名前が RequestSender.exe のとき隣の FriendApp.exe を起こして終わる)。ふだんの zip・--first には入れない
+    FriendApp-はじめに.txt  入れ方とアプリのフォルダの説明(friend-apps/launcher/INSTALL.txt)
     python/        公式の埋め込み用 Python 3.10 + python310._pth(Lib/site-packages と ../src を足す)+ wheel を展開した部品(numpy・sherpa-onnx・streamlink と依存)
     src/           git が管理している src のファイル(tests/・__pycache__ は外す。作業データ・追跡外のファイルは入らない)
     tools/whisper.cpp-<版>-vulkan/   ユーザーの PC で作った whisper.cpp(build.json の files と SHA-256 が合う物だけ)
@@ -18,8 +16,7 @@ config.json(Dropbox の鍵)は入れない。--first --with-key のときだけ 
 出力:
     --out D: 出力先を D に(テスト・手元の確かめ。FriendApp-<版>.zip + latest.json を D に書く)
     --first: friend-apps/launcher/dist/FriendApp-<版>-first.zip(latest.json は書かない。手で渡す)
-    --handoff: 前のアプリから移る最後の 1 回の zip。RequestSender-<版>.zip(latest.json の file もこの名前)で、中に RequestSender.exe(FriendApp.exe の写し)が入る。--first とは同時に使えない
-    --publish(--out なし): <ホームの設定の intake.folder>/更新/FriendApp-<版>.zip(--handoff なら RequestSender-<版>.zip)+ latest.json(古い zip は名前ごとに 2 つ残して消す。(f1h))。
+    --publish(--out なし): <ホームの設定の intake.folder>/更新/FriendApp-<版>.zip + latest.json(古い zip は 2 つ残して消す。(f1h))。
         intake.folder は Dropbox の中 = 友人のアプリが「更新」で取る場所。ユーザーの OK のあとだけ。--out も --first も無い呼び出しは断る。
         置く前に必ず配る前の検査(dev/friend_preflight.py = 友人の PC と同じ状態で通しで試す)を流し、落ちたら置かない(抜けるのは --skip-preflight の明示だけ)
 
@@ -27,7 +24,7 @@ Python の本体・wheel・ffmpeg などはキャッシュのフォルダ(--cach
 無ければ取りに行く(https の固定の URL・wheel は pip download)。ffmpeg・yt-dlp・Deno・Python の本体は表に SHA-256 が無いので、
 キャッシュに取った物の大きさと SHA-256 を fetch.json・manifest.json に書く(取ったときに 1 回だけ信じる。以後はキャッシュの記録と照らす)。
 
-    py -3.12 dev/build_friend_zip.py [--out D | --publish] [--cache C] [--wcpp-dir W] [--launcher-build L] [--first [--with-key] | --handoff] [--no-fetch]
+    py -3.12 dev/build_friend_zip.py [--out D | --publish] [--cache C] [--wcpp-dir W] [--launcher-build L] [--first [--with-key]] [--no-fetch]
 終了コード 0 済み / 1 失敗 / 2 引数
 """
 import argparse
@@ -69,8 +66,6 @@ KEY_SRC = os.path.join(LAUNCHER_SRC, "config.json")    # Dropbox の鍵(git の�
 INSTALL_NAME = "FriendApp-はじめに.txt"                 # zip の直下に置く入れ方(元は friend-apps/launcher/INSTALL.txt)
 FOLDER_NAME = "FriendApp"                               # zip の中を包むフォルダの名前
 ZIP_PREFIX = "FriendApp"                                # ふだんの zip の名前の頭(FriendApp-<版>.zip)
-HANDOFF_PREFIX = "RequestSender"                        # 移る最後の 1 回の zip の名前の頭(前のアプリの「更新する」が見る名前)
-HANDOFF_EXE = "RequestSender.exe"                       # --handoff の zip にだけ入れる FriendApp.exe の写し
 # 新しいアプリが動くのに要る src の物(git に入っていないと zip に入らない = 追跡し忘れの検査)
 REQUIRED_SRC = ("src/friendapp/server.py", "src/friendapp/streams.py", "src/friendapp/setup.py", "src/friendapp/places.py",
                 "src/friendapp/ui/friend.html", "src/friendapp/ui/friend.js", "src/friendapp/ui/host.js", "src/friendapp/ui/setup.html",
@@ -333,7 +328,7 @@ def lay_launcher(stage, launcher_build=LAUNCHER_BUILD, launcher_src=LAUNCHER_SRC
 
 
 def lay_install(stage, launcher_src=LAUNCHER_SRC):
-    """移る手順(launcher/INSTALL.txt)を FriendApp-はじめに.txt として直下に"""
+    """入れ方(launcher/INSTALL.txt)を FriendApp-はじめに.txt として直下に"""
     p = os.path.join(launcher_src, "INSTALL.txt")
     if not os.path.isfile(p):
         raise BuildError("%s がありません" % p)
@@ -391,11 +386,6 @@ def lay_key(stage, with_key, key_src=KEY_SRC):
     if not os.path.isfile(key_src):
         raise BuildError("--with-key ですが %s がありません(python dev/dropbox_auth.py で作ってから)" % key_src)
     shutil.copy2(key_src, os.path.join(stage, "config.json"))
-
-
-def lay_handoff(stage):
-    """--handoff: 直下の FriendApp.exe の写しを RequestSender.exe として入れる(前のアプリの更新は RequestSender.exe が無いと断る)"""
-    shutil.copy2(os.path.join(stage, LAUNCHER_EXE), os.path.join(stage, HANDOFF_EXE))
 
 
 # ---------------------------------------------------------------- fetch.json(取る物の表を読むだけ)
@@ -500,13 +490,11 @@ def _ver_key(name, prefix):
 
 
 def prune(out_dir, keep=KEEP_ZIPS):
-    """更新の置き場所の古い FriendApp-<版>.zip を keep 個まで残して消す(版の新しい順)。移る前の名前 RequestSender-<版>.zip も同じ数で(名前ごと)。
-    -first.zip・ほかの名前は触らない"""
-    for prefix in (ZIP_PREFIX, HANDOFF_PREFIX):
-        zs = sorted((n for n in os.listdir(out_dir) if _ver_key(n, prefix)), key=lambda n: _ver_key(n, prefix), reverse=True)
-        for n in zs[keep:]:
-            os.remove(os.path.join(out_dir, n))
-            say("古い zip を消しました: %s" % n)
+    """更新の置き場所の古い FriendApp-<版>.zip を keep 個まで残して消す(版の新しい順)。-first.zip・ほかの名前は触らない"""
+    zs = sorted((n for n in os.listdir(out_dir) if _ver_key(n, ZIP_PREFIX)), key=lambda n: _ver_key(n, ZIP_PREFIX), reverse=True)
+    for n in zs[keep:]:
+        os.remove(os.path.join(out_dir, n))
+        say("古い zip を消しました: %s" % n)
 
 
 def default_out(first, publish=False):
@@ -526,12 +514,10 @@ def default_out(first, publish=False):
 
 
 def build(out_dir, cache, wcpp_dir, first=False, with_key=False, fetch=True, notes="", fetcher=download, downloader=pip_download,
-          launcher_build=LAUNCHER_BUILD, handoff=False, members_src=MEMBERS_SRC, key_src=KEY_SRC):  # lint: long 一本の流れ(置く → 表 → 検査 → zip)
+          launcher_build=LAUNCHER_BUILD, members_src=MEMBERS_SRC, key_src=KEY_SRC):  # lint: long 一本の流れ(置く → 表 → 検査 → zip)
     """zip を作って {zip, size, sha256, files} を返す。失敗は BuildError"""
     if with_key and not first:
         raise BuildError("--with-key は --first のときだけ(更新の zip に鍵を入れない)")
-    if handoff and first:
-        raise BuildError("--handoff と --first は一緒に使えません(--handoff は更新の置き場所へ置く最後の 1 回の zip)")
     ver = _version.VERSION
     os.makedirs(out_dir, exist_ok=True)
     stage_root = tempfile.mkdtemp(prefix="friend-zip-")
@@ -548,8 +534,6 @@ def build(out_dir, cache, wcpp_dir, first=False, with_key=False, fetch=True, not
         lay_src(stage)
         wcpp = lay_wcpp(stage, wcpp_dir)
         lay_launcher(stage, launcher_build)
-        if handoff:
-            lay_handoff(stage)
         lay_install(stage)
         fetch_doc = {"schema": FETCH_SCHEMA, "version": ver, "items": model_entries() + tool_entries(cache, fetch, fetcher)}
         with open(os.path.join(stage, "fetch.json"), "w", encoding="utf-8") as f:
@@ -558,13 +542,13 @@ def build(out_dir, cache, wcpp_dir, first=False, with_key=False, fetch=True, not
         if bad:
             raise BuildError("zip に入れてはいけない物があります:\n  " + "\n  ".join(bad[:20]))
         files = file_hashes(stage)
-        manifest = {"schema": SCHEMA, "version": ver, "builtAt": datetime.datetime.now().isoformat(timespec="seconds"), "first": bool(first), "handoff": bool(handoff),
+        manifest = {"schema": SCHEMA, "version": ver, "builtAt": datetime.datetime.now().isoformat(timespec="seconds"), "first": bool(first),
                     "withKey": bool(with_key), "python": {"version": PY_EMBED["version"], "file": PY_EMBED["file"], "sha256": embed_got["sha256"]},
                     "requirements": reqs, "wheels": [os.path.basename(w) for w in wfiles], "whisperCpp": {"dir": wcpp, "version": _tx.WHISPER_CPP["version"]},
                     "files": files}
         with open(os.path.join(stage, "manifest.json"), "w", encoding="utf-8") as f:
             json.dump(manifest, f, ensure_ascii=False, indent=1)
-        name = "%s-%s%s.zip" % (HANDOFF_PREFIX if handoff else ZIP_PREFIX, ver, "-first" if first else "")
+        name = "%s-%s%s.zip" % (ZIP_PREFIX, ver, "-first" if first else "")
         path = os.path.join(out_dir, name)
         write_zip(stage, path)
     finally:
@@ -593,7 +577,7 @@ def publish(a, out):
     落ちたら置かない。検査を抜けるのは --skip-preflight の明示だけ -> build と同じ形"""
     tmp = tempfile.mkdtemp(prefix="friend-publish-")
     try:
-        got = build(tmp, a.cache, a.wcpp, with_key=False, fetch=not a.no_fetch, notes=a.notes, launcher_build=a.launcher_build, handoff=a.handoff)
+        got = build(tmp, a.cache, a.wcpp, with_key=False, fetch=not a.no_fetch, notes=a.notes, launcher_build=a.launcher_build)
         if a.skip_preflight:
             say("[警告] 配る前の検査を飛ばします(--skip-preflight)")
         else:
@@ -614,7 +598,7 @@ def publish(a, out):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(prog="build_friend_zip.py", description="友人の PC に配る zip を作る(F1 の F4a)")
+    ap = argparse.ArgumentParser(prog="build_friend_zip.py", description="友人の PC に配る zip を作る")
     ap.add_argument("--out", default="", help="出力先(一時のフォルダ。--first は既定 friend-apps/launcher/dist/)")
     ap.add_argument("--publish", action="store_true", help="--out なしで <intake.folder>/更新/ (Dropbox)へ置く。友人のアプリが取りに来る = ユーザーの OK のあとだけ")
     ap.add_argument("--cache", default="", help="Python の本体・wheel・道具のキャッシュ(既定 %%LOCALAPPDATA%%/youtube-tools/app/friend-build-cache)")
@@ -622,7 +606,6 @@ def main(argv=None):
     ap.add_argument("--launcher-build", default=LAUNCHER_BUILD, help="friend-apps/launcher/build.bat が作った FriendApp.exe と DLL の置き場所")
     ap.add_argument("--first", action="store_true", help="初回に手で渡す zip(dist に・latest.json を書かない)")
     ap.add_argument("--with-key", action="store_true", help="--first のときだけ: friend-apps/launcher/config.json(Dropbox の鍵)を入れる")
-    ap.add_argument("--handoff", action="store_true", help="前のアプリから移る最後の 1 回の zip(RequestSender-<版>.zip・中に RequestSender.exe = FriendApp.exe の写し)。--first と同時は不可")
     ap.add_argument("--no-fetch", action="store_true", help="キャッシュに無い物を取りに行かない(無ければ失敗)")
     ap.add_argument("--notes", default="", help="latest.json の notes(更新の説明)")
     ap.add_argument("--skip-preflight", action="store_true", help="--publish のときだけ: 配る前の検査(dev/friend_preflight.py)を飛ばす(明示のときだけ)")
@@ -631,8 +614,6 @@ def main(argv=None):
         ap.error("--skip-preflight は --publish のときだけ使えます")
     if a.with_key and not a.first:
         ap.error("--with-key は --first のときだけ使えます")
-    if a.handoff and a.first:
-        ap.error("--handoff は --first と一緒に使えません")
     if a.publish and (a.out or a.first):
         ap.error("--publish は --out・--first と一緒に使えません")
     try:
@@ -643,7 +624,7 @@ def main(argv=None):
             got = publish(a, out)
         else:
             got = build(out, a.cache, a.wcpp, first=a.first, with_key=a.with_key, fetch=not a.no_fetch, notes=a.notes,
-                        launcher_build=a.launcher_build, handoff=a.handoff)
+                        launcher_build=a.launcher_build)
     except (BuildError, OSError) as e:
         say("[失敗] %s" % e)
         return 1

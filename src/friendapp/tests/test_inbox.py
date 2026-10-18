@@ -73,18 +73,18 @@ class InboxTest(unittest.TestCase):
             dirs.append(d)
         return case, dirs
 
-    def arrive(self, rid, names, batch=5, run_id=None, vid="dQw4w9WgXcQ", title="題", streamer=""):
-        """送った行を足して届いた状態にする(batch は前の形の引数 = 読まれない)-> (行, 案件, パックのフォルダ)"""
+    def arrive(self, rid, names, run_id=None, vid="dQw4w9WgXcQ", title="題", streamer=""):
+        """送った行を足して届いた状態にする -> (行, 案件, パックのフォルダ)"""
         run_id = run_id or "run-" + rid
         self.box.add(rid, {"url": "u", "videoId": vid, "streamer": streamer}, {"url": "u", "videoId": vid, "title": title}, run_id=run_id)
         case, dirs = self.make_case(rid, names)
-        r = self.box.finished(run_id, "done", "", [{"dir": d, "seconds": 10.5} for d in dirs], batch, case=case)
+        r = self.box.finished(run_id, "done", "", [{"dir": d, "seconds": 10.5} for d in dirs], case=case)
         return r, case, dirs
 
     def failed_row(self, rid, state="error", error=""):
         run_id = "run-" + rid
         self.box.add(rid, {"url": "u"}, {"url": "u", "videoId": "x", "title": "", "channel": ""}, run_id=run_id)
-        return self.box.finished(run_id, state, error, [], 5)
+        return self.box.finished(run_id, state, error, [])
 
     def verdict_files(self, rid, name):
         """判断の記録(<依頼>__<パック名>~<13 桁>.verdict.json)の一覧(古い順)"""
@@ -109,12 +109,6 @@ class InboxTest(unittest.TestCase):
         self.assertEqual(inbox.pack_title("【雑談】テスト_pack"), "【雑談】テスト")
         self.assertEqual(inbox.pack_title("_pack"), "_pack")
         self.assertEqual(inbox.pack_title("ふつうの名前"), "ふつうの名前")
-
-    def test_verdict_doc_shape(self):
-        d = inbox.verdict_doc("keep", RID, "a_pack", "a", 123.7)
-        self.assertEqual(d, {"v": 1, "verdict": "keep", "requestId": RID, "zip": "a_pack", "title": "a", "origin": "request", "at": 123})
-        self.assertNotIn("by", d)
-        self.assertEqual(inbox.verdict_doc("reject", RID, "a_pack", "a", 1, by="auto")["by"], "auto")
 
     def test_case_of(self):
         path = os.path.join(self.cases, "案件-1", "作業用", "runs", "abc.json")
@@ -150,7 +144,7 @@ class InboxTest(unittest.TestCase):
     def test_finished_with_packs_arrives_and_groups(self):
         names = ["a_pack", "b_pack", "c_pack", "d_pack", "e_pack"]
         self.clock.t = T0 + 100
-        r, case, dirs = self.arrive(RID, names, batch=2)
+        r, case, dirs = self.arrive(RID, names)
         self.assertEqual(r["state"], "arrived")
         self.assertEqual(r["arrivedAt"], int((T0 + 100) * 1000))
         self.assertEqual(r["case"], case)
@@ -158,7 +152,7 @@ class InboxTest(unittest.TestCase):
         self.assertEqual([p["title"] for p in r["packs"]], ["a", "b", "c", "d", "e"])
         self.assertEqual(r["packs"][0]["seconds"], 10.5)
         self.assertEqual(r["packs"][0]["dir"], dirs[0])
-        # 1 本ずつ(C-3-1)。組の本数(batch)は読まない
+        # 1 本ずつ(C-3-1)
         self.assertEqual([(g["n"], g["names"]) for g in r["groups"]], [(i + 1, [n]) for i, n in enumerate(names)])
         self.assertTrue(all(g["preview"] is None for g in r["groups"]))
         # 配信ごとの通し番号と届いた時刻(3 日を数える)が付く
@@ -166,20 +160,10 @@ class InboxTest(unittest.TestCase):
         self.assertEqual({p["key"] for p in r["packs"]}, {"v:dQw4w9WgXcQ"})
         self.assertEqual({p["arrivedAt"] for p in r["packs"]}, {int((T0 + 100) * 1000)})
 
-    def test_finished_ignores_batch_value(self):
-        names = ["p%d_pack" % i for i in range(6)]
-        for i, batch in enumerate((None, 0, 11, "5", 2.0, 3)):
-            with self.subTest(batch=batch):
-                rid = "20250615-1200%02d-ffffff" % i
-                self.box.add(rid, {}, {}, run_id="run-" + rid)
-                case, dirs = self.make_case(rid, names)
-                r = self.box.finished("run-" + rid, "done", "", [{"dir": d} for d in dirs], batch, case=case)
-                self.assertEqual([len(g["names"]) for g in r["groups"]], [1] * 6)
-
     def test_finished_skips_missing_dirs(self):
         self.box.add(RID, {}, {}, run_id="r1")
         case, dirs = self.make_case(RID, ["a_pack"])
-        r = self.box.finished("r1", "done", "", [{"dir": dirs[0]}, {"dir": os.path.join(case, "無い_pack")}, {"dir": None}], 5, case=case)
+        r = self.box.finished("r1", "done", "", [{"dir": dirs[0]}, {"dir": os.path.join(case, "無い_pack")}, {"dir": None}], case=case)
         self.assertEqual([p["name"] for p in r["packs"]], ["a_pack"])
         self.assertEqual(r["state"], "arrived")
 
@@ -190,7 +174,7 @@ class InboxTest(unittest.TestCase):
         # 取り消した印のある行は、何の状態で終わっても消す
         self.box.add(RID2, {}, {}, run_id="r9")
         self.box.row(RID2)["cancelled"] = True
-        self.assertIsNone(self.box.finished("r9", "error", "x", [], 5))
+        self.assertIsNone(self.box.finished("r9", "error", "x", []))
         self.assertIsNone(self.box.row(RID2))
 
     def test_finished_without_packs_fails_with_reason(self):
@@ -201,15 +185,15 @@ class InboxTest(unittest.TestCase):
         r2 = self.failed_row(RID2, state="error", error="ffmpeg が落ちました")
         self.assertEqual(r2["error"], "ffmpeg が落ちました")
         self.box.add("20250615-120200-cccccc", {}, {}, run_id="r3")
-        r3 = self.box.finished("r3", "error", "", [], 5)
+        r3 = self.box.finished("r3", "error", "", [])
         self.assertEqual(r3["state"], "failed")
         self.assertIn("パックができませんでした", r3["error"])
 
     def test_finished_unknown_run_is_none(self):
-        self.assertIsNone(self.box.finished("nobody", "done", "", [], 5))
+        self.assertIsNone(self.box.finished("nobody", "done", "", []))
 
     def test_set_preview(self):
-        self.arrive(RID, ["a_pack", "b_pack"], batch=1)
+        self.arrive(RID, ["a_pack", "b_pack"])
         self.box.set_preview(RID, 2, "/x/preview2.mp4")
         self.assertEqual(self.box.row(RID)["groups"][1]["preview"], "/x/preview2.mp4")
         self.box.set_preview(RID, 9, "/x/none.mp4")   # 無い組は何もしない
@@ -244,13 +228,6 @@ class InboxTest(unittest.TestCase):
         self.assertEqual(self.read_verdict(RID, "a_pack")["judge"], "unknown")
         self.assertNotIn("by", self.read_verdict(RID, "a_pack"))
         self.assertEqual(self.verdict_files(RID, "b_pack"), [])
-
-    def test_decide_reject_is_read_as_skip(self):
-        """前の形の言葉 reject は見送る(skip)と読む"""
-        self.arrive(RID, ["a_pack"])
-        got = self.box.decide(RID, [], "reject")
-        self.assertEqual(got["row"]["packs"][0]["verdict"], "skip")
-        self.assertEqual(self.read_verdict(RID, "a_pack")["judge"], "unknown")
 
     def test_decide_bad_needs_reason_and_writes_it(self):
         self.arrive(RID, ["a_pack", "b_pack"])
@@ -480,7 +457,7 @@ class InboxTest(unittest.TestCase):
     def test_sweep_removes_failed_after_three_days_and_trashes_case(self):
         case, dirs = self.make_case(RID, ["a_pack"])
         self.box.add(RID, {}, {}, run_id="r1")
-        self.box.finished("r1", "error", "x", [], 5, case=case)
+        self.box.finished("r1", "error", "x", [], case=case)
         self.clock.t = T0 + 3 * 86400 - 1
         self.assertEqual(self.box.sweep(), 0)
         self.assertEqual(self.box.row(RID)["state"], "failed")
@@ -568,7 +545,7 @@ class InboxTest(unittest.TestCase):
     def test_remove_only_failed_and_trashes_case(self):
         case, dirs = self.make_case(RID, ["a_pack"])
         self.box.add(RID, {}, {}, run_id="r1")
-        self.box.finished("r1", "error", "x", [], 5, case=case)
+        self.box.finished("r1", "error", "x", [], case=case)
         self.box.remove(RID)
         self.assertIsNone(self.box.row(RID))
         self.assertFalse(os.path.exists(case))
@@ -580,7 +557,7 @@ class InboxTest(unittest.TestCase):
             self.box.remove("nope")
 
     def test_rows_persist_and_reload(self):
-        self.arrive(RID, ["a_pack", "b_pack"], batch=1)
+        self.arrive(RID, ["a_pack", "b_pack"])
         self.box.decide(RID, ["a_pack"], "keep")
         self.failed_row(RID2, error="止め")
         again = self.new_box()
@@ -606,12 +583,12 @@ class InboxTest(unittest.TestCase):
             f.write("{ こわれた")
         self.assertEqual(self.new_box().rows, [])
 
-    def test_load_old_inbox_reads_reject_as_skip_and_numbers_packs(self):
-        """前の形の inbox.json(verdict reject・num 無し)を読むと skip と番号になる"""
+    def test_load_numbers_packs_without_num(self):
+        """番号の無いパックは読んだときに番号が付く"""
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
         row = {"id": RID, "state": "arrived", "kind": "url", "origin": "request", "arrivedAt": int(T0 * 1000), "createdAt": int(T0 * 1000),
                "source": {"videoId": "dQw4w9WgXcQ", "title": "題"}, "form": {}, "groups": [], "error": "", "note": "",
-               "packs": [{"name": "a_pack", "title": "a", "dir": None, "verdict": "reject", "at": int(T0 * 1000), "by": None},
+               "packs": [{"name": "a_pack", "title": "a", "dir": None, "verdict": "skip", "at": int(T0 * 1000), "by": None},
                          {"name": "b_pack", "title": "b", "dir": None, "verdict": None, "at": None, "by": None},
                          {"name": "c_pack", "title": "c", "dir": None, "verdict": "keep", "at": None, "by": None}]}
         testkit.write_json(self.path, {"v": inbox.V, "rows": [row]})
@@ -625,7 +602,7 @@ class InboxTest(unittest.TestCase):
         # 次に届いた物は続きの番号
         again.add(RID2, {}, {"videoId": "dQw4w9WgXcQ"}, run_id="r2")
         case, dirs = self.make_case(RID2, ["d_pack"])
-        r2 = again.finished("r2", "done", "", [{"dir": dirs[0]}], 5, case=case)
+        r2 = again.finished("r2", "done", "", [{"dir": dirs[0]}], case=case)
         self.assertEqual(r2["packs"][0]["num"], 4)
 
     # ------------------------------------------------------------ 配信ごとの通し番号(C-3-2)
@@ -649,18 +626,18 @@ class InboxTest(unittest.TestCase):
         self.assertEqual(again.nums["v:dQw4w9WgXcQ"], 4)
         again.add("20250615-120400-eeeeee", {}, {"videoId": "dQw4w9WgXcQ"}, run_id="r5")
         case, dirs = self.make_case("20250615-120400-eeeeee", ["f_pack"])
-        r = again.finished("r5", "done", "", [{"dir": dirs[0]}], 5, case=case)
+        r = again.finished("r5", "done", "", [{"dir": dirs[0]}], case=case)
         self.assertEqual(r["packs"][0]["num"], 5)
 
     def test_number_key_falls_back_to_file_title_then_request(self):
         """配信の id が無い物: 動画ファイルは題ごと・それ以外は依頼ごと"""
         self.box.add(RID, {"title": "動画A"}, {"fileName": "a.mp4"}, run_id="r1", kind="file")
         case, dirs = self.make_case(RID, ["a_pack"])
-        r = self.box.finished("r1", "done", "", [{"dir": dirs[0]}], 5, case=case)
+        r = self.box.finished("r1", "done", "", [{"dir": dirs[0]}], case=case)
         self.assertEqual(r["packs"][0]["key"], "f:動画A")
         self.box.add(RID2, {}, {}, run_id="r2")
         case, dirs = self.make_case(RID2, ["b_pack"])
-        r = self.box.finished("r2", "done", "", [{"dir": dirs[0]}], 5, case=case)
+        r = self.box.finished("r2", "done", "", [{"dir": dirs[0]}], case=case)
         self.assertEqual(r["packs"][0]["key"], "r:" + RID2)
 
     # ------------------------------------------------------------ 受け取る画面(C-3)
@@ -789,7 +766,7 @@ class InboxTest(unittest.TestCase):
     def test_pack_preview_from_pack_or_single_group(self):
         self.arrive(RID, ["a_pack", "b_pack"])
         self.assertIsNone(self.box.pack_preview(RID, "a_pack"))
-        self.box.set_preview(RID, 2, "/x/b.mp4")   # 1 本ずつの組の動画 = そのパックの確認用の動画
+        self.box.set_preview(RID, 2, "/x/b.mp4")   # 1 本ずつの枠の動画 = そのパックの確認用の動画
         self.assertEqual(self.box.pack_preview(RID, "b_pack"), "/x/b.mp4")
         self.assertEqual(self.box.row(RID)["packs"][1]["preview"], "/x/b.mp4")
         self.assertIsNone(self.box.pack_preview(RID, "zzz"))

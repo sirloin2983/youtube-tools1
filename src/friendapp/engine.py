@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
-"""友人の玄関の ② の組み立て(F2-1・F2-2。Fable と相談した案 3 = CLI(app/cli.py の run_local)と同じ部品を糸つきで持つ)。
+"""友人の玄関の ② の組み立て(CLI(app/cli.py の run_local)と同じ部品を糸つきで持つ)。
 
 - FriendQueue = ② の待ち行列 flow/runqueue.Queue + 道具 flow/tools.LocalTools(配信の段はスタジオなしの台帳 flow/studiobook.LocalStudio)。
   ③ human・入口の 3 ツールの取り込みは読まない。待ちの記録は ② のまま(<作業データ>/app/logs。閉じても次に開いたとき続きから = 4-6)
-- 実行が終わったら(Queue の finished_hook): 送り返しの zip(flow/outbox。依頼の実行だけ)→ 受信箱の行を「届いた / 失敗」に → 組のまとめ動画を裏で作る(5-8)
+- 実行が終わったら(Queue の finished_hook): 送り返しの zip(flow/outbox。依頼の実行だけ)→ 受信箱の行を「届いた / 失敗」に → パック 1 本ずつの確認用の動画を裏で作る
 - 区間だけの依頼の最後の段「解析(あとで)」は友人の PC では飛ばす(友人の区間と自動の候補を比べる材料はユーザーの PC の物。仮・AI)
 - 話者分離(束の transcribe.diarize)は LocalTools に無いので、送る側(api)で人数を束に入れない(コラボの名前は hints.people の色だけ。仮・AI)
-- ライブ(F2-6): ② のライブ係 friendapp/live.FriendLive を持ち、待ち行列の set_live_hook で封筒 kind live を回す(長さは受信箱の行の送った欄 =
+- ライブ: ② のライブ係 friendapp/live.FriendLive を持ち、待ち行列の set_live_hook で封筒 kind live を回す(長さは受信箱の行の送った欄 =
   束の analyze に入れない。lengthMode auto = 場面ごとの形・fixed = 固定の秒。C-2-11)。切り抜きごとの実行(requestId = 行の id)が終わったら行にパックを足し(live_clip)、ライブ係の見回りのたびに
   録画が終わったか・作っている物が残っているかを見て行を進める(live_tick)
 """
@@ -24,7 +24,6 @@ from ytt import docloc as _docloc, fsio as _fsio, workdata as _workdata
 from . import inbox as _inbox, progress as _progress
 
 PREVIEW_DIR = "previews"
-_CLIP_PREVIEW = getattr(_preview, "clip_preview", None)   # 1 本の確認用の動画(札なし。F3-6 で ① に入る。無ければ札つきのまとめ動画の形で 1 本)
 
 
 ENGINE_OF_DEVICE = {"vulkan": "A", "cuda": "C"}   # 文字起こしのエンジン A = whisper.cpp の Vulkan・C = CUDA(⚙ と同じ名前)
@@ -162,14 +161,14 @@ class Engine:
             if r["state"] not in ("sent", "making") or r.get("runId") in live or r.get("pc") == "user":   # ユーザーの PC に頼んだ行は同期が見る
                 continue
             rec = past.get(r.get("runId"))
-            if not r.get("runId"):   # ② に積む前に閉じた(動画を写している途中・録画を始める途中。F2-6)
+            if not r.get("runId"):   # ② に積む前に閉じた(動画を写している途中・録画を始める途中)
                 self.inbox.fail(r["id"], "前回アプリを閉じたときに依頼が途中で止まりました。[もう一度送る] で送り直してください")
             elif rec:
                 packs = [p for p in (rec.get("packs") or []) if isinstance(p, str)]
                 self.inbox.finished(r["runId"], rec.get("state"), rec.get("error") or "", [{"dir": p} for p in packs],
-                                    (r.get("form") or {}).get("deliverBatch"), case=_case_from(rec.get("resultPath")))
+                                    case=_case_from(rec.get("resultPath")))
             else:
-                self.inbox.finished(r["runId"], "error", "前回アプリを閉じたときに依頼が途中で失われました。[もう一度送る] で送り直してください", [], None)
+                self.inbox.finished(r["runId"], "error", "前回アプリを閉じたときに依頼が途中で失われました。[もう一度送る] で送り直してください", [])
 
     # ------------------------------------------------------------ 終わった実行
     def transcribe_progress(self):
@@ -198,7 +197,7 @@ class Engine:
         self.log_run(run)
         row = self.inbox.by_run(run.id)
         clip = False
-        if row is None and getattr(run, "request_id", None):   # ライブの切り抜き 1 本の実行(封筒の requestId = 受信箱の行の id。F2-6)
+        if row is None and getattr(run, "request_id", None):   # ライブの切り抜き 1 本の実行(封筒の requestId = 受信箱の行の id)
             row = self.inbox.row(run.request_id)
             clip = row is not None and row.get("kind") == "live"
         if row is None or (row.get("runId") != run.id and not clip):
@@ -217,7 +216,7 @@ class Engine:
                 self.log("送り返しの zip を作れませんでした: %s" % e.__class__.__name__)
         dirs = [d for d in run.all_packs() if os.path.isdir(_fsio.long_path(d))] if run.state == "done" else []
         try:
-            secs = _preview.clip_seconds(dirs) if dirs else []
+            secs = [_preview.pack_seconds(d) for d in dirs]
         except Exception:   # 長さが分からなくても届ける
             secs = [None] * len(dirs)
         error = run.error if run.state == "error" else ""
@@ -228,7 +227,7 @@ class Engine:
             if made:
                 self._want_previews(row["id"])
             return
-        got = self.inbox.finished(run.id, run.state, error, packs, (row.get("form") or {}).get("deliverBatch"), case=_case_from(run.result_path))
+        got = self.inbox.finished(run.id, run.state, error, packs, case=_case_from(run.result_path))
         if got and got["state"] == "arrived":
             self._want_previews(got["id"])
 
@@ -238,7 +237,7 @@ class Engine:
                 self._previews.append(rid)
             self._pv_lock.notify()
 
-    # ------------------------------------------------------------ ライブ(F2-6)
+    # ------------------------------------------------------------ ライブ
     def live_submit(self, env, bundle):
         """② の待ち行列の live の hook: 封筒 kind live + 束 -> ライブ係の submit(依頼の結びつきの欄 ctx は封筒 + 束から。長さは受信箱の行の送った欄 =
         束の analyze に入れない(入口 app の submit_request と同じ決まり))。録画の部品が起動するまで少し待つ"""
@@ -286,12 +285,12 @@ class Engine:
                 return
             try:
                 self.make_previews(rid)
-            except Exception as e:   # まとめ動画が無くても 1 本ずつは見られる
-                self.log("まとめ動画を作れませんでした: %s" % e.__class__.__name__)
+            except Exception as e:   # 確認用の動画が無くても受け取る・見送るは決められる
+                self.log("確認用の動画を作れませんでした: %s" % e.__class__.__name__)
 
     def make_previews(self, rid):
-        """届いた行のパック 1 本ずつの確認用の動画(480p・字幕なし。① pipeline/pack/preview の clip_preview = F3-6。C-3-3)を
-        <玄関>/previews/<依頼 id>-<n>.mp4 に(n = 1 本ずつの組の番号)。1 つずつ(裏の糸と呼んだ側が同じ物を二重に作らない)"""
+        """届いた行のパック 1 本ずつの確認用の動画(480p・字幕なし。① pipeline/pack/preview の clip_preview。C-3-3)を
+        <玄関>/previews/<依頼 id>-<n>.mp4 に(n = 受信箱の 1 本ずつの枠の番号)。1 つずつ(裏の糸と呼んだ側が同じ物を二重に作らない)"""
         with self._mk_lock:
             self._make_previews(rid)
 
@@ -321,10 +320,7 @@ class Engine:
                 continue
             dirs = [by_name[n]["dir"] for n in g["names"] if n in by_name and by_name[n].get("dir") and os.path.isdir(_fsio.long_path(by_name[n]["dir"]))
                     and not by_name[n].get("verdict")]
-            if len(dirs) == 1 and _CLIP_PREVIEW is not None:
-                tmp = _CLIP_PREVIEW(dirs[0], log=self.log)
-            else:
-                tmp = _preview.batch_preview(dirs, log=self.log) if dirs else None
+            tmp = _preview.clip_preview(dirs[0], log=self.log) if dirs else None
             if not tmp:
                 made[1] += 1 if dirs else 0
                 continue
@@ -334,7 +330,7 @@ class Engine:
             made[0] += 1
 
     def reload_learning(self):
-        """学習の束を取り直したとき(F2-3 の同期): machine の learningDir の束を、② の読み手に入れ直す(同じ物を道具と辞書の版が使う)"""
+        """学習の束を取り直したとき(同期): machine の learningDir の束を、② の読み手に入れ直す(同じ物を道具と辞書の版が使う)"""
         lr = getattr(self.queue, "learning_reader", None)
         if lr is None:
             return

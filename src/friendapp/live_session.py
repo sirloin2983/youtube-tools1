@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""友人の玄関のライブ係(F2-6。notes:plan/f1-friend-requirements.md の A-5・A-13・A-14、docs/spec/friend.md の 2-15)。
+"""友人の玄関のライブ係(notes:plan/f1-friend-requirements.md の A-5・A-13・A-14、docs/spec/friend.md の 2-15)。
 
 友人の PC の ② のライブ係 = flow/livesession.LiveSession を継いだ FriendLive。入口 app の src/app/live.py の use_headless と同じ形を、app を読まずに作る:
   設定に関わらずオン(always_on)・どの封筒も依頼の決まりで(request_all = 検出・自動の採用・パックまで)・スタジオなしの採用(LocalMarks = 親の既定)・
@@ -32,7 +32,7 @@ REC_PORT_ENV = "YTT_FRIEND_REC_PORT"   # 録画の部品の番号(exe が選ぶ�
 
 
 def recorders(env=None):
-    """録画元の一覧: 手元の 1 つ。番号は exe がその都度空いている物を選んで YTT_FRIEND_REC_PORT で渡す(C-1-3。ユーザーの入口や前のアプリの
+    """録画元の一覧: 手元の 1 つ。番号は exe がその都度空いている物を選んで YTT_FRIEND_REC_PORT で渡す(C-1-3。ユーザーの入口の
     8730 と取り合わない = C-0)。無い・読めなければ空 = 決まりの 8730(開発の PC)"""
     env = os.environ if env is None else env
     raw = (env.get(REC_PORT_ENV) or "").strip()

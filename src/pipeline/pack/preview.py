@@ -1,10 +1,8 @@
 """① 確認用の動画(友人が受け取るかを決める前に見る、1 本の切り抜きの 480p の動画)とパックの中の切り抜きの動画の引き方(ds1 = 要件 1-5。② flow/deliver から分けた)。
 
 - make_preview / clip_preview: 1 本の切り抜きの確認用の動画(480p・等速・字幕なし・札なし)。ffmpeg を動かす。
-  F3-6(notes:plan/f1-friend-requirements.md の C-3-3・C-6): 5 本ずつの組のまとめ動画(つなげて「i/N 題」の札)はやめ、1 本ずつにした
+  (notes:plan/f1-friend-requirements.md の C-3-3・C-6)
 - pack_video / pack_title / pack_seconds: パックのフォルダの中の切り抜きの動画・題・長さ(届く物の .meta.json の seconds)
-- batch_preview / clip_seconds: 友人の PC の受信箱(src/friendapp/engine.py)が組の確認用の動画と長さの一覧に使う間だけ残す古い口
-  (n 本をつなげる・札なし。F3-B / F3-7 で受信箱が 1 本ずつになったら消す)
 - scratch_path / remove_quiet: 作りかけのファイルの置き場所(パックの隣 = Dropbox の外)と後片付け
 Dropbox も届けた記録も知らない(届けるのは ② flow/deliver・flow/delivery)。ytt だけを読む。
 """
@@ -102,48 +100,6 @@ def make_preview(video, out_path, height=PREVIEW_HEIGHT, ffmpeg=None, ffprobe=No
         return False
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
-
-
-def _concat_args(ffmpeg, videos, out, height, audio):
-    """(古い口)n 本を height に縮めて等速で concat する ffmpeg の引数(札なし)"""
-    parts = []
-    for i in range(len(videos)):
-        parts.append("[%d:v]scale=-2:%d[v%d]" % (i, height, i))
-        if audio:
-            parts.append("[%d:a]anull[a%d]" % (i, i))
-    n = len(videos)
-    parts.append("".join("[v%d]%s" % (i, "[a%d]" % i if audio else "") for i in range(n)) +
-                 "concat=n=%d:v=1:a=%d[v]%s" % (n, 1 if audio else 0, "[a]" if audio else ""))
-    args = [ffmpeg, "-hide_banner", "-nostdin", "-y", "-loglevel", "error"]
-    for v in videos:
-        args += ["-i", v]
-    args += ["-filter_complex", ";".join(parts), "-map", "[v]"]
-    args += ["-map", "[a]", "-c:a", "aac", "-b:a", "96k"] if audio else ["-an"]
-    return args + ["-r", "30", "-c:v", "libx264", "-preset", "veryfast", "-crf", str(PREVIEW_CRF), "-pix_fmt", "yuv420p", "-movflags", "+faststart", out]
-
-
-def batch_preview(dirs, check=None, log=None):
-    """(古い口。友人の PC の受信箱の組だけ)n 本のパックをつなげた確認用の動画を、作りかけの名前で最初のパックの隣に作る(札なし)。
-    1 本なら clip_preview と同じ。-> パスか None"""
-    if len(dirs or ()) == 1:
-        return clip_preview(dirs[0], check=check, log=log)
-    videos = [pack_video(d) for d in dirs or ()]
-    ffmpeg = tools.find_tool("ffmpeg")
-    if not dirs or not all(videos) or not ffmpeg:
-        return None
-    audio = all((normalize.probe(v) or {}).get("has_audio") for v in videos)
-    out = scratch_path(dirs[0], "preview-", ".mp4")
-    code, err = _run_ffmpeg(_concat_args(ffmpeg, videos, out, PREVIEW_HEIGHT, audio), PREVIEW_TIMEOUT, check)
-    if code == 0 and os.path.isfile(fsio.long_path(out)) and os.path.getsize(fsio.long_path(out)) > 0:
-        return out
-    (log or (lambda m: None))("確認用の動画を作れませんでした: %s" % err)
-    remove_quiet(out)
-    return None
-
-
-def clip_seconds(dirs, ffprobe=None):
-    """(古い口。友人の PC の受信箱)各パックの切り抜きの長さの一覧(秒か None)"""
-    return [pack_seconds(d, ffprobe=ffprobe) for d in dirs]
 
 
 def clip_preview(d, check=None, log=None):

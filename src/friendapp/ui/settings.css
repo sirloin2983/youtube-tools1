@@ -9,7 +9,7 @@
 .fs-bar>i{display:block;height:100%;width:0;border-radius:999px;background:var(--accent);background-image:none}
 .fs-sep{display:inline-block;width:1px;height:20px;margin:0 4px;background:var(--line-2);vertical-align:middle}
 .fs-left{color:var(--ink-2);font-variant-numeric:tabular-nums;min-height:1.3em}
-.fs-fail,.fs-old{display:flex;flex-direction:column;gap:10px;padding:12px;border:1px solid var(--line);border-radius:var(--r-md, 6px);background:var(--panel-2)}
+.fs-fail{display:flex;flex-direction:column;gap:10px;padding:12px;border:1px solid var(--line);border-radius:var(--r-md, 6px);background:var(--panel-2)}
 .fs-fail p{color:var(--danger-ink)}
 .fs-line{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .fs-more>summary{min-height:28px;cursor:pointer}

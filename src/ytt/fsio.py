@@ -344,8 +344,19 @@ def is_inside(path, root, strict=False):
     return not (strict and p == r)
 
 
+def is_link(path):
+    """シンボリックリンクか、Windows の接合点(junction)か(どちらも辿らない・消さない物)。無い・読めなければ False"""
+    if os.path.islink(path):
+        return True
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return False
+    return bool(getattr(st, "st_file_attributes", 0) & 0x400)   # FILE_ATTRIBUTE_REPARSE_POINT(接合点は islink では見えない = py3.10)
+
+
 def dir_size(path):
-    """(バイト数, ファイル数)。ファイルを渡せばその大きさと 1。フォルダは中身の合計(リンクはたどらない・数えない)。
+    """(バイト数, ファイル数)。ファイルを渡せばその大きさと 1。フォルダは中身の合計(リンク・接合点はたどらない・数えない)。
     無い・読めないものは数えない(無ければ (0, 0)。上げない)"""
     if os.path.isfile(path):
         try:
@@ -354,11 +365,11 @@ def dir_size(path):
             return 0, 0
     total = count = 0
     for dirpath, dirnames, filenames in os.walk(path):
-        dirnames[:] = [d for d in dirnames if not os.path.islink(os.path.join(dirpath, d))]
+        dirnames[:] = [d for d in dirnames if not is_link(os.path.join(dirpath, d))]
         for n in filenames:
             fp = os.path.join(dirpath, n)
             try:
-                if not os.path.islink(fp):
+                if not is_link(fp):
                     total += os.path.getsize(fp)
                     count += 1
             except OSError:

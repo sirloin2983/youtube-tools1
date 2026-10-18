@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""友人の受信箱の正(F2-2。notes:plan/f1-friend-requirements.md の A-1・A-12・5 章・6 章)。
+"""友人の受信箱の正(notes:plan/f1-friend-requirements.md の A-1・A-12・5 章・6 章・C-3)。
 
 受信箱の記録は 1 つの JSON(<作業データ>/app/friendapp/inbox.json)だけ。画面は毎回ここを読む(Dropbox の一覧・② の記録から組み立て直さない)。
 1 行 = 1 依頼 = 1 配信(A-4)。行の状態:
@@ -8,24 +8,25 @@
     arrived  届いた(パックがある。まだ決めていない物が残る)
     failed   失敗(理由・[もう一度送る]・[消す]。3 日で自動で片付く = 5-7)
     done     決めた(全部のパックを決めた = 画面に出さない。3 日で記録から消す)
-パックの決め方(5-2〜5-6): keep = [受け取る](受け取るの保存先へ移す)/ reject = [要らない](ごみ箱へ)。どちらも送り返しの
-<outbox>/<依頼 id>__<パック名>.verdict.json を書く(F2-3 の同期が Dropbox の /送り返し/ へ上げる。形はユーザーの PC の
-src/human/friend/returns.py の parse_verdict と同じ)。届いてから 3 日決めなければ自動で reject(by auto = 学習で外れの印にしない)。
-全部決めた行の案件フォルダ(切り抜き・作業用)はごみ箱へ(6 章)。ごみ箱(<一時保管>/ごみ箱/<日付>/)は 3 日で消す。
-組(5-8): 届け方の n 本ごと(依頼の deliverBatch。初めは 5 = A-9)にまとめる。まとめ動画は玄関の engine が作ってから set_preview で入れる。
+パックの決め方(decide): keep = [受け取る](受け取るの保存先へ移す)/ skip = [見送る](アプリのごみ箱へ。3 日は戻せる)/
+bad = 届かなくてよかった(理由つき)。どれも送り返しの <outbox>/<依頼 id>__<パック名>~<at>.verdict.json(判断の記録 v 2)を書く
+(同期が Dropbox の /送り返し/ へ上げる。形はユーザーの PC の src/human/friend/returns.py が読む)。届いてから 3 日決めなければ自動で見送る
+(by auto = 学習で外れの印にしない)。全部決めた行の案件フォルダ(切り抜き・作業用)はごみ箱へ(6 章)。ごみ箱(<一時保管>/ごみ箱/<日付>/)は 3 日で消す。
+パックは 1 本ずつ届き、1 本ずつ決める(C-3-1)。行の groups は 1 本ずつの枠 {n, names: [パック名], preview}(確認用の動画は玄関の engine が
+作ってから set_preview で入れる。Dropbox から来た物は remote = {previewName, preview, previewSize, cleaned})。
 
-F2-3(Dropbox の同期 = friendapp/sync.py が呼ぶ):
+Dropbox の同期(friendapp/sync.py が呼ぶ):
 - 処理する PC(A-2): 行の pc = "this"(この PC の ②)/ "user"(ユーザーの PC に頼んだ)/ "auto"(ユーザーの PC が自分の配信から自動で届けた = 依頼なし)。
   ユーザーの PC に頼んだ行は remote.state = pending(まだ上げていない)→ uploaded(Dropbox の直下に置いた・受付待ち)→ accepted(直下から消えた =
   受け付けられた。行は「作っている」)→ done(/出力/ から届いた)。LOCAL_AFTER 秒受付が読まなければ [この PC でやり直す](to_local)
 - Dropbox のパック(/出力/ の zip。まだ手元に無い): パックの remote = {zip, size, rev, hash, meta}・dir は受け取るまで None。[受け取る] は want = keep に
-  するだけ(同期が取って展開してから remote_kept で決める)・[要らない] は取らずに決める。組の remote = {group, preview, previewSize, cleaned}。
-  組の全部を決めたら同期が/出力/ の zip・まとめ動画・.group.json・.meta.json を消す(cleanup_queue → remote_cleaned)。名前は全部 Dropbox の名前(パスにしない)
+  するだけ(同期が取って展開してから remote_kept で決める)・[見送る] は取らずに決める。
+  決めたら同期が /出力/ の zip・確認用の動画・.meta.json を消す(cleanup_queue → remote_cleaned)。名前は全部 Dropbox の名前(パスにしない)
 
-F2-6(送る欄を広げる): 行の kind = "url" / "file"(動画ファイル。form.file = {path, name, size, copy}。path・copy は画面に出さない)/ "live"(ライブ)。
+送る物: 行の kind = "url" / "file"(動画ファイル。form.file = {path, name, size, copy}。path・copy は画面に出さない)/ "live"(ライブ)。
 - この PC のライブの行: 送った → recording(録画中。live = {recorder, recording, endedAt, finished, phase, done, errors, lastError})→ 届いた / 失敗 → 決めた。
-  切り抜きごとの実行(封筒の requestId = 行の id)が終わるたびに live_clip でパックを足し、届け方の n 本ごとに組にする(録画が終わって作る物が無くなったら残りを
-  1 組に = live_update。配信後の追加(M7)の分は別の組「配信後」)。録画中でも組になった物は決められる(組になる前の物は出さない・決めない)
+  切り抜きごとの実行(封筒の requestId = 行の id)が終わるたびに live_clip でパックを足し、1 本ずつの枠に入れる(録画が終わって作る物が無くなったら残りも
+  = live_update。配信後の追加(M7)の分は札「配信後」)。録画中でも枠に入った物は決められる(入る前の物は出さない・決めない)
 - 動画ファイルのこの PC の行: 送った(写している = runId なし)→ set_run(② に積んだ)→ URL の行と同じ
 
 ファイルと時計は引数で受ける(テストは一時フォルダ)。標準ライブラリと ytt だけを読む。
@@ -46,12 +47,12 @@ from . import progress as _progress
 V = 1
 DAY = 86400
 KEEP_DAYS = 3                       # 物の終わりの日数(6 章の原則 = src/manage/keep/cleanup.py の 3 日)
-STATES = ("waiting", "sent", "making", "recording", "arrived", "failed", "done")   # recording = この PC のライブの行(録画中・残りを作っている。F2-6)・waiting = アーカイブ待ち(F3-3)
-KINDS = ("url", "file", "live")     # 送った物(F2-6)。自動で届いた行は "remote"
+STATES = ("waiting", "sent", "making", "recording", "arrived", "failed", "done")   # recording = この PC のライブの行(録画中・残りを作っている)・waiting = アーカイブ待ち(F3-3)
+KINDS = ("url", "file", "live")     # 送った物。自動で届いた行は "remote"
 PHASES = ("live", "archive")        # ライブの切り抜きの段(配信中 / 配信後の追加 M7)。組は段ごと
 LIVE_STALE = KEEP_DAYS * DAY + 12 * 3600   # 録画の行がこれより長く終わらない(録画元が見つからないなど)= 残りを組にして閉じる
 LIVE_DONE_MAX = 500                 # ライブの行が覚える済んだ切り抜きの実行の id の数
-VERDICTS = ("keep", "skip", "bad")  # 受け取る / 見送る / 届かなくてよかった(C-3-4。前の reject は skip と読む)
+VERDICTS = ("keep", "skip", "bad")  # 受け取る / 見送る / 届かなくてよかった(C-3-4)
 JUDGE = {"keep": "good", "skip": "unknown", "bad": "bad"}   # 送り返しの判断の記録 v 2 の言葉(notes:docs/spec/friend.md の 12-2)
 REASONS = ("boring", "cut")         # 届かなくてよかったの理由: つまらない(場面の選び方)/ 切り方が変(区間の決め方)
 CLIP_RANGE_RE = re.compile(r"(\d{2,})h(\d{2})m(\d{2})s-(\d{2,})h(\d{2})m(\d{2})s")   # 書き出しの名前の <始まり>-<終わり>(ytt/names)
@@ -60,7 +61,7 @@ VERDICT_SUFFIX = ".verdict.json"
 TRASH_NAME = "ごみ箱"
 ROW_ID_RE = re.compile(r"^[0-9A-Za-z_-]{1,64}$")   # 依頼 id(flow/deliver.request_id の形。送り返しの名前にも入る)
 BAD_NAME = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
-NAME_MAX = 100                      # 送り返しの名前に入れるパック名の長さ(送るアプリの LocalPacks.PackNameMax と同じ)
+NAME_MAX = 100                      # 送り返しの名前に入れるパック名の長さ
 PACK_SUFFIX = "_pack"
 PCS = ("this", "user")              # 処理する PC(A-2)。行の pc にはほかに "auto"(依頼なし)
 LOCAL_AFTER = 3600                  # ユーザーの PC の受付がこの秒数読まなければ [この PC でやり直す](A-2 の仮 = 1 時間)
@@ -77,13 +78,6 @@ def pack_name(d):
 
 def pack_title(name):
     return name[:-len(PACK_SUFFIX)] if name.endswith(PACK_SUFFIX) and len(name) > len(PACK_SUFFIX) else name
-
-
-def verdict_doc(verdict, request_id, name, title, at_ms, origin="request", by=None):
-    d = {"v": 1, "verdict": verdict, "requestId": request_id, "zip": name, "title": title, "origin": origin, "at": int(at_ms)}
-    if by == "auto":
-        d["by"] = "auto"
-    return d
 
 
 def unique_dest(folder, name):
@@ -134,10 +128,8 @@ class Inbox:
         if isinstance(d, dict) and isinstance(d.get("notice"), dict):
             self.notice = d["notice"]
         out = [r for r in rows if isinstance(r, dict) and ROW_ID_RE.match(str(r.get("id") or "")) and r.get("state") in STATES] if isinstance(rows, list) else []
-        for r in out:   # 前の形: 要らない(reject)= 見送る・番号の無いパックに番号
+        for r in out:   # 番号の無いパックに番号
             for p in r.get("packs") or []:
-                if p.get("verdict") == "reject":
-                    p["verdict"] = "skip"
                 if not p.get("num"):
                     self._number(r, p)
         return out
@@ -180,7 +172,7 @@ class Inbox:
     # ------------------------------------------------------------ 送る
     def add(self, rid, form, source, run_id=None, pc="this", kind="url", state="sent"):
         """送った行を足す(新しい物を先頭)。form = 送った欄(もう一度送るときに使う)・source = {url, videoId, title, channel}。
-        pc = "user" なら ユーザーの PC に頼む行(同期が Dropbox の直下へ上げる)。kind = url / file / live(F2-6)。
+        pc = "user" なら ユーザーの PC に頼む行(同期が Dropbox の直下へ上げる)。kind = url / file / live。
         state = "waiting" ならアーカイブ待ち(F3-3。api.tick がアーカイブが出たのを見て作り始める = 依頼もそのときに上げる)"""
         if not ROW_ID_RE.match(rid or ""):
             raise ValueError("依頼の id の形が違います")
@@ -304,7 +296,7 @@ class Inbox:
             self._save()
             return r
 
-    # ------------------------------------------------------------ この PC のライブの行(F2-6。engine が呼ぶ)
+    # ------------------------------------------------------------ この PC のライブの行(engine が呼ぶ)
     def live_started(self, rid, recorder, recording, existing=False):
         """録画を始めた(依頼に結びつけた)-> 行は「録画中」"""
         with self.lock:
@@ -347,7 +339,7 @@ class Inbox:
         return [p for p in r["packs"] if p["name"] not in grouped]
 
     def _live_group(self, r, force):
-        """組になる前のパックを 1 本ずつ組へ(段ごと。5 本ずつは無くした = C-3-1)-> 足した組の n のリスト"""
+        """枠に入る前のパックを 1 本ずつの枠へ(段ごと。C-3-1)-> 足した枠の n のリスト"""
         n = 1
         pend = self._ungrouped(r)
         made = []
@@ -495,9 +487,9 @@ class Inbox:
                 r["state"], r["updatedAt"] = "making", self._now_ms()
                 self._save()
 
-    def finished(self, run_id, state, error, packs, batch, case=None, note=""):
-        """② の実行が終わった。packs = [{"dir", "seconds"}](作ったパック)・batch = 組の本数・case = 案件のフォルダ。
-        パックがあれば「届いた」(組に分ける)・無ければ「失敗」(理由)。-> 行か None(玄関の依頼でない実行)"""
+    def finished(self, run_id, state, error, packs, case=None, note=""):
+        """② の実行が終わった。packs = [{"dir", "seconds"}](作ったパック)・case = 案件のフォルダ。
+        パックがあれば「届いた」(1 本ずつの枠に)・無ければ「失敗」(理由)。-> 行か None(玄関の依頼でない実行)"""
         with self.lock:
             r = self.by_run(run_id)
             if r is None:
@@ -513,12 +505,10 @@ class Inbox:
                 items.append({"name": name, "dir": d, "title": pack_title(name), "seconds": p.get("seconds"), "verdict": None, "at": None, "by": None,
                               "arrivedAt": now})
             if items:
-                n = 1   # 1 本ずつ(C-3-1。batch は前の形の欄 = 読まない)
                 for it in items:
                     self._number(r, it)
                 r["packs"] = items
-                r["groups"] = [{"n": i // n + 1, "names": [x["name"] for x in items[i:i + n]], "preview": None}
-                               for i in range(0, len(items), n)]
+                r["groups"] = [{"n": i + 1, "names": [x["name"]], "preview": None} for i, x in enumerate(items)]   # 1 本ずつ(C-3-1)
                 r.update(state="arrived", arrivedAt=now, error="", note=note or "")
             elif r.get("cancelled") or (state == "cancelled" and not r["packs"]):   # [取り消す] で止めた = 行ごと消す(C-2-14)
                 self.rows.remove(r)
@@ -533,7 +523,7 @@ class Inbox:
             return r
 
     def set_preview(self, rid, n, path):
-        """組の確認用の動画(1 本ずつの組なら、そのパックの確認用の動画 = p.preview にも)"""
+        """枠 n の確認用の動画(そのパックの確認用の動画 = p.preview にも)"""
         with self.lock:
             r = self.row(rid)
             g = next((g for g in (r or {}).get("groups") or [] if g["n"] == n), None)
@@ -544,12 +534,12 @@ class Inbox:
                     if p is not None and not (p["verdict"] == "keep" or p.get("by") == "auto"):
                         p["preview"] = path
                 if path is None and g.get("remote"):
-                    g["remote"]["preview"] = None   # Dropbox にまとめ動画が無かった = もう取りに行かない
+                    g["remote"]["preview"] = None   # Dropbox に確認用の動画が無かった = もう取りに行かない
                 self._save()
 
     # ------------------------------------------------------------ Dropbox の /出力/ から届いた物(同期が呼ぶ)
     def known_remote(self):
-        """行に入れた Dropbox の名前(zip・組の一覧・まとめ動画・印・失敗の知らせ)の集まり(同じ物を 2 回取り込まない)"""
+        """行に入れた Dropbox の名前(zip・確認用の動画・印・失敗の知らせ)の集まり(同じ物を 2 回取り込まない)"""
         out = set()
         with self.lock:
             for r in self.rows:
@@ -558,7 +548,7 @@ class Inbox:
                     out.update(x for x in (rem.get("zip"), rem.get("meta")) if x)
                 for g in r.get("groups") or []:
                     rem = g.get("remote") or {}
-                    out.update(x for x in (rem.get("group"), rem.get("previewName")) if x)
+                    out.update(x for x in (rem.get("previewName"),) if x)
                 out.update(r.get("remoteFails") or [])
         return out
 
@@ -570,8 +560,8 @@ class Inbox:
         return r
 
     def import_remote(self, rid, origin, title, specs):
-        """/出力/ の組・1 本を行に入れる(依頼 id の行があればその行・無ければ新しい行 = origin auto なら札「依頼なし」)。
-        specs = [{"group": 名前か None, "preview": 名前か None, "previewSize", "packs": [{"zip", "title", "seconds", "size", "rev", "hash", "meta"}]}]"""
+        """/出力/ のパックを行に入れる(依頼 id の行があればその行・無ければ新しい行 = origin auto なら札「依頼なし」)。
+        specs = [{"preview": 名前か None, "previewSize", "packs": [{"zip", "title", "seconds", "size", "rev", "hash", "meta"}]}](ふつうは 1 本ずつ)"""
         if not ROW_ID_RE.match(rid or ""):
             raise ValueError("依頼の id の形が違います")
         with self.lock:
@@ -598,7 +588,7 @@ class Inbox:
                 if got:
                     n += 1
                     r["groups"].append({"n": n, "names": got, "preview": None,
-                                        "remote": {"group": spec.get("group"), "previewName": spec.get("preview"), "preview": spec.get("preview"),
+                                        "remote": {"previewName": spec.get("preview"), "preview": spec.get("preview"),
                                                    "previewSize": spec.get("previewSize"), "cleaned": False}})
             r.update(state="arrived", arrivedAt=now, error="", updatedAt=now)   # 新しく届いた物にも 3 日(仮 = 行の残りも延びる)
             if r.get("remote"):
@@ -634,7 +624,7 @@ class Inbox:
                 self._save()
 
     def preview_queue(self):
-        """取ってくるまとめ動画 -> [(依頼 id, 組の n, Dropbox の名前, 大きさ)]"""
+        """取ってくる確認用の動画 -> [(依頼 id, 枠の n, Dropbox の名前, 大きさ)]"""
         with self.lock:
             return [(r["id"], g["n"], g["remote"]["preview"], g["remote"].get("previewSize")) for r in self.rows if r["state"] == "arrived"
                     for g in r.get("groups") or [] if g.get("remote") and g["remote"].get("preview") and not g.get("preview")
@@ -677,7 +667,7 @@ class Inbox:
                 self._save()
 
     def cleanup_queue(self):
-        """全部決めた Dropbox の組 -> [(依頼 id, 組の n, [/出力/ の名前])](zip・印・まとめ動画・組の一覧。消すのは同期)"""
+        """決めた Dropbox の枠 -> [(依頼 id, 枠の n, [/出力/ の名前])](zip・印・確認用の動画。消すのは同期)"""
         out = []
         with self.lock:
             for r in self.rows:
@@ -692,7 +682,7 @@ class Inbox:
                     if ps and all(p["verdict"] and (p["verdict"] == "keep" or p.get("by") == "auto" or now - (p.get("at") or 0) >= KEEP_DAYS * DAY * 1000)
                                   for p in ps):
                         names = [x for p in ps for x in ((p.get("remote") or {}).get("zip"), (p.get("remote") or {}).get("meta")) if x]
-                        out.append((r["id"], g["n"], names + [x for x in (rem.get("previewName"), rem.get("group")) if x]))
+                        out.append((r["id"], g["n"], names + [x for x in (rem.get("previewName"),) if x]))
         return out
 
     def remote_cleaned(self, rid, n):
@@ -706,14 +696,13 @@ class Inbox:
     def _remote_left(self, r):
         return any(g.get("remote") and not g["remote"].get("cleaned") for g in r.get("groups") or [])
 
-    # ------------------------------------------------------------ 決める(F3-4。C-3-4〜C-3-8)
+    # ------------------------------------------------------------ 決める(C-3-4〜C-3-8)
     def decide(self, rid, names, verdict, by=None, reason=None):
         """パック(names。空なら行の決めていない物全部)を決める -> {"done": [名前], "pending": [名前], "errors": [{"name", "message"}], "row"}。
         keep = [受け取る](保存先の <配信の日付>_<配信者>_<題>\\#番号 へ移す)/ skip = [見送る](アプリのごみ箱へ。3 日は戻せる)/
         bad = 届かなくてよかった(reason boring・cut。見送ると同じに片付ける)。どれも送り返しへ判断の記録(v 2)を書く。
         Dropbox のパック(まだ手元に無い): keep は「受け取っています」にするだけ(同期が取って展開してから決める)・skip と bad は取らずに決める。
         3 日の自動(by auto)は見送る(理由なし)で、ごみ箱を経ずにすぐ消す。受け取っている途中の物は自動で見送らない"""
-        verdict = "skip" if verdict == "reject" else verdict   # 前の形の言葉
         if verdict not in VERDICTS:
             raise ValueError("決め方は keep・skip・bad です")
         if verdict == "bad" and reason not in REASONS:
@@ -853,9 +842,6 @@ class Inbox:
     def _maybe_close(self, r):
         """全部決めた行は done(案件のフォルダは最後に決めてから 3 日で片付ける = sweep。2 回目の依頼で失敗しないよう、決めた時には動かさない = C-3-7)"""
         if r["state"] == "arrived" and r["packs"] and all(p["verdict"] for p in r["packs"]):
-            for g in r.get("groups") or []:
-                if g.get("preview") and len(g.get("names") or []) > 1:   # 前の形のまとめ動画
-                    fsio.unlink_quiet(g["preview"])
             r["state"], r["doneAt"] = "done", self._now_ms()
 
     def trash_dir(self):
@@ -870,13 +856,13 @@ class Inbox:
         return dest
 
     def _close_row(self, r):
-        """前の形の口(remote_kept などが使う)= _maybe_close と同じ"""
+        """録画の行を閉じる(全部決めていれば _maybe_close が done に)"""
         r["state"] = "arrived" if r["state"] == "recording" else r["state"]   # 録画の行を閉じるとき(全部決めていれば _maybe_close が done に)
         self._maybe_close(r)
 
     def _trash_case(self, r):
         root = self.case_root()
-        for case in dict.fromkeys([r.get("case")] + list(r.get("cases") or [])):   # ライブの行は切り抜きごとの案件(F2-6)
+        for case in dict.fromkeys([r.get("case")] + list(r.get("cases") or [])):   # ライブの行は切り抜きごとの案件
             if case and root and os.path.isdir(fsio.long_path(case)) and fsio.is_inside(case, root, strict=True) and not fsio.is_inside(case, self.trash_dir()):
                 try:
                     self._to_trash(case)
@@ -911,7 +897,7 @@ class Inbox:
             now = self._now_ms()
             for r in list(self.rows):
                 if r["state"] == "recording" and now - ((r.get("live") or {}).get("endedAt") or r["createdAt"]) >= LIVE_STALE * 1000:
-                    self._live_group(r, True)   # 録画元が見つからないまま終わらない行(F2-6)= 残りを組にして閉じる
+                    self._live_group(r, True)   # 録画元が見つからないまま終わらない行= 残りを組にして閉じる
                     r.setdefault("live", {})["finished"] = now
                     self._live_close(r, now)
                 if r["state"] in ("arrived", "recording"):

@@ -5,13 +5,13 @@
 - 許可の一覧(下の KINDS と各 _scan_*)に載る形の物だけが候補。載らない物は「分からない」= 消さず記録だけ(書き忘れ = 残る = 安全の向き)
 - 黙って片付ける(auto): 作り直せる・写しが別にある・途中の物(*.old・更新の取り残し・学習の束の .part・回したログ・exe が消し損ねた古い版)。
   ただし 1 件 AUTO_MAX を超える物と、1 回で AUTO_TOTAL を超える分は聞く側へ回す(想定外の形の印)
-- 1 回聞いて片付ける(ask): 友人の物かもしれない・判断が要る物(前の形の src・python・前のアプリの物・片付け忘れた作業のフォルダ・使っていないモデルと道具)。
+- 1 回聞いて片付ける(ask): 友人の物かもしれない・判断が要る物(前の形の src・python・片付け忘れた作業のフォルダ・使っていないモデルと道具)。
   大きさでなく種類で分ける(小さくても友人の依頼かもしれない物は聞く)
 - 触らない: ライブの録画(録画の部品が持ち主)・学習の束(同期が直近 3 版で回す)・受け取った物・受信箱の記録・設定と鍵・ごみ箱の中・印の無い物・
   current・previous・bad・自分の版・最後に書かれてから 24 時間以内の物(未来の時刻も新しい扱い・1970 年などの壊れた時刻は分からない扱い)
 - 消し方: ごみ箱 = アプリのごみ箱(Windows のごみ箱は大きい物が確認なしで消えるので使わない)。同じドライブだけ(改名 1 回・別のドライブへ写さない):
   <一時保管>/ごみ箱/<YYYYMMDD>/整理/<種類>/(受信箱の 3 日の片付けが消す)か、別のドライブなら <home>/ごみ箱/<YYYYMMDD>/整理/(ここで 3 日で消す)。
-  <日付>/manifest.jsonl に元の場所を 1 行ずつ。写しがある・作り直せる物(auto の消し方 delete)と前のアプリの物(既存の決まり)は直接消す
+  <日付>/manifest.jsonl に元の場所を 1 行ずつ。写しがある・作り直せる物(auto の消し方 delete)は直接消す
 - 守り: 置き場所の外のパス・ネットワーク・リンクと接合点(とその中)は触らない。作業データの lock に別の持ち主がいたら作業のフォルダとモデルは見ない。
   使用中で動かせない物は飛ばして記録(次の回にまた)。走査(scan)は副作用なし・実行(apply)は移す口と消す口を差し替えられる(テストは本物を触らない)
 """
@@ -26,8 +26,6 @@ import time
 
 from flow import placement as _placement
 from ytt import fsio as _fsio, trashbin as _trashbin
-
-from . import oldcopy as _oldcopy
 
 DAY = 86400
 FRESH = DAY                 # 最後に書かれてからこの秒数より新しい物は候補にしない
@@ -53,7 +51,6 @@ KINDS = {   # 種類: (画面の言葉, 扱い, 消し方)
     "old-log": ("古いログ", "auto", "delete"),
     "old-version": ("古い版のフォルダ", "auto", "trash"),
     "legacy": ("前の形の部品(src・python)", "ask", "trash"),
-    "old-app": ("前のアプリの物", "ask", "oldapp"),
     "orphan-case": ("片付け忘れた作業のフォルダ", "ask", "trash"),
     "unused-model": ("使っていないモデル", "ask", "trash"),
     "unused-tool": ("使っていない道具", "ask", "trash"),
@@ -78,7 +75,7 @@ def _newest_mtime(path, limit=20000):
         return best
     n = 0
     for root, dirs, files in os.walk(lp):
-        dirs[:] = [d for d in dirs if not _oldcopy._is_link(os.path.join(root, d))]
+        dirs[:] = [d for d in dirs if not _fsio.is_link(os.path.join(root, d))]
         for f in files:
             n += 1
             if n > limit:
@@ -90,20 +87,26 @@ def _newest_mtime(path, limit=20000):
     return best
 
 
+def _size_or_0(path):
+    try:
+        return os.path.getsize(path)
+    except OSError:
+        return 0
+
+
 def _size(path):
-    lp = _fsio.long_path(path)
-    return _oldcopy._tree_size(lp) if os.path.isdir(lp) else _oldcopy._size_or_0(lp)
+    return _fsio.dir_size(_fsio.long_path(path))[0]
 
 
 def _has_link_inside(path):
     lp = _fsio.long_path(path)
-    if _oldcopy._is_link(lp):
+    if _fsio.is_link(lp):
         return True
     if not os.path.isdir(lp):
         return False
     for root, dirs, _files in os.walk(lp):
         for d in dirs:
-            if _oldcopy._is_link(os.path.join(root, d)):
+            if _fsio.is_link(os.path.join(root, d)):
                 return True
     return False
 
@@ -171,7 +174,7 @@ class Tidy:
         """見る一時保管(今の場所と既定の <home>/作業。選び直しても移さないので両方)"""
         out = []
         for r in (self.places.get("cases"), os.path.join(self.home(), "作業") if self.home() else None):
-            if r and os.path.isdir(_fsio.long_path(r)) and not _oldcopy._is_link(r) and os.path.normcase(r) not in [os.path.normcase(x) for x in out]:
+            if r and os.path.isdir(_fsio.long_path(r)) and not _fsio.is_link(r) and os.path.normcase(r) not in [os.path.normcase(x) for x in out]:
                 out.append(r)
         return out
 
@@ -217,7 +220,7 @@ class Tidy:
         now = self.clock()
         items, unknown = [], []
         home = self.home()
-        if home and os.path.isdir(home) and not _oldcopy._is_link(home):
+        if home and os.path.isdir(home) and not _fsio.is_link(home):
             items += self._scan_home(home, now, unknown)
         items += self._scan_data(now)
         other = _placement.lock_info(self.data())
@@ -239,10 +242,9 @@ class Tidy:
         cur, prev = (rec or {}).get("current") or "", (rec or {}).get("previous") or ""
         bad = set((rec or {}).get("bad") or [])
         keep = {cur, prev, self.version} | bad
-        old_app = set(_oldcopy.HOME_FILES + _oldcopy.HOME_DIRS)
         for name in sorted(os.listdir(home)):
             path = os.path.join(home, name)
-            if _oldcopy._is_link(path):
+            if _fsio.is_link(path):
                 continue
             if name.endswith(".old") and name[:-4] in LAUNCHER_FILES:
                 out.append(self._item("old-exe", path))
@@ -258,9 +260,9 @@ class Tidy:
                 if rec is not None and prev and v not in keep and _vt(v) < _vt(prev) and not _has_link_inside(path):
                     out.append(self._item("old-version", path))
                 continue
-            if name in old_app or name in KNOWN_HOME:
+            if name in KNOWN_HOME:
                 continue
-            unknown.append((name, _oldcopy._size_or_0(path) if os.path.isfile(path) else 0))
+            unknown.append((name, _size_or_0(path) if os.path.isfile(path) else 0))
         # 前の形(直下の src・python): exe の Prune の条件(current・previous の版のフォルダがそろい、前の形の版 <= previous)なのに残っている物
         lv = self._legacy_version(home)
         if rec is not None and cur and prev and os.path.isdir(os.path.join(home, "app-" + cur)) and os.path.isdir(os.path.join(home, "app-" + prev)) \
@@ -269,10 +271,6 @@ class Tidy:
                 p = os.path.join(home, d)
                 if os.path.isdir(p) and not _has_link_inside(p) and _vt(self.version) > (0,) and self.version != lv:
                     out.append(self._item("legacy", p))
-        # 前のアプリの物(既存の 1 回の形 = setup.old_pending・clean_old に任せる)
-        got = self._old_pending()
-        if got and got.get("bytes", 0) > 0:
-            out.append(self._item("old-app", os.path.join(home, "RequestSender.exe"), size=got["bytes"], where="前のアプリの部品と残り(%d 件)" % got.get("count", 1)))
         return out
 
     def _legacy_version(self, home):
@@ -284,13 +282,6 @@ class Tidy:
         except OSError:
             return None
 
-    def _old_pending(self):
-        f = getattr(self.setup, "old_pending", None)
-        try:
-            return f() if callable(f) else None
-        except Exception:   # noqa: BLE001
-            return None
-
     def _scan_data(self, now):
         out = []
         logs = os.path.join(self.places["friend"], "logs")
@@ -300,10 +291,10 @@ class Tidy:
             if m is not None and m >= EPOCH_SANE and now - m >= CASE_DAYS * DAY:
                 out.append(self._item("old-log", p))
         learn = os.path.join(self.data(), "learning")
-        if os.path.isdir(learn) and not _oldcopy._is_link(learn):
+        if os.path.isdir(learn) and not _fsio.is_link(learn):
             for name in os.listdir(learn):
                 p = os.path.join(learn, name)
-                if name.endswith(".part") and os.path.isdir(p) and not _oldcopy._is_link(p) and not self._fresh(p, now):
+                if name.endswith(".part") and os.path.isdir(p) and not _fsio.is_link(p) and not self._fresh(p, now):
                     out.append(self._item("learning-part", p))
         return out
 
@@ -334,11 +325,11 @@ class Tidy:
             return out
         for root in self.case_roots():
             for base in (root, os.path.join(root, "依頼")):
-                if not os.path.isdir(_fsio.long_path(base)) or _oldcopy._is_link(base):
+                if not os.path.isdir(_fsio.long_path(base)) or _fsio.is_link(base):
                     continue
                 for name in os.listdir(_fsio.long_path(base)):
                     p = os.path.join(base, name)
-                    if name in SKIP_IN_CASES or (base == root and name == "依頼") or not os.path.isdir(_fsio.long_path(p)) or _oldcopy._is_link(p):
+                    if name in SKIP_IN_CASES or (base == root and name == "依頼") or not os.path.isdir(_fsio.long_path(p)) or _fsio.is_link(p):
                         continue
                     if not any(os.path.isfile(_fsio.long_path(os.path.join(p, *mk))) for mk in CASE_MARKS):
                         unknown.append((os.path.relpath(p, root), 0))
@@ -380,7 +371,7 @@ class Tidy:
             if self.home() and _fsio.is_inside(dest, os.path.join(self.home(), "tools"), strict=True):
                 tool_dirs.add(os.path.normcase(dest))
         for d in sorted(model_dirs):
-            if not os.path.isdir(d) or _oldcopy._is_link(d):
+            if not os.path.isdir(d) or _fsio.is_link(d):
                 continue
             for name in os.listdir(d):
                 p = os.path.join(d, name)
@@ -388,10 +379,10 @@ class Tidy:
                     continue
                 out.append(self._item("unused-model", p))
         tools = os.path.join(self.home(), "tools") if self.home() else ""
-        if tools and os.path.isdir(tools) and not _oldcopy._is_link(tools):
+        if tools and os.path.isdir(tools) and not _fsio.is_link(tools):
             for name in os.listdir(tools):
                 p = os.path.join(tools, name)
-                if not os.path.isdir(p) or _oldcopy._is_link(p) or name.lower().startswith("whisper.cpp-"):
+                if not os.path.isdir(p) or _fsio.is_link(p) or name.lower().startswith("whisper.cpp-"):
                     continue
                 if any(os.path.normcase(p) == t or t.startswith(os.path.normcase(p) + os.sep) for t in tool_dirs):
                     continue
@@ -441,16 +432,12 @@ class Tidy:
         done = size = 0
         failed = []
         manifests = {}
-        old_app = False
         for it in items:
             p = it["path"]
             try:
-                if it["how"] == "oldapp":
-                    old_app = True
-                    continue
                 if not os.path.lexists(_fsio.long_path(p)):
                     continue
-                if _oldcopy._is_link(p) or _has_link_inside(p):
+                if _fsio.is_link(p) or _has_link_inside(p):
                     raise OSError("リンクや接合点があるので触りません")
                 if it["how"] == "delete":
                     if os.path.isdir(_fsio.long_path(p)):
@@ -473,14 +460,6 @@ class Tidy:
             except OSError as e:
                 failed.append((it["where"], str(e)[:120]))
                 self.log("整理: 動かせませんでした %s(%s)" % (it["where"], e.__class__.__name__))
-        if old_app and self.setup is not None:
-            try:
-                got = self.setup.clean_old()
-                done += got.get("deleted", 0)
-                size += got.get("freed", 0)
-                self.log("整理: 前のアプリの物を消しました(%d 件)" % got.get("deleted", 0))
-            except Exception as e:   # noqa: BLE001
-                failed.append(("前のアプリの物", e.__class__.__name__))
         for day_dir, rows in manifests.items():
             try:
                 _trashbin.append_manifest(_fsio.long_path(day_dir), rows)
@@ -491,7 +470,7 @@ class Tidy:
     def purge_home_trash(self):
         """<home>/ごみ箱 の 3 日より前の日付のフォルダを消す(一時保管のごみ箱は受信箱が消す)"""
         t = os.path.join(self.home(), TRASH_NAME) if self.home() else ""
-        if not t or not os.path.isdir(_fsio.long_path(t)) or _oldcopy._is_link(t):
+        if not t or not os.path.isdir(_fsio.long_path(t)) or _fsio.is_link(t):
             return
         cut = datetime.datetime.fromtimestamp(self.clock() - CASE_DAYS * DAY).strftime("%Y%m%d")
         for name in os.listdir(_fsio.long_path(t)):

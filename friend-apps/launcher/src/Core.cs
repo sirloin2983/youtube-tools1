@@ -96,7 +96,7 @@ namespace FriendInbox
             }
         }
 
-        // 一番新しい版(bad に無い物)。前の形(<home>\python・<home>\src)も版として比べる(前のアプリの [更新する] で前の形に新しい版が入る = 移る最後の 1 回)。
+        // 一番新しい版(bad に無い物)。前の形(版のフォルダの無い <home>\python・<home>\src)も版として比べる。
         // skipLegacy = 前の形が起動できなかった。どれも無ければ null
         public static Layout Pick(string home, ICollection<string> bad, bool skipLegacy = false)
         {
@@ -232,12 +232,6 @@ namespace FriendInbox
                 catch (Exception ex) { if (!(ex is IOException || ex is UnauthorizedAccessException)) throw; }
             }
             return n;
-        }
-
-        // 前のアプリの名前(RequestSender.exe)で起こされたか = 前のアプリの [更新する] が FriendApp.exe の写しを RequestSender.exe として置いた(移る最後の 1 回)
-        public static bool IsHandoffName(string exePath)
-        {
-            return string.Equals(Path.GetFileName(exePath), "RequestSender.exe", StringComparison.OrdinalIgnoreCase);
         }
     }
 

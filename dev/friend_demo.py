@@ -3,12 +3,12 @@
 
     py -3.12 dev/friend_demo.py [--port 8760] [--dir <作業フォルダ>]
 
-一時フォルダ(--dir を指定すればそこ)をアプリのフォルダにし、受信箱に 送った・作っている・届いた(1 組 / 2 組)・失敗 の行と、
-ユーザーの PC が自動で届けた組(依頼なし)・ユーザーの PC に頼んだ行(受付待ち・作っている)を置く(F2-3。Dropbox の同期の糸は起こさない)。
-F2-6: ライブの行(録画中・1 組届いて 2 本が組になるのを待っている)と動画ファイルの行(届いた)。配信の題と「配信中か」は見本の値を返す(ネットへ出ない):
+一時フォルダ(--dir を指定すればそこ)をアプリのフォルダにし、受信箱に 送った・作っている・届いた(3 本 / 7 本)・失敗 の行と、
+ユーザーの PC が自動で届けた 3 本(依頼なし)・ユーザーの PC に頼んだ行(受付待ち・作っている)を置く(Dropbox の同期の糸は起こさない)。
+ライブの行(録画中・7 本届いた)と動画ファイルの行(届いた)。配信の題と「配信中か」は見本の値を返す(ネットへ出ない):
 LIVE_URL を貼るとライブの 6 つの設定が出る。[動画ファイルを選ぶ] は本物の窓を開かず、見本の動画を選んだことにする。
 ② は疑似(StubEngine: 送った物を待ちに積むだけで処理しない)。Ctrl+C で終わる(一時フォルダは消す。--dir を指定したときは残す)。
-F2-5: ⚙ の [選ぶ] は本物の窓を開かず見本のフォルダを選んだことにする・API キーの確かめはネットへ出ない(どのキーも「使えます」)。
+⚙ の [選ぶ] は本物の窓を開かず見本のフォルダを選んだことにする・API キーの確かめはネットへ出ない(どのキーも「使えます」)。
 --missing を付けると、初回の取得の部品が足りない形(見本の fetch.json)で起こす(ui_audit の friend-setup)。[始める] はネットへ出ず、少しずつ進んだことにする。
 --update を付けると、今の版より 1 つ新しい版が入っている形(<home>/app-<版>/)で起こす = 帯に「新しい版 n があります [更新する]」(ui_audit の friend-update)。
 [更新する] を押しても exe の無い見本は開き直しの案内だけ。
@@ -156,22 +156,23 @@ def seed(app, home):
         return out
 
     form = {"url": "https://www.youtube.com/watch?v=demo0000001", "videoId": "demo0000001", "ranges": [], "top": 5, "streamer": "星見ルナ",
-            "people": [], "videoTracks": 1, "deliverBatch": 5, "useWeights": False, "weights": None, "title": "", "channel": ""}
+            "people": [], "videoTracks": 1, "useWeights": False, "weights": None, "title": "", "channel": ""}
     rows = [("20261016-090000-aaaa01", TITLES[0], "demorun0001", "arrived", 3), ("20261016-091000-aaaa02", TITLES[1], "demorun0003", "arrived", 7),
             ("20261016-092000-aaaa03", TITLES[2], "demorun0004", "failed", 0), ("20261016-093000-aaaa04", TITLES[3], "demorun0002", "sent", 0),
             ("20261016-094000-aaaa05", "【雑談】夜ふかし", "demorun0005", "sent", 0)]
     for rid, title, run_id, st, n in rows:
         ib.add(rid, dict(form, title=title), {"url": form["url"], "videoId": form["videoId"], "title": title, "channel": "星見ルナ Ch."}, run_id=run_id)
         if st == "arrived":
-            ib.finished(run_id, "done", "", packs(rid, n), 5, case=os.path.join(case_root, rid))
+            ib.finished(run_id, "done", "", packs(rid, n), case=os.path.join(case_root, rid))
         elif st == "failed":
-            ib.finished(run_id, "error", "配信を取ってこられませんでした(配信が非公開か、まだ公開されていません)。少し待ってから [もう一度送る] を押してください", [], 5)
+            ib.finished(run_id, "error", "配信を取ってこられませんでした(配信が非公開か、まだ公開されていません)。少し待ってから [もう一度送る] を押してください", [])
     app.engine.queue.runs.append({"id": "demorun0005", "state": "queued", "message": "順番を待っています", "steps": []})
-    # F2-3: ユーザーの PC が自動で届けた組(札「依頼なし」・Dropbox のパック = まだ手元に無い)と、ユーザーの PC に頼んだ行(受付待ち 2 時間・作っている)
+    # ユーザーの PC が自動で届けた 3 本(札「依頼なし」・Dropbox のパック = まだ手元に無い。1 本ずつ届く)と、ユーザーの PC に頼んだ行(受付待ち 2 時間・作っている)
     rid = "20261016-095000-bbbb01"
-    ib.import_remote(rid, "auto", "【自動】朝活の見どころ", [{"group": rid + "__朝活 1-3.group.json", "preview": None, "previewSize": None, "packs": [
-        {"zip": "%s__見どころ %d.zip" % (rid, i), "title": "見どころ %d" % i, "seconds": 40.0 + i, "size": 1024, "rev": "r%d" % i, "hash": None, "meta": None}
-        for i in (1, 2, 3)]}])
+    for i in (1, 2, 3):
+        ib.import_remote(rid, "auto", "【自動】朝活の見どころ", [{"preview": None, "previewSize": None, "packs": [
+            {"zip": "%s__見どころ %d.zip" % (rid, i), "title": "見どころ %d" % i, "seconds": 40.0 + i, "size": 1024, "rev": "r%d" % i, "hash": None,
+             "meta": "%s__見どころ %d.meta.json" % (rid, i)}]}])
     for rid, title, accepted in (("20261016-085000-cccc01", "【歌枠】ユーザーの PC に頼んだ", False), ("20261016-086000-cccc02", "【雑談】ユーザーの PC で作っている", True)):
         ib.add(rid, dict(form, title=title), {"url": form["url"], "videoId": form["videoId"], "title": title, "channel": "星見ルナ Ch."}, pc="user")
         ib.remote_mark(rid, "uploaded")
@@ -181,7 +182,7 @@ def seed(app, home):
             with ib.lock:
                 ib.row(rid)["remote"]["uploadedAt"] = int((now - 2 * 3600) * 1000)   # 2 時間待っている = [この PC でやり直す]
                 ib._save()
-    # F2-6: ライブの行(録画中。5 本の 1 組が届き、2 本が組になるのを待っている)と動画ファイルの行(届いた)
+    # ライブの行(録画中。7 本届いた)と動画ファイルの行(届いた)
     live_form = dict(form, url=LIVE_URL, videoId=LIVE_VID, kind="live", top=10,
                      live={"sens": "low", "perHour": 8, "length": 120, "waitMin": 10, "pad": 5.0, "afterStream": True})
     rid = "20261016-096000-dddd01"
@@ -189,7 +190,7 @@ def seed(app, home):
     ib.live_started(rid, "local", "20261016-200000-" + LIVE_VID)
     for i, p in enumerate(packs(rid, 7)):
         ib.live_clip(rid, "demolive%02d" % i, "done", "", [p], "live", case=os.path.join(case_root, rid))
-    # F3-3: アーカイブ待ちの行(終わったばかりの配信を送った)
+    # アーカイブ待ちの行(終わったばかりの配信を送った)
     ib.add("20261016-098000-ffff01", dict(form, url="https://www.youtube.com/watch?v=demo0000005", videoId="demo0000005", kind="wait", title="【朝活】おはよう!"),
            {"url": "https://www.youtube.com/watch?v=demo0000005", "videoId": "demo0000005", "title": "【朝活】おはよう!", "channel": ""}, state="waiting")
     rid = "20261016-097000-eeee01"
@@ -198,7 +199,7 @@ def seed(app, home):
            {"url": "", "videoId": "", "title": "【星見ルナ】歌ってみた切り抜き", "channel": "", "fileName": os.path.basename(clip), "fileSize": 1300000000},
            kind="file")
     ib.set_run(rid, "demorun0006")
-    ib.finished("demorun0006", "done", "", packs(rid, 1), 5, case=os.path.join(case_root, rid))
+    ib.finished("demorun0006", "done", "", packs(rid, 1), case=os.path.join(case_root, rid))
 
 
 DEMO_FETCH = (("whisper.cpp/large-v3", "ggml-large-v3.bin", 3095033483, None, "data", "transcribe/models/whispercpp"),
@@ -263,7 +264,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8760)
     ap.add_argument("--dir")
-    ap.add_argument("--missing", action="store_true", help="初回の取得の部品が足りない形で起こす(F2-5)")
+    ap.add_argument("--missing", action="store_true", help="初回の取得の部品が足りない形で起こす")
     ap.add_argument("--update", action="store_true", help="新しい版が入っている形で起こす(帯の [更新する])")
     a = ap.parse_args(argv)
     tmp_root = tempfile.gettempdir()
@@ -289,15 +290,15 @@ def main(argv=None):
     app = S.FriendApp(pl, log=lambda m: print(m, flush=True), make_engine=StubEngine)
     app.engine = StubEngine(pl, app.inbox)
     app.prep = {"state": "ready", "message": ""}
-    app.api.fetch, app.api.probe = demo_fetch, demo_probe   # ネットへ出ない(F2-6)
+    app.api.fetch, app.api.probe = demo_fetch, demo_probe   # ネットへ出ない
     app.pick_file = lambda: demo_file(home)                  # 本物のファイルを選ぶ窓を開かない
     app.open_folder = lambda d: None                         # [保存先を開く] でエクスプローラーを開かない(画面を取らない)
     picked = os.path.join(home, "user", "見本のフォルダ")
-    app.pick_folder = lambda what: picked                    # ⚙ の [選ぶ] で本物の窓を開かない(F2-5)
+    app.pick_folder = lambda what: picked                    # ⚙ の [選ぶ] で本物の窓を開かない
     app.settings.probe = lambda key: (200, "{}")             # API キーの確かめでネットへ出ない
     app.setup.downloader = DemoDownloader()                  # [始める] でネットへ出ない
     app.setup.disk_usage = lambda path: shutil.disk_usage(home)._replace(free=200 * 1024 ** 3)   # 見本は空きが足りる形
-    app.setup.run = lambda cmd, timeout: (0, "demo 1.0", None)   # 道具の確かめで本物の道具を動かさない(F3-5)
+    app.setup.run = lambda cmd, timeout: (0, "demo 1.0", None)   # 道具の確かめで本物の道具を動かさない
     app.setup.whisper = lambda device, data_root, wav: None
     app.setup.set_device = lambda d: None
     app.setup.env = {}

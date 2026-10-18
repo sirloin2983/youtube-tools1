@@ -1,4 +1,4 @@
-"""友人の玄関の ⚙ と初回の準備の口のテスト(F2-5。src/friendapp/settings.py・setup.py・server.py)。本物のソケットで 127.0.0.1 のポート 0 に起こす。
+"""友人の玄関の ⚙ と初回の準備の口のテスト(src/friendapp/settings.py・setup.py・server.py)。本物のソケットで 127.0.0.1 のポート 0 に起こす。
 ② は偽物・ネット(取得と API キーの確かめ)は偽物・フォルダを選ぶ窓は偽物(画面を取らない)。リポジトリ直下で: py -3.12 -m unittest src/friendapp/tests/test_settings.py"""
 import hashlib
 import http.client
@@ -217,7 +217,6 @@ class SettingsServerTest(unittest.TestCase):
             m = json.load(f)
         self.assertEqual((m["device"], m["diskMinGB"]), ("cuda", 35))
         # カットは送るときの束に入る(しない = 入れない = 今までの束のまま)
-        self.app.setup.checked = False   # 部品の確かめを外す(このテストは束を見る)
         st, j = self.post("/api/friend/send", {"url": URL, "top": 3, "title": "題"})
         self.assertEqual(st, 200, j)
         env, diff = self.app.engine.queue.submitted[-1]
@@ -280,7 +279,7 @@ class SettingsServerTest(unittest.TestCase):
         self.assertIn("使える C の部品がありません", j["message"])
 
     def upd(self, body):
-        """server.py の口がまだ processing・weights・live・cleanOld を通さないので、Settings.update を直に呼ぶ(まとめ役が口をつなぐ)"""
+        """Settings.update を直に呼ぶ(processing・weights・live)"""
         try:
             msg = self.app.settings.update(body)["message"]
         except T.SettingsError as e:
@@ -294,7 +293,7 @@ class SettingsServerTest(unittest.TestCase):
         self.assertEqual(s["live"], {"sens": "normal", "waitMin": 5, "pad": 2.0})
         self.assertEqual([o["value"] for o in s["liveSensOptions"]], ["high", "normal", "low"])
         self.assertEqual(s["liveSensOptions"][0]["label"], "高い")
-        self.assertEqual(s["oldApp"], {"canClean": False, "bytes": 0})
+        self.assertNotIn("oldApp", s)
         st, j = self.upd({"weights": {"wAudio": 3, "wChat": 0, "wComments": 1}, "live": {"sens": "high", "waitMin": 10, "pad": 1.5}})
         self.assertEqual(st, 200, j)
         s = j["settings"]
@@ -318,26 +317,6 @@ class SettingsServerTest(unittest.TestCase):
         st, j = self.upd({"processing": "local"})
         self.assertEqual(j["settings"]["processing"], "local")
 
-    def test_clean_old_via_settings(self):
-        class FakeSetup:
-            checked = True
-            cleaned = 0
-
-            def old_pending(self):
-                return {"bytes": 2 * 10 ** 9, "count": 1, "asked": True}
-
-            def clean_old(self):
-                self.cleaned += 1
-                return {"deleted": 1, "freed": 2 * 10 ** 9}
-        fs = FakeSetup()
-        self.app.settings.setup = fs
-        st, j = self.get("/api/friend/settings")
-        self.assertEqual(j["settings"]["oldApp"], {"canClean": True, "bytes": 2 * 10 ** 9})
-        st, j = self.upd({"cleanOld": True})
-        self.assertEqual(st, 200, j)
-        self.assertEqual(fs.cleaned, 1)
-        self.assertIn("2.0 GB", j["message"])
-
     def test_api_key_saved_and_never_returned(self):
         st, j = self.post("/api/friend/settings/key", {"key": "  " + KEY + "\n"})
         self.assertEqual(st, 200, j)
@@ -349,15 +328,12 @@ class SettingsServerTest(unittest.TestCase):
         with open(os.path.join(self.places["data"], "app", "keys.json"), encoding="utf-8") as f:
             self.assertEqual(json.load(f)["youtubeApiKey"], KEY)
         self.assertEqual(os.environ.get("YTT_YT_API_KEY"), KEY)
-        # 消す → "" を書く(前のアプリのキーへ戻らない)
+        # 消す → "" を書く(次の起動でもキーは入らない)
         st, j = self.post("/api/friend/settings/key", {"key": ""})
         self.assertFalse(j["settings"]["apiKey"])
         self.assertNotIn("YTT_YT_API_KEY", os.environ)
-        old = os.path.join(self.tmp, "old")
-        os.makedirs(os.path.join(old, "app"))
-        testkit.write_json(os.path.join(old, "app", "keys.json"), {"youtubeApiKey": KEY})
         env = {}
-        self.assertFalse(P.api_key_env([self.places["data"], old], env))
+        self.assertFalse(P.api_key_env(self.places["data"], env))
         self.assertEqual(env, {})
 
     def test_api_key_bad(self):

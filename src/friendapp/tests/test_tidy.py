@@ -59,8 +59,7 @@ class FakeQueue:
 
 class FakeSetup:
     def __init__(self, data):
-        self.data, self.done, self.cleaned = data, True, 0
-        self.pending = None
+        self.data, self.done = data, True
 
     def awake(self):
         return False
@@ -71,13 +70,6 @@ class FakeSetup:
 
     def missing(self):
         return []
-
-    def old_pending(self):
-        return self.pending
-
-    def clean_old(self):
-        self.cleaned += 1
-        return {"deleted": 2, "freed": 10}
 
 
 class FakeSync:
@@ -242,14 +234,6 @@ class TidyTest(unittest.TestCase):
         self.assertTrue(res["failed"])
         self.assertTrue(os.path.isdir(self.orphan))   # 動かせなかった物は残る
         self.assertFalse(os.path.exists(os.path.join(self.home, "FriendApp.exe.old")))   # ほかは続ける
-
-    def test_old_app_uses_existing_clean(self):
-        self.setup.pending = {"bytes": 9000, "count": 3}
-        got = self.t.scan()
-        old = [it for it in got["items"] if it["kind"] == "old-app"]
-        self.assertEqual((len(old), old[0]["mode"], old[0]["bytes"]), (1, "ask", 9000))
-        self.t.apply(old)
-        self.assertEqual(self.setup.cleaned, 1)
 
     def test_big_auto_is_asked(self):
         put(os.path.join(self.home, "FriendApp.exe.old"), b"x" * 10)

@@ -435,14 +435,6 @@ namespace FriendInbox
                 Log.Write("思わぬ例外: " + (ex != null ? ex.ToString() : "?"));
                 Diag.Note("exception", "exe の思わぬ例外 " + (ex != null ? ex.GetType().Name : "?"), ex != null ? ex.ToString() : null);
             };
-            string self = Process.GetCurrentProcess().MainModule.FileName;
-            string main = Path.Combine(home, "FriendApp.exe");
-            if (Updater.IsHandoffName(self) && File.Exists(main))   // 前のアプリの名前で起こされた(移る最後の 1 回の写し・前のショートカット)= 新しいアプリを起こして終わる
-            {
-                Log.Write("RequestSender.exe として起こされたので FriendApp.exe を起こします");
-                Process.Start(new ProcessStartInfo(main) { UseShellExecute = false, WorkingDirectory = home });
-                return 0;
-            }
             string name = InstanceName(home);
             bool created;
             using (var mutex = new Mutex(true, name, out created))

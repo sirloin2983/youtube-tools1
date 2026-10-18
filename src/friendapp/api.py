@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""友人の玄関の口の中身(F2-2・F3-3。HTTP の形は server.py。ここは欄の検査・② への受付・送った物の進み具合と取り消し・失敗のやり直し・前回の値)。
+"""友人の玄関の口の中身(F3-3。HTTP の形は server.py。ここは欄の検査・② への受付・送った物の進み具合と取り消し・失敗のやり直し・前回の値)。
 
 送る欄(F3-3。notes:plan/f1-friend-requirements.md の C-2-6〜C-2-19):
     source         "url"(配信 1 本)/ "files"(動画ファイル。files = [{fileId, streamer}] を 20 まで。1 本 = 1 依頼の行)
@@ -10,7 +10,7 @@
     videoTracks    映像トラックの数 1〜5(送る欄・前回の値 = C-2-10)
     live           ライブの送る欄の 3 つ {perHour, lengthMode: auto|fixed, length, afterStream}。感度・待ち・余白は ⚙ の値(C-2-11)
 ⚙ の値(C-2-19。prefs で変える): pc(この PC で処理する "this" / 依頼する "user")・解析の重み(useWeights・weights)・ライブの感度・待ち・余白・カットの既定。
-前回の値は <玄関>/form.json。届け方(5 本ずつ)はやめた(1 本ずつ = C-3-1)。
+前回の値は <玄関>/form.json。パックは 1 本ずつ届く(C-3-1)。
 
 送った物(C-2-14〜C-2-16): どの行にも [取り消す](cancel)。失敗は friendapp/progress.classify で友人の言葉に直し、直る見込みのある物は
 RETRY_EVERY 秒おきに RETRY_MAX 回まで自動でやり直す(tick)。同じ失敗が 2 回目なら [作る人に知らせる](report = 送り返しに .notice.json。形は
@@ -174,7 +174,7 @@ class Api:
         _fsio.write_json(self.form_path, cur, indent=None)
 
     def set_cut(self, cut):
-        """⚙ のカットの既定(none・silence)を form.json に(F2-5)"""
+        """⚙ のカットの既定(none・silence)を form.json に"""
         if cut not in _spec.CUTS:
             raise FormError("カットは「しない」か「無音を削る」を選んでください")
         cur = self.form()
@@ -413,7 +413,7 @@ class Api:
         kind = f.get("kind") or "url"
         if kind == "live":   # ライブ: 封筒 kind live + 依頼の束(感度・枠・待ち・余白・配信後の追加。長さは束に入れない = engine が行の欄から)
             from flow import livesession   # 読むのは送るときだけ(画面を先に出す)
-            env, _diff = _order.order("live", video_id=f["videoId"], title=f["title"] or f["videoId"], request_id=rid, batch=1)
+            env, _diff = _order.order("live", video_id=f["videoId"], title=f["title"] or f["videoId"], request_id=rid)
             ctx = {"settings": {k: v for k, v in f["live"].items() if k != "lengthMode"}, "videoTracks": f["videoTracks"], "streamer": f["streamer"]}
             bundle = livesession.request_bundle(ctx, None)
             people = self._people(f)
@@ -925,7 +925,7 @@ def _log_tail(path, cap):
 
 
 def _cut(f):
-    """束に入れるカット(⚙ の既定が「しない」なら入れない = 束の既定のまま = 今までと同じ束。F2-5)"""
+    """束に入れるカット(⚙ の既定が「しない」なら入れない = 束の既定のまま = 今までと同じ束)"""
     c = f.get("cut")
     return c if c in _spec.CUTS and c != "none" else None
 

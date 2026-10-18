@@ -22,7 +22,7 @@ RID = "20261016-100000-abcdef"
 AUTO = "20261016-110000-123456"
 NOW = float(int(time.time()))
 FORM = {"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "videoId": "dQw4w9WgXcQ", "ranges": [[10.0, 70.0], [100.0, 160.0]], "top": None,
-        "streamer": "星見ルナ", "people": ["ゲスト"], "videoTracks": 2, "deliverBatch": 5, "useWeights": False, "weights": None,
+        "streamer": "星見ルナ", "people": ["ゲスト"], "videoTracks": 2, "useWeights": False, "weights": None,
         "title": "題", "channel": "ch", "pc": "user"}
 
 
@@ -118,10 +118,9 @@ class SyncTest(unittest.TestCase):
         self.box = I.Inbox(os.path.join(self.places["friend"], "inbox.json"), self.places["outbox"], self.places["save"],
                            lambda: self.places["cases"], clock=self.clock)
         self.io = FakeIo(self.clock)
-        self.form = {"deliverBatch": 5}
         self.applied = []
         self.env = {}
-        self.sync = S.Sync(self.places, self.box, lambda: self.form, client_factory=lambda cfg, cancelled: self.io, clock=self.clock,
+        self.sync = S.Sync(self.places, self.box, client_factory=lambda cfg, cancelled: self.io, clock=self.clock,
                            env=self.env, apply_learning=lambda ld: self.applied.append(ld) or True, version="0.90.0")
 
     def clock(self):
@@ -166,10 +165,10 @@ class SyncTest(unittest.TestCase):
         self.box.add(RID, FORM, {"title": "題"}, pc="user")
         self.assertEqual(self.run_sync(), [])
         doc = json.loads(self.io.data("/%s.request.json" % RID).decode("utf-8"))
-        self.assertEqual(list(doc), ["v", "kind", "id", "flow", "items", "streamer", "speakers", "videoTracks", "cut", "deliverBatch", "sentAt"])
+        self.assertEqual(list(doc), ["v", "kind", "id", "flow", "items", "streamer", "speakers", "videoTracks", "cut", "sentAt"])
         self.assertEqual(doc["items"], [{"url": FORM["url"], "top": 2, "ranges": [{"start": 10.0, "end": 70.0}, {"start": 100.0, "end": 160.0}]}])
         self.assertEqual(doc["speakers"]["names"], ["星見ルナ", "ゲスト"])
-        self.assertEqual((doc["id"], doc["deliverBatch"], doc["videoTracks"], doc["cut"]), (RID, 5, 2, "none"))
+        self.assertEqual((doc["id"], doc["videoTracks"], doc["cut"]), (RID, 2, "none"))
         self.assertEqual(self.box.row(RID)["remote"]["state"], "uploaded")
         v = self.box.view()[0]
         self.assertFalse(v["canLocal"])
@@ -196,7 +195,7 @@ class SyncTest(unittest.TestCase):
         self.assertFalse(self.sync.withdraw(RID))
 
     def test_request_video_uploads_video_then_json(self):
-        """F2-6: 動画ファイルは先に動画を直下 <依頼 id>__<元の名前> へ(C# の RequestJson.Video と同じ鍵と順)・[この PC でやり直す] は動画も消す"""
+        """動画ファイルは先に動画を直下 <依頼 id>__<元の名前> へ・[この PC でやり直す] は動画も消す"""
         self.key()
         clip = os.path.join(self.tmp, "【星見ルナ】歌ってみた.mp4")
         self.assertEqual(S.upload_name(RID, 'a<b>:"c".mp4'), RID + "__a_b___c_.mp4")   # Dropbox に使えない文字は _
@@ -209,7 +208,7 @@ class SyncTest(unittest.TestCase):
         self.assertTrue(name.startswith(RID + "__【星見ルナ】歌") and name.endswith(".mp4"))
         self.assertEqual(self.io.data("/" + name), b"v" * 100)
         doc = json.loads(self.io.data("/%s.request.json" % RID).decode("utf-8"))
-        self.assertEqual(list(doc), ["v", "kind", "id", "flow", "files", "streamer", "speakers", "videoTracks", "cut", "deliverBatch", "sentAt"])
+        self.assertEqual(list(doc), ["v", "kind", "id", "flow", "files", "streamer", "speakers", "videoTracks", "cut", "sentAt"])
         self.assertEqual((doc["kind"], doc["files"], doc["streamer"]), ("video", [name], "星見ルナ"))
         self.assertTrue(self.sync.withdraw(RID))
         self.assertIsNone(self.io.data("/" + name))
@@ -226,49 +225,37 @@ class SyncTest(unittest.TestCase):
         self.assertIsNone(self.io.data("/%s.request.json" % RID))
 
     def test_request_live_doc(self):
-        """F2-6: ライブは RequestJson.Live と同じ鍵と順(live の後に deliverBatch)"""
+        """ライブの依頼の鍵と順(live の後に sentAt)"""
         self.key()
         live = {"sens": "low", "perHour": 8, "length": 150, "waitMin": 10, "pad": 5.0, "afterStream": False}
         self.box.add(RID, dict(FORM, kind="live", ranges=[], top=7, url="https://youtu.be/dQw4w9WgXcQ", live=live), {"title": "x"}, pc="user", kind="live")
         self.run_sync()
         doc = json.loads(self.io.data("/%s.request.json" % RID).decode("utf-8"))
-        self.assertEqual(list(doc), ["v", "kind", "id", "flow", "url", "streamer", "speakers", "videoTracks", "cut", "live", "deliverBatch", "sentAt"])
+        self.assertEqual(list(doc), ["v", "kind", "id", "flow", "url", "streamer", "speakers", "videoTracks", "cut", "live", "sentAt"])
         self.assertEqual((doc["url"], doc["live"], list(doc["live"])), ("https://www.youtube.com/watch?v=dQw4w9WgXcQ", live, [k for k in S.LIVE_KEYS if k in live]))   # 鍵の順は LIVE_KEYS(無い鍵 = 前の形の lengthMode は入れない)
 
-    def test_deliver_prefs_only_when_changed(self):
-        self.key()
-        self.run_sync()
-        doc = json.loads(self.io.data(S.DELIVER_PREFS))
-        self.assertEqual((doc["v"], doc["deliverBatch"]), (1, 5))
-        self.io.files.clear()
-        self.run_sync()
-        self.assertIsNone(self.io.data(S.DELIVER_PREFS))
-        self.form["deliverBatch"] = 1
-        self.run_sync()
-        self.assertEqual(json.loads(self.io.data(S.DELIVER_PREFS))["deliverBatch"], 1)
-
     # ------------------------------------------------------------ /出力/ の取り込み
-    def put_group(self, rid, origin="auto", n=2, pack_data=None):
+    def put_packs(self, rid, origin="auto", n=2, pack_data=None):
+        """作る側と同じ形で 1 本ずつ置く(確認用の動画 → .meta.json → zip)"""
         zips = []
         for i in range(1, n + 1):
-            name = "%s__見どころ %d.zip" % (rid, i)
-            self.io.put("/出力/" + name, pack_data or zip_bytes({"見どころ %d_pack/clip.mp4" % i: b"v" * 10, "見どころ %d_pack/a.lua" % i: b"x"}))
-            zips.append(name)
-        pv = "%s__朝活 1-%d.preview.mp4" % (rid, n)
-        self.io.put("/出力/" + pv, b"MP4")
-        g = {"v": 1, "title": "朝活", "range": "1-%d" % n, "preview": pv, "origin": origin,
-             "packs": [{"n": i + 1, "zip": z, "title": "見どころ %d" % (i + 1), "previewStart": 0, "duration": 30.5} for i, z in enumerate(zips)]}
-        self.io.put("/出力/%s__朝活 1-%d.group.json" % (rid, n), json.dumps(g).encode("utf-8"))
+            stem = "%s__見どころ %d" % (rid, i)
+            self.io.put("/出力/%s.preview.mp4" % stem, b"MP4")
+            self.io.put("/出力/%s.meta.json" % stem, json.dumps({"v": 1, "origin": origin, "streamTitle": "朝活", "seconds": 30.5}).encode("utf-8"))
+            self.io.put("/出力/%s.zip" % stem, pack_data or zip_bytes({"見どころ %d_pack/clip.mp4" % i: b"v" * 10, "見どころ %d_pack/a.lua" % i: b"x"}))
+            zips.append(stem + ".zip")
         return zips
 
-    def test_group_import_preview_reject_keep_cleanup_and_returns(self):
+    def test_packs_import_preview_skip_keep_cleanup_and_returns(self):
         self.key()
-        zips = self.put_group(AUTO)
+        zips = self.put_packs(AUTO)
         self.run_sync()
         r = self.box.row(AUTO)
         self.assertEqual((r["origin"], r["pc"], r["state"]), ("auto", "auto", "arrived"))
         self.assertEqual([p["remote"]["zip"] for p in r["packs"]], zips)
-        self.assertTrue(r["groups"][0]["preview"] and os.path.isfile(r["groups"][0]["preview"]))
+        self.assertEqual([len(g["names"]) for g in r["groups"]], [1, 1])   # 1 本ずつの枠
+        self.assertEqual(r["packs"][0]["seconds"], 30.5)
+        self.assertTrue(all(g["preview"] and os.path.isfile(g["preview"]) for g in r["groups"]))
         self.assertIs(self.box.view()[0]["groups"][0]["preview"], True)   # 画面には手元のパスを出さない
         self.run_sync()   # 2 回目は取り込み直さない
         self.assertEqual(len(self.box.row(AUTO)["packs"]), 2)
@@ -283,30 +270,22 @@ class SyncTest(unittest.TestCase):
         r = self.box.row(AUTO)
         self.assertEqual(r["state"], "done")
         saved = r["packs"][1]["savedTo"]
-        # 保存先 = <保存先>/<日付>_<題>/#番号(この組は配信の欄が無い = 行の題・届いた日。番号は 2 本目)
+        # 保存先 = <保存先>/<日付>_<配信の題>/#番号(配信者・配信の日付が無い = 届いた日。番号は 2 本目)
         self.assertEqual(saved, os.path.join(self.tmp, "save", "%s_朝活" % self.iso_day(), "#2"))
         self.assertTrue(os.path.isfile(os.path.join(saved, "clip.mp4")))
         self.assertEqual(self.uploaded(AUTO, names[1])["judge"], "good")
-        # 見送った物は戻せる 3 日の間は Dropbox の出力に残す(受け取った物だけ先に消さない)
+        # 見送った物は戻せる 3 日の間は Dropbox の出力に残す(受け取った物は先に消す)
         self.assertFalse(r["groups"][0]["remote"]["cleaned"])
-        self.assertEqual(len([k for k in self.io.files if k.startswith("/出力/")]), 4)
+        self.assertTrue(r["groups"][1]["remote"]["cleaned"])
+        self.assertEqual(sorted(k for k in self.io.files if k.startswith("/出力/")),
+                         sorted(("/出力/%s__見どころ 1%s" % (AUTO, s)).lower() for s in (".zip", ".preview.mp4", ".meta.json")))
         self.assertEqual(len([k for k in self.io.files if k.startswith("/送り返し/")]), 2)
         self.assertEqual(os.listdir(self.places["outbox"]), [])   # 上げたら消す
-        self.assertFalse(os.path.exists(r["groups"][0]["preview"]))
+        self.assertFalse(os.path.exists(r["groups"][1]["preview"]))   # 受け取った物の確認用の動画は消す
         self.t[0] += 3 * 86400 + 1
         self.run_sync()
         self.assertTrue(self.box.row(AUTO)["groups"][0]["remote"]["cleaned"])
-        self.assertEqual([k for k in self.io.files if k.startswith("/出力/")], [])   # zip・まとめ動画・組の一覧を消した
-
-    def test_partial_group_waits_then_imports(self):
-        self.key()
-        zips = self.put_group(AUTO, n=3)
-        del self.io.files[("/出力/" + zips[2]).lower()]
-        self.run_sync()
-        self.assertIsNone(self.box.row(AUTO))
-        self.t[0] += S.GROUP_WAIT + 1
-        self.run_sync()
-        self.assertEqual(len(self.box.row(AUTO)["packs"]), 2)
+        self.assertEqual([k for k in self.io.files if k.startswith("/出力/")], [])   # zip・確認用の動画・.meta.json を消した
 
     def test_single_to_requested_row_and_meta_origin(self):
         self.key()
@@ -324,12 +303,13 @@ class SyncTest(unittest.TestCase):
         a = self.box.row(AUTO)
         self.assertEqual((a["origin"], a["packs"][0]["remote"]["meta"]), ("auto", "%s__自動.meta.json" % AUTO))
 
-    def test_lone_zip_waits_for_group_list(self):
+    def test_zip_without_meta_waits_then_imports(self):
+        """.meta.json も確認用の動画も無い zip は一覧の遅れの分だけ待ってから、出どころ「依頼」として取り込む"""
         self.key()
         self.io.put("/出力/%s__見どころ 1.zip" % AUTO, b"z")
         self.run_sync()
         self.assertIsNone(self.box.row(AUTO))
-        self.t[0] += S.SINGLE_WAIT + 1
+        self.t[0] += S.NO_META_WAIT + 1
         self.run_sync()
         self.assertEqual(len(self.box.row(AUTO)["packs"]), 1)
 
@@ -356,7 +336,7 @@ class SyncTest(unittest.TestCase):
 
     def test_keep_refuses_zip_slip_and_broken(self):
         self.key()
-        self.put_group(AUTO, n=1, pack_data=zip_bytes({"../evil.txt": b"x"}))
+        self.put_packs(AUTO, n=1, pack_data=zip_bytes({"../evil.txt": b"x"}))
         self.run_sync()
         name = self.box.row(AUTO)["packs"][0]["name"]
         self.box.decide(AUTO, [name], "keep")
@@ -376,7 +356,7 @@ class SyncTest(unittest.TestCase):
 
     def test_keep_retries_when_offline(self):
         self.key()
-        zips = self.put_group(AUTO, n=1)
+        zips = self.put_packs(AUTO, n=1)
         self.run_sync()
         name = self.box.row(AUTO)["packs"][0]["name"]
         self.box.decide(AUTO, [name], "keep")
@@ -390,7 +370,7 @@ class SyncTest(unittest.TestCase):
 
     def test_three_days_auto_skip_without_download(self):
         self.key()
-        self.put_group(AUTO, n=2)
+        self.put_packs(AUTO, n=2)
         self.run_sync()
         names = [p["name"] for p in self.box.row(AUTO)["packs"]]
         self.box.decide(AUTO, [names[0]], "keep")   # 受け取っている途中の物は自動で見送らない
@@ -528,7 +508,7 @@ class SyncTest(unittest.TestCase):
                                                       "sha256": sha or hashlib.sha256(data).hexdigest(), "notes": ""}).encode())
 
     def update_entries(self, **extra):
-        e = {"src/friendapp/server.py": b"# server", "python/python.exe": b"MZ", "RequestSender.exe": b"MZ", "src/ytt/version.py": b"v"}
+        e = {"src/friendapp/server.py": b"# server", "python/python.exe": b"MZ", "other.exe": b"MZ", "src/ytt/version.py": b"v"}
         e["manifest.json"] = json.dumps({"files": {k: hashlib.sha256(v).hexdigest() for k, v in e.items()}}).encode()
         e.update(extra)
         return e
@@ -542,23 +522,24 @@ class SyncTest(unittest.TestCase):
         self.assertEqual(self.run_sync(), [])
         app = os.path.join(self.places["home"], "app-0.91.0")
         self.assertTrue(os.path.isfile(os.path.join(app, "src", "friendapp", "server.py")))
-        self.assertFalse(os.path.exists(os.path.join(app, "RequestSender.exe")))   # src・python と決まった直下の物だけ
+        self.assertFalse(os.path.exists(os.path.join(app, "other.exe")))   # src・python と決まった直下の物だけ
         self.assertEqual(self.sync.status()["updated"], "0.91.0")
         self.assertEqual([n for n in os.listdir(self.places["home"]) if n.endswith((".tmp", ".part"))], [])
 
-    def test_update_takes_launcher_files_and_handoff_name(self):
-        """exe と DLL・fetch.json は app-<版>/ へ(入れ替えは [更新する] で exe が)・移る最後の 1 回の RequestSender-<版>.zip も受ける・ほかの名前は断る"""
+    def test_update_takes_launcher_files_and_refuses_other_names(self):
+        """exe と DLL・fetch.json は app-<版>/ へ(入れ替えは [更新する] で exe が)・FriendApp-<版>.zip のほかの名前は断る"""
         self.key()
         self.env[S.LAUNCHER_ENV] = "1"
         extra = {"FriendApp.exe": b"MZexe", "WebView2Loader.dll": b"MZdll", "fetch.json": b"{}", "notes.txt": b"x"}
-        self.put_update("0.92.0", self.update_entries(**extra), name="RequestSender-0.92.0.zip")
+        self.put_update("0.92.0", self.update_entries(**extra))
         self.assertEqual(self.run_sync(), [])
         app = os.path.join(self.places["home"], "app-0.92.0")
         for n in ("FriendApp.exe", "WebView2Loader.dll", "fetch.json"):
             self.assertTrue(os.path.isfile(os.path.join(app, n)), n)
         self.assertFalse(os.path.exists(os.path.join(app, "notes.txt")))   # 決まった名前だけ
-        self.put_update("0.93.0", self.update_entries(), name="Other-0.93.0.zip")
-        self.assertTrue(any("latest.json" in p for p in self.run_sync()))
+        for bad in ("Other-0.93.0.zip", "FriendApp-0.93.zip"):
+            self.put_update("0.93.0", self.update_entries(), name=bad)
+            self.assertTrue(any("latest.json" in p for p in self.run_sync()), bad)
 
     def test_update_refuses_bad_zip_old_version_and_bad_list(self):
         self.key()
@@ -593,14 +574,6 @@ class SyncTest(unittest.TestCase):
         self.assertNotIn("speakers", d)
         with self.assertRaises(ValueError):
             S.request_doc("video", RID, f, NOW)
-
-    def test_parse_group_checks_names(self):
-        g = S.parse_group(json.dumps({"v": 1, "title": "t\x00", "preview": "../a.preview.mp4", "origin": "x",
-                                      "packs": [{"zip": "a/b.zip"}, {"zip": "ok.zip", "n": 3, "duration": -1}, {"zip": "ok.zip"}]}).encode())
-        self.assertEqual((g["title"], g["preview"], g["origin"]), ("t", "", ""))
-        self.assertEqual([(p["zip"], p["n"], p["seconds"]) for p in g["packs"]], [("ok.zip", 3, None)])
-        self.assertIsNone(S.parse_group(b"{broken"))
-        self.assertIsNone(S.parse_group(json.dumps({"v": 2, "packs": [{"zip": "a.zip"}]}).encode()))
 
 
 if __name__ == "__main__":

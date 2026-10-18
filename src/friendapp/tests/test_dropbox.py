@@ -120,11 +120,11 @@ class DropboxTest(unittest.TestCase):
 
     def test_upload_small_header_is_ascii(self):
         net = FakeNet(ok({"name": "依頼.json"}))
-        name = self.client(net).upload_bytes(b"{}", "/設定/届け方.json", overwrite=True)
+        name = self.client(net).upload_bytes(b"{}", "/送り返し/判断.verdict.json", overwrite=True)
         self.assertEqual(name, "依頼.json")
         arg = net.calls[1][1]["Dropbox-API-Arg"]
         arg.encode("ascii")   # ASCII だけ
-        self.assertEqual(json.loads(arg), {"path": "/設定/届け方.json", "mode": "overwrite", "autorename": False, "mute": True})
+        self.assertEqual(json.loads(arg), {"path": "/送り返し/判断.verdict.json", "mode": "overwrite", "autorename": False, "mute": True})
 
     def test_upload_large_uses_session_and_skips_received_chunk(self):
         p = os.path.join(self.tmp, "big.zip")

@@ -1,4 +1,4 @@
-"""src/friendapp/setup.py(初回の取得。F2-5)のテスト。本物のネットには出ない(偽の取り方)。リポジトリ直下で: py -3.12 -m unittest src/friendapp/tests/test_setup.py"""
+"""src/friendapp/setup.py(初回の取得)のテスト。本物のネットには出ない(偽の取り方)。リポジトリ直下で: py -3.12 -m unittest src/friendapp/tests/test_setup.py"""
 import hashlib
 import io
 import json
@@ -113,9 +113,7 @@ class SetupTest(unittest.TestCase):
         kw.setdefault("downloader", self.dl)
         kw.setdefault("disk_usage", lambda p: BIG)
         kw.setdefault("cuda", lambda: None)
-        st = S.Setup(self.fetch, self.data, self.home, self.friend, **kw)
-        st.checked = True
-        return st
+        return S.Setup(self.fetch, self.data, self.home, self.friend, **kw)
 
     def run_setup(self, st, only=None):
         st.start_fetch(only)
@@ -141,7 +139,6 @@ class SetupTest(unittest.TestCase):
 
     def test_no_fetch_json_means_inactive(self):
         st = S.Setup(None, self.data, self.home, self.friend)
-        st.checked = True
         self.assertEqual(st.missing(), [])
         self.assertIsNone(st.block_reason())
         self.assertEqual(st.inbox_view()["count"], 0)
@@ -164,7 +161,7 @@ class SetupTest(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(tools, "ffmpeg-1", "bin", "ffmpeg.exe")))
         self.assertFalse(os.path.exists(os.path.join(tools, "ffmpeg.zip")))   # 展開したら zip は消す
         with open(os.path.join(tools, ".fetched-ffmpeg.zip"), encoding="utf-8") as f:
-            self.assertEqual(f.read(), sha(self.tool))   # 目印(今の送るアプリと同じ名前)
+            self.assertEqual(f.read(), sha(self.tool))   # 目印(取り直さないための印)
         self.assertTrue(os.path.isfile(os.path.join(self.data, "transcribe", "models", "sv", "sv", "tokens.txt")))
         with open(os.path.join(self.data, "transcribe", "models", "diar", "seg.onnx"), "rb") as f:
             self.assertEqual(f.read(), b"seg-onnx")
@@ -178,8 +175,8 @@ class SetupTest(unittest.TestCase):
         self.assertEqual(self.make().missing(), [])
         self.assertEqual(len(self.dl.calls), n)
 
-    def test_existing_marker_from_old_app_is_kept(self):
-        """今の送るアプリが取って目印を置いた物は取り直さない・目印の sha256 が違えば足りない"""
+    def test_existing_marker_is_kept(self):
+        """前に取って目印を置いた物は取り直さない・目印の sha256 が違えば足りない"""
         tools = os.path.join(self.home, "tools", "ffmpeg")
         os.makedirs(tools)
         with open(os.path.join(tools, ".fetched-ffmpeg.zip"), "w", encoding="utf-8") as f:
@@ -267,14 +264,6 @@ class SetupTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             st.start_fetch()
         self.assertEqual(self.dl.calls, [])
-
-    def test_not_checked_waits(self):
-        st = self.make()
-        st.checked = False   # 古い部品を写している間は見せない・始めない・送るも止めない
-        self.assertEqual(st.inbox_view(), {"active": False})
-        self.assertIsNone(st.block_reason())
-        with self.assertRaises(ValueError):
-            st.start_fetch()
 
     def test_later_and_reopen(self):
         st = self.make()
@@ -431,7 +420,7 @@ class HttpDownloaderTest(unittest.TestCase):
             S.HttpDownloader(opener=FakeOpener(FakeResp(b"abc"))).get("https://h/x", self.part, 10, lambda n: None, lambda: True)
 
 
-# ================================================================ 準備だけの画面の流れ(F3-5。begin・view・done・awake・前のアプリの片付け)
+# ================================================================ 準備だけの画面の流れ(begin・view・done・awake)
 class FlowTest(unittest.TestCase):
     """本物のネット・本物の道具・本物の文字起こしは動かさない(偽の取り方・偽の run・偽の whisper)"""
 
@@ -465,7 +454,6 @@ class FlowTest(unittest.TestCase):
         self.whisper_ok = {"vulkan": True, "cuda": True}
         self.device = ["vulkan"]
         self.devices_set = []
-        self.copied = []
 
     def write_fetch(self, items):
         testkit.write_json(self.fetch, {"schema": "youtube-tools-friend-fetch/v1", "version": "0.93.0", "items": items})
@@ -500,8 +488,8 @@ class FlowTest(unittest.TestCase):
         kw.setdefault("device", lambda: self.device[0])
         return S.Setup(self.fetch, self.data, self.home, self.friend, **kw)
 
-    def go(self, st, old_root=None):
-        st.start(old_root)
+    def go(self, st):
+        st.start()
         st.wait(10)
         return st.view()
 
@@ -691,7 +679,7 @@ class FlowTest(unittest.TestCase):
                 break
             time.sleep(0.02)
         v = st.view()
-        self.assertEqual(set(v), {"state", "percent", "remainSec", "totalBytes", "doneBytes", "message", "detail", "error", "oldApp"})
+        self.assertEqual(set(v), {"state", "percent", "remainSec", "totalBytes", "doneBytes", "message", "detail", "error"})
         self.assertEqual(v["state"], "fetching")
         self.assertIsNone(v["remainSec"])
         self.assertEqual(v["totalBytes"], sum(S.expect(i) for i in self.items))
@@ -701,86 +689,6 @@ class FlowTest(unittest.TestCase):
         st.wait(10)
         self.assertTrue(st.done)
         self.assertIsNone(st.block_reason())
-
-    # ---- 前のアプリの片付け(C-1-2)
-    def old_setup(self):
-        self.old = os.path.join(self.tmp, "old")
-        os.makedirs(os.path.join(self.old, "transcribe", "models", "whispercpp"))
-        with open(os.path.join(self.old, "transcribe", "models", "whispercpp", "model.bin"), "wb") as f:
-            f.write(self.model)
-        self.keep = os.path.join(self.old, "cases", "mine.txt")   # 目録に無い物(案件)
-        os.makedirs(os.path.dirname(self.keep))
-        with open(self.keep, "wb") as f:
-            f.write(b"my case")
-        self.old_model = os.path.join(self.old, "transcribe", "models", "whispercpp", "model.bin")
-
-    def test_old_copy_then_ask_once_and_clean(self):
-        self.old_setup()
-        st = self.make()
-        v = self.go(st, self.old)
-        self.assertEqual(v["state"], "done")
-        self.assertEqual(self.dl.calls.count("https://h/model.bin"), 0)   # 写せた物は取らない
-        self.assertTrue(os.path.isfile(self.old_model))                    # 写すだけ・まだ消さない
-        self.assertEqual(v["oldApp"], {"ask": True, "canClean": True, "bytes": len(self.model)})
-        got = st.clean_old()
-        self.assertEqual((got["deleted"], got["freed"]), (1, len(self.model)))
-        self.assertFalse(os.path.exists(self.old_model))
-        self.assertTrue(os.path.isfile(self.keep))                         # 目録に無い物には触らない
-        self.assertEqual(st.view()["oldApp"], {"ask": False, "canClean": False, "bytes": 0})
-        self.assertTrue(os.path.isfile(os.path.join(self.data, "transcribe", "models", "whispercpp", "model.bin")))
-
-    def test_old_skip_asks_no_more_but_settings_can_clean(self):
-        self.old_setup()
-        st = self.make()
-        self.go(st, self.old)
-        st.skip_old()
-        v = st.view()
-        self.assertFalse(v["oldApp"]["ask"])
-        self.assertEqual(v["oldApp"]["bytes"], len(self.model))
-        self.assertTrue(os.path.isfile(self.old_model))
-        self.assertEqual(st.old_pending()["bytes"], len(self.model))       # ⚙ のボタン用(聞いたかに関わらず)
-        self.assertEqual(st.clean_old()["deleted"], 1)
-
-    def test_old_changed_file_is_not_deleted(self):
-        self.old_setup()
-        st = self.make()
-        self.go(st, self.old)
-        with open(self.old_model, "ab") as f:
-            f.write(b"changed after copy")
-        self.assertEqual(st.old_pending()["bytes"], 0)
-        self.assertEqual(st.clean_old()["deleted"], 0)
-        self.assertTrue(os.path.isfile(self.old_model))
-
-    def test_no_old_app(self):
-        v = self.go(self.make())
-        self.assertEqual(v["oldApp"], {"ask": False, "canClean": False, "bytes": 0})
-        self.assertEqual(self.make().clean_old(), {"deleted": 0, "freed": 0})
-
-    def test_home_leftovers_alone_ask_once_and_clean(self):
-        # 前のアプリの部品は無く、アプリのフォルダに前のアプリの物だけ残っている
-        for rel in ("RequestSender.exe", "README.txt", "settings.json"):
-            with open(os.path.join(self.home, rel), "wb") as f:
-                f.write(b"old-app")
-        os.makedirs(os.path.join(self.home, "new"))
-        with open(os.path.join(self.home, "new", "a.bin"), "wb") as f:
-            f.write(b"x" * 5)
-        keep = [os.path.join(self.home, n) for n in ("config.json", "FriendApp.exe")]
-        for p in keep:
-            with open(p, "wb") as f:
-                f.write(b"keep")
-        st = self.make()
-        v = self.go(st)
-        self.assertEqual(v["oldApp"], {"ask": True, "canClean": True, "bytes": 26})
-        st.skip_old()                                       # もう聞かない(片付けは ⚙ から)
-        v = st.view()
-        self.assertFalse(v["oldApp"]["ask"])
-        self.assertTrue(v["oldApp"]["canClean"])
-        self.assertEqual(st.clean_old(), {"deleted": 4, "freed": 26})
-        for rel in ("RequestSender.exe", "README.txt", "settings.json", "new"):
-            self.assertFalse(os.path.exists(os.path.join(self.home, rel)), rel)
-        for p in keep:
-            self.assertTrue(os.path.isfile(p), p)
-        self.assertEqual(st.view()["oldApp"], {"ask": False, "canClean": False, "bytes": 0})
 
 
 if __name__ == "__main__":

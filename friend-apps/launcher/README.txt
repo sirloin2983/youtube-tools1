@@ -1,10 +1,9 @@
-友人のアプリの窓 FriendApp.exe(friend-apps\launcher。F3-1。要件は資料の plan\f1-friend-requirements.md の C-1・C-5-3・C-5-4)
+友人のアプリの窓 FriendApp.exe(friend-apps\launcher。要件は資料の plan\f1-friend-requirements.md の C-1・C-5-3・C-5-4)
 =====================================================================
 
 ■ これは何
   友人の PC で開くアプリの窓そのものです。C# の exe が WebView2(Edge と同じ表示エンジン)で画面を出し、
   処理の本体の Python(src\friendapp\server.py)を子として起こします。画面(HTML)は Python が配ります。
-  前の形(Edge の --app の窓・20 秒の問い合わせで窓が閉じたと推測・状態の窓)はやめました。
 
 ■ 作り方
   friend-apps\launcher\build.bat(.NET Framework 4 の C# コンパイラ・テストも流す)。
@@ -15,7 +14,7 @@
 ■ exe がすること
   - 1 つだけ起動: アプリのフォルダごとの名前つき Mutex。2 つ目は 1 つ目の窓を前に出して終わる(別の場所の同じアプリは止めない)
   - Python を子でジョブオブジェクトに入れて起こす(閉じたら全部止める = exe が落ちても Python と孫の ffmpeg・whisper.cpp・録画の部品が残らない)
-  - 版のフォルダ app-<版> を選ぶ・起動できなければ前の版へ戻す(app-versions.json。前の形と同じ)
+  - 版のフォルダ app-<版> を選ぶ・起動できなければ前の版へ戻す(app-versions.json)
   - Python が途中で落ちたら起こし直して画面を読み込み直す(10 分に 3 回まで。Python が {"event":"bye"} と言って終わったときは窓も閉じる)
   - × ・画面の [すべて止めて終了]・時計の横のアイコンの「止める」: 状態を取り直してから、作業中・預かりがあるときだけ確認
     ([裏で続ける](初めから選んだ状態)/ [止めて閉じる]。確認の窓の × と Esc は何もしない)。無ければすぐ止める。
@@ -30,29 +29,25 @@
   - WebView2 の本体が無い PC: Edge のアプリの窓で開く逃げ道(このときだけ画面に本物の合言葉を入れる。止めるのはアイコンから)
 
 ■ 更新(8 章・A-15。新しい版の入れ方と前の版へ戻す)
-  - 取る: Python の同期(src\friendapp\sync.py の 6)が Dropbox の /更新/latest.json を見て、今より新しければ FriendApp-<版>.zip を取り、
+  - 取る: Python の同期(src\friendapp\sync.py の 5)が Dropbox の /更新/latest.json を見て、今より新しければ FriendApp-<版>.zip を取り、
     大きさと SHA-256 を確かめて <アプリのフォルダ>\app-<版>\ に入れる(src・python と FriendApp.exe・WebView2 の DLL・fetch.json・members.json)
   - 知らせる: 画面の帯の 1 行(src\friendapp\ui\update.js。画面は帯に <div data-fr-update></div> を置くだけ)に「新しい版 n があります [更新する]」
   - 入れ替える: [更新する] → 作業と預かりが無ければすぐ・あれば終わってから、exe が Python を止め、app-<版>\ の FriendApp.exe と DLL を写し
     (動いている exe と DLL は *.old に名前を変えてから。次の起動で消す)、閉じて新しい exe を起こす
   - 版のフォルダ: 一番新しい版を選ぶ(前の形 <アプリのフォルダ>\src・python も src\ytt\version.py の版で比べる)。1 回起動できた版を current・その前を
     previous にし、それより古い app-<版> を消す(置くのは 2 つ)。前の形は版のフォルダが 2 つそろったら消す。起動できない版は bad にして前の版で起こし直す
-  - 前のアプリ(RequestSender)から移る最後の 1 回: dev\build_friend_zip.py --handoff の RequestSender-<版>.zip を前のアプリの [更新する] で入れる。
-    中の RequestSender.exe は FriendApp.exe の写し = 自分の名前が RequestSender.exe なら隣の FriendApp.exe を起こして終わる。
-    前のアプリの物(RequestSender.exe など)は初回の準備の「前のアプリを片付けます」の 1 回で消す(src\friendapp\oldcopy.py の HOME_FILES)
 
-■ 窓と画面の境目(F3-B の画面・F3-C もこれに合わせる)
+■ 窓と画面の境目
   - 画面の URL: http://127.0.0.1:<番号>/friend/(送る・受け取る)。初回の準備が済むまでは /friend/setup.html(準備だけの画面)へ 302
   - 番号: exe がその都度空いている物を選んで --port で渡す(Python は他の番号へずらさない。使えなければ終了コード 5 → exe が選び直す)。
-    録画の部品の番号も exe が選んで YTT_FRIEND_REC_PORT で渡す(ユーザーの入口・前のアプリの 8730 と取り合わない)
+    録画の部品の番号も exe が選んで YTT_FRIEND_REC_PORT で渡す(ユーザーの入口の 8730 と取り合わない)
   - 合言葉: exe が作って YTT_FRIEND_TOKEN で渡し、WebView2 が同じオリジンへの全部の要求に X-YTT-Token を足す。
     画面の meta ytt-token は中身 host の置き物(ui-kit の UIKit.http がそのまま動く)。画面のコードは UIKit.http で呼び、合言葉を扱わない。
-    = 0.95.0 の「合言葉が違います」(起動し直したあとの古い窓・録画の部品の番号の取り合い)は、この形で起きない
   - 画面 → exe(src\friendapp\ui\host.js の FriendHost):
       FriendHost.isApp            exe の窓の中か
       FriendHost.quit()           [すべて止めて終了](exe が確認する。窓の外は確認なしで /api/shutdown)
       FriendHost.sendFiles(files, cb)   落とした動画ファイル。exe が本物のパスを読んで POST /api/friend/files {paths} を送り、答えを cb(err, json) へ
-                                  (画面からパスを送らない決まり。/api/friend/files の中身は送る係 = F3-B)
+                                  (画面からパスを送らない決まり)
   - exe → Python(合言葉つき): GET /api/friend/state を 2 秒ごと
       {making, recording, waiting, reserved, archiveWait, setup, undecided, awake, busy, label}
       作業中・預かり = making + recording + waiting + reserved + archiveWait + (setup ? 1 : 0)。数の出どころは server.py の FriendApp.state() と holdings()

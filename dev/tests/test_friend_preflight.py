@@ -157,7 +157,7 @@ class PublishGateTest(unittest.TestCase):
         return {"zip": p, "size": 3, "sha256": "x", "files": 1}
 
     def args(self, skip=False):
-        return B.argparse.Namespace(cache="c", wcpp="w", no_fetch=True, notes="", launcher_build="l", handoff=False, skip_preflight=skip)
+        return B.argparse.Namespace(cache="c", wcpp="w", no_fetch=True, notes="", launcher_build="l", skip_preflight=skip)
 
     def test_failed_preflight_places_nothing(self):
         with mock.patch.object(B, "build", self.fake_build), mock.patch.object(P, "preflight_zip", return_value=False) as pf:

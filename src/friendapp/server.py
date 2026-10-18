@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""友人の玄関(F2-1・F2-2。notes:plan/f1-friend-requirements.md の A-1・B)。友人の PC の 2 つ目の玄関(ユーザーの PC は src/app/server.py)。
+"""友人の玄関(notes:plan/f1-friend-requirements.md の A-1・B)。友人の PC の 2 つ目の玄関(ユーザーの PC は src/app/server.py)。
 
     python src/friendapp/server.py [--port 8720] [--no-open]
 
@@ -11,7 +11,6 @@
   WebView2 の無い PC の逃げ道(YTT_FRIEND_HOST=edge)と開発の PC(exe なし)だけ meta に本物の合言葉を入れ、Edge のアプリの窓で開く
 - 安全はユーザーの PC の入口と同じ: Host(DNS rebinding)・Origin・Sec-Fetch-Site の検査(ytt/httpsec)と、書き込み系の合言葉(起動ごと)
 - 1 つの作業データに ② は 1 つ(flow/placement の .flow.lock)。もう動いていれば、その窓を開き直して終わる(終了コード 0)
-- 古い部品(%LOCALAPPDATA%/youtube-tools のモデル)は、起動のあと裏で写して確かめ、古い方を消す(A-16。friendapp/oldcopy)。その間は送れない
 - 閉じる・止めるの確認(作業中・預かりがあるときだけ)とスリープ止めは exe が GET /api/friend/state を見て決め、止めるときは POST /api/shutdown。
   exe なしで開発の PC から起こしたときは Ctrl+C か [すべて止めて終了] まで動く(待ちは残り、次に開いたとき続きから = 4-6)
 - 環境変数(exe が渡す): YTT_FRIEND_TOKEN(合言葉。無ければ乱数)・YTT_FRIEND_HOST(webview2 / edge。無ければ開発の PC)・
@@ -27,26 +26,26 @@
   POST /api/friend/update/apply           [更新する]。作業と預かりが無くなったら exe が入れ替えて開き直す(exe の無い開発の PC は開き直しの案内だけ)
   GET  /api/friend/tidy                   フォルダの整理(friendapp/tidy.py。新しい版で起動できたあとの 1 回と ⚙)の候補と結果
   POST /api/friend/tidy/scan・apply {ids?}・later・open-trash   調べ直す・片付ける(ごみ箱へ)・この版ではもう聞かない・ごみ箱を開く
-  GET  /api/friend/inbox                  受信箱の行・前回の値・保存先・空き容量で止めているか・準備中か・片付けの知らせ
+  GET  /api/friend/inbox                  受信箱の行・前回の値・保存先・空き容量で止めているか・準備中か・前の版で開いた知らせ
   GET  /api/friend/peek?url=              配信の題・チャンネル名と配信者の推し
-  GET  /api/friend/peek-live?url=         配信中・配信前か(F2-6。yt-dlp で数秒。ライブなら送る欄の下に 6 つの設定)
-  GET  /api/friend/media?id=&name=        1 本の確認用の動画(Range つき。前の形の id=&n= = 組のまとめ動画も読める)
-  POST /api/friend/pick-file              Windows のファイルを選ぶ窓を開く(F2-6。画面からパスを打たせない)→ {file: {id, name, size, title, streamer, hex} | null}
+  GET  /api/friend/peek-live?url=         配信中・配信前か(yt-dlp で数秒。ライブなら送る欄の下に 6 つの設定)
+  GET  /api/friend/media?id=&name=        1 本の確認用の動画(Range つき)
+  POST /api/friend/pick-file              Windows のファイルを選ぶ窓を開く(画面からパスを打たせない)→ {file: {id, name, size, title, streamer, hex} | null}
   POST /api/friend/send                   送る(friendapp/api.py の欄。動画ファイルは fileId・ライブは kind live + live)
-  POST /api/friend/decide {items: [{id, name}], verdict: keep|skip|bad, reason?: boring|cut}   受け取る / 見送る / 届かなくてよかった(前の形 {id, names} も受ける)
+  POST /api/friend/decide {items: [{id, name}], verdict: keep|skip|bad, reason?: boring|cut}   受け取る / 見送る / 届かなくてよかった(name の無い項目 = その行の決めていない物の全部)
   POST /api/friend/undo {items}           見送った・届かなくてよかったを 3 日の間は戻す(C-3-6)
   POST /api/friend/retry {id}・cancel {id}      失敗の行の [もう一度送る]・[消す]・送った行を止める(録画中のライブの行は録画を止める)
   POST /api/friend/live-settings {id, perHour?, lengthMode?: auto|fixed, length?, afterStream?}   録画中のライブの設定を途中で変える(C-2-11。→ {ok, row})
-  POST /api/friend/local {id}             ユーザーの PC に頼んだ依頼を [この PC でやり直す](F2-3。Dropbox の同期は friendapp/sync.py の裏の糸)
+  POST /api/friend/local {id}             ユーザーの PC に頼んだ依頼を [この PC でやり直す](Dropbox の同期は friendapp/sync.py の裏の糸)
   POST /api/friend/open {what: saved}     受け取るの保存先をエクスプローラーで開く
-  POST /api/friend/notice-seen            片付けの知らせを見た
+  POST /api/friend/notice-seen {what?}    知らせを見た(what: cleaned = 3 日の片付けの知らせ・無ければ前の版で開いた知らせ)
   GET  /api/friend/setup                  初回の準備の進み具合(F3-5。friendapp/setup.py の view)
-  POST /api/friend/setup/start・cancel・clean-old・skip-old   初回の準備を(もう一度)始める・やめる・前のアプリを片付ける / あとで
+  POST /api/friend/setup/start・cancel   初回の準備を(もう一度)始める・やめる
   GET・POST /api/friend/player {volume: 0〜1, muted, rate}   再生画面の音量・消音・速度を覚える(前回の値で始める)
   POST /api/friend/palette {name: A〜D}  配色を覚える(画面へは meta ytt-palette。ui/palette.js)
   GET  /api/friend/streams                配信の一覧(F3-2。friendapp/streams.py の view + 各カードの送った物の印 sent)
   POST /api/friend/streams/refresh        一覧の [更新](断られて待っている間は {ok: false, waitSec})
-  GET  /api/friend/settings               ⚙ の中身(F2-5。friendapp/settings.py。API キーは「入っている / 無い」だけ)
+  GET  /api/friend/settings               ⚙ の中身(friendapp/settings.py。API キーは「入っている / 無い」だけ)
   POST /api/friend/settings {engine?, diskMinGB?, cut?, reset?: save|cases}   ⚙ を変える
   POST /api/friend/settings/key {key}     YouTube の API キーを確かめて保存(空 = 消す)
   POST /api/friend/pick-folder {what: save|cases}   Windows のフォルダを選ぶ窓を開いて、受け取るの保存先・一時保管を変える(画面からパスを打たせない)
@@ -72,7 +71,7 @@ if SRC not in sys.path:
 
 from flow import placement as _placement, runqueue as _runqueue  # noqa: E402
 from ytt import appwindow as _appwindow, colors as _colors, fsio as _fsio, httpsec, version as _version  # noqa: E402
-from friendapp import api as _api, diag as _diag, inbox as _inbox, oldcopy as _oldcopy, places as _places, settings as _settings, setup as _setup, streams as _streams, sync as _sync  # noqa: E402
+from friendapp import api as _api, diag as _diag, inbox as _inbox, places as _places, settings as _settings, setup as _setup, streams as _streams, sync as _sync  # noqa: E402
 from friendapp import tidy as _tidy  # noqa: E402
 
 APP_ID = "ytt-friend"
@@ -87,7 +86,7 @@ UIKIT_DIR = os.path.join(SRC, "ui-kit")
 STATIC = {"/friend/": ("friend.html", UI_DIR), "/friend/index.html": ("friend.html", UI_DIR), "/friend/friend.js": ("friend.js", UI_DIR), "/friend/send-list.js": ("send-list.js", UI_DIR), "/friend/send-form.js": ("send-form.js", UI_DIR),
           "/friend/sent.js": ("sent.js", UI_DIR), "/friend/receive.js": ("receive.js", UI_DIR), "/friend/palette.js": ("palette.js", UI_DIR),
           "/friend/friend.css": ("friend.css", UI_DIR), "/friend/ui-kit.js": ("ui-kit.js", UIKIT_DIR), "/friend/ui-kit.css": ("ui-kit.css", UIKIT_DIR),
-          "/friend/guide.html": ("guide.html", UI_DIR),   # 説明(F2-5 の [?]。本体は別の段が書く = 無ければ 404)
+          "/friend/guide.html": ("guide.html", UI_DIR),   # 説明([?]。本体は別の段が書く = 無ければ 404)
           "/friend/setup.html": ("setup.html", UI_DIR), "/friend/setup.js": ("setup.js", UI_DIR), "/friend/host.js": ("host.js", UI_DIR),
           "/friend/settings.js": ("settings.js", UI_DIR), "/friend/update.js": ("update.js", UI_DIR), "/friend/settings.css": ("settings.css", UI_DIR)}   # F3-1・F3-5(窓と画面の境目)
 for _n in ("send-empty", "send-ranges", "send-live", "sent-failed", "receive-list", "receive-player", "receive-bulk", "palette"):   # 説明 guide.html の画像
@@ -99,7 +98,7 @@ MAIN_PAGES = ("/friend/", "/friend/index.html")
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://i.ytimg.com; media-src 'self'; "
        "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 SOON_MS = 30 * 60 * 1000              # 予約の配信がこれより近ければスリープを止める(C-5-4)
-PALETTES = ("A", "B", "C", "D")       # 配色(前の送るアプリと同じ 4 つ。色の組は ui-kit のトークン = ui/palette.js)
+PALETTES = ("A", "B", "C", "D")       # 配色 4 つ(色の組は ui-kit のトークン = ui/palette.js)
 PALETTE_NAME = "palette.json"
 PLAYER_NAME = "player.json"           # 再生画面の音量・消音・速度(前回の値)
 PLAYER_RATES = (0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2)   # YouTube と同じ段
@@ -110,10 +109,10 @@ PORT_BUSY_EXIT = 5                    # exe が渡した番号を使えなかっ
 ROLLBACK_ENV = "YTT_FRIEND_ROLLBACK"  # exe が前の版へ戻したとき、起動できなかった版
 SWEEP_EVERY = 3600        # 受信箱の 3 日の片付けを見る間隔(秒)
 TIDY_EVERY = 180          # 新しい版のあとのフォルダの整理を見直す間隔(秒。版ごとに 1 回走れば以後は何もしない)
-SAVE_DEFAULT = _settings.SAVE_DEFAULT   # 受け取るの保存先の既定(%USERPROFILE% の下。⚙ で選ぶ = F2-5)
+SAVE_DEFAULT = _settings.SAVE_DEFAULT   # 受け取るの保存先の既定(%USERPROFILE% の下。⚙ で選ぶ)
 SAVE_FILE = _settings.SAVE_FILE
 CLIENT_LOG_MAX = 512 * 1024
-SYNC_KICK = ("/api/friend/send", "/api/friend/decide", "/api/friend/undo", "/api/friend/retry", "/api/friend/local", "/api/friend/report")   # 押したあと同期を起こす口(F2-3)
+SYNC_KICK = ("/api/friend/send", "/api/friend/decide", "/api/friend/undo", "/api/friend/retry", "/api/friend/local", "/api/friend/report")   # 押したあと同期を起こす口
 
 
 def save_dir(friend_dir, env=None):
@@ -290,7 +289,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, {"app": APP_ID, "version": _version.VERSION})
         if path == "/api/friend/inbox":
             out = app.api.view()
-            out.update(prep=app.prep, notice=app.notice(), rollback=app.rollback_notice(), sync=app.sync.status(), setup=app.setup.view(),
+            out.update(prep=app.prep, rollback=app.rollback_notice(), sync=app.sync.status(), setup=app.setup.view(),
                        partsWhy=app.setup.block_reason() or "")   # [送る](この PC)を押せない理由(画面で先に止める。受け付けでも api が断る)
             return self._json(200, out)
         if path == "/api/friend/tidy":   # フォルダの整理(帯の 1 行と ⚙)
@@ -308,7 +307,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, app.api.peek((q.get("url") or [""])[0][:300]))
             except _api.FormError as e:
                 return self._fail(400, "bad_url", str(e))
-        if path == "/api/friend/peek-live":   # 配信中・配信前か(F2-6。数秒かかる = 画面は題と別に問い合わせる)
+        if path == "/api/friend/peek-live":   # 配信中・配信前か(数秒かかる = 画面は題と別に問い合わせる)
             try:
                 return self._json(200, app.api.peek_live((q.get("url") or [""])[0][:300]))
             except _api.FormError as e:
@@ -318,25 +317,17 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/friend/receive":   # 受け取る画面(F3-4。配信ごとの段・見送った物・まだ決めていない本数)
             app.seen = time.time()
             return self._json(200, app.inbox.receive_view())
-        if path == "/api/friend/media":   # 1 本の確認用の動画(id + name。F3-4)・前の形の組のまとめ動画(id + n)
+        if path == "/api/friend/media":   # 1 本の確認用の動画(id + name)
             rid = (q.get("id") or [""])[0]
-            if q.get("name"):
-                p = app.inbox.pack_preview(rid, (q.get("name") or [""])[0])
-            else:
-                r = app.inbox.row(rid)
-                try:
-                    n = int((q.get("n") or ["0"])[0])
-                except ValueError:
-                    n = 0
-                g = next((g for g in (r or {}).get("groups") or [] if g["n"] == n), None)
-                p = g and g.get("preview")
+            name = (q.get("name") or [""])[0]
+            p = app.inbox.pack_preview(rid, name) if name else None
             if not p or not os.path.isfile(p) or not _fsio.is_inside(p, app.places["friend"]):
-                return self._fail(404, "not_found", "まとめ動画がまだありません")
+                return self._fail(404, "not_found", "確認用の動画がまだありません")
             try:
                 return httpsec.send_file(self, p, "video/mp4")
             except OSError:
-                return self._fail(404, "not_found", "まとめ動画を読めませんでした")
-        if path == "/api/friend/settings":   # ⚙(F2-5)
+                return self._fail(404, "not_found", "確認用の動画を読めませんでした")
+        if path == "/api/friend/settings":   # ⚙
             return self._json(200, {"ok": True, "settings": app.settings.view()})
         if path == "/api/friend/streams":   # 配信の一覧(F3-2。friendapp/streams.py の写し + 送った物の印)
             return self._json(200, app.streams_view())
@@ -396,7 +387,7 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError as e:
             return self._fail(409, "refused", str(e))
         finally:
-            if path in SYNC_KICK:   # 画面の操作のあとに Dropbox の同期を 1 回(F2-3)
+            if path in SYNC_KICK:   # 画面の操作のあとに Dropbox の同期を 1 回
                 self.server.app.sync.kick()
 
     def _post(self, path, body):
@@ -404,7 +395,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/friend/send":   # F3-3: {rows, skipped}(row = 先頭の行。前の形の呼び手のため)
             got = app.api.send(body)
             return self._json(200, {"ok": True, "row": got["rows"][0], "rows": got["rows"], "skipped": got["skipped"]})
-        if path == "/api/friend/pick-file":   # ファイルを選ぶ窓(F2-6)。1 つずつ(開いている間の 2 つ目は断る)
+        if path == "/api/friend/pick-file":   # ファイルを選ぶ窓。1 つずつ(開いている間の 2 つ目は断る)
             if not app.pick_lock.acquire(blocking=False):
                 return self._fail(409, "busy", "ファイルを選ぶ窓はもう開いています")
             try:
@@ -412,7 +403,7 @@ class Handler(BaseHTTPRequestHandler):
             finally:
                 app.pick_lock.release()
             return self._json(200, {"ok": True, "file": app.api.remember_file(chosen) if chosen else None})
-        if path == "/api/friend/decide":   # F3-4: {items: [{id, name}], verdict: keep|skip|bad, reason?: boring|cut}(前の形 {id, names} も受ける)
+        if path == "/api/friend/decide":   # {items: [{id, name}], verdict: keep|skip|bad, reason?: boring|cut}
             return self._json(200, app.decide(body))
         if path == "/api/friend/undo":   # [戻す](C-3-6){items: [{id, name}]}
             return self._json(200, app.undo(body))
@@ -433,7 +424,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, {"ok": True, "result": app.api.cancel(str(body.get("id") or ""))})
         if path == "/api/friend/live-settings":   # 録画中のライブの設定を途中で変える(C-2-11)
             return self._json(200, {"ok": True, "row": app.api.update_live(str(body.get("id") or ""), body)})
-        if path == "/api/friend/local":   # [この PC でやり直す](A-2。F2-3)
+        if path == "/api/friend/local":   # [この PC でやり直す](A-2)
             return self._json(200, {"ok": True, "row": app.api.local(str(body.get("id") or ""))})
         if path == "/api/friend/open" and body.get("id"):   # 受け取った物のフォルダ([フォルダを開く]。C-3-8)
             d = app.inbox.saved_dir(str(body.get("id")), str(body.get("name") or ""))
@@ -454,7 +445,7 @@ class Handler(BaseHTTPRequestHandler):
             app.update_requested = True
             app.log("[更新する] を押されました(%s)" % app.update_version())
             return self._json(200, {"ok": True, "update": app.update_view()})
-        if path.startswith("/api/friend/setup/"):   # 初回の取得(F2-5。9-1)
+        if path.startswith("/api/friend/setup/"):   # 初回の取得(9-1)
             return self._setup(path[len("/api/friend/setup/"):])
         if path == "/api/friend/streams/refresh":   # 一覧の [更新](F3-2)
             return self._json(200, app.streams.refresh())
@@ -462,14 +453,14 @@ class Handler(BaseHTTPRequestHandler):
             if body.get("reset") is not None:
                 msg = app.settings.reset_folder(body.get("reset"))
             else:
-                msg = app.settings.update({k: body[k] for k in ("engine", "diskMinGB", "cut", "processing", "weights", "live", "cleanOld", "fetchCuda", "ytLogout") if k in body})["message"]
+                msg = app.settings.update({k: body[k] for k in ("engine", "diskMinGB", "cut", "processing", "weights", "live", "fetchCuda", "ytLogout") if k in body})["message"]
             return self._json(200, {"ok": True, "message": msg, "settings": app.settings.view()})
         if path == "/api/friend/settings/key":
             ok, msg = app.settings.set_key(body.get("key") if isinstance(body.get("key"), str) else "")
             if not ok:
                 return self._fail(400, "key", msg)
             return self._json(200, {"ok": True, "message": msg, "settings": app.settings.view()})
-        if path == "/api/friend/pick-folder":   # フォルダを選ぶ窓(F2-5)。1 つずつ(開いている間の 2 つ目は断る)
+        if path == "/api/friend/pick-folder":   # フォルダを選ぶ窓。1 つずつ(開いている間の 2 つ目は断る)
             what = body.get("what")
             if what not in ("save", "cases"):
                 return self._fail(400, "bad_request", "変えられる場所ではありません")
@@ -486,8 +477,6 @@ class Handler(BaseHTTPRequestHandler):
                 app.inbox.notice_seen()
                 return self._json(200, {"ok": True})
             app.rollback_seen = True
-            if app.catalog:
-                _oldcopy.mark_notice_shown(app.catalog)
             return self._json(200, {"ok": True})
         if path == "/api/shutdown":
             self._json(200, {"ok": True})
@@ -546,10 +535,6 @@ class Handler(BaseHTTPRequestHandler):
             st.start()
         elif what == "cancel":
             st.cancel()
-        elif what == "clean-old":  # 前のアプリを片付ける(写して同じと確かめた物だけ = C-1-2)
-            st.clean_old()
-        elif what == "skip-old":   # [あとで](もう聞かない。⚙ から片付けられる)
-            st.skip_old()
         else:
             return self._fail(404, "not_found", "その操作はありません")
         return self._json(200, {"ok": True, "setup": st.view(), "done": app.setup_done()})
@@ -601,20 +586,19 @@ class FriendApp:
         self.prep = {"state": "starting", "message": "準備しています"}
         self.api = _api.Api(places, self.inbox, lambda: self.engine, clock=clock)
         self.make_engine = make_engine
-        self.catalog = os.path.join(places["friend"], "old-copy.json")
         self.closing = threading.Event()
         self.server = None
         self.update_requested = False   # 画面の [更新する](exe が見回りで見て、作業が無ければ入れ替える)
         self.rollback = (os.environ.get(ROLLBACK_ENV) or "").strip()   # exe が前の版へ戻した = 起動できなかった版
         self.rollback_seen = False
         self.open_folder = open_folder   # エクスプローラーで開く口(テストは差し替える = 画面を取らない)
-        self.pick_file = pick_file_dialog   # ファイルを選ぶ窓の口(F2-6。テストは差し替える = 本物の窓を出さない)
+        self.pick_file = pick_file_dialog   # ファイルを選ぶ窓の口(テストは差し替える = 本物の窓を出さない)
         self.pick_lock = threading.Lock()
         self.api.stopping = self.closing.is_set   # 終わる途中なら動画を写すのを止める
-        # Dropbox の同期(F2-3)。糸を起こすのは main だけ(テストは run_once を直に呼ぶ・偽の口を client_factory に)
-        self.sync = _sync.Sync(places, self.inbox, self.api.form, engine_fn=lambda: self.engine, clock=clock, log=self.log)
+        # Dropbox の同期。糸を起こすのは main だけ(テストは run_once を直に呼ぶ・偽の口を client_factory に)
+        self.sync = _sync.Sync(places, self.inbox, engine_fn=lambda: self.engine, clock=clock, log=self.log)
         self.api.sync = self.sync
-        # 初回の取得(F2-5。fetch.json が無ければ何もしない)と ⚙
+        # 初回の取得(fetch.json が無ければ何もしない)と ⚙
         self.setup = _setup.Setup(places.get("fetch"), places["data"], places.get("home") or os.path.dirname(places["data"]), places["friend"],
                                   device=_machine_device, log=self.log, after=self.after_setup)
         self.api.parts_missing = self.setup.block_reason
@@ -630,7 +614,7 @@ class FriendApp:
         # フォルダの整理(新しい版で起動できたあとの 1 回と ⚙。動かす・消す口はテストで差し替える)
         self.tidy = _tidy.Tidy(places, self.inbox, queue_fn=lambda: getattr(self.engine, "queue", None), setup=self.setup, sync=self.sync,
                                version=_version.VERSION, clock=clock, log=self.log)
-        self.pick_folder = pick_folder_dialog   # フォルダを選ぶ窓の口(F2-5。テストと見本は差し替える = 本物の窓を出さない)
+        self.pick_folder = pick_folder_dialog   # フォルダを選ぶ窓の口(テストと見本は差し替える = 本物の窓を出さない)
         # 配信の一覧(F3-2。キー無し = 名簿の channel・RSS・動画のページ)。糸を起こすのは main だけ(テストと見本は fetch を差し替える)
         self.streams = _streams.Streams(os.path.join(places["friend"], STREAMS_NAME), clock=clock, log=self.log)
         self.inbox.stream_info = lambda vid: self.streams.lookup(vid)   # 受け取った物の置き場所の日付・段の見出し(C-3-8)
@@ -638,8 +622,8 @@ class FriendApp:
     def decide(self, body):
         """[受け取る] / [見送る] / 届かなくてよかった(1 本でもまとめてでも。行ごとに受信箱へ)"""
         items = body.get("items")
-        if not isinstance(items, list):   # 前の形 {id, names}
-            items = [{"id": body.get("id"), "name": n} for n in body.get("names") or [None]]
+        if not isinstance(items, list):
+            raise _api.FormError("決める物(items)がありません")
         by_row = {}
         for it in items:
             if isinstance(it, dict) and isinstance(it.get("id"), str):
@@ -658,7 +642,7 @@ class FriendApp:
         return {"ok": not errors, "done": done, "pending": pending, "errors": errors}
 
     def palette(self):
-        """選んだ配色 A〜D(無ければ A = ネオンシアン。前の送るアプリの初めと同じ)"""
+        """選んだ配色 A〜D(無ければ A = ネオンシアン)"""
         got = _fsio.read_json_or(os.path.join(self.places["friend"], PALETTE_NAME), {}, kind=dict).get("name")
         return got if got in PALETTES else "A"
 
@@ -750,7 +734,7 @@ class FriendApp:
         return bool(getattr(self.setup, "done", True))
 
     def recording_count(self):
-        """録画中の本数(F2-6 のライブ係が録画元に聞く。exe の確認の窓とアイコンの文に出す)"""
+        """録画中の本数(ライブ係が録画元に聞く。exe の確認の窓とアイコンの文に出す)"""
         live = getattr(self.engine, "live", None)
         return live.active_count() if live is not None else 0
 
@@ -832,16 +816,12 @@ class FriendApp:
                 "label": "・".join(parts) if parts else ("準備しています" if busy else ""),
                 "update": self.update_version(), "updateRequested": bool(self.update_requested)}
 
-    def notice(self):
-        n = _oldcopy.notice(self.catalog) if os.path.isfile(self.catalog) else None
-        return {"freedGB": round(n["bytes"] / 1e9, 1)} if n and n.get("bytes") else None
-
-    def prepare(self, old_root=None):
-        """裏の糸: 初回の準備(F3-5。前のアプリの部品を写す → 取る → 浅く置く → 全部の道具を動かして確かめる。済んでいれば確かめず済み)を
+    def prepare(self):
+        """裏の糸: 初回の準備(F3-5。取る → 浅く置く → 全部の道具を動かして確かめる。済んでいれば確かめず済み)を
         確認なしで始め、進んでいる間は待つ → ② を起こす(待ちの記録の続きを、道具がそろう前に始めない)。準備が失敗しても ② は起こす
         (画面は準備だけの画面で理由と [もう一度] を出す)"""
         try:
-            self.setup.start(old_root)
+            self.setup.start()
             while self.setup.awake() and not self.closing.wait(0.5):
                 pass
             if self.closing.is_set():
@@ -859,7 +839,7 @@ class FriendApp:
     def busy(self):
         eng = self.engine
         if eng is None:
-            return self.prep["state"] in ("starting", "copying")
+            return self.prep["state"] == "starting"
         st = eng.queue.status()
         return not st["idle"] or bool(eng._previews) or self.sync.busy() or self.api.copying()
 
@@ -924,7 +904,7 @@ def make_logger(path):
 
 
 def _make_live(places, queue_fn, log):
-    """② のライブ係(F2-6。friendapp/live_session.FriendLive)。空き容量の下限はこの PC の設定 machine.json の diskMinGB"""
+    """② のライブ係(friendapp/live_session.FriendLive)。空き容量の下限はこの PC の設定 machine.json の diskMinGB"""
     from flow import machine as _machine
     from friendapp import live_session as _live_session
     try:
@@ -998,9 +978,9 @@ def main(argv=None):
     app.server = srv
     url = "http://127.0.0.1:%d/friend/" % port
     log("友人の玄関 v%s: %s(作業データ %s)" % (_version.VERSION, url, pl["data"]))
-    threading.Thread(target=app.prepare, args=(_places.old_data_root(),), name="friend-prepare", daemon=True).start()
+    threading.Thread(target=app.prepare, name="friend-prepare", daemon=True).start()
     threading.Thread(target=app.watch, name="friend-watch", daemon=True).start()
-    threading.Thread(target=app.sync.loop, name="friend-sync", daemon=True).start()   # Dropbox の同期(F2-3。鍵が無ければ何もしない)
+    threading.Thread(target=app.sync.loop, name="friend-sync", daemon=True).start()   # Dropbox の同期(鍵が無ければ何もしない)
     app.streams.start()   # 配信の一覧(F3-2)
     if not a.no_open:
         open_window(pl["friend"], url, log)

@@ -1,4 +1,4 @@
-"""src/friendapp/engine.py(玄関の ② の組み立て)と oldcopy の写すだけの形のテスト。リポジトリ直下で: py -3.12 -m unittest src/friendapp/tests/test_engine.py
+"""src/friendapp/engine.py(玄関の ② の組み立て)のテスト。リポジトリ直下で: py -3.12 -m unittest src/friendapp/tests/test_engine.py
 
 本物の ② の待ち行列は起こさない(queue_factory を差し替える)。一時フォルダだけを使う。
 """
@@ -17,7 +17,7 @@ if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
 from ytt import testkit  # noqa: E402
-from friendapp import engine, inbox, oldcopy  # noqa: E402
+from friendapp import engine, inbox  # noqa: E402
 
 
 class FakeQueue:
@@ -77,34 +77,32 @@ class EngineTest(unittest.TestCase):
         return fn
 
     def test_after_run_arrives_and_makes_one_preview_per_pack(self):
-        """届いた行はパックごとに確認用の動画(1 本ずつの組)。clip_preview が ① に無い間は batch_preview の 1 本"""
-        self.ib.add("20261016-100000-aaaaaa", {"deliverBatch": 5}, {}, run_id="r1")
+        """届いた行はパックごとに確認用の動画(1 本ずつの枠)"""
+        self.ib.add("20261016-100000-aaaaaa", {}, {}, run_id="r1")
         dirs = self.packs(6)
         eng = self.make()
         self.calls = []
-        with mock.patch.object(engine._preview, "clip_seconds", lambda ds: [30.0] * len(ds)), mock.patch.object(engine, "_CLIP_PREVIEW", None), \
-                mock.patch.object(engine._preview, "batch_preview", self.fake_preview("batch")), mock.patch.object(engine._outbox, "build", lambda *a, **k: None):
+        with mock.patch.object(engine._preview, "pack_seconds", lambda d: 30.0), mock.patch.object(engine._preview, "clip_preview", self.fake_preview("clip")), \
+                mock.patch.object(engine._outbox, "build", lambda *a, **k: None):
             eng.after_run(fake_run("r1", "done", dirs))
             eng.make_previews("20261016-100000-aaaaaa")
         r = self.ib.row("20261016-100000-aaaaaa")
         self.assertEqual(r["state"], "arrived")
-        self.assertEqual([len(g["names"]) for g in r["groups"]], [1] * 6)   # 組の本数(deliverBatch)は読まない
+        self.assertEqual([len(g["names"]) for g in r["groups"]], [1] * 6)
         self.assertTrue(all(g["preview"] and os.path.isfile(g["preview"]) for g in r["groups"]))
         self.assertEqual(r["packs"][0]["seconds"], 30.0)
-        self.assertEqual([c[0] for c in self.calls], ["batch"] * 6)
-        self.assertTrue(all(len(c[1]) == 1 for c in self.calls))
-        self.assertEqual([p["preview"] for p in r["packs"]], [g["preview"] for g in r["groups"]])   # パックの確認用の動画 = 組の動画
+        self.assertEqual(self.calls, [("clip", d) for d in dirs])   # 1 本のフォルダを渡す
+        self.assertEqual([p["preview"] for p in r["packs"]], [g["preview"] for g in r["groups"]])   # パックの確認用の動画 = 枠の動画
         self.assertEqual(self.ib.pack_preview(r["id"], r["packs"][2]["name"]), r["groups"][2]["preview"])
         self.assertEqual(os.path.dirname(r["groups"][0]["preview"]), os.path.join(self.places["friend"], "previews"))
 
-    def test_previews_use_clip_preview_when_available(self):
+    def test_previews_are_not_made_twice(self):
         self.ib.add("20261016-100000-aaaaaa", {}, {}, run_id="r1")
         dirs = self.packs(2)
         eng = self.make()
         self.calls = []
-        with mock.patch.object(engine._preview, "clip_seconds", lambda ds: [30.0] * len(ds)), \
-                mock.patch.object(engine, "_CLIP_PREVIEW", self.fake_preview("clip")), \
-                mock.patch.object(engine._preview, "batch_preview", self.fake_preview("batch")), mock.patch.object(engine._outbox, "build", lambda *a, **k: None):
+        with mock.patch.object(engine._preview, "pack_seconds", lambda d: 30.0), \
+                mock.patch.object(engine._preview, "clip_preview", self.fake_preview("clip")), mock.patch.object(engine._outbox, "build", lambda *a, **k: None):
             eng.after_run(fake_run("r1", "done", dirs))
             eng.make_previews("20261016-100000-aaaaaa")
             n = len(self.calls)
@@ -118,7 +116,7 @@ class EngineTest(unittest.TestCase):
         dirs = self.packs(2)
         eng = self.make()
         self.calls = []
-        with mock.patch.object(engine._preview, "clip_seconds", lambda ds: [30.0] * len(ds)), mock.patch.object(engine, "_CLIP_PREVIEW", self.fake_preview("clip")), \
+        with mock.patch.object(engine._preview, "pack_seconds", lambda d: 30.0), mock.patch.object(engine._preview, "clip_preview", self.fake_preview("clip")), \
                 mock.patch.object(engine._outbox, "build", lambda *a, **k: None):
             eng.after_run(fake_run("r1", "done", dirs))
             r = self.ib.row("20261016-100000-aaaaaa")
@@ -163,7 +161,7 @@ class EngineTest(unittest.TestCase):
         self.assertIn("もう一度送る", r["error"])
 
     def test_reconcile_leaves_user_pc_rows(self):
-        """ユーザーの PC に頼んだ行(F2-3)は ② の待ちに無くても失われていない(同期が見る)"""
+        """ユーザーの PC に頼んだ行は ② の待ちに無くても失われていない(同期が見る)"""
         self.ib.add("20261016-100000-eeeeee", {}, {}, pc="user")
         self.make()
         self.assertEqual(self.ib.row("20261016-100000-eeeeee")["state"], "sent")
@@ -177,30 +175,6 @@ class EngineTest(unittest.TestCase):
         st = {}
         self.assertIsNone(q._step_analyze_later(run, st, {}))
         self.assertEqual(st["state"], "skip")
-
-
-class CopyOnlyTest(unittest.TestCase):
-    """REMOVE_OLD が偽の間(今の送るアプリと並べて使う間)は写すだけ・古い方は消さない"""
-
-    def test_copy_without_remove(self):
-        import hashlib
-        tmp = testkit.tempdir(self, "friend-oldcopy-")
-        old, new = os.path.join(tmp, "old"), os.path.join(tmp, "new")
-        os.makedirs(os.path.join(old, "transcribe", "models"))
-        data = b"model" * 100
-        with open(os.path.join(old, "transcribe", "models", "m.bin"), "wb") as f:
-            f.write(data)
-        fetch = os.path.join(tmp, "fetch.json")
-        with open(fetch, "w", encoding="utf-8") as f:
-            json.dump({"items": [{"name": "m", "file": "m.bin", "url": "https://x/m.bin", "size": len(data), "sha256": hashlib.sha256(data).hexdigest(),
-                                  "base": "data", "dest": "transcribe/models", "unzip": None}]}, f)
-        got = oldcopy.migrate(fetch, old, new, os.path.join(tmp, "cat.json"), remove_old=False)
-        self.assertEqual((got["copied"], got["deleted"]), (1, 0))
-        self.assertTrue(os.path.isfile(os.path.join(old, "transcribe", "models", "m.bin")))
-        self.assertTrue(os.path.isfile(os.path.join(new, "transcribe", "models", "m.bin")))
-        got = oldcopy.migrate(fetch, old, new, os.path.join(tmp, "cat.json"), remove_old=True)   # あとで消すと決めたとき(F2-7)は目録から消せる
-        self.assertEqual(got["deleted"], 1)
-        self.assertFalse(os.path.isfile(os.path.join(old, "transcribe", "models", "m.bin")))
 
 
 class RunLogTest(unittest.TestCase):

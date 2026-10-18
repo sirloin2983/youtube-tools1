@@ -1,6 +1,6 @@
-/* ⚙ 設定の引き出し(F3-5。notes:plan/f1-friend-requirements.md の C-5-2・C-2-19・C-1-2)。
+/* ⚙ 設定の引き出し(notes:plan/f1-friend-requirements.md の C-5-2・C-2-19)。
    主の画面(F3-B)は <script src="settings.js" defer> と settings.css を読み、歯車のボタンを id="btnSettings" で置くだけ。中身・Esc はここ。
-   口: GET api/friend/settings・POST api/friend/settings {…}・settings/key {key}・pick-folder {what}・setup/clean-old・
+   口: GET api/friend/settings・POST api/friend/settings {…}・settings/key {key}・pick-folder {what}。
    フォルダの整理(F3-A): GET tidy・POST tidy/scan・tidy/apply {ids}・tidy/later・tidy/open-trash。口が無い(404)ときは節に「この版では使えません」。
    フォルダは [選ぶ] で Python が Windows の窓を開く(画面からパスを打たせない)。外の文字は textContent で入れる(CSP の下で動く)。 */
 (function () {
@@ -77,12 +77,6 @@
     ui.ytLogin = h('button', { type: 'button', class: 'btn small', text: 'YouTube にログイン' });
     ui.ytLogout = h('button', { type: 'button', class: 'btn ghost small', text: 'ログアウト' });
     ui.ytWhy = h('p', { class: 'hint' });
-    ui.oldWrap = h('section', { class: 'ui-settings-sec fs-set', 'aria-labelledby': 'fsOldH', hidden: '' });
-    ui.oldText = h('p', {});
-    ui.oldBtn = h('button', { type: 'button', class: 'btn small', text: '片付ける' });
-    ui.oldWrap.appendChild(h('h3', { id: 'fsOldH', text: '前のアプリ' }));
-    ui.oldWrap.appendChild(ui.oldText);
-    ui.oldWrap.appendChild(h('div', { class: 'fs-line' }, [ui.oldBtn]));
 
     /* フォルダを整理する(F3-A)。[内容を見る] は帯から FriendSettings.open('tidy') で来る。中身の見え方は fillTidy */
     ui.tidyText = h('p', { class: 'fs-path', 'aria-live': 'polite' });
@@ -121,8 +115,7 @@
         h('div', { class: 'fs-line' }, [h('label', { class: 'fs-radio' }, ['待ち ', num('fsLiveWait', 1, 60, 1, '待ち(分)'), ' 分'])]),
         h('div', { class: 'fs-line' }, [h('label', { class: 'fs-radio' }, ['余白 ', num('fsLivePad', 0, 5, 0.5, '余白(秒)'), ' 秒'])])
       ], '録画しながら切り抜くときの細かい設定です。次の録画から使います。'),
-      ui.tidySec,
-      ui.oldWrap
+      ui.tidySec
     ]);
     var help = h('a', { class: 'btn ghost small fs-help', href: 'guide.html#settings', target: '_blank', rel: 'noopener', 'aria-label': '設定の説明を新しい窓で開く', title: '設定の説明', text: '?' });
     drawer = h('aside', { class: 'ui-drawer', id: 'settingsDrawer', hidden: '', 'aria-labelledby': 'fsSetTitle' }, [
@@ -154,11 +147,6 @@
     ui.fsLivePad.addEventListener('change', putLive);
     ui.ytLogin.addEventListener('click', ytLogin);
     ui.ytLogout.addEventListener('click', function () { put({ ytLogout: true }); });
-    ui.oldBtn.addEventListener('click', function () {
-      ui.oldBtn.disabled = true;
-      api('setup/clean-old', {}).then(function () { UIKit.toast('前のアプリを片付けました', { ms: 3500 }); load(); },
-        function (e) { fail('片付けられませんでした', e); }).then(function () { ui.oldBtn.disabled = false; });
-    });
   }
 
   function putWeights() {
@@ -213,9 +201,6 @@
     if (document.activeElement !== ui.fsLiveWait) ui.fsLiveWait.value = lv.waitMin == null ? '' : lv.waitMin;
     if (document.activeElement !== ui.fsLivePad) ui.fsLivePad.value = lv.pad == null ? '' : lv.pad;
     fillYt(s.ytLogin || {});
-    var old = s.oldApp || {};
-    if (old.canClean) ui.oldWrap.removeAttribute('hidden'); else ui.oldWrap.setAttribute('hidden', '');
-    ui.oldText.textContent = old.canClean ? '前のアプリの部品(約 ' + sizeText(old.bytes) + ')が残っています。このアプリへ写して同じだと確かめてあります。' : '';
   }
 
   function dayText(ms) { var d = new Date(ms); return (d.getMonth() + 1) + ' 月 ' + d.getDate() + ' 日'; }

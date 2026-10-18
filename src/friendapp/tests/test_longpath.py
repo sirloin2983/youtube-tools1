@@ -78,7 +78,7 @@ class LongPathTest(unittest.TestCase):
             with open(fsio.long_path(os.path.join(d, "clip.mp4")), "wb") as f:
                 f.write(b"x")
             dirs.append(d)
-        box.finished("run-1", "done", "", [{"dir": d, "seconds": 10.5} for d in dirs], 5, case=case)
+        box.finished("run-1", "done", "", [{"dir": d, "seconds": 10.5} for d in dirs], case=case)
         got = box.decide(RID, ["a_pack"], "skip")
         self.assertEqual((got["done"], got["errors"]), (["a_pack"], []))
         self.assertFalse(os.path.exists(fsio.long_path(dirs[0])))

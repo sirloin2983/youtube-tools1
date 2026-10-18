@@ -79,11 +79,11 @@
     $('prep').hidden = p.state === 'ready';
     $('prep').textContent = p.message || '';
     $('prep').classList.toggle('err', p.state === 'error');
-    var old = (j.rollback ? j.rollback + '。' : '') + (j.notice ? '前の部品 ' + j.notice.freedGB + ' GB を片付けました' : '');
+    var rb = j.rollback ? j.rollback + '。' : '';
     var cl = st.receive && st.receive.notice;
-    $('cleaned').hidden = !(old || cl);
-    $('cleanedText').textContent = old || (cl ? '3 日たった ' + cl.n + ' 本を片付けました' : '');
-    $('cleaned').setAttribute('data-what', old ? 'old' : 'cleaned');
+    $('cleaned').hidden = !(rb || cl);
+    $('cleanedText').textContent = rb || (cl ? '3 日たった ' + cl.n + ' 本を片付けました' : '');
+    $('cleaned').setAttribute('data-what', rb ? 'rollback' : 'cleaned');
   }
   function refresh() {
     clearTimeout(timer);

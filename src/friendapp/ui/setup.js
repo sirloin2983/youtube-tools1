@@ -1,11 +1,11 @@
-/* 初回の準備だけの画面(F3-5。notes:plan/f1-friend-requirements.md の C-5-1・C-1-2)。
+/* 初回の準備だけの画面(notes:plan/f1-friend-requirements.md の C-5-1)。
    GET api/friend/setup を 1 秒おきに見て、棒 1 本と「あと約 n 分」を出す。済んだら /friend/ へ移る。
-   前のアプリの片付けは 1 回だけ聞く([片付ける] [あとで])。部品の名前と詳しい文は「詳しく」の中だけ。 */
+   部品の名前と詳しい文は「詳しく」の中だけ。 */
 (function () {
   'use strict';
   var $ = function (id) { return document.getElementById(id); };
   var timer = 0, leaving = false, detailText = '', shownItems = null;
-  var TITLES = { copying: '前のアプリの部品を写しています', fetching: '準備しています', placing: '部品を置いています', checking: '部品を確かめています',
+  var TITLES = { fetching: '準備しています', placing: '部品を置いています', checking: '部品を確かめています',
                  cuda: '文字起こしの部品を取り直しています', done: '準備ができました', failed: '準備が止まりました', 'need-space': '空きが足りません' };
 
   function api(path, body) { return UIKit.http('api/friend/' + path, body === undefined ? {} : { body: body }); }
@@ -53,9 +53,6 @@
     var failText = failed ? (s.error && st === 'need-space' ? s.error : (s.message || 'ネットを確かめて [もう一度] を押してください(取れた分は残り、続きから取ります)')) : '';
     $('fsFailText').textContent = failText;
     $('btnRetry').hidden = st === 'need-space' && !s.canRetry;
-    var old = s.oldApp || {};
-    $('fsOld').hidden = !old.ask;
-    $('fsOldText').textContent = old.ask ? '前のアプリを片付けます(約 ' + sizeText(old.bytes) + ' 空きます)。部品はこのアプリへ写して同じだと確かめてあります。' : '';
     var items = s.detail || [];
     var itemsKey = JSON.stringify(items);
     if (itemsKey !== shownItems) {   /* 1 秒ごとの問い合わせで変わった時だけ一覧を作り直す */
@@ -68,7 +65,7 @@
     detailText = items.map(function (it) { return it.label + ': ' + (it.state || '') + (it.text ? ' ' + it.text : ''); }).concat(s.error ? [s.error] : []).join('\n');
     $('btnCopy').hidden = !failed;
     if (failed && !$('fsMore').open && s.error) $('fsMore').open = true;
-    if (done && !old.ask) go();
+    if (done) go();
   }
 
   function go() {
@@ -96,8 +93,6 @@
 
   document.addEventListener('DOMContentLoaded', function () {
     $('btnRetry').addEventListener('click', function () { act('start', $('btnRetry')); });
-    $('btnCleanOld').addEventListener('click', function () { act('clean-old', $('btnCleanOld')); });
-    $('btnSkipOld').addEventListener('click', function () { act('skip-old', $('btnSkipOld')); });
     $('btnQuit').addEventListener('click', function () { FriendHost.quit(); });
     $('btnCopy').addEventListener('click', function () {
       if (navigator.clipboard) navigator.clipboard.writeText(detailText).then(function () { UIKit.toast('コピーしました', { ms: 2000 }); });

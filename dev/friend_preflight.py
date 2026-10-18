@@ -23,7 +23,7 @@
   7b. URL の依頼・区間 5 つ: 疑似モード(STUDIO_FAKE。YouTube の代わりに手元の 80 秒の動画を切る)で区間 5 つを送り、受け取る画面に 5 本そろう
      (どれも確認用の動画つき・頼んだ区間を含む長さ)。同梱の yt-dlp.exe は隣の yt-dlp.conf でネットへ出られなくする(呼ばれないはずの守り)
   8. 届く物: この PC で作った確認用の動画(h264・yuv420p・高さ 480 以下)が受け取る画面の <video> で再生できる。
-     ユーザーの PC の届け方(flow/deliver.deliver_one = 1 本ずつの zip・.preview.mp4・.meta.json)を偽の Dropbox の /出力/ に置き、同期で取り込まれて再生できる
+     ユーザーの PC が届ける形(flow/deliver.deliver_one = 1 本ずつの zip・.preview.mp4・.meta.json)を偽の Dropbox の /出力/ に置き、同期で取り込まれて再生できる
   9. 判断: 受け取る(保存先へ移る)・見送る → .verdict.json(v 2)が /送り返し/ に上がる
  10. 更新: 版を上げた zip と latest.json を偽の /更新/ に置き → 取って app-<版>\\ へ → [更新する] → exe が入れ替えて新しい版で開き直す(--skip-update で飛ばす)
  11. 片付け: [すべて止めて終了] と同じ /api/shutdown → exe と子・孫(Python・ffmpeg・whisper.cpp・WebView2)が残らない。合格なら一時フォルダを消す(--keep で残す)
@@ -405,10 +405,6 @@ def check_setup(w, app, rep, timeout):
         checked = None
     rep.check("道具と文字起こしを動かして確かめた印(setup.json の checked)", bool(checked), json.dumps(checked, ensure_ascii=False)[:300])
     if ok:
-        ask = (last.get("oldApp") or {}).get("ask")
-        rep.check("まっさらな PC で「前のアプリを片付けます」と聞かない", not ask, last.get("oldApp"))
-        if ask:   # 聞かれたら友人と同じく [あとで] を押して先へ(上で不合格は残る)
-            w.api("POST", "/api/friend/setup/skip-old", {})
         page_ok = wait_for(lambda: "/friend/" in w.page.url and "setup" not in w.page.url, 60, every=1)
         st, j = w.api("GET", "/api/friend/setup")
         vis = w.eval("() => [document.visibilityState, document.hasFocus()]")
@@ -654,7 +650,7 @@ def _inbox_pack(app, rid, name):
 
 
 def deliver_from_user_pc(work, pack_copy, title, rep):
-    """ユーザーの PC の届け方(② flow/deliver.deliver_one = 1 本ずつ)を偽の Dropbox の /出力/ に。開発の PC のコード = ユーザーの PC の役"""
+    """ユーザーの PC が届ける形(② flow/deliver.deliver_one = 1 本ずつ)を偽の Dropbox の /出力/ に。開発の PC のコード = ユーザーの PC の役"""
     from flow import deliver as _deliver
     out = os.path.join(work, "dropbox", "出力")
     rid = _deliver.request_id(time.time())
@@ -667,7 +663,7 @@ def deliver_from_user_pc(work, pack_copy, title, rep):
         ok_meta = m.get("v") == 1 and m.get("kind") == "clip" and m.get("zip") == os.path.basename(z)
     except (OSError, ValueError):
         m = None
-    rep.check("ユーザーの PC の届け方: 1 本ずつの zip・.preview.mp4・.meta.json が /出力/ に並ぶ", os.path.isfile(z) and os.path.isfile(prev) and ok_meta,
+    rep.check("ユーザーの PC が届ける形: 1 本ずつの zip・.preview.mp4・.meta.json が /出力/ に並ぶ", os.path.isfile(z) and os.path.isfile(prev) and ok_meta,
               "%s %s" % (os.path.basename(z), json.dumps(m, ensure_ascii=False)[:200] if m else meta))
     return rid
 

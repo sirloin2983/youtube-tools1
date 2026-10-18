@@ -29,7 +29,7 @@ static class Tests
         Run("アイコンのメニュー: 件数の行・作業なし・読み込み中・決めていない本数", MenuRules);
         Run("更新: 前の形の版も比べる・起動できなければ飛ばす・版のフォルダが 2 つそろえば前の形を消す", LegacyRules);
         Run("更新: [更新する] は作業と預かりが無いときだけ入れ替える・状態の読み取り", UpdateRules);
-        Run("更新: exe と DLL を写す(動いている物は *.old に)・次の起動で *.old を消す・前のアプリの名前", SwapRules);
+        Run("更新: exe と DLL を写す(動いている物は *.old に)・次の起動で *.old を消す", SwapRules);
         Run("診断: 名前と形・ユーザー名と合言葉を伏せる・最後の 20 行・3 日で消す・ユーザーの PC では書かない", DiagRules);
         Run("YouTube のログイン: ログインの印・書く cookie を選ぶ・Netscape 形式・入れ替えて書く・小窓のプロファイルを消す(偽の cookie)", YtCookieRules);
         Console.WriteLine(failures == 0 ? "OK " + passed + " 件" : "NG " + failures + " 件失敗 / " + passed + " 件成功");
@@ -292,8 +292,6 @@ static class Tests
         Eq(2, Updater.CleanOld(h), ".old を消す");
         True(!File.Exists(Path.Combine(h, "FriendApp.exe.old")), "消えた");
         Eq(0, Updater.Swap(h, "0.99.99"), "版のフォルダに exe が無ければ写さない");
-        True(Updater.IsHandoffName(@"C:\x\RequestSender.exe") && Updater.IsHandoffName(@"C:\x\requestsender.EXE"), "前のアプリの名前");
-        True(!Updater.IsHandoffName(@"C:\x\FriendApp.exe"), "新しいアプリの名前");
     }
 
     static void DiagRules()

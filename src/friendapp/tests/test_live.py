@@ -1,8 +1,8 @@
-"""F2-6 送る欄を広げる(動画ファイル・ライブ)のテスト。リポジトリ直下で: py -3.12 -m unittest src/friendapp/tests/test_live.py
+"""送る欄の動画ファイル・ライブのテスト。リポジトリ直下で: py -3.12 -m unittest src/friendapp/tests/test_live.py
 
 - ライブの設定の検査(長さ 10〜180 = A-5b の仮)と、依頼と録画の結びつき RequestBook(③ の live_requests を読まない)
 - ② のライブ係 FriendLive: 送る → ② の待ち行列(本物の flow/runqueue.Queue)の live の hook → 録画を始めて結びつける(長さは送った欄から)→
-  切り抜きごとの実行が終わるたびに行にパック → 届け方の n 本ごとに組 → 録画が終わったら残りを 1 組・行は「届いた」。録画中でも組になった物は決められる
+  切り抜きごとの実行が終わるたびに行にパック(1 本ずつの枠)→ 録画が終わったら行は「届いた」。録画中でも枠に入った物は決められる
 - 終了: 録画中でも、この玄関が起こした録画の部品は止める・止めた本数(起動役の状態の窓)・配信後の追加の解析をスタジオなしの台帳へ・終わった録画を 3 日で消す
 - 動画ファイル: 選んだ動画を id で覚える(パスは画面に出さない)→ 一時保管の 依頼/ へ写してから ② へ(元の動画は読むだけ)
 録画の部品・streamlink・yt-dlp・本物のネットは使わない(録画元は偽物・配信中かは偽物)。
@@ -93,7 +93,7 @@ class SettingsTest(unittest.TestCase):
         tmp = testkit.tempdir(self, "friend-livebook-")
         now = [T0]
         book = L.RequestBook(os.path.join(tmp, "requests.json"), clock=lambda: now[0])
-        item = book.put("local", REC, {"rid": "20261016-120000-abcdef", "deliverDir": "C:/x", "settings": SETTINGS, "videoTracks": 2, "deliverBatch": 5})
+        item = book.put("local", REC, {"rid": "20261016-120000-abcdef", "deliverDir": "C:/x", "settings": SETTINGS, "videoTracks": 2})
         self.assertEqual((item["deliverDir"], item["settings"]["length"], item["videoTracks"]), ("", 150, 2))   # 友人の PC は届けない
         book2 = L.RequestBook(os.path.join(tmp, "requests.json"))
         self.assertEqual(book2.get("local", REC)["settings"]["length"], 150)
@@ -112,7 +112,7 @@ class LiveFlowTest(unittest.TestCase):
         os.makedirs(self.places["cases"])
         self.box = I.Inbox(os.path.join(self.places["friend"], "inbox.json"), os.path.join(self.tmp, "outbox"), self.places["save"],
                            lambda: self.places["cases"])
-        for p in (mock.patch.object(E._preview, "clip_seconds", lambda ds: [30.0] * len(ds)), mock.patch.object(E._preview, "batch_preview", lambda ds, log=None: None),
+        for p in (mock.patch.object(E._preview, "pack_seconds", lambda d: 30.0), mock.patch.object(E._preview, "clip_preview", lambda d, log=None: None),
                   mock.patch.object(E._outbox, "build", lambda *a, **k: None)):
             p.start()
             self.addCleanup(p.stop)

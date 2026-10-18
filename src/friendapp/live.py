@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""友人の玄関のライブの依頼の欄と結びつき(F2-6。notes:plan/f1-friend-requirements.md の A-5・A-5b、docs/spec/friend.md の 2-15)。軽い部品だけ(画面を先に出すため)。
+"""友人の玄関のライブの依頼の欄と結びつき(notes:plan/f1-friend-requirements.md の A-5・A-5b、docs/spec/friend.md の 2-15)。軽い部品だけ(画面を先に出すため)。
 
 - 6 つの設定の検査の表(check_settings = 送る欄・clean_settings = 記録の読み直し)。長さは 10〜180 秒 = A-5b の仮。
   長さ「自動(場面ごと)」(C-2-11)は結びつきの settings の lengthMode "auto"(無い = 固定の長さ)。検出のワーカーが場面ごとの形で切る(長さは場面が取れないときの長さ)
@@ -79,8 +79,8 @@ def settings_label(s):
         SENS_LABELS[s["sens"]], s["perHour"], size, s["waitMin"], s["pad"], "あり" if s["afterStream"] else "なし")
 
 
-def _int_or_none(v, lo=None, hi=None):
-    if not isinstance(v, int) or isinstance(v, bool) or (lo is not None and not lo <= v <= hi):
+def _int_or_none(v):
+    if not isinstance(v, int) or isinstance(v, bool):
         return None
     return v
 
@@ -92,8 +92,7 @@ def request_item(ctx, now):
     cut = ctx.get("cut")
     return {"rid": text("rid", 64), "deliverDir": "", "url": text("url", TEXT_MAX), "title": text("title", TEXT_MAX), "streamer": text("streamer", 80),
             "speakers": ctx["speakers"] if isinstance(ctx.get("speakers"), dict) else None, "videoTracks": _int_or_none(ctx.get("videoTracks")),
-            "cut": cut if isinstance(cut, str) and cut else None, "memo": text("memo", 500), "settings": clean_settings(ctx.get("settings")),
-            "createdAt": now, "deliverBatch": _int_or_none(ctx.get("deliverBatch"), 1, 10)}
+            "cut": cut if isinstance(cut, str) and cut else None, "settings": clean_settings(ctx.get("settings")), "createdAt": now}
 
 
 def _read_items(path):

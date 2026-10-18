@@ -1,8 +1,8 @@
-/* 友人のアプリ(F3)。色は ui-kit の変数だけ(両テーマ)。押せる所は 32px 以上(友人の画面は大きめ = 画面の見直しの 20) */
+/* 友人のアプリ。色は ui-kit の変数だけ(両テーマ)。押せる所は 32px 以上(友人の画面は大きめ = 画面の見直しの 20) */
 .fr-brand{font:650 15px/1.2 var(--font-display);margin-right:8px}
 .fr-main{max-width:1480px;margin:0 auto;padding:12px 16px 72px}
 .fr-sep{width:1px;height:20px;background:var(--line);margin:0 6px}
-/* 配色(前の送るアプリの右上の 4 つの見本。ui/palette.js) */
+/* 配色(右上の 4 つの見本。ui/palette.js) */
 .fr-pals{display:inline-flex;align-items:center;gap:4px;margin-right:6px}
 .fr-pal-label{color:var(--ink-3);font-size:var(--fs-sm);margin-right:2px}
 .fr-pal{display:inline-grid;place-items:center;width:32px;height:32px;padding:0;border:1px solid transparent;border-radius:6px;background:transparent;cursor:pointer}

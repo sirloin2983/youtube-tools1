@@ -1,26 +1,25 @@
 # -*- coding: utf-8 -*-
-"""友人の玄関の初回の取得(F2-5。notes:plan/f1-friend-requirements.md の 9-1・7-5・A-15・A-16。今の送るアプリの Setup.cs と同じ規則を Python で)。
+"""友人の玄関の初回の取得(notes:plan/f1-friend-requirements.md の 9-1・7-5・A-15)。
 
 表 = <アプリのフォルダ>/fetch.json(dev/build_friend_zip.py が書く。{schema, version, items: [行]})。1 行:
     name・file・url(https だけ)・sha256・base(data = ② の作業データの根 / app = アプリのフォルダ)・dest(/ 区切りの相対)・
     size(分からなければ null。そのときは maxBytes で守る)・unzip(null・zip・tar.bz2・tar.bz2-member)・top と parts(tar.bz2)・member(tar.bz2-member)
 足りないか(起動のたびに見るので軽く。SHA-256 は取ったときに確かめた):
-    unzip null = ファイルがあり大きさが合う / zip = 目印 .fetched-<file> の中身が sha256 と同じ(今の送るアプリと同じ目印 = 前に取った物は取り直さない)/
+    unzip null = ファイルがあり大きさが合う / zip = 目印 .fetched-<file> の中身が sha256 と同じ(前に取った物は取り直さない)/
     tar.bz2 = top の下に parts が全部ある / tar.bz2-member = ファイルがあり 0 < 大きさ <= maxBytes
 取り方: 1 つずつ・.part に続きから(Range)・大きさと SHA-256 を確かめる・違えば消して最初から(2 回まで)・zip と tar は名前を全部確かめてから展開
     (外へ出る名前・絶対パス・ドライブ名・リンクは断る = zip slip)・1 つ失敗しても次へ(失敗した物は次の回にまた足りない物として出る)・やめられる。
     書き換えるのは表に載った物の置き場所(dest の下)だけ(7-5)。接続先は表の https の URL だけ(http への転送は断る)。
-    古い部品を写す oldcopy(A-16)のあとに見る = 写せた物は足りない物に入らない。
 文字起こしのエンジン C(CUDA)にしているときは、公式の CUDA 版の whisper.cpp(pipeline/transcribe/tx_engines.WCPP_BINARIES)も足りない物に数える
     (表に無いので行を組む。取った zip を tx_engines.fetch_wcpp_binary に渡して展開する = 置き方は ① と同じ 1 か所)。
 記録 <玄関>/setup.json(取った物と最後の回の結果。見るためだけ。足りないかの判断には使わない。ただし checked = 道具を動かして確かめ終えた印は使う)。
 
-準備だけの画面(F3-5。notes:plan/f1-friend-requirements.md の C-5-1・C-5-2・C-1-2・C-0): start() が確認なしで自動で始める流れ。
-    前のアプリの部品を写す(copying。oldcopy。写すだけで消さない)→ 取る(fetching。空きが足りなければ始めずに need-space)→
+準備だけの画面(notes:plan/f1-friend-requirements.md の C-5-1・C-5-2・C-0): start() が確認なしで自動で始める流れ。
+    取る(fetching。空きが足りなければ始めずに need-space)→
     浅く置く(placing。places.lay_tools_shallow)→ 道具を確かめる(checking。toolcheck)→
     (文字起こしが A で動かなければ)エンジン C にして CUDA 版を取り確かめ直す(cuda)→ 済み(done)。失敗は failed(続きから [もう一度] = begin)。
     確かめ終えたことは setup.json の checked(版・機器・道具のファイルの印)に残し、次の起動では確かめ直さない(道具が変わったら確かめ直す)。
-    画面は view()(1 本の棒)・done(送る画面へ)・awake()(スリープを止める)。前のアプリの片付けは 1 回だけ聞く(view の oldApp)→ clean_old・skip_old。
+    画面は view()(1 本の棒)・done(送る画面へ)・awake()(スリープを止める)。
 """
 import hashlib
 import json
@@ -36,7 +35,7 @@ import zipfile
 
 from ytt import fsio as _fsio, version as _version
 
-from . import oldcopy as _oldcopy, places as _places, toolcheck as _toolcheck
+from . import places as _places, toolcheck as _toolcheck
 
 UNZIPS = (None, "zip", "tar.bz2", "tar.bz2-member", "wcpp")   # wcpp = CUDA 版の whisper.cpp(表には無い。cuda_item が組む)
 SHA_RE = re.compile(r"^[0-9a-f]{64}\Z")
@@ -49,7 +48,7 @@ ROOM = 1024 ** 3            # 取るときに残す空き(展開の途中の物�
 RECORD = "setup.json"
 TX_TOOL = "transcribe"      # 文字起こしの作業データの ID(fetch.json の dest の頭と同じ。dev/build_friend_zip.py の TX_TOOL)
 CUDA_NAME = "whisper.cpp/cuda"
-FLOW_ACTIVE = ("copying", "fetching", "placing", "checking", "cuda")   # スリープを止める間
+FLOW_ACTIVE = ("fetching", "placing", "checking", "cuda")   # スリープを止める間
 FLOW_STATES = FLOW_ACTIVE + ("done", "failed", "need-space")
 LABELS = (("whisper.cpp/", "文字起こしのモデル"), ("llama.cpp/", "文を整える部品"), ("llm/", "文を整えるモデル"), ("sensevoice/", "声の判別のモデル"),
           ("diar/", "話す人の判別のモデル"), ("ffmpeg", "動画の道具 ffmpeg"), ("yt-dlp", "配信を取る道具 yt-dlp"), ("deno", "配信を取る道具の部品 Deno"))
@@ -85,7 +84,7 @@ def _int_or(v, dflt):
 
 
 def problem(it):
-    """表の 1 行の形の問題(文)か None(Setup.cs の Problem と同じ)"""
+    """表の 1 行の形の問題(文)か None"""
     if not it["name"]:
         return "name がありません"
     if not _good_file(it["file"]):
@@ -122,7 +121,7 @@ def parse_item(o):
 
 
 def load(fetch_path):
-    """fetch.json -> (版, [行])。無ければ (None, [])。形が壊れていれば FetchError(作る側の不具合。危ない行は 1 つでもあれば使わない = Setup.cs と同じ)"""
+    """fetch.json -> (版, [行])。無ければ (None, [])。形が壊れていれば FetchError(作る側の不具合。危ない行は 1 つでもあれば使わない)"""
     if not fetch_path or not os.path.isfile(fetch_path):
         return None, []
     try:
@@ -390,7 +389,7 @@ def untar_member(archive, member, out_file, max_bytes):
 
 # ---------------------------------------------------------------- 1 回の取得
 class Fetcher:
-    """items を 1 つずつ取る(Setup.cs の Fetcher と同じ)。downloader = HttpDownloader(テストは偽物)・wcpp = CUDA 版の展開(テストは偽物)"""
+    """items を 1 つずつ取る。downloader = HttpDownloader(テストは偽物)・wcpp = CUDA 版の展開(テストは偽物)"""
 
     def __init__(self, data_root, home, downloader=None, log=None, progress=None, cancelled=None, wcpp=install_wcpp):
         self.data_root, self.home = data_root, home
@@ -502,22 +501,20 @@ def space(items, data_root, home, disk_usage=shutil.disk_usage):
 # ---------------------------------------------------------------- 玄関の係
 class Setup:
     """初回の取得の係(玄関に 1 つ)。fetch_path = <home>/fetch.json(無ければ何もしない = 開発の PC)。
-    device() = 今の文字起こしの機器(cuda なら CUDA 版の whisper.cpp も数える)。checked = oldcopy が済んで見てよい(玄関の prepare が真にする)。
+    device() = 今の文字起こしの機器(cuda なら CUDA 版の whisper.cpp も数える)。
     after(結果) = 取り終えたとき(玄関が道具の場所を教え直す)"""
 
     def __init__(self, fetch_path, data_root, home, record_dir, device=lambda: "vulkan", log=None, downloader=None,
                  disk_usage=shutil.disk_usage, wcpp=install_wcpp, cuda=cuda_item, after=None, env=None, set_device=None,
-                 copy=_oldcopy.migrate, run=_toolcheck.run_cmd, whisper=_toolcheck.whisper_run):
+                 run=_toolcheck.run_cmd, whisper=_toolcheck.whisper_run):
         self.fetch_path, self.data_root, self.home, self.record_dir = fetch_path, data_root, home, record_dir
         self.device, self.log, self.downloader = device, log or (lambda msg: None), downloader
         self.disk_usage, self.wcpp, self.cuda, self.after = disk_usage, wcpp, cuda, after
         # 準備だけの画面の流れ(begin)。env = 道具の場所を入れる環境変数(既定 os.environ)・set_device(機器) = machine.json に書く口・
-        # copy = 前のアプリの部品を写す口・run = 子プロセスの実行・whisper = 文字起こしの 1 回(どれもテストは偽物)
+        # run = 子プロセスの実行・whisper = 文字起こしの 1 回(どれもテストは偽物)
         self.env = os.environ if env is None else env
         self.set_device = set_device or _set_device
-        self.copy, self.run, self.whisper = copy, run, whisper
-        self.catalog = os.path.join(record_dir, "old-copy.json")
-        self.old_root = None
+        self.run, self.whisper = run, whisper
         self.flow = None            # None = まだ始めていない・FLOW_STATES のどれか
         self.flow_thread = None
         self.flow_msg = ""
@@ -526,7 +523,6 @@ class Setup:
         self.rows = []              # 部品ごとの行 [{name, label, state, text}]
         self.prog = {"done": 0, "total": 0, "start": None, "first": None}
         self.percent = 0
-        self.checked = False
         self.later = False          # [あとで](起動ごと。次に開くとまた確認を出す)
         self.error = None           # fetch.json が壊れている(作る側の不具合。ログと画面に)
         self.lock = threading.Lock()
@@ -568,8 +564,6 @@ class Setup:
 
     def block_reason(self):
         """[送る](この PC)を押せない理由か None"""
-        if not self.checked:
-            return None
         if self.flow is not None and self.flow != "done":
             return "初回の準備の途中です。終わると送れます"
         if self.running():
@@ -579,9 +573,7 @@ class Setup:
         return None
 
     def inbox_view(self):
-        """受信箱の上の帯(F2-5 の画面)用: {active, missing: [{name, label, size}], count, total, places, canStart, reason, running, progress, result, later, error}"""
-        if not self.checked:
-            return {"active": False}
+        """受信箱の上の帯用: {active, missing: [{name, label, size}], count, total, places, canStart, reason, running, progress, result, later, error}"""
         miss = self.missing()
         sp = space(miss, self.data_root, self.home, self.disk_usage) if miss else []
         short = [s for s in sp if not s["ok"]]
@@ -601,8 +593,6 @@ class Setup:
     def start_fetch(self, only=None):
         """足りない物を裏の糸で取り始める(受信箱の帯の旧い形。準備だけの画面は start)(only = 名前の組 = その物だけ)。始められなければ ValueError(理由)"""
         with self.lock:
-            if not self.checked:
-                raise ValueError("前のアプリの部品を写しています。終わってから始めてください")
             if self.running():
                 raise ValueError("もう取っています")
             miss = self.missing(only)
@@ -694,22 +684,19 @@ class Setup:
         """スリープを止めるか(準備が進んでいる間)"""
         return self.flow in FLOW_ACTIVE or self.running()
 
-    def start(self, old_root=None):
+    def start(self):
         """準備を確認なしで自動で始める(裏の糸)。すでに進んでいれば何もしない。失敗のあとの [もう一度] もこれ(取れた分は残り、続きから。begin は別名)。
-        fetch.json が無ければ(開発の PC)何もせず済みにする。old_root = 前のアプリの作業データ(places.old_data_root())か None"""
+        fetch.json が無ければ(開発の PC)何もせず済みにする"""
         with self.lock:
             if self.running():
                 return
-            if old_root is not None:
-                self.old_root = old_root
             self.cancel_ev.clear()
             self.flow_error = None
             self.percent = 0
             if not self.fetch_path or not os.path.isfile(self.fetch_path):
-                self.checked = True
                 self._flow_set("done", "")
                 return
-            self._flow_set("copying" if self.old_root and os.path.isdir(self.old_root) else "fetching", "準備しています")
+            self._flow_set("fetching", "準備しています")
             self.flow_thread = threading.Thread(target=self._flow_job, name="friend-setup-flow", daemon=True)
             self.flow_thread.start()
 
@@ -827,16 +814,9 @@ class Setup:
             self.rows.append({"name": r["name"], "label": r["label"], "state": "done" if r["ok"] else "failed", "text": r["text"]})
 
     def _flow(self):
-        # 1 前のアプリの部品を写す(写すだけ。消すかは写し終えたあとに 1 回聞く = oldApp)
-        old = self.old_root
-        if old and os.path.isdir(old):
-            self._flow_set("copying", "前のアプリの部品(モデルなど)を写しています", 0)
-            got = self.copy(self.fetch_path, old, self.data_root, self.catalog, log=self.log, cancelled=self.cancel_ev.is_set, remove_old=False)
-            self.log("古い部品: 写した %d 件(%.1f GB)" % (got["copied"], got["bytes"] / 1e9))
-        self.checked = True
         if self.cancel_ev.is_set():
             raise Cancelled()
-        # 2 足りない物
+        # 1 足りない物
         items = self.items()
         if self.error:
             return self._flow_fail("初回の準備の表を使えません(%s)。アプリを入れ直してください" % self.error)
@@ -863,10 +843,10 @@ class Setup:
             if res["failed"]:
                 return self._flow_fail("取れなかった部品があります。ネットを確かめて [もう一度] を押してください(どれかは「詳しく」に)")
             fetched = res["done"]
-        # 3 浅く置く
+        # 2 浅く置く
         self._flow_set("placing", "道具を置いています", 90)
         self._place()
-        # 4 道具を動かして確かめる
+        # 3 道具を動かして確かめる
         self._flow_set("checking", "道具が動くか確かめています", 94)
         rows = _toolcheck.check_tools(self.env, self.run)
         wrow = self._whisper_row(device, rows)
@@ -925,41 +905,15 @@ class Setup:
         return True
 
     def view(self):
-        """準備だけの画面(1 本の棒)へ: {state: copying|fetching|placing|checking|cuda|done|failed|need-space, percent, remainSec(見積もれなければ null),
-        totalBytes, doneBytes, message(友人の言葉 1 行), detail: [{label, state(wait|doing|done|failed), text}], error, oldApp: {ask, bytes}}"""
-        state = self.flow or "copying"
+        """準備だけの画面(1 本の棒)へ: {state: fetching|placing|checking|cuda|done|failed|need-space, percent, remainSec(見積もれなければ null),
+        totalBytes, doneBytes, message(友人の言葉 1 行), detail: [{label, state(wait|doing|done|failed), text}], error}"""
+        state = self.flow or "fetching"
         pg = self.prog
         return {"state": state, "percent": 100 if state == "done" else int(self.percent), "remainSec": self._remain(),
                 "totalBytes": pg["total"], "doneBytes": min(pg["done"], pg["total"]) if pg["total"] else 0,
                 "message": self.flow_msg or ("" if state == "done" else "準備しています"),
                 "detail": [{"label": r["label"], "state": r["state"], "text": r["text"]} for r in self.rows],
-                "error": self.flow_error, "oldApp": self.old_app()}
-
-    # ---- 前のアプリの片付け(C-1-2)
-    def old_pending(self):
-        """片付けると空く前のアプリの物 -> {"bytes", "count", "asked"}。目録の古い部品(写して同じと確かめた物)と、
-        アプリのフォルダに残った一覧の物の合計。asked は目録の印(もう聞いたか)"""
-        cat = _oldcopy.pending(self.catalog, self.old_root)
-        home = _oldcopy.home_pending(self.home)
-        return {"bytes": cat["bytes"] + home["bytes"], "count": cat["count"] + home["count"], "asked": cat["asked"]}
-
-    def old_app(self):
-        """準備の画面で 1 回だけ聞く: {ask = 片付ける物がありまだ聞いていない, canClean = 片付ける物がある(⚙ のボタン), bytes = 空く大きさ}"""
-        p = self.old_pending()
-        return {"ask": bool(self.checked and p["count"] > 0 and not p["asked"]), "canClean": p["count"] > 0, "bytes": p["bytes"]}
-
-    def clean_old(self):
-        """[片付ける]: 目録の物(写して同じと確かめた古い部品)の古い方と、アプリのフォルダの一覧の物(前のアプリの物)を消す。
-        目録に無い物(案件・設定・config.json・keys.json・FriendApp.exe など)には触らない -> {"deleted", "freed"}"""
-        cat = _oldcopy.clean(self.catalog, self.old_root, self.log)   # old_root が無くても聞いた印は付く
-        home = _oldcopy.clean_home(self.home, self.log)
-        got = {"deleted": cat["deleted"] + home["deleted"], "freed": cat["freed"] + home["freed"]}
-        self.log("前のアプリの部品を片付けました: %d 件(%.1f GB)" % (got["deleted"], got["freed"] / 1e9))
-        return got
-
-    def skip_old(self):
-        """[あとで]: もう聞かない(⚙ から後で片付けられる)"""
-        _oldcopy.mark_asked(self.catalog)
+                "error": self.flow_error}
 
     def _job(self, items):
         self.log("初回の取得を始めます: %d 個(%s)" % (len(items), gb(sum(expect(i) for i in items))))

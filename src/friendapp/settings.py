@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""友人の玄関の ⚙(F2-5。notes:plan/f1-friend-requirements.md の 7 章・9-2・A-8。今の送るアプリの Settings.cs と同じ規則を Python で)。
+"""友人の玄関の ⚙(notes:plan/f1-friend-requirements.md の 7 章・9-2・A-8)。
 
 項目と置き場所:
     受け取るの保存先    <玄関>/save-dir.json の dir(無ければ %USERPROFILE%/Videos/受け取ったパック = server.save_dir)
@@ -7,14 +7,13 @@
     文字起こしのエンジン machine の device(A = vulkan / C = cuda)。C は部品(CUDA 版の whisper.cpp)を取り終えるまで選べない(f1 の 10 章の 8)。
                        取るのは ⚙ の [取る](fetchCuda = setup.Setup.fetch_cuda。エンジンは変えない)
     YouTube の API キー  <作業データ>/app/keys.json の youtubeApiKey(画面へはキーを返さない =「入っている / 無い」だけ)。
-                        貼ったら videos.list を 1 回呼んで確かめ、使えるときだけ保存(Settings.cs の YtKeyCheck と同じ)。消すと "" を書く
-                        (places.api_key_env が前のアプリの keys.json へ戻らない印)。入れた・消したは環境変数 YTT_YT_API_KEY にもすぐ写す
+                        貼ったら videos.list を 1 回呼んで確かめ、使えるときだけ保存。消すと "" を書く。
+                        入れた・消したは環境変数 YTT_YT_API_KEY にもすぐ写す
     空き容量の下限      machine の diskMinGB(GB)
     カットの既定        <玄関>/form.json の cut(none = しない・silence = 無音を削る。初めは none = A-8)。送る欄には出さず、送るときの束に効く
     処理する PC         processing: local = この PC で処理する・remote = 依頼する(form.json の pc: this / user。remote は Dropbox の鍵があるときだけ = view の canRemote)
     解析の重み          weights: null(既定の重み)か {wAudio, wChat, wComments} 0〜3(form.json の useWeights と weights)
     ライブの感度・待ち・余白  live: {sens: high|normal|low, waitMin: 分, pad: 秒}(form.json の live。範囲は friendapp/live.RANGES。画面の選択肢は view の liveSensOptions)
-    前のアプリの片付け   view の oldApp: {canClean(片付けられる物がある), bytes}。update の cleanOld: true で片付ける(写して同じと確かめた物だけ)
     YouTube のログイン   view の ytLogin: {state: none|ok|expired, at: ログインした ms}。ログインは FriendApp.exe の窓(LoginForm)が cookie を書く =
                         ここは読むだけ。expired = ログインのあとに bot の失敗があった。update の ytLogout: true で cookie を消す(notes:docs/spec/friend.md の 13-13)
     これらは送る係が form.json から読む(cut と同じ置き場所)。送る欄のその場の変更は form.json の同じ値を書き換える(最後に書いた方が次の初めの値)
@@ -62,7 +61,7 @@ def looks_like_key(s):
 
 
 def judge(status, body):
-    """videos.list の返事 -> (使えるか, 文)(Settings.cs の YtKeyCheck.Judge と同じ読み)。status 0 = つながらなかった(body に理由)"""
+    """videos.list の返事 -> (使えるか, 文)。status 0 = つながらなかった(body に理由)"""
     if status == 200:
         return True, "使えます"
     if status == 0:
@@ -121,7 +120,7 @@ def load_key(data_root):
 
 
 def save_key(data_root, key):
-    """keys.json に書く(ほかの項目は残す)。空なら "" を書く(前のアプリのキーへ戻らない印)"""
+    """keys.json に書く(ほかの項目は残す)。空なら "" を書く"""
     p = keys_path(data_root)
     d = _fsio.read_json_or(p, {}, kind=dict)
     d[KEY_FIELD] = key or ""
@@ -197,7 +196,7 @@ class Settings:
                 "engine": "C" if m.get("device") == "cuda" else "A", "gpu": gpu,
                 "apiKey": bool(load_key(self.places["data"]) or self.env.get(KEY_ENV)), "apiKeyHelp": KEY_HELP,
                 "diskMinGB": m.get("diskMinGB"), "cut": self.api.form().get("cut", CUT_DEFAULT),
-                **self._form_view(), "oldApp": self.old_app(), "cuda": self.cuda(), "ytLogin": self.yt_login()}
+                **self._form_view(), "cuda": self.cuda(), "ytLogin": self.yt_login()}
 
     def yt_login(self):
         """YouTube のログインの状態(上の説明)。cookie の中身は読まない"""
@@ -242,12 +241,6 @@ class Settings:
     def _can_remote(self):
         sync = getattr(self.api, "sync", None)
         return bool(sync is not None and sync.has_key())
-
-    def old_app(self):
-        """前のアプリの片付けのボタン用: {canClean = 片付けられる物がある, bytes = 空く大きさ}"""
-        p = getattr(self.setup, "old_pending", None)
-        got = p() if callable(p) else None
-        return {"canClean": bool(got and got["bytes"] > 0), "bytes": got["bytes"] if got else 0}
 
     def _check_form(self, body):
         """processing・weights・live を検べて form.json へ書く差分を返す(違えば SettingsError)"""
@@ -329,11 +322,9 @@ class Settings:
     # ---- エンジン・空き容量・カット
     def update(self, body):
         """{engine?: A|C, diskMinGB?: 数, cut?: none|silence, processing?: local|remote, weights?: null|{volume,chat,comment},
-        live?: {sensitivity?, wait?, margin?}, cleanOld?: true, fetchCuda?: true, ytLogout?: true} -> {"message", "fetching"}。合わなければ SettingsError(どれも書かない)"""
+        live?: {sensitivity?, wait?, margin?}, fetchCuda?: true, ytLogout?: true} -> {"message", "fetching"}。合わなければ SettingsError(どれも書かない)"""
         patch, msgs, cut = {}, [], None
         form_patch, form_msgs = self._check_form(body)
-        if body.get("cleanOld") is True and not callable(getattr(self.setup, "clean_old", None)):
-            raise SettingsError("片付けられる物がありません")
         if "engine" in body:
             if body["engine"] not in DEVICES:
                 raise SettingsError("エンジンは A か C を選んでください")
@@ -363,9 +354,6 @@ class Settings:
         msgs.extend(form_msgs)
         if body.get("ytLogout") is True:
             msgs.append("YouTube からログアウトしました(この PC のログインの情報を消しました)" if self.yt_logout() else "ログインしていません")
-        if body.get("cleanOld") is True:
-            got = self.setup.clean_old()
-            msgs.append("前のアプリの部品を片付けました(%.1f GB 空きました)" % (got["freed"] / 1e9) if got["deleted"] else "片付けられる物はありませんでした")
         if cut is not None:
             self.api.set_cut(cut)
             msgs.append("カットの既定を「%s」にしました(次に送る物から)" % ("無音を削る" if cut == "silence" else "しない"))

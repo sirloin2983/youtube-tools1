@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""友人の玄関の Dropbox の部品(F2-3。notes:plan/f1-friend-requirements.md の 8b 章・docs/spec/friend.md の 2-17・4 章)。
+"""友人の玄関の Dropbox の部品(notes:plan/f1-friend-requirements.md の 8b 章・docs/spec/friend.md の 2-17・4 章)。
 
-標準ライブラリだけ。前の C# の送るアプリ(消した = git の履歴 a52b7cc6 以前の friend-apps/request-sender/src/Dropbox.cs)と同じ使い方・やり直しの規則:
+標準ライブラリだけ。使い方・やり直しの規則:
 - 鍵: <home>/config.json の appKey + refreshToken(PKCE で得た物。secret は使わない)-> /oauth2/token で短い期間の access token
 - 通信の失敗・429・5xx は少し待ってやり直す(2 秒 x 回数の 2 乗)。401 は鍵を取り直して 1 回だけやり直す(権限が足りない 401 はそのまま)
 - 150MB 以下は files/upload・それより大きい物は upload_session(8MB ずつ。やり直しの前の回が実は届いていたら Dropbox の正しい位置で先へ)
@@ -22,7 +22,7 @@ RPC_BASE = "https://api.dropboxapi.com/2/"
 CONTENT_BASE = "https://content.dropboxapi.com/2/"
 CONFIG_NAME = "config.json"
 RETRIES = 4
-DOWNLOAD_RETRIES = 6          # 数 GB のパックは途中で切れることがある。続きから取るので多め(C# と同じ)
+DOWNLOAD_RETRIES = 6          # 数 GB のパックは途中で切れることがある。続きから取るので多め
 SINGLE_LIMIT = 150 * 1024 * 1024
 CHUNK = 8 * 1024 * 1024
 HASH_BLOCK = 4 * 1024 * 1024  # Dropbox の content_hash の塊
@@ -69,7 +69,7 @@ class Config:
 
 
 def config_path(home):
-    """鍵の場所(C# の送るアプリと同じ = アプリのフォルダの直下の config.json)"""
+    """鍵の場所(アプリのフォルダの直下の config.json)"""
     return os.path.join(home, CONFIG_NAME)
 
 
@@ -97,7 +97,7 @@ def is_not_found(status, body):
 
 
 def error_text(status, body):
-    """Dropbox のエラーを日本語に(C# の ErrorText.ForReceive と同じ順。鍵は入れない)"""
+    """Dropbox のエラーを日本語に(鍵は入れない)"""
     summary = ""
     try:
         d = json.loads(body or "")
@@ -128,7 +128,7 @@ def arg_header(obj):
 
 
 def commit_arg(path, overwrite=False):
-    if overwrite:   # いつも同じ場所の 1 つのファイル(/設定/届け方.json・依頼の JSON の送り直し)
+    if overwrite:   # いつも同じ場所の 1 つのファイル(依頼の JSON の送り直し)
         return {"path": path, "mode": "overwrite", "autorename": False, "mute": True}
     return {"path": path, "mode": "add", "autorename": True, "mute": False}
 

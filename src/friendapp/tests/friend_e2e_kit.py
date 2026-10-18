@@ -83,12 +83,12 @@ class FakeQueue:
             with open(os.path.join(p, "clip.mp4"), "wb") as f:
                 f.write(b"\0" * 1024)
             out.append({"dir": p, "seconds": seconds + i})
-        self.inbox.finished(rid, "done", "", out, 5, case=d)
+        self.inbox.finished(rid, "done", "", out, case=d)
         with self.lock:
             self.runs.pop(rid, None)
 
     def fail(self, rid, text):
-        self.inbox.finished(rid, "error", text, [], 5)
+        self.inbox.finished(rid, "error", text, [])
         with self.lock:
             self.runs.pop(rid, None)
 
@@ -188,7 +188,7 @@ class Rig:
         self.tmp = tempfile.mkdtemp(prefix=self.prefix)
         self.places, self.save = make_places(self.tmp)
         app = S.FriendApp(self.places, make_engine=lambda pl, ib, log: FakeEngine(ib, pl["cases"]))
-        app.prepare()                                        # 偽の ② を起こす(古い部品の写しは無い = old_root なし)
+        app.prepare()                                        # 偽の ② を起こす
         app.api.fetch = self.oembed or (lambda vid: {"title": vid, "channel": CHANNEL})
         app.api.probe = self.probe or (lambda url: {"status": "was_live", "title": "", "channel": "", "message": ""})
         app.pick_file = lambda: None                         # ファイルを選ぶ窓は出さない
