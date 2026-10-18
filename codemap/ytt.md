@@ -86,12 +86,12 @@
 ## テスト
 
 - src/ytt/tests/test_docloc.py — ytt/docloc.py(文字起こしの文書の置き場所を引く口。RS8 B-2)のテスト。
-- src/ytt/tests/test_flags.py — 行の印(flag)のつなぎ方・探し方(ytt.schemas の join_flags・has_flag・flag_parts)のテスト。  py -3.10 -m unittest src/ytt/tests/test_flags.py -v
-- src/ytt/tests/test_gpuinfo.py — ytt/gpuinfo(この PC の GPU の名前と VRAM。F1 F0-2)のテスト。  py -3.10 -m unittest src/ytt/tests/test_gpuinfo.py -v
+- src/ytt/tests/test_flags.py — 行の印(flag)のつなぎ方・探し方(ytt.schemas の join_flags・has_flag・flag_parts)のテスト。  py -3.12 -m unittest src/ytt/tests/test_flags.py -v
+- src/ytt/tests/test_gpuinfo.py — ytt/gpuinfo(この PC の GPU の名前と VRAM。F1 F0-2)のテスト。  py -3.12 -m unittest src/ytt/tests/test_gpuinfo.py -v
 - src/ytt/tests/test_marks.py — ytt/marks.py(マークの純粋な語彙。RS8 B3-2 で human/review/store.py から下ろした)の単体テスト。
 - src/ytt/tests/test_modfwd.py — ytt/modfwd.py(モジュールの名前の転送。役割で組み直す RS2-0)のテスト。
-- src/ytt/tests/test_normalize.py — ytt.normalize(素材を 30fps にそろえる。Q1)のテスト。  py -3.10 -m unittest src/ytt/tests/test_normalize.py -v
+- src/ytt/tests/test_normalize.py — ytt.normalize(素材を 30fps にそろえる。Q1)のテスト。  py -3.12 -m unittest src/ytt/tests/test_normalize.py -v
 - src/ytt/tests/test_settings.py — ytt.settings(設定ファイルの共通部品。S4)のテスト。リポジトリ直下で:
 - src/ytt/tests/test_workdata.py — ytt/workdata.py(編集の作業データの置き場所と版の今の値)と ytt/studiodata.py(スタジオの data.json の読み口)のテスト(役割で組み直す RS3-0A)。
-- src/ytt/tests/test_ytapi.py — ytt/ytapi(YouTube Data API を 1 回呼ぶ口)のテスト。外へは繋がない。  py -3.10 -m unittest src/ytt/tests/test_ytapi.py -v
+- src/ytt/tests/test_ytapi.py — ytt/ytapi(YouTube Data API を 1 回呼ぶ口)のテスト。外へは繋がない。  py -3.12 -m unittest src/ytt/tests/test_ytapi.py -v
 - src/ytt/tests/test_ytt_core.py — ytt のテスト。  python -m unittest src/ytt/tests/test_ytt_core.py -v

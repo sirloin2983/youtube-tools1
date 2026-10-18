@@ -8,7 +8,7 @@
     py -3.12 dev/friend_diag.py --json           # 読んだ物をそのまま JSON で(AI が細かく読む)
     py -3.12 dev/friend_diag.py --dir D          # 読む場所を変える(既定 <ホームの設定 intake.folder>/診断 = Dropbox の /診断/)
 
-置き場所は Dropbox のアプリのフォルダの 診断\(友人のアプリの同期 src/friendapp/sync.py が上げる)。名前 <依頼 id か app か launcher>__diag-<ミリ秒 13 桁>.diag.json。
+置き場所は Dropbox のアプリのフォルダの 診断\\(友人のアプリの同期 src/friendapp/sync.py が上げる)。名前 <依頼 id か app か launcher>__diag-<ミリ秒 13 桁>.diag.json。
 片付け: 流すたびに 3 日より古い診断を消す(友人の側の同期も Dropbox の /診断/ の 3 日より古い物を消す = 同じ基準)。--keep で消さない。
 中身は伏せてある(ユーザー名を含むパス・合言葉・鍵・API キー・動画の中身は入っていない)。読むだけで、友人の PC には何も送らない。
 """

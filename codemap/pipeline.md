@@ -103,9 +103,9 @@
 
 - src/pipeline/analyze/tests/fake_ytdlp_chat.py — テスト用の偽の yt-dlp(配信中の live_chat)。src/pipeline/analyze/tests/test_live_excite_worker.py が、盛り上がりの検出のワーカー(src/pipeline/analyze/live_excite_worker.py の
 - src/pipeline/analyze/tests/test_adopt.py — pipeline/analyze/adopt.py(採用の規則 F-5 の純粋な関数。RS8 B3-2 の G1a)と ② の口 flow/adopt のテスト。
-- src/pipeline/analyze/tests/test_analyze.py — pipeline/analyze/analyze.py の判定ロジックのテスト(ネットワーク・ffmpeg 不要)。 実行(リポジトリ直下): py -3.10 -m unittest src/pipeline/analyze/tests/test_analyze.py
-- src/pipeline/analyze/tests/test_breaks.py — pipeline/analyze/breaks.py(話の切れ目)のテスト。  py -3.10 -m unittest src/pipeline/analyze/tests/test_breaks.py -v
-- src/pipeline/analyze/tests/test_excite.py — pipeline/analyze/excite.py(盛り上がりの式。線 D の L1)のテスト。  py -3.10 -m unittest src/pipeline/analyze/tests/test_excite.py -v
+- src/pipeline/analyze/tests/test_analyze.py — pipeline/analyze/analyze.py の判定ロジックのテスト(ネットワーク・ffmpeg 不要)。 実行(リポジトリ直下): py -3.12 -m unittest src/pipeline/analyze/tests/test_analyze.py
+- src/pipeline/analyze/tests/test_breaks.py — pipeline/analyze/breaks.py(話の切れ目)のテスト。  py -3.12 -m unittest src/pipeline/analyze/tests/test_breaks.py -v
+- src/pipeline/analyze/tests/test_excite.py — pipeline/analyze/excite.py(盛り上がりの式。線 D の L1)のテスト。  py -3.12 -m unittest src/pipeline/analyze/tests/test_excite.py -v
 - src/pipeline/analyze/tests/test_live_excite_worker.py — 配信中の盛り上がりの検出(線 D の L2)のワーカー src/pipeline/analyze/live_excite_worker.py のテスト(子プロセスの中身を直に)。
 - src/pipeline/export/tests/test_exporter.py — 書き出しの音量調整(切り出しの作り直しに入る音量 / build_spec の volume 検証)のテスト。
 - src/pipeline/export/tests/test_manifest.py — 切り抜き 1 本の素性(.clip.json = youtube-tools-clip/v1)の組み立てと書き込み(書き出しの exporter.write_clip = ytt/schemas の build_clip・clip_path_for)のテスト。

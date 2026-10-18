@@ -142,7 +142,7 @@
 - src/app/tests/test_cases_page.py — 案件の画面(/cases。src/app/ui/cases/。RS8 C1 = 殻)の配り方と、画面のファイルの決まりのテスト。  python -m unittest src/app/tests/test_cases_page.py -v
 - src/app/tests/test_check_api.py — 入口の「確かめる」の口(GET api/check/next・POST api/check/answer(undo も)・skip・flush。V1 の V0)のつなぎ。
 - src/app/tests/test_check_page.py — 確かめる(/check。src/app/ui/check/。RS8 V1 = 殻)の配り方と、画面のファイルの決まりのテスト。  python -m unittest src/app/tests/test_check_page.py -v
-- src/app/tests/test_cli.py — app/cli(② + ① で動くコマンド。役割で組み直す RS6 b-S1)のテスト。  py -3.10 -m unittest src/app/tests/test_cli.py -v
+- src/app/tests/test_cli.py — app/cli(② + ① で動くコマンド。役割で組み直す RS6 b-S1)のテスト。  py -3.12 -m unittest src/app/tests/test_cli.py -v
 - src/app/tests/test_deliver_api.py — 入口の ytt_api("deliver") の受け渡し(src/app/server.py の PortalServer.ytt_api)のテスト。deliver の本体のテストは src/human/friend/tests/test_deliver.py。
 - src/app/tests/test_intake_prefs.py — 入口の設定 prefs の intake の節(src/app/prefs.py。入口の側に残した検査)。intake の本体のテストは src/human/friend/tests/test_intake.py。
 - src/app/tests/test_launch.py — 入口(src/app/server.py)のテスト。  python -m unittest src/app/tests/test_launch.py -v

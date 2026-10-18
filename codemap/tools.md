@@ -70,7 +70,7 @@
 - src/editor/tests/test_worker.py — 認識ワーカー(src/pipeline/transcribe/worker.py。別プロセス。統合計画の段階3-3。RS2-9 に編集の tx_worker.py から移した)のテスト。  python -m unittest test_worker -v
 - src/studio/tests/e2e_analyze.py — analyze.run の通し試験(疑似モード: 合成音声 + 合成チャット)。 実行: python3 e2e_analyze.py
 - src/studio/tests/test_api.py — serve.py の HTTP 層のテスト(疑似モード・実サーバーを別スレッドで起動)。 実行: python3 test_api.py
-- src/studio/tests/test_board_s2.py — RS8 の ② の口 S2: スタジオの解析(an)・書き出し(ex)・配信の検索(se)が掲示板(flow/board.py)に載る。  py -3.10 -m unittest src/studio/tests/test_board_s2.py
+- src/studio/tests/test_board_s2.py — RS8 の ② の口 S2: スタジオの解析(an)・書き出し(ex)・配信の検索(se)が掲示板(flow/board.py)に載る。  py -3.12 -m unittest src/studio/tests/test_board_s2.py
 - src/studio/tests/test_file_recovery.py — 保存・書き出しの障害回復。実データやネットワークは使用しない。
 - src/studio/tests/test_handoff.py — 受け渡し(notes:docs/spec/pipeline.md の 2.1・4・6)のテスト: .clip.json・.runtime/studio.json・/api/siblings。
 - src/studio/tests/test_rank_live.py — ① 探す の「配信中」のタブ: 配信中・これからの予定の取得(rank.live_list)と GET /api/rank/live のテスト。外へは繋がない。

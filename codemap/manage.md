@@ -80,7 +80,7 @@
 - src/manage/cases/tests/test_perf_listing.py — 案件の一覧の速さの直し(PERF O5・O15)が、前の実装と同じ結果を返すことの突き合わせ。
 - src/manage/keep/tests/test_backup.py — 作業データのバックアップ(src/manage/keep/backup.py。設定は入口の Prefs を借りる。prefs の節の検査は src/app/tests/test_backup_prefs.py)の単体テスト。一時フォルダだけを使う。
 - src/manage/keep/tests/test_cleanup.py — src/manage/keep/cleanup.py(作業データの片付け。段9 9-2)の単体テスト。
-- src/manage/keep/tests/test_learnpack.py — manage/keep/learnpack(学習の束を作る側。F1)のテスト。  py -3.10 -m unittest src/manage/keep/tests/test_learnpack.py -v
+- src/manage/keep/tests/test_learnpack.py — manage/keep/learnpack(学習の束を作る側。F1)のテスト。  py -3.12 -m unittest src/manage/keep/tests/test_learnpack.py -v
 - src/manage/keep/tests/test_live_cleanup.py — 録画を自動で消す(src/manage/keep/live_cleanup.py。線 D の 0-9 の最後。LD-1 で「書き出し済み + アーカイブ化を確かめたら ごみ箱へ」)のテスト。
 - src/manage/keep/tests/test_trash.py — src/manage/keep/trash.py(ごみ箱へ移す・戻すの 1 か所。OPT-M2)の単体テスト。設計原則の指摘 1 = 戻せなかった物の元の場所を必ず記録する。
 - src/manage/ops/analytics/tests/test_analytics.py — 分析と日報(src/manage/ops/analytics)のテスト。本物のチャンネルの数字は使わない(リポジトリは Public)。make_raw が規則どおりに伸びる架空のチャンネルを作る。

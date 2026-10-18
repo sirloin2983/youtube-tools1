@@ -109,7 +109,7 @@
 - src/human/proof/tests/test_machpick.py — 3 択の口(human/proof/machpick と layers.mach_changes・pick。RS8 O2-4)のテスト。
 - src/human/proof/tests/test_opt_h1_fixes.py — ③ 校正の小物の直し(OPT-H1。notes:plan/done/opt-human.md の役割 4・5)のテスト。serve なしで読める。
 - src/human/proof/tests/test_primary_ops.py — 層が正(機械の層 + 人の層)のときの機械の操作(RS8 O2-5)のテスト。
-- src/human/review/tests/test_studio.py — human/review/store.py の単体テスト(ネットワーク・ffmpeg 不要)。 実行(リポジトリ直下): py -3.10 -m unittest src/human/review/tests/test_studio.py
+- src/human/review/tests/test_studio.py — human/review/store.py の単体テスト(ネットワーク・ffmpeg 不要)。 実行(リポジトリ直下): py -3.12 -m unittest src/human/review/tests/test_studio.py
 - src/human/tests/_workdata.py — 人の操作のテストが共有する、一時の作業データの準備(S4)。
 - src/human/tests/test_judgments.py — 人の判断の記録(human/judgments)のテスト: 書いて読む・壊れた行・key の重複・fold の 3 レーンと retract と時刻順・.old・知らない what
 - src/human/tests/test_judgments_migrate.py — 今の記録から人の判断の記録への写し(human/judgments_migrate)のテスト: 下見の数・スイッチが既定でオフ・書く行・二度流しても増えない・
