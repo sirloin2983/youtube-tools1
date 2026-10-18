@@ -15,8 +15,8 @@
   - 名前: `stage_lines` :36・`transcribe_line` :52・`transcribe_lines` :72・`transcribe_records` :78・`class FriendQueue` :100・`class Engine` :128
 - **inbox.py** (1092 行) — 友人の受信箱の正(notes:plan/f1-friend-requirements.md の C-3、notes:docs/design/friend-history.md の 7 章)。
   - 名前: `pack_name` :73・`pack_title` :79・`unique_dest` :83・`case_of` :91・`class Inbox` :102
-- **live.py** (164 行) — 友人の玄関のライブの依頼の欄と結びつき(notes:docs/design/friend-history.md の 7 章、docs/spec/friend.md の 2-15)。軽い部品だけ(画面を先に出すため)。
-  - 名前: `check_settings` :34・`clean_settings` :56・`settings_label` :75・`request_item` :88・`class RequestBook` :109
+- **live.py** (133 行) — 友人の玄関のライブの依頼の欄と結びつき(notes:docs/design/friend-history.md の 7 章、docs/spec/friend.md の 2-15)。軽い部品だけ(画面を先に出すため)。
+  - 名前: `check_settings` :24・`settings_label` :46・`request_item` :57・`class RequestBook` :78
 - **live_session.py** (223 行) — 友人の玄関のライブ係(notes:docs/design/friend-history.md の 7 章、docs/spec/friend.md の 2-15)。
   - 名前: `recorders` :34・`class FriendLive` :43
   - 受ける口: `/api/queue/add` :88・`/api/queue` :91

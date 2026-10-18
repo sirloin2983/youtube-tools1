@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """友人の玄関のライブの依頼の欄と結びつき(notes:docs/design/friend-history.md の 7 章、docs/spec/friend.md の 2-15)。軽い部品だけ(画面を先に出すため)。
 
-- 6 つの設定の検査の表(check_settings = 送る欄・clean_settings = 記録の読み直し)。長さは 10〜180 秒 = A-5b の仮。
-  長さ「自動(場面ごと)」(C-2-11)は結びつきの settings の lengthMode "auto"(無い = 固定の長さ)。検出のワーカーが場面ごとの形で切る(長さは場面が取れないときの長さ)
+- 6 つの設定の範囲・既定・読み直し(clean_settings)は flow/live_rules.py(この PC の受付 human/friend/live_requests.py と 1 つ)。
+  ここに残すのは送る欄の検査 check_settings(画面に出す文つき)と記録の 1 行の言葉
 - RequestBook = 友人の依頼と録画の結びつき(③ human の live_requests は読まない = 受信箱の側に持つ。flow/livehost.RequestBook の形 = get・all・put・prune。
   録画中の設定の差し替え update = C-2-11)
 ② のライブ係 FriendLive は friendapp/live_session.py(flow/livesession を読む重い部品)。
@@ -12,23 +12,13 @@ import os
 import threading
 import time
 
+from flow.live_rules import KEEP_DAYS, LENGTH, MAX_ITEMS, RANGES, SENS, SETTINGS_DEFAULT, TEXT_MAX, clean_settings, num_in as _num_in, settings_text  # noqa: F401
 from ytt import fsio, schemas, tools
 
-SENS = ("high", "normal", "low")
-LENGTH = (10, 180)                  # 切り抜きの長さの範囲(秒。A-5b の仮 = ユーザーの PC の自動の切り抜きの上限と同じ 180。LD-2e で「自動(場面ごと)」を足す所)
-SETTINGS_DEFAULT = {"sens": "normal", "perHour": 6, "length": 45, "waitMin": 5, "pad": 2.0, "afterStream": True}
-RANGES = {"perHour": (1, 30), "length": LENGTH, "waitMin": (1, 60), "pad": (0.0, 5.0)}
 SENS_LABELS = {"high": "高い", "normal": "ふつう", "low": "低い"}
-KEEP_DAYS = 3                       # 結びつきを残す日数(録画 12 時間 + 配信後の追加 2 日に足りる。③ の live_requests と同じ)
-MAX_ITEMS = 50
-TEXT_MAX = 300
 STORE_DIR = os.path.join("app", "live")
 REQUESTS_NAME = "requests.json"
 REC_FOLDER = "ライブの録画"         # 一時保管の中の録画の置き場所(7 章)
-
-
-def _num_in(v, lo, hi):
-    return schemas.is_num(v) and lo <= v <= hi
 
 
 def check_settings(v):
@@ -53,30 +43,9 @@ def check_settings(v):
     return out
 
 
-def clean_settings(v):
-    """記録・前回の値から読んだ設定 -> 検査済みの設定(無い・範囲の外は既定。③ の live_requests.clean_settings と同じ読み方で長さだけ 180 まで)"""
-    v = v if isinstance(v, dict) else {}
-    out = dict(SETTINGS_DEFAULT)
-    if v.get("sens") in SENS:
-        out["sens"] = v["sens"]
-    for k in ("perHour", "length", "waitMin"):
-        x = v.get(k)
-        if _num_in(x, *RANGES[k]):
-            out[k] = int(round(x))
-    if _num_in(v.get("pad"), *RANGES["pad"]):
-        out["pad"] = float(v["pad"])
-    if isinstance(v.get("afterStream"), bool):
-        out["afterStream"] = v["afterStream"]
-    if v.get("lengthMode") == "auto":   # 長さ「自動(場面ごと)」(C-2-11)。無い = 固定の長さ(前の形の依頼も)
-        out["lengthMode"] = "auto"
-    return out
-
-
 def settings_label(s):
     """記録に出す 1 行"""
-    size = "長さ 自動(場面ごと)" if s.get("lengthMode") == "auto" else "長さ %d 秒" % s["length"]
-    return "感度 %s・1 時間 %d 本・%s・待ち %d 分・余白 %g 秒・配信後の追加 %s" % (
-        SENS_LABELS[s["sens"]], s["perHour"], size, s["waitMin"], s["pad"], "あり" if s["afterStream"] else "なし")
+    return settings_text(s, SENS_LABELS)
 
 
 def _int_or_none(v):
@@ -108,7 +77,7 @@ def _read_items(path):
 
 class RequestBook:
     """友人の依頼と録画の結びつき(flow/livehost.RequestBook の形 = get・all・put・prune)。<作業データ>/app/live/requests.json。
-    中身の形は ③ の live_requests.Store と同じ {"v": 1, "items": {"<録画元>/<録画>": request_item の形}}(② の検出・採用・配信後の追加が読む)。
+    中身の形は ③ の live_requests.Store と同じ(flow/live_rules.py の頭) {"v": 1, "items": {"<録画元>/<録画>": request_item の形}}(② の検出・採用・配信後の追加が読む)。
     作るときに読み、変えたときだけ書く。中は lock(受付・見回り・画面の糸から使う)"""
 
     def __init__(self, path, clock=time.time, log=None):

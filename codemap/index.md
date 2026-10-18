@@ -8,11 +8,11 @@
 | ytt(基盤) | [ytt.md](ytt.md) | 49 | 10934 |
 | ① pipeline(道具 = データを加工する) | [pipeline.md](pipeline.md) | 64 | 24113 |
 | ② flow(管理 = いつ・どの順で・どこに置くか) | [flow.md](flow.md) | 87 | 29199 |
-| ③ human(人の操作) | [human.md](human.md) | 59 | 16860 |
+| ③ human(人の操作) | [human.md](human.md) | 59 | 16833 |
 | ④ manage(データ) | [manage.md](manage.md) | 42 | 11585 |
 | ⑤ eval(検証) | [eval.md](eval.md) | 33 | 14622 |
 | src/app(入口と画面) | [app.md](app.md) | 84 | 36704 |
-| src/friendapp(友人の玄関) | [friendapp.md](friendapp.md) | 46 | 17858 |
+| src/friendapp(友人の玄関) | [friendapp.md](friendapp.md) | 46 | 17827 |
 | その他の画面(editor・studio・ui-kit・cut2resolve) | [tools.md](tools.md) | 49 | 20522 |
 | dev・setup(開発の道具) | [dev.md](dev.md) | 57 | 16180 |
 | friend-apps・chrome-ext(C# のアプリ・拡張) | [apps.md](apps.md) | 19 | 8951 |

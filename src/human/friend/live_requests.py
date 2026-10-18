@@ -8,51 +8,24 @@ src/flow/livesession.py の begin_request)ここに結びつけ、録画の候�
 置き場所: 入口の作業データの live/requests.json
   {"v": 1, "items": {"<録画元の id>/<録画の id>": {"rid", "deliverDir", "url", "title", "streamer", "speakers", "videoTracks", "cut",
                                                    "settings": {"sens", "perHour", "length", "waitMin", "pad", "afterStream"}, "createdAt"}}}
-settings = 友人のベータの設定(依頼の JSON の live)。範囲の外・無い鍵は既定(SETTINGS_DEFAULT)。
-lengthMode "auto"(長さ「自動(場面ごと)」。友人の受信箱のアプリ C-2-11)があれば settings にも残し、検出は場面ごとの形で切る。無い = 固定の長さ。
+settings = 友人の設定(依頼の JSON の live)。範囲・既定・読み直し(clean_settings)は flow/live_rules.py(友人の玄関 friendapp/live.py と 1 つ)。
 """
 import copy
 import threading
 import time
 
+from flow.live_rules import KEEP_DAYS, MAX_ITEMS, RANGES, SENS, SETTINGS_DEFAULT, TEXT_MAX, clean_settings, settings_text  # noqa: F401
 from ytt import fsio, schemas, tools
 
-SENS = ("high", "normal", "low")
-SETTINGS_DEFAULT = {"sens": "normal", "perHour": 6, "length": 45, "waitMin": 5, "pad": 2.0, "afterStream": True}
-RANGES = {"perHour": (1, 30), "length": (10, 180), "waitMin": (1, 60), "pad": (0.0, 5.0)}   # 長さの上限 180 = A-5b の仮(F2-6。友人の受信箱 friendapp/live.LENGTH と同じ)
-KEEP_DAYS = 3           # 結びつきを残す日数(録画 12 時間 + 配信後の全自動 live_archive.AFTER_MAX_AGE 2 日に足りる。10-09 ユーザー「14 日は長い = 7・3・1 日か要らなくなったらすぐ」→ 3 日)
+SENS_LABELS = {"high": "高", "normal": "普通", "low": "低"}
 TOP_DEFAULT = 10        # 1 録画の自動の採用の上限の既定(依頼の欄 = アーカイブの top と同じ。notes:plan/done/f1-friend-pc.md 決めたこと 7。束の adopt.top の既定 3 とは別なので依頼の束に明示する。RS7-2 G2b)
-MAX_ACTIVE = 2         # 友人のライブ配信の依頼を同時に録画する本数(10-09 ユーザー「今は同時に 2 本。あとで増やすかもしれない」。以前は 1 = D-13)
+MAX_ACTIVE = 2         # 友人のライブ配信の依頼を同時に録画する本数(10-09 ユーザー「今は同時に 2 本。あとで増やすかもしれない」)
 MAX_SEC = 6 * 3600.0    # D-13(仮の数): 1 依頼の録画の上限(依頼から。超えたら入口が録画を止める = src/app/live.py の stop_long_requests)
-MAX_ITEMS = 50
-TEXT_MAX = 300
-
-
-def clean_settings(v):
-    """依頼の JSON の live -> 検査済みの設定(無い・範囲の外は既定)"""
-    v = v if isinstance(v, dict) else {}
-    out = dict(SETTINGS_DEFAULT)
-    if v.get("sens") in SENS:
-        out["sens"] = v["sens"]
-    for k in ("perHour", "length", "waitMin"):
-        x = v.get(k)
-        lo, hi = RANGES[k]
-        if schemas.is_num(x) and lo <= x <= hi:
-            out[k] = int(round(x))
-    if schemas.is_num(v.get("pad")) and RANGES["pad"][0] <= v["pad"] <= RANGES["pad"][1]:
-        out["pad"] = float(v["pad"])
-    if isinstance(v.get("afterStream"), bool):
-        out["afterStream"] = v["afterStream"]
-    if v.get("lengthMode") == "auto":   # 長さ「自動(場面ごと)」(友人の受信箱のアプリ。C-2-11)。無い = 固定の長さ
-        out["lengthMode"] = "auto"
-    return out
 
 
 def settings_label(s):
     """受付の一覧に出す 1 行"""
-    size = "長さ 自動(場面ごと)" if s.get("lengthMode") == "auto" else "長さ %d 秒" % s["length"]
-    return "ライブの設定: 感度 %s・1 時間 %d 本・%s・待ち %d 分・余白 %g 秒・配信後の追加 %s" % (
-        {"high": "高", "normal": "普通", "low": "低"}[s["sens"]], s["perHour"], size, s["waitMin"], s["pad"], "あり" if s["afterStream"] else "なし")
+    return "ライブの設定: " + settings_text(s, SENS_LABELS)
 
 
 def key_of(rc, rec):

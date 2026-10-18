@@ -53,8 +53,8 @@
   - 名前: `record_delivery` :26・`find_delivery` :37・`apply` :99
 - **intake.py** (906 行) — 友人からの依頼の受付(notes:docs/spec/friend.md。2026-09-30)。
   - 名前: `configured_folder` :74・`out_dir_of` :85・`submit_urls` :95・`submit_file` :122・`youtube_id` :132・`parse_lines` :138・`parse_url_file` :164・`decode_text` :172・`probe_video` :186・`youtube_info` :198・`parse_speakers` :265・`parse_ranges` :300・ほか 4
-- **live_requests.py** (129 行) — 友人のライブ配信の依頼と録画の結びつき(notes:docs/spec/friend.md の 2-15。ホーム 0.47.0)。
-  - 名前: `clean_settings` :31・`settings_label` :51・`key_of` :58・`class Store` :62
+- **live_requests.py** (102 行) — 友人のライブ配信の依頼と録画の結びつき(notes:docs/spec/friend.md の 2-15。ホーム 0.47.0)。
+  - 名前: `settings_label` :26・`key_of` :31・`class Store` :35
 - **returns.py** (494 行) — ③ 人の層: 友人からの送り返しを受け取って並べる(F1 の F2。notes:docs/design/f1-build.md の (f1d))。
   - 名前: `class Refused` :54・`returns_dir` :58・`extract` :96・`parse_verdict` :130・`parse_notice` :177・`scan` :212・`recent_notices` :404・`iter_requests` :443・`requested_videos` :479
 
