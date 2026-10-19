@@ -329,5 +329,14 @@ class TestBodies(unittest.TestCase):
         self.assertNotIn("volume", spec.pack_output(spec.merge({"pack": {"volume": 100}}))[1])   # 元の音量は書かない
 
 
+class TestPadRange(unittest.TestCase):
+    def test_pad_range(self):
+        """友人の区間の前後の余白(既定 2 秒): 0 より前・動画の長さより後には出さない。区間の長さの上限は無い = 余白はそのまま"""
+        self.assertEqual(spec.pad_range(100, 190), [98.0, 192.0])
+        self.assertEqual(spec.pad_range(1, 30, 31.0), [0.0, 31.0])
+        self.assertEqual(spec.pad_range(0, 3600), [0.0, 3602.0])
+        self.assertEqual(spec.pad_range(10, 3609), [8.0, 3611.0])
+
+
 if __name__ == "__main__":
     unittest.main()

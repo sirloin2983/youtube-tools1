@@ -7,7 +7,6 @@
 import copy
 import json
 import os
-import socket
 import subprocess
 import sys
 import threading
@@ -22,7 +21,7 @@ if SRC not in sys.path:
 
 from flow import live_adopt  # noqa: E402
 from flow import livesession as LS  # noqa: E402
-from ytt import normalize, tools  # noqa: E402
+from ytt import normalize, testkit, tools  # noqa: E402
 
 TOKEN = "t" * 40   # FakeRecorder の合言葉
 FF = tools.find_tool("ffmpeg", "YTT_FFMPEG")
@@ -92,17 +91,11 @@ def ff(*args):
 
 
 def wait_for(fn, timeout=60.0, step=0.1):
-    end = time.time() + timeout
-    while time.time() < end:
-        v = fn()
-        if v:
-            return v
-        time.sleep(step)
-    return fn()
+    return testkit.wait_for(fn, timeout, step)
 
 
 class ArchiveStudio:
-    """本番版の作り直しが頼む書き出しの代わり(アーカイブから ffmpeg で 30fps に切る)。OPT2 の J5 から Archiver はスタジオの HTTP ではなく
+    """本番版の作り直しが頼む書き出しの代わり(アーカイブから ffmpeg で 30fps に切る)。Archiver はスタジオの HTTP ではなく
     ② の器 flow/export を直に呼ぶので、器の形(start・public_of)と束を組む口(section_spec)を持つ。Archiver には
     exports=<これ>・section_spec=<これ>.section_spec で渡す(opts())"""
 
@@ -203,7 +196,7 @@ class FakeStudio:
                 marks.append(m)
             v["marks"], v["rev"] = marks, v["rev"] + 1
             return 200, {"video": json.loads(json.dumps(v))}
-        if method == "POST" and path == "/api/live/adopt":   # 入口のライブの採用(RS8 B3-5。スタジオの Store.adopt_live と同じ決まり)
+        if method == "POST" and path == "/api/live/adopt":   # 入口のライブの採用(スタジオの Store.adopt_live と同じ決まり)
             v = self.videos.setdefault(body["recording"], {"id": body["recording"], "kind": "live", "rev": 1, "marks": [], "title": body.get("title") or ""})
             a, b = body["start"], body["end"]
             hit = next((m for m in v["marks"] if abs(m["start"] - a) <= 0.5 and abs(m["end"] - b) <= 0.5), None)
@@ -226,20 +219,7 @@ class FakeStudio:
         return 404, {"message": "なし"}
 
 
-def free_port():
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    p = s.getsockname()[1]
-    s.close()
-    return p
-
-
-def free_port():
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    p = s.getsockname()[1]
-    s.close()
-    return p
+free_port = testkit.free_port
 
 
 class FakeRecorder:
@@ -299,7 +279,7 @@ class FakeRecorder:
         self.httpd.daemon_threads = True
         self.port = self.httpd.server_address[1]
         self.url = "http://127.0.0.1:%d" % self.port
-        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+        threading.Thread(target=self.httpd.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
 
     def close(self):
         self.httpd.shutdown()

@@ -467,5 +467,23 @@ class DeliveriesTest(unittest.TestCase):
         self.assertEqual(wait(self.dl, self.dl.start(self.pack, "t"))["state"], "done")
 
 
+class SameNameTest(unittest.TestCase):
+    def test_same_name_is_not_overwritten_and_names_match(self):
+        """同じ名前でもう一度届けたら、末尾に 4 文字足して置く(zip・確認用の動画・印は同じ名前でそろえる)"""
+        tmp = testkit.tempdir(self, "ytt-deliver-")
+        pack, out = os.path.join(tmp, "clip_pack"), os.path.join(tmp, "Dropbox", deliver.OUT_DIR)
+        put(os.path.join(pack, "clip.mp4"), b"v")
+        with mock.patch.object(pv, "make_preview", fake_make_preview), mock.patch.object(pv, "pack_seconds", lambda d, ffprobe=None: None):
+            first = deliver.deliver_one(pack, out, "rid__題", origin="auto")
+            second = deliver.deliver_one(pack, out, "rid__題", origin="auto")
+        self.assertEqual(os.path.basename(first), "rid__題.zip")
+        self.assertRegex(os.path.basename(second), r"^rid__題-[0-9a-f]{4}\.zip$")
+        stem = os.path.basename(second)[:-4]
+        self.assertEqual(sorted(os.listdir(out)), sorted(["rid__題.zip", "rid__題.preview.mp4", "rid__題.meta.json",
+                                                          stem + ".zip", stem + ".preview.mp4", stem + ".meta.json"]))
+        with open(deliver.meta_path_for(second), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["zip"], stem + ".zip")
+
+
 if __name__ == "__main__":
     unittest.main()

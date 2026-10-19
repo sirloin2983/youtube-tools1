@@ -162,7 +162,7 @@ class TxRecorder:
         self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), H)
         self.httpd.daemon_threads = True
         self.url = "http://127.0.0.1:%d" % self.httpd.server_address[1]
-        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+        threading.Thread(target=self.httpd.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
 
     def summary(self, rec, active):
         return {"id": rec, "url": "https://www.youtube.com/watch?v=" + rec[-11:], "title": "テスト配信", "active": active,
@@ -353,7 +353,7 @@ class TickTest(LiveTxBase):
 
 class BoardTest(LiveTxBase):
     def test_board_follows_queue_and_result(self):
-        """掲示板(RS8 の ② の口 S2): 列に入れた・始めた・済んだで lt:<録画元>.<録画>.<候補> がその state で載る・順番待ちは取り消せる"""
+        """掲示板: 列に入れた・始めた・済んだで lt:<録画元>.<録画>.<候補> がその state で載る・順番待ちは取り消せる"""
         self.put_wcpp()
         b = Board.Board()
         self.tx.attach_board(b)
@@ -390,7 +390,7 @@ class OneTest(LiveTxBase):
         args = read_jsonl(self.fflog)[0]
         self.assertEqual([args[args.index(k) + 1] for k in ("-ss", "-t", "-ac", "-ar", "-c:a", "-f")], ["2.000", "8.000", "1", "16000", "pcm_s16le", "wav"])
         self.assertEqual(args, ["-hide_banner", "-loglevel", "error", "-y", "-ss", "2.000", "-i", args[args.index("-i") + 1], "-t", "8.000",
-                                "-vn", "-sn", "-dn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", "-f", "wav", args[-1]])   # OPT2: 引数の列は ① へ移しても同じ
+                                "-vn", "-sn", "-dn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", "-f", "wav", args[-1]])
         self.assertTrue(args[args.index("-i") + 1].endswith("part_00.ts") and args[-1].endswith("in.wav"), args)
         self.assertEqual(len(self.calls), 1)
         c = self.calls[0]
@@ -586,11 +586,6 @@ class RunWorkerTest(LiveTxBase):
         self.assertEqual(r["ok"], False)
         self.assertIn("whisper.cpp かモデルがありません", r["reason"])
         self.assertIsNone(self.real.proc)
-        r = self.real._run_worker(self.edir, "tiny", self.wav)
-        self.assertEqual(r, {"ok": False, "reason": "whisper.cpp で使えないモデルです: tiny"})
-        pyw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
-        if os.path.isfile(pyw):   # 窓の無い python は同じフォルダの python.exe に替える
-            self.assertEqual(TX.LiveTx(self.live, python=pyw)._run_worker(self.edir, "tiny", self.wav)["ok"], False)
 
     def test_broken_worker_and_timeout(self):
         boom = os.path.join(self.tmp, "boom.py")

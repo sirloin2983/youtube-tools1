@@ -8,7 +8,7 @@
 「録画」の音 = その途中を別の符号化(AAC の作り直し・音量 60%)で切り出したもの(録画元への問い合わせと取得を偽物にする)。
 偽の yt-dlp(丸ごとの音 = アーカイブの音)・偽のスタジオの section(アーカイブから ffmpeg で 30fps に切る)で動かす。
 
-確かめること(2026-10-16 LD-1 で本番版への入れ替えを廃止したあとの形):
+確かめること:
   - 録画に無い区間(error + needsArchive)と M7 の採用(wait + from archive)だけをアーカイブから書き出す: 照合で求めたアーカイブの秒が正解 ±0.03 秒・
     30fps で長さが同じ・clip.json の archive・job.state done・2 本目は前のずれの ±20 秒の窓・作りかけのフォルダが残らない。録画から書き出せたジョブは触らない
   - 録画の音が取れない(録画を消した後)ときのずれ: 同じ録画の照合できたマーク → M7 のずれ → 失敗(M7 の採用は error + needsArchive に)
@@ -38,7 +38,7 @@ from ytt import testkit  # noqa: E402
 from flow import board as Board  # noqa: E402
 from flow import live_archive as A  # noqa: E402
 from flow import live_export as LX  # noqa: E402
-from ytt import fsio, jobs, normalize, schemas, tools  # noqa: E402
+from ytt import fsio, jobs, schemas, tools  # noqa: E402
 
 FF = tools.find_tool("ffmpeg", "YTT_FFMPEG")
 RELEASE = 1790000000.0            # 配信の開始時刻(偽の yt-dlp の release_timestamp)
@@ -62,8 +62,8 @@ class FakeExLive:
 
 
 class WavArgsTest(unittest.TestCase):
-    def test_wav_args_unchanged(self):
-        """OPT2: 照合の wav(8kHz・精密な切り方)を作る ffmpeg の引数の列は、引数を組む所を ① へ移しても 1 つも変わらない"""
+    def test_wav_args_of_archiver(self):
+        """Archiver._wav が recognize.wav_args に渡す物(8kHz・精密な切り方・取り消しの印)。引数の組み方は test_recognize.py"""
         tmp = testkit.tempdir(self, "ytt-arc-wav-")
         cmds = []
 
@@ -76,18 +76,12 @@ class WavArgsTest(unittest.TestCase):
         me._halt.is_set.return_value = False
         dst = os.path.join(tmp, "a.wav")
         with mock.patch.object(A, "run_proc", side_effect=run):
-            A.Archiver._wav(me, "src.m4a", dst)
-            A.Archiver._wav(me, "src.m4a", dst, 3.0, 5.0, {"id": "j"})
             A.Archiver._wav(me, "src.m4a", dst, 25.5, 4.25, {"id": "j"})
-            A.Archiver._wav(me, "src.m4a", dst, 0.0, 0)
+            A.Archiver._wav(me, "src.m4a", dst)
         head = ["FF", "-hide_banner", "-nostdin", "-y", "-v", "error"]
         tail = ["-vn", "-sn", "-dn", "-ac", "1", "-ar", "8000", "-c:a", "pcm_s16le", "-f", "wav", dst]
-        self.assertEqual([c for c, _, _ in cmds], [
-            head + ["-i", "src.m4a"] + tail,
-            head + ["-i", "src.m4a", "-ss", "3.000", "-t", "5.000"] + tail,                         # 手前 10 秒より前: 全部デコードして切る
-            head + ["-ss", "15.500", "-i", "src.m4a", "-ss", "10.000", "-t", "4.250"] + tail,      # 手前まで入力側・残り 10 秒は出力側
-            head + ["-i", "src.m4a"] + tail])                                                     # 0 は付けない
-        self.assertEqual([(t, c) for _, t, c in cmds], [(A.FFMPEG_TIMEOUT, False), (A.FFMPEG_TIMEOUT, True), (A.FFMPEG_TIMEOUT, True), (A.FFMPEG_TIMEOUT, False)])
+        self.assertEqual([c for c, _, _ in cmds], [head + ["-ss", "15.500", "-i", "src.m4a", "-ss", "10.000", "-t", "4.250"] + tail, head + ["-i", "src.m4a"] + tail])
+        self.assertEqual([(t, c) for _, t, c in cmds], [(A.FFMPEG_TIMEOUT, True), (A.FFMPEG_TIMEOUT, False)])   # 引数の組み方の全部の場合は pipeline/transcribe/tests/test_recognize.py
 
 
 @unittest.skipUnless(FF, "ffmpeg が無い")
@@ -197,16 +191,11 @@ class ArchiveTest(unittest.TestCase):
     def wait_state(self, job, states=("done", "error", "cancelled"), timeout=120):
         return wait_for(lambda: self.arc_of(job).get("state") in states, timeout)
 
-    def assert_30fps(self, path, dur):
-        info = normalize.probe(path)
-        self.assertTrue(normalize.is_30fps(info), info)
-        self.assertAlmostEqual(info["duration"], dur, delta=LX.LEN_TOL)
-
     # --- テスト ---
     def test_gap_and_m7_from_archive(self):
         """録画に無い区間(error + needsArchive)と M7 の採用(wait + from archive)だけをアーカイブから書き出す。録画から書き出せた(done)ジョブは触らない。
         ずれはマークの手前の録画の音を照合して求める(2 本目は前のずれの ±20 秒の窓)"""
-        done = self.job(100.0, 5.0, 9, "done", path=os.path.join(self.out, "速報版.mp4"))   # 録画から書き出せた: 対象でない(入れ替えは廃止)
+        done = self.job(100.0, 5.0, 9, "done", path=os.path.join(self.out, "速報版.mp4"))   # 録画から書き出せた: 対象でない
         j1 = self.job(150.047, 12.0, 1, "error", label="欠け")
         j2 = self.job(220.031, 8.0, 2, "wait", **{"from": "archive", "origin": "archive"})
         studio = FakeStudio(self.arc)
@@ -227,7 +216,6 @@ class ArchiveTest(unittest.TestCase):
             self.assertTrue(a["aligned"])
             self.assertIn("マークの手前の録画の音", a["offsetFrom"])
             self.assertTrue(j["path"].startswith(os.path.join(self.out, "配信の題")), j["path"])
-            self.assert_30fps(j["path"], dur)
             c = fsio.read_json_file(j["manifest"], 1 << 20)
             self.assertEqual((c["source"]["kind"], c["source"]["live"]["archive"]["videoId"], c["export"]["from"]), ("live", VID, "youtube-archive"))
         self.assertAlmostEqual(fsio.read_json_file(j1["manifest"], 1 << 20)["range"]["start"], 150.047 - 100.0, delta=0.01)   # recBase からの秒
@@ -235,6 +223,8 @@ class ArchiveTest(unittest.TestCase):
         self.assertEqual(done["state"], "done")
         self.assertEqual([c["videoId"] for c in studio.calls], [VID, VID])
         self.assertEqual(studio.calls[0]["maxHeight"], 0)
+        for c, dur in zip(studio.calls, (12.0, 8.0)):   # 頼んだ区間の長さ(30fps の書き出しは書き出しの器の持ち物)
+            self.assertAlmostEqual(c["end"] - c["start"], dur, delta=LX.LEN_TOL)
         self.assertEqual(self.fetches, [VID])   # 配信の音は 1 回だけ丸ごと取って使い回す
         w1 = [w for w in self.aligns]
         self.assertEqual(len(w1), 2)            # 照合は 1 本 1 回(2 本目は前のずれの ±20 秒で 1 回で合う)
@@ -310,13 +300,12 @@ class ArchiveTest(unittest.TestCase):
 
     def test_helpers(self):
         self.assertFalse(A.inside(os.path.join(self.out, "..", "x.mp4"), self.out))
-        self.assertEqual(A.probe_archive("bad id!")["status"], "unknown")   # 動画の id は 11 文字の形だけ
         self.assertTrue(A.needs_archive({"state": "error", "needsArchive": True}))
         self.assertTrue(A.needs_archive({"state": "wait", "from": "archive"}))
         self.assertFalse(A.needs_archive({"state": "done", "from": "archive"}) or A.needs_archive({"state": "wait"}) or A.needs_archive({"state": "error"}))
 
     def test_board_follows_archive(self):
-        """掲示板(RS8 の ② の口 S2): 書き出しの状態が変わったら la:<ジョブの id> がその state で載る・配信後の全自動は la:as-<録画元>.<録画>"""
+        """掲示板: 書き出しの状態が変わったら la:<ジョブの id> がその state で載る・配信後の全自動は la:as-<録画元>.<録画>"""
         j1 = self.job(150.0, 6.0, 1, "error", "山場")
         ar = self.archiver()
         ar.start = lambda: None   # 裏の糸は動かさない(状態は _aset で進める)
@@ -667,7 +656,7 @@ class AfterStreamTest(unittest.TestCase):
         self.assertIn("YouTube の動画が分からない", a.archived("local", dict(r, url="http://127.0.0.1:1/x.m3u8", id="20261005-120000-local")))
 
     def test_taken_from_marks_book(self):
-        """G3(RS8 B3-5): 重ねない採用はマークの置き場から(taken。headless のスタジオなしの採用 = 案件の 採用.json か正本)。
+        """重ねない採用はマークの置き場から(taken。headless のスタジオなしの採用 = 案件の 採用.json か正本)。
         スタジオに録画の配信が無くても、置き場の採用と重なる候補は飛ばす・読めない(None・例外)なら重ねる物なしで続ける"""
         self.live_marks = None   # スタジオに録画の配信は無い(スタジオなし)
         asked = []

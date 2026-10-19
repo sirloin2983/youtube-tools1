@@ -28,14 +28,7 @@ from flow import livesession as LS  # noqa: E402
 TOKEN = FIX.TOKEN
 
 
-def wait_for(fn, timeout=20.0, step=0.2):
-    end = time.time() + timeout
-    while time.time() < end:
-        v = fn()
-        if v:
-            return v
-        time.sleep(step)
-    return fn()
+wait_for = testkit.wait_for
 
 
 class ProbeTest(unittest.TestCase):

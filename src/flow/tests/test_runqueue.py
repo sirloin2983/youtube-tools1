@@ -541,5 +541,132 @@ class TestFriendIntake(Base):
         self.assertEqual(q.status()["runs"], [])
 
 
+from flow import runlog  # noqa: E402
+
+
+class _FailTools(Tools):
+    """fail を立てると文字起こしのジョブが失敗で終わる"""
+    fail = False
+
+    def jobs(self):
+        return [dict(j, state="error", error="だめ") for j in super().jobs()] if self.fail else super().jobs()
+
+
+class TestRunLog(Base):
+    """終わった実行の記録(logs/autorun-runs.jsonl): 1 回だけ書く・起動し直しても past で前回が見える・history・回す・末尾だけ読む・書けなくても止めない"""
+
+    def path(self):
+        return os.path.join(self.logs, runlog.RUNS_LOG)
+
+    def lines(self, path=None):
+        """そのファイルだけの行(read_runs_log は .1 も読むので使わない)"""
+        try:
+            with open(path or self.path(), encoding="utf-8") as f:
+                return [json.loads(x) for x in f if x.strip()]
+        except FileNotFoundError:
+            return []
+
+    def wait_lines(self, n):
+        """実行の状態が変わってから記録を書くまでの間があるので、行が n 行になるまで待つ"""
+        _until(lambda: len(self.lines()) >= n, "記録 %d 行" % n)
+        return self.lines()
+
+    def make(self, **kw):
+        q = Q.Queue(None, env=self.env, poll=0.01, tools=kw.pop("tools", None) or Tools(), log_dir=kw.pop("log_dir", self.logs), **kw)
+        self.addCleanup(q.close)
+        return q
+
+    def run_file(self, q, i, eid):
+        self.sub(q, self.env_of(self.media[i], eid=eid))
+        _until(lambda: q.status()["idle"], "待ち・実行中が 0")
+        return eid
+
+    def test_done_and_error_are_written_once(self):
+        tools = _FailTools()
+        q = self.make(tools=tools)
+        a = self.run_file(q, 0, "0000000001")
+        tools.fail = True
+        b = self.run_file(q, 1, "0000000002")
+        got = self.wait_lines(2)
+        self.assertEqual([(x["v"], x["id"], x["state"], x["kind"]) for x in got], [(1, a, "done", "file"), (1, b, "error", "file")])
+        self.assertTrue(got[0]["finished"])
+        q._log(next(r for r in q.runs if r.id == a))   # 同じ実行をもう一度書こうとしても 1 行のまま・終わった実行の中止も書かない
+        q.cancel(a)
+        time.sleep(0.05)
+        self.assertEqual([x["id"] for x in self.lines()], [a, b])
+
+    def test_restart_shows_past_and_memory_wins(self):
+        q = self.make()
+        a = self.run_file(q, 0, "0000000001")
+        self.wait_lines(1)
+        self.assertEqual(q.snapshot()["past"], [])   # メモリにある分は past に出さない(重ならない)
+        q.close()
+        q = self.make()   # 起動し直した
+        snap = q.snapshot()
+        self.assertEqual((snap["runs"], [(p["id"], p["state"]) for p in snap["past"]]), ([], [(a, "done")]))
+        self.assertIn("steps", snap["past"][0])
+        self.assertNotIn("sourcePath", snap["past"][0])   # past は画面に出す項目だけ(問い合わせを重くしない)
+        b = self.run_file(q, 0, "0000000002")   # 同じ動画をもう一度 = メモリの方を出す
+        self.wait_lines(2)
+        self.assertEqual(q.snapshot()["past"], [])
+        h = q.history()
+        self.assertEqual(([x["id"] for x in h["runs"]], h["total"], h["more"]), ([b, a], 2, False))   # 新しい順
+
+    def test_past_is_latest_per_target(self):
+        recs = [dict(id="r%d" % i, kind="video", videoId="v%d" % (i % 3), docId=None, state="done", steps=[], v=1, finished=i) for i in range(7)]
+        recs.append(dict(id="d1", kind="doc", videoId=None, docId="doc1", state="error", error="止まった", steps=[], v=1))
+        with open(self.path(), "w", encoding="utf-8") as f:
+            f.write("not json\n" + "".join(json.dumps(x) + "\n" for x in recs))   # 壊れた行の種類ごとの読み飛ばしは test_runlog
+        q = self.make()
+        self.assertEqual([p["id"] for p in q.snapshot()["past"]], ["d1", "r6", "r5", "r4"])   # 配信・文書ごとの最後の 1 件・新しい順
+        self.assertEqual(q.history()["total"], 8)
+
+    def test_rotates_at_limit(self):
+        q = self.make(log_max=300)   # 1 件で超える大きさ
+        ids = [self.run_file(q, 0, "0000000001")]
+        self.wait_lines(1)
+        ids.append(self.run_file(q, 1, "0000000002"))
+        _until(lambda: os.path.exists(self.path() + ".1"), ".1 ができる")
+        self.assertEqual([x["id"] for x in self.lines(self.path() + ".1")], ids[:1])   # 古い方は .1 へ(1 世代)
+        self.assertEqual([x["id"] for x in self.wait_lines(1)], ids[1:])
+        self.assertEqual([x["id"] for x in q.history()["runs"]], ids[::-1])   # 記録は .1 と今のファイルの両方から
+        ids.append(self.run_file(q, 2, "0000000003"))
+        _until(lambda: [x["id"] for x in self.lines(self.path() + ".1")] == ids[1:2], "いちばん古いものが消える")
+        self.assertEqual([x["id"] for x in self.wait_lines(1)], ids[2:])
+
+    def test_read_tail_only_on_start_and_history_bounds(self):
+        rec = lambda i: json.dumps(dict(id="r%04d" % i, kind="video", videoId="v%04d" % i, docId=None, state="done", steps=[], v=1)) + "\n"  # noqa: E731
+        with open(self.path(), "w", encoding="utf-8") as f:
+            f.write("".join(rec(i) for i in range(4000)))   # 末尾だけ読む大きさを超える
+        self.assertGreater(os.path.getsize(self.path()), Q.LOG_READ_BYTES)
+        q = self.make()
+        past = q.snapshot()["past"]
+        self.assertEqual((len(past), past[0]["id"]), (Q.PAST_MAX, "r3999"))
+        self.assertLess(len(q._past), 4000)   # 起動時は末尾だけ読む
+        h = q.history(limit=10 ** 6, offset=-5)   # 範囲に丸める
+        self.assertEqual((len(h["runs"]), h["offset"], h["total"], h["more"]), (Q.HISTORY_MAX, 0, 4000, True))
+        self.assertEqual([x["id"] for x in q.history(limit=0, offset=3990)["runs"]], ["r0009"])
+        h = q.history(limit="x", offset=3995)
+        self.assertEqual((len(h["runs"]), h["more"]), (5, False))
+
+    def test_unwritable_folder_does_not_stop_runs(self):
+        blocker = os.path.join(self.tmp, "blocker")
+        with open(blocker, "w") as f:
+            f.write("x")   # フォルダの代わりにファイルがある = 書けない
+        q = self.make(log_dir=os.path.join(blocker, "logs"))
+        self.run_file(q, 0, "0000000001")
+        self.assertEqual(q.status()["runs"][0]["state"], "done")
+        _until(lambda: q.log_error, "書けなかった理由")
+        self.assertEqual(q.history()["runs"], [])
+        self.run_file(q, 1, "0000000002")   # 次の実行も続けられる
+        self.assertEqual(q.status()["runs"][1]["state"], "done")
+
+    def test_no_log_dir_keeps_memory_only(self):
+        q = self.make(log_dir=None)
+        self.run_file(q, 0, "0000000001")
+        self.assertEqual(q.history(), {"runs": [], "total": 0, "more": False, "offset": 0})
+        self.assertEqual(os.listdir(self.logs), [])
+
+
 if __name__ == "__main__":
     unittest.main()

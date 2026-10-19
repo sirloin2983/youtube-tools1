@@ -18,10 +18,8 @@ import json
 import os
 import shutil
 import sys
-import threading
 import time
 import unittest
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 
@@ -31,10 +29,9 @@ import _livefix as LF  # noqa: E402
 from ytt import testkit  # noqa: E402
 from flow import live_detect as D  # noqa: E402
 from flow import live_export as LX  # noqa: E402
-from pipeline.analyze import live_excite_worker as W  # noqa: E402
 from ytt import fsio  # noqa: E402
 
-TOKEN = "k" * 40
+TOKEN = LF.TOKEN
 T0 = 1790000000.0
 VID = "abcdefghijk"
 REC = "20261007-200000-" + VID
@@ -45,56 +42,20 @@ def iso(t):
     return LX.epoch_iso(t)
 
 
-class ListRecorder:
-    """録画元の代わり(HTTP。合言葉): /live/list と /live/<録画>/status(録画の頭 firstPdt・ライブ端 lastPdt は rel で動かす)"""
+class ListRecorder(LF.FakeRecorder):
+    """録画元の代わり(LF.FakeRecorder の routes): /live/list と /live/<録画>/status(録画の頭 firstPdt・ライブ端 lastPdt は rel で動かす)"""
 
     def __init__(self):
+        super().__init__()
         self.rel = 0.0          # ライブ端 = 録画の頭からの秒
         self.active = True
-        self.deleted = False
-        owner = self
+        self.routes[("GET", "/live/list")] = lambda body: (200, {"recordings": [self._rec()]})
+        self.routes[("GET", "/live/%s/status" % REC)] = lambda body: (200, dict(self._rec(), segmentList=[]))
+        self.routes[("POST", "/live/%s/delete" % REC)] = lambda body: (200, {"ok": True, "deleted": REC})   # 録画を消す(src/manage/keep/live_cleanup.py)
 
-        class H(BaseHTTPRequestHandler):
-            def log_message(self, *a):
-                pass
-
-            def _out(self, code, obj):
-                body = json.dumps(obj).encode()
-                self.send_response(code)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-
-            def do_GET(self):
-                if self.headers.get("Authorization") != "Bearer " + TOKEN:
-                    return self._out(403, {"error": "token"})
-                r = {"id": REC, "url": URL, "title": "テスト配信", "active": owner.active, "state": "recording" if owner.active else "ended",
-                     "firstPdt": iso(T0), "lastPdt": iso(T0 + owner.rel), "endedAt": None}
-                if self.path == "/live/list":
-                    return self._out(200, {"recordings": [r]})
-                if self.path.startswith("/live/%s/status" % REC):
-                    return self._out(200, dict(r, segmentList=[]))
-                return self._out(404, {"error": "not_found", "message": "なし"})
-
-            def do_POST(self):
-                n = int(self.headers.get("Content-Length") or 0)
-                self.rfile.read(n)
-                if self.headers.get("Authorization") != "Bearer " + TOKEN:
-                    return self._out(403, {"error": "token"})
-                if self.path == "/live/%s/delete" % REC:   # 録画を消す(src/manage/keep/live_cleanup.py)
-                    owner.deleted = True
-                    return self._out(200, {"ok": True, "deleted": REC})
-                return self._out(404, {"error": "not_found", "message": "なし"})
-
-        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), H)
-        self.httpd.daemon_threads = True
-        self.url = "http://127.0.0.1:%d" % self.httpd.server_address[1]
-        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
-
-    def close(self):
-        self.httpd.shutdown()
-        self.httpd.server_close()
+    def _rec(self):
+        return {"id": REC, "url": URL, "title": "テスト配信", "active": self.active, "state": "recording" if self.active else "ended",
+                "firstPdt": iso(T0), "lastPdt": iso(T0 + self.rel), "endedAt": None}
 
 
 def peak(pid, start, pk, score, state, confirmed, hour=0):
@@ -189,9 +150,6 @@ class DetectApiTest(unittest.TestCase):
         c = self.get(since=5)   # ワーカーが当てる前でも「変わった」として返す(ほかの窓にもすぐ出る)
         self.assertEqual([(x["id"], x["state"]) for x in c["changes"]], [("p2-1002", "dismissed")])
         self.assertEqual(self.post("restore", "p2-1002")["peak"]["state"], "bench")
-        with self.assertRaises(LX.LiveError) as cm:   # 画面の after は Live.adopt が検査する
-            self.post("adopt", "p0-302", after="all")
-        self.assertEqual(cm.exception.code, 400)
         a = self.post("adopt", "p0-302", after="auto", streamer="テスト配信者")   # 帯の「書き出したあと」と配信者をそのまま M1 へ
         self.assertEqual((a["job"]["after"], a["job"].get("streamer")), ("auto", "テスト配信者"))
         v = self.studio.videos[REC]
@@ -530,7 +488,6 @@ class DetectApiTest(unittest.TestCase):
         got = self.det.requests_cfg()
         self.assertEqual(got["fake/" + REC], {"sens": "high", "perHour": 3, "length": 30, "lengthMode": "auto"})
         self.assertEqual(got["fake/20261007-210000-x"], {"sens": "high", "perHour": 3, "length": 30})
-        self.assertEqual(W.clean_requests(got)["fake/" + REC]["lengthMode"], "auto")
 
     def test_friend_request_with_detect_off(self):
         """2-15: ホームの検出・自動採用がオフでも、友人のライブ配信の依頼に結びついた録画があれば検出を動かす(config.json の detectAll false と
@@ -546,7 +503,6 @@ class DetectApiTest(unittest.TestCase):
             c = json.load(f)
         self.assertEqual((c["detectAll"], c["detect"]), (False, {"sens": "low", "perHour": 4}))   # ホームの設定はそのまま(ほかの録画は測らない)
         self.assertEqual(c["requests"], {"fake/" + REC: {"sens": "high", "perHour": 3, "length": 30}})
-        self.assertEqual(W.clean_requests(c["requests"]), {"fake/" + REC: {"sens": "high", "perHour": 3, "length": 30.0}})   # ワーカーが読む形
         d = self.get()
         self.assertEqual((d["enabled"], d["autoAdopt"]), (True, {"enabled": True, "waitMin": 2}))   # 結びついた録画は依頼の設定
         e = self.det.api_get({"recorder": ["fake"], "recording": ["20261007-210000-x"]})

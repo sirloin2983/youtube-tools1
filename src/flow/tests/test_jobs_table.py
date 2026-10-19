@@ -13,18 +13,14 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> flow -> src
 from flow import board as B  # noqa: E402
+from ytt import testkit  # noqa: E402
 from flow.jobs import Table  # noqa: E402
 from ytt import jobs as slots  # noqa: E402
 from ytt.errors import ApiError, Cancelled  # noqa: E402
 
 
 def wait(pred, sec=5):
-    end = time.time() + sec
-    while time.time() < end:
-        if pred():
-            return True
-        time.sleep(0.01)
-    return False
+    return testkit.wait_for(pred, sec, 0.01)
 
 
 def one_at_a_time(active, spec, kind):

@@ -95,7 +95,7 @@ class FriendRequestTest(unittest.TestCase):
             self.assertEqual((cm.exception.code, len(calls)), (409, n))
             self.assertIn("同時に 1 本まで", str(cm.exception))
             self.assertIn("配信の題", str(cm.exception))
-            # 同時に 2 本(入口の既定。10-09 ユーザー決定): 録画中の依頼が 1 本なら別の配信も通る・2 本なら 409
+            # 同時に 2 本(入口の既定): 録画中の依頼が 1 本なら別の配信も通る・2 本なら 409
             self.limit[0] = 2
             self.assertEqual([r["id"] for r in live.active_requests("https://www.youtube.com/watch?v=bbbbbbbbbbb")], [rec["id"]])
             rec2 = dict(rec, id="20261008-201000-bbbbbbbbbbb", url="https://www.youtube.com/watch?v=bbbbbbbbbbb", title="二つ目", state="recording")

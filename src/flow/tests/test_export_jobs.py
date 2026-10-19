@@ -51,12 +51,7 @@ def quick_run(spec, res, ctl, on_done=None):
 
 
 def wait(pred, sec=5):
-    end = time.time() + sec
-    while time.time() < end:
-        if pred():
-            return True
-        time.sleep(0.01)
-    return False
+    return testkit.wait_for(pred, sec, 0.01)
 
 
 class Base(unittest.TestCase):

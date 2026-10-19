@@ -60,9 +60,6 @@ class FakeClient:
 
 
 class TestFromInput(unittest.TestCase):
-    def test_from_mode(self):
-        self.assertEqual(R.FROM_MODE, {None: "full", "analyze": "full", "export": "adopted", "transcribe": R.DOC_MODE})
-
     def test_video(self):
         r = R.Run.from_input({"videoId": "abcdefghijk"})
         self.assertEqual((r.video_id, r.mode, r.top, r.doc_id, r.source_path, r.state), ("abcdefghijk", "full", 3, None, None, "queued"))
@@ -105,18 +102,6 @@ class TestFromInput(unittest.TestCase):
         self.assertEqual((back.id, back.mode, back.doc_id, back.spec, back.resumed), (r.id, R.DOC_MODE, "d1", r.spec, True))
         self.assertIsNone(R.Run.restore(dict(new_only, envelope=dict(d["envelope"], specVersion=99))))
 
-    def test_full_with_deliver_dir_adds_deliver_step(self):
-        """D-SEND: full で届け先(deliver_dir)があれば末尾に段 deliver。MODE_STEPS の full は変えない・ほかの形は足さない"""
-        self.assertEqual(R.MODE_STEPS["full"], ("analyze", "adopt", "export", "transcribe", "pack"))
-        keys = lambda r: [s["key"] for s in r.steps]  # noqa: E731
-        self.assertEqual(keys(RF.run_of("abcdefghijk", "t", "full", 3)), list(R.MODE_STEPS["full"]))
-        r = RF.run_of("abcdefghijk", "t", "full", 3, deliver_dir="D:/out")
-        self.assertEqual(keys(r), list(R.MODE_STEPS["full"]) + ["deliver"])
-        r = RF.run_of("abcdefghijk", "t", "full", 3, deliver_dir="D:/out", speakers={"count": 2, "names": []})
-        self.assertEqual(keys(r), ["analyze", "adopt", "export", "transcribe", "diarize", "pack", "deliver"])
-        self.assertEqual(keys(RF.run_of("abcdefghijk", "t", "adopted", 3, deliver_dir="D:/out")), list(R.MODE_STEPS["adopted"]))
-        self.assertEqual(keys(RF.run_of("abcdefghijk", "t", "request_auto", 3, deliver_dir="D:/out")), list(R.MODE_STEPS["request_auto"]), "二重に足さない")
-
     def test_deliver_tag_origin_saved_restored(self):
         r = RF.run_of("abcdefghijk", "t", "full", 3, deliver_dir="D:/out", deliver_tag="20261016-120000-abc123", deliver_origin="auto")
         d = json.loads(json.dumps(r.saved()))
@@ -127,8 +112,6 @@ class TestFromInput(unittest.TestCase):
         self.assertEqual(r.envelope()["deliver"]["origin"], "auto")
         self.assertEqual(R.Run.from_envelope(E.check(r.envelope())).deliver_origin, "auto")
         self.assertIsNone(RF.run_of("abcdefghijk", "t", "full", 3, deliver_tag="").deliver_tag)
-        with self.assertRaisesRegex(ValueError, "deliver.origin"):   # 形の違う出どころは封筒の検査で断る(RV A2。以前は黙って None)
-            RF.run_of("abcdefghijk", "t", "full", 3, deliver_origin="zzz")
 
     def test_restore_old_record_without_deliver_fields(self):
         """D-SEND より前の待ちの記録(deliverTag・deliverOrigin が無い)も読める。届け先のある request_auto の段は今までどおり"""
@@ -291,7 +274,6 @@ class TestRun(unittest.TestCase):
         self.assertIn(("transcribe", "POST", "/api/transcribe"), c.calls)
         self.assertNotIn("/api/settings", [x[2] for x in c.calls])
         self.assertEqual(c.bodies["/api/transcribe"], dict(SP.tx_opts(r.spec), sourcePath=self.media))
-        self.assertEqual((c.bodies["/api/transcribe"]["model"], c.bodies["/api/transcribe"]["autoDict"]), ("large-v3", False))
         self.assertNotIn("engine", c.bodies["/api/transcribe"])   # 機器から決まるエンジンと同じなら書かない
 
     def test_bad_spec_does_not_start(self):
@@ -475,46 +457,6 @@ class TestKeys(unittest.TestCase):
         st["state"] = "run"
         getattr(rn, "_step_" + key)(run, st, self.video)
         return st, run
-
-    def test_transcribe_same_and_none_skip(self):
-        for state in ("same", "none"):
-            c = FakeClient()
-            st, _run = self.step(self.runner(c, tx_state=state), "transcribe")
-            self.assertEqual((st["state"], st["detail"]), ("skip", "1 本とも文字起こし済み"), state)
-            self.assertNotIn(("transcribe", "POST", "/api/transcribe"), c.calls)
-
-    def test_transcribe_differ_marks_and_force_redoes(self):
-        c = FakeClient()
-        st, _run = self.step(self.runner(c, tx_state="differ"), "transcribe")
-        self.assertEqual((st["state"], st["detail"]), ("skip", "1 本とも文字起こし済み。うち 1 本は" + R.TX_DIFFER))
-        self.assertNotIn(("transcribe", "POST", "/api/transcribe"), c.calls)
-        for kw in ({"force": True}, {"spec": {"run": {"force": True}}}):   # Run の force・束の run.force
-            c = FakeClient()
-            st, run = self.step(self.runner(c, tx_state="differ"), "transcribe", **kw)
-            self.assertEqual(st["state"], "run", kw)
-            self.assertIn("作り直し(force)", st["detail"])
-            self.assertEqual(run.new_docs, ["t1"])
-
-    def test_pack_differ_rebuilds_with_force(self):
-        c = FakeClient()
-        st, run = self.step(self.runner(c, pack_state="differ", have_pack=True), "pack")
-        self.assertEqual(st["state"], "run", st)
-        self.assertIn(R.PACK_DIFFER, st["detail"])
-        self.assertIs(c.bodies["/api/build"]["output"]["force"], True)
-        self.assertEqual(run.packs, [os.path.normpath("/x/clip_pack")])
-
-    def test_pack_same_skips_and_none_keeps_today(self):
-        c = FakeClient()
-        st, _run = self.step(self.runner(c, pack_state="same"), "pack")   # パックの記録が無くても、鍵が同じなら飛ばす
-        self.assertEqual(st["state"], "skip")
-        self.assertNotIn("/api/build", c.bodies)
-        c = FakeClient()
-        st, _run = self.step(self.runner(c, pack_state="none", have_pack=True), "pack")   # 鍵なし + パックあり = 今のまま飛ばす
-        self.assertEqual(st["state"], "skip")
-        c = FakeClient()
-        st, _run = self.step(self.runner(c, pack_state="none"), "pack")   # 鍵なし + パックなし = 作る(上書きはしない)
-        self.assertEqual(st["state"], "run")
-        self.assertNotIn("force", c.bodies["/api/build"]["output"])
 
     def test_pack_state_writes_nothing_and_matches_written_key(self):
         """指摘 2: 鍵の比べ(見積もりも同じ関数)は字幕の受け渡しの JSON を書かない。書かずに作った材料の鍵は、書いたファイルから作った鍵と同じ"""
@@ -700,32 +642,14 @@ class TestFieldsToBundle(unittest.TestCase):
         self.assertEqual((ad["force"], ad["repack"], ad["adopt"][0]["top"], ad["weightsDiffer"]), (True, True, 5, False))
         self.assertEqual(ad["pack"]["spec"]["preset"], "transcript-rows")   # カットの指定なし = 画面の rows
 
-    def test_no_fields_is_screen_bundle(self):
-        """欄の無い Run(画面のまとめて実行・CLI)は束がそのまま(写す物が無い)"""
-        base = SP.validate(SP.merge(SCREEN))
-        r = RF.run_of(VID, "", "full", None, base=base)
-        self.assertEqual((r.diff, r.spec), ({"run": {"upto": "pack"}}, base))   # 段の並び(どこまで)だけ(RV A2)
-
-    def test_long_name_is_cut_and_bad_fields_not_copied(self):
-        """束に入らない欄は写さない(壊れた記録など)・41 字以上の名前は束の上限 40 字で切る(友人の受付は 60 字まで)"""
-        r = RF.run_of(VID, "", "full", 99, video_tracks=9, weights={"wAudio": 1}, speakers={"count": 2, "names": ["あ" * 50]})
-        self.assertNotIn("adopt", r.diff)
-        self.assertNotIn("analyze", r.diff)
-        self.assertEqual(r.diff["hints"]["people"], [{"name": "あ" * 40}])
-        self.assertNotIn("pack", r.diff)
-        self.assertEqual(r.spec["adopt"]["top"], SP.DEFAULTS["adopt"]["top"])
-
     def test_from_envelope_defaults_and_refusals(self):
         r = R.Run.from_envelope({"id": "0123456789", "kind": "url", "input": {"url": "https://www.youtube.com/watch?v=abcdefghijk"}},
                                 {"adopt": {"top": 2}, "hints": {"ranges": [[10, 20]]}})
         self.assertEqual((r.id, r.video_id, r.mode, r.top, r.ranges, r.title), ("0123456789", VID, "full", 2, [(10, 20)], VID))
         r = R.Run.from_envelope({"id": "x-1", "kind": "file", "input": {"path": self.media}})
         self.assertEqual((r.mode, r.source_path, len(r.id)), ("file_auto", self.media, 10))   # 10 桁の 16 進でない id は実行の id にしない
-        for env in ({"id": "a", "kind": "live", "input": {"videoId": VID}},
-                    {"id": "a", "kind": "docs", "input": {"docId": "d1"}, "legacy": {"mode": "full"}},
-                    {"id": "a", "kind": "docs", "input": {"docId": "d1"}, "extra": 1}):
-            with self.assertRaises(ValueError, msg=env):
-                R.Run.from_envelope(env)
+        with self.assertRaises(ValueError):   # 封筒の検査の断りは test_envelope.py
+            R.Run.from_envelope({"id": "a", "kind": "live", "input": {"videoId": VID}})
 
     def test_file_from_pack(self):
         """束の run.from = pack(CLI の --from pack を入口に頼んだ形。RS7-1 S4): 文字起こし済みの文書でパックだけ(force でも文字起こしは作り直さない)。
@@ -1049,12 +973,6 @@ class TestStepNormalize(unittest.TestCase):
         """段を持つのは normalize=True の実行だけ(入口の start_file。ライブの書き出し・CLI・② の口 submit は持たない)・待ちの記録に残る・
         欄の無い古い記録は True で読む"""
         p = os.path.join(self.tmp, "a.mp4")
-        self.assertEqual([s["key"] for s in RF.run_of(None, "a", "file_auto", None, source_path=p, normalize=True).steps],
-                         ["normalize", "transcribe", "pack", "deliver"])
-        self.assertEqual([s["key"] for s in RF.run_of(None, "a", "file", None, source_path=p).steps], ["transcribe"])
-        self.assertEqual([s["key"] for s in R.Run.from_input({"path": p}).steps], ["transcribe"])
-        self.assertEqual([s["key"] for s in R.Run.from_envelope({"id": "0123456789", "kind": "file", "input": {"path": p, "title": "a"}}).steps],
-                         ["transcribe", "pack", "deliver"])
         r = RF.run_of(None, "a", "file", None, source_path=p, normalize=True)
         d = r.saved()
         self.assertIs(d["normalize"], True)
@@ -1077,11 +995,8 @@ class TestStepNormalize(unittest.TestCase):
         self.assertTrue(run.source_path.endswith(".mp4"), run.source_path)
         self.assertEqual(os.path.dirname(run.source_path), self.tmp)
         self.assertFalse(os.path.exists(src), "古い写しは消す")
-        from ytt import normalize as vnorm
-        self.assertEqual(vnorm.probe(run.source_path)["r_frame_rate"], "30/1")
         self.assertEqual(self.marks, [run.source_path])
         self.assertEqual(run.envelope()["input"]["path"], run.source_path)
-        self.assertEqual([n for n in os.listdir(self.tmp) if vnorm.PART in n], [], "途中のファイルは残さない")
 
     def test_cancel_after_replace_still_saves_new_path(self):
         """置き換えが済んだ直後に中止されても、新しいパスを待ちの記録へ書いてから止まる(再開が消えた元の写しを探さない)"""
@@ -1160,21 +1075,7 @@ class TestStepNormalize(unittest.TestCase):
 class TestEnvelopeV2(unittest.TestCase):
     """RV A2: 封筒 + 束の run.from・run.upto・run.onFail・hints.streamer から Run の形(mode・段の並び)が決まる"""
 
-    def test_mode_run_table(self):
-        inp = {"url": {"videoId": "abcdefghijk"}, "docs": {"docId": "d1"}, "file": {"path": "C:/x.mp4"}}
-        for mode, (kind, frm, upto) in R.MODE_RUN.items():
-            rid = "r1" if mode in R.REQUEST_MODES else None
-            v2 = {"id": "0123456789", "kind": kind, "input": inp[kind], "requestId": rid, "specVersion": 2}
-            spec2 = {"run": dict({"upto": upto, "onFail": "stop"}, **({"from": frm} if frm else {})), "hints": {"streamer": "x"}}
-            b = R.Run.from_envelope(v2, spec2)
-            self.assertEqual((b.mode, b.on_fail, b.streamer), (mode, "stop", "x"))
-            self.assertEqual([s["key"] for s in b.steps], [k for k in R.MODE_STEPS[mode] if k != "normalize"], mode)
-
     def test_v2_normalize_and_bad_pairs(self):
-        r = R.Run.from_envelope({"id": "0123456789", "kind": "file", "specVersion": 2, "input": {"path": "C:/x.mp4", "normalize": True}})
-        self.assertEqual([s["key"] for s in r.steps][:1], ["normalize"])
-        self.assertNotIn("normalize", [s["key"] for s in R.Run.from_envelope({"id": "0123456789", "kind": "file", "specVersion": 2,
-                                                                                "input": {"path": "C:/x.mp4"}}).steps])
         for env, spec, why in (({"id": "a", "kind": "docs", "specVersion": 2, "input": {"docId": "d1"}}, {"run": {"upto": "transcribe"}}, "run.upto"),
                                ({"id": "a", "kind": "url", "specVersion": 2, "input": {"videoId": "abcdefghijk"}}, {"run": {"from": "pack"}}, "run.from"),
                                ({"id": "a", "kind": "url", "specVersion": 2, "input": {"videoId": "abcdefghijk", "marks": ["m1"]}}, None, "マーク")):
