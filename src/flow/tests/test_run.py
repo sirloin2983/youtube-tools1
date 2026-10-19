@@ -239,21 +239,22 @@ class TestStepsOf(unittest.TestCase):
                 kw.update(source_path="C:/x/a.mp4", normalize=norm)
             if kind == "docs":
                 kw["doc_id"] = "d1"
-            if mode in ("request", "request_auto", "adopted"):   # adopted(書き出しから・パックまで)は依頼の id があるときだけ(無ければ full = 書き出しから全部)
+            if mode == "request_auto":   # adopted(書き出しから・パックまで)は依頼の id があるときだけ(無ければ full = 書き出しから全部)
                 kw["request_id"] = "r1"
             run = RF.run_of("abcdefghijk" if kind == "url" else None, "t", mode, 2 if kind == "url" else None, **kw)
             want = self.old_rule(mode, dir_, origin, len(kw.get("ranges") or []), 2 if kind == "url" else None, dz, norm and kind == "file")
             self.assertEqual(run.mode, mode)
             self.assertEqual([s["key"] for s in run.steps], want, (mode, dir_, origin, nr, dz, norm))
             n += 1
-        self.assertGreater(n, 400)
+        self.assertGreater(n, 350)   # 形 5 つ(full・request_auto・doc・file・file_auto)× 届け先・出どころ・区間・話す人・normalize
 
     def test_mode_of_matches_mode_run(self):
         """派生の mode と表 MODE_RUN(mode_of の逆)が合う(記録の mode・modeLabel・溜めの鍵・届けた記録の mode が変わらない)"""
         for mode, (kind, frm, upto) in R.MODE_RUN.items():
             b = SP.validate(SP.merge({"run": dict({"upto": upto}, **({"from": frm} if frm else {}))}))
-            self.assertEqual(R.mode_of(kind, b, "r1" if mode.startswith("request") or mode == "adopted" else None), mode)
+            self.assertEqual(R.mode_of(kind, b, "r1" if mode.startswith("request") else None), mode)
         self.assertIsNone(R.mode_of("url", SP.validate(SP.merge({"run": {"from": "adopt"}}))))
+        self.assertIsNone(R.mode_of("url", SP.validate(SP.merge({"run": {"upto": "transcribe"}})), "r1"), "② 軽く確認(配信の頭から文字起こしまで)は消した")
         self.assertIsNone(R.mode_of("docs", SP.validate(SP.merge({"run": {"upto": "transcribe"}}))))
 
 
@@ -411,7 +412,7 @@ class TestAdopt(unittest.TestCase):
     def test_request_ranges_use_bundle_pad_and_set_marks(self):
         """友人の依頼(URL): 区間に束の adopt.pad の余白・扱うマークは区間 ∪ 人の採用 ∪ 自動・足りなければ知らせる"""
         res = {"rangeIds": ["r1"], "humanIds": ["h1"], "autoIds": ["a1"], "added": ["r1", "a1"]}
-        out, st, run, body = self.adopt(res, mode="request", top=4, ranges=[(100.0, 120.0)], spec={"adopt": {"pad": 5.0}},
+        out, st, run, body = self.adopt(res, mode="request_auto", top=4, ranges=[(100.0, 120.0)], spec={"adopt": {"pad": 5.0}},
                                         fresh={"title": "題", "channel": "ch"})
         self.assertEqual(body, {"id": "abcdefghijk", "ranges": [[95.0, 125.0]], "top": 4, "title": "題", "channel": "ch"})
         self.assertEqual((out, st["state"], run.marks), (None, "run", ("r1", "h1", "a1")))
@@ -753,7 +754,7 @@ class TestStepsAndPublic(unittest.TestCase):
         """RS7-1 S4: 受付で決めた友人の区間の長さ(friend_plan。束の analyze に入れてある)と知らせ(notes)は待ちの記録に残り、
         解析の段は使った印 friend_length と文を出す・パックの段は知らせを文に出し、結果の束にも入る"""
         plan = {"length": 38, "preRatio": 0.61, "file": "x.json", "samples": 20, "videos": 5, "base": {"length": 45, "preRatio": 0.65}}
-        r = RF.run_of(VID, "配信", "request", 3, ranges=[(10.0, 20.0)])
+        r = RF.run_of(VID, "配信", "request_auto", 3, ranges=[(10.0, 20.0)])
         r.friend_plan, r.notes = plan, ["知らせ"]
         RF.respec(r, {"analyze": {"length": 38, "preRatio": 0.61}})
         back = R.Run.restore(json.loads(json.dumps(r.saved())))

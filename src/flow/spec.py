@@ -164,7 +164,7 @@ def row_edge_ok(v):
 # ---------- 束の形 ----------
 SECTIONS = ("hints", "analyze", "adopt", "export", "transcribe", "post", "pack", "run")
 RUN_FROM = ("analyze", "adopt", "export", "transcribe", "pack")   # run.from に書ける段(run.py の MODE_STEPS の段の名前)
-RUN_UPTO = ("transcribe", "pack")   # run.upto = どこまで作るか(transcribe = 文字起こしまで・pack = パックまで。RV A2)
+RUN_UPTO = ("transcribe", "pack")   # run.upto = どこまで作るか(transcribe = 文字起こしまで・pack = パックまで。RV A2)。配信の URL は pack だけ(transcribe は動画ファイル = ② の口・CLI の --spec だけ。10-19)
 ON_FAIL = ("next", "stop")          # run.onFail = 1 本が失敗したとき(next = 残りを続ける・stop = そこで止める。RV A2)
 # run.requested に書ける項目(依頼が決めた項目。RV A2): weights = analyze の重み 3 つ(解析済みでも重みが違えば解析し直す)・
 # cut = pack.cut(リアルタイム切り抜きの自動の採用の既定より強い)・videoTracks = pack.videoTracks(1 でも要求に書く)・

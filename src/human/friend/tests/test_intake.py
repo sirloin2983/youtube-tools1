@@ -34,17 +34,17 @@ class FakeRunner:
         self.requests, self.files = [], []
         self.fail = None
 
-    def start_request(self, items, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None, cut=None, weights=None, streamer=None):
+    def start_request(self, items, request_id=None, deliver_dir=None, speakers=None, video_tracks=None, cut=None, weights=None, streamer=None):
         if self.fail:
             raise ValueError(self.fail)
         self.requests.append((items, request_id))
-        self.last = {"flow": flow, "deliver": deliver_dir, "speakers": speakers, "tracks": video_tracks, "cut": cut, "weights": weights, "streamer": streamer}
+        self.last = {"deliver": deliver_dir, "speakers": speakers, "tracks": video_tracks, "cut": cut, "weights": weights, "streamer": streamer}
         return {"runs": [{"id": "r%d" % len(self.requests) + it["id"][:3], "videoId": it["id"]} for it in items], "skipped": []}
 
-    def start_file(self, path, title="", streamer=None, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None, cut=None):
+    def start_file(self, path, title="", streamer=None, request_id=None, deliver_dir=None, speakers=None, video_tracks=None, cut=None):
         if self.fail:
             raise ValueError(self.fail)
-        self.files.append({"path": path, "title": title, "streamer": streamer, "rid": request_id, "flow": flow, "deliver": deliver_dir, "speakers": speakers,
+        self.files.append({"path": path, "title": title, "streamer": streamer, "rid": request_id, "deliver": deliver_dir, "speakers": speakers,
                            "tracks": video_tracks, "cut": cut})
         return {"id": "f%d" % len(self.files)}
 
@@ -76,6 +76,17 @@ class Base(unittest.TestCase):
             f.write(data if isinstance(data, bytes) else data.encode("utf-8"))
         return p
 
+    def put_urls(self, lines, rid=None):
+        """友人のアプリの URL の依頼(依頼の JSON の kind url)を置く。lines = ["URL [数]", …](数が無ければホームの既定)-> 依頼 id"""
+        self._rid = getattr(self, "_rid", 0) + 1
+        rid = rid or "20261002-120000-%06x" % self._rid
+        items = []
+        for line in lines:
+            parts = line.split()
+            items.append(dict({"url": parts[0]}, **({"top": int(parts[1])} if len(parts) > 1 else {})))
+        self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "url", "id": rid, "items": items}))
+        return rid
+
     def scan2(self):
         """1回目で大きさを覚え、SETTLE 秒あとの2回目で処理する"""
         self.it.scan()
@@ -106,7 +117,7 @@ class TestSubmitOrders(unittest.TestCase):
         rec = self.Rec(busy={"bbbbbbbbbbb"})
         out = intake.submit_urls(rec, [{"id": "aaaaaaaaaaa", "top": 3, "title": "配信", "channel": "ch", "ranges": [(10, 20)], "duration": 100.0},
                                        {"id": "bbbbbbbbbbb", "top": 2}, {"id": "bad", "top": 2}, {"id": "ccccccccccc", "top": 99}],
-                                 request_id="20261016-120000-abc123", flow="auto", deliver_dir="D:/out", speakers={"count": 2, "names": ["A"]},
+                                 request_id="20261016-120000-abc123", deliver_dir="D:/out", speakers={"count": 2, "names": ["A"]},
                                  video_tracks=2, cut="silence", weights={"wAudio": 1.5, "wChat": 0.5, "wComments": 2.0}, streamer="兎田ぺこら")
         self.assertEqual(sorted(out), ["runs", "skipped"])
         self.assertEqual([r["videoId"] for r in out["runs"]], ["aaaaaaaaaaa"])
@@ -116,21 +127,20 @@ class TestSubmitOrders(unittest.TestCase):
         self.assertEqual((env["kind"], env["specVersion"], env["requestId"], env["deliver"]["dir"], env["input"]["duration"],
                           env["input"]["fresh"]), ("url", 2, "20261016-120000-abc123", "D:/out", 100.0, {"title": "配信", "channel": "ch"}))
         self.assertNotIn("batch", env["deliver"])
-        out = intake.submit_urls(self.Rec(), [{"id": "aaaaaaaaaaa", "top": 1}])   # ② 軽く確認 = 文字起こしまで・作り直さない
-        self.assertEqual(out["runs"][0]["videoId"], "aaaaaaaaaaa")
 
-    def test_check_flow_and_file(self):
+    def test_always_full_auto(self):
+        """依頼はいつも ① 全自動 = パックまで(② 軽く確認 = 文字起こしまでは 10-19 に消した)。URL は送り直しで作り直す(repack)・動画は repack を付けない"""
         rec = self.Rec()
         intake.submit_urls(rec, [{"id": "aaaaaaaaaaa", "top": 1, "ranges": [[5, 1]]}, {"id": "ddddddddddd", "top": 1}])
         self.assertEqual(len(rec.got), 1, "形の違う区間の配信は断る")
-        self.assertEqual(rec.got[0][1]["run"], {"upto": "transcribe"})
-        intake.submit_file(rec, "C:/x/依頼.mp4", title="依頼", streamer="さくらみこ", request_id="rid", flow="auto", deliver_dir="D:/out")
+        self.assertEqual(rec.got[0][1]["run"], {"upto": "pack", "repack": True})
+        intake.submit_file(rec, "C:/x/依頼.mp4", title="依頼", streamer="さくらみこ", request_id="rid", deliver_dir="D:/out")
         env, spec = rec.got[-1]
         self.assertEqual((env["kind"], env["input"], env["requestId"], env["deliver"]["dir"]),
                          ("file", {"title": "依頼", "path": "C:/x/依頼.mp4", "normalize": True}, "rid", "D:/out"))
         self.assertEqual((spec["run"], spec["hints"]), ({"upto": "pack"}, {"streamer": "さくらみこ"}))
         intake.submit_file(rec, "C:/x/b.mp4")
-        self.assertEqual((rec.got[-1][0]["input"]["title"], rec.got[-1][1]["run"]), ("b.mp4", {"upto": "transcribe"}))
+        self.assertEqual((rec.got[-1][0]["input"]["title"], rec.got[-1][1]["run"]), ("b.mp4", {"upto": "pack"}))
 
 
 class TestParse(unittest.TestCase):
@@ -154,10 +164,9 @@ class TestParse(unittest.TestCase):
                                      "https://youtu.be/ccccccccccc 11\nhttps://youtu.be/ddddddddddd 2 # ここがほしい\nhttps://youtu.be/eeeeeeeeeee よろしく\n", 3)
         self.assertEqual([(o["id"], o["top"]) for o in ok], [("abcdefghijk", 5), ("bbbbbbbbbbb", 3), ("ddddddddddd", 2)])
         self.assertEqual(len(bad), 3)
-        # 文字コード(cp932・BOM)と URL ファイルの読み
+        # 文字コード(cp932・BOM)の読み(依頼の JSON)
         self.assertEqual(intake.decode_text("あ".encode("cp932")), "あ")
         self.assertEqual(intake.decode_text("\ufeffあ".encode("utf-8")), "あ")
-        self.assertEqual(intake.parse_url_file("[InternetShortcut]\r\nURL=https://youtu.be/abcdefghijk\r\n"), "https://youtu.be/abcdefghijk")
 
 
 class TestState(Base):
@@ -187,7 +196,7 @@ class TestSend(Base):
         self.assertEqual((self.runner.requests, self.runner.files, self.it.snapshot()["requests"]), ([], [], []))
 
     def test_requested_at(self):
-        self.put("依頼.txt", "https://youtu.be/abcdefghijk 5\n")
+        self.put_urls(["https://youtu.be/abcdefghijk 5"])
         self.scan2()
         self.assertEqual(self.it.requested_at("abcdefghijk"), int(self.now))
         for bad in ("bbbbbbbbbbb", "", None, 3):
@@ -214,46 +223,67 @@ class TestSend(Base):
         self.assertTrue(any("送り直し" in m for m in logs), logs)
 
 
-class TestText(Base):
-    def test_txt_urls(self):
-        self.put("依頼.txt", "https://youtu.be/abcdefghijk 5\nhttps://example.com/x\n")
+class TestUrlRequest(Base):
+    """友人のアプリの URL の依頼(依頼の JSON の kind url)を受付全体で見る。手で置いたファイル(動画・.txt・.url など)は受け付けない(10-19)"""
+
+    def test_url_request(self):
+        rid = self.put_urls(["https://youtu.be/abcdefghijk 5", "https://example.com/x"])
         self.it.scan()
         self.assertEqual(self.runner.requests, [], "落ち着く前は処理しない")
         self.now += intake.SETTLE + 1
         self.it.scan()
-        (items, rid), = self.runner.requests
+        (items, got), = self.runner.requests
         self.assertEqual([(i["id"], i["top"], i["title"]) for i in items], [("abcdefghijk", 5, "題名 abcdefghijk")])
-        self.assertIsNone(rid)
-        self.assertTrue(os.path.isfile(self.done("依頼.txt")))
-        self.assertTrue(os.path.isfile(self.done("依頼.理由.txt")))   # 飛ばした行の理由
+        self.assertEqual(got, rid)
+        self.assertTrue(os.path.isfile(self.done(rid + ".request.json")))
+        self.assertTrue(os.path.isfile(self.done(rid + ".request.理由.txt")))   # 飛ばした行の理由
         snap = self.it.snapshot()
-        self.assertEqual((snap["today"], snap["requests"][0]["state"], snap["requests"][0]["kind"]), (1, "accepted", "url"))
+        self.assertEqual((snap["today"], snap["requests"][0]["state"], snap["requests"][0]["kind"], snap["requests"][0]["flowLabel"]),
+                         (1, "accepted", "url", "① 全自動"))
         # 同じ配信をもう一度: 断らない(ユーザー。解析・切り抜き・文字起こしは、まとめて実行が使い回す)
-        self.put("again.url", "[InternetShortcut]\nURL=https://www.youtube.com/watch?v=abcdefghijk\n")
+        rid2 = self.put_urls(["https://www.youtube.com/watch?v=abcdefghijk"])
         self.scan2()
         self.assertEqual(len(self.runner.requests), 2)
-        self.assertTrue(os.path.isfile(self.done("again.url")))
+        self.assertTrue(os.path.isfile(self.done(rid2 + ".request.json")))
         # 1つの依頼の中で同じ配信を2回書いたら、1回だけ
-        self.put("twice.txt", "https://youtu.be/ccccccccccc\nhttps://www.youtube.com/watch?v=ccccccccccc 2\n")
+        self.put_urls(["https://youtu.be/ccccccccccc", "https://www.youtube.com/watch?v=ccccccccccc 2"])
         self.scan2()
         self.assertEqual([i["id"] for i in self.runner.requests[2][0]], ["ccccccccccc"])
+
+    def test_manual_files_are_rejected(self):
+        """依頼の JSON の無いファイル(手で置いた動画・URL の .txt・.url)は受け付けない: 失敗\\ へ移して理由を添える・まとめて実行へは入れない・
+        出力\\ には置かない(依頼 id が無い = 友人のアプリに知らせる先が無い)。記録の行に「① 全自動」は出さない"""
+        for n, data in (("【さくらみこ】にぇ.mp4", b"video"), ("依頼.txt", "https://youtu.be/abcdefghijk 5\n"),
+                        ("again.url", "[InternetShortcut]\nURL=https://www.youtube.com/watch?v=abcdefghijk\n")):
+            self.put(n, data)
+        self.scan2()
+        self.assertEqual((self.runner.requests, self.runner.files), ([], []))
+        for n in ("【さくらみこ】にぇ.mp4", "依頼.txt", "again.url"):
+            self.assertTrue(os.path.isfile(self.failed(n)), n)
+        with open(self.failed("依頼.理由.txt"), encoding="utf-8-sig") as f:
+            self.assertIn("友人のアプリから送ってください", f.read())
+        recs = self.it.snapshot()["requests"]
+        self.assertEqual(sorted((r["source"], r["state"], r["flowLabel"], r["reason"]) for r in recs),
+                         [("manual", "rejected", "", intake.MANUAL_REASON)] * 3)
+        self.assertFalse(os.path.exists(os.path.join(self.folder, intake.OUT_DIR)))
+        self.assertNotIn("abcdefghijk", self.it.st["videos"])
 
     def test_long_and_live(self):
         self.infos = {"aaaaaaaaaaa": {"duration": 9 * 3600.0, "live": "was_live", "title": "", "channel": ""},
                       "bbbbbbbbbbb": {"duration": None, "live": "is_live", "title": "", "channel": ""}}
-        self.put("x.txt", "https://youtu.be/aaaaaaaaaaa\nhttps://youtu.be/bbbbbbbbbbb\n")
+        rid = self.put_urls(["https://youtu.be/aaaaaaaaaaa", "https://youtu.be/bbbbbbbbbbb"])
         self.scan2()
         self.assertEqual(self.runner.requests, [])
         r = self.it.snapshot()["requests"][0]
         self.assertEqual(r["state"], "rejected")
         self.assertIn("長すぎます", r["items"][0]["reason"])
         self.assertIn("配信中", r["items"][1]["reason"])
-        self.assertEqual(r["title"], "x.txt", "題名が分からなければファイル名")
+        self.assertEqual(r["title"], rid + ".request.json", "題名が分からなければファイル名")
 
     def test_rejected_shows_stream_title(self):
         """断った配信も、題名が分かれば URL ではなく題名で出す(一覧で読めるように)"""
         self.infos = {"bbbbbbbbbbb": {"duration": None, "live": "is_live", "title": "【雑談】配信中の題名", "channel": ""}}
-        self.put("y.txt", "https://youtu.be/bbbbbbbbbbb 2\n")
+        self.put_urls(["https://youtu.be/bbbbbbbbbbb 2"])
         self.scan2()
         r = self.it.snapshot()["requests"][0]
         self.assertEqual(r["title"], "【雑談】配信中の題名")
@@ -262,10 +292,10 @@ class TestText(Base):
     def test_no_daily_limit(self):
         """1 日の件数の上限は無い: 同じ日に何件でも受け付け、フォルダに残さない。今日の件数は数えるだけ"""
         for i in range(7):
-            self.put("%d.txt" % i, "https://youtu.be/%s\n" % (chr(ord("a") + i) * 11))
+            self.put_urls(["https://youtu.be/%s" % (chr(ord("a") + i) * 11)])
         self.scan2()
         self.assertEqual(len(self.runner.requests), 7)
-        self.assertEqual([n for n in os.listdir(self.folder) if n.endswith(".txt")], [], "フォルダに残さない(翌日に回さない)")
+        self.assertEqual([n for n in os.listdir(self.folder) if n.endswith(".json")], [], "フォルダに残さない(翌日に回さない)")
         snap = self.it.snapshot()
         self.assertEqual((snap["today"], snap["message"]), (7, ""))
         self.assertNotIn("dailyMax", snap)
@@ -276,6 +306,7 @@ class TestText(Base):
         self.scan2()
         self.assertTrue(os.path.isfile(self.failed("写真.png")))
         self.assertEqual(self.runner.requests + self.runner.files, [])
+        self.assertEqual(self.it.snapshot()["requests"][0]["reason"], intake.MANUAL_REASON)
 
     def test_os_files_are_ignored(self):
         """desktop.ini・Thumbs.db・隠しファイルは依頼ではない(断って移すと、また作られて「断った」が毎回増えた)"""
@@ -298,7 +329,7 @@ class TestText(Base):
 
     def test_runner_refuses(self):
         self.runner.fail = "順番待ちが多すぎます(20本まで)"
-        self.put("a.txt", "https://youtu.be/aaaaaaaaaaa\n")
+        self.put_urls(["https://youtu.be/aaaaaaaaaaa"])
         self.scan2()
         r = self.it.snapshot()["requests"][0]
         self.assertEqual(r["state"], "rejected")
@@ -306,22 +337,16 @@ class TestText(Base):
 
 
 class TestVideo(Base):
-    def test_manual_video_with_name(self):
-        self.put("【さくらみこ】にぇ.mp4", b"video-bytes-1")
+    def send_video(self, rid, names, **extra):
+        """友人のアプリの動画の依頼(<依頼 id>__<名前> の動画 + 依頼の JSON)を置いて流す"""
+        for n in names:
+            self.put("%s__%s" % (rid, n), ("clip-" + n).encode("utf-8"))
+        self.put(rid + ".request.json", json.dumps(dict({"v": 1, "kind": "video", "id": rid, "files": ["%s__%s" % (rid, n) for n in names]}, **extra),
+                                                   ensure_ascii=False))
         self.scan2()
-        f, = self.runner.files
-        self.assertTrue(f["path"].startswith(os.path.join(self.data, "intake")))
-        self.assertTrue(os.path.isfile(f["path"]))
-        self.assertEqual(f["streamer"], "さくらみこ")
-        self.assertTrue(os.path.isfile(self.done("【さくらみこ】にぇ.mp4")))
-        # 同じ中身をもう一度: 断らない(送り直し。ユーザー)
-        self.put("copy.mp4", b"video-bytes-1")
-        self.scan2()
-        self.assertEqual(len(self.runner.files), 2)
-        self.assertEqual(self.it.snapshot()["requests"][0]["state"], "accepted")
 
     def test_flow_label_only_when_known(self):
-        """行の「① 全自動」「② 軽く確認」は流れが分かる依頼だけ(手で置いた動画は ②・友人の依頼は断っても ①・形の読めない依頼と知らないファイルは出さない。9a-3)"""
+        """行の「① 全自動」は流れが分かる依頼だけ(友人の依頼は断っても ①・形の読めない依頼・手で置いたファイル・知らないファイルは出さない。9a-3)"""
         self.put("手で置いた.mp4", b"m")
         self.put("写真.png", b"x")
         rid = "20261001-120000-abc130"
@@ -330,22 +355,22 @@ class TestVideo(Base):
         self.put(rid2 + ".request.json", json.dumps({"v": 1, "kind": "video", "id": rid2, "files": []}))
         self.scan2()
         labels = {r["title"]: r["flowLabel"] for r in self.it.snapshot()["requests"]}
-        self.assertEqual(labels, {"手で置いた.mp4": "② 軽く確認", "写真.png": "", rid + ".request.json": "", rid2 + ".request.json": "① 全自動"})
+        self.assertEqual(labels, {"手で置いた.mp4": "", "写真.png": "", rid + ".request.json": "", rid2 + ".request.json": "① 全自動"})
 
     def test_unknown_streamer_goes_without_color(self):
-        self.put("【だれでもない人】x.mp4", b"v2")
-        self.scan2()
+        self.send_video("20261001-120000-abc150", ["x.mp4"], streamer="だれでもない人")
         self.assertIsNone(self.runner.files[0]["streamer"])
         self.assertTrue(any("色なし" in i["reason"] for i in self.it.snapshot()["requests"][0]["items"]))
 
     def test_probe_rejects(self):
-        self.probes["bad.mp4"] = {"ok": False, "duration": None, "reason": "音声のある動画として読めませんでした"}
-        self.probes["long.mp4"] = {"ok": True, "duration": 10 * 3600.0, "reason": ""}
-        self.put("bad.mp4", b"a")
-        self.put("long.mp4", b"b")
-        self.scan2()
+        rid = "20261001-120000-abc151"
+        self.probes[rid + "__bad.mp4"] = {"ok": False, "duration": None, "reason": "音声のある動画として読めませんでした"}
+        self.probes[rid + "__long.mp4"] = {"ok": True, "duration": 10 * 3600.0, "reason": ""}
+        self.send_video(rid, ["bad.mp4", "long.mp4"])
         self.assertEqual(self.runner.files, [])
-        self.assertTrue(os.path.isfile(self.failed("bad.mp4")) and os.path.isfile(self.failed("long.mp4")))
+        self.assertTrue(os.path.isfile(self.failed(rid + "__bad.mp4")) and os.path.isfile(self.failed(rid + "__long.mp4")))
+        reasons = [i["reason"] for i in self.it.snapshot()["requests"][0]["items"]]
+        self.assertTrue(any("読めませんでした" in r for r in reasons) and any("長すぎます" in r for r in reasons), reasons)
 
     def test_app_request_video(self):
         rid = "20261001-120000-abc123"
@@ -358,7 +383,8 @@ class TestVideo(Base):
                                                      "streamer": "さくらみこ", "sentAt": ""}, ensure_ascii=False))
         self.scan2()
         f, = self.runner.files
-        self.assertEqual((f["title"], f["streamer"], f["rid"], f["flow"]), ("にぇの叫び", "さくらみこ", rid, "auto"))   # flow の無い 1.0.0 のアプリ = ① (RS5-F)
+        self.assertEqual((f["title"], f["streamer"], f["rid"]), ("にぇの叫び", "さくらみこ", rid))   # flow の無い 1.0.0 のアプリ = ① (RS5-F)
+        self.assertEqual(self.it.snapshot()["requests"][0]["flowLabel"], "① 全自動")
         r = self.it.snapshot()["requests"][0]
         self.assertEqual((r["source"], r["state"]), ("app", "accepted"))
         self.assertNotIn("memo", r)
@@ -422,7 +448,7 @@ class TestVideo(Base):
                                                       "items": [{"url": "https://youtu.be/bbbbbbbbbbb", "top": 3}]}))
         self.scan2()
         f, = self.runner.files
-        self.assertEqual((f["flow"], f["deliver"]), ("auto", os.path.join(self.folder, intake.OUT_DIR)))
+        self.assertEqual(f["deliver"], os.path.join(self.folder, intake.OUT_DIR))
         self.assertEqual(len(self.runner.requests), 2)
         labels = {r["title"]: r["flowLabel"] for r in self.it.snapshot()["requests"]}
         self.assertEqual(sorted(labels.values()), ["① 全自動"] * 3)   # ③ manual も知らない形も ① (断らない)
@@ -582,7 +608,7 @@ class TestVideo(Base):
         self.assertEqual(self.it.snapshot()["requests"][0]["state"], "rejected")
 
     def test_state_persists(self):
-        self.put("a.txt", "https://youtu.be/aaaaaaaaaaa\n")
+        self.put_urls(["https://youtu.be/aaaaaaaaaaa"])
         self.scan2()
         again = intake.Intake(self.prefs, lambda: self.runner, self.data, clock=lambda: self.now, info=lambda v: None)
         self.assertEqual(again.snapshot()["today"], 1)
@@ -663,11 +689,6 @@ class TestRequestFolder(Base):
                 mock.patch.object(intake.placement._fsio, "is_fixed_drive", return_value=False):
             self.send("20261001-120000-abc127", ["y.mp4"])
         self.assertEqual(os.path.dirname(self.runner.files[1]["path"]), os.path.join(self.data, "intake", self.it._today(), "20261001-120000-abc127"))
-        # 手で置いた動画は自分のフォルダ
-        self.put("手で置いた.mp4", b"manual")
-        self.scan2()
-        d = os.path.dirname(self.runner.files[-1]["path"])
-        self.assertEqual(os.path.dirname(d), os.path.join(self.data, "intake", self.it._today()))
 
 
 class TestVideoNoSlots(Base):
@@ -706,7 +727,10 @@ class TestVideoNoSlots(Base):
         """重い処理の枠を上限まで埋めた状態で 30fps でない動画を置いても、scan はすぐ返り、別の見回りが錠を取れる(9a-1 の再現。
         scan が錠を持ったまま SLOTS.slot で待つと、枠が空くまでライブ配信の依頼・「要らない」・送り返しの見回りも止まる)。
         受付は写して start_file に渡すだけ(写しは 60fps のまま。友人の元のファイルは受付済みへ移るだけ)"""
-        src = self.make("【さくらみこ】にぇ", 60)
+        rid = "20261001-120000-abc160"
+        src = self.make(rid + "__【さくらみこ】にぇ", 60)
+        self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "video", "id": rid, "files": [os.path.basename(src)], "streamer": "さくらみこ"},
+                                                   ensure_ascii=False))
         with open(src, "rb") as f:
             original = f.read()
         slots = jobs.HeavySlots(limit=1, reserved={})
@@ -728,7 +752,7 @@ class TestVideoNoSlots(Base):
         with open(p, "rb") as f:
             self.assertEqual(f.read(), original, "受付は写すだけ(30fps は実行の段 normalize)")
         self.assertTrue(p.startswith(os.path.join(self.data, "intake")))
-        self.assertEqual(normalize.probe(self.done("【さくらみこ】にぇ.mp4"))["r_frame_rate"], "60/1")
+        self.assertEqual(normalize.probe(self.done(os.path.basename(src)))["r_frame_rate"], "60/1")
         rec = self.it.snapshot()["requests"][0]
         self.assertEqual((rec["state"], rec["items"][0]["reason"]), ("accepted", ""))
         self.assertEqual(self.it.message, "")
@@ -883,7 +907,7 @@ class TestLiveRequest(Base):
             self.assertEqual(self.begun, [], "録画は始めない")
             items, got = self.runner.requests[-1]
             self.assertEqual(([(x["id"], x["top"], x["ranges"]) for x in items], got), ([(self.VID, 4, [])], rid))
-            self.assertEqual(self.runner.last, {"flow": "auto", "deliver": os.path.join(self.folder, intake.OUT_DIR), "speakers": self.SPEAKERS, "tracks": 3,
+            self.assertEqual(self.runner.last, {"deliver":os.path.join(self.folder, intake.OUT_DIR), "speakers": self.SPEAKERS, "tracks": 3,
                                                 "cut": "silence", "weights": None, "streamer": "さくらみこ"})
             self.assertEqual((rec["kind"], rec["state"], rec["title"], rec["flowLabel"]), ("url", "accepted", title, "① 全自動"))
             note = [x for x in rec["items"] if x["label"] == "ライブ配信"]

@@ -79,10 +79,18 @@
   - 名前: `studio_data` :49・`case_root` :62・`doc_home` :90・`configured_out_dir` :124・`request_root` :132・`case_parents` :155・`case_roots` :161・`find_request_dir` :182・`work_dir` :203・`runs_dir` :209・`case_path` :227・`read_case` :232・ほか 10
 - **prio.py** (88 行) — ② 管理の層 flow: 処理の優先度の表(PRIO。決定 3-49・notes:plan/done/opt-series.md の 11)。
   - 名前: `name_ok` :35・`rank` :39・`idle_only` :43・`os_priority` :47・`label` :51・`slot_kw` :55・`of_run` :60・`of_spec` :69・`watch` :80・`idle_now` :85
-- **run.py** (1597 行) — ① 自動の流れの経路(RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。
-  - 名前: `class Cancelled` :121・`class StepError` :125・`mode_of` :145・`steps_of` :181・`analyze_verdict` :223・`chat_missing` :240・`chat_retry_ok` :246・`redo_reason` :254・`short_why` :272・`adopted_ids` :284・`tx_verdict` :289・`pack_verdict` :296・ほか 4
+- **run.py** (1595 行) — ① 自動の流れの経路(RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。
+  - 名前: `class Cancelled` :122・`class StepError` :126・`mode_of` :145・`steps_of` :179・`analyze_verdict` :221・`chat_missing` :238・`chat_retry_ok` :244・`redo_reason` :252・`short_why` :270・`adopted_ids` :282・`tx_verdict` :287・`pack_verdict` :294・ほか 4
+- **run.py** (1595 行) — ① 自動の流れの経路(RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。
+  - 名前: `class Cancelled` :122・`class StepError` :126・`mode_of` :145・`steps_of` :179・`analyze_verdict` :221・`chat_missing` :238・`chat_retry_ok` :244・`redo_reason` :252・`short_why` :270・`adopted_ids` :282・`tx_verdict` :287・`pack_verdict` :294・ほか 4
+- **run.py** (1595 行) — ① 自動の流れの経路(RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。
+  - 名前: `class Cancelled` :122・`class StepError` :126・`mode_of` :145・`steps_of` :179・`analyze_verdict` :221・`chat_missing` :238・`chat_retry_ok` :244・`redo_reason` :252・`short_why` :270・`adopted_ids` :282・`tx_verdict` :287・`pack_verdict` :294・ほか 4
 - **runlog.py** (93 行) — まとめて実行の「終わった実行の記録」の形と読み方(RS3-0B)。
   - 名前: `read_runs_log` :47・`read_result` :77
+- **runqueue.py** (838 行) — ② 管理の層 flow: 待ち行列と実行の糸(RS7-1 S5。決定 3-30・
+  - 名前: `class SpecVersionError` :64・`class BadSpecError` :68・`check_spec` :72・`disk_blocked` :86・`gpu_info` :100・`busy_reason` :114・`doc_id_ok` :123・`result_case` :171・`board_job` :182・`class Queue` :200
+- **runqueue.py** (838 行) — ② 管理の層 flow: 待ち行列と実行の糸(RS7-1 S5。決定 3-30・
+  - 名前: `class SpecVersionError` :64・`class BadSpecError` :68・`check_spec` :72・`disk_blocked` :86・`gpu_info` :100・`busy_reason` :114・`doc_id_ok` :123・`result_case` :171・`board_job` :182・`class Queue` :200
 - **runqueue.py** (838 行) — ② 管理の層 flow: 待ち行列と実行の糸(RS7-1 S5。決定 3-30・
   - 名前: `class SpecVersionError` :64・`class BadSpecError` :68・`check_spec` :72・`disk_blocked` :86・`gpu_info` :100・`busy_reason` :114・`doc_id_ok` :123・`result_case` :171・`board_job` :182・`class Queue` :200
 - **sendpolicy.py** (73 行) — ② 管理の層 flow: 友人へ自動で送るかの判定(D-SEND の段 1。要件は notes:plan/done/d-send-requirements.md の 2-1・2-8・2-9)。
@@ -127,6 +135,8 @@
 - src/flow/tests/test_livesession.py — flow/livesession(ライブ係)のテスト。  py -3.12 -m unittest src/flow/tests/test_livesession.py -v
 - src/flow/tests/test_machine.py — flow/machine(この PC の設定。役割で組み直す RS7-1 S1)のテスト。  py -3.12 -m unittest src/flow/tests/test_machine.py -v
 - src/flow/tests/test_order.py — flow/order.py(欄 → 封筒 + 束の差分。RV A1)のテスト。  py -3.12 -m unittest src/flow/tests/test_order.py -v
+- src/flow/tests/test_order.py — flow/order.py(欄 → 封筒 + 束の差分。RV A1)のテスト。  py -3.12 -m unittest src/flow/tests/test_order.py -v
+- src/flow/tests/test_order.py — flow/order.py(欄 → 封筒 + 束の差分。RV A1)のテスト。  py -3.12 -m unittest src/flow/tests/test_order.py -v
 - src/flow/tests/test_outbox.py — src/flow/outbox.py(送り返しの zip。F1 の F2)のテスト。リポジトリ直下で:
 - src/flow/tests/test_pack_ingest.py — ② flow/pack.py・flow/ingest.py の動詞。  py -3.12 -m unittest src/flow/tests/test_pack_ingest.py -v
 - src/flow/tests/test_packjobs.py — flow/packjobs.py(パックのジョブの器。OPT2 J3): 同時 1 本・取り消し・履歴・SLOTS・掲示板の形
@@ -134,7 +144,11 @@
 - src/flow/tests/test_placement.py — flow/placement(② 置き場所の持ち主・結果の束・.flow.lock。RS6 b-B0)のテスト。
 - src/flow/tests/test_prio.py — flow/prio(処理の優先度の 1 つの表。PRIO・決定 3-49): 表・級の決め方・重い処理の枠の順番と「空いているときだけ」・
 - src/flow/tests/test_run.py — pipeline/run.py(① の経路。RS1-7)のテスト。  py -3.12 -m unittest src/flow/tests/test_run.py -v
+- src/flow/tests/test_run.py — pipeline/run.py(① の経路。RS1-7)のテスト。  py -3.12 -m unittest src/flow/tests/test_run.py -v
+- src/flow/tests/test_run.py — pipeline/run.py(① の経路。RS1-7)のテスト。  py -3.12 -m unittest src/flow/tests/test_run.py -v
 - src/flow/tests/test_runlog.py — pipeline/runlog.py(終わった実行の記録の形と読み方。RS3-0B)のテスト。  py -3.12 -m unittest src/flow/tests/test_runlog.py -v
+- src/flow/tests/test_runqueue.py — flow/runqueue.py(② の待ち行列と実行の糸。RS7-1 S5)のテスト。  py -3.12 -m unittest src/flow/tests/test_runqueue.py -v
+- src/flow/tests/test_runqueue.py — flow/runqueue.py(② の待ち行列と実行の糸。RS7-1 S5)のテスト。  py -3.12 -m unittest src/flow/tests/test_runqueue.py -v
 - src/flow/tests/test_runqueue.py — flow/runqueue.py(② の待ち行列と実行の糸。RS7-1 S5)のテスト。  py -3.12 -m unittest src/flow/tests/test_runqueue.py -v
 - src/flow/tests/test_sendpolicy.py — flow/sendpolicy.py(友人へ自動で送る判定。D-SEND の段 1)と flow/deliveries.py の読み口のうち、通しでは起こせない物:
 - src/flow/tests/test_spec.py — pipeline/spec.py(① に渡す指定の束の形・既定値・検査。RS1-6)のテスト。  py -3.12 -m unittest src/flow/tests/test_spec.py -v

@@ -62,21 +62,22 @@ MODES = {"full": "解析から全部"}   # まとめて実行の形(10-19 ユー
 STEP_LABELS = {"analyze": "解析", "adopt": "採用(自動)", "export": "書き出し", "transcribe": "文字起こし", "pack": "パック",
                "deliver": "Dropbox へ届ける", "diarize": "話者分離", "analyze_later": "解析(あとで)", "normalize": "30fps にそろえる"}
 MODE_STEPS = {"full": ("analyze", "adopt", "export", "transcribe", "pack"), "doc": ("transcribe", "pack"),
-              "request": ("analyze", "adopt", "export", "transcribe"), "file": ("normalize", "transcribe"),
+              "file": ("normalize", "transcribe"),
               "request_auto": ("analyze", "adopt", "export", "transcribe", "pack", "deliver"),
               "file_auto": ("normalize", "transcribe", "pack", "deliver")}
 # 段 normalize(動画ファイルの実行の最初。opt-human 9a-1): 作業データへ写した動画を 30fps に置き換える(flow/normalize の replace=True)。
 # 置き換えは元を消すので、写しを渡す受付(友人の受付 intake.submit_file = 封筒の input.normalize true)の実行だけ。ほか(ライブの書き出し・CLI)は段を持たない
 NORMALIZE_STEP = "normalize"
 # 友人からの依頼(src/human/friend/intake.py。notes:docs/spec/friend.md)の形。ホームの画面の「まとめて実行」の選択肢には出さない(MODES に入れない)。
-# 友人が送るときに選ぶ(ユーザー決定): ① 全自動 auto = パックまで作って Dropbox の 出力\ へ / ② 軽く確認 check = 文字起こしまで /
-# (② check は手で置いた動画・URL が使う。ライブの書き出しのあとの「文字起こしまで」= after check は 10-19 に消した = 保存済みは全自動 file_auto)。
-# request* = 配信の URL(解析 → 上位 N 個を採用 → 書き出し → …)/ file* = 友人が切り抜いた動画(file は ② の口・CLI の束で run.upto transcribe を頼んだときも)
-REQUEST_MODES = {"request_auto": "依頼 ① 全自動: 解析 → パック", "request": "依頼 ② 軽く確認: 解析 → 文字起こし",
-                 "file_auto": "依頼 ① 全自動: 文字起こし → パック", "file": "依頼 ② 軽く確認: 文字起こし"}
+# 友人の依頼はいつも ① 全自動 = パックまで作って Dropbox の 出力\ へ(② 軽く確認 = 手で置いた動画・URL の文字起こしまでの道と形 request は 10-19 に消した)。
+# request_auto = 配信の URL(解析 → 上位 N 個を採用 → 書き出し → …)/ file_auto = 友人が切り抜いた動画。
+# file(動画ファイルの文字起こしまで)は、② の口 POST /api/flow/submit・CLI の --spec で run.upto transcribe を頼んだときだけ
+# (ライブの書き出しのあとの「文字起こしまで」= after check も 10-19 に消した = 保存済みは全自動 file_auto)
+REQUEST_MODES = {"request_auto": "依頼 ① 全自動: 解析 → パック",
+                 "file_auto": "依頼 ① 全自動: 文字起こし → パック", "file": "動画ファイル: 文字起こしまで"}
 # 友人が時刻で指定した区間(notes:docs/spec/friend.md の 2-6): 前後に余白を足してスタジオの手動マーク(採用)にする。
 # 区間が切り抜く数(top)に足りない分だけ、自動マークの上位で埋める(スタジオの /api/video/request-marks)
-REQUEST_URL_MODES = ("request", "request_auto")
+REQUEST_URL_MODES = ("request_auto",)
 # 文書単位の実行(notes:docs/design/edit-tool-design.md の 12 ⑦(b)): 「編集」の履歴で選んだ文書を、行が無ければ文字起こし → パック。
 # カットがある文書はカットのとおり(ユーザー決定。配信単位の実行と同じ)。パックがあるときは既定で飛ばす(overwrite で上書き)
 # 状態の言葉(気が利く画面へ 段4。どの入口の画面もこの言葉で出す = snapshot の labels)
@@ -135,8 +136,7 @@ def _job_why(j):
 
 
 # 派生の mode -> (封筒の kind, 束の run.from, 束の run.upto)。mode_of の逆(どれか 1 つの組。テストと道具が mode から封筒 + 束を組むのに使う)
-MODE_RUN = {"full": ("url", None, "pack"),
-            "request": ("url", None, "transcribe"), "request_auto": ("url", None, "pack"), DOC_MODE: ("docs", None, "pack"),
+MODE_RUN = {"full": ("url", None, "pack"), "request_auto": ("url", None, "pack"), DOC_MODE: ("docs", None, "pack"),
             "file": ("file", None, "transcribe"), "file_auto": ("file", None, "pack")}
 MODE_HINT = {"url": "run.from は null・analyze(頭から)か export(書き出しから)、run.upto は pack", "docs": "run.upto は pack",
              "file": "run.upto は transcribe か pack"}
@@ -145,9 +145,9 @@ MODE_HINT = {"url": "run.from は null・analyze(頭から)か export(書き出�
 def mode_of(kind, bundle, request_id=None):
     """封筒の kind + 束の run.from・run.upto + 依頼の id -> 実行の形(MODE_STEPS の鍵。記録の mode・modeLabel・届ける溜めの鍵の元)か None(合わない組)。
     url: from が export = 書き出しから(upto pack だけ → full・依頼の id があれば request_auto。段の並びは steps_of が解析・採用を外す。upto transcribe は None = 断る)/
-    頭から(null・analyze)= upto pack なら依頼の id で request_auto か full・
-    transcribe なら request / transcribe(run() の from_ = 配信の文字起こしから)= doc。docs: pack だけ(doc)。file: pack → file_auto・transcribe → file
-    (手で置いた動画・② の口・CLI の束が upto transcribe を頼んだとき)(RV A2)"""
+    頭から(null・analyze)= upto pack だけ(依頼の id で request_auto か full。upto transcribe = 消した ② 軽く確認の request は None = 断る)/
+    transcribe(run() の from_ = 配信の文字起こしから)= doc。docs: pack だけ(doc)。file: pack → file_auto・transcribe → file
+    (② の口・CLI の束が upto transcribe を頼んだとき)(RV A2)"""
     frm, upto = bundle["run"]["from"], bundle["run"]["upto"]
     if kind == "docs":
         return DOC_MODE if upto == "pack" else None
@@ -161,9 +161,7 @@ def mode_of(kind, bundle, request_id=None):
         return "request_auto" if request_id else "full"   # 依頼の id があれば依頼の全自動を書き出しから(届けるのは依頼)・無ければまとめて実行(D-SEND の判定を通る)
     if frm == "transcribe" and upto == "pack":
         return DOC_MODE
-    if frm in (None, "analyze"):
-        if upto == "transcribe":
-            return "request"
+    if frm in (None, "analyze") and upto == "pack":
         return "request_auto" if request_id else "full"
     return None
 

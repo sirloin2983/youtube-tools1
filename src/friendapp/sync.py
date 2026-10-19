@@ -505,7 +505,7 @@ class Sync:
             if io is None:
                 raise SyncError(NO_KEY)
             gone = True if rem.get("state") == "pending" else io.delete(self.request_path(rid))
-            if gone and video:   # 上げた動画も消す(依頼の JSON の無い動画を、受付が手で置いた動画として流さないように)
+            if gone and video:   # 上げた動画も消す(依頼の JSON の無い動画は、受付が手で置いたファイルとして断って 失敗\ へ移すので、残さない)
                 fi = (r.get("form") or {}).get("file") or {}
                 io.delete("/" + upload_name(rid, fi.get("name") or "video"))
             return gone

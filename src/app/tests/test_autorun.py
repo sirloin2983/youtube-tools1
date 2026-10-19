@@ -1025,7 +1025,7 @@ class TestRequests(Base):
 
     def auto_request(self, **kw):
         """① 全自動(URL)の依頼 1 本(上位 2 個・届け先 self.out)を流して、終わった実行を返す。kw は依頼の欄の上書き"""
-        kw = dict({"request_id": self.RID, "flow": "auto", "deliver_dir": self.out}, **kw)
+        kw = dict({"request_id": self.RID, "deliver_dir": self.out}, **kw)
         return self.request({"id": VID, "top": 2, "title": "配信", "channel": ""}, **kw)
 
     def test_request_url(self):
@@ -1033,10 +1033,10 @@ class TestRequests(Base):
         res = start_request(self.r, [{"id": VID, "top": 2, "title": "配信", "channel": "ch"}, {"id": "bad", "top": 2}], request_id="20261001-120000-abc123")
         self.assertEqual(len(res["skipped"]), 1)
         run = self.wait(res["runs"][0])
-        self.assertEqual((run["state"], run["mode"], run["modeLabel"], run["requestId"]), ("done", "request", "依頼 ② 軽く確認: 解析 → 文字起こし", "20261001-120000-abc123"))
-        self.assertEqual(list(self.states(run)), ["analyze", "adopt", "export", "transcribe"])
+        # 依頼はいつも ① 全自動(② 軽く確認 = 文字起こしまでは 10-19 に消した)
+        self.assertEqual((run["state"], run["mode"], run["modeLabel"], run["requestId"]), ("done", "request_auto", "依頼 ① 全自動: 解析 → パック", "20261001-120000-abc123"))
+        self.assertEqual(list(self.states(run)), ["analyze", "adopt", "export", "transcribe", "pack", "deliver"])
         self.assertEqual(sorted(self.tools.export_body["markIds"]), ["a2", "a3"])   # 上位 2 個
-        self.assertNotIn("body", self.tools.c2r, "パックは作らない")
 
     def test_file(self):
         media = self.empty("依頼.mp4")
@@ -1044,7 +1044,7 @@ class TestRequests(Base):
         with self.assertRaisesRegex(ValueError, "すでに"):
             start_file(self.r, media)
         run = self.wait(run)
-        self.assertEqual((run["state"], run["kind"], run["sourcePath"], run["modeLabel"]), ("done", "file", media, "依頼 ② 軽く確認: 文字起こし"), run)
+        self.assertEqual((run["state"], run["kind"], run["sourcePath"], run["modeLabel"]), ("done", "file", media, "動画ファイル: 文字起こしまで"), run)
         self.assertEqual([j["src"] for j in self.tools.tx_jobs.values()], [media])
         self.assertEqual(run["docs"], ["000000000001"])
         self.assertEqual(self.prefs.get(["streamer"])["streamer"]["docs"], {"000000000001": "さくらみこ"})   # パックのときの字幕の色
@@ -1363,7 +1363,7 @@ class TestRequests(Base):
         self.tools.known = False
         self._diarize_fake(lambda path, body: (200, {"ok": True, "applied": []}))
         item = {"id": VID, "top": 1, "title": "配信", "channel": "Pekora Ch. 兎田ぺこら", "ranges": [(50, 60)]}
-        run = self.request(item, request_id="rid1", flow="auto", deliver_dir=self.out, speakers=dict(self.SPEAKERS), streamer="さくらみこ")
+        run = self.request(item, request_id="rid1", deliver_dir=self.out, speakers=dict(self.SPEAKERS), streamer="さくらみこ")
         self.assertEqual((run["state"], run["streamer"], run["streamerFrom"]), ("done", "さくらみこ", None), run)
         self.assertEqual(list(self.states(run)), ["adopt", "export", "transcribe", "diarize", "pack", "deliver", "analyze_later"])
         out_body = self.tools.c2r["body"]["output"]
@@ -1371,7 +1371,7 @@ class TestRequests(Base):
         self.assertTrue(self.sub_calls())
         # streamer なし / 空 = 今までどおりチャンネル名から自動
         for who in (None, ""):
-            run = self.request(dict(item, ranges=[(70, 80)]), request_id="rid2", flow="auto", deliver_dir=self.out, streamer=who)
+            run = self.request(dict(item, ranges=[(70, 80)]), request_id="rid2", deliver_dir=self.out, streamer=who)
             self.assertEqual((run["state"], run["streamer"], run["streamerFrom"]), ("done", "兎田ぺこら", "auto"), run)
             self.assertEqual(self.tools.c2r["body"]["output"]["streamer"], "兎田ぺこら")
             self.assertNotIn("speakerStyles", self.tools.c2r["body"]["output"])
@@ -1380,7 +1380,7 @@ class TestRequests(Base):
         """区間が切り抜く数に足りている: 解析なしで、区間(前後に 2 秒の余白)だけを書き出し → 文字起こし。解析は最後に順番へ入れるだけ(待たない。決定 3-49 Q6)"""
         self.tools.known = False
         run = self.request({"id": VID, "top": 2, "title": "配信", "channel": "ch", "ranges": [(100, 190), (1, 30)], "duration": 191.0}, request_id="rid")
-        self.assertEqual((run["state"], list(self.states(run))), ("done", ["adopt", "export", "transcribe", "analyze_later"]), run)
+        self.assertEqual((run["state"], list(self.states(run))), ("done", ["adopt", "export", "transcribe", "pack", "deliver", "analyze_later"]), run)
         adds = [i for i, c in enumerate(self.tools.calls) if c[2] == "/api/queue/add"]
         self.assertEqual(len(adds), 1, "解析は最後に 1 回だけ順番へ")
         self.assertGreater(adds[0], max(i for i, c in enumerate(self.tools.calls) if c[2] == "/api/video/request-marks"), "切り抜く前には解析しない")
@@ -1396,7 +1396,7 @@ class TestRequests(Base):
         self.tools.known = False
         self.tools.video["marks"] = [{"id": "old", "src": "manual", "status": "adopted", "score": None, "start": 500, "end": 510}]   # 前からある人の採用
         run = self.request({"id": VID, "top": 3, "ranges": [(18, 23)]}, request_id="rid")
-        self.assertEqual((run["state"], list(self.states(run))), ("done", ["analyze", "adopt", "export", "transcribe"]), run)
+        self.assertEqual((run["state"], list(self.states(run))), ("done", ["analyze", "adopt", "export", "transcribe", "pack", "deliver"]), run)
         self.assertEqual((self.tools.request_marks["ranges"], self.tools.request_marks["top"]), ([[16.0, 25.0]], 3))
         self.assertEqual((len(self.tools.export_body["markIds"]), "old" in self.tools.export_body["markIds"], len(self.tools.tx_jobs)), (3, True, 3))
 
@@ -1404,12 +1404,12 @@ class TestRequests(Base):
         """① 全自動: 友人が選んだカット(無音を削る)でパック。同じ配信・同じ区間の送り直しは、切り抜き・文字起こしを使い回してパックだけ作り直して届ける"""
         self.tools.known = False
         item = {"id": VID, "top": 1, "title": "配信", "ranges": [(50, 60)]}
-        run = self.request(dict(item), request_id="rid1", flow="auto", deliver_dir=self.out, cut="silence", video_tracks=2)
+        run = self.request(dict(item), request_id="rid1", deliver_dir=self.out, cut="silence", video_tracks=2)
         self.assertEqual((run["state"], list(self.states(run))), ("done", ["adopt", "export", "transcribe", "pack", "deliver", "analyze_later"]), run)
         self.assertEqual((self.tools.c2r["body"]["spec"]["mode"], self.tools.c2r["body"]["output"]["videoTracks"]), ("silence", 2))
         self.assertEqual(len(self.zips(self.out)), 1)
         jobs = len(self.tools.tx_jobs)
-        run = self.request(dict(item), request_id="rid2", flow="auto", deliver_dir=self.out, cut="none", video_tracks=3)
+        run = self.request(dict(item), request_id="rid2", deliver_dir=self.out, cut="none", video_tracks=3)
         st = self.states(run)
         self.assertEqual((run["state"], st["export"], st["transcribe"], st["pack"], st["deliver"]), ("done", "skip", "skip", "done", "done"), run)
         self.assertEqual(len(self.tools.tx_jobs), jobs, "文字起こしは使い回す")
@@ -1417,7 +1417,7 @@ class TestRequests(Base):
         self.assertEqual((body["spec"].get("mode"), body["spec"].get("listKind"), body["output"]["videoTracks"], body["output"].get("force")), ("list", "drop", 3, True))
         self.assertEqual(len(self.zips(self.out)), 2, "作り直したパックも届ける")
         # カットの指定が無い依頼(古いアプリ)は、ホームの設定(既定 = カットしない)
-        self.request(dict(item, ranges=[(70, 80)]), request_id="rid3", flow="auto", deliver_dir=self.out)
+        self.request(dict(item, ranges=[(70, 80)]), request_id="rid3", deliver_dir=self.out)
         self.assertEqual(self.tools.c2r["body"]["spec"].get("listKind"), "drop")
 
     def test_request_weights_reanalyze_only_when_different(self):

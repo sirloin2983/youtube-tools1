@@ -1,15 +1,16 @@
 """友人からの依頼の受付(notes:docs/spec/friend.md)。
 
-友人のアプリ(src/friendapp/)か Dropbox のファイルリクエストで届いた依頼を、Dropbox が同期したフォルダで見張り、
-まとめて実行(入口の src/app/autorun.py。読み込まない = 入口が runner= で渡す)に入れて文字起こしまで流す。ホームの起動と一緒に動き、「すべて終了」で止まる。
+友人のアプリ(src/friendapp/)が Dropbox に送った依頼を、Dropbox が同期したフォルダで見張り、
+まとめて実行(入口の src/app/autorun.py。読み込まない = 入口が runner= で渡す)に入れて ① 全自動(パックまで作って 出力/ へ届ける)で流す。
+ホームの起動と一緒に動き、「すべて終了」で止まる。
 
 届くもの(依頼は見張るフォルダの直下だけ。受付済み/・失敗/・出力/ などの下のフォルダは見ない。送り返し/ だけは returns.scan が見る):
-  <id>.request.json   友人のプログラムが最後に送る依頼(kind video = 同じ id の動画を文字起こし / url = 配信を解析 → 上位 N 個 → 書き出し → 文字起こし /
-                      live = ライブ配信)
+  <id>.request.json   友人のプログラムが最後に送る依頼(kind video = 同じ id の動画を文字起こし → パック / url = 配信を解析 → 上位 N 個 → 書き出し →
+                      文字起こし → パック / live = ライブ配信)
   <id>__<名前>.mp4 など 友人のプログラムが送った動画(JSON の files に名前がある)
-  動画(.mp4 .mov .mkv .webm .m4v)  手で送った動画。ファイル名の頭の【名前】を配信者として読む
-  .txt / .url         手で送った配信の URL(.txt は1行に「URL [数]」。# の行・空の行は無視)
   送り返し/            友人の PC の結果の zip と採否(returns。F1 の F2)
+  ほかのファイル(手で置いた動画・URL の .txt など)は受け付けない: 失敗/ へ移し、理由「友人のアプリから送ってください」を添える
+  (② 軽く確認 = 文字起こしまでの道は 10-19 に消した。JSON の来ない友人のプログラムの動画も WAIT_FILES 秒たったら同じ扱い)
 
 決まり:
 - 同期の途中を読まない: 大きさと更新時刻が SETTLE 秒以上変わらないファイルだけ。友人のプログラムの動画は JSON がそろってから
@@ -43,17 +44,16 @@ from . import live_requests  # noqa: E402  (ライブ配信の依頼の設定の
 from . import returns  # noqa: E402  (友人の送り返し 送り返し\ の zip と採否を app/friend-returns へ並べる。F1 の F2)
 
 VIDEO_EXT = (".mp4", ".mov", ".mkv", ".webm", ".m4v")
-TEXT_EXT = (".txt", ".url")
 REQ_SUFFIX = ".request.json"
 DONE_DIR, FAIL_DIR = "受付済み", "失敗"   # 出力\(OUT_DIR = ① 全自動のパック。友人のアプリの「受け取る」が読む)は届ける側 ② flow/deliver の 1 か所
-FLOW_LABELS = {"auto": "① 全自動", "check": "② 軽く確認"}   # 友人の依頼は常に ①・手で置いた物は ②
+FLOW_LABELS = {"auto": "① 全自動"}   # 友人の依頼は常に ①
+MANUAL_REASON = "友人のアプリから送ってください(手で置いたファイルは受け付けません)"   # 依頼の JSON の無いファイル(手で置いた動画・.txt など)を断る理由
 OLD_FLOWS = ("auto", "check", "manual")   # 依頼の flow の値(友人の依頼は全部 ① に読み替え、auto 以外の元の値は記録の flowOrig に残すだけ)
 REQ_KINDS = ("video", "url", "live")   # 依頼の種類(live = ライブ配信。2-15)
 NOTE_LABELS = ("配信者", "ライブ配信")   # 受け付けた・断ったの数に入れない知らせの行
 REQ_DIRS_MAX = 64   # 依頼 id -> 置き場所の覚えの数(古い物から忘れる。速さのためだけ = 忘れても placement.find_request_dir で同じフォルダを引く)
 REQ_ID_RE = re.compile(r"^\d{8}-\d{6}-[0-9a-f]{6}$")
 APP_FILE_RE = re.compile(r"^(\d{8}-\d{6}-[0-9a-f]{6})__(.+)$")   # 友人のプログラムが送った動画の名前
-NAME_PREFIX_RE = re.compile(r"^((?:【[^】]{1,60}】)+)\s*(.*)$")        # 手で送った動画の【名前】
 TEXT_MAX = 64 * 1024
 TOP_MAX = 10
 MAX_URLS = 10            # 1つの依頼に書ける配信の数(① 探す から一度に入れられる数と同じ)
@@ -92,14 +92,12 @@ def _yt_id_ok(v):
     return isinstance(v, str) and len(v) == 11 and all(c.isascii() and (c.isalnum() or c in "-_") for c in v)
 
 
-def submit_urls(runner, items, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None, cut=None, weights=None,
-                streamer=None):
-    """友人からの依頼(配信の URL)を、配信ごとに ② の口 submit へ(RV A1。欄 → 封筒 + 束の差分は flow/order.py)。
-    items = [{"id": 配信 ID, "top": 1〜30, "title", "channel", "ranges"?, "duration"?}]。flow = auto(① 全自動 = パックまで・送り直しは作り直す)か
-    check(② 軽く確認 = 文字起こしまで)。ranges = 時刻で指定した区間 [(開始, 終了)](top に足りない分は自動で埋める)。cut = カットの方法・weights = 解析の重み。
+def submit_urls(runner, items, request_id=None, deliver_dir=None, speakers=None, video_tracks=None, cut=None, weights=None, streamer=None):
+    """友人からの依頼(配信の URL)を、配信ごとに ② の口 submit へ(RV A1。欄 → 封筒 + 束の差分は flow/order.py)。いつも ① 全自動 = パックまで・送り直しは作り直す。
+    items = [{"id": 配信 ID, "top": 1〜30, "title", "channel", "ranges"?, "duration"?}]。
+    ranges = 時刻で指定した区間 [(開始, 終了)](top に足りない分は自動で埋める)。cut = カットの方法・weights = 解析の重み。
     streamer = 照らし合わせ済みの配信者の名前か None(None・空ならチャンネル名などから自動)。
     -> {"runs": [受けた実行の public], "skipped": [{"id", "title", "reason"}]}(断った理由 = 形が違う・同じ配信が待ち・実行中・待ちが多すぎる など)"""
-    upto = "pack" if flow == "auto" else "transcribe"
     w = _spec.clean_weights(weights)
     runs, skipped = [], []
     for it in items:
@@ -111,20 +109,20 @@ def submit_urls(runner, items, request_id=None, flow="check", deliver_dir=None, 
             if not _yt_id_ok(vid) or not isinstance(top, int) or isinstance(top, bool) or not 1 <= top <= 30:
                 raise ValueError("配信の指定が正しくありません")
             env, diff = _order.order("url", video_id=vid, title=title or vid, fresh={"title": title, "channel": channel}, duration=it.get("duration"),
-                                     upto=upto, top=top, ranges=ranges, weights=w, cut=cut, video_tracks=video_tracks, speakers=speakers,
-                                     repack=flow == "auto", streamer=streamer or None, request_id=request_id, deliver_dir=deliver_dir)
+                                     upto="pack", top=top, ranges=ranges, weights=w, cut=cut, video_tracks=video_tracks, speakers=speakers,
+                                     repack=True, streamer=streamer or None, request_id=request_id, deliver_dir=deliver_dir)
             runs.append(runner.submit(env, diff))   # ① の送り直しは、前のパックがあっても今回の設定(カット・映像トラック)で作り直して届ける(repack)
         except ValueError as e:
             skipped.append({"id": str(vid or "")[:40], "title": title, "reason": str(e)})
     return {"runs": runs, "skipped": skipped}
 
 
-def submit_file(runner, path, title="", streamer=None, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None, cut=None,
+def submit_file(runner, path, title="", streamer=None, request_id=None, deliver_dir=None, speakers=None, video_tracks=None, cut=None,
                 normalize=True):
-    """友人が切り抜いた動画の依頼(作業データへの写し)を ② の口 submit へ(RV A1)-> 実行の public。
-    flow = auto(パックまで)か check(文字起こしまで)。normalize = 最初の段で写しを 30fps に置き換える(写しだけに使う)。形が違えば ValueError"""
+    """友人が切り抜いた動画の依頼(作業データへの写し)を ② の口 submit へ(RV A1)-> 実行の public。いつも ① 全自動 = パックまで。
+    normalize = 最初の段で写しを 30fps に置き換える(写しだけに使う)。形が違えば ValueError"""
     env, diff = _order.order("file", path=path, title=str(title or os.path.basename(str(path or ""))), normalize=normalize is True,
-                             upto="pack" if flow == "auto" else "transcribe", streamer=streamer or None, request_id=request_id,
+                             upto="pack", streamer=streamer or None, request_id=request_id,
                              deliver_dir=deliver_dir, speakers=speakers, video_tracks=video_tracks, cut=cut)
     return runner.submit(env, diff)
 
@@ -136,7 +134,7 @@ def youtube_id(url):
 
 
 def parse_lines(text, default_top):
-    """.txt の中身 -> ([{"id", "top", "line"}], [{"line", "reason"}])。1行に「URL [数]」。空の行・# の行は無視"""
+    """URL の行(依頼の JSON の items を「URL 数」の行にした物)->([{"id", "top", "line"}], [{"line", "reason"}])。1行に「URL [数]」。空の行・# の行は無視"""
     ok, bad = [], []
     for raw in text.splitlines():
         line = raw.strip().lstrip("﻿")
@@ -159,14 +157,6 @@ def parse_lines(text, default_top):
         else:
             ok.append({"id": vid, "top": top, "line": line[:200]})
     return ok, bad
-
-
-def parse_url_file(text):
-    """.url(インターネットのショートカット)の URL= の行"""
-    for line in text.splitlines():
-        if line.strip().lower().startswith("url="):
-            return line.strip()[4:].strip()
-    return ""
 
 
 def decode_text(raw):
@@ -529,14 +519,8 @@ class Intake:
                     continue   # JSON はあるが、まだそろっていない(同期の途中)
                 if m and self.clock() - os.path.getmtime(p) < WAIT_FILES:
                     continue   # 友人のプログラムの動画で、JSON がまだ届いていない
-                ext = os.path.splitext(n)[1].lower()
-                if ext in VIDEO_EXT:
-                    self._handle_manual_video(folder, n, p, cfg)
-                elif ext in TEXT_EXT:
-                    self._handle_text(folder, n, p, cfg)
-                else:
-                    self._record(folder, "video", "manual", n, [n], "", [], [{"label": n, "state": "rejected",
-                                 "reason": "受け付けない種類のファイルです(動画 %s か、URL を書いた .txt)" % " ".join(VIDEO_EXT)}])
+                # 依頼の JSON の無いファイル(手で置いた動画・.txt・JSON が来ないまま WAIT_FILES たった友人の動画)は受け付けない
+                self._record(folder, "video", "manual", n, [n], "", [], [{"label": n, "state": "rejected", "reason": MANUAL_REASON}])
             returns.scan(folder, self.data_dir, self.clock, self.log, feedback=self.feedback)   # 送り返し\(友人の PC の ② の結果と採否。F1 の F2。失敗しても見回りは止めない)
 
     def _settled(self, p):
@@ -589,7 +573,7 @@ class Intake:
             # 時刻で指定した区間(配信の ID ごと)
             ranges = {youtube_id(str(it.get("url") or "")[:300]): parse_ranges(it.get("ranges")) for it in raw}
             who, note = _streamer(d.get("streamer"))   # URL の依頼の 1 人目の名前。無い・合わない = チャンネル名から
-            self._process_urls(folder, n, [n], lines, cfg, "app", rid, flow, speakers, tracks, ranges=ranges, cut=cut,
+            self._process_urls(folder, n, [n], lines, cfg, "app", rid, speakers, tracks, ranges=ranges, cut=cut,
                                weights=parse_weights(d.get("weights")), streamer=who, streamer_note=note, flow_orig=flow_orig)
             return {n}
         names = d.get("files") if isinstance(d.get("files"), list) else []
@@ -607,7 +591,7 @@ class Intake:
         results, runs = [], []
         for x in names:
             label = APP_FILE_RE.match(x).group(2) if APP_FILE_RE.match(x) else x
-            res = self._accept_video(files[x], label, who, cfg, rid, flow, folder, speakers, tracks, cut)
+            res = self._accept_video(files[x], label, who, cfg, rid, folder, speakers, tracks, cut)
             results.append(dict(res, label=label))
             runs += [res["runId"]] if res.get("runId") else []
         if note:
@@ -644,7 +628,7 @@ class Intake:
             notes = [{"label": "ライブ配信", "state": "accepted",
                       "reason": ("配信は終わっていたので、アーカイブから ① 全自動で切り抜きます(%s届けます)" if ended else
                                  "配信の状態を確かめられなかったので、アーカイブから ① 全自動で切り抜きます(%s届けます)") % how}]
-            self._process_urls(folder, n, moved, "https://www.youtube.com/watch?v=%s %d" % (vid, int(cfg["top"])), cfg, "app", rid, "auto", speakers, tracks,
+            self._process_urls(folder, n, moved, "https://www.youtube.com/watch?v=%s %d" % (vid, int(cfg["top"])), cfg, "app", rid, speakers, tracks,
                                ranges={}, cut=cut, streamer=who, streamer_note=note, notes=notes)
             return
         ctx = {"rid": rid, "deliverDir": os.path.join(folder, OUT_DIR), "url": "https://www.youtube.com/watch?v=" + vid, "title": title, "streamer": who or "",
@@ -661,7 +645,7 @@ class Intake:
                 if not info:   # 状態を確かめられず、録画も始められない(配信が終わっていた・録画元が動いていないなど)→ アーカイブから ① 全自動(今までの流れ)
                     notes = [{"label": "ライブ配信", "state": "accepted",
                               "reason": "配信の状態を確かめられず、録画も始められなかったので(%s)、アーカイブから ① 全自動で切り抜きます(%s届けます)" % (msg, how)}]
-                    self._process_urls(folder, n, moved, "https://www.youtube.com/watch?v=%s %d" % (vid, int(cfg["top"])), cfg, "app", rid, "auto", speakers,
+                    self._process_urls(folder, n, moved, "https://www.youtube.com/watch?v=%s %d" % (vid, int(cfg["top"])), cfg, "app", rid, speakers,
                                        tracks, ranges={}, cut=cut, streamer=who, streamer_note=note, notes=notes)
                     return
                 res = {"label": label, "state": "rejected", "reason": msg if msg.startswith("録画を始められませんでした") else "録画を始められませんでした: " + msg}
@@ -673,28 +657,10 @@ class Intake:
             self._count()
         self._record(folder, "live", "app", title, moved, who or "", [], items, "auto", speakers, rid=rid, tracks=tracks, cut=cut)
 
-    def _handle_manual_video(self, folder, n, p, cfg):
-        m = NAME_PREFIX_RE.match(os.path.splitext(n)[0])
-        who, note = (None, "")
-        if m:
-            who, note = _streamer(re.findall(r"【([^】]+)】", m.group(1))[0])
-        res = self._accept_video(p, n, who, cfg, None, "check", folder)
-        results = [dict(res, label=n)] + ([{"label": "配信者", "state": "accepted", "reason": note}] if note else [])
-        self._record(folder, "video", "manual", n, [n], who or "", [res["runId"]] if res.get("runId") else [], results, "check")
-
-    def _handle_text(self, folder, n, p, cfg):
-        try:
-            text = self._read_text(p)
-        except (ValueError, OSError) as e:
-            self._record(folder, "url", "manual", n, [n], "", [], [{"label": n, "state": "rejected", "reason": str(e)[:120]}], "check")
-            return
-        if n.lower().endswith(".url"):
-            text = parse_url_file(text)
-        self._process_urls(folder, n, [n], text, cfg, "manual", None, "check")
-
-    def _process_urls(self, folder, title, moved, text, cfg, source, rid, flow="check", speakers=None, tracks=None, ranges=None, cut=None, weights=None,
+    def _process_urls(self, folder, title, moved, text, cfg, source, rid, speakers=None, tracks=None, ranges=None, cut=None, weights=None,
                       streamer=None, streamer_note="", notes=None, flow_orig=""):
-        """ranges = {配信の ID: (区間の一覧, 断った理由)}(友人が時刻で指定した区間)。同じ配信を前に受け付けていても断らない(解析などは使い回す)。
+        """依頼の URL の行(text = parse_lines の形)を ① 全自動で流す。
+        ranges = {配信の ID: (区間の一覧, 断った理由)}(友人が時刻で指定した区間)。同じ配信を前に受け付けていても断らない(解析などは使い回す)。
         streamer = 照らし合わせ済みの配信者の名前か None(None = まとめて実行がチャンネル名などから決める)・streamer_note = 合わなかったときの知らせ。
         notes = 一覧に添える知らせの行(NOTE_LABELS の label。数には入れない)"""
         ok, bad = parse_lines(text, int(cfg["top"]))
@@ -735,7 +701,7 @@ class Intake:
         if todo:
             try:
                 out = submit_urls(self.runner(), [{k: it[k] for k in ("id", "top", "title", "channel", "ranges", "duration")} for it in todo], request_id=rid,
-                                  flow=flow, deliver_dir=os.path.join(folder, OUT_DIR), speakers=speakers,
+                                  deliver_dir=os.path.join(folder, OUT_DIR), speakers=speakers,
                                   video_tracks=tracks, cut=cut, weights=weights, streamer=streamer)
             except ValueError as e:
                 out = {"runs": [], "skipped": [{"id": it["id"], "reason": str(e)} for it in todo]}
@@ -759,12 +725,12 @@ class Intake:
             results.append({"label": "配信者", "state": "accepted", "reason": streamer_note})
         if notes and _accepted(results):   # 受け付けたときだけ(断ったのに「切り抜きます」と出さない)
             results.extend(notes)
-        self._record(folder, "url", source, first, moved, streamer or "", runs, results, flow, speakers, rid=rid, tracks=tracks, cut=cut, weights=weights, flow_orig=flow_orig,
+        self._record(folder, "url", source, first, moved, streamer or "", runs, results, "auto", speakers, rid=rid, tracks=tracks, cut=cut, weights=weights, flow_orig=flow_orig,
                      ranges_label="区間: %s" % "・".join(["%s〜%s" % (_hms(s), _hms(e)) for it in todo for s, e in it["ranges"]][:3]) +
                      (" ほか %d" % (n_ranges - 3) if n_ranges > 3 else "") if n_ranges else "")
 
-    def _accept_video(self, p, label, who, cfg, rid, flow="check", folder=None, speakers=None, tracks=None, cut=None):
-        """1本の動画を確かめて、作業データへコピーし、文字起こしに入れる。-> {"state", "reason", "runId"?}。
+    def _accept_video(self, p, label, who, cfg, rid, folder=None, speakers=None, tracks=None, cut=None):
+        """1本の動画を確かめて、作業データへコピーし、① 全自動(文字起こし → パック)に入れる。-> {"state", "reason", "runId"?}。
         前に受け付けた動画と同じでも断らない(映像トラックの数などを変えて送り直せるように。ユーザー)"""
         ext = os.path.splitext(p)[1].lower()
         if ext not in VIDEO_EXT:
@@ -799,7 +765,7 @@ class Intake:
         if in_case:   # 依頼のフォルダを案件にする(文書を最初から 作業用 へ置けるように。無ければ作るだけ)
             placement.ensure_case({"kind": "file", "path": dest}, channel=who or "", root=dest_dir, request_id=rid or "")
         try:   # 30fps にそろえるのは実行の最初の段(submit_file の既定 normalize=True。写しを置き換える = 元の動画は触らない。失敗しても写しのまま続く)
-            run = submit_file(self.runner(), dest, title=os.path.splitext(label)[0], streamer=who, request_id=rid, flow=flow,
+            run = submit_file(self.runner(), dest, title=os.path.splitext(label)[0], streamer=who, request_id=rid,
                               deliver_dir=os.path.join(folder, OUT_DIR) if folder else None, speakers=speakers,
                               video_tracks=tracks, cut=cut)
         except ValueError as e:
@@ -814,22 +780,19 @@ class Intake:
     def _request_dir(self, rid, label, day):
         """依頼 1 件の動画の置き場所 -> (フォルダ, 案件か)。書き出し先が設定されていて固定ディスクなら <書き出し先>/依頼/<日付>_<題>_<id6>/
         (案件にする。placement.request_root)、そうでなければ今までの作業データ app/intake/<日付>/<依頼 id>/。同じ依頼の 2 本目以降は 1 本目と同じフォルダ。
-        rid が無い(手で置いた動画)ときは動画ごとに新しい id を作る。前からある app/intake/<日付>/ 直下の動画は動かさない"""
-        key = rid or ""
-        if key and key in self._req_dirs:
-            return self._req_dirs[key]
-        use = key if REQ_ID_RE.match(key) else "m%s" % uuid.uuid4().hex[:8]
-        old = os.path.join(self.data_dir, "intake", day, use)
-        root = placement.find_request_dir(use) if use == key else None   # 入口を起こし直したあとも同じ依頼は同じフォルダへ(覚えは速さのため)
-        if root is None and use == key and os.path.isdir(old):
+        rid は友人のアプリの依頼 id(REQ_ID_RE。受付が確かめ済み)。前からある app/intake/<日付>/ 直下の動画・手で置いた動画の m<乱数> のフォルダは動かさない(片付けが読む)"""
+        if rid in self._req_dirs:
+            return self._req_dirs[rid]
+        old = os.path.join(self.data_dir, "intake", day, rid)
+        root = placement.find_request_dir(rid)   # 入口を起こし直したあとも同じ依頼は同じフォルダへ(覚えは速さのため)
+        if root is None and os.path.isdir(old):
             root = False
         if root is None:
-            root = placement.request_root(day, os.path.splitext(label)[0], use)
+            root = placement.request_root(day, os.path.splitext(label)[0], rid)
         got = (root, True) if root else (old, False)
-        if key:
-            if len(self._req_dirs) >= REQ_DIRS_MAX:
-                self._req_dirs.pop(next(iter(self._req_dirs)))
-            self._req_dirs[key] = got
+        if len(self._req_dirs) >= REQ_DIRS_MAX:
+            self._req_dirs.pop(next(iter(self._req_dirs)))
+        self._req_dirs[rid] = got
         return got
 
     # ------------------------------------------------------------ 後始末と記録
