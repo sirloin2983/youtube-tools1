@@ -18,13 +18,9 @@
     スタジオに追加された時刻(createdAt)③ それも無ければ updatedAt、の順(デモ環境や解析前の動画では ①が無い)
   - tx: 切り抜き全体の文字起こし・校正の進み具合の合計 {clips, withTranscript, segments, proofed}
   - packs: 切り抜き全体のパックの有無の合計 {have, total, textplus}
-  - next: 一覧に出す「次にやること」1つ {kind, label, count} か None(すべて済み)。TODO_ORDER(校正 → パック → 文字起こし → 書き出し → 候補の確認。
-    仕掛かりを先に終わらせる)の順で最初に残っている作業。ホームの「次にやること」の並びも同じ表(build の todoOrder)を使うので、同じ配信なら
-    上の一覧の先頭の作業と行のボタンが必ず同じになる(UI の見直し 1 周目 M1)。パックは「文字起こしが全部校正済みでパックがまだの切り抜き」の数
-  - todo: 作業ごとの残りの数 {review, export, transcribe, proof, pack}(ホームの「次にやること」に種類ごとの行を出す。S-6)
-    review = 確認前の候補(採用・見送りを付けていないマーク)の数。まだ 1 本も採用・書き出ししていない配信だけ数える
-    (選び始めたあとに残った候補は「選ばなかったもの」として扱い、次にやることに出し続けない)
-  - remaining: next も含めた残作業の合計件数(並び替え「次にやることが多い順」に使う。候補の確認は候補の数ではなく配信 1 本で 1 件)
+  - failed: 失敗の文がある切り抜きの数(ホームの「処理の状況」と一覧の行の結果)
+  - remaining: 残作業の合計件数(並び替え「次にやることが多い順」に使う)。候補の確認(まだ 1 本も採用・書き出ししていない配信の候補。配信 1 本で 1 件)・
+    書き出し(採用済みで書き出していない)・文字起こし・校正(パックがまだで校正が残っている切り抜き)・パックの合計
 スタジオから消えた配信(gone)は、候補の確認・書き出しをスタジオでできないので数えない(文字起こし・校正・パックは残った切り抜きで数える)。
 
 自動でできた切り抜きの確認(線 D の M9・M12・M13。計画 notes:plan/line-d-auto-pack.md の段階 4・6):
@@ -66,9 +62,6 @@ from human import judgments as _judgments   # 人の判断の記録(持ち主は
 SCHEMA = "youtube-tools-cases/v1"
 MAX_JSON = 64 * 1024 * 1024
 _lock = threading.Lock()
-# 次にやることの順(仕掛かりを先に終わらせる)と、作業の名前。ホームの「次にやること」(portal.js)も build() の todoOrder でこの順を使う(正はここ 1 か所)
-TODO_ORDER = ("proof", "pack", "transcribe", "export", "review")
-TODO_LABEL = {"proof": "校正", "pack": "パックを作る", "transcribe": "文字起こし", "export": "書き出し", "review": "候補の確認"}
 # 自動でできた切り抜き(線 D の M9)。.clip.json の source.live.origin(src/flow/live_export.py の ORIGINS の auto・archive)→ 画面に出す出どころ
 AUTO_ORIGINS = {"auto": "配信中の候補", "archive": "配信後の解析"}
 # まとめて実行(mode full)で自動で採用して友人へ自動で送る形の切り抜き(D-SEND)。.clip.json はライブでないので、② の送らなかった記録・届けた記録(と前の版の案件の auto[マーク].origin "full")で見分ける
@@ -140,7 +133,7 @@ def _stream_time(v):
 
 
 def _case_extras(c):
-    """一覧の1行に要る合計・「次にやること」。clips・marks だけから作れるので、案件の生成元(スタジオに
+    """一覧の1行に要る合計・失敗の数・残作業の数。clips・marks だけから作れるので、案件の生成元(スタジオに
     まだある配信・消えた配信の最後に見えた内容)のどちらでも同じ規則で計算できる"""
     clips = c.get("clips") or []
     marks = c.get("marks") or {}
@@ -152,26 +145,14 @@ def _case_extras(c):
     review = 0 if gone or picked else int(marks.get("candidates") or 0)                             # 確認前の候補(まだ 1 本も選んでいない配信だけ)
     to_export = 0 if gone else int(marks.get("adopted") or 0)                                       # 採用済みでまだ書き出していない
     missing_tx = sum(1 for cl in clips if not cl.get("transcript"))                                 # 書き出し済みで文字起こしがまだ
-    proofing = sum(1 for t in with_tx if t.get("proofed", 0) < t.get("segments", 0))                # 文字起こしはあるが校正が残っている
+    proofing = sum(1 for cl in clips if cl.get("transcript") and not cl.get("pack")                 # 校正待ち = パックがまだで校正が残っている
+                   and cl["transcript"].get("proofed", 0) < cl["transcript"].get("segments", 0))
     missing_pack = total - have_pack                                                                # 書き出し済みでパックがまだ
-    # パックを作れる = 文字起こしが全部校正済みでパックがまだ(校正の前にパックを勧めない。ホームの校正待ち・パック待ちと同じ条件)
-    ready_pack = sum(1 for cl in clips if cl.get("transcript") and cl["transcript"].get("segments", 0) > 0
-                     and cl["transcript"].get("proofed", 0) >= cl["transcript"]["segments"] and not cl.get("pack"))
-    todo = {"review": review, "export": to_export, "transcribe": missing_tx, "proof": proofing, "pack": missing_pack}
     autos = [cl for cl in clips if cl.get("auto")]
-    nxt = None
-    for k in TODO_ORDER:
-        n = ready_pack if k == "pack" else todo[k]
-        if n > 0:
-            nxt = {"kind": k, "label": TODO_LABEL[k], "count": n}
-            break
     return {"tx": {"clips": total, "withTranscript": len(with_tx), "segments": sum(t["segments"] for t in with_tx),
                    "proofed": sum(t["proofed"] for t in with_tx)},
             "packs": {"have": have_pack, "total": total, "textplus": sum(1 for cl in clips if cl.get("pack") and cl["pack"].get("textplus"))},
-            "next": nxt, "todo": todo,
-            # ホームの「やること」(種類ごとの件数。C0)。adopt = 候補の確認・proof = 校正待ち・pack = パックを作れる(校正済みでパックがまだ)・failed = 失敗のある切り抜き
-            "todoSum": {"adopt": review, "proof": proofing, "pack": ready_pack,
-                        "failed": sum(1 for cl in clips if (cl.get("review") or {}).get("failure"))},
+            "failed": sum(1 for cl in clips if (cl.get("review") or {}).get("failure")),
             "remaining": (1 if review else 0) + to_export + missing_tx + proofing + missing_pack,
             "autoClips": {"total": len(autos)},
             "streamedAt": c.get("streamedAt") or c.get("updatedAt") or 0}
@@ -373,35 +354,8 @@ def _virtual_row(cid, kind, docs, root, pack_finder):
     return row
 
 
-def _todo_totals(cases):
-    """案件の todoSum の合計 {adopt, proof, pack, failed}(ホームの「やること」。画面で数えない)"""
-    return {k: sum(c.get("todoSum", {}).get(k, 0) for c in cases if not c.get("gone")) for k in ("adopt", "proof", "pack", "failed")}
-
-
-def _clip_doc(cl):
-    t = cl.get("transcript")
-    return t["id"] if t else ""
-
-
-def _todo_first(cases):
-    """種類ごとに、いちばん古い(配信日の早い)案件と、その中の最初の切り抜きの文書 -> {種類: {"case", "doc"}}(残りが無い種類は入れない)。
-    ホームの「やること」を押したときの行き先"""
-    out = {}
-    for k in ("adopt", "proof", "pack", "failed"):
-        hit = [c for c in cases if not c.get("gone") and c.get("todoSum", {}).get(k, 0) > 0]
-        if not hit:
-            continue
-        c = min(hit, key=lambda c: (c.get("streamedAt") or 0, c["id"]))
-        pick = {"proof": lambda cl: cl.get("state") == "proofing",
-                "pack": lambda cl: cl.get("state") == "proofed",
-                "failed": lambda cl: bool((cl.get("review") or {}).get("failure"))}.get(k)
-        doc = next((_clip_doc(cl) for cl in c["clips"] if pick and pick(cl) and _clip_doc(cl)), "")
-        out[k] = {"case": c["id"], "doc": doc}
-    return out
-
-
 def build(videos, transcripts, saved=None, pack_finder=find_pack, failures=None, case_finder=_file_case, delivered=None, not_sent=None):
-    """-> {"cases": [...], "unlinked": [文字起こし], "todoOrder", "auto": {total}}。saved: cases.json の中身(自動でできた切り抜きの記録 auto)。
+    """-> {"cases": [...], "unlinked": [文字起こし], "auto": {total}, "virtual"}。saved: cases.json の中身(自動でできた切り抜きの記録 auto)。
     failures: live_failures_by_mark の結果(線 D の書き出し・文字起こし・パックの失敗の文)。delivered: ② flow/deliveries.delivered_marks の結果(None = 届けたは無し)。
     not_sent: ② flow/deliveries.not_sent_marks の結果(送らなかった切り抜き。ds1。None = 無し)"""
     saved = saved or {}
@@ -441,11 +395,10 @@ def build(videos, transcripts, saved=None, pack_finder=find_pack, failures=None,
     unlinked = [dict(txindex.summary(t), sourcePath=t["sourcePath"]) for t in transcripts if t["id"] not in used and t["id"] not in dropped]
     unlinked.sort(key=lambda t: -t["updatedAt"])
     virtual = virtual_cases([t for t in transcripts if t["id"] not in used and t["id"] not in dropped], {c["id"] for c in cases}, pack_finder, case_finder)
-    real = cases + [c for c in virtual if c["caseKind"] == "file"]
-    return {"cases": cases, "unlinked": unlinked, "todoOrder": list(TODO_ORDER),
+    return {"cases": cases, "unlinked": unlinked,
             "auto": {"total": sum(c["autoClips"]["total"] for c in cases)},
             # 案件の画面(C0): 配信の案件に紐づかなかった文書の入れ物 = 動画ファイルの案件(case.json のある物)・eval・orphan。cases には混ぜない(今の画面の数を変えない)
-            "virtual": virtual, "todo": _todo_totals(real), "todoFirst": _todo_first(real)}
+            "virtual": virtual}
 
 
 # ---------------------------------------------------------------- 案件ファイル

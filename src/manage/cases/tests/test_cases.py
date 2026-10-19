@@ -178,7 +178,7 @@ class TestCasesC0(Base):
         self.assertEqual(cases.clip_state(tx(4, 4), None), {"state": "proofed", "ratio": 1.0})
         self.assertEqual(cases.clip_state(tx(4, 1), {"dir": "x"})["state"], "packed")   # パックがあれば校正の途中でも packed
 
-    def test_stream_case_fields_and_todo(self):
+    def test_stream_case_fields(self):
         self.studio({VID: {"kind": "youtube", "title": "配信A", "updatedAt": 5,
                            "marks": [mark("m1", "exported", self.clip1), mark("m2", "exported", self.clip2, 50, 80)]}})
         self.transcript("aaaaaaaaaaaa", self.clip1, proofed=1, total=3)
@@ -187,10 +187,7 @@ class TestCasesC0(Base):
         c = res["cases"][0]
         self.assertEqual((c["caseKind"], c["root"], c["kind"]), ("stream", "", "youtube"))   # 案件にしていない配信は root が空・kind は今までどおり
         self.assertEqual([(cl["state"], cl["transcriptIds"]) for cl in c["clips"]], [("proofing", ["aaaaaaaaaaaa"]), ("proofed", ["bbbbbbbbbbbb"])])
-        self.assertEqual(c["todoSum"], {"adopt": 0, "proof": 1, "pack": 1, "failed": 0})
-        self.assertEqual(res["todo"], {"adopt": 0, "proof": 1, "pack": 1, "failed": 0})
-        self.assertEqual(res["todoFirst"], {"proof": {"case": VID, "doc": "aaaaaaaaaaaa"}, "pack": {"case": VID, "doc": "bbbbbbbbbbbb"}})
-        self.assertEqual(c["todo"]["proof"], 1)   # 今の todo は変わらない
+        self.assertEqual(c["failed"], 0)
 
     def test_root_of_case_stream(self):
         root = os.path.join(self.tmp, "case1")
@@ -202,7 +199,6 @@ class TestCasesC0(Base):
         res = cases.snapshot(self.root, self.env)
         self.assertEqual(res["cases"], [])
         self.assertEqual([(c["id"], c["caseKind"], c["clips"]) for c in res["virtual"]], [("eval", "eval", []), ("orphan", "orphan", [])])
-        self.assertEqual(res["todo"], {"adopt": 0, "proof": 0, "pack": 0, "failed": 0})
 
     def test_virtual_eval_orphan_and_file_case(self):
         from flow import placement
@@ -219,8 +215,6 @@ class TestCasesC0(Base):
         self.assertEqual(rows["eval"]["clips"][0]["state"], "proofed")
         self.assertEqual([cl["transcriptIds"] for cl in rows["orphan"]["clips"]], [["cccccccccccc"]])
         self.assertEqual(len(res["unlinked"]), 3)   # 今の unlinked は変えない(3 本とも入る)
-        self.assertEqual(res["todo"]["proof"], 1)   # 集計は動画ファイルの案件だけ(eval・orphan は数えない)
-        self.assertEqual(res["todoFirst"]["proof"], {"case": made["id"], "doc": "aaaaaaaaaaaa"})
 
     def test_find_doc(self):
         self.studio({VID: {"kind": "youtube", "title": "配信A", "marks": [mark("m1", "exported", self.clip1)]}})
@@ -236,74 +230,38 @@ class TestCasesC0(Base):
 
 
 class TestListExtras(Base):
-    """一覧(1件1行)が使う合計・「次にやること」・配信日の目安"""
+    """一覧(1件1行)が使う合計・残作業の数・配信日の目安"""
 
-    def test_next_action_order_and_remaining(self):
+    def test_totals_and_remaining(self):
         # m1: 書き出し済み・文字起こしなし / m2: 書き出し済み・文字起こしあり(校正未了)・パックあり / m3: 採用済みでまだ書き出していない
         self.studio({VID: {"kind": "youtube", "title": "配信A", "channel": "ch",
                            "marks": [mark("m1", "exported", self.clip1), mark("m2", "exported", self.clip2), mark("m3", "adopted")]}})
         self.transcript("aaaaaaaaaaaa", self.clip2, proofed=1, total=4)
         self.make_pack("02_次_pack")
         c = cases.snapshot(self.root, self.env)["cases"][0]
-        # 次にやることは仕掛かりを先に(TODO_ORDER = 校正 → パック → 文字起こし → 書き出し → 候補の確認): 校正が残っている 1 本が先
-        self.assertEqual(c["next"], {"kind": "proof", "label": "校正", "count": 1})
         self.assertEqual(c["tx"], {"clips": 2, "withTranscript": 1, "segments": 4, "proofed": 1})
         self.assertEqual(c["packs"], {"have": 1, "total": 2, "textplus": 0})
-        # 残作業の合計 = 書き出し1 + 文字起こしなし1(m1) + 校正が残っている1(m2) + パックがまだ1(m1) = 4
-        self.assertEqual(c["remaining"], 4)
-        # 作業ごとの残りの数(ホームの「次にやること」の種類ごとの行。S-6)。採用済みがあるので候補の確認は数えない
-        self.assertEqual(c["todo"], {"review": 0, "export": 1, "transcribe": 1, "proof": 1, "pack": 1})
-
-    def test_next_follows_the_todo_order_table(self):
-        """案件の next は TODO_ORDER(ホームの「次にやること」の並びと同じ表)の順で最初に残っている作業。表は build() の todoOrder で画面にも渡す
-        (同じ配信なら、上の一覧の先頭の作業と行のボタンが必ず同じになる)"""
-        self.assertEqual(cases.TODO_ORDER, ("proof", "pack", "transcribe", "export", "review"))
-        self.assertEqual(set(cases.TODO_LABEL), set(cases.TODO_ORDER))
-        self.assertEqual(cases.build({}, [])["todoOrder"], list(cases.TODO_ORDER))
-        # 作業が全部そろっている配信(校正が残る・校正済みでパックまだ・文字起こしまだ・採用済みの書き出しまだ)から、先頭を片付けるたびに次の順で出る
-        clip3 = os.path.join(self.exports, "03_三.mp4")
-        self.studio({VID: {"kind": "youtube", "title": "配信A", "marks": [
-            mark("m1", "exported", self.clip1), mark("m2", "exported", self.clip2), mark("m3", "exported", clip3), mark("m4", "adopted")]}})
-        self.transcript("aaaaaaaaaaaa", self.clip1, proofed=2, total=2)   # 校正済み・パックまだ
-        self.transcript("bbbbbbbbbbbb", self.clip2, proofed=1, total=4)   # 校正が残っている
-        order = []
-        for step in range(4):
-            c = cases.snapshot(self.root, self.env)["cases"][0]
-            order.append(c["next"]["kind"])
-            if step == 0:
-                self.transcript("bbbbbbbbbbbb", self.clip2, proofed=4, total=4)               # 校正を済ませる → パック(m1 がまだ。m2 は作ってある)
-                self.make_pack("02_次_pack")
-            elif step == 1:
-                self.make_pack("01_見どころ_pack")   # パックを作る → 文字起こし(m3)
-            else:
-                self.transcript("cccccccccccc", clip3, proofed=1, total=1)                   # 文字起こし → 書き出し(m4)。校正済みなのでパックの次はまた pack
-                self.make_pack("03_三_pack")
-        self.assertEqual(order, ["proof", "pack", "transcribe", "export"])
-        # 「パックがまだ」でも校正が残っている切り抜きは、パックではなく校正(校正の前にパックを勧めない)
+        # 残作業 = 書き出し1(m3) + 文字起こしなし1(m1) + パックがまだ1(m1) = 3。m2 はパック済みなので校正が残っていても校正待ちに数えない
+        self.assertEqual(c["remaining"], 3)
+        # パックがまだなら校正が残っている切り抜きは校正待ち
         self.studio({VID: {"kind": "youtube", "title": "配信A", "marks": [mark("m1", "exported", self.clip1)]}})
         self.transcript("aaaaaaaaaaaa", self.clip1, proofed=1, total=2)
-        self.assertEqual(cases.snapshot(self.root, self.env)["cases"][0]["next"]["kind"], "proof")
+        self.assertEqual(cases.snapshot(self.root, self.env)["cases"][0]["remaining"], 2)   # 校正1 + パック1
 
     def test_review_candidates_until_something_is_picked(self):
-        # 解析したが 1 本も採用していない配信: 確認前の候補(採用・見送りを付けていないマーク)の数を返す(S-6)
+        # 解析したが 1 本も採用していない配信: 確認前の候補は配信 1 本で 1 件(見送り rejected は数えない)
         base = {"kind": "youtube", "title": "配信A", "analysis": {"uploadDate": "20260101"}}
         self.studio({VID: dict(base, marks=[mark("m1", ""), mark("m2", ""), mark("m3", "rejected"), mark("m4", "")])})
-        c = cases.snapshot(self.root, self.env)["cases"][0]
-        self.assertEqual(c["next"], {"kind": "review", "label": "候補の確認", "count": 3})   # 見送り(rejected)は数えない
-        self.assertEqual(c["todo"], {"review": 3, "export": 0, "transcribe": 0, "proof": 0, "pack": 0})
-        self.assertEqual(c["remaining"], 1)   # 候補の確認は候補の数ではなく、配信 1 本で 1 件
-        # 1 本でも採用したら、残った候補は「選ばなかったもの」として数えない(次は書き出し)
+        self.assertEqual(cases.snapshot(self.root, self.env)["cases"][0]["remaining"], 1)
+        # 1 本でも採用したら、残った候補は「選ばなかったもの」として数えない(残りは書き出し 1)
         self.studio({VID: dict(base, marks=[mark("m1", "adopted"), mark("m2", ""), mark("m3", "rejected"), mark("m4", "")])})
-        c = cases.snapshot(self.root, self.env)["cases"][0]
-        self.assertEqual((c["next"], c["todo"]["review"], c["remaining"]), ({"kind": "export", "label": "書き出し", "count": 1}, 0, 1))
-        # 書き出し済みだけ(採用は 0)でも同じ(次は文字起こし)
+        self.assertEqual(cases.snapshot(self.root, self.env)["cases"][0]["remaining"], 1)
+        # 書き出し済みだけ(採用は 0)でも候補は数えない(残りは文字起こし 1 + パック 1)
         self.studio({VID: dict(base, marks=[mark("m1", "exported", self.clip1), mark("m2", "")])})
-        c = cases.snapshot(self.root, self.env)["cases"][0]
-        self.assertEqual((c["todo"]["review"], c["next"]["kind"]), (0, "transcribe"))
-        # 候補も無い(マーク 0)なら何も出さない
+        self.assertEqual(cases.snapshot(self.root, self.env)["cases"][0]["remaining"], 2)
+        # 候補も無い(マーク 0)なら 0
         self.studio({VID: dict(base, marks=[])})
-        c = cases.snapshot(self.root, self.env)["cases"][0]
-        self.assertEqual((c["next"], c["todo"]["review"], c["remaining"]), (None, 0, 0))
+        self.assertEqual(cases.snapshot(self.root, self.env)["cases"][0]["remaining"], 0)
 
     def test_gone_case_is_not_listed(self):
         """スタジオから消えた配信の行は一覧に出さない(前の状態・メモと最後に見えた紐づけ last は cases.json に残る = 読み飛ばすだけで書き換えない)"""
@@ -315,19 +273,9 @@ class TestListExtras(Base):
         self.assertEqual([c["id"] for c in cases.snapshot(self.root, self.env)["cases"]], [VID])
         self.studio({})
         res = cases.snapshot(self.root, self.env)
-        self.assertEqual((res["cases"], res["todo"]), ([], {"adopt": 0, "proof": 0, "pack": 0, "failed": 0}))
+        self.assertEqual(res["cases"], [])
         with open(p, "rb") as f:
             self.assertEqual(f.read(), before)
-
-    def test_next_action_falls_through_to_pack_when_nothing_else_left(self):
-        self.studio({VID: {"kind": "youtube", "title": "配信A", "marks": [mark("m1", "exported", self.clip1)]}})
-        self.transcript("aaaaaaaaaaaa", self.clip1, proofed=2, total=2)   # 校正済み・パックだけまだ
-        c = cases.snapshot(self.root, self.env)["cases"][0]
-        self.assertEqual(c["next"], {"kind": "pack", "label": "パックを作る", "count": 1})
-        self.make_pack("01_見どころ_pack")
-        c = cases.snapshot(self.root, self.env)["cases"][0]
-        self.assertIsNone(c["next"])   # 書き出し・文字起こし・校正・パックが全部済み
-        self.assertEqual(c["remaining"], 0)
 
     def test_streamed_at_prefers_upload_date_then_created_then_updated(self):
         rows = [({"analysis": {"uploadDate": "20260101"}, "createdAt": 500, "updatedAt": 900}, 1767225600000),   # 2026-01-01T00:00:00Z

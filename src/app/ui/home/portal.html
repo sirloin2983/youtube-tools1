@@ -26,13 +26,12 @@
 <main class="pt-main" id="main">
   <h1 class="pt-h1">ホーム</h1>
 
-  <!-- やること(種類ごとの件数。押すとその作業の案件の画面へ)と 確かめる(今いちばん効く確認。RS8 C3・notes:docs/design/briefs/rs8-cases/DESIGN_BRIEF.md の 2-1) -->
+  <!-- 処理の状況(まとめて実行の実行中・待ち・失敗と、自動の切り抜きの失敗。押すと案件の行・案件の画面へ)と 確かめる(今いちばん効く確認) -->
   <div class="pt-top">
   <section class="pt-todo-box" id="todoBox">
-    <h2 class="pt-h2">やること</h2>
+    <h2 class="pt-h2">処理の状況</h2>
     <div class="empty pt-empty" id="todoEmpty" hidden>
-      <b>いま手が要る作業はありません</b><span id="todoEmptyText">「新しい案件」で配信を解析すると、ここに出ます。</span>
-      <div class="row pt-empty-acts"><button type="button" class="btn small" id="todoEmptyBtn" aria-haspopup="dialog" aria-controls="newDrawer">新しい案件を始める</button></div>
+      <b>いま動いている処理・待っている処理・失敗はありません</b><span id="todoEmptyText">まとめて実行や友人の依頼が始まると、ここに今の段と進み具合が出ます。</span>
     </div>
     <ul class="pt-todo-list" id="todoList"></ul>
     <button type="button" class="btn small ghost" id="todoMore" hidden>すべて見る</button>
@@ -353,8 +352,7 @@
       <span class="hint num pt-case-clips" hidden></span>
       <span class="hint num pt-case-tx" hidden></span>
       <span class="hint num pt-case-pack" hidden></span>
-      <!-- 次にやること(S-18): 押すとその作業の画面へ(同じ窓)。行き先が無いときは href なしの札(portal.js の paintNext) -->
-      <a class="btn small ui-next-btn pt-case-next" hidden></a>
+      <span class="pill err pt-case-failed" hidden></span>
     </summary>
     <div class="pt-case-body">
       <div class="row">

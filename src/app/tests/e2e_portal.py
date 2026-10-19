@@ -8,8 +8,8 @@
   (A) 本番と同じ形(python src/app/server.py と同じ mounts=tuple(mount.MOUNTS)): 3つとも入口に取り込み。
       1 2枚のカードが「ホームに取り込み」で動作中・ヘッダーの appnav・「詳しく」の調子(始める条件)と片付け・確かめるの枠([始める] は /check)→
       2 カードの「開く」・/cases の引数なしで前の案件 → 2h 動画のパスで開く /cases?v=(文書の校正か新しい案件の欄)→
-      2d 案件(配信ごと)の一覧 → 2e 次にやること・2f 単体の文字起こし → 2g 一覧の件数と「もっと見る」→
-      2i 次にやることの種類・案件の行のボタンで案件の画面へ着く・依頼の受付の外の文字 →
+      2d 案件(配信ごと)の一覧 → 2e 処理の状況(実行中・待ち・失敗)と行の依頼・2f 単体の文字起こし → 2g 一覧の件数と「もっと見る」→
+      2i 行は結果だけ(次の一手のボタンなし)・行を開いて案件の画面へ着く・依頼の受付の外の文字 →
       2j 新しい案件(引き出し・/?url=…#new・探す設定・① 配信を探す・URL から入れて「確認する」で案件の画面の候補へ)と運用の枠の精度と学習 →
       2k 自動でできた切り抜き(採用で届ける・要らない)→ 9 すべて終了(2回押し)→ 10 開いたままの別のタブに切断の表示、を確かめる。
       案件の画面の候補・校正・カットのパネルの中身は e2e_cases_cand・e2e_cases_proof・e2e_cases_cut、確かめる /check の中身は e2e_check が見る
@@ -85,7 +85,7 @@ CASE_TITLE = "案件の通し確認<b>配信</b>"   # < を含めて、textConte
 
 
 def seed_cases(tmp, studio_home):
-    """案件の一覧・次にやること用: 書き出し済みのマーク1つを持つ配信と、その切り抜きの文字起こし(2行のうち1行を校正済み・パックはまだ)を置く"""
+    """案件の一覧用: 書き出し済みのマーク1つを持つ配信と、その切り抜きの文字起こし(2行のうち1行を校正済み・パックはまだ)を置く"""
     clip = os.path.join(tmp, "exports", "01_案件.mp4")
     os.makedirs(os.path.dirname(clip), exist_ok=True)
     with open(clip, "wb") as f:
@@ -105,7 +105,7 @@ def seed_cases(tmp, studio_home):
 
 
 def seed_unlinked(tmp):
-    """どの配信にも紐づかない文字起こし(「単体の文字起こし」・次にやることの校正待ちにも出る)"""
+    """どの配信にも紐づかない文字起こし(「単体の文字起こし」)"""
     tx = os.path.join(tmp, layout.TOOL_DIRS["transcribe"], "transcripts")
     os.makedirs(tx, exist_ok=True)
     solo = os.path.join(tmp, "solo.mp4")
@@ -364,16 +364,43 @@ def _mounted_cases(cx):
     cx.case_doc = case_doc
 
 
+def _status_runs(now):
+    """2e 用のまとめて実行の偽の答え(GET api/flow/runs): 友人の依頼の実行中・自分の待ち・前回の起動の失敗"""
+    def step(label, st):
+        return {"label": label, "state": st}
+    run = {"id": "e2erunA", "kind": "video", "videoId": "e2eCase0001", "docId": None, "title": "案件の通し確認", "mode": "full", "modeLabel": "解析から全部",
+           "requestId": "20261019-100000-abc123", "state": "running", "created": now - 60000, "finished": None, "error": None,
+           "steps": [step("解析", "done"), step("文字起こし", "run"), step("パック", "wait")]}
+    wait = dict(run, id="e2erunB", videoId="e2eWait0001", title="待ちの配信", requestId=None, state="queued", created=now - 30000,
+                steps=[step("解析", "wait"), step("文字起こし", "wait"), step("パック", "wait")])
+    fail = {"id": "e2erunC", "kind": "video", "videoId": "e2eFail0001", "title": "失敗の配信", "mode": "full", "modeLabel": "解析から全部", "state": "error",
+            "error": "動画が見つかりません", "created": now - 7200000, "finished": now - 3600000,
+            "steps": [step("解析", "done"), step("書き出し", "error"), step("文字起こし", "wait")]}
+    return {"runs": [run, wait], "past": [fail]}
+
+
 def _mounted_todo_and_unlinked(cx):
-    """[A] 2e. 次にやること・2f. 単体の文字起こし"""
-    case_doc, check, pg = cx.case_doc, cx.check, cx.pg
-    # 2e. 次にやること: 校正待ち・パック待ちが、案件の一覧・「編集」の文書の一覧から組み立たっている
-    check(wait_js(pg, "!!document.querySelectorAll('.pt-todo-item').length", 15000), "[A] 「次にやること」に項目が出た")
-    check(wait_js(pg, "[...document.querySelectorAll('.pt-todo-item .pt-todo-link')].some(a => a.getAttribute('href').indexOf('d=%s') >= 0)" % case_doc, 15000),
-          "[A] 状態を戻すと、また「やること」に出る")
-    todo = pg.eval_on_selector_all(".pt-todo-item .pt-todo-link", "els => els.map(a => [a.querySelector('.pt-todo-pill').textContent, a.getAttribute('href')])")
-    check(any(p == '校正待ち' and h.startswith('/cases?c=e2eCase0001&d=' + case_doc) and h.endswith('#proof') for p, h in todo),
-          "[A] やることに校正待ち(1/2行のまま)が出て、案件の画面の校正のタブへ文書 ID で直接リンクする: %s" % todo)
+    """[A] 2e. 処理の状況と行の依頼・2f. 単体の文字起こし"""
+    check, ctx, pg = cx.check, cx.ctx, cx.pg
+    # 2e. 処理の状況: まとめて実行の実行中(今の段・全体)・待ち・失敗だけ。採用・校正・パックの残りは出さない。まとめて実行の答えは偽物(別のタブ)
+    p = ctx.new_page()
+    p.on("pageerror", lambda e: cx.errors.append(str(e)))
+    p.route("**/api/flow/runs", lambda route: route.fulfill(json=_status_runs(int(time.time() * 1000))))
+    p.goto(cx.base)
+    check(wait_js(p, "document.querySelectorAll('#todoList .pt-todo-item').length >= 3", 15000) and p.text_content("#todoBox h2") == "処理の状況",
+          "[A] 処理の状況に項目が出た: %s" % p.text_content("#todoBox"))
+    rows = p.eval_on_selector_all("#todoList .pt-todo-item", "els => els.map(e => [e.querySelector('.pt-todo-pill').textContent, "
+                                  "e.querySelector('.pt-todo-title').textContent, e.querySelector('.pt-todo-sub').textContent, e.querySelector('.pt-todo-link').getAttribute('href')])")
+    check([r[0] for r in rows[:3]] == ["実行中", "待ち", "失敗"] and all(r[0] in ("実行中", "待ち", "失敗") for r in rows),
+          "[A] 並びは実行中 → 待ち → 失敗で、採用待ち・校正待ち・パック待ちは出ない: %s" % rows)
+    check("友人の依頼" in rows[0][2] and "今: 文字起こし(2/3 段)" in rows[0][2] and "全体 33%" in rows[0][2] and rows[0][3] == "#case-e2eCase0001",
+          "[A] 実行中は誰の依頼か・今の段・全体の進み。押すと案件の行へ: %s" % rows[0])
+    check("自分" in rows[1][2] and "1 番目" in rows[1][2], "[A] 待ちは順番: %s" % rows[1])
+    check("書き出しで失敗: 動画が見つかりません" in rows[2][2], "[A] 失敗は段と理由(前回の起動の結果も): %s" % rows[2])
+    check(wait_js(p, "(document.querySelector('#case-e2eCase0001 .pt-case-sub') || {}).textContent.indexOf('友人の依頼 ・ 解析から全部') >= 0", 10000)
+          and p.evaluate("document.getElementById('case-e2eCase0001').open") is False,
+          "[A] 行の 2 行目に依頼の内容。実行中でも行は勝手に開かない: %s" % p.text_content("#case-e2eCase0001 .pt-case-sub"))
+    p.close()
 
     # 2f. 単体の文字起こし(どの配信にも紐づかない文字起こし)。「編集」の文書の一覧と突き合わせて詳しく見せる
     check(wait_js(pg, "!document.getElementById('unlinkedGroup').hidden && !document.getElementById('unlinkedHead').hidden", 10000), "[A] 単体の文字起こしの1行とまとまりが出た")
@@ -435,7 +462,7 @@ def seed_next_cases(studio_json, tmp):
 
 
 def _mounted_next_steps(cx):
-    """[A] 2i. 次にやることの種類と並び・単体の文字起こしの副題・案件の行のボタン・リンクの開き方・依頼の受付の外の文字。
+    """[A] 2i. 処理の状況に残りを出さない・単体の文字起こしの副題・案件の行は結果だけ・リンクの開き方・依頼の受付の外の文字。
     空の表示・消えた配信・フォーカスと Enter の細かい場面は画面の道に入れない"""
     check, pg = cx.check, cx.pg
     seed_next_cases(os.path.join(os.environ["STUDIO_HOME"], "data.json"), cx.tmp)
@@ -676,17 +703,10 @@ def _new_case_queue(cx):
 
 
 def _next_todo(cx):
-    """次にやることに 採用待ち(確認前の候補 → 案件の画面の候補へ)/ 紐づかない文書の副題"""
+    """処理の状況に採用待ち(確認前の候補)を出さない / 紐づかない文書の副題"""
     check, pg = cx.check, cx.pg
-    if pg.is_visible("#todoMore") and pg.text_content("#todoMore").startswith("すべて見る"):
-        pg.click("#todoMore")
-    check(wait_js(pg, "[...document.querySelectorAll('.pt-todo-pill')].some(p => p.textContent === '採用待ち')", 15000), "[A] やることに採用待ちが出た")
-    todo = pg.eval_on_selector_all("#todoList .pt-todo-item", "els => els.map(e => [e.querySelector('.pt-todo-pill').textContent, "
-                                   "e.querySelector('.pt-todo-link').getAttribute('href'), e.querySelector('.pt-todo-sub').textContent])")
-    # 採用待ち = 候補の確認前の配信(見送りは数えない)。見本で確認前の候補を持つのは seed_next_cases の e2eNext0001 だけ。
-    # どの配信を先に出すか(いちばん古い 1 件)と件数は src/manage/cases の todoFirst・todoSum(単体)
-    check(any(p == "採用待ち" and h == "/cases?c=e2eNext0001#cand" and "候補" in s for p, h, s in todo),
-          "[A] 採用待ち → 確認前の候補を持つ配信の案件の画面の候補へ: %s" % todo)
+    check(not pg.eval_on_selector_all(".pt-todo-pill", "els => els.filter(p => /待ち$/.test(p.textContent) && p.textContent !== '待ち').length"),
+          "[A] 確認前の候補の配信があっても、処理の状況に採用待ち・校正待ちは出ない")
     check(wait_js(pg, "!!document.querySelector('.pt-doc-sub') && document.querySelector('.pt-doc-sub').textContent.indexOf('solo.mp4') >= 0", 10000)
           and "更新 " in pg.text_content(".pt-doc-sub") and "ytt-portal-e2e" not in pg.text_content(".pt-doc-sub")
           and "solo.mp4" in (pg.get_attribute(".pt-doc-sub", "title") or ""),
@@ -694,16 +714,13 @@ def _next_todo(cx):
 
 
 def _next_case_buttons(cx):
-    """案件の行の「校正 1本」などは押せるボタン / 中身のリンクは同じ窓(target なし)・ボタンで同じタブのまま移る"""
+    """案件の行は結果だけ(次の一手のボタンなし)/ 中身のリンクは同じ窓(target なし)・行を開いて同じタブのまま案件の画面へ"""
     check, ctx, pg = cx.check, cx.ctx, cx.pg
     if pg.is_visible("#btnMore"):   # 一覧の 31 件目より後(e2eCase0001)も見る
         pg.click("#btnMore")
-    nx_js = ("id => { const a = document.querySelector('#case-' + id + ' .pt-case-next');"
-             " return a && [a.getAttribute('href'), a.textContent]; }")
-    c0 = pg.evaluate(nx_js, "e2eCase0001")
-    check(bool(c0) and (c0[0] or "").startswith("/cases?c=e2eCase0001&d=deadbeef0001") and (c0[0] or "").endswith("#proof") and c0[1] == "校正 1本",
-          "[A] 校正のボタンは案件の画面の校正のタブへ(文書 ID で): %s" % c0)
-    tg = pg.evaluate("""() => ({ content: [...document.querySelectorAll('.pt-clip a, .pt-case-studio a, .pt-case-next[href], #unlinkedOpen, .pt-doc-open, .pt-todo-link')]
+    check(pg.eval_on_selector_all(".pt-case-next", "e => e.length") == 0 and "校正 1/2行" in (pg.text_content("#case-e2eCase0001 .pt-case-row") or ""),
+          "[A] 行に次の一手のボタンは無く、結果(校正の済み具合)だけ: %s" % pg.text_content("#case-e2eCase0001 .pt-case-row"))
+    tg = pg.evaluate("""() => ({ content: [...document.querySelectorAll('.pt-clip a, .pt-case-studio a, #unlinkedOpen, .pt-doc-open, .pt-todo-link')]
                                       .filter(a => a.hasAttribute('target')).map(a => a.textContent),
                                  open: [...document.querySelectorAll('.pt-tool .pt-open')].map(a => a.target) })""")
     check(tg["content"] == [] and tg["open"] and all(t == "_blank" for t in tg["open"]),
@@ -713,12 +730,13 @@ def _next_case_buttons(cx):
     p2.goto(cx.base)
     check(wait_js(p2, "!!document.getElementById('case-e2eNext0002')", 15000), "[A] 別のタブのホーム")
     p2.fill("#fText", "案件の通し確認")
-    check(wait_js(p2, "!!document.querySelector('#case-e2eCase0001 .pt-case-next[href]')", 10000), "[A] 絞り込んで校正のボタンが出た")
+    check(wait_js(p2, "!!document.querySelector('#case-e2eCase0001 .pt-case-row')", 10000), "[A] 絞り込んで行が出た")
+    p2.click("#case-e2eCase0001 .pt-case-row")
     n_pages = len(ctx.pages)
-    p2.click("#case-e2eCase0001 .pt-case-next")
+    p2.click("#case-e2eCase0001 .pt-clip a:has-text('校正で開く')")
     p2.wait_for_url(lambda u: "/cases" in u, timeout=20000)
     check(wait_js(p2, "new URLSearchParams(location.search).get('c') === 'e2eCase0001' && !!document.getElementById('csRail')", 20000)
-          and len(ctx.pages) == n_pages, "[A] ボタンを押すと同じタブのまま案件の画面がその配信を開く: %s" % p2.url)
+          and len(ctx.pages) == n_pages, "[A] 行を開いて「校正で開く」を押すと同じタブのまま案件の画面がその配信を開く: %s" % p2.url)
     check(wait_js(p2, "document.querySelectorAll('#csPane #segs .seg').length === 2", 20000),
           "[A] 着いた先の校正のパネルが文書の 2 行を出す(編集の API が文書を返す): %s" % p2.evaluate("document.querySelectorAll('#csPane #segs .seg').length"))
     p2.close()
