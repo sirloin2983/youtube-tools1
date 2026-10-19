@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
-"""flow/tx(② 文字起こしの動詞。役割で組み直す RS6 a-3)の最小のテスト。編集の serve を読まずに、疑似のエンジンで使う。
+"""flow/tx(② 文字起こしの動詞)の最小のテスト。編集の serve を読まずに、疑似のエンジンで使う。
 
     py -3.12 -m unittest src/flow/tests/test_tx.py -v
 
-- transcribe_clip: ① clipjob の行に、② が文書の機械の分 fields(recognition.runs・params)と後処理の記録を足す
-- write_clip_records・write_machine_doc: 記録と機械の分の文書を作業データ(ytt/workdata の TX_DIR)に書く
+- transcribe_clip の fields に ③ の分が入らない
+- write_clip_records・write_machine_doc: 機械の分の文書と機械の層を作業データ(ytt/workdata の TX_DIR)か案件の 作業用 に書く・書けないとき
 - 受付の check_model・2 つ目のエンジンの engine_ready(疑似)・再認識の end_whole・note_vad・時刻の候補 word_retime(単語なし)
-通しの動き(ジョブ・文書・画面)は編集のテスト(src/editor/tests/test_metrics.py ほか。serve の名前で読む)。
+本物の通し(ジョブ・fields の行と記録・words.json・asr.json・鍵)は src/editor/tests/test_worker.py の RealWorkerTest。
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない(一時フォルダだけ)。ほかのテストとそろえる
@@ -64,27 +64,14 @@ class TestTranscribe(_Env):
         return job, tx.transcribe_clip(job, dict(SPEC), os.path.join(self.tmp, "w.wav"), [])
 
     def test_fields_are_the_machine_part(self):
-        job, clip = self.clip()
-        f = clip["fields"]
-        self.assertEqual([g["text"] for g in f["segments"]], ["テスト文1", "テスト文2"])
-        self.assertEqual(f["original"], clip["original"])
-        self.assertEqual(len(f["recognition"]["runs"]), 1)
-        run = f["recognition"]["runs"][0]
-        self.assertEqual((run["engine"], run["model"], run["device"], run["audioSec"]), ("fake", "small", "cpu", 4.0))
-        self.assertEqual(f["params"]["dict"], run["settings"]["dict"])
-        self.assertNotIn("fill", run)   # 後処理を使っていなければ記録も無い
-        for key in ("title", "sourcePath", "clip", "evalSet", "id"):   # 題名・動画・clip・評価用は ③ が足す
-            self.assertNotIn(key, f)
-
-    def test_records_and_machine_doc(self):
+        """題名・動画・clip・評価用・id は ③ が足す(② の fields に無い)。行・記録・words.json・asr.json・鍵は本物の通し src/editor/tests/test_worker.py"""
         _job, clip = self.clip()
-        tx.write_clip_records("abc123def456", clip, SPEC)
-        with open(os.path.join(self.tmp, "abc123def456.words.json"), encoding="utf-8") as fp:
-            self.assertEqual(json.load(fp)["words"], [[0.0, 2.0, "テスト文1"]])
-        self.assertTrue(os.path.isfile(os.path.join(self.tmp, "abc123def456.asr.json")))
-        self.assertFalse(os.path.exists(os.path.join(self.tmp, "abc123def456.llm.json")))   # LLM を使っていない
-        for stage in ("transcribe", "post"):   # 成果物の鍵(RS6 b-K1)。post は transcribe の hash を材料にする
-            self.assertTrue(os.path.isfile(os.path.join(self.tmp, "abc123def456.%s.key.json" % stage)), stage)
+        for key in ("title", "sourcePath", "clip", "evalSet", "id"):
+            self.assertNotIn(key, clip["fields"])
+
+    def test_machine_doc(self):
+        """write_machine_doc(入口なしの道 = CLI・まとめて実行。編集の画面のジョブは ③ が書く)"""
+        _job, clip = self.clip()
         path = tx.write_machine_doc("abc123def456", clip["fields"], SPEC)
         with open(path, encoding="utf-8") as fp:
             doc = json.load(fp)

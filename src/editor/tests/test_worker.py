@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """認識ワーカー(src/pipeline/transcribe/worker.py。別プロセス)のテスト。  python -m unittest test_worker -v
 
-faster-whisper を入れていない環境でも動くよう、TRANSCRIBE_BACKEND=worker-fake で動かす:
-サーバー側(serve.py)は本物の経路(ワーカーとのやり取り・RemoteModel)を通り、ワーカーの中だけ偽のモデル(eval/fake/fake_worker.install)を使う。
-確かめること: 文字起こし・再認識(行ごと / 範囲)・話者判別がワーカー経由で動く / 取り消し /
-ワーカーが落ちてもサーバーは止まらず、そのジョブだけ失敗し、次のジョブで起動し直す / 取り消しに応じなければ強制終了 /
-しばらく使わなければワーカーを終わらせる / サーバーがいなくなればワーカーも終わる / 標準出力への余計な出力がやり取りを壊さない。
+RealWorkerTest = 本物の通し: 声の見本(Windows の音声合成)を本物の faster-whisper small(CPU)と sherpa-onnx の話者判別で、
+文字起こし → 行ごと・範囲・全体の再認識 → 同じ動画の作り直し(人の行の引き継ぎ)→ 話者判別・声を覚える。部品・モデルが無ければ飛ばす(取りに行かない)。
+WorkerTest = 本物では起こせない物だけ(TRANSCRIBE_BACKEND=worker-fake: サーバー側は本物の経路、ワーカーの中だけ偽のモデル eval/fake/fake_worker.install):
+声の検出が捨てすぎる・途中で落ちて続きから・取り消し・応答しない・落ちる・部品が無い・サーバーがいなくなる・標準出力への余計な出力。
 ffmpeg が必要。
 """
 import json
@@ -27,9 +26,12 @@ os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 import serve as S  # noqa: E402
 from human.proof import doc_jobs  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt import testkit, workdata  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), "pipeline", "transcribe", "tests"))
+import voice_fixture as VF  # noqa: E402
 
 HAVE_FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
+HAVE_FW = HAVE_FFMPEG and VF.faster_whisper_small()
 
 
 def counting(calls, fail_at=None):
@@ -46,6 +48,189 @@ def counting(calls, fail_at=None):
 
 def wait_for(fn, timeout=20.0, step=0.05):
     return testkit.wait_for(fn, timeout, step)
+
+
+PLACES = ("TX_DIR", "TMP_DIR", "SETTINGS", "WORKER", "WORKER_LOG", "WORKER_CANCEL_GRACE", "RUN_MARK", "WORKER_SILENCE_TIMEOUT", "VOICES_DIR")
+
+
+def _texts(doc):
+    return [g["text"] for g in doc["segments"]]
+
+
+@unittest.skipUnless(HAVE_FW, "ffmpeg か faster-whisper の small が無い")
+class RealWorkerTest(unittest.TestCase):
+    """本物の通し(faster-whisper small・CPU)。見本 = 頭 1 秒の無音・「こんにちは。」・1.5 秒・「今日は配信に…」・2.5 秒・低い声の「それでは…」。
+    動画は日本語の名前のフォルダの日本語の名前。作業データは一時フォルダ(判別のモデルだけ編集の作業データから写す)・ネットへ出ない(HF_HUB_OFFLINE)"""
+    SPEC = {"model": "small", "language": "ja", "device": "cpu", "autoFill": False, "autoLlm": False}
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dir = tempfile.mkdtemp(prefix="tx-real-")
+        wav = VF.make_voice(os.path.join(cls.dir, "見本", "声.wav"))
+        if wav is None:
+            shutil.rmtree(cls.dir, ignore_errors=True)
+            raise unittest.SkipTest("日本語の音声合成が無い")
+        cls.media = VF.to_media(wav, os.path.join(cls.dir, "見本", "声の見本.mp4"))
+        cls.media2 = shutil.copyfile(cls.media, os.path.join(cls.dir, "見本", "声の見本_話者.mp4"))   # 話者の試験は別の動画(同じ動画の作り直しは人の行を引き継ぐ)
+        cls.dur = S.media_duration(cls.media)
+        cls.diar = VF.diar_models() is not None and S.has_sherpa()
+        if cls.diar:
+            VF.copy_diar(cls.dir)
+        cls.saved = tuple(getattr(S, k) for k in PLACES)
+        cls.patches = [mock.patch.dict(os.environ, {"HF_HUB_OFFLINE": "1"}), mock.patch.object(workdata, "DATA_DIR", cls.dir)]
+        for p in cls.patches:
+            p.start()
+        os.environ.pop("TRANSCRIBE_BACKEND", None)
+        S.TX_DIR, S.TMP_DIR = os.path.join(cls.dir, "transcripts"), os.path.join(cls.dir, ".tmp")
+        os.makedirs(S.TX_DIR)
+        S.SETTINGS, S.WORKER_LOG, S.RUN_MARK = (os.path.join(cls.dir, n) for n in ("settings.json", "worker.log", ".running.json"))
+        S.VOICES_DIR = os.path.join(cls.dir, "voices")
+        S.WORKER = S.WorkerClient()
+
+    @classmethod
+    def tearDownClass(cls):
+        S.WORKER.close()
+        for p in reversed(cls.patches):
+            p.stop()
+        for k, v in zip(PLACES, cls.saved):
+            setattr(S, k, v)
+        shutil.rmtree(cls.dir, ignore_errors=True)
+
+    def run_job(self, spec, kind=None):
+        job = S.add_job(spec, kind) if kind else S.add_job(spec)
+        S.work_one(job["id"])
+        self.assertEqual(job["state"], "done", job.get("error"))
+        return job
+
+    def transcribe(self, media=None, **req):
+        return self.run_job(S.validate_job(dict(self.SPEC, sourcePath=media or self.media, **req)))
+
+    def doc(self, tid):
+        return testkit.read_json(S.tx_path(tid))
+
+    def retranscribe(self, **req):
+        spec = S.validate_retranscribe(dict({"model": "small", "device": "cpu"}, **req))
+        return spec, self.run_job(spec, "retranscribe")
+
+    def test_diarize_and_voices(self):
+        """話者判別(人数 2・自動・しきい値)・声を覚えてもう一度判別する(層が正: 人の層の名前が残り、仮の名前の付け直しは無い)"""
+        if not self.diar:
+            self.skipTest("sherpa-onnx か判別のモデルが無い")
+        self.assertEqual(S.worker_env()["TRANSCRIBE_DATA_DIR"], self.dir)
+        tid = self.transcribe(self.media2)["tid"]
+        job = self.run_job(S.validate_diarize({"tid": tid, "numSpeakers": 2}), "diarize")
+        d = self.doc(tid)
+        self.assertEqual((job["speakers"], len(d["speakers"])), (2, 2))
+        self.assertNotEqual(d["segments"][0]["speaker"], d["segments"][-1]["speaker"])   # 低い声の 3 文目は別の話者
+        os.makedirs(S.TMP_DIR, exist_ok=True)
+        wav = os.path.join(S.TMP_DIR, "tune.wav")
+        j = {"cancel": False, "proc": None, "phase": "", "state": "", "device": "", "progress": 0.0}
+        S.extract_audio(j, {"sourcePath": self.media, "start": 0.0, "end": None}, wav)
+        try:
+            self.assertEqual({k for _, _, k in S.diarize_real(j, wav, 0, "voxceleb")}, {0, 1})                   # 人数 自動・設定は既定のまま
+            self.assertEqual({k for _, _, k in S.diarize_real(j, wav, 0, "voxceleb", threshold=1.5)}, {0})     # 判別の設定がワーカーまで届く
+        finally:
+            os.unlink(wav)
+        d["speakers"][0]["name"] = "兎田ぺこら"
+        for g in d["segments"]:
+            g["proofed"] = True   # 覚えるのは校正済みの行だけ
+        S.save_transcript(tid, d)
+        j2 = self.run_job(S.validate_voice_learn({"tid": tid, "names": ["兎田ぺこら"]}), "voice-learn")
+        self.assertEqual(j2.get("learned"), ["兎田ぺこら"])
+        j3 = self.run_job(S.validate_diarize({"tid": tid, "numSpeakers": 2}), "diarize")
+        self.assertEqual(j3.get("named") or [], [])
+        self.assertEqual([(s["id"], s["name"]) for s in self.doc(tid)["speakers"]], [("S1", "兎田ぺこら"), ("S2", "話者2")])
+        self.assertEqual(os.listdir(S.TMP_DIR), [])
+
+    def test_transcribe_and_rerun(self):
+        """文字起こし(範囲の開始 0.5 秒・単語の時刻で行を分ける)→ 行ごと → 範囲 → 全体(校正済みの行を守る)→ 同じ動画の作り直し(人の行を引き継ぐ)→
+        行が 0 の文書の全体 → エンジンを名前で読む・知らない名前は断る → GPU の調べは別プロセス → しばらく使わなければワーカーを終わらせる"""
+        job = self.transcribe(start=0.5, wordSplit=True)
+        self.assertEqual(job["device"], "cpu")
+        tid = job["tid"]
+        d = self.doc(tid)
+        segs = d["segments"]
+        self.assertEqual(len(segs), 3, _texts(d))                                    # 1.5 秒の間で分ける・2.5 秒の間も
+        self.assertIn("配信", segs[1]["text"])
+        self.assertIn("ゲーム", segs[2]["text"])
+        self.assertFalse([t for t in _texts(d) if "。" in t])                         # 句読点を除く(既定)
+        self.assertTrue(all(0.5 <= g["start"] < g["end"] <= self.dur + 0.01 for g in segs), segs)   # 範囲の開始を足した元の動画の秒
+        self.assertGreater(segs[0]["start"], 0.8)                                     # 頭の 1 秒の無音の後
+        self.assertGreater(segs[2]["start"] - segs[1]["end"], 1.5)                    # 2.5 秒の無音に行を延ばさない
+        self.assertEqual(len(d["original"]), 3)
+        run = d["recognition"]["runs"][0]
+        self.assertEqual((run["engine"], run["model"], run["device"], run["language"]), ("faster-whisper", "small", "cpu", "ja"))
+        self.assertNotIn("gpu", run)                                                  # 機器の名前が無ければ書かない
+        self.assertNotIn("fill", run)                                                 # 後処理を使っていなければ記録も無い
+        self.assertEqual(d["params"]["dict"], run["settings"]["dict"])
+        ws = S.read_words(tid)                                                        # 単語の時刻は文書とは別の words.json
+        self.assertNotIn("_words", segs[0])
+        self.assertEqual("".join(w[2] for w in ws).replace("。", "").replace(" ", ""), "".join(_texts(d)))
+        self.assertTrue(ws[0][0] >= 0.5 and all(ws[i][0] <= ws[i + 1][0] for i in range(len(ws) - 1)))
+        asr = testkit.read_json(S.asr_path(tid))                                      # 生出力(分ける前・置換の前)も元の動画の秒
+        self.assertEqual(asr["run"]["engine"], "faster-whisper")
+        self.assertTrue(asr["segments"] and asr["segments"][0]["start"] >= 0.5 and asr["segments"][0]["words"])
+        for stage in ("transcribe", "post"):
+            self.assertTrue(os.path.isfile(os.path.join(S.TX_DIR, "%s.%s.key.json" % (tid, stage))), stage)
+        self.assertFalse(os.path.exists(os.path.join(S.TX_DIR, tid + ".llm.json")))
+        pid = S.WORKER.proc.pid
+        # 行ごと・範囲の再認識(行ごとの音声と範囲の配列は一時ファイルで渡し、残さない)
+        ids = [g["id"] for g in segs]
+        self.retranscribe(tid=tid, ids=ids[1:2])
+        self.assertEqual(os.listdir(S.TMP_DIR), [])
+        self.assertIn("配信", self.doc(tid)["segments"][1]["text"])
+        self.retranscribe(tid=tid, ids=ids[1:], mode="range")
+        self.assertEqual(os.listdir(S.TMP_DIR), [])
+        after = self.doc(tid)["segments"]
+        self.assertEqual(len(after), 3)
+        self.assertTrue(all(abs(a["start"] - b["start"]) < 0.3 for a, b in zip(after[1:], segs[1:])), after)   # 範囲の行も元の動画の秒
+        # 全体の再認識: 校正済みの行は差し替えない・「標準」を頼んでも全体は「弱め」・履歴に実行前・短い動画は区間に分けない
+        d = self.doc(tid)
+        d["segments"][0].update(text="人が直した一行目", proofed=True, speaker="")
+        S.save_transcript(tid, dict(d, baseUpdatedAt=d["updatedAt"]))
+        before = self.doc(tid)
+        spec, whole = self.retranscribe(tid=tid, mode="whole", vadMode="normal")
+        self.assertEqual(spec["vadMode"], "weak")
+        self.assertEqual(spec["ids"], [g["id"] for g in before["segments"][1:]])
+        d = self.doc(tid)
+        self.assertEqual((d["segments"][0]["text"], d["segments"][0].get("proofed")), ("人が直した一行目", True))
+        self.assertTrue(len(d["segments"]) == 3 and "ゲーム" in d["segments"][2]["text"], _texts(d))
+        self.assertEqual((whole["kept"], S.public_job(whole)["kept"]), (0, 0))       # 機械の文字は前と同じ = 3 択にする人の行は無い
+        self.assertTrue(S.hist_stamps(tid))
+        self.assertFalse(os.path.isdir(os.path.join(S.TX_DIR, ".resume")) and os.listdir(os.path.join(S.TX_DIR, ".resume")))
+        self.assertEqual(S.WORKER.proc.pid, pid)                                      # 同じワーカー(モデルを持ったまま)を使い回す
+        # 同じ動画を作り直すと、前の文書の人の行を引き継ぐ
+        again = self.transcribe(start=0.5, wordSplit=True)
+        d2 = self.doc(again["tid"])
+        self.assertNotEqual(again["tid"], tid)
+        self.assertEqual(d2["segments"][0]["text"], "人が直した一行目")
+        self.assertGreaterEqual(d2["recognition"]["runs"][-1]["override"]["matched"], 1)
+        self.assertTrue(any("引き継ぎました" in w for w in S.public_job(again)["warnings"]))
+        # 行が 0 の文書(全部捨てられた文書)も全体で認識し直せる
+        d = self.doc(tid)
+        d["segments"] = []
+        S.save_transcript(tid, dict(d, baseUpdatedAt=d["updatedAt"]))
+        self.retranscribe(tid=tid, mode="whole")
+        # エンジンを名前で読む(受け付ける引数はエンジンが答える)・知らない名前はワーカーが断り、ワーカーは落ちない
+        j = {"phase": "", "progress": 0.0, "cancel": False}
+        m, dev = S.load_model("small", j, "cpu", engine="faster-whisper")
+        self.assertEqual((m.engine, dev), ("faster-whisper", "cpu"))
+        self.assertIn("vad_filter", m.params)
+        with self.assertRaises(S.ApiError) as cm:
+            S.WORKER.call("transcribe", {"name": "small", "device": "cpu", "engine": "../evil", "audio": {"wav": self.media}, "kw": {}}, j)
+        self.assertEqual(cm.exception.code, "bad_engine")
+        self.assertTrue(S.WORKER.alive())
+        self.assertEqual(S.WORKER.starts, 1)
+        # GPU の有無は別プロセス(worker.py --probe)で調べる(サーバーのプロセスに ctranslate2 を読み込まない)
+        p = subprocess.run([sys.executable, S.worker_script(), "--probe"], capture_output=True, timeout=60, env=S.worker_env(),
+                           stdin=subprocess.DEVNULL, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIsInstance(json.loads(p.stdout)["cuda"], bool)
+        self.assertNotIn("ctranslate2", sys.modules)
+        # しばらく使わなければワーカーを終わらせる
+        with mock.patch.object(S, "MODEL_IDLE_SEC", 900):
+            self.assertTrue(S.release_idle_models(time.time() + 1000))
+        self.assertFalse(S.WORKER.alive())
 
 
 @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg が無い")
@@ -103,25 +288,6 @@ class WorkerTest(unittest.TestCase):
         except OSError:
             return ""
 
-    # ---- 通常の流れ
-    def test_transcribe_through_worker(self):
-        job = self.transcribe()
-        self.assertEqual(job["state"], "done", job.get("error"))
-        self.assertEqual(job["device"], "cpu")
-        d = self.doc(job["tid"])
-        self.assertEqual(len(d["segments"]), 5)   # 20秒 ÷ 4秒(偽のモデル)
-        self.assertEqual([g["text"] for g in d["segments"]][:2], ["テスト文1", "テスト文2"])
-        self.assertEqual(d["segments"][4]["flag"], "自信が低い")   # 行の情報(avg_logprob)がワーカーから届いている
-        self.assertEqual(len(d["original"]), 5)
-        run = d["recognition"]["runs"][0]
-        self.assertEqual((run["engine"], run["model"], run["device"], run["language"]), ("faster-whisper", d["model"], "cpu", "ja"))
-        self.assertTrue(S.WORKER.alive())                # 次のジョブのためにモデルを持ったまま残る
-        pid = S.WORKER.proc.pid
-        self.assertEqual(self.transcribe()["state"], "done")
-        self.assertEqual(S.WORKER.proc.pid, pid)          # 同じワーカーを使い回す
-        self.assertIn("偽のモデルを読み込み", self.worker_log())   # 標準出力への出力は worker.log へ回り、やり取りを壊さない
-        self.assertIn("native-like output", self.worker_log())
-
     # ---- 声の検出が捨てすぎたときのやり直し(docs/design/whole-retranscribe-design.md の 4-2)
     def test_vad_drops_everything_then_relaxes(self):
         """声の検出「標準」が全部を捨てた(複数人で 0 文字の例)→「弱め」でやり直して文字が出る。記録と知らせが残る(「なし」まで緩める段・捨てすぎていなければやり直さない、は単体)"""
@@ -152,18 +318,14 @@ class WorkerTest(unittest.TestCase):
         S.save_transcript(tid, dict(d, baseUpdatedAt=d["updatedAt"]))
         return self.doc(tid)
 
-    def test_whole_keeps_proofed_rows(self):
+    def test_whole_counts_proofed_rows_where_machine_changed(self):
+        """機械の文字が前と変わった所の校正済みの行は 3 択の数(kept)に入る(同じ見本・同じモデルの本物では機械の文字が変わらない)"""
         tid = self.transcribe()["tid"]
-        before = self._proof_first(tid)
-        spec, job = self._whole(tid)
-        self.assertEqual(spec["vadMode"], "weak")                            # 全体は既定「弱め」
-        self.assertEqual(spec["ids"], [g["id"] for g in before["segments"][1:]])   # 校正済みでない行だけ差し替える
+        self._proof_first(tid)
+        _spec, job = self._whole(tid)
         self.assertEqual(job["state"], "done", job.get("error"))
-        d = self.doc(tid)
-        new = d["segments"][1:]
-        self.assertTrue(new and all(g["text"].startswith("範囲再認識") for g in new))
+        self.assertEqual(self.doc(tid)["segments"][0]["text"], "人が直した一行目")
         self.assertEqual((job["kept"], S.public_job(job)["kept"]), (1, 1))
-        self.assertTrue(S.hist_stamps(tid))                                  # 実行前の状態は履歴に(.bak の控えは作らない = 決定 3-47 の 1b-1)
 
     def test_whole_resumes_from_saved_parts(self):
         """S-1: 長い動画の全体の再認識は区間ごとに書いておき、途中で落ちても、同じ設定でもう一度始めれば続きから。結果は通しで認識したときと同じ"""
@@ -191,7 +353,7 @@ class WorkerTest(unittest.TestCase):
         self.assertEqual(strip(self.doc(tid_b)), strip(self.doc(tid_a)))
 
     def test_whole_resume_needs_same_settings(self):
-        """設定が違えば続きの記録は使わない(最初から認識して上書き)。短い動画は区間に分けず、記録も書かない"""
+        """設定が違えば続きの記録は使わない(最初から認識して上書き)"""
         tid = self.transcribe()["tid"]
         with mock.patch.object(S, "WHOLE_PART_SEC", 6):
             calls = []
@@ -202,11 +364,6 @@ class WorkerTest(unittest.TestCase):
             with mock.patch.object(S.RangeRecognizer, "main", counting(calls)):
                 _s, job = self._whole(tid, model="large-v3")                 # モデルが違う
             self.assertEqual((job["state"], len(calls), job.get("resumed")), ("done", 3, None))
-        calls.clear()
-        with mock.patch.object(S.RangeRecognizer, "main", counting(calls)):
-            _s, job = self._whole(tid)                                        # 既定の目安(600 秒)では 20 秒は1回で
-        self.assertEqual((job["state"], len(calls)), ("done", 1))
-        self.assertFalse(os.path.isdir(os.path.join(S.TX_DIR, ".resume")) and os.listdir(os.path.join(S.TX_DIR, ".resume")))
 
     def test_whole_loose_condition_fills_where_nothing_was_recognized(self):
         """新しい認識で 0 文字だった所は、緩い条件で文字が出ればそれで埋める(印つき)。0 文字のままなら元の行を残す印は範囲の単体"""
@@ -224,12 +381,6 @@ class WorkerTest(unittest.TestCase):
     def test_whole_rules(self):
         with mock.patch.object(S, "backend_name", lambda: "fake"):            # 下ごしらえの文字起こしはワーカーを起こさない
             tid = self.transcribe()["tid"]
-        d = self.doc(tid)
-        d["segments"] = []
-        S.save_transcript(tid, dict(d, baseUpdatedAt=d["updatedAt"]))       # 行が 0 の文書(全部捨てられた文書)も全体で認識し直せる
-        _spec, job = self._whole(tid)
-        self.assertEqual(job["state"], "done", job.get("error"))
-        self.assertTrue(self.doc(tid)["segments"])
         self.assertEqual(S.validate_retranscribe({"tid": tid, "mode": "whole", "vadMode": "off"})["vadMode"], "off")   # 明示の「なし」は尊重
         self.assertEqual(S.validate_retranscribe({"tid": tid, "mode": "whole", "vadMode": "normal"})["vadMode"], "weak")
         d = self.doc(tid)
@@ -242,70 +393,6 @@ class WorkerTest(unittest.TestCase):
             S.validate_retranscribe({"tid": tid, "mode": "whole"})
         self.assertEqual(c.exception.code, "eval_set")                        # 評価用は断る
 
-    def test_word_split_uses_worker_words(self):
-        job = self.transcribe(wordSplit=True)
-        self.assertEqual(job["state"], "done", job.get("error"))
-        segs = self.doc(job["tid"])["segments"]
-        self.assertEqual(len(segs), 5)   # 単語の時刻(words)も届く。1秒以上の間がないので分けない
-        ws = S.read_words(job["tid"])    # 単語の時刻は文書とは別の words.json に(12 ②。行のデータには入れない)
-        self.assertEqual(len(ws), 10)
-        self.assertNotIn("_words", segs[0])
-        self.assertEqual(segs[0]["text"], "テスト文1")   # 単語をつなげた文と行の文が一致(単語が正しく届いている)
-
-    def test_retranscribe_each_and_range(self):
-        tid = self.transcribe()["tid"]
-        spec = S.validate_retranscribe({"tid": tid, "ids": ["s2", "s3"], "model": "small"})
-        job = self.run_job(spec, "retranscribe")
-        self.assertEqual(job["state"], "done", job.get("error"))   # 行ごとの音声(float32 の配列)は一時ファイルで渡す
-        self.assertEqual(os.listdir(S.TMP_DIR), [])                # 一時ファイル(音声・範囲の配列)は残らない
-        spec = S.validate_retranscribe({"tid": tid, "ids": ["s2", "s3"], "model": "small", "mode": "range"})
-        job = self.run_job(spec, "retranscribe")
-        self.assertEqual(job["state"], "done", job.get("error"))
-        self.assertEqual(os.listdir(S.TMP_DIR), [])
-
-    def test_diarize_through_worker(self):
-        tid = self.transcribe()["tid"]
-        job = self.run_job(S.validate_diarize({"tid": tid, "numSpeakers": 2}), "diarize")
-        self.assertEqual(job["state"], "done", job.get("error"))
-        self.assertEqual(job["speakers"], 2)
-        self.assertEqual(len(self.doc(tid)["speakers"]), 2)
-
-    def test_diarize_tune_through_worker(self):
-        """判別の設定(src/eval/tools/eval_speakers.py の run 用。任意)がワーカーまで届く。偽の判別はしきい値 1.0 以上・人数 自動で 1 人にまとめる"""
-        os.makedirs(S.TMP_DIR, exist_ok=True)
-        wav = os.path.join(S.TMP_DIR, "tune.wav")
-        job = {"cancel": False, "proc": None, "phase": "", "state": "", "device": "", "progress": 0.0}
-        S.extract_audio(job, {"sourcePath": self.media, "start": 0.0, "end": None}, wav)
-        try:
-            self.assertEqual({k for _, _, k in S.diarize_real(job, wav, 0, "voxceleb")}, {0, 1})               # 渡さない = 既定のまま
-            self.assertEqual({k for _, _, k in S.diarize_real(job, wav, 0, "voxceleb", threshold=1.5)}, {0})
-        finally:
-            os.unlink(wav)
-
-    def _voice_learn_and_rediarize(self):
-        """名前を付けた話者の声を覚え、もう一度判別する -> (判別し直したジョブ, 文書の読み出し, tid)"""
-        with mock.patch.object(S, "VOICES_DIR", os.path.join(self.tmp, "voices")):
-            tid = self.transcribe()["tid"]
-            j = self.run_job(S.validate_diarize({"tid": tid, "numSpeakers": 2}), "diarize")
-            self.assertEqual((j["state"], j.get("named") or []), ("done", []), j.get("error"))   # まだ何も覚えていない
-            d = self.doc(tid)
-            d["speakers"][0]["name"] = "兎田ぺこら"
-            for g in d["segments"]:
-                g["proofed"] = True   # 段1(監査17): 覚えるのは校正済みの行だけ
-            S.save_transcript(tid, d)
-            j2 = self.run_job(S.validate_voice_learn({"tid": tid, "names": ["兎田ぺこら"]}), "voice-learn")
-            self.assertEqual((j2["state"], j2.get("learned")), ("done", ["兎田ぺこら"]), j2.get("error"))
-            j3 = self.run_job(S.validate_diarize({"tid": tid, "numSpeakers": 2}), "diarize")   # 判別し直すと名前は「話者n」に戻る → 声で付け直す
-            self.assertEqual(j3["state"], "done", j3.get("error"))
-            self.assertEqual(os.listdir(S.TMP_DIR), [])
-            return j3, self.doc(tid), tid
-
-    def test_voice_learn_and_recognize_through_worker_primary(self):
-        """層が正: 判別し直すと人の層の話者の表が残るので、名前は「話者n」に戻らず、覚えた声で付け直すこともしない"""
-        j3, d, _tid = self._voice_learn_and_rediarize()
-        self.assertEqual(j3.get("named") or [], [])   # 名前は人の層が持っているので、声で付け直す対象(仮の名前)が無い
-        self.assertEqual([(s["id"], s["name"]) for s in d["speakers"]], [("S1", "兎田ぺこら"), ("S2", "話者2")])
-
     # ---- 取り消し
     def test_cancel_running_job(self):
         os.environ["TRANSCRIBE_FAKE_DELAY"] = "0.5"
@@ -317,9 +404,8 @@ class WorkerTest(unittest.TestCase):
         S.cancel_job(job["id"])
         th.join(20)
         self.assertEqual(job["state"], "cancelled", job.get("error"))
-        self.assertTrue(S.WORKER.alive())   # 取り消しに応じたワーカーはそのまま使える
-        os.environ["TRANSCRIBE_FAKE_DELAY"] = "0.01"
-        self.assertEqual(self.transcribe()["state"], "done")
+        self.assertTrue(S.WORKER.alive())   # 取り消しに応じたワーカーはそのまま使える(偽のモデルの遅さは起動したときのまま = 4 秒の 1 行だけ)
+        self.assertEqual(self.transcribe(end=4.0)["state"], "done")
 
     def test_cancelled_before_request_is_not_sent(self):
         """取り消し済みのジョブは、ワーカーに要求を送らない(モデルの読み込みなど重い処理を始めない)"""
@@ -378,27 +464,27 @@ class WorkerTest(unittest.TestCase):
         job2 = self.transcribe()
         self.assertEqual(job2["state"], "done", job2.get("error"))   # 次のジョブでワーカーを起動し直す
         self.assertEqual(S.WORKER.starts, 2)
+        self.assertIn("native-like output", self.worker_log())      # 標準出力への余計な出力は worker.log へ回り、やり取りを壊さない
 
-    def test_worker_killed_between_jobs(self):
+    def test_worker_killed_between_jobs_and_server_goes_away(self):
+        """待機中に落ちていても次の要求で起動し直す。サーバーが落ちた(標準入力が閉じた)ら、ワーカーもすぐ終わる(メモリを持ったまま取り残されない)"""
         self.assertEqual(self.transcribe()["state"], "done")
         S.WORKER.proc.kill()
         S.WORKER.proc.wait(5)
-        self.assertEqual(self.transcribe()["state"], "done")   # 待機中に落ちていても、次の要求で起動し直す
+        self.assertEqual(self.transcribe()["state"], "done")
         self.assertEqual(S.WORKER.starts, 2)
+        p = S.WORKER.proc
+        p.stdin.close()
+        self.assertEqual(p.wait(10), 0)
 
-    def test_worker_missing(self):
+    def test_worker_missing_and_retry(self):
+        """部品が無い(内部の名前は errorDetail だけ)。失敗した文字起こしを、同じ指定でもう一度待機列に入れる(画面の [やり直す])。失敗していないものはやり直せない"""
         with mock.patch.object(S, "WORKER_SCRIPT", os.path.join(self.tmp, "nope.py")):
             job = self.transcribe()
         self.assertEqual(job["state"], "error")
-        self.assertIn("文字起こしの部品が見つかりません", job["error"])   # 内部の名前は errorDetail だけ(UI の見直し S12)
+        self.assertIn("文字起こしの部品が見つかりません", job["error"])
         self.assertIn("worker.py", job.get("errorDetail", ""))
         self.assertIn("nope.py", job.get("errorDetail", ""))
-
-    def test_retry_failed(self):
-        """失敗した文字起こしを、同じ指定でもう一度待機列に入れる(画面の [やり直す]。UI の見直し M9)。失敗していないものはやり直せない"""
-        with mock.patch.object(S, "WORKER_SCRIPT", os.path.join(self.tmp, "nope.py")):
-            job = self.transcribe()
-        self.assertEqual(job["state"], "error")
         self.assertTrue(S.public_job(job)["canRetry"])
         again = S.retry_job(job["id"])
         self.assertNotEqual(again["id"], job["id"])
@@ -412,21 +498,7 @@ class WorkerTest(unittest.TestCase):
         with self.assertRaises(S.ed_state.ApiError):
             S.retry_job("nope")
 
-    # ---- 終了・メモリ
-    def test_idle_release_stops_worker(self):
-        self.assertEqual(self.transcribe()["state"], "done")
-        now = time.time()
-        with mock.patch.object(S, "MODEL_IDLE_SEC", 900):
-            self.assertTrue(S.release_idle_models(now + 1000))
-        self.assertFalse(S.WORKER.alive())
-
-    def test_worker_exits_when_server_goes_away(self):
-        """サーバーが落ちた(標準入力が閉じた)ら、ワーカーもすぐ終わる(メモリを持ったまま取り残されない)。"""
-        self.assertEqual(self.transcribe()["state"], "done")
-        p = S.WORKER.proc
-        p.stdin.close()
-        self.assertEqual(p.wait(10), 0)
-
+    # ---- 終了
     def test_close_refuses_new_work(self):
         S.WORKER.close()
         job = self.transcribe()
@@ -457,19 +529,10 @@ print(json.dumps({"states": [j["state"], r["state"], d["state"]],
         self.assertEqual(out["states"], ["done", "done", "done"], p.stderr[-2000:])
         self.assertEqual(out["loaded"], [])
 
-    def test_gpu_probe_runs_in_separate_process(self):
-        """GPU の有無は別プロセス(worker.py --probe)で調べる(サーバーのプロセスに ctranslate2 を読み込まない)。
-        疑似の部品はサーバーと同じく環境変数(FAKES_ENV)でモジュールの名前を渡す(RS2-9)"""
-        env = dict(os.environ, TRANSCRIBE_BACKEND="worker-fake", **{S.FAKES_ENV: S.FAKES_MODULE})
-        self.assertTrue(S.worker_script().endswith(os.path.join("pipeline", "transcribe", "worker.py")))
-        p = subprocess.run([sys.executable, S.worker_script(), "--probe"], capture_output=True, timeout=60, env=env)
-        self.assertEqual(p.returncode, 0, p.stderr)
-        self.assertEqual(json.loads(p.stdout), {"cuda": False})
-        self.assertNotIn("ctranslate2", sys.modules)
-
-    # ---- 認識エンジンの口(精度改善の計画 段2-1・2-2)
+    # ---- 認識エンジンの口
     def test_whispercpp_through_worker(self):
-        """whisper.cpp のエンジンで文字起こし(サーバー → ワーカー → 偽の whisper-cli)。GPU(Vulkan)で動き、記録にエンジンと機器が残る"""
+        """whisper.cpp のエンジンで文字起こし(サーバー → ワーカー → 偽の whisper-cli)。GPU(Vulkan)で動き、記録にエンジンと機器が残る・
+        GPU が無ければ黙って CPU にしない(whisper.cpp の本物の GPU の通しは 1 本だけで、ライブの文字起こしの側 = src/flow/tests/test_live_tx.py)"""
         job = self.transcribe(model="large-v3", engine="whisper.cpp")
         self.assertEqual(job["state"], "done", job.get("error"))
         self.assertEqual(job["device"], "vulkan")
@@ -485,21 +548,9 @@ print(json.dumps({"states": [j["state"], r["state"], d["state"]],
         self.assertIn("GPU(Vulkan)を使えませんでした", job["error"])         # 黙って CPU にしない
         self.assertEqual(self.transcribe(model="large-v3", engine="whisper.cpp", device="cpu")["state"], "done")
 
-    def test_engine_by_name_through_worker(self):
-        """エンジンを名前で選べる(今は faster-whisper だけ)。知らない名前はワーカーが断り、ワーカーは落ちない"""
-        job = {"phase": "", "progress": 0.0, "cancel": False}
-        m, dev = S.load_model("small", job, "cpu", engine="faster-whisper")
-        self.assertEqual((m.engine, dev), ("faster-whisper", "cpu"))
-        self.assertIn("vad_filter", m.params)   # 受け付ける引数はエンジン(の中のモデル)が答える
-        with self.assertRaises(S.ApiError) as cm:   # 認識の要求でも、知らないエンジンは断る
-            S.WORKER.call("transcribe", {"name": "small", "device": "cpu", "engine": "../evil", "audio": {"wav": self.media}, "kw": {}}, job)
-        self.assertEqual(cm.exception.code, "bad_engine")
-        self.assertTrue(S.WORKER.alive())
-        self.assertEqual(self.transcribe()["state"], "done")
-
 
 class EngineTest(unittest.TestCase):
-    """tx_engines: faster-whisper のエンジンは、引数と結果をそのまま通す(エンジンの口を作る前と出力が1文字も変わらない)"""
+    """tx_engines: faster-whisper のエンジンは、引数と結果をそのまま通す・モデルはローカルだけ(local_files_only)"""
 
     def test_faster_whisper_passes_through(self):
         import types
@@ -633,8 +684,8 @@ class ProtocolTest(unittest.TestCase):
                 sent.append(obj)
         with mock.patch.object(S, "_diarize_local", fake):
             W.handle({"rid": 1, "op": "diarize", "wav": "a.wav", "num": 0, "emb": "voxceleb"}, Out(), set())
-            W.handle({"rid": 2, "op": "diarize", "wav": "a.wav", "num": 2, "emb": "voxceleb", "threshold": 0.7, "minOff": 0.5}, Out(), set())
-        self.assertEqual(got, [(("a.wav", 0, "voxceleb"), {}), (("a.wav", 2, "voxceleb"), {"threshold": 0.7, "min_off": 0.5})])
+            W.handle({"rid": 2, "op": "diarize", "wav": "a.wav", "num": 2, "emb": "voxceleb", "threshold": 0.7, "minOn": 0.2, "minOff": 0.5}, Out(), set())
+        self.assertEqual(got, [(("a.wav", 0, "voxceleb"), {}), (("a.wav", 2, "voxceleb"), {"threshold": 0.7, "min_on": 0.2, "min_off": 0.5})])
         self.assertEqual([m["ev"] for m in sent], ["result", "result"])
 
 

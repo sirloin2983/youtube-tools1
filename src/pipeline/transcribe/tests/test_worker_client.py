@@ -3,8 +3,8 @@
 
     py -3.12 -m unittest src/pipeline/transcribe/tests/test_worker_client.py -v
 
-ワーカーの起動・取り消し・落ちたときの立ち直りは編集のテスト(src/editor/tests/test_worker.py。serve の名前で読む・本物の経路)が確かめる。
-ここは「① が serve なしで読めて、ワーカーの本体と記録のパスを差し替えか ytt/workdata から読む(RS3-0A まで txenv の口)・サーバーのプロセスでは wav を読まない」ことだけ。
+本物のワーカーの通し・取り消し・落ちたときの立ち直りは編集のテスト(src/editor/tests/test_worker.py。serve の名前で読む)が確かめる。
+ここは「① が serve なしで読めて、ワーカーの本体と記録のパスを差し替えか ytt/workdata から読む・サーバーのプロセスでは wav を読まない」ことだけ。
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない(一時フォルダだけ)。ほかのテストとそろえる
@@ -51,28 +51,10 @@ class TestPaths(unittest.TestCase):
 
 
 class TestWorkerModule(unittest.TestCase):
-    """認識ワーカーの本体 worker.pyを serve なしで読む"""
+    """認識ワーカーの本体 worker.py を serve なしで読む(本物の要求の道は src/editor/tests/test_worker.py の RealWorkerTest)"""
 
-    def test_handle_routes_to_owner_modules(self):
-        """要求は呼ぶたびに持ち主のモジュールの名前を読む(diarize._diarize_local の差し替えが届く)・知らない要求は bad_op"""
-        from pipeline.transcribe import diarize, worker
-        sent, got = [], []
-
-        class Out:
-            def send(self, obj):
-                sent.append(obj)
-
-        def fake(job, wav, num, emb, **kw):
-            got.append((wav, num, emb, kw))
-            return [(0.0, 1.5, 1)]
-        with mock.patch.object(diarize, "_diarize_local", fake):
-            worker.handle({"rid": 7, "op": "diarize", "wav": "a.wav", "num": 2, "minOn": 0.2}, Out(), set())
-        worker.handle({"rid": 8, "op": "nope"}, Out(), set())
-        self.assertEqual(got, [("a.wav", 2, diarize.DIAR_EMB_DEFAULT, {"min_on": 0.2})])
-        self.assertEqual(sent[0], {"rid": 7, "ev": "result", "v": [[0.0, 1.5, 1]]})
-        self.assertEqual((sent[1]["rid"], sent[1]["ev"], sent[1]["code"]), (8, "error", "bad_op"))
-
-    def test_handle_api_error_and_cancel(self):
+    def test_handle_errors_and_cancel(self):
+        """知らない要求は bad_op・知らないエンジンは ApiError・読み込み中の取り消しは cancelled"""
         from pipeline.transcribe import worker
         from ytt import jobs
         sent = []
@@ -80,11 +62,13 @@ class TestWorkerModule(unittest.TestCase):
         class Out:
             def send(self, obj):
                 sent.append(obj)
-        worker.handle({"rid": 1, "op": "load", "name": "small", "engine": "no-such"}, Out(), set())   # 知らないエンジンは ApiError
+        worker.handle({"rid": 8, "op": "nope"}, Out(), set())
+        worker.handle({"rid": 1, "op": "load", "name": "small", "engine": "no-such"}, Out(), set())
         with mock.patch.object(models, "_load_model_local", mock.Mock(side_effect=jobs.Cancelled())):
             worker.handle({"rid": 2, "op": "load", "name": "small"}, Out(), {2})
-        self.assertEqual((sent[0]["code"], sent[0]["status"]), ("bad_engine", 400))
-        self.assertEqual((sent[1]["rid"], sent[1]["code"]), (2, "cancelled"))
+        self.assertEqual((sent[0]["rid"], sent[0]["ev"], sent[0]["code"]), (8, "error", "bad_op"))
+        self.assertEqual((sent[1]["code"], sent[1]["status"]), ("bad_engine", 400))
+        self.assertEqual((sent[2]["rid"], sent[2]["code"]), (2, "cancelled"))
 
 
 class TestWav(unittest.TestCase):
@@ -117,8 +101,11 @@ class TestKwargs(unittest.TestCase):
     def test_cuda_compute_and_filter(self):
         with mock.patch.dict(os.environ, {"TRANSCRIBE_CUDA_COMPUTE": "int8_float16"}):
             self.assertEqual(models.cuda_compute(), "int8_float16")
-        with mock.patch.dict(os.environ, {"TRANSCRIBE_CUDA_COMPUTE": "bogus"}):
+        with mock.patch.dict(os.environ, {"TRANSCRIBE_CUDA_COMPUTE": "rm -rf"}):
             self.assertEqual(models.cuda_compute(), "float16")
+        with mock.patch.dict(os.environ, {}):
+            os.environ.pop("TRANSCRIBE_CUDA_COMPUTE", None)
+            self.assertEqual(models.cuda_compute(), "float16")   # 無ければ既定
         kw = W.whisper_kwargs({"language": "ja", "beam": 5, "model": "small", "vadMode": "off", "wordSplit": True})
         self.assertEqual((kw["vad_filter"], kw["word_timestamps"], kw["language"]), (False, True, "ja"))
 

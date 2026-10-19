@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""whisper.cpp のエンジン(tx_engines.WhisperCpp。精度改善の計画 段2-2)のテスト。test_metrics から読み込まれる。
+"""whisper.cpp のエンジン(tx_engines.WhisperCpp)のテスト。test_metrics から読み込まれる。
 
-本物の whisper-cli の代わりに tests/fake_whisper_cli.py を子プロセスで動かす(引数・応答ファイル・結果の JSON・GPU の行・進み具合・取り消し)。
-確かめること: faster-whisper の引数 → whisper-cli の引数 / 日本語のヒントが UTF-8 の応答ファイルで渡る / 結果 → 行・単語・自信の度合い /
-GPU を頼んだのに Vulkan で動かなければ止める(黙って CPU にしない)/ 取り消し / 取得するファイルの大きさと SHA-256 / サーバーの受付と準備の確認。
+本物の whisper.cpp(GPU)の通しは src/flow/tests/test_live_tx.py の RealWhisperTest(既定の引数・結果の行と単語・自信の度合い・GPU の名前・進み具合)。
+ここは本物では起こせない物・見えない物だけ。本物の whisper-cli の代わりに tests/fake_whisper_cli.py を子プロセスで動かす:
+用語集のヒントが UTF-8 の応答ファイルで渡る / CPU・温度 0・範囲の音声の引数 / GPU が無ければ止める(黙って CPU にしない)/ 失敗と取り消し /
+取得するファイルの大きさと SHA-256 / サーバーの受付と準備の確認・行の後処理(時刻の計算)・CUDA 版。
 """
 import hashlib
 import io
 import json
-import math
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所に書かない
 import shutil
@@ -61,40 +61,21 @@ class WhisperCppTest(unittest.TestCase):
         with open(self.args_file, encoding="utf-8") as f:
             return json.load(f)
 
-    def test_transcribe_maps_args_and_parses(self):
+    def test_glossary_hint_and_server_kwargs(self):
+        """編集のワーカーが作る引数(用語集のヒント・声の検出・no_speech)→ whisper-cli の引数。日本語のヒントは UTF-8 の応答ファイルで化けずに届く
+        (偽の whisper-cli が受け取った引数で見る = 本物では見えない。ライブの通しは用語集を渡さない)。
+        既定の引数・結果の読み取り・GPU の名前は本物の通し src/flow/tests/test_live_tx.py の RealWhisperTest"""
         e = self.engine()
-        prog = []
-        e.hooks = {"progress": prog.append}
         kw = S.whisper_kwargs({"language": "ja", "beam": 5, "model": "large-v3", "vadMode": "weak", "wordSplit": True,
                                "glossary": ["白上フブキ", "さくらみこ"]})
         kw = S.filter_kwargs(e, kw)
         self.assertNotIn("hotwords", kw)                                   # whisper.cpp に無い引数は渡さない
-        segs, info = e.transcribe(self.wav, **kw)
-        segs = list(segs)
+        self.assertEqual(len(list(e.transcribe(self.wav, **kw)[0])), 3)
         a = self.sent_args()
-        self.assertEqual(a[a.index("-l") + 1], "ja")
-        self.assertEqual(a[a.index("-bs") + 1], "5")
-        self.assertEqual(a[a.index("-mc") + 1], "0")                       # 前の文を文脈にしない
-        self.assertIn("用語: 白上フブキ、さくらみこ", a[a.index("--prompt") + 1])   # 日本語のヒントが化けずに届く(UTF-8 の応答ファイル)
+        self.assertIn("用語: 白上フブキ、さくらみこ", a[a.index("--prompt") + 1])
         self.assertTrue(kw.get("vad_filter"))                              # 声の検出「弱め」の指定が来ても
         self.assertFalse({"--vad", "-vm", "-vt", "-vsd", "-vp"} & set(a))   # whisper.cpp 自身の声の検出は使わない
         self.assertEqual(a[a.index("-nth") + 1], "0.9")
-        self.assertNotIn("-ng", a)
-        self.assertIn("-nfa", a)                                           # フラッシュアテンションは既定で使わない(時刻が 1 秒単位に丸まる)
-        self.assertEqual(len(segs), 3)                                     # 10 秒 ÷ 4 秒
-        s = segs[0]
-        self.assertEqual((s.start, s.end, s.text), (0.0, 4.0, "テスト文1"))
-        self.assertEqual([w.word for w in s.words], ["テスト", "文1"])      # 特別なトークン [_…] は単語にしない
-        self.assertEqual((s.words[1].start, s.words[1].end, s.words[1].probability), (2.0, 4.0, 0.5))
-        self.assertAlmostEqual(s.avg_logprob, (math.log(0.8) + math.log(0.5)) / 2, places=5)
-        self.assertIsNone(s.no_speech_prob)
-        self.assertGreater(s.compression_ratio, 0)
-        self.assertEqual((info.language, info.duration, info.duration_after_vad), ("ja", 10.0, None))
-        self.assertEqual(e.gpu_name, "AMD Radeon RX 7800 XT")
-        self.assertTrue(prog and prog[-1] >= 0.99 - 1e-9)
-        # seg_to_dict(サーバーの行の整え方)がそのまま読める
-        d = S.seg_to_dict(s)
-        self.assertEqual((d["text"], d["words"][0][2], d["wordProbs"]), ("テスト文1", "テスト", [0.8, 0.5]))
 
     def test_temp0_and_cpu_and_samples(self):
         e = self.engine("cpu")
@@ -138,7 +119,7 @@ class WhisperCppTest(unittest.TestCase):
         self.assertEqual(E.WhisperCpp.device_order("auto", False), ["vulkan"])
         self.assertEqual(E.WhisperCpp.device_order("cuda", True), ["cuda"])   # CUDA 版(黙って CPU にしない)
         self.assertEqual(E.WhisperCpp.device_order("cpu", True), ["cpu"])
-        self.assertEqual(E.FasterWhisper.device_order("auto", True), ["cuda", "cpu"])   # faster-whisper は今までどおり
+        self.assertEqual(E.FasterWhisper.device_order("auto", True), ["cuda", "cpu"])   # faster-whisper は GPU が無ければ CPU
 
     def test_fetch_file_checks_size_and_hash(self):
         body = b"model-bytes" * 100
@@ -375,13 +356,13 @@ class CudaFlavorTest(unittest.TestCase):
         self.assertEqual(v, txbase.WCPP_VERSION)
         for dev, flavor in (("vulkan", "vulkan"), ("auto", "vulkan"), ("cpu", "vulkan"), (None, "vulkan"), ("cuda", "cuda")):
             self.assertEqual(E.wcpp_bin_dir(self.tmp, dev), os.path.join(self.tmp, "bin", "whisper.cpp-%s-%s" % (v, flavor)), dev)
-        self.assertEqual(E.wcpp_bin_dir(self.tmp), os.path.join(self.tmp, "bin", "whisper.cpp-%s-vulkan" % v))   # 既定は今まで
+        self.assertEqual(E.wcpp_bin_dir(self.tmp), os.path.join(self.tmp, "bin", "whisper.cpp-%s-vulkan" % v))   # 既定は Vulkan 版
         self.assertEqual(E.WCPP_MODELS["large-v3"]["file"], txbase.WCPP_MODEL_FILES["large-v3"])
 
     def test_ready_and_refuse_unverified(self):
         self.assertTrue(E.wcpp_binary_ok("cuda"))   # 表は GitHub の API の size・digest で確かめた値
         self.assertEqual(E.WhisperCpp.ready(self.tmp, "cuda"), (True, ""))   # 無くても取得先が確かめてあれば(読み込みのときに取る)
-        self.assertFalse(E.WhisperCpp.ready(self.tmp, "vulkan")[0])          # Vulkan 版は作るまで断る(今まで)
+        self.assertFalse(E.WhisperCpp.ready(self.tmp, "vulkan")[0])          # Vulkan 版は作るまで断る
         with mock.patch.dict(E.WCPP_BINARIES, {"cuda": dict(E.WCPP_BINARIES["cuda"], sha256="")}):
             self.assertFalse(E.wcpp_binary_ok("cuda"))
             ok, why = E.WhisperCpp.ready(self.tmp, "cuda")
@@ -421,7 +402,7 @@ class CudaFlavorTest(unittest.TestCase):
 
     def test_cuda_request_means_whispercpp(self):
         self.assertEqual(S.req_engine({"device": "cuda"}, "large-v3"), "whisper.cpp")
-        self.assertEqual(S.req_engine({}, "small"), "faster-whisper")   # 機器なしの要求は今まで(測る道具・テスト)
+        self.assertEqual(S.req_engine({}, "small"), "faster-whisper")   # 機器なしの要求は faster-whisper(測る道具・テスト)
 
 
 if __name__ == "__main__":

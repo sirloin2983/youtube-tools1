@@ -1,12 +1,10 @@
 # -*- coding: utf-8 -*-
-"""pipeline/transcribe/clipjob(文字起こしのジョブの機械の文書の行。役割で組み直す RS6 a-3 に human/proof/doc_jobs の run_job から切り出した)を、
-編集の serve を読まずに疑似のエンジンで使うテスト。
+"""pipeline/transcribe/clipjob(文字起こしのジョブの機械の文書の行)を、編集の serve を読まずに疑似のエンジンで使うテスト。
 
     py -3.12 -m unittest src/pipeline/transcribe/tests/test_clipjob.py -v
 
-run_job が作っていた行(行の id・範囲の開始を足した時刻・要確認の印・学習した置換は original にも・置換辞書は segments だけ・単語の時刻・
-「長い区間に文字が少ない」行の avg_logprob)と同じになることを、手で決めた期待値で確かめる。文字起こしの通し(文書・words.json・asr.json)は
-編集のテスト(src/editor/tests/test_metrics.py ほか。serve の名前で読む)。
+本物では出せない行(文字の無い行・置換辞書や学習した置換に当たる行・長い区間に文字が少ない行)を手で決めた期待値で確かめる。
+文字起こしの本物の通し(行の id・範囲の開始を足した秒・単語の時刻・文書・words.json・asr.json)は src/editor/tests/test_worker.py の RealWorkerTest。
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない(一時フォルダだけ)。ほかのテストとそろえる
@@ -52,19 +50,14 @@ class TestMakeDocRows(unittest.TestCase):
         return job, clipjob.make_doc_rows(job, dict(SPEC), os.path.join(self.tmp, "w.wav"), list(pairs), learned)
 
     def test_rows_like_run_job(self):
+        """本物の通し(src/editor/tests/test_worker.py)では出ない行: 文字の無い行・置換辞書に当たる行・長い区間に文字が少ない行"""
         job, res = self.run_rows(pairs=[("ペコラ", "ぺこら")])
         self.assertEqual([g["id"] for g in res["segs"]], ["s1", "s2"])   # 文字の無い行は捨てる
-        self.assertEqual([(g["start"], g["end"]) for g in res["segs"]], [(100.0, 102.0), (102.0, 109.0)])   # 範囲の開始を足す
         self.assertEqual(res["segs"][0]["text"], "こんにちはぺこらです")   # 置換辞書は segments だけ
         self.assertEqual(res["original"][0]["text"], "こんにちはペコラです")   # 機械の出力はそのまま
-        self.assertEqual(res["original"][0]["avg_logprob"], -0.3)
-        self.assertEqual(res["dictApplied"], 1)
-        self.assertEqual(res["learnApplied"], 0)
+        self.assertEqual((res["dictApplied"], res["learnApplied"]), (1, 0))
         self.assertIn(txtext.SPARSE_FLAG, res["segs"][1]["flag"])   # 7 秒に 1 文字
-        self.assertEqual(res["words"], [[100.0, 101.0, "こんにちは"], [101.0, 102.0, "ペコラです"]])
-        self.assertEqual(res["total"], 10.0)
-        self.assertEqual(len(res["raw"]), 3)   # 生出力は整える前の行
-        self.assertEqual((res["fill_rec"], res["names_n"], res["llm_rec"], res["llm_items"]), (None, 0, None, None))
+        self.assertEqual(len(res["raw"]), 3)   # 生出力は整える前の行(文字の無い行も)
         self.assertEqual(job["segments"], 2)
 
     def test_learned_replace_goes_to_original_too(self):

@@ -3,10 +3,10 @@
 
     py -3.12 -m unittest src/pipeline/transcribe/tests/test_live_tx_worker.py
 
-確かめること:
+確かめること(本物では起こせない物だけ):
   - 引数の数が違えば 2・知らないモデル・whisper-cli が無ければ ok false の json
-  - 偽の whisper-cli(編集の tests/fake_whisper_cli.py)で text・rows・gpu・whisper-cli の引数(-l ja・-bs 5・-mc 0・-nfa)。GPU が無ければ ok false
-入口 flow 側(live_tx の _run_worker が子プロセスを起動して結果を読む)は src/flow/tests/test_live_tx.py。
+  - GPU が無ければ ok false(偽の whisper-cli = 編集の tests/fake_whisper_cli.py)
+本物の whisper.cpp で text・rows・gpu・whisper-cli の引数を見る通しと、入口 flow 側(live_tx の _run_worker)は src/flow/tests/test_live_tx.py。
 作業データはテストの一時フォルダだけ(YTT_DATA_DIR=inplace)。
 """
 import json
@@ -84,8 +84,9 @@ class WorkerTest(unittest.TestCase):
         self.assertIn("ggml-large-v3.bin", self.result()["reason"])
         self.assertFalse(os.path.exists(self.out + ".part"))
 
-    def test_recognize_with_fake_whisper_cli(self):
-        """編集の WhisperCpp(本物の引数の作り方・-ojf の読み方・GPU の確かめ)を、偽の whisper-cli(編集の tests/fake_whisper_cli.py)で通す"""
+    def test_gpu_missing_is_a_failure(self):
+        """GPU が無い(この PC では起こせない): 黙って CPU にせず ok false。偽の whisper-cli(編集の tests/fake_whisper_cli.py)で通す。
+        正しく動く道(引数・行・GPU の名前)は本物の whisper.cpp の通し src/flow/tests/test_live_tx.py の RealWhisperTest"""
         te = tx_engines()
         touch(os.path.join(te.wcpp_bin_dir(self.data), te.WCPP_EXE))
         touch(os.path.join(te.wcpp_model_dir(self.data), te.WCPP_MODELS["large-v3"]["file"]))
@@ -96,22 +97,7 @@ class WorkerTest(unittest.TestCase):
                 super().__init__(name, device, dict(model, cmd=[sys.executable, FAKE_WCPP]))
         saved = list(sys.path)
         self.addCleanup(lambda: sys.path.__setitem__(slice(None), saved))   # recognize() が sys.path に編集のフォルダを足すので戻す
-        argf = os.path.join(self.tmp, "wcpp-args.json")
-        with mock.patch.object(te, "WhisperCpp", Fake), mock.patch.dict(os.environ, {"FAKE_WCPP_ARGS": argf}):
-            r = TW.recognize(self.data, "large-v3", self.wav)
-        self.assertEqual({k: r[k] for k in ("ok", "text", "gpu", "model", "engine")},
-                         {"ok": True, "text": "テスト文1テスト文2テスト文3", "gpu": "AMD Radeon RX 7800 XT", "model": "large-v3", "engine": "whisper.cpp"})
-        self.assertEqual(r["rows"], [{"start": 0.0, "end": 4.0, "text": "テスト文1"}, {"start": 4.0, "end": 8.0, "text": "テスト文2"},
-                                     {"start": 8.0, "end": 10.0, "text": "テスト文3"}])
-        self.assertIsInstance(r["sec"], float)
-        with open(argf, encoding="utf-8") as f:
-            a = json.load(f)
-        self.assertEqual([a[a.index(k) + 1] for k in ("-l", "-bs", "-mc")], ["ja", "5", "0"])
-        self.assertIn("-nfa", a)
-        self.assertNotIn("-ng", a)   # GPU(vulkan)
-        self.assertNotIn("--vad", a)
-        self.assertEqual(a[a.index("-m") + 1], os.path.join(te.wcpp_model_dir(self.data), "ggml-large-v3.bin"))
-        with mock.patch.object(te, "WhisperCpp", Fake), mock.patch.dict(os.environ, {"FAKE_WCPP_GPU": "none"}):   # GPU が無い: 黙って CPU にしない
+        with mock.patch.object(te, "WhisperCpp", Fake), mock.patch.dict(os.environ, {"FAKE_WCPP_GPU": "none"}):
             self.assertEqual(TW.main(["live_tx_worker.py", self.data, "large-v3", self.wav, self.out]), 1)
         r = self.result()
         self.assertEqual(r["ok"], False)

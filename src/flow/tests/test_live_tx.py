@@ -4,21 +4,19 @@
 
     py -3.12 -m unittest src/flow/tests/test_live_tx.py
 
-確かめること(本物の whisper.cpp・GPU・ffmpeg は使わない。録画元・ffmpeg・認識は偽物):
-  - ready(): オフ / リアルタイム切り抜きがオフ / whisper-cli が無い / モデルが無い / ffmpeg が無い で理由。置き場所は編集の作業データ
-    (YTT_DATA_DIR=inplace なら <root>/editor)の bin/whisper.cpp-<版>-vulkan と models/whispercpp。cfg() の壊れた値・status()
-  - tick(): 録画中の録画の確定した候補(枠・控え・採用。仮の候補・終わり待ち・見送りは入れない)のうち、文字の無いものだけを列に入れる。
-    済み(文字が空でも)・2 回失敗した候補・終わった録画は入れない。準備が無ければ 0(理由は 1 回だけ記録)・休んでいる間は 0
-  - _one(): 録画元のセグメント(最初のセッションだけ)→ 偽の ffmpeg(-ss・-t・16kHz モノラル)→ 偽の認識 → tx.json(text・rows・…)→
-    view / text_for / recent_ids。失敗は error と tries・続けて 3 回で pause_until。入口の終了で止めたときは失敗に数えない。
-    裏のスレッド(tick → start → _loop)でも同じに付く
-  - _run_worker(): 本物の子プロセス(live_tx_worker.py)の結果の json を読む・時間切れ・結果が無いときの理由(標準エラーの末尾か終了コード)
+確かめること:
+  - RealWhisperTest(本物の通し): 声の TS セグメント → 見回り → 裏の糸 → 本物の ffmpeg → 本物の whisper.cpp(GPU)→ tx.json → view / text_for /
+    recent_ids。最初のセッションだけ・whisper-cli の引数・結果の読み取り
+  - 本物では起こせない物(録画元・ffmpeg・認識は偽物): ready() の理由(オフ・whisper-cli やモデルや ffmpeg が無い)・cfg() の壊れた値・status()・
+    tick() の選び方(仮・終わり待ち・見送り・済み・2 回失敗・終わった録画・準備が無い・休み)・掲示板・重い処理の枠の待ち・
+    _one() の失敗(error と tries・続けて 3 回で pause_until・入口の終了は失敗に数えない)・_run_worker() の壊れた子プロセスと時間切れ
 作業データはテストの一時フォルダだけ(YTT_DATA_DIR=inplace)。
 """
 import json
 import os
 import shutil
 import sys
+import tempfile
 import threading
 import time
 import unittest
@@ -32,6 +30,8 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データ
 TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, TESTS)
 import _livefix as LF  # noqa: E402
+sys.path.insert(0, os.path.join(LF.SRC, "pipeline", "transcribe", "tests"))
+import voice_fixture as VF  # noqa: E402
 from ytt import testkit  # noqa: E402
 from flow import board as Board  # noqa: E402
 from flow import live_export as LX  # noqa: E402
@@ -120,13 +120,14 @@ class Clock:
 
 class TxRecorder:
     """録画元の代わり(HTTP。合言葉): /live/list(録画中の REC と終わった REC_ENDED)・/live/REC/segments(4 秒のセグメント。split から先は
-    session_002 = つなぎ直し)・/live/REC/session_NNN/seg_NNNNNN.ts。受けた要求を覚える"""
+    session_002 = つなぎ直し)・/live/REC/session_NNN/seg_NNNNNN.ts(ts_files があればその番号の本物のセグメント)。受けた要求を覚える"""
 
     def __init__(self, first=T0, seg=4.0, count=60):
         self.first, self.seg, self.count = first, seg, count
         self.split = None
         self.empty = False
         self.ts_status = 200
+        self.ts_files = None
         self.seen = []
         owner = self
 
@@ -156,6 +157,9 @@ class TxRecorder:
                 if u.path.startswith("/live/%s/session_" % REC) and u.path.endswith(".ts"):
                     if owner.ts_status != 200:
                         return self._out(owner.ts_status, {"error": "broken"})
+                    if owner.ts_files:   # 本物の音のセグメント(seg_NNNNNN の番号の物)
+                        with open(owner.ts_files[int(u.path[-9:-3])], "rb") as f:
+                            return self._out(200, f.read(), "video/mp2t")
                     return self._out(200, b"\x47" * 188 * 20, "video/mp2t")
                 return self._out(404, {"error": "not_found", "message": "なし"})
 
@@ -381,37 +385,6 @@ class OneTest(LiveTxBase):
         super().setUp()
         self.put_wcpp()
 
-    def test_one_success(self):
-        pk = peak("p0-12", 10)
-        self.assertIsNone(self.tx._one("fake", REC, pk, T0))
-        q = urllib.parse.parse_qs(urllib.parse.urlsplit([p for p in self.rec.seen if "/segments" in p][0]).query)
-        self.assertEqual((LX.iso_epoch(q["start"][0]), LX.iso_epoch(q["end"][0])), (T0 + 10, T0 + 18))   # 録画の頭からの秒 → 絶対時刻
-        self.assertEqual(self.rec.ts_gets(), ["/live/%s/session_001/seg_%06d.ts" % (REC, i) for i in (2, 3, 4)])   # 8〜20 秒のセグメント 3 本
-        args = read_jsonl(self.fflog)[0]
-        self.assertEqual([args[args.index(k) + 1] for k in ("-ss", "-t", "-ac", "-ar", "-c:a", "-f")], ["2.000", "8.000", "1", "16000", "pcm_s16le", "wav"])
-        self.assertEqual(args, ["-hide_banner", "-loglevel", "error", "-y", "-ss", "2.000", "-i", args[args.index("-i") + 1], "-t", "8.000",
-                                "-vn", "-sn", "-dn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", "-f", "wav", args[-1]])
-        self.assertTrue(args[args.index("-i") + 1].endswith("part_00.ts") and args[-1].endswith("in.wav"), args)
-        self.assertEqual(len(self.calls), 1)
-        c = self.calls[0]
-        self.assertEqual((c["dataDir"], c["model"], c["wav"], c["size"] > 1000), (self.edir, "large-v3", args[-1], True))
-        it = self.items()["p0-12"]
-        self.assertEqual({k: it[k] for k in ("text", "rows", "sec", "gpu", "model")},
-                         {"text": "ここで大きな声", "rows": [{"start": 0.5, "end": 2.0, "text": "ここで大きな声"}], "sec": 3.2, "gpu": "AMD Radeon RX 7800 XT", "model": "large-v3"})
-        self.assertEqual((it["atEpoch"], LX.iso_epoch(it["at"]) is not None, "error" in it), (self.clock(), True, False))
-        self.assertEqual(list(self.tx.view("fake", REC)), ["p0-12"])
-        self.assertEqual(self.tx.view("fake", REC)["p0-12"]["text"], "ここで大きな声")
-        self.assertEqual((self.tx.text_for("fake", REC, "p0-12"), self.tx.text_for("fake", REC, "p9-9"), self.tx.text_for("fake", REC, None)), ("ここで大きな声", None, None))
-        self.assertEqual(self.tx.recent_ids("fake", REC), ["p0-12"])
-        self.clock.t += TX.RECENT_SEC + 1
-        self.assertEqual(self.tx.recent_ids("fake", REC), [])   # 古くなったら差分には入れない(全部の答えの候補には残る)
-        self.assertEqual((self.tx.done, self.tx.failed, self.tx.fails), (1, 0, 0))
-        self.assertFalse(os.path.exists(os.path.join(self.live.exporter.work, "tx-%s-p0-12" % REC)))   # 取ったセグメントと wav は消す
-        again = TX.LiveTx(self.live)   # 入口を起動し直しても tx.json から読む
-        self.assertEqual(again.text_for("fake", REC, "p0-12"), "ここで大きな声")
-        self.assertEqual(len(self.tx.record("fake", REC, "p1-22", "あ" * (TX.TEXT_MAX + 500))["text"]), TX.TEXT_MAX)
-        self.assertEqual(self.tx.view("fake", REC_ENDED), {})
-
     def test_one_waits_for_heavy_slot(self):
         """D-14: 認識は重い処理の順番(SLOTS。tool live-tx)を通す。枠が埋まっていれば待ち(status の slotWait・記録)、空けば認識。
         待っている間に入口が終わったら認識しない・失敗に数えない"""
@@ -444,12 +417,6 @@ class OneTest(LiveTxBase):
         th.join(10)
         self.tx.slots.release(tok)
         self.assertEqual((len(self.calls), self.tx.failed, "p1-22" in self.items(), self.tx.slot_wait), (1, 0, False, False))
-
-    def test_one_uses_only_the_first_session(self):
-        self.rec.split = 4   # 16 秒から先はつなぎ直し(session_002)
-        self.tx._one("fake", REC, peak("p0-12", 10), T0)
-        self.assertEqual(self.rec.ts_gets(), ["/live/%s/session_001/seg_%06d.ts" % (REC, i) for i in (2, 3)])
-        self.assertEqual(self.tx.text_for("fake", REC, "p0-12"), "ここで大きな声")
 
     def test_one_failures_tries_and_pause(self):
         self.tx.start = lambda: None
@@ -512,7 +479,7 @@ class OneTest(LiveTxBase):
         self.assertEqual(self.tx.failed, 6)
 
     def test_wav_ffmpeg_stops_on_halt_and_timeout(self):
-        """OPT1: wav を作る ffmpeg は ytt/tools.run(入口の終了 _halt で止まる = 失敗に数えない・WAV_TIMEOUT 秒で止める)"""
+        """wav を作る ffmpeg は ytt/tools.run(入口の終了 _halt で止まる = 失敗に数えない・WAV_TIMEOUT 秒で止める)"""
         seen = []
 
         def fake_run(why):
@@ -542,14 +509,109 @@ class OneTest(LiveTxBase):
         self.tx._one("fake", REC, peak("p0-12", 10), T0)
         self.assertEqual((self.items(), self.tx.failed, self.tx.fails), ({}, 0, 0))   # 次の起動の見回りでやり直す
 
-    def test_through_the_thread(self):
-        self.put_peaks([peak("p0-12", 10), peak("p1-22", 20, "bench")])
-        self.assertEqual(self.tx.tick(), 2)
-        self.assertTrue(wait_for(lambda: self.tx.text_for("fake", REC, "p1-22"), 30), self.logs[-5:])
-        self.assertTrue(wait_for(lambda: self.tx.status()["busy"] is False and self.tx.done == 2, 10))
-        self.assertEqual((self.tx.queue, self.tx.queued, self.tx.text_for("fake", REC, "p0-12")), ([], set(), "ここで大きな声"))
-        self.assertTrue(any("p0-12 に文字を付けました(3.2 秒・AMD Radeon RX 7800 XT)" in m for m in self.logs), self.logs[-5:])
-        self.assertEqual(self.tx.tick(), 0)   # 済んだものは入れない
+
+class RealWhisperTest(LiveTxBase):
+    """本物の通し(whisper.cpp large-v3・GPU。この束で GPU を使う通しはこれ 1 本): 声の見本の 4 秒の TS セグメントを偽の録画元が出し
+    (8 秒から先はつなぎ直し = session_002)、見回り → 裏の糸 → 本物の ffmpeg で wav → live_tx_worker.recognize
+    (whisper-cli は編集の作業データから読むだけ)→ tx.json。モデル・whisper.cpp・ffmpeg・日本語の音声合成が無ければ飛ばす"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.home = VF.whisper_cpp_large()
+        if not (cls.home and LF.FF):
+            raise unittest.SkipTest("whisper.cpp と large-v3 か ffmpeg が無い")
+        cls.dir = tempfile.mkdtemp(prefix="ytt-livetx-real-")
+        wav = VF.make_voice(os.path.join(cls.dir, "voice.wav"))
+        if wav is None:
+            shutil.rmtree(cls.dir, ignore_errors=True)
+            raise unittest.SkipTest("日本語の音声合成が無い")
+        LF.ff("-i", wav, "-c:a", "aac", "-f", "segment", "-segment_time", "4", "-segment_format", "mpegts", os.path.join(cls.dir, "seg_%03d.ts"))
+        cls.segs = sorted(os.path.join(cls.dir, n) for n in os.listdir(cls.dir) if n.endswith(".ts"))
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.dir, ignore_errors=True)
+
+    def test_candidate_through_real_whisper_cpp(self):
+        from pipeline.transcribe import live_tx_worker as TW, recognize, tx_engines as te
+        self.rec.count, self.rec.ts_files, self.rec.split = len(self.segs), self.segs, 2
+        self.put_wcpp()
+        self.tx.ffmpeg = LF.FF
+        self.tx.run = lambda data_dir, model, wav: TW.recognize(self.home, model, wav)   # 子プロセスの中身をこのプロセスで(引数と行を覗くため)
+        args, got, prog, cmds, seen_wav = [], [], [], [], []
+        real_args, real_tx, real_run = te.WhisperCpp.args, te.WhisperCpp.transcribe, TX.tools.run
+
+        def spy_args(eng, wav, out_base, kw):
+            a = real_args(eng, wav, out_base, kw)
+            args.append(list(a))
+            return a
+
+        def spy_tx(eng, audio, **kw):
+            eng.hooks = {"progress": prog.append}
+            seen_wav.append(audio)
+            segs, info = real_tx(eng, audio, **kw)
+            segs = list(segs)
+            got.append((eng, segs, info))
+            return iter(segs), info
+
+        def spy_run(cmd, **kw):
+            cmds.append(list(cmd))
+            return real_run(cmd, **kw)
+        saved = list(sys.path)
+        self.addCleanup(lambda: sys.path.__setitem__(slice(None), saved))
+        self.put_peaks([peak("p0-12", 0, end=12.0)])
+        with mock.patch.object(te.WhisperCpp, "args", spy_args), mock.patch.object(te.WhisperCpp, "transcribe", spy_tx), \
+                mock.patch.object(TX.tools, "run", spy_run):
+            self.assertEqual(self.tx.tick(), 1)
+            self.assertTrue(wait_for(lambda: self.tx.text_for("fake", REC, "p0-12") or self.tx.failed, 90), self.logs[-5:])
+            self.assertTrue(wait_for(lambda: self.tx.status()["busy"] is False and self.tx.done == 1, 10), self.logs[-5:])
+        # 録画の頭からの秒 → 絶対時刻で区間を聞き、候補の始まりのセッションのセグメントだけ取る(つなぎ直しの後は使わない)
+        q = urllib.parse.parse_qs(urllib.parse.urlsplit([p for p in self.rec.seen if "/segments" in p][0]).query)
+        self.assertEqual((LX.iso_epoch(q["start"][0]), LX.iso_epoch(q["end"][0])), (T0, T0 + 12))
+        self.assertEqual(self.rec.ts_gets(), ["/live/%s/session_001/seg_%06d.ts" % (REC, i) for i in (0, 1)])
+        ff = cmds[0]
+        self.assertEqual(ff[1:], ["-hide_banner", "-loglevel", "error", "-y", "-ss", "0.000", "-i", ff[ff.index("-i") + 1], "-t", "12.000",
+                                  "-vn", "-sn", "-dn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", "-f", "wav", ff[-1]])
+        self.assertTrue(ff[ff.index("-i") + 1].endswith("part_00.ts") and ff[-1].endswith("in.wav"), ff)
+        # whisper-cli の引数
+        a = args[0]
+        self.assertEqual([a[a.index(k) + 1] for k in ("-l", "-bs", "-mc")], ["ja", "5", "0"])
+        self.assertIn("-nfa", a)                                                  # フラッシュアテンションは既定で使わない
+        self.assertNotIn("-ng", a)                                                # GPU(vulkan)
+        self.assertFalse({"--vad", "-vm", "-vt", "-vsd", "-vp"} & set(a))          # whisper.cpp 自身の声の検出は使わない
+        self.assertEqual(a[a.index("-m") + 1], os.path.join(te.wcpp_model_dir(self.home), "ggml-large-v3.bin"))
+        self.assertEqual(seen_wav, [ff[-1]])
+        # 結果の読み取り: 行・単語(特別なトークンは単語にしない)・自信の度合い・装置
+        eng, segs, info = got[0]
+        self.assertEqual(info.language, "ja")
+        self.assertAlmostEqual(info.duration, 8.0, delta=0.3)                     # 取ったのは 2 本(8 秒)だけ
+        self.assertTrue(segs and all(s.words for s in segs))
+        words = [w for s in segs for w in s.words]
+        self.assertFalse([w.word for w in words if w.word.startswith("[_")])
+        self.assertTrue(all(0.0 <= w.probability <= 1.0 for w in words))
+        self.assertTrue(all(s.avg_logprob < 0 and s.no_speech_prob is None and s.compression_ratio > 0 for s in segs))
+        d = recognize.seg_to_dict(segs[0])
+        self.assertEqual((d["text"], len(d["wordProbs"])), (segs[0].text, len(segs[0].words)))
+        self.assertTrue(eng.gpu_name and prog and max(prog) >= 0.9, (eng.gpu_name, prog[-3:]))
+        # tx.json と見え方(文字は候補の区間の行)
+        it = self.items()["p0-12"]
+        self.assertIn("配信", it["text"])
+        self.assertNotIn("ゲーム", it["text"])                                    # 3 文目は session_002
+        self.assertEqual((it["gpu"], it["model"], "error" in it, it["atEpoch"]), (eng.gpu_name, "large-v3", False, self.clock()))
+        self.assertIsInstance(it["sec"], float)
+        self.assertTrue(it["rows"] and all(0.0 <= r["start"] < r["end"] <= 8.5 for r in it["rows"]), it["rows"])
+        self.assertEqual(list(self.tx.view("fake", REC)), ["p0-12"])
+        self.assertEqual((self.tx.text_for("fake", REC, "p9-9"), self.tx.text_for("fake", REC, None)), (None, None))
+        self.assertEqual(self.tx.recent_ids("fake", REC), ["p0-12"])
+        self.clock.t += TX.RECENT_SEC + 1
+        self.assertEqual(self.tx.recent_ids("fake", REC), [])                     # 古くなったら差分には入れない(全部の答えの候補には残る)
+        self.assertEqual((self.tx.done, self.tx.failed, self.tx.fails, self.tx.queue, self.tx.queued), (1, 0, 0, [], set()))
+        self.assertTrue(any("p0-12 に文字を付けました" in m and eng.gpu_name in m for m in self.logs), self.logs[-5:])
+        self.assertEqual(os.listdir(self.live.exporter.work), [])                 # 取ったセグメントと wav は消す
+        self.assertEqual(self.tx.tick(), 0)                                       # 済んだものは入れない
+        self.assertEqual(TX.LiveTx(self.live).text_for("fake", REC, "p0-12"), it["text"])   # 入口を起動し直しても tx.json から読む
+        self.assertEqual(len(self.tx.record("fake", REC, "p1-22", "あ" * (TX.TEXT_MAX + 500))["text"]), TX.TEXT_MAX)
+        self.assertEqual(self.tx.view("fake", REC_ENDED), {})
         t = self.tx.thread
         self.tx.close()
         t.join(10)

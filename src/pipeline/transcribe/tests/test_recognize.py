@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
-"""pipeline/transcribe/recognize(音声の取り出し・認識・範囲の行・全体の再認識の続きから。役割で組み直す RS2-7)を、編集の serve を読まずに使うテスト。
+"""pipeline/transcribe/recognize(音声の取り出し・認識・範囲の行・全体の再認識の続きから)を、編集の serve を読まずに使うテスト。
 
     py -3.12 -m unittest src/pipeline/transcribe/tests/test_recognize.py -v
 
-認識の流れ(声の検出のやり直し・GPU から CPU・全体の区間ごとの続き)は編集のテスト(src/editor/tests/test_metrics.py・test_worker.py・test_whispercpp.py。
-serve の名前で読む)が確かめる。ここは「① が serve なしで読めて、行の頭の名前を外す決まり(同じ ① の fill)と ffmpeg(ytt/tools)を読む」ことだけ。
+正しく動く道(取り出し → 認識 → 行・範囲の開始を足した秒)は本物の通し src/editor/tests/test_worker.py の RealWorkerTest。
+ここは本物では起こせない物だけ: 長さが分からない・ffmpeg が無い・boost の引数・照合用の 8kHz の切り方・声の検出の段(捨てすぎ)・エンジンの能力の表・
+行の頭の名前を外す決まり・全体の再認識の区切りと続きの記録。
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない(一時フォルダだけ)。ほかのテストとそろえる
@@ -34,7 +35,7 @@ class _Env(unittest.TestCase):
 
 
 class TestTranscribeRows(_Env):
-    """transcribe_rows(RS2-8e): 取り出し → 長さ(ytt/tools の media_duration)→ backend.select().transcribe → 生出力を控えながら整えた行。serve なし"""
+    """transcribe_rows: 取り出し → 長さ(ytt/tools の media_duration)→ backend.select().transcribe → 生出力を控えながら整えた行。serve なし"""
 
     def setUp(self):
         super().setUp()
@@ -59,23 +60,8 @@ class TestTranscribeRows(_Env):
     def extract(self, job, spec, wav):
         self.calls.append(("extract", job["state"], job["phase"], wav, spec["start"]))
 
-    def test_rows_raw_total(self):
-        self.patch(tools, "media_duration", lambda p: 8.0)
-        job = {"state": "queued"}
-        spec = {"start": 10.0, "end": 20.0, "language": "ja", "wordSplit": False, "stripPunct": True}
-        with mock.patch.object(recognize, "extract_audio", self.extract):   # 呼ぶたびに recognize.extract_audio を読む(S.extract_audio の差し替えが届く)
-            res = recognize.transcribe_rows(job, spec, "w.wav")
-        self.assertEqual(self.calls[0], ("extract", "extracting", "音声を取り出し中", "w.wav", 10.0))
-        self.assertEqual(self.calls[1], ("transcribe", "extracting", "w.wav", 8.0, True))
-        self.assertEqual(self.calls[2][0], "recognize")
-        self.assertEqual(res["total"], 8.0)
-        self.assertIsInstance(res["t_rec"], float)
-        self.assertEqual([(r["start"], r["end"], r["text"]) for r in res["raw"]],
-                         [(10.0, 12.0, "こんにちは。"), (12.1, 19.5, "長さの外まで"), (18.5, 19.0, "捨てる行")])   # 生出力は整える前・元の動画の秒
-        self.assertEqual([(r["start"], r["end"], r["text"]) for r in res["rows"]],
-                         [(0.0, 2.1, "こんにちは"), (2.1, 8.0, "長さの外まで")])   # 長さの外を捨てて切る・続く行をつなぐ・句読点を除く(postproc.expand_segments)
-
     def test_total_falls_back_to_range(self):
+        """取り出した音声の長さが分からないときだけの道(本物の通しは長さが分かる)"""
         self.patch(tools, "media_duration", lambda p: None)
         with mock.patch.object(recognize, "extract_audio", self.extract):
             res = recognize.transcribe_rows({"state": "queued"}, {"start": 10.0, "end": 20.0, "language": "ja"}, "w.wav")
@@ -120,8 +106,8 @@ class TestAudio(_Env):
             recognize.extract_audio({}, {"start": 0.0, "end": None, "sourcePath": "x.mp4"}, os.path.join(self.tmp, "a.wav"))
         self.assertEqual(cm.exception.code, "no_ffmpeg")
 
-    def test_extract_audio_args_unchanged(self):
-        """OPT2: 音声を取り出す ffmpeg の引数の列(16kHz)は、引数を組む関数を 1 か所(wav_args)にしても 1 つも変わらない"""
+    def test_extract_audio_boost_args(self):
+        """小さい声を上げる(boost)の取り出しの引数と、ffmpeg が失敗したときの ApiError(本物の通しは boost なし・成功の道)"""
         cmds = []
 
         def run(cmd, **kw):
@@ -129,13 +115,10 @@ class TestAudio(_Env):
             return 1, [], None
         wav = os.path.join(self.tmp, "a.wav")
         with mock.patch.object(recognize._tools, "find_ffmpeg", return_value="FF"), mock.patch.object(recognize._tools, "run_progress", side_effect=run):
-            for spec in ({"start": 0.0, "end": None, "sourcePath": "x.mp4"}, {"start": 5.0, "end": 12.5, "sourcePath": "x.mp4", "boost": True}):
-                with self.assertRaises(errors.ApiError):
-                    recognize.extract_audio({}, spec, wav)
-        head = ["FF", "-hide_banner", "-nostdin", "-y", "-protocol_whitelist", "file"]
-        tail = ["-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", wav]
-        self.assertEqual(cmds, [head + ["-i", "x.mp4", "-vn"] + tail,
-                                head + ["-ss", "5.000", "-i", "x.mp4", "-t", "7.500", "-vn", "-af", "highpass=f=70,dynaudnorm=f=200:g=15:m=15"] + tail])
+            with self.assertRaises(errors.ApiError):
+                recognize.extract_audio({}, {"start": 5.0, "end": 12.5, "sourcePath": "x.mp4", "boost": True}, wav)
+        self.assertEqual(cmds, [["FF", "-hide_banner", "-nostdin", "-y", "-protocol_whitelist", "file", "-ss", "5.000", "-i", "x.mp4", "-t", "7.500", "-vn",
+                                 "-af", "highpass=f=70,dynaudnorm=f=200:g=15:m=15", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", wav]])
 
     def test_wav_args_8k_precise_cut(self):
         """照合用の wav(8kHz・モノラル・精密な切り方): 手前 pre_seek 秒までは入力側で飛び、残りは出力側で(デコードして)切る = サンプル単位で正確。0 は付けない"""
@@ -211,7 +194,7 @@ class TestVadFallbackCaps(_Env):
         self.assertIsNone(tx_engines.caps_of(object()))   # CAPS を持たない偽物は分からない扱い
 
     def test_faster_whisper_ladder_still_steps(self):
-        """faster-whisper(CAPS に vad がある)では今までどおり、捨てすぎなら「標準→弱め」と段が進む"""
+        """faster-whisper(CAPS に vad がある)では、捨てすぎなら「標準→弱め」と段が進む"""
         model = _VadFake()
         raw, vad = recognize.transcribe_vad_fallback({"cancel": False}, model, "a.wav", dict(self.SPEC, vadMode="normal"))
         self.assertEqual(model.calls, ["normal", "weak", "off"])   # 標準は 9 割捨てる → 弱めは文字が 0 → なし
@@ -220,7 +203,7 @@ class TestVadFallbackCaps(_Env):
         self.assertIn("検出を緩めて", recognize.vad_note(vad))
 
     def test_object_without_caps_still_ladders(self):
-        """CAPS を持たない物(能力が分からない)は今までどおり段を進める"""
+        """CAPS を持たない物(能力が分からない)は段を進める"""
         class Plain:
             params = {"vad_filter", "vad_parameters", "language", "beam_size", "condition_on_previous_text", "no_speech_threshold"}
 

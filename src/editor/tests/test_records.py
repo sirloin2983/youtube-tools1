@@ -8,24 +8,19 @@
   再認識の前の機械の出力を recognition.runs に範囲つきで残す(件数・行数の上限)・辞書の版(settings.dict / params.dict)
 - カット: edit.json の draft(初めての保存のときだけ一度書く・draft の無い edit.json が読める・パックの記録で消えない)
 - 校正の行の数と作業中の印: POST /api/effort(effort.lastAt だけ・updatedAt を変えない = 保存の競合に巻き込まない)・保存で数える校正済みの行
-- 生出力 <id>.asr.json(分ける前・置換の前の認識の結果。単語ごとの時刻と確信度)と GPU の精度の型(TRANSCRIBE_CUDA_COMPUTE)
+- 生出力の控え方(分ける前・置換の前の認識の結果。単語ごとの時刻と確信度)
 """
 import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
-import shutil
-import subprocess
 import time
 import unittest
 from unittest.mock import patch
 
 from test_backend import S, TID, StoreDir  # noqa: F401  (S = serve)
 from test_edit import doc_obj, edit_obj
-from human.proof import doc_jobs  # noqa: E402
 from pipeline.transcribe import recognize  # noqa: E402
 from pipeline.transcribe import records  # noqa: E402
-from pipeline.transcribe import models  # noqa: E402
-from flow import jobs  # noqa: E402
 from ytt import testkit  # noqa: E402
 
 
@@ -248,19 +243,9 @@ class TestEffort(StoreDir):
         self.assertGreaterEqual(_rd()["effort"]["lastAt"], last)
 
 
-class TestCudaCompute(unittest.TestCase):
-    def test_cuda_compute_env(self):
-        with patch.dict(os.environ, {"TRANSCRIBE_CUDA_COMPUTE": "int8_float16"}):
-            self.assertEqual(models.cuda_compute(), "int8_float16")
-        with patch.dict(os.environ, {"TRANSCRIBE_CUDA_COMPUTE": "rm -rf"}):
-            self.assertEqual(models.cuda_compute(), "float16")
-        with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("TRANSCRIBE_CUDA_COMPUTE", None)
-            self.assertEqual(models.cuda_compute(), "float16")   # 既定は今までどおり
-
-
 class TestAsrRaw(StoreDir):
-    """生出力 transcripts/<id>.asr.json(分ける前・置換の前の認識の結果。単語ごとの時刻と確信度)"""
+    """生出力の控え方(分ける前・置換の前の認識の結果。単語ごとの時刻と確信度の丸め)。ジョブが <id>.asr.json を書くことは本物の通し
+    src/editor/tests/test_worker.py の RealWorkerTest"""
 
     def test_capture_raw_keeps_words_and_probs(self):
         segs = [{"start": 0.0, "end": 1.5, "text": "えーこんにちは", "avg_logprob": -0.21234, "words": [(0.0, 0.4, "えー"), (0.5, 1.5, "こんにちは")],
@@ -285,29 +270,6 @@ class TestAsrRaw(StoreDir):
         d = recognize.seg_to_dict(Sg())
         self.assertEqual(d["words"], [(0.0, 0.5, "あ"), (0.5, 1.0, "い")])   # 3つ組は変えない
         self.assertEqual(d["wordProbs"], [0.9, None])
-
-    def test_write_read_asr(self):
-        records.write_asr("0123456789ab", [{"start": 0, "end": 1, "text": "x", "words": []}], {"model": "small"})
-        with open(records.asr_path("0123456789ab"), encoding="utf-8") as f:
-            d = json.load(f)
-        self.assertEqual(d["run"], {"model": "small"})
-        self.assertEqual(len(d["segments"]), 1)
-        self.assertFalse(os.path.exists(records.asr_path("ffffffffffff")))
-
-    @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg が必要")
-    def test_fake_job_writes_asr(self):
-        src = os.path.join(self.tmp, "a.wav")
-        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=f=440:d=9", "-ar", "16000", src], check=True)
-        spec = doc_jobs.validate_job({"sourcePath": src, "model": "small"})
-        with patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "fake", "TRANSCRIBE_FAKE_DELAY": "0"}):
-            job = jobs.add_job(spec)
-            doc_jobs.run_job(job)
-        self.assertEqual(job["state"], "done", job.get("error"))
-        with open(records.asr_path(job["tid"]), encoding="utf-8") as f:
-            d = json.load(f)
-        self.assertTrue(d["segments"])
-        self.assertEqual(d["segments"][0]["text"], "テスト文1")
-        self.assertEqual(d["run"]["engine"], "fake")
 
 
 if __name__ == "__main__":
