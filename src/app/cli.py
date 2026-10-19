@@ -8,7 +8,7 @@
 - 作業データ(--data-dir): 環境変数 YTT_DATA_DIR と同じ意味(<D>/transcribe など)。無ければ普段の作業データ
 - 1 つの作業データに ② は 1 つ(flow/placement の .flow.lock):
   - 入口(start.bat の ②)が動いていれば、その入口に頼んで待つ = ② の口 POST /api/flow/submit に封筒 + 束を 1 回(RS7-1 S4。--spec・--force・--from も
-    入口でそのまま効く = 入口なしで動かしたときと同じ束)。URL = 解析から(--from analyze か無し)か書き出しから(--from export)・動画ファイル = 文字起こし → パック
+    入口でそのまま効く = 入口なしで動かしたときと同じ束)。URL = 解析から(--from analyze か無し。まとめて実行の形は解析から全部だけ = 10-19)・動画ファイル = 文字起こし → パック
     (--from pack = 文字起こし済みの文書でパックだけ。届けない)。submit の無い古い入口(404)には頼まない(起動し直しを促して失敗で終わる)。
     入口の場所は lock の port(無ければ .runtime/portal.json で、同じ作業データの入口だけ)。合言葉は入口の画面の HTML の meta から読む
   - 動いていなければ、自分で lock を取って ① を直に動かす(flow/tools の LocalTools。③ の人の部品は、学習のもとの文書があるときだけ学習した置換・用語を読むために遅延で読む = 無ければ読まない。RS7-1 F-k)。
@@ -48,7 +48,7 @@ TOKEN_RE = re.compile(rb'<meta\s+name="ytt-token"\s+content="([A-Za-z0-9_-]{1,20
 PAGE_MAX, BODY_MAX, TIMEOUT = 2 * 1024 * 1024, 16 * 1024 * 1024, 30
 SECRET_RE = re.compile(r"api[_-]?key|token|secret|password", re.I)   # 束に書いてはいけない鍵の名前
 FILE_FROM = (None, "analyze", "adopt", "export", "transcribe", "pack")   # 動画ファイル: pack より前は全部「文字起こしから」(解析・採用・書き出しは無い)
-URL_FROM = {None: "start-new", "analyze": "start-new", "export": "adopted"}   # URL の --from(束の run.from)-> 入口のまとめて実行の形(解析から = まだスタジオに無い配信の印 fresh つき)
+URL_FROM = (None, "analyze")   # URL の --from(束の run.from): 解析から全部だけ(まだスタジオに無い配信の印 fresh つき。書き出しから = export は 10-19 に消した)
 END_STATES = ("done", "error", "cancelled")
 
 
@@ -137,7 +137,9 @@ def classify_input(text):
 def check_from(kind, bundle):
     frm = bundle["run"]["from"]
     if kind == "url" and frm not in URL_FROM:
-        raise UsageError("URL のときの --from は analyze か export です(入口のまとめて実行の形)")
+        raise UsageError("URL のときの --from は analyze だけです(まとめて実行は解析から全部)")
+    if kind == "url" and bundle["run"]["upto"] != "pack":
+        raise UsageError("URL のときの run.upto は pack だけです(まとめて実行は解析から全部)")
     if kind == "file" and frm not in FILE_FROM:
         raise UsageError("動画ファイルのときの --from は transcribe か pack です")
 
@@ -337,10 +339,10 @@ def _wait_portal_run(portal, rid, prog):
 
 def envelope_for(kind, target, title, bundle=None):
     """入口に頼む封筒(flow/order.py の変換 = 版 2。id は実行の id にもなる 10 桁の 16 進)。何を作るかは束(run.from = どこから・run.upto = パックまで)。
-    URL は解析から = まだスタジオに無い配信の印 fresh を付ける・書き出しから(run.from export)は付けない"""
+    URL は解析から = まだスタジオに無い配信の印 fresh を付ける"""
     frm = (bundle or {}).get("run", {}).get("from") if isinstance(bundle, dict) else None
     if kind == "url":
-        fresh = {"title": str(title or ""), "channel": ""} if URL_FROM.get(frm) == "start-new" else None
+        fresh = {"title": str(title or ""), "channel": ""} if frm in URL_FROM else None
         return _order.order("url", video_id=target, title=title, fresh=fresh)[0]
     return _order.order("file", path=target, title=title or os.path.basename(target))[0]
 
@@ -419,7 +421,7 @@ def _file_run(target, bundle, title, prog, learning):
 
 
 def _url_run(vid, bundle, title, prog, learning):
-    """URL(配信)の実行と Runner -> (Run, CliRunner)。入口に頼むときと同じ封筒(解析から = full・書き出しから = adopted)を Run にする。
+    """URL(配信)の実行と Runner -> (Run, CliRunner)。入口に頼むときと同じ封筒(解析から = full)を Run にする。
     配信の段はスタジオなしの台帳(flow/studiobook)に任せる"""
     run = _run.Run.from_envelope(envelope_for("url", vid, title, bundle), bundle)
     return run, CliRunner(prog, (), learning, studio=_studiobook.LocalStudio(use_studio_data()))

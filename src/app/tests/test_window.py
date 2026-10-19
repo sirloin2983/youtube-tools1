@@ -288,11 +288,12 @@ class TestPrefs(unittest.TestCase):
         g = self.p.get()
         self.assertEqual(g["streamer"]["channels"], {"Pekora Ch. 兎田ぺこら": "兎田ぺこら"})   # 他の節は消えない
         self.assertEqual(g["autorun"]["top"], 5)
-        self.assertEqual(self.p.patch("autorun", {"mode": "full"})["top"], 5)                  # 送ったキーだけ直す
+        self.assertEqual(self.p.patch("autorun", {"cut": "silence"})["top"], 5)                # 送ったキーだけ直す
+        self.assertNotIn("mode", self.p.patch("autorun", {"mode": "adopted"}))                  # 形の鍵は 10-19 に消した(古い画面が送っても黙って捨てる)
         self.assertEqual(self.p.get(["keymap", "nope"]), {"keymap": {"playback": {"playPause": "Space", "back1": "Shift+j", "seekBack": "ArrowLeft", "frameBack": ","}}})
 
     def test_rejects_bad_values(self):
-        bad = [("autorun", {"top": 0}), ("autorun", {"top": "3"}), ("autorun", {"top": True}), ("autorun", {"mode": "x"}), ("autorun", {"cut": "all"}),
+        bad = [("autorun", {"top": 0}), ("autorun", {"top": "3"}), ("autorun", {"top": True}), ("autorun", {"cut": "all"}),
                ("autorun", {"onFail": "retry"}), ("autorun", []), ("streamer", {}), ("nope", {}), ("keymap", {"playback": {"<script>": "a"}}),
                ("keymap", {"playback": {"play": "a\nb"}}), ("keymap", {"playback": "x"}),
                ("keymap", {"playback": {"playPause": "s\n"}}), ("keymap", {"playback": {"playPause\n": "s"}})]   # 末尾の改行($ は改行の前にも合う。fullmatch で断る)

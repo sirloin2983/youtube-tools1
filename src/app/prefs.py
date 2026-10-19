@@ -1,7 +1,7 @@
 """ホームの設定(画面の直し「気が利く画面へ」の土台。notes:docs/design/briefs/ux-consistency/DESIGN_BRIEF.md)。
 
 どの入口から変えても全部の入口の既定になる値を、ホームの作業データの prefs.json に1つだけ持つ:
-  autorun  … まとめて実行の形・採用数・カットの方法・上書き・失敗したとき
+  autorun  … まとめて実行の採用数・カットの方法・上書き・失敗したとき(形は解析から全部だけ = 10-19 に鍵 mode を消した。保存済みの mode は読み捨て)
   streamer … 配信者(字幕の色)の記憶: 文書 id / 配信(video id)/ チャンネル → 名前(空 = 「色なし」を覚えた)
   keymap   … 共通の再生キーの割り当て(編集・スタジオで同じ)
   intake   … 友人からの依頼の受付(src/human/friend/intake.py。notes:docs/spec/friend.md): 見張るフォルダ・オン/オフ・既定の切り抜く数・
@@ -47,7 +47,6 @@ NAME_MAX = 60
 KEY_MAX = 120
 SECTIONS = ("autorun", "streamer", "keymap", "intake", "backup", "hidden", "live", "accuracy")
 PATCHABLE = ("autorun", "keymap", "intake", "backup", "live", "accuracy")
-AUTORUN_MODES = ("full", "adopted", "transcribe")      # src/app/autorun.py の MODES と同じ名前
 CUT_METHODS = ("rows", "none", "silence")
 ON_FAIL = ("next", "stop")
 STREAMER_KINDS = ("docs", "videos", "channels")
@@ -58,7 +57,7 @@ HIDE_MAX = 2000            # 一覧ごとにこの件数まで(古い順に捨�
 HIDE_IDS_MAX = 200         # 1回で送れる数
 COMBO_RE = re.compile(r"^(?:Shift\+)?(?:[^\x00-\x1f\x7f]|[A-Z][A-Za-z0-9]{1,20})$")   # UIKit.keys.comboOf の表記(Shift+ と、1文字かキーの名前)
 ACTION_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,40}$")
-DEFAULTS = {"autorun": {"mode": None, "top": 3, "cut": "none", "friendLength": True,   # 既定はカットしない(ユーザー決定)
+DEFAULTS = {"autorun": {"top": 3, "cut": "none", "friendLength": True,   # 既定はカットしない(ユーザー決定)
                          "overwrite": False, "onFail": "next"},
             "streamer": {k: {} for k in STREAMER_KINDS},
             "keymap": {"playback": {}},
@@ -99,10 +98,7 @@ class PrefsError(ValueError):
 
 def _clean_autorun(v, cur):
     out = dict(cur)
-    if "mode" in v:
-        if v["mode"] is not None and v["mode"] not in AUTORUN_MODES:
-            raise PrefsError("まとめて実行の形が正しくありません")
-        out["mode"] = v["mode"]
+    # 鍵 mode(まとめて実行の形)は 10-19 に消した: 保存済み・古い画面が送る mode は黙って捨てる(検査で断ると節が丸ごと既定に戻る = _section)
     if "top" in v:
         if not _int_in(v["top"], 1, 20):
             raise PrefsError("採用数は 1〜20 で指定してください")

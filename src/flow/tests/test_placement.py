@@ -236,7 +236,7 @@ class TestResult(_Tmp):
         os.makedirs(pack)
         video = {"marks": [{"id": "m1", "status": "exported", "path": clip}, {"id": "m2", "status": "exported", "path": other},
                            {"id": "m3", "status": "adopted", "path": None}]}
-        run = RF.run_of("vid0000000a", "題名", "adopted", None, marks=("m1",))
+        run = RF.run_of("vid0000000a", "題名", "export", None, marks=("m1",))
         run.packs.append(pack)
         run.pack_marks[pack] = {"path": clip, "markId": "m1"}
         path = placement.write_result(run, None, _Runner(video=video), out_dir=out)

@@ -640,7 +640,7 @@ class Queue(run_mod.Runner):
             keys = {r.key() for r in self.runs}
         with self._log_lock:
             past = [{k: rec.get(k) for k in PAST_KEYS} for key, rec in reversed(self._past.items()) if key not in keys][:PAST_MAX]
-        return {"runs": runs, "past": past, "modes": MODES}
+        return {"runs": runs, "past": past}   # 形の表 modes は読む画面が無いので返さない(10-19。まとめて実行は解析から全部だけ)
 
     def history(self, limit=None, offset=0, case=None):
         """終わった実行の記録(今のファイルと .1。新しい順)。-> {"runs", "total", "more", "offset"}。limit・offset は範囲に丸める。

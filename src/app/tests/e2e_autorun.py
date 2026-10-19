@@ -3,7 +3,8 @@
 
     python src/app/tests/e2e_autorun.py [--shots <フォルダ>]
 
-① ホームの案件の一覧(/)で「採用後を全部」を押す → 書き出し → 文字起こし → Resolve パック(Text+)が順に進み、
+① ホームの案件の一覧(/)で「まとめて実行」(解析から全部だけ。採用する数 1 = 人が採用した 1 本だけ)を押す → 解析 → 採用 → 書き出し → 文字起こし →
+   Resolve パック(Text+)が順に進み、
    案件の画面に文字起こし・パックが出る。もう一度押すと、何も作り直さない(すべて「飛ばした」)
 ② API で「解析から全部」(未解析のファイルの動画 → 解析 → 自動マークの上位1件を採用 → … → パック)。
    入口に取り込んだスタジオの解析の順番待ちを、入口のまとめて実行が待つ組み合わせはここだけ
@@ -121,7 +122,7 @@ def main():
             st, j = call("PUT", "/studio/api/video", {"id": vid_a, "marks": [{"id": "m1", "start": 3, "end": 9, "label": "見どころ", "status": "adopted"}]})
             check(st == 200, "マークを採用にした")
 
-            # ① 画面から「採用後を全部」
+            # ① 画面から「まとめて実行」(解析から全部)
             with sync_playwright() as p:
                 browser = p.chromium.launch(args=["--mute-audio"])
                 pg = browser.new_page(viewport={"width": 1200, "height": 900})
@@ -136,8 +137,10 @@ def main():
                 pg.click(card + " .pt-case-row")   # 開かないと「まとめて実行」が操作できない(details の中身)
                 check(wait_js(pg, "document.querySelector('%s').open === true" % card.replace("'", "\\'"), 5000), "行を開いた")
                 check(wait_js(pg, "!!document.querySelector('%s .pt-auto-run')" % card.replace("'", "\\'"), 15000), "案件の画面に「まとめて実行」が出た")
-                pg.select_option(card + " .pt-auto-mode", "adopted")
-                check(pg.is_hidden(card + " .pt-auto-topbox"), "「採用後を全部」では採用する数の欄を出さない")
+                check(pg.locator(card + " .pt-auto-mode").count() == 0 and pg.is_visible(card + " .pt-auto-topbox") and pg.is_visible(card + " .pt-auto-sendbox"),
+                      "形を選ぶ欄は無い(解析から全部だけ)・採用する数と友人へ送るはいつも出す")
+                pg.fill(card + " .pt-auto-top", "1")   # 人が採用した 1 本で採用する数に届く = 自動の候補は足さない(足すかは test_autorun・adopt の規則)
+                pg.dispatch_event(card + " .pt-auto-top", "change")
                 pg.fill(card + " .pt-auto-streamer", "みこ")   # 配信者の名前(字幕の色)
                 check(wait_js(pg, "(document.querySelector('%s .pt-auto-streamer').dataset.color || '') === '#FE4B74'" % card.replace("'", "\\'"), 10000),
                       "案件の画面の配信者の欄: 名前 → メンバーカラー")
@@ -152,7 +155,9 @@ def main():
                            % card.replace("'", "\\'"))
                 check(wait_js(pg, done_js, 240000), "まとめて実行が終わった: %s" % pg.text_content(card + " .pt-auto-msg"))
                 pills = pg.eval_on_selector_all(card + " .pt-auto-step .pill", "els => els.map(e => e.textContent)")
-                check(pills == ["書き出し 済み", "文字起こし 済み", "パック 済み"], "書き出し → 文字起こし → パック: %s" % pills)
+                check(len(pills) == 5 and pills[0].startswith("解析") and pills[1].startswith("採用") and pills[2:] == ["書き出し 済み", "文字起こし 済み", "パック 済み"],
+                      "解析 → 採用 → 書き出し → 文字起こし → パック: %s" % pills)
+                first_pills = pills
                 check(wait_js(pg, "document.querySelectorAll('%s .pt-clip').length === 1" % card.replace("'", "\\'"), 20000), "切り抜きが案件に出た")
                 clip_pills = pg.eval_on_selector_all(card + " .pt-clip .pill", "els => els.map(e => e.textContent)")
                 check(any(x.startswith("文字起こし 校正") for x in clip_pills) and any("パック" in x and "まだ" not in x for x in clip_pills),
@@ -168,7 +173,7 @@ def main():
                 check(len(call("GET", "/api/flow/runs")[1]["runs"]) == n_runs, "2回目は実行を足さない(API の runs の数が同じ)")
                 # 始めるかどうかは知らせを出す前に決まっている = 待たずに見る
                 pills = pg.eval_on_selector_all(card + " .pt-auto-step .pill", "els => els.map(e => e.textContent)")
-                check(pills == ["書き出し 済み", "文字起こし 済み", "パック 済み"] and pg.is_hidden(card + " .pt-auto-cancel"),
+                check(pills == first_pills and pg.is_hidden(card + " .pt-auto-cancel"),
                       "2回目は始めない(前の実行の表示のまま・中止は出さない): %s" % pills)
                 real = [e for e in errors if "Failed to load resource" not in e]
                 check(not real, "画面のエラーなし(CSP 違反を含む): %s" % real[:3])
@@ -224,7 +229,7 @@ def main():
                 check(wait_js(pg, "/^前回 /.test(document.querySelector('%s .pt-auto-msg').textContent)" % q, 20000),
                       "案件の行に前回の結果: %s" % pg.text_content(card + " .pt-auto-msg"))
                 pills = pg.eval_on_selector_all(card + " .pt-auto-step .pill", "els => els.map(e => e.textContent)")
-                check(pills == ["書き出し 済み", "文字起こし 済み", "パック 済み"], "前回の段の札も出る: %s" % pills)
+                check(pills == first_pills, "前回の段の札も出る: %s" % pills)
                 check(pg.is_enabled(card + " .pt-auto-run") and pg.is_hidden(card + " .pt-auto-cancel"), "前回の結果では実行を押せる・中止は出さない")
                 pg.evaluate("document.getElementById('opsBox').open = true")   # 記録は運用の枠の中
                 pg.click("#historyBox > summary")

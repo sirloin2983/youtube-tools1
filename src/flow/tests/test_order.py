@@ -52,9 +52,9 @@ class TestOrder(unittest.TestCase):
         m = "C:/x/a.mp4"
         cases = [("full", dict(kind="url", video_id=VID), ["analyze", "adopt", "export", "transcribe", "pack"]),
                  ("full", dict(kind="url", video_id=VID, deliver_dir="D:/o"), ["analyze", "adopt", "export", "transcribe", "pack", "deliver"]),
-                 ("full", dict(kind="url", video_id=VID, from_="export"), ["export", "transcribe", "pack"]),   # 書き出しから全部(10-19。依頼の id があれば adopted)
+                 ("full", dict(kind="url", video_id=VID, from_="export"), ["export", "transcribe", "pack"]),   # 書き出しから全部(10-19。依頼の id があれば request_auto)
                  ("full", dict(kind="url", video_id=VID, from_="export", marks=["m1"], origin="auto", deliver_dir="D:/o"), ["export", "transcribe", "pack", "deliver"]),
-                 ("transcribe", dict(kind="url", video_id=VID, from_="export", upto="transcribe", marks=["m1"]), ["export", "transcribe"]),
+                 ("request_auto", dict(kind="url", video_id=VID, from_="export", request_id="r1", marks=["m1"]), ["export", "transcribe", "pack", "deliver"]),
                  ("request", dict(kind="url", video_id=VID, upto="transcribe", request_id="r1", ranges=[(1, 5)], top=1),
                   ["adopt", "export", "transcribe", "analyze_later"]),
                  ("request_auto", dict(kind="url", video_id=VID, request_id="r1", deliver_dir="D:/o", cut="none", repack=True,
@@ -68,6 +68,9 @@ class TestOrder(unittest.TestCase):
             env, diff = O.order(kind, **okw)
             new = R.Run.from_envelope(env, SP.merge_onto(base, diff))
             self.assertEqual((new.mode, [s["key"] for s in new.steps]), (mode, steps), mode)
+        env, diff = O.order("url", video_id=VID, from_="export", upto="transcribe", marks=["m1"])   # 文字起こしまで(transcribe)の形は 10-19 に消した = 断る
+        with self.assertRaises(ValueError):
+            R.Run.from_envelope(env, SP.merge_onto(base, diff))
 
 
 class TestMergeOnto(unittest.TestCase):

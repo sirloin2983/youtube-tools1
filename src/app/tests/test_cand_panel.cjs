@@ -1162,7 +1162,7 @@ test('autoTx and "this one onward": the same order = from export to pack with th
   assert.deepEqual(plain(sent[0]), { path: 'api/flow/submit', body: { kind: 'url', videoId: 'V', from: 'export', upto: 'pack', marks: ['m1', 'm2'],
     deliver: { origin: 'auto', dir: out } } }, 'autoTx: from export to pack, with the send target (the send gate decides)');
   assert.equal(notes.at(-1), '書き出しに続けて、文字起こし → パックを始めました');
-  await ctx.startAuto('adopted', ['m3']);
+  await ctx.startAuto(['m3']);
   assert.deepEqual(plain(started[0]), { kind: 'url', videoId: 'V', from: 'export', upto: 'pack', marks: ['m3'], deliver: { origin: 'auto', dir: out },
     title: '配信', streamer: '兎田ぺこら', repack: false }, '"this one onward" is the same order as autoTx');
   out = null;   // 受付のフォルダが決まっていない: 届け先なし(送らない)

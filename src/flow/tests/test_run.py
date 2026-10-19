@@ -246,7 +246,7 @@ class TestStepsOf(unittest.TestCase):
             self.assertEqual(run.mode, mode)
             self.assertEqual([s["key"] for s in run.steps], want, (mode, dir_, origin, nr, dz, norm))
             n += 1
-        self.assertGreater(n, 500)
+        self.assertGreater(n, 400)
 
     def test_mode_of_matches_mode_run(self):
         """派生の mode と表 MODE_RUN(mode_of の逆)が合う(記録の mode・modeLabel・溜めの鍵・届けた記録の mode が変わらない)"""
@@ -452,7 +452,7 @@ class TestKeys(unittest.TestCase):
         return rn
 
     def step(self, rn, key, force=False, spec=None):
-        run = RF.run_of("abcdefghijk", "配信", "adopted", 3, force=force)
+        run = RF.run_of("abcdefghijk", "配信", "export", 3, force=force)
         RF.respec(run, spec)
         st = run.step(key)
         st["state"] = "run"
@@ -463,7 +463,7 @@ class TestKeys(unittest.TestCase):
         """指摘 2: 鍵の比べ(見積もりも同じ関数)は字幕の受け渡しの JSON を書かない。書かずに作った材料の鍵は、書いたファイルから作った鍵と同じ"""
         c = FakeClient(full=[self.doc])
         rn = R.Runner(c, poll=0, sleep=lambda s: None)
-        run = RF.run_of("abcdefghijk", "配信", "adopted", 3)
+        run = RF.run_of("abcdefghijk", "配信", "export", 3)
         opts = rn._pack_settings(run)
         body, _keeps, _rev = rn._pack_body(run, self.doc, self.media, opts, dry=True)
         self.assertNotIn(("transcribe", "POST", "/api/export-file"), c.calls)
@@ -578,7 +578,7 @@ class TestFieldsToBundle(unittest.TestCase):
                               cut="none", pool={"key": "k1", "rid": "x"}),
             "engine_same": dict(video_id=None, title="動画", mode="file", top=None, source_path=m, engine="whisper.cpp", model="large-v3"),
             "doc_overwrite": dict(video_id=None, title="文書", mode=R.DOC_MODE, top=None, doc_id="d1", overwrite=True),
-            "adopted_force": dict(video_id=VID, title="配信", mode="adopted", top=5, force=True, marks=("m1",)),
+            "adopted_force": dict(video_id=VID, title="配信", mode="export", top=5, force=True, marks=("m1",)),
         }
 
     @staticmethod

@@ -13,13 +13,15 @@ if SRC not in sys.path:
     sys.path.insert(0, SRC)
 from flow import order as O, run as R, spec as SP  # noqa: E402
 
+# mode → (封筒の kind, run.from, run.upto)。export = 書き出しから全部(mode full + run.from export。マークの行の「この後を」の形。テストの呼び名)
+SHAPES = dict(R.MODE_RUN, export=("url", "export", "pack"))
 RENAME = {"overwrite": "repack", "deliver_origin": "origin", "deliver_tag": "tag", "source_path": "path"}
 
 
 def run_of(video_id, title, mode, top=None, base=None, **kw):
     """Run(video_id, title, mode, top, **欄) の形から作る実行の Run(base = 土台の束。None = 既定)。
     依頼の形(request・request_auto)は依頼の id が要る(無ければ "r-test")"""
-    kind, frm, upto = R.MODE_RUN[mode]
+    kind, frm, upto = SHAPES[mode]
     o = {RENAME.get(k, k): v for k, v in kw.items()}
     if kind == "url":
         o["video_id"] = video_id

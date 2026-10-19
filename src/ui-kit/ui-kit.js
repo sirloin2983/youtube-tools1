@@ -21,7 +21,7 @@
        知らせがあふれたときは 時間で消える → ボタン・消えない知らせ(失敗でない) → ボタンの無い失敗 → 古いもの の順に閉じる(失敗の知らせは最後まで残す)。README.md の「v7」「v22」「v23」
    UIKit.prefs(ホームの設定 api/ytt/prefs: get(sections)・patch(section, value)(節ごと・まとめて送る)・remember(kind, key, name)・
        available()。保存に失敗したら知らせと [もう一度])。
-   UIKit.autorun(まとめて実行の部品: panel(el, {kind, modes}) = 要約1行と「設定を変える」・start(orders, opts) = 見積もり → 始める → 終わったら知らせ・
+   UIKit.autorun(まとめて実行の部品: panel(el, {kind}) = 要約1行と「設定を変える」・start(orders, opts) = 見積もり → 始める → 終わったら知らせ・
        stepLabel / runLabel = 状態の言葉)。受付は ② の口 POST api/flow/submit {envelope, spec} の 1 本。UIKit.flow.order(欄 → 封筒 + 束の差分。
        Python の src/flow/order.py と同じ変換)・start は見積もり api/flow/estimate を 1 本ずつ足す → 1 本ずつ submit → 終わるまで api/flow/runs を見て知らせる。README.md の「v28」
    UIKit.packLoud(パックの音量: LUFS でそろえる か % で決める。値は編集の設定 packLoudness・packVolume の1か所。mount(select) で選択の欄と % の欄にする・get()・set(values))
@@ -1966,7 +1966,6 @@
      状態の言葉もここ(サーバーの stateLabel が正。無いときの予備) */
   var AR_STEP = { wait: '待ち', run: '実行中', done: '済み', skip: '飛ばした', warn: '一部失敗', error: '失敗' };
   var AR_RUN = { queued: '待ち', running: '実行中', done: '済み', error: '失敗', cancelled: '中止', nothing: 'やることがありませんでした' };
-  var AR_MODES = { adopted: '採用後を全部', transcribe: '文字起こしまで', full: '解析から全部' };
   var AR_CUT = { rows: '行から', none: 'カットしない', silence: '無音で削る' };
   var arSeq = 0, arPanels = [], arWatched = {}, arTimer = 0, arState = null;
   function arHomeApi(path, body) { return homeApi(path, { body: body, fail: httpCodeText }); }
@@ -2022,8 +2021,7 @@
   function arSummary(st, kind) {
     if (!st) return '';
     var bits = [];
-    if (kind === 'video' && st.mode) bits.push(AR_MODES[st.mode]);
-    if (kind === 'new' || (kind === 'video' && st.mode === 'full')) bits.push('採用 ' + st.top);
+    if (kind === 'new' || kind === 'video') bits.push('採用 ' + st.top);   // まとめて実行の形は解析から全部だけ(10-19)
     bits.push(AR_CUT[st.cut]);
     if (st.pack) {
       bits.push((st.size === '1920x1080' ? '横' : '縦'));
@@ -2065,12 +2063,7 @@
   /* 設定の欄(ポップオーバーの中身)。値を変えたらすぐ保存(どこで変えても全部の入口の既定) */
   function arForm(kind, opts) {
     var st = arState, box = arEl('div', { 'class': 'ui-ar-form' });
-    if (kind === 'video' && opts.modes) {
-      var m = arSelect(opts.modes.map(function (k) { return [k, AR_MODES[k]]; }), st.mode || opts.modes[0]);
-      m.addEventListener('change', function () { arSave('prefs', { mode: m.value }); });
-      box.appendChild(arField('形', m));
-    }
-    if (kind === 'new' || (kind === 'video' && (!opts.modes || opts.modes.indexOf('full') >= 0))) {
+    if (kind === 'new' || kind === 'video') {
       var t = arEl('input', { type: 'number', min: '1', max: '20', step: '1' }); t.value = String(st.top); t.style.width = '5em';
       t.addEventListener('change', function () { var n = Math.round(+t.value); if (n >= 1 && n <= 20) arSave('prefs', { top: n }); });
       box.appendChild(arField('採用する数(解析から全部)', t));
@@ -2157,13 +2150,13 @@
     }).catch(function () {}).then(function () { if (Object.keys(arWatched).length) arTimer = setTimeout(arPoll, 2500); });
   }
   var autorun = {
-    STEP: AR_STEP, RUN: AR_RUN, MODES: AR_MODES, CUT: AR_CUT,
+    STEP: AR_STEP, RUN: AR_RUN, CUT: AR_CUT,
     stepLabel: function (s) { return (s && s.stateLabel) || AR_STEP[s && s.state] || (s && s.state) || ''; },
     runLabel: function (r) { return (r && r.stateLabel) || AR_RUN[r && r.nothing && r.state === 'done' ? 'nothing' : r && r.state] || (r && r.state) || ''; },
     load: arLoad,
     state: function () { return arState; },
     summary: arSummary,
-    /* el に「要約1行 +『設定を変える』」を描く。opts: {kind: 'video'|'docs'|'new', modes: ['adopted', …](形を選ばせるとき)} */
+    /* el に「要約1行 +『設定を変える』」を描く。opts: {kind: 'video'|'docs'|'new'}(まとめて実行の形は解析から全部だけ = 形を選ぶ欄は無い。v36) */
     panel: function (el, opts) {
       if (!el) return null;
       opts = opts || {};
@@ -2767,7 +2760,7 @@
   }
   var sound = { other: sndOther, onChange: function (fn) { if (typeof fn === 'function') snd.subs.push(fn); }, tool: snd.tool };
 
-  window.UIKit = { version: 35, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
+  window.UIKit = { version: 36, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
                    portal: portal, streamer: streamer, appnav: appnav, drawer: drawer, dialog: dialogApi, toast: toastFn, keybar: keybar, settings: settings, settingsForm: settingsForm, keys: keysApi, keymap: keymapApi, icon: icon,
                    confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud, autorun: autorun, flow: flow, restart: restart, timebox: timebox, hide: hide, liveBadge: liveBadge, menuOff: menuOff,
                    http: http, homeApi: homeApi, homeUrl: homeUrl, copy: copyText, tokenStale: tokenStale };

@@ -39,17 +39,20 @@ def _send_folder(ar):
     return IN.configured_folder(ar.prefs, prefs_mod.DEFAULTS["intake"]) if ar.prefs else ""
 
 
+EXPORT = "export"   # テストの呼び名: 書き出しから全部(mode full + 束の run.from export。マークの行の「この後を」・書き出しのあと自動で。まとめて実行の形は full だけ = 10-19)
+
+
 def start(ar, video_id, mode, top=None, streamer=None, marks=None, overwrite=False, auto_send=None):
-    """ホームの案件の行・スタジオのマークの行の「まとめて実行」(画面の UIKit.flow.order → submit と同じ形)。
+    """ホームの案件の行・スタジオのマークの行の「まとめて実行」(画面の UIKit.flow.order → submit と同じ形)。mode = full(解析から全部)か EXPORT(書き出しから全部)。
     友人へ自動で送る(D-SEND): 解析から全部で、受付のフォルダが決まっていれば出どころ auto。auto_send False = 届け先なし"""
-    if mode not in A.MODES:
+    if mode not in A.MODES and mode != EXPORT:
         raise ValueError("実行の形が正しくありません")
     if top is not None:
         SP.top_arg(top)   # 画面は 1〜20 に丸めてから送る(合わない数は ValueError)
     full = mode == "full"
     folder = _send_folder(ar) if full else ""
     dl = {"origin": "auto", "deliver_dir": IN.out_dir_of(folder) if auto_send is not False else None} if folder else {}
-    env, diff = O.order("url", video_id=video_id, from_=None if full else "export", upto="transcribe" if mode == "transcribe" else "pack",
+    env, diff = O.order("url", video_id=video_id, from_=None if full else "export", upto="pack",
                         top=top, streamer=streamer, marks=marks, repack=overwrite, **dl)
     return ar.submit(env, diff)
 
@@ -95,11 +98,11 @@ def estimate(ar, video_id=None, mode=None, marks=None, top=None, doc_ids=None, o
         outs = [ar.estimate(*O.order("docs", doc_id=t, repack=overwrite)) for t in doc_ids]
         steps = [dict(s, count=sum(o["steps"][i]["count"] for o in outs)) for i, s in enumerate(outs[0]["steps"])]
         return dict(outs[0], steps=steps, total=sum(o["total"] for o in outs), nothing=all(o["nothing"] for o in outs))
-    if mode not in A.MODES:
+    if mode not in A.MODES and mode != EXPORT:
         raise ValueError("実行の形が正しくありません")
     full = mode == "full"
     dl = {"origin": "auto", "deliver_dir": "D:/out"} if deliver and full else {}
-    return ar.estimate(*O.order("url", video_id=video_id, from_=None if full else "export", upto="transcribe" if mode == "transcribe" else "pack",
+    return ar.estimate(*O.order("url", video_id=video_id, from_=None if full else "export", upto="pack",
                                 top=top, marks=marks, repack=overwrite, **dl))
 
 
@@ -457,7 +460,7 @@ class TestMarks(Base):
              {"id": "m2", "status": "", "start": 9, "end": 12}]
 
     def test_only_selected_mark(self):
-        run = start(self.r, VID, "adopted", marks=["m3", "m3"])
+        run = start(self.r, VID, "export", marks=["m3", "m3"])
         self.assertEqual((run["marks"], run["modeLabel"]), (["m3"], "書き出しから全部(1本)"))
         run = self.wait(run)
         self.assertEqual(run["state"], "done", run)
@@ -465,12 +468,12 @@ class TestMarks(Base):
         self.assertEqual([j["src"] for j in self.tools.tx_jobs.values()], [self.tools.clip_path("m3")])
         self.assertEqual([b["spec"]["video"] for b in self.tools.c2r["bodies"]], [self.tools.clip_path("m3")])
         # 書き出し済みのマークなら、文字起こし → パックだけ(書き出しは飛ばす)
-        run = self.wait(start(self.r, VID, "adopted", marks=["m3"]))
+        run = self.wait(start(self.r, VID, "export", marks=["m3"]))
         self.assertEqual({s["key"]: s["state"] for s in run["steps"]}["export"], "skip")
 
     def test_bad_marks(self):
         with self.assertRaisesRegex(ValueError, "マークの指定"):   # 形の違いは src/flow/tests/test_spec.py の test_marks_arg
-            start(self.r, VID, "adopted", marks=["../x"])
+            start(self.r, VID, "export", marks=["../x"])
         with self.assertRaisesRegex(ValueError, "書き出しから"):
             start(self.r, VID, "full", marks=["m1"])
         self.assertEqual(self.r.snapshot()["runs"], [])
@@ -549,7 +552,7 @@ class TestModes(Base):
         """束は受けたときに組む = 待ちの間に画面の設定を変えても、その実行の中身は変わらない(意図した変化)"""
         self.tools.tx_extra = {"model": "large-v3"}
         with mock.patch.object(self.r, "_wake", lambda: None):   # 糸を起こさない = 待ちのまま
-            run = start(self.r, VID, "adopted")
+            run = start(self.r, VID, "export")
         queued = next(r for r in self.r.runs if r.id == run["id"])
         self.assertEqual((queued.state, queued.spec["transcribe"]["model"]), ("queued", "large-v3"))
         self.tools.tx_extra = {"model": "small"}   # 待ちの間に設定を変えた
@@ -562,7 +565,7 @@ class TestModes(Base):
     def test_cut_method_none_for_docs_without_cut(self):
         """カットを決めていない文書のカットの方法(ホームの設定 autorun.cut): none = 動画全体・カット済の行の字幕も消さない"""
         self.set_prefs(cut="none")
-        run = self.run_one("adopted")
+        run = self.run_one("export")
         self.assertEqual(run["state"], "done", run)
         spec = self.tools.c2r["body"]["spec"]
         self.assertEqual((spec["mode"], spec["listKind"], spec["listText"], spec["dropCutRows"], "preset" in spec), ("list", "drop", "", False, False))
@@ -570,13 +573,13 @@ class TestModes(Base):
     def test_cut_method_silence_uses_edit_settings(self):
         self.set_prefs(cut="silence")
         self.tools.tx_extra = {"cutSilence": {"noise": -40, "min": 0.8, "pad": 0.2, "x": 1, "pad2": True}}
-        run = self.run_one("adopted")
+        run = self.run_one("export")
         self.assertEqual(run["state"], "done", run)
         spec = self.tools.c2r["body"]["spec"]
         self.assertEqual((spec["mode"], spec["silence"]), ("silence", {"noise": -40, "min": 0.8, "pad": 0.2}))
 
     def test_cut_method_default_is_none(self):
-        run = self.run_one("adopted")   # ホームの設定が無いときはカットしない
+        run = self.run_one("export")   # ホームの設定が無いときはカットしない
         self.assertEqual(self.tools.c2r["body"]["spec"]["mode"], "list")
         out = self.tools.c2r["body"]["output"]
         self.assertEqual((out["speakerColors"], out.get("loudness"), out.get("volume")), (True, None, 30))   # 既定: 色あり・音量 30%
@@ -585,7 +588,7 @@ class TestModes(Base):
         """採用後を全部の代表。画面の設定は受付で読まれ、パックの本文まで届く(代表の 1 値 = 縦の 1 段の文字数。読み方の表は TestSpecFromSettings)"""
         self.set_prefs(cut="rows")
         self.tools.subtitle = {"wrapChars": {"vertical": 9, "horizontal": 14}}
-        run = self.run_one("adopted")
+        run = self.run_one("export")
         self.assertEqual(run["state"], "done", run)
         self.assertEqual(self.states(run), {"export": "done", "transcribe": "done", "pack": "done"})
         self.assertEqual((self.tools.export_body["markIds"], self.tools.export_body["volume"]), (["m1"], 60))   # スタジオの設定の音量
@@ -596,16 +599,17 @@ class TestModes(Base):
         self.assertEqual((self.tools.c2r["body"]["output"]["textplus"], self.tools.c2r["body"]["output"]["textplusWrap"]), (True, 9))
         # もう一度押しても、作り直さない(まだ無いものだけ)
         n = len(self.tools.calls)
-        again = self.run_one("adopted")
+        again = self.run_one("export")
         self.assertEqual(self.states(again), {"export": "skip", "transcribe": "skip", "pack": "skip"})
         self.assertFalse(any(c[1] == "POST" for c in self.tools.calls[n:]), "2回目は何も作らない")
 
     def test_pack_follows_edit_cut(self):
         """「編集」でカットを決めてある文書は、そのカットのとおりに作る(spec.keeps。接している区間は1つに)・作った記録を「編集」に残す"""
-        self.run_one("transcribe")   # 書き出し・文字起こしまで
+        self.run_one("export")   # 書き出し → 文字起こし → パック(カットなし)
         tid = "%012d" % 1
         self.tools.edits[tid] = {"rev": 3, "edit": {"clips": [{"src": 0, "in": 0.5, "out": 1.0}, {"src": 0, "in": 1.0, "out": 2.0}, {"src": 0, "in": 3.0, "out": 4.0}]}}
-        run = self.run_one("adopted")
+        self.tools.packed.clear()
+        run = self.wait(start(self.r, VID, "export", overwrite=True))   # カットを決めたので作り直す
         self.assertEqual(self.states(run)["pack"], "done", run)
         b = self.tools.c2r["body"]
         self.assertEqual((b["spec"]["keeps"], "preset" in b["spec"], b["spec"]["transcript"].endswith(tid + ".transcript.json"), b["output"]["textplus"]),
@@ -613,34 +617,29 @@ class TestModes(Base):
         self.assertEqual([(p["id"], p["rev"], p["files"]) for p in self.tools.packed], [(tid, 3, ["cut-plan.json", "m1.edl"])])
         self.assertIn("カットのとおり", next(s for s in run["steps"] if s["key"] == "pack")["detail"])
 
-    def test_transcribe_mode_stops_before_pack(self):
-        run = self.run_one("transcribe")
-        self.assertEqual(self.states(run), {"export": "done", "transcribe": "done"})
-        self.assertNotIn("body", self.tools.c2r)
-
     def test_nothing_adopted_stops_early(self):
         for m in self.tools.video["marks"]:
             m["status"] = ""
-        run = self.run_one("adopted")
+        run = self.run_one("export")
         self.assertEqual(run["state"], "done")
         self.assertEqual(self.states(run), {"export": "skip", "transcribe": "skip", "pack": "skip"})
 
     def test_waits_while_studio_export_is_busy(self):
         self.tools.export_busy = 3
-        run = self.run_one("adopted")
+        run = self.run_one("export")
         self.assertEqual(run["state"], "done")
         self.assertEqual(sum(1 for c in self.tools.calls if c[2] == "/api/export" and c[1] == "POST"), 4)
 
     def test_transcribe_failure_stops_the_run(self):
         self.tools.fail_tx = True
-        run = self.run_one("adopted")
+        run = self.run_one("export")
         self.assertEqual((run["state"], self.states(run)["transcribe"], self.states(run)["pack"]), ("error", "error", "wait"))
         self.assertIn("モデルが読めません", run["error"])
 
     def test_tool_not_running(self):
         r = A.AutoRunner(A.ToolClient(lambda t: None), self.tmp, self.env, poll=0, sleep=lambda s: None, find_pack=lambda p: None)
         try:
-            start(r, VID, "adopted")
+            start(r, VID, "export")
             got = self.until(lambda: (lambda x: x if x["state"] not in ("queued", "running") else None)(r.snapshot()["runs"][0]))
             self.assertEqual(got["state"], "error")
             self.assertIn("切り抜きスタジオが動いていないので、この段を進められませんでした", got["error"])
@@ -697,15 +696,15 @@ class TestNew(Base):
         with self.assertRaisesRegex(ValueError, "すでに実行中"):   # もう順番待ち・実行中(全部断られた = 画面は理由を出す)
             start_new(self.r, [{"id": VID}])
         with self.assertRaises(ValueError):
-            start(self.r, VID, "adopted")        # 配信の画面からの実行とも重ねない
+            start(self.r, VID, "export")        # 配信の画面からの実行とも重ねない
 
 
 class TestControl(Base):
     def test_same_video_twice_is_refused_and_cancel(self):
         self.tools.hold = True
-        run = start(self.r, VID, "adopted")
+        run = start(self.r, VID, "export")
         with self.assertRaises(ValueError):
-            start(self.r, VID, "transcribe")
+            start(self.r, VID, "full")
         self.until(lambda: self.r.snapshot()["runs"][0]["steps"][0]["state"] == "run")
         self.r.cancel(run["id"])
         got = self.wait(run)
@@ -717,8 +716,8 @@ class TestControl(Base):
     def test_queued_runs_stay_queued_on_close(self):
         """入口の終了(M5): 順番待ちは消さずに「待ち」のまま(次の起動で続ける)。実行中の段はツールの側も取り消して止める"""
         self.tools.hold = True
-        first = start(self.r, VID, "adopted")
-        second = start(self.r, "zzzzzzzzzzz", "adopted")
+        first = start(self.r, VID, "export")
+        second = start(self.r, "zzzzzzzzzzz", "export")
         self.until(lambda: self.r.snapshot()["runs"][-1]["steps"][0]["state"] == "run")
         self.r.close()
         self.until(lambda: not any(x["state"] == "running" for x in self.r.snapshot()["runs"]))
@@ -734,18 +733,18 @@ class TestStage4(Base):
     def test_bad_row_edge_is_reported_not_failed(self):
         """受付で直した設定の知らせ(run.notes)はパックの段の文に出る(直し方は TestSpecFromSettings)"""
         self.tools.row_edge = {"on": "yes"}
-        run = self.run_one("adopted")
+        run = self.run_one("export")
         self.assertEqual(run["state"], "done", run)
         self.assertIn("「行から」の設定の形が正しくない", next(s for s in run["steps"] if s["key"] == "pack")["detail"])
 
     def test_nothing_to_do_and_overwrite(self):
-        first = self.run_one("adopted")
+        first = self.run_one("export")
         self.assertEqual((first["state"], first["nothing"]), ("done", False))
         self.assertEqual(len(first["docs"]), 2)   # 文字起こし・パックした文書(終わったら「校正を始める」で開く)
-        again = self.run_one("adopted")   # もうパックがある: やることが無い
+        again = self.run_one("export")   # もうパックがある: やることが無い
         self.assertEqual((again["state"], again["nothing"]), ("done", True))
         n = len(self.tools.c2r["bodies"])
-        run = self.wait(start(self.r, VID, "adopted", overwrite=True))   # 配信単位でも作り直せる
+        run = self.wait(start(self.r, VID, "export", overwrite=True))   # 配信単位でも作り直せる
         self.assertEqual((run["state"], run["overwrite"]), ("done", True), run)
         self.assertEqual(len(self.tools.c2r["bodies"]), n + 2)
         self.assertTrue(all(b["output"].get("force") for b in self.tools.c2r["bodies"][n:]))
@@ -753,7 +752,7 @@ class TestStage4(Base):
 
     def test_on_fail_next_continues(self):
         self.tools.fail_pack = {self.tools.clip_path("m1")}
-        run = self.run_one("adopted")
+        run = self.run_one("export")
         self.assertEqual(run["state"], "done", run)
         pk = next(s for s in run["steps"] if s["key"] == "pack")
         self.assertEqual((pk["state"], pk["stateLabel"]), ("warn", "一部失敗"))
@@ -762,20 +761,20 @@ class TestStage4(Base):
     def test_on_fail_stop(self):
         self.set_prefs(onFail="stop")
         self.tools.fail_pack = {self.tools.clip_path("m1")}
-        run = self.run_one("adopted")
+        run = self.run_one("export")
         self.assertEqual((run["state"], run["stateLabel"], run["onFail"]), ("error", "失敗", "stop"), run)
         self.assertIn("わざと失敗", run["error"])
 
     def test_estimate(self):
-        e = estimate(self.r, VID, "adopted")
+        e = estimate(self.r, VID, "export")
         self.assertEqual([(s["key"], s["count"]) for s in e["steps"]], [("export", 2), ("transcribe", None), ("pack", None)])   # 書き出しのあとで決まる
         self.assertEqual((e["total"], e["nothing"]), (2, False))
         self.assertEqual(self.tools.c2r, {})                                                                               # 見積もりは何も作らない
-        self.run_one("adopted")
-        e = estimate(self.r, VID, "adopted")
+        self.run_one("export")
+        e = estimate(self.r, VID, "export")
         self.assertEqual((e["total"], e["nothing"]), (0, True))
         self.assertIn("パック済み", e["reason"])
-        e = estimate(self.r, VID, "adopted", overwrite=True)
+        e = estimate(self.r, VID, "export", overwrite=True)
         self.assertEqual([s["count"] for s in e["steps"]], [0, 0, 2])
         tid = next(d["id"] for d in A.txindex.load(A.txindex.folder(self.r.root, self.env)))
         e = estimate(self.r, doc_ids=[tid])
@@ -786,14 +785,14 @@ class TestStage4(Base):
         e = estimate(self.r, VID, "full", deliver=True)   # D-SEND: 友人へ自動で送るなら末尾に deliver の行(本数は判定しだい = None)
         self.assertEqual(e["steps"][-1], {"key": "deliver", "label": "Dropbox へ届ける", "count": None, "note": "あとで決まります"})
         self.assertEqual([s["key"] for s in estimate(self.r, VID, "full")["steps"]], ["analyze", "adopt", "export", "transcribe", "pack"])
-        self.assertEqual([s["key"] for s in estimate(self.r, VID, "adopted", deliver=True)["steps"]], ["export", "transcribe", "pack"])
+        self.assertEqual([s["key"] for s in estimate(self.r, VID, "export", deliver=True)["steps"]], ["export", "transcribe", "pack"])
         # 見積もりも実行と同じ判定(pack_verdict)で、鍵が違うパックは作り直す数に入れる
-        self.assertEqual(estimate(self.r, VID, "adopted")["total"], 0)
+        self.assertEqual(estimate(self.r, VID, "export")["total"], 0)
         with mock.patch.object(self.r, "_pack_state", return_value=("differ", None)):
-            e = estimate(self.r, VID, "adopted")
+            e = estimate(self.r, VID, "export")
         self.assertEqual([s["count"] for s in e["steps"]], [0, 0, 2])
         with mock.patch.object(self.r, "_pack_state", return_value=("same", None)), mock.patch.object(self.r, "find_pack", return_value=None):
-            e = estimate(self.r, VID, "adopted")   # 鍵が同じなら、パックの置き場所が見つからなくても飛ばす(実行と同じ)
+            e = estimate(self.r, VID, "export")   # 鍵が同じなら、パックの置き場所が見つからなくても飛ばす(実行と同じ)
         self.assertEqual([s["count"] for s in e["steps"]], [0, 0, 0])
 
 
@@ -802,14 +801,14 @@ class TestStage5(Base):
 
     def test_auto_from_channel(self):
         self.tools.video["channel"] = "Pekora Ch. 兎田ぺこら"
-        run = self.run_one("adopted")
+        run = self.run_one("export")
         self.assertEqual(run["state"], "done", run)
         self.assertEqual((self.tools.c2r["body"]["output"].get("streamer"), run["streamer"], run["streamerFrom"]), ("兎田ぺこら", "兎田ぺこら", "auto"))
         self.assertIn("字幕の色: 兎田ぺこら(自動: チャンネル名から)", next(s for s in run["steps"] if s["key"] == "pack")["detail"])
 
     def test_explicit_empty_is_no_color(self):
         self.tools.video["channel"] = "Pekora Ch. 兎田ぺこら"
-        cur = self.wait(start(self.r, VID, "adopted", streamer=""))
+        cur = self.wait(start(self.r, VID, "export", streamer=""))
         self.assertEqual(cur["state"], "done", cur)
         self.assertNotIn("streamer", self.tools.c2r["body"]["output"])   # 空 = 色なし(チャンネル名からも入れない)
 
@@ -818,7 +817,7 @@ class TestStage5(Base):
         p = self.set_prefs()
         p.remember("videos", VID, "さくらみこ")
         with mock.patch.object(self.r, "_wake", lambda: None):
-            run = start(self.r, VID, "adopted")
+            run = start(self.r, VID, "export")
         self.assertEqual((run["streamer"], run["streamerFrom"]), ("さくらみこ", "video"))
         p.remember("videos", VID, "兎田ぺこら")
         with self.r.cv:
@@ -836,7 +835,7 @@ class TestRunLog(Base):
         logs = os.path.join(self.tmp, "logs")
         self.r.close()
         self.r = self.make_runner(log_dir=logs)
-        run = self.run_one("adopted")
+        run = self.run_one("export")
         got = self.until(lambda: runlog.read_runs_log(os.path.join(logs, runlog.RUNS_LOG)))
         self.assertEqual([(x["id"], x["state"], x["kind"], x["videoId"]) for x in got], [(run["id"], "done", "video", VID)])
 
@@ -913,7 +912,7 @@ class TestRestore(Base):
         tx_hold = {"on": True}   # 文字起こしだけ止めておく(書き出しは進める)
         jobs = self.tools.h_transcribe_GET_api_jobs
         self.tools.h_transcribe_GET_api_jobs = lambda p, b: (200, {"jobs": list(self.tools.tx_jobs.values())}) if tx_hold["on"] else jobs(p, b)
-        run = start(self.r, VID, "adopted")
+        run = start(self.r, VID, "export")
         saved = self.until(lambda: (lambda a: a if a and [s["state"] for s in a[0]["steps"][:2]] == ["done", "run"] else None)(self.active()))   # 段の間(1 段目が済み・2 段目はまだ wait)の記録を拾わない
         self.assertEqual([s["state"] for s in saved[0]["steps"]], ["done", "run", "wait"])
         exports = sum(1 for c in self.tools.calls if c[1:3] == ("POST", "/api/export"))
@@ -930,7 +929,7 @@ class TestRestore(Base):
         ready = {"studio": False}
         self.tools.endpoint = lambda t: (1, "/") if ready.get(t, True) else None
         self.r.close()
-        run = RF.run_of(VID, "配信", "adopted", 3)
+        run = RF.run_of(VID, "配信", "export", 3)
         testkit.write_json(os.path.join(self.logs, A.ACTIVE_FILE), {"v": A.ACTIVE_VERSION, "runs": [run.saved()]})
         with mock.patch.object(A, "RESUME_WAIT", 30):
             self.r = self.make_runner(sleep=lambda s: time.sleep(0.01), log_dir=self.logs)
@@ -951,8 +950,8 @@ class TestRestartInfo(Base):
     def test_idle_and_export(self):
         self.assertEqual(self.r.restart_info(), {"runs": 0, "redo": None})
         self.tools.hold = True
-        start(self.r, VID, "adopted")
-        start(self.r, "zzzzzzzzzzz", "adopted")
+        start(self.r, VID, "export")
+        start(self.r, "zzzzzzzzzzz", "export")
         self.until(lambda: self.step_state("export") == "run")
         self.assertEqual(self.r.restart_info(), {"runs": 2, "redo": None})   # 書き出しの段は redo にしない(書き出し中は今までどおり断る)
         owned = next(r.owned for r in self.r.runs if r.state == "running")
@@ -1766,7 +1765,7 @@ class TestAutoSend(Base):
         run = self.go(auto_send=True)
         self.assertNotIn("deliver", [s["key"] for s in run["steps"]])
         self.prefs.patch("intake", {"folder": self.folder})
-        run = self.go("adopted", auto_send=True)
+        run = self.go("export", auto_send=True)
         self.assertNotIn("deliver", [s["key"] for s in run["steps"]])
         self.assertEqual(self.outs(), [])
 

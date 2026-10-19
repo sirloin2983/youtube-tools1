@@ -156,7 +156,7 @@ def main():
 
                 def run_of(body):
                     return {"id": "r%d" % len(sent_tx), "kind": "video", "videoId": body.get("id"), "state": "queued", "mode": body.get("mode"),
-                            "modeLabel": "文字起こしまで", "marks": body.get("marks"), "steps": [{"label": "書き出し", "state": "queued"}]}
+                            "modeLabel": "解析から全部" if body.get("mode") == "full" else "書き出しから全部", "marks": body.get("marks"), "steps": [{"label": "書き出し", "state": "queued"}]}
 
                 def fake_tx_start(route):   # 入口のまとめて実行(書き出しのあとの自動の文字起こし・まとめて実行)は頼んだ中身だけ見る
                     raw = json.loads(route.request.post_data or "{}")   # ② の口 {envelope, spec} -> {id, mode, marks} の形で覚える
@@ -243,11 +243,13 @@ def main():
                 # 4c. まとめて実行(入口の /api/flow/submit。偽物で頼んだ中身だけ見る): 配信ごと・マークの行の「この後を ▸」
                 check(pg.is_visible("#rvAuto"), "「まとめて実行」が出る(入口の中)")
                 pg.click("#rvAuto > summary")
-                pg.click('#rvAuto [data-auto="transcribe"]')
-                check(wait_js(pg, "!document.querySelector('#rvAutoBar').hidden && /文字起こしまで/.test(document.querySelector('#rvAutoBar').textContent)", 10000),
+                check(pg.eval_on_selector_all('#rvAuto [data-auto]', 'els => els.map(e => e.dataset.auto)') == ["full"],
+                      "「まとめて実行 ▾」は解析から全部だけ(採用後を全部・文字起こしまでは 10-19 に消した)")
+                pg.click('#rvAuto [data-auto="full"]')
+                check(wait_js(pg, "!document.querySelector('#rvAutoBar').hidden && /解析から全部/.test(document.querySelector('#rvAutoBar').textContent)", 10000),
                       "始めると、同じパネルに進み具合の帯が出る: %s" % (pg.text_content("#rvAutoBar") or "")[:60])
-                check(bool(sent_tx) and sent_tx[-1].get("id") == VID and sent_tx[-1].get("mode") == "transcribe" and not sent_tx[-1].get("marks"),
-                      "この配信の「文字起こしまで」を入口に頼む: %s" % sent_tx[-1:])
+                check(bool(sent_tx) and sent_tx[-1].get("id") == VID and sent_tx[-1].get("mode") == "full" and not sent_tx[-1].get("marks"),
+                      "この配信の「解析から全部」を入口に頼む: %s" % sent_tx[-1:])
                 row_pop = M1 + " .rv-rowmore"
                 check(pg.locator(row_pop).count() == 1, "採用したマークの行に「…」(その他の操作)")
                 pg.click(row_pop + " > summary")

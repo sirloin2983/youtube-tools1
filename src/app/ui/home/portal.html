@@ -361,14 +361,11 @@
       <ol class="pt-clips"></ol>
       <div class="pt-auto">
         <div class="row">
-          <label class="lag">まとめて実行 <select class="pt-auto-mode" aria-label="まとめて実行の形">
-            <option value="adopted">採用後を全部(書き出し → 文字起こし → パック)</option>
-            <option value="transcribe">文字起こしまで(書き出し → 文字起こし)</option>
-            <option value="full">解析から全部(自動マークの上位を採用)</option></select></label>
-          <label class="lag pt-auto-topbox" hidden>採用する数 <input class="pt-auto-top" type="number" min="1" max="30" value="3"></label>
+          <span class="lag" title="解析 → 人の採用に自動の候補の上位を採用する数まで足す → 書き出し → 文字起こし → パック(人が選んだ 1 本だけは、案件の画面の候補のマークの行の「この後を」)">まとめて実行(解析から全部)</span>
+          <label class="lag pt-auto-topbox">採用する数 <input class="pt-auto-top" type="number" min="1" max="30" value="3"></label>
           <label class="lag pt-auto-who" title="名前を入れると、パックの字幕の文字をその人のメンバーカラーにします(空なら黒い文字)">配信者(字幕の色)
             <input class="pt-auto-streamer" type="text" size="12" placeholder="例: さくらみこ"></label>
-          <label class="lag pt-auto-sendbox" hidden><input class="pt-auto-send" type="checkbox" checked> 友人へ自動で送る</label>
+          <label class="lag pt-auto-sendbox"><input class="pt-auto-send" type="checkbox" checked> 友人へ自動で送る</label>
           <span class="hint pt-auto-sendnote" hidden>友人の依頼の受付のフォルダを決めると送れます</span>
           <button type="button" class="btn small primary pt-auto-run">実行</button>
           <button type="button" class="btn small pt-auto-cancel" hidden title="済んだ段は残ります。もう一度「実行」を押すと続きから進みます">中止</button>

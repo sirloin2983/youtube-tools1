@@ -327,6 +327,24 @@ class TestRestore(Base):
         self.assertEqual(q.runs, [])
         self.assertTrue(any("戻せないので飛ばしました" in m and "0123456789" in m and "gone" in m for m in logs), logs)
 
+    def test_removed_autorun_modes(self):
+        """10-19 に消したまとめて実行の形: 文字起こしまで(transcribe = 書き出しから upto transcribe)の記録は飛ばしてログ・
+        採用後を全部(adopted = 書き出しから upto pack)の記録は書き出しから全部(full + run.from export)として同じ段で戻す"""
+        def rec(rid, mode, run):
+            env = {"id": rid, "kind": "url", "input": {"videoId": "abcdefghij" + rid[-1], "title": mode}, "requestId": None, "createdAt": 0, "specVersion": 2}
+            return {"id": rid, "mode": mode, "title": mode, "created": time.time() - 60, "steps": [{"key": "export", "state": "done", "detail": ""}],
+                    "envelope": env, "spec": {"run": run}}
+        testkit.write_json(os.path.join(self.logs, Q.ACTIVE_FILE), {"v": Q.ACTIVE_VERSION, "runs": [
+            rec("0123456781", "transcribe", {"from": "export", "upto": "transcribe"}), rec("0123456782", "adopted", {"from": "export", "upto": "pack"})]})
+        logs, tools = [], Tools()
+        tools.gate.clear()   # 戻した実行は動かさずに形だけ見る
+        q = Q.Queue(None, env=self.env, poll=0.01, tools=tools, log_dir=self.logs, log=logs.append)
+        self.addCleanup(q.close)
+        self.addCleanup(tools.gate.set)
+        self.assertEqual([(r.id, r.mode, [s["key"] for s in r.steps], r.public()["modeLabel"]) for r in q.runs],
+                         [("0123456782", "full", ["export", "transcribe", "pack"], "書き出しから全部")])
+        self.assertTrue(any("戻せないので飛ばしました" in m and "0123456781" in m and "transcribe" in m for m in logs), logs)
+
 
 class TestCancel(Base):
     def test_cancel_queued_and_running(self):

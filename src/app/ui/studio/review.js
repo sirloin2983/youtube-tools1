@@ -119,10 +119,9 @@ function topBarHTML(){
     <details class="ui-menu rv-auto" id="rvAuto" hidden>
       <summary class="btn small ghost" title="案件の画面と同じ「まとめて実行」を、この配信で始めます"><span>まとめて実行</span></summary>
       <div class="rv-vmenupop rv-autopop">
-        <p class="hint">この配信を、ホームの案件の画面と同じ順番待ちで自動で進めます。進み具合は上の帯と、ホームの案件の画面に出ます。</p>
-        <button type="button" class="btn small primary" data-auto="adopted" title="採用したマークを書き出し → 文字起こし → パック">採用後を全部(書き出し → 文字起こし → パック)</button>
-        <button type="button" class="btn small" data-auto="transcribe" title="採用したマークを書き出し → 文字起こし">文字起こしまで(書き出し → 文字起こし)</button>
-        <div class="rv-autofull"><button type="button" class="btn small" data-auto="full" title="解析 → 上位を自動で採用 → 書き出し → 文字起こし → パック">解析から全部</button>
+        <p class="hint">この配信を、ホームの案件の画面と同じ順番待ちで自動で進めます。人が採用したマークに、自動の候補の上位を採用する数まで足します
+          (人が選んだ 1 本だけ進めるときは、マークの行の「この後を」)。進み具合は上の帯と、ホームの案件の画面に出ます。</p>
+        <div class="rv-autofull"><button type="button" class="btn small primary" data-auto="full" title="解析 → 上位を自動で採用 → 書き出し → 文字起こし → パック">解析から全部</button>
           <label class="lag">採用する数 <input id="rvAutoTop" type="number" min="1" max="30" step="1" value="3"></label></div>
         <label class="lag rv-autowho" title="名前を入れると、パックの字幕の文字をその人のメンバーカラーにします(空なら黒い文字)">配信者(字幕の色)
           <input id="rvAutoWho" type="text" size="12" placeholder="例: さくらみこ"></label>
@@ -3048,7 +3047,7 @@ function wire(){
         seek(t); S.previewEnd = Number.isFinite(e2) && e2 > t ? e2 : null; yt.playVideo(); break; }
       case 'st': { const idx = rowIndex(li), st = b.dataset.st;
         setStatus(c, st, st === 'adopted' || st === 'rejected'); focusRow(c.id, `.rv-stb[data-st="${st}"]`, idx); break; }
-      case 'auto1': { const pop = b.closest('details.ui-pop'); if (pop) pop.open = false; startAuto('adopted', [c.id]); break; }   // このマークだけ、残りの作業をまとめて
+      case 'auto1': { const pop = b.closest('details.ui-pop'); if (pop) pop.open = false; startAuto([c.id]); break; }   // このマークだけ、残りの作業をまとめて
       case 'nudge': {
         const w = b.dataset.w;
         if (setBound(c, w, c[w] + Number(b.dataset.d))){ if (yt) seek(c[w]); refresh(key); }
@@ -3382,21 +3381,20 @@ function autoWhoText(){ const el = $('#rvAutoWho'), v = el ? el.value.trim() : '
 function fillAutoWho(){
   if (Studio.token && S.cur) UIKit.streamer.autoFill($('#rvAutoWho'), { videoId: S.cur.id, channel: S.cur.channel || '' });
 }
-async function startAuto(mode, marks){
+/* marks なし = 「まとめて実行 ▾」の解析から全部(友人へ自動で送る)/ marks = マークの行の「この後を」(書き出しから全部 = autoOrder) */
+async function startAuto(marks){
   if (!S.cur) return;
   const top = Math.min(20, Math.max(1, Math.round(Number($('#rvAutoTop').value) || 3)));
   try {
     if (S.dirty) await flushSave();   // 手で付けたマークを先に保存してから(まとめて実行は保存済みのマークを読む)
     const who = await UIKit.streamer.check($('#rvAutoWho'));
     if (who === null) return;   // 見つからない名前で「やめる」を選んだ
-    const st = UIKit.autorun.state(), full = mode === 'full';
-    if (full && marks) throw new Error('マークを選んだまとめて実行は書き出しからだけです');
-    // 欄 → 封筒 + 束の差分(UIKit.flow.order): 解析から全部 = 頭からパックまで・採用後を全部 = 書き出しからパックまで・文字起こしまで = 書き出しから文字起こしまで・
-    // マークの行の「この後を」(marks)= 書き出しのあと自動でと同じ注文(autoOrder = 書き出しから全部・送るかの判定も通る。10-19)
+    const st = UIKit.autorun.state();
+    // 欄 → 封筒 + 束の差分(UIKit.flow.order): 解析から全部 = 頭からパックまで(まとめて実行の形はこれだけ。10-19)・
+    // マークの行の「この後を」(marks)= 書き出しのあと自動でと同じ注文(autoOrder = 書き出しから全部・送るかの判定も通る)
     const f = marks ? await autoOrder(S.cur.id, marks, { title: S.cur.title || '', streamer: who, repack: !!(st && st.overwrite) })
-      : { kind: 'url', videoId: S.cur.id, title: S.cur.title || '', from: full ? null : 'export', upto: mode === 'transcribe' ? 'transcribe' : 'pack',
-          streamer: who, repack: !!(st && st.overwrite), ...(full ? { top } : {}) };   // 空 = 色なし(欄は自動で入る)
-    if (full){ const out = await sendOutDir(); if (out) f.deliver = { origin: 'auto', dir: out }; }   // 解析から全部は友人へ自動で送る(既定オン)
+      : { kind: 'url', videoId: S.cur.id, title: S.cur.title || '', upto: 'pack', streamer: who, repack: !!(st && st.overwrite), top };   // 空 = 色なし(欄は自動で入る)
+    if (!marks){ const out = await sendOutDir(); if (out) f.deliver = { origin: 'auto', dir: out }; }   // 解析から全部は友人へ自動で送る(既定オン)
     const r = await UIKit.autorun.start([UIKit.flow.order(f)]);
     if (!r) return;   // やることが無い(見積もり。知らせは部品が出す)
     $('#rvAuto').open = false;
@@ -3440,7 +3438,7 @@ Studio.onReady(() => {
     $('#rvAutoTop').addEventListener('change', () => { const n = Math.round(Number($('#rvAutoTop').value)); if (n >= 1 && n <= 20) UIKit.prefs.patch('autorun', { top: n }).catch(() => {}); });
     UIKit.streamer.attach($('#rvAutoWho'));   // 配信者の名前(字幕の色)の候補と色の見本
   }
-  $('#rvAuto').addEventListener('click', e => { const b = e.target.closest('[data-auto]'); if (b) startAuto(b.dataset.auto); });
+  $('#rvAuto').addEventListener('click', e => { if (e.target.closest('[data-auto]')) startAuto(); });
   $('#rvAutoBar').addEventListener('click', async e => {
     if (!e.target.closest('[data-act=autocancel]')) return;
     try { await portalApi('api/flow/cancel', { id: 'run:' + $('#rvAutoBar').dataset.run }); } catch (er){ toast(er.message, 5000, 'err'); }   // 掲示板の id

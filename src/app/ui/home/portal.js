@@ -607,7 +607,7 @@
     if (b && !b.hidden) b.focus();
   }
 
-  /* 友人へ自動で送る(まとめて実行の形が full のときだけ出す。受付のフォルダが無いと画面が知っているときだけ注を出す = 知らなければ出さない) */
+  /* 友人へ自動で送る(いつも出す = まとめて実行は解析から全部だけ。受付のフォルダが無いと画面が知っているときだけ注を出す = 知らなければ出さない) */
   function sendFolderMissing() { return !!intakeData && !intakeData.folder; }
   /* 友人へ自動で送る届け先(受付のフォルダの 出力。GET api/intake の outDir)。まだ読んでいなければ読む。決まっていなければ null(D-SEND・RV A1) */
   function sendOutDir() {
@@ -615,12 +615,10 @@
     return api('api/intake').then(function (d) { return (d && d.outDir) || null; }, function () { return null; });
   }
   function paintSendBox(box) {
-    var full = $('.pt-auto-mode', box).value === 'full';
-    $('.pt-auto-sendbox', box).hidden = !full;
-    $('.pt-auto-sendnote', box).hidden = !(full && sendFolderMissing());
+    $('.pt-auto-sendnote', box).hidden = !sendFolderMissing();
   }
   function wireAuto(node, c) {
-    var box = $('.pt-auto', node), mode = $('.pt-auto-mode', box), top = $('.pt-auto-top', box), who = $('.pt-auto-streamer', box);
+    var box = $('.pt-auto', node), top = $('.pt-auto-top', box), who = $('.pt-auto-streamer', box);
     if (c.gone) { goneAuto(box, c); return; }
     box.setAttribute('data-auto-send', '');   // 友人へ自動で送る の注を付け直す対象(まとめて実行を配線した箱だけ)
     var send = $('.pt-auto-send', box);
@@ -630,30 +628,24 @@
     if (draft.streamer != null) { who.value = draft.streamer; who.dispatchEvent(new Event('input')); }   // 未保存の入力を再描画でも保つ(E2 finding 1)
     else UIKit.streamer.autoFill(who, { videoId: c.id, channel: c.channel || '' });   // 覚えた名前 → チャンネル名から(段5)
     who.addEventListener('input', function () { draftFor(c.id).streamer = who.value; });
-    /* 形・採用数・上書きはホームの設定(UIKit.autorun = どの入口で変えても同じ。気が利く画面へ 段4)。
-       形の初期値は配信の状態から(マークが 0 = 解析から全部・採用あり = 採用後を全部。どちらでもなければ保存した形。S-4) */
+    /* 採用数・上書きはホームの設定(UIKit.autorun = どの入口で変えても同じ。気が利く画面へ 段4)。まとめて実行の形は解析から全部だけ(10-19 ユーザー決定:
+       人が採用した配信にも自動の上位で採用する数まで足す。人が選んだ 1 本だけは案件の画面の候補のマークの行の「この後を」) */
     var ar = UIKit.autorun;
-    var stateMode = !c.marks.total ? 'full' : c.marks.adopted ? 'adopted' : null;
-    mode.value = stateMode || 'adopted';
-    var sync = function () { $('.pt-auto-topbox', box).hidden = mode.value !== 'full'; paintSendBox(box); };
+    var sync = function () { paintSendBox(box); };
     ar.panel($('.pt-auto-panel', box), { kind: 'video' });
-    ar.load().then(function (st) { if (!stateMode && st.mode) mode.value = st.mode; top.value = String(st.top); sync(); }, function () {});
-    mode.addEventListener('change', function () { UIKit.prefs.patch('autorun', { mode: mode.value }).catch(function () {}); sync(); });
+    ar.load().then(function (st) { top.value = String(st.top); sync(); }, function () {});
     top.addEventListener('change', function () { var n = Math.round(Number(top.value)); if (n >= 1 && n <= 20) UIKit.prefs.patch('autorun', { top: n }).catch(function () {}); });
     sync();
     $('.pt-auto-run', box).addEventListener('click', function () {
-      var st = ar.state(), m = mode.value, full = m === 'full';
-      /* 欄 → 封筒 + 束の差分(UIKit.flow.order = ② の口 api/flow/submit の本文。RV A1)。形: 解析から全部 = 頭からパックまで・採用後を全部 = 書き出しから
-         パックまで・文字起こしまで = 書き出しから文字起こしまで */
-      var f = { kind: 'url', videoId: c.id, title: c.title || '', from: full ? null : 'export', upto: m === 'transcribe' ? 'transcribe' : 'pack',
-                repack: !!(st && st.overwrite) };
-      if (full) f.top = Math.round(Number(top.value) || 3);
+      var st = ar.state();
+      /* 欄 → 封筒 + 束の差分(UIKit.flow.order = ② の口 api/flow/submit の本文。RV A1)。解析から全部 = 頭からパックまで */
+      var f = { kind: 'url', videoId: c.id, title: c.title || '', upto: 'pack', repack: !!(st && st.overwrite), top: Math.round(Number(top.value) || 3) };
       var chk = UIKit.streamer.check(who);
       chk.then(function (name) {
         if (name === null) return null;   // 見つからない名前で「やめる」を選んだ
         f.streamer = name;   // 欄の名前(空 = 色なし。欄は自動で入るので、空は「色なし」の意味)
-        // 友人へ自動で送る(D-SEND。full だけ): 依頼の受付のフォルダが決まっていれば出どころ auto。チェックを外した = 届け先なし(送らなかった記録が残る)
-        return (full ? sendOutDir() : Promise.resolve(null)).then(function (out) {
+        // 友人へ自動で送る(D-SEND): 依頼の受付のフォルダが決まっていれば出どころ auto。チェックを外した = 届け先なし(送らなかった記録が残る)
+        return sendOutDir().then(function (out) {
           if (out) f.deliver = { origin: 'auto', dir: send.checked ? out : null };
           var order = UIKit.flow.order(f);
           // 先に見積もる: やることが無いなら、理由だけでなく次の一手(スタジオで候補を確認する など)を押せる形で知らせる(M2)
@@ -680,10 +672,9 @@
   function nothingToDo(c, reason) {
     var cand = (c.marks && c.marks.candidates) || 0, adopted = (c.marks && c.marks.adopted) || 0, exported = (c.marks && c.marks.exported) || 0;
     var next = '', act = null;
-    if (!c.gone && !adopted && !exported) {
-      if (cand) { next = '。案件の画面で候補を採用すると、書き出せます'; act = { label: '候補の確認へ', href: studioHref(c.id) }; }
-      else { next = '。配信を解析すると、候補が出ます'; act = { label: '案件の画面で開く', href: studioHref(c.id) }; }
-    }
+    if (!c.gone && (cand || adopted || exported)) {   // 解析から全部は人の採用 + 自動の上位まで済んでいる。人が選んだ 1 本は候補のタブのマークの行の「この後を」
+      next = '。人が選んだマークだけを進めるときは、案件の画面の候補のマークの行の「この後を」を使います'; act = { label: '候補の確認へ', href: studioHref(c.id) };
+    } else if (!c.gone) { act = { label: '案件の画面で開く', href: studioHref(c.id) }; }
     var opt = { kind: 'info', ms: 12000 };
     if (act) opt.action = { label: act.label, fn: function () { location.href = act.href; } };   // 同じ窓で移る(S-15)
     UIKit.toast('やることがありません: ' + (reason || '済んでいます') + next, opt);
@@ -692,7 +683,7 @@
   function ago(ms) { return UIKit.fmt.ago(ms); }   // 「3分前」「昨日 12:34」(無ければ '')
   /* 止まった理由(失敗 = エラーの文・中止 = 「入口を終了しました」など)。済みなら空 */
   function runReason(r) { return r.error || (r.state === 'cancelled' && r.message ? r.message : ''); }
-  /* 前回の結果の1行(記録のファイルから。段2 B-6): 「前回 採用後を全部: 失敗 ・ 理由(3日前)」 */
+  /* 前回の結果の1行(記録のファイルから。段2 B-6): 「前回 解析から全部: 失敗 ・ 理由(3日前)」(古い記録の札もそのまま出す) */
   function pastText(p) {
     var why = runReason(p);
     return '前回 ' + (p.modeLabel || '') + ': ' + runLabel(p) + (why ? ' ・ ' + why : '') + (p.finished ? '(' + ago(p.finished) + ')' : '');

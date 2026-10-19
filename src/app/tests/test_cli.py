@@ -128,7 +128,9 @@ class TestArgs(Base):
         cases = [([os.path.join(self.tmp, "none.mp4")], "見つかりません"),
                  ([video, "--spec", os.path.join(self.tmp, "no.json")], "読めません"),
                  ([video, "--spec", self.spec({"pack": {"volume": 999}})], "pack.volume"),   # 束の文言は src/flow/tests/test_spec.py
-                 (["https://youtu.be/abcdefghijk", "--from", "pack"], "analyze か export")]
+                 (["https://youtu.be/abcdefghijk", "--from", "pack"], "analyze だけ"),
+                 (["https://youtu.be/abcdefghijk", "--from", "export"], "analyze だけ"),   # 書き出しから(採用後を全部)は 10-19 に消した
+                 (["https://youtu.be/abcdefghijk", "--spec", self.spec({"run": {"upto": "transcribe"}})], "run.upto は pack だけ")]
         for argv, word in cases:
             code, res, err = self.main(*argv)
             self.assertEqual((code, res), (2, None), argv)
@@ -255,13 +257,13 @@ class TestPortal(Base):
         self.assertIn("[パック]", err)
         self.assertEqual(self.worker.closed, 0)
 
-    def test_url_from_export_submit_and_failure(self):
+    def test_url_from_analyze_submit_and_failure(self):
         portal = self.use_portal(FakePortal(final="error"))
-        code, res, err = self.main("abcdefghijk", "--from", "export", "--force")
+        code, res, err = self.main("abcdefghijk", "--from", "analyze", "--force")
         self.assertEqual(code, 1)
         env, spec = self.submitted(portal)
         self.assertEqual((env["input"]["fresh"], spec["run"]["from"], spec["run"]["upto"], spec["run"]["force"]),
-                         (None, "export", "pack", True))   # 採用後を全部 = 書き出しから
+                         ({"title": "", "channel": ""}, "analyze", "pack", True))   # 解析から全部(まだスタジオに無い配信の印 fresh つき)
 
     def test_file_submit(self):
         """動画ファイルは kind file の submit 1 回(文字起こし → パック。--from pack・--force は束の run で入口に渡る)"""

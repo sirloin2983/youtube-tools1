@@ -58,11 +58,10 @@ from .envelope import clean_pool  # noqa: F401  (src/app/autorun.py が同じ名
 from .spec import (CUTS, LIVE_AUTO_CUT, WEIGHT_KEYS)
 
 
-MODES ={"full": "解析から全部", "adopted": "採用後を全部", "transcribe": "文字起こしまで"}
+MODES = {"full": "解析から全部"}   # まとめて実行の形(10-19 ユーザー決定: 解析から全部だけ。人が採用した配信にも自動の上位で本数まで足す・人の 1 本はマークの行の「この後を」)
 STEP_LABELS = {"analyze": "解析", "adopt": "採用(自動)", "export": "書き出し", "transcribe": "文字起こし", "pack": "パック",
                "deliver": "Dropbox へ届ける", "diarize": "話者分離", "analyze_later": "解析(あとで)", "normalize": "30fps にそろえる"}
-MODE_STEPS = {"full": ("analyze", "adopt", "export", "transcribe", "pack"), "adopted": ("export", "transcribe", "pack"),
-              "transcribe": ("export", "transcribe"), "doc": ("transcribe", "pack"),
+MODE_STEPS = {"full": ("analyze", "adopt", "export", "transcribe", "pack"), "doc": ("transcribe", "pack"),
               "request": ("analyze", "adopt", "export", "transcribe"), "file": ("normalize", "transcribe"),
               "request_auto": ("analyze", "adopt", "export", "transcribe", "pack", "deliver"),
               "file_auto": ("normalize", "transcribe", "pack", "deliver")}
@@ -136,16 +135,16 @@ def _job_why(j):
 
 
 # 派生の mode -> (封筒の kind, 束の run.from, 束の run.upto)。mode_of の逆(どれか 1 つの組。テストと道具が mode から封筒 + 束を組むのに使う)
-MODE_RUN = {"full": ("url", None, "pack"), "adopted": ("url", "export", "pack"), "transcribe": ("url", "export", "transcribe"),
+MODE_RUN = {"full": ("url", None, "pack"),
             "request": ("url", None, "transcribe"), "request_auto": ("url", None, "pack"), DOC_MODE: ("docs", None, "pack"),
             "file": ("file", None, "transcribe"), "file_auto": ("file", None, "pack")}
-MODE_HINT = {"url": "run.from は null・analyze・export、run.upto は transcribe か pack", "docs": "run.upto は pack",
+MODE_HINT = {"url": "run.from は null・analyze(頭から)か export(書き出しから)、run.upto は pack", "docs": "run.upto は pack",
              "file": "run.upto は transcribe か pack"}
 
 
 def mode_of(kind, bundle, request_id=None):
     """封筒の kind + 束の run.from・run.upto + 依頼の id -> 実行の形(MODE_STEPS の鍵。記録の mode・modeLabel・届ける溜めの鍵の元)か None(合わない組)。
-    url: from が export = 書き出しから(upto pack → full。段の並びは steps_of が解析・採用を外す。依頼の id があれば今までどおり adopted・transcribe → transcribe)/
+    url: from が export = 書き出しから(upto pack だけ → full・依頼の id があれば request_auto。段の並びは steps_of が解析・採用を外す。upto transcribe は None = 断る)/
     頭から(null・analyze)= upto pack なら依頼の id で request_auto か full・
     transcribe なら request / transcribe(run() の from_ = 配信の文字起こしから)= doc。docs: pack だけ(doc)。file: pack → file_auto・transcribe → file
     (手で置いた動画・② の口・CLI の束が upto transcribe を頼んだとき)(RV A2)"""
@@ -156,10 +155,10 @@ def mode_of(kind, bundle, request_id=None):
         return "file_auto" if upto == "pack" else "file"
     if kind != "url":
         return None
-    if frm == "export":
+    if frm == "export":   # 書き出しから全部(10-19。段の並びは steps_of が解析・採用を外す)。文字起こしまで(transcribe)・採用後を全部(adopted)の形は 10-19 に消した
         if upto != "pack":
-            return "transcribe"
-        return "adopted" if request_id else "full"   # 書き出しから全部 = full(10-19。自動で送るかの判定 D-SEND も full と同じに通る)
+            return None
+        return "request_auto" if request_id else "full"   # 依頼の id があれば依頼の全自動を書き出しから(届けるのは依頼)・無ければまとめて実行(D-SEND の判定を通る)
     if frm == "transcribe" and upto == "pack":
         return DOC_MODE
     if frm in (None, "analyze"):
@@ -191,7 +190,8 @@ def steps_of(mode, deliver_dir=None, origin=None, ranges=0, top=None, diarize=No
     if NORMALIZE_STEP in keys and not normalize:
         keys.remove(NORMALIZE_STEP)
     if mode in REQUEST_URL_MODES and ranges and ranges >= (top or 0):
-        keys.remove("analyze")   # 区間が切り抜く数に足りている: 解析なしで、その区間だけを取りに行く
+        if "analyze" in keys:   # 書き出しから(from export)は解析の段がもう無い
+            keys.remove("analyze")   # 区間が切り抜く数に足りている: 解析なしで、その区間だけを取りに行く
         keys.append("analyze_later")   # 解析は最後(届けたあと)に順番へ入れるだけ = 友人の区間と自動の候補を比べる材料(決定 3-49 Q6。OPT-E2)
     if mode == "full" and (deliver_dir or origin == "auto") and "deliver" not in keys:   # まとめて実行で友人へ自動で送る(D-SEND。MODE_STEPS の full は変えない)
         keys.append("deliver")
