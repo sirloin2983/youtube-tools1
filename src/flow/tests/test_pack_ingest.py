@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""② flow/pack.py・flow/ingest.py の動詞の最小の検査(RS6 a-5a)。  py -3.12 -m unittest src/flow/tests/test_pack_ingest.py -v
-- pack: 形式の見分け・カットの区間の差し替え・版の付与・手順の None → 空の文字・たたき台の順番待ち(重い処理の札)を resolve_export に渡す
-- ingest: 文字だけの入力の見分け・ライブの録画・不正な入力
-- ytt に下ろした check_live・prune_cache の動き
+"""② flow/pack.py・flow/ingest.py の動詞。  py -3.12 -m unittest src/flow/tests/test_pack_ingest.py -v
+- 受け渡しの通し(transcript-v1・cut-plan-v1・SRT の中身と書式。字幕に出さない行・カット済の行・時と改行のある行を混ぜた文書)
+- 入力の見分けの通し(YouTube の URL・ファイル・ライブの録画・不正な入力)
+- 通しでは見えない物: 版を一時の文字起こしに渡す・重い処理の札(順番待ち)・古いキャッシュの片付け(更新日時の並び)
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
@@ -15,31 +15,44 @@ from unittest import mock
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
 sys.path.insert(0, SRC)
 from flow import ingest, pack  # noqa: E402
-from ytt import errors, fsio, workdata, yturl  # noqa: E402
+from ytt import errors, fsio, workdata  # noqa: E402
 
-DOC = {"sourcePath": "C:\\x\\clip.mp4", "title": "t", "duration": 10.0,
-       "segments": [{"id": "a", "start": 0, "end": 2, "text": "残す"}, {"id": "b", "start": 2, "end": 4, "text": "切る", "cutState": "cut"}]}
+DOC = {"sourcePath": "C:\\x\\clip.mp4", "title": "t", "duration": 3700.0,
+       "speakers": [{"id": "S1", "name": "ぺこら"}, {"id": "other", "name": "ゲーム音声など", "builtin": "other"}],
+       "segments": [{"id": "d", "start": 3661.0005, "end": 3662, "text": "二\n行"},
+                    {"id": "a", "start": 0, "end": 1.5, "text": "一", "speaker": "S1"},
+                    {"id": "b", "start": 1.5, "end": 4, "text": "NPC", "speaker": "other", "noSub": True},
+                    {"id": "c", "start": 2, "end": 4, "text": "切る", "cutState": "cut"},
+                    {"id": "e", "start": 5, "end": 6, "text": "   "}]}
 
 
 class TestPack(unittest.TestCase):
-    def test_handoff_formats(self):
+    def test_handoff_run(self):
+        """受け渡しの中身: 行は時刻順・文字の無い行は入れない・字幕に出さない行は印を載せて SRT から外す・区間には数える"""
         obj, n = pack.handoff_files(DOC, "transcript-v1")
-        self.assertEqual((n, len(obj["segments"])), (len(obj["segments"]), n))
+        self.assertEqual(n, 4)
+        self.assertEqual([(g["id"], g.get("noSub"), g["cut"], g["speaker"]) for g in obj["segments"]],
+                         [("a", None, False, 0), ("b", True, False, 1), ("c", None, True, None), ("d", None, False, None)])
+        self.assertEqual(([s["name"] for s in obj["speakers"]], obj["tool"]["version"]), (["ぺこら", "ゲーム音声など"], workdata.SERVER_VERSION))
         cp, n = pack.handoff_files(DOC, "cut-plan-v1")
-        self.assertEqual(n, len(cp["segments"]))
-        text, n = pack.handoff_files(DOC, "srt", 0, False)
-        self.assertIsInstance(text, str)
-        self.assertGreaterEqual(n, 1)
-        with self.assertRaises(ValueError):
-            pack.handoff_files(DOC, "nope")
-
-    def test_cut_plan_keeps_override(self):
-        cp, n = pack.handoff_files(DOC, "cut-plan-v1", keeps=[[0.5, 1.5], [3.0, 4.0]])
+        self.assertEqual([(s["start"], s["end"], s["lines"]) for s in cp["segments"]], [(0.0, 4.0, ["a", "b"]), (3661.001, 3662.0, ["d"])])
         self.assertEqual(n, 2)
+        cp, n = pack.handoff_files(DOC, "cut-plan-v1", keeps=[[0.5, 1.5], [3.0, 4.0]])   # 編集のカットのとおりに差し替える
         self.assertEqual([(s["id"], s["start"], s["end"], s["status"]) for s in cp["segments"]],
                          [("segment-001", 0.5, 1.5, "adopted"), ("segment-002", 3.0, 4.0, "adopted")])
+        text, n = pack.handoff_files(DOC, "srt", 0, False)                              # カット済の行も出す(カットは受け取る側が当てる)
+        self.assertEqual((text, n), ("1\n00:00:00,000 --> 00:00:01,500\n一\n\n2\n00:00:02,000 --> 00:00:04,000\n切る\n\n"
+                                     "3\n01:01:01,001 --> 01:01:02,000\n二\n行\n", 3))
+        with self.assertRaises(ValueError):
+            pack.handoff_files(DOC, "nope")
+        with tempfile.TemporaryDirectory() as d:                                       # 前回のパックの手順: 作れなければ空の文字
+            self.assertEqual(pack.instructions(os.path.join(d, "none")), "")
+            with open(os.path.join(d, "create_resolve_textplus_project.lua"), "w", encoding="utf-8") as f:
+                f.write("-- 壊れた")
+            self.assertEqual(pack.instructions(d), "")
 
     def test_version_is_passed_each_call(self):
+        """版は一時の文字起こしに書くだけで戻り値に出ないので、呼ぶ引数で確かめる。media_plan は「行から」を計算しない"""
         with mock.patch.object(pack.resolve_export, "edit_preview", return_value={"ok": 1}) as m:
             self.assertEqual(pack.cut_preview(DOC, [[0, 1]], 12), {"ok": 1})
             m.assert_called_once_with(DOC, [[0, 1]], workdata.SERVER_VERSION, 12)
@@ -50,6 +63,7 @@ class TestPack(unittest.TestCase):
             self.assertIs(kw["rows"], False)
 
     def test_cut_draft_uses_tool_slot(self):
+        """たたき台の重い処理は順番待ちの札を通す(ほかの重い処理と並ぶ状態は通しでは作れない)"""
         seen = {}
 
         def fake(doc, version, rows=True, row_edge=None, heavy=None):
@@ -63,46 +77,31 @@ class TestPack(unittest.TestCase):
             self.assertEqual(ts.call_args[0], ("ラベル",))
             self.assertFalse(ts.call_args[1]["cancelled"]())   # 待つ上限の前
 
-    def test_instructions_none_to_empty(self):
-        with mock.patch.object(pack.resolve_export, "pack_instructions", return_value=None):
-            self.assertEqual(pack.instructions("x"), "")
-        with mock.patch.object(pack.resolve_export, "pack_instructions", return_value="手順"):
-            self.assertEqual(pack.instructions("x"), "手順")
-
 
 class TestIngest(unittest.TestCase):
-    def test_probe_youtube_text(self):
+    def test_probe_run(self):
+        """入力の見分け: YouTube の URL(配信中ではない)・ファイル・ライブの録画(配信の URL から動画の id。チャンネルの /live なら空)・不正な入力"""
         r = ingest.probe("https://youtu.be/U972n0ncl4k")
         self.assertEqual((r["kind"], r["id"]), ("youtube", "U972n0ncl4k"))
         self.assertNotIn("live", r)
-
-    def test_probe_file_path(self):
         with tempfile.TemporaryDirectory() as d:
             p = os.path.join(d, "a.mp4")
             open(p, "wb").close()
             r = ingest.probe(p)
         self.assertEqual((r["kind"], r["title"]), ("file", "a.mp4"))
         self.assertTrue(r["id"].startswith("f"))
-
-    def test_probe_live(self):
         live = {"kind": "live", "recorder": "rec1", "recording": "20261005-185300", "url": "https://youtu.be/U972n0ncl4k"}
         r = ingest.probe(live)
-        self.assertEqual((r["kind"], r["id"]), ("live", "20261005-185300"))
-        self.assertEqual(r["live"]["videoId"], "U972n0ncl4k")
-
-    def test_probe_bad(self):
-        for bad in ("not a url", {"kind": "file", "path": "Z:\\no\\such.mp4"}, 5, {"kind": "live"}):
-            with self.assertRaises(errors.ApiError):
+        self.assertEqual((r["kind"], r["id"], r["live"]["videoId"]), ("live", "20261005-185300", "U972n0ncl4k"))
+        self.assertEqual(ingest.probe(dict(live, url="https://www.youtube.com/@x/live"))["live"]["videoId"], "")
+        for bad in ("not a url", {"kind": "file", "path": "Z:\\no\\such.mp4"}, 5, {"kind": "live"}, dict(live, recording="bad")):
+            with self.subTest(bad=bad), self.assertRaises(errors.ApiError):
                 ingest.probe(bad)
 
 
 class TestLowered(unittest.TestCase):
-    def test_check_live_in_yturl(self):
-        self.assertEqual(yturl.check_live({"recorder": "rec1", "recording": "20261005-185300", "url": "https://www.youtube.com/@x/live"})["videoId"], "")
-        with self.assertRaises(errors.ApiError):
-            yturl.check_live({"recorder": "rec1", "recording": "bad", "url": "https://youtu.be/U972n0ncl4k"})
-
     def test_prune_cache(self):
+        """古い順に消して新しい n 個を残す(更新日時の並びは時間を待たないと来ないので、日時を書き換えて作る)"""
         with tempfile.TemporaryDirectory() as d:
             for i in range(5):
                 p = os.path.join(d, "%d.json" % i)

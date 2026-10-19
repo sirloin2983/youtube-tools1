@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
-"""flow/sendpolicy.py(友人へ自動で送る判定。D-SEND の段 1)と flow/deliveries.py の書き口・読み口のテスト。
-py -3.12 -m unittest src/flow/tests/test_sendpolicy.py -v"""
+"""flow/sendpolicy.py(友人へ自動で送る判定。D-SEND の段 1)と flow/deliveries.py の読み口のうち、通しでは起こせない物:
+時刻の境目(時計を差し替える)・配信の付加情報の形(ネットの相手)・前の版の行と壊れた行・読めない記録。
+届けた記録を書いて読む正しく動く道は src/flow/tests/test_deliver.py の DeliverRun。 py -3.12 -m unittest src/flow/tests/test_sendpolicy.py -v"""
 import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
@@ -44,17 +45,14 @@ class TestDecide(unittest.TestCase):
         for name, origin, ended, requested, checked, want in cases:
             with self.subTest(name):
                 self.assertEqual(P.decide(origin, ended, NOW, requested, checked), want)
-
-    def test_reason_text(self):
-        self.assertIn("50", P.reason_text("stale", hours=50))   # 経過時間が文に入る
+        # 送らなかった理由の文(経過時間が文に入る)・開発機の守りのスイッチ
+        self.assertIn("50", P.reason_text("stale", hours=50))
         self.assertEqual(P.reason_text("unchecked"), P.REASONS["unchecked"])
         self.assertEqual(P.reason_text("zzz"), "zzz")
         self.assertEqual(P.hours_since(NOW - 50 * H - 30, NOW), 50)
         self.assertEqual(P.hours_since(NOW + 9, NOW), 0)
         for code in ("unchecked", "stale", "requested", "expired", "unknown_end"):
             self.assertIn(code, P.REASONS)
-
-    def test_switch(self):
         self.assertTrue(P.switched_off({"YTT_AUTO_SEND": " OFF "}))
         self.assertFalse(P.switched_off({"YTT_AUTO_SEND": "on"}))
         self.assertFalse(P.switched_off({}))
@@ -84,18 +82,6 @@ class TestDeliveries(unittest.TestCase):
     def setUp(self):
         self.tmp = testkit.tempdir(self, "ytt-deliv-")
 
-    def test_record_and_read(self):
-        row = D.record(self.tmp, os.path.join("x", "a.zip"), FakeRun("V1", "rid1"), ["p1"], {"p1": {"path": "c.mp4", "markId": "m1"}}, "request", 1500.0)
-        self.assertEqual((row["zip"], row["origin"], row["endedAt"], row["requestId"], row["packs"]), ("a.zip", "request", 1500000, "rid1", [{"dir": "p1", "path": "c.mp4", "markId": "m1"}]))
-        D.record(self.tmp, "b.zip", FakeRun("V2"), ["p2"], origin="auto")
-        D.record(self.tmp, "c.zip", FakeRun("V3"), [], origin="manual", ended_at=2000)
-        self.assertEqual(D.rows(self.tmp)[1]["endedAt"], 0)
-        self.assertEqual(sorted(D.delivered_videos(self.tmp)), ["V1", "V2", "V3"])
-        self.assertEqual(sorted(D.delivered_videos(self.tmp, "auto")), ["V2"])
-        self.assertEqual(sorted(D.delivered_videos(self.tmp, "request")), ["V1"])
-        self.assertEqual(sorted(D.delivered_requests(self.tmp)), ["rid1"], "既存の読み口はそのまま")
-        self.assertTrue(all(v > 0 for v in D.delivered_videos(self.tmp).values()))
-
     def test_old_rows_and_unreadable(self):
         self.assertIsNone(D.delivered_videos(self.tmp), "記録が無い = 分からない")
         with open(os.path.join(self.tmp, D.LOG), "w", encoding="utf-8") as f:
@@ -112,7 +98,7 @@ class TestDeliveries(unittest.TestCase):
         row = F.record_delivery(self.tmp, "z.zip", FakeRun("V9", "r9"), ["d"], None, "auto", 1000)
         self.assertEqual((row["origin"], row["endedAt"]), ("auto", 1000000))
         self.assertEqual(F.find_delivery(self.tmp, "z.zip")["videoId"], "V9")
-        self.assertEqual(F.record_delivery(self.tmp, "y.zip", FakeRun(), [])["origin"], "request", "既定は今までどおり")
+        self.assertEqual(F.record_delivery(self.tmp, "y.zip", FakeRun(), [])["origin"], "request", "既定は request")
 
     def test_delivered_marks(self):
         """切り抜きごとの届けた(MARKS-3。案件の一覧と 3 日の片付けが引く): 配信とマークで・配信かマークの空の行はパックのフォルダの名前で・

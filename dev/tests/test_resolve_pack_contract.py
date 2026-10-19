@@ -10,7 +10,7 @@
      textplus-import.json は出さない(中身は Lua に埋め込み済み。区間と字幕は resolve_textplus.read_script_plan で読む)
 
   B'. 重なる行のある文書 … zip とパックが同じ(Text+ の字幕の段分け・切った終わりも同じ)。重なりの無い文書は計画に段の項目が無い
-     (test_same_pack_with_overlapping_rows。Lua の本体が段分けの前と同じことは src/pipeline/pack/tests/test_pack.py の TestCaptionLanes)
+     (test_same_pack_with_overlapping_rows。重なりの無いパックの Lua の本体が段のコードの印を消した雛形と同じことは src/pipeline/pack/tests/test_pack.py の TestPackRun.test_textplus_run)
 
   F. zip に渡らない設定 … 粗編集の動画・開始タイムコード・タイムラインの開始タイムコード・リール名は zip に渡らない(ZipSkipsContract。画面の説明の元。
      渡すようにしたらこのテストが落ちる = pack-tab.js の zip の説明も直す合図)
