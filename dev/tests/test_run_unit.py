@@ -75,10 +75,11 @@ class TestBuildUnits(unittest.TestCase):
 
     def test_run_one_tiny_real_test(self):
         with tempfile.TemporaryDirectory() as d:
-            touch(d, "tests/test_tiny.py", "import unittest\n\nclass T(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n")
+            touch(d, "tests/test_tiny.py", "import unittest\n\nclass T(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n"
+                  "    def test_skip(self):\n        self.skipTest('部品が無い')\n")
             r = R.run_one(R.Unit("tests/test_tiny.py", d, ["tests/test_tiny.py"], "tiny"))
             self.assertTrue(r.ok, r.err)
-            self.assertEqual(r.count, 1)
+            self.assertEqual((r.count, r.skipped), (2, 1))   # 飛ばした件数はまとめに出す
 
     def test_cjs_runs_with_node_test(self):
         """.cjs(node --test)も一覧に入り、node で流す"""

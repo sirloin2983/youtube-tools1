@@ -5,6 +5,7 @@
   日本語の 3 文(1.5 秒と 2.5 秒の間)。3 文目は ffmpeg で声を低くした別の話者。日本語の声が無ければ None
 - モデルの場所は読むだけ: faster-whisper は Hugging Face のキャッシュ、whisper.cpp・話者判別は編集の作業データ(ENGINE_HOME)。
   無ければ None を返し、通しのテストは skipUnless で飛ばす(取りに行かせない)
+- fetch_read_only()・no_download(): 取得の口の差し替え(同じプロセスの中だけに効く。認識ワーカーの子プロセスには届かない)
 """
 import glob
 import os
@@ -95,6 +96,19 @@ def whisper_cpp_large():
     model = os.path.join(te.wcpp_model_dir(home), te.WCPP_MODELS["large-v3"]["file"])
     ok = os.path.isfile(exe) and os.path.isfile(model) and os.path.getsize(model) == te.WCPP_MODELS["large-v3"]["size"]
     return home if ok else None
+
+
+def fetch_read_only(spec, folder, *a, **kw):
+    """tx_engines.fetch_file の代わり: 手元にあればそのパス(中身の SHA-256 は読み直さない)。無ければ取りに行かずに失敗"""
+    p = os.path.join(folder, spec["file"])
+    if os.path.isfile(p) and os.path.getsize(p) == spec["size"]:
+        return p
+    raise AssertionError("モデルを取りに行こうとした: %s" % p)
+
+
+def no_download(*a, **kw):
+    """diarize._download_verified の代わり: 呼ばれたら失敗"""
+    raise AssertionError("話者判別のモデルを取りに行こうとした")
 
 
 def diar_models():

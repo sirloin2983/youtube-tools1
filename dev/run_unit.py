@@ -58,7 +58,7 @@ def find_node():
 NODE = find_node()
 
 Unit = namedtuple("Unit", "rel cwd args label")
-Result = namedtuple("Result", "unit ok count secs err")
+Result = namedtuple("Result", "unit ok count secs err skipped", defaults=(0,))
 
 
 def find_files(root):
@@ -131,10 +131,12 @@ def run_one(unit):
     if cjs:
         err = p.stdout.decode("utf-8", errors="replace") + err
         m = re.search(r"^(?:ℹ|#) tests (\d+)", err, re.M)
+        s = re.search(r"^(?:ℹ|#) skipped (\d+)", err, re.M)
     else:
         m = re.search(r"^Ran (\d+) tests?", err, re.M)
+        s = re.search(r"^(?:OK|FAILED) \(.*\bskipped=(\d+)", err, re.M)
     count = int(m.group(1)) if m else 0
-    return Result(unit, p.returncode == 0, count, secs, err)
+    return Result(unit, p.returncode == 0, count, secs, err, int(s.group(1)) if s else 0)
 
 
 def report(r):
@@ -179,6 +181,8 @@ def print_summary(results, elapsed):
     failed = [r for r in results if not r.ok]
     total = sum(r.count for r in results)
     print(f"合計 {len(results)} 本(テスト {total} 件)・落ちた {len(failed)} 本・{elapsed:.1f} 秒")
+    skipped = sorted((r for r in results if r.skipped), key=lambda r: r.unit.rel)   # 本物の部品が無くて飛んだ通しを埋もれさせない
+    print(f"飛ばした {sum(r.skipped for r in skipped)} 件" + ("(" + "・".join(f"{r.unit.rel} {r.skipped}" for r in skipped) + ")" if skipped else ""))
 
 
 def main(argv=None):

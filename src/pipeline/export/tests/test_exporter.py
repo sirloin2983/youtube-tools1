@@ -697,10 +697,13 @@ class TestLiveSection(unittest.TestCase):
         # 書き出し: 前後に編集用素材の 10 秒(EDIT_HANDLE_SEC。SECTION_PAD より広い)の余裕で 1 回だけ取り(本体と編集用素材は同じ取得から切る)、
         # 正確な区間・30fps に切る。.clip.json に API キーを入れない
         clip = {"id": "m1", "start": 7.0, "end": 12.0, "title": "t", "label": "見どころ.v2", "src": "manual", "markStatus": ""}   # 名前に点
-        with patch.dict(os.environ, {"YOUTUBE_API_KEY": "AIzaSyDUMMYKEYDUMMYKEY12345"}):
-            job = _run(_job([clip]), dict(_youtube_spec([clip]), sourceTitle="配信 <b>"), lambda *a: True)
+        cmds, real = [], exporter._pump
+        with patch.dict(os.environ, {"YOUTUBE_API_KEY": "AIzaSyDUMMYKEYDUMMYKEY12345"}), \
+                patch.object(exporter, "_pump", side_effect=lambda ctl, cmd, *a, **kw: cmds.append(cmd) or real(ctl, cmd, *a, **kw)):
+            job = _run(_job([clip]), dict(_youtube_spec([clip]), sourceTitle="配信 <b>", volume=100), lambda *a: True)
         it = job["items"][0]
         self.assertEqual((job["state"], it["status"]), ("done", "done"), it.get("error"))
+        self.assertTrue(cmds and not [c for c in cmds if "-af" in c], cmds)   # 音量 100% は音のフィルタを足さない
         self.assertEqual(self.sections(), ["*00:00:00.000-00:00:22.000"])
         self.assertAlmostEqual(mediainfo.media_info(it["path"])[0], 5.0, delta=0.2)
         self.assertEqual((_fps(it["path"]), _fps(it["editPath"])), ("30/1", "30/1"))

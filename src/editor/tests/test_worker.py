@@ -2,7 +2,8 @@
 """認識ワーカー(src/pipeline/transcribe/worker.py。別プロセス)のテスト。  python -m unittest test_worker -v
 
 RealWorkerTest = 本物の通し: 声の見本(Windows の音声合成)を本物の faster-whisper small(CPU)と sherpa-onnx の話者判別で、
-文字起こし → 行ごと・範囲・全体の再認識 → 同じ動画の作り直し(人の行の引き継ぎ)→ 話者判別・声を覚える。部品・モデルが無ければ飛ばす(取りに行かない)。
+文字起こし → 行ごと・範囲・全体の再認識 → 同じ動画の作り直し(人の行の引き継ぎ)→ 話者判別・声を覚える。主の文字起こしの本物の whisper.cpp(large-v3・GPU)の通しも 1 本。
+部品・モデルが無ければ飛ばす(取りに行かない)。
 WorkerTest = 本物では起こせない物だけ(TRANSCRIBE_BACKEND=worker-fake: サーバー側は本物の経路、ワーカーの中だけ偽のモデル eval/fake/fake_worker.install):
 声の検出が捨てすぎる・途中で落ちて続きから・取り消し・応答しない・落ちる・部品が無い・サーバーがいなくなる・標準出力への余計な出力。
 ffmpeg が必要。
@@ -77,7 +78,9 @@ class RealWorkerTest(unittest.TestCase):
         if cls.diar:
             VF.copy_diar(cls.dir)
         cls.saved = tuple(getattr(S, k) for k in PLACES)
-        cls.patches = [mock.patch.dict(os.environ, {"HF_HUB_OFFLINE": "1"}), mock.patch.object(workdata, "DATA_DIR", cls.dir)]
+        from pipeline.transcribe import diarize, tx_engines
+        cls.patches = [mock.patch.dict(os.environ, {"HF_HUB_OFFLINE": "1"}), mock.patch.object(workdata, "DATA_DIR", cls.dir),
+                       mock.patch.object(tx_engines, "fetch_file", VF.fetch_read_only), mock.patch.object(diarize, "_download_verified", VF.no_download)]   # このプロセスの中の取得の口
         for p in cls.patches:
             p.start()
         os.environ.pop("TRANSCRIBE_BACKEND", None)
@@ -232,6 +235,37 @@ class RealWorkerTest(unittest.TestCase):
             self.assertTrue(S.release_idle_models(time.time() + 1000))
         self.assertFalse(S.WORKER.alive())
 
+    def test_whispercpp_real(self):
+        """主の文字起こしを本物の whisper.cpp(large-v3・Vulkan)で: 文字起こし → 範囲の再認識 → 記録のエンジン・機器・GPU の名前・words.json・asr.json。
+        whisper.cpp と large-v3 は編集の作業データから読むだけ(TRANSCRIBE_ENGINE_DIR)。一時フォルダ(TMP_DIR)は ASCII の場所"""
+        home = VF.whisper_cpp_large()
+        if not home:
+            self.skipTest("whisper.cpp か large-v3 が無い")
+        if not S.TMP_DIR.isascii():
+            self.skipTest("一時フォルダが ASCII の場所でない")
+        S.WORKER.close()
+        self.addCleanup(lambda: setattr(S, "WORKER", S.WorkerClient()))
+        self.addCleanup(lambda: S.WORKER.close())
+        with mock.patch.dict(os.environ, {"TRANSCRIBE_ENGINE_DIR": home}):
+            S.WORKER = S.WorkerClient()
+            job = self.transcribe(model="large-v3", device="vulkan")
+            tid = job["tid"]
+            d = self.doc(tid)
+            self.assertIn("配信", "".join(_texts(d)))
+            ids = [g["id"] for g in d["segments"]]
+            self.retranscribe(tid=tid, ids=ids[-2:], mode="range", model="large-v3", device="vulkan", engine="whisper.cpp")
+            self.assertEqual(os.listdir(S.TMP_DIR), [])
+        d = self.doc(tid)
+        self.assertIn("ゲーム", "".join(_texts(d)))
+        run = d["recognition"]["runs"][0]
+        self.assertEqual((job["device"], run["engine"], run["model"], run["device"]), ("vulkan", "whisper.cpp", "large-v3", "vulkan"))
+        self.assertTrue(run.get("gpu"), run)                                         # GPU の名前
+        ws = S.read_words(tid)
+        self.assertTrue(ws and all(0.0 <= w[0] <= w[1] <= self.dur + 0.01 for w in ws), ws[:3])
+        asr = testkit.read_json(S.asr_path(tid))
+        self.assertEqual(asr["run"]["engine"], "whisper.cpp")
+        self.assertTrue(asr["segments"] and all(g["words"] for g in asr["segments"]))
+
 
 @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg が無い")
 class WorkerTest(unittest.TestCase):
@@ -330,6 +364,7 @@ class WorkerTest(unittest.TestCase):
     def test_whole_resumes_from_saved_parts(self):
         """S-1: 長い動画の全体の再認識は区間ごとに書いておき、途中で落ちても、同じ設定でもう一度始めれば続きから。結果は通しで認識したときと同じ"""
         tid_a, tid_b = self.transcribe()["tid"], self.transcribe()["tid"]    # 同じ動画の同じ文書を2つ(通しと、途中で落ちて続きから)
+        before = [self._proof_first(t) for t in (tid_a, tid_b)][1]          # 1 行目は校正済み(全体で守る)
         with mock.patch.object(S, "WHOLE_PART_SEC", 6):
             _s, job = self._whole(tid_a)
             self.assertEqual(job["state"], "done", job.get("error"))
@@ -343,8 +378,11 @@ class WorkerTest(unittest.TestCase):
             self.assertEqual(cp["parts"][0], [0.0, 6.0])                      # 行(4 秒ごと)にすき間が無い → 目安の所で区切る
             calls.clear()
             with mock.patch.object(S.RangeRecognizer, "main", counting(calls)):
-                _s, job = self._whole(tid_b)
+                spec, job = self._whole(tid_b)
             self.assertEqual(job["state"], "done", job.get("error"))
+            self.assertEqual(spec["ids"], [g["id"] for g in before["segments"][1:]])   # 認識し直すのは校正済みでない行だけ
+            first = self.doc(tid_b)["segments"][0]
+            self.assertEqual((first["text"], first.get("proofed")), ("人が直した一行目", True))
             self.assertEqual(calls, [tuple(p) for p in cp["parts"][1:]])      # 済んだ区間は認識しない
             self.assertEqual(job["resumed"], [1, 3])
             self.assertTrue(any("前回の途中から続けました" in w for w in S.public_job(job)["warnings"]))
@@ -532,7 +570,7 @@ print(json.dumps({"states": [j["state"], r["state"], d["state"]],
     # ---- 認識エンジンの口
     def test_whispercpp_through_worker(self):
         """whisper.cpp のエンジンで文字起こし(サーバー → ワーカー → 偽の whisper-cli)。GPU(Vulkan)で動き、記録にエンジンと機器が残る・
-        GPU が無ければ黙って CPU にしない(whisper.cpp の本物の GPU の通しは 1 本だけで、ライブの文字起こしの側 = src/flow/tests/test_live_tx.py)"""
+        GPU が無ければ黙って CPU にしない(本物の whisper.cpp が無い PC でも見る。本物の通しは RealWorkerTest.test_whispercpp_real)"""
         job = self.transcribe(model="large-v3", engine="whisper.cpp")
         self.assertEqual(job["state"], "done", job.get("error"))
         self.assertEqual(job["device"], "vulkan")

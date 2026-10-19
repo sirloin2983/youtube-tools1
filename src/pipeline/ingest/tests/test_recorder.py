@@ -301,7 +301,8 @@ class TestRecordRun(unittest.TestCase):
         r = rec.get(rec.start(self.live.url, "best", "テスト<b>")["id"])
         short = rec.get(rec.start(self.short.url)["id"])
         before = rec.get(rec.start(self.before.url)["id"])
-        arc = rec.get(rec.start(self.archive.url)["id"])
+        self.assertTrue(wait_for(lambda: before.summary()["state"] == "waiting", 5), before.summary())   # 始まるまで待つ(失敗にしない)
+        arc =rec.get(rec.start(self.archive.url)["id"])
         if self.sl:   # streamlink は切断でも終了コード 0 で終わる。記録の「No new segments」で見分けて、終わりにせず繋ぎ直す
             slrec = self.recorder(os.path.join(self.tmp, "live-rec-sl"), source="streamlink", stall_sec=8, first_seg_sec=25)
             os.makedirs(slrec.folder)
