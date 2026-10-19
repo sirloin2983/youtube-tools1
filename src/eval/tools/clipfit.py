@@ -16,7 +16,6 @@
 """
 import argparse
 import glob
-import gzip
 import json
 import os
 import sys
@@ -33,7 +32,6 @@ from pipeline.pack import pack  # noqa: E402  話の切れ目へ詰める規則(
 from ytt import schemas  # noqa: E402  余白つきの切り抜きの印(LD-2f)
 
 SCHEMA = "youtube-tools-clip-fit/v1"
-ARCHIVE_MAX = 256 * 1024 * 1024   # archive の 1 本の上限(展開後)
 COUNT = 20                        # 選ぶ候補の数(形どうしで同じにする。本番の既定 8 より多め = 友人の区間の中の山を拾いやすく)
 BASE_LENGTH, BASE_PRE = 160.0, 0.68   # 長さの目安が出せないときの固定の長さ(目安 = 基準の数字を取った値)
 GRID = {"rise": (0.1, 0.2, 0.3, 0.5), "settle": (0.1, 0.2, 0.3, 0.5), "lead": (15.0, 30.0, 60.0, 90.0), "tail": (27.0, 45.0, 60.0, 90.0)}
@@ -41,19 +39,11 @@ GRID = {"rise": (0.1, 0.2, 0.3, 0.5), "settle": (0.1, 0.2, 0.3, 0.5), "lead": (1
 
 def load_material(studio, vid):
     """archive/<配信>.json.gz -> 1 秒ごとの素材 {"n", "full", "band", "act", "stamps", "spec", "lag", "signals"} か None(無い・壊れた・素材が無い)"""
-    if not lengthhint.ARCHIVE_ID_RE.match(vid):
+    got = lengthhint.read_archive(studio, vid)
+    if not got:
         return None
-    try:
-        with gzip.open(os.path.join(studio, "archive", vid + ".json.gz"), "rb") as f:
-            raw = f.read(ARCHIVE_MAX + 1)
-        if len(raw) > ARCHIVE_MAX:
-            return None
-        d = json.loads(raw.decode("utf-8"))
-    except (OSError, ValueError, EOFError, UnicodeDecodeError):
-        return None
-    runs = d.get("runs") if isinstance(d, dict) and d.get("v") == 1 else None
-    run = next((r for r in reversed(runs) if isinstance(r, dict)), None) if isinstance(runs, list) else None
-    full, band, n = d.get("full") if run else None, d.get("band"), d.get("n")
+    d, run = got
+    full, band, n = d.get("full"), d.get("band"), d.get("n")
     if not (isinstance(full, list) and isinstance(band, list) and isinstance(n, int) and n > 0 and full):
         return None
     chat = d.get("chat") if isinstance(d.get("chat"), dict) else {}

@@ -70,23 +70,27 @@ def _quantile(v, p):
     return round(v[lo] + (v[hi] - v[lo]) * (k - lo), 2)
 
 
+def run_ranges(r):
+    """実行記録の 1 行 -> その配信で友人が指定したままの区間 [(開始, 終了)](0 ≦ 開始 < 終了。形の違うものは飛ばす。videoId か ranges が無ければ [])。
+    ⑤ eval_marks・clipfit も同じ判定で読む"""
+    if not isinstance(r, dict) or not isinstance(r.get("videoId"), str) or not isinstance(r.get("ranges"), list):
+        return []
+    return [p for p in map(_pair, r["ranges"]) if p and p[1] > p[0] >= 0]
+
+
 def friend_ranges(records):
-    """実行記録の行 -> {配信 ID: [(開始, 終了)]}(友人が指定したままの区間。同じ区間 ±TOL は 1 つ。形の違うものは飛ばす)"""
+    """実行記録の行 -> {配信 ID: [(開始, 終了)]}(友人が指定したままの区間。同じ区間 ±TOL は 1 つ)"""
     per = {}
     for r in records:
-        vid = r.get("videoId") if isinstance(r, dict) else None
-        if not isinstance(vid, str) or not isinstance(r.get("ranges"), list):
-            continue
-        lst = per.setdefault(vid, [])
-        for rg in r["ranges"]:
-            p = _pair(rg)
-            if p and p[1] > p[0] >= 0 and not any(abs(p[0] - a) <= TOL and abs(p[1] - b) <= TOL for a, b in lst):
+        for p in run_ranges(r):
+            lst = per.setdefault(r["videoId"], [])
+            if not any(abs(p[0] - a) <= TOL and abs(p[1] - b) <= TOL for a, b in lst):
                 lst.append(p)
-    return {k: v for k, v in per.items() if v}
+    return per
 
 
-def load_archive(studio, vid):
-    """スタジオの archive/<配信>.json.gz の最後の解析 -> {"type", "spec", "candidates"} か None"""
+def read_archive(studio, vid):
+    """スタジオの archive/<配信>.json.gz -> (中身, 最後の解析の記録) か None(無い・壊れた・大きすぎる・解析の記録が無い)。⑤ eval_marks・clipfit も読む"""
     if not ARCHIVE_ID_RE.match(vid):
         return None
     try:
@@ -99,9 +103,16 @@ def load_archive(studio, vid):
         return None
     runs = d.get("runs") if isinstance(d, dict) and d.get("v") == 1 else None
     run = next((r for r in reversed(runs) if isinstance(r, dict)), None) if isinstance(runs, list) else None
-    if not run:
+    return (d, run) if run else None
+
+
+def load_archive(studio, vid):
+    """スタジオの archive/<配信>.json.gz の最後の解析 -> {"at", "type", "spec", "candidates"} か None"""
+    got = read_archive(studio, vid)
+    if not got:
         return None
-    return {"type": run.get("type") or d.get("type"), "spec": run.get("spec") if isinstance(run.get("spec"), dict) else {},
+    d, run = got
+    return {"at": run.get("at"), "type": run.get("type") or d.get("type"), "spec": run.get("spec") if isinstance(run.get("spec"), dict) else {},
             "candidates": [c for c in run.get("candidates") or [] if isinstance(c, dict)]}
 
 

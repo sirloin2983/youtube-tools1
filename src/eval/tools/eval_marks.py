@@ -52,10 +52,8 @@
 """
 import argparse
 import calendar
-import gzip
 import json
 import os
-import re
 import sys
 import time
 
@@ -90,7 +88,6 @@ HIT_OVERLAP = 0.5        # friendRanges の当たり: 候補の真ん中が区�
 FRIEND_PAD = 2.0         # 依頼で自動で足される前後の余白(src/flow/spec.py の RANGE_PAD と同じ値。出どころ 2 で引く)
 FRIEND_SHORT, FRIEND_LONG = 30.0, 120.0   # 区間の長さの区切り(30 秒未満 / 30〜120 秒 / 120 秒以上)。端のずれは 120 秒未満の区間だけ
 PART_ON = excite.PART_ON              # 点数の内訳が「効いた」とみなす値(候補の理由の付け方と同じ 1 か所 = src/pipeline/analyze/excite.py)
-ARCHIVE_ID_RE = re.compile(r"^[\w-]{1,40}\Z", re.ASCII)
 
 
 # ---------------------------------------------------------------- 読み込み(読むだけ)
@@ -153,30 +150,14 @@ def human_marks(app):
 
 
 def archive_reader(studio):
-    """load_archive を配信ごとに 1 回だけ読む形にしたもの(1 回の evaluate の中で使い回す。gz を何度も開かない)"""
+    """lengthhint.load_archive を配信ごとに 1 回だけ読む形にしたもの(1 回の evaluate の中で使い回す。gz を何度も開かない)"""
     cache = {}
 
     def get(vid):
         if vid not in cache:
-            cache[vid] = load_archive(studio, vid)
+            cache[vid] = lengthhint.load_archive(studio, vid)
         return cache[vid]
     return get
-
-
-def load_archive(studio, vid):
-    """archive/<動画ID>.json.gz の最後の解析 -> {"at", "type", "candidates"} か None"""
-    if not ARCHIVE_ID_RE.match(vid):
-        return None
-    try:
-        with gzip.open(os.path.join(studio, "archive", vid + ".json.gz"), "rt", encoding="utf-8") as f:
-            d = json.load(f)
-    except (OSError, ValueError, EOFError):
-        return None
-    runs = d.get("runs") if isinstance(d, dict) and d.get("v") == 1 else None
-    run = next((r for r in reversed(runs) if isinstance(r, dict)), None) if isinstance(runs, list) else None
-    if not run:
-        return None
-    return {"at": run.get("at"), "type": run.get("type") or d.get("type"), "spec": run.get("spec") if isinstance(run.get("spec"), dict) else {}, "candidates": [c for c in run.get("candidates") or [] if isinstance(c, dict)]}
 
 
 def run_records(app):
@@ -457,16 +438,13 @@ def load_friend_runs(app, records=None):
     ranges は指定したままの区間 [[開始秒, 終了秒], …](余白を足す前)。形の違うものは飛ばす。records は load_runs と同じ"""
     out = []
     for r in run_records(app) if records is None else records:
-        vid = r.get("videoId")
-        if not isinstance(vid, str) or not isinstance(r.get("ranges"), list):
+        rgs = lengthhint.run_ranges(r)
+        if not rgs:
             continue
         t = r.get("created") if isinstance(r.get("created"), int) and not isinstance(r.get("created"), bool) else None
         if t is None and isinstance(r.get("finished"), int) and not isinstance(r.get("finished"), bool):
             t = r["finished"]
-        for rg in r["ranges"]:
-            p = pair(rg)
-            if p and p[1] > p[0] >= 0:
-                out.append({"videoId": vid, "start": p[0], "end": p[1], "t": t, "source": "runs"})
+        out += [{"videoId": r["videoId"], "start": p[0], "end": p[1], "t": t, "source": "runs"} for p in rgs]
     return out
 
 
@@ -685,17 +663,7 @@ def friend_lane(rows):
 
 def friend_run_ids(records):
     """友人が区間を指定した実行の id の集合(load_friend_runs と同じ判定: ranges に正しい区間が 1 つでもある)。届けた記録の runId と突き合わせる"""
-    out = set()
-    for r in records:
-        rid = r.get("id")
-        if not isinstance(r.get("videoId"), str) or not isinstance(rid, str) or not rid or not isinstance(r.get("ranges"), list):
-            continue
-        for rg in r["ranges"]:
-            p = pair(rg)
-            if p and p[1] > p[0] >= 0:
-                out.add(rid)
-                break
-    return out
+    return {r["id"] for r in records if isinstance(r.get("id"), str) and r["id"] and lengthhint.run_ranges(r)}
 
 
 def _used_group(items):
