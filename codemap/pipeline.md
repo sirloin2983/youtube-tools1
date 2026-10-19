@@ -107,13 +107,13 @@
 - src/pipeline/analyze/tests/test_breaks.py — pipeline/analyze/breaks.py(話の切れ目)のテスト。  py -3.12 -m unittest src/pipeline/analyze/tests/test_breaks.py -v
 - src/pipeline/analyze/tests/test_excite.py — pipeline/analyze/excite.py(盛り上がりの式。線 D の L1)のテスト。  py -3.12 -m unittest src/pipeline/analyze/tests/test_excite.py -v
 - src/pipeline/analyze/tests/test_live_excite_worker.py — 配信中の盛り上がりの検出(線 D の L2)のワーカー src/pipeline/analyze/live_excite_worker.py のテスト(子プロセスの中身を直に)。
-- src/pipeline/export/tests/test_exporter.py — 書き出しの音量調整(切り出しの作り直しに入る音量 / build_spec の volume 検証)のテスト。
+- src/pipeline/export/tests/test_exporter.py — 書き出し(① pipeline/export/exporter)のテスト。
 - src/pipeline/export/tests/test_manifest.py — 切り抜き 1 本の素性(.clip.json = youtube-tools-clip/v1)の組み立てと書き込み(書き出しの exporter.write_clip = ytt/schemas の build_clip・clip_path_for)のテスト。
 - src/pipeline/ingest/tests/hls_fixture.py — テスト用の「配信中のような HLS」(本物の YouTube には繋がない)。
 - src/pipeline/ingest/tests/test_recorder.py — 録画の部品(recorder/)のテスト。本物の YouTube には繋がない: ffmpeg の lavfi で作った HLS を、手元の HTTP サーバーで
 - src/pipeline/pack/tests/test_contracts.py — 別のプログラムが読む形の見本(src/ytt/tests/fixtures/contracts/ の clip/v1.json・transcript/v1.json)。書く側が書いた形は見本と同じ鍵・
 - src/pipeline/pack/tests/test_cut2resolve.py — cut2resolve のテスト。 python test_cut2resolve.py  (ffmpeg が無ければ通しテストは自動スキップ)
-- src/pipeline/pack/tests/test_pack.py — cut2resolve の見直し(2026-09)で直した所・足した所のテスト。
+- src/pipeline/pack/tests/test_pack.py — パック(pipeline.pack)のテスト。正しく動く道は本物の ffmpeg の通し(TestPackRun)でまとめて確かめ、ほかのクラスは端の場合・
 - src/pipeline/transcribe/tests/test_clipjob.py — pipeline/transcribe/clipjob(文字起こしのジョブの機械の文書の行。役割で組み直す RS6 a-3 に human/proof/doc_jobs の run_job から切り出した)を、
 - src/pipeline/transcribe/tests/test_diarize.py — pipeline/transcribe/diarize(話者判別の計算・判別の記録・声の特徴。役割で組み直す RS2-9)を、編集の serve を読まずに使うテスト。
 - src/pipeline/transcribe/tests/test_fill_llm.py — pipeline/transcribe の fill(認識のあとの後処理 A・B・C・D)と llm(LLM の後処理 E)を、編集の serve・ed_state を読まずに使うテスト(役割で組み直す RS2-9)。
