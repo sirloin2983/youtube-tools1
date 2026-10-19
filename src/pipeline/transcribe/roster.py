@@ -15,9 +15,9 @@ import unicodedata
 from ytt import studiodata as _studiodata
 from ytt import txbase as _txbase
 
-ROSTER = None   # 名簿のファイル(編集のフォルダの hololive-roster.json)。app(編集の ed_state)が読み込みのときに入れる。読む側は呼ぶたびに roster.ROSTER(テストの S.ROSTER = … は編集の serve の名前の受付がここへ届ける。RS3-0A に ed_state から移した)
+ROSTER = None   # 名簿のファイル(編集のフォルダの hololive-roster.json)。app(編集の ed_state)が読み込みのときに入れる。読む側は呼ぶたびに roster.ROSTER(テストの S.ROSTER = … は編集の serve の名前の受付がここへ届ける)
 
-PROMPT_LIMIT = 150      # initial_prompt に入れる語の長さ(「用語: 」を除く。以前からの上限。画面の GLOSS_PROMPT と同じ)
+PROMPT_LIMIT = 150      # initial_prompt に入れる語の長さ(「用語: 」を除く。画面の GLOSS_PROMPT と同じ)
 HOT_LIMIT = 300         # hotwords の長さ
 MAX_MEMBERS = 6         # 文脈に入れる人数の上限(1人 = 名前 + 呼び名 3 つ で 15〜20 字)
 ALIASES_PER = 3
@@ -193,11 +193,11 @@ def fit(terms, limit=PROMPT_LIMIT, sep=1):
 def prompt_terms(spec):
     """認識のヒント(initial_prompt)に渡す語: 用語集(自動で足した語を含む)→ 配信ごとの文脈(出る人の名前と呼び名。段1-2)。
     先頭 150 字に収まるだけ(語の途中で切らない)。プロンプトの漏れ出しの印(S-3)も、この語で調べる。
-    RS2-4a(2026-10-10)に移した。読む側は呼ぶたびに roster.prompt_terms で読む(テストの差し替えが届くように)"""
+    読む側は呼ぶたびに roster.prompt_terms で読む(テストの差し替えが届くように)"""
     return fit(list(spec.get("glossary") or []) + list((spec.get("context") or {}).get("terms") or []))
 
 
-# 用語集の欄の区切り split_terms は RS6 a-3(2026-10-10)に ytt/txtext.py へ下ろした(③ の受付が ① を読まずに使えるように)
+# 用語集の欄の区切り split_terms は ytt/txtext.py にある(③ の受付が ① を読まずに使えるように)
 
 
 def stream_context(doc, enabled=True):
@@ -205,7 +205,7 @@ def stream_context(doc, enabled=True):
     その人の名前と呼び名だけをヒントの語にする。**題名の文字列そのものは渡さない**。
     doc: clip・title・sourceName・sourcePath・speakers を持つ辞書。-> {"members": [{"name", "from"}], "terms": [語]}。
     名簿は roster.ROSTER、スタジオの配信の情報は ytt/studiodata.studio_stream(配信の ID -> {"channel", "title", "collab"} か None)。
-    スタジオの情報が読めない(例外)ときは、文脈なしで続ける。RS2-8a に移した"""
+    スタジオの情報が読めない(例外)ときは、文脈なしで続ける"""
     if not enabled:
         return {"members": [], "terms": []}
     r = load(ROSTER)
@@ -238,7 +238,7 @@ def leak_only(text, terms):
     return ok[len(t)]
 
 
-# ---------------------------------------------------------------- 呼び名の表記ゆれ(2026-10-08。notes:plan/line-b-transcription.md の「10-08 の実験ループ」B)
+# ---------------------------------------------------------------- 呼び名の表記ゆれ(notes:plan/line-b-transcription.md の「10-08 の実験ループ」B)
 # whisper は呼び名の長音を「ー」で書く(はあちゃま → はーちゃま・ラミィ → ラミー)ことと、音の同じ漢字を当てる(フブキ → 吹雪・こより → 子寄り)ことがある。
 # 名簿の呼び名から「whisper が書きそうな別の綴り → 名簿の綴り」の表を作り、置換辞書と同じ所で当てる(評価用の文書には当てない = autoDict が外れる)。
 # 確かめ済み 22 本で名前の再現率 28 → 40/53・余分は増えず、普段の文書 1045 行で変わる行は 0(普通の言葉は壊さない)。無条件の 1 字違いの直しは誤爆するので入れない

@@ -82,7 +82,7 @@ class TestResolveTextPlusScript(unittest.TestCase):
 
 
 class TestTextStyle(unittest.TestCase):
-    """字幕の見た目(ユーザーの指定 2026-09-26。素材フォルダの Text+ のインスペクタの画像)。Lua が無くても確かめられる所"""
+    """字幕の見た目(ユーザーの指定。素材フォルダの Text+ のインスペクタの画像)。Lua が無くても確かめられる所"""
 
     def test_style_kinds(self):
         """既定・簡易版(lite)の値は TestPackRun の通し。ここは通しを通らない組み合わせ: 簡易版 + 配信者の色・既定 + 字幕ごとのふち・不明な種類は ValueError"""
@@ -225,7 +225,7 @@ class TestCaptionLanes(unittest.TestCase):
 
     def test_no_overlap_script_is_byte_identical(self):
         """重なりが無いパックは今までと 1 バイトも変わらない: 計画に段の項目が無く、Lua は段のコードの印を消しただけ
-        (印を消した LUA_TEMPLATE が、段分けを入れる前の版(2026-10-05)と同じ。Lua の本体を直したら、下の値も直す)"""
+        (印を消した LUA_TEMPLATE が、段分けを入れる前の版と同じ。Lua の本体を直したら、下の値も直す)"""
         import hashlib
         import re
         ip = RTP.build_import_plan(self.plan([(30, 120, '一'), (120, 150, '二')]), 'v.mp4', video_tracks=2)   # 接するだけ(重ならない)
@@ -287,7 +287,7 @@ class TestResolveTextPlusLuaRun(unittest.TestCase):
         # V1: 600コマ->300、601コマ->301(偽物は四捨五入)。V2: 各区間の実際の位置 + オフセット/2
         self.assertIn('item track=1 start=108000 dur=300', out)
         self.assertIn('item track=1 start=108300 dur=301', out)
-        self.assertIn('item track=2 start=108030 dur=120 text=一 font=けいふぉんと', out)   # 指定のフォント(ユーザーの指定 2026-09-26)
+        self.assertIn('item track=2 start=108030 dur=120 text=一 font=けいふぉんと', out)   # 指定のフォント(ユーザーの指定)
         self.assertIn('  style=Regular fill=0.0,0.0,0.0 outline=1:1.0,1.0,1.0', out)       # 黒い文字 + 白いふち
         self.assertIn('  size=0.14 anchor=1.0,0.0 thick=0.12,0.18 shape=0,1,1 prio=8,7,4 offset2=0.015,-0.02 outer=1:0.0,0.0,0.0', out)   # + 外側の黒いふち
         self.assertIn('字体 けいふぉんと Regular(指定のフォント)', out)
@@ -328,7 +328,7 @@ class TestResolveTextPlusLuaRun(unittest.TestCase):
         out = self.run_lua(plan, s, fonts={'Keifont': ['Regular'], 'Meiryo': ['Regular']})   # 英語名の一覧
         self.assertIn('text=a font=Keifont', out)
         self.assertIn('marker=Green|cut2resolve 完了|', out)
-        # けいふぉんと が無い PC: 以前の自動選択(Windows の日本語フォント)にして、マーカーを黄色(要確認)に
+        # けいふぉんと が無い PC: 自動選択(Windows の日本語フォント)にして、マーカーを黄色(要確認)に
         out = self.run_lua(plan, s, fonts={'Arial': ['Regular'], 'Meiryo': ['Regular', 'Bold', 'Italic'], 'MS Gothic': ['Regular']})
         self.assertIn('text=a font=Meiryo', out)                       # 候補の順: 游ゴシック が無いので メイリオ
         self.assertIn('  style=Bold ', out)
@@ -354,7 +354,7 @@ class TestResolveTextPlusLuaRun(unittest.TestCase):
         out = self.run_lua(plan, s, fonts=self.KEI, ignore=('Offset2', 'Priority5', 'PriorityBack5'))
         self.assertIn('(反映できなかった: Offset2, Priority5)', out)
         self.assertIn('marker=Yellow|cut2resolve 完了(要確認)|字幕 2/2', out)
-        # 実機で Priority1/2/5 が入らなかった(2026-09-27): 入力の一覧から表示名「Priority」と要素の番号で探す → 候補の名前、の順。
+        # 実機で Priority1/2/5 が入らなかった: 入力の一覧から表示名「Priority」と要素の番号で探す → 候補の名前、の順。
         # 見つけた名前は 2つ目の字幕でも使い、メモに「読み替え」と出す(緑のまま)。見つからなければ入力の一覧をパックのフォルダに書く
         no_prio = ('Priority1', 'Priority2', 'Priority5')
         # 一覧から表示名で見つかる(候補の名前より先)
@@ -1093,7 +1093,7 @@ class TestPackRun(unittest.TestCase):
         self.assertFalse(any("fill" in c or "outline" in c for c in ip["captions"]))        # 話者の色を渡さなければ、ふだんの見た目
         self.assertNotIn("videoTracks", ip)                                                # 既定 1 は書かない(今までと同じ中身)
         self.assertNotIn("outlineN", ip["style"])
-        # 字幕の見た目(ユーザーの指定 2026-09-26。素材フォルダの Text+ のインスペクタの画像)
+        # 字幕の見た目(ユーザーの指定。素材フォルダの Text+ のインスペクタの画像)
         self.assertEqual([list(x) for x in ip["style"]["inputs"]], [list(x) for x in RTP.style_inputs()])
         self.assertEqual((ip["style"]["fonts"][:2], ip["style"]["styles"], ip["style"]["fillN"]), (["けいふぉんと", "Keifont"], ["Regular"], 1))
         inputs = dict((kv[0], kv[1]) for kv in ip["style"]["inputs"])
@@ -1203,7 +1203,7 @@ class TestPackRun(unittest.TestCase):
     def test_edl_run(self):
         """EDL が本体のパック(Text+ でない): 無音で自動 + SRT + 粗編集 + 動画の同梱 + 音量をそろえる・文字起こしの行・時刻リスト・余白つき素材"""
         before = self.video.read_bytes()
-        # 無音で自動 + SRT。粗編集・動画を入れ、音量をそろえる(残す区間だけ測る。2026-09-29)
+        # 無音で自動 + SRT。粗編集・動画を入れ、音量をそろえる(残す区間だけ測る)
         plan = pack.plan_cut(pack.Request(video=self.video, sub=self.srt, silence=True, edit_media=False))
         sm = pack.summary(plan)
         self.assertEqual((sm["fps"], sm["total"], sm["subtitles"]["source"]), ([30, 1], 300, "srt"))
@@ -1384,10 +1384,10 @@ class TestPackRun(unittest.TestCase):
         plan = self.plan(self.spk_doc("again", [(0.5, 2, "一", 0), (3, 5, "二", 1)]), edit_media=False)
         out = self.d / "again"
         pack.build_pack(plan, out, textplus=True, plan_file=True)                       # 以前の中身(cut-plan.json・友人へ.txt)のフォルダ
-        for n in ("さくらみこ.edl", "さくらみこ_cut.srt", "予備_EDLで開く手順.txt"):       # 2026-10-18 まで入れられた予備(決定 3-34)
+        for n in ("さくらみこ.edl", "さくらみこ_cut.srt", "予備_EDLで開く手順.txt"):       # 古いパックの予備(決定 3-34)
             (out / n).write_text("old", encoding="utf-8")
         (out / "media").mkdir()
-        (out / "media" / "さくらみこ.mp4").write_bytes(b"old")                          # 2026-09-27 までの動画の場所
+        (out / "media" / "さくらみこ.mp4").write_bytes(b"old")                          # 古いパックの動画の場所
         _, paths, existing = pack.planned_outputs(plan, out, textplus=True, **self.SCREEN)
         self.assertEqual(sorted(p.name for p in existing), sorted(self.MINIMAL + ["さくらみこ.mp4"]))
         with self.assertRaises(C.OutputExists):

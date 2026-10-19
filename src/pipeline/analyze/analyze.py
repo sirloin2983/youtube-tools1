@@ -63,8 +63,8 @@ def validate_source(item):
 
 
 def validate_settings(req):
-    """解析の設定(範囲外は丸める)。autoExport は廃止。maxHeight(画質の上限)も 0.24.0 で廃止(解析は音声しか取らず読んでいなかった。保存してある値は読み捨てる)。
-    typePreset・typeOverride(配信タイプ別の重み。試験的)は 0.26.0 で機能ごと廃止(倍率が仮のまま効き目を測っていなかった。ユーザー決定 10-09。保存してある値は読み捨てる)。"""
+    """解析の設定(範囲外は丸める)。autoExport・maxHeight(画質の上限)は持たない(解析は音声しか取らない。保存してある値は読み捨てる)。
+    typePreset・typeOverride(配信タイプ別の重み)は持たない(ユーザー決定。保存してある値は読み捨てる)。"""
     req = req if isinstance(req, dict) else {}
     sens = req.get("sensitivity") if req.get("sensitivity") in ("high", "normal", "low") else "normal"
     return {"useAudio": req.get("useAudio") is not False, "useChat": req.get("useChat") is not False,
@@ -308,7 +308,7 @@ def _comment_signal(ctl, src, dur, n, comps, info, warnings, ctexts):
 
 
 def _weights(run, spec, warnings):
-    """材料の重みと、記録用の付加情報(start_meta で始めたもの)を待つ。-> (wts, meta)。配信タイプ別の倍率は 0.26.0 で廃止"""
+    """材料の重みと、記録用の付加情報(start_meta で始めたもの)を待つ。-> (wts, meta)"""
     wts = {"audio": spec["wAudio"], "chat": spec["wChat"], "comments": spec["wComments"]}
     meta = None
     mj = run.get("meta")

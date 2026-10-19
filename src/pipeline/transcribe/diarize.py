@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """① 自動の流れの層 pipeline/transcribe: 話者判別の計算(sherpa-onnx)と判別の記録・声の特徴と覚えた声との照らし合わせ。
 
-役割で組み直す RS2-9(2026-10-10)に移した(中身は同じ。文書へ反映する側・判別のジョブ・空の行の下書き・
+ここに無い物(文書へ反映する側・判別のジョブ・空の行の下書き・
 自動の判別・声を覚える・字幕の見た目は human/proof/speakers.py)。③ の speakers はここを直に読まず、② flow/diar.py(判別のジョブの段取り・
-判別の記録を書く _record_diar・覚えた声の置き場所。RS6 a-4)を通す。旧い名前の転送は RS5 で消した。
+判別の記録を書く _record_diar・覚えた声の置き場所)を通す。
 serve.名前 は serve の名前の受付がここへ回す(テストの S.名前 = …・patch.object(S, "has_sherpa") もここに届く)。
 - 判別のモデル: DIAR_SEG・DIAR_EMBS(固定の URL と SHA-256)を作業データの models/diar に取る(ensure_diar_models)。置き場所は呼ぶたびに ytt/workdata の DATA_DIR から
   (diar_models_dir。DIAR_DIR は上書き用 = src/eval/tools/eval_speakers が本物の作業データの場所を入れる)
@@ -33,14 +33,14 @@ from ytt import txbase as _txbase
 # ---------- 話者の自動判別(sherpa-onnx) ----------
 # 流れ: 音声を取り出す → 「誰がいつ話したか」の区間を求める(diarization) → 文字起こしの各行に、重なりが最も長い人を割り当てる。
 # 文字起こしモデルとは独立に動くので、どのモデルで作った文字起こしにも使える。CPU で動く(PyTorch 不要)。
-# モデルの置き場所は呼ぶたびに作業データ(ytt/workdata の DATA_DIR)の models/diar(以前は読み込みのときに作り、serve の set_data_dir が直していた = 同じ場所。RS2-9)。
+# モデルの置き場所は呼ぶたびに作業データ(ytt/workdata の DATA_DIR)の models/diar。
 # DIAR_DIR は上書き用(src/eval/tools/eval_speakers が本物の作業データの models/diar を入れる)。None なら作業データの中
 DIAR_DIR = None
 DIAR_SEG = {"file": "segmentation.onnx", "member": "sherpa-onnx-pyannote-segmentation-3-0/model.onnx", "label": "話者の切り替わり検出",
             "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2",
             "sha256": "24615ee884c897d9d2ba09bb4d30da6bb1b15e685065962db5b02e76e4996488", "max": 40 * 1024 * 1024}
 _GH = "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/"
-# 声の特徴を取り出すモデル(表の形は残す。3D-Speaker の campplus・standard は 0.58.0(2026-10-11 ユーザー決定「普段よく使っているモデル以外は要らない」)で外した。
+# 声の特徴を取り出すモデル(表の形は残す。3D-Speaker の campplus・standard は持たない(ユーザー決定「普段よく使っているモデル以外は要らない」)。
 # 知らない名前(古い設定・覚えた声の campplus など)は flow/diar.embedding が既定に読み替える)
 DIAR_EMBS = {
     "voxceleb": {"file": "embedding-voxceleb.onnx", "member": None, "label": "VoxCeleb ResNet34(多言語の声で学習)", "mb": 27, "max": 80 * 1024 * 1024,
@@ -52,8 +52,7 @@ DIAR_CLUSTER_THRESHOLD, DIAR_MIN_ON, DIAR_MIN_OFF = 0.6, 0.1, 0.3   # sherpa-onn
 
 
 def diar_threads():
-    """話者判別(sherpa-onnx)のスレッド数。既定は min(8, CPU)(2026-10-04 に 4 から上げた。P コアの数。環境変数 TRANSCRIBE_DIAR_THREADS で変えられる。
-    git の履歴(679ff01 以前)の docs/plan/stability-review-2026-10.md の S2)"""
+    """話者判別(sherpa-onnx)のスレッド数。既定は min(8, CPU)(P コアの数。環境変数 TRANSCRIBE_DIAR_THREADS で変えられる)"""
     n = tx_engines.env_num("TRANSCRIBE_DIAR_THREADS", 0, lo=0, hi=64)   # 0 以下・読めない = CPU の数から決める
     return n if n > 0 else max(1, min(8, os.cpu_count() or 2))
 
@@ -153,7 +152,7 @@ def diar_tune(threshold=None, min_on=None, min_off=None):
 
 def diarize_real(job, wav, num, emb=DIAR_EMB_DEFAULT, threshold=None, min_on=None, min_off=None):
     """話者の判別。sherpa-onnx(ネイティブコード)は認識ワーカー(別プロセス)の中で動かす。戻り値は [(開始, 終了, 話者番号)]。
-    threshold・min_on・min_off は判別の設定を変えて測るとき(src/eval/tools/eval_speakers.py の run)だけ。渡さなければ既定の値で、ワーカーへの要求も以前と同じ形"""
+    threshold・min_on・min_off は判別の設定を変えて測るとき(src/eval/tools/eval_speakers.py の run)だけ。渡さなければ既定の値で、ワーカーへの要求は変わらない"""
     tune = diar_tune(threshold, min_on, min_off)
     if worker_client.IN_WORKER:
         return _diarize_local(job, wav, num, emb, **tune)
@@ -227,7 +226,7 @@ def _assign(segs, ts):
     return out
 
 
-# ---------- 話者の細切れをならす(S2。2026-10-05。試験中・既定オフ = 設定 diarSmooth・判別の要求の smooth) ----------
+# ---------- 話者の細切れをならす(S2。試験中・既定オフ = 設定 diarSmooth・判別の要求の smooth) ----------
 # 1 人の話の途中の短い 1 行だけが別の人になり、字幕の色が 1 行だけ変わる(判別の短い区間の揺れ)。行の話者を決めるときだけ、前後と同じ人にする。
 # 判別の生の結果(turns・overlaps)は変えない(あとの判別が読むため)。記録は diar.json の rows[行 id] に smoothed: true(label は機械の元のラベルのまま)。
 # ならす条件(全部): その行が短い(DIAR_SMOOTH_SHORT 未満)・前後の行が同じラベルで、その行だけ違う・前後とのすき間が DIAR_SMOOTH_GAP 以下・
@@ -282,7 +281,7 @@ def smooth_speakers(segs, res, ts, keep, ratios=None):
 # ---------- 判別の記録(transcripts/<id>.diar.json。Q2。notes:plan/line-bc-master-plan.md) ----------
 # 機械の最初の結果を残す(行の speaker・名前は人が直すので、あとから「機械はこう割り当てた」を比べられるように)。判別・声の照合のたびに書き、
 # し直したら前の回は同じファイルの history に残す(最新を含めて DIAR_KEEP 回まで。付き物を1つのファイルにして、削除・付け替えの扱いを1か所で済ませるため)。
-# 埋め込みのベクトルそのものは書かない(大きい・個人を見分けられる情報)。書けなくても判別は失敗にしない(② flow/diar の _record_diar。RS6 a-4 にここから移した)
+# 埋め込みのベクトルそのものは書かない(大きい・個人を見分けられる情報)。書けなくても判別は失敗にしない(② flow/diar の _record_diar)
 DIAR_SCHEMA = "youtube-tools-diar/v1"
 DIAR_KEEP = 5
 MAX_DIAR_BYTES = 32 * 1024 * 1024
@@ -365,7 +364,7 @@ def _turn_overlaps(ts):
 def build_diar_run(segs, res, turns, offset, requested, emb, idmap, auto=None, smoothed=None, ratios=None):
     """判別の1回分の記録。時刻は元動画の秒(行と同じ)。rows[行の id] = {"label": 機械が割り当てたラベル, "speaker": 付けた話者の id,
     "ratio": その行のうち、そのラベルの区間に入っている割合, "mixed": 声が混ざっている印, "weak": 不確かの印}。
-    auto = 文字起こしのあとの自動の判別のとき {"eval": 評価用か, "contextName": 名前の候補 or None}(v0.50.0。人が始めた判別では書かない)。
+    auto = 文字起こしのあとの自動の判別のとき {"eval": 評価用か, "contextName": 名前の候補 or None}(人が始めた判別では書かない)。
     smoothed = 細切れをならしたとき {行の番号: ならしたあとのラベル}(S2。None = ならしていない)。ならした行は "smoothed": true・"weak": true・
     label は元のラベルのまま・speaker はならしたあと。ならした回は latest.smooth = {"on", "rows", "short", "gap", "ratio"}(ならしていない回は持たない)。
     ratios = 行ごとの割合(_assign の 4 つ目。無ければ label_ratio で数える)"""

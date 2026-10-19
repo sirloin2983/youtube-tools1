@@ -2,13 +2,13 @@
 """① 文字起こしの行の後処理: 要確認の印(make_flags)・認識の出力を整える流れ(expand_segments = 行を単語の時刻で分ける split_segment・
 長さで切る clip_rows・同じ文字の行をまとめる merge_repeats・終わりを早める trim_ends・続いている行をつなぐ join_rows・句読点の除去 strip_punct)・
 自信の度合い(machine_conf)・後処理の記録(post_record)・行の単語(row_words)。
-split_segment・strip_punct・SPARSE_FLAG・text_chars・SPLIT_*・_squash の本体は RS6 a-3(2026-10-10)から ytt/txtext.py(③ も読む語彙)。ここに別名は残さない。
+split_segment・strip_punct・SPARSE_FLAG・text_chars・SPLIT_*・_squash の本体は ytt/txtext.py(③ も読む語彙)にある。ここに別名は置かない。
 
-役割で組み直す RS2-4b(2026-10-10)に移した(中身は同じ)。標準ライブラリ・ytt・同じパッケージの兄弟(txbase・tx_engines・roster)だけを読む
+標準ライブラリ・ytt・同じパッケージの兄弟(txbase・tx_engines・roster)だけを読む
 = 編集のサーバー(serve)なしで ① から読める(post_record の編集の版だけは ytt/workdata の SERVER_VERSION = app が入れた値)。
 後処理の既定の値(END_TRIM・JOIN_GAP)と、それを読む expand_segments・join_rows・post_record は同じこのモジュールにある(読む側は呼ぶたびに postproc.名前)。
 測る道具が違う値で当て直すときは、モジュールの値を書き換えずに後処理の指定(spec)の endTrim・joinGap で渡す(post_values。OPT-E2 5c-2 =
-① に実験用の口を置かない。10-15 まで道具が setattr で書き換え、測り直すとき用の環境変数 TRANSCRIBE_END_TRIM・TRANSCRIBE_JOIN_GAP もあった)。
+① に実験用の口を置かない)。
 """
 import functools
 import math
@@ -72,7 +72,7 @@ def _letters(text):
 
 
 def stock_phrase(text):
-    """よくある誤認識の文か(時間は見ない): 以前からの HALLUC が含まれる・行のほとんどが HALLUC_LINE の文・音楽の表記だけ(♪・(音楽))"""
+    """よくある誤認識の文か(時間は見ない): HALLUC が含まれる・行のほとんどが HALLUC_LINE の文・音楽の表記だけ(♪・(音楽))"""
     t = str(text or "")
     if any(h in t for h in _txbase.HALLUC):
         return True
@@ -102,8 +102,8 @@ def repeats_in_line(text):
 def make_flags(seg, prev_texts, lang=None, terms=()):
     """Whisper は BGM・無音・歌で幻覚(でたらめな文)を出しやすいので、要確認の印を付ける。
     lang が "ja" のときは、英字が目立つ行も対象にする(terms = 認識のヒントに渡した語(prompt_terms)。その中の英字の語は数えない)。
-    長い区間に文字が少ない行(抜けの可能性。sparse_row)にも付ける(2026-09-26 ③-1)。
-    S-3(2026-09-29): よくある誤認識の文を増やした(stock_phrase)・行の中の繰り返し(repeats_in_line)・近くの行に同じ文が3回・
+    長い区間に文字が少ない行(抜けの可能性。sparse_row)にも付ける(③-1)。
+    S-3: よくある誤認識の文を増やした(stock_phrase)・行の中の繰り返し(repeats_in_line)・近くの行に同じ文が3回・
     短い区間でヒントの語だけが出た行(LEAK_FLAG。roster.leak_only)"""
     why = []
     lp, ns, cr = seg.get("avg_logprob"), seg.get("no_speech_prob"), seg.get("compression_ratio")
@@ -129,18 +129,18 @@ def make_flags(seg, prev_texts, lang=None, terms=()):
     return "、".join(why)
 
 
-# 行を単語の時刻で分ける split_segment(と SPLIT_GAP・SPLIT_SEC・SPLIT_CHARS・SPLIT_SLACK・_cut_words)・句読点の除去 strip_punct(STRIP_PUNCT_CHARS)・空白を詰める _squash は RS6 a-3(2026-10-10)に ytt/txtext.py へ下ろした(③ が ① を読まずに使えるように。ここは _txtext.名前 で呼ぶたびに読む)
+# 行を単語の時刻で分ける split_segment(と SPLIT_GAP・SPLIT_SEC・SPLIT_CHARS・SPLIT_SLACK・_cut_words)・句読点の除去 strip_punct(STRIP_PUNCT_CHARS)・空白を詰める _squash は ytt/txtext.py にある(③ が ① を読まずに使えるように。ここは _txtext.名前 で呼ぶたびに読む)
 
 
 def expand_segments(gen, spec, dur=None, join=True):
     """認識の出力を、split_segment で整えながら流す(wordSplit が無効なら、そのまま)。
     句読点の除去(stripPunct、既定オン)は、単語分割が句読点を判断材料に使い終えたあとの、最後の1回だけにかける
     (分割の精度には影響させず、かつ text と original の両方に必ず同じ結果が入るよう、ここ1か所にまとめる)。
-    2026-10-04: 分けたあとに、音声の長さ dur(秒。行と同じ基準)で切る(clip_rows)・同じ文字だけの行が続いたら1行にまとめる(merge_repeats)。
-    whisper.cpp の続いている行の終わりを END_TRIM 秒早める(trim_ends。0.57.1 から既定 0 = かけない。spec の endTrim・joinGap があればそれ = post_values)。
-    2026-10-07(0.57.1。行の時刻の原則 notes:docs/spec/subtitles.md の ①): 最後に、続いている行(すき間 JOIN_GAP 以下)の終わりを次の行の始まりへ延ばす(join_rows。全エンジン)。
+    分けたあとに、音声の長さ dur(秒。行と同じ基準)で切る(clip_rows)・同じ文字だけの行が続いたら1行にまとめる(merge_repeats)。
+    whisper.cpp の続いている行の終わりを END_TRIM 秒早める(trim_ends。既定 0 = かけない。spec の endTrim・joinGap があればそれ = post_values)。
+    (行の時刻の原則 notes:docs/spec/subtitles.md の ①): 最後に、続いている行(すき間 JOIN_GAP 以下)の終わりを次の行の始まりへ延ばす(join_rows。全エンジン)。
     join=False は時刻を使わない呼び出し(2つ目のエンジンの候補)。
-    0.65.0(2026-10-09)で、行の終わりを音の谷へ寄せる pull_ends(引数 levels・TRANSCRIBE_PULL_ENDS)を消した(既定オフのままだった)"""
+    行の終わりを音の谷へ寄せる処理は持たない"""
     strip = spec.get("stripPunct", True)
     mc = spec.get("splitChars") or _txtext.SPLIT_CHARS
     rows = (p for s in gen for p in (_txtext.split_segment(s, mc) if spec.get("wordSplit") else [s]))
@@ -156,17 +156,16 @@ def expand_segments(gen, spec, dur=None, join=True):
         yield {**p, "text": _txtext.strip_punct(p["text"])} if strip and p.get("text") else p
 
 
-# ---------- 行の後処理(2026-10-04。ユーザーの報告「行の終わりに次の行の頭の言葉が入る」「動画の長さより後ろに行がある」「ああああ…の行が大量」) ----------
+# ---------- 行の後処理(ユーザーの報告「行の終わりに次の行の頭の言葉が入る」「動画の長さより後ろに行がある」「ああああ…の行が大量」) ----------
 # 測った結果と理由は README の「次の版の変更」と notes:docs/spec/editor/recognition.md の「行の後処理と whisper.cpp のフラッシュアテンション」
 REP_ROWS = 3          # 同じ1文字だけの行(「ああああ」)がこの数以上続いたら1行にまとめる(本当に叫んでいることもあるので消さない。印「繰り返しの可能性」)
 REP_ROW_GAP = 1.0     # まとめる行の間のすき間の上限(秒)
 REP_CHAR_KEEP = 10    # 1行の中の同じ文字の続きは、ここまでに縮める(「あああ…」×40 → 10 文字)
-# 行の終わりを音の谷へ寄せる pull_ends(0.51.0)は 2026-10-05 に既定でやめ、0.65.0(2026-10-09)で部品ごと消した(早めすぎて言葉の終わりが切れた。履歴 c2dde44 以前)
-# whisper.cpp の続いている行の終わりを早める秒(2026-10-05 ユーザーの目安 0.1 秒)。2026-10-07(0.57.1)に既定でやめた(0): 行の時刻の原則の ①
-# 「言葉の末を切らない」に反する(人は字幕の終わりを機械より平均 0.15 秒後ろへ直していた。10-05 の目安は「この行だけ再生」で聞くための値)。
+# whisper.cpp の続いている行の終わりを早める秒(ユーザーの目安 0.1 秒)。既定は 0: 行の時刻の原則の ①
+# 「言葉の末を切らない」に反する(人は字幕の終わりを機械より平均 0.15 秒後ろへ直していた。0.1 秒の目安は「この行だけ再生」で聞くための値)。
 # 測り直すときは spec の endTrim で渡す(notes:plan/done/line-b-row-timing.md の 7-1)
 END_TRIM = 0.0
-# 続いている行の終わりを次の行の始まりへ延ばす、すき間の上限(秒。2026-10-07 = 0.57.1。原則の ①: 字幕が一瞬消えてまた出るのをやめ、言葉の末を切らない。
+# 続いている行の終わりを次の行の始まりへ延ばす、すき間の上限(秒。原則の ①: 字幕が一瞬消えてまた出るのをやめ、言葉の末を切らない。
 # 確かめ済み 22 本の試算で ①末 34% → 20%・②次 6% → 10%。notes:plan/done/line-b-row-timing.md の 7-2)。spec の joinGap 0 でつながない
 JOIN_GAP = 0.5
 POST_RANGES = {"endTrim": (0.0, 0.5), "joinGap": (0.0, 2.0)}   # spec で渡せる値の範囲(外・数でなければ既定)
@@ -181,8 +180,8 @@ def post_values(spec=None):
         lo, hi = POST_RANGES[key]
         out.append(float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and lo <= v <= hi else default)
     return tuple(out)
-TRIM_GAP = 0.3        # trim_ends: 次の行の始まりとのすき間がこの秒以下の行(続いている行)だけ、終わりを早める(0.64.0 までの名前は PULL_GAP)
-TRIM_MIN = 0.3        # trim_ends: 早めたあとの行の長さの下限(秒。0.64.0 までの名前は PULL_MIN)
+TRIM_GAP = 0.3        # trim_ends: 次の行の始まりとのすき間がこの秒以下の行(続いている行)だけ、終わりを早める
+TRIM_MIN = 0.3        # trim_ends: 早めたあとの行の長さの下限(秒)
 _SAME_CHAR_RUN = re.compile(r"(.)\1{%d,}" % REP_CHAR_KEEP)
 
 
@@ -201,7 +200,7 @@ def _clip_words(p, lo, hi):
 
 def clip_rows(rows, dur):
     """音声の長さ dur より後ろの行を捨て、終わりを dur で切る。whisper.cpp は最後の 30 秒の窓の残り(無音で埋めた所)に、
-    音声の長さを越える時刻の行を出すことがある(40.7 秒の音声に 56 秒までの「ああああ」18 行。2026-10-04)"""
+    音声の長さを越える時刻の行を出すことがある(40.7 秒の音声に 56 秒までの「ああああ」18 行)"""
     for p in rows:
         if p["start"] >= dur:
             continue
@@ -267,8 +266,8 @@ def _with_next(rows, fix):
 
 def trim_ends(rows, sec):
     """whisper.cpp の行のうち、次の行とのすき間が TRIM_GAP 秒以下の行の終わりを sec 秒だけ早める(行の長さは TRIM_MIN 秒を残す。次の行の始まり・文字は変えない)。
-    2026-10-05 ユーザーの目安「前回の作業の前の状態から行末を 0.1 秒早く終わらせる程度」。音の谷へ寄せる pull_ends は早めすぎた(0.65.0 で消した)。
-    2026-10-07(0.57.1)から既定ではかけない(END_TRIM = 0。原則の ① に反するため)"""
+    ユーザーの目安「前回の作業の前の状態から行末を 0.1 秒早く終わらせる程度」。
+    既定ではかけない(END_TRIM = 0。原則の ① に反するため)"""
     def fix(prev, p):
         if p["start"] - prev["end"] <= TRIM_GAP:
             new = round(max(prev["start"] + TRIM_MIN, prev["end"] - sec), 3)
@@ -279,7 +278,7 @@ def trim_ends(rows, sec):
 
 
 def join_rows(rows, gap=None):
-    """続いている行の前の行の終わりを、次の行の始まりへ延ばす(2026-10-07 = 0.57.1。行の時刻の原則 ① 言葉の末を切らない > ② > ③。notes:plan/done/line-b-row-timing.md の 7-2)。
+    """続いている行の前の行の終わりを、次の行の始まりへ延ばす(行の時刻の原則 ① 言葉の末を切らない > ② > ③。notes:plan/done/line-b-row-timing.md の 7-2)。
     0 < 次の始まり − 前の終わり ≤ gap(既定 JOIN_GAP)のときだけ。縮めない・重なり(次の始まりが前の終わりより前)は触らない・最後の行はそのまま・
     文字と単語は変えない(延ばした所は単語の無いすき間)。gap が 0 以下なら何もしない。流れ(生成器)で受けて流す(次の行を1つ先に読む)"""
     gap = JOIN_GAP if gap is None else gap
@@ -301,10 +300,10 @@ def machine_conf(s):
 
 
 def post_record(spec=None):
-    """recognition.runs[].post: この認識の行の後処理の設定(0.57.1 から。測る道具 src/eval/tools/eval_timing.py が「版ごと」に分ける。無い記録は 0.57.0 まで)。
+    """recognition.runs[].post: この認識の行の後処理の設定(測る道具 src/eval/tools/eval_timing.py が「版ごと」に分ける)。
     version = 編集の版・endTrim(whisper.cpp の続いている行の終わりを早める秒)・joinGap(続いている行をつなぐすき間)= その spec で当てた値(post_values)。
-    0.64.0 までは pullEnds(音の谷へ寄せるか)・retime(1 秒丸めの配り直しのモデル | False)も書いた(0.65.0 で部品ごと消した。古い記録の鍵は読むだけ)。
-    同じく runs[].retimed(配り直しの数)も 0.65.0 から書かない"""
+    古い記録には pullEnds(音の谷へ寄せるか)・retime(1 秒丸めの配り直しのモデル | False)の鍵もある(読むだけ)。
+    runs[].retimed(配り直しの数)は書かない(古い記録に残るだけ)"""
     end_trim, join_gap = post_values(spec)
     return {"version": str(_workdata.SERVER_VERSION or ""), "endTrim": end_trim, "joinGap": join_gap}
 

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""① 文字起こしのジョブの機械の文書の行を作る(make_doc_rows)。役割で組み直す RS6 a-3(2026-10-10)に human/proof/doc_jobs の run_job から切り出した(中身は同じ)。
+"""① 文字起こしのジョブの機械の文書の行を作る(make_doc_rows)。
 
 流れ: 音声を取り出して認識し整えた行(recognize.transcribe_rows)→ 行の頭の「名前:」を外す(fill.fill_strip_names。B)→ 認識のあとの後処理(fill.fill_after_rows。A・C)→
 文書の行(_rows_to_doc = 要確認の印・学習した置換・置換辞書・機械の出力 original・単語の時刻)→ 別のエンジンも同じ呼び名なら 1 字違いを直す(fill.fill_agree_doc。D)→
@@ -19,8 +19,8 @@ def make_doc_rows(job, spec, wav, pairs, learned=None):
         "t_rec"(認識を始めた time.monotonic())・"fill_rec"・"names_n"・"llm_rec"・"llm_items"}。取り消しは途中で Cancelled"""
     res = recognize.transcribe_rows(job, spec, wav)
     rows, total = res["rows"], res["total"]
-    rows, names_n = fill.fill_strip_names(spec, rows)   # 行の頭の「名前:」を外す(設定 stripNames。0.67.0)
-    # 認識のあとの後処理(設定 autoFill。0.60.0): 末尾の重複を捨て、文字の少ない行の窓を SenseVoice で読んで埋める(A・C)。読めなければ警告だけ
+    rows, names_n = fill.fill_strip_names(spec, rows)   # 行の頭の「名前:」を外す(設定 stripNames)
+    # 認識のあとの後処理(設定 autoFill): 末尾の重複を捨て、文字の少ない行の窓を SenseVoice で読んで埋める(A・C)。読めなければ警告だけ
     rows, fill_rec, fill_read = fill.fill_after_rows(job, spec, rows, wav, total)
     _heavy.check_cancel(job)
     out = _rows_to_doc(job, spec, rows, pairs, learned)

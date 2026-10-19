@@ -1,5 +1,5 @@
 """pipeline/analyze/analyze.py の判定ロジックのテスト(ネットワーク・ffmpeg 不要)。 実行(リポジトリ直下): py -3.12 -m unittest src/pipeline/analyze/tests/test_analyze.py
-RS3-5(2026-10-10)で studio/tests から移した(判定の記録 feedback は human/review/feedback.py)。"""
+(判定の記録 feedback は human/review/feedback.py)。"""
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 import json

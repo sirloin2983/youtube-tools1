@@ -42,12 +42,12 @@ if ROOT not in sys.path:   # 共通部品 ytt(src/ の中)
 from ytt import errors as yerrors, fsio, recproto, tools as ytools, trashbin  # noqa: E402
 
 SCHEMA = "ytt-recorder/v1"
-DEFAULT_FOLDER = r"E:\Video\live-rec"      # 録画の置き場所の既定(2026-10-04 ユーザー決定。ホームの設定で変えられる)
-# 録画の id・セッション・セグメントの形と時刻の書き方は ytt/recproto.py の 1 か所(入口の live_export・配信中の検出のワーカーと同じ物。2026-10-09 見直し T8)
+DEFAULT_FOLDER = r"E:\Video\live-rec"      # 録画の置き場所の既定(ユーザー決定。ホームの設定で変えられる)
+# 録画の id・セッション・セグメントの形と時刻の書き方は ytt/recproto.py の 1 か所(入口の live_export・配信中の検出のワーカーと同じ物)
 REC_ID_RE, SESSION_RE, SEG_RE = recproto.REC_ID_RE, recproto.SESSION_RE, recproto.SEG_RE
 ACTIVE = ("waiting", "recording", "reconnecting")   # ほかの状態: stopped(手で止めた)・ended(配信が終わった)・error
 QUALITIES = {"best": "best", "1080p": "1080p60,1080p,best", "720p": "720p60,720p,best"}   # streamlink の画質(左から順に試す)
-DEFAULT_QUALITY = "1080p"   # 既定(2026-10-04 ユーザー決定): 4K の配信で容量が膨らむのを避けつつ、速報版の見た目を保つ。720p・best も選べる
+DEFAULT_QUALITY = "1080p"   # 既定(ユーザー決定): 4K の配信で容量が膨らむのを避けつつ、速報版の見た目を保つ。720p・best も選べる
 YT_HOSTS = ("youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be")
 BACKOFF = (5, 10, 30)          # 繋ぎ直すまでの秒(最後の値を繰り返す)
 IDLE_END = 600                 # 途中で切れて、この秒数データが来なければ「終了」(終わった配信は --stream-types hls で取れなくなる)
@@ -506,7 +506,7 @@ class Recording:
 
     def _source_ended(self, code, name):
         """取得が「配信が終わった」で終わったか。streamlink は配信の再生リストに終わりの印(#EXT-X-ENDLIST)が付くと、何も言わずに 0 で終わる。
-        切断・止まったときも 0 で終わるが、そのときは記録に「No new segments … Stopping」「Reloading failed」が残る(2026-10-04 に 8.6.1 で確かめた)ので、
+        切断・止まったときも 0 で終わるが、そのときは記録に「No new segments … Stopping」「Reloading failed」が残る(8.6.1 で確かめた)ので、
         それが無いときだけ終わりとみなす。direct(テスト)の ffmpeg は切断でも 0 で終わるので、元の再生リストに終わりの印があるかを見る"""
         if code != 0:
             return False
@@ -797,7 +797,7 @@ class Recorder:
 
     def delete(self, rid):
         """録画を消す(線 D の「録画を自動で消す」。入口の manage/keep/live_cleanup.py だけが呼ぶ。入口の中継 /live/r/… は delete を通さない)。
-        2026-10-16(LD-1)から、すぐには消さずに 置き場所の ごみ箱/<日付>/録画/<録画の id> へ改名する(同じドライブなので一瞬)。
+        LD-1: すぐには消さずに 置き場所の ごみ箱/<日付>/録画/<録画の id> へ改名する(同じドライブなので一瞬)。
         元の場所は <日付>/manifest.jsonl に 1 行(④ の manage/keep/trash.py と同じ形 = ytt/trashbin)。TRASH_DAYS を過ぎた日付のフォルダは purge_trash が消す。
         移すのは置き場所の直下の <録画の id>/ で、recording.json があるものだけ(id は REC_ID_RE の形・realpath で置き場所の直下か確かめる・
         リンク / ジャンクションは移さない)。録画中・配信待ち・つなぎ直し中は 409。使用中で改名できなければ 409(何も動かないので、あとでまた呼べる)。

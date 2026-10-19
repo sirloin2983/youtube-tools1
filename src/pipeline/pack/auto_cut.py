@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """カットの計画の部品(read_cut_plan・build_plan・plan_from_keeps・finalize_plan。pack.py が使う)。
-パックを書くのは pack.py だけ。単独のコマンド(auto_cut.py)と FCPXML の書き出しは 10-16 のユーザー決定で消した(パックを作る道は入口と ② の CLI src/app/cli.py だけ)。
+パックを書くのは pack.py だけ。単独のコマンドと FCPXML の書き出しは持たない(ユーザー決定。パックを作る道は入口と ② の CLI src/app/cli.py だけ)。
 """
 import datetime
 import math
@@ -17,7 +17,7 @@ def read_cut_plan(path):
     """youtube-tools-cut-plan/v1 を読む -> {"segments": [...], "media": {...}, "tool": 書いたツール名,
     "fineGrained": 行単位の細かい区間か, "includesHandles": 区間に余白が含まれているか}。
     segments は status が adopted(省略時も adopted)の区間だけ: {"id","label","start_seconds","end_seconds"}。
-    cut2resolve が以前に書いた詳細版(segments が無く keep_frames と frame_rate がある)も、残す区間として読む"""
+    cut2resolve の詳細版(segments が無く keep_frames と frame_rate がある)も、残す区間として読む"""
     data = C.read_json_file(path, "採用区間JSON(cut-plan)")
     try:
         C.check_schema(data, SCHEMA, "採用区間JSON(youtube-tools-cut-plan/v1)")
@@ -117,7 +117,7 @@ def plan_from_keeps(keeps, meta, selected=None, handle_frames=0):
 def finalize_plan(plan, video, meta, src_start, copy_video=False, cues_out=None, tool=None):
     """出力フォルダに書く詳細版の cut-plan.json。notes:docs/spec/pipeline.md の共通の約束(tool・createdAt・media)と、
     そのまま入力に戻せる segments(= 最終的に残す区間。余白込みなので segmentsIncludeHandles: true)を足す。
-    以前は segments が無く、同じ schema なのに自分で読み直せなかった"""
+    同じ schema のまま自分で書いた物を読み直せる"""
     fps = meta["fps"]
     keeps = [tuple(x) for x in plan["keep_frames"]]
 

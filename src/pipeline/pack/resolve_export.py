@@ -1,16 +1,16 @@
 """DaVinci Resolve への受け渡し(文字起こしツールの「Resolveパッケージ(zip)をダウンロード」)と、「残す行」の規則。
 
-パックの中身は pipeline/pack の pack.py で作る(2026-09-26 一本化。以前はここに別の実装があり、Python の取り込みスクリプトで
-新しいプロジェクトを作っていた)。zip の中身は cut2resolve の Text+ パックと同じ:
+パックの中身は pipeline/pack の pack.py で作る。
+zip の中身は cut2resolve の Text+ パックと同じ:
   動画(パックの直下。スタジオの余白つき素材があればそれ)・Text+ を作る Lua と雛形・登録用の bat と ps1(最小限。④。手順書は画面で見る)。
-  EDL・SRT は入れない(2026-10-18 まで backup で入れられた予備は決定 3-34 で消した)。cut-plan.json も入れない(zip はダウンロードなので記録も残さない)
+  EDL・SRT は入れない(予備は決定 3-34 で入れない)。cut-plan.json も入れない(zip はダウンロードなので記録も残さない)
 残す区間の決め方は pack.TRANSCRIPT_ROWS(行の時間・短い行も残す・1フレームの隙間はつなぐ・端を声の止まる所まで広げる)。
 端を広げるか(設定の rowEdge)は pack.row_edge_from で読む(規則はここに書かない)。
 同じ入力から同じ中身になることは dev/tests/test_resolve_pack_contract.py が確かめる。
 
 このファイルに持っているもの: 「残す行」の規則(is_kept / kept_spans)・SRT の書式・受け渡しの JSON の組み立て
-(transcript/v1・cut-plan/v1・SRT = build_*。RS3-E5b で編集の pipeline_io から移した。パックが読む形を作る側がここなので、
-manage/cases の pipeline_io は読み・保存・.runtime だけになり、pipeline → manage の向きの違反が無くなった)。
+(transcript/v1・cut-plan/v1・SRT = build_*。パックが読む形を作る側がここなので、
+manage/cases の pipeline_io は読み・保存・.runtime だけで、pipeline → manage の向きの違反が無い)。
 パックの部品(同じフォルダの pack・resolve_textplus)は create_package などを呼んだときに初めて読み込む(文字起こしの他の機能はそれが無くても動く)。
 """
 from __future__ import annotations
@@ -78,7 +78,7 @@ def kept_spans(segments: list[dict]) -> list[dict]:
     return out
 
 
-# ---------------------------------------------------------------- 受け渡しの JSON と SRT の組み立て(RS3-E5b で pipeline_io から移した)
+# ---------------------------------------------------------------- 受け渡しの JSON と SRT の組み立て
 
 def tool_info(version):
     return {"name": TOOL_NAME, "version": str(version)}
@@ -119,7 +119,7 @@ def build_transcript_v1(doc, version):
             continue
         one = {"id": str(g.get("id") or ""), "start": round(float(g["start"]), 3), "end": round(float(g["end"]), 3), "text": text,
                "speaker": index.get(g.get("speaker")), "proofed": g.get("proofed") is True, "cut": g.get("cutState") == "cut"}
-        if g.get("noSub") is True:   # 字幕に出さない行(ゲームの声など。2026-10-05)。パックはこの行の字幕を作らず、残す区間には数える(cut2resolve の側)
+        if g.get("noSub") is True:   # 字幕に出さない行(ゲームの声など)。パックはこの行の字幕を作らず、残す区間には数える(cut2resolve の側)
             one["noSub"] = True
         segs.append(one)
     out = {"schema": _schemas.TRANSCRIPT_SCHEMA, "tool": tool_info(version), "createdAt": _schemas.iso_now(), "media": _media_of(doc)}
@@ -172,7 +172,7 @@ def build_srt(doc, wrap=0, speaker_names=False, base=0.0):
 # ---------------------------------------------------------------- パック(同じフォルダの pack.py で作る)
 
 def pack_instructions(folder):
-    """パックのフォルダ -> Resolve での手順(画面の「手順を見る」)。手順書のファイルは入れない(2026-09-27)ので、
+    """パックのフォルダ -> Resolve での手順(画面の「手順を見る」)。手順書のファイルは入れないので、
     パックの Lua に埋め込んだ計画から作り直す(規則は cut2resolve の resolve_textplus.readme_from_script)。Lua が無い・読めなければ None"""
     _pack, tp = _load_pack()
     lua = Path(folder) / "create_resolve_textplus_project.lua"
@@ -185,9 +185,9 @@ def pack_instructions(folder):
 
 
 def _load_pack():
-    """パックの部品(同じフォルダの pack と resolve_textplus。役割で組み直す RS1-2 で cut2resolve から移した)。
+    """パックの部品(同じフォルダの pack と resolve_textplus)。
     呼ばれたときに初めて読む(重い部品なので、残す行の規則・SRT・受け渡しの JSON だけ使うときは読まない)。
-    RS3-E5b で resolve_export 自体が pipeline/pack に入ったので、以前の sys.path の探し方(YTT_CORE_DIR)は要らなくなった"""
+    resolve_export 自体が pipeline/pack にあるので、sys.path を探す必要は無い"""
     try:
         from . import pack, resolve_textplus
     except ImportError as e:
@@ -314,7 +314,7 @@ def edit_preview(doc: dict, keeps, version: str = "", wrap=None) -> dict:
         return {"count": sm["count"], "keptSec": sm["keptSec"], "durationSec": sm["durationSec"], "fps": sm["fps"],
                 "captions": subs.get("out", 0), "vanished": subs.get("vanished", 0), "warnings": plan.warnings, "samples": samples,
                 "sampleSpeakers": sample_speakers,
-                # 重なる字幕の段分けと字幕に出さない行(2026-10-05。cut2resolve の pack.summary のまま渡す。古い cut2resolve なら 0)
+                # 重なる字幕の段分けと字幕に出さない行(cut2resolve の pack.summary のまま渡す。古い cut2resolve なら 0)
                 **{k: int(sm.get(k) or 0) for k in ("captionLanes", "captionsStacked", "captionsTrimmed", "noSubRows")}}
 
 
@@ -322,7 +322,7 @@ _SUB_COLOR_RE = re.compile(r"#?([0-9A-Fa-f]{6})")
 
 
 def speaker_sub_colors(doc: dict) -> dict:
-    """文書の話者の字幕の見た目(sub。2026-10-05)のうち色がある人 -> {話者の名前: "#RRGGBB"}。
+    """文書の話者の字幕の見た目(sub)のうち色がある人 -> {話者の名前: "#RRGGBB"}。
     組み込みの話者「ゲーム音声など」(builtin)は字幕に出さないので除く。保存のときに human/proof/store.py の sanitize_transcript が検査済みだが、
     Lua に入る値なのでここでも 16 進 6 桁だけを通す"""
     out = {}

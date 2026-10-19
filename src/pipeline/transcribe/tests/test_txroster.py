@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""pipeline/transcribe/roster の配信ごとの文脈 stream_context と用語の区切り split_terms(役割で組み直す RS2-8a に編集の ed_jobs から移した。RS6 a-3 から ytt/txtext)を、
+"""pipeline/transcribe/roster の配信ごとの文脈 stream_context と用語の区切り split_terms(split_terms は ytt/txtext)を、
 編集の serve を読まずに使うテスト。
 
     py -3.12 -m unittest src/pipeline/transcribe/tests/test_txroster.py -v

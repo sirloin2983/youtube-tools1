@@ -103,8 +103,8 @@ def _str(v, what, maxlen=200):
 def request_from_spec(spec):
     """画面の指定(JSON)→ pack.Request。モード: silence(① 無音で自動カット)/ keep(② 残す区間)/ list(③ 時刻リスト)
     どのモードでも、文字起こしがあれば「カット済」の行を削る(dropCutRows。既定 true)を重ねられる。
-    0.23.0 で、消した画面のための指定(silenceExtra = ②③に無音を重ねる・handles = ②の前後の余白・joinGap = つなぐ隙間)は受けない
-    (送っても黙って無視する = 知らない鍵と同じ。余白・つなぐ隙間は 10-16 に単独のコマンドごと消えた)。
+    silenceExtra(②③に無音を重ねる)・handles(②の前後の余白)・joinGap(つなぐ隙間)の指定は受けない
+    (送っても黙って無視する = 知らない鍵と同じ)。
     listKind "drop"(③の削る区間)は、入口のまとめて実行の「カットしない」(listText "" = 動画全体)が使うので残す"""
     if not isinstance(spec, dict):
         raise ApiError("bad_request", "指定の形が正しくありません")
@@ -286,8 +286,8 @@ def apply_speaker_styles(plan, styles, color_map, shown):
 
 
 def output_from_spec(o, video):
-    """出力の指定(JSON)→ build_pack の引数のもと。fcpxml(補助の FCPXML。2026-10-16 に書き出しごと消した)・crf(粗編集の画質)・
-    backup(Text+ パックの予備 EDL・SRT。2026-10-18 に消した = 決定 3-34)は受けない
+    """出力の指定(JSON)→ build_pack の引数のもと。fcpxml(補助の FCPXML)・crf(粗編集の画質)・
+    backup(Text+ パックの予備 EDL・SRT。決定 3-34)は受けない
     (送っても黙って無視する = 古い要求は断らない。FCPXML・予備は作らない・粗編集は既定の画質 C.DEFAULT_CRF)"""
     o = o if isinstance(o, dict) else {}
     out = clean_path(o.get("dir"), "out")
@@ -297,17 +297,17 @@ def output_from_spec(o, video):
         target = TP.parse_target(o.get("textplusFps"), o.get("textplusSize"))
     except ValueError as e:
         raise ApiError("bad_textplus", str(e))
-    # 配信者の名前 → Text+ の文字の色(メンバーカラー。手で入れたときだけ。照らし合わせは ytt/colors.py の1か所。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 4)
+    # 配信者の名前 → Text+ の文字の色(メンバーカラー。手で入れたときだけ。照らし合わせは ytt/colors.py の1か所)
     try:
         who, hex_ = _colors.resolve(o.get("streamer") if isinstance(o.get("streamer"), str) else "")
     except ValueError as e:
         raise ApiError("bad_streamer", str(e))
-    try:   # 聞こえ方の音量をそろえる目標(LUFS。残す区間だけ測って同梱の動画の音声をそろえる。2026-09-29)。省略・0 = そろえない
+    try:   # 聞こえ方の音量をそろえる目標(LUFS。残す区間だけ測って同梱の動画の音声をそろえる)。省略・0 = そろえない
         loud = _loud.check_target(o.get("loudness"))
         vol = None if loud is not None else _loud.check_volume(o.get("volume"))   # LUFS でそろえないときの音量(%。元 = 100)
     except ValueError as e:
         raise ApiError("bad_loudness", str(e))
-    try:   # 映像トラックの数(友人の依頼の ① 全自動で選ぶ。2026-10-02)。省略 = 1(今までどおり V1 動画・V2 字幕)
+    try:   # 映像トラックの数(友人の依頼の ① 全自動で選ぶ)。省略 = 1(今までどおり V1 動画・V2 字幕)
         tracks = 1 if o.get("videoTracks") in (None, "") else TP.video_tracks_value(o.get("videoTracks"))
     except ValueError as e:
         raise ApiError("bad_tracks", str(e))

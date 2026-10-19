@@ -35,7 +35,7 @@ JSON_EXTS = {".json"}
 TRANSCRIPT_SCHEMA = "youtube-tools-transcript/v1"
 CUT_PLAN_SCHEMA = "youtube-tools-cut-plan/v1"
 MAX_JSON_BYTES = 32 * 1024 * 1024   # 文字起こし・cut-plan の上限(3時間の配信でも数MB)
-# 指定を省いたときの値の正(pack.Request・serve.py の API はここ(か Request の既定)を読む。2026-10-09 に写しをやめた)
+# 指定を省いたときの値の正(pack.Request・serve.py の API はここ(か Request の既定)を読む)
 DEFAULT_NOISE_DB = -35.0            # 無音とみなす音量 dB
 DEFAULT_SILENCE_MIN = 0.6           # この秒数以上続く無音だけ削る
 DEFAULT_SILENCE_PAD = 0.15          # 話の前後に残す秒数
@@ -336,7 +336,7 @@ frames_to_tc = S.frames_to_tc
 
 def check_timecodes(fps, rec_start=DEFAULT_REC_START, src_start="00:00:00:00"):
     """重い処理(無音の検出・粗編集の書き出し)の前に、タイムコードの指定を確かめる。
-    以前は EDL を書く直前まで確かめず、粗編集の動画だけ書き出してから失敗していた"""
+    EDL を書く直前まで待つと、粗編集の動画だけ書き出してから失敗するため"""
     nom = nominal_rate(fps)
     for label, tc in (("タイムラインの開始タイムコード(--rec-start)", rec_start),
                       ("元動画の開始タイムコード(--src-start-tc)", src_start)):
@@ -478,7 +478,7 @@ def render_rough_cut(video, keeps, fps, has_audio, out_path, crf=DEFAULT_CRF, ta
 # ---------------------------------------------------------------- 表示・手順書・出力
 
 def fmt_sec(sec):
-    """0:05.20 / 1:02:03.45。先に 1/100 秒に丸める(以前は 59.996 秒が「0:60.00」になった)"""
+    """0:05.20 / 1:02:03.45。先に 1/100 秒に丸める(59.996 秒が「0:60.00」にならないように)"""
     cs = int(round(max(0.0, sec) * 100))
     h, rem = divmod(cs, 360000)
     m, rem = divmod(rem, 6000)
@@ -798,7 +798,7 @@ def find_edit_media(video):
     -> {"path", "sidecar", "selectionIn", "handleBefore", "handleAfter"}(秒)か None(無い・読めない・形が違う)。
     selectionIn = 余白つき素材の中で、切り抜き(= video)の先頭が何秒目か。video の時刻 t は、余白つき素材では selectionIn + t。
     素材は .edit.json と同じフォルダの中だけを見る(名前だけを使う。../ やネットワークのパスを指させない)。
-    .edit.json は 作業用/ → 以前の置き方(動画の隣)の順に探す(2026-09-27 から途中のファイルは 作業用/)"""
+    .edit.json は 作業用/ → 以前の置き方(動画の隣)の順に探す(途中のファイルは 作業用/)"""
     video = Path(video)
     if is_network_path(str(video)):
         return None

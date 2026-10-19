@@ -2,7 +2,6 @@
 """配信中の盛り上がりの検出のワーカー(線 D の L2。notes:plan/line-d-detect.md・notes:plan/line-d-live-clipping.md の 0-10)。入口(src/flow/live_detect.py)が起動する子プロセス。
 
     py -3.12 -u src/pipeline/analyze/live_excite_worker.py --config <入口の作業データ>/live/excite/config.json [--parent <入口の pid>]
-    (旧い場所の転送は RS5-G で消した)
 
 録画中の全部の録画を 1 つのワーカーで受け持つ(0-10-4)。**同時に測るのは MAX_ACTIVE(2)本まで**: 3 本目からは「順番待ち」(peaks.json の message・
 queued と worker.json の queued)で、受け持っている録画の検出が終わったら古い順に始める(そのときのライブ端 − SKIP_KEEP から。録画の途中から受け持った
@@ -326,7 +325,7 @@ def launch_process(cmd, logf):
 class ChatFeed:
     """yt-dlp の live_chat を読み続ける(0-10-5)。起動するたびに新しいファイル <videoId>.<通し番号>.live_chat.json(.part)(起動し直しと 64MB の回しで
     前のファイルを上書きさせない)。行は 1 行 1 JSON(isLive・replayChatItemAction・videoOffsetTimeMsec。数えるのは addChatItemAction の CHAT_KINDS だけ)。伸びるファイルを末尾から読み、読んだ位置を覚える。古いファイルは読み切ってから消す。
-    止まった(録画が進んでいるのに stall 秒増えない。前は増えていた)・終わった → 間隔(backoff)をあけて起動し直す。1 時間に max_per_hour 回を超えたら諦める
+    止まった(録画が進んでいるのに stall 秒増えない)・終わった → 間隔(backoff)をあけて起動し直す。1 時間に max_per_hour 回を超えたら諦める
     (state "none" = 音だけ)。403・429 が出たら最大の間隔から。最初の起動で「チャットが無い」と分かれば最初から諦める"""
 
     def __init__(self, vid, url, folder, ytdlp, launcher=None, job=None, log=None, limit=CHAT_LIMIT, stall=CHAT_STALL,
@@ -381,7 +380,7 @@ class ChatFeed:
         return os.path.join(self.folder, "%s.%d" % (self.vid, gen))
 
     def path_of(self, gen):
-        """yt-dlp が書くチャットのファイル。配信中は <stem>.live_chat.json.part に追記し、終わってから .live_chat.json へ名前を変える(L0 の実測 2026-10-07)。
+        """yt-dlp が書くチャットのファイル。配信中は <stem>.live_chat.json.part に追記し、終わってから .live_chat.json へ名前を変える(L0 の実測)。
         隣にできては消える断片 .part-FragNNN は読まない。まだ無ければ None"""
         stem = self.stem(gen)
         for p in (stem + ".live_chat.json.part", stem + ".live_chat.json"):

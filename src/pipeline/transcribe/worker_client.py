@@ -4,15 +4,14 @@
 認識エンジンの選び方と確かめ(req_engine・check_engine・engines_info)・faster-whisper の引数(whisper_kwargs・filter_kwargs)・
 GPU で失敗したら CPU でやり直す決まり(cpu_fallback)・wav をサーバーのプロセスで読まずに渡す形(WavRef・WavSlice・read_wav_f32)。
 
-**OPT(2026-10-11)でワーカーの中で動く物を models.py に分けた**: 読み込んだモデルの使い回し(_models)・読み込み(_load_model_local)・手放す本体(release_idle_local)・
+**ワーカーの中で動く物は models.py にある**: 読み込んだモデルの使い回し(_models)・読み込み(_load_model_local)・手放す本体(release_idle_local)・
 GPU(CUDA)の部品の調べ(setup_cuda_paths・cuda_count・cuda_libs_ok・_gpu_ready_local)・cuda_compute はそちら(呼び手は models.名前で読む)。ここに残るのはサーバー側の物
 (WorkerClient・RemoteModel・load_model の代理・release_idle_models の呼び分け・GPU の有無の別プロセス調べ・部品の有無・モデル名の検査・引数・cpu_fallback・wav の形)。
 
-役割で組み直す RS2-6(2026-10-10)に移した(中身は同じ)。
 標準ライブラリ・ytt・同じパッケージの兄弟(backend・roster・tx_engines・txbase)だけを読む。
 **このモジュールは編集のサーバーのプロセスでも読む**ので、numpy・faster_whisper・ctranslate2・sherpa_onnx は IN_WORKER のときだけ通る関数の中で読む
 (src/editor/tests/test_worker.py が検査)。IN_WORKER は認識ワーカー(同じフォルダの worker.py の main)と測る道具(src/eval/tools/_evalcommon)が入れる。
-ワーカーの本体は同じフォルダの worker.py(RS2-9 に編集の tx_worker.py から移した。WORKER_SCRIPT はテストの差し替え用)。記録 WORKER_LOG は
+ワーカーの本体は同じフォルダの worker.py(WORKER_SCRIPT はテストの差し替え用)。記録 WORKER_LOG は
 app(編集の serve.py)が読み込みのときと作業データの切り替えで入れる(入っていなければ呼ぶたびに ytt/workdata の DATA_DIR から作る)。
 ワーカーへは作業データの場所(環境変数 TRANSCRIBE_DATA_DIR)を必ず渡し、worker-fake(テスト)のときだけ疑似の部品のモジュール名(FAKES_MODULE。app が入れる)を渡す。
 サーバーのプロセスでの GPU の有無(別プロセスで 1 回だけ調べる gpu_ready)・部品の有無(has_faster_whisper・worker_has・nvidia_gpu)・ワーカーの Python(worker_python)・
@@ -57,13 +56,13 @@ def release_idle_models(now=None):
 # やり取り: ワーカーの標準入力に要求を1行1件の JSON(ASCII)で送り、標準出力から途中経過・結果を1行1件で受け取る。1度に1つの要求だけ。
 # 落ちたら(標準出力が閉じたら)そのジョブを「失敗」にし、次の要求でワーカーを起動し直す。しばらく使わなければワーカーごと終わらせてメモリを返す。
 IN_WORKER = False   # 認識ワーカー(worker.py)の中で True にする(そのときは load_model などが本体をその場で実行する)
-WORKER_SCRIPT = None   # 認識ワーカーの本体の上書き(テストが差し替える)。None ならこのフォルダの worker.py(RS2-9。以前は app が編集の tx_worker.py を入れた)
+WORKER_SCRIPT = None   # 認識ワーカーの本体の上書き(テストが差し替える)。None ならこのフォルダの worker.py
 WORKER_LOG = None      # ワーカーの標準エラーの記録。app が入れる(作業データの切り替え set_data_dir も)。None なら ytt/workdata の DATA_DIR の worker.log
 FAKES_MODULE = None    # worker-fake(テスト)のときワーカーに読ませる疑似の部品のモジュール名(⑤ の eval/fake/fake_worker。app = 編集の serve が入れる。① は ⑤ を import しない = 名前の文字だけ)
 FAKES_ENV = "YTT_WORKER_FAKES"   # FAKES_MODULE をワーカーへ渡す環境変数(worker_env が入れ、worker.py の main が読む)
 WORKER_LOG_MAX = 1024 * 1024
 WORKER_CANCEL_GRACE = 15   # 取り消してから、この秒数で止まらなければワーカーを強制終了する
-WORKER_SILENCE_TIMEOUT = 20 * 60   # ワーカーから何も届かない時間の上限(秒)。超えたら強制終了してそのジョブを失敗にする(黙ったワーカーを待ち続けて SLOTS を持ったまま他のツールを塞がない。夜間の見直し 高。2026-10-01 ユーザー決定)
+WORKER_SILENCE_TIMEOUT = 20 * 60   # ワーカーから何も届かない時間の上限(秒)。超えたら強制終了してそのジョブを失敗にする(黙ったワーカーを待ち続けて SLOTS を持ったまま他のツールを塞がない。ユーザー決定)
 WORKER_LINE_MAX = 8 * 1024 * 1024
 
 
@@ -83,8 +82,8 @@ def worker_log():
 
 
 def _worker_priority():
-    """Windows: 認識のワーカーは「通常より下」の優先度で動かす(2026-10-04)。長い文字起こしが CPU を使っている間も、
-    画面の操作・スタジオの書き出し・パック作りが先に CPU を取れる(同時実行の上限 SLOTS は 2 のまま。git の履歴(679ff01 以前)の docs/plan/stability-review-2026-10.md)。
+    """Windows: 認識のワーカーは「通常より下」の優先度で動かす。長い文字起こしが CPU を使っている間も、
+    画面の操作・スタジオの書き出し・パック作りが先に CPU を取れる(同時実行の上限 SLOTS は 2 のまま)。
     環境変数 TRANSCRIBE_WORKER_PRIORITY=normal で今までどおり。-> tools.no_window_flags の priority("low" か None)"""
     return None if os.environ.get("TRANSCRIBE_WORKER_PRIORITY", "").strip().lower() == "normal" else "low"
 
@@ -525,7 +524,7 @@ def load_model(name, job, pref="auto", force_cpu=False, engine=tx_engines.DEFAUL
     return RemoteModel(WORKER, name, v["device"], v.get("params"), job, engine), v["device"]
 
 
-# ---------- サーバーのプロセスでの GPU と部品の有無・ワーカーの Python・疑似のワーカー・モデル名の検査(RS3-0A に編集の ed_state から移した) ----------
+# ---------- サーバーのプロセスでの GPU と部品の有無・ワーカーの Python・疑似のワーカー・モデル名の検査 ----------
 # 画面の表示(/api/tools)・文字起こしの受付(doc_jobs の valid_model)・エンジンの確かめ(check_engine)・話者判別の部品の有無(diarize.has_sherpa)が読む。
 # 疑似かどうかは backend.is_fake()(RS5-D。編集の serve が登録する selector = ed_state.backend_name を呼ぶたびに読む)。置き場所は ytt/workdata の ROOT
 _nv_cache = []
@@ -707,7 +706,7 @@ def cpu_fallback(job, device, pref, run, reload, msg=GPU_FAILED_MSG, retry=True,
         return run()
 
 
-# ---------- wav を読まずに渡す形(サーバーのプロセス用。RS2-6 に ed_speakers から移した) ----------
+# ---------- wav を読まずに渡す形(サーバーのプロセス用) ----------
 class WavRef:
     """16kHz・モノラル・16bit の wav を「読まずに」表す(サーバーのプロセス用)。audio[a:b] は WavSlice になり、
     認識ワーカーに渡すと、ワーカーがその範囲だけを読む。サーバーのプロセスに numpy(と音声全体のメモリ)を持ち込まないため。"""

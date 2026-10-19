@@ -1,27 +1,26 @@
 # -*- coding: utf-8 -*-
-"""「編集」のサーバーの部品: LLM の後処理(提案 P18。notes:plan/done/llm-postfix.md。編集 0.61.0)。
+"""「編集」のサーバーの部品: LLM の後処理(提案 P18。notes:plan/done/llm-postfix.md)。
 
 ねらい: 認識の結果のうち「名簿の呼び名の聞き違い」らしい所だけを、ローカルの LLM(Qwen3-8B。llama-server・Vulkan)に直させて校正を短くする。
   1 選ぶ llm_pick      名簿の呼び名(LLM_MIN_ALIAS 字以上・普通の言葉と重なるものは除く)に、かなに寄せて 1 字違いの所と、名簿の誤りやすい形(misrecognitions)。
                        名簿は、その文書に出る人(題名・動画のパス・話者の名前に名前か呼び名があるメンバー)だけ。カタカナの呼び名に近い所は元の文字にもカタカナがあるときだけ
-                       (10-09 の測定: ひらがなの普通の言葉「みるか」を「ポルカ」に変えた)。後処理 A・D が直した行(fill)は選ばない。1 文書 LLM_MAX_PICKS 箇所まで
+                       (測定で、ひらがなの普通の言葉「みるか」を「ポルカ」に変えた)。後処理 A・D が直した行(fill)は選ばない。1 文書 LLM_MAX_PICKS 箇所まで
   2 聞く llm_messages  行ごとに 前後 LLM_CTX_ROWS 行・疑わしい所・候補・出る人を渡し、差分だけを JSON で答えさせる(行を書き直させない。思考はオフ・温度 0)
   3 検査 llm_guard     置き換え前の文字が行にある・候補の呼び名そのものか、かなに寄せた音が近い・字数の差が 2 字か 2 割以内・自信が LLM_MIN_CONF 以上・
                        候補に無い名簿の名前を新しく持ち込まない。1 文書で直す行は LLM_MAX_EDIT_SHARE まで(自信の高い順)
   4 当てる llm_apply   文書の行(segments)の文字を置き換え、fill = {"from": 元の文字, "by": "llm"} と印 LLM_FLAG を付ける(画面の「別の読み」の札で戻せる)。
                        機械の出力 original は変えない(精度の測定の正解との比べ方が変わらない)
-決まり(10-08 の「守りを付けて先に入れて様子見」と decisions 3-17):
+決まり(「守りを付けて先に入れて様子見」と decisions 3-17):
   - 設定 autoLlm(既定オン。文字起こしの指定 validate_job)。評価用の文書には当てない
   - 選んだ所が無ければ LLM を読み込まない(モデルは 5GB)。読めない・失敗したら文字起こしを失敗にせず、警告を出して認識の結果のまま
   - 生の提案・採否・断った理由は <id>.llm.json(LLM_SCHEMA)、数は recognition.runs[].llm
   - 学習(human/proof/learn.py の learn_events)は後処理が直した行(fill)を含むまとまりを材料にしない(機械の直しを「人の直し」として覚えない)
-  - 10-09 に確かめ済み(測る道具は消した) 22 本で CER 13.5 → 13.4%・名前 28 → 34/53
 規則の部分(llm_fold 〜 llm_cap)は編集のほかの部品を読まない。組み込みの部分だけが、ytt/jobs・ytt/workdata・worker_client・roster・backend を呼ぶ。
 名前は llm_ / LLM_ で始める(read_llm のほか。serve.py の _ED_MODULES。ほかの部品と重ならないように)。
 
-役割で組み直す RS2-9(2026-10-10)に移した(中身は同じ。旧い名前の殻は作らない = 読み手は全部直した。S.llm_* は serve の名前の受付で読める)。
-以前は組み込みの部分が関数の中で import していた(ed_state・roster・ytt/jobs・worker_client)。今は先頭で同じパッケージの兄弟(backend・roster・txbase・worker_client)と
-ytt(fsio・jobs・workdata)を読み、置き場所(workdata.TX_DIR・roster.ROSTER)は呼ぶたびに持ち主から(RS3-0A まで txenv の口)、疑似の問い合わせは backend の口 llm_ask から(RS5-D。app の ed_state を読まない)。
+S.llm_* は serve の名前の受付で読める。
+先頭で同じパッケージの兄弟(backend・roster・txbase・worker_client)と
+ytt(fsio・jobs・workdata)を読み、置き場所(workdata.TX_DIR・roster.ROSTER)は呼ぶたびに持ち主から、疑似の問い合わせは backend の口 llm_ask から(app の ed_state を読まない)。
 標準ライブラリ・ytt・兄弟だけなので、ネイティブの部品は読み込まない。
 """
 import json
@@ -254,7 +253,7 @@ def llm_run(rows, members, doc, ask, limit=LLM_MAX_PICKS, mark=True, picks=None)
 # ---------- run_job から呼ぶ入口(ここからは編集の部品を読む) ----------
 def llm_model(spec):
     """使う LLM のモデル: 要求(文字起こしの指定 spec)の llmModel が tx_engines の LLAMA_TEXT_MODELS にあればそれ、無い・知らない名前なら LLM_MODEL
-    (② がこの PC の設定 flow/machine.py から入れて渡す。RS7-1 S1。知らない名前は警告だけで既定に)"""
+    (② がこの PC の設定 flow/machine.py から入れて渡す。知らない名前は警告だけで既定に)"""
     name = spec.get("llmModel") if isinstance(spec, dict) else None
     if not name:
         return LLM_MODEL

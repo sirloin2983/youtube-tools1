@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
-"""「編集」のサーバーの部品: 認識のあとの後処理(10-08 の実験ループの A・C・D。notes:plan/line-b-transcription.md の「10-08 の実験ループ」。編集 0.60.0)。
+"""「編集」のサーバーの部品: 認識のあとの後処理(A・C・D。notes:plan/line-b-transcription.md の「10-08 の実験ループ」)。
 
-ねらい: whisper の結果のうち「機械どうしを突き合わせれば直せる」所だけを自動で直して、校正を短くする(ユーザー 10-08「精度が上がるなら自動で書き換えてよい」)。
+ねらい: whisper の結果のうち「機械どうしを突き合わせれば直せる」所だけを自動で直して、校正を短くする(ユーザー決定「精度が上がるなら自動で書き換えてよい」)。
   A fill_apply   文字の少ない行(FILL_MIN_SEC 秒以上で、記号を除き同じ字の繰り返しを 1 字に縮めた文字数が FILL_MAX_CPS 字/秒 未満、または繰り返しで縮む行
                  = 声が重なって片方しか書けていない所)の窓(前後 FILL_PAD 秒)を SenseVoice(tx_engines.SenseVoice。CPU・1 窓 0.1 秒)で読み、
                  字数が FILL_RATIO 倍以上なら置き換える。確かめ済み 22 本で CER 13.0 → 11.8%・重なり区間の抜け 109 → 51 字
   B fill_strip_names  行の頭の「名前:」(whisper が字幕の学習データの形を出す)を外す。名前が名簿・用語集・文脈の語に当たるか、かな・カタカナだけの短い語のとき。
-                 設定 stripNames(既定オン・autoFill とは別のスイッチ)。印 FILL_SPK_FLAG・行の fill = {"from": 元の文字, "by": "name"}(0.67.0)
+                 設定 stripNames(既定オン・autoFill とは別のスイッチ)。印 FILL_SPK_FLAG・行の fill = {"from": 元の文字, "by": "name"}
   C fill_clean_tail   前の行の末尾だけをもう一度出した行(窓の境目の重複)を捨てる(run_job)
     fill_clean_turns  定型の幻覚(FILL_STOCK)で、声の区間(話者判別の turns)と FILL_MIN_VOICE も重ならない行を捨てる(apply_diarization = 判別のあとだけ。
                  判別を回さない文書では捨てない)。22 本で 13.0 → 12.8%
@@ -21,9 +21,9 @@
   - 置き換えた・捨てた数は記録に残す(recognition.runs[].fill・diarization.fillDropped)
 名前は fill_ / FILL_ / _fill_ で始める(serve.py の _ED_MODULES。ほかの部品と重ならないように)。
 
-役割で組み直す RS2-9(2026-10-10)に移した(中身は同じ。旧い名前の殻は作らない = 読み手は全部直した。S.fill_* は serve の名前の受付で読める)。
+S.fill_* は serve の名前の受付で読める。
 標準ライブラリ・ytt・同じパッケージの兄弟(backend・diarize・roster・tx_engines・txbase・worker_client)だけを読む。名簿のファイルの場所は呼ぶたびに
-roster.ROSTER から(RS3-0A まで txenv の口)、話者判別の部品の有無は diarize.has_sherpa から、疑似の窓の読みは backend の口 fill_reader から(RS5-D。app の ed_state を読まない)。ネイティブの部品は読み込まない。
+roster.ROSTER から、話者判別の部品の有無は diarize.has_sherpa から、疑似の窓の読みは backend の口 fill_reader から(app の ed_state を読まない)。ネイティブの部品は読み込まない。
 """
 import re
 import unicodedata
@@ -42,7 +42,7 @@ FILL_RATIO = 3.0         # A: 別の読みの字数が元の何倍以上なら�
 FILL_MAX_ROWS = 60       # A: 1 回の文字起こしで読む窓の上限(長い文書で遅くならないように)
 FILL_FLAG = "別の読みで埋めた(元の文字は「別の読み」の札)"
 FILL_NAME_FLAG = "名簿の呼び名に直した(別のエンジンも同じ呼び名)"
-FILL_STOCK = ("ご視聴ありがとうございました", "チャンネル登録", "ありがとうございました", "おやすみなさい", "字幕", "最後まで", "ご視聴")   # C: 定型の幻覚(10-08 に測った文)
+FILL_STOCK = ("ご視聴ありがとうございました", "チャンネル登録", "ありがとうございました", "おやすみなさい", "字幕", "最後まで", "ご視聴")   # C: 定型の幻覚
 FILL_MIN_VOICE = 0.3     # C: 行の長さのうち声の区間と重なる割合がこれ未満なら幻覚
 FILL_DUP_MIN = 6         # C: 前の行の末尾の重複とみなす最小の文字数
 FILL_AGREE_MIN = 3       # D: 呼び名の最小の文字数
@@ -169,7 +169,7 @@ def fill_clean_turns(doc, turns, offset):
     return n
 
 
-# ---------- B: 行の頭の話者名を外す(0.67.0。10-09 ユーザー報告「『Aさん:発言』のような形になってる」) ----------
+# ---------- B: 行の頭の話者名を外す(「Aさん:発言」のような形を直す) ----------
 def fill_spk_key(s):
     """話者名を比べる用: NFKC・前後の空白を除く"""
     return unicodedata.normalize("NFKC", str(s or "")).strip()
@@ -242,7 +242,7 @@ def fill_strip_names(spec, rows):
 
 
 def fill_head_stripper(spec):
-    """範囲・全体の再認識で、行の頭の「名前:」を外す決まり(B。0.67.0)。recognize.finish_range_lines が使う
+    """範囲・全体の再認識で、行の頭の「名前:」を外す決まり(B)。recognize.finish_range_lines が使う
     (同じ ① の recognize が直に呼ぶ)。-> None(設定 stripNames が明示のオフ・評価用)か、split(文字) -> (本文, 外したときの印 FILL_SPK_NOTE か None)"""
     if spec.get("stripNames", True) is False or spec.get("evalSet"):
         return None

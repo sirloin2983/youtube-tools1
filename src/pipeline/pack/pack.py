@@ -3,7 +3,7 @@
 
   plan_cut(Request)   … 動画を調べ、カットの決め方を組み合わせて「残す区間」を出す。ファイルは作らない(= --dry-run)
   build_pack(Plan, …) … EDL・カット後の字幕・友人へ.txt・cut-plan.json(+ 任意で粗編集 mp4・元動画のコピー・Text+パック)を作る。
-                        Text+ パックには EDL・カット後の SRT を入れない(2026-10-18 に「予備」の道を消した = 決定 3-34。Text+ でないパックは EDL が本体)。
+                        Text+ パックには EDL・カット後の SRT を入れない(「予備」の道は無い = 決定 3-34。Text+ でないパックは EDL が本体)。
                         plan_file=False: cut-plan.json を書かない = 画面・API。記録は作業データ側。notes:docs/design/edit-tool-design.md の 12 ④)
 
 残す区間の決め方:
@@ -59,7 +59,7 @@ SNAP_MIN = 0.05        # 話の切れ目で両端を詰めるのは、これよ�
 
 # 文字起こしツールの「残す行」の規則(dev/tests/test_resolve_pack_contract.py が確かめる):
 # 行の時間を残す・短い行も捨てない(最短 0)・1フレーム以下の隙間はつなぐ(1フレームだけのジャンプカットを作らない)・
-# 端を声の止まる所まで広げる(ROW_EDGE。2026-09-26 ⑥。以前は余白 0 で語頭・語尾が切れていた)
+# 端を声の止まる所まで広げる(ROW_EDGE。⑥)
 TRANSCRIPT_ROWS = {"base": "rows", "handles": 0.0, "min_len": 0.0, "join_frames": 1, "row_edge": ROW_EDGE}
 # 「編集」ツールのカット(タイムラインで手で決めた残す区間。画面の指定 spec.keeps)のとおりに作る: 余白を足さない・最短の長さで捨てない・
 # 無音を重ねない・「カット済」の行で削らない(削る所はもう keeps に入っている)・隙間をつながない(接している区間だけ1つにまとめる)。
@@ -68,8 +68,8 @@ EDIT_KEEPS = {"base": "list", "handles": 0.0, "min_len": 0.0, "join_frames": 0, 
 MAX_KEEPS = 5000
 PACK_FILE_KINDS = ("edl", "srt", "readme", "plan", "roughcut", "video",
                    "textplus_script", "textplus_install", "textplus_launcher", "textplus_readme", "textplus_template")
-OLD_MEDIA_DIR = "media"                       # 2026-09-27 まで Text+ パックの動画を入れていたフォルダ(今はパックの直下)
-OLD_BACKUP_README = "予備_EDLで開く手順.txt"   # 2026-10-18 まで Text+ パックに入れられた「予備」の手順書(EDL・SRT と組。決定 3-34 で消した)
+OLD_MEDIA_DIR = "media"                       # 古い Text+ パックの動画のフォルダ(今はパックの直下)
+OLD_BACKUP_README = "予備_EDLで開く手順.txt"   # 古い Text+ パックの「予備」の手順書(EDL・SRT と組。決定 3-34)
 
 
 @dataclass
@@ -594,7 +594,7 @@ def caption_layout(plan):
 
 
 def describe(plan, lay=None):
-    """試算の表示の行(旧 cut2resolve.py のコマンドと同じ行)。lay: caption_layout(plan)(渡せば作り直さない)"""
+    """試算の表示の行。lay: caption_layout(plan)(渡せば作り直さない)"""
     m, fps, total = plan.meta, plan.meta["fps"], plan.meta["total"]
     out = [f"動画: {plan.video.name}  {m['w']}x{m['h']}  {fps[0] / fps[1]:.3f}fps  {total}フレーム({m['frames_source']})",
            f"映像: {m['codec']} / {m['pix_fmt']}",
@@ -624,10 +624,10 @@ def pack_paths(video, out_dir, has_subs, render=False, copy_video=False, textplu
                plan_file=True, readme_file=True):
     """パックに書くファイル {種類: パス}。media: 同梱する動画が video と違うとき(スタジオの余白つき素材)。名前は video にそろえる。
     EDL・カット後の SRT・EDL の手順書(友人へ.txt)は Text+ でないパックだけ(EDL が本体)。Text+ パックには入れない
-    (2026-10-18 まで backup で入れられた「予備」は決定 3-34 で消した。古いパックの名前は OLD_BACKUP_README)。
+    (「予備」は決定 3-34 で入れない。古いパックの名前は OLD_BACKUP_README)。
     plan_file: cut-plan.json をフォルダに書く(コマンド。画面・API は作業データに記録する)。
-    readme_file: 手順書の「友人へ.txt」をフォルダに書く(コマンド。画面・API は書かずに画面の「手順を見る」で出す。2026-09-27 ユーザー: 要らない)。
-    動画はパックのフォルダの直下(2026-09-27 まで Text+ パックは media フォルダの中。1つだけなので分けない = ユーザー)"""
+    readme_file: 手順書の「友人へ.txt」をフォルダに書く(コマンド。画面・API は書かずに画面の「手順を見る」で出す。ユーザー: 要らない)。
+    動画はパックのフォルダの直下(1つだけなので分けない = ユーザー)"""
     video, out_dir = Path(video), Path(out_dir)
     media = Path(media) if media else video
     p = {}
@@ -731,7 +731,7 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, textplus=Fals
     speaker_outlines: {話者の名前: "#RRGGBB"}(簡易版)。speaker_colors と同じ決め方で、字幕ごとのふちの色にする。
     video_tracks: Text+ のタイムラインの映像トラックの数(1〜5。V1 = 動画・V2〜 = 空)。字幕はその上のトラックに置く。
     loudness: 聞こえ方の音量をそろえる目標(LUFS。ytt/loudness.py の CHOICES。None = そろえない)。**カットで残す区間だけ**を測り、
-    同梱する動画は音声だけ作り直して(映像はそのまま)、粗編集の動画も同じ量で書き出す(2026-09-29)。元の動画は書き換えない。
+    同梱する動画は音声だけ作り直して(映像はそのまま)、粗編集の動画も同じ量で書き出す。元の動画は書き換えない。
     volume: 音量(%。元 = 100)。loudness が無いときだけ、測らずにその量をかける(LUFS が分からない人向け。スタジオの書き出しの「音量 %」と同じ)
     prev_copy: 前にこのフォルダへ作ったパックの記録の videoCopy(serve.py が作業データの packs/ から読んで渡す。コマンドは渡さない = 毎回作り直す)。
     音量をかけて写すとき、これと今の条件(元の動画・かける量・書き出しの設定)が同じで、置き場所の動画も記録のままなら作り直さない(E-15 の続き。_stage_video)
@@ -759,7 +759,7 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, textplus=Fals
     C.validate_output_paths(list(paths.values()), force, protected=plan.req.inputs() + ((mvideo,) if m["edit"] else ()))
     req = plan.req
     warnings = list(m["warnings"])
-    if "edl" in paths:   # 動画のファイル名の注意は EDL を書くときだけ(EDL がファイル名で元動画と結び付くため。2026-10-01 ユーザー決定。試算 plan_cut には入れない)
+    if "edl" in paths:   # 動画のファイル名の注意は EDL を書くときだけ(EDL がファイル名で元動画と結び付くため。ユーザー決定。試算 plan_cut には入れない)
         warnings += C.name_warnings(video)
     stale = _stale_warning(video, out_dir, paths, mvideo)
     if stale:
@@ -854,9 +854,9 @@ def _stage_video(m, out_dir, final, tmp, gain, prev_copy, task=None, log=None):
 def _stale_warning(video, out_dir, paths, mvideo):
     """前に作ったかもしれない・今回は作らないファイルがフォルダに残っていれば、その注意の文(無ければ None)"""
     known = pack_paths(video, out_dir, True, render=True, textplus=True)
-    known["old_fcpxml"] = out_dir / f"{video.stem}_cut.fcpxml"           # FCPXML は 2026-10-16 まで補助で書けた(今は作らない)
-    known["old_video"] = out_dir / OLD_MEDIA_DIR / mvideo.name        # 2026-09-27 までの Text+ パックの動画の場所
-    # 2026-10-18 まで Text+ パックに入れられた予備(EDL・カット後の SRT・予備の手順書。決定 3-34)。Text+ でないパックでは EDL・SRT は今の中身
+    known["old_fcpxml"] = out_dir / f"{video.stem}_cut.fcpxml"           # 古いパックの FCPXML(今は作らない)
+    known["old_video"] = out_dir / OLD_MEDIA_DIR / mvideo.name        # 古い Text+ パックの動画の場所
+    # 古い Text+ パックの予備(EDL・カット後の SRT・予備の手順書。決定 3-34)。Text+ でないパックでは EDL・SRT は今の中身
     known.update(old_edl=out_dir / f"{video.stem}.edl", old_srt=out_dir / f"{video.stem}_cut.srt", old_backup_readme=out_dir / OLD_BACKUP_README)
     now = set(paths.values())   # 種類の名前ではなくパスで比べる(Text+ でないパックの EDL・SRT・友人へ.txt を「残っている」と言わない)
     stale = [p for p in dict.fromkeys(known.values()) if p not in now and p.exists()]

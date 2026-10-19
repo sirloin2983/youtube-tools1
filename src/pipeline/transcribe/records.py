@@ -2,8 +2,8 @@
 """① 文字起こしの記録: recognition.runs の 1 件(エンジンと版・設定・辞書の版・後処理)・配信ごとの文脈と声の検出の記録・
 生出力(transcripts/<id>.asr.json)・単語の時刻(transcripts/<id>.words.json)の読み書き。
 
-役割で組み直す RS2-5(2026-10-10)に移した(中身は同じ)。標準ライブラリ・ytt・同じパッケージの兄弟(backend・postproc・roster・
-tx_engines・txbase)と ytt だけを読む。置き場所(ytt/workdata の TX_DIR)と名簿のファイル(roster.ROSTER)は呼ぶたびに持ち主から(RS3-0A まで txenv の口)。
+標準ライブラリ・ytt・同じパッケージの兄弟(backend・postproc・roster・
+tx_engines・txbase)と ytt だけを読む。置き場所(ytt/workdata の TX_DIR)と名簿のファイル(roster.ROSTER)は呼ぶたびに持ち主から。
 辞書の版(dict_version)の置換辞書の組と学習の記録は、設定と学習(文書の側)を ① が直に読まないよう、引数(pairs・learned)で受け取る。
 渡されなければ app(編集の serve.py)が set_dict_inputs で登録した口から読む(dict_pairs・dict_learned。呼ぶたびに読む = S.dict_pairs の差し替えが効く)。
 dict_version を読むのは同じモジュールの _run_base だけ(テストの mock.patch.object(S, "dict_version", …) が届く)。
@@ -82,7 +82,7 @@ def recognition_run(spec, job, audio_sec, wall_sec, pairs=None):
                             "context": [m["name"] for m in (spec.get("context") or {}).get("members") or []]})
     run.update({"audioSec": round(float(audio_sec or 0), 2), "wallSec": round(float(wall_sec), 2),
                 **vad_record(job.get("vad"))})
-    for k in ("gpu", "backend"):   # whisper.cpp が実際に使った装置(GPU 名・backend。無ければ書かない。10-18)
+    for k in ("gpu", "backend"):   # whisper.cpp が実際に使った装置(GPU 名・backend。無ければ書かない)
         if job.get(k):
             run[k] = str(job[k])
     return run
@@ -122,7 +122,7 @@ def dict_version(spec, pairs=None, learned=None):
         if gl:
             out["glossary"] = short_hash("\n".join(gl))
         if spec.get("autoDict"):
-            out["replacements"] = short_hash("\n".join("%s=>%s" % p for p in (_dict_input("pairs")(spec) if pairs is None else pairs)))   # 0.59.7 から名簿の表記ゆれの表も入る(表が変わると版が変わる)
+            out["replacements"] = short_hash("\n".join("%s=>%s" % p for p in (_dict_input("pairs")(spec) if pairs is None else pairs)))   # 名簿の表記ゆれの表も入る(表が変わると版が変わる)
         if spec.get("autoLearned"):
             out["learned"] = short_hash(_dict_input("learned")() if learned is None else learned)
     except (OSError, ValueError, TypeError, KeyError) as e:   # 記録のための値なので、作れなくても認識は止めない

@@ -259,7 +259,7 @@ class TestRecording(unittest.TestCase):
         self.assertIn("#EXT-X-DISCONTINUITY", pl)
 
     def test_recover_bad_sessions(self):
-        """手で書き換えた recording.json の sessions(null・リストでない・中に dict でない物)でも復旧で落ちない(0.3.2):
+        """手で書き換えた recording.json の sessions(null・リストでない・中に dict でない物)でも復旧で落ちない:
         空として読み、セッションのフォルダから付け直す・録画中だった物は新しいセッションで続ける"""
         base = {"schema": R.SCHEMA, "url": self.srv.url, "quality": "best", "title": "", "message": "",
                 "created": "2026-10-04T03:00:00.000Z", "endedAt": None}

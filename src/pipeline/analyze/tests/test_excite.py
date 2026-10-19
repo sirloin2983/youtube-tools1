@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """pipeline/analyze/excite.py(盛り上がりの式。線 D の L1)のテスト。  py -3.12 -m unittest src/pipeline/analyze/tests/test_excite.py -v
-- golden: 式を src/studio/analyze.py から移す前に、同じ合成の入力で出した値(data/excite_golden.json)と一致する(式を変えたら作り直す = WORKLOG に書く)
+- golden: 同じ合成の入力で出した値(data/excite_golden.json)と一致する(式を変えたら作り直す = WORKLOG に書く)
 - Online(1 秒ずつ)= windowed_scores(一括。同じ窓)
 - PeakBook(候補の帳簿)の規則: 確定・1 時間の枠・入れ替え・採用は数えない・見送りは外す・JSON の往復
 - 配信中だけの足し: しきい値を上げる区間(thr_scale)・仮の候補(fast_push。同じ id で本番に置き換わる・外れる・人の決定)・
@@ -87,7 +87,7 @@ class TestGolden(unittest.TestCase):
         self.same(excite.comment_score(STAMPS, 400), g["comment"])
 
     def test_helpers_and_constants(self):
-        """2026-10-09 に 1 か所へまとめた数字と小さな関数(snap_region・ramp・_drop_before)。値・計算の順は移す前と同じ"""
+        """1 か所にまとめた数字と小さな関数(snap_region・ramp・_drop_before)"""
         self.assertEqual([excite.ramp(t, 180) for t in (0, 90, 180, 400)], [0.0, 0.25, 1.0, 1.0])
         self.assertEqual(excite.head_ramp([2.0, 2.0, 2.0], 2), [2.0 * excite.ramp(i, 2) for i in range(3)])
         lows = [5.0] * 100

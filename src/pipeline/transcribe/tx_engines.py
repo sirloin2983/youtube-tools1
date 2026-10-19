@@ -5,7 +5,7 @@
   faster-whisper … CPU の逃げ道(GPU が実行時に失敗したときの CPU・再認識・時刻の候補など内部の自動の使い道)。段2-1
   whisper.cpp    … whisper-cli.exe を子プロセスで動かす。GPU(Vulkan)で large-v3 を動かす = 主の文字起こし。段2-2
   llama.cpp      … Qwen3-ASR 1.7B を llama-server(Vulkan)で動かす(区切りの中の目安の時刻)= 2 つ目のエンジン。段2-3
-  (Qwen3-ASR 0.6B の qwen3-asr・large-v3-turbo は 0.58.0(2026-10-11 ユーザー決定「普段よく使っているモデル以外は要らない」)で消した)
+  (Qwen3-ASR 0.6B の qwen3-asr・large-v3-turbo は持たない(ユーザー決定「普段よく使っているモデル以外は要らない」))
 新しいエンジンは、同じ形のクラスをここに足し、ENGINES に登録する。
 
 エンジンの形(Engine):
@@ -43,10 +43,10 @@ except ImportError:   # このファイルだけを読み込んだとき(tests/t
     sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
     from ytt import fsio as _fsio, tools as _tools, txbase as _txbase, workdata as _workdata
 
-# 要求にエンジンも GPU の機器(vulkan・cuda)も無いときのエンジン。F1 F0-2 で whisper.cpp にする予定だったが、機器なしの要求
+# 要求にエンジンも GPU の機器(vulkan・cuda)も無いときのエンジン。機器なしの要求
 # (測る道具・テストの model small など)が whisper.cpp で断られるので faster-whisper のまま(機器 vulkan・cuda は worker_client.req_engine が whisper.cpp に)
 DEFAULT = "faster-whisper"
-ENGINE_DIR = None   # エンジンの実行ファイル・モデルの置き場所(既定 = 作業データ)。RS2-4a(2026-10-10)に移した
+ENGINE_DIR = None   # エンジンの実行ファイル・モデルの置き場所(既定 = 作業データ)
 
 
 def engine_home():
@@ -164,8 +164,8 @@ class FasterWhisper(Engine):
 
     @staticmethod
     def thread_kw(device):
-        """CPU のときのスレッド数。ライブラリの既定は 4。2026-10-04 に測った(small・3.5 分の音声)ら 4 → 8 で 9% 速く、16 は 5% しか伸びず結果の文字が変わったので、
-        既定は 8(この PC の P コアの数)。環境変数 TRANSCRIBE_CPU_THREADS で変えられる(0 = ライブラリの既定)。git の履歴(679ff01 以前)の docs/plan/stability-review-2026-10.md の S2"""
+        """CPU のときのスレッド数。ライブラリの既定は 4。small・3.5 分の音声で測ると 4 → 8 で 9% 速く、16 は 5% しか伸びず結果の文字が変わったので、
+        既定は 8(この PC の P コアの数)。環境変数 TRANSCRIBE_CPU_THREADS で変えられる(0 = ライブラリの既定)"""
         if device != "cpu":
             return {}
         n = env_num("TRANSCRIBE_CPU_THREADS", min(8, os.cpu_count() or 4), lo=0)
@@ -183,12 +183,12 @@ class FasterWhisper(Engine):
 
 # ---------------------------------------------------------------- whisper.cpp(段2-2)
 # 実行ファイルは公式の配布に Windows の Vulkan 版が無いので、公式のソースを決まったコミットで取り、この PC で作る(setup/build-whisper-vulkan.bat。
-# 2026-10-02 ユーザー決定)。作った物は作業データの bin\whisper.cpp-<版>-vulkan\ に置き、build.json にコミットを記録する(違えば使わない)。
+# ユーザー決定)。作った物は作業データの bin\whisper.cpp-<版>-vulkan\ に置き、build.json にコミットを記録する(違えば使わない)。
 # CUDA 版(F1 F0-2。友人の PC の RTX)は公式のリリースの zip を URL・大きさ・SHA-256 固定で取り bin\whisper.cpp-<版>-cuda\ に置く(WCPP_BINARIES。
 # 取るのは機器を cuda に切り替えて最初に読み込むときだけ)。置き場所の決まりは ytt/txbase の wcpp_bin_dir(入口の flow/live_tx も同じ関数を読む)
 WHISPER_CPP = {"version": _txbase.WCPP_VERSION, "commit": "927cfce34f31707e17f2bff35c349632fb9e2c3a", "repo": "https://github.com/ggml-org/whisper.cpp.git"}
 # 種類 -> 公式の配布の zip。cuda = リリース b5130(タグ v1.9.4 と同じコミット 927cfce)の whisper-cublas-12.4.0-bin-x64.zip(CUDA ランタイムの DLL 込みの大きさ)。
-# 大きさと SHA-256 は 2026-10-11 に GitHub の API(リリースの assets の size・digest)で確かめた(zip は取っていない = 中のフォルダの形は取ったときに探す)。
+# 大きさと SHA-256 は GitHub の API(リリースの assets の size・digest)の値(zip は取っていない = 中のフォルダの形は取ったときに探す)。
 # sha256 が空の種類は取らない(wcpp_binary_ok)
 WCPP_BINARIES = {
     "cuda": {"file": "whisper-cublas-12.4.0-bin-x64.zip", "size": 674539285,
@@ -196,13 +196,13 @@ WCPP_BINARIES = {
              "url": "https://github.com/ggml-org/whisper.cpp/releases/download/b5130/whisper-cublas-12.4.0-bin-x64.zip"},
 }
 _HF = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/"
-WCPP_MODELS = {   # モデルの名前 → ggml のファイル(Hugging Face の ggerganov/whisper.cpp。大きさと SHA-256 は 2026-10-02 に API で確かめた)
+WCPP_MODELS = {   # モデルの名前 → ggml のファイル(Hugging Face の ggerganov/whisper.cpp。大きさと SHA-256 は API の値)
     "large-v3": {"file": _txbase.WCPP_MODEL_FILES["large-v3"], "url": _HF + "ggml-large-v3.bin", "size": 3095033483,
                  "sha256": "64d182b440b98d5203c4f9bd541544d84c605196c4f7b845dfa11fb23594d1e2"},
-}   # large-v3-turbo は 0.58.0 で外した(主の文字起こしのモデルは large-v3 だけ)
+}   # 主の文字起こしのモデルは large-v3 だけ
 WCPP_VAD = {"file": "ggml-silero-v6.2.0.bin", "url": "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin", "size": 885098,
             "sha256": "2aa269b785eeb53a82983a20501ddf7c1d9c48e33ab63a41391ac6c9f7fb6987"}   # 声の検出(Silero v6.2。計画の 3)
-# ↑ whisper.cpp 自身の声の検出(--vad。TRANSCRIBE_WCPP_VAD=1)は 0.65.0(2026-10-09)で消した = 編集はもう取得しない。
+# ↑ whisper.cpp 自身の声の検出(--vad。TRANSCRIBE_WCPP_VAD=1)は使わない = 編集は取得しない。
 #   定数は入口の pipeline/transcribe/live_tx_worker.py が名前を参照しているので残す(fetch_file の固定の形の例としても test_whispercpp が確かめる)
 WCPP_EXE = _txbase.WCPP_EXE
 _GPU_LINE = re.compile(r"whisper_backend_init_gpu: (?:using (.+?) backend|no GPU found)")
@@ -213,7 +213,7 @@ _CUDA_DEV = re.compile(r"Device \d+: ([^,]+), compute capability")   # ggml_cuda
 
 def wcpp_env():
     """whisper-cli の環境変数。RX 7800 XT(AMD のドライバ)では行列コア(KHR_coopmat)の経路で、最初の GPU の計算のときに
-    何も出さずに落ちる(終了コード 0xC0000409。2026-10-02 に PC で再現。切ると 40 秒の音声が 6.8 秒で通る)ので、既定で切る。
+    何も出さずに落ちる(終了コード 0xC0000409。切ると 40 秒の音声が 6.8 秒で通る)ので、既定で切る。
     環境変数で GGML_VK_DISABLE_COOPMAT を指定していればそれに従う(ドライバが直ったら 0 で試せる)"""
     env = dict(os.environ)
     env.setdefault("GGML_VK_DISABLE_COOPMAT", "1")
@@ -353,9 +353,9 @@ class WhisperCpp(Engine):
     id = "whisper.cpp"
     package = ""
     PARAMS = ["beam_size", "condition_on_previous_text", "initial_prompt", "language", "no_speech_threshold", "temperature",
-              "vad_filter", "vad_parameters", "word_timestamps"]   # hotwords・chunk_length は無い(渡されても使わない)。vad_* は受け取るだけ(0.65.0 から使わない)
+              "vad_filter", "vad_parameters", "word_timestamps"]   # hotwords・chunk_length は無い(渡されても使わない)。vad_* は受け取るだけで使わない
     COMMAND = None   # テスト用: [python, 偽の whisper-cli] に差し替える
-    CAPS = frozenset({"word_timestamps"})   # 単語の時刻: -ojf の結果の文字のトークンの時刻を parse_json が単語にする。声の検出(vad)は args が使わない(0.65.0 から)・chunk_length・hotwords は無い
+    CAPS = frozenset({"word_timestamps"})   # 単語の時刻: -ojf の結果の文字のトークンの時刻を parse_json が単語にする。声の検出(vad)は args が使わない・chunk_length・hotwords は無い
 
     @classmethod
     def device_order(cls, pref, cuda_ok):
@@ -421,18 +421,18 @@ class WhisperCpp(Engine):
     def flash_attn():
         """フラッシュアテンション(whisper-cli v1.9.4 の既定はオン)を使うか。既定は使わない(-nfa): RX 7800 XT の Vulkan でオンにすると、
         配信の音声で行の時刻が 1 秒単位に丸まり(5.0–6.0, 6.0–7.0 …。行の境界の 29% が整数秒 → 切ると 12%)、同じ文字の繰り返しの行と
-        音声の長さより後ろの行が出た(40 秒の評価用で 53 行 → 22 行)。ショート 2 本の CER も 9.3% → 4.9%。代わりに 2 割ほど遅い(2026-10-04 に測った)。
+        音声の長さより後ろの行が出た(40 秒の評価用で 53 行 → 22 行)。ショート 2 本の CER も 9.3% → 4.9%。代わりに 2 割ほど遅い。
         ドライバが直ったら環境変数 TRANSCRIBE_WCPP_FA=1 で試せる"""
         return os.environ.get("TRANSCRIBE_WCPP_FA") == "1"
 
     def args(self, wav, out_base, kw):
         """whisper-cli の引数(応答ファイルの行)。kw は faster-whisper の引数の名前(worker_client.whisper_kwargs が作る)。
         vad_filter・vad_parameters は使わない(whisper.cpp 自身の声の検出 --vad は、声の所をつないで認識するので評価用の音声で文字が大きく抜けた
-        = CER 36% → 80%。2026-10-02。測るときだけの TRANSCRIBE_WCPP_VAD=1 は 0.65.0 で消した)。音声の全体を認識する"""
+        = CER 36% → 80%)。音声の全体を認識する"""
         a = ["-m", _ascii_path(self.model["model"]), "-f", _ascii_path(wav), "-ojf", "-of", _ascii_path(out_base), "-pp",
              "-t", str(half_cpu()), "-l", str(kw.get("language") or "auto"), "-bs", str(int(kw.get("beam_size") or 5))]
         if kw.get("condition_on_previous_text") is False:
-            a += ["-mc", "0"]   # 前の文を文脈にしない(faster-whisper と同じ)。注意: whisper.cpp は -mc 0 だと --prompt(用語集のヒント)も使わない(10-08 の測定。ヒントで精度は上がらなかったので -mc 0 のまま。画面の #glossDev で案内)
+            a += ["-mc", "0"]   # 前の文を文脈にしない(faster-whisper と同じ)。注意: whisper.cpp は -mc 0 だと --prompt(用語集のヒント)も使わない(測定でヒントで精度は上がらなかったので -mc 0 のまま。画面の #glossDev で案内)
         if not self.flash_attn():
             a += ["-nfa"]
         if self.device == "cpu":
@@ -468,10 +468,10 @@ class WhisperCpp(Engine):
                 raise EngineError("engine_failed", "whisper.cpp の結果を読めませんでした: %s" % str(e)[:160])
             segs = parse_json(data)
             # duration_after_vad = None(声の検出をしない = 分からない。サーバーの「捨てすぎたら緩める」は見ない)。
-            # Silero の声の区間の外の行を捨てる TRANSCRIBE_WCPP_SPEECH_FILTER=1 は 0.65.0 で消した(評価用 18 本で 27.0% → 33.8% に悪化)
+            # Silero の声の区間の外の行は捨てない(評価用 18 本で 27.0% → 33.8% に悪化)
             info = types.SimpleNamespace(language=(data.get("result") or {}).get("language") or kw.get("language"),
                                          duration=duration, duration_after_vad=None,
-                                         gpu=getattr(self, "gpu_name", "") or "", backend=getattr(self, "backend", "") or "")   # 使った装置(記録用。10-18)
+                                         gpu=getattr(self, "gpu_name", "") or "", backend=getattr(self, "backend", "") or "")   # 使った装置(記録用)
             return iter(segs), info
         finally:
             shutil.rmtree(work, ignore_errors=True)
@@ -509,7 +509,7 @@ class WhisperCpp(Engine):
     @staticmethod
     def scan_gpu(log):
         """whisper-cli の標準エラーの行 -> (認識のモデルの「using … backend」の名前 か None(行が無い)・'' = no GPU found, GPU 名)。
-        装置の行を拾うだけの純粋な関数(友人の PC の遅さを調べるため、使った装置を記録に残す = 10-18)"""
+        装置の行を拾うだけの純粋な関数(友人の PC の遅さを調べるため、使った装置を記録に残す)"""
         used, name = None, ""
         for s in log:
             m = _GPU_LINE.search(s)
@@ -523,7 +523,7 @@ class WhisperCpp(Engine):
     def _check_gpu(self, log):
         """GPU(Vulkan)を頼んだのに使っていなければ止める(黙って CPU で動いた結果を「GPU」として残さない)。
         声の検出(--vad)のモデルは CPU で動き、そのときも「no GPU found」の行が出るので、認識のモデルの「using … backend」を探す
-        (編集は 0.65.0 から --vad を渡さないが、ほかの版の whisper-cli や入口の live_tx_worker の出力でも同じ見方でよいので残す)"""
+        (編集は --vad を渡さないが、ほかの版の whisper-cli や入口の live_tx_worker の出力でも同じ見方でよいので残す)"""
         used, name = self.scan_gpu(log)
         if name:
             self.gpu_name = name
@@ -598,7 +598,7 @@ def _write_wav(path, samples):
 
 # ---------------------------------------------------------------- 区切りごとに読むエンジンの共通部分(段2-3)
 # 時刻を出さない Qwen3-ASR(llama.cpp の 1.7B)と SenseVoice は、音の小さい所で 12〜28 秒の区切りにして区切りごとに認識し、文の区切りで行にする
-# (行の時刻は区切りの中で字数に比例させた目安)。sherpa-onnx の CPU で動かす Qwen3-ASR 0.6B(qwen3-asr)は 0.58.0 で消した。
+# (行の時刻は区切りの中で字数に比例させた目安)。
 Q3_FRAME = 0.05                 # 音の大きさを見る1コマ(秒)
 Q3_MIN, Q3_MAX = 12.0, 28.0     # 区切りの長さ(秒)。28 秒を超えると 1 回の出力の上限(トークン)に近づく
 Q3_SILENT = 0.003               # 区切りの中の最大の音の大きさ(RMS)がこれ未満なら認識しない(約 -50 dBFS。無音で文を作らせない)
@@ -786,8 +786,8 @@ class _Qwen3Chunked(Engine):
         return gen(), info
 
 
-# ---- llama.cpp(Vulkan)で Qwen3-ASR 1.7B(段2-3。2026-10-02)
-# 実行ファイルは公式の配布(win-vulkan-x64 の zip)を URL・大きさ・SHA-256 固定で取る(2026-10-02 ユーザー決定「llama.cpp は取得してよい」)。
+# ---- llama.cpp(Vulkan)で Qwen3-ASR 1.7B(段2-3)
+# 実行ファイルは公式の配布(win-vulkan-x64 の zip)を URL・大きさ・SHA-256 固定で取る(ユーザー決定「llama.cpp は取得してよい」)。
 # llama-server を 127.0.0.1 のあいているポートで1つ起動し、区切りごとに音声を送る(コマンドを毎回起動すると、そのたびにモデルを読む)。
 # server には毎回作る合言葉(--api-key)を付ける(付けないと同じ PC のブラウザのページから呼べる = llama.cpp は CORS をすべて許す)。
 # 認識ワーカーが落ちても server が残らないよう、Windows ではジョブオブジェクト(閉じたら中のプロセスを終わらせる)に入れる。
@@ -795,24 +795,24 @@ LLAMA_CPP = {"version": "b11326", "file": "llama-b11326-bin-win-vulkan-x64.zip",
              "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11326/llama-b11326-bin-win-vulkan-x64.zip",
              "sha256": "fcea764f150fa7e6a915376628a1639042d4fb12ea52190cb3a7ce84c0ac166e"}
 _GGUF = "https://huggingface.co/ggml-org/Qwen3-ASR-1.7B-GGUF/resolve/main/"
-LLAMA_MODELS = {   # 2026-10-02 に Hugging Face の API で大きさと SHA-256 を確かめた
+LLAMA_MODELS = {   # 大きさと SHA-256 は Hugging Face の API の値
     "qwen3-asr-1.7b": {"model": {"file": "Qwen3-ASR-1.7B-Q8_0.gguf", "url": _GGUF + "Qwen3-ASR-1.7B-Q8_0.gguf", "size": 2165034944,
                                  "sha256": "58e22d0532d4eacaf034cfac17a6fed159f37c41390c710186783be439d1fc57"},
                        "mmproj": {"file": "mmproj-Qwen3-ASR-1.7B-Q8_0.gguf", "url": _GGUF + "mmproj-Qwen3-ASR-1.7B-Q8_0.gguf", "size": 355709344,
                                   "sha256": "46c1d533af3f354ceb37ce855dbceff7da7fa7cf1e6a523df3b13440bd164c0d"}},
 }
 LLAMA_EXE = "llama-server.exe" if os.name == "nt" else "llama-server"
-# 文字の LLM(提案 P18 の LLM の後処理 = pipeline/transcribe/llm.py。2026-10-09 に Hugging Face の API で大きさと SHA-256 を確かめた・Apache-2.0)。
+# 文字の LLM(提案 P18 の LLM の後処理 = pipeline/transcribe/llm.py。大きさと SHA-256 は Hugging Face の API の値・Apache-2.0)。
 # 同じ llama-server を mmproj なしで起動する(tx_engines.LlamaText)。置き場所は作業データの models/llm-gguf/(Qwen3-ASR の qwen3asr-gguf にそろえた)
 LLAMA_TEXT_MODELS = {
     "qwen3-8b": {"model": {"file": "Qwen3-8B-Q4_K_M.gguf", "size": 5027783488, "sha256": "d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785",
                            "url": "https://huggingface.co/Qwen/Qwen3-8B-GGUF/resolve/7c41481f57cb95916b40956ab2f0b139b296d974/Qwen3-8B-Q4_K_M.gguf"}},
-    # VRAM 6〜10GB の PC の既定(F1 の仮決め f1b。flow/machine が VRAM で選ぶ)。2026-10-11 に Hugging Face の API(コミット固定の tree の lfs の oid・size)で確かめた・Apache-2.0
+    # VRAM 6〜10GB の PC の既定(F1 の仮決め f1b。flow/machine が VRAM で選ぶ)。大きさと SHA-256 は Hugging Face の API(コミット固定の tree の lfs の oid・size)の値・Apache-2.0
     "qwen3-4b": {"model": {"file": "Qwen3-4B-Q4_K_M.gguf", "size": 2497280256, "sha256": "7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5",
                            "url": "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/bc640142c66e1fdd12af0bd68f40445458f3869b/Qwen3-4B-Q4_K_M.gguf"}},
 }
-# ---------- SenseVoice(sherpa-onnx・CPU)。文字の少ない行を別の読みで埋める 2 つ目のエンジン(pipeline/transcribe/fill.py。10-08 の実験ループの A・D。編集 0.60.0) ----------
-# モデルは sherpa-onnx の公式の配布(SenseVoice-small int8・2024-07-17)を URL・大きさ・SHA-256 固定で取る(2026-10-08 に確かめた。2025-09-09 の版は sherpa-onnx 1.13.8 で壊れた出力)。
+# ---------- SenseVoice(sherpa-onnx・CPU)。文字の少ない行を別の読みで埋める 2 つ目のエンジン(pipeline/transcribe/fill.py。10-08 の実験ループの A・D) ----------
+# モデルは sherpa-onnx の公式の配布(SenseVoice-small int8・2024-07-17)を URL・大きさ・SHA-256 固定で取る(2025-09-09 の版は sherpa-onnx 1.13.8 で壊れた出力になるので使わない)。
 # ライセンス: FunASR MODEL_LICENSE(商用可・出典とモデル名の表示)。トークンごとの時刻が出るので、SV_GAP 秒以上の間・文末・SV_MAX_CHARS で行にする(終わりは目安)
 SENSE_VOICE_MODELS = {
     "sense-voice-small": {"dir": "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17", "file": "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2",
@@ -917,8 +917,8 @@ class SenseVoice(_Qwen3Chunked):
         return q3_rows(q3_squash(str(r.text or "")), a0, b0, voiced=[v > floor for v in rms[c0:c1]])
 
 
-# 24 にすると、当時の PC(13900KF)では起動の途中でよく落ちた(2026-10-02)。GPU に載せるので CPU のスレッドはほぼ効かず、既定は 8 のまま。
-# CPU を替えたので(10-04)環境変数 TRANSCRIBE_LLAMA_THREADS で変えられるようにした
+# 24 にすると、当時の PC(13900KF)では起動の途中でよく落ちた。GPU に載せるので CPU のスレッドはほぼ効かず、既定は 8 のまま。
+# 環境変数 TRANSCRIBE_LLAMA_THREADS で変えられる
 LLAMA_THREADS = env_num("TRANSCRIBE_LLAMA_THREADS", 8)
 LLAMA_START_SEC = 180    # 起動(モデルの読み込み)を待つ上限
 _ASR_TEXT = "<asr_text>"
@@ -1002,7 +1002,7 @@ class LlamaQwen3(_Qwen3Chunked):
         e.gpu_name = ""
         try:
             e._start(hooks.get("cancelled"))
-        except EngineError as ex:   # 起動の途中でまれに落ちた(2026-10-02。当時の CPU)ので1回だけやり直す。一時的な失敗(GPU のドライバ)への備えとして残す
+        except EngineError as ex:   # 起動の途中でまれに落ちるので1回だけやり直す。一時的な失敗(GPU のドライバ)への備えとして残す
             if ex.code in ("cancelled", "gpu_failed"):
                 raise
             if log:
@@ -1107,7 +1107,7 @@ class LlamaQwen3(_Qwen3Chunked):
             pass
 
     def _retry(self, fn):
-        """fn() を呼ぶ。server が落ちていたら(この PC では長い測定の途中で落ちた。2026-10-02)起動し直して1回だけやり直す"""
+        """fn() を呼ぶ。server が落ちていたら(長い測定の途中で落ちることがある)起動し直して1回だけやり直す"""
         try:
             return fn()
         except EngineError as e:

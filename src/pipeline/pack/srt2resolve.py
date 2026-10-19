@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """パックの部品(動画の情報の読み取り・字幕の読み込み・フレームの計算・SRT の組み立ての小道具)。
-単独のコマンド(srt2resolve.py = 動画 + 字幕から FCPXML だけを作る)と FCPXML の書き出しは 10-16 のユーザー決定で消した。
+単独のコマンドと FCPXML の書き出しは持たない(ユーザー決定)。
 パックを作る道は入口と ② の CLI src/app/cli.py だけ。
 """
 import contextlib

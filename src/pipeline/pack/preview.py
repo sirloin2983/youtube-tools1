@@ -15,7 +15,7 @@ from ytt import fsio, normalize, tools
 
 LONG_PATH_AT = 240             # このくらい長いパスは \\?\ の形にして OS・ffmpeg に渡す(Windows の 260 文字の壁)
 CLIP_EXT = (".mp4", ".mov", ".mkv", ".webm", ".m4v")                     # パックの中の切り抜きの動画
-PREVIEW_HEIGHT = 480           # 確認用の動画の縦の画素数(速さは等速 = 2026-10-08 ユーザー決定)
+PREVIEW_HEIGHT = 480           # 確認用の動画の縦の画素数(速さは等速 = ユーザー決定)
 PREVIEW_CRF = 28               # 確認用の動画の画質(本番より落とす。90 秒で 6〜10MB の見込み)
 PREVIEW_TIMEOUT = 600          # 確認用の動画を作る ffmpeg の上限(秒)。長い切り抜きは長さ × PREVIEW_PER_SEC まで延ばす
 PREVIEW_PER_SEC = 0.5          # (友人の依頼の区間は長さの上限なし = 3 時間の切り抜きでも 600 秒で切らない)

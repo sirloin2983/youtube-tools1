@@ -1,8 +1,8 @@
 """③ 書き出し(クリップマーカー cm/serve.py 由来): store の動画・マークから ffmpeg / yt-dlp でクリップを mp4 にする。
 
 - file 動画は元ファイルを ffmpeg で切り出す。youtube 動画は yt-dlp(疑似モードでは STUDIO_FAKE_MEDIA を ffmpeg で切り出す)。
-- 書き出す動画はいつも 30fps(H.264・yuv420p・AAC。2026-10-04 Q1。作り直しの設定は ytt/normalize.py の1か所)。
-  「精密」= veryfast・「高速」= ultrafast で作り直す(どちらも crf 18・位置ちょうど。以前の「高速」= コピーは fps を変えられないのでやめた)。
+- 書き出す動画はいつも 30fps(H.264・yuv420p・AAC。作り直しの設定は ytt/normalize.py の1か所)。
+  「精密」= veryfast・「高速」= ultrafast で作り直す(どちらも crf 18・位置ちょうど。コピーは fps を変えられないので使わない)。
 - 出力先は <出力先>/<動画名>/ (動画ごとのフォルダ)。
 - 形は「指定 → 結果」(OPT2 の J2): new_result(spec) → run(spec, res, ctl, on_done) → result_public(res)。
   ジョブの表・同時 1 本・履歴・枠(SLOTS)・取り消しの受付・掲示板は器 = ② の flow/export.ExportJobs(① は表を持たない)。
@@ -30,19 +30,19 @@ EXPORT_IDLE = 600   # 書き出しのコマンドが、この秒数まったく�
 _STATS_TIME = re.compile(r"time=(\d+):(\d+):(\d+(?:\.\d+)?)")   # ffmpeg の統計の行の位置(yt-dlp の区間取得が流す。_pump_once の進み具合)
 DEFAULT_EXPORT_VOLUME = 75   # 書き出しの音量(%)。元の音量(100)だと大きすぎるとのことで既定は下げ気味
 MIN_EXPORT_VOLUME, MAX_EXPORT_VOLUME = 1, 200
-# ラウドネス(聞こえ方の音量。LUFS)をそろえる(2026-09-26。音量(%)の代わりに選べる)。YouTube は再生時に約 -14 LUFS に下げるので、それを目安にする
-# 選べる値・ピークの上限・上げる量の上限と、測った結果の読み方は ytt/loudness.py の1か所(パック作りと共通。2026-09-29)
+# ラウドネス(聞こえ方の音量。LUFS)をそろえる(音量(%)の代わりに選べる)。YouTube は再生時に約 -14 LUFS に下げるので、それを目安にする
+# 選べる値・ピークの上限・上げる量の上限と、測った結果の読み方は ytt/loudness.py の1か所(パック作りと共通)
 LOUDNESS_CHOICES = _loud.CHOICES
 TRUE_PEAK_CEIL = _loud.TRUE_PEAK_CEIL   # 上げたときに音が割れないよう、ピーク(トゥルーピーク)をこれより上げない(dBTP)
 MAX_GAIN_DB = _loud.MAX_GAIN_DB         # 静かすぎる切り抜きを持ち上げすぎない(雑音まで大きくなる)
 EDIT_HANDLE_SEC = 10.0
 # 名前の規則(MAX_PATH_UNITS・SUFFIX_ROOM・BASE_ROOM・予約名・UTF-16 の長さ・持ち主の印・連番)は ytt/names.py の 1 か所
-# (入口のライブの書き出し src/flow/live_export.py と同じ規則。2026-10-09 見直し T8)。ここの名前はテストと他の部品が読むので残す
+# (入口のライブの書き出し src/flow/live_export.py と同じ規則)。ここの名前はテストと他の部品が読むので残す
 MAX_PATH_UNITS, SUFFIX_ROOM, BASE_ROOM = _names.MAX_PATH_UNITS, _names.SUFFIX_ROOM, _names.BASE_ROOM
 compact_ts, safe_name, is_reserved, path_units, trim_units = _names.compact_ts, _names.safe_name, _names.is_reserved, _names.path_units, _names.trim_units
 unique_base, _read_owner, _write_owner = _names.unique_base, _names.read_owner, _names.write_owner
 LOG_MAX = 200000    # export-log.txt がこれを超えたら export-log.old.txt に回す
-# 書きかけの印(2026-09-30。設計レビュー studio の 4)。書き出しは <base>.partial.mp4 に書き、音量・ラウドネスまで仕上がったら <base>.mp4 へ置き換える
+# 書きかけの印(設計レビュー studio の 4)。書き出しは <base>.partial.mp4 に書き、音量・ラウドネスまで仕上がったら <base>.mp4 へ置き換える
 # (途中で止まった・落ちたときに、壊れた・仕上がっていないファイルが完成品と同じ名前で残らないように)
 PARTIAL = _names.PARTIAL
 partial_path, is_partial, final_path = _names.partial_path, _names.is_partial, _names.final_path
@@ -86,7 +86,7 @@ def verify_output(path, expected, tail=None):
 
 def pick_folder(spec):
     """動画ごとの保存先フォルダ(<出力先>/<動画名>/)を決める。-> (フォルダ名, パス)。
-    フォルダ内の 作業用/.studio-id(以前はフォルダの直下)に動画IDを記録し、同名の別動画とは混ざらないよう連番を付ける(ytt.names.pick_folder)。"""
+    フォルダ内の 作業用/.studio-id に動画IDを記録し、同名の別動画とは混ざらないよう連番を付ける(ytt.names.pick_folder)。"""
     got = _names.pick_folder(_env.get_out_dir(), spec["title"], spec["videoId"], spec["videoId"])
     if got is None:
         raise ExportError("保存先フォルダを作れませんでした")
@@ -281,7 +281,7 @@ def spec_from_video(v, req):
                       "src": m.get("src") or "manual", "markStatus": m.get("status") or ""})
     if not clips:
         raise _bad("書き出せるマークがありません(削除されたか、範囲が正しくありません)")
-    combine = req.get("combine") is True   # 選んだマークを時刻の順につないで1本の mp4 に(2026-09-28 ユーザー要望)
+    combine = req.get("combine") is True   # 選んだマークを時刻の順につないで1本の mp4 に(ユーザー要望)
     if combine:
         if len(clips) < 2:
             raise _bad("つなげるマークを2つ以上選んでください")
@@ -389,7 +389,7 @@ def _make(ctl, cmd, it, dur, out, what, log_cmd=None):
         raise
 
 
-# 書き出しの作り直しの設定は ytt/normalize.py の1か所(30fps・libx264 crf 18・yuv420p・AAC 192k・faststart。2026-10-04 Q1)
+# 書き出しの作り直しの設定は ytt/normalize.py の1か所(30fps・libx264 crf 18・yuv420p・AAC 192k・faststart)
 PROGRESS = ["-progress", "pipe:1", "-nostats"]
 ENC = _norm.ENC_ARGS + PROGRESS              # 精密(veryfast)
 ENC_FAST = _norm.ENC_FAST_ARGS + PROGRESS    # 高速(ultrafast。画質の設定 crf は同じで、ファイルが大きくなる代わりに速い)
@@ -427,7 +427,7 @@ def run_ffmpeg(ctl, spec, it, base):
     base_cmd = [ff, "-hide_banner", "-nostdin", "-y", "-protocol_whitelist", "file,pipe"]
     # 1) -ss を -i の前に置く高速シーク(作り直すのでフレーム精度で切れる)
     # 2) 出力が空になるファイル向けの予備: -i の後に置く精密シーク(先頭から読むので遅いが確実)
-    # 高速・精密のどちらも 30fps に作り直す(高速は x264 の速い設定。コピーでは fps を変えられないため。2026-10-04 Q1)
+    # 高速・精密のどちらも 30fps に作り直す(高速は x264 の速い設定。コピーでは fps を変えられないため)
     enc = _enc(spec)
     attempts = [base_cmd + ["-ss", ts, "-i", spec["sourcePath"], "-t", "%.3f" % dur] + enc + [out],
                 base_cmd + ["-i", spec["sourcePath"], "-ss", ts, "-t", "%.3f" % dur] + enc + [out]]
@@ -474,14 +474,13 @@ def _drop_glob(prefix):
 
 
 def _ytdlp_sections(ctl, spec, it, base):
-    """方法1: 2段で作る(2026-10-04 Q1)。
+    """方法1: 2段で作る。
     1) yt-dlp で区間を**そのまま**取る(作り直さない・前後に SECTION_PAD 秒の余裕。作業用/<base>_dl.partial.mp4)
     2) ffmpeg で正確な区間に切り、30fps に作り直す(書き出しと同じ ENC。crf 18)。取った区間のファイルは最後に消す。
-    以前は yt-dlp の --force-keyframes-at-cuts に作り直しを任せていて、画質の設定(crf 18)を通っていなかった。
     yt-dlp は区間を ffmpeg の入力側の -ss + コピーで取るので、取ったファイルの 0 秒 = 頼んだ開始(手前のキーフレームからの分は
     mp4 の edit list で隠れる)。万一、頼んだより長い(手前のキーフレームから見えている)ときは位置が分からないので、方法2(直接指定)に回す。
     it["keepRaw"](秒)があれば前後をその秒だけ広く取り、取ったファイルを 作業用/<base>_dlkeep.partial.mp4 に残して it["rawKeep"] に書く
-    = 編集用素材(前後 10 秒)を yt-dlp をもう 1 回呼ばずに同じファイルから切る(_cut_raw。1 本の切り抜きで YouTube への問い合わせは 1 回。10-18)"""
+    = 編集用素材(前後 10 秒)を yt-dlp をもう 1 回呼ばずに同じファイルから切る(_cut_raw。1 本の切り抜きで YouTube への問い合わせは 1 回)"""
     lim = spec.get("sourceDuration") or 0
     pad = max(SECTION_PAD, float(it.get("keepRaw") or 0))
     dl_start = max(0.0, float(it["start"]) - pad)
@@ -566,7 +565,7 @@ def _ytdlp_stream(ctl, spec, it, base):
 
 
 # YouTube に止められた(bot 判定・429・ログインの切れ)ときの yt-dlp の字句(小文字)。この失敗のあとは同じ動画へすぐ問い合わせ直さない
-# (方法2 も同じ動画の残りの切り抜きも。重ねるほど回線が疑われる = 10-18 友人の PC で 1 件 5 本 × 2 方法 = 10 回前後で止まった)
+# (方法2 も同じ動画の残りの切り抜きも。重ねるほど回線が疑われる)
 BLOCKED_WORDS = ("not a bot", "http error 429", "too many requests", "cookies are no longer valid")
 
 
@@ -597,8 +596,7 @@ def run_ytdlp(ctl, spec, it, base):
 def _reencode_audio(ctl, it, path, afilter, what):
     """映像は無劣化のまま(-c:v copy)、音声だけフィルタをかけて再エンコードし、元のファイルと置き換える。"""
     tmp = path + ".vol.mp4"
-    # 期待する長さは、切り出した動画そのものの長さ(マークの終了が元の末尾を超えると、切り出しは末尾で止まって短くなるため。
-    # 以前はマークの長さと比べていて、末尾をまたぐマークが「短すぎます」で失敗していた)
+    # 期待する長さは、切り出した動画そのものの長さ(マークの終了が元の末尾を超えると、切り出しは末尾で止まって短くなるため)
     dur = _media.media_info(path)[0] or (it["end"] - it["start"])
     cmd = _loud.reencode_args(_env.find_tool("ffmpeg"), path, tmp, afilter)
     _make(ctl, cmd, it, dur, tmp, what)
@@ -740,7 +738,7 @@ def export_edit_media(ctl, spec, it, base, runner):
     edit_it["start"] = max(0.0, float(it["start"]) - EDIT_HANDLE_SEC)
     edit_it["end"] = float(it["end"]) + EDIT_HANDLE_SEC
     edit_it["progress"] = 0.0
-    # 編集用素材と .edit.json は途中のファイルなので 作業用/ に書く(出力先の直下はパックと元動画だけ。2026-09-27)
+    # 編集用素材と .edit.json は途中のファイルなので 作業用/ に書く(出力先の直下はパックと元動画だけ)
     wspec = dict(spec, outDir=os.path.join(spec["outDir"], schemas.WORK_DIR), folder=spec.get("folder", "") + "/" + schemas.WORK_DIR)
     os.makedirs(wspec["outDir"], exist_ok=True)
     raw = it.get("rawKeep")
@@ -787,7 +785,6 @@ def _cut_raw(ctl, spec, it, base, raw):
 # ---------- youtube-tools-clip/v1(.clip.json) ----------
 def _clip_export_info(spec, method, loudness=None):
     """.clip.json の export。mode は fast(高速の設定で作り直した)/ precise。どちらも位置ちょうど(range.start が 0 秒)なので actualStart は付けない
-    (以前の「高速」= コピーはキーフレームへずれたので actualStart を付けていた。2026-10-04 Q1 で作り直しに変えた)。
     余白つき(LD-2f)の actualStart・margin は write_manifests が足す"""
     info = {"mode": "fast" if method in ("fast", "copy") else "precise"}
     if spec.get("loudness"):
@@ -803,7 +800,7 @@ TOOL = {"name": _runtime.TOOL_APPS["studio"], "version": ""}   # .clip.json の 
 def write_clip(media_path, duration, source, rng, mark, export):
     """mp4 の .clip.json(youtube-tools-clip/v1。ytt.schemas.build_clip)を 作業用/ に書いて、そのパスを返す。失敗したら OSError(呼び出し側で警告にする)。
     UTF-8(BOM なし)で、一時ファイルに書いてから置き換える(書きかけを他のツールに読ませない。ytt.fsio.write_json。作業用/ も作る)。
-    OPT1(2026-10-11)に、ytt を呼び直すだけだった部品を畳んでここへ"""
+    (ytt の部品を呼び直さず、ここで直に書く)"""
     path = schemas.clip_path_for(media_path)
     _fsio.write_json(path, schemas.build_clip(media_path, duration, source, rng, mark, export, TOOL))
     return path

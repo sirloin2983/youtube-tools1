@@ -1,5 +1,5 @@
 """切り抜き 1 本の素性(.clip.json = youtube-tools-clip/v1)の組み立てと書き込み(書き出しの exporter.write_clip = ytt/schemas の build_clip・clip_path_for)のテスト。
-RS3-5(2026-10-10)で studio/tests/test_handoff.py から移した。OPT1(10-11)で manifest.py を畳んだ。  実行(リポジトリ直下): py -3.12 -m unittest src/pipeline/export/tests/test_manifest.py"""
+実行(リポジトリ直下): py -3.12 -m unittest src/pipeline/export/tests/test_manifest.py"""
 import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
@@ -20,7 +20,7 @@ class TestClipManifest(unittest.TestCase):
         studio_env.set_home(self.tmp)
 
     def test_manifest_path_replaces_extension(self):
-        # 途中のファイルは 作業用\ に書く(2026-09-27。出力先の直下はパックと元動画だけ)
+        # 途中のファイルは 作業用\ に書く(出力先の直下はパックと元動画だけ)
         W = schemas.WORK_DIR
         self.assertEqual(schemas.clip_path_for(os.path.join("x", "動画_0012.mp4")), os.path.abspath(os.path.join("x", W, "動画_0012.clip.json")))
         self.assertEqual(schemas.clip_path_for("a.b.webm"), os.path.abspath(os.path.join(W, "a.b.clip.json")))

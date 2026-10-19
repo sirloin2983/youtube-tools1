@@ -9,13 +9,13 @@ faster-whisper(ctranslate2)と sherpa-onnx はネイティブコードで、メ�
 その処理だけをこのプロセスで行い、落ちてもサーバー(入口に取り込んだときはスタジオ・cut2resolve も同じプロセス)は止まらないようにする。
 中身の処理は ① の部品の関数(models._load_model_local・diarize._diarize_local・_embed_local)をそのまま使う(2か所に同じ処理を書かない)。
 
-役割で組み直す RS2-9(2026-10-10)に移した(旧い場所の転送は RS5-G で消した)。編集の serve を読まない:
+編集の serve を読まない:
 - 起動はスクリプトのパスのまま(python -u <src>/pipeline/transcribe/worker.py。cwd は編集のフォルダ)なので相対 import を使えない。
   スクリプトとして起動したときだけ、sys.path からこのフォルダを外して src を先頭に置き、兄弟は絶対 import(from pipeline.transcribe import …)で読む(層の決まりの例外)。
   import したとき(テスト・src/eval/tools/_evalcommon の _audio)は sys.path に触らない
 - 作業データの場所(ytt/workdata の DATA_DIR)はこのプロセスで入れる(_setup_env): 環境変数 TRANSCRIBE_DATA_DIR(サーバーの worker_env が必ず渡す。
-  無ければ以前の既定 = 編集のフォルダ)。GPU の有無 worker_client.gpu_ready は IN_WORKER なので models._gpu_ready_local を呼ぶたびに読む(疑似の差し替えが効く)・
-  疑似のワーカーの判定 worker_client.worker_fake は環境変数 TRANSCRIBE_BACKEND(RS3-0A まではこのプロセスで txenv の口に登録していた)
+  無ければ編集のフォルダ)。GPU の有無 worker_client.gpu_ready は IN_WORKER なので models._gpu_ready_local を呼ぶたびに読む(疑似の差し替えが効く)・
+  疑似のワーカーの判定 worker_client.worker_fake は環境変数 TRANSCRIBE_BACKEND
 - 疑似(TRANSCRIBE_BACKEND=worker-fake のテスト)は ⑤ の eval/fake/fake_worker.install()。① は ⑤ を import しないので、サーバーが渡す環境変数
   YTT_WORKER_FAKES(モジュール名の文字。app = 編集の serve が worker_client.FAKES_MODULE に入れる)を importlib で読む
 - 読むのは標準ライブラリ・ytt・pipeline/transcribe だけ(編集の ed_*・serve は読まない)。numpy などは要求を処理する部品の関数の中で
@@ -68,7 +68,7 @@ def _protocol_stream():
 def _protocol_input():
     """標準入力もやり取り専用にする: 元の標準入力(fd 0)を複製して読み、fd 0 は NUL につなぎ直す。
     Windows では、別のスレッドが標準入力のパイプを読んで待っている間に、ネイティブの部品(numpy・ctranslate2・onnxruntime の DLL)を
-    読み込むと、その初期化が標準入力に触れて、次の要求が届くまで止まる(2026-09-26 に PC で再現。範囲の再認識のテストが止まっていた・
+    読み込むと、その初期化が標準入力に触れて、次の要求が届くまで止まる(範囲の再認識のテストが止まっていた・
     最初の文字起こしが遅かった件の原因と思われる)。os.dup2 は fd 0〜2 なら Windows の標準ハンドルも付け替える"""
     fd = os.dup(0)
     try:
@@ -154,7 +154,7 @@ def _audio(a):
 
 def _setup_env():
     """このプロセスの作業データの場所(ytt/workdata。判別のモデル models/diar・エンジンの実行ファイルとモデルの置き場所)。
-    サーバーの worker_client.worker_env が環境変数 TRANSCRIBE_DATA_DIR で必ず渡す。無ければ以前の既定(編集のフォルダ)"""
+    サーバーの worker_client.worker_env が環境変数 TRANSCRIBE_DATA_DIR で必ず渡す。無ければ編集のフォルダ"""
     _workdata.set_data_dir(os.environ.get("TRANSCRIBE_DATA_DIR") or _layout.tool_dir("transcribe"))
 
 
@@ -204,7 +204,7 @@ def _op_transcribe(m, rid, job, out, cancels):
     # 先に送ると、サーバーは「ほとんど捨てた」ときに行を読まずにやり直せる(docs/design/whole-retranscribe-design.md の 4-2)
     out.send({"rid": rid, "ev": "info", "v": {k: (float(getattr(info, k)) if isinstance(getattr(info, k, None), (int, float)) else None)
                                                for k in ("duration", "duration_after_vad")}
-                                         | {k: str(getattr(info, k))[:120] for k in ("gpu", "backend") if isinstance(getattr(info, k, None), str)}})   # 使った装置(whisper.cpp の GPU 名・backend。10-18)
+                                         | {k: str(getattr(info, k))[:120] for k in ("gpu", "backend") if isinstance(getattr(info, k, None), str)}})   # 使った装置(whisper.cpp の GPU 名・backend)
     n = 0
     for s in segs:
         if rid in cancels:
@@ -216,7 +216,7 @@ def _op_transcribe(m, rid, job, out, cancels):
 
 
 def _op_diarize(m, rid, job, out, cancels):
-    # 判別の設定(threshold・minOn・minOff)は任意。無い要求は以前と同じ呼び方(既定の値)
+    # 判別の設定(threshold・minOn・minOff)は任意。無い要求は既定の値
     tune = {k: m[w] for k, w in diarize.DIAR_TUNE if m.get(w) is not None}
     turns = diarize._diarize_local(job, str(m.get("wav")), int(m.get("num") or 0), str(m.get("emb") or diarize.DIAR_EMB_DEFAULT), **tune)
     return [[float(a), float(b), int(k)] for a, b, k in turns]

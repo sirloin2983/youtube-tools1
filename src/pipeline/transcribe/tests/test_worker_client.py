@@ -29,7 +29,7 @@ class TestPaths(unittest.TestCase):
     def test_script_and_log_fall_back_to_workdata(self):
         with mock.patch.object(W, "WORKER_SCRIPT", None), mock.patch.object(W, "WORKER_LOG", None):
             here = os.path.dirname(os.path.abspath(W.__file__))
-            self.assertEqual(W.worker_script(), os.path.join(here, "worker.py"))   # 本体はこのフォルダの worker.py(RS2-9。以前は編集の tx_worker.py)
+            self.assertEqual(W.worker_script(), os.path.join(here, "worker.py"))   # 本体はこのフォルダの worker.py
             self.assertTrue(os.path.isfile(W.worker_script()))
             self.assertEqual(W.worker_log(), os.path.join("/data", "worker.log"))
         with mock.patch.object(W, "WORKER_SCRIPT", "/x/w.py"), mock.patch.object(W, "WORKER_LOG", "/x/w.log"):   # 入れた値(app・テスト)が先
@@ -51,7 +51,7 @@ class TestPaths(unittest.TestCase):
 
 
 class TestWorkerModule(unittest.TestCase):
-    """認識ワーカーの本体 worker.py(RS2-9 に編集の tx_worker.py から移した)を serve なしで読む"""
+    """認識ワーカーの本体 worker.pyを serve なしで読む"""
 
     def test_handle_routes_to_owner_modules(self):
         """要求は呼ぶたびに持ち主のモジュールの名前を読む(diarize._diarize_local の差し替えが届く)・知らない要求は bad_op"""
@@ -127,7 +127,7 @@ class TestKwargs(unittest.TestCase):
         self.assertEqual(W.filter_kwargs(M(), kw), {"language": "ja", "beam_size": 5})
 
     def test_prompt_hotwords_and_context_record(self):
-        """用語集 + 配信ごとの文脈 → initial_prompt・hotwords(編集のテスト test_roster から移した)。文書に残す文脈の記録は records.context_record"""
+        """用語集 + 配信ごとの文脈 → initial_prompt・hotwords。文書に残す文脈の記録は records.context_record"""
         from pipeline.transcribe import records
         spec = {"language": "ja", "beam": 5, "vadMode": "normal", "model": "large-v3", "glossary": ["ホロライブ"],
                 "context": {"members": [{"name": "兎田ぺこら", "from": ["channel"]}], "terms": ["兎田ぺこら", "ぺこら"]}}

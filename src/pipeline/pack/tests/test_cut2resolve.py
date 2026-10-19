@@ -34,7 +34,7 @@ def selection_pack(video, selection, out_dir, sub=None, handles=None, copy_video
 
 def run_pack(video, sub=None, keep=None, drop=None, drop_lines=None, out=None, force=False, dry_run=False, silence=False,
              render=False, copy_video=False, textplus=False, textplus_fps=None, textplus_size=None, src_start_tc=None):
-    """消した単独のコマンド cut2resolve.py と同じ道(plan_cut → build_pack。出力の既定は <動画名>_pack)をテストから流す。
+    """cut2resolve.py と同じ道(plan_cut → build_pack。出力の既定は <動画名>_pack)をテストから流す。
     keep: カットリスト(.txt)・drop: 削る区間のファイル・drop_lines: 削る字幕の行(1 始まりの集合)。ToolError は 1・成功は 0(コマンドの終了コードと同じ)"""
     video = Path(video)
     try:
@@ -288,7 +288,7 @@ class TestOutputSafety(unittest.TestCase):
 
     @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg が無いためスキップ")
     def test_auto_cut_package_contains_recovery_files_and_protects_existing_outputs(self):
-        """採用区間 JSON からのパック(pack.build_pack の base "plan"。単独のコマンド auto_cut.py は消した): EDL・カット後の SRT・
+        """採用区間 JSON からのパック(pack.build_pack の base "plan"): EDL・カット後の SRT・
         cut-plan.json・友人へ.txt の 4 つ。cut-plan.json の tool.name は "cut2resolve"、友人へ.txt は pack の手順書。2 回目は --force が要る"""
         video = self.dir / "source.mp4"
         make_video(video, 10, audio=None)

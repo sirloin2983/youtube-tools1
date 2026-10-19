@@ -18,7 +18,7 @@ from ytt.errors import ApiError, Cancelled
 from ytt.textutil import redact, tail_reason
 
 CHAT_CACHE_KEEP = 30
-# チャットのキャッシュの合計の上限(2026-09-30。件数だけでは、実機で 30 件・2.0GB になっていた)。既定 1GB。環境変数 STUDIO_CHAT_CACHE_MB(MB)で変えられる
+# チャットのキャッシュの合計の上限(件数だけでは容量が膨らむため)。既定 1GB。環境変数 STUDIO_CHAT_CACHE_MB(MB)で変えられる
 CHAT_CACHE_MAX_BYTES = 1024 ** 3
 AUDIO_DL_IDLE = 600      # 音声のダウンロードで、この秒数まったく出力がなければ中止
 MAX_CHAT_BYTES = 400 * 1024 * 1024
@@ -244,7 +244,7 @@ PREFETCH = {}   # 動画ID -> {"ctl", "run", "done": Event, "why", "path"}
 
 def prefetch_chat(vid, timeout, on_done=None):
     """"started" / "full"(先読みの枠がいっぱい)/ "skip"(すでに取得済み・取得中、または使えない)。"""
-    if _env.fake() or not isinstance(vid, str) or not _yturl.VID_RE.match(vid):   # ASCII の 11 文字だけ(以前は全角の英字なども通っていた)
+    if _env.fake() or not isinstance(vid, str) or not _yturl.VID_RE.match(vid):   # ASCII の 11 文字だけ(全角の英字などは通さない)
         return "skip"
     with _pf_lock:
         if vid in PREFETCH:

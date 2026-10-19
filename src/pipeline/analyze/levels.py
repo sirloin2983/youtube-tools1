@@ -1,9 +1,9 @@
-"""1 秒ごとの音量(RMS, dB)を、ffmpeg 1 回のデコードで全帯域と高音域(2kHz 超)の 2 系列に測る決まり(OPT1。2026-10-11)。
+"""1 秒ごとの音量(RMS, dB)を、ffmpeg 1 回のデコードで全帯域と高音域(2kHz 超)の 2 系列に測る決まり(OPT1)。
 スタジオのアーカイブの解析(analyze.audio_levels)と配信中の検出(live_excite_worker.measure_levels)が同じ物を読む。
 動かし方(取り消し・時間の上限・進み具合)は呼ぶ側が持つ。
 
 - フィルター: aresample=16000 → asplit で 2 つ → 全帯域 / highpass=f=2000 → asetnsamples=n=16000:p=0・astats・ametadata
-  (1 秒 = 16000 サンプルごとの RMS。以前のスタジオは同じフィルターを 2 回のデコードで動かしていた = 値は同じ)
+  (1 秒 = 16000 サンプルごとの RMS)
 - 結果は ffmpeg の作業フォルダ(cwd)の full.txt・band.txt(2 つの系列の行が混ざらない)。cwd を渡して ffmpeg を動かすこと
 - 値: 読めない・NaN・無限大・FLOOR 未満は FLOOR(-90)、LEVEL_MAX(20 dB。ふつうは 0 以下)より大きい値は切る(壊れた値で式が振り切れない)
 """

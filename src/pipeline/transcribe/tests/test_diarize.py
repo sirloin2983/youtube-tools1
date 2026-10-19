@@ -126,7 +126,7 @@ class TestBackendAndWorker(unittest.TestCase):
         self.assertEqual(worker_client.WORKER.calls, [("embed", {"wav": "w.wav", "emb": "voxceleb", "groups": [[[0.0, 1.0]]]})])
         worker_client.WORKER = _Worker([[0, 1.5, 2]])
         self.assertEqual(diarize.diarize_real({}, "a.wav", 0, "voxceleb"), [(0.0, 1.5, 2)])
-        self.assertEqual(worker_client.WORKER.calls, [("diarize", {"wav": "a.wav", "num": 0, "emb": "voxceleb"})])   # 設定を渡さなければ以前と同じ形
+        self.assertEqual(worker_client.WORKER.calls, [("diarize", {"wav": "a.wav", "num": 0, "emb": "voxceleb"})])   # 設定を渡さなければ既定の形
 
 
 if __name__ == "__main__":

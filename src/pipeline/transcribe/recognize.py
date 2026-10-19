@@ -4,10 +4,10 @@
 選んだ行の 1 行ずつの認識(recognize_chunk・ChunkModel)・範囲の認識と行の整え方(finish_range_lines・RangeRecognizer)・
 全体の再認識の区間分けと続きから(whole_parts・whole_key・read_resume・write_resume・drop_resume・whole_lines)。
 
-役割で組み直す RS2-7(2026-10-10)に移した(中身は同じ)。標準ライブラリ・ytt・同じパッケージの兄弟(backend・postproc・roster・tx_engines・
-txbase・worker_client・records)だけを読む。ffmpeg(ytt/tools)・置き場所(ytt/workdata の TX_DIR)は呼ぶたびに持ち主から(RS3-0A まで txenv の口)。
+標準ライブラリ・ytt・同じパッケージの兄弟(backend・postproc・roster・tx_engines・
+txbase・worker_client・records)だけを読む。ffmpeg(ytt/tools)・置き場所(ytt/workdata の TX_DIR)は呼ぶたびに持ち主から。
 行の頭の「名前:」を外す決まり(fill の B)は同じ ① の fill.fill_head_stripper を直に呼ぶ(spec -> None(外さない)か 文字 -> (本文, 足す印) の関数。
-OPT-H1 で差し込みの口 set_head_stripper をやめた = 同じ層どうしなので口は要らない)。
+差し込みの口は無い = 同じ層どうしなので要らない)。
 差し替えられる名前(extract_audio・WHOLE_PART_SEC・RangeRecognizer.main など)と読み手は同じこのモジュール。テストの S.extract_audio = …・
 mock.patch.object(S.RangeRecognizer, "main", …) は serve の名前の受付と転送(ytt/modfwd)でここに届く。
 ジョブの本体(run_job・run_retranscribe)と文書への反映(apply_range・thin_rows・_ov など)は文書の側(human/proof の doc_jobs・rerun)。
@@ -31,7 +31,7 @@ def wav_args(ffmpeg, src, dst, ss=None, t=None, rate=16000, opts=("-nostdin", "-
     使う所: 認識の extract_audio(16kHz)・配信中の候補の文字起こし flow/live_tx(16kHz)・アーカイブとの照合 flow/live_archive(8kHz・精密な切り方)。
     - opts: -hide_banner のあとに続ける引数(呼ぶ所ごとに違う。並びも引数の列の一部)
     - ss: 頭の秒(None なら付けない)。pre_seek が None なら -ss は入力の前だけ(速い)。
-      pre_seek が数なら精密な切り方: 入力側の -ss だけだと AAC(m4a・mp4)は 13ms ほどずれ、頭の音も崩れる(2026-10-05 に測った。opus は 1ms)ので、
+      pre_seek が数なら精密な切り方: 入力側の -ss だけだと AAC(m4a・mp4)は 13ms ほどずれ、頭の音も崩れる(opus は 1ms)ので、
       pre_seek 秒手前までは入力側で飛び、残りは出力側で(デコードして)切る = サンプル単位で正確(どちらも 0 なら付けない)
     - t: 長さ(None なら付けない)。af: 音のフィルタ。drop: 外す流れ(-vn など)。fmt: -f の形式(None なら付けない = 出力の拡張子で決まる)"""
     cmd = [ffmpeg, "-hide_banner"] + list(opts)
@@ -79,7 +79,7 @@ def extract_audio(job, spec, wav):
 
 
 # ---------- 声の検出(VAD)が捨てすぎたときのやり直し(docs/design/whole-retranscribe-design.md の 4-2) ----------
-# 声が重なる所・BGM のある所を、Silero VAD が「声ではない」と判断して全部捨て、モデルに何も渡らないことがある(2026-09-28。40 秒が 0 文字)。
+# 声が重なる所・BGM のある所を、Silero VAD が「声ではない」と判断して全部捨て、モデルに何も渡らないことがある(40 秒が 0 文字)。
 # 残った割合が VAD_MIN_KEEP 未満か、文字が 1 つも出なかったら、「弱め」→「なし」の順に緩めてやり直す
 VAD_MIN_KEEP = 0.2
 VAD_LADDER = {"normal": ("normal", "weak", "off"), "weak": ("weak", "off"), "off": ("off",)}
@@ -130,7 +130,7 @@ def transcribe_vad_fallback(job, model, audio, spec, on_seg=None):
     """声の検出を spec["vadMode"] から始め、捨てすぎ・文字が 0 なら緩めてやり直す。-> (行の辞書の一覧, 声の検出の記録)。
     記録 = {"requested", "used", "removedSec"(使った設定で捨てた秒), "retries": [{"mode", "kept", "removedSec", "why": "kept"|"empty"}]}。
     声の検出の設定を受け取らないエンジン(CAPS に "vad" が無い。whisper.cpp)は、頼まれた段で 1 回だけ認識する = 記録 {"used": "none", "unsupported": True, "retries": []}。
-    よくある誤認識の文(HALLUC)しか出なかったときも「文字が 0」とみなす(2026-09-28 白上フブキ03: 標準で 22 秒捨て、残りから「ご視聴ありがとうございました」だけ)"""
+    よくある誤認識の文(HALLUC)しか出なかったときも「文字が 0」とみなす(例: 標準で 22 秒捨て、残りから「ご視聴ありがとうございました」だけ)"""
     mode0 = spec.get("vadMode", "weak")
     caps = _model_caps(model)
     unsupported = caps is not None and "vad" not in caps
@@ -140,7 +140,7 @@ def transcribe_vad_fallback(job, model, audio, spec, on_seg=None):
         last = i == len(ladder) - 1
         kw = worker_client.filter_kwargs(model, worker_client.whisper_kwargs(dict(spec, vadMode=mode)))
         segs, info = model.transcribe(audio, **kw)
-        for k in ("gpu", "backend"):   # 使った装置(whisper.cpp)を文書の記録 runs に残す(records.recognition_run。10-18)
+        for k in ("gpu", "backend"):   # 使った装置(whisper.cpp)を文書の記録 runs に残す(records.recognition_run)
             v = getattr(info, k, None)
             if isinstance(v, str) and v and isinstance(job, dict):
                 job[k] = v
@@ -191,7 +191,7 @@ def transcribe_real(job, spec, wav, total):
 
 
 def _transcribe_checked(job, spec, wav, total):
-    """run_job の本物の認識: エンジンを確かめてから transcribe_real(行の生成器)。RS2-8e に doc_jobs から移した"""
+    """run_job の本物の認識: エンジンを確かめてから transcribe_real(行の生成器)"""
     worker_client.check_engine(spec)
     job["state"] = "loading"
     return transcribe_real(job, spec, wav, total)
@@ -201,7 +201,7 @@ def transcribe_rows(job, spec, wav):
     """文字起こしのジョブ(run_job)の ① の部分: 音声を取り出し(状態 extracting)→ 長さ → 本物か疑似の認識(backend.select。loading → running)→
     生出力を控えながら行を整える(postproc.expand_segments = 分け直し・長さの外を捨てる・繰り返し・行をつなぐ・句読点)。
     -> {"rows": 整えた行, "raw": 生出力(<id>.asr.json の segments), "total": 取り出した音声の長さ(秒。分からなければ範囲の長さか 0), "t_rec": 認識を始めた time.monotonic()}。
-    名前は全部モジュール名つきで呼ぶたびに読む(S.extract_audio・backend の選び方・S.transcribe_fake・S.expand_segments の差し替えが届く)。RS2-8e に doc_jobs の run_job から移した(中身は同じ)"""
+    名前は全部モジュール名つきで呼ぶたびに読む(S.extract_audio・backend の選び方・S.transcribe_fake・S.expand_segments の差し替えが届く)"""
     job["state"], job["phase"] = "extracting", "音声を取り出し中"
     extract_audio(job, spec, wav)
     total = _tools.media_duration(wav) or (spec["end"] - spec["start"] if spec["end"] else 0)
@@ -218,7 +218,7 @@ AUDIO_MARGIN = 3.0   # 取り出す範囲の前後の余裕(秒)。音量補正(
 
 def audio_span(targets, doc_start, doc_end, pad=0.3):
     """再認識・比較で取り出す音声の範囲(元の動画の秒)。対象の行の最初〜最後(+余裕)だけにする。
-    以前は文書の範囲全体(最大6時間)を毎回取り出していて、1行の再認識でも数十秒と、1〜2GB のメモリを使っていた。"""
+    文書の範囲全体(最大6時間)は取り出さない(1行の再認識でも数十秒と 1〜2GB のメモリを使うため)。"""
     a = max(doc_start, min(float(t["start"]) for t in targets) - pad - AUDIO_MARGIN)
     b = max(float(t["end"]) for t in targets) + pad + AUDIO_MARGIN
     if doc_end:
@@ -263,7 +263,7 @@ class ChunkModel:
 
     def recognize(self, chunk, row, sep, terms, first=False):
         """recognize_chunk と同じ (文章, 要確認の理由) か None。CPU に切り替えるのは最初の行(first)だけ。
-        取り消し・理由のある失敗(ApiError)はそのまま上げる(0.65.1。それまでは GPU 固定で最初の行の途中に取り消すと gpu_failed になっていた = ユーザー「なおす」)"""
+        取り消し・理由のある失敗(ApiError)はそのまま上げる(取り消しを gpu_failed にしない)"""
         return worker_client.cpu_fallback(self.job, self.device, self.pref, lambda: recognize_chunk(self.model, self.kw, chunk, row, sep, terms),
                             lambda: self._use(*worker_client.load_model(self.name, self.job, force_cpu=True, engine=self.engine)), retry=first)
 
@@ -272,7 +272,7 @@ def finish_range_lines(raw, spec, shift):
     """認識した行(チャンク内の秒)を、絶対の秒にして、範囲 [a,b] の内側に収め、要確認の印を付ける。"""
     a, b = spec["range"]
     out, prev, terms = [], [], _roster.prompt_terms(spec)
-    split = _fill.fill_head_stripper(spec)   # 行の頭の「名前:」(0.67.0。fill の B。呼ぶたびに読む = テストの差し替えが効く)
+    split = _fill.fill_head_stripper(spec)   # 行の頭の「名前:」(fill の B。呼ぶたびに読む = テストの差し替えが効く)
     for s in postproc.expand_segments(raw, spec):
         note = None
         if split is not None:

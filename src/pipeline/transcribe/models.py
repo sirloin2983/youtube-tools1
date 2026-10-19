@@ -2,7 +2,7 @@
 """① 認識ワーカーの中で動く物: 読み込んだモデルの使い回し(_models)と読み込み(_load_model_local)・しばらく使わなければ手放す(release_idle_local)・
 GPU(CUDA)の部品の場所と有無をこのプロセスで調べる関数(setup_cuda_paths・cuda_count・cuda_libs_ok・_gpu_ready_local)・GPU で使う精度の型(cuda_compute)。
 
-役割で組み直す OPT(2026-10-11)に worker_client から移した(中身は同じ。worker_client にはサーバー側の物 = WorkerClient・RemoteModel・GPU の有無の別プロセス調べだけを残した)。
+worker_client にはサーバー側の物 = WorkerClient・RemoteModel・GPU の有無の別プロセス調べだけがある。
 **このモジュールのモデルの読み込み・CUDA の調べはワーカーのプロセス(と IN_WORKER の測る道具)だけが呼ぶ**。サーバーのプロセスが読んでも、numpy・faster_whisper・
 ctranslate2・sherpa_onnx は呼ばれた関数の中(cuda_count の ctranslate2)でしか読まない(src/editor/tests/test_worker.py が検査)。
 ワーカーの本体(worker.py)・測る道具(eval/tools/_evalcommon)・疑似のワーカー(eval/fake/fake_worker が _gpu_ready_local を差し替える)が、名前を呼ぶたびに読む。
@@ -25,7 +25,7 @@ _model_used = [0.0]   # 最後にモデルを使った時刻(ジョブの終わ�
 MODEL_IDLE_SEC = tx_engines.env_num("TRANSCRIBE_MODEL_IDLE_SEC", 3600, lo=0, hi=float("inf"))
 # 読み込んだモデル(large-v3 で数GB)は次のジョブのために残すが、この秒数ジョブが無ければ手放す(0 = 手放さない)。
 # 画面を開いたまま他の作業(動画編集など)をするときにメモリを返すため。次の文字起こしでは読み込み直し(10〜30秒程度)が入る。
-# 既定は 60 分(2026-10-04 に 15 分から延ばした。続けて作業するたびの読み込みを減らす。32GB なら large-v3 + 話者判別を1時間持ってよい。git の履歴(679ff01 以前)の docs/plan/stability-review-2026-10.md)
+# 既定は 60 分(続けて作業するたびの読み込みを減らす。32GB なら large-v3 + 話者判別を1時間持ってよい)
 
 
 def models_touched():
@@ -70,7 +70,7 @@ def _load_model_local(name, job, pref="auto", force_cpu=False, engine=tx_engines
             _model_used[0] = time.time()
             if key in _models:
                 return _models[key], dev
-            heavy = [k for k in _models if not tx_engines.get(k[2]).light]   # 小さいモデル(SenseVoice = light)は主のモデルと一緒に持つ(0.60.0)
+            heavy = [k for k in _models if not tx_engines.get(k[2]).light]   # 小さいモデル(SenseVoice = light)は主のモデルと一緒に持つ
             if heavy and not eng.light:   # 別の(重い)モデルは手放す(別の重いモデルを交互に使ってもメモリが積み上がらない。落ちる原因の1つ)
                 _txbase.log.info("モデルを解放: %s(メモリ %s)", ", ".join("/".join(k) for k in heavy), _tools.memory_label())
                 for k in heavy:
@@ -100,7 +100,7 @@ def _load_model_local(name, job, pref="auto", force_cpu=False, engine=tx_engines
         raise _errors.ApiError("model_failed", "モデルを読み込めませんでした。もう一度始めてください", 500, {"detail": str(last)[:300]})
 
 
-# ---------- GPU(CUDA)の部品の場所と有無(このプロセスで調べる = 認識ワーカーの中と測る道具。RS2-9 に編集の ed_state から移した) ----------
+# ---------- GPU(CUDA)の部品の場所と有無(このプロセスで調べる = 認識ワーカーの中と測る道具) ----------
 # サーバーのプロセスは ctranslate2 を読まない: 画面に出す GPU の有無は下の gpu_ready が別プロセス(worker.py --probe)で 1 回だけ調べる
 def setup_cuda_paths():
     """pip の nvidia-cublas-cu12 / nvidia-cudnn-cu12 が入れた DLL / .so を、ctranslate2 が見つけられるようにする。"""

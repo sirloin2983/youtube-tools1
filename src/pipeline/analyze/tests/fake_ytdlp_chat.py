@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """テスト用の偽の yt-dlp(配信中の live_chat)。src/pipeline/analyze/tests/test_live_excite_worker.py が、盛り上がりの検出のワーカー(src/pipeline/analyze/live_excite_worker.py の
 ChatFeed)の yt-dlp の場所にこのファイルを渡す(.py なら同じ Python で動かす)。通信しない。
--o の名前(<stem>.%(ext)s)から <stem>.live_chat.json.part に 1 行 1 JSON を追記する(本物の配信中と同じ形 = 2026-10-07 の L0 の実測:
+-o の名前(<stem>.%(ext)s)から <stem>.live_chat.json.part に 1 行 1 JSON を追記する(本物の配信中と同じ形 = L0 の実測:
 上位の鍵 isLive・replayChatItemAction・videoOffsetTimeMsec、renderer に timestampUsec)。
 
 動きは環境変数 FAKE_YTDLP_CHAT(JSON のファイル)で決める。起動ごとに runs の次の要素を使う(足りなければ最後を繰り返す):

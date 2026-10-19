@@ -13,20 +13,20 @@ SCHEMA = "youtube-tools-resolve-textplus/v1"
 TEMPLATE_NAME = "textplus-template.drb"
 DEFAULT_TARGET = {"fps": 30, "width": 1080, "height": 1920}   # 本番: 30fps・縦(Shorts)。画面外も残して位置を変えられる設定で使う
 TARGET_FPS = (24, 25, 30, 50, 60)
-VIDEO_TRACKS_MAX = 5   # 映像トラックの数(V1〜V数 に同じカットの動画。V2 から上は映像だけ)。字幕はその上 V(数+1)。友人が 1〜5 から選ぶ(2026-10-02)
+VIDEO_TRACKS_MAX = 5   # 映像トラックの数(V1〜V数 に同じカットの動画。V2 から上は映像だけ)。字幕はその上 V(数+1)。友人が 1〜5 から選ぶ
 
 
-# 字幕の見た目(ユーザーの指定 2026-09-26。notes:docs/design/edit-tool-design.md の 12 ①。値は Resolve の Text+ のインスペクタの画像
+# 字幕の見た目(ユーザーの指定。notes:docs/design/edit-tool-design.md の 12 ①。値は Resolve の Text+ のインスペクタの画像
 # C:\Users\you11\Desktop\素材 の「基本設定」「シェード1〜3」)。縦・横とも同じ(ユーザー決定)。雛形(.drb)は今のまま、スクリプトが値を入れる。
 #   フォント「けいふぉんと」Regular・大きさ 0.14・字間 1.0・行間 1.0・アンカー 縦 1.0(下)/ 横 0.0(中央)
 #   シェード 1 = 塗り 黒(優先順位 8)/ 2 = ふち 白・太さ 0.12・ずらす X 0.015 Y −0.02(優先順位 7)/ 5 = ふち 黒・太さ 0.18(優先順位 4)
 # けいふぉんと は友人の PC に各自で入れてもらう(規約に再配布の許可が書かれていないので、パックに入れない。ユーザー決定)。
-# 無ければ以前の自動選択(Windows に最初から入っている日本語フォント)に切り替え、マーカーを黄色にしてメモに書く。
-# 以前の自動選択の理由: フォント名を決め打ちすると外れた(実機で Font Not Found: 「MS ゴシック」+ Semibold / Regular / 標準、「ＭＳ ゴシック」+ 標準)。
+# 無ければ自動選択(Windows に最初から入っている日本語フォント)に切り替え、マーカーを黄色にしてメモに書く。
+# 自動選択の理由: フォント名を決め打ちすると外れた(実機で Font Not Found: 「MS ゴシック」+ Semibold / Regular / 標準、「ＭＳ ゴシック」+ 標準)。
 # そこで Lua 側で Resolve(Fusion)のフォント一覧を読み、候補のうち実際にあるもの・ある太さを選ぶ。一覧を読めないときは fallback。
 # 入力の名前(Size・Thickness2・Offset2 など)は Fusion の Text+ のもの。入れたあと読み直し、違う値になった項目はマーカーのメモに出す
 # (名前が実機と違っても気づけるように。色は 0〜1)。
-# 優先順位(重ね順)は、実機(Resolve 21.1。2026-09-27)で「Priority1」などが入らなかった(読み直すと値が無い)。そこで
+# 優先順位(重ね順)は、実機(Resolve 21.1)で「Priority1」などが入らなかった(読み直すと値が無い)。そこで
 # Resolve の入力の一覧から表示名「Priority」と要素の番号で探す → 候補の名前(Text+ の部品 text.plugin の中の文字列 PriorityBack)の順に試す。
 # 見つけた名前はマーカーのメモに「読み替え」と出す(次の版で名前を直すため)。重ね順が入らないと、太い黒ふち(要素5)が白ふちを覆って見た目が崩れる
 PRIORITY_LOOKUP = {"names": ["Priority", "優先順位"], "ids": ["PriorityBack%d"]}
@@ -46,10 +46,10 @@ TEXT_STYLE = {
         {"n": 5, "shape": 1, "thickness": 0.18, "rgba": [0.0, 0.0, 0.0, 1.0], "priority": 4, "offset": [0.0, 0.0]},
     ],
 }
-# 簡易版(友人向けの文字起こし簡易版。git の履歴(679ff01 以前)の docs/plan/friend-lite-plan.md)の字幕の見た目: MS ゴシック・話者ごとの文字の色 + 話者ごとのふちの色。
+# 簡易版(友人向けの文字起こし簡易版)の字幕の見た目: MS ゴシック・話者ごとの文字の色 + 話者ごとのふちの色。
 # 横の動画(ふつうの 16:9)に置く前提。シェード 1 = 塗り(既定は黄色。話者ごとの色 cap.fill で変える)/ 2 = ふち(既定は黒。cap.outline で変える)。
 # 要素 5(太い黒ふち)は使わないので、雛形に残っていても切る(enabled False)。
-# 大きさ 0.08 は仮(実機の Resolve で確かめる。git の履歴(679ff01 以前)の docs/plan/friend-lite-realcheck.md)。
+# 大きさ 0.08 は仮(実機の Resolve で確かめる)。
 TEXT_STYLE_LITE = {
     "name": "MSゴシック・話者ごとの文字とふちの色(簡易版)",
     "fonts": ["MS Gothic", "ＭＳ ゴシック", "MS ゴシック"], "styles": ["Regular", "標準"],
@@ -79,7 +79,7 @@ def hex_rgba(hex_):
 
 
 def text_style(color=None, kind="default"):
-    """字幕の見た目。color: {"hex": "#RRGGBB", "who": 配信者の名前}(配信者の名前を入れたとき。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 4)なら
+    """字幕の見た目。color: {"hex": "#RRGGBB", "who": 配信者の名前}(配信者の名前を入れたとき)なら
     文字(塗りの要素)をその色にする。白いふち・外側の黒いふちは同じ。無ければ TEXT_STYLE のまま(黒い文字)。
     名前 → 色の照らし合わせは ytt/colors.py(呼び出し側。ここは受け取った色を入れるだけ)"""
     if kind not in TEXT_STYLES:
@@ -227,7 +227,7 @@ def stack_captions(cues, fps, order=None, max_lanes=LANE_MAX, overlap_sec=LANE_O
             "stacked": sum(1 for x in lane if x > 1), "trimmed": len(trimmed)}
 
 
-# 字幕の改行(2段。notes:docs/design/edit-tool-design.md の 12 ②。ユーザー決定 2026-09-26: 縦 8・横 14 文字前後で改行)。
+# 字幕の改行(2段。notes:docs/design/edit-tool-design.md の 12 ②。ユーザー決定: 縦 8・横 14 文字前後で改行)。
 # Text+ は自動で折り返さない(大きさ 0.14 だと縦の画面の1段に 7〜8 文字ほど)ので、字幕の文字に改行を入れる
 WRAP_DEFAULT = {"vertical": 8, "horizontal": 14}
 WRAP_SLACK = 2                        # 1段の文字数を 2 文字まで超えるのは許す(変な所で切らない)
@@ -362,7 +362,7 @@ def _style_data(color=None, kind="default", outlines=False):
 
 def importer_script(plan):
     """データを埋め込んだ自己完結Lua。Resolve FreeのI/O制限を避ける。
-    決まり: プロジェクトは作らない・設定は変えない(API で作ったプロジェクトで編集ページの音が割れた。WORKLOG 2026-09-25)。
+    決まり: プロジェクトは作らない・設定は変えない(API で作ったプロジェクトで編集ページの音が割れた)。
     結果は print が見えない環境があるため、タイムライン名とマーカーで画面に出す"""
     p = json.loads(json.dumps(plan))
     p["media"]["absolutePath"] = "__C2R_MEDIA_PATH__"
@@ -815,7 +815,7 @@ def launcher_script():
 
 
 README_NAME = "友人へ.txt"                    # Text+ パックの手順書(コマンドで作るときだけ書く。画面・API は画面の「手順を見る」で出す)
-# 2026-10-18 まで入れられた予備の手順書(予備_EDLで開く手順.txt)と EDL・SRT は、決定 3-34 で消した(古いパックの名前は pack.OLD_BACKUP_README)
+# 予備の手順書(予備_EDLで開く手順.txt)と EDL・SRT は入れない(決定 3-34。古いパックの名前は pack.OLD_BACKUP_README)
 
 
 def instructions(video_name, target=None, meta=None, n_captions=None, n_cuts=None, look=None, video_tracks=1, caption_lanes=1):
@@ -937,7 +937,7 @@ Resolve の中でスクリプトを実行すると、カット済みのタイム
 def write_files(paths, plan, out_dir, target=None, wrap=None, color=None, fills=None, outlines=None, style="default",
                 video_tracks=1, order=None):
     """Text+固有ファイルを書き、kind -> Path を返す(鍵 readme_text だけは手順書の中身の文字列)。target: Text+ を置くプロジェクトの fps・解像度(既定 30fps・1080x1920)。
-    計画(区間・字幕・動画)は Lua に埋め込む(2026-09-26 まで別に書いていた textplus-import.json は出さない。読み直すのは read_script_plan)。
+    計画(区間・字幕・動画)は Lua に埋め込む(別の textplus-import.json は出さない。読み直すのは read_script_plan)。
     order: 同時に始まる字幕の段の順(stack_captions)"""
     target = dict(target or DEFAULT_TARGET)
     import_plan = build_import_plan(plan, paths["video"].relative_to(out_dir), target, wrap, color, fills, outlines, style, video_tracks,
@@ -975,7 +975,7 @@ def readme_from_script(text):
 
 def read_script_plan(text):
     """パックの Lua(importer_script が書いたもの)に埋め込んだ計画を読み直す(区間・字幕・動画。テスト・調べもの用)。
-    以前の textplus-import.json と同じ形(media.absolutePath などは Lua の置き換え用の印のまま)。読めなければ ValueError"""
+    計画の JSON の形(media.absolutePath などは Lua の置き換え用の印のまま)。読めなければ ValueError"""
     head = "local DATA = "
     i = text.find(head)
     if i < 0:
