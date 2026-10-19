@@ -6,7 +6,7 @@
 ffmpeg が必要(小さな動画を lavfi で作る)。ワーカーのスレッドは動かさず、待機列のジョブをテストがその場で動かす(疑似の認識・疑似の話者判別
 diarize_fake = 10 秒ごとに入れ替わる・声の特徴 embed_fake = 同じ入れ替わり)。
 評価用の文書: 文字起こしのあと判別のジョブが足される → 覚えた声 → 名前の候補(suggest)をいちばん長く話した人に → diar.json に by: context。
-人が付けた話者・確かめ済みは触らない・評価用でない文書は判別しない(設定 autoDiarize は消した。OPT-H1 Q7)・部品が無ければ黙って飛ばす・
+人が付けた話者・確かめ済みは触らない・評価用でない文書は判別しない・部品が無ければ黙って飛ばす・
 まとめての文字起こしの後追いは文書ごとに 1 回・直近に直した文書は後回し・判別の待ちの文書はドリルに出ない。
 """
 import json
@@ -24,13 +24,13 @@ os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 import serve as S  # noqa: E402
-from eval.drill import drill as ed_drill  # noqa: E402   (RS4-2 に editor/ed_drill.py から)
+from eval.drill import drill as ed_drill  # noqa: E402 
 from eval.drill import evalbatch as EB  # noqa: E402
 from human.proof import doc_jobs  # noqa: E402
 from human.proof import speakers as proof_speakers  # noqa: E402
 from human.proof import store  # noqa: E402
 from flow import jobs  # noqa: E402
-from manage.keep import evalfolders as EF  # noqa: E402   評価用のフォルダの整理(RS3-E7 に ed_relink から。OPT-M2 で manage/keep/evalfolders へ)
+from manage.keep import evalfolders as EF  # noqa: E402
 from test_evalbatch import FFMPEG, MEMBER, _make_video  # noqa: E402
 from ytt import testkit  # noqa: E402
 
@@ -143,29 +143,27 @@ class TestAutoDiar(unittest.TestCase):
         self.assertEqual([(x["name"], x["by"]) for x in dj["named"]], [("ときのそら", "context")])
         self.assertTrue(S.drill_candidates(tid)["noSpeaker"] == 0)
 
-    def test_two_speakers_longest_gets_the_name(self):
-        tid, _ = self.transcribe(self.put(self.mem, "b.mp4", long=True))
-        self.run_one(self.diar_jobs(tid)[0])
-        self.assertEqual(self.names(tid), {"S1": "ときのそら", "S2": "話者2"})   # 話した秒がいちばん長い 1 人目に・ほかは仮の名前のまま
-        self.assertEqual(self.diar(tid)["voices"]["speakers"]["S2"].get("by"), None)
-        self.assertTrue(all(g["speaker"] in ("S1", "S2") for g in self.text_rows(tid)))   # 仮の名前でも「全行に話者」
-
-    def test_learned_voice_wins_and_name_is_not_reused(self):
-        self.learn_voice("ときのそら", 0)   # 1 人目の声 = ときのそら(覚えた声)。候補も「ときのそら」→ もう使われているので付けない
-        tid, _ = self.transcribe(self.put(self.mem, "c.mp4", long=True))
-        self.run_one(self.diar_jobs(tid)[0])
-        self.assertEqual(self.names(tid), {"S1": "ときのそら", "S2": "話者2"})
-        v = self.diar(tid)["voices"]
-        self.assertEqual(v["speakers"]["S1"]["by"], "threshold")
-        self.assertEqual(v["context"], {"name": "ときのそら", "speaker": None, "reason": "name_in_use"})
-
-    def test_learned_voice_and_context_name_for_the_other(self):
-        self.learn_voice("白上フブキ", 0)   # 1 人目は覚えた声で白上フブキ → まだ仮の名前の 2 人目に候補の名前
-        tid, _ = self.transcribe(self.put(self.mem, "d.mp4", long=True))
-        self.run_one(self.diar_jobs(tid)[0])
-        self.assertEqual(self.names(tid), {"S1": "白上フブキ", "S2": "ときのそら"})
-        v = self.diar(tid)["voices"]["speakers"]
-        self.assertEqual((v["S1"]["by"], v["S2"]["by"], v["S2"]["label"]), ("threshold", "context", 1))
+    def test_two_speakers_names(self):
+        """2 人の動画(候補の名前 = ときのそら)。覚えた声が無ければ話した秒が長い 1 人目に・覚えた声が候補と同じ名前ならその人が先で候補は使われている
+        ので付けない・覚えた声が別の名前なら 2 人目に候補の名前"""
+        talk = {"S1": "ときのそら", "S2": "話者2"}
+        for voice, names, by, context in (
+                (None, talk, {"S2": None}, None),
+                ("ときのそら", talk, {"S1": "threshold"}, {"name": "ときのそら", "speaker": None, "reason": "name_in_use"}),
+                ("白上フブキ", {"S1": "白上フブキ", "S2": "ときのそら"}, {"S1": "threshold", "S2": "context"}, None)):
+            with self.subTest(voice=voice):
+                if voice:
+                    self.learn_voice(voice, 0)   # 1 人目の声 = 覚えた声
+                tid, _ = self.transcribe(self.put(self.mem, "b%s.mp4" % (voice or ""), long=True))
+                self.run_one(self.diar_jobs(tid)[0])
+                self.assertEqual(self.names(tid), names)
+                v = self.diar(tid)["voices"]
+                self.assertEqual({k: v["speakers"][k].get("by") for k in by}, by)
+                if context:
+                    self.assertEqual(v["context"], context)
+                if by.get("S2") == "context":
+                    self.assertEqual(v["speakers"]["S2"]["label"], 1)   # 2 人目の声に付く
+                self.assertTrue(all(g["speaker"] in ("S1", "S2") for g in self.text_rows(tid)))   # 仮の名前でも「全行に話者」
 
     def test_no_suggest_keeps_default_names(self):
         tid, _ = self.transcribe(self.put(self.stg, "e.mp4"))   # 仮置き: メンバーのフォルダも配信の手がかりも無い

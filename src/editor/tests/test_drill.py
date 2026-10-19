@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""評価ドリルと定点の「あと何分」(マスタープラン Q4。git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md の (c)。eval/drill/drill.py。RS4-2 まで editor/ed_drill.py)のテスト。
-2026-10-04 夜に作り直した形(動画 1 本ずつ・編集の画面で全部聞いて直す・文書の印 evalReviewed)。
+"""評価ドリルと定点の「あと何分」(eval/drill/drill.py。動画 1 本ずつ・編集の画面で全部聞いて直す・文書の印 evalReviewed)のテスト。
 
     python -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
     python -m unittest test_drill -q                  # これだけ(src/editor/tests で)
@@ -19,7 +18,7 @@ from unittest.mock import patch
 
 from test_backend import S, StoreDir, write_json  # noqa: F401  (S = serve)
 
-from eval.drill import drill as DR  # noqa: E402  (serve を読み込んだあとなので、部品の場所は通っている。RS4-2 に editor/ed_drill.py から)
+from eval.drill import drill as DR  # noqa: E402  (serve を読み込んだあとなので、部品の場所は通っている)
 
 OLD = int(time.time() * 1000) - 3600 * 1000   # 1 時間前(直近 10 分ではない)
 
@@ -55,6 +54,16 @@ class DrillBase(StoreDir):
         with open(S.tx_path(tid_of(n)), encoding="utf-8") as f:
             return json.load(f)
 
+    def busy_job(self, n, state):
+        """文書 n に判別のジョブが載っている間だけ(contextmanager の代わりに addCleanup で外す)"""
+        with S._jobs_lock:
+            S._jobs["jx"] = {"id": "jx", "kind": "diarize", "state": state, "spec": {"tid": tid_of(n)}, "tid": tid_of(n)}
+
+        def drop():
+            with S._jobs_lock:
+                S._jobs.pop("jx", None)
+        self.addCleanup(drop)
+
     def review(self, n, **kw):
         return DR.drill_reviewed(dict({"id": tid_of(n), "baseUpdatedAt": self.rd(n)["updatedAt"]}, **kw))
 
@@ -80,14 +89,9 @@ class TestDrillNext(DrillBase):
         self.doc(4, [_seg(1, 0, 1, "え")])
         self.doc(5, [_seg(1, 0, 1, "お")])
         self.doc(6, [_seg(1, 0, 1, "か")])
-        with S._jobs_lock:
-            S._jobs["jx"] = {"id": "jx", "kind": "diarize", "state": "running", "spec": {"tid": tid_of(5)}, "tid": tid_of(5)}
-        try:
-            got = {DR.drill_next(skip="%s,bad,%s" % (tid_of(6), "x" * 12), seed=i)["id"] for i in range(10)}
-            r = DR.drill_next(skip=[tid_of(6), tid_of(4)])
-        finally:
-            with S._jobs_lock:
-                S._jobs.pop("jx", None)
+        self.busy_job(5, "running")
+        got = {DR.drill_next(skip="%s,bad,%s" % (tid_of(6), "x" * 12), seed=i)["id"] for i in range(10)}
+        r = DR.drill_next(skip=[tid_of(6), tid_of(4)])
         self.assertEqual(got, {tid_of(4)})                                                   # 飛ばした文書(skip。壊れた id は無視)も出さない
         self.assertIsNone(r["id"])
         self.assertEqual((r["counts"]["recent"], r["counts"]["busy"], r["counts"]["noMedia"], r["counts"]["skipped"]), (2, 1, 1, 2))
@@ -141,14 +145,9 @@ class TestDrillReviewed(DrillBase):
             self.review(3)
         self.assertEqual(cm.exception.code, "not_transcribed")
         self.doc(4, [_seg(1, 0, 1, "あ")])
-        with S._jobs_lock:
-            S._jobs["jx"] = {"id": "jx", "kind": "diarize", "state": "queued", "spec": {"tid": tid_of(4)}, "tid": tid_of(4)}
-        try:
-            with self.assertRaises(S.ApiError) as cm:
-                self.review(4)
-        finally:
-            with S._jobs_lock:
-                S._jobs.pop("jx", None)
+        self.busy_job(4, "queued")
+        with self.assertRaises(S.ApiError) as cm:
+            self.review(4)
         self.assertEqual(cm.exception.code, "busy")
 
     def test_silent_video_and_future_updated_at(self):
@@ -204,7 +203,7 @@ class TestDrillReviewed(DrillBase):
         S.apply_retranscribe({"tid": tid_of(1), "model": "m", "autoDict": False}, {"s1": ("A", "")})   # 機械が行を書き換えた
         d = self.rd(1)
         self.assertNotIn("evalReviewed", d)
-        self.assertTrue(d["segments"][0].get("proofed"))   # X-RERUN: 校正済みの行は残る(印 MACH_CHANGED)
+        self.assertTrue(d["segments"][0].get("proofed"))   # 校正済みの行は残る(印 MACH_CHANGED)
         g = d["segments"][0]
         self.assertEqual((g["text"], g.get("proofed")), ("あ", True))
         self.assertIn(layers.MACH_CHANGED, g["flag"])
@@ -292,7 +291,7 @@ class TestDrillCandidates(DrillBase):
 
 
 class TestDrillDecodeOnce(DrillBase):
-    """O13: 冷時は文書を 1 回だけデコード(通常要約とドリルで共有)・温時は 0 回・名簿だけ変わったときは文書を読まない"""
+    """冷時は文書を 1 回だけデコード(通常要約とドリルで共有)・温時は 0 回・名簿だけ変わったときは文書を読まない"""
 
     def _count(self):
         import json as _json

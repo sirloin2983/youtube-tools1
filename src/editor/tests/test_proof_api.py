@@ -52,18 +52,11 @@ class _ProofStore(StoreDir):
 
     def setUp(self):
         super().setUp()
-        self.patches = [mock.patch.object(S, "FEEDBACK", os.path.join(self.tmp, "learn-feedback.json"))]
-        for p in self.patches:
-            p.start()
+        self.patch(S, "FEEDBACK", os.path.join(self.tmp, "learn-feedback.json"))
         learn._info_cache.clear()
         learn._rules_cache.update(key=None, val=None)
-
-    def tearDown(self):
-        for p in self.patches:
-            p.stop()
-        learn._info_cache.clear()
-        learn._rules_cache.update(key=None, val=None)
-        super().tearDown()
+        self.addCleanup(learn._info_cache.clear)
+        self.addCleanup(learn._rules_cache.update, key=None, val=None)
 
 
 class TestLearnedCandidates(_ProofStore):
@@ -232,7 +225,7 @@ class TestRangeRetranscribe(_ProofStore):
         segs = d["segments"]
         self.assertEqual(segs[0]["text"], "行0")                                   # 範囲外の行は不変
         self.assertEqual({k: segs[0][k] for k in ("id", "start", "end", "proofed", "tags")}, {"id": "x0", "start": 0.0, "end": 1.8, "proofed": True, "tags": ["bgm"]})
-        rest = segs[1:]   # X-RERUN: 範囲の校正済みの行は人の行として残り、下の機械が変わった印 MACH_CHANGED(3 択)。機械の層だけが新しくなる
+        rest = segs[1:]   # 範囲の校正済みの行は人の行として残り、下の機械が変わった印 MACH_CHANGED(3 択)。機械の層だけが新しくなる
         from human.proof import layers
         self.assertEqual([g["id"] for g in rest], ["x1", "x2", "x3"])
         self.assertTrue(all(g.get("proofed") and layers.MACH_CHANGED in g["flag"] for g in rest))
@@ -243,12 +236,7 @@ class TestRangeRetranscribe(_ProofStore):
         starts = [g["start"] for g in segs]
         self.assertEqual(starts, sorted(starts))                                   # 時刻順
         self.assertEqual(len({g["id"] for g in segs}), len(segs))                  # id は重複しない
-        self.assertTrue(S.hist_stamps(TID_A))                                      # 実行前の状態を履歴に退避(.bak の控えは作らない)
         self.assertEqual(os.listdir(S.TMP_DIR) if os.path.isdir(S.TMP_DIR) else [], [])                    # 一時ファイルは残さない
-
-    def test_backup_is_the_state_before_the_run(self):
-        self.put(self.rows(), [{"id": "S1", "name": "話者", "color": "#2f62d6"}])
-        self.run_range(["x1", "x2"])
         with open(os.path.join(S._hist_dir(TID_A), "%d.json" % S.hist_stamps(TID_A)[-1]), encoding="utf-8") as f:   # 最後の履歴 = 実行の直前
             bak = json.load(f)
         self.assertEqual([g["text"] for g in bak["segments"]], ["行0", "行1", "行2", "行3"])                 # 差し替える前の行
@@ -272,13 +260,8 @@ class TestVoiceChain(_ProofStore):
 
     def setUp(self):
         super().setUp()
-        self.saved_vdir = S.VOICES_DIR
-        S.VOICES_DIR = os.path.join(self.tmp, "voices")
+        self.patch(S, "VOICES_DIR", os.path.join(self.tmp, "voices"))
         self.start_mocks()
-
-    def tearDown(self):
-        S.VOICES_DIR = self.saved_vdir
-        super().tearDown()
 
     def read(self):
         with open(S.tx_path(TID_A), encoding="utf-8") as f:
@@ -302,9 +285,7 @@ class TestVoiceChain(_ProofStore):
         """動画・音声・判別のモデルは使わない(疑似の判別 diarize_fake と、上の emb の声の特徴)"""
         for name, val in (("check_source", lambda p: p), ("extract_audio", lambda *a: None), ("has_sherpa", lambda: True),
                           ("ensure_diar_models", lambda *a: None), ("backend_name", lambda: "fake"), ("embed_groups", self.emb)):
-            m = mock.patch.object(S, name, val)
-            m.start()
-            self.addCleanup(m.stop)
+            self.patch(S, name, val)
 
     def learn(self):
         self.doc([("S1", "兎田ぺこら"), ("S2", "話者2")])
@@ -358,23 +339,20 @@ class TestRerunReceive(_ProofStore):
     def rerun(self, **req):
         return S._rerun.validate_rerun(dict({"tid": TID_A, "model": "small"}, **req))
 
-    def test_refused_combinations(self):
-        self.put(self.sparse_rows())
-        cases = [dict(engine="alt", result="replace", target="whole"),     # 2つ目のエンジンで差し替える
-                 dict(engine="alt", result="replace", target="rows", ids=["f1"]),
-                 dict(engine="main", result="propose", target="rows", ids=["f1"])]   # いつものエンジンで候補
-        for req in cases:
-            with self.subTest(req=req), self.assertRaises(S.ApiError) as c:
-                self.rerun(**req)
-            self.assertEqual((c.exception.code, c.exception.status), ("bad_combo", 400))
-
-    def test_flagged_without_suspect_rows_is_empty(self):
-        rows = self.sparse_rows()
-        rows[0]["flag"] = ""                                               # 印が無い = 疑わしい行は無い
-        self.put(rows)
-        with self.assertRaises(S.ApiError) as c:
-            self.rerun(target="flagged")
-        self.assertEqual((c.exception.code, c.exception.status), ("empty", 400))
+    def test_refused(self):
+        no_flag = self.sparse_rows()
+        no_flag[0]["flag"] = ""                                            # 印が無い = 疑わしい行は無い
+        for name, rows, extra, req, code in (
+                ("2つ目のエンジンで全体を差し替える", self.sparse_rows(), {}, dict(engine="alt", result="replace", target="whole"), "bad_combo"),
+                ("2つ目のエンジンで行を差し替える", self.sparse_rows(), {}, dict(engine="alt", result="replace", target="rows", ids=["f1"]), "bad_combo"),
+                ("いつものエンジンで候補", self.sparse_rows(), {}, dict(engine="main", result="propose", target="rows", ids=["f1"]), "bad_combo"),
+                ("疑わしい行が無い", no_flag, {}, dict(target="flagged"), "empty"),
+                ("評価用", self.sparse_rows(), {"evalSet": True}, dict(target="flagged"), "eval_set")):
+            with self.subTest(name):
+                self.put(rows, **extra)
+                with self.assertRaises(S.ApiError) as c:
+                    self.rerun(**req)
+                self.assertEqual((c.exception.code, c.exception.status), (code, 400))
 
     def test_flagged_picks_the_suspect_rows_not_the_sent_ids(self):
         self.put(self.sparse_rows())
@@ -383,12 +361,6 @@ class TestRerunReceive(_ProofStore):
         self.assertEqual(kind, "retranscribe")
         self.assertEqual(spec["mode"], "each")
         self.assertEqual(spec["ids"], ["f1"])
-
-    def test_eval_set_is_refused(self):
-        self.put(self.sparse_rows(), evalSet=True)
-        with self.assertRaises(S.ApiError) as c:
-            self.rerun(target="flagged")
-        self.assertEqual((c.exception.code, c.exception.status), ("eval_set", 400))
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@ GPU を頼んだのに Vulkan で動かなければ止める(黙って CPU に�
 import hashlib
 import io
 import json
+import math
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所に書かない
 import shutil
@@ -68,8 +69,7 @@ class WhisperCppTest(unittest.TestCase):
                                "glossary": ["白上フブキ", "さくらみこ"]})
         kw = S.filter_kwargs(e, kw)
         self.assertNotIn("hotwords", kw)                                   # whisper.cpp に無い引数は渡さない
-        with mock.patch.dict(os.environ, {"TRANSCRIBE_WCPP_VAD": "1", "TRANSCRIBE_WCPP_SPEECH_FILTER": "1"}):   # 0.65.0 で消した測るときだけの切り替え = もう効かない
-            segs, info = e.transcribe(self.wav, **kw)
+        segs, info = e.transcribe(self.wav, **kw)
         segs = list(segs)
         a = self.sent_args()
         self.assertEqual(a[a.index("-l") + 1], "ja")
@@ -77,16 +77,16 @@ class WhisperCppTest(unittest.TestCase):
         self.assertEqual(a[a.index("-mc") + 1], "0")                       # 前の文を文脈にしない
         self.assertIn("用語: 白上フブキ、さくらみこ", a[a.index("--prompt") + 1])   # 日本語のヒントが化けずに届く(UTF-8 の応答ファイル)
         self.assertTrue(kw.get("vad_filter"))                              # 声の検出「弱め」の指定が来ても
-        self.assertFalse({"--vad", "-vm", "-vt", "-vsd", "-vp"} & set(a))   # whisper.cpp 自身の声の検出は使わない(0.65.0 で経路ごと消した)
+        self.assertFalse({"--vad", "-vm", "-vt", "-vsd", "-vp"} & set(a))   # whisper.cpp 自身の声の検出は使わない
         self.assertEqual(a[a.index("-nth") + 1], "0.9")
         self.assertNotIn("-ng", a)
-        self.assertIn("-nfa", a)                                           # フラッシュアテンションは既定で使わない(時刻が 1 秒単位に丸まる。2026-10-04)
+        self.assertIn("-nfa", a)                                           # フラッシュアテンションは既定で使わない(時刻が 1 秒単位に丸まる)
         self.assertEqual(len(segs), 3)                                     # 10 秒 ÷ 4 秒
         s = segs[0]
         self.assertEqual((s.start, s.end, s.text), (0.0, 4.0, "テスト文1"))
         self.assertEqual([w.word for w in s.words], ["テスト", "文1"])      # 特別なトークン [_…] は単語にしない
         self.assertEqual((s.words[1].start, s.words[1].end, s.words[1].probability), (2.0, 4.0, 0.5))
-        self.assertAlmostEqual(s.avg_logprob, (__import__("math").log(0.8) + __import__("math").log(0.5)) / 2, places=5)
+        self.assertAlmostEqual(s.avg_logprob, (math.log(0.8) + math.log(0.5)) / 2, places=5)
         self.assertIsNone(s.no_speech_prob)
         self.assertGreater(s.compression_ratio, 0)
         self.assertEqual((info.language, info.duration, info.duration_after_vad), ("ja", 10.0, None))
@@ -136,7 +136,7 @@ class WhisperCppTest(unittest.TestCase):
 
     def test_device_order_never_falls_back(self):
         self.assertEqual(E.WhisperCpp.device_order("auto", False), ["vulkan"])
-        self.assertEqual(E.WhisperCpp.device_order("cuda", True), ["cuda"])   # F1 F0-2: CUDA 版(黙って CPU にしない)
+        self.assertEqual(E.WhisperCpp.device_order("cuda", True), ["cuda"])   # CUDA 版(黙って CPU にしない)
         self.assertEqual(E.WhisperCpp.device_order("cpu", True), ["cpu"])
         self.assertEqual(E.FasterWhisper.device_order("auto", True), ["cuda", "cpu"])   # faster-whisper は今までどおり
 
@@ -209,15 +209,14 @@ class WhisperCppTest(unittest.TestCase):
         make_wav(media, 3)
         with mock.patch.object(S, "media_duration", lambda p: 3.0):
             spec = S.validate_job({"sourcePath": media, "model": "large-v3", "device": "vulkan"})
-            self.assertEqual((spec["engine"], spec["device"]), ("whisper.cpp", "vulkan"))   # OPT-H2: 機器の語彙は ② flow/tx.tx_spec にそろえた(vulkan をそのまま通す)
+            self.assertEqual((spec["engine"], spec["device"]), ("whisper.cpp", "vulkan"))   # 機器の語彙は ② flow/tx.tx_spec にそろえる(vulkan をそのまま通す)
             with self.assertRaises(S.ApiError) as cm:
                 S.validate_job({"sourcePath": media, "model": "small", "device": "vulkan"})
             self.assertEqual(cm.exception.code, "bad_model")
             self.assertIn("large-v3", cm.exception.message)                 # 使えるモデルを案内する
-            spec = S.validate_job({"sourcePath": media, "model": "large-v3", "device": "cuda"})   # F1 F0-2: cuda も whisper.cpp(CUDA 版)
+            spec = S.validate_job({"sourcePath": media, "model": "large-v3", "device": "cuda"})   # cuda も whisper.cpp(CUDA 版)
             self.assertEqual((spec["engine"], spec["device"]), ("whisper.cpp", "cuda"))
             self.assertEqual(S.validate_job({"sourcePath": media, "model": "small", "device": "cuda", "engine": "faster-whisper"})["engine"], "faster-whisper")
-
 
     def test_flash_attn_env(self):
         """TRANSCRIBE_WCPP_FA=1 のときだけフラッシュアテンションを使う(-nfa を付けない)"""
@@ -233,10 +232,7 @@ def row(a, b, text, words=None):
 
 
 class RowTidyTest(unittest.TestCase):
-    """行の後処理(2026-10-04): 音声の長さで切る・同じ文字の行をまとめる(whisper.cpp の行の終わりを声の終わりへ寄せる pull_ends は 0.65.0 で消した)"""
-
-    def setUp(self):
-        self.tmp = testkit.tempdir(self, prefix="tidy-test-")
+    """行の後処理: 音声の長さで切る・同じ文字の行をまとめる"""
 
     def test_clip_rows_to_duration(self):
         rows = [row(0.0, 2.0, "はい"), row(39.0, 42.0, "ああ", [(39.0, 40.5, "あ"), (40.5, 42.0, "あ")]), row(41.0, 43.0, "うう")]
@@ -276,10 +272,8 @@ class RowTidyTest(unittest.TestCase):
         self.assertEqual([r["text"] for r in out], ["前の行次の行"])                     # 5 秒より後ろの行は捨てる
         self.assertEqual(out[0]["end"], 4.0)
         seg2 = {"start": 0.0, "end": 4.0, "text": "前の行次の行", "words": [(0.0, 1.98, "前の行"), (2.0, 4.0, "次の行")]}
-        # 2026-10-05: 音の谷へ寄せる後処理は既定でやめた(前で切れすぎた。0.65.0 で部品ごと消した)。2026-10-07(0.57.1): 終わりを早める END_TRIM も既定でやめ(0)、
-        # 続いている行(すき間 JOIN_GAP 0.5 秒以下)の終わりを次の行の始まりへ延ばす(行の時刻の原則 ① 言葉の末を切らない)
-        with mock.patch.dict(os.environ, {"TRANSCRIBE_PULL_ENDS": "1"}):   # 0.65.0 で消した切り替え = もう効かない
-            out = list(S.expand_segments([seg2], dict(spec, splitChars=3), 5.0))
+        # 終わりを早める END_TRIM は既定で 0。続いている行(すき間 JOIN_GAP 0.5 秒以下)の終わりを次の行の始まりへ延ばす(行の時刻の原則 ① 言葉の末を切らない)
+        out = list(S.expand_segments([seg2], dict(spec, splitChars=3), 5.0))
         self.assertEqual([r["text"] for r in out], ["前の行", "次の行"])
         self.assertEqual(out[0]["end"], 2.0)                                               # 1.98 → 次の行の始まり 2.0 へ
         self.assertEqual(out[0]["_words"], [(0.0, 1.98, "前の行")])                         # 単語は変えない
@@ -295,8 +289,6 @@ class RowTidyTest(unittest.TestCase):
         self.assertEqual(out[0]["end"], 1.98)
         out = list(S.expand_segments([seg2], fw, 5.0))
         self.assertEqual(out[0]["end"], 2.0)                                               # つなぐのは全エンジン
-        for name in ("PULL_ENDS_ON", "row_levels", "pull_ends", "WavLevels", "quant_retime", "QUANT_ON"):
-            self.assertFalse(hasattr(S, name), name)                               # 0.65.0 で消した部品
 
     def test_trim_ends(self):
         rows = [row(0.0, 1.0, "a"), row(1.1, 2.0, "b"), row(3.0, 3.25, "c"), row(3.3, 4.0, "d")]
@@ -307,19 +299,19 @@ class RowTidyTest(unittest.TestCase):
         self.assertEqual(out[3]["end"], 4.0)                         # 最後の行はそのまま
         two = [row(0.0, 1.0, "あ"), row(1.0, 2.0, "い")]
         wc = {"wordSplit": False, "engine": "whisper.cpp"}
-        self.assertEqual(S.END_TRIM, 0.0)                             # 2026-10-07(0.57.1)から既定でやめた(原則 ① 言葉の末を切らない)
+        self.assertEqual(S.END_TRIM, 0.0)                             # 既定でやめている(原則 ① 言葉の末を切らない)
         out = list(S.expand_segments(two, wc))
         self.assertEqual(out[0]["end"], 1.0)                         # 既定(0)ならしない
         with mock.patch.object(S, "END_TRIM", 0.1), mock.patch.object(S, "JOIN_GAP", 0.0):
             out = list(S.expand_segments(two, wc))
-            self.assertAlmostEqual(out[0]["end"], 0.9, places=3)     # TRANSCRIBE_END_TRIM=0.1 と TRANSCRIBE_JOIN_GAP=0 で 0.57.0 の形に戻せる
+            self.assertAlmostEqual(out[0]["end"], 0.9, places=3)     # TRANSCRIBE_END_TRIM=0.1 と TRANSCRIBE_JOIN_GAP=0 で早める形に戻せる
         with mock.patch.object(S, "END_TRIM", 0.1):
             out = list(S.expand_segments(two, wc))
             self.assertEqual(out[0]["end"], 1.0)                     # つなぐのは早めたあと = JOIN_GAP が 0 でなければ早めた分はつながって戻る
 
 
 class JoinRowsTest(unittest.TestCase):
-    """続いている行の終わりを次の行の始まりへ延ばす(2026-10-07 = 0.57.1。行の時刻の原則 ①。notes:plan/done/line-b-row-timing.md の 7-2)"""
+    """続いている行の終わりを次の行の始まりへ延ばす(行の時刻の原則 ①)"""
 
     def test_join_small_gaps_only(self):
         rows = [row(0.0, 1.0, "a"), row(1.3, 2.0, "b"), row(2.5, 3.0, "c"), row(3.51, 4.0, "d"), row(3.9, 5.0, "e"), row(5.0, 6.0, "f"), row(6.2, 7.0, "g")]
@@ -359,13 +351,11 @@ class JoinRowsTest(unittest.TestCase):
 
     def test_post_record(self):
         post = S.post_record()
-        self.assertEqual(post["version"], S.SERVER_VERSION)
-        self.assertEqual(post, {"version": S.SERVER_VERSION, "endTrim": 0.0, "joinGap": 0.5})   # 0.65.0 から pullEnds・retime は書かない(部品ごと消した)
+        self.assertEqual(post, {"version": S.SERVER_VERSION, "endTrim": 0.0, "joinGap": 0.5})
         spec = {"engine": "whisper.cpp", "model": "large-v3", "beam": 5, "vadMode": "weak", "language": "ja", "glossary": []}
         with mock.patch.object(S, "prompt_terms", lambda s: []), mock.patch.object(S, "dict_version", lambda s: {}):
             run = S.recognition_run(spec, {"device": "vulkan"}, 40.0, 7.0)
         self.assertEqual(run["post"], post)                                                  # recognition.runs[].post(src/eval/tools/eval_timing.py が版ごとに分ける)
-        self.assertNotIn("retimed", run)                                                     # 1 秒丸めの配り直しの記録も 0.65.0 から書かない
         doc = {"original": []}
         with mock.patch.object(S, "dict_version", lambda s: {}):
             S.record_rerun(doc, spec, "range", [[1.0, 2.0]], [])
@@ -373,7 +363,7 @@ class JoinRowsTest(unittest.TestCase):
 
 
 class CudaFlavorTest(unittest.TestCase):
-    """F1 F0-2: whisper.cpp の CUDA 版 = bin/whisper.cpp-<版>-cuda(置き場所の決まりは ytt/txbase の 1 か所)・取るのは SHA-256 を確かめた表だけ"""
+    """whisper.cpp の CUDA 版 = bin/whisper.cpp-<版>-cuda(置き場所の決まりは ytt/txbase の 1 か所)・取るのは SHA-256 を確かめた表だけ"""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="wcpp-cuda-")

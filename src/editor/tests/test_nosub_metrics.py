@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""「字幕に出さない」行(noSub)と、同時にしゃべっている所(重なり)の数え方・学習のテスト(数え方は eval/drill/metrics.py・noSub の外し方と学習は human/proof/learn.py。RS3-E5c まで editor/ed_learn.py。保管は 0.68.0 で消した。計画 notes:plan/done/line-b-overlap.md の 2-1・6-2 の 5)。
+"""「字幕に出さない」行(noSub)と、同時にしゃべっている所(重なり)の数え方・学習のテスト(数え方は eval/drill/metrics.py・noSub の外し方と学習は human/proof/learn.py)。
 
     python -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
     python -m unittest test_nosub_metrics -q          # これだけ(src/editor/tests で)
@@ -53,10 +53,8 @@ class TestSplitNoSub(unittest.TestCase):
         self.assertEqual((len(o), len(no)), (1, 0))
 
     def test_is_nosub_needs_true(self):
-        self.assertTrue(S.is_nosub({"noSub": True}))
-        self.assertFalse(S.is_nosub({"noSub": 1}))
-        self.assertFalse(S.is_nosub({"noSub": "true"}))
-        self.assertFalse(S.is_nosub({}))
+        for row, want in (({"noSub": True}, True), ({"noSub": 1}, False), ({"noSub": "true"}, False), ({}, False)):
+            self.assertIs(S.is_nosub(row), want, row)
 
 
 class TestDocMetricsNoSub(unittest.TestCase):
@@ -112,9 +110,8 @@ class TestOverlapGroup(unittest.TestCase):
         self.assertFalse(S.is_overlap_group(self.rows(1.29), [0, 1]))
 
     def test_same_or_missing_speaker_is_not_overlap(self):
-        self.assertFalse(S.is_overlap_group(self.rows(1.8, sa="A", sb="A"), [0, 1]))
-        self.assertFalse(S.is_overlap_group(self.rows(1.8, sa="", sb="B"), [0, 1]))
-        self.assertFalse(S.is_overlap_group(self.rows(1.8, sa="", sb=""), [0, 1]))
+        for sa, sb in (("A", "A"), ("", "B"), ("", "")):
+            self.assertFalse(S.is_overlap_group(self.rows(1.8, sa=sa, sb=sb), [0, 1]), (sa, sb))
 
     def test_overlap_tag_is_not_a_condition(self):
         segs = self.rows(1.8)

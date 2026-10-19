@@ -97,19 +97,22 @@ class TestVoiceRules(unittest.TestCase):
         self.assertLess(S._cos(a, c), S.VOICE_MATCH)
 
 
-class TestVoiceStore(StoreDir):
+class VoiceDir(StoreDir):
+    """覚えた声の置き場所を一時フォルダに向け、ジョブの入れ物と文書の読み出しを用意する"""
+
     def setUp(self):
         super().setUp()
-        self.saved_vdir = S.VOICES_DIR
-        S.VOICES_DIR = os.path.join(self.tmp, "voices")
-
-    def tearDown(self):
-        S.VOICES_DIR = self.saved_vdir
-        super().tearDown()
+        self.patch(S, "VOICES_DIR", os.path.join(self.tmp, "voices"))
 
     def job(self, spec):
         return {"id": "j1", "spec": spec, "cancel": False, "state": "queued", "phase": "", "progress": 0.0, "speakers": 0}
 
+    def read(self):
+        with open(S.tx_path(TID), encoding="utf-8") as f:
+            return json.load(f)
+
+
+class TestVoiceStore(VoiceDir):
     def run_learn(self, spec, vec=(1, 0, 0), calls=None):
         def emb(job, wav, e, groups, off):
             if calls is not None:
@@ -298,26 +301,14 @@ class TestVoiceStore(StoreDir):
                          (["さくらみこ"], {"S1"}, {""}))
 
 
-class TestDiarRecord(StoreDir):
+class TestDiarRecord(VoiceDir):
     """判別の記録 <id>.diar.json(Q2): 機械の最初の割り当て・覚えた声との照合の経過を残す。行の speaker・名前(人の最終)は変えない"""
 
     def setUp(self):
         super().setUp()
-        self.saved_vdir = S.VOICES_DIR
-        S.VOICES_DIR = os.path.join(self.tmp, "voices")
-        self.saved_delay = os.environ.get("TRANSCRIBE_FAKE_DELAY")
-        os.environ["TRANSCRIBE_FAKE_DELAY"] = "0.001"
-
-    def tearDown(self):
-        if self.saved_delay is None:
-            os.environ.pop("TRANSCRIBE_FAKE_DELAY", None)
-        else:
-            os.environ["TRANSCRIBE_FAKE_DELAY"] = self.saved_delay
-        S.VOICES_DIR = self.saved_vdir
-        super().tearDown()
-
-    def job(self, spec):
-        return {"id": "j1", "spec": spec, "cancel": False, "state": "queued", "phase": "", "progress": 0.0, "speakers": 0}
+        p = mock.patch.dict(os.environ, {"TRANSCRIBE_FAKE_DELAY": "0.001"})
+        p.start()
+        self.addCleanup(p.stop)
 
     def diarize(self, req):
         with mock.patch.object(S, "check_source", lambda p: p), mock.patch.object(S, "extract_audio", lambda *a: None), \
@@ -331,14 +322,14 @@ class TestDiarRecord(StoreDir):
     def doc(self):
         return doc_with_speakers([], [(0, 5, "", ""), (8, 14, "", ""), (14.5, 19, "", ""), (21, 28, "", "")])
 
-    def read(self):
+    def read_diar(self):
         with open(S.diar_path(TID), encoding="utf-8") as f:
             return json.load(f)
 
     def test_fake_diarize_writes_diar_json(self):
         self.put_doc(self.doc())
         self.diarize({"numSpeakers": 2})
-        d = self.read()
+        d = self.read_diar()
         self.assertEqual(d["schema"], "youtube-tools-diar/v1")
         run = d["latest"]
         self.assertEqual((d["history"], run["engine"]["name"], run["engine"]["requested"]), ([], "fake", 2))
@@ -365,7 +356,7 @@ class TestDiarRecord(StoreDir):
         self.put_doc(self.doc())
         j = self.diarize({"numSpeakers": 2})
         named = j["named"]
-        v = self.read()["latest"]["voices"]
+        v = self.read_diar()["latest"]["voices"]
         self.assertEqual(v["registered"], 1)
         hit = [sid for sid, x in v["speakers"].items() if x["decided"]]
         self.assertEqual([(n["speaker"]) for n in named], hit)   # 付いた名前と記録が同じ
@@ -391,24 +382,24 @@ class TestDiarRecord(StoreDir):
         j = self.job(spec)
         S.run_diarize(j)
         self.assertEqual(j["state"], "done", j.get("error"))
-        run = self.read()["latest"]
+        run = self.read_diar()["latest"]
         self.assertEqual((run["engine"]["name"], run["turns"], sorted(run["rows"]), run["voices"]["speakers"]["S1"]["decided"]), ("single", [], ["s1", "s2", "s3", "s4"], "さくらみこ"))
         self.assertEqual({r["speaker"] for r in run["rows"].values()}, {"S1"})
 
     def test_redo_keeps_previous_runs(self):
         self.put_doc(self.doc())
         self.diarize({"numSpeakers": 2})
-        first = self.read()["latest"]["at"]
+        first = self.read_diar()["latest"]["at"]
         self.diarize({"numSpeakers": 3})
-        d = self.read()
+        d = self.read_diar()
         self.assertEqual((len(d["history"]), d["history"][0]["at"], d["history"][0]["engine"]["requested"], d["latest"]["engine"]["requested"]), (1, first, 2, 3))
         with mock.patch.object(S, "check_source", lambda p: p):
             S.run_diarize(self.job(S.validate_diarize({"tid": TID, "numSpeakers": 1})))   # 1人指定のし直しも前を残す
-        d = self.read()
+        d = self.read_diar()
         self.assertEqual(([h["engine"]["requested"] for h in d["history"]], d["latest"]["engine"]["name"]), ([3, 2], "single"))
         for n in range(6):
             self.diarize({"numSpeakers": 2})
-        d = self.read()
+        d = self.read_diar()
         self.assertEqual(len(d["history"]), S.DIAR_KEEP - 1)   # 最新を含めて 5 回まで
 
     def test_write_failure_does_not_fail_diarize(self):
@@ -420,24 +411,8 @@ class TestDiarRecord(StoreDir):
             self.assertTrue(json.load(f)["speakers"])   # 判別の結果は残る
 
 
-class TestOtherVoice(StoreDir):
-    """組み込みの話者「ゲーム音声など」・行の印「字幕に出さない」(noSub)・話者ごとの字幕の見た目(sub)(2026-10-05。notes:plan/done/line-b-overlap.md の 6)"""
-
-    def setUp(self):
-        super().setUp()
-        self.saved_vdir = S.VOICES_DIR
-        S.VOICES_DIR = os.path.join(self.tmp, "voices")
-
-    def tearDown(self):
-        S.VOICES_DIR = self.saved_vdir
-        super().tearDown()
-
-    def job(self, spec):
-        return {"id": "j1", "spec": spec, "cancel": False, "state": "queued", "phase": "", "progress": 0.0, "speakers": 0}
-
-    def read(self):
-        with open(S.tx_path(TID), encoding="utf-8") as f:
-            return json.load(f)
+class TestOtherVoice(VoiceDir):
+    """組み込みの話者「ゲーム音声など」・行の印「字幕に出さない」(noSub)・話者ごとの字幕の見た目(sub)"""
 
     def manual_doc(self):
         """s2 = ゲーム音声など(字幕に出さない)・s3 = 話者なしで字幕に出さない・s4 = 手で作った重なる行(声が重なる・ぺこら)"""
@@ -613,39 +588,30 @@ class TestExclusive(StoreDir):
         self.assertEqual((cm.exception.status, cm.exception.code), (409, "busy"))
 
     def test_add_job_refuses_what_validate_refuses(self):
-        # 声を覚える: 入口は再認識・疑わしい所の最中を断る。登録(add_job)も同じ組で断る(以前は判別と声を覚えるだけ)
-        for other in ("retranscribe",):
-            with self.active(other):
-                self.busy(lambda: S.add_job({"tid": TID, "title": "t"}, "voice-learn"))
+        # 声を覚える: 入口は再認識の最中を断る。登録(add_job)も同じ組で断る
+        with self.active("retranscribe"):
+            self.busy(lambda: S.add_job({"tid": TID, "title": "t"}, "voice-learn"))
         self.assertNotIn("voice-learn", [j.get("kind") for j in S._jobs.values() if j["spec"].get("tid") == TID])
 
     def test_validate_refuses_what_add_job_refuses(self):
         self.put_doc(doc_with_speakers([("S1", "兎田ぺこら")], [(0, 5, "S1", ""), (6, 12, "S1", "")], proofed=True))
         with mock.patch.object(S, "check_source", lambda p: p):
-            for other in ("voice-learn",):   # 判別: 以前の入口は判別・再認識だけを見て、声を覚えるは登録で断っていた
-                with self.active(other):
-                    self.busy(lambda: S.validate_diarize({"tid": TID}))
+            with self.active("voice-learn"):
+                self.busy(lambda: S.validate_diarize({"tid": TID}))
             with self.active("diarize"):
                 self.busy(lambda: S.validate_voice_learn({"tid": TID, "names": ["兎田ぺこら"]}))
 
-    def test_table_is_the_only_rule(self):
-        for kind in ("diarize", "voice-learn", "retranscribe"):
-            for other in S.EXCLUSIVE[kind]:
-                self.assertIn(other, S.EXCLUSIVE, (kind, other))
-        self.assertEqual(set(S.EXCLUSIVE["voice-learn"]), {"diarize", "retranscribe", "voice-learn"})
-
     def test_table_is_symmetric(self):
-        """0.65.0(decisions (fp)): a が b を断るなら b も a を断る(表の全組)。再認識も声を覚えるの最中は断る
-        (声を覚える途中で行の時刻が変わると、覚える区間がずれる)。サムネの案 thumb は文書を読むだけなので同じ種類どうしだけ(ほかと同時でよい)"""
+        """a が b を断るなら b も a を断る(表の全組)。再認識も声を覚えるの最中は断る(声を覚える途中で行の時刻が変わると、
+        覚える区間がずれる)。サムネの案 thumb は文書を読むだけなので同じ種類どうしだけ(ほかと同時でよい)"""
         for a, others in S.EXCLUSIVE.items():
             for b in others:
                 self.assertIn(b, S.EXCLUSIVE, (a, b))
                 self.assertIn(a, S.EXCLUSIVE[b], "%s は %s を断るが、%s は %s を断らない" % (a, b, b, a))
+        self.assertEqual(set(S.EXCLUSIVE["voice-learn"]), {"diarize", "retranscribe", "voice-learn"})
         self.assertEqual(S.EXCLUSIVE["thumb"], ("thumb",))
-        for kind in ("retranscribe",):
-            self.assertIn("voice-learn", S.EXCLUSIVE[kind])
-            with self.active("voice-learn"):   # 登録(add_job)も声を覚えるの最中は断る
-                self.busy(lambda: S.add_job({"tid": TID, "title": "t"}, kind))
+        with self.active("voice-learn"):   # 登録(add_job)も声を覚えるの最中は断る
+            self.busy(lambda: S.add_job({"tid": TID, "title": "t"}, "retranscribe"))
 
     def test_retranscribe_refused_while_learning_voices(self):
         self.put_doc(doc_with_speakers([("S1", "兎田ぺこら")], [(0, 5, "S1", ""), (6, 12, "S1", "")], proofed=True))

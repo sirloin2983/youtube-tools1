@@ -1,4 +1,4 @@
-"""src/editor/thumb_ideas.py(サムネの案。提案 P5 の S。10-09 に dev/ から移した)のテスト。リポジトリ直下で:
+"""src/editor/thumb_ideas.py(サムネの案)のテスト。リポジトリ直下で:
 
     py -3.12 -m unittest src/editor/tests/test_thumb_ideas.py
 
@@ -16,7 +16,7 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/editor
 sys.path.insert(0, HERE)
 import thumb_ideas as T  # noqa: E402
-from pipeline.export import thumb_cards as _cards  # noqa: E402  (fpath・crop_box・font_path・W・H は ① の名前。③ の殻(thumb_ideas)は ① を読まないので直に読む)
+from pipeline.export import thumb_cards as _cards  # noqa: E402  (fpath・crop_box・font_path・W・H は ① の名前。thumb_ideas は ① を読まないので直に読む)
 from ytt import tools  # noqa: E402
 from ytt import testkit  # noqa: E402
 

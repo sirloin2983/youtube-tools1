@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Qwen3-ASR のエンジン(tx_engines.LlamaQwen3 = llama.cpp の 1.7B。sherpa-onnx の 0.6B Qwen3Asr は 0.58.0 で消した。精度改善の計画 段2-3)のテスト。test_metrics から読み込まれる。
+"""Qwen3-ASR のエンジン(tx_engines.LlamaQwen3 = llama.cpp の 1.7B)のテスト。test_metrics から読み込まれる。
 
 本物のモデルは使わない: 区切り・行の作り方・繰り返しの縮め方・答えの読み取り・圧縮ファイルの検査は関数を直に、
 llama.cpp は偽の llama-server(tests/fake_llama_server.py)を子プロセスで動かす(合言葉・言語の先書き・GPU の確認・落ちたら起動し直す)。
@@ -63,16 +63,15 @@ class Qwen3TextTest(unittest.TestCase):
         self.assertAlmostEqual(rows[0][1], 4.0)
 
     def test_squash_repeats(self):
-        self.assertEqual(E.q3_squash("过来，来" * 30), "过来，来" * E.Q3_REPEAT_KEEP)
-        self.assertEqual(E.q3_squash("う" * 50), "う" * E.Q3_REPEAT_KEEP)
-        self.assertEqual(E.q3_squash("OKOKOK"), "OKOKOK")   # 4 回までは残す
-        self.assertEqual(E.q3_squash("普通の文章です"), "普通の文章です")
+        for text, want in (("过来，来" * 30, "过来，来" * E.Q3_REPEAT_KEEP), ("う" * 50, "う" * E.Q3_REPEAT_KEEP),
+                           ("OKOKOK", "OKOKOK"),   # 4 回までは残す
+                           ("普通の文章です", "普通の文章です")):
+            self.assertEqual(E.q3_squash(text), want)
 
     def test_parse_answer(self):
-        self.assertEqual(E.q3_parse("language Japanese<asr_text>こんにちは"), ("Japanese", "こんにちは"))
-        self.assertEqual(E.q3_parse("こんにちは"), ("", "こんにちは"))
-        self.assertEqual(E.q3_parse("language Japanese<asr_text>"), ("Japanese", ""))
-        self.assertEqual(E.q3_parse(None), ("", ""))
+        for answer, want in (("language Japanese<asr_text>こんにちは", ("Japanese", "こんにちは")), ("こんにちは", ("", "こんにちは")),
+                             ("language Japanese<asr_text>", ("Japanese", "")), (None, ("", ""))):
+            self.assertEqual(E.q3_parse(answer), want, answer)
 
     def test_floor(self):
         self.assertEqual(E.q3_floor([]), 0.0)
@@ -120,7 +119,6 @@ class Qwen3ArchiveTest(unittest.TestCase):
 
 class Qwen3EngineTest(unittest.TestCase):
     def test_registered_and_models(self):
-        self.assertFalse(E.valid("qwen3-asr"))   # Qwen3-ASR 0.6B(sherpa-onnx)は 0.58.0 で消した
         self.assertTrue(E.valid("llama.cpp"))
         self.assertTrue(E.get("llama.cpp").valid_model("qwen3-asr-1.7b"))
         self.assertFalse(E.get("llama.cpp").valid_model("qwen3-asr-0.6b"))

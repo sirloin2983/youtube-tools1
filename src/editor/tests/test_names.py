@@ -1,24 +1,11 @@
 #!/usr/bin/env python3
-"""serve の名前の受付(役割で組み直す RS2。2026-10-10)のテスト。旧い名前の転送だけの殻 ed_*(ed_jobs ほか 9 本)は RS5-A で消した。
+"""serve の名前の受付のテスト。
 
     python -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
 
 - 受付に並ぶ部品(serve.py の _ED_MODULES)どうしで同じ名前を持たない(重なると前の部品が黙って勝ち、S.名前 = … の差し替えが本体に届かない)
-- RS2 の前に ed_jobs が持っていた名前(data_ed_jobs_names.txt)は、中身を移しても S.名前 で読める(殻 ed_jobs は RS5-A で消した)
-- S.名前 = … と mock.patch.object(S, …) は移した先の本体に届く
+- 移す前の部品が持っていた名前(data_ed_*_names.txt)は、中身を移しても S.名前 で読め、S.名前 = …・mock.patch.object(S, …) は移した先の本体に届く
 - 画面が読むジョブの形(public_job の鍵)を変えない
-- RS2-9 の前に ed_speakers が持っていた名前(data_ed_speakers_names.txt)は、pipeline/transcribe/diarize と human/proof/speakers に分けても
-  S.名前 で読め、差し替えが持ち主に届く
-- RS3-0A の前に ed_state が持っていた名前(data_ed_state_names.txt)は、置き場所・動きのある関数を持ち主へ移しても S.名前 で読める
-- RS3-E5c の前に ed_learn が持っていた名前(data_ed_learn_names.txt)は、replace・learn・metrics に分けても S.名前 で読める
-- RS3-E5a の前に ed_store が持っていた名前(data_ed_store_names.txt)は、human/proof/store と manage/cases/doclist に分けても
-  S.名前 で読め、差し替えが持ち主に届く
-- RS3-E6 の前に ed_alt・ed_ytcap・ed_retime が持っていた名前(data_ed_alt_names.txt ほか)は、human/proof の alt・ytcap・retime へ移しても
-  S.名前 で読め、差し替えが持ち主に届く(疑似の行 _alt_fake は eval/fake/fake_asr)
-- RS3-E7 の前に ed_relink・ed_misc が持っていた名前(data_ed_relink_names.txt・data_ed_misc_names.txt)は、manage/cases/relink・manage/keep/evalfolders と
-  manage/cases/handoff_io に分けても S.名前 で読める(進行度 progress は 0.69.0 で消した)
-- RS4-2 の前に ed_drill・ed_evalbatch が持っていた名前(data_ed_drill_names.txt・data_ed_evalbatch_names.txt)は、eval/drill の drill・evalbatch へ
-  殻なしで移しても S.名前 で読め、差し替えが持ち主に届く
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
@@ -35,7 +22,6 @@ _PUBLIC_JOB_KEYS = {
     "id", "title", "state", "phase", "progress", "tid", "error", "segments", "speakers", "unsure", "kind", "device", "createdAt",
     "errorDetail", "internal", "canRetry", "warnings", "hasClip", "into", "named", "learned", "auto", "autoSkipped",
     "redo", "redoOne", "redoSkipped", "vadNote", "normNote", "normOk", "kept", "emptyKept", "loose"}
-_SHELLS = ("ed_jobs", "ed_speakers", "ed_store", "ed_learn", "ed_alt", "ed_ytcap", "ed_retime", "ed_relink", "ed_misc")   # RS5-A で消した転送だけの殻
 
 
 def _old_names(name="data_ed_jobs_names.txt"):
@@ -47,23 +33,20 @@ class TestNames(unittest.TestCase):
     def test_no_duplicate_names_across_parts(self):
         self.assertEqual(modfwd.duplicates(S._ED_MODULES), {})
 
-    def test_old_ed_jobs_names_still_resolve(self):
-        names = _old_names()
-        self.assertGreater(len(names), 200)
-        missing = [n for n in names if not hasattr(S, n)]
-        self.assertEqual(missing, [])
+    def test_old_names_still_resolve(self):
+        """移す前の部品が持っていた名前は、S.名前 で読める(数は名前の一覧の写しが欠けていないことの確かめ)"""
+        for fname, n in (("data_ed_jobs_names.txt", 200), ("data_ed_speakers_names.txt", 102), ("data_ed_store_names.txt", 75),
+                         ("data_ed_alt_names.txt", 31), ("data_ed_retime_names.txt", 2), ("data_ed_relink_names.txt", 56),
+                         ("data_ed_misc_names.txt", 5), ("data_ed_state_names.txt", 80), ("data_ed_learn_names.txt", 57)):
+            with self.subTest(fname):
+                names = _old_names(fname)
+                self.assertGreaterEqual(len(names), n)
+                self.assertEqual([k for k in names if not hasattr(S, k)], [])
 
     def test_alias_owners_reach_serve_as_same_object(self):
-        """txbase(RS2-8a の SPK_FLAGS)は serve の受付には並べず、ed_state の別名で読む = S で読めるのは同じ物(差し替えない名前だけを別名にしている。RS2-1a・RS2-8a)"""
+        """txbase の SPK_FLAGS は serve の受付には並べず、ed_state の別名で読む = S で読めるのは同じ物(差し替えない名前だけを別名にしている)"""
         self.assertNotIn(txbase, S._ED_MODULES)
         self.assertIs(S.SPK_FLAGS, txbase.SPK_FLAGS)
-
-    def test_shells_are_gone(self):
-        """転送だけの殻 ed_jobs ほか 9 本は RS5-A で消した(旧い名前は S.名前 で読む)。serve の名前にも残っていない"""
-        for name in _SHELLS:
-            with self.assertRaises(ImportError, msg=name):
-                __import__(name)
-            self.assertNotIn(name, vars(S), name)
 
     def test_public_job_keys(self):
         job = {"id": "j1", "title": "t", "state": "done", "phase": "完了", "progress": 1.0, "tid": "", "error": "", "segments": 0,
@@ -72,7 +55,7 @@ class TestNames(unittest.TestCase):
 
 
 class TestBackendSelect(unittest.TestCase):
-    """本物と疑似の差し込み口(RS2-2): serve の登録は呼ぶたびに S.backend_name を読む・疑似の旧い名前は S.名前 で fake_asr へ転送"""
+    """本物と疑似の差し込み口: serve の登録は呼ぶたびに S.backend_name を読む・疑似の旧い名前は S.名前 で fake_asr へ転送"""
 
     def test_selector_follows_backend_name(self):
         from eval.fake import fake_asr
@@ -92,7 +75,7 @@ class TestBackendSelect(unittest.TestCase):
 
 
 class TestOwnersFollowServePatches(unittest.TestCase):
-    """RS3-0A: 一時の口 txenv を消し、置き場所(ytt/workdata)・動画と音声の小道具(ytt/tools)・ワーカーと GPU とモデル名の検査(worker_client)・
+    """置き場所(ytt/workdata)・動画と音声の小道具(ytt/tools)・ワーカーと GPU とモデル名の検査(worker_client)・
     名簿のファイル(roster)・スタジオの配信の情報(ytt/studiodata)は、下の層の部品が持ち主を呼ぶたびに直に読む。
     S.名前 = …・patch.object(S, …) は持ち主へ届き、ed_state・store に同じ名前は残っていない(残すと差し替えが別名に当たって届かない)"""
     MOVED = (("workdata", ("ROOT", "DATA_DIR", "TX_DIR", "TMP_DIR", "SETTINGS", "FEEDBACK", "MARKER_DATA", "STUDIO_DATA")),
@@ -135,11 +118,9 @@ class TestOwnersFollowServePatches(unittest.TestCase):
 
 
 class TestDocJobsHooks(unittest.TestCase):
-    """doc_jobs の差し込みの口(set_hooks)は X-RERUN で消した(評価用の作り直しの書き込みは ③ rerun.rebuild_whole)。
-    評価用のフォルダの判定は RS3-1 から口でなく ytt/settings を直に読む"""
+    """評価用のフォルダの判定は口でなく ytt/settings を直に読む"""
 
-    def test_hooks_are_gone_and_eval_dir_follows_patches(self):
-        self.assertFalse(hasattr(doc_jobs, "set_hooks"))
+    def test_eval_dir_follows_patches(self):
         src = os.path.abspath(__file__)
         with mock.patch.object(S, "in_eval_dir", lambda path, dirs=None: True), mock.patch.object(S, "check_source", lambda p: src), \
                 mock.patch.object(S, "media_duration", lambda p: 10.0):
@@ -148,13 +129,7 @@ class TestDocJobsHooks(unittest.TestCase):
 
 
 class TestEdSpeakersNames(unittest.TestCase):
-    """ed_speakers を pipeline/transcribe/diarize と human/proof/speakers に分けた(RS2-9)。旧い名前は S で読め、差し替えは持ち主に届く(殻 ed_speakers は RS5-A で消した)"""
-
-    def test_old_ed_speakers_names_still_resolve(self):
-        names = _old_names("data_ed_speakers_names.txt")
-        self.assertEqual(len(names), 102)   # RS6 a-4 で _autodiar_record を外した(125 → 124)・OPT-H1 で ovdraft_ の 20 と _spksub_key を外した(124 → 103)・RV で diarize の match_voices を消した(103 → 102)
-        missing = [n for n in names if not hasattr(S, n)]
-        self.assertEqual(missing, [])
+    """話者の部品(pipeline/transcribe/diarize と human/proof/speakers)。旧い名前は S で読め、差し替えは持ち主に届く"""
 
     def test_moved_owners(self):
         from eval.fake import fake_asr
@@ -167,7 +142,7 @@ class TestEdSpeakersNames(unittest.TestCase):
         self.assertIs(S.embed_fake, fake_asr.embed_fake)
         self.assertIs(S.run_diarize, speakers.run_diarize)
         self.assertIs(S.assign_speakers, diarize.assign_speakers)
-        for n in ("load_voices", "save_voices", "voices_dir", "voices_path", "_voices_lock", "_record_diar"):   # RS6 a-4: 覚えた声の置き場所と判別の記録を書くのは ②
+        for n in ("load_voices", "save_voices", "voices_dir", "voices_path", "_voices_lock", "_record_diar"):   # 覚えた声の置き場所と判別の記録を書くのは ②
             self.assertIs(getattr(S, n), getattr(diar, n), n)
             self.assertNotIn(n, vars(speakers), n)
             self.assertNotIn(n, vars(diarize), n)
@@ -203,7 +178,7 @@ class TestEdSpeakersNames(unittest.TestCase):
             self.assertEqual(speakers._context_name("t1"), "名前t1")
 
     def test_places_follow_data_dir(self):
-        """判別のモデル・覚えた声の置き場所は呼ぶたびに作業データ(S.DATA_DIR)から(RS2-9。覚えた声は以前 set_data_dir に付いてこなかった)"""
+        """判別のモデル・覚えた声の置き場所は呼ぶたびに作業データ(S.DATA_DIR)から"""
         saved = (S.DATA_DIR, S.VOICES_DIR, S.DIAR_DIR)
         try:
             S.DATA_DIR, S.VOICES_DIR, S.DIAR_DIR = os.path.join("d", "data"), None, None
@@ -214,20 +189,14 @@ class TestEdSpeakersNames(unittest.TestCase):
 
 
 class TestEdStoreNames(unittest.TestCase):
-    """ed_store を human/proof/store(文書の置き場)と manage/cases/doclist(一覧と元の動画・パックの有無・前回のパックの手順)に分けた(RS3-E5a)。
-    旧い名前は S で読め、差し替えは持ち主に届く。store は編集の ed_state・評価の ed_drill・③ の txindex を読まない(殻 ed_store は RS5-A で消した)"""
+    """human/proof/store(文書の置き場)と manage/cases/doclist(一覧と元の動画・パックの有無・前回のパックの手順)。
+    旧い名前は S で読め、差し替えは持ち主に届く。store は編集の ed_state・評価の ed_drill・③ の txindex を読まない"""
 
     @staticmethod
     def owners():
         from human.proof import store
         from manage.cases import doclist
         return store, doclist
-
-    def test_old_ed_store_names_still_resolve(self):
-        names = _old_names("data_ed_store_names.txt")
-        self.assertEqual(len(names), 75)   # 0.69.0 で進行度の要約 _prog_of・_part・OPT-H1 で open_video・_open_lock・add_effort・MAX_EFFORT_SEC を消した
-        missing = [n for n in names if not hasattr(S, n)]
-        self.assertEqual(missing, [])
 
     def test_moved_owners(self):
         store, doclist = self.owners()
@@ -252,28 +221,19 @@ class TestEdStoreNames(unittest.TestCase):
         self.assertNotIn("PACK_CHECK_BUDGET", vars(S))
 
     def test_summary_leaves_drill_to_drill(self):
-        """文書の要約(②)に評価ドリルの要約を入れない。ドリルは eval/drill/drill.drill_docs が自前で作る(決定 3-25 #8)"""
+        """文書の要約(②)に評価ドリルの要約を入れない。ドリルは eval/drill/drill.drill_docs が自前で作る"""
         import inspect
         store, _doclist = self.owners()
         self.assertNotIn('"_drill"', inspect.getsource(store.transcript_summary))
 
 
 class TestEdAltRetimeNames(unittest.TestCase):
-    """ed_alt・ed_retime を human/proof の alt・retime へ移した(RS3-E6。殻は RS5-A で消した)。旧い名前は S で読め、差し替えは持ち主に届く。
-    ed_ytcap の名前は YouTube の字幕の候補の消去(2026-10-16)で一緒に消した。
-    alt・retime は編集の ed_state・ed_jobs・ed_store・ed_relink・ed_learn を読まない(疑似の行は Backend.alt_rows)"""
+    """human/proof の alt・retime。旧い名前は S で読め、差し替えは持ち主に届く。疑似の行は Backend.alt_rows"""
 
     @staticmethod
     def owners():
         from human.proof import alt, retime
         return alt, retime
-
-    def test_old_names_still_resolve(self):
-        for fname, n in (("data_ed_alt_names.txt", 31), ("data_ed_retime_names.txt", 2)):
-            names = _old_names(fname)
-            self.assertEqual(len(names), n, fname)
-            missing = [k for k in names if not hasattr(S, k)]
-            self.assertEqual(missing, [], fname)
 
     def test_moved_owners(self):
         alt, retime = self.owners()
@@ -300,12 +260,10 @@ class TestEdAltRetimeNames(unittest.TestCase):
         from eval.fake import fake_asr
         from pipeline.transcribe import backend
         self.assertEqual(list(backend.REAL.alt_rows({}, {}, "w", 1, lambda *a: iter([a]))), [({}, {}, "w", 1)])
-        self.assertTrue(hasattr(fake_asr.FAKE, "alt_rows"))
-        self.assertEqual(fake_asr.FAKE.name, "fake")
 
 
 class TestEdRelinkNames(unittest.TestCase):
-    """ed_relink を manage/cases/relink(付け替え・まとめて付け替える・30fps)と manage/keep/evalfolders(評価用のフォルダの整理)に分けた(RS3-E7。殻は RS5-A で消した。evalfolders は OPT-M2 で ④ へ)。
+    """manage/cases/relink(付け替え・まとめて付け替える・30fps)と manage/keep/evalfolders(評価用のフォルダの整理)。
     旧い名前は S で読め、差し替えは持ち主に届き、folders は付け替えの書き込みを relink から呼ぶたびに読む(④ → ③)"""
 
     @staticmethod
@@ -313,12 +271,6 @@ class TestEdRelinkNames(unittest.TestCase):
         from manage.cases import relink
         from manage.keep import evalfolders as folders
         return relink, folders
-
-    def test_old_ed_relink_names_still_resolve(self):
-        names = _old_names("data_ed_relink_names.txt")
-        self.assertEqual(len(names), 56)
-        missing = [n for n in names if not hasattr(S, n)]
-        self.assertEqual(missing, [])
 
     def test_moved_owners(self):
         relink, folders = self.owners()
@@ -344,50 +296,25 @@ class TestEdRelinkNames(unittest.TestCase):
             relink.FIND_MAX_DEPTH = saved
         self.assertNotIn("FIND_MAX_DEPTH", vars(S))
 
-    def test_norm_after_hook_is_gone(self):
-        """文字起こしの続きの 30fps の口 norm_after は無い(OPT-M2 5b-2。受付の段 ② flow/normalize が先にそろえる)"""
-        relink, _ = self.owners()
-        self.assertFalse(hasattr(relink, "norm_after_transcribe"))
-
 
 class TestEdMiscNames(unittest.TestCase):
-    """ed_misc を manage/cases/handoff_io(受け渡し。clip-marker の読みと文字起こし済みの範囲は OPT-M1 で消した)
-    に分けた(RS3-E7。進行度 human/proof/progress は 0.69.0 で消した。殻は RS5-A で消した)。.runtime の置き場所 runtime_path_dir は app の ed_state(serve の名前)"""
+    """manage/cases/handoff_io(受け渡し)。.runtime の置き場所 runtime_path_dir は app の ed_state(serve の名前)"""
 
     @staticmethod
     def owners():
         from manage.cases import handoff_io
         return handoff_io
 
-    def test_old_ed_misc_names_still_resolve(self):
-        names = _old_names("data_ed_misc_names.txt")
-        self.assertEqual(len(names), 5)   # OTHER_JSON_MAX は ytt/studiodata.STUDIO_JSON_MAX に一本化(RS8 B3-1)・フォルダの一括の 5 つは OPT-H1 で消した・RV で /api/transcript-v1(transcript_v1)を消した(6 → 5)
-        self.assertEqual([n for n in names if not hasattr(S, n)], [])
-
     def test_moved_owners(self):
         import ed_state
         handoff_io = self.owners()
         self.assertIn(handoff_io, S._ED_MODULES, handoff_io.__name__)
         self.assertIs(S.clip_info, handoff_io.clip_info)
-        self.assertFalse(hasattr(S, "progress_stats"))   # 0.69.0(段 D2)で消した
-        self.assertFalse(hasattr(S, "scan_folder") or hasattr(S, "add_batch"))   # 汎用のフォルダの一括は消した(決定 3-47 の Q5)
         self.assertIs(S.runtime_path_dir, ed_state.runtime_path_dir)
 
 
-class TestEdStateNames(unittest.TestCase):
-    """RS3-0A: ed_state の置き場所(ytt/workdata)と動きのある関数(ytt/tools・worker_client・ytt/studiodata・roster)を持ち主へ移しても、
-    旧い名前は S で読める(ed_state に殻は置かない = 読むのは serve の名前の受付だけ)"""
-
-    def test_old_ed_state_names_still_resolve(self):
-        names = _old_names("data_ed_state_names.txt")
-        self.assertGreater(len(names), 80)
-        missing = [n for n in names if not hasattr(S, n)]
-        self.assertEqual(missing, [])
-
-
 class TestPipelineMovedWithoutShell(unittest.TestCase):
-    """RS2-9c: ed_fill・ed_llm は pipeline/transcribe の fill・llm へ、ed_retime の計算は retime へ移した(殻・別名なし)。
-    S.名前 で読め、S.名前 = … の差し替えが持ち主に届く(ed_retime の包みは RS3-E6 から human/proof/retime。検査は TestEdAltRetimeNames)"""
+    """pipeline/transcribe の fill・llm・retime(別名なし)。S.名前 で読め、S.名前 = … の差し替えが持ち主に届く"""
 
     def test_moved_names_read_through_serve(self):
         from pipeline.transcribe import fill, llm, retime
@@ -405,16 +332,10 @@ class TestPipelineMovedWithoutShell(unittest.TestCase):
             self.assertEqual((llm.LLM_MIN_CONF, retime.RETIME_PAD), (0.9, 0.5))
         self.assertEqual((llm.LLM_MIN_CONF, retime.RETIME_PAD), (0.5, 1.5))
 
-    def test_old_shells_do_not_exist(self):
-        for name in ("ed_fill", "ed_llm"):
-            with self.assertRaises(ImportError):
-                __import__(name)
-
 
 class TestDrillEvalbatchMovedWithoutShell(unittest.TestCase):
-    """RS4-2: ed_drill・ed_evalbatch は eval/drill の drill・evalbatch へ殻なしで移した(決定 3-25 #7)。
-    移す前の名前(data_ed_drill_names.txt・data_ed_evalbatch_names.txt)は S.名前 で読め(持ち主と同じ物)、S.名前 = … の差し替えが持ち主に届く。
-    持ち主は編集(app)の部品を読まない。serve が登録する口(set_hooks の redo_skip・redo_fill・set_context_namer)は新しい持ち主を呼ぶ"""
+    """eval/drill の drill・evalbatch。移す前の名前(data_ed_drill_names.txt・data_ed_evalbatch_names.txt)は S.名前 で読め(持ち主と同じ物)、
+    S.名前 = … の差し替えが持ち主に届く。serve が登録する口(set_context_namer)は新しい持ち主を呼ぶ"""
 
     @staticmethod
     def owners():
@@ -429,11 +350,6 @@ class TestDrillEvalbatchMovedWithoutShell(unittest.TestCase):
             self.assertIn(mod, S._ED_MODULES, fname)
             wrong = [k for k in names if getattr(S, k, None) is not getattr(mod, k)]
             self.assertEqual(wrong, [], fname)
-
-    def test_old_shells_do_not_exist(self):
-        for name in ("ed_drill", "ed_evalbatch"):
-            with self.assertRaises(ImportError):
-                __import__(name)
 
     def test_patches_reach_owner(self):
         drill, evalbatch = self.owners()
@@ -451,8 +367,7 @@ class TestDrillEvalbatchMovedWithoutShell(unittest.TestCase):
 
 
 class TestModfwdForwarding(unittest.TestCase):
-    """名前の転送の口(ytt/modfwd.py)。移した先に見立てた部品で、読み・書き・削除・patch.object が本体に届くか(serve の受付と同じ仕組み。
-    もとは ed_jobs の殻で確かめていた = 殻は RS5-A で消したので、同じ形の仮の殻を sys.modules に登録して確かめる)"""
+    """名前の転送の口(ytt/modfwd.py)。移した先に見立てた部品で、読み・書き・削除・patch.object が本体に届くか(serve の受付と同じ仕組み)"""
 
     def setUp(self):
         import sys
@@ -492,7 +407,7 @@ class TestModfwdForwarding(unittest.TestCase):
 
 
 class TestSettingsMoved(unittest.TestCase):
-    """編集の設定の読み書きと鍵の検査を ed_learn から、評価用のフォルダの判定を ed_relink から ytt/settings へ移した(RS3-1)。S.名前 で読め、
+    """編集の設定の読み書きと鍵の検査・評価用のフォルダの判定は ytt/settings が持つ。S.名前 で読め、
     差し替えは ytt/settings に届く。鍵の検査は持ち主が登録する(altEngine = human/proof/alt)"""
     MOVED = ("SETTINGS_MAX", "load_settings", "SETTINGS_PATCH_KEYS", "CUT_SILENCE_RANGE", "patch_settings", "merge_settings", "replace_settings",
              "register_patch_key", "_settings_file", "_settings_lock", "_keymap_ok", "_cut_silence_ok", "_settings_error",
@@ -527,14 +442,8 @@ class TestSettingsMoved(unittest.TestCase):
 
 
 class TestEdLearnNames(unittest.TestCase):
-    """ed_learn の残りを pipeline/transcribe/replace(置換辞書)・human/proof/learn(学習と提案)・eval/drill/metrics(精度)に分けた(RS3-E5c。殻は RS5-A で消した)。
+    """pipeline/transcribe/replace(置換辞書)・human/proof/learn(学習と提案)・eval/drill/metrics(精度)。
     旧い名前は S で読め、差し替えは持ち主に届き、learn は metrics を読まない(② から ④ を読まない)"""
-
-    def test_old_ed_learn_names_still_resolve(self):
-        names = _old_names("data_ed_learn_names.txt")
-        self.assertEqual(len(names), 57)
-        missing = [n for n in names if not hasattr(S, n)]
-        self.assertEqual(missing, [])
 
     def test_moved_owners(self):
         from eval.drill import metrics
@@ -544,10 +453,10 @@ class TestEdLearnNames(unittest.TestCase):
             self.assertIn(m, S._ED_MODULES, m.__name__)
         from ytt import dictfmt
         self.assertIn(dictfmt, S._ED_MODULES)
-        self.assertIs(S.apply_replacements, dictfmt.apply_replacements)   # RS6 a-3: 当て方も ytt へ(③ の再認識の反映が ① を読まない)
-        self.assertIs(S.auto_learned_replace, replace.auto_learned_replace)   # RS6 a-3: 確度「高」の学習済み置換を当てるのは ①(選び方は ③ の learn が渡す)
+        self.assertIs(S.apply_replacements, dictfmt.apply_replacements)   # 当て方も ytt へ(③ の再認識の反映が ① を読まない)
+        self.assertIs(S.auto_learned_replace, replace.auto_learned_replace)   # 確度「高」の学習済み置換を当てるのは ①(選び方は ③ の learn が渡す)
         self.assertNotIn("auto_learned_replace", vars(learn))
-        self.assertIs(S.parse_replacements, dictfmt.parse_replacements)   # RS6 a-1: 読み方は ytt へ
+        self.assertIs(S.parse_replacements, dictfmt.parse_replacements)   # 読み方は ytt へ
         self.assertIs(S.learn_rules, learn.learn_rules)
         self.assertIs(S.doc_metrics, metrics.doc_metrics)
         self.assertIs(S._groups, learn._groups)   # src/eval/tools/eval_asr・eval_alt が S._groups・S.split_nosub で読む

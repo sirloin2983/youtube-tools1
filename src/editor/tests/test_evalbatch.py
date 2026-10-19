@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
-"""評価用の動画の「手が空いたとき少しずつまとめて文字起こし」(eval/drill/evalbatch.py。RS4-2 まで editor/ed_evalbatch.py。マスタープラン Q4(b))のテスト。
+"""評価用の動画の「手が空いたとき少しずつまとめて文字起こし」(eval/drill/evalbatch.py)のテスト。
 
     py -3.12 -m unittest src/editor/tests/test_metrics.py     # test_metrics がこのファイルのテストも読み込む
     py -3.12 -m unittest src/editor/tests/test_evalbatch.py   # これだけ
 ffmpeg が必要(2 秒の小さな動画を lavfi で作る)。ワーカーのスレッドは動かさず、テストが待機列のジョブを疑似の認識(TRANSCRIBE_BACKEND=fake)で
 その場で動かして「終わった」ことにする(= 偽のワーカー)。
 """
+import atexit
 import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所に書かない(ytt.datadir)
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 from unittest import mock
@@ -22,21 +24,31 @@ os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 import serve as S  # noqa: E402
-from eval.drill import evalbatch as EB  # noqa: E402   (RS4-2 に editor/ed_evalbatch.py から)
+from eval.drill import evalbatch as EB  # noqa: E402
 from human.proof import doc_jobs  # noqa: E402
 from human.proof import store  # noqa: E402
 from flow import jobs as ytt_jobs  # noqa: E402
-from manage.keep import evalfolders as EF  # noqa: E402   評価用のフォルダの整理(RS3-E7 に ed_relink から。OPT-M2 で manage/keep/evalfolders へ)
+from manage.keep import evalfolders as EF  # noqa: E402
 from ytt import testkit  # noqa: E402
 
 FFMPEG = shutil.which("ffmpeg")
 MEMBER = "評価用データ01_ときのそら"
 
 
+_VIDEOS = {}   # 長さ -> 作った動画(ffmpeg は長さごとに 1 回だけ。あとは写す)
+
+
 def _make_video(path, seconds=2):
-    subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=64x64:rate=10:duration=%s" % seconds,
-                    "-f", "lavfi", "-i", "sine=frequency=440:duration=%s" % seconds, "-c:v", "mpeg4", "-c:a", "aac", "-shortest", path],
-                   check=True, stdin=subprocess.DEVNULL)
+    src = _VIDEOS.get(seconds)
+    if not src:
+        d = tempfile.mkdtemp(prefix="ytt-evalbatch-")
+        atexit.register(shutil.rmtree, d, True)
+        src = os.path.join(d, "v.mp4")
+        subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=64x64:rate=10:duration=%s" % seconds,
+                        "-f", "lavfi", "-i", "sine=frequency=440:duration=%s" % seconds, "-c:v", "mpeg4", "-c:a", "aac", "-shortest", src],
+                       check=True, stdin=subprocess.DEVNULL)
+        _VIDEOS[seconds] = src
+    shutil.copyfile(src, path)
 
 
 @unittest.skipUnless(FFMPEG, "ffmpeg が必要")
@@ -351,7 +363,7 @@ class TestEvalBatch(unittest.TestCase):
             self.assertIn(k, s)
         self.assertEqual(len(s["titles"]), 2)
 
-    # -- 未確認の評価用の作り直し(eval_batch_redo。2026-10-04 ユーザー承認)
+    # -- 未確認の評価用の作り直し(eval_batch_redo)
     def eval_doc(self, name, old=True):
         """評価用として文字起こし済みの文書(人の手が入っていない)。old = 更新を 1 時間前にずらす(直近 10 分の除外に当たらない)"""
         p = os.path.join(self.stg, name)
@@ -516,7 +528,7 @@ class TestEvalBatch(unittest.TestCase):
         self.assertTrue(d["diarization"].get("auto"))
 
     def test_redo_keeps_human_edit_made_before_start(self):
-        """X-RERUN(ユーザー決定 10-16 Q-A): 待っている間に人が校正しても作り直す。機械の層だけ入れ替わり、人の直し(答え)は残る"""
+        """待っている間に人が校正しても作り直す。機械の層だけ入れ替わり、人の直し(答え)は残る"""
         tid = self.eval_doc("a.mp4")
         EB.eval_batch_redo({"dryRun": False})
         EB.eb_tick("test")
@@ -564,7 +576,7 @@ class TestEvalBatch(unittest.TestCase):
         for t in tids:
             self.assertTrue(all(g["text"].startswith("テスト文") for g in store.read_transcript(t)["segments"]))
 
-    # -- 1 本ずつの作り直し(eval_batch_redo_one。2026-10-05 ユーザー要望)
+    # -- 1 本ずつの作り直し(eval_batch_redo_one)
     def one(self, tid, force=None, base=None):
         d = store.read_transcript(tid)
         req = {"id": tid, "baseUpdatedAt": d["updatedAt"] if base is None else base}

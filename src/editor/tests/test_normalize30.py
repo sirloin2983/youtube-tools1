@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""素材を 30fps にそろえる(マスタープラン Q1)のテスト: ② flow/normalize の段・動画を選び直す(④ の付け替え)。
+"""素材を 30fps にそろえるテスト: ② flow/normalize の段・動画を選び直す(④ の付け替え)。
 
     py -3.12 -m unittest src/editor/tests/test_metrics.py        # test_metrics がこのファイルのテストも読み込む
     py -3.12 -m unittest src/editor/tests/test_normalize30.py    # これだけ
@@ -132,8 +132,14 @@ class TestFlowNormalize(_Base):
         self.assert_30(dst)
         self.assertEqual(sorted(os.listdir(self.media)), sorted([os.path.basename(src), os.path.basename(dst)]))   # 元は残る・書きかけは残らない
 
-    def test_30fps_is_not_remade(self):
+    def test_no_plan(self):
+        """予定を立てない: 30fps のまま・切り替えがオフ・音声だけ"""
+        wav = os.path.join(self.media, "声.wav")
+        subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=6", wav], check=True)
         self.assertIsNone(FN.plan(self.copy(self.v30, "そのまま.mp4")))
+        self.assertIsNone(FN.plan(wav))
+        with mock.patch.dict(os.environ, {"TRANSCRIBE_NORMALIZE": "off"}):
+            self.assertIsNone(FN.plan(self.copy(self.v60, "h.mp4")))
 
     def test_2997_is_made_30_and_keeps_length(self):
         """配信の録画に多い 29.97fps も 30/1 に作り直し、長さ(= 時刻)は保つ(60 と別の入力で fps の丸めを見る)"""
@@ -215,16 +221,6 @@ class TestFlowNormalize(_Base):
         self.assertIsNone(path)
         self.assertIn("書き込めない", note)
 
-    def test_switch_off(self):
-        src = self.copy(self.v60, "h.mp4")
-        with mock.patch.dict(os.environ, {"TRANSCRIBE_NORMALIZE": "off"}):
-            self.assertIsNone(FN.plan(src))
-
-    def test_audio_only_is_skipped(self):
-        wav = os.path.join(self.media, "声.wav")
-        subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=6", wav], check=True)
-        self.assertIsNone(FN.plan(wav))
-
     def test_replace_mode_swaps_the_copy(self):
         """replace=True(③ 受付の写し用): 同じ名前の .mp4 に作って、拡張子が違えば古い写しを消す。mp4 なら同じ名前のまま上書き"""
         mov = self.copy(self.v60, "写し.mov")   # 中身は mp4 でも拡張子は .mov の写し
@@ -299,32 +295,22 @@ class TestRelinkNormalize(_Base):
         self.assert_30(dst)
         self.assertTrue(os.path.isfile(moved))
 
-    def test_bulk_relink_does_not_normalize(self):
-        """まとめて付け替える(normalize: false)は作り直さない(以前の文書の動画はそのまま)"""
-        old = self.copy(self.v30, "元2.mp4")
-        tid, d = self.make_doc(old)
-        moved = self.copy(self.v60, "先2.mp4")
-        r = S.relink_doc({"id": tid, "path": moved, "baseUpdatedAt": d["updatedAt"], "acceptDiff": True, "normalize": False})
-        self.assertIsNone(r["normalizing"])
-        self.assertEqual(sorted(os.listdir(self.media)), sorted(["先2.mp4", "元2.mp4"]))
-
-    def test_relink_to_30fps_needs_nothing(self):
-        old = self.copy(self.v60, "元3.mp4")
-        tid, d = self.make_doc(old)
-        moved = self.copy(self.v30, "先3.mp4")
-        r = S.relink_doc({"id": tid, "path": moved, "baseUpdatedAt": d["updatedAt"], "acceptDiff": True})
-        self.assertIsNone(r["normalizing"])
-        self.assertEqual(r["normNote"], "")
-
-    def test_eval_doc_relink_does_not_normalize(self):
-        old = self.copy(self.v30, "元4.mp4")
-        tid, d = self.make_doc(old)
-        doc = self.doc(tid)
-        doc["evalSet"] = True
-        S.atomic_write(S.tx_path(tid), json.dumps(doc, ensure_ascii=False).encode("utf-8"))
-        moved = self.copy(self.v60, "先4.mp4")
-        r = S.relink_doc({"id": tid, "path": moved, "baseUpdatedAt": doc["updatedAt"], "acceptDiff": True})
-        self.assertIsNone(r["normalizing"])
+    def test_relink_without_normalizing(self):
+        """作り直さない付け替え: まとめて付け替える(normalize: false)・選んだ先がもう 30fps・評価用の文書"""
+        for name, old_v, new_v, extra, eval_set in (("bulk", self.v30, self.v60, {"normalize": False}, False),
+                                                    ("already30", self.v60, self.v30, {}, False),
+                                                    ("eval", self.v30, self.v60, {}, True)):
+            with self.subTest(name):
+                old = self.copy(old_v, "元%s.mp4" % name)
+                tid, d = self.make_doc(old)
+                if eval_set:
+                    d["evalSet"] = True
+                    S.atomic_write(S.tx_path(tid), json.dumps(d, ensure_ascii=False).encode("utf-8"))
+                moved = self.copy(new_v, "先%s.mp4" % name)
+                r = S.relink_doc(dict({"id": tid, "path": moved, "baseUpdatedAt": d["updatedAt"], "acceptDiff": True}, **extra))
+                self.assertIsNone(r["normalizing"])
+                self.assertEqual(r["normNote"], "")
+                self.assertEqual([n for n in os.listdir(self.media) if "30fps" in n], [])   # 作り直した写しは無い
 
 
 if __name__ == "__main__":

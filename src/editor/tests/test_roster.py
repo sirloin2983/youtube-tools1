@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""名簿の呼び名と配信ごとの文脈(文字起こしの改善の計画 段1-1・1-2。roster.py・serve.py の stream_context)のテスト。
+"""名簿の呼び名と配信ごとの文脈(roster.py・serve.py の stream_context)のテスト。
 
     python -m unittest test_metrics test_resolve_export -q   # test_metrics がこのファイルのテストも読み込む
     python -m unittest test_roster -q                        # これだけ
@@ -108,7 +108,7 @@ class TestRosterRules(unittest.TestCase):
         self.assertEqual(R.fit(["a", "a", " ", "b"]), ["a", "b"])
 
     def test_alias_variants_and_pairs(self):
-        """呼び名の表記ゆれ(2026-10-08): 母音の長音 ↔ ー・ひらがな/カタカナの両方・短すぎる綴りと common の語は入れない・漢字の当て字"""
+        """呼び名の表記ゆれ: 母音の長音 ↔ ー・ひらがな/カタカナの両方・短すぎる綴りと common の語は入れない・漢字の当て字"""
         self.assertEqual(R.alias_variants("はあちゃま"), ["はーちゃま", "ハーチャマ"])
         self.assertIn("ラミー", R.alias_variants("ラミィ"))
         self.assertIn("らみー", R.alias_variants("ラミィ"))
@@ -123,18 +123,15 @@ class TestRosterRules(unittest.TestCase):
         kanji = {src for v in R.KANJI_VARIANTS.values() for src, _d in v}
         self.assertTrue(all(len(src) >= R.VARIANT_MIN for src, _d in pairs if src not in kanji))   # 長音の変種は 3 字以上(漢字の当て字は表のまま)
         self.assertEqual(pairs, sorted(pairs, key=lambda p: (-len(p[0]), p[0])))    # 長い綴りから先
-        from ytt.dictfmt import apply_replacements   # RS6 a-3 に pipeline/transcribe/replace から
+        from ytt.dictfmt import apply_replacements
         text, n = apply_replacements("はーちゃまと吹雪が来た", pairs)
         self.assertEqual((text, n), ("はあちゃまとフブキが来た", 2))
 
     def test_leak_only(self):
         terms = ["大空スバル", "スバル", "みこち"]
-        self.assertTrue(R.leak_only("スバル、みこち", terms))
-        self.assertTrue(R.leak_only("用語: 大空スバル", terms))
-        self.assertTrue(R.leak_only("すばる!", terms))                     # かなの違い・記号は数えない
-        self.assertFalse(R.leak_only("スバルがさ", terms))
-        self.assertFalse(R.leak_only("スバル", []))
-        self.assertFalse(R.leak_only("、。", terms))
+        for text, ts, want in (("スバル、みこち", terms, True), ("用語: 大空スバル", terms, True), ("すばる!", terms, True),   # かなの違い・記号は数えない
+                               ("スバルがさ", terms, False), ("スバル", [], False), ("、。", terms, False)):
+            self.assertIs(R.leak_only(text, ts), want, text)
 
 
 def row(a, b, text, **kw):
@@ -142,29 +139,23 @@ def row(a, b, text, **kw):
 
 
 class TestFlagsS3(unittest.TestCase):
-    """S-3: よくある誤認識の文・行の中の繰り返し・近くの行の同じ文・ヒントの語だけの行"""
+    """よくある誤認識の文・行の中の繰り返し・近くの行の同じ文・ヒントの語だけの行"""
 
     def test_stock_phrase(self):
-        self.assertTrue(S.stock_phrase("ご視聴いただきありがとうございました"))
-        self.assertTrue(S.stock_phrase("高評価よろしくお願いします!"))
-        self.assertTrue(S.stock_phrase("では次の動画でお会いしましょう"))                     # 決まり文句の前後 3 文字まで
-        self.assertFalse(S.stock_phrase("みんな高評価よろしくお願いしますね今日も"))          # 配信者が本当に言う形(文の一部)は印なし
-        self.assertTrue(S.stock_phrase("えっと字幕つけて"))                                   # 以前からの HALLUC は文の一部でも(今までどおり)
-        self.assertTrue(S.stock_phrase("♪～"))
-        self.assertTrue(S.stock_phrase("(音楽)"))
-        self.assertTrue(S.stock_phrase("【 BGM 】"))
-        self.assertFalse(S.stock_phrase("音楽いいね"))
-        self.assertFalse(S.stock_phrase("～"))
-        self.assertFalse(S.stock_phrase(""))
+        for text, want in (("ご視聴いただきありがとうございました", True), ("高評価よろしくお願いします!", True),
+                           ("では次の動画でお会いしましょう", True),                  # 決まり文句の前後 3 文字まで
+                           ("みんな高評価よろしくお願いしますね今日も", False),         # 配信者が本当に言う形(文の一部)は印なし
+                           ("えっと字幕つけて", True),                                # 以前からの HALLUC は文の一部でも
+                           ("♪～", True), ("(音楽)", True), ("【 BGM 】", True), ("音楽いいね", False), ("～", False), ("", False)):
+            self.assertIs(S.stock_phrase(text), want, text)
         self.assertIn("よくある誤認識の文", S.make_flags(row(0, 3, "ご覧いただきありがとうございました"), []))
         self.assertNotIn("よくある誤認識の文", S.make_flags(row(0, 9, "ご覧いただきありがとうございました"), []))   # 8 秒以上は対象外(今までどおり)
 
     def test_repeats_in_line(self):
-        self.assertTrue(S.repeats_in_line("なんかにもぱんぱんぱんぱんぱんぱん"))
-        self.assertTrue(S.repeats_in_line("歩こう、歩こう、歩こう、歩こう、歩こう。"))            # 記号をはさんでも
-        self.assertFalse(S.repeats_in_line("はいはいはいはい"))                                   # 4 回までは本当の発話にもある
-        self.assertFalse(S.repeats_in_line("あはははははははははは"))                             # 笑い・叫び(1 文字の繰り返し)は除く
-        self.assertFalse(S.repeats_in_line("ああああああああああああ"))
+        for text, want in (("なんかにもぱんぱんぱんぱんぱんぱん", True), ("歩こう、歩こう、歩こう、歩こう、歩こう。", True),   # 記号をはさんでも
+                           ("はいはいはいはい", False),                                   # 4 回までは本当の発話にもある
+                           ("あはははははははははは", False), ("ああああああああああああ", False)):   # 笑い・叫び(1 文字の繰り返し)は除く
+            self.assertIs(S.repeats_in_line(text), want, text)
         self.assertIn("繰り返しの可能性", S.make_flags(row(0, 3, "げんげんげんげんげん"), []))
         self.assertEqual(S.make_flags(row(0, 3, "はいはいはいはい"), []), "")
 

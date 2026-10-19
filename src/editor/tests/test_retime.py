@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""字幕の読む速さの印(T2)と、行の時刻を単語の時刻に合わせる候補(T1 の簡易版)のテスト(計算は pipeline/transcribe/retime.py・文書を読む包みは editor/ed_retime.py。RS2-9)。
+"""字幕の読む速さの印(T2)と、行の時刻を単語の時刻に合わせる候補(T1 の簡易版)のテスト(計算は pipeline/transcribe/retime.py・文書を読む包みは human/proof/retime.py)。
 
     py -3.12 -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
     py -3.12 -m unittest test_retime -q                 # これだけ(src/editor/tests で)
@@ -98,15 +98,18 @@ class TestRetimeCandidates(unittest.TestCase):
         c = retime.retime_candidates([_row(1, 0.5, 2.5, "こんにわちは")], words)
         self.assertEqual((c[0]["start"], c[0]["end"]), (1.0, 2.0))
 
-    def test_low_match_gives_nothing(self):
-        words = _chars(1.0, "こんにちは")
-        self.assertEqual(retime.retime_candidates([_row(1, 0.5, 2.5, "さようならまたね")], words), [])
-        self.assertEqual(retime.retime_candidates([_row(1, 0.5, 2.5, "こんばんはみなさま")], words), [])   # 3/9 < 0.6
+    def test_gives_nothing(self):
+        five = _chars(1.0, "こんにちは")
+        for name, row, words in (("当たりが少ない", _row(1, 0.5, 2.5, "さようならまたね"), five),
+                                 ("3/9 < 0.6", _row(1, 0.5, 2.5, "こんばんはみなさま"), five),
+                                 ("差が小さい", _row(1, 0.95, 2.05, "こんにちは"), five),
+                                 ("短すぎる", _row(1, 0.6, 1.6, "あい"), [[1.0, 1.1, "あ"], [1.1, 1.2, "い"]]),
+                                 ("大きく動かした行", _row(1, 6.0, 7.0, "こんにちは"), _chars(10.0, "こんにちは"))):
+            with self.subTest(name):
+                self.assertEqual(retime.retime_candidates([row], words), [])
 
-    def test_small_delta_gives_nothing(self):
-        words = _chars(1.0, "こんにちは")
-        self.assertEqual(retime.retime_candidates([_row(1, 0.95, 2.05, "こんにちは")], words), [])
-        c = retime.retime_candidates([_row(1, 0.95, 2.4, "こんにちは")], words)
+    def test_small_start_delta_moves_end_only(self):
+        c = retime.retime_candidates([_row(1, 0.95, 2.4, "こんにちは")], _chars(1.0, "こんにちは"))
         self.assertEqual(c[0]["edges"], ["end"])
 
     def test_clamped_by_same_speaker_neighbor(self):
@@ -138,14 +141,6 @@ class TestRetimeCandidates(unittest.TestCase):
         self.assertEqual((c[0]["end"], c[0]["edges"]), (2.4, ["end"]))
         words[1][0] = 1.8                                                  # すき間が空いていれば含めない
         self.assertEqual(retime.retime_candidates([_row(1, 1.0, 1.3, "うわー")], words)[0]["end"], 1.5)
-
-    def test_too_short_gives_nothing(self):
-        words = [[1.0, 1.1, "あ"], [1.1, 1.2, "い"]]
-        self.assertEqual(retime.retime_candidates([_row(1, 0.6, 1.6, "あい")], words), [])
-
-    def test_moved_far_gives_nothing(self):
-        words = _chars(10.0, "こんにちは")
-        self.assertEqual(retime.retime_candidates([_row(1, 6.0, 7.0, "こんにちは")], words), [])
 
     def test_inside_multichar_word(self):
         """単語の途中の字は字数で割り振る(「こんにちは」1.0〜2.0 の 3 字目から)"""

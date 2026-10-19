@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""2つ目のエンジンとの食い違いに候補を出す(精度改善の計画 第2版 D1-b。editor/ed_alt.py)のテスト。
+"""2つ目のエンジンとの食い違いに候補を出す機能のテスト。
 
     py -3.12 -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
     py -3.12 -m unittest test_alt -q                    # これだけ(src/editor/tests で)
@@ -192,12 +192,12 @@ class TestAltSuggest(_AltStore):
         self.assertEqual(S.dict_version({"autoLearned": True}), v1)   # 別のエンジンの数は辞書の版を変えない
 
     def test_settings_alt_engine(self):
-        for bad in ("bad", "whisper.cpp", "faster-whisper"):   # 0.58.0: 選べるのは Qwen3-ASR 1.7B(llama.cpp)だけ
+        for bad in ("bad", "whisper.cpp", "faster-whisper"):   # 選べるのは Qwen3-ASR 1.7B(llama.cpp)だけ
             with self.assertRaises(S.ApiError):
                 S.patch_settings({"values": {"altEngine": bad}})
         S.patch_settings({"values": {"altEngine": "llama.cpp"}})
         self.assertEqual(S.load_settings()["altEngine"], "llama.cpp")
-        write_json(S.SETTINGS, {"altEngine": "whisper.cpp"})   # 0.57.0 までに保存した外れた値は既定に読む
+        write_json(S.SETTINGS, {"altEngine": "whisper.cpp"})   # 外れた値は既定に読む
         self.assertEqual(S.alt_engine_key({}), "llama.cpp")
         self.assertEqual(S.alt_engine_key({"engine": "faster-whisper"}), "llama.cpp")
         self.assertEqual(S.alt_engine_key({"engine": "nope"}), "llama.cpp")
@@ -275,7 +275,7 @@ class TestAltJob(_AltStore):
         self.assertEqual(r["alt"]["count"], len(before["segments"]))
 
     def test_job_applies_row_post_processing(self):
-        """主の文字起こしと同じ行の後処理(長さより後ろの行を捨てる)を通し、alt.json に印を残す(v0.52.1。音の谷へ寄せる pullEnds は 0.65.0 で消した)"""
+        """主の文字起こしと同じ行の後処理(長さより後ろの行を捨てる)を通し、alt.json に印を残す"""
         tid = self.transcribe()
         job = self._take(jobs.add_job(S.alt_spec(tid, {}), "alt"))
         calls = []
@@ -293,16 +293,16 @@ class TestAltJob(_AltStore):
         self.assertEqual(job["state"], "done", job.get("error"))
         self.assertEqual(len(calls), 1)
         self.assertAlmostEqual(calls[0][0], 9.0, delta=0.5)   # dur = 音声の長さ
-        self.assertFalse(calls[0][1])                         # 候補は続いている行をつながない(時刻を使わない。0.57.1 の join_rows)
+        self.assertFalse(calls[0][1])                         # 候補は続いている行をつながない(時刻を使わない)
         alt = S.read_alt(tid)
         self.assertEqual([r["text"] for r in alt["rows"]], ["中の行"])
-        self.assertEqual(alt["post"], {"clip": True, "mergeRepeats": True})   # 0.64.0 までは pullEnds も(0.65.0 で消した)
+        self.assertEqual(alt["post"], {"clip": True, "mergeRepeats": True})
 
     def test_refusals(self):
         tid = self.transcribe()
         d = store.read_transcript(tid)
         first = dict(d["recognition"]["runs"][0])
-        # 最初の認識と同じエンジンとモデル(0.58.0 から 2 つ目のエンジンは Qwen3-ASR 1.7B だけ = 選び直せない)
+        # 最初の認識と同じエンジンとモデル(2 つ目のエンジンは Qwen3-ASR 1.7B だけ = 選び直せない)
         d["recognition"]["runs"][0].update(engine="llama.cpp", model="qwen3-asr-1.7b")
         write_json(S.tx_path(tid), d)
         with self.assertRaises(S.ApiError) as cm:
@@ -346,13 +346,13 @@ class TestAltJob(_AltStore):
         self.assertEqual(self.queued("alt", tid3), [])
         tid4 = self.transcribe(evalSet=True)
         self.assertEqual(self.queued("alt", tid4), [])
-        d4 = self.queued("diarize", tid4)   # 評価用は代わりに話者の自動判別が足される(v0.50.0)。このテストのジョブとして片付ける
+        d4 = self.queued("diarize", tid4)   # 評価用は代わりに話者の自動判別が足される。このテストのジョブとして片付ける
         self.assertEqual(len(d4), 1)
         self.mine.update(j["id"] for j in d4)
         self.assertTrue(doc_jobs.validate_job({"sourcePath": self.video, "model": "small", "autoAlt": True})["autoAlt"])
         write_json(S.SETTINGS, {"altEngine": "llama.cpp"})
         self.assertFalse(doc_jobs.validate_job({"sourcePath": self.video, "model": "small"})["autoAlt"])
-        base = {"sourcePath": self.video, "model": "small"}   # llmModel は要求にあれば通す(合う名前だけ。RS7-1 S6b)
+        base = {"sourcePath": self.video, "model": "small"}   # llmModel は要求にあれば通す(合う名前だけ)
         self.assertIsNone(doc_jobs.validate_job(base)["llmModel"])
         self.assertEqual(doc_jobs.validate_job(dict(base, llmModel="qwen3-8b"))["llmModel"], "qwen3-8b")
         self.assertIsNone(doc_jobs.validate_job(dict(base, llmModel="../x y"))["llmModel"])

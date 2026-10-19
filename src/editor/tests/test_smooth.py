@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""話者の細切れをならす(S2。ed_speakers の smooth_labels・smooth_speakers・apply_diarization(smooth)・設定 diarSmooth)のテスト。2026-10-05。
+"""話者の細切れをならす(smooth_labels・smooth_speakers・apply_diarization(smooth)・設定 diarSmooth)のテスト。
 
     python -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
     python -m unittest test_smooth -q                 # これだけ(src/editor/tests で)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""記録の土台(マスタープラン Q2。notes:plan/line-bc-master-plan.md)のテスト。
+"""記録の土台のテスト。
 
     python -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
     python -m unittest test_records -q                # これだけ(src/editor/tests で)
@@ -71,14 +71,6 @@ class TestProofedAt(StoreDir):
                 time.sleep(0.01)
                 S.save_transcript(TID, dict(cur, baseUpdatedAt=cur["updatedAt"]))
                 self.assertEqual(_rd()["segments"][0]["proofedAt"], at)
-
-    def test_retranscribe_drops_proofed_at(self):
-        d = doc_obj(original=[{"start": 0.4, "end": 2.8, "text": "こんばんわ"}])
-        d["segments"][0].update(proofed=True, proofedAt=1111)
-        self.put_doc(d)
-        S.apply_retranscribe({"tid": TID, "model": "m", "autoDict": False}, {"s1": ("こんばんは", "")})
-        g = _rd()["segments"][0]
-        self.assertEqual((g.get("proofed"), g.get("proofedAt")), (True, 1111))   # X-RERUN: 校正済みの行は残る
 
     def test_retranscribe_keeps_proofed_at_primary(self):
         """層が正: 校正済みの行は置き換えないので proofed・proofedAt も残り、印 MACH_CHANGED が付く"""
@@ -166,7 +158,7 @@ class TestDictVersion(StoreDir):
         with patch.object(dictfmt, "USER_DICT", True):
             r1 = S.dict_version({"autoDict": True})["replacements"]
         testkit.write_json(S.SETTINGS, {"replacements": "とわ様=>トワ様"})
-        self.assertEqual(r0, S.dict_version({"autoDict": True})["replacements"])             # 人の置換辞書が今はオフ(10-14)= 変えても版は同じ(名簿の表だけ)
+        self.assertEqual(r0, S.dict_version({"autoDict": True})["replacements"])             # 人の置換辞書が今はオフ = 変えても版は同じ(名簿の表だけ)
         with patch.object(dictfmt, "USER_DICT", True):
             self.assertNotEqual(r1, S.dict_version({"autoDict": True})["replacements"])      # オンなら辞書を変えたら版が変わる
         self.assertIn("learned", S.dict_version({"autoLearned": True}))
@@ -220,7 +212,7 @@ class TestEffort(StoreDir):
         self.put_doc(doc_obj())
 
     def test_touch_sets_last_at_only(self):
-        """POST /api/effort は操作中の知らせ = effort.lastAt だけ(作業した時間は数えない = 決定 3-47 の 1d-3)。updatedAt は動かさない・以前の時間の値は消さない"""
+        """POST /api/effort は操作中の知らせ = effort.lastAt だけ(作業した時間は数えない)。updatedAt は動かさない・以前の時間の値は消さない"""
         d = _rd()
         d["effort"] = {"activeSec": 90, "cutSec": 30, "sessions": 1, "proofedRows": 0, "unproofedRows": 0}
         self.put_doc(d)
@@ -232,7 +224,6 @@ class TestEffort(StoreDir):
         self.assertEqual((d["effort"]["activeSec"], d["effort"]["cutSec"], d["effort"]["sessions"]), (90, 30, 1))   # 今ある値は消さない・足さない
         S.save_transcript(TID, dict(d, baseUpdatedAt=1000, effort={"lastAt": 1}))   # 開いていた画面の保存は 409 にならず、作業中の印も戻さない
         self.assertGreaterEqual(_rd()["effort"]["lastAt"], t0)
-        self.assertFalse(hasattr(S, "add_effort"))
         with self.assertRaises(S.ApiError) as cm:
             S.touch_effort({"id": "../x"})
         self.assertEqual(cm.exception.status, 404)

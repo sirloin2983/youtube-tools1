@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""サムネの案のジョブ(提案 P5。editor/ed_thumb.py → thumb_ideas.py)のテスト。
+"""サムネの案のジョブのテスト。
 
     py -3.12 -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
 

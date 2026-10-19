@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""LLM の後処理 E(pipeline/transcribe/llm.py。旧 src/editor/ed_llm.py。提案 P18。編集 0.61.0)のテスト。test_metrics から読み込まれる。
+"""LLM の後処理 E(pipeline/transcribe/llm.py)のテスト。test_metrics から読み込まれる。
 
     py -3.12 -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
     py -3.12 -m unittest test_llm -q                         # これだけ(src/editor/tests で)
@@ -29,10 +29,10 @@ from human.proof import doc_jobs  # noqa: E402
 from human.proof import learn  # noqa: E402
 from human.proof import store  # noqa: E402
 from flow import jobs  # noqa: E402
-from pipeline.transcribe import llm  # noqa: E402  (RS2-9 から持ち主 pipeline/transcribe/llm.py を直に読む。旧 ed_llm)
+from pipeline.transcribe import llm  # noqa: E402
 import ed_state  # noqa: E402
 from pipeline.transcribe import tx_engines as E  # noqa: E402
-from pipeline.transcribe import worker as W  # noqa: E402  (認識ワーカーの受け口。RS2-9 から pipeline/transcribe/worker.py。旧 tx_worker)
+from pipeline.transcribe import worker as W  # noqa: E402  (認識ワーカーの受け口)
 
 HAVE_FF = bool(shutil.which("ffmpeg"))
 MEMBERS = [{"name": "雪花ラミィ", "aliases": ["ラミィ", "ラミィちゃん"], "common": []},

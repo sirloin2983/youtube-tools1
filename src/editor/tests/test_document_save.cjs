@@ -6,14 +6,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { test } = require('node:test');
-// UIKit の代わり(ui-kit v24)。画面の JS から `window.UIKit &&` の予備の経路を外しても、抜き出した関数が動くように、
+// UIKit の代わり。画面の JS から `window.UIKit &&` の予備の経路を外しても、抜き出した関数が動くように、
 // vm の context にはいつも withUIKit(context) を通す(context.UIKit と、harness の window に window.UIKit)。呼ばれた部品は h.context.UIKit.called('toast') などで読める
 const { withUIKit } = require(path.join(__dirname, '..', '..', 'ui-kit', 'tests', 'uikit_stub.cjs'));
 
-// CSP 対応(script-src 'self')でアプリの JS は app.js へ外出しした。段10 で関数の定義は app-*.js に分けた。
-// RS8 C4 で古い編集の画面(index.html)は消えた = 今は案件の画面の校正の台(src/app/ui/cases/edhost.js の ED_SCRIPTS)が読む順番(app-*.js → app.js)。
+// 画面の JS は案件の画面の校正の台(src/app/ui/cases/edhost.js の ED_SCRIPTS)が読む順番(app-*.js → app.js)で読み込まれる。
 // テストはその順番にファイルをつなげて読み、使う関数・状態を名前で取り出す
-const editorDir = path.join(__dirname, '..', '..', 'app', 'ui', 'editor');   // 画面の部品(RV C2 で src/editor から移した)。ここから見て src は '..' の 3 つ上
+const editorDir = path.join(__dirname, '..', '..', 'app', 'ui', 'editor');   // 画面の部品。ここから見て src は '..' の 3 つ上
 const srcDir = path.join(__dirname, '..', '..');
 const edhost = fs.readFileSync(path.join(srcDir, 'app', 'ui', 'cases', 'edhost.js'), 'utf8');
 const appFiles = [...(edhost.match(/var ED_SCRIPTS = \[([^\]]*)\]/) || ['', ''])[1].matchAll(/'(app[\w-]*\.js)'/g)].map(m => m[1]);
@@ -32,7 +31,7 @@ function lineSource(prefix) {
   assert.ok(line, 'application line must exist: ' + prefix);
   return line + '\n';
 }
-const saveSource = lineSource('const hhmm =') + fnSource('setSaveState') + lineSource('let docSaveP') + fnSource('saveDoc') + fnSource('showConflict');   // 保存の 409 の案内は app-core.js の showConflict(0.60.1)
+const saveSource = lineSource('const hhmm =') + fnSource('setSaveState') + lineSource('let docSaveP') + fnSource('saveDoc') + fnSource('showConflict');   // 保存の 409 の案内は app-core.js の showConflict
 const openSource = fnSource('openDoc') + fnSource('docInfoText') + fnSource('setUrlDoc') + fnSource('setUrlParam');   // 文書の 1 行の説明と URL の ?doc=(app-core.js の setUrlParam)も本物
 const flush = () => new Promise(resolve => setImmediate(resolve));
 function deferred() {
@@ -62,9 +61,9 @@ function harness(respond) {
     }
   };
   // 保存と切り替えの競合には関係しない画面の更新(上の context にないもの): 知らせ・修正の提案の読み直し・題名・一覧の進み具合・パックの見積もり・
-  // 校正の手間(effortStart。マスタープラン Q2)
+  // 校正の手間(effortStart)
   for (const name of ['toast', 'scheduleSuggest', 'updateDocTitle', 'syncListItem', 'cpAfterSave',
-    'effortStart', 'fillDiarNum', 'rememberLast', 'paintSaveState']) context[name] = () => {};   // 話者の人数の欄・前回の文書(段7 E-6・E-7)
+    'effortStart', 'fillDiarNum', 'rememberLast', 'paintSaveState']) context[name] = () => {};
   context.apiUrl = p => p;
   vm.createContext(withUIKit(context));
   vm.runInContext(saveSource + '\n' + openSource, context);
@@ -96,7 +95,7 @@ test('a network failure preserves edits, schedules retry, and then permits navig
   assert.equal(await h.context.openDoc('B'), true);
   assert.equal(h.S.docId, 'B');
   assert.equal(h.S.dirty, false);
-  assert.equal(h.timers.size, 1);   // 保存のやり直しの予約は消え、残るのは「前の文書が評価用の仮置きなら移す」確認の予約だけ(編集 0.33.0 の evalSettle)
+  assert.equal(h.timers.size, 1);   // 保存のやり直しの予約は消え、残るのは「前の文書が評価用の仮置きなら移す」確認の予約だけ(evalSettle)
   assert.deepEqual(h.calls.map(x => x.method), ['PUT', 'PUT', 'GET']);
 });
 
@@ -189,7 +188,7 @@ test('out-of-order responses honor the most recent navigation request', async ()
 });
 
 test('app.js and ui-kit.js parse successfully (CSP: the cases page has no inline <script>)', () => {
-  const html = fs.readFileSync(path.join(srcDir, 'app', 'ui', 'cases', 'index.html'), 'utf8');   // 編集の欄を載せる案件の画面(RS8 C4)
+  const html = fs.readFileSync(path.join(srcDir, 'app', 'ui', 'cases', 'index.html'), 'utf8');   // 編集の欄を載せる案件の画面
   const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)];
   assert.ok(scripts.length > 0);
   for (const [, attrs, source] of scripts) {
@@ -197,10 +196,10 @@ test('app.js and ui-kit.js parse successfully (CSP: the cases page has no inline
     assert.equal(source.trim(), '');
   }
   for (const f of appFiles.concat(['app-tpl.js', 'cut.js', 'pack-tab.js'])) new vm.Script(fs.readFileSync(path.join(editorDir, f), 'utf8'), { filename: f });   // 1つずつ(画面と同じく別のスクリプト)
-  new vm.Script(fs.readFileSync(path.join(srcDir, 'ui-kit', 'ui-kit.js'), 'utf8'));   // 共通の見た目の正本(編集の写しは C4 で消した)
+  new vm.Script(fs.readFileSync(path.join(srcDir, 'ui-kit', 'ui-kit.js'), 'utf8'));   // 共通の見た目の正本
 });
 
-// 字幕の読む速さの印(2026-10-05): 画面の readMark とサーバーの pipeline/transcribe/retime.subread_mark が同じ結果になること(例は tests/subread_cases.json。test_retime.py も読む)
+// 字幕の読む速さの印: 画面の readMark とサーバーの pipeline/transcribe/retime.subread_mark が同じ結果になること(例は tests/subread_cases.json。test_retime.py も読む)
 test('readMark matches the server rule (subread_cases.json)', () => {
   const cases = JSON.parse(fs.readFileSync(path.join(__dirname, 'subread_cases.json'), 'utf8'));
   const src = lineSource('const READ_FAST_CPS') + lineSource('const READ_CH') + lineSource('const READ_MEMO')

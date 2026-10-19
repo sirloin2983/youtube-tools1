@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""認識のあとの後処理 A・B・C・D(pipeline/transcribe/fill.py。旧 src/editor/ed_fill.py。10-08 の実験ループ。編集 0.60.0。B = 行の頭の話者名は 0.67.0)のテスト。test_metrics から読み込まれる。
+"""認識のあとの後処理 A・B・C・D(pipeline/transcribe/fill.py。B = 行の頭の話者名)のテスト。test_metrics から読み込まれる。
 
     py -3.12 -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
     py -3.12 -m unittest test_fill -q                        # これだけ(src/editor/tests で)
@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.dirname(TESTS))
 sys.path.insert(0, TESTS)
 from test_backend import S, StoreDir, write_json  # noqa: F401,E402  (S = serve)
 from test_alt import make_video  # noqa: E402
-from pipeline.transcribe import fill  # noqa: E402  (RS2-9 から持ち主 pipeline/transcribe/fill.py を直に読む。旧 ed_fill)
+from pipeline.transcribe import fill  # noqa: E402
 from human.proof import doc_jobs  # noqa: E402
 from human.proof import store  # noqa: E402
 from pipeline.transcribe import postproc  # noqa: E402
@@ -30,7 +30,7 @@ from pipeline.transcribe import records  # noqa: E402
 from pipeline.transcribe import models  # noqa: E402
 from flow import jobs  # noqa: E402
 from pipeline.transcribe import tx_engines as E  # noqa: E402
-from eval.fake import fake_worker  # noqa: E402  (SenseVoice・文字の LLM の偽物。OPT-E2 1a-1)
+from eval.fake import fake_worker  # noqa: E402  (SenseVoice・文字の LLM の偽物)
 
 HAVE_FF = bool(shutil.which("ffmpeg"))
 LONG = "これは別の読みで埋めた長い文です"   # 16 字(テスト文n の 5 字の 3 倍以上)
@@ -245,7 +245,7 @@ class TestSenseVoiceEngine(unittest.TestCase):
         self.assertEqual(len(E.sv_rows(["あ", "い"] * 25, [i * 0.05 for i in range(50)], 0.0, 5.0)), 2)   # 40 字で分ける
 
     def test_fake_engine(self):
-        with mock.patch.dict(E.ENGINES, {E.SenseVoice.id: fake_worker.fake_sense_voice("あいう")}):   # 偽物は ⑤ fake_worker(OPT-E2 1a-1)
+        with mock.patch.dict(E.ENGINES, {E.SenseVoice.id: fake_worker.fake_sense_voice("あいう")}):   # 偽物は ⑤ fake_worker
             e = E.get("sense-voice").create("sense-voice-small", "cpu", "int8", data_dir=tempfile.gettempdir())
             segs, info = e.transcribe([0.0] * 32000, language="ja")
             self.assertEqual([(s.start, s.end, s.text) for s in segs], [(0.0, 2.0, "あいう")])

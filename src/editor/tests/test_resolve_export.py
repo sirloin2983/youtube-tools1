@@ -15,7 +15,7 @@ import zipfile
 TESTS = os.path.dirname(os.path.abspath(__file__))
 HERE = os.path.dirname(TESTS)   # ツール(editor/)のフォルダ
 os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))   # 一時フォルダに写した serve.py が src(ytt・pipeline.pack)を見つけられるように
-sys.path.insert(0, os.path.dirname(HERE))   # src(ytt・pipeline・manage の層)。RS3-E5b から resolve_export は pipeline/pack
+sys.path.insert(0, os.path.dirname(HERE))   # src(ytt・pipeline・manage の層)
 
 from pipeline.pack import resolve_export  # noqa: E402
 from ytt import errors as _errors  # noqa: E402
@@ -48,13 +48,13 @@ class RulesTests(unittest.TestCase):
         self.assertEqual(resolve_export.srt_time(-1), "00:00:00,000")
 
     def test_load_pack(self):
-        """パックの部品は pipeline.pack から読む(RS1-2 で cut2resolve から移した。cut2resolve の API と同じモジュール)"""
+        """パックの部品は pipeline.pack から読む"""
         pack, tp = resolve_export._load_pack()
         self.assertEqual((pack.__name__, tp.__name__), ("pipeline.pack.pack", "pipeline.pack.resolve_textplus"))
 
 
 class NoSubTests(unittest.TestCase):
-    """字幕に出さない行(noSub。ゲームの声など。2026-10-05): 残す区間には今までどおり数え、字幕(SRT)からは外し、受け渡しの transcript/v1 には印を載せる"""
+    """字幕に出さない行(noSub。ゲームの声など): 残す区間には今までどおり数え、字幕(SRT)からは外し、受け渡しの transcript/v1 には印を載せる"""
 
     SEGS = [{"id": "a", "start": 0, "end": 2, "text": "配信者", "speaker": "S1"},
             {"id": "b", "start": 1.5, "end": 4, "text": "NPC のセリフ", "speaker": "other", "noSub": True},
@@ -175,7 +175,7 @@ class PackageTests(unittest.TestCase):
         return z, info
 
     def ip(self, z):
-        """パックの Lua に埋め込んだ計画(区間・字幕)。2026-09-26 まで textplus-import.json で入れていた中身"""
+        """パックの Lua に埋め込んだ計画(区間・字幕)"""
         from pipeline.pack import resolve_textplus
         return resolve_textplus.read_script_plan(z.read("テスト_pack/create_resolve_textplus_project.lua").decode("utf-8"))
 
@@ -185,7 +185,7 @@ class PackageTests(unittest.TestCase):
         top = {n.split("/")[0] for n in names}
         self.assertEqual(top, {"テスト_pack"})                      # 展開するとフォルダが1つ
         rel = {n.split("/", 1)[1] for n in names}
-        # 最小限(④): 動画(直下)・Lua・雛形・登録用の ps1/bat だけ(EDL・SRT・cut-plan.json・textplus-import.json・友人へ.txt は入れない。2026-09-27)
+        # 最小限(④): 動画(直下)・Lua・雛形・登録用の ps1/bat だけ(EDL・SRT・cut-plan.json・textplus-import.json・友人へ.txt は入れない)
         self.assertEqual({"clip.mp4", "create_resolve_textplus_project.lua",
                           "install_resolve_textplus_script.ps1", "ResolveにText+スクリプトを登録.bat",
                           "textplus-template.drb"}, {n for n in rel if not n.endswith("/")}, rel)

@@ -1,4 +1,4 @@
-"""設定の画面のスキーマ(src/app/ui/settings/schema.json。S5)の編集の分(store editor)が、ytt/settings の検査(SETTINGS_PATCH_KEYS・CUT_SILENCE_RANGE。RS3-1 まで ed_learn)と
+"""設定の画面のスキーマ(src/app/ui/settings/schema.json)の編集の分(store editor)が、ytt/settings の検査(SETTINGS_PATCH_KEYS・CUT_SILENCE_RANGE)と
 食い違っていないか。リポジトリ直下で:
     python -m unittest src/editor/tests/test_settings_schema.py
 validated の鍵は api/settings/patch の検査(予定どおり通る・範囲の外は断る)、validated でない鍵は検査が無い(差分の PUT)ことを見る。"""
@@ -12,7 +12,7 @@ EDITOR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(EDITOR))   # 共通部品 ytt(src/)
 sys.path.insert(0, EDITOR)
 from human.proof import alt as _alt  # noqa: E402,F401  (鍵の検査の持ち主が読み込みのときに ytt/settings へ登録する = altEngine)
-from ytt import settings as _settings  # noqa: E402  (編集の設定の鍵の検査。RS3-1 に ed_learn から)
+from ytt import settings as _settings  # noqa: E402  (編集の設定の鍵の検査)
 
 SCHEMA_PATH = os.path.join(os.path.dirname(EDITOR), "app", "ui", "settings", "schema.json")
 
