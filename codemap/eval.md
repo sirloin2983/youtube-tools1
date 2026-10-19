@@ -59,10 +59,10 @@
 ## テスト
 
 - src/eval/drill/tests/test_accuracy.py — 精度の自動測定(src/eval/drill/accuracy.py)の単体テスト。一時フォルダと、src/eval/tools/eval_*.py の代わりの偽の道具(小さな Python スクリプト)だけを使う。
-- src/eval/tools/tests/test_clipfit.py — src/eval/tools/clipfit.py(自動の区間が友人の区間にどれだけ合うかの物差し。LD-2a)のテスト。リポジトリ直下で:
+- src/eval/tools/tests/test_clipfit.py — src/eval/tools/clipfit.py(自動の区間が友人の区間にどれだけ合うかの物差し)のテスト。リポジトリ直下で:
 - src/eval/tools/tests/test_eval_alt.py — src/eval/tools/eval_alt.py(2つ目のエンジンとの食い違いの候補の当たり率を測る道具)のテスト。リポジトリ直下で:
 - src/eval/tools/tests/test_eval_asr.py — src/eval/tools/eval_asr.py(文字起こしの精度を測る道具)のテスト。リポジトリ直下で:
-- src/eval/tools/tests/test_eval_cloud.py — src/eval/tools/eval_cloud.py(クラウドの文字起こしとの比較。計画 B2 = E1)のテスト。リポジトリ直下で:
+- src/eval/tools/tests/test_eval_cloud.py — src/eval/tools/eval_cloud.py(クラウドの文字起こしとの比較)のテスト。リポジトリ直下で:
 - src/eval/tools/tests/test_eval_cut.py — src/eval/tools/eval_cut.py(カットのたたき台と人の最終の差を測る道具)のテスト。リポジトリ直下で:
 - src/eval/tools/tests/test_eval_fill.py — src/eval/tools/eval_fill.py(認識のあとの後処理の様子見の物差し)のテスト。リポジトリ直下で:
 - src/eval/tools/tests/test_eval_marks.py — src/eval/tools/eval_marks.py(盛り上がりの検出を、人の判定の記録で測る道具。線 C の土台)のテスト。リポジトリ直下で:

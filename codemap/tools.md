@@ -43,28 +43,28 @@
 - src/editor/tests/e2e_edit_common.py — 「編集」の部品(校正・カット・パック)を使う画面のテストの共通部分。RS8 C4 で古い編集の画面と旧 e2e(e2e_edit_*.py など 15 本)は消え、
 - src/editor/tests/fake_llama_server.py — テスト用の偽の llama-server(tx_engines.LlamaQwen3.COMMAND に [python, このファイル] を入れて使う)。
 - src/editor/tests/fake_whisper_cli.py — テスト用の偽の whisper-cli(tx_engines.WhisperCpp.COMMAND に [python, このファイル] を入れて使う)。
-- src/editor/tests/test_alt.py — 2つ目のエンジンとの食い違いに候補を出す(精度改善の計画 第2版 D1-b。editor/ed_alt.py)のテスト。
+- src/editor/tests/test_alt.py — 2つ目のエンジンとの食い違いに候補を出す機能のテスト。
 - src/editor/tests/test_autodiar.py — 評価用の文書の文字起こしのあとの話者の自動判別(human/proof/speakers の autodiar_*・eval/drill/evalbatch の後追い)のテスト。
 - src/editor/tests/test_backend.py — サーバー側の見直し(2026-09-24)で直したバグ・足した機能のテスト。
-- src/editor/tests/test_drill.py — 評価ドリルと定点の「あと何分」(マスタープラン Q4。git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md の (c)。eval/drill/drill.py。RS4-2 まで editor/ed_drill.py)のテスト。
+- src/editor/tests/test_drill.py — 評価ドリルと定点の「あと何分」(eval/drill/drill.py。動画 1 本ずつ・編集の画面で全部聞いて直す・文書の印 evalReviewed)のテスト。
 - src/editor/tests/test_edit.py — 「編集」ツールのサーバー側(notes:docs/design/edit-tool-design.md の 4・5・9)のテスト。
-- src/editor/tests/test_evalbatch.py — 評価用の動画の「手が空いたとき少しずつまとめて文字起こし」(eval/drill/evalbatch.py。RS4-2 まで editor/ed_evalbatch.py。マスタープラン Q4(b))のテスト。
-- src/editor/tests/test_fill.py — 認識のあとの後処理 A・B・C・D(pipeline/transcribe/fill.py。旧 src/editor/ed_fill.py。10-08 の実験ループ。編集 0.60.0。B = 行の頭の話者名は 0.67.0)のテスト。test_metrics から読み込まれる。
-- src/editor/tests/test_llm.py — LLM の後処理 E(pipeline/transcribe/llm.py。旧 src/editor/ed_llm.py。提案 P18。編集 0.61.0)のテスト。test_metrics から読み込まれる。
+- src/editor/tests/test_evalbatch.py — 評価用の動画の「手が空いたとき少しずつまとめて文字起こし」(eval/drill/evalbatch.py)のテスト。
+- src/editor/tests/test_fill.py — 認識のあとの後処理 A・B・C・D(pipeline/transcribe/fill.py。B = 行の頭の話者名)のテスト。test_metrics から読み込まれる。
+- src/editor/tests/test_llm.py — LLM の後処理 E(pipeline/transcribe/llm.py)のテスト。test_metrics から読み込まれる。
 - src/editor/tests/test_metrics.py — v0.7.0 の追加分(校正済み・CER測定・英字フラグ・A/B比較・校正済みの書き出し)のテスト。
-- src/editor/tests/test_names.py — serve の名前の受付(役割で組み直す RS2。2026-10-10)のテスト。旧い名前の転送だけの殻 ed_*(ed_jobs ほか 9 本)は RS5-A で消した。
-- src/editor/tests/test_normalize30.py — 素材を 30fps にそろえる(マスタープラン Q1)のテスト: ② flow/normalize の段・動画を選び直す(④ の付け替え)。
-- src/editor/tests/test_nosub_metrics.py — 「字幕に出さない」行(noSub)と、同時にしゃべっている所(重なり)の数え方・学習のテスト(数え方は eval/drill/metrics.py・noSub の外し方と学習は human/proof/learn.py。RS3-E5c まで editor/ed_learn.py。保管は 0.68.…
+- src/editor/tests/test_names.py — serve の名前の受付のテスト。
+- src/editor/tests/test_normalize30.py — 素材を 30fps にそろえるテスト: ② flow/normalize の段・動画を選び直す(④ の付け替え)。
+- src/editor/tests/test_nosub_metrics.py — 「字幕に出さない」行(noSub)と、同時にしゃべっている所(重なり)の数え方・学習のテスト(数え方は eval/drill/metrics.py・noSub の外し方と学習は human/proof/learn.py)。
 - src/editor/tests/test_proof_api.py — 校正まわりの API の確かめ(編集の画面の裏の API だけで確かめる)。
-- src/editor/tests/test_qwen3.py — Qwen3-ASR のエンジン(tx_engines.LlamaQwen3 = llama.cpp の 1.7B。sherpa-onnx の 0.6B Qwen3Asr は 0.58.0 で消した。精度改善の計画 段2-3)のテスト。test_metrics から読み込まれる。
-- src/editor/tests/test_records.py — 記録の土台(マスタープラン Q2。notes:plan/line-bc-master-plan.md)のテスト。
+- src/editor/tests/test_qwen3.py — Qwen3-ASR のエンジン(tx_engines.LlamaQwen3 = llama.cpp の 1.7B)のテスト。test_metrics から読み込まれる。
+- src/editor/tests/test_records.py — 記録の土台のテスト。
 - src/editor/tests/test_resolve_export.py — resolve_export(Resolve パッケージ = cut2resolve の Text+ パックを zip にしたもの)と「残す行」の規則のテスト。
-- src/editor/tests/test_retime.py — 字幕の読む速さの印(T2)と、行の時刻を単語の時刻に合わせる候補(T1 の簡易版)のテスト(計算は pipeline/transcribe/retime.py・文書を読む包みは editor/ed_retime.py。RS2-9)。
-- src/editor/tests/test_roster.py — 名簿の呼び名と配信ごとの文脈(文字起こしの改善の計画 段1-1・1-2。roster.py・serve.py の stream_context)のテスト。
-- src/editor/tests/test_settings_schema.py — 設定の画面のスキーマ(src/app/ui/settings/schema.json。S5)の編集の分(store editor)が、ytt/settings の検査(SETTINGS_PATCH_KEYS・CUT_SILENCE_RANGE。RS3-1 まで ed_learn)と
-- src/editor/tests/test_smooth.py — 話者の細切れをならす(S2。ed_speakers の smooth_labels・smooth_speakers・apply_diarization(smooth)・設定 diarSmooth)のテスト。2026-10-05。
-- src/editor/tests/test_thumb_ideas.py — src/editor/thumb_ideas.py(サムネの案。提案 P5 の S。10-09 に dev/ から移した)のテスト。リポジトリ直下で:
-- src/editor/tests/test_thumb_job.py — サムネの案のジョブ(提案 P5。editor/ed_thumb.py → thumb_ideas.py)のテスト。
+- src/editor/tests/test_retime.py — 字幕の読む速さの印(T2)と、行の時刻を単語の時刻に合わせる候補(T1 の簡易版)のテスト(計算は pipeline/transcribe/retime.py・文書を読む包みは human/proof/retime.py)。
+- src/editor/tests/test_roster.py — 名簿の呼び名と配信ごとの文脈(roster.py・serve.py の stream_context)のテスト。
+- src/editor/tests/test_settings_schema.py — 設定の画面のスキーマ(src/app/ui/settings/schema.json)の編集の分(store editor)が、ytt/settings の検査(SETTINGS_PATCH_KEYS・CUT_SILENCE_RANGE)と
+- src/editor/tests/test_smooth.py — 話者の細切れをならす(smooth_labels・smooth_speakers・apply_diarization(smooth)・設定 diarSmooth)のテスト。
+- src/editor/tests/test_thumb_ideas.py — src/editor/thumb_ideas.py(サムネの案)のテスト。リポジトリ直下で:
+- src/editor/tests/test_thumb_job.py — サムネの案のジョブのテスト。
 - src/editor/tests/test_voices.py — 話者の声を覚える(A-3。git の履歴(679ff01 以前)の docs/archive/backlog-ui-2026-09-27.md)のサーバー側のテスト。
 - src/editor/tests/test_whispercpp.py — whisper.cpp のエンジン(tx_engines.WhisperCpp。精度改善の計画 段2-2)のテスト。test_metrics から読み込まれる。
 - src/editor/tests/test_worker.py — 認識ワーカー(src/pipeline/transcribe/worker.py。別プロセス。統合計画の段階3-3。RS2-9 に編集の tx_worker.py から移した)のテスト。  python -m unittest test_worker -v

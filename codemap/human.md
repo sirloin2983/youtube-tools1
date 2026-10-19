@@ -92,23 +92,23 @@
 
 - src/human/check/tests/test_apply.py — 「確かめる」の答えの記録(src/human/check/answerlog.py)と反映の土台(apply.py)の単体テスト。一時フォルダと偽の反映の部品だけを使う。
 - src/human/check/tests/test_cutcard.py — 「確かめる」の自動カットのカードの答えの記録(src/human/check/cutcard.py)の単体テスト: 答えの形(出どころごとの選び)・
-- src/human/check/tests/test_read.py — 「確かめる」の読みのカードの反映(src/human/check/read.py。V2b)の単体テスト。一時フォルダの文書と learn-feedback.json だけを使う。
-- src/human/check/tests/test_section.py — 評価のレーンの区間カードの反映(src/human/check/section.py。C-EVAL)の単体テスト。一時の作業データに評価用の文書を作って、答える・戻すを確かめる。
+- src/human/check/tests/test_read.py — 「確かめる」の読みのカードの反映(src/human/check/read.py)の単体テスト。一時フォルダの文書と learn-feedback.json だけを使う。
+- src/human/check/tests/test_section.py — 評価のレーンの区間カードの反映(src/human/check/section.py)の単体テスト。一時の作業データに評価用の文書を作って、答える・戻すを確かめる。
 - src/human/check/tests/test_speech.py — 「この行は声ですか?」の反映(src/human/check/speech.py)の単体テスト: 答えの形・keep は文書を触らない・drop は noSub と novoice を付ける(行は消さない・
 - src/human/check/tests/test_timerow.py — 時刻のカードの反映(src/human/check/timerow.py)の単体テスト。一時の作業データに文書を作って、答える・戻すを確かめる。
 - src/human/check/tests/test_value.py — 価値のカードの反映(src/human/check/value.py)の単体テスト。入口が渡す口(studio)は偽物。value:auto は記録だけ(案件の口を呼ばない)。
-- src/human/check/tests/test_voice.py — 「確かめる」の誰の声のカード(src/human/check/voice.py。V1 V2c)の単体テスト: 答えの形・選択肢と予想・文書の行への反映(commit why check:voice)と Z・
+- src/human/check/tests/test_voice.py — 「確かめる」の誰の声のカード(src/human/check/voice.py)の単体テスト: 答えの形・選択肢と予想・文書の行への反映(commit why check:voice)と Z・
 - src/human/friend/tests/test_friend_feedback.py — 友人の「要らない」を PC 側で片付ける(src/human/friend/friend_feedback.py)の単体テスト。ごみ箱は本物の cleanup.Cleanup(一時フォルダ)。
 - src/human/friend/tests/test_intake.py — 友人からの依頼の受付(src/human/friend/intake.py)の単体テスト。まとめて実行・ffprobe・yt-dlp は偽物。
 - src/human/friend/tests/test_live_requests.py — 友人のライブ配信の依頼と録画の結びつきの Store(src/human/friend/live_requests.py。入口の作業データの live/requests.json。2-15)のテスト。
 - src/human/friend/tests/test_returns.py — src/human/friend/returns.py(友人の送り返しの受け取り。F1 の F2)のテスト。リポジトリ直下で:
-- src/human/proof/tests/test_commit.py — 文書を書く唯一の口 human/proof/store.commit のテスト(RS8 O2-0。動きは write_doc と同じ・why をログに残す)。
-- src/human/proof/tests/test_doc_jobs.py — human/proof/doc_jobs のテスト(差し込みの口 set_hooks は X-RERUN で消した・serve なしで読める・人の行の引き継ぎ)。
-- src/human/proof/tests/test_doc_placement.py — 文書の置き場所(ytt/docloc の索引)を人の側の部品が使うことのテスト(RS8 B-2-1b)。
-- src/human/proof/tests/test_layers.py — 文書を「機械の層 + 人の層」から組み立てる関数(human/proof/layers。RS8 O2-1)のテスト。
-- src/human/proof/tests/test_machpick.py — 3 択の口(human/proof/machpick と layers.mach_changes・pick。RS8 O2-4)のテスト。
-- src/human/proof/tests/test_opt_h1_fixes.py — ③ 校正の小物の直し(OPT-H1。notes:plan/done/opt-human.md の役割 4・5)のテスト。serve なしで読める。
-- src/human/proof/tests/test_primary_ops.py — 層が正(機械の層 + 人の層)のときの機械の操作(RS8 O2-5)のテスト。
+- src/human/proof/tests/test_commit.py — 文書を書く唯一の口 human/proof/store.commit のテスト(動きは write_doc と同じ・why をログに残す)。
+- src/human/proof/tests/test_doc_jobs.py — human/proof/doc_jobs のテスト(serve なしで読める・人の行の引き継ぎ)。
+- src/human/proof/tests/test_doc_placement.py — 文書の置き場所(ytt/docloc の索引)を人の側の部品が使うことのテスト。
+- src/human/proof/tests/test_layers.py — 文書を「機械の層 + 人の層」から組み立てる関数(human/proof/layers)のテスト。
+- src/human/proof/tests/test_machpick.py — 3 択の口(human/proof/machpick と layers.mach_changes・pick)のテスト。
+- src/human/proof/tests/test_opt_h1_fixes.py — ③ 校正の小物(名前の比べ方・学習の統計・名簿・覚え直しの行・再認識の単語)のテスト。serve なしで読める。
+- src/human/proof/tests/test_primary_ops.py — 層が正(機械の層 + 人の層)のときの機械の操作のテスト。
 - src/human/review/tests/test_studio.py — human/review/store.py の単体テスト(ネットワーク・ffmpeg 不要)。 実行(リポジトリ直下): py -3.12 -m unittest src/human/review/tests/test_studio.py
 - src/human/tests/_workdata.py — 人の操作のテストが共有する、一時の作業データの準備(S4)。
 - src/human/tests/test_judgments.py — 人の判断の記録(human/judgments)のテスト: 書いて読む・壊れた行・key の重複・fold の 3 レーンと retract と時刻順・.old・知らない what
