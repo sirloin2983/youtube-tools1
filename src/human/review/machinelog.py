@@ -5,7 +5,7 @@
 
 **人の採否(採用・不採用・削除)はここに書かない**: 正は人の判断の記録 judgments.jsonl(human/judgments。書き手は human/review/store)。
 ここの採否のきっかけの行(event adopt・reject・delete・export)は、その時の機械の様子だけを残す(verdict の欄は持たない。前の名前のころの行は verdict を持つが、読み手は使わない)。
-前の名前の feedback.jsonl(と .old)は書かない・消さない(読み手 eval_marks が古い行として読む)。
+前の名前 feedback.jsonl の行は machine_marks.jsonl.old の末尾へ写してある(元のファイルは消さない・読まない)。
 
 解析 = 機械の流れ(①)は書かない。書き手は ③ の human/review/store(保存に成功したあとにロックの外で書く)。録画(kind live)は書かない。
 大きくなったら machine_marks.jsonl.old の末尾へ足して空にする(fsio.append_line の keep_old。消さない)。
@@ -17,7 +17,6 @@ import time
 from ytt import fsio as _fsio, studio_env as _env
 
 FILE = "machine_marks.jsonl"
-OLD_NAME = "feedback.jsonl"   # 前の名前(10-18 まで。読むだけ = eval_marks)
 MAX_BYTES = 32 * 1024 * 1024   # 1行 500〜800 バイトなので約5万件。超えたら .old の末尾へ移す(消さない)
 SETTING_KEYS = ("sensitivity", "length", "preRatio", "lag", "lagAuto", "headSec", "wAudio", "wChat", "wComments")
 JUDGED_EVENTS = ("adopt", "reject", "delete", "export")   # 機械の様子を残すきっかけ(採否の正は judgments。export は書き出した = 起きた事実)

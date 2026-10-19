@@ -72,8 +72,8 @@ class Env:
     def videos(self):
         return testkit.read_json(os.path.join(self.studio, "data.json"))["videos"]
 
-    def feedback(self, rows, name="feedback.jsonl", mode="w"):
-        """機械の記録(前の名前 feedback.jsonl・今の machine_marks.jsonl)の行を書き、スタジオの保存と同じく人の採否を judgments へ写す
+    def feedback(self, rows, name="machine_marks.jsonl", mode="w"):
+        """機械の記録(machine_marks.jsonl と .old)の行を書き、スタジオの保存と同じく人の採否を judgments へ写す
         (adopt・reject・delete = 機械の採用の印の無い行・markId のある行だけ。unadopt・delete_judged は同じマークの最後の採否を取り消す = review/store と同じ)"""
         self.jsonl("studio/" + name, rows, mode)
         app = os.path.join(self.root, "app")
@@ -169,8 +169,8 @@ def build(test):
         fb("2026-09-01", "reject", "bad", 300.0, 340.0, 4.0, auto0=[300.0, 340.0], markId="mB"),
         fb("2026-09-01", "delete", "bad", 1000.0, 1040.0, 6.0, auto0=[1000.0, 1040.0], markId="mE"),
         fb("2026-09-03", "manual_add", "miss", 900.0, 930.0, src="manual", autoCount=4, nearAuto={"score": 2.0, "distance": 8.0, "start": 700.0, "end": 740.0, "status": ""}),
-        fb("2026-09-03", "manual_add", "miss", 2000.0, 2030.0, src="manual", autoCount=4, nearAuto={"score": 2.0, "distance": 900.0, "start": 700.0, "end": 740.0, "status": ""}),
-        fb("2026-09-03", "manual_remove", "unmiss", 2000.0, 2030.0, src="manual"),
+        fb("2026-09-03", "manual_add", "miss", 2000.0, 2030.0, src="manual", markId="mX", autoCount=4, nearAuto={"score": 2.0, "distance": 900.0, "start": 700.0, "end": 740.0, "status": ""}),
+        fb("2026-09-03", "manual_remove", "unmiss", 2000.0, 2030.0, src="manual", markId="mX"),
         fb("2026-09-04", "unadopt", "retract", 500.0, 540.0, 3.0, auto0=[500.0, 540.0], prevStatus="adopted", markId="mC"),
         fb("2026-09-04", "adopt", "good", 900.0, 930.0, src="manual", markId="mM"),
     ])
@@ -193,7 +193,7 @@ class EvalMarks(unittest.TestCase):
         self.assertEqual((t5["good"], t5["bad"], t5["judged"]), (1, 2, 3))
         self.assertEqual(t5["adoptRate"], round(1 / 3, 4))
         self.assertEqual(t5["adoptRateAll"], round(1 / 5, 4))
-        self.assertEqual((t5["unjudged"], t5["machine"], t5["unrecorded"]), (1, 1, 0))   # 判定なしは分母に入れない・まとめて実行の採用は良いに数えない
+        self.assertEqual((t5["unjudged"], t5["machine"]), (2, 0))   # 判定なしは分母に入れない(人の採否の行の無い採用 D も判定なし)
         self.assertEqual(o["top"]["all"]["items"], 5)
         al = o["top"]["all"]
         self.assertEqual((al["exported"], al["packed"], al["delivered"]), (1, 1, 1))
@@ -205,7 +205,7 @@ class EvalMarks(unittest.TestCase):
     def test_top_n_order(self):
         """上位 N は点数の高い順。N=1 なら削除した候補 E(6.0)だけ = 悪い"""
         order = [(i["score"], i["verdict"]) for i in M.ranked(build(self).built()[V1]["auto"])]
-        self.assertEqual(order, [(6.0, "bad"), (5.0, "good"), (4.0, "bad"), (3.0, "none"), (2.0, "machine")])
+        self.assertEqual(order, [(6.0, "bad"), (5.0, "good"), (4.0, "bad"), (3.0, "none"), (2.0, "none")])
 
     def test_rejected_without_human_row_is_none(self):
         """人の行(却下・削除)の無い rejected(マークの状態だけ)は「悪い」ではなく判定なし"""
@@ -277,30 +277,15 @@ class EvalMarks(unittest.TestCase):
         self.assertEqual((e["dStart"]["median"], e["dEnd"]["median"], e["editedRate"]), (2.0, 0.0, 1.0))
         self.assertEqual(o["retracts"], {"unadopt": 1, "deleteJudged": 0, "total": 1})
         mm = o["manualMarks"]
-        self.assertEqual((mm["marks"], mm["good"]), (1, 1))   # 手動マークの採用(まとめて実行の記録では機械になるが、人の adopt の行がある)
+        self.assertEqual((mm["marks"], mm["good"]), (1, 1))   # 手動マークの採用(人の adopt の行がある)
 
-    def test_auto_adopt_not_counted_good(self):
-        """行も無く、実行記録の「採用」の段が動いた配信のマーク = 自動採用 → 良いに数えない。実行記録も無ければ「記録なし」(--status-fallback で数える)"""
+    def test_status_without_human_row_is_unjudged(self):
+        """採用の状態があっても人の採否の行も機械の印も無いマークは判定なし。実行記録の「採用」の段は判定に使わない"""
         env = Env(self)
-        env.data({V1: video(V1, [mark("a", 10.0, 50.0, 3.0, "adopted"), mark("b", 100.0, 140.0, 2.0)]),
-                  V2: video(V2, [mark("c", 10.0, 50.0, 3.0, "adopted")], typ="雑談")})
-        env.runs([{"v": 1, "id": "r", "kind": "video", "videoId": V1, "state": "done", "steps": [{"key": "adopt", "state": "done"}]}])
-        r = env.evaluate()
-        self.assertEqual(r["byVideo"][0]["top"]["all"]["machine"], 1)
-        self.assertEqual(r["overall"]["top"]["all"]["good"], 0)
-        self.assertEqual(r["overall"]["top"]["all"]["unrecorded"], 1)
-        r2 = env.evaluate(status_fallback=True)
-        self.assertEqual(r2["overall"]["top"]["all"]["good"], 1)   # V2 だけ(V1 は自動採用のまま)
-        self.assertEqual(r2["overall"]["top"]["all"]["machine"], 1)
-
-    def test_human_adopt_after_machine_counts(self):
-        """自動採用の配信でも、人の adopt の行があるマークは良い"""
-        env = Env(self)
-        env.data({V1: video(V1, [mark("a", 10.0, 50.0, 3.0, "adopted"), mark("b", 100.0, 140.0, 2.0, "adopted")])})
-        env.feedback([fb("2026-09-01", "adopt", "good", 10.0, 50.0, 3.0, auto0=[10.0, 50.0], markId="a")])
+        env.data({V1: video(V1, [mark("a", 10.0, 50.0, 3.0, "adopted"), mark("b", 100.0, 140.0, 2.0)])})
         env.runs([{"v": 1, "id": "r", "kind": "video", "videoId": V1, "state": "done", "steps": [{"key": "adopt", "state": "done"}]}])
         al = env.evaluate()["overall"]["top"]["all"]
-        self.assertEqual((al["good"], al["machine"]), (1, 1))
+        self.assertEqual((al["good"], al["machine"], al["unjudged"]), (0, 0, 2))
 
     def test_verdict_comes_from_judgments(self):
         """採否は judgments だけ(10-19 Q2): 機械の記録に adopt の行と verdict good があっても、人の判断の行が無ければ良いに数えない。
@@ -311,7 +296,7 @@ class EvalMarks(unittest.TestCase):
         env.judge(1, "reject", vid=V1, mid="b", origin="auto", via="review")
         env.judge(2, "adopt", vid=V1, mid="b", origin="auto", via="cases")   # スタジオの保存の外の判断は数えない
         al = env.evaluate()["overall"]["top"]["all"]
-        self.assertEqual((al["good"], al["bad"], al["unrecorded"]), (0, 1, 1))
+        self.assertEqual((al["good"], al["bad"], al["unjudged"]), (0, 1, 1))
 
     def test_since_until(self):
         env = build(self)
@@ -347,14 +332,15 @@ class EvalMarks(unittest.TestCase):
         al = env.evaluate()["overall"]["top"]["all"]
         self.assertEqual((al["items"], al["good"], al["unjudged"]), (2, 1, 1))
 
-    def test_old_feedback_and_dedupe(self):
+    def test_old_file_and_dedupe(self):
         env = Env(self)
         env.data({V1: video(V1, [mark("a", 10.0, 50.0, 3.0, "adopted")])})
         row = fb("2026-09-01", "adopt", "good", 10.0, 50.0, 3.0, auto0=[10.0, 50.0], markId="a")
-        env.feedback([row], "feedback.jsonl.old")
-        env.feedback([row, fb("2026-09-05", "manual_add", "miss", 500.0, 530.0, src="manual", autoCount=1)])   # 移す途中で止まった重なり
-        env.feedback([fb("2026-09-07", "manual_add", None, 600.0, 630.0, src="manual", autoCount=1)], "machine_marks.jsonl")   # 今の名前の行(verdict なし)
-        with open(os.path.join(env.studio, "feedback.jsonl"), "ab") as f:
+        env.feedback([row], "machine_marks.jsonl.old")
+        env.feedback([row, fb("2026-09-05", "manual_add", "miss", 500.0, 530.0, src="manual", autoCount=1)])   # .old へ移す途中で止まった重なり
+        env.feedback([fb("2026-09-07", "manual_add", None, 600.0, 630.0, src="manual", autoCount=1)], mode="a")
+        env.feedback([fb("2026-09-08", "manual_add", None, 700.0, 730.0, src="manual", autoCount=1)], "feedback.jsonl")   # 前の名前は読まない
+        with open(os.path.join(env.studio, "machine_marks.jsonl"), "ab") as f:
             f.write(b'{"ts": "2026-09-06T00:00:00", "videoId": ')   # 書きかけの行
         r = env.evaluate()
         self.assertEqual(r["overall"]["misses"]["added"], 2)
@@ -362,8 +348,7 @@ class EvalMarks(unittest.TestCase):
         self.assertEqual(len(M.load_machine(env.studio)), 3)
 
     def test_adopted_by_marks_and_rows(self):
-        """adoptedBy(マーク・行)がある採用・書き出しは機械の判定。実行記録が無くても「記録なし」ではなく機械。
-        markId のある新しい行は、実行記録の近似を使わない(人の adopt の行が無くても、adoptedBy が無ければ人の判定)"""
+        """adoptedBy(マーク・行)がある採用・書き出しは機械の判定。印も人の採否の行も無い採用は判定なし(実行記録で自動採用と推し量らない)"""
         env = Env(self)
         env.data({V1: video(V1, [mark("a", 10.0, 50.0, 5.0, "adopted", adoptedBy="auto"), mark("b", 100.0, 140.0, 4.0, "exported", adoptedBy="request"),
                                  mark("c", 200.0, 240.0, 3.0, "exported"), mark("d", 300.0, 340.0, 2.0, "adopted")])})
@@ -372,9 +357,9 @@ class EvalMarks(unittest.TestCase):
             fb("2026-09-01", "export", "good", 200.0, 240.0, 3.0, auto0=[200.0, 240.0], markId="c"),                        # 人が書き出した
         ])
         env.judge(9, "adopt", vid=V1, mid="c", origin="auto", via="review")   # 人の採用(採否は judgments だけ)
-        env.runs([{"v": 1, "id": "r", "kind": "video", "videoId": V1, "state": "done", "steps": [{"key": "adopt", "state": "done"}]}])   # 近似だけなら c も機械になる
+        env.runs([{"v": 1, "id": "r", "kind": "video", "videoId": V1, "state": "done", "steps": [{"key": "adopt", "state": "done"}]}])   # 実行記録は判定に使わない
         al = env.evaluate()["overall"]["top"]["all"]
-        self.assertEqual((al["good"], al["machine"], al["unrecorded"]), (1, 3, 0))   # c だけ良い。a・b は印で機械・d は印も行も無いが実行記録で機械(近似)
+        self.assertEqual((al["good"], al["machine"], al["unjudged"]), (1, 2, 1))   # c だけ良い。a・b は印で機械・d は判定なし
         self.assertEqual((al["exported"], al["adoptRate"]), (1, 1.0))
 
     def test_adopted_by_row_only(self):
@@ -388,15 +373,14 @@ class EvalMarks(unittest.TestCase):
         self.assertEqual((al["items"], al["machine"], al["good"], al["bad"]), (2, 1, 0, 1))
 
     def test_match_by_mark_id(self):
-        """markId のある行は ID で突き合わせる: 同じ区間でも別の ID のマークの行は混ぜない。ID の無い行は区間で突き合わせる"""
+        """機械の記録の行は markId で突き合わせる: 同じ区間でも別の ID のマークの行は混ぜない。ID の無い古い行は使わない(区間で推し量らない)"""
         env = Env(self)
         env.data({V1: video(V1, [mark("x", 10.0, 50.0, 5.0, "adopted")])})
         env.feedback([fb("2026-09-01", "adopt", "good", 10.0, 50.0, 5.0, auto0=[10.0, 50.0], markId="x"),
                       fb("2026-09-01", "reject", "bad", 10.0, 50.0, 4.0, auto0=[10.0, 50.0], markId="y"),       # 別のマーク y(消えた)。同じ区間でも x に混ぜない
                       fb("2026-09-02", "reject", "bad", 200.0, 240.0, 3.0, auto0=[200.0, 240.0])])              # ID の無い行
         r = env.evaluate()["overall"]["top"]["all"]
-        self.assertEqual((r["items"], r["good"], r["bad"]), (3, 1, 1))   # ID の無い古い行の採否は judgments に無い = 判定なし(10-19 Q2 の物差しのずれ)
-        # ID の無い行は区間で data のマークに付く(採否は judgments の x のまま)
+        self.assertEqual((r["items"], r["good"], r["bad"]), (2, 1, 1))
         env.feedback([fb("2026-09-01", "adopt", "good", 10.0, 50.0, 5.0, auto0=[10.0, 50.0])])
         r = env.evaluate()["overall"]["top"]["all"]
         self.assertEqual((r["items"], r["good"]), (1, 1))

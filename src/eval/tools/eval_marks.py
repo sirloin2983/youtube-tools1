@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """盛り上がりの検出(スタジオの自動マーク)の当たり具合を、人の判定の記録で測る道具(線 C の土台。notes:plan/line-bc-master-plan.md の Q3・I-4a)。
 
-    python src/eval/tools/eval_marks.py [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--json] [--data-dir 作業データの親フォルダ] [--status-fallback]
+    python src/eval/tools/eval_marks.py [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--json] [--data-dir 作業データの親フォルダ]
     python src/eval/tools/eval_marks.py --live [--since …] [--until …] [--json]     配信ごと(線 D の D-12。下の「--live」)
 
 - 物差し 3 本(結果の `human3`・表示の先頭。MARKS-3・C-4-1): (1) 友人の区間の拾えた率 = 下の friendRanges のまま / (2) 届けた物を友人がどう答えたか =
@@ -11,10 +11,10 @@
   のパックを外した場面の選び方の数え方(sceneBoringRate = つまらない ÷ 良い+悪い)。パック名で突き合わせる(友人のアプリの 3 日の見送りは by auto の不明として書かれる)/
   (3) 確かめるの良い / 悪い / 不明 = judgments の quality_good・quality_bad・quality_unknown(origin と reason の分布)。人の判断は judgments だけを読む(線 D の人の行も)。以下の古い物差しは残す。
 - 未解析の友人の配信の解析は ② が依頼のあとに行う(この道具は数えるだけ: friendRanges の unanalyzed)。
-- 作業データは**読むだけ**(どの口も。スタジオの data.json・機械の記録 machine_marks.jsonl と前の名前の feedback.jsonl(と .old)・archive/<動画ID>.json.gz・
+- 作業データは**読むだけ**(どの口も。スタジオの data.json・機械の記録 machine_marks.jsonl(と .old)・archive/<動画ID>.json.gz・
   入口の logs/autorun-runs.jsonl・人の判断の記録 app/judgments.jsonl・cut2resolve の packs/)。何も書き換えない。--json のときだけ、結果を スタジオの作業データの
   evals\\marks\\<日時>.json に残す(原則 3: 機械の最初の結果と人の最終を並べる)
-- 機械の記録の行(machine_marks.jsonl。10-18 までは feedback.jsonl = 古い行も読む。human/review/machinelog)は markId(あれば)で突き合わせる。無い行は区間(auto0)で突き合わせる。
+- 機械の記録の行(machine_marks.jsonl と .old。human/review/machinelog)は markId で突き合わせる。markId の無い古い行は突き合わせない(区間で推し量らない)。
 - 「自動マーク」の集まり = data.json の自動マーク(再解析で手動に変わったものも含む)+ archive の最後の解析の候補(消えたものを補う)+
   機械の記録にだけ残っているもの(候補のまま削除した・判定のあと削除した)。同じマークは最初の自動区間(auto0)で突き合わせる(±0.6 秒)。
   点数の順(高い順)に並べ、人の判定を当てる。
@@ -24,8 +24,7 @@
   data.json のマークがあれば、いまの status を優先する(候補に戻した・不採用にした、が行に残らない場合がある)
 - **まとめて実行(自動採用)・依頼が自動で埋めた分は人の判断ではないので「良い」に数えない**(友人が時刻で指定した区間も、この数え方では外れる。区間は下の friendRanges で別に測る)。
   マークの adoptedBy(auto / request)と、機械の記録の行の adoptedBy(書き出しの行を含む)で見分ける。
-  印の無い記録だけ、近似として入口の実行記録(autorun-runs.jsonl)で、その配信に「採用」の段が実行されていて、人の adopt の行が無いものを「自動採用」とみなす(近似)。
-  採用・書き出しの status があるのに行も実行記録も無いものは「記録なし」として別に数える(--status-fallback を付けると人の判定として数える)
+  採用・書き出しの status があっても人の採否の行が無いものは「判定なし」(印の無い記録を実行記録で自動採用と推し量らない)
 - 指標(全体・配信の種類ごと・配信ごと):
     上位 N(5・10・20・全部)の採用率 = 良い ÷ 判定済み(判定なしは分母に入れず、数を別に出す。参考として 良い ÷ N 件 の採用率(全体)も出す)
     書き出し率 = 書き出した ÷ 良い / パックになった率 = パックがある ÷ 書き出した(manage.cases.txindex.pack_info)/ 友人に届けた率 = 届けた ÷ 書き出した(入口の実行記録の deliver の段)
@@ -124,7 +123,7 @@ def studio_videos(studio):
     return studiodata.videos(os.path.join(studio, "data.json"))
 
 
-MACHINE_LOGS = ("feedback.jsonl.old", "feedback.jsonl", "machine_marks.jsonl.old", "machine_marks.jsonl")   # 機械の記録(前の名前 → 今の名前。human/review/machinelog)
+MACHINE_LOGS = ("machine_marks.jsonl.old", "machine_marks.jsonl")   # 機械の記録(古い順。human/review/machinelog)
 REVIEW_VIAS = ("review", "migrate")   # スタジオの採否として読む人の判断の出どころ(スタジオの保存・前の記録からの写し)
 
 
@@ -184,23 +183,21 @@ def run_records(app):
 
 
 def load_runs(app, records=None):
-    """入口の実行記録 -> (自動採用の段が動いた配信の ID の集合, {配信 ID: 友人へ届けたマークの ID の集合}, 届けたがマークの ID が無い実行の数)。
+    """入口の実行記録 -> ({配信 ID: 友人へ届けたマークの ID の集合}, 届けたがマークの ID が無い実行の数)。
     records = run_records(app) を読んであれば渡す(同じファイルを 2 回読まない)"""
-    machine, delivered, unknown = set(), {}, 0
+    delivered, unknown = {}, 0
     for r in run_records(app) if records is None else records:
         vid = r.get("videoId")
         if not isinstance(vid, str) or not isinstance(r.get("steps"), list):
             continue
         states = {s.get("key"): s.get("state") for s in r["steps"] if isinstance(s, dict)}
-        if states.get("adopt") == "done":
-            machine.add(vid)
         if states.get("deliver") == "done":
             ids = r.get("marks")
             if isinstance(ids, list) and ids:
                 delivered.setdefault(vid, set()).update(str(x) for x in ids)
             else:
                 unknown += 1
-    return machine, delivered, unknown
+    return delivered, unknown
 
 
 # ---------------------------------------------------------------- 日時・数の小道具
@@ -233,12 +230,12 @@ def pair(v):
 
 # ---------------------------------------------------------------- 自動マークの集まりを作る
 
-def build_videos(studio, rows, runs, packs, since=None, until=None, status_fallback=False, dvideos=None, archive=None, human=None):
+def build_videos(studio, rows, runs, packs, since=None, until=None, dvideos=None, archive=None, human=None):
     """-> {動画 ID: video}。video = {"id", "title", "type", "auto": [item], "manual": [item], "adds": [...], "retracts": n}
     item(自動マーク)= {"a0", "score", "start", "end", "t", "src"(data / archive / feedback), "status", "path", "markId", "events", "human", "verdict", "origin", ...}
     rows = load_machine(studio)(機械の記録)・human = human_marks(app)(人の採否。None = 無し)。
     dvideos = studio_videos(studio)・archive = archive_reader(studio) を読んであれば渡す(無ければここで読む)"""
-    machine, delivered, _unknown = runs
+    delivered, _unknown = runs
     dvideos = studio_videos(studio) if dvideos is None else dvideos
     dvideos = {k: v for k, v in dvideos.items() if not (isinstance(v, dict) and v.get("kind") == "live")}   # ライブの録画は解析していない(手のマークだけ)
     archive = archive or archive_reader(studio)
@@ -263,7 +260,7 @@ def build_videos(studio, rows, runs, packs, since=None, until=None, status_fallb
         autos = V["auto"]
 
         def find(a0, rid=""):
-            """区間(auto0)で突き合わせる。行に markId があるときは、別の ID を持つマークとは突き合わせない"""
+            """区間(auto0)で突き合わせる(archive の候補は markId を持たない)。別の ID を持つマークとは突き合わせない"""
             return next((it for it in autos if same(it["a0"], a0) and (not rid or not it["markId"] or it["markId"] == rid)), None)
 
         def by_id(lst, rid):
@@ -293,12 +290,12 @@ def build_videos(studio, rows, runs, packs, since=None, until=None, status_fallb
             autos.append({"a0": (s, e), "start": s, "end": e, "score": num(c.get("score")), "t": arch.get("at") if isinstance(arch.get("at"), int) else None, "src": "archive",
                           "status": "", "path": "", "markId": "", "events": [], "a0known": True, "adoptedBy": None,
                           "parts": c.get("parts") if isinstance(c.get("parts"), dict) else None, "reasons": None, "peak": num(c.get("peak"))})
-        # 3. feedback の行
+        # 3. 機械の記録の行(markId で突き合わせる。無い古い行は手で足した数だけに使う)
         for r in rv:
             ev = r.get("event") or ""
             s, e = num(r.get("start")), num(r.get("end"))
             t = ts_ms(r.get("ts"))
-            rid = r.get("markId") if isinstance(r.get("markId"), str) else ""   # markId のある行は markId で突き合わせる(無い行は区間)
+            rid = r.get("markId") if isinstance(r.get("markId"), str) else ""
             if ev == "manual_add":
                 if in_range(t):
                     near = r.get("nearAuto") if isinstance(r.get("nearAuto"), dict) else None
@@ -306,14 +303,13 @@ def build_videos(studio, rows, runs, packs, since=None, until=None, status_fallb
                                       "nearScore": num((near or {}).get("score")), "nearDistance": num((near or {}).get("distance"))})
                 continue
             if ev == "manual_remove":
-                for ad in reversed(V["adds"]):   # 手で足したあと同じ区間を消した = 足したのは取り消し
-                    if ad["cancelled"]:
-                        continue
-                    if (rid and ad["markId"] == rid) or (not (rid and ad["markId"]) and s is not None and ad["start"] is not None and abs(ad["start"] - s) <= TOL and abs(ad["end"] - e) <= TOL):
-                        ad["cancelled"] = True
-                        break
+                ad = next((x for x in reversed(V["adds"]) if rid and not x["cancelled"] and x["markId"] == rid), None)
+                if ad is not None:   # 手で足したあと同じマークを消した = 足したのは取り消し
+                    ad["cancelled"] = True
                 continue
-            if rid and ev in HUMAN_EVENTS + RETRACT_EVENTS:
+            if not rid:
+                continue
+            if ev in HUMAN_EVENTS + RETRACT_EVENTS:
                 hit = by_id(autos, rid) or by_id(V["manual"], rid)
                 if hit is not None:
                     hit["events"].append((ev, r))
@@ -322,7 +318,7 @@ def build_videos(studio, rows, runs, packs, since=None, until=None, status_fallb
             if a0 is None and (r.get("src") != "auto" or s is None or e is None):
                 # 手動マークの判定は、手動マークの数え方(manual)にだけ使う(下)
                 if ev in HUMAN_EVENTS + RETRACT_EVENTS and s is not None and e is not None:
-                    mi = next((x for x in V["manual"] if same((x["start"], x["end"]), (s, e)) and (not rid or not x["markId"] or x["markId"] == rid)), None)
+                    mi = by_id(V["manual"], rid)
                     if mi is None and in_range(t):
                         mi = {"a0": (s, e), "start": s, "end": e, "score": None, "t": t, "src": "feedback", "status": "", "path": "", "markId": rid, "events": [], "a0known": False, "adoptedBy": None}
                         V["manual"].append(mi)
@@ -353,7 +349,7 @@ def build_videos(studio, rows, runs, packs, since=None, until=None, status_fallb
         V["auto"] = [it for it in autos if in_range(it["t"] if it["t"] is not None else (ts_ms(it["events"][0][1].get("ts")) if it["events"] else None))]
         V["manual"] = [it for it in V["manual"] if in_range(it["t"])]
         for it in V["auto"] + V["manual"]:
-            judge(it, vid in machine, status_fallback)
+            judge(it)
             if it["verdict"] == "good" and it["exported"]:
                 info = txindex.pack_info(it["path"], packs) if it["path"] else None
                 it["packed"] = bool(info)
@@ -365,32 +361,23 @@ def build_videos(studio, rows, runs, packs, since=None, until=None, status_fallb
     return videos
 
 
-def judge(it, machine_video, status_fallback):
+def judge(it):
     """item の人の採否(it["human"] = judgments の行か None)・機械の記録の行(it["events"]。機械の採用の印と書き出し)・data.json の status から、人の判定を決める。
-    it["verdict"] = good / bad / none(判定なし)/ machine(自動採用)/ unrecorded(status はあるが人の採否も実行記録も無い)
+    it["verdict"] = good / bad / none(判定なし)/ machine(自動採用)
     it["exported"] = 書き出した(良いもののうち)"""
     h = it.get("human")
     state = {"adopt": "good", "reject": "bad"}.get(h["what"]) if h else None
-    human_adopt = state == "good"
     if state is None and any(ev in ("adopt", "export") and r.get("adoptedBy") for ev, r in it["events"]):
         state = "machine"   # 機械が採用にしたマークの行(書き出しの行を含む)は人の判定ではない
-    exported = human_adopt and any(ev == "export" and not r.get("adoptedBy") for ev, r in it["events"])
-    if h is not None or any(r.get("markId") for _, r in it["events"]):
-        machine_video = False   # markId のある新しい行は adoptedBy で機械の採用を見分けられる。実行記録からの近似は、印の無い記録だけ
+    exported = state == "good" and any(ev == "export" and not r.get("adoptedBy") for ev, r in it["events"])
     st = it["status"] if it["src"] == "data" else None
     if st is None:   # data.json に無い(削除した・archive だけ): 行だけで決める
         verdict = state or "none"
     elif st in ("adopted", "exported"):
-        if it.get("adoptedBy") or state == "machine":   # 機械が採用にした印(人が状態を変えると外れる)。印の無い記録は、下の近似(実行記録)
+        if it.get("adoptedBy") or state == "machine":   # 機械が採用にした印(人が状態を変えると外れる)
             verdict = "machine"
-        elif state == "good" and not (machine_video and not human_adopt):
-            verdict = "good"
-        elif machine_video and not human_adopt:
-            verdict = "machine"
-        elif status_fallback:
-            verdict = "good"
         else:
-            verdict = "unrecorded"
+            verdict = "good" if state == "good" else "none"
         exported = st == "exported" and verdict in ("good",)
     elif st == "rejected":
         verdict, exported = ("bad" if state == "bad" else "none"), False   # 人の行(却下・削除)の無い rejected は、人が悪いと判定した物ではない = 判定なし
@@ -413,12 +400,12 @@ def judge(it, machine_video, status_fallback):
 def funnel(items):
     """item の並び -> 採用・書き出し・パック・届けの数と率"""
     n = len(items)
-    c = {k: sum(1 for i in items if i["verdict"] == k) for k in ("good", "bad", "none", "machine", "unrecorded")}
+    c = {k: sum(1 for i in items if i["verdict"] == k) for k in ("good", "bad", "none", "machine")}
     exported = sum(1 for i in items if i["exported"])
     packed = sum(1 for i in items if i["packed"])
     delivered = sum(1 for i in items if i["delivered"])
     judged = c["good"] + c["bad"]
-    return {"items": n, "judged": judged, "good": c["good"], "bad": c["bad"], "unjudged": c["none"], "machine": c["machine"], "unrecorded": c["unrecorded"],
+    return {"items": n, "judged": judged, "good": c["good"], "bad": c["bad"], "unjudged": c["none"], "machine": c["machine"],
             "adoptRate": rate(c["good"], judged), "adoptRateAll": rate(c["good"], n),
             "exported": exported, "exportRate": rate(exported, c["good"]),
             "packed": packed, "packRate": rate(packed, exported),
@@ -796,7 +783,7 @@ def human3(app, friend, since_ms=None, until_ms=None, records=None):
             "judgments": len(rows)}
 
 
-def evaluate(data_dir=None, since=None, until=None, status_fallback=False):
+def evaluate(data_dir=None, since=None, until=None):
     """-> 結果の辞書(JSON にする形)。作業データは読むだけ"""
     env, studio, app = locate(data_dir)
     since_ms, until_ms = C.period(since, until)
@@ -804,25 +791,22 @@ def evaluate(data_dir=None, since=None, until=None, status_fallback=False):
     runs, human = load_runs(app, records), human_marks(app)
 
     def build(s, u):
-        return build_videos(studio, machine, runs, env, s, u, status_fallback, dvideos=dvideos, archive=archive, human=human)
+        return build_videos(studio, machine, runs, env, s, u, dvideos=dvideos, archive=archive, human=human)
     videos, notes = build(since_ms, until_ms), []
     vlist = [videos[k] for k in sorted(videos)]
     types = {}
     for V in vlist:
         types.setdefault(V["type"], []).append(V)
     overall = group_metrics(vlist)
-    if runs[2]:
-        notes.append("友人へ届けた実行のうち %d 件は、マークの ID が実行記録に無く「届けた」に数えていません" % runs[2])
-    unrec, mach = overall["top"]["all"]["unrecorded"], overall["top"]["all"]["machine"]
-    if unrec:
-        notes.append("採用・書き出しの状態があるのに、判定の行も入口の実行記録も無いマークが %d 個あります(記録の前のものか、行が消えた)。--status-fallback で人の判定として数えます" % unrec)
-    if mach:
-        notes.append("まとめて実行の自動採用とみなして正に数えなかったマークが %d 個あります(自動採用はマークに印が残らないため、実行記録で近似)" % mach)
+    if runs[1]:
+        notes.append("友人へ届けた実行のうち %d 件は、マークの ID が実行記録に無く「届けた」に数えていません" % runs[1])
+    if overall["top"]["all"]["machine"]:
+        notes.append("まとめて実行・依頼の自動採用(マークか機械の記録の adoptedBy)として正に数えなかったマークが %d 個あります" % overall["top"]["all"]["machine"])
     few = overall["judgedVideos"] < FEW_VIDEOS
     studio_judged = {V["id"] for V in vlist if group_metrics([V])["judgedVideos"]}
     overall["judgedElsewhere"] = judged_elsewhere(app, studio_judged, since_ms, until_ms, records, folder_videos(dvideos))
     overall["judgedAll"] = overall["judgedElsewhere"]["all"]
-    meta = {"schema": SCHEMA, "at": int(time.time() * 1000), "since": since, "until": until, "statusFallback": bool(status_fallback), "git": C.git_rev(),
+    meta = {"schema": SCHEMA, "at": int(time.time() * 1000), "since": since, "until": until, "git": C.git_rev(),
             "studioDir": studio, "videos": len(vlist), "judgedVideos": overall["judgedVideos"], "judgedAll": overall["judgedAll"], "few": few,
             "fewNote": "まだ少ない(参考): 判定のある配信が %d 本(%d 本未満)。これで既定値を決めない" % (overall["judgedVideos"], FEW_VIDEOS) if few else "", "notes": notes}
     by_video = []
@@ -1096,8 +1080,8 @@ def print_group(title, g):
         print("    %-7s %5d %5d %5d %6s %6s %5d %5d %6s %5d %6s %5d" % (k, f["items"], f["judged"], f["good"], pct(f["adoptRate"]), pct(f["adoptRateAll"]), f["machine"],
                                                                 f["exported"], pct(f["exportRate"]), f["packed"], pct(f["packRate"]), f["delivered"]))
     f = g["top"]["all"]
-    if f["unjudged"] or f["unrecorded"]:
-        print("    判定なし %d 個(分母に入れていない)・記録なし %d 個" % (f["unjudged"], f["unrecorded"]))
+    if f["unjudged"]:
+        print("    判定なし %d 個(分母に入れていない)" % f["unjudged"])
     m, e, r = g["misses"], g["edits"], g["retracts"]
     nd = m["nearDistance"]
     print("    手で足した(見逃し) %d 個 / 良い自動 %d 個 → 見逃しの割合 %s。近くの自動マーク: 距離の中央値 %s 秒・%d 秒以内 %d 個・遠いか無し %d 個"
@@ -1244,7 +1228,6 @@ def main(argv=None):
     p = argparse.ArgumentParser(description="盛り上がり検出の当たり具合を人の判定の記録で測る(作業データは読むだけ)")
     C.add_period_args(p, "この日(YYYY-MM-DD)以後のものだけ", "この日(YYYY-MM-DD。この日を含む)までのものだけ",
                       "同じ形の JSON を スタジオの作業データの evals/marks/<日時>.json に残す")
-    p.add_argument("--status-fallback", action="store_true", help="行も実行記録も無い採用・書き出しの状態を、人の判定として数える")
     p.add_argument("--live", action="store_true", help="配信ごとの記録(入口の live/reports/ と live_feedback.jsonl。線 D の D-12)を並べる")
     args = p.parse_args(argv)
     if args.live:
@@ -1252,7 +1235,7 @@ def main(argv=None):
         print_live(res)
         C.report_saved(res, args.json, locate(args.data_dir)[1], "marks", "-live")
         return res
-    res = evaluate(args.data_dir, args.since, args.until, args.status_fallback)
+    res = evaluate(args.data_dir, args.since, args.until)
     print_report(res)
     C.report_saved(res, args.json, res["meta"]["studioDir"], "marks")
     return res
