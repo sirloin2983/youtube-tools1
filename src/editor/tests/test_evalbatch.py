@@ -52,6 +52,16 @@ def _make_video(path, seconds=2):
 
 
 @unittest.skipUnless(FFMPEG, "ffmpeg が必要")
+
+def stop_batch():
+    """裏のまとめて実行のスレッドを止める(テストの後片付け)"""
+    EB._eb_halt.set()
+    EB._eb_wake.set()
+    for t in list(EB._eb_threads):
+        t.join(5)
+    EB._eb_threads.clear()
+    EB._eb_wake.clear()
+
 class TestEvalBatch(unittest.TestCase):
     def setUp(self):
         self.tmp = testkit.tempdir(self)    # 作業データの代わり(設定・eval-batch.json・文書)
@@ -72,7 +82,7 @@ class TestEvalBatch(unittest.TestCase):
         self.settings({"evalDirs": [self.ev]})
 
     def tearDown(self):
-        EB.eb_shutdown()
+        stop_batch()
         self.env.stop()
         ytt_jobs._jobs.clear()
         ytt_jobs._jobs.update(self.old_jobs)
@@ -261,7 +271,7 @@ class TestEvalBatch(unittest.TestCase):
             if self.mine():
                 break
             time.sleep(0.05)
-        EB.eb_shutdown()
+        stop_batch()
         self.assertEqual(len(self.mine()), 2)
         self.assertEqual(self.waiting(), 2)
 

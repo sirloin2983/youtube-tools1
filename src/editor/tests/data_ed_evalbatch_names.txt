@@ -44,7 +44,6 @@ eb_redo_why
 eb_request
 eb_require_ready
 eb_scan
-eb_shutdown
 eb_start_background
 eb_tick
 eval_batch_redo

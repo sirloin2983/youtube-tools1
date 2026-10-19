@@ -793,13 +793,3 @@ def eb_start_background(first_delay=EB_FIRST_DELAY_SEC, interval=EB_INTERVAL_SEC
     _eb_threads[:] = [t]
     t.start()
     return t
-
-
-def eb_shutdown():
-    """裏のスレッドを止める(テスト用)"""
-    _eb_halt.set()
-    _eb_wake.set()
-    for t in list(_eb_threads):
-        t.join(5)
-    _eb_threads.clear()
-    _eb_wake.clear()

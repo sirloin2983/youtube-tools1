@@ -344,7 +344,7 @@ class TestDrillEvalbatchMovedWithoutShell(unittest.TestCase):
 
     def test_old_names_read_through_serve(self):
         drill, evalbatch = self.owners()
-        for mod, fname, n in ((drill, "data_ed_drill_names.txt", 32), (evalbatch, "data_ed_evalbatch_names.txt", 53)):
+        for mod, fname, n in ((drill, "data_ed_drill_names.txt", 32), (evalbatch, "data_ed_evalbatch_names.txt", 52)):
             names = _old_names(fname)
             self.assertEqual(len(names), n, fname)
             self.assertIn(mod, S._ED_MODULES, fname)

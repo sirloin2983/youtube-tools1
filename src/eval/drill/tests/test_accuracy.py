@@ -39,14 +39,18 @@ if area == "asr":
     res = {"meta": meta, "summary": {"overall": {"cer": v, "refChars": 1234}, "ci95": [v - 0.05, v + 0.05], "byDoc": [{}, {}, {}], "proofedSec": 900, "lowData": False,
                                      "reviewed": {"docs": 3, "sec": 950.0}, "gate": {"gate": "G1", "sec": 950.0}}}
 elif area == "marks":
-    res = {"meta": meta, "overall": {"judgedVideos": 12, "top": {"top10": {"adoptRate": 1 - v}}, "misses": {"missRate": v / 2}}}
+    res = {"meta": meta, "overall": {"judgedAll": 12, "top": {"top10": {"adoptRate": 1 - v}}, "misses": {"missRate": v / 2}}}
 elif area == "speakers":
     res = {"meta": dict(meta, rows=300), "subsets": {"all": {"rate": 1 - v, "rows": 300, "voices": {"rate": 0.9}}}, "speakerCount": {"exactRate": 0.8}}
 elif area == "alt":
     res = {"meta": dict(meta, judged=40, candidates=55), "feedback": {"accepted": 3, "rejected": 1, "acceptRate": 0.75},
            "total": {"hitRate": 1 - v, "pickup": {"coveredRate": 0.3}}}
+elif area == "cut":
+    res = {"meta": dict(meta, docs=5), "total": {"untouchedRate": 1 - v}}
+elif area == "fill":
+    res = {"meta": meta, "a": {"docs": 5, "judged": 40, "keptRate": 1 - v, "few": False}}
 else:
-    res = {"meta": meta, "accuracy": {"label": "カットの一致", "value": 1 - v, "docs": 5, "unit": "文書", "better": "higher"}}
+    res = {"meta": dict(meta, docs=5), "overall": {"n": 150, "head": v}}
 d = os.environ.get("FAKE_OUTSIDE_DIR", outdir) if on("FAKE_OUTSIDE") else outdir
 os.makedirs(d, exist_ok=True)
 if on("FAKE_SAME"):   # 前と中身が同じ = 書かずに「変わらず: <前のファイル>」(src/eval/tools/_evalcommon.py の report_saved)
@@ -172,30 +176,44 @@ class AccuracyTest(unittest.TestCase):
 
     # ---- 結果の要約
     def test_summaries_from_tool_shapes(self):
-        asr = accuracy.summarize_asr({"summary": {"overall": {"cer": 0.12, "refChars": 500}, "ci95": [0.1, 0.14], "byDoc": [{}, {}], "proofedSec": 800, "lowData": True}})
-        self.assertEqual((asr["label"], asr["value"], asr["range"], asr["docs"], asr["few"], asr["lowData"], asr["better"]), ("CER", 0.12, [0.1, 0.14], 2, False, True, "lower"))
-        self.assertEqual((asr["chars"], asr["proofedSec"]), (500, 800))
-        one = accuracy.summarize_asr({"summary": {"overall": {"cer": None, "refChars": 0}, "ci95": None, "byDoc": [{}]}})
-        self.assertIsNone(one["value"])
-        self.assertTrue(one["few"])                      # 文書 2 本未満は「まだ少ない」
-        marks = accuracy.summarize_marks({"meta": {"few": True}, "overall": {"judgedVideos": 3, "top": {"top10": {"adoptRate": 0.7}}, "misses": {"missRate": 0.1}}})
-        self.assertEqual((marks["value"], marks["docs"], marks["unit"], marks["lowData"], marks["extra"][0]["value"]), (0.7, 3, "配信", True, 0.1))
-        # 線 D の録画・友人の返事も足した judgedAll があれば、配信の数(C1 の入口)はそれ。無い結果は judgedVideos
-        marks2 = accuracy.summarize_marks({"meta": {"few": True}, "overall": {"judgedVideos": 3, "judgedAll": 7, "top": {"top10": {"adoptRate": 0.7}}, "misses": {"missRate": 0.1}}})
-        self.assertEqual((marks2["value"], marks2["docs"]), (0.7, 7))
-        marks3 = accuracy.summarize_marks({"meta": {}, "overall": {"judgedVideos": 3, "top": {"top10": {"adoptRate": 0.7}}, "misses": {"missRate": 0.1}},
-                                           "human3": {"friendRange": {"hitRate": 0.6}, "used": {"all": {"goodRate": 0.25}}}})
-        self.assertEqual([(e["label"], e["value"]) for e in marks3["extra"]][1:], [("友人の区間の拾えた率", 0.6), ("届けた物を友人が良いと答えた率", 0.25)])   # 物差し 3 本
-        spk = accuracy.summarize_speakers({"meta": {"docs": 9, "fewNote": ""}, "subsets": {"all": {"rate": 0.8, "voices": {"rate": 0.9}}}, "speakerCount": {"exactRate": 0.5}})
-        self.assertEqual((spk["value"], spk["docs"], [e["value"] for e in spk["extra"]]), (0.8, 9, [0.9, 0.5]))
-        gen = accuracy.summarize_generic({"accuracy": {"label": "x", "value": 0.4, "docs": 3, "better": "lower", "extra": [{"label": "y", "value": 1}]}})
-        self.assertEqual((gen["label"], gen["value"], gen["better"], gen["extra"]), ("x", 0.4, "lower", [{"label": "y", "value": 1.0, "better": "higher"}]))
-        cut = accuracy.summarize_cut({"meta": {"docs": 6, "few": True}, "total": {"untouchedRate": 0.5, "edges30": {"sameRate": 0.75}}})
-        self.assertEqual((cut["value"], cut["docs"], cut["lowData"], cut["extra"][0]["value"]), (0.5, 6, True, 0.75))
-        self.assertEqual(accuracy.summarize_cut({"accuracy": {"label": "x", "value": 0.4}})["value"], 0.4)   # total が無くても accuracy の鍵があればそれを使う
-        for fn in (accuracy.summarize_asr, accuracy.summarize_marks, accuracy.summarize_speakers, accuracy.summarize_cut, accuracy.summarize_generic):
-            with self.assertRaises(ValueError):
-                fn({})                                   # 形が違う結果は断る
+        """道具の結果の形 -> 入口の要約。(関数, 結果, {要約の鍵: 期待})の表。extra は値の並び"""
+        a = accuracy
+        rows = (
+            (a.summarize_asr, {"summary": {"overall": {"cer": 0.12, "refChars": 500}, "ci95": [0.1, 0.14], "byDoc": [{}, {}], "proofedSec": 800, "lowData": True,
+                                           "reviewed": {"sec": 120.5}}},
+             {"label": "CER", "value": 0.12, "range": [0.1, 0.14], "docs": 2, "few": False, "lowData": True, "better": "lower", "chars": 500, "proofedSec": 800,
+              "reviewedSec": 120.5}),
+            (a.summarize_asr, {"summary": {"overall": {"cer": None, "refChars": 0}, "ci95": None, "byDoc": [{}]}},
+             {"value": None, "few": True, "reviewedSec": None}),                         # 文書 2 本未満は「まだ少ない」
+            (a.summarize_marks, {"meta": {"few": True}, "overall": {"judgedAll": 7, "top": {"top10": {"adoptRate": 0.7}}, "misses": {"missRate": 0.1}}},
+             {"value": 0.7, "docs": 7, "unit": "配信", "lowData": True, "extra": [0.1]}),   # 配信の数 = judgedAll(C1 の入口)
+            (a.summarize_marks, {"meta": {}, "overall": {"judgedAll": 3, "top": {"top10": {"adoptRate": 0.7}}, "misses": {"missRate": 0.1}},
+                                 "human3": {"friendRange": {"hitRate": 0.6}, "used": {"all": {"goodRate": 0.25}}}},
+             {"extra": [0.1, 0.6, 0.25]}),                                               # 物差し 3 本
+            (a.summarize_speakers, {"meta": {"docs": 9, "fewNote": "", "rows": 208}, "subsets": {"all": {"rate": 0.8, "voices": {"rate": 0.9}}},
+                                    "speakerCount": {"exactRate": 0.5}},
+             {"value": 0.8, "docs": 9, "rows": 208.0, "extra": [0.9, 0.5]}),             # stored に切り替わったとき
+            (a.summarize_speakers, {"meta": {"mode": "run", "docs": 22, "rows": 410, "few": False},
+                                    "bySetting": [{"rate": 0.9, "docs": 22, "rows": 410, "speakerCount": {"exactRate": 0.7}}]},
+             {"value": 0.9, "docs": 22, "rows": 410.0, "better": "higher", "lowData": False, "extra": [0.7]}),   # 夜 = run の先頭(既定の 1 組)
+            (a.summarize_cut, {"meta": {"docs": 6, "few": True, "fromPack": 2}, "total": {"untouchedRate": 0.5, "edges30": {"sameRate": 0.75}}},
+             {"value": 0.5, "docs": 6, "lowData": True, "fromPack": 2.0}),
+            (a.summarize_fill, {"a": {"docs": 4, "judged": 12, "keptRate": 0.75, "revertRate": 0.2, "editRate": 0.05, "few": True}},
+             {"value": 0.75, "judged": 12.0, "lowData": True, "better": "higher"}),
+            (a.summarize_timing, {"meta": {"docs": 2, "few": False}, "overall": {"n": 120, "head": 0.1, "tail": 0.2, "prev": 0.0, "next": 0.05}},
+             {"value": 0.1, "rows": 120.0, "better": "lower", "extra": [0.2, 0.0, 0.05]}),
+            (a.summarize_alt, {"meta": {"docs": 3, "few": True, "judged": 7, "candidates": 31}, "feedback": None,
+                               "total": {"hitRate": 0.5, "pickup": {"coveredRate": 0.2}}},
+             {"value": 0.5, "docs": 3, "lowData": True, "judged": 7.0, "candidates": 31.0, "extra": [None, 0.2]}),
+        )
+        for fn, res, want in rows:
+            got = fn(res)
+            got = dict(got, extra=[e["value"] for e in got.get("extra") or []])
+            self.assertEqual({k: got.get(k) for k in want}, want, fn.__name__)
+        for fn, bad in ((a.summarize_asr, {}), (a.summarize_marks, {}), (a.summarize_speakers, {}), (a.summarize_cut, {}), (a.summarize_fill, {}),
+                        (a.summarize_timing, {}), (a.summarize_alt, {"meta": {}}), (a.summarize_speakers, {"meta": {}, "bySetting": []})):
+            with self.assertRaises(ValueError, msg=fn.__name__):
+                fn(bad)                                  # 形が違う結果は断る
 
     # ---- いつ測るか
     def test_runs_in_night_window_once_a_day(self):
@@ -208,7 +226,7 @@ class AccuracyTest(unittest.TestCase):
         self.assertEqual(by["asr"]["latest"]["summary"]["value"], 0.2)
         self.assertEqual(by["marks"]["latest"]["summary"]["value"], 0.8)
         self.assertEqual(by["speakers"]["latest"]["summary"]["value"], 0.8)
-        self.assertEqual(by["cut"]["latest"]["summary"]["label"], "カットの一致")
+        self.assertEqual(by["cut"]["latest"]["summary"]["label"], "たたき台を直さなかった文書")
         self.assertEqual(snap["state"], "idle")
         self.assertNotIn("heavyEnabled", snap)           # 重い測定の箱は無い
         self.assertEqual(self.acc.last["day"], "2026-10-05")
@@ -461,11 +479,11 @@ class AccuracyTest(unittest.TestCase):
         self.assertEqual((by["g2daily"]["now"], by["g2daily"]["left"]), (30.0, 1770.0))                   # 普段 = 入口が数えた評価用以外の校正済み
         self.assertEqual((by["train"]["now"], by["train"]["left"]), (30.0, 10770.0))
         self.assertEqual((by["speakers"]["now"], by["speakers"]["left"], by["speakers"]["reached"]), (300.0, 0, True))
-        self.assertEqual((by["marks"]["now"], by["marks"]["reached"]), (12.0, True))                        # 判定のある配信(eval_marks の judgedVideos)
+        self.assertEqual((by["marks"]["now"], by["marks"]["reached"]), (12.0, True))                        # 判定のある配信(eval_marks の judgedAll)
         self.assertEqual((by["alt"]["now"], by["alt"]["left"], by["alt"]["reached"]), (40.0, 60, False))   # 判定できた候補(eval_alt の meta.judged)
         self.assertIsNone(by["packs"]["now"])            # 偽のカットの道具は fromPack を出さない = 未測定のまま
         self.assertIsNone(by["packs"]["left"])
-        self.assertEqual((by["fill"]["now"], by["timing"]["now"]), (None, None))   # 偽の道具は judged・rows を出さない = 未測定のまま
+        self.assertEqual((by["fill"]["now"], by["timing"]["now"]), (40.0, 150.0))   # 後処理の judged・行の時刻の rows
         self.assertIsInstance(by["g1"]["at"], int)
         self.assertEqual(self.acc.last["daily"]["docs"], 1)
         again = self.make()                              # 記録に残る(起動し直しても出る)
@@ -499,15 +517,6 @@ class AccuracyTest(unittest.TestCase):
         self.assertEqual(len(os.listdir(self.edir({"id": "asr"}))), 1)   # 新しいファイルは増えない
         self.assertEqual(len(os.listdir(self.edir({"id": "marks"}))), 2)  # 変わらずを出さない領域は今までどおり書く
 
-    def test_summarize_fill_and_timing(self):
-        fill = accuracy.summarize_fill({"a": {"docs": 4, "judged": 12, "keptRate": 0.75, "revertRate": 0.2, "editRate": 0.05, "few": True}})
-        self.assertEqual((fill["value"], fill["judged"], fill["lowData"], fill["better"]), (0.75, 12.0, True, "higher"))
-        tm = accuracy.summarize_timing({"meta": {"docs": 2, "few": False}, "overall": {"n": 120, "head": 0.1, "tail": 0.2, "prev": 0.0, "next": 0.05}})
-        self.assertEqual((tm["value"], tm["rows"], tm["better"], len(tm["extra"])), (0.1, 120.0, "lower", 3))
-        self.assertEqual(accuracy.summarize_fill({"accuracy": {"label": "x", "value": 0.5}})["value"], 0.5)   # 形が違えば accuracy の鍵
-        with self.assertRaises(ValueError):
-            accuracy.summarize_timing({})
-
     def test_summarize_timing_prefers_the_current_default_applied(self):
         """--apply の結果があれば、先頭(今の既定の後処理を当て直した数字)を主にする。無い・当て直せた文書が 0 本なら保存してある機械の出力の数字"""
         stored = {"meta": {"docs": 5, "few": False}, "overall": {"n": 255, "head": 0.19, "tail": 0.3, "prev": 0.01, "next": 0.02}}
@@ -521,17 +530,6 @@ class AccuracyTest(unittest.TestCase):
             tm = accuracy.summarize_timing(dict(stored, apply=ap))
             self.assertEqual((tm["value"], tm["rows"]), (0.19, 255.0))
 
-    def test_summarize_speakers_run_and_stored(self):
-        """夜の話者 = run(bySetting の先頭 = 既定の 1 組)。stored に切り替わったとき(subsets.all)は今までの形"""
-        run = {"meta": {"mode": "run", "docs": 22, "rows": 410, "few": False},
-               "bySetting": [{"rate": 0.9, "docs": 22, "rows": 410, "speakerCount": {"exactRate": 0.7}}]}
-        sp = accuracy.summarize_speakers(run)
-        self.assertEqual((sp["value"], sp["docs"], sp["rows"], sp["better"], sp["lowData"]), (0.9, 22, 410.0, "higher", False))
-        self.assertEqual([(e["label"], e["value"]) for e in sp["extra"]], [("話者の数が合う", 0.7)])
-        self.assertEqual(accuracy.summarize_speakers({"meta": {"rows": 208}, "subsets": {"all": {"rate": 0.86}}})["value"], 0.86)
-        with self.assertRaises(ValueError):
-            accuracy.summarize_speakers({"meta": {}, "bySetting": []})
-
     def test_goals_add_check_answers(self):
         """「確かめる」の答え(app/check/answers.jsonl)を入口の条件に足す(数え方は src/eval/check/goals.py)"""
         from human.check import answerlog
@@ -541,19 +539,6 @@ class AccuracyTest(unittest.TestCase):
         self.assertEqual((by["speakers"]["now"], by["speakers"]["check"], by["speakers"]["left"]), (2.0, 2, 198))
         self.assertEqual((by["marks"]["now"], by["marks"]["check"]), (1.0, 1))   # 配信の単位
         self.assertEqual((by["alt"]["now"], by["alt"]["check"]), (None, 0))
-
-    def test_summarize_alt_and_counts(self):
-        alt = accuracy.summarize_alt({"meta": {"docs": 3, "few": True, "judged": 7, "candidates": 31}, "feedback": None,
-                                      "total": {"hitRate": 0.5, "pickup": {"coveredRate": 0.2}}})
-        self.assertEqual((alt["value"], alt["docs"], alt["lowData"], alt["judged"], alt["candidates"]), (0.5, 3, True, 7.0, 31.0))
-        self.assertEqual([e["value"] for e in alt["extra"]], [None, 0.2])
-        with self.assertRaises(ValueError):
-            accuracy.summarize_alt({"meta": {}})
-        asr = accuracy.summarize_asr({"summary": {"overall": {"cer": 0.1}, "gate": {"sec": 120.5}}})
-        self.assertEqual(asr["reviewedSec"], 120.5)      # reviewed が無ければ gate の秒
-        self.assertIsNone(accuracy.summarize_asr({"summary": {"overall": {"cer": 0.1}}})["reviewedSec"])
-        self.assertEqual(accuracy.summarize_speakers({"meta": {"rows": 208}, "subsets": {"all": {"rate": 0.86}}})["rows"], 208.0)
-        self.assertEqual(accuracy.summarize_cut({"meta": {"docs": 6, "fromPack": 2}, "total": {"untouchedRate": 0.5}})["fromPack"], 2.0)
 
 
 if __name__ == "__main__":

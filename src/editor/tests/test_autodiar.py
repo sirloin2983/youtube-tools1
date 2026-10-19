@@ -31,7 +31,7 @@ from human.proof import speakers as proof_speakers  # noqa: E402
 from human.proof import store  # noqa: E402
 from flow import jobs  # noqa: E402
 from manage.keep import evalfolders as EF  # noqa: E402
-from test_evalbatch import FFMPEG, MEMBER, _make_video  # noqa: E402
+from test_evalbatch import FFMPEG, MEMBER, _make_video, stop_batch  # noqa: E402
 from ytt import testkit  # noqa: E402
 
 OLD = 1000   # 10 分より前に直した、の updatedAt(ミリ秒)
@@ -71,7 +71,7 @@ class TestAutoDiar(unittest.TestCase):
         ed_drill._drill_cache.clear()
 
     def tearDown(self):
-        EB.eb_shutdown()
+        stop_batch()
         self.env.stop()
         jobs._jobs.clear()
         jobs._jobs.update(self.old_jobs)

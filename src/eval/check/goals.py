@@ -8,7 +8,7 @@
   (src/eval/tools/eval_fill.py・eval_alt.py。答えを人の判断の正として判定できた数 judged に入れる。ただし入口の fill は A の行の judged だけなので、
   E(LLM)・D(名簿)の行への答えは次の測定で入口の数から消える)。
   all の 2 つ: 話者は道具が評価用の文書しか数えず、確かめるは評価用を出さない・行の時刻は道具の --check が夜の測定に入っていない
-足すのは accuracy.goals_of(extra=)(入口の「調子」と /api/check/next の帯が同じ数を出す)。V2 の 4 本は register で組を足し・直してよい。
+足すのは accuracy.goals_of(extra=)(入口の「調子」と /api/check/next の帯が同じ数を出す)。
 対応と数え方の正は入口の条件の表(accuracy.GOALS の各行の check)。ここの 3 つの表はそこから作る。
 """
 from eval.drill.accuracy import GOALS
@@ -17,14 +17,6 @@ from human.check import answerlog
 DEFAULT = {g["check"]["kind"]: g["id"] for g in GOALS if g.get("check") and g["check"].get("default", True)}
 KIND_GOAL = {(g["check"]["kind"], s): g["id"] for g in GOALS if g.get("check") for s in g["check"]["sources"]}
 COUNT = {g["id"]: tuple(g["check"]["count"]) for g in GOALS if g.get("check")}
-
-
-def register(kind, source, goal_id, unit=None, mode=None):
-    """種類と出どころ → 目標の対応を足す・直す(unit・mode を渡すとその目標の数え方も)"""
-    KIND_GOAL[(kind, source)] = goal_id
-    if unit or mode:
-        cur = COUNT.get(goal_id, ("card", "since"))
-        COUNT[goal_id] = (unit or cur[0], mode or cur[1])
 
 
 def goal_of(kind, source=None):

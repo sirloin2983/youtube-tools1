@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """「2つ目のエンジンとの食い違いの候補」(行に出る札「別」)が、校正を本当に速くしているかを数字で見る道具(候補の当たり率)。
 
-    python src/eval/tools/eval_alt.py [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--source alt] [--include-eval] [--json] [--data-dir 作業データの親フォルダ]
+    python src/eval/tools/eval_alt.py [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--include-eval] [--json] [--data-dir 作業データの親フォルダ]
 
 - 作業データは**読むだけ**(transcribe の transcripts/<id>.json・<id>.alt.json・学習の記録 learn-feedback.json と、
   入口の作業データ app の check/answers.jsonl = 確かめるの答え。読み方は human/check/answerlog)。何も書き換えない。
@@ -33,7 +33,6 @@
   その時間に出ていた候補の数と noSub の行の数だけ、結果の noSub に別に出す。noSub が無い文書の数は今までと同じ
 - 判定できた候補が 100 件未満のときは「まだ少ない(参考)」と出す(少ないデータでエンジンや既定を決めない)
 - 注意: original(機械の最初の出力)は、再認識(範囲・全体・疑わしい所)のあとは再認識後のものに替わる。alt.json は最初の文字起こしの範囲の音声に対するもの
-- --source は alt だけ(既定)
 - 名簿の呼び名(名前に強いかを見る): まとまりの人の最終(無ければ機械)の文字に名簿の名前・呼び名(src/pipeline/transcribe/roster.py の find_in_text)がある所の、
   候補の当たり / 外れ / 別の直しと、人の直しの拾えた率を、全体とは別に出す(names)
 - --include-eval: 評価用の文書も測る(読むだけ。候補は画面に出さない決まりのまま・測るだけなら定点の正解は寄らない。評価用でしか確かめ済みの文書が無いときに)
@@ -67,8 +66,6 @@ MAX_GROUP_CHARS = 4000             # まとまりの寄せた文字がこれを�
 UNKNOWN_LABELS = {"removed": "人の行が消された", "notProofed": "校正済みでない", "tooLong": "まとまりが長すぎる", "misaligned": "位置が合わない"}
 STAT_KEYS = ("long", "cross", "mostly", "notation", "edge")
 STAT_LABELS = {"long": "長すぎる", "cross": "行をまたぐ", "mostly": "行の半分以上が違う", "notation": "表記だけの違い", "edge": "窓の境目", "clipEdge": "切り抜きの境目"}
-SOURCES = ("alt",)
-SOURCE_LABELS = {"alt": "2つ目のエンジンの候補(札「別」)"}
 
 # ---------------------------------------------------------------- 準備・読み込み(読むだけ)
 
@@ -406,24 +403,21 @@ def engine_key(alt):
 
 # ---------------------------------------------------------------- 全体
 
-def evaluate(data_dir=None, since=None, until=None, source="alt", include_eval=False):
-    """source = alt(既定。今までと同じ結果)"""
-    if source not in SOURCES:
-        raise SystemExit("--source は %s のどれかです: %r" % ("・".join(SOURCES), source))
+def evaluate(data_dir=None, since=None, until=None, include_eval=False):
     root = locate(data_dir)
     app = C.locate("app", data_dir)   # 確かめるの答えの置き場所(入口の作業データ)
     C.prepare()   # 名簿(呼び名の確かめ)・学習の記録の読み方の部品を使う
-    res = evaluate_one(root, source, since, until, include_eval, app)
+    res = evaluate_one(root, since, until, include_eval, app)
     res.pop("_per")
     return res
 
 
-def evaluate_one(root, source, since=None, until=None, include_eval=False, app=None):
-    """1 つの出どころ(alt)の測定。結果の _per = 文書ごとの judge_doc の結果(evaluate が外す)。
+def evaluate_one(root, since=None, until=None, include_eval=False, app=None):
+    """2つ目のエンジンの候補(alt)の測定。結果の _per = 文書ごとの judge_doc の結果(evaluate が外す)。
     app = 入口の作業データ(確かめるの答え check/answers.jsonl。None なら答えを読まない)"""
     tdir = os.path.join(root, "transcripts")
     since_ms, until_ms = C.period(since, until)
-    answers = read_answers(app, source) if app else {}
+    answers = read_answers(app) if app else {}
     measured = set()
     total, by_engine, by_doc, per = Agg(), {}, [], {}
     skipped = {"evalSet": 0, "noOriginal": 0, "broken": 0, "outOfRange": 0}
@@ -462,7 +456,7 @@ def evaluate_one(root, source, since=None, until=None, include_eval=False, app=N
     res = total.result()
     res["check"]["notMeasured"] = sum(1 for tid, xs in answers.items() if tid not in measured for a in xs if C.in_period(a["at"], since_ms, until_ms))
     few = res["judged"] < FEW_CANDS
-    fb = read_feedback(root, source)
+    fb = read_feedback(root)
     notes = []
     if skipped["noOriginal"]:
         notes.append("機械の最初の出力(original)が無い文書が %d 件あります(測っていません)" % skipped["noOriginal"])
@@ -475,7 +469,7 @@ def evaluate_one(root, source, since=None, until=None, include_eval=False, app=N
     notes.append("人は候補につられる(迷うと直さずに通す)ので、外れ・別の直しは少なめ(当たりは甘め)に出ます。"
                  "校正済みでないまとまりは「分からない」にして率に入れていません(確かめるで答えた候補は答えで判定)")
     notes.append("機械の最初の出力(original)は、再認識のあとは再認識後のものです")
-    meta = {"schema": SCHEMA, "source": source, "at": int(time.time() * 1000), "since": since, "until": until, "includeEval": include_eval, "git": C.git_rev(), "dataDir": root,
+    meta = {"schema": SCHEMA, "source": "alt", "at": int(time.time() * 1000), "since": since, "until": until, "includeEval": include_eval, "git": C.git_rev(), "dataDir": root,
             "docs": total.docs, "noAlt": no_alt, "candidates": res["candidates"], "judged": res["judged"], "few": few,
             "fewNote": "まだ少ない(参考): 判定できた候補が %d 件(%d 件未満)。これでエンジンや既定を決めない" % (res["judged"], FEW_CANDS) if few and total.docs else "",
             "skipped": skipped, "outOfRangeCandidates": out_cands, "notes": notes}
@@ -519,9 +513,8 @@ def print_agg(title, r, indent="  "):
 
 def print_report(res):
     m = res["meta"]
-    src = m.get("source") or "alt"
     rng = C.period_label(m["since"], m["until"])
-    print("%sの当たり率の測定(%s)  文書 %d 件・候補 %d 件(判定できた %d 件)  作業データ: %s" % (SOURCE_LABELS[src], rng, m["docs"], m["candidates"], m["judged"], m["dataDir"]))
+    print("2つ目のエンジンの候補(札「別」)の当たり率の測定(%s)  文書 %d 件・候補 %d 件(判定できた %d 件)  作業データ: %s" % (rng, m["docs"], m["candidates"], m["judged"], m["dataDir"]))
     fb = res["feedback"]
     if fb:
         print("採否の記録(画面で「別」の候補を採用・却下した数): 採用 %d・却下 %d  採用率 %s" % (fb["accepted"], fb["rejected"], pct(fb["acceptRate"])))
@@ -549,10 +542,9 @@ def main(argv=None):
     p = argparse.ArgumentParser(description="2つ目のエンジンとの食い違いの候補の当たり率を、人の最終で測る(作業データは読むだけ)")
     C.add_period_args(p, "この日(YYYY-MM-DD)以後だけ(まとまりの時刻 = 人の行の proofedAt の最大、無ければ文書の更新時刻)",
                       json_help="同じ形の JSON を 文字起こしの作業データの evals/alt/<日時>.json に残す")
-    p.add_argument("--source", choices=SOURCES, default="alt", help="候補の出どころ: alt だけ(既定。2つ目のエンジン)")
     p.add_argument("--include-eval", action="store_true", help="評価用の文書も測る(読むだけ)")
     args = p.parse_args(argv)
-    res = evaluate(args.data_dir, args.since, args.until, args.source, args.include_eval)
+    res = evaluate(args.data_dir, args.since, args.until, args.include_eval)
     print_report(res)
     C.report_saved(res, args.json, res["meta"]["dataDir"], "alt")
     return res

@@ -113,7 +113,7 @@ def summarize_asr(res):
     out = _summary("CER", o.get("cer"), len(s.get("byDoc") or []), "文書", "lower", s.get("lowData"), rng)
     out["chars"] = _int(o.get("refChars"))
     out["proofedSec"] = _int(s.get("proofedSec"))
-    rv = s.get("reviewed") if isinstance(s.get("reviewed"), dict) else s.get("gate") if isinstance(s.get("gate"), dict) else {}
+    rv = s.get("reviewed") if isinstance(s.get("reviewed"), dict) else {}
     out["reviewedSec"] = _num(rv.get("sec"))      # 定点の量(確かめ済みの評価用の文書の長さの合計。入口の条件 G1・G2)
     return out
 
@@ -124,8 +124,8 @@ def summarize_marks(res):
         raise ValueError("結果の形が想定と違います(overall が無い)")
     top10 = (o.get("top") or {}).get("top10") or {}
     miss = (o.get("misses") or {}).get("missRate")
-    # 配信の数 = C1 の入口「採用の記録 配信 10 本」: スタジオの判定に線 D の録画・友人の返事も足した judgedAll(K2。無い結果は judgedVideos)
-    docs = o.get("judgedAll") if isinstance(o.get("judgedAll"), int) and not isinstance(o.get("judgedAll"), bool) else o.get("judgedVideos")
+    # 配信の数 = C1 の入口「採用の記録 配信 10 本」: スタジオの判定に線 D の録画・友人の返事も足した judgedAll(K2)
+    docs = o.get("judgedAll")
     extra = [{"label": "見逃し率", "value": _num(miss), "better": "lower"}]
     # 物差し 3 本(MARKS-3・C-4-1。結果の human3。無い結果は足さない): 友人の区間の拾えた率・届けた物を友人が良いと答えた率
     h3 = res.get("human3") if isinstance(res.get("human3"), dict) else {}
@@ -157,7 +157,7 @@ def summarize_speakers(res):
     out = _summary("行ごとの話者の正しさ", sub.get("rate"), m.get("docs"), "文書", "higher", m.get("fewNote"),
                    extra=[{"label": "声の照合", "value": _num(voices.get("rate")), "better": "higher"},
                           {"label": "話者の数が合う", "value": _num(count.get("exactRate")), "better": "higher"}])
-    out["rows"] = _num(m.get("rows") if "rows" in m else sub.get("rows"))   # 人が確かめた話者つきの行(入口の条件)
+    out["rows"] = _num(m.get("rows"))   # 人が確かめた話者つきの行(入口の条件)
     return out
 
 
@@ -166,7 +166,7 @@ def summarize_cut(res):
     人が見ずにパックした文書(edit.json の draftUntouched)は道具が数えない(fromPack にも入らない)"""
     t = res.get("total")
     if not isinstance(t, dict):
-        return summarize_generic(res)      # 道具が accuracy の鍵を足していれば、それを使う
+        raise ValueError("結果の形が想定と違います")
     m = res.get("meta") or {}
     out = _summary("たたき台を直さなかった文書", t.get("untouchedRate"), m.get("docs"), "文書", "higher", m.get("few"),
                    extra=[{"label": "端がそのまま", "value": _num((t.get("edges30") or {}).get("sameRate")), "better": "higher"}])
@@ -195,7 +195,7 @@ def summarize_fill(res):
     片方だけだと E の答えが次の夜の測定のあと入口の数から消える(goals の fill は since)"""
     a = res.get("a")
     if not isinstance(a, dict):
-        return summarize_generic(res)      # 道具が accuracy の鍵を足していれば、それを使う
+        raise ValueError("結果の形が想定と違います")
     out = _summary("後処理を残した行", a.get("keptRate"), a.get("docs"), "文書", "higher", a.get("few"),
                    extra=[{"label": "戻した行", "value": _num(a.get("revertRate")), "better": "lower"},
                           {"label": "直した行", "value": _num(a.get("editRate")), "better": "lower"}])
@@ -210,7 +210,7 @@ def summarize_timing(res):
     無い・当て直せた文書が 0 本のときは、保存してある機械の出力(古い後処理の物)の数字"""
     o, m = res.get("overall"), res.get("meta")
     if not isinstance(o, dict):
-        return summarize_generic(res)
+        raise ValueError("結果の形が想定と違います(overall が無い)")
     m = m if isinstance(m, dict) else {}
     docs, few, label = m.get("docs"), m.get("few"), "頭が遅れた行"
     ap = res.get("apply") if isinstance(res.get("apply"), dict) else {}
@@ -224,17 +224,6 @@ def summarize_timing(res):
                           {"label": "次の行に食い込んだ", "value": _num(o.get("next")), "better": "lower"}])
     out["rows"] = _num(o.get("n"))
     return out
-
-
-def summarize_generic(res):
-    """道具が結果に `accuracy` の鍵(label・value・docs・unit・better・extra)を足してあれば、それをそのまま使う(カットなど、これから足す道具用)"""
-    a = res.get("accuracy")
-    if not isinstance(a, dict) or "value" not in a:
-        raise ValueError("結果の形が想定と違います(accuracy の鍵が無い)")
-    extra = [{"label": str(x.get("label"))[:40], "value": _num(x.get("value")), "better": "lower" if x.get("better") == "lower" else "higher"}
-             for x in a.get("extra") or [] if isinstance(x, dict)][:6]
-    return _summary(str(a.get("label") or "")[:40], a.get("value"), a.get("docs"), str(a.get("unit") or "文書")[:10],
-                    "lower" if a.get("better") == "lower" else "higher", a.get("lowData"), extra=extra)
 
 
 # 領域: script = src/eval/tools/ の道具・args = 呼び方・tool/sub = 結果の置き場所(<ツールの作業データ>\evals\<sub>)・summarize = 結果 → 要約
