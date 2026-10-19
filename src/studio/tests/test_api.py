@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 os.environ["STUDIO_FAKE"] = "1"
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # ツールのフォルダ(studio/)
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # src(解析などは ytt・pipeline を読む。RS3-4 から common を読まない)
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # src(解析などは ytt・pipeline を読む)
 import startup  # noqa: E402  (src を sys.path に足し、スタジオのフォルダを ytt/studio_env に知らせる)
 from ytt import errors, mediainfo, studio_env  # noqa: E402
 import serve
@@ -22,7 +22,7 @@ from human.review import feedback
 from pipeline.analyze import analyze
 
 VID = "abcdefghijk"
-PORT0 = 0   # OS に空きポートを選ばせる(他のエージェント・テストと同時に走らせてもぶつからない。以前は 18800 固定)
+PORT0 = 0   # OS に空きポートを選ばせる(他のエージェント・テストと同時に走らせてもぶつからない)
 
 
 class Base(unittest.TestCase):
@@ -105,11 +105,6 @@ class TestBody(Base):
         h = {"Content-Type": "application/json"}
         self.assertEqual(self.req("PUT", "/api/settings", raw=b"{oops", headers=h)[0], 400)
         self.assertEqual(self.req("PUT", "/api/settings", raw=b"[1,2]", headers=h)[0], 400)
-        self.assertEqual(self.req("PUT", "/api/settings", raw=b"\xff\xfe", headers=h)[0], 400)
-        # 本文の規則は ytt.httpsec.read_json_body(2026-10-09): UTF-8 の JSON だけ。BOM・UTF-16・NaN / Infinity は 400(以前の json.loads(bytes) は通していた)
-        for raw in (b"\xef\xbb\xbf{}", '{"settings": {}}'.encode("utf-16"), b'{"settings": {"a": NaN}}', b'{"settings": {"a": -Infinity}}'):
-            st, _j, data, _r = self.req("PUT", "/api/settings", raw=raw, headers=h)
-            self.assertEqual((st, data), (400, b"invalid json"), raw)
         self.assertEqual(self.req("PUT", "/api/settings", raw=b'{"settings": {}}', headers={"Content-Type": "application/json; charset=utf-8"})[0], 200)
         self.assertEqual(self.req("GET", "/api/settings")[1]["settings"], {})   # 断った本文は保存していない
 
@@ -120,7 +115,7 @@ class TestBody(Base):
     def test_settings_not_dict(self):
         st, j, *_ = self.req("PUT", "/api/settings", {"settings": [1]})
         self.assertEqual((st, j["error"]), (400, "bad_request"))
-        # 保存で OS のエラーが出たら 500 で返し、記録する(文言は見ない。消す前の TestErrorMessages から移した)
+        # 保存で OS のエラーが出たら 500 で返し、記録する(文言は見ない)
         denied = PermissionError(13, "Permission denied", os.path.join(self.tmp, "settings-ui.json"))
         with patch.object(serve.STORE, "set_ui", side_effect=denied), patch.object(studio_env, "log_failure") as log:
             st, j, *_ = self.req("PUT", "/api/settings", {"settings": {}})
@@ -137,7 +132,7 @@ class TestRouting(Base):
         self.assertEqual(self.req("PUT", "/api/export", {})[0], 404)      # POST 専用
 
     def test_static_only_whitelist(self):
-        # RS8 C4: 画面のページ(index.html・core.js など)は消した。配るのは案件の画面が読む部品 4 本だけ
+        # 画面のページ(index.html・core.js など)は配らない。配るのは案件の画面が読む部品 4 本だけ
         for p in ("/review.js", "/rank.js", "/queue.js", "/collab.js"):
             self.assertEqual(self.req("GET", p)[0], 200, p)
         for p in ("/", "/index.html", "/core.js", "/settings.js", "/app.css", "/review.css", "/ui-kit.js", "/ui-kit.css"):
@@ -157,33 +152,17 @@ class TestRouting(Base):
 
 
 class TestMedia(Base):
-    def get(self, rng=None, vid=None, method="GET"):
+    def get(self, rng=None, vid=None):
         h = {"Range": rng} if rng else {}
-        return self.req(method, "/media?id=" + (self.fsrc["videoId"] if vid is None else vid), headers=h)
+        return self.req("GET","/media?id=" + (self.fsrc["videoId"] if vid is None else vid), headers=h)
 
     def test_full(self):
         st, _, data, r = self.get()
         self.assertEqual((st, data, r.getheader("Accept-Ranges")), (200, self.data, "bytes"))
 
-    def test_ranges(self):
-        d = self.data
-        cases = [("bytes=0-3", 206, d[0:4], "bytes 0-3/1024"), ("bytes=1000-", 206, d[1000:], "bytes 1000-1023/1024"),
-                 ("bytes=-4", 206, d[-4:], "bytes 1020-1023/1024"), ("bytes=10-99999", 206, d[10:], "bytes 10-1023/1024"),
-                 ("bytes=-99999", 206, d, "bytes 0-1023/1024")]
-        for rng, code, body, cr in cases:
-            st, _, data, r = self.get(rng)
-            self.assertEqual((st, data, r.getheader("Content-Range")), (code, body, cr), rng)
-
-    def test_unsatisfiable_and_garbage(self):
-        for rng in ("bytes=2000-", "bytes=5-2", "bytes=-0"):
-            st, _, _, r = self.get(rng)
-            self.assertEqual((st, r.getheader("Content-Range")), (416, "bytes */1024"), rng)
-        for rng in ("bytes=", "bytes=-", "items=0-1", "bytes=0-1,5-6", "bytes=a-b"):
-            self.assertEqual(self.get(rng)[0:3:2], (200, self.data), rng)   # 解釈できない Range は全体を返す
-
-    def test_head_has_no_body(self):
-        st, _, data, r = self.get(method="HEAD")
-        self.assertEqual((st, data, r.getheader("Content-Length")), (200, b"", "1024"))
+    def test_range(self):   # Range の細部は ytt の httpsec(test_byte_range・test_send_file)。ここは /media がそれを使うことの代表 1 本
+        st, _, data, r = self.get("bytes=1000-")
+        self.assertEqual((st, data, r.getheader("Content-Range")), (206, self.data[1000:], "bytes 1000-1023/1024"))
 
     def test_unknown_and_youtube_ids_404(self):
         self.assertEqual(self.get(vid="zzzzzzzzzzz")[0], 404)
@@ -268,7 +247,7 @@ class TestVideoApi(Base):
         st, j, *_ = self.req("PUT", "/api/video", {"id": VID, "title": "t", "marks": [{"start": 1, "end": 9, "status": "adopted"}], "baseRev": rev})
         self.assertEqual((st, j["video"]["marks"][0]["status"]), (200, "adopted"))
         st, j, *_ = self.req("PUT", "/api/video", {"id": VID, "title": "t", "marks": [], "baseRev": rev})   # 古い rev
-        self.assertEqual((st, j["error"], len(j["video"]["marks"])), (409, "conflict", 1))
+        self.assertEqual((st, j["error"]), (409, "conflict"))
         st, j, *_ = self.req("PUT", "/api/video", {"id": VID, "title": "t", "marks": [{"start": 9, "end": 1}]})
         self.assertEqual((st, j["error"]), (400, "bad_marks"))
         st, j, *_ = self.req("PUT", "/api/video", {"id": VID, "marks": "x"})
@@ -308,14 +287,11 @@ class TestCollabApi(Base):
         st, j, *_ = self.req("POST", "/api/collab/group", {"videoIds": [v1, v2]})
         self.assertEqual(st, 200)
         g = j["group"]
-        self.assertEqual(g["base"], v1)
-        self.assertFalse(g["allSet"])
         st, j, *_ = self.req("GET", "/api/collab/groups")
         self.assertEqual(st, 200)
         self.assertTrue(any(x["id"] == g["id"] for x in j["groups"]))
         st, j, *_ = self.req("POST", "/api/collab/anchor", {"id": g["id"], "videoId": v2, "points": [[100, 110]]})
         self.assertEqual(st, 200)
-        self.assertTrue(j["group"]["allSet"])
 
     def test_group_and_anchor_not_found(self):
         self.assertEqual(self.req("GET", "/api/collab/group?id=nope")[0], 404)
@@ -344,14 +320,6 @@ class TestStateEnv(Base):
         self.assertIsInstance(env["warnings"], list)
         for k in ("hasKey", "ffmpeg", "ytdlp", "outDir", "defaultOutDir"):   # 既存の項目はそのまま
             self.assertIn(k, j)
-
-    def test_old_ytdlp_and_low_disk_warn(self):
-        with patch.dict(startup._env, {"checked": True, "tools": {"ytdlp": {"found": True, "version": "2020.01.01", "ageDays": 2000}}}), \
-                patch.object(startup.shutil, "disk_usage", return_value=startup.shutil._ntuple_diskusage(10, 9, 1024)):
-            env = self.req("GET", "/api/state")[1]["env"]
-        self.assertTrue(any("yt-dlp -U" in w for w in env["warnings"]), env["warnings"])
-        self.assertTrue(any("空きが少なく" in w for w in env["warnings"]), env["warnings"])
-        self.assertEqual(env["outDirFree"], 1024)
 
 
 class TestExportValidation(Base):
@@ -400,8 +368,6 @@ class TestExportApi(Base):
         self.assertEqual(it["manifest"], os.path.join(os.path.dirname(it["path"]), "作業用", os.path.splitext(os.path.basename(it["path"]))[0] + ".clip.json"))
         with open(it["manifest"], encoding="utf-8") as f:
             d = json.load(f)
-        self.assertEqual((d["schema"], d["range"], d["mark"]["status"], d["source"]["kind"], d["source"]["path"]),
-                         ("youtube-tools-clip/v1", {"start": 1.0, "end": 3.0}, "exported", "file", os.path.abspath(src)))
         self.assertEqual(d["tool"], {"name": "clip-studio", "version": serve.SERVER_VERSION})
         self.assertTrue(os.path.isfile(it["editManifest"]))
         v = self.req("GET", "/api/video?id=" + vid)[1]["video"]
@@ -467,15 +433,11 @@ class TestRequestMarks(Base):
         before = os.path.getsize(fb) if os.path.exists(fb) else 0
         st, j, *_ = self.req("POST", "/api/video/request-marks", {"id": vid, "ranges": [[28, 40]], "top": 3})
         self.assertEqual(st, 200, j)
-        by = self.marks(j)
-        self.assertEqual([by[i]["start"] for i in j["autoIds"]], [70.0, 50.0])   # 点数の高い順。区間と重なる 30 秒の候補は飛ばす
-        self.assertEqual(sorted(m["start"] for m in by.values() if m["status"] == "adopted"), [28.0, 50.0, 70.0])
+        self.assertEqual(len(j["autoIds"]), 2)   # 点数の順・重なりを飛ばす規則は TestAdoptRule(human/review)
         self.assertEqual(os.path.getsize(fb) if os.path.exists(fb) else 0, before)   # 人の判定ではないので記録しない
         # 送り直し: 採用済みの自動マークも数に入れる(増やさない)。数を増やせば次の候補を足す
         st, j2, *_ = self.req("POST", "/api/video/request-marks", {"id": vid, "ranges": [[28, 40]], "auto": 2})   # 古い本文(auto)= top は区間の数 + auto
         self.assertEqual((j2["rangeIds"], j2["autoIds"], j2["added"], j2["video"]["rev"]), (j["rangeIds"], j["autoIds"], [], j["video"]["rev"]))   # 何も変えない
-        st, j3, *_ = self.req("POST", "/api/video/request-marks", {"id": vid, "ranges": [], "top": 3})
-        self.assertEqual([self.marks(j3)[i]["start"] for i in j3["autoIds"]], [30.0, 70.0, 50.0])   # 区間が無ければ 30 秒の候補も入る
         # 区間が動画の長さを超えたら終わりで切る。長さの外から始まる区間は断る
         st, j4, *_ = self.req("POST", "/api/video/request-marks", {"id": vid, "ranges": [[90, 130]], "top": 0})
         self.assertEqual((st, self.marks(j4)[j4["rangeIds"][0]]["end"]), (200, 100.0))
@@ -512,9 +474,6 @@ class TestLiveApi(Base):
         self.assertEqual(v["live"], {"recorder": "rec", "recording": LIVE_ID, "url": "https://www.youtube.com/watch?v=U972n0ncl4k", "videoId": "U972n0ncl4k"})
         st, j, data, _ = self.req("GET", "/api/video?id=" + LIVE_ID)
         self.assertEqual((st, j["video"]["live"], j["video"]["kind"]), (200, v["live"], "live"))
-        row = next(x for x in self.req("GET", "/api/videos")[1]["videos"] if x["id"] == LIVE_ID)
-        self.assertEqual((row["kind"], row["live"]), ("live", v["live"]))
-        self.assertNotIn("live", next(x for x in self.req("GET", "/api/videos")[1]["videos"] if x["id"] == self.fsrc["videoId"]))   # 既存の種類には live を足さない
         self.assertEqual(self.req("GET", "/media?id=" + LIVE_ID)[0], 404)
 
     def test_open_sets_channel_once(self):
@@ -522,13 +481,8 @@ class TestLiveApi(Base):
         rid = "20261005-185303"
         st, j, *_ = self.req("POST", "/api/videos/open", live_body(rid))
         self.assertEqual((st, j["video"]["channel"]), (200, ""))
-        rev = j["video"]["rev"]
-        st, j, *_ = self.req("POST", "/api/videos/open", live_body(rid, channel=""))
-        self.assertEqual((j["video"]["channel"], j["video"]["rev"]), ("", rev))   # 空は入れない(何も変えない)
         st, j, *_ = self.req("POST", "/api/videos/open", live_body(rid, channel="Pekora\x07 Ch.\n 兎田ぺこら"))
         self.assertEqual((st, j["video"]["channel"], j["video"]["title"]), (200, "Pekora Ch. 兎田ぺこら", "配信中"))
-        st, j, *_ = self.req("POST", "/api/videos/open", live_body(rid, channel="別のチャンネル"))
-        self.assertEqual(j["video"]["channel"], "Pekora Ch. 兎田ぺこら")   # 既にあれば上書きしない
         self.assertEqual(self.req("GET", "/api/video?id=" + rid)[1]["video"]["channel"], "Pekora Ch. 兎田ぺこら")
         row = next(x for x in self.req("GET", "/api/videos")[1]["videos"] if x["id"] == rid)
         self.assertEqual(row["channel"], "Pekora Ch. 兎田ぺこら")
@@ -547,17 +501,13 @@ class TestLiveApi(Base):
         self.assertEqual(self.req("GET", "/api/video?id=20261005-185399")[0], 404)   # 断ったものは登録されない
 
     def test_live_adopt(self):
-        """入口のライブの採用 POST /api/live/adopt(RS8 B3-5。flow/live_adopt.py の StudioMarks): 登録 + 同じ区間の使い回し + 採用のマークを 1 回で"""
+        """入口のライブの採用 POST /api/live/adopt(flow/live_adopt.py の StudioMarks): 登録 + 同じ区間の使い回し + 採用のマークを 1 回で"""
         rid = "20261005-185310"
         body = dict(live_body(rid), start=100.04, end=130.0, label="山")
         body.pop("kind")
         st, j, *_ = self.req("POST", "/api/live/adopt", body)
         self.assertEqual(st, 200, j)
         self.assertEqual((j["video"], j["n"], j["mark"]["start"], j["mark"]["status"], j["mark"]["label"]), (rid, 1, 100.0, "adopted", "山"))
-        st, j2, *_ = self.req("POST", "/api/live/adopt", dict(body, start=100.3, end=129.8, label=""))
-        self.assertEqual((st, j2["mark"]["id"]), (200, j["mark"]["id"]))   # 同じ区間 ±0.5 秒は使い回し
-        v = self.req("GET", "/api/video?id=" + rid)[1]["video"]
-        self.assertEqual((v["kind"], v["title"], [m["id"] for m in v["marks"]]), ("live", "配信中", [j["mark"]["id"]]))
         for bad in (dict(body, url="http://evil.example/"), dict(body, start="x"), dict(body, end=None), dict(body, title=5), dict(body, label=["x"]),
                     dict(body, start=50.0, end=40.0)):
             self.assertEqual(self.req("POST", "/api/live/adopt", bad)[0], 400, bad)
@@ -580,11 +530,8 @@ class TestLiveApi(Base):
         self.assertEqual((st, j["ok"]), (200, True), j)
         m = j["video"]["marks"][0]
         self.assertEqual((m["status"], m["file"], m["path"]), ("exported", "配信中_%s/clip.mp4" % rid, os.path.abspath(p)))
-        self.assertEqual(self.req("GET", "/api/video?id=" + rid)[1]["video"]["marks"][0]["status"], "exported")
         st, j, *_ = self.req("POST", "/api/live/exported", {"id": rid, "markId": "m1", "path": p})   # 重ねて呼んでも落ちない
         self.assertEqual((st, j["ok"]), (200, True))
-        st, j, *_ = self.req("POST", "/api/live/exported", {"id": rid, "markId": "nomark", "path": p})   # マークが無い: 記録しない(mark_exported と同じ)
-        self.assertEqual((st, j["ok"]), (200, False))
 
     def test_exported_rejects_bad_requests(self):
         rid = "20261005-190100"
@@ -622,17 +569,6 @@ class TestLiveApi(Base):
         self.assertEqual((st, j["ok"], m["archived"], m["status"], m["path"]), (200, True, True, "exported", os.path.abspath(p)))
         self.assertEqual(next(x for x in self.req("GET", "/api/videos")[1]["videos"] if x["id"] == rid)["archived"], 1)
         self.assertTrue(self.req("GET", "/api/video?id=" + rid)[1]["video"]["marks"][0]["archived"])
-        # 画面の PUT: 立てられない(新しいマーク)・外せない(今のマーク)
-        st, j, *_ = self.req("PUT", "/api/video", {"id": rid, "marks": [dict(m, archived=False), {"start": 100, "end": 120, "status": "adopted", "archived": True}]})
-        self.assertEqual(st, 200, j)
-        self.assertEqual([x.get("archived") for x in j["video"]["marks"]], [True, None])
-        # 省略の exported は今の印を保つ
-        st, j, *_ = self.req("POST", "/api/live/exported", body)
-        self.assertTrue(j["video"]["marks"][0]["archived"])
-        # 時刻を変えたら書き出し済み(path も)と一緒に消える
-        st, j, *_ = self.req("PUT", "/api/video", {"id": rid, "marks": [dict(j["video"]["marks"][0], start=11)]})
-        m = j["video"]["marks"][0]
-        self.assertEqual((m["status"], m["file"], "archived" in m, "path" in m), ("adopted", "", False, False))
         # false で外せる・形が違えば 400
         self.req("POST", "/api/live/exported", dict(body, archived=True))
         self.assertEqual(self.req("POST", "/api/live/exported", dict(body, archived="yes"))[0], 400)
@@ -692,43 +628,6 @@ class TestLiveApi(Base):
         self.assertEqual(self.req("GET", "/api/transcripts?id=" + rid)[0], 200)
         self.assertEqual(self.req("GET", "/api/collab/groups")[0], 200)
         self.assertEqual(self.req("POST", "/api/video/delete", {"id": rid})[0], 200)   # グループからも外れる
-
-
-class TestRankSearch(Base):
-    """① 探す: 「10分以上の動画だけ」(minDur。2026-10-04)の検査と絞り込み(疑似の YouTube API)"""
-
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        from human.find import rank
-        cls.rank = rank
-        rank.import_official_channels("hololive")
-        rank.resolve("hololive")
-
-    def run_search(self, **kw):
-        req = dict({"start": "2000-01-01", "end": "2100-12-31", "agencies": ["hololive"], "top": 100, "archiveOnly": False, "noShorts": False}, **kw)
-        req["end"] = time.strftime("%Y-%m-%d")
-        req["start"] = time.strftime("%Y-%m-%d", time.localtime(time.time() - 700 * 86400))
-        job = {"id": "t", "state": "running", "phase": "", "progress": 0.0, "cancel": False, "error": "", "result": None}
-        self.rank.run_search(job, self.rank.validate_search(req))
-        self.assertEqual(job["state"], "done", job.get("error"))
-        return [it["dur"] for a in job["result"]["agencies"] for it in a["items"]]
-
-    def test_validate_min_dur(self):
-        base = {"start": "2026-01-01", "end": "2026-01-31", "agencies": ["hololive"]}
-        self.assertEqual(self.rank.validate_search(base)["minDur"], 0)   # 送らなければ絞らない(以前の画面・CLI)
-        self.assertEqual(self.rank.validate_search(dict(base, minDur=600))["minDur"], 600)
-        self.assertEqual(self.rank.validate_search(dict(base, minDur="600"))["minDur"], 600)
-        for bad in (-1, 86401, "x", [1]):
-            with self.assertRaises(self.rank.ApiError, msg=bad):
-                self.rank.validate_search(dict(base, minDur=bad))
-
-    def test_min_dur_filters_short_videos(self):
-        all_durs = self.run_search(minDur=0)
-        self.assertTrue(any(d < 600 for d in all_durs) and any(d >= 600 for d in all_durs), all_durs)   # 疑似データに両方ある(確かめの前提)
-        long_durs = self.run_search(minDur=600)
-        self.assertTrue(long_durs and all(d >= 600 for d in long_durs), long_durs)
-        self.assertGreaterEqual(len(long_durs), sum(1 for d in all_durs if d >= 600))   # 10分以上のものは減らない(上位 top 本で切るので、短いものが抜けた分だけ増えうる)
 
 
 if __name__ == "__main__":

@@ -592,5 +592,17 @@ class TestExportJobSettles(Home):
         self.assertIn("studio-errors.log", job["items"][0]["error"])
 
 
+class TestEnvState(Home):
+    """画面に出す環境の警告(startup.env_state): 古い yt-dlp・書き出し先の空き容量"""
+
+    def test_old_ytdlp_and_low_disk_warn(self):
+        with patch.dict(startup._env, {"checked": True, "tools": {"ytdlp": {"found": True, "version": "2020.01.01", "ageDays": 2000}}}), \
+                patch.object(startup.shutil, "disk_usage", return_value=startup.shutil._ntuple_diskusage(10, 9, 1024)):
+            env = startup.env_state()
+        self.assertTrue(any("yt-dlp -U" in w for w in env["warnings"]), env["warnings"])
+        self.assertTrue(any("空きが少なく" in w for w in env["warnings"]), env["warnings"])
+        self.assertEqual(env["outDirFree"], 1024)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

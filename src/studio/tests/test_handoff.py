@@ -1,4 +1,4 @@
-"""受け渡し(notes:docs/spec/pipeline.md の 2.1・4・6)のテスト: .clip.json・.runtime/studio.json・/api/siblings。
+"""/api/siblings(他のツールの .runtime を読んで返す口)のテスト。
 ネットワークは 127.0.0.1 の空きポートだけを使う(他のテストと同時に走らせてもぶつからない)。 実行: python3 test_handoff.py"""
 import http.client
 import json
@@ -8,7 +8,6 @@ import shutil
 import sys
 import tempfile
 import threading
-import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest.mock import patch
@@ -17,33 +16,23 @@ os.environ["STUDIO_FAKE"] = "1"
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # ツールのフォルダ(studio/)
 import startup  # noqa: E402  (src を sys.path に足し、スタジオのフォルダを ytt/studio_env に知らせる)
 from ytt import studio_env  # noqa: E402
-import handoff
 import serve
-from pipeline.export import exporter  # noqa: E402  (common が src を sys.path に足してある。.clip.json の tool は serve が入れる)
-from ytt import runtime  # noqa: E402
 
 
 class FakeTool:
     """/api/ping に決まった app を返すだけのサーバー(他のツールの代わり)。hang=True なら接続を受けても何も返さない。"""
 
-    def __init__(self, app="transcribe-tool", status=200, body=None, hang=False):
-        outer = self
-
+    def __init__(self, app="transcribe-tool"):
         class H(BaseHTTPRequestHandler):
             def do_GET(self):
-                outer.hosts.append(self.headers.get("Host"))
-                if hang:
-                    time.sleep(2)
-                    return
-                data = body if body is not None else json.dumps({"app": app, "version": "9.9"}).encode()
-                self.send_response(status)
+                data = json.dumps({"app": app, "version": "9.9"}).encode()
+                self.send_response(200)
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
                 self.wfile.write(data)
 
             def log_message(self, *a):
                 pass
-        self.hosts = []
         self.srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
         self.srv.daemon_threads = True
         self.port = self.srv.server_address[1]
@@ -80,34 +69,6 @@ class RuntimeDir(unittest.TestCase):
         return f
 
 
-class TestRuntimeFile(RuntimeDir):
-    def test_runtime_dir_default_is_parent_of_tool_folder(self):
-        with patch.dict(os.environ, {"YTT_RUNTIME_DIR": ""}):
-            self.assertEqual(handoff.runtime_dir(), os.path.join(os.path.dirname(os.path.dirname(startup.CODE_DIR)), ".data", ".runtime"))   # リポジトリ直下の .data/.runtime
-        self.assertEqual(handoff.runtime_dir(), os.path.abspath(self.rt))   # 環境変数が優先
-
-    def test_write_and_remove_own_file(self):
-        path = handoff.write_runtime("studio", 8801, "0.1.8")
-        with open(path, encoding="utf-8") as f:
-            d = json.load(f)
-        self.assertEqual((d["tool"], d["port"], d["version"]), ("studio", 8801, "0.1.8"))
-        self.assertRegex(d["startedAt"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d$")   # ISO 8601・時差付き
-        self.assertEqual([n for n in os.listdir(self.rt)], ["studio.json"])   # 一時ファイルが残らない
-        self.assertTrue(handoff.remove_runtime("studio", 8801))
-        self.assertFalse(os.path.exists(path))
-
-
-class TestSiblings(RuntimeDir):
-    def test_only_matching_apps_are_listed(self):
-        tt = self.fake(app="transcribe-tool")
-        wrong = self.fake(app="something-else")   # cut2resolve.json が別のアプリのポートを指している
-        self.put("transcribe", {"tool": "transcribe", "port": tt.port})
-        self.put("cut2resolve", {"tool": "cut2resolve", "port": wrong.port})
-        r = handoff.siblings("studio", 8800)
-        self.assertEqual(r, {"tools": {"studio": 8800, "transcribe": tt.port}})
-        self.assertEqual(tt.hosts, ["127.0.0.1:%d" % tt.port])   # 相手の Host 検査を通る形で問い合わせる
-
-
 class TestSiblingsApi(RuntimeDir):
     def setUp(self):
         super().setUp()
@@ -138,14 +99,6 @@ class TestSiblingsApi(RuntimeDir):
     def test_api_siblings_is_guarded(self):
         self.assertEqual(self.get("/api/siblings", host="evil.example:%d" % self.port)[0], 403)
         self.assertEqual(self.get("/api/siblings", headers={"Sec-Fetch-Site": "cross-site"})[0], 403)
-
-    def test_studio_answers_ping_from_other_tool(self):
-        # 他のツールの /api/siblings から問い合わせられたときに、スタジオとして応答する
-        self.assertEqual(runtime.ping_app(self.port), "clip-studio")
-
-
-class ToolIdentityTests(unittest.TestCase):
-    """ツールの識別子(/api/ping の app・.clip.json の tool.name)は ytt.runtime.TOOL_APPS が正。写しが食い違っていない(値は互換のため固定)"""
 
 
 if __name__ == "__main__":

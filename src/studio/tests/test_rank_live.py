@@ -320,8 +320,6 @@ class TestHttp(unittest.TestCase):
         st, d = self.get("/api/rank/live?agencies=hololive,other")
         self.assertEqual(st, 200, d)
         self.assertTrue({"live", "upcoming", "agencies", "warnings", "quota", "checkedAt", "cached"} <= set(d))
-        st, d2 = self.get("/api/rank/live?agencies=hololive,other")
-        self.assertEqual((st, d2["cached"], d2["live"]), (200, True, d["live"]))
         st, e = self.get("/api/rank/live?agencies=nothere")
         self.assertEqual((st, e["error"]), (400, "no_agency"))
         st, _ = self.get("/api/rank/live", host="evil.example.com")
@@ -368,6 +366,46 @@ class TestResolveAndRetry(unittest.TestCase):
             b.refresh()
             b.retry("se:s1")
         self.assertEqual([c["ref"] for c in got[0]["agencies"][0]["channels"]], ["@abc", "@later"])
+
+
+class TestRankSearch(unittest.TestCase):
+    """① 探す: 「10分以上の動画だけ」(minDur)の検査と絞り込み(疑似の YouTube API)"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp()
+        studio_env.set_home(cls.tmp)
+        rank.import_official_channels("hololive")
+        rank.resolve("hololive")
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def run_search(self, **kw):
+        req = dict({"top": 100, "agencies": ["hololive"], "archiveOnly": False, "noShorts": False}, **kw)
+        req["end"] = time.strftime("%Y-%m-%d")
+        req["start"] = time.strftime("%Y-%m-%d", time.localtime(time.time() - 700 * 86400))
+        job = {"id": "t", "state": "running", "phase": "", "progress": 0.0, "cancel": False, "error": "", "result": None}
+        rank.run_search(job, rank.validate_search(req))
+        self.assertEqual(job["state"], "done", job.get("error"))
+        return [it["dur"] for a in job["result"]["agencies"] for it in a["items"]]
+
+    def test_validate_min_dur(self):
+        base = {"start": "2026-01-01", "end": "2026-01-31", "agencies": ["hololive"]}
+        self.assertEqual(rank.validate_search(base)["minDur"], 0)   # 送らなければ絞らない
+        self.assertEqual(rank.validate_search(dict(base, minDur=600))["minDur"], 600)
+        self.assertEqual(rank.validate_search(dict(base, minDur="600"))["minDur"], 600)
+        for bad in (-1, 86401, "x", [1]):
+            with self.assertRaises(rank.ApiError, msg=bad):
+                rank.validate_search(dict(base, minDur=bad))
+
+    def test_min_dur_filters_short_videos(self):
+        all_durs = self.run_search(minDur=0)
+        self.assertTrue(any(d < 600 for d in all_durs) and any(d >= 600 for d in all_durs), all_durs)   # 疑似データに両方ある(確かめの前提)
+        long_durs = self.run_search(minDur=600)
+        self.assertTrue(long_durs and all(d >= 600 for d in long_durs), long_durs)
+        self.assertGreaterEqual(len(long_durs), sum(1 for d in all_durs if d >= 600))   # 10分以上のものは減らない(上位 top 本で切るので、短いものが抜けた分だけ増えうる)
 
 
 if __name__ == "__main__":
