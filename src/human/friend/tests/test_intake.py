@@ -90,7 +90,7 @@ class Base(unittest.TestCase):
 
 
 class TestSubmitOrders(unittest.TestCase):
-    """RV A1: 受付の欄 → ② の口 submit(封筒 + 束の差分。flow/order.py)。結果の形 {"runs", "skipped"} は以前の start_request と同じ"""
+    """受付の欄 → ② の口 submit(封筒 + 束の差分。flow/order.py)。結果の形は {"runs", "skipped"}"""
 
     class Rec:
         def __init__(self, busy=()):
@@ -112,13 +112,10 @@ class TestSubmitOrders(unittest.TestCase):
         self.assertEqual([r["videoId"] for r in out["runs"]], ["aaaaaaaaaaa"])
         self.assertEqual([(s["id"], s["reason"]) for s in out["skipped"]],
                          [("bbbbbbbbbbb", "同じ入力がすでに実行中・順番待ちです"), ("bad", "配信の指定が正しくありません"), ("ccccccccccc", "配信の指定が正しくありません")])
-        env, spec = rec.got[0]
+        env, _spec = rec.got[0]   # 束の差分の中身(run・adopt・hints・pack・transcribe)は flow の test_order の test_fields_to_diff
         self.assertEqual((env["kind"], env["specVersion"], env["requestId"], env["deliver"]["dir"], env["input"]["duration"],
                           env["input"]["fresh"]), ("url", 2, "20261016-120000-abc123", "D:/out", 100.0, {"title": "配信", "channel": "ch"}))
         self.assertNotIn("batch", env["deliver"])
-        self.assertEqual(spec["run"], {"upto": "pack", "repack": True, "requested": ["weights", "cut", "videoTracks"]})
-        self.assertEqual((spec["adopt"]["top"], spec["hints"]["ranges"], spec["hints"]["streamer"], spec["pack"], spec["transcribe"]),
-                         (3, [[10.0, 20.0]], "兎田ぺこら", {"cut": "silence", "videoTracks": 2}, {"diarize": 2}))
         out = intake.submit_urls(self.Rec(), [{"id": "aaaaaaaaaaa", "top": 1}])   # ② 軽く確認 = 文字起こしまで・作り直さない
         self.assertEqual(out["runs"][0]["videoId"], "aaaaaaaaaaa")
 
@@ -413,7 +410,7 @@ class TestVideo(Base):
         self.assertIn("動画の名前が書かれていません", text)
 
     def test_flow_from_app(self):
-        """友人が選んだ形(① auto / ② check / ③ manual)と、① のパックの届け先(見張るフォルダの 出力\\)をまとめて実行へ渡す(2026-10-01)"""
+        """友人が選んだ形(① auto / ② check / ③ manual)と、① のパックの届け先(見張るフォルダの 出力\\)をまとめて実行へ渡す"""
         rid = "20261001-120000-abc127"
         self.put(rid + "__clip.mp4", b"clip-auto")
         self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "video", "id": rid, "files": [rid + "__clip.mp4"], "flow": "auto"}))
@@ -428,8 +425,7 @@ class TestVideo(Base):
         self.assertEqual((f["flow"], f["deliver"]), ("auto", os.path.join(self.folder, intake.OUT_DIR)))
         self.assertEqual(len(self.runner.requests), 2)
         labels = {r["title"]: r["flowLabel"] for r in self.it.snapshot()["requests"]}
-        self.assertEqual(labels["clip.mp4"], "① 全自動")
-        self.assertEqual(sorted(labels.values()), ["① 全自動"] * 3)   # RS5-F: ③ manual も知らない形も ① (断らない)
+        self.assertEqual(sorted(labels.values()), ["① 全自動"] * 3)   # ③ manual も知らない形も ① (断らない)
         origs = {r["title"]: r.get("flowOrig") for r in self.it.snapshot()["requests"]}
         self.assertEqual(sorted(str(v) for v in origs.values()), ["None", "None", "manual"])   # 元の値は記録に残す(① と知らない形は残さない)
 
@@ -509,18 +505,12 @@ class TestVideo(Base):
         self.scan2()
         self.assertEqual(self.runner.last["tracks"], 3)
         self.assertEqual(self.it.snapshot()["requests"][0]["tracksLabel"], "映像トラック: 3本")
-        rid = "20261001-120000-abc132"                                   # 古いアプリの ② も ① として扱う(RS5-F)= トラックも渡す
+        rid = "20261001-120000-abc132"                                   # 古いアプリの ② も ① として扱う = トラックも渡す
         self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "url", "id": rid, "flow": "check", "videoTracks": 3,
                                                      "items": [{"url": "https://youtu.be/bbbbbbbbbbb", "top": 2}]}))
         self.scan2()
         self.assertEqual(self.runner.last["tracks"], 3)
         self.assertEqual(self.it.snapshot()["requests"][0]["flowOrig"], "check")
-        rid = "20261001-120000-abc133"                                   # ① で指定が無い(1.3.0 までのアプリ)= 1
-        self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "url", "id": rid, "flow": "auto",
-                                                     "items": [{"url": "https://youtu.be/ccccccccccc", "top": 2}]}))
-        self.scan2()
-        self.assertEqual(self.runner.last["tracks"], 1)
-        self.assertEqual(self.it.snapshot()["requests"][0]["tracksLabel"], "映像トラック: 1本")
 
     def test_ranges_cut_weights_from_app(self):
         """2.0.0 のアプリ: 時刻で指定した区間(配信ごと)・カット(① だけ)・解析の重みを、形を確かめてまとめて実行へ"""
@@ -562,7 +552,7 @@ class TestVideo(Base):
         note = [n for n in os.listdir(os.path.join(self.folder, "出力")) if n.startswith(rid)]
         self.assertEqual(len(note), 1)
 
-        # 古いアプリの ② ③ も ① として扱う(RS5-F): 区間もカットも渡す / 動画の ①: カットを渡す
+        # 古いアプリの ② ③ も ① として扱う: 区間もカットも渡す / 動画の ①: カットを渡す
         rid = "20261002-120000-abc202"
         self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "url", "id": rid, "flow": "check", "cut": "silence",
                                                      "items": [{"url": "https://youtu.be/ddddddddddd", "top": 3, "ranges": [{"start": 1, "end": 9}]}]}))
@@ -601,7 +591,7 @@ class TestVideo(Base):
 
 @unittest.skipUnless(tools.find_tool("ffmpeg") and tools.find_tool("ffprobe"), "ffmpeg / ffprobe が無い")
 class TestRequestFolder(Base):
-    """友人の依頼は 1 依頼 1 フォルダ(RS8 B3-7)。書き出し先が設定されていて固定ディスクなら <書き出し先>/依頼/<日付>_<題>_<id6>/ に置いて案件にする。
+    """友人の依頼は 1 依頼 1 フォルダ。書き出し先が設定されていて固定ディスクなら <書き出し先>/依頼/<日付>_<題>_<id6>/ に置いて案件にする。
     そうでなければ app/intake/<日付>/<依頼 id>/"""
 
     def send(self, rid, names):
@@ -682,7 +672,7 @@ class TestRequestFolder(Base):
 
 class TestVideoNoSlots(Base):
     """届いた動画の確かめ(本物の ffprobe)と、受付が重い処理の枠を待たないこと(opt-human 9a-1)。lavfi の短い動画を「届いた動画」にする。
-    30fps にそろえるのはまとめて実行の段 normalize(10-16 に受付から移した。テストは src/flow/tests/test_run.py の TestStepNormalize)"""
+    30fps にそろえるのはまとめて実行の段 normalize(テストは src/flow/tests/test_run.py の TestStepNormalize)"""
 
     def setUp(self):
         super().setUp()

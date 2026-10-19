@@ -1215,5 +1215,27 @@ class TestJudgments(Base):
         self.assertEqual(rows[0]["ref"], {"recorder": LIVE["recorder"], "recording": LIVE["recording"]})
 
 
+class TestRequestMarksKept(Base):
+    """依頼の区間のマーク(adopt_marks)は、あとの解析の反映(replace_auto)でも残る。書き出し済みにした物も(測る道具 eval_marks の friendRanges の前提)"""
+
+    def test_replace_auto_keeps_request_marks(self):
+        vid = YT["videoId"]
+        rids = self.st.adopt_marks(vid, [[98.0, 192.0], [10.0, 20.0], [300.0, 330.0]], 0)["rangeIds"]
+        clip = os.path.join(self.tmp, "out", "c.mp4")
+        os.makedirs(os.path.dirname(clip))
+        open(clip, "wb").close()
+        m = next(x for x in self.marks() if x["id"] == rids[1])
+        self.st.mark_exported(vid, rids[1], "c.mp4", m["start"], m["end"], clip)
+        shape = lambda: {x["id"]: (x["src"], x["status"], x["start"], x["end"]) for x in self.marks()}  # noqa: E731
+        before = shape()
+        n = self.st.replace_auto(vid, [cand(98.2, 191.8, 9.0), cand(12, 18, 5.0), cand(500, 520, 3.0)], {"spec": {}}, 3600.0, {})
+        after = shape()
+        self.assertEqual({r: after[r] for r in rids}, {r: before[r] for r in rids})   # 区間のマークはそのまま
+        self.assertEqual([after[r][:2] for r in rids], [("manual", "adopted"), ("manual", "exported"), ("manual", "adopted")])
+        self.assertTrue(self.video().get("analysis"))
+        # 区間と ±0.5 秒で同じ候補(98.2〜191.8)は作らない・重なるだけの候補(12〜18)と別の所(500〜)は入る
+        self.assertEqual((n, sorted(v[2:] for v in after.values() if v[0] == "auto")), (2, [(12.0, 18.0), (500.0, 520.0)]))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)
