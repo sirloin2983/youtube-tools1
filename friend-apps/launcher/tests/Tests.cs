@@ -32,6 +32,10 @@ static class Tests
         Run("更新: exe と DLL を写す(動いている物は *.old に)・次の起動で *.old を消す", SwapRules);
         Run("診断: 名前と形・ユーザー名と合言葉を伏せる・最後の 20 行・3 日で消す・ユーザーの PC では書かない", DiagRules);
         Run("YouTube のログイン: ログインの印・書く cookie を選ぶ・Netscape 形式・入れ替えて書く・小窓のプロファイルを消す(偽の cookie)", YtCookieRules);
+        foreach (var d in temps)   // Temp() で作った物を片付ける(失敗しても結果は変えない)
+        {
+            try { if (Directory.Exists(d)) Directory.Delete(d, true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        }
         Console.WriteLine(failures == 0 ? "OK " + passed + " 件" : "NG " + failures + " 件失敗 / " + passed + " 件成功");
         return failures == 0 ? 0 : 1;
     }
@@ -52,10 +56,13 @@ static class Tests
         if (!v) throw new Exception(what);
     }
 
+    static readonly List<string> temps = new List<string>();
+
     static string Temp()
     {
         string d = Path.Combine(Path.GetTempPath(), "fi-test-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(d);
+        temps.Add(d);
         return d;
     }
 
