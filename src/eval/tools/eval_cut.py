@@ -36,13 +36,14 @@ SRC = os.path.dirname(os.path.dirname(HERE))   # tools -> eval -> src
 if not __package__:   # スクリプトとして起動したとき(py -3.12 src/eval/tools/eval_cut.py)だけ。src を先頭に・この道具のフォルダは外す(兄弟は絶対 import で読む。見本 pipeline/transcribe/worker.py)
     sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
 from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・分布・保存。src を sys.path に足す)
-from eval.tools._evalcommon import dist, rate, read_json  # noqa: E402
+from eval.tools._evalcommon import dist, rate, read_json, short_pct as pct  # noqa: E402
 from flow import packrec  # noqa: E402
 from manage.cases import txindex  # noqa: E402
 from ytt import docloc  # noqa: E402
+from ytt.schemas import num  # noqa: E402
+from human.proof import store as _store  # noqa: E402  文書の形の名前 EDIT_SCHEMA の持ち主
 
 SCHEMA = "youtube-tools-cut-eval/v1"
-EDIT_SCHEMA = "youtube-tools-edit/v1"     # src/human/proof/store.py の EDIT_SCHEMA と同じ(editor は読み込まない)
 BASE_FPS = 30                              # 端のずれはまず 30fps のコマで数える(Q1: 素材は 30fps にそろえる)
 TOL_FRAMES = 0.5                           # 端のずれがこのコマ数未満なら「そのまま」(フレームの丸めと 0.001 秒の丸めの差を除く)
 BIG_FRAMES = 5                             # 「大きく動かした」とみなすコマ数
@@ -57,10 +58,6 @@ ORIGIN_LABELS = {"rows": "行から", "silence": "無音", "list": "時刻リス
 
 # ---------------------------------------------------------------- 読み込み(読むだけ)
 
-def num(x):
-    return float(x) if isinstance(x, (int, float)) and not isinstance(x, bool) and x == x and abs(x) < 1e12 else None
-
-
 def ms_of(x):
     """ミリ秒の時刻(num は秒の範囲の数だけ通すので別に)-> 整数か None"""
     return int(x) if isinstance(x, (int, float)) and not isinstance(x, bool) and x == x and 0 < x < 1e15 else None
@@ -69,7 +66,7 @@ def ms_of(x):
 def read_edit(path):
     """edit.json -> {"fps": 実数, "clips": [(in, out)], "origin", "updatedAt", "draft"(正しければ。無ければ None)} か None(読めない・形が違う)"""
     d = read_json(path, None, MAX_EDIT_BYTES)
-    if not isinstance(d, dict) or d.get("schema") != EDIT_SCHEMA or not isinstance(d.get("clips"), list):
+    if not isinstance(d, dict) or d.get("schema") != _store.EDIT_SCHEMA or not isinstance(d.get("clips"), list):
         return None
     fps = None
     try:
@@ -160,11 +157,6 @@ def find_pack(doc, env):
 
 
 # ---------------------------------------------------------------- 表示の小道具
-
-def pct(x):
-    """割合の表示(詰めた形。None は「-」)"""
-    return C.pct(x).strip()
-
 
 def _d(x, key="median"):
     return "-" if not x.get("n") else "%s" % x.get(key)

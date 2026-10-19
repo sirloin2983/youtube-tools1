@@ -43,7 +43,7 @@ class Env:
 
     def edit(self, tid, clips, draft=None, fps=FPS30, origin="manual", updated=None, source=None, relink_from=None, title="t", doc=True, untouched=False):
         """clips / draft の keepsSec は秒の組。draft = {"origin", "settings", "keeps", "at"}"""
-        d = {"schema": E.EDIT_SCHEMA, "rev": 1, "updatedAt": updated or ms("2026-10-05"), "packRev": 0, "origin": origin,
+        d = {"schema": E._store.EDIT_SCHEMA, "rev": 1, "updatedAt": updated or ms("2026-10-05"), "packRev": 0, "origin": origin,
              "sources": [{"fps": fps, "duration": 600.0}], "clips": [{"src": 0, "in": a, "out": b} for a, b in clips]}
         if untouched:
             d["draftUntouched"] = True

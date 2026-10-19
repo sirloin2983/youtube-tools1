@@ -50,7 +50,6 @@ from eval.tools.eval_asr import runs_of  # noqa: E402  文書の認識の記録 
 from ytt import docloc  # noqa: E402
 from ytt.schemas import num_or  # noqa: E402
 from ytt.txbase import alt_fold  # noqa: E402  比べるときの寄せ方(2 つ目のエンジンの候補・eval_alt と同じ)
-from human.check import answerlog  # noqa: E402  「確かめる」の答えの記録(読むだけ)
 from pipeline.transcribe.fill import FILL_NAME_FLAG as NAME_FLAG  # noqa: E402  D の印(印の文の持ち主)
 from pipeline.transcribe.llm import LLM_SCHEMA, llm_dist  # noqa: E402  <id>.llm.json の形・編集距離(本番の LLM の後処理と同じ)
 
@@ -103,22 +102,6 @@ def first_run(doc):
 
 
 # ---------------------------------------------------------------- 確かめるの答え(read:fill。読むだけ)
-
-def read_answers(data_dir=None):
-    """入口の作業データ app の check/answers.jsonl の read:fill の効いている答え -> {(文書の id, 行の id): 答えの行}(同じ行は後の答え)"""
-    out = {}
-    try:
-        rows = answerlog.state(C.locate("app", data_dir)).effective()
-    except Exception:   # 記録が読めなくても文書だけで測る(答えの数は 0)
-        return out
-    for r in rows:
-        t, ans = r.get("target") or {}, r.get("answer")
-        if r.get("kind") != "read" or r.get("source") != "fill" or not isinstance(ans, dict) or ans.get("choice") not in ANSWER_KIND:
-            continue
-        if isinstance(t, dict) and isinstance(t.get("docId"), str) and t.get("row") is not None:
-            out[(t["docId"], str(t["row"]))] = r
-    return out
-
 
 def answer_of(answers, tid, seg):
     return answers.get((tid, str(seg.get("id")))) if answers and seg is not None and seg.get("id") is not None else None
@@ -312,11 +295,9 @@ def judge_doc(doc, raw, since_ms=None, until_ms=None, llm_items=None, answers=No
 
 def iter_docs(tdir):
     """評価用でない・後処理を当てた文書 -> (id, 文書)"""
-    root = os.path.dirname(tdir)   # tdir = 作業データ/transcripts
-    for tid in docloc.iter_tids(root):   # 案件の 作業用 に置いた文書も(索引があれば)
-        doc = read_json(docloc.doc_file(tid, ".json", root), None, MAX_DOC_BYTES)
-        params = doc.get("params") if isinstance(doc, dict) and isinstance(doc.get("params"), dict) else {}
-        if not isinstance(doc, dict) or doc.get("evalSet") or not (params.get("autoFill") or params.get("autoLlm")):
+    for tid, doc in C.iter_docs(os.path.dirname(tdir), limit=MAX_DOC_BYTES):   # tdir = 作業データ/transcripts
+        params = doc.get("params") if doc is not None and isinstance(doc.get("params"), dict) else {}
+        if doc is None or doc.get("evalSet") or not (params.get("autoFill") or params.get("autoLlm")):
             continue
         yield tid, doc
 
@@ -326,7 +307,7 @@ def evaluate(data_dir=None, since=None, until=None):
     root = C.locate("transcribe", data_dir)
     tdir = os.path.join(root, "transcripts")
     since_ms, until_ms = C.period(since, until)
-    answers = read_answers(data_dir)
+    answers = C.read_answers(C.locate("app", data_dir), "read", "fill", ANSWER_KIND)
     in_range = {r["id"] for r in answers.values() if C.in_period(answer_time(r), since_ms, until_ms)}
     used = {"a": set(), "e": set(), "d": set()}
     total, per_doc, e_tot = empty_agg(), [], empty_agg()

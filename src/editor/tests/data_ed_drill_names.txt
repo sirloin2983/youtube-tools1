@@ -24,7 +24,6 @@ drill_candidates
 drill_candidates_for
 drill_doc_summary
 drill_docs
-drill_is_reviewed
 drill_next
 drill_reviewed
 drill_reviewed_sec

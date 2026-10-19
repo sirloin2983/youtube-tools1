@@ -10,7 +10,7 @@
   GET  /api/drill/candidates?id=    話者の候補(この文書の覚えた声 → メンバーのフォルダ → 配信の文脈 → ほかの覚えた声・メンバー)。
                                     話者のカードの「全行をこの人に」(既存の 1人指定 = human/proof/speakers の single_speaker)が使う
 
-文書の印 `evalReviewed = {"at", "rows", "durationSec", "via"?}`(drill_is_reviewed で判定):
+文書の印 `evalReviewed = {"at", "rows", "durationSec", "via"?}`(ytt/schemas.is_eval_reviewed で判定):
   - 付けるのは drill_reviewed だけ。画面の保存(sanitize_transcript)は base から引き継ぐだけで書き換えられない。評価用を外すと消える
   - 行の文字・時刻・話者を人が後から直しても残す(直したのは人なので)。機械が行を書いたら外す(human/proof/rerun の record_rerun = 再認識・
     human/proof/store の fill_doc = 行の無い文書への文字起こし)。版を戻すと、その版の印のまま
@@ -42,9 +42,6 @@ DRILL_CONDS = (("speakers", "話者", 4, "人"), ("streams", "配信", 3, "本")
 
 _drill_cache = {}            # tid -> ((文書の要約の鍵, 名簿の版), 要約, 名簿によらない要約 drill_doc_summary)。文書が変わったときだけ文書を読む
 _drill_cache_lock = threading.Lock()
-
-
-drill_is_reviewed = _yschemas.is_eval_reviewed   # lint: keep 別名(定点に数える判定。正は ytt/schemas = C-EVAL 2a-1)
 
 
 def drill_reviewed_sec(doc):
@@ -81,7 +78,7 @@ def drill_doc_summary(doc):
     segs = [g for g in doc.get("segments") or [] if isinstance(g, dict)]
     names = {s.get("id"): str(s.get("name") or "") for s in doc.get("speakers") or [] if isinstance(s, dict)}
     rows = _drill_text_rows(segs)
-    rv = drill_is_reviewed(doc)
+    rv = _yschemas.is_eval_reviewed(doc)
     good = [g for g in segs if _store.good_row(g)] if rv else []   # 条件は確かめ済みの文書の中だけで数える
     spk = {}
     for g in good:

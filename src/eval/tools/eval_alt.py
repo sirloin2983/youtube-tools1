@@ -49,9 +49,9 @@ SRC = os.path.dirname(os.path.dirname(HERE))   # tools -> eval -> src
 if not __package__:   # スクリプトとして起動したとき(py -3.12 src/eval/tools/eval_alt.py)だけ。src を先頭に・この道具のフォルダは外す(兄弟は絶対 import で読む。見本 pipeline/transcribe/worker.py)
     sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
 from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・保存。src を sys.path に足す)
-from eval.tools._evalcommon import rate, read_json  # noqa: E402
+from eval.tools._evalcommon import rate, read_json, short_pct as pct  # noqa: E402
+from ytt.schemas import num  # noqa: E402
 from ytt import docloc  # noqa: E402
-from human.check import answerlog  # noqa: E402  「確かめる」の答えの記録(読むだけ)
 from pipeline.transcribe import roster as _roster  # noqa: E402
 from ytt import workdata as _workdata  # noqa: E402
 from human.proof import learn as _learn  # noqa: E402
@@ -103,17 +103,9 @@ def read_feedback(root, key="alt"):
 def read_answers(app_dir, source="alt"):
     """入口の作業データ app の check/answers.jsonl の read:<source> の効いている答え -> {文書の id: [{id, seg, wrong, right, status, at}]}
     (同じカードは後の答え。wrong・right は答えに残る採否の記録の候補。記録できなかった答えは None)。読めなければ {}"""
-    try:
-        rows = answerlog.state(app_dir).effective()
-    except Exception:
-        return {}
     by_card = {}
-    for r in rows:
-        t, ans = r.get("target") or {}, r.get("answer")
-        if r.get("kind") != "read" or r.get("source") != source or not isinstance(ans, dict) or ans.get("choice") not in ANSWER_STATUS:
-            continue
-        if not isinstance(t, dict) or not isinstance(t.get("docId"), str) or t.get("row") is None:
-            continue
+    for r in C.read_answers(app_dir, "read", source, ANSWER_STATUS).values():
+        t, ans = r["target"], r["answer"]
         fb = (r.get("applied") or {}).get("feedback") if isinstance(r.get("applied"), dict) else None
         items = fb.get("items") if isinstance(fb, dict) and isinstance(fb.get("items"), list) else []
         it = items[0] if items and isinstance(items[0], dict) else {}
@@ -128,15 +120,6 @@ def read_answers(app_dir, source="alt"):
 
 
 # ---------------------------------------------------------------- 数の小道具
-
-def pct(x):
-    """割合の表示(詰めた形。None は「-」)"""
-    return C.pct(x).strip()
-
-
-def num(x):
-    return x if isinstance(x, (int, float)) and not isinstance(x, bool) and x == x else None
-
 
 # ---------------------------------------------------------------- 1つの文書(純粋な関数)
 
@@ -423,13 +406,12 @@ def evaluate_one(root, since=None, until=None, include_eval=False, app=None):
     skipped = {"evalSet": 0, "noOriginal": 0, "broken": 0, "outOfRange": 0}
     has_name = name_checker()
     no_alt = out_cands = 0
-    for tid in docloc.iter_tids(root):   # 案件の 作業用 に置いた文書も(索引があれば)
+    for tid, doc in C.iter_docs(root, limit=MAX_DOC_BYTES):
         if not os.path.isfile(docloc.doc_file(tid, ".alt.json", root)):
             no_alt += 1
             continue
-        doc = read_json(docloc.doc_file(tid, ".json", root), None, MAX_DOC_BYTES)
         alt = read_alt(tdir, tid)
-        if not isinstance(doc, dict) or alt is None:
+        if doc is None or alt is None:
             skipped["broken"] += 1
             continue
         key = engine_key(alt)

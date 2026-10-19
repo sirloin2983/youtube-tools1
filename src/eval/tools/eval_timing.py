@@ -5,7 +5,7 @@
 
 - 作業データは**読むだけ**(transcribe の transcripts/<id>.json と、--apply のときの <id>.asr.json)。何も書き換えない。--json のときだけ、結果を
   文字起こしの作業データの evals/timing/<日時>.json(schema youtube-tools-timing-eval/v1)に残す(置き場所は eval_cut.py と同じ規則)。
-- 正解 = 確かめ済みの評価用の文書(evalSet と evalReviewed。eval_asr.is_reviewed = src/eval/drill/drill.py の drill_is_reviewed と同じ条件)の、
+- 正解 = 確かめ済みの評価用の文書(evalSet と evalReviewed。ytt/schemas.is_eval_reviewed)の、
   校正済み(proofed)で文字のある人の行。機械の行 = 文書の original(保存してある機械の出力 = 今の original を作った認識の結果)。
   人の行ごとに、時刻がいちばん長く重なる機械の行を選び、頭の MATCH_CHARS 文字か末の MATCH_CHARS 文字(NFKC にして文字と数字だけ)が合うときだけ数える
   (= 文字が合う行)。人が文字を大きく直した行・機械が別の言葉にした行は、同じ発言かが分からないので時刻を比べない(数は unmatched)
@@ -333,12 +333,11 @@ def evaluate(data_dir=None, since=None, until=None, apply=False):
     since_ms, until_ms = C.period(since, until)
     skipped = {"broken": 0, "notReviewed": 0, "noOriginal": 0, "outOfRange": 0}
     recs, docs = [], []
-    for tid in docloc.iter_tids(root):   # 案件の 作業用 に置いた文書も(索引があれば)
-        doc = read_json(docloc.doc_file(tid, ".json", root), None, MAX_BYTES)
-        if not isinstance(doc, dict):
+    for tid, doc in C.iter_docs(root, limit=MAX_BYTES):
+        if doc is None:
             skipped["broken"] += 1
             continue
-        if not eval_asr.is_reviewed(doc):
+        if not C.is_reviewed(doc):
             skipped["notReviewed"] += 1
             continue
         rec, why = doc_record(doc)

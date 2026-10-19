@@ -19,7 +19,7 @@
   文字起こしの作業データの evals/speakers/<日時>.json に残す(evals の置き場所は eval_asr.py(evals/asr)・eval_marks.py と同じ「ツールの作業データの下の evals/<領域>」)。
 - 人の最終 = 文書の行の speaker(id)→ speakers[].name。機械 = <id>.diar.json の latest(rows[行 id].speaker = その回の S1/S2…・voices = 声の照合)。
   行 id で突き合わせる(人が分けた・つないだ行は新しい id で、機械の記録が無い = 「記録なし」として別に数える)。
-- --reviewed(評価用の「確かめ済み」= evalSet が True かつ evalReviewed が dict。src/eval/drill/drill.py の drill_is_reviewed と同じ条件。editor は読み込まない):
+- --reviewed(評価用の「確かめ済み」= evalSet が True かつ evalReviewed が dict。ytt/schemas.is_eval_reviewed。editor は読み込まない):
     only = 評価用は確かめ済みの文書だけ(既定。--docs のときは prefer。確かめ済みが 0 本なら今までの選び方に戻して注意)/
     prefer = 確かめ済みでない評価用も混ぜる / ignore = 印を見ない。評価用でない文書は、どれでも今までどおり入る
 - **人が確かめた行だけを測る**(行ごとに決める。記録から確実に言える範囲。--include-draft で今までどおり全部を入れる = 甘く出る):
@@ -71,6 +71,7 @@ from pipeline.transcribe import backend as _backend  # noqa: E402
 from ytt import tools as _tools  # noqa: E402
 from eval.fake import fake_asr as _fake_asr  # noqa: E402
 from ytt import schemas as _schemas  # noqa: E402
+from ytt.schemas import num  # noqa: E402
 
 SCHEMA = "youtube-tools-speakers-eval/v1"
 DIAR_SCHEMA = "youtube-tools-diar/v1"     # src/pipeline/transcribe/diarize.py の DIAR_SCHEMA と同じ(editor は読み込まない)
@@ -105,10 +106,6 @@ def read_diar(tdir, tid):
 
 
 # ---------------------------------------------------------------- 日時・数の小道具
-
-def num(x):
-    return x if isinstance(x, (int, float)) and not isinstance(x, bool) else None
-
 
 def norm_name(s):
     return unicodedata.normalize("NFKC", str(s or "")).strip().casefold()
@@ -463,11 +460,8 @@ def is_single(run):
 def load_docs(tdir, include_eval, only=None):
     """文書を読む(読むだけ)-> ([(id, 文書)], {"broken", "evalSet"})。only = 文書の id の集まり(--docs)"""
     out, skipped = [], {"broken": 0, "evalSet": 0}
-    for tid in docloc.iter_tids(os.path.dirname(tdir)):   # 案件の 作業用 に置いた文書も(索引があれば)
-        if only and tid not in only:
-            continue
-        doc = read_json(docloc.doc_file(tid, ".json", os.path.dirname(tdir)), None, C.DOC_BYTES)
-        if not isinstance(doc, dict):
+    for tid, doc in C.iter_docs(os.path.dirname(tdir), only=only):
+        if doc is None:
             skipped["broken"] += 1
             continue
         if doc.get("evalSet") is True and not include_eval:

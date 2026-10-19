@@ -22,7 +22,7 @@ TOP = os.path.dirname(REPO)                        # リポジトリ直下(git)
 EDITOR = os.path.join(REPO, "editor")              # 編集のフォルダ(作業データの以前の既定の場所を引くだけ。serve は読まない)
 if REPO not in sys.path:
     sys.path.insert(0, REPO)
-from ytt import datadir, fsio, schemas  # noqa: E402
+from ytt import datadir, docloc, fsio, schemas  # noqa: E402
 from ytt.fsio import read_json_or as read_json  # noqa: E402   read_json(path, default, limit) = JSON のファイル(BOM 可)。読めない・壊れている・NaN・limit バイト超は default
 
 DOC_BYTES = 64 * 1024 * 1024    # 文書・記録の JSON を読むときの上限(limit を渡さない呼び出しにも付ける。fsio の既定は 16MiB)
@@ -95,6 +95,38 @@ def period_label(since, until):
 
 is_reviewed = schemas.is_eval_reviewed   # lint: keep 動画を全部聞いて確かめた文書か(正は ytt/schemas。C-EVAL 2a-1 で写しを寄せた)
 REVIEWED_MODES = ("only", "prefer", "ignore")
+
+
+def iter_docs(root, ext=".json", limit=DOC_BYTES, only=None):
+    """文字起こしの作業データ root の文書(案件の 作業用 に置いた文書も。docloc の索引)-> (id, 中身 か None = 読めない・形が違う)。読むだけ"""
+    for tid in docloc.iter_tids(root):
+        if only and tid not in only:
+            continue
+        d = read_json(docloc.doc_file(tid, ext, root), None, limit)
+        yield tid, d if isinstance(d, dict) else None
+
+
+def read_answers(app_dir, kind, source, choices):
+    """入口の作業データ app の check/answers.jsonl の効いている答えのうち kind・source が合い、答え(answer.choice)が choices の物
+    -> {(文書の id, 行の id): 答えの行}(同じ行は後の答え)。読めなければ {}(記録が読めなくても文書だけで測る)"""
+    from human.check import answerlog   # 答えを読む道具だけが読む
+    try:
+        rows = answerlog.state(app_dir).effective()
+    except Exception:
+        return {}
+    out = {}
+    for r in rows:
+        t, ans = r.get("target") or {}, r.get("answer")
+        if r.get("kind") != kind or r.get("source") != source or not isinstance(ans, dict) or ans.get("choice") not in choices:
+            continue
+        if isinstance(t, dict) and isinstance(t.get("docId"), str) and t.get("row") is not None:
+            out[(t["docId"], str(t["row"]))] = r
+    return out
+
+
+def short_pct(x):
+    """割合の表示(詰めた形。None は「-」)"""
+    return pct(x).strip()
 
 
 def pick_reviewed(docs, mode=None, only=None):

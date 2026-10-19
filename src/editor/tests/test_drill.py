@@ -125,7 +125,7 @@ class TestDrillReviewed(DrillBase):
         self.assertEqual((r["proofed"], r["noSpeaker"]), (2, 3))
         self.assertEqual(d["effort"]["proofedRows"], 2)                                      # 校正の手間に数える
         self.assertTrue(os.listdir(os.path.join(self.tmp, ".hist", tid_of(1))))             # 履歴を残す
-        self.assertTrue(DR.drill_is_reviewed(d))
+        self.assertTrue(DR._yschemas.is_eval_reviewed(d))
 
     def test_conflict_and_bad_requests(self):
         self.doc(1, [_seg(1, 0, 1, "あ")])

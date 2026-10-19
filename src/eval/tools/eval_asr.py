@@ -24,7 +24,7 @@
     --group-by engine|model|origin   文書ごとの下書きのエンジン・設定・辞書の版(recognition.runs)で分けて集計する(途中で変わった前後を混ぜない)。
                                      engine = エンジン・モデル・版・beam・VAD・ヒント・辞書の版まで / model = エンジン・モデル・版だけ。途中で変わった文書は「混在」の組。
                                      origin = 出どころ(編集前 = clip がある文書 / ショート = 無い文書。計画 3-3)で分ける。出どころ別の小計は --group-by なしでも summary.origins にいつも入る
-    --reviewed only|prefer|ignore    評価用の「確かめ済み」(動画を全部聞いて直した印 evalReviewed。src/eval/drill/drill.py の drill_is_reviewed と同じ条件)の扱い。
+    --reviewed only|prefer|ignore    評価用の「確かめ済み」(動画を全部聞いて直した印 evalReviewed。ytt/schemas.is_eval_reviewed)の扱い。
                                      確かめ済みの文書は、校正した行の範囲ではなく**動画全体(0〜durationSec)**が正解 = 人の行の無い所に機械が出した文字は余分(幻覚)・
                                      人の行があるのに機械が出していない所は抜けとして数える。確かめ済みでない文書は今までどおり(校正済みの行の範囲だけ)。
                                      only = 評価用は確かめ済みの動画だけを測る(既定。ただし --source eval で --docs なしのとき。評価用でない文書は残す。確かめ済みが 0 本なら今までどおりの選び方に戻して注意を出す)/
@@ -68,7 +68,7 @@ if not __package__:   # スクリプトとして起動したとき(py -3.12 src/
     sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
 from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・git の rev・保存・editor の読み込み。src を sys.path に足す)
 from eval.tools._evalcommon import is_reviewed, read_json  # noqa: E402  is_reviewed は eval_alt・eval_timing・テストも eval_asr.名前 で使う
-from ytt import docloc, tools  # noqa: E402
+from ytt import tools  # noqa: E402
 from pipeline.transcribe import postproc as _postproc  # noqa: E402
 from pipeline.transcribe import tx_engines as _tx_engines  # noqa: E402
 from pipeline.transcribe import roster as _roster  # noqa: E402
@@ -78,7 +78,7 @@ from pipeline.transcribe import records as _records  # noqa: E402
 from pipeline.transcribe import backend as _backend  # noqa: E402
 from human.proof import learn as _learn  # noqa: E402
 from human.proof import doc_jobs as _doc_jobs  # noqa: E402
-from eval.drill import metrics as _metrics  # noqa: E402
+from eval.drill import drill as _drill, metrics as _metrics  # noqa: E402
 from eval.fake import fake_asr as _fake_asr  # noqa: E402
 from ytt import errors as _errors  # noqa: E402
 from ytt import txbase as _txbase  # noqa: E402
@@ -109,11 +109,8 @@ def real_data_dir(arg=None):
 def load_docs(data, scope, only=None):
     """校正済みの行がある文書(scope: eval = 評価用 / train = 評価用以外 / all)。読むだけ"""
     out = []
-    for tid in docloc.iter_tids(data):   # 案件の 作業用 に置いた文書も(索引があれば)
-        d = read_json(docloc.doc_file(tid, ".json", data), None, C.DOC_BYTES)
-        if not isinstance(d, dict):
-            continue
-        if only and d.get("id") not in only:
+    for _tid, d in C.iter_docs(data):
+        if d is None or (only and d.get("id") not in only):
             continue
         ev = d.get("evalSet") is True
         if not only and scope != "all" and ev != (scope == "eval"):
@@ -132,22 +129,6 @@ def whole_video(d):
     """動画全体を正解として採点する文書か。select_docs が --reviewed ignore のとき _reviewed = False を付ける(付いていなければ印のとおり)"""
     r = d.get("_reviewed")
     return is_reviewed(d) if r is None else bool(r) and is_reviewed(d)
-
-
-def reviewed_sec(d):
-    """確かめ済みの文書の長さ(秒): 印の durationSec → 無ければ範囲(start〜end)→ 最後の行の終わり(human/proof/store.py の doc_length と同じ決め方)"""
-    def num(x):
-        return float(x) if isinstance(x, (int, float)) and not isinstance(x, bool) else None
-    rv = d.get("evalReviewed") if isinstance(d.get("evalReviewed"), dict) else {}
-    sec = num(rv.get("durationSec"))
-    if sec is not None and sec > 0:
-        return sec
-    a, b, dur = num(d.get("start")) or 0.0, num(d.get("end")), num(d.get("duration"))
-    if b is not None and b > a:
-        return b - a
-    if dur is not None and dur > a:
-        return dur - a
-    return max(0.0, max([num(g.get("end")) or 0.0 for g in d.get("segments") or [] if isinstance(g, dict)] or [0.0]) - a)
 
 
 # ---------------------------------------------------------------- 出どころ(評価用・普段)・時期・下書きのエンジン
@@ -291,14 +272,14 @@ def doc_info(d, compared=STORED, detail="engine"):
         runs.append({"kind": r.get("kind") or "", "engine": r.get("engine") or "", "model": r.get("model") or "", "engineVersion": r.get("engineVersion") or "",
                      "at": r.get("at"), "settings": {k: st[k] for k in ("beam", "vadMode", "boost", "wordSplit", "glossaryChars", "promptChars", "autoDict", "dict") if k in st}})
     whole = whole_video(d)
-    return {"source": source_of(d), "origin": origin_of(d), "timeAt": t, "timeBasis": basis, "reviewed": whole, "reviewedSec": round(reviewed_sec(d), 1) if whole else None,
+    return {"source": source_of(d), "origin": origin_of(d), "timeAt": t, "timeBasis": basis, "reviewed": whole, "reviewedSec": round(_drill.drill_reviewed_sec(d), 1) if whole else None,
             "draft": run_label(dr) if dr else DRAFT_NONE, "engineKey": engine_key(d, detail), "runs": runs, "draftBias": draft_bias(d, compared)}
 
 
 def proofed_sec(groups, docs=()):
     """数えた校正済みの長さ(秒): 人の行があるまとまり(両方にある・人が足した)の時刻の幅の合計。
     docs に動画全体で採点した(確かめ済みの)文書があれば、その文書は動画の長さ(すき間まで聞いたので全体が正解)で数える"""
-    whole = {d["id"]: reviewed_sec(d) for d in docs if whole_video(d)}
+    whole = {d["id"]: _drill.drill_reviewed_sec(d) for d in docs if whole_video(d)}
     sec = sum(max(0.0, g["end"] - g["start"]) for g in groups if g["kind"] in ("both", "humanOnly") and g["doc"] not in whole)
     return round(sec + sum(whole.values()), 1)
 
@@ -453,7 +434,7 @@ def reviewed_summary(groups, docs):
     余分(機械だけにある文字 = 人の行の無い所に機械が出した)の文字数。extraOutsideChars は余分のうち、今までなら捨てていた(校正した行の範囲の外)分"""
     ids = {d["id"] for d in docs if whole_video(d)}
     mine = [g for g in groups if g["doc"] in ids]
-    return {"docs": len(ids), "sec": round(sum(reviewed_sec(d) for d in docs if d["id"] in ids), 1), "refChars": sum(g["refChars"] for g in mine),
+    return {"docs": len(ids), "sec": round(sum(_drill.drill_reviewed_sec(d) for d in docs if d["id"] in ids), 1), "refChars": sum(g["refChars"] for g in mine),
             "missChars": sum(g["refChars"] for g in mine if g["kind"] == "humanOnly"),
             "extraChars": sum(g["ins"] for g in mine if g["kind"] == "machineOnly"),
             "extraOutsideChars": sum(g["ins"] for g in mine if g.get("outside"))}

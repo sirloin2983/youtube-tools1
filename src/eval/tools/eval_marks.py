@@ -67,6 +67,7 @@ from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業デ
 from eval.tools._evalcommon import pct, rate, read_json  # noqa: E402
 from manage.cases import txindex  # noqa: E402
 from ytt import studiodata  # noqa: E402  スタジオの data.json の読み口
+from ytt.schemas import num  # noqa: E402
 from flow import lengthhint  # noqa: E402  自動の長さの目安(人が指定した区間の長さ。本番と同じ式)
 from eval.tools import clipfit  # noqa: E402  区間の合い方(LD-2a。友人の区間を覆えた割合・余分の秒)
 from flow import runlog  # noqa: E402  入口の実行記録の読み口(② が持つ)
@@ -208,10 +209,6 @@ def ts_ms(ts):
         return int(time.mktime(time.strptime(str(ts), "%Y-%m-%dT%H:%M:%S")) * 1000)
     except (ValueError, OverflowError):
         return None
-
-
-def num(x):
-    return float(x) if isinstance(x, (int, float)) and not isinstance(x, bool) and x == x and abs(x) < 1e9 else None
 
 
 def dist(values):
