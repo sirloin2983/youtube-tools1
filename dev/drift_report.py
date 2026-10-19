@@ -43,7 +43,12 @@ def md_files(root):
 
 
 def is_index(text):
-    return bool(re.match(r"---\r?\n(?:.*\r?\n)*?種類:\s*索引", text))
+    """頭(最初の --- から次の --- まで)に「種類: 索引」があるか。頭だけを切り出して見る
+    (行を繰り返す正規表現で本文まで探すと、CRLF の長い文書でバックトラックが爆発して止まらない)"""
+    if not text.startswith("---"):
+        return False
+    end = re.search(r"\r?\n---[ \t]*(?:\r?\n|$)", text[3:])
+    return bool(end and re.search(r"^種類:[ \t]*索引", text[3:3 + end.start()], re.M))
 
 
 def caps(root):
