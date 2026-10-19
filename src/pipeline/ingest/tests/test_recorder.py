@@ -4,12 +4,12 @@
 
     py -3.12 -m unittest src/pipeline/ingest/tests/test_recorder.py
 
-確かめること: 再生リストの読み書き・URL の検査・置き場所(無いドライブ・空き容量)・書きかけの片付け /
-録画 → 切断 → 繋ぎ直し(新しいセッション・#EXT-X-DISCONTINUITY)→ 停止(#EXT-X-ENDLIST)/ 配信の終わり /
-起動時の復旧(書きかけを消す・読めないセッション・中断 → 新しいセッションで続ける)/
-HTTP: 合言葉なしは 403・Host の検査・ブラウザからの直接は 403・セグメントと再生リスト・パスの検査・置き場所の変更・終わる /
-P2: 区間にかかるセグメントと欠け(pick_segments・GET /live/<id>/segments) /
-名前なしの録画に題を付ける(fetch_title を手元の HTTP サーバーの endpoint で・title_lookup を偽物にして・付けた名前は上書きしない・direct では聞かない)
+- TestRecordRun(通し): 1 つの録画の部品で 4 本を同時に録る。配信中の 1 本は 切断 → 繋ぎ直し(終わりにしない・新しいセッション・
+  #EXT-X-DISCONTINUITY)→ 区間の取得(時刻と欠け)→ 部品の終了 → 起動し直して続ける → 停止(#EXT-X-ENDLIST)→ 消す(ごみ箱)。
+  ほかに すぐ終わる配信・始まらない配信(取れなかったセッションは残さない)・アーカイブ(頭から速く取れる = 止めてセッションを消す)
+- TestStreamlinkPipe(通し): 本番の形(streamlink → ffmpeg)の切断と終わり
+- 通しでは起こせない物: 再生リストの名前の検査・URL の検査・置き場所(無いドライブ)・壊れた記録からの復旧・題の取得(YouTube の oEmbed の代わり)・
+  HTTP の守り(合言葉・Host・ブラウザから・パス・本文)
 """
 import http.client
 import json
@@ -66,38 +66,29 @@ def missing_drive():
 
 
 class TestPieces(unittest.TestCase):
-    def test_parse_and_build_playlist(self):
-        text = ("#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:4\n#EXT-X-PLAYLIST-TYPE:EVENT\n"
-                "#EXT-X-PROGRAM-DATE-TIME:2026-10-04T15:30:12.345+0900\n#EXTINF:4.000000,\nseg_000000.ts\n"
-                "#EXT-X-PROGRAM-DATE-TIME:2026-10-04T15:30:16.345+0900\n#EXTINF:3.500000,\nseg_000001.ts\n"
+    def test_playlist_names_and_empty_sessions(self):
+        """再生リストは決まった形の名前だけ読む(../ を通さない)・空のセッションは区切りに数えない(録画の ffmpeg は決まった名前しか書かず、
+        空のセッションは残さないので、通しでは起こせない)"""
+        text = ("#EXTM3U\n#EXT-X-PROGRAM-DATE-TIME:2026-10-04T15:30:12.345+0900\n#EXTINF:4.000000,\nseg_000000.ts\n"
                 "#EXTINF:4.0,\n../evil.ts\n#EXT-X-ENDLIST\n")
         segs, ended = R.parse_playlist(text)
         self.assertTrue(ended)
-        self.assertEqual([s["uri"] for s in segs], ["seg_000000.ts", "seg_000001.ts"])   # 決まった形の名前だけ
-        self.assertEqual(segs[0]["pdt"], "2026-10-04T06:30:12.345Z")                      # UTC にそろえる
-        out = R.build_playlist([("session_001", segs), ("session_002", []), ("session_003", segs[:1])], finished=False)
-        self.assertIn("#EXT-X-PLAYLIST-TYPE:EVENT", out)
-        self.assertEqual(out.count("#EXT-X-DISCONTINUITY"), 1)   # 空のセッションは数えない
+        self.assertEqual([s["uri"] for s in segs], ["seg_000000.ts"])
+        self.assertEqual(segs[0]["pdt"], "2026-10-04T06:30:12.345Z")
+        out = R.build_playlist([("session_001", segs), ("session_002", []), ("session_003", segs)], finished=False)
+        self.assertEqual(out.count("#EXT-X-DISCONTINUITY"), 1)
         self.assertIn("session_003/seg_000000.ts", out)
-        self.assertNotIn("#EXT-X-ENDLIST", out)
-        self.assertIn("#EXT-X-TARGETDURATION:4", out)
-        self.assertIn("#EXT-X-ENDLIST", R.build_playlist([("session_001", segs)], finished=True))
 
-    def test_pick_segments(self):
+    def test_pick_segments_reconnect_gap(self):
+        """繋ぎ直しの間の欠けと、受信時刻の揺れ(1 秒より短い)は欠けにしないこと。手元の HLS は最初の数本を一度に出すので受信時刻が実際より先に進み、
+        通しでは繋ぎ直しの間が受信時刻に決まった長さで出ない"""
         base = R.iso_epoch("2026-10-04T06:00:00Z")
         flat = [{"uri": "s1/a", "pdt": R.epoch_iso(base + i * 4), "dur": 4.0} for i in range(5)]               # 0〜20 秒
         flat += [{"uri": "s2/b", "pdt": R.epoch_iso(base + 30 + i * 4), "dur": 4.0} for i in range(3)]         # 30〜42 秒(繋ぎ直しの間 20〜30)
-        segs, gaps = R.pick_segments(flat, base + 5, base + 15)
-        self.assertEqual([s["pdt"] for s in segs], [R.epoch_iso(base + 4), R.epoch_iso(base + 8), R.epoch_iso(base + 12)])
-        self.assertEqual(gaps, [])
         segs, gaps = R.pick_segments(flat, base + 18, base + 33)
         self.assertEqual(len(segs), 2)
-        self.assertEqual(gaps, [(base + 20, base + 30)])                    # 繋ぎ直しの間
-        segs, gaps = R.pick_segments(flat, base + 40, base + 50)
-        self.assertEqual(gaps, [(base + 42, base + 50)])                    # まだ録れていない終わり
-        segs, gaps = R.pick_segments(flat, base - 10, base + 2)
-        self.assertEqual(gaps, [(base - 10, base)])                         # 録画の前
-        flat2 = [dict(flat[0]), dict(flat[1], pdt=R.epoch_iso(base + 4.5))]   # 受信時刻の揺れ(1 秒より短い)は欠けにしない
+        self.assertEqual(gaps, [(base + 20, base + 30)])
+        flat2 = [dict(flat[0]), dict(flat[1], pdt=R.epoch_iso(base + 4.5))]
         self.assertEqual(R.pick_segments(flat2, base, base + 8)[1], [])
         self.assertEqual(R.iso_epoch("2026-10-04T06:00:00.250Z"), base + 0.25)
         self.assertEqual(R.iso_epoch("2026-10-04T06:00:00+00:00"), base)
@@ -138,19 +129,8 @@ class TestPieces(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
-    def test_clean_tmp(self):
-        tmp = tempfile.mkdtemp(prefix="ytt-rec-tmp-")
-        try:
-            for n in ("seg_000001.ts.tmp", "index.m3u8.tmp", "seg_000000.ts"):
-                open(os.path.join(tmp, n), "wb").close()
-            self.assertEqual(R.clean_tmp(tmp), 2)
-            self.assertEqual(os.listdir(tmp), ["seg_000000.ts"])
-        finally:
-            shutil.rmtree(tmp, ignore_errors=True)
-
-
 class TestRecording(unittest.TestCase):
-    """Recorder を同じプロセスで動かす(direct で手元の HLS を録る)"""
+    """Recorder を同じプロセスで(通しでは起こせない状態: 無いドライブ・前回の録画中に落ちた記録・手で書き換えた記録)"""
 
     def setUp(self):
         self.src_dir, self.segs = source(40)
@@ -164,53 +144,6 @@ class TestRecording(unittest.TestCase):
     def tearDown(self):
         self.rec.close()
         self.srv.close()
-
-    def test_record_reconnect_stop(self):
-        s = self.rec.start(self.srv.url, "best", "テスト<b>")
-        rid = s["id"]
-        r = self.rec.get(rid)
-        self.assertTrue(wait_for(lambda: r.summary()["segments"] >= 4), self.logs)
-        self.assertEqual(r.summary()["state"], "recording")
-        self.assertTrue(r.summary()["firstPdt"].endswith("Z"))
-        with self.assertRaises(R.RecError):   # 同じ配信の二重録画は断る
-            self.rec.start(self.srv.url)
-        n1 = r.summary()["segments"]
-        self.srv.down = True                  # 切断
-        self.assertTrue(wait_for(lambda: r.summary()["state"] == "reconnecting", 20), (r.summary(), self.logs))
-        self.srv.down = False                 # 戻る → 新しいセッション
-        self.srv.end = False                  # まだ配信中(終わりの印を出さない)
-        self.assertTrue(wait_for(lambda: r.summary()["sessions"] >= 2 and r.summary()["segments"] > n1 + 2, 40), (r.summary(), self.logs))
-        pl = r.playlist()
-        self.assertIn("#EXT-X-DISCONTINUITY", pl)
-        self.assertIn("session_002/seg_", pl)
-        self.assertNotIn("#EXT-X-ENDLIST", pl)
-        st = self.rec.stop(rid)
-        self.assertEqual(st["state"], "stopped")
-        self.assertIn("#EXT-X-ENDLIST", r.playlist())
-        for n in r.session_names():   # 止めたあとに書きかけが残らない
-            self.assertFalse([x for x in os.listdir(os.path.join(r.dir, n)) if x.endswith(".tmp")])
-        with open(os.path.join(r.dir, "recording.json"), encoding="utf-8") as f:
-            meta = json.load(f)
-        self.assertEqual(meta["state"], "stopped")
-        self.assertEqual(meta["title"], "テスト<b>")
-
-    def test_stream_end(self):
-        self.srv.rate = 4.0   # 早く出し終える → 終わりの印 → 「終了」
-        self.srv.segs = self.segs[:16]   # 40 本を出し終えるのを待たない(16 本 = 約 3 秒)
-        s = self.rec.start(self.srv.url)
-        r = self.rec.get(s["id"])
-        self.assertTrue(wait_for(lambda: r.summary()["state"] == "ended", 40), (r.summary(), self.logs))
-        self.assertGreater(r.summary()["segments"], 5)
-        self.assertIn("#EXT-X-ENDLIST", r.playlist())
-
-    def test_waiting_then_gives_up(self):
-        self.srv.down = True   # 配信の前(まだ取れない)
-        self.rec.wait_start = 3
-        s = self.rec.start(self.srv.url)
-        r = self.rec.get(s["id"])
-        self.assertTrue(wait_for(lambda: r.summary()["state"] in ("waiting",), 5))
-        self.assertTrue(wait_for(lambda: r.summary()["state"] == "ended", 30), (r.summary(), self.logs))
-        self.assertEqual(r.session_names(), [])   # 取れなかったセッションは残さない
 
     def test_folder_missing_is_refused(self):
         d = missing_drive()
@@ -290,63 +223,196 @@ class TestRecording(unittest.TestCase):
         self.assertTrue(wait_for(lambda: r.session_segments("session_001")[0], 30), (r.summary(), self.logs))   # 新しいセッションで録画を続けた
         self.assertEqual([x["name"] for x in r.meta["sessions"]], ["session_001"])
 
-    def test_delete(self):
-        """「録画を自動で消す」: 録画中は 409・形の違う id は 400・置き場所の直下で recording.json があるものだけ・
-        リンク(ジャンクション)の先は消さない・使用中のファイルがあれば 409 で何も動かさず、あとでまた消せる。
-        LD-1: 消すのは 置き場所/ごみ箱/<日付>/録画/<id> へ改名(manifest.jsonl に元の場所)・3 日より古い日付のフォルダは purge_trash で消える"""
-        s = self.rec.start(self.srv.url)
-        rid = s["id"]
-        r = self.rec.get(rid)
-        self.assertTrue(wait_for(lambda: r.summary()["segments"] >= 2, 30), self.logs)
+
+def have_streamlink():
+    import importlib.util
+    return importlib.util.find_spec("streamlink") is not None
+
+
+class TestRecordRun(unittest.TestCase):
+    """録画の通し: 手元の HLS を本物の ffmpeg で録る。--source direct の録画の部品で 4 本、同時に本番の形(streamlink → ffmpeg。
+    streamlink の hls:// で手元の HLS を読む。YouTube の URL の検査だけ外す)の別の部品で 2 本(streamlink が無ければ direct だけ)"""
+
+    def setUp(self):
+        self.tmp = testkit.tempdir(self, prefix="ytt-rec-run-")
+        self.folder = os.path.join(self.tmp, "live-rec")
+        os.makedirs(self.folder)
+        self.logs = []
+        src_dir, segs = source(40)
+        arc_dir, arc_segs = source(120)
+        self.live = F.LiveServer(src_dir, segs, start=3, rate=1.0)
+        self.live.end = False                                              # まだ配信中(終わりの印を出さない)
+        self.short = F.LiveServer(src_dir, segs[:16], start=3, rate=4.0)   # 早く出し終える → 終わりの印 → 「終了」
+        self.before = F.LiveServer(src_dir, segs, start=3, rate=1.0)
+        self.before.down = True                                            # 配信の前(まだ取れない)
+        self.archive = F.LiveServer(arc_dir, arc_segs, start=len(arc_segs), rate=1.0)   # 全部見えて終わりの印あり = アーカイブ
+        self.servers = [self.live, self.short, self.before, self.archive]
+        self.sl = have_streamlink()
+        if self.sl:
+            self.sl_live = F.LiveServer(src_dir, segs, start=3, rate=1.0)
+            self.sl_live.end = False
+            self.sl_short = F.LiveServer(src_dir, segs[:16], start=3, rate=4.0)
+            self.servers += [self.sl_live, self.sl_short]
+            p = mock.patch.object(R, "validate_url", lambda url, allow_local=False: url)
+            p.start()
+            self.addCleanup(p.stop)
+        self.recs = []
+
+    def tearDown(self):
+        for rec in self.recs:
+            rec.close()
+        for srv in self.servers:
+            srv.close()
+
+    def recorder(self, folder=None, **kw):
+        rec = R.Recorder(folder or self.folder, log=self.logs.append, **dict(FAST, **kw))
+        rec.wait_start = 3
+        self.recs.append(rec)
+        return rec
+
+    def gaps(self, r, a, b):
+        return [(R.iso_epoch(g["from"]), R.iso_epoch(g["to"])) for g in r.segments_in(R.epoch_iso(a), R.epoch_iso(b))["gaps"]]
+
+    def check_segments(self, r):
+        """区間にかかるセグメントと欠け(書き出しが録画元の GET /live/<id>/segments で聞く): 録画の前の頭・まだ録れていない終わり・
+        同じセッションの中は受信時刻が揺れても欠けにしない・繋ぎ直しの前後のセッションを時刻の順に。区間の検査"""
+        (n1, s1), (n2, s2) = r.all_segments()[:2]
+        e = lambda x: R.iso_epoch(x["pdt"])   # noqa: E731
+        first = e(s1[0])
+        head = self.gaps(r, first - 10, first + 2)
+        self.assertEqual(len(head), 1)
+        self.assertAlmostEqual(head[0][0], first - 10, delta=0.01)
+        self.assertAlmostEqual(head[0][1], first, delta=0.01)
+        self.assertEqual(self.gaps(r, first + 0.5, e(s1[-1])), [])
+        a, b = e(s1[-2]), max(e(s1[-1]) + s1[-1]["dur"], e(s2[1]))
+        got = r.segments_in(R.epoch_iso(a), R.epoch_iso(b))
+        self.assertEqual(sorted({x["session"] for x in got["segments"]}), [n1, n2])
+        self.assertEqual([x["pdt"] for x in got["segments"]], sorted(x["pdt"] for x in got["segments"]))
+        last = r.all_segments()[-1][1][-1]
+        tail = self.gaps(r, e(last), e(last) + 30)
+        self.assertGreaterEqual(tail[-1][0], e(last) + last["dur"] - 0.01)
+        self.assertAlmostEqual(tail[-1][1], e(last) + 30, delta=0.01)
+        for a, b in (("x", "y"), (R.epoch_iso(first + 5), R.epoch_iso(first)), (R.epoch_iso(first), R.epoch_iso(first + 4 * 3600))):
+            with self.assertRaises(R.RecError):
+                r.segments_in(a, b)
+
+    def test_run(self):
+        rec = self.recorder()
+        r = rec.get(rec.start(self.live.url, "best", "テスト<b>")["id"])
+        short = rec.get(rec.start(self.short.url)["id"])
+        before = rec.get(rec.start(self.before.url)["id"])
+        arc = rec.get(rec.start(self.archive.url)["id"])
+        if self.sl:   # streamlink は切断でも終了コード 0 で終わる。記録の「No new segments」で見分けて、終わりにせず繋ぎ直す
+            slrec = self.recorder(os.path.join(self.tmp, "live-rec-sl"), source="streamlink", stall_sec=8, first_seg_sec=25)
+            os.makedirs(slrec.folder)
+            sl = slrec.get(slrec.start("hls://" + self.sl_live.url)["id"])
+            sl_short = slrec.get(slrec.start("hls://" + self.sl_short.url)["id"])
+        self.assertTrue(wait_for(lambda: r.summary()["segments"] >= 4), self.logs)
+        self.assertEqual(r.summary()["state"], "recording")
+        self.assertTrue(r.summary()["firstPdt"].endswith("Z"))   # 受信時刻(ffmpeg は手元の時刻帯で書く)は UTC にそろえる
+        with self.assertRaises(R.RecError):   # 同じ配信の二重録画は断る
+            rec.start(self.live.url)
         with self.assertRaises(R.RecError) as cm:
-            self.rec.delete(rid)
-        self.assertEqual(cm.exception.status, 409)   # 録画中
-        for bad in (None, 3, "", "x", "../" + rid, rid + "/..", "20261004-000000/../../x", "..\\" + rid, rid + "\\session_001"):
+            rec.delete(r.id)
+        self.assertEqual(cm.exception.status, 409)   # 録画中は消さない
+        for bad in (None, 3, "", "x", "../" + r.id, r.id + "/..", "20261004-000000/../../x", "..\\" + r.id, r.id + "\\session_001"):
             with self.assertRaises(R.RecError, msg=repr(bad)) as cm:
-                self.rec.delete(bad)
+                rec.delete(bad)
             self.assertEqual(cm.exception.status, 400, bad)
-        self.rec.stop(rid)
-        # 使用中(再生中の画面がセグメントを読んでいる など)→ 409。recording.json は残り、一覧にも残る
-        seg = os.path.join(r.dir, "session_001", "seg_000000.ts")
-        held = open(seg, "rb")
+
+        # 切断は終わりにしない: 繋ぎ直して新しいセッション
+        n1 = r.summary()["segments"]
+        if self.sl:
+            self.assertTrue(wait_for(lambda: sl.summary()["segments"] >= 3, 40), (sl.summary(), self.logs))
+            self.sl_live.down = True
+            m1 = sl.summary()["segments"]
+        self.live.down = True
+        self.assertTrue(wait_for(lambda: r.summary()["state"] == "reconnecting", 20), (r.summary(), self.logs))
+        if self.sl:
+            self.assertTrue(wait_for(lambda: sl.summary()["state"] == "reconnecting", 40), (sl.summary(), self.logs))
+            self.sl_live.down = False
+        self.live.down = False
+        self.assertTrue(wait_for(lambda: r.summary()["sessions"] >= 2 and r.summary()["segments"] > n1 + 2, 40), (r.summary(), self.logs))
+        if self.sl:
+            self.assertTrue(wait_for(lambda: sl.summary()["sessions"] >= 2 and sl.summary()["segments"] > m1, 60), (sl.summary(), self.logs))
+            self.assertEqual(slrec.stop(sl.id)["state"], "stopped")
+            self.assertTrue(wait_for(lambda: sl_short.summary()["state"] == "ended", 60), (sl_short.summary(), self.logs))   # 切断のない普通の終わり
+            self.assertEqual(sl_short.summary()["sessions"], 1)
+        pl = r.playlist()
+        self.assertIn("#EXT-X-DISCONTINUITY", pl)
+        self.assertIn("session_002/seg_", pl)
+        self.assertNotIn("#EXT-X-ENDLIST", pl)
+        self.check_segments(r)
+
+        # 同時に録っていたほかの 3 本
+        self.assertTrue(wait_for(lambda: short.summary()["state"] == "ended", 40), (short.summary(), self.logs))
+        self.assertGreater(short.summary()["segments"], 5)
+        self.assertEqual(short.summary()["sessions"], 1)
+        self.assertIn("#EXT-X-ENDLIST", short.playlist())
+        self.assertTrue(wait_for(lambda: before.summary()["state"] == "ended", 30), (before.summary(), self.logs))   # 待つ上限(縮めた)で諦める
+        self.assertEqual(before.session_names(), [])   # 取れなかったセッションは残さない
+        self.assertTrue(wait_for(lambda: arc.summary()["state"] == "ended", 60), arc.summary())
+        self.assertIn("アーカイブ", arc.summary()["message"])
+        self.assertEqual(arc.session_names(), [])   # 頭から速く取れたセッション(受信時刻が合わない)は消す
+
+        # 録画の部品そのものを終えた(入口の「すべて終了」では呼ばれない)→ 起動し直すと、録画中だった 1 本だけ新しいセッションで続ける
+        rec.close()
+        self.assertIn(r.meta["state"], R.ACTIVE)
+        rec = self.recorder()
+        self.assertEqual(rec.load(), [r.id])
+        r = rec.get(r.id)
+        self.assertTrue(wait_for(lambda: "session_003" in r.session_names() and r.session_segments("session_003")[0], 30), (r.summary(), self.logs))
+        st = rec.stop(r.id)
+        self.assertEqual(st["state"], "stopped")
+        pl = r.playlist()
+        self.assertIn("#EXT-X-ENDLIST", pl)
+        self.assertEqual(pl.count("#EXT-X-DISCONTINUITY"), 2)
+        for n in r.session_names():   # 止めたあとに書きかけが残らない
+            self.assertFalse([x for x in os.listdir(os.path.join(r.dir, n)) if x.endswith(".tmp")])
+        with open(os.path.join(r.dir, "recording.json"), encoding="utf-8") as f:
+            meta = json.load(f)
+        self.assertEqual((meta["state"], meta["title"]), ("stopped", "テスト<b>"))
+        self.check_delete(rec, r)
+
+    def check_delete(self, rec, r):
+        """「録画を自動で消す」: 置き場所の直下で recording.json があるものだけ・リンク(ジャンクション)の先は消さない・使用中のファイルがあれば 409 で
+        何も動かさず、あとでまた消せる。消すのは 置き場所/ごみ箱/<日付>/録画/<id> へ改名(manifest.jsonl に元の場所)・3 日より古い日付のフォルダは purge_trash で消える"""
+        rid = r.id
+        held = open(os.path.join(r.dir, "session_001", "seg_000000.ts"), "rb")   # 使用中(再生中の画面がセグメントを読んでいる など)
         try:
             with self.assertRaises(R.RecError) as cm:
-                self.rec.delete(rid)
+                rec.delete(rid)
             self.assertEqual(cm.exception.status, 409)
             self.assertIn("使用中", str(cm.exception))
             self.assertTrue(os.path.isfile(os.path.join(r.dir, "recording.json")))
-            self.assertIs(self.rec.get(rid), r)
+            self.assertIs(rec.get(rid), r)
         finally:
             held.close()
-        self.assertEqual(self.rec.delete(rid), rid)   # 閉じたら消せる
+        self.assertEqual(rec.delete(rid), rid)   # 閉じたら消せる
         self.assertFalse(os.path.exists(os.path.join(self.folder, rid)))
         day = os.path.join(self.folder, R.TRASH_DIR, trashbin.day_name())
         self.assertTrue(os.path.isfile(os.path.join(day, R.TRASH_KIND, rid, "recording.json")))   # ごみ箱へ移した(3 日は戻せる)
         with open(os.path.join(day, trashbin.MANIFEST), encoding="utf-8") as f:
             row = json.loads(f.readline())
         self.assertEqual((row["from"], row["to"], row["kind"]), (os.path.join(self.folder, rid), os.path.join(day, R.TRASH_KIND, rid), R.TRASH_KIND))
-        self.assertEqual(self.rec.load(), [])   # ごみ箱は録画として読まない
-        with self.assertRaises(R.RecError) as cm:
-            self.rec.get(rid)
-        self.assertEqual(cm.exception.status, 404)
-        with self.assertRaises(R.RecError) as cm:
-            self.rec.delete(rid)
-        self.assertEqual(cm.exception.status, 404)
-        # recording.json の無いフォルダ(録画ではない)は消さない
-        plain = os.path.join(self.folder, "20261004-000000-plain")
+        self.assertEqual(rec.load(), [])   # ごみ箱は録画として読まない
+        for fn in (rec.get, rec.delete):
+            with self.assertRaises(R.RecError) as cm:
+                fn(rid)
+            self.assertEqual(cm.exception.status, 404)
+        plain = os.path.join(self.folder, "20261004-000000-plain")   # recording.json の無いフォルダ(録画ではない)は消さない
         os.makedirs(plain)
         open(os.path.join(plain, "keep.txt"), "wb").close()
         with self.assertRaises(R.RecError) as cm:
-            self.rec.delete("20261004-000000-plain")
+            rec.delete("20261004-000000-plain")
         self.assertEqual(cm.exception.status, 404)
         self.assertTrue(os.path.isfile(os.path.join(plain, "keep.txt")))
-        # 置き場所の中のジャンクションの先(置き場所の外)は消さない
-        outside = os.path.join(self.tmp, "outside")
+        outside = os.path.join(self.tmp, "outside")   # 置き場所の中のジャンクションの先(置き場所の外)は消さない
         os.makedirs(outside)
         with open(os.path.join(outside, "recording.json"), "w", encoding="utf-8") as f:
             f.write("{}")
         link = os.path.join(self.folder, "20261004-000000-link")
-        made = subprocess.run(["cmd", "/c", "mklink", "/J", link, outside], capture_output=True).returncode == 0 if os.name == "nt" else False
+        made = subprocess.run(["cmd", "/c", "mklink", "/J", link, outside], capture_output=True, creationflags=F.NO_WINDOW).returncode == 0 if os.name == "nt" else False
         if not made:
             try:
                 os.symlink(outside, link, target_is_directory=True)
@@ -355,11 +421,10 @@ class TestRecording(unittest.TestCase):
                 pass
         if made:
             with self.assertRaises(R.RecError):
-                self.rec.delete("20261004-000000-link")
+                rec.delete("20261004-000000-link")
             self.assertTrue(os.path.isfile(os.path.join(outside, "recording.json")))
             os.rmdir(link) if os.name == "nt" else os.unlink(link)
-        # 録画のフォルダの中のジャンクションは、それ自体だけ外して先(置き場所の外)は消さない
-        rid2 = "20261004-000000-inner"
+        rid2 = "20261004-000000-inner"   # 録画のフォルダの中のジャンクションは、それ自体だけ外して先(置き場所の外)は消さない
         d2 = os.path.join(self.folder, rid2)
         os.makedirs(os.path.join(d2, "session_001"))
         inner = os.path.join(outside, "inner")
@@ -368,53 +433,32 @@ class TestRecording(unittest.TestCase):
         with open(os.path.join(d2, "recording.json"), "w", encoding="utf-8") as f:
             f.write("{}")
         j2 = os.path.join(d2, "session_002")
-        if os.name == "nt" and subprocess.run(["cmd", "/c", "mklink", "/J", j2, inner], capture_output=True).returncode == 0:
-            self.assertEqual(self.rec.delete(rid2), rid2)   # 中のジャンクションはそれ自体だけ外す
+        if os.name == "nt" and subprocess.run(["cmd", "/c", "mklink", "/J", j2, inner], capture_output=True, creationflags=F.NO_WINDOW).returncode == 0:
+            self.assertEqual(rec.delete(rid2), rid2)
             self.assertTrue(os.path.isfile(os.path.join(inner, "keep.ts")))
             self.assertFalse(os.path.exists(d2))
-        # 3 日より古い日付のフォルダは消える(新しいものは残る)
-        old = os.path.join(self.folder, R.TRASH_DIR, "2020-01-01", R.TRASH_KIND, "20200101-000000-old")
+        old = os.path.join(self.folder, R.TRASH_DIR, "2020-01-01", R.TRASH_KIND, "20200101-000000-old")   # 3 日より古い日付のフォルダは消える
         os.makedirs(old)
-        self.assertEqual(self.rec.purge_trash(), 1)
+        self.assertEqual(rec.purge_trash(), 1)
         self.assertFalse(os.path.exists(os.path.dirname(os.path.dirname(old))))
         self.assertTrue(os.path.isdir(day))
         if made:
             self.assertTrue(os.path.isfile(os.path.join(inner, "keep.ts")))   # ごみ箱を消しても、外して移したジャンクションの先は残る
 
-    def test_halt_keeps_state_for_next_start(self):
-        s = self.rec.start(self.srv.url)
-        r = self.rec.get(s["id"])
-        self.assertTrue(wait_for(lambda: r.summary()["segments"] >= 2, 30))
-        self.rec.close()   # 録画の部品の終了(入口の「すべて終了」では呼ばれない。部品そのものを止めたとき)
-        self.assertIn(r.meta["state"], R.ACTIVE)
-        rec2 = R.Recorder(self.folder, **FAST)
-        try:
-            self.assertEqual(rec2.load(), [s["id"]])
-        finally:
-            rec2.close()
-
 
 class TestStreamlinkPipe(unittest.TestCase):
-    """本番の形(streamlink の出力 → ffmpeg の標準入力)。streamlink の hls:// で手元の HLS を読む(YouTube の URL の検査だけ外す)"""
+    """本番の形(streamlink の出力 → ffmpeg の標準入力)のコマンドと画質(切断と終わりの通しは TestRecordRun)"""
 
     def setUp(self):
-        import importlib.util
-        if importlib.util.find_spec("streamlink") is None:
+        if not have_streamlink():
             self.skipTest("streamlink が入っていません(py -3.12 -m pip install -r setup/requirements.txt)")
-        self.src_dir, self.segs = source(40)
         self.tmp = testkit.tempdir(self, prefix="ytt-rec-sl-")
         self.folder = os.path.join(self.tmp, "live-rec")
         os.makedirs(self.folder)
-        self.logs = []
-        self.srv = F.LiveServer(self.src_dir, self.segs, start=3, rate=1.0)
-        self.rec = R.Recorder(self.folder, log=self.logs.append, **dict(FAST, source="streamlink", stall_sec=8, first_seg_sec=25))
-        self._orig = R.validate_url
-        R.validate_url = lambda url, allow_local=False: url
+        self.rec = R.Recorder(self.folder, **dict(FAST, source="streamlink"))
 
     def tearDown(self):
-        R.validate_url = self._orig
         self.rec.close()
-        self.srv.close()
 
     def test_commands_are_argument_lists(self):
         r = R.Recording(self.rec, "20261004-000000-x", os.path.join(self.folder, "x"),
@@ -437,47 +481,6 @@ class TestStreamlinkPipe(unittest.TestCase):
         self.assertEqual(r._commands("session_001")[0][-1], "1080p60,1080p,best")
         for q in ("best", "720p"):
             self.assertIn(q, R.QUALITIES)
-
-    def test_disconnect_is_not_the_end_and_clean_end(self):
-        """streamlink は切断でも終了コード 0 で終わる。記録の「No new segments」で見分けて、終わりにせず繋ぎ直す"""
-        self.srv.end = False
-        s = self.rec.start("hls://" + self.srv.url)
-        r = self.rec.get(s["id"])
-        self.assertTrue(wait_for(lambda: r.summary()["segments"] >= 3, 40), (r.summary(), self.logs))
-        self.srv.down = True
-        self.assertTrue(wait_for(lambda: r.summary()["state"] == "reconnecting", 40), (r.summary(), self.logs))
-        n1 = r.summary()["segments"]
-        self.srv.down = False
-        self.assertTrue(wait_for(lambda: r.summary()["sessions"] >= 2 and r.summary()["segments"] > n1, 60), (r.summary(), self.logs))
-        self.assertEqual(self.rec.stop(s["id"])["state"], "stopped")
-        # 配信の終わりで締める(切断のない通常の終わり = セッション 1 つで「終了」)
-        self.srv.end = True
-        self.srv.rate = 4.0
-        self.srv.segs = self.segs[:16]   # 40 本を出し終えるのを待たない
-        s = self.rec.start("hls://" + self.srv.url)
-        r = self.rec.get(s["id"])
-        self.assertTrue(wait_for(lambda: r.summary()["state"] == "ended", 60), (r.summary(), self.logs))
-        self.assertEqual(r.summary()["sessions"], 1)
-
-
-class TestArchiveGuard(unittest.TestCase):
-    def test_too_fast_means_archive(self):
-        """配信ではなくアーカイブを頭から取り始めた(実際の時間より何倍も速く取れる)ら、そのセッションを消して「終了」"""
-        src_dir, segs = source(120)
-        tmp = tempfile.mkdtemp(prefix="ytt-rec-arc-")
-        srv = F.LiveServer(src_dir, segs, start=len(segs), rate=1.0)   # 全部見えて終わりの印あり = アーカイブ
-        rec = R.Recorder(os.path.join(tmp, "live-rec"), **FAST)
-        os.makedirs(rec.folder)
-        try:
-            s = rec.start(srv.url)
-            r = rec.get(s["id"])
-            self.assertTrue(wait_for(lambda: r.summary()["state"] == "ended", 60), r.summary())
-            self.assertIn("アーカイブ", r.summary()["message"])
-            self.assertEqual(r.session_names(), [])
-        finally:
-            rec.close()
-            srv.close()
-            shutil.rmtree(tmp, ignore_errors=True)
 
 
 class TestTitle(unittest.TestCase):
@@ -748,7 +751,7 @@ class TestHttp(unittest.TestCase):
         self.assertEqual(code, 409)
         code, _ = self.call("POST", "/live/config", {"folder": os.path.join(self.tmp, "other")})   # 録画中は置き場所を変えない
         self.assertEqual(code, 409)
-        # 区間の取得: 応答の形と入力の検査(区間の選び方は TestPieces)
+        # 区間の取得: 応答の形と入力の検査(区間の選び方は TestRecordRun と TestPieces)
         first = R.iso_epoch(st["firstPdt"])
         q = "/live/%s/segments?start=%s&end=%s" % (rid, R.epoch_iso(first + 0.5), R.epoch_iso(first + 2.5))
         code, sg = self.call("GET", q)

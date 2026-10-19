@@ -2,6 +2,7 @@
 """テスト用の「配信中のような HLS」(本物の YouTube には繋がない)。
 
 - make_source(): ffmpeg の lavfi(testsrc2 + sine)で、1 秒ごとのセグメントの HLS(H.264 + AAC の TS)を作る
+- make_audio_source(): 音だけ(aevalsrc の式で山の時刻を決める)の HLS を作る
 - LiveServer: 手元の 127.0.0.1 の HTTP サーバーで、時間がたつほどセグメントを増やして出す(配信中のふり)。
   down = True の間は 503(切断)。end = True で全部出し終えたら #EXT-X-ENDLIST(配信が終わった)
 録画の部品は --source direct(HLS の URL を直接 ffmpeg に渡す)でこれを録る。
@@ -26,8 +27,23 @@ def make_source(folder, seconds=30, seg=1):
            "-sc_threshold", "0", "-c:a", "aac", "-b:a", "64k", "-f", "hls", "-hls_time", str(seg), "-hls_list_size", "0",
            "-hls_segment_filename", os.path.join(folder, "src_%03d.ts"), os.path.join(folder, "src.m3u8")]
     subprocess.run(cmd, check=True, creationflags=NO_WINDOW)
+    return _segments(os.path.join(folder, "src.m3u8"))
+
+
+def make_audio_source(folder, seconds, seg, expr, rate=8000):
+    """音だけの HLS(AAC の TS)を folder に aud_000.ts … と aud.m3u8 で作る。expr = ffmpeg の aevalsrc の式(カンマはそのまま書く)-> [(名前, 長さ)]。
+    配信中の検出の通し用(音の山の時刻を決めて作る。映像を作らないので長くても速い)"""
+    os.makedirs(folder, exist_ok=True)
+    cmd = [FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "aevalsrc=%s:s=%d:d=%d" % (expr.replace(",", "\\,"), rate, seconds),
+           "-c:a", "aac", "-b:a", "32k", "-f", "hls", "-hls_time", str(seg), "-hls_list_size", "0",
+           "-hls_segment_filename", os.path.join(folder, "aud_%03d.ts"), os.path.join(folder, "aud.m3u8")]
+    subprocess.run(cmd, check=True, stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
+    return _segments(os.path.join(folder, "aud.m3u8"))
+
+
+def _segments(playlist):
     out, dur = [], None
-    with open(os.path.join(folder, "src.m3u8"), "r", encoding="utf-8") as f:
+    with open(playlist, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if line.startswith("#EXTINF:"):

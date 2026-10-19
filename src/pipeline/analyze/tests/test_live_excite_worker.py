@@ -5,12 +5,15 @@
     py -3.12 -m unittest src/pipeline/analyze/tests/test_live_excite_worker.py
 
 確かめること:
+  - 通し(FfmpegTest.test_hls_run): 音の山を決めて作った HLS を偽の録画元(HTTP。合言葉と Host)から取り、本物の ffmpeg で測る → 山の秒に候補 →
+    人の決定(decisions.json)を帳簿に当てる・感度と 1 時間の本数の変更は途中から効く → 配信が終わったら締める
   - ワーカーをクラスのまま(プロセスを起動せずに)、偽の録画元・偽の「音を測る」・注入した時計で 12 時間を早送り: 状態が増え続けない・候補が出る・
     1 時間の枠を超えない / 途中で 3 回止めて state.json から続けても同じ候補 / 欠け(セグメントが飛ぶ)は前後の山を捨てる / 遅れたら古い所を飛ばして、
-    配信が終わったら測り直す / チャットなしでも動く / 人の決定(decisions.json)を帳簿に当てる / 配信が終わったら締める
+    配信が終わったら測り直す / チャットなしでも動く(時計を進める・録画元を止める・落ちる = 通しでは起こせない)
   - チャット: 偽の yt-dlp(fake_ytdlp_chat.py。本物のプロセス)で 読む・止まったら起動し直す・間隔・403 は最大の間隔から・64MB(小さくして)で回す・
     1 時間に何回もなら諦める・最初から「チャットが無い」
-  - 本物の ffmpeg: 音を測る関数(src/pipeline/analyze/levels.py の asplit で 1 回)がスタジオの analyze.audio_levels と同じ値・帯域ごとに 2 回デコードする測り方と ±0.1 dB・hls_fixture の 1 秒セグメントを偽の録画元(HTTP。合言葉と Host)から測る
+  - 本物の ffmpeg: 音を測る関数(src/pipeline/analyze/levels.py の asplit で 1 回)がスタジオの analyze.audio_levels と同じ値・帯域ごとに 2 回デコードする測り方と ±0.1 dB
+    (2 つの工程の値の比べ = どちらの通しにも見えない)
   - 入口のプロセスで numpy を import しない
   - 仮の候補が山から 60 秒以内に出て本番(同じ id・本番の候補は仮の候補なしと同じ)に置き換わる・同時に 2 本まで(3 本目は順番待ち →
     1 本目が終わったら次へ・順番待ちのうちに終わった録画は音だけで締める)・雰囲気の変わり目のあと 60 秒はしきい値 1.3 倍・M10 の長さの目安(length_hint・
@@ -344,32 +347,6 @@ class WorkerSimTest(unittest.TestCase):
         self.assertFalse(any(sk["from"] - W.GAP_MARGIN <= p["peak"] < sk["to"] + W.GAP_MARGIN for p in d["peaks"]))
         w.close()
 
-    def test_decisions_are_applied_and_detect_settings(self):
-        """入口が書いた decisions.json(人の採用・見送り・自動の採用)を帳簿に当てる(decN)・感度と 1 時間の本数の変更は途中から効く"""
-        clock = Clock(T0)
-        sim = SimRecorder(clock)
-        cfg = write_config(self.dir)
-        w = make_worker(cfg, clock, sim)
-        run_until(w, clock, sim, T0 + 1300)
-        d = peaks_of(self.dir)
-        ids = [p["id"] for p in d["peaks"]]
-        self.assertGreaterEqual(len(ids), 2)
-        dec = {"v": 1, "n": 3, "items": [{"n": 1, "id": ids[0], "state": "adopted", "origin": "manual", "markId": "m1", "jobId": "lx-1"},
-                                         {"n": 2, "id": ids[1], "state": "dismissed"}, {"n": 3, "id": "p99-1", "state": "adopted"}]}
-        fsio.atomic_write(os.path.join(self.dir, "fake", REC, "decisions.json"), json.dumps(dec).encode("utf-8"))
-        clock.t += 6
-        w.tick()
-        d = peaks_of(self.dir)
-        by = {p["id"]: p for p in d["peaks"]}
-        self.assertEqual((by[ids[0]]["state"], by[ids[0]]["origin"], by[ids[0]]["markId"], by[ids[1]]["state"], d["decN"]), ("adopted", "manual", "m1", "dismissed", 3))
-        write_config(self.dir, detect={"sens": "low", "perHour": 2})
-        w.cfg_checked = -1e18
-        clock.t += 6
-        w.tick()
-        st = w.recs[("fake", REC)]
-        self.assertEqual((st.book.thr, st.book.per_hour), (excite.SENS["low"], 2))
-        w.close()
-
     def test_run_exits_memory_lock_parent(self):
         """常駐の終わり方: メモリが上限を超えたら状態を保存して終了コード 3(入口が起動し直す)・ほかのワーカーが動いていれば 4・ホームが終わったら 0"""
         clock = Clock(T0 + 1200)
@@ -645,33 +622,65 @@ class FfmpegTest(unittest.TestCase):
         self.assertLessEqual(max(abs(x - y) for x, y in zip(band, b)), 0.1)
         self.assertGreater(max(full) - min(full), 6.0)   # 音量が動く音で比べた
 
-    def test_hls_segments_through_recorder_api(self):
-        """hls_fixture の 1 秒セグメント 24 本を、偽の録画元(HTTP)から合言葉つきで取り、3 本ずつ ffmpeg で測って 1 秒の箱へ → 終わった録画を締める"""
+    def test_hls_run(self):
+        """配信中の検出の通し: 音の山を決めて作った HLS(4 秒のセグメント・5 分半)を、偽の録画元(HTTP)から合言葉つきで取り、本物の ffmpeg で測って
+        1 秒の箱へ → 山が候補になる(録画の頭からの秒)→ 配信が終わったら帳簿を締める。ライブ端から遅れているので 60 秒分ずつまとめて測る"""
         sys.path.insert(0, os.path.join(SRC, "pipeline", "ingest", "tests"))
         import hls_fixture
         src = os.path.join(self.tmp, "src")
-        segs = hls_fixture.make_source(src, 24, seg=1)
+        bursts = (170, 250)
+        loud = "+".join("between(t,%d,%d)" % (b, b + 8) for b in bursts)
+        segs = hls_fixture.make_audio_source(src, 330, 4, "0.05*sin(2*PI*300*t)*(1+0.3*sin(2*PI*t/37))+if(%s,0.8*(2*random(0)-1),0)" % loud)
         rec = SegRecorder(src, segs, T0)
         try:
             folder = os.path.join(self.tmp, "excite")
             cfg = write_config(folder, recorders=[{"id": "fake", "url": rec.url, "token": TOKEN}])
+            patch = mock.patch.object(excite, "SHAPE_DEFAULT", "scene")   # 場面ごとの形(スイッチの今の値に頼らない)
+            patch.start()
+            self.addCleanup(patch.stop)
             w = W.Worker(cfg, log=lambda m: None, save_sec=0, heart_sec=0, tick_budget=120)
             w.tick()
-            self.assertEqual(w.recs[("fake", REC)].next_box, 24)   # 録画中: 3 本ずつ全部測った
+            total = sum(d for _n, d in segs)
+            self.assertEqual(w.recs[("fake", REC)].next_box, int(round(total)))   # 録画中: 全部測った
+            # 入口が書いた decisions.json(人の採用・見送り・まだ無い番号)を帳簿に当てる(decN)・感度と 1 時間の本数の変更は途中から効く
+            ids = [p["id"] for p in sorted(peaks_of(folder)["peaks"], key=lambda p: p["peak"])]
+            self.assertEqual(len(ids), len(bursts), ids)
+            dec = {"v": 1, "n": 3, "items": [{"n": 1, "id": ids[0], "state": "adopted", "origin": "manual", "markId": "m1", "jobId": "lx-1"},
+                                             {"n": 2, "id": ids[1], "state": "dismissed"}, {"n": 3, "id": "p99-1", "state": "adopted"}]}
+            fsio.atomic_write(os.path.join(folder, "fake", REC, "decisions.json"), json.dumps(dec).encode("utf-8"))
+            write_config(folder, recorders=[{"id": "fake", "url": rec.url, "token": TOKEN}], detect={"sens": "low", "perHour": 2})
+            w.cfg_checked = -1e18
+            w.tick()
+            st = w.recs[("fake", REC)]
+            self.assertEqual((st.book.thr, st.book.per_hour), (excite.SENS["low"], 2))
             rec.active = False
             w.tick()
             self.assertIn(("fake", REC), w.done)
             with open(os.path.join(folder, "fake", REC, "state.json"), encoding="utf-8") as f:
                 st = json.load(f)
-            total = sum(d for _n, d in segs)
-            self.assertEqual(st["nextBox"], int(round(total)))   # 受信時刻からの 1 秒の箱(数で数えない・3 本ずつの丸めのずれを合わせ直す)
-            self.assertEqual(st["gapCount"], 0)
-            self.assertEqual(st["errors"], 0)
+            self.assertEqual(st["nextBox"], int(round(total)))   # 受信時刻からの 1 秒の箱(数で数えない・まとめて測った丸めのずれを合わせ直す)
+            self.assertEqual((st["gapCount"], st["errors"]), (0, 0))
             seg_gets = [x for x in rec.seen if ".ts" in x["path"]]
             self.assertEqual(len(seg_gets), len(segs))
             self.assertTrue(all(x["auth"] == "Bearer " + TOKEN and x["host"] == rec.url[7:] for x in rec.seen))
-            lv = [v for v in st["online"]["ch_full"]["raw"]]
-            self.assertTrue(all(-60 < v < -5 for v in lv), lv[:5])   # 440Hz の音(-90 の無音ではない)
+            d = peaks_of(folder)
+            self.assertTrue(d["ended"], d["message"])
+            self.assertEqual(d["chat"], "off")   # yt-dlp を渡していない = 音だけ
+            by = {p["id"]: p for p in d["peaks"]}
+            self.assertEqual((by[ids[0]]["state"], by[ids[0]]["origin"], by[ids[0]]["markId"], by[ids[1]]["state"], d["decN"]), ("adopted", "manual", "m1", "dismissed", 3))
+            got = [by[i]["peak"] for i in ids]
+            for pk, b in zip(got, bursts):
+                self.assertTrue(b <= pk <= b + 10, (got, bursts))   # 録画の頭からの秒 = 音の山の秒
+            self.assertEqual(d["shape"], "scene")
+            for p in d["peaks"]:
+                self.assertTrue(p["start"] <= p["peak"] <= p["end"] and not p["endPending"], p)
+                self.assertTrue(p["shape"] in excite.SHAPES and len(p["fixed"]) == 2, p)   # 生の結果(固定の長さの区間)も残す
+            with open(os.path.join(folder, "fake", REC, "series.jsonl"), encoding="utf-8") as f:
+                rows = [json.loads(x) for x in f]
+            self.assertGreaterEqual(len({r["t0"] for r in rows}), 4)   # 画面の線(1 分ずつ)
+            self.assertTrue(all(r["t0"] % 60 == 0 and 0 < len(r["total"]) <= 60 for r in rows), [(r["t0"], len(r["total"])) for r in rows])
+            with open(os.path.join(folder, "worker.json"), encoding="utf-8") as f:
+                self.assertEqual(json.load(f)["v"], 1)
             w.close()
         finally:
             rec.close()
@@ -806,24 +815,13 @@ class WorkerRestTest(unittest.TestCase):
         w.close()
 
     def test_shape_scene_and_friend(self):
-        """LD-2b: 区間の形はスイッチ excite.SHAPE_DEFAULT(spec の shape が上書き)。友人の依頼で長さを決めた録画は固定の長さ(L-4)"""
+        """LD-2b: 区間の形はスイッチ excite.SHAPE_DEFAULT(spec の shape が上書き)。友人の依頼で長さを決めた録画は固定の長さ(L-4)。
+        場面ごとの形の候補(生の固定の長さの区間も残す)は通し test_hls_run"""
         self.assertEqual(W.shape_of({}), excite.SHAPE_DEFAULT)
         self.assertEqual(W.shape_of({"shape": "fixed"}), "fixed")
         self.assertEqual(W.shape_of({"shape": "scene"}), "scene")
         self.assertEqual(W.shape_of({"shape": "scene", "lengthFrom": "friend"}), "fixed")
         self.assertEqual(W.shape_of({"shape": "x"}), excite.SHAPE_DEFAULT)
-        folder = os.path.join(self.tmp, "w-scene")
-        clock = Clock(T0)
-        sim = SimRecorder(clock)
-        with mock.patch.object(excite, "SHAPE_DEFAULT", "scene"):
-            w = make_worker(write_config(folder), clock, sim)
-            run_until(w, clock, sim, T0 + 1300)
-        d = peaks_of(folder)
-        self.assertEqual(d["shape"], "scene")
-        p = [x for x in d["peaks"] if not x["endPending"]][0]
-        self.assertIn(p["shape"], ("scene", "fixed"))
-        self.assertEqual(len(p["fixed"]), 2)   # 生の結果(固定の長さの区間)も残す
-        w.close()
 
     def test_length_hint_from_human_records(self):
         """M10: 入口が ② flow/lengthhint で数えた目安(config.json の lengthHint)→ 見本が足りれば新しく受け持つ録画の長さ・前の割合をそれに

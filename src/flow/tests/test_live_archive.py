@@ -9,10 +9,11 @@
 偽の yt-dlp(丸ごとの音 = アーカイブの音)・偽のスタジオの section(アーカイブから ffmpeg で 30fps に切る)で動かす。
 
 確かめること:
-  - 録画に無い区間(error + needsArchive)と M7 の採用(wait + from archive)だけをアーカイブから書き出す: 照合で求めたアーカイブの秒が正解 ±0.03 秒・
-    30fps で長さが同じ・clip.json の archive・job.state done・2 本目は前のずれの ±20 秒の窓・作りかけのフォルダが残らない。録画から書き出せたジョブは触らない
-  - 録画の音が取れない(録画を消した後)ときのずれ: 同じ録画の照合できたマーク → M7 のずれ → 失敗(M7 の採用は error + needsArchive に)
-  - 用意がまだ(post_live)→ 409 で待つ・開始時刻が無い・録画の音が合わない → 書き出さない
+  - 通し(ArchiveTest.test_archive_run): 用意がまだ(post_live)→ 409 で待つ → 録画に無い区間(error + needsArchive)と M7 の採用(wait + from archive)だけを
+    アーカイブから書き出す: 照合で求めたアーカイブの秒が正解 ±0.03 秒・clip.json の archive・job.state done・2 本目は前のずれの ±20 秒の窓・
+    作りかけのフォルダが残らない。録画から書き出せたジョブは触らない / 同じ配信の別の録画は前の録画のずれの窓で 1 回 / 録画の音が合わない → 書き出さない /
+    録画を消した後は同じ録画の照合できたマークのずれ
+  - 録画の音が取れないときの残りのずれ: M7 のずれ → 失敗(M7 の採用は error + needsArchive に)・開始時刻が無い
   - 取り消し(スタジオの書き出しも取り消す)・前の版の入れ替え待ちのジョブは何もせず取り消し
   - 自動の見回り(時間を縮めて): 録画が終わって少したってから・用意ができたら・重い処理があれば待つ・7 日(縮めた)でやめる
   - 起動し直しで続く(途中の段 → 待ち)・スタジオが 409 busy なら待ってやり直す
@@ -108,7 +109,7 @@ class ArchiveTest(unittest.TestCase):
         self.release = RELEASE
         self.probes, self.fetches, self.aligns, self.queries = [], [], [], []
         self.rec_gone = set()     # 録画元にもう無い録画(404)
-        self.rec_src = None       # 録画の音の元(None = アーカイブと同じ音)
+        self.rec_src = {}         # 録画 -> 録画の音の元(無ければアーカイブと同じ音)
         self.ex = self.exporter()
         self.ex.marks.upsert("local", REC, "lm-000000000001", 1, LX.epoch_iso(RELEASE), LX.epoch_iso(RELEASE + 1),
                              url="https://www.youtube.com/watch?v=" + VID, title="配信の題")
@@ -121,7 +122,7 @@ class ArchiveTest(unittest.TestCase):
     # --- 偽物 ---
     def exporter(self):
         """本物の Exporter。録画元への問い合わせ(_query)と取得(_fetch)だけ偽物にする: 録画は アーカイブの 0 秒 = 受信時刻 RELEASE + SKEW から ARC_SEC 秒。
-        取った「録画」の音はアーカイブ(か rec_src)の同じ所を AAC で作り直して音量 60% にしたもの"""
+        取った「録画」の音はアーカイブ(か rec_src の音)の同じ所を AAC で作り直して音量 60% にしたもの"""
         ex = LX.Exporter(FakeExLive(), self.store, lambda: self.out)
 
         def query(rc, rec, a, b):
@@ -137,7 +138,7 @@ class ArchiveTest(unittest.TestCase):
             os.makedirs(wdir, exist_ok=True)
             p = os.path.join(wdir, "part_00.m4a")
             a = LX.iso_epoch(segs[0]["pdt"])
-            ff("-ss", "%.3f" % (a - RELEASE - SKEW), "-i", self.rec_src or self.arc, "-t", "%.3f" % segs[0]["dur"], "-vn", "-af", "volume=0.6",
+            ff("-ss", "%.3f" % (a - RELEASE - SKEW), "-i", self.rec_src.get(rec, self.arc), "-t", "%.3f" % segs[0]["dur"], "-vn", "-af", "volume=0.6",
                "-c:a", "aac", "-b:a", "96k", p)
             return [(p, 1)]
         ex._query, ex._fetch = query, fetch
@@ -192,17 +193,26 @@ class ArchiveTest(unittest.TestCase):
         return wait_for(lambda: self.arc_of(job).get("state") in states, timeout)
 
     # --- テスト ---
-    def test_gap_and_m7_from_archive(self):
-        """録画に無い区間(error + needsArchive)と M7 の採用(wait + from archive)だけをアーカイブから書き出す。録画から書き出せた(done)ジョブは触らない。
-        ずれはマークの手前の録画の音を照合して求める(2 本目は前のずれの ±20 秒の窓)"""
+    def test_archive_run(self):
+        """アーカイブから書き出す通し(本物の ffmpeg・本物の照合 run_align・本物の Exporter の記録)。配信 1 本(VID)の録画 3 本"""
         done = self.job(100.0, 5.0, 9, "done", path=os.path.join(self.out, "速報版.mp4"))   # 録画から書き出せた: 対象でない
         j1 = self.job(150.047, 12.0, 1, "error", label="欠け")
         j2 = self.job(220.031, 8.0, 2, "wait", **{"from": "archive", "origin": "archive"})
+        plain_wait = self.job(240.0, 5.0, 4, "wait")                       # 録画から書き出す待ち: 対象でない
+        plain_err = self.job(250.0, 5.0, 5, "error", needsArchive=False)   # 録画にある区間の失敗: 対象でない
         studio = FakeStudio(self.arc)
         afters = []
         ar = self.archiver(studio, after=lambda rc, rec: afters.append((rc, rec)))
         self.assertEqual([j["id"] for j in ar.targets("local", REC)], [j1["id"], j2["id"]])
         self.assertEqual(ar.info_view("local", REC), {"ready": None, "checkedAt": None, "message": ""})
+        self.status = "post_live"   # アーカイブの用意がまだ: 409 で待つ(何も入れない)
+        with self.assertRaises(LX.LiveError) as cm:
+            ar.request("local", REC)
+        self.assertEqual(cm.exception.code, 409)
+        self.assertIn("処理中", str(cm.exception))
+        self.assertIs(ar.info_view("local", REC)["ready"], False)
+        self.assertNotIn("archive", j1)
+        self.status = "was_live"
         r = ar.request("local", REC)
         self.assertEqual((r["ok"], r["queued"]), (True, 2), r)
         self.assertIn("アーカイブから書き出します", r["message"])
@@ -219,15 +229,15 @@ class ArchiveTest(unittest.TestCase):
             c = fsio.read_json_file(j["manifest"], 1 << 20)
             self.assertEqual((c["source"]["kind"], c["source"]["live"]["archive"]["videoId"], c["export"]["from"]), ("live", VID, "youtube-archive"))
         self.assertAlmostEqual(fsio.read_json_file(j1["manifest"], 1 << 20)["range"]["start"], 150.047 - 100.0, delta=0.01)   # recBase からの秒
-        self.assertNotIn("archive", done)
+        for j in (done, plain_wait, plain_err):
+            self.assertNotIn("archive", j)
         self.assertEqual(done["state"], "done")
         self.assertEqual([c["videoId"] for c in studio.calls], [VID, VID])
         self.assertEqual(studio.calls[0]["maxHeight"], 0)
         for c, dur in zip(studio.calls, (12.0, 8.0)):   # 頼んだ区間の長さ(30fps の書き出しは書き出しの器の持ち物)
             self.assertAlmostEqual(c["end"] - c["start"], dur, delta=LX.LEN_TOL)
         self.assertEqual(self.fetches, [VID])   # 配信の音は 1 回だけ丸ごと取って使い回す
-        w1 = [w for w in self.aligns]
-        self.assertEqual(len(w1), 2)            # 照合は 1 本 1 回(2 本目は前のずれの ±20 秒で 1 回で合う)
+        self.assertEqual(len(self.aligns), 2)   # 照合は 1 本 1 回(2 本目は前のずれの ±20 秒で 1 回で合う)
         self.assertTrue(wait_for(lambda: not os.path.exists(os.path.join(self.out, "配信の題", schemas.WORK_DIR, A.BUILD_DIR)), 10))
         self.assertTrue(wait_for(lambda: not (os.path.isdir(self.ex.work) and os.listdir(self.ex.work)), 10))   # 一時ファイル(live/work)も残らない
         with self.assertRaises(LX.LiveError) as cm:
@@ -236,23 +246,44 @@ class ArchiveTest(unittest.TestCase):
         self.assertTrue(ar.info_view("local", REC)["ready"])
         self.assertEqual(afters, [("local", REC)])   # 録画の最後の1本が済んだときに1回(録画を消す Cleaner.check へ)
 
-    def test_offset_fallbacks(self):
-        """録画の音が取れない(録画が無い = 消した後)ときは、同じ録画の照合できたマーク → M7 のずれ の順。どれも無ければ失敗(M7 の採用は error + needsArchive)"""
+        # 同じ配信の別の録画: 前の録画で照合したずれを窓の見当に(最初から ±20 秒・1 回で合う)
+        rec2, rec3 = "20261005-130000-abcdefghijk", "20261005-140000-abcdefghijk"
+        for n, rec in ((6, rec2), (7, rec3)):
+            self.ex.marks.upsert("local", rec, "lm-%012x" % n, n, LX.epoch_iso(RELEASE), LX.epoch_iso(RELEASE + 1), url="https://www.youtube.com/watch?v=" + VID,
+                                 title="配信の題")
+        k2 = self.job(300.019, 6.0, 6, "error", rec=rec2)
+        ar.request("local", rec2)
+        self.assertTrue(self.wait_state(k2))
+        a = self.arc_of(k2)
+        self.assertEqual(a["state"], "done", a)
+        self.assertAlmostEqual(a["archiveStart"], 300.019, delta=0.03)
+        self.assertEqual(len(self.aligns), 3)
+        # 録画の音がアーカイブと合わない(切り貼り・別の配信)→ 書き出さない
+        self.rec_src[rec3] = self.other
+        k3 = self.job(150.0, 6.0, 7, "error", rec=rec3)
+        n = len(studio.calls)
+        ar.request("local", rec3)
+        self.assertTrue(self.wait_state(k3))
+        self.assertEqual(self.arc_of(k3)["state"], "error")
+        self.assertIn("合わせられませんでした", self.arc_of(k3)["message"])
+        self.assertEqual(len(studio.calls), n)
+        # 録画を消した後(録画の音が取れない): 同じ録画の照合できたマークのずれ
         self.rec_gone.add(REC)
-        j1 = self.job(150.047, 6.0, 1, "error")
-        j1b = self.job(100.0, 5.0, 8, "done", archive={"state": "done", "aligned": True, "offset": -SKEW})   # 前の版で照合済みのマーク
-        ar = self.archiver()
+        j3 = self.job(260.0, 6.0, 3, "error")
         ar.request("local", REC)
-        self.assertTrue(self.wait_state(j1))
-        a = self.arc_of(j1)
+        self.assertTrue(self.wait_state(j3))
+        a = self.arc_of(j3)
         self.assertEqual(a["state"], "done", a)
         self.assertIn("照合できたマーク", a["offsetFrom"])
-        self.assertAlmostEqual(a["archiveStart"], 150.047, delta=0.01)
+        self.assertAlmostEqual(a["archiveStart"], 260.0, delta=0.03)
         self.assertNotIn("aligned", a)
-        ar.close()
-        self.ex.jobs.remove(j1b)
+
+    def test_offset_fallbacks(self):
+        """録画の音が取れず、同じ録画の照合できたマークも無いとき: M7 のずれ → どれも無ければ失敗(M7 の採用は error + needsArchive)。
+        通しでは M7 の途中の記録(afterStream の offset)と、ずれの手がかりが何も無い録画を作れない"""
         ar2 = self.archiver()
         ar2._info_put("local", REC, afterStream={"state": "export", "offset": -SKEW})
+        self.rec_gone.add(REC)
         j2 = self.job(220.031, 6.0, 2, "wait", **{"from": "archive"})
         ar2.request("local", REC)
         self.assertTrue(self.wait_state(j2))
@@ -271,38 +302,18 @@ class ArchiveTest(unittest.TestCase):
         self.assertEqual((j3["state"], j3["needsArchive"]), ("error", True))   # 待ちのまま残さない(人が押せばやり直せる)
         self.assertEqual(ar3.targets("local", j3["recording"]), [j3])
 
-    def test_mismatch_is_error(self):
-        """録画の音がアーカイブと合わない(切り貼り・別の配信)→ 書き出さない"""
-        self.rec_src = self.other
-        j1 = self.job(150.0, 6.0, 1, "error")
-        studio = FakeStudio(self.arc)
-        ar = self.archiver(studio)
-        ar.request("local", REC)
-        self.assertTrue(self.wait_state(j1))
-        self.assertEqual(self.arc_of(j1)["state"], "error")
-        self.assertIn("合わせられませんでした", self.arc_of(j1)["message"])
-        self.assertFalse(studio.calls)
-
-    def test_not_ready_and_no_start_time(self):
+    def test_no_start_time(self):
+        """付加情報に配信の開始時刻が無い(めったに来ない)→ 照合しない"""
         j1 = self.job(150.047, 6.0, 1, "error")
-        self.status = "post_live"
         ar = self.archiver()
-        with self.assertRaises(LX.LiveError) as cm:
-            ar.request("local", REC)
-        self.assertEqual(cm.exception.code, 409)
-        self.assertIn("処理中", str(cm.exception))
-        self.assertIs(ar.info_view("local", REC)["ready"], False)
-        self.assertNotIn("archive", j1)   # 待つ(何も入れない)
-        self.status, self.release = "was_live", None
+        self.release = None
         ar.request("local", REC)
         self.assertTrue(self.wait_state(j1))
         self.assertEqual(self.arc_of(j1)["message"], "開始時刻が分からないので照合できません")
 
     def test_helpers(self):
         self.assertFalse(A.inside(os.path.join(self.out, "..", "x.mp4"), self.out))
-        self.assertTrue(A.needs_archive({"state": "error", "needsArchive": True}))
-        self.assertTrue(A.needs_archive({"state": "wait", "from": "archive"}))
-        self.assertFalse(A.needs_archive({"state": "done", "from": "archive"}) or A.needs_archive({"state": "wait"}) or A.needs_archive({"state": "error"}))
+        self.assertFalse(A.needs_archive({"state": "done", "from": "archive"}))   # 書き出し済みの M7 の採用(通しは済む前に見る)
 
     def test_board_follows_archive(self):
         """掲示板: 書き出しの状態が変わったら la:<ジョブの id> がその state で載る・配信後の全自動は la:as-<録画元>.<録画>"""
@@ -388,20 +399,6 @@ class ArchiveTest(unittest.TestCase):
         n = len(self.probes)
         ar2.auto_tick()
         self.assertEqual(len(self.probes), n)
-
-    def test_offset_from_other_recording_of_same_stream(self):
-        """同じ配信(videoId)の別の録画で照合したずれを、窓の見当に使う(最初から ±20 秒)"""
-        other = "20261005-110000-abcdefghijk"
-        self.job(100.0, 5.0, 9, "done", rec=other, archive={"state": "done", "aligned": True, "offset": round(-SKEW + 1.24, 3)})   # 受信時刻が 1.24 秒違う
-        j1 = self.job(150.047, 8.0, 1, "error")
-        ar = self.archiver()
-        ar.info[ar.key("local", other)] = {"videoId": VID}
-        ar.request("local", REC)
-        self.assertTrue(self.wait_state(j1))
-        a = self.arc_of(j1)
-        self.assertEqual(a["state"], "done", a)
-        self.assertAlmostEqual(a["archiveStart"], 150.047, delta=0.03)
-        self.assertEqual(len(self.aligns), 1)   # ±20 秒の窓で 1 回で合う
 
     def test_restart_continues(self):
         j1 = self.job(150.047, 6.0, 1, "error")

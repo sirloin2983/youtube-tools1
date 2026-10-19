@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
-"""pipeline/analyze/excite.py(盛り上がりの式。線 D の L1)のテスト。  py -3.12 -m unittest src/pipeline/analyze/tests/test_excite.py -v
-- golden: 同じ合成の入力で出した値(data/excite_golden.json)と一致する(式を変えたら作り直す = WORKLOG に書く)
+"""pipeline/analyze/excite.py(盛り上がりの式)のテスト。  py -3.12 -m unittest src/pipeline/analyze/tests/test_excite.py -v
+本物の音とチャットのファイルを通す解析の通しは test_analyze.TestAnalyzeRun(チャットの種類ごとの重み・埋めの印・場面ごとの区間の形もそこ)。
+ここは通しでは見えない物: 式の値を桁まで(golden)・2 つの計算の比べ・配信中の帳簿の規則(時間・人の決定)
+- golden: 同じ合成の入力で出した値(data/excite_golden.json)と一致する(式を変えたら作り直す)
 - Online(1 秒ずつ)= windowed_scores(一括。同じ窓)
 - PeakBook(候補の帳簿)の規則: 確定・1 時間の枠・入れ替え・採用は数えない・見送りは外す・JSON の往復
 - 配信中だけの足し: しきい値を上げる区間(thr_scale)・仮の候補(fast_push。同じ id で本番に置き換わる・外れる・人の決定)・
@@ -44,8 +46,7 @@ def synth(seed, n=2400, lag=11):
 
 
 class TestGolden(unittest.TestCase):
-    """移す前の analyze.py と完全に同じ値(golden は移す前の analyze.py で synth(7) から計算した。式を直したら、このクラスが読む鍵を
-    新しい式で計算して data/excite_golden.json を書き直す)"""
+    """golden(synth(7) から計算した値)と完全に同じ値。式を直したら、このクラスが読む鍵を新しい式で計算して data/excite_golden.json を書き直す"""
 
     @classmethod
     def setUpClass(cls):
@@ -105,20 +106,6 @@ class TestGolden(unittest.TestCase):
         a = excite.local_baseline(x, back=270, fwd=30)
         self.assertEqual(len(a), 500)
         self.assertNotEqual(a, excite.local_baseline(x))
-
-
-class TestMessageWeight(unittest.TestCase):
-    def test_weights(self):
-        self.assertEqual(excite.message_weight("liveChatTextMessageRenderer", "こんにちは"), (1.0, False, False))
-        self.assertEqual(excite.message_weight("liveChatTextMessageRenderer", "草"), (2.5, True, False))
-        self.assertEqual(excite.message_weight("liveChatPaidMessageRenderer", "www"), (6.5, True, True))
-        self.assertEqual(excite.message_weight("liveChatPaidStickerRenderer", ""), (5.0, False, True))
-        self.assertEqual(excite.message_weight("liveChatViewerEngagementMessageRenderer", "草"), (None, False, False))
-
-    def test_text(self):
-        r = {"message": {"runs": [{"text": "きた"}, {"emoji": {"shortcuts": [":_kusa:", ":k:", ":x:"], "emojiId": "UCabc/xyz"}}]}}
-        self.assertEqual(excite.message_text(r), "きた :_kusa: :k: ")
-        self.assertEqual(excite.message_text({}), "")
 
 
 class TestOnline(unittest.TestCase):
@@ -500,7 +487,7 @@ class TestScene(unittest.TestCase):
         total = excite.audio_score(full, band)
         fixed = excite.pick_clips(total, full, SPEC, len(total))
         scene = excite.pick_clips(total, full, dict(SPEC, shape="scene"), len(total))
-        self.assertTrue(all("shape" not in c for c in fixed))   # 形の指定が無ければ 0.88 までと同じ(golden)
+        self.assertTrue(all("shape" not in c for c in fixed))   # 形の指定が無ければ固定の長さ(golden と同じ)
         self.assertEqual([c["peak"] for c in scene][:3], [c["peak"] for c in fixed][:3])
         for c in scene:
             self.assertIn(c["shape"], excite.SHAPES)
@@ -532,7 +519,7 @@ class TestScene(unittest.TestCase):
         old = b.to_json()
         for k in ("shape", "scene", "work"):
             old.pop(k)
-        self.assertEqual(excite.PeakBook.from_json(old).shape, "fixed")   # 0.88 までの保存は固定の形
+        self.assertEqual(excite.PeakBook.from_json(old).shape, "fixed")   # 形の欄の無い保存は固定の形
 
     def test_peakbook_finish_closes_open_scene(self):
         w = bump(1000, 900, 6.0, 300)
@@ -554,12 +541,6 @@ class TestFill(unittest.TestCase):
         for c, amp in ((1200, 1.5), (1800, 1.2), (2400, 1.0)):   # しきい値に届かない小さな山(音声の盛り上がり)
             w = [a + b for a, b in zip(w, bump(n, c, amp, 0))]
         return w, [-30.0] * n, n
-
-    def test_no_fill_is_unchanged(self):
-        w, lv, n = self.total()
-        picks = excite.pick_clips(w, lv, dict(SPEC, sensitivity="low"), n)
-        self.assertEqual(len(picks), 1)
-        self.assertNotIn("fill", picks[0])
 
     def test_fill_up_to_requested_with_mark(self):
         w, lv, n = self.total()

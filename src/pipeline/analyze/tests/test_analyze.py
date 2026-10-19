@@ -1,20 +1,27 @@
-"""pipeline/analyze/analyze.py の判定ロジックのテスト(ネットワーク・ffmpeg 不要)。 実行(リポジトリ直下): py -3.12 -m unittest src/pipeline/analyze/tests/test_analyze.py
+"""pipeline/analyze/analyze.py のテスト。 実行(リポジトリ直下): py -3.12 -m unittest src/pipeline/analyze/tests/test_analyze.py
+- TestAnalyzeRun: 本物の ffmpeg で、6 分の音声 + チャット・コメント・付加情報のファイル(疑似モード)を analyze.run に通す通し
+- ほかは通しでは起こせない物(中止・途中の失敗・YouTube API・壊れた記録・上限・合成の系列で測る推定の確かさ)
 (判定の記録 feedback は human/review/feedback.py)。"""
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 import json
 import random
+import shutil
+import subprocess
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))   # tests → analyze → pipeline → src
 from human.review import feedback  # noqa: E402
-from ytt import testkit  # noqa: E402
-from pipeline.analyze import analyze, fetch  # noqa: E402
+from ytt import testkit, tools  # noqa: E402
+from pipeline.analyze import analyze, excite, fetch  # noqa: E402
 from ytt import studio_env  # noqa: E402
 from ytt.errors import ApiError, Cancelled  # noqa: E402
 from ytt.jobs import Ctl  # noqa: E402
+
+FF = tools.find_tool("ffmpeg", "YTT_FFMPEG")
 
 
 def synth(n=4000, lag=12, events=40, seed=1, chat_noise=1.0, related=True):
@@ -39,6 +46,8 @@ def synth(n=4000, lag=12, events=40, seed=1, chat_noise=1.0, related=True):
 
 
 class TestLagEstimate(unittest.TestCase):
+    """推定の確かさ(遅れ 6 通り × 乱数 3 通り)と端。見本 1 本の通しでは 1 つの遅れしか見えない"""
+
     def est(self, **kw):
         full, band, act = synth(**kw)
         return analyze.estimate_lag(analyze.audio_score(full, band), analyze.chat_z(act))
@@ -50,61 +59,14 @@ class TestLagEstimate(unittest.TestCase):
                 self.assertIsNotNone(est, (lag, seed))
                 self.assertLessEqual(abs(est - lag), 2, (lag, seed, est))   # chat の9秒平滑化があるので±2秒まで
 
-    def test_no_relation_falls_back(self):
-        for seed in (1, 2, 3, 4):
-            est, _ = self.est(related=False, seed=seed)
-            self.assertIsNone(est, seed)
-
     def test_short_or_flat_series_returns_none(self):
         self.assertEqual(analyze.estimate_lag([1.0] * 100, [1.0] * 100)[0], None)
         self.assertEqual(analyze.estimate_lag([0.0] * 1000, [0.0] * 1000)[0], None)
-
-    def test_shift_direction_puts_chat_peak_at_audio_time(self):
-        full, band, act = synth(lag=15, events=20, seed=5)
-        a = analyze.audio_score(full, band)
-        z = analyze.chat_z(act)
-        est, _ = analyze.estimate_lag(a, z)
-        shifted = analyze.shift_chat(z, est)
-        self.assertEqual(len(shifted), len(z))
-        # ずらした後の方が、音声との一致が高い
-        def dot(x, y):
-            return sum(p * q for p, q in zip(x, y))
-        self.assertGreater(dot(a, shifted), dot(a, z))
-        # 元のチャット(遅れたまま)より、8秒固定より、推定値の方が一致が高い
-        self.assertGreater(dot(a, shifted), dot(a, analyze.shift_chat(z, 8)))
 
     def test_shift_chat_edges(self):
         self.assertEqual(analyze.shift_chat([1, 2, 3, 4], 0), [1, 2, 3, 4])
         self.assertEqual(analyze.shift_chat([1, 2, 3, 4], 2), [3, 4, 0.0, 0.0])
         self.assertEqual(analyze.chat_score([0.0] * 50, 3), analyze.shift_chat(analyze.chat_z([0.0] * 50), 3))
-
-
-class TestHeadRamp(unittest.TestCase):
-    def test_ramp(self):
-        r = analyze.head_ramp([10.0] * 400, 180)
-        self.assertEqual(r[0], 0.0)
-        self.assertAlmostEqual(r[90], 10 * 0.25)
-        self.assertAlmostEqual(r[180], 10.0)
-        self.assertEqual(r[399], 10.0)
-        self.assertTrue(all(r[i] <= r[i + 1] for i in range(399)))   # 単調に戻る
-
-    def test_disabled(self):
-        x = [1.0, 2.0, 3.0]
-        self.assertEqual(analyze.head_ramp(x, 0), x)
-
-    def test_intro_peak_loses_to_later_peak(self):
-        n = 1000
-        total = [0.0] * n
-        for i in range(55, 66):
-            total[i] = 5.0      # 冒頭(60秒)の山
-        for i in range(495, 506):
-            total[i] = 4.0      # 本編の山
-        spec = {"length": 45, "preRatio": 0.65, "sensitivity": "normal", "count": 1}
-        level = [0.0] * n
-        top = analyze.pick_clips(analyze.head_ramp(total, 180), level, spec, n)[0]
-        self.assertTrue(490 <= top["peak"] <= 510, top)
-        top0 = analyze.pick_clips(total, level, spec, n)[0]   # 減点なしなら冒頭が勝つ
-        self.assertTrue(50 <= top0["peak"] <= 70, top0)
 
 
 class TestFetchComments(unittest.TestCase):
@@ -132,83 +94,15 @@ class TestFetchComments(unittest.TestCase):
 
 
 class TestComments(unittest.TestCase):
-    def test_chapter_list_downweighted(self):
-        chapters = "0:30 始まり\n10:00 雑談\n25:10 ゲーム\n40:00 終わり\n55:00 おまけ"
-        st = fetch.stamps_from([{"text": chapters, "likes": 500}], 4000)
-        self.assertEqual(len(st), 5)
-        self.assertTrue(all(abs(w - 0.2) < 1e-9 for _, _, w in st))
-
-    def test_single_and_pair_comments_full_weight(self):
-        st = fetch.stamps_from([{"text": "12:34 ここ最高", "likes": 3}, {"text": "1:00 と 2:00 が好き", "likes": 0}], 4000)
-        self.assertEqual([w for *_, w in st], [1.0, 1.0, 1.0])
-
-    def test_out_of_range_ignored(self):
-        st = fetch.stamps_from([{"text": "99:00 と 0:00", "likes": 1}], 300)
-        self.assertEqual(st, [])
-
-    def test_score_much_lower_for_list_than_for_individual_comments(self):
-        n = 3000
-        lst = fetch.stamps_from([{"text": "5:00 a\n20:00 b\n30:00 c\n40:00 d", "likes": 200}], n)
-        ind = fetch.stamps_from([{"text": "20:00 ここ", "likes": 200}], n)
-        self.assertLess(max(analyze.comment_score(lst, n)), 0.3 * max(analyze.comment_score(ind, n)))
-
     def test_comment_score_accepts_legacy_pairs(self):
         out = analyze.comment_score([(100, 5)], 300)
         self.assertGreater(out[100], 0)
 
 
 class TestSettings(unittest.TestCase):
-    def test_defaults(self):
-        s = analyze.validate_settings({})
-        self.assertEqual((s["lagAuto"], s["headSec"], s["lag"]), (True, 180, 8))
-
-    def test_clamped_and_types(self):
-        s = analyze.validate_settings({"lagAuto": False, "headSec": 99999, "lag": -5})
-        self.assertEqual((s["lagAuto"], s["headSec"], s["lag"]), (False, 600, 0))
-        self.assertEqual(analyze.validate_settings({"headSec": -3})["headSec"], 0)
-        self.assertTrue(analyze.validate_settings({"lagAuto": "no"})["lagAuto"])   # False 以外は既定の「自動」
-
     def test_feedback_records_new_keys(self):
         self.assertIn("lagAuto", feedback.FB_SETTING_KEYS)
         self.assertIn("headSec", feedback.FB_SETTING_KEYS)
-
-
-class TestChatWarm(unittest.TestCase):
-    def parse(self, texts):
-        p = os.path.join(testkit.tempdir(self), "c.jsonl")
-        with open(p, "w", encoding="utf-8") as f:
-            for i, t in enumerate(texts):
-                f.write(json.dumps({"replayChatItemAction": {"videoOffsetTimeMsec": str(i * 1000), "actions": [{"addChatItemAction": {"item": {"liveChatTextMessageRenderer": {"message": {"runs": [{"text": t}]}}}}}]}}) + "\n")
-        return analyze.parse_chat(p, len(texts) + 1)
-
-    def test_single_exclamation_not_warm_but_kusa_is(self):
-        _, total, warm = self.parse(["はい!", "ここ！", "おはよう！", "草", "wwww", "すごい", "!!", "普通"])
-        self.assertEqual((total, warm), (8, 4))   # 草 / wwww / すごい / !! だけ
-
-
-HEAT = {"title": "【R.E.P.O.】深夜の突発PEPO", "channel": "Ch", "categories": ["Gaming"], "tags": ["ゲーム実況", "ホロライブ"], "view_count": 12345, "like_count": 999,
-        "comment_count": 55, "channel_follower_count": 1000000, "upload_date": "20260920", "duration": 7856, "live_status": "was_live",
-        "heatmap": [{"start_time": 0.0, "end_time": 78.5, "value": 1.0}, {"start_time": 78.5, "end_time": 157.0, "value": 0.42}, {"bad": 1}],
-        "chapters": [{"start_time": 0, "end_time": 100, "title": "開始"}, {"oops": 1}], "formats": [{"x": "y"}] * 50}
-
-
-class TestMeta(unittest.TestCase):
-    def test_slim_keeps_only_needed_and_skips_bad_rows(self):
-        m = fetch.slim_meta(HEAT)
-        self.assertEqual(m["heatmap"], [[0.0, 78.5, 1.0], [78.5, 157.0, 0.42]])
-        self.assertEqual(m["chapters"], [[0.0, 100.0, "開始"]])
-        self.assertEqual((m["views"], m["likes"], m["followers"], m["liveStatus"]), (12345, 999, 1000000, "was_live"))
-        self.assertNotIn("formats", m)
-        self.assertEqual((m["releaseTs"], m["timestamp"]), (None, None))
-        m2 = fetch.slim_meta(dict(HEAT, release_timestamp=1760000000, timestamp=1760000100.7))   # D-SEND: 配信の始まり(終わった時刻 = releaseTs + duration の元)
-        self.assertEqual((m2["releaseTs"], m2["timestamp"], m2["duration"], m2["liveStatus"]), (1760000000, 1760000100, 7856, "was_live"))
-        self.assertIsNone(fetch.slim_meta(dict(HEAT, release_timestamp="x"))["releaseTs"])
-        self.assertIsNone(fetch.slim_meta([1]))
-        self.assertIsNone(fetch.slim_meta(None))
-
-    def test_slim_tolerates_garbage_types(self):
-        m = fetch.slim_meta({"view_count": "x", "tags": "notalist", "heatmap": "no", "chapters": [1, None], "title": 5})
-        self.assertEqual((m["views"], m["tags"], m["heatmap"], m["chapters"]), (None, [], [], []))
 
 
 class TestArchive(unittest.TestCase):
@@ -216,18 +110,11 @@ class TestArchive(unittest.TestCase):
         self.tmp = testkit.tempdir(self)
         studio_env.set_home(self.tmp)
 
-    def test_roundtrip_and_run_history_capped(self):
-        for i in range(7):
-            self.assertTrue(analyze.save_archive("abcdefghijk", {"full": [1.0, 2.0], "meta": {"title": "日本語"}}, {"at": i, "candidates": []}))
-        d = analyze.load_archive("abcdefghijk")
-        self.assertEqual(d["meta"]["title"], "日本語")
-        self.assertEqual([r["at"] for r in d["runs"]], [2, 3, 4, 5, 6])   # 直近5回
-        self.assertEqual(d["v"], 1)
-
     def test_bad_ids_and_corrupt_file(self):
         self.assertFalse(analyze.save_archive("../evil", {}, {}))
         self.assertFalse(analyze.save_archive("a b", {}, {}))
         self.assertIsNone(analyze.load_archive("../evil"))
+        self.assertFalse(fetch.drop_chat_cache("../x"))
         p = analyze.archive_path("abcdefghijk")
         os.makedirs(os.path.dirname(p), exist_ok=True)
         with open(p, "wb") as f:
@@ -245,35 +132,8 @@ class TestArchive(unittest.TestCase):
         self.assertEqual(len(left), 3)
 
 
-class TestChatExtra(unittest.TestCase):
-    def test_extra_counts(self):
-        rows = []
-        def add(t, text, au, kind="liveChatTextMessageRenderer"):
-            rows.append({"replayChatItemAction": {"videoOffsetTimeMsec": str(t * 1000), "actions": [{"addChatItemAction": {"item": {kind: {"message": {"runs": [{"text": text}]}, "authorExternalChannelId": au}}}}]}})
-        add(1, "草", "u1"); add(1, "草", "u2"); add(1, "はい", "u1"); add(2, "ありがとう", "u3", "liveChatPaidMessageRenderer"); add(3, "普通", "u1")
-        p = os.path.join(testkit.tempdir(self), "c.jsonl")
-        with open(p, "w", encoding="utf-8") as f:
-            f.write("\n".join(json.dumps(r) for r in rows))
-        ex = {}
-        act, total, warm = analyze.parse_chat(p, 5, ex)
-        self.assertEqual((total, warm), (5, 2))
-        self.assertEqual(ex["warm"], [0, 2, 0, 0, 0])
-        self.assertEqual(ex["paid"], [0, 0, 1, 0, 0])
-        self.assertEqual(ex["uniq"], [0, 2, 1, 1, 0])   # 1秒目は u1・u2 の2人
-        self.assertEqual(analyze.parse_chat(p, 5)[1:], (5, 2))   # extra なしでも従来どおり
-
-
-class TestCommentTexts(unittest.TestCase):
-    def test_texts_parallel_to_stamps(self):
-        texts = []
-        st = fetch.stamps_from([{"text": "12:34 ここ最高\n二行目", "likes": 1}, {"text": "1:00 a 2:00 b 3:00 c", "likes": 0}], 4000, texts)
-        self.assertEqual(len(st), len(texts))
-        self.assertTrue(texts[0].startswith("12:34 ここ最高 二行目"))
-        self.assertTrue(all(len(t) <= 60 for t in texts))
-
-
 class TestRunCtl(unittest.TestCase):
-    """analyze.run(spec, ctl)(OPT2 の J1): 進み具合は ctl.report・取り消しは Cancelled・失敗は ApiError・互換の包みは辞書に写す"""
+    """analyze.run(spec, ctl) の中止と失敗(通しでは中止の瞬間・内部の失敗を起こせない)"""
 
     def setUp(self):
         tmp = testkit.tempdir(self)
@@ -286,59 +146,6 @@ class TestRunCtl(unittest.TestCase):
     def levels(self):
         full, band, *_ = synth(n=600, events=6)
         return lambda *a, **k: (600.0, 600, full[:600], band[:600])
-
-    def test_run_returns_result_and_reports(self):
-        seen = []
-        ctl = Ctl(on_progress=lambda frac, msg: seen.append((frac, msg)))
-        with mock.patch.object(analyze, "_levels", self.levels()):
-            res = analyze.run(self.spec, ctl)
-        self.assertTrue(res["candidates"])
-        self.assertEqual(set(res), {"source", "candidates", "series", "signals", "counts", "warnings", "spec", "stream"})
-        self.assertEqual(res["stream"], {}, "付加情報が取れなかったときは空")
-        self.assertEqual(seen[-1][0], 1.0)
-
-    def test_run_carries_stream_times(self):
-        """D-SEND: 付加情報の配信の始まり・長さを結果の stream に写す(batch が analysis に入れる。② flow/sendpolicy.ended_at_of が読む)"""
-        real = analyze._weights
-        meta = fetch.slim_meta(dict(HEAT, release_timestamp=1760000000, timestamp=1760000100))
-
-        def with_meta(run, spec, warnings):
-            return real(run, spec, warnings)[0], meta
-        with mock.patch.object(analyze, "_levels", self.levels()), mock.patch.object(analyze, "_weights", with_meta):
-            res = analyze.run(self.spec, Ctl())
-        self.assertEqual(res["stream"], {"releaseTs": 1760000000, "timestamp": 1760000100, "uploadDate": "20260920", "liveStatus": "was_live", "duration": 7856})
-
-    def test_fill_reaches_requested_and_is_counted(self):
-        """本数に届かないとき: 設定の fill で、しきい値の下の山で埋める。結果の spec・counts に残す(② が読む)"""
-        spec = dict(self.spec, sensitivity="low", count=8)
-        with mock.patch.object(analyze, "_levels", self.levels()):
-            plain = analyze.run(dict(spec), Ctl())
-            filled = analyze.run(dict(spec, fill=8), Ctl())
-        self.assertLess(len(plain["candidates"]), 8)
-        self.assertGreater(len(filled["candidates"]), len(plain["candidates"]))
-        self.assertEqual((plain["spec"]["fill"], filled["spec"]["fill"]), (0, 8))
-        self.assertEqual(filled["counts"]["cands"], len(filled["candidates"]))
-        self.assertEqual(filled["counts"]["fills"], len(filled["candidates"]) - len(plain["candidates"]))
-        self.assertEqual(analyze.validate_settings({})["fill"], 0)
-        self.assertEqual(analyze.validate_settings({"fill": 99})["fill"], 30)
-
-    def test_too_few_chat_drops_the_cache(self):
-        """チャットが 30 件未満(配信の直後でリプレイがまだ無い)なら、取っておいたチャットを捨てる = 次の解析で取り直す"""
-        tmp = testkit.tempdir(self)
-        path = os.path.join(tmp, "chat.json")
-        with open(path, "w", encoding="utf-8") as f:
-            f.write("{}\n")
-        run = {"chat": {"state": "done", "path": path, "why": "", "cached": True, "t0": 0}}
-        spec = dict(self.spec, source={"kind": "youtube", "videoId": "abcdefghijk"})
-        with mock.patch.object(fetch, "drop_chat_cache") as drop:
-            out = analyze._chat_signal(Ctl(), run, spec, 600, {}, {"chat": False}, [])
-        self.assertEqual(out["count"], 0)
-        drop.assert_called_once_with("abcdefghijk")
-        with mock.patch.object(fetch, "chat_cache_dir", lambda: tmp):
-            open(fetch.chat_cache_path("abcdefghijk"), "w").close()
-            self.assertTrue(fetch.drop_chat_cache("abcdefghijk"))
-            self.assertFalse(os.path.exists(fetch.chat_cache_path("abcdefghijk")))
-            self.assertFalse(fetch.drop_chat_cache("../x"))
 
     def test_cancel_and_failure_are_exceptions(self):
         ctl = Ctl()
@@ -360,20 +167,175 @@ class TestRunCtl(unittest.TestCase):
             analyze.run(self.spec, ctl)
 
 
-class TestRunWithoutMeta(unittest.TestCase):
-    def test_meta_missing_still_succeeds_with_a_note(self):
-        """YouTube の付加情報(記録用)が取れなくても解析は成功し、注意書きを 1 つ出す(stream は空)"""
-        tmp = testkit.tempdir(self)
-        full, band, *_ = synth(n=600, events=6)
-        spec = analyze.make_spec({"kind": "youtube", "videoId": "abcdefghijk", "name": "x"},
-                                 analyze.validate_settings({"useComments": False, "useChat": False, "count": 3, "length": 30, "noCache": True}))
-        with mock.patch.object(fetch, "work_dir", lambda: tmp), mock.patch.object(analyze, "_save_record", lambda *a, **k: None), \
-                mock.patch.object(fetch, "fetch_meta", lambda ctl, vid: (None, "取れませんでした")), \
-                mock.patch.object(analyze, "_levels", lambda *a, **k: (600.0, 600, full, band)):
-            res = analyze.run(spec, Ctl())
-        self.assertTrue(res["candidates"])
-        self.assertEqual(len([w for w in res["warnings"] if "付加情報" in w]), 1)
-        self.assertEqual((res["counts"]["meta"], res["stream"]), (False, {}))
+# ---------------------------------------------------------------- 通し
+VID = "abcdefghijk"
+DUR = 330                       # 遅れの推定は 300 秒から
+LAG = 10                        # チャットは音の山の 10 秒あと
+BURSTS = (110, 230)             # 本編の山(笑い声のような雑音 6 秒)
+INTRO = 18                      # 冒頭の山(本編より大きい。冒頭の減点で負ける)
+TEXT = "liveChatTextMessageRenderer"
+CALM = ["こんにちは", "はい!", "ここ！", "普通"]          # 「草」などに数えない
+WARM = ["草", "wwww", "すごい", "!!"]                      # 数える
+HEAT = {"title": "【R.E.P.O.】深夜の突発PEPO", "channel": "Ch", "categories": ["Gaming"], "tags": ["ゲーム実況", "ホロライブ"], "view_count": 12345, "like_count": 999,
+        "comment_count": 55, "channel_follower_count": 1000000, "upload_date": "20260920", "duration": 7856, "live_status": "was_live",
+        "release_timestamp": 1760000000, "timestamp": 1760000100.7,
+        "heatmap": [{"start_time": 0.0, "end_time": 78.5, "value": 1.0}, {"start_time": 78.5, "end_time": 157.0, "value": 0.42}, {"bad": 1}],
+        "chapters": [{"start_time": 0, "end_time": 100, "title": "開始"}, {"oops": 1}], "formats": [{"x": "y"}] * 50}
+COMMENTS = [{"text": "0:30 始まり\n1:50 雑談\n3:50 ゲーム\n5:00 終わり", "likes": 500},   # チャプターの一覧(時刻 4 つ = 重み 1/4)
+            {"text": "1:50 ここ最高\n二行目", "likes": 3},                                    # 1 つ
+            {"text": "3:50 と 4:20 が好き", "likes": 0},                                       # 2 つ(重みはそのまま)
+            {"text": "99:00 と 0:00", "likes": 1}]                                             # 長さの外・0 秒は数えない
+
+
+def chat_line(ms, kind, r):
+    return json.dumps({"replayChatItemAction": {"videoOffsetTimeMsec": str(ms), "actions": [{"addChatItemAction": {"item": {kind: r}}}]}}, ensure_ascii=False)
+
+
+def text(t, au):
+    return {"message": {"runs": [{"text": t}]}, "authorExternalChannelId": au}
+
+
+def rich_chat():
+    """yt-dlp の live_chat.json の形: 3 秒ごとにふだんの発言・山の LAG 秒あとから 8 秒は 1 秒 6 件の「草」など・49〜53 秒に種類の違う物・壊れた行。
+    -> (行, 数える件数, 「草」などの件数)"""
+    rows, total, warm = [], 0, 0
+    for s in range(DUR):
+        if s % 3 == 0:
+            rows.append(chat_line(s * 1000, TEXT, text(CALM[s // 3 % 4], "UC%d" % (s % 7))))
+            total += 1
+        for b in BURSTS + (INTRO + 4,):
+            if b + LAG <= s < b + LAG + 8:
+                for k in range(6):
+                    rows.append(chat_line(s * 1000 + k * 100, TEXT, text(WARM[k % 4], "UF%d" % k)))
+                total, warm = total + 6, warm + 6
+    rows += [chat_line(49000, "liveChatPaidMessageRenderer", text("www", "UP1")),                   # スパチャ: 1 + 1.5 + 4
+             chat_line(50000, "liveChatPaidStickerRenderer", {"authorExternalChannelId": "UP2"}),   # ステッカー: 1 + 4
+             chat_line(52000, "liveChatViewerEngagementMessageRenderer", text("草", "")),            # 案内の行は数えない
+             chat_line(53000, TEXT, {"message": {"runs": [{"emoji": {"shortcuts": [":_kusa:", ":k:", ":x:"], "emojiId": "UCabc/xyz"}}]},
+                                     "authorExternalChannelId": "UE1"}),                               # 絵文字だけ(「草」の絵文字)
+             "これは JSON ではない", json.dumps({"replayChatItemAction": {"videoOffsetTimeMsec": "x", "actions": []}}),
+             chat_line(-1000, TEXT, text("草", "UZ")), chat_line(DUR * 1000 + 5000, TEXT, text("草", "UZ"))]   # 長さの外
+    return rows, total + 3, warm + 2
+
+
+@unittest.skipUnless(FF, "ffmpeg が見つかりません")
+class TestAnalyzeRun(unittest.TestCase):
+    """解析の通し: 本物の ffmpeg で音量を測り、チャット・コメント欄・付加情報は手元のファイル(疑似モード STUDIO_FAKE。yt-dlp と YouTube API の代わり)。
+    同じ動画 ID で設定とチャットを変えて 6 回流す(音量の再利用・記録の履歴 5 回・埋め・推定できない・件数が少ない・付加情報なし)"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dir = tempfile.mkdtemp(prefix="ytt-analyze-run-")
+        cls.media = os.path.join(cls.dir, "配信の音.m4a")
+        loud = "+".join("between(t,%d,%d)" % (b, b + 6) for b in BURSTS)
+        expr = "0.03*sin(2*PI*330*t)+if(%s,0.7*(2*random(0)-1),0)+if(between(t,%d,%d),0.9*(2*random(1)-1),0)" % (loud, INTRO, INTRO + 8)
+        subprocess.run([FF, "-hide_banner", "-v", "error", "-y", "-f", "lavfi", "-i", "aevalsrc=%s:s=8000:d=%d" % (expr.replace(",", "\\,"), DUR),
+                        "-c:a", "aac", "-b:a", "32k", cls.media], check=True, stdin=subprocess.DEVNULL, creationflags=tools.no_window_flags())
+        rows, cls.total, cls.warm = rich_chat()
+        cls.files = {}
+        for name, body in (("chat", "\n".join(rows) + "\n"),
+                           ("flat", "".join(chat_line(s * 1000, TEXT, text("普通", "UC1")) + "\n" for s in range(DUR))),   # 毎秒 1 件 = 山が無い
+                           ("few", "".join(chat_line(s * 1000, TEXT, text("草", "UC1")) + "\n" for s in range(10))),
+                           ("comments", json.dumps(COMMENTS, ensure_ascii=False)), ("meta", json.dumps(HEAT, ensure_ascii=False)),
+                           ("garbage", json.dumps({"view_count": "x", "tags": "notalist", "heatmap": "no", "chapters": [1, None], "title": 5}))):
+            cls.files[name] = os.path.join(cls.dir, name + ".json")
+            with open(cls.files[name], "w", encoding="utf-8") as f:
+                f.write(body)
+        studio_env.set_home(os.path.join(cls.dir, "studio"))
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.dir, ignore_errors=True)
+
+    def run_once(self, settings, chat=None, comments=None, meta=None, ctl=None):
+        env = {"STUDIO_FAKE": "1", "STUDIO_FAKE_MEDIA": self.media}
+        env.update({k: self.files[v] for k, v in (("STUDIO_FAKE_CHAT", chat), ("STUDIO_FAKE_COMMENTS", comments), ("STUDIO_FAKE_META", meta)) if v})
+        with mock.patch.dict(os.environ, env):
+            for k in ("STUDIO_FAKE_CHAT", "STUDIO_FAKE_COMMENTS", "STUDIO_FAKE_META"):
+                if k not in env:
+                    os.environ.pop(k, None)
+            spec = analyze.make_spec({"kind": "youtube", "videoId": VID, "name": VID}, analyze.validate_settings(settings))
+            return analyze.run(spec, ctl or Ctl())
+
+    def test_runs(self):
+        # 1 回目: 既定の設定・材料が全部ある
+        seen = []
+        a = self.run_once({}, chat="chat", comments="comments", meta="meta", ctl=Ctl(on_progress=lambda frac, msg: seen.append(frac)))
+        self.assertEqual(set(a), {"source", "candidates", "series", "signals", "counts", "warnings", "spec", "stream"})
+        self.assertEqual(seen[-1], 1.0)
+        self.assertEqual(a["signals"], {"audio": True, "chat": True, "comments": True})
+        self.assertEqual({k: a["counts"][k] for k in ("chat", "chatWarm", "commentStamps", "meta", "heatmap", "fills")}, {"chat": self.total, "chatWarm": self.warm,
+                         "commentStamps": 7, "meta": True, "heatmap": 2, "fills": 0})
+        self.assertEqual(a["stream"], {"releaseTs": 1760000000, "timestamp": 1760000100, "uploadDate": "20260920", "liveStatus": "was_live", "duration": 7856})
+        sp = a["spec"]
+        self.assertEqual((sp["lagAuto"], sp["headSec"], sp["fill"], sp["count"], sp["length"], sp["shape"]), (True, 180, 0, 8, 45, excite.SHAPE_DEFAULT))
+        self.assertTrue(LAG - 2 <= sp["lag"] <= LAG + 4, sp)   # 推定した遅れ(山の幅の分だけ後ろに寄る)
+        self.assertTrue(any("自動推定しました" in w for w in a["warnings"]), a["warnings"])
+        cands = a["candidates"]
+        self.assertEqual(sorted(min(BURSTS, key=lambda b: abs(b - c["peak"])) for c in cands), list(BURSTS), cands)   # 本編の山ごとに 1 本
+        for c in cands:
+            self.assertTrue(0 <= c["peak"] - min(BURSTS, key=lambda b: abs(b - c["peak"])) <= 8, c)
+            self.assertGreaterEqual(c["parts"]["chat"], excite.PART_ON["chat"], c)   # 遅れの分だけ前へずらしたチャットが山に重なる
+            self.assertTrue(c["start"] <= c["peak"] <= c["end"] and len(c["fixed"]) == 2 and c["shape"] in excite.SHAPES, c)
+            self.assertNotIn("fill", c)
+            self.assertNotIn(excite.FILL_REASON, c["reasons"])
+        rec = analyze.load_archive(VID)
+        m = rec["meta"]
+        self.assertEqual((m["heatmap"], m["chapters"]), ([[0.0, 78.5, 1.0], [78.5, 157.0, 0.42]], [[0.0, 100.0, "開始"]]))   # 形の違う行は捨てる
+        self.assertEqual((m["views"], m["likes"], m["followers"], m["releaseTs"], m["timestamp"]), (12345, 999, 1000000, 1760000000, 1760000100))
+        self.assertNotIn("formats", m)
+        ch = rec["chat"]
+        self.assertEqual((ch["count"], ch["warmCount"]), (self.total, self.warm))
+        self.assertEqual([ch["act"][s] for s in (49, 50, 52, 53)], [6.5, 5.0, 0.0, 2.5])   # スパチャ・ステッカー・案内・絵文字の重み
+        self.assertEqual(([ch["paid"][s] for s in (49, 50, 53)], [ch["warm"][s] for s in (49, 50, 53)]), ([1, 1, 0], [1, 0, 1]))
+        s = BURSTS[0] + LAG + 1   # 3 の倍数でない秒 = 山のあとの 6 人だけ
+        self.assertEqual((ch["uniq"][s], ch["warm"][s], ch["act"][s]), (6, 6, 15.0))
+        self.assertEqual((ch["uniq"][BURSTS[0] + LAG], ch["warm"][3], ch["act"][3]), (7, 0, 1.0))   # ふだんの発言の人も数える・「はい!」は数えない
+        st = sorted(rec["stamps"])
+        self.assertEqual([(t, lk, w) for t, lk, w, _ in st], [(30, 500, 0.25), (110, 3, 1.0), (110, 500, 0.25), (230, 0, 1.0), (230, 500, 0.25), (260, 0, 1.0),
+                                                                (300, 500, 0.25)])
+        self.assertIn("1:50 ここ最高 二行目", [x for *_, x in st])
+        self.assertTrue(all(len(x) <= 60 and "\n" not in x for *_, x in st))
+        self.assertEqual(rec["runs"][-1]["spec"]["lagAuto"], True)
+        self.assertEqual([c["peak"] for c in rec["runs"][-1]["candidates"]], [c["peak"] for c in cands])
+
+        # 2 回目: 範囲外の設定(丸める)・感度「低」で埋める・付加情報の形がおかしい・音量は前回の結果を再利用
+        b = self.run_once({"lagAuto": False, "headSec": 99999, "lag": -5, "fill": 99, "sensitivity": "low", "useComments": "x"}, chat="chat", meta="garbage")
+        sp = b["spec"]
+        self.assertEqual((sp["lagAuto"], sp["headSec"], sp["lag"], sp["fill"], sp["sensitivity"]), (False, 600, 0, 30, "low"))
+        self.assertTrue(any("前回の結果を再利用" in w for w in b["warnings"]), b["warnings"])
+        self.assertFalse(any("自動推定" in w for w in b["warnings"]))
+        fills = [c for c in b["candidates"] if c.get("fill")]
+        self.assertTrue(fills, b["candidates"])
+        self.assertTrue(all(excite.FILL_REASON in c["reasons"] for c in fills))
+        self.assertEqual((b["counts"]["fills"], b["counts"]["cands"]), (len(fills), len(b["candidates"])))
+        m = analyze.load_archive(VID)["meta"]
+        self.assertEqual((m["views"], m["tags"], m["heatmap"], m["chapters"], m["title"]), (None, [], [], [], "5"))
+
+        # 3 回目: 山の無いチャット(遅れを推定できない)・付加情報なし・冒頭の減点なし(冒頭の山が勝つ)
+        c = self.run_once({"headSec": 0, "useComments": False}, chat="flat")
+        self.assertTrue(any("自動推定できなかった" in w for w in c["warnings"]), c["warnings"])
+        self.assertEqual(len([w for w in c["warnings"] if "付加情報" in w]), 1)
+        self.assertEqual((c["counts"]["meta"], c["stream"], c["spec"]["lag"]), (False, {}, 8))
+        self.assertTrue(any(INTRO <= x["peak"] <= INTRO + 10 for x in c["candidates"]), c["candidates"])
+        self.assertFalse(any(x["peak"] < 60 for x in a["candidates"]), "冒頭の減点がある 1 回目では冒頭の山は候補にならない")
+
+        # 4 回目: チャットが 30 件未満(配信の直後)= 使わず、取っておいたチャットも捨てる
+        os.makedirs(fetch.chat_cache_dir(), exist_ok=True)
+        with open(fetch.chat_cache_path(VID), "w", encoding="utf-8") as f:
+            f.write("{}\n")
+        d = self.run_once({"useComments": False}, chat="few")
+        self.assertTrue(any("件数が少ない(10件)" in w for w in d["warnings"]), d["warnings"])
+        self.assertEqual((d["signals"]["chat"], d["counts"]["chat"]), (False, 10))
+        self.assertFalse(os.path.exists(fetch.chat_cache_path(VID)))
+
+        # 5・6 回目: 記録の履歴は直近 5 回
+        for _ in range(2):
+            self.run_once({"useChat": False, "useComments": False})
+        rec = analyze.load_archive(VID)
+        self.assertEqual((len(rec["runs"]), rec["runs"][0]["spec"]["lagAuto"], rec["v"]), (5, False, 1))   # 1 回目は消えて 2 回目から
+        self.assertEqual([r["at"] for r in rec["runs"]], sorted(r["at"] for r in rec["runs"]))
+        self.assertIsNone(rec["meta"], "付加情報の無い回は付加情報なしで残す")
 
 
 if __name__ == "__main__":
