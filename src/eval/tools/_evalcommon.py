@@ -164,30 +164,27 @@ def previous_same(res, root, area, suffix=""):
     return path if prev is not None and _plain(prev) == _plain(res) else None
 
 
-def save(res, root, area, suffix="", out=None):
+def save(res, root, area, suffix=""):
     """結果を <root>/evals/<area>/<日時><suffix>.json に残す(書きかけを残さない)-> パス。
-    suffix = 名前の後ろ(eval_asr = "_<名前>"・eval_speakers の run = "-run")。out = 作業データではなくそのファイルに書く(eval_timing --out)。
-    out が無く、前の結果(previous_same)と中身が同じなら書かずに、その前のファイルのパスを返す(毎晩同じ結果が貯まらない)"""
-    if out:
-        path = os.path.abspath(out)
-    else:
-        same = previous_same(res, root, area, suffix)
-        if same:
-            return same
-        path = os.path.join(root, "evals", area, "%s%s.json" % (datetime.datetime.now().strftime("%Y%m%d-%H%M%S"), suffix))
+    suffix = 名前の後ろ(eval_asr = "_<名前>"・eval_speakers の run = "-run")。
+    前の結果(previous_same)と中身が同じなら書かずに、その前のファイルのパスを返す(毎晩同じ結果が貯まらない)"""
+    same = previous_same(res, root, area, suffix)
+    if same:
+        return same
+    path = os.path.join(root, "evals", area, "%s%s.json" % (datetime.datetime.now().strftime("%Y%m%d-%H%M%S"), suffix))
     fsio.write_json(path, res, indent=1)   # フォルダも作る・Windows の一時的なロックは待ってやり直す
     return path
 
 
-def report_saved(res, enabled, root, area, suffix="", out=None):
+def report_saved(res, enabled, root, area, suffix=""):
     """enabled なら save して、最後の行「保存: <パス>」を出す(入口の accuracy.py がこの行を読む)。
     前と中身が同じで書かなかったときは、代わりに「変わらず: <前のファイル>」を出す(入口は latest を残して at だけ進める)"""
     if enabled:
-        same = None if out else previous_same(res, root, area, suffix)
+        same = previous_same(res, root, area, suffix)
         if same:
             print("\n" + SAME_MARK + same)
         else:
-            print("\n" + SAVED_MARK + save(res, root, area, suffix, out))
+            print("\n" + SAVED_MARK + save(res, root, area, suffix))
 
 
 def utf8_stdout():

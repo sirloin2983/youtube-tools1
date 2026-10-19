@@ -7,7 +7,7 @@
   since の 3 つ: marks は答えの副産物(スタジオの判定)を数える・fill と alt は道具が answers.jsonl の read:fill・read:alt を直に読む(read:yt の古い行は読み飛ばす)
   (src/eval/tools/eval_fill.py・eval_alt.py。答えを人の判断の正として判定できた数 judged に入れる。ただし入口の fill は A の行の judged だけなので、
   E(LLM)・D(名簿)の行への答えは次の測定で入口の数から消える)。
-  all の 2 つ: 話者は道具が評価用の文書しか数えず、確かめるは評価用を出さない・行の時刻は道具の --check が夜の測定に入っていない
+  all の 2 つ: 話者は道具が評価用の文書しか数えず、確かめるは評価用を出さない・行の時刻は道具が答えを読まない
 足すのは accuracy.goals_of(extra=)(入口の「調子」と /api/check/next の帯が同じ数を出す)。
 対応と数え方の正は入口の条件の表(accuracy.GOALS の各行の check)。ここの 3 つの表はそこから作る。
 """

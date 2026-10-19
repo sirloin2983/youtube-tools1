@@ -11,7 +11,6 @@
     python src/eval/tools/eval_asr.py compare 結果A.json 結果B.json
         2つの結果を、同じ文書どうしで比べる(差と 95% の範囲。範囲が 0 をまたげば「差があるとは言えない」)
         両方の結果に出どころ別の小計(編集前・ショート。summary.origins)があれば、出どころごとの差も出し、全体の差と向きが食い違う出どころがあれば注意する(2 本の物差しが食い違ったら採らない。計画 3-3)
-    python src/eval/tools/eval_asr.py list
         今までの結果の一覧
 
   stored・run の結果と画面には、量の関門(G0 = 定点 5 分・G1 = 15 分・G2 = 30 分・G3 = 60 分。定点 = 確かめ済みの文書の長さの合計。summary.gate。
@@ -1007,18 +1006,6 @@ def cmd_compare(a_path, b_path, n=BOOT, seed=1):
     return out
 
 
-def cmd_list(data):
-    d = os.path.join(data, "evals", "asr")
-    for name in sorted(os.listdir(d)) if os.path.isdir(d) else []:
-        r = read_json(os.path.join(d, name), None, C.DOC_BYTES)
-        if not r or r.get("meta", {}).get("schema") != SCHEMA:
-            continue
-        m, o = r["meta"], r["summary"]["overall"]
-        e = m.get("engine") or {}
-        print("%s  %-6s CER %s  字 %5d  %s %s%s" % (name, m["mode"], pct(o["cer"]), o["refChars"], e.get("model", ""), m.get("label", ""),
-                                               "  (まだ少ない・参考)" if r["summary"].get("lowData") else ""))
-
-
 def add_select_args(p, label_help="結果に付ける名前", no_save_help="結果を保存しない"):
     """測る文書の選び方(--data・--source・--reviewed・--since・--until・--docs)と --label・--no-save。eval_cloud も同じ"""
     p.add_argument("--data", "--data-dir", dest="data", help="文字起こしの作業データのフォルダ(既定 %%LOCALAPPDATA%%\\youtube-tools\\transcribe)")
@@ -1036,7 +1023,7 @@ def add_select_args(p, label_help="結果に付ける名前", no_save_help="結�
 
 def main(argv=None):
     p = argparse.ArgumentParser(description="文字起こしの精度を評価用の校正済みデータで測る(作業データは読むだけ)")
-    p.add_argument("mode", choices=("stored", "run", "compare", "list"))
+    p.add_argument("mode", choices=("stored", "run", "compare"))
     p.add_argument("files", nargs="*", help="compare の2つの結果")
     add_select_args(p)
     p.add_argument("--group-by", dest="group_by", choices=("engine", "model", "origin"),
@@ -1060,8 +1047,6 @@ def main(argv=None):
             raise SystemExit("compare には結果のファイルを2つ指定してください")
         return cmd_compare(*args.files)
     data = real_data_dir(args.data)
-    if args.mode == "list":
-        return cmd_list(data)
     C.prepare()
     res = cmd_stored(args, data) if args.mode == "stored" else cmd_run(args, data)
     print_summary(res)

@@ -1,4 +1,4 @@
-"""src/eval/tools/_evalcommon.py(測る道具の共通の部品)の、引数・保存・音声の出どころ・JSON の読み込みのテスト。リポジトリ直下で:
+"""src/eval/tools/_evalcommon.py(測る道具の共通の部品)の、引数・保存・音声の出どころのテスト。リポジトリ直下で:
 
     py -3.12 -m unittest src/eval/tools/tests/test_evalcommon.py
 
@@ -84,11 +84,10 @@ class TestSave(unittest.TestCase):
         self.assertEqual(json.loads(raw.decode("utf-8")), {"a": "あ"})
         self.assertFalse(raw.startswith(b"\xef\xbb\xbf"))   # BOM なし
         self.assertEqual([n for n in os.listdir(os.path.dirname(path)) if n.startswith(".tmp")], [])   # 書きかけを残さない
-        out = os.path.join(root, "sub", "o.json")
-        text = printed(lambda: (C.report_saved({"b": 1}, True, root, "demo", out=out), C.report_saved({"b": 1}, False, root, "demo")))
-        self.assertEqual(text, "\n" + C.SAVED_MARK + os.path.abspath(out) + "\n")   # 入口の accuracy.py が読む「保存: <パス>」の形
-        self.assertEqual(testkit.read_json(out), {"b": 1})
-        self.assertEqual(os.listdir(os.path.join(root, "evals", "demo")), [os.path.basename(path)])   # enabled=False は書かない
+        text = printed(lambda: (C.report_saved({"b": 1}, True, root, "demo", "_y"), C.report_saved({"b": 2}, False, root, "demo", "_y")))
+        saved = [n for n in os.listdir(os.path.join(root, "evals", "demo")) if n.endswith("_y.json")]
+        self.assertEqual(len(saved), 1)                                                 # enabled=False は書かない
+        self.assertEqual(text, "\n" + C.SAVED_MARK + os.path.join(root, "evals", "demo", saved[0]) + "\n")   # 入口の accuracy.py が読む「保存: <パス>」の形
 
 
 class TestSaveUnchanged(unittest.TestCase):
@@ -112,13 +111,11 @@ class TestSaveUnchanged(unittest.TestCase):
         self.assertEqual(len(os.listdir(os.path.dirname(p1))), 2)
         self.assertIsNone(C.previous_same(self.res(v=1), root, "demo"))           # 比べるのは最新(p2)だけ
 
-    def test_suffix_out_and_marks_are_not_deduped(self):
+    def test_suffix_and_marks(self):
         root = self.root
         a = C.save(self.res(), root, "demo", "_x")
         self.assertIsNone(C.previous_same(self.res(), root, "demo", "-run"))       # 別の suffix は別の系列
         self.assertEqual(C.previous_same(self.res(), root, "demo", "_x"), a)
-        out = os.path.join(root, "o.json")
-        self.assertEqual(C.save(self.res(), root, "demo", "_x", out=out), os.path.abspath(out))   # --out は必ず書く
         m1 = C.save(self.res(), root, "marks")
         self.assertEqual(C.save(self.res(), root, "marks"), m1)                     # marks も同じ決まり
         self.assertIn(C.SAME_MARK, printed(C.report_saved, self.res(), True, root, "marks"))
@@ -128,21 +125,6 @@ class TestSaveUnchanged(unittest.TestCase):
         put(os.path.join(d, "20260101-000000.json"), "{壊れている".encode("utf-8"))
         self.assertTrue(C.save(self.res(), self.root, "demo").endswith(".json"))
         self.assertEqual(len(os.listdir(d)), 2)
-
-
-class TestReadJson(unittest.TestCase):
-    def test_limit_and_bom_and_broken(self):
-        d = testkit.tempdir(self)
-        ok, big, bad = (os.path.join(d, n) for n in ("ok.json", "big.json", "bad.json"))
-        put(ok, b"\xef\xbb\xbf" + json.dumps({"a": 1}).encode())
-        put(big, json.dumps({"a": "x" * 100}).encode())
-        put(bad, b"{broken")
-        for case, args, want in [("BOM つき", (ok,), {"a": 1}), ("上限の中", (ok, None, 100), {"a": 1}),
-                                 ("上限を超えたら既定値", (big, "既定", 50), "既定"), ("文書の上限の中", (big, None, C.DOC_BYTES), {"a": "x" * 100}),
-                                 ("壊れた", (bad, {}), {}), ("無い", (os.path.join(d, "none.json"), 5), 5)]:
-            with self.subTest(case):
-                self.assertEqual(C.read_json(*args), want)
-        self.assertEqual(C.read_json(ok, {}, kind=list), {})   # 形が違えば既定値
 
 
 class TestAudioSpan(unittest.TestCase):
