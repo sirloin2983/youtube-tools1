@@ -342,8 +342,8 @@ class AccuracyTest(unittest.TestCase):
         # 実物の既定の呼び方: src/eval/tools/ に道具があれば呼ぶ・無ければ None
         real = accuracy.Accuracy(self.prefs, self.app, ROOT)
         got = {a["id"]: real.commands(a) for a in accuracy.AREAS}
-        self.assertEqual(got["asr"][2:], ["stored", "--label", "auto"])
-        self.assertEqual(os.path.basename(got["marks"][1]), "eval_marks.py")
+        self.assertEqual(got["asr"][1:], ["-m", "eval.tools.eval_asr", "stored", "--label", "auto"])   # 子は src で -m
+        self.assertEqual(got["marks"][2], "eval.tools.eval_marks")
         self.assertEqual(got["cut"] is None, not os.path.isfile(os.path.join(ROOT, "eval", "tools", "eval_cut.py")))   # ROOT = src
 
     def test_result_file_found_without_saved_line_but_not_outside(self):

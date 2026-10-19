@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """自動の区間が友人の区間にどれだけ合うかの物差し(LD-2a。notes:plan/done/ld2-clip-length.md の L-2)。⑤ eval_marks が表示に使い、単独でも動く。
 
-    python src/eval/tools/clipfit.py [--json] [--grid] [--data-dir 作業データの親フォルダ]
+    py -3.12 -m eval.tools.clipfit [--json] [--grid] [--data-dir 作業データの親フォルダ]
 
 - 友人の区間 = 入口の実行記録の ranges(友人が指定したまま。② flow/lengthhint.friend_ranges と同じ読み方)
 - 自動の区間 = スタジオの archive/<配信>.json.gz の 1 秒ごとの素材(音量・チャット・コメントの時刻)から合計の点数を解析と同じ式で作り直し
@@ -18,12 +18,7 @@ import argparse
 import glob
 import json
 import os
-import sys
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-SRC = os.path.dirname(os.path.dirname(HERE))   # tools -> eval -> src
-if not __package__:   # スクリプトとして起動したときだけ(見本 eval_marks.py)
-    sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
 from eval.tools import _evalcommon as C  # noqa: E402
 from flow import lengthhint  # noqa: E402  友人の区間の読み方と、長さの目安(固定の長さの基準)
 from flow import runlog  # noqa: E402

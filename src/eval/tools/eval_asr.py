@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """文字起こしの精度を、校正済みの文字起こし(評価用)で測る道具(文字起こしの改善の計画 段0-2。notes:plan/line-b-transcription.md(付録))。
 
-    python src/eval/tools/eval_asr.py stored  [--source eval|daily|all] [--label 名前]
+    py -3.12 -m eval.tools.eval_asr stored  [--source eval|daily|all] [--label 名前]
         保存してある機械の出力(original)と、人が直した行を比べる(認識はしない。今の基準)
-    python src/eval/tools/eval_asr.py run     [--model large-v3] [--vad normal] [--beam 5] [--glossary "トワ、スバル"] [--context none|auto] [--temp0] [--source eval] [--label 名前]
+    py -3.12 -m eval.tools.eval_asr run     [--model large-v3] [--vad normal] [--beam 5] [--glossary "トワ、スバル"] [--context none|auto] [--temp0] [--source eval] [--label 名前]
         評価用の音声を、指定のモデル・設定で認識し直して比べる(指定しない項目は、文字起こしの今の設定 settings.json のまま)。
         --repeat N = N 回認識して、全体の CER が中央の回を代表にする(温度のやり直しありは回ごとにぶれるので 3 回。既定 1。meta.repeat に各回の CER と幅)
         --context auto = 配信ごとの文脈(出る人の名前と呼び名。計画 段1-2)を文書ごとに作って渡す(既定 none = 渡さない = 基準)。
         --temp0 = 温度 0 に固定(雑音の多い音声で回ごとに結果が変わるのを抑える。比べるときは両方に付ける)
-    python src/eval/tools/eval_asr.py compare 結果A.json 結果B.json
+    py -3.12 -m eval.tools.eval_asr compare 結果A.json 結果B.json
         2つの結果を、同じ文書どうしで比べる(差と 95% の範囲。範囲が 0 をまたげば「差があるとは言えない」)
         両方の結果に出どころ別の小計(編集前・ショート。summary.origins)があれば、出どころごとの差も出し、全体の差と向きが食い違う出どころがあれば注意する(2 本の物差しが食い違ったら採らない。計画 3-3)
         今までの結果の一覧
@@ -57,15 +57,10 @@ import json
 import os
 import random
 import re
-import shutil
-import sys
+import shutil
 import tempfile
 import time
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-SRC = os.path.dirname(os.path.dirname(HERE))   # tools -> eval -> src
-if not __package__:   # スクリプトとして起動したとき(py -3.12 src/eval/tools/eval_asr.py)だけ。src を先頭に・この道具のフォルダは外す(兄弟は絶対 import で読む。見本 pipeline/transcribe/worker.py)
-    sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
 from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・git の rev・保存・editor の読み込み。src を sys.path に足す)
 from eval.tools._evalcommon import is_reviewed, read_json  # noqa: E402  is_reviewed は eval_alt・eval_timing・テストも eval_asr.名前 で使う
 from ytt import tools  # noqa: E402
@@ -940,7 +935,7 @@ def cmd_compare(a_path, b_path, n=BOOT, seed=1):
 
 def add_select_args(p, label_help="結果に付ける名前", no_save_help="結果を保存しない"):
     """測る文書の選び方(--data・--source・--reviewed・--since・--until・--docs)と --label・--no-save。eval_cloud も同じ"""
-    p.add_argument("--data", "--data-dir", dest="data", help="文字起こしの作業データのフォルダ(既定 %%LOCALAPPDATA%%\\youtube-tools\\transcribe)")
+    p.add_argument("--data", help="文字起こしの作業データのフォルダそのもの(既定 %%LOCALAPPDATA%%\\youtube-tools\\transcribe。ほかの道具の --data-dir = 全ツールの親とは別)")
     p.add_argument("--source", choices=("eval", "daily", "all"),
                    help="測る文書の出どころ。eval = 評価用(既定)/ daily = 普段の校正済み(評価用以外)/ all = 全部")
     p.add_argument("--reviewed", choices=C.REVIEWED_MODES,

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """盛り上がりの検出(スタジオの自動マーク)の当たり具合を、人の判定の記録で測る道具(線 C の土台。notes:plan/line-bc-master-plan.md の Q3・I-4a)。
 
-    python src/eval/tools/eval_marks.py [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--json] [--data-dir 作業データの親フォルダ]
-    python src/eval/tools/eval_marks.py --live [--since …] [--until …] [--json]     配信ごと(線 D の D-12。下の「--live」)
+    py -3.12 -m eval.tools.eval_marks [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--json] [--data-dir 作業データの親フォルダ]
+    py -3.12 -m eval.tools.eval_marks --live [--since …] [--until …] [--json]     配信ごと(線 D の D-12。下の「--live」)
 
 - 物差し 3 本(結果の `human3`・表示の先頭。MARKS-3・C-4-1): (1) 友人の区間の拾えた率 = 下の friendRanges のまま / (2) 届けた物を友人がどう答えたか =
   分母 ② flow/deliveries の届けたパック(origin ごとに request・auto・manual)・答え ③ human/judgments の who friend を judgments.friend_value で読む =
@@ -53,14 +53,9 @@
 import argparse
 import calendar
 import json
-import os
-import sys
+import os
 import time
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-SRC = os.path.dirname(os.path.dirname(HERE))   # tools -> eval -> src
-if not __package__:   # スクリプトとして起動したとき(py -3.12 src/eval/tools/eval_marks.py)だけ。src を先頭に・この道具のフォルダは外す(兄弟は絶対 import で読む。見本 pipeline/transcribe/worker.py)
-    sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
 from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・分布・保存。src を sys.path に足す)
 from eval.tools._evalcommon import pct, rate, read_json  # noqa: E402
 from manage.cases import txindex  # noqa: E402

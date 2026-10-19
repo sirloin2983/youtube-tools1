@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """行の時刻(字幕の区間)を、行の時刻の原則(notes:docs/spec/subtitles.md)の数字で測る道具(notes:plan/done/line-b-row-timing.md の 7-4)。
 
-    python src/eval/tools/eval_timing.py [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--json] [--data-dir 作業データの親フォルダ] [--apply]
+    py -3.12 -m eval.tools.eval_timing [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--json] [--data-dir 作業データの親フォルダ] [--apply]
 
 - 作業データは**読むだけ**(transcribe の transcripts/<id>.json と、--apply のときの <id>.asr.json)。何も書き換えない。--json のときだけ、結果を
   文字起こしの作業データの evals/timing/<日時>.json(schema youtube-tools-timing-eval/v1)に残す(置き場所は eval_cut.py と同じ規則)。
@@ -34,15 +34,10 @@ import argparse
 import difflib
 import os
 import re
-import statistics
-import sys
+import statistics
 import time
 import unicodedata
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-SRC = os.path.dirname(os.path.dirname(HERE))   # tools -> eval -> src
-if not __package__:   # スクリプトとして起動したとき(py -3.12 src/eval/tools/eval_timing.py)だけ。src を先頭に・この道具のフォルダは外す(兄弟は絶対 import で読む。見本 pipeline/transcribe/worker.py)
-    sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
 from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・git の rev・保存。src を sys.path に足す)
 from eval.tools._evalcommon import rate, read_json  # noqa: E402
 from ytt import docloc, txtext  # noqa: E402

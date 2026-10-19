@@ -367,8 +367,8 @@ class Accuracy:
 
     # ---- 道具の呼び方
     def _default_commands(self, area):
-        script = os.path.join(self.repo_root, "eval", "tools", area["script"])   # 道具は src/eval/tools/(repo_root = src)
-        return [tools.python_exe(), script] + list(area["args"]) if os.path.isfile(script) else None
+        script = os.path.join(self.repo_root, "eval", "tools", area["script"])   # 道具は src/eval/tools/(repo_root = src = 子の作業フォルダ)
+        return [tools.python_exe(), "-m", "eval.tools." + area["script"][:-3]] + list(area["args"]) if os.path.isfile(script) else None
 
     def _default_evals_dir(self, area):
         try:

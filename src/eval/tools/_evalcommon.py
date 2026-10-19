@@ -1,4 +1,4 @@
-"""dev/ の測る道具(eval_asr.py・eval_speakers.py・eval_timing.py・eval_cut.py・eval_alt.py・eval_marks.py)の共通の部品。
+"""測る道具(src/eval/tools の eval_*.py・clipfit.py)の共通の部品。道具は src の中で `py -3.12 -m eval.tools.<名前>` で動かす(入口の accuracy.py も同じ)。
 
 - 置き場所: TOP(リポジトリ直下 = git)・REPO(src = ツールと ytt)。読み込むと REPO を sys.path に足す
 - 作業データの場所(ytt.datadir の 1 か所。--data-dir は全ツールの作業データの親フォルダ = テスト用)・JSON の読み方・

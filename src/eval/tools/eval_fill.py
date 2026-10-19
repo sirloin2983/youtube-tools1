@@ -3,7 +3,7 @@
 E LLM の名前直し・C 余分の掃除)を、人が残したか・直したか・戻したかで測る道具(後処理の様子見の物差し。
 人の判断 = 「確かめる」の読みのカード read:fill の答え + 普段の校正のついで。追加の校正は要らない)。
 
-    python src/eval/tools/eval_fill.py [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--json] [--data-dir 作業データの親フォルダ]
+    py -3.12 -m eval.tools.eval_fill [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--json] [--data-dir 作業データの親フォルダ]
 
 - 作業データは**読むだけ**(文字起こしの transcripts/<id>.json・whisper の生の結果 <id>.asr.json・<id>.llm.json と、
   入口の作業データ app の check/answers.jsonl = 確かめるの答え。読み方は human/check/answerlog)。何も書き換えない。
@@ -40,10 +40,6 @@ import argparse
 import os
 import sys
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-SRC = os.path.dirname(os.path.dirname(HERE))   # tools -> eval -> src
-if not __package__:   # スクリプトとして起動したとき(py -3.12 src/eval/tools/eval_fill.py)だけ。src を先頭に・この道具のフォルダは外す(兄弟は絶対 import で読む。見本 pipeline/transcribe/worker.py)
-    sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
 from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・保存。src を sys.path に足す)
 from eval.tools._evalcommon import rate, read_json  # noqa: E402
 from eval.tools.eval_asr import runs_of  # noqa: E402  文書の認識の記録 recognition.runs

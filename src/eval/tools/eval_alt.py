@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """「2つ目のエンジンとの食い違いの候補」(行に出る札「別」)が、校正を本当に速くしているかを数字で見る道具(候補の当たり率)。
 
-    python src/eval/tools/eval_alt.py [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--include-eval] [--json] [--data-dir 作業データの親フォルダ]
+    py -3.12 -m eval.tools.eval_alt [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--include-eval] [--json] [--data-dir 作業データの親フォルダ]
 
 - 作業データは**読むだけ**(transcribe の transcripts/<id>.json・<id>.alt.json・学習の記録 learn-feedback.json と、
   入口の作業データ app の check/answers.jsonl = 確かめるの答え。読み方は human/check/answerlog)。何も書き換えない。
@@ -40,14 +40,9 @@
 import argparse
 import bisect
 import difflib
-import os
-import sys
+import os
 import time
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-SRC = os.path.dirname(os.path.dirname(HERE))   # tools -> eval -> src
-if not __package__:   # スクリプトとして起動したとき(py -3.12 src/eval/tools/eval_alt.py)だけ。src を先頭に・この道具のフォルダは外す(兄弟は絶対 import で読む。見本 pipeline/transcribe/worker.py)
-    sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
 from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・保存。src を sys.path に足す)
 from eval.tools._evalcommon import rate, read_json, short_pct as pct  # noqa: E402
 from ytt.schemas import num  # noqa: E402
