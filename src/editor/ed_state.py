@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""「編集」のサーバーの部品: 置き場所・設定の値・共通の小道具・記録(落ちたときの手がかり)・作業データの切り替え(段10 で editor/serve.py から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
+"""「編集」のサーバーの部品: 置き場所・設定の値・共通の小道具・記録(落ちたときの手がかり)・作業データの切り替え。
 
 名前は serve.py からも見える(serve.py が受け付けて、この部品へ転送する。テストの S.名前 = … もここに入る)。
 ほかの部品の名前は `ed_xxx.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
@@ -20,13 +20,13 @@ from pipeline.transcribe import backend as _txbackend  # noqa: E402   疑似の�
 
 APP_ID = _runtime.TOOL_APPS["transcribe"]   # /api/ping の app 名(互換のため値は変えない。正は ytt.runtime.TOOL_APPS)
 # 版(SERVER_VERSION)・このフォルダ(ROOT)・作業データの置き場所(段階4。DATA_DIR・TX_DIR・TMP_DIR・SETTINGS・FEEDBACK)・
-# スタジオと clip-marker の data.json(STUDIO_DATA・MARKER_DATA)の今の値の持ち主は ytt/workdata(RS3-0A。下の層の部品も同じ名前を直に読むため。
+# スタジオと clip-marker の data.json(STUDIO_DATA・MARKER_DATA)の今の値の持ち主は ytt/workdata(下の層の部品も同じ名前を直に読むため。
 # ここに同じ名前を残さない = S.TX_DIR = … は serve の名前の受付が workdata へ届ける)。起動時に prepare() が ytt.datadir で決めて
 # serve.set_data_dir() で切り替え、認識ワーカーにも環境変数 TRANSCRIBE_DATA_DIR で渡す。import した直後はこのフォルダ(テスト用)= 下の set_root
 _flowwire.setup_places(root=os.path.dirname(os.path.abspath(__file__)))   # 置き場所の既定(ytt/workdata の set_root)と名簿のファイル(① roster.ROSTER)を ② の準備 1 か所で(OPT-E2 1c-1)
 UI_DIR = os.environ.get("YTT_EDITOR_UI_DIR") or os.path.join(os.path.dirname(_workdata.ROOT), "app", "ui", "editor")   # 画面の部品(app*.js・cut.js・pack-tab.js・proof.css)の置き場所。RV C2 で src/editor から src/app/ui/editor へ(URL は /transcribe/app.js のまま)。環境変数はテスト用(serve.py を一時フォルダに写して動かすため)
-APP_JS = os.path.join(UI_DIR, "app.js")     # 画面の部品の JS(案件の画面の校正のパネルが読む。RS8 C4 で編集の画面のページ index.html と ui-kit の写しは消した)
-PROOF_CSS = os.path.join(UI_DIR, "proof.css")     # 校正のパネルの CSS(RS8 C2b-0 で index.html から外に出した)
+APP_JS = os.path.join(UI_DIR, "app.js")     # 画面の部品の JS(案件の画面の校正のパネルが読む)
+PROOF_CSS = os.path.join(UI_DIR, "proof.css")     # 校正のパネルの CSS
 PAGE_JS = ("cut.js", "pack-tab.js", "app-tpl.js", "app-core.js", "app-jobs.js", "app-list.js", "app-learn.js", "app-rows.js", "app-tools.js")          # 「編集」のタブの JS(notes:docs/design/edit-tool-design.md の 7。app.js より先に読む。無いものは 404)
 PORT = 8775
 ALLOWED_HOSTS = set()
@@ -34,20 +34,20 @@ BASE_PATH = "/"   # 画面の場所。入口の統合サーバーに取り込ま
 MAX_BODY = 32 * 1024 * 1024
 MAX_SEGMENTS = _yschemas.MAX_SEGMENTS   # 別名(RS3-E5a。正は ytt/schemas = 文書の置き場 human/proof/store が読む。差し替えない値)
 TAGS = _yschemas.ROW_TAGS   # 別名(RS3-E5a。正は ytt/schemas の ROW_TAGS)= 行に付けるメモ。unclear(聞き取れない)の行は、精度測定・学習の正解に使わない
-MAX_TEXT = _txbase.MAX_TEXT   # 別名(RS2-1a。下の別名も同じ: 差し替えない名前なので、認識の部品が読む正へ移して同じ物を残した)
-# 組み込みの話者「ゲーム音声など」・行の印 noSub(字幕に出さない)・文書の id の形の正は ytt/schemas.py(RS2-9 に移した。
-# 話者の部品(pipeline/transcribe/diarize・human/proof/speakers)が ed_state を読まずに済むように)。どれも差し替えない名前なので別名(同じ物)
+MAX_TEXT = _txbase.MAX_TEXT   # 別名(下の別名も同じ: 差し替えない名前なので、認識の部品が読む正と同じ物)
+# 組み込みの話者「ゲーム音声など」・行の印 noSub(字幕に出さない)・文書の id の形の正は ytt/schemas.py(話者の部品が ed_state を読まずに済む)。
+# どれも差し替えない名前なので別名(同じ物)
 OTHER_SPK_ID, OTHER_SPK_NAME, OTHER_SPK_BUILTIN, OTHER_SPK_COLOR = _yschemas.OTHER_SPK_ID, _yschemas.OTHER_SPK_NAME, _yschemas.OTHER_SPK_BUILTIN, _yschemas.OTHER_SPK_COLOR
-other_speaker = _yschemas.other_speaker       # lint: keep 別名(RS2-9)= 文書の話者が組み込みの「ゲーム音声など」か
-no_sub_row = _yschemas.no_sub_row             # lint: keep 別名(RS2-9)= 行の印 noSub(字幕に出さない)
+other_speaker = _yschemas.other_speaker       # lint: keep 別名 = 文書の話者が組み込みの「ゲーム音声など」か
+no_sub_row = _yschemas.no_sub_row             # lint: keep 別名 = 行の印 noSub(字幕に出さない)
 
 
 MAX_SPAN_SEC = _txbase.MAX_SPAN_SEC
 MAX_QUEUE = 200   # フォルダ一括で入れる分も含めた、待機できる最大件数
-TID_RE = _yschemas.TID_RE   # lint: keep 別名(RS2-9)= 文書の id の形
-# モデル名の検査 valid_model・MODEL_RE は pipeline/transcribe/worker_client へ移した(RS3-0A。ワーカーの cwd = ROOT と対の決まり)
-# 画面のモデルの選択肢(欄は残す)。0.58.0(2026-10-11 ユーザー決定「普段よく使っているモデル以外は要らない」)で large-v3 だけにした
-# (small・medium・large-v3-turbo・kotoba は外した。保存済みの設定に残っていても、画面は選択肢に無い値を large-v3 に読み替える)
+TID_RE = _yschemas.TID_RE   # lint: keep 別名 = 文書の id の形
+# モデル名の検査 valid_model・MODEL_RE の正は pipeline/transcribe/worker_client(ワーカーの cwd = ROOT と対の決まり)
+# 画面のモデルの選択肢(欄は残す)。large-v3 だけ(ユーザー決定「普段よく使っているモデル以外は要らない」)
+# (保存済みの設定に選択肢に無い値が残っていても、画面は large-v3 に読み替える)
 MODELS = [
     ("large-v3", "large-v3"),
 ]
@@ -73,7 +73,7 @@ def atomic_write(path, data: bytes):
     _fsio.atomic_write(path, data, fsync_required=True)
 
 
-# 共通の小道具は ytt の物(2026-10-09。名前は今までどおり ed_state.名前 で呼べる = 呼ぶ側は変えない)
+# 共通の小道具は ytt の物(名前は ed_state.名前 で呼べる)
 # (下の 4 つは写しではなく別名。lint の dup-helper には `lint: keep` で印を付けた)
 unlink_quiet = _fsio.unlink_quiet   # lint: keep 別名 = 消せなくても(無い・使用中)止めない(一時ファイル・付き物の後片付け)
 file_stamp = _fsio.stamp            # lint: keep 別名 = (更新日時ns, 大きさ)。無い・読めなければ None(読み直しを省くキャッシュの鍵)
@@ -111,7 +111,7 @@ _mem = _tools.memory_label   # lint: keep 別名(RS2-1a)= 記録用のメモリ�
 
 
 def runtime_path_dir():
-    """<editor の1つ上>/.runtime(環境変数 YTT_RUNTIME_DIR が優先)。pipeline_io.runtime_dir と同じ規則(RS3-E7 に ed_misc から。起動の約束 = app の物)"""
+    """<editor の1つ上>/.runtime(環境変数 YTT_RUNTIME_DIR が優先)。pipeline_io.runtime_dir と同じ規則(起動の約束 = app の物)"""
     return _runtime.runtime_dir(_workdata.ROOT)
 
 
@@ -170,7 +170,7 @@ fmt_hms = _yschemas.fmt_hms   # lint: keep 別名(RS2-1a)= 秒 → 時:分:秒
 
 
 # GPU と部品の有無(nvidia_gpu・has_faster_whisper・worker_has・gpu_ready・_probe_gpu)・ワーカーの Python(worker_python)・
-# 疑似のワーカーの判定(worker_fake)は pipeline/transcribe/worker_client へ移した(RS3-0A。S.名前 は serve の受付で読める)
+# 疑似のワーカーの判定(worker_fake)の正は pipeline/transcribe/worker_client(S.名前 は serve の受付で読める)
 
 
 def backend_name():
@@ -179,5 +179,5 @@ def backend_name():
 
 
 MIXED_FLAG, WEAK_FLAG, NONE_FLAG = _txbase.MIXED_FLAG, _txbase.WEAK_FLAG, _txbase.NONE_FLAG   # 別名(RS2-1a)
-SPK_FLAGS = _txbase.SPK_FLAGS   # 別名(RS2-8a。txbase へ移した。dev/eval_asr が S.SPK_FLAGS を読む・差し替えない名前)
+SPK_FLAGS = _txbase.SPK_FLAGS   # 別名(正は txbase。dev/eval_asr が S.SPK_FLAGS を読む・差し替えない名前)
 

@@ -34,7 +34,7 @@ class TestNames(unittest.TestCase):
         self.assertEqual(modfwd.duplicates(S._ED_MODULES), {})
 
     def test_old_names_still_resolve(self):
-        """移す前の部品が持っていた名前は、S.名前 で読める(数は名前の一覧の写しが欠けていないことの確かめ)"""
+        """元の部品が持っていた名前は、S.名前 で読める(数は名前の一覧の写しが欠けていないことの確かめ)"""
         for fname, n in (("data_ed_jobs_names.txt", 200), ("data_ed_speakers_names.txt", 102), ("data_ed_store_names.txt", 75),
                          ("data_ed_alt_names.txt", 31), ("data_ed_retime_names.txt", 2), ("data_ed_relink_names.txt", 56),
                          ("data_ed_misc_names.txt", 5), ("data_ed_state_names.txt", 80), ("data_ed_learn_names.txt", 57)):

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""話者の声を覚える(A-3。git の履歴(679ff01 以前)の docs/archive/backlog-ui-2026-09-27.md)のサーバー側のテスト。
+"""話者の声を覚える(A-3)のサーバー側のテスト。
 
     python -m unittest test_metrics test_resolve_export -q   # test_metrics がこのファイルのテストも読み込む
     python -m unittest test_voices -q                        # これだけ
@@ -258,7 +258,7 @@ class TestVoiceStore(VoiceDir):
         self.assertTrue(any("兎田ぺこら" in w for w in j.get("warnings") or []))
 
     def test_summary_marks_generic_names(self):
-        # すでに一般的な名前で覚えた声は消さず、一覧で知らせる(2026-09-29 ユーザー決定)
+        # すでに一般的な名前で覚えた声は消さず、一覧で知らせる(ユーザー決定)
         S.save_voices("voxceleb", {"本人": {"vec": unit(1, 0, 0), "rows": 3, "sec": 30, "updatedAt": 1},
                                    "兎田ぺこら": {"vec": unit(0, 1, 0), "rows": 3, "sec": 30, "updatedAt": 1}})
         self.assertEqual({x["name"]: x["generic"] for x in S.voices_summary()["voxceleb"]}, {"本人": True, "兎田ぺこら": False})
@@ -277,7 +277,7 @@ class TestVoiceStore(VoiceDir):
         self.assertEqual([s["name"] for s in d["speakers"]], ["兎田ぺこら", "みこち", "話者3"])
 
     def test_names_limit_and_elimination(self):
-        """出てくる人の名前(友人からの依頼・2026-10-01): 照らし合わせはその名前だけ、1人ずつ残れば消去法で付ける"""
+        """出てくる人の名前(友人からの依頼): 照らし合わせはその名前だけ、1人ずつ残れば消去法で付ける"""
         S.save_voices("voxceleb", {"兎田ぺこら": {"vec": unit(1, 0, 0), "rows": 3, "sec": 30, "updatedAt": 1},
                                    "さくらみこ": {"vec": unit(0, 1, 0), "rows": 3, "sec": 30, "updatedAt": 1}})
         self.put_doc(doc_with_speakers([("S1", "話者1"), ("S2", "話者2")], [(0, 5, "S1", ""), (6, 12, "S2", "")]))
@@ -577,7 +577,7 @@ class TestOtherVoice(VoiceDir):
 
 class TestExclusive(StoreDir):
     """同じ文書に同時に入れない組み合わせ(ed_jobs.EXCLUSIVE)は、入口の検査(validate_*)と登録(add_job)で同じ組を断る
-    (10-08 の見直しの疑い 11: 声を覚える・判別・再認識で、入口と登録の組がずれていた)"""
+    (声を覚える・判別・再認識で、入口と登録の組がずれない)"""
 
     def active(self, kind):
         return mock.patch.dict(S._jobs, {"jx": {"id": "jx", "kind": kind, "state": "queued", "tid": TID, "spec": {"tid": TID}}})

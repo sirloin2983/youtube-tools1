@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""「編集」の部品(校正・カット・パック)を使う画面のテストの共通部分。RS8 C4 で古い編集の画面と旧 e2e(e2e_edit_*.py など 15 本)は消え、
-今は案件の画面の e2e(src/app/tests/e2e_cases_proof.py・e2e_cases_cut.py)が使う。
+"""「編集」の部品(校正・カット・パック)を使う画面のテストの共通部分。
+案件の画面の e2e(src/app/tests/e2e_cases_proof.py・e2e_cases_cut.py)が使う。
 
 - ツールのフォルダの直下のファイルはまとめて一時フォルダへ写す(新しい cut.js などを足しても写し忘れで画面が真っ白にならない)
 - 入口に取り込んだ形(app/server.py --only transcribe,cut2resolve。パック作りは cut2resolve の API を呼ぶため)で起動する。mounted=False は serve.py 単体(画面は無い・API だけ)
@@ -28,7 +28,7 @@ os.environ.setdefault("YTT_CORE_DIR", REPO)   # 一時フォルダに写した s
 
 
 def read_pack_plan(path):
-    """パックの Lua に埋め込んだ計画(区間・字幕・置き先)。2026-09-26(④)から textplus-import.json は出さない"""
+    """パックの Lua に埋め込んだ計画(区間・字幕・置き先)。textplus-import.json は出さない"""
     from pipeline.pack import resolve_textplus   # REPO(src)は上で sys.path に足してある
     with open(path, encoding="utf-8") as f:
         return resolve_textplus.read_script_plan(f.read())
@@ -53,7 +53,6 @@ def make_video(path, sec=12, fps=30, size="320x180", beeps=None, audio=True):
         vol = "1" if beeps is None else "+".join("between(t,%s,%s)" % (a, b) for a, b in beeps) or "0"
         cmd += ["-f", "lavfi", "-i", "sine=frequency=440:duration=%s,volume='%s':eval=frame" % (sec, vol)]
     cmd += ["-shortest", "-pix_fmt", "yuv420p", "-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8", "-b:v", "200k"]   # 4:2:0(profile 0)でないとブラウザで再生できないことがある。
-    # 以前は -threads 1 にしていた(当時の CPU で VP9 が複数スレッドだと 1 割ほど 0xC0000005 で落ちた)。CPU を替えたあと(10-04)50 回で 0 件なので外した
     cmd += ["-c:a", "libopus"] if audio else ["-an"]
     subprocess.run(cmd + [path], check=True, timeout=120)
     return path
@@ -110,7 +109,7 @@ class Server:
             raise RuntimeError("サーバーが起動しません")
         if mounted:   # 書き込み系の API の合言葉(入口が画面に入れる <meta name="ytt-token">)
             html = ""
-            for i in range(100):   # /api/ping が答えても、画面の取り込みがまだのことがある(Linux で 1 回目が 404 だった)。出るまで待つ。合言葉はホームの画面から(編集の画面は C4 で消えた)
+            for i in range(100):   # /api/ping が答えても、画面の取り込みがまだのことがある(Linux で 1 回目が 404 だった)。出るまで待つ。合言葉はホームの画面から
                 try:
                     html = urllib.request.urlopen("http://localhost:%d/" % self.port, timeout=10).read().decode("utf-8")
                     break

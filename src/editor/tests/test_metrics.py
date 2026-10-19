@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""v0.7.0 の追加分(校正済み・CER測定・英字フラグ・A/B比較・校正済みの書き出し)のテスト。
+"""校正済み・CER測定・英字フラグ・A/B比較・校正済みの書き出し)のテスト。
 
     python3 test_metrics.py          # 単体テスト + 疑似モードでの通し試験(ffmpeg が必要。数十秒)
 
@@ -51,11 +51,11 @@ class TestPure(unittest.TestCase):
     def test_norm_cer(self):
         self.assertEqual(S.norm_cer("ホロ・ライブ！ Ｔｅｓｔ、ー"), "ほろらいぶtestー")
         self.assertEqual(S.norm_cer(" 、。 "), "")
-        # 〜・～・~ は ー と同じに数える(2026-10-04 ユーザー決定)
+        # 〜・～・~ は ー と同じに数える(ユーザー決定)
         self.assertEqual(S.norm_cer("すご〜い"), S.norm_cer("すごーい"))
         self.assertEqual(S.norm_cer("すご～い"), S.norm_cer("すご~い"))
         self.assertEqual(S.norm_cer("すご〜い"), "すごーい")
-        # 表記の違いを数えない(2026-10-06 ユーザー決定。notes:docs/spec/subtitles.md の B)
+        # 表記の違いを数えない(ユーザー決定。notes:docs/spec/subtitles.md の B)
         self.assertEqual(S.norm_cer("イエターーーーー"), S.norm_cer("いえたー"))      # 伸ばし棒の連続は 1 つ・カタカナ = ひらがな
         self.assertEqual(S.norm_cer("フワモコ"), S.norm_cer("ふわもこ"))
         self.assertEqual(S.norm_cer("ヴィ"), "ゔい")
@@ -124,20 +124,20 @@ class TestPure(unittest.TestCase):
         self.assertFalse(any(p["text"].endswith(("マ", "マイ", "マイン", "マインク", "マインクラ", "マインクラフ")) for p in parts),
                          [p["text"] for p in parts])                                     # カタカナの語の途中で切らない
         self.assertTrue(all(len(p["text"]) <= 18 for p in parts))
-        self.assertEqual(len(S.split_segment(seg("あ" * 26))), 1)                          # 既定 24 + 2 文字までは分けない(0.59.6)
+        self.assertEqual(len(S.split_segment(seg("あ" * 26))), 1)                          # 既定 24 + 2 文字までは分けない
 
     def test_subtitle_settings(self):
         self.assertEqual(S.subtitle_settings({}), S.SUBTITLE_DEFAULT)
         st = {"subtitle": {"orientation": "horizontal", "maxChars": {"vertical": 12, "horizontal": 99}, "wrapChars": {"vertical": "8", "horizontal": 20}}}
         v = S.subtitle_settings(st)
         self.assertEqual(v, {"orientation": "horizontal", "maxChars": {"vertical": 12, "horizontal": 28}, "wrapChars": {"vertical": 8, "horizontal": 20}, "splitChars": 24})
-        # 0.59.5: 行を分ける文字数は字幕の最大文字数・向きとは別(設定 subtitle.splitChars。既定 40 → 0.59.6 で 24。notes:plan/done/line-b-row-split.md の 8・line-b-transcription.md の「長い行だけ分けると」)
+        # 行を分ける文字数は字幕の最大文字数・向きとは別(設定 subtitle.splitChars。既定 24。notes:plan/done/line-b-row-split.md の 8・line-b-transcription.md の「長い行だけ分けると」)
         self.assertEqual(S.split_chars_for({}, st), 24)                                  # 設定の向き(横)でも 28 ではなく既定 24
         self.assertEqual(S.split_chars_for({"subtitleOrientation": "vertical"}, st), 24)  # 要求の向きでも変わらない
-        self.assertEqual(S.split_chars_for({"subtitleOrientation": "x"}, {}), 24)          # 既定 24(0.59.6)
+        self.assertEqual(S.split_chars_for({"subtitleOrientation": "x"}, {}), 24)          # 既定 24
         self.assertEqual(S.split_chars_for({"splitChars": 20, "subtitleOrientation": "vertical"}, st), 20)   # 要求の明示の値(② のまとめて実行の束)
         self.assertEqual(S.split_chars_for({"splitChars": 200}, st), 24)                  # 範囲の外は使わない
-        self.assertFalse(hasattr(S, "subtitle_max_chars"))                                # 「長い行を分け直す」は消した(決定 3-47 の Q4)
+        self.assertFalse(hasattr(S, "subtitle_max_chars"))                                # 「長い行を分け直す」は無い(決定 3-47 の Q4)
         self.assertEqual(S.split_chars_for({}, {"subtitle": {"splitChars": 32}}), 32)       # 設定の値
         self.assertEqual(S.split_chars_for({}, {"subtitle": {"splitChars": 4}}), 24)        # 範囲(8〜80)の外は既定
         with patch.dict(os.environ, {"TRANSCRIBE_SPLIT_CHARS": "16"}):
@@ -225,7 +225,7 @@ class TestPure(unittest.TestCase):
         orig = [{"start": 0, "end": 2, "text": "あ"}]
         self.assertIsNone(S.doc_metrics({"original": orig, "segments": [seg(1, 0, 2, "い")]}))                       # 校正済みなし
         self.assertIsNone(S.doc_metrics({"original": [], "segments": [seg(1, 0, 2, "い", True)]}))                 # 機械の出力なし
-        self.assertIsNone(S.doc_metrics({"original": orig, "segments": [seg(1, 0, 2, "い")]}))                       # 校正済みの印が無ければ、修正があっても数えない(旧データの仮計算は消した)
+        self.assertIsNone(S.doc_metrics({"original": orig, "segments": [seg(1, 0, 2, "い")]}))                       # 校正済みの印が無ければ、修正があっても数えない
 
     def test_terms_hit_and_extra(self):
         orig = [{"start": 0, "end": 2, "text": "トゥー様とホロライブ"}, {"start": 2, "end": 4, "text": "陽キャだよ"}]
@@ -659,7 +659,7 @@ class TestRangeAndStudio(unittest.TestCase):
         self.assertEqual(out[1]["end"], 20.0)
 
 
-# 2026-09-24 の見直しで足したテスト(test_backend.py)も、従来のコマンド(python -m unittest test_metrics test_resolve_export)で一緒に走らせる
+# test_backend.py のテストも、このコマンド(python -m unittest test_metrics test_resolve_export)で一緒に走らせる
 from test_backend import start_server  # noqa: E402,F401
 from test_backend import *  # noqa: E402,F401,F403
 from test_worker import *  # noqa: E402,F401,F403   認識ワーカー(別プロセス)のテストも同じコマンドで
@@ -673,19 +673,19 @@ from test_qwen3 import *  # noqa: E402,F401,F403   Qwen3-ASR のエンジン(she
 from test_records import *  # noqa: E402,F401,F403   記録の土台(マスタープラン Q2。proofedAt・再認識の前の機械の出力・辞書の版・カットの draft・校正の手間)
 from test_drill import *  # noqa: E402,F401,F403   評価ドリルと定点の「あと何分」(マスタープラン Q4(c)。ed_drill.py)
 from test_alt import *  # noqa: E402,F401,F403   2つ目のエンジンとの食い違いの候補(精度改善 第2版 D1-b。ed_alt.py)
-from test_fill import *  # noqa: E402,F401,F403   認識のあとの後処理 A・C・D(10-08 の実験ループ。pipeline/transcribe/fill.py。0.60.0)
-from test_llm import *  # noqa: E402,F401,F403   LLM の後処理 E(提案 P18。pipeline/transcribe/llm.py・tx_engines.LlamaText・ワーカーの op complete。0.61.0)
-from test_thumb_job import *  # noqa: E402,F401,F403   サムネの案のジョブ(提案 P5。ed_thumb.py → thumb_ideas.py。0.64.0)
+from test_fill import *  # noqa: E402,F401,F403   認識のあとの後処理 A・C・D(pipeline/transcribe/fill.py)
+from test_llm import *  # noqa: E402,F401,F403   LLM の後処理 E(提案 P18。pipeline/transcribe/llm.py・tx_engines.LlamaText・ワーカーの op complete)
+from test_thumb_job import *  # noqa: E402,F401,F403   サムネの案のジョブ(提案 P5。ed_thumb.py → thumb_ideas.py)
 from test_autodiar import *  # noqa: E402,F401,F403   評価用の文書の文字起こしのあとの話者の自動判別(human/proof/speakers の autodiar_)
 from test_nosub_metrics import *  # noqa: E402,F401,F403   字幕に出さない行(noSub)と重なりの数え方・学習(eval/drill/metrics・human/proof/learn。RS3-E5c まで ed_learn.py)
 from test_smooth import *  # noqa: E402,F401,F403   話者の細切れをならす(S2。ed_speakers の smooth_・設定 diarSmooth)
 from test_retime import *  # noqa: E402,F401,F403   字幕の読む速さの印・行の時刻を単語の時刻に合わせる候補(ed_retime.py・POST /api/retime)
 from test_names import *  # noqa: E402,F401,F403   serve の名前の受付と ed_jobs の転送(役割で組み直す RS2。ytt/modfwd.py)
-from test_proof_api import *  # noqa: E402,F401,F403   旧 e2e(RS8 C4 で消した編集の画面の e2e)から移した API の確かめ
+from test_proof_api import *  # noqa: E402,F401,F403   API の確かめ
 
 
 class TestThreadDefaults(unittest.TestCase):
-    """2026-10-04 S2: CPU のスレッド数の既定(faster-whisper 8・話者判別 8)と環境変数(git の履歴(679ff01 以前)の docs/plan/stability-review-2026-10.md)"""
+    """CPU のスレッド数の既定(faster-whisper 8・話者判別 8)と環境変数"""
 
     def test_faster_whisper_threads(self):
         from pipeline.transcribe import tx_engines

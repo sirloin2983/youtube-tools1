@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""サーバー側の見直し(2026-09-24)で直したバグ・足した機能のテスト。
+"""サーバー側のバグ直し・機能のテスト。
 
     python3 -m unittest test_metrics test_resolve_export -q   # test_metrics がこのファイルのテストも読み込む
     python3 -m unittest test_backend -q                        # これだけ
@@ -211,7 +211,7 @@ class TestPerformance(StoreDir):
         self.assertNotIn(TID, S._summary_cache)
 
     def test_list_fields_for_history(self):
-        """v0.15.0: 履歴の一覧の項目(校正の進み具合・長さ・元の配信・配信者・元の動画の有無・パック)"""
+        """履歴の一覧の項目(校正の進み具合・長さ・元の配信・配信者・元の動画の有無・パック)"""
         media_dir = os.path.join(self.tmp, "exports")
         os.makedirs(media_dir)
         media = os.path.join(media_dir, "01_見どころ.mp4")
@@ -245,7 +245,7 @@ class TestPerformance(StoreDir):
             from flow import packrec
             pk = os.path.join(media_dir, "01_見どころ_pack")
             os.makedirs(pk)
-            write_json(os.path.join(pk, "cut-plan.json"), {})                   # 以前の形(フォルダの中の cut-plan.json)だけでは「パックあり」にしない
+            write_json(os.path.join(pk, "cut-plan.json"), {})                   # フォルダの中の cut-plan.json だけでは「パックあり」にしない
             self.assertIsNone({x["id"]: x for x in S.list_transcripts()}[TID]["pack"])
             c2r = os.path.join(self.tmp, "cut2resolve")
             lua = os.path.join(pk, "create_resolve_textplus_project.lua")
@@ -284,7 +284,7 @@ class TestStartupChecks(StoreDir):
 
 class TestBomTolerant(StoreDir):
     def test_settings_and_roster_with_bom(self):
-        """メモ帳の「UTF-8 (BOM 付き)」で直した settings.json・名簿でも読める(以前は置換辞書が黙って使われず、名簿は読めないと出た)。"""
+        """メモ帳の「UTF-8 (BOM 付き)」で直した settings.json・名簿でも読める。"""
         with open(S.SETTINGS, "w", encoding="utf-8-sig") as f:
             json.dump({"replacements": "よっきゃ=>陽キャ"}, f, ensure_ascii=False)
         self.assertEqual(S.parse_replacements(S.load_settings().get("replacements")), [("よっきゃ", "陽キャ")])
@@ -347,7 +347,7 @@ class TestClipValidation(unittest.TestCase):
         media = os.path.join(tmp, "動画_0012.mp4")
         with open(media, "wb") as f:
             f.write(b"x")
-        cj = os.path.join(tmp, "動画_0012.clip.json")                          # 以前の置き方(動画の隣)も読む
+        cj = os.path.join(tmp, "動画_0012.clip.json")                          # 動画の隣の置き方も読む
         self.assertEqual(P.clip_path_for(media), os.path.join(tmp, P.schemas.WORK_DIR, "動画_0012.clip.json"))   # 書くのは 作業用\
         self.assertEqual(P.find_clip(media), (None, None, None))           # 無ければ何もしない
         with open(cj, "w", encoding="utf-8-sig") as f:                     # BOM 付きでも読む
@@ -452,7 +452,7 @@ class TestSaveBeside(unittest.TestCase):
         self.assertEqual((os.path.basename(p1), ow), ("動画 A.transcript.json", False))
         p2, ow = P.save_beside(self.media, ".transcript.json", self.own(sch), sch)
         self.assertEqual((p2, ow), (p1, True))                                     # 前にこのツールが書いたものは上書き
-        self.assertEqual(os.path.dirname(p1), os.path.join(self.tmp, P.schemas.WORK_DIR))   # 途中のファイルは 作業用\(2026-09-27)
+        self.assertEqual(os.path.dirname(p1), os.path.join(self.tmp, P.schemas.WORK_DIR))   # 途中のファイルは 作業用\
         other = os.path.join(self.tmp, P.schemas.WORK_DIR, "動画 A.cut-plan.json")
         write_json(other, {"schema": P.CUT_PLAN_SCHEMA, "segments": []})           # 同じ schema でも他のツール(tool なし)が書いたもの
         p3, ow = P.save_beside(self.media, ".cut-plan.json", self.own(P.CUT_PLAN_SCHEMA), P.CUT_PLAN_SCHEMA)
@@ -632,7 +632,7 @@ class TestPipelineHttp(unittest.TestCase):
 
     # ---- .clip.json ----
     def export_v1(self, tid):
-        """transcript-v1 の中身を、書き出された .transcript.json から読む(GET の口は無い = 呼び手 0 で消した)"""
+        """transcript-v1 の中身を、書き出された .transcript.json から読む(GET の口は無い)"""
         r = self.call("POST", "/api/export-file", {"id": tid, "format": "transcript-v1"})
         return testkit.read_json(r["path"])
 
@@ -763,7 +763,7 @@ class TestPipelineHttp(unittest.TestCase):
     # ---- HTTP の検査 ----
     def test_no_page_and_other_sites_are_refused(self):
         nav = {"Sec-Fetch-Site": "same-site", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document"}
-        # RS8 C4: 編集の画面のページ(/・/index.html)は配らない = 404。他のツールのリンクからの遷移の別扱いも棚卸し G5 で消した = 別のサイトからは 403
+        # 編集の画面のページ(/・/index.html)は配らない = 404。他のツールのリンクからの遷移の別扱いはない = 別のサイトからは 403
         for p in ("/", "/index.html"):
             st, hd, body = self.call("GET", p, headers={"Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "navigate"}, raw=True)
             self.assertEqual(st, 404, p)
@@ -794,8 +794,8 @@ class TestPipelineHttp(unittest.TestCase):
         self.assertIn("最大32MB", r["message"])
 
     def test_media_range_head_and_416(self):
-        """/media の Range(シーク)・HEAD・範囲の外(416)。応答は ytt.httpsec.send_file(0.60.1。スタジオと同じ 1 か所)"""
-        from test_edit import put_empty_doc   # 行の無い文書(「文字起こしせずに開く」は消した)
+        """/media の Range(シーク)・HEAD・範囲の外(416)。応答は ytt.httpsec.send_file(スタジオと同じ 1 か所)"""
+        from test_edit import put_empty_doc   # 行の無い文書
         tid = put_empty_doc(os.path.join(self.tmp, "transcripts"), self.wav)
         with open(self.wav, "rb") as f:
             body = f.read()

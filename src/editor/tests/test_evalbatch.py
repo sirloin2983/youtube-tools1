@@ -182,7 +182,7 @@ class TestEvalBatch(unittest.TestCase):
 
     def test_rowless_doc_gets_into_doc(self):
         """行の無い文書がある動画は、その文書へ入れる(文書が2つにならない)"""
-        from test_edit import put_empty_doc   # 行の無い文書(「文字起こしせずに開く」は消した)
+        from test_edit import put_empty_doc   # 行の無い文書
         (a,) = self.staged("a.mp4")
         tid = put_empty_doc(S.TX_DIR, a)
         EB.eval_batch_start()

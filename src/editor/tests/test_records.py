@@ -6,7 +6,7 @@
 
 - 文字起こし: 行の proofedAt(初めて校正済みにした時刻。引き継ぐ・外れたら捨てる・機械が書き換えたら外す)・
   再認識の前の機械の出力を recognition.runs に範囲つきで残す(件数・行数の上限)・辞書の版(settings.dict / params.dict)
-- カット: edit.json の draft(初めての保存のときだけ一度書く・以前の edit.json が読める・パックの記録で消えない)
+- カット: edit.json の draft(初めての保存のときだけ一度書く・draft の無い edit.json が読める・パックの記録で消えない)
 - 校正の行の数と作業中の印: POST /api/effort(effort.lastAt だけ・updatedAt を変えない = 保存の競合に巻き込まない)・保存で数える校正済みの行
 - 生出力 <id>.asr.json(分ける前・置換の前の認識の結果。単語ごとの時刻と確信度)と GPU の精度の型(TRANSCRIBE_CUDA_COMPUTE)
 """
@@ -50,14 +50,14 @@ class TestProofedAt(StoreDir):
                                                   _seg(3, 2, 3, "c", proofed=True), _seg(4, 3, 4, "d", proofed=True)]}, base)["segments"]
         self.assertEqual(out[0]["proofedAt"], 1234)                     # 同じ id の行から引き継ぐ(文字を直しても初めての時刻のまま)
         self.assertNotIn("proofedAt", out[1])                           # 外した行は捨てる
-        self.assertNotIn("proofedAt", out[2])                           # 以前から校正済みの行に、今の時刻を作らない
+        self.assertNotIn("proofedAt", out[2])                           # 校正済みの行に、今の時刻を作らない
         self.assertGreaterEqual(out[3]["proofedAt"], before)
         # 外したあとにもう一度校正済みにしたら、その時刻から数え直す
         out2 = S.sanitize_transcript({"segments": [_seg(2, 1, 2, "b", proofed=True)]}, {"segments": out})["segments"]
         self.assertGreaterEqual(out2[0]["proofedAt"], before)
 
     def test_save_round_trip_and_old_lite_mark(self):
-        """保存で付き、次の保存で引き継ぐ。以前の友人用簡易版の印(doc["lite"]。今は読まない)が残る文書も普通に保存できる"""
+        """保存で付き、次の保存で引き継ぐ。友人用簡易版の印(doc["lite"]。読まない)が残る文書も普通に保存できる"""
         for lite in (False, True):
             with self.subTest(lite=lite):
                 d = doc_obj(**({"lite": {"streamer": "x"}} if lite else {}))
@@ -190,9 +190,9 @@ class TestEditDraft(StoreDir):
             self.assertEqual(json.load(f)["draft"]["origin"], "rows")
 
     def test_old_edit_and_bad_draft(self):
-        S.save_edit(TID, {"edit": edit_obj(), "baseRev": 0})   # 以前の画面(draft を送らない)
+        S.save_edit(TID, {"edit": edit_obj(), "baseRev": 0})   # draft を送らない画面
         g = S.get_edit(TID)
-        self.assertEqual((g["rev"], "draft" in g["edit"]), (1, False))   # 以前の edit.json は今までどおり読める
+        self.assertEqual((g["rev"], "draft" in g["edit"]), (1, False))   # draft の無い edit.json も読める
         S.save_edit(TID, {"edit": edit_obj(), "baseRev": 1, "draft": self.draft()})
         self.assertNotIn("draft", S.get_edit(TID)["edit"])               # 後から足さない(始めたたき台が分からないため)
         os.unlink(S.edit_path(TID))
@@ -212,12 +212,12 @@ class TestEffort(StoreDir):
         self.put_doc(doc_obj())
 
     def test_touch_sets_last_at_only(self):
-        """POST /api/effort は操作中の知らせ = effort.lastAt だけ(作業した時間は数えない)。updatedAt は動かさない・以前の時間の値は消さない"""
+        """POST /api/effort は操作中の知らせ = effort.lastAt だけ(作業した時間は数えない)。updatedAt は動かさない・時間の値は消さない"""
         d = _rd()
         d["effort"] = {"activeSec": 90, "cutSec": 30, "sessions": 1, "proofedRows": 0, "unproofedRows": 0}
         self.put_doc(d)
         t0 = int(time.time() * 1000)
-        r = S.touch_effort({"id": TID, "activeSec": 30, "newSession": True})   # 以前の画面が送る秒は受け取って捨てる
+        r = S.touch_effort({"id": TID, "activeSec": 30, "newSession": True})   # 画面が送る秒は受け取って捨てる
         self.assertGreaterEqual(r["effort"]["lastAt"], t0)
         d = _rd()
         self.assertEqual(d["updatedAt"], 1000)                                       # 記録のために updatedAt を動かさない

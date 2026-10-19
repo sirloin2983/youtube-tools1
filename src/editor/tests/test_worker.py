@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""認識ワーカー(src/pipeline/transcribe/worker.py。別プロセス。統合計画の段階3-3。RS2-9 に編集の tx_worker.py から移した)のテスト。  python -m unittest test_worker -v
+"""認識ワーカー(src/pipeline/transcribe/worker.py。別プロセス)のテスト。  python -m unittest test_worker -v
 
 faster-whisper を入れていない環境でも動くよう、TRANSCRIBE_BACKEND=worker-fake で動かす:
 サーバー側(serve.py)は本物の経路(ワーカーとのやり取り・RemoteModel)を通り、ワーカーの中だけ偽のモデル(eval/fake/fake_worker.install)を使う。
@@ -163,7 +163,7 @@ class WorkerTest(unittest.TestCase):
         new = d["segments"][1:]
         self.assertTrue(new and all(g["text"].startswith("範囲再認識") for g in new))
         self.assertEqual((job["kept"], S.public_job(job)["kept"]), (1, 1))
-        self.assertTrue(S.hist_stamps(tid))                                  # 実行前の状態は履歴に(.bak の控えはやめた = 決定 3-47 の 1b-1)
+        self.assertTrue(S.hist_stamps(tid))                                  # 実行前の状態は履歴に(.bak の控えは作らない = 決定 3-47 の 1b-1)
 
     def test_whole_resumes_from_saved_parts(self):
         """S-1: 長い動画の全体の再認識は区間ごとに書いておき、途中で落ちても、同じ設定でもう一度始めれば続きから。結果は通しで認識したときと同じ"""
@@ -277,7 +277,7 @@ class WorkerTest(unittest.TestCase):
         job = {"cancel": False, "proc": None, "phase": "", "state": "", "device": "", "progress": 0.0}
         S.extract_audio(job, {"sourcePath": self.media, "start": 0.0, "end": None}, wav)
         try:
-            self.assertEqual({k for _, _, k in S.diarize_real(job, wav, 0, "voxceleb")}, {0, 1})               # 渡さない = 以前と同じ
+            self.assertEqual({k for _, _, k in S.diarize_real(job, wav, 0, "voxceleb")}, {0, 1})               # 渡さない = 既定のまま
             self.assertEqual({k for _, _, k in S.diarize_real(job, wav, 0, "voxceleb", threshold=1.5)}, {0})
         finally:
             os.unlink(wav)
@@ -620,7 +620,7 @@ class ProtocolTest(unittest.TestCase):
         self.assertEqual(len(job["phase"]), 200)
 
     def test_diarize_request_tune_is_optional(self):
-        """ワーカーの diarize: threshold・minOn・minOff が無い要求は以前と同じ呼び方(引数 4 つ)。あれば名前つきで渡す"""
+        """ワーカーの diarize: threshold・minOn・minOff が無い要求は引数 4 つの呼び方。あれば名前つきで渡す"""
         from pipeline.transcribe import worker as W
         got, sent = [], []
 
@@ -673,7 +673,7 @@ class JobHelperTest(unittest.TestCase):
             with mock.patch.dict(os.environ, {"X_TEST_NUM": env}):
                 self.assertEqual(tx_engines.env_num("X_TEST_NUM", 7, lo=0, hi=64), want, env)
         with mock.patch.dict(os.environ, {"X_TEST_NUM": "nan"}):
-            self.assertEqual(tx_engines.env_num("X_TEST_NUM", 0.0, lo=0.0, hi=0.5, cast=float), 0.5)   # 以前の END_TRIM と同じ収め方
+            self.assertEqual(tx_engines.env_num("X_TEST_NUM", 0.0, lo=0.0, hi=0.5, cast=float), 0.5)   # END_TRIM と同じ収め方
 
 
 class CpuFallbackTest(unittest.TestCase):
@@ -748,7 +748,7 @@ class CpuFallbackTest(unittest.TestCase):
         self.assertNotIn("install-gpu.bat", cm.exception.message)
         with self.assertRaises(RuntimeError):
             self.chunk(self.Bad(), "cpu", "auto")
-        # 0.65.1: 行ごとの再認識も、取り消し・理由のある失敗は CPU でやり直さずそのまま上げる(GPU 固定で取り消しても gpu_failed にしない = 新規の文字起こしと同じ)
+        # 行ごとの再認識も、取り消し・理由のある失敗は CPU でやり直さずそのまま上げる(GPU 固定で取り消しても gpu_failed にしない = 新規の文字起こしと同じ)
         for exc in (S.Cancelled(), S.ApiError("worker_crashed", "落ちた", 500)):
             for pref in ("auto", "cuda"):
                 with self.assertRaises(type(exc)) as cm:

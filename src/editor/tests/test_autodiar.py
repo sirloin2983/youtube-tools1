@@ -199,7 +199,7 @@ class TestAutoDiar(unittest.TestCase):
         self.assertEqual(S.autodiar_enqueue(tid), {"skipped": "reviewed"})
 
     def test_non_eval_is_never_diarized(self):
-        """評価用でない文書は、保存した設定・要求の autoDiarize があっても判別しない(評価用でない枝は消した)"""
+        """評価用でない文書は、保存した設定・要求の autoDiarize があっても判別しない"""
         other = os.path.join(self.src, "other.mp4")   # 評価用のフォルダの外
         shutil.copy2(self.short, other)
         tid, _ = self.transcribe(other)
@@ -256,7 +256,7 @@ class TestAutoDiar(unittest.TestCase):
         self.assertEqual(EB.eb_read()["diar"][tj["tid"]]["state"], "done")
 
     def _old_doc_without_diar(self, name, folder=None):
-        with mock.patch.dict(os.environ, {"TRANSCRIBE_AUTO_DIARIZE": "off"}):   # 以前の版で文字起こしした文書(話者なし・判別したことが無い)
+        with mock.patch.dict(os.environ, {"TRANSCRIBE_AUTO_DIARIZE": "off"}):   # 話者なし・判別したことが無い文書
             tid, _ = self.transcribe(self.put(folder or self.mem, name))
         self.assertEqual(self.diar_jobs(tid), [])
         return tid
