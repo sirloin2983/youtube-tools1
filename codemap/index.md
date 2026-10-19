@@ -11,9 +11,9 @@
 | ③ human(人の操作) | [human.md](human.md) | 59 | 16762 |
 | ④ manage(データ) | [manage.md](manage.md) | 42 | 11491 |
 | ⑤ eval(検証) | [eval.md](eval.md) | 33 | 14063 |
-| src/app(入口と画面) | [app.md](app.md) | 84 | 35151 |
-| src/friendapp(友人の玄関) | [friendapp.md](friendapp.md) | 46 | 17689 |
-| その他の画面(editor・studio・ui-kit・cut2resolve) | [tools.md](tools.md) | 47 | 18830 |
+| src/app(入口と画面) | [app.md](app.md) | 84 | 35102 |
+| src/friendapp(友人の玄関) | [friendapp.md](friendapp.md) | 46 | 17687 |
+| その他の画面(editor・studio・ui-kit・cut2resolve) | [tools.md](tools.md) | 47 | 18825 |
 | dev・setup(開発の道具) | [dev.md](dev.md) | 56 | 15550 |
 | friend-apps・chrome-ext(C# のアプリ・拡張) | [apps.md](apps.md) | 19 | 8898 |
 

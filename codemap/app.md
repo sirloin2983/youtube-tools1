@@ -125,28 +125,28 @@
 - src/app/check/tests/test_speech_sources.py — 「確かめる」の「この行は声ですか?」の出どころ(src/app/check/speech_sources.py)の単体テスト: 声の区間との重なりの割合・除外(校正済み・noSub・短い・空)・
 - src/app/tests/_pagetest.py — 入口(src/app/server.py)を一時のデータで立てて GET で画面の配り方を確かめるテストの共通の土台(test_cases_page・test_check_page)。
 - src/app/tests/e2e_autorun.py — まとめて実行(src/app/autorun.py)の通し確認。本物の3ツールを疑似モードで一時フォルダに写し、入口に取り込んだ形で動かす(空きポートだけを使う)。
-- src/app/tests/e2e_cases_cand.py — 案件の画面(/cases)の「候補」のパネル(src/app/ui/cases/panels/cand.js。RS8 C2a)の通し確認(Playwright)。リポジトリ直下で:
-- src/app/tests/e2e_cases_cut.py — 案件の画面(/cases)の「カット・パック」パネル(src/app/ui/cases/panels/cut.js。RS8 C2c)の通し確認(Playwright)。リポジトリ直下で:
-- src/app/tests/e2e_cases_proof.py — 案件の画面(/cases)の「校正」のパネル(RS8 C2b。panels/proof.js・edhost.js・machpick.js)の通し確認(Playwright)。リポジトリ直下で:
-- src/app/tests/e2e_check.py — 確かめる(/check。部品は src/app/ui/check/。RS8 V1 = 殻)の通し確認(Playwright)。リポジトリ直下で:
-- src/app/tests/e2e_live_archive.py — リアルタイム切り抜き LD-1(録画に無い区間だけをアーカイブから書き出す・アーカイブ化を確かめて録画をごみ箱へ移す。notes:plan/line-d-live-clipping.md の 0-9)の通しの確認。
-- src/app/tests/e2e_live_studio.py — リアルタイム切り抜き(線 D の P3。notes:plan/line-d-live-clipping.md の 0-8)の通しの確認: 入口にスタジオを取り込み、録画の部品を別のプロセスで立て、
-- src/app/tests/e2e_portal.py — ホーム(src/app/ui/home/portal.html。段階5: 入口 + 案件を1つにした)の通し確認(Playwright。本物の3ツールを疑似モードで
+- src/app/tests/e2e_cases_cand.py — 案件の画面(/cases)の「候補」のパネル(src/app/ui/cases/panels/cand.js)の通し確認(Playwright)。リポジトリ直下で:
+- src/app/tests/e2e_cases_cut.py — 案件の画面(/cases)の「カット・パック」パネル(src/app/ui/cases/panels/cut.js)の通し確認(Playwright)。リポジトリ直下で:
+- src/app/tests/e2e_cases_proof.py — 案件の画面(/cases)の「校正」のパネル(panels/proof.js・edhost.js・machpick.js)の通し確認(Playwright)。リポジトリ直下で:
+- src/app/tests/e2e_check.py — 確かめる(/check。部品は src/app/ui/check/)の通し確認(Playwright)。リポジトリ直下で:
+- src/app/tests/e2e_live_archive.py — リアルタイム切り抜きのアーカイブ(録画に無い区間だけをアーカイブから書き出す・アーカイブ化を確かめて録画をごみ箱へ移す)の通しの確認。
+- src/app/tests/e2e_live_studio.py — リアルタイム切り抜きの通しの確認: 入口にスタジオを取り込み、録画の部品を別のプロセスで立て、
+- src/app/tests/e2e_portal.py — ホーム(src/app/ui/home/portal.html)の通し確認(Playwright。本物の3ツールを疑似モードで一時フォルダに写し、空きポートだけを使う)。
 - src/app/tests/fake_excite_worker.py — 偽の検出ワーカー(e2e 用)。本物の src/pipeline/analyze/live_excite_worker.py の代わりに入口(live_detect.Detector)が起動し、
-- src/app/tests/test_accuracy_api.py — 入口の API(GET api/accuracy・POST api/accuracy/run・調子の accuracy・設定の節)と、手が空いた判定のつなぎ。精度の自動測定の本体のテストは src/eval/drill/tests/test_accuracy.py。
+- src/app/tests/test_accuracy_api.py — 入口の API(GET api/accuracy・POST api/accuracy/run・設定の節)と、手が空いた判定のつなぎ。精度の自動測定の本体のテストは src/eval/drill/tests/test_accuracy.py。
 - src/app/tests/test_adopt_defaults.py — 採用の数・余白・待ちの既定が束(flow/spec.py の DEFAULTS adopt)の 1 か所から来て、今までの値のままであることを固定する(RS6 b-R1)
 - src/app/tests/test_autorun.py — まとめて実行(src/app/autorun.py)の段取りのテスト。ツールの API は偽物(FakeTools)で、本物の通し確認は src/app/tests/e2e_autorun.py。
 - src/app/tests/test_backup_prefs.py — 設定 prefs の backup の節(src/app/prefs.py。入口の側に残した検査)。バックアップの本体のテストは src/manage/keep/tests/test_backup.py。
-- src/app/tests/test_cases_page.py — 案件の画面(/cases。src/app/ui/cases/。RS8 C1 = 殻)の配り方と、画面のファイルの決まりのテスト。  python -m unittest src/app/tests/test_cases_page.py -v
+- src/app/tests/test_cases_page.py — 案件の画面(/cases。src/app/ui/cases/)とホーム(/)の配り方の安全の境目のテスト。  python -m unittest src/app/tests/test_cases_page.py -v
 - src/app/tests/test_check_api.py — 入口の「確かめる」の口(GET api/check/next・POST api/check/answer(undo も)・skip・flush。V1 の V0)のつなぎ。
-- src/app/tests/test_check_page.py — 確かめる(/check。src/app/ui/check/。RS8 V1 = 殻)の配り方と、画面のファイルの決まりのテスト。  python -m unittest src/app/tests/test_check_page.py -v
+- src/app/tests/test_check_page.py — 確かめる(/check。src/app/ui/check/)の配り方の安全の境目のテスト。  python -m unittest src/app/tests/test_check_page.py -v
 - src/app/tests/test_cli.py — app/cli(② + ① で動くコマンド)のテスト。  py -3.12 -m unittest src/app/tests/test_cli.py -v
 - src/app/tests/test_deliver_api.py — 入口の ytt_api("deliver") の受け渡し(src/app/server.py の PortalServer.ytt_api)のテスト。deliver の本体のテストは src/flow/tests/test_deliver.py。
 - src/app/tests/test_intake_prefs.py — 入口の設定 prefs の intake の節(src/app/prefs.py。入口の側に残した検査)。intake の本体のテストは src/human/friend/tests/test_intake.py。
 - src/app/tests/test_launch.py — 入口(src/app/server.py)のテスト。  python -m unittest src/app/tests/test_launch.py -v
 - src/app/tests/test_live.py — リアルタイム切り抜き(線 D の P1)の入口の側(src/app/live.py・prefs の節 live・server.py の /live/…・「調子」の行)のテスト。
-- src/app/tests/test_live_archive_api.py — アーカイブで本番版に作り直す(線 D の P4)の入口 home を通す分: POST /live/api/archive・…/cancel・GET /live/api/exports の archiveInfo(server.py を通して)と、
+- src/app/tests/test_live_archive_api.py — 録画に無い区間をアーカイブから書き出す(線 D の P4)の入口 home を通す分: POST /live/api/archive・…/cancel・GET /live/api/exports の archiveInfo(server.py を通して)。
 - src/app/tests/test_live_detect_api.py — 配信中の盛り上がりの検出の入口 home の側(app の殻 Live の GET|POST /live/api/peaks の振り分け・ホームの設定 prefs の検査)のテスト。
 - src/app/tests/test_mount.py — 入口への取り込み(src/app/mount.py)のテスト。  python -m unittest src/app/tests/test_mount.py -v
 - src/app/tests/test_settings_schema.py — 設定の画面のスキーマ(src/app/ui/settings/schema.json。S5)と、ホームの設定の検査(prefs.py)が食い違っていないか。リポジトリ直下で:
-- src/app/tests/test_window.py — 段階7 のテスト: 窓で開く(src/ytt/appwindow.py)・画面のエラーの記録(本体は src/manage/ops/tests/test_clientlog.py)・入口の共通の API(api/ytt/…)。
+- src/app/tests/test_window.py — 窓で開く(src/ytt/appwindow.py)・画面のエラーの記録(本体は src/manage/ops/tests/test_clientlog.py)・入口の共通の API(api/ytt/…)。
