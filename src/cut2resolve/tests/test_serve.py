@@ -21,6 +21,7 @@ sys.path.insert(0, str(TESTS))
 sys.path.append(str(TESTS.parents[1] / "pipeline" / "pack" / "tests"))   # test_cut2resolve の道具
 import serve  # noqa: E402
 from pipeline.pack import request  # noqa: E402
+from flow import packrec  # noqa: E402
 from test_cut2resolve import HAVE_FFMPEG, make_video  # noqa: E402
 
 
@@ -167,9 +168,9 @@ class TestPaths(ServerBase):
         # 記録はあるが、中身のファイルがもう無いフォルダは開けない(古い記録で許さない)
         gone = self.dir / "gone_pack"
         gone.mkdir(exist_ok=True)
-        d = Path(serve._txi.packs_dir(c2r_dir=serve.CODE_DIR))
+        d = Path(packrec.packs_dir(c2r_dir=serve.CODE_DIR))
         d.mkdir(parents=True, exist_ok=True)
-        (d / serve._txi.pack_key(gone)).write_text(json.dumps({"schema": serve._txi.PACK_RECORD_SCHEMA, "dir": str(gone), "files": ["友人へ.txt"]}), encoding="utf-8")
+        (d / packrec.record_name(gone)).write_text(json.dumps({"schema": packrec.SCHEMA, "dir": str(gone), "files": ["友人へ.txt"]}), encoding="utf-8")
         st, j = self.c.json("POST", "/api/open-folder", {"path": str(gone)})
         self.assertEqual(st, 403)
         (gone / "友人へ.txt").write_text("x", encoding="utf-8")
@@ -416,7 +417,7 @@ class TestJobs(ServerBase):
         self.assertEqual([f["name"] for f in r["files"]], ["clip.edl", "clip_cut.srt", "clip_roughcut.mp4"])   # 手順書は書かない(画面で見る)
         self.assertFalse((out / "cut-plan.json").exists())
         self.assertFalse((out / "友人へ.txt").exists())
-        rec = json.loads((Path(serve._txi.packs_dir(c2r_dir=serve.CODE_DIR)) / serve._txi.pack_key(out)).read_text(encoding="utf-8"))
+        rec = json.loads((Path(packrec.packs_dir(c2r_dir=serve.CODE_DIR)) / packrec.record_name(out)).read_text(encoding="utf-8"))
         self.assertEqual((rec["schema"], os.path.normcase(rec["dir"])), ("youtube-tools-pack-record/v1", os.path.normcase(str(out))))
         self.assertIn("DaVinci Resolve", r["readme"])
         self.assertGreater((out / "clip_roughcut.mp4").stat().st_size, 0)
@@ -446,7 +447,7 @@ class TestJobs(ServerBase):
         spec = {"video": str(self.video), "srt": str(self.srt), "keeps": [[0.5, 2.5], [4.5, 6.5]]}
         j = self.run_job("/api/build", {"spec": spec, "output": {"dir": str(out), "textplus": True}})
         self.assertEqual(j["state"], "done", j)
-        rec = json.loads((Path(serve._txi.packs_dir(c2r_dir=serve.CODE_DIR)) / serve._txi.pack_key(out)).read_text(encoding="utf-8"))
+        rec = json.loads((Path(packrec.packs_dir(c2r_dir=serve.CODE_DIR)) / packrec.record_name(out)).read_text(encoding="utf-8"))
         self.assertEqual((rec["textplus"], "backup" in rec, "clip.mp4" in rec["files"]), (True, False, True))   # 記録に backup は書かない
         st, e = self.c.json("POST", "/api/build", {"spec": spec, "output": {"dir": str(out), "textplus": True, "backup": True}})
         self.assertEqual((st, e["error"]), (409, "exists"))                      # 古い backup で 400 にしない。上書きの確認
@@ -465,7 +466,7 @@ class TestJobs(ServerBase):
             out2 = self.dir / "tp_color"
             j = self.run_job("/api/build", {"spec": spec, "output": {"dir": str(out2), "textplus": True, "streamer": "ミコ"}})
             self.assertEqual(j["state"], "done", j)
-            rec = json.loads((Path(serve._txi.packs_dir(c2r_dir=serve.CODE_DIR)) / serve._txi.pack_key(out2)).read_text(encoding="utf-8"))
+            rec = json.loads((Path(packrec.packs_dir(c2r_dir=serve.CODE_DIR)) / packrec.record_name(out2)).read_text(encoding="utf-8"))
             self.assertEqual((rec["textColor"], rec["streamer"]), ("#FF8FDF", "さくらみこ"))
             st, e = self.c.json("POST", "/api/build", {"spec": spec, "output": {"dir": str(self.dir / "tp_x"), "textplus": True, "streamer": "だれか"}})
             self.assertEqual((st, e["error"]), (400, "bad_streamer"))

@@ -130,7 +130,7 @@ from human.proof import retime as _proofretime  # noqa: E402  (行の時刻を�
 from human.proof import machpick as _machpick  # noqa: E402  (3 択の口: 機械の結果が変わった人の行。RS8 O2-4)
 from human.proof import store as _store  # noqa: E402  (文書の読み書き・層・履歴・消す・整形・校正の行の数と作業中の印・要約のキャッシュ・編集の内容)
 from manage.cases import doclist as _doclist  # noqa: E402  (一覧と元の動画・パックの有無・前回のパックの手順。RS3-E5a)
-from manage.cases import relink as _relink  # noqa: E402  (付け替え・まとめて付け替える・「参照…」・素材を 30fps にそろえる)
+from manage.cases import relink as _relink  # noqa: E402  (付け替え・「参照…」・素材を 30fps にそろえる)
 from manage.keep import evalfolders as _evfolders  # noqa: E402  (評価用のフォルダの整理・仮置き・外からの取り込み。④ manage/keep)
 from manage.cases import handoff_io as _handoff_io  # noqa: E402  (clip-marker との連携・受け渡しの API)
 from eval.drill import drill as _drill  # noqa: E402  (評価ドリルと定点の「あと何分」。マスタープラン Q4)
@@ -296,8 +296,6 @@ POST_API = {
     "/api/export-file": lambda o: _handoff_io.export_file(o),
     "/api/relink/check": lambda o: _relink.relink_check(o),
     "/api/relink": lambda o: _relink.relink_doc(o),
-    "/api/relink/missing": lambda o: _relink.relink_missing(),
-    "/api/relink/find": lambda o: _relink.relink_find(o),
     "/api/eval-folders/organize": lambda o: _evfolders.eval_organize("button"),
     "/api/eval-folders/settle": lambda o: _evfolders.eval_settle(o),
     "/api/eval-batch/start": lambda o: _evalbatch.eval_batch_start(o),

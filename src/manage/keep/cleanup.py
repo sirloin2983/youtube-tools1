@@ -6,7 +6,7 @@
 
 候補の種類:
 - export … スタジオの書き出しの元動画のうち、Text+ のパック(動画のコピー入り)から PACK_AGE_DAYS 日たったもの(案件は src/manage/cases/cases.snapshot の cases)と、
-  届けたあとパックだけが片付いた自動の切り抜き(届けてから PACK_AGE_DAYS 日)。日数で出すのは**このパックだけで編集できるとき**だけ(txindex.pack_ready =
+  届けたあとパックだけが片付いた自動の切り抜き(届けてから PACK_AGE_DAYS 日)。日数で出すのは**このパックだけで編集できるとき**だけ(flow/packrec.ready =
   記録したファイルが全部あって空でない・動画と Lua が入っている。部品 M1。移す直前にもう一度見る)。案件の状態(投稿済み・見送り)は条件にしない(MARKS-3)
 - work   … 動画の「作業用」フォルダの途中のファイルのうち、元の動画がもう無いもの(記録から辿れない)
 - cache  … 「編集」の波形のキャッシュ(いつでも作り直せる)
@@ -25,9 +25,9 @@ import shutil
 import time
 
 from flow import deliveries as _deliveries   # 届けた記録の読み口(持ち主は ②。7x-2)
+from flow import packrec as _packrec   # パックの中身の確かめ(部品 M1)
 from flow import placement   # 依頼のフォルダの名前・案件の身分証 case.json・案件の根の置き場所の読み方(④ は ② を読める)
 from human.friend import returns as _returns   # 友人の送り返し(同期フォルダの 送り返し\\ と その 受付済み・失敗 の名前。持ち主は ③ human/friend/returns)
-from manage.cases import txindex
 from ytt import datadir, fsio, schemas, trashbin
 
 from . import trash as _trash
@@ -250,9 +250,9 @@ class Cleanup:
         return out
 
     def _pack_ready(self, pack_dir):
-        """このパックだけで編集できるか(txindex.pack_ready。調べられなければ偽 = 元の素材を残す側)"""
+        """このパックだけで編集できるか(packrec.ready。調べられなければ偽 = 元の素材を残す側)"""
         try:
-            return txindex.pack_ready(pack_dir, self.env)[0]
+            return _packrec.ready(pack_dir, self.env)[0]
         except Exception as e:
             self.log("片付け: パック %s を確かめられませんでした: %r" % (pack_dir, e))
             return False

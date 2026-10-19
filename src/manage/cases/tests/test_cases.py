@@ -87,8 +87,7 @@ class TestBuild(Base):
         self.assertTrue(c1["pack"]["textplus"])
         self.assertEqual((c2["transcript"]["id"], c2["pack"]), ("bbbbbbbbbbbb", None))
         self.assertEqual([t["id"] for t in res["unlinked"]], ["cccccccccccc"])
-        self.assertTrue(res["casesFile"].endswith(os.path.join("app", "cases.json")))
-        self.assertFalse(os.path.exists(res["casesFile"]))   # 何も付けていなければファイルを作らない
+        self.assertFalse(os.path.exists(cases.locations(self.root, self.env)["cases"]))   # 何も付けていなければファイルを作らない
 
     def test_newest_transcript_wins_and_missing_video(self):
         gone = os.path.join(self.exports, "消えた.mp4")
@@ -152,18 +151,6 @@ class TestFullAuto(Base):
         self.assertIsNone(m1["auto"])
 
 
-class TestCaseFile(Base):
-    def test_snapshot_reads_case_json_but_never_writes(self):
-        from flow import placement
-        self.studio({VID: {"kind": "youtube", "title": "配信A", "marks": [mark("m1", "exported", self.clip1)]}})
-        self.assertIsNone(cases.snapshot(self.root, self.env)["cases"][0]["caseFile"])   # 無い案件は今までどおり
-        self.assertFalse(os.path.exists(os.path.join(self.exports, "作業用", "case.json")))        # 読むだけ(④ は書かない)
-        made = placement.ensure_case({"kind": "file", "path": self.clip1})
-        self.assertEqual(cases.snapshot(self.root, self.env)["cases"][0]["caseFile"], {"id": made["id"], "createdAt": made["createdAt"]})
-        self.touch(os.path.join(self.exports, "作業用", "case.json"), "{壊れた")
-        self.assertIsNone(cases.snapshot(self.root, self.env)["cases"][0]["caseFile"])
-
-
 class TestCasesC0(Base):
     """案件の画面の下ごしらえ: root・caseKind・切り抜きごとの状態・仮の案件(file・eval・orphan)・todo の集計・文書から案件を引く"""
 
@@ -172,10 +159,10 @@ class TestCasesC0(Base):
 
     def test_clip_state(self):
         tx = lambda s, p: {"segments": s, "proofed": p}
-        self.assertEqual(cases.clip_state(None, None), {"state": "none", "ratio": 0.0})
+        self.assertEqual(cases.clip_state(None, None), {"state": "none"})
         self.assertEqual(cases.clip_state(tx(0, 0), None)["state"], "none")
-        self.assertEqual(cases.clip_state(tx(4, 1), None), {"state": "proofing", "ratio": 0.25})
-        self.assertEqual(cases.clip_state(tx(4, 4), None), {"state": "proofed", "ratio": 1.0})
+        self.assertEqual(cases.clip_state(tx(4, 1), None), {"state": "proofing"})
+        self.assertEqual(cases.clip_state(tx(4, 4), None), {"state": "proofed"})
         self.assertEqual(cases.clip_state(tx(4, 1), {"dir": "x"})["state"], "packed")   # パックがあれば校正の途中でも packed
 
     def test_stream_case_fields(self):

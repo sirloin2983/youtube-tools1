@@ -4,17 +4,12 @@ EVAL_STAGING
 EVAL_STATES
 EVAL_WALK_DEPTH
 EVAL_WALK_MAX
-FIND_BUDGET_SEC
-FIND_MAX_DEPTH
-FIND_MAX_ENTRIES
-FIND_PER_DOC
 NORM_WHY
 RELINK_KEEP
 RELINK_RANGE_TOL
 RELINK_TOL_RATIO
 RELINK_TOL_SEC
 _EVAL_MEMBER_RE
-_FIND_SKIP
 _doc_busy
 _eval_adopt_copy
 _eval_best_member
@@ -51,7 +46,4 @@ norm_swap
 pick_path
 relink_check
 relink_doc
-relink_find
-relink_folder
-relink_missing
 relink_path

@@ -18,6 +18,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/eval/
 REPO = os.path.dirname(os.path.dirname(HERE))   # src(ツールと共通部品 ytt の置き場所)
 sys.path.insert(0, REPO)
 from eval.tools import eval_marks as M  # noqa: E402
+from flow import packrec  # noqa: E402
 from manage.cases import txindex  # noqa: E402
 from flow import lengthhint  # noqa: E402
 from human import judgments  # noqa: E402
@@ -122,8 +123,8 @@ class Env:
             f.write("x")
         pk = os.path.join(self.root, "cut2resolve", "packs")
         os.makedirs(pk, exist_ok=True)
-        with open(os.path.join(pk, txindex.pack_key(d)), "w", encoding="utf-8") as f:
-            json.dump({"schema": txindex.PACK_RECORD_SCHEMA, "dir": d, "files": ["a.txt"], "builtAt": ms("2026-09-02"), "textplus": True}, f)
+        with open(os.path.join(pk, packrec.record_name(d)), "w", encoding="utf-8") as f:
+            json.dump({"schema": packrec.SCHEMA, "dir": d, "files": ["a.txt"], "builtAt": ms("2026-09-02"), "textplus": True}, f)
 
     def evaluate(self, **kw):
         return M.evaluate(self.root, **kw)

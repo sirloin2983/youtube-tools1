@@ -1,7 +1,7 @@
 """「調子」(全体の計画 段9 9-1)。
 
 入口の GET /api/health が返す中身を集める部品。版(期待と実際)・認識ワーカー・外部プログラム(ffmpeg・ffprobe・yt-dlp)・
-空き容量・作業データの大きさ・エラーの件数(画面のエラー・まとめて実行の失敗)を1つにまとめる。
+空き容量・作業データの大きさ・画面のエラーの件数を1つにまとめる(まとめて実行の失敗はホームの上の箱だけで見る)。
 重い物(フォルダを歩く・外部プログラムの版・異常終了の件数)は別のスレッドで数えて CACHE_SEC の間は前の値を返す(HTTP のスレッドを止めない)。
 判定(良い/注意/悪い)は画面(portal.js)が行い、ここは数字と事実だけを返す。
 """
@@ -16,11 +16,11 @@ import xml.etree.ElementTree as ET
 
 from ytt import datadir, fsio, tools as ytools
 from flow import lengthhint
+from manage.ops import clientlog
 
 CACHE_SEC = 600          # 作業データの大きさ・外部プログラムの版を数え直す間隔(秒)。「数え直す」で即
 TOP_ITEMS = 12           # ツールごとに出す直下の項目の数
 CLIENT_ERR_WINDOW = 24 * 3600
-AUTORUN_FAIL_WINDOW = 7 * 24 * 3600
 TOOL_TIMEOUT = 5.0
 CRASH_WINDOW = 7 * 24 * 3600     # 異常終了を数える期間(秒。見張り役)
 CRASH_TIMEOUT = 15.0             # wevtutil を待つ秒数
@@ -130,8 +130,8 @@ def _stamp_to_epoch(v):
     return None
 
 
-def count_jsonl(path, since, now, pred=None, stamp_keys=("at", "time", "ts", "created")):
-    """jsonl(と .1)の中で、since 秒以内・pred に合う行の数(読めない行は飛ばす)"""
+def count_jsonl(path, since, now, stamp_keys=("at", "time", "ts", "created")):
+    """jsonl(と .1)の中で、since 秒以内の行の数(読めない行は飛ばす)"""
     n = 0
     for p in (path, path + ".1"):
         try:
@@ -157,8 +157,6 @@ def count_jsonl(path, since, now, pred=None, stamp_keys=("at", "time", "ts", "cr
                         break
             if t is None or now - t > since:
                 continue
-            if pred and not pred(rec):
-                continue
             n += 1
     return n
 
@@ -166,13 +164,6 @@ def count_jsonl(path, since, now, pred=None, stamp_keys=("at", "time", "ts", "cr
 def count_client_errors(path, now=None):
     now = time.time() if now is None else now
     return count_jsonl(path, CLIENT_ERR_WINDOW, now)
-
-
-def count_autorun_failed(path, now=None):
-    """まとめて実行の失敗の数"""
-    now = time.time() if now is None else now
-    return count_jsonl(path, AUTORUN_FAIL_WINDOW, now, pred=lambda r: r.get("state") == "error",
-                       stamp_keys=("created",))
 
 
 # ---------- 異常終了の件数(見張り役) ----------
@@ -353,8 +344,7 @@ class Health:
                      "expected": t.get("expectedVersion") or "", "ok": (not t.get("expectedVersion") or not t.get("version") or t["expectedVersion"] == t["version"])}
                     for t in st.get("tools", [])]
         worker = _try(self.worker_probe)
-        client_log = os.path.join(self.logs_dir, "client-errors.jsonl")
-        runs_log = os.path.join(self.logs_dir, "autorun-runs.jsonl")
+        client_log = os.path.join(self.logs_dir, clientlog.FILE_NAME)
         now = self.clock()
         paths = [os.path.dirname(self.logs_dir)] + [p for p in self.extra_dirs() if p]
         out = {
@@ -362,8 +352,7 @@ class Health:
             "versions": versions,
             "worker": worker,
             "disk": disk_free(paths),
-            "errors": {"clientLast24h": count_client_errors(client_log, now), "clientLog": client_log,
-                       "autorunFailedLast7d": count_autorun_failed(runs_log, now), "autorunLog": runs_log},
+            "errors": {"clientLast24h": count_client_errors(client_log, now), "clientLog": client_log},
             "heavy": st.get("heavy"),
             "computing": computing,
         }

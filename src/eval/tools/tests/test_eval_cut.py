@@ -38,7 +38,7 @@ class Env:
         self.tdir = os.path.join(self.root, "transcribe", "transcripts")
         os.makedirs(self.tdir)
         self.env = {"YTT_DATA_DIR": self.root}
-        self.pdir = E.txindex.packs_dir(self.env)
+        self.pdir = E.packrec.packs_dir(self.env)
         os.makedirs(self.pdir)
 
     def edit(self, tid, clips, draft=None, fps=FPS30, origin="manual", updated=None, source=None, relink_from=None, title="t", doc=True, untouched=False):
@@ -64,8 +64,8 @@ class Env:
         if keep_frames is not None:
             cp["keep_frames"] = keep_frames
             cp["frame_rate"] = frame_rate
-        rec = {"schema": E.txindex.PACK_RECORD_SCHEMA, "dir": d, "video": video, "builtAt": built or ms("2026-10-06"), "files": [], "cutPlan": cp}
-        testkit.write_json(os.path.join(self.pdir, E.txindex.pack_key(d)), rec)
+        rec = {"schema": E.packrec.SCHEMA, "dir": d, "video": video, "builtAt": built or ms("2026-10-06"), "files": [], "cutPlan": cp}
+        testkit.write_json(os.path.join(self.pdir, E.packrec.record_name(d)), rec)
 
     def _write(self, name, d):
         testkit.write_json(os.path.join(self.tdir, name), d)

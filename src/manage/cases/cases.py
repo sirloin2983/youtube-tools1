@@ -99,17 +99,6 @@ def read_studio(path):
     return studiodata.videos(path)
 
 
-def read_transcripts(folder):
-    """文字起こしの一覧(manage.cases.txindex。スタジオのセリフの表示と同じ読み方・紐づけの規則)"""
-    return txindex.load(folder)
-
-
-def find_pack(media_path):
-    """切り抜きの隣の <名前>_pack(cut2resolve の既定の出力先)。-> {"dir", "textplus", "updatedAt"} か None。
-    規則は src/manage/cases/txindex.pack_info の1か所(文字起こしの一覧と同じ判定)"""
-    return txindex.pack_info(media_path)
-
-
 def _upload_date_ms(s):
     """analysis.uploadDate("YYYYMMDD")→ ms。形が違えば 0"""
     if isinstance(s, str) and len(s) == 8 and s.isdigit():
@@ -148,21 +137,19 @@ def _case_extras(c):
 
 
 def clip_state(tx, pack):
-    """切り抜き 1 本の進み具合(案件の画面の左の一覧の札。C0)-> {"state", "ratio"}。
-    state: none(文字起こしがまだ)/ proofing(校正中 = 校正済みの行が足りない)/ proofed(校正済み)/ packed(パック済み)。ratio = 校正済みの行の割合(0〜1)。
+    """切り抜き 1 本の進み具合(案件の画面の左の一覧の札。C0)-> {"state"}。
+    state: none(文字起こしがまだ)/ proofing(校正中 = 校正済みの行が足りない)/ proofed(校正済み)/ packed(パック済み)。
     文字起こしがあっても行が 0 本なら none。パックがあれば校正の途中でも packed"""
     segs = (tx or {}).get("segments", 0)
-    done = (tx or {}).get("proofed", 0)
-    ratio = round(min(1.0, done / segs), 3) if segs > 0 else 0.0
     if pack:
-        return {"state": "packed", "ratio": ratio}
+        return {"state": "packed"}
     if not tx or segs <= 0:
-        return {"state": "none", "ratio": 0.0}
-    return {"state": "proofed" if done >= segs else "proofing", "ratio": ratio}
+        return {"state": "none"}
+    return {"state": "proofed" if (tx or {}).get("proofed", 0) >= segs else "proofing"}
 
 
 def _apply_state(cases):
-    """全部の切り抜きに state・ratio を足す(スタジオから消えた配信の最後に見えた内容にも)"""
+    """全部の切り抜きに state を足す(スタジオから消えた配信の最後に見えた内容にも)"""
     for c in cases:
         for cl in c.get("clips") or []:
             cl.update(clip_state(cl.get("transcript"), cl.get("pack")))
@@ -296,7 +283,7 @@ def _file_case(path):
     return "", ""
 
 
-def virtual_cases(docs, taken, pack_finder=find_pack, case_finder=_file_case):
+def virtual_cases(docs, taken, pack_finder=txindex.pack_info, case_finder=_file_case):
     """配信の案件に紐づかなかった文書 docs(txindex の文書)-> 案件の行の一覧(C0。brief 3-3・3-4)。
     動画ファイルの案件 = 元の動画のフォルダの case.json が file の物(id は case.json の id。取った id taken とぶつかれば orphan)/ eval = 評価用の文書(evalSet)/
     orphan = どれにも当たらない文書。eval・orphan は文書が無くても必ず 1 行ずつ(最後に)。行の形は配信の案件と同じ(clips は文書 1 本 = 1 行)"""
@@ -336,14 +323,14 @@ def _virtual_row(cid, kind, docs, root, pack_finder):
     title = titles.get(cid) or (docs[0]["title"] if docs else cid)
     row = {"id": cid, "kind": "", "caseKind": kind, "root": root, "title": str(title)[:120], "channel": "", "duration": 0,
            "marks": {"total": 0, "adopted": 0, "exported": len(clips), "candidates": 0}, "clips": clips,
-           "updatedAt": max([d["updatedAt"] for d in docs] or [0]), "gone": False, "caseFile": None}
+           "updatedAt": max([d["updatedAt"] for d in docs] or [0]), "gone": False}
     row["streamedAt"] = row["updatedAt"]
     _apply_state([row])
     row.update(_case_extras(row))
     return row
 
 
-def build(videos, transcripts, saved=None, pack_finder=find_pack, failures=None, case_finder=_file_case, delivered=None, not_sent=None):
+def build(videos, transcripts, saved=None, pack_finder=txindex.pack_info, failures=None, case_finder=_file_case, delivered=None, not_sent=None):
     """-> {"cases": [...], "unlinked": [文字起こし], "auto": {total}, "virtual"}。saved: cases.json の中身(自動でできた切り抜きの記録 auto)。
     failures: live_failures_by_mark の結果(線 D の書き出し・文字起こし・パックの失敗の文)。delivered: ② flow/deliveries.delivered_marks の結果(None = 届けたは無し)。
     not_sent: ② flow/deliveries.not_sent_marks の結果(送らなかった切り抜き。ds1。None = 無し)"""
@@ -482,15 +469,6 @@ def _edit_case(loc, root, vid, change):
     return got
 
 
-def _case_file(c):
-    """案件の case.json の要点 {id, createdAt} か None(書き出した切り抜きのフォルダから引く。無い・壊れていれば None)"""
-    for cl in c.get("clips") or ():
-        if cl.get("exists") and cl.get("path"):
-            got = placement.read_case(placement.case_root({"kind": "file", "path": cl["path"]}))
-            return {"id": got["id"], "createdAt": got.get("createdAt") or 0} if got else None
-    return None
-
-
 def snapshot(repo_root, env=None):
     """画面用の一覧(読むだけ。案件ファイルは書かない)"""
     loc = locations(repo_root, env)
@@ -498,12 +476,10 @@ def snapshot(repo_root, env=None):
         saved = load_saved(loc["cases"])
         videos, roots = _studio_view(repo_root, env, loc)
         fails = live_failures_by_mark(loc) if any(isinstance(v, dict) and v.get("kind") == "live" for v in videos.values()) else {}
-        res = build(videos, read_transcripts(loc["transcripts"]), _saved_view(saved, roots), failures=fails,
+        res = build(videos, txindex.load(loc["transcripts"]), _saved_view(saved, roots), failures=fails,
                     delivered=_deliveries.delivered_marks(loc["logs"]), not_sent=_deliveries.not_sent_marks(loc["logs"]))
-    for c in res["cases"]:   # 案件のフォルダの case.json(読むだけ。無い案件はそのまま。書くのは flow/placement.ensure_case だけ)
-        c["caseFile"] = _case_file(c)
+    for c in res["cases"]:
         c["root"] = roots.get(c["id"], "")   # ② の status?case= の鍵(案件にした配信だけ。無ければ "")。URL には出さない
-    res["casesFile"] = loc["cases"]
     return res
 
 

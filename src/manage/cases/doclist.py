@@ -18,13 +18,6 @@ from . import txindex  # noqa: E402   パックの有無・パックのフォル
 PACK_CHECK_BUDGET = 2.0   # 秒。一覧1回でパック・動画の有無を調べる時間の上限(外付けの取り外し・つながらないネットワークドライブで一覧が止まらないように)
 
 
-def pack_info(media_path):
-    """動画の隣の <名前>_pack(cut2resolve の既定の出力先)。規則は txindex.pack_info の1か所(入口の案件の画面と同じ判定)。
-    -> {"textplus": bool, "updatedAt": ms} か None(一覧の API にフォルダのパスは出さない)"""
-    p = txindex.pack_info(media_path)
-    return {"textplus": p["textplus"], "updatedAt": p["updatedAt"]} if p else None
-
-
 def _files_state(items):
     """一覧の各文書の、元の動画の有無(mediaOk)とパック(pack)。フォルダごとに1回だけ存在を確かめ、全体で PACK_CHECK_BUDGET 秒まで。
     ネットワーク上のパス(//サーバー/…)は調べない(一覧を開くだけでそのサーバーへ資格情報を送らないため。clip_info と同じ考え)。
@@ -53,7 +46,8 @@ def _files_state(items):
             it["mediaOk"] = os.path.isfile(sp)
         except (OSError, ValueError):
             it["mediaOk"] = False
-        it["pack"] = pack_info(sp)
+        p = txindex.pack_info(sp)   # 一覧の API にフォルダのパスは出さない
+        it["pack"] = {"textplus": p["textplus"], "updatedAt": p["updatedAt"]} if p else None
 
 
 def list_transcripts():

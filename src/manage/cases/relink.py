@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""④ 文書と動画の紐づけ: 動画を選び直す(付け替え)・まとめて付け替える・「参照…」・素材を 30fps にそろえる
+"""④ 文書と動画の紐づけ: 動画を選び直す(付け替え)・「参照…」・素材を 30fps にそろえる
 
 - 評価用のフォルダの整理(名前をそろえる・仮置き・外からの取り込み)は manage/keep/evalfolders.py(付け替えの書き込み _relink_write をここから読む = ④ → ③ の下向き)
 - 評価用のフォルダの判定(eval_dirs・in_eval_dir・eval_name_guard)は ytt/settings、別のドライブへの移動は ytt/fsio(RS3-1)
@@ -7,8 +7,6 @@
 ほかの部品の名前は `モジュール.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。編集の画面の部品(状態・ジョブ・文書の保存)は読まない。
 """
 import os
-import re
-import time
 
 from ytt import errors as _errors, fsio as _fsio, normalize as _vnorm, schemas as _yschemas  # noqa: E402
 from flow import jobs as _heavy, normalize as _flownorm  # noqa: E402
@@ -227,107 +225,12 @@ def norm_start(tid, path, doc):
     return job["id"], ""
 
 
-# ---------- まとめて付け替える・「参照…」(ユーザー決定: 参照の窓 + 履歴からまとめて) ----------
-# 付け替えそのものは1件ずつ /api/relink(控え・長さの確認・競合の確認を同じにするため)。ここは候補を集めるだけで、書き込まない。
-# 「候補の自動の推測はしない」(段2 B-4)を、ユーザーが選んだフォルダの中の「同じファイル名」に限って緩めた。候補を選んでも、
-# 長さを確かめて画面で選んだものだけを付け替える(長さが違うものは既定で選ばない)
-FIND_BUDGET_SEC = 8.0     # フォルダを探す時間の上限(ドライブ全体を選ばれても固まらない)
-FIND_MAX_ENTRIES = 50000  # 見るファイルとフォルダの数の上限
-FIND_MAX_DEPTH = 6        # 選んだフォルダから下へ何段まで
-FIND_PER_DOC = 5          # 1文書あたりの候補の数
-_FIND_SKIP = {"$recycle.bin", "system volume information", "windows", "program files", "program files (x86)", "programdata", "appdata"}
-
-
-def relink_missing():
-    """POST /api/relink/missing: 元の動画が見つからない文書(パスの記録があるものだけ)。
-    -> {items: [{id, title, sourcePath, sourceName, updatedAt}], skipped}。ネットワーク上のパスは調べない(skipped に数える)"""
-    items, skipped, dirs = [], 0, {}
-    for tid, sm, sp in _store.summaries():
-        if not sp:
-            continue
-        if _fsio.is_network_path(sp) or not os.path.isabs(sp):
-            skipped += 1
-            continue
-        folder = os.path.dirname(sp)
-        try:
-            if folder not in dirs:
-                dirs[folder] = os.path.isdir(folder)
-            ok = dirs[folder] and os.path.isfile(sp)
-        except (OSError, ValueError):
-            ok = False
-        if not ok:
-            items.append({"id": tid, "title": str(sm.get("title") or "")[:200], "sourcePath": sp,
-                          "sourceName": str(sm.get("sourceName") or os.path.basename(sp))[:260], "updatedAt": sm.get("updatedAt") or 0})
-    items.sort(key=lambda x: -(x["updatedAt"] or 0))
-    return {"items": items, "skipped": skipped}
-
-
-def relink_folder(raw):
-    """探すフォルダの検査(relink_path と同じ考え: ネットワークはフォルダに触る前に断る → リンクを解いてもう一度)。-> 実体のパス"""
-    s = str(raw or "").strip().strip('"').strip()
-    if not s or len(s) > 1000 or any(ch in s for ch in "\x00\r\n"):
-        raise _errors.ApiError("bad_path", "フォルダのパスを入れてください", 400)
-    net = _errors.ApiError("network_path", "ネットワーク上のフォルダは選べません", 400)
-    if _fsio.is_network_path(s):
-        raise net
-    if not os.path.isabs(s):
-        raise _errors.ApiError("bad_path", "ドライブから始まるパス(例: D:\\動画)を入れてください", 400)
-    p = os.path.abspath(s)
-    if _fsio.is_remote_drive(p):
-        raise net
-    try:
-        p = os.path.realpath(p)
-    except (OSError, ValueError):
-        raise _errors.ApiError("no_dir", "フォルダが見つかりません", 400)
-    if _fsio.is_network_path(p) or _fsio.is_remote_drive(p):
-        raise net
-    if ":" in os.path.splitdrive(p)[1]:
-        raise _errors.ApiError("bad_path", "パスに「:」が入っています", 400)
-    if not os.path.isdir(p):
-        raise _errors.ApiError("no_dir", "フォルダが見つかりません(パスを確認してください)", 400)
-    if _fsio.is_inside(p, _workdata.DATA_DIR):
-        raise _errors.ApiError("bad_path", "このツールの作業データの中は探せません", 400)
-    return p
-
-
-def relink_find(obj):
-    """POST /api/relink/find {"folder", "ids"}: 選んだフォルダ(とその下)から、各文書の元の動画と同じファイル名(大文字小文字は区別しない)の動画を探す。
-    -> {folder, candidates: {id: [path, …]}, scanned, truncated}。時間・数・深さに上限があり、超えたら truncated"""
-    root = relink_folder(obj.get("folder"))
-    want = {}
-    for tid in [str(x) for x in (obj.get("ids") or [])][:500]:
-        if not _yschemas.TID_RE.match(tid):
-            continue
-        sm = _store.transcript_summary(tid)
-        name = re.split(r"[\\/]", str((sm or {}).get("_sourcePath") or ""))[-1] or str((sm or {}).get("sourceName") or "")
-        if name and os.path.splitext(name)[1].lower() in _tools.MEDIA_TYPES:
-            want.setdefault(os.path.normcase(name), []).append(tid)
-    found = {k: [] for k in want}
-    t0, seen, truncated = time.monotonic(), 0, False
-    base_depth = root.rstrip("\\/").count(os.sep)
-    for cur, dnames, fnames in os.walk(root):   # リンクは辿らない(followlinks=False)
-        seen += len(dnames) + len(fnames)
-        if seen > FIND_MAX_ENTRIES or time.monotonic() - t0 > FIND_BUDGET_SEC:
-            truncated = True
-            break
-        for fn in fnames:
-            k = os.path.normcase(fn)
-            if k in found and len(found[k]) < FIND_PER_DOC:
-                found[k].append(os.path.join(cur, fn))
-        if cur.rstrip("\\/").count(os.sep) - base_depth >= FIND_MAX_DEPTH:
-            if dnames:
-                truncated = True
-            dnames[:] = []
-        else:
-            dnames[:] = sorted(d for d in dnames if not d.startswith(".") and d.lower() not in _FIND_SKIP
-                               and not _fsio.is_inside(os.path.join(cur, d), _workdata.DATA_DIR))
-    cands = {tid: found[k] for k, tids in want.items() for tid in tids if found[k]}
-    return {"folder": root, "candidates": cands, "scanned": seen, "truncated": truncated}
+# ---------- 「参照…」 ----------
 
 
 def pick_path(obj):
     """POST /api/pick {"kind": "file"|"dir", "hint"}: PC の標準の窓で動画かフォルダを選ぶ(ytt/pick.py)。
-    -> {path}(やめたら "")。選んだ動画の検査は、そのあとの /api/relink/check と /api/relink/find が行う"""
+    -> {path}(やめたら "")。選んだ動画の検査は、そのあとの /api/relink/check が行う"""
     from ytt import pick as _pick
     kind = "dir" if obj.get("kind") == "dir" else "file"
     try:

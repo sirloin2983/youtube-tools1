@@ -25,7 +25,7 @@ from . import runlog
 KIND_LABELS = {"export": "書き出し", "handoff": "まとめて実行へ渡す", "transcribe": "文字起こし", "pack": "パック", "afterStream": "配信後の自動",
                "detect": "盛り上がりの検出", "keep": "録画の片付け"}
 PACK_STEPS = ("pack", "deliver")             # パックの側の段(ほかの段 = 文字起こし・話者分離は文字起こしの側)
-WINDOW_SEC = 7 * 24 * 3600                   # 「調子」に出す期間(まとめて実行の失敗の数と同じ 7 日)
+WINDOW_SEC = 7 * 24 * 3600                   # 「調子」に出す期間(7 日)
 MAX_LIST = 20                                # 「調子」に出す数(新しい順)
 RUNS_READ_BYTES = 512 * 1024                 # まとめて実行の記録は末尾からこれだけ読む(1 件 1〜2KB)
 REASON_MAX = 300

@@ -63,7 +63,6 @@ class TestBuild(Base):
         r = self.build()
         self.assertTrue(r["created"])
         self.assertRegex(r["version"], r"^\d{8}-\d{6}-[0-9a-f]{8}$")
-        self.assertEqual(learnpack.verify(r["dir"]), [])
         pack = rd(os.path.join(r["dir"], "learning.json"))
         self.assertEqual(pack["version"], r["version"])
         self.assertEqual(sorted(f["path"] for f in pack["files"]),
@@ -72,12 +71,6 @@ class TestBuild(Base):
         self.assertEqual((latest["version"], latest["dir"]), (r["version"], r["version"]))
         settings = rd(os.path.join(r["dir"], "settings.json"))
         self.assertEqual(settings, {"glossary": "ぺこら"})   # 他の項目(モデル・評価用フォルダ)と、今はオフの人の置換辞書(dictfmt.USER_DICT)は入れない
-
-    def test_corrupt_file_is_detected(self):
-        r = self.build()
-        with open(os.path.join(r["dir"], "settings.json"), "ab") as f:
-            f.write(b" ")
-        self.assertEqual(learnpack.verify(r["dir"]), ["settings.json"])
 
     def test_voices_only_roster_people(self):
         r = self.build()

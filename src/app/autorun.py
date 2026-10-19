@@ -17,7 +17,7 @@
 - 各ツールの**公開している API を HTTP で呼ぶ**(入口と同じ 127.0.0.1。取り込んだツールは入口のポートの /studio/ など、子プロセスのツールはそのポート)。
   ツールの中の関数を直接呼ばないのは、画面から使うときと同じ検査・同じジョブ管理(重い処理の順番待ち ytt.jobs を含む)を通すため。
 - どの段も「まだ無いものだけ」作る(書き出し済み・文字起こし済み・パック済みは飛ばす)。途中で止めても、もう一度押せば続きから進む。
-  文字起こしの有無は manage.cases.txindex(案件の画面・スタジオのセリフと同じ規則)、パックの有無は cases.find_pack で見る。
+  文字起こしの有無は manage.cases.txindex(案件の画面・スタジオのセリフと同じ規則)、パックの有無は txindex.pack_info で見る。
 - スタジオの ① 探す で選んだ配信(まだスタジオに無い YouTube の配信)は封筒の input.fresh つきで「解析から全部」に入れる。解析のキューに入れると
   スタジオに配信ができるので、それまでは受け取った題名で進める。
 - 1本ずつ順に処理する(キュー。src/flow/runqueue.py)。同じ配信を2つ同時には入れない。
@@ -227,9 +227,9 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
         self.memo_sec = MEMO_SEC   # 1 回の受付の間だけ覚える秒(_memo。テストは 0 にできる)
         self._memo_items = {}
         self._delivery_init(log_dir)   # 届ける溜めの置き場所とロック(src/flow/delivery.py の Delivery)
-        # パックの有無の見方は案件の画面とそろえる(cases.find_pack)。client・env・poll・sleep・log(入口のログ launcher.log に1行)・clock・closed は Runner、
+        # パックの有無の見方は案件の画面とそろえる(txindex.pack_info)。client・env・poll・sleep・log(入口のログ launcher.log に1行)・clock・closed は Runner、
         # 待ち行列・記録・待ちの記録(log_dir の autorun-runs.jsonl・autorun-active.json)は Queue が持つ
-        super().__init__(client, env=env, poll=poll, sleep=sleep, log=log, clock=clock, find_pack=cases.find_pack if find_pack is None else find_pack,
+        super().__init__(client, env=env, poll=poll, sleep=sleep, log=log, clock=clock, find_pack=txindex.pack_info if find_pack is None else find_pack,
                          log_dir=log_dir, log_max=log_max, tools=tools)
 
     # ------------------------------------------------------------ 起動し直しで戻す(M5。ツールの準備を待つ hook)

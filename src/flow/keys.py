@@ -368,40 +368,6 @@ def pack_state(video, make_body):
     return ("same" if _packrec.ready(pack_dir(video))[0] else "differ"), built
 
 
-def _same_with(key, stage, **changes):
-    """書いてある鍵の inputs の一部を今の値に替えて hash を作り直し、同じか(替えた所だけを比べる)"""
-    try:
-        return _schemas.make_key(stage, dict(key["inputs"], **changes))["hash"] == key["hash"]
-    except (TypeError, ValueError):
-        return False
-
-
-def stored_state(tid, source_path, doc_updated_at=0):
-    """今の設定を知らずに分かる範囲の鍵の状態(④ manage/cases/txindex.key_state が読む。読むだけ。RS6 b-K2)-> {"transcribe", "pack"}。
-    transcribe: 文書 tid の鍵の「元の切り抜き」が今の切り抜きの素性と違う(書き出し直した)= differ。pack: 動画の既定のパックの鍵の「元の切り抜き」が違うか、
-    文書が鍵より後に直された(字幕が新しい)= differ。鍵が無い・文書が無ければ none"""
-    out = {"transcribe": "none", "pack": "none"}
-    if not source_path:
-        return out
-    basis = _clip_basis(source_path)
-    try:
-        tk = read(doc_key_path(tid, "transcribe"), "transcribe") if tid else None
-        pkpath = pack_dir_key_path(source_path)
-        pk = read(pkpath, "pack")
-    except (TypeError, ValueError):
-        return out
-    if tk:
-        out["transcribe"] = "same" if _same_with(tk, "transcribe", export=basis) else "differ"
-    if pk and pk["inputs"].get("form") == PACK_FORM:
-        clip = basis if isinstance(basis, str) else (_short(basis) if basis else "")
-        try:
-            newer = bool(doc_updated_at) and doc_updated_at > os.path.getmtime(pkpath) * 1000
-        except OSError:
-            newer = False
-        out["pack"] = "same" if _same_with(pk, "pack", clips=[clip]) and not newer else "differ"
-    return out
-
-
 # ---------- 文字起こしの鍵を読む(RS6 b-K2) ----------
 def transcribe_req_inputs(source_path, req):
     """文字起こしの要求 req(束の tx_opts + 段が決めた engine・model。「編集」の受付 validate_job と同じ読み方)で今 source_path を認識したら

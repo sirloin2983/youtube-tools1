@@ -142,21 +142,3 @@ def _ensure_latest(learn_root, version):
     if not cur or cur.get("version") != version:
         pack = _fsio.read_json_or(os.path.join(learn_root, version, PACK_FILE), None, kind=dict) or {}
         _fsio.write_json(os.path.join(learn_root, LATEST_FILE), {"schema": SCHEMA, "version": version, "dir": version, "createdAt": pack.get("createdAt", 0)})
-
-
-def verify(pack_dir):
-    """束のフォルダの中身が learning.json の sha256・size と合うか -> 食い違うパスの一覧(空 = 合う)。受け取る側・テスト用"""
-    pack = _fsio.read_json_or(os.path.join(pack_dir, PACK_FILE), None, kind=dict)
-    if not pack:
-        return [PACK_FILE]
-    bad = []
-    for f in pack.get("files") or []:
-        try:
-            with open(os.path.join(pack_dir, *str(f["path"]).split("/")), "rb") as fh:
-                data = fh.read()
-        except (OSError, KeyError):
-            bad.append(str(f.get("path")))
-            continue
-        if hashlib.sha256(data).hexdigest() != f.get("sha256") or len(data) != f.get("size"):
-            bad.append(str(f["path"]))
-    return bad

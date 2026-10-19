@@ -388,7 +388,7 @@ class Base(unittest.TestCase):
     def make_runner(self, **kw):
         """偽のツールにつないだ AutoRunner(既定は待たない・パックは案件の find_pack で探す)。kw は log_dir・prefs・sleep など"""
         kw.setdefault("sleep", lambda s: None)
-        kw.setdefault("find_pack", A.cases.find_pack)
+        kw.setdefault("find_pack", A.txindex.pack_info)
         return A.AutoRunner(self.tools, os.path.join(self.tmp, "repo"), self.env, poll=0, **kw)
 
     def until(self, fn, timeout=10):

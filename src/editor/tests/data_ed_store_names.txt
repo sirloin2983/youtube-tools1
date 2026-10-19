@@ -51,7 +51,6 @@ hist_stamps
 keeps_arg
 list_history
 list_transcripts
-pack_info
 pack_readme
 pack_stale
 prune_cache

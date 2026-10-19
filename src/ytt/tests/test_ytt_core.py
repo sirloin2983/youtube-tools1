@@ -1718,16 +1718,17 @@ class TestTxIndex(unittest.TestCase):
     def test_pack_record(self):
         """パックに cut-plan.json を置かず、cut2resolve の作業データ packs/ の記録で「パック済み」を決める"""
         import json as _json
+        from flow import packrec
         from manage.cases import txindex
         env = {"YTT_DATA_DIR": os.path.join(self.tmp, "data")}
         d = txindex.pack_dir(self.clip)
         os.makedirs(os.path.join(d, "media"))
-        rec_dir = txindex.packs_dir(env)
+        rec_dir = packrec.packs_dir(env)
         self.assertEqual(rec_dir, os.path.join(self.tmp, "data", "cut2resolve", "packs"))
         os.makedirs(rec_dir)
-        rec = {"schema": txindex.PACK_RECORD_SCHEMA, "dir": d.upper() if os.name == "nt" else d, "textplus": True, "builtAt": 1790000000000,
+        rec = {"schema": packrec.SCHEMA, "dir": d.upper() if os.name == "nt" else d, "textplus": True, "builtAt": 1790000000000,
                "files": ["create_resolve_textplus_project.lua", "media/01_a.mp4"]}
-        with open(os.path.join(rec_dir, txindex.pack_key(d)), "w", encoding="utf-8") as f:
+        with open(os.path.join(rec_dir, packrec.record_name(d)), "w", encoding="utf-8") as f:
             _json.dump(rec, f)
         self.assertIsNone(txindex.pack_info(self.clip, env))                 # 記録したファイルがフォルダに無い(消した・作りかけ)
         self.assertFalse(txindex.is_pack_dir(d, env))
@@ -1737,10 +1738,10 @@ class TestTxIndex(unittest.TestCase):
         self.assertTrue(txindex.is_pack_dir(d, env))
         self.assertIsNone(txindex.pack_info(self.clip, {"YTT_DATA_DIR": os.path.join(self.tmp, "other")}))   # 別の置き場所には無い
         for bad in ({"schema": "x"}, dict(rec, dir=os.path.join(self.tmp, "else")), dict(rec, files=["../../x"]), [1]):
-            with open(os.path.join(rec_dir, txindex.pack_key(d)), "w", encoding="utf-8") as f:
+            with open(os.path.join(rec_dir, packrec.record_name(d)), "w", encoding="utf-8") as f:
                 _json.dump(bad, f)
             self.assertIsNone(txindex.pack_info(self.clip, env), bad)
-        self.assertNotEqual(txindex.pack_key(d), txindex.pack_key(d + "2"))
+        self.assertNotEqual(packrec.record_name(d), packrec.record_name(d + "2"))
 
     def doc(self, tid, source="", clip=None, updated=1, segs=None, speakers=None):
         d = {"id": tid, "title": "t" + tid, "sourcePath": source, "updatedAt": updated, "speakers": speakers or [],
@@ -1828,26 +1829,6 @@ class TestTxIndex(unittest.TestCase):
         self.assertEqual([(x["start"], x["end"], x["proofed"], x["cut"]) for x in ln], [(99.5, 101.0, True, False), (101.5, 102.5, False, True)])
         self.assertEqual(d["aaaaaaaaaaaa"]["segments"][0]["start"], 1.0)   # キャッシュの中身は変えない
 
-    def test_key_state(self):
-        """成果物の鍵の状態(読むだけ。RS6 b-K2): 文書の transcribe の鍵・既定のパックの鍵を、切り抜きの素性と文書の更新で比べる"""
-        from flow import keys
-        from ytt import workdata
-        tid = "aaaaaaaaaaaa"
-        with mock.patch.object(workdata, "TX_DIR", self.dir):
-            self.assertEqual(txindex.key_state(self.clip, docs=[]), {"transcribe": "none", "pack": "none"})
-            self.assertEqual(txindex.key_state("", docs=[]), {"transcribe": "none", "pack": "none"})
-            self.doc(tid, self.clip, updated=1)
-            docs = txindex.load(self.dir)
-            self.assertEqual(txindex.key_state(self.clip, docs), {"transcribe": "none", "pack": "none"})   # 鍵なし(今までの成果物)
-            run = {"engine": "faster-whisper", "engineVersion": "1", "model": "small", "language": "ja", "settings": {"beam": 5, "vadMode": "weak", "boost": False}}
-            keys.write_after_transcribe(tid, {"sourcePath": self.clip, "whole": True}, run)
-            keys.write_pack(str(keys._pack.default_out_dir(self.clip)), {"video": self.clip, "keeps": [[0, 1]]}, {"textplus": True})
-            self.assertEqual(txindex.key_state(self.clip, docs), {"transcribe": "same", "pack": "same"})
-            self.doc(tid, self.clip, updated=4102444800000)   # 文書をパックの後に直した = 字幕が新しい
-            self.assertEqual(txindex.key_state(self.clip, txindex.load(self.dir)), {"transcribe": "same", "pack": "differ"})
-            keys.write_export(self.clip, schemas.media_identity("archive", videoId=self.VID), 1, 9, {})   # 切り抜きを書き出し直した
-            self.assertEqual(txindex.key_state(self.clip, txindex.load(self.dir))["transcribe"], "differ")
-
     def test_folder_follows_transcribe_rules(self):
         self.assertEqual(txindex.folder("/r", {"TRANSCRIBE_DATA_DIR": "/d"}), os.path.join(os.path.abspath("/d"), "transcripts"))
         self.assertEqual(txindex.folder("/r", {"YTT_DATA_DIR": "inplace"}), os.path.join(os.path.abspath("/r/editor"), "transcripts"))
@@ -1855,16 +1836,17 @@ class TestTxIndex(unittest.TestCase):
 
     def test_registered_dirs_are_read_by_other_tools(self):
         """起動したツールが登録した場所(datadir.register)を、同じプロセスの他のツールが読む(env を渡したテストは見ない)"""
+        from flow import packrec
         self.addCleanup(datadir.register, "transcribe", None)
         self.addCleanup(datadir.register, "cut2resolve", None)
         datadir.register("transcribe", "/tx")
         datadir.register("cut2resolve", os.path.abspath("/c2r"))
         self.assertEqual(datadir.registered("cut2resolve"), os.path.abspath("/c2r"))
         self.assertEqual(txindex.folder("/r"), os.path.join(os.path.abspath("/tx"), "transcripts"))
-        self.assertEqual(txindex.packs_dir(), os.path.join(os.path.abspath("/c2r"), "packs"))
-        self.assertEqual(txindex.packs_dir(c2r_dir="/other"), os.path.join(os.path.abspath("/c2r"), "packs"))   # 登録が先
+        self.assertEqual(packrec.packs_dir(), os.path.join(os.path.abspath("/c2r"), "packs"))
+        self.assertEqual(packrec.packs_dir(c2r_dir="/other"), os.path.join(os.path.abspath("/c2r"), "packs"))   # 登録が先
         self.assertEqual(txindex.folder("/r", {"YTT_DATA_DIR": "inplace"}), os.path.join(os.path.abspath("/r/editor"), "transcripts"))
-        self.assertEqual(txindex.packs_dir({"YTT_DATA_DIR": "inplace"}, "/other"), os.path.join(os.path.abspath("/other"), "packs"))
+        self.assertEqual(packrec.packs_dir({"YTT_DATA_DIR": "inplace"}, "/other"), os.path.join(os.path.abspath("/other"), "packs"))
         datadir.register("cut2resolve", None)
         self.assertIsNone(datadir.registered("cut2resolve"))
 

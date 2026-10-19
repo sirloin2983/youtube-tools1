@@ -10,7 +10,7 @@
 - 人の最終 = パックの記録の cutPlan(パックにした最終)と edit.json の clips(保存したカット)のうち**新しい方**
   (パックの builtAt と edit.json の updatedAt(無ければファイルの更新時刻)を比べる。パックを作ったあとにカットを直したら、直した方が最終)。パックが無ければ clips。
   どちらを使ったかの内訳(パック / 保存したカット)を出す。
-  パックの記録は、文書の動画のパス(付け替える前のパスも)から manage.cases.txindex の規則(pack_dir・pack_key)で探す。
+  パックの記録は、文書の動画のパス(付け替える前のパスも)から manage.cases.txindex.pack_dir と flow/packrec の記録の名前で探す。
 - 区間の対応づけ: たたき台の区間と最終の区間を、重なり(0 秒より長い)でつなぎ、つながった塊ごとに見る
     1対1 … 端のずれを測る(開始・終了とも 0.5 コマ未満なら「そのまま」、超えれば「端を動かした」)
     たたき台だけの塊 = 消した区間 / 最終だけの塊 = 足した区間 / n対m(分けた・つないだ)= 形を変えた(外側の端のずれだけ測る)
@@ -37,6 +37,7 @@ if not __package__:   # スクリプトとして起動したとき(py -3.12 src/
     sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
 from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・分布・保存。src を sys.path に足す)
 from eval.tools._evalcommon import dist, rate, read_json  # noqa: E402
+from flow import packrec  # noqa: E402
 from manage.cases import txindex  # noqa: E402
 from ytt import docloc  # noqa: E402
 
@@ -148,8 +149,8 @@ def find_pack(doc, env):
             continue
         seen.add(p)
         d = txindex.pack_dir(p)
-        rec = read_json(os.path.join(txindex.packs_dir(env), txindex.pack_key(d)), None, MAX_PACK_RECORD_BYTES)
-        if not isinstance(rec, dict) or rec.get("schema") != txindex.PACK_RECORD_SCHEMA or txindex.norm(rec.get("dir")) != txindex.norm(d):
+        rec = read_json(os.path.join(packrec.packs_dir(env), packrec.record_name(d)), None, MAX_PACK_RECORD_BYTES)
+        if not isinstance(rec, dict) or rec.get("schema") != packrec.SCHEMA or txindex.norm(rec.get("dir")) != txindex.norm(d):
             continue
         if pack_final(rec) is None:
             continue

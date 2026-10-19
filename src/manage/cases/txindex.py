@@ -23,7 +23,6 @@ NORM_WHY = "normalize30"   # 「編集」が 30fps の写しへ付け替えた�
 MAX_DOC_BYTES = 32 * 1024 * 1024
 MAX_TEXT = 500
 REPO_ROOT = layout.src_root()   # ツールの親(src)
-PACK_RECORD_SCHEMA = _packrec.SCHEMA   # パックを作った記録の形の持ち主は ② flow/packrec(読み手のテスト・⑤ が名前で読む)
 _cache = fsio.StampCache()   # パス -> 読んだ中身(ファイルの更新日時・大きさが変わったときだけ読み直す。テストが名前で見る)
 
 
@@ -217,51 +216,16 @@ def pack_dir(media_path):
     return os.path.join(os.path.dirname(media_path), os.path.splitext(os.path.basename(media_path))[0] + "_pack")
 
 
-def packs_dir(env=None, c2r_dir=None):
-    """パックを作った記録のフォルダ(規則は ② flow/packrec.packs_dir)"""
-    return _packrec.packs_dir(env, c2r_dir)
-
-
-def pack_key(dirpath):
-    """パックのフォルダ → 記録のファイル名(規則は ② flow/packrec.record_name)"""
-    return _packrec.record_name(dirpath)
-
-
-def read_pack_record(dirpath, env=None, c2r_dir=None):
-    """パックを作った記録(② flow/packrec.read_record)。フォルダがあり、記録した中身のファイルが1つでも残っているときだけ返す
-    (フォルダを消した・作り直した後の古い記録で「パック済み」にしない)。-> 記録 か None"""
-    return _packrec.read_record(dirpath, env, c2r_dir)
-
-
-def pack_ready(dirpath, env=None, c2r_dir=None):
-    """このパックだけで編集できるか(部品 M1。片付けが元の素材を候補にする・移す直前に見る)-> (真偽, 理由)。
-    中身の確かめは ② flow/packrec.ready(鍵が同じパックを飛ばす前の確かめ = 部品 F3 と同じ口)。記録の無いフォルダは偽(元の素材を残す側)"""
-    return _packrec.ready(dirpath, env, c2r_dir)
-
-
 def pack_info(media_path, env=None):
     """切り抜きのパック(cut2resolve が作る <名前>_pack)があるか。パックを作った記録(④)で決める。
     -> {"dir", "textplus"(Text+ パックか), "updatedAt"(ms)} か None。入口の案件の画面・まとめて実行・文字起こしの一覧が同じ規則で使う(規則はここ1か所)"""
     if not media_path:
         return None
     d = pack_dir(media_path)
-    rec = read_pack_record(d, env)
+    rec = _packrec.read_record(d, env)
     if not rec:
         return None
     return {"dir": d, "textplus": rec.get("textplus") is True, "updatedAt": _ms(rec.get("builtAt"))}
-
-
-def key_state(media, docs=None, env=None, video_id=None, mark_id=None):
-    """切り抜き media の成果物の鍵の状態(読むだけ。RS6 b-K2。案件の画面に出すのは後)-> {"transcribe": same|differ|none, "pack": same|differ|none}。
-    紐づいた文書(pick)の transcribe の鍵と、動画の既定のパックの鍵を、今の設定を知らずに分かる範囲で比べる(flow/keys.stored_state):
-    切り抜きを書き出し直した・文書を鍵より後に直した(字幕が新しい)= differ。鍵・文書が無ければ none。docs = load の結果(無ければ作業データから読む)"""
-    from flow import keys as _keys   # 呼ぶときだけ(紐づけだけを使う読み手に、鍵の部品を読ませない)
-    if not media:
-        return {"transcribe": "none", "pack": "none"}
-    if docs is None:
-        docs = load(folder(REPO_ROOT, env))
-    doc = pick(docs, video_id, mark_id, media)[0]
-    return _keys.stored_state(doc["id"] if doc else None, media, doc["updatedAt"] if doc else 0)
 
 
 def is_pack_dir(dirpath, env=None, c2r_dir=None):
@@ -269,4 +233,4 @@ def is_pack_dir(dirpath, env=None, c2r_dir=None):
     パックを作った記録があるか"""
     if not dirpath or not os.path.isdir(str(dirpath)):
         return False
-    return bool(read_pack_record(dirpath, env, c2r_dir))
+    return bool(_packrec.read_record(dirpath, env, c2r_dir))

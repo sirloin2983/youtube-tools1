@@ -106,16 +106,6 @@ class ErrorsTest(unittest.TestCase):
         self.assertEqual(H.count_client_errors(p, now), 3)
         self.assertEqual(H.count_client_errors(os.path.join(self.tmp, "none.jsonl"), now), 0)
 
-    def test_count_autorun_failed(self):
-        now = time.time()
-        p = os.path.join(self.tmp, "autorun-runs.jsonl")
-        with open(p, "w", encoding="utf-8") as f:
-            f.write(json.dumps({"state": "error", "created": int((now - 3600) * 1000)}) + "\n")
-            f.write(json.dumps({"state": "done", "created": int((now - 3600) * 1000)}) + "\n")
-            f.write(json.dumps({"state": "error", "created": int((now - 10 * 86400) * 1000)}) + "\n")
-            f.write(json.dumps({"state": "error", "mode": "request", "created": int((now - 3600) * 1000)}) + "\n")
-        self.assertEqual(H.count_autorun_failed(p, now), 2)
-
 
 NS = "http://schemas.microsoft.com/win/2004/08/events/event"
 

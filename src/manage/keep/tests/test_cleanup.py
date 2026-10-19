@@ -230,13 +230,14 @@ class CleanupTest(unittest.TestCase):
 
     def make_pack(self, media, textplus=True, files=("a.mp4", "create_resolve_textplus_project.lua", "README.txt"), built=None):
         """<名前>_pack と、cut2resolve のパックを作った記録(作業データの packs/)"""
+        from flow import packrec
         from manage.cases import txindex
         d = txindex.pack_dir(media)
         for f in files:
             touch(os.path.join(d, f), 5)
-        rec = {"schema": txindex.PACK_RECORD_SCHEMA, "dir": d, "textplus": textplus, "files": list(files),
+        rec = {"schema": packrec.SCHEMA, "dir": d, "textplus": textplus, "files": list(files),
                "builtAt": built or int((self.now[0] - 20 * 86400) * 1000)}
-        write_json(os.path.join(txindex.packs_dir(self.env), txindex.pack_key(d)), rec)
+        write_json(os.path.join(packrec.packs_dir(self.env), packrec.record_name(d)), rec)
         return d
 
     def test_export_aged_textplus_pack_with_sidecars(self):

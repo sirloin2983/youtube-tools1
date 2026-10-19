@@ -258,17 +258,6 @@ class TestReadK2(_Env):
         write_tr("い", "3")   # 字幕が新しい
         self.assertEqual(keys.pack_state(self.media, lambda: body)[0], "differ")
 
-    def test_stored_state(self):
-        self.assertEqual(keys.stored_state(TID, self.media), {"transcribe": "none", "pack": "none"})
-        self.write_tx()
-        out = str(keys._pack.default_out_dir(self.media))
-        keys.write_pack(out, {"video": self.media, "keeps": [[0, 1]]}, {"textplus": True})
-        self.assertEqual(keys.stored_state(TID, self.media), {"transcribe": "same", "pack": "same"})
-        self.assertEqual(keys.stored_state(TID, self.media, doc_updated_at=4102444800000)["pack"], "differ")   # 文書が鍵より後に直された
-        keys.write_export(self.media, schemas.media_identity("archive", videoId="vid12345678"), 1, 9, {})
-        self.assertEqual(keys.stored_state(TID, self.media), {"transcribe": "differ", "pack": "differ"})
-
-
 class TestPackRecord(_Env):
     """パックを作った記録(② flow/packrec)。API と CLI が同じ after_build を呼ぶ(設計原則の指摘 3)"""
 

@@ -35,8 +35,8 @@ class TestNames(unittest.TestCase):
 
     def test_old_names_still_resolve(self):
         """元の部品が持っていた名前は、S.名前 で読める(数は名前の一覧の写しが欠けていないことの確かめ)"""
-        for fname, n in (("data_ed_jobs_names.txt", 200), ("data_ed_speakers_names.txt", 102), ("data_ed_store_names.txt", 75),
-                         ("data_ed_alt_names.txt", 31), ("data_ed_retime_names.txt", 2), ("data_ed_relink_names.txt", 56),
+        for fname, n in (("data_ed_jobs_names.txt", 200), ("data_ed_speakers_names.txt", 102), ("data_ed_store_names.txt", 74),
+                         ("data_ed_alt_names.txt", 31), ("data_ed_retime_names.txt", 2), ("data_ed_relink_names.txt", 48),
                          ("data_ed_misc_names.txt", 5), ("data_ed_state_names.txt", 80), ("data_ed_learn_names.txt", 57)):
             with self.subTest(fname):
                 names = _old_names(fname)
@@ -288,13 +288,13 @@ class TestEdRelinkNames(unittest.TestCase):
         with mock.patch.object(S, "_relink_write", lambda *a, **k: calls.append(a) or 1):
             self.assertEqual(relink._relink_write("t", {}, "p", 0.0), 1)   # S の差し替えは relink に届き、folders は呼ぶたびに _relink._relink_write を読む
         self.assertEqual(len(calls), 1)
-        saved = relink.FIND_MAX_DEPTH
+        saved = relink.RELINK_KEEP
         try:
-            S.FIND_MAX_DEPTH = 2   # test_edit の形(S.FIND_MAX_DEPTH = 1)
-            self.assertEqual(relink.FIND_MAX_DEPTH, 2)
+            S.RELINK_KEEP = 2   # test_edit の形(S.名前 = 値)
+            self.assertEqual(relink.RELINK_KEEP, 2)
         finally:
-            relink.FIND_MAX_DEPTH = saved
-        self.assertNotIn("FIND_MAX_DEPTH", vars(S))
+            relink.RELINK_KEEP = saved
+        self.assertNotIn("RELINK_KEEP", vars(S))
 
 
 class TestEdMiscNames(unittest.TestCase):

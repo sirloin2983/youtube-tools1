@@ -1301,7 +1301,7 @@ class PortalServer(httpsec.ExclusiveServer):
         video_id = video_id if isinstance(video_id, str) and len(video_id) <= 64 else None
         channel = channel.strip()[:120] if isinstance(channel, str) and channel.strip() else None
         if doc_id and not video_id:
-            d = next((x for x in cases_mod.read_transcripts(cases_mod.locations(self.sup.root)["transcripts"]) if x["id"] == doc_id), None)
+            d = next((x for x in cases_mod.txindex.load(cases_mod.locations(self.sup.root)["transcripts"]) if x["id"] == doc_id), None)
             src = ((d or {}).get("clip") or {}).get("source") or {}
             video_id = src.get("videoId") if isinstance(src.get("videoId"), str) else None
         if video_id and not channel:
