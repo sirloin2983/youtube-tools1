@@ -40,7 +40,7 @@ class PageServerTest(unittest.TestCase):
         cls.srv, cls.port = L.make_server(0, cls.sup)
         cls.addClassCleanup(cls.srv.server_close)
         cls.sup.attach(cls.srv)
-        cls.th = threading.Thread(target=cls.srv.serve_forever, daemon=True)
+        cls.th = threading.Thread(target=cls.srv.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)   # 止めるのを待たない
         cls.th.start()
         cls.addClassCleanup(cls.srv.shutdown)   # 戻す順は後に足した物から = shutdown → server_close → sup.close → env.stop → 一時のフォルダ
         cls.host = "127.0.0.1:%d" % cls.port

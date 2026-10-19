@@ -7,8 +7,8 @@
 確かめること:
   - 設定 live: 既定はオフ・形の検査・合言葉は空で送っても今の値を残す・画面へ返す設定に合言葉を出さない・配信中の候補の文字起こし liveTx の検査
   - オフ: /live/… は 404(GET・POST とも)・「調子」に live が出ない・見回りは何もしない
-  - オン: hls.js の同梱・録画元の一覧(合言葉を出さない)・中継(合言葉 Bearer と Host を付ける・Sec-Fetch-Site と入口の合言葉の検査・
-    知らない録画元・パスの検査・思わぬ種類の応答・録画元が止まっている)・「調子」の行
+  - オン: 録画元の一覧(合言葉を出さない)・中継(合言葉 Bearer と Host を付ける・Origin は渡さない・Sec-Fetch-Site と入口の合言葉の検査・
+    知らない録画元・パスの検査・思わぬ種類の応答・録画元が止まっている)。正しく動く道(hls.js・再生・「調子」の行)は e2e_live_studio.py
   - 入口の終了で録画の部品を止める(録画中は止めない)
   - スタジオから: POST /live/api/begin(URL の検査・録画を始める・同じ配信は録画中のものを返す・録画元の断り・録画元が止まっている)・
     POST /live/api/export の studio の形(録画の頭からの秒 → 絶対時刻・正本の id・値の検査・録画がまだ始まっていない)・
@@ -18,6 +18,8 @@ import http.client
 import json
 import os
 import shutil
+import socket
+import struct
 import sys
 import tempfile
 import threading
@@ -40,19 +42,38 @@ from app import server as L  # noqa: E402
 from app import live as LV  # noqa: E402
 from flow import live_adopt as LA  # noqa: E402
 from flow import livesession as LS  # noqa: E402
-from flow import run as RunMod  # noqa: E402
 from flow import live_export as LX  # noqa: E402
 from human.friend import live_requests as LR  # noqa: E402
 from app import prefs as P  # noqa: E402
-from ytt import fsio, jobs, loudness, normalize, schemas, tools  # noqa: E402
+from ytt import fsio  # noqa: E402
 
 TOKEN = LF.TOKEN
 FakeRecorder = LF.FakeRecorder   # 録画元の偽物(flow/tests/_livefix.py。test_live_archive_api.py も借りる)
-FakeStudio = LF.FakeStudio       # スタジオの偽物(同上)
-free_port = LF.free_port
 
 
 wait_for = testkit.wait_for
+
+
+class DownRecorder:
+    """つながっても何も答えずに切る録画元(入口から見ると止まっている)"""
+
+    def __init__(self, port):
+        self.sock = socket.socket()
+        self.sock.bind(("127.0.0.1", port))
+        self.sock.listen(16)
+        threading.Thread(target=self._loop, daemon=True).start()
+
+    def _loop(self):
+        while True:
+            try:
+                c, _ = self.sock.accept()
+            except OSError:
+                return
+            c.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))   # RST で切る
+            c.close()
+
+    def close(self):
+        self.sock.close()
 
 
 def friend_ctx(tmp, **extra):
@@ -215,7 +236,7 @@ class PortalLiveTest(unittest.TestCase):
         self.sup = L.Supervisor(self.tmp, only=[], log=lambda m: None, mounts=())
         self.srv, self.port = L.make_server(0, self.sup)
         self.sup.attach(self.srv)
-        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+        threading.Thread(target=self.srv.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()   # 止めるのを待たない
         self.srv.live.store_dir = os.path.join(self.tmp, "live")   # マークと書き出しの記録(テストはリポジトリの中に書かない)
         self.srv.live.out_dir = lambda: os.path.join(self.tmp, "out")
         self.fake = FakeRecorder()
@@ -253,6 +274,11 @@ class PortalLiveTest(unittest.TestCase):
         code, d = self.jreq("POST", "/api/ytt/prefs", {"op": "patch", "section": "live", "value": v})
         self.assertEqual(code, 200, d)
         return d
+
+    def recorder_down(self):
+        """録画元が止まった(同じポートで受けてすぐ切る。Windows は閉じたポートへの接続が断られるまで 2 秒かかるため)"""
+        self.fake.close()
+        self.fake = DownRecorder(self.fake.port)
 
     def test_shutdown_quits_the_recorder_when_not_recording(self):
         """入口の「すべて終了」で録画の部品にも quit を送る(録画中でなければ静かに終わる)"""
@@ -312,11 +338,7 @@ class PortalLiveTest(unittest.TestCase):
         self.assertEqual(d["prefs"]["live"]["recorders"][0]["token"], "")
         code, d = self.jreq("POST", "/api/ytt/prefs", {"op": "get"})   # 全部の節を読んでも同じ
         self.assertEqual(d["prefs"]["live"]["recorders"][0]["token"], "")
-        code, h, raw = self.req("GET", "/live/hls.min.js")   # スタジオの画面が ../live/hls.min.js で読む
-        self.assertEqual((code, h["content-type"]), (200, "application/javascript; charset=utf-8"))
-        self.assertGreater(len(raw), 100000)
         code, d = self.jreq("GET", "/live/api/info")
-        self.assertEqual([r["id"] for r in d["recorders"]], ["fake"])
         self.assertEqual(sorted(d["audio"]), ["loudness", "volume"])   # 書き出しの音量(スタジオと同じ設定)・開始の補正の最初の値
         self.assertIn(d["lag"], (0, 2, 3, 5))
         self.assertNotIn(TOKEN, json.dumps(d))
@@ -328,10 +350,6 @@ class PortalLiveTest(unittest.TestCase):
         self.assertEqual((last["auth"], last["host"], last["path"]), ("Bearer " + TOKEN, "127.0.0.1:%d" % self.fake.port, "/live/list"))
         code, h, raw = self.req("GET", "/live/r/fake/20261004-000000-a/index.m3u8")
         self.assertEqual((code, h["content-type"], h["cache-control"]), (200, "application/vnd.apple.mpegurl", "no-cache"))
-        code, h, raw = self.req("GET", "/live/r/fake/20261004-000000-a/session_001/seg_000000.ts")
-        self.assertEqual((code, h["content-type"], len(raw)), (200, "video/mp2t", 1880))
-        code, d = self.jreq("GET", "/live/r/fake/20261004-000000-a/status?since=5")
-        self.assertEqual(d["path"], "/live/20261004-000000-a/status?since=5")
         code, d = self.jreq("POST", "/live/r/fake/20261004-000000-a/stop", {"x": 1})
         self.assertEqual(code, 404)   # 偽物は stop を知らない(中継はそのまま返す)
         self.assertEqual((self.fake.seen[-1]["path"], self.fake.seen[-1]["body"]), ("/live/20261004-000000-a/stop", {"x": 1}))
@@ -351,16 +369,11 @@ class PortalLiveTest(unittest.TestCase):
             self.assertEqual(self.req("GET", bad)[0], 404, bad)
         self.assertEqual(len(self.fake.seen), n)   # 断った要求は録画元へ届かない
         self.assertEqual(self.jreq("GET", "/live/r/fake/html")[0], 502)   # 思わぬ種類(HTML)は返さない
-        # 「調子」
-        h = self.jreq("GET", "/api/health")[1]
-        self.assertEqual(h["live"]["recorders"][0]["ok"], True)
-        # 録画元が止まっている
-        self.fake.close()
+        self.recorder_down()
         code, d = self.jreq("GET", "/live/r/fake/list")
         self.assertEqual((code, d["error"]), (502, "recorder_down"))
         h = self.jreq("GET", "/api/health")[1]
         self.assertFalse(h["live"]["recorders"][0]["ok"])
-        self.fake = FakeRecorder()   # tearDown で閉じる分
 
     def test_export_needs_an_end(self):
         """終了の無いマークは書き出せない(400)・書き出しの一覧は空・知らないジョブの取り消しは 404"""
@@ -432,10 +445,9 @@ class PortalLiveTest(unittest.TestCase):
         self.assertEqual(len(started), n_start)
         # 録画元が止まっている
         self.probe_as("is_live")
-        self.fake.close()
+        self.recorder_down()
         code, d = self.jreq("POST", "/live/api/begin", {"url": rec["url"]})
         self.assertEqual((code, d["error"]), (502, "recorder_down"))
-        self.fake = FakeRecorder()
 
     def test_begin_local_url_only_for_tests(self):
         """手元の URL(テストの録画元 --source direct)は allow_local_urls のときだけ。そのときもそろえない"""
@@ -588,13 +600,12 @@ class PortalLiveTest(unittest.TestCase):
         self.assertEqual(self.req("POST", "/api/ytt/live", {"op": "status"}, headers={"Origin": "http://evil.example"})[0], 403)
         self.assertEqual(len(stops), 1)
         # 録画元が止まっている: 札は空(待たせない)
-        self.fake.close()
+        self.recorder_down()
         self.srv.live._recent = None
         t = time.time()
         self.assertEqual(self.jreq("POST", "/api/ytt/live", {"op": "status"})[1], {"enabled": True, "recordings": []})
         self.assertLess(time.time() - t, 5)
         self.assertEqual(self.jreq("POST", "/api/ytt/live", {"op": "stop", "recorder": "fake", "recording": rid_a})[0], 502)
-        self.fake = FakeRecorder()
 
 
 class StopLongTest(unittest.TestCase):

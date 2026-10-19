@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-"""案件の画面(/cases。src/app/ui/cases/。RS8 C1 = 殻)の配り方と、画面のファイルの決まりのテスト。  python -m unittest src/app/tests/test_cases_page.py -v
+"""案件の画面(/cases。src/app/ui/cases/)とホーム(/)の配り方の安全の境目のテスト。  python -m unittest src/app/tests/test_cases_page.py -v
 
-- 入口(src/app/server.py)が /cases・/cases.js・/cases.css・/cases-panels/<名前>.js を配る(URL の完全一致の表だけ。フォルダは配らない)
+- 入口(src/app/server.py)は URL の完全一致の表だけを配る(フォルダは配らない)・部品は nosniff で CSP なし・同じ画面からだけ
 - /cases の CSP はスタジオと同じ(YouTube のプレイヤーだけ外のスクリプトを許す・インラインなし・枠に入らない)・合言葉の meta が入る・/cases/ は /cases へ
-- ホームの組み替え(RS8 C3): 新しい案件のパネル cases-panels/new.js・new.css と ホームの運用の中の portal-edit.js を配る・ホーム(/)の CSP は
-  スクリプトを 'self' のままに画像(ytimg)とスタイルの属性だけ足す
+- ホーム(/)の CSP はスクリプトを 'self' のままに画像(ytimg)とスタイルの属性だけ足す
+部品が全部届いて画面が動くこと(404・コンソールのエラー)は e2e_portal.py・e2e_cases_*.py。
 画面のファイルの決まり(インラインの script・パネルの口・id のぶつかり)は dev/ui_audit.py(test_rule_checks が見張る)。"""
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所に書かない(ytt.datadir)
@@ -20,9 +20,6 @@ if SRC not in sys.path:
 sys.path.insert(0, TESTS)   # 土台 _pagetest.py(入口を立てる共通の準備)
 from _pagetest import PageServerTest, L  # noqa: E402
 
-PANELS = ("cand", "proof", "cut")
-
-
 class CasesPageHttpTest(PageServerTest):
     TMP_PREFIX = "ytt-cases-page-"
 
@@ -35,26 +32,16 @@ class CasesPageHttpTest(PageServerTest):
         self.assertNotIn("unsafe-inline", csp)
         self.assertIn("frame-ancestors 'none'", csp)
         self.assertEqual(r.getheader("X-Frame-Options"), "DENY")
-        self.assertIn("動画編集ツール — 案件".encode("utf-8"), body)
         self.assertIn(b'name="ytt-token"', body)
 
-    def test_parts_are_served(self):
-        for path in ["/cases.js", "/cases-caselink.js", "/cases.css", "/cases-panels/cand.css", "/cases-panels/proof.css", "/cases-panels/machpick.js", "/cases-edhost.js"] + ["/cases-panels/%s.js" % n for n in PANELS]:
-            r, body = self.req(path)
-            self.assertEqual(r.status, 200, path)
-            self.assertEqual(r.getheader("X-Content-Type-Options"), "nosniff", path)
+    def test_parts_headers(self):
+        for path in ("/cases.js", "/cases-panels/cand.css"):
+            r, _ = self.req(path)
+            self.assertEqual((r.status, r.getheader("X-Content-Type-Options")), (200, "nosniff"), path)
             self.assertIsNone(r.getheader("Content-Security-Policy"), path)   # CSP は画面(html)にだけ付ける
-            self.assertGreater(len(body), 200, path)
-        r, _ = self.req("/cases.js")
-        self.assertTrue(r.getheader("Content-Type").startswith("application/javascript"))
 
-    def test_home_parts_and_csp(self):
-        for path in ("/cases-panels/new.js", "/cases-panels/new.css", "/portal-edit.js"):
-            r, body = self.req(path)
-            self.assertEqual(r.status, 200, path)
-            self.assertGreater(len(body), 200, path)
-            self.assertIsNone(r.getheader("Content-Security-Policy"), path)
-        r, body = self.req("/")
+    def test_home_csp(self):
+        r, _ = self.req("/")
         self.assertEqual(r.status, 200)
         csp = r.getheader("Content-Security-Policy")
         self.assertEqual(csp, L.PAGE_CSP["/"])
@@ -62,8 +49,6 @@ class CasesPageHttpTest(PageServerTest):
         self.assertIn("img-src 'self' data: https://*.ytimg.com", csp)
         self.assertIn("style-src 'self' 'unsafe-inline'", csp)
         self.assertIn("frame-ancestors 'none'", csp)
-        for needle in (b'id="newDrawer"', b'id="opsBox"', b'id="checkStart"', b'id="editOpsBox"', b'src="/portal-edit.js"'):
-            self.assertIn(needle, body)
 
     def test_only_exact_paths(self):
         for path in ("/cases/cases.js", "/cases-panels/x.js", "/cases-panels/../cases.js", "/cases/index.html.bak", "/app/ui/cases/index.html", "/cases-panels/"):
@@ -85,7 +70,6 @@ class CasesPageHttpTest(PageServerTest):
         self.assertEqual(r.status, 200)
         r, _ = self.req("/cases.js", headers={"Sec-Fetch-Site": "cross-site"})   # 部品は同じ画面からだけ
         self.assertEqual(r.status, 403)
-        self.assertIn("/cases", L.NAV_PAGES)
 
 
 if __name__ == "__main__":

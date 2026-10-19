@@ -1,4 +1,5 @@
-"""入口の API(GET api/accuracy・POST api/accuracy/run・調子の accuracy・設定の節)と、手が空いた判定のつなぎ。精度の自動測定の本体のテストは src/eval/drill/tests/test_accuracy.py。
+"""入口の API(GET api/accuracy・POST api/accuracy/run・設定の節)と、手が空いた判定のつなぎ。精度の自動測定の本体のテストは src/eval/drill/tests/test_accuracy.py。
+調子(/api/health)の accuracy はホームの画面が読む(e2e_portal.py の「始める条件」)。
 
 実行(リポジトリ直下から): py -3.12 -m unittest src/app/tests/test_accuracy_api.py -v
 """
@@ -22,12 +23,12 @@ import test_launch as TL  # noqa: E402  (入口を一時フォルダで動かす
 
 
 class AccuracyApiTest(TL.Base):
-    """入口の API(GET api/accuracy・POST api/accuracy/run・調子の accuracy・設定の節)"""
+    """入口の API(GET api/accuracy・POST api/accuracy/run・設定の節)"""
 
     def setUp(self):
         super().setUp()
         self.srv, self.port = L.make_server(0, self.sup)
-        self.th = threading.Thread(target=self.srv.serve_forever, daemon=True)
+        self.th = threading.Thread(target=self.srv.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)   # 止めるのを待たない
         self.th.start()
         self.host = "127.0.0.1:%d" % self.port
 
@@ -56,8 +57,6 @@ class AccuracyApiTest(TL.Base):
         self.assertEqual((r.status, j["enabled"], j["state"], j["nightFrom"], j["nightTo"]), (200, True, "idle", 1, 6))
         r, _ = self.req("GET", "/api/accuracy", headers={"Sec-Fetch-Site": "cross-site"})
         self.assertEqual(r.status, 403)
-        r, body = self.req("GET", "/api/health")   # 調子にも同じものが入る
-        self.assertEqual(json.loads(body)["accuracy"]["state"], "idle")
         r, _ = self.post("/api/accuracy/run", headers={"X-YTT-Token": "x"})   # 合言葉が要る
         self.assertEqual(r.status, 403)
         r, body = self.post("/api/accuracy/run")

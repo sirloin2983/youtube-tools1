@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-"""アーカイブで本番版に作り直す(線 D の P4)の入口 home を通す分: POST /live/api/archive・…/cancel・GET /live/api/exports の archiveInfo(server.py を通して)と、
-入口のプロセスで numpy を import しない検査。本体(照合・入れ替え・自動の見回り)は ② の src/flow/tests/test_live_archive.py。
+"""録画に無い区間をアーカイブから書き出す(線 D の P4)の入口 home を通す分: POST /live/api/archive・…/cancel・GET /live/api/exports の archiveInfo(server.py を通して)。
+本体(照合・書き出し・自動の見回り)は ② の src/flow/tests/test_live_archive.py。
 
     py -3.12 -m unittest src/app/tests/test_live_archive_api.py
 """
@@ -42,7 +42,7 @@ class ApiTest(unittest.TestCase):
         self.sup = L.Supervisor(self.tmp, only=[], log=lambda m: None, mounts=())
         self.srv, self.port = L.make_server(0, self.sup)
         self.sup.attach(self.srv)
-        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+        threading.Thread(target=self.srv.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()   # 止めるのを待たない
         self.srv.live.store_dir = os.path.join(self.tmp, "live")
         self.srv.live.out_dir = lambda: os.path.join(self.tmp, "out")
         self.status = "post_live"

@@ -40,7 +40,7 @@ class CheckApiTest(TL.Base):
         self.addCleanup(apply._unregister, "read", "tst")
         deck.invalidate()
         self.srv, self.port = L.make_server(0, self.sup)
-        self.th = threading.Thread(target=self.srv.serve_forever, daemon=True)
+        self.th = threading.Thread(target=self.srv.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)   # 止めるのを待たない
         self.th.start()
         self.host = "127.0.0.1:%d" % self.port
 

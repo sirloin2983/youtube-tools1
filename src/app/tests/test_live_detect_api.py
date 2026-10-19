@@ -4,7 +4,7 @@ Detector の中身(api_get・採用・自動の採用など)は ② の src/flow
 
     py -3.12 -m unittest src/app/tests/test_live_detect_api.py
 
-  - Live.handle_get / handle_post の振り分け(入口の合言葉・Origin の検査は server.py が先に済ませる)・オフなら 404・1 回の要求で設定を読むのは 1 回
+  - Live.handle_get / handle_post の振り分け(入口の合言葉・Origin の検査は server.py が先に済ませる)・オフなら 404
   - 設定 detect・autoAdopt の検査(既定・範囲・壊れた値は既定へ)
 作業データはテストの一時フォルダだけ(YTT_DATA_DIR=inplace)。
 """
