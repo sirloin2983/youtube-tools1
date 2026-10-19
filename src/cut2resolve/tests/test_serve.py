@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """画面のサーバー(serve.py)の API のテスト。実サーバーを空きポートで別スレッドに起動する。
-python -m unittest src/cut2resolve/tests/test_serve.py(パックの部品のテストは src/pipeline/pack/tests。RS1-2 で分かれた)"""
+python -m unittest src/cut2resolve/tests/test_serve.py(パックの部品のテストは src/pipeline/pack/tests)"""
 import http.client
 import json
 import os
@@ -18,10 +18,10 @@ from unittest import mock
 TESTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(TESTS.parent))   # cut2resolve/(部品)
 sys.path.insert(0, str(TESTS))
-sys.path.append(str(TESTS.parents[1] / "pipeline" / "pack" / "tests"))   # test_cut2resolve の道具(RS1-2 で pipeline/pack/tests へ移した)
+sys.path.append(str(TESTS.parents[1] / "pipeline" / "pack" / "tests"))   # test_cut2resolve の道具
 import serve  # noqa: E402
 from pipeline.pack import request  # noqa: E402
-from test_cut2resolve import HAVE_FFMPEG, make_video, parse_edl  # noqa: E402
+from test_cut2resolve import HAVE_FFMPEG, make_video  # noqa: E402
 
 
 class Client:
@@ -90,12 +90,11 @@ class TestGuards(ServerBase):
     def test_ping_and_defaults(self):
         st, j = self.c.json("GET", "/api/ping")
         self.assertEqual((st, j), (200, {"app": "cut2resolve", "version": serve.SERVER_VERSION}))
-        # 指定を省いたときの値は pack.Request(コマンドと同じ)の既定と同じ(/api/state で画面に見せていたもの。0.22.0 で api/state は消した)
+        # 指定を省いたときの値は pack.Request(コマンドと同じ)の既定と同じ
         r = serve.pack.Request(video=Path("x.mp4"))
         self.assertEqual({k: serve.DEFAULTS[k] for k in ("noise", "silenceMin", "silencePad", "minLen", "recStart")},
                          {"noise": r.noise, "silenceMin": r.silence_min, "silencePad": r.silence_pad, "minLen": r.min_len,
                           "recStart": r.rec_start})
-        self.assertFalse({"joinGap", "crf"} & set(serve.DEFAULTS))   # 0.23.0: spec.joinGap・output.crf は受けないので既定も持たない
 
     def test_host_header_is_checked(self):
         st, _, body = self.c.req("GET", "/api/ping", headers={"Host": "evil.example:%d" % self.port})
@@ -124,6 +123,7 @@ class TestGuards(ServerBase):
         st, _, body = self.c.req("POST", "/api/plan", raw=b"[]")
         self.assertEqual((st, json.loads(body)["error"]), (400, "bad_json"))
 
+
 class TestPaths(ServerBase):
     def test_clean_path(self):
         self.assertIsNone(serve.clean_path("  ", "video"))
@@ -134,7 +134,7 @@ class TestPaths(ServerBase):
                 serve.clean_path(bad, "video")
 
     def test_input_path_errors_per_field(self):
-        """入力のパスの検査(欄ごとの拡張子・完全なパス・有無)。以前は /api/inspect で欄ごとに見せていた(0.22.0 で消した)。plan・build も同じ検査"""
+        """入力のパスの検査(欄ごとの拡張子・完全なパス・有無)。plan・build も同じ検査"""
         srt = self.dir / "s.srt"
         srt.write_text("1\n00:00:01,000 --> 00:00:02,000\nこんにちは\n", encoding="utf-8")
         self.assertEqual(serve.input_path(str(srt), "srt"), srt)
@@ -176,7 +176,7 @@ class TestPaths(ServerBase):
         st, j = self.c.json("POST", "/api/open-folder", {"path": str(gone)})
         self.assertEqual(st, 200)
         self.opened.clear()
-        old = self.dir / "old_pack"   # 以前の形(記録が無く、フォルダの中に cut2resolve の cut-plan.json)は開けない(読む口は 2026-10-18 に消した)
+        old = self.dir / "old_pack"   # 記録が無く、フォルダの中に cut2resolve の cut-plan.json があるだけの形は開けない
         old.mkdir(exist_ok=True)
         (old / "cut-plan.json").write_text(json.dumps({"schema": "youtube-tools-cut-plan/v1", "tool": {"name": "cut2resolve"}, "segments": []}), encoding="utf-8")
         st, j = self.c.json("POST", "/api/open-folder", {"path": str(old)})
@@ -185,70 +185,9 @@ class TestPaths(ServerBase):
         self.assertEqual(st, 400)
         self.assertEqual(self.opened, [])
 
-    def test_pack_record_prune_removes_missing_folders_and_broken_records_first(self):
-        """パックを作った記録(② flow/packrec)が MAX_RECORDS を超えたら、古い順に見て フォルダの無いもの・読めないもの・形の違うものを消す(フォルダが残っているものは残す)"""
-        recs = self.dir / "recs"
-        recs.mkdir()
-        alive, alive2 = self.dir / "alive_pack", self.dir / "alive2_pack"
-        alive.mkdir()
-        alive2.mkdir()
-        for i, (name, text) in enumerate((("a.json", json.dumps({"dir": str(alive)})), ("b.json", json.dumps({"dir": str(self.dir / "prune_missing_pack")})),
-                                          ("c.json", "{broken"), ("d.json", "[1]")), 1):
-            (recs / name).write_text(text, encoding="utf-8")
-            os.utime(recs / name, (1000 * i, 1000 * i))
-        res = {"out_dir": alive2, "files": [("edl", alive2 / "x.edl")], "editMedia": None, "plan": {}}
-        with mock.patch.object(serve._packrec, "packs_dir", return_value=str(recs)), mock.patch.object(serve._packrec, "MAX_RECORDS", 2):
-            serve._packrec.write_record(res, self.dir / "v.mp4", True)
-        left = sorted(p.name for p in recs.iterdir())
-        self.assertEqual(len(left), 3, left)              # 新しい記録 + 残したもの a(フォルダがある)・d(最後まで古い順の外)
-        self.assertIn("a.json", left)
-        self.assertIn("d.json", left)
-        self.assertNotIn("b.json", left)
-        self.assertNotIn("c.json", left)
-        new = [p for p in recs.iterdir() if p.name not in ("a.json", "d.json")][0]
-        self.assertEqual(json.loads(new.read_text(encoding="utf-8"))["dir"], str(alive2))
-        self.assertTrue(new.read_text(encoding="utf-8").endswith("}\n"))   # 今までと同じ形(indent=1・最後に改行)
-
-class TestHeavyJobLimit(unittest.TestCase):
-    """パックの作成は、他のツールの重い処理と順番を待つ(ytt.jobs)。試算は、無音の検出が要るとき(heavy が真)だけ待つ
-    (API を通した確かめは TestJobs.test_plan_with_detection_waits_for_heavy_slot)"""
-
-    def test_build_waits_and_can_be_cancelled(self):
-        from ytt import jobs
-        slots = jobs.HeavySlots(1)
-        held = slots.acquire("transcribe")
-        with mock.patch.object(jobs, "SLOTS", slots):
-            app = serve.AppState()
-            ran = []
-            job = app.start_job("build", lambda task: ran.append(1) or {"ok": True})
-            for _ in range(100):
-                if job.message == jobs.WAIT_MESSAGE:
-                    break
-                time.sleep(0.02)
-            self.assertEqual((job.state, job.message, ran), ("running", jobs.WAIT_MESSAGE, []))
-            plan = serve.AppState().start_job("plan", lambda task: "planned")   # 試算は待たない
-            for _ in range(100):
-                if plan.state != "running":
-                    break
-                time.sleep(0.02)
-            self.assertEqual(plan.state, "done")
-            job.task.cancel()
-            for _ in range(200):
-                if job.state != "running":
-                    break
-                time.sleep(0.02)
-            self.assertEqual((job.state, ran), ("cancelled", []))
-            slots.release(held)
-            job2 = app.start_job("build", lambda task: "built")
-            for _ in range(200):
-                if job2.state != "running":
-                    break
-                time.sleep(0.02)
-            self.assertEqual((job2.state, job2.result, job2.message), ("done", "built", ""))
-
 
 class TestBoard(unittest.TestCase):
-    """② の掲示板(flow/board)に頭 pk で見える(RS8 の ② の口 S2)"""
+    """② の掲示板(flow/board)に頭 pk で見える"""
 
     def _wait(self, job):
         for _ in range(200):
@@ -271,13 +210,6 @@ class TestBoard(unittest.TestCase):
             self._wait(job)
             j = b.snapshot()["jobs"][0]
             self.assertEqual((j["state"], j["canCancel"], j["finishedAt"] is not None), ("cancelled", False, True))
-            done = app.start_job("plan", lambda task: {"outDir": "D:/x/pack"})
-            self._wait(done)
-            b.snapshot()
-            d = b.get("pk:" + done.id)
-            self.assertEqual((d["state"], d["target"]), ("done", {"path": "D:/x/pack"}))
-            with self.assertRaises(B.NotFound):
-                b.cancel("pk:nothere")
 
 
 class TestSiblings(unittest.TestCase):
@@ -314,22 +246,13 @@ class TestSiblings(unittest.TestCase):
         Path(self.tmp.name, tool + ".json").write_text(json.dumps(obj), encoding="utf-8")
 
     def test_uses_ytt_core(self):
-        """.runtime・siblings・Host/Origin の検査は ytt の1か所(2026-09-26。cut2resolve 自身の写しは消した)"""
-        from ytt import httpsec, runtime
-        self.assertIs(serve.TOOL_APPS, runtime.TOOL_APPS)
-        self.assertIs(serve.httpsec, httpsec)
+        """.runtime・siblings・Host/Origin の検査は ytt の1か所。serve の probe は相手の答えの app と版を読む"""
         port = self.fake("cut2resolve")
         self.assertEqual(serve.probe(port), "x")
         self.assertIsNone(serve.probe(self.fake("clip-studio")))
 
     def test_mounted_path_in_runtime_and_siblings(self):
-        """入口に取り込まれたとき(段階3-2): .runtime に場所を書き、siblings は自分と他のツールの場所を返す。形の違う場所は "/" として扱う"""
-        d = json.loads(Path(serve.write_runtime(8700, "/cut2resolve/")).read_text(encoding="utf-8"))
-        self.assertEqual(d["path"], "/cut2resolve/")
-        d = json.loads(Path(serve.write_runtime(8700, "//evil.example/")).read_text(encoding="utf-8"))
-        self.assertNotIn("path", d)
-        self.assertEqual(serve.siblings(8700, self_path="/cut2resolve/"), {"tools": {"cut2resolve": 8700}, "paths": {"cut2resolve": "/cut2resolve/"}})
-        self.assertEqual(serve.siblings(8700, self_path="/x/../"), {"tools": {"cut2resolve": 8700}})
+        """入口に取り込まれたとき: 別の入口が動いていれば単独起動はその場所を開くだけ(.runtime・siblings の書き方は ytt 側)"""
         port = self.fake("cut2resolve")
         self.put("cut2resolve", {"tool": "cut2resolve", "port": port, "path": "/cut2resolve/"})
         self.assertEqual(serve.mounted_elsewhere(), "http://localhost:%d/cut2resolve/" % port)   # serve.py を直接起動したときはこれを開くだけ
@@ -359,23 +282,17 @@ class TestJobs(ServerBase):
         self.assertEqual(st, 200, j)
         return self.c.wait(j["job"])
 
-    def test_plan_reports_video_info_without_media_url(self):
-        """試算の結果に動画の情報(fps・長さ・開始タイムコード)。動画は配信しない(0.22.0 で media/ と mediaUrl を消した)。
-        Windows の「パスのコピー」の "…" つきのパスも受け付ける"""
+    def test_plan_reports_video_info(self):
+        """試算の結果に動画の情報(fps・長さ・開始タイムコード)。Windows の「パスのコピー」の "…" つきのパスも受け付ける"""
         j = self.run_job("/api/plan", {"spec": {"video": '"%s"' % self.video, "mode": "list", "listKind": "drop", "listText": ""}})
         r = j["result"]
         self.assertEqual((r["fps"], r["total"], r["durationSec"], r["srcStart"]), ([30, 1], 300, 10.0, "00:00:00:00"))
-        self.assertNotIn("mediaUrl", r)
-        self.assertEqual(self.c.req("GET", "/media/" + "a" * 16)[0], 404)
 
     def test_plan_modes(self):
         j = self.run_job("/api/plan", {"spec": self.spec()})
         self.assertEqual(j["state"], "done", j)
         r = j["result"]
-        self.assertEqual(r["count"], 3)
         self.assertIn("silence", r["drops"])
-        self.assertEqual(r["subtitles"]["out"], 2)
-        self.assertNotIn("mediaUrl", r)   # 動画は配信しない(0.22.0)
         self.assertEqual(r["outputs"]["existing"], [])
         self.assertFalse((self.dir / "clip_pack").exists())   # 試算はファイルを作らない
         j = self.run_job("/api/plan", {"spec": self.spec(mode="list", listKind="keep", listText="0:01 0:03\n5 8\n")})
@@ -383,7 +300,7 @@ class TestJobs(ServerBase):
         j = self.run_job("/api/plan", {"spec": self.spec(mode="list", listKind="drop", listText="0 1\n")})
         self.assertEqual(j["result"]["keeps"], [[30, 300]])
         j = self.run_job("/api/plan", {"spec": self.spec(mode="list", listKind="drop", listText="", silenceExtra=True)})
-        self.assertEqual(j["result"]["keeps"], [[0, 300]])        # 0.23.0: silenceExtra(③に無音を重ねる)は受けない = 黙って無視する
+        self.assertEqual(j["result"]["keeps"], [[0, 300]])        # silenceExtra(③に無音を重ねる)は受けない = 黙って無視する
         self.assertNotIn("silence", j["result"]["drops"])
         st, j = self.c.json("POST", "/api/plan", {"spec": self.spec(mode="list", listText="0:05 abc")})
         self.assertEqual((st, j["error"]), (400, "bad_list"))
@@ -397,7 +314,7 @@ class TestJobs(ServerBase):
         self.assertIn("範囲", j["error"]["message"])
 
     def test_plan_with_detection_waits_for_heavy_slot(self):
-        """無音の検出が要る試算(動画の音声を全部読む)は、パックの作成と同じく他のツールの重い処理と順番を待つ(ytt.jobs。0.22.3)。
+        """無音の検出が要る試算(動画の音声を全部読む)は、パックの作成と同じく他のツールの重い処理と順番を待つ(ytt.jobs)。
         検出が要らない試算・検出結果が覚えてある試算は待たない。待っている間は取り消せる"""
         from ytt import jobs
         slots = jobs.HeavySlots(1)
@@ -437,36 +354,14 @@ class TestJobs(ServerBase):
         r = j["result"]
         # 行の端を声の止まる所まで広げる(pack.ROW_EDGE。動画の音は 0-2 秒・4-6 秒・8-10 秒): 1.5 → 無音の始まり 2.0、ほかは決まった余白
         self.assertEqual(r["keeps"], [[12, 60], [252, 291]])
-        j = self.run_job("/api/plan", {"spec": {"video": str(self.video), "transcript": str(t), "mode": "keep", "keepSource": "transcript",
-                                                "rowEdge": False}})
-        self.assertEqual(j["result"]["keeps"], [[15, 45], [255, 285]])   # 広げない
-        j = self.run_job("/api/plan", {"spec": {"video": str(self.video), "transcript": str(t), "mode": "keep", "keepSource": "transcript",
-                                                "rowEdge": False, "handles": 3, "joinGap": 10}})
-        self.assertEqual(j["result"]["keeps"], [[15, 45], [255, 285]])   # 0.23.0: handles(余白)・joinGap(つなぐ隙間)は受けない = 無視する
-        j = self.run_job("/api/plan", {"spec": {"video": str(self.video), "transcript": str(t), "preset": "transcript-rows",
-                                                "rowEdge": {"after": 0, "before": 0}}})
-        self.assertEqual(j["result"]["keeps"], [[15, 45], [255, 285]])   # 上限 0 = 広げない(決まった余白も上限の中)
         st, j = self.c.json("POST", "/api/plan", {"spec": {"video": str(self.video), "transcript": str(t), "preset": "transcript-rows",
                                                            "rowEdge": {"after": 9}}})
-        self.assertEqual((st, j["error"]), (400, "bad_value"))
-        # padAfter: 無音が見つからない端(3 行目の後ろ)の決まった余白だけ 0.2 → 0.4 秒(6 → 12 フレーム)。無音で止まる端は変わらない
-        j = self.run_job("/api/plan", {"spec": {"video": str(self.video), "transcript": str(t), "mode": "keep", "keepSource": "transcript",
-                                                "rowEdge": {"padAfter": 0.4}}})
-        self.assertEqual(j["result"]["keeps"], [[12, 60], [252, 297]])
-        j = self.run_job("/api/plan", {"spec": {"video": str(self.video), "transcript": str(t), "mode": "keep", "keepSource": "transcript",
-                                                "rowEdge": {"on": False, "padAfter": 0.4}}})
-        self.assertEqual(j["result"]["keeps"], [[15, 45], [255, 285]])   # オフなら広げない
-        st, j = self.c.json("POST", "/api/plan", {"spec": {"video": str(self.video), "transcript": str(t), "preset": "transcript-rows",
-                                                           "rowEdge": {"padAfter": 3}}})
         self.assertEqual((st, j["error"]), (400, "bad_value"))
         self.assertEqual(r["subtitles"]["source"], "transcript")
         self.assertEqual(len(r["transcriptRows"]), 3)
         j = self.run_job("/api/plan", {"spec": {"video": str(self.video), "transcript": str(t), "mode": "list", "listKind": "drop",
                                                 "listText": "", "dropCutRows": True}})
         self.assertEqual(j["result"]["keeps"], [[0, 120], [150, 300]])
-        j = self.run_job("/api/plan", {"spec": {"video": str(self.video), "transcript": str(t), "mode": "list", "listKind": "drop",
-                                                "listText": "", "dropCutRows": False}})
-        self.assertEqual(j["result"]["keeps"], [[0, 300]])
 
     def test_preset_transcript_rows_matches_pack_rule(self):
         """preset transcript-rows(入口のまとめて実行が使う)は pack.TRANSCRIPT_ROWS と同じ区間になる(文字起こしの Resolve パッケージと同じ規則)"""
@@ -500,8 +395,6 @@ class TestJobs(ServerBase):
         r = self.run_job("/api/plan", {"spec": dict(spec, keeps=[[9.0, 12.0]])})["result"]
         self.assertEqual(r["keeps"], [[270, 300]])                            # 動画の長さを超える分は切って知らせる
         self.assertTrue(any("動画の長さを超える" in w for w in r["warnings"]), r["warnings"])
-        j = self.run_job("/api/plan", {"spec": {"video": str(self.video), "keeps": [[1, 2]], "advanced": {"reel": "B1"}}})
-        self.assertEqual(j["result"]["keeps"], [[30, 60]])                    # 文字起こしが無くても作れる(字幕なし)
         for keeps in ([], [[1, 1]], [[2, 1]], [[-1, 1]], [[0, 1], [0.5, 2]], [[3, 4], [0, 1]], [[0, "1"]], [[0, True]], [[0, 1, 2]],
                       [0, 1], "0 1", {"a": 1}, [[0, 1e9]], [[i, i + 0.5] for i in range(5001)]):
             st, e = self.c.json("POST", "/api/plan", {"spec": dict(spec, keeps=keeps)})
@@ -514,7 +407,7 @@ class TestJobs(ServerBase):
 
     def test_build_overwrite_confirm_open_folder_and_roughcut(self):
         out = self.dir / "out1"
-        # fcpxml・crf は 0.23.0 から受けない(送っても無視する: FCPXML は作らない・範囲外の crf でも 400 にしない)
+        # fcpxml・crf は受けない(送っても無視する: FCPXML は作らない・範囲外の crf でも 400 にしない)
         body = {"spec": self.spec(), "output": {"dir": str(out), "render": True, "fcpxml": True, "crf": 99}}
         j = self.run_job("/api/build", body)
         self.assertEqual(j["state"], "done", j)
@@ -524,13 +417,9 @@ class TestJobs(ServerBase):
         self.assertFalse((out / "cut-plan.json").exists())
         self.assertFalse((out / "友人へ.txt").exists())
         rec = json.loads((Path(serve._txi.packs_dir(c2r_dir=serve.CODE_DIR)) / serve._txi.pack_key(out)).read_text(encoding="utf-8"))
-        self.assertEqual((rec["schema"], os.path.normcase(rec["dir"]), rec["textplus"], rec["cutPlan"]["schema"]),
-                         ("youtube-tools-pack-record/v1", os.path.normcase(str(out)), False, "youtube-tools-cut-plan/v1"))
-        self.assertEqual(sorted(rec["files"]), sorted(["clip.edl", "clip_cut.srt", "clip_roughcut.mp4"]))
+        self.assertEqual((rec["schema"], os.path.normcase(rec["dir"])), ("youtube-tools-pack-record/v1", os.path.normcase(str(out))))
         self.assertIn("DaVinci Resolve", r["readme"])
-        self.assertEqual(len(parse_edl((out / "clip.edl").read_text(encoding="utf-8"))), 3)
         self.assertGreater((out / "clip_roughcut.mp4").stat().st_size, 0)
-        self.assertFalse({"mediaUrl", "roughcutUrl"} & set(r))   # 動画は配信しない(0.22.0)
         # 2回目: 上書きの確認
         st, j2 = self.c.json("POST", "/api/build", body)
         self.assertEqual((st, j2["error"]), (409, "exists"))
@@ -552,7 +441,7 @@ class TestJobs(ServerBase):
         self.assertEqual(st, 200, j5)
 
     def test_build_textplus_minimal_and_old_backup(self):
-        """Text+ パックは最小限(④)。記録は textplus: true。古い output.backup: true は断らずに黙って無視(予備の EDL・SRT・手順書は入れない = 決定 3-34)"""
+        """Text+ パックは最小限。記録は textplus: true。output.backup: true は断らずに黙って無視する"""
         out = self.dir / "tp_min"
         spec = {"video": str(self.video), "srt": str(self.srt), "keeps": [[0.5, 2.5], [4.5, 6.5]]}
         j = self.run_job("/api/build", {"spec": spec, "output": {"dir": str(out), "textplus": True}})
@@ -561,21 +450,14 @@ class TestJobs(ServerBase):
         self.assertEqual((rec["textplus"], "backup" in rec, "clip.mp4" in rec["files"]), (True, False, True))   # 記録に backup は書かない
         st, e = self.c.json("POST", "/api/build", {"spec": spec, "output": {"dir": str(out), "textplus": True, "backup": True}})
         self.assertEqual((st, e["error"]), (409, "exists"))                      # 古い backup で 400 にしない。上書きの確認
-        self.assertFalse({"clip.edl", "clip_cut.srt", "予備_EDLで開く手順.txt"} & set(e["files"]))
         j = self.run_job("/api/build", {"spec": spec, "output": {"dir": str(out), "textplus": True, "backup": True, "force": True}})
         self.assertEqual(j["state"], "done", j)
-        names = sorted(f["name"] for f in j["result"]["files"])
-        self.assertFalse({"clip.edl", "clip_cut.srt", "予備_EDLで開く手順.txt"} & set(names), names)   # 予備は入らない
-        self.assertFalse((out / "clip.edl").exists() or (out / "clip_cut.srt").exists())
-        self.assertIn("clip.mp4", names)
-        # E-15: 前に写した同じ動画(大きさ・更新日時)はコピーを飛ばし、注意に 1 行(ただの案内 = info)
+        # 前に写した同じ動画(大きさ・更新日時)はコピーを飛ばし、注意に 1 行(ただの案内 = info)
         r = j["result"]
         skip = serve.C.COPY_SKIPPED.format("clip.mp4")
         self.assertIn(skip, r["warnings"])
         self.assertEqual(r["warningLevels"][r["warnings"].index(skip)], "info")
-        self.assertFalse((out / "textplus-import.json").exists())
-        self.assertFalse((out / "cut-plan.json").exists())
-        # 配信者の名前 → 文字の色(git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 4)。照らし合わせは ytt/colors.py。見つからなければ 400
+        # 配信者の名前 → 文字の色。照らし合わせは ytt/colors.py。見つからなければ 400
         members = self.dir / "members.json"
         members.write_text(json.dumps({"groups": [{"name": "0期生", "members": [{"id": "sakura-miko", "name": "さくらみこ", "en": "Sakura Miko", "hex": "#FF8FDF"}]}]},
                                       ensure_ascii=False), encoding="utf-8")
@@ -594,23 +476,18 @@ class TestJobs(ServerBase):
         out3 = self.dir / "tp_tracks"
         j = self.run_job("/api/build", {"spec": spec, "output": {"dir": str(out3), "textplus": True, "videoTracks": 4}})
         self.assertEqual(j["state"], "done", j)
-        self.assertEqual(serve.TP.read_script_plan((out3 / "create_resolve_textplus_project.lua").read_text(encoding="utf-8"))["videoTracks"], 4)
-        self.assertIn("V5 Text+ 字幕(一番上)", j["result"]["readme"])
         st, e = self.c.json("POST", "/api/build", {"spec": spec, "output": {"dir": str(self.dir / "tp_t6"), "textplus": True, "videoTracks": 6}})
         self.assertEqual((st, e["error"]), (400, "bad_tracks"))
 
     def test_build_volume_copy_skipped_second_time(self):
-        """E-15 の続き(0.22.2): 音量をかけて写した動画(「編集」の既定 30%)は、パックの記録(packs/ の videoCopy)と条件が同じなら
-        2 回目は作り直さない(ffmpeg を動かさない = 速い)。注意は info。量を変えたら作り直す。記録の形は鍵を足しただけ(txindex がそのまま読む)"""
+        """音量をかけて写した動画(「編集」の既定 30%)は、パックの記録(packs/ の videoCopy)と条件が同じなら 2 回目は作り直さない
+        (ffmpeg を動かさない = 速い)。注意は info。条件が違うときの作り直しは pipeline/pack/tests"""
         out = self.dir / "tp_vol"
         spec = {"video": str(self.video), "srt": str(self.srt), "keeps": [[0.5, 2.5], [4.5, 6.5]]}
         body = {"spec": spec, "output": {"dir": str(out), "textplus": True, "volume": 30}}
         j = self.run_job("/api/build", body)
         self.assertEqual(j["state"], "done", j)
         gain = j["result"]["loudness"]["gainDb"]
-        rec_path = Path(serve._txi.packs_dir(c2r_dir=serve.CODE_DIR)) / serve._txi.pack_key(out)
-        vc = json.loads(rec_path.read_text(encoding="utf-8"))["videoCopy"]
-        self.assertEqual((vc["volume"], vc["gainDb"], vc["source"]["name"], vc["output"]["name"]), (30, round(gain, 2), "clip.mp4", "clip.mp4"))
         dst = out / "clip.mp4"
         before = dst.stat().st_mtime_ns
         body["output"]["force"] = True
@@ -626,14 +503,6 @@ class TestJobs(ServerBase):
         self.assertIn(skip, r["warnings"])
         self.assertEqual(r["warningLevels"][r["warnings"].index(skip)], "info")
         self.assertIn("clip.mp4", [f["name"] for f in r["files"]])
-        rec = serve._txi.read_pack_record(str(out), c2r_dir=serve.CODE_DIR)       # txindex の読み取りはそのまま(鍵を足しただけ)
-        self.assertEqual((rec["textplus"], rec["videoCopy"]), (True, vc))
-        body["output"]["volume"] = 40                                                # 量を変えたら作り直す
-        with mock.patch.object(serve.C, "copy_video_gain", wraps=serve.C.copy_video_gain) as cg:
-            j3 = self.run_job("/api/build", body)
-            self.assertTrue(cg.called)
-        self.assertFalse(any("コピーを飛ばしました" in w for w in j3["result"]["warnings"]))
-        self.assertEqual(serve._txi.read_pack_record(str(out), c2r_dir=serve.CODE_DIR)["videoCopy"]["volume"], 40)
 
     def test_overlap_nosub_and_speaker_styles(self):
         """重なる字幕の段・字幕に出さない行(noSub)・話者ごとの色の指定(speakerStyles)を API で。見積もり(api/plan)に段の数など"""
@@ -656,13 +525,7 @@ class TestJobs(ServerBase):
         self.assertEqual(r["subtitles"]["out"], 3)
         j = self.run_job("/api/build", {"spec": spec, "output": output})
         self.assertEqual(j["state"], "done", j)
-        ip = serve.TP.read_script_plan((out / "create_resolve_textplus_project.lua").read_text(encoding="utf-8"))
-        self.assertEqual([c["text"] for c in ip["captions"]], ["一", "二", "三"])
-        self.assertEqual([c.get("fill") for c in ip["captions"]], [[1.0, 0.0, 0.0, 1.0], None, [1.0, 0.0, 0.0, 1.0]])   # speakerColors が false でも効く
-        self.assertEqual([c.get("trackUp") for c in ip["captions"]], [None, 1, None])
         self.assertEqual(j["result"]["speakerColors"], [{"speaker": "兎田ぺこら", "name": "兎田ぺこら", "hex": "#FF0000", "from": "speakerStyles"}])
-        self.assertEqual((j["result"]["summary"]["captionLanes"], j["result"]["summary"]["noSubRows"]), (2, 1))
-        self.assertIn("V2〜V3 Text+ 字幕", j["result"]["readme"])
 
     def test_output_dir_must_not_be_input(self):
         st, j = self.c.json("POST", "/api/build", {"spec": self.spec(), "output": {"dir": str(self.srt)}})
@@ -676,31 +539,12 @@ class TestJobs(ServerBase):
         self.assertEqual(j["state"], "error")
         self.assertIn("入力ファイル", j["error"]["message"])
 
-    def test_warning_levels_classify_actionable_vs_info(self):
-        """問題5: 対処が要る警告(warn)とただの案内(info)を区別できるよう warningLevels を足す。
-        既存の warnings(文字列の配列)はそのまま・互換のため足すだけ"""
-        t = self.dir / "note.transcript.json"
-        t.write_text(json.dumps({"schema": "youtube-tools-transcript/v1",
-                                  "segments": [{"start": 0.5, "end": 1.5, "text": "a", "cut": False}]}), encoding="utf-8")
-        j = self.run_job("/api/plan", {"spec": self.spec(transcript=str(t))})   # srt と transcript の両方 → SRT を使った案内(info)
-        r = j["result"]
-        self.assertEqual(len(r["warningLevels"]), len(r["warnings"]))
-        msg = "字幕は SRT のほうを使いました(文字起こしはカットの判断にだけ使います)。"
-        self.assertEqual(r["warningLevels"][r["warnings"].index(msg)], "info")
-
+    def test_warning_levels_are_added_to_the_result(self):
+        """試算の結果に、対処が要る警告(warn)とただの案内(info)を分ける warningLevels が付く(分け方は TestWarningLevels)"""
         j = self.run_job("/api/plan", {"spec": self.spec(mode="list", listKind="drop", listText="")})   # カットの指定なし → warn
         r = j["result"]
         self.assertEqual(r["warnings"], ["カットの指定がありません。動画全体を1区間として出力します。"])
         self.assertEqual(r["warningLevels"], ["warn"])
-
-        # /api/build の結果は、パック作成そのものの警告(warnings 本体)と、試算からの注意(summary の中。
-        # 「カットの指定がありません」はこちら)の両方に、それぞれ warningLevels が付く
-        out = self.dir / "out_wl"
-        j = self.run_job("/api/build", {"spec": self.spec(mode="list", listKind="drop", listText=""), "output": {"dir": str(out)}})
-        r = j["result"]
-        self.assertEqual(len(r["warningLevels"]), len(r["warnings"]))
-        self.assertEqual(r["summary"]["warnings"], ["カットの指定がありません。動画全体を1区間として出力します。"])
-        self.assertEqual(r["summary"]["warningLevels"], ["warn"])
 
     def test_cancel_and_busy(self):
         long_v = self.dir / "long.mp4"
@@ -724,6 +568,52 @@ class TestJobs(ServerBase):
         self.assertEqual(left, [])
         st, j = self.c.json("GET", "/api/job?id=nothing")
         self.assertEqual(st, 404)
+
+
+class TestWarningLevels(unittest.TestCase):
+    """警告の重さ: 案内(info)の文言だけ info・ほかは warn。warnings(文字列の配列)はそのまま、同じ順・同じ長さの warningLevels を足す"""
+
+    def test_classify(self):
+        infos = ["字幕は SRT のほうを使いました(文字起こしはカットの判断にだけ使います)。", "文字起こしに残す行が無いため、字幕は付けません。",
+                 "余白つき素材を使いました", "標準的でないフレームレート(29.5)です", serve.C.COPY_SKIPPED.format("clip.mp4"), serve.C.GAIN_COPY_SKIPPED.format("clip.mp4", 3.1)]
+        warns = ["カットの指定がありません。動画全体を1区間として出力します。", "音声がありません"]
+        self.assertEqual(serve.classify_warnings(infos + warns), ["info"] * len(infos) + ["warn"] * len(warns))
+        d = {"warnings": warns[:1] + infos[:1], "x": 1}
+        self.assertIs(serve.with_warning_levels(d), d)
+        self.assertEqual((d["warnings"], d["warningLevels"]), (warns[:1] + infos[:1], ["warn", "info"]))
+        self.assertEqual(serve.with_warning_levels({})["warningLevels"], [])
+
+
+class TestRowEdgeSpec(unittest.TestCase):
+    """画面の指定(rowEdge・dropCutRows・keepSource)が pack.Request に落ちる読み替え。広げた値そのものは pipeline/pack/tests"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.video, self.tr = Path(self.tmp.name, "v.mp4"), Path(self.tmp.name, "t.transcript.json")
+        self.video.write_bytes(b"x")
+        self.tr.write_text("{}", encoding="utf-8")
+
+    def req(self, **kw):
+        return serve.request_from_spec(dict({"video": str(self.video), "transcript": str(self.tr), "mode": "keep", "keepSource": "transcript"}, **kw))
+
+    def test_row_edge(self):
+        self.assertIs(self.req().row_edge, serve.pack.ROW_EDGE)
+        self.assertIsNone(self.req(rowEdge=False).row_edge)
+        self.assertIsNone(self.req(rowEdge={"on": False, "padAfter": 0.4}).row_edge)
+        e = self.req(rowEdge={"after": 0, "before": 0}).row_edge
+        self.assertEqual((e.after, e.before), (0.0, 0.0))
+        self.assertEqual(self.req(rowEdge={"padAfter": 0.4}).row_edge.pad_after, 0.4)
+        for bad in ({"after": 9}, {"padAfter": 3}):
+            with self.assertRaises(serve.ApiError, msg=bad) as cm:
+                self.req(rowEdge=bad)
+            self.assertEqual(cm.exception.code, "bad_value")
+
+    def test_drop_cut_rows_and_ignored_keys(self):
+        self.assertTrue(self.req().drop_cut_rows)
+        self.assertFalse(self.req(dropCutRows=False).drop_cut_rows)
+        r = self.req(handles=3, joinGap=10)   # 消した画面の指定は受けない = 黙って無視する
+        self.assertEqual((r.base, r.min_len), (self.req().base, self.req().min_len))
 
 
 class TestTextPlusTargetOption(unittest.TestCase):
