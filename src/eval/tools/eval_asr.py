@@ -18,9 +18,8 @@
   計画 notes:plan/line-b-transcription.md の 3-2)を出す。compare は2つの結果のうち小さい方の関門で、差が 95% の範囲で 0 をまたげば「この量では決められない」と出す
 
   どのモードでも(マスタープラン Q3。notes:plan/line-bc-master-plan.md の 2 の原則 4・8 のリスク):
-    --source eval|daily|all          測る文書の出どころ。eval = 評価用(既定。今までどおり)/ daily = 普段の校正済みの文書(評価用以外)/
-                                     all = 評価用 + 普段。古い --scope は 10-19 に消した(--source を使う)。
-                                     友人の送る用 zip の道(--source friend・--intake)は 10-15 に消した(OPT-E1 9d-1。使い道が無くなった)
+    --source eval|daily|all          測る文書の出どころ。eval = 評価用(既定)/ daily = 普段の校正済みの文書(評価用以外)/
+                                     all = 評価用 + 普段
     --since YYYY-MM-DD --until YYYY-MM-DD   時期で分ける(その日を含む)。文書の時刻 = 校正済みの行の proofedAt(初めて校正済みにした時刻)の最大。
                                      無い文書は updatedAt。どちらも無い文書は、時期を指定したときは数えない
     --group-by engine|model|origin   文書ごとの下書きのエンジン・設定・辞書の版(recognition.runs)で分けて集計する(途中で変わった前後を混ぜない)。
@@ -48,10 +47,10 @@
 - 作業データ(%LOCALAPPDATA%/youtube-tools/transcribe)は**読むだけ**。文字起こしの文書は書き換えない。
   結果は作業データの evals/asr/ に JSON で残す(文章を含むのでリポジトリには入れない。数字のまとめだけを docs/accuracy に書く)
 - run はこのプロセスの中で faster-whisper を動かす(サーバーの外の道具なので、ネイティブの部品を読んでよい)。起動中のツールとは別に動く。
-  部品は C.prepare(持ち主のモジュールを直に読む。入口の編集の serve は読まない = OPT-E2)。認識はこのプロセスの中で(IN_WORKER)、
+  部品は C.prepare(持ち主のモジュールを直に読む。入口の編集の serve は読まない)。認識はこのプロセスの中で(IN_WORKER)、
   --context auto はスタジオの data.json(STUDIO_DATA)を読む。後処理の差し替えは持ち主(postproc)の値を直に書き換える。
-- meta.post(行の後処理の印)は 2 周目から endTrim・joinGap(editor の post_record と同じ値。0.57.1 で変わった)も持つ。
-  編集 0.64.0 までの結果にある pullEnds・quantRetime の鍵は 0.65.0 から付けない(部品ごと消した)。印が違う結果どうしを compare すると注意を出す
+- meta.post(行の後処理の印)は endTrim・joinGap(editor の post_record と同じ値)も持つ。
+  印が違う結果どうしを compare すると注意を出す
 """
 import argparse
 import hashlib
@@ -602,7 +601,6 @@ def recognize_doc(doc, spec, data):
         gen = _fake_asr.transcribe_fake(job, spec, wav, audio_sec) if _backend.is_fake() else _recognize.transcribe_real(job, spec, wav, audio_sec)
         rows, prev = [], []
         # 文字起こしのジョブ(run_job)と同じ整え方(長さより後ろの行を捨てる・繰り返しをまとめる・続いている行をつなぐ)。
-        # 編集 0.65.0 で、行の終わりを音の谷へ寄せる(TRANSCRIBE_PULL_ENDS)と 1 秒丸めの配り直し(TRANSCRIBE_RETIME)を消した(どちらも既定オフだった)
         for s in _postproc.expand_segments(gen, spec, audio_sec):
             if not s["text"]:
                 continue
@@ -723,11 +721,9 @@ def base_meta(mode, args, docs, data, sel=None):
 
 
 def post_meta(spec):
-    """行の後処理の印(meta.post。compare が、違う結果どうしに注意を出す)。0.51.0 から clip_rows・merge_repeats、
-    2 周目から editor の post_record()(recognition.runs[].post と同じ値)の endTrim・joinGap も。
-    endTrim は whisper.cpp のときだけ・joinGap は全エンジン。編集の版(version)は入れない(後処理が同じなら、版が違っても注意を出さない。版は meta.git で分かる)。
-    編集 0.64.0 までの結果は pullEnds(音の谷へ寄せたか)・quantRetime(1 秒丸めの配り直しのモデル | False)の鍵も持つ = 0.65.0 で部品ごと消したので、
-    それより前の結果と compare すると印が違うので注意が出る(どちらも既定オフだったので、注意が出ても後処理は同じことが多い)"""
+    """行の後処理の印(meta.post。compare が、違う結果どうしに注意を出す)。clip_rows・merge_repeats、
+    editor の post_record()(recognition.runs[].post と同じ値)の endTrim・joinGap も。
+    endTrim は whisper.cpp のときだけ・joinGap は全エンジン。編集の版(version)は入れない(後処理が同じなら、版が違っても注意を出さない。版は meta.git で分かる)"""
     rec = _postproc.post_record(spec)
     wcpp = _tx_engines.engine_of(spec) == _tx_engines.WhisperCpp.id
     post = {"clip": True, "mergeRepeats": True}
@@ -933,7 +929,7 @@ def cmd_compare(a_path, b_path, n=BOOT, seed=1):
     if A["meta"].get("dataFingerprint") != B["meta"].get("dataFingerprint"):
         warn.append("2つの結果は、正解のデータ(文書・版)が違います。同じ文書だけで比べます")
     post_note = ""
-    if A["meta"].get("post") != B["meta"].get("post"):   # 片方に無い(0.51.0 より前の測定)か、中身が違う
+    if A["meta"].get("post") != B["meta"].get("post"):   # 片方に無いか、中身が違う
         post_note = POST_NOTE
         warn.append(post_note)
     per = {}

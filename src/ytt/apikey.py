@@ -1,8 +1,8 @@
-"""YouTube Data API のキー(役割で組み直す RS3-4。2026-10-10 にスタジオの common.py から移した)。
+"""YouTube Data API のキー。
 
 キーは環境変数 YOUTUBE_API_KEY が優先、無ければスタジオのデータの置き場所の config.json(`{"apiKey": …}`。コミットしない・0600 で書く)。
 使う所: スタジオの ① 探す(rank)・② の動画のコメント欄(analyze)・設定の API(serve)。
-読む側は `apikey.get_api_key()` を呼ぶたびに読む(テストの差し替えは直にここへ届く・旧い common.py の転送は RS5 で消した)。
+読む側は `apikey.get_api_key()` を呼ぶたびに読む(テストの差し替えは直にここへ届く)。
 """
 import json
 import os

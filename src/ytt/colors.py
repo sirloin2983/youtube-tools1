@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-"""配信者の名前 → メンバーカラー(字幕の文字の色。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 4)。
+"""配信者の名前 → メンバーカラー(字幕の文字の色)。
 
 色の一覧はホロカラーのものを**読むだけ**(書き換えない):
   - friend-apps/holo-colors/members.json(リポジトリの中。ホロカラーと同じ一覧)。YTT_HOLO_MEMBERS で場所を変えられる(テスト用)
   - ホロカラーのマイカラー(作業データの holo-colors/my-colors.json。ユーザーが足した色。同じ名前ならこちらが先)
   - ホロカラーで直したメンバーの色(作業データの holo-colors/member-colors.json。キーはメンバーの id。先頭が主な色)
-字幕の色は、ホロカラーで直した色があればその先頭、無ければ members.json の subtitle(字幕の既定の色。2026-10-05 ユーザーの指定。
+字幕の色は、ホロカラーで直した色があればその先頭、無ければ members.json の subtitle(字幕の既定の色。ユーザーの指定。
 無い人は hex = ホロカラーの主な色)。members.json の colors(1人の色の一覧。
 version 2。先頭 = hex)は項目の "colors" に入れて返すが、使う側(speaker_colors・resolve・入口)は "hex" だけを使う。
 名前の照らし合わせの規則はここ1か所(入口のまとめて実行・cut2resolve のパック・画面の候補が共通で使う)。
@@ -112,7 +112,7 @@ def _member_entry(m, group_name, fixed):
     h, name = hn
     mid = str(m.get("id") or "")
     cs = _color_list(m.get("colors"))
-    sub = norm_hex(m.get("subtitle"))   # 字幕の既定の色(ユーザーの指定 2026-10-05)。無ければ hex
+    sub = norm_hex(m.get("subtitle"))   # 字幕の既定の色(ユーザーの指定)。無ければ hex
     h = sub or h
     main = next((c for c in cs if c["hex"] == h), {"hex": h, "label": "字幕" if sub else ""})   # 字幕の色を先頭へ
     cs = [main] + [c for c in cs if c["hex"] != h]

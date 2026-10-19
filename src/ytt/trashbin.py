@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""ごみ箱フォルダの決まりの 1 か所(どの層からも使う。LD-1 で ① の録画の部品も使うので ytt に置いた)。
+"""ごみ箱フォルダの決まりの 1 か所(どの層からも使う。① の録画の部品も使うので ytt に置く)。
 
 ごみ箱フォルダの中は <YYYY-MM-DD>/<種類>/... の日付のフォルダ。移した物は <日付>/manifest.jsonl に元の場所を 1 行ずつ残す(戻したいときに見る)。
 日数を過ぎた日付のフォルダは丸ごと消す(④ の manage/keep/cleanup.Cleanup.purge・① の pipeline/ingest/rec_core.Recordings.purge_trash)。

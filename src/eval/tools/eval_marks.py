@@ -13,7 +13,7 @@
 - 未解析の友人の配信の解析は ② が依頼のあとに行う(この道具は数えるだけ: friendRanges の unanalyzed)。
 - 作業データは**読むだけ**(どの口も。スタジオの data.json・feedback.jsonl(と .old)・archive/<動画ID>.json.gz・入口の logs/autorun-runs.jsonl・
   cut2resolve の packs/)。何も書き換えない。--json のときだけ、結果を スタジオの作業データの evals\\marks\\<日時>.json に残す(原則 3: 機械の最初の結果と人の最終を並べる)
-- feedback の行は markId(あれば)で突き合わせる。無い以前の行は区間(auto0)で突き合わせる。
+- feedback の行は markId(あれば)で突き合わせる。無い行は区間(auto0)で突き合わせる。
 - 「自動マーク」の集まり = data.json の自動マーク(再解析で手動に変わったものも含む)+ archive の最後の解析の候補(消えたものを補う)+
   feedback にだけ残っているもの(候補のまま削除した・判定のあと削除した)。同じマークは最初の自動区間(auto0)で突き合わせる(±0.6 秒)。
   点数の順(高い順)に並べ、人の判定を当てる。
@@ -21,7 +21,7 @@
   data.json のマークがあれば、いまの status を優先する(候補に戻した・不採用にした、が行に残らない場合がある)
 - **まとめて実行(自動採用)・依頼が自動で埋めた分は人の判断ではないので「良い」に数えない**(友人が時刻で指定した区間も、この数え方では外れる。区間は下の friendRanges で別に測る)。
   マークの adoptedBy(auto / request)と、feedback の行の adoptedBy(書き出しの行を含む)で見分ける。
-  印の無い以前の記録だけ、近似として入口の実行記録(autorun-runs.jsonl)で、その配信に「採用」の段が実行されていて、人の adopt の行が無いものを「自動採用」とみなす(近似)。
+  印の無い記録だけ、近似として入口の実行記録(autorun-runs.jsonl)で、その配信に「採用」の段が実行されていて、人の adopt の行が無いものを「自動採用」とみなす(近似)。
   採用・書き出しの status があるのに行も実行記録も無いものは「記録なし」として別に数える(--status-fallback を付けると人の判定として数える)
 - 指標(全体・配信の種類ごと・配信ごと):
     上位 N(5・10・20・全部)の採用率 = 良い ÷ 判定済み(判定なしは分母に入れず、数を別に出す。参考として 良い ÷ N 件 の採用率(全体)も出す)
@@ -29,7 +29,7 @@
     手で足したマーク(manual_add = 見逃し)= 数・割合(手で足した ÷ (手で足した + 良い自動マーク))・近くの自動マークの点数と距離の分布
     区間の端のずれ = 良い自動マークの dStart・dEnd(人が直した量。秒)の分布と、0.5 秒以上直した率 / 採用の取り消しの数
 - 友人が時刻で指定した区間(結果の `friendRanges`・表示の最後の節): 友人が依頼で入れた区間は「自動の候補を見ずに人が選んだ見どころ」で、
-  候補に出なかった場面も含む。出どころ 1 = 入口の実行記録の videoId・ranges(指定したまま)/ 2 = それが無い以前の分は、スタジオのマークの adoptedBy が request の手動マーク
+  候補に出なかった場面も含む。出どころ 1 = 入口の実行記録の videoId・ranges(指定したまま)/ 2 = それが無い分は、スタジオのマークの adoptedBy が request の手動マーク
   (前後の余白 FRIEND_PAD を引いて戻す。人が状態を変えると印が外れるので取りこぼす)。同じ配信・同じ区間(±0.6 秒)は 1 つにまとめる。
   自動の候補(上の「自動マークの集まり」。点数の高い順)と比べ、当たり(区間と時間が重なる候補。定数 HIT_OVERLAP)・上位 N で拾えた率・見逃し・長さごとの拾えた率などを出す。
   解析していない配信(自動の候補も解析の記録も無い)の区間は「未解析」として別に数え、見逃しに入れない
@@ -38,9 +38,9 @@
 - --since / --until(原則 4: 時期で分ける)は、マークの作られた日時(data.json は createdAt・archive は解析の日時・feedback だけのものは最初の行の日時)と
   手で足した・取り消した行の日時で絞る(until はその日を含む)。配信が 10 本未満のときは「まだ少ない(参考)」と出す(少ないデータで決めすぎない)。
   friendRanges は実行の記録の時刻(出どころ 2 はマークの作られた時刻)で絞る。解析済みの区間が 20 未満・配信が 5 本未満のときは「まだ少ない(参考)」
-- C1 の入口の数(結果の overall.judgedElsewhere・judgedAll。K2 = 10-08 決定): 判定のある配信の数に、スタジオの判定の外の人の判定も足す =
+- C1 の入口の数(結果の overall.judgedElsewhere・judgedAll。K2 の決定): 判定のある配信の数に、スタジオの判定の外の人の判定も足す =
   線 D の録画(judgments の origin live の採用・不採用 = 「届けた」「要らない」)と、友人の返事(logs/friend_feedback.jsonl。配信は videoId → 実行記録の runId →
-  切り抜きのフォルダの順にたどる)。採用率・見逃しなどの指標には混ぜない(友人が採る基準は送る基準と別 = 10-08 ユーザー決定)。入口の「調子」の
+  切り抜きのフォルダの順にたどる)。採用率・見逃しなどの指標には混ぜない(友人が採る基準は送る基準と別 = ユーザー決定)。入口の「調子」の
   「採用の記録 配信 10 本」は judgedAll を読む(src/eval/drill/accuracy.py の summarize_marks)
 - --live(線 D の D-12。L5 の土台): 入口の配信ごとの記録(入口の作業データ live/reports/<録画元>__<録画>.json。src/flow/live_report.py が録画中に書き、
   終わったら締める)と採用の記録(live/live_feedback.jsonl の機械の行)と人の判断(judgments)を読んで、録画ごとに 候補(枠・控え・見送り)・採用(自動・人)・人の判定(届けた = 良い /
@@ -226,7 +226,7 @@ def build_videos(studio, rows, runs, packs, since=None, until=None, status_fallb
     archive = archive or archive_reader(studio)
     by_row = {}
     for r in rows:
-        if r.get("kind") == "live":   # ライブの録画(線 D の P3。解析していない)は盛り上がりの検出の評価に入れない(スタジオは 2026-10-05 から書かない)
+        if r.get("kind") == "live":   # ライブの録画(線 D の P3。解析していない)は盛り上がりの検出の評価に入れない(スタジオは書かない)
             continue
         by_row.setdefault(r["videoId"], []).append(r)
     videos = {}
@@ -280,7 +280,7 @@ def build_videos(studio, rows, runs, packs, since=None, until=None, status_fallb
             ev = r.get("event") or ""
             s, e = num(r.get("start")), num(r.get("end"))
             t = ts_ms(r.get("ts"))
-            rid = r.get("markId") if isinstance(r.get("markId"), str) else ""   # 新しい行は markId で突き合わせる(無い以前の行は区間)
+            rid = r.get("markId") if isinstance(r.get("markId"), str) else ""   # markId のある行は markId で突き合わせる(無い行は区間)
             if ev == "manual_add":
                 if in_range(t):
                     near = r.get("nearAuto") if isinstance(r.get("nearAuto"), dict) else None
@@ -361,12 +361,12 @@ def judge(it, machine_video, status_fallback):
         elif ev == "delete_judged" and r.get("prevStatus") in ("adopted", "exported"):
             state, exported = None, False
     if any(r.get("markId") for _, r in it["events"]):
-        machine_video = False   # markId のある新しい行は adoptedBy で機械の採用を見分けられる。実行記録からの近似は、印の無い以前の記録だけ
+        machine_video = False   # markId のある新しい行は adoptedBy で機械の採用を見分けられる。実行記録からの近似は、印の無い記録だけ
     st = it["status"] if it["src"] == "data" else None
     if st is None:   # data.json に無い(削除した・archive だけ): 行だけで決める
         verdict = state or "none"
     elif st in ("adopted", "exported"):
-        if it.get("adoptedBy") or state == "machine":   # 機械が採用にした印(人が状態を変えると外れる)。印の無い以前の記録は、下の近似(実行記録)
+        if it.get("adoptedBy") or state == "machine":   # 機械が採用にした印(人が状態を変えると外れる)。印の無い記録は、下の近似(実行記録)
             verdict = "machine"
         elif state == "good" and not (machine_video and not human_adopt):
             verdict = "good"
@@ -378,7 +378,7 @@ def judge(it, machine_video, status_fallback):
             verdict = "unrecorded"
         exported = st == "exported" and verdict in ("good",)
     elif st == "rejected":
-        verdict, exported = ("bad" if state == "bad" else "none"), False   # 人の行(却下・削除)の無い rejected は、人が悪いと判定した物ではない = 判定なし(OPT-E1 7c-1)
+        verdict, exported = ("bad" if state == "bad" else "none"), False   # 人の行(却下・削除)の無い rejected は、人が悪いと判定した物ではない = 判定なし
     else:
         verdict, exported = "none", False
     it["verdict"], it["exported"] = verdict, bool(exported and verdict == "good")
@@ -856,12 +856,12 @@ def _friend_folder(r, run_src):
 
 
 def judged_elsewhere(app, studio_judged, since_ms=None, until_ms=None, records=None, folders=None):
-    """C1 の入口(「採用の記録 配信 10 本」)に数える、スタジオの判定の外の人の判定(K2。10-08 決定 = 線 D の [採用][要らない]・友人の返事も数える)。
+    """C1 の入口(「採用の記録 配信 10 本」)に数える、スタジオの判定の外の人の判定(K2 の決定 = 線 D の [採用][要らない]・友人の返事も数える)。
     線 D の録画 = judgments の人の行(origin live。adopt = 届けた = 良い・reject = 要らない = 悪い。自動の採用は数えない)を録画ごとに。
     友人の返事 = logs/friend_feedback.jsonl の行(友人の「要らない」)のある配信。行の videoId が空(自動で届けた切り抜き)なら、行の runId から
     入口の実行記録(autorun-runs.jsonl)の videoId をたどり、それも無ければ(ファイル 1 本ずつの全自動)切り抜きのフォルダ = 配信ごとのフォルダを
     スタジオのマークの書き出し先(folders = folder_videos)と突き合わせる。突き合わなければフォルダを 1 つの配信として数える。
-    **採用率には混ぜない**(友人が採る基準は送る基準と別 = 10-08 ユーザー決定)。records = run_records(app) を読んであれば渡す。
+    **採用率には混ぜない**(友人が採る基準は送る基準と別 = ユーザー決定)。records = run_records(app) を読んであれば渡す。
     -> {"live": {"recordings", "good", "bad"}, "friend": {"videos", "rows", "unknown", "notInStudio"}, "all": スタジオの判定のある配信 + 線 D の録画 + ほかで数えていない友人の配信}"""
     live = {}
     for j in live_human(app, since_ms, until_ms):
@@ -891,8 +891,7 @@ def judged_elsewhere(app, studio_judged, since_ms=None, until_ms=None, records=N
 
 
 def live_human(app, since_ms=None, until_ms=None):
-    """線 D の録画の人の判断(judgments の who self・origin live の採用 / 不採用。取り消しは畳んだあと)。-> 行のリスト(古い順)。
-    以前は live_feedback.jsonl の human の行を読んでいた(MARKS-3 で人の判断は judgments だけに)"""
+    """線 D の録画の人の判断(judgments の who self・origin live の採用 / 不採用。取り消しは畳んだあと)。-> 行のリスト(古い順)"""
     rows = [r for r in judgments.rows(app) if C.in_period(int(r["at"]), since_ms, until_ms)]
     out = [slot["adopt"] for slot in judgments.fold(rows).values()
            if slot["adopt"] is not None and slot["adopt"].get("origin") == "live" and slot["adopt"]["who"] == "self"]

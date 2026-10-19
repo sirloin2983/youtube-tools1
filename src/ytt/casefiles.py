@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""案件の 候補.json・採用.json の純粋な部分(RS8 B3-4a。flow/casebook から ytt へ下ろした。決定 3-37 の (r8j)〜(r8q))。
+"""案件の 候補.json・採用.json の純粋な部分(決定 3-37 の (r8j)〜(r8q))。
 
 ytt/studiodata が data.json の行の `case`(案件の根)から配信を読む(=重ねる)ために、層の向き(ytt は flow を読めない)の都合で
 ファイルの形・パスの相対 ⇔ 絶対・読み・重ね方・ロックをここに置く。**書く側(split・write・case_of)は flow/casebook**(ここを読む)。

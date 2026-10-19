@@ -8,7 +8,7 @@
         文書の音声をもう一度判別して(設定の組ごと)人の最終と比べる。本番と同じ道(音声の取り出し extract_audio → diarize_real → assign_speakers)。
         判別はこの道具のプロセスの中で動かす(eval_asr.py の run と同じ。サーバーではないので sherpa-onnx を読んでよい。認識ワーカーは起動しない)。
         モデルは作業データの models/diar のもの(無ければ取得せずに止める)。文書・diar.json は書かない(--json のときだけ evals/speakers/<日時>-run.json)。
-        元の動画が無ければ保管データの full.flac(eval_asr.py と同じ。今ある保管データだけ。保管の書き手は 10-10 に消した)。TRANSCRIBE_BACKEND=fake なら疑似の判別(テスト用)
+        元の動画が無ければ保管データの full.flac(eval_asr.py と同じ。今ある保管データだけ)。TRANSCRIBE_BACKEND=fake なら疑似の判別(テスト用)
         --or-stored を付けると、モデルが無い・判別し直せる文書が 0 本のときは止めずに stored で測る。**夜の測定(src/eval/drill/accuracy.py)は run --or-stored --json**
         = 確かめ済みの評価用を今の既定の設定(DIAR_CLUSTER_THRESHOLD など)で毎晩判別し直した数字(文書には書かない。CPU・22 本で約 51 秒)
     --smooth off,on(stored・run のどちらでも): 話者の細切れをならす(S2。src/pipeline/transcribe/diarize.py の smooth_labels・smooth_speakers。本番と同じ関数を直に読む = serve は読まない)を、
@@ -784,7 +784,7 @@ def check_models(root, grid):
 
 def doc_audio(tid, doc, root, wav, job):
     """文書の範囲の音声を wav に取り出す(本番の run_diarize と同じ extract_audio)-> (offset = 音声の先頭が元の動画の何秒か, 音声の秒, 出どころ)。
-    元の動画が無ければ保管データの full.flac(eval_asr.py と同じ。今ある保管データだけ。保管の書き手は 10-10 に消した)。ネットワーク上の動画は読まない(資格情報を送らない)"""
+    元の動画が無ければ保管データの full.flac(eval_asr.py と同じ。今ある保管データだけ)。ネットワーク上の動画は読まない(資格情報を送らない)"""
     spec, start, where = C.audio_span(doc, root, doc_id=tid)
     end = _schemas.num_or(doc.get("end"))
     _recognize.extract_audio(job, spec, wav)

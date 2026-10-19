@@ -1,9 +1,9 @@
-"""マークの純粋な語彙(スタジオの data.json の配信のマーク。RS8 B3-2 で human/review/store.py から下ろした)。
+"""マークの純粋な語彙(スタジオの data.json の配信のマーク)。
 
 ファイルにもロックにも触らない関数と定数だけ(標準ライブラリと ytt だけを import する)。
 読み書きとロックは human/review/store.py の Store と flow/studiobook の StudioBook、学習の記録は human/review/feedback.py。API の検査 validate_marks は build_mark の隣(ここ)。
 採用の規則 F-5 は pipeline/analyze/adopt.py(この語彙を読む)。ライブの採用(flow/live_adopt.py)・マークの正本(flow/live_export.py の
-MarkStore)・束の検査(flow/spec.py)も、同じ区間の幅・長さの上限をここから読む(前は値を写していた)。
+MarkStore)・束の検査(flow/spec.py)も、同じ区間の幅・長さの上限をここから読む。
 
 - マークの形: id・start・end(秒。小数 1 桁)・label・src(auto|manual|collab)・score・reasons・parts・peak・live・
   status(""|adopted|rejected|exported)・file・path・archived・clipFrom・clipTo・createdAt・auto0・auto0Orig・collabFrom・adoptedBy
@@ -13,7 +13,7 @@ MarkStore)・束の検査(flow/spec.py)も、同じ区間の幅・長さの上�
 - 手を入れた自動マーク = 判定した・ラベルあり・時刻を EDIT_TOL より動かした(touched。再解析で残す境目)
 - ライブの採用の使い回し = 同じ区間の最初のマーク(near_mark)・番号 = 開始の順の位置(order_of)(RS8 B3-5)
 - 長さの上限 MAX_MARK_SEC(60 分)は人が付ける・動かすマークだけ(画面の保存 validate_marks・解析の候補・コラボの転写・ライブ)。
-  友人の依頼の区間(採用の規則 F-5 の ranges = adoptedBy "request")は上限なし(要件 C-2-7・C-5-5。2026-10-17)。
+  友人の依頼の区間(採用の規則 F-5 の ranges = adoptedBy "request")は上限なし(要件 C-2-7・C-5-5)。
   保存済みのマークの読み込み(load_marks = trusted)は長さを見ない。画面の保存は、前からあるマークならその長さまでは通す(長い区間のマークを縮める・そのまま保存できる)
 """
 import math

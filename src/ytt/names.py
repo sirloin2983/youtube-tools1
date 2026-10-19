@@ -1,5 +1,5 @@
 """書き出しの名前の規則(スタジオの書き出し src/pipeline/export/exporter.py と、ライブの書き出し src/flow/live_export.py が同じ規則を読む。
-2026-10-09 見直し T8。以前は live_export が exporter の規則を写して持っていた = ツールをまたいで import しない決まりのため)。
+ツールをまたいで import しない決まりなので、規則はここに置く。見直し T8)。
 
 - 置き場所: <書き出し先>/<動画・配信の名前>/(pick_folder)。作業用/.studio-id に持ち主(動画の id など)を書き、同じ名前の別の動画とは混ぜない
 - 名前: <番号>_<開始>-<終わり>_<ラベル>(clip_base)。Windows の MAX_PATH(260)より短く収める(UTF-16 の単位で数える)
@@ -17,9 +17,9 @@ from .schemas import WORK_DIR
 MAX_PATH_UNITS = 240
 SUFFIX_ROOM = 36    # base のあとに付く最長の名前(作業用/ + _edit.partial.mp4.vol.mp4 / yt-dlp の区間取得の 作業用/ + _edit_dl.partial.f399.mp4.part など)
 BASE_ROOM = 26      # 01_00h00m00s-00h00m00s(22文字)+ 連番 _NN の分。ラベルは余った分だけ付ける
-# 書きかけの印(2026-09-30。設計レビュー studio の 4)。拡張子は .mp4 のまま(ffmpeg は拡張子で形式を決める)
+# 書きかけの印(設計レビュー studio の 4)。拡張子は .mp4 のまま(ffmpeg は拡張子で形式を決める)
 PARTIAL = ".partial"
-OWNER_FILE = ".studio-id"   # フォルダの持ち主の印(作業用/ の中。以前の置き方はフォルダの直下)
+OWNER_FILE = ".studio-id"   # フォルダの持ち主の印(作業用/ の中。フォルダの直下の印も読む)
 # Windows の予約名(拡張子を付けても・後ろに空白があっても使えない)。上付き数字の COM¹ などと CONIN$ / CONOUT$ も予約されている
 _RES_DIGITS = [str(i) for i in range(1, 10)] + ["¹", "²", "³"]
 WIN_RESERVED = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"} | {"COM" + d for d in _RES_DIGITS} | {"LPT" + d for d in _RES_DIGITS}
@@ -56,7 +56,7 @@ def trim_units(s, n):
 
 # ---------- フォルダの持ち主の印 ----------
 def read_owner(folder):
-    """印を読む(作業用/ → 以前の置き方 = フォルダの直下)。無ければ None"""
+    """印を読む(作業用/ → フォルダの直下)。無ければ None"""
     for m in (os.path.join(folder, WORK_DIR, OWNER_FILE), os.path.join(folder, OWNER_FILE)):
         try:
             with open(m, encoding="utf-8") as f:
@@ -122,7 +122,7 @@ def pick_folder(root, title, owner, fallback):
 def unique_base(base, folder):
     """フォルダ内で使われていない名前。<名前>.* だけでなく、同時に作る <名前>_edit.* も空いていることを確かめる
     (前回の編集用素材だけが残っていると、ffmpeg の -y で上書き・yt-dlp は取得済みとして古い物を使ってしまうため)。
-    途中のファイルの 作業用/ の中も見る(2026-09-27 から .clip.json・_edit.mp4 などはそこ。以前の置き方の直下も見る)"""
+    途中のファイルの 作業用/ の中も見る(.clip.json・_edit.mp4 などはそこ。フォルダの直下も見る)"""
     def used(name):
         return any(glob.glob(glob.escape(os.path.join(d, n)) + ".*")
                    for d in (folder, os.path.join(folder, WORK_DIR)) for n in (name, name + "_edit"))

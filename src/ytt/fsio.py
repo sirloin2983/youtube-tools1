@@ -1,6 +1,6 @@
 """ファイルの読み書き(スタジオの common.atomic_write と、文字起こしの atomic_write / pipeline_io の書き込みを1つにしたもの)。
 
-ほかに、各ツールが自前で書いていた小道具(2026-10-09。notes:docs/design/reviews/code-review-simplify-2026-10-08.md の A・G10):
+ほかに、小道具(notes:docs/design/reviews/code-review-simplify-2026-10-08.md の A・G10):
 read_json_or(読めなければ既定値)・stamp / StampCache(更新日時と大きさが変わったときだけ読み直す)・rotate(ログの 1 世代の回し)・
 is_inside(パスがフォルダの中か。セキュリティの検査に使う形はここ 1 か所)・dir_size(フォルダの大きさ)。"""
 import glob
@@ -123,7 +123,7 @@ def _reject_constant(name):
 def read_json_file(path, max_bytes, allow_nan=False):
     """UTF-8(BOM があっても可)の JSON を読む。max_bytes を超えるファイル・NaN / Infinity を含むものは ValueError。
     他のツール・他人が作ったかもしれないファイルを読むときに使う(巨大なファイルで固まらないように)。
-    allow_nan=True なら NaN / Infinity をそのまま float として通す(json.dump の既定で書いた自分のファイル。以前の読み方との互換)"""
+    allow_nan=True なら NaN / Infinity をそのまま float として通す(json.dump の既定で書いた自分のファイル)"""
     with open(path, "rb") as f:
         # 先に大きさを見て、その分だけ読む(f.read(max_bytes + 1) は上限ぶんの入れ物を毎回取るので、64MB・256MB の上限で
         # 小さなファイルを読むたびに遅かった = 起動で約 2 秒。notes:plan/done/opt-manage.md の 4a-3)。読む間に伸びた分は下で止める
@@ -165,7 +165,7 @@ def long_path(p):
     return "\\\\?\\" + s
 
 
-# ---------- 各ツールにあった小道具(2026-10-09) ----------
+# ---------- 小道具 ----------
 READ_OR_MAX = 16 * 2**20   # read_json_or の既定の大きさの上限(設定・記録のファイル。これより大きいものは「読めない」扱い)
 
 
@@ -285,7 +285,7 @@ def rotate(path, limit, old=None):
 
 def append_line(path, line, max_bytes, keep_old=False):
     """1 行を書き足す(max_bytes を超えていたら先に <path>.1 へ回す = 1 世代)。書けなければ OSError。line は改行つきの文字列(UTF-8 で書く)。
-    画面のエラーの記録(clientlog)・まとめて実行の記録(autorun)・採用の記録(live_export)が同じ形で使う(RS3-0B で clientlog から移した)。
+    画面のエラーの記録(clientlog)・まとめて実行の記録(autorun)・採用の記録(live_export)が同じ形で使う。
     keep_old=True(判定の記録 feedback.jsonl。精度の見直しの材料なので消さない): 超えたら <path>.old の末尾へ足して空にする(バイトのまま・改行は LF)。
     前回の行が書きかけ(電源断など)で改行が無ければ、先に改行を足して次の行と繋がらないようにする"""
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -327,7 +327,7 @@ def _spill_to_old(path):
 
 def is_inside(path, root, strict=False):
     """path が root の中か(strict=True なら root そのものは含めない)。許可したフォルダの中だけを読み書きさせる検査に使う(セキュリティの決まりはここ 1 か所)。
-    いちばん厳しい形にそろえた(2026-10-09。各ツールの 6 通りは realpath の有無・ネットワークの扱いが違った):
+    いちばん厳しい形にそろえてある:
     - ネットワーク上のパス(どちらか)は調べずに False(存在を確かめるだけで資格情報を送るため。is_network_path)
     - realpath で比べる(シンボリックリンク・ジャンクション・.. で外へ出られない。まだ無いファイルでもよい = 親のリンクは解く)
     - 大文字小文字をそろえて比べ、文字列の頭ではなくフォルダの区切りで比べる(C:/data と C:/data2 を取り違えない。commonpath)
@@ -435,7 +435,7 @@ def same_drive(a, b):
 def move_file(a, b, log=None):
     """ファイルを移す。同じドライブなら名前を変えるだけ。別のドライブ(C: → E: など。評価用のフォルダへ取り込むとき)は
     コピー(.part)→ 大きさを確かめる → 名前を付ける → 元を消す。元を消せなければ(開いているなど)コピーを消して OSError(元のまま)。
-    log: 別のドライブへ移したときに 1 行書くロガー(省略で書かない)。RS3-1 に _move から"""
+    log: 別のドライブへ移したときに 1 行書くロガー(省略で書かない)"""
     try:
         os.rename(a, b)
         return

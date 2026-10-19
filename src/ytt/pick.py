@@ -1,4 +1,4 @@
-"""PC の標準の「ファイルを選ぶ」「フォルダを選ぶ」の窓(画面の「参照…」。2026-10-01)。
+"""PC の標準の「ファイルを選ぶ」「フォルダを選ぶ」の窓(画面の「参照…」)。
 
 ブラウザからはファイルの実際のパスを知れないので、ローカルのサーバーが窓を開いて、選んだパスを返す。
 窓は別のプロセス(同じ Python の tkinter)で開く: サーバーのスレッドで Tk を動かすと、ほかの要求のスレッドと
@@ -49,7 +49,7 @@ def initial_dir(hint):
     """窓を最初に開くフォルダ。hint(元のパスなど)から、存在するいちばん近いフォルダ。
     ネットワーク上のパスには触らない(存在を確かめるだけで資格情報を送るため)。見つからなければ ""(窓の既定)"""
     s = str(hint or "").strip().strip('"')
-    if not s or "\0" in s or _fsio.is_network_path(s) or not os.path.isabs(s):   # NUL を含むパスは使わない(以前は isdir の ValueError で "")
+    if not s or "\0" in s or _fsio.is_network_path(s) or not os.path.isabs(s):   # NUL を含むパスは使わない
         return ""
     p = os.path.abspath(s)
     for _ in range(40):

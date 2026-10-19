@@ -157,7 +157,7 @@ class TestSettingsFile(unittest.TestCase):
 
 
 class TestEditorSettings(unittest.TestCase):
-    """編集の設定の読み書き(RS3-1 に editor/ed_learn.py から移した)。置き場所は ytt/workdata.SETTINGS を呼ぶたびに読む・serve なしで動く"""
+    """編集の設定の読み書き。置き場所は ytt/workdata.SETTINGS を呼ぶたびに読む・serve なしで動く"""
 
     def setUp(self):
         from unittest import mock
@@ -185,7 +185,7 @@ class TestEditorSettings(unittest.TestCase):
         with open(self.path, encoding="utf-8") as f:
             self.assertEqual(json.load(f), {"other": 1, "packSize": "1920x1080"})
         # 廃止した鍵(packFps・packBackup): 直させない。古い設定ファイルに残っていても断らず、読み飛ばして消さない。
-        # 古い画面が api/settings/patch で送っても断らずに黙って捨てる(10-18。packBackup = パックの予備 = 決定 3-34)
+        # 古い画面が api/settings/patch で送っても断らずに黙って捨てる(packBackup = パックの予備 = 決定 3-34)
         with open(self.path, "w", encoding="utf-8") as f:
             json.dump({"other": 1, "packSize": "1920x1080", "packFps": "30", "packBackup": True}, f)
         self.assertEqual(self.st.patch_settings({"values": {"packFps": "60"}}), {"ok": True, "values": {}})

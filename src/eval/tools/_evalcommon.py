@@ -1,5 +1,4 @@
-"""dev/ の測る道具(eval_asr.py・eval_speakers.py・eval_timing.py・eval_cut.py・eval_alt.py・eval_marks.py)の共通の部品
-(2026-10-07 ③ dev の見直しでまとめ、見直しの 2 周目で eval_asr・eval_speakers・eval_timing も使うようにした)。
+"""dev/ の測る道具(eval_asr.py・eval_speakers.py・eval_timing.py・eval_cut.py・eval_alt.py・eval_marks.py)の共通の部品。
 
 - 置き場所: TOP(リポジトリ直下 = git)・REPO(src = ツールと ytt)。読み込むと REPO を sys.path に足す
 - 作業データの場所(ytt.datadir の 1 か所。--data-dir は全ツールの作業データの親フォルダ = テスト用)・JSON の読み方・
@@ -151,7 +150,7 @@ def _plain(x):
 
 def previous_same(res, root, area, suffix=""):
     """同じ置き場所(<root>/evals/<area>/)の最新の結果(同じ suffix のもの)と、毎回変わる欄を除いて中身が同じなら、その前のファイルのパス。違う・前が無い・読めないなら None。
-    marks も同じ(OPT-E2 まで本番が marks の最新ファイルの名前の日時で古さを見ていたので対象外だった。今は本番が結果のファイルを読まない)"""
+    本番は結果のファイルを読まない"""
     d = os.path.join(root, "evals", area)
     pat = re.compile(r"^\d{8}-\d{6}%s\.json\Z" % re.escape(suffix))
     try:
@@ -236,7 +235,7 @@ def fake_job():
 
 
 def audio_span(doc, data, doc_id=None, boost=None):
-    """文書の音声の出どころ(元の動画 → 保管データの dataset/docs/<id>/full.flac。今ある保管データだけ。保管の書き手は 10-10 に消した)-> (extract_audio の spec, 行の時刻の基準の秒, "動画" か "保管の音声")。
+    """文書の音声の出どころ(元の動画 → 保管データの dataset/docs/<id>/full.flac。今ある保管データだけ)-> (extract_audio の spec, 行の時刻の基準の秒, "動画" か "保管の音声")。
     どちらも無ければ RuntimeError。ネットワーク上の動画は読まない(存在を確かめるだけで資格情報を送ってしまう。eval_speakers にあった決まりを全部の道具に)。
     boost = None なら spec に boost を入れない(extract_audio は spec.get("boost") で見る = 無ければ偽)"""
     src = str(doc.get("sourcePath") or "")
@@ -254,8 +253,7 @@ class InProcessModel:
     """このプロセスの中で読んだモデル(IN_WORKER)の包み。transcribe に来た音声を、認識ワーカーの受け口(pipeline/transcribe/worker の _audio)と同じ形に直して渡す。
     editor のサーバー側の書き方は、モデルの代理(RemoteModel)に WavSlice・WavRef(wav のパスとサンプルの範囲だけ。ワーカーが読む)を渡す。
     道具ではそれが faster-whisper に直接届き、読めずに落ちる("File object has no read() method")。
-    2026-10-07 夜に分かった: 見直し 2 周目で IN_WORKER が届くようになってから、1 秒丸めの聞き直し(quant_words_provider。編集 0.65.0 で消した)がこれで落ち、
-    eval_asr run は丸まった窓のある文書を「とばしました」で数えていなかった。ほかの属性(params・hooks など)は中のモデルのものを読み書きする"""
+    包まないと、丸まった窓のある文書は読めずに落ち、eval_asr run が「とばしました」で数えない。ほかの属性(params・hooks など)は中のモデルのものを読み書きする"""
 
     def __init__(self, model, audio_of):
         object.__setattr__(self, "_model", model)
@@ -275,7 +273,7 @@ def in_process_models():
     """① models._load_model_local(このプロセスの中でモデルを読む本体)が返すモデルを InProcessModel で包む。
     持ち主の部品は普通の import(何回 prepare しても同じもの)なので、包むのは 1 回だけ"""
     from pipeline.transcribe import models, worker_client
-    from pipeline.transcribe import worker as txw  # noqa: E402  認識ワーカーの受け口(読み込むだけでは何も起動しない。RS2-9 に editor/tx_worker から移した)
+    from pipeline.transcribe import worker as txw  # noqa: E402  認識ワーカーの受け口(読み込むだけでは何も起動しない)
     if getattr(models._load_model_local, "in_process", False):
         return
     local = models._load_model_local

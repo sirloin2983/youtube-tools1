@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""画面を「窓」(Edge のアプリモード)で開く(統合計画の段階7-3。2026-09-27 ユーザー決定で既定を窓に = 専用の窓。pywebview は使わない)。
+"""画面を「窓」(Edge のアプリモード)で開く(統合計画の段階7-3。ユーザー決定で既定は窓 = 専用の窓。pywebview は使わない)。
 
 - 設定: 作業データの置き場所の app\\settings.json の "window"("browser" | "app")。書いていなければ窓("app")。
   ホームの「詳しく」の「窓で開く」で切り替える(オフにすると「browser」が残り、いつものブラウザで開く)。Edge が無い・起動できなければブラウザ
@@ -26,7 +26,7 @@ import urllib.parse
 import webbrowser
 
 MODES = ("browser", "app")
-DEFAULT_MODE = "app"   # 既定は窓(2026-09-27 ユーザー決定。以前は試用でブラウザが既定)
+DEFAULT_MODE = "app"   # 既定は窓(ユーザー決定)
 PROFILE_NAME = "browser-profile"
 SETTINGS_NAME = "settings.json"
 EDGE_REL = os.path.join("Microsoft", "Edge", "Application", "msedge.exe")
@@ -153,7 +153,7 @@ def write_mode(path, mode, atomic_write):
 
 def focus_window(title, user32=None):
     """題名が title で始まる、見えているいちばん上の窓を前に出す(Windows だけ)。-> 前に出せたか。
-    入口の窓が二つにならないように、ツールの窓の「入口」から呼ぶ(2026-09-27)。
+    入口の窓が二つにならないように、ツールの窓の「入口」から呼ぶ。
     入口のサーバーは前面のプログラムではないので、そのままでは SetForegroundWindow が効かない(タスクバーが点滅するだけ)。
     いま前面の窓のスレッドに入力をつないで(AttachThreadInput)から頼む。見つからない・前に出せないときは False(画面が「ほかの窓で開いています」と知らせる)"""
     if os.name != "nt" and user32 is None:
@@ -253,7 +253,7 @@ class Opener:
             raise Unavailable("窓で開くのに使う Microsoft Edge が見つかりません")
         # 入口の黒い画面の Ctrl+C・Ctrl+Break(終了の合図)を Edge に伝えない = 見えない別のコンソール + 別のグループ。
         # DETACHED_PROCESS(コンソールなし)にしない: 起こした物がコンソールの子を起こすと、その子に見える新しい窓が開いて画面を取る
-        # (テストの偽のブラウザ .bat → Python で黒い窓が出ていた。10-11)
+        # (テストの偽のブラウザ .bat → Python でも黒い窓が出る)
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)   # 標準ライブラリだけで読む部品なので tools.no_window_flags を使わない
         os.makedirs(self.profile, exist_ok=True)
         self._popen(app_command(exe, url, self.profile), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,

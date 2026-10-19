@@ -9,7 +9,7 @@
 - 応答 …… send / send_head: どの応答にも no-store(古い内容を見せない)と nosniff(型を推測させない)を付ける。
   スタジオ・編集・入口の Handler._send と、スタジオの動画(_media)の見出しがこれを使う(見出しの順番もここで決まる)
 
-各サーバーにあった定型(2026-10-09。notes:docs/design/reviews/code-review-simplify-2026-10-08.md の T6):
+各サーバーに共通の定型(notes:docs/design/reviews/code-review-simplify-2026-10-08.md の T6):
 - read_json_body … 書き込み系の要求の JSON の本文(Content-Type・大きさの検査。断る理由は BodyError の kind。文は呼ぶ側)
 - drain_body …… 断る要求の本文を読み捨てる(読まずに閉じると Windows では応答が届かないことがある)
 - token_ok ……… 合言葉の比べ方(時間で漏れない比べ方・文字の種類で落ちない)
@@ -71,7 +71,7 @@ def send(handler, code, body=b"", ctype="text/plain; charset=utf-8", extra=None,
         handler.wfile.write(body)
 
 
-# ---------- 各サーバーにあった定型(2026-10-09) ----------
+# ---------- 各サーバーに共通の定型 ----------
 DRAIN_MAX = 1024 * 1024   # 断る要求の本文を読み捨てる上限(これより大きい本文は読まずに閉じる)
 _RANGE = re.compile(r"^bytes=(\d*)-(\d*)$")
 
@@ -91,7 +91,7 @@ class BodyError(ValueError):
 
 def drain_body(headers, rfile, limit=DRAIN_MAX):
     """断る要求の本文を読み捨てる(中身は見ない。limit まで。上げない)。読まずに接続を閉じると、Windows では受け取っていない本文が残っているために
-    接続ごと切られ(RST)、相手に 403 などの応答が届かないことがある(2026-10-03。入口の mount.drain_body と同じ)"""
+    接続ごと切られ(RST)、相手に 403 などの応答が届かないことがある(入口の mount.drain_body と同じ)"""
     try:
         length = int(headers.get("Content-Length") or 0)
         if 0 < length <= limit:

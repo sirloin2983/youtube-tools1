@@ -333,9 +333,9 @@ class EvalMarks(unittest.TestCase):
             fb("2026-09-01", "export", "good", 100.0, 140.0, 4.0, auto0=[100.0, 140.0], markId="b", adoptedBy="request"),   # 機械が採用にしたものの書き出しの行
             fb("2026-09-01", "export", "good", 200.0, 240.0, 3.0, auto0=[200.0, 240.0], markId="c"),                        # 人が書き出した(adopt の行は無い)
         ])
-        env.runs([{"v": 1, "id": "r", "kind": "video", "videoId": V1, "state": "done", "steps": [{"key": "adopt", "state": "done"}]}])   # 以前の近似なら c も機械になる
+        env.runs([{"v": 1, "id": "r", "kind": "video", "videoId": V1, "state": "done", "steps": [{"key": "adopt", "state": "done"}]}])   # 近似だけなら c も機械になる
         al = env.evaluate()["overall"]["top"]["all"]
-        self.assertEqual((al["good"], al["machine"], al["unrecorded"]), (1, 3, 0))   # c だけ良い。a・b は印で機械・d は印も行も無いが実行記録で機械(以前の近似)
+        self.assertEqual((al["good"], al["machine"], al["unrecorded"]), (1, 3, 0))   # c だけ良い。a・b は印で機械・d は印も行も無いが実行記録で機械(近似)
         self.assertEqual((al["exported"], al["adoptRate"]), (1, 1.0))
 
     def test_adopted_by_row_only(self):
@@ -349,15 +349,15 @@ class EvalMarks(unittest.TestCase):
         self.assertEqual((al["items"], al["machine"], al["good"], al["bad"]), (2, 1, 0, 1))
 
     def test_match_by_mark_id(self):
-        """markId のある行は ID で突き合わせる: 同じ区間でも別の ID のマークの行は混ぜない。ID の無い以前の行は区間で突き合わせる"""
+        """markId のある行は ID で突き合わせる: 同じ区間でも別の ID のマークの行は混ぜない。ID の無い行は区間で突き合わせる"""
         env = Env(self)
         env.data({V1: video(V1, [mark("x", 10.0, 50.0, 5.0, "adopted")])})
         env.feedback([fb("2026-09-01", "adopt", "good", 10.0, 50.0, 5.0, auto0=[10.0, 50.0], markId="x"),
                       fb("2026-09-01", "reject", "bad", 10.0, 50.0, 4.0, auto0=[10.0, 50.0], markId="y"),       # 別のマーク y(消えた)。同じ区間でも x に混ぜない
-                      fb("2026-09-02", "reject", "bad", 200.0, 240.0, 3.0, auto0=[200.0, 240.0])])              # ID の無い以前の行
+                      fb("2026-09-02", "reject", "bad", 200.0, 240.0, 3.0, auto0=[200.0, 240.0])])              # ID の無い行
         r = env.evaluate()["overall"]["top"]["all"]
         self.assertEqual((r["items"], r["good"], r["bad"]), (3, 1, 2))
-        # ID の無い以前の行は区間で data のマークに付く
+        # ID の無い行は区間で data のマークに付く
         env.feedback([fb("2026-09-01", "adopt", "good", 10.0, 50.0, 5.0, auto0=[10.0, 50.0])])
         r = env.evaluate()["overall"]["top"]["all"]
         self.assertEqual((r["items"], r["good"]), (1, 1))

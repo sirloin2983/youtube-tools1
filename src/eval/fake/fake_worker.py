@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
-"""認識ワーカーの中の疑似(環境変数 TRANSCRIBE_BACKEND=worker-fake のテスト用。役割で組み直す RS2-9 に、認識ワーカー(今の pipeline/transcribe/worker.py)の
-install_fakes から移した。中身は同じ)。
+"""認識ワーカーの中の疑似(環境変数 TRANSCRIBE_BACKEND=worker-fake のテスト用。認識ワーカーは pipeline/transcribe/worker.py)。
 
 サーバー(編集の serve)は本物の経路(認識ワーカーとのやり取り・RemoteModel)を通り、ワーカーの中だけ偽のモデルを使う。差し込み方:
 serve が pipeline/transcribe/worker_client.FAKES_MODULE にこのモジュールの名前を入れる → worker_client.worker_env() が worker-fake のときだけ
@@ -88,7 +87,7 @@ def install():
     E.ENGINES[E.LlamaText.id] = fake_llama_text(os.environ.get("TRANSCRIBE_FAKE_LLM", ""))   # 文字の LLM(後処理 E)は環境変数の文字をそのまま答える(server を起動しない)
 
 
-# ---------- 2 つ目の読み・文字の LLM の偽物(OPT-E2 1a-1 に ① tx_engines の疑似の分かれ道 FAKE_TEXT・FAKE_REPLY から移した)。
+# ---------- 2 つ目の読み・文字の LLM の偽物。
 # 本物のクラスを継いで、モデルを読む所(create)と答える所だけを差し替える。エンジンの表 tx_engines.ENGINES に入れると、本物の _load_model_local の流れで使われる
 def fake_sense_voice(text):
     """SenseVoice の偽物のクラス: 音声を読まずに、音声の長さ全体に text を 1 行(空なら行なし)"""

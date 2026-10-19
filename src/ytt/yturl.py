@@ -1,4 +1,4 @@
-"""YouTube の URL・動画 ID の形(語彙。標準ライブラリだけ・状態を持たない)。役割で組み直す RS6 a-1(2026-10-10)に pipeline/ingest/sources から移した。
+"""YouTube の URL・動画 ID の形(語彙。標準ライブラリだけ・状態を持たない)。
 
 ③ 人・④ データが ① を読まずに済むよう ytt に置く。読む側は `from ytt import yturl` の形で、別名で再公開しない。
 - 形: `VID_RE`(YouTube の動画 ID)・`YT_HOSTS`・`MEDIA_EXT`(動画・音声の拡張子)・`YT_API_BASE`(YouTube Data API)

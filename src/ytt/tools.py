@@ -63,8 +63,8 @@ def _env_file(names):
 
 
 def find_tool(name, env_var=None):
-    """外部プログラム(ffmpeg・ffprobe・yt-dlp など)の場所。すべての部品の探し方はこの 1 つ(OPT1。2026-10-11)。順:
-    1. ツール固有の環境変数 env_var(STUDIO_FFMPEG・TRANSCRIBE_FFMPEG・TRANSCRIBE_YTDLP など。互換のため先に見る = 今までの指定がそのまま効く)
+    """外部プログラム(ffmpeg・ffprobe・yt-dlp など)の場所。すべての部品の探し方はこの 1 つ(OPT1)。順:
+    1. ツール固有の環境変数 env_var(STUDIO_FFMPEG・TRANSCRIBE_FFMPEG・TRANSCRIBE_YTDLP など。先に見る)
     2. 共通の環境変数 ytt_env(name)(YTT_FFMPEG・YTT_FFPROBE・YTT_YTDLP)
     3. ffprobe だけ: 1・2 の ffmpeg の環境変数(名前の FFPROBE を FFMPEG にした物)で決めた ffmpeg の隣
     4. PATH
@@ -82,7 +82,7 @@ def find_tool(name, env_var=None):
     return shutil.which(name) or _in_dirs(name, _winget_dirs())
 
 
-# ---------- 動画・音声のファイル(編集の文字起こし・波形・付け替え・保管が使う。RS3-0A に編集の ed_state から移した) ----------
+# ---------- 動画・音声のファイル(編集の文字起こし・波形・付け替え・保管が使う) ----------
 # 編集の部品は呼ぶたびに tools.名前 で読む(テストの S.find_ffmpeg = …・patch.object(S, "check_source", …) は編集の serve の名前の受付がここへ届ける)
 MEDIA_TYPES = {   # 編集が受け付ける動画・音声の拡張子 → 配信する Content-Type(/media・check_source・フォルダの一括・付け替え)
     ".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm", ".mkv": "video/x-matroska",
@@ -334,8 +334,8 @@ def run(cmd, timeout=None, cancelled=None, flags=None, stdout=True, err_tail=Non
 def run_progress(cmd, flags=None, cancelled=None, idle_sec=None, on_time=None, popen=None, tail=20, *,
                  timeout=None, split=False, on_line=None, spawn=False, cwd=None, on_start=None):
     """ffmpeg など(yt-dlp も)を 1 回動かし、出力を 1 行ずつ読む。進み具合・取り消し・無出力・時間切れつきで子プロセスを動かす形はこの 1 つ
-    (OPT2。2026-10-11 に exporter._pump・cut2resolve_core._ffmpeg_stream・procs.run_capture・recognize.extract_audio・
-    live_excite_worker.measure_levels を寄せた)。シェルを通さない・標準入力なし・文字は UTF-8(壊れた文字は置き換える。行の区切りは改行と CR)。
+    (OPT2。exporter._pump・cut2resolve_core._ffmpeg_stream・procs.run_capture・recognize.extract_audio・
+    live_excite_worker.measure_levels が使う)。シェルを通さない・標準入力なし・文字は UTF-8(壊れた文字は置き換える。行の区切りは改行と CR)。
     -> (終了コード, 行, 止めた理由)。止めた理由: None | "cancel"(cancelled() が真)| "timeout"(timeout 秒を過ぎた)|
     "idle"(idle_sec 秒なにも出力しなかった)。0.3 秒ごとにこの順で見る。timeout・idle_sec は 0・None なら見ない。
     - 行(2 つ目): split=False(既定)は標準出力と標準エラーを 1 本で読み、進み具合の行と key=value の行(頭の 20 字に = がある)を除いた
@@ -498,7 +498,7 @@ def start_logged(cmd, log_path, cwd, flags, rotate=None):
     """入口が起こす常駐の子プロセス(録画の部品・検出のワーカー)を、標準出力と標準エラーをログに足す形で起動する -> Popen。
     見出しの行(起動の時刻)・PYTHONIOENCODING(無ければ)・PYTHONUNBUFFERED を付ける。rotate(バイト数)を渡すと、超えていたら起動の前に .old.log へ回す。
     flags: creationflags か、その候補の並び(先頭から試し、起動できなければ次。最後もだめなら OSError)。
-    OPT1(2026-10-11)に flow/live_detect から移した(② の基盤の使い忘れ。子プロセスの起こし方はここ)"""
+    子プロセスの起こし方はここ(② の基盤の使い忘れを防ぐ)"""
     env = dict(os.environ)
     env.setdefault("PYTHONIOENCODING", "utf-8:backslashreplace")
     env["PYTHONUNBUFFERED"] = "1"

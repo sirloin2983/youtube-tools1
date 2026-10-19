@@ -19,7 +19,7 @@
 ここに置く(どの層の部品も編集の部品を読まずに設定を読める)。
 置き場所は ytt/workdata の SETTINGS を呼ぶたびに読む(テストの S.SETTINGS = … が効く)。鍵の検査は持ち主の部品が register_patch_key で足す
 (2 つ目のエンジンの altEngine は human/proof/alt)。
-評価用のフォルダの判定(eval_dirs・in_eval_dir・eval_name_guard。設定 evalDirs を読む)もここ(RS0-f。RS3-1 に ed_relink から)。編集の部品・テストは serve の名前の受付(S.load_settings など)からも読める。
+評価用のフォルダの判定(eval_dirs・in_eval_dir・eval_name_guard。設定 evalDirs を読む)もここ(RS0-f)。編集の部品・テストは serve の名前の受付(S.load_settings など)からも読める。
 """
 import json
 import os
@@ -183,7 +183,7 @@ def _write_fsync(path, data):
 
 
 def _settings_file():
-    """編集の設定ファイル(読む・書く・退避・大きさの上限は SettingsFile。ホーム・スタジオと同じ決まり。S4 2026-10-09)。
+    """編集の設定ファイル(読む・書く・退避・大きさの上限は SettingsFile。ホーム・スタジオと同じ決まり。S4)。
     workdata.SETTINGS はテストが差し替えるので、呼ぶたびに作る(軽い)"""
     return SettingsFile(_workdata.SETTINGS, max_bytes=SETTINGS_MAX, writer=_write_fsync, indent=1, lock=_settings_lock)
 
@@ -206,7 +206,7 @@ SETTINGS_PATCH_KEYS = {"packLoudness": lambda v: not isinstance(v, bool) and v i
                        "keymap": lambda v: _keymap_ok(v),
                        # 話者判別のあと、短い 1 行だけ別の人になるのをならす(S2。試験中・既定オフ。pipeline/transcribe/diarize の smooth_)
                        "diarSmooth": lambda v: isinstance(v, bool),
-                       # 確かめるの評価のレーンに区間カードを出す(C-EVAL。既定オン = human/check/section.enabled。10-18 に鍵を変えた = 既定オフのころの checkSectionCards は読まない)
+                       # 確かめるの評価のレーンに区間カードを出す(C-EVAL。既定オン = human/check/section.enabled。古い鍵 checkSectionCards は読まない)
                        "checkSectionCardsOn": lambda v: isinstance(v, bool),
                        # 確かめるに自動カットのカードを出す(CUT-CARD。既定オン = human/check/cutcard.enabled。同じく checkCutCards は読まない)
                        "checkCutCardsOn": lambda v: isinstance(v, bool),
@@ -246,7 +246,7 @@ def _settings_error(e):
     return _errors.ApiError("bad_request", str(e), 400)
 
 
-# 画面の欄を消した鍵(RS7-1 S4 で packFps・10-18 に packBackup = パックの予備 = 決定 3-34 は読まなくなった)。
+# 画面の欄の無い鍵(packFps・packBackup = パックの予備 = 決定 3-34 は読まない)。
 # 直させない・読まない・消さない = 古い設定ファイルに残っていても断らず、そのまま残す。api/settings/patch で送られても断らずに黙って捨てる(古い画面)
 RETIRED_SETTINGS_KEYS = ("packFps", "packBackup")
 
@@ -275,7 +275,7 @@ def merge_settings(obj):
     """PUT /api/settings {"patch": {キー: 値 | null}}: 最上位のキーだけを、ロックの中で今のファイルに合わせる(null = そのキーを消す)。
     api/settings/patch で直す項目(SETTINGS_PATCH_KEYS)は、丸ごとの保存と同じくここでは変えない(値の検査があるそちらの API だけで直す)。
     案の比較: 版(rev)で 409 にする案は競合を確実に見つけるが、設定の画面に「読み直す/上書き」の選択を作ることになる
-    → キー単位の合わせで十分(同じキーを2つの窓で同時に変えたときだけ後勝ち。git の履歴(679ff01 以前)の docs/plan/phase2-data-safety.md の 6)"""
+    → キー単位の合わせで十分(同じキーを2つの窓で同時に変えたときだけ後勝ち)"""
     p = obj.get("patch")
     if set(obj) != {"patch"} or not isinstance(p, dict):
         raise _errors.ApiError("bad_request", "設定の直し方(patch)の形が正しくありません", 400)
@@ -306,7 +306,7 @@ def replace_settings(obj):
     return {"ok": True}
 
 
-# ---------- 評価用のフォルダの判定(2026-10-01 ユーザー決定。notes:docs/spec/data.md。RS3-1 に移した = RS0-f)----------
+# ---------- 評価用のフォルダの判定(ユーザー決定。notes:docs/spec/data.md。RS0-f)----------
 # 設定 evalDirs のフォルダ(の下)にある動画は、精度を測るためだけのデータ。文字起こし・保存・付け替え・履歴から戻すときに評価用の印を付ける。
 # 判定はパスを比べるだけ(ネットワーク上のパスには触らない)。整理(名前をそろえる)と仮置きは editor/ed_relink に残る
 EVAL_DIRS_MAX = 10
@@ -320,7 +320,7 @@ def _eval_dirs_ok(v):
                     and not any(ch in p for ch in "\x00\r\n") and ":" not in os.path.splitdrive(p)[1] for p in v))
 
 
-SETTINGS_PATCH_KEYS["evalDirs"] = lambda v: _eval_dirs_ok(v)   # 評価用のフォルダ(この中の動画は評価用。整理で名前をそろえる。2026-10-01)
+SETTINGS_PATCH_KEYS["evalDirs"] = lambda v: _eval_dirs_ok(v)   # 評価用のフォルダ(この中の動画は評価用。整理で名前をそろえる)
 
 
 def eval_dirs():

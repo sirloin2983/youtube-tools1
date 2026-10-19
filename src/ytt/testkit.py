@@ -1,6 +1,6 @@
-"""テストの共通の下ごしらえ(2026-10-18 テストの見直し TESTREV。notes:plan/test-review.md の 6)。
+"""テストの共通の下ごしらえ(テストの見直し TESTREV。notes:plan/test-review.md の 6)。
 
-各層の tests/ が同じ物を写して持っていた「一時フォルダ・JSON の読み書き・偽の HTTP サーバー・作業データの切り離し」を 1 か所に置く。
+各層の tests/ が共通で使う「一時フォルダ・JSON の読み書き・偽の HTTP サーバー・作業データの切り離し」を 1 か所に置く。
 テストからだけ使う(本体のコードは import しない)。ytt は一番下の層なので、どの層のテストからも読める。
 
     from ytt import testkit

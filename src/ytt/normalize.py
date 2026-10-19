@@ -1,14 +1,14 @@
-"""素材を 30fps にそろえる(Q1。notes:plan/line-bc-master-plan.md。2026-10-04 ユーザー決定)。
+"""素材を 30fps にそろえる(Q1。notes:plan/line-bc-master-plan.md。ユーザー決定)。
 
 決まり: **H.264・8bit・yuv420p・30/1 の固定(CFR)・AAC** ならそのまま使う(作り直さない)。違えば ffmpeg(libx264)で作り直す。
 画質の設定はスタジオの書き出しと同じ(crf 18。ENC_ARGS を1か所にして、スタジオの exporter もこれを使う)。GPU(AMF)は測ってから。
 
-動画の全体を作り直す normalize() だけ、速くする 2 つ(2026-10-18 ユーザー「進めて」。友人の PC で動画ファイルの依頼の「1/3 動画を取得」が長かった):
+動画の全体を作り直す normalize() だけ、速くする 2 つ(友人の PC で動画ファイルの依頼の「1/3 動画を取得」が長いため):
 - 映像がもう条件どおりで音声だけが違う(AAC でない)ときは、映像はコピーして音声だけ作り直す(video_ok)
 - 映像を作り直すときは、NVIDIA の GPU の作り方(h264_nvenc)が使えればそれで作る(CPU の libx264 の数倍速い)。
   使えるかは ffmpeg で 0.1 秒の見本を作って確かめる(1 回だけ覚える)。GPU で失敗したら libx264 で 1 回だけやり直す。
   環境変数 YTT_NVENC=0 で使わない(スイッチ)。どちらで作ったかは戻り値の "how" に残る
-  スタジオの書き出し(ENC_ARGS)と区間の作り直し(encode_section)は今のまま
+  スタジオの書き出し(ENC_ARGS)と区間の作り直し(encode_section)は GPU を使わない
 
 - 時刻は秒のまま保たれる(ずらさない): fps フィルタは各コマの表示時刻をそのまま 1/30 秒の格子に当てはめるだけなので、
   文字起こし・マークの時刻(秒)は作り直したあともそのまま使える。
@@ -282,7 +282,7 @@ def section_cmd(ffmpeg, paths, ss, dur, out, enc, list_path=None):
     """区間を切り出して 30fps に作り直す ffmpeg の引数の全部(enc = encode_args() か legacy_args の結果。-progress pipe:1 つき)。
     paths が 1 つならそのまま読み、2 つ以上なら concat の一覧 list_path(concat_list で書いた物)を読む(時刻はファイルの長さで続ける)。
     -ss は入力の前(作り直しなので位置はコマ単位で正確)。長さは出力の -t で決める(入力の -t だけだと、fps フィルタが最後のコマを
-    増やして映像が約 0.5 秒長くなる。2026-10-04 に確かめた)。入力の -t は読む量を抑えるだけ(1 秒長め)"""
+    増やして映像が約 0.5 秒長くなる)。入力の -t は読む量を抑えるだけ(1 秒長め)"""
     src = ["-i", paths[0]] if len(paths) == 1 else ["-f", "concat", "-safe", "0", "-i", list_path]
     return [ffmpeg, "-hide_banner", "-nostdin", "-y", "-v", "error", "-ss", "%.3f" % ss, "-t", "%.3f" % (dur + 1.0)] + src + \
         ["-t", "%.3f" % dur, "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn"] + list(enc) + ["-progress", "pipe:1", "-nostats", out]

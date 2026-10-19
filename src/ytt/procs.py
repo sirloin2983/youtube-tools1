@@ -1,4 +1,4 @@
-"""外部コマンドの子プロセスの管理(役割で組み直す RS3-4。2026-10-10 にスタジオの common.py から移した。標準ライブラリだけ)。
+"""外部コマンドの子プロセスの管理(標準ライブラリだけ)。
 
 起動した子を覚えておき、中止・時間切れ・終了の流れで孫ごと止める。使う所: スタジオの解析(pipeline の analyze)・書き出し(pipeline/export/exporter)・
 メディア情報(ytt/mediainfo)・スタジオの serve の終了の流れ(stop_children)。
@@ -9,7 +9,7 @@
   中身は ytt.tools.run_progress(spawn=True。OPT2)
 - `terminate`(止める依頼。待たない)・`hard_kill`(孫ごと強制終了)・`idle_message`(出力が止まったときの文)
 - `pid_alive(pid)`: 自分の子でないプロセスが動いているか(flow/placement の .flow.lock の取り残しの見分け。RS6 b-B0)
-旧い名前 `common.spawn` などの転送は RS5 で消した。読む側は `procs.名前` を呼ぶたびに読む。
+読む側は `procs.名前` を呼ぶたびに読む。
 """
 import os
 import signal
@@ -21,7 +21,7 @@ from . import errors, tools as _tools
 
 KILL_GRACE = 3.0   # SIGTERM のあと、この秒数で終わらなければ SIGKILL
 STOP_WAIT = 3.0    # 終了の流れ(stop_children)で、止める依頼のあと子プロセスが終わるのを待つ秒数。過ぎたら強制終了
-_children = set()  # spawn で起動して、まだ見届けていない子プロセス(終了の流れで止めるため。2026-09-30)
+_children = set()  # spawn で起動して、まだ見届けていない子プロセス(終了の流れで止めるため)
 _children_lock = threading.Lock()
 
 

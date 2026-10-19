@@ -34,7 +34,7 @@ def num(v):
         return None
     try:
         v = float(v)
-    except OverflowError:   # JSON の 1 のあとに 0 が 400 個 など(以前はここで落ちていた)
+    except OverflowError:   # JSON の 1 のあとに 0 が 400 個 など
         return None
     return v if math.isfinite(v) else None
 
@@ -89,11 +89,11 @@ def _r3(x):
     return None if x is None else round(float(x), 3)
 
 
-# ---------- 文字起こしの文書の形の小道具(役割で組み直す RS2-9 に編集の ed_state から移した。ed_state には同じ物の別名がある) ----------
+# ---------- 文字起こしの文書の形の小道具 ----------
 TID_RE = re.compile(r"^[0-9a-f]{12}$")   # 文書の id の形(12 文字の 16 進)
-MAX_SEGMENTS = 20000   # 文書の行の数の上限(画面から保存できる行。RS3-E5a に ed_state から。文書の置き場 human/proof/store が読む)
-ROW_TAGS = ("unclear", "overlap", "bgm", "novoice")   # 行に付ける音のメモ(聞き取れない・声が重なる・BGMが大きい・novoice = 声の区間と重ならない行(確かめるの「この行は声ですか?」で消すと答えた。C-EVAL))。unclear の行は精度測定・学習の正解に使わない(RS3-E5a に ed_state の TAGS から)
-# 組み込みの話者「ゲーム音声など」(ゲームのキャラ・NPC・動画の音声など、その場かぎりの声。2026-10-05。notes:plan/done/line-b-overlap.md の 6)。
+MAX_SEGMENTS = 20000   # 文書の行の数の上限(画面から保存できる行。文書の置き場 human/proof/store が読む)
+ROW_TAGS = ("unclear", "overlap", "bgm", "novoice")   # 行に付ける音のメモ(聞き取れない・声が重なる・BGMが大きい・novoice = 声の区間と重ならない行(確かめるの「この行は声ですか?」で消すと答えた。C-EVAL))。unclear の行は精度測定・学習の正解に使わない
+# 組み込みの話者「ゲーム音声など」(ゲームのキャラ・NPC・動画の音声など、その場かぎりの声。notes:plan/done/line-b-overlap.md の 6)。
 # 文書の speakers に {"id": OTHER_SPK_ID, "name": OTHER_SPK_NAME, "builtin": OTHER_SPK_BUILTIN} で 1 つだけ入る(選んだときに画面が足す)。
 # 名前は変えない・声を覚えない・判別のやり直しで上書きしない。画面の app.js の OTHER_SP と同じ値(変えるときは両方)
 OTHER_SPK_ID = "other"
@@ -193,10 +193,10 @@ def make_mach(rows, rev=1, keys=None, speakers=None):
             "speakers": [json.loads(json.dumps(s)) for s in speakers or [] if isinstance(s, dict)]}
 
 
-# ---------- 途中のファイルの置き場所(2026-09-27。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 1) ----------
+# ---------- 途中のファイルの置き場所 ----------
 # 出力先(動画のフォルダ)の直下に並べるのはパックと元動画(書き出した切り抜き)だけ(ユーザー決定)。それ以外の途中のファイル
 # (.clip.json・.edit.json・_edit.mp4・.transcript.json・.srt・.cut-plan.json・.studio-id)は下のフォルダ「作業用」に書く。
-# 以前の置き方(動画の隣)のファイルは動かさない。読む側は「作業用/ → 動画の隣」の順に探す(find_sidecar)。
+# 動画の隣にあるファイルは動かさない。読む側は「作業用/ → 動画の隣」の順に探す(find_sidecar)。
 # cut2resolve(ytt を読まないコマンドもある)は cut2resolve_core.WORK_DIR に同じ名前を持つ(test_serve が同じか確かめる)
 WORK_DIR = "作業用"
 
@@ -219,7 +219,7 @@ def sidecar_path(media_path, suffix):
 
 
 def sidecar_candidates(media_path, suffix):
-    """途中のファイルを読む場所の候補(作業用/ → 以前の置き方 = 動画の隣)"""
+    """途中のファイルを読む場所の候補(作業用/ → 動画の隣)"""
     new, old = sidecar_path(media_path, suffix), os.path.splitext(os.path.abspath(media_path))[0] + suffix
     return [new] if os.path.normcase(new) == os.path.normcase(old) else [new, old]
 
@@ -237,7 +237,7 @@ def clip_path_for(media_path):
 
 
 def find_clip_path(media_path):
-    """動画の .clip.json(作業用/ → 以前の置き方 = 動画の隣)。無ければ None"""
+    """動画の .clip.json(作業用/ → 動画の隣)。無ければ None"""
     return find_sidecar(media_path, CLIP_SUFFIX)
 
 
@@ -294,7 +294,7 @@ def clip_offset(clip):
 
 def clip_mark_span(clip):
     """余白つき(LD-2f。export.margin の印がある)切り抜きの、動画の中のマークの区間 (始まり, 終わり)(秒)。余白なし・形が違えば None
-    (以前の高速書き出しの actualStart = キーフレームのずれには margin が無いので当てない)"""
+    (margin の無い actualStart = キーフレームのずれには当てない)"""
     ex = clip.get("export") if isinstance(clip, dict) else None
     rng = clip.get("range") if isinstance(clip, dict) else None
     if not isinstance(ex, dict) or not isinstance(ex.get("margin"), dict) or not isinstance(rng, dict):
@@ -317,11 +317,11 @@ CLIP_DURATION_TOLERANCE = 3.0   # 動画の長さと .clip.json の durationSec 
 
 
 def find_clip(media_path, media_duration=None):
-    """動画の .clip.json を探して読む(作業用/ → 以前の置き方 = 動画の隣。find_clip_path)。
+    """動画の .clip.json を探して読む(作業用/ → 動画の隣。find_clip_path)。
     戻り値 (clip または None, 警告または None, .clip.json のパスまたは None)。
     media_duration(秒)を渡すと、.clip.json の durationSec と大きく違うときに警告を付ける(clip は使う)。
     編集の受け渡し(pipeline_io.find_clip)・文字起こしの受付(human/proof/doc_jobs)・文字起こしせずに開く(human/proof/store)が読む
-    (RS3-0A に編集の pipeline_io から移した = 下の層の部品が pipeline_io(manage)を読まずに済むように。中身は同じ)"""
+    (下の層の部品が pipeline_io(manage)を読まずに済むように、ここに置く)"""
     p = find_clip_path(media_path)
     if not p:
         return None, None, None
@@ -333,7 +333,7 @@ def find_clip(media_path, media_duration=None):
     return clip, warn, p
 
 
-# ---------- youtube-tools-key/v1(成果物の鍵。notes:plan/done/role-restructure.md 4 の 4・5-2。2026-10-09 RS1-5) ----------
+# ---------- youtube-tools-key/v1(成果物の鍵。notes:plan/done/role-restructure.md 4 の 4・5-2) ----------
 # 成果物(切り抜き 1 本・認識・パックなど)の横に置く小さな JSON。「同じ鍵の成果物があれば作らない = 使い回し」の判定に使う。
 # RS1 では形と純粋な関数だけを置く(どこにも書かない)。書く側は RS6。
 KEY_SCHEMA = "youtube-tools-key/v1"
@@ -479,5 +479,5 @@ def key_path(path, stage):
 
 def ids_ok(rc, rec):
     """録画元・録画の id の形(API の引数・worker.json の値をパスに使う前に見る。文字列でなければ False)。
-    RS6 a-1(2026-10-10)に pipeline/analyze/live_detect の _ids_ok から移した(manage/keep・home も使う)"""
+    manage/keep・home も使う"""
     return isinstance(rc, str) and isinstance(rec, str) and bool(recproto.RECORDER_ID_RE.match(rc)) and bool(recproto.REC_ID_RE.match(rec))

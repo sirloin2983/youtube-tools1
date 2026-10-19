@@ -1,12 +1,11 @@
-"""置換辞書の読み方と当て方(語彙。標準ライブラリと ytt.txbase だけの純粋な関数)。役割で組み直す RS6 a-1(2026-10-10)に pipeline/transcribe/replace から読み方を、
-RS6 a-3 に当て方 apply_replacements を移した(③ 人の再認識の反映・① の clipjob の両方が読む)。
+"""置換辞書の読み方と当て方(語彙。標準ライブラリと ytt.txbase だけの純粋な関数)。③ 人の再認識の反映・① の clipjob の両方が読む。
 
 「誤=>正」を 1 行に 1 つ書いた文字列を読む `parse_replacements`・「|語|」(単語の途中には当てない指定)を割る `wb_split`・
 語が同じ種類の文字の並びの途中で切れていないかを見る `_bounded`・組 [(誤, 正)] を文に当てる `apply_replacements`。
 """
 from ytt import txbase as _txbase
 
-# 人が登録する置換辞書(設定の replacements)を当てるか(10-14 ユーザー「使い始める時にしっかり置換規則を再定義する」= decisions 3-48 Q10)。
+# 人が登録する置換辞書(設定の replacements)を当てるか(ユーザー「使い始める時にしっかり置換規則を再定義する」= decisions 3-48 Q10)。
 # 今はオフ: 登録があっても文字起こし・再認識の結果に当てない(② flow/tx.dict_pairs が組に入れない)・学習の束にも入れない(④ keep/learnpack)。
 # 名簿の呼び名の表記ゆれの表(roster.variant_pairs)はこれと別で、今までどおり当てる。読み方(parse_replacements など)と設定の欄は残す
 USER_DICT = False

@@ -1,19 +1,17 @@
 """作業データの置き場所(統合計画の段階4)。データはリポジトリの外に置く(Public のリポジトリに個人データを混ぜないため)。
 
-置き場所(2026-09-26 ユーザー決定):
+置き場所(ユーザー決定):
   Windows  … %LOCALAPPDATA%\\youtube-tools\\<ツールID>\\   (OneDrive で同期されない、アプリのデータの定番の場所)
   それ以外 … $XDG_DATA_HOME/youtube-tools/<ツールID>/(無ければ ~/.local/share/…)。macOS は ~/Library/Application Support/…
   環境変数 YTT_DATA_DIR があればそちらを使う(<YTT_DATA_DIR>\\<ツールID>)。
-  YTT_DATA_DIR=inplace はリポジトリ直下の .data/<ツールID>/(テスト用。src はコードだけ。.runtime も .data の下。2026-10-16 ユーザー決定)。
+  YTT_DATA_DIR=inplace はリポジトリ直下の .data/<ツールID>/(テスト用。src はコードだけ。.runtime も .data の下。ユーザー決定)。
 
-以前の場所(各ツールのフォルダの中)からの写し(.migrated.json の印)は 2026-10-18 に消した(写す対象が 0。印が残っていても読まない)。
-
-置き場所の求め方はここ1か所(2026-10-01 ユーザー決定。`notes:docs/spec/data.md` の「置き場所の求め方」):
+置き場所の求め方はここ1か所(ユーザー決定。`notes:docs/spec/data.md` の「置き場所の求め方」):
   resolve(tool) の順番
     ① 登録された場所 … 各ツールが起動したときに実際に決めたフォルダ(prepare が登録する)。入口の中では、同じプロセスの
        他のツール(案件・まとめて実行・スタジオのセリフの表示など)がそれを読む(移せずに以前の場所のまま動いた・テストがツールを
        一時フォルダに写して動かした、でも読む場所がずれない)。env を渡したとき(テスト・明示の指定)は見ない
-    ② ツールごとの環境変数(ENV_OVERRIDE。STUDIO_HOME・TRANSCRIBE_DATA_DIR。テスト用・以前からの指定)
+    ② ツールごとの環境変数(ENV_OVERRIDE。STUDIO_HOME・TRANSCRIBE_DATA_DIR。テスト用の指定)
     ③ tool_dir(YTT_DATA_DIR → %LOCALAPPDATA% など。inplace なら各ツールのフォルダの中)
   ツールの側(起動時): prepare(②があればそれを使う。無ければ新しい場所を作って register)。入口は locate + register
   読む側: resolve
@@ -26,7 +24,7 @@ from . import fsio, layout
 
 APP_DIR_NAME = "youtube-tools"
 INPLACE = "inplace"
-# そのツールのデータのフォルダを直接決める環境変数(テスト用・以前からの指定・ワーカーへの受け渡し)。あれば YTT_DATA_DIR より先に使う
+# そのツールのデータのフォルダを直接決める環境変数(テスト用の指定・ワーカーへの受け渡し)。あれば YTT_DATA_DIR より先に使う
 ENV_OVERRIDE = {"studio": "STUDIO_HOME", "transcribe": "TRANSCRIBE_DATA_DIR"}
 
 _registered = {}          # ツールの ID -> 起動したツールが決めたフォルダ(register)
@@ -53,7 +51,7 @@ def data_root(env=None, platform=None, home=None):
 def inplace_dir(tool, legacy_dir, root=None):
     """YTT_DATA_DIR=inplace のときのデータのフォルダ = <リポジトリ直下>/.data/<ツールの ID>(コードの src の中には作らない)。
     root = src とみなすフォルダ。無ければ legacy_dir(ツールのフォルダ)の 1 つ上。それが src でなければ(テストがツールを一時フォルダに
-    写したとき)以前と同じ legacy_dir"""
+    写したとき)legacy_dir のまま"""
     base = layout.inplace_root(root or os.path.dirname(os.path.abspath(legacy_dir)))
     return os.path.abspath(legacy_dir) if base is None else os.path.join(base, tool)
 
@@ -107,7 +105,7 @@ def resolve(tool, repo_root=None, env=None, legacy_dir=None):
 
 
 def studio_out_dir(repo_root=None, env=None):
-    """スタジオの書き出し先(他のツールから読むだけ。2026-10-09 に入口の live.py・server.py の写しから移した)。
+    """スタジオの書き出し先(他のツールから読むだけ)。
     スタジオの作業データ(resolve)の settings.json の outDir が空でない絶対パスならそれ、無い・読めない・形が違えば <スタジオの作業データ>/exports"""
     sdir = resolve("studio", repo_root, env)
     st = fsio.read_json_or(os.path.join(sdir, "settings.json"), None, kind=dict)

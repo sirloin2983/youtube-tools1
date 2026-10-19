@@ -14,7 +14,7 @@ from .textutil import num as _num
 
 _log = logging.getLogger("ytt.studiodata")
 
-STUDIO_JSON_MAX = 64 * 1024 * 1024   # 読む上限(スタジオの data.json・旧マーカーなど他のツールが書く JSON の上限の 1 か所。これより大きいものは読めない扱い)
+STUDIO_JSON_MAX = 64 * 1024 * 1024   # 読む上限(スタジオの data.json・マーカーなど他のツールが書く JSON の上限の 1 か所。これより大きいものは読めない扱い)
 SCHEMA = "clip-studio/v1"
 SERIES_KEEP = 60   # 盛り上がりのグラフ cache/series/<配信>.json を残す本数
 

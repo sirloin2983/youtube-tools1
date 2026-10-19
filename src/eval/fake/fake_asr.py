@@ -1,11 +1,11 @@
-"""疑似の文字起こし(環境変数 TRANSCRIBE_BACKEND=fake のテスト・画面の通し確認用。役割で組み直す RS2-2 で編集の部品から移した)。
+"""疑似の文字起こし(環境変数 TRANSCRIBE_BACKEND=fake のテスト・画面の通し確認用)。
 
 実際の音声認識は行わず、決まった形の行を作る。認識の部品(pipeline/transcribe)は疑似を知らず、
 `pipeline/transcribe/backend.py` の差し込み口から FakeBackend(FAKE)を呼ぶ。どちらを使うかは app(編集の serve.py)が決める
 (`backend.set_selector`。ed_state.backend_name() が "fake" のとき FAKE)。
 `transcribe_fake`・`_fake_spans` は S.名前 でも読める(serve の受付がこのモジュールへ回す)。編集の ed_state.fake_sleep は fake_wait の別名。
 本体は呼ぶたびにこのモジュールの名前を読む(`mock.patch.object(fake_asr, "transcribe_fake", …)` が効く)。
-RS2-9 に、話者判別と声の特徴の疑似 diarize_fake・embed_fake を編集の ed_speakers から移した(S.diarize_fake・S.embed_fake は serve の受付で読める。
+話者判別と声の特徴の疑似 diarize_fake・embed_fake も置く(S.diarize_fake・S.embed_fake は serve の受付で読める。
 認識ワーカーの worker-fake もこの 2 つを使う = 偽物どうしが食い違わない)。
 """
 import os
@@ -86,7 +86,7 @@ def fake_range_lines(job, a, b, loose, share=(0.0, 1.0)):
 
 def diarize_fake(job, total, num, threshold=None):
     """話者判別の疑似: 10秒ごとに話者が入れ替わる(行の途中で切り替わる場面も作る)。
-    threshold(判別の設定を変えて測るとき)が 1.0 以上で人数が自動なら、全部を 1 人にまとめる(本物も、しきい値を上げるとまとまる)。渡さなければ以前と同じ"""
+    threshold(判別の設定を変えて測るとき)が 1.0 以上で人数が自動なら、全部を 1 人にまとめる(本物も、しきい値を上げるとまとまる)。渡さなければ threshold の処理は働かない"""
     n, t, k, turns = (num or (1 if threshold is not None and threshold >= 1.0 else 2)), 0.0, 0, []
     while t < total:
         _fa_jobs.check_cancel(job)

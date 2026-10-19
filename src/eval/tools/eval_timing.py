@@ -17,16 +17,16 @@
     ②次 next = 次の発言が入る:   機械の終わり > 次の人の行の始まり + 0.1
           (前・次の人の行 = 文字のある人の行を時刻の順に並べたときの隣。校正済みでなくてよい。無ければ「入らない」)
     ③ extra  = 喋っていない時間: 人の区間の外へはみ出した秒(前のはみ出し + 後ろのはみ出し)の中央値・平均
-  2026-10-07 の試算(notes:plan/done/line-b-row-timing.md の 7 の表の「今」= 確かめ済み 22 本・文字が合う 255 行)と同じ尺度
+  試算(notes:plan/done/line-b-row-timing.md の 7 の表の「今」= 確かめ済み 22 本・文字が合う 255 行)と同じ尺度
 - 組: 全体・文書ごと・最初の認識(recognition.runs の kind の無い記録 = 今の original を作った認識。eval_asr.draft_run)の engine・model と
-  行の後処理の記録 post(編集 0.57.1 から。{version, endTrim, joinGap}。0.64.0 までは pullEnds・retime も(0.65.0 で部品ごと消した。古い記録の鍵は読んで見出しに出す)。
-  無い記録は「後処理の記録なし(0.57.0 まで)」・1 秒丸めの配り直しの記録 retimed(0.64.0 まで)があればそう書く)
-- 行の境目の一致率(I-5 字幕の分け方。2026-10-08。notes:plan/done/line-b-row-split.md): 人の行と機械の行の境目を文字の位置で突き合わせ、的中(機械の境目のうち人も境目にした割合)と
+  行の後処理の記録 post({version, endTrim, joinGap}。pullEnds・retime も持つ記録は、その鍵を読んで見出しに出す。
+  無い記録は「後処理の記録なし」・1 秒丸めの配り直しの記録 retimed があればそう書く)
+- 行の境目の一致率(I-5 字幕の分け方。notes:plan/done/line-b-row-split.md): 人の行と機械の行の境目を文字の位置で突き合わせ、的中(機械の境目のうち人も境目にした割合)と
   再現(人の境目のうち機械にもあった割合)。人の境目は両側が校正済みで話者が同じ所だけ(boundary_agreement)。全体・組ごと・文書ごと・--apply の当て直しにも出す
 - --apply: 保存してある生出力 <id>.asr.json(分ける前の認識の行と単語)に、行の後処理を当て直したときの数字も出す。先頭 = **今の既定**(current_variant: postproc.END_TRIM・JOIN_GAP と
-  txtext.SPLIT_CHARS の今の値。固定の表ではない。夜の測定 = 入口の accuracy.py が主にする数字)。続けて経緯の比べ(VARIANTS: 0.57.0 の後処理 /
+  txtext.SPLIT_CHARS の今の値。固定の表ではない。夜の測定 = 入口の accuracy.py が主にする数字)。続けて後処理の版ごとの比べ(VARIANTS: 0.57.0 の後処理 /
   7-1 だけ / 0.57.1 / 0.59.5 = 0.57.1 + 行を分ける文字数 40 / 0.59.6 = 24(splitChars は spec に入れる))。後処理は pipeline/transcribe/postproc.expand_segments を直に呼ぶ(editor の serve は読まない)。
-  音声を聞き直す 1 秒丸めの配り直し(quant_retime。編集 0.65.0 で消した)はかけない(音声を聞き直さない = 認識し直さない)。
+  音声を聞き直す 1 秒丸めの配り直しはかけない(音声を聞き直さない = 認識し直さない)。
   「0.57.0 の後処理」を当て直した行が保存してある original と同じか(reproduced。始まり・終わりが REPRO_TOL 以内の行の割合)も出す
   (低い文書は、original を作ったときの後処理がそれと違う = 0.53.1 より前の文書・配り直しのあった文書・人が分け直した文書)
 - --check: 「確かめる」(/check)の時刻のカードの答え(入口の作業データ app の check/answers.jsonl。notes:docs/design/v1-check-build.md の V2d)を
@@ -142,7 +142,7 @@ def measure_rows(human, machine):
     return {"proofed": proofed, "rows": out}
 
 
-# ---------------------------------------------------------------- 行の境目の一致率(I-5 字幕の分け方。2026-10-08。notes:plan/done/line-b-row-split.md)
+# ---------------------------------------------------------------- 行の境目の一致率(I-5 字幕の分け方。notes:plan/done/line-b-row-split.md)
 
 def _pos_map(src, dst):
     """src の文字の位置 p -> dst の文字の位置(difflib の一致ブロックで写す。一致の中なら正確、外なら近い方のブロックの端)"""
@@ -206,7 +206,7 @@ def summarize(rows):
 
 def post_label(run):
     """最初の認識の記録の行の後処理(post)の見出し。記録の無い認識は POST_NONE(配り直しの記録 retimed があればそう足す)。
-    pullEnds・retime・retimed は編集 0.64.0 までの記録だけにある(0.65.0 で部品ごと消した = 読むだけ)"""
+    pullEnds・retime・retimed は古い記録だけにある(読むだけ)"""
     if not isinstance(run, dict):
         return POST_NONE
     p = run.get("post")
@@ -219,7 +219,7 @@ def post_label(run):
     parts.append("join=%s" % p.get("joinGap"))
     if p.get("pullEnds"):
         parts.append("pullEnds")
-    if "retime" in p:   # 0.57.1〜0.64.0 の記録だけ(0.65.0 から書かない)
+    if "retime" in p:   # 古い記録だけ
         parts.append("配り直し=%s" % (p.get("retime") or "なし"))
     return " ".join(parts)
 

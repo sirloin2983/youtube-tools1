@@ -2,12 +2,10 @@
 """⑤ テストと検証の層 eval/drill: 認識精度の測定(文字誤り率 CER。人が校正済みにした行を正解に、機械の出力 original と比べる)・
 「字幕に出さない」行(noSub)の別集計・同時にしゃべっている所(重なり)の数え方。
 
-役割で組み直す RS3-E5c(2026-10-10)に編集の部品(段10 で editor/serve.py から分けた物)から移した(中身は同じ)。
 機械と人の行の対応づけ(_groups・_prep・split_nosub・_norm)は human/proof/learn、置換辞書は pipeline/transcribe/replace を呼ぶたびに読む
 (⑤ から ②・① を読む向き。learn はここを読まない)。画面の API(/api/metrics)は serve が直に呼び、
 src/eval/tools/eval_asr.py・src/eval/tools/eval_alt.py は serve の名前(S.norm_cer・S.lev_counts・S.doc_metrics など)で読む。
-旧い名前 S.名前 は(移す前の殻は RS5-A で消した)
-serve の受付がここへ回す(テストの S.MAX_LEV_CELLS = … もここに入る)。
+S.名前 は serve の受付がここへ回す(テストの S.MAX_LEV_CELLS = … もここに入る)。
 """
 import difflib
 import itertools
@@ -89,10 +87,10 @@ def overlap_best_counts(segs, ge, hyp):
 MAX_LEV_CELLS = 250000   # 1まとまりの文字数が多すぎるときは、厳密な編集距離をやめて近似にする
 
 
-# 伸ばしの「〜」(波ダッシュ・全角チルダ・半角の ~)は長音「ー」と同じに数える(ユーザー決定 2026-10-04:「〜 と ー の違いは無視する」)。
-# NFKC で全角チルダ ～ は ~ になる。〜 は記号なので、読み替えないと下の絞り込みで消え、「すご〜い」と「すごーい」が 1 文字違いになっていた
+# 伸ばしの「〜」(波ダッシュ・全角チルダ・半角の ~)は長音「ー」と同じに数える(ユーザー決定:「〜 と ー の違いは無視する」)。
+# NFKC で全角チルダ ～ は ~ になる。〜 は記号なので、読み替えないと下の絞り込みで消え、「すご〜い」と「すごーい」が 1 文字違いになる
 _LONG_MARKS = str.maketrans({"〜": "ー", "~": "ー", "⁓": "ー", "∼": "ー"})
-# 表記の違いを数えない(ユーザー決定 2026-10-06。notes:docs/spec/subtitles.md の B): CER は「聞き取れたか」を測り、字幕としての書き方は数えない。
+# 表記の違いを数えない(ユーザー決定。notes:docs/spec/subtitles.md の B): CER は「聞き取れたか」を測り、字幕としての書き方は数えない。
 # カタカナ → ひらがな(ァ〜ヶ。ヴ → ゔ)・小さい母音 → 大きい母音(まぁ = まあ。ゃゅょ・っ は音が違うので残す)・伸ばし棒と小さいかなの連続は 1 つ
 _SMALL_VOWELS = str.maketrans("ぁぃぅぇぉ", "あいうえお")
 _RUNS = re.compile(r"([ーぁぃぅぇぉっ])\1+")

@@ -1,10 +1,9 @@
-"""編集の作業データの置き場所と版の「今の値」(役割で組み直す RS3-0A。2026-10-10)。
+"""編集の作業データの置き場所と版の「今の値」。
 
 編集(src/editor の serve)が使う置き場所のパスと版を、モジュールの変数として 1 か所に持つ。どの層からも読める(ytt)。
-以前は編集の ed_state(app の層)が持ち、下の層の部品(pipeline/transcribe・human/proof)は txenv の口
-(app が登録する「呼ぶたびに ed_state の値を返す関数」)から読んでいた。持ち主を ytt に置けば、移した部品も同じ名前を直に読める。
+持ち主を ytt に置くので、下の層の部品(pipeline/transcribe・human/proof)も同じ名前を直に読める。
 
-- 値を入れるのは app と認識ワーカーだけ: 編集の ed_state が読み込みのときに set_root(編集のフォルダ。今までの読み込みの直後の既定と同じ)・
+- 値を入れるのは app と認識ワーカーだけ: 編集の ed_state が読み込みのときに set_root(編集のフォルダ)・
   serve が版(SERVER_VERSION)と起動時の作業データの切り替え(serve.set_data_dir → set_data_dir)・スタジオの data.json の場所(choose_data_dir)。
   認識ワーカー(pipeline/transcribe/worker.py)は自分のプロセスで DATA_DIR を入れる。
 - 読む側は `workdata.TX_DIR` のように**呼ぶたびに**読む(`from ytt.workdata import TX_DIR` で写さない)。テストの `S.TX_DIR = …`・
@@ -31,7 +30,7 @@ SERVER_VERSION = _version.VERSION   # 編集の版 = 全体の版(ytt/version.py
 
 def set_root(root):
     """編集のフォルダ root から既定を入れる(編集の ed_state が読み込みのときに 1 回)。作業データは環境変数 TRANSCRIBE_DATA_DIR か root
-    (起動したら serve が set_data_dir で本物の置き場所へ切り替える)。以前の ed_state の読み込みのときの値と同じ"""
+    (起動したら serve が set_data_dir で本物の置き場所へ切り替える)"""
     global ROOT, MARKER_DATA, STUDIO_DATA
     ROOT = root
     default = _datadir.inplace_dir("transcribe", root) if _datadir.data_root() is None else root   # inplace なら .data/transcribe(.running.json などが src/editor に残らない)

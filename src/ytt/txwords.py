@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """文字起こしの単語の時刻 transcripts/<id>.words.json の読み書き(標準ライブラリ・ytt の fsio と workdata だけ = 純粋な形の記録)。
 
-役割で組み直す RS6 a-5b(2026-10-10)に pipeline/transcribe/records から ytt へ下ろした(中身は同じ)。③ 人(doc_jobs・rerun)と ② flow/tx が直に読む
+③ 人(doc_jobs・rerun)と ② flow/tx が直に読む
 (① は単語の時刻を読まない)。置き場所は ytt/workdata の TX_DIR を呼ぶたびに読む。編集の serve の名前の受付に並ぶ(S.words_path・S.read_words)。
 """
 import json

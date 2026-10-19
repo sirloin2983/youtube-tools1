@@ -1,4 +1,4 @@
-"""精度の自動測定(マスタープラン Q3。git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md の (a))。
+"""精度の自動測定(マスタープラン Q3)。
 
 人が直した最終の記録に対して、機械の出力がどれだけ当たっているかを、手が空いたときに自動で測って「調子」に出す。
 測る道具(src/eval/tools/eval_asr.py・eval_marks.py・eval_speakers.py・eval_cut.py。無い道具は飛ばす)はそのまま使い、**子プロセス**で呼ぶ
@@ -15,16 +15,16 @@
   自分が作った分の見分け方 = 入口が覚えた「自分が作ったファイルの一覧」(state の areas.<領域>.files)。marks・speakers・cut の道具には --label が無く、
   名前が手で流した分と同じ形(<日時>.json)なので、名前の印では見分けられない。asr だけは `_auto` の印でも見分けられる(一覧が失われても拾える)。
   消すのは各道具の evals/<領域>/ の中の、名前の形が厳しく合う普通のファイルだけ(シンボリックリンクはたどらない)
-- 重い測定(認識し直しての比較)は入れない(箱も無い。入れるときの条件は git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md の (a))。
+- 重い測定(認識し直しての比較)は入れない(箱も無い)。
   ただし「保存してある出力を今の既定で当て直す・判別し直す」測定は軽い(CPU・数十秒)ので夜に入れる: 行の時刻 = eval_timing --apply(今の既定の後処理を保存してある生出力に当て直す)・
   話者 = eval_speakers run --or-stored(確かめ済みの評価用を今の既定の設定で判別し直す。モデルや音声が無ければ保存してある記録に切り替える)。文書には書かない
 - 前と中身が同じ結果は書かない: 道具の保存(src/eval/tools/_evalcommon.py の save)が、前の結果と時刻・git を除いて同じなら書かずに最後の行「変わらず: <前のファイル>」を出す。
   入口はその行も「保存: 」と同じに読む(前のファイルを読み直して latest の at だけ進める。失敗にしない。marks は対象外 = 毎回書く)
 - 設定(src/app/prefs.py の節 accuracy): enabled(既定オン。読むだけで軽い)・nightFrom・nightTo
-- 入口の条件(「あと何本・何分」。入口 0.38.0。plan/README.md の 7): 各工程を始めてよい量(G1・G2・学習用・話者の行・採用の記録・パック・「別」の候補)の
+- 入口の条件(「あと何本・何分」。plan/README.md の 7): 各工程を始めてよい量(G1・G2・学習用・話者の行・採用の記録・パック・「別」の候補)の
   今の値 / 目標 / あと を snapshot の goals に出す。しきい値は GOALS の 1 か所(道具の「まだ少ない」の値と同じ。test_accuracy が食い違いを検査)。
   値は各道具の直近の結果から(道具は変えない)。普段・学習用の校正済みの秒だけは道具の結果に無いので、測るときに入口が文字起こしの文書を読んで数える
-  (評価用でない文書の、校正済みで「聞き取れない」の印が無い行の長さの合計 = 「編集」の以前の進行度(0.69.0 で消した)と同じ数え方。普段と学習用を分ける印が無いので同じ数)。
+  (評価用でない文書の、校正済みで「聞き取れない」の印が無い行の長さの合計。普段と学習用を分ける印が無いので同じ数)。
   まだ測っていない・道具が無い・古い記録で鍵が無いものは now = None(画面は「未測定」)
 """
 import datetime
@@ -124,10 +124,10 @@ def summarize_marks(res):
         raise ValueError("結果の形が想定と違います(overall が無い)")
     top10 = (o.get("top") or {}).get("top10") or {}
     miss = (o.get("misses") or {}).get("missRate")
-    # 配信の数 = C1 の入口「採用の記録 配信 10 本」: スタジオの判定に線 D の録画・友人の返事も足した judgedAll(K2。無い以前の結果は judgedVideos)
+    # 配信の数 = C1 の入口「採用の記録 配信 10 本」: スタジオの判定に線 D の録画・友人の返事も足した judgedAll(K2。無い結果は judgedVideos)
     docs = o.get("judgedAll") if isinstance(o.get("judgedAll"), int) and not isinstance(o.get("judgedAll"), bool) else o.get("judgedVideos")
     extra = [{"label": "見逃し率", "value": _num(miss), "better": "lower"}]
-    # 物差し 3 本(MARKS-3・C-4-1。結果の human3。無い以前の結果は足さない): 友人の区間の拾えた率・届けた物を友人が良いと答えた率
+    # 物差し 3 本(MARKS-3・C-4-1。結果の human3。無い結果は足さない): 友人の区間の拾えた率・届けた物を友人が良いと答えた率
     h3 = res.get("human3") if isinstance(res.get("human3"), dict) else {}
     fr, used = h3.get("friendRange") or {}, (h3.get("used") or {}).get("all") or {}
     if _num(fr.get("hitRate")) is not None:
@@ -243,7 +243,7 @@ AREAS = (
     {"id": "marks", "label": "盛り上がり", "script": "eval_marks.py", "args": ("--json",), "tool": "studio", "sub": "marks", "summarize": summarize_marks},
     {"id": "speakers", "label": "話者", "script": "eval_speakers.py", "args": ("run", "--or-stored", "--json"), "tool": "transcribe", "sub": "speakers", "summarize": summarize_speakers},
     {"id": "cut", "label": "カット", "script": "eval_cut.py", "args": ("--json",), "tool": "transcribe", "sub": "cut", "summarize": summarize_cut},   # src/eval/tools/eval_cut.py(無ければ飛ばす)
-    {"id": "alt", "label": "「別」の候補", "script": "eval_alt.py", "args": ("--json",), "tool": "transcribe", "sub": "alt", "summarize": summarize_alt},   # 入口 0.38.0 から
+    {"id": "alt", "label": "「別」の候補", "script": "eval_alt.py", "args": ("--json",), "tool": "transcribe", "sub": "alt", "summarize": summarize_alt},
     {"id": "fill", "label": "後処理の札", "script": "eval_fill.py", "args": ("--json",), "tool": "transcribe", "sub": "fill", "summarize": summarize_fill},   # V1 確かめる(V0)
     {"id": "timing", "label": "行の時刻", "script": "eval_timing.py", "args": ("--json", "--apply"), "tool": "transcribe", "sub": "timing", "summarize": summarize_timing},
 )
@@ -251,7 +251,7 @@ AREAS = (
 
 def count_daily(folder):
     """評価用でない文字起こしの文書の、校正済みの量(入口の条件の「普段」「学習用」)。読むだけ。
-    数え方は「編集」の定点の行(src/human/proof/store.py の good_row。以前の進行度 progress_stats の proofedSec と同じ)と同じ: 校正済み(proofed が True)で「聞き取れない」(tags の unclear)の
+    数え方は「編集」の定点の行(src/human/proof/store.py の good_row)と同じ: 校正済み(proofed が True)で「聞き取れない」(tags の unclear)の
     印が無い行の長さの合計。-> {"sec", "docs"(校正済みの行がある文書の数), "lines"}。フォルダが無ければ 0"""
     sec, docs, lines = 0.0, 0, 0
     try:

@@ -37,7 +37,7 @@ def runtime_dir(tool_dir):
     if d:
         return os.path.abspath(d)
     parent = os.path.dirname(os.path.abspath(tool_dir))
-    return os.path.join(layout.inplace_root(parent) or parent, ".runtime")   # src でない親(テストが一時フォルダに写したとき)は以前と同じ <親>/.runtime
+    return os.path.join(layout.inplace_root(parent) or parent, ".runtime")   # src でない親(テストが一時フォルダに写したとき)は <親>/.runtime
 
 
 def runtime_path(rdir, tool):
@@ -78,7 +78,7 @@ def _load(rdir, tool):
 
 def read_runtime(rdir, tool):
     """<rdir>/<tool>.json → {"port", "version", "pid", "mtime", "path"}。無い・壊れている・tool が違う・ポートが範囲外なら None。
-    path が無い・形が違うときは "/"(以前の記録・他人が書いた値で、別の場所へ向けさせない)。
+    path が無い・形が違うときは "/"(古い記録・他人が書いた値で、別の場所へ向けさせない)。
     mtime はファイルの更新時刻(入口が「今回起動した子が書いた記録か」を見分けるため)。"""
     path, d = _load(rdir, tool)
     try:
@@ -181,7 +181,7 @@ def siblings(rdir, self_tool=None, self_port=None, timeout=PING_TIMEOUT, self_pa
         return out
 
 
-# ---------- 起動の約束の小道具(serve.py・録画の部品の main。2026-10-09) ----------
+# ---------- 起動の約束の小道具(serve.py・録画の部品の main) ----------
 def safe_stdio():
     """画面(Windows の cp932 など)に出せない文字があっても、エラーで落ちずに「?」にする(main の最初で呼ぶ)。
     cut2resolve の部品(pipeline/pack/srt2resolve)もこれを読む(写しは持たない)"""

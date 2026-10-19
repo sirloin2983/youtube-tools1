@@ -1,8 +1,8 @@
-"""ffmpeg -i で読むメディア情報と、その覚え(役割で組み直す RS3-4。2026-10-10 にスタジオの common.py から移した)。
+"""ffmpeg -i で読むメディア情報と、その覚え。
 
 `media_info(path)` → (長さ秒 or None, 映像あり, 音声あり, 映像ストリームの行)。ffprobe が無くても動く(ffmpeg -i の出力を読む)。
 使う所: スタジオの解析(analyze)・配信の登録(store)・書き出し(pipeline/export/exporter)。
-同じファイルに ffmpeg -i を何度もかけない(書き出し 1 本で約 11 回 → 5 回。2026-10-09 見直し T7)。
+同じファイルに ffmpeg -i を何度もかけない(見直し T7)。
 鍵は (パス・更新日時 ns・大きさ)(ytt.fsio.StampCache)。書き出しは一時の名前に書いてから置き換えるので、中身が変われば鍵も変わる。
 時間では覚えない(テストが作り直した直後に測る)。ffmpeg を動かせなかったとき(例外)は覚えない。道具を差し替えたら全部忘れる。
 ffmpeg の場所はスタジオの決まり(studio_env.find_tool = 環境変数 STUDIO_FFMPEG → YTT_FFMPEG → PATH → winget)、動かすのは procs.run_short(終了の流れで止められる)。

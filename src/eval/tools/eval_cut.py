@@ -295,7 +295,7 @@ def evaluate(data_dir=None, since=None, until=None):
         if not C.in_period(t, since_ms, until_ms):
             skipped["outOfRange"] += 1
             continue
-        if ed["untouched"]:   # 人が区間を触らず、たたき台のまま保存・パックした分は「直さなかった = 合っていた」に数えない(OPT-E1 8a-1)
+        if ed["untouched"]:   # 人が区間を触らず、たたき台のまま保存・パックした分は「直さなかった = 合っていた」に数えない
             skipped["unreviewed"] += 1
             continue
         if dr is None:

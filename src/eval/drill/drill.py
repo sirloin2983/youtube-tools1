@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
-"""「編集」のサーバーの部品: 評価ドリルと定点の「あと何分」(マスタープラン Q4。git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md の (c))。
+"""「編集」のサーバーの部品: 評価ドリルと定点の「あと何分」(マスタープラン Q4)。
 
-2026-10-04 夜に作り直し(ユーザーの指摘): 行を 1 行ずつ直す別のページをやめ、**評価用の動画 1 本(30〜40 秒)を、いつもの編集の画面
-(1 文字起こし の校正)で開いて全部聞いて直す**。行と行のすき間(抜け)・話していない所の行(幻覚)・結合・分割まで直せるので、
+**評価用の動画 1 本(30〜40 秒)を、いつもの編集の画面(1 文字起こし の校正)で開いて全部聞いて直す**。行と行のすき間(抜け)・話していない所の行(幻覚)・結合・分割まで直せるので、
 「全部聞いた」文書だけを定点の正解にする。画面は編集の index.html の `?doc=<id>&drill=1`(帯は app-learn.js の drill*)。
   GET  /api/drill/next?skip=<id,…>  次の 1 本(評価用・文字起こし済み・まだ確かめていない・直近 10 分に更新していない・処理中でない・動画がある)を乱数で
   POST /api/drill/reviewed          {id, baseUpdatedAt, via?} 「全部聞いて直した」印 evalReviewed を書き、残りの行を校正済みに(409 = 別の所で変わった)
@@ -14,9 +13,9 @@
 文書の印 `evalReviewed = {"at", "rows", "durationSec", "via"?}`(drill_is_reviewed で判定):
   - 付けるのは drill_reviewed だけ。画面の保存(sanitize_transcript)は base から引き継ぐだけで書き換えられない。評価用を外すと消える
   - 行の文字・時刻・話者を人が後から直しても残す(直したのは人なので)。機械が行を書いたら外す(human/proof/rerun の record_rerun = 再認識・
-    human/proof/store の fill_doc = 行の無い文書への文字起こし)。以前の版に戻すと、その版の印のまま
+    human/proof/store の fill_doc = 行の無い文書への文字起こし)。版を戻すと、その版の印のまま
 
-RS4-2(2026-10-10)に編集の部品から移した(殻なし。決定 3-25 #7)。名前は serve.py からも見える(serve.py の _ED_MODULES の最後。
+名前は serve.py からも見える(serve.py の _ED_MODULES の最後。
 ほかの部品と重ならないよう、名前は drill_ / DRILL_ で始める)。ほかの部品の名前は `_store.名前` などモジュールの属性として呼ぶたびに読む
 (差し替えが効くように。from … import で名前を写さない)。編集(app)の部品は読まない。
 """
@@ -24,10 +23,10 @@ import os
 import random
 import threading
 
-from ytt import errors as _errors, fsio as _fsio, schemas as _yschemas  # noqa: E402   ApiError・stamp・norm_path・ジョブの表・TID_RE・now_ms・num_or・plain_int(RS4-2 まで ed_state の別名で読んでいた)
+from ytt import errors as _errors, fsio as _fsio, schemas as _yschemas  # noqa: E402   ApiError・stamp・norm_path・ジョブの表・TID_RE・now_ms・num_or・plain_int
 from flow import jobs as _heavy  # noqa: E402
-from ytt import settings as _settings  # noqa: E402   評価用のフォルダの判定 eval_dirs・in_eval_dir(RS3-1 に ed_relink から ytt/settings へ)
-from ytt import tools as _tools  # noqa: E402   (動画と音声の小道具。RS3-0A に ed_state から移した)
+from ytt import settings as _settings  # noqa: E402   評価用のフォルダの判定 eval_dirs・in_eval_dir
+from ytt import tools as _tools  # noqa: E402   (動画と音声の小道具)
 from pipeline.transcribe import diarize as _diarize, roster as _roster  # noqa: E402   判別の記録 read_diar・名簿の呼び名と配信の文脈 stream_context・ロガー log
 from ytt import txbase as _txbase  # noqa: E402
 from human.proof import speakers as _speakers, store as _store  # noqa: E402   話者の名前の小道具・声の登録簿・1 人指定 / 文書の読み書き・保存のロック・要約(呼ぶたびに 名前 で読む)
@@ -92,7 +91,7 @@ def drill_doc_summary(doc):
     ef = doc.get("effort") if isinstance(doc.get("effort"), dict) else {}
     return {"eval": True, "updatedAt": _yschemas.plain_int(doc.get("updatedAt")) or 0, "lastAt": _yschemas.plain_int(ef.get("lastAt")) or 0,
             "sourcePath": str(doc.get("sourcePath") or ""), "rows": len(rows),
-            "spkRows": sum(1 for g in rows if g.get("speaker") and g.get("speaker") in names),   # 話者のある文字の行(自動の判別の後追い = ed_evalbatch が読む。v0.50.0)
+            "spkRows": sum(1 for g in rows if g.get("speaker") and g.get("speaker") in names),   # 話者のある文字の行(自動の判別の後追い = ed_evalbatch が読む)
             "reviewed": rv, "sec": round(drill_reviewed_sec(doc), 1) if rv else 0.0, "names": spk,
             "overlapSec": sum(_store.row_dur(g) for g in good if "overlap" in (g.get("tags") or [])),
             "bgmSec": sum(_store.row_dur(g) for g in good if "bgm" in (g.get("tags") or [])),
@@ -129,7 +128,7 @@ def _drill_part(path):
 
 def drill_docs():
     """[(tid, 要約)](評価用でない文書は {"eval": False})。文書が変わったか(文書の要約 _store.transcript_summary の鍵 = パス・更新日時・大きさ)で決め、
-    変わったときだけ文書を読んでドリルの要約を作る(RS3-E5a まで文書の要約が _drill として一緒に作っていた = ② が ④ を読んでいた。決定 3-25 #8 で自前に)。
+    変わったときだけ文書を読んでドリルの要約を作る(決定 3-25 #8)。
     呼び名の行の数は、文書の鍵と名簿の版が同じなら前の結果(_drill_cache)"""
     out, seen, rs = [], set(), _fsio.stamp(_roster.ROSTER)
     for tid in sorted(_store._tids()):

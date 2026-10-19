@@ -4,7 +4,7 @@
     python -m unittest src/ytt/tests/test_workdata.py
 
 編集の serve の名前の受付(S.TX_DIR = … が workdata へ届く)は src/editor/tests/test_names.py が確かめる。ここは serve なしで読めて、
-set_root・set_data_dir が以前の ed_state(読み込みのとき)・serve.set_data_dir と同じパスを作ることと、studiodata が置き場所を呼ぶたびに読むことだけ。
+set_root・set_data_dir が serve.set_data_dir と同じパスを作ることと、studiodata が置き場所を呼ぶたびに読むことだけ。
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしないが、ほかのテストとそろえる

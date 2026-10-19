@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""「編集」のサーバーの部品: 評価用の動画を、手が空いたとき少しずつまとめて文字起こしする(マスタープラン Q4(b)。git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md)。
+"""「編集」のサーバーの部品: 評価用の動画を、手が空いたとき少しずつまとめて文字起こしする(マスタープラン Q4(b))。
 
 評価用のフォルダ(設定 evalDirs)の「評価用_仮置き」と、名前が「…_NN_未文字起こし」の動画のうち、文字のある文書がまだ無い・動いていないものを、
 **待っているジョブが 2 件までになるよう少しずつ**文字起こしの待機列に入れる(一度に全部を入れるフォルダ一括と違い、ユーザーの操作が割り込める)。
@@ -10,19 +10,18 @@
   - ユーザーのジョブ(自分が入れたもの以外)が動いている・待っている間と、評価用のフォルダの整理の間は、自分の分を増やさない
   - 失敗したら 2 回までやり直し、それでもだめなら飛ばす(同じ動画を延々と入れ直さない)。取り消されたら飛ばす
   - ほかのプロセス(単独で動かした編集と入口)とは `eval-batch.lock`(`_file_lock`)で重ならない
-  - 話者の自動判別(v0.50.0): 文字起こしが終わると、その続きで判別のジョブが足される(_speakers.autodiar_after_transcribe。自分の印つき)。
+  - 話者の自動判別:文字起こしが終わると、その続きで判別のジョブが足される(_speakers.autodiar_after_transcribe。自分の印つき)。
     もう文字起こし済みで話者の無い評価用の文書(判別したことが無い = diar.json が無い)にも、見回りのたびに 1 本ずつ判別のジョブを足す(後追い)。
     文書ごとに 1 回だけ(状態の diar に記録)・直近に人が直した文書(_drill.DRILL_RECENT_SEC)は後回し・待ちの数は文字起こしと合わせて EB_MAX_WAIT まで
-  - 未確認の評価用の作り直し(2026-10-04 ユーザー承認。whisper.cpp の時刻の 1 秒丸め・繰り返しを v0.51.0 で直す前に文字起こしした分):
+  - 未確認の評価用の作り直し(ユーザー承認。whisper.cpp の時刻の 1 秒丸め・繰り返しを直す前に文字起こしした分):
     `POST api/eval-batch/redo {dryRun}`(eval_batch_redo)。「手つかず」(eb_redo_why が None)の評価用の文書を状態の redo.queue に入れ、
     見回り(_eb_redo_pass)が待ちの数の中で少しずつ、同じ文書 id のまま今の編集の設定で文字起こしし直す(spec の evalRedo・intoDoc。
-    書き込みは ③ human/proof/rerun.rebuild_whole(X-RERUN = 全体 × いつものエンジン × 差し替え。ユーザー決定 10-16 Q-A): 機械の層を丸ごと入れ替え、
+    書き込みは ③ human/proof/rerun.rebuild_whole(X-RERUN = 全体 × いつものエンジン × 差し替え。ユーザー決定 Q-A): 機械の層を丸ごと入れ替え、
     人の層(答え)は残す。入れたときに手つかずで、そのあと変わっていなければ人の層も持たない = 前と同じく丸ごと)。
     前の状態は履歴(hist_snapshot)に・前の機械の出力は recognition.runs の kind "evalRedo" に残す。話者の判別の記録は外して、評価用の自動の判別をもう一度かける
-  - 1 本ずつの作り直し(2026-10-05 ユーザー要望): `POST api/eval-batch/redo-one {id, baseUpdatedAt}`(eval_batch_redo_one)。
+  - 1 本ずつの作り直し(ユーザー要望):`POST api/eval-batch/redo-one {id, baseUpdatedAt}`(eval_batch_redo_one)。
     開いている評価用の動画だけを、見回りを通さずすぐ待機列へ。人が手を入れた文書も作り直す(人の層 = 直しは残る。X-RERUN)
 
-RS4-2(2026-10-10)に編集の部品から移した(殻なし。決定 3-25 #7)。
 名前は serve.py からも見える(serve.py が部品の名前を集めるので、**ほかの部品と重ならないよう eb_ / EB_ / eval_batch_ を付ける**)。
 ほかの部品は `_store.名前` などモジュールの属性として呼ぶたびに読む。編集(app)の部品は読まない: 文字起こしのジョブ(human/proof/doc_jobs の run_job)が
 見回りの裏のスレッド eb_start_background は serve が起動する(② は ④ を読まない)。
@@ -33,15 +32,15 @@ import os
 import re
 import threading
 
-from ytt import errors as _errors, fsio as _fsio, schemas as _yschemas  # noqa: E402   ApiError・書き込み・ジョブの表と待機列・TID_RE・now_ms・num_or・plain_int(RS4-2 までは編集の部品の別名で読んでいた)
+from ytt import errors as _errors, fsio as _fsio, schemas as _yschemas  # noqa: E402   ApiError・書き込み・ジョブの表と待機列・TID_RE・now_ms・num_or・plain_int
 from flow import jobs as _heavy  # noqa: E402
-from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings(RS3-1 に ytt/settings へ)
-from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ytt へ移した)
+from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings
+from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具)
 from pipeline.transcribe import diarize as _diarize  # noqa: E402   判別の記録 read_diar・diar_path・ロガー log・スイッチ env_off
 from ytt import txbase as _txbase  # noqa: E402
 from human.proof import doc_jobs as _docjobs, rerun as _rerun, speakers as _speakers, store as _store  # noqa: E402   文字起こしの受付 validate_job・public_job / 再認識の記録 record_rerun / 自動の判別 autodiar_* / 文書の読み書き(呼ぶたびに 名前 で読む)
 from . import drill as _drill  # noqa: E402   評価ドリルの要約・処理中の文書・動画の有無(隣の部品 = 呼ぶたびに 名前 で読む)
-from manage.keep import evalfolders as _evfolders  # noqa: E402   評価用のフォルダの仮置き・動画の一覧・整理のロック(OPT-M2 で ④ manage/keep/evalfolders へ。呼ぶたびに 名前 で読む)
+from manage.keep import evalfolders as _evfolders  # noqa: E402   評価用のフォルダの仮置き・動画の一覧・整理のロック(④ manage/keep/evalfolders。呼ぶたびに 名前 で読む)
 
 EB_SCHEMA = "ytt-eval-batch/v1"
 EB_FILE = "eval-batch.json"
@@ -51,7 +50,7 @@ EB_LOCK = "eval-batch.lock"
 @contextlib.contextmanager
 def _file_lock(path):
     """別のプロセス(単独で動かした編集と入口)が同時に見回らないための印。ファイルの先頭の 1 バイトを取る(プロセスが終われば自然に外れる)。
-    -> 取れたら True、先に誰かが持っていれば False。0.68.0 で評価用の音声(ed_evalaudio)を消したときに、そこから移した"""
+    -> 取れたら True、先に誰かが持っていれば False"""
     os.makedirs(os.path.dirname(path), exist_ok=True)
     f = open(path, "a+b")
     got = False
@@ -126,7 +125,7 @@ def eb_key(path):
 def _eb_empty():
     return {"schema": EB_SCHEMA, "enabled": False, "startedAt": None, "stoppedAt": None, "finishedAt": None, "enqueued": 0,
             "remaining": None, "deferred": None, "lastError": None, "lastAddedAt": None, "items": {}, "updatedAt": 0,
-            "diar": {}, "diarRemaining": None,   # diar[文書の id] = {at, via, job?, state?, error?, skipped?}(話者の判別を試した = もう入れない。v0.50.0)
+            "diar": {}, "diarRemaining": None,   # diar[文書の id] = {at, via, job?, state?, error?, skipped?}(話者の判別を試した = もう入れない)
             # 作り直し待ち(eval_batch_redo)。queue = まだ入れていない文書の id(順番どおり)・items[id] = {at, job?, state?, skipped?, error?}
             "redo": {"queue": [], "items": {}, "requestedAt": None, "enqueued": 0}}
 
@@ -195,7 +194,7 @@ def eval_batch_status():
     return {"redoWaiting": (len(rd["queue"]) if st["enabled"] else 0) + redo_active, "redoActive": redo_active,   # 未確認の評価用の作り直し
             "redoDone": sum(1 for i in ritems if i.get("state") == "done" and not i.get("skipped")),
             "redoSkipped": sum(1 for i in ritems if i.get("skipped")), "redoFailed": sum(1 for i in ritems if i.get("error") and not i.get("skipped")),
-            "diarWaiting": diar_active + diar_left, "diarActive": diar_active, "diarTried": len(st.get("diar") or {}),   # 話者の判別 待ち(v0.50.0)
+            "diarWaiting": diar_active + diar_left, "diarActive": diar_active, "diarTried": len(st.get("diar") or {}),   # 話者の判別 待ち
             "enabled": st["enabled"], "running": any(t.is_alive() for t in _eb_threads), "enqueued": int(st.get("enqueued") or 0),
             "remaining": st.get("remaining"), "active": len(mine), "done": sum(1 for i in items if i.get("done")),
             "failed": sum(1 for i in items if not i.get("done") and int(i.get("fails") or 0) >= EB_MAX_FAILS),
@@ -453,7 +452,7 @@ def _eb_tick_locked(why, log):
     if res is not None:
         return res
     room = EB_MAX_WAIT - len(mine_active)
-    diar_added, diar_left = _eb_diar_pass(room, log)   # 文字起こし済みで話者の無い評価用の文書の判別(後追い。v0.50.0)
+    diar_added, diar_left = _eb_diar_pass(room, log)   # 文字起こし済みで話者の無い評価用の文書の判別(後追い)
     room -= diar_added
     if diar_left is not None:
         with _eb_state_lock:
@@ -515,7 +514,7 @@ def _eb_tick_locked(why, log):
     return {"added": added, "diarAdded": diar_added, "redoAdded": redo_added, "remaining": len(rest), "deferred": None}
 
 
-# ---------------------------------------------------------------- 未確認の評価用の作り直し(2026-10-04 ユーザー承認)
+# ---------------------------------------------------------------- 未確認の評価用の作り直し(ユーザー承認)
 
 def _eb_speaker_why(tid, doc, segs):
     """話者が機械の付けたものだけか。-> None か "speaker"。
@@ -575,7 +574,7 @@ def eb_redo_why(tid, doc, busy=(), now=None, media=True, recent=True):
         return "proofed"
     if any(g.get("tags") for g in segs):
         return "tags"
-    if any(g.get("noSub") is True for g in segs):   # 字幕に出さない印は人が付けたもの(機械は付けない。2026-10-05)
+    if any(g.get("noSub") is True for g in segs):   # 字幕に出さない印は人が付けたもの(機械は付けない)
         return "noSub"
     orig = doc.get("original")
     if not isinstance(orig, list) or not all(isinstance(o, dict) for o in orig):
@@ -724,7 +723,7 @@ def _eb_redo_pass(room, log):
         return added, len(eb_read()["redo"]["queue"])
 
 
-# ---------------------------------------------------------------- 1 本ずつの作り直し(2026-10-05 ユーザー要望)
+# ---------------------------------------------------------------- 1 本ずつの作り直し(ユーザー要望)
 # 評価ドリルで校正しながら、文字起こしの後処理の調整(行の終わりなど)の効き目を 1 本ずつ確かめるため、開いている評価用の動画だけを今の設定で作り直す。
 # まとめての文字起こしの見回り・待ちの数(EB_MAX_WAIT)を通さず、ユーザーが押したジョブとしてすぐ待機列へ(まとめての文字起こしが止まっていても動く)。
 # spec に evalBatch の印は付けない(ユーザーのジョブ = まとめての文字起こしはこの間増やさない・止めるで取り消されない)。evalRedo の one・force・base が印

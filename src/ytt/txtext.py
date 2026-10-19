@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
-"""文字起こしの文字の語彙(標準ライブラリと ytt/txbase だけの純粋な関数と決まった値)。役割で組み直す RS6 a-3(2026-10-10)に
-pipeline/transcribe の postproc(行を分ける・句読点・要確認の印の文)と roster(用語の区切り)から下ろした
-= ③ 人の校正(長い行の分け直し・再認識の反映)が ① を読まずに使える。① の postproc もここを読む(同じ物を 2 つ持たない)。
+"""文字起こしの文字の語彙(標準ライブラリと ytt/txbase だけの純粋な関数と決まった値)。
+③ 人の校正(長い行の分け直し・再認識の反映)が ① を読まずに使えるように、postproc(行を分ける・句読点・要確認の印の文)と roster(用語の区切り)の語彙をここに置く。① の postproc もここを読む(同じ物を 2 つ持たない)。
 
 - 要確認の印「長い区間に文字が少ない」の文 SPARSE_FLAG と、記号・空白を除いた文字数 text_chars
 - 行を単語の時刻で整えて分ける split_segment(決まりの値 SPLIT_GAP・SPLIT_SEC・SPLIT_CHARS・SPLIT_SLACK)と、空白を詰めて比べる _squash
@@ -22,10 +21,9 @@ def text_chars(text):
     return sum(1 for ch in str(text or "") if unicodedata.category(ch)[0] in "LN")
 
 
-SPLIT_GAP, SPLIT_SEC, SPLIT_CHARS = 1.0, 8.0, 24   # 単語の間がこの秒数以上あいたら行を分ける / 1行の最大の長さ(秒・文字。文字は設定の subtitle.splitChars(既定 24 = 0.59.6。0.59.5 は 40)。
-# 0.59.5(2026-10-08)までは字幕の最大文字数(縦 16)で分けていたが、区切りを意識した校正(確かめ済み 22 本)で 16 文字の内側の切れ目は 73% が戻され、
-# whisper の行をそのまま残す方が人の分け方に近かった(的中 68% → 74〜76%・①頭 19% → 14%・①末 25% → 20%。notes:plan/done/line-b-row-split.md の 8)。字幕の長さはパックの折り返しで別に扱う。
-# 0.59.6(2026-10-08): 友人「字幕が長すぎる(縦 8 字で 5 段)」→ ユーザー「3 段(24 字)以上はやめてほしい・とりあえず 24 で」。24 で分けても境目の的中 74%・①末 20% は 40 と同じ(notes:plan/line-b-transcription.md の「長い行だけ分けると」))
+SPLIT_GAP, SPLIT_SEC, SPLIT_CHARS = 1.0, 8.0, 24   # 単語の間がこの秒数以上あいたら行を分ける / 1行の最大の長さ(秒・文字。文字は設定の subtitle.splitChars(既定 24)。
+# 字幕の最大文字数(縦 16)で分けると、16 文字の内側の切れ目は 73% が人に戻される。whisper の行をそのまま残す方が人の分け方に近い(notes:plan/done/line-b-row-split.md の 8)。字幕の長さはパックの折り返しで別に扱う。
+# 24 は「3 段(24 字)以上はやめてほしい」のユーザー指定(24 で分けても境目の的中 74%・①末 20% は 40 と同じ。notes:plan/line-b-transcription.md の「長い行だけ分けると」))
 SPLIT_SLACK = 2          # 最大文字数を 2 文字まで超えるのは許す(無理に分けて変な所で切らない。notes:docs/design/edit-tool-design.md の 12 ②)
 
 

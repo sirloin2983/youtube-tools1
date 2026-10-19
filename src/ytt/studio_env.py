@@ -1,4 +1,4 @@
-"""スタジオの環境: データの置き場所・書き出し先・疑似の旗・外部の道具・失敗の記録(役割で組み直す RS3-4。2026-10-10 にスタジオの common.py から移した)。
+"""スタジオの環境: データの置き場所・書き出し先・疑似の旗・外部の道具・失敗の記録。
 
 スタジオの部品(serve・store・rank・handoff・txlink)と、① に移る部品(解析 analyze・書き出し pipeline/export/exporter)が同じ状態を読む。
 状態はこのモジュールに 1 つ(serve.init・prepare が set_home・load_out_dir を呼ぶ)。設定ファイルの決まり(ytt/settings)とは別。
@@ -9,7 +9,7 @@
 - 外部の道具: `find_tool(name)`(環境変数 STUDIO_<名前> → YTT_<名前> → PATH → winget。決め方は ytt/tools.find_tool)
 - 失敗の記録: `log_failure(context, error)`(<置き場所>/studio-errors.log)・`rotate_log`・`old_log_name`
 - 書き出し先(settings.json の outDir): `get_out_dir`・`default_out_dir`・`set_out_dir`・`load_out_dir`・`check_out_dir`・`is_inside_out_dir`・`_out_lock`
-読む側は `studio_env.名前` を呼ぶたびに読む(テストの差し替えは直にここへ届く・旧い common.py の転送は RS5 で消した)。
+読む側は `studio_env.名前` を呼ぶたびに読む(テストの差し替えは直にここへ届く)。
 """
 import json
 import os
@@ -86,7 +86,7 @@ _error_log_lock = threading.Lock()
 
 def old_log_name(path):
     """studio.log → studio.old.log。*.log のまま回すのは、.gitignore の *.log に掛けるため
-    (以前の studio.log.old は掛からず、push.bat の git add -A で公開リポジトリに載るおそれがあった)。"""
+    (.log で終わらない名前は掛からず、push.bat の git add -A で公開リポジトリに載るおそれがあるため)。"""
     root, ext = os.path.splitext(path)
     return root + ".old" + ext
 

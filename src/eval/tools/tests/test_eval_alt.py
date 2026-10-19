@@ -315,7 +315,7 @@ class TestEvaluate(unittest.TestCase):
         rows = [answer("aaaaaaaaaaa1", "s5", "2", "花", "鳥"),                     # 校正済みでない → 当たり
                 undone, {"id": "a%013d-ffffff" % (T1 + 1), "at": T1 + 1, "undo": undone["id"], "reverted": {}},
                 answer("aaaaaaaaaaa1", "s3", "other", "蕎麦", "饂飩", text="昼はパンを食べる"),   # 校正済みで別の直し → 答えでも別の直し(1 件のまま)
-                answer("aaaaaaaaaaa1", "s1", "1", "猫", "犬", source="yt"),         # 消した yt の答え(alt では数えない)
+                answer("aaaaaaaaaaa1", "s1", "1", "猫", "犬", source="yt"),         # yt の答え(alt では数えない)
                 answer("bbbbbbbbbbb2", "s1", "2", "猫", "犬")]                      # 測らない文書(評価用)
         self.env.answers(rows)
         before = self.env.snapshot()
