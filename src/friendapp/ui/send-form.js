@@ -5,7 +5,7 @@
 (function () {
   'use strict';
   var $, el, api;
-  var RANGES_MAX = 5, TOP_MAX = 20, FILES_MAX = 20;
+  var RANGES_MAX = 5, FILES_MAX = 20;   // 本数は 1 以上で上限なし(10-20)
   var STATE_PILL = { live: ['err', 'ライブ中'], upcoming: ['info', '予定'], justEnded: ['wait', '終わったばかり'], checking: ['wait', '確かめ中'] };
   var f = { mode: 'none', stream: null, peekSeq: 0, checking: false, top: 5, people: [], streamer: { name: '', hex: null, auto: true }, files: [],
     sending: false, inited: false };
@@ -195,7 +195,7 @@
       $('topLine').hidden = rg.list.length > 0 || rangeRows().some(function (r) { return UIKit.timebox.get(boxes(r)[0]) != null; });
       $('btnRange').hidden = rangeRows().length >= RANGES_MAX;
       $('topVal').textContent = String(f.top);
-      $('topMinus').disabled = f.top <= 1; $('topPlus').disabled = f.top >= TOP_MAX;
+      $('topMinus').disabled = f.top <= 1; $('topPlus').disabled = false;
       var rec = k === 'live' ? liveRow() : null;
       f.rec = rec;
       $('liveNow').hidden = !rec;
@@ -472,7 +472,7 @@
     $('btnFilesClose').addEventListener('click', close);
     $('btnRange').addEventListener('click', function () { addRange(true); });
     $('topMinus').addEventListener('click', function () { f.top = Math.max(1, f.top - 1); sync(); });
-    $('topPlus').addEventListener('click', function () { f.top = Math.min(TOP_MAX, f.top + 1); sync(); });
+    $('topPlus').addEventListener('click', function () { f.top = f.top + 1; sync(); });
     Array.prototype.forEach.call(document.querySelectorAll('input[name=lvLenMode]'), function (r) {
       r.addEventListener('change', function () { lenBox(r.value === 'fixed' && r.checked); liveChanged(); });
     });

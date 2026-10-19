@@ -67,7 +67,8 @@ class TestAdoptRun(unittest.TestCase):
         self.assertEqual((want, m["start"], m["end"], m["status"], m["adoptedBy"]), ([(598.0, 11402.0)], 598.0, 11402.0, "adopted", "request"))
         self.assertEqual(M.load_marks([m]), [m], "保存したあと読み直しても残る(読み込みは長さを見ない)")
         self.assertEqual(A.check_args([[1.04, 10.26]], 0), [(1.0, 10.3)])
-        for ranges, top in (([], -1), ([], 31), ([], "1"), ([], None), ([], True), ([[1, 2]] * 11, 1), ("x", 1), ([[1]], 1), ([[5, 4]], 1)):
+        self.assertEqual(A.check_args([], 99), [])   # 上限なし(10-20)
+        for ranges, top in (([], -1), ([], "1"), ([], None), ([], True), ([[1, 2]] * 11, 1), ("x", 1), ([[1]], 1), ([[5, 4]], 1)):
             with self.assertRaises(ValueError, msg=(ranges, top)):
                 A.check_args(ranges, top)
 
@@ -76,7 +77,7 @@ class TestFlowVerb(unittest.TestCase):
     def test_check_pick_and_live(self):
         """② flow/adopt: 理由を ApiError 400 にそろえる・配信の長さで切る・kind live は通さない"""
         with self.assertRaises(ApiError) as c:
-            flow_adopt.check([], 31)
+            flow_adopt.check([], -1)
         self.assertEqual((c.exception.code, c.exception.status), ("bad_request", 400))
         v = {"kind": "youtube", "duration": DUR, "marks": base()}
         self.assertEqual(len(flow_adopt.pick(v, flow_adopt.check([], 2), 2)["added"]), 2)

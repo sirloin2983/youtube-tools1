@@ -242,7 +242,7 @@ class TestAdoptRule(Base):
         self.assertEqual((self.starts(r["rangeIds"]), r["autoIds"]), ([400, 500], []))
 
     def test_bad_top(self):
-        for bad in (-1, 31, "1", None, True):
+        for bad in (-1, "1", None, True):   # 上限なし(10-20。候補が足りなければある分だけ)
             with self.assertRaises(ApiError, msg=bad):
                 self.st.adopt_marks(YT["videoId"], [], bad)
 

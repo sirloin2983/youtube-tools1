@@ -141,15 +141,15 @@ def parse_lines(text, default_top):
         parts = line.split()
         vid = youtube_id(parts[0])
         top = default_top
-        if len(parts) >= 2 and re.fullmatch(r"\d{1,3}", parts[1]):
+        if len(parts) >= 2 and re.fullmatch(r"\d+", parts[1]):
             top = int(parts[1])
             rest = parts[2:]
         else:
             rest = parts[1:]
         if not vid:
             bad.append({"line": line[:200], "reason": "YouTube の配信・動画の URL ではありません"})
-        elif not 1 <= top <= _spec.REQUEST_TOP_MAX:
-            bad.append({"line": line[:200], "reason": "切り抜く数は 1〜%d です" % _spec.REQUEST_TOP_MAX})
+        elif top < 1:   # 上限なし(10-20。友人が指定した数をそのまま)
+            bad.append({"line": line[:200], "reason": "切り抜く数は 1 以上にしてください"})
         elif rest and not rest[0].startswith("#"):
             bad.append({"line": line[:200], "reason": "URL と数のあとに余計な文字があります(メモは # のあとに書いてください)"})
         else:

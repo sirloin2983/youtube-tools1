@@ -71,7 +71,8 @@ class TestFromInput(unittest.TestCase):
         with self.assertRaises(ValueError):
             R.Run.from_input({"videoId": "abcdefghijk"}, "pack")
         with self.assertRaises(ValueError):
-            R.Run.from_input({"videoId": "abcdefghijk", "top": 99})
+            R.Run.from_input({"videoId": "abcdefghijk", "top": 0})   # 本数は 1 以上(上限なし。10-20)
+        self.assertEqual(R.Run.from_input({"videoId": "abcdefghijk", "top": 99}).top, 99)
 
     def test_doc_and_path(self):
         r = R.Run.from_input({"docId": "d1"})

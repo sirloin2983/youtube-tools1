@@ -31,7 +31,7 @@ import threading
 import time
 import zipfile
 
-from flow import learning as _learning, machine as _machine, order as _order, spec as _spec
+from flow import learning as _learning, machine as _machine, order as _order
 from ytt import fsio, version as _version
 
 from . import diag as _diag, dropbox as _dropbox, inbox as _inbox, places as _places
@@ -291,7 +291,7 @@ def request_doc(kind, rid, form, sent_at, files=None):
     if kind == "url":
         ranges = form.get("ranges") or []
         top = _order.request_top(form.get("top") or 10, ranges)   # 区間を選んだら区間の数(受付と同じ 1 か所)
-        item = {"url": form["url"], "top": max(1, min(_spec.REQUEST_TOP_MAX, int(top)))}   # 上限は受付と同じ flow/spec の 1 か所
+        item = {"url": form["url"], "top": max(1, int(top))}   # 上限なし(10-20。友人が指定した数をそのまま)
         if ranges:
             item["ranges"] = [{"start": s, "end": e} for s, e in ranges]
         d["items"] = [item]

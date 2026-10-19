@@ -5,7 +5,7 @@
     source         "url"(配信 1 本)/ "files"(動画ファイル。files = [{fileId, streamer}] を 20 まで。1 本 = 1 依頼の行)
     kind           url のとき "url"(アーカイブ)/ "live"(ライブ中・予定 = 録画を頼む・予約する)/ "wait"(終わったばかり = アーカイブ待ち。C-2-12)
     ranges         区間 [[開始, 終了], …](秒。5 つまで・1 つの長さの上限なし。url・wait だけ)。区間があれば本数は区間の数
-    top            本数(区間が無いときだけ。1〜20。初め 5・前回の値 = C-2-8)
+    top            本数(区間が無いときだけ。1 以上・上限なし(10-20)。初め 5・前回の値 = C-2-8)
     streamer       配信者の札(名簿・打った名前。"" = 色なし)・people = [+ 人] で足したコラボの相手(字幕の色だけ)
     videoTracks    映像トラックの数 1〜5(送る欄・前回の値 = C-2-10)
     live           ライブの送る欄の 3 つ {perHour, lengthMode: auto|fixed, length, afterStream}。感度・待ち・余白は ⚙ の値(C-2-11)
@@ -35,7 +35,6 @@ from ytt import colors as _colors, fsio as _fsio, tools as _tools, version as _v
 from . import inbox as _inbox, live as _live, progress as _progress
 
 FORM_NAME = "form.json"
-TOP_MAX = 20                        # 本数の上限(C-5-5)
 TOP_DEFAULT = 5                     # 本数の初め(C-2-8)
 RANGES_MAX = 5                      # 区間の数の上限(C-5-5)
 FILES_MAX_SEND = 20                 # 動画ファイルを 1 回に送る数(C-2-13)
@@ -68,8 +67,9 @@ class FormError(ValueError):
     """送る欄が違う(文は画面にそのまま出す)"""
 
 
-def _int_in(v, lo, hi):
-    return isinstance(v, int) and not isinstance(v, bool) and lo <= v <= hi
+def _int_in(v, lo, hi=None):
+    """整数(bool は除く)で lo 以上・hi 以下(hi None = 上限なし)"""
+    return isinstance(v, int) and not isinstance(v, bool) and lo <= v and (hi is None or v <= hi)
 
 
 def check_weights(w):
@@ -171,7 +171,7 @@ class Api:
     def form(self):
         d = _fsio.read_json_or(self.form_path, {}, kind=dict)
         out = json.loads(json.dumps(FORM_DEFAULTS))
-        if _int_in(d.get("top"), 1, TOP_MAX):
+        if _int_in(d.get("top"), 1):   # 本数は 1 以上(上限なし。10-20)
             out["top"] = d["top"]
         if _int_in(d.get("videoTracks"), 1, 5):
             out["videoTracks"] = d["videoTracks"]
@@ -375,8 +375,8 @@ class Api:
         top = None
         if kind != "live" and not ranges:
             top = body.get("top")
-            if not _int_in(top, 1, TOP_MAX):
-                raise FormError("本数は 1〜%d にしてください" % TOP_MAX)
+            if not _int_in(top, 1):   # 上限なし(10-20。候補が足りなければある分だけ)
+                raise FormError("本数は 1 以上の整数にしてください")
         live = None
         if kind == "live":
             got = body.get("live") if isinstance(body.get("live"), dict) else {}

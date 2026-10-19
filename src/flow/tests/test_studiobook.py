@@ -84,7 +84,7 @@ class BookTest(Base):
         self.assertEqual(marks[r["autoIds"][0]]["start"], 100.0, "点数の高い自動マーク")
         self.assertEqual(marks[r["rangeIds"][0]]["adoptedBy"], "request")
         with self.assertRaises(errors.ApiError):
-            self.book.adopt_marks(VID, [], 99)   # 上限の外
+            self.book.adopt_marks(VID, [], -1)   # 0 以上の整数(上限なし。10-20)
 
     def test_first_export_makes_case(self):
         self.analyzed()

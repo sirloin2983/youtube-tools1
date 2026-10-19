@@ -6,7 +6,7 @@
 
 - **__init__.py** (2 行) — 友人の玄関(FriendApp。友人の PC の 2 つ目の玄関。notes:docs/design/friend-history.md の 7 章)。ytt と ② flow だけを読む(③ human は読まない)
 - **api.py** (945 行) — 友人の玄関の口の中身(F3-3。HTTP の形は server.py。ここは欄の検査・② への受付・送った物の進み具合と取り消し・失敗のやり直し・前回の値)。
-  - 名前: `class FormError` :67・`check_weights` :75・`merge_live` :82・`oembed` :93・`probe_live` :104・`guess_streamer` :110・`file_title` :119・`clean_ranges` :125・`class Api` :141・`fsio_inside` :907・`rowtitle` :914
+  - 名前: `class FormError` :66・`check_weights` :75・`merge_live` :82・`oembed` :93・`probe_live` :104・`guess_streamer` :110・`file_title` :119・`clean_ranges` :125・`class Api` :141・`fsio_inside` :907・`rowtitle` :914
 - **diag.py** (271 行) — 友人のアプリの診断の記録(ユーザー決定。notes:docs/spec/friend.md の 13-11)。友人の PC でしか出ない不具合を、伝聞でなく記録で追うため。
   - 名前: `mask` :56・`windows_text` :79・`stage_rows` :90・`transcribe_rows` :104・`prune_names` :116・`class Diag` :126
 - **dropbox.py** (437 行) — 友人の玄関の Dropbox の部品(notes:docs/design/friend-history.md の 7 章・docs/spec/friend.md の 2-17・4 章)。

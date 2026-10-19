@@ -437,11 +437,10 @@ class ServerTest(Base):
     def test_send_bad_form_is_400_with_reason(self):
         cases = [
             (dict(url="nope"), "YouTube の配信の URL"),
-            (dict(top=0), "本数は 1〜20"),
-            (dict(top=21), "本数は 1〜20"),
-            (dict(top=True), "本数は 1〜20"),
-            (dict(top=None), "本数は 1〜20"),
-            (dict(top=3.5), "本数は 1〜20"),
+            (dict(top=0), "本数は 1 以上"),
+            (dict(top=True), "本数は 1 以上"),
+            (dict(top=None), "本数は 1 以上"),
+            (dict(top=3.5), "本数は 1 以上"),
             (dict(ranges=[[5, 1]]), "区間"),
             (dict(ranges=[[i * 100, i * 100 + 20] for i in range(6)]), "区間は 5 つまで"),
             (dict(ranges="x"), "区間は 5 つまで"),
@@ -1400,7 +1399,7 @@ class ApiTest(Base):
         self.assertEqual(f2["top"], 7)
         self.assertEqual(f2["videoTracks"], 2)
         # 壊れた値は既定に戻る(他の値は残す)
-        testkit.write_json(form_path, {"top": 99, "unknown": 1, "videoTracks": 0, "pc": "x"})
+        testkit.write_json(form_path, {"top": 0, "unknown": 1, "videoTracks": 0, "pc": "x"})   # 本数は 1 以上(上限なし。10-20)
         f3 = self.app.api.form()
         self.assertEqual(f3["top"], 5)
         self.assertNotIn("unknown", f3)

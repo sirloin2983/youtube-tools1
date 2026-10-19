@@ -447,8 +447,8 @@ class TestRequestMarks(Base):
         vid = "reqmarks003"
         ok = {"id": vid, "ranges": [[1, 2]], "auto": 0}
         for bad in ({"ranges": [[5, 5]]}, {"ranges": [[-1, 5]]}, {"ranges": [[0, 1e9]]}, {"ranges": [["1", 2]]}, {"ranges": [[1, 2, 3]]}, {"ranges": "x"},
-                    {"ranges": [[i, i + 1] for i in range(11)]}, {"auto": -1}, {"auto": 31}, {"auto": "1"}, {"auto": True}, {"id": "../etc"}, {"id": "x" * 30},
-                    {"top": -1}, {"top": 31}, {"top": "1"}, {"top": True}, {"top": None}):
+                    {"ranges": [[i, i + 1] for i in range(11)]}, {"auto": -1}, {"auto": "1"}, {"auto": True}, {"id": "../etc"}, {"id": "x" * 30},
+                    {"top": -1}, {"top": "1"}, {"top": True}, {"top": None}):
             self.assertEqual(self.req("POST", "/api/video/request-marks", dict(ok, **bad))[0], 400, bad)
         st, j, *_ = self.req("POST", "/api/video/request-marks", dict(ok, ranges=[[0, 3 * 3600]], top=0))   # 区間 1 つの長さは上限なし(C-2-7・C-5-5)
         self.assertEqual((st, self.marks(j)[j["rangeIds"][0]]["end"]), (200, 10800.0))

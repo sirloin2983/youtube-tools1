@@ -41,7 +41,7 @@ class TestOrder(unittest.TestCase):
                                         "upto": "transcribe", "onFail": "stop"}})
         self.assertEqual(env["deliver"], {"dir": "D:/out", "pool": None, "origin": "auto", "tag": "20261016-010203-abcdef"})
         self.assertEqual(env["input"]["marks"], ["m1"])
-        _env, bad = O.order("url", video_id=VID, top=99, cut="rows", video_tracks=9, weights={"wAudio": 9}, speakers={"count": 0})
+        _env, bad = O.order("url", video_id=VID, top=0, cut="rows", video_tracks=9, weights={"wAudio": 9}, speakers={"count": 0})
         self.assertEqual(bad, {"run": {"upto": "pack"}}, "合わない欄は写さない")
         env, diff = O.order("live", url="https://www.youtube.com/watch?v=" + VID, cut="none")
         self.assertEqual((env["input"]["videoId"], diff), (VID, {"pack": {"cut": "none"}, "run": {"requested": ["cut"]}}), "ライブは段の並びを持たない")

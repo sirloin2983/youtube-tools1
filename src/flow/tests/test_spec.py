@@ -81,8 +81,8 @@ class TestMoved(unittest.TestCase):
     def test_top_arg(self):
         self.assertEqual(spec.top_arg(None), 3)
         self.assertEqual(spec.top_arg(""), 3)
-        self.assertEqual((spec.top_arg(1), spec.top_arg(30)), (1, 30))
-        for bad in (0, 31, True, 2.0, "3", [1]):
+        self.assertEqual((spec.top_arg(1), spec.top_arg(30), spec.top_arg(99)), (1, 30, 99))   # 上限なし(10-20)
+        for bad in (0, True, 2.0, "3", [1]):
             with self.assertRaises(ValueError, msg=bad):
                 spec.top_arg(bad)
 
@@ -201,7 +201,7 @@ class TestValidate(unittest.TestCase):
         self.assertEqual((spec.DEFAULTS["adopt"]["sens"], spec.DEFAULTS["adopt"]["afterStream"]), ("normal", True))
         for kw in ({"sens": "mid"}, {"sens": None}, {"afterStream": 1}, {"afterStream": "yes"}):
             self.bad("adopt", **kw)
-        for kw in ({"top": None}, {"top": 31}, {"top": True}, {"top": 2.0}, {"pad": -1}, {"perHour": 0}, {"waitMin": 61}):
+        for kw in ({"top": None}, {"top": 0}, {"top": True}, {"top": 2.0}, {"pad": -1}, {"perHour": 0}, {"waitMin": 61}):
             self.bad("adopt", **kw)
         for kw in ({"loudness": -12}, {"loudness": 0}, {"loudness": True}, {"volume": 0}, {"volume": 201}):
             self.bad("export", **kw)

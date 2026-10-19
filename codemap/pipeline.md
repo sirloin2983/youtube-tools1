@@ -9,8 +9,8 @@
 ## src/pipeline/analyze/
 
 - **__init__.py** (3 行) — ① 解析: 材料の取得(fetch。動画・チャット・コメント)・音量(levels)・盛り上がりの式(excite)・候補・話の切れ目(breaks)・自動採用・配信中の検出
-- **adopt.py** (76 行) — 採用の規則 F-5(notes:plan/done/role-restructure.md 5-5・決定 3-29 Q3。純粋な関数)。
-  - 名前: `check_args` :21・`adopt` :38
+- **adopt.py** (73 行) — 採用の規則 F-5(notes:plan/done/role-restructure.md 5-5・決定 3-29 Q3。純粋な関数)。
+  - 名前: `check_args` :18・`adopt` :35
 - **analyze.py** (413 行) — 解析(自動切り抜き ac/serve.py 由来。書き出し・手動の○×は持たない)。
   - 名前: `sig_cache_dir` :37・`validate_live` :44・`validate_source` :50・`validate_settings` :65・`make_spec` :80・`chat_public` :89・`sig_path` :96・`load_sig` :100・`save_sig` :117・`archive_path` :130・`load_archive` :134・`save_archive` :144・ほか 3
 - **breaks.py** (123 行) — 話の切れ目(breaks)。切り抜きの区間の両端を、文字起こしの話の切れ目へ寄せて言葉の途中で切らないための関数(線 LD-2c。notes:plan/done/ld2-clip-length.md)。

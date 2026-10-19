@@ -13,17 +13,14 @@
 """
 import copy
 
-from ytt import marks as _marks, schemas
-
-TOP_MAX = 30   # 採用する数の上限
-
+from ytt import marks as _marks
 
 def check_args(ranges, top):
     """区間と上限を検査する。-> 小数 1 桁に丸めた区間 [(開始, 終了), …]。だめなら ValueError(画面に出せる理由)"""
     if not isinstance(ranges, list) or len(ranges) > _marks.MAX_REQUEST_RANGES:
         raise ValueError("区間は%d個までです" % _marks.MAX_REQUEST_RANGES)
-    if schemas.int_in(top, 0, TOP_MAX) is None:
-        raise ValueError("採用する数は0〜%dです" % TOP_MAX)
+    if not isinstance(top, int) or isinstance(top, bool) or top < 0:   # 上限なし(10-20。候補が足りなければある分だけ)
+        raise ValueError("採用する数は0以上の整数にしてください")
     want = []
     for r in ranges:
         if not isinstance(r, (list, tuple)) or len(r) != 2:

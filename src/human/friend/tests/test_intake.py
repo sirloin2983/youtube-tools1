@@ -117,7 +117,7 @@ class TestSubmitOrders(unittest.TestCase):
     def test_urls(self):
         rec = self.Rec(busy={"bbbbbbbbbbb"})
         out = intake.submit_urls(rec, [{"id": "aaaaaaaaaaa", "top": 3, "title": "配信", "channel": "ch", "ranges": [(10, 20)], "duration": 100.0},
-                                       {"id": "bbbbbbbbbbb", "top": 2}, {"id": "bad", "top": 2}, {"id": "ccccccccccc", "top": 99}],
+                                       {"id": "bbbbbbbbbbb", "top": 2}, {"id": "bad", "top": 2}, {"id": "ccccccccccc", "top": 0}],   # 本数は 1 以上(上限なし。10-20)
                                  request_id="20261016-120000-abc123", deliver_dir="D:/out", speakers={"count": 2, "names": ["A"]},
                                  video_tracks=2, cut="silence", weights={"wAudio": 1.5, "wChat": 0.5, "wComments": 2.0}, streamer="兎田ぺこら")
         self.assertEqual(sorted(out), ["runs", "skipped"])
@@ -163,8 +163,9 @@ class TestParse(unittest.TestCase):
     def test_parse_lines(self):
         ok, bad = intake.parse_lines("# メモ\n\nhttps://youtu.be/abcdefghijk 5\nhttps://youtu.be/bbbbbbbbbbb\nhttps://x.example/ 3\n"
                                      "https://youtu.be/ccccccccccc 11\nhttps://youtu.be/ddddddddddd 2 # ここがほしい\nhttps://youtu.be/eeeeeeeeeee よろしく\n", 3)
-        self.assertEqual([(o["id"], o["top"]) for o in ok], [("abcdefghijk", 5), ("bbbbbbbbbbb", 3), ("ddddddddddd", 2)])
-        self.assertEqual(len(bad), 3)
+        self.assertEqual([(o["id"], o["top"]) for o in ok], [("abcdefghijk", 5), ("bbbbbbbbbbb", 3), ("ccccccccccc", 11), ("ddddddddddd", 2)])   # 本数の上限なし(10-20)
+        self.assertEqual(len(bad), 2)
+        self.assertEqual([b["reason"] for b in intake.parse_lines("https://youtu.be/ccccccccccc 0\n", 3)[1]], ["切り抜く数は 1 以上にしてください"])
         # 文字コード(cp932・BOM)の読み(依頼の JSON)
         self.assertEqual(intake.decode_text("あ".encode("cp932")), "あ")
         self.assertEqual(intake.decode_text("\ufeffあ".encode("utf-8")), "あ")

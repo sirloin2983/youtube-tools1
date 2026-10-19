@@ -129,16 +129,16 @@ def clean_weights(v):
     return check_weights(v)[0]
 
 
-TOP_MAX = 30   # 採用する数の上限(束の adopt.top。受付の submit_urls・束の検査 _top_ok もこの top_arg を通す)
-REQUEST_TOP_MAX = 10   # 友人の依頼の 1 配信の本数の上限(友人のアプリが書く数・受付の URL の行。束の上限 TOP_MAX より狭い。friendapp/sync・human/friend/intake が読む)
+# 採用する数(束の adopt.top)は 1 以上の整数なら上限なし(10-20 ユーザー決定: 友人が指定した数をそのまま使う。候補が足りなければある分だけ)。
+# 受付の submit_urls・束の検査 _top_ok もこの top_arg を通す
 
 
 def top_arg(top):
-    """採用する数(未指定は DEFAULT_TOP)。1〜TOP_MAX でなければ ValueError"""
+    """採用する数(未指定は DEFAULT_TOP)。1 以上の整数でなければ ValueError"""
     if top in (None, ""):
         return DEFAULT_TOP
-    if not isinstance(top, int) or isinstance(top, bool) or not (1 <= top <= TOP_MAX):
-        raise ValueError("採用する数は1〜%dです" % TOP_MAX)
+    if not isinstance(top, int) or isinstance(top, bool) or top < 1:
+        raise ValueError("採用する数は1以上の整数にしてください")
     return top
 
 
@@ -432,7 +432,7 @@ SCHEMA = {
                 "preRatio": (_num_in(0.3, 0.9), "0.3〜0.9 の数"), "headSec": (_num_in(0, 600), "0〜600 の数(秒)"),
                 "lagAuto": (_is_bool, "true か false"), "lag": (_num_in(0, 30), "0〜30 の数(秒)"),
                 "chatTimeout": (_int_in(1, 120), "1〜120 の整数(秒)")},
-    "adopt": {"top": (_top_ok, "1〜30 の整数"), "pad": (_num_in(0, PAD_MAX), "0〜%d の数(秒)" % PAD_MAX),
+    "adopt": {"top": (_top_ok, "1 以上の整数"), "pad": (_num_in(0, PAD_MAX), "0〜%d の数(秒)" % PAD_MAX),
               "perHour": (_int_in(1, 30), "1〜30 の整数"), "waitMin": (_int_in(1, 60), "1〜60 の整数(分)"),
               "sens": (_one_of("high", "normal", "low"), "high・normal・low のどれか"), "afterStream": (_is_bool, "true か false")},
     "export": {"loudness": (_or_none(_one_of(*_LUFS)), "null か %s のどれか" % "・".join(map(str, _LUFS))),
