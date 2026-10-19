@@ -343,11 +343,13 @@ class TestEvalBatch(unittest.TestCase):
     def test_other_process_holding_lock_skips(self):
         self.staged("a.mp4")
         EB.eval_batch_start()
-        with EB._file_lock(EB.eb_lock_path()) as got:   # 別のプロセスが見回り中のつもり
-            self.assertTrue(got)
-            with EB._file_lock(EB.eb_lock_path()) as got2:   # 同じ印は二重に取れない
-                self.assertFalse(got2)
+        got = EB._fsio.try_lock(EB.eb_lock_path())   # 別のプロセスが見回り中のつもり
+        self.assertIsNotNone(got)
+        try:
+            self.assertIsNone(EB._fsio.try_lock(EB.eb_lock_path()))   # 同じ印は二重に取れない
             self.assertEqual(EB.eb_tick("test"), {"skipped": "running"})
+        finally:
+            EB._fsio.unlock(got)
         self.assertEqual(self.mine(), [])
         self.assertEqual(EB.eb_tick("test")["added"], 1)
 

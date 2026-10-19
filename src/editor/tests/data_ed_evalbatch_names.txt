@@ -31,7 +31,6 @@ _eb_threads
 _eb_tick_locked
 _eb_wake
 _eb_write
-_file_lock
 eb_candidates
 eb_diar_candidates
 eb_key

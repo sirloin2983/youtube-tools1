@@ -26,7 +26,6 @@
 ほかの部品は `_store.名前` などモジュールの属性として呼ぶたびに読む。編集(app)の部品は読まない: 文字起こしのジョブ(human/proof/doc_jobs の run_job)が
 見回りの裏のスレッド eb_start_background は serve が起動する(② は ④ を読まない)。
 """
-import contextlib
 import json
 import os
 import re
@@ -47,39 +46,6 @@ EB_FILE = "eval-batch.json"
 EB_LOCK = "eval-batch.lock"
 
 
-@contextlib.contextmanager
-def _file_lock(path):
-    """別のプロセス(単独で動かした編集と入口)が同時に見回らないための印。ファイルの先頭の 1 バイトを取る(プロセスが終われば自然に外れる)。
-    -> 取れたら True、先に誰かが持っていれば False"""
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    f = open(path, "a+b")
-    got = False
-    try:
-        try:
-            if os.name == "nt":
-                import msvcrt
-                f.seek(0)
-                msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
-                fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            got = True
-        except OSError:
-            got = False
-        yield got
-    finally:
-        if got:
-            try:
-                if os.name == "nt":
-                    import msvcrt
-                    f.seek(0)
-                    msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
-                else:
-                    import fcntl
-                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-            except OSError:
-                pass
-        f.close()
 EB_MAX_WAIT = 2                  # 自分のジョブで、待っている・動いているものの上限(これを超えて入れない)
 EB_FIRST_DELAY_SEC = 60          # 起動してから最初に見るまで(起動直後は文字起こしの準備・整理が重なるので待つ)
 EB_INTERVAL_SEC = 30             # 見回る間隔(1 本の文字起こしは数分かかる。待ちが 1 件に減ったら補う)
@@ -415,10 +381,13 @@ def eb_tick(why="tick", log=None):
     if not _eb_pass_lock.acquire(blocking=False):
         return {"skipped": "running"}
     try:
-        with _file_lock(eb_lock_path()) as got:
-            if not got:
-                return {"skipped": "running"}
+        lock = _fsio.try_lock(eb_lock_path())   # 別のプロセス(単独で動かした編集と入口)が同時に見回らない
+        if lock is None:
+            return {"skipped": "running"}
+        try:
             return _eb_tick_locked(why, log)
+        finally:
+            _fsio.unlock(lock)
     finally:
         _eb_pass_lock.release()
 

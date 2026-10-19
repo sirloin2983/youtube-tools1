@@ -352,7 +352,7 @@ class WorkerSimTest(unittest.TestCase):
         clock = Clock(T0 + 1200)
         sim = SimRecorder(clock)
         cfg = write_config(self.dir)
-        lock = W.take_lock(os.path.join(self.dir, "worker.lock"))
+        lock = W.fsio.try_lock(os.path.join(self.dir, "worker.lock"))
         self.assertIsNotNone(lock)
         self.assertEqual(make_worker(cfg, clock, sim, sleep=lambda s: None).run(), W.EXIT_LOCKED)   # 書き手は 1 つ
         lock.close()

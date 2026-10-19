@@ -469,3 +469,39 @@ def prune_cache(d, pattern, keep):
             os.remove(p)
     except OSError:
         pass
+
+
+def try_lock(path):
+    """ほかのプロセスと同時に動かさない印: path の先頭の 1 バイトを取る -> 開いたファイル(持っている間だけ有効。unlock で外す。
+    プロセスが終われば自然に外れる)か None(ほかのプロセスが持っている)"""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    f = open(path, "a+b")
+    try:
+        if os.name == "nt":
+            import msvcrt
+            f.seek(0)
+            msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return f
+    except OSError:
+        f.close()
+        return None
+
+
+def unlock(f):
+    """try_lock の印を外して閉じる(None なら何もしない)"""
+    if f is None:
+        return
+    try:
+        if os.name == "nt":
+            import msvcrt
+            f.seek(0)
+            msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+    except OSError:
+        pass
+    f.close()

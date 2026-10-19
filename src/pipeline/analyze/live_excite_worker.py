@@ -128,24 +128,6 @@ class RecorderDown(Exception):
 write_json = functools.partial(fsio.write_json, indent=None, separators=(",", ":"), allow_nan=False)   # 詰めて書く・NaN と無限大は断る(JSON として読めないファイルを作らない)
 
 
-def take_lock(path):
-    """1 つの作業データに 1 つのワーカー(ファイルの書き手を 1 つにする)。-> 開いたファイル(持っている間だけ有効)か None(ほかのワーカーが持っている)"""
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    f = open(path, "a+b")
-    try:
-        if os.name == "nt":
-            import msvcrt
-            f.seek(0)
-            msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
-        else:
-            import fcntl
-            fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        return f
-    except OSError:
-        f.close()
-        return None
-
-
 def clean_requests(v):
     """config.json の requests(友人のライブ配信の依頼の録画ごとの設定。2-15)-> {"<録画元>/<録画>": {"sens", "perHour", "length"}}(読めない鍵は飛ばす)"""
     out = {}
@@ -1009,7 +991,7 @@ class Worker:
     # ---- 動かす
     def run(self):
         """常駐: 周期ごとに tick。-> 終了コード(0・メモリ超え EXIT_MEM・ほかのワーカーが動いている EXIT_LOCKED)"""
-        lock = take_lock(os.path.join(self.dir, "worker.lock"))
+        lock = fsio.try_lock(os.path.join(self.dir, "worker.lock"))   # 1 つの作業データに 1 つのワーカー(ファイルの書き手を 1 つにする)
         if lock is None:
             self.log("盛り上がりの検出: ほかのワーカーが動いているので終わります")
             return EXIT_LOCKED
@@ -1040,7 +1022,7 @@ class Worker:
                         break
         finally:
             self.close()
-            lock.close()
+            fsio.unlock(lock)
             fsio.unlink_quiet(stop_file)
         return code
 
