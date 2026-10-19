@@ -147,10 +147,10 @@ def main():
                 pg.click(card + " .pt-auto-run")
                 check(wait_js(pg, "!document.querySelector('%s .pt-auto-cancel').hidden" % card.replace("'", "\\'"), 15000),
                       "まとめて実行が始まった(中止ボタンが出る)")
-                # まとめて実行が動いているあいだは、行(summary)をクリックしても閉じない(進み具合を見失わないため)
-                pg.click(card + " .pt-case-row")
-                check(pg.evaluate("document.querySelector('%s').open" % card.replace("'", "\\'")) is True,
-                      "実行中は行を閉じさせない")
+                # 動いているあいだの進み具合は上の「処理の状況」が見せる(行は自分で開閉した通り)
+                check(wait_js(pg, "[...document.querySelectorAll('#todoList .pt-todo-link')].some(a => a.getAttribute('href') === '#case-%s'"
+                                  " && /^(実行中|待ち)$/.test(a.querySelector('.pt-todo-pill').textContent))" % vid_a, 15000),
+                      "処理の状況に実行中の行が出て、押すと案件の行へ: %s" % pg.text_content("#todoList"))
                 done_js = ("(() => { const m = document.querySelector('%s .pt-auto-msg'); return m && /済み|失敗|やることがありませんでした/.test(m.textContent); })()"
                            % card.replace("'", "\\'"))
                 check(wait_js(pg, done_js, 240000), "まとめて実行が終わった: %s" % pg.text_content(card + " .pt-auto-msg"))
