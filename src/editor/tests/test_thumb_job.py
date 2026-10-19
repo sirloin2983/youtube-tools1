@@ -160,6 +160,16 @@ class TestThumbJob(StoreDir):
             S.thumb_spec(TID, {})
 
 
+class TestWordRe(unittest.TestCase):
+    def test_words_not_inside_other_words(self):
+        """感情の言葉は語の途中に当てない(「において」の「おい」・「好きなんです」の「なんで」・「おいしい」)。文の頭・句読点のあとには当てる"""
+        for t in ("私においては", "好きなんです", "おいしいね"):
+            self.assertEqual(thumb_ideas.WORD_RE.findall(t), [] if "好き" not in t else ["好き"], t)
+        self.assertEqual(thumb_ideas.one_word("なんでやねん"), "なんで")
+        self.assertEqual(thumb_ideas.one_word("え、おい！"), "おい")
+        self.assertEqual(thumb_ideas.one_word("それは無理"), "無理")
+
+
 class TestCropBox(unittest.TestCase):
     def test_crop_box(self):
         """切り取りの箱(中央は縦いっぱい・右下へ寄せる・矩形を含む 9:16 の箱は画面の中に収める)"""

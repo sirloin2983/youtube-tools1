@@ -116,7 +116,7 @@
   - コード: `src/flow/diar.py`・`src/human/proof/speakers.py`・`src/pipeline/transcribe/diarize.py`
   - 画面: src/app/ui/cases/cases.js:79・src/app/ui/cases/panels/cut.js:159・src/app/ui/cases/panels/machpick.js:35・src/app/ui/cases/panels/proof.js:64 ほか 15
 - **声を覚える** — 「編集」の話者に名前を付けて声を覚えるジョブ
-  - コード: `validate_voice_learn` src/human/proof/speakers.py:537・`run_voice_learn` src/human/proof/speakers.py:564・`/api/voices/learn` src/editor/serve.py:288
+  - コード: `validate_voice_learn` src/human/proof/speakers.py:538・`run_voice_learn` src/human/proof/speakers.py:565・`/api/voices/learn` src/editor/serve.py:288
   - 画面: src/app/ui/editor/app-jobs.js:133・src/app/ui/editor/app-rows.js:519・src/app/ui/editor/app-tools.js:99・src/app/ui/editor/app-tpl.js:103 ほか 1
 - **用語集** — 編集の設定の用語集(1 行 1 語)。② tx が選び ① が使う
   - コード: `pick_glossary_terms` src/flow/tx.py:69・`src/app/ui/editor/app-learn.js`

@@ -41,7 +41,6 @@ API(src/app/live.py の handle_get / _api_post から。書き込みは入口の
 import json
 import os
 import shutil
-import signal
 import sys
 import threading
 import time
@@ -58,6 +57,7 @@ from pipeline.analyze import live_excite_worker as EW   # ファイルの形・�
 
 CODE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pipeline", "analyze")   # 子プロセスの道具は ① の置き場(pipeline/analyze)
 WORKER = os.path.join(CODE_DIR, "live_excite_worker.py")
+STOP_WAIT = 8.0            # 止める合図のあと、ワーカーが自分で終わるのを待つ秒(周期 6 秒 + 保存)
 STALE_SEC = 120.0          # 心拍(worker.json)がこれだけ止まったら起動し直す
 LENGTH_HINT_ENV = "YTT_LIVE_LENGTH"   # off = 長さの目安を使わない(スタジオの解析の設定の長さのまま)
 SETTINGS_EVERY = 300.0     # スタジオの解析の設定を読み直す間隔
@@ -355,15 +355,12 @@ class Detector:
         self.host.log("盛り上がりの検出: ワーカーを起動しました(pid %d)" % self.proc.pid)
         return True
 
-    @staticmethod
-    def _kill(p):
-        """まず穏やかに(Windows は CTRL_BREAK = ワーカーの SIGBREAK の handler が状態を保存して心拍に「止まりました」を書く)、終わらなければ terminate・kill"""
+    def _kill(self, p):
+        """まず穏やかに(止める合図のファイル EW.STOP_NAME = ワーカーが周期の合間に見て、状態を保存し心拍に「止まりました」を書いて終わる。
+        窓なしで起こした子には CTRL_BREAK が届かない)、STOP_WAIT 秒で終わらなければ terminate・kill"""
         try:
-            if os.name == "nt":
-                p.send_signal(signal.CTRL_BREAK_EVENT)   # CREATE_NEW_PROCESS_GROUP で起動しているので、ワーカーだけに届く
-            else:
-                p.terminate()
-            p.wait(8)
+            fsio.atomic_write(os.path.join(self.dir, EW.STOP_NAME), b"stop")
+            p.wait(STOP_WAIT)
             return
         except Exception:
             pass

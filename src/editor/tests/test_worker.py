@@ -61,7 +61,7 @@ def _texts(doc):
 @unittest.skipUnless(HAVE_FW, "ffmpeg か faster-whisper の small が無い")
 class RealWorkerTest(unittest.TestCase):
     """本物の通し(faster-whisper small・CPU)。見本 = 頭 1 秒の無音・「こんにちは。」・1.5 秒・「今日は配信に…」・2.5 秒・低い声の「それでは…」。
-    動画は日本語の名前のフォルダの日本語の名前。作業データは一時フォルダ(判別のモデルだけ編集の作業データから写す)・ネットへ出ない(HF_HUB_OFFLINE)"""
+    動画は日本語の名前のフォルダの日本語の名前。作業データは一時フォルダ(判別のモデルだけ編集の作業データから写す)・ネットへ出ない(HF_HUB_OFFLINE・TRANSCRIBE_NO_FETCH = 認識ワーカーの中のモデルの取得も止める)"""
     SPEC = {"model": "small", "language": "ja", "device": "cpu", "autoFill": False, "autoLlm": False}
 
     @classmethod
@@ -79,7 +79,7 @@ class RealWorkerTest(unittest.TestCase):
             VF.copy_diar(cls.dir)
         cls.saved = tuple(getattr(S, k) for k in PLACES)
         from pipeline.transcribe import diarize, tx_engines
-        cls.patches = [mock.patch.dict(os.environ, {"HF_HUB_OFFLINE": "1"}), mock.patch.object(workdata, "DATA_DIR", cls.dir),
+        cls.patches = [mock.patch.dict(os.environ, {"HF_HUB_OFFLINE": "1", "TRANSCRIBE_NO_FETCH": "1"}), mock.patch.object(workdata, "DATA_DIR", cls.dir),
                        mock.patch.object(tx_engines, "fetch_file", VF.fetch_read_only), mock.patch.object(diarize, "_download_verified", VF.no_download)]   # このプロセスの中の取得の口
         for p in cls.patches:
             p.start()
@@ -237,16 +237,28 @@ class RealWorkerTest(unittest.TestCase):
 
     def test_whispercpp_real(self):
         """主の文字起こしを本物の whisper.cpp(large-v3・Vulkan)で: 文字起こし → 範囲の再認識 → 記録のエンジン・機器・GPU の名前・words.json・asr.json。
-        whisper.cpp と large-v3 は編集の作業データから読むだけ(TRANSCRIBE_ENGINE_DIR)。一時フォルダ(TMP_DIR)は ASCII の場所"""
+        友人の PC のユーザー名が日本語のとき(作業データ・一時フォルダが ASCII でない場所。whisper-cli はファイルを ANSI で開く)と同じに:
+        whisper.cpp と large-v3 は編集の作業データから日本語の名前のフォルダへハードリンクで並べて読み、一時フォルダ(TMP_DIR)も日本語の名前"""
         home = VF.whisper_cpp_large()
         if not home:
             self.skipTest("whisper.cpp か large-v3 が無い")
-        if not S.TMP_DIR.isascii():
-            self.skipTest("一時フォルダが ASCII の場所でない")
+        from pipeline.transcribe import tx_engines as te
+        jhome = os.path.join(self.dir, "山田の作業データ")
+        try:
+            shutil.copytree(os.path.dirname(te.wcpp_bin_dir(home, "vulkan")), os.path.dirname(te.wcpp_bin_dir(jhome, "vulkan")), copy_function=os.link)
+            model = te.WCPP_MODELS["large-v3"]["file"]
+            os.makedirs(te.wcpp_model_dir(jhome))
+            os.link(os.path.join(te.wcpp_model_dir(home), model), os.path.join(te.wcpp_model_dir(jhome), model))
+        except OSError as e:
+            self.skipTest("作業データをハードリンクで並べられない(別のドライブ): %s" % e)
+        self.addCleanup(shutil.rmtree, jhome, True)
+        tmp = S.TMP_DIR
+        S.TMP_DIR = os.path.join(self.dir, "一時の音声")
+        self.addCleanup(setattr, S, "TMP_DIR", tmp)
         S.WORKER.close()
         self.addCleanup(lambda: setattr(S, "WORKER", S.WorkerClient()))
         self.addCleanup(lambda: S.WORKER.close())
-        with mock.patch.dict(os.environ, {"TRANSCRIBE_ENGINE_DIR": home}):
+        with mock.patch.dict(os.environ, {"TRANSCRIBE_ENGINE_DIR": jhome}):
             S.WORKER = S.WorkerClient()
             job = self.transcribe(model="large-v3", device="vulkan")
             tid = job["tid"]

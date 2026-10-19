@@ -293,6 +293,8 @@ class RowTidyTest(unittest.TestCase):
         self.assertEqual(out[1]["end"], 2.0)                         # 次まで 1 秒空いている → そのまま
         self.assertEqual(out[2]["end"], 3.25)                        # 短い行(TRIM_MIN より短くなる)は早めない(のばしもしない)
         self.assertEqual(out[3]["end"], 4.0)                         # 最後の行はそのまま
+        edge = list(S.trim_ends(iter([row(0.0, 1.0, "a"), row(1.3, 2.0, "b")]), 0.1))   # 1.3 - 1.0 は 0.30000000000000004 でも TRIM_GAP ちょうどは早める
+        self.assertAlmostEqual(edge[0]["end"], 0.9, places=3)
         two = [row(0.0, 1.0, "あ"), row(1.0, 2.0, "い")]
         wc = {"wordSplit": False, "engine": "whisper.cpp"}
         self.assertEqual(S.END_TRIM, 0.0)                             # 既定でやめている(原則 ① 言葉の末を切らない)

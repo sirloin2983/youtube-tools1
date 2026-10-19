@@ -206,6 +206,27 @@ def parse_playlist(text):
     return segs, ended
 
 
+def keep_order(sessions):
+    """[(セッション名, [セグメント])] → 次のセッションの頭の受信時刻が、前のセッションの終わり(最後の受信時刻 + 長さ)を下回らないようにした写し。
+    セグメントの長さは受信より先に進むことがあり(ffmpeg が溜まった分を速く書く)、繋ぎ直しのあとの頭が重なって見える。
+    下回る頭のセグメントだけ、前の終わりから長さの分ずつ後ろへ送る(元の記録は変えない)"""
+    out, end = [], None
+    for name, segs in sessions:
+        if segs and end is not None:
+            segs, cur = list(segs), end
+            for i, s in enumerate(segs):
+                e = iso_epoch(s.get("pdt"))
+                if e is None or e >= cur:
+                    break
+                segs[i] = dict(s, pdt=epoch_iso(cur))
+                cur += s["dur"]
+        out.append((name, segs))
+        last = next((s for s in reversed(segs) if iso_epoch(s.get("pdt")) is not None), None)
+        if last is not None:
+            end = iso_epoch(last["pdt"]) + last["dur"]
+    return out
+
+
 def build_playlist(sessions, finished, hls_time=HLS_TIME):
     """全セッションをつないだ再生リスト。sessions = [(セッションのフォルダ名, [セグメント])]。finished なら #EXT-X-ENDLIST"""
     durs = [s["dur"] for _, segs in sessions for s in segs]
@@ -351,7 +372,7 @@ class Recording:
         return segs, ended
 
     def all_segments(self):
-        return [(n, self.session_segments(n)[0]) for n in self.session_names()]
+        return keep_order([(n, self.session_segments(n)[0]) for n in self.session_names()])
 
     def playlist(self):
         return build_playlist(self.all_segments(), not self.active, self.mgr.hls_time)
@@ -448,7 +469,12 @@ class Recording:
         """セッションを記録とフォルダから消す(取れなかった・アーカイブを取り始めた)"""
         with self.lock:
             self.meta["sessions"] = [s for s in self.meta.get("sessions") or [] if s.get("name") != name]
-        shutil.rmtree(os.path.join(self.dir, name), ignore_errors=True)
+        path = os.path.join(self.dir, name)
+        for _ in range(20):   # 終わったばかりの子がログを握っていると消せない(Windows)。残すと「終了」のあとに空のセッションが見える
+            shutil.rmtree(path, ignore_errors=True)
+            if not os.path.exists(path):
+                break
+            time.sleep(0.1)
         self._cache.pop(name, None)
 
     def _finish(self, state, message, note):

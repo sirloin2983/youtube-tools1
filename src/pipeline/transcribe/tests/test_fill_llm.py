@@ -112,7 +112,7 @@ class TestRealParts(unittest.TestCase):
     def setUp(self):
         if not self.spans:
             self.skipTest("音声合成か ffmpeg が無い")
-        self.enterContext(mock.patch.dict(os.environ, {"HF_HUB_OFFLINE": "1"}))
+        self.enterContext(mock.patch.dict(os.environ, {"HF_HUB_OFFLINE": "1", "TRANSCRIBE_NO_FETCH": "1"}))
         for mod, name, value in ((worker_client, "IN_WORKER", True), (tx_engines, "ENGINE_DIR", REAL_HOME), (tx_engines, "fetch_file", _fetch_read_only),
                                  (studiodata, "studio_stream", lambda vid: None)):
             self.enterContext(mock.patch.object(mod, name, value))

@@ -92,6 +92,8 @@ CHAT_READ_MAX = 16 * 1024 * 1024  # 1 回の周期で読むチャットの上限
 TAIL_IDLE = 10.0                 # 止めた yt-dlp のファイルの改行の無い末尾が、これだけ増えなければ読み終えたことにする
 FFMPEG_TIMEOUT = 120.0
 EXIT_MEM, EXIT_LOCKED = 3, 4
+STOP_NAME = "stop.request"   # 入口が止めてほしいときに置くファイル(作業データの dir の中)。窓なしで起こした子には CTRL_BREAK が届かないので、合図はこれ
+STOP_POLL = 0.5              # 周期の待ちの間にも、この間隔で止める合図を見る
 STATE_MAX = 64 * 1024 * 1024
 SPEC_DEFAULT = {"length": 45.0, "preRatio": excite.PRE_RATIO_DEFAULT, "lag": 8.0, "lagAuto": True, "wAudio": 1.0, "wChat": 1.0, "headSec": 180.0}
 MAX_ACTIVE = 2             # 同時に測る録画の数(0-10-4)。3 本目からは「順番待ち」(前の録画の検出が終わったら、古い順に始める)
@@ -1012,9 +1014,11 @@ class Worker:
             self.log("盛り上がりの検出: ほかのワーカーが動いているので終わります")
             return EXIT_LOCKED
         code = 0
+        stop_file = os.path.join(self.dir, STOP_NAME)
+        fsio.unlink_quiet(stop_file)   # 前の起動の残り
         try:
             self.log("盛り上がりの検出のワーカーを始めました(pid %d・%s)" % (os.getpid(), self.dir))
-            while not self.stop_flag:
+            while not self.stop_flag and not os.path.exists(stop_file):
                 t0 = self.clock()
                 try:
                     self.tick()
@@ -1028,10 +1032,16 @@ class Worker:
                 if self.parent and not procs.pid_alive(self.parent):   # 親の pid が分からなければ勝手に終わらない
                     self.log("盛り上がりの検出: ホームが終わったので終わります")
                     break
-                self.sleep(max(0.5, self.poll_sec - (self.clock() - t0)))
+                wake = self.clock() + max(0.5, self.poll_sec - (self.clock() - t0))
+                while not self.stop_flag and not os.path.exists(stop_file) and self.clock() < wake:
+                    before = self.clock()
+                    self.sleep(min(STOP_POLL, max(0.0, wake - before)))
+                    if self.clock() <= before:   # 時計を進めない差し替え(テストの早送り)は 1 回で抜ける
+                        break
         finally:
             self.close()
             lock.close()
+            fsio.unlink_quiet(stop_file)
         return code
 
     def close(self):

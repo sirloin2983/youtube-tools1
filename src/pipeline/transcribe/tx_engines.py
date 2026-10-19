@@ -270,6 +270,14 @@ def fetch_wcpp_binary(flavor, data_dir, log=None, cancelled=None, progress=None)
     return bdir
 
 
+NO_FETCH_ENV = "TRANSCRIBE_NO_FETCH"   # 1 = モデル・部品をネットから取らない(テストの本物の通し。別のプロセスの認識ワーカーにも環境変数で届く)
+
+
+def no_fetch():
+    """モデル・部品の取得を止めているか(環境変数 NO_FETCH_ENV = 1)"""
+    return os.environ.get(NO_FETCH_ENV) == "1"
+
+
 def fetch_file(spec, folder, log=None, cancelled=None, progress=None):
     """spec(url・size・sha256・file)のファイルを folder に用意してパスを返す。あれば大きさと SHA-256 を確かめるだけ。
     取るときは .part に書き、大きさと SHA-256 が合ったときだけ名前を付ける(違えば消して EngineError)。URL は https の固定のものだけ"""
@@ -281,6 +289,8 @@ def fetch_file(spec, folder, log=None, cancelled=None, progress=None):
             log.warning("ファイルの中身が違うので取り直します: %s", path)
     if not spec["url"].startswith("https://"):
         raise EngineError("fetch_failed", "取得先が https ではありません")
+    if no_fetch():
+        raise EngineError("fetch_blocked", "取得を止めているので取りません(%s): %s" % (NO_FETCH_ENV, spec["file"]))
     import urllib.request
     os.makedirs(folder, exist_ok=True)
     part = path + ".part"
@@ -325,26 +335,45 @@ def _sha256(path):
     return h.hexdigest()
 
 
-def _ascii_path(p):
-    """whisper-cli は引数を(応答ファイルで)UTF-8 のまま受け取り、Windows ではファイルを ANSI で開くので、ASCII でないパスは開けない。
-    ASCII でなければ短い名前(8.3)にする。できなければ EngineError"""
+def _wcpp_path(p, cwd=None):
+    """whisper-cli に渡せるパスか None。whisper-cli は引数を(応答ファイルで)UTF-8 のまま受け取り、Windows ではファイルを ANSI で開くので、
+    ASCII でないパスは開けない。順に: そのまま ASCII・cwd(whisper-cli を起こす作業フォルダ)からの相対が ASCII・短い名前(8.3。オフの PC もある)"""
     p = os.path.abspath(p)
-    try:
-        p.encode("ascii")
+    if p.isascii():
         return p
-    except UnicodeEncodeError:
-        pass
+    if cwd:
+        try:
+            rel = os.path.relpath(p, cwd)
+        except ValueError:   # 別のドライブ
+            rel = ""
+        if rel and rel.isascii():
+            return rel
     if os.name == "nt":
         import ctypes
         buf = ctypes.create_unicode_buffer(1024)
         n = ctypes.windll.kernel32.GetShortPathNameW(p, buf, 1024)
-        if 0 < n < 1024:
-            try:
-                buf.value.encode("ascii")
-                return buf.value
-            except UnicodeEncodeError:
-                pass
-    raise EngineError("bad_path", "whisper.cpp は英数字以外を含む場所のファイルを開けません: %s" % p[-120:], 400)
+        if 0 < n < 1024 and buf.value.isascii():
+            return buf.value
+    return None
+
+
+def _ascii_path(p, cwd=None):
+    """_wcpp_path の値。渡せなければ EngineError"""
+    a = _wcpp_path(p, cwd)
+    if a is None:
+        raise EngineError("bad_path", "whisper.cpp は英数字以外を含む場所のファイルを開けません: %s" % os.path.abspath(p)[-120:], 400)
+    return a
+
+
+def _wcpp_local(p, work, name):
+    """whisper-cli に渡せない場所のファイルを、作業フォルダ work の name へハードリンク(できなければ写す)-> 新しいパス。
+    日本語のユーザー名の PC では作業データも一時フォルダも ASCII でない(8.3 の短い名前も無いことがある)"""
+    dst = os.path.join(work, name)
+    try:
+        os.link(p, dst)
+    except OSError:
+        shutil.copyfile(p, dst)
+    return dst
 
 
 class WhisperCpp(Engine):
@@ -425,11 +454,12 @@ class WhisperCpp(Engine):
         ドライバが直ったら環境変数 TRANSCRIBE_WCPP_FA=1 で試せる"""
         return os.environ.get("TRANSCRIBE_WCPP_FA") == "1"
 
-    def args(self, wav, out_base, kw):
+    def args(self, wav, out_base, kw, cwd=None, model=None):
         """whisper-cli の引数(応答ファイルの行)。kw は faster-whisper の引数の名前(worker_client.whisper_kwargs が作る)。
+        cwd = whisper-cli を起こす作業フォルダ(パスはそこからの相対でもよい)・model = 使うモデルのファイル(既定は self.model)。
         vad_filter・vad_parameters は使わない(whisper.cpp 自身の声の検出 --vad は、声の所をつないで認識するので評価用の音声で文字が大きく抜けた
         = CER 36% → 80%)。音声の全体を認識する"""
-        a = ["-m", _ascii_path(self.model["model"]), "-f", _ascii_path(wav), "-ojf", "-of", _ascii_path(out_base), "-pp",
+        a = ["-m", _ascii_path(model or self.model["model"], cwd), "-f", _ascii_path(wav, cwd), "-ojf", "-of", _ascii_path(out_base, cwd), "-pp",
              "-t", str(half_cpu()), "-l", str(kw.get("language") or "auto"), "-bs", str(int(kw.get("beam_size") or 5))]
         if kw.get("condition_on_previous_text") is False:
             a += ["-mc", "0"]   # 前の文を文脈にしない(faster-whisper と同じ)。注意: whisper.cpp は -mc 0 だと --prompt(用語集のヒント)も使わない(測定でヒントで精度は上がらなかったので -mc 0 のまま。画面の #glossDev で案内)
@@ -447,10 +477,16 @@ class WhisperCpp(Engine):
         return a
 
     def transcribe(self, audio, **kw):
+        # whisper-cli は作業フォルダ work を cwd にして起こし、パスは渡せる形(_wcpp_path)で渡す。日本語の名前の場所では:
+        # モデル(大きい)は写さず、届かなければ work をモデルの隣に作る(相対は "..\\<モデル>")・音声は work へハードリンクか写し
+        model = self.model["model"]
         work = tempfile.mkdtemp(prefix="wcpp-")
+        if _wcpp_path(model, work) is None:
+            shutil.rmtree(work, ignore_errors=True)
+            work = tempfile.mkdtemp(prefix="wcpp-", dir=os.path.dirname(model))
         try:
             if isinstance(audio, str):
-                wav = audio
+                wav = audio if _wcpp_path(audio, work) is not None else _wcpp_local(audio, work, "in-src.wav")
             else:   # 範囲の音声(float32 のサンプル)は一時の wav にする
                 wav = os.path.join(work, "in.wav")
                 _write_wav(wav, audio)
@@ -458,8 +494,8 @@ class WhisperCpp(Engine):
             out_base = os.path.join(work, "out")
             rsp = os.path.join(work, "args.txt")
             with open(rsp, "w", encoding="utf-8", newline="\n") as f:   # 引数は応答ファイル(UTF-8)で渡す: コマンド行は Windows の文字コードで読まれ、日本語のヒントが化けるため
-                f.write("\n".join(self.args(wav, out_base, kw)) + "\n")
-            log = self._run(self.model["cmd"] + ["@" + _ascii_path(rsp)])
+                f.write("\n".join(self.args(wav, out_base, kw, cwd=work, model=model)) + "\n")
+            log = self._run(self.model["cmd"] + ["@" + _ascii_path(rsp, work)], cwd=work)
             self._check_gpu(log)
             try:
                 with open(out_base + ".json", "rb") as f:
@@ -476,8 +512,8 @@ class WhisperCpp(Engine):
         finally:
             shutil.rmtree(work, ignore_errors=True)
 
-    def _run(self, cmd):
-        p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, creationflags=_tools.no_window_flags(), env=wcpp_env())
+    def _run(self, cmd, cwd=None):
+        p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, creationflags=_tools.no_window_flags(), env=wcpp_env(), cwd=cwd)
         lines = []
 
         def read():

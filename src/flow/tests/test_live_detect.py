@@ -550,7 +550,7 @@ class DetectApiTest(unittest.TestCase):
 
     def test_spawn_heartbeat_restart_and_stop(self):
         """本物のワーカーを起動 → 心拍(worker.json)→ 止める。心拍を出さないワーカーは stale_sec で止めて起動し直す(数える)。
-        止めるのは 1 回 8 秒ほどかかる(Detector._kill の穏やかな合図を待つ時間)ので、本物のワーカーを止めるのと偽のワーカーの起動し直しを並べる"""
+        本物のワーカーは止める合図で状態を保存し、心拍に「止まりました」を書いて自分で終わる(時間切れの強制終了にならない)"""
         det = D.Detector(self.live, spawn=True)
         self.addCleanup(det.stop)
         self.assertEqual(det.tick(), "spawned")
@@ -565,7 +565,8 @@ class DetectApiTest(unittest.TestCase):
         self.assertTrue(det.running())
         self.assertEqual(det.tick(), "running")
         p = det.proc
-        stopper = threading.Thread(target=det.stop, daemon=True)
+        took = []
+        stopper = threading.Thread(target=lambda: (lambda t0: (det.stop(), took.append(time.time() - t0)))(time.time()), daemon=True)
         stopper.start()
         silent = os.path.join(self.tmp, "silent_worker.py")
         with open(silent, "w", encoding="utf-8") as f:
@@ -580,6 +581,8 @@ class DetectApiTest(unittest.TestCase):
         self.assertIsNotNone(first.poll())   # 前のワーカーは止めた
         stopper.join(30)
         self.assertIsNotNone(p.poll())   # 本物のワーカーも止まった
+        self.assertEqual((det.heartbeat() or {}).get("message"), "止まりました")   # 合図が届いて自分で終わった
+        self.assertLess(took[0], D.STOP_WAIT, took)
         LF.patch_cfg(self.cfg, {"detect": {"enabled": False}})
         q = det2.proc
         self.assertEqual(det2.tick(), "off")   # オフにしたら止める

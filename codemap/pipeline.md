@@ -21,8 +21,8 @@
   - 名前: `work_dir` :30・`chat_cache_dir` :34・`download_audio` :49・`chat_cache_path` :69・`drop_chat_cache` :73・`chat_cache_limit` :90・`use_chat_cache` :105・`prune_chat_cache` :115・`download_chat` :163・`prefetch_chat` :245・`cancel_prefetch` :288・`cancel_all_prefetch` :295・ほか 8
 - **levels.py** (64 行) — 1 秒ごとの音量(RMS, dB)を、ffmpeg 1 回のデコードで全帯域と高音域(2kHz 超)の 2 系列に測る決まり(OPT1)。
   - 名前: `args` :23・`clear` :30・`level` :36・`read` :47・`collect` :56
-- **live_excite_worker.py** (1502 行) — 配信中の盛り上がりの検出のワーカー(線 D の L2。notes:plan/line-d-detect.md・notes:plan/line-d-live-clipping.md の 0-10)。入口(src/flow/live_detect.py)が起動する子プロセス。
-  - 名前: `class MeasureError` :113・`class NoTool` :117・`class RecorderDown` :121・`take_lock` :129・`clean_requests` :147・`request_spec` :162・`clean_spec_doc` :175・`clean_bundles` :189・`clean_detect` :200・`measure_levels` :207・`parse_chat_line` :227・`clean_hint` :255・ほか 9
+- **live_excite_worker.py** (1512 行) — 配信中の盛り上がりの検出のワーカー(線 D の L2。notes:plan/line-d-detect.md・notes:plan/line-d-live-clipping.md の 0-10)。入口(src/flow/live_detect.py)が起動する子プロセス。
+  - 名前: `class MeasureError` :115・`class NoTool` :119・`class RecorderDown` :123・`take_lock` :131・`clean_requests` :149・`request_spec` :164・`clean_spec_doc` :177・`clean_bundles` :191・`clean_detect` :202・`measure_levels` :209・`parse_chat_line` :229・`clean_hint` :257・ほか 9
 
 ## src/pipeline/export/
 
@@ -37,8 +37,8 @@
 - **__init__.py** (3 行) — ① 取り込み: 配信中の録画(recorder・rec_core)と、録画とアーカイブの音の照合(live_align_worker)。YouTube からの取得は export/exporter と analyze/fetch
 - **live_align_worker.py** (133 行) — 音の照合(線 D の P4。notes:plan/line-d-live-clipping.md の 0-9)の子プロセス。**入口のプロセスから import しない
   - 名前: `fail` :34・`read_wav` :39・`next_pow2` :54・`xcorr_valid` :59・`align` :79・`main` :103
-- **rec_core.py** (884 行) — 録画の中身(線 D の P1。notes:plan/line-d-live-clipping.md の 0・2〜4)。HTTP は recorder.py。
-  - 名前: `class RecError` :79・`to_utc` :90・`pick_segments` :101・`validate_url` :121・`fetch_title` :143・`folder_state` :162・`parse_playlist` :186・`build_playlist` :209・`read_text` :231・`clean_tmp` :260・`new_rec_id` :275・`class Recording` :293・ほか 1
+- **rec_core.py** (910 行) — 録画の中身(線 D の P1。notes:plan/line-d-live-clipping.md の 0・2〜4)。HTTP は recorder.py。
+  - 名前: `class RecError` :79・`to_utc` :90・`pick_segments` :101・`validate_url` :121・`fetch_title` :143・`folder_state` :162・`parse_playlist` :186・`keep_order` :209・`build_playlist` :230・`read_text` :252・`clean_tmp` :281・`new_rec_id` :296・ほか 2
 - **recorder.py** (371 行) — 録画の部品(線 D: リアルタイム切り抜きの P1。notes:plan/line-d-live-clipping.md の 0)。入口とは別のプロセスで動く。
   - 名前: `data_dir` :57・`load_token` :64・`read_settings` :79・`save_folder` :83・`clean_folder` :90・`make_logger` :104・`raise_priority` :128・`class Handler` :140・`class Server` :283・`parse_args` :294・`main` :314
   - 受ける口: `/api/ping` :180
@@ -48,8 +48,8 @@
 - **__init__.py** (3 行) — ① パック: DaVinci Resolve に読ませるパック(pack・cut2resolve_core・srt2resolve)・Text+(resolve_textplus)・zip の受け渡し(resolve_export)・指定の読み(request)・自動のカット(auto_cut)・…
 - **auto_cut.py** (141 行) — カットの計画の部品(read_cut_plan・build_plan・plan_from_keeps・finalize_plan。pack.py が使う)。
   - 名前: `read_cut_plan` :16・`default_handles` :71・`build_plan` :77・`removed_between` :98・`plan_from_keeps` :109・`finalize_plan` :117
-- **cut2resolve_core.py** (887 行) — cut2resolve 共通部
-  - 名前: `class Cancelled` :48・`class OutputExists` :55・`class Task` :64・`parse_time` :79・`parse_cut_list` :115・`sec_to_frames` :146・`cue_frames` :150・`frames_to_sec` :156・`fps_label` :161・`cut_list_to_keeps` :166・`normalize` :181・`subtract` :199・ほか 36
+- **cut2resolve_core.py** (889 行) — cut2resolve 共通部
+  - 名前: `class Cancelled` :48・`class OutputExists` :55・`class Task` :64・`parse_time` :79・`parse_cut_list` :117・`sec_to_frames` :148・`cue_frames` :152・`frames_to_sec` :158・`fps_label` :163・`cut_list_to_keeps` :168・`normalize` :183・`subtract` :201・ほか 36
 - **pack.py** (948 行) — カットの計算(試算)とパックの作成。② の CLI(src/app/cli.py)と画面(serve.py)の両方から呼ぶ共通部(処理を二重に持たない)。
   - 名前: `class RowEdge` :41・`class Request` :76・`class Plan` :113・`class Cache` :137・`default_out_dir` :201・`row_edge_from` :205・`widen_row_edges` :229・`row_edge_pending` :272・`silence_pending` :281・`detect_pending` :289・`without_detect` :298・`plan_cut` :317・ほか 15
 - **preview.py** (124 行) — ① 確認用の動画(友人が受け取るかを決める前に見る、1 本の切り抜きの 480p の動画)とパックの中の切り抜きの動画の引き方(ds1 = 要件 1-5。② flow/deliver から分けた)。
@@ -70,8 +70,8 @@
   - 名前: `mode` :18・`is_fake` :23・`class Backend` :28・`set_selector` :106・`select` :111
 - **clipjob.py** (62 行) — ① 文字起こしのジョブの機械の文書の行を作る(make_doc_rows)。
   - 名前: `make_doc_rows` :15
-- **diarize.py** (538 行) — ① 自動の流れの層 pipeline/transcribe: 話者判別の計算(sherpa-onnx)と判別の記録・声の特徴と覚えた声との照らし合わせ。
-  - 名前: `diar_threads` :54・`has_sherpa` :60・`diar_models_dir` :66・`diar_info` :79・`ensure_diar_models` :106・`diar_tune` :137・`diarize_real` :153・`assign_speakers` :192・`label_ratio` :243・`smooth_labels` :251・`smooth_speakers` :272・`diar_path` :292・ほか 8
+- **diarize.py** (542 行) — ① 自動の流れの層 pipeline/transcribe: 話者判別の計算(sherpa-onnx)と判別の記録・声の特徴と覚えた声との照らし合わせ。
+  - 名前: `diar_threads` :54・`has_sherpa` :60・`diar_models_dir` :66・`diar_info` :79・`ensure_diar_models` :109・`diar_tune` :140・`diarize_real` :156・`assign_speakers` :195・`label_ratio` :246・`smooth_labels` :254・`smooth_speakers` :276・`diar_path` :296・ほか 8
 - **fill.py** (378 行) — 「編集」のサーバーの部品: 認識のあとの後処理(A・C・D。notes:plan/line-b-transcription.md の「10-08 の実験ループ」)。
   - 名前: `fill_norm` :62・`fill_chars` :67・`fill_sparse_row` :72・`fill_apply` :91・`fill_clean_tail` :121・`fill_stock` :134・`fill_voice_frac` :140・`fill_clean_turns` :148・`fill_spk_key` :173・`fill_spk_names` :178・`fill_spk_split` :194・`fill_strip_names` :223・ほか 7
 - **live_tx_worker.py** (71 行) — 配信中の候補の文字起こし(線 D の D-11 案 b。notes:plan/line-d-live-clipping.md の 0-11)の子プロセス。**入口のプロセスから import しない
@@ -92,8 +92,8 @@
   - 名前: `subread_chars` :44・`subread_limits` :49・`subread_mark` :62・`retime_raw` :154・`retime_candidates` :201
 - **roster.py** (305 行) — 名簿(hololive-roster.json)と、配信ごとの文脈(文字起こしの改善の計画 段1。notes:plan/line-b-transcription.md(付録))。
   - 名前: `fold` :39・`load` :50・`channel_regions` :89・`find_in_text` :119・`match_name` :132・`build_context` :143・`member_terms` :167・`fit` :178・`prompt_terms` :193・`stream_context` :203・`leak_only` :228・`alias_variants` :262・ほか 1
-- **tx_engines.py** (1203 行) — 文字起こしの認識エンジンの口(精度改善の計画 段2。notes:plan/line-b-transcription.md(付録))。
-  - 名前: `engine_home` :52・`engine_of` :61・`env_num` :66・`is_16k_mono` :75・`half_cpu` :80・`class EngineError` :85・`class Engine` :93・`class FasterWhisper` :146・`wcpp_env` :214・`wcpp_bin_dir` :223・`wcpp_model_dir` :228・`wcpp_binary_ok` :232・ほか 18
+- **tx_engines.py** (1239 行) — 文字起こしの認識エンジンの口(精度改善の計画 段2。notes:plan/line-b-transcription.md(付録))。
+  - 名前: `engine_home` :52・`engine_of` :61・`env_num` :66・`is_16k_mono` :75・`half_cpu` :80・`class EngineError` :85・`class Engine` :93・`class FasterWhisper` :146・`wcpp_env` :214・`wcpp_bin_dir` :223・`wcpp_model_dir` :228・`wcpp_binary_ok` :232・ほか 19
 - **worker.py** (322 行) — ① 文字起こしの認識ワーカー(統合計画の段階3-3)。編集のサーバーが別プロセスとして起動する(worker_client.WorkerClient)。人が直接起動するものではない。
   - 名前: `class Out` :84・`class JobProxy` :94・`handle` :253・`main` :277
 - **worker_client.py** (748 行) — ① 認識ワーカー(別プロセス)とのやり取りとモデル: ワーカーの起動・要求・取り消し・強制終了(WorkerClient・WORKER)・モデルの代理(RemoteModel)・

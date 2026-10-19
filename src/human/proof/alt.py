@@ -258,6 +258,10 @@ def alt_diffs(rows, alt_rows):
             a_chars += _alt_chars(s["text"], s["n"])
         alt_text = "".join(groups[w])
         b_chars = _alt_chars(alt_text, 0)
+        b_starts = [sum(len(t) for t in groups[w][:i]) for i in range(len(groups[w]))]   # 2 つ目のエンジンの行の頭の位置(alt_text の中)
+
+        def b_row(y, b_starts=b_starts, b_chars=b_chars):
+            return bisect.bisect_right(b_starts, b_chars[y][2]) - 1
         if not a_chars or not b_chars:
             continue
         a_str, b_str = "".join(c for c, _t, _p in a_chars), "".join(c for c, _t, _p in b_chars)
@@ -279,7 +283,16 @@ def alt_diffs(rows, alt_rows):
                 stats["edge"] += 1   # 窓の境目(2つ目のエンジンの行が窓をまたいだ分の食い違いかもしれない)
                 continue
             if x1 == x2 or y1 == y2:   # 片方だけにある文字: 隣の 1 文字(そろった所)を足して置き換えの形に
-                if x1 > 0 and y1 > 0:
+                # 左右どちらの字と組むか: 足された字(2 つ目のエンジンだけ)が 2 つ目のエンジンの行の頭なら右・行の終わりなら左。
+                # 行の途中(2 つ目のエンジンの 1 行が文書の行をまたぐ)と消えた字(文書だけ)は、文書の行の境目なら右・同じ行なら左
+                doc_left = x1 > 0 and (x1 >= len(a_chars) or a_chars[x1 - 1][1] == a_chars[x1][1])
+                if x1 == x2 and 0 < y1 < len(b_chars) and b_row(y1 - 1) != b_row(y1):
+                    left = False
+                elif x1 == x2 and 0 < y2 < len(b_chars) and b_row(y2 - 1) != b_row(y2):
+                    left = True
+                else:
+                    left = doc_left
+                if x1 > 0 and y1 > 0 and (left or not (x2 < len(a_chars) and y2 < len(b_chars))):
                     x1, y1 = x1 - 1, y1 - 1
                 elif x2 < len(a_chars) and y2 < len(b_chars):
                     x2, y2 = x2 + 1, y2 + 1

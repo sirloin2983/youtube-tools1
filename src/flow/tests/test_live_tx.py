@@ -541,8 +541,8 @@ class RealWhisperTest(LiveTxBase):
         args, got, prog, cmds, seen_wav = [], [], [], [], []
         real_args, real_tx, real_run = te.WhisperCpp.args, te.WhisperCpp.transcribe, TX.tools.run
 
-        def spy_args(eng, wav, out_base, kw):
-            a = real_args(eng, wav, out_base, kw)
+        def spy_args(eng, wav, out_base, kw, **o):
+            a = real_args(eng, wav, out_base, kw, **o)
             args.append(list(a))
             return a
 

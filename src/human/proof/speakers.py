@@ -127,6 +127,7 @@ def _commit_diar(tid, before, doc, keep_ids):
 
 def _apply_diarization(tid, turns, offset, requested, emb, auto=None, smooth=False):
     doc = store.read_transcript(tid)
+    doc["segments"] = sorted(doc.get("segments") or [], key=lambda g: (g["start"], g["end"]))   # 層の組み立ては時刻の順(順が違う文書は「並び」が合わない警告になる)
     before = copy.deepcopy(doc)   # 人の層が話者の表を持つ((r8r))
     ids = _spk_ids(doc)
     # 定型の幻覚で声の区間と重ならない行を捨ててから(autoFill の文書だけ)割り当てる。手で決めた行(字幕に出さない・ゲーム音声など・重なりのメモつき)は話者を変えない

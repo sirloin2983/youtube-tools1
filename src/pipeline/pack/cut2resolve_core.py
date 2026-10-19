@@ -94,6 +94,8 @@ def parse_time(text):
 def _pair(line):
     """1行を (開始秒, 終了秒) に。区切りは空白・-・~・〜・→ など。読めなければ CSV(カンマ・タブ・;)として読み直す。
     「1,5 3,5」(小数点がカンマ)は前者で、「5,20」(CSV)は後者で読める。CSV は3列目以降(ラベルなど)を無視する"""
+    if re.match(r"[-−]\s*\d", line):   # 先頭の「-」は区切りではなく負の時刻の打ち間違い(「-1 5」を 1〜5 秒と読まない)
+        raise ToolError(f"時刻に負の数は使えません: {line!r}")
     cands = []
     toks = [t for t in _RANGE_SPLIT.split(line) if t]
     if len(toks) == 2:

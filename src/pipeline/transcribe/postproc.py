@@ -269,7 +269,7 @@ def trim_ends(rows, sec):
     ユーザーの目安「前回の作業の前の状態から行末を 0.1 秒早く終わらせる程度」。
     既定ではかけない(END_TRIM = 0。原則の ① に反するため)"""
     def fix(prev, p):
-        if p["start"] - prev["end"] <= TRIM_GAP:
+        if p["start"] - prev["end"] <= TRIM_GAP + 1e-6:   # 0.3 秒ちょうどのすき間が小数の誤差で外れない
             new = round(max(prev["start"] + TRIM_MIN, prev["end"] - sec), 3)
             if new < prev["end"] - 0.005:
                 return _clip_words({**prev, "end": new}, prev["start"], new)

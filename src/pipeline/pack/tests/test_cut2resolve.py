@@ -90,6 +90,15 @@ class TestLongClipTimeouts(unittest.TestCase):
         self.assertEqual(got[-1], PV.PREVIEW_TIMEOUT)
 
 
+class TestParseCutList(unittest.TestCase):
+    def test_negative_time_is_refused(self):
+        """先頭の「-」は区切りではなく負の時刻の打ち間違い(「-1 5」を 1〜5 秒と黙って読まない)。範囲の区切りの「-」は今まで通り"""
+        self.assertEqual(C.parse_cut_list("1-5\n2 - 6\n3 7"), [(1.0, 5.0), (2.0, 6.0), (3.0, 7.0)])
+        for bad in ("-1 5", "－1 5", "1 5\n-2 8"):
+            with self.assertRaises(C.ToolError):
+                C.parse_cut_list(bad)
+
+
 class TestStagedWrite(unittest.TestCase):
     """一時ファイルに書いて付け替える処理(srt2resolve.staged)。途中の失敗を差し込む(付け替えのやり直しは ytt/fsio.py の replace_retry で、そのテストは test_ytt_core)"""
 

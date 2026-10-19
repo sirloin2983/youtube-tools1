@@ -95,6 +95,19 @@ class TestPieces(unittest.TestCase):
         for bad in (None, "", "2026-10-04 06:00:00", "x" * 50, 5):
             self.assertIsNone(R.iso_epoch(bad))
 
+    def test_keep_order_after_reconnect(self):
+        """繋ぎ直しのあとの頭の受信時刻が前のセッションの終わりを下回るとき(手元の HLS で約 0.4 秒)だけ後ろへ送る。下回らない所・空のセッション・元の一覧は変えない"""
+        base = R.iso_epoch("2026-10-04T06:00:00Z")
+        seg = lambda t, d=4.0: {"uri": "x", "pdt": R.epoch_iso(base + t), "dur": d}   # noqa: E731
+        s1 = [seg(0), seg(4)]                        # 終わりは 8 秒
+        s2 = [seg(7.6), seg(11.6), seg(16.5)]        # 頭 2 本が前のセッションの終わり(8 秒)から詰めた位置より前
+        out = R.keep_order([("session_001", s1), ("session_002", []), ("session_003", s2)])
+        self.assertEqual([R.iso_epoch(x["pdt"]) - base for x in out[2][1]], [8.0, 12.0, 16.5])   # 3 本目は詰めた終わり(16 秒)以降なので動かさない
+        self.assertEqual(out[0][1], s1)
+        self.assertAlmostEqual(R.iso_epoch(s2[0]["pdt"]) - base, 7.6, places=3)
+        ok = [seg(8.3)]
+        self.assertEqual(R.keep_order([("session_001", s1), ("session_002", ok)])[1][1], ok)
+
     def test_validate_url(self):
         for ok in ("https://www.youtube.com/watch?v=dQw4w9WgXcQ", "https://youtu.be/dQw4w9WgXcQ", "https://www.youtube.com/live/dQw4w9WgXcQ",
                    "https://www.youtube.com/@channel/live", "https://m.youtube.com/watch?v=abc"):

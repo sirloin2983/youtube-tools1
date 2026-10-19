@@ -85,6 +85,15 @@ class TestAltDiffs(unittest.TestCase):
         self.assertEqual(st["cross"], 0)
 
 
+class TestAltDiffsRowStart(unittest.TestCase):
+    def test_inserted_char_at_row_start_stays_in_that_row(self):
+        """行の頭に足された字は、前の行の終わりの候補にしない(次の行の頭の置き換えにする)"""
+        rows = [_row(1, 0.0, 3.0, "今日は晴れですよ"), _row(2, 3.0, 6.0, "明日は雨になります")]
+        alts = [_alt(0.0, 6.0, "今日は晴れですよ。そして明日は雨になります")]
+        items, _st = S.alt_diffs(rows, alts)
+        self.assertEqual([(x["seg"], x["wrong"], x["right"]) for x in items], [("s2", "明", "そして明")])
+
+
 class _AltStore(StoreDir):
     def setUp(self):
         super().setUp()

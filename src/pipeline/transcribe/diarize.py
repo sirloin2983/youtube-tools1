@@ -82,7 +82,10 @@ def diar_info():
 
 
 def _download_verified(job, item, tmp):
-    """固定の URL からダウンロードし、SHA-256 が想定と一致したものだけを受け入れる(改ざん・別ファイルの混入を防ぐ)。"""
+    """固定の URL からダウンロードし、SHA-256 が想定と一致したものだけを受け入れる(改ざん・別ファイルの混入を防ぐ)。
+    取得を止めているとき(tx_engines.no_fetch)は取らない"""
+    if tx_engines.no_fetch():
+        raise _errors.ApiError("fetch_blocked", "取得を止めているので話者判別のモデルを取りません(%s)" % tx_engines.NO_FETCH_ENV, 409)
     req = urllib.request.Request(item["url"], headers={"User-Agent": "transcribe-tool"})
     h, done = hashlib.sha256(), 0
     with urllib.request.urlopen(req, timeout=30) as r, open(tmp, "wb") as f:
@@ -259,11 +262,12 @@ def smooth_labels(rows, overlaps):
         if lb is None or nb is None or nb != n.get("label") or lb == nb:
             continue
         a, b = i["start"], i["end"]
-        if b - a >= DIAR_SMOOTH_SHORT or a - p["end"] > DIAR_SMOOTH_GAP or n["start"] - b > DIAR_SMOOTH_GAP:
+        eps = 1e-6   # 境目ちょうどの値が小数の誤差で外れない
+        if b - a >= DIAR_SMOOTH_SHORT or a - p["end"] > DIAR_SMOOTH_GAP + eps or n["start"] - b > DIAR_SMOOTH_GAP + eps:
             continue
         if (i.get("ratio") or 0.0) >= DIAR_SMOOTH_RATIO:
             continue
-        if sum(max(0.0, min(b, y) - max(a, x)) for x, y in overlaps if x < b and y > a) >= DIAR_SMOOTH_OVL:
+        if sum(max(0.0, min(b, y) - max(a, x)) for x, y in overlaps if x < b and y > a) >= DIAR_SMOOTH_OVL - eps:
             continue
         out[order[k]] = nb
     return out

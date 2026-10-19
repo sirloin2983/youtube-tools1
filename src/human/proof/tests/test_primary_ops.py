@@ -156,6 +156,15 @@ class DiarPrimaryTest(_Env):
         self.assertIn(key, hum["spkMap"])
         self.assertFalse(any(L.SPK_CHANGED in g["flag"] for g in got["segments"][::2]))
 
+    def test_unsorted_doc_is_sorted_without_layer_warning(self):
+        """時刻の順でない文書を判別しても、層の組み立ての警告は出ない(判別の前に時刻の順に並べる)"""
+        self.start([row(1, 4.0, "う"), row(2, 0.0, "あ"), row(3, 2.0, "い")])
+        with self.assertLogs("tx", level="INFO") as cm:
+            self.diar(TURNS2)
+        self.assertFalse([m for m in cm.output if "WARNING" in m], cm.output)
+        got = store.read_transcript(TID)["segments"]
+        self.assertEqual([(g["start"], g["speaker"]) for g in got], [(0.0, "S1"), (2.0, "S2"), (4.0, "S1")])
+
     def test_new_voice_gets_h_and_weak_flag(self):
         self.start([row(1, 0.0, "あ"), row(2, 2.0, "い"), row(3, 4.0, "う"), row(4, 6.0, "え")])
         self.diar([(0.0, 1.6, 0), (2.0, 3.6, 0), (4.0, 5.6, 0), (6.0, 7.6, 0)])

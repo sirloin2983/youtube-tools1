@@ -29,6 +29,16 @@ def _episode(t, mid, before=None, after=None):
     return rows
 
 
+class TestSmoothBoundary(unittest.TestCase):
+    def test_boundary_values_survive_float_error(self):
+        """境目ちょうどの値は小数の誤差で外れない(前後のすき間 0.6 秒はならす・重なり 0.1 秒はならさない)"""
+        rows = [_r(0, 3, 0, 0.9), _r(3.2, 4.0, 1, 0.3), _r(4.0 + 0.6, 7.6, 0, 0.9)]
+        self.assertEqual(S.smooth_labels(rows, []), {1: 0})
+        rows[2] = _r(4.3, 7.0, 0, 0.9)
+        self.assertEqual(S.smooth_labels(rows, [(3.5, 3.5 + (3.6 - 3.5))]), {})   # 3.6 - 3.5 = 0.0999999… でも 0.1 秒の重なりとして数える
+        self.assertEqual(S.smooth_labels(rows, [(3.5, 3.55)]), {1: 0})
+
+
 class TestSmoothLabels(unittest.TestCase):
     def test_rows_with_every_case(self):
         """場面ごとに 13 秒以上離した行の見本を 1 回 smooth_labels に通す(並びは時刻と逆にして渡す)"""
