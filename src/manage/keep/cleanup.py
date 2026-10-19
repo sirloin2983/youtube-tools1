@@ -32,18 +32,15 @@ from ytt import datadir, fsio, schemas, trashbin
 
 from . import trash as _trash
 
-TRASH_DIR = "ごみ箱"
-# 日数は「精度のデータは残す・ただの控えは早めに消す」の方針(notes:docs/spec/data.md)
-KEEP_DAYS = 3             # 受け付けた依頼の動画(受付済み。作業データに写しがある = ただの控え)を候補に出すまでの日数
-TRASH_DAYS = 3            # ごみ箱フォルダの日付のフォルダを起動時に消すまでの日数
-PACK_AGE_DAYS = 3         # パック(Text+ = 動画のコピー入り)を作ってからこの日数たった元動画も候補(案件の状態を変えなくても出る)
-MANIFEST = _trash.MANIFEST
+# 日数は「精度のデータは残す・ただの控えは早めに消す」の方針(notes:docs/spec/data.md)。値は ytt/trashbin.KEEP_DAYS の 1 か所
+KEEP_DAYS = trashbin.KEEP_DAYS       # 受け付けた依頼の動画(受付済み。作業データに写しがある = ただの控え)を候補に出すまでの日数
+TRASH_DAYS = trashbin.KEEP_DAYS      # ごみ箱フォルダの日付のフォルダを起動時に消すまでの日数
+PACK_AGE_DAYS = trashbin.KEEP_DAYS   # パック(Text+ = 動画のコピー入り)を作ってからこの日数たった元動画も候補(案件の状態を変えなくても出る)
 REQUEST_DIR = placement.REQUEST_DIR   # 書き出し先の下の友人の依頼のフォルダ(依頼)
 APP_INTAKE = "intake"     # 作業データ app の下の、友人の依頼の動画の写し(app\intake\<日付>\<依頼 id>\。書き出し先が固定ディスクでない PC)
 DELIVERIES_LOG = _deliveries.LOG      # 届けた記録(持ち主は ② flow/deliveries。logs の中)
 ROOTS_FILE = "trash-roots.json"   # 作業データの外に作ったごみ箱フォルダの一覧(起動時の purge が見る)
 DRIVE_TRASH = "youtube-tools ごみ箱"   # 動画のドライブに書き出し先が無いときのごみ箱(<ドライブ>\youtube-tools ごみ箱\)
-SIDECARS = (".clip.json", ".edit.json", ".transcript.json", ".cut-plan.json", ".srt", "_edit.mp4", "_edit.clip.json")   # 元動画と一緒に片付ける途中のファイル
 REASON_SUFFIX = ".理由.txt"   # 失敗\\ の物に添える断った理由(受付・送り返しとも。returns._move と intake の決まり)
 KINDS = (("export", "スタジオの書き出しの元動画(パックから %d 日・届けてから %d 日でパックなし)" % (PACK_AGE_DAYS, PACK_AGE_DAYS)),
          ("work", "作業用の途中のファイル(元の動画が無い)"),
@@ -95,24 +92,8 @@ def _parts_item(kind, folder, note, parts=None):
             "mtime": _mtime(folder), "dir": True, "note": note + "(動画とパックだけ。文書は残す)", "extra": [], "parts": parts}
 
 
-def _sidecars(video):
-    """元動画と同じ名前の途中のファイル(動画の隣と 作業用\\)"""
-    folder, stem = os.path.dirname(video), os.path.splitext(os.path.basename(video))[0]
-    out = []
-    for d in (folder, os.path.join(folder, schemas.WORK_DIR)):
-        for suf in SIDECARS:
-            q = os.path.join(d, stem + suf)
-            if os.path.isfile(q):
-                out.append(q)
-    return out
-
-
 def _drive(p):
     return os.path.normcase(os.path.splitdrive(os.path.abspath(p))[0])
-
-
-free_path = _trash.free_path          # 同じ名前があれば (1) (2) …(ごみ箱へ移す決まりは manage/keep/trash の 1 か所)
-append_manifest = _trash.append_manifest
 
 
 class Cleanup:
@@ -129,7 +110,7 @@ class Cleanup:
 
     @property
     def trash_dir(self):
-        return os.path.join(self.app_dir, TRASH_DIR)
+        return os.path.join(self.app_dir, trashbin.TRASH_DIR)
 
     def _out_dirs(self):
         v = self.out_dirs() if callable(self.out_dirs) else self.out_dirs
@@ -143,12 +124,12 @@ class Cleanup:
             return self.trash_dir
         for o in self._out_dirs():
             if _drive(o) == d:
-                return os.path.join(o, TRASH_DIR)
+                return os.path.join(o, trashbin.TRASH_DIR)
         return os.path.join(os.path.splitdrive(os.path.abspath(path))[0] + os.sep, DRIVE_TRASH)
 
     def trash_roots(self):
         """purge が見るごみ箱フォルダ: 作業データ・書き出し先・作ったことのある場所(trash-roots.json)"""
-        roots = [self.trash_dir] + [os.path.join(o, TRASH_DIR) for o in self._out_dirs()]
+        roots = [self.trash_dir] + [os.path.join(o, trashbin.TRASH_DIR) for o in self._out_dirs()]
         roots += [x for x in self._read_roots() if isinstance(x, str)]
         return list(dict.fromkeys(os.path.normcase(os.path.abspath(r)) for r in roots))
 
@@ -227,7 +208,7 @@ class Cleanup:
                             seen.add(key)
                             title = str(c.get("title") or c.get("id") or "")[:40]
                             out.append(_item("export", p, "案件「%s」(届けてから %d 日・パックなし)" % (
-                                title, int((now - sent / 1000.0) // 86400)), _sidecars(p)))
+                                title, int((now - sent / 1000.0) // 86400)), schemas.existing_sidecars(p)))
                     continue
                 at = pk.get("updatedAt") if isinstance(pk, dict) else 0
                 aged = isinstance(pk, dict) and pk.get("textplus") is True and isinstance(at, (int, float)) and at > 0 \
@@ -243,7 +224,7 @@ class Cleanup:
                 seen.add(key)
                 title = str(c.get("title") or c.get("id") or "")[:40]
                 why = "パックから %d 日" % int((now - at / 1000.0) // 86400)
-                it = _item("export", p, "案件「%s」(%s)" % (title, why), _sidecars(p))
+                it = _item("export", p, "案件「%s」(%s)" % (title, why), schemas.existing_sidecars(p))
                 if pack_dir:
                     it["packDir"] = pack_dir   # move の直前にもう一度見る
                 out.append(it)

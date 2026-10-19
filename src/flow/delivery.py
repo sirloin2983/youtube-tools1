@@ -33,14 +33,14 @@ import threading
 import uuid
 
 from pipeline.pack import preview as _preview   # ① パックの題
-from ytt import fsio, tools
+from ytt import fsio, tools, trashbin
 from . import deliver as deliver_mod   # 1 本を届ける(確認用の動画 → meta → zip → 届けた記録)・名前の整え方
 from . import deliveries as deliveries_mod   # 届けた記録の読み口(届け済みのパック)・送らなかった記録の書く口
 from . import envelope as envelope_mod   # 届けるときの出どころの一覧 DELIVER_ORIGINS
 from . import run as run_mod   # 段の失敗 StepError(② の経路)
 
 ENV_SWITCH = "YTT_AUTO_SEND"   # 開発機の守り: off で出どころ auto の届けを止める(switched_off)
-PARK_KEEP_SEC = 3 * 86400      # 置けなかった自動の分を送り直す期限(預けてから。片付けの 3 日 = manage/keep/cleanup の KEEP_DAYS・TRASH_DAYS と同じ)
+PARK_KEEP_SEC = trashbin.KEEP_SEC   # 置けなかった自動の分を送り直す期限(預けてから。物の終わりの日数)
 EXPIRED = "expired"            # 送らなかった記録の理由の鍵(期限切れ。案件の画面の札 cases.js の NOT_SENT と同じ鍵)
 EXPIRED_TEXT = "送らなかった(古くなった)"
 UNCHECKED = "unchecked"        # 同(まとめて実行で「友人へ自動で送る」のチェックを外した)
@@ -169,7 +169,7 @@ class Delivery:
                 run.packs.append(d)   # 前からあったパックも、この実行の並び(1 本目・2 本目…)に入れて同じ数え方で届ける
         if auto:
             try:
-                if not self._outbox_ok(run.deliver_dir):
+                if not deliver_mod.outbox_ok(run.deliver_dir):
                     raise self._place_error(FileNotFoundError(2, "Dropbox のフォルダが見つかりません", os.path.dirname(os.path.normpath(run.deliver_dir))))
                 self._deliver_pending(run)
             except run_mod.StepError as e:
@@ -178,12 +178,6 @@ class Delivery:
             self._deliver_pending(run)
         st["detail"] = "%d 本のパックを Dropbox の 出力 に置きました(字幕は校正前)" % len(run.delivered)
         return None
-
-    @staticmethod
-    def _outbox_ok(out_dir):
-        """出力 の親(受付の Dropbox のフォルダ)があるか(無いのに 出力 を作ると、Dropbox でない所に置いてしまう)"""
-        parent = os.path.dirname(os.path.normpath(out_dir or ""))
-        return bool(parent) and not fsio.is_network_path(parent) and os.path.isdir(parent)
 
     def _park(self, run, st, err):
         """置けなかった自動の分を溜めに預ける(D-SEND 2-6): 鍵 full|<名前の頭>|<配信>(ライブの自動は auto|…)・meta {origin, videoId, parked}。
@@ -358,7 +352,7 @@ class Delivery:
             self.log("まとめて実行: %s の %d 本は届けられないまま預けてから %d 日を過ぎたので、送りませんでした" % (
                 p.get("title") or key, len(left), PARK_KEEP_SEC // 86400))
             return 0
-        if not self._outbox_ok(p.get("deliverDir")):
+        if not deliver_mod.outbox_ok(p.get("deliverDir")):
             return 0
         try:
             n = self._pool_deliver(key, final=True)

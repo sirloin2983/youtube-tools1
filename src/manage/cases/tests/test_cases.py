@@ -19,7 +19,7 @@ from manage.keep import cleanup  # noqa: E402
 from flow import deliver, packrec  # noqa: E402
 from manage.cases import txindex  # noqa: E402
 from flow import casebook  # noqa: E402
-from ytt import casefiles, schemas  # noqa: E402
+from ytt import casefiles, schemas, trashbin  # noqa: E402
 from ytt.testkit import read_json, tempdir, write_json, write_text  # noqa: E402
 
 VID = "abcdefghijk"
@@ -527,11 +527,11 @@ class TestAutoClips(Base):
         for p in (self.auto1, pk, clip_json):
             self.assertFalse(os.path.exists(p), p)
         dest = r["trash"]
-        self.assertTrue(dest.startswith(os.path.join(self.data, "app", cleanup.TRASH_DIR)), dest)
+        self.assertTrue(dest.startswith(os.path.join(self.data, "app", trashbin.TRASH_DIR)), dest)
         self.assertEqual(os.path.basename(os.path.dirname(dest)), cases.DISCARD_KIND)
         self.assertTrue(os.path.isfile(os.path.join(dest, "10_自動.mp4")) and os.path.isfile(os.path.join(dest, "10_自動_pack", "clip.mp4"))
                         and os.path.isfile(os.path.join(dest, schemas.WORK_DIR, "10_自動.clip.json")))
-        with open(os.path.join(os.path.dirname(os.path.dirname(dest)), cleanup.MANIFEST), encoding="utf-8") as f:
+        with open(os.path.join(os.path.dirname(os.path.dirname(dest)), trashbin.MANIFEST), encoding="utf-8") as f:
             self.assertEqual(len(f.read().splitlines()), 3)   # 元の場所の記録(片付けと同じ)
         # スタジオのマークは不採用(画面と同じ PUT /api/video・baseRev つき)
         put = [c for c in self.fs.calls if c[0] == "PUT"]

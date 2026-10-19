@@ -13,14 +13,13 @@ import re
 import threading
 import unicodedata
 
-from ytt import errors as _errors, fsio as _fsio, schemas as _yschemas  # noqa: E402
+from ytt import errors as _errors, fsio as _fsio, schemas as _yschemas, trashbin as _trashbin  # noqa: E402
 from flow import jobs as _heavy  # noqa: E402
 from ytt import settings as _settings  # noqa: E402   評価用のフォルダの判定と設定の読み load_settings(ytt/settings)
 from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所の今の値・動画と音声の拡張子)
 from ytt import txbase as _txbase  # noqa: E402   ロガー log(RS3-E7 まで ed_state の別名で読んでいた)
 from human.proof import store as _store  # noqa: E402   文書の読み書き・保存のロック・履歴・要約(呼ぶたびに _store.名前 で読む)
 from manage.cases import relink as _relink  # noqa: E402   付け替えの書き込み _relink_write・文書が処理中か _doc_busy(呼ぶたびに _relink.名前 で読む)
-from manage.keep import cleanup as _cleanup  # noqa: E402   空いている名前 free_path(仮置きの名前も同じ関数を 2 から・exists で使う)
 
 
 # ---------- 評価用のフォルダ(ユーザー決定。notes:docs/spec/data.md) ----------
@@ -32,7 +31,6 @@ from manage.keep import cleanup as _cleanup  # noqa: E402   空いている名�
 EVAL_STATES = ("済", "未", "未文字起こし")
 EVAL_WALK_DEPTH = 4         # 評価用のフォルダから下へ何段まで(評価用データ\1_JP\01_0期生\評価用データ01_ときのそら = 3段)
 EVAL_WALK_MAX = 20000       # 見るファイルとフォルダの数の上限
-EVAL_SIDECARS = (".clip.json", ".edit.json", ".transcript.json", ".cut-plan.json", ".srt", "_edit.mp4")   # 動画と同じ名前で持つ途中のファイル(manage/keep/cleanup.SIDECARS と同じ。ただし _edit.clip.json は無い。7d-2 で ytt/schemas に寄せる)
 # 仮置き(ユーザー決定): 評価用のフォルダの直下の「評価用_仮置き」で作業し、全行に話者が付いて全行が校正済みになったら、
 # 話した時間が最も長いメンバーのフォルダ(名前が「…数字_メンバー名」のフォルダ)へ「フォルダ名_番号_済」で移す。仮置きの中は名前を変えない
 EVAL_STAGING = "評価用_仮置き"
@@ -89,7 +87,7 @@ def _rename_sidecars(old, new, done=None):
     done = [] if done is None else done
     ostem, nstem = os.path.splitext(os.path.basename(old))[0], os.path.splitext(os.path.basename(new))[0]
     for src, dst in ((_yschemas.work_dir(old), _yschemas.work_dir(new)), (os.path.dirname(old), os.path.dirname(new))):
-        for suf in EVAL_SIDECARS:
+        for suf in _yschemas.SIDECARS:
             a, b = os.path.join(src, ostem + suf), os.path.join(dst, nstem + suf)
             if os.path.isfile(a) and not os.path.exists(b):
                 os.makedirs(dst, exist_ok=True)
@@ -271,8 +269,8 @@ def _eval_outside_docs(dirs, only=None):
 
 
 def _eval_free_name(folder, name):
-    """folder の中で使われていない名前(同じ名前があれば「名前 (2).拡張子」…。付け方は cleanup.free_path と同じ関数を 2 から・exists で)"""
-    return _cleanup.free_path(os.path.join(folder, name), first=2, check=os.path.exists)
+    """folder の中で使われていない名前(同じ名前があれば「名前 (2).拡張子」…。付け方は ytt/trashbin.free_path を 2 から・exists で)"""
+    return _trashbin.free_path(os.path.join(folder, name), first=2, check=os.path.exists)
 
 
 def _eval_intake_one(path, sms, root):

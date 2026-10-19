@@ -50,9 +50,8 @@ import time
 import urllib.parse
 
 from . import txindex   # 同じ manage/cases の兄弟
-from ytt import casefiles, datadir, errors, fsio, schemas, studiodata, tools
+from ytt import casefiles, datadir, errors, fsio, schemas, studiodata, tools, trashbin
 from manage.keep import trash as _trash   # ごみ箱へ移す・戻す・戻せなかった物の記録の 1 か所(OPT-M2)
-from manage.keep import cleanup  # noqa: E402  (ごみ箱フォルダの場所・名前の付け方・manifest・一緒に片付ける途中のファイルの決まりは片付けと同じ)
 from flow import casebook, live_failures   # 失敗の文は 1 か所。線 D の M3 / 案件の採用.json を書く口(RS8 B3-6)
 from flow import deliveries as _deliveries   # 届けた記録の読み口(持ち主は ②。OPT-M2)
 from flow import placement   # 置き場所の持ち主(スタジオの data.json。RS6 b-B0)
@@ -552,7 +551,7 @@ def _find_auto(repo_root, case_id, mark_id, env):
     return c, cl
 
 
-EXPIRE_SEC = 3 * 86400   # 自動の切り抜きを片付けるまで(届けていない物は動画を作ってから・届けた物は届けてから。ユーザー決定)
+EXPIRE_SEC = trashbin.KEEP_SEC   # 自動の切り抜きを片付けるまで(届けていない物は動画を作ってから・届けた物は届けてから。ユーザー決定)
 # 届けた自動の切り抜きも、届けてから EXPIRE_SEC で自動でごみ箱へ(ユーザー「どんどん消していい」= decisions 3-48 Q2)。
 # スイッチ(既定オン = ユーザー「既定でオンにして」。止めるならこの 1 か所を False に)
 TRASH_DELIVERED = True
@@ -705,7 +704,8 @@ def _judge(repo_root, row, env):
 
 
 def _deliver(repo_root, c, cl, deliveries, env):
-    """採用 = 友人へ届ける(M12)。パックを zip にして Dropbox の 出力 へ(deliver.Deliveries。数 GB は時間がかかるので裏で。画面は
+    """採用 = 友人へ届ける(M12)。パックを zip にして Dropbox の 出力 へ(deliver.Deliveries。置き場所の確かめ outbox_ok と 1 本を届ける deliver_one は
+    まとめて実行の届ける段と同じ部品。数 GB は時間がかかるので裏で。画面は
     api/ytt/deliver の status で聞き直す)。届けた記録は Deliveries が ② の deliveries.jsonl に書く(一覧の「届けた」はそこから引く)。
     受け付けたら人の判断(adopt)を 1 行。-> {ok, job, judged}"""
     rv = cl.get("review") or {}
@@ -765,7 +765,7 @@ def discard_clip(trash, studio, video_id, mark_id, media, pack=None):
     マークを変えない(友人の採用の基準はこちらの送る基準と別。ユーザー決定)。
     移す・戻すは ④ keep/trash の 1 か所(設計原則の指摘 1): 戻せずにごみ箱に残った物は manifest に元の場所を書き、ReviewError の文で知らせる"""
     pack = pack if pack is not None else (txindex.pack_dir(media) if media else "")
-    extra = [p for suf in cleanup.SIDECARS for p in schemas.sidecar_candidates(media, suf)] if media else []
+    extra = schemas.existing_sidecars(media) if media else []
     files = [p for p in [media, pack] + extra if p and os.path.exists(p)]
     stem = os.path.splitext(os.path.basename(media or pack))[0] or "clip"
     res = _trash.to_trash(trash, files, DISCARD_KIND, stem, all_or_nothing=True, record=False)

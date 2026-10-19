@@ -10,7 +10,7 @@ zip の中身は cut2resolve の Text+ パックと同じ:
 
 このファイルに持っているもの: 「残す行」の規則(is_kept / kept_spans)・SRT の書式・受け渡しの JSON の組み立て
 (transcript/v1・cut-plan/v1・SRT = build_*。パックが読む形を作る側がここなので、
-manage/cases の pipeline_io は読み・保存・.runtime だけで、pipeline → manage の向きの違反が無い)。
+manage/cases の handoff_io は .clip.json の動画と保存の名前だけで、pipeline → manage の向きの違反が無い)。
 パックの部品(同じフォルダの pack・resolve_textplus)は create_package などを呼んだときに初めて読み込む(文字起こしの他の機能はそれが無くても動く)。
 """
 from __future__ import annotations
@@ -26,7 +26,7 @@ from pathlib import Path
 
 from ytt import errors as _errors, runtime as _runtime, schemas as _schemas
 
-TOOL_NAME = _runtime.TOOL_APPS["transcribe"]   # 受け渡しの tool.name(互換のため値は変えない。manage/cases/pipeline_io も同じ値を持つ)
+TOOL_NAME = _runtime.TOOL_APPS["transcribe"]   # 受け渡しの tool.name(互換のため値は変えない。manage/cases/handoff_io も同じ値を持つ)
 _num = _schemas.num
 
 

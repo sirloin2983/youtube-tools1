@@ -13,6 +13,7 @@ SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.ab
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 from manage.keep import trash as T  # noqa: E402
+from ytt import trashbin  # noqa: E402
 from ytt.testkit import tempdir  # noqa: E402
 
 
@@ -43,7 +44,7 @@ class TrashTest(unittest.TestCase):
         self.clock = lambda: 1790000000.0
 
     def manifest(self, res):
-        with open(os.path.join(res["day"], T.MANIFEST), encoding="utf-8") as f:
+        with open(os.path.join(res["day"], trashbin.MANIFEST), encoding="utf-8") as f:
             return [json.loads(x) for x in f]
 
     def test_moves_and_records(self):
@@ -70,7 +71,7 @@ class TrashTest(unittest.TestCase):
         self.assertEqual([s for s, _t in res["restored"]], [self.clip])
         self.assertTrue(os.path.isfile(self.clip))
         self.assertFalse(os.path.exists(res["dest"]))   # 戻したあとの空のフォルダは消す
-        self.assertFalse(os.path.exists(os.path.join(res["day"], T.MANIFEST)))   # 戻せた物は記録しない
+        self.assertFalse(os.path.exists(os.path.join(res["day"], trashbin.MANIFEST)))   # 戻せた物は記録しない
 
     def test_put_back_failure_is_recorded(self):
         res = T.to_trash(self.trash, [self.clip, self.side], "discard", "a", record=False, clock=self.clock)
@@ -97,8 +98,8 @@ class TrashTest(unittest.TestCase):
 
     def test_free_path(self):
         p = touch(os.path.join(self.tmp, "x.mp4"))
-        self.assertEqual(T.free_path(p), os.path.join(self.tmp, "x (1).mp4"))
-        self.assertEqual(T.free_path(p, first=2), os.path.join(self.tmp, "x (2).mp4"))
+        self.assertEqual(trashbin.free_path(p), os.path.join(self.tmp, "x (1).mp4"))
+        self.assertEqual(trashbin.free_path(p, first=2), os.path.join(self.tmp, "x (2).mp4"))
 
 
 if __name__ == "__main__":

@@ -39,6 +39,13 @@ BAD_CHARS = BAD_NAME_CHARS   # 同じ物の別名(受付と同じ決まり)
 KEEP_JOBS = 20
 
 
+def outbox_ok(out_dir):
+    """出力 の親(受付の Dropbox のフォルダ)があるか(無いのに 出力 を作ると、Dropbox でない所に置いてしまう。ネットワーク上には置かない)。
+    まとめて実行の届ける段(flow/delivery)も手の「採用」(Deliveries.start)もここを通す"""
+    parent = os.path.dirname(os.path.normpath(out_dir or ""))
+    return bool(parent) and not fsio.is_network_path(parent) and os.path.isdir(parent)
+
+
 def safe_name(s, limit=180):
     return BAD_CHARS.sub("_", str(s or ""))[:limit]
 
@@ -209,7 +216,8 @@ class Deliveries:
         folder = self.folder() or ""
         if not folder:
             raise ValueError("友人からの依頼の受付で、Dropbox のフォルダが決まっていません(ホームの設定で指定してください)")
-        if not os.path.isdir(folder):
+        out_dir = os.path.join(folder, OUT_DIR)
+        if not outbox_ok(out_dir):
             raise ValueError("Dropbox のフォルダが見つかりません: %s" % folder)
         title = (title.strip() if isinstance(title, str) else "") or _preview.pack_title(d) or "pack"
         rid = request_id(self.clock())
@@ -228,7 +236,7 @@ class Deliveries:
             for k in [k for k, j in self.jobs.items() if j["state"] != "running"][:-KEEP_JOBS]:
                 del self.jobs[k]
                 self._finished.pop(k, None)
-        threading.Thread(target=self._run, args=(job, os.path.join(folder, OUT_DIR), on_done, run, marks), daemon=True, name="deliver").start()
+        threading.Thread(target=self._run, args=(job, out_dir, on_done, run, marks), daemon=True, name="deliver").start()
         return dict(job)
 
     def running(self, d):

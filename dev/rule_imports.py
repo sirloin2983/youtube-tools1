@@ -533,12 +533,12 @@ def c_c2r_work_dir():
 def c_editor_identity():
     import serve as S
     from ytt import runtime
-    from manage.cases import pipeline_io
+    from manage.cases import handoff_io
     out = []
     if S.APP_ID != runtime.TOOL_APPS["transcribe"]:
         out.append("編集の serve.APP_ID が runtime.TOOL_APPS['transcribe'] と違う")
-    if pipeline_io.TOOL_NAME != runtime.TOOL_APPS["transcribe"]:
-        out.append("pipeline_io.TOOL_NAME が runtime.TOOL_APPS['transcribe'] と違う")
+    if handoff_io.TOOL_NAME != runtime.TOOL_APPS["transcribe"]:
+        out.append("handoff_io.TOOL_NAME が runtime.TOOL_APPS['transcribe'] と違う")
     return out
 
 

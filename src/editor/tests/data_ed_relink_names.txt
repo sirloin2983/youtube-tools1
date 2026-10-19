@@ -1,5 +1,4 @@
 # RS3-E7(2026-10-10)の前に ed_relink が持っていた名前(標準のモジュールと ytt の部品を除く。評価用のフォルダの判定は RS3-1 に ytt/settings へ移したあと)。中身を manage/cases/relink と eval/drill/folders へ分けても serve と ed_relink の名前で読めることを test_names.py が確かめる
-EVAL_SIDECARS
 EVAL_STAGING
 EVAL_STATES
 EVAL_WALK_DEPTH

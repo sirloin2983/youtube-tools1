@@ -70,9 +70,9 @@ PLAYLIST_MAX = 16 * 1024 * 1024
 GAP_TOL = 1.0                  # 区間のセグメントの間がこれより空いていたら「欠け」(P2 の書き出し。PDT の揺れは 0.1 秒ほど)
 RANGE_MAX_SEC = 3 * 3600       # /segments で一度に聞ける区間の長さ
 SEGMENTS_MAX = 5000
-TRASH_DIR = "ごみ箱"            # 消した録画を移す先(置き場所の直下。録画の id の形ではないので録画として読まない)
+TRASH_DIR = trashbin.TRASH_DIR   # 消した録画を移す先(置き場所の直下。録画の id の形ではないので録画として読まない)
 TRASH_KIND = "録画"
-TRASH_DAYS = 3                 # ごみ箱の日付のフォルダを消すまでの日数(④ の manage/keep/cleanup.TRASH_DAYS と同じ 3 日)
+TRASH_DAYS = trashbin.KEEP_DAYS   # ごみ箱の日付のフォルダを消すまでの日数
 PRIORITY = getattr(subprocess, "ABOVE_NORMAL_PRIORITY_CLASS", 0)   # 録画は「通常より上」(書き出し・文字起こしは「通常より下」)
 
 

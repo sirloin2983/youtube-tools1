@@ -15,9 +15,6 @@ import time
 from ytt import fsio, schemas, tools, trashbin
 
 # 名前と記録の形は ytt/trashbin の 1 か所(① の録画の部品も同じ物を使う。LD-1)
-MANIFEST = trashbin.MANIFEST
-free_path = trashbin.free_path
-append_manifest = trashbin.append_manifest
 
 
 def _size(p):
@@ -43,7 +40,7 @@ def to_trash(trash, files, kind, name=None, all_or_nothing=False, need_first=Fal
     res["day"] = os.path.join(root, trashbin.day_name(clock()))
     base = os.path.join(res["day"], kind)
     try:
-        dest = free_path(os.path.join(base, name)) if name else base
+        dest = trashbin.free_path(os.path.join(base, name)) if name else base
         os.makedirs(dest, exist_ok=True)
     except OSError as e:
         res["failed"] = [(p, tools.why(e)) for p in files]
@@ -54,7 +51,7 @@ def to_trash(trash, files, kind, name=None, all_or_nothing=False, need_first=Fal
         try:
             d = os.path.join(dest, sub) if sub else dest
             os.makedirs(d, exist_ok=True)
-            to = free_path(os.path.join(d, os.path.basename(p.rstrip("\\/"))))
+            to = trashbin.free_path(os.path.join(d, os.path.basename(p.rstrip("\\/"))))
             shutil.move(p, to)   # 同じドライブなら改名、別のドライブなら写して消す
             res["moved"].append((p, to))
         except (OSError, shutil.Error) as e:
@@ -86,7 +83,7 @@ def record(res):
 def _record(res, pairs, **extra):
     at = int(res["clock"]() * 1000)
     try:
-        append_manifest(res["day"], [dict({"from": src, "to": to, "at": at, "kind": res["kind"], "bytes": _size(to)}, **extra) for src, to in pairs])
+        trashbin.append_manifest(res["day"], [dict({"from": src, "to": to, "at": at, "kind": res["kind"], "bytes": _size(to)}, **extra) for src, to in pairs])
         return True
     except OSError:   # 書けなくても、移した物は ごみ箱フォルダ の中にある
         return False

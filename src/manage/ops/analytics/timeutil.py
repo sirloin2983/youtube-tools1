@@ -78,9 +78,14 @@ def md_w(d):
     return "%d/%d(%s)" % (d.month, d.day, WEEKDAYS[d.weekday()])
 
 
+def day_end_utc(day):
+    """太平洋時間のその日の終わり(次の日の 0:00)を UTC の aware datetime で"""
+    return pt_day_start_utc(day + datetime.timedelta(days=1))
+
+
 def elapsed_hours_at_day_end(pub_utc, day):
     """公開から、太平洋時間のその日の終わりまでの時間"""
-    return (pt_day_start_utc(day + datetime.timedelta(days=1)) - pub_utc).total_seconds() / 3600.0
+    return (day_end_utc(day) - pub_utc).total_seconds() / 3600.0
 
 
 def add_months(d, n):

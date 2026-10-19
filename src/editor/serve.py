@@ -44,7 +44,7 @@
   GET  /api/edit/pack-readme?id=  前回のパックの手順書(友人へ.txt)
   GET  /api/doc-for?path=    その動画の文書 → {"doc": {"id", "rows"} | null}(?media= で開いたとき。パスを比べるだけ)
   GET  /api/peaks?id=        音の波形(0〜255 の1バイトの並び。X-Peaks-Rate・X-Peaks-Duration)。作っている間は 202
-  受け渡し(notes:docs/spec/pipeline.md。読み・保存・.runtime は manage/cases/pipeline_io.py・JSON と SRT の組み立ては pipeline/pack/resolve_export.py):
+  受け渡し(notes:docs/spec/pipeline.md。読み・保存は manage/cases/handoff_io.py・.runtime は ytt/runtime.py・JSON と SRT の組み立ては flow/pack.py):
   GET  /api/clip-info?path=  動画(または .clip.json)の隣の youtube-tools-clip/v1 → {"clip", "clipPath", "mediaPath", "warning"}
   POST /api/export-file      {"id", "format": transcript-v1|srt|cut-plan-v1} 動画の隣に保存 → {"path", "name", "overwritten", "format", "count"}
   GET  /api/siblings         実行中の他のツールのポート {"tools": {"transcribe": 8775, ...}}
@@ -100,7 +100,6 @@ from ytt import version as _version  # noqa: E402
 from ytt import settings as _settings  # noqa: E402  (編集の設定の読み書きと鍵の検査・評価用のフォルダの判定 = S.load_settings・S.in_eval_dir はここへ届く)
 from ytt import studiodata as _studiodata, tools as _tools, workdata as _workdata  # noqa: E402  (スタジオの data.json の読み口・置き場所と版の今の値・動画と音声の小道具 = S.TX_DIR = …・S.find_ffmpeg = … はここへ届く)
 import ed_state, ed_media  # noqa: E402,F401  (分けた部品)
-from manage.cases import pipeline_io  # noqa: E402  (受け渡しの読み・保存・.runtime)
 from pipeline.pack import resolve_export  # noqa: E402  (Resolve パッケージ(zip)と受け渡しの JSON・SRT の組み立て)
 from ytt import errors as _errors  # noqa: E402
 import ed_thumb  # noqa: E402,F401  (サムネの案のジョブ。提案 P5)
@@ -236,7 +235,7 @@ def _transcript(tid):
 # GET の API: パス → 関数(a(名前, 既定) = URL の引数)→ 応答の JSON。部品の関数は lambda の中で ed_xxx.名前 と呼ぶたびに読む(テストの差し替えが効く)
 GET_API = {
     "/api/ping": lambda a: _ping(),
-    "/api/siblings": lambda a: pipeline_io.siblings(ed_state.runtime_path_dir(), ed_state.TOOL_ID, ed_state.PORT, self_path=ed_state.BASE_PATH),
+    "/api/siblings": lambda a: _runtime.siblings(ed_state.runtime_path_dir(), ed_state.TOOL_ID, ed_state.PORT, self_path=ed_state.BASE_PATH),
     "/api/clip-info": lambda a: _handoff_io.clip_info(a("path")),
     "/api/roster": lambda a: _learn.load_roster(),
     "/api/tools": lambda a: _tools_info(),
@@ -717,7 +716,7 @@ def prepare(port, base_path="/", hooks=False):
         ed_state.log.warning("前回の異常終了を検出: %s", msg)
     ed_state._run_state["started"] = int(time.time())
     ed_state.write_mark(None)
-    rt = pipeline_io.write_runtime(ed_state.runtime_path_dir(), ed_state.TOOL_ID, port, _workdata.SERVER_VERSION, base_path)   # 他のツールの「他のツール」メニューがこのポートを知るため
+    rt = _runtime.write_runtime(ed_state.runtime_path_dir(), ed_state.TOOL_ID, port, _workdata.SERVER_VERSION, base_path)   # 他のツールの「他のツール」メニューがこのポートを知るため
     if rt is None:
         ed_state.log.warning("実行中のポートの記録(.runtime)を書けませんでした: %s", ed_state.runtime_path_dir())
     ed_state.log.info("起動 v%s ポート%d%s メモリ %s python %s", _workdata.SERVER_VERSION, port, "" if base_path == "/" else " 場所" + base_path, ed_state._mem(), sys.version.split()[0])
@@ -754,7 +753,7 @@ def finish():
             pass
     _txworker.WORKER.close()
     ed_state.log.info("終了(正常)")
-    pipeline_io.remove_runtime(ed_state.runtime_path_dir(), ed_state.TOOL_ID, ed_state.PORT)
+    _runtime.remove_runtime(ed_state.runtime_path_dir(), ed_state.TOOL_ID, ed_state.PORT)
     ed_state.clear_mark()
 
 

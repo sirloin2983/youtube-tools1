@@ -224,6 +224,15 @@ def sidecar_candidates(media_path, suffix):
     return [new] if os.path.normcase(new) == os.path.normcase(old) else [new, old]
 
 
+SIDECARS = (".clip.json", ".edit.json", ".transcript.json", ".cut-plan.json", ".srt", "_edit.mp4", "_edit.clip.json")
+# ↑ 動画と同じ名前で持つ途中のファイル(片付け・評価用のフォルダの整理・「要らない」が動画と一緒に動かす)
+
+
+def existing_sidecars(media_path):
+    """動画の途中のファイル(SIDECARS)のうち、あるもの(作業用/ と動画の隣)"""
+    return [p for suf in SIDECARS for p in sidecar_candidates(media_path, suf) if os.path.isfile(p)]
+
+
 def find_sidecar(media_path, suffix):
     """候補のうち、あるもの(無ければ None)。ネットワーク上のパスかどうかは呼び出し側で確かめる
     (os.path.isfile は OSError・ValueError(NUL を含むパス)を中で握って False を返すので、ここでは囲まない)"""

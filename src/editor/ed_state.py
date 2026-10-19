@@ -111,7 +111,7 @@ _mem = _tools.memory_label   # lint: keep 別名(RS2-1a)= 記録用のメモリ�
 
 
 def runtime_path_dir():
-    """<editor の1つ上>/.runtime(環境変数 YTT_RUNTIME_DIR が優先)。pipeline_io.runtime_dir と同じ規則(起動の約束 = app の物)"""
+    """<editor の1つ上>/.runtime(環境変数 YTT_RUNTIME_DIR が優先)。ytt/runtime.runtime_dir と同じ規則(起動の約束 = app の物)"""
     return _runtime.runtime_dir(_workdata.ROOT)
 
 

@@ -28,7 +28,7 @@ sys.path.append(os.path.dirname(HERE))   # src(app 層。入口本体は src/app
 from app import server as L  # noqa: E402
 from app import mount as M  # noqa: E402
 from test_launch import REPO, _copy_tool, free_ports, wait_for  # noqa: E402
-from ytt import layout  # noqa: E402
+from ytt import httpsec, layout  # noqa: E402
 
 STUDIO_DIR, TX_DIR = layout.TOOL_DIRS["studio"], layout.TOOL_DIRS["transcribe"]   # リポジトリの中のフォルダ名
 TOOL_DIRS = (STUDIO_DIR, layout.TOOL_DIRS["cut2resolve"], TX_DIR)
@@ -60,16 +60,16 @@ class TestModuleNames(unittest.TestCase):
 
 class TestHelpers(unittest.TestCase):
     def test_inject_token(self):
-        self.assertEqual(M.inject_token(b"<html><head><title>x</title></head>", "abc"),
+        self.assertEqual(httpsec.inject_token(b"<html><head><title>x</title></head>", "abc"),
                          b'<html><head><title>x</title><meta name="ytt-token" content="abc"></head>')
-        self.assertTrue(M.inject_token(b"<p>no head</p>", "t").startswith(b'<meta name="ytt-token"'))
+        self.assertTrue(httpsec.inject_token(b"<p>no head</p>", "t").startswith(b'<meta name="ytt-token"'))
 
     def test_inject_version_meta(self):
         """版を渡すと meta ytt-version も入る(画面の APP_VERSION の元)。変な文字の版は入れない"""
-        self.assertEqual(M.inject_token(b"<head></head>", "abc", "0.56.0"),
+        self.assertEqual(httpsec.inject_token(b"<head></head>", "abc", "0.56.0"),
                          b'<head><meta name="ytt-token" content="abc"><meta name="ytt-version" content="0.56.0"></head>')
-        self.assertNotIn(b"ytt-version", M.inject_token(b"<head></head>", "abc", '"><script>'))
-        self.assertNotIn(b"ytt-version", M.inject_token(b"<head></head>", "abc"))
+        self.assertNotIn(b"ytt-version", httpsec.inject_token(b"<head></head>", "abc", '"><script>'))
+        self.assertNotIn(b"ytt-version", httpsec.inject_token(b"<head></head>", "abc"))
 
     def test_peek_path(self):
         a, b = socket.socketpair()
@@ -480,7 +480,7 @@ class TestTranscribeMounted(unittest.TestCase):
         self.assertIsNotNone(p.poll())
         self.assertIsNone(L.read_runtime(self.rdir, "transcribe"))
         self.mod.WORKER.closed = False
-        self.mod.pipeline_io.write_runtime(self.mod.runtime_path_dir(), "transcribe", self.port, self.mod.SERVER_VERSION, "/transcribe/")
+        self.mod._runtime.write_runtime(self.mod.runtime_path_dir(), "transcribe", self.port, self.mod.SERVER_VERSION, "/transcribe/")
 
 
 @unittest.skipUnless(os.path.isfile(os.path.join(REPO, STUDIO_DIR, "serve.py")), "スタジオのフォルダが無い")

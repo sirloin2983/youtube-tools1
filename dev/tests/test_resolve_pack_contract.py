@@ -47,7 +47,6 @@ for d in (ROOT / "editor", ROOT):
 from pipeline.pack import pack  # noqa: E402
 from pipeline.pack import resolve_textplus as TP  # noqa: E402
 from pipeline.pack import srt2resolve as S  # noqa: E402
-from manage.cases import pipeline_io  # noqa: E402,F401
 from pipeline.pack import resolve_export  # noqa: E402
 from ytt import errors as _errors  # noqa: E402
 

@@ -65,7 +65,7 @@ FILES = {
     "src/studio/handoff.py": ("app", "app", "実行中のポートの共有(.runtime・/api/siblings)だけが残る。RS3-5 で .clip.json の組み立てと書き込みを pipeline/export/manifest.py へ割った(OPT1 で exporter.write_clip に畳んだ)"),
     # ---- editor
     # ---- ed_drill・ed_evalbatch は eval/drill の drill・evalbatch(殻なし。決定 3-25 #7。DIRS で読む)
-    # ---- resolve_export は pipeline/pack(受け渡しの JSON と SRT の組み立て build_* も一緒)・pipeline_io は manage/cases(読み・保存・.runtime)。どちらも DIRS で読む
+    # ---- resolve_export は pipeline/pack(受け渡しの JSON と SRT の組み立て build_* も一緒)・handoff_io は manage/cases(.clip.json の動画・動画の隣への保存)。どちらも DIRS で読む
     "src/editor/ed_media.py": ("app", "app", "動画の配信"),
     "src/editor/ed_thumb.py": ("app", "app", "サムネの配信"),
     "src/editor/thumb_ideas.py": ("human", "human/cut", "サムネの案(P5)"),

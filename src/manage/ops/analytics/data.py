@@ -108,10 +108,7 @@ def _num(v):
 
 def member_matcher(entries):
     """メンバーの一覧(ytt.colors.load の結果)→ 題名 → [メンバーの名前](出てきた順・重なりなし)"""
-    try:
-        from ytt import colors
-    except ImportError:   # 単体で読むテスト(ytt が無い)では照らし合わせない
-        return lambda title: []
+    from ytt import colors
     keys = {}
     for e in entries or []:
         for k in (e.get("name"), e.get("en"), e.get("id")):

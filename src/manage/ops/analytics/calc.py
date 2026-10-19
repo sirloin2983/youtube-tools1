@@ -45,10 +45,6 @@ def confirmed(ds):
     return {"ptToday": ds.pt_today, "ev": ev, "rev": max(revs) if revs else None, "last": last}
 
 
-def day_end_utc(day):
-    return T.pt_day_start_utc(day + DAY)
-
-
 # ------------------------------------------------------------------ 動画ごとの伸び(経過時間)
 
 def points(v, until_day):
@@ -94,7 +90,7 @@ class Curve:
     記録の先は、伸び率 − 1 が最後の 3 週と同じ割合で小さくなっていくとして伸ばす"""
 
     def __init__(self, videos, until_day, min_n=8):
-        end = day_end_utc(until_day)
+        end = T.day_end_utc(until_day)
         series = []
         for v in videos:
             if v.pub is None or v.pub >= end:
@@ -151,7 +147,7 @@ class Curve:
 
 def quality(v, curve, until_day, prior_h=24.0):
     """その動画の伸びの強さ q(平均の伸び方に対する倍率)。公開直後は平均(1)に寄せる(少ないデータで振れないように)"""
-    end = day_end_utc(until_day)
+    end = T.day_end_utc(until_day)
     h = (end - v.pub).total_seconds() / 3600.0
     if h <= 0:
         return 1.0
@@ -196,7 +192,7 @@ class Model:
 
     def __init__(self, ds, origin):
         self.ds, self.origin = ds, origin
-        end = day_end_utc(origin)
+        end = T.day_end_utc(origin)
         self.vids = [v for v in shorts_with_days(ds) if v.pub < end]
         self.curve = Curve(self.vids, origin)
         self.q = {v.id: quality(v, self.curve, origin) for v in self.vids}
@@ -218,7 +214,7 @@ class Model:
 
     def pool_between(self, lo, hi):
         """lo〜hi(UTC)に公開して、origin の時点で 72 時間たった動画の q"""
-        last = day_end_utc(self.origin) - datetime.timedelta(hours=72)
+        last = T.day_end_utc(self.origin) - datetime.timedelta(hours=72)
         return [self.q[v.id] for v in self.vids if lo <= v.pub < hi and v.pub <= last]
 
     def base_daily(self, day, lam=None):
@@ -336,9 +332,9 @@ def backtest(ds, conf, horizon=28, origins=5):
         m = Model(ds, origin)
         days = [origin + (i + 1) * DAY for i in range(horizon)]
         pred = sum(m.base_daily(d) for d in days)
-        end = day_end_utc(origin)
+        end = T.day_end_utc(origin)
         mean_q = statistics.fmean(m.pool)
-        fut = [v for v in ds.public_videos(short=True) if v.pub is not None and end <= v.pub < day_end_utc(days[-1])]
+        fut = [v for v in ds.public_videos(short=True) if v.pub is not None and end <= v.pub < T.day_end_utc(days[-1])]
         pred += sum(mean_q * m.slot_total(v.pub, days) for v in fut)
         actual = sum(ds.value("shorts", "ev", d) for d in days)
         if actual > 0:
@@ -371,7 +367,7 @@ def pools_for(m, conf, boundary):
     MIN_POOL 本に足りない方は出さない(両方足りなければ直近 POOL_DAYS 日)"""
     b = boundary_utc(boundary)
     out = {}
-    after = m.pool_between(b, day_end_utc(conf["ev"]))
+    after = m.pool_between(b, T.day_end_utc(conf["ev"]))
     before = m.pool_between(b - datetime.timedelta(days=POOL_DAYS), b)
     if len(after) >= MIN_POOL:
         out["after"] = after
@@ -517,7 +513,7 @@ def cannibalization(ds, conf, days=120):
     """A2 食い合いの推定(本数を下げて試してはいない = これまでの実績から)。
     1 本ずつの公開 72 時間の EV を、その週(日本時間)の中央値で割った値の対数を、その日の本数の対数で回帰した傾き。e = −傾き。
     週の中で比べるので、チャンネル全体の調子の変化は除かれる。日の本数の幅が狭いと推定はぶれる"""
-    end = day_end_utc(conf["ev"])
+    end = T.day_end_utc(conf["ev"])
     lo = end - datetime.timedelta(days=days)
     vids = [(v, video_metric(v, conf, 72)) for v in ds.public_videos(short=True) if lo <= v.pub < end]
     vids = [(v, x) for v, x in vids if x and x > 0]
@@ -558,7 +554,7 @@ def cannibalization(ds, conf, days=120):
 def strength_trend(ds, conf, boundary, months=6):
     """② 1 本あたりの強さの推移: 公開した月(日本時間)ごとと、境目以降の公開 7 日の EV(平均と中央値・平均の 80% の幅)"""
     rnd = random.Random(11)
-    end = day_end_utc(conf["ev"])
+    end = T.day_end_utc(conf["ev"])
     items = [(v, video_metric(v, conf, WEEK_HOURS)) for v in ds.public_videos(short=True) if v.pub < end]
     items = [(v, x) for v, x in items if x is not None]
     first = T.add_months(conf["ev"].replace(day=1), -(months - 1))
@@ -608,7 +604,7 @@ def ledger_eval(ds, conf, rows):
 
 def bench(ds, conf, hours, days=90):
     """比べる相手: 確定の日から見て hours 時間以上たったショートのうち、直近 days 日に公開したもの。-> 値の昇順"""
-    end = day_end_utc(conf["ev"])
+    end = T.day_end_utc(conf["ev"])
     lo = end - datetime.timedelta(days=days)
     out = []
     for v in shorts_with_days(ds):
@@ -639,7 +635,7 @@ def label(p):
 
 def launches(ds, conf, days=7):
     """直近 days 日(日本時間)に公開したショートの初動。確定した経過時間のうち 72・48・24 時間の大きいほうで、過去の同じ時間と比べた順位"""
-    end = day_end_utc(conf["ev"])
+    end = T.day_end_utc(conf["ev"])
     benches = {h: bench(ds, conf, h) for h in LAUNCH_HOURS}
     vtrs = sorted(v.vtr for v in ds.public_videos(short=True) if v.vtr and v.pub and v.pub >= end - datetime.timedelta(days=90))
     today = T.jst_date(ds.fetched)
@@ -681,7 +677,7 @@ def anomalies(ds, conf, weeks=8):
     def stats(days):
         ev = sum(ds.value("shorts", "ev", d) for d in days)
         vw = sum(ds.value("shorts", "views", d) for d in days)
-        lo, hi = T.pt_day_start_utc(days[-1]), day_end_utc(days[0])
+        lo, hi = T.pt_day_start_utc(days[-1]), T.day_end_utc(days[0])
         l24 = [cum_at(points(v, conf["ev"]), 24) for v in vids if lo <= v.pub < hi]
         l24 = [x for x in l24 if x is not None]
         vt = [v.vtr for v in allv if v.vtr and lo <= v.pub < hi]
@@ -735,19 +731,25 @@ def day_report_numbers(ds, conf):
 def video_metric(v, conf, hours):
     if not covered(v):
         return None
-    if (day_end_utc(conf["ev"]) - v.pub).total_seconds() / 3600.0 < hours:
+    if (T.day_end_utc(conf["ev"]) - v.pub).total_seconds() / 3600.0 < hours:
         return None
     return cum_at(points(v, conf["ev"]), hours)
+
+
+def _groups(rows, key_fn):
+    """rows = [(video, 値)] → {群: [値]}(key_fn(video) が返す群のどれにも入れる)"""
+    groups = {}
+    for v, x in rows:
+        for k in key_fn(v) or []:
+            groups.setdefault(k, []).append(x)
+    return groups
 
 
 def group_table(rows, key_fn, order=None, min_n=MIN_GROUP):
     """rows = [(video, 値)] → 群ごとの本数・中央値・全体の中央値との比"""
     allv = [x for _, x in rows]
     overall = statistics.median(allv) if allv else None
-    groups = {}
-    for v, x in rows:
-        for k in (key_fn(v) or []):
-            groups.setdefault(k, []).append(x)
+    groups = _groups(rows, key_fn)
     out = []
     for k, xs in groups.items():
         if len(xs) < min_n:
@@ -761,16 +763,22 @@ def group_table(rows, key_fn, order=None, min_n=MIN_GROUP):
     return {"rows": out, "overall": round(overall) if overall is not None else None, "n": len(rows)}
 
 
-def length_band(v):
-    for lo, hi, name in LENGTH_BANDS:
-        if lo <= v.length <= hi:
+def _band(x, bands, closed=False):
+    """値 x が入る帯の名前 [名前](無ければ [])。bands = ((下, 上, 名前), …)。closed = 上の端も入れる"""
+    if x is None:
+        return []
+    for lo, hi, name in bands:
+        if lo <= x < hi or (closed and x == hi):
             return [name]
     return []
 
 
+def length_band(v):
+    return _band(v.length, LENGTH_BANDS, closed=True)
+
+
 def hour_band(v):
-    h = v.pub_jst.hour
-    return [name for lo, hi, name in HOUR_BANDS if lo <= h < hi]
+    return _band(v.pub_jst.hour, HOUR_BANDS)
 
 
 def week_report(ds, conf, posts, outlook=None):
@@ -787,7 +795,7 @@ def week_report(ds, conf, posts, outlook=None):
                   "prevShort": count_posts(ds, start_jst - 7 * DAY, end_jst - 7 * DAY)}
     # その週に公開したショートの 72 時間(確定したものだけ)と、直近 28 日の配信者別・長さ別
     lo = T.pt_day_start_utc(days[-1])
-    hi = day_end_utc(days[0])
+    hi = T.day_end_utc(days[0])
     b72 = bench(ds, conf, 72)
     wk = []
     for v in ds.public_videos(short=True):
@@ -815,7 +823,7 @@ def week_report(ds, conf, posts, outlook=None):
 def effect_table(ds, conf, end_day, days=90, hours=WEEK_HOURS):
     """効き目の表(4-4): 直近 days 日に公開したショートの 7 日の EV を、要因ごとに比べる。
     群ごとに本数・中央値・全体との比・期間の前半と後半で同じ向きか・同じ配信者の中で比べた比"""
-    hi = day_end_utc(end_day)
+    hi = T.day_end_utc(end_day)
     lo = hi - datetime.timedelta(days=days)
     rows = []
     for v in ds.public_videos(short=True):
@@ -914,7 +922,7 @@ def check(ds, conf, posts):
     b = sum(1 for v in shorts_with_days(ds) if lo <= v.pub_jst.date() <= T.jst_date(ds.fetched) - DAY)
     if a != b:
         out.append("直近 7 日のショートの本数が、動画の一覧(%d 本)と日ごとの記録(%d 本)で違います" % (a, b))
-    if (ds.fetched - day_end_utc(conf["ev"])).total_seconds() > 4 * 86400:
+    if (ds.fetched - T.day_end_utc(conf["ev"])).total_seconds() > 4 * 86400:
         out.append("データが古い可能性があります(確定の日から 4 日以上)")
     return out
 
@@ -975,7 +983,7 @@ def regime_compare(ds, conf, boundary):
         return sum(ds.value(kind, metric, d) for d in days) / len(days)
     rev_after = [d for d in after_days if conf["rev"] and d <= conf["rev"]]
     rev_before = [boundary - (i + 1) * DAY for i in range(len(rev_after))]
-    end = day_end_utc(conf["ev"])
+    end = T.day_end_utc(conf["ev"])
     b = boundary_utc(boundary)
     hit_line = bench(ds, conf, 72)
     top = hit_line[int(0.8 * (len(hit_line) - 1))] if hit_line else None
@@ -1015,21 +1023,9 @@ AWP_BANDS = ((0, 80, "〜80%"), (80, 95, "80〜95%"), (95, 110, "95〜110%"), (1
 LOOP_BANDS = ((0, 1.8, "〜1.8"), (1.8, 2.1, "1.8〜2.1"), (2.1, 2.4, "2.1〜2.4"), (2.4, 2.8, "2.4〜2.8"), (2.8, 10**6, "2.8〜"))
 
 
-def _band(x, bands):
-    if x is None:
-        return []
-    for lo, hi, name in bands:
-        if lo <= x < hi:
-            return [name]
-    return []
-
-
 def _hit_table(rows, key_fn, order, top):
     """群ごとの本数・中央値・当たり(期間の上位 20%)の割合"""
-    groups = {}
-    for v, x in rows:
-        for k in key_fn(v) or []:
-            groups.setdefault(k, []).append(x)
+    groups = _groups(rows, key_fn)
     out = []
     for k in order:
         xs = groups.get(k) or []
@@ -1040,7 +1036,7 @@ def _hit_table(rows, key_fn, order, top):
 
 def deep_dive(ds, conf, end_day, days=90, hours=WEEK_HOURS):
     """結果の指標と当たり率・登録・収益・当たりへの頼り具合・配信者の勢い・題名・伸びの続き方・長尺"""
-    hi = day_end_utc(end_day)
+    hi = T.day_end_utc(end_day)
     lo = hi - datetime.timedelta(days=days)
     shorts = [v for v in ds.public_videos(short=True) if lo <= v.pub < hi]
     rows = [(v, x) for v in shorts for x in [video_metric(v, conf, hours)] if x is not None]

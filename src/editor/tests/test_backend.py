@@ -29,9 +29,9 @@ os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))   # 一時フォル
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 import serve as S  # noqa: E402
-from manage.cases import pipeline_io as P  # noqa: E402   (読み・保存・.runtime)
+from manage.cases import handoff_io as P  # noqa: E402   (.clip.json が指す動画・動画の隣への保存)
 from pipeline.pack import resolve_export as RE  # noqa: E402   (受け渡しの JSON と SRT の組み立て build_*。RS3-E5b)
-from ytt import testkit  # noqa: E402
+from ytt import fsio, runtime, schemas, testkit  # noqa: E402
 
 TID = "0123456789ab"
 
@@ -292,10 +292,6 @@ class TestBomTolerant(StoreDir):
         with open(S.ROSTER, "w", encoding="utf-8-sig") as f:
             json.dump({"asOf": "2026-09-22", "groups": [{"id": "g", "label": "G", "names": ["兎田ぺこら"]}]}, f, ensure_ascii=False)
         self.assertEqual(S.load_roster()["groups"][0]["names"], ["兎田ぺこら"])
-        p = os.path.join(self.tmp, "data.json")
-        with open(p, "w", encoding="utf-8-sig") as f:
-            json.dump({"videos": {}}, f)
-        self.assertEqual(S._read_json_file(p), {"videos": {}})
 
 
 class TestModelName(unittest.TestCase):
@@ -318,12 +314,12 @@ class TestModelName(unittest.TestCase):
 
 class TestClipValidation(unittest.TestCase):
     def test_valid_clip_keeps_unknown_fields(self):
-        clip, warn = P.validate_clip(clip_obj())
+        clip, warn = schemas.validate_clip(clip_obj())
         self.assertIsNone(warn)
         self.assertEqual(clip["futureField"], {"x": 1})     # 知らない項目も残す(前方互換)
-        self.assertEqual(P.clip_offset(clip), 1234.5)
-        clip2, _ = P.validate_clip(clip_obj(export={"mode": "fast", "actualStart": 1231.0}))
-        self.assertEqual(P.clip_offset(clip2), 1231.0)      # 高速書き出しのずれは actualStart を優先
+        self.assertEqual(schemas.clip_offset(clip), 1234.5)
+        clip2, _ = schemas.validate_clip(clip_obj(export={"mode": "fast", "actualStart": 1231.0}))
+        self.assertEqual(schemas.clip_offset(clip2), 1231.0)      # 高速書き出しのずれは actualStart を優先
 
     def test_invalid_or_other_version(self):
         cases = [
@@ -338,7 +334,7 @@ class TestClipValidation(unittest.TestCase):
             (clip_obj(export={"actualStart": "abc"}), "actualStart"),
         ]
         for obj, word in cases:
-            clip, warn = P.validate_clip(obj)
+            clip, warn = schemas.validate_clip(obj)
             self.assertIsNone(clip, obj)
             self.assertIn(word, warn)
 
@@ -348,13 +344,13 @@ class TestClipValidation(unittest.TestCase):
         with open(media, "wb") as f:
             f.write(b"x")
         cj = os.path.join(tmp, "動画_0012.clip.json")                          # 動画の隣の置き方も読む
-        self.assertEqual(P.clip_path_for(media), os.path.join(tmp, P.schemas.WORK_DIR, "動画_0012.clip.json"))   # 書くのは 作業用\
-        self.assertEqual(P.find_clip(media), (None, None, None))           # 無ければ何もしない
+        self.assertEqual(schemas.clip_path_for(media), os.path.join(tmp, schemas.WORK_DIR, "動画_0012.clip.json"))   # 書くのは 作業用\
+        self.assertEqual(schemas.find_clip(media), (None, None, None))           # 無ければ何もしない
         with open(cj, "w", encoding="utf-8-sig") as f:                     # BOM 付きでも読む
             json.dump(clip_obj(), f, ensure_ascii=False)
-        clip, warn, path = P.find_clip(media, 24.5)
+        clip, warn, path = schemas.find_clip(media, 24.5)
         self.assertEqual((clip["range"]["start"], warn, path), (1234.5, None, cj))
-        clip, warn, _ = P.find_clip(media, 60.0)                          # 長さが大きく違えば警告(clip は使う)
+        clip, warn, _ = schemas.find_clip(media, 60.0)                          # 長さが大きく違えば警告(clip は使う)
         self.assertIsNotNone(clip)
         self.assertIn("長さ", warn)
         # media.path は別の PC のパス → 同じフォルダの media.name を使う
@@ -370,17 +366,17 @@ class TestClipValidation(unittest.TestCase):
         finally:
             os.unlink(outside)
         # .clip.json の中のネットワークのパスには接続しない
-        self.assertTrue(P.is_network_path("\\\\host\\share\\x.mp4") and P.is_network_path("//host/x.mp4"))
-        self.assertFalse(P.is_network_path("C:\\x.mp4") or P.is_network_path("/home/x.mp4") or P.is_network_path("Z:/x.mp4"))
+        self.assertTrue(fsio.is_network_path("\\\\host\\share\\x.mp4") and fsio.is_network_path("//host/x.mp4"))
+        self.assertFalse(fsio.is_network_path("C:\\x.mp4") or fsio.is_network_path("/home/x.mp4") or fsio.is_network_path("Z:/x.mp4"))
         seen, real_isfile = [], os.path.isfile
         with patch.object(os.path, "isfile", lambda c: seen.append(c) or real_isfile(c)):
             P.resolve_clip_media(cj, dict(clip, media={"path": "\\\\evil\\share\\x.mp4", "name": ""}), S.MEDIA_TYPES)
         self.assertFalse(any("evil" in c for c in seen))
         # 壊れた JSON・大きすぎるファイルは使わない
         testkit.write_text(cj, "{broken")
-        self.assertIsNone(P.load_clip_file(cj)[0])
-        testkit.write_text(cj, " " * (P.MAX_SIDECAR_BYTES + 10))
-        self.assertIn("大きすぎ", P.load_clip_file(cj)[1])
+        self.assertIsNone(schemas.load_clip_file(cj)[0])
+        testkit.write_text(cj, " " * (schemas.MAX_CLIP_BYTES + 10))
+        self.assertIn("大きすぎ", schemas.load_clip_file(cj)[1])
 
 
 def sample_doc(src):
@@ -447,30 +443,30 @@ class TestSaveBeside(unittest.TestCase):
         return json.dumps({"schema": schema, "tool": {"name": "transcribe-tool", "version": "1"}}).encode()
 
     def test_overwrite_only_own_same_schema(self):
-        sch = P.TRANSCRIPT_SCHEMA
+        sch = schemas.TRANSCRIPT_SCHEMA
         p1, ow = P.save_beside(self.media, ".transcript.json", self.own(sch), sch)
         self.assertEqual((os.path.basename(p1), ow), ("動画 A.transcript.json", False))
         p2, ow = P.save_beside(self.media, ".transcript.json", self.own(sch), sch)
         self.assertEqual((p2, ow), (p1, True))                                     # 前にこのツールが書いたものは上書き
-        self.assertEqual(os.path.dirname(p1), os.path.join(self.tmp, P.schemas.WORK_DIR))   # 途中のファイルは 作業用\
-        other = os.path.join(self.tmp, P.schemas.WORK_DIR, "動画 A.cut-plan.json")
-        write_json(other, {"schema": P.CUT_PLAN_SCHEMA, "segments": []})           # 同じ schema でも他のツール(tool なし)が書いたもの
-        p3, ow = P.save_beside(self.media, ".cut-plan.json", self.own(P.CUT_PLAN_SCHEMA), P.CUT_PLAN_SCHEMA)
+        self.assertEqual(os.path.dirname(p1), os.path.join(self.tmp, schemas.WORK_DIR))   # 途中のファイルは 作業用\
+        other = os.path.join(self.tmp, schemas.WORK_DIR, "動画 A.cut-plan.json")
+        write_json(other, {"schema": schemas.CUT_PLAN_SCHEMA, "segments": []})           # 同じ schema でも他のツール(tool なし)が書いたもの
+        p3, ow = P.save_beside(self.media, ".cut-plan.json", self.own(schemas.CUT_PLAN_SCHEMA), schemas.CUT_PLAN_SCHEMA)
         self.assertEqual((os.path.basename(p3), ow), ("動画 A (2).cut-plan.json", False))
         with open(other, encoding="utf-8") as f:
             self.assertEqual(json.load(f)["segments"], [])                          # 元のファイルは無事
-        p4, ow = P.save_beside(self.media, ".cut-plan.json", self.own(P.CUT_PLAN_SCHEMA), P.CUT_PLAN_SCHEMA)
+        p4, ow = P.save_beside(self.media, ".cut-plan.json", self.own(schemas.CUT_PLAN_SCHEMA), schemas.CUT_PLAN_SCHEMA)
         self.assertEqual((os.path.basename(p4), ow), ("動画 A (2).cut-plan.json", True))   # 別名の (2) も自分が書いたものなら上書き(書き出すたびに増えない)
 
     def test_srt_never_overwrites(self):
         names = [os.path.basename(P.save_beside(self.media, ".srt", b"1\n", None)[0]) for _ in range(3)]
         self.assertEqual(names, ["動画 A.srt", "動画 A (2).srt", "動画 A (3).srt"])
-        self.assertEqual([n for n in os.listdir(os.path.join(self.tmp, P.schemas.WORK_DIR)) if n.startswith(".tmp-")], [])   # 一時ファイルが残らない
+        self.assertEqual([n for n in os.listdir(os.path.join(self.tmp, schemas.WORK_DIR)) if n.startswith(".tmp-")], [])   # 一時ファイルが残らない
 
     def test_does_not_clobber_file_created_meanwhile(self):
         """名前を決めてから置くまでの間に同じ名前のファイルができても、上書きしない(ハードリンクで置く)。"""
         real_lexists = os.path.lexists
-        target = os.path.join(self.tmp, P.schemas.WORK_DIR, "動画 A.srt")
+        target = os.path.join(self.tmp, schemas.WORK_DIR, "動画 A.srt")
         calls = []
 
         def racy(p):
@@ -510,10 +506,10 @@ class TestRuntime(unittest.TestCase):
         write_json(os.path.join(self.dir, "studio.json"), {"tool": "studio", "port": 8801})
         write_json(os.path.join(self.dir, "cut2resolve.json"), {"tool": "cut2resolve", "port": "8810"})     # 文字列
         write_json(os.path.join(self.dir, "evil.json"), {"tool": "evil", "port": 22})                         # 知らないツール
-        entries = lambda: [(t, info["port"]) for t in P.RUNTIME_TOOLS for info in [P.runtime.read_runtime(self.dir, t)] if info]   # noqa: E731
+        entries = lambda: [(t, info["port"]) for t in runtime.TOOL_APPS for info in [runtime.read_runtime(self.dir, t)] if info]   # noqa: E731
         self.assertEqual(entries(), [("studio", 8801)])
         for bad in (0, 70000, True, 8.5, None, -1):
-            self.assertFalse(P.valid_port(bad), bad)
+            self.assertFalse(runtime.valid_port(bad), bad)
         write_json(os.path.join(self.dir, "studio.json"), {"tool": "cut2resolve", "port": 8801})              # 名前と中身が違う
         self.assertEqual(entries(), [])
 

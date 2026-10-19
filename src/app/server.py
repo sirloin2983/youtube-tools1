@@ -757,7 +757,7 @@ class PortalHandler(BaseHTTPRequestHandler):
                 return self._send(404, b"not found")
             page = name.endswith(".html")
             if page:   # 書き込み系の API の合言葉(CSRF トークン)を画面に渡す。取り込んだツールと同じ合言葉
-                body = mount_mod.inject_token(body, self.server.token)
+                body = httpsec.inject_token(body, self.server.token)
             return self._send(200, body, STATIC_TYPES[os.path.splitext(name)[1]],
                               {"Content-Security-Policy": PAGE_CSP.get(u.path, CSP), "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer"} if page else None)
         sup, q = self.server.sup, urllib.parse.parse_qs(u.query)

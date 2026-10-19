@@ -23,10 +23,10 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(REPO, "src")
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
-from ytt import datadir  # noqa: E402
+from ytt import datadir, trashbin  # noqa: E402
 
 NAME_RE = re.compile(r"^([0-9A-Za-z_-]{1,64})__diag-(\d{13})\.diag\.json$")   # src/friendapp/diag.py の NAME_RE と同じ
-KEEP_DAYS = 3                       # 物の終わりの日数(src/manage/keep/cleanup.py・src/friendapp/inbox.KEEP_DAYS と同じ)
+KEEP_DAYS = trashbin.KEEP_DAYS      # 物の終わりの日数
 CAP = 1024 * 1024                   # 1 つの読む上限
 FOLDER = "診断"
 

@@ -21,6 +21,7 @@ import threading
 import time
 import traceback
 
+from ytt import fsio, httpsec, jobs
 from ytt.version import VERSION  # 全体の版(ytt/version.py。パッケージの __init__ には import を置かない = test_layering)
 from . import bridge as bridge_mod, calc, data, render
 
@@ -61,8 +62,8 @@ class Service:
         self.clock = clock or time.time
         self.sims = sims
         self.check_every, self.first_wait = check_every, first_wait
-        self.write = write or _atomic_write
-        self.token = token               # 入口の合言葉(画面に渡す。入口の inject_token と同じ)
+        self.write = write or fsio.atomic_write
+        self.token = token               # 入口の合言葉(画面に渡す。ytt/httpsec.inject_token)
         self.lock = threading.Lock()     # 分析・送信は 1 つずつ
         self.wake = threading.Event()
         self.closed = False
@@ -79,11 +80,7 @@ class Service:
         return os.path.join(self.dir, *parts)
 
     def _read_json(self, *parts):
-        try:
-            with open(self.path(*parts), "rb") as f:
-                return json.loads(f.read(64 * 1024 * 1024).decode("utf-8-sig"))
-        except (OSError, ValueError):
-            return None
+        return fsio.read_json_or(self.path(*parts), None, 64 * 1024 * 1024)
 
     def _write_json(self, obj, *parts):
         os.makedirs(os.path.dirname(self.path(*parts)), exist_ok=True)
@@ -357,7 +354,7 @@ class Service:
             extra = None
             if name.endswith(".html"):
                 if self.token:
-                    body = _inject_token(body, self.token)
+                    body = httpsec.inject_token(body, self.token)
                 extra = {"Content-Security-Policy": CSP, "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer"}
             h._send(200, body, ctype, extra)
             return True
@@ -411,30 +408,7 @@ class Service:
 
 def _heavy(fn, label):
     """見込みの計算(数秒〜十数秒)は、他のツールの重い処理と順番を待つ(ytt.jobs.SLOTS。AGENTS.md の決まり)"""
-    try:
-        from ytt import jobs
-    except ImportError:
-        return fn()
     with jobs.SLOTS.slot("analytics", label) as ok:
         if not ok:
             raise data.DataError("取り消されました")
         return fn()
-
-
-def _inject_token(body, token):
-    tag = ('<meta name="ytt-token" content="%s">' % token).encode("ascii")
-    i = body.find(b"</head>")
-    return body[:i] + tag + body[i:] if i >= 0 else tag + body
-
-
-def _atomic_write(path, data_bytes):
-    try:
-        from ytt import fsio
-        fsio.atomic_write(path, data_bytes)
-    except ImportError:
-        tmp = path + ".tmp"
-        with open(tmp, "wb") as f:
-            f.write(data_bytes)
-        os.replace(tmp, path)
-
-

@@ -17,7 +17,6 @@
 """
 import importlib.util
 import os
-import re
 import sys
 import threading
 import time
@@ -101,17 +100,6 @@ def load_serve(root, tool_id):
     return mod
 
 
-def inject_token(body, token, version=None):
-    """画面(HTML)の </head> の直前に合言葉を入れる。token は英数字・-・_ だけ(secrets.token_urlsafe)なので、そのまま入れても HTML は壊れない。
-    version があれば <meta name="ytt-version"> も入れる(RS5-E。ディスクのコードの全体の版。画面は APP_VERSION としてこれを読み、動いているサーバーの
-    /api/ping の version と比べる = 起動し直し忘れの赤い帯。英数字・.・- だけのときだけ入れる)"""
-    tag = ('<meta name="ytt-token" content="%s">' % token).encode("ascii")
-    if version and re.fullmatch(r"[0-9A-Za-z.\-]{1,32}", version):
-        tag += ('<meta name="ytt-version" content="%s">' % version).encode("ascii")
-    i = body.find(b"</head>")
-    return body[:i] + tag + body[i:] if i >= 0 else tag + body
-
-
 def send_redirect(h, code, location, extra=None):
     """転送の応答(本文なし)。見出しは Location・Content-Length: 0・extra の順"""
     h.send_response(code)
@@ -162,7 +150,7 @@ def make_handler(mod, prefix, token, csp, access_log=None):
             if ctype.startswith("text/html") and code == 200 and body:
                 extra = dict(extra or {})
                 extra["Content-Security-Policy"] = csp
-                body = inject_token(body, token, _version.on_disk())   # ディスクの版(動いているプロセスの覚えている版ではない)
+                body = httpsec.inject_token(body, token, _version.on_disk())   # ディスクの版(動いているプロセスの覚えている版ではない)
             return super()._send(code, body, ctype, extra)
 
     Mounted.__name__ = "Mounted_" + base.__name__

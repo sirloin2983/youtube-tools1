@@ -40,13 +40,13 @@ import threading
 import time
 import uuid
 
-from ytt import fsio
+from ytt import fsio, trashbin
 
 from . import progress as _progress
 
 V = 1
 DAY = 86400
-KEEP_DAYS = 3                       # 物の終わりの日数(6 章の原則 = src/manage/keep/cleanup.py の 3 日)
+KEEP_DAYS = trashbin.KEEP_DAYS      # 物の終わりの日数(6 章の原則。ユーザーのツールと同じ ytt/trashbin の 1 か所)
 STATES = ("waiting", "sent", "making", "recording", "arrived", "failed", "done")   # recording = この PC のライブの行(録画中・残りを作っている)・waiting = アーカイブ待ち(F3-3)
 KINDS = ("url", "file", "live")     # 送った物。自動で届いた行は "remote"
 PHASES = ("live", "archive")        # ライブの切り抜きの段(配信中 / 配信後の追加 M7)。組は段ごと
@@ -58,7 +58,7 @@ REASONS = ("boring", "cut")         # 届かなくてよかったの理由: つ�
 CLIP_RANGE_RE = re.compile(r"(\d{2,})h(\d{2})m(\d{2})s-(\d{2,})h(\d{2})m(\d{2})s")   # 書き出しの名前の <始まり>-<終わり>(ytt/names)
 TITLE_CUT = 40                      # 保存先のフォルダの名前に入れる配信の題の長さ(C-3-8)
 VERDICT_SUFFIX = ".verdict.json"
-TRASH_NAME = "ごみ箱"
+TRASH_NAME = trashbin.TRASH_DIR
 ROW_ID_RE = re.compile(r"^[0-9A-Za-z_-]{1,64}$")   # 依頼 id(flow/deliver.request_id の形。送り返しの名前にも入る)
 BAD_NAME = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 NAME_MAX = 100                      # 送り返しの名前に入れるパック名の長さ

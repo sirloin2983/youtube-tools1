@@ -142,6 +142,17 @@ def read_json_body(handler, max_bytes, empty_ok=False, allow_nan=False, drain=Tr
     return obj
 
 
+def inject_token(body, token, version=None):
+    """画面(HTML)の </head> の直前に合言葉を入れる。token は英数字・-・_ だけ(secrets.token_urlsafe)なので、そのまま入れても HTML は壊れない。
+    version があれば <meta name="ytt-version"> も入れる(RS5-E。ディスクのコードの全体の版。画面は APP_VERSION としてこれを読み、動いているサーバーの
+    /api/ping の version と比べる = 起動し直し忘れの赤い帯。英数字・.・- だけのときだけ入れる)"""
+    tag = ('<meta name="ytt-token" content="%s">' % token).encode("ascii")
+    if version and re.fullmatch(r"[0-9A-Za-z.\-]{1,32}", version):
+        tag += ('<meta name="ytt-version" content="%s">' % version).encode("ascii")
+    i = body.find(b"</head>")
+    return body[:i] + tag + body[i:] if i >= 0 else tag + body
+
+
 def token_ok(headers, token, header="X-YTT-Token", prefix=""):
     """要求の見出し header が prefix + token と同じか(書き込み系の API の合言葉)。比べるのは hmac.compare_digest(かかる時間で中身を漏らさない)。
     bytes にしてから比べる(見出しに ASCII 以外の文字があっても TypeError で落ちない)。token が空なら常に False(合言葉の無いサーバーを開けっ放しにしない)。

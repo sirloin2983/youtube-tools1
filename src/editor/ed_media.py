@@ -15,9 +15,8 @@ import threading
 import time
 
 from ytt import jobs as _heavy  # noqa: E402
-from manage.cases import handoff_io as _handoff_io  # noqa: E402   他のツールが書く JSON の読み _read_json_file
 import ed_state  # noqa: E402,F401
-from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具)
+from ytt import fsio as _fsio, tools as _tools, workdata as _workdata  # noqa: E402   (JSON の読み・置き場所と版の今の値・動画と音声の小道具)
 from human.proof import store  # noqa: E402
 # ---------- 音の波形(カットのタイムライン用。notes:docs/design/edit-tool-design.md の 5・8) ----------
 # ffmpeg で 8kHz・モノラルの 16bit にして、区切りごとの最大の振れ幅を 0〜255(平方根で小さい声も見えるように)の1バイトに。
@@ -131,7 +130,7 @@ def get_peaks(tid):
         raise ed_state.ApiError("source_missing", "元の動画・音声が見つかりません(移動・削除した可能性があります)", 404)
     sig = [os.path.normcase(path), st.st_size, st.st_mtime_ns, PEAKS_VERSION]
     _d, bin_p, meta_p = _peaks_files(path)
-    meta = _handoff_io._read_json_file(meta_p)
+    meta = _fsio.read_json_or(meta_p)
     if isinstance(meta, dict) and meta.get("sig") == sig:
         try:
             with open(bin_p, "rb") as f:

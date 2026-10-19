@@ -3,7 +3,7 @@
 設定 live.autoDelete(既定オン。src/app/prefs.py)。オフなら何も消さない。リアルタイム切り抜きがオフ(live.enabled)のときも何もしない。
 
 消すのは ごみ箱へ(録画の部品 src/pipeline/ingest/rec_core.py の delete が <置き場所>/ごみ箱/<日付>/録画/<録画の id> へ改名し、manifest.jsonl に元の場所。
-録画の部品が 3 日(TRASH_DAYS)より古い日付のフォルダを消す = その間は戻せる)。それでも戻すのは手間なので、条件は厳しめにする(迷ったら消さない・分からなければ消さない):
+録画の部品が 3 日(ytt/trashbin.KEEP_DAYS)より古い日付のフォルダを消す = その間は戻せる)。それでも戻すのは手間なので、条件は厳しめにする(迷ったら消さない・分からなければ消さない):
   1. アーカイブ化した録画(すぐ。src/flow/live_archive.py の Archiver が1本終えるたびに check を呼ぶ・見回りでも)
      - 録画元の一覧(GET /live/list)で、その録画が終わっている(active でない)
      - その録画の書き出しのジョブ(src/flow/live_export.py)が1つ以上あり、マークごとの最新のジョブが全部 done
@@ -34,16 +34,15 @@ import threading
 import time
 import urllib.parse
 
-from ytt import schemas
+from ytt import schemas, trashbin
 from flow import live_failures   # 残っている録画の知らせの文。D-14
 from flow import live_export as LX
 from flow import live_retire   # 録画を消してよいかの判断と、消したことを記す ② の口(OPT2 の 7x-1)
 
 NO_MARK_SEC = 24 * 3600.0      # マークの無い録画を消すまで(録画が終わってから)
 INTERVAL = 600.0               # 見回り(入口の録画の見回り src/app/live.py の tick から)で調べる間隔
-STALE_SEC = 3 * 86400.0        # D-14: 終わってからこれだけたっても消せない録画を「調子」に知らせる。理由が live_retire.stale_ok だけなら、このとき消す(ユーザー決定)
+STALE_SEC = float(trashbin.KEEP_SEC)   # D-14: 終わってからこれだけたっても消せない録画を「調子」に知らせる。理由が live_retire.stale_ok だけなら、このとき消す(ユーザー決定)
 WARN_SEC = 2 * 86400.0         # stale_ok の理由の録画を消す 1 日前から「調子」に予告する
-TRASH_DAYS = 3                 # 録画の部品の ごみ箱 の日付のフォルダを消すまで(rec_core.TRASH_DAYS と同じ。記録の文に出すだけ)
 DELETE_TIMEOUT = 60.0          # 録画元が消し終えるまで(大きな録画は数秒かかる)
 REC_ACTIVE = ("waiting", "recording", "reconnecting")   # src/pipeline/ingest/rec_core.py の ACTIVE と同じ
 
@@ -199,7 +198,7 @@ class Cleaner:
         code, d = self.live.call(rc, "POST", "/live/%s/delete" % rec, {}, timeout=DELETE_TIMEOUT)
         if code == 200 and isinstance(d, dict) and d.get("ok"):
             self._said.pop(rec, None)
-            self.log("リアルタイム切り抜き: 録画をごみ箱へ移しました %s(%s。録画元「%s」。%d 日で消えます)" % (rec, why, rc.get("name") or rc.get("id"), TRASH_DAYS))
+            self.log("リアルタイム切り抜き: 録画をごみ箱へ移しました %s(%s。録画元「%s」。%d 日で消えます)" % (rec, why, rc.get("name") or rc.get("id"), trashbin.KEEP_DAYS))
             return True
         if code is None:
             return False
