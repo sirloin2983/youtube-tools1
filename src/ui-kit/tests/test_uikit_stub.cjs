@@ -165,3 +165,107 @@ test('settingsForm: a failed save puts the stored value back even in a focused f
   await new Promise(r => setTimeout(r, 0));
   assert.equal(model.value, 'old');
 });
+
+test('fmt: dur with tenths / noHours / floor, negative and day of an empty time', () => {
+  const { fmt } = makeUIKit();
+  assert.deepEqual([fmt.dur(3723.96, { tenths: true }), fmt.dur(3723, { noHours: true }), fmt.dur(3723.7, { floor: true }), fmt.dur(-5), fmt.day(0)],
+    ['1:02:04.0', '62:03', '1:02:03', '0:00', '']);
+});
+
+test('copy: true with the ok notice; the hidden textarea when the clipboard rejects; false with the fail notice when both fail', async () => {
+  const toasts = []; let write = () => Promise.resolve(), exec = () => true, removed = 0;
+  const ta = { style: {}, setAttribute() {}, select() {}, remove() { removed++; } };
+  const ctx = { toastFn: (m, o) => toasts.push([m, o.kind]), navigator: { clipboard: { writeText: t => write(t) } }, String, Promise,
+    document: { createElement: () => ta, body: { appendChild() {} }, activeElement: null, execCommand: () => exec() } };
+  vm.createContext(ctx);
+  vm.runInContext(slice('  function copyByCommand(', '  /* ---- confirmTwice') + '\nthis.copy = copyText;', ctx);
+  assert.equal(await ctx.copy('a', { ok: '写しました' }), true);
+  write = () => Promise.reject(new Error('denied'));
+  assert.equal(await ctx.copy('b'), true, 'the textarea fallback wrote it');
+  exec = () => false;
+  assert.equal(await ctx.copy('c', { fail: '写せませんでした' }), false);
+  assert.deepEqual(toasts, [['写しました', 'ok'], ['写せませんでした', 'err']]);
+  assert.equal(removed, 2, 'the textarea is not left behind');
+});
+
+test('http failures share one error shape (status / code / body / reason / detail); timeout, abort and raw', async () => {
+  const res = (status, text) => ({ ok: status < 400, status, text: () => Promise.resolve(text), json: () => new Promise((yes, no) => { try { yes(JSON.parse(text)); } catch (e) { no(e); } }) });
+  const routes = {
+    conflict: () => res(409, JSON.stringify({ error: 'conflict', message: '先に保存されています(テスト)', rev: 3 })), broken: () => res(500, 'oops'), missing: () => res(404, '{}'),
+    empty: () => res(200, ''), down: () => Promise.reject(new Error('Failed to fetch')), file: () => res(200, 'PK-zip'),
+    slow: init => new Promise((yes, no) => init.signal.addEventListener('abort', () => no(new Error('aborted')))),
+  };
+  const ctx = { toastFn() {}, token: () => 'tk', location: { href: 'http://x/a/', origin: 'http://x' }, URL, AbortController, setTimeout, clearTimeout, Promise, JSON, String, Object,
+    fetch: (url, init) => Promise.resolve(routes[url.split('/').pop()](init)) };
+  vm.createContext(ctx);
+  vm.runInContext(slice('  var HTTP_OFFLINE', '  /* 入口(ホーム)の API の場所') + '\nthis.http = http;', ctx);
+  const http = (n, o) => ctx.http('api/' + n, o), err = p => p.then(() => null, e => e);
+  let e = await err(http('conflict', { body: {} }));
+  assert.deepEqual([e.status, e.code, e.message, e.body.rev, e.data === e.body, e.reason, e.detail], [409, 'conflict', '先に保存されています(テスト)', 3, true, '先に保存されています(テスト)', 'HTTP 409']);
+  e = await err(http('broken'));
+  assert.deepEqual([e.status, e.code, JSON.stringify(e.body), e.reason], [500, 'http', '{}', '']);
+  assert.ok(e.message.includes('サーバーで問題が起きました') && !e.message.includes('500'), 'no HTTP number in the default text');
+  assert.equal((await err(http('broken', { fail: '壊れています(テスト)' }))).message, '壊れています(テスト)');
+  assert.equal((await err(http('missing', { fail: st => 'HTTP ' + st }))).message, 'HTTP 404');
+  assert.equal(JSON.stringify(await http('empty')), '{}', 'a success that is not JSON is {}');
+  e = await err(http('down', { offline: 'つながりません(テスト)' }));
+  assert.deepEqual([e.code, e.status, e.message, JSON.stringify(e.body), e.detail], ['network', 0, 'つながりません(テスト)', '{}', 'Failed to fetch']);
+  assert.ok((await err(http('down'))).message.includes('start.bat'), 'the default offline text');
+  e = await err(http('slow', { timeout: 30, slow: '遅れています(テスト)' }));
+  assert.deepEqual([e.code, e.message], ['timeout', '遅れています(テスト)']);
+  const c1 = new AbortController(), c2 = new AbortController();
+  const waiting = [err(http('slow', { signal: c1.signal })), err(http('slow', { signal: c2.signal, timeout: 5000 }))];
+  setTimeout(() => { c1.abort(); c2.abort(); }, 20);
+  assert.deepEqual((await Promise.all(waiting)).map(x => x.code), ['abort', 'abort']);
+  const r = await http('file', { body: {}, raw: true });
+  assert.deepEqual([r.status, await r.text()], [200, 'PK-zip']);
+  e = await err(http('conflict', { body: {}, raw: true }));
+  assert.deepEqual([e.status, e.code], [409, 'conflict'], 'a raw call fails in the same shape');
+});
+
+test('liveBadge polling: every 10 s while on, every 60 s while off, nothing asked while the tab is hidden', async () => {
+  let now = 0, id = 0, mode = { enabled: false }, hidden = false;
+  const timers = new Map(), calls = [], tick = () => new Promise(r => setImmediate(r));
+  async function run(ms) {   // fake clock: fire due timers in order, letting the answers (promises) settle between them
+    const end = now + ms;
+    for (;;) {
+      await tick();
+      const due = [...timers].filter(([, t]) => t.at <= end).sort((a, b) => a[1].at - b[1].at)[0];
+      if (!due) break;
+      timers.delete(due[0]); now = Math.max(now, due[1].at); due[1].fn();
+    }
+    await tick(); now = end;
+  }
+  const ctx = { token: () => 'tk', window: { fetch() {} }, yttPost: () => { calls.push(now); return Promise.resolve(mode); }, Promise, Object, Date: { now: () => now },
+    document: { get hidden() { return hidden; }, querySelector: () => null, addEventListener() {} }, toastFn() {}, reportErr: e => { throw e; }, fmt: { dur: String },
+    setTimeout: (fn, ms) => { timers.set(++id, { at: now + ms, fn }); return id; }, clearTimeout: i => timers.delete(i), clearInterval() {} };
+  vm.createContext(ctx);
+  vm.runInContext(slice('  var LIVE_ON_MS', '  var liveBadge = {') + '\nthis.go = liveRefresh;', ctx);
+  await ctx.go();
+  await run(59000); assert.equal(calls.length, 1, 'off: not asked before 60 s');
+  await run(1000); assert.equal(calls.length, 2, 'off: asked at 60 s');
+  mode = { enabled: true, recordings: [{ recorder: 'r1', id: 'a', state: 'recording' }] };
+  await run(60000); assert.equal(calls.length, 3, 'the answer turns it on');
+  await run(10000); assert.equal(calls.length, 4, 'on: every 10 s');
+  hidden = true; await run(35000); assert.equal(calls.length, 4, 'a hidden tab does not ask');
+  hidden = false; await run(10000); assert.ok(calls.length > 4, 'asks again when visible');
+});
+
+test('sound: another window that sends nothing for 6 s counts as stopped (closed or crashed), so the live audio comes back', () => {
+  let now = 0;
+  const intervals = [], seen = [];
+  function Ch() { Ch.last = this; this.postMessage = () => {}; }
+  const ctx = { location: { pathname: '/cases' }, BroadcastChannel: Ch, Date: { now: () => now }, Object, String, Math,
+    window: { BroadcastChannel: Ch, addEventListener() {} }, document: { querySelectorAll: () => [], addEventListener() {} },
+    setInterval: fn => { intervals.push(fn); return intervals.length; }, clearInterval() {}, reportErr: e => { throw e; } };
+  vm.createContext(ctx);
+  vm.runInContext(slice('  var snd = {', '  var sound = {') + '\nthis.other = sndOther; this.onChange = fn => snd.subs.push(fn);', ctx);
+  ctx.onChange(() => seen.push([now, ctx.other('cases')]));
+  Ch.last.onmessage({ data: { id: 'ed1', tool: 'transcribe', playing: true } });
+  assert.deepEqual(seen, [[0, true]], 'the editor started playing');
+  const sweep = () => intervals.forEach(f => f());
+  now = 4000; sweep();
+  assert.equal(ctx.other('cases'), true, 'still playing before 6 s');
+  now = 6001; sweep();
+  assert.deepEqual(seen, [[0, true], [6001, false]], 'stopped after 6 s without a message');
+});
