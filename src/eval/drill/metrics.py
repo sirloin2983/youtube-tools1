@@ -207,10 +207,36 @@ def acc_finish(acc):
     return out
 
 
+def scored_groups(orig, segs, whole=False):
+    """採点するまとまり(画面の測定と eval_asr の採点の規則の 1 か所)-> [{"go", "ge", "kind", "start", "end", "outside", "rawRef", "rawHyp", "ref", "hyp"}]。
+    数える対象: ①機械と人の両方にある まとまり both(全行が校正済み) ②機械だけにある まとまり machineOnly(人が行を消した = 挿入の誤り。
+    校正した範囲の中だけ。whole = 動画全体が正解(確かめ済み)なら範囲の外も数えて outside の印)③人だけにある まとまり humanOnly(人が足した行 = 脱落の誤り。全行が校正済み)。
+    whole でなく校正済みの行が無ければ []。文字は寄せたあとどちらも空なら数えない"""
+    proofed = [g for g in segs if g.get("proofed")]
+    if not whole and (not orig or not proofed):
+        return []
+    lo, hi = (min(g["start"] for g in proofed), max(g["end"] for g in proofed)) if proofed else (0.0, 0.0)
+    ok = lambda g: bool(g.get("proofed")) and "unclear" not in (g.get("tags") or [])
+    out = []
+    for go, ge in learn._groups(orig, segs):
+        if ge and not all(ok(segs[i]) for i in ge):   # 人の行があるまとまり(①・③)は全行が校正済みのときだけ
+            continue
+        rows = [segs[i] for i in ge] or [orig[i] for i in go]   # 時刻は人の行を優先
+        a, b = min(r["start"] for r in rows), max(r["end"] for r in rows)
+        outside = not ge and (a < lo - 0.05 or b > hi + 0.05)   # 機械だけ(②)が校正した範囲の外
+        if outside and not whole:
+            continue
+        raw_ref, raw_hyp = (learn._norm(segs, ge) if ge else ""), (learn._norm(orig, go) if go else "")
+        ref, hyp = norm_cer(raw_ref), norm_cer(raw_hyp)   # norm_cer("") は ""
+        if not ref and not hyp:
+            continue
+        out.append({"go": go, "ge": ge, "kind": "both" if go and ge else ("machineOnly" if go else "humanOnly"), "start": a, "end": b, "outside": outside,
+                    "rawRef": raw_ref, "rawHyp": raw_hyp, "ref": ref, "hyp": hyp})
+    return out
+
+
 def doc_metrics(doc, terms=()):
-    """1件の文字起こしの集計。校正済みの行が無ければ None。
-    数える対象: ①機械と人の両方にある まとまり(全行が校正済み) ②機械だけにある まとまり(人が行を消した=挿入の誤り。校正した範囲の中だけ)
-    ③人だけにある まとまり(人が足した行=脱落の誤り。全行が校正済み)"""
+    """1件の文字起こしの集計(まとまりの選び方は scored_groups)。校正済みの行が無ければ None"""
     terms = tuple(dict.fromkeys(n for n in (norm_cer(t) for t in terms) if n))   # 文字と同じ正規化に(カタカナのままの用語が当たらないため。済みの用語は変わらない)
     orig, segs = learn._prep(doc)
     if not orig or not segs:
@@ -218,26 +244,11 @@ def doc_metrics(doc, terms=()):
     orig, segs, ns_orig, ns_segs = learn.split_nosub(orig, segs)   # noSub(字幕に出さない)の行とその時間の機械の文字は、本体の数え方から外して別に出す
     if not segs:
         return None
-    proofed = [g for g in segs if g.get("proofed")]
     basis = "proofed"
-    if proofed:
-        lo, hi = min(g["start"] for g in proofed), max(g["end"] for g in proofed)
-        is_ok = lambda g: bool(g.get("proofed")) and "unclear" not in (g.get("tags") or [])
-    else:
-        return None
     acc = new_acc()
-    for go, ge in learn._groups(orig, segs):
-        if ge and not all(is_ok(segs[i]) for i in ge):   # 人の行があるまとまり(①・③)は全行が校正済みのときだけ
-            continue
-        rows = [segs[i] for i in ge] or [orig[i] for i in go]   # 時刻は人の行を優先
-        a, b = min(r["start"] for r in rows), max(r["end"] for r in rows)
-        if not ge and (a < lo - 0.05 or b > hi + 0.05):   # 機械だけ(②)は校正した範囲の中だけ
-            continue
-        raw_ref, raw_hyp = (learn._norm(segs, ge) if ge else ""), (learn._norm(orig, go) if go else "")
-        ref, hyp, mo = norm_cer(raw_ref), norm_cer(raw_hyp), not ge   # norm_cer("") は ""
-        if not ref and not hyp:
-            continue
-        acc_line(acc, ref, hyp, terms, {"start": round(a, 2), "end": round(b, 2), "ref": raw_ref[:120], "hyp": raw_hyp[:120]}, mo)
+    for g in scored_groups(orig, segs):
+        acc_line(acc, g["ref"], g["hyp"], terms, {"start": round(g["start"], 2), "end": round(g["end"], 2), "ref": g["rawRef"][:120], "hyp": g["rawHyp"][:120]},
+                 g["kind"] == "machineOnly")
     if not acc["groups"]:
         return None
     acc["basis"] = basis

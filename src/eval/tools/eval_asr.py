@@ -346,7 +346,7 @@ def name_terms(settings):
     return terms
 
 
-# ---------------------------------------------------------------- 採点(画面の doc_metrics と同じ規則。まとまりごとの内訳も残す)
+# ---------------------------------------------------------------- 採点(まとまりの選び方は画面の測定と同じ metrics.scored_groups。まとまりごとの内訳も残す)
 
 def score_doc(doc, hyp, terms, flag_from="hyp"):
     """文書1件: 正解 = 校正済みの行、機械 = hyp(時刻は元の動画の秒)。まとまりの一覧を返す(数えないまとまりは入れない)。
@@ -354,33 +354,10 @@ def score_doc(doc, hyp, terms, flag_from="hyp"):
     vdoc = dict(doc, original=hyp)
     orig, segs = _learn._prep(vdoc)
     orig, segs, _ns_o, _ns_s = _learn.split_nosub(orig, segs)   # noSub(字幕に出さない)の行とその時間の機械の行は本体から外す(別集計は doc_nosub)
-    proofed = [g for g in segs if g.get("proofed")]
     whole = whole_video(doc)   # 確かめ済み = 動画全体が正解。人の行の無い所の機械の文字は余分・機械の無い所の人の行は抜け(範囲の外でも捨てない)
-    if not whole and (not orig or not proofed):
-        return []
-    lo, hi = (min(g["start"] for g in proofed), max(g["end"] for g in proofed)) if proofed else (0.0, 0.0)
-    ok = lambda g: bool(g.get("proofed")) and "unclear" not in (g.get("tags") or [])
     out = []
-    for go, ge in _learn._groups(orig, segs):
-        if ge and not all(ok(segs[i]) for i in ge):
-            continue
-        if go and ge:
-            kind = "both"
-            a, b = min(segs[i]["start"] for i in ge), max(segs[i]["end"] for i in ge)
-        elif go:
-            kind = "machineOnly"
-            a, b = min(orig[i]["start"] for i in go), max(orig[i]["end"] for i in go)
-            outside = a < lo - 0.05 or b > hi + 0.05   # 校正した行の範囲の外(確かめ済みでないときは数えない)
-            if outside and not whole:
-                continue
-        else:
-            kind = "humanOnly"
-            a, b = min(segs[i]["start"] for i in ge), max(segs[i]["end"] for i in ge)
-        raw_ref = _learn._norm(segs, ge) if ge else ""
-        raw_hyp = _learn._norm(orig, go) if go else ""
-        ref, hyp_n = _metrics.norm_cer(raw_ref), _metrics.norm_cer(raw_hyp)
-        if not ref and not hyp_n:
-            continue
+    for g in _metrics.scored_groups(orig, segs, whole):
+        go, ge, kind, a, b, raw_ref, raw_hyp, ref, hyp_n = g["go"], g["ge"], g["kind"], g["start"], g["end"], g["rawRef"], g["rawHyp"], g["ref"], g["hyp"]
         s, d, i = _metrics.lev_counts(ref, hyp_n)
         tags = sorted({t for j in ge for t in (segs[j].get("tags") or []) if t in ("overlap", "bgm")})
         flag_rows = [orig[j] for j in go] if flag_from == "hyp" else [segs[j] for j in ge]
@@ -394,7 +371,7 @@ def score_doc(doc, hyp, terms, flag_from="hyp"):
                     "termExtra": sum(max(0, hyp_n.count(t) - ref.count(t)) for t in terms)})
         if whole:
             out[-1]["whole"] = True
-            if kind == "machineOnly" and outside:
+            if g["outside"]:
                 out[-1]["outside"] = True   # 今までなら捨てていた(校正した行の範囲の外)余分
         if ge and _metrics.is_overlap_group(segs, ge):   # 重なりのまとまり(別にも出す。主な数字には今までの数え方のまま入る)
             bs, bd, bi = _metrics.overlap_best_counts(segs, ge, hyp_n)
@@ -749,22 +726,12 @@ def cmd_stored(args, data):
     settings = read_json(os.path.join(data, "settings.json"), {}, kind=dict)
     docs, sel = select_docs(data, args)
     terms = name_terms(settings)
-    groups, mismatch, nosub = [], [], {}
+    groups, nosub = [], {}
     for d in docs:
         mine = score_doc(d, d.get("original") or [], terms, flag_from="ref")
         groups += mine
         nosub[d["id"]] = doc_nosub(d, d.get("original") or [])
-        ref = _metrics.doc_metrics(d, terms=terms)   # 画面の「認識精度の測定」と同じ数になるか(規則を二重に持っているので、ずれたら知らせる)
-        # 確かめ済みの文書(動画全体で採点)は画面の測定(校正した行の範囲だけ)と数が違って当たり前なので、今までの規則で数え直した方と比べる
-        t = total(score_doc(dict(d, _reviewed=False), d.get("original") or [], terms, flag_from="ref") if whole_video(d) else mine)
-        want = (ref["sub"], ref["del"], ref["ins"], ref["refChars"]) if ref else (0, 0, 0, 0)
-        if want != (t["sub"], t["del"], t["ins"], t["refChars"]):
-            mismatch.append(d["id"])
-    if mismatch:
-        print("注意: 画面の測定と数が合わない文書があります(この道具の採点の規則を直す必要があります): " + ", ".join(mismatch))
-    res = {"meta": base_meta("stored", args, docs, data, sel), "summary": summarize(groups, docs, STORED, group_spec(args, "stored"), nosub), "groups": groups, "terms": terms}
-    res["meta"]["mismatch"] = mismatch
-    return res
+    return {"meta": base_meta("stored", args, docs, data, sel), "summary": summarize(groups, docs, STORED, group_spec(args, "stored"), nosub), "groups": groups, "terms": terms}
 
 
 def cmd_run(args, data):

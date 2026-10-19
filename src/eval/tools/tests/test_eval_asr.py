@@ -144,7 +144,6 @@ class EvalAsrTest(Base):
         res = self.stored()
         o = res["summary"]["overall"]
         self.assertEqual(res["meta"]["docs"], ["aaaaaaaaaaa1"])          # 既定は評価用だけ
-        self.assertEqual(res["meta"]["mismatch"], [])                   # 画面の「認識精度の測定」と同じ数
         # 正解 = まつりが来た(6)+ 二人で話す(5)+ 足した行(4)= 15 字。祭り→まつり は置換 1・抜け 1(編集距離が最小の数え方)
         self.assertEqual(o["refChars"], 15)
         self.assertEqual(res["summary"]["byKind"]["両方にある"]["errs"], 2)
@@ -578,7 +577,6 @@ class EvalAsrReviewedTest(Base):
     def test_reviewed_doc_is_scored_over_the_whole_video(self):
         res = self.stored()                                    # 評価用の既定は only = 確かめ済みの動画だけ
         self.assertEqual(res["meta"]["docs"], ["aaaaaaaaaa01"])
-        self.assertEqual(res["meta"]["mismatch"], [])           # 画面の測定との照合は、今までの規則で数え直した方で行う(確かめ済みは画面と数が違って当たり前)
         o = res["summary"]["overall"]
         extra = len("ええと") + len("ご視聴ありがとう")
         self.assertEqual((o["sub"], o["del"], o["ins"]), (0, len("足した行"), extra))   # 人の行の無い所の機械の文字 = 余分・機械の無い所の人の行 = 抜け
@@ -650,7 +648,6 @@ class EvalAsrReviewedTest(Base):
         rv = res["summary"]["reviewed"]
         self.assertEqual((rv["docs"], rv["sec"], rv["extraChars"], rv["missChars"]), (3, 70.0, 4, 5))
         self.assertEqual(res["summary"]["proofedSec"], 70.0)
-        self.assertEqual(res["meta"]["mismatch"], [])
         # 印を見ない(ignore)なら、行の無い文書は測る正解が無いので外れる
         self.assertEqual(self.stored("--docs", "aaaaaaaaaa02", "--reviewed", "ignore")["meta"]["docs"], [])
 
@@ -895,7 +892,6 @@ class EvalAsrNoSubOverlapTest(Base):
         self.write("aaaaaaaaaa01", segments=[seg(1, 0.0, 4.0, "まつりが来た")], original=[{"start": 0.0, "end": 4.0, "text": "祭りが来た"}])
         res = self.stored()
         s = res["summary"]
-        self.assertEqual(res["meta"]["mismatch"], [])
         self.assertEqual((s["overall"]["refChars"], s["overall"]["sub"], s["overall"]["del"], s["overall"]["ins"]), (6, 1, 1, 0))
         self.assertEqual(s["overlap"], {"groups": 0, "sec": 0, "refChars": 0, "cer": None, "miss": 0})
         self.assertEqual(s["nonOverlap"], {"refChars": 6, "cer": s["overall"]["cer"]})
@@ -910,7 +906,6 @@ class EvalAsrNoSubOverlapTest(Base):
                    segments=base + [seg(2, 10.0, 14.0, "ゲームのセリフ", speaker="S2", noSub=True)], original=machine)
         res = Base.stored(self)
         by = self.by_doc(res)
-        self.assertEqual(res["meta"]["mismatch"], [])
         # 余分: noSub の行が無い文書は「ゲームのセリフです」+「ご視聴」、ある文書は「ご視聴」だけ
         self.assertEqual(by["aaaaaaaaaa01"]["ins"], len("ゲームのセリフです") + len("ご視聴"))
         self.assertEqual(by["bbbbbbbbbb01"]["ins"], len("ご視聴"))
@@ -927,7 +922,6 @@ class EvalAsrNoSubOverlapTest(Base):
         self.write("aaaaaaaaaa01", segments=segs, original=machine)
         res = self.stored()
         s = res["summary"]
-        self.assertEqual(res["meta"]["mismatch"], [])
         self.assertEqual(s["overlap"], {"groups": 1, "sec": 4.0, "refChars": 10, "cer": 0.0, "miss": 0})   # 並べ方を入れ替えた小さい方 = 誤りなし
         self.assertEqual(s["nonOverlap"], {"refChars": 5, "cer": 0.0})
         o = s["overall"]                                                                                 # 主な数字は今までの数え方(開始時刻の順)のまま = 誤りが出る
