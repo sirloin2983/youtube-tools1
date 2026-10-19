@@ -125,7 +125,7 @@ def seed(tmp, rnd, streams, samples):
                 mk.update({"file": os.path.basename(clip), "path": clip})
                 cj = schemas.build_clip(clip, 40.0, {"kind": "youtube", "videoId": vid, "title": title}, (s, s + 40), mk,
                                         {"mode": "precise"}, {"name": "clip-studio", "version": "demo"})
-                os.makedirs(os.path.dirname(schemas.clip_path_for(clip)), exist_ok=True)   # 途中のファイルは 作業用\(2026-09-27)
+                os.makedirs(os.path.dirname(schemas.clip_path_for(clip)), exist_ok=True)   # 途中のファイルは 作業用\
                 with open(schemas.clip_path_for(clip), "w", encoding="utf-8") as f:
                     json.dump(cj, f, ensure_ascii=False)
                 r = rnd.random()   # この切り抜きの文字起こし: 無い / 未校正 / 校正中 / 校正済み
@@ -195,7 +195,7 @@ def seed_check(tmp, txdir, samples, videos, write_tx, now):
     os.makedirs(d, exist_ok=True)
     clip = os.path.join(d, "01_自動の山.mp4")
     shutil.copyfile(samples[0], clip)
-    os.utime(clip, (now, now))   # 新しい自動の切り抜き(MARKS-3 で「未定のまま」= REVIEW_SINCE は消した)
+    os.utime(clip, (now, now))   # 新しい自動の切り抜き
     mk = {"id": "lm1", "start": 600.0, "end": 640.0, "label": "自動の山", "status": "exported", "src": "auto", "score": 8.2,
           "file": os.path.basename(clip), "path": clip}
     cj = schemas.build_clip(clip, 40.0, {"kind": "youtube", "videoId": "", "title": title}, (600.0, 640.0), mk,
@@ -255,7 +255,7 @@ def main(argv=None):
     tmp = os.path.abspath(a.dir) if a.dir else tempfile.mkdtemp(prefix="ytt-demo-")
     keep = bool(a.dir)
     os.environ.update({"YTT_DATA_DIR": "inplace", "YTT_RUNTIME_DIR": os.path.join(tmp, ".runtime"), "STUDIO_FAKE": "1",
-                       "TRANSCRIBE_BACKEND": "fake", "STUDIO_HOME": os.path.join(tmp, "studio-home")})   # 区間カード・機械のカットのカードは既定オン(10-18。human/check/section・cutcard の enabled)= 見本も既定の道で出す
+                       "TRANSCRIBE_BACKEND": "fake", "STUDIO_HOME": os.path.join(tmp, "studio-home")})   # 区間カード・機械のカットのカードは既定オン(human/check/section・cutcard の enabled)= 見本も既定の道で出す
     from app import server as L   # noqa: E402  (環境変数を決めてから読む)
     from app import mount as M    # noqa: E402
     from test_launch import _copy_tool  # noqa: E402

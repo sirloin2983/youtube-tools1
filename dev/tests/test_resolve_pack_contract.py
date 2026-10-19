@@ -427,7 +427,7 @@ class ZipSkipsContract(unittest.TestCase):
 
     def test_zip_without_captions_is_an_error_but_pack_tab_makes_edl_only(self):
         """字幕の無い文書(残す行が無い。カットは keeps で決めている): パックのタブは Text+ を作らず EDL だけのパック(textplus = hasRows)を作るが、
-        zip は常に Text+ なので「Text+ パックには字幕が必要です」のエラーになる(2026-09-30 時点の差。zip の中身は変えない決定なので画面の説明に足す)"""
+        zip は常に Text+ なので「Text+ パックには字幕が必要です」のエラーになる(zip の中身は変えない決定なので画面の説明に足す)"""
         for name, rows in (("行が無い", []), ("残す行が無い", [seg(1, 0, 2, "a", cut=True), seg(2, 3, 4, " ")])):
             with self.subTest(doc=name):
                 doc = self.doc(rows)

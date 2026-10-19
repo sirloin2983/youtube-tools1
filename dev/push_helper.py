@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""push.bat の補助(2026-09-26)。標準ライブラリだけ。リポジトリ直下で git が使えることが前提。
+"""push.bat の補助。標準ライブラリだけ。リポジトリ直下で git が使えることが前提。
 
     python dev/push_helper.py removals   … dev/removals.txt に書いたファイルを git rm する(コミットの前に呼ぶ)
     python dev/push_helper.py check      … これからコミットするファイル(git add したもの)に、個人データ・秘密情報らしいものが無いか調べる
@@ -39,13 +39,13 @@ SECRET_PATTERNS = [
     ("Slack のトークン", re.compile(rb"\bxox[baprs]-[A-Za-z0-9\-]{10,}")),
     ("AWS のアクセスキー", re.compile(rb"\bAKIA[0-9A-Z]{16}\b")),
     ("秘密鍵", re.compile(rb"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
-    # Dropbox(友人のアプリの鍵。friend-apps/launcher/config.json・dev/dropbox_auth.py。2026-09-30)。
+    # Dropbox(友人のアプリの鍵。friend-apps/launcher/config.json・dev/dropbox_auth.py)。
     # "refreshToken": "…" / refresh_token=… の値が 20 文字以上の英数字なら本物とみなす(説明の "..."・<…> は通す)
     ("Dropbox の refresh token", re.compile(rb"""(?i)["']?refresh_?token["']?\s*[:=]\s*["']?[A-Za-z0-9_\-]{20,}""")),
     ("Dropbox の access token", re.compile(rb"\bsl\.[A-Za-z0-9_\-.]{50,}")),
 ]
 # 名前だけでなく場所でも止めるもの(鍵そのもの。config.json は BAD_NAMES でも止まるが、理由をはっきり出す)。
-# 旧い場所(2026-10-07 以前の request-sender/・10-18 に消した friend-apps/request-sender/)も残す(古いブランチ・写しからの混入も止める)
+# 旧い場所(request-sender/・friend-apps/request-sender/)も残す(古いブランチ・写しからの混入も止める)
 SECRET_FILES = {"friend-apps/launcher/config.json": "切り抜き依頼の鍵(Dropbox)", "friend-apps/request-sender/config.json": "切り抜き依頼の鍵(Dropbox)",
                 "request-sender/config.json": "切り抜き依頼の鍵(Dropbox)"}
 # 名前で止めるもの(小文字で比べる)
@@ -133,7 +133,7 @@ def problems_for(path, data):
     name = parts[-1].lower()
     if name in BAD_NAMES or BAD_NAME_RE.search(name):
         out.append("個人データ・実行時のデータの名前(%s)" % parts[-1])
-    # docs/archive/ は古い資料の置き場(2026-09-30 段0)で、作業データの archive/(スタジオの保管など)とは別。名前・秘密情報・大きさの検査は効かせる
+    # docs/archive/ は古い資料の置き場(段0)で、作業データの archive/(スタジオの保管など)とは別。名前・秘密情報・大きさの検査は効かせる
     dirs = parts[2:-1] if parts[:2] == ["docs", "archive"] else parts[:-1]
     bad_dir = next((d for d in dirs if d.lower() in BAD_DIRS), None)
     if bad_dir:
@@ -149,7 +149,7 @@ def problems_for(path, data):
         why = notes_tool.explain_data_js(data.decode("utf-8", "replace"), path)
         if why:
             out.append("JavaScript として読めない\n" + why)
-    if path.startswith("plan/data/") and path.endswith(".json"):   # 計画の正(1 件 1 ファイル。2026-10-18)。読めないと data.js が作れない
+    if path.startswith("plan/data/") and path.endswith(".json"):   # 計画の正(1 件 1 ファイル)。読めないと data.js が作れない
         try:
             json.loads(data.decode("utf-8"))
         except ValueError as e:
@@ -174,7 +174,7 @@ def check(files=None, read=staged_blob, log=print):
     return bad
 
 
-# ---------------------------------------------------------------- notes(資料の保管庫も送る。2026-10-14)
+# ---------------------------------------------------------------- notes(資料の保管庫も送る)
 
 def notes_root():
     """資料の保管庫(ytt/layout.notes_root と同じ = 環境変数 YTT_NOTES_DIR か既定の NOTES_DIR)"""

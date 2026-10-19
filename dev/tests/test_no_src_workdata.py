@@ -2,8 +2,8 @@
 
     py -3.12 -m unittest dev/tests/test_no_src_workdata.py
 
-2026-10-16 の RV C5: inplace の作業データは <リポジトリ直下>/.data/<ツールID>/ に置く決めなのに、編集の .running.json・スタジオの exports/export-log.txt・
-cut2resolve の work/serve.log が、各モジュールの「既定 = ツールのフォルダ」の置き場所のまま src の中にできていた(.gitignore で無視されて気づきにくい)。
+inplace の作業データは <リポジトリ直下>/.data/<ツールID>/ に置く決め。編集の .running.json・スタジオの exports/export-log.txt・
+cut2resolve の work/serve.log が、各モジュールの「既定 = ツールのフォルダ」の置き場所のまま src の中にできないようにする(.gitignore で無視されて気づきにくい)。
 1. 置き場所の既定が .data の下になること(重くしない: 子プロセスで読み込むだけ)
 2. src の下に作業データの名前のファイルが無いこと(unittest を流したあとの残りの見張り。.gitignore の外の物は git が見るのでここは無視されている名前だけ)
 """

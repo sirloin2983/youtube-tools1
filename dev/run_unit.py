@@ -11,7 +11,7 @@
       同じ所の test_*.cjs は `node --test` で流す(node は PATH か Playwright に入っている node.exe。無ければ落ちた扱い)。
 同じプロセスに混ぜると名前が重なるテストがあるので、1 本ずつ `py -3.12 -m unittest <ファイル>` を別のプロセスで流す。
 例外 1: src/editor/tests/ はリポジトリ直下からだと test_backend の import で落ちるので、そのフォルダを cwd にしてモジュール名で 1 本ずつ流す
-        (test_metrics は自分で定義したクラスだけ。前は test_metrics を 1 回 = 星の import で全部を 1 本にしていて、一番遅い束だった。10-18 テストの見直し)。
+        (test_metrics は自分で定義したクラスだけ流す)。
 例外 2: dev/tests/test_resolve_pack_contract.py は単独で流す(表示に「単独」と付ける)。
 環境: YTT_DATA_DIR=inplace。PYTHONIOENCODING は外す。Windows の子プロセスは窓を出さない(CREATE_NO_WINDOW)。
 終了コード: 落ちた物があれば 1。使い方の誤りは 2。
@@ -155,7 +155,7 @@ def _size(path):
 def run_all(units, jobs, failfast):
     """jobs 本ずつ並べて流す。failfast なら最初の失敗で残りを取りやめる。"""
     results = []
-    # 大きいファイル(だいたい遅い)から先に始める = 最後に遅い 1 本だけが残って待つのを減らす(10-18 テストの見直し)
+    # 大きいファイル(だいたい遅い)から先に始める = 最後に遅い 1 本だけが残って待つのを減らす
     order = sorted(units, key=lambda u: -_size(os.path.join(REPO, u.rel)))
     with ThreadPoolExecutor(max_workers=max(1, jobs)) as ex:
         futs = [ex.submit(run_one, u) for u in order]

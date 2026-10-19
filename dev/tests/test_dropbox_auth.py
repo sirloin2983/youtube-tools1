@@ -108,7 +108,7 @@ class TestMain(unittest.TestCase):
         self.assertTrue(any("要らない権限" in x and "files.permanent.delete" in x for x in self.logs))
 
     def test_warns_missing_scope(self):
-        # v1.0.0 の手順で作ったアプリ(書き込みだけ)
+        # 古い手順で作ったアプリ(書き込みだけ)
         urlopen = lambda req, timeout=None: FakeResp(json.dumps({"refresh_token": FAKE, "scope": "files.content.write"}).encode())
         self.assertEqual(self.run_main(urlopen), 0)
         self.assertTrue(any("足りない権限" in x and "files.content.read files.metadata.read" in x for x in self.logs))

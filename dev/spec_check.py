@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""仕様(保管庫の docs/spec/)とコードの食い違いを探す(2026-10-18)。
+"""仕様(保管庫の docs/spec/)とコードの食い違いを探す。
 
     python dev/spec_check.py          # 止める物と警告を並べる(終了コード 1 = 止める物がある)
     python dev/spec_check.py --gone   # 消した道具の名前だけを探す(終了コード 1 = 残っている。main に入れる関所 dev/land_gate.py が止める)
@@ -34,7 +34,7 @@ SKIP_HEAD = re.compile(r"経緯|履歴|過去|旧い名前")
 OLD_MARK = "<!-- spec-check: 旧 -->"
 KEY_MARK = "<!-- spec-check: 設定 -->"
 CODE_DIRS = ("src/", "dev/", "setup/", "friend-apps/", "chrome-ext/")
-GONE = re.compile(r"RequestSender|request-sender|送るアプリ|依頼ボックス", re.I)   # 消した道具の名前(10-18 前の友人のアプリを消した)
+GONE = re.compile(r"RequestSender|request-sender|送るアプリ|依頼ボックス", re.I)   # 消した道具の名前
 # 名前を出してよい物: この検査とそのテスト・手元に残った前のアプリのフォルダの鍵を git に入れない守り(.gitignore・push の鍵の検査)
 GONE_OK = ("dev/spec_check.py", "dev/tests/test_doc_state.py", ".gitignore", "dev/push_helper.py", "dev/tests/test_push_helper.py")
 GONE_NOTES = ("AGENTS.md", "docs/spec", "codemap")

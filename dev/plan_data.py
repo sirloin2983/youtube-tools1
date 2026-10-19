@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""計画のデータ(保管庫の plan/data/。計画の正)を 1 件 1 ファイルで持ち、表示用の plan/data.js を集めて作る(2026-10-18)。
+"""計画のデータ(保管庫の plan/data/。計画の正)を 1 件 1 ファイルで持ち、表示用の plan/data.js を集めて作る。
 
     python dev/plan_data.py build                      # plan/data/ から plan/data.js を作る(手で直さない。git にも入れない)
     python dev/plan_data.py check                      # 各 JSON が読めるか・id の重複・ファイル名・必須の欄・参照(終了コード 1 = 問題あり)
@@ -8,7 +8,7 @@
         # 軽い仮決めで入れて 7 日たち hold の無い物を確定へ移し(plan/data/confirmed/)、仮決めの一覧 plan/仮決めの一覧.md を作り直す
     python dev/plan_data.py split                      # 1 回きり: 今の手書きの plan/data.js を plan/data/ に分ける
 
-並行のセッションが 1 つの data.js の末尾に同時に書き足してカンマ抜けで 3 回壊れた(10-15〜18)ので、配列の 1 件を 1 ファイルにした:
+並行のセッションが 1 つの data.js の末尾に同時に書き足すとカンマ抜けで壊れるので、配列の 1 件を 1 ファイルにする:
   plan/data/main.json        めったに直さない共有の部分(updated・lines・phases・totals・critical・schedule・gates・numbers・conflicts・userTasks の残り)
   plan/data/summary.md       全体の説明(PLAN.summary。素の文)
   plan/data/<種類>/<名前>.json  tasks・recent・history・user(userTasks の ordered / later。欄 list)・provisional・confirmed(自動で確定した仮決め)

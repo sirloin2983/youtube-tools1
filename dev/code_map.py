@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""コードの地図と言葉の索引を作る道具(AI のセッションがコードの場所を早く見つけるため。2026-10-18)。
+"""コードの地図と言葉の索引を作る道具(AI のセッションがコードの場所を早く見つけるため)。
 
     python dev/code_map.py            # codemap/ を作り直す(index.md・層ごとの md・words.md)
     python dev/code_map.py --check    # 作り直さずに古い所だけ言う(古ければ終了コード 1。dev/lint.py の code-map が呼ぶ)

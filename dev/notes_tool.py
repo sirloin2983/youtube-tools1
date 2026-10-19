@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""資料のフォルダ(Obsidian の保管庫の中。layout.notes_root())のパスの検査と、資料を動かす道具(2026-10-13)。
+"""資料のフォルダ(Obsidian の保管庫の中。layout.notes_root())のパスの検査と、資料を動かす道具。
 
     python dev/notes_tool.py check [--fix]         # 切れたパスと食い違いを並べる(終了コード 1 = ある)。--fix は計画の資料の頭の状態・線だけ直す
     python dev/notes_tool.py mv <旧> <新> [...]   # 資料のフォルダの中で git mv して、指している所を全部直す
@@ -9,7 +9,7 @@
 
 check が見る物(dev/lint.py も同じ物を数える):
   - 資料のフォルダの md の相対リンク(外の URL・#だけ・obsidian: は見ない)と、リンクになってしまう本文のかっこ書き
-  - 計画のデータ(plan/data/ の JSON と summary.md。分ける前は plan/data.js)の docs の並び(plan/ からの相対)と、文の中の docs/… plan/… の .md・.html。
+  - 計画のデータ(plan/data/ の JSON と summary.md。分けてなければ plan/data.js)の docs の並び(plan/ からの相対)と、文の中の docs/… plan/… の .md・.html。
     JSON が読めるか・id・必須の欄・参照は dev/plan_data.py の check
   - リポジトリのコード・README の notes:docs/… notes:plan/…
   - 計画の資料の頭の 状態・線 が計画のデータ(tasks の docs)と合うか・plan/done/ の置き場所(dev/doc_state.py)

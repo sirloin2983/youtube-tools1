@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""作業のブランチを main に入れ、版(src/ytt/version.py の VERSION と README.txt の見出し)を道具が 1 つ上げる(2026-10-18)。
+"""作業のブランチを main に入れ、版(src/ytt/version.py の VERSION と README.txt の見出し)を道具が 1 つ上げる。
 
     python dev/land.py [<ブランチ>] [--minor | --no-bump | --bump] [-m 要約] [--dry-run] [--wait 秒]
         # worktree の中から流してよい(ブランチの既定 = 今のブランチ)。main をチェックアウトしている作業フォルダで merge する

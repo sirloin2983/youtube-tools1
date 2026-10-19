@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""計画の資料の頭の `状態`・`線` を計画の正(保管庫の plan/data/)から決めて書く・食い違いを止める(2026-10-18)。
+"""計画の資料の頭の `状態`・`線` を計画の正(保管庫の plan/data/)から決めて書く・食い違いを止める。
 
     python dev/doc_state.py check     # 食い違いを並べる(終了コード 1 = ある)。dev/notes_tool.py check も同じ物を数える
     python dev/doc_state.py sync      # 頭の 2 行(状態・線)だけを計画のデータに合わせて書き直す(notes_tool check --fix も同じ)

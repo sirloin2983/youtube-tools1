@@ -4,7 +4,7 @@
     python dev/plan_artifact.py [--out <フォルダ>] [--plan <保管庫の plan フォルダ>] [--no-index]
     # --out の既定: <リポジトリ直下>/.artifact-build/plan/   --plan の既定: <保管庫>/plan
 
-計画の正が plan/data/ に分けてあれば(2026-10-18〜)、先に軽い仮決めの自動の確定(dev/plan_data.py sweep)と plan/data.js の生成をする。
+計画の正が plan/data/ に分けてあれば、先に軽い仮決めの自動の確定(dev/plan_data.py sweep)と plan/data.js の生成をする。
 索引を書くときは、計画の資料の頭の状態・線(dev/doc_state.py)と食い違いの一覧 plan/食い違いの一覧.md(dev/drift_report.py)も作り直す。
 あわせて、計画のデータから計画の索引 <plan>/計画の索引.md・線ごとのまとめ <plan>/線*.md・ホームの自動の部分 <保管庫>/ホーム.md を書き出す
 (Obsidian で読む用。--no-index で止める)。--graph で保管庫の根の ホーム.md(無いとき)と .obsidian/graph.json の colorGroups・search も書く。

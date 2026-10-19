@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""main に入れる前の関所(dev/land.py が版を上げる前に流す。2026-10-18)。単独でも流せる:
+"""main に入れる前の関所(dev/land.py が版を上げる前に流す)。単独でも流せる:
 
     py -3.12 dev/land_gate.py [<ブランチ>] [--skip-tests] [--skip-checks] [--skip-worklog] [--worklog 名前] [-j 数] [--list]
         # 既定のブランチ = 今のブランチ。--list は選んだテストの一覧だけ(流さない)
@@ -42,7 +42,7 @@ LAYER_DIRS = {"ytt": ["src/ytt/"], "pipeline": ["src/pipeline/"], "flow": ["src/
               "manage": ["src/manage/"], "eval": ["src/eval/"], "friendapp": ["src/friendapp/"],
               "app": ["src/app/", "src/studio/", "src/editor/", "src/cut2resolve/", "src/home/", "src/ui-kit/"]}
 DEV_TESTS = "dev/tests/"
-# いつも流す見張り(10-18: dev のテストを足したら test_ytt_core の YTT_DATA_DIR の決まりで落ちた = 層をまたぐ決まり)
+# いつも流す見張り(test_ytt_core の YTT_DATA_DIR の決まり = 層をまたぐ決まり)
 GUARDS = ("dev/tests/test_layering.py", "src/ytt/tests/test_ytt_core.py", "dev/tests/test_no_src_workdata.py")
 # 単体テストの道具の外(C#・node・e2e)。変えたら手で流す物を出すだけ
 MANUAL = {"friend-apps/holo-colors/": r"friend-apps\holo-colors\build.bat",

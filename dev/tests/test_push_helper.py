@@ -104,7 +104,7 @@ class TestCheck(Repo):
 
     def test_dropbox_keys(self):
         # 鍵のファイル(friend-apps/launcher/config.json)は中身に関係なく止める(config.json の名前でも止まるが、理由をはっきり出す)。
-        # 旧い場所(2026-10-07 以前の request-sender/config.json)も止める
+        # 旧い場所(request-sender/config.json)も止める
         for key_path in ("friend-apps/launcher/config.json", "friend-apps/request-sender/config.json", "request-sender/config.json"):
             with self.subTest(key=key_path):
                 why = P.problems_for(key_path, b"{}")

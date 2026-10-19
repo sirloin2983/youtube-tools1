@@ -4,7 +4,7 @@
     python dev/run_editor_suite.py [--only 名前の一部] [--out 結果.json]
 
 リポジトリ直下から流す。各テストは別のプロセス(AGENTS.md の決まりどおりのコマンド)。
-e2e は PYTHONIOENCODING=utf-8、src/app/tests/test_mount.py は付けない(付けると子プロセスの出力の読み取りが落ちる。以前からの件)。
+e2e は PYTHONIOENCODING=utf-8、src/app/tests/test_mount.py は付けない(付けると子プロセスの出力の読み取りが落ちる)。
 """
 import argparse
 import json

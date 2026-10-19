@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""規則の見張りのうち、ソースを import して突き合わせる物(`dev/rule_checks.py` の続き。テストの分け ②a から移した分)。
+"""規則の見張りのうち、ソースを import して突き合わせる物(`dev/rule_checks.py` の続き)。
 
     python dev/rule_imports.py              # 全部流して問題を出す(lint.py の 11 番 `rule` が同じ物を呼ぶ)
     python dev/rule_imports.py --list

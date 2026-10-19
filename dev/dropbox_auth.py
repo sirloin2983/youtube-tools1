@@ -4,7 +4,7 @@
     python dev/dropbox_auth.py <App key> [--out friend-apps/launcher/config.json]
 
 Dropbox の App console で作ったアプリ(Scoped access・App folder・権限は files.content.write・files.content.read・files.metadata.read)の App key を渡す。
-(読みの2つは、友人のプログラムの「受け取る」が「/出力/」のパックを一覧にして取ってくるため。v1.1.0 から)
+(読みの2つは、友人のプログラムの「受け取る」が「/出力/」のパックを一覧にして取ってくるため)
 PKCE(secret を使わない OAuth の方式)で承認して refresh token を得て、config.json に {"appKey", "refreshToken"} を書く。
 - 鍵の値は画面に出さない。config.json は .gitignore と dev/push_helper.py の検査でコミットされない
 - 無効にするときは https://www.dropbox.com/account/connected_apps でアプリの接続を切る

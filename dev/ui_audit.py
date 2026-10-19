@@ -66,7 +66,7 @@ import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(REPO, "src")
-# 絶対パス禁止(A-01)の対象 = 案件の画面と、そこが相対パスで読む部品(RS8 C4 でスタジオ・編集の画面のページは消した。部品の JS・CSS は残る)
+# 絶対パス禁止(A-01)の対象 = 案件の画面と、そこが相対パスで読む部品(部品の JS・CSS)
 MOUNTED = ("app/ui/studio", "app/ui/editor", "app/ui/cases", "app/ui/check")
 SCREENS = {"app/ui/home": ["portal.html", "portal.js", "portal.css", "portal-edit.js"],
            "app/ui/settings": ["index.html", "settings.js", "settings.css"],
@@ -75,13 +75,13 @@ SCREENS = {"app/ui/home": ["portal.html", "portal.js", "portal.css", "portal-edi
                             "panels/cut.js", "panels/machpick.js", "panels/new.js", "panels/new.css"],
            # 確かめる(/check。RS8 V1。入口が配る 1 枚。見る場面は default_scenes の check-*。V4)
            "app/ui/check": ["index.html", "check.js", "check.css", "player.js", "cards/value.js", "cards/read.js", "cards/voice.js", "cards/time.js"],
-           # 案件の画面が studio/・transcribe/ から読む部品(古い画面のページは C4 で消した = 部品だけ)
+           # 案件の画面が studio/・transcribe/ から読む部品(部品だけ)
            "app/ui/studio": ["rank.js", "queue.js", "review.js", "collab.js"],
            "app/ui/editor": ["proof.css", "app-tpl.js", "app.js", "app-core.js", "app-jobs.js", "app-learn.js", "app-list.js", "app-rows.js", "app-tools.js", "cut.js", "pack-tab.js"],
            # 友人の受信箱(F2-2。友人の PC の玄関 src/friendapp が配る 1 枚。見る場面は friend_scenes。見本は dev/friend_demo.py)
            "friendapp/ui": ["friend.html", "friend.js", "friend.css", "setup.html", "setup.js", "settings.js", "settings.css", "host.js"],
            "ui-kit": ["ui-kit.css", "ui-kit.js", "styleguide.html", "styleguide.js"]}
-# ホームの画面に文が出る .py(server.py の argparse・backup.py の CLI の問いは黒い画面に出るだけなので見ない)。/ を含む物は src/ からのパス(役割の層へ移した物)
+# ホームの画面に文が出る .py(server.py の argparse・backup.py の CLI の問いは黒い画面に出るだけなので見ない)。/ を含む物は src/ からのパス(役割の層にある物)
 HOME_PY = ["autorun.py", "manage/cases/cases.py", "flow/delivery.py", "live.py", "flow/live_archive.py", "flow/live_export.py", "flow/live_failures.py", "eval/drill/accuracy.py","manage/ops/health.py", "manage/keep/cleanup.py", "flow/deliver.py", "pipeline/pack/preview.py", "human/friend/intake.py", "manage/ops/restart.py"]
 # 用語集(notes:docs/spec/ui.md の 1)の「使わない言葉」のうち、文脈によらず使わないもの(「動画」「削除」「更新」「ショート」は別の意味で使うので見ない = B-04)
 BANNED_TERMS = ["ストリーム", "トランスクリプト", "セグメント", "カットリスト", "編集点", "削除区間", "自動カット", "パッケージ", "再生成", "ポータル", "一括実行", "操作キー", "ショートカット",
@@ -100,7 +100,7 @@ VARIANTS = ("light", "dark", "light-lg")
 IGNORE_CONSOLE = ("/live/api/info", "compute-pressure")   # YouTube の埋め込みプレイヤーが出す Permissions policy の警告(Windows で埋め込みが読めるときだけ出る。画面側では直せない)
 REGEX_BEFORE = set("(,=:[!&|?{};+-*%<>~^")   # この文字のあとの / は正規表現の始まり(割り算ではない)
 # 取り込まれた画面が要求してよい場所(取り込みの場所 + ホームの API /api/(まとめて実行・api/ytt)+ 録画の部品 /live/)。UIKit.tools.base() が作る他ツールの URL も含む
-ALLOWED_PREFIX = {"/cases": ("/cases", "/ui-kit.", "/api/", "/studio/", "/transcribe/", "/cut2resolve/", "/live/"),   # 案件の画面(RS8 C4。古い /studio/・/transcribe/ のページは消した)
+ALLOWED_PREFIX = {"/cases": ("/cases", "/ui-kit.", "/api/", "/studio/", "/transcribe/", "/cut2resolve/", "/live/"),   # 案件の画面
                   "/check": ("/check", "/ui-kit.", "/api/", "/transcribe/")}   # 確かめる(RS8 V1: 自分の部品 /check*・入口の api/check・編集の動画と波形 transcribe/)
 
 
@@ -355,7 +355,7 @@ def static_js(screen, path, text, out):
     check_terms(path, text, out, texts)
 
 
-# ---------- 画面の部品の約束(A-16〜A-19・A-37。テストの「ソースを読んで見る決まり」から移した = test-trim の規則の担当) ----------
+# ---------- 画面の部品の約束(A-16〜A-19・A-37。test-trim の規則の担当) ----------
 # 以下の *_problems は、本文(文字列)を受け取り「問題の文」の一覧を返す(dev/tests/test_rule_checks.py の TestUiContracts が破った見本で止まることを確かめる)
 CASES_PANELS = ("cand", "proof", "cut")        # 案件の画面のパネル(CasesPanels.define を持つ)
 CASES_PANEL_KEYS = ("mount:", "update:", "unmount:", "keys:", "keybar:")
@@ -735,7 +735,7 @@ def default_scenes(base):
     modal = {root, opener} は A-31(重ねる欄の約束)を見る。wide は 1920 でも見る。
     見本のデータ(dev/demo_env.py)の配信 demo0000000 と、文字起こし 1 件を使う。副作用のあるボタン(終了・片付け・実行)は押さない。"""
     doc = demo_doc_id(base)
-    ed = base + "/cases?d=" + doc if doc else base + "/cases?c=demo0000000"   # 案件の画面の校正・カット(RS8 C4。古い編集の画面は消した)
+    ed = base + "/cases?d=" + doc if doc else base + "/cases?c=demo0000000"   # 案件の画面の校正・カット
     cand = base + "/cases?c=demo0000000#cand"
     styleguide = pathlib.Path(os.path.join(SRC, "ui-kit", "styleguide.html")).resolve().as_uri()   # Windows でも file:///C:/... の形(区切りが / でないと origin が取れない)
     settings = {"root": "#uiSettingsDrawer", "opener": "[data-ui-settings]"}
@@ -748,10 +748,10 @@ def default_scenes(base):
         {"name": "home-new-case", "url": base + "/", "actions": [("click", "#newCaseBtn"), ("wait", 1500)], "modal": {"root": "#newDrawer", "opener": "#newCaseBtn"}},   # 新しい案件の引き出し(RS8 C3)
         {"name": "home-settings", "url": base + "/", "actions": [("click", "[data-ui-settings]"), ("wait", 400)], "modal": settings},
         {"name": "home-settings-page", "url": base + "/settings", "wide": True, "actions": [("wait", 800)]},   # 設定の画面(S5。schema.json から描く。設定の画面そのものなので header の ⚙(A-28)は見ない)
-        # 案件の画面(RS8 C4。古いスタジオ・編集の画面の場面を置き換えた)。空の状態は最初に(開いた案件をこのブラウザが覚えるため)
+        # 案件の画面。空の状態は最初に(開いた案件をこのブラウザが覚えるため)
         {"name": "cases-empty", "url": base + "/cases?c=zz-no-such-case", "header": True},
         {"name": "cases-new-case", "url": base + "/#new", "actions": [("wait", 1500)]},   # 新しい案件の引き出し(探す設定を含む)
-        {"name": "cases-new-set", "url": base + "/#new?set=reg", "actions": [("wait", 2000)]},   # 探す設定(API キー・事務所の登録。RS8 C4 でスタジオの ⚙ から移した)
+        {"name": "cases-new-set", "url": base + "/#new?set=reg", "actions": [("wait", 2000)]},   # 探す設定(API キー・事務所の登録)
         {"name": "cases-cand", "url": cand, "header": True, "wide": True},
         {"name": "cases-cand-marks", "url": base + "/cases?c=demo0000002#cand"},   # マークのある配信(行の札・理由の札)
         {"name": "cases-cand-export", "url": cand, "actions": [("click", "#rvJump [data-jump=export]"), ("wait", 500)],

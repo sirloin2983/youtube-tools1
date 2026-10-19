@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Claude Code の PreToolUse のフック: 事故のもとになる操作を機械が断る(2026-10-18)。標準ライブラリだけ・速く。
+"""Claude Code の PreToolUse のフック: 事故のもとになる操作を機械が断る。標準ライブラリだけ・速く。
 
     py -3.12 dev/guard_hook.py                    # フックとして(標準入力に Claude Code の JSON。断るときは標準出力に deny の JSON)
     py -3.12 dev/guard_hook.py --check "<命令>"   # 試し: 命令を 1 つ判定して結果を出す(--tool PowerShell・--cwd で場所)

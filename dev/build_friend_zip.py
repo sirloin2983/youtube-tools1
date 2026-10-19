@@ -78,7 +78,7 @@ PY_EMBED = {"version": "3.10.11", "file": "python-3.10.11-embed-amd64.zip",
 TOOLS = (
     {"name": "ffmpeg", "file": "ffmpeg-9.0.2-essentials_build.zip", "unzip": "zip", "dest": "tools/ffmpeg",
      "url": "https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/ffmpeg-9.0.2-essentials_build.zip"},
-    # yt-dlp: 今の安定版(10-18 に GitHub の releases/latest で確かめた。新しいのは nightly だけ)。大きさと SHA-256 は公式の SHA2-256SUMS の値
+    # yt-dlp: 今の安定版(GitHub の releases/latest の安定版。新しいのは nightly だけ)。大きさと SHA-256 は公式の SHA2-256SUMS の値
     # (この PC の winget の yt-dlp.exe も同じ値)。版を上げるときは url と一緒に size・sha256 も公式の値へ
     {"name": "yt-dlp", "file": "yt-dlp.exe", "unzip": None, "dest": "tools/yt-dlp",
      "url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp.exe",

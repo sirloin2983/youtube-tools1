@@ -16,7 +16,7 @@
   7 no-docstring  … モジュールの先頭に説明(docstring)が無い .py(tests/ は除く)。テストの .py・.js・.cs(git の全部)は頭の説明
                     (docstring か最初のコメント)が無い物(dev/code_map.py の --missing と同じ)
  10 code-map      … コードの地図 codemap/ が古い(dev/code_map.py --check。作り直しは python dev/code_map.py)
- 11 rule          … 規則の見張り(テストから移した分): ファイルの形(.bat の CRLF・requirements の ASCII)・push.bat の順・e2e の一覧・members.json と名簿の形・ソースの書き方(write_doc・yt-dlp の -o・TOOL_APPS・
+ 11 rule          … 規則の見張り: ファイルの形(.bat の CRLF・requirements の ASCII)・push.bat の順・e2e の一覧・members.json と名簿の形・ソースの書き方(write_doc・yt-dlp の -o・TOOL_APPS・
                     編集の部品を読まない)・定数や既定値が 2 か所で食い違わない・入口やサーバーにネイティブ部品を読み込まない。規則 1 つ = dev/rule_checks.py か dev/rule_imports.py の関数 1 つ(python dev/rule_checks.py --list)
   8 version       … 版は全体で 1 つ(ytt/version.py)。そこが正しい形か、各ツールの定数・画面に版の数字を直に書いていないか
   9 ref-path/ref-gone/ref-layer … 説明文(docstring とコメント。tests/ は除く)の参照が戻らない検査: 無い .py のパス・もう無い名前(ed_alt など)・先頭の説明の層の番号がフォルダと合わない。
@@ -37,7 +37,7 @@ SKIP_DIRS = {"__pycache__", "node_modules", ".venv", "build", "dist", "packs", "
 TEXT_EXT = (".py", ".js", ".cjs", ".html", ".css", ".cs", ".md", ".txt", ".bat", ".vbs", ".json")
 DUP_HELPERS = {"_unlink": "fsio.unlink_quiet", "_unlink_quiet": "fsio.unlink_quiet", "_no_window": "tools.no_window_flags", "NO_WINDOW": "tools.no_window_flags",
                "KillJob": "tools.KillJob(1 か所に)", "_kill_on_close_job": "tools.KillJob(1 か所に)",
-               # 別名の写し(2026-10-09。ytt_core 1.3.0 で足した小道具。notes:docs/design/reviews/code-review-simplify-2026-10-08.md の A・G10)
+               # 別名の写し(ytt_core の小道具。notes:docs/design/reviews/code-review-simplify-2026-10-08.md の A・G10)
                "unlink_quiet": "fsio.unlink_quiet", "file_stamp": "fsio.stamp", "rotate": "fsio.rotate",
                "read_json": "fsio.read_json_or", "_read_json_file": "fsio.read_json_or", "_inside": "fsio.is_inside",
                "dir_size": "fsio.dir_size", "_dir_bytes": "fsio.dir_size",
@@ -262,7 +262,7 @@ PATH_RE = re.compile(r"(?<![A-Za-z0-9_./:\\-])((?:[A-Za-z0-9_-]+/)+[A-Za-z0-9_-]
 LAYER_OF = {"pipeline": "①", "flow": "②", "human": "③", "manage": "④", "eval": "⑤"}   # src/ の直下のフォルダ → 層の番号(正は notes:docs/spec/overview.md の 2)
 LAYER_RE = re.compile(r"([①②③④⑤])\s*(?:道具|管理|人の操作|人|データ|検証|テスト)")
 # 一時的に許す物(件数を減らす方向だけ。OPT-M1・E1 で直したら外す)。キーは (kind, ファイル) → 理由
-REF_ALLOW = {}   # 10-19 の棚卸しで eval の 13 件を直して空にした
+REF_ALLOW = {}   # 許す参照は無い
 
 
 def doc_texts(tree, src):
