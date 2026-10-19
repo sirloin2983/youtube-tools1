@@ -344,10 +344,6 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
             return None
         return {"tool": tool, "labels": [name(i) for i in items if i.get(key) in ids], "others": [name(i) for i in items if i.get(key) not in ids]}
 
-    def _env_off(self, name):
-        """環境変数 name が off・0・false・no か(テストが渡す env と、本物の環境変数の両方を見る)"""
-        return any(str(e.get(name) or "").strip().lower() in ("off", "0", "false", "no") for e in (self.env or {}, os.environ))
-
     # ------------------------------------------------------------ 実行
     def _docs(self):
         """文字起こしの文書の一覧(txindex。更新時刻で覚えているので何度呼んでも読み直さない)"""
@@ -469,21 +465,13 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
         """友人の区間の長さの目安(② flow/lengthhint がその場で数える = 入口の実行記録の友人が指定した区間)-> 解析の設定に重ねる
         {"length", "preRatio"?} と出どころ・数。使わない(止めてある・見本が足りない・数えられない)ときは None(依頼は今までどおりスタジオの設定で進む)。
         最初と、使う ⇄ 使わない・長さが変わったときにログに 1 行(切り替わりを見えるように。7f-2)"""
-        if self._env_off(FRIEND_LENGTH_ENV):
-            return None
         if self._pref("friendLength", True) is False:
             return None
+        if getattr(self, "_friend_hint", None) is None:
+            self._friend_hint = _lengthhint.Tracker(FRIEND_LENGTH_ENV, "友人の区間の長さ", lambda s: self.log(s))
         loc = cases.locations(self.root, self.env)
-        try:
-            h = _lengthhint.compute(os.path.dirname(loc["studio"]), os.path.dirname(os.path.dirname(loc["runs"])))
-        except Exception as e:   # 数えられなくても依頼は止めない
-            self.log("友人の区間の長さ: 数えられないので使いません(%s)" % e.__class__.__name__)
-            return None
-        prev = getattr(self, "_friend_hint", self)   # self = まだ一度も数えていない(最初は必ずログに出す)
-        changed, used = _lengthhint.change(None if prev is self else prev, h)
-        if changed or prev is self:
-            self._friend_hint = used
-            self.log("友人の区間の長さ: " + _lengthhint.describe(h))
+        h = self._friend_hint.read(os.path.dirname(loc["studio"]), os.path.dirname(os.path.dirname(loc["runs"])), self.env)
+        used = _lengthhint.usable(h)
         return dict(used, file="flow/lengthhint", samples=h["samples"], videos=h["videos"]) if used else None
 
     def _remember_styles(self, tid, styles):

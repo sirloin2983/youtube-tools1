@@ -36,7 +36,7 @@ import uuid
 
 from ytt import colors as _colors, fsio, jobs as _yjobs, schemas as _schemas, tools as _ytools
 from . import board as _board, envelope as _envelope, learning as _learning, machine as _machine, placement as _placement, prio as _prio, run as run_mod, runlog, spec as _spec
-from .run import (DOC_MODE, MODE_STEPS, MODES, RUN_STATE_LABELS, STEP_LABELS, Cancelled, Run, StepError,
+from .run import (DOC_MODE, MODES, RUN_STATE_LABELS, STEP_LABELS, Cancelled, Run, StepError,
                   adopted_ids, pack_verdict, tx_verdict)
 
 MAX_KEEP = 30          # 終わった記録を残す数(メモリ。ファイルの記録は runlog.RUNS_LOG)
@@ -59,6 +59,7 @@ GB = 1024 ** 3
 DISK_RETRY = 30.0      # 空き容量が下限を切って実行を始めない間、見直す間隔(秒。submit・中止でもすぐ見直す。F1 F0-1)
 MACHINE_KEYS = ("engine", "device", "llmModel")   # status の machine 欄に出すこの PC の設定(flow/machine.py)
 GPU_FUNCS = ("info", "detect", "probe", "get")    # ytt/gpuinfo(F1 の F0-2)の GPU を調べる関数の名前の候補(先にある物を使う)
+ESTIMATE_STEPS = ("analyze", "adopt", "export", "transcribe", "pack", "deliver")   # 見積もりで行にする段(並びは run.steps = run.steps_of の 1 か所)
 
 
 class SpecVersionError(ValueError):
@@ -439,8 +440,7 @@ class Queue(run_mod.Runner):
         (鍵の比べも同じ _pack_state)。実行は実行したときの状態で決めるので、前の段の結果しだいの本数は None(分からない)で返す。
         文書の一覧と紐づけは hook の _docs・_pick_doc。-> {"steps": [{"key", "label", "count" (None = 前の段の結果しだい), "note"}],
         "total": 分かっている本数の合計, "nothing": bool, "reason", "notes"}。配信の形(MODES)と文書だけ数える(ほかは段だけ・本数は None)。
-        友人へ自動で送る(D-SEND。段 deliver があり届け先がある)なら末尾に段 deliver の行(本数は届けるかの判定 flow/sendpolicy しだいなので None・
-        note「あとで決まります」)。封筒・束の形が違えば理由つきの ValueError"""
+        段 deliver(届け先がある)の行は本数 None・note「パックのあとで決まります」。封筒・束の形が違えば理由つきの ValueError"""
         check_spec(envelope, spec)
         env, bundle, _notes = self._bundle_for(envelope, spec)
         run = Run.from_envelope(env, bundle)
@@ -449,10 +449,9 @@ class Queue(run_mod.Runner):
             return self._estimate_docs(docs, run)
         if run.mode not in MODES:
             return self._estimate_out([{"key": s["key"], "label": s["label"], "count": None, "note": ""} for s in run.steps], [])
-        video_id, mode, top = run.video_id, run.mode, run.top
+        video_id, top = run.video_id, run.top
         st, obj = self.tools.video(urllib.parse.quote(str(video_id or "")))
         v = (obj.get("video") or {}) if st == 200 and isinstance(obj, dict) else {}
-        deliver = bool(run.deliver_dir) and any(s["key"] == "deliver" for s in run.steps)
         mine = self._mine(run, v)
         adopted = adopted_ids(mine)
         clips = self._clips(v, run)
@@ -462,7 +461,7 @@ class Queue(run_mod.Runner):
         packable = [m for m, d in picked if d and self._pack_verdict(run, d, m["path"], opts, v) != "skip"]
         steps = []
         pending = False   # 前の段の結果しだい(解析・採用のあとで本数が決まる)
-        for key in [s["key"] for s in run.steps if s["key"] in MODE_STEPS[mode]]:   # 実行と同じ段の並び(書き出しから全部は解析・採用なし。steps_of)
+        for key in [s["key"] for s in run.steps if s["key"] in ESTIMATE_STEPS]:   # 実行と同じ段の並び(run.steps = steps_of。話者分離・あとの解析は数えない)
             label, count, note = STEP_LABELS[key], 0, ""
             if key == "analyze":
                 count, note = (0, "解析済み") if self._analyze_plan(run, v)[0] == "skip" else (1, "")   # 足りなければ解析し直すも実行と同じ
@@ -488,9 +487,9 @@ class Queue(run_mod.Runner):
             elif key == "pack":
                 count = None if pending else len(packable)
                 note = "文字起こしのあとで決まります" if count is None else ("" if count else ("パック済み(「パックがあれば作り直す(上書き)」を選ぶと作り直します)" if clips else "文字起こしのある切り抜きがありません"))
+            elif key == "deliver":
+                count, note = None, "パックのあとで決まります"
             steps.append({"key": key, "label": label, "count": count, "note": note})
-        if deliver and mode == "full":
-            steps.append({"key": "deliver", "label": STEP_LABELS["deliver"], "count": None, "note": "あとで決まります"})
         return self._estimate_out(steps, [] if st == 200 else ["配信がスタジオに見つかりません"])
 
     def _estimate_docs(self, docs, run):

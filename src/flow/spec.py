@@ -129,12 +129,15 @@ def clean_weights(v):
     return check_weights(v)[0]
 
 
+TOP_MAX = 30   # 採用する数の上限(束の adopt.top。受付の submit_urls・束の検査 _top_ok もこの top_arg を通す)
+
+
 def top_arg(top):
-    """採用する数(未指定は DEFAULT_TOP)。1〜30 でなければ ValueError"""
+    """採用する数(未指定は DEFAULT_TOP)。1〜TOP_MAX でなければ ValueError"""
     if top in (None, ""):
         return DEFAULT_TOP
-    if not isinstance(top, int) or isinstance(top, bool) or not (1 <= top <= 30):
-        raise ValueError("採用する数は1〜30です")
+    if not isinstance(top, int) or isinstance(top, bool) or not (1 <= top <= TOP_MAX):
+        raise ValueError("採用する数は1〜%dです" % TOP_MAX)
     return top
 
 

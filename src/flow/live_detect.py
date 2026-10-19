@@ -166,7 +166,7 @@ class Detector:
         self._fails = None                 # 自動の採用を諦めた候補(auto_failures.json)
         self._series = fsio.StampCache()   # series.jsonl の読み取りの覚え(更新日時と大きさが変わったときだけ読み直す)
         self._capped_said = set()          # D-13: 上限に達した録画(記録に 1 回だけ出す)
-        self._hint_used = None             # 前に使った長さの目安(flow/lengthhint.usable の形。切り替わったら記録に 1 行)
+        self._hint = _lengthhint.Tracker(LENGTH_HINT_ENV, "盛り上がりの検出", lambda s: self.host.note(s))   # 長さの目安(切り替わったら記録に 1 行)
 
     # ---- 設定
     @property
@@ -261,17 +261,9 @@ class Detector:
     def _length_hint(self):
         """M10: 人が選んだ区間の長さの目安(② flow/lengthhint がその場で数える = 友人が依頼で指定した区間。enough のときだけワーカーが使う)。
         止めてある(環境変数 YTT_LIVE_LENGTH=off)・数えられなければ None。使う ⇄ 使わない・長さが変わったら記録と調子に 1 行(7f-2)"""
-        if str(os.environ.get(LENGTH_HINT_ENV) or "").strip().lower() in ("off", "0", "false", "no"):
+        h = self._hint.read(_datadir.resolve("studio", self.host.root), _datadir.resolve("app", self.host.root))
+        if h is None:
             return None
-        try:
-            h = _lengthhint.compute(_datadir.resolve("studio", self.host.root), _datadir.resolve("app", self.host.root))
-        except Exception as e:
-            self.host.note("盛り上がりの検出: 長さの目安を数えられませんでした: %r" % (e,))
-            return None
-        changed, used = _lengthhint.change(self._hint_used, h)
-        if changed:
-            self._hint_used = used
-            self.host.note("盛り上がりの検出: " + _lengthhint.describe(h))
         return {"length": h["length"], "preRatio": h["preRatio"], "samples": h["samples"], "videos": h["videos"], "enough": h["enough"], "file": "flow/lengthhint"}
 
     def write_config(self):

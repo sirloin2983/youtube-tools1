@@ -106,7 +106,7 @@ def submit_urls(runner, items, request_id=None, deliver_dir=None, speakers=None,
         title, channel = str(it.get("title") or "").strip()[:120], str(it.get("channel") or "").strip()[:100]
         try:
             ranges = _spec.clean_ranges(it.get("ranges"))
-            if not _yt_id_ok(vid) or not isinstance(top, int) or isinstance(top, bool) or not 1 <= top <= 30:
+            if not _yt_id_ok(vid) or not _spec.key_ok("adopt", "top", top):   # 本数の範囲は束の検査と同じ(spec.top_arg)
                 raise ValueError("配信の指定が正しくありません")
             env, diff = _order.order("url", video_id=vid, title=title or vid, fresh={"title": title, "channel": channel}, duration=it.get("duration"),
                                      upto="pack", top=top, ranges=ranges, weights=w, cut=cut, video_tracks=video_tracks, speakers=speakers,

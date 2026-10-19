@@ -782,8 +782,8 @@ class TestStage4(Base):
         self.assertEqual([s["count"] for s in estimate(self.r, doc_ids=[tid], overwrite=True)["steps"]], [0, 1])
         with self.assertRaises(ValueError):
             estimate(self.r, VID, "nope")
-        e = estimate(self.r, VID, "full", deliver=True)   # D-SEND: 友人へ自動で送るなら末尾に deliver の行(本数は判定しだい = None)
-        self.assertEqual(e["steps"][-1], {"key": "deliver", "label": "Dropbox へ届ける", "count": None, "note": "あとで決まります"})
+        e = estimate(self.r, VID, "full", deliver=True)   # 届け先があれば末尾に deliver の行(本数はパックのあと = None)
+        self.assertEqual(e["steps"][-1], {"key": "deliver", "label": "Dropbox へ届ける", "count": None, "note": "パックのあとで決まります"})
         self.assertEqual([s["key"] for s in estimate(self.r, VID, "full")["steps"]], ["analyze", "adopt", "export", "transcribe", "pack"])
         self.assertEqual([s["key"] for s in estimate(self.r, VID, "export", deliver=True)["steps"]], ["export", "transcribe", "pack"])
         # 見積もりも実行と同じ判定(pack_verdict)で、鍵が違うパックは作り直す数に入れる

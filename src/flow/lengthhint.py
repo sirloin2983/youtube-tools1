@@ -227,3 +227,35 @@ def change(prev, hint):
     """前に使った目安 prev(usable の形か None)から変わったか -> (変わったか, 今の usable)"""
     u = usable(hint)
     return u != prev, u
+
+
+OFF_WORDS = ("off", "0", "false", "no")
+_UNSET = object()
+
+
+class Tracker:
+    """読み手(依頼の解析 = app/autorun・ライブの新しい録画 = flow/live_detect)ごとの殻: 止める環境変数・その場で数える・
+    最初と切り替わり(使う ⇄ 使わない・長さが変わった)に note へ「<head>: <describe>」を 1 行(7f-2)"""
+
+    def __init__(self, env_name, head, note):
+        self.env_name, self.head, self.note = env_name, head, note
+        self.used = _UNSET   # 前に使った目安(usable の形か None。_UNSET = まだ一度も数えていない = 最初は必ず 1 行出す)
+
+    def off(self, *envs):
+        """止める環境変数(env_name)が off・0・false・no か(渡した辞書と本物の環境変数の両方を見る)"""
+        return any(str(e.get(self.env_name) or "").strip().lower() in OFF_WORDS for e in envs + (os.environ,) if e)
+
+    def read(self, studio, app, *envs):
+        """-> compute の結果か None(止めてある・数えられない)"""
+        if self.off(*envs):
+            return None
+        try:
+            h = compute(studio, app)
+        except Exception as e:   # noqa: BLE001  (数えられなくても読み手は止めない)
+            self.note("%s: 数えられないので使いません(%s)" % (self.head, e.__class__.__name__))
+            return None
+        changed, used = change(None if self.used is _UNSET else self.used, h)
+        if changed or self.used is _UNSET:
+            self.used = used
+            self.note("%s: %s" % (self.head, describe(h)))
+        return h
