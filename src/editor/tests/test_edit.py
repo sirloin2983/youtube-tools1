@@ -547,14 +547,20 @@ class TestEditHttp(unittest.TestCase):
         keeps = [[a, b] for a, b in clips]
         segs2 = [dict(g) for g in segs]
         segs2[2]["text"] = "今日はいい天気ですね散歩に行こう"      # Text+ の改行(12 ②)を見るための長い字幕
+        segs2[2]["speaker"] = 0   # 文書の話者の名前 → 字幕の色(A-2。既定はオン)
         d2 = self.call("GET", "/api/transcript?id=" + tid)
-        self.call("PUT", "/api/transcript?id=" + tid, {"title": d2["title"], "speakers": [], "segments": segs2, "baseUpdatedAt": d2["updatedAt"]})
+        self.call("PUT", "/api/transcript?id=" + tid, {"title": d2["title"], "speakers": [{"id": 0, "name": "兎田ぺこら"}], "segments": segs2, "baseUpdatedAt": d2["updatedAt"]})
         NL = chr(10)
-        st, hd, body = self.call("POST", "/api/resolve-package", {"tid": tid, "fps": "30", "size": "1080x1920"}, raw=True)
-        with zipfile.ZipFile(io.BytesIO(body)) as z:
-            from pipeline.pack import resolve_textplus
-            ipw =resolve_textplus.read_script_plan(z.read(next(n for n in z.namelist() if n.endswith("/create_resolve_textplus_project.lua"))).decode("utf-8"))
-        self.assertIn("今日はいい天気ですね" + NL + "散歩に行こう", [c["text"] for c in ipw["captions"]])   # zip も設定の縦 8 で2段
+        from pipeline.pack import resolve_textplus
+
+        def zip_plan(extra=None):
+            st, hd, body = self.call("POST", "/api/resolve-package", dict({"tid": tid, "fps": "30", "size": "1080x1920"}, **(extra or {})), raw=True)
+            with zipfile.ZipFile(io.BytesIO(body)) as z:
+                return resolve_textplus.read_script_plan(z.read(next(n for n in z.namelist() if n.endswith("/create_resolve_textplus_project.lua"))).decode("utf-8"))
+        ipw = zip_plan()
+        long_cap = next(c for c in ipw["captions"] if c["text"] == "今日はいい天気ですね" + NL + "散歩に行こう")   # zip も設定の縦 8 で2段
+        self.assertTrue(long_cap.get("fill"), long_cap)   # 話者の色が字幕に入る
+        self.assertFalse(next(c for c in zip_plan({"speakerColors": False})["captions"] if c["text"] == long_cap["text"]).get("fill"))   # 切れば入らない
         self.call("PUT", "/api/transcript?id=" + tid, {"title": d2["title"], "speakers": [], "segments": segs,
                                                        "baseUpdatedAt": self.call("GET", "/api/transcript?id=" + tid)["updatedAt"]})
         r = self.call("POST", "/api/edit/preview", {"id": tid, "keeps": keeps})

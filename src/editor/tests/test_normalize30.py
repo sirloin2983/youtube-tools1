@@ -135,6 +135,15 @@ class TestFlowNormalize(_Base):
     def test_30fps_is_not_remade(self):
         self.assertIsNone(FN.plan(self.copy(self.v30, "そのまま.mp4")))
 
+    def test_2997_is_made_30_and_keeps_length(self):
+        """配信の録画に多い 29.97fps も 30/1 に作り直し、長さ(= 時刻)は保つ(60 と別の入力で fps の丸めを見る)"""
+        src = make_video(os.path.join(self.media, "配信 2997.mp4"), "30000/1001", sec=4)
+        before = N.probe(src)
+        p, _ran = self.make_run(src)
+        after = N.probe(p["dst"])
+        self.assertEqual(after["r_frame_rate"], "30/1")
+        self.assertAlmostEqual(after["duration"], before["duration"], delta=0.1)
+
     def test_existing_30fps_copy_is_reused(self):
         src = self.copy(self.v60, "a.mp4")
         made = self.copy(self.v30, "a_30fps.mp4")   # 前に作った 30fps の写し(長さも同じ)
