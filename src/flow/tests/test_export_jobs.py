@@ -3,8 +3,8 @@
 
     py -3.12 -m unittest src/flow/tests/test_export_jobs.py -v
 
-- 同時に 1 本(動いている間の start は 409 busy)・取り消し・終了の流れの cancel_all(interrupted)
-- 履歴は 20 件(動いている物は消さない)・public は GET /api/export の形
+本物の ① で書き終えるまでの道(public の done の形)は通し src/pipeline/export/tests/test_exporter.py の TestExportThrough。
+- 同時に 1 本(動いている間の start は 409 busy)・取り消し・終了の流れの cancel_all(interrupted)・public は GET /api/export の形
 - 枠(SLOTS)を待つ間は waiting・待ちの間の取り消し・想定外の例外でも「実行中」のまま残らない
 - 掲示板(頭 ex)の引く形と取り消し
 """
@@ -42,12 +42,6 @@ def slow_run(spec, res, ctl, on_done=None):
             return
         time.sleep(0.01)
     res["state"] = "error"
-
-
-def quick_run(spec, res, ctl, on_done=None):
-    for it in res["items"]:
-        it.update(status="done", progress=1.0, file="f/a.mp4", path=os.path.abspath("a.mp4"))
-    res.update(state="done", folder="f")
 
 
 def wait(pred, sec=5):
@@ -92,14 +86,6 @@ class TestExportJobs(Base):
         self.assertTrue(rec["interrupted"])
         self.assertEqual(rec["res"]["state"], "cancelled")
         self.assertEqual(self.ex.cancel_all(), [])
-
-    def test_done_public_and_keep(self):
-        with patch.object(exporter, "run", side_effect=quick_run):
-            rid = self.ex.start(spec())["id"]
-            self.assertTrue(wait(lambda: not self.ex.is_busy()))
-        self.assertEqual(self.ex.table.keep, E.KEEP)   # 履歴の削り方そのものは test_jobs_table の test_retry_and_history
-        p = self.ex.public(rid)
-        self.assertEqual((p["state"], p["folder"], p["items"][0]["path"]), ("done", "f", os.path.abspath("a.mp4")))
 
     def test_out_dir_change_refused_while_busy(self):
         with patch.object(exporter, "run", side_effect=slow_run):

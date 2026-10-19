@@ -23,8 +23,8 @@ from test_backend import S, StoreDir  # noqa: F401  (S = serve)
 from human.proof import doc_jobs  # noqa: E402
 from human.proof import store  # noqa: E402
 from flow import jobs  # noqa: E402
-from flow import normalize as FN  # noqa: E402   ② 30fps にそろえる段(OPT-M2 5b-1)
-from manage.cases import relink as RL  # noqa: E402   付け替えと 30fps(RS3-E7 に ed_relink から)
+from flow import normalize as FN  # noqa: E402   ② 30fps にそろえる段
+from manage.cases import relink as RL  # noqa: E402   付け替えと 30fps
 from ytt import normalize as N  # noqa: E402
 
 HAVE_FF = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
@@ -94,28 +94,43 @@ class _Base(StoreDir):
 
 
 class TestFlowNormalize(_Base):
-    """② flow/normalize の plan・run(30fps にそろえる 1 つの段。OPT-M2 5b-1)。文字起こしの続きの口 norm_after は 5b-2 で消えた"""
+    """② flow/normalize の plan・run(30fps にそろえる 1 つの段)"""
 
     def make_run(self, src, **kw):
         p = FN.plan(src, **kw)
         self.assertTrue(p)
         return p, FN.run(p)
 
-    def test_60fps_makes_sibling(self):
-        """隣に <名前>_30fps.mp4 を作る。元は残る。進み具合の知らせと、書きかけが残らないこと"""
+    def test_job_through(self):
+        """30fps にそろえる通し: 予定(隣に <名前>_30fps.mp4)→ ジョブの本体(本物の ffmpeg)→ 付け替え。
+        できた動画は 30fps の H.264・yuv420p・8bit・AAC で長さは元のまま・元は残る・書きかけは残らない"""
         src = self.copy(self.v60, "配信 60.mp4")
-        seen, prog = [], []
+        before = N.probe(src)
         p = FN.plan(src)
         dst = os.path.join(self.media, "配信 60_30fps.mp4")
         self.assertEqual((os.path.normcase(p["dst"]), p["reuse"], p["replace"]), (os.path.normcase(dst), False, False))
-        path, note = FN.run(p, on_progress=prog.append, on_start=lambda: seen.append("start"))
-        self.assertEqual(os.path.normcase(path), os.path.normcase(dst))
-        self.assertEqual(seen, ["start"])
-        self.assertEqual(prog[-1], 1.0)
-        self.assertIn("30fps", note)
-        self.assertTrue(os.path.isfile(src))
+        self.assertTrue(any("30fps" in w for w in p["why"]), p["why"])
+
+        class Job(dict):   # 進み具合と段の移り変わりを残す
+            seen = []
+
+            def __setitem__(self, k, v):
+                if k in ("progress", "phase"):
+                    self.seen.append((k, v))
+                super().__setitem__(k, v)
+        job, calls = Job(spec={"tid": "t1", "plan": p}, state="queued"), []
+        FN.run_job(job, swap=lambda tid, s, d: calls.append((tid, os.path.normcase(s), os.path.normcase(d))))
+        self.assertEqual(calls, [("t1", os.path.normcase(os.path.abspath(src)), os.path.normcase(dst))])
+        self.assertEqual((job["state"], job["phase"], job["progress"], job["normOk"]), ("done", "完了", 1.0, True))
+        self.assertIn(os.path.basename(dst), job["normNote"])
+        self.assertEqual(job.seen[:2], [("phase", FN.NORM_PHASE), ("progress", 0.0)])   # ffmpeg を回す直前に「30fps にそろえています」
+        self.assertEqual(job.seen[-3:], [("progress", 1.0), ("progress", 1.0), ("phase", "完了")])   # 作り直しの進み具合が 1.0 まで届いてから完了
+        after = N.probe(dst)
+        self.assertEqual((after["r_frame_rate"], after["vcodec"], after["pix_fmt"], after["bit_depth"], after["acodec"], after["cfr"], after["width"]),
+                         ("30/1", "h264", "yuv420p", 8, "aac", True, 160))
+        self.assertAlmostEqual(after["duration"], before["duration"], delta=0.1)   # 長さ(= 時刻)は保たれる
         self.assert_30(dst)
-        self.assertEqual([n for n in os.listdir(self.media) if N.PART in n], [])
+        self.assertEqual(sorted(os.listdir(self.media)), sorted([os.path.basename(src), os.path.basename(dst)]))   # 元は残る・書きかけは残らない
 
     def test_30fps_is_not_remade(self):
         self.assertIsNone(FN.plan(self.copy(self.v30, "そのまま.mp4")))
@@ -220,14 +235,8 @@ class TestFlowNormalize(_Base):
         p3 = FN.plan(taken, replace=True)
         self.assertNotEqual(os.path.basename(p3["dst"]), "かぶる.mp4")
 
-    def test_job_body_swaps_and_notes(self):
-        """ジョブ normalize の本体: 進み具合・付け替え(swap)・知らせ。付け替えなかったら元の動画のまま"""
-        src = self.copy(self.v60, "j.mp4")
-        calls = []
-        job = {"spec": {"tid": "t1", "plan": FN.plan(src)}, "state": "queued"}
-        FN.run_job(job, swap=lambda tid, s, d: calls.append((tid, os.path.normcase(s), os.path.normcase(d))))
-        self.assertEqual(calls, [("t1", os.path.normcase(os.path.abspath(src)), os.path.normcase(os.path.join(self.media, "j_30fps.mp4")))])
-        self.assertEqual((job["state"], job["phase"], job["progress"], job["normOk"]), ("done", "完了", 1.0, True))
+    def test_job_body_swap_refused(self):
+        """ジョブ normalize の本体: 付け替えなかったら元の動画のまま・知らせに理由"""
         src2 = self.copy(self.v60, "k.mp4")
         job2 = {"spec": {"tid": "t2", "plan": FN.plan(src2)}, "state": "queued"}
         FN.run_job(job2, swap=lambda tid, s, d: "動いたので付け替えません")
@@ -237,7 +246,7 @@ class TestFlowNormalize(_Base):
     def test_swap_skipped_when_doc_moved(self):
         """④ norm_swap: 作り直しの間に文書の動画が変わった(以前の版に戻した など)ら付け替えない"""
         src = self.copy(self.v60, "i.mp4")
-        from test_edit import put_empty_doc   # 行の無い文書(「文字起こしせずに開く」は消した)
+        from test_edit import put_empty_doc   # 行の無い文書
         tid = put_empty_doc(store._workdata.TX_DIR, src)
         before = self.doc(tid)["updatedAt"]
         self.assertIsNotNone(RL.norm_swap(tid, os.path.join(self.media, "other.mp4"), os.path.join(self.media, "x.mp4")))
@@ -253,7 +262,7 @@ class TestFlowNormalize(_Base):
 
 class TestRelinkNormalize(_Base):
     def make_doc(self, path):
-        from test_edit import put_empty_doc   # 行の無い文書(「文字起こしせずに開く」は消した)
+        from test_edit import put_empty_doc   # 行の無い文書
         tid = put_empty_doc(store._workdata.TX_DIR, path)
         return tid, self.doc(tid)
 

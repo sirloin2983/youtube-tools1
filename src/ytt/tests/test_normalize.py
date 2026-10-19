@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """ytt.normalize(素材を 30fps にそろえる。Q1)のテスト。  py -3.12 -m unittest src/ytt/tests/test_normalize.py -v
-ffmpeg・ffprobe で数秒の合成動画を作って確かめる(無い環境ではスキップ)。"""
+ffmpeg・ffprobe で数秒の合成動画を作って確かめる(無い環境ではスキップ)。
+60fps を 30fps にそろえて出来上がった動画を見る正しく動く道は、② の段の通し src/editor/tests/test_normalize30.py の test_job_through。
+ここは決まり・引数・取り消し・失敗・古い ffmpeg・速くする道だけ。"""
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしないが、ほかのテストとそろえる
 import shutil
@@ -146,8 +148,6 @@ class TestNormalize(unittest.TestCase):
     def setUpClass(cls):
         cls.src = tempfile.mkdtemp()
         cls.v60 = make(os.path.join(cls.src, "v60.mp4"), 60, 2, audio=False)          # 60fps・2 秒・yuv420p の H.264
-        cls.v30 = make(os.path.join(cls.src, "v30.mp4"), 30, 2)                       # 30fps の H.264 + AAC
-        cls.v2997 = make(os.path.join(cls.src, "v2997.mp4"), "30000/1001", 3)        # 29.97fps
         cls.long = make(os.path.join(cls.src, "long.mp4"), 60, 30, size="320x240", src="testsrc2")   # 取り消し用(作り直しに少しかかる)
 
     @classmethod
@@ -164,48 +164,8 @@ class TestNormalize(unittest.TestCase):
     def leftovers(self):
         return [n for n in os.listdir(self.tmp) if normalize.PART in n]
 
-    def test_probe(self):
-        i = normalize.probe(self.v30)
-        self.assertEqual((i["vcodec"], i["pix_fmt"], i["bit_depth"], i["r_frame_rate"], i["acodec"], i["cfr"], i["width"]),
-                         ("h264", "yuv420p", 8, "30/1", "aac", True, 64))
-        self.assertAlmostEqual(i["duration"], 2.0, delta=0.1)
-        self.assertEqual(normalize.needs_normalize(i), (False, []))   # そのまま使う
+    def test_probe_missing_file(self):
         self.assertIsNone(normalize.probe(os.path.join(self.tmp, "無い.mp4")))
-
-    def test_60fps_is_normalized_to_30(self):
-        before = normalize.probe(self.v60)
-        need, why = normalize.needs_normalize(before)
-        self.assertTrue(need)
-        self.assertTrue(any("30fps" in w for w in why), why)
-        seen = []
-        dst = os.path.join(self.tmp, "出力 30fps.mp4")
-        out = normalize.normalize(self.v60, dst, on_progress=seen.append)
-        self.assertEqual(out["path"], dst)
-        after = normalize.probe(dst)
-        self.assertEqual((after["r_frame_rate"], after["vcodec"], after["pix_fmt"]), ("30/1", "h264", "yuv420p"))
-        self.assertTrue(normalize.is_30fps(after))
-        self.assertAlmostEqual(after["duration"], before["duration"], delta=0.1)   # 長さ(= 時刻)は保たれる
-        self.assertEqual(normalize.needs_normalize(after), (False, []))
-        self.assertEqual(seen[-1], 1.0)
-        self.assertEqual(self.leftovers(), [])
-
-    def test_2997_is_normalized(self):
-        before = normalize.probe(self.v2997)
-        self.assertTrue(normalize.needs_normalize(before)[0])
-        dst = os.path.join(self.tmp, "a.mp4")
-        normalize.normalize(self.v2997, dst)
-        after = normalize.probe(dst)
-        self.assertEqual(after["r_frame_rate"], "30/1")
-        self.assertEqual(after["acodec"], "aac")
-        self.assertAlmostEqual(after["duration"], before["duration"], delta=0.1)   # コマを複製して揃うので、長さは変わらない
-
-    def test_in_place(self):
-        """src と dst が同じ = 置き換え(依頼の受付の写しなど)"""
-        p = os.path.join(self.tmp, "same.mp4")
-        shutil.copy(self.v60, p)
-        normalize.normalize(p, p)
-        self.assertEqual(normalize.probe(p)["r_frame_rate"], "30/1")
-        self.assertEqual(sorted(os.listdir(self.tmp)), ["same.mp4"])
 
     def test_cancel_leaves_nothing(self):
         flag = []
