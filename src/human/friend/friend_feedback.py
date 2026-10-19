@@ -5,8 +5,8 @@
 record_delivery で 1 行: zip の名前・依頼・配信・入っていたパックとスタジオのマーク)からその zip の中身を引き、M9 の「要らない」と同じ道
 (cases.discard_clip。ただし mark_id は空)で切り抜きの動画・パック・途中のファイルを ごみ箱フォルダ へ(3 日で消える)。
 スタジオのマークは変えない(ユーザー決定: こちらが友人へ送る基準と友人が実際に採用する基準は別。マークの採用の記録は
-見どころ検出の精度に使うので混ぜない)。不採用の記録は logs/friend_feedback.jsonl に 1 行(配信 id・マーク id・zip・パック・出どころ origin。あとで精度の道具が読める)。
-出どころ origin(D-SEND 2-7)は request か auto: 判断の任意の origin、無ければ届けた記録の出どころ(手で届けるは auto)、それも無ければ null。
+見どころ検出の精度に使うので混ぜない)。友人の「要らない」の記録は人の判断の記録 judgments.jsonl の 1 つだけ(10-19 ③ の統合 Q3。
+前の logs/friend_feedback.jsonl は書かない・消さない。片付けに要る物は届けた記録 deliveries.jsonl とごみ箱の manifest.jsonl にある)。
 文字起こしは消さない(精度のデータ)。
 """
 import json
@@ -15,23 +15,15 @@ import time
 
 from flow import deliveries
 from human import judgments
-from ytt import fsio, tools
+from ytt import tools
 
 DELIVERIES_LOG = deliveries.LOG           # 届けた記録(入口の作業データの logs の中。持ち主は ② flow/deliveries)
-FEEDBACK_LOG = "friend_feedback.jsonl"    # 友人の「要らない」の記録
-ORIGINS = ("request", "auto")   # 届いた物の出どころ(D-SEND 2-7。送り返しの returns.ORIGINS と同じ)
 MAX_SCAN = 4 * 1024 * 1024                # 届けた記録を末尾から読む上限
 
 
 def record_delivery(log_dir, zip_path, run, packs, marks=None, origin="request"):
     """zip を 出力\\ に置いたことを deliveries.jsonl に 1 行。書く口は ② flow/deliveries.record(D-SEND でそちらへ寄せた。ここは渡すだけ)"""
     return deliveries.record(log_dir, zip_path, run, packs, marks, origin)
-
-
-def _append(log_dir, name, row):
-    """log_dir/name(jsonl)に 1 行足す(フォルダが無ければ作る)。書けなければ OSError。
-    回さない(ytt/fsio.append_line の max_bytes None: find_delivery は今のファイルだけを見るので、回すと届けた記録を引けなくなる)"""
-    fsio.append_line(os.path.join(log_dir, name), json.dumps(row, ensure_ascii=False) + "\n", None)
 
 
 def find_delivery(log_dir, zip_name):
@@ -54,15 +46,6 @@ def find_delivery(log_dir, zip_name):
         if isinstance(d, dict) and d.get("zip") == zip_name:
             found = d
     return found
-
-
-def _origin(fb, row):
-    """記録に残す出どころ(友人に見せる形 request か auto): 判断に書かれた origin → 届けた記録の出どころ(手で届けるは auto)→ 分からなければ None"""
-    if fb.get("origin") in ORIGINS:
-        return fb["origin"]
-    if row:
-        return "request" if deliveries.origin_of(row) == "request" else "auto"
-    return None
 
 
 def _app_dir(log_dir):
@@ -97,9 +80,9 @@ def _judge_friend(log_dir, fb, row, what, at, log):
 
 
 def apply(log_dir, fb, trash=None, log=None, discard=None):
-    """友人の「要らない」を当てる: 届けた記録にあるパックと切り抜きの動画を ごみ箱フォルダ へ(3 日で消える)、記録を friend_feedback.jsonl に。
+    """友人の「要らない」を当てる: 届けた記録にあるパックと切り抜きの動画を ごみ箱フォルダ へ(3 日で消える)。
     スタジオのマークは変えない(ユーザー決定: こちらが友人へ送る基準と友人が実際に採用する基準は別。マークの採用の記録は
-    見どころ検出の精度に使うので混ぜない)。不採用の記録は markId つきでこのファイルに残す。
+    見どころ検出の精度に使うので混ぜない)。判断は judgments.jsonl だけ(judged でなければここで reject を markId ごとに書く)。
     discard: 切り抜き 1 本ぶんを ごみ箱 へ移す関数(入口が cases.discard_clip を渡す。形は discard(trash, studio, video_id, mark_id, media, pack)
     -> (移したもの, ごみ箱の場所, スタジオの返事)。失敗は ValueError の子 cases.ReviewError か OSError)。案件の部品 cases を読み込まないための口
     fb = {"zip", "verdict": "reject", "requestId", "title", "origin"?, "judged"?}(judged = 判断の記録は送り返しの受け取りが書いた = ここでは片付けだけ)
@@ -124,17 +107,10 @@ def apply(log_dir, fb, trash=None, log=None, discard=None):
             results.append({"dir": d, "markId": mid, "error": str(e)})
             continue
         results.append({"dir": d, "markId": mid, "moved": len(moved), "trash": where})
-    rec = {"at": int(time.time() * 1000), "zip": fb["zip"], "verdict": fb["verdict"], "requestId": fb.get("requestId") or row.get("requestId") or "",
-           "title": fb.get("title") or row.get("title") or "", "videoId": row.get("videoId") or "", "runId": row.get("runId") or "", "packs": results,
-           "origin": _origin(fb, row)}
     if not fb.get("judged"):   # 送り返しの .verdict.json から来た物は、そちらが判断の記録を書いた(ここで reject を足すと bad を後から不明で上書きする)
-        _judge_friend(log_dir, fb, row, "reject", rec["at"], log)
-    try:
-        _append(log_dir, FEEDBACK_LOG, rec)
-    except OSError as e:
-        log("友人の返事: 記録を書けませんでした(%s)" % tools.why(e))
+        _judge_friend(log_dir, fb, row, "reject", int(time.time() * 1000), log)
     done = [r for r in results if "error" not in r]
-    summary = "%d 本をごみ箱フォルダへ(スタジオのマークはそのまま。記録は %s)" % (len(done), FEEDBACK_LOG)
+    summary = "%d 本をごみ箱フォルダへ(スタジオのマークはそのまま。判断は judgments.jsonl)" % len(done)
     if errors:
         summary += "。片付けられなかった %d 本: %s" % (len(errors), errors[0][:120])
     log("友人の返事: 要らない %s → %s" % (fb["zip"], summary))

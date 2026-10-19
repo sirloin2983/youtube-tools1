@@ -286,11 +286,11 @@ def rotate(path, limit, old=None):
 def append_line(path, line, max_bytes, keep_old=False):
     """1 行を書き足す(max_bytes を超えていたら先に <path>.1 へ回す = 1 世代)。書けなければ OSError。line は改行つきの文字列(UTF-8 で書く)。
     画面のエラーの記録(clientlog)・まとめて実行の記録(autorun)・採用の記録(live_export)が同じ形で使う。
-    keep_old=True(判定の記録 feedback.jsonl。精度の見直しの材料なので消さない): 超えたら <path>.old の末尾へ足して空にする(バイトのまま・改行は LF)。
+    keep_old=True(機械の記録 machine_marks.jsonl・人の判断の記録 judgments.jsonl。精度の見直しの材料なので消さない): 超えたら <path>.old の末尾へ足して空にする(バイトのまま・改行は LF)。
     前回の行が書きかけ(電源断など)で改行が無ければ、先に改行を足して次の行と繋がらないようにする"""
     os.makedirs(os.path.dirname(path), exist_ok=True)
     if not keep_old:
-        if max_bytes is not None:   # None = 回さない(友人へ届けた記録・友人の返事。human/friend/friend_feedback)
+        if max_bytes is not None:   # None = 回さない(友人へ届けた記録。flow/deliveries)
             rotate(path, max_bytes, old=path + ".1")
         with open(path, "a", encoding="utf-8") as f:
             f.write(line)

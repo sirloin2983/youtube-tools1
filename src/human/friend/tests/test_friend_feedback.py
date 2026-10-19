@@ -3,7 +3,6 @@
 
 実行(リポジトリ直下から): python -m unittest src/human/friend/tests/test_friend_feedback.py -v
 """
-import json
 import os
 import sys
 import types
@@ -48,7 +47,7 @@ class Base(unittest.TestCase):
 
 class TestApply(Base):
     def test_record_and_apply(self):
-        """届けた記録 → 要らない: 切り抜き・パックを ごみ箱 へ・friend_feedback.jsonl に 1 行(マークの id つき)。スタジオのマークは触らない"""
+        """届けた記録 → 要らない: 切り抜き・パックを ごみ箱 へ(結果にマークの id)。前の logs/friend_feedback.jsonl は書かない(判断は judgments だけ = Q3)。スタジオのマークは触らない"""
         marks = {self.pack1: {"path": self.clip1, "markId": "m1"}, self.pack2: {"path": self.clip2, "markId": "m2"}}
         F.record_delivery(self.logs, os.path.join(self.tmp, "出力", "20261002-120000-0a1b2c__配信A 1-2.zip"), self.run, [self.pack1, self.pack2], marks)
         F.record_delivery(self.logs, os.path.join(self.tmp, "出力", "other.zip"), self.run, [self.pack2], marks)
@@ -64,23 +63,8 @@ class TestApply(Base):
         trashed = [r for r in res["packs"] if r.get("trash")]
         self.assertEqual(len(trashed), 2)
         self.assertTrue(all(os.path.isdir(r["trash"]) for r in trashed))
-        with open(os.path.join(self.logs, F.FEEDBACK_LOG), encoding="utf-8") as f:
-            recs = [json.loads(l) for l in f if l.strip()]
-        self.assertEqual((recs[-1]["zip"], recs[-1]["verdict"], recs[-1]["videoId"], len(recs[-1]["packs"])), ("20261002-120000-0a1b2c__配信A 1-2.zip", "reject", "VID", 2))
-        self.assertEqual(sorted(p["markId"] for p in recs[-1]["packs"]), ["m1", "m2"], "あとで精度の道具が読めるように配信の id とマークの id を残す")
+        self.assertFalse(os.path.exists(os.path.join(self.logs, "friend_feedback.jsonl")), "判断は judgments だけ(Q3)")
         self.assertTrue(any("要らない" in x for x in self.lines))
-
-    def test_origin_is_recorded(self):
-        """D-SEND 2-7: 友人の返事の記録に出どころ(request・auto)。判断の任意の origin → 無ければ届けた記録の出どころ(手で届けるは auto)→ 無ければ null"""
-        z_auto, z_req, z_man = "20261002-120000-0a1b2c__自動.zip", "20261002-120000-0a1b2c__依頼.zip", "20261002-120000-0a1b2c__手.zip"
-        F.record_delivery(self.logs, os.path.join(self.tmp, "出力", z_auto), self.run, [self.pack1], {}, "auto")
-        F.record_delivery(self.logs, os.path.join(self.tmp, "出力", z_req), self.run, [self.pack1], {})
-        F.record_delivery(self.logs, os.path.join(self.tmp, "出力", z_man), self.run, [self.pack1], {}, "manual")
-        for fb in (self.fb(z_auto), self.fb(z_req), self.fb(z_man), self.fb(z_req, origin="auto"), self.fb(z_req, origin="weird")):
-            F.apply(self.logs, fb, trash=self.trash, log=self.lines.append, discard=lambda *a: ([], "", None))
-        with open(os.path.join(self.logs, F.FEEDBACK_LOG), encoding="utf-8") as f:
-            recs = [json.loads(l) for l in f if l.strip()]
-        self.assertEqual([r["origin"] for r in recs], ["auto", "request", "auto", "auto", "request"])
 
     def test_no_record_or_no_parts(self):
         res = F.apply(self.logs, self.fb(), trash=self.trash, discard=cases.discard_clip)
@@ -132,8 +116,6 @@ class TestApply(Base):
         r = [x for x in rows if x["markId"] == "m1"][0]
         self.assertEqual((r["ref"]["zip"], r["ref"]["pack"], r["ref"]["requestId"], r["ref"]["runId"]), (z, "c1_pack", "20261002-120000-0a1b2c", "run1"))
         self.assertEqual(r["key"], "ff:%d:%s:m1" % (r["at"], z))
-        with open(os.path.join(self.logs, F.FEEDBACK_LOG), encoding="utf-8") as f:
-            self.assertEqual(len([l for l in f if l.strip()]), 1, "友人の返事の記録は今のまま 1 行")
 
     def test_judgments_row_without_mark_and_judged(self):
         """markId の無いパックは配信・マークを空にしてパック名で残す。judged(送り返しが判断の記録を書いた物)は片付けだけで判断の記録を足さない"""
@@ -147,8 +129,6 @@ class TestApply(Base):
         F.record_delivery(self.logs, os.path.join(self.tmp, "出力", z), self.run, [self.pack1], {self.pack1: {"path": self.clip1, "markId": "m1"}})
         self.assertTrue(F.apply(self.logs, self.fb(z, judged=True), trash=self.trash, log=self.lines.append, discard=cases.discard_clip)["ok"])
         self.assertEqual(len(J.rows(app)), 1, "judged は判断の記録を足さない")
-        with open(os.path.join(self.logs, F.FEEDBACK_LOG), encoding="utf-8") as f:
-            self.assertEqual(len([l for l in f if l.strip()]), 2, "友人の返事の記録は残す")
 
 
 if __name__ == "__main__":

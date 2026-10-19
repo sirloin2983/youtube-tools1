@@ -1,7 +1,7 @@
 """マークの純粋な語彙(スタジオの data.json の配信のマーク)。
 
 ファイルにもロックにも触らない関数と定数だけ(標準ライブラリと ytt だけを import する)。
-読み書きとロックは human/review/store.py の Store と flow/studiobook の StudioBook、学習の記録は human/review/feedback.py。API の検査 validate_marks は build_mark の隣(ここ)。
+読み書きとロックは human/review/store.py の Store と flow/studiobook の StudioBook、機械の記録は human/review/machinelog.py(人の採否は human/judgments)。API の検査 validate_marks は build_mark の隣(ここ)。
 採用の規則 F-5 は pipeline/analyze/adopt.py(この語彙を読む)。ライブの採用(flow/live_adopt.py)・マークの正本(flow/live_export.py の
 MarkStore)・束の検査(flow/spec.py)も、同じ区間の幅・長さの上限をここから読む。
 

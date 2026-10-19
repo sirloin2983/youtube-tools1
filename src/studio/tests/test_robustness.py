@@ -20,7 +20,7 @@ import startup  # noqa: E402  (src を sys.path に足し、スタジオのフ�
 from ytt import errors, fsio, mediainfo, procs, studio_env  # noqa: E402
 from ytt import yturl  # noqa: E402
 from human.find import rank
-from human.review import feedback
+from human.review import machinelog
 from pipeline.analyze import analyze, fetch
 from pipeline.export import exporter
 from flow import export as flow_export
@@ -50,30 +50,30 @@ VIDEO = {"id": "abcdefghijk", "kind": "youtube", "duration": 100, "analysis": No
 class TestFeedbackFile(Home):
     def write(self, n, start=0):
         for i in range(start, start + n):
-            self.assertTrue(feedback.feedback_for_mark(VIDEO, {"start": i, "end": i + 1, "src": "manual"}, "good", "adopt"))
+            self.assertTrue(machinelog.record(VIDEO, {"start": i, "end": i + 1, "src": "manual"}, "adopt"))
 
     def test_rotation_never_drops_rows(self):
-        with patch.object(feedback, "MAX_FEEDBACK_BYTES", 1000):
+        with patch.object(machinelog, "MAX_BYTES", 1000):
             self.write(30)   # 何度も切り替わる量
-        rows = [json.loads(l) for l in self.lines("feedback.jsonl.old") + self.lines("feedback.jsonl")]
+        rows = [json.loads(l) for l in self.lines("machine_marks.jsonl.old") + self.lines("machine_marks.jsonl")]
         self.assertEqual(sorted(r["start"] for r in rows), list(range(30)))   # 2回目の切り替えで古い行が消えない
-        self.assertGreater(len(self.lines("feedback.jsonl.old")), len(self.lines("feedback.jsonl")))
+        self.assertGreater(len(self.lines("machine_marks.jsonl.old")), len(self.lines("machine_marks.jsonl")))
 
     def test_partial_last_line_is_not_joined(self):
-        p = os.path.join(self.tmp, "feedback.jsonl")
+        p = os.path.join(self.tmp, "machine_marks.jsonl")
         with open(p, "w", encoding="utf-8") as f:
-            f.write('{"start": 0, "verdict": "go')   # 電源断などで書きかけの行
+            f.write('{"start": 0, "event": "ad')   # 電源断などで書きかけの行
         self.write(1, start=5)
-        lines = self.lines("feedback.jsonl")
+        lines = self.lines("machine_marks.jsonl")
         self.assertEqual(len(lines), 2)
         self.assertEqual(json.loads(lines[1])["start"], 5)   # 新しい行は読める
 
     def test_old_file_without_trailing_newline(self):
-        with open(os.path.join(self.tmp, "feedback.jsonl.old"), "w", encoding="utf-8") as f:
+        with open(os.path.join(self.tmp, "machine_marks.jsonl.old"), "w", encoding="utf-8") as f:
             f.write('{"start": -1}')
-        with patch.object(feedback, "MAX_FEEDBACK_BYTES", 10):
+        with patch.object(machinelog, "MAX_BYTES", 10):
             self.write(3)
-        old = self.lines("feedback.jsonl.old")
+        old = self.lines("machine_marks.jsonl.old")
         self.assertEqual(json.loads(old[0])["start"], -1)
         self.assertTrue(all(json.loads(l) for l in old))
 

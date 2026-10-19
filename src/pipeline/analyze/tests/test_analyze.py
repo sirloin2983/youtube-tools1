@@ -14,7 +14,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))   # tests → analyze → pipeline → src
-from human.review import feedback  # noqa: E402
+from human.review import machinelog  # noqa: E402
 from ytt import testkit, tools  # noqa: E402
 from pipeline.analyze import analyze, excite, fetch  # noqa: E402
 from ytt import studio_env  # noqa: E402
@@ -101,8 +101,8 @@ class TestComments(unittest.TestCase):
 
 class TestSettings(unittest.TestCase):
     def test_feedback_records_new_keys(self):
-        self.assertIn("lagAuto", feedback.FB_SETTING_KEYS)
-        self.assertIn("headSec", feedback.FB_SETTING_KEYS)
+        self.assertIn("lagAuto", machinelog.SETTING_KEYS)
+        self.assertIn("headSec", machinelog.SETTING_KEYS)
 
 
 class TestArchive(unittest.TestCase):

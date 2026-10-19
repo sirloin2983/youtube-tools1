@@ -36,7 +36,7 @@ from ytt import casefiles as _casefiles  # noqa: E402  案件の 候補.json・�
 from ytt import studiodata as _studiodata  # noqa: E402  data.json の行の読み方(load_video)と盛り上がりグラフの書き方(save_series)・形の名前 SCHEMA。flow/studiobook と共有
 from flow import adopt as _flow_adopt  # noqa: E402  採用の規則 F-5 の口(① pipeline/analyze/adopt)
 from flow import casebook as _casebook  # noqa: E402  案件の分け方・引き方・書き
-from . import feedback  # noqa: E402  判定の記録(呼ぶたびに feedback.名前 で読む)
+from . import machinelog  # noqa: E402  機械の記録 machine_marks.jsonl(呼ぶたびに machinelog.名前 で読む。人の採否は judgments)
 from human import judgments as _judgments  # noqa: E402  人の判断の記録(作業データの app/judgments.jsonl。MARKS-3 S1a)
 from ytt import datadir as _datadir  # noqa: E402  作業データの app の場所(入口が登録する。Store の app_dir の既定)
 from ytt.errors import ApiError  # noqa: E402
@@ -241,7 +241,7 @@ class SeriesCache(dict):
 class Store:
     """スタジオの台帳(③。書き手は 1 つ)。data.json をメモリに全部持ち、変えるときは新しい形を作って保存してからメモリを替える。
     案件にした配信は 候補.json・採用.json を読んで重ねる(_full)・書くのは _writing の中(案件の錠)。ロックの順は Store.lock → casefiles.lock(root)。
-    学習の記録(feedback.jsonl)は保存に成功したあと、ロックの外で書く。スタジオなしの書き手は ② flow/studiobook の StudioBook(同じ形で書く)"""
+    人の判断の記録(judgments.jsonl)と機械の記録(machine_marks.jsonl)は保存に成功したあと、ロックの外で書く。スタジオなしの書き手は ② flow/studiobook の StudioBook(同じ形で書く)"""
 
     def __init__(self, path, app_dir=None):
         self.path = path
@@ -593,8 +593,8 @@ class Store:
         """画面の保存(PUT /api/video): マーク全件を置き換える。-> 公開用の動画。
         baseRev が今の版と違えば 409(解析・書き出し・別タブが先に入っている。何も変えない)・全件を ytt/marks.validate_marks で検査して 1 件でも不正なら 400(何も変えない)。
         サーバーだけが決める値(src・点数・exported・file・path・adoptedBy)は前の値を引き継ぐ。案件の配信は 採用.json の版と比べて 採用.json へ書く。
-        保存できたあと、ロックの外で、人の判定を feedback.jsonl へ(採用 = good・不採用と候補のままの自動マークの削除 = bad・人の最終の操作 = miss など。
-        録画も書く)・人の採否・取り消しを judgments.jsonl へ 1 行ずつ(judged=False は書かない = 入口のライブの採用。その行は案件の道が書く)・採用したマークはコラボの相手へ転写する"""
+        保存できたあと、ロックの外で、その時の機械の様子と見逃しの出来事を machine_marks.jsonl へ(human/review/machinelog。採否は書かない。
+        録画は書かない)・人の採否・取り消しを judgments.jsonl へ 1 行ずつ(judged=False は書かない = 入口のライブの採用。その行は案件の道が書く)・採用したマークはコラボの相手へ転写する"""
         if not isinstance(marks_raw, list):
             raise ApiError("bad_request", "marks が正しくありません", 400)
         if base_rev is not None and not schemas.is_int(base_rev):
@@ -605,9 +605,9 @@ class Store:
             new = _marks.validate_marks(marks_raw, v["marks"])   # 1件でも不正なら 400(何も変えない)
             ids = {m["id"] for m in new}
             old_by = {m["id"]: m for m in v["marks"]}
-            # 判定を記録: 採用 = よかった / 不採用 = ちがう / 候補のまま削除 = ちがう。
-            # 自動マークは上の全部。手動マーク(自分で見つけた区間)は、採用・不採用にしたときだけ good / bad。
-            # それとは別に、人の最終の操作を記録する(Q2。verdict は miss / unmiss / retract。feedback.FB_EXTRA_EVENTS):
+            # 人の採否(judgments = 正)と、その時の機械の様子(machinelog): 採用 = adopt / 不採用 = reject / 候補のまま削除 = reject(event delete)。
+            # 自動マークは上の全部。手動マーク(自分で見つけた区間)は、採用・不採用にしたときだけ。
+            # それとは別に、見逃しの出来事を機械の記録に残す(Q2。machinelog.MISS_EVENTS):
             # 手で足した = 自動の見逃し(その時いちばん近い自動マークの点数と距離つき)・手で足した候補を消した・採用を取り消した・判定済みを削除した。
             # まとめて実行(adopt_marks・request_marks)は put_video を通らないので書かれない(人の判断ではないため)
             verdicts = []
@@ -617,7 +617,7 @@ class Store:
                     continue
                 if m["status"] == "":
                     if m["src"] == "auto" or m.get("auto0Orig"):   # 候補のままの自動マーク(再解析で手動に変わったものも元は自動)
-                        verdicts.append((m, "bad", "delete"))
+                        verdicts.append((m, "reject", "delete"))
                     elif m["src"] == "manual":
                         extras.append((m, "manual_remove", {}))
                 elif m["status"] in ("adopted", "rejected", "exported"):   # 判定済みの削除(採用・不採用の記録は残っているので、取り消しとして1行足す)
@@ -627,28 +627,28 @@ class Store:
                 changed = (m["status"] != o["status"]) if o is not None else (m["status"] in ("adopted", "rejected"))
                 if changed:   # 画面から来る新しいマークは build_mark で必ず manual なので、o が無くてもここで足りる
                     if m["status"] == "adopted":
-                        verdicts.append((m, "good", "adopt"))
+                        verdicts.append((m, "adopt", "adopt"))
                     elif m["status"] == "rejected":
-                        verdicts.append((m, "bad", "reject"))
+                        verdicts.append((m, "reject", "reject"))
                 if o is None and m["src"] == "manual":
-                    extras.append((m, "manual_add", feedback.nearest_auto(v["marks"], m["start"], m["end"])))
+                    extras.append((m, "manual_add", machinelog.nearest_auto(v["marks"], m["start"], m["end"])))
                 elif o is not None and o["status"] in ("adopted", "exported", "rejected") and m["status"] == "":
                     extras.append((m, "unadopt", {"prevStatus": o["status"]}))   # 不採用の取り消しも(prevStatus = rejected。確かめるの Z = 6e-2)
             nv = copy.deepcopy(v)
             nv["marks"] = new
             if isinstance(title, str):   # 空文字はタイトルを消す
                 nv["title"] = title.strip()[:120]
-            self._bump(nv, prev)   # 保存に成功したときだけ、feedback を書く
+            self._bump(nv, prev)   # 保存に成功したときだけ、記録を書く
             snap = self._pub(nv)
-        for m, verdict, event in verdicts:
-            ts = time.strftime("%Y-%m-%dT%H:%M:%S")   # feedback の行と judgments の key で同じ時刻
-            feedback.feedback_for_mark(snap, m, verdict, event, ts=ts)
+        for m, what, event in verdicts:
+            ts = time.strftime("%Y-%m-%dT%H:%M:%S")   # 機械の記録の行と judgments の key で同じ時刻
+            machinelog.record(snap, m, event, ts=ts)
             if judged and not m.get("adoptedBy"):   # 機械が採用にしたマーク(adoptedBy)は人の判断ではない
-                self._judge(snap, m, "adopt" if verdict == "good" else "reject", event, ts)
+                self._judge(snap, m, what, event, ts)
             if event == "adopt":   # コラボグループに入っていれば、他の動画へ候補として転写する
                 self._transfer_collab(vid, m)
         for m, event, extra in extras:
-            feedback.feedback_event(snap, m, event, extra)
+            machinelog.record(snap, m, event, extra)
             if judged and event in ("unadopt", "delete_judged"):   # 人の取り消し = 同じ印の最後の採否の行を取り消す(無ければ書かない)
                 self._retract_judgment(snap, m)
         return snap
@@ -682,7 +682,7 @@ class Store:
         """採用の規則(F-5。notes:plan/done/role-restructure.md 5-5・決定 3-29 Q3。スタジオの「上位 n 本を採用」・まとめて実行・友人の依頼で同じ 1 つ)を当てて保存する。
         規則の本体は ① pipeline/analyze/adopt.py。③ は ② flow/adopt を通して呼び、ここは配信を読んで保存するだけ:
         採用の集合 = 区間 ranges のマーク ∪ 人が採用したマーク ∪ 自動マークの点数の高い順(上限 top までの残り)。不採用と、前の 2 つに重なる自動マークは除く。
-        人の判定ではないので、学習の記録(feedback)・コラボへの転写はしない。kind live の録画は断る(400)。
+        人の判定ではないので、機械の記録(machinelog)・コラボへの転写はしない。kind live の録画は断る(400)。
         -> {"rangeIds"(ranges の順), "humanIds"(時刻の順), "autoIds"(点数の高い順), "added"(この呼び出しで採用にした id), "video"(公開用の動画)}"""
         want = _flow_adopt.check(ranges, top)   # 区間・上限がだめなら 400(配信を読む前)
         with self.lock, self._writing(self._need(vid)) as (v, prev):
@@ -698,7 +698,7 @@ class Store:
         """入口のライブの採用(POST /api/live/adopt。flow/live_adopt.py の StudioMarks): 録画の配信(kind live。src は analyze.validate_live)を
         (無ければ)登録し、区間 [start, end](録画の頭からの秒)と同じ区間(±ytt/marks.DUP_TOL 秒)のマークがあれば使い回し(候補・不採用なら採用に)、
         無ければ採用のマークを足す。登録・読み・保存を self.lock の中で 1 度にする。
-        保存は put_video(画面の保存と同じ検査。案件にした配信は 採用.json へ)。学習の記録は録画では書かない(feedback は kind live を記録しない)。
+        保存は put_video(画面の保存と同じ検査。案件にした配信は 採用.json へ)。機械の記録は録画では書かない(machinelog は kind live を記録しない)。
         -> (配信の id, マーク(公開の形), 番号 n = 配信のマークを開始の順に並べた位置)"""
         if not (schemas.is_num(start) and schemas.is_num(end)):
             raise ApiError("bad_request", "start・end は録画の頭からの秒(数)で指定してください", 400)
@@ -778,12 +778,12 @@ class Store:
         if fb is None:
             return False
         if fb:   # 自動・手動どちらも、初めて書き出したときに「よかった」(最終の区間と、手で直した量つき)。ロックの外で書く
-            feedback.feedback_for_mark(fb[0], fb[1], "good", "export")
+            machinelog.record(fb[0], fb[1], "export")
         return True
 
     def _mark_exported(self, v, prev, mark_id, relfile, expected_start, expected_end, abspath, archived, clip=None):
         """mark_exported の本体(self.lock と、案件なら案件のロックを取っていること)。
-        -> None(記録しない)/ ()(記録した)/ (公開用の動画, マーク)(初めて書き出した = feedback を書く)"""
+        -> None(記録しない)/ ()(記録した)/ (公開用の動画, マーク)(初めて書き出した = 機械の記録を書く)"""
         m = next((x for x in v["marks"] if x["id"] == mark_id), None)
         if not m:
             return None

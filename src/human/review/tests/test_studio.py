@@ -69,7 +69,8 @@ class Base(unittest.TestCase):
         return next(x for x in self.st.list() if x["id"] == (vid or YT["videoId"]))
 
     def feedback(self):
-        p = os.path.join(self.tmp, "feedback.jsonl")
+        """機械の記録(machine_marks.jsonl。human/review/machinelog)の行"""
+        p = os.path.join(self.tmp, "machine_marks.jsonl")
         if not os.path.exists(p):
             return []
         with open(p, encoding="utf-8") as f:
@@ -252,16 +253,23 @@ class TestFeedback(Base):
         self.auto((10, 40), (100, 130), (200, 230))
         self.ms = self.marks()
 
+    # 機械の記録の行は verdict を持たない(採否の正は judgments = 10-19 Q2)。前の書き方の良い・悪いの言葉は event から読み替えて確かめる
+    KIND = {"adopt": "good", "export": "good", "reject": "bad", "delete": "bad", "unadopt": "retract", "delete_judged": "retract",
+            "manual_add": "miss", "manual_remove": "unmiss"}
+
     def verdicts(self):
-        return [r["verdict"] for r in self.feedback()]
+        return [self.KIND[r["event"]] for r in self.feedback()]
 
     def fb_at(self, start, *events):
-        return [(r["verdict"], r["src"], r["event"]) for r in self.feedback() if r["start"] == start and (not events or r["event"] in events)]
+        return [(self.KIND[r["event"]], r["src"], r["event"]) for r in self.feedback() if r["start"] == start and (not events or r["event"] in events)]
 
     def test_adopt_reject(self):
         a, b, c = self.ms
         self.put([dict(a, status="adopted"), dict(b, status="rejected"), c])
         self.assertEqual(sorted(self.verdicts()), ["bad", "good"])
+        self.assertFalse([r for r in self.feedback() if "verdict" in r], "採否は機械の記録に書かない")
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "feedback.jsonl")), "前の名前のファイルは書かない")
+        self.assertEqual(sorted((r["what"], r["markId"]) for r in _judgments.rows(self.st.app_dir)), [("adopt", a["id"]), ("reject", b["id"])])
 
     def test_no_double_record_and_only_on_transition(self):
         a = self.ms[0]
@@ -289,7 +297,7 @@ class TestFeedback(Base):
         self.assertEqual(self.fb_at(500), [("miss", "manual", "manual_add")])
         self.restatus("m1", "adopted")
         rows = [r for r in self.events("adopt") if r["start"] == 500]
-        self.assertEqual([(r["verdict"], r["src"], r["event"]) for r in rows], [("good", "manual", "adopt")])
+        self.assertEqual([(self.KIND[r["event"]], r["src"], r["event"]) for r in rows], [("good", "manual", "adopt")])
         self.assertNotIn("auto0", rows[0])
         self.assertEqual(len(self.fb_at(500)), 2)
         self.put(self.marks() + [{"id": "m2", "start": 700, "end": 730, "status": "adopted"}])   # 最初から採用で作った: 見逃しと良いの両方
@@ -299,7 +307,7 @@ class TestFeedback(Base):
         a, b, c = self.ms   # (10,40) (100,130) (200,230)、点数はどれも 5.0
         self.put(self.ms + [{"id": "m4", "start": 135, "end": 150}])
         row = self.events("manual_add")[0]
-        self.assertEqual((row["verdict"], row["src"], row["autoCount"]), ("miss", "manual", 3))
+        self.assertEqual((row["event"], row["src"], row["autoCount"]), ("manual_add", "manual", 3))
         self.assertEqual(row["nearAuto"], {"score": 5.0, "distance": 5.0, "start": b["start"], "end": b["end"], "status": ""})
         self.assertNotIn("auto0", row)
         self.put(self.marks() + [{"id": "m5", "start": 120, "end": 125}])        # 自動マークの中: 距離 0
@@ -330,7 +338,6 @@ class TestFeedback(Base):
         self.put([m for m in self.marks() if m["id"] == c["id"]])                 # 不採用の a と書き出し済みの b を削除
         rows = {r["start"]: r for r in self.events("delete_judged")}
         self.assertEqual((rows[a["start"]]["prevStatus"], rows[b["start"]]["prevStatus"]), ("rejected", "exported"))
-        self.assertEqual(rows[a["start"]]["verdict"], "retract")
 
     def test_auto_adoption_is_not_recorded(self):
         ids = self.st.adopt_marks(YT["videoId"], [], 2)["added"]
@@ -374,7 +381,6 @@ class TestFeedback(Base):
         rows = {r["event"]: r for r in self.feedback()}
         self.assertEqual((rows["adopt"]["dStart"], rows["adopt"]["dEnd"], rows["adopt"]["src"]), (-5.0, 5.0, "auto"))
         self.assertEqual(rows["adopt"]["auto0"], a["auto0"])
-        self.assertEqual(rows["reject"]["verdict"], "bad")
         self.put([m for m in self.marks() if m["id"] != c["id"]])
         self.assertIn("delete", [r["event"] for r in self.feedback()])
 
@@ -786,7 +792,7 @@ class TestLive(Base):
         rid = self._live_exported()
         m = self.mark()
         self.assertEqual((m["status"], m["file"]), ("exported", "f/a.mp4"))
-        # 解析していない録画の手のマーク(手で足した・採用・書き出し・削除)は、盛り上がりの学習の記録(feedback.jsonl)に書かない
+        # 解析していない録画の手のマーク(手で足した・採用・書き出し・削除)は、機械の記録(machine_marks.jsonl)に書かない
         self.st.put_video(rid, "配信", [dict(m, status="adopted"), {"id": "m2", "start": 30, "end": 40, "status": ""}])
         self.st.put_video(rid, "配信", [])
         self.assertFalse([r for r in self.feedback() if rid in json.dumps(r)])

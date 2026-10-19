@@ -388,7 +388,6 @@ def validate_retranscribe(req):
             "title": _heavy.job_title({"range": "範囲を再認識: ", "whole": "全体を再認識: "}.get(mode, "再認識: "), doc)}
 
 
-
 # ---------- 認識し直しの受付を 1 つに(X-RERUN。ユーザー決定 = 対象 × エンジン × 結果の扱い) ----------
 RERUN_TARGETS = ("rows", "span", "whole", "flagged")   # 選んだ行・選んだ行の最初〜最後の範囲・文書の全体・印の付いた所(疑わしい行 = doc_jobs.redo_targets)
 RERUN_ENGINES = ("main", "alt")                         # いつものエンジン(文書の設定)・2 つ目のエンジン(alt)

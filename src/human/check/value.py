@@ -7,12 +7,12 @@
               案件の操作(auto_review・届ける・要らない)は呼ばない = 送るかには効かせない(1-2)。すぐ記録・1 枚遅れはしない。
               Z は答えの記録の取り消し(revert は何も実物を変えない)
   value:cand  まだ切り抜いていない候補。答え {choice: "adopt"} = 採用して書き出しを頼む / {choice: "reject"} = 不採用
-              スタジオの PUT /api/video(画面の保存と同じ。put_video が feedback.jsonl の良い / 悪いを残す = eval_marks が読む形)で
+              スタジオの PUT /api/video(画面の保存と同じ。put_video が judgments の採否(via review)と機械の記録を残す = eval_marks が読む形)で
               マークの status を adopted / rejected に。採用のあと POST /api/export を頼む(ベストエフォート。待ち・失敗は採用だけで済ませて
               applied.export に理由を残す。頼めたら応答の書き出しのジョブの id を applied.exportJob に)。
               Z = 頼んだ書き出しを POST /api/export/cancel {id: exportJob} で取り消し、GET /api/export で終わっていないことを確かめてから status を元に戻す
               (書き出しが済んだ・status が書き出し済みなら断る。ジョブが見つからない = スタジオを起動し直した = status で確かめる)。もう元の status なら何もしない
-              (不採用を戻しても feedback.jsonl の「悪い」は残る = review/store.put_video の決まり。役割 7 で直す)
+              (戻すと put_video が judgments の採否を retract で取り消す = review/store.put_video の決まり)
 ③ の層なので ① ④ を直に読まない: 案件の操作・スタジオの API は入口が ctx.hooks で渡す。
 """
 import secrets

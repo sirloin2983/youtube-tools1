@@ -160,7 +160,7 @@ class BookTest(Base):
     def test_reads_what_studio_wrote(self):
         """逆の向き: スタジオの Store が書いた data.json と案件のファイルを、台帳が同じ形で読んで続きを書ける(入口を止めて CLI で続ける)"""
         folder, clip = self.case_folder()
-        with mock.patch.object(studio_env, "get_out_dir", lambda: self.out), mock.patch.object(store_mod.feedback, "feedback_for_mark"):
+        with mock.patch.object(studio_env, "get_out_dir", lambda: self.out), mock.patch.object(store_mod.machinelog, "record"):
             st = store_mod.Store(self.data)
             st.ensure({"kind": "youtube", "videoId": VID}, "題", "ch")
             st.replace_auto(VID, [{"start": 10, "end": 40, "score": 5}, {"start": 100, "end": 130, "score": 9}], {"at": 1}, 300.0, {"n": 2})

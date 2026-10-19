@@ -18,7 +18,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 import startup  # noqa: E402  (src を sys.path に足し、スタジオのフォルダを ytt/studio_env に知らせる)
 from ytt import errors, mediainfo, studio_env  # noqa: E402
 import serve
-from human.review import feedback
+from human.review import machinelog
 from pipeline.analyze import analyze
 
 VID = "abcdefghijk"
@@ -429,7 +429,7 @@ class TestRequestMarks(Base):
         serve.STORE.ensure({"kind": "youtube", "videoId": vid}, "t")
         cands = [{"start": s, "end": s + 5, "peak": s + 1, "score": sc, "parts": {}, "reasons": []} for s, sc in ((10, 2.0), (30, 9.0), (50, 5.0), (70, 7.0))]
         serve.STORE.replace_auto(vid, cands, {"at": 1, "signals": {}, "counts": {}, "warnings": [], "spec": {}, "type": None}, 100.0, None)
-        fb = feedback.feedback_path()
+        fb = machinelog.path()
         before = os.path.getsize(fb) if os.path.exists(fb) else 0
         st, j, *_ = self.req("POST", "/api/video/request-marks", {"id": vid, "ranges": [[28, 40]], "top": 3})
         self.assertEqual(st, 200, j)
