@@ -21,7 +21,7 @@ _TESTS = os.path.dirname(os.path.abspath(__file__))
 _PUBLIC_JOB_KEYS = {
     "id", "title", "state", "phase", "progress", "tid", "error", "segments", "speakers", "unsure", "kind", "device", "createdAt",
     "errorDetail", "internal", "canRetry", "warnings", "hasClip", "into", "named", "learned", "auto", "autoSkipped",
-    "redo", "redoOne", "redoSkipped", "vadNote", "normNote", "normOk", "kept", "emptyKept", "loose"}
+    "redo", "redoOne", "redoSkipped", "rerunWhole", "vadNote", "normNote", "normOk", "kept", "emptyKept", "loose"}
 
 
 def _old_names(name="data_ed_jobs_names.txt"):
@@ -35,7 +35,7 @@ class TestNames(unittest.TestCase):
 
     def test_old_names_still_resolve(self):
         """元の部品が持っていた名前は、S.名前 で読める(数は名前の一覧の写しが欠けていないことの確かめ)"""
-        for fname, n in (("data_ed_jobs_names.txt", 200), ("data_ed_speakers_names.txt", 102), ("data_ed_store_names.txt", 74),
+        for fname, n in (("data_ed_jobs_names.txt", 191), ("data_ed_speakers_names.txt", 102), ("data_ed_store_names.txt", 74),
                          ("data_ed_alt_names.txt", 31), ("data_ed_retime_names.txt", 2), ("data_ed_relink_names.txt", 47),
                          ("data_ed_misc_names.txt", 4), ("data_ed_state_names.txt", 80), ("data_ed_learn_names.txt", 57)):
             with self.subTest(fname):

@@ -1,24 +1,23 @@
 # -*- coding: utf-8 -*-
 """① 音声の認識: 動画から音声を取り出す(extract_audio)・声の検出が捨てすぎたら緩めてやり直す(transcribe_vad_fallback)・文字起こしの行(transcribe_real)・
 文字起こしのジョブの「取り出し → 認識 → 整えた行」(transcribe_rows。RS2-8e)・
-選んだ行の 1 行ずつの認識(recognize_chunk・ChunkModel)・範囲の認識と行の整え方(finish_range_lines・RangeRecognizer)・
-全体の再認識の区間分けと続きから(whole_parts・whole_key・read_resume・write_resume・drop_resume・whole_lines)。
+選んだ行の 1 行ずつの認識(recognize_chunk・ChunkModel)・範囲の認識と行の整え方(finish_range_lines・RangeRecognizer)。
+全体の再認識は文字起こしのジョブ(transcribe_rows)で認識し直す(区間分けと続きからは 10-20 に消した)。
 
 標準ライブラリ・ytt・同じパッケージの兄弟(backend・postproc・roster・tx_engines・
-txbase・worker_client・records)だけを読む。ffmpeg(ytt/tools)・置き場所(ytt/workdata の TX_DIR)は呼ぶたびに持ち主から。
+txbase・worker_client・records)だけを読む。ffmpeg(ytt/tools)は呼ぶたびに持ち主から。
 行の頭の「名前:」を外す決まり(fill の B)は同じ ① の fill.fill_head_stripper を直に呼ぶ(spec -> None(外さない)か 文字 -> (本文, 足す印) の関数。
 差し込みの口は無い = 同じ層どうしなので要らない)。
-差し替えられる名前(extract_audio・WHOLE_PART_SEC・RangeRecognizer.main など)と読み手は同じこのモジュール。テストの S.extract_audio = …・
+差し替えられる名前(extract_audio・RangeRecognizer.main など)と読み手は同じこのモジュール。テストの S.extract_audio = …・
 mock.patch.object(S.RangeRecognizer, "main", …) は serve の名前の受付と転送(ytt/modfwd)でここに届く。
 ジョブの本体(run_job・run_retranscribe)と文書への反映(apply_range・thin_rows・_ov など)は文書の側(human/proof の doc_jobs・rerun)。
 run_job は transcribe_rows が返す行を受け取って、別の読み(fill)・LLM(llm)・置換辞書と学習した置換・文書の書き込みをする(計算 = ① / 文書への書き込み = ② の第 1 歩)。
 """
-import hashlib
 import json
 import os
 import time
 
-from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, schemas as _yschemas, tools as _tools, workdata as _workdata
+from ytt import errors as _errors, jobs as _heavy, tools as _tools
 from . import backend as _backend, fill as _fill, postproc, records, roster as _roster, tx_engines, worker_client
 from ytt import txbase as _txbase
 
@@ -360,120 +359,3 @@ class RangeRecognizer:
             out += [x for x in lines if "よくある誤認識の文" not in str(x.get("flag") or "") and _txbase.LEAK_FLAG not in str(x.get("flag") or "")]   # 無音から出やすい幻覚・ヒントの書き写しは入れない(元の行が残る)
             self.job["progress"] = min(0.99, 0.9 + 0.09 * (n + 1) / len(spans))
         return out
-
-
-# ---------- 全体の再認識を区間ごとに保存して、続きから(計画の 9 の S-1) ----------
-# 全体の再認識は最大 6 時間。途中で落ちる・中止すると、それまでの認識が全部むだになっていた。
-# 長い動画は WHOLE_PART_SEC ごとの区間に分けて1つずつ認識し、終わった区間の行を transcripts/.resume/<id>.whole.json に書く。
-# 同じ文書・同じ設定・同じ動画でもう一度始めたら、書いてある区間は認識せずに使う。全部終わって文書に反映したら消す。
-# 短い動画(WHOLE_PART_SEC の 1.5 倍まで)は今までどおり1回で認識する(分けない = 結果は変わらない・書かない)
-WHOLE_PART_SEC = 600
-WHOLE_SPLIT_WINDOW = 90      # 区切りは、目安の前後この秒の中で、行の無いすき間の真ん中(話している途中で切らない)
-RESUME_KEEP_SEC = 7 * 86400  # 使われなかった続きの記録は、この秒数で消す
-RESUME_VERSION = 1
-MAX_RESUME_BYTES = 64 * 1024 * 1024   # 続きの記録を読む大きさの上限(6 時間分の行と単語。生出力 asr.json と同じ上限)
-
-
-def whole_parts(doc, a, b, part=None):
-    """[a, b] を、目安 part 秒ごとの区間 [[p0, p1], …] に分ける。区切りは、今の文書の行(どれでも)の無いすき間を選ぶ。無ければ目安の所"""
-    part = float(part or WHOLE_PART_SEC)
-    if b - a <= part * 1.5:
-        return [[a, b]]
-    rows = _yschemas.union_spans([(float(g["start"]), float(g["end"])) for g in doc.get("segments") or []
-                        if isinstance(g, dict) and isinstance(g.get("start"), (int, float)) and isinstance(g.get("end"), (int, float))])
-    gaps = [(rows[i][1], rows[i + 1][0]) for i in range(len(rows) - 1)]
-    out, t = [], a
-    while b - t > part * 1.5:
-        target = t + part
-        lo, hi = max(t + part / 2, target - WHOLE_SPLIT_WINDOW), target + WHOLE_SPLIT_WINDOW
-        best = None
-        for g0, g1 in gaps:
-            x0, x1 = max(g0, lo), min(g1, hi)
-            if x1 > x0 and (best is None or x1 - x0 > best[1] - best[0]):
-                best = (x0, x1)
-        cut = round((best[0] + best[1]) / 2 if best else target, 3)
-        out.append([t, cut])
-        t = cut
-    out.append([t, b])
-    return out
-
-
-def resume_path(tid):
-    return os.path.join(_workdata.TX_DIR, ".resume", tid + ".whole.json")
-
-
-def whole_key(spec, doc):
-    """続きを使ってよいかの目印: 文書・範囲・行を作る設定・ヒントの語・エンジンとモデル・元の動画(大きさと更新日時)が同じ"""
-    try:
-        st = os.stat(str(doc.get("sourcePath") or ""))
-        src = [st.st_size, int(st.st_mtime)]
-    except OSError:
-        src = None
-    k = {"v": RESUME_VERSION, "tid": spec["tid"], "range": spec["range"], "engine": spec.get("engine") or tx_engines.DEFAULT, "model": spec["model"],
-         "backend": _backend.select().name, "language": spec["language"], "beam": spec["beam"], "vadMode": spec["vadMode"], "boost": bool(spec.get("boost")),
-         "wordSplit": bool(spec.get("wordSplit")), "splitChars": spec.get("splitChars"), "stripPunct": spec.get("stripPunct", True) is not False,
-         "terms": _roster.prompt_terms(spec), "source": src, "part": WHOLE_PART_SEC}
-    return hashlib.sha256(json.dumps(k, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")).hexdigest()
-
-
-def read_resume(tid, key):
-    """続きの記録 {"parts", "done": {番号: {"lines", "vad"}}}。無い・目印が違う・壊れている・大きすぎるときは None"""
-    d = _fsio.read_json_or(resume_path(tid), None, MAX_RESUME_BYTES, dict)
-    if d is None or d.get("key") != key or not isinstance(d.get("parts"), list) or not isinstance(d.get("done"), dict):
-        return None
-    return d
-
-
-def write_resume(tid, d):
-    path = resume_path(tid)
-    folder = os.path.dirname(path)
-    os.makedirs(folder, exist_ok=True)
-    _fsio.atomic_write(path, json.dumps(dict(d, at=int(time.time() * 1000)), ensure_ascii=False).encode("utf-8"), fsync_required=True)
-    now = time.time()
-    for n in os.listdir(folder):   # 使われなかった古い続きの記録を消す
-        q = os.path.join(folder, n)
-        try:
-            if n.endswith(".whole.json") and q != path and now - os.path.getmtime(q) > RESUME_KEEP_SEC:
-                os.unlink(q)
-        except OSError:
-            pass
-
-
-def drop_resume(tid):
-    _fsio.unlink_quiet(resume_path(tid))
-
-
-def whole_lines(job, spec, doc, rec):
-    """全体の再認識の認識の部分。長ければ区間に分けて1つずつ認識し、終わった区間を書いておく(続きから再開できる)。-> 行の一覧。
-    rec.vad には、声の検出をやり直した区間があればその記録を入れる(画面の知らせ)"""
-    a, b = spec["range"]
-    key = whole_key(spec, doc)
-    cp = read_resume(spec["tid"], key)
-    parts = cp["parts"] if cp else whole_parts(doc, a, b)
-    done = cp["done"] if cp else {}
-    n = len(parts)
-    reused = sum(1 for i in range(n) if str(i) in done)
-    if reused:
-        job["resumed"] = [reused, n]
-        _txbase.add_warning(job, "前回の途中から続けました(%d 区間のうち %d 区間は前回の認識を使いました)" % (n, reused))
-        _txbase.log.info("全体の再認識を前回の途中から続けます: %s %d/%d 区間", spec["tid"], reused, n)
-    lines, vads = [], []
-    for i, (p0, p1) in enumerate(parts):
-        _heavy.check_cancel(job)
-        if str(i) in done:
-            lines += done[str(i)].get("lines") or []
-            vads.append(done[str(i)].get("vad"))
-            continue
-        job["phase"] = "全体を認識中(%d / %d 区間)" % (i + 1, n) if n > 1 else "全体を認識中"
-        got = rec.main(p0, p1, (i / n, (i + 1) / n))
-        _heavy.check_cancel(job)   # 途中で止めた区間は書かない(行が欠けている)
-        lines += got
-        vads.append(rec.vad)
-        if n > 1:
-            done[str(i)] = {"lines": got, "vad": rec.vad}
-            try:
-                write_resume(spec["tid"], {"v": RESUME_VERSION, "key": key, "parts": parts, "done": done})
-            except (OSError, TypeError, ValueError) as e:   # 書けなくても認識は続ける(続きから再開できないだけ)
-                _txbase.log.warning("全体の再認識の続きの記録を書けませんでした: %s %s", spec["tid"], e)
-    rec.vad = next((v for v in vads if v and v.get("retries")), None) or (vads[-1] if vads else None)
-    return lines

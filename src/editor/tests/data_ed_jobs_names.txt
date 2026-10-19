@@ -28,7 +28,6 @@ LOOSE_PAD
 MAX_RANGE_SEC
 MAX_REPLACED_ROWS
 MAX_RERUNS
-MAX_RESUME_BYTES
 MAX_WORDS_BYTES
 MODEL_IDLE_SEC
 NO_RETRY
@@ -38,8 +37,6 @@ REDO_PAD
 REP_CHAR_KEEP
 REP_ROWS
 REP_ROW_GAP
-RESUME_KEEP_SEC
-RESUME_VERSION
 RETRY_KINDS
 RangeRecognizer
 RemoteModel
@@ -58,8 +55,6 @@ TRIM_MIN
 VAD_LADDER
 VAD_MIN_KEEP
 VAD_NAMES
-WHOLE_PART_SEC
-WHOLE_SPLIT_WINDOW
 WORDS_SCHEMA
 WORKER
 WORKER_CANCEL_GRACE
@@ -127,7 +122,6 @@ cpu_fallback
 cuda_compute
 dict_pairs
 dict_version
-drop_resume
 engine_home
 engine_of
 engine_version
@@ -151,7 +145,6 @@ pkg_version
 post_record
 prompt_terms
 public_job
-read_resume
 read_words
 recognition_run
 recognize_chunk
@@ -161,7 +154,6 @@ release_idle_models
 repeats_in_line
 replace_original_multi
 req_engine
-resume_path
 retry_job
 roster_hash
 row_words
@@ -192,13 +184,9 @@ vad_record
 validate_job
 validate_retranscribe
 whisper_kwargs
-whole_key
-whole_lines
-whole_parts
 words_path
 work_one
 worker
 worker_env
 write_asr
-write_resume
 write_words

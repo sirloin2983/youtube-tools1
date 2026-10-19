@@ -144,13 +144,14 @@ def public_job(j):
     out["redo"] = bool(sp.get("evalRedo"))   # 未確認の評価用の作り直し(eval/drill/evalbatch)
     out["redoOne"] = bool((sp.get("evalRedo") or {}).get("one"))   # 1 本ずつの作り直し(画面が押した。終わるまで編集を止める)
     out["redoSkipped"] = j.get("redoSkipped") or ""            # 手が入っていたので作り直さなかった理由
+    out["rerunWhole"] = bool(sp.get("redo"))   # 校正の全体の再認識(rerun.validate_whole。終わったら画面が読み直す・その間は編集を止める)
     if j.get("voiceError"):
         out["warnings"].append(j["voiceError"])
     out["warnings"] += [w for w in (j.get("warnings") or []) if w not in out["warnings"]]   # ジョブの中で足した注意
     out["vadNote"] = j.get("vadNote") or ""          # 声の検出を緩めてやり直した(4-2)
     out["normNote"] = j.get("normNote") or ""        # 30fps にそろえた・そろえられなかった理由(Q1。flow/normalize の run_job)
     out["normOk"] = bool(j.get("normOk"))
-    out["kept"], out["emptyKept"], out["loose"] = j.get("kept", 0), j.get("emptyKept", 0), j.get("loose", 0)   # 全体の再認識で残した行(3-4)
+    out["kept"], out["emptyKept"], out["loose"] = j.get("kept", 0), j.get("emptyKept", 0), j.get("loose", 0)   # 範囲・全体の再認識で残した行(3-4)
     return out
 
 
@@ -301,11 +302,11 @@ def _run_transcribe(job, spec):
         # ここから下は ③ の分(文書の id・clip・評価用・入れる文書・評価用の作り直し・30fps・話者・続きのジョブ)
         clip = _flowtx.transcribe_clip(job, spec, wav, pairs, finder)
         fields = clip["fields"]
-        if spec.get("evalRedo"):
-            # 評価用の作り直し(X-RERUN = 全体 × いつものエンジン × 差し替え): 同じ文書の機械の層を入れ替え、人の層(答え)は残す。
-            # 文書が消えた・動画が変わったら書かない(新しい文書も作らない)
+        if spec.get("evalRedo") or spec.get("redo"):
+            # 全体の作り直し(X-RERUN = 全体 × いつものエンジン × 差し替え): 評価用の作り直し(evalRedo)と校正の全体の再認識(redo = rerun.validate_whole)。
+            # 同じ文書の機械の層を入れ替え、人の層は残す。文書が消えた・動画が変わったら書かない(新しい文書も作らない)
             from . import rerun as _rerun   # rerun は doc_jobs を読む(向き: rerun → doc_jobs)。ここは呼ぶときだけ
-            tid = _rerun.rebuild_whole(job, spec, fields, eval_set=True)
+            tid = _rerun.rebuild_whole(job, spec, fields, eval_set=bool(spec.get("evalRedo")))
             if tid is None:
                 return
         else:

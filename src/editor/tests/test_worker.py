@@ -35,18 +35,6 @@ HAVE_FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
 HAVE_FW = HAVE_FFMPEG and VF.faster_whisper_small()
 
 
-def counting(calls, fail_at=None):
-    """RangeRecognizer.main の差し替え: 呼ばれた区間 (a, b) を calls に足して本物を呼ぶ。fail_at 回目は落ちる(途中で落ちたふり)"""
-    real = S.RangeRecognizer.main
-
-    def main(rec, a, b, share=(0.0, 1.0)):
-        calls.append((a, b))
-        if len(calls) == fail_at:
-            raise RuntimeError("落ちた")
-        return real(rec, a, b, share)
-    return main
-
-
 def wait_for(fn, timeout=20.0, step=0.05):
     return testkit.wait_for(fn, timeout, step)
 
@@ -114,6 +102,11 @@ class RealWorkerTest(unittest.TestCase):
     def retranscribe(self, **req):
         spec = S.validate_retranscribe(dict({"model": "small", "device": "cpu"}, **req))
         return spec, self.run_job(spec, "retranscribe")
+
+    def rerun_whole(self, tid, **req):
+        """全体の再認識(POST /api/rerun target whole = 文字起こしのジョブ → rebuild_whole)"""
+        spec, kind = S.validate_rerun(dict(self.SPEC, tid=tid, target="whole", wordSplit=True, **req))
+        return spec, self.run_job(spec, kind)
 
     def test_diarize_and_voices(self):
         """話者判別(人数 2・自動・しきい値)・声を覚えてもう一度判別する(層が正: 人の層の名前が残り、仮の名前の付け直しは無い)"""
@@ -187,20 +180,20 @@ class RealWorkerTest(unittest.TestCase):
         after = self.doc(tid)["segments"]
         self.assertEqual(len(after), 3)
         self.assertTrue(all(abs(a["start"] - b["start"]) < 0.3 for a, b in zip(after[1:], segs[1:])), after)   # 範囲の行も元の動画の秒
-        # 全体の再認識: 校正済みの行は差し替えない・「標準」を頼んでも全体は「弱め」・履歴に実行前・短い動画は区間に分けない
+        # 全体の再認識(文字起こしのジョブ → rebuild_whole): 校正済みの行は差し替えない・「標準」を頼んでも全体は「弱め」・履歴に実行前・同じ文書のまま
         d = self.doc(tid)
         d["segments"][0].update(text="人が直した一行目", proofed=True, speaker="")
         S.save_transcript(tid, dict(d, baseUpdatedAt=d["updatedAt"]))
-        before = self.doc(tid)
-        spec, whole = self.retranscribe(tid=tid, mode="whole", vadMode="normal")
-        self.assertEqual(spec["vadMode"], "weak")
-        self.assertEqual(spec["ids"], [g["id"] for g in before["segments"][1:]])
+        spec, whole = self.rerun_whole(tid, vadMode="normal")
+        self.assertEqual((spec["vadMode"], spec["intoDoc"], spec["autoAlt"]), ("weak", tid, False))
+        self.assertEqual(whole["tid"], tid)
         d = self.doc(tid)
         self.assertEqual((d["segments"][0]["text"], d["segments"][0].get("proofed")), ("人が直した一行目", True))
         self.assertTrue(len(d["segments"]) == 3 and "ゲーム" in d["segments"][2]["text"], _texts(d))
-        self.assertEqual((whole["kept"], S.public_job(whole)["kept"]), (0, 0))       # 機械の文字は前と同じ = 3 択にする人の行は無い
+        pj = S.public_job(whole)
+        self.assertEqual((whole["kept"], pj["kept"], pj["rerunWhole"], d["retranscribed"]["whole"]), (0, 0, True, True))   # 機械の文字は前と同じ = 3 択にする人の行は無い
+        self.assertEqual(d["recognition"]["runs"][-1]["kind"], "whole")
         self.assertTrue(S.hist_stamps(tid))
-        self.assertFalse(os.path.isdir(os.path.join(S.TX_DIR, ".resume")) and os.listdir(os.path.join(S.TX_DIR, ".resume")))
         self.assertEqual(S.WORKER.proc.pid, pid)                                      # 同じワーカー(モデルを持ったまま)を使い回す
         # 同じ動画を作り直すと、前の文書の人の行を引き継ぐ
         again = self.transcribe(start=0.5, wordSplit=True)
@@ -213,7 +206,7 @@ class RealWorkerTest(unittest.TestCase):
         d = self.doc(tid)
         d["segments"] = []
         S.save_transcript(tid, dict(d, baseUpdatedAt=d["updatedAt"]))
-        self.retranscribe(tid=tid, mode="whole")
+        self.rerun_whole(tid)
         # エンジンを名前で読む(受け付ける引数はエンジンが答える)・知らない名前はワーカーが断り、ワーカーは落ちない
         j = {"phase": "", "progress": 0.0, "cancel": False}
         m, dev = S.load_model("small", j, "cpu", engine="faster-whisper")
@@ -350,10 +343,10 @@ class WorkerTest(unittest.TestCase):
         self.assertIn("声の検出: 標準→弱め", pj["vadNote"])
         self.assertIn(pj["vadNote"], pj["warnings"])                        # 処理状況にも出る
 
-    # ---- 動画全体の再認識(docs/design/whole-retranscribe-design.md の 3)。認識は疑似(3 秒ごとに「範囲再認識N」)
+    # ---- 動画全体の再認識(文字起こしのジョブ → rerun.rebuild_whole。10-20 に区間分けの続きからと緩い条件の認識し直しは消した)。認識は疑似
     def _whole(self, tid, **req):
-        spec = S.validate_retranscribe(dict({"tid": tid, "mode": "whole", "model": "small"}, **req))
-        job = S.add_job(spec, "retranscribe")
+        spec, kind = S.validate_rerun(dict({"tid": tid, "target": "whole", "model": "small"}, **req))
+        job = S.add_job(spec, kind)
         with mock.patch.object(S, "backend_name", lambda: "fake"):
             S.work_one(job["id"])
         return spec, job
@@ -364,83 +357,28 @@ class WorkerTest(unittest.TestCase):
         S.save_transcript(tid, dict(d, baseUpdatedAt=d["updatedAt"]))
         return self.doc(tid)
 
-    def test_whole_counts_proofed_rows_where_machine_changed(self):
-        """機械の文字が前と変わった所の校正済みの行は 3 択の数(kept)に入る(同じ見本・同じモデルの本物では機械の文字が変わらない)"""
+    def test_whole_keeps_human_rows(self):
+        """全体の再認識は人の層を残す(校正済みの行・直した行)。評価用の machineOnly は見ない = 手つかずの文書でも人の層は持ったまま"""
         tid = self.transcribe()["tid"]
         self._proof_first(tid)
+        d = self.doc(tid)
+        d["segments"][1]["text"] = "直したが校正済みでない行"
+        S.save_transcript(tid, dict(d, baseUpdatedAt=d["updatedAt"]))
         _spec, job = self._whole(tid)
         self.assertEqual(job["state"], "done", job.get("error"))
-        self.assertEqual(self.doc(tid)["segments"][0]["text"], "人が直した一行目")
-        self.assertEqual((job["kept"], S.public_job(job)["kept"]), (1, 1))
-
-    def test_whole_resumes_from_saved_parts(self):
-        """S-1: 長い動画の全体の再認識は区間ごとに書いておき、途中で落ちても、同じ設定でもう一度始めれば続きから。結果は通しで認識したときと同じ"""
-        tid_a, tid_b = self.transcribe()["tid"], self.transcribe()["tid"]    # 同じ動画の同じ文書を2つ(通しと、途中で落ちて続きから)
-        before = [self._proof_first(t) for t in (tid_a, tid_b)][1]          # 1 行目は校正済み(全体で守る)
-        with mock.patch.object(S, "WHOLE_PART_SEC", 6):
-            _s, job = self._whole(tid_a)
-            self.assertEqual(job["state"], "done", job.get("error"))
-            self.assertFalse(os.path.exists(S.resume_path(tid_a)))           # 反映したら続きの記録は消す
-            calls = []
-            with mock.patch.object(S.RangeRecognizer, "main", counting(calls, fail_at=2)):
-                _s, job = self._whole(tid_b)
-            self.assertEqual(job["state"], "error")
-            cp = testkit.read_json(S.resume_path(tid_b))
-            self.assertEqual((len(cp["parts"]), sorted(cp["done"])), (3, ["0"]))   # 20 秒 → 6 秒の目安で 3 区間・1つ目だけ済み
-            self.assertEqual(cp["parts"][0], [0.0, 6.0])                      # 行(4 秒ごと)にすき間が無い → 目安の所で区切る
-            calls.clear()
-            with mock.patch.object(S.RangeRecognizer, "main", counting(calls)):
-                spec, job = self._whole(tid_b)
-            self.assertEqual(job["state"], "done", job.get("error"))
-            self.assertEqual(spec["ids"], [g["id"] for g in before["segments"][1:]])   # 認識し直すのは校正済みでない行だけ
-            first = self.doc(tid_b)["segments"][0]
-            self.assertEqual((first["text"], first.get("proofed")), ("人が直した一行目", True))
-            self.assertEqual(calls, [tuple(p) for p in cp["parts"][1:]])      # 済んだ区間は認識しない
-            self.assertEqual(job["resumed"], [1, 3])
-            self.assertTrue(any("前回の途中から続けました" in w for w in S.public_job(job)["warnings"]))
-            self.assertFalse(os.path.exists(S.resume_path(tid_b)))
-        strip = lambda d: [(g["start"], g["end"], g["text"]) for g in d["segments"]]   # noqa: E731
-        self.assertEqual(strip(self.doc(tid_b)), strip(self.doc(tid_a)))
-
-    def test_whole_resume_needs_same_settings(self):
-        """設定が違えば続きの記録は使わない(最初から認識して上書き)"""
-        tid = self.transcribe()["tid"]
-        with mock.patch.object(S, "WHOLE_PART_SEC", 6):
-            calls = []
-            with mock.patch.object(S.RangeRecognizer, "main", counting(calls, fail_at=2)):
-                self._whole(tid)
-            self.assertTrue(os.path.exists(S.resume_path(tid)))
-            calls.clear()
-            with mock.patch.object(S.RangeRecognizer, "main", counting(calls)):
-                _s, job = self._whole(tid, model="large-v3")                 # モデルが違う
-            self.assertEqual((job["state"], len(calls), job.get("resumed")), ("done", 3, None))
-
-    def test_whole_loose_condition_fills_where_nothing_was_recognized(self):
-        """新しい認識で 0 文字だった所は、緩い条件で文字が出ればそれで埋める(印つき)。0 文字のままなら元の行を残す印は範囲の単体"""
-        tid = self.transcribe()["tid"]                                        # 4 秒ごとの行(8〜12 秒 = テスト文3)
-        os.environ["TRANSCRIBE_FAKE_GAP"] = "8-12"
-        os.environ["TRANSCRIBE_FAKE_LOOSE"] = "1"
-        _spec, job = self._whole(tid)
-        d = self.doc(tid)
-        loose = [g for g in d["segments"] if g["text"].startswith("緩い条件")]
-        self.assertTrue(loose and all(S.LOOSE_FLAG in g["flag"] for g in loose))
-        self.assertFalse([g for g in d["segments"] if g["text"] == "テスト文3"])
-        self.assertEqual(job["emptyKept"], 0)
-        self.assertGreater(job["loose"], 0)
+        got = self.doc(tid)["segments"]
+        self.assertEqual((got[0]["text"], got[0].get("proofed"), got[1]["text"]), ("人が直した一行目", True, "直したが校正済みでない行"))
+        self.assertEqual(S.public_job(job)["kept"], job["kept"])
 
     def test_whole_rules(self):
         with mock.patch.object(S, "backend_name", lambda: "fake"):            # 下ごしらえの文字起こしはワーカーを起こさない
             tid = self.transcribe()["tid"]
-        self.assertEqual(S.validate_retranscribe({"tid": tid, "mode": "whole", "vadMode": "off"})["vadMode"], "off")   # 明示の「なし」は尊重
-        self.assertEqual(S.validate_retranscribe({"tid": tid, "mode": "whole", "vadMode": "normal"})["vadMode"], "weak")
+        self.assertEqual(S.validate_whole({"tid": tid, "vadMode": "off"})["vadMode"], "off")   # 明示の「なし」は尊重
+        self.assertEqual(S.validate_whole({"tid": tid, "vadMode": "normal", "engine": "main"})["vadMode"], "weak")   # 受付の engine main は認識のエンジンの名前ではない
         d = self.doc(tid)
-        S.atomic_write(S.tx_path(tid), json.dumps(dict(d, end=7 * 3600), ensure_ascii=False).encode("utf-8"))
-        with self.assertRaises(S.ApiError) as c:
-            S.validate_retranscribe({"tid": tid, "mode": "whole"})
-        self.assertEqual(c.exception.code, "too_long")                        # 上限は新規の文字起こしと同じ 6 時間
         S.atomic_write(S.tx_path(tid), json.dumps(dict(d, evalSet=True), ensure_ascii=False).encode("utf-8"))
         with self.assertRaises(S.ApiError) as c:
-            S.validate_retranscribe({"tid": tid, "mode": "whole"})
+            S.validate_whole({"tid": tid})
         self.assertEqual(c.exception.code, "eval_set")                        # 評価用は断る
 
     # ---- 取り消し
@@ -637,19 +575,6 @@ class EngineTest(unittest.TestCase):
         with self.assertRaises(S.ApiError) as cm:
             S._load_model_local("small", {"phase": ""}, "cpu", False, "nope")
         self.assertEqual(cm.exception.code, "bad_engine")
-
-    def test_whole_parts_cut_in_gaps(self):
-        """S-1: 区切りは目安の前後 WHOLE_SPLIT_WINDOW 秒の中で、行の無いいちばん長いすき間の真ん中。短ければ分けない"""
-        rows = lambda *ab: {"segments": [{"start": a, "end": b} for a, b in ab]}   # noqa: E731
-        self.assertEqual(S.whole_parts(rows(), 0.0, 900.0), [[0.0, 900.0]])          # 600 × 1.5 まで1つ
-        d = rows((0, 550), (560, 590), (620, 700), (700, 1300), (1310, 2000))
-        parts = S.whole_parts(d, 0.0, 2000.0)
-        self.assertEqual(parts[0], [0.0, 605.0])                                       # 590〜620 のすき間(10 秒より長い)の真ん中
-        self.assertEqual(parts[1][0], 605.0)
-        self.assertEqual(parts[1][1], 1205.0)                                          # 目安(1205)の前後 90 秒にすき間が無い(1300〜1310 は外)→ 目安の所
-        self.assertEqual(parts[2], [1205.0, 2000.0])                                   # 残り 795 秒は 600 × 1.5 以下 → 最後の区間
-        self.assertEqual(len(parts), 3)
-        self.assertTrue(all(p[0] < p[1] for p in parts) and all(parts[i][1] == parts[i + 1][0] for i in range(len(parts) - 1)))
 
     def test_sense_voice_reads_chunks_like_qwen3(self):
         """SenseVoice は Qwen3-ASR と同じ区切り方(_Qwen3Chunked。無音の区切りは読まない)で読み、区切りの中の行はトークンの時刻(sv_rows)で作る。

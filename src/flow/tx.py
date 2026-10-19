@@ -9,7 +9,7 @@
 動詞(それぞれの docstring に「② が足すこと」):
   文字起こし    transcribe_clip(① clipjob → fields)・write_clip_records(words・asr・llm を書く)・write_machine_doc(③ なしで文書の機械の分を書く)・dict_pairs
   受付          check_model・request_engine・tx_spec(文字起こしの指定。③ の validate_job も使う)・new_doc(新しい文書の頭。③ の run_job も使う)
-  再認識        extract_span・each_lines・recognize_range・end_whole・note_vad・replace_span_words(words.json の差し替え)
+  再認識        extract_span・each_lines・recognize_range・note_vad・replace_span_words(words.json の差し替え)
   2 つ目のエンジン engine_ready・check_engine_ready・alt_lines(+ alt_engine_version)
   時刻の候補    word_retime
   名簿と学習    roster_listing・pick_glossary_terms
@@ -299,22 +299,12 @@ def each_lines(job, spec, targets, wav, start):
 
 
 def recognize_range(job, spec, wav, start, doc):
-    """範囲(spec の mode "range")・全体("whole")の再認識の認識 -> (認識器, 行)。認識器の loose(spans)・vad は ③ が続けて使う。
-    全体は ① recognize.whole_lines(長ければ区間に分けて続きから)、範囲は認識器の main(spec の range)。
-    ② が足すこと = 認識器を作る(ワーカーのモデルはその中で読む)・ジョブの状態(running・全体を認識中 / 範囲を認識中)"""
-    whole = spec.get("mode") == "whole"
+    """範囲(spec の range)の再認識の認識 -> (認識器, 行)。認識器の loose(spans)・vad は ③ が続けて使う(全体の再認識は文字起こしのジョブ)。
+    ② が足すこと = 認識器を作る(ワーカーのモデルはその中で読む)・ジョブの状態(running・範囲を認識中)"""
     rec = recognize.RangeRecognizer(job, spec, wav, start)
-    job["state"], job["phase"] = "running", "全体を認識中" if whole else "範囲を認識中"
+    job["state"], job["phase"] = "running", "範囲を認識中"
     a, b = spec["range"]
-    lines = recognize.whole_lines(job, spec, doc, rec) if whole else rec.main(a, b)
-    return rec, lines
-
-
-def end_whole(spec):
-    """全体の再認識が終わった(反映した・文字が出なかった)ので、続きから再開する記録を消す(範囲・行ごとは何もしない)。
-    ② が足すこと = 記録の後始末をいつするか(① recognize.drop_resume)"""
-    if spec.get("mode") == "whole":
-        recognize.drop_resume(spec["tid"])
+    return rec, rec.main(a, b)
 
 
 def note_vad(job, vad):

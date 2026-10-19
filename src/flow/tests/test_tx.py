@@ -5,7 +5,7 @@
 
 - transcribe_clip の fields に ③ の分が入らない
 - write_clip_records・write_machine_doc: 機械の分の文書と機械の層を作業データ(ytt/workdata の TX_DIR)か案件の 作業用 に書く・書けないとき
-- 受付の check_model・2 つ目のエンジンの engine_ready(疑似)・再認識の end_whole・note_vad・時刻の候補 word_retime(単語なし)
+- 受付の check_model・2 つ目のエンジンの engine_ready(疑似)・再認識の note_vad・時刻の候補 word_retime(単語なし)
 本物の通し(ジョブ・fields の行と記録・words.json・asr.json・鍵)は src/editor/tests/test_worker.py の RealWorkerTest。
 """
 import os
@@ -165,18 +165,13 @@ class TestSmallVerbs(_Env):
     def test_engine_ready_fake(self):
         self.assertEqual(tx.engine_ready("whisper.cpp"), (True, ""))   # 疑似は常に使える
 
-    def test_note_vad_and_end_whole(self):
+    def test_note_vad(self):
         job = {}
         self.assertEqual(tx.note_vad(job, None), "")
         self.assertNotIn("vadNote", job)
         note = tx.note_vad(job, {"used": "off", "retries": [{"mode": "weak"}]})
         self.assertTrue(note)
         self.assertEqual(job["vadNote"], note)
-        with mock.patch.object(recognize, "drop_resume") as drop:
-            tx.end_whole({"mode": "range", "tid": "t"})
-            drop.assert_not_called()
-            tx.end_whole({"mode": "whole", "tid": "t"})
-            drop.assert_called_once_with("t")
 
     def test_word_retime_without_words(self):
         self.assertIsNone(tx.word_retime("abc123def456", [], ["s1"], "faster-whisper"))

@@ -82,8 +82,8 @@
   - 名前: `models_touched` :31・`release_idle_local` :36・`setup_cuda_paths` :105・`cuda_count` :130・`cuda_libs_ok` :138・`cuda_compute` :159
 - **postproc.py** (314 行) — ① 文字起こしの行の後処理: 要確認の印(make_flags)・認識の出力を整える流れ(expand_segments = 行を単語の時刻で分ける split_segment・
   - 名前: `latin_suspect` :31・`sparse_row` :59・`stock_phrase` :74・`repeats_in_line` :91・`make_flags` :102・`expand_segments` :135・`post_values` :174・`clip_rows` :201・`merge_repeats` :218・`trim_ends` :267・`join_rows` :280・`machine_conf` :291・ほか 2
-- **recognize.py** (480 行) — ① 音声の認識: 動画から音声を取り出す(extract_audio)・声の検出が捨てすぎたら緩めてやり直す(transcribe_vad_fallback)・文字起こしの行(transcribe_real)・
-  - 名前: `wav_args` :29・`extract_audio` :60・`seg_to_dict` :89・`vad_kept` :107・`vad_note` :115・`transcribe_vad_fallback` :129・`transcribe_real` :172・`transcribe_rows` :200・`audio_span` :219・`recognize_chunk` :229・`class ChunkModel` :251・`finish_range_lines` :271・ほか 8
+- **recognize.py** (362 行) — ① 音声の認識: 動画から音声を取り出す(extract_audio)・声の検出が捨てすぎたら緩めてやり直す(transcribe_vad_fallback)・文字起こしの行(transcribe_real)・
+  - 名前: `wav_args` :28・`extract_audio` :59・`seg_to_dict` :88・`vad_kept` :106・`vad_note` :114・`transcribe_vad_fallback` :128・`transcribe_real` :171・`transcribe_rows` :199・`audio_span` :218・`recognize_chunk` :228・`class ChunkModel` :250・`finish_range_lines` :270・ほか 1
 - **records.py** (178 行) — ① 文字起こしの記録: recognition.runs の 1 件(エンジンと版・設定・辞書の版・後処理)・配信ごとの文脈と声の検出の記録・
   - 名前: `set_dict_inputs` :24・`pkg_version` :37・`engine_version` :46・`run_engine` :60・`recognition_run` :77・`short_hash` :91・`roster_hash` :104・`dict_version` :112・`context_record` :136・`vad_record` :144・`asr_path` :155・`capture_raw` :160・ほか 1
 - **replace.py** (59 行) — ① 自動の流れの層 pipeline/transcribe: 確度「高」の学習済み置換を機械の出力に当てる(`auto_learned_replace`)。純粋な関数だけ(ファイル・設定を読まない)。
@@ -118,7 +118,7 @@
 - src/pipeline/transcribe/tests/test_fill_llm.py — pipeline/transcribe の fill(認識のあとの後処理 A・B・C・D)と llm(LLM の後処理 E)のテスト。編集の serve・ed_state は読まない。
 - src/pipeline/transcribe/tests/test_live_tx_worker.py — 配信中の候補の文字起こしの子プロセス src/pipeline/transcribe/live_tx_worker.py のテスト(D-11 案 b)。本物の認識はしない。
 - src/pipeline/transcribe/tests/test_postproc.py — ① 文字起こしの行の後処理(clipjob.make_doc_rows = 整える postproc → 名前を外す B → 末尾の重複 C と別の読み A → 印・置換辞書 → 名簿の呼び名 D → LLM E)を、
-- src/pipeline/transcribe/tests/test_recognize.py — pipeline/transcribe/recognize(音声の取り出し・認識・範囲の行・全体の再認識の続きから)を、編集の serve を読まずに使うテスト。
+- src/pipeline/transcribe/tests/test_recognize.py — pipeline/transcribe/recognize(音声の取り出し・認識・範囲の行・)を、編集の serve を読まずに使うテスト。
 - src/pipeline/transcribe/tests/test_txbackend.py — pipeline/transcribe の本物と疑似の差し込み口 backend のテスト(役割で組み直す RS2-2)。
 - src/pipeline/transcribe/tests/test_txrecords.py — pipeline/transcribe/records(認識の記録・辞書の版・生出力・単語の時刻)を、編集の serve を読まずに使うテスト。
 - src/pipeline/transcribe/tests/test_txroster.py — pipeline/transcribe/roster の配信ごとの文脈 stream_context と用語の区切り split_terms(ytt/txtext)を、編集の serve を読まずに使うテスト。

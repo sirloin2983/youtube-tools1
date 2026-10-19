@@ -76,8 +76,8 @@
 
 - **app-core.js** (466 行) — app-core.js — 「編集」の画面: 共通の小道具・表示の好み・⚙・他のツール・設定・準備状況・評価ドリルの数の読み直し。
   - 名前: `fmtT` :8・`parseT` :15・`uiIcon` :24・`toast` :27・`showErr` :34・`undoToast` :48・`stopAtEnd` :60・`armPlayEnd` :81・`httpFailText` :86・`api` :87・`apiBlob` :92・`busy` :98・ほか 49
-- **app-jobs.js** (397 行) — app-jobs.js — 「編集」の画面: 新規ジョブ・スタジオ/マーカー連携・ジョブの進捗・話者の自動判別・声を覚える・再認識。
-  - 名前: `jobOpts` :8・`startFile` :13・`askTxAgain` :27・`onStart` :40・`startPolling` :52・`pollJobs` :54・`namedBy` :103・`renderJobBadge` :105・`transcribeInto` :112・`renderIntoState` :124・`jobProg` :135・`jobPhase` :136・ほか 31
+- **app-jobs.js** (398 行) — app-jobs.js — 「編集」の画面: 新規ジョブ・スタジオ/マーカー連携・ジョブの進捗・話者の自動判別・声を覚える・再認識。
+  - 名前: `jobOpts` :8・`startFile` :13・`askTxAgain` :27・`onStart` :40・`startPolling` :52・`pollJobs` :54・`namedBy` :104・`renderJobBadge` :106・`transcribeInto` :113・`renderIntoState` :125・`jobProg` :136・`jobPhase` :137・ほか 31
 - **app-learn.js** (286 行) — app-learn.js — 「編集」の画面: 修正から学習した候補・修正の提案・校正済み・進み具合の帯・認識精度の測定・名簿と用語集・保存データへの保管・評価用の確かめ済み。
   - 名前: `scheduleSuggest` :8・`putSettingsNow` :10・`sugList` :18・`sugHTML` :20・`renderChips` :29・`loadSuggest` :39・`sugFeedback` :46・`altJob` :53・`renderAlt` :56・`applySug` :75・`acceptSug` :80・`rejectSug` :89・ほか 21
 - **app-list.js** (249 行) — app-list.js — 「編集」の画面: 保存済み一覧(履歴)・選んだ文書をまとめて実行。

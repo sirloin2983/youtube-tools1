@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""pipeline/transcribe/recognize(音声の取り出し・認識・範囲の行・全体の再認識の続きから)を、編集の serve を読まずに使うテスト。
+"""pipeline/transcribe/recognize(音声の取り出し・認識・範囲の行・)を、編集の serve を読まずに使うテスト。
 
     py -3.12 -m unittest src/pipeline/transcribe/tests/test_recognize.py -v
 
@@ -80,23 +80,6 @@ class TestFinishRangeLines(_Env):
         self.assertEqual([(x["start"], x["end"], x["raw"], x["flag"]) for x in out], [(11.0, 12.0, "こんにちは", "印")])
         out = recognize.finish_range_lines(raw, dict(SPEC, evalSet=True), 10.0)   # 外さない(None)
         self.assertEqual(out[0]["raw"], "名前:こんにちは")
-
-
-class TestWhole(_Env):
-    def test_parts_and_key_follow_part_sec(self):
-        self.assertEqual(recognize.whole_parts({"segments": []}, 0.0, 800.0), [[0.0, 800.0]])
-        doc = {"segments": [{"start": 0.0, "end": 595.0}, {"start": 605.0, "end": 1300.0}]}
-        self.assertEqual(recognize.whole_parts(doc, 0.0, 1300.0), [[0.0, 600.0], [600.0, 1300.0]])   # 行の無いすき間の真ん中で切る
-        spec = {"tid": "abc", "range": [0.0, 1300.0], "model": "small", "language": "ja", "beam": 5, "vadMode": "weak"}
-        k = recognize.whole_key(spec, {"sourcePath": ""})
-        with mock.patch.object(recognize, "WHOLE_PART_SEC", 300):   # 差し替えはこのモジュールの値を読む所に効く
-            self.assertNotEqual(recognize.whole_key(spec, {"sourcePath": ""}), k)
-        recognize.write_resume("abc", {"key": k, "parts": [[0, 1]], "done": {}})
-        self.assertEqual(recognize.resume_path("abc"), os.path.join(self.tmp, ".resume", "abc.whole.json"))
-        self.assertEqual(recognize.read_resume("abc", k)["parts"], [[0, 1]])
-        self.assertIsNone(recognize.read_resume("abc", "other"))
-        recognize.drop_resume("abc")
-        self.assertIsNone(recognize.read_resume("abc", k))
 
 
 class TestAudio(_Env):

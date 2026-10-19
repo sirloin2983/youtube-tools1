@@ -100,8 +100,8 @@ class TestReplacedRuns(StoreDir):
         self.assertIn("dict", r["settings"])
         self.assertEqual([o["text"] for o in d["original"]], ["こんばんわ", "待って", "あの", "それって"])
 
-    def test_range_and_whole_skip_kept_rows(self):
-        for mode in ("range", "whole"):
+    def test_range_skips_kept_rows(self):
+        for mode in ("range",):   # 全体は文字起こしのジョブ → rebuild_whole(10-20)
             with self.subTest(mode=mode):
                 self.put()
                 spec = {"tid": TID, "range": [0.0, 12.0], "ids": ["s2", "s3", "s4"], "model": "small", "autoDict": False, "mode": mode}
