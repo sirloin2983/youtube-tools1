@@ -3,14 +3,14 @@
     py -3.12 src/app/tests/e2e_cases_cand.py
 入口(app/server.py)にスタジオを取り込んで動かす(STUDIO_FAKE=1・生成した短い webm・一時フォルダだけ)。
 ④ の案件の一覧(cases_mod.snapshot)は見本に差し替え、案件の id = スタジオの配信の id にする。
-見るもの: パネルが載る(配信の選択は出さない)・動画を再生できる・盛り上がりグラフ・採用 / 不採用がスタジオに保存される・
+見るもの: パネルが載る・動画を再生できる・盛り上がりグラフ・採用 / 不採用がスタジオに保存される・
 キー(y・n)は殻の keydown からパネルへ届く・書き出し → 済みの行と「編集で開く」のリンク・離れたら再生を止める・
-別の行(切り抜き)へ移るとパネルを片付ける(キーが効かない・プレーヤーが消える)・戻ると作り直す・コンソールのエラーが無い。
+別の行(切り抜き)へ移るとパネルを片付ける(キーが効かない・下の帯から候補のキーが消える・プレーヤーが消える)・戻ると作り直す・コンソールのエラーが無い。
 外から来る文字列(題名・ラベル)が HTML にならない・開始 / 終了の時刻の欄(数字だけで確定・欄の中の ← → は再生位置を動かさない)・
 まとめて実行(配信ごと・マークの「この後を ▸」)・採用が無いと「書き出す」は押せない・
 書き出したマークのセリフ(元の配信の時刻・校正の進み具合・押すとその時刻へ)・一瞬をマーク(C)・つなげて1本に・前回の場所(開き直すと戻る)・
 1720 では書き出しの引き出しを横に並べる・390 で重ねて開いている間は裏のキーが効かない・YouTube のプレーヤーが使えないとき(知らせの文は test_cand_panel.cjs)。
-? の一覧・下の帯の文字・幅 390 のはみ出し・設定の保存の失敗の ⚙ の印は画面の道に入れない(写真の関所・ui_audit の A-20)。"""
+? の一覧・下の帯の文字の中身・幅 390 のはみ出し・設定の保存の失敗の ⚙ の印は画面の道に入れない(写真の関所・ui_audit の A-20)。"""
 import json
 import os
 import shutil
@@ -222,7 +222,7 @@ def main():
                 check(pg.input_value("#rvNow") == now0, "時刻の欄の中の ← → は再生位置を動かさない(殻のキーとパネルのキーへ行かない): %s → %s" % (now0, pg.input_value("#rvNow")))
                 pg.evaluate("document.activeElement && document.activeElement.blur()")
 
-                # 4. キー: 殻の keydown 1 本からパネルへ(y = 採用・n = 今をマーク・? = キー操作の一覧)
+                # 4. キー: 殻の keydown 1 本からパネルへ(y = 採用・n = 今をマーク)
                 pg.evaluate("document.querySelector('#rvHost video').pause()")
                 pg.click('#rvFilters [data-filter=""]')
                 pg.click("#rvList .rv-mark-row.st-cand .rv-tc")
@@ -396,7 +396,7 @@ def main():
                 check(wait_js(pg, "document.querySelector('#rvExport').hidden", 3000), "閉じるボタンで引き出しを閉じる")
                 pg.set_viewport_size({"width": 1440, "height": 900})
 
-                # 10. YouTube のプレーヤーが使えないとき: 1 か所に知らせる・判定は保存できる・自動では知らせず、自分で再生を押したときだけ
+                # 9. YouTube のプレーヤーが使えないとき: 1 か所に知らせる・判定は保存できる・自動では知らせず、自分で再生を押したときだけ
                 pg.route("https://www.youtube.com/**", lambda route: route.abort())
                 pg.goto(base + "cases?c=%s#cand" % YT_ID)
                 check(wait_js(pg, "!!document.querySelector('#rvList .rv-mark-row[data-id=\"y0\"]')", 20000), "YouTube の配信の案件を開ける")

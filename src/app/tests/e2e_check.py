@@ -5,9 +5,11 @@
 計画 notes:docs/design/v1-check-build.md 2-3 の形の偽物(Playwright の route)で答える。動画は ffmpeg で作った webm を transcribe/media の偽物で返す。
 見るもの: 開く(帯 = 今日 n 件・この確認で決まる物・このあと・最初のカード)・URL の c / kind を口へ渡す / A で答える → 送った中身・すぐ次へ /
 Z で 1 つ前に戻す(undo の id・カードが戻る・今日の数)/ N で飛ばす(skip を送る・Z では戻らない)/ 答えのボタン = キーと同じ道 /
-誰の声のカード = 再生が終わるまで Enter は効かない・自動で再生して区間で止まる / 時刻のカード = 波形の帯 / 10 件ごとのまとめ(Enter で続ける)/
-全部答えた空の状態(back=cases なら案件へ戻る)/ 答えを記録できない(カードが戻る)/ 一覧を読めない(もう一度)/
-ヘッダー(appnav・版・設定がある。appnav の中身は e2e_portal)/ コンソールにエラーが無い。"""
+読みのカード(1 / 2・3 で打って答える)/ 誰の声のカード = 再生が終わるまで Enter は効かない・自動で再生して区間で止まる・登録簿の人・混ざり /
+時刻のカード = 波形の帯・単語の時刻の候補・H と ← で端を動かして答える / 声ですか(speech)/ 自動カット(cut)の 3 つの問い /
+評価のレーン(lane=eval・まとめて文字起こし・区間カード)/ 10 件ごとのまとめ(Enter で続ける)/
+全部答えた空の状態(back=cases なら案件へ戻る)/ 答えを記録できない(カードが戻る)・離れたら保留を確定 / 一覧を読めない(もう一度)・反映できなかった数 /
+本物の口(src/app/check/deck.py)で空 / 版と appnav の今の場所(ヘッダーの部品の並びは ui_audit の A-28)/ コンソールにエラーが無い。"""
 import json
 import os
 import re
@@ -154,7 +156,6 @@ def _scene_open(cx):
     check(pg.evaluate("document.querySelectorAll('#chkQueue li').length") >= 5, "このあと の一覧")
     check(pg.is_disabled("#chkUndo") and bool(pg.get_attribute("#chkUndo", "title")), "まだ答えていないときは戻せない + 理由")
     check(wait_js(pg, "document.querySelector('#ver').textContent.startsWith('v')"), "版が出る")
-    check(pg.evaluate("!!document.querySelector('.ui-header nav[data-ui-appnav]') && !!document.querySelector('.ui-header-actions [data-ui-settings]')"), "ヘッダーに appnav と設定")
     check(pg.evaluate("document.querySelector('[data-ui-appnav-item][aria-current=\"page\"]').dataset.uiAppnavItem") == "check", "appnav の今の場所は「確かめる」")
 
 

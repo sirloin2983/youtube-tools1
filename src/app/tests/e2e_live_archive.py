@@ -3,7 +3,9 @@
 入口にスタジオを取り込み、録画の部品を別のプロセスで立て、ブラウザでホームの「新しい案件」(/#new)の URL の欄から録画を始め、
 案件の画面の候補のパネル(/cases?c=<録画 id>#cand。panels/cand.js がスタジオの review.js と LivePlayer を載せる)を操作する。本物の YouTube には繋がない。
 案件の画面の帯は開いたときに入口の設定 live.autoDelete を読む。アーカイブから書き出すのは録画に無い区間だけで、いつも自動。
-保存の形・帯の文・API の拒否は下の層(test_live_archive.py・test_live_cleanup.py・test_live.py・test_cand_panel.cjs)で見る。
+保存の形・API の拒否は下の層(test_live_archive.py・test_live_cleanup.py・test_live.py・test_cand_panel.cjs)で見る。
+帯の案内の文(設定とジョブの状態で変わる)は画面が組み立てるだけで下の層に無いので、ここで見る。
+録画を始めて案件の画面へ移る道・欠けの表示は e2e_live_studio.py が見るので、ここは前提として通るだけ。
 
     py -3.12 src/app/tests/e2e_live_archive.py                 # 確かめる(終了コード 0 = すべて OK)
     py -3.12 src/app/tests/e2e_live_archive.py --shots DIR     # あわせてスクリーンショットを DIR に残す
@@ -64,7 +66,7 @@ os.environ["STUDIO_FAKE"] = "1"
 YT1 = "https://www.youtube.com/watch?v=TESTarch001"   # 手で作り直す録画
 YT2 = "https://www.youtube.com/watch?v=TESTarch002"   # 自動で作り直す録画
 YT3 = "https://www.youtube.com/watch?v=TESTarch003"   # マークの無い録画
-YT4 = "https://www.youtube.com/watch?v=TESTarch004"   # 配信後の全自動(M7)の録画
+YT4 = "https://www.youtube.com/watch?v=TESTarch004"   # 配信後の全自動の録画
 TITLE = "アーカイブのテスト<b>配信</b>"
 ARC_SEC = 420
 AUDIO = "0.4*sin(2*PI*t*(400+300*sin(2*PI*0.07*t)))*(0.6+0.4*sin(2*PI*1.3*t))+0.15*(2*random(0)-1)"   # src/flow/tests/test_live_archive.py と同じ(照合できる音)
@@ -349,9 +351,6 @@ def run(tmp, shots, force_chromium):
         pg.click("#qAdd")
         return wait_js(pg, CAND_LIVE, 40000)
 
-    def here(pg):
-        return pg.evaluate("() => location.pathname + location.search + location.hash")
-
     rid1 = rid2 = rid3 = rid4 = None
     errors, not_found = [], []
     deleted_rids = set()
@@ -440,24 +439,24 @@ def _begin_after_stream(cx):
 
 def _scene_record_marks(cx):
     """1. 録画 → マーク(録画から書き出し)・欠け・欠けのあと"""
-    LX, api, begin_from_home, check, here, jobs_of, mark, pg = cx.LX, cx.api, cx.begin_from_home, cx.check, cx.here, cx.jobs_of, cx.mark, cx.pg
+    LX, api, begin_from_home, check, jobs_of, mark, pg = cx.LX, cx.api, cx.begin_from_home, cx.check, cx.jobs_of, cx.mark, cx.pg
     rec_len, rec_status, srcs = cx.rec_len, cx.rec_status, cx.srcs
     # ---------------- 1. 録画 → マーク(録画から書き出し)・欠け・欠けのあと ----------------
-    check(begin_from_home(pg, YT1), "1 ホームの /#new で URL を入れると録画が始まり、案件の画面の候補で開く")
+    check(begin_from_home(pg, YT1) and wait_js(pg, "() => /録画中/.test(document.querySelector('#rvRecState').textContent)", 30000),
+          "1 ホームの /#new で URL を入れると録画が始まり、案件の画面の候補で「録画中」")
     code, vs = api("GET", "/studio/api/videos")
     rid1 = cx.rid1 = next((v["id"] for v in (vs or {}).get("videos") or [] if v.get("kind") == "live"), None)
-    check(here(pg) == "/cases?c=%s#cand" % rid1, "1 移った先は /cases?c=<録画 id>#cand: %s" % here(pg))
-    check(wait_js(pg, "() => /録画中/.test(document.querySelector('#rvRecState').textContent)", 30000), "1 録画中")
     wait_for(lambda: rec_len(rid1) > 13, 40, 0.5)
     mark(pg, 3.0, 9.0)
     ja = wait_for(lambda: (lambda js: js and js[0]["state"] in ("done", "error") and js[0])(jobs_of(rid1)), 90, 0.5)
     check(ja and ja["state"] == "done", "1 マーク A を自動で書き出した(録画から):%s %s" % ((ja or {}).get("state"), (ja or {}).get("error")))
     # 欠け(つなぎ直し)
     srcs[YT1].down = True
-    check(wait_for(lambda: (rec_status(rid1)[1] or {}).get("state") == "reconnecting", 30, 0.3), "1 配信が切れると「つなぎ直し中」")
+    cut = wait_for(lambda: (rec_status(rid1)[1] or {}).get("state") == "reconnecting", 30, 0.3)
     time.sleep(3)
     srcs[YT1].down = False
-    check(wait_for(lambda: (lambda s: s.get("state") == "recording" and s.get("sessions", 0) >= 2)(rec_status(rid1)[1] or {}), 45, 0.5), "1 つなぎ直して録画を続ける")
+    check(cut and wait_for(lambda: (lambda s: s.get("state") == "recording" and s.get("sessions", 0) >= 2)(rec_status(rid1)[1] or {}), 45, 0.5),
+          "1 欠けを作る: 配信が切れて「つなぎ直し中」→ つなぎ直して録画を続ける")
     code, st = api("GET", "/live/r/local/%s/status?since=0" % rid1)
     base_t = LX.iso_epoch(st["firstPdt"])
     gap = None
@@ -593,7 +592,6 @@ def _scene_chips_and_delete(cx):
     watch_rounds(2)
     check(rid1 in (rec_ids() or []) and os.path.isdir(os.path.join(rfolder, rid1)), "5 「録画を消す」がオフの間は、書き出しが済んでも録画は残る")
     srv.prefs.patch("live", {"autoDelete": True})   # 設定の画面(prefs)で付ける(帯の案内は録画を開いたときに読む = 6 で見る)
-    check(srv.prefs.get(["live"])["live"]["autoDelete"] is True, "5 「録画を消す」を付けると live.autoDelete = true")
     n_probe = len(probes)
     gone = wait_for(lambda: gone_from_list(rid1), 30, 0.5)
     if gone:
@@ -626,9 +624,8 @@ def _scene_auto_rebuild(cx):
     """6. 録画が終わる → 作り直しは起きない → 録画を自動でごみ箱へ / 7. マークの無い録画"""
     LX, api, begin_from_home, check, deleted_rids, fetches, first, gone_from_list = cx.LX, cx.api, cx.begin_from_home, cx.check, cx.deleted_rids, cx.fetches, cx.first, cx.gone_from_list
     jobs_of, mark, pg, probes, rec_ids, rec_len, rec_status = cx.jobs_of, cx.mark, cx.pg, cx.probes, cx.rec_ids, cx.rec_len, cx.rec_status
-    probe, rfolder, rid1, smarks, srv, trashbin, watch_rounds = cx.probe, cx.rfolder, cx.rid1, cx.smarks, cx.srv, cx.trashbin, cx.watch_rounds
+    probe, rfolder, rid1, smarks, trashbin, watch_rounds = cx.probe, cx.rfolder, cx.rid1, cx.smarks, cx.trashbin, cx.watch_rounds
     # ---------------- 6. 録画が終わる → 作り直しは起きない → 録画を自動でごみ箱へ ----------------
-    check(srv.prefs.get(["live"])["live"]["autoDelete"] is True, "6 「録画を消す」は付いたまま(5 で付けた)")
     check(begin_from_home(pg, YT2) and wait_js(pg, "() => /録画中/.test(document.querySelector('#rvRecState').textContent)", 40000),
           "6 2 本目の録画が始まる(ホームの /#new → 案件の画面の候補)")
     code, vs = api("GET", "/studio/api/videos")
@@ -691,8 +688,7 @@ def _scene_after_stream(cx):
                 f.write(json.dumps({"replayChatItemAction": {"videoOffsetTimeMsec": str(t * 1000 + k * 10), "actions": [{"addChatItemAction": {
                     "item": {"liveChatTextMessageRenderer": {"message": {"runs": [{"text": "草" if k % 3 == 0 else "はい"}]}}}}}]}}) + chr(10))
     os.environ["STUDIO_FAKE_CHAT"] = chat
-    v = srv.prefs.patch("live", {"autoAfterStream": True, "afterStreamPerHour": 30})
-    check(v["autoAfterStream"] is True and v["afterStreamPerHour"] == 30, "9 「配信が終わったら、アーカイブの解析で自動で切り抜く」をオン(live.autoAfterStream)")
+    srv.prefs.patch("live", {"autoAfterStream": True, "afterStreamPerHour": 30})   # 「配信が終わったら、アーカイブの解析で自動で切り抜く」
     n_handed = len(handed)
     # 見るだけ(マークしない): スタジオに登録して案件の画面の候補で開いておく(採用のときに入口が同じ登録をする = 結果は同じ)
     api("POST", "/studio/api/videos/open", {"kind": "live", "recorder": "local", "recording": rid4, "url": YT4, "title": "配信後の全自動"})

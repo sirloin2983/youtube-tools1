@@ -5,9 +5,11 @@
 入口を編集と cut2resolve を取り込んだ形で動かし(編集の e2e と同じ Server。疑似の文字起こし)、/cases?d=<文書 id>#cut を開く(仮の案件 orphan に入る)。
 行からのたたき台・波形・区間の選択と削る / 戻す / 元に戻す・自動保存・
 殻のキー(Alt+1/2)とパネルのキーの両立・下の帯・字幕の一覧の「残す / カット」・カットしない・パックの設定(大きさ・音量・行の後の余白)が編集の設定に残る・
-パックを作る(区間 = カットのとおり・EDL・SRT を入れない)・別の切り抜きを選んでも未保存のカットが残る・コンソールにエラーが無い。
-パックの記録と「作り直しが要る」の理由・同じ場所は確認なしで作り直す・別の場所は 3 択・zip でダウンロード/
-カット・パックで行を分けてすぐ校正へ(閉じる側の保存を待つ)/ キーボードだけで区間と端を選んで 1 コマ動かす・2 つの窓の 409 と読み直す・文書の競合の案内。"""
+パックを作る(区間 = カットのとおり・左の一覧の札)・別の切り抜きを選んでも未保存のカットが残る・コンソールにエラーが無い。
+パックの記録と「作り直しが要る」の理由(カット・字幕)・同じ場所は確認なしで作り直す・別の場所は 3 択・zip でダウンロード /
+カット・パックで行を分けてすぐ校正へ(閉じる側の保存を待つ)・区間があるときの校正の行の「カット」は案内だけ /
+キーボードだけで区間と端を選んで 1 コマ動かす・2 つの窓の 409 と読み直す・文書の競合の案内。
+パックと zip の中身(動画は直下・EDL・SRT を入れない・zip の区間)は単体の test_resolve_export が見る。"""
 import json
 import os
 import shutil
@@ -146,7 +148,7 @@ def _scene_rows_whole(cx):
 
 
 def _scene_pack_settings(cx):
-    """パックの設定(パネルの中。古い画面は ⚙ の引き出し): 大きさ・音量(%)・行の後の余白が編集の設定に残る"""
+    """パックの設定(パネルの中): 大きさ・音量(%)・行の後の余白が編集の設定に残る"""
     check, pg, srv = cx.check, cx.pg, cx.srv
     check("30fps" in pg.inner_text("#pkSummaryText"), "前回の設定の要約(30fps): " + pg.inner_text("#pkSummaryText"))
     pg.click("#pkSettingsBtn")
@@ -176,7 +178,7 @@ def _scene_pack_settings(cx):
 
 
 def _scene_build(cx):
-    """パックを作る: 見積もり(区間 5・字幕 5)→ 作る → 前回のパック・パックの区間 = カットのとおり・EDL・SRT を入れない"""
+    """パックを作る: 見積もり(区間 5・字幕 5)→ 作る → 前回のパック・パックの区間 = カットのとおり・左の一覧の札"""
     check, pg, srv, v1 = cx.check, cx.pg, cx.srv, cx.v1
     wait_js(pg, "document.querySelector('#pkCount').textContent === '5' && document.querySelector('#pkCaps').textContent === '5'", 40000)
     check(True, "これから作るパックの見積もり(5 区間・字幕 5)")
@@ -264,7 +266,7 @@ def _scene_pack_stale(cx):
 
 
 def _scene_zip(cx):
-    """「zip でダウンロード」= 同じ Text+ パック(動画は直下・Lua・EDL なし・区間はパックと同じ)と知らせ"""
+    """「zip でダウンロード」で Text+ のスクリプトの入った zip が落ち、知らせが出る(zip の中身の決まりは test_resolve_export)"""
     check, pg, srv = cx.check, cx.pg, cx.srv
     pg.evaluate("document.querySelector('#pkMore').open = true")
     with pg.expect_download(timeout=60000) as dl:

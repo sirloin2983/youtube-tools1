@@ -6,18 +6,20 @@
 2つの形をそれぞれ確かめる:
 
   (A) 本番と同じ形(python src/app/server.py と同じ mounts=tuple(mount.MOUNTS)): 3つとも入口に取り込み。
-      2枚のカードが「ホームに取り込み」で動作中になる → ヘッダーの appnav → カードの「開く」・/cases の引数なしで前の案件 →
-      動画のパスで開く /cases?v=(文書の校正か新しい案件の欄)→ 「次にやること」・案件(配信ごと)の一覧・単体の文字起こし・依頼の受付の外の文字 →
-      新しい案件(探す・URL から入れる)→ 自動でできた切り抜き → すべて終了(2回押し)→ 切断の表示、を確かめる。
-      案件の画面の候補・校正・カットのパネルは e2e_cases_cand・e2e_cases_proof・e2e_cases_cut が見る。
-      細かい操作(一覧の検索・並び替え・非表示・テーマ・空の表示・フォーカス・はみ出し)は画面の道に入れない(ui_audit・写真の関所)。
+      1 2枚のカードが「ホームに取り込み」で動作中・ヘッダーの appnav・「詳しく」の調子(始める条件)と片付け・確かめるの枠([始める] は /check)→
+      2 カードの「開く」・/cases の引数なしで前の案件 → 2h 動画のパスで開く /cases?v=(文書の校正か新しい案件の欄)→
+      2d 案件(配信ごと)の一覧 → 2e 次にやること・2f 単体の文字起こし → 2g 一覧の件数と「もっと見る」→
+      2i 次にやることの種類・案件の行のボタンで案件の画面へ着く・依頼の受付の外の文字 →
+      2j 新しい案件(引き出し・/?url=…#new・探す設定・① 配信を探す・URL から入れて「確認する」で案件の画面の候補へ)と運用の枠の精度と学習 →
+      2k 自動でできた切り抜き(採用で届ける・要らない)→ 9 すべて終了(2回押し)→ 10 開いたままの別のタブに切断の表示、を確かめる。
+      案件の画面の候補・校正・カットのパネルの中身は e2e_cases_cand・e2e_cases_proof・e2e_cases_cut、確かめる /check の中身は e2e_check が見る
+      (ここは着くまで)。細かい操作(一覧の検索・並び替え・非表示・テーマ・狭い画面・空の表示・フォーカス・はみ出し)は画面の道に入れない(ui_audit)。
   (B) 文字起こしが子プロセスの形(--no-mount 相当・取り込めなかったときの落ち先。mounts=("studio", "cut2resolve")):
       文字起こしだけ黒い画面(別プロセス)で動く形で、子プロセスの管理(停止・起動・再起動・異常終了の表示・ログの表示と XSS 対策)を
       確かめる(「詳しく」の中)。異常終了のあとの起動し直しは test_launch の test_crash_is_reported_with_log が見る。
 
-どちらも --shots で画面の写真を残す(A は明るいテーマと狭い画面、B は異常終了時の暗いテーマ)。
+--shots で画面の写真を残す(A はホームと自動の切り抜き、B は異常終了。テーマ・幅ごとの写真は ui_audit)。
 """
-import http.client
 import json
 import os
 import re
@@ -70,25 +72,13 @@ APPNAV_JS = ("[...document.querySelectorAll('[data-ui-appnav-item]')].map(a => [
 
 
 def check_appnav(check, pg, base):
-    """ヘッダーの appnav(画面どうしで同じ部品。e2e ではここだけで見る): ホーム / 案件 / 確かめる / 設定 の 4 つ・行き先は入口の直下(/・/cases・/check・/settings)・
+    """ヘッダーの appnav(画面どうしで同じ部品。項目と行き先は e2e ではここだけで見る。ほかの画面の e2e は aria-current だけ): ホーム / 案件 / 確かめる / 設定 の 4 つ・行き先は入口の直下(/・/cases・/check・/settings)・
     今の画面(ホーム)の項目だけ aria-current="page"。href は入口の直下からの相対で作る(homeUrl)ので、解決した a.href で比べる"""
     want = [["portal", base], ["cases", base + "cases"], ["check", base + "check"], ["settings", base + "settings"]]
     wait_js(pg, "%s.length === 4" % APPNAV_JS, 10000)
     got = pg.evaluate(APPNAV_JS)
     check([g[:2] for g in got] == want and [g[0] for g in got if g[2] == "page"] == ["portal"],
           "[A] appnav は ホーム / 案件 / 確かめる / 設定 の 4 つ(/・/cases・/check・/settings)で、ホームが aria-current: %s" % got)
-
-
-def http_get(port, path):
-    """入口へ転送を追わずに GET する -> (HTTP の番号, Location)。path は ASCII(日本語は % にしてから渡す)"""
-    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
-    try:
-        conn.request("GET", path, headers={"Host": "127.0.0.1:%d" % port})
-        r = conn.getresponse()
-        r.read()
-        return r.status, r.getheader("Location")
-    finally:
-        conn.close()
 
 
 CASE_TITLE = "案件の通し確認<b>配信</b>"   # < を含めて、textContent で入れていること(画面を壊さない)も確かめる
@@ -193,8 +183,8 @@ def run_mounted_phase(browser, tmp, shots, check, events):
         _mounted_list_tools(cx)
         _mounted_next_steps(cx)
         _mounted_new_case_and_ops(cx)
-        _mounted_theme_narrow(cx)
-        mob = cx.mob   # 8. の狭い画面のタブ(10. で使う)
+        _mounted_second_tab(cx)
+        mob = cx.mob   # 8. の別のタブ(10. で使う)
         _mounted_auto_clips(cx)   # スタジオの data.json を書き直すので最後に(前の場面が足した配信はスタジオが知らないので消える)
 
         # 9. すべて終了(2回押し)。3つとも取り込みなので、この形には子プロセスは無い
@@ -226,7 +216,7 @@ def run_mounted_phase(browser, tmp, shots, check, events):
 
 
 def _mounted_cards_and_health(cx):
-    """[A] 1. カード・1b. 「詳しく」の「調子」と「片付け」・取り込みの表示"""
+    """[A] 1. カード・appnav・1b. 「詳しく」の「調子」(始める条件)・確かめるの枠(/check へ着くまで)・「片付け」・取り込みの表示"""
     check, pg, port, shots = cx.check, cx.pg, cx.port, cx.shots
     # 1. カードは2枚(① 切り抜きスタジオ → ② 編集)。cut2resolve は「編集」の部品として取り込まれて動くが、カードは出さない
     for tid in SHOWN:
@@ -272,9 +262,7 @@ def _mounted_cards_and_health(cx):
 
     if shots:
         os.makedirs(shots, exist_ok=True)
-        pg.evaluate("UIKit.theme.set('light')")
-        time.sleep(0.4)   # 色の切り替えのアニメーションが終わるまで
-        pg.screenshot(path=os.path.join(shots, "portal-light.png"), full_page=True)
+        pg.screenshot(path=os.path.join(shots, "portal.png"), full_page=True)
 
 
 def _mounted_open_tools(cx):
@@ -311,7 +299,7 @@ def _mounted_open_tools(cx):
 def _mounted_media_urls(cx):
     """[A] 2h. 動画のパスで案件の画面を開く(/cases?v=<動画のパス>。スタジオ ② の「編集で開く」)。
     文書のある動画はその文書の校正・文書の無い動画はホームの新しい案件の欄"""
-    base, check, ctx, port = cx.base, cx.check, cx.ctx, cx.port
+    base, check, ctx = cx.base, cx.check, cx.ctx
     q = lambda s: urllib.parse.quote(s, safe="")
     missing = "C:\\x\\無い動画.mp4"
     clip = os.path.join(cx.tmp, "exports", "01_案件.mp4")   # seed_cases の文書 deadbeef0001 の元の動画
@@ -327,11 +315,6 @@ def _mounted_media_urls(cx):
                        " && !!document.getElementById('qPath') && document.getElementById('qPath').value.endsWith('無い動画.mp4')", 25000),
           "[A] /cases?v=<文書の無い動画> はホームの新しい案件の引き出しを開き、動画のパスが欄に入る: %s" % tab.url)
     tab.close()
-    # /live/ はライブの設定がオンのときだけ入口が受け持つが、画面は持たない = オンでも 404(オンをこの 1 回の要求の糸だけに見せる)
-    on_req = lambda: "process_request" in threading.current_thread().name
-    with mock.patch.object(cx.srv.live, "enabled", on_req):
-        live = [http_get(port, p)[0] for p in ("/live/", "/live")]
-    check(live == [404, 404], "[A] /live/ はライブがオンでも 404: %s" % live)
 
 
 def _mounted_cases(cx):
@@ -519,7 +502,7 @@ def _mounted_new_case_and_ops(cx):
     r.close()
 
     _new_case_rank(cx)
-    _new_case_queue_narrow(cx)   # 解析の順番待ちに 1 本入れるので最後に(上の ?url= の場面は順番待ちが空のことを見る)
+    _new_case_queue(cx)   # 解析の順番待ちに 1 本入れるので最後に(上の ?url= の場面は順番待ちが空のことを見る)
 
 
 def _new_case_search_settings(cx):
@@ -665,9 +648,9 @@ def _rank_autorun(cx, p):
     p.unroute("**/api/flow/runs")
 
 
-def _new_case_queue_narrow(cx):
+def _new_case_queue(cx):
     """[A] 2j-4. 新しい案件の「URL から入れる」: 「解析に追加」で順番待ち → 疑似の解析が終わると「確認する」→
-    案件の画面の候補へ (失敗の文は test_cand_panel.cjs。?url= を欄に入れるだけは 2j で確かめた。幅 390 のはみ出しは ui_audit の A-20)"""
+    案件の画面の候補へ (失敗の文は test_cand_panel.cjs。?url= を欄に入れるだけは 2j で確かめた)"""
     check, ctx = cx.check, cx.ctx
     media = os.path.join(cx.tmp, "fake-media.webm")   # 疑似のスタジオの解析が「取ってきた」ことにする見本の動画(STUDIO_FAKE_MEDIA。main の環境の patch が戻す)
     subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-f", "lavfi", "-i", "testsrc=size=320x180:rate=15:duration=40",
@@ -766,14 +749,11 @@ def _intake_untrusted_text(cx):
     p.close()
 
 
-def _mounted_theme_narrow(cx):
-    """[A] 8. 狭い画面のタブを開いておく(10. の切断の表示に使う)。テーマの切り替え・はみ出しは画面の道に入れない(ui_audit の A-20)"""
+def _mounted_second_tab(cx):
+    """[A] 8. ホームの別のタブを開いておく(10. の切断の表示に使う)"""
     mob = cx.ctx.new_page()
-    mob.set_viewport_size({"width": 375, "height": 800})
     mob.goto(cx.base)
-    cx.check(wait_js(mob, "document.querySelectorAll('.pt-case').length >= 2"), "[A] 狭い画面でも案件の一覧が出る")
-    if cx.shots:
-        mob.screenshot(path=os.path.join(cx.shots, "portal-mobile.png"), full_page=True)
+    cx.check(wait_js(mob, "document.querySelectorAll('.pt-case').length >= 2"), "[A] 別のタブでも案件の一覧が出る")
     cx.mob = mob
 
 
@@ -844,28 +824,28 @@ def _open_auto_row(cx):
     """読み込み直して、録画 A の行を開く(自動の切り抜きは開いた行の中)"""
     check, pg = cx.check, cx.pg
     pg.reload()
-    check(wait_js(pg, "!!document.querySelector('#case-%s .pt-case-row')" % AUTO_REC_A, 15000), "[A] 2j: 一覧に録画 A の行が出た")
+    check(wait_js(pg, "!!document.querySelector('#case-%s .pt-case-row')" % AUTO_REC_A, 15000), "[A] 2k: 一覧に録画 A の行が出た")
     pg.click("#case-%s .pt-case-row" % AUTO_REC_A)
     return wait_js(pg, "document.getElementById('case-%s').open === true" % AUTO_REC_A, 10000)
 
 
 def _mounted_auto_clips(cx):
-    """[A] 2j. 自動でできた切り抜きの確認: 札・出どころ・[採用](パック・届ける先が無いと押せない → 届ける)・
+    """[A] 2k. 自動でできた切り抜きの確認: 札・出どころ・[採用](パック・届ける先が無いと押せない → 届ける)・
     [要らない](ごみ箱フォルダへ・スタジオのマークを不採用)"""
     check, pg = cx.check, cx.pg
     seed_auto_clips(cx)
     pg.reload()
-    check(wait_js(pg, "document.querySelectorAll('#list .pt-case').length > 0", 15000), "[A] 2j: 一覧が出た")
+    check(wait_js(pg, "document.querySelectorAll('#list .pt-case').length > 0", 15000), "[A] 2k: 一覧が出た")
     check(pg.text_content("#case-%s .pt-case-autopill" % AUTO_REC_A) == "自動 2本" and pg.is_hidden("#case-%s .pt-case-autopill" % AUTO_REC_B),
-          "[A] 2j: 閉じた行にも「自動 n本」(人の切り抜きだけの配信には出さない)")
+          "[A] 2k: 閉じた行にも「自動 n本」(人の切り抜きだけの配信には出さない)")
     pg.click("#case-%s .pt-case-row" % AUTO_REC_A)
-    check(wait_js(pg, "document.getElementById('case-%s').open === true" % AUTO_REC_A, 10000), "[A] 2j: 行を開くと自動の切り抜きが見える")
+    check(wait_js(pg, "document.getElementById('case-%s').open === true" % AUTO_REC_A, 10000), "[A] 2k: 行を開くと自動の切り抜きが見える")
     row = "#case-%s .pt-ac" % AUTO_REC_A
     texts = pg.eval_on_selector_all(row, "els => els.map(e => e.querySelector('.row').textContent)")
     check(len(texts) == 2 and "自動" in texts[0] and "配信中の候補" in texts[0] and "配信後の解析" in texts[1] and "控え" in texts[1],
-          "[A] 2j: 自動の札・出どころ・控え: %s" % texts)
+          "[A] 2k: 自動の札・出どころ・控え: %s" % texts)
     sizes = pg.evaluate("[...document.querySelectorAll('%s .pt-ac-deliver, %s .pt-ac-discard')].map(b => Math.round(b.getBoundingClientRect().height))" % (row, row))
-    check(len(sizes) == 4 and min(sizes) >= 28, "[A] 2j: 採用・要らない は 28px 以上: %s" % sizes)
+    check(len(sizes) == 4 and min(sizes) >= 28, "[A] 2k: 採用・要らない は 28px 以上: %s" % sizes)
     if cx.shots:
         pg.screenshot(path=os.path.join(cx.shots, "portal-auto-clips.png"), full_page=True)
     # 届ける先(依頼の受付の Dropbox のフォルダ)が無い・パックが無いときは押せず、理由を出す
@@ -909,7 +889,7 @@ def _auto_discard(cx):
     _st, v = pg.evaluate(STUDIO_CALL, ["GET", "/api/video?id=" + AUTO_REC_A, None])
     check(sorted(m["status"] for m in v["video"]["marks"]) == ["exported", "rejected"], "[A] スタジオのマークは不採用: %s" % [m["status"] for m in v["video"]["marks"]])
     check(wait_js(pg, "document.querySelector('#case-%s .pt-case-autopill').textContent === '自動 1本'" % AUTO_REC_A, 10000),
-          "[A] 2j: 要らないにしたあとも、行の自動の札は 自動 1本(届けた 1 本)")
+          "[A] 2k: 要らないにしたあとも、行の自動の札は 自動 1本(届けた 1 本)")
 
 
 def run_child_process_phase(browser, tmp, shots, check, events):
@@ -978,9 +958,7 @@ def run_child_process_phase(browser, tmp, shots, check, events):
         check(pg.text_content(".pt-tool[data-tool=transcribe] .pt-toggle") == "起動", "[B] 異常終了のあと「起動」が押せる")
         if shots:
             os.makedirs(shots, exist_ok=True)
-            pg.evaluate("UIKit.theme.set('dark')")
-            time.sleep(0.4)
-            pg.screenshot(path=os.path.join(shots, "portal-dark-crashed.png"), full_page=True)
+            pg.screenshot(path=os.path.join(shots, "portal-crashed.png"), full_page=True)
 
         real_errors = [e for e in errors if "Failed to load resource" not in e and "ERR_CONNECTION_REFUSED" not in e]
         check(not real_errors, "[B] 画面のエラーなし(CSP 違反を含む): %s" % real_errors[:3])

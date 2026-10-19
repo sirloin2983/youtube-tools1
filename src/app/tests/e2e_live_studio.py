@@ -19,15 +19,18 @@
   - 待ちを縮める: 書き出しの録画待ちの見回りは 0.5 秒(既定 2 秒)。終わった録画の画面の見回りは 10 秒ごとなので、候補の変化を待つ所は
     画面を離れて戻って(戻るとすぐ読み直す)待つ(wait_fresh)
 
-確かめること(番号は依頼の 1〜14):
+確かめること(場面の順):
   13 オフ: ホームの /#new の URL を入れても begin に進まず /studio/api/queue/add(今までどおりの解析)・ヘッダーに札が出ない
   1 設定の画面でオン → 2 ホームの /#new の URL 欄 →「解析に追加」→ 録画が始まり /cases?c=<録画 id>#cand へ移ってその録画が開く
   3 自動で再生(currentTime が進む)・LIVE の帯・「録画中」・ヘッダーの札「録画中 1」
   4 I → O → 追加 → すぐ書き出す → 書き出しの欄に状態 → 済み・長さ・マークの行に「書き出し済み」
   5 書き出した区間の絶対時刻 = マークした時点の hls.playingDate ± 0.3 秒
   6 タイムラインで頭へ → 「ライブ端へ」  7 画面を離れる(タブを隠す)と止まる・戻ると続きから  8 見回りで要素が作り直されない
+  欠け: 配信が切れると「つなぎ直し中」→ 戻ると「つなぎ直し 1 回」・欠けの中への seek は欠けのあと・欠けのあとのマークも絶対時刻が合う
+  11a 帯の音量のつまみ・↑・消音・M  11 本物の録画元の置き場所と空きは「調子」(/api/health の live)
+  8b ほかの窓(編集)で再生している間は配信の音を下げる・消す(UIKit.sound)
   9 札 → 一覧(「開く」は /cases?c=<録画 id>#cand)→「停止」二度押し → 帯「録画は終わりました…」・札「録画終了」・duration が有限・最後まで再生
-  10 終わった録画でマーク → 採用 →「書き出す」  11 本物の録画元の置き場所と空きは「調子」(/api/health の live)
+  10 終わった録画でマーク → 採用 →「書き出す」
   12 /cases?c=<id>#cand を開き直すとマークが残っている  14 コンソールのエラー・404・CSP 違反なし
   15 書き出したあと(帯の select)と配信者(字幕の色): 帯の「配信者」がチャンネル名から自動で入る・
      「全自動」にしてマーク → 入口がまとめて実行へ flow auto で渡す・帯で名前を直すと次の書き出しに渡り、録画とチャンネルに覚える・
@@ -348,13 +351,12 @@ def _scene_off(cx):
     # オフのときの 404(入口の ../live/api/info は機能がオフなら 404 = 画面が「使えない」と知る手段)は想定内
     not_found[:] = [x for x in not_found if not x.startswith("off: ") or not x.endswith("/live/api/info")]
     errors[:] = [x for x in errors if not (x.startswith("off: ") and "404" in x)]
-    cx.pg = pg
 
 
 def _scene_turn_on(cx):
-    """1. ホームでオンにする"""
+    """1. 設定の画面でオンにする"""
     base, check, ctx, srv, watch = cx.base, cx.check, cx.ctx, cx.srv, cx.watch
-    # ---------------- 1. ホームでオンにする ----------------
+    # ---------------- 1. 設定の画面でオンにする ----------------
     pg = ctx.new_page()
     watch(pg, "home")
     pg.goto(base + "/settings")   # リアルタイム切り抜きの欄は設定の画面(notes:docs/spec/data.md の 6)
@@ -363,7 +365,6 @@ def _scene_turn_on(cx):
     check(wait_js(pg, "(document.querySelector('[data-ui-set-key=\"live.enabled\"] .ui-set-mark')||{}).textContent === '保存しました'") and srv.prefs.get(["live"])["live"]["enabled"] is True, "1 設定の画面でオンにする")
     cx.live.exporter.poll = 0.5   # 書き出しの録画待ちの見回り(既定 2 秒)。書き出しはオンにしてから作る
     pg.close()
-    cx.pg = pg
 
 
 def _scene_begin_and_play(cx):
