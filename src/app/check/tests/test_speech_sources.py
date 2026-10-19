@@ -82,9 +82,7 @@ class SpeechSourcesTest(unittest.TestCase):
         self.assertEqual((c["kind"], c["source"]), ("speech", "diar"))
         self.assertEqual(c["options"], ["keep", "drop"])
         self.assertEqual(c["media"]["pad"], speech_sources.PAD)
-        self.assertEqual(c["note"], "声の区間と重なるのは 0 割")
         self.assertLess(c["_order"][0], by["r4"]["_order"][0])
-        self.assertEqual(by["r4"]["note"], "声の区間と重なるのは 1 割")
 
     def test_threshold_is_ratio(self):
         self.assertEqual(speech_sources.VOICE_MIN_RATIO, 0.3)

@@ -3,12 +3,9 @@
 
 - 入口(src/app/server.py)が /cases・/cases.js・/cases.css・/cases-panels/<名前>.js を配る(URL の完全一致の表だけ。フォルダは配らない)
 - /cases の CSP はスタジオと同じ(YouTube のプレイヤーだけ外のスクリプトを許す・インラインなし・枠に入らない)・合言葉の meta が入る・/cases/ は /cases へ
-- 画面のファイル: インラインの script・on〇〇= が無い・パネル 3 本が同じ口(define・mount・update・unmount・keys・keybar)を持つ・
-  パネルの中で document.getElementById / document.querySelector を使わない(殻とほかのパネルの id とぶつけない。notes:docs/design/rs8-cases-build.md 1-2)
 - ホームの組み替え(RS8 C3): 新しい案件のパネル cases-panels/new.js・new.css と ホームの運用の中の portal-edit.js を配る・ホーム(/)の CSP は
-  スクリプトを 'self' のままに画像(ytimg)とスタイルの属性だけ足す・新しい案件の引き出しの中の id(スタジオ ① の rank.js・queue.js が document.querySelector で引く物)は
-  ホームの id とぶつからない
-(名前は test_cases_page = manage/cases/tests/test_cases.py と重ねない)"""
+  スクリプトを 'self' のままに画像(ytimg)とスタイルの属性だけ足す
+画面のファイルの決まり(インラインの script・パネルの口・id のぶつかり)は dev/ui_audit.py(test_rule_checks が見張る)。"""
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所に書かない(ytt.datadir)
 import sys
@@ -23,13 +20,7 @@ if SRC not in sys.path:
 sys.path.insert(0, TESTS)   # 土台 _pagetest.py(入口を立てる共通の準備)
 from _pagetest import PageServerTest, L  # noqa: E402
 
-UI = os.path.join(SRC, "app", "ui", "cases")
 PANELS = ("cand", "proof", "cut")
-
-
-def read(path):
-    with open(path, encoding="utf-8") as f:
-        return f.read()
 
 
 class CasesPageHttpTest(PageServerTest):

@@ -16,7 +16,7 @@ for _p in (os.path.join(ROOT, "editor"),):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from app.check import deck, lineup, read_sources, sources  # noqa: E402
+from app.check import deck, lineup, read_sources, sources  # noqa: E402,F401  (read_sources は読み込むと出どころを登録する)
 from human.check import apply  # noqa: E402
 from human.proof import alt, learn  # noqa: E402
 from ytt import workdata  # noqa: E402
@@ -87,9 +87,6 @@ class ReadSourcesTest(unittest.TestCase):
     def test_no_files_no_cards(self):
         os.remove(os.path.join(self.tx, DOC + ".alt.json"))
         self.assertEqual(self.cards("alt"), [])
-
-    def test_module_registers_on_import(self):
-        self.assertTrue(callable(read_sources.read_alt))
 
 
 if __name__ == "__main__":

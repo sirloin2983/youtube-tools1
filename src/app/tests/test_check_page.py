@@ -4,9 +4,7 @@
 - 入口(src/app/server.py)が /check・/check.js・/check.css・/check-player.js・/check-cards/<種類>.js を配る(URL の完全一致の表だけ。フォルダは配らない)
 - /check の CSP は案件の画面と同じ(YouTube のプレイヤーだけ外のスクリプトを許す・インラインなし・枠に入らない)・合言葉の meta が入る・/check/ は /check へ
 - ほかの画面のリンクで開ける(NAV_PAGES)・窓の中のホームの画面(L.appwindow_mod.PORTAL_PAGES)
-- 画面のファイル: インラインの script・on〇〇= が無い・相対パス・カード 4 本が殻のあとに読まれ CheckCards.define で登録する・
-  カードの中で document.getElementById / document.querySelector を使わない(殻の id とぶつけない)
-(名前は test_check_page = 案件の画面の test_cases_page と同じ形)"""
+画面のファイルの決まり(インラインの script・カードの登録・id のぶつかり)は dev/ui_audit.py(test_rule_checks が見張る)。"""
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所に書かない(ytt.datadir)
 import sys
@@ -21,13 +19,7 @@ if SRC not in sys.path:
 sys.path.insert(0, TESTS)   # 土台 _pagetest.py(入口を立てる共通の準備)
 from _pagetest import PageServerTest, L  # noqa: E402
 
-UI = os.path.join(SRC, "app", "ui", "check")
 CARDS = ("value", "read", "voice", "time", "speech", "cut", "section")   # speech・section = C-EVAL
-
-
-def read(path):
-    with open(path, encoding="utf-8") as f:
-        return f.read()
 
 
 class CheckPageHttpTest(PageServerTest):

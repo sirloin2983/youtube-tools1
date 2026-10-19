@@ -60,6 +60,14 @@ class CutSourcesTest(unittest.TestCase):
     def on(self):
         return mock.patch.dict(os.environ, {cutcard.SWITCH_ENV: "on"})
 
+    def cards(self, fn=None, doc=None):
+        """スイッチを入れて、fn の出どころ(省略 = edge・gap・whole の全部)のカード。doc を渡せばその文書の分だけ"""
+        with self.on():
+            got = []
+            for f in (fn,) if fn else (cut_sources.cut_edge, cut_sources.cut_gap, cut_sources.cut_whole):
+                got += f(self.view())
+        return [c for c in got if doc is None or c["target"]["docId"] == doc]
+
     def off(self):
         return mock.patch.dict(os.environ, {cutcard.SWITCH_ENV: ""}), mock.patch.object(cutcard._settings, "load_settings", return_value={cutcard.SETTING: False})
 
@@ -76,50 +84,37 @@ class CutSourcesTest(unittest.TestCase):
             self.assertTrue(cut_sources.cut_edge(self.view()))
 
     def test_edges_first_middle_last(self):
-        with self.on():
-            edges = [c for c in cut_sources.cut_edge(self.view()) if c["target"]["docId"] == DOC]
+        edges = self.cards(cut_sources.cut_edge, DOC)
         self.assertEqual([c["target"]["cut"] for c in edges], [[10.0, 10.5], [20.0, 22.0], [30.0, 31.0]])
         self.assertEqual(edges[0]["media"]["start"], 8.0)   # 切れ目の前 2 秒
         self.assertEqual(edges[0]["media"]["end"], 12.5)    # 後ろ 2 秒
         self.assertEqual(edges[0]["options"], ["good", "early", "late", "keep"])
 
     def test_gap_only_when_two_seconds_or_more(self):
-        with self.on():
-            gaps = [c for c in cut_sources.cut_gap(self.view()) if c["target"]["docId"] == DOC]
-            short = [c for c in cut_sources.cut_gap(self.view()) if c["target"]["docId"] == SHORT]
+        gaps = self.cards(cut_sources.cut_gap, DOC)
         self.assertEqual(len(gaps), 1)
         self.assertEqual(gaps[0]["target"]["cut"], [20.0, 22.0])
         self.assertEqual((gaps[0]["media"]["start"], gaps[0]["media"]["end"], gaps[0]["media"]["pad"]), (20.0, 22.0, 1.0))
         self.assertEqual(gaps[0]["options"], ["ok", "keep"])
-        self.assertEqual(short, [])   # 1 秒の消した所だけ = 出ない
+        self.assertEqual(self.cards(cut_sources.cut_gap, SHORT), [])   # 1 秒の消した所だけ = 出ない
 
     def test_whole_only_when_total_within_120(self):
-        with self.on():
-            whole = [c for c in cut_sources.cut_whole(self.view()) if c["target"]["docId"] == DOC]
-            none = [c for c in cut_sources.cut_whole(self.view()) if c["target"]["docId"] == SHORT]
+        whole = self.cards(cut_sources.cut_whole, DOC)
         self.assertEqual(len(whole), 1)
         self.assertEqual(whole[0]["target"]["keeps"], [list(x) for x in KEEPS_DOC])
         self.assertEqual((whole[0]["media"]["start"], whole[0]["media"]["end"]), (0.0, 32.0))
         self.assertEqual(whole[0]["options"], ["good", "tempo", "unnatural"])
-        self.assertEqual(none, [])
+        self.assertEqual(self.cards(cut_sources.cut_whole, SHORT), [])
 
     def test_short_doc_gets_one_edge_only(self):
-        with self.on():
-            got = [c for c in cut_sources.cut_edge(self.view()) if c["target"]["docId"] == SHORT]
+        got = self.cards(cut_sources.cut_edge, SHORT)
         self.assertEqual([c["target"]["cut"] for c in got], [[100.0, 101.0]])
 
     def test_eval_and_manual_origin_never_appear(self):
-        with self.on():
-            everything = []
-            for fn in (cut_sources.cut_edge, cut_sources.cut_gap, cut_sources.cut_whole):
-                everything += fn(self.view())
-        self.assertFalse([c for c in everything if c["target"]["docId"] in (EVAL_DOC, MANUAL)])
+        self.assertFalse([c for c in self.cards() if c["target"]["docId"] in (EVAL_DOC, MANUAL)])
 
     def test_at_most_five_per_doc_and_ids_parse(self):
-        with self.on():
-            everything = []
-            for fn in (cut_sources.cut_edge, cut_sources.cut_gap, cut_sources.cut_whole):
-                everything += fn(self.view())
+        everything = self.cards()
         per = [c for c in everything if c["target"]["docId"] == DOC]
         self.assertLessEqual(len(per), 5)
         for c in everything:
@@ -130,11 +125,7 @@ class CutSourcesTest(unittest.TestCase):
         self.assertTrue(all(lineup.parse_id(c["id"])[2].endswith("#w") for c in everything if c["source"] == "whole"))
 
     def test_order_newest_doc_first_then_edge_gap_whole(self):
-        with self.on():
-            cards = []
-            for fn in (cut_sources.cut_edge, cut_sources.cut_gap, cut_sources.cut_whole):
-                cards += fn(self.view())
-        mine = sorted([c for c in cards if c["target"]["docId"] in (DOC, SHORT)], key=lambda c: c["_order"])
+        mine = sorted([c for c in self.cards() if c["target"]["docId"] in (DOC, SHORT)], key=lambda c: c["_order"])
         self.assertEqual(mine[0]["target"]["docId"], DOC)   # 新しい文書が先
         kinds = [c["source"] for c in mine if c["target"]["docId"] == DOC]
         self.assertEqual(kinds, ["edge", "edge", "edge", "gap", "whole"])
