@@ -657,8 +657,8 @@ class Intake:
         todo, seen, known = [], set(), []
         for it in ok[:MAX_URLS]:
             rs, rbad = (ranges or {}).get(it["id"]) or ([], [])
-            it["top"] = min(TOP_MAX, max(it["top"], len(rs)))   # 切り抜く数は区間の数より小さくしない
-            how = "指定 %d + 自動 %d" % (len(rs), it["top"] - len(rs)) if rs else "%d 個" % it["top"]
+            it["top"] = _order.request_top(it["top"], rs)   # 区間を選んだら区間の数だけ(自動では埋めない。友人のアプリと同じ 1 か所)
+            how = "区間 %d 個" % len(rs) if rs else "%d 個" % it["top"]
             label = "https://www.youtube.com/watch?v=%s(%s)" % (it["id"], how)
             results += [{"label": label, "state": "rejected", "reason": r} for r in rbad]
             if it["id"] in seen:

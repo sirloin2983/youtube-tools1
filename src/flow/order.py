@@ -100,6 +100,11 @@ def spec_diff(top=None, ranges=None, weights=None, cut=None, video_tracks=None, 
     return a
 
 
+def request_top(top, ranges):
+    """友人の依頼の切り抜く数: 区間を選んだら区間の数(自動では埋めない)・選ばなければ頼んだ本数(10-19 ユーザー決定。友人のアプリと受付の 1 か所)"""
+    return len(ranges) if ranges else top
+
+
 def order(kind, video_id=None, url=None, path=None, doc_id=None, title="", duration=None, fresh=None, marks=None, normalize=False, recorder=None,
           from_=None, upto="pack", on_fail=None, top=None, ranges=None, weights=None, cut=None, video_tracks=None, speakers=None,
           engine=None, model=None, force=False, repack=False, streamer=None,

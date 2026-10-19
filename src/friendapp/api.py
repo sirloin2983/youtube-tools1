@@ -433,7 +433,7 @@ class Api:
                                      upto="pack", video_tracks=f["videoTracks"], streamer=f["streamer"], repack=True, request_id=rid, cut=_cut(f))
         else:
             env, diff = _order.order("url", video_id=f["videoId"], title=f["title"] or f["videoId"], fresh={"title": f["title"], "channel": f["channel"]},
-                                     upto="pack", top=len(f["ranges"]) if f["ranges"] else f["top"], ranges=f["ranges"] or None,
+                                     upto="pack", top=_order.request_top(f["top"], f["ranges"]), ranges=f["ranges"] or None,
                                      weights=f["weights"], video_tracks=f["videoTracks"], streamer=f["streamer"], repack=True, request_id=rid, cut=_cut(f))
         people = self._people(f)
         if people:

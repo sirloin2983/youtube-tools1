@@ -556,8 +556,8 @@ class TestVideo(Base):
         self.scan2()
         (items, _rid), = self.runner.requests
         by = {i["id"]: i for i in items}
-        self.assertEqual((by["abcdefghijk"]["top"], by["abcdefghijk"]["ranges"]), (2, [(5025, 5110), (60, 90)]))   # 切り抜く数は区間の数より小さくしない
-        self.assertEqual((by["bbbbbbbbbbb"]["top"], by["bbbbbbbbbbb"]["ranges"], by["bbbbbbbbbbb"]["duration"]), (2, [(590, 600.0)], 600.0))   # 配信の長さで切る・長さより後の区間の分は自動で埋めない
+        self.assertEqual((by["abcdefghijk"]["top"], by["abcdefghijk"]["ranges"]), (2, [(5025, 5110), (60, 90)]))   # 区間を選んだら切り抜く数 = 区間の数(10-19。友人のアプリと同じ)
+        self.assertEqual((by["bbbbbbbbbbb"]["top"], by["bbbbbbbbbbb"]["ranges"], by["bbbbbbbbbbb"]["duration"]), (1, [(590, 600.0)], 600.0))   # 配信の長さで切る・長さより後の区間の分は自動で埋めない(頼んだ 3 本は使わない)
         self.assertEqual((by["ccccccccccc"]["top"], by["ccccccccccc"]["ranges"]), (2, []))
         self.assertEqual((self.runner.last["cut"], self.runner.last["weights"], self.runner.last["tracks"]), ("silence", {"wAudio": 1.5, "wChat": 1.0, "wComments": 0.7}, 2))
         rec = self.it.snapshot()["requests"][0]
@@ -581,7 +581,7 @@ class TestVideo(Base):
         self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "url", "id": rid, "flow": "manual",
                                                      "items": [{"url": "https://youtu.be/eeeeeeeeeee", "top": 3, "ranges": [{"start": 1, "end": 9}]}]}))
         self.scan2()
-        self.assertEqual((self.runner.requests[-1][0][0]["ranges"], self.runner.requests[-1][0][0]["top"]), ([(1, 9)], 3))
+        self.assertEqual((self.runner.requests[-1][0][0]["ranges"], self.runner.requests[-1][0][0]["top"]), ([(1, 9)], 1))   # 区間の数
         rid = "20261002-120000-abc204"
         self.put(rid + "__a.mp4", b"v")
         self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "video", "id": rid, "flow": "auto", "files": [rid + "__a.mp4"], "cut": "silence"}))
