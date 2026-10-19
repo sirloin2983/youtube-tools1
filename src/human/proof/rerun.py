@@ -2,8 +2,9 @@
 """③ 人の操作の層 human/proof: 再認識(選んだ行 each・範囲 range・全体 whole)のジョブの本体と、文書への反映・
 再認識で差し替えた機械の出力の記録(recognition.runs)。
 
-受付(validate_retranscribe)・新しい行の id(_fresh_id)は doc_jobs にあり、ここから `doc_jobs.名前` で
-呼ぶたびに読む(向きは rerun → doc_jobs だけ。doc_jobs はここを読まない)。
+受付は validate_rerun(POST /api/rerun)→ validate_retranscribe(ここ)。新しい行の id(_fresh_id)・用語集 glossary_of・行を分ける文字数
+split_chars_for は doc_jobs にあり、ここから `doc_jobs.名前` で呼ぶたびに読む(向きは rerun → doc_jobs だけ。doc_jobs は評価用の作り直しの
+rebuild_whole を呼ぶときだけここを読む)。全体の書き込みは rebuild_whole の 1 本(評価用かは引数 eval_set)。
 ① pipeline/transcribe は直に読まない: 音声の取り出し(extract_span)・認識器とワーカーのモデル(each_lines・recognize_range)・
 全体の続きの記録の後始末(end_whole)・声の検出の知らせ(note_vad)・置換辞書の組(dict_pairs)・再認識の記録の共通項目(rerun_base)・
 単語の時刻 words.json の差し替え(replace_span_words)は ② の `flow/tx`(`_flowtx.名前`)。句読点・文字数・印の文は ytt/txtext、置換辞書の当て方は ytt/dictfmt。
@@ -18,8 +19,9 @@ from ytt import jobs as _slots  # noqa: E402
 from ytt import dictfmt as _dictfmt  # noqa: E402   置換辞書を当てる apply_replacements
 from flow import tx as _flowtx  # noqa: E402   ② 再認識の動詞(extract_span・each_lines・recognize_range・end_whole・note_vad・dict_pairs・rerun_base・replace_span_words)
 from ytt import txbase as _txbase  # noqa: E402
+from ytt import settings as _settings  # noqa: E402   編集の設定(受付の用語集・行を分ける文字数)
 from . import store  # noqa: E402   文書の読み書き・保存のロック・控え(呼ぶたびに store.名前 で読む)
-from . import doc_jobs  # noqa: E402   受付の側の _fresh_id(呼ぶたびに doc_jobs.名前 で読む)
+from . import doc_jobs  # noqa: E402   _fresh_id・glossary_of・split_chars_for(呼ぶたびに doc_jobs.名前 で読む)
 from . import layers as _layers  # noqa: E402   再認識(機械の層の差し替え・印 MACH_CHANGED)
 
 
@@ -259,11 +261,18 @@ def _retranscribe_range(job, spec, doc, wav, start, whole):
     if not lines and not loose:
         _flowtx.end_whole(spec)   # 全体の認識は終わった(続きから再開するものが無い)
         raise _errors.ApiError("no_speech", "この%sからは、文字が認識されませんでした(元の行はそのままです)" % ("動画" if whole else "範囲"), 400)
-    r = apply_range(spec, lines, loose)
+    if whole:   # 全体の書き込みは rebuild_whole の 1 本(評価用でない = 人の層は必ず残す)
+        rebuild_whole(job, spec, {"lines": lines, "loose": loose}, eval_set=False)
+    else:
+        _range_job(job, apply_range(spec, lines, loose))
     _flowtx.end_whole(spec)
-    job["segments"], job["unsure"], job["kept"], job["emptyKept"], job["loose"] = r["lines"], r["unsure"], r["kept"], r["emptyKept"], r["loose"]
     _flowtx.note_vad(job, rec.vad)   # 声の検出を緩めてやり直していれば知らせる
     _heavy.job_done(job, spec["tid"])
+
+
+def _range_job(job, r):
+    """範囲・全体の再認識の数(apply_range の戻り値)をジョブへ(画面の public_job が出す)"""
+    job["segments"], job["unsure"], job["kept"], job["emptyKept"], job["loose"] = r["lines"], r["unsure"], r["kept"], r["emptyKept"], r["loose"]
 
 
 def _retranscribe_each(job, spec, targets, wav, start):
@@ -271,14 +280,21 @@ def _retranscribe_each(job, spec, targets, wav, start):
     本物と疑似の選び方・ワーカーでの行ごとの認識は ② flow/tx.each_lines(本物の処理 _each_real もそこ)"""
     return _flowtx.each_lines(job, spec, targets, wav, start)
 
-# ---------- 評価用の作り直し(X-RERUN = 全体 × いつものエンジン × 差し替え。ユーザー決定 Q-A) ----------
-def rebuild_whole(job, spec, fields):
-    """評価用の作り直しの書き込み(doc_jobs.run_job の文字起こしの結果 fields を、同じ文書 spec["tid"] へ)。-> 文書の id か None(書かなかった)。
-    機械の層を丸ごと新しい認識に入れ替え、人の層(答え = 校正・音のメモ・人が付けた話者)は残す。ただし入れたときに「手つかず」で
-    (spec["evalRedo"]["machineOnly"])、そのあと文書が変わっていなければ(updatedAt が base のまま)人の層も持たない = 前と同じく丸ごと入れ替える。
-    書かない: 文書が消えた・動画が変わった(ジョブは「作り直しませんでした」で終わる)。前の状態は履歴に・前の機械の出力は recognition.runs の
-    kind "evalRedo"(replaced = 前の original・replacedRun = 前の最初の認識の記録)。新しい最初の認識の記録を runs の先頭に。
-    話者の判別の記録・確かめ済み・分け直しの印は外す(話者は run_job の続きの自動の判別がもう一度付ける)"""
+# ---------- 全体の作り直しの書き込み(X-RERUN = 全体 × いつものエンジン × 差し替え。ユーザー決定 Q-A・10-19 ③ の統合 Q6 = 全体は 1 本) ----------
+def rebuild_whole(job, spec, fields, eval_set=True):
+    """文書の全体を新しい認識に入れ替える書き込みの入口の 1 本。評価用かは eval_set で分ける。-> 文書の id か None(書かなかった)。
+    どちらも機械の層だけを入れ替え、人の層(校正・音のメモ・人が付けた話者)は残す。前の状態は履歴に 1 つ(store.snapshot)。
+    eval_set=False(校正の全体の再認識。_retranscribe_range の続き。fields = {"lines", "loose"} = 認識し直した行と緩い条件の行):
+      範囲の再認識と同じ書き込み apply_range(文書の範囲の全体。新しい認識でほぼ空だった機械の行は印 EMPTY_FLAG を付けて残す・
+      前の機械の出力は recognition.runs の kind "whole")。**人の層はいつも残す**(下の machineOnly は見ない)。数はジョブへ
+    eval_set=True(評価用の作り直し。doc_jobs.run_job の文字起こしの結果 fields を同じ文書 spec["tid"] へ): 機械の層を丸ごと入れ替える。
+      ただし入れたときに「手つかず」で(spec["evalRedo"]["machineOnly"])、そのあと文書が変わっていなければ(updatedAt が base のまま)
+      人の層も持たない = 前と同じく丸ごと入れ替える。書かない: 文書が消えた・動画が変わった(ジョブは「作り直しませんでした」で終わる)。
+      前の機械の出力は recognition.runs の kind "evalRedo"(replaced = 前の original・replacedRun = 前の最初の認識の記録)。新しい最初の認識の記録を runs の先頭に。
+      話者の判別の記録・確かめ済み・分け直しの印は外す(話者は run_job の続きの自動の判別がもう一度付ける)"""
+    if not eval_set:
+        _range_job(job, apply_range(spec, fields.get("lines") or [], fields.get("loose") or ()))
+        return spec["tid"]
     tid = str(spec.get("tid") or spec.get("intoDoc") or "")
     red = spec.get("evalRedo") if isinstance(spec.get("evalRedo"), dict) else {}
     with store._save_lock:
@@ -321,6 +337,58 @@ def _fsio_norm(p):
     return fsio.norm_path(str(p or ""))
 
 
+# ---------- 再認識の受付(選んだ行 each・範囲 range・全体 whole。10-19 ③ の統合で doc_jobs から移した) ----------
+MAX_RANGE_SEC = 900
+
+
+def validate_retranscribe(req):
+    tid = str(req.get("tid") or "")
+    doc = store.read_transcript(tid)
+    if doc.get("evalSet") is True:
+        raise _errors.ApiError("eval_set", "評価用の文字起こしは再認識できません(機械の出力=比べる基準が書き換わるため)。評価用を外してから行ってください", 400)
+    src = _tools.check_source(doc.get("sourcePath"))
+    valid = {g["id"] for g in (doc.get("segments") or [])}
+    ids = [i for i in dict.fromkeys(str(x)[:16] for x in (req.get("ids") or [])[:5000] if isinstance(x, (str, int))) if i in valid][:2000]
+    mode = req.get("mode") if req.get("mode") in ("range", "whole") else "each"
+    if not ids and mode != "whole":
+        raise _errors.ApiError("empty", "再認識する行がありません", 400)
+    model = _flowtx.check_model(str(req.get("model") or "large-v3").strip())
+    lang = str(req.get("language") or doc.get("language") or "ja")
+    st = _settings.load_settings()   # 自動の用語と行を分ける文字数で 1 回だけ読む
+    glossary, gauto = doc_jobs.glossary_of(req, st)
+    if _heavy.tid_busy(tid, _heavy.EXCLUSIVE["retranscribe"]):
+        raise _errors.ApiError("busy", "この文字起こしは、すでに別の処理(話者判別・再認識・声を覚える)の最中です", 409)
+    rng = None
+    segs = sorted((g for g in doc.get("segments") or []), key=lambda g: g["start"])
+    if mode == "whole":   # 動画全体(文書の範囲全体)を範囲と同じやり方で認識し直す。校正済みの行は残す(設計は git の履歴の docs/design/whole-retranscribe-design.md の 3)
+        a = _yschemas.num_or(doc.get("start"), 0.0) or 0.0
+        b = _yschemas.num_or(doc.get("end")) or _tools.media_duration(src) or max([g["end"] for g in segs] or [0.0])
+        if b <= a + 0.5:
+            raise _errors.ApiError("bad_range", "動画の長さが分かりません", 400)
+        if b - a > _txbase.MAX_SPAN_SEC:
+            raise _errors.ApiError("too_long", "1回に処理できるのは6時間までです", 400)
+        ids = [g["id"] for g in segs if not g.get("proofed")]   # 校正済みでない行を差し替える(画面の選択は使わない)
+        rng = [round(a, 3), round(b, 3)]
+    elif mode == "range":   # 選んだ行の最初〜最後を、ひとまとまりの音声として認識し直す(間にある選んでいない行も含む)
+        chosen = [g for g in segs if g["id"] in set(ids)]
+        a, b = min(g["start"] for g in chosen), max(g["end"] for g in chosen)
+        ids = [g["id"] for g in segs if a - 1e-6 <= (g["start"] + g["end"]) / 2 <= b + 1e-6]
+        if b - a > MAX_RANGE_SEC:
+            raise _errors.ApiError("too_long", "範囲が長すぎます(最大%d分)。範囲を狭めてください" % (MAX_RANGE_SEC // 60), 400)
+        rng = [a, b]
+    engine, ctx = _flowtx.request_engine(req, model, doc, req.get("autoContext") is True)
+    return {"tid": tid, "ids": ids, "mode": mode, "range": rng, "model": model, "engine": engine, "language": lang if lang in _txbase.LANGS else "ja", "beam": 5,
+            # 全体は画面の設定によらず「弱め」から(抜けを拾うのが目的。捨てすぎたら「なし」へ緩める)。明示の「なし」だけは尊重する
+            "vadMode": ("off" if req.get("vadMode") == "off" else "weak") if mode == "whole"
+            else req.get("vadMode") if mode == "range" and req.get("vadMode") in ("weak", "normal", "off") else "off",
+            "wordSplit": mode in ("range", "whole") and req.get("wordSplit") is not False, "splitChars": doc_jobs.split_chars_for(req, st),
+            "stripPunct": req.get("stripPunct") is not False, "stripNames": st.get("stripNames") is not False,
+            "device": req.get("device") if req.get("device") in ("cuda", "cpu") else "auto", "boost": req.get("boost") is True,
+            "autoDict": req.get("autoDict") is not False, "glossary": glossary + gauto, "glossAuto": gauto, "context": ctx,
+            "title": _heavy.job_title({"range": "範囲を再認識: ", "whole": "全体を再認識: "}.get(mode, "再認識: "), doc)}
+
+
+
 # ---------- 認識し直しの受付を 1 つに(X-RERUN。ユーザー決定 = 対象 × エンジン × 結果の扱い) ----------
 RERUN_TARGETS = ("rows", "span", "whole", "flagged")   # 選んだ行・選んだ行の最初〜最後の範囲・文書の全体・印の付いた所(疑わしい行 = doc_jobs.redo_targets)
 RERUN_ENGINES = ("main", "alt")                         # いつものエンジン(文書の設定)・2 つ目のエンジン(alt)
@@ -353,4 +421,4 @@ def validate_rerun(req):
         ids = [g["id"] for g, _a, _b in doc_jobs.redo_targets(doc)]
         if not ids:
             raise _errors.ApiError("empty", "印の付いた(疑わしい)行がありません", 400)
-    return doc_jobs.validate_retranscribe(dict(req, tid=tid, ids=ids, mode=mode)), "retranscribe"
+    return validate_retranscribe(dict(req, tid=tid, ids=ids, mode=mode)), "retranscribe"
