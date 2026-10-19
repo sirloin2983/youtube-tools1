@@ -1,15 +1,13 @@
 # -*- coding: utf-8 -*-
-"""マークと書き出し(線 D の P2。② の src/flow/live_export.py の Exporter)・採用(M1)・失敗の集約(M3。src/flow/live_failures.py)・ディスク・重い処理の枠のテスト。
+"""ライブの書き出し(② の src/flow/live_export.py の Exporter)・採用・失敗の集約(src/flow/live_failures.py)のテスト。
 入口 home の Live は使わず、ライブ係 flow/livesession.LiveSession(本物の録画の部品 --source direct・偽のまとめて実行・偽のスタジオ)で組む。
 
     py -3.12 -m unittest src/flow/tests/test_live_export.py
 
-  - 本物の録画の部品(--source direct)で配信中のふりの HLS を録り、マーク → 録画待ち → 届いたら取得 → 30fps → スタジオと同じ置き場所・名前・.clip.json →
-    文字起こしへ(偽のまとめて実行)・取り消し・録画が先に終わった・録画元が落ちた・欠け・起動し直したらやり直す・書き出しの音量(スタジオと同じ)
-  - 採用 POST /live/api/adopt の中身(LiveSession.adopt。スタジオのマーク → 正本 → 書き出し → 書き出し済み)・前後の余白 pad_secs
-  - 失敗の集約: LIVE の帯と「調子」(health の failures)に同じ文・空き容量の行
-  - 名前・フォルダの選び方・再起動で動いていたジョブを待ちに戻す・繋ぎ直しをまたぐ書き出し・空き容量不足で待つ→再開・アーカイブ待ち(hold)・
-    友人の依頼の受け渡し・重い処理の枠(録画中は 1 つ空ける)・欠け = アーカイブが要る
+  - 通し(ExportTest): 本物の録画の部品で配信中のふりの HLS を 1 本録り、マーク → 録画待ち → 30fps・.clip.json・音量 → 文字起こしへ・
+    採用(スタジオ / スタジオなし + 友人の依頼)・取り消し・録画が先に終わった・録画元が落ちた・失敗の文・掲示板・記録の読み直し
+  - 単体: 通しの録画では起こせない物だけ(他の工程が書いた記録の失敗・空き容量・起動し直し・繋ぎ直し・古い ffmpeg・アーカイブ待ち・
+    渡しの失敗と依頼の形の違い・余白の所の欠け・重い処理の枠・欠け・壊れた音量の設定)
 """
 import contextlib
 import json
@@ -148,10 +146,6 @@ class FailuresTest(unittest.TestCase):
         with open(os.path.join(self.tmp, "live", "exports.json"), encoding="utf-8") as fh:
             self.assertNotIn("failure", fh.read())
 
-    def test_off_has_no_failures_and_portal_health(self):
-        FIX.patch_cfg(self.cfg, {"enabled": False})
-        self.assertIsNone(self.live.health())                                # オフなら「調子」に出さない(今までどおり)
-
     def test_health_has_disk(self):
         """M4: 「調子」に書き出し先・パック・live\\work の空き(state・行・しきい値)"""
         self.live.exporter.disk_usage = lambda p: (4 * LX.GB, 100 * LX.GB)
@@ -179,8 +173,9 @@ def source(seconds=60):
 
 
 class ExportTest(unittest.TestCase):
-    """本物の録画の部品(--source direct)で配信中のふりの HLS を録り、マーク → 書き出す。録画の部品はクラスで 1 回だけ起こし、
-    テストごとに録画を始めて終わりに止める"""
+    """ライブの書き出しの通し: 本物の録画の部品(--source direct)で配信中のふりの HLS を 1 本録り、その 1 本の録画の上で
+    マーク → 録画待ち → 書き出し(30fps・.clip.json・音量)→ 文字起こしへ・採用(スタジオのマーク / スタジオなしの正本 + 友人の依頼)・
+    書き出し中の取り消し・録画が先に終わった・録画元が落ちた までを順に通す(録画の部品はクラスで 1 回だけ起こす)"""
 
     @classmethod
     def setUpClass(cls):
@@ -219,12 +214,14 @@ class ExportTest(unittest.TestCase):
         self.cfg = FIX.live_cfg(recorders=[{"id": "local", "name": "この PC", "url": "http://127.0.0.1:%d" % self.port, "token": self.token}])
         self.runner = FakeRunner()
         self.out = os.path.join(self.tmp, "out")
-        self.audio = {"volume": 100, "loudness": None}   # 既定の書き出しは音量そのまま(音量の確認は test_audio_like_studio)
+        self.audio = {"volume": 100, "loudness": None}
         self.live = FIX.new_session(self.tmp, self.cfg, root=REPO, out_dir=lambda: self.out, runner=lambda: self.runner, audio=lambda: self.audio)
         self.rc = self.live.find("local")
         self.assertTrue(wait_for(lambda: self.live.ping(self.rc), 20))
         self.ex = self.live.exporter
         self.ex.poll, self.ex.down_sec = 0.1, 3.0
+        self.board = Board.Board()
+        self.ex.attach_board(self.board)
 
     def tearDown(self):
         self.live.close()
@@ -251,22 +248,78 @@ class ExportTest(unittest.TestCase):
                                                   "url": self.src.url, "title": "テストの配信"})
         return m
 
-    def job(self, jid):
-        return next(j for j in self.ex.snapshot() if j["id"] == jid)
+    def job(self, jid, ex=None):
+        return next(j for j in (ex or self.ex).snapshot() if j["id"] == jid)
 
-    def wait_state(self, jid, states, timeout=60):
-        return wait_for(lambda: self.job(jid)["state"] in states and self.job(jid), timeout, 0.05)
+    def wait_state(self, jid, states, timeout=60, ex=None):
+        return wait_for(lambda: self.job(jid, ex)["state"] in states and self.job(jid, ex), timeout, 0.05)
 
-    def test_mark_wait_export_transcribe_cancel(self):
+    def loud_of(self, path):
+        """書き出した動画の聞こえ方の音量(LUFS)とピーク(dBTP)。ffmpeg の loudnorm で測るだけ"""
+        r = subprocess.run([tools.find_tool("ffmpeg", "YTT_FFMPEG"), "-hide_banner", "-nostdin", "-i", path, "-vn", "-af", "loudnorm=print_format=json",
+                            "-f", "null", "-"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        return loudness.parse(r.stdout.decode("utf-8", "replace"))
+
+    def test_live_export_through(self):
         rid = self.start_rec()
+        self.check_mark_store()
+        done = self.check_wait_export_audio(rid)
+        self.check_adopt_studio(rid)
+        self.check_adopt_local_request(rid)
+        self.check_cancel_while_encoding(rid)
+        self.check_recording_ended(rid)
+        self.check_recorder_down(rid)
+        # 記録は exports.json に残る(起動し直しても見える)・掲示板にも載る
+        again = LX.Exporter(self.live, os.path.join(self.tmp, "live"), lambda: self.out)
+        states = {x["id"]: x["state"] for x in again.jobs}
+        self.assertEqual({k: states[k] for k in done}, done)
+        b2 = Board.Board()
+        again.attach_board(b2)
+        self.assertEqual({j["id"]: j["state"] for j in b2.list() if j["id"][3:] in done}, {"lx:" + k: v for k, v in done.items()})
+        FIX.patch_cfg(self.cfg, {"enabled": False})
+        self.assertIsNone(self.live.health())   # オフなら「調子」に出さない
+
+    def check_mark_store(self):
+        """マークの正本 MarkStore.apply(書き出しの入力): 押すたびに置き換える・値の検査・時刻は 3 桁の ms に丸める・ラベルの改行を落とす"""
+        ms, rec = self.ex.marks, "20261004-000000-a"
+        m, _ = ms.apply("local", rec, {"op": "add", "start": "2026-10-04T06:00:00.000Z", "url": "https://www.youtube.com/watch?v=abcdefghijk", "title": "配信<b>"})
+        self.assertEqual((m["n"], m["start"], m["end"]), (1, "2026-10-04T06:00:00.000Z", None))
+        saved = testkit.read_json(ms.path("local", rec))
+        self.assertEqual((saved["schema"], saved["title"], len(saved["marks"])), (LX.MARKS_SCHEMA, "配信<b>", 1))
+        d = ms.load("local", rec)
+        self.assertEqual(([x["id"] for x in d["marks"]], d["title"]), ([m["id"]], "配信<b>"))
+        for bad in ({"op": "update", "id": m["id"], "end": "2026-10-04T05:59:59.000Z"},     # 開始より前
+                    {"op": "update", "id": m["id"], "end": "2026-10-04T07:00:01.000Z"},     # 1 時間を超える
+                    {"op": "update", "id": m["id"], "end": "x"}, {"op": "add"}, {"op": "add", "start": "2026-13-01T00:00:00Z"}, {"op": "nope"}):
+            with self.assertRaises(LX.LiveError, msg=repr(bad)) as cm:
+                ms.apply("local", rec, bad)
+            self.assertEqual(cm.exception.code, 400, bad)
+        with self.assertRaises(LX.LiveError) as cm:
+            ms.apply("local", rec, {"op": "update", "id": "lm-0000000000", "label": "x"})
+        self.assertEqual(cm.exception.code, 404)
+        with self.assertRaises(LX.LiveError):
+            ms.apply("local", "../x", {"op": "add", "start": m["start"]})
+        m2, _ = ms.apply("local", rec, {"op": "update", "id": m["id"], "end": "2026-10-04T06:00:30.5Z", "label": "見どころ\n"})
+        self.assertEqual((m2["end"], m2["label"]), ("2026-10-04T06:00:30.500Z", "見どころ"))
+        self.assertEqual(ms.apply("local", rec, {"op": "delete", "id": m["id"]})[1], [])
+
+    def check_wait_export_audio(self, rid):
+        """録画中: 終わりがまだ録れていない所までのマーク → 録画待ち → 届いたら書き出す → 文字起こしへ。同じマークをラウドネスつきでもう一度。
+        録画待ちの取り消し。掲示板が状態についていく。-> {ジョブの id: 終わりの state}"""
         st = self.status(rid)
         first, last = LX.iso_epoch(st["firstPdt"]), LX.iso_epoch(st["lastPdt"])
-        # 録画中: 終わりがまだ録れていない所までのマーク → 録画待ち → 届いたら書き出す
         a, b = first + 1.5, last + 3.0
         m = self.mark(rid, a, b, "見どころ: 1")
         j = self.ex.add("local", rid, m["id"], transcribe=True)
         self.assertEqual(j["state"], "wait")
+        got = self.board.get("lx:" + j["id"])
+        self.assertEqual((got["kind"], got["state"], got["canCancel"], got["target"]["markId"]), ("live_export", "queued", True, m["id"]))
+        self.assertIn("見どころ: 1", got["title"])
         self.assertTrue(wait_for(lambda: "待っています" in (self.job(j["id"]).get("message") or "") or self.job(j["id"])["state"] != "wait", 10))
+        self.assertTrue(wait_for(lambda: self.board.get("lx:" + j["id"])["state"] != "queued", 60, 0.02))
+        got = self.board.get("lx:" + j["id"])
+        if got["state"] == "running":   # 取りに行く・作り直しの間は running(進み具合と段の文つき)
+            self.assertTrue(got["phase"] and isinstance(got["progress"], (int, float)), got)
         done = self.wait_state(j["id"], ("done", "error"), 90)
         self.assertEqual(done["state"], "done", done)
         path = done["path"]
@@ -276,6 +329,7 @@ class ExportTest(unittest.TestCase):
         info = normalize.probe(path)
         self.assertTrue(normalize.is_30fps(info), info)
         self.assertAlmostEqual(info["duration"], b - a, delta=0.1)
+        self.assertEqual(info["acodec"], "aac")
         self.assertFalse([n for n in os.listdir(os.path.dirname(path)) if ".partial" in n])   # 書きかけは残さない
         clip, warn = schemas.load_clip_file(schemas.find_clip_path(path))
         self.assertIsNone(warn)
@@ -286,55 +340,71 @@ class ExportTest(unittest.TestCase):
         self.assertAlmostEqual(clip["range"]["start"], a - LX.iso_epoch(clip["source"]["live"]["base"]), delta=0.01)
         self.assertAlmostEqual(clip["range"]["end"] - clip["range"]["start"], b - a, delta=0.01)
         self.assertEqual((clip["mark"]["id"], clip["mark"]["label"], clip["export"]["mode"]), (m["id"], "見どころ: 1", "precise"))
+        self.assertEqual(clip["export"]["volume"], 100)   # 音量の設定が「変えない」
         self.assertEqual(self.runner.files, [(path, os.path.splitext(os.path.basename(path))[0], "check")])   # 文字起こしへ(まとめて実行の文字起こしだけ)
         self.assertEqual(self.runner.streamers, [None])   # 配信者の名前が無い = まとめて実行が自動で決める
         self.assertEqual((done["runId"], done["after"], done["streamer"]), ("run-1", "check", ""))
         self.assertEqual(self.job(j["id"])["tx"]["state"], "queued")
         self.assertEqual([x["key"] for x in self.job(j["id"])["tx"]["steps"]], ["transcribe"])   # 段ごとの進み具合も(画面が全自動の進み具合を出す)
         self.assertFalse(os.listdir(os.path.join(self.tmp, "live", "work")))   # 取ったセグメントは片付ける
-        # 文字起こしなし・同じマークをもう一度 → 別の名前
+        got = self.board.get("lx:" + j["id"])
+        self.assertEqual((got["state"], got["target"]["path"], got["canCancel"]), ("done", path, False))
+        self.assertIsNotNone(got["finishedAt"])
+        base_i, _tp = self.loud_of(path)
+        # 同じマークをもう一度(文字起こしなし・ラウドネスをそろえる)→ 別の名前・音量(%)は使わない・測った値 = そろえる前の聞こえ方
+        self.audio = {"volume": 75, "loudness": -14.0}
         j2 = self.ex.add("local", rid, m["id"], transcribe=False)
         d2 = self.wait_state(j2["id"], ("done", "error"), 90)
         self.assertEqual(d2["state"], "done", d2)
         self.assertNotEqual(d2["path"], path)
-        self.assertEqual(len(self.runner.files), 1)
-        self.assertEqual(d2["after"], "none")   # transcribe=False は「何もしない」
-        # 取り消し(録画待ちの間)
+        self.assertEqual(os.path.dirname(d2["path"]), os.path.dirname(path))
+        self.assertEqual((len(self.runner.files), d2["after"]), (1, "none"))   # transcribe=False は「何もしない」
+        info2 = normalize.probe(d2["path"])
+        self.assertTrue(normalize.is_30fps(info2), info2)
+        self.assertAlmostEqual(info2["duration"], b - a, delta=0.2)
+        self.assertFalse([n for n in os.listdir(os.path.dirname(path)) if ".partial" in n or ".vol" in n])
+        ex2 = schemas.load_clip_file(schemas.find_clip_path(d2["path"]))[0]["export"]
+        self.assertNotIn("volume", ex2)
+        self.assertEqual(ex2["loudness"]["target"], -14.0)
+        self.assertAlmostEqual(ex2["loudness"]["measured"], base_i, delta=0.6)
+        self.assertAlmostEqual(ex2["loudness"]["gainDb"], -14.0 - base_i, delta=0.6)
+        self.assertAlmostEqual(self.loud_of(d2["path"])[0], -14.0, delta=1.0)
+        self.audio = {"volume": 100, "loudness": None}
+        # 録画待ちの取り消し(掲示板の id で)・同じマークは途中のものがあれば断る
         far = self.mark(rid, last + 100, last + 110)
         j3 = self.ex.add("local", rid, far["id"])
         with self.assertRaises(LX.LiveError):
-            self.ex.add("local", rid, far["id"])   # 同じマークは途中のものがあれば断る
-        self.assertEqual(self.ex.cancel(j3["id"])["state"], "cancelled")
-        # 記録は exports.json に残る(起動し直しても見える)
-        again = LX.Exporter(self.live, os.path.join(self.tmp, "live"), lambda: self.out)
-        self.assertEqual({x["id"]: x["state"] for x in again.jobs}, {j["id"]: "done", j2["id"]: "done", j3["id"]: "cancelled"})
+            self.ex.add("local", rid, far["id"])
+        self.assertEqual(self.board.cancel("lx:" + j3["id"])["state"], "cancelled")
+        self.assertEqual(self.job(j3["id"])["state"], "cancelled")
+        with self.assertRaises(Board.NotFound):
+            self.board.cancel("lx:lx-ffffffffff")
+        return {j["id"]: "done", j2["id"]: "done", j3["id"]: "cancelled"}
 
-    def test_adopt_server_side(self):
-        """M1: POST /live/api/adopt の中身(Live.adopt)。画面なしで スタジオのマーク(採用)→ 正本 → 書き出し → スタジオのマークを「書き出し済み」。
-        origin を .clip.json と live_feedback.jsonl に残す・同じ区間は二重に作らない・live.auto(M2)をまとめて実行へ渡す"""
-        studio = FIX.FakeStudio()
-        self.live.studio_call = studio
-        FIX.patch_cfg(self.cfg, {"auto": {"after": "auto", "cut": "silence", "engine": "whisper.cpp", "model": "large-v3"}})
-        rid = self.start_rec(8)
+    def check_adopt_studio(self, rid):
+        """POST /live/api/adopt の中身(Live.adopt)。画面なしで スタジオのマーク(採用)→ 正本 → 書き出し → スタジオのマークを「書き出し済み」。
+        origin を .clip.json と live_feedback.jsonl に残す・同じ区間は二重に作らない・live.auto をまとめて実行へ渡す"""
+        self.studio = FIX.FakeStudio()
+        self.live.studio_call = self.studio
+        FIX.patch_cfg(self.cfg, {"auto": {"after": "auto", "cut": "none", "engine": "whisper.cpp", "model": "large-v3"}})
         first = LX.iso_epoch(self.status(rid)["firstPdt"])
         res = self.live.adopt({"recorder": "local", "recording": rid, "start": 1.04, "end": 4.0, "label": "自動の山", "origin": "auto"})
         self.assertEqual((res["video"], res["origin"], res["existing"]), (rid, "auto", False))
         j = res["job"]
         self.assertEqual((j["origin"], j["after"], j["auto"], j["studio"]["mark"], j["studio"]["start"]),
-                         ("auto", "auto", {"cut": "silence", "engine": "whisper.cpp", "model": "large-v3"}, res["mark"], 0.0))   # 自動の採用は前後に余白 2 秒(M8。0 より前には広げない)。区間はスタジオが丸めた値
-        v = studio.videos[rid]
-        self.assertEqual([(m["status"], m["label"], m["start"], m["end"]) for m in v["marks"]], [("adopted", "自動の山", 0.0, 6.0)])   # 1.04 − 2 → 0・4 + 2 = 6(録画は 8 秒以上ある)
+                         ("auto", "auto", {"cut": "none", "engine": "whisper.cpp", "model": "large-v3"}, res["mark"], 0.0))   # 自動の採用は前後に余白 2 秒(0 より前には広げない)。区間はスタジオが丸めた値
+        v = self.studio.videos[rid]
+        self.assertEqual([(m["status"], m["label"], m["start"], m["end"]) for m in v["marks"]], [("adopted", "自動の山", 0.0, 6.0)])   # 1.04 − 2 → 0・4 + 2 = 6(録画は 6 秒より先まである)
         d = self.wait_state(j["id"], ("done", "error"), 90)
         self.assertEqual(d["state"], "done", d)
         self.assertEqual(self.runner.files[-1][2], "auto")
-        self.assertEqual(self.runner.kws[-1], {"cut": "silence", "engine": "whisper.cpp", "model": "large-v3"})   # M2: live.auto をまとめて実行へ
+        self.assertEqual(self.runner.kws[-1], {"cut": "none", "engine": "whisper.cpp", "model": "large-v3"})   # live.auto をまとめて実行へ
         self.assertTrue(wait_for(lambda: v["marks"][0]["status"] == "exported", 5))   # 入口が自分で「書き出し済み」にする(画面なし)
         self.assertEqual(os.path.normcase(v["marks"][0]["path"]), os.path.normcase(d["path"]))
         clip, _w = schemas.load_clip_file(schemas.find_clip_path(d["path"]))
         self.assertEqual((clip["source"]["live"]["origin"], clip["mark"]["src"]), ("auto", "auto"))
         self.assertAlmostEqual(LX.iso_epoch(clip["source"]["live"]["start"]) - first, 0.0, delta=0.01)   # 秒は録画の頭(firstPdt)から
-        with open(os.path.join(self.tmp, "live", LX.FEEDBACK), encoding="utf-8") as f:
-            fb = [json.loads(x) for x in f if x.strip()]
+        fb = self.feedback(self.tmp)
         self.assertEqual([(x["event"], x["origin"], x["human"], x["verdict"], x["jobId"]) for x in fb], [("adopt", "auto", False, None, j["id"])])   # 自動は「良い」に数えない
         # 同じ区間をもう一度(余白を足しても同じマーク)→ 済んでいるので新しく作らない(スタジオのマークも増やさない)
         again = self.live.adopt({"recorder": "local", "recording": rid, "start": 1.0, "end": 4.02, "origin": "auto"})
@@ -343,86 +413,124 @@ class ExportTest(unittest.TestCase):
         m2 = self.live.adopt({"recorder": "local", "recording": rid, "start": LX.epoch_iso(first + 5.0), "end": LX.epoch_iso(first + 7.0), "after": "none"})
         self.assertEqual((m2["origin"], m2["job"]["after"], m2["job"]["studio"]["start"]), ("manual", "none", 5.0))
         self.assertEqual(self.wait_state(m2["job"]["id"], ("done", "error"), 90)["state"], "done")
-        with open(os.path.join(self.tmp, "live", LX.FEEDBACK), encoding="utf-8") as f:
-            self.assertEqual(json.loads(f.read().strip().splitlines()[-1])["verdict"], "good")
-        for bad in ({"start": True, "end": 3}, {"after": "all"}):   # 区間・録画の id・origin の悪い値は test_live_adopt.py
-            with self.assertRaises(LX.LiveError, msg=repr(bad)):
-                self.live.adopt(dict({"recorder": "local", "recording": rid, "start": 10.0, "end": 12.0}, **bad))
-        studio_down = lambda m, p, b=None: (None, {"message": "スタジオが動いていません"})
+        self.assertEqual(self.feedback(self.tmp)[-1]["verdict"], "good")
+        studio_down = lambda m, p, b=None: (None, {"message": "スタジオが動いていません"})   # noqa: E731
         self.live.studio_call = studio_down
         with self.assertRaises(LX.LiveError) as cm:
             self.live.adopt({"recorder": "local", "recording": rid, "start": 10.0, "end": 12.0})
         self.assertEqual(cm.exception.code, 502)
+        self.live.studio_call = self.studio
 
-    def loud_of(self, path):
-        """書き出した動画の聞こえ方の音量(LUFS)とピーク(dBTP)。ffmpeg の loudnorm で測るだけ"""
-        r = subprocess.run([tools.find_tool("ffmpeg", "YTT_FFMPEG"), "-hide_banner", "-nostdin", "-i", path, "-vn", "-af", "loudnorm=print_format=json",
-                            "-f", "null", "-"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        return loudness.parse(r.stdout.decode("utf-8", "replace"))
+    @staticmethod
+    def feedback(tmp):
+        with open(os.path.join(tmp, "live", LX.FEEDBACK), encoding="utf-8") as f:
+            return [json.loads(x) for x in f if x.strip()]
 
-    def test_audio_like_studio(self):
-        """書き出しの音量はスタジオと同じ扱い: ラウドネスをそろえる(測って音声だけ作り直し・.clip.json に結果)/ 音量(%)/ 変えない。30fps・長さはそのまま"""
-        rid = self.start_rec(10)
+    def check_adopt_local_request(self, rid):
+        """スタジオなし(LocalMarks = 友人の PC・headless)の採用を、友人のライブ配信の依頼に結びついた同じ録画で: 採用 → 正本の採用の印 →
+        書き出し → .clip.json → まとめて実行へ依頼の欄つきで渡す → 印が「書き出し済み」。余白は依頼の設定・after は auto・配信者の名前は色の一覧にそろえる。
+        区間・録画元の検査も"""
+        reqs = FIX.Requests()
+        deliver = os.path.join(self.tmp, "Dropbox", "切り抜き依頼", "出力")
+        req = {"rid": "20261008-200000-abc123", "deliverDir": deliver, "url": self.src.url, "title": "テストの配信", "streamer": "兎田ぺこら",
+               "speakers": {"count": 2, "names": ["兎田ぺこら", "宝鐘マリン"], "styles": {}}, "videoTracks": 2, "cut": "silence", "settings": {"pad": 1.0}}
+        reqs.put("local", rid, req)
+        tmp2 = os.path.join(self.tmp, "headless")
+        runner = FakeRunner()
+        live = FIX.new_session(tmp2, self.cfg, root=REPO, runner=lambda: runner, marks=None, requests=reqs)
+        self.addCleanup(live.close)
+        ex = live.exporter
+        ex.poll = 0.1
         first = LX.iso_epoch(self.status(rid)["firstPdt"])
-        a, b = first + 1.0, first + 7.0
-        m = self.mark(rid, a, b)
+        res = live.adopt({"recorder": "local", "recording": rid, "start": 2.0, "end": 4.0, "origin": "auto", "streamer": "ぺこら", "score": 9.5, "text": "ここ"})
+        key = res["mark"]
+        self.assertRegex(key, r"^a[0-9a-f]{12}\Z")
+        self.assertEqual((res["video"], res["origin"], res["existing"]), (rid, "auto", False))   # 配信の id = 録画の id(スタジオの kind live と同じ)
+        j = res["job"]
+        self.assertEqual((j["markId"], j["n"], j["after"], j["origin"], j["score"], j["state"]), (LX.studio_mark_id(key), 1, "auto", "auto", 9.5, "wait"))
+        self.assertEqual(j["studio"], {"video": rid, "mark": key, "start": 1.0, "end": 5.0})   # 余白は依頼の設定の 1 秒
+        self.assertEqual((j["start"], j["end"]), (LX.epoch_iso(first + 1.0), LX.epoch_iso(first + 5.0)))
+        self.assertEqual(j["request"], {"rid": req["rid"], "deliverDir": deliver, "speakers": req["speakers"], "videoTracks": 2, "cut": "silence"})   # 要るものだけ
+        d = ex.marks.load("local", rid)
+        self.assertEqual((d["url"], d["title"]), (self.src.url, "テストの配信"))
+        self.assertEqual([(m["id"], m["key"], m["status"], m["src"], m["sec"], m["n"]) for m in d["marks"]],
+                         [(LX.studio_mark_id(key), key, "adopted", "local", [1.0, 5.0], 1)])   # 採用の印
+        self.assertEqual([(x["event"], x["origin"], x["human"], x["verdict"], x["studio"], x["text"]) for x in self.feedback(tmp2)],
+                         [("adopt", "auto", False, None, {"video": rid, "mark": key}, "ここ")])
+        again = live.adopt({"recorder": "local", "recording": rid, "start": 2.3, "end": 3.8, "origin": "auto"})   # 同じ区間 ±0.5 秒 → 新しく作らない
+        self.assertEqual((again["existing"], again["job"]["id"], again["mark"], len(ex.marks.load("local", rid)["marks"])), (True, j["id"], key, 1))
+        done = self.wait_state(j["id"], ("done", "error"), 90, ex=ex)
+        self.assertEqual((done["state"], done["runId"], done["handoffError"], done["transcribe"]), ("done", "run-1", "", True), done)
+        self.assertIn("パック", done["message"])   # 全自動(文字起こし → パック)
+        rec = next(x for x in ex.jobs if x["id"] == j["id"])
+        self.assertEqual((runner.files, runner.streamers), ([(done["path"], os.path.splitext(os.path.basename(done["path"]))[0], "auto")], ["兎田ぺこら"]))
+        self.assertEqual(runner.kws[-1], {"cut": "silence", "engine": "whisper.cpp", "model": "large-v3", "request_id": req["rid"], "deliver_dir": deliver,
+                                          "speakers": req["speakers"], "video_tracks": 2, "pool": LX.deliver_pool(rec, rec["request"])})   # 依頼のカットが live.auto より先
+        self.assertEqual(LX.deliver_pool(rec, rec["request"])["key"], "live|%s|local/%s" % (req["rid"], rid))   # 溜めは 依頼 × 段 × 録画
+        self.assertEqual(runner.envs[-1]["deliver"]["origin"], "request")
+        clip, _w = schemas.load_clip_file(schemas.find_clip_path(done["path"]))
+        lv = clip["source"]["live"]
+        self.assertEqual((lv["studio"], lv["origin"], lv["score"], lv["markId"], clip["mark"]["src"]), ({"video": rid, "mark": key}, "auto", 9.5, LX.studio_mark_id(key), "auto"))
+        self.assertAlmostEqual(clip["range"]["start"], 1.0, delta=0.01)
+        self.assertAlmostEqual(clip["range"]["end"], 5.0, delta=0.01)
+        self.assertAlmostEqual(normalize.probe(done["path"])["duration"], 4.0, delta=0.1)
+        self.assertTrue(wait_for(lambda: [(x["id"], x["status"]) for x in live.marks.adopted("local", rid)] == [(key, "exported")], 5))
+        third = live.adopt({"recorder": "local", "recording": rid, "start": 2.0, "end": 4.0, "origin": "auto"})   # 済んだ区間 → 作らない
+        self.assertEqual((third["existing"], third["job"]["id"]), (True, j["id"]))
+        self.assertEqual(sum(1 for x in ex.jobs if x["markId"] == LX.studio_mark_id(key)), 1)
+        for bad in ({"start": 5.0, "end": 5.2}, {"start": -1, "end": 3}, {"start": "きのう", "end": 3}, {"start": True, "end": 3}, {"recording": "../x"},
+                    {"origin": "robot"}, {"after": "all"}):
+            with self.assertRaises(LX.LiveError, msg=repr(bad)):
+                live.adopt(dict({"recorder": "local", "recording": rid, "start": 10.0, "end": 12.0}, **bad))
+        with self.assertRaises(LX.LiveError) as cm:
+            live.adopt({"recorder": "nope", "recording": rid, "start": 10.0, "end": 12.0})
+        self.assertEqual(cm.exception.code, 404)
 
-        def run(audio):
-            self.audio = audio
-            j = self.ex.add("local", rid, m["id"], transcribe=False)
-            d = self.wait_state(j["id"], ("done", "error"), 90)
-            self.assertEqual(d["state"], "done", d)
-            info = normalize.probe(d["path"])
-            self.assertTrue(normalize.is_30fps(info), info)
-            self.assertAlmostEqual(info["duration"], b - a, delta=0.2)
-            self.assertEqual(info["acodec"], "aac")
-            self.assertFalse([n for n in os.listdir(os.path.dirname(d["path"])) if ".partial" in n or ".vol" in n])
-            return d["path"], schemas.load_clip_file(schemas.find_clip_path(d["path"]))[0]["export"]
-        p0, ex0 = run({"volume": 100, "loudness": None})
-        self.assertEqual(ex0["volume"], 100)
-        base_i, _tp = self.loud_of(p0)
-        p2, ex2 = run({"volume": 75, "loudness": -14.0})   # ラウドネスがあるときは音量(%)は使わない
-        self.assertNotIn("volume", ex2)
-        self.assertEqual(ex2["loudness"]["target"], -14.0)
-        self.assertAlmostEqual(ex2["loudness"]["measured"], base_i, delta=0.6)   # 測った値 = そろえる前の聞こえ方
-        self.assertAlmostEqual(ex2["loudness"]["gainDb"], -14.0 - base_i, delta=0.6)
-        self.assertAlmostEqual(self.loud_of(p2)[0], -14.0, delta=1.0)             # そろった
-        self.assertEqual(os.path.dirname(p0), os.path.dirname(p2))
-
-    def test_cancel_while_encoding(self):
-        rid = self.start_rec(12)
-        st = self.status(rid)
-        first = LX.iso_epoch(st["firstPdt"])
+    def check_cancel_while_encoding(self, rid):
+        first = LX.iso_epoch(self.status(rid)["firstPdt"])
         m = self.mark(rid, first + 0.5, first + 10.0)
+        folder = os.path.join(self.out, "テストの配信")
+        before = sorted(os.listdir(folder))
         real = normalize.encode_args
         with mock.patch.object(normalize, "encode_args", lambda *a, **k: [x if x != "veryfast" else "veryslow" for x in real(*a, **k)]):
-            j = self.ex.add("local", rid, m["id"])
+            j = self.ex.add("local", rid, m["id"], transcribe=False)
             self.assertTrue(self.wait_state(j["id"], ("encode", "done", "error"), 60))
             self.ex.cancel(j["id"])
             got = self.wait_state(j["id"], ("cancelled", "done", "error"), 30)
         self.assertEqual(got["state"], "cancelled", got)
-        folder = os.path.join(self.out, "テストの配信")
-        self.assertFalse([n for n in os.listdir(folder) if n.endswith(".mp4")] if os.path.isdir(folder) else [])   # 書きかけも残さない
+        self.assertEqual(sorted(os.listdir(folder)), before)   # 書きかけも残さない
 
-    def test_recording_ended_and_recorder_down(self):
-        rid = self.start_rec()
+    def check_recording_ended(self, rid):
+        """録画が先に終わった: 録れた所までで切る・採用の余白は録れている所(lastPdt)まで・区間に録画が無い(録画より後)→ 失敗と理由が帯と「調子」に同じ文"""
         self.live.call(self.rc, "POST", "/live/%s/stop" % rid, {}, timeout=40)
         st = self.status(rid)
         first, last = LX.iso_epoch(st["firstPdt"]), LX.iso_epoch(st["lastPdt"])
-        # 録画が先に終わった: 録れた所までで切る
-        m = self.mark(rid, first + 0.5, last + 20)
-        j = self.ex.add("local", rid, m["id"], transcribe=False)
-        d = self.wait_state(j["id"], ("done", "error"), 90)
+        span = last - first
+        res = self.live.adopt({"recorder": "local", "recording": rid, "start": 0.5, "end": span + 20, "origin": "auto"})   # 終わりが録れていない = 後ろは足さない
+        self.assertEqual((res["job"]["studio"]["start"], res["job"]["studio"]["end"]), (0.0, round(span + 20, 1)))
+        d = self.wait_state(res["job"]["id"], ("done", "error"), 90)
         self.assertEqual(d["state"], "done", d)
         self.assertIn("録画の終わり", d["warning"])
-        self.assertAlmostEqual(normalize.probe(d["path"])["duration"], last - (first + 0.5), delta=0.15)
-        # 区間に録画が無い(録画より後)→ 失敗と理由
-        m2 = self.mark(rid, last + 30, last + 40)
+        self.assertAlmostEqual(normalize.probe(d["path"])["duration"], span, delta=0.15)
+        res = self.live.adopt({"recorder": "local", "recording": rid, "start": span - 3, "end": span - 1, "origin": "auto"})   # 余白は録れている所まで
+        self.assertAlmostEqual(res["job"]["studio"]["start"], span - 5, delta=0.06)
+        self.assertAlmostEqual(res["job"]["studio"]["end"], span, delta=0.06)
+        self.assertEqual(self.wait_state(res["job"]["id"], ("done", "error"), 90)["state"], "done")
+        m2 = self.mark(rid, last + 30, last + 40, "後ろ")
         j2 = self.ex.add("local", rid, m2["id"])
         d2 = self.wait_state(j2["id"], ("done", "error"), 30)
-        self.assertEqual(d2["state"], "error")
+        self.assertEqual((d2["state"], d2["needsArchive"]), ("error", True))
         self.assertIn("届きませんでした", d2["error"])
-        # 録画元が落ちた → 録画待ちのまま down_sec 秒 → 失敗と理由
+        f = d2["failure"]   # 帯の error と「調子」に同じ文
+        self.assertEqual((f["kind"], f["text"]), ("export", d2["error"]))
+        self.assertTrue(f["text"].startswith("「後ろ」: 書き出しに失敗しました: 録画が区間まで届きませんでした"), f["text"])
+        self.assertIn(f["text"], [x["text"] for x in self.live.health()["failures"]])
+
+    def check_recorder_down(self, rid):
+        """録画元が落ちた → 録画待ちのまま down_sec 秒 → 失敗と理由"""
+        self.ex.down_sec = 1.0
+        st = self.status(rid)
+        first = LX.iso_epoch(st["firstPdt"])
         FIX.patch_cfg(self.cfg, {"recorders": [dict(self.rc, url="http://127.0.0.1:%d" % FIX.free_port())]})   # 閉じたポート = 落ちた録画元(self.rc は元のまま)
         m3 = self.mark(rid, first + 1, first + 3)
         j3 = self.ex.add("local", rid, m3["id"])
@@ -451,14 +559,9 @@ class ExportPiecesTest(unittest.TestCase):
         return next(x for x in ex.jobs if x["id"] == job["id"])
 
     def test_pad_secs(self):
-        """M8: 自動・アーカイブの採用の区間を前後 pad 秒だけ広げる。0 より前・録れている範囲(lastPdt)の外・1 つのマークの上限の外へは広げない
-        (録画の部品は使わない = 部品のクラスで)"""
+        """採用の余白: 録画の状態に lastPdt が無ければ両側に・1 つのマークの上限は超えない(0 と lastPdt での止まり方は通しの採用で見る)"""
         first = 1_700_000_000.0
-        st = lambda rel: {"lastPdt": LX.epoch_iso(first + rel)}
-        self.assertEqual(LA.pad_secs(10.0, 20.0, 2, st(100), first), (8.0, 22.0))   # 本体は flow/live_adopt.py
-        self.assertEqual(LA.pad_secs(1.0, 20.0, 2, st(21), first), (0.0, 21.0))      # 頭は 0 まで・後ろは録れている所まで
-        self.assertEqual(LA.pad_secs(10.0, 20.0, 2, st(19), first), (8.0, 20.0))     # 終わりがまだ録れていない = 後ろは足さない
-        self.assertEqual(LA.pad_secs(10.0, 20.0, 1.5, {}, first), (8.5, 21.5))     # lastPdt が無ければ両側に
+        self.assertEqual(LA.pad_secs(10.0, 20.0, 1.5, {}, first), (8.5, 21.5))
         self.assertEqual(LA.pad_secs(0.0, LX.MAX_MARK_SEC, 2, {}, first), (0.0, float(LX.MAX_MARK_SEC)))
 
     def test_pick_folder_owner_default(self):
@@ -467,35 +570,6 @@ class ExportPiecesTest(unittest.TestCase):
         os.makedirs(root)
         self.assertEqual(os.path.basename(LX.pick_folder(root, "", "abcdefghijk")), "abcdefghijk")
         self.assertEqual(os.path.basename(LX.pick_folder(root, "", "")), "live")
-
-    def test_board_follows_jobs(self):
-        """掲示板: 状態が変わったら lx:<ジョブの id> がその state で載る・掲示板の id で取り消せる"""
-        ex = LX.Exporter(mock.Mock(), os.path.join(self.tmp, "live"), lambda: self.tmp)
-        ex.start = lambda: None   # 裏の糸は動かさない(状態は _set で進める)
-        b = Board.Board()
-        ex.attach_board(b)
-        rec, mid, t = "20261004-000000-a", "lm-0123456789", 1790000000.0
-        ex.marks.upsert("local", rec, mid, 1, LX.epoch_iso(t), LX.epoch_iso(t + 30), "大きな声")
-        j1 = ex.add("local", rec, mid, transcribe=False)
-        got = b.get("lx:" + j1["id"])
-        self.assertEqual((got["kind"], got["state"], got["canCancel"], got["target"]["markId"]), ("live_export", "queued", True, mid))
-        self.assertIn("大きな声", got["title"])
-        ex._set(ex.jobs[0], state="encode", progress=0.5, message="30fps に作り直しています")
-        got = b.get("lx:" + j1["id"])
-        self.assertEqual((got["state"], got["progress"], got["phase"]), ("running", 0.5, "30fps に作り直しています"))
-        media = os.path.join(self.tmp, "01_x.mp4")
-        ex._set(ex.jobs[0], state="done", progress=1.0, path=media)
-        got = b.get("lx:" + j1["id"])
-        self.assertEqual((got["state"], got["target"]["path"], got["canCancel"]), ("done", media, False))
-        self.assertIsNotNone(got["finishedAt"])
-        j2 = ex.add("local", rec, mid, transcribe=False)
-        self.assertEqual(b.cancel("lx:" + j2["id"])["state"], "cancelled")   # 録画待ちはすぐ取り消し
-        self.assertEqual(ex.jobs[-1]["state"], "cancelled")
-        with self.assertRaises(Board.NotFound):
-            b.cancel("lx:lx-ffffffffff")
-        b2 = Board.Board()
-        LX.Exporter(mock.Mock(), os.path.join(self.tmp, "live"), lambda: self.tmp).attach_board(b2)   # 起動し直し: 記録のジョブも載る
-        self.assertEqual([(j["id"], j["state"]) for j in b2.list()], [("lx:" + j1["id"], "done"), ("lx:" + j2["id"], "cancelled")])
 
     def test_restart_resets_running_jobs(self):
         folder = os.path.join(self.tmp, "live")
@@ -651,7 +725,7 @@ class ExportPiecesTest(unittest.TestCase):
         self.assertEqual((j["handoffWait"], j["runId"], j["state"], runner.files[-1][2]), ("", "run-1", "done", "auto"))   # アーカイブから書き出したものはすぐ渡す
 
     def test_streamer_name_and_handoff_failure(self):
-        """書き出したあとの渡し方(_finish → まとめて実行): 配信者の名前は色の一覧にそろえて渡す・合わなければ色なし(None)で渡して知らせる(書き出しは止めない)。
+        """書き出したあとの渡し方(_finish → まとめて実行): 配信者の名前が色の一覧に合わなければ色なし(None)で渡して知らせる(書き出しは止めない)。
         渡せなかった失敗は帯のジョブの warning と failure に集める(同じ文を「調子」にも出すのは FailuresTest)"""
         runner = FakeRunner()
         ex, _logs = self._pieces_exporter({"v": 50 * LX.GB}, runner)
@@ -662,11 +736,6 @@ class ExportPiecesTest(unittest.TestCase):
             j = self.mark_job(ex, rec, "2026-10-04T06:0%d:00Z" % k, "2026-10-04T06:0%d:05Z" % k, **kw)
             ex._finish(j, {"id": "local"}, rec, ans, {"path": self.media("0%d_x.mp4" % k), "duration": 5.0, "title": "配信"}, LX.iso_epoch(j["start"]), LX.iso_epoch(j["end"]))
             return j
-        j = finish(1, after="auto", streamer="ぺこら")   # 全自動(文字起こし → パック)
-        self.assertEqual((j["state"], j["after"], j["transcribe"], j["streamer"]), ("done", "auto", True, "ぺこら"), j)
-        self.assertEqual(runner.files[-1][2], "auto")
-        self.assertEqual(runner.streamers[-1], "兎田ぺこら")   # 色の一覧の名前にそろえて渡す
-        self.assertIn("パック", j["message"])
         j = finish(2, after="check", streamer="だれでもない人")
         self.assertEqual((j["state"], runner.files[-1][2], runner.streamers[-1]), ("done", "check", None), j)
         self.assertIn("字幕の色なし", j["warning"])
@@ -681,8 +750,8 @@ class ExportPiecesTest(unittest.TestCase):
         self.assertIn(f["text"], row["warning"])   # 帯は warning の行に出す
 
     def test_handoff_with_friend_request(self):
-        """友人のライブ配信の依頼の録画(2-15): 書き出したら まとめて実行の start_file に 依頼 id・届け先・話者・トラック・カット(依頼のものが live.auto より先)と
-        溜めの指定を渡す。ジョブの request は記録に残る(起動し直しても届け先が分かる)。依頼の無いジョブには渡さない"""
+        """友人のライブ配信の依頼の形の違い(依頼の欄が全部そろった形は通しの採用): カット・届け先が空・依頼 id が無い・依頼でない・自分の配信の自動の切り抜き。
+        ジョブの request は記録に残る(起動し直しても届け先が分かる)"""
         free = {"v": 50 * LX.GB}
         runner = FakeRunner()
         ex, _logs = self._pieces_exporter(free, runner)
@@ -699,14 +768,6 @@ class ExportPiecesTest(unittest.TestCase):
             j = self.mark_job(ex, rec, start, start[:-3] + "05Z", after="auto", streamer="兎田ぺこら", auto=auto, request=request)
             ex._finish(j, {"id": "local"}, rec, ans, {"path": media, "duration": 5.0, "title": "配信"}, LX.iso_epoch(j["start"]), LX.iso_epoch(j["end"]))
             return j
-        j = run("2026-10-04T06:00:00Z", req)
-        self.assertEqual(j["request"], {"rid": req["rid"], "deliverDir": deliver, "speakers": req["speakers"], "videoTracks": 2, "cut": "silence"})   # 要るものだけ
-        self.assertEqual(runner.envs[-1]["deliver"]["origin"], "request")   # 出どころ(D-SEND 2-7): 友人の依頼
-        self.assertEqual((j["state"], j["runId"], j["handoffError"]), ("done", "run-1", ""))
-        self.assertEqual((runner.files[-1][0], runner.files[-1][2], runner.streamers[-1]), (media, "auto", "兎田ぺこら"))
-        self.assertEqual(runner.kws[-1], {"cut": "silence", "engine": "whisper.cpp", "model": "large-v3", "request_id": req["rid"], "deliver_dir": deliver,
-                                          "speakers": req["speakers"], "video_tracks": 2, "pool": LX.deliver_pool(j, j["request"])})
-        self.assertEqual(LX.deliver_pool(j, j["request"])["key"], "live|%s|local/%s" % (req["rid"], rec))   # 溜めは 依頼 × 段 × 録画
         # 依頼にカットの指定が無ければ live.auto のカット・届け先が空なら None(まとめて実行が断る = 失敗として見える)
         j = run("2026-10-04T06:01:00Z", dict(req, cut=None, deliverDir="", speakers=None, videoTracks=None))
         self.assertEqual(runner.kws[-1], {"cut": "none", "engine": "whisper.cpp", "model": "large-v3", "request_id": req["rid"], "deliver_dir": None,
@@ -716,11 +777,11 @@ class ExportPiecesTest(unittest.TestCase):
             j = run("2026-10-04T06:0%d:00Z" % (2 + k), bad)
             self.assertNotIn("request", j)
             self.assertEqual(runner.kws[-1], auto)
-        self.assertEqual(len(runner.files), 5)
+        self.assertEqual(len(runner.files), 4)
         run("2026-10-04T06:09:00Z", dict(req, autoDeliver=True))   # 自分の配信の自動の切り抜き(live.autoDeliver)= 出どころ auto(友人の札「依頼なし」)
         self.assertEqual(runner.envs[-1]["deliver"]["origin"], "auto")
         again = LX.Exporter(mock.Mock(), os.path.join(self.tmp, "live"), lambda: os.path.join(self.tmp, "out"))   # 記録に残る
-        self.assertEqual([x.get("request", {}).get("rid") for x in again.jobs][:2], [req["rid"], req["rid"]])
+        self.assertEqual([x.get("request", {}).get("rid") for x in again.jobs][:1], [req["rid"]])
 
     def test_margin_window_and_fallback(self):
         """LD-2f: 束の余白があれば前後に余白つきで取り(名前はマーク)・_finish に実際の始まり・終わり。余白の所に欠けがあればマークの区間だけで書き出す"""
@@ -844,37 +905,6 @@ class ExportPiecesTest(unittest.TestCase):
         self.assertIn("06:00:02", j["error"])
         live.request.assert_not_called()   # 欠けのある録画は取りに行かない
         self.assertEqual(job["id"], j["id"])
-
-
-class MarkStoreTest(unittest.TestCase):
-    """マークの正本 MarkStore.apply(書き出しの API の入力): 押すたびに fsync して置き換える・値の検査・時刻は 3 桁の ms に丸める"""
-
-    def test_apply(self):
-        tmp = testkit.tempdir(self, "ytt-markstore-")
-        ms = LX.MarkStore(os.path.join(tmp, "marks"))
-        rec = "20261004-000000-a"
-        m, _ = ms.apply("fake", rec, {"op": "add", "start": "2026-10-04T06:00:00.000Z", "url": "https://www.youtube.com/watch?v=abcdefghijk", "title": "配信<b>"})
-        self.assertEqual((m["n"], m["start"], m["end"]), (1, "2026-10-04T06:00:00.000Z", None))
-        with open(os.path.join(tmp, "marks", "fake__%s.json" % rec), encoding="utf-8") as f:   # 正本
-            saved = json.load(f)
-        self.assertEqual((saved["schema"], saved["title"], len(saved["marks"])), (LX.MARKS_SCHEMA, "配信<b>", 1))
-        d = ms.load("fake", rec)
-        self.assertEqual(([x["id"] for x in d["marks"]], d["title"]), ([m["id"]], "配信<b>"))
-        for bad in ({"op": "update", "id": m["id"], "end": "2026-10-04T05:59:59.000Z"},     # 開始より前
-                    {"op": "update", "id": m["id"], "end": "2026-10-04T07:00:01.000Z"},     # 1 時間を超える
-                    {"op": "update", "id": m["id"], "end": "x"}, {"op": "add"}, {"op": "add", "start": "2026-13-01T00:00:00Z"},
-                    {"op": "nope"}):
-            with self.assertRaises(LX.LiveError, msg=repr(bad)) as cm:
-                ms.apply("fake", rec, bad)
-            self.assertEqual(cm.exception.code, 400, bad)
-        with self.assertRaises(LX.LiveError) as cm:
-            ms.apply("fake", rec, {"op": "update", "id": "lm-0000000000", "label": "x"})
-        self.assertEqual(cm.exception.code, 404)
-        with self.assertRaises(LX.LiveError):
-            ms.apply("fake", "../x", {"op": "add", "start": m["start"]})
-        m2, _ = ms.apply("fake", rec, {"op": "update", "id": m["id"], "end": "2026-10-04T06:00:30.5Z", "label": "見どころ\n"})
-        self.assertEqual((m2["end"], m2["label"]), ("2026-10-04T06:00:30.500Z", "見どころ"))
-        self.assertEqual(ms.apply("fake", rec, {"op": "delete", "id": m["id"]})[1], [])
 
 
 class AudioCfgTest(unittest.TestCase):

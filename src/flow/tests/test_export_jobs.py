@@ -3,10 +3,11 @@
 
     py -3.12 -m unittest src/flow/tests/test_export_jobs.py -v
 
-本物の ① で書き終えるまでの道(public の done の形)は通し src/pipeline/export/tests/test_exporter.py の TestExportThrough。
-- 同時に 1 本(動いている間の start は 409 busy)・取り消し・終了の流れの cancel_all(interrupted)・public は GET /api/export の形
-- 枠(SLOTS)を待つ間は waiting・待ちの間の取り消し・想定外の例外でも「実行中」のまま残らない
-- 掲示板(頭 ex)の引く形と取り消し
+本物の ① で書き終えるまでの道(public の done の形・同時 1 本の 409・動いている間は書き出し先を変えない・無い id は 404・掲示板の載り方)は
+通し src/pipeline/export/tests/test_exporter.py の TestExportThrough。ここは通しでは起こせない物だけ:
+- 取り消し・終了の流れの cancel_all(interrupted)
+- 枠(SLOTS)をほかの重い処理が持っている間は waiting・待ちの間の取り消し・想定外の例外でも「実行中」のまま残らない
+- 掲示板からの取り消し
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
@@ -22,7 +23,6 @@ from ytt import testkit  # noqa: E402
 from flow import board as B, export as E  # noqa: E402
 from pipeline.export import exporter  # noqa: E402
 from ytt import jobs, studio_env  # noqa: E402
-from ytt.errors import ApiError  # noqa: E402
 
 CLIP = {"id": "m1", "start": 0.0, "end": 1.0, "title": "a", "label": ""}
 
@@ -59,24 +59,16 @@ class Base(unittest.TestCase):
 
 
 class TestExportJobs(Base):
-    def test_busy_409_and_cancel(self):
+    def test_cancel(self):
         with patch.object(exporter, "run", side_effect=slow_run):
             rec = self.ex.start(spec())
             self.assertTrue(self.ex.is_busy())
-            self.assertTrue(self.ex.is_busy_for("abcdefghijk"))
-            self.assertFalse(self.ex.is_busy_for("bbcdefghijk"))
-            with self.assertRaises(ApiError) as c:
-                self.ex.start(spec("bbcdefghijk"))
-            self.assertEqual((c.exception.status, c.exception.code), (409, "busy"))
             self.ex.cancel(rec["id"])
             self.assertTrue(wait(lambda: not self.ex.is_busy()))
         p = self.ex.public(rec["id"])
         self.assertEqual(list(p), ["id", "state", "outDir", "folder", "waiting", "items", "combined"])   # GET /api/export の形
         self.assertEqual((p["id"], p["state"], p["items"][0]["status"], p["waiting"], p["combined"]), (rec["id"], "cancelled", "cancelled", False, None))
         self.assertEqual(p["outDir"], studio_env.get_out_dir())
-        with self.assertRaises(ApiError) as c:
-            self.ex.public("nai")
-        self.assertEqual(c.exception.status, 404)
 
     def test_cancel_all_marks_interrupted(self):
         with patch.object(exporter, "run", side_effect=slow_run):
@@ -86,15 +78,6 @@ class TestExportJobs(Base):
         self.assertTrue(rec["interrupted"])
         self.assertEqual(rec["res"]["state"], "cancelled")
         self.assertEqual(self.ex.cancel_all(), [])
-
-    def test_out_dir_change_refused_while_busy(self):
-        with patch.object(exporter, "run", side_effect=slow_run):
-            rec = self.ex.start(spec())
-            with self.assertRaises(ApiError) as c:
-                studio_env.set_out_dir(os.path.join(self.tmp, "other"), self.ex.is_busy)
-            self.assertEqual(c.exception.status, 409)
-            self.ex.cancel(rec["id"])
-            self.assertTrue(wait(lambda: not self.ex.is_busy()))
 
     def test_unexpected_error_settles(self):
         rec = self.ex.table._new(spec(), "export", "", {"videoId": "abcdefghijk", "outDir": "", "res": exporter.new_result(spec())})
@@ -142,8 +125,7 @@ class TestBoard(Base):
         with patch.object(exporter, "run", side_effect=run):
             rec = self.ex.start(spec(n=2))
             board.refresh()
-            j = board.get("ex:" + rec["id"])
-            self.assertEqual((j["state"], j["kind"], j["title"], j["canCancel"], j["canRetry"]), ("running", "export", "書き出し 2 本", True, False))
+            self.assertEqual(board.get("ex:" + rec["id"])["state"], "running")
             gate.set()
             board.cancel("ex:" + rec["id"])
             self.assertTrue(rec["ctl"].cancelled)

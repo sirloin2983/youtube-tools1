@@ -1,4 +1,5 @@
-"""保存・書き出しの障害回復。実データやネットワークは使用しない。"""
+"""書き出しの途中の失敗(マークへの記録・名前を決める・使用中のファイル)。通しでは起こせないので ① を差し替えて起こす。実データやネットワークは使用しない。
+予約名の題(CON.txt)のフォルダは書き出しの通し(src/pipeline/export/tests/test_exporter.py の TestExportThrough)で見る。"""
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 import sys
@@ -53,12 +54,6 @@ class TestExportRecovery(unittest.TestCase):
         self.assertIn("clip.mp4", item["error"])
         callback.assert_not_called()
         log.assert_called_once()
-
-    def test_windows_reserved_basename_with_extension_is_safe(self):
-        with tempfile.TemporaryDirectory() as tmp, patch.object(studio_env, "get_out_dir", return_value=tmp):
-            folder, path = exporter.pick_folder({"title": "CON.txt", "videoId": "abcdefghijk"})
-            self.assertEqual(folder, "_CON.txt")
-            self.assertTrue(os.path.isdir(path))
 
 
 if __name__ == "__main__":

@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """ytt.normalize(素材を 30fps にそろえる。Q1)のテスト。  py -3.12 -m unittest src/ytt/tests/test_normalize.py -v
 ffmpeg・ffprobe で数秒の合成動画を作って確かめる(無い環境ではスキップ)。
-60fps を 30fps にそろえて出来上がった動画を見る正しく動く道は、② の段の通し src/editor/tests/test_normalize30.py の test_job_through。
-ここは決まり・引数・取り消し・失敗・古い ffmpeg・速くする道だけ。"""
+正しく動く道と、見本で作れる入力の決まり(60・29.97fps・H.265・10 bit・yuv444p・音声だけ opus・音声なし・30fps のまま)は、
+② の段の通し src/editor/tests/test_normalize30.py の test_job_through。
+ここは通しでは起こせない物だけ: 見本で作れない入力の決まり(可変 fps・端数の平均・映像なし・調べられない)・出来上がりから読めない画質の引数・
+取り消し・失敗・検証で落ちる・ffprobe が無い・古い ffmpeg・GPU から CPU へ。"""
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしないが、ほかのテストとそろえる
 import shutil
@@ -46,14 +48,10 @@ def info(**kw):
 
 class TestRules(unittest.TestCase):
     def test_ok_as_is(self):
-        self.assertEqual(normalize.needs_normalize(info()), (False, []))
         self.assertEqual(normalize.needs_normalize(info(avg_fps=29.995))[0], False)        # 長さの端数で平均が少しずれるのは許す
-        self.assertEqual(normalize.needs_normalize(info(has_audio=False, acodec=None))[0], False)   # 音声が無いのは作り直しても直らない
 
     def test_needs(self):
-        cases = {"vcodec": info(vcodec="hevc"), "bit": info(bit_depth=10), "pix": info(pix_fmt="yuv444p"),
-                 "60": info(r_frame_rate="60/1", avg_fps=60.0), "2997": info(r_frame_rate="30000/1001", avg_fps=29.97),
-                 "vfr": info(avg_fps=29.5), "audio": info(acodec="opus"), "novideo": info(has_video=False)}
+        cases = {"vfr": info(avg_fps=29.5), "novideo": info(has_video=False)}
         for name, i in cases.items():
             with self.subTest(name):
                 need, why = normalize.needs_normalize(i)
@@ -260,9 +258,8 @@ class TestOldFfmpeg(unittest.TestCase):
 class TestFastRules(unittest.TestCase):
     """速くする 2 つの決まり:映像が条件どおりなら音声だけ・GPU(h264_nvenc)の引数と使えるかの確かめ"""
     def test_video_ok(self):
-        self.assertTrue(normalize.video_ok(info(acodec="opus")))   # 音声だけ違う = 映像はコピーでよい
-        for bad in (info(vcodec="hevc"), info(bit_depth=10), info(pix_fmt="yuv444p"), info(r_frame_rate="60/1", avg_fps=60.0),
-                    info(avg_fps=29.5), info(has_video=False), None):
+        """映像をコピーしてよいか(音声だけ違う・60fps の道は通し)"""
+        for bad in (info(vcodec="hevc"), info(bit_depth=10), info(pix_fmt="yuv444p"), info(avg_fps=29.5), info(has_video=False), None):
             self.assertFalse(normalize.video_ok(bad))
 
     def test_nvenc_args_keep_the_rules(self):
@@ -290,10 +287,6 @@ class TestFastPaths(unittest.TestCase):
     def setUpClass(cls):
         cls.src = tempfile.mkdtemp()
         cls.v60 = make(os.path.join(cls.src, "v60.mp4"), 60, 2)
-        cls.opus = os.path.join(cls.src, "opus.mkv")   # 映像は 30fps の H.264・音声だけ opus(OBS の mkv など)
-        subprocess.run([FF, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-f", "lavfi", "-i", "testsrc=size=64x64:rate=30:duration=2",
-                        "-f", "lavfi", "-i", "sine=frequency=440:duration=2", "-shortest", "-c:v", "libx264", "-preset", "veryfast",
-                        "-pix_fmt", "yuv420p", "-c:a", "libopus", cls.opus], check=True, stdin=subprocess.DEVNULL)
 
     @classmethod
     def tearDownClass(cls):
@@ -302,23 +295,6 @@ class TestFastPaths(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.tmp, True)
-
-    def test_audio_only_copies_video(self):
-        before = normalize.probe(self.opus)
-        self.assertEqual(normalize.needs_normalize(before)[0], True)
-        calls = []
-
-        def popen(cmd, **kw):
-            calls.append(list(cmd))
-            return subprocess.Popen(cmd, **kw)
-        with mock.patch.dict(os.environ, {normalize.NVENC_ENV: "0"}):
-            out = normalize.normalize(self.opus, os.path.join(self.tmp, "a.mp4"), popen=popen)
-        self.assertEqual(out["how"], "音声だけ作り直し")
-        self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0][calls[0].index("-c:v") + 1], "copy")
-        after = normalize.probe(out["path"])
-        self.assertEqual((after["vcodec"], after["acodec"], after["r_frame_rate"]), ("h264", "aac", "30/1"))
-        self.assertEqual(normalize.needs_normalize(after), (False, []))
 
     def test_gpu_first_then_cpu(self):
         """GPU が使えると見たら h264_nvenc から。GPU で作れなければ(NVIDIA の無い PC では必ず)libx264 で 1 回だけやり直す"""

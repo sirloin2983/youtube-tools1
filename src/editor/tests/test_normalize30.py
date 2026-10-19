@@ -5,6 +5,9 @@
     py -3.12 -m unittest src/editor/tests/test_normalize30.py    # これだけ
 
 ffmpeg・ffprobe で数秒の合成動画(lavfi)を作り、疑似の認識(TRANSCRIBE_BACKEND=fake)で文字起こしのジョブをその場で動かす。
+正しく動く道と見本に混ぜられる入力(60・29.97fps・音声だけ違う・H.265 の 10 bit・作り直さない動画・隣の名前がふさがっている・2 回目の使い回し)は
+通し test_job_through(と置き換えの通し test_replace_mode_swaps_the_copy・選び直しの通し TestRelinkNormalize)。単体は通しでは起こせない物だけ
+(名前が尽きる・失敗・取り消し・空きが無い・書けない・付け替えを断る・作り直しの間に文書が変わった)。
 """
 import json
 import os
@@ -37,6 +40,13 @@ def make_video(path, fps=60, sec=8, codec="libx264"):
                     "-f", "lavfi", "-i", "sine=frequency=440:duration=%s" % sec,
                     "-c:v", codec, "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", path], check=True)
     return path
+
+
+def ff(*args, check=True):
+    """ffmpeg で見本を 1 つ作る(最後の引数が出力)。check=False なら作れたかを返す(その符号化器の無い ffmpeg)"""
+    r = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y"] + list(args), check=check,
+                       stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return r.returncode == 0
 
 
 @unittest.skipUnless(HAVE_FF, "ffmpeg・ffprobe が必要")
@@ -103,13 +113,14 @@ class TestFlowNormalize(_Base):
 
     def test_job_through(self):
         """30fps にそろえる通し: 予定(隣に <名前>_30fps.mp4)→ ジョブの本体(本物の ffmpeg)→ 付け替え。
-        できた動画は 30fps の H.264・yuv420p・8bit・AAC で長さは元のまま・元は残る・書きかけは残らない"""
+        できた動画は 30fps の H.264・yuv420p・8bit・AAC で長さは元のまま・元は残る・書きかけは残らない。
+        続けて、同じ動画の 2 回目(できた写しを使い回す)・29.97fps(隣の名前が別の動画でふさがっている)・音声だけ違う動画・作り直さない動画と理由の見本"""
         src = self.copy(self.v60, "配信 60.mp4")
         before = N.probe(src)
         p = FN.plan(src)
         dst = os.path.join(self.media, "配信 60_30fps.mp4")
         self.assertEqual((os.path.normcase(p["dst"]), p["reuse"], p["replace"]), (os.path.normcase(dst), False, False))
-        self.assertTrue(any("30fps" in w for w in p["why"]), p["why"])
+        self.assertEqual(p["why"], ["30fps の固定ではありません(60/1 / 平均 60.000)"])
 
         class Job(dict):   # 進み具合と段の移り変わりを残す
             seen = []
@@ -131,45 +142,58 @@ class TestFlowNormalize(_Base):
         self.assertAlmostEqual(after["duration"], before["duration"], delta=0.1)   # 長さ(= 時刻)は保たれる
         self.assert_30(dst)
         self.assertEqual(sorted(os.listdir(self.media)), sorted([os.path.basename(src), os.path.basename(dst)]))   # 元は残る・書きかけは残らない
+        # 2 回目: 前に作った 30fps の写し(長さも同じ)を使い回す
+        p2 = FN.plan(src)
+        self.assertTrue(p2["reuse"])
+        with mock.patch.object(N, "normalize", side_effect=AssertionError("作り直さない")):
+            path, note = FN.run(p2)
+        self.assertEqual(os.path.normcase(path), os.path.normcase(dst))
+        self.assertIn("があったので", note)
+        self.check_2997_next_name()
+        self.check_audio_only()
+        self.check_plans()
 
-    def test_no_plan(self):
-        """予定を立てない: 30fps のまま・切り替えがオフ・音声だけ"""
-        wav = os.path.join(self.media, "声.wav")
-        subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=6", wav], check=True)
-        self.assertIsNone(FN.plan(self.copy(self.v30, "そのまま.mp4")))
-        self.assertIsNone(FN.plan(wav))
-        with mock.patch.dict(os.environ, {"TRANSCRIBE_NORMALIZE": "off"}):
-            self.assertIsNone(FN.plan(self.copy(self.v60, "h.mp4")))
-
-    def test_2997_is_made_30_and_keeps_length(self):
-        """配信の録画に多い 29.97fps も 30/1 に作り直し、長さ(= 時刻)は保つ(60 と別の入力で fps の丸めを見る)"""
+    def check_2997_next_name(self):
+        """配信の録画に多い 29.97fps も 30/1 に作り直し、長さ(= 時刻)は保つ。隣の名前が 30fps でない別の動画なら上書きせず次の名前に作る"""
         src = make_video(os.path.join(self.media, "配信 2997.mp4"), "30000/1001", sec=4)
+        other = self.copy(self.v60, "配信 2997_30fps.mp4")
+        size = os.path.getsize(other)
         before = N.probe(src)
-        p, _ran = self.make_run(src)
-        after = N.probe(p["dst"])
+        p, (path, note) = self.make_run(src)
+        self.assertEqual(p["why"], ["30fps の固定ではありません(30000/1001 / 平均 29.970)"])
+        self.assertEqual(os.path.normcase(path), os.path.normcase(os.path.join(self.media, "配信 2997_30fps_2.mp4")))
+        self.assertEqual(os.path.getsize(other), size)
+        after = N.probe(path)
         self.assertEqual(after["r_frame_rate"], "30/1")
         self.assertAlmostEqual(after["duration"], before["duration"], delta=0.1)
+        self.assert_30(path)
 
-    def test_existing_30fps_copy_is_reused(self):
-        src = self.copy(self.v60, "a.mp4")
-        made = self.copy(self.v30, "a_30fps.mp4")   # 前に作った 30fps の写し(長さも同じ)
-        p = FN.plan(src)
-        self.assertTrue(p["reuse"])
-        with mock.patch.object(N, "normalize", side_effect=AssertionError("作り直さない")):
-            path, note = FN.run(p)
-        self.assertEqual(os.path.normcase(path), os.path.normcase(made))
-        self.assertIn("があったので", note)
+    def check_audio_only(self):
+        """映像は条件どおり(30fps の H.264)で音声だけ opus(OBS の mkv など)→ 音声だけ作り直す(映像はコピー)"""
+        mkv = os.path.join(self.media, "音声だけ.mkv")
+        ff("-f", "lavfi", "-i", "testsrc=size=64x64:rate=30:duration=2", "-f", "lavfi", "-i", "sine=frequency=440:duration=2", "-shortest",
+           "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-c:a", "libopus", mkv)
+        p, (path, note) = self.make_run(mkv)
+        self.assertEqual(p["why"], ["音声が AAC ではありません(opus)"])
+        self.assertIn("音声だけ作り直し", note)
+        after = N.probe(path)
+        self.assertEqual((after["vcodec"], after["acodec"], after["r_frame_rate"]), ("h264", "aac", "30/1"))
+        self.assertEqual(N.needs_normalize(after), (False, []))
 
-    def test_unusable_existing_name_is_not_overwritten(self):
-        """同じ名前があっても 30fps でない(別の動画)なら上書きせず、次の名前に作る"""
-        src = self.copy(self.v60, "b.mp4")
-        other = self.copy(self.v60, "b_30fps.mp4")
-        size = os.path.getsize(other)
-        p, (path, note) = self.make_run(src)
-        dst = os.path.join(self.media, "b_30fps_2.mp4")
-        self.assertEqual(os.path.normcase(path), os.path.normcase(dst))
-        self.assertEqual(os.path.getsize(other), size)
-        self.assert_30(dst)
+    def check_plans(self):
+        """作り直さない: 30fps のまま・音声の無い 30fps・音声だけのファイル・切り替えがオフ。作り直す理由: H.265・10 bit・yuv444p"""
+        wav = os.path.join(self.media, "声.wav")
+        ff("-f", "lavfi", "-i", "sine=frequency=440:duration=2", wav)
+        mute = os.path.join(self.media, "音なし.mp4")
+        ff("-f", "lavfi", "-i", "testsrc=size=64x64:rate=30:duration=2", "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", mute)
+        for path in (self.copy(self.v30, "そのまま.mp4"), mute, wav):
+            self.assertIsNone(FN.plan(path), path)
+        with mock.patch.dict(os.environ, {"TRANSCRIBE_NORMALIZE": "off"}):
+            self.assertIsNone(FN.plan(self.copy(self.v60, "h.mp4")))
+        hevc = os.path.join(self.media, "hevc.mp4")
+        if ff("-f", "lavfi", "-i", "testsrc=size=64x64:rate=30:duration=1", "-c:v", "libx265", "-preset", "ultrafast", "-pix_fmt", "yuv444p10le",
+              "-x265-params", "log-level=error", hevc, check=False):   # libx265 の無い ffmpeg では飛ばす
+            self.assertEqual(FN.plan(hevc)["why"], ["映像が H.264 ではありません(hevc)", "10 bit です(8 bit にします)", "色の形式が yuv420p ではありません(yuv444p10le)"])
 
     def test_names_all_taken_gives_note(self):
         src = self.copy(self.v60, "n.mp4")
