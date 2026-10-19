@@ -1,7 +1,7 @@
-/* ui-kit v6〜v23 — youtube-tools 共通の見た目(色・文字・部品)。画面の全面見直し(notes:docs/design/briefs/ui-overhaul/)の段階1。
-   v6(2026-09-27): 既定のテーマを明るいに(保存が無いとき。以前は OS に合わせていた)・トークン追加(--stage-bg/-ink・--playhead・--toast-bg/-ink・--keybar-h・--drawer-w)・
-   飾りの除去(.btn/.card の影・ブランドの印と .bar のグラデーション・.pill.run/.dot.run の無限の点滅)・
-   新しい部品(ui-appnav・ui-drawer・ui-dialog・ui-pop・ui-toasts・ui-keybar・ui-kbd・ui-miniprogress・SVG アイコン)。詳しくは README.md の「v6」。
+/* ui-kit — youtube-tools 共通の見た目(色・文字・部品)。画面の全面見直し(notes:docs/design/briefs/ui-overhaul/)の段階1。
+   既定のテーマは明るい(保存が無いとき)。トークン(--stage-bg/-ink・--playhead・--toast-bg/-ink・--keybar-h・--drawer-w)・
+   飾りは付けない(.btn/.card の影・ブランドの印と .bar のグラデーション・.pill.run/.dot.run の無限の点滅)・
+   部品(ui-appnav・ui-drawer・ui-dialog・ui-pop・ui-toasts・ui-keybar・ui-kbd・ui-miniprogress・SVG アイコン)。詳しくは README.md の「v6」。
    正本は src/ui-kit/ui-kit.css。写し先は無い(この正本を直接直す)。
    テーマ: <html data-theme="light|dark">(theme.js が保存した選択(無ければ明るい)から決める)。
    既存ツールの CSS 変数名(--bg --panel --ink --accent など)をそのまま提供するので、各ツールの CSS はこの上に重ねる。 */
@@ -29,7 +29,7 @@
   --header-bg:rgba(255,255,255,.94);
   --ring:0 0 0 3px color-mix(in srgb,var(--accent) 28%,transparent);
   --scroll-thumb:#9DAECB;
-  /* v6: 映像の周り(プレーヤーの背景)は両テーマで暗い灰色(映像の色を見やすく)。再生位置(赤)・トースト(両テーマで暗い面)・
+  /* 映像の周り(プレーヤーの背景)は両テーマで暗い灰色(映像の色を見やすく)。再生位置(赤)・トースト(両テーマで暗い面)・
      下の帯(キーの帯)の高さ・右の引き出しの幅 */
   --stage-bg:#1b1d22;--stage-ink:#eef0f5;--playhead:#e5484d;
   --toast-bg:#1b1e26;--toast-ink:#f2f4f8;
@@ -66,7 +66,7 @@
   --ring:0 0 0 2px var(--accent);--knob:#fff;
 }
 /* JS が動かないときの見た目(theme.js は <head> で同期に実行され、実行できたときは必ず data-theme を付ける。
-   v6: 保存が無いときの既定は明るいテーマ(JS が動く前提)。この節は JS が全く動かない極端な場合だけの保険として、OS の設定に従う */
+   保存が無いときの既定は明るいテーマ(JS が動く前提)。この節は JS が全く動かない極端な場合だけの保険として、OS の設定に従う */
 @media (prefers-color-scheme:dark){:root:not([data-theme]){
   color-scheme:dark;
   --bg:#0A0E14;--bg-2:#070A0F;--panel:#111824;--panel-2:#0D131D;--panel-3:#1A2436;--field:#0A0E14;--field-hover:#0D131D;
@@ -88,8 +88,8 @@ html,body{margin:0;background:var(--bg);color:var(--ink);font:var(--fs-md)/1.55 
 body{min-width:0}
 button,input,select,textarea{font:inherit;color:inherit;letter-spacing:inherit}
 h1,h2,h3,h4{font-family:var(--font-display);line-height:1.3;text-wrap:balance}
-p,.hint,.notice{text-wrap:pretty}   /* v6(段3-2): 見出しは行の長さをそろえ、本文は最後の行が1文字だけにならないように。字間は変えない */
-a{color:var(--accent-ink2);text-underline-offset:2px}   /* v23: 文字の青は --accent-ink2(明るいテーマの --accent は薄い面の上で 4.3:1 と足りない。A-22) */
+p,.hint,.notice{text-wrap:pretty}   /* 見出しは行の長さをそろえ、本文は最後の行が1文字だけにならないように。字間は変えない */
+a{color:var(--accent-ink2);text-underline-offset:2px}   /* 文字の青は --accent-ink2(明るいテーマの --accent は薄い面の上で 4.3:1 と足りない。A-22) */
 a:hover{color:var(--accent-hover)}
 ::selection{background:color-mix(in srgb,var(--accent) 30%,transparent)}
 code{font-family:var(--mono);font-size:.9em;background:var(--panel-2);border:1px solid var(--line);padding:0 5px;border-radius:var(--r-xs);overflow-wrap:anywhere}
@@ -116,7 +116,7 @@ hr{border:0;border-top:1px solid var(--line);margin:var(--sp-3) 0}
 .ui-brand-mark[data-tool=transcribe]{background:#2f8fe0}
 .ui-brand-mark[data-tool=cut2resolve]{background:#f0793a}
 .ui-brand-mark[data-tool=portal]{background:#5a46e0}
-.ui-ver{font:500 11px/1 var(--font);font-variant-numeric:tabular-nums;color:var(--ink-3);background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-pill);padding:3px 7px;white-space:nowrap}   /* v6: 等幅にしない(「ホーム」など、かなの字間が空いて見えた) */
+.ui-ver{font:500 11px/1 var(--font);font-variant-numeric:tabular-nums;color:var(--ink-3);background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-pill);padding:3px 7px;white-space:nowrap}   /* 等幅にしない(「ホーム」など、かなの字間が空いて見えるため) */
 .ui-header-actions{display:flex;align-items:center;gap:6px;margin-left:auto}
 .ui-header .ui-tabs{margin-left:8px}
 @media (max-width:720px){.ui-header{padding:6px 10px;gap:6px 10px}.ui-header .ui-tabs{margin-left:0;order:3;width:100%}}
@@ -165,7 +165,7 @@ a.btn,a.btn:hover{text-decoration:none}
 .btn-group{display:inline-flex}
 .btn-group>.btn{border-radius:0;margin-left:-1px}
 .btn-group>.btn:first-child{margin-left:0}
-/* 触れたとき(:hover)・.primary・押した状態(aria-pressed)・小さいボタンとつながったボタンの角(v12 の形)は、末尾の v12 の節にある。
+/* 触れたとき(:hover)・.primary・押した状態(aria-pressed)・小さいボタンとつながったボタンの角は、末尾のサイバー風の節にある。
    上の同じ詳細度の規則(.ghost・.soft・.danger・.armed・.btn-group>.btn など)より後ろにあることで効いているので、ここへ動かさない */
 
 /* 切り替えの並び(セグメント) */
@@ -189,15 +189,15 @@ select{appearance:none;-webkit-appearance:none;padding-right:30px;cursor:pointer
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23858da0' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   background-repeat:no-repeat;background-position:right 10px center}
 select option{background:var(--panel);color:var(--ink)}
-/* ---------- 時刻の欄(v11。UIKit.timebox)---------- <span data-ui-time>。選んでいる所(時・分・秒)はアクセントで反転 */
+/* ---------- 時刻の欄(UIKit.timebox)---------- <span data-ui-time>。選んでいる所(時・分・秒)はアクセントで反転 */
 .ui-time{display:inline-flex;align-items:center;justify-content:center;min-width:96px;min-height:var(--ctl-h);padding:0 10px;box-sizing:border-box;
   background:var(--field);color:var(--ink);border:1px solid var(--line-2);border-radius:var(--r);font-family:var(--mono);font-variant-numeric:tabular-nums;
   white-space:nowrap;cursor:text;user-select:none;-webkit-user-select:none;transition:border-color var(--dur) var(--ease),box-shadow var(--dur) var(--ease)}
 .ui-time:hover{border-color:var(--line-strong)}
 .ui-time:focus{outline:none;border-color:var(--accent);box-shadow:var(--ring)}
-.ui-time.ui-time-empty{color:var(--ink-3)}   /* 空の欄の「--:--」も文字の濃さ 4.5:1 以上(F2-2 の ui_audit A-22。以前は --ink-4) */
+.ui-time.ui-time-empty{color:var(--ink-3)}   /* 空の欄の「--:--」も文字の濃さ 4.5:1 以上(F2-2 の ui_audit A-22) */
 .ui-time-seg{padding:1px;border-radius:var(--r-xs)}
-/* v29: 値が動いた単位を一瞬光らせる(ホイール・↑ ↓・add)。動きを減らす設定では動かさず一瞬の色だけ */
+/* 値が動いた単位を一瞬光らせる(ホイール・↑ ↓・add)。動きを減らす設定では動かさず一瞬の色だけ */
 .ui-time-seg.ui-time-flash{animation:ui-time-flash .4s ease-out}
 @keyframes ui-time-flash{from{background:var(--accent-line)}to{background:transparent}}
 @media (prefers-reduced-motion: reduce){.ui-time-seg.ui-time-flash{animation:none;background:var(--accent-line);}}
@@ -226,7 +226,7 @@ input[type=checkbox].ui-switch:checked::after{transform:translateX(14px);backgro
 .card-head{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;margin:-2px 0 10px}
 .card-title{margin:0;font:650 14.5px/1.35 var(--font-display);letter-spacing:.03em}
 .card-sub{color:var(--ink-3);font-size:11.5px;font-family:var(--mono)}
-.card>summary,.ui-disclosure>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;min-height:28px;font-weight:600;user-select:none}   /* v23: 押せる部品は 28px 以上(A-21) */
+.card>summary,.ui-disclosure>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;min-height:28px;font-weight:600;user-select:none}   /* 押せる部品は 28px 以上(A-21) */
 .card>summary::-webkit-details-marker,.ui-disclosure>summary::-webkit-details-marker{display:none}
 .card>summary::before,.ui-disclosure>summary::before{content:"";width:7px;height:7px;border-right:2px solid var(--ink-3);border-bottom:2px solid var(--ink-3);transform:rotate(-45deg);transition:transform var(--dur) var(--ease);flex:none;margin:0 3px 0 1px}
 .card[open]>summary::before,.ui-disclosure[open]>summary::before{transform:rotate(45deg)}
@@ -241,7 +241,7 @@ input[type=checkbox].ui-switch:checked::after{transform:translateX(14px);backgro
 .pill.err,.pill.danger{background:var(--danger-soft);color:var(--danger-ink)}
 .pill.info{background:var(--info-soft);color:var(--info-ink)}
 .pill.run,.pill.accent{background:var(--accent-soft);color:var(--accent-ink2)}
-/* v6: ずっと点滅させない(#8 美的でミニマル・「ずっと点滅する表示は作らない」)。実行中は静かな回転の輪だけにする */
+/* ずっと点滅させない(#8 美的でミニマル・「ずっと点滅する表示は作らない」)。実行中は静かな回転の輪だけにする */
 .pill.run::before{content:"";width:8px;height:8px;border-radius:50%;flex:none;border:2px solid color-mix(in srgb,currentColor 30%,transparent);border-top-color:currentColor;animation:ui-rot .8s linear infinite}
 .pill.wait{color:var(--ink-2)}
 .badge{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;border-radius:var(--r);background:var(--danger);color:var(--danger-on);font:700 11px/1 var(--font);font-variant-numeric:tabular-nums}
@@ -255,11 +255,11 @@ input[type=checkbox].ui-switch:checked::after{transform:translateX(14px);backgro
 .notice.info{border-color:color-mix(in srgb,var(--info) 40%,transparent)}
 .notice.ok{border-color:color-mix(in srgb,var(--ok) 40%,transparent)}
 .notice.danger,.notice.err{border-color:color-mix(in srgb,var(--danger) 40%,transparent)}
-/* 種類ごとの地の色と左の線の色(v12)は末尾の v12 の節(info・ok・danger の 3 つの順番どおりに後ろで決める) */
+/* 種類ごとの地の色と左の線の色は末尾のサイバー風の節(info・ok・danger の 3 つの順番どおりに後ろで決める) */
 .notice code{background:var(--panel)}
 .errbar{margin:0;padding:9px 16px;background:var(--danger);color:var(--danger-on);font-size:13px;font-weight:550}
 .errbar a{color:var(--danger-on)}
-.errbar .ui-restart-btn{margin-left:10px;vertical-align:baseline}   /* v10: 版の帯の「起動し直す」(UIKit.restart) */
+.errbar .ui-restart-btn{margin-left:10px;vertical-align:baseline}   /* 版の帯の「起動し直す」(UIKit.restart) */
 
 /* 進み具合 */
 .bar{height:8px;background:repeating-linear-gradient(90deg,var(--line-2) 0 2px,transparent 2px 6px);border-radius:0;overflow:hidden;margin-top:8px}
@@ -299,7 +299,7 @@ dialog h2,dialog h3{margin-top:0}
 .ui-krow{display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid var(--line);font-size:13px}
 .ui-krow>span:last-child:not(.ui-kkeys),.ui-krow>.ui-klabel{flex:1;min-width:0;color:var(--ink-2)}   /* キーが先でも後でも、説明の方が広がる */
 .ui-kkeys{display:inline-flex;gap:3px;align-items:center;flex:none;min-width:68px}
-/* v8(段6): キーの一覧 = キー配置(UIKit.keymap)。キーはボタン(押すと次のキーを待つ)・変えられないキーは錠。置き場の幅で 2 列 → 1 列 */
+/* キーの一覧 = キー配置(UIKit.keymap)。キーはボタン(押すと次のキーを待つ)・変えられないキーは錠。置き場の幅で 2 列 → 1 列 */
 .ui-km{container-type:inline-size}
 .ui-km-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
 @container (max-width:600px){.ui-km-grid{grid-template-columns:minmax(0,1fr)}}
@@ -342,7 +342,7 @@ td.n,th.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 /* 動きを減らす設定 */
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;scroll-behavior:auto!important}}
 
-/* ---------- v3(2026-09-26): 画面の見直しで足した共通の部品 ---------- */
+/* ---------- 画面の見直しで足した共通の部品 ---------- */
 .ui-menu-pop .ui-menu-sep{height:1px;background:var(--line);margin:4px 2px}
 
 /* 一覧の道具の行(検索・絞り込み・並び替え・件数)。検索欄は残りの幅いっぱいに伸びる */
@@ -360,14 +360,14 @@ td.n,th.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 .ui-group>summary .ui-group-side{margin-left:auto;display:flex;gap:6px;align-items:center}
 /* 言葉の説明(専門用語)。<abbr class="ui-term" title="説明">EDL</abbr>。点線の下線で「説明がある」と分かる */
 .ui-term{text-decoration:underline dotted color-mix(in srgb,var(--ink-3) 70%,transparent);text-underline-offset:3px;cursor:help}
-/* 配信者の名前(字幕の色)の欄(v5。UIKit.streamer): 色の見本と、合う人・候補の表示 */
+/* 配信者の名前(字幕の色)の欄(UIKit.streamer): 色の見本と、合う人・候補の表示 */
 .ui-streamer-sw{display:inline-block;flex:none;width:14px;height:14px;border-radius:50%;border:1px solid var(--line-2);vertical-align:middle}
 .ui-streamer-hint{display:block;flex-basis:100%;color:var(--ink-3);font-size:var(--fs-xs,12px);overflow-wrap:anywhere}
 /* 次にやること(一覧の1行に1つだけ出す短い案内) */
 .ui-next{display:inline-flex;align-items:center;gap:6px;font-size:var(--fs-sm);color:var(--accent-ink2);font-weight:600}
 .ui-next::before{content:"→"}
 
-/* ---------- v6(2026-09-27・画面の全面見直し 段階1): ui-appnav・ui-drawer・ui-dialog・ui-pop・ui-toasts・ui-keybar・ui-kbd・ui-miniprogress・SVG アイコン ---------- */
+/* ---------- 画面の全面見直し 段階1: ui-appnav・ui-drawer・ui-dialog・ui-pop・ui-toasts・ui-keybar・ui-kbd・ui-miniprogress・SVG アイコン ---------- */
 
 /* ホーム / 案件 / 確かめる / 設定(ヘッダーの左端)。中身は ui-kit.js の UIKit.appnav が作る(data-ui-appnav="portal|cases|check|settings") */
 .ui-appnav{display:flex;align-items:center;gap:2px;flex:none}
@@ -384,12 +384,12 @@ td.n,th.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 .ui-drawer-head{display:flex;align-items:center;gap:6px 12px;flex-wrap:wrap;padding:12px 14px 12px 18px;border-bottom:1px solid var(--line);background:var(--panel);flex:none}
 .ui-drawer-title{margin:0;font:650 16px/1.3 var(--font-display);flex:1 1 auto;min-width:0}
 .ui-drawer-body{flex:1 1 auto;overflow-y:auto;padding:14px 16px 32px;overscroll-behavior:contain}
-/* v9: 設定の保存・読み込みの失敗(UIKit.settings.status)。⚙ ボタンに赤い印、引き出しの先頭に理由と再試行 */
+/* 設定の保存・読み込みの失敗(UIKit.settings.status)。⚙ ボタンに赤い印、引き出しの先頭に理由と再試行 */
 [data-ui-settings][data-ui-status=err]{position:relative}
 [data-ui-settings][data-ui-status=err]::after{content:"";position:absolute;top:2px;right:2px;width:8px;height:8px;border-radius:50%;background:var(--danger);box-shadow:0 0 0 2px var(--panel)}
 .ui-settings-status{margin:0 0 14px}
 .ui-settings-status .btn{margin-left:8px}
-/* v25: スキーマから描く設定の節(UIKit.settingsForm。入口の /settings) */
+/* スキーマから描く設定の節(UIKit.settingsForm。入口の /settings) */
 .ui-set-group{margin:0 0 22px}
 .ui-set-group>h4{margin:0 0 4px;font:650 13px/1.3 var(--font);color:var(--ink)}
 .ui-set-ghint{margin:0 0 6px}
@@ -422,11 +422,11 @@ dialog.ui-dialog{padding:0;width:min(420px,calc(100% - 32px))}
 .ui-pop-body a,.ui-pop-body button{display:flex;align-items:center;gap:8px;width:100%;padding:7px 10px;border-radius:var(--r);color:var(--ink);text-decoration:none;border:0;background:none;cursor:pointer;text-align:left;font:inherit}
 .ui-pop-body a:hover,.ui-pop-body button:hover{background:var(--panel-2)}
 
-/* 一覧を1枚の紙に(v6。段3 の仕上げ): 枠は外側に1つ、行の間は細い線。行ごとに角丸のカードを隙間つきで積まない(ブリーフの「カードが並ぶダッシュボード」を避ける) */
+/* 一覧を1枚の紙に(段3 の仕上げ): 枠は外側に1つ、行の間は細い線。行ごとに角丸のカードを隙間つきで積まない(ブリーフの「カードが並ぶダッシュボード」を避ける) */
 .ui-sheet{border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel);overflow:hidden}
 .ui-sheet>*+*{border-top:1px solid var(--line)}
 
-/* 左の一覧(v26。案件の画面 /cases の「候補(配信全体)+ 切り抜き 1 本 1 行」)。行は button.ui-rail-item(Tab で届く)・選んだ行は aria-current="true"・
+/* 左の一覧(案件の画面 /cases の「候補(配信全体)+ 切り抜き 1 本 1 行」)。行は button.ui-rail-item(Tab で届く)・選んだ行は aria-current="true"・
    見出しは .ui-rail-sep。行の中の状態の札(.pill)は行と一緒に押される(札だけでは押せない = data-ui-audit-allow="A-33" を付ける) */
 .ui-rail{display:flex;flex-direction:column;gap:1px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:6px;min-width:0}
 .ui-rail-sep{font:600 11.5px/1 var(--font);color:var(--ink-3);padding:10px 8px 4px}
@@ -438,7 +438,7 @@ dialog.ui-dialog{padding:0;width:min(420px,calc(100% - 32px))}
 .ui-rail-s{display:block;font-size:var(--fs-xs);color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ui-rail-item .pill{flex:none}
 
-/* 読みの比べる欄(v28。RS8 V1 確かめる)。2〜3 個の読みを同じ幅で横に並べる(校正のパネルの 3 択「前の機械 / 今の機械 / あなたの直し」と、
+/* 読みの比べる欄(RS8 V1 確かめる)。2〜3 個の読みを同じ幅で横に並べる(校正のパネルの 3 択「前の機械 / 今の機械 / あなたの直し」と、
    確かめるの読みのカード「1 / 2」で共用)。<div class="ui-pair"><div class="ui-pair-opt"><span class="ui-pair-lb">1 認識のまま</span><p>…</p></div>…</div>。
    目立たせる 1 つは .is-accent。狭い画面(560px 以下)では縦に積む */
 .ui-pair{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:8px}
@@ -448,7 +448,7 @@ dialog.ui-dialog{padding:0;width:min(420px,calc(100% - 32px))}
 .ui-pair-opt p{margin:0;font-size:13.5px;line-height:1.55;overflow-wrap:anywhere;color:var(--ink)}
 @media (max-width:560px){.ui-pair{grid-auto-flow:row}}
 
-/* 通知(重ねて最大2つ(v21。以前は3つ)。UIKit.toast)。#toast(既存の単発の .toast)を見つけたら入れ物として作り直す。両テーマで暗い面 */
+/* 通知(重ねて最大2つ。UIKit.toast)。#toast(既存の単発の .toast)を見つけたら入れ物として作り直す。両テーマで暗い面 */
 .ui-toasts{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:90;display:flex;flex-direction:column;gap:8px;max-width:min(560px,calc(100% - 32px));pointer-events:none}
 .ui-toast{display:flex;align-items:flex-start;gap:10px;padding:10px 16px;border-radius:var(--r-lg);background:var(--toast-bg);color:var(--toast-ink);border:1px solid rgba(255,255,255,.08);font-size:13px;overflow-wrap:anywhere;cursor:pointer;pointer-events:auto;animation:ui-toast .2s var(--ease)}
 .ui-toast::before{content:"";flex:none;width:8px;height:8px;margin-top:6px;border-radius:50%;background:#8f97a8}
@@ -458,14 +458,14 @@ dialog.ui-dialog{padding:0;width:min(420px,calc(100% - 32px))}
 .ui-toast-detail{margin-top:4px;color:color-mix(in srgb,var(--toast-ink) 70%,transparent);cursor:auto}
 .ui-toast-detail>summary{cursor:pointer;font-size:12px}
 .ui-toast-detail>div{margin-top:4px;font:11.5px var(--mono);white-space:pre-wrap;overflow-wrap:anywhere}
-/* v7: 知らせのボタン(1つ)と閉じる。暗い帯の上なので、文字色は帯の文字の色・枠は薄い白 */
+/* 知らせのボタン(1つ)と閉じる。暗い帯の上なので、文字色は帯の文字の色・枠は薄い白 */
 .ui-toast-act{flex:none;align-self:center;padding:3px 12px;border-radius:var(--r);border:1px solid rgba(255,255,255,.45);background:transparent;color:var(--toast-ink);font:inherit;font-weight:600;cursor:pointer}
 .ui-toast-act:hover{background:rgba(255,255,255,.12)}
 .ui-toast-x{flex:none;align-self:flex-start;display:inline-grid;place-items:center;width:28px;height:28px;margin:-5px -11px 0 -3px;padding:0;border:0;border-radius:var(--r-sm);background:transparent;color:color-mix(in srgb,var(--toast-ink) 75%,transparent);font-size:16px;line-height:1;cursor:pointer}
-.ui-toast-x svg{width:14px;height:14px}   /* v23: × の文字をやめて SVG(A-10) */
+.ui-toast-x svg{width:14px;height:14px}   /* × は SVG(A-10) */
 .ui-toast-x:hover{background:rgba(255,255,255,.12);color:var(--toast-ink)}
 .ui-toast-act:focus-visible,.ui-toast-x:focus-visible{outline:2px solid #5cc3ff;outline-offset:1px}
-/* v7: まとめて実行の部品(UIKit.autorun): 要約1行 +「設定を変える」(ポップオーバーの中は項目の並び) */
+/* まとめて実行の部品(UIKit.autorun): 要約1行 +「設定を変える」(ポップオーバーの中は項目の並び) */
 .ui-autorun{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;font-size:12.5px;color:var(--ink-2)}
 .ui-ar-sum{flex:1 1 auto;min-width:0}
 .ui-ar-body{width:min(360px,calc(100vw - 32px));max-height:min(70vh,560px);overflow:auto;padding:12px 14px}
@@ -474,11 +474,11 @@ dialog.ui-dialog{padding:0;width:min(420px,calc(100% - 32px))}
 .ui-ar-l{font-weight:600;font-size:12px;color:var(--ink-2)}
 .ui-ar-h{font-size:11.5px;color:var(--ink-3)}
 .ui-ar-c{display:flex;gap:6px;align-items:flex-start;line-height:1.4}
-.ui-ar-c>input[type=checkbox]{flex:none;width:16px;min-width:16px;margin-top:2px}   /* v22: 置いた画面の input{width:100%}(スタジオ ③ のメニュー)で文字が 1 文字ずつ縦に割れていた */
+.ui-ar-c>input[type=checkbox]{flex:none;width:16px;min-width:16px;margin-top:2px}   /* 置いた画面の input{width:100%}(スタジオ ③ のメニュー)で文字が 1 文字ずつ縦に割れないように幅を固定する */
 .ui-ar-f select,.ui-ar-f input[type=number]{max-width:100%}
 .ui-ar-body button{width:auto;display:inline-flex}
-.ui-streamer-badge{margin-left:6px;font-size:11px}   /* v7: 配信者の欄の「自動(チャンネル名から)」「前回」 */
-/* v7: 二度押しの確認(UIKit.confirmTwice)の1回目。戻せない操作なので危険の色 */
+.ui-streamer-badge{margin-left:6px;font-size:11px}   /* 配信者の欄の「自動(チャンネル名から)」「前回」 */
+/* 二度押しの確認(UIKit.confirmTwice)の1回目。戻せない操作なので危険の色 */
 .btn.armed{background:var(--danger-soft);border-color:color-mix(in srgb,var(--danger) 45%,transparent);color:var(--danger-ink)}
 
 /* 画面の下の細い帯(いま使えるキー。UIKit.keybar)。既定は表示・設定「キーの帯を出す」で消せる(ytt:keybar=0) */
@@ -502,7 +502,7 @@ dialog.ui-dialog{padding:0;width:min(420px,calc(100% - 32px))}
 .ui-settings-sec>h3{margin:0 0 10px;font:650 12px/1.3 var(--font);color:var(--ink-3)}
 .ui-settings-row{display:flex;align-items:center;gap:10px;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line)}
 .ui-settings-row:last-child{border-bottom:0}
-.ui-settings-row>span,.ui-settings-row>label:not(.lag){color:var(--ink-2);font-size:13px}   /* v23: 全体の節の名前は <label for> に(A-24) */
+.ui-settings-row>span,.ui-settings-row>label:not(.lag){color:var(--ink-2);font-size:13px}   /* 全体の節の名前は <label for>(A-24) */
 /* ツールの節の .fld(名前 + select)も、全体の節と同じ1行の形に(同じ欄の中で形をそろえる。段3-3)。文字の欄(API キーなど)は今までどおり縦に */
 .ui-settings-sec .fld:has(>select){display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0;padding:8px 0;border-bottom:1px solid var(--line)}
 .ui-settings-sec .fld:has(>select)>label,.ui-settings-sec .fld:has(>select)>.l{margin:0;font-weight:400;color:var(--ink-2);font-size:13px}
@@ -515,15 +515,14 @@ dialog.ui-dialog{padding:0;width:min(420px,calc(100% - 32px))}
 /* 文字の大きさ「大きい」(設定。html[data-fs=lg]) */
 html[data-fs=lg]{--fs-xs:12.5px;--fs-sm:13.5px;--fs-md:15.5px;--fs-lg:17.5px;--fs-xl:21.5px}
 
-/* ================================================================ v12(2026-10-02): サイバー風 ― 計器盤(HUD)の形と配色
+/* ================================================================ サイバー風 ― 計器盤(HUD)の形と配色
    決めたこと: notes:docs/design/briefs/cyber-theme/(見本 board.html・patterns.css。ユーザーが A 計器盤 と 配色4つ を選んだ)。
    形: 角はほぼ直角(2px)・細い 1px の線・カードの左上と右下に角の括弧・タブと切り替えは下線・状態の札は枠だけ・
        進み具合は目盛り・知らせは左の線。数字と札は等幅の文字。光らせない(情報が主役)。
    色: 明るい = アイスライト(:root)・暗い = ネオンシアン(:root[data-theme=dark])。暗いときの配色は data-palette(UIKit.theme.palette)で
        鋼の白(steel)・ターミナルグリーン(green)に替えられる。どれも文字/地 4.5:1 以上・状態の色どうしが紛れないように選んだ
-   v19(2026-10-07): 前の節と同じ selector で上書きしていた規則(28 組)のうち 15 組は、前の節の規則へまとめた(値は v12 のまま。トークン・.btn・.card・.pill・
-       .badge・.notice・.bar・th・kbd・.ui-header など)。ここに残したのは、配色の追加・新しい形(カードの角の括弧・下線のタブ)と、
-       前の節の同じ詳細度の規則より後ろにあることで効いている上書き(前へ動かすと見た目が変わる。全画面の computed style を前後で比べて確かめた) */
+   ここに置くのは、配色の追加・新しい形(カードの角の括弧・下線のタブ)と、
+       前の節の同じ詳細度の規則より後ろにあることで効いている上書き(前へ動かすと見た目が変わる) */
 :root[data-theme=dark][data-palette=steel]{
   --bg:#0C0F13;--bg-2:#090B0E;--panel:#14181E;--panel-2:#101318;--panel-3:#1F252D;--field:#0C0F13;--field-hover:#101318;
   --line:#2A313B;--line-2:#3A4350;--line-strong:#525D6C;--ink:#E8ECF1;--ink-2:#B4BCC7;--ink-3:#8D97A4;--ink-4:#636D7A;
@@ -538,7 +537,7 @@ html[data-fs=lg]{--fs-xs:12.5px;--fs-sm:13.5px;--fs-md:15.5px;--fs-lg:17.5px;--f
   --ok:#5CE1E6;--ok-ink:#5CE1E6;--ok-soft:rgba(92,225,230,.11);--warn:#FFC14D;--warn-ink:#FFC14D;--warn-soft:rgba(255,193,77,.12);
   --danger:#FF5F6D;--danger-ink:#FF8A94;--danger-soft:rgba(255,95,109,.12);--info:#9DB8FF;--info-ink:#B6CAFF;--info-soft:rgba(157,184,255,.11);
   --header-bg:rgba(6,11,8,.92);--scroll-thumb:#2A4A36;--knob:#032611}
-/* v30(2026-10-17): シンセウェーブ(synth)= 友人のアプリの配色 B の地・面・線・文字・アクセント */
+/* シンセウェーブ(synth)= 友人のアプリの配色 B の地・面・線・文字・アクセント */
 :root[data-theme=dark][data-palette=synth]{
   --bg:#0D0A17;--bg-2:#09070F;--panel:#161129;--panel-2:#120E21;--panel-3:#211A3B;--field:#0D0A17;--field-hover:#120E21;
   --line:#30245A;--line-2:#3E3073;--line-strong:#57469A;--ink:#ECE6FF;--ink-2:#BFB5E2;--ink-3:#9288B8;--ink-4:#6B6290;
@@ -574,11 +573,11 @@ html[data-fs=lg]{--fs-xs:12.5px;--fs-sm:13.5px;--fs-md:15.5px;--fs-lg:17.5px;--f
 .notice.info{background:var(--info-soft);border-left-color:var(--info)}
 .notice.ok{background:var(--ok-soft);border-left-color:var(--ok)}
 .notice.danger,.notice.err{background:var(--danger-soft);border-left-color:var(--danger)}
-/* v13: 非表示にした項目(UIKit.hide。「非表示 n件を表示」で出したとき)は薄く。札 .ui-hidden-tag で非表示だと分かるように */
+/* 非表示にした項目(UIKit.hide。「非表示 n件を表示」で出したとき)は薄く。札 .ui-hidden-tag で非表示だと分かるように */
 .ui-hidden-item{opacity:.55}
 .ui-hidden-item:hover,.ui-hidden-item:focus-within{opacity:.85}
 .ui-hidden-tag{font-size:11px;color:var(--ink-3);border:1px dashed var(--line-2);border-radius:var(--r-xs,3px);padding:0 5px;white-space:nowrap}
-/* v16: ヘッダーの「録画中」の札(UIKit.liveBadge)。録画があるときだけ JS が .ui-header-actions の先頭に作る。色だけに頼らず文字も出す(点は飾り) */
+/* ヘッダーの「録画中」の札(UIKit.liveBadge)。録画があるときだけ JS が .ui-header-actions の先頭に作る。色だけに頼らず文字も出す(点は飾り) */
 .ui-live{position:relative;display:inline-flex;align-items:center}
 .ui-live[hidden],.ui-live-panel[hidden],.ui-live-row [hidden]{display:none}
 .ui-live-btn{gap:7px;color:var(--ink)}
@@ -591,7 +590,7 @@ html[data-fs=lg]{--fs-xs:12.5px;--fs-sm:13.5px;--fs-md:15.5px;--fs-lg:17.5px;--f
 .ui-live-btn[aria-expanded=true]{background:var(--panel-2)}
 .ui-live-panel{position:absolute;right:0;top:calc(100% + 6px);z-index:60;width:min(400px,calc(100vw - 20px));max-height:70vh;overflow-y:auto;padding:4px;background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-lg);box-shadow:var(--shadow-2);animation:ui-pop .14s var(--ease)}
 .ui-live-panel:focus{outline:none}
-.ui-live-panel:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}   /* v23: キーボードで開いたときは輪を出す(A-07) */
+.ui-live-panel:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}   /* キーボードで開いたときは輪を出す(A-07) */
 .ui-live-list{list-style:none;margin:0;padding:0}
 .ui-live-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 10px;align-items:center;padding:8px 10px}
 .ui-live-row+.ui-live-row{border-top:1px solid var(--line)}
@@ -606,7 +605,7 @@ html[data-fs=lg]{--fs-xs:12.5px;--fs-sm:13.5px;--fs-md:15.5px;--fs-lg:17.5px;--f
 .ui-live-acts .btn.armed{background:var(--danger);border-color:var(--danger);color:var(--danger-on)}
 @media (max-width:560px){.ui-live-btn{padding:0 7px}}
 
-/* ---------- v21(2026-10-07・気が利く画面へ 段7) ---------- */
+/* ---------- 気が利く画面へ 段7 ---------- */
 /* 一覧の行の中の「次の一手」のボタン(.ui-next のボタン版。編集の履歴の「パックを作る →」・ホームの案件の「書き出し 2本 →」)。
    ボタンは札(.pill)とほぼ同じ高さ(行の高さをそろえる)・アクセントの文字・押せる範囲は ::before で上下に広げて 28px(guidelines 6)。
    .btn を付けない(<a> で行き先が無いなど)ときは、押せない案内の文字だけ */
@@ -618,12 +617,12 @@ html[data-fs=lg]{--fs-xs:12.5px;--fs-sm:13.5px;--fs-md:15.5px;--fs-lg:17.5px;--f
 .ui-menu>summary[aria-disabled=true],.ui-pop>summary[aria-disabled=true]{cursor:not-allowed}
 .ui-menu>summary[aria-disabled=true]:not(.btn),.ui-pop>summary[aria-disabled=true]:not(.btn){opacity:.55}
 
-/* ---------- v22(2026-10-07・気が利く画面へ 段9 見た目の確認) ----------
-   --danger-on: 赤い面(--danger)の上の文字の色。明るいテーマは白、暗いテーマは濃い色(暗いテーマの --danger は明るい赤なので、白い文字は 2.9:1 で読みにくかった)。
+/* ---------- 気が利く画面へ 段9 見た目の確認 ----------
+   --danger-on: 赤い面(--danger)の上の文字の色。明るいテーマは白、暗いテーマは濃い色(暗いテーマの --danger は明るい赤なので、白い文字は 2.9:1 で読みにくい)。
    使う所: .errbar(赤い帯)・.badge・.btn.danger.solid・録画の停止の二度押し・編集の行の札「カット済」・スタジオの LIVE の札。新しく赤い面に文字を置くときもこれ */
 
-/* ---------- v23(2026-10-07・UI の見直しの基準 notes:docs/spec/ui.md に合わせる) ----------
-   - 文字記号のアイコン(▾ ▸ × ☰ ⚙ ✂ ▶ ✓)をやめる(ブリーフの Anti-references・A-10)。メニューが開く印は .ui-caret(線で描く小さな山形。文字ではない)、ほかは UIKit.icon の SVG
+/* ---------- UI の見直しの基準(notes:docs/spec/ui.md に合わせる) ----------
+   - 文字記号のアイコン(▾ ▸ × ☰ ⚙ ✂ ▶ ✓)は使わない(ブリーフの Anti-references・A-10)。メニューが開く印は .ui-caret(線で描く小さな山形。文字ではない)、ほかは UIKit.icon の SVG
      使い方: <summary class="btn">まとめて <span class="ui-caret" aria-hidden="true"></span></summary>。右向き(「この後を ▸」のような)は .ui-caret.right
    - --ink-4(薄い灰色)は、明るいテーマで面に対して 3.2〜3.6:1 しかない。placeholder・空の欄(--)・押せない物・飾りにだけ使い、情報の文字(時刻・件数・説明)には --ink-3 以上を使う(A-22。決定 P-4)
    - 文字の青(a・.ui-next-btn)は --accent-ink2(明るいテーマの --accent は薄い面の上で 4.3:1)。押せる部品の高さは 28px 以上(.card>summary・.ui-disclosure>summary にも min-height) */

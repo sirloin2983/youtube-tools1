@@ -45,7 +45,7 @@ TOOL_ID = "studio"        # notes:docs/spec/pipeline.md の 4 のツールID(.ru
 exporter.TOOL.update(name=APP_ID, version=SERVER_VERSION)   # .clip.json の tool
 EXPORTS = _flowexport.default()   # 書き出しの器(② の flow/export。プロセスに 1 つ = スタジオなしの台帳 flow/studiobook と同じ物。OPT2 の J2)
 CODE_DIR = startup.CODE_DIR
-# 画面の部品だけ(RS8 C4 でスタジオの画面のページ・core.js・settings.js・CSS・ui-kit の写しを消した)。案件の画面とホームの「新しい案件」が
+# 画面の部品だけ(スタジオの画面のページは持たない)。案件の画面とホームの「新しい案件」が
 # studio/review.js(候補のパネル)・studio/rank.js と queue.js(新しい案件)・studio/collab.js(新しい案件の「探す設定」のコラボ)を相対パスで読む
 STATIC = {"/rank.js": "rank.js", "/queue.js": "queue.js", "/review.js": "review.js", "/collab.js": "collab.js"}
 UI_DIR = os.path.join(os.path.dirname(CODE_DIR), "app", "ui", "studio")   # 画面の部品の置き場所(RV C2 で src/studio から src/app/ui/studio へ。URL は /studio/review.js のまま)
@@ -180,7 +180,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         u = urllib.parse.urlsplit(self.path)
-        if not (self._host_ok() and self._fetch_site_ok()):   # 画面のページは配らない(部品の JS と API だけ)ので、他のツールのリンクからの遷移の別扱いは棚卸しで消した
+        if not (self._host_ok() and self._fetch_site_ok()):   # 画面のページは配らない(部品の JS と API だけ)ので、他のツールのリンクからの遷移の別扱いは要らない
             return self._send(403, b"forbidden")
         q = urllib.parse.parse_qs(u.query)
         arg = lambda k: (q.get(k) or [""])[0]
@@ -568,7 +568,7 @@ DATA_STATE = None   # 起動時の datadir.prepare の結果(画面・入口に�
 
 
 def _data_home():
-    """データの置き場所。規則は ytt.datadir の1か所: 環境変数 STUDIO_HOME があればそれ(テスト用・以前からの指定)。
+    """データの置き場所。規則は ytt.datadir の1か所: 環境変数 STUDIO_HOME があればそれ(テスト用の指定)。
     無ければ %LOCALAPPDATA%\\youtube-tools\\studio。
     決めた場所は datadir.prepare が登録する(入口の中の案件・「編集」が datadir.resolve で同じ場所を読む)"""
     global DATA_STATE
@@ -593,7 +593,7 @@ def prepare(port, base_path="/"):
     default = os.path.normcase(_env.home()) == os.path.normcase(os.path.abspath(CODE_DIR))
     init(_data_home() if default else None)
     datadir.register(TOOL_ID, _env.home())   # テスト・入口が先に決めていたときも、実際に使う場所を同じプロセスの他のツールへ知らせる
-    startup.migrate_old_logs()   # 以前の studio.log.old などは .gitignore に掛からないので、*.log の名前に直す(公開リポジトリに載せない)
+    startup.migrate_old_logs()   # studio.log.old などは .gitignore に掛からないので、*.log の名前に直す(公開リポジトリに載せない)
     _attach_warn_log()
     _log("起動 v%s port=%d%s pid=%d python=%s" % (SERVER_VERSION, port, "" if base_path == "/" else " path=" + base_path, os.getpid(), sys.version.split()[0]))
     shutil.rmtree(fetch.work_dir(), ignore_errors=True)   # 前回の途中で残った作業ファイルを消す
@@ -626,7 +626,7 @@ def shutdown_jobs(wait=SHUTDOWN_WAIT):
     """終了の流れ(入口の「すべて終了」・Ctrl+C・黒い画面の×・SIGTERM)で、実行中の解析・書き出し・チャットの先読みを止める。
     ① 中止を伝える(待ちの配信は「中止」で取り除く。解析・書き出しのジョブは「中止」で終わる)→ ② 子プロセス(ffmpeg・yt-dlp)を孫ごと止める
     → ③ ジョブのスレッドが後始末(作業用のファイルを消す)を終えるのを wait 秒まで待つ。何も動いていなければすぐ戻る。
-    Windows では子が別のプロセスグループ・窓なしで起動しているので、止めないと入口が終わったあとも見えないまま残る(2026-09-30 の設計レビュー)。
+    Windows では子が別のプロセスグループ・窓なしで起動しているので、止めないと入口が終わったあとも見えないまま残る。
     中断したものは studio.log に残す(待ち行列・書き出しのジョブはメモリだけなので、起動し直すと画面からは消える)"""
     names = BATCH.shutdown() if BATCH else []
     exports = EXPORTS.cancel_all()
@@ -655,7 +655,7 @@ def finish():
 
 def mounted_elsewhere():
     """入口(start.bat)の統合サーバーの中でスタジオが動いていれば、その URL。
-    同じ data.json を2つのサーバーで取り合わないよう、serve.py を直接起動したときはそちらを開くだけにする(単独起動の start.bat は 09-26 に廃止)。"""
+    同じ data.json を2つのサーバーで取り合わないよう、serve.py を直接起動したときはそちらを開くだけにする(単独起動はしない)。"""
     info = ytt_runtime.read_runtime(handoff.runtime_dir(), TOOL_ID)
     if info and info["path"] != "/" and ytt_runtime.ping_app(info["port"], 1, info["path"]) == APP_ID:
         return "http://localhost:%d%s" % (info["port"], info["path"])

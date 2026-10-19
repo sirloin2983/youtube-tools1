@@ -330,7 +330,7 @@ class BackupTest(unittest.TestCase):
         self.assertEqual(backup.default_media_dirs(), [])
 
     def test_restore_skips_what_backup_would_not_copy(self):
-        """以前の決まりで写った物(app/intake の動画・analytics・ログ)は写し戻さない"""
+        """写さない場所の物(app/intake の動画・analytics・ログ)は写し戻さない"""
         backup.run_once(self.src, self.dst)
         d = os.path.join(self.dst, backup.DEST_NAME)
         put(os.path.join(d, "app", "intake", "2026-10-04", "x.mp4"), "video")

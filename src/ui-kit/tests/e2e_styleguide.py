@@ -38,7 +38,7 @@ def wait_js(page, expr, timeout=8000):
 
 
 def check_restart(browser, base, check):
-    """版の帯(UIKit.restart。v10・段9 9-3): 単体では案内だけ / 合言葉があれば「起動し直す」→ 断られたら理由 → 頼めたら ping を待って読み込み直す / 戻らなければ案内"""
+    """版の帯(UIKit.restart): 単体では案内だけ / 合言葉があれば「起動し直す」→ 断られたら理由 → 頼めたら ping を待って読み込み直す / 戻らなければ案内"""
     st = {"calls": [], "mode": "refuse", "ping": 0, "ping_ok_after": 1}
 
     def on_restart(route):
@@ -46,7 +46,7 @@ def check_restart(browser, base, check):
         if st["mode"] == "refuse":
             route.fulfill(status=409, content_type="application/json",
                           body=json.dumps({"error": "busy", "message": "実行中の処理があります(文字起こし)。終わってから起動し直してください"}, ensure_ascii=False))
-        else:   # v20: まとめて実行の待ち・実行中は断らずに notice で知らせる(入口 0.41.0)
+        else:   # まとめて実行の待ち・実行中は断らずに notice で知らせる
             route.fulfill(status=200, content_type="application/json",
                           body=json.dumps({"ok": True, "notice": "まとめて実行の待ち・実行中の 2 件は、起動し直したあとに続きから進めます"}, ensure_ascii=False))
 

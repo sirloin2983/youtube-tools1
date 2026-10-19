@@ -1,4 +1,4 @@
-"""「調子」(全体の計画 段9 9-1。git の履歴(679ff01 以前)の docs/plan/phase9-ops-stability.md)。
+"""「調子」(全体の計画 段9 9-1)。
 
 入口の GET /api/health が返す中身を集める部品。版(期待と実際)・認識ワーカー・外部プログラム(ffmpeg・ffprobe・yt-dlp)・
 空き容量・作業データの大きさ・エラーの件数(画面のエラー・まとめて実行の失敗)を1つにまとめる。
@@ -22,7 +22,7 @@ TOP_ITEMS = 12           # ツールごとに出す直下の項目の数
 CLIENT_ERR_WINDOW = 24 * 3600
 AUTORUN_FAIL_WINDOW = 7 * 24 * 3600
 TOOL_TIMEOUT = 5.0
-CRASH_WINDOW = 7 * 24 * 3600     # 異常終了を数える期間(秒。見張り役。git の履歴(679ff01 以前)の docs/plan/stability-review-2026-10.md)
+CRASH_WINDOW = 7 * 24 * 3600     # 異常終了を数える期間(秒。見張り役)
 CRASH_TIMEOUT = 15.0             # wevtutil を待つ秒数
 CRASH_MAX_EVENTS = 500           # ログごとに読む件数の上限(新しい順)
 # アプリの異常終了(Application Error 1000)を個別に数える exe(小文字)。それ以外は "other" に合算
@@ -56,7 +56,7 @@ def _size_row(tool, label, path):
 def data_sizes(repo_root=None, env=None, outside=()):
     """作業データの置き場所ごとの大きさ。-> {"root", "dirs": [{tool, label, path, bytes, files, items}], "bytes", "outside": [同じ形]}。
     作業データの親(data_root)があれば、その直下のフォルダを**全部**数える(固定の一覧だと、無いツールの項目が黙って飛ばされ・
-    learning・analytics・recorder などが数えられなかった = 10-14 の調べで画面は実際の約 19%。opt-manage 8b-1)。inplace なら各ツールのフォルダ。
+    learning・analytics・recorder などが数えられず、画面は実際の約 19% だった。opt-manage 8b-1)。inplace なら各ツールのフォルダ。
     outside = [(名前, パス)](書き出し先など作業データの外)。別の行で出し、bytes(注意の線を引く合計)には足さない(8b-2)"""
     root = datadir.data_root(env)
     dirs = []

@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """④ 受け渡し: 元の配信の情報(clip/v1)・受け渡しの JSON と SRT を動画の隣に保存
-(notes:docs/spec/pipeline.md の 2・4・6。段10 で editor/serve.py から分けた ed_misc。役割で組み直す RS3-E7(2026-10-10)に manage/cases/handoff_io.py へ移した。
-旧い名前 ed_misc の殻は RS5-A で消した)。
+(notes:docs/spec/pipeline.md の 2・4・6)。
 
 - .runtime の置き場所 runtime_path_dir は app(editor/ed_state.py)
 - 名前 handoff_io はスタジオの handoff(配信 → 編集の受け渡しの書き手)と重ねないため
@@ -13,7 +12,7 @@ import json
 import os
 
 from ytt import errors as _errors, fsio as _fsio  # noqa: E402
-from ytt import studiodata as _studiodata, tools as _tools  # noqa: E402   (スタジオの data.json の読み口・動画と音声の小道具。RS3-0A に移した)
+from ytt import studiodata as _studiodata, tools as _tools  # noqa: E402   (スタジオの data.json の読み口・動画と音声の小道具)
 from flow import pack as _flowpack  # noqa: E402   (受け渡しの JSON と SRT の組み立て。RS6 a-5a に pipeline/pack/resolve_export から。呼ぶたびに _flowpack.名前 で読む)
 from ytt import txbase as _txbase  # noqa: E402   ロガー log(RS3-E7 まで ed_state の別名で読んでいた)
 from human.proof import store as _store  # noqa: E402   文書の読み・編集の内容(呼ぶたびに _store.名前 で読む)

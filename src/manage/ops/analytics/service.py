@@ -26,7 +26,7 @@ from . import bridge as bridge_mod, calc, data, render
 
 CHECK_EVERY = 300        # 新しい raw を見る間隔(秒)
 FIRST_WAIT = 45          # 起動してから最初に見るまで(秒。ツールの起動とぶつけない)
-DEFAULT_PLAN = 28        # 予定の週のショートの本数の既定(ユーザー 10-09「週 28 付近を維持するつもり」)
+DEFAULT_PLAN = 28        # 予定の週のショートの本数の既定(ユーザー「週 28 付近を維持するつもり」)
 RAW_KEEP = 400          # 受け取った raw を残す数(古いものから消す。1 つ 約 0.5MB)
 NAME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}\.json$")
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{10,200}$")
@@ -300,7 +300,7 @@ class Service:
         self._save_report(kind, period, r, text, html, meta)
         out = {"kind": kind, "period": period, "seconds": round(self.clock() - t0, 1)}
         if send:
-            # 連携(gas/Code.gs)は日付を YYYY-MM-DD でしか受け取らない。月報の期間「2026-09」はその月の 1 日にして渡す(10-09 に月報だけ断られた)
+            # 連携(gas/Code.gs)は日付を YYYY-MM-DD でしか受け取らない。月報の期間「2026-09」はその月の 1 日にして渡す(月報だけ断られるため)
             date = period if len(period) == 10 else period + "-01"
             res = b.report(kind, date, text, html, {"rawId": meta.get("id"), "rawUpdated": meta.get("updated"), "fetched": r["fetched"],
                                                     "period": period, "tool": VERSION})

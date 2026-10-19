@@ -4,11 +4,11 @@
 - 動画の隣への保存            … 同名のファイルがあるときの「上書き / 別名」の規則と、原子的な書き込み
 - .runtime/<ツールID>.json    … 実行中のポートの共有と、他のツールの問い合わせ(/api/siblings)
 
-受け渡しの JSON(transcript/v1・cut-plan/v1)と SRT を組み立てる部分(build_*)は、RS3-E5b で pipeline/pack/resolve_export へ移した
+受け渡しの JSON(transcript/v1・cut-plan/v1)と SRT を組み立てる部分(build_*)は、pipeline/pack/resolve_export にある
 (パックが読む形を作る側なので ① に置く。manage から ① を読む向きは正しい)。呼ぶ側は resolve_export.build_transcript_v1 などと読む。
 
 serve.py(17万文字)に直接足さず、ここに分けたのは、将来1つのアプリに統合するときに、この部品ごと移せるようにするため。
-ツールに依らない部分(clip/v1 の検証・原子的な書き込み・.runtime)は共通部品 ytt(統合計画の段階2)に移し、ここからはそれを呼ぶ。
+ツールに依らない部分(clip/v1 の検証・原子的な書き込み・.runtime)は共通部品 ytt(統合計画の段階2)にあり、ここからはそれを呼ぶ。
 """
 import os
 import threading
@@ -63,7 +63,7 @@ find_clip = schemas.find_clip       # (動画のパス, 長さ=None) → (clip, 
 def resolve_clip_media(clip_json_path, clip, media_exts):
     """.clip.json が指す動画の実際のパス。①media.path にあればそれ ②無ければ動画のフォルダの media.name
     ③それも無ければ、動画のフォルダの「.clip.json と同じ名前 + 動画の拡張子」。見つからなければ None。
-    動画のフォルダ = .clip.json が 作業用/ の中なら1つ上(元動画は直下・途中のファイルは 作業用/。2026-09-27)、そうでなければ同じフォルダ。
+    動画のフォルダ = .clip.json が 作業用/ の中なら1つ上(元動画は直下・途中のファイルは 作業用/)、そうでなければ同じフォルダ。
     (フォルダごと移動した・友人に渡した場合への備え。notes:docs/spec/pipeline.md の 1)"""
     media = clip.get("media") if isinstance(clip.get("media"), dict) else {}
     folders = list(dict.fromkeys([schemas.media_folder(clip_json_path), os.path.dirname(os.path.abspath(clip_json_path))]))
@@ -110,7 +110,7 @@ def _alt_name(stem, suffix, n):
 
 def save_beside(media_path, suffix, data, schema=None):
     """動画のフォルダの 作業用/ に <動画の名前(拡張子を除く)><suffix> で保存する(途中のファイルは出力先の直下に置かない。
-    2026-09-27。ytt.schemas.work_dir。動画がもう 作業用 の中ならそこ)。戻り値 (保存したパス, 上書きしたか)。
+    ytt.schemas.work_dir。動画がもう 作業用 の中ならそこ)。戻り値 (保存したパス, 上書きしたか)。
     同名があるとき: schema を渡していて、それがこのツールが前に書いた同じ schema のファイルなら上書き。
     それ以外(SRT は常に)は「名前 (2).srt」「名前 (3).srt」… の順に、空いている名前(または前にこのツールが書いた同じ schema のもの)にする。
     書き込みは一時ファイル → 置き換え(書きかけのファイルを他のツールに読ませない)。"""
@@ -145,7 +145,7 @@ def save_beside(media_path, suffix, data, schema=None):
 valid_port = runtime.valid_port
 
 
-# 中身は ytt.runtime(名前は今までどおり。呼ぶ側は位置で渡す):
+# 中身は ytt.runtime(呼ぶ側は位置で渡す):
 runtime_dir = runtime.runtime_dir          # (ツールのフォルダ) → <1つ上>/.runtime。環境変数 YTT_RUNTIME_DIR があればそちら(テスト用)
 write_runtime = runtime.write_runtime      # (rdir, ツールID, ポート, 版, 画面の場所="/") 起動時に書く。書けなくても起動は続ける(None)。
                                            # 画面の場所は入口の統合サーバーに取り込まれたときは "/transcribe/"

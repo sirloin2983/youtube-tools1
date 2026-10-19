@@ -1,4 +1,4 @@
-// node のテスト(画面の JS の関数を vm で切り出して動かすもの)に渡す、UIKit の代わり(ui-kit v24。2026-10-09)。
+// node のテスト(画面の JS の関数を vm で切り出して動かすもの)に渡す、UIKit の代わり(ui-kit 用)。
 // 画面の JS から `window.UIKit &&` の予備の経路を外すと、切り出した関数は UIKit を直接呼ぶので、テストの環境(context)にこれを入れる。
 //
 //   const { makeUIKit, withUIKit } = require(path.join(__dirname, '..', '..', 'ui-kit', 'tests', 'uikit_stub.cjs'));
@@ -100,7 +100,7 @@ function makeUIKit(overrides = {}) {
       remember: rec('prefs.remember', () => Promise.resolve(null)),
       available: rec('prefs.available', () => false),
     },
-    flow: {   // v28: 欄 → {envelope, spec}(本物と同じ形の軽い写し。id は固定)
+    flow: {   // 欄 → {envelope, spec}(本物と同じ形の軽い写し。id は固定)
       order: rec('flow.order', f => ({ envelope: { id: '0123456789', kind: (f && f.kind) || 'url', input: {}, specVersion: 2 }, spec: { run: { upto: (f && f.upto) || 'pack' } } })),
       again: rec('flow.again', o => o),
     },

@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """④ 文書と動画の紐づけ: 動画を選び直す(付け替え)・まとめて付け替える・「参照…」・素材を 30fps にそろえる
-(段10 で editor/serve.py から分けた ed_relink。役割で組み直す RS3-E7(2026-10-10)に manage/cases/relink.py へ移した。旧い名前 ed_relink の殻は RS5-A で消した)。
 
 - 評価用のフォルダの整理(名前をそろえる・仮置き・外からの取り込み)は manage/keep/evalfolders.py(付け替えの書き込み _relink_write をここから読む = ④ → ③ の下向き)
 - 評価用のフォルダの判定(eval_dirs・in_eval_dir・eval_name_guard)は ytt/settings、別のドライブへの移動は ytt/fsio(RS3-1)
@@ -14,13 +13,13 @@ import time
 from ytt import errors as _errors, fsio as _fsio, normalize as _vnorm, schemas as _yschemas  # noqa: E402
 from flow import jobs as _heavy, normalize as _flownorm  # noqa: E402
 from ytt import settings as _settings  # noqa: E402   評価用のフォルダの判定 in_eval_dir・eval_name_guard(RS3-1 に ed_relink から ytt/settings へ)
-from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に編集の部品から移した)
+from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具)
 from ytt import txbase as _txbase  # noqa: E402   ロガー log・環境変数のスイッチ env_off・ジョブの注意 add_warning(RS3-E7 まで ed_state の別名で読んでいた)
 from human.proof import store as _store  # noqa: E402   文書の読み書き・保存のロック・控え・要約(呼ぶたびに _store.名前 で読む)
 
-# ---------- 動画を選び直す(付け替え。全体の計画の段2 B-4・監査 19。git の履歴(679ff01 以前)の docs/plan/phase2-data-safety.md の 1) ----------
+# ---------- 動画を選び直す(付け替え。全体の計画の段2 B-4・監査 19) ----------
 # 動画を移した・改名した文書の sourcePath を、行・校正・話者・カットを残したまま新しいパスに直す。
-# 選べる場所は「このパソコンのドライブならどこでも」(ユーザー決定 2026-09-29)。ネットワーク上・ツールの作業データの中・リンクの先がそれらになるものは断る。
+# 選べる場所は「このパソコンのドライブならどこでも」(ユーザー決定)。ネットワーク上・ツールの作業データの中・リンクの先がそれらになるものは断る。
 # URL の引数では付け替えない(POST + 合言葉 + Origin 検査だけ)。候補の自動の推測はしない
 RELINK_KEEP = 10          # 文書に残す付け替えの記録(relinks)の数
 RELINK_TOL_SEC = 1.0      # 動画全体の文書: 長さの差がこれ(か 0.5%)以下なら同じ動画とみなす
@@ -162,10 +161,10 @@ def relink_doc(obj):
 
 def _relink_write(tid, doc, path, diff, why=None, bump=True):
     """付け替えの書き込み(store.saving() の中で呼ぶ)。履歴を残し、sourcePath・sourceName・updatedAt・relinks を直す。
-    評価用のフォルダの中へ付け替えたら評価用の印も付ける(ユーザー決定 2026-10-01: フォルダの中は外せない)。-> 新しい updatedAt
+    評価用のフォルダの中へ付け替えたら評価用の印も付ける(ユーザー決定: フォルダの中は外せない)。-> 新しい updatedAt
     bump=False: updatedAt を変えない(30fps の写しへの自動の付け替え = 中身は同じ動画。開いている画面の次の保存を 409 にしないため。
     保存 save_transcript は sourcePath を画面から受け取らないので、画面の古い版で上書きされても付け替えは消えない)"""
-    _store.backup_doc(tid, "relink")   # 直前の状態を履歴へ(「以前の版に戻す」で元のパスへ戻せる)。カット(edit.json)は書き換えないので写さない(opt-human 2a-4)
+    _store.backup_doc(tid, "relink")   # 直前の状態を履歴へ(履歴の「以前の版に戻す」で元のパスへ戻せる)。カット(edit.json)は書き換えないので写さない(opt-human 2a-4)
     now = max(_yschemas.now_ms(), int(doc.get("updatedAt") or 0) + 1) if bump or not doc.get("updatedAt") else int(doc["updatedAt"])
     prev = [r for r in doc.get("relinks") or [] if isinstance(r, dict)]
     rec = {"from": str(doc.get("sourcePath") or ""), "at": max(now, _yschemas.now_ms()), "diffSec": diff}
@@ -180,12 +179,12 @@ def _relink_write(tid, doc, path, diff, why=None, bump=True):
     return now
 
 
-# ---------- 素材を 30fps にそろえる(マスタープラン Q1。2026-10-04 ユーザー決定) ----------
+# ---------- 素材を 30fps にそろえる(マスタープラン Q1。ユーザー決定) ----------
 # 計画と作り直しは ② flow/normalize の 1 つの段(OPT-M2 5b-1)。ここ(④)に残るのは文書の付け替え norm_swap と、付け替えのあとの作り直しの始め方 norm_start だけ。
 # 動画を選び直したとき、動画が 30fps(H.264・yuv420p・AAC)でなければ、元の動画の隣に <名前>_30fps.mp4 を作り、文書をそれに付け替える(元は消さない)。
 # 文字起こしのあとの 30fps は ② の実行の段(file)が先にそろえるので、文字起こしの続きの口 norm_after は無い(OPT-M2 5b-2)。
 # - 選び直し: 付け替えはすぐに済ませ、作り直しは裏のジョブ(kind "normalize")→ できたら付け替える(付け替えの要求を待たせない。
-#   失敗しても付け替えは済んでいる)。まとめて付け替える(以前の文書の動画を移したとき)は作り直さない(normalize: false)
+#   失敗しても付け替えは済んでいる)。まとめて付け替える(文書の動画を移したとき)は作り直さない(normalize: false)
 # - 評価用(evalSet・評価用のフォルダの中)は作り直さない(パックを作らない・評価用のフォルダの整理が動画の数を数えるため)
 # - ジョブはすでに SLOTS(ytt.jobs)を持っている(ytt/jobs の work_one)。この中で取り直さない(上限 1 だと自分を待って止まる)
 # - 付け替えは updatedAt を変えない(_relink_write の bump=False。開いている画面の次の保存を 409 にしない)
@@ -228,7 +227,7 @@ def norm_start(tid, path, doc):
     return job["id"], ""
 
 
-# ---------- まとめて付け替える・「参照…」(2026-10-01。ユーザー決定: 参照の窓 + 履歴からまとめて) ----------
+# ---------- まとめて付け替える・「参照…」(ユーザー決定: 参照の窓 + 履歴からまとめて) ----------
 # 付け替えそのものは1件ずつ /api/relink(控え・長さの確認・競合の確認を同じにするため)。ここは候補を集めるだけで、書き込まない。
 # 「候補の自動の推測はしない」(段2 B-4)を、ユーザーが選んだフォルダの中の「同じファイル名」に限って緩めた。候補を選んでも、
 # 長さを確かめて画面で選んだものだけを付け替える(長さが違うものは既定で選ばない)

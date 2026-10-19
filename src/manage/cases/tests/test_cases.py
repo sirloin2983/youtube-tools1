@@ -251,7 +251,7 @@ class TestListExtras(Base):
         self.assertEqual(c["packs"], {"have": 1, "total": 2, "textplus": 0})
         # 残作業の合計 = 書き出し1 + 文字起こしなし1(m1) + 校正が残っている1(m2) + パックがまだ1(m1) = 4
         self.assertEqual(c["remaining"], 4)
-        # 作業ごとの残りの数(ホームの「次にやること」の種類ごとの行。入口 0.42.0・S-6)。採用済みがあるので候補の確認は数えない
+        # 作業ごとの残りの数(ホームの「次にやること」の種類ごとの行。S-6)。採用済みがあるので候補の確認は数えない
         self.assertEqual(c["todo"], {"review": 0, "export": 1, "transcribe": 1, "proof": 1, "pack": 1})
 
     def test_next_follows_the_todo_order_table(self):
@@ -285,7 +285,7 @@ class TestListExtras(Base):
         self.assertEqual(cases.snapshot(self.root, self.env)["cases"][0]["next"]["kind"], "proof")
 
     def test_review_candidates_until_something_is_picked(self):
-        # 解析したが 1 本も採用していない配信: 確認前の候補(採用・見送りを付けていないマーク)の数を返す(入口 0.42.0・S-6)
+        # 解析したが 1 本も採用していない配信: 確認前の候補(採用・見送りを付けていないマーク)の数を返す(S-6)
         base = {"kind": "youtube", "title": "配信A", "analysis": {"uploadDate": "20260101"}}
         self.studio({VID: dict(base, marks=[mark("m1", ""), mark("m2", ""), mark("m3", "rejected"), mark("m4", "")])})
         c = cases.snapshot(self.root, self.env)["cases"][0]
@@ -340,7 +340,7 @@ class TestListExtras(Base):
 
 
 class TestNoStatusMemo(Base):
-    """案件の状態・メモ・「見た」「未確認」「保留」は消した。採用.json・cases.json に残る古い欄は読み飛ばす(書き換えない)"""
+    """案件の状態・メモ・「見た」「未確認」「保留」は持たない。採用.json・cases.json に古い欄が残っていても読み飛ばす(書き換えない)"""
 
     def test_old_fields_are_not_listed_and_not_rewritten(self):
         self.assertEqual((cases.AUTO_OPS, cases.FIELDS), (("deliver", "discard"), ("auto",)))

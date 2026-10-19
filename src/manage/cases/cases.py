@@ -1,7 +1,7 @@
 """案件(配信1本)ごとの紐づけ(統合計画の段階4)。入口の「案件」画面(src/app/ui/home/portal.html)の中身を作る。
 
 案件 = 切り抜きスタジオの動画1本(配信・ファイル)。その下に、書き出した切り抜きと、それぞれの文字起こし・パックを並べる。
-紐づけは、各ツールが持っているデータを**読むたびに組み立て直す**(各ツールの記録と食い違わないように。2026-09-26 ユーザーと決定):
+紐づけは、各ツールが持っているデータを**読むたびに組み立て直す**(各ツールの記録と食い違わないように。ユーザーと決定):
   - 切り抜き … スタジオの data.json の「書き出し済み」のマーク(書き出した mp4 の絶対パスを持つ)
   - 文字起こし … 文字起こしツールの transcripts/*.json(元の動画のパスが切り抜きと同じ。無ければ .clip.json の配信・マークが同じ。
                 規則は src/manage/cases/txindex.py にあり、スタジオのセリフの表示と共通)
@@ -10,10 +10,10 @@
 **RS8 B3-6**: 案件にした配信(data.json の行が case を持つ・または書き出し先の直下に 作業用/採用.json がある)の auto は、cases.json でなく
 案件の 採用.json の上の段に持つ(書くのは flow/casebook.write・ロックは ytt/casefiles.lock。marks・sources は触らない)。
 一覧は索引(data.json)∪ 書き出し先の走査。cases.json は案件の無い配信の分だけ(採用.json に auto がまだ無い案件は cases.json の auto を引き継いで書く)。
-**MARKS-3**(決定 3-48 の「切り抜きの印を 3 本に」): 案件の状態・メモ・「見た」「未確認」「保留」は消した。採用.json・cases.json に残る古い欄
-(status・memo・statusUpdatedAt・last・seenAt・deliveredAt・delivered)は読み飛ばすだけで書き換えない。スタジオから消えた配信の行は一覧に出さない(データは消さない)。
+**MARKS-3**(決定 3-48 の「切り抜きの印を 3 本に」): 案件の状態・メモ・「見た」「未確認」「保留」は持たない。採用.json・cases.json に古い欄
+(status・memo・statusUpdatedAt・last・seenAt・deliveredAt・delivered)が残っていても読み飛ばすだけで書き換えない。スタジオから消えた配信の行は一覧に出さない(データは消さない)。
 
-画面が一覧(1件1行)を組み立てやすいように、案件1件ごとに追加で持たせる項目(2026-09-26 画面の見直し。既存の項目は変えない):
+画面が一覧(1件1行)を組み立てやすいように、案件1件ごとに追加で持たせる項目:
   - streamedAt: 「いつの配信か」の目安(ms)。① スタジオの解析結果(analysis.uploadDate、実際の配信日)② 無ければ案件が
     スタジオに追加された時刻(createdAt)③ それも無ければ updatedAt、の順(デモ環境や解析前の動画では ①が無い)
   - tx: 切り抜き全体の文字起こし・校正の進み具合の合計 {clips, withTranscript, segments, proofed}
@@ -21,7 +21,7 @@
   - next: 一覧に出す「次にやること」1つ {kind, label, count} か None(すべて済み)。TODO_ORDER(校正 → パック → 文字起こし → 書き出し → 候補の確認。
     仕掛かりを先に終わらせる)の順で最初に残っている作業。ホームの「次にやること」の並びも同じ表(build の todoOrder)を使うので、同じ配信なら
     上の一覧の先頭の作業と行のボタンが必ず同じになる(UI の見直し 1 周目 M1)。パックは「文字起こしが全部校正済みでパックがまだの切り抜き」の数
-  - todo: 作業ごとの残りの数 {review, export, transcribe, proof, pack}(ホームの「次にやること」に種類ごとの行を出す。入口 0.42.0・S-6)
+  - todo: 作業ごとの残りの数 {review, export, transcribe, proof, pack}(ホームの「次にやること」に種類ごとの行を出す。S-6)
     review = 確認前の候補(採用・見送りを付けていないマーク)の数。まだ 1 本も採用・書き出ししていない配信だけ数える
     (選び始めたあとに残った候補は「選ばなかったもの」として扱い、次にやることに出し続けない)
   - remaining: next も含めた残作業の合計件数(並び替え「次にやることが多い順」に使う。候補の確認は候補の数ではなく配信 1 本で 1 件)
@@ -29,7 +29,7 @@
 
 自動でできた切り抜きの確認(線 D の M9・M12・M13。計画 notes:plan/line-d-auto-pack.md の段階 4・6):
   - 配信(kind live)の切り抜きのうち、.clip.json の source.live.origin が auto(配信中の候補 = M11)か archive(配信後の解析 = M7)のものに
-    clip["auto"] = {origin, originLabel, score, bench} を付ける(人の切り抜き manual は None = 今までどおり)。点数は .clip.json の source.live.score →
+    clip["auto"] = {origin, originLabel, score, bench} を付ける(人の切り抜き manual は None)。点数は .clip.json の source.live.score →
     mark.score → スタジオのマークの score の順(今は書き手が無いことが多い。無ければ None = 画面に出さない)。
     bench = 1 時間の枠から外れた候補(「控え」。M13: 書き出し済みなら取り消さない。ワーカーが付けたら出すだけ)
   - clip["review"] = {deliveredAt, delivered, failure, notSent?}: 届けたか(② flow/deliveries.delivered_marks = 届けた記録から毎回引く。案件には写さない。
@@ -39,12 +39,12 @@
     パック・切り抜きの mp4・.clip.json などを ごみ箱フォルダ へ移す(片付けと同じ場所。片付けの TRASH_DAYS で起動時に消える)+ スタジオのマークを不採用に +
     その文字起こしを一覧で非表示に(データは消さない)。どちらも人の判断を ③ human/judgments に 1 行(who self・adopt / reject・via cases)
   - 案件ファイルには cases[配信]["auto"][スタジオのマーク] = {discardedAt, tx, expiredAt} を持つ(要らないにした文字起こし tx は
-    「単体の文字起こし」に出さない。前の版 0.84〜0.86 が書いた origin・notSent は 10-19 に読むのをやめた = 本物の記録に 0 本)
+    「単体の文字起こし」に出さない)
   - まとめて実行で友人へ自動で送る形(D-SEND。notes:plan/done/d-send-requirements.md の 2-8): 送らなかったら届ける段が ② の送らなかった記録 logs/not-sent.jsonl に
     {配信, マーク, code, text, at}(理由の鍵と文は ② flow/sendpolicy.REASONS)を書く(flow/deliveries.record_not_sent。ds1 = 3-71 m3e)。送った物は届けた記録の mode full・origin auto で見分ける。
     どちらかがある切り抜きはライブでなくても clip["auto"] = {origin "full", originLabel "まとめて実行"}(品質のカードに出る)。
     clip["review"]["notSent"] は届けていない間だけ(案件の画面の札)
-  - 日数の片付け(expire_unseen。10-16 ユーザー): 届けた自動の切り抜きは届けてから・届けていない物は作ってから EXPIRE_SEC でごみ箱へ。
+  - 日数の片付け(expire_unseen。ユーザー決定): 届けた自動の切り抜きは届けてから・届けていない物は作ってから EXPIRE_SEC でごみ箱へ。
     友人の依頼・届ける印・届けている途中は待つ。まとめて実行の自動の採用も同じ規則
 """
 import datetime
@@ -73,7 +73,7 @@ TODO_LABEL = {"proof": "校正", "pack": "パックを作る", "transcribe": "�
 AUTO_ORIGINS = {"auto": "配信中の候補", "archive": "配信後の解析"}
 # まとめて実行(mode full)で自動で採用して友人へ自動で送る形の切り抜き(D-SEND)。.clip.json はライブでないので、② の送らなかった記録・届けた記録(と前の版の案件の auto[マーク].origin "full")で見分ける
 FULL_ORIGIN, FULL_LABEL = "full", "まとめて実行"
-AUTO_OPS = ("deliver", "discard")   # 「見た」(seen)は MARKS-3 で消した(古い画面から来たら 400)
+AUTO_OPS = ("deliver", "discard")   # 「見た」(seen)は無い(来たら 400)
 AUTO_KEEP = 2000                   # 案件 1 件で覚えておく確認の数(古いものから捨てる)
 DISCARD_KIND = "discard"           # ごみ箱/<日付>/ の下の種類の名前(片付けの export・work などと並ぶ)
 MARK_RE = re.compile(r"^[\w-]{1,40}\Z", re.ASCII)   # スタジオのマークの id(src/human/review/store.py の ID_RE と同じ形)
@@ -140,7 +140,7 @@ def _stream_time(v):
 
 
 def _case_extras(c):
-    """一覧の1行に要る合計・「次にやること」(2026-09-26)。clips・marks だけから作れるので、案件の生成元(スタジオに
+    """一覧の1行に要る合計・「次にやること」。clips・marks だけから作れるので、案件の生成元(スタジオに
     まだある配信・消えた配信の最後に見えた内容)のどちらでも同じ規則で計算できる"""
     clips = c.get("clips") or []
     marks = c.get("marks") or {}
@@ -289,7 +289,7 @@ def _sent_full(dm):
 def _apply_review(cases, saved, failures, delivered, not_sent=None):
     """自動でできた切り抜きに、届けた(② の届けた記録)と失敗の文と送らなかった理由(② の送らなかった記録 not_sent)を
     重ねる(clip["review"])。
-    日数で片付けた(expiredAt)切り抜きで動画がもう無い物は一覧から外す(片付けはスタジオのマークを変えない = 10-14。マークは書き出し済みのまま残る)"""
+    日数で片付けた(expiredAt)切り抜きで動画がもう無い物は一覧から外す(片付けはスタジオのマークを変えない。マークは書き出し済みのまま残る)"""
     for c in cases:
         rec = _auto_records(saved.get(c["id"]))
         gone = [cl for cl in c.get("clips") or [] if not cl.get("exists")   # .clip.json もごみ箱へ移ったので auto は付かない(記録で見分ける)
@@ -463,7 +463,7 @@ def _write(path, saved):
 
 
 # ---------------------------------------------------------------- 案件の根(RS8 B3-6。自動でできた切り抜きの記録は案件の 採用.json の上の段へ)
-FIELDS = ("auto",)   # cases.json の 1 件から 採用.json の上の段に移った欄のうち、今も読み書きする物(状態・メモは MARKS-3 で消した = 読み飛ばす)
+FIELDS = ("auto",)   # cases.json の 1 件から 採用.json の上の段に移った欄のうち、今も読み書きする物(状態・メモは読み飛ばす)
 
 
 def _scan_roots(repo_root, env=None):
@@ -558,7 +558,7 @@ def snapshot(repo_root, env=None):
         fails = live_failures_by_mark(loc) if any(isinstance(v, dict) and v.get("kind") == "live" for v in videos.values()) else {}
         res = build(videos, read_transcripts(loc["transcripts"]), _saved_view(saved, roots), failures=fails,
                     delivered=_deliveries.delivered_marks(loc["logs"]), not_sent=_deliveries.not_sent_marks(loc["logs"]))
-    for c in res["cases"]:   # 案件のフォルダの case.json(読むだけ。無い案件は今までどおり。書くのは flow/placement.ensure_case だけ)
+    for c in res["cases"]:   # 案件のフォルダの case.json(読むだけ。無い案件はそのまま。書くのは flow/placement.ensure_case だけ)
         c["caseFile"] = _case_file(c)
         c["root"] = roots.get(c["id"], "")   # ② の status?case= の鍵(案件にした配信だけ。無ければ "")。URL には出さない
     res["casesFile"] = loc["cases"]
@@ -597,7 +597,7 @@ class ReviewError(ValueError):
 def auto_review(repo_root, body, deliveries=None, studio=None, trash=None, hide=None, env=None):
     """POST /api/cases/auto {op, id(案件 = スタジオの配信), markId(スタジオのマーク)}-> (HTTP の番号, JSON)。
     op: deliver = 採用 = 友人へ届ける(パックがあるときだけ)/ discard = 要らない。自動でできた切り抜き(clip["auto"])だけを受け付ける
-    (人の切り抜きは、この口では届けない・動かさない)。古い画面の seen(見た)は 400(MARKS-3 で消した)。部品は入口が渡す: deliveries = deliver.Deliveries・
+    (人の切り抜きは、この口では届けない・動かさない)。seen(見た)は 400。部品は入口が渡す: deliveries = deliver.Deliveries・
     studio(method, path, body) -> (番号, JSON)(取り込んだスタジオの API = src/app/live.py の Live.studio_call)・trash = cleanup.Cleanup
     (ごみ箱フォルダの場所)・hide(文書の id) = その文字起こしを一覧で非表示に(ホームの設定の hidden)"""
     body = body if isinstance(body, dict) else {}
@@ -634,17 +634,17 @@ def _find_auto(repo_root, case_id, mark_id, env):
     return c, cl
 
 
-EXPIRE_SEC = 3 * 86400   # 自動の切り抜きを片付けるまで(届けていない物は動画を作ってから・届けた物は届けてから。10-09・10-14・10-16 ユーザー)
-# 届けた自動の切り抜きも、届けてから EXPIRE_SEC で自動でごみ箱へ(10-14 ユーザー「どんどん消していい」= decisions 3-48 Q2)。
-# スイッチ(既定オン = 10-15 ユーザー「既定でオンにして」。止めるならこの 1 か所を False に)
+EXPIRE_SEC = 3 * 86400   # 自動の切り抜きを片付けるまで(届けていない物は動画を作ってから・届けた物は届けてから。ユーザー決定)
+# 届けた自動の切り抜きも、届けてから EXPIRE_SEC で自動でごみ箱へ(ユーザー「どんどん消していい」= decisions 3-48 Q2)。
+# スイッチ(既定オン = ユーザー「既定でオンにして」。止めるならこの 1 か所を False に)
 TRASH_DELIVERED = True
 
 
 def expire_unseen(repo_root, studio, trash, hide, deliveries, env=None, now=None, max_age=EXPIRE_SEC, is_request=None):
-    """自動の切り抜き(ライブの自動の採用とまとめて実行の自動の採用)を日数で片付ける(10-16 ユーザー。「見た」の守りは無し):
+    """自動の切り抜き(ライブの自動の採用とまとめて実行の自動の採用)を日数で片付ける(ユーザー決定。「見た」の守りは無し):
     届けていない物は動画を作ってから max_age(この版より前の物は数え始めの時刻 expire_since から)・届けた物は届けてから max_age(TRASH_DELIVERED がオンのとき = 既定)。
     片付け方 = ごみ箱フォルダへ移す(cleanup の TRASH_DAYS でさらに消える)・文字起こしを一覧で非表示に(データは消さない)・案件の記録に expiredAt。
-    **スタジオのマークは不採用にしない・人の判断の記録に書かない**(片付けは評価と無関係 = 人が確認していない物を評価・学習に入れない。10-14 ユーザー)。
+    **スタジオのマークは不採用にしない・人の判断の記録に書かない**(片付けは評価と無関係 = 人が確認していない物を評価・学習に入れない。ユーザー決定)。
     片付けない: 人の切り抜き・届ける途中の物(.clip.json の live.deliver か、is_request(録画元, 録画) が真で、まだ届けていない)・
     届けている途中のパック・ネットワーク上のパス。届けた記録を読めないときは何もしない(届けたかが分からない)。-> 片付けた [(案件, マーク)]"""
     loc = locations(repo_root, env)
@@ -662,7 +662,7 @@ def expire_unseen(repo_root, studio, trash, hide, deliveries, env=None, now=None
     return out
 
 
-EXPIRE_SINCE_FILE = "expire-since.json"   # 日数の片付けを数え始めた時刻(入口の作業データ app の中。10-16 ユーザー)
+EXPIRE_SINCE_FILE = "expire-since.json"   # 日数の片付けを数え始めた時刻(入口の作業データ app の中)
 
 
 def expire_since(app_dir, now):
@@ -844,7 +844,7 @@ def discard_clip(trash, studio, video_id, mark_id, media, pack=None):
     マークを不採用にできなければ移したものを元に戻す(パックだけ消えてマークが残る、を作らない)。mark_id が空(スタジオのマークを変えない)なら移すだけ。
     -> (移したもの [(元, 先)], ごみ箱の場所, スタジオの返事 "rejected"/"gone"/None)。
     M9 の「要らない」(_discard)はマークも不採用に。友人の「要らない」(src/human/friend/friend_feedback.py)はマークがあっても mark_id を空で呼んで
-    マークを変えない(友人の採用の基準はこちらの送る基準と別。2026-10-08 ユーザー決定)。
+    マークを変えない(友人の採用の基準はこちらの送る基準と別。ユーザー決定)。
     移す・戻すは ④ keep/trash の 1 か所(設計原則の指摘 1): 戻せずにごみ箱に残った物は manifest に元の場所を書き、ReviewError の文で知らせる"""
     pack = pack if pack is not None else (txindex.pack_dir(media) if media else "")
     extra = [p for suf in cleanup.SIDECARS for p in schemas.sidecar_candidates(media, suf)] if media else []

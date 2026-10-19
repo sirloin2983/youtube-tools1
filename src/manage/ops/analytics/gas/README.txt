@@ -1,6 +1,6 @@
 Youtube分析 連携(Google Apps Script)の設定手順
 
-状態(2026-10-09): 新規。Code.gs の中身を Apps Script に貼って使います。
+Code.gs の中身を Apps Script に貼って使います。
 
 ■ これは何か
 PC のツール(http://localhost:8700/analytics/)が YouTube チャンネルの日次分析をして LINE に送るための、Google 側の窓口です。

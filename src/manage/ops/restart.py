@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-"""入口を起動し直す(段9 9-3。git の履歴(679ff01 以前)の docs/plan/phase9-ops-stability.md の「9-3」)。
+"""入口を起動し直す(段9 9-3)。
 
 取り込んだツール(スタジオ・編集・cut2resolve)は入口と同じプロセスで動くので、版の赤い帯を直すには入口ごと起動し直す必要がある。
 手順(src/app/server.py の POST api/ytt/restart-self):
   1. can_restart(): 重い処理・取り込んだツールの処理が動いていれば断る(理由の文を返す)。まとめて実行の待ち・実行中は断らない
-     (線 D の M5 で、起動し直したあとに同じ実行が続きから進むため。入口 0.41.0)。実行中の段がツールで動かしている仕事
-     (文字起こし・解析・パック。起動し直したあとに頭からやり直す)も数えない。書き出しの段・人が始めた仕事は今までどおり断る
+     (線 D の M5。起動し直したあとに同じ実行が続きから進むため)。実行中の段がツールで動かしている仕事
+     (文字起こし・解析・パック。起動し直したあとに頭からやり直す)も数えない。書き出しの段・人が始めた仕事は断る
   2. spawn_new_launcher(): 新しい入口を、今の入口とは別のコンソール(見えない)で起動する。引数に --wait-port を付ける
   3. 今の入口は「すべて終了」と同じ後始末(子を止める・取り込みを外す・.runtime を消す)をして終わる
   4. 新しい入口は wait_port_free() で同じポートが空くまで(最大 30 秒)待ってから待ち受ける
@@ -37,7 +37,7 @@ STUCK_MESSAGE = ("前のホーム(pid %s)が%s。1 つの作業データで動�
 BUSY_LOCK_MESSAGE = ("ほかのホーム・管理の処理(pid %s・ポート %s)が同じ作業データで動いているため、起動できません。"
                      "「すべて終了」してから、start.bat で起動してください")
 BUSY_MESSAGE = "実行中の処理があります%s。終わってから起動し直してください"   # %s = (何が動いているか)
-RESUME_NOTICE = "まとめて実行の待ち・実行中の %d 件は、起動し直したあとに続きから進めます"   # 起動し直す応答の notice(M5。入口 0.41.0)
+RESUME_NOTICE = "まとめて実行の待ち・実行中の %d 件は、起動し直したあとに続きから進めます"   # 起動し直す応答の notice(M5)
 SW_SHOWMINNOACTIVE = 7     # 見えるコンソールで起動するとき: 最小化して、前に出さない(画面の操作を邪魔しない)
 
 
@@ -174,10 +174,10 @@ def can_restart(status, busy_tools=(), redo=None):
     status: Supervisor.status()(heavy = ytt.jobs.SLOTS.snapshot(): {"limit", "active": [{tool, label, seconds}], "waiting": [...]})
     busy_tools: 取り込んだツールのうち busy() が真のもの。名前か (ツールの ID, 名前)(「すべて終了」の確認と同じ判定。任意)
     redo: まとめて実行の実行中の段がツールで動かしている仕事(AutoRunner.restart_info の redo。起動し直したあとに頭からやり直せる段だけで、
-          書き出しの段は入らない = 書き出し中は今までどおり断る)。{"tool": ツールの ID, "labels": [仕事の名前] か None(そのツールの枠すべて),
+          書き出しの段は入らない = 書き出し中は断る)。{"tool": ツールの ID, "labels": [仕事の名前] か None(そのツールの枠すべて),
           "others": [同じツールのほかの仕事の名前]}。others が空のとき(人が始めた仕事が同じツールに無いと確かめられたとき)だけ、
           その仕事の重い処理の枠と、そのツールの busy を数えない。
-    まとめて実行の待ち・実行中そのものは数えない(線 D の M5 で起動し直したあとに続きから進むため。入口 0.41.0。呼ぶ側が RESUME_NOTICE で知らせる)"""
+    まとめて実行の待ち・実行中そのものは数えない(線 D の M5。起動し直したあとに続きから進むため。呼ぶ側が RESUME_NOTICE で知らせる)"""
     heavy = (status or {}).get("heavy") or {}
     items = list(heavy.get("active") or []) + list(heavy.get("waiting") or [])
     mine = redo if isinstance(redo, dict) and redo.get("tool") and redo.get("others") == [] else None

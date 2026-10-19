@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""cut2resolve の API のサーバー(Python 標準ライブラリのみ。外部ツール: ffmpeg / ffprobe)。画面は「編集」(editor)に統合した(2026-09-26)。
+"""cut2resolve の API のサーバー(Python 標準ライブラリのみ。外部ツール: ffmpeg / ffprobe)。画面は「編集」(editor)にある。
 
     python serve.py [開始ポート] [--no-open]      (既定のポート 8810。使用中なら次の番号)
 
@@ -9,9 +9,9 @@
 API(「編集」の cut.js・pack-tab.js・app-tools.js と、入口の「まとめて実行」(app/autorun.py)が呼ぶ):
   GET  /api/ping                 {"app": "cut2resolve", "version"}
   GET  /api/siblings             {"tools": {"studio": 8800, "transcribe": 8775, "cut2resolve": 8810}}(notes:docs/spec/pipeline.md の 4)
-  POST /api/plan                 {spec} → ジョブ(試算。ファイルは作らない。無音の検出が要る試算は、build と同じく他のツールの重い処理と順番を待つ。0.22.3)。結果の warnings と同じ順番・同じ長さの warningLevels("warn"|"info")付き(問題5)
+  POST /api/plan                 {spec} → ジョブ(試算。ファイルは作らない。無音の検出が要る試算は、build と同じく他のツールの重い処理と順番を待つ)。結果の warnings と同じ順番・同じ長さの warningLevels("warn"|"info")付き(問題5)
   POST /api/build                {spec, output: {dir?, render, copyVideo, textplus, textplusFps?, textplusSize?, force}} → ジョブ。既存の出力があれば 409 exists。
-                                  パックは最小限(Text+ パックは動画・Lua・雛形・登録用の ps1/bat。EDL・SRT は入れない。古い backup は受けて黙って無視 = 決定 3-34)。
+                                  パックは最小限(Text+ パックは動画・Lua・雛形・登録用の ps1/bat。EDL・SRT は入れない。backup は受けて黙って無視 = 決定 3-34)。
                                   cut-plan.json はフォルダに置かず、作業データの packs/ に「パックを作った記録」を残す(書くのは ② flow/packrec.after_build =
                                   入口なしの CLI と同じ口。④ manage.cases.txindex が読む)
                                   spec.keeps = 残す区間の秒 [[a, b], …](「編集」のカットのとおり。pack.EDIT_KEEPS。preset とは一緒に使えない)
@@ -20,16 +20,16 @@ API(「編集」の cut.js・pack-tab.js・app-tools.js と、入口の「まと
                                   output.loudness = 聞こえ方の音量をそろえる目標(LUFS: -11 / -14 / -16 / -18。省略・0 = そろえない)。
                                   カットで残す区間だけ測り、同梱の動画は音声だけ作り直す。結果の loudness = {target, measured, gainDb} か {target, skipped}
                                   output.volume = 音量(%。1〜200。元 = 100)。loudness が無いときだけ、測らずにその量をかける。結果の loudness = {volume, gainDb}
-                                  音量をかけて写した動画は、前のパックの記録(videoCopy)と条件・置き場所の動画が同じなら作り直さない(注意は info。0.22.2)
+                                  音量をかけて写した動画は、前のパックの記録(videoCopy)と条件・置き場所の動画が同じなら作り直さない(注意は info)
                                   output.videoTracks = Text+ のタイムラインの映像トラックの数(1〜5。省略 = 1)。V1 = 動画・V2〜 = 空・字幕はその上
                                   結果にも warningLevels(build 側・summary 側それぞれ)
   GET  /api/job?id=              ジョブの状態 {state: running|done|error|cancelled, progress, message, result|error}
   POST /api/job/cancel           {id}
   POST /api/open-folder          {path}(このサーバーがパックを書いたフォルダだけ)
-消した API(0.22.0。消した画面のためのもので、使う側が無かった): /api/state・/api/inspect・/api/upload・/media/<token>
-(plan・build の結果の mediaUrl・roughcutUrl も)。消した API は 404
-受けなくした指定(0.23.0。消した画面のためのもので、送る側が無かった): spec.silenceExtra・spec.handles・spec.joinGap・
-output.fcpxml・output.crf。送っても黙って無視する(知らない鍵と同じ)。補助の FCPXML(10-16 に書き出しごと消した)・粗編集の画質・余白・つなぐ隙間は受けない
+持たない API: /api/state・/api/inspect・/api/upload・/media/<token>
+(plan・build の結果に mediaUrl・roughcutUrl も無い)。これらは 404
+受けない指定: spec.silenceExtra・spec.handles・spec.joinGap・
+output.fcpxml・output.crf。送っても黙って無視する(知らない鍵と同じ)。補助の FCPXML・粗編集の画質・余白・つなぐ隙間は受けない
 
 入口(start.bat)の統合サーバーに取り込まれたときは http://localhost:8700/cut2resolve/ で動く(app/mount.py。段階3-2)。
 そのときは prepare() / finish() が起動・終了の準備を行い、状態は MOUNT に持つ。書き込み系の API には合言葉(X-YTT-Token)が要る(mount.py が検査)
@@ -84,7 +84,7 @@ LOG_PATH = os.path.join(WORK_DIR, "serve.log")
 LOG_MAX = 1024 * 1024
 MAX_BODY = 2 * 1024 * 1024                          # JSON の要求の上限(時刻リストの貼り付けを含む)
 SOCKET_TIMEOUT = 120
-# 画面(index.html・app.js・app.css)は「編集」(editor の 2 カット・3 パック のタブ)に統合して消した(ユーザー決定 2026-09-26。
+# 画面は「編集」(editor の 2 カット・3 パック のタブ)にある(ユーザー決定。
 # notes:docs/design/edit-tool-design.md)。入口の中では app/mount.py が /cut2resolve/ を「編集」へ転送する。ここに届いた / には案内だけを返す
 PAGE_PATHS = ("/", "/index.html")
 MOVED_PAGE = ("<!doctype html><html lang=\"ja\"><head><meta charset=\"utf-8\"><title>cut2resolve</title></head><body>"
@@ -124,8 +124,8 @@ def log(msg):
 
 
 # ---------------------------------------------------------------- 実行中のポートの共有(.runtime)と /api/siblings
-# 中身は ytt.runtime(スタジオ・文字起こし・入口と同じ1か所。2026-09-26 に cut2resolve 自身の写しをやめた)。
-# ここは cut2resolve の ID・版・ログを付けるだけの薄い包み(呼び出し側・テストの名前はそのまま)
+# 中身は ytt.runtime(スタジオ・文字起こし・入口と同じ1か所)。
+# ここは cut2resolve の ID・版・ログを付けるだけの薄い包み(呼び出し側・テストの名前は変えない)
 
 def runtime_dir():
     return _runtime.runtime_dir(CODE_DIR)
@@ -133,7 +133,7 @@ def runtime_dir():
 
 def write_runtime(port, base_path="/"):
     """起動時に <runtime>/cut2resolve.json を書く。書けなくても起動は続ける(None)。
-    場所は入口に取り込まれたときだけ書く。形の違う場所は "/" として扱う(以前の形の記録と同じに保つ)"""
+    場所は入口に取り込まれたときだけ書く。形の違う場所は "/" として扱う(古い形の記録と同じに保つ)"""
     path = base_path if _runtime.valid_path(base_path) else "/"
     f = _runtime.write_runtime(runtime_dir(), TOOL_ID, port, SERVER_VERSION, path)
     if f is None:
@@ -563,7 +563,7 @@ def finish():
 def mounted_elsewhere():
     """入口(start.bat)の統合サーバーの中で cut2resolve が動いていれば、その URL。
     serve.py を直接起動したときは2つ目のサーバーを立てず、そちらを開くだけにする(出力フォルダの取り合い・混乱を避ける)。
-    記録の場所が無い・形が違うときは "/"(= 単独。以前の記録・他人が書いた値で、別の場所へ向けさせない。ytt.runtime.read_runtime)"""
+    記録の場所が無い・形が違うときは "/"(= 単独。他人が書いた値で、別の場所へ向けさせない。ytt.runtime.read_runtime)"""
     e = _runtime.read_runtime(runtime_dir(), TOOL_ID)
     if e and e["path"] != "/" and _runtime.ping_app(e["port"], 1, e["path"]) == APP_ID:
         return "http://localhost:%d%s" % (e["port"], e["path"])

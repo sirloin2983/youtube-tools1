@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""録画を自動で消す(線 D。notes:plan/line-d-live-clipping.md の 0-9 の最後。2026-10-05 ユーザー決定・2026-10-16 に条件を変えた = 決定 3-73)の入口の側。
+"""録画を自動で消す(線 D。notes:plan/line-d-live-clipping.md の 0-9 の最後。ユーザー決定。決定 3-73)の入口の側。
 設定 live.autoDelete(既定オン。src/app/prefs.py)。オフなら何も消さない。リアルタイム切り抜きがオフ(live.enabled)のときも何もしない。
 
 消すのは ごみ箱へ(録画の部品 src/pipeline/ingest/rec_core.py の delete が <置き場所>/ごみ箱/<日付>/録画/<録画の id> へ改名し、manifest.jsonl に元の場所。
@@ -20,16 +20,15 @@
      - スタジオにマークが1つも無い(GET /studio/api/video?id=<録画>。スタジオに登録が無い録画も「マークなし」。つながらない・答えが読めなければ消さない)
      → スタジオの一覧の行を先に消す(POST /studio/api/video/delete {ifNoMarks: true} = 調べてから消すまでの間にマークが付いたら 409 で消さない)
      → 録画を消す(使用中で消せなければ、次の見回りでまた消す。スタジオの行はもう無いので 2 の条件のまま)
-  3. 1 を満たさない録画(10-09 ユーザー決定「終わって 3 日で消す」= decisions 3-15 (fc) の変更): 消せない理由が「書き出していないマークがある」
+  3. 1 を満たさない録画(ユーザー決定「終わって 3 日で消す」= decisions 3-15 (fc)): 消せない理由が「書き出していないマークがある」
      「アーカイブ化をまだ確かめられていない」だけ(live_retire.stale_ok)の録画は、終わって STALE_SEC(3 日)たったら消す。
      スタジオに「採用のまま書き出していないマーク」がある・スタジオに確かめられないときは消さない。
-     消す 1 日前(WARN_SEC)から「調子」に予告(live_failures.delete_notice)。ほかの理由(書き出しの途中など)は今までどおり消さずに知らせる(keep_failure)
+     消す 1 日前(WARN_SEC)から「調子」に予告(live_failures.delete_notice)。ほかの理由(書き出しの途中など)は消さずに知らせる(keep_failure)
 録画中・配信待ち・つなぎ直し中の録画は消さない(録画元も 409 で断る)。録画元につながらない・一覧を読めないときは何もしない。
 配信後の全自動(線 D の M7。設定 live.autoAfterStream)がオンで、その録画の自動の切り抜きがまだ済んでいない間も消さない(hold。src/flow/live_archive.py の after_stream_hold)。
 消したことは入口の記録(log)に1行ずつ残す。録画を消す API(録画元の …/delete)は入口のこの処理だけが呼ぶ(画面からの中継 /live/r/… は通さない)。
 ここ(④)が持つのは 見回り(tick・check)・期限(24 時間・3 日・予告と知らせ)・録画元へ delete を送る・記録の 1 行。
 書き出しのジョブ・マークの正本・検出の記録は直に読み書きせず、② の Retire(verdict・has_marks の読み口と recording_deleted の書き口)を通す。
-(前の版で退避した速報版を 3 日で消す片付けは、速報版が 0 本になったので 10-19 に消した。入れ替えは 10-16 に廃止)
 """
 import threading
 import time
@@ -42,7 +41,7 @@ from flow import live_retire   # 録画を消してよいかの判断と、消�
 
 NO_MARK_SEC = 24 * 3600.0      # マークの無い録画を消すまで(録画が終わってから)
 INTERVAL = 600.0               # 見回り(入口の録画の見回り src/app/live.py の tick から)で調べる間隔
-STALE_SEC = 3 * 86400.0        # D-14: 終わってからこれだけたっても消せない録画を「調子」に知らせる。理由が live_retire.stale_ok だけなら、このとき消す(10-09 ユーザー決定)
+STALE_SEC = 3 * 86400.0        # D-14: 終わってからこれだけたっても消せない録画を「調子」に知らせる。理由が live_retire.stale_ok だけなら、このとき消す(ユーザー決定)
 WARN_SEC = 2 * 86400.0         # stale_ok の理由の録画を消す 1 日前から「調子」に予告する
 TRASH_DAYS = 3                 # 録画の部品の ごみ箱 の日付のフォルダを消すまで(rec_core.TRASH_DAYS と同じ。記録の文に出すだけ)
 DELETE_TIMEOUT = 60.0          # 録画元が消し終えるまで(大きな録画は数秒かかる)

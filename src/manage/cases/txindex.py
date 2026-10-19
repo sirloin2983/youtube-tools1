@@ -2,17 +2,16 @@
 
 入口の案件の画面(src/manage/cases/cases.py)と、スタジオのセリフの表示(src/manage/cases/txlink.py)が、同じ紐づけの規則を使うためにここに置く:
   切り抜き(スタジオの書き出し済みのマーク)の文字起こし =
-    ① 文書の sourcePath が、書き出した mp4 のパスと同じ(30fps にそろえて付け替えた文書は、付け替える前のパス = relinks の why "normalize30" の from も。2026-10-04 Q1)
+    ① 文書の sourcePath が、書き出した mp4 のパスと同じ(30fps にそろえて付け替えた文書は、付け替える前のパス = relinks の why "normalize30" の from も。Q1)
     ② 無ければ、文書の clip(.clip.json の中身)の source.videoId・mark.id が、その配信・マークと同じ(動画を動かした後でも見つかる)
   同じ切り抜きに複数あれば、更新が新しいもの。
 文書の行の時刻は切り抜きの中の時刻。元の配信の時刻 = offset + t(offset は .clip.json の export.actualStart → range.start の順。
 ytt.schemas.clip_offset)。.clip.json が無ければマークの開始を使う(高速書き出しのずれ(数秒)は直せない)。
 文書は大きい(数百行)ので、ファイルの更新日時・大きさが変わったときだけ読み直す。
 
-パックの有無(pack_info・is_pack_dir)もここ1か所で決める。2026-09-26(④)から cut2resolve の画面・API のパックはフォルダに cut-plan.json を置かず、
+パックの有無(pack_info・is_pack_dir)もここ1か所で決める。cut2resolve の画面・API のパックはフォルダに cut-plan.json を置かず、
 cut2resolve の作業データ packs/ に「パックを作った記録」を残す(記録の形・置き場所・書くのは ② flow/packrec。cut2resolve の API も
-入口なしの CLI も同じ after_build を呼ぶ = OPT-M2。ここは ② の読み口を使うだけ)。記録だけを見る(以前のパック = フォルダの中の cut-plan.json を
-見る口は 2026-10-18 に消した。書き出し先に 0)。
+入口なしの CLI も同じ after_build を呼ぶ = OPT-M2。ここは ② の読み口を使うだけ)。記録だけを見る(フォルダの中の cut-plan.json は見ない)。
 """
 import os
 
@@ -200,7 +199,7 @@ def offset(doc, video_id, media_path, fallback):
     if c:
         return schemas.clip_offset(c), "clip"
     if media_path and not fsio.is_network_path(media_path):   # ネットワーク上のパスには触らない(資格情報を送らない)
-        cp = schemas.find_clip_path(media_path)   # 作業用/ → 以前の置き方(動画の隣)
+        cp = schemas.find_clip_path(media_path)   # 作業用/ → 動画の隣
         side, _ = schemas.load_clip_file(cp) if cp else (None, None)
         c = usable(side)
         if c:

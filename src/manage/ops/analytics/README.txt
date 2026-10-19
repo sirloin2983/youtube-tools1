@@ -6,7 +6,7 @@
 状態の確認・手動の実行・報告の閲覧・連携の設定ができます。設計と決めたことは plan\analytics-daily-report.md。
 
 ■ 流れ
-  1. iPhone の Safari で YouTube Studio を開き、ブックマーク「日次取得」をタップする(今までどおり)
+  1. iPhone の Safari で YouTube Studio を開き、ブックマーク「日次取得」をタップする
      → 既存の Apps Script「Youtube日次」が Google Drive の Youtube日次\raw\<日付>.json に置く
   2. 入口(start.bat)が動いている間、数分ごとに Apps Script の「Youtube分析 連携」から新しいデータを受け取る
   3. 日報を作って連携へ送り返す → LINE に届く。同じ日にもう一度タップしたら、作り直して送り直す
@@ -43,8 +43,5 @@
 ■ テスト
   py -3.12 -m unittest src/manage/ops/analytics/tests/test_analytics.py   (本物の数字は使わない。規則どおりに伸びる架空のチャンネルで確かめる)
 
-■ v0.1.1(2026-10-09)
-  - 月報を LINE に送れなかったのを直した(連携は日付を YYYY-MM-DD でしか受け取らないのに、月報は「2026-09」で渡していた。その月の 1 日で渡す)
-
-■ v0.1.0(2026-10-09)
-  - はじめての版。既存の「Youtube日次」(9/28〜10/8)の分析を作り直してツールに移した(ブックマークと LINE は引き継ぎ)
+■ 連携への日付
+  - 月報は、連携が日付を YYYY-MM-DD でしか受け取らないので、その月の 1 日の日付で渡します。

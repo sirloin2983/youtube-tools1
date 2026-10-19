@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """④ 評価用のフォルダの整理: 動画の名前を「フォルダ名_番号_状態」にそろえる・仮置きからメンバーのフォルダへ移す・評価用にした文書の動画を外から取り込む
-(notes:docs/spec/data.md。OPT-M2(2026-10-16)で ⑤ の eval から ④ へ移した)。
+(notes:docs/spec/data.md)。
 
 - 文書を付け替える書き込みは ④ の manage/cases/relink(_relink_write・_doc_busy。同じ層の中の呼び出し = 呼ぶたびに _relink.名前 で読む = S._relink_write = … が届く)
 - 評価用のフォルダの判定(eval_dirs・in_eval_dir)は ytt/settings、別のドライブへの移動 move_file は ytt/fsio(RS3-1)
@@ -23,17 +23,17 @@ from manage.cases import relink as _relink  # noqa: E402   付け替えの書き
 from manage.keep import cleanup as _cleanup  # noqa: E402   空いている名前 free_path(仮置きの名前も同じ関数を 2 から・exists で使う)
 
 
-# ---------- 評価用のフォルダ(2026-10-01 ユーザー決定。notes:docs/spec/data.md) ----------
+# ---------- 評価用のフォルダ(ユーザー決定。notes:docs/spec/data.md) ----------
 # 設定 evalDirs のフォルダ(の下)にある動画は、精度を測るためだけのデータ。文字起こしを始めたとき・保存・付け替え・履歴から戻したときに
 # 評価用の印(evalSet)を付け、画面からは外せない。「整理」は動画の名前を「フォルダ名_番号_状態」にそろえ、文書を付け替える
 # (入口の起動時に1回 + 画面のボタン)。状態 = 済(文字のある行がすべて校正済み)・未・未文字起こし
 # 判定(eval_dirs・in_eval_dir・eval_name_guard・設定の形 _eval_dirs_ok)は ytt/settings、別のドライブへ移す move_file・same_drive は ytt/fsio
-# (RS3-1 に移した。_settings.名前・_fsio.名前 で呼ぶたびに読む = S.in_eval_dir = …・patch.object(fsio, "same_drive") が届く)
+# (_settings.名前・_fsio.名前 で呼ぶたびに読む = S.in_eval_dir = …・patch.object(fsio, "same_drive") が届く)
 EVAL_STATES = ("済", "未", "未文字起こし")
 EVAL_WALK_DEPTH = 4         # 評価用のフォルダから下へ何段まで(評価用データ\1_JP\01_0期生\評価用データ01_ときのそら = 3段)
 EVAL_WALK_MAX = 20000       # 見るファイルとフォルダの数の上限
 EVAL_SIDECARS = (".clip.json", ".edit.json", ".transcript.json", ".cut-plan.json", ".srt", "_edit.mp4")   # 動画と同じ名前で持つ途中のファイル(manage/keep/cleanup.SIDECARS と同じ。ただし _edit.clip.json は無い。7d-2 で ytt/schemas に寄せる)
-# 仮置き(2026-10-01 ユーザー決定): 評価用のフォルダの直下の「評価用_仮置き」で作業し、全行に話者が付いて全行が校正済みになったら、
+# 仮置き(ユーザー決定): 評価用のフォルダの直下の「評価用_仮置き」で作業し、全行に話者が付いて全行が校正済みになったら、
 # 話した時間が最も長いメンバーのフォルダ(名前が「…数字_メンバー名」のフォルダ)へ「フォルダ名_番号_済」で移す。仮置きの中は名前を変えない
 EVAL_STAGING = "評価用_仮置き"
 _EVAL_MEMBER_RE = re.compile(r"^.*?\d+_(.+)$")
@@ -84,7 +84,7 @@ def _path_busy(path):
 
 
 def _rename_sidecars(old, new, done=None):
-    """動画の途中のファイル(作業用/ と、以前の置き方の動画の隣)も動画に合わせて名前を変える・移す(仮置きから移すときは別のフォルダへ)。
+    """動画の途中のファイル(作業用/ と、動画の隣)も動画に合わせて名前を変える・移す(仮置きから移すときは別のフォルダへ)。
     中身は書き換えない。-> [(古い, 新しい)]。done を渡すと移すたびにそこへ足す(途中で失敗しても、呼び手が移した分を戻せる)"""
     done = [] if done is None else done
     ostem, nstem = os.path.splitext(os.path.basename(old))[0], os.path.splitext(os.path.basename(new))[0]
@@ -179,7 +179,7 @@ def _eval_settle_one(path, tids, members):
 
 
 def _eval_copy_index(dirs):
-    """仮置きのコピーの付け替え先の候補: 評価用のフォルダの外の動画を指す、行のある文書 {正規化したファイル名: [要約]}(2026-10-02 ユーザー決定)"""
+    """仮置きのコピーの付け替え先の候補: 評価用のフォルダの外の動画を指す、行のある文書 {正規化したファイル名: [要約]}(ユーザー決定)"""
     idx = {}
     for _tid, sm, sp in _store.summaries():
         if not sp or not sm.get("rows") or _fsio.is_network_path(sp) or not os.path.isabs(sp) or _settings.in_eval_dir(sp, dirs):
@@ -276,7 +276,7 @@ def _eval_free_name(folder, name):
 
 
 def _eval_intake_one(path, sms, root):
-    """評価用にした文書の動画1本を、評価用のフォルダへ取り込む(2026-10-04 ユーザー決定)。すべての行が校正済み・話者付きで
+    """評価用にした文書の動画1本を、評価用のフォルダへ取り込む(ユーザー決定)。すべての行が校正済み・話者付きで
     メンバーのフォルダが決まれば そのフォルダの「フォルダ名_番号_済」、それ以外は仮置き(名前はそのまま。そろったら仮置きから移る)。
     -> ({from, to, docs, member, staged} または None, 理由 または None)"""
     if not os.path.isfile(path):

@@ -1,7 +1,7 @@
 /* ui-kit v35 —テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
    画面の全面見直し(notes:docs/design/briefs/ui-overhaul/)の段階1。ES5 のまま(var・function。アロー関数・テンプレート文字列は使わない): <head> で同期に読み込むため。
    正本は src/ui-kit/ui-kit.js。写し先は無い(この正本を直接直す)。
-   window.UIKit.theme  : get() 保存した選択('system'|'light'|'dark'。**v6: 保存が無いときは既定で 'light'**。以前は OS の設定(system)に従っていた) / set(p) / toggle() / onChange(fn)
+   window.UIKit.theme  : get() 保存した選択('system'|'light'|'dark'。保存が無いときは既定で 'light') / set(p) / toggle() / onChange(fn)
    window.UIKit.tools  : 既定のポートとツール名。render(el, {current, ports}) で「他のツール」メニューを作る。
                          setPaths(/api/siblings の paths) で、入口の統合サーバーに取り込まれたツールの場所(/studio/ など)を覚える
    window.UIKit.life   : onLeave(fn(reason)) / onReturn(fn(reason)) / isAway()。画面を離れた・戻ったの合図(段階7-2)。
@@ -10,67 +10,51 @@
                          捕まえられなかったエラー(error・unhandledrejection)は自動で送る。入口の外(合言葉なし)では送らない
    window.UIKit.win    : isApp() 窓(Edge のアプリモード)で開いているか / open(url) 入口に頼んで開く(段階7-3)。
                          窓の中の「新しいタブで開く」リンクは自動で: このパソコンの画面 → 同じ形の窓、外のサイト → いつものブラウザ
-   v3: 入口・案件へ戻るリンク(ヘッダーの <a data-ui-home>・<a data-ui-cases> と「他のツール」メニューの先頭)、
-       window.UIKit.fmt : ago(ms) 相対の日時(「3日前」)/ date(ms) 日付と時刻 / dur(秒) 長さ(1:23:45)、window.UIKit.esc(s)
-   v4: 文字起こしツールと cut2resolve を「編集」に統合(notes:docs/design/edit-tool-design.md)。transcribe の表示名を「編集」に、cut2resolve は hidden
-   v5: 配信者の名前(字幕の色)の欄 <input data-ui-streamer>(UIKit.streamer。候補と色の見本。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 4)、
-       入口へ戻るリンク(data-ui-portal)は、入口がほかの窓・タブで開いていれば新しく開かずにそちらを前に出す(UIKit.portal。入口が二つにならないように。2026-09-27)
-       (一覧には残す = 編集が UIKit.tools.base('cut2resolve') でパックの API を呼ぶ。「他のツール」のメニューには出さない)
-   v6(2026-09-27・画面の全面見直し 段階1): 既定のテーマを明るいに、新しい部品(すべて README.md の「v6」に使い方):
-       UIKit.appnav(ホーム/スタジオ/編集の切り替え)・UIKit.drawer(右から出る引き出し)・UIKit.dialog(確認・警告)・
-       details.ui-pop(ポップオーバー。ui-menu と同じ閉じ方)・UIKit.toast(通知。重ねて最大3つ → v21 で2つ)・UIKit.keybar(下の細い帯)・
-       UIKit.settings.mount(設定の引き出し)・UIKit.keys(共通の再生キー)・UIKit.icon(SVG の線のアイコン)
-   v7(2026-09-29・気が利く画面へ 段1。notes:docs/design/briefs/ux-consistency/): UIKit.toast の ms: 0 = 消えない(以前は 0 が既定の秒数に戻っていた)・
-       action: {label, fn}(ボタン1つ)・閉じるボタン・戻り値 {close}。UIKit.confirmTwice(btn, run, text)(二度押しの確認を1つに)。
-       UIKit.prefs(ホームの設定 api/ytt/prefs: get(sections)・patch(section, value)(節ごと・まとめて送る)・remember(kind, key, name)・
+   window.UIKit.fmt : ago(ms) 相対の日時(「3日前」)/ date(ms) 日付と時刻 / dur(秒) 長さ(1:23:45)・day・dur の opt(floor・tenths・noHours)、window.UIKit.esc(s)
+   ツールの一覧には cut2resolve も残す(UIKit.tools.base('cut2resolve') でパックの API を呼ぶ。「他のツール」のメニューには出さない)
+   UIKit.streamer : 配信者の名前(字幕の色)の欄 <input data-ui-streamer>(候補と色の見本)
+   UIKit.portal : 入口へ戻るリンク(data-ui-portal)は、入口がほかの窓・タブで開いていれば新しく開かずにそちらを前に出す(入口が二つにならないように)
+   画面の全面見直し(使い方は README.md の「v6」): UIKit.appnav(ホーム / 案件 / 確かめる / 設定の切り替え。<nav data-ui-appnav="portal|cases|check|settings">)・UIKit.drawer(右から出る引き出し)・UIKit.dialog(確認・警告)・
+       details.ui-pop(ポップオーバー。ui-menu と同じ閉じ方)・UIKit.toast(通知。重ねて最大2つ)・UIKit.keybar(下の細い帯)・
+       UIKit.settings.mount(設定の引き出し)・UIKit.keys(共通の再生キー)・UIKit.icon(SVG の線のアイコン。icon.names() = ICONS の名前)
+   UIKit.toast : ms: 0 = 消えない・action: {label, fn}(ボタン1つ)・閉じるボタン・戻り値 {close}。UIKit.confirmTwice(btn, run, text)(二度押しの確認を1つに)。
+       知らせがあふれたときは 時間で消える → ボタン・消えない知らせ(失敗でない) → ボタンの無い失敗 → 古いもの の順に閉じる(失敗の知らせは最後まで残す)。README.md の「v7」「v22」「v23」
+   UIKit.prefs(ホームの設定 api/ytt/prefs: get(sections)・patch(section, value)(節ごと・まとめて送る)・remember(kind, key, name)・
        available()。保存に失敗したら知らせと [もう一度])。
-       UIKit.autorun(まとめて実行の部品: panel(el, {kind, modes}) = 要約1行と「設定を変える」・start(orders, opts) = 見積もり → 始める → 終わったら知らせ(v28)・
-       stepLabel / runLabel = 状態の言葉)。
-       UIKit.packLoud(パックの音量: LUFS でそろえる か % で決める。値は編集の設定 packLoudness・packVolume の1か所。mount(select) で選択の欄と % の欄にする・get()・set(values))
-   v8(2026-09-29・気が利く画面へ 段6): UIKit.keymap(キーの一覧 = キー配置の設定。README.md の「v8」)
-   v9(2026-09-30・全体の計画 段2 監査 11): UIKit.settings.status(state, message, retry, label)(設定の保存・読み込みの失敗を ⚙ の印と引き出しの先頭に)・statusOf()
-   v10(2026-10-01・段9 9-3): UIKit.restart(版の赤い帯に「起動し直す」: check(el, 画面の版, サーバーの版) / band / run / available。入口の api/ytt/restart-self)
-   v12(2026-10-02): サイバー風(計器盤)の形と配色4つ。明るい = アイスライト、暗い = ネオンシアン・鋼の白・ターミナルグリーンから選ぶ(UIKit.theme.palette。README.md の「v12」)
-   v14(2026-10-04): ヘッダーの明暗の切り替えボタン(.ui-theme-toggle)をやめた(配色は ⚙ 設定の「テーマ」の 4 つから選ぶ)。CSS を消した。UIKit.theme.toggle と [data-theme-toggle] の動きは残す(ボタンの無い軽い画面 lite.html が使う)。キーを変える場所は ? の一覧の 1 か所に(⚙ にはボタンだけ)
-   v15(2026-10-04): 引き出し(modal)が裏を inert にするとき、<dialog> は外す(showModal が自分で前面と周りの扱いを決める)。ページに最初からあるダイアログ(編集の #dlgConfirm など)を ⚙ の中から開くと、表示はされるが inert で操作できず固まっていた
-   v13(2026-10-04): UIKit.hide(一覧の項目を任意に非表示に。ホームの設定の節 hidden に覚える: load / has / set(list, ids, on) / count / showing / setShowing /
+   UIKit.autorun(まとめて実行の部品: panel(el, {kind, modes}) = 要約1行と「設定を変える」・start(orders, opts) = 見積もり → 始める → 終わったら知らせ・
+       stepLabel / runLabel = 状態の言葉)。受付は ② の口 POST api/flow/submit {envelope, spec} の 1 本。UIKit.flow.order(欄 → 封筒 + 束の差分。
+       Python の src/flow/order.py と同じ変換)・start は見積もり api/flow/estimate を 1 本ずつ足す → 1 本ずつ submit → 終わるまで api/flow/runs を見て知らせる。README.md の「v28」
+   UIKit.packLoud(パックの音量: LUFS でそろえる か % で決める。値は編集の設定 packLoudness・packVolume の1か所。mount(select) で選択の欄と % の欄にする・get()・set(values))
+   UIKit.keymap(キーの一覧 = キー配置の設定。README.md の「v8」)。キーを変える場所は ? の一覧の 1 か所(⚙ にはボタンだけ)
+   UIKit.settings.status(state, message, retry, label)(設定の保存・読み込みの失敗を ⚙ の印と引き出しの先頭に)・statusOf()
+   UIKit.restart(版の赤い帯に「起動し直す」: check(el, 画面の版, サーバーの版) / band / run / available。入口の api/ytt/restart-self)。
+       入口の応答に notice(まとめて実行の待ち・実行中は起動し直したあとに続きから進む)があれば、待つ間の帯の文に足す
+   UIKit.theme.palette : サイバー風(計器盤)の形と配色。明るい = アイスライト、暗い = ネオンシアン・鋼の白・ターミナルグリーン・シンセウェーブ(synth)から選ぶ(README.md の「v12」)
+   UIKit.theme.toggle と [data-theme-toggle] の動きは、ボタンの無い軽い画面 lite.html が使う(配色は ⚙ 設定の「テーマ」から選ぶ)
+   引き出し(modal)が裏を inert にするとき、<dialog> は外す(showModal が自分で前面と周りの扱いを決める。外さないと、ページに最初からあるダイアログ(編集の #dlgConfirm など)を ⚙ の中から開いたとき inert で操作できず固まる)
+   UIKit.hide(一覧の項目を任意に非表示に。ホームの設定の節 hidden に覚える: load / has / set(list, ids, on) / count / showing / setShowing /
        toggle(btn, list, n)(「非表示 n件を表示」の切り替え)/ onChange。データは消さない。README.md の「v13」)
-   v17(2026-10-05): UIKit.sound(ほかの窓で音が鳴っているかを BroadcastChannel で知らせ合う: other(tool) / onChange。スタジオの配信の音を、編集で再生している間だけ下げる・消すのに使う)。
-   v16(2026-10-05): UIKit.liveBadge(ヘッダーの「録画中」の札。入口の api/ytt/live を 10 秒(オフなら 60 秒)ごとに問い合わせ、録画があるときだけ appnav のあるヘッダーに札と一覧を出す: get / refresh / onChange / onOpen。
-       録画が終わった・切れたときの知らせ付き。線 D・notes:plan/line-d-live-clipping.md の 0-8。README.md の「v16」)
-   v11(2026-10-02): UIKit.timebox(時刻の欄。「:」を打たずに 時 → 分 → 秒 の順に数字だけで入れる: <span data-ui-time> / attach / create / get / set / parse / format。README.md の「v11」)
-   v18(2026-10-07): 内部の整理(確認・お知らせのダイアログ・編集の設定の保存・エラーの記録を共通に)。使っている画面の無い data-ui-home / data-ui-cases と .ui-home を消した。UIKit の形・動きは同じ
-   v20(2026-10-07): UIKit.restart の「起動し直す」で、入口の応答に notice(まとめて実行の待ち・実行中は起動し直したあとに続きから進む。入口 0.41.0)があれば、待つ間の帯の文に足す
-   v21(2026-10-07・気が利く画面へ 段7): 画面の文言の「入口」を「ホーム」に(用語集)。UIKit.toast は重ねて 2 つまで(消えない・ボタンのある知らせは後回しにして閉じる)・
-       押せないメニュー(details.ui-menu / ui-pop の summary[aria-disabled=true] は開かずに理由を知らせる。UIKit.menuOff(el, why, title))・
+   UIKit.sound(ほかの窓で音が鳴っているかを BroadcastChannel で知らせ合う: other(tool) / onChange。スタジオの配信の音を、編集で再生している間だけ下げる・消すのに使う)。
+   UIKit.liveBadge(ヘッダーの「録画中」の札。入口の api/ytt/live を 10 秒(オフなら 60 秒)ごとに問い合わせ、録画があるときだけ appnav のあるヘッダーに札と一覧を出す: get / refresh / onChange / onOpen。
+       録画が終わった・切れたときの知らせ付き。線 D・notes:plan/line-d-live-clipping.md の 0-8。「開く」は案件の画面の候補(/cases?c=<録画 id>#cand)。README.md の「v16」)
+   UIKit.timebox(時刻の欄。「:」を打たずに 時 → 分 → 秒 の順に数字だけで入れる: <span data-ui-time> / attach / create / get / set / parse / format。README.md の「v11」)。
+       ホイール(opt.wheel / data-ui-time-wheel。マウスの下の単位を ±1・Shift で ±10・動いた単位を一瞬光らせる)・add(秒)(今の値に足す・動いた一番上の単位を光らせる)・貼り付けの前の口 ui-time-beforepaste(取り消せる。画面が止めたら値も reject も出さない)。README.md の「v29」
+   画面の文言は「入口」でなく「ホーム」(用語集)。押せないメニュー(details.ui-menu / ui-pop の summary[aria-disabled=true] は開かずに理由を知らせる。UIKit.menuOff(el, why, title))・
        一覧の行の中の「次の一手」のボタン .ui-next-btn(ui-kit.css)。README.md の「v21」
-   v22(2026-10-07・気が利く画面へ 段9 見た目の確認): 知らせがあふれたときは 時間で消える → ボタン・消えない知らせ(失敗でない) → 古いもの の順に閉じる
-       (失敗の知らせは最後まで残す)・ポップオーバーの置き場所の直し(fitPop)を、まとめて実行の「設定を変える」の中身が読み込めたあとにもう一度・
-       編集の古い形のポップオーバー(details.pop > .vpop)にもかける・ui-kit.css の --danger-on(赤い面の上の文字)。README.md の「v22」
-   v23(2026-10-07・UI の見直しの基準。クラウド側。PC 側の段9 の直しと同じ番号で合流): 知らせの × を SVG に(A-10)・設定の「全体」の節の名前を label for に(A-24)。README.md の「v23」
-   v23(2026-10-07・段9 の直し): v22 の fitPop の var POP_SEL が上の POP_SEL を書き直していて、外側のクリック・Esc が開いていないメニューにも効き、
-       Esc でフォーカスが最後のメニューの summary へ飛んでいた → FIT_SEL に分けた。まとめて実行の fps の欄の名前を「フレームレート」に。
-       置き直す中身に [data-ui-fit](画面が作った中身。スタジオ ① の .rk-autopop)。知らせがあふれたとき、ボタンの無い失敗も失敗でない知らせより後に閉じる。README.md の「v23」
-   v24(2026-10-09・コードの見直しの直す順番 B の土台): UIKit.http(url, opt)(JSON の API を呼ぶ 1 か所・合言葉を付ける 1 か所・失敗の形を 1 つに)・
-       UIKit.homeApi(path, opt) / homeUrl(path)(入口の API。画面の 1 つ上)・UIKit.copy(text, opt)(クリップボード)・fmt.day・fmt.dur の opt(floor・tenths・noHours)・
-       icon.names()。ui-kit の中の fetch の包み 6 つ(yttPost・txPatch・packLoud.get・arHomeApi・arLoad・restartPing)は http を呼ぶ形に。README.md の「v24」
-   v25(2026-10-09・設定を 1 つに S5): UIKit.settingsForm(宣言的なスキーマから設定の節を描く。入口の /settings/ の画面が使う)・
+   ポップオーバーの置き場所の直し(fitPop)は、まとめて実行の「設定を変える」の中身が読み込めたあとにもう一度・編集の形のポップオーバー(details.pop > .vpop)にもかける・
+       置き直す中身に [data-ui-fit](画面が作った中身。スタジオ ① の .rk-autopop)。ui-kit.css の --danger-on(赤い面の上の文字)。知らせの × は SVG。設定の「全体」の節の名前は label for。README.md の「v22」「v23」
+   UIKit.http(url, opt)(JSON の API を呼ぶ 1 か所・合言葉を付ける 1 か所・失敗の形を 1 つに)・
+       UIKit.homeApi(path, opt) / homeUrl(path)(入口の API。画面の 1 つ上)・UIKit.copy(text, opt)(クリップボード)。ui-kit の中の fetch の包みは http を呼ぶ。README.md の「v24」
+   UIKit.settingsForm(宣言的なスキーマから設定の節を描く。入口の /settings/ の画面が使う)・
        ⚙ の「全体」の節に「すべての設定を 1 つの画面で」(入口に取り込まれているときだけ。/settings へ)。README.md の「v25」
-    v26(2026-10-11・RS8 案件の画面 C1): 左の一覧 .ui-rail・.ui-rail-item(ui-kit.css)・共通の再生キーにできないキーに Shift+N(案件: 次の未校正の切り抜き)。README.md の「v26」
-    v27(2026-10-11・RS8 案件の画面 C4): 古い画面(スタジオ・編集のページ)を消したので、appnav を「ホーム / 案件 / 設定」に(案件 = /cases・設定 = /settings。
-       <nav data-ui-appnav="portal|cases|settings">。V1 確かめる V3 で「確かめる」(= /check)を足して「ホーム / 案件 / 確かめる / 設定」の 4 つに)・録画中の札の「開く」は案件の画面の候補(/cases?c=<録画 id>#cand)・「他のツール」のメニューの「案件の一覧」はホームへ。
-       ツールごとの写し(src/studio/ui-kit.*・src/editor/ui-kit.*)は無くなった(画面はどれも入口の直下の正本 ui-kit.js・ui-kit.css を読む)。README.md の「v27」
-    v28(2026-10-16・RV A1): まとめて実行の受付を ② の口 POST api/flow/submit {envelope, spec} の 1 本に。UIKit.flow.order(欄 → 封筒 + 束の差分。
-       Python の src/flow/order.py と同じ変換)・UIKit.autorun.start(orders, opts)(見積もり api/flow/estimate を 1 本ずつ足す → 1 本ずつ submit →
-       終わるまで api/flow/runs を見て知らせる)。以前の start(path, body, estBody) と api/autorun/* は消した。README.md の「v28」
-    v29(2026-10-17・友人のアプリの区間の欄 F3-3): UIKit.timebox に ホイール(opt.wheel / data-ui-time-wheel。マウスの下の単位を ±1・Shift で ±10・動いた単位を一瞬光らせる)・add(秒)(今の値に足す・動いた一番上の単位を光らせる)・貼り付けの前の口 ui-time-beforepaste(取り消せる。画面が止めたら値も reject も出さない)。README.md の「v29」
-    v30(2026-10-17・友人のアプリの配色): 暗いときの配色に シンセウェーブ(synth)を足した(UIKit.theme.palette('synth')。友人のアプリの配色 B) */
+   左の一覧 .ui-rail・.ui-rail-item(ui-kit.css)・共通の再生キーにできないキーに Shift+N(案件: 次の未校正の切り抜き)。README.md の「v26」
+   画面はどれも入口の直下の正本 ui-kit.js・ui-kit.css を読む(ツールごとの写しは無い)。README.md の「v27」 */
 (function () {
   'use strict';
   var KEY = 'ytt:theme';
-  /* v12: 暗いときの配色(cyan = ネオンシアン・steel = 鋼の白・green = ターミナルグリーン)。明るいときはアイスライト(ice)だけ。
-     明るい/暗い(ytt:theme)と分けて持つ = 切り替えボタン・OSに合わせる・以前の保存がそのまま使える */
-  var PAL_KEY = 'ytt:palette', DARK_PALETTES = { cyan: 'ネオンシアン', steel: '鋼の白', green: 'ターミナルグリーン', synth: 'シンセウェーブ' };   /* v30: synth = 友人のアプリの配色 B */
+  /* 暗いときの配色(cyan = ネオンシアン・steel = 鋼の白・green = ターミナルグリーン・synth = シンセウェーブ)。明るいときはアイスライト(ice)だけ。
+     明るい/暗い(ytt:theme)と分けて持つ = 切り替えボタン・OSに合わせる */
+  var PAL_KEY = 'ytt:palette', DARK_PALETTES = { cyan: 'ネオンシアン', steel: '鋼の白', green: 'ターミナルグリーン', synth: 'シンセウェーブ' };   /* synth = 友人のアプリの配色 B */
   function darkPalette() {
     try { var v = localStorage.getItem(PAL_KEY); return DARK_PALETTES[v] ? v : 'cyan'; } catch (e) { return 'cyan'; }
   }
@@ -78,7 +62,7 @@
   var mq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
   var subs = [];
 
-  /* v6: 保存が無いときの既定は明るい(以前は 'system' = OS の設定)。'system'(OSに合わせる)は選んだときだけ明示的に保存する */
+  /* 保存が無いときの既定は明るい。'system'(OSに合わせる)は選んだときだけ明示的に保存する */
   function pref() {
     try { var v = localStorage.getItem(KEY); return v === 'light' || v === 'dark' || v === 'system' ? v : 'light'; } catch (e) { return 'light'; }
   }
@@ -102,14 +86,14 @@
   }
   function set(p) {
     if (p !== 'light' && p !== 'dark' && p !== 'system') p = 'light';
-    try { localStorage.setItem(KEY, p); } catch (e) { /* 保存できなくても見た目は変える */ }   /* v6: 'system' も明示的に保存する(absent は明るい) */
+    try { localStorage.setItem(KEY, p); } catch (e) { /* 保存できなくても見た目は変える */ }   /* 'system' も明示的に保存する(absent は明るい) */
     paint(p);
   }
   var theme = {
     get: pref,
     set: set,
     toggle: function () { set(resolve(pref()) === 'dark' ? 'light' : 'dark'); },
-    /* v12: 暗いときの配色。palette() → 'cyan' | 'steel' | 'green'、palette(name) で変えて保存する(明るい/暗いは変えない) */
+    /* 暗いときの配色。palette() → 'cyan' | 'steel' | 'green'、palette(name) で変えて保存する(明るい/暗いは変えない) */
     palette: function (name) {
       if (name === undefined) return darkPalette();
       if (!DARK_PALETTES[name]) return darkPalette();
@@ -133,7 +117,7 @@
   });
   /* ボタンは <head> の実行時にはまだ無いので、読み込み後に表示だけ合わせる(data-theme は変えない: 画面側が独自に決めた値を消さないため) */
   document.addEventListener('DOMContentLoaded', syncButtons);
-  /* 「他のツール」などの <details class="ui-menu"> と、v6 の <details class="ui-pop">(ポップオーバー)を、外側のクリックと Esc で閉じる */
+  /* 「他のツール」などの <details class="ui-menu"> と、<details class="ui-pop">(ポップオーバー)を、外側のクリックと Esc で閉じる */
   var POP_SEL = 'details.ui-menu[open], details.ui-pop[open]';
   document.addEventListener('click', function (e) {
     var open = document.querySelectorAll(POP_SEL);
@@ -145,10 +129,10 @@
     for (var i = 0; i < open.length; i++) {
       var d = open[i], s = d.querySelector('summary');
       d.removeAttribute('open');
-      if (s && s.focus) s.focus({ preventScroll: true });   /* v6: Esc では summary へフォーカスを戻す */
+      if (s && s.focus) s.focus({ preventScroll: true });   /* Esc では summary へフォーカスを戻す */
     }
   });
-  /* v21: 押せないメニュー(段7。以前は編集の題名の行・スタジオ ① と ③ の「まとめて実行」が、それぞれ summary の click を止めて理由を知らせていた)。
+  /* 押せないメニュー。
      <details class="ui-menu|ui-pop"> の <summary aria-disabled="true"> は開かずに、理由(data-ui-why、無ければ title)を知らせる。Enter・Space も click になる。
      捕まえる段階(capture)で止めるので、画面の側の summary の click は呼ばれない(押せないボタンと同じ)。付け外しは UIKit.menuOff(details か summary, 理由, 使えるときの title) */
   var MENU_OFF_SEL = 'details.ui-menu > summary[aria-disabled=true], details.ui-pop > summary[aria-disabled=true]';
@@ -179,14 +163,12 @@
 
   /* ポップオーバーを開いたら、画面の外にはみ出さないよう置き場所を直す(A-1: 右端の「…」の選択肢が画面の外に出ていた)。
      data-align の指定のまま置いてみて、はみ出す側だけ反対にそろえる。下にはみ出して上に余裕があれば上に開く。
-     v22: 編集の古い形(details.pop > .vpop。2 カット の「無音 ▾」「時刻リスト ▾」など)にもかける(幅 960 で道具の行が折り返すと、
-     右にそろえた中身が画面の左の外に出ていた。段9 の確認) */
-  /* v23: 以前はここでも同じ名前(POP_SEL)で宣言していて、上の「開いているものだけ」の選択子を上書きしていた。その結果 Esc で閉じているメニューの summary にも
-     フォーカスが移り(ページの最後の「…」へ飛ぶ)、続く Space がメニューを開いた(スタジオの見直し M1)。別の名前にする */
+     編集の形(details.pop > .vpop。2 カット の「無音 ▾」「時刻リスト ▾」など)にもかける。 */
+  /* POP_SEL(開いているものだけの選択子)とは別の名前にする(同じ名前だと上書きされ、Esc で閉じているメニューの summary にもフォーカスが移って Space で開いてしまう) */
   var FIT_SEL = 'details.ui-pop, details.ui-menu, details.pop';
   function fitPop(d) {
-    /* v23: 画面が自分で作った中身(class が違う)も、data-ui-fit を付ければ同じく置き直す(スタジオ ① の選択の帯の「まとめて実行」.rk-autopop。
-       帯が画面の下の方にあると、中身と「まとめて実行」のボタンが画面の下の外に出ていた。段9) */
+    /* 画面が自分で作った中身(class が違う)も、data-ui-fit を付ければ同じく置き直す(スタジオ ① の選択の帯の「まとめて実行」.rk-autopop。
+       帯が画面の下の方にあると、中身と「まとめて実行」のボタンが画面の下の外に出るため) */
     var body = d.querySelector(':scope > .ui-pop-body, :scope > .ui-menu-pop, :scope > .vpop, :scope > [data-ui-fit]'); if (!body) return;
     body.style.left = body.style.right = body.style.top = body.style.bottom = body.style.maxHeight = body.style.overflowY = '';
     var r = body.getBoundingClientRect(), vw = document.documentElement.clientWidth || window.innerWidth, vh = window.innerHeight, m = 8;
@@ -223,10 +205,10 @@
       var out = {};
       if (p && typeof p === 'object') for (var k in p) if (Object.prototype.hasOwnProperty.call(p, k) && typeof p[k] === 'string' && PATH_RE.test(p[k])) out[k] = p[k];
       tools.paths = out;
-      if (typeof loudRefresh === 'function') loudRefresh();   /* v7: パックの音量の欄(編集の場所が分かってから出す) */
-      /* v6: ツールの場所が分かったら、先に描いた appnav のリンクを描き直す(appnav は DOMContentLoaded で1回描くが、場所は /api/siblings・/api/status の答えで後から来る) */
+      if (typeof loudRefresh === 'function') loudRefresh();   /* パックの音量の欄(編集の場所が分かってから出す) */
+      /* ツールの場所が分かったら、先に描いた appnav のリンクを描き直す(appnav は DOMContentLoaded で1回描くが、場所は /api/siblings・/api/status の答えで後から来る) */
       if (document.readyState !== 'loading') renderAppNav();
-      if (typeof live !== 'undefined' && live && live.last) liveRender();   /* v16: 録画の札の「開く」のリンクも(スタジオの場所を使う) */
+      if (typeof live !== 'undefined' && live && live.last) liveRender();   /* 録画の札の「開く」のリンクも(スタジオの場所を使う) */
     },
     base: function (id) { return tools.paths[id] || '/'; },
     /* ports: {studio: 8801, ...}(サーバーが知っている実際のポート。無ければ既定)。path は画面の中の場所('/?media=...' など) */
@@ -261,7 +243,7 @@
   };
   theme.syncButtons = syncButtons;
 
-  /* ---- 表示の書式(v3)---- 一覧で「いつのものか」をすぐ分かるように */
+  /* ---- 表示の書式 ---- 一覧で「いつのものか」をすぐ分かるように */
   function pad2(n) { return (n < 10 ? '0' : '') + n; }
   var fmt = {
     date: function (ms) {
@@ -281,9 +263,9 @@
       if (days < 7) return days + '日前';
       return fmt.day(ms);
     },
-    /* v24: 日付だけ(date の時刻の前。年は今年でなければ付ける) */
+    /* 日付だけ(date の時刻の前。年は今年でなければ付ける) */
     day: function (ms) { return ms ? fmt.date(ms).split(' ')[0] : ''; },
-    /* 秒 → 1:23:45(1 時間未満は 23:45)。v24 の opt(省略なら v3 のまま = 四捨五入):
+    /* 秒 → 1:23:45(1 時間未満は 23:45)。opt(省略なら四捨五入):
        floor = 切り捨て(タイムラインの目盛りなど)・tenths = 0.1 秒まで(0.1 秒で四捨五入して末尾に .4。スタジオの Studio.fmtTime と同じ)・
        noHours = 時を出さず分を 60 以上にも(83:45) */
     dur: function (sec, opt) {
@@ -299,7 +281,7 @@
      どちらも入口が受け持つ)。合言葉はサーバーが </head> の直前に入れるので、このファイルの実行時ではなく送るときに読む */
   function token() { var m = document.querySelector('meta[name="ytt-token"]'); return m ? m.content : ''; }
 
-  /* ---- http(v24。notes:docs/design/reviews/code-review-simplify-2026-10-08.md の T3・B)---- JSON の API を呼ぶ 1 か所。合言葉を付けるのはここだけ。
+  /* ---- http(notes:docs/design/reviews/code-review-simplify-2026-10-08.md の T3・B)---- JSON の API を呼ぶ 1 か所。合言葉を付けるのはここだけ。
      UIKit.http(url, opt) -> Promise<応答の JSON(JSON でなければ {})>(opt.raw なら成功のときは Response)。opt:
        method(既定: body があれば POST・無ければ GET)・body(JSON にして送る。Content-Type も付ける)・keepalive・
        timeout(ミリ秒。応答の見出しが届くまで)・signal(呼ぶ側の AbortSignal)・raw・
@@ -307,12 +289,12 @@
        offline(つながらないときの文)・slow(時間切れの文)・fail(サーバーが message を返さなかったときの文。文字列か function(status))
      合言葉 X-YTT-Token は GET・HEAD 以外で、送り先が同じオリジンのときだけ付ける(ほかのサイトへ合言葉を出さない)。
      失敗はいつも Error で、形は 1 つ: message(画面に出す文)・code(サーバーの error | 'http' | 'network' | 'timeout' | 'abort' | 'no_token')・
-       status(HTTP の番号。応答が無ければ 0)・body(応答の JSON。無い・JSON でなければ {})・data(body と同じもの。編集の以前の名前)・
+       status(HTTP の番号。応答が無ければ 0)・body(応答の JSON。無い・JSON でなければ {})・data(body と同じもの)・
        reason(サーバーの message。無ければ '')・detail(知らせの「詳しく」に出す原文: 'HTTP 409' / 通信の例外の文) */
   var HTTP_OFFLINE = 'サーバーにつながりませんでした(start.bat の黒い画面が閉じていないか確かめてください)';
   var HTTP_SLOW = 'サーバーの応答が遅れています。少し待ってから、もう一度試してください';
   function httpFail(st) { return st >= 500 ? 'サーバーで問題が起きました。少し待ってから、もう一度試してください' : '要求を受け付けてもらえませんでした。画面を読み込み直してから、もう一度試してください'; }
-  function httpCodeText(st) { return 'HTTP ' + st; }   /* ui-kit の中の呼び出しは v23 までと同じ文(HTTP 404)にする */
+  function httpCodeText(st) { return 'HTTP ' + st; }   /* ui-kit の中の呼び出しの失敗の文は HTTP 404 の形にする */
   function httpErr(message, code, status, j, detail) {
     var e = new Error(message), b = j && typeof j === 'object' ? j : {};
     e.code = code; e.status = status; e.body = b; e.data = b;
@@ -366,7 +348,7 @@
   function homeUrl(path) { return new URL('../' + String(path == null ? '' : path).replace(/^\/+/, ''), location.href).href; }
   function homeApi(path, opt) { return http(homeUrl(path), opt); }
   function yttPost(name, obj, keepalive) {
-    /* v16: 失敗の status(liveBadge が 404 と一時的な失敗を分ける) */
+    /* 失敗の status(liveBadge が 404 と一時的な失敗を分ける) */
     return http('api/ytt/' + name, { method: 'POST', body: obj, keepalive: keepalive, needToken: true, fail: httpCodeText });
   }
 
@@ -467,10 +449,10 @@
   document.addEventListener('auxclick', function (e) { if (e.button === 1) onLink(e); });
   var win = { isApp: isApp, open: openVia };
 
-  /* ---- 入口へ戻る(v5)---- bat で開いた入口の窓があるのに、ツールの窓の「入口」で同じ窓を入口へ移すと、入口が二つになっていた(2026-09-27)。
+  /* ---- 入口へ戻る ---- bat で開いた入口の窓があるのに、ツールの窓の「入口」で同じ窓を入口へ移すと、入口が二つになってしまう。
      入口の画面(portal.js が UIKit.portal.listen())が BroadcastChannel で答えたら、移らずに入口(サーバー)に「入口の窓を前に出して」と頼む
      (api/ytt/focus-portal。Windows の窓を題名で探す)。前に出せなかったら知らせるだけ(ツールの画面はそのまま)。
-     答えが無ければ今までどおり、その場で入口へ移る。同じパソコン・同じブラウザのプロファイルの中だけで届く(外には出ない) */
+     答えが無ければ、その場で入口へ移る。同じパソコン・同じブラウザのプロファイルの中だけで届く(外には出ない) */
   var PORTAL_CH = 'ytt-portal';
   function portalOpen(ms) {
     return new Promise(function (resolve) {
@@ -483,7 +465,7 @@
       setTimeout(function () { end(false); }, ms || 400);
     });
   }
-  function note(message) { toastFn(message, { kind: 'info', ms: 5000 }); }   /* v6: UIKit.toast(下で定義)を使う(ツールごとの知らせの部品に頼らない) */
+  function note(message) { toastFn(message, { kind: 'info', ms: 5000 }); }   /* UIKit.toast(下で定義)を使う(ツールごとの知らせの部品に頼らない) */
   var portal = {
     /* 入口の画面が呼ぶ: ほかの窓の「入口」リンクに「ここにある」と答える */
     listen: function () {
@@ -514,7 +496,7 @@
     portal.go(a.href);
   });
 
-  /* ---- 配信者の名前(字幕の色)の欄(v5)---- <input data-ui-streamer> に、名前の候補(datalist)・色の見本・合う人の表示を付ける。
+  /* ---- 配信者の名前(字幕の色)の欄 ---- <input data-ui-streamer> に、名前の候補(datalist)・色の見本・合う人の表示を付ける。
      名前 → メンバーカラーの照らし合わせは入口(api/ytt/streamer-colors → ytt/colors.py)の1か所。欄の値は名前のまま送り、
      使う側(cut2resolve・まとめて実行)も同じ規則で照らし合わせる(画面に規則を書かない)。入口の外では使えないと知らせる。
      値を画面から入れ直したら UIKit.streamer.set(input, 名前)。合う人が決まるたびに input に 'ui-streamer' イベント(detail: 人 | null) */
@@ -545,7 +527,7 @@
     var timer = 0, seq = 0, last = null;
     function tell(who) { try { input.dispatchEvent(new CustomEvent('ui-streamer', { detail: who })); } catch (e) { /* 古いブラウザ */ } }
     /* 同じ名前ではもう一度照らし合わせない(force を除く)。欄から離れた(change)ときに説明の文が変わると、隣のボタンが押している途中で
-       ずれてクリックが成立しなかった(2026-09-27)。同じ理由で、照らし合わせの途中は説明の文を変えない */
+       ずれてクリックが成立しなくなる。同じ理由で、照らし合わせの途中は説明の文を変えない */
     function show(force) {
       var q = input.value.trim();
       if (!force && q === last) return;
@@ -573,7 +555,7 @@
     input.addEventListener('change', function () { clearTimeout(timer); show(false); });
     show(true);
   }
-  /* v7(気が利く画面へ 段5): 配信者の名前を自動で入れる(覚えた名前 → チャンネル名から。決める順は入口の api/ytt/streamer-guess の1か所)・
+  /* 配信者の名前を自動で入れる(覚えた名前 → チャンネル名から。決める順は入口の api/ytt/streamer-guess の1か所)・
      札「自動(チャンネル名から)」「前回」・手で直したら文書・配信・チャンネルに覚える(空 = 「色なし」を覚える)・見つからない名前は始める前に聞く */
   function streamerBadge(input, text) {
     var b = input.__badge;
@@ -617,7 +599,7 @@
         return j;
       }, function () { return null; });
     },
-    /* 始める前: 欄の名前がメンバーに見つからなければ「色なしで進める」か聞く(S-20。以前は始めたあとでエラー)。-> Promise<名前 | ''(色なし)| null(やめる)> */
+    /* 始める前: 欄の名前がメンバーに見つからなければ「色なしで進める」か聞く(S-20)。-> Promise<名前 | ''(色なし)| null(やめる)> */
     check: function (input) {
       var v = input ? input.value.trim() : '';
       if (!v || !token()) return Promise.resolve(v);
@@ -635,9 +617,9 @@
     for (var i = 0; i < list.length; i++) attachStreamer(list[i]);
   });
 
-  /* ==== v6(2026-09-27・画面の全面見直し 段階1): 共通の部品。使い方は README.md の「v6」 ==== */
+  /* ==== 共通の部品。使い方は README.md の「v6」 ==== */
 
-  /* ---- appnav(ホーム/案件/確かめる/設定の切り替え。ヘッダーの左。v27 = RS8 C4 でスタジオ・編集の画面を消した) ---- <nav data-ui-appnav="portal|cases|check|settings"> に中身を作る。
+  /* ---- appnav(ホーム/案件/確かめる/設定の切り替え。ヘッダーの左) ---- <nav data-ui-appnav="portal|cases|check|settings"> に中身を作る。
      どの画面も入口の直下(/・/cases・/check・/settings)= 行き先は入口の直下からの相対(homeUrl。絶対パスを書かない) */
   var APPNAV_ITEMS = [{ id: 'portal', label: 'ホーム' }, { id: 'cases', label: '案件' }, { id: 'check', label: '確かめる' }, { id: 'settings', label: '設定' }];
   var appnavVersion = '';
@@ -678,7 +660,7 @@
   }
   function drawerInert(keep, on) {
     /* 引き出しから body までの道すじの各段で、道すじ以外の兄弟を inert にする(引き出しが body の直接の子でなくても、裏の全部を止める)。
-       保つ要素(幕・トースト・キーの帯)を含む兄弟は inert にしない。<dialog> も inert にしない(v15: showModal で開く確認などが操作できなくなるため。
+       保つ要素(幕・トースト・キーの帯)を含む兄弟は inert にしない。<dialog> も inert にしない(showModal で開く確認などが操作できなくなるため。
        閉じた dialog は表示されず、開いた modal の dialog は showModal が裏(引き出しを含む)を止める) */
     var body = document.body; if (!body) return;
     var node = keep[0];
@@ -693,7 +675,7 @@
     }
   }
   function drawerFocusables(el) {
-    /* v23: summary も数え、閉じた details の中身や隠れているものは除く(以前は最後の summary から Tab が外へ抜けた。スタジオの書き出しの欄 @390。A-31) */
+    /* summary も数え、閉じた details の中身や隠れているものは除く(A-31) */
     var all = el.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),summary,[tabindex]:not([tabindex="-1"])');
     var out = [];
     for (var i = 0; i < all.length; i++) { var f = all[i]; if (f.checkVisibility ? f.checkVisibility({ visibilityProperty: true, contentVisibilityAuto: true }) : f.offsetParent !== null) out.push(f); }
@@ -760,7 +742,7 @@
   document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape') return;
     if (document.querySelector('dialog[open]')) return;
-    if (document.querySelector('details.ui-menu[open], details.ui-pop[open]')) return;   /* v23: 開いているメニューがあれば、その Esc はメニューだけを閉じる(引き出しは閉じない。ホームの見直し N2) */
+    if (document.querySelector('details.ui-menu[open], details.ui-pop[open]')) return;   /* 開いているメニューがあれば、その Esc はメニューだけを閉じる(引き出しは閉じない。ホームの見直し N2) */
     var open = document.querySelectorAll('.ui-drawer:not([hidden])');
     for (var i = open.length - 1; i >= 0; i--) {
       var el = open[i];
@@ -809,7 +791,7 @@
     var okBtn = dialogBtn('btn primary', opts.ok || 'OK');
     return dialogOpen(opts, 'お知らせ', [[okBtn, undefined]], okBtn, undefined);
   }
-  /* v23: 3 択以上の確認(例: パックの上書き [作り直す][別の場所][やめる])。opts.buttons = [{label, value, kind: 'primary'|'danger'|'ghost'|''}, …]。
+  /* 3 択以上の確認(例: パックの上書き [作り直す][別の場所][やめる])。opts.buttons = [{label, value, kind: 'primary'|'danger'|'ghost'|''}, …]。
      戻り値は押したボタンの value。Esc・背景は opts.cancel(既定 null)。danger のボタンがあれば既定のフォーカスは最初の ghost(安全な方)、無ければ最初の primary */
   function dialogChoose(opts) {
     opts = opts || {};
@@ -823,14 +805,12 @@
   }
   var dialogApi = { confirm: dialogConfirm, alert: dialogAlert, choose: dialogChoose };
 
-  /* ---- toast(通知。v21 から重ねて最大2つ) ---- <div class="ui-toasts" id="toast" aria-live="polite">。既存の単発の #toast(class=toast)があれば入れ物として作り直す */
+  /* ---- toast(通知。重ねて最大2つ) ---- <div class="ui-toasts" id="toast" aria-live="polite">。既存の単発の #toast(class=toast)があれば入れ物として作り直す */
   var toastBox = null;
-  /* v21: 重ねるのは 2 つまで(以前は 3 つ。積み上がると画面の下の操作(編集のパックの「中止」など)を隠していた)。あふれたら古いものから閉じる。
+  /* 重ねるのは 2 つまで(積み上がると画面の下の操作(編集のパックの「中止」など)を隠すため)。あふれたら古いものから閉じる。
      消えない知らせ(ms: 0)・ボタンのある知らせ(data-ui-keep)は後回しにして、時間で消える知らせから閉じる(失敗の [もう一度] を、ただの案内で押し流さない)。
-     v22: 残す知らせばかりのときも、失敗(.err)は最後まで残す(v21 は古いものから閉じたので、[もう一度] つきの失敗のあとに [フォルダを開く] つきの完了と
-     ただの案内が続くと、失敗が先に消えていた。段9 の確認で見つけた)。
-     v23: ボタンの無い失敗(時間で消える err)も、失敗でない知らせより先には閉じない(v22 は「時間で消える」を先に選んだので、
-     ボタンの無い失敗のあとに案内が 2 つ続くと失敗が消えた)。閉じる順 = 失敗でない時間で消える知らせ → 失敗でない残す知らせ → 古いもの */
+     残す知らせばかりのときも、失敗(.err)は最後まで残す。ボタンの無い失敗(時間で消える err)も、失敗でない知らせより先には閉じない。
+     閉じる順 = 失敗でない時間で消える知らせ → 失敗でない残す知らせ → 古いもの */
   var TOAST_MAX = 2;
   function toastPick(box, ok) {
     for (var i = 0; i < box.children.length; i++) if (ok(box.children[i])) return box.children[i];
@@ -853,7 +833,7 @@
     toastBox = el;
     return el;
   }
-  /* v7: ms: 0 = 閉じるまで出す。action: {label, fn} = ボタン1つ(押すと閉じてから fn)。閉じるボタン(×)はいつも。-> {close, el} */
+  /* ms: 0 = 閉じるまで出す。action: {label, fn} = ボタン1つ(押すと閉じてから fn)。閉じるボタン(×)はいつも。-> {close, el} */
   function toastFn(message, opt) {
     opt = opt || {};
     var kind = opt.kind || '', isErr = kind === 'err';
@@ -879,11 +859,11 @@
       item.appendChild(ab);
     }
     var xb = document.createElement('button');
-    xb.type = 'button'; xb.className = 'ui-toast-x'; xb.setAttribute('aria-label', '知らせを閉じる'); xb.innerHTML = icon('close', { size: 14 });   /* v23: SVG(A-10) */
+    xb.type = 'button'; xb.className = 'ui-toast-x'; xb.setAttribute('aria-label', '知らせを閉じる'); xb.innerHTML = icon('close', { size: 14 });   /* SVG(A-10) */
     xb.addEventListener('click', function (e) { e.stopPropagation(); remove(); restoreFocus(); });
     item.appendChild(xb);
     function remove() { clearTimeout(timer); if (item.parentNode) item.parentNode.removeChild(item); }
-    /* v23: 知らせのボタンをキーで押すと、知らせが消えてフォーカスが body に落ちていた(ホームの見直し N3)。知らせを出したときにフォーカスがあった所へ戻す */
+    /* 知らせのボタンをキーで押すと知らせが消えてフォーカスが body に落ちるので、知らせを出したときにフォーカスがあった所へ戻す */
     var opener = document.activeElement;
     function restoreFocus() { var a = document.activeElement; if ((!a || a === document.body) && opener && opener !== document.body && opener.isConnected && opener.focus) opener.focus({ preventScroll: true }); }
     var timer = ms > 0 ? setTimeout(remove, ms) : 0;
@@ -897,10 +877,10 @@
     return { close: remove, el: item };
   }
 
-  /* ---- copy(v24)---- クリップボードへ文字を写す。UIKit.copy(text, opt) -> Promise<true | false>(失敗しても reject しない)。
+  /* ---- copy ---- クリップボードへ文字を写す。UIKit.copy(text, opt) -> Promise<true | false>(失敗しても reject しない)。
      opt.ok / opt.fail に文があれば、その知らせ(UIKit.toast。ok は 2.5 秒・fail は 5 秒の err)も出す。
      clipboard API が使えない(権限なし・フォーカスが無い)ときは、見えない textarea を選んで execCommand('copy') で写す
-     (以前の 3 つ = スタジオの copyText・編集の copyPath・ホームのデータの場所。失敗したときに欄を選ぶなどは呼ぶ側で) */
+     (失敗したときに欄を選ぶなどは呼ぶ側で) */
   function copyByCommand(text) {
     try {
       var ta = document.createElement('textarea'), back = document.activeElement;
@@ -924,8 +904,8 @@
     });
   }
 
-  /* ---- confirmTwice(二度押しの確認。v7)---- 1回目でボタンの文字を text に変え、3秒以内のもう1回で run。実行したらすぐ元に戻す
-     (以前の3つの実装(スタジオ・コラボ・編集)をまとめた。編集の版は実行後も「確認済み」のままで、続けて押すと同じ操作がもう一度走っていた) */
+  /* ---- confirmTwice(二度押しの確認)---- 1回目でボタンの文字を text に変え、3秒以内のもう1回で run。実行したらすぐ元に戻す
+     (実行後も「確認済み」のままだと、続けて押すと同じ操作がもう一度走るため) */
   function confirmTwice(btn, run, text) {
     if (!btn) return;
     if (btn.getAttribute('data-armed')) {
@@ -940,8 +920,8 @@
     }, 3000)));
   }
 
-  /* ---- prefs(ホームの設定。v7)---- api/ytt/prefs(app/prefs.py)。ホームから開いていない(合言葉なし)ときは available() が false。
-     patch は同じ節をまとめて 400ms 後に送る(続けて変えても1回)。失敗したら知らせと [もう一度](以前は空の catch で黙って捨てていた) */
+  /* ---- prefs(ホームの設定)---- api/ytt/prefs(app/prefs.py)。ホームから開いていない(合言葉なし)ときは available() が false。
+     patch は同じ節をまとめて 400ms 後に送る(続けて変えても1回)。失敗したら知らせと [もう一度] */
   var prefsPending = {}, prefsTimer = {};
   function prefsFail(section, err) {
     toastFn('設定を保存できませんでした: ' + (err && err.message ? err.message : ''), { kind: 'err', ms: 0,
@@ -973,7 +953,7 @@
     }
   };
 
-  /* ---- hide(一覧の項目を非表示に。v13)---- 覚える場所はホームの設定の節 hidden(app/prefs.py: 一覧の名前 → {id: 時刻})。
+  /* ---- hide(一覧の項目を非表示に)---- 覚える場所はホームの設定の節 hidden(app/prefs.py: 一覧の名前 → {id: 時刻})。
      どの窓・どのツールで隠しても同じ(戻ったときに読み直す)。足す・外すは1件ずつ(op "hide")送る = 窓を2つ並べても相手の分を消さない。
      「非表示のものも出す」はこの画面の間だけ(覚えない = 開き直すといつも隠れている)。入口の外(合言葉なし)では available() が false */
   var hideMap = null, hideP = null, hideSubs = [], hideShow = {};
@@ -1051,7 +1031,7 @@
   function ensureKeybarEl() {
     if (keybarEl && keybarEl.isConnected) return keybarEl;
     keybarEl = document.createElement('div');
-    keybarEl.className = 'ui-keybar'; keybarEl.setAttribute('aria-hidden', 'true'); keybarEl.hidden = true; keybarEl.tabIndex = -1;   /* v23: 横にスクロールできても Tab で止まらない(飾りの帯) */
+    keybarEl.className = 'ui-keybar'; keybarEl.setAttribute('aria-hidden', 'true'); keybarEl.hidden = true; keybarEl.tabIndex = -1;   /* 横にスクロールできても Tab で止まらない(飾りの帯) */
     (document.body || document.documentElement).appendChild(keybarEl);
     return keybarEl;
   }
@@ -1106,10 +1086,10 @@
     var h3 = document.createElement('h3'); h3.textContent = '全体'; sec.appendChild(h3);
 
     var themeRow = document.createElement('div'); themeRow.className = 'ui-settings-row';
-    var themeLabel = document.createElement('label'); themeLabel.textContent = 'テーマ'; themeLabel.htmlFor = 'uiSetTheme';   /* v23: label for(A-24) */
+    var themeLabel = document.createElement('label'); themeLabel.textContent = 'テーマ'; themeLabel.htmlFor = 'uiSetTheme';   /* label for(A-24) */
     var themeSel = document.createElement('select'); themeSel.id = 'uiSetTheme';
-    /* v12: 配色を選ぶ。明るい = アイスライト / 暗い = 3つ / OSに合わせる(暗いときは、最後に選んだ暗い配色) */
-    /* 値: light = アイスライト / dark = ネオンシアン(以前の「暗い」と同じ値。画面のテスト・以前の保存とそろえる)/ steel・green = 暗い + その配色 */
+    /* 配色を選ぶ。明るい = アイスライト / 暗い = 3つ / OSに合わせる(暗いときは、最後に選んだ暗い配色) */
+    /* 値: light = アイスライト / dark = ネオンシアン / steel・green = 暗い + その配色 */
     addOpt(themeSel, 'light', 'アイスライト(明るい)'); addOpt(themeSel, 'dark', 'ネオンシアン(暗い)'); addOpt(themeSel, 'steel', '鋼の白(暗い)');
     addOpt(themeSel, 'green', 'ターミナルグリーン(暗い)'); addOpt(themeSel, 'system', 'OSに合わせる');
     var themeValue = function (p) { var c = theme.palette(); return p === 'dark' && c !== 'cyan' ? c : p; };
@@ -1147,7 +1127,7 @@
     kbRow.appendChild(kbLabel);
 
     sec.appendChild(themeRow); sec.appendChild(fsRow); sec.appendChild(kbRow);
-    if (tools.mounted() && !/\/settings\/?$/.test(location.pathname)) {   /* v25: すべての設定を 1 つの画面で(入口の /settings。S5) */
+    if (tools.mounted() && !/\/settings\/?$/.test(location.pathname)) {   /* すべての設定を 1 つの画面で(入口の /settings。S5) */
       var allRow = document.createElement('div'); allRow.className = 'ui-settings-row';
       var allSpan = document.createElement('span'); allSpan.textContent = 'すべての設定を 1 つの画面で';
       var allA = document.createElement('a'); allA.className = 'btn small'; allA.href = homeUrl('settings'); allA.textContent = '設定の画面を開く';
@@ -1174,7 +1154,7 @@
     settingsDrawerEl = el;
     return el;
   }
-  /* v9(2026-09-30・全体の計画 段2 監査 11): 設定の保存・読み込みの失敗を出す。UIKit.settings.status(state, message, retry, label)
+  /* 設定の保存・読み込みの失敗を出す。UIKit.settings.status(state, message, retry, label)
      state = 'err' のとき、⚙ ボタン([data-ui-settings])に赤い印と title、設定の引き出しの先頭に「message [label(既定: もう一度)]」。
      それ以外('' / null)で消す。retry は押したときに呼ぶ関数(無ければボタンを出さない)。文書の保存の表示とは別の場所 */
   var setStatus = { state: '', message: '', retry: null, label: '' }, setStatusEl = null;
@@ -1232,10 +1212,10 @@
     return el;
   }
   var settings = { mount: settingsMount, status: settingsStatus,
-                   general: buildGeneralSection };   /* v25: 「全体」の節(テーマ・文字の大きさ・キーの帯)を /settings/ の画面にも置く */
+                   general: buildGeneralSection };   /* 「全体」の節(テーマ・文字の大きさ・キーの帯)を /settings/ の画面にも置く */
 
-  /* ---- settingsForm(v25。設定を 1 つに S5。notes:docs/spec/data.md の 4)---- 宣言的なスキーマから設定の節を描く。
-     ラベル・1 行の説明・範囲と形の検査・「標準に戻す」・保存の印が自動で付く(入口の /settings の画面が使う。各ツールの ⚙ は今までの作り)。
+  /* ---- settingsForm(設定を 1 つに S5。notes:docs/spec/data.md の 4)---- 宣言的なスキーマから設定の節を描く。
+     ラベル・1 行の説明・範囲と形の検査・「標準に戻す」・保存の印が自動で付く(入口の /settings の画面が使う。各ツールの ⚙ は別の作り)。
      UIKit.settingsForm.render(host, group, io) -> {refresh()}
        group = {title, hint, items: [{key, type, label, hint, default, min, max, step, options: [[値, 表示]], unit, scale, placeholder, maxlength, pattern, when, link}]}
          type: 'bool'(スイッチ)/ 'enum'(select)/ 'int' / 'number' / 'text' / 'folder'(フルパスの欄)/ 'textarea' / 'link'(別の画面で直すもの。ボタンだけ)
@@ -1423,7 +1403,7 @@
     var tag = (t.tagName || '').toLowerCase();
     if (tag === 'textarea' || tag === 'select') return true;
     if (t.isContentEditable) return true;
-    if (t.classList && t.classList.contains('ui-time')) return true;   // 時刻の欄(v11。数字・矢印を自分で使う)
+    if (t.classList && t.classList.contains('ui-time')) return true;   // 時刻の欄(数字・矢印を自分で使う)
     if (tag === 'input') return !!TYPING_INPUT_TYPES[String(t.type || 'text').toLowerCase()];
     return false;
   }
@@ -1462,7 +1442,7 @@
   var PLAYBACK_ACTIONS = [
     ['playPause', 'Space', '再生・停止'], ['back1', 'j', '1秒戻る'], ['stop', 'k', '止める'], ['play', 'l', '再生(もう一度で 1.5 → 2 倍)'],
     ['seekBack', 'ArrowLeft', '1秒戻る(Shift で5秒)'], ['seekFwd', 'ArrowRight', '1秒進む(Shift で5秒)'],
-    ['frameBack', ',', '1コマ戻る'], ['frameFwd', '.', '1コマ進む'], ['markIn', 'i', 'IN(始まりの印)'], ['markOut', 'o', 'OUT(終わりの印)']   /* v23: スタジオのボタン「IN(開始)/ OUT(終了)」と同じ呼び方に(見直し S18) */
+    ['frameBack', ',', '1コマ戻る'], ['frameFwd', '.', '1コマ進む'], ['markIn', 'i', 'IN(始まりの印)'], ['markOut', 'o', 'OUT(終わりの印)']   /* スタジオのボタン「IN(開始)/ OUT(終了)」と同じ呼び方(S18) */
   ];
   function playbackMap(km) {
     var out = {};
@@ -1546,7 +1526,7 @@
   }
   var keysApi = { isTyping: isTyping, helpHtml: keysHelpHtml, playback: keysPlayback, comboOf: comboOf, keyText: keyText, PLAYBACK_ACTIONS: PLAYBACK_ACTIONS, playbackMap: playbackMap, derived: derivedKeys };
 
-  /* ==== v8(気が利く画面へ 段6): keymap = キーの一覧がそのままキー配置の設定(編集・スタジオで同じ部品。使い方は README.md の「v8」) ====
+  /* ==== keymap = キーの一覧がそのままキー配置の設定(編集・スタジオで同じ部品。使い方は README.md の「v8」) ====
      キーを変える場所は ? の一覧の 1 か所(⚙ の設定には「キー配置を変える(?)」のボタンだけを置き、同じ一覧を開く。場所を重ねない)。キーのボタンを押す → その場で次のキーを待つ
      (Esc = 取り消しだけ・一覧は閉じない / Delete = 外す)。重なったら一覧の中に「「X」から外しました [戻す]」(一覧はモーダルの上なので、知らせは一覧の中に出す)。
      共通の再生キー(PLAYBACK_ACTIONS)はホームの設定 keymap.playback に 1 つ(どのツールで変えても同じ)。ツールのキーは各ツールが保存する。
@@ -1560,7 +1540,7 @@
     '[': '編集 2 カット: 前の区間', ']': '編集 2 カット: 次の区間', Delete: '編集 2 カット: 削る/戻す', Backspace: '編集 2 カット: 削る/戻す',
     '+': '編集 2 カット: 拡大', '=': '編集 2 カット: 拡大', '-': '編集 2 カット: 縮小', Home: '編集 2 カット: 先頭へ', End: '編集 2 カット: 末尾へ',
     '<': '編集 2 カット: 選んだ端を10コマ戻す(Shift+,)', '>': '編集 2 カット: 選んだ端を10コマ進める(Shift+.)',   // Shift+, / Shift+. は e.key が < > になる(段3 3-2)
-    'Shift+n': '案件: 次の未校正の切り抜き' };   // v26: 案件の画面(/cases)
+    'Shift+n': '案件: 次の未校正の切り抜き' };   // 案件の画面(/cases)
   for (var dgi = 0; dgi <= 9; dgi++) PB_BLOCKED[String(dgi)] = '編集: 話者の番号';
   var KM_COMBO_RE = /^(?:Shift\+)?(?:[^\x00-\x1f\x7f]|[A-Z][A-Za-z0-9]{1,20})$/;   /* app/prefs.py の COMBO_RE と同じ */
   /* ← → に当たるキー + Shift(5 秒)。1文字の記号は Shift で文字そのものが変わるので派生しない(comboOf と同じ決まり) */
@@ -1852,7 +1832,7 @@
     'chevron-left': '<path d="m15 6-6 6 6 6"/>',
     folder: '<path d="M4 7a1 1 0 0 1 1-1h4.5l1.5 2H19a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/>',
     download: '<path d="M12 4v11m0 0-4-4m4 4 4-4M5 19h14"/>',
-    undo: '<path d="M9 8 4 12l5 4M4 12h9a5 5 0 1 1 0 10h-2"/>',   /* v23: 弧の半径 6 → 5(24 の枠の下にはみ出していた) */
+    undo: '<path d="M9 8 4 12l5 4M4 12h9a5 5 0 1 1 0 10h-2"/>',   /* 弧の半径 5(24 の枠の下にはみ出さない) */
     redo: '<path d="M15 8l5 4-5 4M20 12H11a5 5 0 1 0 0 10h2"/>',
     check: '<path d="m5 13 4 4 10-10"/>',
     alert: '<path d="M12 3 2 20h20zM12 10v4"/><circle cx="12" cy="17" r=".2"/>',
@@ -1894,11 +1874,11 @@
       if (Object.prototype.hasOwnProperty.call(ICONS, name)) els[i].innerHTML = icon(name);
     }
   };
-  /* v24: アイコンの名前の一覧(見本 styleguide.js はこれで並べる = 手書きの一覧がずれて lock が抜けていた) */
+  /* アイコンの名前の一覧(見本 styleguide.js はこれで並べる) */
   icon.names = function () { return Object.keys(ICONS); };
   document.addEventListener('DOMContentLoaded', function () { icon.fill(document); });
 
-  /* ---- packLoud(パックの音量のそろえ方。v7・2026-09-29)---- 値は編集の設定 packLoudness の1か所(パックのタブ・まとめて実行のパックと同じ)。
+  /* ---- packLoud(パックの音量のそろえ方)---- 値は編集の設定 packLoudness の1か所(パックのタブ・まとめて実行のパックと同じ)。
      どの画面のまとめて実行の欄からも同じ値を読み書きする: 読む = 編集の api/settings、直す = api/settings/patch(送ったキーだけ。
      編集の画面の丸ごとの保存では、この値はサーバーのものが残る)。編集が同じ入口に取り込まれていないとき(paths に無い)は欄を隠す */
   var LOUD_OPTS = [[-14, '-14 LUFS(YouTube と同じくらい・おすすめ)'], [-11, '-11 LUFS(大きめ)'], [-16, '-16 LUFS(少し小さめ)'], [-18, '-18 LUFS(小さめ)'], [0, '音量を % で決める']];
@@ -1909,7 +1889,7 @@
     return http(txApiUrl('api/settings/patch'), { body: { values: values }, fail: httpCodeText }).then(function () {});
   }
   function loudNorm(raw) {
-    if (raw === undefined || raw === null || raw === '') return 0;   // 既定はそろえない = 音量 30%(2026-10-01)
+    if (raw === undefined || raw === null || raw === '') return 0;   // 既定はそろえない = 音量 30%
     var v = +raw;
     return v === 0 ? 0 : (v === -11 || v === -14 || v === -16 || v === -18) ? v : -14;
   }
@@ -1927,7 +1907,7 @@
   var loudMounted = [];
   function loudWrap(sel) { return sel.closest ? (sel.closest('label') || sel) : sel; }
   function loudRefresh() {
-    /* v23: まとめて実行の「設定を変える」は、欄を組み立ててから文書に入れる(arForm)。入る前の select を落とすと値が一度も入らなかった(ホームの見直し M3)ので、
+    /* まとめて実行の「設定を変える」は、欄を組み立ててから文書に入れる(arForm)。入る前の select を落とすと値が一度も入らない(M3)ので、
        一度でも文書に入ったあとで外れたものだけ落とす */
     loudMounted = loudMounted.filter(function (sel) { if (sel.isConnected) sel.setAttribute('data-ui-packloud-seen', '1'); return sel.isConnected || !sel.getAttribute('data-ui-packloud-seen'); });
     if (!loudMounted.length) return;
@@ -1979,7 +1959,7 @@
     }
   };
 
-  /* ---- autorun(まとめて実行の部品。v7・気が利く画面へ 段4)----
+  /* ---- autorun(まとめて実行の部品)----
      どの入口(ホームの案件・紐づかない文書・スタジオ ①/③・編集の題名の行・履歴)でも、同じ設定の要約1行 +「設定を変える」+ 始める前の見積もり +
      終わったときの知らせ(ボタンつき)。値は1か所: まとめて実行の形・採用数・カットの方法・上書き・失敗したとき = ホームの設定 autorun(UIKit.prefs)、
      パックの出力(fps・縦横・話者の色・音量)= 編集の設定(3 パック のタブと同じ。送ったキーだけ直す api/settings/patch)。
@@ -1990,7 +1970,7 @@
   var AR_CUT = { rows: '行から', none: 'カットしない', silence: '無音で削る' };
   var arSeq = 0, arPanels = [], arWatched = {}, arTimer = 0, arState = null;
   function arHomeApi(path, body) { return homeApi(path, { body: body, fail: httpCodeText }); }
-  /* ---- flow(v28・RV A1)---- 欄 → ② の口 POST api/flow/submit の本文 {envelope, spec}(封筒 = src/flow/envelope.py の版 2・spec = 束の差分)。
+  /* ---- flow ---- 欄 → ② の口 POST api/flow/submit の本文 {envelope, spec}(封筒 = src/flow/envelope.py の版 2・spec = 束の差分)。
      Python の src/flow/order.py の order と同じ形(画面が使う欄だけ)。f: {kind: 'url'|'docs'|'file', videoId, docId, path, title,
      fresh: {title, channel}(まだスタジオに無い配信)・marks: [マークの id](このマークだけ。from は 'export')・from: null|'export'・upto: 'pack'|'transcribe'・
      top(採用する数。url だけ)・streamer(null = 自動・'' = 色なし)・repack(パックがあれば作り直す)・deliver: {origin: 'auto', dir: 届け先 か null}} */
@@ -2108,7 +2088,7 @@
       var spk = arEl('input', { type: 'checkbox' }); spk.checked = st.spk;
       spk.addEventListener('change', function () { arSave('tx', { speakerColors: spk.checked }); });
       var sl = arEl('label', { 'class': 'ui-ar-c' }); sl.appendChild(spk); sl.appendChild(document.createTextNode('話者の名前がメンバーと合えば、その話者の字幕をその色に'));
-      box.appendChild(sl);   // 「予備も入れる(EDL・SRT)」の欄は v32 で消した(決定 3-34)
+      box.appendChild(sl);
     } else {
       box.appendChild(arEl('p', { 'class': 'ui-ar-h' }, 'パックの出力(fps・縦横・話者の色・音量)は、「編集」が動いていると ここでも変えられます'));
     }
@@ -2144,7 +2124,7 @@
   }
   function arDocHref(run) {
     var id = run.docId || (run.docs && run.docs[0]);   /* 文書の実行はその文書・配信の実行は最初に文字起こし・パックした文書 */
-    return id ? '/cases?d=' + encodeURIComponent(id) + '#proof' : '';   /* 案件の画面の校正(v33。以前は編集の画面 ?doc=…#tx) */
+    return id ? '/cases?d=' + encodeURIComponent(id) + '#proof' : '';   /* 案件の画面の校正 */
   }
   function arOpen(href) { if (href) location.href = href; }   /* 同じ窓で移る(窓・画面を増やさない。S-15) */
   function arFinished(run, again) {
@@ -2200,15 +2180,15 @@
       det.addEventListener('toggle', function () {
         if (!det.open) return;
         body.textContent = '読み込んでいます…';
-        /* v22: 開いた直後(fitPop)は「読み込んでいます…」の 1 行の大きさで置き場所を決めるので、中身を入れたらもう一度置き直す
-           (以前は下にはみ出したまま。ホームの案件の行・スタジオ ③ のメニューの中で、下の欄に届かなかった。段9 の確認) */
-        arLoad().then(function () { body.innerHTML = ''; body.appendChild(arForm(kind, opts)); loudRefresh(); p.paint(); if (det.open) fitPop(det); });   /* v23: 文書に入れてから音量の欄に値を入れる(M3) */
+        /* 開いた直後(fitPop)は「読み込んでいます…」の 1 行の大きさで置き場所を決めるので、中身を入れたらもう一度置き直す
+           (置き直さないと下にはみ出したままになる) */
+        arLoad().then(function () { body.innerHTML = ''; body.appendChild(arForm(kind, opts)); loudRefresh(); p.paint(); if (det.open) fitPop(det); });   /* 文書に入れてから音量の欄に値を入れる(M3) */
       });
       arPanels.push(p);
       if (arState) p.paint(); else arLoad().then(arRepaint, function () {});
       return p;
     },
-    /* 始める(v28・RV A1): orders = UIKit.flow.order の {envelope, spec} の並び(1 つでもよい)。opts.estimate(既定 true)= 1 本ずつ見積もって足す
+    /* 始める: orders = UIKit.flow.order の {envelope, spec} の並び(1 つでもよい)。opts.estimate(既定 true)= 1 本ずつ見積もって足す
        (api/flow/estimate)→ やることが 0 なら始めない → 1 本ずつ api/flow/submit → 終わるまで見て知らせる。
        -> Promise<{run: 1 本目, runs, skipped: [{id, title, reason}]} | null(やることが無い)>。全部断られたら 1 本目の理由で reject */
     start: function (orders, opts) {
@@ -2245,9 +2225,9 @@
     estimateText: arEstimateText
   };
 
-  /* ---- restart(v10・段9 9-3。git の履歴(679ff01 以前)の docs/plan/phase9-ops-stability.md の 9-3)---- 版の赤い帯から入口ごと起動し直す。
+  /* ---- restart ---- 版の赤い帯から入口ごと起動し直す。
      取り込んだツールは入口と同じプロセスなので、版を入れ替えるには入口ごと起動し直す(入口の api/ytt/restart-self → home/restart.py)。
-     ボタンはホームから開いた画面(合言葉 ytt-token がある)だけ。単体で開いたときは今までどおりの案内の文だけ。
+     ボタンはホームから開いた画面(合言葉 ytt-token がある)だけ。単体で開いたときは案内の文だけ。
      起動し直したあとは api/ping を数秒ごとに読み、戻ったら再読み込みする(新しい入口は合言葉が変わるので、読み込み直さないと書き込みができない) */
   var RESTART_POLL = 2000, RESTART_TIMEOUT = 90000;
   function restartPing(ms) { return http('api/ping', { timeout: ms, fail: httpCodeText }); }
@@ -2260,7 +2240,7 @@
     var from = opts.from == null ? null : String(opts.from);
     var reload = typeof opts.reload === 'function' ? opts.reload : function () { location.reload(); };
     return yttPost('restart-self', {}).then(function (j) {
-      /* v20: 入口からの知らせ(notice。まとめて実行の待ち・実行中の N 件は起動し直したあとに続きから進む = 入口 0.41.0)も帯に出す(黙って止めたように見せない) */
+      /* 入口からの知らせ(notice。まとめて実行の待ち・実行中の N 件は起動し直したあとに続きから進む)も帯に出す(黙って止めたように見せない) */
       var note = j && j.notice ? String(j.notice) : '';
       say('waiting', '起動し直しています…(戻ったら画面を読み込み直します)' + (note ? '。' + note : ''));
       return new Promise(function (resolve) {
@@ -2323,7 +2303,7 @@
     run: restartRun
   };
 
-  /* ==== v11(2026-10-02): 時刻の欄 UIKit.timebox。使い方は README.md の「v11」 ====
+  /* ==== 時刻の欄 UIKit.timebox。使い方は README.md の「v11」 ====
      時刻(1:23:45)を「:」を打たずに入れる欄。動き:
        欄は1つ。時・分・秒 のどれか1つが選ばれていて(反転)、数字は 時(1桁)→ 分(2桁)→ 秒(2桁)の順に入る(分・秒の最初が 6〜9 なら1桁で次へ)。
        ← → で場所を選ぶ(クリックでも)・↑ ↓ で選んだ単位を ±1(Shift で ±10)・BackSpace = 選んだ所を 0(もう 0 なら左へ)・Delete = 空に・
@@ -2333,7 +2313,7 @@
      値は秒(tenths・short のときは 0.1 秒刻み)。入っていなければ null。変わるたびに要素へ 'ui-time'(detail: {value})、
      欄を離れた・Enter を押したときに値が変わっていれば 'ui-time-commit'(input の change に当たる。detail: {value, via: 'enter'|'blur', to: 移った先の要素 | null})、
      読めない貼り付けは 'ui-time-reject'(detail: {reason})。
-     v29: ホイール(opt.wheel / data-ui-time-wheel)・add(秒)・貼り付けの前の口 'ui-time-beforepaste'(detail: {text}。取り消せる)・動いた単位の光り(.ui-time-flash)は README.md の「v29」 */
+     ホイール(opt.wheel / data-ui-time-wheel)・add(秒)・貼り付けの前の口 'ui-time-beforepaste'(detail: {text}。取り消せる)・動いた単位の光り(.ui-time-flash)は README.md の「v29」 */
   var TB_MAX = 99 * 3600 + 59 * 60 + 59;   // 秒
   /* 形ごとの区切り: unit = その場所の 1 が 0.1 秒いくつ分か。先頭は桁数を決めない(1桁打ったら次へ)・2桁の所は 0 を付けて出す・0.1 秒は1桁 */
   var TB_FORMS = {
@@ -2380,7 +2360,7 @@
     var formName = opt.short || el.hasAttribute('data-ui-time-short') ? 'short' : (opt.tenths !== undefined ? opt.tenths : el.hasAttribute('data-ui-time-tenths')) ? 'tenths' : 'hms';
     var form = TB_FORMS[formName], fine = formName !== 'hms', last = form.length - 1;
     var youtube = opt.youtube !== undefined ? !!opt.youtube : el.hasAttribute('data-ui-time-youtube');
-    var wheelOn = opt.wheel !== undefined ? !!opt.wheel : el.hasAttribute('data-ui-time-wheel');   // v29: ホイールで単位を ±1
+    var wheelOn = opt.wheel !== undefined ? !!opt.wheel : el.hasAttribute('data-ui-time-wheel');   // ホイールで単位を ±1
     var maxSec = Number(opt.max !== undefined ? opt.max : el.getAttribute('data-ui-time-max')) || TB_MAX;
     var v = 0, has = false, seg = 0, half = false;   // v = 0.1 秒の数。half = 2桁の所の1桁目だけ打った所
     var baseV = 0, baseHas = false;                  // 欄に入ったとき(か最後に確定したとき)の値。離れたときに違えば ui-time-commit
@@ -2393,7 +2373,7 @@
     function clamp(x) { return Math.max(0, Math.min(Math.round(maxSec * 10), Math.round(x))); }
     function disabled() { return el.getAttribute('aria-disabled') === 'true'; }
     function fire(name, detail) { try { el.dispatchEvent(new CustomEvent(name, { bubbles: true, detail: detail })); } catch (e) { /* 古いブラウザ */ } }
-    /* v29: 取り消せる知らせ。false = 画面が preventDefault した */
+    /* 取り消せる知らせ。false = 画面が preventDefault した */
     function ask(name, detail) { try { return el.dispatchEvent(new CustomEvent(name, { bubbles: true, cancelable: true, detail: detail })); } catch (e) { return true; } }
     function draw() {
       var p = tbParts(v, form), on = document.activeElement === el, shown = has || on, html = '';
@@ -2407,7 +2387,7 @@
       el.setAttribute('aria-valuetext', has ? tbText(v, form) + (on ? '(' + form[seg].name + 'を選択中)' : '') : '未入力');
     }
     function tell() { fire('ui-time', { value: has ? v / 10 : null }); }
-    /* v29: 値が動いた単位を一瞬光らせる(.ui-time-flash。400ms で消す)。draw のあとに当てる(描き直すと span が作り直されるため) */
+    /* 値が動いた単位を一瞬光らせる(.ui-time-flash。400ms で消す)。draw のあとに当てる(描き直すと span が作り直されるため) */
     var flashT = null;
     function flash(i) {
       var s = el.querySelector('.ui-time-seg[data-seg="' + i + '"]');
@@ -2416,7 +2396,7 @@
       s.classList.add('ui-time-flash');
       flashT = setTimeout(function () { s.classList.remove('ui-time-flash'); }, 400);
     }
-    /* v29: ホイールのとき、マウスの下の単位(空の欄でも、その場所)。区切りの上なら一番近い単位 */
+    /* ホイールのとき、マウスの下の単位(空の欄でも、その場所)。区切りの上なら一番近い単位 */
     function segAt(e) {
       var t = e.target && e.target.closest ? e.target.closest('.ui-time-seg') : null;
       if (t) return Number(t.getAttribute('data-seg'));
@@ -2427,7 +2407,7 @@
       }
       return best;
     }
-    /* v29: 今の値に sec 秒を足す(空なら 0 から・0 未満にならない・上限まで)。足したら ui-time と ui-time-commit(via: 'add')・動いた一番上の単位を光らせる */
+    /* 今の値に sec 秒を足す(空なら 0 から・0 未満にならない・上限まで)。足したら ui-time と ui-time-commit(via: 'add')・動いた一番上の単位を光らせる */
     function addSec(sec) {
       if (sec === null || sec === undefined || sec === '' || !isFinite(Number(sec))) return;
       var wasV = v, wasHas = has, p0 = tbParts(v, form), nv = clamp(v + Math.round(Number(sec) * 10)), p1 = tbParts(nv, form), top = -1;
@@ -2441,7 +2421,7 @@
     function commit(via, to) {
       if (baseV === v && baseHas === has) return;
       baseV = v; baseHas = has;
-      /* via = 'enter' | 'blur' | 'add'(v29)、to = 離れて移った先(画面を描き直す側が、フォーカスを奪い返さずに移った先へ戻せるように) */
+      /* via = 'enter' | 'blur' | 'add'、to = 離れて移った先(画面を描き直す側が、フォーカスを奪い返さずに移った先へ戻せるように) */
       fire('ui-time-commit', { value: has ? v / 10 : null, via: via, to: to || null });
     }
     function setPart(i, n) {
@@ -2483,7 +2463,7 @@
       if (lit >= 0) flash(lit);
       if (before !== v || had !== has) tell();
     });
-    /* v29: ホイール(opt.wheel / data-ui-time-wheel のときだけ)。マウスの下の単位を ±1(Shift で ±10)。この欄の上だけページのスクロールを止める */
+    /* ホイール(opt.wheel / data-ui-time-wheel のときだけ)。マウスの下の単位を ±1(Shift で ±10)。この欄の上だけページのスクロールを止める */
     if (wheelOn) el.addEventListener('wheel', function (e) {
       var dy = e.deltaY !== 0 ? e.deltaY : e.deltaX;   // Shift + ホイールで横に来るブラウザがあるので
       if (disabled() || !dy) return;
@@ -2499,7 +2479,7 @@
       if (disabled()) return;
       e.preventDefault();
       var text = (e.clipboardData || window.clipboardData).getData('text');
-      if (!ask('ui-time-beforepaste', { text: text })) return;   // v29: 画面が preventDefault したら値も ui-time-reject も変えない
+      if (!ask('ui-time-beforepaste', { text: text })) return;   // 画面が preventDefault したら値も ui-time-reject も変えない
       var before = v, had = has;
       if (paste(text)) { draw(); if (before !== v || had !== has) tell(); fire('ui-time-paste', { text: text }); }
     });
@@ -2521,7 +2501,7 @@
         half = false; baseV = v; baseHas = has; draw();
       },
       text: function () { return has ? tbText(v, form) : ''; },
-      add: function (sec) { addSec(sec); return has ? v / 10 : null; },   // v29: 今の値に足す(空なら 0 から)
+      add: function (sec) { addSec(sec); return has ? v / 10 : null; },   // 今の値に足す(空なら 0 から)
       focus: function () { el.focus(); }
     };
     var init = opt.value !== undefined ? opt.value : el.getAttribute('data-ui-time');
@@ -2545,14 +2525,14 @@
     },
     get: function (el) { var a = attachTime(el); return a ? a.get() : null; },
     set: function (el, sec) { var a = attachTime(el); if (a) a.set(sec); },
-    /* v29: 今の値に sec 秒を足す(欄の値を返す。ホイール・↑ ↓ と同じく 'ui-time'・'ui-time-commit'(via: 'add')を出す) */
+    /* 今の値に sec 秒を足す(欄の値を返す。ホイール・↑ ↓ と同じく 'ui-time'・'ui-time-commit'(via: 'add')を出す) */
     add: function (el, sec) { var a = attachTime(el); return a ? a.add(sec) : null; },
     parse: tbParse,
     format: tbFormat
   };
   document.addEventListener('DOMContentLoaded', function () { timebox.attachAll(document); });
 
-  /* ---- liveBadge(v16: ヘッダーの「録画中」の札)---- 線 D のリアルタイム切り抜き(notes:plan/line-d-live-clipping.md の 0-8)。
+  /* ---- liveBadge(ヘッダーの「録画中」の札)---- 線 D のリアルタイム切り抜き(notes:plan/line-d-live-clipping.md の 0-8)。
      入口の POST api/ytt/live {op: "status"} → {enabled, recordings: [{recorder, id, title, state, active, seconds, endedAt, url}]}(合言葉つき。入口が受け持つ)を
      オンのときは 10 秒ごと・オフ(enabled:false・404 などの 4xx)のときは 60 秒ごとに問い合わせ、appnav のあるヘッダー(.ui-header-actions の先頭)に札を出す。
      録画が無い・機能がオフ・合言葉が無いページ(入口を通さない単独起動)では何も作らない(場所も取らない)。隠れているタブは問い合わせない(戻ったらすぐ)。
@@ -2673,7 +2653,7 @@
   }
   function liveTimes() { for (var k in live.rows) { if (Object.prototype.hasOwnProperty.call(live.rows, k)) liveSet(live.rows[k].time, liveTimeText(live.rows[k].rec)); } }
 
-  function liveStudioHref(r) { return homeUrl('cases') + '?c=' + encodeURIComponent(r.id) + '#cand'; }   // v27: 案件の画面の候補(スタジオの画面は消した)
+  function liveStudioHref(r) { return homeUrl('cases') + '?c=' + encodeURIComponent(r.id) + '#cand'; }   // 案件の画面の候補
   function liveStop(row, btn) {
     btn.disabled = true;
     yttPost('live', { op: 'stop', recorder: row.rec.recorder, recording: row.rec.id }).then(function () { liveClose(true); return liveRefresh(); }, function (e) {   // 止めたら一覧を閉じる(終わりの知らせは札と toast で)
@@ -2749,7 +2729,7 @@
   function liveStart() { if (token() && document.querySelector('[data-ui-appnav]')) liveRefresh(); }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', liveStart); else liveStart();
 
-  /* ---- sound(v17: ほかの窓で音が鳴っているかを知らせ合う)---- 「編集」を別の窓で開いて再生すると、スタジオの配信の音と二重になる(2026-10-05 ユーザー)。
+  /* ---- sound(ほかの窓で音が鳴っているかを知らせ合う)---- 「編集」を別の窓で開いて再生すると、スタジオの配信の音と二重になる(ユーザーの指摘)。
      この画面の <video>・<audio> が鳴っている(再生中・消音でない・音量 0 でない)間、同じオリジンの窓へ BroadcastChannel で知らせる(外へは何も送らない)。
      鳴っている間は 2 秒ごとに送り直し、受ける側は 6 秒来なければ「止まった」とみなす(窓を閉じた・落ちたとき、下げたままにしない)。
      UIKit.sound.other(tool?) = ほかの窓(tool を渡せばそのツール以外)で鳴っているか / onChange(fn) = 変わったとき */

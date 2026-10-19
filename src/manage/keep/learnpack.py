@@ -59,7 +59,7 @@ def collect(data_dir, roster_path, members_path, rules):
     """束に入れる中身 -> {束の中のパス: bytes}(元のファイルが無い物は入れない)。data_dir = 編集の作業データ(settings.json・learn-feedback.json・voices/)"""
     files = {}
     settings = _fsio.read_json_or(os.path.join(data_dir, "settings.json"), None, kind=dict) or {}
-    keys = ("replacements", "glossary") if _dictfmt.USER_DICT else ("glossary",)   # 人の置換辞書は今はオフ = 束に入れない(10-14 ユーザー)
+    keys = ("replacements", "glossary") if _dictfmt.USER_DICT else ("glossary",)   # 人の置換辞書は今はオフ = 束に入れない(ユーザー決定)
     picked = {k: settings[k] for k in keys if k in settings}
     if picked:
         files["settings.json"] = _json_bytes(picked)

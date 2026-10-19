@@ -612,7 +612,7 @@ class TestRowEdgeSpec(unittest.TestCase):
     def test_drop_cut_rows_and_ignored_keys(self):
         self.assertTrue(self.req().drop_cut_rows)
         self.assertFalse(self.req(dropCutRows=False).drop_cut_rows)
-        r = self.req(handles=3, joinGap=10)   # 消した画面の指定は受けない = 黙って無視する
+        r = self.req(handles=3, joinGap=10)   # 受けない指定は黙って無視する
         self.assertEqual((r.base, r.min_len), (self.req().base, self.req().min_len))
 
 

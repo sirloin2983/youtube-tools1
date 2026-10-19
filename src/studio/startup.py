@@ -1,8 +1,8 @@
-"""切り抜きスタジオの起動の小物(役割で組み直す RS5-B。2026-10-10。旧 common.py の殻を消して、残った起動の物だけここへ)。
+"""切り抜きスタジオの起動の小物(役割で組み直す RS5-B)。
 
 - 読み込み: `import startup` が src を sys.path に足し(_load_core)、スタジオのフォルダを ytt/studio_env に知らせる。serve は最初にこれを読む
 - 起動時の環境チェック(check_tools・start_env_check・env_state。/api/state の env)と、古いログの名前の付け替え(migrate_old_logs)
-- 旧い名前 common.名前 の持ち主は ytt(studio_env・procs・mediainfo・apikey・textutil・errors・fsio)と pipeline/ingest/sources。ここへ足さない
+- 起動の物以外の持ち主は ytt(studio_env・procs・mediainfo・apikey・textutil・errors・fsio)と pipeline/ingest/sources。ここへ足さない
 """
 import datetime
 import json
@@ -35,7 +35,7 @@ _studio_env.set_code_dir(CODE_DIR)   # 既定のデータの置き場所 = こ�
 
 
 def migrate_old_logs():
-    """以前の版が作った studio.log.old / studio-errors.log.old を studio.old.log などへ改名する(起動時に1回。失敗しても無視)。"""
+    """studio.log.old / studio-errors.log.old を studio.old.log などへ改名する(起動時に1回。失敗しても無視)。"""
     for name in ("studio.log", "studio-errors.log", "studio.crash.log"):
         old = _studio_env.p(name + ".old")
         try:

@@ -56,7 +56,7 @@ class TestFeedbackFile(Home):
         with patch.object(feedback, "MAX_FEEDBACK_BYTES", 1000):
             self.write(30)   # 何度も切り替わる量
         rows = [json.loads(l) for l in self.lines("feedback.jsonl.old") + self.lines("feedback.jsonl")]
-        self.assertEqual(sorted(r["start"] for r in rows), list(range(30)))   # 以前は2回目の切り替えで古い行が消えていた
+        self.assertEqual(sorted(r["start"] for r in rows), list(range(30)))   # 2回目の切り替えで古い行が消えない
         self.assertGreater(len(self.lines("feedback.jsonl.old")), len(self.lines("feedback.jsonl")))
 
     def test_partial_last_line_is_not_joined(self):
@@ -109,7 +109,7 @@ class TestRegistry(Home):
         self.assertFalse(os.path.exists(self.reg_path()))
 
     def test_non_object_registry_is_quarantined(self):
-        """形が object でない登録簿([1, 2])も退避する(以前は AttributeError で 500)。前の退避が無い所で見る"""
+        """形が object でない登録簿([1, 2])も退避する(AttributeError で 500 にしない)。前の退避が無い所で見る"""
         with open(self.reg_path(), "w", encoding="utf-8") as f:
             f.write("[1, 2]")
         rank.get_registry()
@@ -156,7 +156,7 @@ class TestCaches(Home):
         self.assertEqual(analyze.load_archive("abcdefghijk")["runs"], [{"at": 1}])
 
     def test_prefetch_refuses_non_ascii_video_id(self):
-        """先読みの動画 ID の検査は sources.VID_RE と同じ(ASCII だけ)。以前は [\\w-]{11} で全角の英字なども通っていた"""
+        """先読みの動画 ID の検査は sources.VID_RE と同じ(ASCII だけ)。[\\w-]{11} では全角の英字なども通ってしまう"""
         with patch.object(studio_env, "fake", return_value=False), patch.object(studio_env, "find_tool", return_value="yt-dlp"), \
                 patch.object(fetch, "download_chat", return_value=(None, "テスト")) as dl:
             for vid in ("ａｂｃｄｅｆｇｈｉｊｋ", "あいうえおかきくけこさ", "abcdefghijé", "abcdefghijk\n", None, ""):
@@ -244,7 +244,7 @@ class TestChatCacheSize(Home):
 
 class TestLogs(Home):
     def test_rotated_logs_keep_log_extension(self):
-        # *.log のまま回す(.gitignore の *.log に掛かる。以前の studio.log.old は掛からず公開リポジトリに載るおそれがあった)
+        # *.log のまま回す(.gitignore の *.log に掛かる。studio.log.old は掛からず公開リポジトリに載るおそれがある)
         self.assertEqual(studio_env.old_log_name(os.path.join("d", "studio.log")), os.path.join("d", "studio.old.log"))
         p = os.path.join(self.tmp, "studio.log")
         with open(p, "w") as f:
@@ -321,7 +321,7 @@ class TestPorts(unittest.TestCase):
 
 
 class TestDataHome(unittest.TestCase):
-    """作業データの置き場所(段階4): STUDIO_HOME が無ければ ytt.datadir の場所。以前の場所(スタジオのフォルダ)からは写さない(2026-10-18)"""
+    """作業データの置き場所(段階4): STUDIO_HOME が無ければ ytt.datadir の場所。スタジオのフォルダからは写さない"""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
@@ -347,7 +347,7 @@ class TestDataHome(unittest.TestCase):
         os.makedirs(os.path.join(self.legacy, "exports"))
         home = serve._data_home()
         self.assertEqual(home, os.path.join(self.tmp, "data", "studio"))
-        self.assertEqual(os.listdir(home), [])                                          # 以前の場所の data.json・cache・exports を写さない
+        self.assertEqual(os.listdir(home), [])                                          # スタジオのフォルダの data.json・cache・exports を写さない
         self.assertTrue(os.path.isfile(os.path.join(self.legacy, "data.json")))
         self.assertEqual(serve.DATA_STATE["state"], "new")
         self.assertEqual(serve.datadir.registered(serve.TOOL_ID), home)
@@ -395,7 +395,7 @@ FAKE_INFO = "  Duration: 00:00:05.00, start: 0\n  Stream #0:0: Video: h264, 64x6
 
 
 class TestMediaInfoCache(Home):
-    """mediainfo.media_info は (パス・更新日時・大きさ) が同じあいだ ffmpeg -i を動かし直さない(2026-10-09 見直し T7。書き出し 1 本で 11 回 → 5 回)"""
+    """mediainfo.media_info は (パス・更新日時・大きさ) が同じあいだ ffmpeg -i を動かし直さない(T7。書き出し 1 本で 11 回になるのを防ぐ)"""
 
     def setUp(self):
         super().setUp()
@@ -464,7 +464,7 @@ class TestMediaInfoCache(Home):
 
 
 class TestStopChildren(Home):
-    """終了の流れで、実行中の子プロセス(ffmpeg・yt-dlp の代わりに長く動く python)を孫ごと止める(2026-09-30 の設計レビューの 1)。"""
+    """終了の流れで、実行中の子プロセス(ffmpeg・yt-dlp の代わりに長く動く python)を孫ごと止める(設計レビューの 1)。"""
 
     def tearDown(self):
         for p in procs.children():

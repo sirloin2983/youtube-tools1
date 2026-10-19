@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""④ 文字起こしの一覧と、元の動画・パックの有無・前回のパックの手順(役割で組み直す RS3-E5a。2026-10-10 に編集の文書の保存の部品から切り出した。中身は同じ)。
+"""④ 文字起こしの一覧と、元の動画・パックの有無・前回のパックの手順(役割で組み直す RS3-E5a)。
 
 - list_transcripts … GET /api/transcripts の items(文書の要約 + 編集・パックの状態 + 配信者 + 元の動画の有無とパック)
 - pack_readme … GET /api/edit/pack-readme(前回のパックの Resolve での手順)
@@ -12,7 +12,7 @@ import time
 
 from ytt import errors as _errors, fsio as _fsio, studiodata as _studiodata  # noqa: E402
 from human.proof import store  # noqa: E402   文書の要約・編集の内容(呼ぶたびに store.名前 で読む)
-from flow import pack as _flowpack  # noqa: E402   パックの手順の作り直し(RS6 a-5a に pipeline/pack/resolve_export から。呼ぶたびに _flowpack.名前 で読む)
+from flow import pack as _flowpack  # noqa: E402   パックの手順の作り直し(呼ぶたびに _flowpack.名前 で読む)
 from . import txindex  # noqa: E402   パックの有無・パックのフォルダかの判定(規則の 1 か所)
 
 PACK_CHECK_BUDGET = 2.0   # 秒。一覧1回でパック・動画の有無を調べる時間の上限(外付けの取り外し・つながらないネットワークドライブで一覧が止まらないように)
@@ -58,7 +58,7 @@ def _files_state(items):
 
 def list_transcripts():
     """GET /api/transcripts の items。作った日が新しい順(画面で並べ替える)。
-    v0.15.0: 校正の進み具合(rows・proofed・cut・flagged)・長さ(durationSec)・元の配信(videoId・clipTitle・clipStart/End・markLabel)・
+    校正の進み具合(rows・proofed・cut・flagged)・長さ(durationSec)・元の配信(videoId・clipTitle・clipStart/End・markLabel)・
     配信者(channel。スタジオの data.json から)・元の動画の有無(mediaOk)・パック(pack)も返す。"""
     items, seen = [], set()
     for tid in store._tids():
@@ -82,7 +82,7 @@ def list_transcripts():
     return items
 
 
-PACK_README_NAMES = ("友人へ.txt", "予備_EDLで開く手順.txt")   # 2026-09-27 より前のパック(今は手順書のファイルを入れない)
+PACK_README_NAMES = ("友人へ.txt", "予備_EDLで開く手順.txt")   # 手順書のファイルを持つ形のパック(今のパックは入れない)
 
 
 def pack_readme(tid):

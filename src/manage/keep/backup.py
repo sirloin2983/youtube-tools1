@@ -1,25 +1,25 @@
-"""作業データのバックアップ(2026-10-03。notes:docs/spec/data.md の「バックアップ」)。
+"""作業データのバックアップ(notes:docs/spec/data.md の「バックアップ」)。
 
 作業データ(%LOCALAPPDATA%\\youtube-tools\\)はリポジトリの外にあり、git にも GitHub にも入らない。
-2026-10-03 に Windows の入れ直しで失ったので、入口が動いている間に、決めた間隔で別のドライブのフォルダへ写す。
+Windows の入れ直しなどで失わないように、入口が動いている間に、決めた間隔で別のドライブのフォルダへ写す。
 
 - 写す先: 設定(src/app/prefs.py の節 backup)の folder の下の `youtube-tools-data\\<ツールID>\\…`(作業データと同じ形。戻すときはそのまま写し戻す)
-- 守る物(ユーザー 10-14。decisions 3-48): 作業データそのものではなく**学習データ・ツール・関連資料**。だから頻繁でなくてよい = 間隔(everyHours。既定 24 時間)と「今すぐ」だけ
+- 守る物(ユーザー決定。decisions 3-48): 作業データそのものではなく**学習データ・ツール・関連資料**。だから頻繁でなくてよい = 間隔(everyHours。既定 24 時間)と「今すぐ」だけ
 - 写すもの: 作り直せないもの(文字起こしと校正・カット・スタジオの data.json とマーク・採用の記録・設定・声の登録・パックの記録・案件)と、
   **評価用データ・学習用データの動画**(settings.evalDirs のフォルダと、その隣の 学習用データ。YouTube の元は消える・非公開になりうる・正解の時刻はその動画に
   合わせてある。写す先の media\\<ドライブ>\\<パス> に元と同じ形で。動画は変わらないので写すのは最初の 1 回。スイッチ COPY_MEDIA)。
   写さないもの(SKIP_DIRS・SKIP_SUFFIX・SKIP_TOP): キャッシュ・一時ファイル・ログ・分析(analytics)・モデル・実行ファイル・ブラウザのプロファイル・書き出した動画(取り直せる・大きい)。
   例外: `transcribe\\bin\\whisper.cpp-*`(作り直すのに Visual Studio が要るので写す。llama.cpp などダウンロードし直せるものは写さない)。
-  評価用の音声 `transcribe\\eval-audio\\` は写さない(元の配信の音声から作り直せるため。2026-10-15 に外した)
+  評価用の音声 `transcribe\\eval-audio\\` は写さない(元の配信の音声から作り直せるため)
 - 写し方: 大きさか更新時刻が違うファイルだけ、一時的な名前へ写してから改名する。**写す先のファイルは消さない**
   (作業データで消したもの・壊れて空になったものに、バックアップを合わせて消さないため。古い分はたまる)。上書きされるファイルは、
   その日の最初の1回だけ `.prev` の名前で1つ前を残す(data.json などが壊れた形で上書きされても1つ前へ戻せる)
 - シンボリックリンクはたどらない。写す先が作業データの中・作業データが写す先の中のときは断る
-- 写す時: 間隔(everyHours)が来たとき(変わっていなくても。検証の意味)と「今すぐ」だけ(10-14 に「変わったらすぐ写す」をやめた)。
+- 写す時: 間隔(everyHours)が来たとき(変わっていなくても。検証の意味)と「今すぐ」だけ(変わったらすぐ写す、ことはしない)。
   **読めなかったフォルダ・調べられなかったファイル・写せなかったファイルが 1 つでもあれば「完全に写せた」にしない**(部品 M3): 読める物は写し続け、
   完全に写せた時刻 ok は進めず、RETRY_SEC のあとでもう一度試す
 - 写し戻し: `restore_once`(コマンド `py -3.12 src/manage/keep/backup.py --restore <folder>`)。手順は notes:docs/spec/data.md の「写し戻しの手順」。
-  写すときと同じ決まりを通す(写さない場所の物 = 以前に写った受付の写しなどは戻さない)。
+  写すときと同じ決まりを通す(写さない場所の物 = 受付の写しなどは戻さない)。
   案件の 作業用 の写し(cases/)は作業データの根へは戻さず、案件の根(--out-dir。既定はスタジオの設定の書き出し先)へ戻す。既にあるファイルは上書きしない。
   評価用・学習用の動画(media/)は元の場所へ戻す(既にあるファイルは上書きしない・そのドライブが無ければ戻さない)
 - 鍵(studio\\config.json の YouTube の API キー)も写る。写す先は自分の PC のドライブにする(共有のフォルダ・クラウドに置かない)
@@ -45,15 +45,15 @@ FIRST_WAIT = 90            # 起動してから最初に見るまで(秒。ツ�
 CHECK_EVERY = 180          # 時間が来たかを見る間隔(秒)
 RETRY_SEC = 3600           # 完全に写せなかった(読めないフォルダ・写せないファイルがあった)ときに、もう一度試すまで(秒)
 SKIP_DIRS = {"cache", "work", "logs", "models", "bin", "browser-profile", "exports", ".runtime", "__pycache__", "intake",   # intake = app/intake の友人の依頼の動画の写し(元は友人の Dropbox)
-             "eval-audio",   # 評価用の音声(元の配信の音声から作り直せる。10-15 OPT-E1 で外した)
+             "eval-audio",   # 評価用の音声(元の配信の音声から作り直せる)
              "friend-build-cache", ".tmp"}   # friend-build-cache = dev/build_friend_zip.py がダウンロードした zip(取り直せる)・.tmp = 一時ファイル
-SKIP_TOP = {"analytics"}   # 作業データの直下で写さないフォルダ(分析の記録 = 守る物の外。10-14 ユーザー「ログと分析は外す」)
+SKIP_TOP = {"analytics"}   # 作業データの直下で写さないフォルダ(分析の記録 = 守る物の外。ユーザー「ログと分析は外す」)
 SKIP_SUFFIX = (".log", ".tmp", ".lock")
-SKIP_MARK = ".part-"       # 写し・fsio の途中のファイル(以前の datadir.prepare の残りも)
+SKIP_MARK = ".part-"       # 写し・fsio の途中のファイル
 KEEP_BIN_PREFIX = "whisper.cpp-"   # transcribe\\bin の下で、これで始まるフォルダだけは写す(作り直しに Visual Studio が要る)
-COPY_MEDIA = True          # 評価用・学習用の動画を写す(スイッチ。False = 今までどおり作業データと案件の 作業用 だけ)
+COPY_MEDIA = True          # 評価用・学習用の動画を写す(スイッチ。False = 作業データと案件の 作業用 だけ)
 MEDIA_DIR = "media"        # 写す先の下の、評価用・学習用の動画を置くフォルダ(<写す先>/youtube-tools-data/media/<ドライブ>/<パス>)
-LEARN_NAME = "学習用データ"   # 評価用のフォルダの隣の学習用のフォルダ(旧い eval_split.py の --train の既定と同じ。その道具は消した)
+LEARN_NAME = "学習用データ"   # 評価用のフォルダの隣の学習用のフォルダ
 PREV_SUFFIX = ".prev"
 MAX_ERRORS = 20
 STATE_MAX = 64 * 1024     # backup-state.json を読む上限(これより大きければ読めない扱い = 記録なし)
@@ -197,7 +197,7 @@ def _excite_chat(rel):
     return rel.replace(os.sep, "/").lower().endswith("live/excite/chat")
 
 
-# ---------- 評価用・学習用の動画(media/。10-14 ユーザー「評価用と学習用の動画を足す」)----------
+# ---------- 評価用・学習用の動画(media/)----------
 def default_media_dirs():
     """写す評価用・学習用のフォルダ: 編集の設定の評価用のフォルダ(ytt/settings.eval_dirs = あるもの・ネットワークでない・作業データの外)と、
     それぞれの隣の 学習用データ(あれば)。COPY_MEDIA が False なら []"""
@@ -474,7 +474,7 @@ class Backup:
 
 def _walk_enter(r, name, mode):
     """写し戻す側の入り方: 直下の cases/・media/ には入らない(作業データの根へ戻す物ではない。_restore_cases・_restore_media が戻す)。
-    ほかは写す側(_plan_enter)と同じ決まり = 写さない場所の物(以前の決まりで写った app/intake の動画・analytics など)は戻さない(6c-1)"""
+    ほかは写す側(_plan_enter)と同じ決まり = 写さない場所の物(app/intake の動画・analytics など)は戻さない(6c-1)"""
     if not os.path.dirname(r) and name.lower() in (CASES_DIR, MEDIA_DIR):
         return None
     return _plan_enter(r, name, mode)

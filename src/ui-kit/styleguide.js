@@ -14,7 +14,7 @@
     document.getElementById('swStage').innerHTML = ['--stage-bg', '--stage-ink', '--playhead', '--toast-bg', '--toast-ink']
       .map(function (v) { return '<div class="on-stage" style="--c:var(' + v + ')">' + v + '</div>'; }).join('');
 
-    // ---- アイコンの一覧(v24: UIKit.icon.names() = ICONS の名前そのもの。以前の手書きの一覧は lock が抜けていた) ----
+    // ---- アイコンの一覧(UIKit.icon.names() = ICONS の名前そのもの) ----
     document.getElementById('iconGrid').innerHTML = UIKit.icon.names().map(function (n) {
       return '<div><span class="ui-icon" data-icon="' + n + '"></span><small>' + n + '</small></div>';
     }).join('');
@@ -70,12 +70,12 @@
     });
     document.getElementById('btnToastInfo').addEventListener('click', function () { UIKit.toast('自動では始めません', { kind: 'info' }); });
 
-    // ---- 版の帯(UIKit.restart。v10)。window.__restartDemoOpts はテストが待つ間隔を短くするため ----
+    // ---- 版の帯(UIKit.restart)。window.__restartDemoOpts はテストが待つ間隔を短くするため ----
     document.getElementById('btnRestartBand').addEventListener('click', function () {
       UIKit.restart.check(document.getElementById('restartBandDemo'), '0.2.0', '0.1.0', window.__restartDemoOpts || {});
     });
 
-    // ---- 時刻の欄(UIKit.timebox。v11) ----
+    // ---- 時刻の欄(UIKit.timebox) ----
     var tbStart = document.getElementById('tbStart'), tbEnd = document.getElementById('tbEnd'), tbMsg = document.getElementById('tbMsg'), tbHelp = tbMsg.textContent;
     function tbShowLen() {
       var a = UIKit.timebox.get(tbStart), b = UIKit.timebox.get(tbEnd), bad = a !== null && b !== null && b <= a;
@@ -93,7 +93,7 @@
       tbShowLen();
     });
 
-    // ---- v29: ホイール・add・貼り付けの前の口(時刻の欄) ----
+    // ---- ホイール・add・貼り付けの前の口(時刻の欄) ----
     document.getElementById('tbAdd30').addEventListener('click', function () { UIKit.timebox.add(document.getElementById('tbWheel'), 30); });
     document.addEventListener('ui-time-beforepaste', function (e) {   // 画面が断る例: 配信の URL は時刻として入れない
       if (e.target.id !== 'tbWheel' || !/youtu/.test(e.detail.text)) return;
