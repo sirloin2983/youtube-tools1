@@ -148,8 +148,6 @@ class PackageTests(unittest.TestCase):
         cls.tmp = tempfile.mkdtemp()
         cls.source = os.path.join(cls.tmp, "clip.mp4")
         make_video(cls.source, 8)
-        cls.v60 = os.path.join(cls.tmp, "v60.mp4")
-        make_video(cls.v60, 6, "60")
 
     @classmethod
     def tearDownClass(cls):
@@ -215,15 +213,6 @@ class PackageTests(unittest.TestCase):
         self.assertEqual([c["startFrame"] for c in ip["captions"]], [0, 60])
         self.assertEqual(ip["sourceTimeline"], {"startFrame": 0, "endFrame": 840})
         self.assertIn("テスト_pack/clip_edit.mp4", z.namelist())
-
-    def test_selected_fps_is_the_project_not_the_media(self):
-        """60fps の動画で 30 を選んでも、カットの位置は動画の fps で数える(以前はここがずれていた)"""
-        doc = self.doc(self.v60, duration=6, segments=[{"id": "a", "start": 2, "end": 4, "text": "a"}])
-        z, _ = self.package(doc, "30")
-        ip = self.ip(z)
-        # 2〜4 秒 = 60fps の 120〜240。行の端を広げる(⑥。この動画は無音が無い → 決まった余白 前 0.1 秒・後 0.2 秒 = 6・12 フレーム)
-        self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], [(114, 252)])
-        self.assertEqual((ip["fps"], ip["target"]["fps"]), ("60/1", 30))
 
     def test_landscape_target(self):
         z, _ = self.package(self.doc(), "60", "1920x1080")

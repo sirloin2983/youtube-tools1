@@ -573,6 +573,7 @@ class KnownFixes(ResolvePackContract):
         with zipfile.ZipFile(zp) as z:
             ip = TP.read_script_plan(z.read("契約_pack/create_resolve_textplus_project.lua").decode("utf-8"))
         self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], [(120, 240)])
+        self.assertEqual((ip["fps"], ip["target"]["fps"]), ("60/1", 30))   # 計画の fps は動画の fps・置き先は選んだ fps
 
     # 親クラスのテストは、ここでは繰り返さない
     for _n in [n for n in dir(ResolvePackContract) if n.startswith("test_")]:

@@ -11,7 +11,7 @@ import unittest
 from pathlib import Path
 
 TESTS = Path(__file__).resolve().parent
-sys.path.insert(0, str(TESTS.parents[2]))   # src(パックの部品は pipeline.pack。RS1-2 で cut2resolve から移した)
+sys.path.insert(0, str(TESTS.parents[2]))   # src(パックの部品は pipeline.pack)
 sys.path.insert(0, str(TESTS))          # 隣のテスト(test_cut2resolve の道具)
 from pipeline.pack import cut2resolve_core as C  # noqa: E402
 from pipeline.pack import auto_cut as AC  # noqa: E402
@@ -322,11 +322,6 @@ class TestOutputSafety(unittest.TestCase):
         selection_pack(video, sel, out, srt, handles=1.0, force=True)
 
 
-@unittest.skipUnless(HAVE_FFMPEG, "ffmpeg が無いためスキップ")
-class TestDefaultsInOnePlace(unittest.TestCase):
-    """指定を省いたときの値は、cut2resolve_core の DEFAULT_* と pack.Request の既定の 1 か所(API のサーバーは読むだけ。サーバーは動かさない)"""
-
-
 class TestStagedWrite(unittest.TestCase):
     """一時ファイルに書いて付け替える処理(srt2resolve.staged。付け替えのやり直しは ytt/fsio.py の replace_retry で、そのテストは test_ytt_core)"""
 
@@ -418,16 +413,6 @@ class TestWithFfmpeg(unittest.TestCase):
         with self.assertRaises(C.ToolError):
             C.detect_silence(v, meta["fps"], meta["total"])
 
-    def test_render_length_and_audio(self):
-        v = self.dir / "r.mp4"
-        make_video(v, 10)
-        out = self.dir / "cut.mp4"
-        keeps = [(30, 90), (150, 240), (270, 300)]  # 2+3+1 = 6秒
-        C.render_rough_cut(v, keeps, FPS30, True, out)
-        m = S.probe(out)
-        self.assertLessEqual(abs(m["total"] - 180), 2)
-        self.assertIsNotNone(m["audio"])
-
     def test_render_video_only(self):
         v = self.dir / "rv.mp4"
         make_video(v, 5, audio=None)
@@ -435,31 +420,6 @@ class TestWithFfmpeg(unittest.TestCase):
         C.render_rough_cut(v, [(0, 30), (60, 90)], FPS30, False, out)
         self.assertLessEqual(abs(S.probe(out)["total"] - 60), 2)
         self.assertIsNone(S.probe(out)["audio"])
-
-    def test_cutlist_cli_end_to_end(self):
-        # 旧シンプル版(cut2resolve_simple.py、2026-09-26 に廃止)の確認を、フル版の同じ使い方(動画・字幕・カットリスト)に移したもの
-        v = self.dir / "clip.mp4"
-        make_video(v, 10)
-        cuts = self.dir / "cuts.txt"
-        cuts.write_text("0:00 0:03\n5 8  # 後半\n", encoding="utf-8")
-        rc = run_pack(v, self._srt(), keep=cuts)
-        self.assertEqual(rc, 0)
-        out = self.dir / "clip_pack"
-        ev = parse_edl((out / "clip.edl").read_text(encoding="utf-8"))
-        self.assertEqual([(e[3], e[4]) for e in ev], [("00:00:00:00", "00:00:03:00"), ("00:00:05:00", "00:00:08:00")])
-        self.assertEqual([(e[5], e[6]) for e in ev], [("01:00:00:00", "01:00:03:00"), ("01:00:03:00", "01:00:06:00")])
-        cues = S.parse_subs((out / "clip_cut.srt").read_text(encoding="utf-8"))
-        # あ(1-2s)は残る / い(5-6s)はカット後 3-4s / う(9-9.8s)は消える
-        self.assertEqual([(c[0], c[1], c[2]) for c in cues], [(1000, 2000, "あ"), (3000, 4000, "い")])
-        self.assertTrue((out / "友人へ.txt").read_text(encoding="utf-8-sig").startswith("DaVinci Resolve"))
-        raw = (out / "clip.edl").read_bytes()
-        self.assertIn(b"\r\n", raw)  # EDL は CRLF で書く
-        self.assertFalse(raw.startswith(b"\xef\xbb\xbf"))  # BOM なし
-        original_edl = raw
-        srt = self._srt()
-        self.assertEqual(run_pack(v, srt, keep=cuts), 1)  # 既存出力は既定で保護
-        self.assertEqual((out / "clip.edl").read_bytes(), original_edl)
-        self.assertEqual(run_pack(v, srt, keep=cuts, force=True), 0)
 
     def test_cutlist_cli_without_subtitles_and_errors(self):
         v = self.dir / "n.mp4"
@@ -473,23 +433,8 @@ class TestWithFfmpeg(unittest.TestCase):
         bad.write_text("100 200\n", encoding="utf-8")  # 動画(5秒)の範囲外
         self.assertEqual(run_pack(v, keep=bad, out=self.dir / "bad_out"), 1)
 
-    def test_full_cli_silence_render_pack(self):
-        v = self.dir / "g.mp4"
-        make_video(v, 10, audio="gaps")
-        rc = run_pack(v, self._srt(), silence=True, render=True, copy_video=True)
-        self.assertEqual(rc, 0)
-        out = self.dir / "g_pack"
-        for name in ("g.edl", "g_cut.srt", "g_roughcut.mp4", "友人へ.txt", "g.mp4"):
-            self.assertTrue((out / name).exists(), name)
-        ev = parse_edl((out / "g.edl").read_text(encoding="utf-8"))
-        self.assertEqual(len(ev), 3)  # 音のある 3 か所
-        rec_total = tc2f(ev[-1][6], 30) - tc2f(ev[0][5], 30)
-        self.assertLessEqual(abs(S.probe(out / "g_roughcut.mp4")["total"] - rec_total), 3)  # 粗編集の長さ = EDL の長さ
-        cues = S.parse_subs((out / "g_cut.srt").read_text(encoding="utf-8"))
-        self.assertEqual([c[2] for c in cues], ["あ", "い", "う"])  # 字幕は全て音のある区間に入っている
-
     def test_full_cli_textplus_pack_60fps_to_30fps_target(self):
-        # v0.4.0: 60fps 横の動画を再圧縮せずパックに入れ(2026-09-27 から直下)、置き先(既定 30fps・1080x1920)を計画に書く。CLI の経路の確認
+        # 60fps 横の動画を再圧縮せずパックの直下に入れ、置き先(既定 30fps・1080x1920)を計画に書く。CLI の経路の確認
         v = self.dir / "t60.mp4"
         make_video(v, 10, fps="60")
         rc = run_pack(v, self._srt(), textplus=True)
@@ -584,18 +529,6 @@ class TestWithFfmpeg(unittest.TestCase):
         n = sum(tc2f(e[4], 30) - tc2f(e[3], 30) for e in ev)
         self.assertLessEqual(abs(S.probe(out / "f_roughcut.mp4")["total"] - n), 2)
         self.assertEqual(S.probe(out / "f_roughcut.mp4")["fps"], (30000, 1001))
-
-
-def load_tests(loader, tests, pattern):
-    """python -m unittest test_cut2resolve で、追加のテスト(test_pack: 見直しで直した所・pack)も走らせる。
-    画面のサーバーのテスト test_serve は src/cut2resolve/tests に残した(RS1-2)ので別に流す。
-    discover(pattern あり)のときは各ファイルが自分で読まれるので足さない(二重に走らないように)"""
-    if pattern is None:
-        import importlib.util
-        for name in ("test_pack",):
-            if importlib.util.find_spec(name) is not None:
-                tests.addTests(loader.loadTestsFromName(name))
-    return tests
 
 
 if __name__ == "__main__":
