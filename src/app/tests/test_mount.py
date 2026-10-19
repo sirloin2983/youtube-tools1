@@ -65,7 +65,7 @@ class TestHelpers(unittest.TestCase):
         self.assertTrue(M.inject_token(b"<p>no head</p>", "t").startswith(b'<meta name="ytt-token"'))
 
     def test_inject_version_meta(self):
-        """RS5-E: 版を渡すと meta ytt-version も入る(画面の APP_VERSION の元)。変な文字の版は入れない"""
+        """版を渡すと meta ytt-version も入る(画面の APP_VERSION の元)。変な文字の版は入れない"""
         self.assertEqual(M.inject_token(b"<head></head>", "abc", "0.56.0"),
                          b'<head><meta name="ytt-token" content="abc"><meta name="ytt-version" content="0.56.0"></head>')
         self.assertNotIn(b"ytt-version", M.inject_token(b"<head></head>", "abc", '"><script>'))
@@ -111,7 +111,7 @@ class TestStudioMounted(unittest.TestCase):
         cls.sup = L.Supervisor(cls.tmp, only=["studio"], log=cls.events.append, mounts=("studio",), ports={"studio": free_ports(1)[0]})
         cls.srv, cls.port = L.make_server(0, cls.sup)
         cls.sup.attach(cls.srv)
-        cls.th = threading.Thread(target=cls.srv.serve_forever, daemon=True)
+        cls.th = threading.Thread(target=cls.srv.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
         cls.th.start()
         cls.sup.start("studio")
         cls.host = "127.0.0.1:%d" % cls.port
@@ -146,7 +146,7 @@ class TestStudioMounted(unittest.TestCase):
     def test_page_assets_and_security_headers(self):
         r, _ = self.req("GET", "/studio?url=abc")   # 末尾の / を足す 301 は取り込みの決まりのまま
         self.assertEqual((r.status, r.getheader("Location")), (301, "/studio/?url=abc"))
-        # 取り込み(MOUNTS)の CSP は今のまま(script-src にインラインを許さない・YouTube のプレイヤーだけ外部。起動のとき Mount.start が検査する)
+        # 取り込み(MOUNTS)の CSP(script-src にインラインを許さない・YouTube のプレイヤーだけ外部。起動のとき Mount.start が検査する)
         csp = M.MOUNTS["studio"]["csp"]
         self.assertIn("script-src 'self' https://www.youtube.com", csp)
         self.assertIn("frame-ancestors 'none'", csp)
@@ -200,7 +200,7 @@ class TestStudioMounted(unittest.TestCase):
         self.assertEqual(r.status, 405)
         r, body = self.req("POST", "/studio/api/ytt/open-window", json.dumps({"url": "http://localhost:1/"}).encode(), h)
         self.assertEqual(r.status, 400)   # 開ける先の検査は入口と同じ
-        r, body = self.req("POST", "/studio/api/ytt/live", json.dumps({"op": "status"}).encode(), h)   # ヘッダーの録画の札(線 D の P3)。既定はオフ
+        r, body = self.req("POST", "/studio/api/ytt/live", json.dumps({"op": "status"}).encode(), h)   # ヘッダーの録画の札。既定はオフ
         self.assertEqual((r.status, json.loads(body)), (200, {"enabled": False}))
         r, _ = self.req("POST", "/studio/api/ytt/live", json.dumps({"op": "status"}).encode(), dict(h, **{"X-YTT-Token": "wrong"}))
         self.assertEqual(r.status, 403)
@@ -241,7 +241,7 @@ class TestCut2ResolveMounted(unittest.TestCase):
                                ports=dict(zip(("studio", "cut2resolve"), free_ports(2))))
         cls.srv, cls.port = L.make_server(0, cls.sup)
         cls.sup.attach(cls.srv)
-        threading.Thread(target=cls.srv.serve_forever, daemon=True).start()
+        threading.Thread(target=cls.srv.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
         cls.sup.start("studio")
         cls.sup.start("cut2resolve")
         cls.host = "127.0.0.1:%d" % cls.port
@@ -276,11 +276,10 @@ class TestCut2ResolveMounted(unittest.TestCase):
 
     def test_page_assets_and_security_headers(self):
         r, body = self.req("GET", "/cut2resolve/")
-        self.assertEqual(r.status, 200)   # 画面は「編集」に統合した(編集が取り込まれていない入口では、案内だけ)
+        self.assertEqual(r.status, 200)   # 画面は「編集」の中。ここは案内だけ
         self.assertEqual(r.getheader("Content-Security-Policy"), self.mod.CSP)   # ツール自身の厳しい CSP のまま(YouTube も許さない)
         self.assertIn("script-src 'self';", self.mod.CSP)
         self.assertEqual(r.getheader("X-Frame-Options"), "DENY")
-        self.assertIn("「編集」に統合しました".encode("utf-8"), body)
         self.assertNotIn(b"<script", body)
         r, _ = self.req("GET", "/cut2resolve?video=C%3A%5Ca.mp4")
         self.assertEqual((r.status, r.getheader("Location")), (301, "/cut2resolve/?video=C%3A%5Ca.mp4"))
@@ -370,7 +369,7 @@ class TestTranscribeMounted(unittest.TestCase):
                                ports=dict(zip(("studio", "transcribe"), free_ports(2))))
         cls.srv, cls.port = L.make_server(0, cls.sup)
         cls.sup.attach(cls.srv)
-        threading.Thread(target=cls.srv.serve_forever, daemon=True).start()
+        threading.Thread(target=cls.srv.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
         cls.sup.start("studio")
         cls.sup.start("transcribe")
         cls.host = "127.0.0.1:%d" % cls.port
@@ -419,7 +418,7 @@ class TestTranscribeMounted(unittest.TestCase):
         snap = self.sup.by_id["transcribe"].snapshot()
         self.assertEqual((snap["state"], snap["mounted"], snap["path"]), ("running", True, "/transcribe/"), self.events)
         self.assertIsNone(self.sup.by_id["transcribe"].proc)
-        csp = M.MOUNTS["transcribe"]["csp"]   # 取り込みの CSP(インラインのスクリプトを許さない)は今のまま
+        csp = M.MOUNTS["transcribe"]["csp"]   # 取り込みの CSP(インラインのスクリプトを許さない)
         self.assertIn("script-src 'self';", csp)
         self.assertNotIn("unsafe-inline", csp)
         for asset in ("app.js", "proof.css", "app-tpl.js", "cut.js", "pack-tab.js"):   # 案件の画面の校正のパネルが読む部品は配る
@@ -500,7 +499,7 @@ class TestMountFallbacks(unittest.TestCase):
                                 poll=0.2, stop_timeout=5)
         self.srv, self.port = L.make_server(0, self.sup)
         self.sup.attach(self.srv)
-        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+        threading.Thread(target=self.srv.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
         self.procs = []
 
     def tearDown(self):

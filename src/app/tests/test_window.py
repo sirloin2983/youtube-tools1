@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""段階7 のテスト: 窓で開く(src/ytt/appwindow.py)・画面のエラーの記録(本体は src/manage/ops/tests/test_clientlog.py)・入口の共通の API(api/ytt/…)。
+"""窓で開く(src/ytt/appwindow.py)・画面のエラーの記録(本体は src/manage/ops/tests/test_clientlog.py)・入口の共通の API(api/ytt/…)。
     python -m unittest src/app/tests/test_window.py -v
 
 Edge は起動しない(起動のコマンドは偽の popen で受け取って確かめる)。取り込んだツールの画面からの api/ytt/… は src/app/tests/test_mount.py。
@@ -377,7 +377,7 @@ class TestPortalApi(unittest.TestCase):
         self.fake = FakeSys()
         self.srv.window = opener(os.path.join(self.tmp, "app"), self.fake)
         self.sup.attach(self.srv)
-        self.th = threading.Thread(target=self.srv.serve_forever, daemon=True)
+        self.th = threading.Thread(target=self.srv.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)   # 止めるのを待たない
         self.th.start()
         self.host = "127.0.0.1:%d" % self.port
 

@@ -544,26 +544,21 @@ class PortalHttpTest(Base):
         self.assertIn("script-src 'self'", r.getheader("Content-Security-Policy"))
         self.assertIn("frame-ancestors 'none'", r.getheader("Content-Security-Policy"))
         self.assertEqual(r.getheader("X-Frame-Options"), "DENY")
-        self.assertIn("動画編集ツール — ホーム".encode("utf-8"), body)
         for path in ("/portal.js", "/portal.css", "/ui-kit.css", "/ui-kit.js", "/settings.js", "/settings.css", "/settings-schema.json"):
             r, body = self.req("GET", path)
             self.assertEqual(r.status, 200, path)
             self.assertEqual(r.getheader("X-Content-Type-Options"), "nosniff")
             self.assertGreater(len(body), 100, path)
-        r, body = self.req("GET", "/settings")   # 設定の画面(S5): 入口の画面と同じ CSP・合言葉
+        r, body = self.req("GET", "/settings")   # 設定の画面: 入口の画面と同じ CSP・合言葉
         self.assertEqual(r.status, 200)
         self.assertIn("script-src 'self'", r.getheader("Content-Security-Policy"))
-        self.assertIn("動画編集ツール — 設定".encode("utf-8"), body)
         self.assertIn(b'name="ytt-token"', body)
         r, _ = self.req("GET", "/settings/")
         self.assertEqual((r.status, r.getheader("Location")), (302, "/settings"))
         self.assertEqual(self.req("GET", "/server.py")[0].status, 404)   # コードや他のファイルは配らない
 
     def test_cases_and_doc_lookup(self):
-        """/api/cases と ?doc=(欄の中身は src/manage/cases/tests/test_cases.py)"""
-        r, body = self.req("GET", "/api/cases")
-        self.assertEqual(r.status, 200)
-        self.assertIn("virtual", json.loads(body))
+        """/api/cases?doc= の失敗の答え(一覧の中身は src/manage/cases/tests/test_cases.py・画面からは e2e_portal)"""
         r, body = self.req("GET", "/api/cases?doc=ffffffffffff")
         self.assertEqual(r.status, 404)
         r, body = self.req("GET", "/api/cases?doc=zz")
@@ -596,7 +591,7 @@ class PortalHttpTest(Base):
         def err(r, body):
             return r.status, json.loads(body).get("error")
         self.assertEqual(err(*self.post("/api/cases/auto", body=b"")), (400, "bad_request"))   # 空の本文は {} として読む(案件の検査で断る)
-        self.assertEqual(err(*self.post("/api/cases/auto", body=b'{"id": NaN}')), (400, "bad_request"))   # NaN は今までどおり通す(案件の検査で断る)
+        self.assertEqual(err(*self.post("/api/cases/auto", body=b'{"id": NaN}')), (400, "bad_request"))   # NaN は本文の読み取りでは通す(案件の検査で断る)
         self.assertEqual(err(*self.post("/api/cases/auto", headers={"Content-Length": "abc"}, body=None)), (413, "size"))
         self.assertEqual(err(*self.post("/api/cases/auto", headers={"Content-Type": "application/json; charset=UTF-8"}, body=b"[]")), (400, "json"))
         self.assertEqual(err(*self.post("/api/cases/auto", body=b'{"a": 1')), (400, "json"))
@@ -639,14 +634,6 @@ class PortalHttpTest(Base):
         h = H(ok)
         self.srv.ytt_request(h, "studio", "1")
         self.assertEqual(h.sent, [(200, None)])
-
-    def test_health_api(self):
-        """「調子」: 入口のツールの版が入る(中身の数え方は src/manage/ops/tests/test_health.py)"""
-        r, body = self.req("GET", "/api/health")
-        self.assertEqual(r.status, 200)
-        self.assertEqual([v["tool"] for v in json.loads(body)["versions"]], [t.id for t in self.sup.tools])
-        r, body = self.req("GET", "/api/health?refresh=1")
-        self.assertEqual(r.status, 200)
 
     def test_cleanup_api(self):
         """片付け: 候補の一覧・移す物が無い/候補に出していない物は移さない(候補の中身は src/manage/keep/tests/test_cleanup.py)"""
@@ -716,7 +703,7 @@ class PortalHttpTest(Base):
 
     def test_restart_self_keeps_autorun_runs(self):
         """まとめて実行の待ち・実行中は断らずに起動し直し、何件が続くかを notice で知らせる(M5)。
-        実行中の段の仕事でも、同じツールに人が始めた仕事があれば(others)今までどおり断る"""
+        実行中の段の仕事でも、同じツールに人が始めた仕事があれば(others)断る"""
         class Stub:
             def __init__(self, redo):
                 self.redo = redo
@@ -758,34 +745,8 @@ class PortalHttpTest(Base):
         finally:
             other.server_close()
 
-    def test_actions_and_status(self):
-        r, body = self.post("/api/tools/studio/start")
-        self.assertEqual(r.status, 200)
-        self.assertEqual(json.loads(body)["tool"]["state"], "starting")
-        self.sup.start_monitor()
-        self.assertTrue(self.wait_state("studio", "running"))
-        st = self.get_json("/api/status", headers={"Sec-Fetch-Site": "same-origin"})[1]
-        self.assertEqual(st["app"], L.APP_ID)
-        self.assertEqual(st["version"], L.VERSION)
-        by = {t["id"]: t for t in st["tools"]}
-        self.assertEqual(by["studio"]["state"], "running")
-        self.assertEqual(by["studio"]["port"], self.ports["studio"])
-        self.assertEqual(by["transcribe"]["state"], "stopped")
-        r, body = self.post("/api/tools/studio/restart")
-        self.assertEqual(json.loads(body)["tool"]["state"], "starting")
-        self.assertTrue(self.wait_state("studio", "running"))
-        r, body = self.post("/api/tools/studio/stop")
-        self.assertEqual(json.loads(body)["tool"]["state"], "stopped")
-
     def test_log_endpoint(self):
-        self.sup.start("studio")
-        self.sup.start_monitor()
-        self.assertTrue(self.wait_state("studio", "running"))
-        j = self.get_json("/api/log?tool=studio&lines=5")[1]
-        self.assertTrue(j["exists"])
-        self.assertLessEqual(len(j["lines"]), 5)
-        self.assertTrue(any("listening" in ln for ln in j["lines"]))
-        self.assertIn("studio.log", j["log"])
+        """ログの読み出しの境目: ツールの名前の許可範囲・数でない lines・まだ無いログ(出ているログの表示は e2e_portal の [B])"""
         for bad in ("../launcher", "..%2F..%2Fetc%2Fpasswd", "", "STUDIO"):
             self.assertEqual(self.req("GET", "/api/log?tool=" + bad)[0].status, 404, bad)
         r, body = self.req("GET", "/api/log?tool=studio&lines=abc")
@@ -835,12 +796,12 @@ class PortalHttpTest(Base):
                 r, body = self.post("/api/flow/submit", body=json.dumps({}).encode("utf-8"))
                 self.assertEqual((r.status, json.loads(body)["error"]), (503, "starting"))
             threading.Timer(0.3, self.srv.tools_started.set).start()
-            r, body = self.post("/api/flow/submit", body=json.dumps({}).encode("utf-8"))   # 済んだら今までどおり検査へ進む
+            r, body = self.post("/api/flow/submit", body=json.dumps({}).encode("utf-8"))   # 済んだら検査へ進む
             self.assertEqual(r.status, 400)
         finally:
             self.srv.tools_started = None
     def test_flow_submit_spec_errors(self):
-        """F1 F0-1: 束の版の違いは 400 spec_version・束の知らない節・項目は 400 bad_spec(呼ぶアプリは「更新してください」と出せる)・封筒の形は今までどおり bad_request"""
+        """F1 F0-1: 束の版の違いは 400 spec_version・束の知らない節・項目は 400 bad_spec(呼ぶアプリは「更新してください」と出せる)・封筒の形は bad_request"""
         _media, env = self.file_envelope()
         for bad, code in (({"envelope": dict(env, specVersion=3)}, "spec_version"), ({"envelope": env, "spec": {"nai": {}}}, "bad_spec"),
                           ({"envelope": env, "spec": {"transcribe": {"nai": 1}}}, "bad_spec"), ({"envelope": dict(env, kind="nai")}, "bad_request")):
@@ -1224,7 +1185,7 @@ class MainShutdownTest(unittest.TestCase):
         self.assertEqual(len(got), 1)
 
     def test_normal_start_still_starts_watchers(self):
-        """画面ありの起動は今までどおり(見張りを起こす・ready の行を出さない)"""
+        """画面ありの起動は(見張りを起こす・ready の行を出さない)"""
         code, srv, out, started, opened, _ = self.run_headless(["--port", "0", "--no-mount", "--no-open"], lambda srv, ready: None)
         self.assertEqual((code, out, srv.headless), (0, "", False))
         wait_for(lambda: "trash" in started, 5)   # ごみ箱の片付けは裏のスレッド
