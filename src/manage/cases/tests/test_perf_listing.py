@@ -1,19 +1,18 @@
 #!/usr/bin/env python3
-"""案件の一覧の速さの工夫(PERF O5・O15)が、ふつうの経路と同じ結果を返すことの突き合わせ。
+"""案件の一覧の速さの工夫が、ふつうの経路と同じ結果を返すことの突き合わせ。
 
     python -m unittest src/manage/cases/tests/test_perf_listing.py
 
-- O5: txindex.pick に load の結果(Docs = 逆引きつき)を渡したときと、ふつうのリスト(全部を照らす)を渡したときで、
+- txindex.pick に load の結果(Docs = 逆引きつき)を渡したときと、ふつうのリスト(全部を照らす)を渡したときで、
   選ぶ文書・紐づいた数・id の順(同じ id の別の文書・同率の更新日時・片方の経路だけの一致・付け替える前のパスも)が同じ。
   (cases.build の丸ごとの結び付けは test_cases の test_links_clips_transcripts_and_packs で確かめる)
-- O15: txindex.doc_paths・docloc.iter_tids が、使える索引・壊れた索引・置き場の違いを同時に置いたときに決めた中身を返す
+- txindex.doc_paths・docloc.iter_tids が、使える索引・壊れた索引・置き場の違いを同時に置いたときに決めた中身を返す
   (期待値は書き出した固定の値)
 """
 import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 import random
-import shutil
 import sys
 import tempfile
 import unittest
@@ -21,9 +20,9 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))   # src
 from manage.cases import txindex  # noqa: E402
 from ytt import docloc, schemas, workdata  # noqa: E402
+from ytt.testkit import tempdir, write_text  # noqa: E402
 
 
-# ---------------------------------------------------------------- O5
 VIDS = ["v1", "v2", "", None, 0, 1, True, ["v1"]]
 MARKS = ["m1", "m2", "", None, 1, 1.0, {"a": 1}]
 
@@ -72,11 +71,10 @@ class PickMatchesOldTest(unittest.TestCase):
         self.assertEqual(txindex.pick(fast, "v1", "m1", self.paths[0]), txindex.pick(list(fast), "v1", "m1", self.paths[0]))
         self.assertEqual(txindex.pick(fast, "", "", self.paths[0])[0]["updatedAt"], 99)
 
-# ---------------------------------------------------------------- O15
+
 class DocPathsTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="perf-o15-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = tempdir(self, "perf-o15-")
         saved = {n: getattr(workdata, n) for n in ("DATA_DIR", "TX_DIR", "TMP_DIR", "SETTINGS", "FEEDBACK")}
         self.addCleanup(lambda: [setattr(workdata, n, v) for n, v in saved.items()])
         workdata.set_data_dir(os.path.join(self.tmp, "data"))
@@ -85,9 +83,7 @@ class DocPathsTest(unittest.TestCase):
         docloc._warned.clear()
 
     def _write(self, path, d):
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(d if isinstance(d, str) else json.dumps(d))
+        write_text(path, d if isinstance(d, str) else json.dumps(d))
 
     def _loc(self, tid, folder, **over):
         self._write(os.path.join(self.tx, tid + docloc.LOC_SUFFIX), dict({"version": 1, "id": tid, "dir": folder}, **over))

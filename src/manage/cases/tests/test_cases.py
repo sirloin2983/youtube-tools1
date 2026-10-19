@@ -6,7 +6,6 @@ import json
 import os
 import shutil
 import sys
-import tempfile
 import time
 import unittest
 from unittest import mock
@@ -21,6 +20,7 @@ from flow import deliver, packrec  # noqa: E402
 from manage.cases import txindex  # noqa: E402
 from flow import casebook  # noqa: E402
 from ytt import casefiles, schemas  # noqa: E402
+from ytt.testkit import read_json, tempdir, write_json, write_text  # noqa: E402
 
 VID = "abcdefghijk"
 REC = "20261007-120000"   # ライブの録画の id(スタジオの配信の id = 録画の id)
@@ -32,7 +32,7 @@ def mark(mid, status, path="", start=10.0, end=40.0, label="見どころ"):
 
 class Base(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp()
+        self.tmp = tempdir(self)
         self.root = os.path.join(self.tmp, "repo")
         self.data = os.path.join(self.tmp, "data")
         self.env = {"YTT_DATA_DIR": self.data}
@@ -46,15 +46,9 @@ class Base(unittest.TestCase):
         p.start()
         self.addCleanup(p.stop)
 
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
-
     @staticmethod
     def touch(path, text="x"):
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(text)
-        return path
+        return write_text(path, text)
 
     def make_pack(self, d, textplus=False):
         """cut2resolve が作ったパック(パックを作った記録 = ② flow/packrec と、中身の動画 1 本)。d = パックのフォルダ(書き出し先からの名前でも)"""
@@ -64,20 +58,14 @@ class Base(unittest.TestCase):
         return d
 
     def studio(self, videos):
-        p = os.path.join(self.data, "studio", "data.json")
-        os.makedirs(os.path.dirname(p), exist_ok=True)
-        with open(p, "w", encoding="utf-8") as f:
-            json.dump({"schema": "x", "videos": videos}, f, ensure_ascii=False)
+        write_json(os.path.join(self.data, "studio", "data.json"), {"schema": "x", "videos": videos})
 
-    def transcript(self, tid, source, proofed=1, total=3, clip=None, updated=1):
-        d = {"id": tid, "title": "文字起こし" + tid, "sourcePath": source, "updatedAt": updated,
+    def transcript(self, tid, source, proofed=1, total=3, clip=None, updated=1, **extra):
+        d = {"id": tid, "title": "文字起こし" + tid, "sourcePath": source, "updatedAt": updated, **extra,
              "segments": [{"id": "s%d" % i, "start": i * 2.0, "end": i * 2.0 + 1.5, "text": "t", "proofed": i < proofed} for i in range(total)]}
         if clip:
             d["clip"] = clip
-        p = os.path.join(self.data, "transcribe", "transcripts", tid + ".json")
-        os.makedirs(os.path.dirname(p), exist_ok=True)
-        with open(p, "w", encoding="utf-8") as f:
-            json.dump(d, f, ensure_ascii=False)
+        write_json(os.path.join(self.data, "transcribe", "transcripts", tid + ".json"), d)
 
 
 class TestBuild(Base):
@@ -119,7 +107,7 @@ class TestBuild(Base):
 
 
 class TestFullAuto(Base):
-    """D-SEND・MARKS-3・ds1: まとめて実行の自動で送る形。送らなかった物 = ② の送らなかった記録 logs/not-sent.jsonl(前の版は案件の auto[マーク].origin "full" と
+    """まとめて実行の自動で送る形。送らなかった物 = ② の送らなかった記録 logs/not-sent.jsonl(案件の auto[マーク].origin "full" と
     notSent = 読むだけ)・送った物 = 届けた記録の mode full・origin auto。どちらもライブでなくても clip["auto"](品質のカードの対象)・notSent は届けていない間だけ
     review に出る・届けた・送らなかったは案件に写さない"""
 
@@ -143,7 +131,7 @@ class TestFullAuto(Base):
         m1, m2, m3 = c["clips"]
         self.assertEqual((m1["auto"]["origin"], m1["auto"]["originLabel"], m1["review"]["notSent"]["text"]),
                          ("full", "まとめて実行", "古い配信なので送りません(終わってから 50 時間)"))
-        self.assertEqual(set(m1["review"]), {"deliveredAt", "delivered", "failure", "notSent"})   # 見た・未確認・保留は無い(MARKS-3)
+        self.assertEqual(set(m1["review"]), {"deliveredAt", "delivered", "failure", "notSent"})   # 見た・未確認・保留は無い
         self.assertEqual((m2["auto"]["origin"], m2["review"]["delivered"], m2["review"]["deliveredAt"] > 0, "notSent" in m2["review"]), ("full", "t__z.zip", True, False))
         self.assertIsNone(m3["auto"], "印の無い切り抜きは今までどおり人の切り抜き")
         self.assertEqual(c["autoClips"], {"total": 2})
@@ -153,10 +141,10 @@ class TestFullAuto(Base):
         self.assertEqual((m1["auto"]["origin"], m1["review"]["delivered"], "notSent" in m1["review"]), ("full", "t__手.zip", False))
         send(clip3, "m3", "rid__依頼.zip", "request", rid="rid")   # 友人の依頼で届けた mode full は「まとめて実行の自動」ではない
         self.assertIsNone(cases.snapshot(self.root, self.env)["cases"][0]["clips"][2]["auto"])
-        self.assertFalse(hasattr(cases, "remember_auto"), "案件へ写す口は消した(ds1)")
+        self.assertFalse(hasattr(cases, "remember_auto"), "案件へ写す口は無い")
 
     def test_old_case_marks_not_read(self):
-        """前の版 0.84〜0.86 が案件の auto[マーク] に書いた origin "full"・notSent は読まない(10-19。本物の記録に 0 本)"""
+        """案件の auto[マーク] に古く書かれた origin "full"・notSent は読まない"""
         self.studio({VID: {"kind": "youtube", "title": "配信A", "marks": [mark("m1", "exported", self.clip1)]}})
         cases._write(cases.locations(self.root, self.env)["cases"],
                      {VID: {"auto": {"m1": {"origin": "full", "notSent": {"code": "stale", "text": "古い", "at": 5}}}}})
@@ -177,15 +165,10 @@ class TestCaseFile(Base):
 
 
 class TestCasesC0(Base):
-    """案件の画面の下ごしらえ(RS8 C0): root・caseKind・切り抜きごとの状態・仮の案件(file・eval・orphan)・todo の集計・文書から案件を引く"""
+    """案件の画面の下ごしらえ: root・caseKind・切り抜きごとの状態・仮の案件(file・eval・orphan)・todo の集計・文書から案件を引く"""
 
     def raw_doc(self, tid, source, evalset=False, proofed=0, total=2):
-        d = {"id": tid, "title": "文書" + tid, "sourcePath": source, "updatedAt": 5, "evalSet": evalset,
-             "segments": [{"id": "s%d" % i, "start": i * 2.0, "end": i * 2.0 + 1.5, "text": "t", "proofed": i < proofed} for i in range(total)]}
-        p = os.path.join(self.data, "transcribe", "transcripts", tid + ".json")
-        os.makedirs(os.path.dirname(p), exist_ok=True)
-        with open(p, "w", encoding="utf-8") as f:
-            json.dump(d, f, ensure_ascii=False)
+        self.transcript(tid, source, proofed=proofed, total=total, updated=5, evalSet=evalset)
 
     def test_clip_state(self):
         tx = lambda s, p: {"segments": s, "proofed": p}
@@ -253,7 +236,7 @@ class TestCasesC0(Base):
 
 
 class TestListExtras(Base):
-    """一覧(1件1行)が使う合計・「次にやること」・配信日の目安(2026-09-26 画面の見直しで追加)"""
+    """一覧(1件1行)が使う合計・「次にやること」・配信日の目安"""
 
     def test_next_action_order_and_remaining(self):
         # m1: 書き出し済み・文字起こしなし / m2: 書き出し済み・文字起こしあり(校正未了)・パックあり / m3: 採用済みでまだ書き出していない
@@ -262,7 +245,7 @@ class TestListExtras(Base):
         self.transcript("aaaaaaaaaaaa", self.clip2, proofed=1, total=4)
         self.make_pack("02_次_pack")
         c = cases.snapshot(self.root, self.env)["cases"][0]
-        # 次にやることは仕掛かりを先に(TODO_ORDER = 校正 → パック → 文字起こし → 書き出し → 候補の確認。UI の見直し M1): 校正が残っている 1 本が先
+        # 次にやることは仕掛かりを先に(TODO_ORDER = 校正 → パック → 文字起こし → 書き出し → 候補の確認): 校正が残っている 1 本が先
         self.assertEqual(c["next"], {"kind": "proof", "label": "校正", "count": 1})
         self.assertEqual(c["tx"], {"clips": 2, "withTranscript": 1, "segments": 4, "proofed": 1})
         self.assertEqual(c["packs"], {"have": 1, "total": 2, "textplus": 0})
@@ -272,7 +255,7 @@ class TestListExtras(Base):
         self.assertEqual(c["todo"], {"review": 0, "export": 1, "transcribe": 1, "proof": 1, "pack": 1})
 
     def test_next_follows_the_todo_order_table(self):
-        """M1: 案件の next は TODO_ORDER(ホームの「次にやること」の並びと同じ表)の順で最初に残っている作業。表は build() の todoOrder で画面にも渡す
+        """案件の next は TODO_ORDER(ホームの「次にやること」の並びと同じ表)の順で最初に残っている作業。表は build() の todoOrder で画面にも渡す
         (同じ配信なら、上の一覧の先頭の作業と行のボタンが必ず同じになる)"""
         self.assertEqual(cases.TODO_ORDER, ("proof", "pack", "transcribe", "export", "review"))
         self.assertEqual(set(cases.TODO_LABEL), set(cases.TODO_ORDER))
@@ -323,7 +306,7 @@ class TestListExtras(Base):
         self.assertEqual((c["next"], c["todo"]["review"], c["remaining"]), (None, 0, 0))
 
     def test_gone_case_is_not_listed(self):
-        """スタジオから消えた配信の行は一覧に出さない(MARKS-3。前の状態・メモと最後に見えた紐づけ last は cases.json に残る = 読み飛ばすだけで書き換えない)"""
+        """スタジオから消えた配信の行は一覧に出さない(前の状態・メモと最後に見えた紐づけ last は cases.json に残る = 読み飛ばすだけで書き換えない)"""
         self.studio({VID: {"kind": "youtube", "title": "配信A", "marks": [mark("m1", "adopted"), mark("m2", "")]}})
         p = cases.locations(self.root, self.env)["cases"]
         cases._write(p, {VID: {"status": "working", "memo": "前の", "last": {"title": "配信A", "clips": [], "marks": {"adopted": 1}}}})
@@ -347,20 +330,17 @@ class TestListExtras(Base):
         self.assertEqual(c["remaining"], 0)
 
     def test_streamed_at_prefers_upload_date_then_created_then_updated(self):
-        self.studio({VID: {"kind": "youtube", "title": "配信A", "marks": [], "analysis": {"uploadDate": "20260101"},
-                           "createdAt": 500, "updatedAt": 900}})
-        c = cases.snapshot(self.root, self.env)["cases"][0]
-        self.assertEqual(c["streamedAt"], 1767225600000)   # 2026-01-01T00:00:00Z
-        self.studio({VID: {"kind": "youtube", "title": "配信A", "marks": [], "createdAt": 500, "updatedAt": 900}})
-        c = cases.snapshot(self.root, self.env)["cases"][0]
-        self.assertEqual(c["streamedAt"], 500)   # 解析の日付が無ければ、案件が増えた時刻
-        self.studio({VID: {"kind": "youtube", "title": "配信A", "marks": [], "updatedAt": 900}})
-        c = cases.snapshot(self.root, self.env)["cases"][0]
-        self.assertEqual(c["streamedAt"], 900)   # それも無ければ最後に触った時刻
+        rows = [({"analysis": {"uploadDate": "20260101"}, "createdAt": 500, "updatedAt": 900}, 1767225600000),   # 2026-01-01T00:00:00Z
+                ({"createdAt": 500, "updatedAt": 900}, 500),   # 解析の日付が無ければ、案件が増えた時刻
+                ({"updatedAt": 900}, 900)]   # それも無ければ最後に触った時刻
+        for extra, want in rows:
+            with self.subTest(extra=extra):
+                self.studio({VID: dict({"kind": "youtube", "title": "配信A", "marks": []}, **extra)})
+                self.assertEqual(cases.snapshot(self.root, self.env)["cases"][0]["streamedAt"], want)
 
 
 class TestNoStatusMemo(Base):
-    """MARKS-3(決定 3-48): 案件の状態・メモ・「見た」「未確認」「保留」は消した。採用.json・cases.json に残る古い欄は読み飛ばす(書き換えない)"""
+    """案件の状態・メモ・「見た」「未確認」「保留」は消した。採用.json・cases.json に残る古い欄は読み飛ばす(書き換えない)"""
 
     def test_old_fields_are_not_listed_and_not_rewritten(self):
         self.assertEqual((cases.AUTO_OPS, cases.FIELDS), (("deliver", "discard"), ("auto",)))
@@ -418,8 +398,13 @@ class FileStudio:
         return 404, {"message": "なし"}
 
 
+def busy(pack_dir):
+    """このパックのフォルダだけ「届けている途中」と答える Deliveries の代わり"""
+    return mock.Mock(running=lambda d: os.path.normcase(d) == os.path.normcase(pack_dir))
+
+
 class TestAutoClips(Base):
-    """自動でできた切り抜き(線 D の M9・M12。MARKS-3): 札・失敗の文・届けた(② の届けた記録から)・採用 = 届ける・要らない = ごみ箱へ・
+    """自動でできた切り抜き: 札・失敗の文・届けた(② の届けた記録から)・採用 = 届ける・要らない = ごみ箱へ・
     人の判断は ③ human/judgments(live_feedback.jsonl には書かない)・日数の片付け"""
 
     def setUp(self):
@@ -450,6 +435,11 @@ class TestAutoClips(Base):
                           "live": dict({"url": "", "recorder": "local", "recording": REC, "base": "", "start": "", "end": "", "markId": "lm-x", "origin": origin}, **live)}
         self.touch(schemas.clip_path_for(media), json.dumps(clip, ensure_ascii=False))
         return media
+
+    def add_marks(self, *marks):
+        st = read_json(self.fs.path)
+        st["videos"][REC]["marks"] += marks
+        write_json(self.fs.path, st)
 
     def pack(self, media):
         """cut2resolve が作ったパック(パックを作った記録と中身の動画)"""
@@ -499,7 +489,7 @@ class TestAutoClips(Base):
         self.assertEqual(by["m2"]["auto"], {"origin": "archive", "originLabel": "配信後の解析", "score": 0.88, "bench": True, "deliver": False})   # 点数はスタジオのマークから
         self.assertIsNone(by["m3"]["auto"])   # 人の切り抜きは今までどおり
         self.assertNotIn("review", by["m3"])
-        self.assertEqual(by["m1"]["review"], {"deliveredAt": 0, "delivered": "", "failure": None})   # 見た・未確認・保留は無い(MARKS-3)
+        self.assertEqual(by["m1"]["review"], {"deliveredAt": 0, "delivered": "", "failure": None})   # 見た・未確認・保留は無い
         self.assertEqual((c["autoClips"], res["auto"]), ({"total": 2}, {"total": 2}))
         # .clip.json の点数が先(source.live.score)
         self.live_clip("10_自動.mp4", "auto", score=1.234)
@@ -547,7 +537,7 @@ class TestAutoClips(Base):
         self.assertEqual(cases.clip_live(self.auto1), (None, None))
 
     def test_seen_is_gone_and_bad_requests(self):
-        """「見た」(op seen)は MARKS-3 で消した: 古い画面から来ても 400 で何も書かない。人の切り抜き・知らない切り抜き・正しくない指定は断る"""
+        """「見た」(op seen)は無い: 古い画面から来ても 400 で何も書かない。人の切り抜き・知らない切り抜き・正しくない指定は断る"""
         code, r = self.review("seen", "m1")
         self.assertEqual((code, r["error"]), (400, "bad_request"))
         self.assertFalse(os.path.exists(cases.locations(self.root, self.env)["cases"]))
@@ -570,7 +560,7 @@ class TestAutoClips(Base):
         self.assertIsNone(by["m2"]["review"]["failure"])
 
     def test_deliver_passes_clip_for_the_delivery_record(self):
-        """手で届けるも届けた記録に切り抜き(mp4 のパス・マーク・動画)を渡す = 友人の「要らない」で mp4 も片付く・案件の「届けた」も引ける(OPT-H1。Q16)"""
+        """手で届けるも届けた記録に切り抜き(mp4 のパス・マーク・動画)を渡す = 友人の「要らない」で mp4 も片付く・案件の「届けた」も引ける"""
         self.pack(self.auto1)
         seen = {}
         start = self.dl.start
@@ -596,7 +586,7 @@ class TestAutoClips(Base):
         zips = [n for n in names if n.endswith(".zip")]
         self.assertEqual(len(zips), 1)
         self.assertTrue(zips[0].endswith("__10_自動.zip"), zips)
-        self.assertEqual(sorted(names), sorted([zips[0], zips[0][:-4] + deliver.META_SUFFIX]), "手で届けるも出どころの印(友人には「依頼なし」。D-SEND 2-8)")
+        self.assertEqual(sorted(names), sorted([zips[0], zips[0][:-4] + deliver.META_SUFFIX]), "手で届けるも出どころの印(友人には「依頼なし」)")
         rv = self.clip_of("m1")["review"]
         self.assertTrue(rv["deliveredAt"] > 0)
         self.assertEqual(rv["delivered"], zips[0])
@@ -647,7 +637,7 @@ class TestAutoClips(Base):
         self.assertEqual(self.review("discard", "m1")[0], 404)   # もう一覧に無い
 
     def test_expire_after_three_days(self):
-        """10-16 ユーザー: 「見た」の守りは無し。届けていない自動の切り抜きは作ってから・届けた物は届けてから EXPIRE_SEC でごみ箱へ。
+        """「見た」の守りは無し。届けていない自動の切り抜きは作ってから・届けた物は届けてから EXPIRE_SEC でごみ箱へ。
         マークは不採用にせず人の判断も書かない(片付けは評価と無関係)。新しい・人の切り抜き・友人の依頼(live.deliver か結びつき)で届けていない物は片付けない"""
         old = time.time() - cases.EXPIRE_SEC - 60
         for p in (self.auto1, self.auto2, self.manual):
@@ -667,18 +657,13 @@ class TestAutoClips(Base):
         fresh = self.live_clip("15_届けたばかり.mp4", "auto")
         os.utime(friend, (old, old))
         os.utime(fresh, (old, old))
-        with open(self.fs.path, encoding="utf-8") as f:
-            st = json.load(f)
-        st["videos"][REC]["marks"] += [mark("m5", "exported", new_auto, 140, 170), mark("m6", "exported", friend, 180, 210),
-                                       mark("m7", "exported", fresh, 220, 250)]
-        with open(self.fs.path, "w", encoding="utf-8") as f:
-            json.dump(st, f, ensure_ascii=False)
+        self.add_marks(mark("m5", "exported", new_auto, 140, 170), mark("m6", "exported", friend, 180, 210), mark("m7", "exported", fresh, 220, 250))
         self.sent(txindex.pack_dir(fresh), int(time.time() * 1000), "r__届けたばかり.zip", mid="m7", path=fresh)   # 作ったのは前・届けたのは今
         self.assertEqual(cases.expire_unseen(self.root, is_request=lambda rc, rec: False, **kw), [])
         os.utime(new_auto, (old, old))
         self.assertEqual(cases.expire_unseen(self.root, is_request=lambda rc, rec: True, **kw), [])   # 録画が友人の依頼に結びついている
         self.assertEqual(cases.expire_unseen(self.root, is_request=lambda rc, rec: False, **kw), [(REC, "m5")])
-        # 届けた物(友人の依頼も)は、届けてから EXPIRE_SEC で片付ける(既定オン = 10-15 ユーザー)。スイッチ TRASH_DELIVERED がオフなら片付けない
+        # 届けた物(友人の依頼も)は、届けてから EXPIRE_SEC で片付ける(既定オン)。スイッチ TRASH_DELIVERED がオフなら片付けない
         self.assertTrue(cases.TRASH_DELIVERED)
         self.sent(txindex.pack_dir(friend), int(old * 1000), "r__依頼.zip", mid="m6", path=friend)
         self.addCleanup(setattr, cases, "TRASH_DELIVERED", True)
@@ -691,7 +676,7 @@ class TestAutoClips(Base):
         self.assertEqual((self.judged(), [c for c in self.fs.calls if c[0] == "PUT"]), ([], []))
 
     def test_expire_counts_from_the_first_round(self):
-        """10-16 ユーザー: この版より前にできた届けていない切り抜きは、初めて見回った時刻(app の expire-since.json に 1 回だけ書く)から数える
+        """この版より前にできた届けていない切り抜きは、初めて見回った時刻(app の expire-since.json に 1 回だけ書く)から数える
         = 入れた直後の見回りでまとめて片付けない。新しい物は作ってから。ファイルが壊れていれば片付けない(安全側)"""
         os.remove(self.since_path)
         kw = {"studio": self.fs, "trash": self.trash, "hide": None, "deliveries": self.dl, "env": self.env, "is_request": lambda rc, rec: False}
@@ -705,11 +690,7 @@ class TestAutoClips(Base):
         later = first + 86400   # 数え始めのあとに作った物は作ってから
         newer = self.live_clip("13_自動.mp4", "auto")
         os.utime(newer, (later, later))
-        with open(self.fs.path, encoding="utf-8") as f:
-            st = json.load(f)
-        st["videos"][REC]["marks"].append(mark("m5", "exported", newer, 140, 170))
-        with open(self.fs.path, "w", encoding="utf-8") as f:
-            json.dump(st, f, ensure_ascii=False)
+        self.add_marks(mark("m5", "exported", newer, 140, 170))
         self.assertEqual(cases.expire_unseen(self.root, now=first + cases.EXPIRE_SEC - 60, **kw), [])
         self.assertEqual(sorted(cases.expire_unseen(self.root, now=first + cases.EXPIRE_SEC + 60, **kw)), [(REC, "m1"), (REC, "m2")])   # 書いた時刻は変えない
         self.assertEqual(cases.expire_unseen(self.root, now=later + cases.EXPIRE_SEC - 60, **kw), [])
@@ -723,25 +704,18 @@ class TestAutoClips(Base):
 
     def test_expire_waits_while_delivering_or_unreadable(self):
         """届けている途中のパックは片付けない。届けた記録を読めないとき(届けたかが分からない)は何もしない"""
-        from unittest import mock
         from flow import deliveries
         old = time.time() - cases.EXPIRE_SEC - 60
         os.utime(self.auto1, (old, old))
-        pk = txindex.pack_dir(self.auto1)
-
-        class Busy:
-            @staticmethod
-            def running(d):
-                return os.path.normcase(d) == os.path.normcase(pk)
         kw = {"studio": self.fs, "trash": self.trash, "hide": self.hidden.append, "env": self.env, "is_request": lambda rc, rec: False}
         with mock.patch.object(deliveries, "delivered_marks", lambda log_dir: None):
             self.assertEqual(cases.expire_unseen(self.root, deliveries=self.dl, **kw), [])
-        self.assertEqual(cases.expire_unseen(self.root, deliveries=Busy(), **kw), [])
+        self.assertEqual(cases.expire_unseen(self.root, deliveries=busy(txindex.pack_dir(self.auto1)), **kw), [])
         self.assertTrue(os.path.isfile(self.auto1))
         self.assertEqual(cases.expire_unseen(self.root, deliveries=self.dl, **kw), [(REC, "m1")])
 
     def test_full_clips_follow_the_same_rules(self):
-        """まとめて実行の自動の採用(D-SEND の full)も同じ規則: 送らなかった物は作ってから・送った物は送ってから EXPIRE_SEC。人の切り抜きは触らない。
+        """まとめて実行の自動の採用(full)も同じ規則: 送らなかった物は作ってから・送った物は送ってから EXPIRE_SEC。人の切り抜きは触らない。
         要らないにした人の判断は origin auto(ライブの録画でない = key は配信の id)"""
         names = ("f1", "f2", "f3", "f4", "f5")
         clips = {n: self.touch(os.path.join(self.exports, "%s.mp4" % n)) for n in names}
@@ -765,11 +739,11 @@ class TestAutoClips(Base):
 
     def test_discard_puts_files_back_when_studio_fails(self):
         pk = self.pack(self.auto2)
-        for setup, code in ((lambda: setattr(self.fs, "down", True), 502), (lambda: setattr(self.fs, "refuse", True), 502)):
+        for fault in ("down", "refuse"):
             self.fs.down = self.fs.refuse = False
-            setup()
+            setattr(self.fs, fault, True)
             got, r = self.review("discard", "m2")
-            self.assertEqual(got, code, r)
+            self.assertEqual(got, 502, r)
             self.assertIn("片付けませんでした", r["message"])
             self.assertTrue(os.path.isfile(self.auto2) and os.path.isdir(pk) and os.path.isfile(schemas.clip_path_for(self.auto2)))   # 元に戻した
             self.assertEqual((self.judged(), self.hidden), ([], []))   # 片付けなかったので人の判断も書かない
@@ -780,20 +754,14 @@ class TestAutoClips(Base):
         self.assertTrue(os.path.isfile(self.manual))
 
     def test_discard_refuses_while_delivering(self):
-        pk = self.pack(self.auto1)
-
-        class Busy:
-            @staticmethod
-            def running(d):
-                return os.path.normcase(d) == os.path.normcase(pk)
-        code, r = self.review("discard", "m1", deliveries=Busy())
+        code, r = self.review("discard", "m1", deliveries=busy(self.pack(self.auto1)))
         self.assertEqual(code, 409)
         self.assertIn("届けている途中", r["message"])
         self.assertTrue(os.path.isfile(self.auto1))
 
 
 class TestCaseRoot(Base):
-    """案件にした配信(RS8 B3-6): 自動でできた切り抜きの記録は 採用.json の上の段・一覧は書き出し先の走査 ∪ 索引。状態・メモの古い欄は書き換えない(MARKS-3)"""
+    """案件にした配信: 自動でできた切り抜きの記録は 採用.json の上の段・一覧は書き出し先の走査 ∪ 索引。状態・メモの古い欄は書き換えない"""
 
     def setUp(self):
         super().setUp()

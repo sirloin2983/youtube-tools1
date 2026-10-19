@@ -1,19 +1,16 @@
 # -*- coding: utf-8 -*-
-"""入口を起動し直す部品(src/manage/ops/restart.py。段9 9-3)のテスト。  python -m unittest src/manage/ops/tests/test_restart.py -v
+"""入口を起動し直す部品(src/manage/ops/restart.py)のテスト。  python -m unittest src/manage/ops/tests/test_restart.py -v
 
 - spawn_new_launcher: 一時フォルダに偽の app/server.py(受け取った引数・環境変数・作業フォルダを書いて終わる)を置き、
   本物の Python で起動して、引数・環境・作業フォルダ・待ち受けのソケットを引き継がないことを確かめる
 - wait_port_free / port_free: 本物の待ち受けのソケット(少しあとで閉じる)で
-- can_restart: 重い処理の枠(ytt.jobs.SLOTS.snapshot() の形)・取り込んだツールの busy・まとめて実行の実行中の段の仕事(redo。0.41.0)で
+- can_restart: 重い処理の枠(ytt.jobs.SLOTS.snapshot() の形)・取り込んだツールの busy・まとめて実行の実行中の段の仕事(redo)で
 """
-import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所に書かない(ここではサーバーを動かさないが、約束として)
-import shutil
 import socket
 import subprocess
 import sys
-import tempfile
 import textwrap
 import threading
 import time
@@ -25,6 +22,7 @@ if SRC not in sys.path:
     sys.path.insert(0, SRC)
 from manage.ops import restart as R  # noqa: E402
 from ytt import jobs, layout  # noqa: E402
+from ytt.testkit import read_json, tempdir, wait_for, write_text  # noqa: E402
 
 FAKE_LAUNCH = textwrap.dedent(r'''
     import json, os, sys, time
@@ -55,23 +53,17 @@ def stop(proc):
 
 class SpawnTest(unittest.TestCase):
     def setUp(self):
-        self.root = tempfile.mkdtemp(prefix="ytt-restart-")
-        self.addCleanup(shutil.rmtree, self.root, True)
-        os.makedirs(os.path.join(self.root, "app"))
-        with open(os.path.join(self.root, "app", "server.py"), "w", encoding="utf-8") as f:
-            f.write(FAKE_LAUNCH)
+        self.root = tempdir(self, "ytt-restart-")
+        write_text(os.path.join(self.root, "app", "server.py"), FAKE_LAUNCH)
         self.out = os.path.join(self.root, "record.json")
 
     def wait_record(self, proc, timeout=20):
-        end = time.monotonic() + timeout
-        while time.monotonic() < end:
-            if os.path.exists(self.out):
-                with open(self.out, encoding="utf-8") as f:
-                    return json.load(f)
-            if proc.poll() not in (None, 0):
+        def read():
+            rec = read_json(self.out)
+            if rec is None and proc.poll() not in (None, 0):
                 self.fail("偽の入口が失敗しました(終了コード %s)" % proc.returncode)
-            time.sleep(0.05)
-        self.fail("偽の入口が記録を書きませんでした")
+            return rec
+        return wait_for(read, timeout, 0.05) or self.fail("偽の入口が記録を書きませんでした")
 
     def test_args(self):
         self.assertEqual(R.restart_args(8700), ["--port", "8700", "--wait-port", "--no-open"])
@@ -179,7 +171,7 @@ class WaitPortTest(unittest.TestCase):
 
 
 class WaitOldLauncherTest(unittest.TestCase):
-    """RS7-1 1d: 古い入口の pid が終わるまで待ち、期限が来たら次の番号に逃げず読める文を返す"""
+    """古い入口の pid が終わるまで待ち、期限が来たら次の番号に逃げず読める文を返す"""
 
     def setUp(self):
         self.now = [0.0]
@@ -246,8 +238,7 @@ class CanRestartTest(unittest.TestCase):
         self.assertIsNone(R.can_restart({"heavy": slots.snapshot()}))
 
     def test_autorun_and_busy_tools(self):
-        # まとめて実行の待ち・実行中そのものでは断らない(M5 で起動し直したあとに続く。入口 0.41.0。前は「まとめて実行 N 件」で断っていた)
-        self.assertIsNone(R.can_restart(self.status()))
+        # まとめて実行の待ち・実行中そのものでは断らない(起動し直したあとに続く)
         self.assertEqual(R.RESUME_NOTICE % 2, "まとめて実行の待ち・実行中の 2 件は、起動し直したあとに続きから進めます")
         self.assertIn("編集", R.can_restart(self.status(), busy_tools=["編集"]))
         self.assertIn("編集", R.can_restart(self.status(), busy_tools=[("transcribe", "編集")]))   # (ツールの ID, 名前) でも
@@ -255,7 +246,7 @@ class CanRestartTest(unittest.TestCase):
 
     def test_autorun_redo_work_is_not_counted(self):
         """まとめて実行の実行中の段がツールで動かしている仕事(起動し直したあとに頭からやり直す)は数えない。
-        同じツールに人が始めた仕事があれば(others)・書き出し・名前の合わない枠は今までどおり断る(入口 0.41.0)"""
+        同じツールに人が始めた仕事があれば(others)・書き出し・名前の合わない枠は断る"""
         tx = self.status(active=[{"tool": "transcribe", "label": "配信Aの切り抜き1"}], waiting=[{"tool": "transcribe", "label": "配信Aの切り抜き2"}])
         redo = {"tool": "transcribe", "labels": ["配信Aの切り抜き1", "配信Aの切り抜き2(とても長い題名の続き)"], "others": []}
         self.assertIsNone(R.can_restart(tx, [("transcribe", "編集")], redo))
@@ -265,7 +256,7 @@ class CanRestartTest(unittest.TestCase):
         self.assertIn("波形 a.mp4", R.can_restart(self.status(active=[{"tool": "transcribe", "label": "波形 a.mp4"}]), (), redo))   # 編集のジョブ以外の枠
         self.assertIn("スタジオ", R.can_restart(tx, [("transcribe", "編集"), ("studio", "スタジオ")], redo))                          # 別のツール
         self.assertIn("書き出し 2 本", R.can_restart(self.status(active=[{"tool": "studio", "label": "書き出し 2 本"}]), (), redo))
-        self.assertIn("配信Aの切り抜き1", R.can_restart(tx, (), None))                                                               # 確かめられない = 今までどおり
+        self.assertIn("配信Aの切り抜き1", R.can_restart(tx, (), None))                                                               # 確かめられない = 断る
         # パック(cut2resolve は 1 つずつ): labels None = そのツールの枠すべて
         c2r = self.status(active=[{"tool": "cut2resolve", "label": "パックの作成"}])
         self.assertIsNone(R.can_restart(c2r, [("cut2resolve", "cut2resolve")], {"tool": "cut2resolve", "labels": None, "others": []}))

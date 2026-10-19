@@ -4,9 +4,7 @@
 """
 import json
 import os
-import shutil
 import sys
-import tempfile
 import time
 import unittest
 
@@ -14,6 +12,7 @@ SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.ab
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 from manage.keep import cleanup as C  # noqa: E402
+from ytt.testkit import tempdir, write_json, write_text  # noqa: E402
 
 
 def touch(path, size=10, mtime=None):
@@ -27,15 +26,21 @@ def touch(path, size=10, mtime=None):
 
 class CleanupTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-cleanup-")
+        self.tmp = tempdir(self, "ytt-cleanup-")
         self.app = os.path.join(self.tmp, "app")
         self.now = [time.time()]
         self.env = {"YTT_DATA_DIR": os.path.join(self.tmp, "data")}   # 作業データの置き場所を一時フォルダに(cache・log の候補)
         os.makedirs(os.path.join(self.tmp, "data", "transcribe", "cache", "peaks"))
-        self.cl = C.Cleanup(self.app, env=self.env, clock=lambda: self.now[0], keep_days=14)
+        self.cl = self.cleanup(keep_days=14)
 
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
+    def cleanup(self, **kw):
+        return C.Cleanup(self.app, env=self.env, clock=lambda: self.now[0], **kw)
+
+    def ymd(self, days_ago=0):
+        return time.strftime("%Y-%m-%d", time.localtime(self.now[0] - days_ago * 86400))
+
+    def kind(self, cases, name, cl=None, **kw):
+        return next(k for k in (cl or self.cl).candidates(cases, **kw)["kinds"] if k["kind"] == name)
 
     def test_work_orphans(self):
         v = os.path.join(self.tmp, "vid")
@@ -43,7 +48,7 @@ class CleanupTest(unittest.TestCase):
         touch(os.path.join(v, "作業用", "a.transcript.json"))        # 元の動画がある → 候補にしない
         orphan = touch(os.path.join(v, "作業用", "gone.clip.json"))   # 元の動画が無い → 候補
         touch(os.path.join(v, "作業用", "memo.txt"))                  # 知らない形 → 候補にしない
-        # 作業用に置く文字起こしの文書とその付き物(RS8 B2。名前が文書の id)と持ち主の印は、動画の付き物ではない → 候補にしない
+        # 作業用に置く文字起こしの文書とその付き物(名前が文書の id)と持ち主の印は、動画の付き物ではない → 候補にしない
         for n in ("0123456789ab.json", "0123456789ab.edit.json", "0123456789ab.words.json", "0123456789ab.transcript.json",
                   "0123456789ab.srt", ".studio-id", "case.json"):
             touch(os.path.join(v, "作業用", n))
@@ -56,10 +61,12 @@ class CleanupTest(unittest.TestCase):
         self.assertIn("gone", work["items"][0]["note"])
 
     def test_media_stem_ignores_transcript_docs(self):
-        self.assertEqual(C._media_stem("動画.edit.json"), "動画")
-        self.assertEqual(C._media_stem("abcdef012345x.edit.json"), "abcdef012345x")   # 13 文字は文書の id ではない
-        for n in ("0123456789ab.edit.json", "0123456789ab.clip.json", "0123456789ab.transcript.json", ".studio-id", "0123456789ab.json"):
-            self.assertIsNone(C._media_stem(n), n)
+        rows = [("動画.edit.json", "動画"), ("abcdef012345x.edit.json", "abcdef012345x"),   # 13 文字は文書の id ではない
+                ("clip_0001_edit.clip.json", "clip_0001")]
+        rows += [(n, None) for n in ("0123456789ab.edit.json", "0123456789ab.clip.json", "0123456789ab.transcript.json", ".studio-id", "0123456789ab.json")]
+        for name, stem in rows:
+            with self.subTest(name=name):
+                self.assertEqual(C._media_stem(name), stem)
 
     def test_cache_logs_and_intake(self):
         peaks = os.path.join(self.tmp, "data", "transcribe", "cache", "peaks")
@@ -68,8 +75,7 @@ class CleanupTest(unittest.TestCase):
         touch(os.path.join(self.app, "logs", "portal.log"), 20)      # 今のログは候補にしない
         runs1 = touch(os.path.join(self.app, "logs", "autorun-runs.jsonl.1"), 20)
         intake = os.path.join(self.tmp, "intake")
-        old_day = time.strftime("%Y-%m-%d", time.localtime(self.now[0] - 20 * 86400))
-        new_day = time.strftime("%Y-%m-%d", time.localtime(self.now[0] - 2 * 86400))
+        old_day, new_day = self.ymd(20), self.ymd(2)
         touch(os.path.join(intake, "受付済み", old_day, "v.mp4"), 30)
         touch(os.path.join(intake, "受付済み", new_day, "v.mp4"), 30)
         r = self.cl.candidates([], intake_dir=intake)
@@ -82,26 +88,22 @@ class CleanupTest(unittest.TestCase):
     def test_send_back_done_days_are_intake_candidates(self):
         """友人の送り返しの 送り返し\\受付済み\\<日付>\\ も、受け取った日から KEEP_DAYS(3 日)より古い物だけ候補(intake)"""
         sync = os.path.join(self.tmp, "sync")
-        cl = C.Cleanup(self.app, env=self.env, clock=lambda: self.now[0])   # 既定の KEEP_DAYS(3)
-        old_day = time.strftime("%Y-%m-%d", time.localtime(self.now[0] - 5 * 86400))
-        new_day = time.strftime("%Y-%m-%d", time.localtime(self.now[0] - 1 * 86400))
+        old_day, new_day = self.ymd(5), self.ymd(1)
         touch(os.path.join(sync, "送り返し", "受付済み", old_day, "r.zip"), 30)
         touch(os.path.join(sync, "送り返し", "受付済み", new_day, "r.zip"), 30)
-        by = {k["kind"]: k for k in cl.candidates([], intake_dir=sync)["kinds"]}
-        self.assertEqual([i["name"] for i in by["intake"]["items"]], [old_day])
-        self.assertTrue(by["intake"]["items"][0]["dir"])
-        self.assertIn("送り返し", by["intake"]["items"][0]["note"])
+        items = self.kind([], "intake", self.cleanup(), intake_dir=sync)["items"]   # 既定の KEEP_DAYS(3)
+        self.assertEqual([i["name"] for i in items], [old_day])
+        self.assertTrue(items[0]["dir"])
+        self.assertIn("送り返し", items[0]["note"])
 
     def test_send_back_failed_by_mtime(self):
         """送り返しの 送り返し\\失敗\\ の物は更新日時から 3 日たったら候補(failed)。理由の .txt は一緒に。新しい物は出ない"""
         sync = os.path.join(self.tmp, "sync")
-        cl = C.Cleanup(self.app, env=self.env, clock=lambda: self.now[0])
         fail = os.path.join(sync, "送り返し", "失敗")
         old = touch(os.path.join(fail, "old.zip"), 40, mtime=self.now[0] - 5 * 86400)
         reason = touch(os.path.join(fail, "old.理由.txt"), 5, mtime=self.now[0] - 5 * 86400)
         touch(os.path.join(fail, "new.zip"), 40, mtime=self.now[0] - 1 * 86400)
-        by = {k["kind"]: k for k in cl.candidates([], intake_dir=sync)["kinds"]}
-        items = by["failed"]["items"]
+        items = self.kind([], "failed", self.cleanup(), intake_dir=sync)["items"]
         self.assertEqual([i["path"] for i in items], [old])
         self.assertEqual(items[0]["extra"], [reason])
         self.assertEqual(items[0]["bytes"], 45)
@@ -110,39 +112,32 @@ class CleanupTest(unittest.TestCase):
     def test_intake_failed_by_mtime(self):
         """受付の 失敗\\ の物も、更新日時から 3 日たったら候補(failed)。フォルダの mtime でも数える。新しい物は出ない"""
         sync = os.path.join(self.tmp, "sync")
-        cl = C.Cleanup(self.app, env=self.env, clock=lambda: self.now[0])
         fail = os.path.join(sync, "失敗")
         old_dir = os.path.join(fail, "bad-folder")
         touch(os.path.join(old_dir, "a.mp4"), 20)
         os.utime(old_dir, (self.now[0] - 5 * 86400, self.now[0] - 5 * 86400))
         touch(os.path.join(fail, "new.mp4"), 20, mtime=self.now[0] - 1 * 86400)
         touch(os.path.join(fail, "bad.mp4.理由.txt"), 5, mtime=self.now[0] - 1 * 86400)
-        by = {k["kind"]: k for k in cl.candidates([], intake_dir=sync)["kinds"]}
-        self.assertEqual([i["path"] for i in by["failed"]["items"]], [old_dir])
-        self.assertIn("受付の失敗", by["failed"]["items"][0]["note"])
+        items = self.kind([], "failed", self.cleanup(), intake_dir=sync)["items"]
+        self.assertEqual([i["path"] for i in items], [old_dir])
+        self.assertIn("受付の失敗", items[0]["note"])
 
     def write_case(self, folder, rid):
         from flow import placement
-        p = placement.case_path(folder)
-        os.makedirs(os.path.dirname(p), exist_ok=True)
         d = {"schema": placement.CASE_SCHEMA, "id": "c-" + os.path.basename(folder)[-6:]}
         if rid:
             d["requestId"] = rid
-        with open(p, "w", encoding="utf-8") as f:
-            json.dump(d, f, ensure_ascii=False)
+        write_json(placement.case_path(folder), d)
 
     def write_deliveries(self, rows):
-        os.makedirs(os.path.join(self.app, "logs"), exist_ok=True)
-        with open(os.path.join(self.app, "logs", C.DELIVERIES_LOG), "w", encoding="utf-8") as f:
-            for r in rows:
-                f.write(json.dumps(r) + "\n")
+        write_text(os.path.join(self.app, "logs", C.DELIVERIES_LOG), "".join(json.dumps(r) + "\n" for r in rows))
 
     def test_request_folders_from_last_delivery_or_receipt(self):
         """書き出し先の 依頼/<日付>_<題>_<id6>/ は、最後に届けてから keep_days 日(手で置いた動画 = case.json に requestId が無い は受け付けてから)。
-        届けていない・case.json の無いフォルダは出さない。移すのは動画とパックだけ(作業用の文書は残す。Q4)"""
+        届けていない・case.json の無いフォルダは出さない。移すのは動画とパックだけ(作業用の文書は残す)"""
         out = os.path.join(self.tmp, "出力")
-        cl = C.Cleanup(self.app, env=self.env, clock=lambda: self.now[0], keep_days=3, out_dirs=[out])
-        old = time.strftime("%Y-%m-%d", time.localtime(self.now[0] - 20 * 86400))
+        cl = self.cleanup(keep_days=3, out_dirs=[out])
+        old = self.ymd(20)
         req = os.path.join(out, C.REQUEST_DIR)
         d_ok = os.path.join(req, "%s_題_aaaaaa" % old)
         touch(os.path.join(d_ok, "v.mp4"), 30)
@@ -161,8 +156,7 @@ class CleanupTest(unittest.TestCase):
         touch(os.path.join(req, "%s_題_dddddd" % old, "v.mp4"), 30)       # case.json なし
         self.write_deliveries([{"requestId": "20261001-120000-aaaaaa", "zip": "z.zip", "at": int((self.now[0] - 10 * 86400) * 1000)},
                                {"requestId": "20261001-120000-cccccc", "zip": "y.zip", "at": int((self.now[0] - 1 * 86400) * 1000)}])
-        items = next(k for k in cl.candidates([])["kinds"] if k["kind"] == "intake")["items"]
-        by = {i["path"]: i for i in items}
+        by = {i["path"]: i for i in self.kind([], "intake", cl)["items"]}
         self.assertEqual(sorted(by), sorted([d_ok, d_manual]))
         self.assertIn("届けてから 10 日", by[d_ok]["note"])
         self.assertIn("手で置いた動画", by[d_manual]["note"])
@@ -171,18 +165,14 @@ class CleanupTest(unittest.TestCase):
         self.assertEqual((len(r["moved"]), r["failed"]), (1, []))
         self.assertFalse(os.path.exists(os.path.join(d_ok, "v.mp4")) or os.path.exists(os.path.join(d_ok, "v_pack")))
         self.assertTrue(os.path.isfile(os.path.join(d_ok, "作業用", "0123456789ab.json")))   # 文書は残る
-        day = time.strftime("%Y-%m-%d", time.localtime(self.now[0]))
-        self.assertTrue(os.path.isfile(os.path.join(self.app, "ごみ箱", day, "intake", os.path.basename(d_ok), "v.mp4")))
-        items = next(k for k in cl.candidates([])["kinds"] if k["kind"] == "intake")["items"]
-        self.assertEqual([i["path"] for i in items], [d_manual])         # 片付けたフォルダはもう出ない
+        self.assertTrue(os.path.isfile(os.path.join(self.app, "ごみ箱", self.ymd(), "intake", os.path.basename(d_ok), "v.mp4")))
+        self.assertEqual([i["path"] for i in self.kind([], "intake", cl)["items"]], [d_manual])         # 片付けたフォルダはもう出ない
         os.remove(os.path.join(self.app, "logs", C.DELIVERIES_LOG))       # 記録が読めなければ届けた依頼は出さない(手で置いた物は出す)
-        self.assertEqual([i["path"] for i in next(k for k in cl.candidates([])["kinds"] if k["kind"] == "intake")["items"]], [d_manual])
+        self.assertEqual([i["path"] for i in self.kind([], "intake", cl)["items"]], [d_manual])
 
     def test_app_intake_copies(self):
-        """作業データの app/intake/<日付>/<依頼 id>/(受付の写し)も同じ決まりで候補に(7b-1)。m で始まる id = 手で置いた動画・<日付>/ 直下の動画は受け付けた日から"""
-        cl = C.Cleanup(self.app, env=self.env, clock=lambda: self.now[0], keep_days=3)
-        old = time.strftime("%Y-%m-%d", time.localtime(self.now[0] - 20 * 86400))
-        new = time.strftime("%Y-%m-%d", time.localtime(self.now[0] - 1 * 86400))
+        """作業データの app/intake/<日付>/<依頼 id>/(受付の写し)も同じ決まりで候補に。m で始まる id = 手で置いた動画・<日付>/ 直下の動画は受け付けた日から"""
+        old, new = self.ymd(20), self.ymd(1)
         base = os.path.join(self.app, C.APP_INTAKE)
         sent = touch(os.path.join(base, old, "20261001-120000-aaaaaa", "a.mp4"), 10)
         touch(os.path.join(base, old, "20261001-120000-bbbbbb", "b.mp4"), 10)   # 届けていない
@@ -190,40 +180,36 @@ class CleanupTest(unittest.TestCase):
         loose = touch(os.path.join(base, old, "x.mp4"), 10)
         touch(os.path.join(base, new, "m9999aaaa", "d.mp4"), 10)                # まだ新しい
         self.write_deliveries([{"requestId": "20261001-120000-aaaaaa", "at": int((self.now[0] - 5 * 86400) * 1000)}])
-        items = next(k for k in cl.candidates([])["kinds"] if k["kind"] == "intake")["items"]
+        items = self.kind([], "intake", self.cleanup(keep_days=3))["items"]
         got = sorted(p for i in items for p in i["parts"])
         self.assertEqual(got, sorted([sent, man, loose]))
 
-    def test_media_stem_edit_clip_json(self):
-        """X_edit.clip.json は X の付き物(元の X.mp4 があれば work の候補にしない。7d-1)"""
-        self.assertEqual(C._media_stem("clip_0001_edit.clip.json"), "clip_0001")
+    def test_edit_clip_json_is_a_sidecar_of_its_media(self):
+        """X_edit.clip.json は X の付き物(元の X.mp4 があれば work の候補にしない)"""
         v = os.path.join(self.tmp, "vid")
         a = touch(os.path.join(v, "clip_0001.mp4"))
         touch(os.path.join(v, "作業用", "clip_0001_edit.clip.json"))
         gone = touch(os.path.join(v, "作業用", "gone_edit.clip.json"))
-        work = next(k for k in self.cl.candidates([{"id": "1", "status": "", "clips": [{"path": a, "exists": True}]}])["kinds"] if k["kind"] == "work")
+        work = self.kind([{"id": "1", "status": "", "clips": [{"path": a, "exists": True}]}], "work")
         self.assertEqual([i["path"] for i in work["items"]], [gone])
 
-    def test_deliveries_log_name_matches_friend_feedback(self):
+    def test_names_come_from_their_owners(self):
+        from flow import placement
         from human.friend import friend_feedback
         self.assertEqual(C.DELIVERIES_LOG, friend_feedback.DELIVERIES_LOG)
-
-    def test_request_dir_name_matches_placement(self):
-        from flow import placement
         self.assertEqual(C.REQUEST_DIR, placement.REQUEST_DIR)
 
     def test_move_only_known_and_purge(self):
         peaks = os.path.join(self.tmp, "data", "transcribe", "cache", "peaks")
         p1 = touch(os.path.join(peaks, "x.peaks"), 50)
         p2 = touch(os.path.join(peaks, "y.peaks"), 50)
-        r = self.cl.candidates([])
-        ids = [i["id"] for i in next(k for k in r["kinds"] if k["kind"] == "cache")["items"]]
+        ids = [i["id"] for i in self.kind([], "cache")["items"]]
         res = self.cl.move([ids[0], "nope", 3])
         self.assertEqual([m["path"] for m in res["moved"]], [p1])
         self.assertEqual(res["unknown"], ["nope", "3"])
         self.assertFalse(os.path.exists(p1))
         self.assertTrue(os.path.exists(p2))
-        day = time.strftime("%Y-%m-%d", time.localtime(self.now[0]))
+        day = self.ymd()
         dest = os.path.join(self.app, "ごみ箱", day, "cache", "x.peaks")
         self.assertTrue(os.path.isfile(dest))
         with open(os.path.join(self.app, "ごみ箱", day, "manifest.jsonl"), encoding="utf-8") as f:
@@ -231,8 +217,7 @@ class CleanupTest(unittest.TestCase):
         self.assertEqual(self.cl.move([ids[0]])["unknown"], [ids[0]])   # 移した物はもう候補ではない
         # 同じ名前が来たら (1) を付ける
         touch(os.path.join(peaks, "x.peaks"), 5)
-        r = self.cl.candidates([])
-        ids = {i["name"]: i["id"] for i in next(k for k in r["kinds"] if k["kind"] == "cache")["items"]}
+        ids = {i["name"]: i["id"] for i in self.kind([], "cache")["items"]}
         self.cl.move([ids["x.peaks"]])
         self.assertTrue(os.path.isfile(os.path.join(self.app, "ごみ箱", day, "cache", "x (1).peaks")))
         # purge: TRASH_DAYS(3 日)を過ぎた日付のフォルダだけ消す(keep_days とは別)
@@ -251,10 +236,7 @@ class CleanupTest(unittest.TestCase):
             touch(os.path.join(d, f), 5)
         rec = {"schema": txindex.PACK_RECORD_SCHEMA, "dir": d, "textplus": textplus, "files": list(files),
                "builtAt": built or int((self.now[0] - 20 * 86400) * 1000)}
-        p = os.path.join(txindex.packs_dir(self.env), txindex.pack_key(d))
-        os.makedirs(os.path.dirname(p), exist_ok=True)
-        with open(p, "w", encoding="utf-8") as f:
-            json.dump(rec, f, ensure_ascii=False)
+        write_json(os.path.join(txindex.packs_dir(self.env), txindex.pack_key(d)), rec)
         return d
 
     def test_export_aged_textplus_pack_with_sidecars(self):
@@ -271,20 +253,18 @@ class CleanupTest(unittest.TestCase):
             {"path": a, "exists": True, "pack": {"dir": pa, "textplus": True, "updatedAt": old}},
             {"path": b, "exists": True, "pack": {"dir": b + "_pack", "textplus": False, "updatedAt": old}},
             {"path": c, "exists": True, "pack": {"dir": c + "_pack", "textplus": True, "updatedAt": int(self.now[0] * 1000)}}]}]
-        r = self.cl.candidates(cases)
-        exp = next(k for k in r["kinds"] if k["kind"] == "export")
+        exp = self.kind(cases, "export")
         self.assertEqual([i["path"] for i in exp["items"]], [a])
         self.assertIn("パックから 20 日", exp["items"][0]["note"])
         self.assertEqual(exp["items"][0]["bytes"], 145)
         self.cl.move([exp["items"][0]["id"]])
-        day = time.strftime("%Y-%m-%d", time.localtime(self.now[0]))
-        base = os.path.join(self.app, "ごみ箱", day, "export", "a")
+        base = os.path.join(self.app, "ごみ箱", self.ymd(), "export", "a")
         self.assertTrue(os.path.isfile(os.path.join(base, "a.mp4")))
         self.assertTrue(os.path.isfile(os.path.join(base, "作業用", "a_edit.mp4")) and os.path.isfile(os.path.join(base, "作業用", "a.clip.json")))
         self.assertFalse(any(os.path.exists(x) for x in (a, ed, cj)))
 
     def test_export_needs_a_complete_pack(self):
-        """パックの動画・Lua が欠けている・空なら、日数がたっても元の動画を候補にしない。候補を出したあとで欠けたら移さない(部品 M1)"""
+        """パックの動画・Lua が欠けている・空なら、日数がたっても元の動画を候補にしない。候補を出したあとで欠けたら移さない"""
         v = os.path.join(self.tmp, "vid")
         old = int((self.now[0] - 20 * 86400) * 1000)
 
@@ -298,8 +278,7 @@ class CleanupTest(unittest.TestCase):
         c, cc = clip("c")
         with open(os.path.join(cc["pack"]["dir"], "x.lua"), "wb"):
             pass                                                          # 空
-        r = self.cl.candidates([{"id": "1", "title": "t", "status": "", "clips": [ca, cb, cc]}])
-        exp = next(k for k in r["kinds"] if k["kind"] == "export")
+        exp = self.kind([{"id": "1", "title": "t", "status": "", "clips": [ca, cb, cc]}], "export")
         self.assertEqual([i["path"] for i in exp["items"]], [a])
         os.remove(os.path.join(ca["pack"]["dir"], "a.mp4"))              # 候補を出したあとで欠けた
         res = self.cl.move([exp["items"][0]["id"]])
@@ -308,7 +287,7 @@ class CleanupTest(unittest.TestCase):
         self.assertTrue(os.path.exists(a))
 
     def test_export_delivered_auto_clip_without_pack(self):
-        """自動の切り抜きで届けたあとパックだけが片付いた物(友人の「要らない」)は、届けてから 3 日で候補(opt-manage 2a-1)。
+        """自動の切り抜きで届けたあとパックだけが片付いた物(友人の「要らない」)は、届けてから 3 日で候補。
         人の切り抜き・届けていない・届けたばかりの物は出さない"""
         v = os.path.join(self.tmp, "vid")
         a = touch(os.path.join(v, "a.mp4"), 100)
@@ -321,7 +300,7 @@ class CleanupTest(unittest.TestCase):
             {"path": b, "exists": True, "pack": None, "auto": {"origin": "auto"}, "review": {"deliveredAt": new}},
             {"path": c, "exists": True, "pack": None, "auto": {"origin": "auto"}, "review": {"deliveredAt": 0}},
             {"path": d, "exists": True, "pack": None, "auto": None, "review": {"deliveredAt": old}}]}]
-        exp = next(k for k in self.cl.candidates(cases)["kinds"] if k["kind"] == "export")
+        exp = self.kind(cases, "export")
         self.assertEqual([i["path"] for i in exp["items"]], [a])
         self.assertIn("届けてから 5 日", exp["items"][0]["note"])
         self.assertTrue(os.path.exists(b) and os.path.exists(c))
@@ -329,13 +308,13 @@ class CleanupTest(unittest.TestCase):
     def test_trash_on_the_same_drive(self):
         """作業データと別のドライブの物は、そのドライブの書き出し先\\ごみ箱(無ければ <ドライブ>\\youtube-tools ごみ箱)。purge もそこを見る"""
         out = os.path.join(self.tmp, "E", "切り抜き")
-        cl = C.Cleanup(self.app, env=self.env, clock=lambda: self.now[0], out_dirs=lambda: [out])
+        cl = self.cleanup(out_dirs=lambda: [out])
         saved = C._drive
         C._drive = lambda p: "e:" if os.path.normcase(os.path.abspath(p)).startswith(os.path.normcase(os.path.join(self.tmp, "E"))) else "c:"
         try:
             self.assertEqual(cl.trash_for(os.path.join(out, "x", "a.mp4")), os.path.join(out, "ごみ箱"))
             self.assertEqual(cl.trash_for(os.path.join(self.app, "logs", "x.old.log")), os.path.join(self.app, "ごみ箱"))
-            day = time.strftime("%Y-%m-%d", time.localtime(self.now[0] - 20 * 86400))
+            day = self.ymd(20)
             touch(os.path.join(out, "ごみ箱", day, "export", "a.mp4"))
             self.assertEqual(cl.purge(), 1)
             self.assertFalse(os.path.isdir(os.path.join(out, "ごみ箱", day)))
@@ -343,7 +322,7 @@ class CleanupTest(unittest.TestCase):
             C._drive = saved
 
     def test_remember_root_keeps_old_list_when_write_fails(self):
-        """trash-roots.json は原子的に書く: 書く途中で失敗しても前の一覧が残る(前は open "w" で先に空にしていた。資料 4 節の疑い 3)"""
+        """trash-roots.json は原子的に書く: 書く途中で失敗しても前の一覧が残る"""
         far = os.path.join(self.tmp, "E", "ごみ箱")
         self.cl.remember_root(far)
         self.cl.remember_root(far)   # 同じものは足さない
@@ -359,7 +338,7 @@ class CleanupTest(unittest.TestCase):
         self.assertEqual(self.cl.trash_roots(), [os.path.normcase(os.path.abspath(self.cl.trash_dir))])   # 読めなければ足さない(上げない)
 
     def test_old_day_dirs_skip_files_and_other_names(self):
-        old = time.strftime("%Y-%m-%d", time.localtime(self.now[0] - 20 * 86400))
+        old = self.ymd(20)
         root = os.path.join(self.tmp, "days")
         os.makedirs(os.path.join(root, old + " 2"))
         os.makedirs(os.path.join(root, "メモ"))

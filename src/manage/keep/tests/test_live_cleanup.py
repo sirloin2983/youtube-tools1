@@ -1,13 +1,11 @@
-"""録画を自動で消す(src/manage/keep/live_cleanup.py。線 D の 0-9 の最後。LD-1 で「書き出し済み + アーカイブ化を確かめたら ごみ箱へ」)のテスト。
+"""録画を自動で消す(src/manage/keep/live_cleanup.py。「書き出し済み + アーカイブ化を確かめたら ごみ箱へ」)のテスト。
 消すのは戻しにくいので、消えない場合を厚く確かめる。録画を ごみ箱 へ移すのは録画の部品(src/pipeline/ingest/tests/ の rec_core の delete)。
 
 偽の Live(録画元の一覧と delete)と本物の書き出しの管理(flow/live_export の Exporter)で動かす。入口(src/app/live.py)は使わない。
 実行(リポジトリ直下から): python -m unittest src/manage/keep/tests/test_live_cleanup.py -v
 """
 import os
-import shutil
 import sys
-import tempfile
 import time
 import unittest
 
@@ -20,6 +18,7 @@ from flow import live_archive as A  # noqa: E402
 from flow import live_export as LX  # noqa: E402
 from manage.keep import live_cleanup as LC  # noqa: E402
 from ytt import fsio  # noqa: E402
+from ytt.testkit import tempdir  # noqa: E402
 
 RELEASE = 1790000000.0            # 配信の開始時刻
 
@@ -74,11 +73,11 @@ class CleanupLive:
 
 
 class CleanupTest(unittest.TestCase):
-    """録画を自動で消す(src/manage/keep/live_cleanup.py。P4 の 0-9 の最後)。消すのは戻せないので、消えない場合を厚く確かめる"""
+    """録画を自動で消す(src/manage/keep/live_cleanup.py)。消すのは戻せないので、消えない場合を厚く確かめる"""
     R1, R2, R3 = "20261005-120000-abcdefghijk", "20261005-130000-abcdefghijk", "20261005-140000-abcdefghijk"
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-live-clean-")
+        self.tmp = tempdir(self, "ytt-live-clean-")
         self.out = os.path.join(self.tmp, "out")
         os.makedirs(self.out)
         self.live = CleanupLive(os.path.join(self.tmp, "live"), self.out)
@@ -91,9 +90,6 @@ class CleanupTest(unittest.TestCase):
         self.asked = []
         self.cl = LC.Cleaner(self.live, enabled=lambda: self.on, studio=self.studio, log=self.logs.append,
                              no_mark_sec=2.0, interval=0, archived=self.archived)
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def archived(self, rc_id, r):
         self.asked.append(r["id"])
@@ -133,7 +129,7 @@ class CleanupTest(unittest.TestCase):
         return {"id": "m%d" % n, "status": status, "start": n * 10.0 if start is None else start, "end": n * 10.0 + 5}
 
     def test_kept_recordings_are_reported(self):
-        """D-14 と 10-09 のユーザー決定: 終わっているのに消せない録画は理由を覚える。理由が stale_ok(書き出していない・アーカイブ化を
+        """終わっているのに消せない録画は理由を覚える。理由が stale_ok(書き出していない・アーカイブ化を
         確かめられない)だけなら終わって STALE_SEC で消し(スタジオに採用のまま書き出していないマークがあれば消さない)、WARN_SEC から「調子」に予告(delete_notice)。
         ほかの理由(書き出しの途中など)は STALE_SEC より古ければ「調子」の失敗(kind keep。keep_failure)に出し、消さない。録画中は出さない"""
         C = LC
@@ -186,7 +182,7 @@ class CleanupTest(unittest.TestCase):
         self.assertEqual(self.cl.tick()["deleted"], [])   # もう一覧に無い
 
     def test_marks_file_is_kept(self):
-        """LD-1(Fable の指摘 5): 録画を消してもマークの正本(live/marks)は残す(あとでアーカイブから書き出すときに URL・題を読む)"""
+        """録画を消してもマークの正本(live/marks)は残す(あとでアーカイブから書き出すときに URL・題を読む)"""
         ms = self.live.exporter.marks
         for rec in (self.R1, self.R2):
             self.live.add(rec)
@@ -197,7 +193,7 @@ class CleanupTest(unittest.TestCase):
         self.assertTrue(os.path.exists(ms.path("local", self.R1)) and os.path.exists(ms.path("local", self.R2)))
 
     def test_adopted_marks_from_marks_book(self):
-        """G3(RS8 B3-5): 親がマークの置き場(marks.adopted)を持てば、採用のまま書き出していないマークはそこから見る(スタジオなしの headless)"""
+        """親がマークの置き場(marks.adopted)を持てば、採用のまま書き出していないマークはそこから見る(スタジオなしの headless)"""
         class Book:
             got = [{"id": "m1", "status": "exported", "start": 10.0, "end": 15.0}]
 
@@ -223,7 +219,7 @@ class CleanupTest(unittest.TestCase):
             ("アーカイブの待ち", lambda r: (self.job(r, 1), self.job(r, 2, state="error", arc="wait", needs=True))),
             ("アーカイブからの書き出しの途中", lambda r: (self.job(r, 1), self.job(r, 2, state="error", arc="fetch", needs=True))),
             ("取り消し", lambda r: (self.job(r, 1), self.job(r, 2, state="cancelled", arc="cancelled", needs=True))),
-            ("M7 の採用の待ち", lambda r: (self.job(r, 1), self.job(r, 2, state="wait", arc=None, **{"from": "archive"}))),
+            ("配信後の採用の待ち", lambda r: (self.job(r, 1), self.job(r, 2, state="wait", arc=None, **{"from": "archive"}))),
             ("書き出しの途中", lambda r: (self.job(r, 1), self.job(r, 2, state="wait", arc=None))),
             ("欠けで書き出せず、まだ試していない", lambda r: (self.job(r, 1), self.job(r, 2, state="error", arc=None, needs=True))),
             ("最新の書き出しが失敗", lambda r: (self.job(r, 1), self.job(r, 2), self.job(r, 2, state="error", arc=None))),

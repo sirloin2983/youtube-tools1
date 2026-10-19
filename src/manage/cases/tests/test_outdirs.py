@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
-"""書き出し先を変えたあとの案件の繋ぎ直し(src/manage/cases/outdirs.py。決定 3-37 の (r8o))の確かめ。移行の道具(docmove・markmove の移す所)は消した。
+"""書き出し先を変えたあとの案件の繋ぎ直し(src/manage/cases/outdirs.py)の確かめ。
 
     python -m unittest src/manage/cases/tests/test_outdirs.py
 
 一時フォルダにスタジオの作業データ(data.json)と書き出し先(案件のフォルダ)を作って流す(本物の作業データには触らない)。
-配信は Store で書き出して案件にする(casebook.case_of を案件の根に固定 = 初めての書き出しで案件になる。移行の前の形は作らない)。
+配信は Store で書き出して案件にする(casebook.case_of を案件の根に固定 = 初めての書き出しで案件になる)。
 """
-import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 import shutil
 import sys
-import tempfile
 import unittest
 from unittest import mock
 
@@ -21,19 +19,14 @@ from human.review import store  # noqa: E402
 from manage.cases import outdirs as O  # noqa: E402
 from ytt import names, schemas, studio_env  # noqa: E402
 from ytt.errors import ApiError  # noqa: E402
+from ytt.testkit import read_json, tempdir  # noqa: E402
 
 YT = {"kind": "youtube", "videoId": "abcdefghijk", "name": "abcdefghijk"}
 
 
-def read_json(path):
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
-
-
 class Base(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="outdirs-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = tempdir(self, "outdirs-")
         studio_env.set_home(os.path.join(self.tmp, "studio"))
         self.data = os.path.join(self.tmp, "studio", "data.json")
         self.out = os.path.join(self.tmp, "out")

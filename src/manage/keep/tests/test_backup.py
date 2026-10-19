@@ -8,7 +8,6 @@ import json
 import os
 import shutil
 import sys
-import tempfile
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
@@ -21,12 +20,7 @@ for p in (HOME, ROOT):
 from manage.keep import backup  # noqa: E402
 from app import prefs as prefs_mod  # noqa: E402
 from ytt import fsio  # noqa: E402
-
-
-def put(path, text):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(text)
+from ytt.testkit import tempdir, write_text as put  # noqa: E402
 
 
 def read(path):
@@ -36,8 +30,7 @@ def read(path):
 
 class BackupTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-backup-")
-        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.tmp = tempdir(self, "ytt-backup-")
         self.src = os.path.join(self.tmp, "data")
         self.dst = os.path.join(self.tmp, "外付け", "backup")
         put(os.path.join(self.src, "transcribe", "transcripts", "a.json"), "文書 1")
@@ -50,7 +43,7 @@ class BackupTest(unittest.TestCase):
         put(os.path.join(self.src, "transcribe", "bin", "whisper.cpp-v1-vulkan", "whisper-cli.exe"), "exe")
         put(os.path.join(self.src, "transcribe", "bin", "whisper.cpp-v1-vulkan", "build", "bin", "x.dll"), "dll")
         # 写さないもの
-        put(os.path.join(self.src, "transcribe", "eval-audio", "a.flac"), "flac")   # 評価用の音声は元の配信から作り直せる(2026-10-15 に外した)
+        put(os.path.join(self.src, "transcribe", "eval-audio", "a.flac"), "flac")   # 評価用の音声は元の配信から作り直せる
         put(os.path.join(self.src, "studio", "cache", "chat", "big.json"), "x" * 100)
         put(os.path.join(self.src, "studio", "studio.log"), "log")
         put(os.path.join(self.src, "transcribe", "models", "diar", "m.onnx"), "model")
@@ -113,7 +106,7 @@ class BackupTest(unittest.TestCase):
                     backup.run_once(self.src, free[0] + ":\\backup")
 
     def test_refuses_overlap_through_junction(self):
-        """写す先が、見かけは外でもジャンクション越しに作業データの中なら断る(リンクを解いたパスでも比べる。fsio.is_inside。2026-10-09)。
+        """写す先が、見かけは外でもジャンクション越しに作業データの中なら断る(リンクを解いたパスでも比べる。fsio.is_inside)。
         見かけで重なる指定は今までどおり断る・重ならない指定は通る"""
         try:
             import _winapi
@@ -188,12 +181,12 @@ class BackupTest(unittest.TestCase):
         self.assertIsNone(b.tick())
         self.assertEqual(b.state, "error")
         self.assertIn("作業データの中", b.snapshot()["message"])
-        b.source = None   # YTT_DATA_DIR=inplace(テスト・以前の形)では写さない
+        b.source = None   # YTT_DATA_DIR=inplace(テスト)では写さない
         b.tick()
         self.assertEqual(b.state, "off")
 
     def test_cfg_falls_back_to_given_defaults(self):
-        """設定が読めないときの既定は入口が渡す(backup は prefs を読み込まない。RS3-0B)"""
+        """設定が読めないときの既定は入口が渡す(backup は prefs を読み込まない)"""
         class Broken:
             def get(self, sections):
                 raise OSError("読めない")
@@ -205,14 +198,13 @@ class BackupTest(unittest.TestCase):
 
     def timed(self, t0):
         """テストの時計(t0 から)で Backup を作り、24 時間ごとでオンにする"""
-        self.prefs = prefs_mod.Prefs(os.path.join(self.tmp, "app", "prefs.json"), fsio.atomic_write)
         self.now = [t0]
-        b = backup.Backup(self.prefs, self.src, os.path.join(self.tmp, "app"), clock=lambda: self.now[0])
+        b, _ = self.make(lambda: self.now[0])
         self.prefs.patch("backup", {"enabled": True, "folder": self.dst, "everyHours": 24})
         return b
 
     def test_changes_wait_for_the_interval(self):
-        """変わっても間隔(24 時間)までは写さない(10-14 に「変わったらすぐ写す」をやめた)。「今すぐ」は写す"""
+        """変わっても間隔(24 時間)までは写さない。「今すぐ」は写す"""
         b = self.timed(2000000000.0)
         self.assertEqual(b.tick()["copied"], 8)
         self.now[0] += 600
@@ -245,7 +237,7 @@ class BackupTest(unittest.TestCase):
         self.assertEqual((r["copied"], r["errors"], r["complete"], b.last["ok"], b.last["partial"]), (1, [], True, self.now[0], False))
 
     def test_unreadable_folder_is_not_success_and_is_retried(self):
-        """読めないフォルダがあっても読める物は写し、完全に写せたにしない(部品 M3)。読めるようになったら、古い更新時刻の物も写す"""
+        """読めないフォルダがあっても読める物は写し、完全に写せたにしない。読めるようになったら、古い更新時刻の物も写す"""
         b = self.timed(2000000000.0)
         studio = os.path.join(self.src, "studio")
         for d, _, ns in os.walk(studio):
@@ -338,7 +330,7 @@ class BackupTest(unittest.TestCase):
         self.assertEqual(backup.default_media_dirs(), [])
 
     def test_restore_skips_what_backup_would_not_copy(self):
-        """以前の決まりで写った物(app/intake の動画・analytics・ログ)は写し戻さない(6c-1)"""
+        """以前の決まりで写った物(app/intake の動画・analytics・ログ)は写し戻さない"""
         backup.run_once(self.src, self.dst)
         d = os.path.join(self.dst, backup.DEST_NAME)
         put(os.path.join(d, "app", "intake", "2026-10-04", "x.mp4"), "video")
@@ -366,7 +358,7 @@ class BackupTest(unittest.TestCase):
         put(os.path.join(w, "a.tx.key.json"), "{}")
         put(os.path.join(w, ".studio-id"), "id1")
         put(os.path.join(w, "runs", "r1.json"), "{}")
-        put(os.path.join(w, ".hist", "0123456789ab", "1700000000000.json"), "{}")   # 文書の履歴(RS8 B2-0)
+        put(os.path.join(w, ".hist", "0123456789ab", "1700000000000.json"), "{}")   # 文書の履歴
         put(os.path.join(w, ".bak", "0123456789ab.pre-fill.json"), "{}")            # 機械の書き換え前の控え
         put(os.path.join(w, ".hist", "0123456789ab", "deep", "x.json"), "{}")       # .hist/<tid> の下には入らない
         put(os.path.join(w, ".bak", "sub", "x.json"), "{}")                         # .bak の下には入らない
@@ -395,7 +387,7 @@ class BackupTest(unittest.TestCase):
         self.assertEqual(backup.run_once(self.src, self.dst)["copied"], 0)
 
     def test_request_cases_are_copied_and_intake_videos_are_not(self):
-        """依頼/<日付>_<題>_<id6>/作業用 の json は案件として写す。app/intake の動画は写さない(RS8 B3-7。(r8h))"""
+        """依頼/<日付>_<題>_<id6>/作業用 の json は案件として写す。app/intake の動画は写さない"""
         out = os.path.join(self.tmp, "出力")
         put(os.path.join(out, "依頼", "2026-10-11_題_abc123", "作業用", "case.json"), "{}")
         put(os.path.join(out, "依頼", "2026-10-11_題_abc123", "v.mp4"), "video")
@@ -406,7 +398,6 @@ class BackupTest(unittest.TestCase):
         files = self.files()
         self.assertIn("cases/依頼/2026-10-11_題_abc123/作業用/case.json", files)
         self.assertEqual([f for f in files if f.endswith(".mp4")], [])
-
 
     def test_restore_cases_to_out_dir(self):
         out = self.make_cases()

@@ -1,4 +1,4 @@
-"""src/manage/keep/trash.py(ごみ箱へ移す・戻すの 1 か所。OPT-M2)の単体テスト。設計原則の指摘 1 = 戻せなかった物の元の場所を必ず記録する。
+"""src/manage/keep/trash.py(ごみ箱へ移す・戻すの 1 か所)の単体テスト。戻せなかった物の元の場所を必ず記録する。
 
     python -m unittest src/manage/keep/tests/test_trash.py
 """
@@ -6,7 +6,6 @@ import json
 import os
 import shutil
 import sys
-import tempfile
 import unittest
 from unittest import mock
 
@@ -14,6 +13,7 @@ SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.ab
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 from manage.keep import trash as T  # noqa: E402
+from ytt.testkit import tempdir  # noqa: E402
 
 
 def touch(path, data=b"x"):
@@ -36,8 +36,7 @@ class _Trash:
 
 class TrashTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-trash-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = tempdir(self, "ytt-trash-")
         self.trash = _Trash(os.path.join(self.tmp, "ごみ箱"))
         self.clip = touch(os.path.join(self.tmp, "out", "a.mp4"))
         self.side = touch(os.path.join(self.tmp, "out", "作業用", "a.clip.json"))

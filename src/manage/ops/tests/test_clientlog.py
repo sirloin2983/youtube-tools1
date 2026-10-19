@@ -4,9 +4,7 @@
 """
 import json
 import os
-import shutil
 import sys
-import tempfile
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
@@ -15,16 +13,14 @@ if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
 from manage.ops import clientlog as C  # noqa: E402
+from ytt.testkit import tempdir  # noqa: E402
 
 
 class TestClientLog(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-clog-")
+        self.tmp = tempdir(self, "ytt-clog-")
         self.t = [1000.0]
         self.log = C.ClientLog(self.tmp, per_minute=3, max_bytes=400, clock=lambda: self.t[0])
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def lines(self, path=None):
         with open(path or self.log.path, encoding="utf-8") as f:
