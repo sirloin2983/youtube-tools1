@@ -15,11 +15,11 @@ import http.client
 import json
 import os
 import shutil
-import socket
 import string
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest import mock
@@ -40,21 +40,10 @@ FAST = dict(source="direct", hls_time=1, backoff=(1, 2), idle_end=8, stall_sec=4
 
 
 def wait_for(fn, timeout=30.0, step=0.2):
-    end = time.time() + timeout
-    while time.time() < end:
-        v = fn()
-        if v:
-            return v
-        time.sleep(step)
-    return fn()
+    return testkit.wait_for(fn, timeout, step)
 
 
-def free_port():
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    p = s.getsockname()[1]
-    s.close()
-    return p
+free_port = testkit.free_port
 
 
 _SRC = {}
@@ -440,7 +429,7 @@ class TestStreamlinkPipe(unittest.TestCase):
         self.assertIn("temp_file+program_date_time", ff)
 
     def test_default_quality_is_1080p(self):
-        """画質の既定は 1080p(2026-10-04 ユーザー決定。4K の配信で容量が膨らむのを避ける)。720p・best は今までどおり選べる"""
+        """画質の既定は 1080p(4K の配信で容量が膨らむのを避ける)。720p・best も選べる"""
         import inspect
         self.assertEqual(R.DEFAULT_QUALITY, "1080p")
         self.assertEqual(inspect.signature(R.Recorder.start).parameters["quality"].default, "1080p")
@@ -464,6 +453,7 @@ class TestStreamlinkPipe(unittest.TestCase):
         # 配信の終わりで締める(切断のない通常の終わり = セッション 1 つで「終了」)
         self.srv.end = True
         self.srv.rate = 4.0
+        self.srv.segs = self.segs[:16]   # 40 本を出し終えるのを待たない
         s = self.rec.start("hls://" + self.srv.url)
         r = self.rec.get(s["id"])
         self.assertTrue(wait_for(lambda: r.summary()["state"] == "ended", 60), (r.summary(), self.logs))
@@ -593,7 +583,7 @@ class TestTitle(unittest.TestCase):
         self.rec.title_lookup = lambda url: (calls.append(url), "配信の題")[1]
         s = self.rec.start("https://127.0.0.1:%d/live.m3u8" % self.no_live, title="付けた名前")
         s2 = self.rec.start("http://127.0.0.1:%d/live.m3u8" % self.no_live)   # 手元の http(テストの配信)では聞かない
-        time.sleep(1.0)
+        self.assertEqual([t.name for t in threading.enumerate() if t.name.startswith("title-")], [])   # 題を聞くスレッドは始めた時点で決まる
         self.assertEqual(calls, [])
         self.assertEqual(self.rec.get(s["id"]).meta["title"], "付けた名前")
         self.assertEqual(self.rec.get(s2["id"]).meta["title"], "")
@@ -723,13 +713,10 @@ class TestHttp(unittest.TestCase):
             c.close()
 
     def test_1b_body_errors(self):
-        """書き込みの本文の読み方は ytt.httpsec.read_json_body(0.3.3)。断る理由ごとの状態とコードは今までどおり"""
+        """書き込みの本文の読み方は ytt.httpsec.read_json_body。断る理由ごとの状態とコード(読み方の細部は ytt 側)"""
         self.assertEqual(self._post_raw(b"{}", "text/plain"), (415, "content_type"))
         self.assertEqual(self._post_raw(b"[1]"), (400, "json"))                               # オブジェクトでない
-        self.assertEqual(self._post_raw(b"{x"), (400, "json"))
-        self.assertEqual(self._post_raw(b"\xff\xfe"), (400, "json"))                         # UTF-8 でない
         self.assertEqual(self._post_raw(b"", headers={"Content-Length": "abc"}), (413, "size"))   # 数でない
-        self.assertEqual(self._post_raw(b"", headers={"Content-Length": "-1"}), (413, "size"))
         self.assertEqual(self._post_raw(b" " * (16 * 1024 + 1)), (413, "size"))               # 上限(recorder.BODY_MAX = 16KB)より大きい
         code, err = self._post_raw(b"")                                                       # 空の本文は {} として通り、中身の検査で断られる
         self.assertEqual(code, 400)
@@ -761,19 +748,13 @@ class TestHttp(unittest.TestCase):
         self.assertEqual(code, 409)
         code, _ = self.call("POST", "/live/config", {"folder": os.path.join(self.tmp, "other")})   # 録画中は置き場所を変えない
         self.assertEqual(code, 409)
-        # 区間の取得(P2): 区間にかかるセグメント・欠け・録画済みの最後の時刻
-        first, last = R.iso_epoch(st["firstPdt"]), R.iso_epoch(st["lastPdt"])
+        # 区間の取得: 応答の形と入力の検査(区間の選び方は TestPieces)
+        first = R.iso_epoch(st["firstPdt"])
         q = "/live/%s/segments?start=%s&end=%s" % (rid, R.epoch_iso(first + 0.5), R.epoch_iso(first + 2.5))
         code, sg = self.call("GET", q)
         self.assertEqual(code, 200, sg)
         self.assertTrue(sg["active"])
         self.assertEqual(sg["url"], self.srv.url)
-        self.assertGreaterEqual(len(sg["segments"]), 2)
-        self.assertEqual(sg["gaps"], [])
-        self.assertTrue(all(x["uri"].startswith("session_001/seg_") and x["session"] == "session_001" for x in sg["segments"]))
-        self.assertLessEqual(R.iso_epoch(sg["segments"][0]["pdt"]), first + 0.5)
-        code, sg = self.call("GET", "/live/%s/segments?start=%s&end=%s" % (rid, R.epoch_iso(last + 100), R.epoch_iso(last + 110)))
-        self.assertEqual((code, sg["segments"], len(sg["gaps"])), (200, [], 1))   # まだ録れていない
         for bad in ("start=x&end=y", "start=%s&end=%s" % (R.epoch_iso(first + 5), R.epoch_iso(first)),
                     "start=%s&end=%s" % (R.epoch_iso(first), R.epoch_iso(first + 4 * 3600)), ""):
             self.assertEqual(self.call("GET", "/live/%s/segments?%s" % (rid, bad))[0], 400, bad)

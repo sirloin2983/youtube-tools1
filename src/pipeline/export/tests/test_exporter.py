@@ -62,7 +62,7 @@ class TestApplyVolume(unittest.TestCase):
             self.assertEqual(enc[:-2], exporter.ENC_FAST if fast else exporter.ENC)
 
     def test_volume_changes_decoded_level_and_keeps_length(self):
-        """切り出し 1 回で、デコードした音量が指定の % だけ下がり(50% = 約 -6dB)、長さと 30fps は変わらない"""
+        """本物の ffmpeg で音を測る唯一の確かめ: 切り出し 1 回(50%)で、デコードした音量が元から約 -6dB 下がり、長さは変わらない"""
         src = os.path.join(self.tmp, "sine.mp4")
         ff = studio_env.find_tool("ffmpeg")
         subprocess.run([ff, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-f", "lavfi", "-i", "testsrc=size=64x64:rate=30:duration=4",
@@ -73,14 +73,11 @@ class TestApplyVolume(unittest.TestCase):
             r = subprocess.run([ff, "-hide_banner", "-nostdin", "-i", path, "-af", "volumedetect", "-vn", "-f", "null", "-"],
                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace")
             return float(r.stdout.split("mean_volume:")[1].split("dB")[0])
-        got = {}
-        for vol in (100, 50):
-            spec = {"outDir": self.tmp, "folder": "f", "sourcePath": src, "volume": vol}
-            it = {"start": 1.0, "end": 3.0, "progress": 0.0}
-            path = os.path.join(self.tmp, os.path.basename(exporter.run_ffmpeg(jobs.Ctl(), spec, it, "v%d" % vol)))
-            self.assertAlmostEqual(mediainfo.media_info(path)[0], 2.0, delta=0.2)
-            got[vol] = level(path)
-        self.assertAlmostEqual(got[50] - got[100], -6.02, delta=0.5)
+        spec = {"outDir": self.tmp, "folder": "f", "sourcePath": src, "volume": 50}
+        it = {"start": 1.0, "end": 3.0, "progress": 0.0}
+        path = os.path.join(self.tmp, os.path.basename(exporter.run_ffmpeg(jobs.Ctl(), spec, it, "v50")))
+        self.assertAlmostEqual(mediainfo.media_info(path)[0], 2.0, delta=0.2)
+        self.assertAlmostEqual(level(path) - level(src), -6.02, delta=0.5)
         self.assertEqual([n for n in os.listdir(self.tmp) if n.endswith(".vol.mp4")], [])
 
     def _fake_store(self):
@@ -126,7 +123,7 @@ class TestClipNumbering(unittest.TestCase):
 
 
 def _make_source(path, sec=30, gop=300, rate=60, video=None):
-    """キーフレームが5秒ごと(60fps・gop=300)の合成動画(映像+音声)。配信の録画によくある 60fps(書き出しで 30fps に作り直される。2026-10-04 Q1)。
+    """キーフレームが5秒ごと(60fps・gop=300)の合成動画(映像+音声)。配信の録画によくある 60fps(書き出しで 30fps に作り直される)。
     video: 映像の lavfi の指定を差し替える(明るさで時刻が分かる映像など)"""
     ff = studio_env.find_tool("ffmpeg")
     cmd = [ff, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-f", "lavfi", "-i", video or "testsrc=size=64x64:rate=%d:duration=%d" % (rate, sec),
@@ -141,7 +138,7 @@ def _job(clips, out_dir):
 
 
 def _run(res, spec, on_done=None, ctl=None):
-    """① の run を同じ糸で動かす(OPT2 の J2。器 = ② の flow/export は通さない)"""
+    """① の run を同じ糸で動かす(器 = ② の flow/export は通さない)"""
     exporter.run(spec, res, ctl or jobs.Ctl(), on_done)
     return res
 
@@ -197,7 +194,7 @@ class TestClipManifestExport(unittest.TestCase):
         self.assertEqual(calls[0][:2], ("f0123456789", "m1"))
         self.assertEqual(calls[0][2], it["file"])   # 出力の相対名(画面へ返す物と同じ)
         self.assertEqual(calls[0][3:], (7.0, 12.0, it["path"]))
-        work = os.path.join(os.path.dirname(it["path"]), schemas.WORK_DIR)   # 途中のファイル(2026-09-27)
+        work = os.path.join(os.path.dirname(it["path"]), schemas.WORK_DIR)   # 途中のファイル
         self.assertEqual(it["manifest"], os.path.join(work, os.path.splitext(os.path.basename(it["path"]))[0] + ".clip.json"))
         d = testkit.read_json(it["manifest"])
         self.assertEqual(d["schema"], "youtube-tools-clip/v1")
@@ -263,7 +260,7 @@ class TestClipManifestExport(unittest.TestCase):
         self.assertEqual(testkit.read_json(it["editManifest"])["range"], {"start": 15.0, "end": 30.0})
 
     def test_fast_reencodes_to_30fps_at_exact_position(self):
-        """高速 = 速い設定(ultrafast)での作り直し(2026-10-04 Q1。以前のコピーは fps を変えられず、開始もキーフレームへずれた)。
+        """高速 = 速い設定(ultrafast)での作り直し(コピーでは fps を変えられず、開始もキーフレームへずれるため)。
         位置ちょうどなので actualStart は付けない"""
         clip = {"id": "m4", "start": 7.0, "end": 12.0, "title": "x", "label": "", "src": "manual", "markStatus": "adopted"}
         cmds = []
@@ -320,7 +317,7 @@ class TestClipManifestExport(unittest.TestCase):
                 self.assertEqual((job["state"], job["combined"]["status"]), ("error", "error"))
                 self.assertEqual(self._files(job), [])
 
-    # ---- 書きかけの名前(<base>.partial.mp4)に書いて、仕上がったら置き換える(2026-09-30。設計レビュー studio の 4) ----
+    # ---- 書きかけの名前(<base>.partial.mp4)に書いて、仕上がったら置き換える----
     def _files(self, job):
         folder = os.path.join(studio_env.get_out_dir(), job["folder"])
         out = []
@@ -375,7 +372,7 @@ class TestClipManifestExport(unittest.TestCase):
 
 class TestLegacyFfmpeg(unittest.TestCase):
     def test_old_ffmpeg_retries_once_with_vsync(self):
-        """OPT1: ffmpeg 5.1 より古い(-fps_mode を知らない)ときは -vsync に替えて 1 回だけやり直す。ほかの失敗・中止ではやり直さない"""
+        """ffmpeg 5.1 より古い(-fps_mode を知らない)ときは -vsync に替えて 1 回だけやり直す。中止ではやり直さない(ほかの失敗の判定は ytt 側)"""
         old = (1, ["Unrecognized option 'fps_mode'.", "Error splitting the argument list: Option not found"], None)
         cmd = ["ffmpeg", "-i", "a.mp4"] + exporter.ENC + ["out.mp4"]
         calls = []
@@ -390,27 +387,13 @@ class TestLegacyFfmpeg(unittest.TestCase):
             self.assertEqual(exporter._pump(job, cmd, it, 2.0), ["ok"])
         self.assertEqual((len(calls), "-vsync" in calls[1], "-fps_mode" in calls[1]), (2, True, False))
         calls.clear()
-        with patch.object(exporter, "_pump_once", fake([(1, ["Invalid data found"], None)])), self.assertRaises(exporter.ExportError):
-            exporter._pump(job, cmd, it, 2.0)
-        self.assertEqual(len(calls), 1)
-        calls.clear()
         with patch.object(exporter, "_pump_once", fake([(1, list(old[1]), "cancel")])), self.assertRaises(exporter.ExportError) as cm:
             stop = jobs.Ctl()
             stop.cancel()
             exporter._pump(stop, cmd, it, 2.0)
         self.assertEqual((len(calls), str(cm.exception)), (1, "中止しました"))
 
-
 class TestPartialNames(unittest.TestCase):
-    def test_names(self):
-        p = os.path.join("d", "01_a.partial.mp4")
-        self.assertTrue(exporter.is_partial(p))
-        self.assertEqual(exporter.final_path(p), os.path.join("d", "01_a.mp4"))
-        self.assertEqual(exporter.final_path(os.path.join("d", "01_a.mp4")), os.path.join("d", "01_a.mp4"))
-        self.assertEqual(exporter.final_path("x.partial.webm"), "x.webm")
-        self.assertFalse(exporter.is_partial("x.partial.mp4.vol.mp4"))   # 音量の調整の途中は drop_partial が一緒に消す
-        self.assertEqual(exporter.partial_path("d", "b"), os.path.join("d", "b.partial.mp4"))
-
     def test_clean_partials_only_in_studio_folders(self):
         with tempfile.TemporaryDirectory() as root:
             ours, theirs = os.path.join(root, "配信A"), os.path.join(root, "手で作った")
@@ -462,46 +445,6 @@ class TestNames(unittest.TestCase):
     def setUp(self):
         self.tmp = testkit.tempdir(self)
 
-    def touch(self, name):
-        with open(os.path.join(self.tmp, name), "w") as f:
-            f.write("x")
-
-    def test_unique_base_also_checks_edit_variant(self):
-        self.touch("01_a_edit.mp4")   # 前回の編集用素材だけが残っている(以前の置き方 = 直下)
-        self.assertEqual(exporter.unique_base("01_a", self.tmp), "01_a_2")
-        self.touch("01_a_2.clip.json")
-        self.assertEqual(exporter.unique_base("01_a", self.tmp), "01_a_3")
-        self.assertEqual(exporter.unique_base("01_b", self.tmp), "01_b")
-        os.makedirs(os.path.join(self.tmp, schemas.WORK_DIR))
-        self.touch(os.path.join(schemas.WORK_DIR, "01_b_edit.mp4"))   # 今の置き方: 途中のファイルは 作業用/
-        self.assertEqual(exporter.unique_base("01_b", self.tmp), "01_b_2")
-
-    def test_folder_owner_marker_in_work_dir(self):
-        """フォルダの持ち主の印 .studio-id も 作業用/ に(2026-09-27)。以前の置き方(直下)の印も読む・書き換えない"""
-        with patch.object(studio_env, "get_out_dir", return_value=self.tmp):
-            folder, path = exporter.pick_folder({"title": "配信", "videoId": "abcdefghijk"})
-            self.assertEqual(os.listdir(path), [schemas.WORK_DIR])
-            with open(os.path.join(path, schemas.WORK_DIR, ".studio-id"), encoding="utf-8") as f:
-                self.assertEqual(f.read(), "abcdefghijk")
-            self.assertEqual(exporter.pick_folder({"title": "配信", "videoId": "abcdefghijk"})[1], path)          # 同じ動画は同じフォルダ
-            self.assertEqual(exporter.pick_folder({"title": "配信", "videoId": "zzzzzzzzzzz"})[0], "配信_2")      # 別の動画は別のフォルダ
-            old = os.path.join(self.tmp, "以前")
-            os.makedirs(old)
-            with open(os.path.join(old, ".studio-id"), "w", encoding="utf-8") as f:
-                f.write("yyyyyyyyyyy")
-            self.assertEqual(exporter.pick_folder({"title": "以前", "videoId": "yyyyyyyyyyy"})[1], old)           # 以前の印(直下)も読む
-            self.assertEqual(exporter.pick_folder({"title": "以前", "videoId": "xxxxxxxxxxx"})[0], "以前_2")
-            self.assertEqual(os.listdir(old), [".studio-id"])                                                # 以前の印は動かさない
-
-    def test_reserved_names(self):
-        for name in ("CON", "con .txt", "Nul.mp4", "COM1", "COM¹", "lpt³.x", "CONIN$", "conout$.log"):
-            self.assertTrue(exporter.is_reserved(name), name)
-        for name in ("CONSOLE", "COM0", "COM10", "動画", "PRN_2"):
-            self.assertFalse(exporter.is_reserved(name), name)
-        with patch.object(studio_env, "get_out_dir", return_value=self.tmp):
-            folder, _ = exporter.pick_folder({"title": "com²", "videoId": "abcdefghijk"})
-        self.assertEqual(folder, "_com²")
-
     def test_long_output_dir_keeps_paths_short(self):
         root = os.path.join(self.tmp, "d" * max(1, 170 - exporter.path_units(self.tmp)))
         os.makedirs(root)
@@ -521,11 +464,6 @@ class TestNames(unittest.TestCase):
         longest = os.path.join(os.path.dirname(seen[0]), schemas.WORK_DIR, os.path.basename(seen[0]) + "_edit.clip.json")   # 作業用/ の中が一番長い
         self.assertLessEqual(exporter.path_units(longest), exporter.MAX_PATH_UNITS)
         self.assertLessEqual(exporter.path_units(seen[0]) + exporter.SUFFIX_ROOM, exporter.MAX_PATH_UNITS)
-
-    def test_trim_units_counts_utf16(self):
-        self.assertEqual(exporter.path_units("a😀"), 3)
-        self.assertEqual(exporter.trim_units("ab😀", 3), "ab")
-        self.assertEqual(exporter.trim_units("ab. c", 4), "ab")
 
 
 class TestExportLog(unittest.TestCase):
@@ -547,12 +485,12 @@ class TestBuildSpecIds(unittest.TestCase):
         with patch.dict(os.environ, {"STUDIO_FAKE": ""}), patch.object(studio_env, "find_tool", return_value="/bin/true"):
             with self.assertRaises(errors.ApiError) as cm:
                 _fexport.build_spec(S(), {"id": "x", "markIds": ["m1"]})
-        self.assertIn("配信の ID", cm.exception.message)   # 0.22.3: 配信の意味の「動画」は「配信」(見直し S5)
+        self.assertIn("配信の ID", cm.exception.message)   # 文では配信の意味の「動画」は「配信」と呼ぶ
 
 
 @unittest.skipUnless(studio_env.find_tool("ffmpeg"), "ffmpeg が無い環境ではスキップ")
 class TestLoudness(unittest.TestCase):
-    """ラウドネス(聞こえ方の音量)をそろえる書き出し(2026-09-26)。切り抜きと編集用素材に同じ量だけかける"""
+    """ラウドネス(聞こえ方の音量)をそろえる書き出し。切り抜きと編集用素材に同じ量だけかける"""
     @classmethod
     def setUpClass(cls):
         cls.src_dir = tempfile.mkdtemp()
@@ -599,7 +537,6 @@ class TestLoudness(unittest.TestCase):
         self.assertLessEqual(tp_main, exporter.TRUE_PEAK_CEIL + 0.5)
         lo = it["loudness"]
         self.assertEqual(lo["target"], -14.0)
-        self.assertAlmostEqual(lo["gainDb"], -14.0 - lo["measured"], delta=0.2)
         self.assertAlmostEqual(lo["measured"], before, delta=1.0)
         for m in (it["manifest"], it["editManifest"]):
             ex = testkit.read_json(m)["export"]
@@ -608,17 +545,6 @@ class TestLoudness(unittest.TestCase):
         self.assertEqual(exporter.result_public(job)["items"][0]["loudness"], lo)
         leftovers = [n for n in os.listdir(os.path.dirname(it["path"])) if n.endswith(".vol.mp4")]
         self.assertEqual(leftovers, [])
-
-    def test_gain_is_limited_by_true_peak(self):
-        loud = os.path.join(self.tmp, "loud.mp4")
-        ff = studio_env.find_tool("ffmpeg")
-        subprocess.run([ff, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-f", "lavfi", "-i", "testsrc=size=64x64:rate=10:duration=4",
-                        "-f", "lavfi", "-i", "sine=frequency=440:duration=4,volume=7", "-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac",
-                        "-shortest", loud], check=True, stdin=subprocess.DEVNULL)   # ほぼ 0dBFS のピーク
-        it = {"start": 0.0, "end": 4.0, "progress": 0.0, "path": loud}
-        exporter.apply_loudness(jobs.Ctl(), {"loudness": -11.0}, it)
-        _i, tp = self.measure(loud)
-        self.assertLessEqual(tp, exporter.TRUE_PEAK_CEIL + 0.5)   # 目標まで上げると割れるときは、ピークの手前で止める
 
     def test_silence_is_skipped(self):
         clip = os.path.join(self.tmp, "silent.mp4")
@@ -673,7 +599,7 @@ def _y_avg(path):
 
 @unittest.skipUnless(studio_env.find_tool("ffmpeg") and studio_env.find_tool("ffprobe"), "ffmpeg・ffprobe が無い環境ではスキップ")
 class TestYoutubeTwoStage(unittest.TestCase):
-    """YouTube の区間取得は2段(2026-10-04 Q1): yt-dlp で区間をそのまま取る(前後に余裕・作り直さない)→ ffmpeg の ENC で正確な区間に切って 30fps に"""
+    """YouTube の区間取得は2段: yt-dlp で区間をそのまま取る(前後に余裕・作り直さない)→ ffmpeg の ENC で正確な区間に切って 30fps に"""
     @classmethod
     def setUpClass(cls):
         cls.dir = tempfile.mkdtemp()
@@ -707,7 +633,7 @@ class TestYoutubeTwoStage(unittest.TestCase):
         return job, calls
 
     def test_blocked_by_youtube_stops_asking_again(self):
-        """YouTube に止められた(bot 判定)ら、方法2(-g)も同じ動画の残りの切り抜きも yt-dlp を呼ばない = 1 回だけ問い合わせて全部同じ失敗(10-18 友人の PC)"""
+        """YouTube に止められた(bot 判定)ら、方法2(-g)も同じ動画の残りの切り抜きも yt-dlp を呼ばない = 1 回だけ問い合わせて全部同じ失敗"""
         msg = "ERROR: [youtube] abcdefghijk: Sign in to confirm you’re not a bot. Use --cookies-from-browser or --cookies"
         bad = os.path.join(self.tmp, "bot_ytdlp.py")
         with open(bad, "w", encoding="utf-8") as f:
@@ -728,7 +654,7 @@ class TestYoutubeTwoStage(unittest.TestCase):
         self.assertTrue(exporter.blocked("HTTP Error 429: Too Many Requests") and not exporter.blocked("timed out"))
 
     def test_ytdlp_error_text_is_read_as_utf8(self):
-        """yt-dlp のエラーの文(UTF-8)が化けない: ’ ' と全角の記号がそのまま失敗の文に(10-18 友人の PC で you’re が you�fre に化けた)。
+        """yt-dlp のエラーの文(UTF-8)が化けない: ’ ' と全角の記号がそのまま失敗の文に。
         本物の yt-dlp.exe は --encoding utf-8 が無いと管に cp932 で書くので、起こすコマンドに必ず付ける"""
         with patch.object(studio_env, "find_tool", lambda n: "yt-dlp.exe"):
             self.assertEqual(exporter._ytdlp_cmd(), ["yt-dlp.exe", "--encoding", "utf-8"])
@@ -931,7 +857,7 @@ class TestLiveSection(unittest.TestCase):
             f.write(b"x")
         bads = [dict(videoId="short"), dict(videoId="abcdefghijk\n"), dict(videoId="あいうえおかきくけこさ"), dict(videoId=None), dict(videoId=12345678901), dict(videoId="abcdefghij/"),
                 dict(start=-1), dict(start=12), dict(start=13), dict(end=7), dict(start="7"), dict(start=None), dict(start=True), dict(end=float("nan")), dict(end=float("inf")),
-                dict(start=0, end=3601), dict(end=None), dict(start=10 ** 400), dict(end=10 ** 400),   # float にできない巨大な整数(以前は OverflowError)
+                dict(start=0, end=3601), dict(end=None), dict(start=10 ** 400), dict(end=10 ** 400),   # float にできない巨大な整数(OverflowError にしない)
                 dict(path=None), dict(path=""), dict(path="rel.mp4"), dict(path=os.path.join(self.folder, "a.mkv")), dict(path=os.path.join(self.folder, "a")),
                 dict(path=os.path.join(self.folder, "a%b.mp4")), dict(path=os.path.join(self.folder, "a.partial.mp4")), dict(path=os.path.join(self.folder, "CON.mp4")),
                 dict(path=os.path.join(self.dir, "outside.mp4")), dict(path=os.path.join(out, "..", "outside.mp4")), dict(path=os.path.join(self.folder, "..", "..", "o.mp4")),

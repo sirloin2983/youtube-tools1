@@ -369,5 +369,22 @@ class TestRunCtl(unittest.TestCase):
             analyze.run(self.spec, ctl)
 
 
+class TestRunWithoutMeta(unittest.TestCase):
+    def test_meta_missing_still_succeeds_with_a_note(self):
+        """YouTube の付加情報(記録用)が取れなくても解析は成功し、注意書きを 1 つ出す(stream は空)"""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        full, band, *_ = synth(n=600, events=6)
+        spec = analyze.make_spec({"kind": "youtube", "videoId": "abcdefghijk", "name": "x"},
+                                 analyze.validate_settings({"useComments": False, "useChat": False, "count": 3, "length": 30, "noCache": True}))
+        with mock.patch.object(fetch, "work_dir", lambda: tmp.name), mock.patch.object(analyze, "_save_record", lambda *a, **k: None), \
+                mock.patch.object(fetch, "fetch_meta", lambda ctl, vid: (None, "取れませんでした")), \
+                mock.patch.object(analyze, "_levels", lambda *a, **k: (600.0, 600, full, band)):
+            res = analyze.run(spec, Ctl())
+        self.assertTrue(res["candidates"])
+        self.assertEqual([w for w in res["warnings"] if "付加情報" in w], ["動画の付加情報(記録用)を取得できませんでした: 取れませんでした(解析には影響しません)"])
+        self.assertEqual((res["counts"]["meta"], res["stream"]), (False, {}))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

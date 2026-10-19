@@ -147,6 +147,20 @@ class TestAudio(_Env):
         self.assertEqual(cmds, [head + ["-i", "x.mp4", "-vn"] + tail,
                                 head + ["-ss", "5.000", "-i", "x.mp4", "-t", "7.500", "-vn", "-af", "highpass=f=70,dynaudnorm=f=200:g=15:m=15"] + tail])
 
+    def test_wav_args_8k_precise_cut(self):
+        """照合用の wav(8kHz・モノラル・精密な切り方): 手前 pre_seek 秒までは入力側で飛び、残りは出力側で(デコードして)切る = サンプル単位で正確。0 は付けない"""
+        dst = os.path.join(self.tmp, "a.wav")
+        head = ["FF", "-hide_banner", "-nostdin", "-y", "-v", "error"]
+        tail = ["-vn", "-sn", "-dn", "-ac", "1", "-ar", "8000", "-c:a", "pcm_s16le", "-f", "wav", dst]
+
+        def args(ss=None, t=None):
+            return recognize.wav_args("FF", "src.m4a", dst, ss, t, rate=8000, opts=("-nostdin", "-y", "-v", "error"), pre_seek=10.0,
+                                      drop=("-vn", "-sn", "-dn"), fmt="wav")
+        self.assertEqual(args(), head + ["-i", "src.m4a"] + tail)
+        self.assertEqual(args(3.0, 5.0), head + ["-i", "src.m4a", "-ss", "3.000", "-t", "5.000"] + tail)                        # 手前 10 秒より前: 全部デコードして切る
+        self.assertEqual(args(25.5, 4.25), head + ["-ss", "15.500", "-i", "src.m4a", "-ss", "10.000", "-t", "4.250"] + tail)   # 手前まで入力側・残り 10 秒は出力側
+        self.assertEqual(args(0.0, None), head + ["-i", "src.m4a"] + tail)
+
 
 class _Segs(list):
     """faster-whisper の行の生成器の代わり(for で読める・close できる)"""
