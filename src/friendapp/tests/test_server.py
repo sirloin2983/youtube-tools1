@@ -1234,7 +1234,7 @@ class ServerTest(Base):
         st, _h, p = self.get("/api/friend/state", headers={TOKEN: self.srv.token})
         self.assertEqual(st, 200)
         d = self.js(p)
-        self.assertNotIn("windowAgo", d)   # 窓の推測はやめた(F3-1。窓は exe が持つ)
+        self.assertNotIn("windowAgo", d)   # 窓の推測はしない(F3-1。窓は exe が持つ)
         self.assertEqual({k: d[k] for k in ("busy", "recording", "making", "waiting", "reserved", "archiveWait", "setup", "undecided", "awake", "label")},
                          {"busy": False, "recording": 0, "making": 0, "waiting": 0, "reserved": 0, "archiveWait": 0, "setup": False,
                           "undecided": 0, "awake": False, "label": ""})

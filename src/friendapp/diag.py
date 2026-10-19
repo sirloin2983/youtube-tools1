@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""友人のアプリの診断の記録(10-18 ユーザー決定。notes:docs/spec/friend.md の 13-11)。友人の PC でしか出ない不具合を、伝聞でなく記録で追うため。
+"""友人のアプリの診断の記録(ユーザー決定。notes:docs/spec/friend.md の 13-11)。友人の PC でしか出ない不具合を、伝聞でなく記録で追うため。
 
 - 依頼 1 件ごと(② の実行が終わったとき = kind run。確認用の動画を作り終えたとき = preview)と、エラーのとき(error・sync・setup・start・
   rollback・token・exception・update)に、JSON 1 つを送り返しの箱 <data>/app/outbox/ へ <依頼 id か app>__diag-<at ミリ秒 13 桁>.diag.json で書く。

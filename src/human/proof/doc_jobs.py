@@ -104,11 +104,11 @@ def validate_job(req):
             return req[key]
         return st.get(key) is not False if default_on else st.get(key) is True
     post = {"splitChars": split_chars_for(req, st),
-            # 認識のあとの後処理(fill の A・C・D。既定オン。0.60.0)。要求に無ければ保存した設定 autoFill(明示の false だけオフ)。評価用には当てない
+            # 認識のあとの後処理(fill の A・C・D。既定オン)。要求に無ければ保存した設定 autoFill(明示の false だけオフ)。評価用には当てない
             "autoFill": pref("autoFill", default_on=True) and not ev,
-            # LLM の後処理(llm。名簿の呼び名の聞き違いらしい所だけ。既定オン = decisions 3-17。0.61.0)。評価用には当てない
+            # LLM の後処理(llm。名簿の呼び名の聞き違いらしい所だけ。既定オン = decisions 3-17)。評価用には当てない
             "autoLlm": pref("autoLlm", default_on=True) and not ev,
-            # 行の頭の話者名(「名前:」)を外す(fill の B。既定オン。0.67.0)。評価用には当てない
+            # 行の頭の話者名(「名前:」)を外す(fill の B。既定オン)。評価用には当てない
             "stripNames": pref("stripNames", default_on=True) and not ev,
             "autoLearned": req.get("autoLearned") is True and not ev, "autoContext": req.get("autoContext") is True and not ev,
             "learning": {"version": str(req.get("learningVersion") or "")[:80]}}
@@ -139,14 +139,14 @@ def public_job(j):
     out["into"] = sp.get("intoDoc") or None   # 「編集」: 文字起こしの無い文書に入れる文字起こし(画面の行 0 の文書の「もう一度文字起こしする」・② の全自動・⑤ の評価用のまとめて)
     out["named"] = list(j.get("named") or [])       # A-3: 話者判別のあと、覚えている声で名前を付けた話者 [{"speaker", "name", "score"}]
     out["learned"] = list(j.get("learned") or [])   # A-3: 声を覚えた人の名前
-    out["auto"] = bool(sp.get("auto"))   # 文字起こしのあとの自動の話者判別(v0.50.0)
+    out["auto"] = bool(sp.get("auto"))   # 文字起こしのあとの自動の話者判別
     out["autoSkipped"] = j.get("autoSkipped") or ""   # 自動の判別を動き出すときにやめた理由(has_speakers・reviewed・empty)
     out["redo"] = bool(sp.get("evalRedo"))   # 未確認の評価用の作り直し(eval/drill/evalbatch)
     out["redoOne"] = bool((sp.get("evalRedo") or {}).get("one"))   # 1 本ずつの作り直し(画面が押した。終わるまで編集を止める)
     out["redoSkipped"] = j.get("redoSkipped") or ""            # 手が入っていたので作り直さなかった理由
     if j.get("voiceError"):
         out["warnings"].append(j["voiceError"])
-    out["warnings"] += [w for w in (j.get("warnings") or []) if w not in out["warnings"]]   # ジョブの中で足した注意(以前は画面に届いていなかった)
+    out["warnings"] += [w for w in (j.get("warnings") or []) if w not in out["warnings"]]   # ジョブの中で足した注意
     out["vadNote"] = j.get("vadNote") or ""          # 声の検出を緩めてやり直した(4-2)
     out["normNote"] = j.get("normNote") or ""        # 30fps にそろえた・そろえられなかった理由(Q1。flow/normalize の run_job)
     out["normOk"] = bool(j.get("normOk"))
@@ -375,7 +375,7 @@ def validate_retranscribe(req):
             "title": _heavy.job_title({"range": "範囲を再認識: ", "whole": "全体を再認識: "}.get(mode, "再認識: "), doc)}
 
 
-# ---------- 疑わしい行の選び方(redo_targets。認識し直す本体は消した。呼び手は今は無い = あとで別の人が使う) ----------
+# ---------- 疑わしい行の選び方(redo_targets。呼び手は今は無い = あとで別の人が使う) ----------
 REDO_PAD = 1.0          # 行の前後に足す余白(秒)。ただし隣の行にはかからない(隣の行を消さないため)
 REDO_MAX_ROWS = 30      # 1回で認識し直す行の上限
 

@@ -23,7 +23,7 @@ class MembersEnvTest(unittest.TestCase):
         return p
 
     def test_zip_root_members_found(self):
-        """zip の直下の members.json を colors.members_path が見つける(友人の PC。以前は friend-apps/holo-colors/ を探して効かなかった)"""
+        """zip の直下の members.json を colors.members_path が見つける(友人の PC)"""
         p = self.put_members()
         env = {}
         self.assertTrue(places.members_env(self.home, env))

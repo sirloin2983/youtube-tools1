@@ -122,7 +122,7 @@ def _write_layers(tid, sh):
 
 def commit(tid, doc, *, why, mach=None, hum=None, folder=None):
     """文書 <id>.json を書く唯一の口(RS8 O2-0)。why = どの操作か(HUMAN_WHYS か MACHINE_WHYS の名前)。ログに 1 行残す。
-    **層が正(RS8 O2-3。10-18 の決定 3-61 pp2 = B で文書が正の古い枝 shadow・off を消した)**: 人の層 <id>.hum.json → 機械の層 <id>.mach.json →
+    **層が正(RS8 O2-3)**: 人の層 <id>.hum.json → 機械の層 <id>.mach.json →
     組み立て済みの写し <id>.json(欄 composedFrom)の順に書く(_commit_primary)。層の無い古い文書は、操作の前の文書から機械の層を作る(移行もここで)。
     mach = 機械の層(呼び手が機械の行を知っているとき。whole の新しい文書 = 引き継いだ人の行を機械に入れない・再認識と話者の判別 = O2-5)。
     hum = 人の層(差分を取らずにそれを使い、写しは組み立てた文書。3 択の口・O2-5)。-> 書いた文書(hum を渡したときは組み立てた写し)。
@@ -267,7 +267,7 @@ def snapshot(tid, force=True):
 
 def backup_doc(tid, kind):
     """機械が行を書き換える前に、いまの文書を履歴へ必ず 1 つ残す(「以前の版に戻す」で戻せる)。kind = 操作の名前(check・retranscribe・diarize・relink。
-    呼び手の目印。以前は .bak/<id>.pre-<kind>.json にも写していたが、読む所が無く履歴と二重なのでやめた = 決定 3-47 の 1b-1)"""
+    呼び手の目印)"""
     snapshot(tid)
 
 
@@ -394,7 +394,7 @@ def doc_length(d):
 
 # 文書ごとの要約のキャッシュは 1 つ(notes:docs/design/reviews/code-review-simplify-2026-10-08.md の表の T2・T7 の行の G7-2)。
 # 一覧(④ manage/cases/doclist.list_transcripts)・文字起こし済みの判定・評価ドリル(⑤ eval/drill/drill.drill_docs)が同じ要約を使うので、
-# 保存のたびに変わった文書の JSON を読むのは 1 回だけ(以前は 3 つのキャッシュが別々に読んでいた)。
+# 保存のたびに変わった文書の JSON を読むのは 1 回だけ。
 # 鍵 = (パス, 更新日時ns, 大きさ)。パスも入れるのは、作業データの場所を切り替えたとき(テストの一時フォルダ)に同じ id・同じ大きさ・同じ時刻の別の文書を引かないため
 _summary_cache = {}   # tid -> (鍵, 要約)。名前はテストが clear するので変えない
 _summary_lock = threading.Lock()
@@ -662,7 +662,7 @@ def delete_doc(tid):
 # 行(proofedRows = 校正済みにした行・unproofedRows = 外した行)は保存のときにサーバーが数える(どの画面から保存しても同じ数え方)。
 # lastAt = 人が最後に操作した時刻(保存・校正済みの数が変わったとき・編集の画面が操作中に送る POST /api/effort)。**記録のほかの役目**:
 # ⑤ eval/drill/evalbatch が「人が作業中か」をこれで見て、評価用の作り直しで文書を上書きしない守りに使う。
-# 作業した時間の記録(activeSec・cutSec・sessions)はやめた(決定 3-47 の 1d-3。数え方が粗い)。今ある値は消さずに残す(読み手は消した eval_effort.py だけ)。
+# 作業した時間の記録(activeSec・cutSec・sessions)は新しく数えない。今ある値は消さずに残す。
 # どれも文書の updatedAt を動かさない(記録のために画面の保存の競合 baseUpdatedAt / 409 を起こさない)
 EFFORT_KEYS = ("proofedRows", "unproofedRows")
 
@@ -1035,7 +1035,7 @@ _PACK_REQUIRED = (("fps", lambda v: isinstance(v, str) and re.fullmatch(r"\d{1,3
                   ("size", lambda v: v in ("1080x1920", "1920x1080")),
                   ("wrap", lambda v: _yschemas.int_in(v, 0, 40) is not None),
                   *((k, lambda v: isinstance(v, bool)) for k in ("textplus", "render", "speakerColors")))
-# 2026-10-18 まで必須だった backup(Text+ パックの予備。決定 3-34 で消した)は、古い画面が送っても余計な鍵として黙って捨てる
+# backup(Text+ パックの予備)は、古い画面が送っても余計な鍵として黙って捨てる
 _PACK_OPTIONAL = (("streamer", lambda v: _pack_text(v, 200) is not None),
                   ("loudness", lambda v: _yschemas.is_num(v) and v in PACK_OUTPUT_LOUDNESS),
                   ("volume", lambda v: _yschemas.int_in(v, 1, 200) is not None))

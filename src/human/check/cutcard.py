@@ -5,7 +5,7 @@
   gap   消した所 = ok(消してよい)/ keep(残すべき・笑い・反応など)
   whole 仕上がり = good / tempo(テンポが悪い)/ unnatural(不自然な所がある)
 人の答えが自動カットの物差しの正解になる。文書(.json)と編集の内容(.edit.json)には触らない(反映の部品は何もしない)。
-スイッチ enabled(): 既定オン(10-18 ユーザー決定 3-64 (cc1) B)。編集の設定 checkCutCardsOn を明示でオフにしたか、環境変数 YTT_CHECK_CUT が off 系のときだけ出さない。
+スイッチ enabled(): 既定オン(ユーザー決定 3-64 (cc1) B)。編集の設定 checkCutCardsOn を明示でオフにしたか、環境変数 YTT_CHECK_CUT が off 系のときだけ出さない。
 入口が import すると register される(server が import する)。
 """
 import os

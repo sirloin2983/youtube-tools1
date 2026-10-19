@@ -157,7 +157,7 @@ class TestVerdict(Base):
                                                                     "p2": {"judge": "good", "at": 1760000000000}})
 
     def test_parse_verdict(self):
-        """正常な形・配列は断る。at が大きすぎる・無限・NaN・0 以下・数でない = 時刻なし(前は大きすぎる at で OSError / OverflowError になり、送り返し\\ に残り続けた。9e-1)。
+        """正常な形・配列は断る。at が大きすぎる・無限・NaN・0 以下・数でない = 時刻なし。
         大きすぎる at の採否も受付済みへ片付け、送り返しに残さない"""
         self.assertEqual(R.parse_verdict(b'{"v":2,"id":"a","judge":"good","at":5}'), {"v": 2, "judge": "good", "id": "a", "at": 5})
         with self.assertRaises(ValueError):

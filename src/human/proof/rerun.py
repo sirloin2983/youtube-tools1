@@ -271,7 +271,7 @@ def _retranscribe_each(job, spec, targets, wav, start):
     本物と疑似の選び方・ワーカーでの行ごとの認識は ② flow/tx.each_lines(本物の処理 _each_real もそこ)"""
     return _flowtx.each_lines(job, spec, targets, wav, start)
 
-# ---------- 評価用の作り直し(X-RERUN = 全体 × いつものエンジン × 差し替え。ユーザー決定 10-16 Q-A) ----------
+# ---------- 評価用の作り直し(X-RERUN = 全体 × いつものエンジン × 差し替え。ユーザー決定 Q-A) ----------
 def rebuild_whole(job, spec, fields):
     """評価用の作り直しの書き込み(doc_jobs.run_job の文字起こしの結果 fields を、同じ文書 spec["tid"] へ)。-> 文書の id か None(書かなかった)。
     機械の層を丸ごと新しい認識に入れ替え、人の層(答え = 校正・音のメモ・人が付けた話者)は残す。ただし入れたときに「手つかず」で
@@ -321,7 +321,7 @@ def _fsio_norm(p):
     return fsio.norm_path(str(p or ""))
 
 
-# ---------- 認識し直しの受付を 1 つに(X-RERUN。ユーザー決定 10-13 = 対象 × エンジン × 結果の扱い) ----------
+# ---------- 認識し直しの受付を 1 つに(X-RERUN。ユーザー決定 = 対象 × エンジン × 結果の扱い) ----------
 RERUN_TARGETS = ("rows", "span", "whole", "flagged")   # 選んだ行・選んだ行の最初〜最後の範囲・文書の全体・印の付いた所(疑わしい行 = doc_jobs.redo_targets)
 RERUN_ENGINES = ("main", "alt")                         # いつものエンジン(文書の設定)・2 つ目のエンジン(alt)
 RERUN_RESULTS = ("replace", "propose")                  # 機械の結果を差し替える(機械の層だけ。人の行は残る)・候補として出す(文書は書かない)
@@ -331,7 +331,7 @@ def validate_rerun(req):
     """POST /api/rerun {tid, target, engine, result, ids?, 認識の設定(model・language・vadMode…)} -> (spec, ジョブの種類)。
     決まった組だけ受ける: いつものエンジン × 差し替える(rows = 行ごと・span = 範囲・whole = 全体・flagged = 印の付いた行ごと)/
     2 つ目のエンジン × 候補(whole だけ。<id>.alt.json に書く)。2 つ目のエンジンで差し替える・いつものエンジンで候補 は断る(400 bad_combo)。
-    評価用の文書は断る(評価用の作り直しは ⑤ の見回りが全体を入れ直す道だけ = ユーザー決定 10-16 Q-A)"""
+    評価用の文書は断る(評価用の作り直しは ⑤ の見回りが全体を入れ直す道だけ = ユーザー決定 Q-A)"""
     req = req if isinstance(req, dict) else {}
     target = req.get("target") if req.get("target") in RERUN_TARGETS else "rows"
     engine = req.get("engine") if req.get("engine") in RERUN_ENGINES else "main"

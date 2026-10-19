@@ -6,8 +6,7 @@
 - 解析結果の series(盛り上がりグラフ)は cache/series/<動画ID>.json にも保存する(最新 ytt/studiodata.SERIES_KEEP 本まで。再起動後もグラフが出る)。
 - マークの status: ""(候補) / "adopted"(採用) / "rejected"(不採用) / "exported"(書き出し済み)。exported はサーバーだけが付ける。
 - data.json が壊れていたら data.json.corrupt-<日時> に退避して空で起動し、dataWarning で知らせる。1つ前の世代は data.json.bak。
-- **案件にした配信**(決定 3-37 の (r8j)〜(r8q)): 初めて書き出したとき(mark_exported。それまでに書き出したマークが無い配信だけ。
-  書き出したマークのある全部の形の配信は一括の移行で案件に移し済み)に flow/casebook.case_of で案件の根が引けたら、配信を案件の
+- **案件にした配信**(決定 3-37 の (r8j)〜(r8q)): 初めて書き出したとき(mark_exported。それまでに書き出したマークが無い配信だけ)に flow/casebook.case_of で案件の根が引けたら、配信を案件の
   `作業用/候補.json`・`作業用/採用.json` に分けて書き、data.json(とメモリ)には索引の行 {id, kind, title, channel, live?, rev, createdAt, updatedAt, case}
   だけを持つ。読む所(list・get・internal・media_path)は案件のファイルを読んで重ねる(ytt/casefiles。更新日時と大きさのキャッシュ)。
   書く所は 採用 → 候補 → data.json の索引の行の順(rev の正は 採用.json・data.json の rev・題は写し)。人の保存は 候補.json を書き換えない
@@ -249,7 +248,7 @@ class Store:
         self.app_dir = app_dir or _datadir.resolve("app")   # 人の判断の記録(judgments.jsonl)の置き場所。テストは一時フォルダを渡す
         self.ui_path = os.path.join(os.path.dirname(path), "settings-ui.json")
         self.lock = threading.RLock()
-        # 画面の設定(読む・書く・退避・大きさの上限は ytt.settings.SettingsFile。ホーム・編集の設定ファイルと同じ決まり。S4 2026-10-09)
+        # 画面の設定(読む・書く・退避・大きさの上限は ytt.settings.SettingsFile。ホーム・編集の設定ファイルと同じ決まり)
         self.ui_file = _settings.SettingsFile(self.ui_path, max_bytes=UI_MAX_BYTES, writer=lambda p, b: _fsio.atomic_write(p, b), indent=None, lock=self.lock)
         self.videos = {}
         self.groups = {}   # コラボグループ: グループID → {id, name, base, members, offsets, createdAt, updatedAt}
@@ -699,7 +698,7 @@ class Store:
     def adopt_live(self, src, title, start, end, label=""):
         """入口のライブの採用(POST /api/live/adopt。flow/live_adopt.py の StudioMarks): 録画の配信(kind live。src は analyze.validate_live)を
         (無ければ)登録し、区間 [start, end](録画の頭からの秒)と同じ区間(±ytt/marks.DUP_TOL 秒)のマークがあれば使い回し(候補・不採用なら採用に)、
-        無ければ採用のマークを足す。登録・読み・保存を self.lock の中で 1 度にする(前は入口が open → GET → PUT(baseRev)と 409 のやり直し)。
+        無ければ採用のマークを足す。登録・読み・保存を self.lock の中で 1 度にする。
         保存は put_video(画面の保存と同じ検査。案件にした配信は 採用.json へ)。学習の記録は録画では書かない(feedback は kind live を記録しない)。
         -> (配信の id, マーク(公開の形), 番号 n = 配信のマークを開始の順に並べた位置)"""
         if not (schemas.is_num(start) and schemas.is_num(end)):
@@ -1018,7 +1017,7 @@ class Store:
 
     def set_ui_section(self, name, value):
         """画面の設定のうち1つの節(例: review)だけを置き換える。読み込み→書き込みをロックの中で行うので、
-        別のタブ・別の画面が同時に別の節を保存しても消し合わない(以前は画面が全体を読んで全体を書いていた)"""
+        別のタブ・別の画面が同時に別の節を保存しても消し合わない"""
         if not _settings.section_name_ok(name):
             raise ApiError("bad_request", "section の名前が正しくありません", 400)
         if not isinstance(value, dict):

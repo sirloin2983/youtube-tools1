@@ -1,5 +1,5 @@
 // 色の札を並べて描く一覧(グループの見出し + 札の格子)。札の位置は Relayout で決め、描くのとクリックの判定で同じものを使う。
-// 札の形(v1.4.0。ユーザー決定 2026-09-30「案B」): 上段 = 白地に名前(★・直した色の印)、下段 = その人の色を同じ幅の帯に並べる(帯ごとにコピー)。
+// 札の形(ユーザー決定「案B」): 上段 = 白地に名前(★・直した色の印)、下段 = その人の色を同じ幅の帯に並べる(帯ごとにコピー)。
 // マイワードの札は下段が灰色の帯で、本文の1行目を出す(押すと本文をコピー)。
 using System;
 using System.Collections.Generic;
@@ -267,7 +267,7 @@ namespace HoloColors
             if (nameFont == null) MakeFonts();
             g.SmoothingMode = SmoothingMode.AntiAlias;
             // スクロールの分は座標を自分でずらす。Graphics.TranslateTransform は TextRenderer(文字)に効かず、
-            // 文字だけ元の位置に描かれてしまう(2026-09-27 に見つかった不具合)
+            // 文字だけ元の位置に描かれてしまう
             Point off = AutoScrollPosition;
             if (tiles.Count == 0)
             {

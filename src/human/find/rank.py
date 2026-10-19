@@ -43,7 +43,7 @@ WORKERS = 4
 CACHE_TTL = _ytapi.CACHE_TTL
 SEED = os.path.join(os.path.dirname(os.path.abspath(__file__)), "seed.json")   # 事務所の初期の登録(このファイルの隣)
 GROUPS = (("hololive", "ホロライブ"), ("other", "その他"))   # 検索・配信中の事務所の選び方(登録簿のホロライブ以外は「その他」)
-DEFAULT_GROUPS = ["hololive"]   # 事務所を省いたときに探すのはホロライブだけ(「その他」は手で選んだときだけ。10-16 ユーザー)
+DEFAULT_GROUPS = ["hololive"]   # 事務所を省いたときに探すのはホロライブだけ(「その他」は手で選んだときだけ。ユーザー)
 REGIONS = _live.REGIONS            # ("JP", "EN", "ID")
 UNKNOWN = "unknown"                # 地域が決まらない物(名簿に無い・手の指定が無い)
 DEFAULT_REGIONS = ("JP", UNKNOWN)  # 既定の地域(不明も探して、画面で印を付ける)
@@ -131,8 +131,7 @@ def sanitize_registry(obj):
 
 
 def load_registry():
-    """registry.json(無ければ seed.json)。registry.json が壊れていたら、退避してから seed.json で始める
-    (以前は黙って seed.json に戻り、次の保存で壊れたファイルごと登録が上書きされて消えていた)。"""
+    """registry.json(無ければ seed.json)。registry.json が壊れていたら、退避してから seed.json で始める"""
     path = _registry_path()
     try:
         with open(path, encoding="utf-8-sig") as f:

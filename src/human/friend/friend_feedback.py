@@ -1,10 +1,10 @@
-"""友人の「要らない」を PC 側で片付ける(notes:docs/spec/friend.md の 2-14。2026-10-08 ユーザー「不採用の場合こちらにフィードバック」)。
+"""友人の「要らない」を PC 側で片付ける(notes:docs/spec/friend.md の 2-14。ユーザー「不採用の場合こちらにフィードバック」)。
 
 友人のアプリは判断を送り返しの .verdict.json(v 2)で返す。送り返しの受け取り(returns.scan)が、Dropbox で届けたパックの bad・unknown を apply に渡す
 (入口の受付 intake が feedback= で returns へつなぐ)。apply は、届けた記録 logs/deliveries.jsonl(まとめて実行が zip を置くたびに
 record_delivery で 1 行: zip の名前・依頼・配信・入っていたパックとスタジオのマーク)からその zip の中身を引き、M9 の「要らない」と同じ道
 (cases.discard_clip。ただし mark_id は空)で切り抜きの動画・パック・途中のファイルを ごみ箱フォルダ へ(3 日で消える)。
-スタジオのマークは変えない(2026-10-08 ユーザー決定: こちらが友人へ送る基準と友人が実際に採用する基準は別。マークの採用の記録は
+スタジオのマークは変えない(ユーザー決定: こちらが友人へ送る基準と友人が実際に採用する基準は別。マークの採用の記録は
 見どころ検出の精度に使うので混ぜない)。不採用の記録は logs/friend_feedback.jsonl に 1 行(配信 id・マーク id・zip・パック・出どころ origin。あとで精度の道具が読める)。
 出どころ origin(D-SEND 2-7)は request か auto: 判断の任意の origin、無ければ届けた記録の出どころ(手で届けるは auto)、それも無ければ null。
 文字起こしは消さない(精度のデータ)。
@@ -98,7 +98,7 @@ def _judge_friend(log_dir, fb, row, what, at, log):
 
 def apply(log_dir, fb, trash=None, log=None, discard=None):
     """友人の「要らない」を当てる: 届けた記録にあるパックと切り抜きの動画を ごみ箱フォルダ へ(3 日で消える)、記録を friend_feedback.jsonl に。
-    スタジオのマークは変えない(2026-10-08 ユーザー決定: こちらが友人へ送る基準と友人が実際に採用する基準は別。マークの採用の記録は
+    スタジオのマークは変えない(ユーザー決定: こちらが友人へ送る基準と友人が実際に採用する基準は別。マークの採用の記録は
     見どころ検出の精度に使うので混ぜない)。不採用の記録は markId つきでこのファイルに残す。
     discard: 切り抜き 1 本ぶんを ごみ箱 へ移す関数(入口が cases.discard_clip を渡す。形は discard(trash, studio, video_id, mark_id, media, pack)
     -> (移したもの, ごみ箱の場所, スタジオの返事)。失敗は ValueError の子 cases.ReviewError か OSError)。案件の部品 cases を読み込まないための口

@@ -34,7 +34,7 @@ def _hms(ms):
 
 
 def stage_lines(run):
-    """1 本の実行の段ごとの始めと終わりの時刻・かかった秒を 1 段 1 行で(友人のログ friendapp.log 用。10-18 友人の PC が遅い原因を後から追うため)。
+    """1 本の実行の段ごとの始めと終わりの時刻・かかった秒を 1 段 1 行で(友人のログ friendapp.log 用。友人の PC が遅い原因を後から追うため)。
     段の時刻は ② の steps[].startedAt・finishedAt(ミリ秒)。始まらなかった段は書かない"""
     who = getattr(run, "request_id", None) or run.id
     out = []
@@ -302,7 +302,7 @@ class Engine:
             err = "%s %s" % (e.__class__.__name__, str(e)[:300])
             raise
         finally:
-            if self.diag is not None and (made[0] or made[1] or err):   # 確認用の動画づくりの秒(10-18 友人の PC で見られなかった・遅い)
+            if self.diag is not None and (made[0] or made[1] or err):   # 確認用の動画づくりの秒(友人の PC で見られなかった・遅い)
                 bad = bool(err) or (made[1] and not made[0])
                 self.diag.write("error" if bad else "preview", rid=rid, summary=err or "確認用の動画 %d 本・作れなかった %d 本 %.1f 秒" % (
                     made[0], made[1], time.time() - t0), stage="preview", sec=round(time.time() - t0, 1), count=made[0], missed=made[1],

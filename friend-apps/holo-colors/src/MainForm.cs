@@ -31,7 +31,7 @@ namespace HoloColors
             Text = AppInfo.Name;
             Font = Ui.Normal;
             AutoScaleMode = AutoScaleMode.None;   // 大きさは Ui.Px で DPI に合わせる
-            // タスクバーに出すふつうの窓(v1.2.0)。閉じる = 最小化なので、タスクバーにピン止めしたアイコンに起動中の印が付く
+            // タスクバーに出すふつうの窓。閉じる = 最小化なので、タスクバーにピン止めしたアイコンに起動中の印が付く
             FormBorderStyle = FormBorderStyle.Sizable;
             ShowInTaskbar = true;
             MaximizeBox = false;
@@ -398,7 +398,7 @@ namespace HoloColors
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            // × ・ Alt+F4 ・タスクバーの「ウィンドウを閉じる」はアプリの終了(v1.2.1。ユーザーの指摘: × で終了しない)。
+            // × ・ Alt+F4 ・タスクバーの「ウィンドウを閉じる」はアプリの終了(ユーザーの指摘: × で終了しない)。
             // Esc とコピー後に閉じるのは最小化のまま(HideMain。タスクバーに残して、キーでまた開ける)。
             // 窓だけ破棄されて通知領域にアプリが残ると、キーを押すたびにエラーになるので、窓を閉じるときは必ずアプリごと終わる
             if (!app.Quitting)

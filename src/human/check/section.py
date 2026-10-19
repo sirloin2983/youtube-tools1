@@ -243,7 +243,7 @@ SETTING = "checkSectionCardsOn"   # 編集の設定の鍵(既定オン)。既定
 
 
 def enabled():
-    """区間カードのスイッチ(既定オン = 10-18 ユーザー決定 3-63 (ce1) B)。編集の設定 checkSectionCardsOn(設定の画面の「編集」)を
+    """区間カードのスイッチ(既定オン = ユーザー決定 3-63 (ce1) B)。編集の設定 checkSectionCardsOn(設定の画面の「編集」)を
     明示でオフにしたときだけ出さない。環境変数 YTT_CHECK_SECTION が on 系なら出す・off 系(0・off・false・no)なら出さない(テスト・試し)"""
     v = str(os.environ.get(SWITCH_ENV) or "").strip().lower()
     if v in ("1", "on", "true", "yes"):

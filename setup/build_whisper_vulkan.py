@@ -3,12 +3,12 @@
 """whisper.cpp を AMD などの GPU(Vulkan)用に、この PC で作る(精度改善の計画 段2-2。build-whisper-vulkan.bat から呼ぶ)。
 
 公式の配布には Windows の Vulkan 版が無いので、公式のソース(github.com/ggml-org/whisper.cpp)を決まった版で取り、
-そのコミットが決まったもの(src/pipeline/transcribe/tx_engines.py の WHISPER_CPP)と一致するときだけ作る(2026-10-02 ユーザー決定)。
+そのコミットが決まったもの(src/pipeline/transcribe/tx_engines.py の WHISPER_CPP)と一致するときだけ作る(ユーザー決定)。
 
 要るもの: Git・Visual Studio 2022(C++ によるデスクトップ開発。CMake はその中のものを使う)・Vulkan SDK(LunarG。winget install KhronosGroup.VulkanSDK)。
 作った物: 作業データ(%LOCALAPPDATA%\\youtube-tools\\transcribe)の bin\\whisper.cpp-<版>-vulkan\\(whisper-cli.exe と DLL・build.json)。
 ソースと途中のファイルは短い場所 C:\\ytt-build\\ に置き、できたら消す(MSBuild は 260 文字を超えるパスで失敗する。
-シェーダーを作る部品が入れ子のプロジェクトで約 190 文字を足すので、作業データの下(約 90 文字)では作れなかった。2026-10-02)。
+シェーダーを作る部品が入れ子のプロジェクトで約 190 文字を足すので、作業データの下(約 90 文字)では作れない)。
 
     python setup/build_whisper_vulkan.py [--force]
 """
@@ -116,7 +116,7 @@ def main():
     ver, commit = E.WHISPER_CPP["version"], E.WHISPER_CPP["commit"]
     work = os.path.join(os.environ.get("SystemDrive", "C:") + os.sep, "ytt-build")
     src = os.path.join(work, "whisper.cpp-%s" % ver)
-    shutil.rmtree(os.path.join(data, "build"), ignore_errors=True)   # 以前の置き場所(パスが長くて作れなかった)
+    shutil.rmtree(os.path.join(data, "build"), ignore_errors=True)   # 古い置き場所(パスが長くて作れなかった)
     if os.path.isdir(src):
         head = subprocess.run([git, "-C", src, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
         if head != commit:

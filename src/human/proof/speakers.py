@@ -75,7 +75,7 @@ def _spk_ids(doc):
 
 
 def diar_keep_row(g, ids):
-    """話者判別のやり直し・1人指定・「全行をこの人に」で話者を変えない行(2026-10-05): 字幕に出さない行(noSub)・
+    """話者判別のやり直し・1人指定・「全行をこの人に」で話者を変えない行: 字幕に出さない行(noSub)・
     組み込みの話者「ゲーム音声など」の行・音のメモ「声が重なる」(overlap)が付いていて話者のある行(手で作った重なる行を守る)。
     ids = 文書の話者の id の集まり(無い id の話者は守らない)"""
     if not isinstance(g, dict):
@@ -178,7 +178,7 @@ def validate_diarize(req):
     if _heavy.tid_busy(tid, _heavy.EXCLUSIVE["diarize"]):
         raise _errors.ApiError("busy", "この文字起こしは、すでに別の処理(話者判別・再認識)の最中です", 409)
     emb = _diar.embedding(str(req.get("embedding") or ""))   # 知らない・空なら既定
-    names = []   # 出てくる人の名前(友人からの依頼の「話す人」。2026-10-01)
+    names = []   # 出てくる人の名前(友人からの依頼の「話す人」)
     for x in req.get("names") if isinstance(req.get("names"), list) else []:
         s = str(x or "").strip()[:60] if isinstance(x, str) else ""
         if s and not any(ord(ch) < 32 for ch in s) and not DEFAULT_SPK_NAME.match(s) and _textutil.person_key(s) not in {_textutil.person_key(n) for n in names}:
@@ -190,7 +190,7 @@ def validate_diarize(req):
 
 def single_speaker(tid, name):
     """話す人が1人: 判別せずに全部の行をその人に(名前が無ければ「話者1」)。-> 行の数。
-    手で決めた行(diar_keep_row = 字幕に出さない・ゲーム音声など・重なりのメモつき)は話者を変えない(2026-10-05)"""
+    手で決めた行(diar_keep_row = 字幕に出さない・ゲーム音声など・重なりのメモつき)は話者を変えない"""
     with store._save_lock:
         doc = store.read_transcript(tid)
         segs = doc.get("segments") or []
@@ -254,7 +254,7 @@ def run_diarize(job):
 
 
 # ---------- 評価用の文書の文字起こしのあと、話者を自動で判別する ----------
-# 評価用でない文書の自動の判別(設定 autoDiarize)は消した(OPT-H1。決定 notes:plan/decisions.md の 3-47 Q7。普段の判別は ② の流れ = 依頼は人数を指定して直に呼ぶ)。
+# 評価用でない文書の自動の判別はしない(普段の判別は ② の流れ = 依頼は人数を指定して直に呼ぶ)。
 # 評価ドリルでは全行に話者が要る(評価用のフォルダの「メンバーのフォルダへ移す」条件)ので、評価用の文字起こしのあとは必ず判別のジョブを足し、
 # 覚えた声で名前が付かなかった(仮の名前 話者n の)話者のうち、話した秒がいちばん長い人に「動画の手がかり」の名前
 # (drill.drill_candidates の suggest = 覚えた声 → 動画の入ったメンバーのフォルダ → 配信の文脈)を付ける。新しい認識の道は作らない(今の diarize のジョブ)。
@@ -383,7 +383,7 @@ def _autodiar_name_by_context(tid, name):
     return hit
 
 
-# ---------- 覚えた声で名前を付ける・話者の声を覚える(A-3。git の履歴(679ff01 以前)の docs/archive/backlog-ui-2026-09-27.md) ----------
+# ---------- 覚えた声で名前を付ける・話者の声を覚える(A-3) ----------
 # 名前を付けた話者の行の音声から「声の特徴」(sherpa-onnx の話者の埋め込み。判別モデルごとに別)を作って覚え、
 # 次からの話者判別のあとで、見つかった話者を覚えている声と比べて名前を付ける。
 # 声の特徴は個人を見分けられる情報なので、作業データ(voices/)にだけ置く(リポジトリ・パックには入れない)。
@@ -393,7 +393,7 @@ def _autodiar_name_by_context(tid, name):
 # 名前は person_key で比べる(登録簿の「Pekora」と文書の「pekora」は同じ人 = 登録簿の名前に足す)
 _VOICE_MAX_PEOPLE = 300
 DEFAULT_SPK_NAME = re.compile(r"^話者\d+$")   # 話者判別が付けた仮の名前(覚えない・声で付けた名前で置き換えてよい)
-# 一般的な名前(監査18。段1・2026-09-29 ユーザー決定): 声を覚えると、別の配信の「本人」「ゲスト」に同じ名前が付いてしまう(人ではなく役の名前)ので覚えない。
+# 一般的な名前(監査18。段1・ユーザー決定): 声を覚えると、別の配信の「本人」「ゲスト」に同じ名前が付いてしまう(人ではなく役の名前)ので覚えない。
 # 判定は is_generic_speaker_name の1か所(画面は preview の結果を出すだけ)。比べる前に person_key で寄せる(全角の「ＭＣ」・「Speaker 1」・カタカナとひらがなも同じに)
 _GENERIC_SPK_NAMES = frozenset(_textutil.person_key(x) for x in (
     "本人", "ゲスト", "配信者", "私", "自分", "相手", "司会", "mc", "男性", "女性", "不明", "その他", "視聴者", "ナレーション",
@@ -623,7 +623,7 @@ def delete_voice(emb, name):
         del voices[name]
 
 
-# ---------- 話者ごとの字幕の見た目を外から入れる(入口のまとめて実行。2026-10-05。notes:docs/spec/friend.md の 2-8・2-11) ----------
+# ---------- 話者ごとの字幕の見た目を外から入れる(入口のまとめて実行。notes:docs/spec/friend.md の 2-8・2-11) ----------
 # POST /api/speakers/sub {"id": 文書の id, "styles": {"名前": {"color": "#RRGGBB" か "RRGGBB"}}} -> {"ok": true, "applied": [名前…]}
 # 友人の依頼で指定した色を、話者分離のあとに文書の話者へ覚える(PC の「自分の色」には入れない)。名前が合った人(person_key で比べる)だけ。
 # 合う人がいなくても 200(applied が空)。履歴の控えは _recognize_voices が名前を付けるときと同じく残さない(話者の見た目だけの書き込み)

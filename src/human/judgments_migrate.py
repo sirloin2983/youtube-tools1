@@ -43,7 +43,7 @@ from human.check import answerlog as _answerlog  # noqa: E402
 from human.friend import returns as _returns  # noqa: E402
 from ytt import casefiles as _casefiles, datadir as _datadir, fsio as _fsio  # noqa: E402
 
-ENABLED = True   # 10-16 ユーザーが下見(88 件)を見て「写して」= オン。二度流しても増えない(key)
+ENABLED = True   # オン。二度流しても増えない(key)
 
 SOURCES = (("feedback", "スタジオの判定 feedback.jsonl"), ("live", "ライブの届ける・要らない live_feedback.jsonl"),
            ("auto_discard", "案件の要らない(採用.json の auto)"), ("friend", "友人の返事 friend_feedback.jsonl"),

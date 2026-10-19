@@ -1,7 +1,7 @@
 """「確かめる」の価値のカード(切り抜く価値があるか = 70 点以上か)の反映(notes:docs/design/v1-check-build.md・決定 3-41)。
 
 出どころ 2 つ(カードは src/app/check/sources.py の value_auto・value_cand):
-  value:auto  自動でできた切り抜きの品質の確認(送った物も送らなかった物も・10-16 の 2-8)。答え {choice: "good"} = 良い /
+  value:auto  自動でできた切り抜きの品質の確認(送った物も送らなかった物も・2-8)。答え {choice: "good"} = 良い /
               {choice: "bad", reason?: AUTO_REASONS のどれか} = 悪い(理由は任意の札)/ {choice: "unknown"} = 不明(どちらとも言えない。理由なし =
               quality_unknown)。**記録だけ**(答えの行 = answers.jsonl に残す)。
               案件の操作(auto_review・届ける・要らない)は呼ばない = 送るかには効かせない(1-2)。すぐ記録・1 枚遅れはしない。

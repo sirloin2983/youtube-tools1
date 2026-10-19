@@ -41,8 +41,8 @@ from . import doc_jobs, learn, store  # noqa: E402   行を分ける文字数 sp
 ALT_SCHEMA = "youtube-tools-alt/v1"
 MAX_ALT_BYTES = 32 * 1024 * 1024
 # 2つ目のエンジン(設定 altEngine の値 → エンジン・モデル・機器)。モデルはエンジンごとに決め打ち(ここ 1 か所)。
-# 0.58.0(2026-10-11 ユーザー決定「普段よく使っているモデル以外は要らない」)で Qwen3-ASR 1.7B だけに(whisper.cpp・faster-whisper は外した。
-# 保存した設定の外れた値は alt_engine_key が既定に戻す・古い alt.json のエンジンの名前は alt_suggest が「エンジン モデル」のまま出す)
+# Qwen3-ASR 1.7B だけ(ユーザー決定「普段よく使っているモデル以外は要らない」)。
+# 保存した設定の外れた値は alt_engine_key が既定に戻す・古い alt.json のエンジンの名前は alt_suggest が「エンジン モデル」のまま出す
 ALT_ENGINES = {
     "llama.cpp": {"engine": "llama.cpp", "model": "qwen3-asr-1.7b", "device": "auto", "label": "Qwen3-ASR 1.7B(GPU・llama.cpp)"},
 }

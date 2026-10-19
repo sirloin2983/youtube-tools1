@@ -64,7 +64,7 @@ class ReadTest(unittest.TestCase):
     def test_registered_for_three_sources(self):
         for s in ("fill", "alt"):
             self.assertTrue(apply._registered("read", s))
-        self.assertFalse(apply._registered("read", "yt"))   # YouTube の字幕の候補は消した(古い yt の札は 409 で断る)
+        self.assertFalse(apply._registered("read", "yt"))   # YouTube の字幕の候補は出さない(yt の札は 409 で断る)
 
     def test_check_answer_shape(self):
         self.assertEqual(read._check({"choice": "2", "x": 1}), {"choice": "2"})

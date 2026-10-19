@@ -228,7 +228,7 @@ class TestText(Base):
         self.assertTrue(os.path.isfile(self.done("依頼.理由.txt")))   # 飛ばした行の理由
         snap = self.it.snapshot()
         self.assertEqual((snap["today"], snap["requests"][0]["state"], snap["requests"][0]["kind"]), (1, "accepted", "url"))
-        # 同じ配信をもう一度: 断らない(2026-10-02 ユーザー。解析・切り抜き・文字起こしは、まとめて実行が使い回す)
+        # 同じ配信をもう一度: 断らない(ユーザー。解析・切り抜き・文字起こしは、まとめて実行が使い回す)
         self.put("again.url", "[InternetShortcut]\nURL=https://www.youtube.com/watch?v=abcdefghijk\n")
         self.scan2()
         self.assertEqual(len(self.runner.requests), 2)
@@ -251,7 +251,7 @@ class TestText(Base):
         self.assertEqual(r["title"], "x.txt", "題名が分からなければファイル名")
 
     def test_rejected_shows_stream_title(self):
-        """断った配信も、題名が分かれば URL ではなく題名で出す(2026-10-04。一覧で読めるように)"""
+        """断った配信も、題名が分かれば URL ではなく題名で出す(一覧で読めるように)"""
         self.infos = {"bbbbbbbbbbb": {"duration": None, "live": "is_live", "title": "【雑談】配信中の題名", "channel": ""}}
         self.put("y.txt", "https://youtu.be/bbbbbbbbbbb 2\n")
         self.scan2()
@@ -278,7 +278,7 @@ class TestText(Base):
         self.assertEqual(self.runner.requests + self.runner.files, [])
 
     def test_os_files_are_ignored(self):
-        """desktop.ini・Thumbs.db・隠しファイルは依頼ではない(断って移すと、また作られて「断った」が毎回増えた。0.15.1)"""
+        """desktop.ini・Thumbs.db・隠しファイルは依頼ではない(断って移すと、また作られて「断った」が毎回増えた)"""
         for n in ("desktop.ini", "Thumbs.db", "hidden.mp4"):
             self.put(n, b"x")
         if os.name == "nt":
@@ -314,7 +314,7 @@ class TestVideo(Base):
         self.assertTrue(os.path.isfile(f["path"]))
         self.assertEqual(f["streamer"], "さくらみこ")
         self.assertTrue(os.path.isfile(self.done("【さくらみこ】にぇ.mp4")))
-        # 同じ中身をもう一度: 断らない(送り直し。2026-10-02 ユーザー)
+        # 同じ中身をもう一度: 断らない(送り直し。ユーザー)
         self.put("copy.mp4", b"video-bytes-1")
         self.scan2()
         self.assertEqual(len(self.runner.files), 2)
@@ -358,7 +358,7 @@ class TestVideo(Base):
                                                      "streamer": "さくらみこ", "sentAt": ""}, ensure_ascii=False))
         self.scan2()
         f, = self.runner.files
-        self.assertEqual((f["title"], f["streamer"], f["rid"], f["flow"]), ("にぇの叫び", "さくらみこ", rid, "auto"))   # flow の無い 1.0.0 のアプリ = ① (RS5-F。②③ をやめた)
+        self.assertEqual((f["title"], f["streamer"], f["rid"], f["flow"]), ("にぇの叫び", "さくらみこ", rid, "auto"))   # flow の無い 1.0.0 のアプリ = ① (RS5-F)
         r = self.it.snapshot()["requests"][0]
         self.assertEqual((r["source"], r["state"]), ("app", "accepted"))
         self.assertNotIn("memo", r)
@@ -366,7 +366,7 @@ class TestVideo(Base):
         self.assertTrue(os.path.isfile(self.done(rid + "__にぇの叫び.mp4")))
 
     def test_same_video_is_accepted_again(self):
-        """前に受け付けた動画と同じ中身でも断らない(送り直し。2026-10-02 ユーザー)"""
+        """前に受け付けた動画と同じ中身でも断らない(送り直し。ユーザー)"""
         for i, rid in enumerate(("20261001-120000-abc140", "20261001-120000-abc141")):
             self.put(rid + "__同じ.mp4", b"same clip")
             self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "video", "id": rid, "files": [rid + "__同じ.mp4"], "flow": "auto",
@@ -688,8 +688,8 @@ class TestVideoNoSlots(Base):
         return path
 
     def test_probe_video_needs_audio(self):
-        """届いた動画の確かめ(probe_video。中は normalize.probe = 30fps の判定と同じ ffprobe の呼び方。2026-10-09 に寄せた):
-        音声があれば ok と長さ・映像だけ・壊れた・無いファイルは「音声のある動画として読めませんでした」(寄せる前と同じ結果を確かめた)"""
+        """届いた動画の確かめ(probe_video。中は normalize.probe = 30fps の判定と同じ ffprobe の呼び方):
+        音声があれば ok と長さ・映像だけ・壊れた・無いファイルは「音声のある動画として読めませんでした」"""
         ok = intake.probe_video(self.make("音あり", 30))
         self.assertEqual((ok["ok"], ok["reason"]), (True, ""))
         self.assertAlmostEqual(ok["duration"], 2.0, delta=0.1)
@@ -704,7 +704,7 @@ class TestVideoNoSlots(Base):
 
     def test_scan_does_not_wait_for_heavy_slots(self):
         """重い処理の枠を上限まで埋めた状態で 30fps でない動画を置いても、scan はすぐ返り、別の見回りが錠を取れる(9a-1 の再現。
-        前は scan が錠を持ったまま SLOTS.slot で待ち、枠が空くまでライブ配信の依頼・「要らない」・送り返しの見回りも止まっていた)。
+        scan が錠を持ったまま SLOTS.slot で待つと、枠が空くまでライブ配信の依頼・「要らない」・送り返しの見回りも止まる)。
         受付は写して start_file に渡すだけ(写しは 60fps のまま。友人の元のファイルは受付済みへ移るだけ)"""
         src = self.make("【さくらみこ】にぇ", 60)
         with open(src, "rb") as f:
@@ -891,7 +891,7 @@ class TestLiveRequest(Base):
             self.assertTrue(os.path.isfile(self.done(rid + ".request.json")))
         self.assertEqual(len(self.runner.requests), 2)
         self.assertFalse(os.path.exists(os.path.join(self.folder, intake.OUT_DIR)))
-        # 配信の状態が分からない(yt-dlp が答えない)は、まず録画を試す(10-09。① 全自動へ落とすのは録画も始められなかったときだけ = test_unknown_status_*)
+        # 配信の状態が分からない(yt-dlp が答えない)は、まず録画を試す(① 全自動へ落とすのは録画も始められなかったときだけ = test_unknown_status_*)
         self.it.info = lambda vid: None
         rec = self.send("20261008-200000-abc312")
         self.assertEqual((len(self.runner.requests), rec["kind"], rec["state"], len(self.begun)), (2, "live", "accepted", 1))
@@ -957,8 +957,7 @@ class TestLiveRequest(Base):
         self.assertEqual((self.begun, self.info_calls, self.runner.requests), ([], [], []), "yt-dlp も録画元も呼ばない")
 
     def test_unknown_status_tries_recording_before_archive(self):
-        """状態を確かめられなかった(yt-dlp が失敗・無い = info が None)→ 録画を試す(Live.begin が自分でもう一度調べる)。始まれば配信中・配信前と同じ受け付け。
-        10-08 に配信前の依頼 2 件が「確かめられない → アーカイブから ①」に落ちて解析が失敗した(10-09)"""
+        """状態を確かめられなかった(yt-dlp が失敗・無い = info が None)→ 録画を試す(Live.begin が自分でもう一度調べる)。始まれば配信中・配信前と同じ受け付け"""
         self.infos[self.VID] = None
         rid = "20261008-200000-abc360"
         rec = self.send(rid)
@@ -992,7 +991,7 @@ class TestLiveRequest(Base):
 
 class TestYoutubeInfo(unittest.TestCase):
     """youtube_info(yt-dlp の問い合わせ): 配信の前は --ignore-no-formats-error で is_upcoming を出させる。古い yt-dlp のエラー文(will begin)も is_upcoming。
-    ほかの失敗は None(10-09。10-08 に配信前の依頼で None になっていた)"""
+    ほかの失敗は None"""
 
     def run_info(self, returncode, stdout, stderr=""):
         from unittest import mock

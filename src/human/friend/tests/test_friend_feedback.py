@@ -1,5 +1,5 @@
 """友人の「要らない」を PC 側で片付ける(src/human/friend/friend_feedback.py)の単体テスト。ごみ箱は本物の cleanup.Cleanup(一時フォルダ)。
-スタジオは呼ばない(マークは変えない。2026-10-08 ユーザー決定)。
+スタジオは呼ばない(マークは変えない。ユーザー決定)。
 
 実行(リポジトリ直下から): python -m unittest src/human/friend/tests/test_friend_feedback.py -v
 """

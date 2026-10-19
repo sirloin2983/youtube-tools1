@@ -144,7 +144,7 @@ def learn_events(doc):
 
 def learn_groups(doc):
     """人が直した行(まとまり)を [{start,end,original,text}] で返す(学習の材料の行の数え方)。
-    noSub(字幕に出さない)の行とその時間の機械の行は返さない。校正済みの行すべてを返す scope="proofed"(修正データの書き出し用)は 0.68.0 で書き出しと一緒に消した"""
+    noSub(字幕に出さない)の行とその時間の機械の行は返さない"""
     orig, segs = _prep_main(doc)
     out = []
     if not orig or not segs:

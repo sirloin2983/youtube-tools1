@@ -1,4 +1,4 @@
-"""友人からの依頼の受付(notes:docs/spec/friend.md。2026-09-30)。
+"""友人からの依頼の受付(notes:docs/spec/friend.md)。
 
 友人のアプリ(src/friendapp/)か Dropbox のファイルリクエストで届いた依頼を、Dropbox が同期したフォルダで見張り、
 まとめて実行(入口の src/app/autorun.py。読み込まない = 入口が runner= で渡す)に入れて文字起こしまで流す。ホームの起動と一緒に動き、「すべて終了」で止まる。
@@ -19,7 +19,7 @@
   コピーを 30fps(H.264・AAC)にそろえるのは受付ではなく、まとめて実行の最初の段 normalize(② flow/run.py の _step_normalize。submit_file の normalize=True = 封筒の input.normalize)。
   受付は錠の中で短い仕事(大きさ・ffprobe・コピー・案件・submit_file)だけをする = 重い処理の枠 SLOTS を待たない(opt-human 9a-1: 枠を待つ間、
   ライブ配信の依頼・送り返しの見回りが丸ごと止まっていた)
-- 同じ動画・同じ配信も断らない(2026-10-02 ユーザー: 送り直せるように。配信は解析・切り抜き・文字起こしを使い回す。受け付けた配信は intake-state.json に覚えるだけ)
+- 同じ動画・同じ配信も断らない(ユーザー: 送り直せるように。配信は解析・切り抜き・文字起こしを使い回す。受け付けた配信は intake-state.json に覚えるだけ)
 - 友人が時刻で指定した区間(items[].ranges)・カット(cut)・解析の重み(weights)は、形を確かめてまとめて実行へ渡す(notes:docs/spec/friend.md の 2-6)
 - 受付のフォルダ(ホームの設定 intake.folder)と 出力/ の読み方は configured_folder・out_dir_of の 1 か所(入口は Intake.folder()・out_dir() を使う)
 - 1 日の件数の上限は無い(件数では断らない・次の日に回さない。今日の件数は画面に出すだけ)
@@ -46,7 +46,7 @@ VIDEO_EXT = (".mp4", ".mov", ".mkv", ".webm", ".m4v")
 TEXT_EXT = (".txt", ".url")
 REQ_SUFFIX = ".request.json"
 DONE_DIR, FAIL_DIR = "受付済み", "失敗"   # 出力\(OUT_DIR = ① 全自動のパック。友人のアプリの「受け取る」が読む)は届ける側 ② flow/deliver の 1 か所
-FLOW_LABELS = {"auto": "① 全自動", "check": "② 軽く確認"}   # 友人の依頼は RS5-F(2026-10-10)から常に ①・手で置いた物は ②
+FLOW_LABELS = {"auto": "① 全自動", "check": "② 軽く確認"}   # 友人の依頼は常に ①・手で置いた物は ②
 OLD_FLOWS = ("auto", "check", "manual")   # 依頼の flow の値(友人の依頼は全部 ① に読み替え、auto 以外の元の値は記録の flowOrig に残すだけ)
 REQ_KINDS = ("video", "url", "live")   # 依頼の種類(live = ライブ配信。2-15)
 NOTE_LABELS = ("配信者", "ライブ配信")   # 受け付けた・断ったの数に入れない知らせの行
@@ -94,7 +94,7 @@ def _yt_id_ok(v):
 
 def submit_urls(runner, items, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None, cut=None, weights=None,
                 streamer=None):
-    """友人からの依頼(配信の URL)を、配信ごとに ② の口 submit へ(RV A1。欄 → 封筒 + 束の差分は flow/order.py。以前の AutoRunner.start_request)。
+    """友人からの依頼(配信の URL)を、配信ごとに ② の口 submit へ(RV A1。欄 → 封筒 + 束の差分は flow/order.py)。
     items = [{"id": 配信 ID, "top": 1〜30, "title", "channel", "ranges"?, "duration"?}]。flow = auto(① 全自動 = パックまで・送り直しは作り直す)か
     check(② 軽く確認 = 文字起こしまで)。ranges = 時刻で指定した区間 [(開始, 終了)](top に足りない分は自動で埋める)。cut = カットの方法・weights = 解析の重み。
     streamer = 照らし合わせ済みの配信者の名前か None(None・空ならチャンネル名などから自動)。
@@ -121,7 +121,7 @@ def submit_urls(runner, items, request_id=None, flow="check", deliver_dir=None, 
 
 def submit_file(runner, path, title="", streamer=None, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None, cut=None,
                 normalize=True):
-    """友人が切り抜いた動画の依頼(作業データへの写し)を ② の口 submit へ(RV A1。以前の AutoRunner.start_file)-> 実行の public。
+    """友人が切り抜いた動画の依頼(作業データへの写し)を ② の口 submit へ(RV A1)-> 実行の public。
     flow = auto(パックまで)か check(文字起こしまで)。normalize = 最初の段で写しを 30fps に置き換える(写しだけに使う)。形が違えば ValueError"""
     env, diff = _order.order("file", path=path, title=str(title or os.path.basename(str(path or ""))), normalize=normalize is True,
                              upto="pack" if flow == "auto" else "transcribe", streamer=streamer or None, request_id=request_id,
@@ -198,8 +198,7 @@ def probe_video(path):
 def youtube_info(vid):
     """yt-dlp で配信の長さ・状態・題名・チャンネルを調べる(ダウンロードしない)。-> dict か None(調べられない)。
     配信の前(予約)は形式が無いので yt-dlp がエラーで終わる(「This live event will begin in …」)→ --ignore-no-formats-error で live_status is_upcoming を
-    出させる(呼び方は ytt/tools.ytdlp_print_cmd = flow/livesession.py の probe_live と同じ)。古い yt-dlp はそれでもエラーで返すので、その文があれば is_upcoming とみなす。
-    2026-10-08 の友人のライブ依頼 2 件がここで None になり「状態を確かめられない → アーカイブから ①」に落ちて、配信前で解析が失敗していた(10-09)"""
+    出させる(呼び方は ytt/tools.ytdlp_print_cmd = flow/livesession.py の probe_live と同じ)。古い yt-dlp はそれでもエラーで返すので、その文があれば is_upcoming とみなす。"""
     if studio_env.fake():   # 疑似の旗の持ち主(STUDIO_FAKE=1。RS5-D)
         return {"duration": 600.0, "live": "not_live", "title": "疑似タイトル(%s)" % vid, "channel": ""}
     yd = tools.find_tool("yt-dlp")
@@ -641,7 +640,6 @@ class Intake:
         ended = bool(info) and info.get("live") not in ("is_live", "is_upcoming")   # 状態が分かって、終わっている
         # 状態を確かめられなかった(info が空 = yt-dlp が無い・失敗・時間切れ)ときは、ここで諦めずに録画を試す(Live.begin が自分でもう一度調べる。
         # 配信前・配信中なら録画が始まる)。録画も始められなければ、今までどおりアーカイブから ① 全自動(終わった配信ならそれで切り抜ける)。
-        # 10-08 に友人の配信前の依頼 2 件が「確かめられない → アーカイブ」に落ちて、解析が「This live event will begin」で失敗していた(10-09)
         if ended or (not info and self.live_begin is None):
             notes = [{"label": "ライブ配信", "state": "accepted",
                       "reason": ("配信は終わっていたので、アーカイブから ① 全自動で切り抜きます(%s届けます)" if ended else
@@ -712,7 +710,7 @@ class Intake:
                 results.append({"label": label, "state": "rejected", "reason": "同じ配信が2回書かれています(1回だけ受け付けました)"})
                 continue
             info = self.info(it["id"]) or {}
-            if info.get("title"):   # 題名が分かれば、断った理由の行も URL ではなく題名で出す(一覧で読めるように。2026-10-04)
+            if info.get("title"):   # 題名が分かれば、断った理由の行も URL ではなく題名で出す(一覧で読めるように)
                 label = "%s(%s)" % (info["title"], how)
                 known.append(info["title"])
             if info.get("live") in ("is_live", "is_upcoming", "post_live"):
@@ -767,7 +765,7 @@ class Intake:
 
     def _accept_video(self, p, label, who, cfg, rid, flow="check", folder=None, speakers=None, tracks=None, cut=None):
         """1本の動画を確かめて、作業データへコピーし、文字起こしに入れる。-> {"state", "reason", "runId"?}。
-        前に受け付けた動画と同じでも断らない(映像トラックの数などを変えて送り直せるように。2026-10-02 ユーザー)"""
+        前に受け付けた動画と同じでも断らない(映像トラックの数などを変えて送り直せるように。ユーザー)"""
         ext = os.path.splitext(p)[1].lower()
         if ext not in VIDEO_EXT:
             return {"state": "rejected", "reason": "受け付けない種類のファイルです"}

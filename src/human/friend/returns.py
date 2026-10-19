@@ -9,7 +9,7 @@
 - `<requestId>__notice-<at 13 桁>.notice.json`  [作る人に知らせる](C-2-16)= {"v":1, "kind":"failure", "message", "detail", "code", "title", "appVersion", "at", "log"}。
   `<依頼>\\notices\\` に並べ、ホームの「依頼の受付」に出す(recent_notices)・ログに 1 行
 受け取ると `app\\friend-returns\\<YYYY-MM>\\<requestId>\\` に並べ(zip は `<runId>\\` へ展開・採否は `verdicts\\` へ)、元は `送り返し\\受付済み\\<日付>\\` へ移す
-(消さない。受付の 受付済み と同じ日付のフォルダ。形が違う・壊れた物・扱えなかった物は `送り返し\\失敗\\` へ理由の .txt つき)。読む道具は今は無い(⑤ の eval_friend は OPT-E1 で消した)。
+(消さない。受付の 受付済み と同じ日付のフォルダ。形が違う・壊れた物・扱えなかった物は `送り返し\\失敗\\` へ理由の .txt つき)。
 zip の中のパスは展開先の中だけ(zip slip を断る。Windows の予約名・: を含む名前も断る)。部品を壊す物・大きすぎる物は zip ごと断る。intake.scan から scan が 1 行で呼ばれる。
 標準ライブラリと ytt・flow だけ。
 """

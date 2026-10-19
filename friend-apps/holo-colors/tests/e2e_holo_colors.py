@@ -288,7 +288,7 @@ class E2E:
             raise Failure("前面の窓が変わったので止めました(%s)。テストの間はマウスとキーボードに触らないでください" % what)
 
     def close_button(self):
-        """右上の × と同じ知らせ(WM_SYSCOMMAND の SC_CLOSE)を送る → アプリが終わる(v1.2.1)"""
+        """右上の × と同じ知らせ(WM_SYSCOMMAND の SC_CLOSE)を送る → アプリが終わる"""
         user32.PostMessageW.argtypes = (wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM)
         user32.PostMessageW(self.main, 0x0112, 0xF060, 0)
         try:
@@ -298,7 +298,7 @@ class E2E:
         self.check(self.proc.returncode == 0, "右上の × でアプリが終わる")
 
     def visible(self):
-        """一覧が開いているか(v1.2.0 から、閉じる = 最小化。タスクバーには残る)"""
+        """一覧が開いているか(閉じる = 最小化。タスクバーには残る)"""
         return bool(user32.IsWindowVisible(self.main)) and not user32.IsIconic(self.main)
 
     def in_taskbar(self):
@@ -418,7 +418,7 @@ class E2E:
             raise Failure("クリックする場所に一覧の窓が無いので止めました")
         click(pt.x, pt.y)
         self.wait("クリックで閉じる", lambda: not self.visible())
-        # v1.4.0 から、一覧の一番上は「最近使ったもの」(写し)。この前に検索してコピーした人が先頭の札になる
+        # 一覧の一番上は「最近使ったもの」(写し)。この前に検索してコピーした人が先頭の札になる
         first = member
         self.check(get_clipboard() == first["hex"].upper(), "札のクリックで色がコピーされる(最近使ったものの先頭 = %s %s)" % (first["name"], first["hex"]))
         if have_b:
@@ -427,7 +427,7 @@ class E2E:
         else:
             print("注意: 窓 B を前面にできなかったので、戻る先の確認は飛ばします")
 
-        # 札の色の帯(v1.4.0)の2本目を押すと、その人の2つ目の色がコピーされる。位置は PaletteView.Relayout / PlaceParts と同じ計算。
+        # 札の色の帯の2本目を押すと、その人の2つ目の色がコピーされる。位置は PaletteView.Relayout / PlaceParts と同じ計算。
         # 先頭の札は「最近使ったもの」のいちばん上(直前にコピーした人。帯が1段に収まる人)
         hotkey()
         self.wait("開く", lambda: self.visible() and user32.GetForegroundWindow() == self.main)

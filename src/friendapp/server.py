@@ -250,7 +250,7 @@ class Handler(BaseHTTPRequestHandler):
         self._json(code, {"error": err, "message": message})
 
     def _token_fail(self):
-        """合言葉が違う(0.95.0 の「合言葉が違います」)。診断は 10 分に 1 回(合言葉が入っていたかと口の名前だけ。中身は書かない)"""
+        """合言葉が違う(「合言葉が違います」)。診断は 10 分に 1 回(合言葉が入っていたかと口の名前だけ。中身は書かない)"""
         d = getattr(self.server.app, "diag", None)
         if d is not None:
             d.once("token", TOKEN_DIAG_EVERY, "token", summary="合言葉が違います", path=urllib.parse.urlsplit(self.path).path[:80],
