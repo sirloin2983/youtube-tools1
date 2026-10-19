@@ -139,9 +139,10 @@ def load_machine(studio):
     return rows
 
 
-def human_marks(app):
-    """スタジオの人の採否 -> {配信の id: {マークの id: judgments の行(adopt・reject)}}(取り消しは畳んだあと。判定の無いマークは入らない)"""
-    rows = [r for r in judgments.rows(app) if r["who"] == "self" and r.get("via") in REVIEW_VIAS]
+def human_marks(app, jrows=None):
+    """スタジオの人の採否 -> {配信の id: {マークの id: judgments の行(adopt・reject)}}(取り消しは畳んだあと。判定の無いマークは入らない)。
+    jrows = judgments.rows(app) を読んであれば渡す(この下の関数も同じ。1 回の evaluate で 1 回だけ読む)"""
+    rows = [r for r in (judgments.rows(app) if jrows is None else jrows) if r["who"] == "self" and r.get("via") in REVIEW_VIAS]
     out = {}
     for (vid, mid), slot in judgments.fold(rows).items():
         if slot["adopt"] is not None:
@@ -682,12 +683,12 @@ def _used_group(items):
             "scene": {"judged": len(scene), "boring": boring}, "sceneBoringRate": rate(boring, len(scene))}
 
 
-def friend_used(app, rows, since_ms=None, until_ms=None, friend_runs=frozenset()):
+def friend_used(app, rows, since_ms=None, until_ms=None, friend_runs=frozenset(), drows=None):
     """物差し 2: 届けたパック(origin ごと)に友人が付けた 3 つの答え。分母 = 届けた記録のパック(同じ zip の同じパックは 1 つ)。
     答え = judgments の who friend の good / bad(reason)/ unknown(見送る・3 日の自動 by auto・古い reject も)。行が無い = 答えなしも unknown。
-    scene = 友人が区間を指定した実行(friend_runs の runId)のパックを外した、場面の選び方の数え方(C-4-1)"""
+    scene = 友人が区間を指定した実行(friend_runs の runId)のパックを外した、場面の選び方の数え方(C-4-1)。drows = 届けた記録の行(読んであれば)"""
     by_pack, by_mark = friend_lane(rows)
-    got = deliveries.rows(os.path.join(app, "logs")) or []
+    got = (deliveries.rows(os.path.join(app, "logs")) or []) if drows is None else drows
     items, seen = {o: [] for o in H3_ORIGINS}, set()
     for d in got:
         at = d.get("at")
@@ -736,16 +737,16 @@ def quality_counts(rows):
     return {"good": good, "bad": bad, "unknown": unknown, "judged": good + bad, "goodRate": rate(good, good + bad), "byOrigin": by_origin, "reasons": reasons}
 
 
-def human3(app, friend, since_ms=None, until_ms=None, records=None):
+def human3(app, friend, since_ms=None, until_ms=None, records=None, jrows=None, drows=None):
     """-> 物差し 3 本。friend = friend_ranges の結果(1 本目はそのまま)。人の判断は judgments だけを読む。
     records = 入口の実行記録(run_records と同じ。読んであれば渡す = 区間指定の実行を外す scene の数え方に使う)"""
-    rows = [r for r in judgments.rows(app) if C.in_period(int(r["at"]), since_ms, until_ms)]
+    rows = [r for r in (judgments.rows(app) if jrows is None else jrows) if C.in_period(int(r["at"]), since_ms, until_ms)]
     o = friend["overall"]
     rng = {k: o[k] for k in ("ranges", "analyzedRanges", "videos", "analyzedVideos", "hit", "hitRate", "miss", "missRate")}
     rng["top"] = o["top"]
     rng["few"] = friend["few"]
     fr_ids = friend_run_ids(run_records(app) if records is None else records)
-    return {"schema": "youtube-tools-marks-human3/v1", "friendRange": rng, "used": friend_used(app, rows, since_ms, until_ms, fr_ids), "quality": quality_counts(rows),
+    return {"schema": "youtube-tools-marks-human3/v1", "friendRange": rng, "used": friend_used(app, rows, since_ms, until_ms, fr_ids, drows), "quality": quality_counts(rows),
             "judgments": len(rows)}
 
 
@@ -754,7 +755,8 @@ def evaluate(data_dir=None, since=None, until=None):
     env, studio, app = locate(data_dir)
     since_ms, until_ms = C.period(since, until)
     dvideos, machine, records, archive = studio_videos(studio), load_machine(studio), run_records(app), archive_reader(studio)   # 1 回だけ読む
-    runs, human = load_runs(app, records), human_marks(app)
+    jrows, drows = judgments.rows(app), deliveries.rows(os.path.join(app, "logs")) or []
+    runs, human = load_runs(app, records), human_marks(app, jrows)
 
     def build(s, u):
         return build_videos(studio, machine, runs, env, s, u, dvideos=dvideos, archive=archive, human=human)
@@ -770,7 +772,7 @@ def evaluate(data_dir=None, since=None, until=None):
         notes.append("まとめて実行・依頼の自動採用(マークか機械の記録の adoptedBy)として正に数えなかったマークが %d 個あります" % overall["top"]["all"]["machine"])
     few = overall["judgedVideos"] < FEW_VIDEOS
     studio_judged = {V["id"] for V in vlist if group_metrics([V])["judgedVideos"]}
-    overall["judgedElsewhere"] = judged_elsewhere(app, studio_judged, since_ms, until_ms, records, folder_videos(dvideos))
+    overall["judgedElsewhere"] = judged_elsewhere(app, studio_judged, since_ms, until_ms, records, folder_videos(dvideos), jrows, drows)
     overall["judgedAll"] = overall["judgedElsewhere"]["all"]
     meta = {"schema": SCHEMA, "at": int(time.time() * 1000), "since": since, "until": until, "git": C.git_rev(),
             "studioDir": studio, "videos": len(vlist), "judgedVideos": overall["judgedVideos"], "judgedAll": overall["judgedAll"], "few": few,
@@ -785,7 +787,7 @@ def evaluate(data_dir=None, since=None, until=None):
     clip = lengthhint.compute(studio, app, by_type=True)
     fit = clipfit.evaluate(studio, app, records=records, hint=clip, data_dir=data_dir)   # 期間で絞らない(友人の区間は少ない)
     fit.pop("items", None)
-    return {"meta": meta, "human3": human3(app, friend, since_ms, until_ms, records), "overall": overall, "byType": {k: group_metrics(v) for k, v in sorted(types.items())},
+    return {"meta": meta, "human3": human3(app, friend, since_ms, until_ms, records, jrows, drows), "overall": overall, "byType": {k: group_metrics(v) for k, v in sorted(types.items())},
             "byVideo": by_video, "friendRanges": friend, "clipLength": clip, "clipFit": fit}
 
 
@@ -819,7 +821,7 @@ def _friend_folder(sent, run_id, run_src):
     return os.path.normcase(os.path.dirname(os.path.abspath(src))) if isinstance(src, str) and src else ""
 
 
-def judged_elsewhere(app, studio_judged, since_ms=None, until_ms=None, records=None, folders=None):
+def judged_elsewhere(app, studio_judged, since_ms=None, until_ms=None, records=None, folders=None, jrows=None, drows=None):
     """C1 の入口(「採用の記録 配信 10 本」)に数える、スタジオの判定の外の人の判定(K2 の決定 = 線 D の [採用][要らない]・友人の返事も数える)。
     線 D の録画 = judgments の人の行(origin live。adopt = 届けた = 良い・reject = 要らない = 悪い。自動の採用は数えない)を録画ごとに。
     友人の返事 = judgments の who friend の「要らない」(friend_value が bad・unknown の行 = 古い reject も)のある配信。行の videoId が空なら、
@@ -829,15 +831,16 @@ def judged_elsewhere(app, studio_judged, since_ms=None, until_ms=None, records=N
     **採用率には混ぜない**(友人が採る基準は送る基準と別 = ユーザー決定)。records = run_records(app) を読んであれば渡す。
     -> {"live": {"recordings", "good", "bad"}, "friend": {"videos", "rows", "unknown", "notInStudio"}, "all": スタジオの判定のある配信 + 線 D の録画 + ほかで数えていない友人の配信}"""
     live = {}
-    for j in live_human(app, since_ms, until_ms):
+    jrows = judgments.rows(app) if jrows is None else jrows
+    for j in live_human(app, since_ms, until_ms, jrows):
         g = live.setdefault(live_key(j), {"good": 0, "bad": 0})
         g["good" if j["what"] == "adopt" else "bad"] += 1
     recs = run_records(app) if records is None else records
     run_vid = {r.get("id"): r.get("videoId") for r in recs if isinstance(r.get("videoId"), str) and r.get("videoId")}
     run_src = {r.get("id"): r.get("sourcePath") for r in recs if isinstance(r.get("sourcePath"), str)}
-    sent = {d.get("zip"): d for d in deliveries.rows(os.path.join(app, "logs")) or [] if isinstance(d, dict)}   # 同じ zip は最後の行
+    sent = {d.get("zip"): d for d in ((deliveries.rows(os.path.join(app, "logs")) or []) if drows is None else drows) if isinstance(d, dict)}   # 同じ zip は最後の行
     friend, unknown = {}, 0
-    for r in judgments.rows(app):
+    for r in jrows:
         if judgments.friend_value(r) not in ("bad", "unknown") or not C.in_period(int(r["at"]), since_ms, until_ms):
             continue
         ref = r.get("ref") or {}
@@ -858,9 +861,9 @@ def judged_elsewhere(app, studio_judged, since_ms=None, until_ms=None, records=N
             "all": len(studio_judged) + len(live) + len(extra)}
 
 
-def live_human(app, since_ms=None, until_ms=None):
+def live_human(app, since_ms=None, until_ms=None, jrows=None):
     """線 D の録画の人の判断(judgments の who self・origin live の採用 / 不採用。取り消しは畳んだあと)。-> 行のリスト(古い順)"""
-    rows = [r for r in judgments.rows(app) if C.in_period(int(r["at"]), since_ms, until_ms)]
+    rows = [r for r in (judgments.rows(app) if jrows is None else jrows) if C.in_period(int(r["at"]), since_ms, until_ms)]
     out = [slot["adopt"] for slot in judgments.fold(rows).values()
            if slot["adopt"] is not None and slot["adopt"].get("origin") == "live" and slot["adopt"]["who"] == "self"]
     out.sort(key=lambda r: r["at"])
