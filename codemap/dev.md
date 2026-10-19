@@ -57,8 +57,8 @@
   - 名前: `label` :59・`summary` :64・`selected` :71・`run_one` :84・`main` :98
 - **run_editor_suite.py** (99 行) — 「編集」まわりのテストをまとめて流し、結果の1行ずつを出す(段10 のコードの整理で、分ける前と後の結果を比べるため)。
   - 名前: `find_node` :26・`summary` :48・`main` :61
-- **run_unit.py** (214 行) — unittest を層ごと・フォルダごとに流す道具(1 本ずつ別のプロセス)。リポジトリ直下で:
-  - 名前: `find_node` :44・`find_files` :64・`matches` :79・`build_units` :96・`run_one` :118・`report` :140・`run_all` :155・`print_summary` :174・`main` :184
+- **run_unit.py** (218 行) — unittest を層ごと・フォルダごとに流す道具(1 本ずつ別のプロセス)。リポジトリ直下で:
+  - 名前: `find_node` :44・`find_files` :64・`matches` :79・`build_units` :96・`run_one` :118・`report` :142・`run_all` :157・`print_summary` :176・`main` :188
 - **session_start.py** (454 行) — セッションの入口の要約。新しい AI のセッションが最初に流し、今の状態を 1 画面(150 行以内)で見る。
   - 名前: `cut` :49・`run` :54・`git` :64・`read` :68・`git_block` :78・`versions` :98・`worklog_block` :107・`boundary_dirs` :123・`boundary_notes` :131・`boundary_block` :146・`load_items` :160・`plan_block` :170・ほか 16
 - **spec_check.py** (222 行) — 仕様(保管庫の docs/spec/)とコードの食い違いを探す。
