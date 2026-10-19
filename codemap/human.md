@@ -81,8 +81,8 @@
 ## src/human/review/
 
 - **__init__.py** (3 行) — ③ 候補の確認(手動マーク・採用と不採用・端の調整・その記録)
-- **machinelog.py** (103 行) — スタジオのマークの機械の記録(machine_marks.jsonl。10-19 ③ の統合 Q2 で feedback.jsonl から名前を変えた)。
-  - 名前: `path` :34・`record` :64・`nearest_auto` :82
+- **machinelog.py** (102 行) — スタジオのマークの機械の記録(machine_marks.jsonl。10-19 ③ の統合 Q2 で feedback.jsonl から名前を変えた)。
+  - 名前: `path` :33・`record` :63・`nearest_auto` :81
 - **store.py** (858 行) — ③ 動画とマークの保存(data.json)。スレッドセーフ・原子的に書き込む。スタジオの `Store` が書き手(スタジオなしの書き手は ② flow/studiobook の StudioBook)。
   - 名前: `offset_from_anchors` :97・`class SeriesCache` :196・`class Store` :235
 

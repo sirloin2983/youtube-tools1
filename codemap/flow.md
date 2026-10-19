@@ -33,8 +33,8 @@
   - 名前: `media_key_path` :40・`doc_key_path` :45・`pack_key_path` :55・`write` :60・`read` :71・`stale` :83・`remove` :95・`key_hash` :107・`export_inputs` :114・`transcribe_inputs` :122・`post_inputs` :134・`diar_inputs` :142・ほか 15
 - **learning.py** (177 行) — ② 管理: 学習データを読む側(F1。notes:docs/design/f1-build.md の 2 の F1・3 の (f1c))。
   - 名前: `is_pack` :29・`pack_version` :34・`maker_pc` :41・`learning_dir_checked` :52・`learning_dir` :65・`apply_places` :77・`class Learning` :108・`stamp` :167
-- **lengthhint.py** (262 行) — ② 管理の層 flow: 自動の切り抜きの長さの目安(友人が依頼で指定した区間の長さから。OPT-E2 7f-1・7f-2。決定 3-49 の Q1)。
-  - 名前: `friend_ranges` :73・`load_archive` :88・`candidates` :108・`peak_ratio` :132・`samples` :144・`suggest` :161・`compute` :184・`usable` :204・`describe` :214・`change` :226・`class Tracker` :236
+- **lengthhint.py** (273 行) — ② 管理の層 flow: 自動の切り抜きの長さの目安(友人が依頼で指定した区間の長さから。OPT-E2 7f-1・7f-2。決定 3-49 の Q1)。
+  - 名前: `run_ranges` :73・`friend_ranges` :81・`read_archive` :92・`load_archive` :109・`candidates` :119・`peak_ratio` :143・`samples` :155・`suggest` :172・`compute` :195・`usable` :215・`describe` :225・`change` :237・ほか 1
 - **live_adopt.py** (276 行) — ライブの採用 = サーバー側の「マーク + 書き出し」(線 D の M1。RS7-2 G1b)。
   - 名前: `adopt_secs` :42・`pad_secs` :63・`top_of` :75・`class StudioMarks` :85・`class LocalMarks` :128・`class Adopter` :220
 - **live_archive.py** (1533 行) — 録画に無い区間をアーカイブ(YouTube)から書き出す(線 D の P4 の残り。notes:plan/line-d-live-clipping.md の 0-9)と、配信後の全自動(M7)の入口の側の中身。

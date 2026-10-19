@@ -9,20 +9,20 @@
 ## src/eval/check/
 
 - **__init__.py** (2 行) — ⑤ 確かめるの待ち行列(V1。カードの出どころ sources・並び lineup・目標との対応 goals・組み立て deck。notes:docs/design/v1-check-build.md)
-- **goals.py** (72 行) — 「確かめる」のカードの種類 → 入口の条件(src/eval/drill/accuracy.py の GOALS)の対応と、答えの数え方(V1 の V0。notes:docs/design/v1-check-build.md の 2-3)。
-  - 名前: `register` :22・`goal_of` :30・`extra_counter` :35・`extra_from` :52・`by_kind` :60・`view` :66
+- **goals.py** (64 行) — 「確かめる」のカードの種類 → 入口の条件(src/eval/drill/accuracy.py の GOALS)の対応と、答えの数え方(V1 の V0。notes:docs/design/v1-check-build.md の 2-3)。
+  - 名前: `goal_of` :22・`extra_counter` :27・`extra_from` :44・`by_kind` :52・`view` :58
 
 ## src/eval/drill/
 
 - **__init__.py** (2 行) — ⑤ 評価ドリル・評価用フォルダ・精度のカード・A/B・精度の自動測定
-- **accuracy.py** (633 行) — 精度の自動測定(マスタープラン Q3)。
-  - 名前: `class ToolError` :87・`summarize_asr` :106・`summarize_marks` :121・`summarize_speakers` :140・`summarize_cut` :164・`summarize_alt` :177・`summarize_fill` :192・`summarize_timing` :207・`summarize_generic` :229・`count_daily` :252・`goals_of` :286・`in_window` :318・ほか 2
-- **drill.py** (451 行) — 「編集」のサーバーの部品: 評価ドリルと定点の「あと何分」(マスタープラン Q4)。
-  - 名前: `drill_reviewed_sec` :50・`drill_stream_key` :57・`drill_doc_summary` :76・`drill_docs` :129・`drill_status` :162・`drill_next` :205・`drill_reviewed` :271・`drill_unreviewed` :302・`drill_candidates_for` :387・`drill_candidates` :426
-- **evalbatch.py** (806 行) — 「編集」のサーバーの部品: 評価用の動画を、手が空いたとき少しずつまとめて文字起こしする(マスタープラン Q4(b))。
-  - 名前: `eb_path` :112・`eb_lock_path` :117・`eb_key` :121・`eb_read` :133・`eval_batch_status` :181・`eb_require_ready` :208・`eval_batch_start` :216・`eval_batch_stop` :231・`eb_scan` :258・`eb_candidates` :276・`eb_diar_candidates` :299・`eb_request` :357・ほか 8
-- **metrics.py** (290 行) — ⑤ テストと検証の層 eval/drill: 認識精度の測定(文字誤り率 CER。人が校正済みにした行を正解に、機械の出力 original と比べる)・
-  - 名前: `nosub_stats` :28・`is_overlap_group` :38・`overlap_orders` :55・`overlap_best_counts` :74・`norm_cer` :99・`lev_counts` :105・`metric_terms` :148・`new_acc` :161・`acc_line` :166・`acc_merge` :190・`acc_finish` :201・`doc_metrics` :210・ほか 2
+- **accuracy.py** (622 行) — 精度の自動測定(マスタープラン Q3)。
+  - 名前: `class ToolError` :87・`summarize_asr` :106・`summarize_marks` :121・`summarize_speakers` :140・`summarize_cut` :164・`summarize_alt` :177・`summarize_fill` :192・`summarize_timing` :207・`count_daily` :241・`goals_of` :275・`in_window` :307・`day_of` :314・ほか 1
+- **drill.py** (440 行) — 「編集」のサーバーの部品: 評価ドリルと定点の「あと何分」(マスタープラン Q4)。
+  - 名前: `drill_reviewed_sec` :47・`drill_stream_key` :54・`drill_doc_summary` :73・`drill_docs` :126・`drill_status` :159・`drill_next` :202・`drill_reviewed` :268・`drill_unreviewed` :299・`drill_candidates_for` :376・`drill_candidates` :415
+- **evalbatch.py** (765 行) — 「編集」のサーバーの部品: 評価用の動画を、手が空いたとき少しずつまとめて文字起こしする(マスタープラン Q4(b))。
+  - 名前: `eb_path` :78・`eb_lock_path` :83・`eb_key` :87・`eb_read` :99・`eval_batch_status` :147・`eb_require_ready` :174・`eval_batch_start` :182・`eval_batch_stop` :197・`eb_scan` :224・`eb_candidates` :242・`eb_diar_candidates` :265・`eb_request` :323・ほか 7
+- **metrics.py** (301 行) — ⑤ テストと検証の層 eval/drill: 認識精度の測定(文字誤り率 CER。人が校正済みにした行を正解に、機械の出力 original と比べる)・
+  - 名前: `nosub_stats` :28・`is_overlap_group` :38・`overlap_orders` :55・`overlap_best_counts` :74・`norm_cer` :99・`lev_counts` :105・`metric_terms` :148・`new_acc` :161・`acc_line` :166・`acc_merge` :190・`acc_finish` :201・`scored_groups` :210・ほか 3
 
 ## src/eval/fake/
 
@@ -35,26 +35,26 @@
 ## src/eval/tools/
 
 - **__init__.py** (2 行) — ⑤ 物差し(測る道具 eval_*・clipfit と共通の部品 _evalcommon)
-- **_evalcommon.py** (291 行) — dev/ の測る道具(eval_asr.py・eval_speakers.py・eval_timing.py・eval_cut.py・eval_alt.py・eval_marks.py)の共通の部品。
-  - 名前: `add_period_args` :36・`split_ids` :45・`label_name` :50・`data_env` :55・`locate` :60・`day_ms` :67・`period` :78・`in_period` :83・`period_label` :92・`rate` :101・`pct` :105・`dist` :110・ほか 10
-- **clipfit.py** (357 行) — 自動の区間が友人の区間にどれだけ合うかの物差し(LD-2a。notes:plan/done/ld2-clip-length.md の L-2)。⑤ eval_marks が表示に使い、単独でも動く。
-  - 名前: `load_material` :42・`rebuild` :66・`picks` :87・`fit` :96・`summarize` :108・`default_variants` :118・`friend_material` :126・`evaluate` :138・`edge_speech` :199・`scene_only` :257・`grid` :272・`print_fit` :304・ほか 1
-- **eval_alt.py** (564 行) — 「2つ目のエンジンとの食い違いの候補」(行に出る札「別」)が、校正を本当に速くしているかを数字で見る道具(候補の当たり率)。
-  - 名前: `locate` :75・`name_checker` :80・`read_alt` :87・`read_feedback` :95・`read_answers` :106・`pct` :135・`num` :140・`clean_rows` :146・`fold_text` :153・`class Group` :163・`map_span` :188・`judge_candidate` :206・ほか 9
-- **eval_asr.py** (1076 行) — 文字起こしの精度を、校正済みの文字起こし(評価用)で測る道具(文字起こしの改善の計画 段0-2。notes:plan/line-b-transcription.md(付録))。
-  - 名前: `real_data_dir` :105・`load_docs` :110・`has_proofed` :128・`whole_video` :132・`reviewed_sec` :138・`resolve_source` :159・`doc_time` :163・`select_docs` :177・`resolve_reviewed` :200・`pick_reviewed` :208・`runs_of` :226・`draft_run` :231・ほか 43
-- **eval_cloud.py** (514 行) — クラウドの文字起こし(OpenAI・ElevenLabs)に評価用の音声を送り、手元のエンジンと同じ物差し(src/eval/tools/eval_asr.py の採点)で測る道具
-  - 名前: `request_fields` :82・`timing_kind` :96・`multipart` :103・`http_json` :115・`auth_headers` :134・`scrub` :138・`send_audio` :146・`delete_remote` :159・`rows_from_words` :183・`rows_from` :215・`cache_dir` :230・`audio_span` :234・ほか 17
-- **eval_cut.py** (417 行) — カットのたたき台(機械の最初の結果)と、人の最終の差を測る道具(マスタープラン Q3・I-3a: 無音のしきい値・行の後の余白の既定を見直す材料)。
-  - 名前: `num` :60・`ms_of` :64・`read_edit` :69・`read_draft` :99・`pack_final` :115・`find_pack` :140・`pct` :164・`clean` :175・`compare` :186・`class Agg` :228・`fmt_val` :268・`sig_of` :272・ほか 5
-- **eval_fill.py** (416 行) — 認識のあとの後処理(src/pipeline/transcribe/fill.py・llm.py。A 文字の少ない行を別の読みで埋める・D 名簿の呼び名の 1 字違いを直す・
-  - 名前: `fold` :70・`edit_distance` :75・`rows_of` :82・`overlap` :94・`first_run` :98・`read_answers` :107・`answer_of` :123・`answer_before` :127・`answer_time` :133・`checked_around` :138・`raw_text` :147・`match_seg` :153・ほか 15
-- **eval_marks.py** (1264 行) — 盛り上がりの検出(スタジオの自動マーク)の当たり具合を、人の判定の記録で測る道具(線 C の土台。notes:plan/line-bc-master-plan.md の Q3・I-4a)。
-  - 名前: `read_jsonl` :97・`locate` :116・`studio_videos` :122・`load_machine` :131・`human_marks` :144・`archive_reader` :154・`load_archive` :165・`run_records` :181・`load_runs` :186・`ts_ms` :208・`num` :215・`dist` :219・ほか 34
-- **eval_speakers.py** (1138 行) — 話者の判別(と覚えた声の照合)の当たり具合を、人が直した最終で測る道具(線 B の話者の評価。notes:plan/line-bc-master-plan.md の Q3・I-2a)。
-  - 名前: `read_diar` :101・`num` :110・`norm_name` :114・`hungarian_max` :118・`best_mapping` :169・`time_edited_flags` :183・`is_other_row` :204・`in_period` :209・`confirm_map` :213・`human_rows` :244・`overlap_rows` :285・`class Overlap` :310・ほか 34
-- **eval_timing.py** (510 行) — 行の時刻(字幕の区間)を、行の時刻の原則(notes:docs/spec/subtitles.md)の数字で測る道具(notes:plan/done/line-b-row-timing.md の 7-4)。
-  - 名前: `current_variant` :79・`letters` :87・`text_rows` :92・`text_match` :107・`best_overlap` :113・`measure_rows` :123・`boundary_agreement` :165・`boundary_sum` :189・`summarize` :197・`post_label` :207・`engine_label` :227・`doc_record` :233・ほか 14
+- **_evalcommon.py** (343 行) — 測る道具(src/eval/tools の eval_*.py・clipfit.py)の共通の部品。道具は src の中で `py -3.12 -m eval.tools.<名前>` で動かす(入口の accuracy.py も同じ)。
+  - 名前: `add_period_args` :36・`split_ids` :45・`label_name` :50・`data_env` :55・`locate` :60・`day_ms` :67・`period` :78・`in_period` :83・`period_label` :92・`iter_docs` :100・`read_answers` :109・`short_pct` :127・ほか 14
+- **clipfit.py** (342 行) — 自動の区間が友人の区間にどれだけ合うかの物差し(LD-2a。notes:plan/done/ld2-clip-length.md の L-2)。⑤ eval_marks が表示に使い、単独でも動く。
+  - 名前: `load_material` :35・`rebuild` :51・`picks` :72・`fit` :81・`summarize` :93・`default_variants` :103・`friend_material` :111・`evaluate` :123・`edge_speech` :184・`scene_only` :242・`grid` :257・`print_fit` :289・ほか 1
+- **eval_alt.py** (534 行) — 「2つ目のエンジンとの食い違いの候補」(行に出る札「別」)が、校正を本当に速くしているかを数字で見る道具(候補の当たり率)。
+  - 名前: `locate` :68・`name_checker` :73・`read_alt` :80・`read_feedback` :88・`read_answers` :99・`clean_rows` :122・`fold_text` :129・`class Group` :139・`map_span` :164・`judge_candidate` :182・`match_answer` :215・`judge_doc` :225・ほか 7
+- **eval_asr.py** (989 行) — 文字起こしの精度を、校正済みの文字起こし(評価用)で測る道具(文字起こしの改善の計画 段0-2。notes:plan/line-b-transcription.md(付録))。
+  - 名前: `real_data_dir` :100・`load_docs` :105・`has_proofed` :120・`whole_video` :124・`resolve_source` :135・`doc_time` :139・`select_docs` :153・`pick_reviewed` :176・`runs_of` :186・`draft_run` :191・`draft_of` :198・`run_label` :211・ほか 40
+- **eval_cloud.py** (509 行) — クラウドの文字起こし(OpenAI・ElevenLabs)に評価用の音声を送り、手元のエンジンと同じ物差し(src/eval/tools/eval_asr.py の採点)で測る道具
+  - 名前: `request_fields` :77・`timing_kind` :91・`multipart` :98・`http_json` :110・`auth_headers` :129・`scrub` :133・`send_audio` :141・`delete_remote` :154・`rows_from_words` :178・`rows_from` :210・`cache_dir` :225・`audio_span` :229・ほか 17
+- **eval_cut.py** (405 行) — カットのたたき台(機械の最初の結果)と、人の最終の差を測る道具(マスタープラン Q3・I-3a: 無音のしきい値・行の後の余白の既定を見直す材料)。
+  - 名前: `ms_of` :57・`read_edit` :62・`read_draft` :92・`pack_final` :108・`find_pack` :133・`clean` :163・`compare` :174・`class Agg` :216・`fmt_val` :256・`sig_of` :260・`evaluate` :266・`print_agg` :334・ほか 3
+- **eval_fill.py** (393 行) — 認識のあとの後処理(src/pipeline/transcribe/fill.py・llm.py。A 文字の少ない行を別の読みで埋める・D 名簿の呼び名の 1 字違いを直す・
+  - 名前: `fold` :65・`edit_distance` :70・`rows_of` :77・`overlap` :89・`first_run` :93・`answer_of` :102・`answer_before` :106・`answer_time` :112・`checked_around` :117・`raw_text` :126・`match_seg` :132・`closer_of` :146・ほか 14
+- **eval_marks.py** (1212 行) — 盛り上がりの検出(スタジオの自動マーク)の当たり具合を、人の判定の記録で測る道具(線 C の土台。notes:plan/line-bc-master-plan.md の Q3・I-4a)。
+  - 名前: `read_jsonl` :91・`locate` :110・`studio_videos` :116・`load_machine` :125・`human_marks` :138・`archive_reader` :149・`run_records` :160・`load_runs` :165・`ts_ms` :185・`dist` :192・`same` :197・`pair` :201・ほか 32
+- **eval_speakers.py** (1104 行) — 話者の判別(と覚えた声の照合)の当たり具合を、人が直した最終で測る道具(線 B の話者の評価。notes:plan/line-bc-master-plan.md の Q3・I-2a)。
+  - 名前: `read_diar` :97・`norm_name` :106・`hungarian_max` :110・`best_mapping` :161・`time_edited_flags` :175・`is_other_row` :196・`in_period` :201・`confirm_map` :205・`human_rows` :236・`overlap_rows` :277・`class Overlap` :302・`new_counts` :325・ほか 31
+- **eval_timing.py** (445 行) — 行の時刻(字幕の区間)を、行の時刻の原則(notes:docs/spec/subtitles.md)の数字で測る道具(notes:plan/done/line-b-row-timing.md の 7-4)。
+  - 名前: `current_variant` :69・`letters` :77・`text_rows` :82・`text_match` :97・`best_overlap` :103・`measure_rows` :113・`boundary_agreement` :155・`boundary_sum` :179・`summarize` :187・`post_label` :197・`engine_label` :217・`doc_record` :223・ほか 12
 
 ## テスト
 
@@ -68,4 +68,4 @@
 - src/eval/tools/tests/test_eval_marks.py — src/eval/tools/eval_marks.py(盛り上がりの検出を、人の判定の記録で測る道具。線 C の土台)のテスト。リポジトリ直下で:
 - src/eval/tools/tests/test_eval_speakers.py — src/eval/tools/eval_speakers.py(話者の判別・声の照合を、人が直した最終で測る道具)のテスト。リポジトリ直下で:
 - src/eval/tools/tests/test_eval_timing.py — src/eval/tools/eval_timing.py(行の時刻を原則の数字で測る道具)のテスト。リポジトリ直下で:
-- src/eval/tools/tests/test_evalcommon.py — src/eval/tools/_evalcommon.py(測る道具の共通の部品)の、引数・保存・音声の出どころ・JSON の読み込みのテスト。リポジトリ直下で:
+- src/eval/tools/tests/test_evalcommon.py — src/eval/tools/_evalcommon.py(測る道具の共通の部品)の、引数・保存・音声の出どころのテスト。リポジトリ直下で:
