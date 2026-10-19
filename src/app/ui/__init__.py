@@ -1,1 +1,1 @@
-"""画面(ホーム・確認の画面・校正の画面・ui-kit)。作りは後で再考。当面は今の画面をそのまま置く"""
+"""画面(ホーム home・案件 cases・確かめる check・編集 editor・設定 settings・スタジオ studio)。共通の部品は src/ui-kit"""

@@ -1,1 +1,1 @@
-"""① 取り込み: URL か動画ファイルの判定・取得(yt-dlp)・配信中なら録画(今の recorder)"""
+"""① 取り込み: 配信中の録画(recorder・rec_core)と、録画とアーカイブの音の照合(live_align_worker)。YouTube からの取得は export/exporter と analyze/fetch"""
