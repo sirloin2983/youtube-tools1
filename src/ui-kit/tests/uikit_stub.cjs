@@ -1,5 +1,5 @@
 // node のテスト(画面の JS の関数を vm で切り出して動かすもの)に渡す、UIKit の代わり(ui-kit 用)。
-// 画面の JS から `window.UIKit &&` の予備の経路を外すと、切り出した関数は UIKit を直接呼ぶので、テストの環境(context)にこれを入れる。
+// 切り出した画面の JS の関数は UIKit を直接呼ぶので、テストの環境(context)にこれを入れる。
 //
 //   const { makeUIKit, withUIKit } = require(path.join(__dirname, '..', '..', 'ui-kit', 'tests', 'uikit_stub.cjs'));
 //   const kit = makeUIKit({ toast: msg => notes.push(msg) });     // 差し替えたい部品だけ渡す(入れ子は 'dialog.confirm' のように . でつないだ名前でも)

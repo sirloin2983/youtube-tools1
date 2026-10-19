@@ -1,5 +1,6 @@
 // Run: node --test src/ui-kit/tests/test_uikit_stub.cjs
-// node のテストに渡す UIKit の代わり(uikit_stub.cjs)が、本物の ui-kit.js と食い違っていないか(ui-kit v24)
+// node のテストに渡す UIKit の代わり(uikit_stub.cjs)が、本物の ui-kit.js と食い違っていないか。
+// あわせて、ui-kit.js の部品のうち画面の通しで起こしにくい物(失敗の答え・打っている欄・時計)を本物から切り出して試す
 const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const { test } = require('node:test');
@@ -23,6 +24,8 @@ test('esc and fmt are the real ones (cut out of ui-kit.js)', () => {
   assert.equal(kit.fmt.dur(59.6, { floor: true }), '0:59');
   assert.equal(kit.fmt.dur(83.44, { tenths: true }), '1:23.4');
   assert.equal(kit.fmt.day(new Date(2020, 0, 2, 3, 4).getTime()), '2020/1/2');
+  assert.deepEqual([kit.fmt.dur(3723.96, { tenths: true }), kit.fmt.dur(3723, { noHours: true }), kit.fmt.dur(3723.7, { floor: true }), kit.fmt.dur(-5), kit.fmt.day(0)],
+    ['1:02:04.0', '62:03', '1:02:03', '0:00', ''], 'hours, noHours, floor, negative and day of an empty time');
 });
 
 test('calls are recorded; overrides (also nested names) replace the default; unknown names are no-ops that never look like promises', async () => {
@@ -114,7 +117,8 @@ function fakeDom() {
 }
 function mountForm(items, store, setImpl) {
   const document = fakeDom();
-  const ctx = { document, CustomEvent: function (n, o) { this.n = n; this.detail = o && o.detail; }, setTimeout, clearTimeout, Promise, JSON, Math, Number, String, isFinite, RegExp };
+  // 「保存しました」の印を 2 秒後に消す時計は動かさない(本物の setTimeout だと node が 2 秒待ってから終わる)
+  const ctx = { document, CustomEvent: function (n, o) { this.n = n; this.detail = o && o.detail; }, setTimeout: () => 0, clearTimeout() {}, Promise, JSON, Math, Number, String, isFinite, RegExp };
   vm.createContext(ctx);
   vm.runInContext(slice('  function setFormId(', '  function settingsFormFilter(') + '\nthis.render = settingsFormRender;', ctx);
   const host = document.createElement('div');
@@ -164,12 +168,6 @@ test('settingsForm: a failed save puts the stored value back even in a focused f
   model.fire('change');
   await new Promise(r => setTimeout(r, 0));
   assert.equal(model.value, 'old');
-});
-
-test('fmt: dur with tenths / noHours / floor, negative and day of an empty time', () => {
-  const { fmt } = makeUIKit();
-  assert.deepEqual([fmt.dur(3723.96, { tenths: true }), fmt.dur(3723, { noHours: true }), fmt.dur(3723.7, { floor: true }), fmt.dur(-5), fmt.day(0)],
-    ['1:02:04.0', '62:03', '1:02:03', '0:00', '']);
 });
 
 test('copy: true with the ok notice; the hidden textarea when the clipboard rejects; false with the fail notice when both fail', async () => {

@@ -1,13 +1,14 @@
 // Run: node --test src/app/tests/test_cand_panel.cjs
 // Exercise real save/navigation/export functions with delayed and failed API replies.
 // 案件の画面の候補のパネル(panels/cand.js)の中身 = スタジオの部品 src/app/ui/studio/review.js を切り出して試す。
-// 新しい案件の引き出し(panels/new.js)が読む src/app/ui/studio/rank.js・queue.js の小さな確かめと、2 つのパネルが渡す window.Studio の代わり(core.js の後継)もここ。
+// 新しい案件の引き出し(panels/new.js)が読む src/app/ui/studio/rank.js・queue.js の小さな確かめと、2 つのパネルが渡す window.Studio の代わりもここ。
+// 残すのは画面の通し(e2e_cases_cand・e2e_live_studio・e2e_live_archive)で起こしにくい物だけ: 遅れて届いた答え・二重押し・失敗の答え・時計・計算・危ない文字
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { test } = require('node:test');
-// UIKit の代わり(ui-kit v24)。切り出した関数が UIKit を直接呼んでも動くように、vm の context にはいつも withUIKit(context) を通す
+// UIKit の代わり。切り出した関数が UIKit を直接呼んでも動くように、vm の context にはいつも withUIKit(context) を通す
 // (context.UIKit・context.window.UIKit。テストが自分で入れた UIKit / window.UIKit はそのまま)。呼ばれた部品は context.UIKit.called('toast') などで読める
 const { makeUIKit, withUIKit } = require(path.join(__dirname, '..', '..', 'ui-kit', 'tests', 'uikit_stub.cjs'));
 const SRC = path.join(__dirname, '..', '..');   // src/
@@ -201,7 +202,7 @@ test('restoring a completed export shows its warnings and releases its saved ID'
   assert.equal(h.remembered.at(-1), null);
 });
 
-/* ---- 画面の見直しのテスト ---- */
+/* ---- マークの移動・書き出したファイル・二度押し・セリフ ---- */
 function load(parts, extra) {
   const context = withUIKit({ Map, Set, Error, ...extra });
   vm.createContext(context);
@@ -253,7 +254,7 @@ test('exported file path: server path first, otherwise outDir + relative file wi
 });
 
 test('two-step confirmation resets after running (a quick third click does not run again)', () => {
-  // 部品は ui-kit の UIKit.confirmTwice の1つ(気が利く画面へ 段1)。review.js の armDelete はそれを呼ぶだけ
+  // 部品は ui-kit の UIKit.confirmTwice。review.js の armDelete はそれを呼ぶだけ(1 回目の確認だけは e2e_portal の終了ボタンが見る)
   const kit = fs.readFileSync(path.join(__dirname, '..', '..', 'ui-kit', 'ui-kit.js'), 'utf8');
   const a = kit.indexOf('function confirmTwice('), b = kit.indexOf('/* ---- prefs', a);
   assert.ok(a >= 0 && b > a, 'confirmTwice must exist in ui-kit.js');
@@ -297,7 +298,7 @@ test('transcript lines: escaped text, stale replies ignored, open state kept', a
   assert.equal(renders, 1);
   const html = context.txHTML({ id: 'm1' });
   assert.ok(!html.includes('<img') && html.includes('&#60;img') && html.includes('rv-tx-spk">&#60;b&#62;</span>'));
-  assert.ok(html.includes(' open') && html.includes('rv-tx-line cut') && html.includes('data-t="3"') && html.includes('切り抜きの記録が見つからない'));
+  assert.ok(html.includes(' open') && html.includes('rv-tx-line cut') && html.includes('切り抜きの記録が見つからない'));
   assert.equal(context.txHTML({ id: 'm9' }), '');
   S.cur = { id: 'C', marks: [{ id: 'm1', status: 'adopted' }] };   // 書き出したマークが無い動画は問い合わせない
   await context.loadTranscripts();
@@ -305,7 +306,7 @@ test('transcript lines: escaped text, stale replies ignored, open state kept', a
   assert.equal(S.tx, null);
 });
 
-/* ---- 画面の全面見直しのテスト ---- */
+/* ---- プレーヤーが使えないとき・事務所の選び方・解析の失敗の案内 ---- */
 /* file: 'rank.js' など名前だけならスタジオの画面の部品のフォルダ(src/app/ui/studio/)、'app/ui/cases/panels/cand.js' のように / を含めば src/ から */
 function sliceOf(file, start, end) {
   const src = fs.readFileSync(path.join(SRC, file.includes('/') ? file : path.join('app', 'ui', 'studio', file)), 'utf8').replace(/\r\n/g, '\n');   // 作業フォルダが CRLF でも、'\n' を含む切り出しの印が当たるように
@@ -341,15 +342,15 @@ test('agency checks: untouched = hololive only when it has resolved channels, us
   const context = { R: { agPick: {} }, lsGet: k => (k in store ? JSON.parse(store[k]) : null) };
   vm.createContext(withUIKit(context));
   vm.runInContext(sliceOf('rank.js', 'const okCount', 'function renderAgChecks(') + '\nthis.agChecked = agChecked;', context);   // const は context に出ないので渡す
-  const ag = (id, n) => ({ id, n });   // 事務所の選び方は「ホロライブ / その他」の 2 つ(FIND-R)。n = 解決済みのチャンネルの数
+  const ag = (id, n) => ({ id, n });   // 事務所の選び方は「ホロライブ / その他」の 2 つ。n = 解決済みのチャンネルの数
   assert.equal(context.agChecked(ag('hololive', 0)), false, 'no resolved channel yet: not checked');
   assert.equal(context.agChecked(ag('hololive', 4)), true, 'registered later without touching the check: checked');
-  assert.equal(context.agChecked(ag('other', 4)), false, 'other is off unless the user checks it (10-16 user)');
+  assert.equal(context.agChecked(ag('other', 4)), false, 'other is off unless the user checks it');
   context.R.agPick.hololive = false;
   assert.equal(context.agChecked(ag('hololive', 4)), false, 'the user unchecked it: stays unchecked');
   context.R.agPick.other = true;
   assert.equal(context.agChecked(ag('other', 0)), true, 'the user checked it: stays checked');
-  // 古い保存(選んだ ID の配列)は「選んだ」だけ引き継ぐ。空の配列は「全部外した」とは読まない
+  // 前の形の保存(選んだ ID の配列)は「選んだ」だけ引き継ぐ。空の配列は「全部外した」とは読まない
   context.R.agPick = {}; store.ags = JSON.stringify(['hololive']);
   context.loadAgPick();
   assert.deepEqual({ ...context.R.agPick }, { hololive: true });
@@ -378,7 +379,7 @@ test('analysis errors are explained as what happened + what to do (queue.js)', (
   assert.ok(d.what && d.how);
 });
 
-/* ---- 線 D の P3:ライブの録画(kind live)をスタジオの中で ---- */
+/* ---- ライブの録画(kind live)の再生位置・書き出しの行 ---- */
 const plain = x => JSON.parse(JSON.stringify(x));   // vm の中で作った配列・オブジェクトを、この realm の形に(deepStrictEqual は realm の違いも見る)
 function liveTime() {
   const ctx = load([['const LT = {', '/* hls.js(入口の']], {});
@@ -466,7 +467,7 @@ test('portal export rows: escaped text, cancel button only while active, "編集
   const done = ctx.jobItemHTML(j, { jobId: 'lx-1', start: 1, end: 2, status: 'done', stateLabel: '済み', path: 'C:\\a.mp4', file: 'a.mp4', tx: { state: 'done', label: '済み' } }, 2);
   assert.ok(done.includes('編集で開く') && done.includes('文字起こし: 済み') && !done.includes('lxcancel'));
   const studio = ctx.jobItemHTML({}, { start: 1, end: 2, status: 'running', progress: 0.5 }, 0);
-  assert.ok(studio.includes('実行中 50%') && !studio.includes('lxcancel'), 'studio export rows use the common state words (0.22.3: 処理中 → 実行中)');
+  assert.ok(studio.includes('50%') && !studio.includes('lxcancel'), 'studio export rows: progress, no portal cancel button');
 });
 
 test('finished portal jobs mark the studio mark as exported only when the times still match', () => {
@@ -519,11 +520,7 @@ test('live export: one portal request per mark, saved first, busy marks skipped,
   assert.equal(polled, 1);
 });
 
-test('live videos: hls.js runs without a Web Worker', () => {
-  assert.ok(source.includes('enableWorker: false'), 'hls.js runs without a Web Worker (no worker-src in the CSP)');
-});
-
-// ---- P4: アーカイブで本番版に作り直す(計画の 0-9) ----
+// ---- アーカイブから書き出す(書き出しの行・帯の 1 行・録画を消したとき) ----
 const arch = (state, extra) => ({ state, label: '', message: '', progress: 0, ...extra });
 
 test('archive state of portal jobs is shown on the export rows (label, progress, 本番版 chip, reason)', () => {
@@ -590,7 +587,7 @@ test('the band line for exporting from the archive (progress, not ready, done, f
   const o = { videoId: 'abcdefghijk', known: true };
   const J = (id, mark, state, a, extra) => job(id, state, { video: 'V', mark, start: 0, end: 1 }, { path: state === 'done' ? 'C:\\c\\' + mark + '.mp4' : '', archive: a, ...extra });
   const M = ['a', 'b', 'c', 'd', 'e'];
-  // 対象 = 録画に無い区間で書き出せなかった(error + needsArchive)か、M7 の採用で待っている(wait + from archive)か、アーカイブから書き出し済み
+  // 対象 = 録画に無い区間で書き出せなかった(error + needsArchive)か、配信後の採用で待っている(wait + from archive)か、アーカイブから書き出し済み
   const pend = () => M.map((m, i) => J('lx-' + i, m, 'error', undefined, { needsArchive: true }));
   const run = st => M.map((m, i) => i < 2 ? J('lx-' + i, m, 'done', arch('done')) : J('lx-' + i, m, 'wait', st(i), { from: 'archive' }));
   let s = ctx.liveArchSummary(run(i => i === 2 ? arch('align', { label: '照合中' }) : arch('wait')), null, o);
@@ -607,7 +604,7 @@ test('the band line for exporting from the archive (progress, not ready, done, f
   assert.equal(s.warn, true); assert.equal(s.can, true, 'failed ones can be tried again');
   s = ctx.liveArchSummary(pend(), null, { ...o, msg: 'アーカイブがまだ用意できていません(配信が終わったばかりです)' });
   assert.equal(s.text, 'アーカイブがまだ用意できていません(配信が終わったばかりです)', 'the 409 message is shown as is');
-  // 対象: マークごとの最新のジョブで、欠けで書き出せなかった物・待っている物・アーカイブから書き出し済みの物(前の版で入れ替えた keep ありは数えない)
+  // 対象: マークごとの最新のジョブで、欠けで書き出せなかった物・待っている物・アーカイブから書き出し済みの物(keep ありは数えない)
   const mixed = [J('lx-1', 'a', 'error', undefined, { created: '2026-10-05T10:00:01Z' }), J('lx-2', 'a', 'done', undefined, { created: '2026-10-05T10:00:02Z' }),
     J('lx-3', 'b', 'error', undefined, { needsArchive: true }), J('lx-4', 'c', 'error'), J('lx-5', 'd', 'encode'), J('lx-6', 'e', 'cancelled'),
     J('lx-7', 'f', 'done', arch('done')), J('lx-8', 'g', 'done', arch('done', { keep: true }))];
@@ -620,7 +617,7 @@ test('the band line for exporting from the archive (progress, not ready, done, f
   assert.equal(ctx.liveArchSummary(pend(), null, { ...o, starting: true }).can, false, 'no double press');
 });
 
-test('a recording deleted by the portal (P4 auto delete) is told apart from a missing one; old Resolve packs are pointed out', () => {
+test('a recording deleted by the portal (auto delete) is told apart from a missing one; old Resolve packs are pointed out', () => {
   const ctx = liveJobs();
   const e404 = { status: 404, message: 'その録画はありません' }, e502 = { status: 502, message: 'x' };
   const jd = [job('lx-1', 'done', { video: 'V', mark: 'a', start: 0, end: 1 }, { archive: arch('done'), recordingDeleted: '2026-10-05T12:00:00Z' })];
@@ -631,10 +628,10 @@ test('a recording deleted by the portal (P4 auto delete) is told apart from a mi
   assert.equal(ctx.liveRecDeleted(e404, jn, [{ status: 'exported', archived: true }, { status: 'rejected' }]), true, 'all exported marks are 本番版 (job record trimmed)');
   assert.equal(ctx.liveRecDeleted(e404, jn, [{ status: 'exported', archived: true }, { status: 'exported' }]), false, 'a mark is not 本番版 = deleted by hand: 見つかりません');
   assert.equal(ctx.liveRecDeleted(e404, [], []), false, 'no marks, no record: 見つかりません');
-  // 前に作ったパックが速報版のまま(ホームの archive.packOld): 書き出しの行に出す(帯の1行は LD-1 で無くした)。案内するタブ名は案件の画面の「カット・パック」(cases.js)
+  // 前に作ったパックが速報版のまま(ホームの archive.packOld): 書き出しの行にだけ出す(帯の 1 行には出さない)
   const J = (id, mark, a) => job(id, 'done', { video: 'V', mark, start: 0, end: 1 }, { path: 'C:\\c\\' + mark + '.mp4', archive: a });
   const s = ctx.liveArchSummary([J('lx-1', 'a', arch('done', { packOld: true })), J('lx-2', 'b', arch('done'))], null, { videoId: 'abcdefghijk', known: true });
-  assert.equal(s.text, 'アーカイブから書き出しました 2/2 本', 'the band no longer carries the old-pack line');
+  assert.equal(s.text, 'アーカイブから書き出しました 2/2 本', 'the band has no old-pack line');
   assert.equal(ctx.liveArchView(arch('done', { packOld: true })).packOld, true);
   assert.equal(ctx.liveArchView(arch('error', { packOld: true })).packOld, false);
   const esc = x => String(x).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';');
@@ -646,7 +643,7 @@ test('a recording deleted by the portal (P4 auto delete) is told apart from a mi
   assert.ok(!html.jobItemHTML({ live: true }, { ...it, archive: ctx.liveArchView(arch('done')) }, 0).includes('速報版のまま'));
 });
 
-test('the band line for the after-stream auto clipping (M7): the portal text as is, warn on failures, poll sooner while it moves', () => {
+test('the band line for the after-stream auto clipping: the portal text as is, warn on failures, poll sooner while it moves', () => {
   const ctx = liveJobs();
   const view = a => plain(ctx.liveAfterView(a === undefined ? null : { ready: true, afterStream: a }));
   assert.deepEqual(view(), { text: '', warn: false, running: false });
@@ -665,8 +662,8 @@ test('the band line for the after-stream auto clipping (M7): the portal text as 
   assert.equal(view({ state: 'wait', text: 5 }).text, '', 'only a string is shown');
 });
 
-// ---- 書き出したあと(after)と配信者(字幕の色)。ライブの録画の帯 ----
-test('live after: the saved choice wins; before choosing, it follows the "transcribe after export" switch (autoTx)', () => {
+// ---- 書き出したあと(after)と自動の文字起こし(autoTx)・前回の場所・書き出し完了の [編集で開く]・押せない理由 ----
+test('live after: the saved choice wins, else it follows autoTx; autoTx lives in the server settings and the old browser value is taken over once', () => {
   let legacy = null;
   const ctx = load([['const LIVE_AFTERS', '/* ---------- 状態 ---------- */']], { autoTxLegacy: () => legacy, sec1: (v, d) => d, sanitizeKeymap: () => ({}), KEY_PRESETS: { standard: {} }, DEFAULT_QUICK_SPANS: [30, 60, 120, 180, 300] });
   assert.equal(ctx.sanitizeSettings({}).liveAfter, 'check');
@@ -674,12 +671,6 @@ test('live after: the saved choice wins; before choosing, it follows the "transc
   assert.equal(ctx.sanitizeSettings({ autoTx: false, liveAfter: 'auto' }).liveAfter, 'auto');
   assert.equal(ctx.sanitizeSettings({ autoTx: false, liveAfter: 'check' }).liveAfter, 'check', 'a saved choice is kept even when autoTx is off');
   assert.equal(ctx.sanitizeSettings({ autoTx: false, liveAfter: 'full' }).liveAfter, 'none', 'unknown values fall back');
-});
-
-// ---- 段 7〜8:書き出しのあと自動で文字起こしはサーバーの設定へ / 前回の場所 / 書き出し完了の [編集で開く] / 押せない理由 ----
-test('autoTx lives in the review settings (server); before it is saved there, the old browser value is taken over once', () => {
-  let legacy = null;
-  const ctx = load([['const LIVE_AFTERS', '/* ---------- 状態 ---------- */']], { autoTxLegacy: () => legacy, sec1: (v, d) => d, sanitizeKeymap: () => ({}), KEY_PRESETS: { standard: {} }, DEFAULT_QUICK_SPANS: [30, 60, 120, 180, 300] });
   assert.equal(ctx.sanitizeSettings({}).autoTx, true, 'default on');
   legacy = false;
   assert.equal(ctx.sanitizeSettings({}).autoTx, false, 'nothing on the server yet: the old localStorage value');
@@ -703,7 +694,7 @@ function placeHarness(store) {
   return { ctx, S, timers, read: () => JSON.parse(store['ytt:studio.place'] || '{}') };
 }
 
-test('the place in each stream (S-8): position and the selected mark are remembered per stream and given back', () => {
+test('the place in each stream: position and the selected mark are remembered per stream and given back', () => {
   const store = {};
   const h = placeHarness(store);
   const A = { id: 'A', duration: 100, marks: [{ id: 'm1' }, { id: 'm2' }] }, B = { id: 'B', duration: 0, marks: [] };
@@ -732,6 +723,7 @@ test('the place in each stream (S-8): position and the selected mark are remembe
   assert.ok(kept.new && !kept.v0 && kept.v204, 'the oldest are dropped first');
 });
 
+// 開き直したときの再生位置(見回りが 0 に戻さない)は e2e_cases_cand の 7 が見る。ここは選んだマークと、プレーヤーの準備前の表示
 test('opening a stream gives back the place (selected mark and the position the player is moved to)', async () => {
   const h = harness(async () => ({ video: video('B', 3) }));
   h.S.dirty = false;
@@ -746,11 +738,10 @@ test('opening a stream gives back the place (selected mark and the position the 
   h.context.placeOf = () => null;
   assert.equal(await h.context.loadVideo('B'), true);
   assert.equal(h.S.sel, null); assert.equal(h.S.resumeAt, null);
-  const poll = between('function startPoll(', 'function stopPoll(');
-  assert.ok(poll.includes('S.resumeAt != null && S.playerState !== 1'), 'the poll does not put the position back to 0 while the player has not reached it');
 });
 
-test('export done notice has [編集で開く] with the same URL as the row link (S-7), opened the same way (S-15)', () => {
+// 書き出しの行の「編集で開く」の URL は e2e_cases_cand の 5 が見る。ここは知らせのボタン(アプリの窓 / ブラウザのタブ・何本目か)
+test('export done notice has [編集で開く] with the same URL as the row link, opened the same way', () => {
   const shown = [], opened = [];
   let app = false;
   // copyText は UIKit.copy なので、切り出しの終わりは次の関数(jobDirText)。openEditor は UIKit.win を直接使う
@@ -771,16 +762,14 @@ test('export done notice has [編集で開く] with the same URL as the row link
   ctx.doneToast('書き出し完了: 2/3件(失敗あり)', 'err', ['', 'C:\\b.mp4', 'C:\\c.mp4']);
   assert.equal(shown.at(-1).o.action.label, '1本目を編集で開く', 'several: the first one');
   ctx.doneToast('書き出しを中止しました', '', []);
-  assert.deepEqual(shown.at(-1), { m: '書き出しを中止しました', ms: 0, k: '' }, 'nothing to open: the plain notice as before');
-  const row = between('function handoffHTML(', '/* 書き出した切り抜きを「編集」で開く URL');
-  assert.ok(row.includes('editorHref(path)') && row.includes('data-edit-open'), 'the row link uses the same URL and is opened by openEditor');
+  assert.deepEqual(shown.at(-1), { m: '書き出しを中止しました', ms: 0, k: '' }, 'nothing to open: the plain notice');
   const fin = between('function pollJob(', 'async function startExport(');
   assert.ok(fin.includes('doneToast(') && fin.includes('clipPathOf(j, i)'), 'the export job notice passes the written files');
 });
 
-test('links to the home use data-ui-portal (no new tab); the autorun entry is not hidden but says why it cannot be used (S-15・S-25)', () => {
+test('links to the home use data-ui-portal (no new tab); the autorun entry is not hidden but says why it cannot be used', () => {
   const rv = between('async function pollAuto(', 'function showDataWarning(');
-  // 「案件で見る」は 2fb9c12f からホームの一覧でなくこの配信の案件の画面(候補)を新しいタブで開く(ホームへのリンクではない = data-ui-portal の決まりの外)
+  // 「案件で見る」はこの配信の案件の画面(候補)を開く(ホームへのリンクではない = data-ui-portal の決まりの外)
   assert.ok(rv.includes('href="../cases?c=${encodeURIComponent(vid)}#cand"') && !rv.includes('href="../#cases"'), '案件で見る');
   const rk = sliceOf('rank.js', 'class="row rk-autogo"', '</div>');
   assert.ok(rk.includes('data-ui-portal') && !rk.includes('_blank'), '案件の一覧');
@@ -789,13 +778,13 @@ test('links to the home use data-ui-portal (no new tab); the autorun entry is no
   ctx.Studio.token = 't';
   assert.equal(ctx.autoOffReason({ kind: 'youtube' }), '');
   assert.ok(ctx.autoOffReason({ kind: 'live' }).includes('ライブの録画では使えません'));
-  assert.ok(!/\$\('#rvAuto'\)\.hidden = !Studio\.token/.test(source), 'no longer hidden only because the home is not used');
-  assert.ok(sliceOf('rank.js', "$('#rkAuto').hidden = false", "$('#rkAutoGo')").includes("UIKit.menuOff($('#rkAuto'), "), '① まとめて実行 too (ui-kit v21 menuOff)');
+  assert.ok(!/\$\('#rvAuto'\)\.hidden = !Studio\.token/.test(source), 'not hidden only because the home is not used');
+  assert.ok(sliceOf('rank.js', "$('#rkAuto').hidden = false", "$('#rkAutoGo')").includes("UIKit.menuOff($('#rkAuto'), "), '① まとめて実行 too (UIKit.menuOff)');
   const ram = between('function renderAutoMenu(', 'function renderDuration(');
-  assert.ok(ram.includes('UIKit.menuOff(d, why, '), '② uses the shared disabled-menu helper (ui-kit v21)');
+  assert.ok(ram.includes('UIKit.menuOff(d, why, '), '② uses the shared disabled-menu helper');
 });
 
-test('"export all" always tells why it cannot be pressed (S-25)', () => {
+test('"export all" always tells why it cannot be pressed', () => {
   const nodes = {};
   const S = { videos: [{ kind: 'youtube', adopted: 2 }, { kind: 'live', adopted: 5 }], live: false };
   const ctx = load([['function renderExpMore(', 'function renderExportUI(']], {
@@ -828,7 +817,6 @@ test('live export body: after / streamer follow the band (settings and the strea
   assert.equal(ctx.liveExportBody(v, v.marks[0]).streamer, '');
   assert.equal(ctx.liveWhoLabel(null), '配信者: 未設定(字幕は既定の色)');
   assert.equal(ctx.liveWhoLabel({ name: '' }), '配信者: 未設定(字幕は既定の色)');
-  assert.equal(ctx.liveWhoLabel({ name: '兎田ぺこら', match: true }), '配信者: 兎田ぺこら');
   assert.equal(ctx.liveWhoLabel({ name: 'だれか', match: false }), '配信者: だれか(色の一覧に無いので既定の色)');
 });
 
@@ -847,12 +835,7 @@ test('portal export rows: progress of the handed-off autorun (transcribe only / 
   assert.equal(ctx.liveTxText({ state: 'error', label: '失敗', message: '文字起こしに失敗しました', steps: auto }), '文字起こし → パック: 失敗(文字起こしに失敗しました)');
 });
 
-test('the band does not rebuild its select / streamer field on the 3-second check (static HTML, only text and attributes change)', () => {
-  const rec = between('function renderLiveRec(', '/* 終わった録画の帯の「アーカイブから書き出す」');
-  assert.ok(!rec.includes('innerHTML'), 'renderLiveRec only sets text / hidden');
-});
-
-/* パネルが渡す window.Studio の代わり(var Studio = {…})を、まわりの変数を偽物にして切り出す(RS8 C4: core.js の後継) */
+/* パネルが渡す window.Studio の代わり(var Studio = {…})を、まわりの変数を偽物にして切り出す */
 function studioShim(file, start, end, extra) {
   const ctx = withUIKit({ Map, String, Promise, Date, encodeURIComponent, esc: s => s, tokenTag: { content: 't' }, params: {}, readyFns: [], subs: {}, dead: false, visible: true,
     LIVE: { infoP: null, offAt: 0 }, LIVE_RECHECK_MS: 60000, STUDIO_OFFLINE: 'スタジオにつながりませんでした', HOME_OFFLINE: 'ホームにつながりませんでした',
@@ -865,7 +848,7 @@ const NEW_SHIM = ['app/ui/cases/panels/new.js', 'var Studio = {', '/* パネル�
 const CAND_SHIM = ['app/ui/cases/panels/cand.js', 'var Studio = {', '/* review.js に渡す env'];
 
 test('live recordings are registered in one place with the channel name (new case panel register; rank.js "録画する" / "開く" pass the row channel)', async () => {
-  // 新しい案件の引き出し(panels/new.js。core.js の後継): Studio.live.register / begin(begin の返事のチャンネル名 → 無ければ opts.channel)
+  // 新しい案件の引き出し(panels/new.js): Studio.live.register / begin(begin の返事のチャンネル名 → 無ければ opts.channel)
   const opened = [];
   const ctx = studioShim(...NEW_SHIM);
   ctx.Studio.api = async (url, o) => { opened.push({ url, body: o.body }); return { video: { id: o.body.recording } }; };
@@ -888,8 +871,8 @@ test('live recordings are registered in one place with the channel name (new cas
   assert.ok(!sliceOf('review.js', 'async function openLiveRecording(', '/* ---------- マーク操作').includes("'/api/videos/open'"), 'the header badge "開く" uses register too');
 });
 
-// ---- コードの見直し B: スタジオの API の包み 3 つは ui-kit の UIKit.http / homeApi を呼ぶだけ・② の設定と欄の対応は 1 つの表 ----
-test('the panels\' Studio API wrappers (core.js successor) go through UIKit.http / homeApi with their messages, the live timeouts and the empty POST body', async () => {
+// ---- スタジオの API の包み 3 つは ui-kit の UIKit.http / homeApi を呼ぶだけ ----
+test('the panels\' Studio API wrappers go through UIKit.http / homeApi with their messages, the live timeouts and the empty POST body', async () => {
   const calls = [];
   const kit = () => makeUIKit({
     http: (url, o) => { calls.push(['http', url, o]); return Promise.resolve({ ok: 1 }); },
@@ -917,8 +900,6 @@ test('the panels\' Studio API wrappers (core.js successor) go through UIKit.http
   o = calls.at(-1)[2];
   assert.deepEqual([o.method, plain(o.body), o.timeout, o.slow], ['POST', { url: 'u' }, 5000, 'ホームから時間内に応答がありません']);
   assert.equal(ctx.Studio.live.url('hls.min.js'), 'http://h/live/hls.min.js', 'media URLs come from UIKit.homeUrl');
-  assert.equal(ctx.Studio.live.begunText({ existing: true }), 'この配信はもう録画しています。その録画を開きました');
-  assert.equal(ctx.Studio.live.begunText({}), '配信の録画を始めました。見ながらマークできます');
   // 候補のパネル(panels/cand.js): スタジオの API は殻の ctx.api('studio', …)(待ちの時間切れなし)・ライブの口は同じ時間・録画の登録はしない
   const shell = [];
   ctx = studioShim(...CAND_SHIM, { UIKit: kit(), cctx: { api: (tool, p, opt) => { shell.push([tool, p, opt]); return Promise.resolve({ ok: 3 }); } } });
@@ -946,7 +927,7 @@ test('the panels\' Studio API wrappers (core.js successor) go through UIKit.http
   }
 });
 
-// ---- コードの見直し B: ② の設定と欄の対応は 1 つの表 ----
+// ---- ② の設定と欄の対応は 1 つの表(欄から保存までのつなぎは e2e_live_studio の 15 が「書き出したあと」で見る) ----
 test('review settings: one table of field ↔ setting; every field value read back through sanitizeSettings gives the same setting', () => {
   const ctx = load([['const LIVE_AFTERS', '/* ---------- 状態 ---------- */'], ['const SET_UI = [', 'function syncSettingsUI(']],
     { autoTxLegacy: () => null, sec1: (v, d) => d, sanitizeKeymap: () => ({}), KEY_PRESETS: { standard: {} }, DEFAULT_QUICK_SPANS: [30, 60, 120, 180, 300] });
@@ -961,12 +942,9 @@ test('review settings: one table of field ↔ setting; every field value read ba
   }
   assert.equal(ctx.sanitizeSettings({ lag: '3' }).lag, 3); assert.equal(ctx.sanitizeSettings({ exportLoudness: '0' }).exportLoudness, 0);
   assert.equal(ctx.sanitizeSettings({ liveMode: 'x' }).liveMode, 'auto', 'an unknown field value falls back like the saved settings do');
-  const wire = between('function wireSettings(){', '/* ---------- キー配置');
-  assert.ok(wire.includes('for (const [sel, k, prop, after, ev] of SET_UI)') && wire.includes('sanitizeSettings('), 'wireSettings reads every field through the table');
 });
 
-// ---- 見直し 2 周目: buildDOM・renderExportUI は場所ごとの関数 / LIVE の帯の状態の問い合わせに since ----
-test('buildDOM: the parts put together keep every id exactly once (the split did not drop or repeat a section)', () => {
+test('buildDOM: the parts put together keep every id exactly once', () => {
   const box = {};
   const ctx = { $: sel => (box[sel] ||= {}) };
   vm.createContext(withUIKit(ctx));
@@ -976,9 +954,6 @@ test('buildDOM: the parts put together keep every id exactly once (the split did
   assert.equal(new Set(ids).size, ids.length, 'ids are unique: ' + ids.filter((x, i) => ids.indexOf(x) !== i));
   for (const id of ['rvRoot', 'rvJump', 'rvMain', 'rvPlayerBox', 'rvLiveBar', 'rvQuickbar', 'rvMarkDetails', 'rvExport', 'rvClipbox', 'rvList'])
     assert.ok(ids.includes(id), id);
-  /* 見直し M9: 操作の設定は ② の中ではなく ⚙ の節(#opsHost)に入れる(mountSettings) */
-  assert.ok(!ids.includes('rvSettings') && !ids.includes('rvAutoNext'), 'the operation settings are not in the review pane');
-  assert.ok(html.startsWith('\n<div class="rv-root" id="rvRoot">\n  <div class="rv-warn notice cs-notice-act"') && html.endsWith('    </section>\n  </div>\n</div>'));
   assert.equal((html.match(/<section /g) || []).length, (html.match(/<\/section>/g) || []).length);
 });
 
@@ -1004,7 +979,8 @@ test('export count text: what will be written, or what to do when nothing can be
   assert.ok(ctx.exportCountText(v('adopted'), false, t2, null, false, 0, []).startsWith('採用と候補のマーク 2件'));
 });
 
-// ---- 線 D の L3:配信中の候補(LIVE の帯の一覧・タイムラインの印・p / z・入口の GET/POST ../live/api/peaks) ----
+// ---- 配信中の候補(LIVE の帯の一覧・入口の GET/POST ../live/api/peaks) ----
+// 行の並び・控えも見る・マウスが乗った行を残す・札(枠 / 控え / 採用 / 見送り)・[採用] [見送り] [戻す]・p / z は e2e_live_studio の L3 が見る
 const PEAK_FNS = ['const PEAK_PRE = 5;', '/* 配信中の候補の状態'];
 const mmss = t => Math.floor(t / 60) + ':' + String(Math.floor(t % 60)).padStart(2, '0');
 const pk = (id, start, end, extra) => ({ id, start, end, peak: start + 2, score: 5, reasons: ['音量が急上昇'], hour: 0, state: 'frame', ...extra });
@@ -1016,7 +992,7 @@ test('live peaks: normalize, the full list and the since-changes (unknown ids an
   const n = plain(ctx.peakNorm({ id: 'a', start: -1, end: 8, peak: 3700, state: 'odd', reasons: ['x', 3], score: '7.25', endPending: 1 }));
   assert.deepEqual(n, { id: 'a', start: 0, end: 8, peak: 3700, score: 7.25, parts: {}, reasons: ['x'], hour: 1, state: 'frame', endPending: false, origin: '', text: '' },
     'unknown state → frame, the hour comes from the peak second, endPending only when true');
-  // 配信中の文字起こし(入口の D-11 案 b): text は文字列だけ残す(2000 字まで)。changes の peak に text が付けば手元の候補にも入り、state だけの change では消えない
+  // 配信中の文字起こし: text は文字列だけ残す(2000 字まで)。changes の peak に text が付けば手元の候補にも入り、state だけの change では消えない
   assert.equal(ctx.peakNorm(pk('t', 1, 5, { text: 'あいう' })).text, 'あいう');
   assert.equal(ctx.peakNorm(pk('t', 1, 5, { text: 3 })).text, '', 'not a string: empty');
   assert.equal(ctx.peakNorm(pk('t', 1, 5, { text: 'x'.repeat(2500) })).text.length, 2000);
@@ -1036,26 +1012,18 @@ test('live peaks: normalize, the full list and the since-changes (unknown ids an
   m = ctx.peakMerge(list, [{ seq: 8, id: 'c', state: 'frame', end: 57.5, endPending: false }]);
   assert.equal(m.full, false); assert.equal(m.list[2].end, 57.5); assert.equal(m.list[2].endPending, false);
   assert.equal(ctx.peakMerge(list, null).full, false, 'no changes: nothing to do');
-  // 入口(線 1)の changes は {seq, id, state, peak: 今の形}: 新しい候補も・終わりが決まった候補も、読み直さずに当てられる
+  // 入口の changes は {seq, id, state, peak: 今の形}: 新しい候補も・終わりが決まった候補も、読み直さずに当てられる
   m = ctx.peakMerge(list, [{ seq: 9, id: 'c', state: 'frame', peak: { ...pk('c', 50, 56.5), endPending: false, seq: 9 } }, { seq: 9, id: 'y', state: 'bench', peak: pk('y', 80, 84, { state: 'bench' }) }]);
   assert.equal(m.full, false);
   assert.deepEqual(plain(m.list.map(p => [p.id, p.state, p.end, p.endPending, p.peak])), [['a', 'frame', 14, false, 12], ['b', 'frame', 34, false, 32], ['c', 'frame', 56.5, false, 52], ['y', 'bench', 84, false, 82]]);
   assert.equal(plain(ctx.peakSeries({ n: 3600, step: 6, total: [1] })).n, 3600, 'n from the portal when given');
 });
 
-test('live peaks: rows are diffed (add / fade out / hold while playing, hovered or focused) and only frame + adopted are shown by default', () => {
+test('live peaks: p after the last one finds nothing; when the current one left the list, it starts from the first', () => {
   const ctx = load([PEAK_FNS], { tickLabel: mmss });
   const list = ctx.peakList([pk('a', 10, 14, { state: 'adopted' }), pk('b', 30, 34, { state: 'bench' }), pk('c', 50, 58), pk('d', 70, 74, { state: 'dismissed' })]);
-  assert.deepEqual(plain(ctx.peakShown(list, false).map(p => p.id)), ['a', 'c']);
-  assert.deepEqual(plain(ctx.peakShown(list, true).map(p => p.id)), ['a', 'b', 'c', 'd'], '「控えも見る」: bench and dismissed too');
-  assert.deepEqual(plain(ctx.peakRows(['a', 'b', 'c'], ['a', 'c', 'd'], new Set())), { add: ['d'], remove: ['b'], hold: [] });
-  assert.deepEqual(plain(ctx.peakRows(['a', 'b', 'c'], ['a', 'c', 'd'], new Set(['b']))), { add: ['d'], remove: [], hold: ['b'] },
-    'the row being played / under the mouse is not taken away (0-10-3 の 6)');
-  assert.deepEqual(plain(ctx.peakRows([], ['a'], null)), { add: ['a'], remove: [], hold: [] });
-  assert.equal(ctx.peakNext(ctx.peakShown(list, true), null).id, 'a', 'nothing played yet: the first');
-  assert.equal(ctx.peakNext(ctx.peakShown(list, true), 'a').id, 'b');
   assert.equal(ctx.peakNext(ctx.peakShown(list, true), 'c'), null, 'dismissed ones are skipped; after the last there is no next');
-  assert.equal(ctx.peakNext(ctx.peakShown(list, false), 'gone').id, 'a', 'the current one left the list: start from the first');
+  assert.equal(ctx.peakNext(ctx.peakShown(list, false), 'gone').id, 'a');
 });
 
 test('live peaks: the header line (count, this hour x/perHour, delay, chat, auto adopt) and what each row shows', () => {
@@ -1071,11 +1039,10 @@ test('live peaks: the header line (count, this hour x/perHour, delay, chat, auto
   assert.equal(ctx.peakHead([], null, { running: false, message: '' }, null, { hour: 0, active: true }).info, '検出が止まっています(ホームが起動し直します)・自動採用 オフ');
   assert.equal(ctx.peakHead(list, { perHour: 8, counts: {} }, { running: false }, { enabled: true }, { hour: 0, active: false }).info, '', 'an ended recording: nothing about the worker');
   assert.equal(ctx.peakHead(list, { perHour: 8, counts: {} }, null, null, { hour: 0 }).count, '候補 4 件(この 1 時間 0/8)');
-  // 配信中の文字起こし(D-11 案 b)の状態 o.tx: オンで準備が無いときだけ「文字起こしなし(理由)」(理由の括弧の中の案内は省く)。準備がある・オフ・録画が終わった・o.tx が無い(古い入口)は何も出さない
+  // 配信中の文字起こしの状態 o.tx: オンで準備が無いときだけ「文字起こしなし(理由)」(whisper.cpp が無いときは e2e_live_studio の _scene_peak_text が見る)。
+  // 準備がある・オフ・録画が終わった・o.tx が無い(tx を返さない入口)は何も出さない
   const run = { running: true, chat: 'ok' }, auto = { enabled: false };
   const txOf = tx => ctx.peakHead(list, null, run, auto, { hour: 0, active: true, tx }).info;
-  assert.equal(txOf({ enabled: true, ready: false, message: 'whisper.cpp がありません(setup の build-whisper-vulkan.bat で作ります)' }),
-    'チャットを読んでいます・自動採用 オフ・文字起こしなし(whisper.cpp がありません)');
   assert.equal(txOf({ enabled: true, ready: false, message: '' }), 'チャットを読んでいます・自動採用 オフ・文字起こしなし(準備がありません)');
   assert.equal(txOf({ enabled: true, ready: true, message: '' }), 'チャットを読んでいます・自動採用 オフ', 'ready: nothing');
   assert.equal(txOf({ enabled: false, ready: false, message: 'オフ(設定 live.liveTx)' }), 'チャットを読んでいます・自動採用 オフ', 'turned off: nothing');
@@ -1086,13 +1053,8 @@ test('live peaks: the header line (count, this hour x/perHour, delay, chat, auto
   const v = p => plain(ctx.peakView(ctx.peakNorm(p), false));
   let r = v(pk('c', 50, 58.5, { score: 6.25 }));
   assert.equal(r.time, '0:50'); assert.equal(r.title, '0:50 – 0:58(8.5 秒)・山 0:52'); assert.equal(r.score, '6.3点');
-  assert.deepEqual([r.pill[1], r.adopt, r.dismiss, r.restore, r.why], ['枠', true, true, false, '']);
-  r = v(pk('b', 30, 34, { state: 'bench' }));
-  assert.deepEqual([r.pill[0], r.pill[1], r.adopt, r.dismiss, r.restore], ['wait', '控え', true, true, false], 'a bench peak can be adopted');
   r = v(pk('a', 10, 14, { state: 'adopted', origin: 'auto' }));
-  assert.deepEqual([r.pill[1], r.adopt, r.dismiss, r.restore], ['自動で採用', false, false, false], 'adopted: the chip only');
-  r = v(pk('d', 70, 74, { state: 'dismissed' }));
-  assert.deepEqual([r.pill[1], r.adopt, r.dismiss, r.restore], ['見送り', false, false, true]);
+  assert.deepEqual([r.pill[1], r.adopt, r.dismiss, r.restore], ['自動で採用', false, false, false], 'auto adopted: the chip only');
   r = v(pk('e', 90, 99, { endPending: true }));
   assert.ok(r.pending && r.why.includes('終わりがまだ録れていません'), 'end pending: cannot be adopted yet (with the reason)');
   assert.equal(plain(ctx.peakView(ctx.peakNorm(pk('c', 50, 58)), true)).why, '送っています…', 'while the request is on the way');

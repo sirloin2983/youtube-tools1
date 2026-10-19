@@ -6,8 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { test } = require('node:test');
-// UIKit の代わり。画面の JS から `window.UIKit &&` の予備の経路を外しても、抜き出した関数が動くように、
-// vm の context にはいつも withUIKit(context) を通す(context.UIKit と、harness の window に window.UIKit)。呼ばれた部品は h.context.UIKit.called('toast') などで読める
+// UIKit の代わり。抜き出した関数は UIKit を直接呼ぶので、vm の context にはいつも withUIKit(context) を通す(context.UIKit と、harness の window に window.UIKit)。呼ばれた部品は h.context.UIKit.called('toast') などで読める
 const { withUIKit } = require(path.join(__dirname, '..', '..', 'ui-kit', 'tests', 'uikit_stub.cjs'));
 
 // 画面の JS は案件の画面の校正の台(src/app/ui/cases/edhost.js の ED_SCRIPTS)が読む順番(app-*.js → app.js)で読み込まれる。
@@ -185,18 +184,6 @@ test('out-of-order responses honor the most recent navigation request', async ()
   pendingB.resolve(doc('B'));
   assert.equal(await first, false);
   assert.equal(h.S.docId, 'C');
-});
-
-test('app.js and ui-kit.js parse successfully (CSP: the cases page has no inline <script>)', () => {
-  const html = fs.readFileSync(path.join(srcDir, 'app', 'ui', 'cases', 'index.html'), 'utf8');   // 編集の欄を載せる案件の画面
-  const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)];
-  assert.ok(scripts.length > 0);
-  for (const [, attrs, source] of scripts) {
-    assert.ok(/\bsrc=/.test(attrs), '案件の画面の <script> は src 付き(外部ファイル)であること');
-    assert.equal(source.trim(), '');
-  }
-  for (const f of appFiles.concat(['app-tpl.js', 'cut.js', 'pack-tab.js'])) new vm.Script(fs.readFileSync(path.join(editorDir, f), 'utf8'), { filename: f });   // 1つずつ(画面と同じく別のスクリプト)
-  new vm.Script(fs.readFileSync(path.join(srcDir, 'ui-kit', 'ui-kit.js'), 'utf8'));   // 共通の見た目の正本
 });
 
 // 字幕の読む速さの印: 画面の readMark とサーバーの pipeline/transcribe/retime.subread_mark が同じ結果になること(例は tests/subread_cases.json。test_retime.py も読む)

@@ -1,6 +1,6 @@
 // Run: node --test src/app/tests/test_cases_poll.cjs
 // 案件の画面(src/app/ui/cases/cases.js)の load と poll を vm で切り出し、status の応答を遅らせて試す。
-// GPT のレビュー A1: 状態確認の途中で同じ案件を load(true) で読み直すと、先の応答が捨てられて次の問い合わせが予約されず自動の更新が止まった。
+// 状態確認の途中で同じ案件を load(true) で読み直しても、次の問い合わせは予約される(自動の更新が止まらない)。古い案件への応答は当てない。
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
