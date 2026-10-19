@@ -85,7 +85,6 @@ SWEEP_MATCH = (0.40, 0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80)
 SWEEP_MARGIN = (0.0, 0.04, 0.08, 0.12)
 REASONS = {"no_feature": "特徴が取れない", "no_voices": "比べる声が無い", "below_match": "しきい値に届かない", "margin": "2位との差が足りない",
            "name_taken": "同じ名前を別の人が先に取った", "already_named": "人が先に名前を付けていた", "name_in_use": "その名前を別の人が使っている", "no_rows": "行が無い"}
-REVIEWED_MODES = ("only", "prefer", "ignore")
 MACHINE_BY = ("threshold", "elimination", "context")   # 声の照合 voices の by のうち、機械が付けた名前(request = 依頼の名前は人の入力)
 CONFIRM_RULE = ("人が確かめた行 = 確かめ済みの文書の行・校正済みの行・人が話者を付け替えた行。機械の下書きのまま = それ以外で、名前が機械のもの(話者n・声の照合・動画の手がかり)"
                 "かつその話者に確かめた行が無い。確かめられない = それ以外")
@@ -478,31 +477,6 @@ def load_docs(tdir, include_eval, only=None):
     return out, skipped
 
 
-def resolve_reviewed(mode, only=None):
-    """--reviewed の既定: only(--docs のときは prefer)。eval_asr.py と同じ決め方"""
-    if mode is not None and mode not in REVIEWED_MODES:
-        raise SystemExit("--reviewed は only・prefer・ignore のどれかです: %r" % mode)
-    return mode or ("prefer" if only else "only")
-
-
-def pick_reviewed(docs, mode):
-    """確かめ済みの扱いで文書を絞る -> ([(id, 文書, 確かめ済みとして扱うか)], 記録)。評価用でない文書はどれでも残す。
-    only で確かめ済みの評価用が 0 本なら(評価用があるときだけ)今までの選び方(ignore)に戻して fallback = True"""
-    n_eval = sum(1 for _, d in docs if d.get("evalSet") is True)
-    n_rev = sum(1 for _, d in docs if is_reviewed(d))
-    info = {"mode": mode, "effective": mode, "evalDocs": n_eval, "reviewedDocs": n_rev, "fallback": False, "notReviewed": 0}
-    if mode == "only" and n_eval and not n_rev:
-        info["effective"], info["fallback"] = "ignore", True
-    out = []
-    for tid, d in docs:
-        whole = info["effective"] != "ignore" and is_reviewed(d)
-        if info["effective"] == "only" and d.get("evalSet") is True and not whole:
-            info["notReviewed"] += 1
-            continue
-        out.append((tid, d, whole))
-    return out, info
-
-
 def reviewed_notes(info, include_draft):
     notes = []
     if info["fallback"]:
@@ -609,9 +583,10 @@ def evaluate(data_dir=None, since=None, until=None, include_eval=True, include_d
     engines, by_doc = {}, []
     diffs = []
     ovl = Overlap()
-    mode = resolve_reviewed(reviewed, only)
     loaded, sk = load_docs(tdir, include_eval, set(only) if only else None)
-    picked, rinfo = pick_reviewed(loaded, mode)
+    tid_of = {id(d): tid for tid, d in loaded}
+    picked, rinfo = C.pick_reviewed([d for _, d in loaded], reviewed, only)
+    picked = [(tid_of[id(d)], d, whole) for d, whole in picked]
     skipped = {"noDiar": 0, "single": 0, "noRows": 0, "evalSet": sk["evalSet"], "broken": sk["broken"], "notReviewed": rinfo["notReviewed"]}
     totals = {"docs": 0, "drafts": 0, "noRecord": 0, "evalDocs": 0, "machineDraft": 0, "unverified": 0, "reviewedDocs": 0, "noSub": 0, "ownVoices": 0}
     sm_agg = [Smooth(on) for on in smooth] if smooth else []
@@ -834,9 +809,10 @@ def run_evaluate(data_dir=None, since=None, until=None, include_eval=True, inclu
     real = not _backend.is_fake()
     if real:
         check_models(root, grid)
-    mode = resolve_reviewed(reviewed, only)
     loaded, sk = load_docs(tdir, include_eval, set(only) if only else None)
-    picked, rinfo = pick_reviewed(loaded, mode)
+    tid_of = {id(d): tid for tid, d in loaded}
+    picked, rinfo = C.pick_reviewed([d for _, d in loaded], reviewed, only)
+    picked = [(tid_of[id(d)], d, whole) for d, whole in picked]
     if only:
         missing = sorted(set(only) - {t for t, _ in loaded})
         if missing:
@@ -1086,7 +1062,7 @@ def main(argv=None):
     p.add_argument("--exclude-learned", action="store_true", help="stored: その文書自身から覚えた声(声のファイルの learnedFrom)で名前を付けた話者を声の照合の集計から外す(無ければ印だけ)")
     p.add_argument("--include-draft", action="store_true",
                    help="仮の名前(話者1…)・機械の下書きのまま・確かめられない行も測る(今までの数え方 = 人が確かめていないので甘く出る)")
-    p.add_argument("--reviewed", choices=REVIEWED_MODES,
+    p.add_argument("--reviewed", choices=C.REVIEWED_MODES,
                    help="評価用の確かめ済み(動画を全部聞いて直した印)の扱い。only = 評価用は確かめ済みだけ(既定。--docs のときは prefer。0 本なら今までの選び方に戻す)/"
                         " prefer = 確かめ済みでない評価用も混ぜる / ignore = 印を見ない。評価用でない文書はどれでも入る")
     p.add_argument("--docs", help="文書の id をカンマ区切りで")

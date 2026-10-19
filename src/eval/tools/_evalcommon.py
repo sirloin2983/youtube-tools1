@@ -94,6 +94,29 @@ def period_label(since, until):
 
 
 is_reviewed = schemas.is_eval_reviewed   # lint: keep 動画を全部聞いて確かめた文書か(正は ytt/schemas。C-EVAL 2a-1 で写しを寄せた)
+REVIEWED_MODES = ("only", "prefer", "ignore")
+
+
+def pick_reviewed(docs, mode=None, only=None):
+    """確かめ済みの扱い(--reviewed。eval_asr・eval_speakers の 1 か所)で文書を選ぶ -> ([(文書, 動画全体で採点するか)], 記録)。
+    既定は only(--docs を渡したときは prefer)。only = 確かめ済みでない評価用の文書を外す(評価用でない文書は残す)/ prefer = 確かめ済みは全体で、
+    ほかは今までどおり / ignore = 印を見ない。only で評価用はあるのに確かめ済みが 0 本なら、今までの選び方(ignore)に戻して fallback"""
+    if mode is not None and mode not in REVIEWED_MODES:
+        raise SystemExit("--reviewed は only・prefer・ignore のどれかです: %r" % mode)
+    mode = mode or ("prefer" if only else "only")
+    n_eval = sum(1 for d in docs if d.get("evalSet") is True)
+    n_rev = sum(1 for d in docs if is_reviewed(d))
+    info = {"mode": mode, "effective": mode, "candidates": len(docs), "evalDocs": n_eval, "reviewedDocs": n_rev, "fallback": False, "notReviewed": 0}
+    if mode == "only" and n_eval and not n_rev:
+        info["effective"], info["fallback"] = "ignore", True
+    out = []
+    for d in docs:
+        whole = info["effective"] != "ignore" and is_reviewed(d)
+        if info["effective"] == "only" and d.get("evalSet") is True and not whole:
+            info["notReviewed"] += 1
+            continue
+        out.append((d, whole))
+    return out, info
 
 
 # ---------------------------------------------------------------- 数の小道具

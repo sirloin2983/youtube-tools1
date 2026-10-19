@@ -27,7 +27,7 @@
     --reviewed only|prefer|ignore    評価用の「確かめ済み」(動画を全部聞いて直した印 evalReviewed。src/eval/drill/drill.py の drill_is_reviewed と同じ条件)の扱い。
                                      確かめ済みの文書は、校正した行の範囲ではなく**動画全体(0〜durationSec)**が正解 = 人の行の無い所に機械が出した文字は余分(幻覚)・
                                      人の行があるのに機械が出していない所は抜けとして数える。確かめ済みでない文書は今までどおり(校正済みの行の範囲だけ)。
-                                     only = 確かめ済みの動画だけを測る(既定。ただし --source eval で --docs なしのとき。確かめ済みが 0 本なら今までどおりの選び方に戻して注意を出す)/
+                                     only = 評価用は確かめ済みの動画だけを測る(既定。ただし --source eval で --docs なしのとき。評価用でない文書は残す。確かめ済みが 0 本なら今までどおりの選び方に戻して注意を出す)/
                                      prefer = 確かめ済みは全体で、確かめ済みでない文書も今までどおり混ぜる(普段・--docs のときの既定)/
                                      ignore = 印を見ない(今までどおりの測り方だけ)
   普段の文書を run で認識し直すときは、用語のヒント・辞書を使わない(評価用と同じ条件。--glossary・--context auto を自分で付けたときだけ渡す)。
@@ -196,30 +196,14 @@ def select_docs(data, args):
     return pick_reviewed(docs, sel, args, src), sel
 
 
-def resolve_reviewed(args, src):
-    """--reviewed の既定: 評価用だけを測る(--docs なし)ときは only(確かめ済みだけが定点)、それ以外は prefer"""
-    r = getattr(args, "reviewed", None)
-    if r:
-        return r
-    return "only" if src == "eval" and not args.docs else "prefer"
-
-
 def pick_reviewed(docs, sel, args, src):
-    """確かめ済みの扱い(--reviewed)で文書を絞り、各文書に _reviewed(動画全体で採点するか)を付ける。sel["reviewed"] に記録する。
-    only で確かめ済みが 0 本のときは今までどおりの選び方(校正済みの行の範囲)に戻し、fallback = True にする"""
-    mode = resolve_reviewed(args, src)
-    n_rev = sum(1 for d in docs if is_reviewed(d))
-    info = {"mode": mode, "effective": mode, "candidates": len(docs), "reviewedDocs": n_rev, "fallback": False}
-    sel["reviewed"] = info
-    if mode == "only" and not n_rev:
-        info["effective"], info["fallback"] = "ignore", True
-    if info["effective"] == "ignore":
-        for d in docs:
-            d["_reviewed"] = False
-        return [d for d in docs if has_proofed(d)]   # 行の無い確かめ済みの文書は、印を見ないなら測る正解が無い
-    for d in docs:
-        d["_reviewed"] = is_reviewed(d)
-    return [d for d in docs if is_reviewed(d)] if mode == "only" else docs
+    """確かめ済みの扱い(--reviewed。選び方は _evalcommon.pick_reviewed)で文書を絞り、各文書に _reviewed(動画全体で採点するか)を付ける。
+    既定は評価用だけを測る(--docs なし)ときは only、それ以外は prefer。sel["reviewed"] に記録する。印を見ないときは、校正済みの行の無い文書は測る正解が無いので外す"""
+    mode = getattr(args, "reviewed", None) or ("only" if src == "eval" and not args.docs else "prefer")
+    picked, sel["reviewed"] = C.pick_reviewed(docs, mode)
+    for d, whole in picked:
+        d["_reviewed"] = whole
+    return [d for d, whole in picked if whole or has_proofed(d)]
 
 
 def runs_of(d):
@@ -978,7 +962,7 @@ def add_select_args(p, label_help="結果に付ける名前", no_save_help="結�
     p.add_argument("--data", "--data-dir", dest="data", help="文字起こしの作業データのフォルダ(既定 %%LOCALAPPDATA%%\\youtube-tools\\transcribe)")
     p.add_argument("--source", choices=("eval", "daily", "all"),
                    help="測る文書の出どころ。eval = 評価用(既定)/ daily = 普段の校正済み(評価用以外)/ all = 全部")
-    p.add_argument("--reviewed", choices=("only", "prefer", "ignore"),
+    p.add_argument("--reviewed", choices=C.REVIEWED_MODES,
                    help="確かめ済み(動画を全部聞いて直した評価用の文書)の扱い。確かめ済みは動画全体が正解(人の行の無い所の機械の文字 = 余分・機械の無い所の人の行 = 抜け)。"
                         "only = 確かめ済みだけ(--source eval で --docs なしの既定。0 本なら今までの選び方に戻す)/ prefer = 確かめ済みは全体で・ほかも混ぜる(それ以外の既定)/ ignore = 印を見ない")
     p.add_argument("--since", help="この日(YYYY-MM-DD。含む)以降のデータだけ。文書の時刻 = 校正済みの行の proofedAt の最大(無ければ updatedAt)")

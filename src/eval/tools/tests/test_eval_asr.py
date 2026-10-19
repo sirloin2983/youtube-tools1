@@ -624,13 +624,13 @@ class EvalAsrReviewedTest(Base):
             self.assertEqual((sorted(res["meta"]["docs"]), res["meta"]["selection"]["reviewed"]["mode"]), (ids, mode), argv)
         self.assertEqual(self.stored("--reviewed", "prefer")["summary"]["proofedSec"], 60.0 + 7.0)   # 確かめ済みは動画の長さ・ほかは人の行の幅
         self.assertEqual(self.stored("--source", "all")["summary"]["reviewed"]["docs"], 1)
-        self.assertEqual(self.stored()["meta"]["selection"]["reviewed"], {"mode": "only", "effective": "only", "candidates": 2, "reviewedDocs": 1, "fallback": False})
+        self.assertEqual(self.stored()["meta"]["selection"]["reviewed"], {"mode": "only", "effective": "only", "candidates": 2, "evalDocs": 2, "reviewedDocs": 1, "fallback": False, "notReviewed": 1})
 
     def test_only_falls_back_when_nothing_is_reviewed(self):
         os.unlink(os.path.join(self.data, "transcripts", "aaaaaaaaaa01.json"))
         res = self.stored()
         self.assertEqual(res["meta"]["docs"], ["bbbbbbbbbb01"])                                           # 今までどおりの選び方
-        self.assertEqual(res["meta"]["selection"]["reviewed"], {"mode": "only", "effective": "ignore", "candidates": 1, "reviewedDocs": 0, "fallback": True})
+        self.assertEqual(res["meta"]["selection"]["reviewed"], {"mode": "only", "effective": "ignore", "candidates": 1, "evalDocs": 1, "reviewedDocs": 0, "fallback": True, "notReviewed": 0})
         self.assertEqual(res["summary"]["reviewed"]["docs"], 0)
         self.assertEqual(res["summary"]["overall"]["ins"], 0)
 
