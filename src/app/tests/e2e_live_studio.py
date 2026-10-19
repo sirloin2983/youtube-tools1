@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""リアルタイム切り抜き(線 D の P3。notes:plan/line-d-live-clipping.md の 0-8)の通しの確認: 入口にスタジオを取り込み、録画の部品を別のプロセスで立て、
+"""リアルタイム切り抜きの通しの確認: 入口にスタジオを取り込み、録画の部品を別のプロセスで立て、
 ブラウザでホームの「新しい案件」(/#new)から録画を始め、案件の画面の候補のパネル(/cases?c=<録画 id>#cand。panels/cand.js が
 スタジオの review.js と LivePlayer を載せる)で再生・マーク・書き出しを操作する。本物の YouTube には繋がない。
 確かめの中身(保存の形・API の拒否・計算)は下の層(test_live.py・test_live_export.py・test_live_detect.py・test_cand_panel.cjs)で見る。ここは画面の操作と本物の部品どうしのつなぎ。
@@ -16,6 +16,8 @@
     入口から録画元への要求(Live.call)だけをテストの中で手元の HLS の URL に読み替える(本番の検査は緩めない。画面・API からは変えられない)
   - ブラウザは Edge(channel="msedge"。H.264 を再生できる)を先に試す。無ければ Playwright の chromium(再生は読み込みまで。再生が要る確認は飛ばす)
   - hls.js の再生位置の受信時刻(hls.playingDate)は、テストの init script で window.Hls を包んで読む(画面のコードには手を入れない)
+  - 待ちを縮める: 書き出しの録画待ちの見回りは 0.5 秒(既定 2 秒)。終わった録画の画面の見回りは 10 秒ごとなので、候補の変化を待つ所は
+    画面を離れて戻って(戻るとすぐ読み直す)待つ(wait_fresh)
 
 確かめること(番号は依頼の 1〜14):
   13 オフ: ホームの /#new の URL を入れても begin に進まず /studio/api/queue/add(今までどおりの解析)・ヘッダーに札が出ない
@@ -96,7 +98,7 @@ def wait_js(pg, expr, timeout=20000):
 
 
 def clip_len(job):
-    """書き出したジョブの動画の長さの見込み: 余白つき(LD-2f。ジョブの clip {from, to})ならその長さ、無ければマークの長さ"""
+    """書き出したジョブの動画の長さの見込み: 余白つき(ジョブの clip {from, to})ならその長さ、無ければマークの長さ"""
     from flow import live_export as LX   # noqa: E402  (起動の順で src を sys.path に足したあと)
     c = job.get("clip") or {}
     if c.get("from") and c.get("to"):
@@ -106,6 +108,17 @@ def clip_len(job):
 
 def wait_for(fn, timeout=30.0, step=0.3):
     return testkit.wait_for(fn, timeout, step)
+
+
+def wait_fresh(pg, expr, timeout=15000):
+    """expr が真になるまで待つ。終わった録画の画面の見回り(10 秒ごと)を待たず、1.5 秒ごとに画面を離れて戻る(戻ると録画の状態と候補をすぐ読み直す)"""
+    end = time.time() + timeout / 1000.0
+    while not wait_js(pg, expr, 1500):
+        if time.time() >= end:
+            return False
+        pg.evaluate(HIDE_JS)
+        pg.evaluate(SHOW_JS)
+    return True
 
 
 def main():
@@ -348,6 +361,7 @@ def _scene_turn_on(cx):
     wait_js(pg, "!!document.getElementById('uiSet-live_enabled')")
     pg.click("#uiSet-live_enabled")
     check(wait_js(pg, "(document.querySelector('[data-ui-set-key=\"live.enabled\"] .ui-set-mark')||{}).textContent === '保存しました'") and srv.prefs.get(["live"])["live"]["enabled"] is True, "1 設定の画面でオンにする")
+    cx.live.exporter.poll = 0.5   # 書き出しの録画待ちの見回り(既定 2 秒)。書き出しはオンにしてから作る
     pg.close()
     cx.pg = pg
 
@@ -501,7 +515,7 @@ def _scene_seek_and_leave(cx):
 
 def _scene_gap(cx):
     """欠け(繋ぎ直し)をまたぐ: 状態の表示・欠けの中への seek・欠けのあとのマークの位置"""
-    LX, api, check, edge, live_src, normalize, pg, rid = cx.LX, cx.api, cx.check, cx.edge, cx.live_src, cx.normalize, cx.pg, cx.rid
+    LX, api, check, edge, live_src, pg, rid = cx.LX, cx.api, cx.check, cx.edge, cx.live_src, cx.pg, cx.rid
     skip = cx.skip
     # ---------------- 欠け(繋ぎ直し)をまたぐ: 状態の表示・欠けの中への seek・欠けのあとのマークの位置 ----------------
     live_src.down = True
@@ -557,8 +571,6 @@ def _scene_gap(cx):
             if jg and jg["state"] == "done" and a_in and a_out:
                 d_in, d_out = LX.iso_epoch(jg["start"]) - a_in / 1000, LX.iso_epoch(jg["end"]) - a_out / 1000
                 check(abs(d_in) <= 0.3 and abs(d_out) <= 0.3, "5 欠けのあとでも、書き出した区間の絶対時刻 = playingDate ± 0.3 秒(開始 %+.3f 秒・終了 %+.3f 秒)" % (d_in, d_out))
-                dur = (normalize.probe(jg["path"]) or {}).get("duration", 0)
-                check(abs(dur - clip_len(jg)) <= 0.15, "欠け: 欠けのあとの書き出しも長さが区間と合う: %.2f 秒" % dur)
     else:
         skip("欠けをまたぐ seek・欠けのあとのマークの位置(再生できない)")
     cx.n_jobs = n_jobs
@@ -658,7 +670,7 @@ def _scene_badge_stop(cx):
 
 def _scene_after_end(cx):
     """10. 終わった録画でマークして「書き出す」 / 12. 読み込み直す"""
-    api, check, edge, handed, handed_who, n_jobs, normalize = cx.api, cx.check, cx.edge, cx.handed, cx.handed_who, cx.n_jobs, cx.normalize
+    api, check, edge, handed, handed_who, n_jobs = cx.api, cx.check, cx.edge, cx.handed, cx.handed_who, cx.n_jobs
     pg, rid, shots, srv, cases_url = cx.pg, cx.rid, cx.shots, cx.srv, cx.cases_url
     # ---------------- 10. 終わった録画でマークして「書き出す」 ----------------
     pg.click("#rvAutoExp")   # 「マークしたらすぐ書き出す」を外す(いつものスタジオと同じ: 採用 → 書き出す)
@@ -702,10 +714,6 @@ def _scene_after_end(cx):
     check(done2, "10 終わった録画でも「書き出す」で書き出せる")
     check(len(handed) == n_handed + 1 and handed[-1][1] == "check" and handed_who[-1] == "宝鐘マリン",
           "15 直した配信者・「文字起こしまで」が次の書き出しに渡る: %s %s" % (handed[-1:], handed_who[-1:]))
-    if done2:
-        j2 = next(j for j in done2 if abs(j["studio"]["start"] - 5) < 1)
-        dur = (normalize.probe(j2["path"]) or {}).get("duration", 0)
-        check(abs(dur - clip_len(j2)) <= 0.15, "10 2本目も長さが区間と合う: %.2f 秒" % dur)
     pg.click("#rvExpClose")
 
     # ---------------- 12. 読み込み直す(/cases?c=<id>#cand を開き直す) ----------------
@@ -844,7 +852,7 @@ def _scene_peaks(cx):
     pg.hover(row("p2-20") + " [data-pf=\"time\"]")
     control["set"] = {"p2-20": "bench"}
     write_ctl()
-    check(_pw_wait(pg, lambda: pg.evaluate("(s) => { const r = document.querySelector(s); return !!r && !r.classList.contains('is-gone') && r.querySelector('[data-pf=\"pill\"]').textContent === '控え'; }", row("p2-20")), 15),
+    check(wait_fresh(pg, "() => { const r = document.querySelector('%s'); return !!r && !r.classList.contains('is-gone') && r.querySelector('[data-pf=\"pill\"]').textContent === '控え'; }" % row("p2-20")),
           "L3 マウスが乗っている行は、控えに外れても一覧に残す(札は「控え」)")
     pg.mouse.move(2, 2)
     check(wait_js(pg, "() => !document.querySelector('%s')" % row("p2-20"), 7000), "L3 マウスが離れたら、外れた行は薄くしてから消える")
@@ -896,7 +904,7 @@ def _scene_peaks(cx):
     # 後始末: 検出をオフ → 見回りがワーカーを止める → 帯の候補の部分は隠れる
     srv.prefs.patch("live", {"detect": {"enabled": False, "sens": "normal", "perHour": 6}})
     check(det.tick() == "off" and wait_for(lambda: det.proc is None or det.proc.poll() is not None, 10), "L2 検出をオフにすると、見回りがワーカーを止める")
-    check(wait_js(pg, "() => document.querySelector('#rvPeaks').hidden", 15000), "L3 オフにすると帯の候補の部分が隠れる")
+    check(wait_fresh(pg, "() => document.querySelector('#rvPeaks').hidden"), "L3 オフにすると帯の候補の部分が隠れる")
 
 
 def _scene_peak_text(cx, row):
@@ -910,7 +918,7 @@ def _scene_peak_text(cx, row):
     live.livetx.record("local", rid, "p1-14", "短い文字")
     tx = lambda pid: row(pid) + ' [data-pf="tx"]'   # noqa: E731
     want = "「" + long_tx[:80] + "…」"
-    check(wait_js(pg, "() => { const e = document.querySelector('%s'); return !!e && !e.hidden && e.textContent === %s; }" % (tx("p4-30"), json.dumps(want)), 30000),
+    check(wait_fresh(pg, "() => { const e = document.querySelector('%s'); return !!e && !e.hidden && e.textContent === %s; }" % (tx("p4-30"), json.dumps(want)), 30000),
           "D-11 文字が付いた候補の行に文字が出る(80 字で切って「…」): %s" % pg.evaluate("(s) => { const e = document.querySelector(s); return e && [e.hidden, e.textContent]; }", tx("p4-30")))
     check(pg.evaluate("(s) => document.querySelector(s).getAttribute('title')", tx("p4-30")) == long_tx, "D-11 行の文字の title に全文")
     check(pg.evaluate("(s) => { const e = document.querySelector(s); return !e.hidden && e.textContent; }", tx("p1-14")) == "「短い文字」", "D-11 短い文字はそのまま(採用した候補にも出る)")

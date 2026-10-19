@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""リアルタイム切り抜き LD-1(録画に無い区間だけをアーカイブから書き出す・アーカイブ化を確かめて録画をごみ箱へ移す。notes:plan/line-d-live-clipping.md の 0-9)の通しの確認。
+"""リアルタイム切り抜きのアーカイブ(録画に無い区間だけをアーカイブから書き出す・アーカイブ化を確かめて録画をごみ箱へ移す)の通しの確認。
 入口にスタジオを取り込み、録画の部品を別のプロセスで立て、ブラウザでホームの「新しい案件」(/#new)の URL の欄から録画を始め、
 案件の画面の候補のパネル(/cases?c=<録画 id>#cand。panels/cand.js がスタジオの review.js と LivePlayer を載せる)を操作する。本物の YouTube には繋がない。
 案件の画面の帯は開いたときに入口の設定 live.autoDelete を読む。アーカイブから書き出すのは録画に無い区間だけで、いつも自動。
@@ -17,7 +17,8 @@
     窓の音 = アーカイブの mp4 から ffmpeg で切る。照合は本物(src/pipeline/ingest/live_align_worker.py)
   - スタジオの区間の書き出し(部品 exporter.build_section_spec・_run_section)は本物: 疑似モード(STUDIO_FAKE=1)で STUDIO_FAKE_MEDIA = アーカイブの mp4 を切る
     (入口 → スタジオの API の呼び方・409 busy の待ち・path の検査が本物で通る)
-  - 時間は縮める: アーカイブからの自動の書き出し(録画が終わって 8 秒・確かめる間隔 2 秒)・録画を消す見回り(毎回)・マークの無い録画(6 秒)
+  - 時間は縮める: アーカイブからの自動の書き出し(録画が終わって 8 秒・確かめる間隔 2 秒)・録画を消す見回り(毎回)・マークの無い録画(6 秒)・
+    書き出しの録画待ちの見回り(0.5 秒)。9 の録画は最初に始めて 1〜7 の間に録る。「消さない」は決まった秒ではなく入口の見回りが回ったのを数えて見る
 
 確かめること:
   1  /#new の URL → /cases?c=<録画 id>#cand → 候補のパネルでマーク(自動の書き出し)→ 録画から書き出した切り抜き(done)/ 欠け(つなぎ直しの間をまたぐマーク)→ 失敗・要アーカイブ / 欠けのあとのマーク
@@ -115,7 +116,7 @@ def wait_js(pg, expr, timeout=20000):
 
 
 def clip_len(job):
-    """書き出したジョブの動画の長さの見込み: 余白つき(LD-2f。ジョブの clip {from, to})ならその長さ、無ければマークの長さ"""
+    """書き出したジョブの動画の長さの見込み: 余白つき(ジョブの clip {from, to})ならその長さ、無ければマークの長さ"""
     from flow import live_export as LX   # noqa: E402  (起動の順で src を sys.path に足したあと)
     c = job.get("clip") or {}
     if c.get("from") and c.get("to"):
@@ -209,7 +210,7 @@ def run(tmp, shots, force_chromium):
 
     # --- 録画の部品(本物。direct)と、配信中のふりをする HLS(3 本) ---
     srcs = {}
-    for u in (YT1, YT2, YT3):   # YT4(9)は 9 で作る(配信中のふりの HLS がアーカイブの頭のほうから始まるように)
+    for u in (YT1, YT2, YT3):   # YT4(9)は録画を始める直前に作る(配信中のふりの HLS がアーカイブの頭のほうから始まるように)
         s = F.LiveServer(os.path.join(tmp, "src"), segs, start=START_SEGS, rate=1.0)
         s.end = False
         srcs[u] = s
@@ -288,7 +289,20 @@ def run(tmp, shots, force_chromium):
     live.archive_opts = {"probe": fake_probe, "audio": fake_audio, "first_delay": 8.0, "interval": 2.0, "poll": 1.0, "retry_sec": 2.0, "step": 0.5}
     live.cleanup_opts = {"interval": 0, "no_mark_sec": 6.0}
     live.watch_sec = 1.0   # 入口の見回り(録画を消す見回り・作り直しの自動)を 1 秒ごとに
+    ticks = [0]
+    real_tick = live.tick
+
+    def counted_tick():   # 入口の見回りの回数(「消さない」を見るときに、見回りが回ったのを数える)
+        ticks[0] += 1
+        return real_tick()
+    live.tick = counted_tick
+
+    def watch_rounds(n):
+        """入口の見回りが n 回まわり終わるまで待つ(いま途中の回は数えない)"""
+        want = ticks[0] + n + 1
+        return wait_for(lambda: ticks[0] >= want, 10 + 2 * n, 0.1)
     live.start()
+    live.exporter.poll = 0.5   # 書き出しの録画待ちの見回り(既定 2 秒)
 
     def rec_status(rid):
         return api("GET", "/live/r/local/%s/status" % rid)
@@ -365,6 +379,7 @@ def run(tmp, shots, force_chromium):
 
                 cx.__dict__.update(locals())   # 場面の関数へ渡す値(この run の中の値。場面が作って、あとで使う値は場面が cx に戻す)
                 _scene_settings(cx)
+                _begin_after_stream(cx)
                 _scene_record_marks(cx)
                 _scene_rebuild_by_hand(cx)
                 _scene_chips_and_delete(cx)
@@ -408,6 +423,21 @@ def _scene_settings(cx):
     cx.srv.prefs.patch("live", {"autoDelete": False})
 
 
+def _begin_after_stream(cx):
+    """9 の録画(人はマークしない)を最初に始めて、1〜7 の間に録る(9 で録画の長さを待たない)。
+    録画の束には始めたときのスタジオの解析の設定が入るので、設定は先に。配信後の全自動のスイッチは 9 で入れる(1〜7 の録画に効かせない)"""
+    F, api, back, check, segs, srcs, tmp, url_map = cx.F, cx.api, cx.back, cx.check, cx.segs, cx.srcs, cx.tmp, cx.url_map
+    code, _d = api("PUT", "/studio/api/settings", {"section": "analyze", "value": {"count": 30, "length": 10, "headSec": 0}})   # 短いアーカイブでも候補が録画の範囲に入るように
+    check(code == 200, "9 スタジオの解析の設定(候補 30・長さ 10 秒・冒頭の減点なし): HTTP %s" % code)
+    s4 = F.LiveServer(os.path.join(tmp, "src"), segs, start=START_SEGS, rate=1.0)
+    s4.end = False
+    srcs[YT4] = s4
+    url_map[YT4], back[s4.url] = s4.url, YT4
+    code, d = api("POST", "/live/api/begin", {"url": YT4})
+    cx.rid4 = ((d or {}).get("recording") or {}).get("id")
+    check(code == 200 and cx.rid4, "9 4 本目の録画(人はマークしない): %s" % cx.rid4)
+
+
 def _scene_record_marks(cx):
     """1. 録画 → マーク(録画から書き出し)・欠け・欠けのあと"""
     LX, api, begin_from_home, check, here, jobs_of, mark, pg = cx.LX, cx.api, cx.begin_from_home, cx.check, cx.here, cx.jobs_of, cx.mark, cx.pg
@@ -440,7 +470,7 @@ def _scene_record_marks(cx):
     g0, g1 = gap or (20.0, 25.0)
     wait_for(lambda: rec_len(rid1) > g1 + 11, 40, 0.5)
     mark(pg, g0 - 2.0, g1 + 2.0)   # 欠けをまたぐマーク B
-    pg.wait_for_timeout(1500)
+    wait_js(pg, "() => document.querySelectorAll('#rvList .rv-mark-row').length === 2", 5000)
     mark(pg, g1 + 4.0, g1 + 8.0)   # 欠けのあとのマーク C
     js1 = wait_for(lambda: (lambda js: len(js) == 3 and all(j["state"] in ("done", "error") for j in js) and js)(jobs_of(rid1)), 120, 0.5) or jobs_of(rid1)
     by = {}
@@ -547,7 +577,7 @@ def _scene_chips_and_delete(cx):
     """4. アーカイブの札 / 5. 消す設定オフ → 残る / オン → ごみ箱へ"""
     cases_url, check, deleted_rids, gone_from_list, jobs_of, pg = cx.cases_url, cx.check, cx.deleted_rids, cx.gone_from_list, cx.jobs_of, cx.pg
     rec_ids, rfolder, rid1, shots, smarks, srv = cx.rec_ids, cx.rfolder, cx.rid1, cx.shots, cx.smarks, cx.srv
-    probes, trashbin = cx.probes, cx.trashbin
+    probes, trashbin, watch_rounds = cx.probes, cx.trashbin, cx.watch_rounds
     # ---------------- 4. アーカイブの札 ----------------
     check(wait_js(pg, "() => document.querySelectorAll('#rvList .rv-mark-row .rv-chip.arch').length === 1", 30000), "4 候補のパネルのマークの行に「アーカイブ」の札が 1 つ")
     if shots:
@@ -560,7 +590,7 @@ def _scene_chips_and_delete(cx):
         pg.wait_for_timeout(300)
 
     # ---------------- 5. 消す設定オフ → 残る / オン → 消える ----------------
-    time.sleep(3)   # 入口の見回り(1 秒ごと)が何回か回る
+    watch_rounds(2)
     check(rid1 in (rec_ids() or []) and os.path.isdir(os.path.join(rfolder, rid1)), "5 「録画を消す」がオフの間は、書き出しが済んでも録画は残る")
     srv.prefs.patch("live", {"autoDelete": True})   # 設定の画面(prefs)で付ける(帯の案内は録画を開いたときに読む = 6 で見る)
     check(srv.prefs.get(["live"])["live"]["autoDelete"] is True, "5 「録画を消す」を付けると live.autoDelete = true")
@@ -596,7 +626,7 @@ def _scene_auto_rebuild(cx):
     """6. 録画が終わる → 作り直しは起きない → 録画を自動でごみ箱へ / 7. マークの無い録画"""
     LX, api, begin_from_home, check, deleted_rids, fetches, first, gone_from_list = cx.LX, cx.api, cx.begin_from_home, cx.check, cx.deleted_rids, cx.fetches, cx.first, cx.gone_from_list
     jobs_of, mark, pg, probes, rec_ids, rec_len, rec_status = cx.jobs_of, cx.mark, cx.pg, cx.probes, cx.rec_ids, cx.rec_len, cx.rec_status
-    probe, rfolder, rid1, smarks, srv, trashbin = cx.probe, cx.rfolder, cx.rid1, cx.smarks, cx.srv, cx.trashbin
+    probe, rfolder, rid1, smarks, srv, trashbin, watch_rounds = cx.probe, cx.rfolder, cx.rid1, cx.smarks, cx.srv, cx.trashbin, cx.watch_rounds
     # ---------------- 6. 録画が終わる → 作り直しは起きない → 録画を自動でごみ箱へ ----------------
     check(srv.prefs.get(["live"])["live"]["autoDelete"] is True, "6 「録画を消す」は付いたまま(5 で付けた)")
     check(begin_from_home(pg, YT2) and wait_js(pg, "() => /録画中/.test(document.querySelector('#rvRecState').textContent)", 40000),
@@ -615,7 +645,7 @@ def _scene_auto_rebuild(cx):
           "6 終わった録画の帯の案内に「全部書き出して、アーカイブになったと確かめたら、録画はごみ箱へ移します」: %s" % pg.text_content("#rvLiveGuide"))
     guide = pg.text_content("#rvLiveGuide") or ""
     check("アーカイブが用意できたら自動でアーカイブから書き出します" not in guide, "6 アーカイブから書き出すものが無いので、その案内は出ない: %s" % guide)
-    time.sleep(3)   # 入口の見回り(1 秒ごと)が何回か回る
+    watch_rounds(2)
     check(rid2 in (rec_ids() or []) and os.path.isdir(os.path.join(rfolder, rid2)), "6 アーカイブ化を確かめられない間(post_live)は録画を消さない")
     probe["status"] = "was_live"
     stopped_at = time.time()
@@ -636,7 +666,7 @@ def _scene_auto_rebuild(cx):
     check(rid3 and code == 200, "7 マークの無い録画を始めてスタジオに登録: %s" % rid3)
     wait_for(lambda: rec_len(rid3) > 3, 30, 0.5)
     api("POST", "/api/ytt/live", {"op": "stop", "recorder": "local", "recording": rid3})
-    time.sleep(2)
+    watch_rounds(1)
     check(rid3 in (rec_ids() or []) and smarks(rid3) == [], "7 終わってすぐ(縮めた 1 日の前)は消さない")
     gone3 = wait_for(lambda: gone_from_list(rid3), 40, 0.5)
     if gone3:
@@ -646,14 +676,12 @@ def _scene_auto_rebuild(cx):
 
 
 def _scene_after_stream(cx):
-    """9. 配信後の全自動: 人は触らない(採用の出どころ・.clip.json・記録・帯の 1 行は test_live_archive.py の AfterStreamTest と test_cand_panel.cjs)"""
-    F, LX, api, back, check, deleted_rids, first, gone_from_list = cx.F, cx.LX, cx.api, cx.back, cx.check, cx.deleted_rids, cx.first, cx.gone_from_list
+    """9. 配信後の全自動: 人は触らない(録画は _begin_after_stream が最初に始めた。採用の出どころ・.clip.json・記録・帯の 1 行は test_live_archive.py の AfterStreamTest と test_cand_panel.cjs)"""
+    LX, api, check, deleted_rids, first, gone_from_list = cx.LX, cx.api, cx.check, cx.deleted_rids, cx.first, cx.gone_from_list
     handed, jobs_of, live, rec_ids, rec_len, rec_status = cx.handed, cx.jobs_of, cx.live, cx.rec_ids, cx.rec_len, cx.rec_status
-    segs, srcs, srv, tmp, url_map = cx.segs, cx.srcs, cx.srv, cx.tmp, cx.url_map
+    rid4, srv, tmp = cx.rid4, cx.srv, cx.tmp
     cases_url, pg = cx.cases_url, cx.pg
     # ---------------- 9. 配信後の全自動: 人は触らない ----------------
-    code, _d = api("PUT", "/studio/api/settings", {"section": "analyze", "value": {"count": 30, "length": 10, "headSec": 0}})   # 短いアーカイブでも候補が録画の範囲に入るように
-    check(code == 200, "9 スタジオの解析の設定(候補 30・長さ 10 秒・冒頭の減点なし): HTTP %s" % code)
     chat = os.path.join(tmp, "chat.jsonl")   # 偽のチャット(25 秒ごとに 4 秒の盛り上がり = アーカイブの全体に 25 秒おきの山。合成の音だけでは山が立たない)
     rnd = __import__("random").Random(1)
     with open(chat, "w", encoding="utf-8") as f:
@@ -665,38 +693,35 @@ def _scene_after_stream(cx):
     os.environ["STUDIO_FAKE_CHAT"] = chat
     v = srv.prefs.patch("live", {"autoAfterStream": True, "afterStreamPerHour": 30})
     check(v["autoAfterStream"] is True and v["afterStreamPerHour"] == 30, "9 「配信が終わったら、アーカイブの解析で自動で切り抜く」をオン(live.autoAfterStream)")
-    live.archiver.per_hour = lambda: 200   # テストの録画は 1 分ほど = 1 時間あたりを大きくして N を数本に(本物は設定の値)
     n_handed = len(handed)
-    s4 = F.LiveServer(os.path.join(tmp, "src"), segs, start=START_SEGS, rate=1.0)
-    s4.end = False
-    srcs[YT4] = s4
-    url_map[YT4], back[s4.url] = s4.url, YT4
-    code, d = api("POST", "/live/api/begin", {"url": YT4})
-    rid4 = cx.rid4 = ((d or {}).get("recording") or {}).get("id")
-    check(code == 200 and rid4, "9 4 本目の録画(人はマークしない): %s" % rid4)
-    wait_for(lambda: rec_len(rid4) > 2, 30, 0.5)
     # 見るだけ(マークしない): スタジオに登録して案件の画面の候補で開いておく(採用のときに入口が同じ登録をする = 結果は同じ)
     api("POST", "/studio/api/videos/open", {"kind": "live", "recorder": "local", "recording": rid4, "url": YT4, "title": "配信後の全自動"})
     pg.goto(cases_url(rid4))
     check(wait_js(pg, CAND_LIVE, 20000), "9 登録した録画を案件の画面の候補(/cases?c=<録画 id>#cand)で開ける")
     first["TESTarch004"] = LX.iso_epoch((rec_status(rid4)[1] or {}).get("firstPdt"))
-    wait_for(lambda: rec_len(rid4) > 75, 120, 0.5)
+    wait_for(lambda: rec_len(rid4) > 75, 120, 0.5)   # ふつうは 1〜7 の間に録れている
+    rec_sec = max(rec_len(rid4), 1.0)
+    live.archiver.per_hour = lambda: max(1, int(round(4 * 3600.0 / rec_sec)))   # 1 時間あたりを録画の長さ(1〜7 にかかった時間で変わる)から決めて N = 4(本物は設定の値)
     api("POST", "/api/ytt/live", {"op": "stop", "recorder": "local", "recording": rid4})
     stopped_at = time.time()
 
     def after_state():
         return ((api("GET", "/live/api/exports?recorder=local&recording=%s" % rid4)[1] or {}).get("archiveInfo") or {}).get("afterStream") or {}
-    seen_after = []
+    seen_after, kept = [], {}
 
     def watch():
+        if "rec" not in kept and time.time() - stopped_at > 10:   # 縮めた「マークの無い録画は 1 日で消す」(6 秒)と見回り(1 秒)を過ぎた所で 1 回見る
+            kept["rec"] = rid4 in (rec_ids() or [])
         a = after_state()
         s = "%s:%s" % (a.get("state"), a.get("message"))
         if a and (not seen_after or seen_after[-1] != s):
             seen_after.append(s)
-        return a if a.get("state") in ("done", "none", "error") else None
-    time.sleep(12)   # 縮めた「マークの無い録画は 1 日で消す」(6 秒)を過ぎても、自動の切り抜きが済むまで消さない
-    check(rid4 in (rec_ids() or []), "9 マークが無いまま(縮めた)1 日を過ぎても、配信後の自動の切り抜きが済むまで録画を消さない")
+        if a.get("state") in ("done", "none", "error"):
+            kept.setdefault("rec", None)   # 10 秒より前に済んだ(見られなかった)
+            return a
+        return None
     got = wait_for(watch, 420, 1.0)
+    check(kept.get("rec") is True, "9 マークが無いまま(縮めた)1 日を過ぎても、配信後の自動の切り抜きが済むまで録画を消さない: %s" % kept.get("rec"))
     check(got and got.get("state") == "done", "9 録画が終わって %.0f 秒で、人が触らずに配信後の自動の切り抜きが済んだ: %s / %s"
           % (time.time() - stopped_at, (got or {}).get("message"), " → ".join(seen_after[-8:])))
     check(any(x.startswith("analyze:") for x in seen_after) and any(x.startswith("export:") for x in seen_after),
