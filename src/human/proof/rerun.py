@@ -104,7 +104,7 @@ def _apply_retranscribe(spec, results):
         raw, flag = r
         keep = [x for x in str(sg.get("flag", "")).split("、") if x in _txbase.SPK_FLAGS]   # 話者の印は残し、文字の印は付け直す
         text, _ = _dictfmt.apply_replacements(raw[:_txbase.MAX_TEXT], pairs)
-        mrows.append({"id": sg["id"], "start": sg["start"], "end": sg["end"], "text": text, "flag": _layers.join_flags(flag, *keep),
+        mrows.append({"id": sg["id"], "start": sg["start"], "end": sg["end"], "text": text, "flag": _yschemas.join_flags(flag, *keep),
                       **({"speaker": sg["speaker"]} if sg.get("speaker") else {})})
         unsure += 1 if flag else 0
         done += 1
@@ -195,14 +195,14 @@ def _apply_range(spec, lines, loose=()):
     tid = spec["tid"]
     doc = store.read_transcript(tid)
     pairs = _flowtx.dict_pairs(spec)
-    loose = [dict(x, flag=_layers.join_flags(LOOSE_FLAG, x.get("flag", ""))) for x in loose]
+    loose = [dict(x, flag=_yschemas.join_flags(LOOSE_FLAG, x.get("flag", ""))) for x in loose]
     new_lines = sorted(list(lines) + loose, key=lambda x: x["start"])
     used = {g["id"] for g in doc.get("segments") or []}
     mrows, unsure, n = [], 0, 0
     for x in new_lines:
         text, _ = _dictfmt.apply_replacements(x["raw"][:_txbase.MAX_TEXT], pairs)
         sid, n = doc_jobs._fresh_id(used, "r%d".__mod__, n)
-        mrows.append({"id": sid, "start": round(x["start"], 2), "end": round(x["end"], 2), "text": text, "flag": _layers.join_flags(x.get("flag", ""))})
+        mrows.append({"id": sid, "start": round(x["start"], 2), "end": round(x["end"], 2), "text": text, "flag": _yschemas.join_flags(x.get("flag", ""))})
         unsure += 1 if x.get("flag") else 0
     # 元のまま残す機械の行(ほぼ空)の original・単語は古いまま(下の replace の keep)。数え方は replace_mach_span と同じ
     layers0 = store.layers_for(tid, doc)

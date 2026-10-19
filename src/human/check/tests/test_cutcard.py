@@ -64,7 +64,7 @@ class CutCardTest(unittest.TestCase):
     def test_check_per_source(self):
         ok = {"edge": ("good", "early", "late", "keep"), "gap": ("ok", "keep"), "whole": ("good", "tempo", "unnatural")}
         for src, choices in ok.items():
-            check = cutcard._checker(src)
+            check = cutcard.apply._REG[('cut', src)].check
             for c in choices:
                 self.assertEqual(check({"choice": c}), {"choice": c})
             bad = [None, {}, {"choice": "x"}, "good", {"choice": "good", "x": 1}, {"choice": True}]

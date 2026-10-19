@@ -35,14 +35,11 @@ def _check(ans):
 
 
 def _tid(card):
-    tid = (card.get("target") or {}).get("docId")
-    if not isinstance(tid, str) or not _yschemas.TID_RE.match(tid):
-        raise apply.Refused("カードの文書の指定が正しくありません", 400, "bad_request")
-    return tid
+    return _doc.doc_id(card, "カードの文書の指定が正しくありません")
 
 
 def _unflag(flag):
-    return _doc.join_flags(f for f in _doc.flag_parts(flag) if not FILL_FLAG_RE.match(f))
+    return _yschemas.join_flags(*(f for f in _yschemas.flag_parts(flag) if not FILL_FLAG_RE.match(f)))
 
 
 def _row_state(seg):
@@ -75,9 +72,8 @@ def _apply(ctx, card, ans):
         return {"docId": tid, "row": row_id, "source": source, "choice": "1"}   # 後処理の札を残す = 文書は何も変えない
     cand = None if source == "fill" else _cand_of(card)
 
-    def fn(doc, seg):
-        old = str(seg.get("text") or "")
-        before = _row_state(seg)
+    def change(doc, seg, before):
+        old = before["text"]
         new = old
         if choice == "other":
             new = ans["text"]
@@ -96,13 +92,15 @@ def _apply(ctx, card, ans):
             seg.pop("fill", None)
             seg["flag"] = _unflag(seg.get("flag"))
             changed = True
-        out = {"docId": tid, "row": row_id, "source": source, "choice": choice}
-        if changed:
-            seg["text"] = new
-            out["before"], out["after"] = before, _row_state(seg)
-        return changed, out
+        if not changed:
+            return None
+        seg["text"] = new
+        return True
 
-    out = _doc.edit_row(tid, row_id, fn, "check:read")
+    got = _doc.edit_fields(tid, row_id, "check:read", _row_state, change)
+    out = {"docId": tid, "row": row_id, "source": source, "choice": choice}
+    if got is not None:
+        out["before"], out["after"] = got[0], got[1]
     if cand is not None:
         fb = _feedback(tid, row_id, cand, "accept" if choice == "2" else "reject")
         if fb:
@@ -110,9 +108,8 @@ def _apply(ctx, card, ans):
     return out
 
 
-def _same(seg, want):
-    """行の今の 3 つの欄が want と同じか(want が文字だけの古い記録なら文字だけ比べる)"""
-    now = _row_state(seg)
+def _same(now, want):
+    """行の今の 3 つの欄 now が want と同じか(want が文字だけの古い記録なら文字だけ比べる)"""
     return now == want if isinstance(want, dict) else now["text"] == want
 
 
@@ -120,21 +117,16 @@ def _revert(ctx, row):
     a = row.get("applied") or {}
     before, changed = a.get("before"), False
     if isinstance(before, dict):   # 文書を先に戻す(行がその後に変わっていたら断る = 記録も戻さない)
-        tid = _tid({"target": {"docId": a.get("docId")}})
-
-        def fn(doc, seg):
-            if _same(seg, before):
-                return False, False   # もう戻っている(やりかけの Z のやり直し)= 書かない
-            if not _same(seg, a.get("after")):
-                raise apply.Refused("その後に行の文字か印が変わっているので、戻せません(編集の画面で直してください)", 409, "changed")
+        def put(doc, seg):
             seg["text"] = str(before.get("text") or "")
             for k in ("fill", "flag"):
                 if before.get(k) is None:
                     seg.pop(k, None)
                 else:
                     seg[k] = before[k]
-            return True, True
-        changed = _doc.edit_row(tid, a.get("row"), fn, "check:read")
+        changed = _doc.revert_fields(_tid({"target": {"docId": a.get("docId")}}), a.get("row"), "check:read", _row_state,
+                                     lambda now: _same(now, before), lambda now: _same(now, a.get("after")), put,
+                                     "その後に行の文字か印が変わっているので、戻せません(編集の画面で直してください)")
     # 採否の記録の取り消しは数を 1 つ減らす(何度も呼ぶと減りすぎる)= やりかけの Z のやり直しで文書がもう戻っていたら、取り消しも済んでいると見る
     if isinstance(a.get("feedback"), dict) and not (row.get("again") and not changed):
         try:

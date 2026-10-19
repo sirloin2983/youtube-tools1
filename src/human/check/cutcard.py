@@ -10,8 +10,8 @@
 """
 import os
 
-from ytt import schemas as _yschemas, settings as _settings
-from . import apply   # 同じ human/check の兄弟(register・Refused)
+from ytt import settings as _settings
+from . import _doc, apply   # 同じ human/check の兄弟(register・Refused・カードの文書・答えの検査)
 
 SWITCH_ENV = "YTT_CHECK_CUT"
 CHOICES = {
@@ -38,23 +38,9 @@ def enabled():
         return True
 
 
-def _checker(source):
-    """出どころごとの答えの検査 -> 検査して整えた答え {choice}。違えば ValueError(400)"""
-    choices = CHOICES[source]
-
-    def check(answer):
-        if not isinstance(answer, dict) or set(answer) != {"choice"} or answer.get("choice") not in choices:
-            raise ValueError("答え(choice)は %s のどれかです" % "・".join(choices))
-        return {"choice": answer["choice"]}
-    return check
-
-
 def _apply(ctx, card, answer):
     """答えを記録するだけ(文書・編集の内容は触らない)。-> applied {docId, recorded}"""
-    tid = (card.get("target") or {}).get("docId")
-    if not isinstance(tid, str) or not _yschemas.TID_RE.match(tid):
-        raise apply.Refused("カードの文書を特定できません", 400, "bad_request")
-    return {"docId": tid, "recorded": True}
+    return {"docId": _doc.doc_id(card, "カードの文書を特定できません"), "recorded": True}
 
 
 def _revert(ctx, row):
@@ -64,4 +50,4 @@ def _revert(ctx, row):
 
 
 for _src in CHOICES:
-    apply.register("cut", _src, _apply, revert=_revert, check=_checker(_src))
+    apply.register("cut", _src, _apply, revert=_revert, check=_doc.choice(CHOICES[_src], only=True))

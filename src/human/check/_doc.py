@@ -3,14 +3,15 @@
 edit_row(tid, row_id, fn, why): 保存の錠 → この文書を書き換えるジョブの最中なら断る → 文書を読み直す → 評価用なら断る → 行を探す →
   fn(doc, seg) -> (変えたか, 戻り値) → 変えたときだけ updatedAt を進めて、履歴(10 分に 1 つ。編集の画面の保存と同じ)→ store.commit(why)。
   断るときの理由は 4 つの種類で同じ: 503 unavailable(文字起こしの置き場所が決まっていない)・409 busy・409 no_doc・409 eval・409 no_row。
-印(行の flag)の「、」で割る・つなぐもここ(human/proof/layers.join_flags と同じ決まり = 同じ印は 1 つ・空は捨てる・100 字まで)。
+反映と Z の共通の形もここ: edit_fields(前の値 → 直す → 後の値)・revert_fields(答えたあとのままのときだけ戻す)・row_target・doc_id(カードの行・文書)・choice(答えの検査)。
+印(行の flag)の割る・つなぐは ytt/schemas の flag_parts・join_flags を直に使う。
 ③ の層: 文書は human/proof の store と layers、ジョブの最中かは ② flow/jobs の読み口だけを読む。
 """
 import time
 
 from ytt import errors as _errors, schemas as _yschemas, workdata as _workdata
 from flow import jobs as _heavy
-from human.proof import layers as _layers, store as _store
+from human.proof import store as _store
 from . import apply as _apply   # 同じ human/check の兄弟
 
 # この文書を書き換えないジョブ(2 つ目のエンジン・サムネの案・30fps の作り直し)と、確かめるが自分で足す声の覚え直しは「最中」に数えない。
@@ -50,10 +51,53 @@ def edit_row(tid, row_id, fn, why):
         return out
 
 
-def flag_parts(flag):
-    """行の印を「、」で割る(空は捨てる)"""
-    return [x for x in str(flag or "").split("、") if x]
+def edit_fields(tid, row_id, why, state, change):
+    """反映の共通: before = state(g) → change(doc, g, before)。change が None を返したら書かない(-> None)・
+    ほかの値を返したら書いて -> (before, state(g), change の戻り値)。断るときは change の中で Refused"""
+    def fn(doc, g):
+        before = state(g)
+        extra = change(doc, g, before)
+        return (False, None) if extra is None else (True, (before, state(g), extra))
+    return edit_row(tid, row_id, fn, why)
 
 
-def join_flags(parts):
-    return _layers.join_flags(*parts)
+def revert_fields(tid, row_id, why, state, was, still, put, changed_msg):
+    """Z の共通: 行の今 now = state(g) が答える前(was(now))で答えたあとの形でない(not still(now))= もう戻っている -> False(書かない)。
+    答えたあとの形でなければ Refused(changed_msg, 409, changed)。答えたあとのままなら put(doc, g) で戻して -> True"""
+    def fn(doc, g):
+        now = state(g)
+        if was(now) and not still(now):
+            return False, False   # もう戻っている(やりかけの Z のやり直し)
+        if not still(now):
+            raise _apply.Refused(changed_msg, 409, "changed")
+        put(doc, g)
+        return True, True
+    return edit_row(tid, row_id, fn, why)
+
+
+def doc_id(card, msg):
+    """カードの target.docId(形が違えば Refused(msg, 400, bad_request))"""
+    tid = (card.get("target") or {}).get("docId")
+    if not isinstance(tid, str) or not _yschemas.TID_RE.match(tid):
+        raise _apply.Refused(msg, 400, "bad_request")
+    return tid
+
+
+def row_target(card, msg="カードの行を特定できません", row_re=None):
+    """カードの target -> (docId, row)。row_re を渡すと行の id の形も見る。違えば Refused(msg, 400, bad_request)"""
+    t = card.get("target") or {}
+    tid, rid = t.get("docId"), t.get("row")
+    if (not isinstance(tid, str) or not _yschemas.TID_RE.match(tid) or not isinstance(rid, str) or not rid
+            or (row_re is not None and not row_re.match(rid))):
+        raise _apply.Refused(msg, 400, "bad_request")
+    return tid, rid
+
+
+def choice(choices, label="答え(choice)", only=False):
+    """答え {choice} の検査を作る(only = choice のほかの欄を許さない)。-> check(answer) -> {choice}。違えば ValueError(400)"""
+    def check(ans):
+        c = ans.get("choice") if isinstance(ans, dict) else None
+        if c not in choices or (only and set(ans) != {"choice"}):
+            raise ValueError("%sは %s のどれかです" % (label, "・".join(choices)))
+        return {"choice": c}
+    return check

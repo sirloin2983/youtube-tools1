@@ -123,11 +123,6 @@ def _replaced(msp, mtext, hums):
     return _contained(mtext, "".join(t for _sp, t in sorted(hums, key=lambda x: x[0]))) >= TEXT_DROP - 1e-9
 
 
-def join_flags(*flags):
-    """印を「、」でつなぐ(同じ印は 1 つ・空は捨てる・決まった印は先に並べて切らない・ほかは FLAG_MAX 字に入る分。ytt/schemas.join_flags)"""
-    return _ys.join_flags(*flags)
-
-
 def _diar_key(mach):
     """機械の層の話者判別の鍵(spkMap の鍵)。keys.diar の hash か文字。無ければ ""(判別なし)"""
     k = ((mach or {}).get("keys") or {}).get("diar")
@@ -289,13 +284,13 @@ def _text_row(h, cov, changed, ctx):
     now_spk = _top_speaker(cov, sp, ctx["mapper"])
     base_spk = _top_speaker(brows, sp, ctx["mapper_for"](str(base.get("diar") or "")))
     spk, weak = _speaker_of(h, now_spk, base_spk, ctx["fresh"])
-    default = "" if h.get("proofed") is True else join_flags(*[m.get("flag") for m in cov])
+    default = "" if h.get("proofed") is True else _ys.join_flags(*[m.get("flag") for m in cov])
     flag = _row_flag(h, default)
     if changed:
-        flag = join_flags(flag, MACH_CHANGED)
+        flag = _ys.join_flags(flag, MACH_CHANGED)
         ctx["stats"]["machChanged"] += 1
     elif weak:
-        flag = join_flags(flag, SPK_CHANGED)
+        flag = _ys.join_flags(flag, SPK_CHANGED)
         ctx["stats"]["spkChanged"] += 1
     return _human_row(h, h.get("start"), h.get("end"), str(h.get("text") or ""), flag, spk, h.get("fill"))
 
@@ -312,7 +307,7 @@ def _attr_row(h, m, ctx):
         text, fill = str(fill.get("from") or ""), None
     flag = _row_flag(h, m["flag"])
     if weak:
-        flag = join_flags(flag, SPK_CHANGED)
+        flag = _ys.join_flags(flag, SPK_CHANGED)
         ctx["stats"]["spkChanged"] += 1
     return _human_row(h, m["start"], m["end"], text, flag, spk, fill)
 
@@ -403,7 +398,7 @@ def compose_rows(mach, hum, covers_out=None):
         used.add(rid)
         spk = ctx["mapper"](m.get("speaker"))
         row = {"id": rid, "start": m["start"], "end": m["end"], "text": m["text"], "speaker": spk,
-               "flag": join_flags(m["flag"], SPK_CHANGED) if spk in ctx["fresh"] else m["flag"]}
+               "flag": _ys.join_flags(m["flag"], SPK_CHANGED) if spk in ctx["fresh"] else m["flag"]}
         if spk in ctx["fresh"]:
             stats["spkChanged"] += 1
         if isinstance(m.get("fill"), dict):
@@ -596,7 +591,7 @@ def diff(mach, doc, prev_hum=None, rows_out=None):
         default_spk = _top_speaker(cov, _span(g), mapper)
         if str(g.get("speaker") or "") != default_spk or kept:
             r["speaker"] = str(g.get("speaker") or "")
-        default_flag = "" if g.get("proofed") is True else join_flags(*[m.get("flag") for m in cov])
+        default_flag = "" if g.get("proofed") is True else _ys.join_flags(*[m.get("flag") for m in cov])
         if kept:   # 前の機械を引き継ぐ行は印を決まった値で持つ(組み立てで印を付け直しても同じ文字になるように)
             r["flag"] = str(g.get("flag") or "")
         else:
@@ -815,9 +810,9 @@ def carry(prev_doc, prev_mach, new_mach, span=None, speakers=None):
             continue
         cov = covers.get(r["id"]) or []
         replaced.update(m.get("id") for m in cov)
-        flag = "" if h.get("proofed") is True else join_flags(*[m.get("flag") for m in cov])   # 前から続く印(機械が変わった)は付けない
+        flag = "" if h.get("proofed") is True else _ys.join_flags(*[m.get("flag") for m in cov])   # 前から続く印(機械が変わった)は付けない
         if not cov:
-            flag = join_flags(STALE_FLAG, flag)
+            flag = _ys.join_flags(STALE_FLAG, flag)
             stale += 1
         r["flag"] = flag
     stats = {"matched": len(text_rows) - stale + st["attr"], "stale": stale, "dropped": st["dropped"], "total": len(rows),
@@ -935,7 +930,7 @@ def replace_mach_span(mach, spans, rows, empty_cover=None, empty_flag=""):
         length = sp[1] - sp[0]
         cover = sum(b - a for a, b in _ys.union_spans([(max(s[0], sp[0]), min(s[1], sp[1])) for s in nsp if _overlap(s, sp) > 0]))
         if empty_cover is not None and _norm(m.get("text")) and length > 0 and cover / length < empty_cover:
-            keep.append(dict(m, flag=join_flags(m.get("flag"), empty_flag)) if empty_flag else m)
+            keep.append(dict(m, flag=_ys.join_flags(m.get("flag"), empty_flag)) if empty_flag else m)
             kept_empty.append((sp[0], sp[1]))
         else:
             gone.append(m)
@@ -971,7 +966,7 @@ def set_spk_flags(mach, doc, flags):
             continue
         mine = [x for x in str(m.get("flag") or "").split("、") if x and x not in flags]
         spk = [x for x in str(g.get("flag") or "").split("、") if x in flags]
-        m["flag"] = join_flags(*(mine + spk))
+        m["flag"] = _ys.join_flags(*(mine + spk))
 
 
 def after_rediar(mach, hum, keep_ids, flags):

@@ -36,31 +36,30 @@ def _check(answer):
     return {"choice": ch, "dStart": ds, "dEnd": de}
 
 
-def _row_of(card):
-    t = card.get("target") or {}
-    tid, rid = t.get("docId"), t.get("row")
-    if not isinstance(tid, str) or not _yschemas.TID_RE.match(tid) or not isinstance(rid, str) or not rid:
-        raise apply.Refused("カードの行を特定できません", 400, "bad_request")
-    return tid, rid
+def _times(g):
+    return {"start": _yschemas.num(g.get("start")), "end": _yschemas.num(g.get("end"))}
 
 
 def _apply_time(ctx, card, answer):
     """答えを実物へ。-> applied {docId, row, moved, before?, after?}"""
-    tid, rid = _row_of(card)
+    tid, rid = _doc.row_target(card)
     ds, de = answer.get("dStart") or 0.0, answer.get("dEnd") or 0.0
 
-    def fn(doc, g):
+    def change(doc, g, before):
         if not ds and not de:
-            return False, {"docId": tid, "row": rid, "moved": False}   # 印だけ(決定 3-41)= 文書は触らない
-        a, b = _yschemas.num(g.get("start")), _yschemas.num(g.get("end"))
+            return None   # 印だけ(決定 3-41)= 文書は触らない
+        a, b = before["start"], before["end"]
         if a is None or b is None:
             raise apply.Refused("その行に時刻がありません", 409, "no_time")
         na, nb = round(max(0.0, a + ds), 3), round(b + de, 3)
         if nb - na < MIN_ROW_SEC:
             raise apply.Refused("動かすと行の長さが %g 秒より短くなります" % MIN_ROW_SEC, 409, "too_short")
         g["start"], g["end"] = na, nb
-        return True, {"docId": tid, "row": rid, "moved": True, "before": {"start": a, "end": b}, "after": {"start": na, "end": nb}}
-    return _doc.edit_row(tid, rid, fn, "check:time")
+        return True
+    got = _doc.edit_fields(tid, rid, "check:time", _times, change)
+    if got is None:
+        return {"docId": tid, "row": rid, "moved": False}
+    return {"docId": tid, "row": rid, "moved": True, "before": got[0], "after": got[1]}
 
 
 def _revert_time(ctx, row):
@@ -73,17 +72,10 @@ def _revert_time(ctx, row):
         raise apply.Refused("戻す行を特定できません", 409, "cannot_undo")
     bef, aft = ap.get("before") or {}, ap.get("after") or {}
     edges = [e for e in ("start", "end") if bef.get(e) != aft.get(e)]
-
-    def fn(doc, g):
-        now = {e: _yschemas.num(g.get(e)) for e in edges}
-        if all(now[e] == bef.get(e) for e in edges):
-            return False, None   # もう戻っている
-        if any(now[e] != aft.get(e) for e in edges):
-            raise apply.Refused("この行の時刻は答えのあとに直されているため、戻せません", 409, "changed")
-        for e in edges:
-            g[e] = bef[e]
-        return True, None
-    _doc.edit_row(tid, rid, fn, "check:time")
+    bef, aft = {e: bef.get(e) for e in edges}, {e: aft.get(e) for e in edges}
+    _doc.revert_fields(tid, rid, "check:time", lambda g: {e: _yschemas.num(g.get(e)) for e in edges},
+                       lambda now: now == bef, lambda now: bool(edges) and now == aft, lambda doc, g: g.update(bef),
+                       "この行の時刻は答えのあとに直されているため、戻せません")
     return {"docId": tid, "row": rid, "moved": True}
 
 

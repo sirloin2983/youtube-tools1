@@ -341,7 +341,7 @@ def sanitize_transcript(obj, base=None):
         ids.add(sid)
         sp = str(sg.get("speaker", ""))
         one = {"id": sid, "start": round(a, 2), "end": round(b, 2), "text": str(sg.get("text", ""))[:_txbase.MAX_TEXT],
-               "speaker": sp if sp in seen else "", "flag": _layers.join_flags(sg.get("flag", ""))}
+               "speaker": sp if sp in seen else "", "flag": _yschemas.join_flags(sg.get("flag", ""))}
         tg = [t for t in _yschemas.ROW_TAGS if isinstance(sg.get("tags"), list) and t in sg["tags"]]   # 音の状態のメモ(聞き取れない・声が重なる・BGMが大きい)
         if tg:
             one["tags"] = tg

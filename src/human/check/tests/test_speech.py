@@ -44,11 +44,11 @@ class SpeechApplyTest(unittest.TestCase):
         self.assertIn("novoice", schemas.ROW_TAGS)
 
     def test_check(self):
-        self.assertEqual(speech._check({"choice": "keep"}), {"choice": "keep"})
-        self.assertEqual(speech._check({"choice": "drop"}), {"choice": "drop"})
+        self.assertEqual(speech.apply._REG[('speech', 'diar')].check({"choice": "keep"}), {"choice": "keep"})
+        self.assertEqual(speech.apply._REG[('speech', 'diar')].check({"choice": "drop"}), {"choice": "drop"})
         for bad in (None, {}, {"choice": "x"}, "keep", {"choice": "drop", "x": 1}, {"choice": True}):
             with self.assertRaises(ValueError, msg=repr(bad)):
-                speech._check(bad)
+                speech.apply._REG[('speech', 'diar')].check(bad)
 
     def test_keep_does_not_touch_doc(self):
         before = store.read_transcript(TID)

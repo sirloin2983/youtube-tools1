@@ -6,52 +6,32 @@
 Z = 付けた印とメモを元に戻す(付けたままのときだけ。あとで直されていたら断る・もう戻っていれば何もしない)。
 評価用・処理中の文書は _doc.edit_row が断る。文書は human/check/_doc(human/proof/store)だけを読む。入口が import すると register される。
 """
-from ytt import schemas as _yschemas
-
 from . import _doc, apply   # 同じ human/check の兄弟(register・Refused・文書の行を直す口)
 
 CHOICES = ("keep", "drop")
 TAG = "novoice"   # ytt/schemas.ROW_TAGS の 1 つ(声の区間と重ならない行)
 
 
-def _check(answer):
-    """答えを検査して整える -> {choice}。違えば ValueError(400)"""
-    if not isinstance(answer, dict) or set(answer) != {"choice"} or answer.get("choice") not in CHOICES:
-        raise ValueError("答え(choice)は keep・drop のどれかです")
-    return {"choice": answer["choice"]}
-
-
-def _row_of(card):
-    t = card.get("target") or {}
-    tid, rid = t.get("docId"), t.get("row")
-    if not isinstance(tid, str) or not _yschemas.TID_RE.match(tid) or not isinstance(rid, str) or not rid:
-        raise apply.Refused("カードの行を特定できません", 400, "bad_request")
-    return tid, rid
-
-
-def _tags(g):
-    return [t for t in (g.get("tags") or []) if isinstance(t, str)] if isinstance(g.get("tags"), list) else []
-
-
 def _state(g):
-    """この反映が触る 2 つの値(noSub の真偽・tags の一覧)"""
-    return (g.get("noSub") is True, _tags(g))
+    """この反映が触る 2 つの値 {noSub の真偽, tags の一覧}"""
+    tags = [t for t in g.get("tags") if isinstance(t, str)] if isinstance(g.get("tags"), list) else []
+    return {"noSub": g.get("noSub") is True, "tags": tags}
 
 
 def _apply_speech(ctx, card, answer):
     """答えを実物へ。-> applied {docId, row, changed, before?}"""
-    tid, rid = _row_of(card)
+    tid, rid = _doc.row_target(card)
     if answer["choice"] == "keep":
         return {"docId": tid, "row": rid, "changed": False}
 
-    def fn(doc, g):
-        before = _state(g)
-        if before[0] and TAG in before[1]:
-            return False, {"docId": tid, "row": rid, "changed": False}   # もう付いている
+    def change(doc, g, before):
+        if before["noSub"] and TAG in before["tags"]:
+            return None   # もう付いている
         g["noSub"] = True
-        g["tags"] = before[1] + ([] if TAG in before[1] else [TAG])
-        return True, {"docId": tid, "row": rid, "changed": True, "before": {"noSub": before[0], "tags": before[1]}}
-    return _doc.edit_row(tid, rid, fn, "check:speech")
+        g["tags"] = before["tags"] + ([] if TAG in before["tags"] else [TAG])
+        return True
+    got = _doc.edit_fields(tid, rid, "check:speech", _state, change)
+    return {"docId": tid, "row": rid, "changed": False} if got is None else {"docId": tid, "row": rid, "changed": True, "before": got[0]}
 
 
 def _revert_speech(ctx, row):
@@ -63,25 +43,17 @@ def _revert_speech(ctx, row):
     bef = ap.get("before")
     if not isinstance(tid, str) or not isinstance(rid, str) or not isinstance(bef, dict) or not isinstance(bef.get("tags"), list):
         raise apply.Refused("この答えは戻せません(記録の形が違います)", 409, "cannot_undo")
-    old = (bool(bef.get("noSub")), [t for t in bef["tags"] if isinstance(t, str)])
+    old = {"noSub": bool(bef.get("noSub")), "tags": [t for t in bef["tags"] if isinstance(t, str)]}
 
-    def fn(doc, g):
-        now = _state(g)
-        if now == old:
-            return False, None   # もう戻っている(やりかけの Z のやり直し)
-        if not (now[0] and TAG in now[1]):
-            raise apply.Refused("この行は答えのあとに直されているため、戻せません(編集の画面で直してください)", 409, "changed")
-        if old[0]:
-            g["noSub"] = True
-        else:
-            g.pop("noSub", None)
-        if old[1]:
-            g["tags"] = list(old[1])
-        else:
-            g.pop("tags", None)
-        return True, None
-    _doc.edit_row(tid, rid, fn, "check:speech")
+    def put(doc, g):
+        for k, v in (("noSub", True if old["noSub"] else None), ("tags", list(old["tags"]) or None)):
+            if v is None:
+                g.pop(k, None)
+            else:
+                g[k] = v
+    _doc.revert_fields(tid, rid, "check:speech", _state, lambda now: now == old, lambda now: now["noSub"] and TAG in now["tags"], put,
+                       "この行は答えのあとに直されているため、戻せません(編集の画面で直してください)")
     return {"docId": tid, "row": rid, "changed": True}
 
 
-apply.register("speech", "diar", _apply_speech, revert=_revert_speech, check=_check)
+apply.register("speech", "diar", _apply_speech, revert=_revert_speech, check=_doc.choice(CHOICES, only=True))

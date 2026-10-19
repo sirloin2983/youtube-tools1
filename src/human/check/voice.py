@@ -125,19 +125,14 @@ def _check_answer(ans):
 
 # ---------------------------------------------------------------- 反映と戻す
 
-def _target(card):
-    t = card.get("target") or {}
-    tid, rid = str(t.get("docId") or ""), str(t.get("row") or "")
-    if not _yschemas.TID_RE.match(tid) or not re.match(r"^[A-Za-z0-9_-]{1,16}\Z", rid):
-        raise _apply.Refused("カードの対象(文書・行)が正しくありません", 400, "bad_request")
-    return tid, rid
+_ROW_RE = re.compile(r"^[A-Za-z0-9_-]{1,16}\Z")
 
 
 def _spk_flag(flag, mixed):
-    parts = [x for x in _doc.flag_parts(flag) if x not in _txbase.SPK_FLAGS]
+    parts = [x for x in _yschemas.flag_parts(flag) if x not in _txbase.SPK_FLAGS]
     if mixed:
         parts.append(_txbase.MIXED_FLAG)
-    return _doc.join_flags(parts)
+    return _yschemas.join_flags(*parts)
 
 
 def _row_state(g):
@@ -213,10 +208,9 @@ def _learn_of(doc, g, sid, ans):
 
 def _apply_voice(ctx, card, ans):
     """答えを文書の行へ。-> applied {doc, row, before, after, added, updatedAt, learn?, relearn?}"""
-    tid, rid = _target(card)
+    tid, rid = _doc.row_target(card, "カードの対象(文書・行)が正しくありません", _ROW_RE)
 
-    def fn(doc, g):
-        before = _row_state(g)
+    def change(doc, g, before):
         if ans.get("choice") == MIXED:
             after, added = dict(before, flag=_spk_flag(before["flag"], True),
                                 tags=list(dict.fromkeys((before["tags"] or []) + ["overlap"]))), None
@@ -225,11 +219,9 @@ def _apply_voice(ctx, card, ans):
             after = dict(before, speaker=sid, flag=_spk_flag(before["flag"], False),
                          noSub=True if sid == OTHER else (before["noSub"] and before["speaker"] != OTHER))
         _set_row(g, after)
-        out = {"doc": tid, "row": rid, "before": before, "after": _row_state(g), "added": added, "learn": _learn_of(doc, g, g["speaker"], ans)}
-        return True, (out, doc)
-    applied, doc = _doc.edit_row(tid, rid, fn, "check:voice")
-    applied["updatedAt"] = doc.get("updatedAt")
-    learn = applied.pop("learn")
+        return added, _learn_of(doc, g, g["speaker"], ans), doc
+    before, after, (added, learn, doc) = _doc.edit_fields(tid, rid, "check:voice", _row_state, change)
+    applied = {"doc": tid, "row": rid, "before": before, "after": after, "added": added, "updatedAt": doc.get("updatedAt")}
     if learn:
         applied["learn"] = learn
         try:
@@ -246,18 +238,13 @@ def _revert_voice(ctx, row):
     if not _yschemas.TID_RE.match(tid) or not isinstance(a.get("before"), dict) or not isinstance(a.get("after"), dict):
         raise _apply.Refused("この答えは戻せません(記録の形が違います)", 409, "cannot_undo")
 
-    def fn(doc, g):
-        now = _row_state(g)
-        if now == a["before"] and now != a["after"]:
-            return False, None   # もう戻っている(やりかけの Z のやり直し)
-        if now != a["after"]:
-            raise _apply.Refused("この行はあとで直されています(編集の画面で直してください)", 409, "changed")
+    def put(doc, g):
         _set_row(g, a["before"])
         added = a.get("added")
         if added and not any(isinstance(x, dict) and x.get("speaker") == added for x in doc.get("segments") or ()):
             doc["speakers"] = [s for s in doc.get("speakers") or () if not (isinstance(s, dict) and s.get("id") == added)]
-        return True, None
-    _doc.edit_row(tid, rid, fn, "check:voice")
+    _doc.revert_fields(tid, rid, "check:voice", _row_state, lambda now: now == a["before"], lambda now: now == a["after"], put,
+                       "この行はあとで直されています(編集の画面で直してください)")
     return {"doc": tid, "row": rid}
 
 
