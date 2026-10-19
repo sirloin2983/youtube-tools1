@@ -5,9 +5,11 @@
 
 ① ホームの案件の一覧(/)で「採用後を全部」を押す → 書き出し → 文字起こし → Resolve パック(Text+)が順に進み、
    案件の画面に文字起こし・パックが出る。もう一度押すと、何も作り直さない(すべて「飛ばした」)
-② API で「解析から全部」(未解析のファイルの動画 → 解析 → 自動マークの上位1件を採用 → … → パック)
+② API で「解析から全部」(未解析のファイルの動画 → 解析 → 自動マークの上位1件を採用 → … → パック)。
+   入口に取り込んだスタジオの解析の順番待ちを、入口のまとめて実行が待つ組み合わせはここだけ
 ③ 画面のエラー(CSP 違反を含む)が無い
-④ 入口を起動し直しても、案件の行と「まとめて実行の記録」に前回の結果(止まった理由も)が出る(段2 B-6。記録は logs/autorun-runs.jsonl)
+④ 入口を起動し直しても、案件の行と「まとめて実行の記録」に前回の結果(止まった理由も)が出る(記録は logs/autorun-runs.jsonl)
+パックの中身・記録の形・API の拒否は下の層(test_autorun.py・test_cli.py・test_launch.py)で見る。
 """
 import json
 import os
@@ -32,6 +34,7 @@ sys.path.append(os.path.dirname(HERE))   # src(app 層。入口本体は src/app
 from app import server as L  # noqa: E402
 from app import mount as M  # noqa: E402
 from test_launch import REPO, _copy_tool, free_ports  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 
 def make_media(path, sec=40, bursts=False):
@@ -44,12 +47,7 @@ def make_media(path, sec=40, bursts=False):
 
 
 def wait_js(pg, expr, timeout=30000):
-    end = time.time() + timeout / 1000
-    while time.time() < end:
-        if pg.evaluate(expr):
-            return True
-        time.sleep(0.2)
-    return False
+    return testkit.wait_js(pg, expr, timeout, step=0.2)
 
 
 def main():
@@ -134,19 +132,19 @@ def main():
                 card = '.pt-case[data-id="%s"]' % vid_a
                 check(wait_js(pg, "!!document.querySelector('%s')" % card.replace("'", "\\'"), 15000), "ホームの案件の一覧に配信が1行出た")
                 check(pg.evaluate("document.querySelector('%s').open" % card.replace("'", "\\'")) is False,
-                      "行は既定で閉じている(1件1行。2026-09-26 画面の見直し)")
+                      "行は既定で閉じている(1件1行)")
                 pg.click(card + " .pt-case-row")   # 開かないと「まとめて実行」が操作できない(details の中身)
                 check(wait_js(pg, "document.querySelector('%s').open === true" % card.replace("'", "\\'"), 5000), "行を開いた")
                 check(wait_js(pg, "!!document.querySelector('%s .pt-auto-run')" % card.replace("'", "\\'"), 15000), "案件の画面に「まとめて実行」が出た")
                 pg.select_option(card + " .pt-auto-mode", "adopted")
                 check(pg.is_hidden(card + " .pt-auto-topbox"), "「採用後を全部」では採用する数の欄を出さない")
-                pg.fill(card + " .pt-auto-streamer", "みこ")   # 配信者の名前(字幕の色。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 4)
+                pg.fill(card + " .pt-auto-streamer", "みこ")   # 配信者の名前(字幕の色)
                 check(wait_js(pg, "(document.querySelector('%s .pt-auto-streamer').dataset.color || '') === '#FE4B74'" % card.replace("'", "\\'"), 10000),
                       "案件の画面の配信者の欄: 名前 → メンバーカラー")
                 pg.click(card + " .pt-auto-run")
                 check(wait_js(pg, "!document.querySelector('%s .pt-auto-cancel').hidden" % card.replace("'", "\\'"), 15000),
                       "まとめて実行が始まった(中止ボタンが出る)")
-                # まとめて実行が動いているあいだは、行(summary)をクリックしても閉じない(進み具合を見失わないため。audit #1)
+                # まとめて実行が動いているあいだは、行(summary)をクリックしても閉じない(進み具合を見失わないため)
                 pg.click(card + " .pt-case-row")
                 check(pg.evaluate("document.querySelector('%s').open" % card.replace("'", "\\'")) is True,
                       "実行中は行を閉じさせない")
@@ -162,7 +160,7 @@ def main():
                 if shots:
                     os.makedirs(shots, exist_ok=True)
                     pg.screenshot(path=os.path.join(shots, "cases-autorun.png"), full_page=True)
-                # もう一度押す → 見積もりで「やることがありません」と出して、始めない(気が利く画面へ 段4。以前は始めて全部の段を飛ばしていた)
+                # もう一度押す → 見積もりで「やることがありません」と出して、始めない
                 pg.click(card + " .pt-auto-run")
                 check(wait_js(pg, "[...document.querySelectorAll('.ui-toast')].some(t => t.textContent.indexOf('やることがありません') >= 0)", 20000),
                       "2回目は見積もりで「やることがありません」と出す")
@@ -174,61 +172,34 @@ def main():
                 browser.close()
 
             v = call("GET", "/studio/api/video?id=" + vid_a)[1]["video"]
-            clip = next(m for m in v["marks"] if m["id"] == "m1")
-            check(clip["status"] == "exported" and os.path.isfile(clip["path"]), "書き出した mp4 がある")
-            pack_dir = os.path.splitext(clip["path"])[0] + "_pack"
-            # パックは最小限(④): cut-plan.json は置かず、cut2resolve の作業データに記録(manage.cases.txindex.pack_info が読む)
-            check(os.path.isfile(os.path.join(pack_dir, "create_resolve_textplus_project.lua")) and not os.path.exists(os.path.join(pack_dir, "cut-plan.json")),
-                  "Text+ パックができた: %s" % (os.listdir(pack_dir) if os.path.isdir(pack_dir) else "無い"))
-            work = os.path.join(os.path.dirname(clip["path"]), "作業用")   # 途中のファイル(2026-09-27)
-            check(os.path.isfile(os.path.join(work, os.path.splitext(os.path.basename(clip["path"]))[0] + ".transcript.json")),
-                  "文字起こしを 作業用\\ に保存した(transcript/v1)")
-            top = sorted(n for n in os.listdir(os.path.dirname(clip["path"])) if not n.startswith("export-log"))
-            check(top == sorted([os.path.basename(clip["path"]), os.path.basename(pack_dir), "作業用"]),
-                  "出力先の直下は元動画・パック・作業用 だけ: %s" % top)
-            lua = os.path.join(pack_dir, "create_resolve_textplus_project.lua")
-            with open(lua, encoding="utf-8") as f:
-                check("さくらみこの色の文字(#FE4B74)" in f.read(), "案件の画面で入れた配信者の色がパックの字幕に入る")
+            mp4 = next(m for m in v["marks"] if m["id"] == "m1").get("path") or ""
+            top = sorted(n for n in os.listdir(os.path.dirname(mp4)) if not n.startswith("export-log")) if os.path.isfile(mp4) else []
+            check(top == sorted([os.path.basename(mp4), os.path.splitext(os.path.basename(mp4))[0] + "_pack", "作業用"]),
+                  "出力先の直下は書き出した動画・パック・作業用 だけ: %s" % top)
 
             # ② API で「解析から全部」(未解析の動画)
             st, j = call("POST", "/studio/api/videos/open", {"kind": "file", "path": media_b})
             vid_b = j["video"]["id"]
             st, j = submit(vid_b, top=1)
             check(st == 200 and j["run"]["mode"] == "full", "「解析から全部」を始めた")
-            st2, j2 = submit(vid_b, "export")
-            check(st2 == 400 and "すでに" in j2.get("message", ""), "同じ配信は2つ同時に入れない: %s" % j2)
             r = wait_run(j["run"]["id"])
             states = {s["key"]: s["state"] for s in r["steps"]}
             check(r["state"] == "done" and states == {"analyze": "done", "adopt": "done", "export": "done", "transcribe": "done", "pack": "done"},
                   "解析 → 採用 → 書き出し → 文字起こし → パック: %s %s" % (states, r.get("error")))
             v = call("GET", "/studio/api/video?id=" + vid_b)[1]["video"]
             check(sum(1 for m in v["marks"] if m["status"] == "exported") == 1, "採用する数(1)だけ書き出した")
-            st, j = submit("../x")
-            check(st == 400, "正しくない配信の指定は断る")
-            # 合言葉なしの操作は断る
-            req = urllib.request.Request(base + "/api/flow/submit", method="POST", data=b'{"envelope":{"id":"x","kind":"url","input":{"videoId":"x"}}}',
-                                         headers={"Content-Type": "application/json"})
-            try:
-                urllib.request.urlopen(req, timeout=10)
-                code = 200
-            except urllib.error.HTTPError as e:
-                code = e.code
-            check(code == 403, "合言葉なしの まとめて実行 は断る: %s" % code)
 
-            # ④ 入口を起動し直しても、前回の結果が見える(段2 B-6)
+            # ④ 入口を起動し直しても、前回の結果が見える
             st, j = submit("zzzzzzzzzzz", "export")   # スタジオに無い配信 = 止まる
             bad = wait_run(j["run"]["id"], 60)
             check(bad["state"] == "error" and bad["error"], "無い配信は止まる: %s" % bad.get("error"))
             log_path = os.path.join(sup.logs_dir, "autorun-runs.jsonl")
-            check(os.path.abspath(log_path).startswith(os.path.abspath(tmp)), "記録はテストの一時フォルダ: %s" % log_path)
-            end = time.time() + 10
+            end = time.time() + 10   # 終わった 3 本が記録に書かれてから起動し直す
             recs = []
             while time.time() < end and len(recs) < 3:
                 with open(log_path, encoding="utf-8") as f:
-                    recs = [json.loads(x) for x in f if x.strip()]
+                    recs = [x for x in f if x.strip()]
                 time.sleep(0.2)
-            check(len(recs) == 3 and [x["state"] for x in recs] == ["done", "done", "error"] and all(x["v"] == 1 for x in recs),
-                  "終わった実行を1行ずつ記録した: %s" % [(x["videoId"], x["state"]) for x in recs])
             srv.request_shutdown()   # 入口を終える(まとめて実行の記録はメモリから消える)
             th.join(30)
             srv.server_close()
@@ -236,9 +207,6 @@ def main():
             th = threading.Thread(target=srv.serve_forever, daemon=True)
             th.start()
             base = "http://127.0.0.1:%d" % port
-            j = call("GET", "/api/flow/runs")[1]
-            check(j["runs"] == [] and {p["videoId"] for p in j["past"]} == {vid_a, vid_b, "zzzzzzzzzzz"},
-                  "起動し直した入口の /api/flow/runs に前回の結果(past): %s" % [(p["videoId"], p["state"]) for p in j["past"]])
             with sync_playwright() as p:
                 browser = p.chromium.launch(args=["--mute-audio"])
                 pg = browser.new_page(viewport={"width": 1200, "height": 900})
@@ -255,7 +223,7 @@ def main():
                 pills = pg.eval_on_selector_all(card + " .pt-auto-step .pill", "els => els.map(e => e.textContent)")
                 check(pills == ["書き出し 済み", "文字起こし 済み", "パック 済み"], "前回の段の札も出る: %s" % pills)
                 check(pg.is_enabled(card + " .pt-auto-run") and pg.is_hidden(card + " .pt-auto-cancel"), "前回の結果では実行を押せる・中止は出さない")
-                pg.evaluate("document.getElementById('opsBox').open = true")   # RS8 C3: 記録は運用の枠の中
+                pg.evaluate("document.getElementById('opsBox').open = true")   # 記録は運用の枠の中
                 pg.click("#historyBox > summary")
                 check(wait_js(pg, "document.querySelectorAll('#historyList .pt-history-item').length === 3", 15000), "「まとめて実行の記録」に3件")
                 rows = pg.eval_on_selector_all("#historyList .pt-history-item", """els => els.map(e => ({pill: e.querySelector('.pt-history-pill').textContent,

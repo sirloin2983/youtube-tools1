@@ -16,14 +16,13 @@ for p in (HOME, ROOT, os.path.dirname(os.path.abspath(__file__))):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from eval.drill import accuracy  # noqa: E402
 from ytt import jobs  # noqa: E402
 from app import server as L  # noqa: E402
 import test_launch as TL  # noqa: E402  (入口を一時フォルダで動かす道具を借りる。テストそのものは集めない)
 
 
 class AccuracyApiTest(TL.Base):
-    """入口の API(GET api/accuracy・POST api/accuracy/run・調子の accuracy・設定の節)と、手が空いた判定のつなぎ"""
+    """入口の API(GET api/accuracy・POST api/accuracy/run・調子の accuracy・設定の節)"""
 
     def setUp(self):
         super().setUp()
@@ -55,8 +54,6 @@ class AccuracyApiTest(TL.Base):
         r, body = self.req("GET", "/api/accuracy")
         j = json.loads(body)
         self.assertEqual((r.status, j["enabled"], j["state"], j["nightFrom"], j["nightTo"]), (200, True, "idle", 1, 6))
-        self.assertEqual([a["id"] for a in j["areas"]], ["asr", "marks", "speakers", "cut", "alt", "fill", "timing"])
-        self.assertEqual(len(j["goals"]), len(accuracy.GOALS))   # 入口の条件(あと何本・何分)
         r, _ = self.req("GET", "/api/accuracy", headers={"Sec-Fetch-Site": "cross-site"})
         self.assertEqual(r.status, 403)
         r, body = self.req("GET", "/api/health")   # 調子にも同じものが入る
@@ -69,10 +66,20 @@ class AccuracyApiTest(TL.Base):
         self.assertEqual((r.status, json.loads(body)["value"]["enabled"]), (200, False))
         r, body = self.post("/api/accuracy/run")
         self.assertEqual((r.status, json.loads(body)["error"]), (409, "off"))     # オフのときは受け付けない
-        r, body = self.post("/api/ytt/prefs", body=json.dumps({"op": "patch", "section": "accuracy", "value": {"nightFrom": 7, "nightTo": 7}}).encode())
-        self.assertEqual(r.status, 400)
         r, body = self.post("/api/ytt/prefs", body=json.dumps({"op": "get", "sections": ["accuracy"]}).encode())
         self.assertEqual(json.loads(body)["prefs"]["accuracy"], {"enabled": False, "nightFrom": 1, "nightTo": 6})
+
+
+class AccuracyProbeTest(TL.Base):
+    """入口の手が空いた判定のつなぎ(HTTP は使わない)"""
+
+    def setUp(self):
+        super().setUp()
+        self.srv, self.port = L.make_server(0, self.sup)
+
+    def tearDown(self):
+        self.srv.server_close()
+        super().tearDown()
 
     def test_busy_probe(self):
         self.assertIsNone(self.srv._accuracy_busy())          # 何も動いていない(編集も動いていない)

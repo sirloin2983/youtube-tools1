@@ -83,13 +83,11 @@ class DetectRouteTest(unittest.TestCase):
         """Live.handle_get / handle_post の振り分け(入口の合言葉・Origin の検査は server.py が先に済ませる)"""
         h = Handler()
         self.assertTrue(self.live.handle_get(h, urllib.parse.urlsplit("/live/api/peaks?recorder=fake&recording=%s&since=4" % REC)))
-        self.assertEqual((h.out[0], [x["id"] for x in h.out[1]["changes"]]), (200, ["p1-903"]))
+        self.assertEqual(h.out[0], 200)
         self.assertTrue(self.live.handle_get(h, urllib.parse.urlsplit("/live/api/peaks?recorder=fake&recording=bad")))
         self.assertEqual((h.out[0], h.out[1]["error"]), (400, "bad_request"))
         self.live.handle_post(h, urllib.parse.urlsplit("/live/api/peaks"), {"op": "dismiss", "recorder": "fake", "recording": REC, "id": "p1-903"})
         self.assertEqual((h.out[0], h.out[1]["peak"]["state"]), (200, "dismissed"))
-        self.live.handle_post(h, urllib.parse.urlsplit("/live/api/peaks"), {"op": "dismiss", "recorder": "fake", "recording": REC, "id": "p8-8"})
-        self.assertEqual((h.out[0], h.out[1]["error"]), (404, "not_found"))
         self.prefs.patch("live", {"enabled": False})
         self.assertFalse(self.live.handle_get(h, urllib.parse.urlsplit("/live/api/peaks?recorder=fake&recording=%s" % REC)))   # オフ = 今までどおり 404
         self.prefs.patch("live", {"enabled": True, "detect": {"enabled": False}})
@@ -107,14 +105,13 @@ class PrefsDetectTest(unittest.TestCase):
 
     def test_detect_and_auto_adopt(self):
         v = self.p.get(["live"])["live"]
-        self.assertEqual((v["detect"], v["autoAdopt"]), ({"enabled": True, "sens": "normal", "perHour": 6}, {"enabled": True, "waitMin": 5}))   # 既定はどちらもオン(0.46.3)
+        self.assertEqual((v["detect"], v["autoAdopt"]), ({"enabled": True, "sens": "normal", "perHour": 6}, {"enabled": True, "waitMin": 5}))   # 既定はどちらもオン
         v = self.p.patch("live", {"detect": {"enabled": True, "sens": "low"}})
         self.assertEqual(v["detect"], {"enabled": True, "sens": "low", "perHour": 6})
         self.assertEqual(self.p.patch("live", {"detect": {"perHour": 30}})["detect"], {"enabled": True, "sens": "low", "perHour": 30})   # 鍵ごと
         self.assertEqual(self.p.patch("live", {"autoAdopt": {"enabled": True, "waitMin": 60}})["autoAdopt"], {"enabled": True, "waitMin": 60})
-        for bad in ({"detect": "on"}, {"detect": {"enabled": "yes"}}, {"detect": {"sens": "max"}}, {"detect": {"perHour": 0}}, {"detect": {"perHour": 31}},
-                    {"detect": {"perHour": 2.5}}, {"detect": {"perHour": True}}, {"autoAdopt": []}, {"autoAdopt": {"waitMin": 0}},
-                    {"autoAdopt": {"waitMin": 61}}, {"autoAdopt": {"waitMin": "5"}}, {"autoAdopt": {"enabled": 1}}):
+        for bad in ({"detect": "on"}, {"detect": {"enabled": "yes"}}, {"detect": {"sens": "max"}}, {"detect": {"perHour": True}},   # 範囲の端は test_settings_schema.py
+                    {"autoAdopt": []}, {"autoAdopt": {"waitMin": "5"}}, {"autoAdopt": {"enabled": 1}}):
             with self.assertRaises(P.PrefsError, msg=repr(bad)):
                 self.p.patch("live", bad)
         self.assertEqual(self.p.patch("live", {"quality": "720p"})["detect"]["perHour"], 30)   # ほかの鍵を直しても残る

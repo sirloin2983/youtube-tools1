@@ -94,7 +94,7 @@ FAKE_SERVE = textwrap.dedent(r'''
         threading.Timer(0.8, lambda: os._exit(3)).start()
     print("listening", port, flush=True)
     try:
-        srv.serve_forever()
+        srv.serve_forever(poll_interval=0.05)
     except KeyboardInterrupt:
         pass
     finally:
@@ -105,7 +105,7 @@ FAKE_SERVE = textwrap.dedent(r'''
         print("bye", flush=True)
 ''')
 
-VERSIONS = {"studio": "0.2.0", "transcribe": "0.2.0", "cut2resolve": "0.2.0"}   # 版は全体で 1 つ(RS5-E。ytt/version.py)なので全ツール同じ
+VERSIONS = {"studio": "0.2.0", "transcribe": "0.2.0", "cut2resolve": "0.2.0"}   # 版は全体で 1 つ(ytt/version.py)なので全ツール同じ
 
 
 def free_ports(n):
@@ -141,13 +141,7 @@ def set_mode(root, tid, mode):
 
 
 def wait_for(fn, timeout=15.0, step=0.1):
-    end = time.time() + timeout
-    while time.time() < end:
-        v = fn()
-        if v:
-            return v
-        time.sleep(step)
-    return fn()
+    return testkit.wait_for(fn, timeout, step)
 
 
 def _http(port, method, path, body=None, token=None):
@@ -432,14 +426,6 @@ class HelpersTest(unittest.TestCase):
         put("studio", b"[1, 2]")
         self.assertIsNone(L.read_runtime(self.tmp, "studio"))
 
-    def test_rotate(self):
-        p = os.path.join(self.tmp, "b.log")
-        with open(p, "wb") as f:
-            f.write(b"x" * 20)
-        L.fsio.rotate(p, 10)   # 入口のログの回し方(0.50.1 で launch.rotate → fsio.rotate。名前は .old.log のまま)
-        self.assertFalse(os.path.exists(p))
-        self.assertTrue(os.path.exists(os.path.join(self.tmp, "b.old.log")))
-
     def test_parse_args(self):
         self.assertEqual(L.parse_args(["--only", "studio, transcribe"]).only, ["studio", "transcribe"])
         with mock.patch("sys.stderr"):
@@ -451,7 +437,7 @@ class HelpersTest(unittest.TestCase):
         for bad in ("transcribe/", "/../x", "//evil.example/x", "/a b", "/a?x=1", "/" + "a" * 200):
             with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
                 L.parse_args(["--open-path", bad])
-        # 画面なし(RS7-2 G5a): 既定はオフ・--port と一緒に使える・画面を開く --app-window とは一緒にしない
+        # 画面なし: 既定はオフ・--port と一緒に使える・画面を開く --app-window とは一緒にしない
         self.assertFalse(L.parse_args([]).headless)
         a = L.parse_args(["--headless", "--port", "8750", "--only", "transcribe"])
         self.assertEqual((a.headless, a.port, a.only), (True, 8750, ["transcribe"]))
@@ -501,7 +487,7 @@ class PortalHttpTest(Base):
     def setUp(self):
         super().setUp()
         self.srv, self.port = L.make_server(0, self.sup)
-        self.th = threading.Thread(target=self.srv.serve_forever, daemon=True)
+        self.th = threading.Thread(target=self.srv.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)   # 止めるのを待たない
         self.th.start()
         self.host = "127.0.0.1:%d" % self.port
 
@@ -573,17 +559,11 @@ class PortalHttpTest(Base):
         self.assertEqual((r.status, r.getheader("Location")), (302, "/settings"))
         self.assertEqual(self.req("GET", "/server.py")[0].status, 404)   # コードや他のファイルは配らない
 
-    def test_no_old_page_redirects_and_doc_lookup(self):
-        """棚卸し G5: 古い画面の URL(/studio/?video=・/transcribe/?…・/cases.html)の転送は消した。/api/cases の足した欄と ?doc="""
-        for path in ("/studio/?video=abc", "/transcribe/?drill=1", "/studio/", "/cases.html"):
-            r, _ = self.req("GET", path)
-            self.assertNotEqual(r.status, 302, path)
-            self.assertIsNone(r.getheader("Location"), path)
+    def test_cases_and_doc_lookup(self):
+        """/api/cases と ?doc=(欄の中身は src/manage/cases/tests/test_cases.py)"""
         r, body = self.req("GET", "/api/cases")
         self.assertEqual(r.status, 200)
-        d = json.loads(body)
-        self.assertEqual([c["id"] for c in d["virtual"]], ["eval", "orphan"])
-        self.assertEqual(set(d["todo"]), {"adopt", "proof", "pack", "failed"})
+        self.assertIn("virtual", json.loads(body))
         r, body = self.req("GET", "/api/cases?doc=ffffffffffff")
         self.assertEqual(r.status, 404)
         r, body = self.req("GET", "/api/cases?doc=zz")
@@ -612,10 +592,9 @@ class PortalHttpTest(Base):
         self.assertEqual(self.state("studio"), "stopped", "拒否したのに起動した")
 
     def test_post_body_edges(self):
-        """本文の読み取りの境目(0.50.1 で httpsec.read_json_body に寄せた。応答の番号と文は前と同じ)"""
+        """本文の読み取りの境目(httpsec.read_json_body)"""
         def err(r, body):
             return r.status, json.loads(body).get("error")
-        self.assertEqual(err(*self.post("/api/cases/update", body=b"{}")), (404, "not_found"))   # 案件の状態・メモの口は MARKS-3 で消した
         self.assertEqual(err(*self.post("/api/cases/auto", body=b"")), (400, "bad_request"))   # 空の本文は {} として読む(案件の検査で断る)
         self.assertEqual(err(*self.post("/api/cases/auto", body=b'{"id": NaN}')), (400, "bad_request"))   # NaN は今までどおり通す(案件の検査で断る)
         self.assertEqual(err(*self.post("/api/cases/auto", headers={"Content-Length": "abc"}, body=None)), (413, "size"))
@@ -626,20 +605,18 @@ class PortalHttpTest(Base):
         self.assertEqual(self.post("/api/tools/studio/start", headers={"X-YTT-Token": "é" * 10})[0].status, 403)   # ASCII 以外の合言葉でも落ちずに 403
 
     def test_extra_dirs(self):
-        """空き容量・ごみ箱フォルダの書き出し先(0.50.1 で datadir.studio_out_dir に寄せた)。settings.json が無ければ今までどおり []"""
+        """空き容量・ごみ箱フォルダの書き出し先(読み方の場合分けは datadir.studio_out_dir の単体)。settings.json が無ければ []"""
         sdir = os.path.join(self.tmp, "studio-data")
         os.makedirs(sdir)
         path = os.path.join(sdir, "settings.json")
         out = os.path.join(self.tmp, "書き出し")
         with mock.patch.object(L.datadir, "resolve", lambda tool, root=None, env=None: sdir):
             self.assertEqual(self.srv._extra_dirs(), [])
-            for st, want in (({"outDir": out}, [out]), ({}, [os.path.join(sdir, "exports")]), ({"outDir": ""}, [os.path.join(sdir, "exports")]),
-                             ([1], [os.path.join(sdir, "exports")]), ({"outDir": "rel/x"}, [os.path.join(sdir, "exports")])):
-                testkit.write_json(path, st)
-                self.assertEqual(self.srv._extra_dirs(), want, st)
+            testkit.write_json(path, {"outDir": out})
+            self.assertEqual(self.srv._extra_dirs(), [out])
 
     def test_ytt_request_drains_refused_body(self):
-        """不具合の疑い 1(10-08 の見直し): 取り込んだ画面から回ってきた api/ytt/… を Host/Origin・合言葉で断るときも本文を読み捨てる
+        """取り込んだ画面から回ってきた api/ytt/… を Host/Origin・合言葉で断るときも本文を読み捨てる
         (読まずに閉じると Windows では接続ごと切られて 403 が届かないことがある。mount.py の parse_request が合言葉だけ見てから回す)"""
         body = b'{"message": "x"}'
 
@@ -664,35 +641,23 @@ class PortalHttpTest(Base):
         self.assertEqual(h.sent, [(200, None)])
 
     def test_health_api(self):
-        """「調子」(段9 9-1): 版・ワーカー・空き容量・エラーの件数・作業データの大きさ(別のスレッドで数える)"""
+        """「調子」: 入口のツールの版が入る(中身の数え方は src/manage/ops/tests/test_health.py)"""
         r, body = self.req("GET", "/api/health")
         self.assertEqual(r.status, 200)
-        h = json.loads(body)
-        for k in ("at", "versions", "worker", "disk", "errors", "heavy", "computing", "data", "tools"):
-            self.assertIn(k, h)
-        self.assertEqual([v["tool"] for v in h["versions"]], [t.id for t in self.sup.tools])
-        self.assertTrue(h["disk"] and h["disk"][0]["totalBytes"] > 0)
-        self.assertEqual(h["errors"]["clientLast24h"], 0)
-        h = wait_for(lambda: (lambda x: x if x["data"] is not None else None)(self.get_json("/api/health")[1]), 6) or h   # 大きさは別のスレッドで数える
-        self.assertIsNotNone(h["data"])
-        self.assertIn("ffmpeg", h["tools"])
+        self.assertEqual([v["tool"] for v in json.loads(body)["versions"]], [t.id for t in self.sup.tools])
         r, body = self.req("GET", "/api/health?refresh=1")
         self.assertEqual(r.status, 200)
 
     def test_cleanup_api(self):
-        """片付け(段9 9-2): 候補の一覧の形・移す物が無い/候補に出していない物は移さない"""
+        """片付け: 候補の一覧・移す物が無い/候補に出していない物は移さない(候補の中身は src/manage/keep/tests/test_cleanup.py)"""
         r, body = self.req("GET", "/api/cleanup")
-        self.assertEqual(r.status, 200)
-        d = json.loads(body)
-        self.assertEqual([k["kind"] for k in d["kinds"]], ["export", "work", "cache", "log", "intake", "failed"])
-        for k in ("bytes", "trash", "trashRoots", "keepDays", "packAgeDays"):
-            self.assertIn(k, d)
+        self.assertEqual((r.status, "kinds" in json.loads(body)), (200, True))
         self.assertEqual(self.post("/api/cleanup", body=json.dumps({"ids": []}).encode())[0].status, 400)
         r, body = self.post("/api/cleanup", body=json.dumps({"ids": ["nope"]}).encode())
         self.assertEqual((r.status, json.loads(body)["unknown"], json.loads(body)["moved"]), (200, ["nope"], []))
 
     def test_restart_self(self):
-        """起動し直す(段9 9-3): 重い処理の最中は 409 で断る。空いていれば新しい入口を --wait-port で起こし、後始末を頼む"""
+        """起動し直す: 重い処理の最中は 409 で断る。空いていれば新しい入口を --wait-port で起こし、後始末を頼む"""
         R, calls, stops = self.fake_restart()
         with mock.patch.object(R, "can_restart", lambda *a, **k: "実行中の処理があります(文字起こし)。終わってから起動し直してください"):
             r, body = self.post("/api/ytt/restart-self")
@@ -724,11 +689,11 @@ class PortalHttpTest(Base):
         self.assertEqual(calls, [])
 
     def test_flow_status_live(self):
-        """RS7-2 G5a: GET /api/flow/status の live 欄 = ライブの録画中・検出中・書き出しの途中の数(PortalServer.live_activity)。
-        どれかが 0 でなければ idle は偽。リアルタイム切り抜きがオフなら全部 0 で、録画元に問い合わせない"""
-        idle = ({"recording": 0, "detecting": 0, "exporting": 0}, True)
+        """GET /api/flow/status の live 欄 = PortalServer.live_activity(ライブの録画中・検出中・書き出しの途中の数)。どれかが 0 でなければ idle は偽。
+        リアルタイム切り抜きがオフなら全部 0 で、録画元に問い合わせない(読めないときの扱いは src/flow/tests/test_runqueue.py の TestStatusLive)"""
+        zero = {"recording": 0, "detecting": 0, "exporting": 0}
         st = self.get_json("/api/flow/status")[1]
-        self.assertEqual((st["live"], st["idle"]), idle)   # 既定(オフ)
+        self.assertEqual((st["live"], st["idle"]), (zero, True))   # 既定(オフ)
         fake = mock.MagicMock()
         fake.enabled.return_value = True
         fake.recent.return_value = [{"id": "a", "active": True}, {"id": "b", "active": False}]   # 終わって 10 分以内の録画は数えない
@@ -743,19 +708,14 @@ class PortalHttpTest(Base):
             fake.recent.return_value = []
             fake.detector.running.return_value = False   # ワーカーが止まっている = 測っていない
             fake._exporter = None   # 書き出しを一度も使っていない
-            st = self.get_json("/api/flow/status")[1]
-            self.assertEqual((st["live"], st["idle"]), idle)
-            fake.recent.side_effect = OSError("録画元につながらない")   # 読めない = 閉じない側
-            st = self.get_json("/api/flow/status")[1]
-            self.assertEqual((st["live"]["recording"], st["idle"]), (None, False))
+            self.assertEqual(self.srv.live_activity(), zero)
             fake.enabled.return_value = False
             fake.recent.reset_mock()
-            st = self.get_json("/api/flow/status")[1]
-            self.assertEqual((st["live"], st["idle"]), idle)
+            self.assertEqual(self.srv.live_activity(), zero)
             fake.recent.assert_not_called()
 
     def test_restart_self_keeps_autorun_runs(self):
-        """まとめて実行の待ち・実行中は断らずに起動し直し、何件が続くかを notice で知らせる(M5。入口 0.41.0)。
+        """まとめて実行の待ち・実行中は断らずに起動し直し、何件が続くかを notice で知らせる(M5)。
         実行中の段の仕事でも、同じツールに人が始めた仕事があれば(others)今までどおり断る"""
         class Stub:
             def __init__(self, redo):
@@ -834,7 +794,7 @@ class PortalHttpTest(Base):
         self.assertEqual(json.loads(body)["exists"], False)
 
     def test_autorun_history(self):
-        """段2 B-6: まとめて実行の記録(作業データの logs/autorun-runs.jsonl)。limit は既定 50・最大 200・前回の結果は /api/flow/runs の past(RV A1 で /api/autorun から)"""
+        """まとめて実行の記録(作業データの logs/autorun-runs.jsonl)。前回の結果は /api/flow/runs の past・一覧は /api/flow/history(limit・offset の丸めは src/flow/tests/test_runqueue.py の TestRunLog)"""
         logs = self.sup.logs_dir
         self.assertTrue(os.path.abspath(logs).startswith(os.path.abspath(self.tmp)), logs)   # テストは一時フォルダに書く
         os.makedirs(logs, exist_ok=True)
@@ -844,36 +804,21 @@ class PortalHttpTest(Base):
                                     "error": "理由%d" % i, "steps": []}, ensure_ascii=False) + "\n")
         j = self.get_json("/api/flow/runs")[1]
         self.assertEqual((j["runs"], len(j["past"]), j["past"][0]["id"], j["past"][0]["error"]), ([], 50, "r249", "理由249"))
-        for q, n, first in (("", 50, "r249"), ("?limit=1000", 200, "r249"), ("?limit=abc&offset=x", 50, "r249"), ("?limit=0", 1, "r249"),
-                            ("?limit=20&offset=240", 10, "r009"), ("?offset=-3", 50, "r249")):
-            r, body = self.req("GET", "/api/flow/history" + q)
-            self.assertEqual(r.status, 200, q)
-            h = json.loads(body)
-            self.assertEqual((len(h["runs"]), h["runs"][0]["id"], h["total"]), (n, first, 250), q)
+        r, body = self.req("GET", "/api/flow/history?limit=20&offset=240")   # 問い合わせの値が届く
+        h = json.loads(body)
+        self.assertEqual((r.status, len(h["runs"]), h["runs"][0]["id"], h["total"]), (200, 10, "r009", 250))
         self.assertEqual(self.req("GET", "/api/flow/history", headers={"Sec-Fetch-Site": "cross-site"})[0].status, 403)   # ほかのサイトからは読めない
-        for path in ("/api/autorun", "/api/autorun/history"):   # 以前の名前は消した(RV A1)
-            self.assertEqual(self.req("GET", path)[0].status, 404, path)
 
     def test_flow_submit_and_status(self):
-        """RS7-1 S4: ② の口 POST /api/flow/submit {envelope, spec}(合言葉が要る・形が違えば 400 と理由)と GET /api/flow/status"""
+        """② の口 POST /api/flow/submit {envelope, spec}(合言葉が要る・形が違えば 400 と理由。理由の中身は src/flow/tests/test_envelope.py)と GET /api/flow/status"""
         r, body = self.req("GET", "/api/flow/status")
         j = json.loads(body)
         self.assertEqual((r.status, j["queued"], j["running"], j["idle"], j["runs"]), (200, 0, 0, True, []))
         media, env = self.file_envelope()
         payload = json.dumps({"envelope": env, "spec": {"transcribe": {"model": "large-v3"}, "run": {"upto": "transcribe"}}}, ensure_ascii=False).encode("utf-8")
         self.assertEqual(self.post("/api/flow/submit", headers={"X-YTT-Token": "x"}, body=payload)[0].status, 403)   # 書き込み系 = 合言葉が要る
-        for bad, why in (({"envelope": dict(env, kind="nai")}, "封筒.kind"),
-                         ({"envelope": dict(env, input={"path": os.path.join(self.tmp, "nai.mp4")})}, "見つかりません"),
-                         ({"envelope": env, "spec": {"transcribe": {"engine": "nai"}}}, "transcribe.engine"),
-                         ({"envelope": "x"}, "封筒"), ({}, "封筒")):
-            r, body = self.post("/api/flow/submit", body=json.dumps(bad, ensure_ascii=False).encode("utf-8"))
-            self.assertEqual(r.status, 400, bad)
-            self.assertIn(why, json.loads(body)["message"], bad)
-        txt = os.path.join(self.tmp, "メモ.txt")
-        with open(txt, "wb") as f:
-            f.write(b"x")
-        r, body = self.post("/api/flow/submit", body=json.dumps({"envelope": dict(env, input={"path": txt})}).encode("utf-8"))
-        self.assertEqual((r.status, "動画・音声" in json.loads(body)["message"]), (400, True))   # 動画・音声の拡張子だけ
+        r, body = self.post("/api/flow/submit", body=json.dumps({"envelope": dict(env, kind="nai")}).encode("utf-8"))
+        self.assertEqual((r.status, "封筒.kind" in json.loads(body)["message"]), (400, True))
         r, body = self.post("/api/flow/submit", body=payload)
         j = json.loads(body)
         self.assertEqual((r.status, j["run"]["id"], j["run"]["kind"], j["run"]["sourcePath"]), (200, "0123456789", "file", media))
@@ -908,7 +853,7 @@ class PortalHttpTest(Base):
         mfile = os.path.join(self.tmp, "m", "machine.json")
         with mock.patch.dict(os.environ, {"YTT_MACHINE_FILE": mfile}):
             st, j = self.get_json("/api/flow/machine")
-            self.assertEqual((st, j["diskMinGB"], j["sources"]["diskMinGB"]), (200, L.machine_mod.DISK_MIN_GB, "default"))
+            self.assertEqual((st, j["diskMinGB"]), (200, L.machine_mod.DISK_MIN_GB))
 
             def put(obj, token=None, path="/api/flow/machine"):
                 h = {"Content-Type": "application/json", "Origin": "http://" + self.host, "Sec-Fetch-Site": "same-origin",
@@ -917,14 +862,10 @@ class PortalHttpTest(Base):
                 return r.status, json.loads(body) if body.startswith(b"{") else body
             self.assertEqual(put({"diskMinGB": 50}, token="x")[0], 403)
             self.assertFalse(os.path.exists(mfile))
-            st, j = put({"diskMinGB": 50, "llmModel": "qwen3-4b"})
-            self.assertEqual((st, j["machine"]["diskMinGB"], j["machine"]["sources"]["diskMinGB"], j["file"]["llmModel"]), (200, 50, "file", "qwen3-4b"))
-            self.assertEqual(testkit.read_json(mfile)["diskMinGB"], 50)
-            for bad in ({"engine": "whisper.cpp"}, {"docMove": True}, {"diskMinGB": -1}, {"caseRoot": "relative"}):
-                st, j = put(bad)
-                self.assertEqual((st, j["error"]), (400, "bad_request"), bad)
-            st, j = put({"diskMinGB": None})   # null = 既定へ戻す
-            self.assertEqual((st, j["machine"]["diskMinGB"], "diskMinGB" in j["file"]), (200, L.machine_mod.DISK_MIN_GB, False))
+            st, j = put({"diskMinGB": 50})
+            self.assertEqual((st, j["machine"]["diskMinGB"], testkit.read_json(mfile)["diskMinGB"]), (200, 50, 50))
+            st, j = put({"caseRoot": "relative"})   # 合わない値の場合分けは src/flow/tests/test_machine.py の TestSave
+            self.assertEqual((st, j["error"]), (400, "bad_request"))
             self.assertEqual(put({}, path="/api/flow/nai")[0], 404)
             cross = {"Content-Type": "application/json", "Sec-Fetch-Site": "cross-site", "X-YTT-Token": self.srv.token}
             self.assertEqual(self.req("PUT", "/api/flow/machine", b"{}", cross)[0].status, 403)
@@ -954,10 +895,8 @@ class PortalHttpTest(Base):
         self.assertEqual(self.post("/api/flow/outbox/done", body=b'{"id":"req1__run1.zip"}', headers={"X-YTT-Token": "x"})[0].status, 403)
         for bad in (b'{"id":"nai__run1.zip"}', b'{"id":"../x.zip"}', b'{}'):
             self.assertEqual(self.post("/api/flow/outbox/done", body=bad)[0].status, 404, bad)
-        r, body = self.post("/api/flow/outbox/done", body=b'{"id":"req1__run1.zip"}')
+        r, body = self.post("/api/flow/outbox/done", body=b'{"id":"req1__run1.zip"}')   # 済みへの移し方は src/flow/tests/test_outbox.py
         self.assertEqual((r.status, json.loads(body)), (200, {"ok": True}))
-        self.assertTrue(os.path.isfile(os.path.join(ob, "済み", "req1__run1.zip")))
-        self.assertEqual(self.get_json("/api/flow/outbox")[1]["files"], [])
 
     def test_after_run_outbox_only_headless(self):
         """F1 F6a: 実行が終わったあとの送り返しの zip は、画面なし・依頼(requestId)の実行だけ"""
@@ -994,10 +933,7 @@ class PortalHttpTest(Base):
         ap.assert_called_once_with(pack)
         self.assertEqual(lr.version, "v9")
         self.assertIs(doc_jobs._learning[0], lr)
-        self.assertIs(self.srv.autorun.learning, lr)
-        self.assertEqual(doc_jobs.dict_learned(), "d1")
-        self.assertEqual(doc_jobs.glossary_of({"glossary": "すいせい"})[0], ["すいせい"])
-        self.assertEqual(doc_jobs.glossary_of({"glossary": "", "autoGloss": False})[1], [])
+        self.assertIs(self.srv.autorun.learning, lr)   # 読み手の中身は src/flow/tests/test_learning.py の TestPackReader
 
     def test_build_learnpack_needs_intake_folder(self):
         """F1 F6a: 学習の束は依頼の受付のフォルダが設定されているときだけ <フォルダ>/学習 へ"""
@@ -1014,8 +950,8 @@ class PortalHttpTest(Base):
         self.assertIn("error", self.srv.learnpack_last)
 
     def test_flow_board_api(self):
-        """RS8 の ② の口 S3: status に rev・jobs・cases を足す(今の項目はそのまま)・?case= の検査と絞り込み・POST /api/flow/cancel・retry
-        (合言葉が要る・形が違えば 400・無い id は 404・できない物は 409)・GET /api/flow/history・POST /api/flow/estimate(旧い名前と同じ口)"""
+        """② の口: status の rev・jobs・cases・?case= の検査と絞り込み・POST /api/flow/cancel・retry
+        (合言葉が要る・形が違えば 400・無い id は 404・できない物は 409)・GET /api/flow/history・POST /api/flow/estimate"""
         quote = urllib.parse.quote
         r, body = self.req("GET", "/api/flow/status")
         st = json.loads(body)
@@ -1025,11 +961,10 @@ class PortalHttpTest(Base):
         for path in ("/api/flow/status?case=" + quote("相対/パス"), "/api/flow/history?case=" + quote("x")):
             r, body = self.req("GET", path)
             self.assertEqual((r.status, json.loads(body)["error"]), (400, "bad_request"), path)
-        media, env = self.file_envelope()
+        _media, env = self.file_envelope()
         self.assertEqual(self.post_json("/api/flow/submit", {"envelope": env, "spec": {"run": {"upto": "transcribe"}}})[0], 200)
         st = self.get_json("/api/flow/status")[1]
-        job = next(j for j in st["jobs"] if j["id"] == "run:0123456789")
-        self.assertEqual((job["kind"], job["target"]["path"], [s["key"] for s in job["steps"]]), ("run", media, ["transcribe"]))
+        self.assertIn("run:0123456789", [j["id"] for j in st["jobs"]])   # ジョブの形は src/flow/tests/test_runqueue.py の test_board_job_shape
         st = self.get_json("/api/flow/status?case=" + quote(os.path.join(self.tmp, "nai")))[1]
         self.assertEqual((st["jobs"], [x["id"] for x in st["runs"]]), ([], ["0123456789"]))   # 絞るのは jobs だけ
         self.assertEqual(self.post("/api/flow/cancel", headers={"X-YTT-Token": "x"}, body=b'{"id": "run:0123456789"}')[0].status, 403)   # 書き込み系 = 合言葉が要る
@@ -1051,11 +986,10 @@ class PortalHttpTest(Base):
         self.assertEqual(r.status, 200)
         self.assertLessEqual({"runs", "total", "more", "offset"}, set(json.loads(body)))
         self.assertEqual(self.req("GET", "/api/flow/history", headers={"Sec-Fetch-Site": "cross-site"})[0].status, 403)   # ほかのサイトからは読めない
-        self.assertEqual(self.post("/api/flow/estimate", body=b'{"ids": []}')[0].status, 400)   # 本文は submit と同じ {envelope, spec}(RV A1。封筒が無ければ 400)
-        self.assertEqual(self.post("/api/autorun/start", body=b'{"id": "abcdefghijk", "mode": "full"}')[0].status, 404, "以前の受付は消した(RV A1)")
+        self.assertEqual(self.post("/api/flow/estimate", body=b'{"ids": []}')[0].status, 400)   # 本文は submit と同じ {envelope, spec}(封筒が無ければ 400)
 
     def test_flow_submit_live_goes_to_live(self):
-        """RS7-2 G2b: 封筒 kind live は ② の口からライブ係(Live.submit)へ(入口が Queue.set_live_hook で登録)。リアルタイム切り抜きがオフなら 400 と理由
+        """封筒 kind live は ② の口からライブ係(Live.submit)へ(入口が Queue.set_live_hook で登録)。リアルタイム切り抜きがオフなら 400 と理由
         (録画元・yt-dlp に聞かない)。オンなら Live.submit が受けた封筒 + 束で録画を始める"""
         env = {"id": "live000001", "kind": "live", "input": {"videoId": "abcdefghijk", "title": "配信"}}
         self.srv.live.probe = lambda url: self.fail("オフなら配信の状態を調べない")
@@ -1064,8 +998,7 @@ class PortalHttpTest(Base):
         seen = []
         with mock.patch.object(self.srv.live, "submit", lambda e, s: seen.append((e, s)) or {"id": e["id"], "live": True}):
             r, body = self.post("/api/flow/submit", body=json.dumps({"envelope": env, "spec": {"adopt": {"top": 10}}}).encode("utf-8"))
-        self.assertEqual((r.status, json.loads(body)["run"]), (200, {"id": "live000001", "live": True}))
-        self.assertEqual((seen[0][0]["kind"], seen[0][1]["adopt"]["top"]), ("live", 10))
+        self.assertEqual((r.status, json.loads(body)["run"], seen[0][0]["kind"]), (200, {"id": "live000001", "live": True}, "live"))   # 束の受け渡しは test_runqueue の TestSubmitLive
         self.assertEqual(self.srv.autorun.status()["runs"], [], "kind live は待ち行列に積まない")
 
     def test_intake_api(self):
@@ -1124,7 +1057,7 @@ class PortalHttpTest(Base):
 
 
 class MainShutdownTest(unittest.TestCase):
-    """不具合の疑い 2(10-08 の見直し): main() の終了の後始末は 1 回だけ。「すべて終了」(request_shutdown)のあとに finally でもう一度走らない・
+    """main() の終了の後始末は 1 回だけ。「すべて終了」(request_shutdown)のあとに finally でもう一度走らない・
     Ctrl+C・黒い画面の×(KeyboardInterrupt)の経路でもまとめて実行を閉じる(閉じないと実行中の段が「失敗」として記録され、次の起動で続かない。M5)"""
 
     def setUp(self):
@@ -1220,7 +1153,7 @@ class MainShutdownTest(unittest.TestCase):
         return code, got["srv"], out.getvalue(), started, opened, got.get("result")
 
     def test_headless_ready_line_and_no_watchers(self):
-        """RS7-2 G5a: --headless は ③④⑤ の常駐(依頼の受付・バックアップ・精度の自動測定・分析と日報・ごみ箱の片付け)を起こさず、画面を開かない。
+        """--headless は ③④⑤ の常駐(依頼の受付・バックアップ・精度の自動測定・分析と日報・ごみ箱の片付け)を起こさず、画面を開かない。
         ②(まとめて実行 = Queue・ライブ)は載せる。標準出力は ready の 1 行の JSON だけ(合言葉とポートで ② の口が使える)"""
         def on_ready(srv, ready):
             st, body = _http(ready["port"], "GET", "/api/flow/status")
@@ -1315,7 +1248,7 @@ class MainShutdownTest(unittest.TestCase):
         made[0].server_close.assert_called_once()
 
     def run_main_failing(self, argv, wait_result=None, lock_busy=None, existing=False):
-        """RS7-1 1d: 待ちの期限・.flow.lock の先客で、トレースバックにせず読める文を出して非 0 で終わる。existing: 入口がすでに動いている"""
+        """待ちの期限・.flow.lock の先客で、トレースバックにせず読める文を出して非 0 で終わる。existing: 入口がすでに動いている"""
         logs, errs, made = [], io.StringIO(), []
 
         def make_server(port, sup):

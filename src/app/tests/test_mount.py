@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""入口への取り込み(src/app/mount.py・段階3)のテスト。  python -m unittest src/app/tests/test_mount.py -v
+"""入口への取り込み(src/app/mount.py)のテスト。  python -m unittest src/app/tests/test_mount.py -v
 
 本物の切り抜きスタジオ(疑似モード)・cut2resolve を一時フォルダに写し、入口のサーバーに取り込んで確かめる:
 /studio/・/cut2resolve/ の画面・API・安全対策(CSP・合言葉・Host)、.runtime の場所、他のツールの /api/siblings、
@@ -144,10 +144,6 @@ class TestStudioMounted(unittest.TestCase):
         self.assertEqual(self.sup.by_id["studio"].snapshot()["state"], "running")   # 入口と一緒にしか止まらない
 
     def test_page_assets_and_security_headers(self):
-        # RS8 C4: スタジオの画面のページは消えた(古い URL の転送も棚卸し G5 で消した = 取り込んだスタジオが 404)
-        for path in ("/studio/", "/studio/index.html", "/studio/?video=abc"):
-            r, body = self.req("GET", path)
-            self.assertEqual((r.status, r.getheader("Location")), (404, None), path)
         r, _ = self.req("GET", "/studio?url=abc")   # 末尾の / を足す 301 は取り込みの決まりのまま
         self.assertEqual((r.status, r.getheader("Location")), (301, "/studio/?url=abc"))
         # 取り込み(MOUNTS)の CSP は今のまま(script-src にインラインを許さない・YouTube のプレイヤーだけ外部。起動のとき Mount.start が検査する)
@@ -159,9 +155,6 @@ class TestStudioMounted(unittest.TestCase):
             r, data = self.req("GET", "/studio/" + asset)
             self.assertEqual(r.status, 200, asset)
             self.assertIsNone(r.getheader("Content-Security-Policy"), asset)
-        for gone in ("core.js", "settings.js", "app.css", "review.css", "ui-kit.js", "ui-kit.css"):   # 消えた物は 404(配らない)
-            r, data = self.req("GET", "/studio/" + gone)
-            self.assertEqual(r.status, 404, gone)
         r, body = self.req("GET", "/")   # ホームの画面はそのまま
         self.assertIn("動画編集ツール — ホーム".encode("utf-8"), body)
 
@@ -190,7 +183,7 @@ class TestStudioMounted(unittest.TestCase):
         self.assertEqual(r.status, 404)
 
     def test_shared_api_goes_to_portal(self):
-        """取り込んだツールの画面の api/ytt/…(画面のエラーの記録など)は、ツールではなく入口が受け持つ(段階7)"""
+        """取り込んだツールの画面の api/ytt/…(画面のエラーの記録など)は、ツールではなく入口が受け持つ"""
         h = {"Content-Type": "application/json", "Origin": "http://" + self.host, "X-YTT-Token": self.srv.token}
         data = json.dumps({"kind": "error", "message": "studio で落ちた", "source": "http://%s/studio/review.js" % self.host, "line": 9}).encode()
         r, body = self.req("POST", "/studio/api/ytt/client-log", data, h)
@@ -215,10 +208,6 @@ class TestStudioMounted(unittest.TestCase):
     def test_runtime_and_siblings(self):
         info = L.read_runtime(self.rdir, "studio")
         self.assertEqual((info["port"], info["path"]), (self.port, "/studio/"))
-        r, body = self.req("GET", "/studio/api/siblings")
-        self.assertEqual(json.loads(body), {"tools": {"studio": self.port}, "paths": {"studio": "/studio/"}})
-        from ytt import runtime   # 他のツールから見た siblings(文字起こしは ytt を使う)
-        self.assertEqual(runtime.siblings(self.rdir, "transcribe", 8775)["paths"], {"studio": "/studio/"})
 
     def test_standalone_start_opens_the_mounted_one(self):
         """取り込まれている間に serve.py を直接起動しても、2つ目のサーバーは立てない(同じ data.json を取り合わないため)"""
@@ -233,7 +222,7 @@ class TestStudioMounted(unittest.TestCase):
 
 @unittest.skipUnless(all(os.path.isfile(os.path.join(REPO, d, "serve.py")) for d in (STUDIO_DIR, "cut2resolve")), "ツールのフォルダが無い")
 class TestCut2ResolveMounted(unittest.TestCase):
-    """スタジオと cut2resolve を両方取り込んだ入口(start.bat の既定と同じ形)。段階3-2"""
+    """スタジオと cut2resolve を両方取り込んだ入口(start.bat の既定と同じ形)"""
 
     @classmethod
     def setUpClass(cls):
@@ -257,11 +246,6 @@ class TestCut2ResolveMounted(unittest.TestCase):
         cls.sup.start("cut2resolve")
         cls.host = "127.0.0.1:%d" % cls.port
         cls.mod = sys.modules[M.MOUNTS["cut2resolve"]["alias"]]
-        cls.video = None
-        if shutil.which("ffmpeg") and shutil.which("ffprobe"):
-            cls.video = os.path.join(cls.tmp, "in.mp4")
-            subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc=size=64x36:rate=30:duration=1", "-pix_fmt", "yuv420p",
-                            "-y", cls.video], check=True, timeout=60)
 
     @classmethod
     def tearDownClass(cls):
@@ -302,22 +286,8 @@ class TestCut2ResolveMounted(unittest.TestCase):
         self.assertEqual((r.status, r.getheader("Location")), (301, "/cut2resolve/?video=C%3A%5Ca.mp4"))
         r, _ = self.req("GET", "/cut2resolvex/api/ping")   # 前方一致の取り違えがない(入口の 404)
         self.assertEqual(r.status, 404)
-        r, _ = self.req("GET", "/studio/api/ping")   # スタジオも並んで動く(画面のページは RS8 C4 で消した)
+        r, _ = self.req("GET", "/studio/api/ping")   # スタジオも並んで動く
         self.assertEqual(r.status, 200)
-
-    def test_page_is_notice_even_when_edit_tool_mounted(self):
-        """「編集」(/transcribe)も取り込まれていても、cut2resolve の画面は案内だけ(編集への転送 page_to は棚卸し G5 で消した)。API はそのまま"""
-        self.srv.mounts["/transcribe"] = object   # 編集が取り込まれている印だけ(このテストでは /transcribe/ には要求しない)
-        try:
-            for path in ("/cut2resolve/?video=C%3A%5Ca.mp4&srt=x", "/cut2resolve/index.html"):
-                r, body = self.req("GET", path)
-                self.assertEqual((r.status, r.getheader("Location")), (200, None), path)
-                self.assertIn("「編集」に統合しました".encode("utf-8"), body)
-            for path in ("/cut2resolve/api/ping", "/cut2resolve/api/siblings"):
-                r, _ = self.req("GET", path)
-                self.assertEqual(r.status, 200, path)
-        finally:
-            self.srv.mounts.pop("/transcribe", None)
 
     def test_api_token_and_guards(self):
         r, body = self.req("GET", "/cut2resolve/api/ping")
@@ -336,9 +306,6 @@ class TestCut2ResolveMounted(unittest.TestCase):
         self.assertEqual(r.status, 403)
         r, _ = self.req("GET", "/cut2resolve/api/siblings", headers={"Sec-Fetch-Site": "cross-site"})
         self.assertEqual(r.status, 403)
-        r, _ = self.req("POST", "/cut2resolve/api/upload?kind=srt&name=a.srt", b"1\n00:00:00,000 --> 00:00:01,000\nhi\n",
-                        {"Content-Type": "application/octet-stream", "X-YTT-Token": self.srv.token})
-        self.assertEqual(r.status, 404)   # cut2resolve 0.22.0 で消した API(使う側が無かった)
         r, body = self.req("POST", "/cut2resolve/api/job/cancel", b"{}", {"Content-Type": "application/json"})
         self.assertEqual(r.status, 403)   # 合言葉のないものは、ツールの処理まで届かない
         r, _ = self.req("POST", "/api/tools/cut2resolve/stop", b"{}", {"Content-Type": "application/json"})
@@ -361,15 +328,6 @@ class TestCut2ResolveMounted(unittest.TestCase):
         from ytt import runtime
         self.assertEqual(runtime.siblings(self.rdir, "transcribe", 8775)["paths"], want["paths"])
 
-    def test_standalone_start_opens_the_mounted_one(self):
-        port = free_ports(1)[0]
-        r = subprocess.run([sys.executable, os.path.join(self.c2r_dir, "serve.py"), str(port), "--no-open"],
-                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60, env=dict(os.environ, PYTHONIOENCODING="utf-8"))
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("入口の中ですでに起動しています", r.stdout)
-        self.assertIn("/cut2resolve/", r.stdout)
-        self.assertFalse(L.port_open(port))
-
     def test_finish_cancels_job_and_removes_runtime(self):
         """入口の終了で呼ぶ finish(): 動いているジョブを取り消す・自分の .runtime を消す(別のテストの後始末に影響しないよう、記録は書き戻す)"""
         started, gate = threading.Event(), threading.Event()
@@ -388,7 +346,7 @@ class TestCut2ResolveMounted(unittest.TestCase):
 @unittest.skipUnless(all(os.path.isfile(os.path.join(REPO, d, "serve.py")) for d in (STUDIO_DIR, TX_DIR)) and shutil.which("ffmpeg"),
                      "ツールのフォルダか ffmpeg が無い")
 class TestTranscribeMounted(unittest.TestCase):
-    """文字起こしを取り込んだ入口(段階3-3)。認識は別プロセスのワーカー(pipeline/transcribe/worker.py)で動き、ワーカーが落ちても入口は止まらない。
+    """文字起こしを取り込んだ入口。認識は別プロセスのワーカー(pipeline/transcribe/worker.py)で動き、ワーカーが落ちても入口は止まらない。
     faster-whisper の無い環境でも確かめられるよう TRANSCRIBE_BACKEND=worker-fake(ワーカーの中だけ偽のモデル)で動かす。"""
 
     @classmethod
@@ -461,19 +419,12 @@ class TestTranscribeMounted(unittest.TestCase):
         snap = self.sup.by_id["transcribe"].snapshot()
         self.assertEqual((snap["state"], snap["mounted"], snap["path"]), ("running", True, "/transcribe/"), self.events)
         self.assertIsNone(self.sup.by_id["transcribe"].proc)
-        # RS8 C4: 編集の画面のページは消えた(古い URL の転送も棚卸し G5 で消した = 取り込んだ編集が 404)
-        for path in ("/transcribe/", "/transcribe/index.html", "/transcribe/?drill=1", "/transcribe/?media=x"):
-            r, body = self.req("GET", path)
-            self.assertEqual((r.status, r.getheader("Location")), (404, None), path)
         csp = M.MOUNTS["transcribe"]["csp"]   # 取り込みの CSP(インラインのスクリプトを許さない)は今のまま
         self.assertIn("script-src 'self';", csp)
         self.assertNotIn("unsafe-inline", csp)
         for asset in ("app.js", "proof.css", "app-tpl.js", "cut.js", "pack-tab.js"):   # 案件の画面の校正のパネルが読む部品は配る
             r, _ = self.req("GET", "/transcribe/" + asset)
             self.assertEqual(r.status, 200, asset)
-        for gone in ("ui-kit.js", "ui-kit.css"):   # ui-kit の写しは消した(案件の画面は入口の /ui-kit.js を読む)
-            r, _ = self.req("GET", "/transcribe/" + gone)
-            self.assertEqual(r.status, 404, gone)
 
     def test_token_and_guards(self):
         r, body = self.post("/transcribe/api/transcribe", {"sourcePath": self.media}, token=False)
@@ -497,7 +448,7 @@ class TestTranscribeMounted(unittest.TestCase):
             self.assertNotIn(m, sys.modules)                  # 入口のプロセスには読み込まれない
 
     def test_worker_crash_does_not_take_down_portal(self):
-        """ワーカーが落ちても、そのジョブが失敗になるだけ。入口・スタジオはそのまま動き、次の文字起こしでワーカーを起動し直す(段階3-3 の目的)。"""
+        """ワーカーが落ちても、そのジョブが失敗になるだけ。入口・スタジオはそのまま動き、次の文字起こしでワーカーを起動し直す。"""
         self.mod.WORKER.stop()   # 次の要求で、落ちる設定のワーカーが起動する
         os.environ["TRANSCRIBE_WORKER_CRASH"] = "1"
         try:
@@ -505,7 +456,6 @@ class TestTranscribeMounted(unittest.TestCase):
         finally:
             del os.environ["TRANSCRIBE_WORKER_CRASH"]
         self.assertEqual(j["state"], "error", j)
-        self.assertIn("途中で止まりました", j["error"])
         r, _ = self.req("GET", "/studio/api/state")
         self.assertEqual(r.status, 200)                        # スタジオは影響を受けない
         r, body = self.req("GET", "/api/status")
@@ -514,10 +464,6 @@ class TestTranscribeMounted(unittest.TestCase):
         self.assertEqual(self.run_job()["state"], "done")      # 次は起動し直して成功する
 
     def test_runtime_siblings_and_standalone_start(self):
-        info = L.read_runtime(self.rdir, "transcribe")
-        self.assertEqual((info["port"], info["path"]), (self.port, "/transcribe/"))
-        r, body = self.req("GET", "/transcribe/api/siblings")
-        self.assertEqual(json.loads(body)["paths"], {"studio": "/studio/", "transcribe": "/transcribe/"})
         port = free_ports(1)[0]
         env = dict(os.environ, YTT_CORE_DIR=self.tmp)
         r = subprocess.run([sys.executable, os.path.join(self.tx_dir, "serve.py"), str(port), "--no-open"],

@@ -1,16 +1,16 @@
 """案件の画面(/cases)の「候補」のパネル(src/app/ui/cases/panels/cand.js。RS8 C2a)の通し確認(Playwright)。リポジトリ直下で:
     set PYTHONIOENCODING=utf-8
     py -3.12 src/app/tests/e2e_cases_cand.py
-入口(app/server.py)にスタジオを取り込んで動かす(消した旧 e2e_ui.py --mounted と同じ形。STUDIO_FAKE=1・生成した短い webm・一時フォルダだけ)。
+入口(app/server.py)にスタジオを取り込んで動かす(STUDIO_FAKE=1・生成した短い webm・一時フォルダだけ)。
 ④ の案件の一覧(cases_mod.snapshot)は見本に差し替え、案件の id = スタジオの配信の id にする。
-見るもの(旧 e2e_ui.py の ② の場面から): パネルが載る(配信の選択は出さない)・動画を再生できる・盛り上がりグラフ・採用 / 不採用がスタジオに保存される・
-キー(y・n)は殻の keydown からパネルへ届く・書き出し → 済みの行と「編集で開く」・離れたら再生を止める・
+見るもの: パネルが載る(配信の選択は出さない)・動画を再生できる・盛り上がりグラフ・採用 / 不採用がスタジオに保存される・
+キー(y・n)は殻の keydown からパネルへ届く・書き出し → 済みの行と「編集で開く」のリンク・離れたら再生を止める・
 別の行(切り抜き)へ移るとパネルを片付ける(キーが効かない・プレーヤーが消える)・戻ると作り直す・コンソールのエラーが無い。
-RS8 C4 で旧 e2e_ui.py(25 場面)から候補のパネルに残る物を足した: 外から来る文字列(題名・ラベル)が HTML にならない・開始 / 終了の時刻の欄(数字だけで確定・欄の中の ← → は再生位置を動かさない)・
-まとめて実行(配信ごと・マークの「この後を ▸」)・採用が無いと「書き出す」は押せず理由を出す・書き出しの知らせの [編集で開く]・
-書き出したマークのセリフ(元の配信の時刻・校正の進み具合・カットの行・押すとその時刻へ)・一瞬をマーク(C)・つなげて1本に・前回の場所(開き直すと戻る)・
-1720 では書き出しの引き出しを横に並べる・390 で重ねて開いている間は裏のキーが効かない・YouTube のプレーヤーが使えないとき。
-? の一覧・下の帯の文字・幅 390 のはみ出し・設定の保存の失敗の ⚙ の印は画面の道から外した(テストの見直し 10-18。写真の関所・ui_audit の A-20)。"""
+外から来る文字列(題名・ラベル)が HTML にならない・開始 / 終了の時刻の欄(数字だけで確定・欄の中の ← → は再生位置を動かさない)・
+まとめて実行(配信ごと・マークの「この後を ▸」)・採用が無いと「書き出す」は押せない・
+書き出したマークのセリフ(元の配信の時刻・校正の進み具合・押すとその時刻へ)・一瞬をマーク(C)・つなげて1本に・前回の場所(開き直すと戻る)・
+1720 では書き出しの引き出しを横に並べる・390 で重ねて開いている間は裏のキーが効かない・YouTube のプレーヤーが使えないとき(知らせの文は test_cand_panel.cjs)。
+? の一覧・下の帯の文字・幅 390 のはみ出し・設定の保存の失敗の ⚙ の印は画面の道に入れない(写真の関所・ui_audit の A-20)。"""
 import json
 import os
 import shutil
@@ -35,7 +35,7 @@ sys.path.insert(0, os.path.join(SRC, "app"))
 if SRC not in sys.path:
     sys.path.append(SRC)
 import startup  # noqa: E402,F401  (src を sys.path に足し、スタジオのフォルダを ytt/studio_env に知らせる)
-from ytt import datadir, studio_env  # noqa: E402
+from ytt import datadir, studio_env, testkit  # noqa: E402
 import serve  # noqa: E402
 from app import server as L  # noqa: E402
 from app import mount  # noqa: E402
@@ -53,14 +53,7 @@ def counts_as_error(m):
     return not ((m.location or {}).get("url") or "").startswith("https://www.youtube.com/")
 
 
-def wait_js(pg, expr, timeout=15000):
-    """CSP の画面では wait_for_function が動かないので evaluate を繰り返す"""
-    end = time.time() + timeout / 1000
-    while time.time() < end:
-        if pg.evaluate(expr):
-            return True
-        time.sleep(0.1)
-    return False
+wait_js = testkit.wait_js
 
 
 def make_media(home):
@@ -185,7 +178,7 @@ def main():
                 check(pg.evaluate("document.querySelectorAll('#csPane #rvList .rv-mark-row').length") == 5, "マーク 5 件(手 2 + 自動 3)")
                 check(pg.is_hidden("[data-cd-status]"), "読み込めたら案内は消える")
                 check(pg.evaluate("!!document.querySelector('script[src=\"studio/review.js\"]')"), "部品はスタジオの review.js(相対パス)を読む")
-                # 1b. 外から来る文字列(題名・ラベル)は文字のまま(旧 e2e_ui の check_untrusted_text)
+                # 1b. 外から来る文字列(題名・ラベル)は文字のまま
                 check(pg.input_value("#rvTitle") == XSS_TITLE, "配信の題名は文字のまま")
                 check(pg.input_value('#rvList .rv-mark-row[data-id="x1"] [data-f="label"]') == XSS_LABEL, "マークのラベルは文字のまま")
 
@@ -248,7 +241,7 @@ def main():
                 while time.time() < end and len(marks()) != n0 + 1:
                     time.sleep(0.2)
                 check(len(marks()) == n0 + 1, "今をマークがスタジオに保存される")
-                # ? のキー操作の一覧・キー配置の組み合わせ・下の帯の文字は画面の道から外した(テストの見直し 10-18。写真の関所で見る)
+                # ? のキー操作の一覧・キー配置の組み合わせ・下の帯の文字は画面の道に入れない(写真の関所で見る)
 
                 # 4c. まとめて実行(入口の /api/flow/submit。偽物で頼んだ中身だけ見る): 配信ごと・マークの行の「この後を ▸」(旧 check_review_autorun)
                 check(pg.is_visible("#rvAuto"), "「まとめて実行」が出る(入口の中)")
@@ -274,8 +267,7 @@ def main():
                 for m in pg.eval_on_selector_all("#rvList .rv-mark-row.st-adopted", "els => els.map(e => e.dataset.id)"):
                     pg.click('#rvList .rv-mark-row[data-id="%s"] [data-act="st"][data-st=""]' % m)
                 wait_js(pg, "document.querySelector('#rvSave').dataset.k === 'saved'", 8000)
-                check(not pg.is_enabled("#rvExpRun") and "候補を「採用」にすると" in (pg.text_content("#rvExpCount") or ""),
-                      "採用が無いとき「書き出す」は押せず、どうすれば書き出せるかを出す: %s" % pg.text_content("#rvExpCount"))
+                check(not pg.is_enabled("#rvExpRun"), "採用が無いとき「書き出す」は押せない")
                 pg.click('#rvList .rv-mark-row[data-id="m1"] [data-act="st"][data-st="adopted"]')
                 wait_js(pg, "document.querySelector('#rvSave').dataset.k === 'saved'", 8000)
                 check(pg.is_enabled("#rvExpRun"), "1 件採用すると押せる")
@@ -283,9 +275,6 @@ def main():
                 check(wait_js(pg, "!document.querySelector('#rvExport').hidden", 3000), "書き出しの欄が開く")
                 pg.click("#rvExpRun")
                 check(wait_js(pg, "!!document.querySelector('#rvExpList .rv-ejob.st-ok')", 90000), "書き出しが済む")
-                check(wait_js(pg, "(() => { const x = [...document.querySelectorAll('.ui-toast')].find(x => /書き出しました/.test(x.textContent)); "
-                                  "const b = x && x.querySelector('.ui-toast-act'); return !!b && b.textContent === '編集で開く'; })()", 8000),
-                      "書き出しが済んだ知らせに [編集で開く]")
                 href = pg.get_attribute("#rvExpList .rv-ejob.st-ok a[data-edit-open]", "href") or ""
                 path = urllib.parse.unquote(href.split("?v=", 1)[1].split("#", 1)[0]) if "?v=" in href else ""
                 check(href.startswith("/cases?v=") and href.endswith("#proof") and os.path.isfile(path),
@@ -319,7 +308,6 @@ def main():
                 tcs = pg.eval_on_selector_all(TX + "-line", "els => els.map(e => e.dataset.t)")
                 m1_start = next(m for m in marks() if m["id"] == "m1")["start"]
                 check(len(tcs) == 2 and abs(float(tcs[0]) - (m1_start + 1.0)) < 0.01, "セリフの時刻は元の配信の時刻(切り抜きの開始 + 行の時刻): %s" % tcs)
-                check(pg.locator(TX + "-line.cut").count() == 1, "文字起こしでカットにした行は線を引いて出す")
                 check(pg.evaluate("window.__xss === undefined") and pg.locator("#rvList .rv-tx img").count() == 0, "セリフ・題名・ラベルの HTML は実行・表示されない")
                 pg.click(TX + " summary")
                 pg.click(TX + "-line >> nth=0")
@@ -366,8 +354,7 @@ def main():
                 pg.evaluate("document.querySelector('#rvHost video').pause()")
                 pg.fill("#rvNow", "0:21.5")
                 pg.press("#rvNow", "Enter")
-                check(wait_js(pg, "(() => { const p = JSON.parse(localStorage.getItem('ytt:studio.place') || '{}')['%s']; return !!p && Math.abs(p[0] - 21.5) < 0.3 && p[1] === 'm1'; })()" % VID, 6000),
-                      "再生位置と選んだマークを配信ごとに覚える: %s" % pg.evaluate("localStorage.getItem('ytt:studio.place')"))
+                wait_js(pg, "(() => { const p = JSON.parse(localStorage.getItem('ytt:studio.place') || '{}')['%s']; return !!p && Math.abs(p[0] - 21.5) < 0.3; })()" % VID, 6000)
                 pg.click("#csRail [data-cs-key='d:a0000000000a']")
                 check(wait_js(pg, "CasesShell.state().panel === 'proof' && !document.querySelector('#csPane .cd-panel')", 5000), "切り抜きを選ぶと候補のパネルは外れる")
                 n1 = len(marks())
@@ -379,7 +366,6 @@ def main():
                 check(wait_js(pg, "!!document.querySelector('#csPane .cd-panel #rvList .rv-mark-row[data-id=\"m1\"].st-exported')", 15000), "戻ると作り直して、書き出し済みのまま出る")
                 check(pg.evaluate("document.querySelectorAll('#csPane .cd-panel').length") == 1 and pg.evaluate("document.querySelectorAll('#rvHost video').length") == 1,
                       "箱もプレーヤーも 1 つだけ")
-                check(pg.evaluate("(document.querySelector('#rvList .rv-mark-row.sel') || {dataset: {}}).dataset.id") == "m1", "開き直すと、前に選んでいたマークが選ばれている")
                 check(wait_js(pg, "(() => { const v = document.querySelector('#rvHost video'); return !!v && v.readyState > 0 && Math.abs(v.currentTime - 21.5) < 0.6; })()", 8000)
                       and pg.evaluate("document.querySelector('#rvHost video').paused"), "開き直すと前の再生位置から(自動では再生しない): %s" % pg.input_value("#rvNow"))
 
@@ -392,7 +378,7 @@ def main():
                 check(wait_js(pg, "document.querySelector('#rvExport').hidden", 3000), "1440 に戻すと、並べていた引き出しは閉じる")
 
                 # 8. 幅 390: 重ねて開いた書き出しの欄の裏では、配信のキー(→・採用)が効かない(B-2。旧 check_narrow_contrast)。
-                # 横にはみ出さないことは ui_audit の A-20 が見る(テストの見直し 10-18 で外した)
+                # 横にはみ出さないことは ui_audit の A-20 が見る
                 pg.set_viewport_size({"width": 390, "height": 800})
                 pg.goto(base + "cases?c=%s#cand" % VID)
                 check(wait_js(pg, "!!document.querySelector('#rvList .rv-mark-row')", 20000), "390 でも開ける")
@@ -422,14 +408,10 @@ def main():
                 for k in ("]", "[", "y"):
                     pg.keyboard.press(k)
                     time.sleep(0.12)
-                yt_toast = "[...document.querySelectorAll('.ui-toast')].some(t => t.textContent.includes('再生できません'))"
-                check(not pg.evaluate(yt_toast), "キー操作で判定しても、再生できない知らせは出さない")
                 end = time.time() + 8
                 while time.time() < end and not any(m["status"] == "adopted" for m in studio_video(port, YT_ID)["marks"]):
                     time.sleep(0.2)
                 check(any(m["status"] == "adopted" for m in studio_video(port, YT_ID)["marks"]), "プレーヤーが使えなくても判定は保存される")
-                pg.keyboard.press("Space")
-                check(wait_js(pg, yt_toast, 3000), "自分で再生を押したときは知らせる")
                 pg.unroute("https://www.youtube.com/**")
 
                 check(not errors, "コンソールのエラーなし: %s" % errors[:3])

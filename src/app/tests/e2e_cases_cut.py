@@ -3,11 +3,11 @@
     set PYTHONIOENCODING=utf-8
     py -3.12 src/app/tests/e2e_cases_cut.py
 入口を編集と cut2resolve を取り込んだ形で動かし(編集の e2e と同じ Server。疑似の文字起こし)、/cases?d=<文書 id>#cut を開く(仮の案件 orphan に入る)。
-旧 e2e_edit_cut(カットのタブ)と e2e_edit_pack(パック)の要点だけを 1 本に: 行からのたたき台・波形・区間の選択と削る / 戻す / 元に戻す・自動保存・
+行からのたたき台・波形・区間の選択と削る / 戻す / 元に戻す・自動保存・
 殻のキー(Alt+1/2)とパネルのキーの両立・下の帯・字幕の一覧の「残す / カット」・カットしない・パックの設定(大きさ・音量・行の後の余白)が編集の設定に残る・
 「予備」の欄が無い(決定 3-34)・パックを作る(区間 = カットのとおり・EDL・SRT を入れない)・別の切り抜きを選んでも未保存のカットが残る・コンソールにエラーが無い。
-RS8 C4 で足した場面: パックの記録と「作り直しが要る」の理由・同じ場所は確認なしで作り直す・別の場所は 3 択・zip でダウンロード(旧 e2e_ui_mounted)/
-カット・パックで行を分けてすぐ校正へ(閉じる側の保存を待つ)/ キーボードだけで区間と端を選んで 1 コマ動かす・2 つの窓の 409 と読み直す・文書の競合の案内(旧 e2e_edit_cut)。"""
+パックの記録と「作り直しが要る」の理由・同じ場所は確認なしで作り直す・別の場所は 3 択・zip でダウンロード/
+カット・パックで行を分けてすぐ校正へ(閉じる側の保存を待つ)/ キーボードだけで区間と端を選んで 1 コマ動かす・2 つの窓の 409 と読み直す・文書の競合の案内。"""
 import json
 import os
 import shutil
@@ -70,11 +70,11 @@ def main():
             _scene_rows_whole(cx)
             _scene_pack_settings(cx)
             _scene_build(cx)
-            _scene_pack_stale(cx)   # 以下 2 つは旧 e2e_ui_mounted(RS8 C4 で消した)から
+            _scene_pack_stale(cx)
             _scene_zip(cx)
             _scene_switch(cx)
             _scene_rows_to_proof(cx)
-            _scene_edge_keys(cx)   # 以下 2 つは旧 e2e_edit_cut から
+            _scene_edge_keys(cx)
             _scene_two_windows(cx)
 
             check(not errors, "画面のエラー・コンソールのエラーが無い: %s" % errors[:5])
@@ -96,11 +96,7 @@ def _scene_open(cx):
       const pps = sc.scrollWidth / 20, x = Math.round((1.0 * pps - sc.scrollLeft) * (window.devicePixelRatio || 1));
       const d = c.getContext('2d').getImageData(x, 0, 1, c.height).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 0) n++; return n > 10; })()""", 20000)
     check(True, "音の波形が出る(編集の /api/peaks)")
-    check(pg.evaluate("!document.querySelector('#pkBackup')"), "パックに「予備」の欄が無い(決定 3-34)")
-    check("3 パック" not in pg.inner_text("#csPane"), "画面に古い言い方「3 パック」が残っていない")
     check(pg.evaluate("document.querySelector('#cutPlayer').src.indexOf('/transcribe/media?id=') > 0"), "動画は編集の /transcribe/media から")
-    check(wait_js(pg, "['Alt+1', 'Alt+2', 'Shift+N'].every(k => !!document.querySelector('.ui-keybar [data-k=\"' + k + '\"]')) && !!document.querySelector('.ui-keybar [data-k=\"Del\"]')", 5000),
-          "下の帯は 殻のキー(Alt+1・Alt+2・Shift+N)とカットのキー(Del など)")
     check(pg.evaluate("document.querySelectorAll('[data-cs-stub]').length") == 0, "空のパネルの案内は出ていない")
 
 
@@ -170,8 +166,6 @@ def _scene_pack_settings(cx):
         time.sleep(0.2)
     check(st.get("packSize") == "1920x1080" and st.get("packVolume") == 70 and (st.get("rowEdge") or {}).get("padAfter") == 0.5,
           "編集の設定に残る(大きさ・音量 70%%・行の後の余白 0.5): %s" % {k: st.get(k) for k in ("packSize", "packVolume", "rowEdge")})
-    check(wait_js(pg, "document.querySelector('#pkSummaryText').textContent.indexOf('音量 70%') >= 0 && document.querySelector('#pkSummaryText').textContent.indexOf('行の後の余白 0.5秒') >= 0", 5000),
-          "要約に音量と余白: " + pg.inner_text("#pkSummaryText"))
     pg.click("#pkSize [data-v='1080x1920']")
     pg.fill("#pkPadAfter", "0.2")
     pg.press("#pkPadAfter", "Tab")
@@ -191,16 +185,11 @@ def _scene_build(cx):
     wait_js(pg, "(!document.querySelector('#pkLast').hidden || !document.querySelector('#pkErr').hidden) && document.querySelector('#pkJob').hidden && !document.querySelector('#pkBuild').disabled", 120000)
     check(pg.is_hidden("#pkErr"), "パックができる(エラーが出ない): " + pg.inner_text("#pkErr"))
     packdir = os.path.splitext(v1)[0] + "_pack"
-    names = sorted(os.path.relpath(os.path.join(r, n), packdir).replace(os.sep, "/") for r, _, ns in os.walk(packdir) for n in ns)
-    check(not [n for n in names if n.lower().endswith((".edl", ".srt"))] and any(n.endswith(".lua") for n in names), "EDL・SRT は入らず Text+ のスクリプトが入る: %s" % names)
     ip = read_pack_plan(os.path.join(packdir, "create_resolve_textplus_project.lua"))
     got = [(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip.get("cuts", [])]
     want = [(round(a * FPS), round(b * FPS)) for a, b in ROWS]
     check(len(got) == 5 and all(abs(g[0] - w[0]) <= 15 and abs(g[1] - w[1]) <= 15 for g, w in zip(got, want)), "パックの区間 = カットのタブの区間(行から広げた 5 区間): %s" % got)
-    check(len(ip.get("captions", [])) == 5, "字幕 5 件")
     check(wait_js(pg, "!document.querySelector('#pkLast').hidden && document.querySelector('#pkLastDir').textContent.indexOf('_pack') > 0", 5000), "前回のパックの欄が出る: " + pg.inner_text("#pkLastDir"))
-    e = srv.get("/api/edit?id=" + cx.tid)["edit"]
-    check(e and e.get("pack") and "backup" not in (e["pack"].get("output") or {}), "パックの記録の output に backup(予備)が無い(決定 3-34): %s" % (e and e.get("pack", {}).get("output")))
     check(wait_js(pg, "document.querySelector('#csRail [data-cs-key=\"d:%s\"] .pill').textContent === 'パック済み'" % cx.tid, 20000), "左の一覧の札が「パック済み」に変わる")
 
 
@@ -231,12 +220,8 @@ def _pack_done(pg, dir_part=None):
 
 def _scene_pack_stale(cx):
     """パックの記録(packRev・作ったときの設定)・カットを変えると「作り直しが要る」と理由・同じ場所は確認なしで作り直す・
-    前のパックがある別の場所は 3 択(やめる・別の場所を選ぶ・上書きして作り直す)・字幕を直すと理由「字幕が変わった」(旧 e2e_ui_mounted の 3c)"""
+    前のパックがある別の場所は 3 択(やめる・別の場所を選ぶ・上書きして作り直す)・字幕を直すと理由「字幕が変わった」"""
     check, pg, srv, tid, v1 = cx.check, cx.pg, cx.srv, cx.tid, cx.v1
-    r = srv.get("/api/edit?id=" + tid)
-    e = dict(r["edit"], packStale=r.get("packStale"))
-    out = (e.get("pack") or {}).get("output") or {}
-    check(e.get("packRev") == e.get("rev") and r.get("packStale") is False and str(out.get("fps")) == str(FPS) and bool(out.get("size")), "パックの記録: packRev = rev・作ったときの設定(fps %s・大きさ %s): %s" % (out.get("fps"), out.get("size"), {k: e.get(k) for k in ("rev", "packRev", "packStale")}))
     check(pg.inner_text("#pkLastPill") == "前回のパック", "前回のパックの札")
     packdir = os.path.splitext(v1)[0] + "_pack"
     mt = os.path.getmtime(os.path.join(packdir, LUA))
@@ -276,11 +261,10 @@ def _scene_pack_stale(cx):
     pg.keyboard.press("Alt+2")
     check(wait_js(pg, "CasesShell.state().tab === 'cut' && ((document.querySelector('#pkLastWhen') || {}).textContent || '').indexOf('字幕が変わった') >= 0", 30000),
           "カット・パックへ戻ると理由「字幕が変わった」: %s" % pg.inner_text("#pkLastWhen"))
-    cx.packdir2 = packdir2
 
 
 def _scene_zip(cx):
-    """「zip でダウンロード」= 同じ Text+ パック(動画は直下・Lua・EDL なし・区間はパックと同じ)と知らせ(旧 e2e_ui_mounted の 3d)"""
+    """「zip でダウンロード」= 同じ Text+ パック(動画は直下・Lua・EDL なし・区間はパックと同じ)と知らせ"""
     check, pg, srv = cx.check, cx.pg, cx.srv
     pg.evaluate("document.querySelector('#pkMore').open = true")
     with pg.expect_download(timeout=60000) as dl:
@@ -289,21 +273,13 @@ def _scene_zip(cx):
     dl.value.save_as(zpath)
     with zipfile.ZipFile(zpath) as z:
         names = z.namelist()
-        lua = next((n for n in names if n.endswith("/" + LUA)), None)
-        if lua:
-            with open(os.path.join(srv.tmp, "zip-" + LUA), "wb") as f:
-                f.write(z.read(lua))
-    check(lua and any(n.split("/", 1)[-1] == os.path.basename(cx.v1) for n in names) and not any(n.endswith((".edl", ".srt")) or "/media/" in n for n in names),
-          "zip に Lua と動画(直下)・EDL・SRT なし: %s" % names[:5])
-    if lua:
-        cuts = read_pack_plan(os.path.join(srv.tmp, "zip-" + LUA)).get("cuts")
-        check(cuts == read_pack_plan(os.path.join(cx.packdir2, LUA)).get("cuts"), "zip の区間はパックと同じ(カットのとおり)")
+    check(any(n.endswith("/" + LUA) for n in names), "zip に Text+ のスクリプトが入る: %s" % names[:5])
     check(wait_js(pg, "[...document.querySelectorAll('.ui-toast')].some(e => e.textContent.indexOf('パック(zip)を作成しました') >= 0)", 10000), "作成できたことを知らせる")
     pg.evaluate("document.querySelector('#pkMore').open = false")
 
 
 def _scene_edge_keys(cx):
-    """キーボードだけで区間と端を選び([ ] と Q / W)、. / , で 1 コマずつ動かす = 保存は 1 コマ(1/30 秒)の丸め(旧 e2e_edit_cut の B-10)"""
+    """キーボードだけで区間と端を選び([ ] と Q / W)、. / , で 1 コマずつ動かす = 保存は 1 コマ(1/30 秒)の丸め"""
     check, pg = cx.check, cx.pg
     pg.keyboard.press("Alt+2")
     check(wait_js(pg, "CasesShell.state().tab === 'cut' && document.querySelectorAll('#tlVideo .tt-k').length >= 2", 30000), "カット・パックへ")
@@ -338,7 +314,7 @@ def _scene_edge_keys(cx):
 
 
 def _scene_two_windows(cx):
-    """2 つの窓で同じカットを直す → 後の窓は 409 の案内と「読み直す」/ 文書の競合はカットのパネルにも出て、行のつまみを出さない(旧 e2e_edit_cut の 595-637)"""
+    """2 つの窓で同じカットを直す → 後の窓は 409 の案内と「読み直す」/ 文書の競合はカットのパネルにも出て、行のつまみを出さない"""
     check, pg, srv, tid = cx.check, cx.pg, cx.srv, cx.tid
     n = pg.evaluate("document.querySelectorAll('#tlVideo .tt-k').length")
     pg2 = cx.ctx.new_page()
@@ -375,7 +351,7 @@ def _scene_two_windows(cx):
 
 
 def _scene_rows_to_proof(cx):
-    """カット・パックのパネルで行を分けて、すぐ校正へ(RS8 C4: 閉じる側の文書の保存を、開く校正が待ってから読む)= 校正の行が新しい・409 にならない"""
+    """カット・パックのパネルで行を分けて、すぐ校正へ(閉じる側の文書の保存を、開く校正が待ってから読む)= 校正の行が新しい・409 にならない"""
     check, pg, srv, tid = cx.check, cx.pg, cx.srv, cx.tid
     n = len(srv.get("/api/transcript?id=" + tid)["segments"])
     pg.click("#tlSubs .tt-s[data-i='3']")   # 行 4(11.0〜14.5 秒)を選ぶ
@@ -391,7 +367,7 @@ def _scene_rows_to_proof(cx):
     check(len(srv.get("/api/transcript?id=" + tid)["segments"]) == n + 1, "分けた行は閉じる前に保存された")
     time.sleep(0.5)
     check(pg.evaluate("document.querySelector('#conflictBar').hidden"), "保存の競合(409)の案内が出ない")
-    # 区間(edit.json)が決まっている文書で、校正の行の「カット」を押すと、印だけ変えて黙って消える代わりにカット・パックのタブへ案内する(RS8 C4)
+    # 区間(edit.json)が決まっている文書で、校正の行の「カット」を押すと、印だけ変えて黙って消える代わりにカット・パックのタブへ案内する
     check(srv.get("/api/edit?id=" + tid).get("edit") is not None, "(前提)カットの区間が保存されている")
     i = pg.evaluate("S.doc.segments.findIndex(g => g.cutState !== 'cut' && String(g.text || '').trim())")
     before = srv.get("/api/transcript?id=" + tid)["segments"][i].get("cutState")

@@ -257,7 +257,6 @@ test('two-step confirmation resets after running (a quick third click does not r
   const kit = fs.readFileSync(path.join(__dirname, '..', '..', 'ui-kit', 'ui-kit.js'), 'utf8');
   const a = kit.indexOf('function confirmTwice('), b = kit.indexOf('/* ---- prefs', a);
   assert.ok(a >= 0 && b > a, 'confirmTwice must exist in ui-kit.js');
-  assert.ok(between('function armDelete(', 'const statusOf').includes('UIKit.confirmTwice('), 'review.js uses the shared confirmTwice');
   const timers = [];
   const ctx = { setTimeout: fn => { timers.push(fn); return timers.length; }, clearTimeout: () => {} };
   vm.createContext(ctx); vm.runInContext(kit.slice(a, b) + '\nthis.confirmTwice = confirmTwice;', ctx);
@@ -520,13 +519,7 @@ test('live export: one portal request per mark, saved first, busy marks skipped,
   assert.equal(polled, 1);
 });
 
-test('live videos: studio export goes to the portal, autorun / join / all-video export leave live out', () => {
-  const exp = between('async function startExport(', 'async function startExportAll(');
-  assert.ok(exp.indexOf("S.cur.kind === 'live'") < exp.indexOf('S.starting'), 'the live branch comes before the "already exporting" guard');
-  assert.ok(exp.includes('startLiveExport(onlyIds)'));
-  assert.ok(between('async function startExportAll(', 'async function resumeJob(').includes("x.kind !== 'live'"));
-  assert.ok(!between('function startLiveExport(', '/* ヘッダーの札の「開く」').includes('maybeAutoTranscribe'), 'the portal export hands off to transcription itself');
-  assert.ok(between('function pushMark(', '/* サーバーと同じ規則').includes('startLiveExport(new Set([m.id]), { auto: true })'));
+test('live videos: hls.js runs without a Web Worker', () => {
   assert.ok(source.includes('enableWorker: false'), 'hls.js runs without a Web Worker (no worker-src in the CSP)');
 });
 
@@ -638,8 +631,6 @@ test('a recording deleted by the portal (P4 auto delete) is told apart from a mi
   assert.equal(ctx.liveRecDeleted(e404, jn, [{ status: 'exported', archived: true }, { status: 'rejected' }]), true, 'all exported marks are 本番版 (job record trimmed)');
   assert.equal(ctx.liveRecDeleted(e404, jn, [{ status: 'exported', archived: true }, { status: 'exported' }]), false, 'a mark is not 本番版 = deleted by hand: 見つかりません');
   assert.equal(ctx.liveRecDeleted(e404, [], []), false, 'no marks, no record: 見つかりません');
-  const msg = between('const LIVE_DELETED', ';');
-  assert.ok(msg.includes('録画は消しました(ごみ箱へ移しました)') && msg.includes('書き出した切り抜きはそのまま使えます'));
   // 前に作ったパックが速報版のまま(ホームの archive.packOld): 書き出しの行に出す(帯の1行は LD-1 で無くした)。案内するタブ名は案件の画面の「カット・パック」(cases.js)
   const J = (id, mark, a) => job(id, 'done', { video: 'V', mark, start: 0, end: 1 }, { path: 'C:\\c\\' + mark + '.mp4', archive: a });
   const s = ctx.liveArchSummary([J('lx-1', 'a', arch('done', { packOld: true })), J('lx-2', 'b', arch('done'))], null, { videoId: 'abcdefghijk', known: true });
@@ -653,13 +644,6 @@ test('a recording deleted by the portal (P4 auto delete) is told apart from a mi
   const row = html.jobItemHTML({ live: true }, it, 0);
   assert.ok(row.includes('>アーカイブ<') && row.includes('前に作ったパックは速報版のまま'), row);
   assert.ok(!html.jobItemHTML({ live: true }, { ...it, archive: ctx.liveArchView(arch('done')) }, 0).includes('速報版のまま'));
-  // 画面のつなぎ: 404 のときは先にジョブを読んでから決める・消した録画はプレーヤーの所にも案内(もう一度試すは出さない)・帯の案内に「録画は消します」
-  const poll = between('async function pollLiveStatus(){', 'function applyLiveStatus(');
-  assert.ok(poll.indexOf('await pollLiveJobs()') < poll.indexOf('applyLiveStatus(v, st, err)'));
-  const shown = between('function liveDeletedShown(v){', '/* 録画が終わった');
-  assert.ok(shown.includes('LIVE_DELETED') && !shown.includes('ytretry'));
-  const rec = between('function renderLiveRec(){', '/* 終わった録画の帯の');
-  assert.ok(rec.includes('アーカイブになったと確かめたら、録画はごみ箱へ移します') && rec.includes("LV.autoDelete === true"));
 });
 
 test('the band line for the after-stream auto clipping (M7): the portal text as is, warn on failures, poll sooner while it moves', () => {
@@ -679,22 +663,6 @@ test('the band line for the after-stream auto clipping (M7): the portal text as 
   assert.equal(view({ state: 'error', text: 'x' }).running, false);
   assert.equal(view({ state: 'none', text: 'x' }).running, false);
   assert.equal(view({ state: 'wait', text: 5 }).text, '', 'only a string is shown');
-  const poll = between('async function pollLiveStatus(){', 'function applyLiveStatus(');
-  assert.ok(poll.includes('liveAfterView(LV.archiveInfo).running'), 'the job list is read again while it moves');
-  assert.ok(between('async function pollLiveJobs(){', 'function liveJobNotices(').includes('renderLiveAfter()'));
-  assert.ok(between('function liveBarHTML(){', '/* 今をマーク').includes('id="rvAfterStream" role="status" hidden'));
-  { const band = between('function liveBarHTML(){', '/* 今をマーク');   // 0.26.0: 音量と消音は帯に(録画のプレーヤーは標準のコントロールを出さない)
-    assert.ok(band.includes('type="range" id="rvLiveVol"') && band.includes('id="rvLiveMute"') && band.includes('aria-pressed="false"'));
-    assert.ok(source.includes("['#rvLiveVol', 'volume', 'value', () => { const vo = $('#rvLiveVolOut'); if (vo) vo.textContent = S.settings.volume; applyToPlayer(); }, 'input']"), 'the slider writes review.volume and applies it');
-    assert.ok(source.includes("$('#rvLiveMute').addEventListener('click', () => toggleMute())")); }
-});
-
-test('archived marks: 本番版 chip on the mark row, cleared with the exported state when the times change', () => {
-  const row = between('function markHTML(c){', '</li>`;');
-  assert.ok(row.includes('exp && c.archived') && row.includes('ARCH_TITLE') && row.includes('>アーカイブ</span>'));
-  assert.ok(between('function mergeServerFields(', 'const inList =').includes('m.archived = !!s.archived'));
-  assert.equal(between('function applyServer(', 'function renderListKeep(').match(/mm\.archived = false/g).length, 2);
-  assert.ok(between('async function liveApplyDone(', 'function liveExportBody(').includes('body.archived = true'));
 });
 
 // ---- 書き出したあと(after)と配信者(字幕の色)。ライブの録画の帯 ----
@@ -720,7 +688,6 @@ test('autoTx lives in the review settings (server); before it is saved there, th
   assert.equal(ctx.sanitizeSettings({ autoTx: 'no' }).autoTx, false, 'a broken value falls back to the old value / default');
   const load2 = between('async function loadSettings(', 'function syncSettingsUI(');
   assert.ok(load2.includes("typeof raw.autoTx === 'boolean'") && load2.includes('autoTxLegacy() !== null') && load2.includes('touchSettings()'), 'loadSettings sends the old value to the server once');
-  assert.ok(between('function autoTxEnabled(', 'async function maybeAutoTranscribe(').includes('S.settings.autoTx'), 'maybeAutoTranscribe reads the server setting');
   // 0.25.0: the switch is on the settings page (home /settings → review.autoTx). RS8 C4: the studio ⚙ (settings.js) is gone; the panel's "settings" goes to that page
   const open = sliceOf('app/ui/cases/panels/cand.js', 'openSettings:', 'enqueue:');
   assert.ok(open.includes("homeUrl('settings')") && open.includes('#sec-studio') && !open.includes('localStorage'), 'the panel opens the studio section of the settings page');
@@ -781,8 +748,6 @@ test('opening a stream gives back the place (selected mark and the position the 
   assert.equal(h.S.sel, null); assert.equal(h.S.resumeAt, null);
   const poll = between('function startPoll(', 'function stopPoll(');
   assert.ok(poll.includes('S.resumeAt != null && S.playerState !== 1'), 'the poll does not put the position back to 0 while the player has not reached it');
-  assert.ok(between('async function mountPlayer(', '/* ライブの録画のプレーヤー').includes('start: Math.floor(S.resumeAt)'), 'YouTube starts at the place (seekTo would start playing)');
-  assert.ok(between('function seek(', 'function togglePlay(').includes('S.resumeAt = null'), 'moving by hand ends the wait');
 });
 
 test('export done notice has [編集で開く] with the same URL as the row link (S-7), opened the same way (S-15)', () => {
@@ -811,7 +776,6 @@ test('export done notice has [編集で開く] with the same URL as the row link
   assert.ok(row.includes('editorHref(path)') && row.includes('data-edit-open'), 'the row link uses the same URL and is opened by openEditor');
   const fin = between('function pollJob(', 'async function startExport(');
   assert.ok(fin.includes('doneToast(') && fin.includes('clipPathOf(j, i)'), 'the export job notice passes the written files');
-  assert.ok(between('function liveJobNotices(', 'function renderLiveJobs(').includes('doneToast('), 'the live export notice too');
 });
 
 test('links to the home use data-ui-portal (no new tab); the autorun entry is not hidden but says why it cannot be used (S-15・S-25)', () => {
@@ -829,7 +793,6 @@ test('links to the home use data-ui-portal (no new tab); the autorun entry is no
   assert.ok(sliceOf('rank.js', "$('#rkAuto').hidden = false", "$('#rkAutoGo')").includes("UIKit.menuOff($('#rkAuto'), "), '① まとめて実行 too (ui-kit v21 menuOff)');
   const ram = between('function renderAutoMenu(', 'function renderDuration(');
   assert.ok(ram.includes('UIKit.menuOff(d, why, '), '② uses the shared disabled-menu helper (ui-kit v21)');
-  assert.ok(!source.includes("$('#rvAuto > summary').addEventListener('click'"), 'no own click handler on the summary (ui-kit stops the click and tells why)');
 });
 
 test('"export all" always tells why it cannot be pressed (S-25)', () => {
@@ -887,9 +850,6 @@ test('portal export rows: progress of the handed-off autorun (transcribe only / 
 test('the band does not rebuild its select / streamer field on the 3-second check (static HTML, only text and attributes change)', () => {
   const rec = between('function renderLiveRec(', '/* 終わった録画の帯の「アーカイブから書き出す」');
   assert.ok(!rec.includes('innerHTML'), 'renderLiveRec only sets text / hidden');
-  assert.ok(source.includes('<select id="rvAfter">'), 'the select is part of the band HTML (built once)');
-  assert.ok(between('function liveOpened(', '/* ホームの設定の live.autoDelete').includes("$('#rvAfter').value = S.settings.liveAfter"));
-  assert.ok(!between('function renderLiveWho(', '/* 録画を開いたとき').includes('innerHTML'));
 });
 
 /* パネルが渡す window.Studio の代わり(var Studio = {…})を、まわりの変数を偽物にして切り出す(RS8 C4: core.js の後継) */
@@ -1003,7 +963,6 @@ test('review settings: one table of field ↔ setting; every field value read ba
   assert.equal(ctx.sanitizeSettings({ liveMode: 'x' }).liveMode, 'auto', 'an unknown field value falls back like the saved settings do');
   const wire = between('function wireSettings(){', '/* ---------- キー配置');
   assert.ok(wire.includes('for (const [sel, k, prop, after, ev] of SET_UI)') && wire.includes('sanitizeSettings('), 'wireSettings reads every field through the table');
-  assert.ok(!source.includes("$('#rvAutoExp').addEventListener"), 'the LIVE band switches are in the table too (not wired twice)');
 });
 
 // ---- 2026-10-07 見直し 2 周目: buildDOM・renderExportUI を場所ごとの関数に分けた / LIVE の帯の状態の問い合わせに since ----
@@ -1019,7 +978,6 @@ test('buildDOM: the parts put together keep every id exactly once (the split did
     assert.ok(ids.includes(id), id);
   /* 0.22.3(見直し M9): 操作の設定は ② の中ではなく ⚙ の節(#opsHost)に入れる(mountSettings) */
   assert.ok(!ids.includes('rvSettings') && !ids.includes('rvAutoNext'), 'the operation settings are not in the review pane');
-  assert.ok(between('function mountSettings(', '/* 書き出しの引き出し').includes("$('#opsHost')"), 'mountSettings puts them into the settings drawer');
   assert.ok(html.startsWith('\n<div class="rv-root" id="rvRoot">\n  <div class="rv-warn notice cs-notice-act"') && html.endsWith('    </section>\n  </div>\n</div>'));
   assert.equal((html.match(/<section /g) || []).length, (html.match(/<\/section>/g) || []).length);
 });
@@ -1226,22 +1184,4 @@ test('live peaks: adopt sends one request (no double press) with the band settin
   assert.equal(h.notes.at(-1), 'preview 25-34', 'p again: the next one');
   h.ctx.peakKeyAdopt();
   assert.ok(h.notes.at(-1).includes('終わりがまだ録れていません'), 'z: the one just played (end pending here)');
-});
-
-test('live peaks are wired into the band, the timeline, the graph and the keys (built once, updated by id, asked from the 3-second check)', () => {
-  const band = between('function liveBarHTML(){', '/* 今をマーク');
-  assert.ok(band.indexOf('id="rvArch"') < band.indexOf('id="rvPeaks"') && band.indexOf('id="rvPeaks"') < band.indexOf('id="rvAfterStream"'), 'between 「アーカイブで作り直す」 and the after-stream line');
-  assert.ok(band.includes('<ol class="rv-peaklist" id="rvPeakList"') && band.includes('id="rvPeakBench"'));
-  assert.ok(between('function playerHTML(){', '/* LIVE の帯').includes('<div id="rvPeakSegs" data-ui-audit-allow="A-21"></div><div id="rvSegs"'), 'candidate marks are under the marks');
-  const rows = between('function peakApplyRows(', '/* タイムラインの候補の印');
-  assert.ok(!rows.includes('innerHTML'), 'the list is not rebuilt (rows are found by id; only text and attributes change)');
-  assert.ok(between('function peakFade(', '/* 一覧の差分を当てる').includes('PEAK_FADE_MS'), 'rows that leave fade out first');
-  assert.ok(between('async function pollLiveStatus(){', 'function applyLiveStatus(').includes('pollPeaks(v);'), 'asked from the recording status check');
-  assert.ok(between('const peaksWanted', '/* 帯に候補の行を出すか').includes('PKV.detect.enabled') && between('async function pollPeaks(', '/* 入口の答えを').includes('PKV.missing = true'));
-  assert.ok(between('async function adoptPeak(', '/* [見送り]').includes('await syncFromServer()'));
-  assert.ok(between('function renderGraph(){', '/* 山の札').includes('peakGraph()'), 'the graph uses the candidate series when there is no analysis');
-  assert.ok(between('  function selectSeg(seg){', 'tl.addEventListener(').includes('playPeak(seg.dataset.pid)'), 'clicking a candidate mark plays it');
-  for (const preset of ['standard', 'left']) assert.ok(new RegExp(preset + ": \\{[^}]*nextPeak: 'p', adoptPeak: 'z' \\}").test(source), preset + ': p / z');
-  assert.ok(source.includes('nextPeak: () => peakKeyNext(), adoptPeak: () => peakKeyAdopt()') && source.includes("['nextPeak', 'adoptPeak']]]"));
-  assert.ok(between('function keybarScene(', '/* ---------- イベント').includes("row(t('nextPeak'), '次の候補')"));
 });

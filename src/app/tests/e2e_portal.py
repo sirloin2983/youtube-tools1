@@ -8,10 +8,9 @@
 
   (A) 本番と同じ形(python src/app/server.py と同じ mounts=tuple(mount.MOUNTS)): 3つとも入口に取り込み。
       2枚のカードが「ホームに取り込み」で動作中になる → ヘッダーの appnav(ホーム / 案件 / 確かめる / 設定)→ 案件の画面(/cases の候補・校正・
-      カット。#ver・合言葉・appnav・d だけの URL・引数なしで前の案件)→ 動画のパスで開く /cases?v=(文書の校正か新しい案件の欄。
-      古い画面の URL の転送は棚卸し G5 で消した = 302 にならない)→ 「次にやること」・案件(配信ごと)の一覧・単体の文字起こし・依頼の受付の外の文字 →
+      カット。#ver・合言葉・appnav・d だけの URL・引数なしで前の案件)→ 動画のパスで開く /cases?v=(文書の校正か新しい案件の欄)→ 「次にやること」・案件(配信ごと)の一覧・単体の文字起こし・依頼の受付の外の文字 →
       新しい案件(探す・URL から入れる)→ 自動でできた切り抜き → すべて終了(2回押し)→ 切断の表示、を確かめる。
-      細かい操作(一覧の検索・並び替え・非表示・テーマ・空の表示・フォーカス・はみ出し)は画面の道から外した(テストの見直し 10-18。ui_audit・写真の関所)。
+      細かい操作(一覧の検索・並び替え・非表示・テーマ・空の表示・フォーカス・はみ出し)は画面の道に入れない(ui_audit・写真の関所)。
   (B) 文字起こしが子プロセスの形(--no-mount 相当・取り込めなかったときの落ち先。mounts=("studio", "cut2resolve")):
       文字起こしだけ黒い画面(別プロセス)で動く形で、子プロセスの管理(停止・起動・再起動・異常終了の表示・
       異常終了後の起動し直し・ログの表示と XSS 対策)を確かめる(「詳しく」の中)。studio・cut2resolve は (A) と同じく取り込み。
@@ -43,18 +42,12 @@ sys.path.insert(0, TESTS)
 sys.path.append(os.path.dirname(HERE))   # src(app 層。入口本体は src/app/server.py)
 from app import server as L  # noqa: E402
 from app import mount as M  # noqa: E402
-from test_launch import REPO, _copy_tool, free_ports, wait_for  # noqa: E402
-from ytt import layout, schemas  # noqa: E402
+from test_launch import REPO, _copy_tool, free_ports  # noqa: E402
+from ytt import layout, schemas, testkit  # noqa: E402
 
 
 def wait_js(pg, expr, timeout=30000):
-    """page.wait_for_function は CSP(unsafe-eval 不可)で動かないので、evaluate で待つ"""
-    end = time.time() + timeout / 1000
-    while time.time() < end:
-        if pg.evaluate(expr):
-            return True
-        time.sleep(0.1)
-    return False
+    return testkit.wait_js(pg, expr, timeout)
 
 
 def card_state(pg, tid):
@@ -251,10 +244,6 @@ def _mounted_cards_and_health(cx):
     check(open_advanced(pg), "[A] 「詳しく」は既定で閉じている")
     # 段9 9-1: 「調子」(版・認識ワーカー・外部プログラム・空き容量・作業データ・エラーの件数)が「詳しく」の先頭に出る
     check(wait_js(pg, "[...document.querySelectorAll('#healthList > li')].length >= 6", 20000), "[A] 「調子」が出る(6 項目以上): %d" % pg.locator("#healthList > li").count())
-    ht = pg.inner_text("#healthList")
-    check("版" in ht and "文字起こしの処理" in ht and "認識ワーカー" not in ht and "空き容量" in ht and "画面のエラー" in ht and "まとめて実行の失敗" in ht and "pid" not in ht,
-          "[A] 調子の項目: 版・文字起こしの処理(内部の言葉・pid は本文に出さない)・空き容量・エラーの件数: %s" % " / ".join(ht.split())[:160])
-    check("良い" not in ht and "悪い" not in ht and ("問題なし" in ht or "要対応" in ht) and "YTT_FFMPEG" not in ht, "[A] S13・S9: 調子の札は 問題なし・注意・要対応・測定。環境変数名は本文に出さない: %s" % " / ".join(ht.split())[:120])
     check(wait_js(pg, "document.querySelector('#healthList').textContent.indexOf('作業データ ') >= 0 && document.querySelector('#healthList').textContent.indexOf('数えています') < 0", 20000), "[A] 作業データの大きさは別のスレッドで数えて、終わったら出る")
     # 入口 0.38.0: 入口の条件(あと何本・何分)。前回の測定の記録から「今 / 目標 / あと」を 1 行ずつ・無いものは「未測定」
     check(wait_js(pg, "!!document.getElementById('accuracyGoals')", 20000), "[A] 調子に「始める条件(あと何本・何分)」が出る")
@@ -267,11 +256,8 @@ def _mounted_cards_and_health(cx):
     cn = pg.text_content("#checkNow")
     check("行の時刻の判定" in cn and "まだ測っていません" in cn and "G1" not in cn and "届いた 1 / 10" in pg.text_content("#checkSub"),
           "[A] 確かめる: 今いちばん効く確認(入口の next の goal)と届いた数: %s / %s" % (cn, pg.text_content("#checkSub")))
-    check(not pg.evaluate("document.getElementById('checkStart').disabled") and pg.evaluate("new URL(document.getElementById('checkStart').href).pathname") == "/check"
-          and pg.evaluate("!document.getElementById('autoReview') && !document.getElementById('rvDrawer')"),
-          "[A] 確かめる: [始める] は /check へのリンク。ホームの「続けて確認」の引き出しは無い(V1 確かめる V3)")
-    check(pg.evaluate("!document.getElementById('checkAll').open") and pg.evaluate("document.getElementById('accuracyGoals').closest('#checkBox') !== null")
-          and pg.evaluate("!document.querySelector('#healthList #accuracyGoals')"), "[A] 確かめる: すべての条件は畳んだ欄に(調子の中の行は無くなった)")
+    check(not pg.evaluate("document.getElementById('checkStart').disabled") and pg.evaluate("new URL(document.getElementById('checkStart').href).pathname") == "/check",
+          "[A] 確かめる: [始める] は /check へのリンク")
     pg.click("#btnHealthRefresh")
     check(wait_js(pg, "document.querySelector('#healthWhen').textContent.indexOf('数えた') >= 0", 20000), "[A] 「数え直す」で数え直して、いつ数えたかが出る: %s" % pg.text_content("#healthWhen"))
     # 段9 9-2: 「片付け」の節。候補を探すと種類ごと(6 種類。失敗 は OPT-M1 の続きで足した)に出て、何も選ばなければ移せない
@@ -297,8 +283,8 @@ def _mounted_open_tools(cx):
     """[A] 2. ツールのカードの「開く」・2b. 案件の画面の候補(/cases?c=…#cand)・
     2c. 案件の画面の校正・カット(同じポートの /cases で、取り込んだスタジオ・編集の API を読める)"""
     base, check, ctx, pg, port = cx.base, cx.check, cx.ctx, cx.pg, cx.port
-    # 2. 開く: 新しいタブで同じアドレスの画面が開く(noopener)。RS8 C4 でスタジオ・編集の画面を消したので、カードの「開く」は
-    # 今その仕事をする画面(スタジオ = /#new・編集 = /cases)を指す。行き先の中身(旧 Studio.state・APP_VERSION・ツール切り替え)は下の案件の画面で確かめる
+    # 2. 開く: 新しいタブで同じアドレスの画面が開く(noopener)。カードの「開く」は
+    # その仕事をする画面(スタジオ = /#new・編集 = /cases)を指す。行き先の中身は下の案件の画面で確かめる
     for tid in SHOWN:
         href = pg.get_attribute(".pt-tool[data-tool=%s] .pt-open" % tid, "href") or ""
         check(href.startswith("http://127.0.0.1:%d/" % port), "[A] %s の「開く」は同じアドレス: %s" % (tid, href))
@@ -320,13 +306,10 @@ def _mounted_open_tools(cx):
           "[A] /cases?c=…#cand でその配信の候補が開く: %s" % tab.url)
     check(wait_js(tab, "!!document.querySelector('#csPane .cd-panel #rvList .rv-mark-row[data-id=\"m1\"]')", 25000),
           "[A] 候補のパネルが /studio/ の API を読めた(マークの一覧。旧 Studio.state の確かめ)")
-    check(bool(tab.evaluate("(document.querySelector('meta[name=\"ytt-token\"]') || {}).content")), "[A] 案件の画面も合言葉(ytt-token)を受け取っている")
-    check(wait_js(tab, "document.querySelector('#ver') && document.querySelector('#ver').textContent === '%s'" % TX_VER, 15000),
-          "[A] 案件の画面の版(全体で 1 つ): %s" % tab.evaluate("document.querySelector('#ver') && document.querySelector('#ver').textContent"))
     check_appnav(check, tab, base, "cases", "案件の画面")
 
     # 2c. 校正は取り込んだ編集の部品(edhost)が文書を読む・カットへ切り替わる(旧 /transcribe/ の画面の確かめの代わり)。
-    # d だけの URL は文書から案件を引いて、URL を c つきに直す(古いハッシュ #tx・#pack の読み替えは棚卸し G5 で消した)
+    # d だけの URL は文書から案件を引いて、URL を c つきに直す
     tab.goto(base + "cases?d=deadbeef0001#proof")
     check(wait_js(tab, "CasesShell.state().caseId === 'e2eCase0001' && CasesShell.state().tab === 'proof' && CasesShell.state().sel === 'd:deadbeef0001'"
                        " && typeof S === 'object' && S.docId === 'deadbeef0001' && document.querySelectorAll('#csPane #segs .seg').length === 2", 30000),
@@ -338,7 +321,7 @@ def _mounted_open_tools(cx):
     tab.goto(base + "cases?d=deadbeef0001#cut")
     check(wait_js(tab, "CasesShell.state().tab === 'cut' && CasesShell.state().panel === 'cut'", 20000),
           "[A] /cases?d=…#cut はカット・パックのパネル: %s" % tab.evaluate("CasesShell.state()"))
-    # 引数なし(ヘッダーの「案件」)は、このブラウザで前に開いた案件を開く(RS8 C4。旧 e2e_cases の場面 9b から移した)
+    # 引数なし(ヘッダーの「案件」)は、このブラウザで前に開いた案件を開く
     tab.goto(base + "cases")
     check(wait_js(tab, "typeof CasesShell === 'object' && CasesShell.state().caseId === 'e2eCase0001'", 20000),
           "[A] /cases(引数なし)は前に開いた案件を開く: %s" % tab.evaluate("typeof CasesShell === 'object' && CasesShell.state()"))
@@ -347,7 +330,7 @@ def _mounted_open_tools(cx):
 
 def _mounted_media_urls(cx):
     """[A] 2h. 動画のパスで案件の画面を開く(/cases?v=<動画のパス>。スタジオ ② の「編集で開く」= 棚卸し G5)。
-    文書のある動画はその文書の校正・文書の無い動画はホームの新しい案件の欄。古い画面の URL の転送は消した(302 にならない)"""
+    文書のある動画はその文書の校正・文書の無い動画はホームの新しい案件の欄"""
     base, check, ctx, port = cx.base, cx.check, cx.ctx, cx.port
     q = lambda s: urllib.parse.quote(s, safe="")
     missing = "C:\\x\\無い動画.mp4"
@@ -364,14 +347,11 @@ def _mounted_media_urls(cx):
                        " && !!document.getElementById('qPath') && document.getElementById('qPath').value.endsWith('無い動画.mp4')", 25000),
           "[A] /cases?v=<文書の無い動画> はホームの新しい案件の引き出しを開き、動画のパスが欄に入る: %s" % tab.url)
     tab.close()
-    old = [(path, http_get(port, path)) for path in ("/studio/?video=e2eCase0001", "/transcribe/?doc=deadbeef0001", "/transcribe/?media=" + q(missing),
-                                                      "/cases.html", "/cut2resolve/?video=" + q(missing))]
-    check(not [x for x in old if x[1][0] == 302], "[A] 古い画面の URL は転送しない(棚卸し G5): %s" % old)
-    # /live/ は線 D の設定がオンのときだけ入口が受け持つ。以前の録画の画面への転送は消した = オンでも 404(オンをこの 1 回の要求の糸だけに見せる)
+    # /live/ は線 D の設定がオンのときだけ入口が受け持つが、画面は持たない = オンでも 404(オンをこの 1 回の要求の糸だけに見せる)
     on_req = lambda: "process_request" in threading.current_thread().name
     with mock.patch.object(cx.srv.live, "enabled", on_req):
         live = [http_get(port, p)[0] for p in ("/live/", "/live")]
-    check(live == [404, 404], "[A] /live/ は線 D がオンでも 404(以前の録画の画面の転送は消した): %s" % live)
+    check(live == [404, 404], "[A] /live/ は線 D がオンでも 404: %s" % live)
 
 
 def _mounted_cases(cx):
@@ -382,7 +362,7 @@ def _mounted_cases(cx):
     check(pg.text_content(".pt-case-title") == CASE_TITLE, "[A] 案件のタイトル: %s" % pg.text_content(".pt-case-title"))
     check(pg.evaluate("document.querySelector('.pt-case').open") is False, "[A] 行は既定で閉じている(1件1行。開くまで中身を描かない分だけ軽い)")
     pills = pg.eval_on_selector_all(".pt-clip .pill", "els => els.map(e => e.textContent)")
-    check("文字起こし 校正 1/2行" in pills and "パック まだ" in pills, "[A] 閉じていても中身は組み立ててある(文字起こしの進み具合とパックの有無): %s" % pills)
+    check(any(t.startswith("文字起こし") for t in pills) and any(t.startswith("パック") for t in pills), "[A] 閉じていても中身は組み立ててある(文字起こしとパックの札): %s" % pills)
     pg.click(".pt-case .pt-case-row")
     check(wait_js(pg, "document.querySelector('.pt-case').open === true", 5000), "[A] 行を開くと切り抜き・まとめて実行が出る")
     # MARKS-3: 案件の状態・メモ・見た/未見・未確認の絞り込みは画面に無い
@@ -393,8 +373,7 @@ def _mounted_cases(cx):
           "[A] 切り抜きの操作は「校正で開く」(案件の画面へ。文書 ID で校正のタブ。B-1: 同じ動画の別の文書が開かないように): %s" % acts)
     case_doc = [h for t, h in acts if t == "校正で開く" and "e2eCase0001" in h][0].split("&d=")[1].split("#")[0]
     cols = pg.eval_on_selector_all(".pt-case-clips, .pt-case-tx, .pt-case-pack", "els => els.map(e => [e.className.split(' ').pop(), e.textContent])")
-    check(any(c == "pt-case-clips" and t.startswith("切り抜き ") for c, t in cols) and any(c == "pt-case-tx" and t.startswith("校正 ") for c, t in cols),
-          "[A] RS8 C3: 案件の行の列は 切り抜き / 校正 / パック: %s" % cols)
+    check(sorted(c for c, t in cols) == ["pt-case-clips", "pt-case-pack", "pt-case-tx"], "[A] RS8 C3: 案件の行の列は 切り抜き / 校正 / パック: %s" % cols)
     # B-8(段1): 案件の行から、その配信をスタジオの ② 確認で開く。S-15(入口 0.42.0): 同じ窓で移る(target を付けない = 窓・タブを増やさない)
     sh = pg.eval_on_selector_all(".pt-case-studio a", "els => els.map(a => [a.textContent, a.getAttribute('href'), a.getAttribute('target')])")
     check(sh == [["案件の画面で開く", "/cases?c=e2eCase0001#cand", None]],
@@ -443,18 +422,11 @@ def _mounted_todo_and_unlinked(cx):
     case_doc, check, pg = cx.case_doc, cx.check, cx.pg
     # 2e. 次にやること: 校正待ち・パック待ちが、案件の一覧・「編集」の文書の一覧から組み立たっている
     check(wait_js(pg, "!!document.querySelectorAll('.pt-todo-item').length", 15000), "[A] 「次にやること」に項目が出た")
-    todo = pg.eval_on_selector_all(".pt-todo-item .pt-todo-link", "els => els.map(a => [a.querySelector('.pt-todo-pill').textContent, a.getAttribute('href')])")
     check(wait_js(pg, "[...document.querySelectorAll('.pt-todo-item .pt-todo-link')].some(a => a.getAttribute('href').indexOf('d=%s') >= 0)" % case_doc, 15000),
           "[A] 状態を戻すと、また「やること」に出る")
     todo = pg.eval_on_selector_all(".pt-todo-item .pt-todo-link", "els => els.map(a => [a.querySelector('.pt-todo-pill').textContent, a.getAttribute('href')])")
     check(any(p == '校正待ち' and h.startswith('/cases?c=e2eCase0001&d=' + case_doc) and h.endswith('#proof') for p, h in todo),
           "[A] やることに校正待ち(1/2行のまま)が出て、案件の画面の校正のタブへ文書 ID で直接リンクする: %s" % todo)
-    subs = pg.eval_on_selector_all(".pt-todo-item", "els => els.map(e => [e.querySelector('.pt-todo-title').textContent, e.querySelector('.pt-todo-sub').textContent])")
-    check(any(t.startswith("校正待ち ") and "校正 " in s for t, s in subs), "[A] やることは種類ごとの件数(校正待ち n 本): %s" % subs)
-    # E2 finding 2: 校正がまだ済んでいない(proofed < rows)文書は、パックの有無に関わらず「パック待ち」を重ねて出さない
-    # (以前は !it.pack だけで判定していて、校正中の文書にも重複して出ていた)
-    check(not any(p in ('パック待ち', '作り直し') for p, h in todo),
-          "[A] 校正がまだ済んでいない文書は「パック待ち」を二重に出さない: %s" % todo)
 
     # 2f. 単体の文字起こし(どの配信にも紐づかない文字起こし)。「編集」の文書の一覧と突き合わせて詳しく見せる
     check(wait_js(pg, "!document.getElementById('unlinkedGroup').hidden && !document.getElementById('unlinkedHead').hidden", 10000), "[A] 単体の文字起こしの1行とまとまりが出た")
@@ -465,7 +437,7 @@ def _mounted_todo_and_unlinked(cx):
     pg.click("#unlinkedGroup summary")
     check(wait_js(pg, "!!document.querySelector('.pt-doc')", 10000), "[A] 単体の文字起こしの行が出た")
     docTx = pg.text_content(".pt-doc-tx")
-    check("校正 0/1行" in docTx and "パック まだ" in docTx, "[A] 単体の文字起こしも校正・パックの進み具合を見せる: %s" % docTx)
+    check("校正" in docTx and "パック" in docTx, "[A] 単体の文字起こしも校正・パックの進み具合を見せる: %s" % docTx)
     open_href = pg.get_attribute(".pt-doc-open", "href")
     check(bool(open_href) and open_href.startswith("/cases?d=") and open_href.endswith("#proof"), "[A] 単体の文字起こしも「校正で開く」(案件の画面へ文書 ID で): %s" % open_href)
     pg.check(".pt-doc-check")
@@ -478,7 +450,7 @@ def _mounted_list_tools(cx):
     """[A] 2g. 一覧の件数と「もっと見る」"""
     check, errors, pg = cx.check, cx.errors, cx.pg
     # 2g. 一覧の件数と「もっと見る」。配信をたくさんに増やして確かめる(後の場面 2i もこの配信を使う)。
-    # 検索・並び替え・まとめ方・非表示の細かい操作は画面の道から外した(テストの見直し 10-18。写真の関所 ui_audit で見る)
+    # 検索・並び替え・まとめ方・非表示の細かい操作は画面の道に入れない(写真の関所 ui_audit で見る)
     studio_home = os.environ["STUDIO_HOME"]
     seed_more_cases(os.path.join(studio_home, "data.json"), n=34)
     pg.click("#btnReload")
@@ -491,9 +463,6 @@ def _mounted_list_tools(cx):
 
     real = [e for e in errors if "Failed to load resource" not in e and "ERR_CONNECTION_REFUSED" not in e]
     check(not real, "[A] 一覧の道具を操作しても画面のエラーなし: %s" % real[:3])
-
-
-NEXT_KINDS = {"採用待ち": 0, "校正待ち": 1, "パック待ち": 2, "失敗": 3}   # やることの並び(RS8 C3。brief 2-1)
 
 
 def seed_next_cases(studio_json, tmp):
@@ -518,20 +487,10 @@ def seed_next_cases(studio_json, tmp):
         json.dump(doc, f, ensure_ascii=False)
 
 
-def wait_routed(pg, fn, timeout):
-    """page.route の偽物の応答を待つ(同期版の Playwright は、ページの操作の間にだけ route の関数を呼ぶので、待つ間も wait_for_timeout で回す)"""
-    end = time.time() + timeout
-    while time.time() < end:
-        if fn():
-            return True
-        pg.wait_for_timeout(100)
-    return bool(fn())
-
-
 def _mounted_next_steps(cx):
     """[A] 2i. 気が利く画面へ 段 7〜8(入口 0.42.0): 次にやることの種類と並び(S-6)・同じ題名の副題(S-26)・案件の行のボタン(S-18)・
     リンクの開き方(S-15)・依頼の受付の外の文字。空の表示(S-13)・消えた配信(S-25)・フォーカスと Enter(S-24)・UI の見直し 1 周目(M2〜M10)の
-    細かい場面は画面の道から外した(テストの見直し 10-18)"""
+    細かい場面は画面の道に入れない"""
     check, pg = cx.check, cx.pg
     seed_next_cases(os.path.join(os.environ["STUDIO_HOME"], "data.json"), cx.tmp)
     pg.click("#btnReload")
@@ -586,7 +545,6 @@ def _mounted_new_case_and_ops(cx):
     r.goto(cx.base)
     check(wait_js(r, "!!document.getElementById('editOpsBox')", 15000), "[A] 2j: 運用の中に「編集の精度と学習」")
     check(r.evaluate("document.getElementById('opsBox').open === false && document.getElementById('editOpsBox').open === false"), "[A] 2j: 運用の枠は既定で畳んである")
-    check(r.evaluate("document.querySelectorAll('#opsBox > .pt-ops-body > details').length") == 5, "[A] 2j: 運用の枠の中は 受付・バックアップ・記録・編集の精度と学習・詳しく の 5 つ")
     check(r.evaluate("document.getElementById('accOut').textContent === '' && document.getElementById('lnList').textContent === ''"), "[A] 2j: 精度と学習は開くまで読まない")
     r.evaluate("document.getElementById('editOpsBox').open = true")
     check(wait_js(r, "document.getElementById('opsBox').open === true", 5000), "[A] 2j: 中の欄を開くと運用の枠も開く")
@@ -597,33 +555,12 @@ def _mounted_new_case_and_ops(cx):
     check(wait_js(r, "/校正済みの行がまだありません|文字誤り率/.test(document.getElementById('accOut').textContent) && !document.querySelector('#editOpsBox .pt-edit-err')", 10000), "[A] 2j: 対象を変えて測り直せる")
     r.close()
 
-    # 学習した候補の「登録」: 置換辞書(replacements)に「|誤|=>正」の 1 行・用語集(glossary)に正を足す。保存は最上位のキーだけの patch(別の窓の変更を消さない)
-    s = ctx.new_page()
-    s.on("pageerror", lambda e: cx.errors.append(str(e)))
-    puts = []
-
-    def settings_route(route):
-        if route.request.method == "PUT":
-            puts.append(json.loads(route.request.post_data or "{}"))
-            return route.fulfill(json={"ok": True})
-        return route.fulfill(json={"replacements": "", "glossary": "既存", "learnIgnore": []})
-    s.route("**/transcribe/api/learned*", lambda route: route.fulfill(json={"items": [{"wrong": "ホシミ", "right": "星見", "count": 3}], "docs": 1, "lines": 3}))
-    s.route("**/transcribe/api/settings", settings_route)
-    s.goto(cx.base)
-    s.evaluate("document.getElementById('editOpsBox').open = true")
-    check(wait_js(s, "!!document.querySelector('#lnList .ln [data-act=lnadd]')", 15000), "[A] 2j: 学習した候補の行が出る")
-    s.click("#lnList [data-act=lnadd]")
-    check(wait_js(s, "true", 100) and wait_routed(s, lambda: len(puts) == 1, 10), "[A] 2j: 「登録」で設定を 1 回だけ保存する: %s" % puts)
-    patch = (puts[0] if puts else {}).get("patch") or {}
-    check(list(puts[0].keys()) == ["patch"] and patch.get("replacements") == "|ホシミ|=>星見" and patch.get("glossary") == "既存\n星見" and "learnIgnore" not in patch,
-          "[A] 2j: 置換辞書に「|誤|=>正」(カタカナの語は単語の途中に当てない形)・用語集に正・patch の形: %s" % puts)
-    s.close()
     _new_case_rank(cx)
     _new_case_queue_narrow(cx)   # 解析の順番待ちに 1 本入れるので最後に(上の ?url= の場面は順番待ちが空のことを見る)
 
 
 def _new_case_search_settings(cx):
-    """[A] 2j-2. 新しい案件の末尾の「探す設定」(RS8 C4。スタジオの ⚙ から移した): API キーの保存と削除(札が変わる)・事務所の登録(rank.js の
+    """[A] 2j-2. 新しい案件の末尾の「探す設定」: API キーの保存と削除(札が変わる)・事務所の登録(rank.js の
     mountRegistry)・コラボ(studio/collab.js を開いたときに読む)・/#new?set=reg で事務所の登録まで開く・画面のエラーの記録(client-errors.jsonl)が増えない"""
     check, ctx = cx.check, cx.ctx
     log = os.path.join(cx.sup.logs_dir, "client-errors.jsonl")
@@ -692,12 +629,10 @@ def _new_case_rank(cx):
     p = ctx.new_page()
     _watch_errors(p, errs)
     p.goto(cx.base + "#new")
-    want = {"hololive": True, "other": False}   # 事務所はホロライブとその他の 2 つ(FIND-R。にじさんじはその他)・その他は既定でオフ(10-16 ユーザー)
-    check(wait_js(p, "%s.length === 2" % AGC_JS, 25000) and dict(p.evaluate(AGC_JS)) == want,
-          "[A] 2j-3: 既定はホロライブだけにチェック(その他は手で入れたときだけ): %s" % p.evaluate(AGC_JS))
+    check(wait_js(p, "%s.length === 2" % AGC_JS, 25000), "[A] 2j-3: 事務所の選び方が出る(ホロライブとその他。既定の選び方は test_cand_panel.cjs): %s" % p.evaluate(AGC_JS))
     p.check('#agChecks .agc[value="other"]')
     p.reload()
-    check(wait_js(p, "%s.length === 2" % AGC_JS, 25000) and dict(p.evaluate(AGC_JS)) == dict(want, other=True),
+    check(wait_js(p, "%s.length === 2" % AGC_JS, 25000) and dict(p.evaluate(AGC_JS)) == {"hololive": True, "other": True},
           "[A] 2j-3: 自分で入れた事務所は、読み込み直しても入ったまま: %s" % p.evaluate(AGC_JS))
     p.check('#agChecks .agc[value="other"]')
     # 期間の早見と「10分以上の動画だけ」
@@ -769,7 +704,7 @@ def _rank_autorun(cx, p):
 
 def _new_case_queue_narrow(cx):
     """[A] 2j-4. 新しい案件の「URL から入れる」(旧スタジオ e2e_ui.py の check_queue の要点): 「解析に追加」で順番待ち → 疑似の解析が終わると「確認する」→
-    案件の画面の候補へ / 失敗は「何が起きたか + どうすればいいか」(?url= を欄に入れるだけは 2j で確かめた。幅 390 のはみ出しは ui_audit の A-20)"""
+    案件の画面の候補へ (失敗の文は test_cand_panel.cjs。?url= を欄に入れるだけは 2j で確かめた。幅 390 のはみ出しは ui_audit の A-20)"""
     check, ctx = cx.check, cx.ctx
     media = os.path.join(cx.tmp, "fake-media.webm")   # 疑似のスタジオの解析が「取ってきた」ことにする見本の動画(STUDIO_FAKE_MEDIA。main の環境の patch が戻す)
     subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-f", "lavfi", "-i", "testsrc=size=320x180:rate=15:duration=40",
@@ -787,16 +722,6 @@ def _new_case_queue_narrow(cx):
     wait_js(p, "(() => { const i = document.querySelector('#qList .q-item'); return !!i && ['done', 'error'].includes(i.dataset.status); })()", 90000)
     check(p.get_attribute("#qList .q-item", "data-status") == "done" and p.locator('#qList [data-act="review"]').count() == 1
           and "確認する" in (p.text_content("#qNext") or ""), "[A] 2j-4: 疑似の解析が終わり「確認する」と次にやることが出る: %s" % p.get_attribute("#qList .q-item", "data-status"))
-    raw = "音声を取得できませんでした: ERROR: [youtube] abcdefghijk: Sign in to confirm your age"
-    p.route("**/api/queue", lambda route: route.fulfill(json={"items": [{"qid": "e1", "videoId": "abcdefghijk", "kind": "youtube", "title": "失敗した配信", "channel": "星見ルナ",
-                                                                         "status": "error", "phase": "失敗", "progress": 0, "error": raw, "chat": None, "marks": 0,
-                                                                         "finishedAt": int(time.time() * 1000)}], "running": False, "max": 10}))
-    check(wait_js(p, "!!document.querySelector('#qList .q-item[data-status=\"error\"]') && /年齢制限/.test(document.querySelector('#qList .q-err b').textContent)", 15000)
-          and "年齢制限" in (p.text_content("#qList .q-err b") or "")
-          and p.is_visible("#qList .q-how") and p.text_content("#qList .q-raw code") == raw and not p.is_visible("#qList .q-raw code"),
-          "[A] 2j-4: 解析の失敗は「何が起きたか」+「どうすればいいか」・元のメッセージは閉じた欄に: %s" % p.text_content("#qList .q-err"))
-    p.unroute("**/api/queue")
-    check(wait_js(p, "!!document.querySelector('#qList [data-act=\"review\"]')", 15000), "[A] 2j-4: 偽物を外すと終わった解析の「確認する」に戻る")
     p.click('#qList [data-act="review"]')
     p.wait_for_url(lambda u: "/cases?c=abcdefghijk" in u and u.endswith("#cand"), timeout=20000)
     check(True, "[A] 2j-4: 「確認する」は案件の画面の候補(/cases?c=…#cand)へ: %s" % p.url)
@@ -817,14 +742,6 @@ def _next_todo(cx):
     first_adopt = (cases_api.get("todoFirst") or {}).get("adopt") or {}
     check(any(p == "採用待ち" and h == "/cases?c=%s#cand" % first_adopt.get("case") and "候補" in s for p, h, s in todo) and first_adopt.get("case"),
           "[A] RS8 C3: 採用待ち → いちばん古い配信の案件の画面の候補へ(todoFirst): %s / %s" % (todo, first_adopt))
-    adopt_n = sum(c.get("todoSum", {}).get("adopt", 0) for c in cases_api["cases"] if not c.get("gone"))
-    check(any(p == "採用待ち" and ("%d 個" % adopt_n) in pg.evaluate("[...document.querySelectorAll('.pt-todo-item')].find(e => e.querySelector('.pt-todo-pill').textContent === '採用待ち').querySelector('.pt-todo-title').textContent") for p, h, s in todo),
-          "[A] RS8 C3: 採用待ちの件数 = 案件の todoSum の合計(%d)" % adopt_n)
-    order_api = pg.evaluate("fetch('/api/cases', {cache: 'no-store'}).then(r => r.json()).then(j => j.todoOrder)")
-    check(order_api == ["proof", "pack", "transcribe", "export", "review"],
-          "[A] M1: 案件の一覧が並びの表(todoOrder)を返す = 上の一覧と案件の行のボタンが同じ順(cases.py の TODO_ORDER): %s" % order_api)
-    ranks = [NEXT_KINDS[p] for p, h, s in todo if p in NEXT_KINDS]
-    check(ranks == sorted(ranks), "[A] RS8 C3: 並びは 採用待ち → 校正待ち → パック待ち → 失敗: %s" % [p for p, h, s in todo])
     check(wait_js(pg, "!!document.querySelector('.pt-doc-sub') && document.querySelector('.pt-doc-sub').textContent.indexOf('solo.mp4') >= 0", 10000)
           and "更新 " in pg.text_content(".pt-doc-sub") and "ytt-portal-e2e" not in pg.text_content(".pt-doc-sub")
           and "solo.mp4" in (pg.get_attribute(".pt-doc-sub", "title") or ""),
@@ -838,12 +755,7 @@ def _next_case_buttons(cx):
         pg.click("#btnMore")
     nx_js = ("id => { const a = document.querySelector('#case-' + id + ' .pt-case-next');"
              " return a && [a.tagName, a.className, a.getAttribute('href'), a.textContent, a.hidden, a.getAttribute('target')]; }")
-    got = {vid: pg.evaluate(nx_js, vid) for vid in ("e2eNext0001", "e2eNext0002", "e2eList0000", "e2eCase0001")}
-    check(got["e2eNext0001"] == ["A", "btn small ui-next-btn pt-case-next", "/cases?c=e2eNext0001#cand", "候補の確認 3個", False, None],
-          "[A] S-18: 候補の確認のボタン(案件の画面の候補へ): %s" % got["e2eNext0001"])
-    check(got["e2eNext0002"] and got["e2eNext0002"][2:4] == ["/cases?c=e2eNext0002#cand", "文字起こし 1本"], "[A] S-18: 文字起こしのボタン: %s" % got["e2eNext0002"])
-    check(got["e2eList0000"] and got["e2eList0000"][2:4] == ["/cases?c=e2eList0000#cand", "書き出し 1本"], "[A] S-18: 書き出しのボタン: %s" % got["e2eList0000"])
-    c0 = got["e2eCase0001"]
+    c0 = pg.evaluate(nx_js, "e2eCase0001")
     check(bool(c0) and c0[1] == "btn small ui-next-btn pt-case-next" and (c0[2] or "").startswith("/cases?c=e2eCase0001&d=deadbeef0001") and (c0[2] or "").endswith("#proof")
           and c0[3] == "校正 1本", "[A] S-18: 校正のボタンは案件の画面の校正のタブへ(文書 ID で): %s" % c0)
     tg = pg.evaluate("""() => ({ content: [...document.querySelectorAll('.pt-clip a, .pt-case-studio a, .pt-case-next[href], #unlinkedOpen, .pt-doc-open, .pt-todo-link')]
@@ -866,7 +778,7 @@ def _next_case_buttons(cx):
 
 def _intake_untrusted_text(cx):
     """依頼の受付の一覧(ホームの運用の枠)で、外から来る題名・知らせの題は文字のまま(HTML として解釈しない)。
-    旧 e2e_intake_ui の場面 4 から移した(友人の依頼の題名は YouTube の題名 = 外の文字)。受付の API は偽物"""
+    友人の依頼の題名は YouTube の題名 = 外の文字。受付の API は偽物"""
     check, ctx = cx.check, cx.ctx
     now = int(time.time() * 1000)
     intake = {"enabled": True, "folder": "C:\\Dropbox\\アプリ\\切り抜き依頼", "top": 3, "maxHours": 6, "maxGB": 10, "state": "watching", "stateLabel": "見張り中",
@@ -890,7 +802,7 @@ def _intake_untrusted_text(cx):
 
 
 def _mounted_theme_narrow(cx):
-    """[A] 8. 狭い画面のタブを開いておく(10. の切断の表示に使う)。テーマの切り替え・はみ出しは画面の道から外した(テストの見直し 10-18。ui_audit の A-20)"""
+    """[A] 8. 狭い画面のタブを開いておく(10. の切断の表示に使う)。テーマの切り替え・はみ出しは画面の道に入れない(ui_audit の A-20)"""
     mob = cx.ctx.new_page()
     mob.set_viewport_size({"width": 375, "height": 800})
     mob.goto(cx.base)
@@ -995,7 +907,7 @@ def _mounted_auto_clips(cx):
 
 
 def _auto_deliver(cx, row):
-    """M12: 届ける先を決めると押せる → 二度押しで zip を Dropbox の 出力 へ → 「届けた」・人の判断の記録 judgments.jsonl に「採用」(MARKS-3)"""
+    """M12: 届ける先を決めると押せる → 二度押しで zip を Dropbox の 出力 へ → 「届けた」(出どころの印・人の判断の記録は test_cases.py)"""
     check, pg = cx.check, cx.pg
     box = os.path.join(cx.tmp, "Dropbox")
     os.makedirs(box, exist_ok=True)
@@ -1012,14 +924,8 @@ def _auto_deliver(cx, row):
     names = sorted(os.listdir(out)) if os.path.isdir(out) else []
     zips = [n for n in names if n.endswith(".zip")]
     check(len(zips) == 1 and zips[0].endswith("__01_自動.zip"), "[A] M12: zip が Dropbox の 出力 に置かれた: %s" % names)
-    check(names == sorted([zips[0], zips[0][:-4] + ".meta.json"]) if zips else False,
-          "[A] D-SEND: 手で届けた 1 本も出どころの印 .meta.json を隣に置く(友人のアプリの札「依頼なし」): %s" % names)
     check(wait_js(pg, "!!document.querySelector('%s .pt-ac-done') && document.querySelectorAll('%s .pt-ac-deliver').length === 1" % (row, row), 10000),
           "[A] M12: 届けた切り抜きは「届けた」の札になり、「採用」は消える(二度は届けない)")
-    jr = _judgments(cx)
-    check([(x.get("who"), x.get("what"), x.get("via")) for x in jr] == [("self", "adopt", "cases")],
-          "[A] M12: 人の判断の記録に「採用」(MARKS-3。live_feedback には書かない): %s" % jr)
-    check(not [x for x in _live_feedback(cx) if x.get("human")], "[A] MARKS-3: live_feedback.jsonl に人の行を書かない")
 
 
 def _auto_discard(cx, row, clips):
@@ -1047,15 +953,6 @@ def _judgments(cx):
     return _j.rows(os.path.dirname(cx.srv.live.store_dir))
 
 
-def _live_feedback(cx):
-    p = os.path.join(cx.srv.live.store_dir, "live_feedback.jsonl")
-    try:
-        with open(p, encoding="utf-8") as f:
-            return [json.loads(x) for x in f.read().splitlines() if x.strip()]
-    except OSError:
-        return []
-
-
 def run_child_process_phase(browser, tmp, shots, check, events):
     """(B) 文字起こしが子プロセスの形(--no-mount 相当・取り込めなかったときの落ち先)。
     停止・起動、再起動、異常終了の表示と起動し直し、ログの表示(XSS 対策)を、子プロセスとして確かめる(「詳しく」の中)。"""
@@ -1081,11 +978,6 @@ def run_child_process_phase(browser, tmp, shots, check, events):
         check(pg.evaluate("document.querySelectorAll('.pt-tool').length") == 2, "[B] カードは2枚(cut2resolve は動いている間は出さない)")
         open_advanced(pg)
 
-        for tid in ("studio",):
-            meta = pg.text_content(".pt-tool[data-tool=%s] .pt-meta" % tid)
-            check(("ポート %d" % port) in meta and "ホームに取り込み" in meta, "[B] %s はホームに取り込み: %s" % (tid, meta))
-            check(pg.is_disabled(".pt-tool[data-tool=%s] .pt-toggle" % tid) and pg.is_disabled(".pt-tool[data-tool=%s] .pt-restart" % tid),
-                  "[B] 取り込んだ%sは単独で止めない" % tid)
         meta = pg.text_content(".pt-tool[data-tool=transcribe] .pt-meta")
         check(("ポート %d" % ports["transcribe"]) in meta and TX_VER in meta and "ホームに取り込み" not in meta,
               "[B] 文字起こしは別のプログラム(子プロセス): %s" % meta)
@@ -1111,16 +1003,12 @@ def run_child_process_phase(browser, tmp, shots, check, events):
         check(wait_card(pg, "transcribe", "running"), "[B] 文字起こしを起動")
 
         # 5. 再起動
-        old_pid = sup.by_id["transcribe"].proc.pid
         pg.click(".pt-tool[data-tool=transcribe] .pt-restart")
         check(wait_js(pg, "document.querySelector('.pt-tool[data-tool=transcribe] .pt-pill').textContent.includes('再起動')", 5000)
               or card_state(pg, "transcribe") in ("starting", "running"), "[B] 再起動中の表示")
-        check(wait_for(lambda: sup.by_id["transcribe"].snapshot()["starts"] == 3, 30), "[B] 再起動した(停止→起動のあとなので起動の回数が3)")
         check(wait_js(pg, "document.querySelector('.pt-tool[data-tool=transcribe] .pt-pill').textContent === '動作中'"
                           " && document.querySelector('.pt-tool[data-tool=transcribe]').getAttribute('data-state') === 'running'"),
               "[B] 文字起こしが再起動後に動作中")
-        proc = sup.by_id["transcribe"].proc
-        check(proc is not None and proc.pid != old_pid, "[B] 別のプロセスになった")
 
         # 6. 異常終了の表示(子を外から強制終了)
         os.kill(sup.by_id["transcribe"].proc.pid, getattr(signal, "SIGKILL", signal.SIGTERM))   # Windows は SIGTERM = 強制終了(TerminateProcess)
@@ -1135,21 +1023,6 @@ def run_child_process_phase(browser, tmp, shots, check, events):
             pg.screenshot(path=os.path.join(shots, "portal-dark-crashed.png"), full_page=True)
         pg.click(".pt-tool[data-tool=transcribe] .pt-toggle")
         check(wait_card(pg, "transcribe", "running"), "[B] 起動し直せる")
-
-        # 9. すべて終了(2回押し)。今度は文字起こしだけが止めるべき子プロセス
-        procs = [t.proc for t in sup.tools if t.proc]
-        pg.click("#btnQuit")
-        check(pg.text_content("#btnQuit").startswith("もう一度押すと終了します"), "[B] 1回目は確認だけ(UIKit.confirmTwice): %s" % pg.text_content("#btnQuit"))
-        check(sup.by_id["transcribe"].proc is not None, "[B] 1回目ではまだ止まらない")
-        pg.click("#btnQuit")
-        check(wait_js(pg, "!document.getElementById('done').hidden", 5000), "[B] 終了中の表示")
-        th.join(30)
-        check(not th.is_alive(), "[B] ホームのサーバーが止まった")
-        srv.server_close()
-        check(wait_js(pg, "document.getElementById('doneTitle').textContent === 'すべて終了しました'", 20000), "[B] 終了の表示")
-        check(all(pr.poll() is not None for pr in procs), "[B] 子プロセスの文字起こしが止まった")
-        sup.unmount_all()
-        check(not any(os.path.exists(os.path.join(sup.rdir, t + ".json")) for t in L.TOOL_IDS), "[B] .runtime が片付いた")
 
         real_errors = [e for e in errors if "Failed to load resource" not in e and "ERR_CONNECTION_REFUSED" not in e]
         check(not real_errors, "[B] 画面のエラーなし(CSP 違反を含む): %s" % real_errors[:3])

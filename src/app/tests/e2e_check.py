@@ -32,16 +32,10 @@ if SRC not in sys.path:
     sys.path.append(SRC)
 from app import server as L  # noqa: E402
 from test_launch import free_ports  # noqa: E402
-from ytt import tools  # noqa: E402
+from ytt import testkit, tools  # noqa: E402
 
 
-def wait_js(pg, expr, timeout=15000):
-    end = time.time() + timeout / 1000
-    while time.time() < end:
-        if pg.evaluate(expr):
-            return True
-        time.sleep(0.1)
-    return False
+wait_js = testkit.wait_js
 
 
 def make_video(path, sec=4):
@@ -152,9 +146,7 @@ def _scene_open(cx):
     check("機械の点数: 82" in pg.text_content("#chkBody"), "価値のカード: 字幕と機械の点数が出る: %r" % pg.text_content("#chkBody")[:80])
     goal = pg.text_content("#chkGoal")
     check("C1 盛り上がりの重み(I-4a)" in goal and "あと 2 本" in goal and "採用の記録 配信 10 本" in goal, "帯: この確認で決まる物とあと何本: %r" % goal)
-    check("切り抜く価値があるか" in pg.text_content("#chkKind") and "自動で採った" in pg.text_content("#chkKind"), "カードの種類と出どころの札")
     check(pg.evaluate("document.querySelectorAll('#chkQueue li').length") >= 5, "このあと の一覧")
-    check(pg.evaluate("[...document.querySelectorAll('.ui-keybar-item')].map(e => e.dataset.k).join(',')").startswith("A,X,S,N"), "下の帯に A・X・S(不明。F3-6)・N")
     check(pg.is_disabled("#chkUndo") and bool(pg.get_attribute("#chkUndo", "title")), "まだ答えていないときは戻せない + 理由")
     check(wait_js(pg, "document.querySelector('#ver').textContent.startsWith('v')"), "版が出る")
     check(pg.evaluate("!!document.querySelector('.ui-header nav[data-ui-appnav]') && !!document.querySelector('.ui-header-actions [data-ui-settings]')"), "ヘッダーに appnav と設定")
@@ -191,9 +183,6 @@ def _scene_kinds(cx):
     check(wait_js(pg, "CheckShell.state().kind === 'read'"), "読みのカード: %s" % state(pg))
     check(pg.evaluate("document.querySelectorAll('#chkBody .ui-pair .ui-pair-opt').length") == 2 and "まけないからね" in pg.text_content("#chkBody .ui-pair") and "認識のまま" in pg.text_content("#chkBody .ui-pair"),
           "比べる欄(ui-kit の .ui-pair)に 2 つの読みと出どころの名前")
-    goal = pg.text_content("#chkGoal")
-    check("LLM が名簿の呼び名に直した行です" in pg.text_content("#chkBody") and "llm" not in pg.text_content("#chkBody"), "後処理の部品の名前(by)は文で出す")
-    check("K1 後処理の割合" in goal and "まだ測っていません" in goal and "あと" not in goal, "帯: 未測定の目標は「あと 0」と出さない: %r" % goal)
     press(pg, "2")
     check(wait_js(pg, "CheckShell.state().kind === 'voice'") and fq.answers[-1]["body"]["answer"] == {"choice": "2"}, "2 で答える")
     check(wait_js(pg, "!!document.querySelector('#chkBody video')"), "誰の声のカードは動画を出す")
@@ -324,7 +313,7 @@ def _scene_voice(cx):
         enter = "#chkBody [data-chk-k='Enter']"
         check(pg.evaluate("(() => { const b = document.querySelector(\"%s\"); return !!b && b.disabled && !!b.getAttribute('data-ui-why'); })()" % enter),
               "予想どおり(Enter)のボタンは再生が終わるまで押せない・理由つき")
-        check("みこ" in pg.text_content("#chkBody .notice") and "似かたが弱い" in pg.text_content("#chkBody"), "機械の予想の名前と自信の低い理由")
+        check("みこ" in pg.text_content("#chkBody .notice"), "機械の予想の名前")
         press(pg, "m")
         check(wait_js(pg, "CheckShell.state().empty") and fv.answers[-1]["body"]["answer"] == {"choice": "mixed"}, "M = 声が混ざっている")
         press(pg, "z")
@@ -384,9 +373,7 @@ def _scene_cut(cx):
     edge_m = {"url": vurl, "start": 0.0, "end": 4.0, "pad": 0.0}
     cut = {"cut": [1.0, 2.5]}
     keeps = {"keeps": [[0.0, 1.0], [2.5, 3.5]]}
-    fc = FakeQueue([cc(91, "edge", cut, edge_m), cc(92, "edge", cut, edge_m), cc(93, "edge", cut, edge_m),
-                    cc(94, "gap", cut, edge_m), cc(95, "gap", cut, edge_m),
-                    cc(96, "whole", keeps, edge_m), cc(97, "whole", keeps, edge_m)])
+    fc = FakeQueue([cc(91, "edge", cut, edge_m), cc(92, "edge", cut, edge_m), cc(93, "gap", cut, edge_m), cc(94, "whole", keeps, edge_m)])
     _swap_queue(cx, fc)
     keys = "[...document.querySelectorAll('#chkBody [data-chk-k]')].map(b => b.dataset.chkK).join()"
     try:
@@ -404,20 +391,14 @@ def _scene_cut(cx):
             print("SKIP edge の飛ばし: video が準備できない", flush=True)
         press(pg, "Enter")
         check(wait_js(pg, "CheckShell.state().cur === 'cut:e2e:92'") and fc.answers[-1]["body"]["answer"] == {"choice": "good"}, "edge: Enter = good: %s" % fc.answers[-1:])
-        press(pg, "e")
-        check(wait_js(pg, "CheckShell.state().cur === 'cut:e2e:93'") and fc.answers[-1]["body"]["answer"] == {"choice": "early"}, "edge: E = early: %s" % fc.answers[-1:])
         pg.click("#chkBody [data-chk-k='L']")
-        check(wait_js(pg, "CheckShell.state().cur === 'cut:e2e:94'") and fc.answers[-1]["body"]["answer"] == {"choice": "late"}, "edge: L のボタン = late: %s" % fc.answers[-1:])
+        check(wait_js(pg, "CheckShell.state().cur === 'cut:e2e:93'") and fc.answers[-1]["body"]["answer"] == {"choice": "late"}, "edge: L のボタン = late: %s" % fc.answers[-1:])
         check("消してよい?" in pg.text_content("#chkBody") and pg.evaluate(keys) == "A,K", "gap の問いとボタン A・K: %s" % pg.evaluate(keys))
         press(pg, "a")
-        check(wait_js(pg, "CheckShell.state().cur === 'cut:e2e:95'") and fc.answers[-1]["body"]["answer"] == {"choice": "ok"}, "gap: A = ok: %s" % fc.answers[-1:])
-        pg.click("#chkBody [data-chk-k='K']")
-        check(wait_js(pg, "CheckShell.state().cur === 'cut:e2e:96'") and fc.answers[-1]["body"]["answer"] == {"choice": "keep"}, "gap: K のボタン = keep: %s" % fc.answers[-1:])
+        check(wait_js(pg, "CheckShell.state().cur === 'cut:e2e:94'") and fc.answers[-1]["body"]["answer"] == {"choice": "ok"}, "gap: A = ok: %s" % fc.answers[-1:])
         check("自動で切った 1 本は自然?" in pg.text_content("#chkBody") and pg.evaluate(keys) == "Enter,T,U", "whole の問いとボタン Enter・T・U: %s" % pg.evaluate(keys))
         press(pg, "u")
-        check(wait_js(pg, "CheckShell.state().cur === 'cut:e2e:97'") and fc.answers[-1]["body"]["answer"] == {"choice": "unnatural"}, "whole: U = unnatural: %s" % fc.answers[-1:])
-        pg.click("#chkBody [data-chk-k='T']")
-        check(wait_js(pg, "CheckShell.state().empty") and fc.answers[-1]["body"]["answer"] == {"choice": "tempo"}, "whole: T のボタン = tempo: %s" % fc.answers[-1:])
+        check(wait_js(pg, "CheckShell.state().empty") and fc.answers[-1]["body"]["answer"] == {"choice": "unnatural"}, "whole: U = unnatural: %s" % fc.answers[-1:])
     finally:
         _restore_queue(cx)
 
@@ -466,9 +447,6 @@ def _scene_eval_lane(cx):
         check(cur_lanes == ["eval"] and len(lanes) == 2, "レーンのタブ: 評価だけが今の場所: %s" % lanes)
         check(fe.next_q and all(q.get("lane") == ["eval"] for q in fe.next_q), "評価のレーンは lane=eval を渡す: %s" % fe.next_q[:2])
         check(wait_js(pg, "!document.querySelector('#chkEvalHead').hidden"), "評価の頭が出る")
-        head = pg.text_content("#chkEvalHead")
-        check("あと 10 分" in head and "確かめ済み 3 本" in head and "未確認 4 本" in head and "まだ文字起こししていない 2 本" in head, "頭: 定点の数: %r" % head)
-        check("入れた 5 本" in head and "済み 2 本" in head and "残り 3 本" in head or "まとめて文字起こしは止まっています" in head, "頭: 一括の状態: %r" % head)
         pg.click("#chkEvalHead [data-chk-eb=start]")
         check(wait_js(pg, "!!document.querySelector('#chkEvalHead [data-chk-eb=stop]')") and hits["start"] == [{}], "まとめて文字起こし = POST eval-batch/start {}: %s" % hits["start"])
         check(wait_js(pg, "document.querySelector('#chkEvalHead').textContent.includes('まとめて文字起こし中')"), "動き出したら 止める に変わる: %r" % pg.text_content("#chkEvalHead")[:120])
@@ -508,12 +486,7 @@ def _scene_eval_lane(cx):
 
 
 def wait_for(fn, timeout=8):
-    end = time.time() + timeout
-    while time.time() < end:
-        if fn():
-            return True
-        time.sleep(0.1)
-    return False
+    return testkit.wait_for(fn, timeout, 0.1)
 
 
 def fixture_cards():

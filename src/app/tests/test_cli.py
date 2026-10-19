@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
-"""app/cli(② + ① で動くコマンド。役割で組み直す RS6 b-S1)のテスト。  py -3.12 -m unittest src/app/tests/test_cli.py -v
+"""app/cli(② + ① で動くコマンド)のテスト。  py -3.12 -m unittest src/app/tests/test_cli.py -v
 
 - 引数・束の検査(形が違えば終了コード 2・API キーを書いた束は断る)
 - lock があって入口が動いていれば入口に頼む(HTTP は差し替え)・入口が応答しない / 別の実行が使っている = 4
 - 入口が無ければ動画ファイルを LocalTools で 1 本(疑似のエンジン。疑似の差し込みはテストの側)。2 回目は文字起こしを飛ばす
-- 入口が無ければ URL も LocalTools + スタジオなしの台帳(flow/studiobook)で最後まで(RS8。スタジオの疑似 STUDIO_FAKE = ネットワークに出ない)
+- 入口が無ければ URL も LocalTools + スタジオなしの台帳(flow/studiobook)で最後まで(スタジオの疑似 STUDIO_FAKE = ネットワークに出ない)
 - 終わるとき(Ctrl+C でも)認識ワーカーを止めて lock を返す
 - CLI の流れで ③ 人(human)を読まない(別のプロセスで sys.modules を見る)
-作業データは必ず一時フォルダ(--data-dir)。flow/placement(並行して作っている段)はテストの側の偽物に差し替える
+作業データは必ず一時フォルダ(--data-dir)。flow/placement はテストの側の偽物に差し替える
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない(一時フォルダだけ)
@@ -127,8 +127,7 @@ class TestArgs(Base):
         video = self.dummy()
         cases = [([os.path.join(self.tmp, "none.mp4")], "見つかりません"),
                  ([video, "--spec", os.path.join(self.tmp, "no.json")], "読めません"),
-                 ([video, "--spec", self.spec({"pack": {"sise": "1080x1920"}})], "知らない項目"),
-                 ([video, "--spec", self.spec({"pack": {"volume": 999}})], "pack.volume"),
+                 ([video, "--spec", self.spec({"pack": {"volume": 999}})], "pack.volume"),   # 束の文言は src/flow/tests/test_spec.py
                  (["https://youtu.be/abcdefghijk", "--from", "pack"], "analyze か export")]
         for argv, word in cases:
             code, res, err = self.main(*argv)
@@ -147,13 +146,11 @@ class TestArgs(Base):
 
     def test_load_spec_overlays_run(self):
         b = cli.load_spec(self.spec({"pack": {"volume": 50}}), "pack", True)
-        self.assertEqual((b["pack"]["volume"], b["run"]["from"], b["run"]["force"]), (50, "pack", True))
-        self.assertEqual(cli.load_spec(None)["run"], {"from": None, "force": False, "repack": False, "upto": "pack", "onFail": "next",
-                                                      "requested": []})   # repack は RS7-1 S3・upto・onFail・requested(旧 pinned)は RV A2
+        self.assertEqual((b["pack"]["volume"], b["run"]["from"], b["run"]["force"]), (50, "pack", True))   # run の既定は test_spec の TestMerge
 
 
 class TestLearningPlaces(Base):
-    """RS7-1 F-k: CLI の学習データ・スタジオの文脈は作業データの根から読む(リポジトリの中の src/studio は読まない)"""
+    """CLI の学習データ・スタジオの文脈は作業データの根から読む(リポジトリの中の src/studio は読まない)"""
 
     def test_studio_data_under_data_root(self):
         with mock.patch.dict(os.environ):
@@ -188,18 +185,10 @@ class TestLearningPlaces(Base):
             ld = cli.learning_dir()
             self.assertEqual(ld, os.path.abspath(pack["dir"]))
             self.assertEqual(workdata.SETTINGS, os.path.join(ld, "settings.json"))
-            lr = cli.Learning(ld)
-            self.assertEqual((lr.glossary([]), lr.dict_learned(), lr.learned()("ぺこ")[0]["right"]), (["ぺこら"], "x", "ぺこら"))
+            lr = cli.Learning(ld)   # 束の中身の読み方は src/flow/tests/test_learning.py の TestPackReader
+            self.assertEqual(lr.glossary([]), ["ぺこら"])
             b = learning.stamp(cli.load_spec(None), lr)
             self.assertEqual(b["post"]["learning"]["version"], pack["version"])
-
-    def test_learning_reader_skips_without_docs(self):
-        """学習のもとの文書が無ければ ③ を読まずに「学習なし」(友人の PC の ② + ① だけの形)"""
-        empty = os.path.join(self.tmp, "ld")
-        os.makedirs(os.path.join(empty, "transcripts"))
-        lr = cli.Learning(empty)
-        self.assertEqual((lr.glossary(["あ"]), lr.learned()), ([], None))
-        self.assertEqual(cli.Learning(os.path.join(self.tmp, "none")).glossary([]), [])
 
 
 class FakePortal:
@@ -253,15 +242,13 @@ class TestPortal(Base):
         return body["envelope"], body["spec"]
 
     def test_url_submit(self):
-        """RS7-1 S4: URL は封筒 + 束の submit 1 回(解析から = full・まだスタジオに無い配信の印 fresh)。--spec・--force も入口で効く"""
+        """URL は封筒 + 束の submit 1 回(解析から = full・まだスタジオに無い配信の印 fresh)。--spec・--force も入口で効く"""
         portal = self.use_portal(FakePortal())
         code, res, err = self.main("https://www.youtube.com/watch?v=abcdefghijk", "--spec", self.spec({"adopt": {"top": 2}}), "--title", "題", "--force")
         self.assertEqual(code, 0, err)
         env, spec = self.submitted(portal)
-        self.assertEqual((env["kind"], env["input"], env["specVersion"], "legacy" in env),
-                         ("url", {"videoId": "abcdefghijk", "title": "題", "duration": None, "fresh": {"title": "題", "channel": ""}, "marks": None}, 2, False))
-        self.assertEqual((spec["run"]["from"], spec["run"]["upto"]), (None, "pack"))   # 解析から全部 = 束の run(RV A2)
-        self.assertRegex(env["id"], r"^[0-9a-f]{10}$")
+        self.assertEqual((env["kind"], env["input"]["videoId"], env["input"]["fresh"]), ("url", "abcdefghijk", {"title": "題", "channel": ""}))   # 封筒の形は src/flow/tests/test_order.py
+        self.assertEqual((spec["run"]["from"], spec["run"]["upto"]), (None, "pack"))   # 解析から全部 = 束の run
         self.assertEqual((spec["adopt"]["top"], spec["run"]["force"]), (2, True))
         self.assertEqual((res["via"], res["state"], res["id"]), ("portal", "done", "r1"))
         self.assertEqual(self.pl.acquired, [], "入口が動いていれば lock は取らない")
@@ -322,7 +309,7 @@ class TestPortal(Base):
         self.assertEqual(self.pl.acquired, [])
 
     def test_url_without_portal_runs_locally(self):
-        """RS8: 入口が無ければ URL も自分で(lock を取り、入口に頼むときと同じ封筒の Run + スタジオなしの台帳)。終わったら台帳の糸を止める"""
+        """入口が無ければ URL も自分で(lock を取り、入口に頼むときと同じ封筒の Run + スタジオなしの台帳)。終わったら台帳の糸を止める"""
         seen = {}
 
         def fake_run(client, run, spec=None, hooks=None):
@@ -332,16 +319,10 @@ class TestPortal(Base):
         self.assertEqual((code, res["via"], res["state"]), (0, "local", "done"), err)
         run = seen["run"]
         self.assertEqual((run.video_id, run.mode, run.title, run.fresh, run.spec["adopt"]["top"]),
-                         ("abcdefghijk", "full", "題", {"title": "題", "channel": ""}, 2))
-        self.assertEqual([s["key"] for s in run.steps], ["analyze", "adopt", "export", "transcribe", "pack"])
+                         ("abcdefghijk", "full", "題", {"title": "題", "channel": ""}, 2))   # 段の並び・--from は src/flow/tests/test_run.py の TestStepsOf・TestFromInput
         self.assertIsInstance(seen["tools"].studio, cli._studiobook.LocalStudio)
         self.assertEqual(seen["tools"].studio.book.path, os.path.join(os.path.abspath(self.data), "studio", "data.json"))
         self.assertEqual((len(self.pl.acquired), self.pl.released, close.call_count, self.worker.closed), (1, self.pl.acquired, 1, 1))
-        # 書き出しから(--from export)= 採用後を全部(まだ無い配信の印 fresh は付けない)
-        with mock.patch.object(cli._run, "run", fake_run), mock.patch.object(cli._studiobook.LocalStudio, "close"):
-            code, res, err = self.main("abcdefghijk", "--from", "export")
-        self.assertEqual((code, seen["run"].mode, seen["run"].fresh, [s["key"] for s in seen["run"].steps]),
-                         (0, "adopted", None, ["export", "transcribe", "pack"]))
 
     def test_url_step_error_closes_studio(self):
         err_run = mock.patch.object(cli._run, "run", side_effect=cli._run.StepError("解析を始められませんでした: yt-dlp が見つかりません"))
@@ -453,17 +434,12 @@ class TestLocalRun(Base):
         code, res2, err = self.main(self.video, "--spec", spec)
         self.assertEqual(code, 0, err)
         self.assertEqual([(s["key"], s["state"]) for s in res2["steps"]], [("transcribe", "skip"), ("pack", "skip")], res2["steps"])
-        self.assertEqual(res2["docId"], res["docId"])
-        # --from pack --force: その文書でパックだけを作り直す
-        code, res3, err = self.main(self.video, "--spec", spec, "--from", "pack", "--force")
-        self.assertEqual(code, 0, err)
-        self.assertEqual([(s["key"], s["state"]) for s in res3["steps"]], [("transcribe", "skip"), ("pack", "done")], res3["steps"])
+        self.assertEqual(res2["docId"], res["docId"])   # --from pack --force は src/flow/tests/test_tools.py の test_keys_skip_and_force
 
     def test_url_to_pack(self):
-        """RS8: 入口なしの URL = 解析 → 採用 → 書き出し → 文字起こし → パック(スタジオの疑似 = YouTube の代わりに手元の動画・ネットワークに出ない)。
-        data.json(スタジオの Store が読める形)・案件の 採用.json・case.json・結果の束。2 回目は全部飛ばす"""
+        """入口なしの URL = 解析 → 採用 → 書き出し → 文字起こし → パック(スタジオの疑似 = YouTube の代わりに手元の動画・ネットワークに出ない)。
+        data.json はスタジオの Store が読める形(索引の欄・案件のファイルは src/flow/tests/test_studiobook.py)"""
         from human.review import store as store_mod   # 書いた物をスタジオの Store が読めるか(CLI 自身は ③ を読まない)
-        from ytt import casefiles
         spec = self.spec({"hints": {"ranges": [[1, 4]]}, "adopt": {"top": 1}, "post": {"autoLlm": False}, "pack": {"volume": 100}})
         url = "https://youtu.be/abcdefghijk"
         stream = os.path.join(self.tmp, "配信.mp4")   # 配信の代わり(解析は 20 秒以上の動画だけ)
@@ -475,11 +451,7 @@ class TestLocalRun(Base):
                              [("analyze", "done"), ("adopt", "done"), ("export", "done"), ("transcribe", "done"), ("pack", "done")], res["steps"])
             self.assertEqual((res["via"], len(res["artifacts"]["packs"]), len(res["artifacts"]["docs"])), ("local", 1, 1))
             data = os.path.join(self.data, "studio", "data.json")
-            row = testkit.read_json(data)["videos"]["abcdefghijk"]
-            self.assertEqual((row["title"], sorted(row)), ("配信の題", sorted(casefiles.INDEX_KEYS + ("case",))))   # 初めて書き出した = 案件の索引の行
-            case = row["case"]
-            self.assertTrue(os.path.isfile(casefiles.work_path(case, casefiles.ADOPTIONS_NAME)))
-            self.assertTrue(os.path.isfile(os.path.join(case, "作業用", "case.json")))
+            self.assertEqual(testkit.read_json(data)["videos"]["abcdefghijk"]["title"], "配信の題")
             self.assertTrue(os.path.isfile(res["resultFile"]))
             with mock.patch.object(studio_env, "get_out_dir", lambda: os.path.join(self.data, "studio", "exports")):
                 v, _series = store_mod.Store(data).get("abcdefghijk")
@@ -487,10 +459,6 @@ class TestLocalRun(Base):
             self.assertEqual(len(exported), 1)
             self.assertTrue(os.path.isfile(exported[0]["path"]))
             self.assertEqual((self.pl.released, self.worker.closed), (self.pl.acquired, 1))
-            # 2 回目: 解析済み・新しい採用なし・書き出し済み・文字起こし済み・パック済み
-            code, res2, err = self.main(url, "--spec", spec)
-            self.assertEqual(code, 0, err)
-            self.assertEqual([s["state"] for s in res2["steps"]], ["skip"] * 5, res2["steps"])
 
 
 DRIVER = r"""
@@ -526,7 +494,7 @@ class TestNoHumanLayer(unittest.TestCase):
         self.assertEqual((res["code"], res["before"], res["human"]), (0, [], []), err)
 
     def test_local_url_does_not_import_human(self):
-        """URL も同じ(RS8。スタジオなしの台帳は ③ の Store を読まない。スタジオの疑似 = 手元の動画を配信の代わりに)"""
+        """URL も同じ(スタジオなしの台帳は ③ の Store を読まない。スタジオの疑似 = 手元の動画を配信の代わりに)"""
         res, err = self.drive(lambda video: "https://youtu.be/abcdefghijk", lambda video: {"STUDIO_FAKE": "1", "STUDIO_FAKE_MEDIA": video}, sec=24)
         self.assertEqual((res["code"], res["before"], res["human"]), (0, [], []), err)
 

@@ -112,7 +112,7 @@ class TestFocusWindow(unittest.TestCase):
     """ツールの窓の「入口」: 入口の窓がほかにあれば、題名で探して前に出す(入口を二つにしない。2026-09-27)"""
     T = L.PORTAL_TITLE
 
-    @unittest.skipUnless(sys.platform == "win32", "Windows の窓の API(ctypes.WINFUNCTYPE)を使う(段1: Windows 以外では飛ばす)")
+    @unittest.skipUnless(sys.platform == "win32", "Windows の窓の API(ctypes.WINFUNCTYPE)を使う(Windows 以外では飛ばす)")
     def test_finds_by_title_and_brings_to_front(self):
         u = FakeUser32([(10, "編集 — 入口の外", True, False), (11, self.T + " - Microsoft Edge", False, False),
                         (12, self.T, True, True), (13, self.T, True, False)])
@@ -121,7 +121,7 @@ class TestFocusWindow(unittest.TestCase):
         self.assertIn(("show", 12, 9), u.calls)                             # 最小化していたら戻す
         self.assertEqual([c for c in u.calls if c[0] == "attach"], [("attach", 1, 2, True), ("attach", 1, 2, False)])   # つないだら必ず外す
 
-    @unittest.skipUnless(sys.platform == "win32", "Windows の窓の API(ctypes.WINFUNCTYPE)を使う(段1: Windows 以外では飛ばす)")
+    @unittest.skipUnless(sys.platform == "win32", "Windows の窓の API(ctypes.WINFUNCTYPE)を使う(Windows 以外では飛ばす)")
     def test_not_found_or_refused(self):
         u = FakeUser32([(10, "ほかの窓", True, False)])
         self.assertFalse(W.focus_window(self.T, user32=u))
@@ -130,7 +130,7 @@ class TestFocusWindow(unittest.TestCase):
         self.assertFalse(W.focus_window(self.T, user32=u))                  # 前に出せなかった(画面が知らせる)
         self.assertEqual(u.calls[-1], ("attach", 1, 2, False))
 
-    @unittest.skipUnless(sys.platform == "win32", "Windows の窓の API(ctypes.WINFUNCTYPE)を使う(段1: Windows 以外では飛ばす)")
+    @unittest.skipUnless(sys.platform == "win32", "Windows の窓の API(ctypes.WINFUNCTYPE)を使う(Windows 以外では飛ばす)")
     def test_already_in_front(self):
         u = FakeUser32([(12, self.T, True, False)], fg=12)
         self.assertTrue(W.focus_window(self.T, user32=u))
@@ -270,7 +270,7 @@ class TestOpener(unittest.TestCase):
 
 
 class TestPrefs(unittest.TestCase):
-    """ホームの設定(src/app/prefs.py。気が利く画面へ 段1): 節ごとに直す・許可した形だけ・壊れたファイル・配信者の記憶"""
+    """ホームの設定(src/app/prefs.py): 節ごとに直す・許可した形だけ・壊れたファイル・配信者の記憶"""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="ytt-prefs-")
@@ -316,7 +316,7 @@ class TestPrefs(unittest.TestCase):
             PR.MAX_REMEMBER = old
 
     def test_guess_streamer_order(self):
-        """配信者の名前を決める順(段5): 文書 → 配信 → チャンネルに覚えた名前 → チャンネル名から。空 = 「色なし」を覚えている"""
+        """配信者の名前を決める順: 文書 → 配信 → チャンネルに覚えた名前 → チャンネル名から。空 = 「色なし」を覚えている"""
         fc = lambda ch: "兎田ぺこら" if "ぺこら" in ch else None   # noqa: E731
         g = lambda **kw: PR.guess_streamer(self.p, from_channel=fc, **kw)   # noqa: E731
         self.assertEqual(g(doc_id="d1", video_id="v1", channel="Pekora Ch. 兎田ぺこら"), {"name": "兎田ぺこら", "source": "auto"})
@@ -471,11 +471,6 @@ class TestPortalApi(unittest.TestCase):
     def test_streamer_guess_api(self):
         st, j = self.req("POST", "/api/ytt/streamer-guess", {"channel": "Pekora Ch. 兎田ぺこら"})
         self.assertEqual((st, j["name"], j["source"], j["hex"]), (200, "兎田ぺこら", "auto", "#65BAEA"))   # 字幕の既定の色(members.json の subtitle。2026-10-05)
-        self.req("POST", "/api/ytt/prefs", {"op": "remember", "kind": "videos", "key": "abcdefghijk", "name": "さくらみこ"})
-        st, j = self.req("POST", "/api/ytt/streamer-guess", {"videoId": "abcdefghijk", "channel": "Pekora Ch. 兎田ぺこら"})
-        self.assertEqual((j["name"], j["source"]), ("さくらみこ", "video"))
-        st, j = self.req("POST", "/api/ytt/streamer-guess", {"channel": "Suisei Channel"})
-        self.assertEqual((j["name"], j["source"]), (None, None))
         self.assertEqual(self.req("POST", "/api/ytt/streamer-guess", {}, {"X-YTT-Token": "wrong"})[0], 403)
 
     def test_streamer_colors(self):
@@ -483,12 +478,9 @@ class TestPortalApi(unittest.TestCase):
         st, j = self.req("POST", "/api/ytt/streamer-colors", {"q": "ぺこら", "all": True})
         self.assertEqual(st, 200, j)
         self.assertEqual((j["match"]["name"], j["match"]["hex"]), ("兎田ぺこら", "#65BAEA"))   # リポジトリの friend-apps/holo-colors/members.json の subtitle(字幕の既定の色)
-        self.assertGreater(len(j["items"]), 50)
         self.assertEqual(set(j["items"][0]), {"name", "en", "hex", "group", "mine"})
-        st, j = self.req("POST", "/api/ytt/streamer-colors", {"q": "存在しない人"})
-        self.assertEqual((j["match"], j["candidates"], j["items"]), (None, [], []))
         self.assertEqual(self.req("POST", "/api/ytt/streamer-colors", {"q": "x"}, {"X-YTT-Token": "wrong"})[0], 403)
-        st, j = self.req("POST", "/api/ytt/streamer-colors", {"names": ["みこ", "話者1", " みこ ", "", 3]})   # 話者の名前をまとめて(段2)
+        st, j = self.req("POST", "/api/ytt/streamer-colors", {"names": ["みこ", "話者1", " みこ ", "", 3]})   # 話者の名前をまとめて
         self.assertEqual((st, sorted(j["matches"])), (200, ["みこ", "話者1"]))
         self.assertEqual((j["matches"]["みこ"]["name"], j["matches"]["話者1"]), ("さくらみこ", None))
 

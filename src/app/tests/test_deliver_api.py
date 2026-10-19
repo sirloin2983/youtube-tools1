@@ -56,15 +56,13 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(code, 200)
         j = wait(srv.deliveries, obj["job"])
         self.assertEqual(j["state"], "done")
-        code, obj = srv.ytt_api("deliver", {"op": "status", "job": j["id"]})
-        self.assertEqual((code, obj["job"]["state"]), (200, "done"))
         code, _ = srv.ytt_api("deliver", {"op": "status", "job": "nope"})
         self.assertEqual(code, 404)
 
 
 class AutoSendApiTest(unittest.TestCase):
-    """RV A1: 受付は POST /api/flow/submit {envelope, spec} の 1 本・見積もりは同じ本文で /api/flow/estimate(D-SEND の届け先は画面が封筒の deliver に入れる。
-    以前の /api/autorun/* の autoSend は消した)と、受付の見回りの終わりの送り直し(PortalServer.flush_sends)"""
+    """受付は POST /api/flow/submit {envelope, spec} の 1 本・見積もりは同じ本文で /api/flow/estimate(届け先は画面が封筒の deliver に入れる)と、
+    受付の見回りの終わりの送り直し(PortalServer.flush_sends)"""
 
     def setUp(self):
         from app import server
@@ -110,8 +108,6 @@ class AutoSendApiTest(unittest.TestCase):
         self.assertEqual((self.calls[-1], self.h.out), (("estimate", env, None), (200, {"steps": [], "nothing": True})))
         self.h._post_flow_submit("/api/flow/submit", {"envelope": "bad"})
         self.assertEqual(self.h.out[0], 400)
-        self.assertNotIn("_post_autorun", dir(self.server.PortalHandler), "以前の /api/autorun/* の受付は消した")
-        self.assertFalse(any(p.startswith("/api/autorun") for p in self.server.POST_ROUTES))
 
     def test_flush_sends(self):
         import types

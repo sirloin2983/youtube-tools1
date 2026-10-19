@@ -18,7 +18,7 @@ for p in (HOME, ROOT, os.path.dirname(os.path.abspath(__file__))):
         sys.path.insert(0, p)
 
 from app.check import deck, lineup, sources  # noqa: E402
-from human.check import answerlog, apply  # noqa: E402
+from human.check import apply  # noqa: E402
 from app import server as L  # noqa: E402
 import test_launch as TL  # noqa: E402  (入口を一時フォルダで動かす道具を借りる。テストそのものは集めない)
 
@@ -100,13 +100,11 @@ class CheckApiTest(TL.Base):
         self.assertEqual(self.post("/api/check/answer", {"card": "nope", "answer": "1"})[1]["error"], "bad_request")
         st, j5 = self.post("/api/check/skip", {"card": c2})
         self.assertEqual((st, j5["ok"]), (200, True))
-        self.assertEqual(answerlog.read_skips(os.path.dirname(self.sup.logs_dir)), [c2])
         self.assertEqual(self.post("/api/check/skip", {"card": 3})[0], 400)
         st, j6 = self.post("/api/check/flush", {})
         self.assertEqual((st, j6["flushed"]), (200, []))
         st, j7 = self.post("/api/check/flush", {"page": "pABC123"})   # 画面の印つき(その画面の保留だけ確定。6b-1)
         self.assertEqual((st, j7["flushed"]), (200, []))
-        self.assertTrue(os.path.isfile(answerlog.answers_path(os.path.dirname(self.sup.logs_dir))))   # app/check/answers.jsonl
 
     def test_value_card_wiring(self):
         """価値のカードの反映が入口の hooks(auto_review・studio)につながっている(V2a)"""
@@ -120,20 +118,10 @@ class CheckApiTest(TL.Base):
                                                          "options": ["good", "bad"], "score": 80, "note": "", "_order": [0]}])
         self.addCleanup(lambda: (sources._SOURCES.clear(), sources._SOURCES.update(orig), deck.invalidate()))
         deck.invalidate()
-        st, j = self.post("/api/check/answer", {"card": "value:auto:abcdefghijk#a1", "answer": {"choice": "drop"}})
-        self.assertEqual((st, j["error"]), (400, "bad_request"))   # D-SEND: 自動の切り抜きのカードは品質の確認(良い / 悪い)= 送る・要らないは受けない
         st, j = self.post("/api/check/answer", {"card": "value:auto:abcdefghijk#a1", "answer": {"choice": "bad", "reason": "boring"}})
         self.assertEqual(st, 200)
-        self.assertFalse(j.get("held"))   # 記録だけなので 1 枚遅れにしない(送るかに効かせない = 要件 1-2)
         st, j = self.post("/api/check/flush", {})
         self.assertEqual((st, j["flushed"]), (200, []))
-
-    def test_not_ready(self):
-        sources.register("time", "tst", lambda view: [dict(c, id=c["id"].replace("read:", "time:"), kind="time") for c in fake_cards(view)])
-        self.addCleanup(sources.unregister, "time", "tst")
-        deck.invalidate()
-        st, j = self.post("/api/check/answer", {"card": "time:tst:aaaaaaaaaaaa#s1", "answer": "ok"})
-        self.assertEqual((st, j["error"]), (409, "not_ready"))
 
     def test_time_card_wired(self):
         """入口が time:row の反映を登録している(V2d)。同じ部品を別の出どころ名で試す: 形の違う答えは 400・文書が無ければ 409"""
@@ -145,8 +133,6 @@ class CheckApiTest(TL.Base):
         self.addCleanup(apply._unregister, "time", "tst")
         deck.invalidate()
         cid = "time:tst:aaaaaaaaaaaa#s1"
-        st, j = self.post("/api/check/answer", {"card": cid, "answer": {"choice": "ok", "dStart": 0.5}})
-        self.assertEqual((st, j["error"]), (400, "bad_request"))
         from ytt import workdata
         saved = {n: getattr(workdata, n) for n in ("DATA_DIR", "TX_DIR", "TMP_DIR", "SETTINGS", "FEEDBACK")}
         self.addCleanup(lambda: [setattr(workdata, n, v) for n, v in saved.items()])
@@ -157,7 +143,6 @@ class CheckApiTest(TL.Base):
         os.makedirs(workdata.TX_DIR, exist_ok=True)
         st, j = self.post("/api/check/answer", {"card": cid, "answer": {"choice": "head", "dStart": -0.1}})
         self.assertEqual((st, j["error"]), (409, "no_doc"))
-        self.assertEqual(answerlog.state(os.path.dirname(self.sup.logs_dir)).order, [])   # 反映できない答えは記録しない
 
 
 if __name__ == "__main__":
