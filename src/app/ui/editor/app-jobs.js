@@ -61,8 +61,8 @@ async function pollJobs(){
     else if (x.state === 'error'){ S.seen.add(x.id); failed = x; }   // 失敗も一度だけ知らせる(メニューを閉じていると気づけないため)
   }
   renderJobs(); applyLock();
-  // 開いている文書の作り直し(評価用の 1 本ずつ・まとめて・校正の全体の再認識)が終わった: 読み直す(下の「文字起こしが終わりました」には数えない)
-  const redone = S.doc ? txDone.find(x => (x.redo || x.rerunWhole) && x.tid === S.docId) : null;
+  // 開いている評価用の文書の作り直し(1 本ずつ・まとめての)が終わった: 読み直す(下の「文字起こしが終わりました」には数えない)
+  const redone = S.doc ? txDone.find(x => x.redo && x.tid === S.docId) : null;
   if (redone) txDone = txDone.filter(x => x !== redone);
   for (const x of txDone) if (x.vadNote) toast(`「${x.title || '無題'}」: ${x.vadNote}`, 9000);   // 声の検出を緩めてやり直した。今回終わった文字起こしだけ
   for (const x of txDone.concat(normDone)) if (x.normNote) toast(`「${x.title || '無題'}」: ${x.normNote}`, 9000, x.normOk ? 'ok' : undefined);   // 30fps にそろえた・そろえられなかった
@@ -74,7 +74,6 @@ async function pollJobs(){
     await loadList();
     if (redone && S.docId === redone.tid){
       if (redone.redoSkipped) toast(redone.phase || '作り直しませんでした', 8000);
-      else if (redone.rerunWhole){ if (await openDoc(redone.tid, true)) toast(`動画全体を再認識しました(${S.doc.segments.length}行。直した行は元のまま` + (redone.kept ? `・機械が変わった ${redone.kept} 行には印` : '') + (redone.emptyKept ? `・文字が出なかった ${redone.emptyKept} 行は元のまま` : '') + '。前の版は「以前の版に戻す」に残っています)' + (redone.vadNote ? redone.vadNote : ''), 8000, 'ok'); }
       else if (await openDoc(redone.tid, true)) toast(`この動画を今の設定で作り直しました(${S.doc.segments.length}行。前の版は「以前の版に戻す」に残っています。話者は、自動の判別が使えるときは続けて付けます)`, 7000, 'ok');
     }
     if (S.doc && normDone.some(x => x.tid === S.docId && x.normOk)) await openDoc(S.docId, true);   // 開いている文書の動画を 30fps の写しに付け替えた → 読み直す(更新日時は変わらないので保存は競合しない)
@@ -188,7 +187,7 @@ async function diarSmoothSave(on){
 }
 
 /* 編集を止めるジョブ: 話者判別・再認識と、この動画の作り直し(1 本ずつ。文字起こしのジョブで tid は終わるまで空 = into で見る) */
-function lockJob(){ return S.doc ? S.jobs.find(j => ACTIVE.has(j.state) && ((LOCK_KINDS.includes(j.kind) && j.tid === S.docId) || ((j.redoOne || j.rerunWhole) && j.into === S.docId))) : null; }
+function lockJob(){ return S.doc ? S.jobs.find(j => ACTIVE.has(j.state) && ((LOCK_KINDS.includes(j.kind) && j.tid === S.docId) || (j.redoOne && j.into === S.docId))) : null; }
 
 function applyLock(){
   const j = lockJob(), on = !!j;

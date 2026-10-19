@@ -61,16 +61,16 @@
 - **__init__.py** (2 行) — ③ 字幕の校正(文書の置き場と機械の層・人の層・カットの「カット済」・文字起こしと再認識のジョブ・別の読み・話者と声・辞書と名簿の学習・校正の記録)
 - **alt.py** (416 行) — ③ 人の操作の層 human/proof: 2つ目のエンジンとの食い違いに候補を出す(精度改善の計画 第2版 D1-b。notes:plan/line-b-transcription.md)。
   - 名前: `alt_engine_key` :61・`alt_info` :70・`alt_first_run` :79・`alt_spec` :88・`alt_path` :121・`read_alt` :126・`run_alt` :136・`alt_after_transcribe` :160・`alt_notation_only` :193・`alt_diffs` :220・`alt_cached` :344・`alt_spans_of` :356・ほか 3
-- **doc_jobs.py** (355 行) — ③ 人の操作の層 human/proof: 文字起こしのジョブの本体(run_job)と書く先の決め方・受付(validate_job と
-  - 名前: `set_learning` :40・`glossary_of` :45・`validate_job` :62・`public_job` :131・`subtitle_settings` :170・`split_chars_for` :184・`learned_finder` :202・`dict_learned` :213・`carry_overrides` :231・`run_job` :270・`redo_targets` :333
+- **doc_jobs.py** (359 行) — ③ 人の操作の層 human/proof: 文字起こしのジョブの本体(run_job)と書く先の決め方・受付(validate_job と
+  - 名前: `set_learning` :40・`glossary_of` :45・`validate_job` :62・`public_job` :131・`subtitle_settings` :169・`split_chars_for` :183・`learned_finder` :201・`dict_learned` :212・`carry_overrides` :230・`run_job` :269・`run_transcribe_job` :279・`redo_targets` :337
 - **layers.py** (1056 行) — ③ 文書を「機械の層 + 人の層」から組み立てる純粋な関数(O2-1。RS8。決定 3-37 の (r8r)〜(r8u)・notes:plan/done/rs8-cases-ui.md の決めたこと 3)。
   - 名前: `match` :65・`compose_rows` :323・`compose` :419・`split_meta` :440・`diff` :546・`mach_changes` :631・`pick` :651・`assign_speakers` :687・`carry` :742・`mach_from_doc` :824・`advance_mach` :865・`replace_mach_span` :913・ほか 4
 - **learn.py** (470 行) — ③ 人の操作の層 human/proof: 人が直した内容からの学習(機械の出力と人の行の対応づけ・「誤=>正」の統計・確度)と、行への修正の提案・
   - 名前: `align_groups` :29・`prep_rows` :48・`is_nosub` :63・`split_nosub` :67・`row_text` :92・`learn_events` :103・`learn_groups` :145・`learned_candidates` :198・`load_feedback` :228・`unrecord_feedback` :258・`record_feedback` :280・`forget_doc` :302・ほか 7
 - **machpick.py** (46 行) — ③ 3 択の口(RS8 O2-4。決定 3-37・notes:plan/done/rs8-cases-ui.md の決めたこと 3 の案 A): 機械の結果が変わって人の直しと食い違う行(印 layers.MACH_CHANGED)を
   - 名前: `changes` :15・`pick` :24
-- **rerun.py** (437 行) — ③ 人の操作の層 human/proof: 再認識(選んだ行 each・範囲 range)のジョブの本体と、文書への反映・
-  - 名前: `record_rerun` :50・`apply_retranscribe` :86・`replace_original_multi` :155・`thin_rows` :174・`apply_range` :187・`run_retranscribe` :232・`rebuild_whole` :276・`validate_retranscribe` :344・`validate_whole` :380・`validate_rerun` :408
+- **rerun.py** (455 行) — ③ 人の操作の層 human/proof: 再認識(選んだ行 each・範囲 range)のジョブの本体と、文書への反映・
+  - 名前: `record_rerun` :50・`apply_retranscribe` :86・`replace_original_multi` :155・`thin_rows` :174・`apply_range` :187・`run_retranscribe` :232・`rebuild_whole` :278・`validate_retranscribe` :362・`validate_whole` :398・`validate_rerun` :426
 - **retime.py** (32 行) — ③ 人の操作の層 human/proof: 行の時刻の候補の API の包み POST /api/retime {id, rows: [行の id…]}
   - 名前: `retime_engine` :12・`retime_doc` :18
 - **speakers.py** (672 行) — ③ 人の操作の層 human/proof: 話者判別の結果を文書へ(apply_diarization・1 人指定 single_speaker・守る行 diar_keep_row)・判別のジョブの受付と文書への書き込み(validate_diarize・

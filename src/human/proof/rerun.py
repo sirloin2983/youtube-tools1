@@ -231,6 +231,8 @@ def _apply_range(spec, lines, loose=()):
 # ---------- 再認識のジョブの本体(each・range) ----------
 def run_retranscribe(job):
     spec = job["spec"]
+    if spec.get("redo"):   # 校正の全体の再認識(validate_whole): 文字起こし 1 本 → rebuild_whole(eval_set=False)。種類は retranscribe のまま = 同じ文書の排他(DOC_LOCK)
+        return doc_jobs.run_transcribe_job(job)
     with _heavy.job_temp_wav(job) as wav:
         doc = store.read_transcript(spec["tid"])
         src = _tools.check_source(doc.get("sourcePath"))
@@ -299,6 +301,9 @@ def rebuild_whole(job, spec, fields, eval_set=True):
             _heavy.job_done(job, tid, "%sませんでした(動画が変わっていました)" % what)
             return None
         machine_only = eval_set and red.get("machineOnly") is True and doc.get("updatedAt") == red.get("base")
+        segs = list(fields.get("segments") or [])
+        if not eval_set and not segs:   # 前の全体の再認識と同じ: 文字が出なければ文書に触らない
+            raise _errors.ApiError("no_speech", "この動画からは、文字が認識されませんでした(元の行はそのままです)", 400)
         layers0 = store.layers_for(tid, doc)
         if machine_only:
             layers0 = (layers0[0], None)
@@ -309,15 +314,20 @@ def rebuild_whole(job, spec, fields, eval_set=True):
         b = _yschemas.num_or(spec.get("end")) or _yschemas.num_or(spec.get("duration")) or max(
             [_yschemas.num_or(o.get("end"), 0.0) or 0.0 for o in doc.get("original") or [] if isinstance(o, dict)] + [a + 0.01])
         kind = "evalRedo" if eval_set else "whole"
-        record_rerun(doc, spec, kind, [[a, max(b, a + 0.01)]], [dict(o) for o in doc.get("original") or [] if isinstance(o, dict)])
+        old_orig = [dict(o) for o in doc.get("original") or [] if isinstance(o, dict)]
+        keep = [] if eval_set else _layers.replace_mach_span(layers0[0], [(-1e18, 1e18)], segs, EMPTY_COVER)[1]["emptySpans"]   # 元のまま残す機械の行の区間
+        record_rerun(doc, spec, kind, [[a, max(b, a + 0.01)]], _replaced_rows(old_orig, [(-1e18, 1e18)], keep) if keep else old_orig)
         runs = doc["recognition"]["runs"]
         if old_first and runs and runs[-1].get("kind") == kind:
             runs[-1]["replacedRun"] = old_first[0]
         doc.update({k: v for k, v in fields.items() if k not in ("segments", "speakers")})
+        if keep:   # 元のまま残した機械の行の出力は古いまま(前の apply_range と同じ)・単語も残す(run_job の write_clip_records)
+            doc["original"] = sorted([o for o in old_orig if _kept(o, keep)] +
+                                     [o for o in doc.get("original") or [] if isinstance(o, dict) and not _kept(o, keep)], key=lambda o: o.get("start") or 0)
+            job["keepSpans"] = [list(p) for p in keep]
         doc["recognition"] = dict(old_rec, runs=list((fields.get("recognition") or {}).get("runs") or []) + [r for r in runs if r.get("kind")])
         for k in ("diarization", "evalReviewed", "resplit") if eval_set else ("evalReviewed", "resplit"):
             doc.pop(k, None)
-        segs = list(fields.get("segments") or [])
         if eval_set:
             doc["evalSet"] = True
             _commit_rerun(tid, doc, layers0, [(-1e18, 1e18)], segs, "eval_rebuild")
@@ -326,10 +336,18 @@ def rebuild_whole(job, spec, fields, eval_set=True):
                                lambda st: {"retranscribed": {"model": spec["model"], "lines": len(segs), "range": [a, b], "whole": True,
                                                              "kept": st["machChanged"], "emptyKept": st["emptyKept"], "at": int(time.time() * 1000)}},
                                EMPTY_COVER)
-            job["kept"], job["emptyKept"] = st["machChanged"], st["emptyKept"]
+            job["segments"], job["kept"], job["emptyKept"] = len(segs), st["machChanged"], st["emptyKept"]
     _txbase.log.info("%s: %s(%d 行%s)", "評価用の文書を作り直しました" if eval_set else "文書の全体を再認識しました", tid, len(segs),
                      "" if machine_only else "・人の層は残した")
     return tid
+
+
+def _kept(o, spans):
+    """original の行の真ん中が spans(元のまま残した機械の行の区間)に入るか(時刻が読めなければ入らない)"""
+    try:
+        return _in_spans((float(o["start"]) + float(o["end"])) / 2, spans)
+    except (KeyError, TypeError, ValueError):
+        return False
 
 
 def _fsio_norm(p):
@@ -425,7 +443,7 @@ def validate_rerun(req):
     if result != "replace":
         raise _errors.ApiError("bad_combo", "いつものエンジンの結果は機械の結果を差し替えます(候補として出すのは 2 つ目のエンジンだけ)", 400)
     if target == "whole":
-        return validate_whole(dict(req, tid=tid)), "transcribe"
+        return validate_whole(dict(req, tid=tid)), "retranscribe"   # 排他は前と同じ DOC_LOCK(flow/wire)
     mode = {"rows": "each", "span": "range", "flagged": "each"}[target]
     ids = req.get("ids")
     if target == "flagged":

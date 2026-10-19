@@ -178,11 +178,15 @@ def _doc_fields(job, spec, out, total, t_rec, pairs=None):
     return fields
 
 
-def write_clip_records(tid, clip, spec):
+def write_clip_records(tid, clip, spec, keep_spans=None):
     """文字起こしの記録を文書の横に書く: 単語の時刻 <id>.words.json・生出力 <id>.asr.json・LLM の生の提案 <id>.llm.json(あれば)。
+    keep_spans = 全体の再認識で元のまま残した機械の行の区間(その区間の前の単語は残す = replace_span_words。None = 単語を丸ごと書く)。
     ② が足すこと = ① の結果(transcribe_clip が返した clip)を、文書の id が決まったあとで記録として置く。書けなくても文書は残す(警告だけ)"""
     try:
-        _txwords.write_words(tid, clip["words"], spec["model"])
+        if keep_spans is None:
+            _txwords.write_words(tid, clip["words"], spec["model"])
+        else:
+            replace_span_words(tid, float("-inf"), float("inf"), clip["words"], spec["model"], keep_spans)
     except OSError as e:
         _txbase.log.warning("単語の時刻を保存できませんでした: %s %s", tid, e)
     try:

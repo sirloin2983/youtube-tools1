@@ -144,7 +144,6 @@ def public_job(j):
     out["redo"] = bool(sp.get("evalRedo"))   # 未確認の評価用の作り直し(eval/drill/evalbatch)
     out["redoOne"] = bool((sp.get("evalRedo") or {}).get("one"))   # 1 本ずつの作り直し(画面が押した。終わるまで編集を止める)
     out["redoSkipped"] = j.get("redoSkipped") or ""            # 手が入っていたので作り直さなかった理由
-    out["rerunWhole"] = bool(sp.get("redo"))   # 校正の全体の再認識(rerun.validate_whole。終わったら画面が読み直す・その間は編集を止める)
     if j.get("voiceError"):
         out["warnings"].append(j["voiceError"])
     out["warnings"] += [w for w in (j.get("warnings") or []) if w not in out["warnings"]]   # ジョブの中で足した注意
@@ -274,6 +273,11 @@ def run_job(job):
     kind = job.get("kind")
     if kind not in (None, "transcribe"):
         return _heavy.JOB_RUNNERS[kind](job)
+    run_transcribe_job(job)
+
+
+def run_transcribe_job(job):
+    """文字起こし 1 本のジョブの本体(run_job の続き。校正の全体の再認識 = kind retranscribe の spec redo も rerun.run_retranscribe からここを通る)"""
     spec = job["spec"]
     at_accept = len(spec.get("warnings") or [])   # 受付の注意(隣の .clip.json が壊れているなど)の数
     try:
@@ -318,7 +322,7 @@ def _run_transcribe(job, spec):
             carry_overrides(job, spec, doc)   # 同じ動画の文書があれば人の行を引き継ぐ(評価用には当てない)
             # 書き出し先の案件の動画なら、その 作業用 に置く(② flow/placement.doc_home。評価用・案件でなければ transcripts)
             store.commit(tid, doc, why="whole", mach=mach, folder=_placement.doc_home(spec["sourcePath"], eval_set=spec.get("evalSet") is True))
-        _flowtx.write_clip_records(tid, clip, spec)   # 単語の時刻・生出力・LLM の生の提案(② が文書の横に書く。書けなくても文書は残す)
+        _flowtx.write_clip_records(tid, clip, spec, keep_spans=job.get("keepSpans"))   # 単語の時刻・生出力・LLM の生の提案(② が文書の横に書く。書けなくても文書は残す)
         # 話者の自動判別(評価用だけ。決定 3-47 Q7)。「完了」にする前に足す = 判別の待ちの文書をドリルが開く間を作らない
         speakers.autodiar_after_transcribe(job, spec, tid)
         _heavy.job_done(job, tid)

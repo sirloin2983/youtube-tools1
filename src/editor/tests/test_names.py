@@ -21,7 +21,7 @@ _TESTS = os.path.dirname(os.path.abspath(__file__))
 _PUBLIC_JOB_KEYS = {
     "id", "title", "state", "phase", "progress", "tid", "error", "segments", "speakers", "unsure", "kind", "device", "createdAt",
     "errorDetail", "internal", "canRetry", "warnings", "hasClip", "into", "named", "learned", "auto", "autoSkipped",
-    "redo", "redoOne", "redoSkipped", "rerunWhole", "vadNote", "normNote", "normOk", "kept", "emptyKept", "loose"}
+    "redo", "redoOne", "redoSkipped", "vadNote", "normNote", "normOk", "kept", "emptyKept", "loose"}
 
 
 def _old_names(name="data_ed_jobs_names.txt"):

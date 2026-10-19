@@ -191,7 +191,7 @@ class RealWorkerTest(unittest.TestCase):
         self.assertEqual((d["segments"][0]["text"], d["segments"][0].get("proofed")), ("人が直した一行目", True))
         self.assertTrue(len(d["segments"]) == 3 and "ゲーム" in d["segments"][2]["text"], _texts(d))
         pj = S.public_job(whole)
-        self.assertEqual((whole["kept"], pj["kept"], pj["rerunWhole"], d["retranscribed"]["whole"]), (0, 0, True, True))   # 機械の文字は前と同じ = 3 択にする人の行は無い
+        self.assertEqual((whole["kind"], whole["kept"], pj["kept"], d["retranscribed"]["whole"]), ("retranscribe", 0, 0, True))   # 機械の文字は前と同じ = 3 択にする人の行は無い
         self.assertEqual(d["recognition"]["runs"][-1]["kind"], "whole")
         self.assertTrue(S.hist_stamps(tid))
         self.assertEqual(S.WORKER.proc.pid, pid)                                      # 同じワーカー(モデルを持ったまま)を使い回す
@@ -356,6 +356,61 @@ class WorkerTest(unittest.TestCase):
         d["segments"][0].update(text=text, proofed=True, speaker="")
         S.save_transcript(tid, dict(d, baseUpdatedAt=d["updatedAt"]))
         return self.doc(tid)
+
+    def test_whole_counts_proofed_rows_where_machine_changed(self):
+        """機械の文字が前と変わった所の校正済みの行は 3 択の数(kept)に入る(同じ見本・同じモデルの本物では機械の文字が変わらない)"""
+        tid = self.transcribe()["tid"]
+        self._proof_first(tid)
+        real = S.transcribe_fake
+
+        def changed(job, spec, wav, total):   # 新しい認識の機械の文字を前と変える
+            for x in real(job, spec, wav, total):
+                yield dict(x, text=x["text"] + "改")
+        with mock.patch.object(S, "transcribe_fake", changed):
+            _spec, job = self._whole(tid)
+        self.assertEqual(job["state"], "done", job.get("error"))
+        self.assertEqual(self.doc(tid)["segments"][0]["text"], "人が直した一行目")
+        self.assertEqual((job["kept"], S.public_job(job)["kept"]), (1, 1))
+
+    def test_whole_keeps_empty_rows_and_no_speech(self):
+        """新しい認識でほぼ空だった所の機械の行は印つきで残し、その original も古いまま(前の apply_range と同じ)。文字が 1 つも出なければ文書に触らない(no_speech)"""
+        tid = self.transcribe()["tid"]                                        # 4 秒ごとの行(8〜12 秒 = テスト文3)
+        before = self.doc(tid)
+        real = S.transcribe_fake
+
+        def gap(job, spec, wav, total):
+            for x in real(job, spec, wav, total):
+                if not 8.0 <= x["start"] < 12.0:
+                    yield x
+        with mock.patch.object(S, "transcribe_fake", gap):
+            _spec, job = self._whole(tid)
+        self.assertEqual(job["state"], "done", job.get("error"))
+        d = self.doc(tid)
+        kept = [g for g in d["segments"] if g["text"] == "テスト文3"]
+        self.assertTrue(kept and S.EMPTY_FLAG in kept[0]["flag"], _texts(d))
+        self.assertEqual(job["emptyKept"], 1)
+        self.assertIn("テスト文3", [o["text"] for o in d["original"]])   # 残した行の機械の出力は古いまま
+        with mock.patch.object(S, "transcribe_fake", lambda *a: iter(())):
+            _spec, job = self._whole(tid)
+        self.assertEqual((job["state"], self.doc(tid)["updatedAt"]), ("error", d["updatedAt"]))   # 文書は書かない
+        self.assertNotEqual(before["updatedAt"], d["updatedAt"])
+
+    def test_whole_is_exclusive_with_other_doc_jobs(self):
+        """全体の再認識の最中(待ち・実行中)は、同じ文書の範囲の再認識・話者の判別・2 本目の全体を断る(種類 retranscribe = DOC_LOCK。10-20 の退行の直し)"""
+        tid = self.transcribe()["tid"]
+        spec, kind = S.validate_rerun({"tid": tid, "target": "whole", "model": "small"})
+        self.assertEqual(kind, "retranscribe")
+        job = S.add_job(spec, kind)   # 動かさない = 待ちのまま
+        try:
+            ids = [g["id"] for g in self.doc(tid)["segments"]]
+            for fn in (lambda: S.validate_retranscribe({"tid": tid, "ids": ids[:2], "mode": "range", "model": "small"}),
+                       lambda: S.validate_diarize({"tid": tid, "numSpeakers": 2}),
+                       lambda: S.validate_rerun({"tid": tid, "target": "whole", "model": "small"})):
+                with self.assertRaises(S.ApiError) as c:
+                    fn()
+                self.assertEqual(c.exception.code, "busy")
+        finally:
+            S.cancel_job(job["id"])
 
     def test_whole_keeps_human_rows(self):
         """全体の再認識は人の層を残す(校正済みの行・直した行)。評価用の machineOnly は見ない = 手つかずの文書でも人の層は持ったまま"""
