@@ -281,7 +281,7 @@ class TestValidate(unittest.TestCase):
 
 
 class TestBodies(unittest.TestCase):
-    """束 → 各ツールの API の本文(RS6 b-0)。同じ画面の設定から前と同じ本文になることは src/app/tests/test_autorun.py の TestSpecSameBodies"""
+    """束 → 各ツールの API の本文。画面の設定 → 束は src/app/tests/test_autorun.py の TestSpecFromSettings"""
 
     def test_key_ok(self):
         self.assertTrue(spec.key_ok("pack", "wrapChars", {"vertical": 9}))   # 辞書は既定に重ねてから見る

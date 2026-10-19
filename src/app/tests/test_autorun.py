@@ -117,7 +117,7 @@ def start_file(ar, path, title="", streamer=None, request_id=None, flow="check",
 
 
 def _fake_preview(video, out, **kw):
-    """確認用の動画は ffmpeg を使うので偽物(中身は test_deliver の PreviewTest で確かめる)。差し替えは Base.setUp で(テストの間だけ。
+    """確認用の動画は ffmpeg を使うので偽物(中身は test_deliver の DeliverRun.test_deliver_run が本物の ffmpeg で確かめる)。差し替えは Base.setUp で(テストの間だけ。
     モジュールの読み込み時に差し替えると、同じプロセスで流す test_deliver の本物のテストまで偽物になる)"""
     with open(out, "wb") as f:
         f.write(b"PREVIEW")
@@ -1147,7 +1147,7 @@ class TestRequests(Base):
 
     def test_request_auto_delivers_packs(self):
         """① 全自動(URL): 解析 → 採用 → 書き出し → 文字起こし → パック → パックができるたびに 1 本ずつ届ける(組はない): 1 本の zip + 隣の確認用の動画 + 隣の印(meta)。
-        実行の欄(依頼 id・配信・マーク)が印と届けた記録まで届く。置く順・印の欄の形は src/flow/tests/test_deliver.py の OriginTest"""
+        実行の欄(依頼 id・配信・マーク)が印と届けた記録まで届く。置く順・印の欄の形は src/flow/tests/test_deliver.py の DeliverRun.test_deliver_run"""
         self.tools.known = False
         run = self.auto_request()
         self.assertEqual((run["state"], run["mode"]), ("done", "request_auto"), run)
@@ -1640,7 +1640,7 @@ class TestAutoSend(Base):
         zips = sorted(n for n in names if n.endswith(".zip"))
         self.assertEqual(sorted(names), sorted(z[:-4] + e for z in zips for e in (".zip", ".preview.mp4", ".meta.json")), names)   # 1 本ずつ
         self.assertEqual([self.meta(z)["origin"] for z in zips], ["auto", "auto"])   # 自動の分は印の出どころ auto(友人には「依頼なし」)
-        rows = self.rows()   # 届けた記録の欄の形・案件の札は src/flow/tests/test_deliver.py の OriginTest・src/manage/cases/tests/test_cases.py
+        rows = self.rows()   # 届けた記録の欄の形・案件の札は src/flow/tests/test_deliver.py の DeliverRun.test_deliver_run・src/manage/cases/tests/test_cases.py
         self.assertEqual(({(r["origin"], r["videoId"], r["mode"]) for r in rows}, sorted(p["markId"] for r in rows for p in r["packs"])),
                          ({("auto", VID, "full")}, ["a2", "a3"]))
         self.assertTrue(all(r["endedAt"] == (self.stream["releaseTs"] + self.stream["duration"]) * 1000 for r in rows), rows)   # 配信の終わり(ミリ秒)
