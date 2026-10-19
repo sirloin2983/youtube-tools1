@@ -6,7 +6,8 @@
 
 - `Ledger` = 採用の台帳の書き方の 1 つ(書く道 _writing・保存 _put・登録 ensure・解析の反映 replace_auto・採用 adopt_marks・書き出し済み mark_exported・
   案件にする _make_case)。行の置き方(行を読む _row・1 行を書く _commit)は継ぐ側が付ける。人の操作(学習の記録・自己検査)は継ぐ側の口(既定は何もしない)。
-  今は StudioBook が継ぐ(スタジオの Store が継ぐのは次の段 = OPT-H2 7b-1 の続き)
+  継ぐのは 2 つ: StudioBook(下。data.json を毎回読み直す)とスタジオの Store(③ human/review/store。data.json をメモリに持つ。OPT-H2 7b-1)。
+  ② は ③ を読まない = 継ぐ向きは ③ → ② だけ
 - `StudioBook(path)` = 台帳(Ledger + data.json の 1 行の置き方)。スタジオの data.json(path)と、案件にした配信の 案件の `作業用/候補.json`・`作業用/採用.json`(flow/casebook)を読み書きする。
   形・決まりはスタジオの Store と同じ 1 つ(ytt の物を使う): 行の読み方 ytt/studiodata.load_video・解析の反映 ytt/marks.replace_auto・
   採用の規則 F-5 は ② flow/adopt(① pipeline/analyze/adopt)・書き出し済みにする ytt/marks.exported_mark・索引の行 ytt/casefiles.index_row・
@@ -14,7 +15,7 @@
   data.json はメモリに持たず、変えるたびに読み直して 1 行だけ置き換えて書く(ほかの配信の行・コラボのまとまりはそのまま。1 つ前は .bak・原子的)。
   同じ作業データでスタジオ(入口)と同時に書かないことは .flow.lock が守る(入口は lock を取れなければ起動しない・CLI は入口が動いていれば入口に頼む)。
   data.json が壊れていたら書かない(ApiError 500。直すのは入口 = スタジオの Store が退避して空で起動する)。
-  スタジオと違うこと: 学習の記録(③ の feedback)は書かない(人の判定ではない・③ を読まない)。盛り上がりのグラフは cache/series へ書く(画面で出る)。
+  スタジオと違うこと: 機械の記録(③ の machinelog)は書かない(人の判定ではない・③ を読まない)。盛り上がりのグラフは cache/series へ書く(画面で出る)。
   コラボのまとまりへの転写はしない(人の採用ではないので Store の adopt_marks もしない)
 - `LocalStudio(book)` = 段が頼む動詞(flow/tools の HttpTools の video・analyze_add・analyze_items・analyze_cancel・request_marks・export_start・
   export_job・export_cancel と同じ名前・同じ返す形)。解析の順番は flow/batch.Batch(台帳を store に)・書き出しは ② の器 flow/export(中身は ① pipeline/export/exporter)
@@ -52,7 +53,7 @@ def _need(v):
 
 
 class Ledger:
-    """採用の台帳の書き方(② の 1 つ)。行の置き方は継ぐ側が付ける。ロックの順は self.lock → casefiles.lock(root)。
+    """採用の台帳の書き方(② の 1 つ。StudioBook とスタジオの Store が継ぐ)。行の置き方は継ぐ側が付ける。ロックの順は self.lock → casefiles.lock(root)。
     継ぐ側が付ける物: self.lock(RLock)・self.out_dir()(書き出し先。初めて書き出したとき案件を引く)・
     _row(vid) = 行(メモリの形 = 全部の形か索引の行)か None・_commit(vid, row) = 1 行を data.json の形で書く。
     継ぐ側が替えてよい口(既定のまま = StudioBook): _full(row) = 全部の形・_pub(v) = 返す形・_after_put(root, body) = 案件に書いたあと・

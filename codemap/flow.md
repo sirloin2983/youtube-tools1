@@ -87,8 +87,8 @@
   - 名前: `class SpecVersionError` :65・`class BadSpecError` :69・`check_spec` :73・`disk_blocked` :87・`gpu_info` :101・`busy_reason` :115・`doc_id_ok` :124・`result_case` :172・`board_job` :183・`class Queue` :201
 - **spec.py** (599 行) — ① に渡す指定の束(spec)の形・既定値・検査(RS1-6。計画 notes:plan/done/role-restructure.md の 5-4)。
   - 名前: `num_ok` :48・`check_range` :58・`check_ranges` :73・`clean_ranges` :92・`pad_range` :108・`check_weights` :116・`clean_weights` :127・`top_arg` :136・`marks_arg` :145・`row_edge_ok` :155・`merge` :260・`merge_onto` :268・ほか 10
-- **studiobook.py** (475 行) — ② 管理の層 flow: スタジオなしの配信の台帳と、URL の段の動詞(RS8 の「URL も CLI で」)。
-  - 名前: `class Ledger` :54・`class StudioBook` :265・`class LocalStudio` :380
+- **studiobook.py** (476 行) — ② 管理の層 flow: スタジオなしの配信の台帳と、URL の段の動詞(RS8 の「URL も CLI で」)。
+  - 名前: `class Ledger` :55・`class StudioBook` :266・`class LocalStudio` :381
 - **thumbs.py** (28 行) — ② サムネの案の口(OPT-H2 の組 A)。③ の editor/thumb_ideas.py(案の決め方・文字起こしを読む殻)が、① pipeline/export/thumb_cards を直に読まずに済むための動詞だけを出す。
   - 名前: `font` :13・`scan` :18・`render` :25
 - **tools.py** (471 行) — ② 管理の層 flow: 段が道具を呼ぶ継ぎ目 Tools(RS6 b-0)。

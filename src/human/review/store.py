@@ -1,4 +1,7 @@
 """③ 動画とマークの保存(data.json)。スレッドセーフ・原子的に書き込む。スタジオの `Store` が書き手(スタジオなしの書き手は ② flow/studiobook の StudioBook)。
+- 書き方(書く道 _writing・保存 _put・登録 ensure・解析の反映 replace_auto・採用 adopt_marks・書き出し済み mark_exported・案件にする _make_case)は
+  ② flow/studiobook の Ledger を継ぐ(StudioBook と 1 つ。OPT-H2 7b-1)。ここは data.json をメモリに持つ行の置き方(_row・_commit)と、
+  ③ だけの口(_full のキャッシュと 503・_pub・案件に書いたあとの読み直し _after_put・機械の記録 _on_exported・グラフ _save_series)・人の保存・コラボ・画面の設定
 
 - 動画: youtube(id=YouTube動画ID) / file(id="f"+sha1(絶対パス)[:10])。file のパスはサーバー内部だけが持ち、クライアントには返さない。
 - マーク: サーバーが検査・整形する。status / file / src / 点数 / auto0 などのサーバー由来の値はクライアントから書き換えられない。
@@ -34,8 +37,7 @@ from ytt import fsio as _fsio, marks as _marks, mediainfo as _media, schemas, se
 
 from ytt import casefiles as _casefiles  # noqa: E402  案件の 候補.json・採用.json の読み・重ね方・ロック
 from ytt import studiodata as _studiodata  # noqa: E402  data.json の行の読み方(load_video)と盛り上がりグラフの書き方(save_series)・形の名前 SCHEMA。flow/studiobook と共有
-from flow import adopt as _flow_adopt  # noqa: E402  採用の規則 F-5 の口(① pipeline/analyze/adopt)
-from flow import casebook as _casebook  # noqa: E402  案件の分け方・引き方・書き
+from flow import studiobook as _studiobook  # noqa: E402  台帳の書き方 Ledger(書く道・保存・登録・解析の反映・採用・書き出し済み・案件にする。StudioBook と 1 つ = OPT-H2 7b-1)
 from . import machinelog  # noqa: E402  機械の記録 machine_marks.jsonl(呼ぶたびに machinelog.名前 で読む。人の採否は judgments)
 from human import judgments as _judgments  # noqa: E402  人の判断の記録(作業データの app/judgments.jsonl。MARKS-3 S1a)
 from ytt import datadir as _datadir  # noqa: E402  作業データの app の場所(入口が登録する。Store の app_dir の既定)
@@ -55,10 +57,6 @@ COLLAB_MARGIN = 2.5     # 転写した区間を前後に広げる秒数(反応�
 ANCHOR_A_MIN, ANCHOR_A_MAX = 0.5, 1.5   # アンカー点から求めた傾き(ドリフト補正)の妥当な範囲。外れたら入力ミスの可能性が高い
 MIN_ANCHOR_GAP = 20.0   # 2点指定のとき、この動画の時刻でこれ以上離れていることを要求する(近すぎると傾きが不安定)
 
-# ---- 案件にした配信 ----
-_CASE_SKIP = (_casefiles.UNSEEN_CODE, _casefiles.BROKEN_CODE)   # 反映しない(ログだけ)で済ませる案件の読めなさ
-
-
 def _warn(msg):
     """警告のログ(入口は studio.log にも残す = studio/serve の _WarnToStudioLog。7d-2)"""
     _log.warning(msg)
@@ -77,10 +75,6 @@ def _ref(video):
     """録画の配信の出どころ(ref.recorder・ref.recording)。録画でなければ None"""
     lv = video.get("live") if video.get("kind") == "live" else None
     return {"recorder": lv.get("recorder"), "recording": lv.get("recording")} if lv else None
-
-
-_index_row = _casefiles.index_row   # 全部の形 -> data.json の索引の行(ytt/casefiles)
-_stored = _casefiles.stored         # 全部の形 -> 案件のファイルに分ける形(印 case・caseUnseen を外す)
 
 
 # ---- コラボグループの時刻対応(t_ref = a * t_this + b。区分的な配列を持てるが、v0 は要素1つだけ作る) ----
@@ -238,7 +232,7 @@ class SeriesCache(dict):
         return super().pop(vid, *default)
 
 
-class Store:
+class Store(_studiobook.Ledger):
     """スタジオの台帳(③。書き手は 1 つ)。data.json をメモリに全部持ち、変えるときは新しい形を作って保存してからメモリを替える。
     案件にした配信は 候補.json・採用.json を読んで重ねる(_full)・書くのは _writing の中(案件の錠)。ロックの順は Store.lock → casefiles.lock(root)。
     人の判断の記録(judgments.jsonl)と機械の記録(machine_marks.jsonl)は保存に成功したあと、ロックの外で書く。スタジオなしの書き手は ② flow/studiobook の StudioBook(同じ形で書く)"""
@@ -358,12 +352,6 @@ class Store:
         """グループ1件ぶんの新しい状態を保存する(ng=None で削除)。"""
         self._save(self.videos, _replaced(self.groups, gid, ng))
 
-    def _bump(self, nv, prev=None, keep=True):
-        """動画の新しい状態(nv)の版を上げて保存する(案件の配信は _put の決まり。prev・keep も _put)。"""
-        nv["rev"] += 1
-        nv["updatedAt"] = schemas.now_ms()
-        self._put(nv, prev, keep)
-
     def _need(self, vid):
         """登録済みの動画(メモリの行。案件の配信は索引の行 = 全部の形は _full)。無ければ ApiError 404。self.lock を取っていること"""
         v = self.videos.get(str(vid or ""))
@@ -390,43 +378,11 @@ class Store:
             if strict:
                 raise _casefiles.unseen(root, "案件の採用の記録にこの配信がありません")
             return dict(v, duration=0.0, fileName="", path="", marks=[], analysis=None, caseUnseen=True)
-        return self._fill(full, v, root)
-
-    _fill = staticmethod(_casefiles.fill)   # 重ねた形の欠けを索引の行で埋めて印 case を付ける(ytt/casefiles)
-
-    @contextlib.contextmanager
-    def _writing(self, row):
-        """書く道の入口(self.lock を取っていること)。案件の配信なら案件のロック(いつも Store.lock のあと)を持ったまま、
-        案件のファイルを読み直して(キャッシュなし)重ねた全部の形と今の (候補, 採用) を渡す。案件でなければ (row, None)。
-        案件が見えなければ ApiError 503(case_unseen)・採用.json が .bak も読めなければ 500(case_broken)"""
-        root = row.get("case")
-        if not root:
-            yield row, None
-            return
-        with _casefiles.lock(root):
-            prev = _casefiles.read(root)
-            full = _casefiles.merge(*prev, row["id"], root)
-            if full is None:
-                raise _casefiles.unseen(root, "案件の採用の記録にこの配信がありません")
-            yield self._fill(full, row, root), prev
-
-    def _put(self, nv, prev=None, keep=True):
-        """動画1本の新しい状態を保存する。案件の配信(nv に case。_writing の中で呼ぶ)は 採用 → 候補 → data.json の索引の行の順。
-        keep=True(人の保存・書き出しの記録・コラボ・題): ① の 候補.json は書き換えず、画面から消えた候補は 採用.json の消した印に。
-        keep=False(再解析): 候補を作り直す。案件のファイルを書けなければ ApiError(メモリと data.json は変えない)"""
-        root = nv.get("case")
-        if not root:
-            self._commit(nv["id"], nv)
-            return
-        body = _stored(nv)
-        cands, adopts = _casebook.split(body, root, prev=prev, keep_candidates=keep)
-        _casebook.write(root, None if keep else cands, adopts)
-        self._self_check(root, body)
-        self._commit(nv["id"], _index_row(body, root))
+        return _casefiles.fill(full, v, root)
 
     @staticmethod
-    def _self_check(root, body):
-        """案件に書いた配信を同じロックの中で読み直して重ね、書いた物と違えば警告のログだけ(保存は落とさない)"""
+    def _after_put(root, body):
+        """Ledger の口: 案件に書いた配信を同じロックの中で読み直して重ね、書いた物と違えば警告のログだけ(保存は落とさない)"""
         try:
             got = _casefiles.merge(*_casefiles.read(root), body["id"], root)
         except Exception as e:   # 読めない = 次の読みで分かる(ここでは落とさない)
@@ -436,21 +392,26 @@ class Store:
             diff = sorted(k for k in set(got or {}) | set(body) if (got or {}).get(k) != body.get(k))
             _warn("案件に書いた配信を読み直すと違います(%s。欄: %s): %s" % (body["id"], ",".join(diff)[:200], root))
 
-    def _make_case(self, nv, root):
-        """初めて書き出した配信(nv = 全部の形)を案件 root にして保存する: ① 案件のファイル(split(prev) = 同じ案件のほかの配信は引き継ぐ)
-        ② data.json の索引の行。① ができなければ全部の形のまま data.json へ(書き出しの記録を落とさない。次の書き出しでもう一度試す)。
-        ① のあと ② が落ちても data.json は全部の形のまま = 次の書き出しで同じ根に split(prev) で上書きされて直る"""
-        with _casefiles.lock(root):
-            try:
-                prev = _casefiles.read(root)
-                nv = _casebook.carry_over(prev, nv, root)   # 消して入れ直した配信は 採用.json の前の記録に重ねる(丸ごと置き換えない。7c-1)
-                _casebook.write(root, *_casebook.split(nv, root, prev=prev))
-            except ApiError as e:
-                _warn("案件にできませんでした(data.json のまま保存します。%s): %s" % (e.code, root))
-                self._commit(nv["id"], nv)
-                return
-            self._self_check(root, nv)
-            self._commit(nv["id"], _index_row(nv, root))
+    # ---- Ledger(② flow/studiobook)の口: 行・書き出し先・初めて書き出したマーク・盛り上がりのグラフ・警告 ----
+    def _row(self, vid):
+        """メモリの行(案件の配信は索引の行)か None"""
+        return self.videos.get(str(vid or ""))
+
+    @staticmethod
+    def out_dir():
+        """書き出し先(初めて書き出したとき案件を引く)。スタジオのメモリの値 = settings.json を読み直さない(呼ぶたびに ytt/studio_env を読む)"""
+        return _env.get_out_dir()
+
+    def _on_exported(self, v, mark):
+        """初めて書き出したマーク(自動・手動どちらも)の機械の様子を機械の記録へ(最終の区間と手で直した量つき。ロックの外)"""
+        machinelog.record(self._pub(v), dict(mark), "export")
+
+    def _save_series(self, vid, series):
+        """解析を反映できたときの盛り上がりのグラフ(メモリと cache/series。前と同じく Store.lock の中で 1 本ずつ)"""
+        with self.lock:
+            self.series[vid] = series
+
+    _warn = staticmethod(_warn)   # 警告は ytt.review.store のログ(入口は studio.log にも残す)
 
     # ---- 表現 ----
     @staticmethod
@@ -511,62 +472,15 @@ class Store:
 
     # ---- 登録・削除 ----
     def ensure(self, src, title="", channel="", probe=False):
-        """動画を(なければ作って)返す。src は flow.ingest.probe(analyze.validate_source)の結果。probe=True でファイルの長さを確認(読めなければ 400)。"""
-        vid = src["videoId"]
+        """動画を(なければ作って)返す。src は flow.ingest.probe(analyze.validate_source)の結果。probe=True でファイルの長さを確認(読めなければ 400)。
+        登録と題・チャンネル名の決まりは Ledger.ensure(空で消さない・録画は空の欄だけ・変えないなら書かない・案件の配信は 採用.json へ)"""
         dur = 0.0
-        if src["kind"] == "file" and probe and not self.has(vid):
+        if src["kind"] == "file" and probe and not self.has(src["videoId"]):
             d = _media.media_info(src["path"])[0]
             if _env.find_tool("ffmpeg") and d is None:
                 raise ApiError("bad_source", "動画・音声として読み取れないファイルです", 400)
             dur = float(d or 0)
-        with self.lock:
-            v = self.videos.get(vid)
-            if v is not None and v["kind"] != src["kind"]:
-                raise ApiError("conflict", "同じ ID の別の配信があります", 409)
-            if v is not None and v.get("case"):
-                return self._ensure_case(v, title, channel)
-            if v is None:
-                nv = {"id": vid, "kind": src["kind"], "title": "", "channel": "", "duration": dur, "fileName": "", "path": "", "marks": [], "analysis": None, "rev": 1,
-                      "createdAt": schemas.now_ms(), "updatedAt": schemas.now_ms()}
-                if src["kind"] == "file":
-                    nv["fileName"] = os.path.basename(src["path"])[:200]
-                    nv["path"] = src["path"]
-                    nv["title"] = os.path.splitext(nv["fileName"])[0][:120]
-                elif src["kind"] == "live":
-                    nv["live"] = dict(src["live"])
-            else:
-                nv = copy.deepcopy(v)
-            t, ch = str(title or "").strip()[:120], str(channel or "").strip()[:100]
-            if v is not None and v["kind"] == "live":   # 録画の登録は何度来てもよい: 既にあれば、題・チャンネル名は空のときだけ新しい値を入れる(録画の情報は変えない)
-                t = t if not nv["title"] else ""
-                ch = ch if not nv.get("channel") else ""
-                if not (t or ch):
-                    return self._pub(v)
-                nv["rev"] += 1
-                nv["updatedAt"] = schemas.now_ms()
-            elif v is not None and ((t and t != nv["title"]) or (ch and ch != nv["channel"])):
-                nv["rev"] += 1
-                nv["updatedAt"] = schemas.now_ms()   # 題を直した配信が一覧(updatedAt の新しい順)で上がる(StudioBook と同じ。7b-2)
-            nv["title"] = t or nv["title"]      # 空のタイトル・チャンネルで既存の値を消さない
-            nv["channel"] = ch or nv["channel"]
-            self._commit(vid, nv)
-            return self._pub(nv)
-
-    def _ensure_case(self, row, title, channel):
-        """ensure の案件にした配信の道(self.lock を取っていること)。題・チャンネル名の決まりは ensure と同じ。変えないなら案件のファイルは書かない"""
-        t, ch = str(title or "").strip()[:120], str(channel or "").strip()[:100]
-        if row["kind"] == "live":
-            t, ch = (t if not row["title"] else ""), (ch if not row["channel"] else "")
-        else:
-            t, ch = (t if t != row["title"] else ""), (ch if ch != row["channel"] else "")
-        if not (t or ch):
-            return self._pub(self._full(row))
-        with self._writing(row) as (v, prev):
-            nv = copy.deepcopy(v)
-            nv["title"] = t or nv["title"]
-            nv["channel"] = ch or nv["channel"]
-            self._bump(nv, prev)
-            return self._pub(nv)
+        return super().ensure(src, title, channel, dur)
 
     def delete(self, vid, if_no_marks=False):
         """if_no_marks: マークが1つでもあれば消さない(409。入口の「マークの無い録画を消す」= 線 D の P4。確かめてから消すまでの間に付いたマークを消さない)。
@@ -678,22 +592,6 @@ class Store:
         except (ValueError, OSError) as e:
             _warn("人の判断の取り消しを書けませんでした(%s): %s" % (e.__class__.__name__, vid))
 
-    def adopt_marks(self, vid, ranges, top):
-        """採用の規則(F-5。notes:plan/done/role-restructure.md 5-5・決定 3-29 Q3。スタジオの「上位 n 本を採用」・まとめて実行・友人の依頼で同じ 1 つ)を当てて保存する。
-        規則の本体は ① pipeline/analyze/adopt.py。③ は ② flow/adopt を通して呼び、ここは配信を読んで保存するだけ:
-        採用の集合 = 区間 ranges のマーク ∪ 人が採用したマーク ∪ 自動マークの点数の高い順(上限 top までの残り)。不採用と、前の 2 つに重なる自動マークは除く。
-        人の判定ではないので、機械の記録(machinelog)・コラボへの転写はしない。kind live の録画は断る(400)。
-        -> {"rangeIds"(ranges の順), "humanIds"(時刻の順), "autoIds"(点数の高い順), "added"(この呼び出しで採用にした id), "video"(公開用の動画)}"""
-        want = _flow_adopt.check(ranges, top)   # 区間・上限がだめなら 400(配信を読む前)
-        with self.lock, self._writing(self._need(vid)) as (v, prev):
-            r = _flow_adopt.pick(v, want, top)
-            nv = copy.deepcopy(v)
-            nv["marks"] = r.pop("marks")
-            if r["added"]:
-                self._bump(nv, prev)
-            r["video"] = self._pub(nv)
-            return r
-
     def adopt_live(self, src, title, start, end, label=""):
         """入口のライブの採用(POST /api/live/adopt。flow/live_adopt.py の StudioMarks): 録画の配信(kind live。src は analyze.validate_live)を
         (無ければ)登録し、区間 [start, end](録画の頭からの秒)と同じ区間(±ytt/marks.DUP_TOL 秒)のマークがあれば使い回し(候補・不採用なら採用に)、
@@ -721,88 +619,6 @@ class Store:
             snap = self.put_video(vid, None, new, base_rev=v["rev"], judged=False)   # 同じロックの中 = 版がぶつからない。人の判断の行は案件の道(S3)が書く
             mark = next(m for m in snap["marks"] if m["id"] == want)
             return vid, mark, _marks.order_of(snap["marks"], want)
-
-    def replace_auto(self, vid, cands, analysis, duration, series):
-        """解析結果を反映する。手を入れていない・書き出していない自動マークだけを置き換える。
-        手を入れた自動マーク(書き出し済み / ラベルあり / 時刻を動かした)は手動マークとして残す(点数・理由は保持)。
-        新しい自動マークは、残したマークと同じ区間(±0.5秒)なら作らない。戻り値は新しい自動マークの数(動画が消えていれば None)。
-        案件にした配信は 候補.json を作り直す(人が消した候補の印に当たる新しい候補は出さない = (r8l))。案件が見えなければログだけで反映しない(None)"""
-        with self.lock:
-            row = self.videos.get(vid)
-            if not row or row["kind"] == "live":   # live は解析しない(入口で断っているが、念のためここでも反映しない)
-                return None
-            return self._quietly(row, "解析の結果", lambda v, prev: self._replace_auto(v, prev, cands, analysis, duration, series))
-
-    def _quietly(self, row, what, fn):
-        """_writing の中で fn(全部の形, prev) を呼ぶ。案件が見えない・採用.json が読めないときは例外を上げずにログして反映しない(None。
-        flow/batch の解析の反映・コラボの転写の流儀)。保存の失敗など、ほかの ApiError はそのまま上げる。self.lock を取っていること"""
-        try:
-            with self._writing(row) as (v, prev):
-                return fn(v, prev)
-        except ApiError as e:
-            if not row.get("case") or e.code not in _CASE_SKIP:
-                raise
-            _warn("%sを案件に反映できませんでした(%s): %s" % (what, e.code, row["case"]))
-            return None
-
-    def _replace_auto(self, v, prev, cands, analysis, duration, series):
-        """replace_auto の本体(self.lock と、案件なら案件のロックを取っていること)"""
-        vid = v["id"]
-        hide = None
-        if prev is not None:   # 案件: 人が消した候補の印(id か ±5 秒の重なり)に当たる新しい候補は出さない((r8l)。印は 採用.json に残る)
-            gone = [r for r in prev[1]["rejected"] if r.get("source") == vid]
-            hide = lambda autos: _casefiles.visible(autos, [], gone)   # noqa: E731
-        marks, n = _marks.replace_auto(v["marks"], cands, hide)   # 手を入れた自動マークは手動として残す・同じ区間は作らない(ytt/marks。flow/studiobook と同じ 1 つ)
-        nv = copy.deepcopy(v)
-        nv["marks"] = marks
-        nv["analysis"] = analysis
-        if duration and duration > 0:
-            nv["duration"] = round(float(duration), 2)
-        self._bump(nv, prev, keep=False)   # 案件は 候補.json を作り直す
-        self.series[vid] = series
-        return n
-
-    def mark_exported(self, vid, mark_id, relfile, expected_start, expected_end, abspath=None, archived=None, clip=None):
-        """書き出した区間が今のマークと一致するときだけ、exported にして保存する。abspath: 書き出した mp4 の絶対パス(あれば)。
-        archived(live の配信だけ。線 D の P4): True = 本番版に入れ替え済みの印を立てる(既に書き出し済みで path が同じでも立てられる)/
-        False = 外す / None = ファイルが同じ(file・path が同じ)なら今の印のまま、違うファイルになったら外す。
-        初めて書き出した配信(それまで書き出したマークが無い・まだ案件でない)は、flow/casebook.case_of で案件の根が引けたら案件にする((r8j)。
-        書き出し先はスタジオのメモリの値 = settings.json を読み直さない)。案件が見えなければ ApiError 503(case_unseen)。
-        clip: 余白つき(LD-2f)で書き出した動画の実際の始まり・終わり (clipFrom, clipTo)(元の秒)。None = 余白なし"""
-        with self.lock:
-            row = self.videos.get(vid)
-            if not row:
-                return False
-            with self._writing(row) as (v, prev):
-                fb = self._mark_exported(v, prev, mark_id, relfile, expected_start, expected_end, abspath, archived, clip)
-        if fb is None:
-            return False
-        if fb:   # 自動・手動どちらも、初めて書き出したときに「よかった」(最終の区間と、手で直した量つき)。ロックの外で書く
-            machinelog.record(fb[0], fb[1], "export")
-        return True
-
-    def _mark_exported(self, v, prev, mark_id, relfile, expected_start, expected_end, abspath, archived, clip=None):
-        """mark_exported の本体(self.lock と、案件なら案件のロックを取っていること)。
-        -> None(記録しない)/ ()(記録した)/ (公開用の動画, マーク)(初めて書き出した = 機械の記録を書く)"""
-        m = next((x for x in v["marks"] if x["id"] == mark_id), None)
-        if not m:
-            return None
-        if abs(m["start"] - expected_start) > _marks.EDIT_TOL or abs(m["end"] - expected_end) > _marks.EDIT_TOL:
-            return None   # 書き出し中の編集を保持する。古い区間の動画は関連付けない
-        first = m["status"] != "exported"
-        nv = copy.deepcopy(v)
-        nm = _marks.exported_mark(m, relfile, abspath, archived, live=v["kind"] == "live", clip=clip)   # 状態・ファイル・本番版の印(ytt/marks。flow/studiobook と同じ 1 つ)
-        nv["marks"] = [copy.deepcopy(nm) if x["id"] == mark_id else x for x in nv["marks"]]
-        root = None
-        if prev is None and not any(x["status"] == "exported" for x in v["marks"]):   # 初めて書き出した配信だけ案件にする(既存は B3-8 の移行まで)
-            root = _casebook.case_of(nv, out_dir=_env.get_out_dir())
-        if root:
-            nv["rev"] += 1
-            nv["updatedAt"] = schemas.now_ms()
-            self._make_case(nv, root)
-        else:
-            self._bump(nv, prev)
-        return (self._pub(nv), dict(nm)) if first else ()
 
     # ---- コラボ動画のマーク転写(グループ) ----
     def _video_group(self, vid):
