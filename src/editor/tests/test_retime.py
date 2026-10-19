@@ -4,23 +4,22 @@
     py -3.12 -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
     py -3.12 -m unittest test_retime -q                 # これだけ(src/editor/tests で)
 
-- 読む速さ: 文字の数え方・速い/短いの印・対象外(noSub・カット済・1 文字)・設定 subtitle.read。
-  例は tests/subread_cases.json(画面の readMark も同じ例で確かめる = test_document_save.cjs)
-- 時刻の候補 retime_candidates(純粋な関数): 当て方・人が足した文字・当たりが少ない・差が小さい・前後の行で詰める(同じ話者だけ)・
-  伸ばしの単語・短すぎる・大きく動かした行・単語の途中・終わりの端を出さない
-- API の本体 retime_doc: 単語の時刻が無い・候補・文書を書き換えない・行の指定の検査・serve の名前で呼べる
+- 読む速さ: 文字の数え方・速い/短いの印・対象外(1 文字・行でない物)・設定 subtitle.read。例は tests/subread_cases.json(画面の readMark も同じ例 = test_document_save.cjs)
+- 時刻の候補: 保存した文書 1 本(場面ごとに 100 秒ずつ離した行の見本)と words.json を API の入口 retime_doc に通し、候補をまとめて確かめる
+  (当て方・かなと句読点・人が足した字・当たりが少ない・差が小さい・短すぎる・大きく動かした行・前後の同じ話者の行で詰める・両方の候補が重ならない・
+  伸ばしの単語・単語の途中・同じ言葉が 2 回・空の行・知らない行・終わりの端を出さないエンジン・文書を書き換えない)
 """
 import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所に書かない(ytt.datadir)
 import sys
 import unittest
+from unittest import mock
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(TESTS))
 sys.path.insert(0, TESTS)
 from test_backend import S, TID, StoreDir  # noqa: F401,E402  (S = serve)
-from human.proof import retime as R  # noqa: E402  (文書を読む包み = retime_engine・retime_doc)
 from pipeline.transcribe import retime  # noqa: E402  (計算 = subread_*・retime_candidates)
 import ed_state  # noqa: E402
 from ytt import testkit  # noqa: E402
@@ -29,181 +28,109 @@ with open(os.path.join(TESTS, "subread_cases.json"), encoding="utf-8") as _f:
     CASES = json.load(_f)
 
 
-def _row(i, a, b, text, **kw):
-    return dict({"id": "s%d" % i, "start": a, "end": b, "text": text, "speaker": ""}, **kw)
-
-
 def _chars(t0, text, step=0.2):
     """1 文字ずつの単語(t0 から step 秒ずつ)"""
     return [[round(t0 + i * step, 3), round(t0 + (i + 1) * step, 3), ch] for i, ch in enumerate(text)]
 
 
 class TestSubread(unittest.TestCase):
-    def test_chars_same_as_screen(self):
+    def test_chars_marks_and_limits(self):
         for text, n in CASES["chars"]:
-            with self.subTest(text=text):
-                self.assertEqual(retime.subread_chars(text), n)
-
-    def test_marks_same_as_screen(self):
+            self.assertEqual(retime.subread_chars(text), n, text)
         for row, want in CASES["marks"]:
-            with self.subTest(row=row):
-                m = retime.subread_mark(row)
-                self.assertEqual(None if m is None else [m["fast"], m["short"]], want)
-
-    def test_mark_values(self):
+            m = retime.subread_mark(row)
+            self.assertEqual(None if m is None else [m["fast"], m["short"]], want, row)
         m = retime.subread_mark({"start": 1.0, "end": 1.4, "text": "あいうえおかき"})   # 7 文字 / 0.4 秒
         self.assertEqual((m["chars"], m["sec"], m["cps"]), (7, 0.4, 17.5))
         self.assertIsNone(retime.subread_mark({"start": 0, "end": 0, "text": "あ"}))      # 1 文字は数えない(長さ 0 でも)
         self.assertIsNone(retime.subread_mark("not a row"))
-
-    def test_limits_from_settings(self):
         self.assertEqual(retime.subread_limits({}), {"fastCps": 10.0, "shortSec": 0.5})
-        st = {"subtitle": {"orientation": "vertical", "read": {"fastCps": 14, "shortSec": 0.3}}}
+        st = {"subtitle": {"orientation": "horizontal", "maxChars": {"vertical": 16, "horizontal": 28}, "read": {"fastCps": 14, "shortSec": 0.3}}}
         lim = retime.subread_limits(st)
         self.assertEqual(lim, {"fastCps": 14.0, "shortSec": 0.3})
         self.assertIsNone(retime.subread_mark({"start": 0, "end": 1.0, "text": "あいうえおかきくけこさ"}, lim))   # 11 字/秒 < 14
-        for bad in ({"fastCps": 1}, {"fastCps": True}, {"shortSec": "0.3"}, {"shortSec": 9}, "x"):
-            with self.subTest(bad=bad):
-                self.assertEqual(retime.subread_limits({"subtitle": {"read": bad}}), {"fastCps": 10.0, "shortSec": 0.5})
-
-    def test_subtitle_settings_unchanged(self):
-        """設定の subtitle に read を足しても、今の subtitle_settings の結果(向き・文字数)は変わらない"""
-        st = {"subtitle": {"orientation": "horizontal", "maxChars": {"vertical": 16, "horizontal": 28}, "read": {"fastCps": 12}}}
-        self.assertEqual(S.subtitle_settings(st)["orientation"], "horizontal")
+        self.assertEqual(S.subtitle_settings(st)["orientation"], "horizontal")   # read を足しても字幕の設定(向き・文字数)は変わらない
         self.assertNotIn("read", S.subtitle_settings(st))
+        for bad in ({"fastCps": 1}, {"fastCps": True}, {"shortSec": "0.3"}, {"shortSec": 9}, "x"):
+            self.assertEqual(retime.subread_limits({"subtitle": {"read": bad}}), {"fastCps": 10.0, "shortSec": 0.5}, bad)
 
 
-class TestRetimeCandidates(unittest.TestCase):
-    def test_moves_both_edges_to_words(self):
-        words = _chars(1.0, "こんにちは")          # 1.0〜2.0
-        c = retime.retime_candidates([_row(1, 0.5, 2.5, "こんにちは")], words)
-        self.assertEqual(c, [{"id": "s1", "start": 1.0, "end": 2.0, "matched": 1.0, "dStart": 0.5, "dEnd": -0.5,
-                              "edges": ["start", "end"], "from": {"start": 0.5, "end": 2.5}}])
+def _row(i, a, b, text, **kw):
+    return dict({"id": "s%d" % i, "start": a, "end": b, "text": text, "speaker": ""}, **kw)
 
-    def test_folds_kana_and_punct(self):
-        """寄せて比べる(カタカナ ↔ ひらがな・句読点・伸ばし)"""
-        words = _chars(1.0, "コンニチハ、")
-        c = retime.retime_candidates([_row(1, 1.4, 2.6, "こんにちは")], words)
-        self.assertEqual((c[0]["start"], c[0]["end"]), (1.0, 2.2))   # 最後の「、」(寄せると何も残らない単語)まで終わりに含める
 
-    def test_human_added_head_char_keeps_start(self):
-        """人が足した頭の字(単語に無い)は当たらない → 開始は候補にしない(終わりだけ)"""
-        words = _chars(1.0, "こんにちは")
-        c = retime.retime_candidates([_row(1, 0.5, 2.5, "えっこんにちは")], words)
-        self.assertEqual((c[0]["start"], c[0]["end"], c[0]["edges"]), (0.5, 2.0, ["end"]))
-        self.assertAlmostEqual(c[0]["matched"], 5 / 7, places=3)
-
-    def test_human_added_middle_char(self):
-        words = _chars(1.0, "こんにちは")
-        c = retime.retime_candidates([_row(1, 0.5, 2.5, "こんにわちは")], words)
-        self.assertEqual((c[0]["start"], c[0]["end"]), (1.0, 2.0))
-
-    def test_gives_nothing(self):
-        five = _chars(1.0, "こんにちは")
-        for name, row, words in (("当たりが少ない", _row(1, 0.5, 2.5, "さようならまたね"), five),
-                                 ("3/9 < 0.6", _row(1, 0.5, 2.5, "こんばんはみなさま"), five),
-                                 ("差が小さい", _row(1, 0.95, 2.05, "こんにちは"), five),
-                                 ("短すぎる", _row(1, 0.6, 1.6, "あい"), [[1.0, 1.1, "あ"], [1.1, 1.2, "い"]]),
-                                 ("大きく動かした行", _row(1, 6.0, 7.0, "こんにちは"), _chars(10.0, "こんにちは"))):
-            with self.subTest(name):
-                self.assertEqual(retime.retime_candidates([row], words), [])
-
-    def test_small_start_delta_moves_end_only(self):
-        c = retime.retime_candidates([_row(1, 0.95, 2.4, "こんにちは")], _chars(1.0, "こんにちは"))
-        self.assertEqual(c[0]["edges"], ["end"])
-
-    def test_clamped_by_same_speaker_neighbor(self):
-        """前の行と同じ話者(か話者なし)なら、重ならない所まで詰める。違う話者の行・字幕に出さない行とはそのまま重ねる"""
-        words = _chars(0.0, "まえ") + _chars(0.8, "こんにちは")      # 「こ」は 0.8 から
-        segs = [_row(1, 0.0, 1.0, "まえ", speaker="a"), _row(2, 1.3, 1.8, "こんにちは", speaker="a")]
-        c = retime.retime_candidates(segs, words, ["s2"])
-        self.assertEqual((c[0]["start"], c[0]["end"]), (1.0, 1.8))   # 0.8 → 前の行の終わり 1.0 まで
-        segs[0]["speaker"] = "b"
-        c = retime.retime_candidates(segs, words, ["s2"])
-        self.assertEqual(c[0]["start"], 0.8)
-        segs[0]["speaker"] = "a"
-        segs[0]["noSub"] = True
-        self.assertEqual(retime.retime_candidates(segs, words, ["s2"])[0]["start"], 0.8)
-        segs[0].pop("noSub")
-        segs[1]["speaker"] = ""                                            # 話者の無い行は重ならない側
-        self.assertEqual(retime.retime_candidates(segs, words, ["s2"])[0]["start"], 1.0)
-
-    def test_neighbor_candidates_do_not_cross(self):
-        """両方の行に候補があっても、両方を採って重ならない"""
-        words = _chars(0.0, "あいうえお") + _chars(1.0, "かきくけこ")
-        segs = [_row(1, 0.0, 0.8, "あいうえおか"), _row(2, 1.4, 2.0, "かきくけこ")]   # 1 行目に「か」を足した(人)・2 行目の頭は 1.0
-        c = {x["id"]: x for x in retime.retime_candidates(segs, words)}
-        self.assertLessEqual(c["s1"]["end"], c["s2"]["start"])
-
-    def test_long_vowel_word_extends_end(self):
-        words = [[1.0, 1.5, "うわ"], [1.52, 2.4, "ー"], [2.45, 3.0, "天井"]]
-        c = retime.retime_candidates([_row(1, 1.0, 1.5, "うわー")], words)
-        self.assertEqual((c[0]["end"], c[0]["edges"]), (2.4, ["end"]))
-        words[1][0] = 1.8                                                  # すき間が空いていれば含めない
-        self.assertEqual(retime.retime_candidates([_row(1, 1.0, 1.3, "うわー")], words)[0]["end"], 1.5)
-
-    def test_inside_multichar_word(self):
-        """単語の途中の字は字数で割り振る(「こんにちは」1.0〜2.0 の 3 字目から)"""
-        c = retime.retime_candidates([_row(1, 0.8, 2.5, "にちは")], [[1.0, 2.0, "こんにちは"]])
-        self.assertEqual((c[0]["start"], c[0]["end"]), (1.4, 2.0))
-
-    def test_end_edge_off(self):
-        words = _chars(1.0, "こんにちは")
-        c = retime.retime_candidates([_row(1, 0.5, 2.5, "こんにちは")], words, end_ok=False)
-        self.assertEqual((c[0]["start"], c[0]["end"], c[0]["edges"]), (1.0, 2.5, ["start"]))
-
-    def test_skips_blank_and_unknown(self):
-        words = _chars(1.0, "こんにちは")
-        segs = [_row(1, 0.5, 2.5, ""), _row(2, 0.5, 2.5, "   "), _row(3, 0.5, 2.5, "こんにちは")]
-        self.assertEqual([x["id"] for x in retime.retime_candidates(segs, words)], ["s3"])
-        self.assertEqual(retime.retime_candidates(segs, words, ["nope"]), [])
-        self.assertEqual(retime.retime_candidates(segs, []), [])
-
-    def test_repeated_phrase_prefers_near_current_end(self):
-        """同じ言葉が窓の中に 2 回あれば、今の行の終わりに近い方"""
-        words = _chars(0.0, "はい") + _chars(1.2, "はい")
-        c = retime.retime_candidates([_row(1, 1.0, 1.9, "はい")], words)
-        self.assertEqual((c[0]["start"], c[0]["end"]), (1.2, 1.6))
-
-    def test_engine(self):
-        self.assertEqual(R.retime_engine({}), "faster-whisper")
-        self.assertEqual(R.retime_engine({"recognition": {"runs": [{"kind": "alt", "engine": "x"}, {"engine": "whisper.cpp"}]}}), "whisper.cpp")
+# (行, 単語)。場面ごとに 100 秒ずつ離す(単語を探す窓と前後の行に届かない)
+SCENES = [
+    ([_row(1, 0.5, 2.5, "こんにちは")], _chars(1.0, "こんにちは")),                         # 両端を単語へ
+    ([_row(2, 101.4, 102.6, "こんにちは")], _chars(101.0, "コンニチハ、")),                 # カタカナ ↔ ひらがな・最後の「、」まで終わりに含める
+    ([_row(3, 200.5, 202.5, "えっこんにちは")], _chars(201.0, "こんにちは")),               # 人が足した頭の字 → 終わりだけ
+    ([_row(4, 300.5, 302.5, "こんにわちは")], _chars(301.0, "こんにちは")),                 # 人が足した途中の字
+    ([_row(5, 400.5, 402.5, "さようならまたね")], _chars(401.0, "こんにちは")),             # 当たりが少ない
+    ([_row(6, 500.5, 502.5, "こんばんはみなさま")], _chars(501.0, "こんにちは")),           # 3/9 < 0.6
+    ([_row(7, 600.95, 602.05, "こんにちは")], _chars(601.0, "こんにちは")),                 # 差が小さい
+    ([_row(8, 700.6, 701.6, "あい")], [[701.0, 701.1, "あ"], [701.1, 701.2, "い"]]),         # 短すぎる
+    ([_row(9, 806.0, 807.0, "こんにちは")], _chars(810.0, "こんにちは")),                   # 大きく動かした行
+    ([_row(10, 900.95, 902.4, "こんにちは")], _chars(901.0, "こんにちは")),                 # 頭の差が小さい → 終わりだけ
+    ([_row(11, 1000.0, 1001.0, "まえ", speaker="a"), _row(12, 1001.3, 1001.8, "こんにちは", speaker="a")],
+     _chars(1000.4, "まえ") + _chars(1000.8, "こんにちは")),                                 # 同じ話者の前の行と重ならない所まで詰める
+    ([_row(13, 1100.0, 1101.0, "まえ", speaker="b"), _row(14, 1101.3, 1101.8, "こんにちは", speaker="a")],
+     _chars(1100.4, "まえ") + _chars(1100.8, "こんにちは")),                                 # 違う話者とは重ねる
+    ([_row(15, 1200.0, 1201.0, "まえ", speaker="a", noSub=True), _row(16, 1201.3, 1201.8, "こんにちは", speaker="a")],
+     _chars(1200.4, "まえ") + _chars(1200.8, "こんにちは")),                                 # 字幕に出さない行とも重ねる
+    ([_row(17, 1300.0, 1301.0, "まえ", speaker="a"), _row(18, 1301.3, 1301.8, "こんにちは")],
+     _chars(1300.4, "まえ") + _chars(1300.8, "こんにちは")),                                 # 話者の無い行は重ならない側
+    ([_row(19, 1400.0, 1400.8, "あいうえおか"), _row(20, 1401.4, 1402.0, "かきくけこ")], _chars(1400.0, "あいうえお") + _chars(1401.0, "かきくけこ")),   # 両方の候補
+    ([_row(21, 1500.0, 1500.5, "うわー")], [[1500.0, 1500.5, "うわ"], [1500.52, 1501.4, "ー"], [1501.45, 1502.0, "天井"]]),   # 伸ばしの単語まで
+    ([_row(22, 1600.0, 1600.3, "うわー")], [[1600.0, 1600.5, "うわ"], [1600.8, 1601.4, "ー"], [1601.45, 1602.0, "天井"]]),   # すき間が空けば含めない
+    ([_row(23, 1700.8, 1702.5, "にちは")], [[1701.0, 1702.0, "こんにちは"]]),                # 単語の途中の字は字数で割り振る
+    ([_row(24, 1800.5, 1802.5, ""), _row(25, 1803.5, 1804.5, "   ")], _chars(1801.0, "こんにちは")),   # 空の行
+    ([_row(26, 1901.0, 1901.9, "はい")], _chars(1900.0, "はい") + _chars(1901.2, "はい")),   # 同じ言葉が 2 回 → 今の終わりに近い方
+]
 
 
 class TestRetimeApi(StoreDir):
     def setUp(self):
         super().setUp()
-        self.doc = {"id": TID, "title": "t", "updatedAt": 123, "speakers": [], "segments": [_row(1, 0.5, 2.5, "こんにちは"), _row(2, 3.0, 4.0, "またね")]}
-        self.put_doc(self.doc)
-
-    def _words(self, words):
-        testkit.write_json(S.words_path(TID), {"schema": "youtube-tools-words/v1", "words": words})
+        self.segs = [g for rows, _w in SCENES for g in rows]
+        self.words = [w for _r, ws in SCENES for w in ws]
+        self.put_doc({"id": TID, "title": "t", "updatedAt": 123, "speakers": [], "segments": self.segs})
 
     def _bytes(self):
         with open(S.tx_path(TID), "rb") as f:
             return f.read()
 
-    def test_no_words(self):
-        r = S.retime_doc({"id": TID, "rows": ["s1"]})
-        self.assertEqual((r["items"], r["reasonCode"], r["updatedAt"]), ([], "no_words", 123))
+    def test_candidates_through_api(self):
+        ids = [g["id"] for g in self.segs if g["id"] not in ("s11", "s13", "s15", "s17")] + ["nope"]   # 前の行(詰める相手)には候補を出さない
+        r = S.retime_doc({"id": TID, "rows": ids})
+        self.assertEqual((r["items"], r["reasonCode"], r["updatedAt"]), ([], "no_words", 123))   # 単語の時刻が無い文書
         self.assertIn("範囲を再認識", r["reason"])
-
-    def test_candidates_and_doc_untouched(self):
-        self._words(_chars(1.0, "こんにちは") + _chars(3.0, "またね"))
+        testkit.write_json(S.words_path(TID), {"schema": "youtube-tools-words/v1", "words": self.words})
         before = self._bytes()
-        r = S.retime_doc({"id": TID, "rows": ["s1", "s2"]})
-        self.assertEqual([(x["id"], x["start"], x["end"]) for x in r["items"]], [("s1", 1.0, 2.0), ("s2", 3.0, 3.6)])
-        self.assertEqual((r["checked"], r["updatedAt"], r["engine"], r["endEdge"]), (2, 123, "faster-whisper", True))
+        r = S.retime_doc({"id": TID, "rows": ids})
+        got = {x["id"]: (x["start"], x["end"], x["edges"]) for x in r["items"]}
+        self.assertEqual(got, {"s1": (1.0, 2.0, ["start", "end"]), "s2": (101.0, 102.2, ["start", "end"]), "s3": (200.5, 202.0, ["end"]),
+                               "s4": (301.0, 302.0, ["start", "end"]), "s10": (900.95, 902.0, ["end"]), "s12": (1001.0, 1001.8, ["start"]),
+                               "s14": (1100.8, 1101.8, ["start"]), "s16": (1200.8, 1201.8, ["start"]), "s18": (1301.0, 1301.8, ["start"]),
+                               "s19": got.get("s19", (None,) * 3), "s20": got.get("s20", (None,) * 3), "s21": (1500.0, 1501.4, ["end"]),
+                               "s22": (1600.0, 1600.5, ["end"]), "s23": (1701.4, 1702.0, ["start", "end"]), "s26": (1901.2, 1901.6, ["start", "end"])})
+        self.assertLessEqual(got["s19"][1], got["s20"][0])                    # 両方を採っても重ならない
+        s1 = r["items"][0]
+        self.assertEqual((s1["matched"], s1["dStart"], s1["dEnd"], s1["from"]), (1.0, 0.5, -0.5, {"start": 0.5, "end": 2.5}))
+        self.assertAlmostEqual(next(x for x in r["items"] if x["id"] == "s3")["matched"], 5 / 7, places=3)
+        self.assertEqual((r["checked"], r["updatedAt"], r["engine"], r["endEdge"]), (len(ids), 123, "faster-whisper", True))
         self.assertEqual(self._bytes(), before)                             # 文書は書き換えない
-        r = S.retime_doc({"id": TID, "rows": ["s2"]})
-        self.assertEqual([x["id"] for x in r["items"]], ["s2"])
+        # 終わりの端を出さないエンジン(最初の認識の記録。2 つ目のエンジンの記録は見ない)
+        self.put_doc({"id": TID, "title": "t", "updatedAt": 124, "speakers": [], "segments": self.segs,
+                      "recognition": {"runs": [{"kind": "alt", "engine": "x"}, {"engine": "whisper.cpp"}]}})
+        with mock.patch.object(retime, "RETIME_END_SKIP", ("whisper.cpp",)):
+            r = S.retime_doc({"id": TID, "rows": ["s1"]})
+        self.assertEqual((r["engine"], r["endEdge"], [(x["start"], x["end"], x["edges"]) for x in r["items"]]), ("whisper.cpp", False, [(1.0, 2.5, ["start"])]))
 
     def test_bad_request(self):
         for body in ({"id": TID}, {"id": TID, "rows": []}, {"id": TID, "rows": [1]}, {"id": TID, "rows": "s1"}):
-            with self.subTest(body=body):
-                with self.assertRaises(ed_state.ApiError) as cm:
-                    S.retime_doc(body)
-                self.assertEqual(cm.exception.status, 400)
+            with self.assertRaises(ed_state.ApiError, msg=body) as cm:
+                S.retime_doc(body)
+            self.assertEqual(cm.exception.status, 400)
         with self.assertRaises(ed_state.ApiError) as cm:
             S.retime_doc({"id": "zzzzzzzzzzzz", "rows": ["s1"]})
         self.assertEqual(cm.exception.status, 404)

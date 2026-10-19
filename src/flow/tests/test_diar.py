@@ -4,14 +4,13 @@
     py -3.12 -m unittest src/flow/tests/test_diar.py -v
 
 - voice_learn_rows: 短い行・混声は ② が数え、校正済みか音のメモかは accept(③)に任せる。数える順は 1 秒未満 → 混ざる → accept の理由
-- match_known_voices: 行 → 声の特徴 → 照合をつなぐ(特徴の取り出しと照合は差し替え)
-- merge_voice: learnedFrom(同じ文書は重ねない・古い形も読める)
+- merge_voice: learnedFrom(文書の指定が無い・古い形・確かめるの声のカードの行の控え)
+行 → 声の特徴 → 照合のつなぎ(match_known_voices)と、同じ文書から 2 回覚える形は、本物の判別の通し(src/editor/tests/test_voices.py の TestDiarRealRun)が確かめる。
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 import sys
 import unittest
-from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
 sys.path.insert(0, SRC)
@@ -40,32 +39,7 @@ class TestLearnGroups(unittest.TestCase):
         groups, skipped = diar.voice_learn_rows(segs, {"s1": "A"}, accept)
         self.assertEqual(skipped, {"unproofed": 1, "tagged": 1, "mixed": 2, "short": 1})
         self.assertEqual(groups, {"A": ([(15, 20)], 5)})
-
-    def test_empty(self):
-        self.assertEqual(diar.voice_learn_rows([], {}, lambda g: None), ({}, {"unproofed": 0, "tagged": 0, "mixed": 0, "short": 0}))
-
-
-class TestMatchKnownVoices(unittest.TestCase):
-    def test_chains_groups_embed_and_match(self):
-        segs = [seg(0, 5, "s1"), seg(6, 9, "s2"), seg(10, 11.5, "")]
-        seen = {}
-
-        def fake_embed(job, spec, wav, groups, hints):
-            seen["groups"] = groups
-            return [[1.0], [0.0]]
-
-        def fake_match(vecs, voices):
-            seen["vecs"] = vecs
-            return {"s1": ("A", 0.9)}, {"s1": {"top": "A"}}
-        with mock.patch.object(diar, "embed", fake_embed), mock.patch.object(diar._calc, "match_voices_explain", fake_match):
-            job = {}
-            got = diar.match_known_voices(job, {"embedding": "voxceleb"}, "w.wav", segs, lambda g: g.get("speaker") or "", {"A": {}}, {"start": 0})
-        self.assertEqual(got, ({"s1": ("A", 0.9)}, {"s1": {"top": "A"}}))
-        self.assertEqual(seen["groups"], [[(0, 5)], [(6, 9)]])      # 話者が空の行は使わない
-        self.assertEqual(seen["vecs"], {"s1": [1.0], "s2": [0.0]})
-        self.assertEqual(job["phase"], "覚えている声と照らし合わせ中")
-
-    def test_no_rows(self):
+        self.assertEqual(diar.voice_learn_rows([], {}, lambda g: None), ({}, {"unproofed": 0, "tagged": 0, "mixed": 0, "short": 0}))   # 空の入力
         self.assertEqual(diar.match_known_voices({}, {}, "w", [], lambda g: "x", {}, {}), ({}, {}))
 
 

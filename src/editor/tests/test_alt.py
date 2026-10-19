@@ -4,12 +4,12 @@
     py -3.12 -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
     py -3.12 -m unittest test_alt -q                    # これだけ(src/editor/tests で)
 
-- alt_diffs(純粋な関数): 置き換え・表記だけの違いは出さない・片方だけの文字・長すぎ・行またぎ・行の大半が違う・校正済み・窓
-- 提案(GET /api/suggest の suggest_for_doc)に足す・却下で消える・学習の提案を優先・評価用には出さない・採用/却下の数え方(学習の統計に入れない)
-- ジョブ(疑似の認識 TRANSCRIBE_BACKEND=fake + TRANSCRIBE_FAKE_ALT): alt.json を書く・文書は書き換えない(updatedAt も)・
-  評価用/同じエンジンとモデル/文字の無い文書/動画の無い文書は断る・autoAlt(設定と要求)・設定 altEngine の検査
+- alt_diffs(純粋な関数): 場面を並べた文書 1 本で、置き換え・表記だけの違いは出さない・片方だけの文字・長すぎ・行またぎ・行の大半が違う・校正済み・
+  重なる候補をまとめて確かめる。長い文書は窓ごと
+- ジョブの通し(疑似の認識 TRANSCRIBE_BACKEND=fake の行を差し替え + TRANSCRIBE_FAKE_ALT): 主の文字起こし → alt.json(同じ行の後処理・文書は書き換えない)→
+  提案に足す・却下で消える・学習の提案を優先・採用/却下の数え方(学習の統計に入れない)・今の行の文字で計算し直す・評価用には出さない
+- 断る場面(評価用/同じエンジンとモデル/実行中/文字の無い文書/動画の無い文書)・ジョブの途中で文書が消えた・autoAlt(設定と要求)・設定 altEngine の検査・壊れた採否の記録
 """
-import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所に書かない(ytt.datadir)
 import shutil
@@ -22,12 +22,11 @@ from unittest import mock
 TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(TESTS))
 sys.path.insert(0, TESTS)
-from test_backend import S, TID, StoreDir, write_json  # noqa: F401,E402  (S = serve)
+from test_backend import S, StoreDir, write_json  # noqa: E402  (S = serve)
 from eval.fake import fake_asr  # noqa: E402
 from human.proof import alt as proof_alt  # noqa: E402
 from human.proof import doc_jobs  # noqa: E402
 from human.proof import store  # noqa: E402
-from pipeline.transcribe import postproc  # noqa: E402
 from flow import jobs  # noqa: E402
 
 HAVE_FF = bool(shutil.which("ffmpeg"))
@@ -41,67 +40,49 @@ def _alt(a, b, text):
     return {"start": a, "end": b, "text": text}
 
 
+CASES = [   # (今の行, 2 つ目のエンジンの行, 候補 [(i, 誤, 正)])。行の頭に足した字は前の行の終わりにも見えるので、その場面は文書の頭に置く
+    ("雨です", "大雨です", [(0, "雨", "大雨")]),                                  # 片方だけにある文字は隣の 1 文字を足して置き換えの形に
+    ("こんばんは白上フブキです", "こんばんは、白神フブキです", [(6, "上", "神")]),
+    ("今日は雨です", "今日は大雨です", [(2, "は", "は大")]),
+    ("ふぶきちゃん", "フブキちゃん", []),                                          # 表記だけの違い(かなとカナ・句読点と空白・全角と半角・大小・伸ばし・読みが同じ漢字)
+    ("今日は大雨です", "今日は雨です", [(2, "は大", "は")]),
+    ("こんにちは。元気", "こんにちは 元気!", []), ("ＡＢＣです", "abcです", []), ("OKです", "okです", []), ("すごーいね", "すごいね", []), ("すごいね", "凄いね", []),
+    ("あ" * 3 + "かきくけこさしすせそたちつ" + "あ" * 30, "あ" * 3 + "なにぬねのはひふへほまみむ" + "あ" * 30, []),   # 長すぎる置き換え
+    ("今日はマイクラをやります", "きょうはマインクラフトやります", []),              # 行の文字の半分以上が違う
+    ("白上フブキです", "白神フブキです", []),                                      # 校正済み
+    ("あいうえおかきくけこさしすせそ", "あいXえおかきYけこさしすせそ", [(2, "う", "X"), (7, "く", "Y")]),   # 重なる候補は出さない
+]
+
+
 class TestAltDiffs(unittest.TestCase):
-    def test_replace(self):
-        items, _st = S.alt_diffs([_row(1, 0, 3, "こんばんは白上フブキです")], [_alt(0, 3, "こんばんは、白神フブキです")])
-        self.assertEqual(items, [{"seg": "s1", "i": 6, "wrong": "上", "right": "神", "tier": "alt", "pos": 0, "neg": 0}])
-
-    def test_notation_only_is_not_a_candidate(self):
-        """かなとカナ・句読点と空白・全角と半角・大小・伸ばし・ひらがなと漢字(読みが同じらしいもの)は候補にしない"""
-        cases = [("ふぶきちゃん", "フブキちゃん"), ("こんにちは。元気", "こんにちは 元気!"), ("ＡＢＣです", "abcです"),
-                 ("OKです", "okです"), ("すごーいね", "すごいね"), ("すごいね", "凄いね")]
-        for a, b in cases:
-            with self.subTest(a=a, b=b):
-                items, st = S.alt_diffs([_row(1, 0, 3, a)], [_alt(0, 3, b)])
-                self.assertEqual(items, [])
-        self.assertEqual(S.alt_diffs([_row(1, 0, 3, "すごいね")], [_alt(0, 3, "凄いね")])[1]["notation"], 1)
-
-    def test_insert_and_delete_become_replacements(self):
-        """片方だけにある文字は、隣の 1 文字を足して置き換えの形に(wrong も right も空にしない)。画面の採用(位置で置き換え)で alt の文字になる"""
-        for main, other, want in (("今日は雨です", "今日は大雨です", ("は", "は大")), ("今日は大雨です", "今日は雨です", ("は大", "は")),
-                                  ("雨です", "大雨です", ("雨", "大雨"))):
-            with self.subTest(main=main):
-                items, _st = S.alt_diffs([_row(1, 0, 3, main)], [_alt(0, 3, other)])
-                self.assertEqual([(x["wrong"], x["right"]) for x in items], [want])
-                x = items[0]
-                self.assertEqual(main[:x["i"]] + x["right"] + main[x["i"] + len(x["wrong"]):], other)
-
-    def test_too_long_cross_and_mostly(self):
-        long_a, long_b = "あ" * 3 + "かきくけこさしすせそたちつ" + "あ" * 30, "あ" * 3 + "なにぬねのはひふへほまみむ" + "あ" * 30
-        items, st = S.alt_diffs([_row(1, 0, 5, long_a)], [_alt(0, 5, long_b)])
-        self.assertEqual((items, st["long"]), ([], 1))
-        # 行をまたぐ置き換え(1行目の終わり〜2行目の始まり)
-        items, st = S.alt_diffs([_row(1, 0, 2, "ここからあいう"), _row(2, 2, 4, "えおそれから")], [_alt(0, 4, "ここからあいかきおそれから")])
-        self.assertEqual((items, st["cross"]), ([], 1))
-        # 行の文字の半分以上が違う行には出さない
-        items, st = S.alt_diffs([_row(1, 0, 3, "今日はマイクラをやります")], [_alt(0, 3, "きょうはマインクラフトやります")])
-        self.assertEqual(items, [])
-        self.assertGreaterEqual(st["mostly"], 1)
-
-    def test_proofed_rows_and_empty(self):
-        rows = [_row(1, 0, 3, "白上フブキです", proofed=True), _row(2, 3, 6, "大神ミオです")]
-        items, _st = S.alt_diffs(rows, [_alt(0, 3, "白神フブキです"), _alt(3, 6, "大上ミオです")])
-        self.assertEqual([(x["seg"], x["wrong"], x["right"]) for x in items], [("s2", "神", "上")])
+    def test_diffs_on_rich_doc(self):
+        rows, alts, want, t = [], [], [], 0.0
+        for k, (main, other, cands) in enumerate(CASES, 1):
+            rows.append(_row(k, t, t + 3, main, **({"proofed": True} if main == "白上フブキです" else {})))
+            alts.append(_alt(t, t + 3, other))
+            want += [("s%d" % k, i, w, r) for i, w, r in cands]
+            t += 4
+        rows += [_row(90, t, t + 2, "ここからあいう"), _row(91, t + 2, t + 4, "えおそれから")]   # 行をまたぐ置き換え(1 行目の終わり〜2 行目の始まり)
+        alts.append(_alt(t, t + 4, "ここからあいかきおそれから"))
+        items, st = S.alt_diffs(rows, alts)
+        self.assertEqual([(x["seg"], x["i"], x["wrong"], x["right"]) for x in items], want)
+        self.assertEqual({x["tier"] for x in items}, {"alt"})
+        for x in items[:1] + items[2:4]:   # 片方だけの文字: 画面の採用(位置で置き換え)で 2 つ目のエンジンの文字になる
+            k = int(x["seg"][1:]) - 1
+            self.assertEqual(CASES[k][0][:x["i"]] + x["right"] + CASES[k][0][x["i"] + len(x["wrong"]):], CASES[k][1])
+        self.assertEqual(st, {"long": 1, "cross": 1, "mostly": 2, "notation": 2, "edge": 0})
         self.assertEqual(S.alt_diffs([], [_alt(0, 1, "a")]), ([], {"long": 0, "cross": 0, "mostly": 0, "notation": 0, "edge": 0}))
         self.assertEqual(S.alt_diffs(rows, [])[0], [])
-
-    def test_windows_on_a_long_document(self):
-        """長い文書は時刻の窓ごとにそろえる(窓が複数・遠い所の食い違いも正しい行に・2つ目のエンジンの時刻が少しずれていても)"""
+        # 長い文書は時刻の窓ごとにそろえる(窓が複数・遠い所の食い違いも正しい行に・2 つ目のエンジンの時刻が少しずれていても)
         rows, alts = [], []
         for i in range(400):   # 20 分(3 秒ごと)
-            t = "第%d番目の行です" % i
-            rows.append(_row(i, i * 3.0, i * 3.0 + 2.5, t))
-            alts.append(_alt(i * 3.0 + 0.4, i * 3.0 + 2.9, t.replace("行", "業") if i in (5, 250, 399) else t))
+            text = "第%d番目の行です" % i
+            rows.append(_row(i, i * 3.0, i * 3.0 + 2.5, text))
+            alts.append(_alt(i * 3.0 + 0.4, i * 3.0 + 2.9, text.replace("行", "業") if i in (5, 250, 399) else text))
         self.assertGreater(len(proof_alt._alt_windows(sorted([dict(r, n=k) for k, r in enumerate(rows)], key=lambda r: r["start"]))), 5)
         items, st = S.alt_diffs(rows, alts)
         self.assertEqual([(x["seg"], x["wrong"], x["right"]) for x in items], [("s5", "行", "業"), ("s250", "行", "業"), ("s399", "行", "業")])
         self.assertEqual(st["cross"], 0)
-
-    def test_overlapping_candidates_are_dropped(self):
-        items, _st = S.alt_diffs([_row(1, 0, 3, "あいうえおかきくけこさしすせそ")], [_alt(0, 3, "あいXえおかきYけこさしすせそ")])
-        spans = [(x["i"], x["i"] + len(x["wrong"])) for x in items]
-        self.assertTrue(all(not (a < d and c < b) for k, (a, b) in enumerate(spans) for (c, d) in spans[k + 1:]))
-        self.assertEqual(len(items), 2)
 
 
 class _AltStore(StoreDir):
@@ -115,75 +96,8 @@ class _AltStore(StoreDir):
         self.fb.stop()
         super().tearDown()
 
-    def doc(self, **over):
-        d = {"schema": "transcribe/v1", "id": TID, "title": "t", "sourcePath": "", "start": 0, "end": 10, "updatedAt": 1000,
-             "segments": [_row(1, 0, 3, "白上フブキです"), _row(2, 3, 6, "大神ミオです")], "original": []}
-        d.update(over)
-        return d
 
-    def put_alt(self, rows, tid=TID, **over):
-        write_json(S.alt_path(tid), dict({"schema": S.ALT_SCHEMA, "id": tid, "engine": "llama.cpp", "model": "qwen3-asr-1.7b", "at": 5,
-                                          "range": [0, 10], "rows": rows}, **over))
-
-
-class TestAltSuggest(_AltStore):
-    def test_suggest_adds_alt_and_dismiss_removes(self):
-        self.put_doc(self.doc())
-        self.put_alt([_alt(0, 3, "白神フブキです"), _alt(3, 6, "大上ミオです")])
-        r = S.suggest_for_doc(TID)
-        alt = [x for x in r["items"] if x["tier"] == "alt"]
-        self.assertEqual([(x["seg"], x["i"], x["wrong"], x["right"]) for x in alt], [("s1", 1, "上", "神"), ("s2", 1, "神", "上")])
-        self.assertEqual((r["alt"]["engine"], r["alt"]["model"], r["alt"]["count"], r["alt"]["at"]), ("llama.cpp", "qwen3-asr-1.7b", 2, 5))
-        # 却下: 学習の統計に入れず、数だけ fb["alt"]。却下した候補は出さない
-        S.record_feedback({"tid": TID, "action": "reject", "items": [{"seg": "s1", "wrong": "上", "right": "神", "tier": "alt"}]})
-        S.record_feedback({"tid": TID, "action": "accept", "items": [{"seg": "s2", "wrong": "神", "right": "上", "tier": "alt"},
-                                                                       {"seg": "s2", "wrong": "ミオ", "right": "みお"}]})
-        fb = S.load_feedback()
-        self.assertEqual(fb["alt"], {"acc": 1, "rej": 1})
-        self.assertEqual(list(fb["stat"]), ["ミオ=>みお"])   # 学習の提案の採用だけが統計に入る
-        self.assertIn("s1|上=>神", fb["dismissed"][TID])
-        r = S.suggest_for_doc(TID)
-        self.assertEqual([(x["seg"], x["wrong"]) for x in r["items"] if x["tier"] == "alt"], [("s2", "神")])
-        self.assertEqual(r["alt"]["count"], 1)
-
-    def test_current_text_is_used(self):
-        """候補は今の行の文字で毎回計算する(採用して直した所は消える)"""
-        self.put_doc(self.doc())
-        self.put_alt([_alt(0, 3, "白神フブキです"), _alt(3, 6, "大神ミオです")])
-        self.assertEqual(len([x for x in S.suggest_for_doc(TID)["items"] if x["tier"] == "alt"]), 1)
-        self.put_doc(self.doc(updatedAt=2000, segments=[_row(1, 0, 3, "白神フブキです"), _row(2, 3, 6, "大神ミオです")]))
-        self.assertEqual([x for x in S.suggest_for_doc(TID)["items"] if x["tier"] == "alt"], [])
-
-    def test_learned_suggestion_wins_and_eval_has_none(self):
-        self.put_doc(self.doc())
-        self.put_alt([_alt(0, 3, "白神フブキです"), _alt(3, 6, "大上ミオです")])
-        d = self.doc()
-        items, info = S.alt_suggest(TID, d, set(), [{"seg": "s1", "i": 0, "wrong": "白上", "right": "白神", "tier": "mid"}])
-        self.assertEqual([x["seg"] for x in items], ["s2"])   # 同じ行・同じ位置は学習の提案を優先
-        self.assertEqual(info["count"], 1)
-        self.put_doc(self.doc(evalSet=True))
-        r = S.suggest_for_doc(TID)
-        self.assertIsNone(r["alt"])
-        self.assertEqual([x for x in r["items"] if x["tier"] == "alt"], [])
-
-    def test_doc_candidates_port(self):
-        """文書 1 本の候補の口(編集の提案と「確かめる」の読みのカードが読む): 却下済みを外す・評価用と alt.json の無い文書は空"""
-        self.put_doc(self.doc())
-        self.assertEqual(S.alt_doc_candidates(TID, self.doc()), [])
-        self.put_alt([_alt(0, 3, "白神フブキです"), _alt(3, 6, "大上ミオです")])
-        self.assertEqual([x["seg"] for x in S.alt_doc_candidates(TID, self.doc())], ["s1", "s2"])
-        S.record_feedback({"tid": TID, "action": "reject", "items": [{"seg": "s1", "wrong": "上", "right": "神", "tier": "alt"}]})
-        self.assertEqual([x["seg"] for x in S.alt_doc_candidates(TID, self.doc())], ["s2"])       # 採否の記録から却下を読む
-        self.assertEqual([x["seg"] for x in S.alt_doc_candidates(TID, self.doc(), set())], ["s1", "s2"])
-        self.assertEqual(S.alt_doc_candidates(TID, self.doc(evalSet=True)), [])
-
-    def test_no_alt_file(self):
-        self.put_doc(self.doc())
-        r = S.suggest_for_doc(TID)
-        self.assertIsNone(r["alt"])
-        write_json(S.alt_path(TID), {"schema": "other", "rows": []})   # 形が違うものは読まない
-        self.assertIsNone(S.suggest_for_doc(TID)["alt"])
-
+class TestAltSettings(_AltStore):
     def test_load_feedback_alt_and_dict_version(self):
         write_json(S.FEEDBACK, {"stat": {}, "dismissed": {}, "alt": {"acc": "x", "rej": 3}})
         self.assertEqual(S.load_feedback()["alt"], {"acc": 0, "rej": 3})
@@ -256,47 +170,56 @@ class TestAltJob(_AltStore):
     def queued(self, kind, tid):
         return [j for j in jobs._jobs.values() if j.get("kind") == kind and j.get("tid") == tid and j["state"] == "queued"]
 
-    def test_job_writes_alt_and_keeps_doc(self):
+    def test_job_then_suggest(self):
+        """主の文字起こし → 2 つ目のエンジンのジョブ(alt.json・同じ行の後処理。続いている行はつながない)→ 提案に足す → 却下・採用の数え方 →
+        今の行の文字で計算し直す → 学習の提案を優先 → 評価用には出さない"""
+        def rows(job, spec, wav, total):   # 9 秒の動画に、すき間 0.3 秒の 2 行と長さの外(100 秒)の行
+            job["state"] = "running"
+            yield {"start": 0.0, "end": 2.7, "text": "白上フブキです"}
+            yield {"start": 3.0, "end": 6.0, "text": "大神ミオです"}
+            yield {"start": 100.0, "end": 104.0, "text": "外の行"}
+        self.enterContext(mock.patch.object(fake_asr, "transcribe_fake", rows))
+        self.enterContext(mock.patch.dict(os.environ, {"TRANSCRIBE_FAKE_ALT": "白上=>白神,大神=>大上"}))
         tid = self.transcribe()
         before = store.read_transcript(tid)
+        self.assertEqual([(g["end"], g["text"]) for g in before["segments"]], [(3.0, "白上フブキです"), (6.0, "大神ミオです")])
+        self.assertIsNone(S.suggest_for_doc(tid)["alt"])                    # alt.json が無い
+        self.assertEqual(S.alt_doc_candidates(tid, before), [])
+        write_json(S.alt_path(tid), {"schema": "other", "rows": []})         # 形が違うものは読まない
+        self.assertIsNone(S.suggest_for_doc(tid)["alt"])
         job = self.run_one(jobs.add_job(S.alt_spec(tid, {}), "alt"))
         self.assertEqual((job["tid"], job["kind"]), (tid, "alt"))
         alt = S.read_alt(tid)
-        self.assertEqual((alt["schema"], alt["id"], alt["engine"], alt["model"]), ("youtube-tools-alt/v1", tid, "llama.cpp", "qwen3-asr-1.7b"))
-        self.assertEqual(alt["range"][0], 0)
-        self.assertEqual([r["text"] for r in alt["rows"]], [g["text"].replace("文", "分") for g in before["segments"]])
+        self.assertEqual((alt["schema"], alt["id"], alt["engine"], alt["model"], alt["range"][0]), ("youtube-tools-alt/v1", tid, "llama.cpp", "qwen3-asr-1.7b", 0))
+        self.assertEqual([(r["end"], r["text"]) for r in alt["rows"]], [(2.7, "白神フブキです"), (6.0, "大上ミオです")])   # 長さの外は捨て、つながない
+        self.assertEqual(alt["post"], {"clip": True, "mergeRepeats": True})
         for k in ("at", "audioSec", "wallSec", "engineVersion", "device"):
             self.assertIn(k, alt)
-        after = store.read_transcript(tid)
-        self.assertEqual(after, before)   # 文書は書き換えない(updatedAt も)
+        self.assertEqual(store.read_transcript(tid), before)                # 文書は書き換えない(updatedAt も)
+
         r = S.suggest_for_doc(tid)
-        alts = [x for x in r["items"] if x["tier"] == "alt"]
-        self.assertEqual([(x["wrong"], x["right"]) for x in alts], [("文", "分")] * len(before["segments"]))
-        self.assertEqual(r["alt"]["count"], len(before["segments"]))
-
-    def test_job_applies_row_post_processing(self):
-        """主の文字起こしと同じ行の後処理(長さより後ろの行を捨てる)を通し、alt.json に印を残す"""
-        tid = self.transcribe()
-        job = self._take(jobs.add_job(S.alt_spec(tid, {}), "alt"))
-        calls = []
-        real = postproc.expand_segments
-
-        def spy(gen, spec, dur=None, join=True):
-            calls.append((dur, join))
-            return real(gen, spec, dur, join=join)
-
-        def fake(job, spec, wav, total):   # 9 秒の動画に、長さの外(100 秒)の行
-            yield {"start": 0.0, "end": 4.0, "text": "中の行"}
-            yield {"start": 100.0, "end": 104.0, "text": "外の行"}
-        with mock.patch.object(postproc, "expand_segments", spy), mock.patch.object(fake_asr, "transcribe_fake", fake):
-            doc_jobs.run_job(job)
-        self.assertEqual(job["state"], "done", job.get("error"))
-        self.assertEqual(len(calls), 1)
-        self.assertAlmostEqual(calls[0][0], 9.0, delta=0.5)   # dur = 音声の長さ
-        self.assertFalse(calls[0][1])                         # 候補は続いている行をつながない(時刻を使わない)
-        alt = S.read_alt(tid)
-        self.assertEqual([r["text"] for r in alt["rows"]], ["中の行"])
-        self.assertEqual(alt["post"], {"clip": True, "mergeRepeats": True})
+        self.assertEqual([(x["seg"], x["i"], x["wrong"], x["right"]) for x in r["items"] if x["tier"] == "alt"], [("s1", 1, "上", "神"), ("s2", 1, "神", "上")])
+        self.assertEqual((r["alt"]["engine"], r["alt"]["model"], r["alt"]["count"]), ("llama.cpp", "qwen3-asr-1.7b", 2))
+        items, info = S.alt_suggest(tid, before, set(), [{"seg": "s1", "i": 0, "wrong": "白上", "right": "白神", "tier": "mid"}])
+        self.assertEqual(([x["seg"] for x in items], info["count"]), (["s2"], 1))   # 同じ行・同じ位置は学習の提案を優先
+        # 却下: 学習の統計に入れず、数だけ fb["alt"]。却下した候補は出さない(文書 1 本の候補の口も採否の記録から却下を読む)
+        S.record_feedback({"tid": tid, "action": "reject", "items": [{"seg": "s1", "wrong": "上", "right": "神", "tier": "alt"}]})
+        S.record_feedback({"tid": tid, "action": "accept", "items": [{"seg": "s2", "wrong": "神", "right": "上", "tier": "alt"},
+                                                                       {"seg": "s2", "wrong": "ミオ", "right": "みお"}]})
+        fb = S.load_feedback()
+        self.assertEqual((fb["alt"], list(fb["stat"])), ({"acc": 1, "rej": 1}, ["ミオ=>みお"]))   # 学習の提案の採用だけが統計に入る
+        self.assertIn("s1|上=>神", fb["dismissed"][tid])
+        r = S.suggest_for_doc(tid)
+        self.assertEqual(([(x["seg"], x["wrong"]) for x in r["items"] if x["tier"] == "alt"], r["alt"]["count"]), ([("s2", "神")], 1))
+        self.assertEqual([x["seg"] for x in S.alt_doc_candidates(tid, before)], ["s2"])
+        self.assertEqual([x["seg"] for x in S.alt_doc_candidates(tid, before, set())], ["s1", "s2"])
+        # 候補は今の行の文字で毎回計算する(採用して直した所は消える)
+        d = dict(before, updatedAt=before["updatedAt"] + 1, segments=[before["segments"][0], dict(before["segments"][1], text="大上ミオです")])
+        write_json(S.tx_path(tid), d)
+        self.assertEqual([x for x in S.suggest_for_doc(tid)["items"] if x["tier"] == "alt"], [])
+        write_json(S.tx_path(tid), dict(before, evalSet=True))                # 評価用には出さない
+        r = S.suggest_for_doc(tid)
+        self.assertEqual((r["alt"], [x for x in r["items"] if x["tier"] == "alt"], S.alt_doc_candidates(tid, dict(before, evalSet=True))), (None, [], []))
 
     def test_refusals(self):
         tid = self.transcribe()

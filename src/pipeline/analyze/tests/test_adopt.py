@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
-"""pipeline/analyze/adopt.py(採用の規則 F-5 の純粋な関数。RS8 B3-2 の G1a)と ② の口 flow/adopt のテスト。
+"""pipeline/analyze/adopt.py(採用の規則 F-5 の純粋な関数)と ② の口 flow/adopt のテスト。
     py -3.12 -m unittest src/pipeline/analyze/tests/test_adopt.py -v
+自動マーク 5 つの配信を、使う順(上位を採用 → 再実行 → 人の採用 → 区間つきの依頼)に通して、採った id と印をまとめて確かめる。
 期待値は store のテスト(src/human/review/tests/test_studio.py の TestAdoptRule)と同じ。保存を通した動きはそちらが確かめる。
 """
 import os
@@ -24,104 +25,64 @@ def auto(i, s, e, score):
 
 
 def base():
-    return [auto(1, 10, 40, 2.0), auto(2, 100, 130, 9.0), auto(3, 200, 230, 5.0), auto(4, 300, 330, 7.0)]
+    return [auto(1, 10, 40, 2.0), auto(2, 100, 130, 9.0), auto(3, 200, 230, 5.0), auto(4, 300, 330, 7.0), auto(5, 400, 430, 1.0)]
 
 
-class TestAdoptRule(unittest.TestCase):
-    def setUp(self):
-        self.marks = base()
+def set_status(marks, start, status):
+    return [M.build_mark(dict(m, status=status), m) if m["start"] == start else m for m in marks]
 
-    def run_rule(self, ranges, top):
-        r = A.adopt(self.marks, A.check_args(ranges, top), top, DUR)
-        self.marks = r["marks"]
-        return r
 
-    def starts(self, ids):
-        by = {m["id"]: m["start"] for m in self.marks}
-        return [by[i] for i in ids]
+class TestAdoptRun(unittest.TestCase):
+    def test_rule_in_order_of_use(self):
+        def run(marks, ranges, top):
+            r = A.adopt(marks, A.check_args(ranges, top), top, DUR)
+            by = {m["id"]: m["start"] for m in r["marks"]}
+            return r, {k: [by[i] for i in r[k]] for k in ("added", "autoIds", "humanIds", "rangeIds")}
 
-    def set_status(self, start, status):
-        self.marks = [M.build_mark(dict(m, status=status), m) if m["start"] == start else m for m in self.marks]
+        r, got = run(base(), [], 2)                                          # 点数の上位 2 つ
+        self.assertEqual(got, {"added": [100, 300], "autoIds": [100, 300], "humanIds": [], "rangeIds": []})
+        self.assertEqual({m["start"]: m.get("adoptedBy") for m in r["marks"] if m["status"] == "adopted"}, {100: "auto", 300: "auto"})
+        r, got = run(r["marks"], [], 2)                                      # 再実行: 前に機械が採用した分を数に入れる(増やさない)
+        self.assertEqual(got, {"added": [], "autoIds": [100, 300], "humanIds": [], "rangeIds": []})
+        r, got = run(set_status(r["marks"], 10, "adopted"), [], 3)           # 人の採用は数に入る・機械の印は付けない
+        self.assertEqual((got["humanIds"], got["autoIds"]), ([10], [100, 300]))
+        self.assertEqual(run(r["marks"], [], 1)[1]["autoIds"], [])           # 人の分だけで上限
 
-    def test_top_by_score(self):
-        r = self.run_rule([], 2)
-        self.assertEqual(self.starts(r["added"]), [100, 300])
-        self.assertEqual({m["start"]: m.get("adoptedBy") for m in self.marks if m["status"] == "adopted"}, {100: "auto", 300: "auto"})
-        r = self.run_rule([], 2)   # 再実行: 前に機械が採用した分を数に入れる(増やさない)
-        self.assertEqual((self.starts(r["autoIds"]), r["humanIds"], r["added"]), ([100, 300], [], []))
-
-    def test_human_adoption_counts_and_rest_is_filled(self):
-        self.set_status(10, "adopted")
-        r = self.run_rule([], 3)
-        self.assertEqual(self.starts(r["added"]), [100, 300])
-        r = self.run_rule([], 3)
-        self.assertEqual((self.starts(r["humanIds"]), self.starts(r["autoIds"]), r["added"]), ([10], [100, 300], []))
-        self.assertEqual(self.run_rule([], 1)["autoIds"], [])   # 人の分だけで上限
-
-    def test_rejected_and_overlaps_are_skipped(self):
-        self.set_status(100, "rejected")
-        self.set_status(10, "adopted")
-        r = self.run_rule([[305, 320]], 3)
-        self.assertEqual(self.starts(r["rangeIds"]), [305])
-        self.assertEqual((self.starts(r["humanIds"]), self.starts(r["autoIds"])), ([10], [200]))   # 300 は区間に重なる・100 は不採用
-        self.assertEqual(sorted(self.starts(r["added"])), [200, 305])
-        new = next(m for m in self.marks if m["start"] == 305)
-        self.assertEqual((new["status"], new["adoptedBy"], new["src"]), ("adopted", "request", "manual"))
-        self.assertEqual([m["start"] for m in self.marks], sorted(m["start"] for m in self.marks))   # 足したら時刻の順
-
-    def test_ranges_beyond_top_are_all_taken(self):
-        r = self.run_rule([[400, 420], [500, 520]], 1)
-        self.assertEqual((self.starts(r["rangeIds"]), r["autoIds"]), ([400, 500], []))
-
-    def test_range_reuses_same_mark_and_revives_rejected(self):
-        self.set_status(200, "rejected")
-        r = self.run_rule([[200.4, 229.6]], 0)   # ±0.5 秒の中 = 同じ区間
-        self.assertEqual((self.starts(r["rangeIds"]), self.starts(r["added"])), ([200], [200]))
-        m = next(m for m in self.marks if m["start"] == 200)
-        self.assertEqual((m["status"], m["adoptedBy"], len(self.marks)), ("adopted", "request", 4))
-
-    def test_input_is_not_changed(self):
-        before = copy.deepcopy(self.marks)
-        A.adopt(self.marks, [(400.0, 420.0)], 3, DUR)
-        self.assertEqual(self.marks, before)
-
-    def test_range_end_is_clamped_and_outside_is_refused(self):
-        r = self.run_rule([[590, 700]], 0)
-        self.assertEqual(next(m for m in self.marks if m["id"] == r["rangeIds"][0])["end"], 600.0)
+        ms = set_status(set_status(set_status(base(), 100, "rejected"), 10, "adopted"), 200, "rejected")
+        before = copy.deepcopy(ms)
+        ranges = [[305, 320], [200.4, 229.6], [590, 700]]                    # 新しい区間・不採用と同じ区間(±0.5 秒)・配信の終わりを越える区間
+        r, got = run(ms, ranges, 5)
+        self.assertEqual(ms, before)                                         # 入力は変えない
+        self.assertEqual(got, {"added": [305, 200, 590, 400], "autoIds": [400], "humanIds": [10], "rangeIds": [305, 200, 590]})   # 300 は区間に重なる・100 は不採用
+        out = {m["start"]: m for m in r["marks"]}
+        self.assertEqual([(out[s]["status"], out[s]["adoptedBy"], out[s]["src"]) for s in (305, 200)], [("adopted", "request", "manual"), ("adopted", "request", "auto")])
+        self.assertEqual((out[590]["end"], len(r["marks"]), [m["start"] for m in r["marks"]]), (600.0, 7, sorted(out)))   # 終わりは配信の長さ・同じ区間は使い回す・時刻の順
+        self.assertEqual(run(ms, ranges, 1)[1]["rangeIds"], [305, 200, 590])   # 区間は上限を超えても全部
         with self.assertRaises(ValueError):
-            A.adopt(self.marks, [(600.0, 700.0)], 0, DUR)
+            A.adopt(ms, [(600.0, 700.0)], 0, DUR)                            # 配信の外
 
-    def test_bad_args(self):
+        want = A.check_args([[598, 598 + 3 * 3600 + 4]], 0)                 # 友人の依頼の区間の長さは上限なし(C-2-7・C-5-5)
+        r = A.adopt(base(), want, 0, 5 * 3600)
+        m = next(x for x in r["marks"] if x["id"] == r["rangeIds"][0])
+        self.assertEqual((want, m["start"], m["end"], m["status"], m["adoptedBy"]), ([(598.0, 11402.0)], 598.0, 11402.0, "adopted", "request"))
+        self.assertEqual(M.load_marks([m]), [m], "保存したあと読み直しても残る(読み込みは長さを見ない)")
+        self.assertEqual(A.check_args([[1.04, 10.26]], 0), [(1.0, 10.3)])
         for ranges, top in (([], -1), ([], 31), ([], "1"), ([], None), ([], True), ([[1, 2]] * 11, 1), ("x", 1), ([[1]], 1), ([[5, 4]], 1)):
             with self.assertRaises(ValueError, msg=(ranges, top)):
                 A.check_args(ranges, top)
-        self.assertEqual(A.check_args([[1.04, 10.26]], 0), [(1.0, 10.3)])
-
-    def test_long_range_has_no_length_limit(self):
-        """友人の依頼の区間 1 つの長さは上限なし(C-2-7・C-5-5): 3 時間の区間もマークにする(人が付けるマークの 60 分は当てない)"""
-        want = A.check_args([[598, 598 + 3 * 3600 + 4]], 0)
-        self.assertEqual(want, [(598.0, 11402.0)])
-        r = A.adopt(self.marks, want, 0, 5 * 3600)
-        m = next(x for x in r["marks"] if x["id"] == r["rangeIds"][0])
-        self.assertEqual((m["start"], m["end"], m["status"], m["adoptedBy"]), (598.0, 11402.0, "adopted", "request"))
-        self.assertEqual(M.load_marks([m]), [m], "保存したあと読み直しても残る(読み込みは長さを見ない)")
 
 
 class TestFlowVerb(unittest.TestCase):
-    """② flow/adopt: 理由を ApiError 400 にそろえる・kind live は通さない・配信の長さで切る"""
-
-    def test_check_and_pick(self):
+    def test_check_pick_and_live(self):
+        """② flow/adopt: 理由を ApiError 400 にそろえる・配信の長さで切る・kind live は通さない"""
         with self.assertRaises(ApiError) as c:
             flow_adopt.check([], 31)
         self.assertEqual((c.exception.code, c.exception.status), ("bad_request", 400))
         v = {"kind": "youtube", "duration": DUR, "marks": base()}
-        r = flow_adopt.pick(v, flow_adopt.check([], 2), 2)
-        self.assertEqual(len(r["added"]), 2)
+        self.assertEqual(len(flow_adopt.pick(v, flow_adopt.check([], 2), 2)["added"]), 2)
         with self.assertRaises(ApiError) as c:
             flow_adopt.pick(v, [(600.0, 700.0)], 0)
         self.assertEqual(c.exception.status, 400)
-
-    def test_live_is_refused(self):
         with self.assertRaises(ApiError) as c:
             flow_adopt.pick({"kind": "live", "duration": 0, "marks": []}, [], 3)
         self.assertEqual((c.exception.code, c.exception.status, c.exception.message), ("bad_request", 400, yturl.LIVE_NO_ANALYZE))

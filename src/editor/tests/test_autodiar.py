@@ -176,7 +176,8 @@ class TestAutoDiar(unittest.TestCase):
         self.assertNotIn("context", run["voices"])
         self.assertTrue(self.doc(tid)["diarization"]["auto"])
 
-    def test_doc_with_speakers_is_not_touched(self):
+    def test_human_touched_docs_are_not_touched(self):
+        """待っている間に人が話者を付けた文書・確かめ済みの文書は判別しない"""
         tid, _ = self.transcribe(self.put(self.mem, "f.mp4"))
         (dj,) = self.diar_jobs(tid)
         d = self.doc(tid)   # 待っている間に人が 1 行だけ話者を付けた
@@ -189,11 +190,8 @@ class TestAutoDiar(unittest.TestCase):
         self.assertEqual(self.doc(tid)["segments"][0]["speaker"], "A")
         self.assertIsNone(S.read_diar(tid))
         self.assertEqual(S.autodiar_enqueue(tid), {"skipped": "has_speakers"})
-
-    def test_reviewed_is_not_touched(self):
-        with mock.patch.dict(os.environ, {"TRANSCRIBE_AUTO_DIARIZE": "off"}):
-            tid, _ = self.transcribe(self.put(self.mem, "h.mp4"))
         d = self.doc(tid)
+        d["segments"][0]["speaker"] = ""
         d["evalReviewed"] = {"at": 5, "rows": 1, "durationSec": 2.0}
         S.atomic_write(S.tx_path(tid), json.dumps(d, ensure_ascii=False).encode("utf-8"))
         self.assertEqual(S.autodiar_enqueue(tid), {"skipped": "reviewed"})
@@ -211,12 +209,21 @@ class TestAutoDiar(unittest.TestCase):
         self.assertEqual(self.diar_jobs(tid3), [])
         os.unlink(other)
 
-    def test_no_sherpa_skips_silently_for_eval(self):
+    def test_no_sherpa_skips_silently(self):
+        """部品が無ければ、評価用の文字起こしのあとも・まとめての後追いも、黙って飛ばす(人が「全行をこの人に」)"""
         with mock.patch.object(proof_speakers, "autodiar_ready", return_value=False):
             tid, tj = self.transcribe(self.put(self.mem, "j.mp4"))
             self.assertEqual(self.diar_jobs(tid), [])
-            self.assertFalse(tj.get("warnings"))   # 評価用: 黙って飛ばす(人が「全行をこの人に」)
+            self.assertFalse(tj.get("warnings"))
         self.assertEqual(self.doc(tid).get("evalSet"), True)
+        tid = self._old_doc_without_diar("r.mp4")
+        self.age(tid)
+        EB.eval_batch_start()
+        with mock.patch.object(proof_speakers, "autodiar_ready", return_value=False):
+            r = EB.eb_tick("test")
+        self.assertEqual(r.get("diarAdded"), 0, r)
+        self.assertEqual(self.diar_jobs(tid), [])
+        self.assertEqual(EB.eb_read()["diar"], {})
 
     def test_enqueue_failure_keeps_transcription(self):
         with mock.patch.object(proof_speakers, "autodiar_enqueue", side_effect=S.ApiError("busy", "待機中のジョブが多すぎます", 429)):
@@ -311,16 +318,6 @@ class TestAutoDiar(unittest.TestCase):
         ready, recent = EB.eb_diar_candidates(set())
         self.assertEqual((ready, recent), ([], 0))
         os.unlink(other)
-
-    def test_backlog_off_without_sherpa(self):
-        tid = self._old_doc_without_diar("r.mp4")
-        self.age(tid)
-        EB.eval_batch_start()
-        with mock.patch.object(proof_speakers, "autodiar_ready", return_value=False):
-            r = EB.eb_tick("test")
-        self.assertEqual(r.get("diarAdded"), 0, r)
-        self.assertEqual(self.diar_jobs(tid), [])
-        self.assertEqual(EB.eb_read()["diar"], {})
 
 
 if __name__ == "__main__":

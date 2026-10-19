@@ -7,15 +7,37 @@
 声の特徴そのもの(sherpa-onnx)は使わず、embed_groups を差し替えて、行の選び方・覚え方(混ぜ方)・照らし合わせの決まり
 (しきい値・2番目との差・1つの名前は1人)・仮の名前だけを置き換えることを確かめる。
 段1(監査02・17・18): 評価用を断る・校正済みで音のメモが無い行だけ・一般的な名前を断る・覚える前の確認(preview)・既にある名前は確かめてから。
+TestDiarRealRun だけは本物の sherpa-onnx(判別・声の特徴)で、Windows の音声合成の 2 人の声を 判別 → 声を覚える(2 回)→ 判別し直して名前を付ける まで通す
+(モデルは本物の作業データの models/diar から読むだけ。部品・モデル・音声合成が無い PC では飛ばす)。
 """
+import importlib.util
 import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
+import shutil
+import tempfile
 import unittest
 from unittest import mock
 
 from test_backend import S, TID, StoreDir
 from pipeline.transcribe import diarize as transcribe_diarize  # noqa: E402
+from pipeline.transcribe import worker_client  # noqa: E402
+from ytt import schemas as ys  # noqa: E402
+
+_FILL_LLM = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "pipeline", "transcribe", "tests", "test_fill_llm.py")
+_spec = importlib.util.spec_from_file_location("_tx_test_fill_llm", _FILL_LLM)
+_fill_llm = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_fill_llm)   # 声の見本を書く say_wav・本物のモデルの置き場所(読むだけ)
+REAL_DIAR = os.path.join(_fill_llm.REAL_HOME, "models", "diar")
+
+
+def _diar_ready():
+    files = [os.path.join(REAL_DIAR, x["file"]) for x in (transcribe_diarize.DIAR_SEG, transcribe_diarize.DIAR_EMBS[transcribe_diarize.DIAR_EMB_DEFAULT])]
+    return _fill_llm._have_sherpa() and all(os.path.isfile(f) and os.path.getsize(f) > 1000 for f in files)   # 取りに行く条件(diarize._have)と同じ
+
+
+def _no_download(*a, **kw):
+    raise AssertionError("話者判別のモデルを取りに行こうとした")
 
 
 def unit(*xs):
@@ -41,15 +63,6 @@ def doc_with_speakers(names, rows, proofed=False, eval_set=False):
 
 
 class TestVoiceRules(unittest.TestCase):
-    def test_groups_skip_short_and_mixed(self):
-        segs = [{"start": 0, "end": 0.5, "speaker": "S1"}, {"start": 1, "end": 4, "speaker": "S1"},
-                {"start": 5, "end": 9, "speaker": "S1", "flag": S.MIXED_FLAG}, {"start": 10, "end": 12, "speaker": ""},
-                {"start": 13, "end": 20, "speaker": "S2"}]
-        g = S.voice_groups(segs, lambda x: x.get("speaker"))
-        self.assertEqual(g["S1"], ([(1, 4)], 3))                 # 短い行(相づち)・声が混ざっている行は使わない
-        self.assertEqual(g["S2"], ([(13, 20)], 7))
-        self.assertNotIn("", g)
-
     def test_groups_cap_longest_first(self):
         segs = [{"start": i * 10.0, "end": i * 10.0 + 8, "speaker": "S1"} for i in range(60)]
         pick, tot = S.voice_groups(segs, lambda x: "S1")["S1"]
@@ -64,6 +77,14 @@ class TestVoiceRules(unittest.TestCase):
         self.assertEqual(got, {})
         got, _info = S.match_voices_explain({"S1": unit(1, 0.05, 0), "S2": unit(1, 0.1, 0)}, voices)   # 同じ名前は1人にだけ(似ている方)
         self.assertEqual({k: v[0] for k, v in got.items()}, {"S1": "ぺこら"})
+        voices = {"a": {"vec": unit(1, 0, 0)}, "b": {"vec": unit(0.9, 0.2, 0)}}
+        out, info = S.match_voices_explain({"S1": unit(0, 0, 1), "S2": unit(1, 0.1, 0), "S3": None}, voices)
+        self.assertEqual(out, {})
+        self.assertEqual((info["S1"]["reason"], info["S2"]["reason"], info["S3"]["reason"]), ("below_match", "margin", "no_feature"))
+        self.assertEqual((info["S2"]["top"], info["S2"]["second"]), ("a", "b"))
+        self.assertTrue(info["S2"]["score"] - info["S2"]["secondScore"] < S.VOICE_MARGIN)
+        out, info = S.match_voices_explain({"S1": unit(1, 0, 0)}, {"a": {"vec": unit(1, 0, 0)}})
+        self.assertEqual((out, info["S1"]["by"]), ({"S1": ("a", 1.0)}, "threshold"))
 
     def test_generic_names(self):
         for n in ("本人", "ゲスト", "配信者", "ＭＣ", "mc", " 司会 ", "話者A", "話者Ａ", "話者", "Speaker 1", "speaker2", "SPK 3", "A", "ｂ", "7", "ナレーション", "その他"):
@@ -113,10 +134,8 @@ class VoiceDir(StoreDir):
 
 
 class TestVoiceStore(VoiceDir):
-    def run_learn(self, spec, vec=(1, 0, 0), calls=None):
+    def run_learn(self, spec, vec=(1, 0, 0)):
         def emb(job, wav, e, groups, off):
-            if calls is not None:
-                calls.append(groups)
             return [unit(*vec) for _ in groups]
         with mock.patch.object(S, "check_source", lambda p: p), mock.patch.object(S, "extract_audio", lambda *a: None), \
                 mock.patch.object(S, "has_sherpa", lambda: True), mock.patch.object(S, "ensure_diar_models", lambda *a: None), \
@@ -129,114 +148,36 @@ class TestVoiceStore(VoiceDir):
         with mock.patch.object(S, "check_source", lambda p: p):
             return S.validate_voice_learn(req)
 
-    def test_learn_named_speakers_only_and_mix(self):
-        self.put_doc(doc_with_speakers([("S1", "兎田ぺこら"), ("S2", "話者2")], [(0, 5, "S1", ""), (6, 12, "S2", ""), (13, 20, "S1", "")], proofed=True))
-        spec = self.validate({"tid": TID, "embedding": "voxceleb", "names": ["兎田ぺこら", "話者2"]})
-        self.assertEqual(spec["names"], ["兎田ぺこら"])   # 仮の名前(話者2)は覚えない
-        j = self.run_learn(spec)
-        self.assertEqual((j["state"], j["learned"]), ("done", ["兎田ぺこら"]), j.get("error"))
-        v = S.load_voices("voxceleb")
-        self.assertEqual(list(v), ["兎田ぺこら"])
-        self.assertEqual((v["兎田ぺこら"]["rows"], v["兎田ぺこら"]["sec"]), (2, 12.0))
-        # もう一度(別の配信)覚えると、使った長さで重みを付けて混ぜる(既にある名前なので「同じ人」の確認が要る)
-        with self.assertRaises(S.ApiError) as cm:
-            self.validate({"tid": TID, "embedding": "voxceleb", "names": ["兎田ぺこら"]})
-        self.assertEqual((cm.exception.code, cm.exception.status, cm.exception.extra), ("confirm_same", 409, {"names": ["兎田ぺこら"]}))
-        spec = self.validate({"tid": TID, "embedding": "voxceleb", "names": ["兎田ぺこら"], "confirmSame": ["兎田ぺこら"]})
-        self.assertEqual(spec["confirmSame"], ["兎田ぺこら"])
-        self.run_learn(spec, vec=(0, 1, 0))
-        v = S.load_voices("voxceleb")["兎田ぺこら"]
-        self.assertEqual((v["rows"], v["sec"]), (4, 24.0))
-        self.assertAlmostEqual(v["vec"][0], v["vec"][1], places=4)   # 同じ長さなら半分ずつ
-        self.assertEqual(S.voices_summary()["voxceleb"][0]["name"], "兎田ぺこら")
-        self.assertNotIn("vec", S.voices_summary()["voxceleb"][0])   # 一覧に特徴そのものは出さない
-        S.delete_voice("voxceleb", "兎田ぺこら")
-        self.assertEqual(S.load_voices("voxceleb"), {})
-        with self.assertRaises(S.ApiError):
-            S.delete_voice("voxceleb", "兎田ぺこら")
-
-    def test_validate_needs_named_speaker(self):
-        self.put_doc(doc_with_speakers([("S1", "話者1")], [(0, 5, "S1", "")], proofed=True))
-        with self.assertRaises(S.ApiError) as cm:
-            self.validate({"tid": TID, "names": ["話者1"]})
-        self.assertEqual(cm.exception.code, "no_names")
-
-    def test_validate_needs_names_list(self):
-        # 古い形(names なし)は受けない: 確認を飛ばして覚えない
+    def test_learn_refusals(self):
+        """覚える前の確認(validate・preview)と実行で断る: 古い形(names なし)・仮の名前だけ・校正済みの行が無い・評価用(待っている間に変えた場合も)・全員が一般的な名前"""
         self.put_doc(doc_with_speakers([("S1", "兎田ぺこら")], [(0, 5, "S1", "")], proofed=True))
         for req in ({"tid": TID}, {"tid": TID, "names": "兎田ぺこら"}, {"tid": TID, "names": [1]}):
             with self.assertRaises(S.ApiError) as cm:
                 self.validate(req)
             self.assertEqual((cm.exception.code, cm.exception.status), ("bad_request", 400), req)
-
-    def test_learn_uses_proofed_rows_without_sound_tags(self):
-        # 監査17: 校正済みで、重なり・BGM・聞き取れないの印が無い、1秒以上・声が混ざっていない行だけを使う
-        self.put_doc(doc_with_speakers([("S1", "兎田ぺこら")], [
-            (0, 5, "S1", "", True),                        # 使う
-            (6, 12, "S1", "", False),                      # 未校正
-            (13, 18, "S1", "", True, ["overlap"]),         # 声が重なる
-            (19, 24, "S1", "", True, ["bgm"]),             # BGM が大きい
-            (25, 30, "S1", "", True, ["unclear"]),         # 聞き取れない
-            (31, 36, "S1", S.MIXED_FLAG, True),            # 声が混ざっている
-            (37, 37.5, "S1", "", True),                    # 1秒未満
-            (40, 47, "S1", "", True, ["other"]),           # 知らない印は無視(使う)
-        ]))
-        plan = S.voice_learn_plan(S.read_transcript(TID))
-        self.assertEqual(plan["groups"]["兎田ぺこら"], ([(0, 5), (40, 47)], 12))
-        self.assertEqual(plan["skipped"], {"unproofed": 1, "tagged": 3, "mixed": 1, "short": 1})
-        calls = []
-        j = self.run_learn(self.validate({"tid": TID, "embedding": "voxceleb", "names": ["兎田ぺこら"]}), calls=calls)
-        self.assertEqual(j["state"], "done", j.get("error"))
-        self.assertEqual(calls, [[[(0, 5), (40, 47)]]])
-        self.assertEqual(S.load_voices("voxceleb")["兎田ぺこら"]["sec"], 12.0)
-
-    def test_unproofed_only_is_refused(self):
+        for names, rows, proofed, eval_set, code, word in (
+                ([("S1", "話者1")], [(0, 5, "S1", "")], True, False, "no_names", None),
+                ([("S1", "兎田ぺこら")], [(0, 5, "S1", ""), (6, 12, "S1", "")], False, False, "no_names", None),
+                ([("S1", "兎田ぺこら")], [(0, 5, "S1", "")], True, True, "eval_set", None),
+                ([("S1", "本人"), ("S2", "ゲスト")], [(0, 5, "S1", ""), (6, 12, "S2", "")], True, False, "no_names", "一般的な名前")):
+            with self.subTest(code=code, names=names):
+                self.put_doc(doc_with_speakers(names, rows, proofed=proofed, eval_set=eval_set))
+                with self.assertRaises(S.ApiError) as cm:
+                    self.validate({"tid": TID, "names": [n for _i, n in names]})
+                self.assertEqual((cm.exception.code, cm.exception.status), (code, 400))
+                if word:
+                    self.assertIn(word, cm.exception.message)
+        pv = S.voice_preview(TID, "voxceleb")
+        self.assertEqual(sorted((r["name"], r["reason"]) for r in pv["refused"]), [("ゲスト", "generic"), ("本人", "generic")])
         self.put_doc(doc_with_speakers([("S1", "兎田ぺこら")], [(0, 5, "S1", ""), (6, 12, "S1", "")]))
         pv = S.voice_preview(TID, "voxceleb")
-        self.assertEqual((pv["people"], pv["refused"], pv["skipped"]["unproofed"]),
-                         ([], [{"name": "兎田ぺこら", "speakers": ["S1"], "reason": "no_rows"}], 2))
-        with self.assertRaises(S.ApiError) as cm:
-            self.validate({"tid": TID, "names": ["兎田ぺこら"]})
-        self.assertEqual((cm.exception.code, cm.exception.status), ("no_names", 400))
-
-    def test_eval_set_is_refused(self):
-        # 監査02: 評価用は validate(画面の前)と run(待っている間に評価用へ変えた)の両方で断る
+        self.assertEqual((pv["people"], pv["refused"], pv["skipped"]["unproofed"]), ([], [{"name": "兎田ぺこら", "speakers": ["S1"], "reason": "no_rows"}], 2))
         self.put_doc(doc_with_speakers([("S1", "兎田ぺこら")], [(0, 5, "S1", "")], proofed=True, eval_set=True))
-        with self.assertRaises(S.ApiError) as cm:
-            self.validate({"tid": TID, "names": ["兎田ぺこら"]})
-        self.assertEqual((cm.exception.code, cm.exception.status), ("eval_set", 400))
         self.assertTrue(S.voice_preview(TID, "voxceleb")["evalSet"])
         j = self.run_learn({"tid": TID, "embedding": "voxceleb", "names": ["兎田ぺこら"], "confirmSame": []})
         self.assertEqual(j["state"], "error")
         self.assertIn("評価用", j["error"])
         self.assertEqual(S.load_voices("voxceleb"), {})
-
-    def test_generic_names_are_not_learned(self):
-        # 監査18: 一般的な名前は覚えない(ほかの名前は覚える)・全員が一般的な名前なら 400
-        self.put_doc(doc_with_speakers([("S1", "本人"), ("S2", "ＭＣ"), ("S3", "話者A"), ("S4", "兎田ぺこら")],
-                                       [(0, 5, "S1", ""), (6, 12, "S2", ""), (13, 20, "S3", ""), (21, 28, "S4", "")], proofed=True))
-        pv = S.voice_preview(TID, "voxceleb")
-        self.assertEqual([p["name"] for p in pv["people"]], ["兎田ぺこら"])
-        self.assertEqual(sorted((r["name"], r["reason"]) for r in pv["refused"]), sorted([("ＭＣ", "generic"), ("本人", "generic"), ("話者A", "generic")]))
-        spec = self.validate({"tid": TID, "embedding": "voxceleb", "names": ["本人", "ＭＣ", "兎田ぺこら"]})
-        self.assertEqual(spec["names"], ["兎田ぺこら"])
-        self.put_doc(doc_with_speakers([("S1", "本人"), ("S2", "ゲスト")], [(0, 5, "S1", ""), (6, 12, "S2", "")], proofed=True))
-        with self.assertRaises(S.ApiError) as cm:
-            self.validate({"tid": TID, "names": ["本人", "ゲスト"]})
-        self.assertEqual((cm.exception.code, cm.exception.status), ("no_names", 400))
-        self.assertIn("一般的な名前", cm.exception.message)
-
-    def test_preview_counts_and_existing(self):
-        S.save_voices("voxceleb", {"兎田ぺこら": {"vec": unit(1, 0, 0), "rows": 30, "sec": 240.0, "updatedAt": 5}})
-        self.put_doc(doc_with_speakers([("S1", "兎田ぺこら"), ("S2", "さくらみこ"), ("S3", "話者3")], [
-            (0, 5, "S1", "", True), (6, 12, "S1", "", False), (13, 20, "S2", "", True), (21, 22.5, "S2", "", True, ["bgm"]), (23, 30, "S3", "", True)]))
-        pv = S.voice_preview(TID, "voxceleb")
-        self.assertEqual(pv["people"], [
-            {"name": "さくらみこ", "speaker": "S2", "speakers": ["S2"], "rows": 1, "sec": 7.0, "exists": False, "old": None},
-            {"name": "兎田ぺこら", "speaker": "S1", "speakers": ["S1"], "rows": 1, "sec": 5.0, "exists": True, "old": {"rows": 30, "sec": 240.0, "updatedAt": 5}}])
-        self.assertEqual(pv["skipped"], {"unproofed": 1, "tagged": 1, "mixed": 0, "short": 0})   # 仮の名前(話者3)の行は数えない
-        self.assertEqual((pv["refused"], pv["evalSet"], pv["embedding"]), ([], False, "voxceleb"))
-        self.assertEqual(S.voice_preview(TID, "no-such-model")["embedding"], S.DIAR_EMB_DEFAULT)
 
     def test_names_added_after_confirm_are_not_learned(self):
         # 確認のあとで名前を付けた人(spec["names"] に無い人)は黙って覚えない
@@ -263,19 +204,6 @@ class TestVoiceStore(VoiceDir):
                                    "兎田ぺこら": {"vec": unit(0, 1, 0), "rows": 3, "sec": 30, "updatedAt": 1}})
         self.assertEqual({x["name"]: x["generic"] for x in S.voices_summary()["voxceleb"]}, {"本人": True, "兎田ぺこら": False})
 
-    def test_recognize_renames_default_names_only(self):
-        S.save_voices("voxceleb", {"兎田ぺこら": {"vec": unit(1, 0, 0), "rows": 3, "sec": 30, "updatedAt": 1},
-                                   "さくらみこ": {"vec": unit(0, 1, 0), "rows": 3, "sec": 30, "updatedAt": 1}})
-        self.put_doc(doc_with_speakers([("S1", "話者1"), ("S2", "みこち"), ("S3", "話者3")],
-                                       [(0, 5, "S1", ""), (6, 12, "S2", ""), (13, 20, "S3", "")]))
-        vec = {"S1": unit(1, 0.05, 0), "S2": unit(0.05, 1, 0), "S3": unit(0, 0, 1)}
-        with mock.patch.object(S, "embed_groups", lambda job, wav, emb, groups, off: [vec[k] for k in ("S1", "S2", "S3")]):
-            named = S._recognize_voices(self.job({}), TID, "x.wav", 0.0, "voxceleb")
-        self.assertEqual([(n["speaker"], n["name"]) for n in named], [("S1", "兎田ぺこら")])   # S2 は自分で付けた名前なので変えない・S3 は似ていない
-        with open(S.tx_path(TID), encoding="utf-8") as f:
-            d = json.load(f)
-        self.assertEqual([s["name"] for s in d["speakers"]], ["兎田ぺこら", "みこち", "話者3"])
-
     def test_names_limit_and_elimination(self):
         """出てくる人の名前(友人からの依頼): 照らし合わせはその名前だけ、1人ずつ残れば消去法で付ける"""
         S.save_voices("voxceleb", {"兎田ぺこら": {"vec": unit(1, 0, 0), "rows": 3, "sec": 30, "updatedAt": 1},
@@ -299,116 +227,147 @@ class TestVoiceStore(VoiceDir):
             d = json.load(f)
         self.assertEqual(([s["name"] for s in d["speakers"]], {g["speaker"] for g in d["segments"]}, {g["flag"] for g in d["segments"]}),
                          (["さくらみこ"], {"S1"}, {""}))
+        S.run_diarize(self.job(spec))   # 1 人指定のし直しも前の判別を残す
+        dz = S.read_diar(TID)
+        run = dz["latest"]
+        self.assertEqual((run["engine"]["name"], run["turns"], sorted(run["rows"]), run["voices"]["speakers"]["S1"]["decided"], len(dz["history"])),
+                         ("single", [], ["s1", "s2", "s3"], "さくらみこ", 1))
+        self.assertEqual({r["speaker"] for r in run["rows"].values()}, {"S1"})
 
 
 class TestDiarRecord(VoiceDir):
-    """判別の記録 <id>.diar.json(Q2): 機械の最初の割り当て・覚えた声との照合の経過を残す。行の speaker・名前(人の最終)は変えない"""
-
-    def setUp(self):
-        super().setUp()
-        p = mock.patch.dict(os.environ, {"TRANSCRIBE_FAKE_DELAY": "0.001"})
-        p.start()
-        self.addCleanup(p.stop)
-
-    def diarize(self, req):
-        with mock.patch.object(S, "check_source", lambda p: p), mock.patch.object(S, "extract_audio", lambda *a: None), \
-                mock.patch.object(S, "backend_name", lambda: "fake"), mock.patch.object(S, "embed_groups", lambda job, wav, emb, groups, off: [unit(1, 0, 0) for _ in groups]):
-            spec = S.validate_diarize(dict(req, tid=TID))
-            j = self.job(spec)
-            S.run_diarize(j)
-        self.assertEqual(j["state"], "done", j.get("error"))
-        return j
-
-    def doc(self):
-        return doc_with_speakers([], [(0, 5, "", ""), (8, 14, "", ""), (14.5, 19, "", ""), (21, 28, "", "")])
-
-    def read_diar(self):
-        with open(S.diar_path(TID), encoding="utf-8") as f:
-            return json.load(f)
-
-    def test_fake_diarize_writes_diar_json(self):
-        self.put_doc(self.doc())
-        self.diarize({"numSpeakers": 2})
-        d = self.read_diar()
-        self.assertEqual(d["schema"], "youtube-tools-diar/v1")
-        run = d["latest"]
-        self.assertEqual((d["history"], run["engine"]["name"], run["engine"]["requested"]), ([], "fake", 2))
-        self.assertEqual(run["turns"][0], {"start": 0.0, "end": 10.0, "label": 0})
-        self.assertEqual(run["labelMap"], {"0": "S1", "1": "S2"})
-        self.assertEqual(sorted(run["rows"]), ["s1", "s2", "s3", "s4"])
-        self.assertEqual((run["rows"]["s1"]["speaker"], run["rows"]["s1"]["ratio"], run["rows"]["s1"]["weak"]), ("S1", 1.0, False))
-        self.assertTrue(run["rows"]["s2"]["mixed"] or run["rows"]["s2"]["weak"] or run["rows"]["s2"]["ratio"] < 1.0)   # 10 秒でまたぐ行
-        self.assertEqual(run["voices"]["checked"], True)   # 覚えた声が無い → 理由 no_voices
-        self.assertEqual(run["voices"]["speakers"]["S1"]["reason"], "no_voices")
-        self.assertEqual(run["voices"]["speakers"]["S1"]["label"], 0)
-        with open(S.tx_path(TID), encoding="utf-8") as f:   # 人の最終(今の行の speaker・名前)は文書のまま
-            doc = json.load(f)
-        self.assertEqual([g["speaker"] for g in doc["segments"]], [run["rows"][k]["speaker"] for k in ("s1", "s2", "s3", "s4")])
-        self.assertNotIn("vec", json.dumps(d))
-
-    def test_overlaps_from_turns(self):
-        ts = [(0.0, 10.0, 0), (8.0, 12.0, 1), (11.0, 15.0, 0), (20.0, 25.0, 1)]
-        self.assertEqual(S._turn_overlaps(ts), [[8.0, 10.0], [11.0, 12.0]])
-        self.assertEqual(S._turn_overlaps([(0, 5, 0), (3, 8, 0)]), [])   # 同じ話者どうしは重なりに数えない
-
-    def test_voice_matching_details_recorded(self):
-        S.save_voices("voxceleb", {"兎田ぺこら": {"vec": unit(1, 0, 0), "rows": 3, "sec": 30, "updatedAt": 1}})
-        self.put_doc(self.doc())
-        j = self.diarize({"numSpeakers": 2})
-        named = j["named"]
-        v = self.read_diar()["latest"]["voices"]
-        self.assertEqual(v["registered"], 1)
-        hit = [sid for sid, x in v["speakers"].items() if x["decided"]]
-        self.assertEqual([(n["speaker"]) for n in named], hit)   # 付いた名前と記録が同じ
-        one = v["speakers"][hit[0]]
-        self.assertEqual((one["top"], one["by"], one["reason"], one["score"] >= 0.6), ("兎田ぺこら", "threshold", None, True))
-        other = [x for sid, x in v["speakers"].items() if sid not in hit]   # 同じ名前は1人だけ → もう1人は付かない
-        self.assertTrue(all(x["decided"] is None and x["reason"] in ("name_taken", "already_named", "name_in_use") for x in other), other)
-
-    def test_explain_reasons(self):
-        voices = {"a": {"vec": unit(1, 0, 0)}, "b": {"vec": unit(0.9, 0.2, 0)}}
-        out, info = S.match_voices_explain({"S1": unit(0, 0, 1), "S2": unit(1, 0.1, 0), "S3": None}, voices)
-        self.assertEqual(out, {})
-        self.assertEqual((info["S1"]["reason"], info["S2"]["reason"], info["S3"]["reason"]), ("below_match", "margin", "no_feature"))
-        self.assertEqual((info["S2"]["top"], info["S2"]["second"]), ("a", "b"))
-        self.assertTrue(info["S2"]["score"] - info["S2"]["secondScore"] < S.VOICE_MARGIN)
-        out, info = S.match_voices_explain({"S1": unit(1, 0, 0)}, {"a": {"vec": unit(1, 0, 0)}})
-        self.assertEqual((out, info["S1"]["by"]), ({"S1": ("a", 1.0)}, "threshold"))
-
-    def test_single_speaker_writes_diar_json(self):
-        self.put_doc(self.doc())
-        with mock.patch.object(S, "check_source", lambda p: p):
-            spec = S.validate_diarize({"tid": TID, "numSpeakers": 1, "names": ["さくらみこ"]})
-        j = self.job(spec)
-        S.run_diarize(j)
-        self.assertEqual(j["state"], "done", j.get("error"))
-        run = self.read_diar()["latest"]
-        self.assertEqual((run["engine"]["name"], run["turns"], sorted(run["rows"]), run["voices"]["speakers"]["S1"]["decided"]), ("single", [], ["s1", "s2", "s3", "s4"], "さくらみこ"))
-        self.assertEqual({r["speaker"] for r in run["rows"].values()}, {"S1"})
-
-    def test_redo_keeps_previous_runs(self):
-        self.put_doc(self.doc())
-        self.diarize({"numSpeakers": 2})
-        first = self.read_diar()["latest"]["at"]
-        self.diarize({"numSpeakers": 3})
-        d = self.read_diar()
-        self.assertEqual((len(d["history"]), d["history"][0]["at"], d["history"][0]["engine"]["requested"], d["latest"]["engine"]["requested"]), (1, first, 2, 3))
-        with mock.patch.object(S, "check_source", lambda p: p):
-            S.run_diarize(self.job(S.validate_diarize({"tid": TID, "numSpeakers": 1})))   # 1人指定のし直しも前を残す
-        d = self.read_diar()
-        self.assertEqual(([h["engine"]["requested"] for h in d["history"]], d["latest"]["engine"]["name"]), ([3, 2], "single"))
-        for n in range(6):
-            self.diarize({"numSpeakers": 2})
-        d = self.read_diar()
-        self.assertEqual(len(d["history"]), S.DIAR_KEEP - 1)   # 最新を含めて 5 回まで
+    """判別の記録 <id>.diar.json が書けなくても判別の結果は残す(保存の失敗は本物の通しでは起こせない。疑似の判別)"""
 
     def test_write_failure_does_not_fail_diarize(self):
-        self.put_doc(self.doc())
-        with mock.patch.object(S, "write_diar", side_effect=OSError("disk full")):
-            self.diarize({"numSpeakers": 2})
+        self.put_doc(doc_with_speakers([], [(0, 5, "", ""), (8, 14, "", ""), (14.5, 19, "", ""), (21, 28, "", "")]))
+        with mock.patch.dict(os.environ, {"TRANSCRIBE_FAKE_DELAY": "0.001"}), mock.patch.object(S, "check_source", lambda p: p), \
+                mock.patch.object(S, "extract_audio", lambda *a: None), mock.patch.object(S, "backend_name", lambda: "fake"), \
+                mock.patch.object(S, "embed_groups", lambda job, wav, emb, groups, off: [unit(1, 0, 0) for _ in groups]), \
+                mock.patch.object(S, "write_diar", side_effect=OSError("disk full")):
+            j = self.job(S.validate_diarize({"tid": TID, "numSpeakers": 2}))
+            S.run_diarize(j)
+        self.assertEqual(j["state"], "done", j.get("error"))
         self.assertFalse(os.path.exists(S.diar_path(TID)))
         with open(S.tx_path(TID), encoding="utf-8") as f:
             self.assertTrue(json.load(f)["speakers"])   # 判別の結果は残る
+
+
+@unittest.skipUnless(_diar_ready(), "sherpa-onnx か話者判別のモデルが無い")
+class TestDiarRealRun(VoiceDir):
+    """本物の判別の通し: 2 人の声(日本語の声 → 低くした英語の声 → 日本語の声)。行は 校正済み・音のメモ・短い行・手で作った行(ゲーム音声など・字幕に出さない)・
+    声の外の定型の幻覚(autoFill の文書は判別のあとに捨てる)を混ぜる"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.src = tempfile.mkdtemp(prefix="ytt-diar-real-")
+        cls.wav = os.path.join(cls.src, "talk.wav")
+        cls.spans = _fill_llm.say_wav(cls.wav, [("ja", "こんにちは、今日はみんなでゲームをします。よろしくお願いします。"),
+                                                ("en", "Hello everyone, thank you for joining the stream today."),
+                                                ("ja", "それでは始めましょう。まずは操作の確認からです。")])
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.src, ignore_errors=True)
+
+    def setUp(self):
+        if not self.spans:
+            self.skipTest("音声合成か ffmpeg が無い")
+        super().setUp()
+        for obj, name, value in ((worker_client, "IN_WORKER", True), (transcribe_diarize, "DIAR_DIR", REAL_DIAR), (transcribe_diarize, "has_sherpa", _fill_llm._have_sherpa),
+                                 (transcribe_diarize, "_download_verified", _no_download)):
+            self.patch(obj, name, value)   # ワーカーの中と同じ道(このプロセスで sherpa-onnx を読む)
+
+    def validate(self, req):
+        return S.validate_voice_learn(req)
+
+    def run_job(self, run, spec, jid):
+        j = self.job(spec)
+        j["id"] = jid
+        run(j)
+        self.assertEqual(j["state"], "done", j.get("error"))
+        return j
+
+    def test_diarize_learn_and_name(self):
+        (a1, b1), (a2, b2), (a3, b3) = self.spans
+
+        def row(i, a, b, **kw):
+            return dict({"id": "s%d" % i, "start": round(a, 2), "end": round(b, 2), "text": "x", "speaker": "", "flag": "", "proofed": True}, **kw)
+        segs = sorted([row(1, a1 + 0.2, b1 - 0.2), row(2, a1 + 3.0, a2 + 3.0, tags=["bgm"]), row(3, a2 + 0.2, b2 - 0.2), row(4, a3 + 0.2, b3 - 0.2),
+                       row(5, a3 + 0.3, a3 + 0.8), row(6, b3 + 0.05, b3 + 0.55, text="ご視聴ありがとうございました", proofed=False),
+                       row(7, a2 + 0.3, a2 + 1.3, speaker="other", noSub=True), row(8, b2 - 2.0, b2 - 0.5, proofed=False),
+                       row(9, a2 + 0.5, b2 - 0.5, tags=["overlap"]), row(10, a3 + 0.5, b3 - 0.5, tags=["unclear"]), row(11, a1 + 0.5, b1 - 0.5, tags=["other"]),
+                       row(12, a2 - 0.5, a2 - 0.1, noSub=True)], key=lambda g: g["start"])
+        self.put_doc({"schema": "transcribe/v1", "id": TID, "title": "t", "sourcePath": self.wav, "start": 0, "end": None, "createdAt": 1, "updatedAt": 1000,
+                      "speakers": [{"id": "other", "name": S.OTHER_SPK_NAME, "color": S.OTHER_SPK_COLOR, "builtin": "other"}], "segments": segs,
+                      "original": [{"start": g["start"], "end": g["end"], "text": g["text"]} for g in segs], "params": {"autoFill": True}})
+        # 1. 判別(人数 2・ならす)。日本語の声の行どうしが同じ話者・英語の声が別の話者・手で作った行はそのまま・声の外の定型の幻覚は捨てる
+        j = self.run_job(S.run_diarize, S.validate_diarize({"tid": TID, "numSpeakers": 2, "smooth": True}), "j1")
+        d = self.read()
+        g = {x["id"]: x for x in d["segments"]}
+        ja, en = g["s1"]["speaker"], g["s3"]["speaker"]
+        self.assertEqual((j["speakers"], sorted({ja, en}), g["s4"]["speaker"], g["s11"]["speaker"], g["s10"]["speaker"]), (2, ["S1", "S2"], ja, ja, ja))
+        self.assertEqual((g["s8"]["speaker"], g["s9"]["speaker"]), (en, en))
+        self.assertEqual((g["s7"]["speaker"], g["s7"]["noSub"], g["s12"]["speaker"]), ("other", True, ""))
+        self.assertNotIn("s6", g)
+        self.assertIn(S.WEAK_FLAG, g["s5"]["flag"])                                     # 0.8 秒未満の行は話者が不確か
+        self.assertTrue(any(f in g["s2"]["flag"] for f in (S.WEAK_FLAG, ys.MIXED_FLAG)), g["s2"]["flag"])   # 2 人にまたがる行
+        self.assertEqual({k: d["diarization"][k] for k in ("engine", "requested", "found", "fillDropped")}, {"engine": "sherpa-onnx", "requested": 2, "found": 2, "fillDropped": 1})
+        dz = S.read_diar(TID)
+        run = dz["latest"]
+        self.assertEqual((dz["history"], run["engine"]["name"], run["engine"]["requested"], sorted(run["labelMap"].values())), ([], "sherpa-onnx", 2, ["S1", "S2"]))
+        self.assertGreaterEqual(len(run["turns"]), 3)
+        self.assertEqual(run["smooth"]["on"], True)                                     # 要求の smooth が判別の記録まで届く
+        self.assertEqual({k: run["rows"][k]["speaker"] for k in ("s1", "s3")}, {"s1": ja, "s3": en})
+        self.assertEqual((run["voices"]["checked"], run["voices"]["speakers"][ja]["reason"]), (True, "no_voices"))
+        self.assertNotIn("vec", json.dumps(dz))
+        # 2. 名前を付けて声を覚える。確かめた人だけ・校正済みで音のメモ(重なり・BGM・聞き取れない)が無い 1 秒以上の行だけ(知らない印は無視・ゲーム音声などは数えない)
+        for sp in d["speakers"]:
+            sp["name"] = {ja: "兎田ぺこら", en: "さくらみこ"}.get(sp["id"], sp["name"])
+        self.put_doc(d)
+        pv = S.voice_preview(TID, "voxceleb")
+        sec = round(sum(g[k]["end"] - g[k]["start"] for k in ("s1", "s4", "s11")), 1)
+        self.assertEqual([(p["name"], p["speaker"], p["rows"], p["exists"]) for p in pv["people"]], [("さくらみこ", en, 1, False), ("兎田ぺこら", ja, 3, False)])
+        self.assertAlmostEqual(pv["people"][1]["sec"], sec, places=0)
+        self.assertEqual((pv["refused"], pv["skipped"]), ([], {"unproofed": 1, "tagged": 3, "mixed": 0, "short": 1}))
+        self.assertEqual(S.voice_preview(TID, "no-such-model")["embedding"], S.DIAR_EMB_DEFAULT)
+        spec = self.validate({"tid": TID, "embedding": "voxceleb", "names": ["兎田ぺこら"]})
+        self.assertEqual(self.run_job(S.run_voice_learn, spec, "j2")["learned"], ["兎田ぺこら"])
+        v = S.load_voices("voxceleb")
+        self.assertEqual((list(v), v["兎田ぺこら"]["rows"], [x["doc"] for x in v["兎田ぺこら"]["learnedFrom"]]), (["兎田ぺこら"], 3, [TID]))
+        first = list(v["兎田ぺこら"]["vec"])
+        self.assertAlmostEqual(sum(x * x for x in first), 1.0, places=4)
+        # 3. もう一度覚える: 既にある名前は「同じ人」の確認が要る。使った長さで重みを付けて混ぜる(同じ文書は learnedFrom に重ねない)
+        with self.assertRaises(S.ApiError) as cm:
+            self.validate({"tid": TID, "embedding": "voxceleb", "names": ["兎田ぺこら"]})
+        self.assertEqual((cm.exception.code, cm.exception.status, cm.exception.extra), ("confirm_same", 409, {"names": ["兎田ぺこら"]}))
+        self.assertEqual(S.voice_preview(TID, "voxceleb")["people"][1]["old"]["rows"], 3)
+        self.run_job(S.run_voice_learn, self.validate({"tid": TID, "embedding": "voxceleb", "names": ["兎田ぺこら"], "confirmSame": ["兎田ぺこら"]}), "j3")
+        v = S.load_voices("voxceleb")["兎田ぺこら"]
+        self.assertEqual((v["rows"], len(v["learnedFrom"])), (6, 1))
+        self.assertAlmostEqual(v["sec"], 2 * pv["people"][1]["sec"], delta=0.2)
+        self.assertGreater(sum(a * b for a, b in zip(v["vec"], first)), 0.999)          # 同じ声を混ぜても向きは同じ
+        self.assertEqual([(x["name"], "vec" in x) for x in S.voices_summary()["voxceleb"]], [("兎田ぺこら", False)])   # 一覧に特徴そのものは出さない
+        # 4. 判別し直す: 人の話者の表は残し、覚えた声に近い仮の名前の話者だけに名前を付ける(自分で付けた名前は変えない・似ていない声には付けない)
+        d = self.read()
+        for sp in d["speakers"]:
+            sp["name"] = {ja: "話者1", en: "みこち"}.get(sp["id"], sp["name"])
+        self.put_doc(d)
+        j = self.run_job(S.run_diarize, S.validate_diarize({"tid": TID, "numSpeakers": 2}), "j4")
+        self.assertEqual([(n["speaker"], n["name"], n["by"]) for n in j["named"]], [(ja, "兎田ぺこら", "threshold")])
+        d = self.read()
+        self.assertEqual({sp["id"]: sp["name"] for sp in d["speakers"]}, {ja: "兎田ぺこら", en: "みこち", "other": S.OTHER_SPK_NAME})
+        g = {x["id"]: x for x in d["segments"]}
+        self.assertEqual((g["s1"]["speaker"], g["s3"]["speaker"], g["s9"]["speaker"], g["s7"]["speaker"]), (ja, en, en, "other"))   # 重なりのメモつきの行も守る
+        dz = S.read_diar(TID)
+        vs = dz["latest"]["voices"]
+        self.assertEqual((len(dz["history"]), "smooth" in dz["latest"], vs["registered"]), (1, False, 1))   # 前の判別を残す・既定はならさない
+        self.assertEqual((vs["speakers"][ja]["decided"], vs["speakers"][ja]["by"]), ("兎田ぺこら", "threshold"))
+        self.assertGreaterEqual(vs["speakers"][ja]["score"], S.VOICE_MATCH)
+        self.assertIn(vs["speakers"][en]["reason"], ("below_match", "already_named"))
+        S.delete_voice("voxceleb", "兎田ぺこら")
+        self.assertEqual(S.load_voices("voxceleb"), {})
+        with self.assertRaises(S.ApiError):
+            S.delete_voice("voxceleb", "兎田ぺこら")
 
 
 class TestOtherVoice(VoiceDir):
@@ -441,31 +400,6 @@ class TestOtherVoice(VoiceDir):
         self.assertEqual([(g["id"], g.get("noSub")) for g in out["segments"]], [("a", True), ("b", None)])   # 真のときだけ持つ
         self.assertEqual(out["segments"][0]["speaker"], "other")
         self.assertEqual(out["original"], base["original"])                         # 機械の出力は変えない
-
-    def test_other_name_is_generic(self):
-        self.assertTrue(S.is_generic_speaker_name("ゲーム音声など"))
-        plan = S.voice_learn_plan(self.manual_doc())
-        self.assertNotIn("ゲーム音声など", plan["groups"])
-        self.assertFalse(any(r["name"] == "ゲーム音声など" for r in plan["refused"]))   # 断った扱いにもしない(一覧に出さない)
-
-    def _rediarize_manual(self):
-        self.put_doc(self.manual_doc())
-        with mock.patch.object(S, "check_source", lambda p: p), mock.patch.object(S, "extract_audio", lambda *a: None), \
-                mock.patch.object(S, "backend_name", lambda: "fake"), mock.patch.object(S, "embed_groups", lambda job, wav, emb, groups, off: [unit(1, 0, 0) for _ in groups]):
-            j = self.job(S.validate_diarize({"tid": TID, "numSpeakers": 2}))
-            S.run_diarize(j)
-        self.assertEqual(j["state"], "done", j.get("error"))
-        return self.read()
-
-    def test_rediarize_keeps_manual_rows_primary(self):
-        """層が正: 判別し直しても人の話者の表(id と名前)はそのまま。手で決めた行の話者も印も変わらない(付け替えの S2p は起きない)"""
-        d = self._rediarize_manual()
-        g = {x["id"]: x for x in d["segments"]}
-        self.assertEqual((g["s2"]["speaker"], g["s2"]["noSub"], g["s2"]["flag"]), ("other", True, "要確認"))
-        self.assertEqual((g["s3"]["speaker"], g["s3"]["noSub"]), ("", True))
-        self.assertEqual(g["s4"]["speaker"], "S2")                                  # 重なる行の話者は同じ人・同じ id のまま
-        self.assertEqual([(s["id"], s["name"]) for s in d["speakers"]], [("S1", "話者1"), ("S2", "ぺこら"), ("other", "ゲーム音声など")])
-        self.assertEqual(g["s1"]["speaker"], "S1")                                  # 判別の話者は重なり時間で人の話者に当たる
 
     def test_single_speaker_keeps_manual_rows(self):
         """「全行をこの人に」(1人指定)も同じ。同じ名前の守った話者は 1 人にまとめる"""

@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""認識のあとの後処理 A・B・C・D(pipeline/transcribe/fill.py。B = 行の頭の話者名)のテスト。test_metrics から読み込まれる。
+"""文字起こしのジョブの後処理(A 別の読み・B 頭の名前・E LLM・配信ごとの文脈)を ③ の run_job で 1 回通し、文書と記録に残る形を確かめるテスト。test_metrics から読み込まれる。
 
     py -3.12 -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
     py -3.12 -m unittest test_fill -q                        # これだけ(src/editor/tests で)
 
-- 純粋な関数: 文字の少ない行の見分け・窓の読みでの置き換え(3 倍の条件・印と元の文字)・末尾の重複・定型の幻覚と声の区間・名簿の呼び名の 1 字違い
-- ジョブ(疑似の認識 TRANSCRIBE_BACKEND=fake + TRANSCRIBE_FAKE_FILL): 行が置き換わり fill と印が付く・記録 recognition.runs[].fill・設定 autoFill(既定オン・評価用はオフ)・保存で fill が残る
-- エンジン: SenseVoice の登録(light)・トークンの時刻からの行・偽(⑤ fake_worker.fake_sense_voice)・小さいモデルは主のモデルを手放さない
+- ジョブの通し(疑似の認識 TRANSCRIBE_BACKEND=fake の行を差し替え + TRANSCRIBE_FAKE_FILL・TRANSCRIBE_FAKE_LLM): 行が置き換わり fill と印・
+  記録 recognition.runs[].fill・names・llm・settings.context・<id>.llm.json・<id>.asr.json・params・保存で fill が残る・評価用は後処理も文脈も使わない
+- 規則の答え(行の並びの見本)は src/pipeline/transcribe/tests/test_postproc.py、本物の SenseVoice・LLM の通しは test_fill_llm.py
+- ここに残す単体: 声の区間の外の幻覚を捨てる fill_clean_turns(評価用・設定オフ・offset の別の道)・SenseVoice のエンジンの表とトークンの時刻・偽物・小さいモデル
 """
 import json
 import os
@@ -23,124 +24,38 @@ sys.path.insert(0, TESTS)
 from test_backend import S, StoreDir, write_json  # noqa: F401,E402  (S = serve)
 from test_alt import make_video  # noqa: E402
 from pipeline.transcribe import fill  # noqa: E402
+from pipeline.transcribe import llm  # noqa: E402
+from pipeline.transcribe import roster  # noqa: E402
 from human.proof import doc_jobs  # noqa: E402
 from human.proof import store  # noqa: E402
-from pipeline.transcribe import postproc  # noqa: E402
 from pipeline.transcribe import records  # noqa: E402
 from pipeline.transcribe import models  # noqa: E402
 from flow import jobs  # noqa: E402
 from pipeline.transcribe import tx_engines as E  # noqa: E402
-from eval.fake import fake_worker  # noqa: E402  (SenseVoice・文字の LLM の偽物)
+from eval.fake import fake_asr, fake_worker  # noqa: E402  (疑似の認識・SenseVoice の偽物)
+from ytt import studiodata, testkit  # noqa: E402
 
 HAVE_FF = bool(shutil.which("ffmpeg"))
 LONG = "これは別の読みで埋めた長い文です"   # 16 字(テスト文n の 5 字の 3 倍以上)
 
 
-def _row(a, b, text, **kw):
-    return dict({"start": a, "end": b, "text": text, "words": [], "avg_logprob": -0.3, "no_speech_prob": 0.1, "compression_ratio": 1.2}, **kw)
-
-
-class TestFillPure(unittest.TestCase):
-    def test_sparse_row(self):
-        self.assertTrue(fill.fill_sparse_row(_row(0, 4, "テスト文1")))                     # 5 字 / 4 秒 = 1.25 < 1.5
-        self.assertFalse(fill.fill_sparse_row(_row(0, 1.5, "テスト文1")))                  # 2 秒未満
-        self.assertFalse(fill.fill_sparse_row(_row(0, 4, "これは十分に長い文字の行です")))     # 3.5 字/秒
-        self.assertTrue(fill.fill_sparse_row(_row(0, 2, "うわああああああああああああ")))        # 繰り返しで 3 字に縮む(密度は高い)
-        self.assertFalse(fill.fill_sparse_row(_row(0, 2, "ああいいううええおお")))             # 2 回の繰り返しは縮めない
-        self.assertFalse(fill.fill_sparse_row({"start": "x", "end": 1, "text": "a"}))
-        self.assertEqual((fill.fill_chars("うわああああ!!"), fill.fill_norm("A B、c。")), (3, "ABc"))   # う・わ・あ(3 回以上の繰り返しは 1 字)
-
-    def test_apply_replaces_only_when_three_times(self):
-        r1, r2 = _row(0, 4, "テスト文1"), _row(4, 8, "これは十分に長い文字の行です")
-        calls = []
-
-        def read(s0, e0):
-            calls.append((s0, e0))
-            return [{"start": s0 + 0.2, "end": e0 - 0.2, "text": LONG}]
-        out, st = fill.fill_apply([r1, r2], read, 8.0)
-        self.assertEqual((st, calls), ({"windows": 1, "rows": 1, "added": 1}, [(0.0, 4.5)]))   # 窓は前後 0.5 秒(0 より前・total より後ろへは出ない)
-        self.assertEqual([(x["start"], x["end"], x["text"]) for x in out], [(0.2, 4.3, LONG), (4, 8, "これは十分に長い文字の行です")])
-        self.assertEqual(out[0]["fill"], {"from": "テスト文1", "by": "sense-voice"})
-        self.assertNotIn("fill", out[1])
-        # 字数が 3 倍未満・窓の読みが元の行の時間に半分も入らない → 置き換えない
-        out, st = fill.fill_apply([r1], lambda s0, e0: [{"start": s0, "end": e0, "text": "短い文です"}], 8.0)
-        self.assertEqual((st["rows"], out[0]["text"]), (0, "テスト文1"))
-        out, st = fill.fill_apply([r1], lambda s0, e0: [{"start": 3.9, "end": 4.5, "text": LONG}], 8.0)
-        self.assertEqual((st["rows"], out[0]["text"]), (0, "テスト文1"))
-        out, st = fill.fill_apply([r1], lambda s0, e0: [], 8.0)
-        self.assertEqual((st, out[0]["text"]), ({"windows": 1, "rows": 0, "added": 0}, "テスト文1"))
-
-    def test_clean_tail(self):
-        rows = [_row(0, 3, "今日はいい天気ですね"), _row(3, 4, "いい天気ですね"), _row(4, 5, "ですね"), _row(5, 6, "いい天気ですね")]
-        out, n = fill.fill_clean_tail(rows)
-        self.assertEqual(([r["text"] for r in out], n), (["今日はいい天気ですね", "ですね", "いい天気ですね"], 1))   # 6 字未満・前の行の末尾でない行は残す
-
-    def test_clean_turns(self):
-        seg = [{"id": "s1", "start": 10, "end": 12, "text": "ご視聴ありがとうございました", "speaker": "", "flag": ""},
-               {"id": "s2", "start": 0, "end": 2, "text": "ご視聴ありがとうございました", "speaker": "", "flag": ""},
-               {"id": "s3", "start": 20, "end": 22, "text": "ご視聴ありがとうございました", "speaker": "", "flag": "", "proofed": True},
-               {"id": "s4", "start": 30, "end": 32, "text": "ご視聴ありがとうございました", "speaker": "", "flag": ""},
-               {"id": "s5", "start": 40, "end": 42, "text": "こんばんは", "speaker": "", "flag": ""}]
-        orig = [{"start": g["start"], "end": g["end"], "text": g["text"]} for g in seg]
-        orig[3]["text"] = "ご視聴ありがとう"   # s4 は人(か辞書)が直した行
-        doc = {"params": {"autoFill": True}, "segments": [dict(g) for g in seg], "original": orig}
-        turns = [(0.0, 5.0, 0), (39.0, 45.0, 1)]   # 声があるのは 0〜5 秒と 39〜45 秒(wav の秒。offset 0)
-        self.assertEqual(fill.fill_clean_turns(doc, turns, 0.0), 1)
-        self.assertEqual([g["id"] for g in doc["segments"]], ["s2", "s3", "s4", "s5"])   # 声の中・校正済み・直した行・普通の文は残す
-        doc2 = {"params": {"autoFill": True}, "segments": [dict(g) for g in seg], "original": orig, "evalSet": True}
-        self.assertEqual(fill.fill_clean_turns(doc2, turns, 0.0), 0)
-        doc3 = {"params": {}, "segments": [dict(g) for g in seg], "original": orig}
-        self.assertEqual(fill.fill_clean_turns(doc3, turns, 0.0), 0)
-        doc4 = {"params": {"autoFill": True}, "segments": [dict(g) for g in seg], "original": orig}
-        self.assertEqual(fill.fill_clean_turns(doc4, [(0.0, 5.0, 0)], 10.0), 1)   # offset で声の区間が 10〜15 秒 = s1 は声の中・s2 が声の外
-        self.assertEqual([g["id"] for g in doc4["segments"]], ["s1", "s3", "s4", "s5"])
-
-    def test_aliases(self):
-        r = {"members": {"さくらみこ": {"aliases": ["みこ", "みこち"], "common": ["みこ"]}, "白上フブキ": {"aliases": ["フブキ", "フブ"], "common": []}}}
-        self.assertEqual(fill.fill_aliases(r), {"さくらみこ", "みこち", "白上フブキ", "フブキ"})   # 3 字未満と common は入れない
-
-    def test_agree(self):
-        segs = [{"id": "s1", "start": 0, "end": 3, "text": "みこぢが来たよ", "speaker": "", "flag": "自信が低い"},
-                {"id": "s2", "start": 3, "end": 6, "text": "みこちが来たよ", "speaker": "", "flag": ""},
-                {"id": "s3", "start": 6, "end": 9, "text": "みこぢが来たよ", "speaker": "", "flag": "", "proofed": True},
-                {"id": "s4", "start": 20, "end": 23, "text": "みこぢが来たよ", "speaker": "", "flag": ""},
-                {"id": "s5", "start": 9, "end": 12, "text": "ミコチが来たよ", "speaker": "", "flag": ""}]
-        others = [{"start": 0.2, "end": 12, "text": "みこちが来たよみこちが来たよ"}]
-        n = fill.fill_agree(segs, others, {"みこち", "さくらみこ"})
-        self.assertEqual(n, 1)
-        self.assertEqual((segs[0]["text"], segs[0]["fill"], segs[0]["flag"]), ("みこちが来たよ", {"from": "みこぢが来たよ", "by": "sense-voice"}, "名簿の呼び名に直した(別のエンジンも同じ呼び名)、自信が低い"))
-        self.assertEqual([g["text"] for g in segs[1:]], ["みこちが来たよ", "みこぢが来たよ", "みこぢが来たよ", "ミコチが来たよ"])   # 既にある・校正済み・時間が違う・かなの違いだけ は直さない
-        self.assertEqual(fill.fill_agree(segs, [{"start": 0, "end": 3, "text": "こんばんは"}], {"みこち"}), 0)
-
-    def test_strip_names(self):
-        """B: 行の頭の「名前:」を外す(名簿・用語集の名前か、かな・カタカナだけの短い語。直後に本文があるときだけ)"""
-        names = {"宝鐘マリン", "マリン"}
-        split = fill.fill_spk_split
-        self.assertEqual(split("リリー:ラデンだねぇ", names), ("ラデンだねぇ", "リリー:"))
-        self.assertEqual(split(" リリー： もう一回言って", names), ("もう一回言って", " リリー： "))
-        self.assertEqual(split("宝鐘マリン:ahoy", names), ("ahoy", "宝鐘マリン:"))
-        self.assertEqual(split("マリン船長:ahoy", names)[1], None)               # 名簿に無い漢字まじり
-        self.assertEqual(split("マリンさん:ahoy", names)[1], "マリンさん:")     # 敬称を除くと名簿の名前
-        for text in ("結論:やらない", "12:30に集合", "リリー:", "リリー:!?", "とてもとても長いなまえです:はい", "Q:質問"):
-            self.assertEqual(split(text, names), (text, None), text)
-        rows = [_row(0, 2, "リリー:もう一回", _words=[[0, 0.3, "リ"], [0.3, 0.6, "リー"], [0.6, 0.7, ":"], [0.7, 2, "もう一回"]]),
-                _row(2, 4, "テスト文2", fill={"from": "x", "by": "sense-voice"}), _row(4, 6, "ねえ:テスト文3", fill={"from": "y", "by": "sense-voice"})]
-        out, n = fill.fill_strip_names({"stripNames": True, "glossary": ["マリン"]}, rows)
-        self.assertEqual((n, [r["text"] for r in out]), (2, ["もう一回", "テスト文2", "テスト文3"]))
-        self.assertEqual(out[0]["fill"], {"from": "リリー:もう一回", "by": "name"})
-        self.assertEqual(out[0]["_words"], [[0.7, 2, "もう一回"]])                # 名前と「:」の単語は除く
-        self.assertEqual(out[2]["fill"], {"from": "y", "by": "sense-voice"})     # 先に付いた元の文字は残す
-        rows = [_row(0, 2, "リリー:もう一回")]
-        self.assertEqual(fill.fill_strip_names({"stripNames": False}, rows), (rows, 0))
-        self.assertEqual(rows[0]["text"], "リリー:もう一回")
+def _fake_rows(job, spec, wav, total):
+    """疑似の認識の行: 文字の少ない行(A)・頭の名前(B)・名簿の呼び名の 1 字違い(E)"""
+    job["state"] = "running"
+    yield {"start": 0.0, "end": 4.0, "text": "テスト文1", "avg_logprob": -0.3}
+    yield {"start": 4.5, "end": 6.0, "text": "リリー:テスト文2", "avg_logprob": -0.3}
+    yield {"start": 6.5, "end": 8.5, "text": "テスト文3", "avg_logprob": -0.3}
 
 
 @unittest.skipUnless(HAVE_FF, "ffmpeg が必要")
-class TestFillJob(StoreDir):
+class TestFillJobRun(StoreDir):
+    REPLY = json.dumps({"edits": [{"from": "テスト文", "to": "テスト分", "confidence": 0.9}]})
+
     @classmethod
     def setUpClass(cls):
         cls.src_dir = tempfile.mkdtemp()
-        cls.video = make_video(os.path.join(cls.src_dir, "v.mp4"))   # 9 秒 = 疑似の行 0〜4・4〜8(文字が少ない)・8〜9(2 秒未満)
+        os.makedirs(os.path.join(cls.src_dir, "テスト分子 雑談"))
+        cls.video = make_video(os.path.join(cls.src_dir, "テスト分子 雑談", "テスト分の配信.mp4"))   # フォルダの名前 = 配信ごとの文脈・題名の呼び名 = LLM の出る人
 
     @classmethod
     def tearDownClass(cls):
@@ -148,80 +63,90 @@ class TestFillJob(StoreDir):
 
     def setUp(self):
         super().setUp()
-        self.env = mock.patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "fake", "TRANSCRIBE_FAKE_DELAY": "0", "TRANSCRIBE_NORMALIZE": "off", "TRANSCRIBE_FAKE_FILL": LONG})
-        self.env.start()
+        path = os.path.join(self.tmp, "roster.json")
+        write_json(path, {"groups": [{"id": "t", "label": "試し", "names": ["テスト分子"]}], "members": [{"name": "テスト分子", "aliases": ["テスト分"]}]})
+        self.enterContext(mock.patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "fake", "TRANSCRIBE_FAKE_DELAY": "0", "TRANSCRIBE_NORMALIZE": "off",
+                                                       "TRANSCRIBE_FAKE_FILL": LONG, "TRANSCRIBE_FAKE_LLM": self.REPLY}))
+        for mod, name, value in ((roster, "ROSTER", path), (studiodata, "studio_stream", lambda vid: None), (fake_asr, "transcribe_fake", _fake_rows)):
+            self.enterContext(mock.patch.object(mod, name, value))
         self.mine = set()
+        self.addCleanup(self._drop_jobs)
 
-    def tearDown(self):
-        self.env.stop()
+    def _drop_jobs(self):
         with jobs._jobs_lock:
             for k in list(jobs._jobs):
                 if k in self.mine or (jobs._jobs[k].get("spec") or {}).get("sourcePath") == self.video:
                     jobs._jobs.pop(k, None)
-        super().tearDown()
 
     def transcribe(self, **req):
-        job = jobs.add_job(doc_jobs.validate_job(dict({"sourcePath": self.video, "model": "small"}, **req)))
+        job = jobs.add_job(doc_jobs.validate_job(dict({"sourcePath": self.video, "model": "small", "autoGloss": False}, **req)))
         self.mine.add(job["id"])
         doc_jobs.run_job(job)
         self.assertEqual(job["state"], "done", job.get("error"))
         return job
 
-    def test_job_fills_sparse_rows_and_records(self):
-        job = self.transcribe()
+    def test_job_post_processing_is_recorded(self):
+        job = self.transcribe(autoContext=True, glossary="ホロライブ")
         doc = store.read_transcript(job["tid"])
         segs = doc["segments"]
-        self.assertEqual([(g["start"], g["end"], g["text"]) for g in segs], [(0.0, 4.5, LONG), (3.5, 8.5, LONG), (8.0, 9.0, "テスト文3")])   # 窓 = 前後 0.5 秒
-        self.assertEqual([g.get("fill") for g in segs], [{"from": "テスト文1", "by": "sense-voice"}, {"from": "テスト文2", "by": "sense-voice"}, None])
-        self.assertTrue(all(g["flag"].startswith(fill.FILL_FLAG) for g in segs[:2]), [g["flag"] for g in segs])
-        self.assertNotIn(fill.FILL_FLAG, segs[2]["flag"])
+        self.assertEqual([(g["start"], g["end"], g["text"]) for g in segs], [(0.0, 5.0, LONG), (4.5, 6.5, "テスト文2"), (6.5, 8.5, "テスト分3")])   # 続いている行はつなぐ・窓 = 前後 0.5 秒
+        self.assertEqual([g.get("fill") for g in segs], [{"from": "テスト文1", "by": "sense-voice"}, {"from": "リリー:テスト文2", "by": "name"},
+                                                         {"from": "テスト文3", "by": "llm"}])   # 後処理の行は LLM に選ばれない
+        self.assertEqual([g["flag"].split("(")[0] for g in segs], [fill.FILL_FLAG.split("(")[0], fill.FILL_SPK_FLAG.split("(")[0], llm.LLM_FLAG.split("(")[0]])
         run = doc["recognition"]["runs"][0]
-        self.assertEqual(run["fill"], {"engine": "sense-voice", "windows": 2, "rows": 2, "added": 2, "dup": 0, "agree": 0})
-        self.assertIs(doc["params"]["autoFill"], True)
-        self.assertEqual([o["text"] for o in doc["original"]], [LONG, LONG, "テスト文3"])   # 機械の出力 = 後処理のあと(whisper の生の結果は asr.json)
-        self.assertEqual([a["text"] for a in json.load(open(records.asr_path(job["tid"]), encoding="utf-8"))["segments"]], ["テスト文1", "テスト文2", "テスト文3"])
+        self.assertEqual(run["fill"], {"engine": "sense-voice", "windows": 1, "rows": 1, "added": 1, "dup": 0, "agree": 0})
+        self.assertEqual((run["names"], run["llm"]), (1, {"engine": "llama-text", "model": "qwen3-8b", "picked": 1, "proposed": 1, "applied": 1, "rejected": {}}))
+        self.assertEqual({k: doc["params"][k] for k in ("autoFill", "stripNames", "autoLlm")}, {"autoFill": True, "stripNames": True, "autoLlm": True})
+        self.assertEqual(doc["params"]["context"], {"members": [{"name": "テスト分子", "from": ["title"]}], "terms": 2})   # 動画のフォルダの名前から
+        self.assertEqual(run["settings"]["context"], ["テスト分子"])
+        self.assertNotIn("evalSet", doc)
+        self.assertEqual([o["text"] for o in doc["original"]], [LONG, "テスト文2", "テスト文3"])   # 機械の出力 = A・B のあと・LLM の前
+        self.assertEqual([a["text"] for a in testkit.read_json(records.asr_path(job["tid"]))["segments"]],
+                         ["テスト文1", "リリー:テスト文2", "テスト文3"])   # whisper の生の結果
+        self.assertEqual([(it["from"], it["to"], it["rejected"]) for it in llm.read_llm(job["tid"])["items"]], [("テスト文", "テスト分", None)])
         # 保存しても fill は残る(画面の「別の読み」の札で戻せる)。形の違う fill は捨てる
         saved = store.sanitize_transcript(dict(doc, segments=[dict(segs[0]), dict(segs[2], fill="x")]), doc)
         self.assertEqual([g.get("fill") for g in saved["segments"]], [{"from": "テスト文1", "by": "sense-voice"}, None])
 
-    def test_no_reading_keeps_rows(self):
-        with mock.patch.dict(os.environ, {"TRANSCRIBE_FAKE_FILL": ""}):
-            job = self.transcribe()
-        doc = store.read_transcript(job["tid"])
-        self.assertEqual([g["text"] for g in doc["segments"]], ["テスト文1", "テスト文2", "テスト文3"])
-        self.assertEqual(doc["recognition"]["runs"][0]["fill"], {"engine": "sense-voice", "windows": 2, "rows": 0, "added": 0, "dup": 0, "agree": 0})
+    def test_settings_and_eval_set(self):
+        """設定 autoFill・autoLlm・stripNames(既定オン): 要求が優先・保存した設定・評価用は全部オフ(用語集・文脈・辞書・学習も)"""
+        base = {"sourcePath": self.video, "model": "small"}
+        v = doc_jobs.validate_job(base)
+        self.assertEqual((v["autoFill"], v["autoLlm"], v["stripNames"], v["context"]), (True, True, True, {"members": [], "terms": []}))   # 配信ごとの文脈は既定オフ
+        write_json(S.SETTINGS, {"autoFill": False, "autoLlm": False})
+        v = doc_jobs.validate_job(base)
+        self.assertEqual((v["autoFill"], v["autoLlm"]), (False, False))
+        self.assertTrue(doc_jobs.validate_job(dict(base, autoFill=True))["autoFill"])
+        write_json(S.SETTINGS, {})
+        job = self.transcribe(autoContext=True, glossary="ホロライブ", evalSet=True, autoDict=True, autoLearned=True, autoFill=True, autoLlm=True)
+        d = store.read_transcript(job["tid"])
+        self.assertIs(d["evalSet"], True)
+        self.assertEqual({k: d["params"][k] for k in ("glossary", "context", "autoDict", "autoLearned", "autoFill", "autoLlm", "stripNames")},
+                         {"glossary": [], "context": None, "autoDict": False, "autoLearned": False, "autoFill": False, "autoLlm": False, "stripNames": False})
+        run = d["recognition"]["runs"][0]
+        self.assertEqual((run["settings"]["promptChars"], [k for k in ("fill", "names", "llm") if k in run]), (0, []))
+        self.assertEqual([g["text"] for g in d["segments"]], ["テスト文1", "リリー:テスト文2", "テスト文3"])
 
-    def test_setting_and_eval_set(self):
-        """設定 autoFill(既定オン): 要求が優先・保存した設定・評価用はオフ"""
-        job = self.transcribe(autoFill=False)
-        doc = store.read_transcript(job["tid"])
-        self.assertEqual(([g["text"] for g in doc["segments"]][0], doc["params"]["autoFill"]), ("テスト文1", False))
-        self.assertNotIn("fill", doc["recognition"]["runs"][0])
-        self.assertTrue(doc_jobs.validate_job({"sourcePath": self.video, "model": "small"})["autoFill"])
-        write_json(S.SETTINGS, {"autoFill": False})
-        self.assertFalse(doc_jobs.validate_job({"sourcePath": self.video, "model": "small"})["autoFill"])
-        self.assertTrue(doc_jobs.validate_job({"sourcePath": self.video, "model": "small", "autoFill": True})["autoFill"])
-        self.assertFalse(doc_jobs.validate_job({"sourcePath": self.video, "model": "small", "autoFill": True, "evalSet": True})["autoFill"])
 
-    def test_job_strips_speaker_names(self):
-        """B のジョブ: 「名前:」を外し、fill(by name)と印・記録 runs[].names・params.stripNames。設定でオフ・評価用はオフ"""
-        orig = postproc.expand_segments
-
-        def named(gen, spec, *a, **kw):
-            for i, r in enumerate(orig(gen, spec, *a, **kw)):
-                yield dict(r, text="リリー:" + r["text"]) if i == 0 else r
-        with mock.patch.object(postproc, "expand_segments", named), mock.patch.dict(os.environ, {"TRANSCRIBE_FAKE_FILL": ""}):
-            doc = store.read_transcript(self.transcribe()["tid"])
-            off = store.read_transcript(self.transcribe(stripNames=False)["tid"])
-        g = doc["segments"][0]
-        self.assertEqual((g["text"], g["fill"]), ("テスト文1", {"from": "リリー:テスト文1", "by": "name"}))
-        self.assertTrue(g["flag"].startswith(fill.FILL_SPK_FLAG), g["flag"])
-        self.assertNotIn("fill", doc["segments"][1])
-        self.assertEqual((doc["recognition"]["runs"][0]["names"], doc["params"]["stripNames"]), (1, True))
-        self.assertEqual((off["segments"][0]["text"], off["params"]["stripNames"]), ("リリー:テスト文1", False))
-        self.assertNotIn("names", off["recognition"]["runs"][0])
-        self.assertTrue(doc_jobs.validate_job({"sourcePath": self.video, "model": "small"})["stripNames"])
-        self.assertFalse(doc_jobs.validate_job({"sourcePath": self.video, "model": "small", "evalSet": True})["stripNames"])
+class TestCleanTurns(unittest.TestCase):
+    def test_clean_turns(self):
+        """定型の幻覚で声の区間(話者判別)と重ならない行を捨てる。声の中・校正済み・人が直した行・普通の文は残す。評価用・設定オフは何もしない・offset で動画の秒"""
+        seg = [{"id": "s1", "start": 10, "end": 12, "text": "ご視聴ありがとうございました", "speaker": "", "flag": ""},
+               {"id": "s2", "start": 0, "end": 2, "text": "ご視聴ありがとうございました", "speaker": "", "flag": ""},
+               {"id": "s3", "start": 20, "end": 22, "text": "ご視聴ありがとうございました", "speaker": "", "flag": "", "proofed": True},
+               {"id": "s4", "start": 30, "end": 32, "text": "ご視聴ありがとうございました", "speaker": "", "flag": ""},
+               {"id": "s5", "start": 40, "end": 42, "text": "こんばんは", "speaker": "", "flag": ""}]
+        orig = [{"start": g["start"], "end": g["end"], "text": g["text"]} for g in seg]
+        orig[3]["text"] = "ご視聴ありがとう"   # s4 は人(か辞書)が直した行
+        turns = [(0.0, 5.0, 0), (39.0, 45.0, 1)]   # 声があるのは 0〜5 秒と 39〜45 秒(wav の秒。offset 0)
+        doc = {"params": {"autoFill": True}, "segments": [dict(g) for g in seg], "original": orig}
+        self.assertEqual(fill.fill_clean_turns(doc, turns, 0.0), 1)
+        self.assertEqual([g["id"] for g in doc["segments"]], ["s2", "s3", "s4", "s5"])
+        for over in ({"evalSet": True}, {"params": {}}):
+            self.assertEqual(fill.fill_clean_turns(dict({"params": {"autoFill": True}, "segments": [dict(g) for g in seg], "original": orig}, **over), turns, 0.0), 0)
+        doc4 = {"params": {"autoFill": True}, "segments": [dict(g) for g in seg], "original": orig}
+        self.assertEqual(fill.fill_clean_turns(doc4, [(0.0, 5.0, 0)], 10.0), 1)   # offset で声の区間が 10〜15 秒 = s1 は声の中・s2 が声の外
+        self.assertEqual([g["id"] for g in doc4["segments"]], ["s1", "s3", "s4", "s5"])
 
 
 class TestSenseVoiceEngine(unittest.TestCase):

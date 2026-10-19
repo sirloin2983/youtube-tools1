@@ -1,25 +1,22 @@
 #!/usr/bin/env python3
-"""名簿の呼び名と配信ごとの文脈(roster.py・serve.py の stream_context)のテスト。
+"""名簿の呼び名(pipeline/transcribe/roster.py)と同梱の名簿のテスト。
 
     python -m unittest test_metrics test_resolve_export -q   # test_metrics がこのファイルのテストも読み込む
     python -m unittest test_roster -q                        # これだけ
+
+小さな名簿の見本(壊れた行・普通の言葉と重なる呼び名・長音の呼び名・英字の名前)を読み、配信の名前・題名・話者から出る人を決める入口(build_context)に通してまとめて確かめる。
+要確認の印(ヒントの語だけ・決まり文句・繰り返し)は src/pipeline/transcribe/tests/test_postproc.py の見本の通し、配信ごとの文脈をジョブに残す形は test_fill.py の通し。
+ここに残す単体: 認識のやり直し(VAD を外す)の判断 = ヒントの語だけが出た状態は本物の認識では起こせない。
 """
-import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
-import shutil
-import subprocess
-import tempfile
-import time
+import types
 import unittest
-import urllib.error
-import urllib.request
 
-from test_backend import HERE, S, start_server, write_json
+from test_backend import S, write_json
 from pipeline.transcribe import roster as R  # noqa: E402   (test_backend が serve を読んで src を sys.path に足したあと)
 from ytt import testkit  # noqa: E402
-
-ROSTER = os.path.join(HERE, "hololive-roster.json")
+from ytt.dictfmt import apply_replacements  # noqa: E402
 
 
 def small_roster(tmp):
@@ -28,33 +25,20 @@ def small_roster(tmp):
                               {"id": "gen0", "label": "0期生", "names": ["さくらみこ", "ときのそら"]},
                               {"id": "gen3", "label": "3期生", "names": ["兎田ぺこら", "宝鐘マリン"]},
                               {"id": "en", "label": "EN", "names": ["IRyS"]}],
-                   "members": [{"name": "さくらみこ", "aliases": ["みこ", "みこち", "みこ先輩"], "common": ["みこ"],
+                   "members": [{"name": "さくらみこ", "aliases": ["みこ", "みこち", "みこ先輩"], "common": ["みこ"], "channel": "UC1", "region": "JP",
                                 "misrecognitions": [{"wrong": "みく", "right": "みこ"}]},
-                               {"name": "ときのそら", "aliases": ["そら", "そらちゃん"], "common": ["そら"]},
-                               {"name": "兎田ぺこら", "aliases": ["ぺこら", "ぺこーら", "兎田"]},
-                               {"name": "宝鐘マリン", "aliases": ["マリン", "船長"], "common": ["マリン", "船長", "ないもの"]},
+                               {"name": "ときのそら", "aliases": ["そら", "そらちゃん"], "common": ["そら"], "channel": "UC2"},
+                               {"name": "兎田ぺこら", "aliases": ["ぺこら", "ぺこーら", "兎田"], "region": "JP"},
+                               {"name": "宝鐘マリン", "aliases": ["マリン", "船長"], "common": ["マリン", "船長", "ないもの"], "channel": "UC4", "region": "XX"},
                                {"name": "", "aliases": ["x"]}, "壊れた行"]})
     return p
 
 
-class TestRosterFile(unittest.TestCase):
-    """同梱の名簿(hololive-roster.json)の形"""
-
-    def test_channel_regions_small(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            p = os.path.join(tmp, "roster.json")
-            write_json(p, {"groups": [], "members": [{"name": "a", "channel": "UC1", "region": "EN", "aliases": ["a"]}, {"name": "b", "channel": "UC2", "aliases": ["b"]},
-                                                     {"name": "c", "region": "JP", "aliases": ["c"]}, {"name": "d", "channel": "UC4", "region": "XX", "aliases": ["d"]}, "壊れた行"]})
-            self.assertEqual(R.channel_regions(p), {"UC1": "EN"})   # channel と有効な region がそろう人だけ(欄の無い人・知らない地域・channel の無い人は不明)
-
-    def test_serve_roster_api_unchanged(self):
-        r = S.load_roster()                                                                  # 画面の「名簿から追加」は groups だけを読む(形は今までどおり)
-        self.assertEqual(set(r), {"asOf", "note", "groups"})
-        self.assertTrue(any("さくらみこ" in g["names"] for g in r["groups"]))
-
-    def test_bundled_roster_has_no_empty_or_duplicate_names(self):
-        """同梱の名簿: 所属 id が一意・名前が空でなく前後に空白がなく重ならない・主な人がいる・基準日がある"""
+class TestRosterRun(unittest.TestCase):
+    def test_bundled_roster(self):
+        """同梱の名簿: 画面の「名簿から追加」は groups だけを読む・所属 id が一意・名前が空でなく前後に空白がなく重ならない・主な人がいる・基準日がある"""
         r = S.load_roster()
+        self.assertEqual(set(r), {"asOf", "note", "groups"})
         ids = [g["id"] for g in r["groups"]]
         self.assertEqual(len(ids), len(set(ids)))
         self.assertGreaterEqual(len(ids), 15)
@@ -62,122 +46,51 @@ class TestRosterFile(unittest.TestCase):
             self.assertTrue(g["names"] and all(isinstance(n, str) and n.strip() == n and n for n in g["names"]), g["id"])
             self.assertEqual(len(g["names"]), len(set(g["names"])), g["id"])
         names = {n for g in r["groups"] for n in g["names"]}
-        self.assertTrue({"兎田ぺこら", "宝鐘マリン", "AZKi", "熱千めら"} <= names)
+        self.assertTrue({"兎田ぺこら", "宝鐘マリン", "AZKi", "熱千めら", "さくらみこ"} <= names)
         self.assertRegex(r["asOf"], r"^\d{4}-\d\d-\d\d$")
 
+    def test_context_from_channel_titles_and_speakers(self):
+        tmp = testkit.tempdir(self)
+        path = small_roster(tmp)
+        r = R.load(path)
+        self.assertEqual(sorted(r["members"]), ["さくらみこ", "ときのそら", "兎田ぺこら", "宝鐘マリン"])   # 名前の無い行・壊れた行は捨てる
+        self.assertEqual(r["members"]["宝鐘マリン"]["common"], ["マリン", "船長"])                    # 呼び名に無い印は捨てる
+        self.assertEqual(r["people"], ["さくらみこ", "ときのそら", "兎田ぺこら", "宝鐘マリン", "IRyS"])
+        self.assertEqual(R.load(os.path.join(tmp, "無い.json")), {"groups": [], "members": {}, "people": []})
+        self.assertEqual(R.channel_regions(path), {"UC1": "JP"})   # channel と有効な region がそろう人だけ
 
-class TestRosterRules(unittest.TestCase):
-    def setUp(self):
-        self.tmp = testkit.tempdir(self)
-        self.r = R.load(small_roster(self.tmp))
-
-    def test_load_cleans(self):
-        self.assertEqual(sorted(self.r["members"]), ["さくらみこ", "ときのそら", "兎田ぺこら", "宝鐘マリン"])   # 名前の無い行・壊れた行は捨てる
-        self.assertEqual(self.r["members"]["宝鐘マリン"]["common"], ["マリン", "船長"])                    # 呼び名に無い印は捨てる
-        self.assertEqual(self.r["people"], ["さくらみこ", "ときのそら", "兎田ぺこら", "宝鐘マリン", "IRyS"])
-        self.assertEqual(R.load(os.path.join(self.tmp, "無い.json")), {"groups": [], "members": {}, "people": []})
-
-    def test_find_in_text(self):
-        f = lambda t: R.find_in_text(t, self.r)   # noqa: E731
-        self.assertEqual(f("Miko Ch. さくらみこ"), ["さくらみこ"])
-        self.assertEqual(f("【ホロライブ】ぺこらと宝鐘 マリンのコラボ"), ["兎田ぺこら", "宝鐘マリン"])     # 空白をはさんでも・出てくる順
-        self.assertEqual(f("ペコラの配信"), ["兎田ぺこら"])                                               # カタカナとひらがなを区別しない
-        self.assertEqual(f("そらとマリンと船長"), [])                                                      # 普通の言葉と重なる呼び名では決めない
-        self.assertEqual(f("みこちの雑談"), ["さくらみこ"])                                                # 3 文字以上の呼び名
-        self.assertEqual(f("IRyS Ch. hololive-EN"), ["IRyS"])
-        self.assertEqual(f(""), [])
-
-    def test_match_name(self):
-        self.assertEqual(R.match_name("みこ", self.r), "さくらみこ")         # 話者の名前は、普通の言葉と重なる呼び名でもよい(人が付けた名前)
-        self.assertEqual(R.match_name("ぺこーら", self.r), "兎田ぺこら")
-        self.assertIsNone(R.match_name("話者1", self.r))
-        self.assertIsNone(R.match_name("ぺこらさん", self.r))                 # ちょうど同じときだけ
-
-    def test_build_context_order_and_limit(self):
-        c = R.build_context(self.r, "Pekora Ch. 兎田ぺこら", ["Marine Ch. 宝鐘マリン"], ["話者1", "みこ"], ["【ときのそら】ぺこらと"])
+        c = R.build_context(r, "Pekora Ch. 兎田ぺこら", ["Marine Ch. 宝鐘 マリン"], ["話者1", "みこ", "ぺこらさん"],
+                            ["【ときのそら】ペコラと", "そらとマリンと船長", "IRyS Ch. hololive-EN", "みこちの雑談"])
         self.assertEqual([(m["name"], m["from"]) for m in c["members"]],
-                         [("兎田ぺこら", ["channel", "title"]), ("宝鐘マリン", ["collab"]), ("さくらみこ", ["speaker"]), ("ときのそら", ["title"])])
-        self.assertEqual(len(R.build_context(self.r, titles=["ぺこら 宝鐘マリン さくらみこ ときのそら"], limit=2)["members"]), 2)
-        self.assertEqual(R.build_context(self.r)["members"], [])
-
-    def test_member_terms_and_fit(self):
-        t = R.member_terms(["さくらみこ", "IRyS"], self.r)
-        self.assertEqual(t, ["さくらみこ", "みこ", "みこち", "みこ先輩", "IRyS"])   # 名前 + 呼び名 3 つ(名簿に呼び名が無い人は名前だけ)
+                         [("兎田ぺこら", ["channel", "title"]), ("宝鐘マリン", ["collab"]), ("さくらみこ", ["speaker", "title"]), ("ときのそら", ["title"]), ("IRyS", ["title"])])
+        # 空白をはさんでも・カタカナとひらがなを区別しない・普通の言葉と重なる呼び名(そら・マリン・船長)では題名から決めない・3 文字以上の呼び名・
+        # 話者の名前は普通の言葉と重なる呼び名でもよいがちょうど同じときだけ(ぺこらさん・話者1 は当たらない)
+        self.assertEqual(R.member_terms(["さくらみこ", "IRyS"], r), ["さくらみこ", "みこ", "みこち", "みこ先輩", "IRyS"])   # 名前 + 呼び名 3 つ(呼び名が無い人は名前だけ)
+        self.assertEqual(len(R.build_context(r, titles=["ぺこら 宝鐘マリン さくらみこ ときのそら"], limit=2)["members"]), 2)
+        self.assertEqual((R.build_context(r)["members"], R.find_in_text("", r), R.match_name("話者1", r)), ([], [], None))
         self.assertEqual(R.fit(["あいう", "えお", "かきくけこ"], 6), ["あいう", "えお"])   # 「あいう、えお」= 6 字。語の途中で切らない
         self.assertEqual(R.fit(["あいう", "えお"], 6, 2), ["あいう"])                   # 区切りが 2 字(", ")なら 7 字で入らない
         self.assertEqual(R.fit(["a", "a", " ", "b"]), ["a", "b"])
 
     def test_alias_variants_and_pairs(self):
-        """呼び名の表記ゆれ: 母音の長音 ↔ ー・ひらがな/カタカナの両方・短すぎる綴りと common の語は入れない・漢字の当て字"""
+        """呼び名の表記ゆれ: 母音の長音 ↔ ー・ひらがな/カタカナの両方・短すぎる綴りと common の語は入れない・漢字の当て字。置換辞書の形で当てる"""
         self.assertEqual(R.alias_variants("はあちゃま"), ["はーちゃま", "ハーチャマ"])
-        self.assertIn("ラミー", R.alias_variants("ラミィ"))
-        self.assertIn("らみー", R.alias_variants("ラミィ"))
+        self.assertTrue({"ラミー", "らみー"} <= set(R.alias_variants("ラミィ")))
         self.assertEqual(R.alias_variants("みこち"), [])                       # 長音が無ければ変種なし
         self.assertIn("ルウナ", R.alias_variants("ルーナ"))                      # ー → 母音
         r = {"members": {"赤井はあと": {"aliases": ["はあと", "はあちゃま"], "common": []}, "白上フブキ": {"aliases": ["フブキ"], "common": []},
                          "さくらみこ": {"aliases": ["みこ"], "common": ["みこ"]}}, "people": []}
         pairs = R.variant_pairs(r)
-        self.assertIn(("はーちゃま", "はあちゃま"), pairs)
-        self.assertIn(("吹雪", "フブキ"), pairs)
+        self.assertTrue({("はーちゃま", "はあちゃま"), ("吹雪", "フブキ")} <= set(pairs))
         self.assertFalse(any(dst == "みこ" for _s, dst in pairs))                  # common の語は直さない
         kanji = {src for v in R.KANJI_VARIANTS.values() for src, _d in v}
         self.assertTrue(all(len(src) >= R.VARIANT_MIN for src, _d in pairs if src not in kanji))   # 長音の変種は 3 字以上(漢字の当て字は表のまま)
         self.assertEqual(pairs, sorted(pairs, key=lambda p: (-len(p[0]), p[0])))    # 長い綴りから先
-        from ytt.dictfmt import apply_replacements
-        text, n = apply_replacements("はーちゃまと吹雪が来た", pairs)
-        self.assertEqual((text, n), ("はあちゃまとフブキが来た", 2))
-
-    def test_leak_only(self):
-        terms = ["大空スバル", "スバル", "みこち"]
-        for text, ts, want in (("スバル、みこち", terms, True), ("用語: 大空スバル", terms, True), ("すばる!", terms, True),   # かなの違い・記号は数えない
-                               ("スバルがさ", terms, False), ("スバル", [], False), ("、。", terms, False)):
-            self.assertIs(R.leak_only(text, ts), want, text)
+        self.assertEqual(apply_replacements("はーちゃまと吹雪が来た", pairs), ("はあちゃまとフブキが来た", 2))
 
 
-def row(a, b, text, **kw):
-    return dict({"start": a, "end": b, "text": text}, **kw)
-
-
-class TestFlagsS3(unittest.TestCase):
-    """よくある誤認識の文・行の中の繰り返し・近くの行の同じ文・ヒントの語だけの行"""
-
-    def test_stock_phrase(self):
-        for text, want in (("ご視聴いただきありがとうございました", True), ("高評価よろしくお願いします!", True),
-                           ("では次の動画でお会いしましょう", True),                  # 決まり文句の前後 3 文字まで
-                           ("みんな高評価よろしくお願いしますね今日も", False),         # 配信者が本当に言う形(文の一部)は印なし
-                           ("えっと字幕つけて", True),                                # 以前からの HALLUC は文の一部でも
-                           ("♪～", True), ("(音楽)", True), ("【 BGM 】", True), ("音楽いいね", False), ("～", False), ("", False)):
-            self.assertIs(S.stock_phrase(text), want, text)
-        self.assertIn("よくある誤認識の文", S.make_flags(row(0, 3, "ご覧いただきありがとうございました"), []))
-        self.assertNotIn("よくある誤認識の文", S.make_flags(row(0, 9, "ご覧いただきありがとうございました"), []))   # 8 秒以上は対象外(今までどおり)
-
-    def test_repeats_in_line(self):
-        for text, want in (("なんかにもぱんぱんぱんぱんぱんぱん", True), ("歩こう、歩こう、歩こう、歩こう、歩こう。", True),   # 記号をはさんでも
-                           ("はいはいはいはい", False),                                   # 4 回までは本当の発話にもある
-                           ("あはははははははははは", False), ("ああああああああああああ", False)):   # 笑い・叫び(1 文字の繰り返し)は除く
-            self.assertIs(S.repeats_in_line(text), want, text)
-        self.assertIn("繰り返しの可能性", S.make_flags(row(0, 3, "げんげんげんげんげん"), []))
-        self.assertEqual(S.make_flags(row(0, 3, "はいはいはいはい"), []), "")
-
-    def test_same_line_nearby(self):
-        prev = ["やばいやばい", "いくよ", "やばいやばい", "ね"]
-        self.assertIn("同じ文の繰り返し", S.make_flags(row(0, 2, "やばい、やばい"), prev))          # 前の5行に同じ文が2回
-        self.assertEqual(S.make_flags(row(0, 2, "やばいやばい"), prev[:2]), "")                   # 2回目までは印なし
-        self.assertEqual(S.make_flags(row(0, 1, "はい"), ["はい", "うん", "はい"]), "")          # 短い文は、続けて3回のときだけ
-        self.assertIn("同じ文の繰り返し", S.make_flags(row(0, 1, "はい"), ["はい", "はい"]))
-
-    def test_leak_flag(self):
-        terms = ["ホロライブ", "大空スバル", "スバル"]
-        self.assertIn(S.LEAK_FLAG, S.make_flags(row(0, 1.2, "スバル"), [], "ja", terms))
-        self.assertIn(S.LEAK_FLAG, S.make_flags(row(0, 2.0, "大空スバル、ホロライブ。"), [], "ja", terms))
-        self.assertNotIn(S.LEAK_FLAG, S.make_flags(row(0, 5.0, "スバル"), [], "ja", terms))        # 短い区間だけ(長い区間は「文字が少ない」の印が拾う)
-        self.assertIn(S.LEAK_FLAG, S.make_flags(row(0, 10.0, "用語: スバル"), [], "ja", terms))    # ヒントの書き出しそのものは長さによらず
-        self.assertNotIn(S.LEAK_FLAG, S.make_flags(row(0, 1.2, "スバルだよ"), [], "ja", terms))
-        self.assertNotIn(S.LEAK_FLAG, S.make_flags(row(0, 1.2, "スバル"), [], "ja", []))           # ヒントを渡していなければ付けない
-
+class TestVadFallback(unittest.TestCase):
     def test_vad_fallback_treats_leak_as_empty(self):
-        import types
-
         class Segs(list):
             def close(self):
                 pass
@@ -195,69 +108,6 @@ class TestFlagsS3(unittest.TestCase):
         self.assertEqual(([r["text"] for r in raw], vad["used"], vad["retries"][0]["why"]), (["やるぜよー"], "off", "empty"))
         raw, vad = S.transcribe_vad_fallback({"cancel": False}, Model(), "a.wav", dict(spec, context={}))
         self.assertEqual(([r["text"] for r in raw], vad["retries"]), (["スバル"], []))            # ヒントを渡していなければ本物の発話とみなす
-
-
-@unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg が必要")
-class TestContextHttp(unittest.TestCase):
-    """疑似モードのサーバー: 設定の autoContext で文書に文脈が残る・評価用として文字起こしすると辞書・文脈を使わない"""
-
-    @classmethod
-    def setUpClass(cls):
-        cls.tmp = tempfile.mkdtemp()
-        media = os.path.join(cls.tmp, "media", "兎田ぺこら 雑談")
-        os.makedirs(media)
-        cls.wav = os.path.join(media, "01.wav")
-        subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=300:duration=9", cls.wav], check=True)
-        cls.port = testkit.free_port()
-        old = os.environ.get("TRANSCRIBE_STUDIO_DATA")
-        os.environ["TRANSCRIBE_STUDIO_DATA"] = os.path.join(cls.tmp, "無い.json")
-        try:
-            cls.proc = start_server(cls.tmp, cls.port, os.path.join(cls.tmp, ".runtime"))
-        finally:
-            if old is None:
-                os.environ.pop("TRANSCRIBE_STUDIO_DATA", None)
-            else:
-                os.environ["TRANSCRIBE_STUDIO_DATA"] = old
-        cls.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.proc.terminate()
-        cls.proc.wait(timeout=10)
-        shutil.rmtree(cls.tmp, ignore_errors=True)
-
-    def call(self, method, path, body=None):
-        data = None if body is None else json.dumps(body, ensure_ascii=False).encode()
-        req = urllib.request.Request("http://127.0.0.1:%d%s" % (self.port, path), method=method, data=data, headers={"Content-Type": "application/json"})
-        try:
-            with self.opener.open(req, timeout=60) as r:
-                return dict(json.loads(r.read()), _status=r.status)
-        except urllib.error.HTTPError as e:
-            return dict(json.loads(e.read() or b"{}"), _status=e.code)
-
-    def run_job(self, body):
-        j = self.call("POST", "/api/transcribe", dict({"sourcePath": self.wav, "model": "small", "autoGloss": False}, **body))
-        self.assertEqual(j["_status"], 200, j)
-        end = time.time() + 60
-        while time.time() < end:
-            x = next(v for v in self.call("GET", "/api/jobs")["jobs"] if v["id"] == j["id"])
-            if x["state"] in ("done", "error", "cancelled"):
-                break
-            time.sleep(0.05)
-        self.assertEqual(x["state"], "done", x)
-        return self.call("GET", "/api/transcript?id=" + x["tid"])
-
-    def test_context_and_eval_start(self):
-        d = self.run_job({"autoContext": True, "glossary": "ホロライブ"})
-        self.assertEqual(d["params"]["context"], {"members": [{"name": "兎田ぺこら", "from": ["title"]}], "terms": 4})   # 動画のフォルダの名前から
-        self.assertEqual(d["recognition"]["runs"][0]["settings"]["context"], ["兎田ぺこら"])
-        self.assertNotIn("evalSet", d)
-        d = self.run_job({"glossary": "ホロライブ"})
-        self.assertIsNone(d["params"]["context"])                                                     # 既定はオフ
-        d = self.run_job({"autoContext": True, "glossary": "ホロライブ", "evalSet": True, "autoDict": True, "autoLearned": True})
-        self.assertIs(d["evalSet"], True)                                                              # 評価用として文字起こし
-        self.assertEqual((d["params"]["glossary"], d["params"]["context"], d["params"]["autoDict"], d["params"]["autoLearned"]), ([], None, False, False))
-        self.assertEqual(d["recognition"]["runs"][0]["settings"]["promptChars"], 0)
 
 
 if __name__ == "__main__":
