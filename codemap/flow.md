@@ -5,8 +5,8 @@
 ## src/flow/
 
 - **__init__.py** (2 行) — ② 管理(RS6。決定 3-29)。① 道具(pipeline)をいつ・どの順で・どこに置いて・飛ばすかを決める層。ytt と pipeline だけを import する。③ 人(human)と ④ データ(manage)は ① を直に読まず、ここの口を通す。② に変換のコードを書かない(加工は…
-- **adopt.py** (34 行) — ② 採用の口(RS8 B3-2 の G1a)。③ のスタジオの台帳(human/review/store の Store.adopt_marks)が、採用の規則 F-5
-  - 名前: `check` :17・`pick` :25
+- **adopt.py** (33 行) — ② 採用の口(RS8 B3-2 の G1a)。③ のスタジオの台帳(human/review/store の Store.adopt_marks)が、採用の規則 F-5
+  - 名前: `check` :16・`pick` :24
 - **batch.py** (253 行) — 解析キュー(バッチ): 最大10本(待ち+実行中)。1つの糸が古い順に1本ずつ analyze.run(spec, ctl) で解析する(OPT2 の J1)。
   - 名前: `queued_already` :28・`class Batch` :47
 - **board.py** (423 行) — ② 管理の層 flow: ジョブの掲示板(RS8 の ② の口 S1。形は notes:docs/spec/pipeline.md 2.9・設計 notes:docs/design/rs8-flow-api.md)。
