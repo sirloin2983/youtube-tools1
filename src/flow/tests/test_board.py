@@ -201,7 +201,7 @@ class TestCancelRetry(unittest.TestCase):
         self.assertEqual((out["state"], self.calls), ("cancelled", [("cancel", "r1")]))
         with self.assertRaises(B.Refused) as cm:
             self.b.cancel("run:r3")
-        self.assertEqual(cm.exception.code, "cannot_cancel")
+        self.assertEqual(cm.exception.error, "cannot_cancel")
         with self.assertRaises(B.NotFound):
             self.b.cancel("run:nai")
         with self.assertRaises(ValueError):
@@ -228,7 +228,7 @@ class TestCancelRetry(unittest.TestCase):
         for jid in ("run:r1", "run:r3"):   # 実行中・済み(canRetry が偽)
             with self.assertRaises(B.Refused) as cm:
                 self.b.retry(jid)
-            self.assertEqual(cm.exception.code, "cannot_retry")
+            self.assertEqual(cm.exception.error, "cannot_retry")
         with self.assertRaises(B.NotFound):
             self.b.retry("run:nai")
 

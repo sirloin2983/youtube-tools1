@@ -24,7 +24,7 @@ import zipfile
 
 from flow import deliveries, outbox
 from human import judgments
-from ytt import fsio, tools
+from ytt import errors, fsio, tools
 
 RETURNS_DIR = "friend-returns"      # <app>/friend-returns/<YYYY-MM>/<requestId>/
 IN_DIR, DONE_DIR, FAIL_DIR = "送り返し", "受付済み", "失敗"
@@ -51,8 +51,7 @@ AT_MAX = 10 ** 13                   # verdict の at(ミリ秒)の上限(西暦 
 _RESERVED_RE = re.compile(r"^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$", re.I)   # Windows の予約名(拡張子つきも)
 
 
-class Refused(Exception):
-    """この zip は受け取れない(理由は str)"""
+Refused = errors.Refused   # この zip は受け取れない(理由は str。ytt/errors の 1 つ)
 
 
 def returns_dir(app_dir):
@@ -355,8 +354,7 @@ def _judge_v2(app_dir, v, rid, pack, clock, log):
             if hit is None:
                 log("送り返し: 戻す %s の元の判断が人の判断の記録にありません" % pack)
                 return
-            judgments.record(app_dir, who="friend", what="retract", of=hit["id"], origin=hit["origin"], via="friend_verdict",
-                             videoId=hit["videoId"], markId=hit["markId"], at=at, key=key, ref=hit.get("ref"))
+            judgments.retract(app_dir, hit, "friend", "friend_verdict", key=key, at=at)
             return
         logs = os.path.join(app_dir, LOGS_DIR)
         r, p = _delivered_zip(logs, v["zip"]) if v.get("zip") else (None, None)

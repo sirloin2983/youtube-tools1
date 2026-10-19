@@ -23,7 +23,7 @@ import re
 import threading
 import time
 
-from ytt import fsio
+from ytt import errors, fsio
 from .run import RUN_STATE_LABELS
 
 # id の頭 -> 器(id = "<頭>:<器の中の id>"。器をまたいで衝突しない・取り消しの振り分けの鍵)
@@ -54,12 +54,7 @@ class NotFound(LookupError):
     """その id のジョブが掲示板に無い(入口は 404)"""
 
 
-class Refused(Exception):
-    """今はできない(入口は 409)。code = cannot_cancel / cannot_retry"""
-
-    def __init__(self, code, message):
-        super().__init__(message)
-        self.code = code
+Refused = errors.Refused   # 今はできない(入口は 409)。error = cannot_cancel / cannot_retry(ytt/errors の 1 つ)
 
 
 def split_id(jid):
@@ -361,13 +356,13 @@ class Board:
         """id のジョブを止める(器の cancel へ振り分ける)。-> 止めたあとの Job。無い id は NotFound・canCancel が偽・器に cancel が無いは Refused"""
         prefix, inner, job, fn = self._handler(jid, "cancel")
         if not job["canCancel"] or fn is None:
-            raise Refused("cannot_cancel", "このジョブは今は止められません(%s)" % job["stateLabel"])
+            raise Refused("このジョブは今は止められません(%s)" % job["stateLabel"], 409, "cannot_cancel")
         try:
             got = fn(inner)
         except LookupError as e:
             raise NotFound(str(e) or "そのジョブはありません")
         except ValueError as e:
-            raise Refused("cannot_cancel", str(e))
+            raise Refused(str(e), 409, "cannot_cancel")
         if isinstance(got, dict):
             self.upsert(got)
         self.refresh(prefix)
@@ -377,15 +372,15 @@ class Board:
         """id のジョブを同じ指定で入れ直す(器の retry へ)。-> 新しい Job。無い id は NotFound・canRetry が偽・器に retry が無いは Refused"""
         prefix, inner, job, fn = self._handler(jid, "retry")
         if not job["canRetry"] or fn is None:
-            raise Refused("cannot_retry", "このジョブは今はやり直せません(%s)" % job["stateLabel"])
+            raise Refused("このジョブは今はやり直せません(%s)" % job["stateLabel"], 409, "cannot_retry")
         try:
             got = fn(inner)
         except LookupError as e:
             raise NotFound(str(e) or "そのジョブはありません")
         except ValueError as e:
-            raise Refused("cannot_retry", str(e))
+            raise Refused(str(e), 409, "cannot_retry")
         if not isinstance(got, dict):
-            raise Refused("cannot_retry", "やり直したジョブが分かりません")
+            raise Refused("やり直したジョブが分かりません", 409, "cannot_retry")
         new = self.upsert(got)
         self.refresh(prefix)
         return self.get(new["id"]) or new

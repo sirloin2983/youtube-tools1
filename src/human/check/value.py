@@ -17,7 +17,7 @@
 """
 import secrets
 
-from . import apply
+from . import _doc, apply   # 同じ human/check の兄弟(register・Refused・答えの検査)
 from .. import judgments as _judgments   # 同じ human の兄弟(人の判断の記録。③ の中の書き手)
 
 AUTO_CHOICES = ("good", "bad", "unknown")   # unknown = 不明(記録だけ・理由は無い)
@@ -27,15 +27,6 @@ AUTO_REASONS = {"boring": "場面がつまらない", "long": "長すぎる", "s
 CAND_CHOICES = ("adopt", "reject")
 STATUS = {"adopt": "adopted", "reject": "rejected"}
 TRIES = 3   # 画面の保存・書き出しとぶつかった(409)ときの読み直しの回数
-
-
-def _check(choices):
-    def check(ans):
-        c = ans.get("choice") if isinstance(ans, dict) else None
-        if c not in choices:
-            raise ValueError("答えは %s のどれかです" % "・".join(choices))
-        return {"choice": c}
-    return check
 
 
 def _code(code):
@@ -87,12 +78,8 @@ def _auto_revert(ctx, row):
     jid, jkey = ap.get("judgment"), ap.get("jkey")
     if not (isinstance(jid, str) and isinstance(jkey, str)):
         return {}   # 判断の行を持たない答え(書き手より前の行)
-    rkey = jkey + ":retract"
-    if rkey in _judgments.keys(ctx.app_dir):
-        return {}
-    _judgments.record(ctx.app_dir, who="self", what="retract", of=jid, videoId=ap["videoId"], markId=ap["markId"],
-                      origin="auto", via="check", key=rkey)
-    return {"judgment": jid}
+    hit = {"id": jid, "key": jkey, "videoId": ap["videoId"], "markId": ap["markId"], "origin": "auto"}
+    return {"judgment": jid} if _judgments.retract(ctx.app_dir, hit, "self", "check") else {}
 
 
 # ---------------------------------------------------------------- value:cand
@@ -176,4 +163,4 @@ def _cand_revert(ctx, row):
 
 
 apply.register("value", "auto", _auto_apply, _auto_revert, check=_auto_check)   # 記録だけ = すぐ確定・Z は記録の取り消し(defer なし)
-apply.register("value", "cand", _cand_apply, _cand_revert, check=_check(CAND_CHOICES))
+apply.register("value", "cand", _cand_apply, _cand_revert, check=_doc.choice(CAND_CHOICES, label="答え"))

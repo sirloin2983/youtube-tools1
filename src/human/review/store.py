@@ -674,8 +674,7 @@ class Store:
                     if r["who"] == "self" and r["what"] in ("adopt", "reject") and r["videoId"] == vid and r["markId"] == mid and r["id"] not in done:
                         hit = r
                 if hit is not None:
-                    _judgments.record(self.app_dir, who="self", videoId=vid, markId=mid, what="retract", of=hit["id"], origin=hit["origin"], via="review",
-                                      key=(hit.get("key") or hit["id"]) + ":retract", ref=hit.get("ref"))
+                    _judgments.retract(self.app_dir, hit, "self", "review")
         except (ValueError, OSError) as e:
             _warn("人の判断の取り消しを書けませんでした(%s): %s" % (e.__class__.__name__, vid))
 

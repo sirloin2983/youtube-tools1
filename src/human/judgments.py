@@ -121,6 +121,16 @@ def record(app_dir, **row):
     return out
 
 
+def retract(app_dir, hit, who, via, key=None, at=None):
+    """行 hit(rows の形。id・videoId・markId・origin・key?・ref?)を取り消す 1 行を足す(取り消しの 1 つの口: スタジオ・確かめるの Z・友人の戻す)。
+    key は省けば hit の key(無ければ id)+ ":retract"。同じ key の行がもうあれば書かない(やり直しで二重にしない)-> 書いた行か None"""
+    key = key or (hit.get("key") or hit["id"]) + ":retract"
+    if key in keys(app_dir):
+        return None
+    return record(app_dir, who=who, what="retract", of=hit["id"], origin=hit.get("origin"), via=via,
+                  videoId=hit["videoId"], markId=hit["markId"], at=at, key=key, ref=hit.get("ref"))
+
+
 def _read(p):
     try:
         with open(p, "rb") as f:
@@ -158,7 +168,7 @@ def rows(app_dir):
 
 
 def keys(app_dir):
-    """書いてある key の集合(写しの重複よけ用)"""
+    """書いてある key の集合(取り消しの重複よけ用)"""
     return {r["key"] for r in rows(app_dir) if isinstance(r.get("key"), str)}
 
 

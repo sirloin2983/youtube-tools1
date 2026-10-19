@@ -27,7 +27,7 @@ import json
 import re
 import threading
 
-from ytt import txbase as _txbase
+from ytt import errors as _errors, txbase as _txbase
 from . import answerlog   # 同じ human/check の兄弟
 
 MAX_ANSWER_BYTES = 4096        # 答え(answer)を JSON にしたときの大きさの上限
@@ -39,12 +39,7 @@ _REG = {}
 _lock = threading.RLock()      # 答え・戻す・確定・飛ばすを 1 つずつ(同じカードに二重に答えない・保留の確定を二重にしない)
 
 
-class Refused(Exception):
-    """断った理由(code = HTTP の番号・error = 短い名前・message = 画面の文)"""
-
-    def __init__(self, message, code=409, error="conflict"):
-        super().__init__(message)
-        self.code, self.error, self.message = code, error, message
+Refused = _errors.Refused   # 断った理由(code = HTTP の番号・error = 短い名前・message = 画面の文。ytt/errors の 1 つ)
 
 
 class Context:

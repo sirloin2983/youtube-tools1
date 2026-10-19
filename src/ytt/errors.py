@@ -20,6 +20,15 @@ class Cancelled(Exception):
     pass
 
 
+class Refused(Exception):
+    """今はできない・受け取れない(断った理由)。code = HTTP の番号・error = 短い名前・message = 画面の文(str(e) と同じ)。
+    確かめるの反映(human/check/apply)・友人の送り返しの zip(human/friend/returns)・掲示板の止める / やり直す(flow/board)の 1 つ"""
+
+    def __init__(self, message, code=409, error="conflict"):
+        super().__init__(message)
+        self.code, self.error, self.message = code, error, message
+
+
 class ResolveExportError(ValueError):
     """Resolve パックの書き出し(pipeline/pack/resolve_export)の失敗。メッセージは画面に出せる文。
     ③ 人・④ データが ① を読まずに捕まえられるように、ここに置く"""

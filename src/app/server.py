@@ -961,7 +961,7 @@ class PortalHandler(BaseHTTPRequestHandler):
         except board_mod.NotFound as e:
             return self._fail(404, "not_found", str(e))
         except board_mod.Refused as e:
-            return self._fail(409, e.code, str(e))
+            return self._fail(409, e.error, e.message)
         except ValueError as e:
             return self._fail(400, "bad_request", str(e))
 
