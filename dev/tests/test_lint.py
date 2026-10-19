@@ -7,12 +7,14 @@
 import ast
 import os
 import sys
-import tempfile
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # dev/
 sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), "src"))
 import lint  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 
 def nodes_of(src):
@@ -55,19 +57,13 @@ class TestDupHelpers(unittest.TestCase):
 class TestDupBlocks(unittest.TestCase):
     def test_same_block_in_two_files(self):
         lines = "".join("    value_%d = compute(%d)\n" % (i, i) for i in range(14))
-        old_repo, old_src = lint.REPO, lint.SRC
-        with tempfile.TemporaryDirectory() as repo:
-            src = os.path.join(repo, "src")
-            os.makedirs(os.path.join(src, "t"))
-            os.makedirs(os.path.join(repo, "dev"))
-            for n in ("a.py", "b.py"):
-                with open(os.path.join(src, "t", n), "w", encoding="utf-8") as f:
-                    f.write("def f():\n%s" % lines)
-            try:
-                lint.REPO, lint.SRC = repo, src
-                groups = lint.dup_blocks(12, lint.Corpus())
-            finally:
-                lint.REPO, lint.SRC = old_repo, old_src
+        repo = testkit.tempdir(self)
+        src = os.path.join(repo, "src")
+        os.makedirs(os.path.join(repo, "dev"))
+        for n in ("a.py", "b.py"):
+            testkit.write_text(os.path.join(src, "t", n), "def f():\n%s" % lines)
+        with mock.patch.object(lint, "REPO", repo), mock.patch.object(lint, "SRC", src):
+            groups = lint.dup_blocks(12, lint.Corpus())
         self.assertTrue(groups)
         self.assertEqual({f for f, _ln in groups[0]}, {"src/t/a.py", "src/t/b.py"})
         self.assertEqual(lint.dup_blocks.__code__.co_argcount, 2)

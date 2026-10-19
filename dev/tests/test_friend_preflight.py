@@ -5,9 +5,7 @@
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 全テストの決まり(作業データに触らない)
 import json
-import shutil
 import sys
-import tempfile
 import unittest
 import urllib.error
 import urllib.request
@@ -22,14 +20,14 @@ import build_friend_zip as B  # noqa: E402
 import friend_preflight as P  # noqa: E402
 import friend_preflight_shim as S  # noqa: E402  YTT_PREFLIGHT_SHIM が無ければ何も差し替えない
 from friendapp import dropbox as DBX  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 
 class ShimTest(unittest.TestCase):
     """urllib の https を差し替えた形で、取得(Range)・Dropbox の API・断る、が本物の呼び手(friendapp/dropbox.Client)から動く"""
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="pf-shim-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "pf-shim-")
         self.src = os.path.join(self.tmp, "tool.zip")
         with open(self.src, "wb") as f:
             f.write(b"0123456789" * 100)
@@ -98,8 +96,7 @@ class ShimTest(unittest.TestCase):
 
 class ToolTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="pf-tool-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "pf-tool-")
 
     def test_friend_env_has_no_dev_things(self):
         with mock.patch.dict(os.environ, {"YTT_DATA_DIR": "x", "PYTHONPATH": "y", "PATH": r"C:\Python310;C:\ffmpeg\bin;C:\Windows\System32"}):
@@ -144,8 +141,7 @@ class PublishGateTest(unittest.TestCase):
     """--publish は検査に通ったときだけ更新の置き場所へ写す(落ちたら何も置かない)"""
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="pf-pub-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "pf-pub-")
         self.out = os.path.join(self.tmp, "更新")
 
     def fake_build(self, out_dir, *a, **k):

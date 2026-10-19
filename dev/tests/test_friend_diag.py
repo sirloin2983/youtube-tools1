@@ -4,9 +4,7 @@ import contextlib
 import io
 import json
 import os
-import shutil
 import sys
-import tempfile
 import time
 import unittest
 
@@ -17,6 +15,7 @@ for p in (os.path.join(REPO, "dev"), os.path.join(REPO, "src")):
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 import friend_diag as F  # noqa: E402
 from friendapp import diag as G  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 RID = "20261018-100000-abcdef"
 NOW_MS = int(time.time() * 1000)
@@ -36,21 +35,18 @@ class FakeRun:
 
 class FriendDiagTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="frienddiagtool-")
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tmp = testkit.tempdir(self, "frienddiagtool-")
         self.dir = os.path.join(self.tmp, "診断")
         places = {"home": self.tmp, "data": os.path.join(self.tmp, "data"), "outbox": self.dir}
         d = G.Diag(places, env={}, gpu_fn=lambda: {"name": "RTX 3060"})
         d.run(FakeRun(), {"id": RID, "kind": "url", "form": {}}, [])
         d.write("sync", summary="同期の 送り返し: つながりません timed out")
-        with open(os.path.join(self.dir, "launcher__diag-%013d.diag.json" % (NOW_MS - 5000)), "w", encoding="utf-8") as f:
-            json.dump({"v": 1, "kind": "start", "source": "exe", "at": NOW_MS - 5000, "summary": "起きませんでした", "exitCode": 1,
-                       "tail": ["Traceback", "ImportError: x"], "app": {"version": "0.99.18"}, "pc": {"windows": "Windows 11"}}, f)
+        testkit.write_json(os.path.join(self.dir, "launcher__diag-%013d.diag.json" % (NOW_MS - 5000)),
+                           {"v": 1, "kind": "start", "source": "exe", "at": NOW_MS - 5000, "summary": "起きませんでした", "exitCode": 1,
+                            "tail": ["Traceback", "ImportError: x"], "app": {"version": "0.99.18"}, "pc": {"windows": "Windows 11"}})
         self.old = "app__diag-%013d.diag.json" % (NOW_MS - 4 * 86400 * 1000)
-        with open(os.path.join(self.dir, self.old), "w") as f:
-            f.write("{}")
-        with open(os.path.join(self.dir, "app__diag-%013d.diag.json" % (NOW_MS - 9000)), "w") as f:
-            f.write("{壊れ")
+        testkit.write_text(os.path.join(self.dir, self.old), "{}")
+        testkit.write_text(os.path.join(self.dir, "app__diag-%013d.diag.json" % (NOW_MS - 9000)), "{壊れ")
 
     def run_main(self, *args):
         out, err = io.StringIO(), io.StringIO()

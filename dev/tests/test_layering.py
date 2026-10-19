@@ -268,23 +268,14 @@ class TestLayering(unittest.TestCase):
         """ALLOWED の表(RS6 a-0): ③④ は ① を直に読まず ② を通す・⑤ は ① を読んでよい・app は全部"""
         self.assertEqual(LM.LAYERS, ["ytt", "pipeline", "flow", "human", "manage", "eval", "app", "friendapp"])
         self.assertEqual(set(LM.ALLOWED), set(LM.LAYERS))
-        self.assertTrue(LM.allowed("flow", "pipeline"))
-        self.assertFalse(LM.allowed("pipeline", "flow"))
-        self.assertTrue(LM.allowed("human", "flow"))
-        self.assertFalse(LM.allowed("human", "pipeline"))
-        self.assertFalse(LM.allowed("manage", "pipeline"))
-        self.assertTrue(LM.allowed("manage", "human"))
-        self.assertFalse(LM.allowed("flow", "human"))
-        self.assertTrue(LM.allowed("eval", "pipeline"))
-        self.assertFalse(LM.allowed("pipeline", "human"))
-        self.assertTrue(LM.allowed("app", "eval"))
-        self.assertFalse(LM.allowed("ytt", "pipeline"))
-        self.assertTrue(LM.allowed("ytt", "ytt"))
+        for src, dst, want in (("flow", "pipeline", True), ("pipeline", "flow", False), ("human", "flow", True), ("human", "pipeline", False),
+                               ("manage", "pipeline", False), ("manage", "human", True), ("flow", "human", False), ("eval", "pipeline", True),
+                               ("pipeline", "human", False), ("app", "eval", True), ("ytt", "pipeline", False), ("ytt", "ytt", True),
+                               ("friendapp", "flow", True),   # 友人の玄関(F2): ② を通す・③④⑤ と入口 app は読まない
+                               ("friendapp", "human", False), ("friendapp", "manage", False), ("friendapp", "eval", False),
+                               ("friendapp", "app", False), ("app", "friendapp", False)):
+            self.assertEqual(LM.allowed(src, dst), want, (src, dst))
         self.assertEqual(LM.layer_of("src/flow/x.py"), "flow")
-        self.assertTrue(LM.allowed("friendapp", "flow"))   # 友人の玄関(F2): ② を通す・③④⑤ と入口 app は読まない
-        for other in ("human", "manage", "eval", "app"):
-            self.assertFalse(LM.allowed("friendapp", other))
-        self.assertFalse(LM.allowed("app", "friendapp"))
         self.assertEqual(LM.layer_of("src/friendapp/x.py"), "friendapp")
 
     def test_flow_is_not_alias(self):

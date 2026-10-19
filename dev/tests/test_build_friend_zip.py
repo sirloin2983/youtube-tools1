@@ -18,7 +18,7 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(TESTS))
 import build_friend_zip as B  # noqa: E402
 from pipeline.transcribe import diarize as D, tx_engines as E  # noqa: E402
-from ytt import version as V  # noqa: E402
+from ytt import testkit, version as V  # noqa: E402
 
 PTH = "python310.zip\r\n.\r\n\r\n# Uncomment to run site.main() automatically\r\n#import site\r\n"
 
@@ -123,8 +123,7 @@ class Base(unittest.TestCase):
         patcher = mock.patch.object(B, "TOOLS", FAKE_TOOLS)
         patcher.start()
         self.addCleanup(patcher.stop)
-        self.tmp = tempfile.mkdtemp(prefix="bfz-")
-        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.tmp = testkit.tempdir(self, "bfz-")
         self.cache = make_cache(self.tmp)
         self.wcpp = make_wcpp(self.tmp)
         self.members, self.key = make_inputs(self.tmp)
@@ -376,9 +375,10 @@ class CacheTest(Base):
 
         def downloader(reqs, folder):
             seen.append(list(reqs))
-            _zip(os.path.join(folder, "numpy-2.2.6-cp310-cp310-win_amd64.whl"), {"numpy/__init__.py": ""})
+            raise B.BuildError("取りに行く所で止める")
 
-        self.build(downloader=downloader)
+        with self.assertRaises(B.BuildError):
+            self.build(downloader=downloader)
         self.assertEqual(seen, [B.wheel_pins()])
 
     def test_wcpp_mismatch(self):
@@ -396,8 +396,7 @@ class CacheTest(Base):
 
 class AuditTest(unittest.TestCase):
     def setUp(self):
-        self.stage = tempfile.mkdtemp(prefix="bfz-audit-")
-        self.addCleanup(shutil.rmtree, self.stage, ignore_errors=True)
+        self.stage = testkit.tempdir(self, "bfz-audit-")
         os.makedirs(os.path.join(self.stage, "src", "ytt"))
         os.makedirs(os.path.join(self.stage, "python"))
 

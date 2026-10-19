@@ -3,26 +3,25 @@ import json
 import os
 import subprocess
 import sys
-import tempfile
 import unittest
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(REPO, "dev"))
+sys.path.insert(0, os.path.join(REPO, "src"))
 import guard_hook  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
 
 def touch(path, text=""):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8", newline="") as f:
-        f.write(text)
+    testkit.write_text(path, text)
 
 
 class GuardTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        root = self.tmp.name.replace("\\", "/")
+        self.tmp = testkit.tempdir(self)
+        root = self.tmp.replace("\\", "/")
         self.main = root + "/repo"                     # main の作業フォルダ(.git がフォルダ・dev/land.py)
         os.makedirs(self.main + "/.git")
         touch(self.main + "/dev/land.py")
@@ -34,13 +33,9 @@ class GuardTest(unittest.TestCase):
         self.vault = root + "/vault"                   # 保管庫(.git がフォルダ・dev/land.py なし)
         os.makedirs(self.vault + "/.git")
         os.makedirs(self.vault + "/plan/data/tasks")
-        os.environ.pop(guard_hook.MAIN_COMMIT_ENV, None)
-        self.saved_dd = os.environ.pop("YTT_DATA_DIR", None)
-
-    def tearDown(self):
-        if self.saved_dd is not None:
-            os.environ["YTT_DATA_DIR"] = self.saved_dd
-        self.tmp.cleanup()
+        cm = testkit.env(YTT_DATA_DIR=None, **{guard_hook.MAIN_COMMIT_ENV: None})
+        cm.__enter__()
+        self.addCleanup(cm.__exit__, None, None, None)
 
     def why(self, cmd, tool="Bash", cwd=None):
         return guard_hook.check_command(cmd, tool, cwd or self.wt)[0]
@@ -108,11 +103,8 @@ class GuardTest(unittest.TestCase):
         self.assertPass(["YTT_MAIN_COMMIT=1 git commit -m x"], cwd=self.main)
         self.assertPass(["$env:YTT_MAIN_COMMIT=1; git commit -m x", "$env:YTT_MAIN_COMMIT='1'; git commit -m x"],
                         tool="PowerShell", cwd=self.main)
-        os.environ[guard_hook.MAIN_COMMIT_ENV] = "1"
-        try:
+        with testkit.env(**{guard_hook.MAIN_COMMIT_ENV: "1"}):
             self.assertPass(["git commit -m x"], cwd=self.main)
-        finally:
-            del os.environ[guard_hook.MAIN_COMMIT_ENV]
         # 抜け道でも add -A は断る
         self.assertBlocked("add", ["YTT_MAIN_COMMIT=1 git commit -am x"], cwd=self.main)
 
@@ -183,7 +175,7 @@ class GuardTest(unittest.TestCase):
                 self.assertEqual(self.run_hook(payload), (0, ""))
 
     def test_install(self):
-        path = self.tmp.name + "/s/.claude/settings.json"
+        path = self.tmp + "/s/.claude/settings.json"
         touch(path, '{"permissions": {"additionalDirectories": ["D:/x"]}}')
         self.assertTrue(guard_hook.install(path))
         self.assertFalse(guard_hook.install(path))

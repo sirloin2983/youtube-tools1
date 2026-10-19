@@ -1,13 +1,14 @@
 """dev/land_gate.py(main に入れる前の関所)と dev/worklog.py check(報告の型)のテスト。一時フォルダだけを使う(テストは流さない)"""
 import os
 import sys
-import tempfile
 import unittest
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(REPO, "dev"))
+sys.path.insert(0, os.path.join(REPO, "src"))
 import land_gate  # noqa: E402
 import worklog  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 GOOD = """---
 種類: 記録
@@ -22,10 +23,7 @@ GOOD = """---
 """
 
 
-def put(path, text):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8", newline="\n") as f:
-        f.write(text)
+put = testkit.write_text
 
 
 class SelectTest(unittest.TestCase):
@@ -59,17 +57,14 @@ class SelectTest(unittest.TestCase):
 
 class TableTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.root = os.path.join(self.tmp.name, "repo")
+        tmp = testkit.tempdir(self)
+        self.root = os.path.join(tmp, "repo")
         for d in ("src/ytt", "src/newlayer", "friend-apps/launcher", "dev"):
             os.makedirs(os.path.join(self.root, *d.split("/")))
-        self.md = os.path.join(self.tmp.name, "code.md")
+        self.md = os.path.join(tmp, "code.md")
         put(self.md, "# x\n\n" + land_gate.TABLE_HEAD + "\n説明\n\n| フォルダ | テスト |\n| --- | --- |\n"
             "| `src/ytt/`(旧 `src/ytt_core/`) | a |\n| `friend-apps/launcher/` | b |\n| `friend-apps/gone/` | c |\n"
             "| `dev/` | d |\n| `docs/`・`plan/` | e |\n\n## 7. 次\n| `src/other/` | x |\n")
-
-    def tearDown(self):
-        self.tmp.cleanup()
 
     def test_folders_of_first_column(self):
         self.assertEqual(land_gate.table_folders(self.md),
@@ -91,11 +86,7 @@ class TableTest(unittest.TestCase):
 
 class WorklogCheckTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.notes = self.tmp.name
-
-    def tearDown(self):
-        self.tmp.cleanup()
+        self.notes = testkit.tempdir(self)
 
     def test_good_report_passes(self):
         p = os.path.join(self.notes, "a.md")
@@ -139,8 +130,7 @@ class RunTest(unittest.TestCase):
     """関所の流れ(git は一時フォルダ・テストと道具は差し替え)"""
 
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.notes = os.path.join(self.tmp.name, "notes")
+        self.notes = os.path.join(testkit.tempdir(self), "notes")
         put(os.path.join(worklog.worklog_dir(self.notes), "2026-10-12週", "2026-10-18-gate.md"), GOOD)
         self.saved = (land_gate.worktree_of, land_gate.git, land_gate.run_tool, land_gate.run_units, land_gate.table_drift)
         land_gate.worktree_of = lambda root, b: REPO
@@ -151,7 +141,6 @@ class RunTest(unittest.TestCase):
 
     def tearDown(self):
         (land_gate.worktree_of, land_gate.git, land_gate.run_tool, land_gate.run_units, land_gate.table_drift) = self.saved
-        self.tmp.cleanup()
 
     def fake_units(self, fail):
         def run_units(units, jobs, log=print):
