@@ -44,14 +44,14 @@ EXPORT = "export"   # テストの呼び名: 書き出しから全部(mode full 
 
 def start(ar, video_id, mode, top=None, streamer=None, marks=None, overwrite=False, auto_send=None):
     """ホームの案件の行・スタジオのマークの行の「まとめて実行」(画面の UIKit.flow.order → submit と同じ形)。mode = full(解析から全部)か EXPORT(書き出しから全部)。
-    友人へ自動で送る(D-SEND): 解析から全部で、受付のフォルダが決まっていれば出どころ auto + 届け先。auto_send False(チェックを外した)= 届け先なし"""
+    友人へ自動で送る(D-SEND): 解析から全部で、受付のフォルダが決まっていれば出どころ auto + 届け先。auto_send False(チェックを外した)= 出どころ auto で届け先なし"""
     if mode not in A.MODES and mode != EXPORT:
         raise ValueError("実行の形が正しくありません")
     if top is not None:
         SP.top_arg(top)   # 画面は 1〜20 に丸めてから送る(合わない数は ValueError)
     full = mode == "full"
     folder = _send_folder(ar) if full else ""
-    dl = {"origin": "auto", "deliver_dir": IN.out_dir_of(folder)} if folder and auto_send is not False else {}
+    dl = {"origin": "auto", "deliver_dir": IN.out_dir_of(folder) if auto_send is not False else None} if folder else {}
     env, diff = O.order("url", video_id=video_id, from_=None if full else "export", upto="pack",
                         top=top, streamer=streamer, marks=marks, repack=overwrite, **dl)
     return ar.submit(env, diff)
@@ -76,7 +76,7 @@ def start_new(ar, items, top=None, streamer=None, auto_send=None):
     if top is not None:
         SP.top_arg(top)
     folder = _send_folder(ar)
-    dl = {"origin": "auto", "deliver_dir": IN.out_dir_of(folder)} if folder and auto_send is not False else {}
+    dl = {"origin": "auto", "deliver_dir": IN.out_dir_of(folder) if auto_send is not False else None} if folder else {}
 
     def make(it):
         it = it if isinstance(it, dict) else {}
@@ -1632,11 +1632,13 @@ class TestAutoSend(Base):
                          ({("auto", VID, "full")}, ["a2", "a3"]))
         self.assertEqual(self.recs(), {}, "届けたは案件に写さない(② の届けた記録から引く)")
 
-    def test_unchecked_has_no_deliver_step(self):
-        """チェックを外した(届け先なし)= 段 deliver が無い。何も置かない・送らなかった記録も書かない"""
+    def test_unchecked_keeps_quality_card(self):
+        """チェックを外した(出どころ auto・届け先なし)= 何も置かないが、切り抜きごとに送らなかった記録 unchecked を残す
+        (品質のカード 2-8 の「まとめて実行の切り抜き」に出る。10-19 の作り直しで一度消えかけた)"""
         run = self.go(auto_send=False)
-        self.assertEqual((run["state"], [s["key"] for s in run["steps"]]), ("done", ["analyze", "adopt", "export", "transcribe", "pack"]), run)
-        self.assertEqual((self.outs(), self.rows(), self.notsent()), ([], [], {}))
+        self.assertEqual((run["state"], self.step(run)["state"], self.step(run)["detail"]), ("done", "skip", DL.UNCHECKED_TEXT), run)
+        self.assertEqual({k: r["code"] for k, r in self.notsent().items()}, {"a2": "unchecked", "a3": "unchecked"})
+        self.assertEqual((self.outs(), self.rows()), ([], []))   # 案件が記録を読んで札とカードを出すのは src/manage/cases/tests/test_cases.py
 
     def test_requested_video_still_sends(self):
         """友人が依頼済みの配信でも送る(二重は防がない = 10-19 ユーザー決定。D-SEND 2-9 の取り下げ)"""
@@ -1719,7 +1721,7 @@ class TestAutoSend(Base):
         """書き出しから全部(mode full + 束の run.from export + marks。スタジオの「書き出しのあと自動でパックまで」・マークの行の「この後を」):
         解析・採用の段は無く、そのマークだけ書き出し → 文字起こし → パック → 段 deliver(出どころ auto)。届け済みのパックは除く"""
         first = self.go(auto_send=False)   # 解析・採用・書き出しまで(届けない)
-        self.assertNotIn("deliver", [s["key"] for s in first["steps"]], first)
+        self.assertEqual(self.step(first)["state"], "skip", first)
         adds = len([c for c in self.tools.calls if c[2] == "/api/queue/add"])
         env, diff = O.order("url", video_id=VID, from_="export", upto="pack", marks=["a2"], origin="auto", deliver_dir=self.out)
         run = self.wait(self.r.submit(env, diff))

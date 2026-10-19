@@ -53,35 +53,35 @@
   - コード: `src/manage/cases/cases.py`・`src/flow/casebook.py`・`src/app/ui/cases/cases.js`・`/api/cases` src/app/server.py:809
   - 画面: src/app/ui/cases/caselink.js:2・src/app/ui/cases/cases.js:2・src/app/ui/cases/index.html:6・src/app/ui/cases/panels/cand.js:8 ほか 17
 - **まとめて実行** — 入口の案件から配信 1 本ぶんを順に自動で流す
-  - コード: `src/app/autorun.py`・`AutoRunner` src/app/autorun.py:212・`/api/flow/submit` src/app/server.py:657・`src/flow/runqueue.py`
+  - コード: `src/app/autorun.py`・`AutoRunner` src/app/autorun.py:213・`/api/flow/submit` src/app/server.py:657・`src/flow/runqueue.py`
   - 画面: src/app/ui/cases/cases.js:79・src/app/ui/cases/panels/cut.js:64・src/app/ui/editor/app-list.js:122・src/app/ui/editor/app-rows.js:142 ほか 8
 - **封筒** — ② の依頼の封筒の形と検査。欄から封筒への変換は order
   - コード: `src/flow/envelope.py`・`src/flow/order.py`
   - 画面: (画面の文字列に無い)
 - **束** — ① に渡す指定の束(spec)の形・既定値・検査
-  - コード: `src/flow/spec.py`・`spec_from_settings` src/app/autorun.py:183
+  - コード: `src/flow/spec.py`・`spec_from_settings` src/app/autorun.py:184
   - 画面: (画面の文字列に無い)
 - **見積もり** — ② の実行と同じ規則の見積もり(書き込まない)
   - コード: `/api/flow/estimate` src/app/server.py:657・`src/flow/runqueue.py`
   - 画面: src/app/ui/editor/app-list.js:208・src/app/ui/editor/app.js:1077・src/app/ui/editor/pack-tab.js:37
 - **掲示板** — ② のジョブの掲示板(RS8 の口 S1)
   - コード: `src/flow/board.py`・`src/flow/jobs.py`
-  - 画面: src/app/ui/home/portal.js:666・src/app/ui/studio/review.js:3444
+  - 画面: src/app/ui/home/portal.js:667・src/app/ui/studio/review.js:3444
 - **調子** — 入口の「調子」。空き容量・失敗・道具の版などの集計
   - コード: `src/manage/ops/health.py`・`/api/health` src/app/server.py:770
-  - 画面: src/app/ui/cases/panels/cand.js:137・src/app/ui/cases/panels/new.js:240・src/app/ui/home/portal.html:122・src/app/ui/home/portal.js:1215
+  - 画面: src/app/ui/cases/panels/cand.js:137・src/app/ui/cases/panels/new.js:240・src/app/ui/home/portal.html:122・src/app/ui/home/portal.js:1216
 - **依頼の受付** — 友人の依頼を見張るフォルダ。入口の設定の節 intake
   - コード: `src/human/friend/intake.py`・`src/flow/envelope.py`・`/api/intake` src/app/server.py:651
   - 画面: src/app/ui/home/portal.html:122・src/app/ui/home/portal.js:493
 - **バックアップ** — 作業データの自動バックアップ。設定の節 backup
   - コード: `src/manage/keep/backup.py`・`/api/backup` src/app/server.py:652
-  - 画面: src/app/ui/editor/app-tpl.js:147・src/app/ui/home/portal.html:122・src/app/ui/home/portal.js:1777
+  - 画面: src/app/ui/editor/app-tpl.js:147・src/app/ui/home/portal.html:122・src/app/ui/home/portal.js:1778
 - **精度の自動測定** — 夜に 1 日 1 回、校正済みで認識の精度を測る。設定の節 accuracy
   - コード: `src/eval/drill/accuracy.py`・`/api/accuracy` src/app/server.py:653・`/api/accuracy/run` src/app/server.py:661
-  - 画面: src/app/ui/home/portal.html:289・src/app/ui/home/portal.js:1387
+  - 画面: src/app/ui/home/portal.html:289・src/app/ui/home/portal.js:1388
 - **作業データ** — 置き場所の持ち主は flow/placement。入口と友人の玄関に各々ある
   - コード: `src/flow/placement.py`・`app_data_dir` src/app/server.py:337・`src/flow/machine.py`
-  - 画面: src/app/ui/cases/panels/cand.js:81・src/app/ui/cases/panels/new.js:21・src/app/ui/home/portal.html:150・src/app/ui/home/portal.js:1280 ほか 3
+  - 画面: src/app/ui/cases/panels/cand.js:81・src/app/ui/cases/panels/new.js:21・src/app/ui/home/portal.html:150・src/app/ui/home/portal.js:1281 ほか 3
 - **パック** — Resolve へ渡すパック。作る ①・口 ②・作った記録・ジョブ
   - コード: `src/pipeline/pack/pack.py`・`src/flow/pack.py`・`src/flow/packrec.py`・`src/flow/packjobs.py`
   - 画面: src/app/ui/cases/cases.js:73・src/app/ui/cases/edhost.js:14・src/app/ui/cases/panels/cut.js:67・src/app/ui/editor/app-core.js:49 ほか 14
@@ -93,7 +93,7 @@
   - 画面: src/app/ui/cases/cases.js:66・src/app/ui/cases/index.html:41・src/app/ui/cases/panels/cut.js:544・src/app/ui/cases/panels/proof.js:64 ほか 19
 - **リアルタイム切り抜き** — 配信中の録画〜採用の線 D。設定の節 live(既定オフ)
   - コード: `src/app/live.py`・`src/flow/livesession.py`
-  - 画面: src/app/ui/home/portal.html:289・src/app/ui/home/portal.js:1323・src/app/ui/studio/rank.js:481
+  - 画面: src/app/ui/home/portal.html:289・src/app/ui/home/portal.js:1324・src/app/ui/studio/rank.js:481
 - **マーク** — マークの語彙・ライブの「マーク + 書き出し」・盛り上がりの評価
   - コード: `src/flow/live_export.py`・`src/flow/live_adopt.py`・`src/ytt/marks.py`・`src/eval/tools/eval_marks.py`
   - 画面: src/app/ui/cases/panels/cand.js:32・src/app/ui/cases/panels/new.js:26・src/app/ui/home/portal.html:163・src/app/ui/home/portal.js:443 ほか 5
@@ -187,7 +187,7 @@
 - 削除(3)— src/app/ui/editor/app-rows.js:461
 - 区間(3)— src/app/ui/cases/panels/cut.js:90
 - 基準(3)— src/app/ui/studio/collab.js:154
-- 失敗(3)— src/app/ui/home/portal.js:763
+- 失敗(3)— src/app/ui/home/portal.js:764
 - 採用する数(3)— src/app/ui/home/portal.html:365
 - 映像トラック(3)— src/friendapp/ui/friend.html:109
 - 更新(3)— src/app/ui/home/portal.html:209
@@ -199,7 +199,7 @@
 - 読み込み直す(3)— src/app/ui/cases/panels/machpick.js:37
 - 配信中(3)— src/app/ui/studio/rank.js:485
 - 長さ(3)— src/app/ui/studio/rank.js:344
-- 非表示のものも出す(3)— src/app/ui/home/portal.js:927
+- 非表示のものも出す(3)— src/app/ui/home/portal.js:928
 - (Mac は(2)— src/app/ui/editor/app-core.js:451
 - (「終わった配信」と同じ選び方です)(2)— src/app/ui/studio/rank.js:478
 - +30秒(2)— src/ui-kit/styleguide.html:163
@@ -215,7 +215,7 @@
 - まだありません(2)— src/app/ui/editor/app-tpl.js:261
 - まだ検索していません(2)— src/app/ui/studio/rank.js:196
 - もう一度検索する(2)— src/app/ui/studio/rank.js:308
-- もっと見る(あと(2)— src/app/ui/home/portal.js:918
+- もっと見る(あと(2)— src/app/ui/home/portal.js:919
 - アーカイブ(2)— src/app/ui/studio/review.js:2453
 - カット後(2)— src/app/ui/cases/panels/cut.js:46
 - キー:(2)— src/app/ui/editor/app-tpl.js:30
@@ -231,7 +231,7 @@
 - モデル(2)— src/app/ui/editor/app-tpl.js:119
 - 不自然な所がある(2)— src/app/ui/check/cards/cut.js:21
 - 以前の版に戻す(2)— src/app/ui/editor/app-tpl.js:23
-- 保存しています…(2)— src/app/ui/home/portal.js:1744
+- 保存しています…(2)— src/app/ui/home/portal.js:1745
 - 元のメッセージ(2)— src/app/ui/studio/queue.js:227
 - 再生数(2)— src/app/ui/studio/rank.js:344
 - 分割(2)— src/app/ui/cases/panels/cut.js:56
@@ -274,7 +274,7 @@
 - 週報(2)— src/manage/ops/analytics/web/index.html:26
 - 適用(2)— src/app/ui/editor/app-tpl.js:100
 - 選ぶ(2)— src/friendapp/ui/settings.js:55
-- 配信(2)— src/app/ui/home/portal.js:973
+- 配信(2)— src/app/ui/home/portal.js:974
 - 配信が終わったら、アーカイブからも足す(2)— src/friendapp/ui/friend.html:105
 - 配信の URL(2)— src/app/ui/studio/queue.js:21
 - 配信を探す(2)— src/app/ui/studio/queue.js:43

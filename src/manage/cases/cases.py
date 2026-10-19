@@ -35,8 +35,8 @@
   - 案件ファイルには cases[配信]["auto"][スタジオのマーク] = {discardedAt, tx, expiredAt} を持つ(要らないにした文字起こし tx は
     「単体の文字起こし」に出さない)
   - まとめて実行で友人へ自動で送る形(D-SEND。notes:plan/done/d-send-requirements.md の 2-8): 送らなかった物は ② の送らなかった記録 logs/not-sent.jsonl
-    {配信, マーク, code, text, at}(flow/deliveries.record_not_sent。ds1 = 3-71 m3e。10-19 からは置けずに預けた分の期限切れ expired だけ・前の行の
-    unchecked・stale・requested・unknown_end もそのまま読む)。送った物は届けた記録の mode full・origin auto で見分ける。
+    {配信, マーク, code, text, at}(flow/deliveries.record_not_sent。ds1 = 3-71 m3e。10-19 からは unchecked と、置けずに預けた分の期限切れ expired だけ・前の行の
+    stale・requested・unknown_end もそのまま読む)。送った物は届けた記録の mode full・origin auto で見分ける。
     どちらかがある切り抜きはライブでなくても clip["auto"] = {origin "full", originLabel "まとめて実行"}(品質のカードに出る)。
     clip["review"]["notSent"] は届けていない間だけ(案件の画面の札)
   - 日数の片付け(expire_unseen。ユーザー決定): 届けた自動の切り抜きは届けてから・届けていない物は作ってから EXPIRE_SEC でごみ箱へ。

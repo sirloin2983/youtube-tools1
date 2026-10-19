@@ -17,8 +17,8 @@
   - 名前: `safe_name` :42・`request_id` :46・`delivery_name` :51・`face_origin` :56・`meta_path_for` :66・`meta_doc` :78・`write_meta_json` :90・`unique_zip` :96・`zip_packs` :104・`preview_path_for` :140・`place_preview` :145・`deliver_one` :153・ほか 1
 - **deliveries.py** (187 行) — ② 管理の層 flow: 友人へ届けた記録(入口の作業データの logs/deliveries.jsonl)の読み口(OPT-M2。notes:plan/done/opt-manage.md の 7x-2)。
   - 名前: `record` :23・`origin_of` :39・`rows` :47・`delivered_requests` :69・`pack_name` :84・`delivered_marks` :92・`record_not_sent` :148・`not_sent_marks` :159
-- **delivery.py** (376 行) — ② 友人へ届ける: まとめて実行の「Dropbox へ届ける」段と、置けなかった自動の分の溜め(まとめて実行 AutoRunner が継ぐ mixin)。
-  - 名前: `switched_off` :50・`class Delivery` :77
+- **delivery.py** (385 行) — ② 友人へ届ける: まとめて実行の「Dropbox へ届ける」段と、置けなかった自動の分の溜め(まとめて実行 AutoRunner が継ぐ mixin)。
+  - 名前: `switched_off` :54・`class Delivery` :81
 - **diar.py** (299 行) — ② 管理の層 flow: 話者判別と声の段取り(RS6 a-4。決定 3-29)。
   - 名前: `models_ready` :29・`default_embedding` :40・`embedding` :45・`embeddings` :50・`diarize` :56・`assign` :86・`record_run` :110・`record_single` :117・`latest_run` :127・`embed` :134・`match_known_voices` :150・`voice_learn_rows` :163・ほか 10
 - **envelope.py** (170 行) — ② 管理の層 flow: 依頼の封筒(RS7-1 S3。決定 3-30・notes:plan/done/f1-friend-pc.md の決めたこと 9)。
@@ -79,8 +79,8 @@
   - 名前: `studio_data` :49・`case_root` :62・`doc_home` :90・`request_id6` :129・`request_folder` :134・`configured_out_dir` :147・`request_root` :155・`case_parents` :176・`case_roots` :182・`find_request_dir` :203・`work_dir` :224・`runs_dir` :230・ほか 12
 - **prio.py** (88 行) — ② 管理の層 flow: 処理の優先度の表(PRIO。決定 3-49・notes:plan/done/opt-series.md の 11)。
   - 名前: `name_ok` :35・`rank` :39・`idle_only` :43・`os_priority` :47・`label` :51・`slot_kw` :55・`of_run` :60・`of_spec` :69・`watch` :80・`idle_now` :85
-- **run.py** (1619 行) — ① 自動の流れの経路(RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。
-  - 名前: `class Cancelled` :123・`class StepError` :127・`mode_of` :146・`steps_of` :180・`analyze_verdict` :222・`chat_missing` :240・`chat_retry_ok` :246・`stream_ended_at` :254・`redo_reason` :267・`short_why` :285・`adopted_ids` :297・`tx_verdict` :302・ほか 5
+- **run.py** (1621 行) — ① 自動の流れの経路(RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。
+  - 名前: `class Cancelled` :123・`class StepError` :127・`mode_of` :146・`steps_of` :180・`analyze_verdict` :224・`chat_missing` :242・`chat_retry_ok` :248・`stream_ended_at` :256・`redo_reason` :269・`short_why` :287・`adopted_ids` :299・`tx_verdict` :304・ほか 5
 - **runlog.py** (93 行) — まとめて実行の「終わった実行の記録」の形と読み方(RS3-0B)。
   - 名前: `read_runs_log` :47・`read_result` :77
 - **runqueue.py** (831 行) — ② 管理の層 flow: 待ち行列と実行の糸(RS7-1 S5。決定 3-30・

@@ -195,7 +195,7 @@ class TestRestoreGolden(unittest.TestCase):
                         spec=SP.validate(SP.merge({"run": {"onFail": "next"}, "hints": {"streamer": ""}})))
         back = R.Run.restore(d)
         self.assertEqual((back.mode, back.deliver_tag, back.deliver_origin, back.deliver_dir, back.streamer), ("full", "20261016-120000-aaaaaa", "auto", None, ""))
-        self.assertEqual([s["key"] for s in back.steps], ["analyze", "adopt", "export", "transcribe", "pack"])   # 届け先なし = 段 deliver なし(10-19 案 B3)
+        self.assertEqual([s["key"] for s in back.steps], ["analyze", "adopt", "export", "transcribe", "pack", "deliver"])   # 届け先なしの auto = 送らなかった記録を残す段
         fenv = {"id": "fedcba9876", "kind": "file", "input": {"title": "依頼", "path": "C:/x/依頼.mp4", "normalize": True}, "requestId": "rid",
                 "deliver": {"dir": "D:/out", "pool": None, "origin": None, "tag": None}, "createdAt": 1790000000000, "specVersion": 2}
         f = self.record(id="fedcba9876", envelope=fenv, mode="file_auto", docId="t9", sourcePath="C:/x/依頼.mp4",
@@ -215,7 +215,7 @@ class TestStepsOf(unittest.TestCase):
         keys = list(R.MODE_STEPS[mode])
         if "normalize" in keys and not normalize:
             keys.remove("normalize")
-        if dir_ and "pack" in keys and mode != "doc":   # 届け先があれば deliver(出どころは見ない。10-19 案 B3)
+        if (dir_ or (origin == "auto" and mode == "full")) and "pack" in keys and mode != "doc":   # 届け先があるか、チェックを外したまとめて実行
             keys.append("deliver")
         if mode == "request_auto" and ranges and ranges >= (top or 0):
             keys.remove("analyze")

@@ -177,10 +177,11 @@ def _gone_shape(env, spec):
     return mode_of(env.get("kind"), b, env.get("requestId")) is None
 
 
-def steps_of(mode, deliver_dir=None, ranges=0, top=None, diarize=None, normalize=False, from_=None, request=False):
+def steps_of(mode, deliver_dir=None, ranges=0, top=None, diarize=None, normalize=False, from_=None, request=False, origin=None):
     """段の並び(鍵の並び)= MODE_STEPS[mode] + 今の付け足しの決まり(実行の段と見積もりが同じ物を使う。RV A2):
     束の run.from が export(書き出しから全部)なら解析・採用を外す(MODE_STEPS["full"] は変えない) /
-    normalize(動画ファイルの最初)は normalize が真のときだけ / 届け先があればパックの後ろに deliver(文書単位は届けない) /
+    normalize(動画ファイルの最初)は normalize が真のときだけ / 届け先があればパックの後ろに deliver(文書単位は届けない)。
+    チェックを外したまとめて実行(出どころ auto・届け先なし・依頼の番号なしの配信)も deliver を付ける = 送らなかった記録 unchecked を残す段(品質のカード 2-8) /
     友人の依頼の配信(request = 依頼の番号がある配信の実行)で区間が切り抜く数に足りていれば、解析なしで最後に analyze_later /
     話す人の人数(diarize)があれば文字起こしの後ろに diarize"""
     keys = list(MODE_STEPS[mode])
@@ -188,7 +189,8 @@ def steps_of(mode, deliver_dir=None, ranges=0, top=None, diarize=None, normalize
         keys = [k for k in keys if k not in ("analyze", "adopt")]
     if NORMALIZE_STEP in keys and not normalize:
         keys.remove(NORMALIZE_STEP)
-    if deliver_dir and "pack" in keys and mode != DOC_MODE:
+    unchecked = origin == "auto" and not request and "adopt" in MODE_STEPS[mode]
+    if (deliver_dir or unchecked) and "pack" in keys and mode != DOC_MODE:
         keys.append("deliver")
     if request and ranges and ranges >= (top or 0):
         if "analyze" in keys:   # 書き出しから(from export)は解析の段がもう無い
@@ -383,7 +385,7 @@ class Run:
         self.result_path = None    # 結果の束 <案件>/作業用/runs/<id>.json(終わったら flow/placement.write_result が置く。記録の 1 行の resultPath = 索引。RS6 b-B0)
         self.run_from = bundle["run"]["from"]   # 束の run.from(書き出しから全部 = export。札と段の並びが使う)
         keys = steps_of(self.mode, self.deliver_dir, len(self.ranges), self.top, bundle["transcribe"]["diarize"], self.normalize,
-                        self.run_from, self.friend_url)
+                        self.run_from, self.friend_url, self.deliver_origin)
         self.steps = [{"key": k, "label": STEP_LABELS[k], "state": "wait", "detail": ""} for k in keys]
 
     # ------------------------------------------------------------ 束から読む欄(読み取りだけ。RV A2 で Run の欄 → 束)

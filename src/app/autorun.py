@@ -41,7 +41,8 @@
 - 友人へ自動で送る(D-SEND。notes:plan/done/d-send-requirements.md): 送るかは注文を作る所が届け先を入れるかだけで決める(10-19 案 B3)。
   切り替えはホームのまとめて実行・配信を探すの「友人へ自動で送る」のチェックだけ(既定オン・保存しない)。ほか(候補のタブの「まとめて実行 ▾」・
   「この後を」・書き出しのあと自動で・ライブの自動の切り抜き)は、依頼の受付の Dropbox のフォルダが決まっていれば(GET /api/intake の outDir)いつも送る。
-  届け先があれば段 deliver が付く(flow/run.py の steps_of)。受付(_accept)が名前の頭 deliver.tag(友人のアプリの依頼 id の形)を決める。
+  届け先があれば段 deliver が付く(flow/run.py の steps_of)。チェックを外した実行(出どころ auto・届け先なし)も段 deliver を付け、
+  送らずに切り抜きごとの送らなかった記録 unchecked(② logs/not-sent.jsonl)を残す(品質のカードに出す = 2-8)。受付(_accept)が名前の頭 deliver.tag(友人のアプリの依頼 id の形)を決める。
   友人の依頼済みか・終わってから 48 時間かは見ない(10-19 取り下げ。二重は防がない)。届け済みのパックを除く・溜め・送り直しは src/flow/delivery.py。
   文書単位・CLI は届けない
 - 区間だけの依頼の最後の段「解析(あとで)」(flow/run の analyze_later)は、届けたあとに解析を順番へ入れるだけで待たない(OPT-E2 = 決定 3-49 Q6)

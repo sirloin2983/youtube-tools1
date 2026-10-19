@@ -447,7 +447,7 @@ async function startAuto(){
     try { out = (await S.portalApi('api/intake')).outDir || null; } catch {}
     const send = !!$('#rkAutoSend').checked;
     const orders = items.map(it => UIKit.flow.order({ kind: 'url', videoId: it.id, title: it.title || it.id, fresh: { title: it.title, channel: it.channel }, top,
-                                                     ...(who ? { streamer: who } : {}), ...(out && send ? { deliver: { origin: 'auto', dir: out } } : {}) }));
+                                                     ...(who ? { streamer: who } : {}), ...(out ? { deliver: { origin: 'auto', dir: send ? out : null } } : {}) }));
     const r = await UIKit.autorun.start(orders, { estimate: false });   // 始める・終わったら知らせる は共通の部品(段4。まだスタジオに無い配信なので見積もりはしない)
     const made = (r && r.runs) || [], sk = (r && r.skipped) || [];
     for (const x of made) R.picked.delete(x.videoId);

@@ -481,8 +481,8 @@ class Queue(run_mod.Runner):
             elif key == "pack":
                 count = None if pending else len(packable)
                 note = "文字起こしのあとで決まります" if count is None else ("" if count else ("パック済み(「パックがあれば作り直す(上書き)」を選ぶと作り直します)" if clips else "文字起こしのある切り抜きがありません"))
-            elif key == "deliver":
-                count, note = None, "パックのあとで決まります"
+            elif key == "deliver":   # 届け先なし = チェックを外したまとめて実行(送らなかった記録だけ残す)
+                count, note = (None, "パックのあとで決まります") if run.deliver_dir else (0, "チェックを外したので送りません")
             steps.append({"key": key, "label": label, "count": count, "note": note})
         return self._estimate_out(steps, [] if st == 200 else ["配信がスタジオに見つかりません"])
 

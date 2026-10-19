@@ -16,6 +16,8 @@ ds1(要件 1-5「届ける段と溜めは ② へ」・仮決め 3-70 ds1・3-71
   - 送るかは注文を作る所が届け先(封筒の deliver.dir)を入れるかで決める(10-19 ユーザー決定 = 案 B3。切り替えはホームのまとめて実行と配信を探すの
     チェックだけ・ほかは受付のフォルダが決まっていればいつも送る)。届け先があれば段 deliver が付き(flow/run.steps_of)、ここは「置く」だけ。
     友人が依頼済みか・終わってから 48 時間かは見ない(2-1 の鮮度・2-9 の依頼済みは 10-19 に取り下げ。二重は防がない)
+  - チェックを外したまとめて実行(出どころ auto・届け先なし)も段 deliver を持ち、送らずに切り抜きごとに送らなかった記録 unchecked を残す
+    (品質のカード 2-8 の「まとめて実行の切り抜き」に出すため)
   - 出どころ(_origin): run.deliver_origin(request・auto・manual)。無ければ依頼の id があれば request・無ければ auto。友人に見せる形は deliver.face_origin
   - 出どころ auto は、届けた記録にあるパックを除く(同じパックを 2 回送らない = _sent_dirs)
   - 置けない(Dropbox のフォルダが無い・書けない)とき、出どころ auto は実行を失敗にせず溜めに預ける(鍵 full|<deliver_tag>|<配信>。meta.parked)・段は warn。
@@ -41,6 +43,8 @@ ENV_SWITCH = "YTT_AUTO_SEND"   # 開発機の守り: off で出どころ auto �
 PARK_KEEP_SEC = 3 * 86400      # 置けなかった自動の分を送り直す期限(預けてから。片付けの 3 日 = manage/keep/cleanup の KEEP_DAYS・TRASH_DAYS と同じ)
 EXPIRED = "expired"            # 送らなかった記録の理由の鍵(期限切れ。案件の画面の札 cases.js の NOT_SENT と同じ鍵)
 EXPIRED_TEXT = "送らなかった(古くなった)"
+UNCHECKED = "unchecked"        # 同(まとめて実行で「友人へ自動で送る」のチェックを外した)
+UNCHECKED_TEXT = "チェックを外したので送りません"
 POOL_FILE = "deliver-pool.json"   # 溜め(置けなかった自動の分・前の版で溜めたライブの切り抜きの残り。log_dir の中)
 POOL_SCHEMA = "ytt-deliver-pool/v1"
 POOL_IDLE_SEC = 600.0              # (前の版のライブの溜め)録画が終わって書き出しも実行も無くなってから、最後に預けてこれだけたったら残りを届ける
@@ -95,8 +99,13 @@ class Delivery:
         return self._deliver(run, st, list(run.packs) + ([found["dir"]] if found else []))
 
     def _step_deliver(self, run, st, v):
-        dirs = list(run.packs)
         clips = self._clips(v, run)
+        if not run.deliver_dir:   # チェックを外したまとめて実行: 送らず、切り抜きごとに送らなかった記録(品質のカード 2-8 の「まとめて実行の切り抜き」)
+            st["state"], st["detail"] = "skip", UNCHECKED_TEXT
+            for m in clips:
+                self._not_sent(run.video_id, m.get("id"), UNCHECKED, UNCHECKED_TEXT)
+            return None
+        dirs = list(run.packs)
         for m in clips:
             found = self.find_pack(m["path"])
             if found:
@@ -230,7 +239,7 @@ class Delivery:
 
     def _deliver_rest_quietly(self, run):
         """止まった実行に、まだ届けていないパックがあれば届ける。届けられなくても失敗の知らせは置く"""
-        if not run.delivers():
+        if not run.deliver_dir or not run.delivers():
             return
         try:
             self._deliver_pending(run)

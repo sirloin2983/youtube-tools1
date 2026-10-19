@@ -146,8 +146,8 @@ NOT_SENT_LOG = "not-sent.jsonl"   # 自動で送る分(D-SEND)で送らなかっ
 
 
 def record_not_sent(log_dir, video_id, mark_id, code, text, run_id=""):
-    """送らなかった切り抜きを 1 行足す(今書くのは、置けずに預けた分の期限切れ expired だけ = flow/delivery。
-    10-19 までは送るかの判定の理由 unchecked・stale・requested・unknown_end も書いていた = 古い行は読み手がそのまま読む)。
+    """送らなかった切り抜きを 1 行足す(今書くのは、チェックを外したまとめて実行の unchecked と、置けずに預けた分の期限切れ expired = flow/delivery。
+    10-19 までは stale・requested・unknown_end も書いていた = 古い行は読み手がそのまま読む)。
     ④ 案件はこれを not_sent_marks で引き、送らなかった理由の札と「まとめて実行の切り抜き」(品質のカード)を出す。
     書けなければ OSError(呼び手 flow/delivery が段を止めずにログへ)。-> 書いた行"""
     row = {"at": int(time.time() * 1000), "videoId": str(video_id or ""), "markId": str(mark_id or ""), "code": str(code or "")[:40],
