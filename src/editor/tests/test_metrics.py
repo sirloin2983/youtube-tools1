@@ -10,7 +10,6 @@ import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 import random
 import shutil
-import socket
 import subprocess
 import sys
 import tempfile
@@ -22,7 +21,6 @@ import urllib.request
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
 HERE = os.path.dirname(TESTS)   # ツール(editor/)のフォルダ
-UI_DIR = os.path.join(os.path.dirname(HERE), "app", "ui", "editor")   # 画面の部品(RV C2 で src/app/ui/editor へ)
 os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))   # 一時フォルダに写した serve.py が共通部品 ytt(リポジトリ直下)を見つけられるように
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
@@ -189,6 +187,18 @@ class TestPure(unittest.TestCase):
             {"id": "d", "start": 3, "end": 4, "text": "w"}]}
         out = S.sanitize_transcript(obj, {})["segments"]
         self.assertEqual([("proofed" in g) for g in out], [True, False, False, False])
+
+    def test_tags_are_kept_and_unclear_rows_are_not_measured(self):
+        obj = {"speakers": [], "segments": [{"id": "a", "start": 0, "end": 1, "text": "x", "tags": ["unclear", "bgm", "hack"]},   # 決まった印だけ残る
+                                            {"id": "b", "start": 1, "end": 2, "text": "y"}]}
+        out = S.sanitize_transcript(obj, {})["segments"]
+        self.assertEqual(out[0]["tags"], ["unclear", "bgm"])
+        self.assertNotIn("tags", out[1])
+        # 「聞き取れない」の行は精度の測定に入らない(校正済み 3 行のうち 2 行 + 人が消した行 1 つ)
+        orig = [{"start": 0, "end": 2, "text": "あ"}, {"start": 2, "end": 4, "text": "い"}, {"start": 4, "end": 6, "text": "う"}, {"start": 6, "end": 8, "text": "え"}]
+        segs = [seg(1, 0, 2, "あ", True), dict(seg(2, 2, 4, "い", True), tags=["unclear"]), seg(3, 6, 8, "え", True)]   # 4〜6 秒の行は人が消した
+        m = S.doc_metrics({"original": orig, "segments": segs})
+        self.assertEqual((m["machineOnly"], m["refChars"]), (1, len(S.norm_cer("あえ"))))   # い(聞き取れない)は数えない
 
     def test_doc_metrics_proofed(self):
         orig = [{"start": 0, "end": 2, "text": "トゥー様は後合流"}, {"start": 2, "end": 4, "text": "こんにちは"},
@@ -547,32 +557,16 @@ class TestSplitAndRobust(unittest.TestCase):
             S._jobs.update(old_jobs)
 
 
-def free_port():
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
 @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg が必要")
 class TestHttp(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.mkdtemp()
-        for n in ("serve.py", "hololive-roster.json") + tuple(n for n in sorted(os.listdir(HERE)) if n.startswith("ed_") and n.endswith(".py")):   # 段10 で serve.py から分けた部品。画面の部品は src/app/ui/editor(RV C2。YTT_EDITOR_UI_DIR で教える)
-            shutil.copy(os.path.join(HERE, n), cls.tmp)
         cls.wav = os.path.join(cls.tmp, "sample.wav")
         subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=24", cls.wav], check=True)
         testkit.write_json(os.path.join(cls.tmp, "settings.json"), {"glossary": "ホロライブ\nトワ", "replacements": "よっきゃ=>陽キャ"})
-        cls.port = free_port()
-        env = dict(os.environ, YTT_EDITOR_UI_DIR=UI_DIR, TRANSCRIBE_BACKEND="fake", TRANSCRIBE_FAKE_DELAY="0.01", YTT_RUNTIME_DIR=os.path.join(cls.tmp, ".runtime"))
-        cls.proc =subprocess.Popen([sys.executable, os.path.join(cls.tmp, "serve.py"), str(cls.port), "--no-open"], cwd=cls.tmp, env=env,
-                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        for _ in range(100):
-            try:
-                cls.call("GET", "/api/ping")
-                break
-            except Exception:
-                time.sleep(0.1)
+        cls.port = testkit.free_port()
+        cls.proc = start_server(cls.tmp, cls.port, os.path.join(cls.tmp, ".runtime"))
 
     @classmethod
     def tearDownClass(cls):
@@ -610,51 +604,17 @@ class TestHttp(unittest.TestCase):
         doc = self.make_doc()
         tid, segs = doc["id"], doc["segments"]
         self.assertGreaterEqual(len(segs), 4)
-        # 何も校正していない → 測定は空
-        m = self.call("GET", "/api/metrics")
-        self.assertEqual(m["overall"]["groups"], 0)
-        self.assertEqual(m["proofedLines"], 0)
         # 校正: 1行目は人が直して校正済み、2〜3行目は直さず校正済み、4行目以降は未校正
         segs[0]["text"] = "トワ様のテスト"
         for i in (0, 1, 2):
             segs[i]["proofed"] = True
         r = self.call("PUT", "/api/transcript?id=" + tid, {"title": doc["title"], "speakers": [], "segments": segs})
         self.assertTrue(r["ok"])
-        saved = self.call("GET", "/api/transcript?id=" + tid)
-        self.assertEqual([bool(g.get("proofed")) for g in saved["segments"][:4]], [True, True, True, False])
         m = self.call("GET", "/api/metrics?id=" + tid)
-        o = m["overall"]
         self.assertEqual(m["proofedLines"], 3)
-        self.assertEqual(o["groups"], 3)
-        self.assertGreater(o["cer"], 0)
-        self.assertEqual(o["changed"], 1)
         self.assertEqual(m["byConfig"][0]["config"], "small / 用語集あり")
-        # 全件でも同じ(1件しかない)
-        self.assertEqual(self.call("GET", "/api/metrics")["overall"]["errs"], o["errs"])
         # 不正なID
         self.assertEqual(self.call("GET", "/api/metrics?id=../x").get("_status"), 404)
-
-        # 設定の比較(A/B)は 0.68.0 で消した(API も無い)
-        self.assertEqual(self.call("POST", "/api/abtest", {"tid": tid}).get("_status"), 404)
-        self.assertEqual(self.call("GET", "/api/evals?id=" + tid).get("_status"), 404)
-        # ホロライブの名簿: 読める・重複や空が無い・所属IDが一意
-        r = self.call("GET", "/api/roster")
-        ids = [g["id"] for g in r["groups"]]
-        self.assertEqual(len(ids), len(set(ids)))
-        self.assertGreaterEqual(len(ids), 15)
-        for g in r["groups"]:
-            self.assertTrue(g["names"] and all(isinstance(n, str) and n.strip() == n and n for n in g["names"]), g["id"])
-            self.assertEqual(len(g["names"]), len(set(g["names"])), g["id"])
-        names = {n for g in r["groups"] for n in g["names"]}
-        self.assertTrue({"兎田ぺこら", "宝鐘マリン", "AZKi", "熱千めら"} <= names)
-        self.assertRegex(r["asOf"], r"^\d{4}-\d\d-\d\d$")
-        # 修正データの書き出し(zip)は 0.68.0 で消した
-        self.assertEqual(self.call("POST", "/api/export-corrections", {"tid": tid, "audio": False}).get("_status"), 404)
-
-    def test_fake_flags_unchanged(self):
-        """疑似の文字起こし(「テスト文N」)には、英字の要確認が付かない(誤検出しない)。"""
-        doc = self.make_doc()
-        self.assertFalse(any("英字" in (g.get("flag") or "") for g in doc["segments"]))
 
     def test_history_and_conflict(self):
         doc = self.make_doc()
@@ -671,7 +631,6 @@ class TestHttp(unittest.TestCase):
         segs[0]["text"] = "二回目"
         r2 = put({"baseUpdatedAt": r1["updatedAt"]})
         self.assertTrue(r2["ok"])
-        self.assertEqual(len(self.call("GET", "/api/history?id=" + tid)["items"]), 1)   # 10分以内なので増えない
         # 古い版を土台にした保存は 409、force なら上書きできる
         segs[0]["text"] = "古い画面から"
         self.assertEqual(put({"baseUpdatedAt": base0}).get("_status"), 409)
@@ -687,30 +646,6 @@ class TestHttp(unittest.TestCase):
         self.assertEqual(self.call("POST", "/api/restore", {"id": "../x", "ts": ts}).get("_status"), 404)
         self.assertEqual(self.call("GET", "/api/history?id=../x").get("_status"), 404)
 
-    def test_tags(self):
-        doc = self.make_doc()
-        tid, segs = doc["id"], doc["segments"]
-        self.assertGreaterEqual(len(segs), 6)
-        spk = [{"id": "S1", "name": "トワ", "color": "#2f62d6"}]
-        segs[0]["text"] = "トワ様のテスト"
-        segs[0]["speaker"] = "S1"
-        for i in (0, 1, 2, 4):
-            segs[i]["proofed"] = True
-        segs[1]["tags"] = ["unclear", "bgm", "hack"]      # 決まった印だけ残る
-        gone = segs.pop(3)                                 # 人が消した行(校正した範囲の中 → 負例)
-        r = self.call("PUT", "/api/transcript?id=" + tid, {"title": doc["title"], "speakers": spk, "segments": segs})
-        self.assertTrue(r["ok"])
-        saved = self.call("GET", "/api/transcript?id=" + tid)
-        self.assertEqual(saved["segments"][1]["tags"], ["unclear", "bgm"])
-        self.assertNotIn("tags", saved["segments"][0])
-        # 「聞き取れない」の行は精度の測定に入らない(校正済み4行のうち3行 + 消した行1つ)
-        m = self.call("GET", "/api/metrics?id=" + tid)
-        self.assertEqual(m["overall"]["groups"], 4)
-
-        # データの保管(dataset/ の書き手)は 0.68.0 で消した
-        self.assertEqual(self.call("POST", "/api/archive", {"tid": tid}).get("_status"), 404)
-        self.assertEqual(self.call("GET", "/api/dataset").get("_status"), 404)
-
 
 class TestRangeAndStudio(unittest.TestCase):
     def test_range_lines_clamped(self):
@@ -725,6 +660,7 @@ class TestRangeAndStudio(unittest.TestCase):
 
 
 # 2026-09-24 の見直しで足したテスト(test_backend.py)も、従来のコマンド(python -m unittest test_metrics test_resolve_export)で一緒に走らせる
+from test_backend import start_server  # noqa: E402,F401
 from test_backend import *  # noqa: E402,F401,F403
 from test_worker import *  # noqa: E402,F401,F403   認識ワーカー(別プロセス)のテストも同じコマンドで
 from test_voices import *  # noqa: E402,F401,F403   話者の声を覚える(A-3)

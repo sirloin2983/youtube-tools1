@@ -11,7 +11,6 @@ import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 import shutil
 import signal
-import socket
 import subprocess
 import sys
 import tempfile
@@ -24,6 +23,7 @@ HERE = os.path.dirname(TESTS)   # ツール(editor/)のフォルダ
 REPO = os.path.dirname(HERE)
 sys.path.append(REPO)   # ytt.layout(フォルダ名の対応表)を読むため
 from ytt import layout as _layout  # noqa: E402
+from ytt import testkit  # noqa: E402
 os.environ.setdefault("YTT_CORE_DIR", REPO)   # 一時フォルダに写した serve.py が共通部品(ytt・パックの部品 pipeline.pack)を見つけられるように
 
 
@@ -33,10 +33,7 @@ def read_pack_plan(path):
     with open(path, encoding="utf-8") as f:
         return resolve_textplus.read_script_plan(f.read())
 
-def free_port():
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+free_port = testkit.free_port
 
 
 def copy_tool(src, dst):
@@ -173,11 +170,8 @@ class Server:
 
 
 def wait_js(pg, expr, timeout=15000):
-    """page.wait_for_function は入口の CSP(unsafe-eval 不可)で動かないので、evaluate で待つ"""
-    end = time.time() + timeout / 1000
-    while time.time() < end:
-        if pg.evaluate(expr):
-            return True
-        time.sleep(0.05)
-    raise TimeoutError(expr)
+    """待てなければ TimeoutError"""
+    if not testkit.wait_js(pg, expr, timeout, step=0.05):
+        raise TimeoutError(expr)
+    return True
 

@@ -257,7 +257,7 @@ class HttpTests(unittest.TestCase):
         doc = {"id": cls.tid, "title": "HTTP", "sourcePath": cls.video, "whole": True, "duration": 8, "updatedAt": 1,
                "segments": [{"id": "s1", "start": 1, "end": 3, "text": "こんにちは"}, {"id": "s2", "start": 3, "end": 5, "text": "x", "cutState": "cut"}]}
         testkit.write_json(os.path.join(cls.tmp, "transcripts", cls.tid + ".json"), doc)
-        cls.port = test_backend.free_port()
+        cls.port = testkit.free_port()
         cls.proc = test_backend.start_server(cls.tmp, cls.port, os.path.join(cls.tmp, ".runtime"))
         cls.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 

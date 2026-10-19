@@ -11,13 +11,10 @@
 import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
-import shutil
-import tempfile
 import unittest
-import urllib.request
 from unittest import mock
 
-from test_backend import S, TID, StoreDir, free_port, start_server, write_json
+from test_backend import S, TID, StoreDir
 from pipeline.transcribe import diarize as transcribe_diarize  # noqa: E402
 
 
@@ -657,57 +654,6 @@ class TestExclusive(StoreDir):
                 S.validate_retranscribe({"tid": TID, "ids": ["s1"]})
         self.assertEqual((cm.exception.status, cm.exception.code), (409, "busy"))
         self.assertIn("声を覚える", cm.exception.message)
-
-
-class TestDiarDelete(unittest.TestCase):
-    """文書を消すと <id>.diar.json も消える(serve.py の _delete)"""
-
-    @classmethod
-    def setUpClass(cls):
-        cls.tmp = tempfile.mkdtemp()
-        cls.port = free_port()
-        cls.proc = start_server(cls.tmp, cls.port, os.path.join(cls.tmp, ".runtime"))
-        cls.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.proc.terminate()
-        cls.proc.wait(timeout=10)
-        shutil.rmtree(cls.tmp, ignore_errors=True)
-
-    def test_delete_removes_diar_json(self):
-        txdir = os.path.join(self.tmp, "transcripts")
-        os.makedirs(txdir, exist_ok=True)
-        write_json(os.path.join(txdir, TID + ".json"), doc_with_speakers([("S1", "話者1")], [(0, 5, "S1", "")]))
-        dp = os.path.join(txdir, TID + ".diar.json")
-        write_json(dp, {"schema": "youtube-tools-diar/v1", "latest": {"rows": {}}, "history": []})
-        req = urllib.request.Request("http://127.0.0.1:%d/api/transcript?id=%s" % (self.port, TID), method="DELETE")
-        with self.opener.open(req, timeout=30) as r:
-            self.assertEqual(r.status, 200)
-        self.assertFalse(os.path.exists(dp))
-        self.assertFalse(os.path.exists(os.path.join(txdir, TID + ".json")))
-
-    def post(self, path, body, headers=None):
-        req = urllib.request.Request("http://127.0.0.1:%d%s" % (self.port, path), method="POST", data=json.dumps(body, ensure_ascii=False).encode(),
-                                     headers=dict({"Content-Type": "application/json"}, **(headers or {})))
-        try:
-            with self.opener.open(req, timeout=30) as r:
-                return r.status, json.loads(r.read())
-        except urllib.error.HTTPError as e:
-            return e.code, json.loads(e.read() or b"{}")
-
-    def test_speakers_sub_http(self):
-        """POST /api/speakers/sub(入口のまとめて実行が呼ぶ形)。書き込み系なので Host/Origin の検査も今の POST と同じ道"""
-        tid = "abcdefabcdef"
-        txdir = os.path.join(self.tmp, "transcripts")
-        os.makedirs(txdir, exist_ok=True)
-        write_json(os.path.join(txdir, tid + ".json"), doc_with_speakers([("S1", "兎田ぺこら"), ("S2", "話者2")], [(0, 5, "S1", ""), (6, 9, "S2", "")]))
-        self.assertEqual(self.post("/api/speakers/sub", {"id": tid, "styles": {"兎田ぺこら": {"color": "#7ec2fe"}}}), (200, {"ok": True, "applied": ["兎田ぺこら"]}))
-        with open(os.path.join(txdir, tid + ".json"), encoding="utf-8") as f:
-            self.assertEqual(json.load(f)["speakers"][0]["sub"], {"color": "#7EC2FE"})
-        self.assertEqual(self.post("/api/speakers/sub", {"id": "fedcba987654", "styles": {}})[0], 404)
-        self.assertEqual(self.post("/api/speakers/sub", {"id": tid, "styles": {"兎田ぺこら": {"color": "red"}}})[0], 400)
-        self.assertEqual(self.post("/api/speakers/sub", {"id": tid, "styles": {}}, {"Origin": "http://evil.example"})[0], 403)
 
 
 if __name__ == "__main__":

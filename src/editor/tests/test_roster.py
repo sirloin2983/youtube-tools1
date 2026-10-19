@@ -15,7 +15,7 @@ import unittest
 import urllib.error
 import urllib.request
 
-from test_backend import HERE, S, free_port, start_server, write_json
+from test_backend import HERE, S, start_server, write_json
 from pipeline.transcribe import roster as R  # noqa: E402   (test_backend が serve を読んで src を sys.path に足したあと)
 from ytt import testkit  # noqa: E402
 
@@ -51,6 +51,19 @@ class TestRosterFile(unittest.TestCase):
         r = S.load_roster()                                                                  # 画面の「名簿から追加」は groups だけを読む(形は今までどおり)
         self.assertEqual(set(r), {"asOf", "note", "groups"})
         self.assertTrue(any("さくらみこ" in g["names"] for g in r["groups"]))
+
+    def test_bundled_roster_has_no_empty_or_duplicate_names(self):
+        """同梱の名簿: 所属 id が一意・名前が空でなく前後に空白がなく重ならない・主な人がいる・基準日がある"""
+        r = S.load_roster()
+        ids = [g["id"] for g in r["groups"]]
+        self.assertEqual(len(ids), len(set(ids)))
+        self.assertGreaterEqual(len(ids), 15)
+        for g in r["groups"]:
+            self.assertTrue(g["names"] and all(isinstance(n, str) and n.strip() == n and n for n in g["names"]), g["id"])
+            self.assertEqual(len(g["names"]), len(set(g["names"])), g["id"])
+        names = {n for g in r["groups"] for n in g["names"]}
+        self.assertTrue({"兎田ぺこら", "宝鐘マリン", "AZKi", "熱千めら"} <= names)
+        self.assertRegex(r["asOf"], r"^\d{4}-\d\d-\d\d$")
 
 
 class TestRosterRules(unittest.TestCase):
@@ -204,7 +217,7 @@ class TestContextHttp(unittest.TestCase):
         os.makedirs(media)
         cls.wav = os.path.join(media, "01.wav")
         subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=300:duration=9", cls.wav], check=True)
-        cls.port = free_port()
+        cls.port = testkit.free_port()
         old = os.environ.get("TRANSCRIBE_STUDIO_DATA")
         os.environ["TRANSCRIBE_STUDIO_DATA"] = os.path.join(cls.tmp, "無い.json")
         try:

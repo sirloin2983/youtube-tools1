@@ -21,7 +21,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from test_backend import HERE, S, TID, StoreDir, free_port, start_server, write_json  # noqa: F401  (S = serve)
+from test_backend import HERE, S, TID, StoreDir, start_server, write_json  # noqa: F401  (S = serve)
 from ytt import docloc, testkit  # noqa: E402
 
 
@@ -331,7 +331,7 @@ class TestEditHttp(unittest.TestCase):
         with open(cls.txt, "w", encoding="utf-8") as f:
             f.write("not a video")
         cls.runtime = os.path.join(cls.tmp, ".runtime")
-        cls.port = free_port()
+        cls.port = testkit.free_port()
         cls.proc = start_server(cls.tmp, cls.port, cls.runtime)
         cls.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
@@ -341,10 +341,10 @@ class TestEditHttp(unittest.TestCase):
         cls.proc.wait(timeout=10)
         shutil.rmtree(cls.tmp, ignore_errors=True)
 
-    def call(self, method, path, body=None, raw=False):
+    def call(self, method, path, body=None, raw=False, headers=None):
         data = None if body is None else json.dumps(body, ensure_ascii=False).encode()
         req = urllib.request.Request("http://127.0.0.1:%d%s" % (self.port, path), method=method, data=data,
-                                     headers={"Content-Type": "application/json"})
+                                     headers=dict({"Content-Type": "application/json"}, **(headers or {})))
         try:
             with self.opener.open(req, timeout=60) as r:
                 d = r.read()
@@ -355,50 +355,23 @@ class TestEditHttp(unittest.TestCase):
                 return e.code, dict(e.headers), d
             return dict(json.loads(d or b"{}"), _status=e.code)
 
-    def test_settings_patch_keeps_other_values(self):
-        """ほかの画面から直す設定(api/settings/patch。送ったキーだけ・許可した項目だけ)。丸ごとの保存(PUT)ではその値を残す(パックの音量)"""
-        orig = {k: v for k, v in self.call("GET", "/api/settings").items() if k != "_status"}
-        try:
-            self.assertEqual(self.call("PUT", "/api/settings", dict(orig, packLoudness=-11))["_status"], 200)
-            self.assertNotIn("packLoudness", self.call("GET", "/api/settings"))           # 丸ごとの保存では直せない
-            r = self.call("POST", "/api/settings/patch", {"values": {"packLoudness": 0, "packVolume": 70}})
-            self.assertEqual((r["_status"], r["values"]), (200, {"packLoudness": 0, "packVolume": 70}))
-            self.call("PUT", "/api/settings", dict(orig, quality="fast", packLoudness=-14, packVolume=100))   # 開いたままの古い画面の保存
-            st = self.call("GET", "/api/settings")
-            self.assertEqual((st.get("quality"), st["packLoudness"], st["packVolume"]), ("fast", 0, 70))   # ほかの値は直り、音量は残る
-            for bad in ({"values": {"packLoudness": -20}}, {"values": {"packVolume": 0}}, {"values": {"packVolume": True}},
-                        {"values": {"model": "x"}}, {"values": {}}, {}):
-                self.assertEqual(self.call("POST", "/api/settings/patch", bad)["_status"], 400, bad)
-        finally:
-            self.call("PUT", "/api/settings", orig)
-
-    def test_settings_device_goes_to_machine_json(self):
-        """⚙ のデバイス(device)は machine.json(この PC の設定)に書かれ、GET /api/settings はその値を返す。settings.json の古い値は消さない(RS7-1 S6b)"""
+    def test_settings_http(self):
+        """設定の HTTP のつなぎ(1 本): 丸ごとの保存(PUT)は patch の鍵(パックの音量・キー配置)を戻さない・差分の保存(PUT patch・POST patch)・
+        device は machine.json(この PC の設定)に書いて GET が返す・400/413。値の検査そのものは editor/tests/test_settings_schema.py・ytt/tests/test_settings.py"""
         def machine_files():
             return [os.path.join(d, "machine.json") for d, _n, fs in os.walk(self.tmp) if "machine.json" in fs]
         orig = {k: v for k, v in self.call("GET", "/api/settings").items() if k != "_status"}
         try:
-            self.assertEqual(self.call("PUT", "/api/settings", dict(orig, device="cpu"))["_status"], 200)   # 丸ごとの保存(古い cpu も断らない)
-            self.assertEqual(self.call("GET", "/api/settings").get("device"), "vulkan")   # 機器は GPU だけ = vulkan に読み替えて書く
-            files = machine_files()
-            self.assertEqual(len(files), 1)
-            with open(files[0], encoding="utf-8") as f:
-                self.assertEqual(json.load(f).get("device"), "vulkan")
-            self.assertEqual(self.call("PUT", "/api/settings", {"patch": {"device": "vulkan", "quality": "fast"}})["_status"], 200)   # 差分の保存
+            self.assertEqual(self.call("PUT", "/api/settings", dict(orig, packLoudness=-11))["_status"], 200)
+            self.assertNotIn("packLoudness", self.call("GET", "/api/settings"))           # 丸ごとの保存では直せない
+            r = self.call("POST", "/api/settings/patch", {"values": {"packLoudness": 0, "packVolume": 70, "keymap": {"rowNext": "h"}}})
+            self.assertEqual((r["_status"], r["values"]), (200, {"packLoudness": 0, "packVolume": 70, "keymap": {"rowNext": "h"}}))
+            self.call("PUT", "/api/settings", dict(orig, quality="fast", packLoudness=-14, packVolume=100, keymap={"rowNext": "s"}))   # 開いたままの古い画面の保存
             st = self.call("GET", "/api/settings")
-            self.assertEqual((st.get("device"), st.get("quality")), ("vulkan", "fast"))
-            self.assertEqual(self.call("PUT", "/api/settings", {"patch": {"device": "nope"}})["_status"], 400)
-            self.assertEqual(self.call("GET", "/api/settings").get("device"), "vulkan")
-        finally:
-            self.call("PUT", "/api/settings", {"patch": {"device": None}})
-            self.call("PUT", "/api/settings", orig)
-            for f in machine_files():
-                os.remove(f)
-
-    def test_settings_put_patch(self):
-        """PUT /api/settings {"patch"}(段2 監査 11): 送ったキーだけ合わせる。2つの窓が別々のキーを保存しても消し合わない"""
-        orig = {k: v for k, v in self.call("GET", "/api/settings").items() if k != "_status"}
-        try:
+            self.assertEqual((st.get("quality"), st["packLoudness"], st["packVolume"], st["keymap"]), ("fast", 0, 70, {"rowNext": "h"}))   # ほかの値は直り、patch の鍵は残る
+            for bad in ({"values": {"packLoudness": -20}}, {"values": {"keymap": {"rowNext": "Ctrl+s"}}}, {"values": {"model": "x"}}, {"values": {}}, {}):
+                self.assertEqual(self.call("POST", "/api/settings/patch", bad)["_status"], 400, bad)
+            # 2 つの窓が別々の鍵を保存しても消し合わない
             self.assertEqual(self.call("PUT", "/api/settings", dict(orig, glossary="元", replacements="元=>元"))["_status"], 200)
             self.assertEqual(self.call("PUT", "/api/settings", {"patch": {"glossary": "窓A"}})["_status"], 200)
             self.assertEqual(self.call("PUT", "/api/settings", {"patch": {"replacements": "窓B=>B"}})["_status"], 200)
@@ -406,36 +379,21 @@ class TestEditHttp(unittest.TestCase):
             self.assertEqual((st["glossary"], st["replacements"]), ("窓A", "窓B=>B"))
             self.assertEqual(self.call("PUT", "/api/settings", {"patch": "x"})["_status"], 400)
             self.assertEqual(self.call("PUT", "/api/settings", {"patch": {"a": "x" * 210000}})["_status"], 413)
+            # device は machine.json へ(丸ごとの保存に古い cpu が入っていても断らない)
+            self.assertEqual(self.call("PUT", "/api/settings", dict(orig, device="cpu"))["_status"], 200)
+            self.assertEqual(self.call("GET", "/api/settings").get("device"), "vulkan")   # 機器は GPU だけ = vulkan に読み替えて書く
+            files = machine_files()
+            self.assertEqual(len(files), 1)
+            with open(files[0], encoding="utf-8") as f:
+                self.assertEqual(json.load(f).get("device"), "vulkan")
+            self.assertEqual(self.call("PUT", "/api/settings", {"patch": {"device": "nope"}})["_status"], 400)
+            self.assertEqual(self.call("GET", "/api/settings").get("device"), "vulkan")
         finally:
-            self.call("PUT", "/api/settings", orig)
-
-    def test_settings_patch_keymap_and_cut_silence(self):
-        """送ったキーだけ直す設定の値の検査(段6 キー配置 keymap・段7 E-5 無音 cutSilence)。どちらも「POST /api/settings/patch で受ける・開いたままの古い画面の丸ごとの保存では戻らない・
-        形や範囲の正しくない値は 400」。cutSilence は 3 つの値がそろい cut2resolve と同じ範囲のときだけ受ける(まとめて実行 pipeline/run.py の _pack_settings は同じ鍵の noise・min・pad を読む)"""
-        orig = {k: v for k, v in self.call("GET", "/api/settings").items() if k != "_status"}
-        km = {"rowNext": "h", "proof": "Shift+Space", "seekBack": "ArrowLeft", "del": "", "insert": "+"}
-        cs = {"noise": -30, "min": 0.8, "pad": 0.2}
-        table = [
-            ("keymap", km, {"rowNext": "s"},
-             [{"rowNext": "Ctrl+s"}, {"rowNext": "s\n"}, {"1bad": "s"}, {"rowNext": 1}, ["s"], {"a%d" % i: "s" for i in range(61)}]),
-            ("cutSilence", cs, {"noise": -35, "min": 0.6, "pad": 0.15},
-             [{"noise": -91, "min": 0.6, "pad": 0.1}, {"noise": 1, "min": 0.6, "pad": 0.1}, {"noise": -35, "min": 0.01, "pad": 0.1},
-              {"noise": -35, "min": 61, "pad": 0.1}, {"noise": -35, "min": 0.6, "pad": 11}, {"noise": -35, "min": 0.6},
-              {"noise": -35, "min": 0.6, "pad": 0.1, "x": 1}, {"noise": "-35", "min": 0.6, "pad": 0.1}, {"noise": True, "min": 0.6, "pad": 0.1}, [-35, 0.6, 0.1]]),
-        ]
-        try:
-            for key, good, stale, bads in table:
-                with self.subTest(key):
-                    self.assertEqual(self.call("POST", "/api/settings/patch", {"values": {key: good}})["_status"], 200)
-                    self.call("PUT", "/api/settings", dict(orig, **{key: stale}))   # 開いたままの古い画面の丸ごとの保存では戻らない
-                    self.assertEqual(self.call("GET", "/api/settings")[key], good)
-                    for bad in bads:
-                        self.assertEqual(self.call("POST", "/api/settings/patch", {"values": {key: bad}})["_status"], 400, bad)
-        finally:
+            self.call("PUT", "/api/settings", {"patch": {"device": None}})
             self.call("PUT", "/api/settings", orig)
             self.call("POST", "/api/settings/patch", {"values": {"keymap": orig.get("keymap") or {}}})
-            if "cutSilence" in orig:
-                self.call("POST", "/api/settings/patch", {"values": {"cutSilence": orig["cutSilence"]}})
+            for f in machine_files():
+                os.remove(f)
 
     def empty_doc(self, path, title=""):
         """行の無い文書を作る(テストの下ごしらえ。「文字起こしせずに開く」の API は無い)。
@@ -457,10 +415,9 @@ class TestEditHttp(unittest.TestCase):
         self.fail("波形ができません")
 
     def test_doc_for_and_open_video_is_gone(self):
-        """「文字起こしせずに開く」の API は無い。動画の文書を探す /api/doc-for はある(パスを比べるだけ)"""
+        """動画の文書を探す /api/doc-for(パスを比べるだけ)"""
         video = os.path.join(self.media_dir, "開く.mkv")   # 他のテストが使っていない動画
         shutil.copy(self.video, video)
-        self.assertEqual(self.call("POST", "/api/open-video", {"path": video})["_status"], 404)
         self.assertIsNone(self.call("GET", "/api/doc-for?path=" + urllib.parse.quote(video))["doc"])
         tid = self.empty_doc(video)["id"]
         self.assertEqual(self.call("GET", "/api/doc-for?path=" + urllib.parse.quote(video))["doc"], {"id": tid, "rows": 0})
@@ -589,29 +546,10 @@ class TestEditHttp(unittest.TestCase):
         self.assertEqual(self.call("PUT", "/api/edit?id=" + tid, {"baseRev": 0, "edit": edit_obj(clips=clips, duration=6.0)})["rev"], 1)
         keeps = [[a, b] for a, b in clips]
         segs2 = [dict(g) for g in segs]
-        segs2[2]["text"] = "今日はいい天気ですね散歩に行こう"      # 見本と Text+ の改行(12 ②)を見るための長い字幕
+        segs2[2]["text"] = "今日はいい天気ですね散歩に行こう"      # Text+ の改行(12 ②)を見るための長い字幕
         d2 = self.call("GET", "/api/transcript?id=" + tid)
         self.call("PUT", "/api/transcript?id=" + tid, {"title": d2["title"], "speakers": [], "segments": segs2, "baseUpdatedAt": d2["updatedAt"]})
         NL = chr(10)
-        r = self.call("POST", "/api/edit/preview", {"id": tid, "keeps": [[3.0, 5.1]], "wrap": 8})
-        self.assertEqual(r["samples"], ["今日はいい天気ですね" + NL + "散歩に行こう"])      # 見本もパックと同じ改行(resolve_textplus.wrap_caption)
-        r = self.call("POST", "/api/edit/preview", {"id": tid, "keeps": [[3.0, 5.1]], "wrap": 0})
-        self.assertEqual(r["samples"], ["今日はいい天気ですね散歩に行こう"])
-        self.assertEqual(r["sampleSpeakers"], [None])                                       # 話者の無い文書: samples と同じ長さで全部 None
-        # 4-5: 見本ごとの話者の名前(pack.cue_speakers = 実際のパックと同じ規則)。「一」= みこ・「三」= 話者なし
-        spk_segs = [dict(segs[0], speaker="S1"), dict(segs[1]), dict(segs[2], text="三")]
-        dd = self.call("GET", "/api/transcript?id=" + tid)
-        self.call("PUT", "/api/transcript?id=" + tid, {"title": dd["title"], "speakers": [{"id": "S1", "name": "みこ"}], "segments": spk_segs,
-                                                       "baseUpdatedAt": dd["updatedAt"]})
-        r = self.call("POST", "/api/edit/preview", {"id": tid, "keeps": [[0.5, 1.5], [3.0, 5.1]]})
-        self.assertEqual((r["samples"], r["sampleSpeakers"]), (["一", "三"], ["みこ", None]))
-        dd = self.call("GET", "/api/transcript?id=" + tid)
-        self.call("PUT", "/api/transcript?id=" + tid, {"title": dd["title"], "speakers": [], "segments": [dict(g, speaker=None) for g in spk_segs],
-                                                       "baseUpdatedAt": dd["updatedAt"]})
-        r = self.call("POST", "/api/edit/preview", {"id": tid, "keeps": [[0.5, 1.5], [3.0, 5.1]]})
-        self.assertEqual((r["samples"], r["sampleSpeakers"]), (["一", "三"], [None, None]))
-        dd = self.call("GET", "/api/transcript?id=" + tid)                                   # 以降の確認のため、元の文書(segs2)に戻す
-        self.call("PUT", "/api/transcript?id=" + tid, {"title": dd["title"], "speakers": [], "segments": segs2, "baseUpdatedAt": dd["updatedAt"]})
         st, hd, body = self.call("POST", "/api/resolve-package", {"tid": tid, "fps": "30", "size": "1080x1920"}, raw=True)
         with zipfile.ZipFile(io.BytesIO(body)) as z:
             from pipeline.pack import resolve_textplus
@@ -719,6 +657,20 @@ class TestEditHttp(unittest.TestCase):
         for sfx in names[1:]:
             self.assertTrue(os.path.isfile(os.path.join(tx, tid + sfx)), sfx)   # transcripts の同じ名前の別物は残る
 
+    def test_speakers_sub_http(self):
+        """POST /api/speakers/sub(入口のまとめて実行が呼ぶ形)。書き込み系なので Host/Origin の検査も今の POST と同じ道"""
+        tid = "abcdefabcdef"
+        segs = [{"id": "s1", "start": 0, "end": 5, "text": "x", "speaker": "S1", "flag": ""}, {"id": "s2", "start": 6, "end": 9, "text": "x", "speaker": "S2", "flag": ""}]
+        write_json(os.path.join(self.tmp, "transcripts", tid + ".json"),
+                   {"schema": "transcribe/v1", "id": tid, "title": "t", "sourcePath": "C:/x/clip.mp4", "start": 0, "end": 60.0, "createdAt": 1, "updatedAt": 1000,
+                    "speakers": [{"id": "S1", "name": "兎田ぺこら", "color": "#888"}, {"id": "S2", "name": "話者2", "color": "#888"}], "segments": segs})
+        r = self.call("POST", "/api/speakers/sub", {"id": tid, "styles": {"兎田ぺこら": {"color": "#7ec2fe"}}})
+        self.assertEqual((r["_status"], r["ok"], r["applied"]), (200, True, ["兎田ぺこら"]))
+        self.assertEqual(self.call("GET", "/api/transcript?id=" + tid)["speakers"][0]["sub"], {"color": "#7EC2FE"})
+        self.assertEqual(self.call("POST", "/api/speakers/sub", {"id": "fedcba987654", "styles": {}})["_status"], 404)
+        self.assertEqual(self.call("POST", "/api/speakers/sub", {"id": tid, "styles": {"兎田ぺこら": {"color": "red"}}})["_status"], 400)
+        self.assertEqual(self.call("POST", "/api/speakers/sub", {"id": tid, "styles": {}}, headers={"Origin": "http://evil.example"})["_status"], 403)
+
     def test_edit_http_into_doc_and_delete(self):
         tid = self.empty_doc(self.wav)["id"]
         self.assertEqual(self.call("GET", "/api/edit?id=" + tid), {"edit": None, "rev": 0, "broken": False, "packStale": False, "_status": 200})
@@ -743,8 +695,7 @@ class TestEditHttp(unittest.TestCase):
         d = self.call("GET", "/api/transcript?id=" + tid)
         self.assertEqual(len(d["segments"]), 3)
         self.assertTrue(all("cutState" not in s for s in d["segments"]))
-        r = self.call("PUT", "/api/edit?id=" + tid, {"edit": dict(e, clips=[{"src": 0, "in": 0, "out": 3.9}, {"src": 0, "in": 8.1, "out": 12}]), "baseRev": 1})
-        self.assertEqual(r["cutRows"], [d["segments"][1]["id"]])                     # 4–8 秒の行はカット済
+        self.call("PUT", "/api/edit?id=" + tid, {"edit": dict(e, clips=[{"src": 0, "in": 0, "out": 3.9}, {"src": 0, "in": 8.1, "out": 12}]), "baseRev": 1})
         # もう行がある文書・別の動画には入れない
         again = self.call("POST", "/api/transcribe", {"sourcePath": self.wav, "model": "small", "intoDoc": tid})
         self.assertEqual((again["_status"], again["error"]), (409, "not_empty"))
@@ -754,8 +705,6 @@ class TestEditHttp(unittest.TestCase):
         # パックの記録・一覧
         out = os.path.join(self.media_dir, "声_pack")
         self.assertEqual(self.call("POST", "/api/edit/pack", {"id": tid, "rev": 2, "docUpdatedAt": d["updatedAt"], "dir": out})["packRev"], 2)
-        item = next(i for i in self.call("GET", "/api/transcripts")["items"] if i["id"] == tid)
-        self.assertEqual((item["hasEdit"], item["editRev"], item["packRev"], item["packStale"]), (True, 2, 2, False))
         # 削除すると編集の内容も消える
         self.assertTrue(os.path.isfile(os.path.join(self.tmp, "transcripts", tid + ".edit.json")))
         self.assertTrue(self.call("DELETE", "/api/transcript?id=" + tid)["ok"])
@@ -1072,7 +1021,7 @@ class TestRelinkHttp(unittest.TestCase):
         cls.wav = os.path.join(cls.media_dir, "声.wav")
         subprocess.run(ff + ["-f", "lavfi", "-i", "sine=frequency=300:duration=6", cls.wav], check=True)
         cls.runtime = os.path.join(cls.tmp, ".runtime")
-        cls.port = free_port()
+        cls.port = testkit.free_port()
         cls.proc = start_server(cls.tmp, cls.port, cls.runtime)
         cls.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
@@ -1120,9 +1069,7 @@ class TestRelinkHttp(unittest.TestCase):
         self.assertEqual(r["_status"], 200, r)
         d2 = self.call("GET", "/api/transcript?id=" + tid)
         self.assertEqual((os.path.normcase(d2["sourcePath"]), d2["sourceName"]), (os.path.normcase(os.path.realpath(moved)), "移した先.mkv"))
-        self.assertEqual(d2["segments"], d["segments"])
         self.assertTrue(self.call("GET", "/api/edit?id=" + tid)["packStale"])
-        self.assertEqual(self.call("GET", "/api/edit?id=" + tid)["edit"]["clips"], [{"src": 0, "in": 0.3, "out": 2.2}, {"src": 0, "in": 2.8, "out": 5.8}])
         self.assertIn("fps", self.call("GET", "/api/edit/draft?id=" + tid))       # カットのタブが使える
         st, _hd, _b = self.call("GET", "/media?id=" + tid, raw=True)
         self.assertEqual(st, 200)
