@@ -17,7 +17,6 @@ _drill_why_none
 _drill_write
 _learned_voices
 _media_ok
-_member_name
 _own_member
 _with_calls
 drill_candidates

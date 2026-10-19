@@ -65,7 +65,7 @@ def _eval_walk(root, skip_staging=True, count_files=True):
         yield cur, dirs, files
 
 
-def _eval_videos(root, skip_staging=True):
+def eval_videos(root, skip_staging=True):
     """評価用のフォルダの下の動画 {フォルダ: [ファイル名]}(作業用/ と _edit の動画は除く。仮置きは skip_staging で除く)"""
     out = {}
     for cur, _dirs, files in _eval_walk(root, skip_staging):
@@ -96,18 +96,31 @@ def _rename_sidecars(old, new, done=None):
     return done
 
 
-def _norm_member(name):
+def norm_member(name):
+    """メンバーの名前の比べ方(NFKC・空白を除く・小文字)"""
     return re.sub(r"\s+", "", unicodedata.normalize("NFKC", str(name or ""))).lower()
 
 
-def _eval_members(root):
+def member_name(folder):
+    """フォルダ(のパスか名前)が「…数字_メンバー名」ならメンバー名(仮置き・形の違う名前は "")。⑤ eval/drill も読む"""
+    b = os.path.basename(str(folder or "").rstrip("\\/"))
+    m = _EVAL_MEMBER_RE.match(b) if b != EVAL_STAGING else None
+    return m.group(1).strip() if m else ""
+
+
+def organizing():
+    """評価用のフォルダを整理している途中か(⑤ evalbatch はその間は文字起こしを入れない)"""
+    return _evalorg_lock.locked()
+
+
+def eval_members(root):
     """評価用のフォルダの下のメンバーのフォルダ {正規化した名前: フォルダ}(「…数字_名前」の形。仮置き・作業用は除く)"""
     out = {}
     for cur, dirs, _files in _eval_walk(root, True, False):
         for d in dirs:
             m = _EVAL_MEMBER_RE.match(d)
             if m:
-                out.setdefault(_norm_member(m.group(1)), os.path.join(cur, d))
+                out.setdefault(norm_member(m.group(1)), os.path.join(cur, d))
     return out
 
 
@@ -152,7 +165,7 @@ def _eval_best_member(tids, members):
         if why:
             return None, why
         for nm, sec in secs:   # 長い順。メンバーのフォルダと同じ名前の最初の人
-            if _norm_member(nm) in members:
+            if norm_member(nm) in members:
                 if best is None or sec > best[1]:
                     best = (nm, sec)
                 break
@@ -170,7 +183,7 @@ def _eval_settle_one(path, tids, members):
         return None, why
     if best is None:
         return None, "移す先が決まりません(メンバーのフォルダと同じ名前の話者がいません)"
-    new = _eval_next_name(members[_norm_member(best[0])], os.path.splitext(path)[1], "済")
+    new = _eval_next_name(members[norm_member(best[0])], os.path.splitext(path)[1], "済")
     rec = _eval_rename(path, new, tids, "evalSettle")
     rec["member"] = best[0]
     return rec, None
@@ -220,7 +233,7 @@ def _eval_staging_pass(dirs, by_path, res):
         if not os.path.isdir(stg):
             continue
         members, copies = None, None
-        for folder, files in sorted(_eval_videos(stg, False).items()):
+        for folder, files in sorted(eval_videos(stg, False).items()):
             for f in sorted(files):
                 old = os.path.join(folder, f)
                 key = os.path.normcase(old)
@@ -243,7 +256,7 @@ def _eval_staging_pass(dirs, by_path, res):
                         continue
                 res["marked"] += _eval_mark_docs([x["id"] for x in sms if not x.get("evalSet")])
                 if members is None:
-                    members = _eval_members(root)
+                    members = eval_members(root)
                 try:
                     rec, why = _eval_settle_one(old, [x["id"] for x in sms if x.get("rows")], members)
                 except (OSError, _errors.ApiError) as e:
@@ -284,7 +297,7 @@ def _eval_intake_one(path, sms, root):
     tids = [s["id"] for s in sms]
     if _path_busy(path) or any(_relink._doc_busy(t) for t in tids):
         return None, "文字起こしなどの処理の最中です"
-    members = _eval_members(root)
+    members = eval_members(root)
     rowed = [s["id"] for s in sms if s.get("rows")]
     best, why = _eval_best_member(rowed, members) if rowed else (None, "まだ文字起こしされていません")
     if not why and best is None:
@@ -294,7 +307,7 @@ def _eval_intake_one(path, sms, root):
         os.makedirs(stg, exist_ok=True)
         new = _eval_free_name(stg, os.path.basename(path))
     else:
-        new = _eval_next_name(members[_norm_member(best[0])], os.path.splitext(path)[1], "済")
+        new = _eval_next_name(members[norm_member(best[0])], os.path.splitext(path)[1], "済")
     rec = _eval_rename(path, new, tids, "evalIntake")
     rec["member"] = None if why else best[0]
     rec["staged"] = why   # 仮置きへ置いた理由(メンバーのフォルダへ移したときは None)
@@ -331,7 +344,7 @@ def eval_organize(trigger="button"):
         _eval_staging_pass(dirs, _eval_docs_by_path(dirs), res)
         by_path = _eval_docs_by_path(dirs)   # 仮置きから移した分を入れて数え直す
         for root in dirs:
-            for folder, files in sorted(_eval_videos(root).items()):
+            for folder, files in sorted(eval_videos(root).items()):
                 prefix = os.path.basename(folder)
                 rx = _eval_name_re(prefix)
                 used, todo = set(), []

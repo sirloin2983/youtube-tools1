@@ -226,7 +226,7 @@ def eb_scan():
     out, seen = [], set()
     for root in _settings.eval_dirs():
         stg = os.path.join(root, _evfolders.EVAL_STAGING)
-        for folder, names in sorted(_evfolders._eval_videos(root, skip_staging=False).items()):
+        for folder, names in sorted(_evfolders.eval_videos(root, skip_staging=False).items()):
             staged = _fsio.is_inside(folder, stg)
             for n in sorted(names):
                 if not (staged or EB_UNTRANSCRIBED_RE.search(os.path.splitext(n)[0])):
@@ -410,7 +410,7 @@ def _eb_tick_locked(why, log):
         elif others:
             st["deferred"] = "ほかのジョブが動いています(終わるまで待ちます)"
             res = {"added": 0, "remaining": st.get("remaining"), "deferred": st["deferred"]}
-        elif _evfolders._evalorg_lock.locked():
+        elif _evfolders.organizing():
             st["deferred"] = "評価用のフォルダを整理中です"
             res = {"added": 0, "remaining": st.get("remaining"), "deferred": st["deferred"]}
         else:

@@ -18,7 +18,7 @@ _eval_free_name
 _eval_intake_one
 _eval_intake_pass
 _eval_mark_docs
-_eval_members
+eval_members
 _eval_name_re
 _eval_next_name
 _eval_outside_docs
@@ -27,12 +27,12 @@ _eval_rename
 _eval_settle_one
 _eval_staging_pass
 _eval_state
-_eval_videos
+eval_videos
 _eval_walk
 _evalorg_last
 _evalorg_lock
 _evalorg_startup
-_norm_member
+norm_member
 _path_busy
 _relink_ref
 _relink_write

@@ -62,8 +62,8 @@ def drill_stream_key(doc):
     if not path:
         return ""
     folder = os.path.basename(os.path.dirname(path))
-    m = _evfolders._EVAL_MEMBER_RE.match(folder) if folder != _evfolders.EVAL_STAGING else None
-    return ("m:" + _evfolders._norm_member(m.group(1))) if m else ("d:" + os.path.normcase(os.path.dirname(path)))
+    nm = _evfolders.member_name(folder)
+    return ("m:" + _evfolders.norm_member(nm)) if nm else ("d:" + os.path.normcase(os.path.dirname(path)))
 
 
 def _drill_text_rows(segs):
@@ -321,14 +321,6 @@ def drill_unreviewed(obj):
 
 
 # ---------- 話者の候補 ----------
-def _member_name(folder):
-    b = os.path.basename(folder.rstrip("\\/"))
-    if b == _evfolders.EVAL_STAGING:
-        return ""
-    m = _evfolders._EVAL_MEMBER_RE.match(b)
-    return m.group(1).strip() if m else ""
-
-
 def _own_member(path, dirs):
     """動画の入ったフォルダから評価用のフォルダまでさかのぼって、最初の「…数字_名前」のフォルダの名前(評価用のフォルダの中だけ)"""
     if not path or not _settings.in_eval_dir(path, dirs):
@@ -338,7 +330,7 @@ def _own_member(path, dirs):
     for _ in range(_evfolders.EVAL_WALK_DEPTH + 1):
         if os.path.normcase(cur) in roots:
             return ""
-        nm = _member_name(cur)
+        nm = _evfolders.member_name(cur)
         if nm:
             return nm
         up = os.path.dirname(cur)
@@ -353,7 +345,7 @@ def _all_members(dirs):
     folders = []
     for d in dirs:
         try:
-            folders += list(_evfolders._eval_members(d).values())
+            folders += list(_evfolders.eval_members(d).values())
         except OSError:
             continue
     keys = [os.path.normcase(f).rstrip("\\/") + os.sep for f in folders]
@@ -361,7 +353,7 @@ def _all_members(dirs):
     for f, k in zip(folders, keys):
         if any(o != k and o.startswith(k) for o in keys):
             continue
-        nm = _member_name(f)
+        nm = _evfolders.member_name(f)
         if nm and nm not in out:
             out.append(nm)
     return sorted(out)
