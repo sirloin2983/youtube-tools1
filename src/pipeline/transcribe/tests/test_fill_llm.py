@@ -41,14 +41,9 @@ class _Base(unittest.TestCase):
         with open(self.roster, "w", encoding="utf-8") as f:
             json.dump({"groups": [{"id": "t", "label": "試し", "names": ["テスト分子"]}],
                        "members": [{"name": "テスト分子", "aliases": ["テスト分", "てすとぶん"]}]}, f, ensure_ascii=False)
-        self.addCleanup(self._restore)
+        self.addCleanup(backend.set_selector, lambda: backend.REAL)
         for mod, name, value in ((roster, "ROSTER", self.roster), (workdata, "TX_DIR", self.tmp), (studiodata, "studio_stream", lambda vid: {})):
-            p = mock.patch.object(mod, name, value)   # 試験の間だけ(終わったら元に戻す)
-            p.start()
-            self.addCleanup(p.stop)
-
-    def _restore(self):
-        backend.set_selector(lambda: backend.REAL)
+            self.enterContext(mock.patch.object(mod, name, value))   # 試験の間だけ(終わったら元に戻す)
 
 
 class TestFill(_Base):

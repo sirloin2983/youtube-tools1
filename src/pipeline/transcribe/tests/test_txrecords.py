@@ -23,18 +23,12 @@ from ytt import txwords, workdata  # noqa: E402
 class _Env(unittest.TestCase):
     def setUp(self):
         self.tmp = testkit.tempdir(self, prefix="txrecords_")
-        self.saved = dict(records._dict_inputs)
+        self.enterContext(mock.patch.dict(records._dict_inputs))   # 登録した口は終わりに元へ
         roster = os.path.join(self.tmp, "roster.json")
         with open(roster, "w", encoding="utf-8") as f:
             f.write("{}")
         for mod, name, value in ((workdata, "TX_DIR", self.tmp), (roster_mod, "ROSTER", roster), (workdata, "SERVER_VERSION", "9.9.9")):
-            p = mock.patch.object(mod, name, value)   # 試験の間だけ(終わったら元に戻す)
-            p.start()
-            self.addCleanup(p.stop)
-
-    def tearDown(self):
-        records._dict_inputs.clear()
-        records._dict_inputs.update(self.saved)
+            self.enterContext(mock.patch.object(mod, name, value))   # 試験の間だけ(終わったら元に戻す)
 
 
 class TestDictVersion(_Env):

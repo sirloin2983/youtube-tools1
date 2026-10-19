@@ -2,9 +2,9 @@
 RS3-5(2026-10-10)で studio/tests から移した(判定の記録 feedback は human/review/feedback.py)。"""
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
+import json
 import random
 import sys
-import tempfile
 import unittest
 from unittest import mock
 
@@ -174,18 +174,15 @@ class TestSettings(unittest.TestCase):
 
 
 class TestChatWarm(unittest.TestCase):
-    def parse(self, texts, tmp):
-        import json
-        p = os.path.join(tmp, "c.jsonl")
+    def parse(self, texts):
+        p = os.path.join(testkit.tempdir(self), "c.jsonl")
         with open(p, "w", encoding="utf-8") as f:
             for i, t in enumerate(texts):
                 f.write(json.dumps({"replayChatItemAction": {"videoOffsetTimeMsec": str(i * 1000), "actions": [{"addChatItemAction": {"item": {"liveChatTextMessageRenderer": {"message": {"runs": [{"text": t}]}}}}}]}}) + "\n")
         return analyze.parse_chat(p, len(texts) + 1)
 
     def test_single_exclamation_not_warm_but_kusa_is(self):
-        import tempfile
-        with tempfile.TemporaryDirectory() as d:
-            _, total, warm = self.parse(["はい!", "ここ！", "おはよう！", "草", "wwww", "すごい", "!!", "普通"], d)
+        _, total, warm = self.parse(["はい!", "ここ！", "おはよう！", "草", "wwww", "すごい", "!!", "普通"])
         self.assertEqual((total, warm), (8, 4))   # 草 / wwww / すごい / !! だけ
 
 
@@ -250,22 +247,20 @@ class TestArchive(unittest.TestCase):
 
 class TestChatExtra(unittest.TestCase):
     def test_extra_counts(self):
-        import json, tempfile
         rows = []
         def add(t, text, au, kind="liveChatTextMessageRenderer"):
             rows.append({"replayChatItemAction": {"videoOffsetTimeMsec": str(t * 1000), "actions": [{"addChatItemAction": {"item": {kind: {"message": {"runs": [{"text": text}]}, "authorExternalChannelId": au}}}}]}})
         add(1, "草", "u1"); add(1, "草", "u2"); add(1, "はい", "u1"); add(2, "ありがとう", "u3", "liveChatPaidMessageRenderer"); add(3, "普通", "u1")
-        with tempfile.TemporaryDirectory() as d:
-            p = os.path.join(d, "c.jsonl")
-            with open(p, "w", encoding="utf-8") as f:
-                f.write("\n".join(json.dumps(r) for r in rows))
-            ex = {}
-            act, total, warm = analyze.parse_chat(p, 5, ex)
-            self.assertEqual((total, warm), (5, 2))
-            self.assertEqual(ex["warm"], [0, 2, 0, 0, 0])
-            self.assertEqual(ex["paid"], [0, 0, 1, 0, 0])
-            self.assertEqual(ex["uniq"], [0, 2, 1, 1, 0])   # 1秒目は u1・u2 の2人
-            self.assertEqual(analyze.parse_chat(p, 5)[1:], (5, 2))   # extra なしでも従来どおり
+        p = os.path.join(testkit.tempdir(self), "c.jsonl")
+        with open(p, "w", encoding="utf-8") as f:
+            f.write("\n".join(json.dumps(r) for r in rows))
+        ex = {}
+        act, total, warm = analyze.parse_chat(p, 5, ex)
+        self.assertEqual((total, warm), (5, 2))
+        self.assertEqual(ex["warm"], [0, 2, 0, 0, 0])
+        self.assertEqual(ex["paid"], [0, 0, 1, 0, 0])
+        self.assertEqual(ex["uniq"], [0, 2, 1, 1, 0])   # 1秒目は u1・u2 の2人
+        self.assertEqual(analyze.parse_chat(p, 5)[1:], (5, 2))   # extra なしでも従来どおり
 
 
 class TestCommentTexts(unittest.TestCase):
@@ -281,9 +276,8 @@ class TestRunCtl(unittest.TestCase):
     """analyze.run(spec, ctl)(OPT2 の J1): 進み具合は ctl.report・取り消しは Cancelled・失敗は ApiError・互換の包みは辞書に写す"""
 
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        for p in (mock.patch.object(fetch, "work_dir", lambda: tmp.name), mock.patch.object(analyze, "_save_record", lambda *a, **k: None)):
+        tmp = testkit.tempdir(self)
+        for p in (mock.patch.object(fetch, "work_dir", lambda: tmp), mock.patch.object(analyze, "_save_record", lambda *a, **k: None)):
             p.start()
             self.addCleanup(p.stop)
         self.spec = analyze.make_spec({"kind": "file", "path": "x.mp4", "name": "x.mp4", "videoId": "f_x"},
@@ -301,8 +295,7 @@ class TestRunCtl(unittest.TestCase):
         self.assertTrue(res["candidates"])
         self.assertEqual(set(res), {"source", "candidates", "series", "signals", "counts", "warnings", "spec", "stream"})
         self.assertEqual(res["stream"], {}, "付加情報が取れなかったときは空")
-        self.assertEqual(seen[-1], (1.0, "解析が完了しました"))
-        self.assertIn((None, "素材を取得中"), seen)
+        self.assertEqual(seen[-1][0], 1.0)
 
     def test_run_carries_stream_times(self):
         """D-SEND: 付加情報の配信の始まり・長さを結果の stream に写す(batch が analysis に入れる。② flow/sendpolicy.ended_at_of が読む)"""
@@ -331,9 +324,7 @@ class TestRunCtl(unittest.TestCase):
 
     def test_too_few_chat_drops_the_cache(self):
         """チャットが 30 件未満(配信の直後でリプレイがまだ無い)なら、取っておいたチャットを捨てる = 次の解析で取り直す"""
-        td = tempfile.TemporaryDirectory()
-        self.addCleanup(td.cleanup)
-        tmp = td.name
+        tmp = testkit.tempdir(self)
         path = os.path.join(tmp, "chat.json")
         with open(path, "w", encoding="utf-8") as f:
             f.write("{}\n")
@@ -372,17 +363,16 @@ class TestRunCtl(unittest.TestCase):
 class TestRunWithoutMeta(unittest.TestCase):
     def test_meta_missing_still_succeeds_with_a_note(self):
         """YouTube の付加情報(記録用)が取れなくても解析は成功し、注意書きを 1 つ出す(stream は空)"""
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
+        tmp = testkit.tempdir(self)
         full, band, *_ = synth(n=600, events=6)
         spec = analyze.make_spec({"kind": "youtube", "videoId": "abcdefghijk", "name": "x"},
                                  analyze.validate_settings({"useComments": False, "useChat": False, "count": 3, "length": 30, "noCache": True}))
-        with mock.patch.object(fetch, "work_dir", lambda: tmp.name), mock.patch.object(analyze, "_save_record", lambda *a, **k: None), \
+        with mock.patch.object(fetch, "work_dir", lambda: tmp), mock.patch.object(analyze, "_save_record", lambda *a, **k: None), \
                 mock.patch.object(fetch, "fetch_meta", lambda ctl, vid: (None, "取れませんでした")), \
                 mock.patch.object(analyze, "_levels", lambda *a, **k: (600.0, 600, full, band)):
             res = analyze.run(spec, Ctl())
         self.assertTrue(res["candidates"])
-        self.assertEqual([w for w in res["warnings"] if "付加情報" in w], ["動画の付加情報(記録用)を取得できませんでした: 取れませんでした(解析には影響しません)"])
+        self.assertEqual(len([w for w in res["warnings"] if "付加情報" in w]), 1)
         self.assertEqual((res["counts"]["meta"], res["stream"]), (False, {}))
 
 

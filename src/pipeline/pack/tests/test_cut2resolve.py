@@ -6,7 +6,6 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
@@ -18,6 +17,7 @@ from pipeline.pack import auto_cut as AC  # noqa: E402
 from pipeline.pack import pack  # noqa: E402
 from pipeline.pack import srt2resolve as S  # noqa: E402
 from pipeline.pack import resolve_textplus as RTP  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 HAVE_FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
 FPS30 = (30, 1)
@@ -136,8 +136,7 @@ class TestLongClipTimeouts(unittest.TestCase):
     def test_preview_timeout_follows_length(self):
         from unittest import mock
         from pipeline.pack import preview as PV
-        d = Path(tempfile.mkdtemp(prefix="ytt_pv_"))
-        self.addCleanup(shutil.rmtree, d, True)
+        d = Path(testkit.tempdir(self))
         video = d / "clip.mp4"
         video.write_bytes(b"\0")
         got = []
@@ -212,26 +211,20 @@ class TestEdl(unittest.TestCase):
 class TestRemap(unittest.TestCase):
     keeps = [(30, 90), (150, 240)]  # 元の 1-3秒 / 5-8秒。カット後は 0-2秒 / 2-5秒
 
-    def test_inside_first_and_second(self):
-        out, gone = C.remap_cues([(1000, 2000, "A"), (5500, 7000, "B")], self.keeps, FPS30)
-        self.assertEqual(out, [(0, 30, "A"), (60 + 15, 60 + 60, "B")])
-        self.assertEqual(gone, 0)
-
-    def test_fully_cut_is_counted(self):
-        out, gone = C.remap_cues([(3500, 4500, "cut")], self.keeps, FPS30)
-        self.assertEqual((out, gone), ([], 1))
-
-    def test_cue_across_cut_is_split(self):
-        out, gone = C.remap_cues([(2000, 6000, "X")], self.keeps, FPS30)  # 2-6秒: 1つ目の後半 + 2つ目の前半
-        self.assertEqual(out, [(30, 60, "X"), (60, 60 + 30, "X")])
-        self.assertEqual(gone, 0)
-
-    def test_tiny_clipped_piece_is_dropped_but_tiny_whole_cue_kept(self):
-        # 2.95-3.4 秒の字幕 → 1つ目の区間に入るのは 2.95-3.0(1.5フレーム)だけ = 断片が短いので捨てる
-        out, gone = C.remap_cues([(2950, 3400, "T")], self.keeps, FPS30)
-        self.assertEqual((out, gone), ([], 1))
-        out, gone = C.remap_cues([(1000, 1100, "short")], self.keeps, FPS30)  # 切られていない短い字幕は残す
-        self.assertEqual(len(out), 1)
+    def test_remap_cues(self):
+        for name, cues, want, gone in (
+                ("区間の中", [(1000, 2000, "A"), (5500, 7000, "B")], [(0, 30, "A"), (60 + 15, 60 + 60, "B")], 0),
+                ("全部カット", [(3500, 4500, "cut")], [], 1),
+                ("カットをまたぐと割る(2-6秒: 1つ目の後半 + 2つ目の前半)", [(2000, 6000, "X")], [(30, 60, "X"), (60, 60 + 30, "X")], 0),
+                ("切られた断片が短ければ捨てる(2.95-3.0 の 1.5 フレーム)", [(2950, 3400, "T")], [], 1),
+                ("切られていない短い字幕は残す", [(1000, 1100, "short")], None, 0)):
+            with self.subTest(name):
+                out, n = C.remap_cues(cues, self.keeps, FPS30)
+                self.assertEqual(n, gone)
+                if want is None:
+                    self.assertEqual(len(out), 1)
+                else:
+                    self.assertEqual(out, want)
 
     def test_sorted_output_and_srt_roundtrip(self):
         out, _ = C.remap_cues([(5500, 6000, "later"), (1000, 1500, "first")], self.keeps, FPS30)
@@ -260,11 +253,7 @@ class TestInputs(unittest.TestCase):
 
 class TestOutputSafety(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.dir = Path(self.tmp.name)
-
-    def tearDown(self):
-        self.tmp.cleanup()
+        self.dir = Path(testkit.tempdir(self))
 
     def test_existing_output_requires_force_and_force_preserves_input_guard(self):
         output = self.dir / "result.edl"
@@ -326,11 +315,7 @@ class TestStagedWrite(unittest.TestCase):
     """一時ファイルに書いて付け替える処理(srt2resolve.staged。付け替えのやり直しは ytt/fsio.py の replace_retry で、そのテストは test_ytt_core)"""
 
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.dir = Path(self.tmp.name)
-
-    def tearDown(self):
-        self.tmp.cleanup()
+        self.dir = Path(testkit.tempdir(self))
 
     def test_staged_replaces_on_success_and_cleans_on_failure(self):
         dst = self.dir / "out.bin"
@@ -383,11 +368,7 @@ class TestCodecWarnings(unittest.TestCase):
 
 class TestWithFfmpeg(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.dir = Path(self.tmp.name)
-
-    def tearDown(self):
-        self.tmp.cleanup()
+        self.dir = Path(testkit.tempdir(self))
 
     def _srt(self, text="1\n00:00:01,000 --> 00:00:02,000\nあ\n\n2\n00:00:05,000 --> 00:00:06,000\nい\n\n"
                         "3\n00:00:09,000 --> 00:00:09,800\nう\n"):

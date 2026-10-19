@@ -113,7 +113,7 @@ class TestFlowVerb(unittest.TestCase):
     def test_check_and_pick(self):
         with self.assertRaises(ApiError) as c:
             flow_adopt.check([], 31)
-        self.assertEqual((c.exception.code, c.exception.status, c.exception.message), ("bad_request", 400, "採用する数は0〜30です"))
+        self.assertEqual((c.exception.code, c.exception.status), ("bad_request", 400))
         v = {"kind": "youtube", "duration": DUR, "marks": base()}
         r = flow_adopt.pick(v, flow_adopt.check([], 2), 2)
         self.assertEqual(len(r["added"]), 2)

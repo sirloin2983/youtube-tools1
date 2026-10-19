@@ -23,10 +23,8 @@ from ytt import errors  # noqa: E402
 
 class TestPaths(unittest.TestCase):
     def setUp(self):
-        for mod, name, value in ((workdata, "ROOT", "/tool"), (workdata, "DATA_DIR", "/data")):
-            p = mock.patch.object(mod, name, value)   # 試験の間だけ(終わったら元に戻す)
-            p.start()
-            self.addCleanup(p.stop)
+        for name, value in (("ROOT", "/tool"), ("DATA_DIR", "/data")):
+            self.enterContext(mock.patch.object(workdata, name, value))   # 試験の間だけ(終わったら元に戻す)
 
     def test_script_and_log_fall_back_to_workdata(self):
         with mock.patch.object(W, "WORKER_SCRIPT", None), mock.patch.object(W, "WORKER_LOG", None):
@@ -41,9 +39,7 @@ class TestPaths(unittest.TestCase):
         """作業データの場所は必ず渡す。疑似の部品の名前は worker-fake のときだけ(サーバーの環境変数に残っていても本物には渡さない)・
         worker-fake なのに名前が登録されていなければ RuntimeError(RS2-9)"""
         fake = [False]
-        p = mock.patch.object(W, "worker_fake", lambda: fake[0])   # この試験の終わりまで(下の FAKES_MODULE なしの確かめも worker-fake のまま)
-        p.start()
-        self.addCleanup(p.stop)
+        self.enterContext(mock.patch.object(W, "worker_fake", lambda: fake[0]))   # この試験の終わりまで(下の FAKES_MODULE なしの確かめも worker-fake のまま)
         with mock.patch.dict(os.environ, {W.FAKES_ENV: "x.y"}), mock.patch.object(W, "FAKES_MODULE", "eval.fake.fake_worker"):
             env = W.worker_env()
             self.assertEqual(env["TRANSCRIBE_DATA_DIR"], "/data")

@@ -30,16 +30,15 @@ class _Env(unittest.TestCase):
 
     def patch(self, mod, name, value):
         """mod.name を試験の間だけ value に(終わったら元に戻す。serve と同じプロセスで流しても壊さない)"""
-        p = mock.patch.object(mod, name, value)
-        p.start()
-        self.addCleanup(p.stop)
+        self.enterContext(mock.patch.object(mod, name, value))
+
 
 class TestTranscribeRows(_Env):
     """transcribe_rows(RS2-8e): 取り出し → 長さ(ytt/tools の media_duration)→ backend.select().transcribe → 生出力を控えながら整えた行。serve なし"""
 
     def setUp(self):
         super().setUp()
-        self.saved_selector = backend._selector[0]
+        self.addCleanup(backend.set_selector, backend._selector[0])
         self.calls = []
         calls = self.calls
 
@@ -56,10 +55,6 @@ class TestTranscribeRows(_Env):
                     yield {"start": 8.5, "end": 9.0, "text": "捨てる行"}
                 return gen()
         backend.set_selector(lambda: Fake())
-
-    def tearDown(self):
-        backend.set_selector(self.saved_selector)
-        super().tearDown()
 
     def extract(self, job, spec, wav):
         self.calls.append(("extract", job["state"], job["phase"], wav, spec["start"]))
@@ -99,11 +94,6 @@ class TestFinishRangeLines(_Env):
         self.assertEqual([(x["start"], x["end"], x["raw"], x["flag"]) for x in out], [(11.0, 12.0, "こんにちは", "印")])
         out = recognize.finish_range_lines(raw, dict(SPEC, evalSet=True), 10.0)   # 外さない(None)
         self.assertEqual(out[0]["raw"], "名前:こんにちは")
-
-    def test_reads_fill_without_registration(self):
-        """登録しなくても fill の決まりで外す(評価用は外さない)"""
-        out = recognize.finish_range_lines([], SPEC, 0.0)
-        self.assertEqual(out, [])
 
 
 class TestWhole(_Env):

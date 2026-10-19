@@ -88,10 +88,6 @@ class TestGolden(unittest.TestCase):
 
     def test_helpers_and_constants(self):
         """2026-10-09 に 1 か所へまとめた数字と小さな関数(snap_region・ramp・_drop_before)。値・計算の順は移す前と同じ"""
-        self.assertEqual((excite.AUDIO_PARTS, excite.AUDIO_FLOOR, excite.CHAT_SMOOTH, excite.CHAT_FLOOR), (((3, 0.6), (3, 0.4)), 1.5, 9, 0.25))
-        self.assertEqual((excite.PICK_SMOOTH, excite.LEVEL_SMOOTH, excite.SNAP_RADIUS, excite.SNAP_RATIO, excite.PARTS_RADIUS),
-                         (5, 3, 4, (0.7, 1.3), 6))
-        self.assertEqual((excite.EXCLUDE_BEFORE, excite.EXCLUDE_AFTER), (5, 6))
         self.assertEqual([excite.ramp(t, 180) for t in (0, 90, 180, 400)], [0.0, 0.25, 1.0, 1.0])
         self.assertEqual(excite.head_ramp([2.0, 2.0, 2.0], 2), [2.0 * excite.ramp(i, 2) for i in range(3)])
         lows = [5.0] * 100

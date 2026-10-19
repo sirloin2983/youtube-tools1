@@ -9,14 +9,13 @@
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしないが、ほかのテストとそろえる
-import shutil
 import sys
-import tempfile
 import unittest
 from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> transcribe -> pipeline -> src
 sys.path.insert(0, SRC)
+from ytt import testkit  # noqa: E402
 from pipeline.transcribe import backend, diarize, worker_client  # noqa: E402
 from ytt import workdata  # noqa: E402
 
@@ -26,9 +25,7 @@ class _Patches(unittest.TestCase):
 
     def patch(self, mod, name, value):
         """mod.name を試験の間だけ value に(終わったら元に戻す。serve と同じプロセスで流しても壊さない)"""
-        p = mock.patch.object(mod, name, value)
-        p.start()
-        self.addCleanup(p.stop)
+        self.enterContext(mock.patch.object(mod, name, value))
 
 
 class TestPure(unittest.TestCase):
@@ -85,21 +82,18 @@ class TestPlaces(_Patches):
             diarize.DIAR_DIR = saved
 
     def test_write_read_and_voices(self):
-        tmp = tempfile.mkdtemp(prefix="rs29-diar-")
-        try:
-            self.patch(workdata, "TX_DIR", tmp)
-            tid = "0123456789ab"
-            self.assertIsNone(diarize.read_diar(tid))
-            self.assertFalse(diarize.update_diar_voices(tid, {"speakers": {}}))   # 記録が無ければ何もしない
-            diarize.write_diar(tid, {"at": 1, "labelMap": {"0": "S1"}})
-            diarize.write_diar(tid, {"at": 2, "labelMap": {"0": "S1"}})
-            d = diarize.read_diar(tid)
-            self.assertEqual((d["schema"], d["latest"]["at"], [h["at"] for h in d["history"]]), (diarize.DIAR_SCHEMA, 2, [1]))
-            self.assertTrue(diarize.update_diar_voices(tid, {"checked": True, "speakers": {"S1": {"decided": "A"}}}))
-            self.assertEqual(diarize.read_diar(tid)["latest"]["voices"]["speakers"]["S1"]["label"], 0)   # labelMap の逆引きでラベルを付ける
-            self.assertEqual(diarize.diar_path(tid), os.path.join(tmp, tid + ".diar.json"))
-        finally:
-            shutil.rmtree(tmp, ignore_errors=True)
+        tmp = testkit.tempdir(self, prefix="rs29-diar-")
+        self.patch(workdata, "TX_DIR", tmp)
+        tid = "0123456789ab"
+        self.assertIsNone(diarize.read_diar(tid))
+        self.assertFalse(diarize.update_diar_voices(tid, {"speakers": {}}))   # 記録が無ければ何もしない
+        diarize.write_diar(tid, {"at": 1, "labelMap": {"0": "S1"}})
+        diarize.write_diar(tid, {"at": 2, "labelMap": {"0": "S1"}})
+        d = diarize.read_diar(tid)
+        self.assertEqual((d["schema"], d["latest"]["at"], [h["at"] for h in d["history"]]), (diarize.DIAR_SCHEMA, 2, [1]))
+        self.assertTrue(diarize.update_diar_voices(tid, {"checked": True, "speakers": {"S1": {"decided": "A"}}}))
+        self.assertEqual(diarize.read_diar(tid)["latest"]["voices"]["speakers"]["S1"]["label"], 0)   # labelMap の逆引きでラベルを付ける
+        self.assertEqual(diarize.diar_path(tid), os.path.join(tmp, tid + ".diar.json"))
 
 
 class _Worker:
@@ -113,12 +107,9 @@ class _Worker:
 
 class TestBackendAndWorker(unittest.TestCase):
     def setUp(self):
-        self.saved = (worker_client.IN_WORKER, worker_client.WORKER)
-        worker_client.IN_WORKER = False
-
-    def tearDown(self):
-        worker_client.IN_WORKER, worker_client.WORKER = self.saved
-        backend.set_selector(lambda: backend.REAL)
+        self.enterContext(mock.patch.object(worker_client, "IN_WORKER", False))
+        self.enterContext(mock.patch.object(worker_client, "WORKER", worker_client.WORKER))   # テストが入れた代わりのワーカーは終わりに外す
+        self.addCleanup(backend.set_selector, lambda: backend.REAL)
 
     def test_embed_groups_through_backend(self):
         class Rec(backend.Backend):

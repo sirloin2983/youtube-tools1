@@ -21,6 +21,7 @@ from pipeline.pack import cut2resolve_core as C  # noqa: E402
 from pipeline.pack import pack  # noqa: E402
 from pipeline.pack import resolve_textplus as RTP  # noqa: E402
 from pipeline.pack import srt2resolve as S  # noqa: E402
+from ytt import testkit  # noqa: E402
 from test_cut2resolve import FPS30, HAVE_FFMPEG, make_video, parse_edl, run_pack, selection_pack, tc2f  # noqa: E402
 
 
@@ -499,11 +500,7 @@ class TestParsingFixes(unittest.TestCase):
 
 class TestOutputGuard(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.dir = Path(self.tmp.name)
-
-    def tearDown(self):
-        self.tmp.cleanup()
+        self.dir = Path(testkit.tempdir(self))
 
     def test_output_exists_lists_files(self):
         a = write(self.dir / "a.edl", "x")
@@ -546,17 +543,13 @@ class TestGainCopyRecord(unittest.TestCase):
     T0 = 1_700_000_000_250_000_000
 
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.dir = Path(self.tmp.name)
+        self.dir = Path(testkit.tempdir(self))
         self.src = write(self.dir / "clip.mp4", "source")
         os.utime(self.src, ns=(self.T0, self.T0))
         self.out = self.dir / "pack"
         self.out.mkdir()
         self.dst = write(self.out / "clip.mp4", "copied with gain")
         self.meta = {"start_tc": "01:00:00:00"}
-
-    def tearDown(self):
-        self.tmp.cleanup()
 
     def _rec(self, gain=-10.457):
         key = C.gain_copy_key(self.src, self.dst, gain, self.meta)
@@ -608,11 +601,7 @@ class TestGainCopyRecord(unittest.TestCase):
 
 class TestCutPlanDocs(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.dir = Path(self.tmp.name)
-
-    def tearDown(self):
-        self.tmp.cleanup()
+        self.dir = Path(testkit.tempdir(self))
 
     def _plan(self, extra=None, segs=None):
         d = {"schema": "youtube-tools-cut-plan/v1",
@@ -672,11 +661,7 @@ class TestCutPlanDocs(unittest.TestCase):
 
 class TestTranscript(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.dir = Path(self.tmp.name)
-
-    def tearDown(self):
-        self.tmp.cleanup()
+        self.dir = Path(testkit.tempdir(self))
 
     def test_read_and_rules(self):
         rows = [(3.0, 4.0, "c", False), (0.5, 1.5, "a", False), (1.5, 2.0, "b", False),
@@ -723,13 +708,9 @@ class TestPackWithFfmpeg(unittest.TestCase):
         cls.tmpc.cleanup()
 
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.dir = Path(self.tmp.name)
+        self.dir = Path(testkit.tempdir(self))
         self.video = self.dir / "clip.mp4"
         self.video.write_bytes(self.gaps.read_bytes())
-
-    def tearDown(self):
-        self.tmp.cleanup()
 
     def _tr(self, rows, name="clip.transcript.json"):
         return write(self.dir / name, json.dumps(transcript_doc(rows, {"path": str(self.video), "name": "clip.mp4"}),
@@ -933,13 +914,9 @@ class TestEditMediaLookup(unittest.TestCase):
     """切り抜きスタジオの余白つき素材(.edit.json)を探す規則(ffmpeg なし)"""
 
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.d = Path(self.tmp.name)
+        self.d = Path(testkit.tempdir(self))
         self.video = write(self.d / "clip.mp4", "x")
         write(self.d / "clip_edit.mp4", "y")
-
-    def tearDown(self):
-        self.tmp.cleanup()
 
     def sidecar(self, **kw):
         d = {"schema": C.EDIT_MEDIA_SCHEMA, "media": "clip_edit.mp4", "selectionIn": 10, "handleBefore": 10, "handleAfter": 10}
@@ -992,20 +969,17 @@ class TestEditMediaProbeCache(unittest.TestCase):
     """余白つき素材の媒体情報(probe)は Cache があれば覚える。選び直し(selectionIn)は毎回読む。ffmpeg は使わない(S.probe をモック)"""
 
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.em = Path(self.tmp.name) / "clip_edit.mp4"
+        tmp = Path(testkit.tempdir(self))
+        self.em = tmp / "clip_edit.mp4"
         self.em.write_bytes(b"x" * 10)
-        self.plan = SimpleNamespace(req=SimpleNamespace(edit_media=True), video=Path(self.tmp.name) / "clip.mp4", src_start="00:00:00:00",
+        self.plan = SimpleNamespace(req=SimpleNamespace(edit_media=True), video=tmp / "clip.mp4", src_start="00:00:00:00",
                                     meta={"fps": (30, 1), "w": 1920, "h": 1080, "total": 180, "audio": True}, keeps=[(0, 60)])
         self.probe = mock.Mock(return_value={"fps": (30, 1), "w": 1920, "h": 1080, "total": 600, "audio": True, "warnings": []})
         for p in (mock.patch.object(pack.S, "probe", self.probe),
                   mock.patch.object(pack.C, "resolve_src_start", return_value=("00:00:00:00", "d", [])),
                   mock.patch.object(pack.C, "find_edit_media", return_value=self.edit(10))):
             p.start()
-
-    def tearDown(self):
-        mock.patch.stopall()
-        self.tmp.cleanup()
+        self.addCleanup(mock.patch.stopall)
 
     def edit(self, sel):
         return {"path": self.em, "sidecar": None, "selectionIn": float(sel), "handleBefore": float(sel), "handleAfter": 10.0}

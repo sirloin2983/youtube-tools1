@@ -47,9 +47,7 @@ class TestStreamContext(unittest.TestCase):
             self.calls.append(vid)
             return STREAMS.get(vid)
         for mod, name, value in ((roster, "ROSTER", path), (studiodata, "studio_stream", studio_stream)):
-            p = mock.patch.object(mod, name, value)   # 試験の間だけ(終わったら元に戻す)
-            p.start()
-            self.addCleanup(p.stop)
+            self.enterContext(mock.patch.object(mod, name, value))   # 試験の間だけ(終わったら元に戻す)
 
     def doc(self, vid="vidA"):
         return {"clip": {"source": {"kind": "youtube", "videoId": vid, "title": "【】"}}, "title": "01_00h01m",

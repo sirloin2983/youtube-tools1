@@ -43,12 +43,9 @@ class TestMakeDocRows(unittest.TestCase):
         self.tmp = testkit.tempdir(self, prefix="clipjob_")
         for mod, name, value in ((workdata, "TX_DIR", self.tmp), (tools, "media_duration", lambda path: 10.0),
                                  (recognize, "extract_audio", lambda job, spec, wav: None)):
-            p = mock.patch.object(mod, name, value)
-            p.start()
-            self.addCleanup(p.stop)
-        saved = backend._selector[0]
+            self.enterContext(mock.patch.object(mod, name, value))
+        self.addCleanup(backend.set_selector, backend._selector[0])
         backend.set_selector(lambda: _FakeEngine())
-        self.addCleanup(backend.set_selector, saved)
 
     def run_rows(self, pairs=(), learned=None):
         job = {"id": "j1", "cancel": False, "state": "queued"}
