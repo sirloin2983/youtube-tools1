@@ -25,7 +25,7 @@
   4. 検証     … ffprobe で 30/1・長さ(区間 ±0.5 秒)を確かめてから本当の名前へ
   5. 完了     … スタジオの書き出しと同じ置き場所(スタジオの書き出し先/<配信の名前>/)・名前の規則・作業用/<名前>.clip.json。
                  書き出したあと(ジョブの after。スタジオの LIVE の帯の「書き出したあと」)は「まとめて実行」の動画ファイルの形(② の口 Queue.submit に封筒 kind file + 録画の束。RS7-2 G2b。
-                 check = 文字起こしまで(mode file)・auto = 文字起こし → パック(mode file_auto)・none = 渡さない)。streamer(配信者の名前)があれば
+                 auto = 文字起こし → パック(mode file_auto)・none = 渡さない。文字起こしまでの check は 10-19 に消した = 保存済みの check は auto として読む)。streamer(配信者の名前)があれば
                  照らし合わせて渡す(字幕の色。合わなければ色なしで進めて、ジョブの warning に出す)
   ジョブは live/exports.json に残す。入口を起動し直したら、途中だったジョブは「録画待ち」からやり直す(冪等: 書きかけは消し、名前は仕上げるときに決める)。
   P4(録画に無い区間をアーカイブから書き出す。src/flow/live_archive.py)はジョブに archive を足す(ここは起動し直したときに途中の段を「待ち」に戻すのと、
@@ -85,7 +85,14 @@ STUDIO_ID_RE = re.compile(r"^[\w-]{1,40}\Z", re.ASCII)              # スタジ�
 MAX_MARKS = 300            # 録画1本のマークの数
 MAX_MARK_SEC = _marks.MAX_MARK_SEC   # 1つのマークの長さ(スタジオと同じ = ytt/marks)
 LABEL_MAX = 80
-AFTERS = ("none", "check", "auto")   # 書き出したあと: 何もしない / 文字起こしまで(まとめて実行の ② 軽く確認)/ 全自動(文字起こし → パック。① 全自動)
+AFTERS = ("none", "auto")   # 書き出したあと: 何もしない / 全自動(文字起こし → パック。① 全自動)
+OLD_AFTERS = {"check": "auto"}   # 消した形(文字起こしまで。10-19)-> 今の形。保存済みの設定・古いジョブ・古い画面の値は全自動として読む(読み捨てない)
+
+
+def read_after(a):
+    """書き出したあとの値 -> 今の形(AFTERS)か None(知らない値)。消した check は auto に読み替える"""
+    a = OLD_AFTERS.get(a, a) if isinstance(a, str) else a
+    return a if a in AFTERS else None
 ORIGINS = ("manual", "auto", "archive")   # 採用の出どころ(M1): 人 / 配信中の検出(M11)/ 配信後のアーカイブの解析(M7)
 AUTO_KEYS = ("cut", "engine", "model")    # ジョブに覚える書き出したあとの設定(ホームの設定 live.auto。M2)
 FEEDBACK = "live_feedback.jsonl"          # 採用の記録(入口の作業データの live\。feedback.jsonl とは別 = 計画の 0-8)
@@ -162,16 +169,16 @@ def _text(v, n):
     return re.sub(r"[\x00-\x1f\x7f]", " ", v if isinstance(v, str) else "").strip()[:n]
 
 
-def check_after(body, default="check"):
-    """POST /live/api/export・adopt の after("none"|"check"|"auto")。無ければ transcribe(真偽)から: false → none・true → check。
+def check_after(body, default="auto"):
+    """POST /live/api/export・adopt の after("none"|"auto"。古い画面の "check" は auto として受ける)。無ければ transcribe(真偽)から: false → none・true → auto。
     どちらも無ければ default(ホームの設定 live.auto.after。M2)"""
     a = body.get("after") if isinstance(body, dict) else None
     if a is None:
         t = body.get("transcribe") if isinstance(body, dict) else None
-        return "none" if t is False else "check" if t is True else (default if default in AFTERS else "check")
-    if a not in AFTERS:
-        raise LiveError("書き出したあと(after)は none・check・auto のどれかにしてください")
-    return a
+        return "none" if t is False else "auto" if t is True else (read_after(default) or "auto")
+    if read_after(a) is None:
+        raise LiveError("書き出したあと(after)は none か auto にしてください")
+    return read_after(a)
 
 
 def check_origin(v):
@@ -213,9 +220,8 @@ def deliver_pool(job, req):
 
 
 def job_after(job):
-    """ジョブの書き出したあと(この版より前のジョブは transcribe から)"""
-    a = job.get("after")
-    return a if a in AFTERS else ("check" if job.get("transcribe") else "none")
+    """ジョブの書き出したあと(古いジョブの after check = 全自動 auto・この版より前のジョブは transcribe から)"""
+    return read_after(job.get("after")) or ("auto" if job.get("transcribe") else "none")
 
 
 def studio_mark_id(mark):
@@ -508,7 +514,6 @@ class MarkStore:
         m["start"], m["end"] = start, end
 
 
-FILE_UPTO = {"check": "transcribe", "auto": "pack"}   # 書き出したあと → 動画ファイルの実行のどこまで(束の run.upto)
 ORDER_KEYS = {"cut": "cut", "engine": "engine", "model": "model", "request_id": "request_id", "deliver_dir": "deliver_dir", "speakers": "speakers",
               "video_tracks": "video_tracks", "pool": "pool", "deliver_origin": "origin"}   # _handoff の欄 → flow/order.py の欄
 
@@ -519,7 +524,7 @@ def file_order(media, title, after, streamer, base, **kw):
     封筒と束の差分(依頼が決めた印 run.requested)へ。base = 録画の束(差分を重ねた束を渡す。None = 差分だけ = submit が今の画面の設定に重ねる)。
     書き出した切り抜きは 30fps 済みなので段 normalize は持たない"""
     from . import order as _order
-    env, diff = _order.order("file", path=media, title=title, upto=FILE_UPTO.get(after, "transcribe"), streamer=streamer,
+    env, diff = _order.order("file", path=media, title=title, upto="pack", streamer=streamer,   # after はいつも auto(パックまで)
                              **{ORDER_KEYS[k]: v for k, v in kw.items()})
     if base is None:
         return env, diff
@@ -533,7 +538,7 @@ class Exporter(Patrol):
     def __init__(self, host: "livehost.LiveHost", folder, out_dir, runner=None, log=None, slots=None, poll=POLL, down_sec=DOWN_SEC, ffmpeg=None, ffprobe=None, audio=None,
                  runs_log=None, disk_usage=None, disk_poll=DISK_POLL, exported=None):
         """host: 親(flow/livehost.py の LiveHost。flow/livesession.py の LiveSession。録画元の一覧と要求。studio_call は無くてよい)。folder: 入口の作業データの live\\。out_dir(): 書き出し先(スタジオの書き出し先)。
-        runner(): まとめて実行(src/app/autorun.py の AutoRunner。文字起こしへ渡す)か None。
+        runner(): まとめて実行(src/app/autorun.py の AutoRunner。書き出した切り抜きを渡す)か None。
         audio(): 書き出しの音量 {"volume": 1〜200(%), "loudness": LUFS か None}(src/app/live.py の studio_audio)。None なら音量を変えない。
         runs_log: まとめて実行の記録 autorun-runs.jsonl(失敗の集約。M3)。
         disk_usage(path) -> (空きのバイト数, 全体のバイト数)(M4。既定 fsio.disk_space。テストは偽の小さな空きにする)・disk_poll: 調べ直す間隔(秒)。
@@ -652,7 +657,7 @@ class Exporter(Patrol):
                 self.log("リアルタイム切り抜き: 採用の記録を書けませんでした: %s" % tools.why(e))
 
     def _tx_states(self):
-        """文字起こしへ渡したジョブの、まとめて実行の状態(runId -> {state, label})"""
+        """まとめて実行へ渡したジョブの、まとめて実行の状態(runId -> {state, label})"""
         try:
             r = self.runner() if self.runner else None
             runs = r.snapshot().get("runs") if r is not None else []
@@ -694,12 +699,12 @@ class Exporter(Patrol):
 
     def add(self, rc, rec, mid, transcribe=True, studio=None, after=None, streamer="", origin="manual", auto=None, hold=None, score=None, request=None):
         """studio: スタジオのマークから頼まれたとき {video, mark, start, end}(ジョブに残す = スタジオの画面がどのマークの書き出しか分かる)。
-        after: 書き出したあと(AFTERS。None = transcribe から)。streamer: 検査済みの配信者の名前(""= 決まっていない)。どちらもジョブに残して _finish が使う。
+        after: 書き出したあと(AFTERS・消した check は auto。None = transcribe から)。streamer: 検査済みの配信者の名前(""= 決まっていない)。どちらもジョブに残して _finish が使う。
         origin: 採用の出どころ(ORIGINS。M1)。auto: 書き出したあとの設定 {cut, engine, model}(clean_auto 済み。M2)。
         hold: "archive" = 録画からは書き出さず、アーカイブから書き出す(HOLDS。ジョブに from "archive"。M7 の配信後の全自動。入口の中からだけ。API からは渡せない)。
         score: 候補の点数(配信中の検出・アーカイブの解析。任意)。ジョブに残し、.clip.json の source.live.score へ(M9 の確認の一覧が出す)。
         request: 友人のライブ配信の依頼(live_requests.Store の項目。2-15)。ジョブに {rid, deliverDir, speakers, videoTracks, cut} を残し、_handoff が まとめて実行へ渡す"""
-        after = after if after in AFTERS else ("check" if transcribe else "none")
+        after = read_after(after) or ("auto" if transcribe else "none")
         origin = origin if origin in ORIGINS else "manual"
         if self.host.find(rc) is None:
             raise LiveError("その録画元はありません", 404)
@@ -1287,7 +1292,7 @@ class Exporter(Patrol):
             warn.append("切り抜きの情報ファイル(.clip.json)を保存できませんでした(動画はそのまま使えます): %s" % tools.why(e))
         run_id, handoff, wait = "", "", ""
         after = job_after(job)
-        if after != "none":   # 書き出したあと: まとめて実行の動画ファイルの形へ(check = 文字起こしまで・auto = 文字起こし → パック)
+        if after != "none":   # 書き出したあと: まとめて実行の動画ファイルの形へ(auto = 文字起こし → パック)
             if self._disk_low():   # 空きが少ない(M4): 空くまで渡さない
                 wait = "disk"
             else:
@@ -1305,7 +1310,7 @@ class Exporter(Patrol):
     @staticmethod
     def _after_note(after, run_id, wait):
         """書き出したあとの文(メッセージの後ろに付ける)"""
-        what = "文字起こし → パック" if after == "auto" else "文字起こし"
+        what = "文字起こし → パック"
         if run_id:
             return "。%sの順番に入れました(ホームの「まとめて実行」)" % what
         if wait == "disk":
@@ -1340,7 +1345,7 @@ class Exporter(Patrol):
             env, spec = file_order(media, os.path.splitext(os.path.basename(media))[0], after, who, base, **kw)
             run_id = (r.submit(env, spec) or {}).get("id") or ""
         except Exception as e:   # 失敗の集約(M3)は handoffError から文を作る(warning に重ねない)
-            handoff = ("パックへ" if after == "auto" else "文字起こしへ") + "渡せませんでした: %s" % str(e)[:160]
+            handoff = "パックへ渡せませんでした: %s" % str(e)[:160]
         return run_id, handoff, warn
 
     def _hand_over(self, job):
@@ -1349,7 +1354,7 @@ class Exporter(Patrol):
         media = job.get("path") or ""
         if after == "none" or not media or not os.path.isfile(media):
             self._set(job, handoffWait="", handoffError="" if after == "none" else
-                      ("パックへ" if after == "auto" else "文字起こしへ") + "渡せませんでした: 書き出した動画が見つかりません(動かしたか消したかもしれません)")
+                      "パックへ渡せませんでした: 書き出した動画が見つかりません(動かしたか消したかもしれません)")
             return ""
         notes = [x for x in str(job.get("warning") or "").split(" / ") if x]
         if self._disk_low():

@@ -110,7 +110,7 @@ class PrefsLiveTest(unittest.TestCase):
     def test_default_off_and_validation(self):
         self.assertEqual(self.p.get(["live"])["live"], {"enabled": False, "folder": "", "recorders": [], "quality": "1080p",
                                                         "autoDelete": P.DEFAULTS["live"]["autoDelete"],
-                                                        "auto": {"after": "check", "cut": "", "engine": "", "model": "", "pad": 2},   # pad = 自動・アーカイブの採用の前後の余白(M8)
+                                                        "auto": {"after": "auto", "cut": "", "engine": "", "model": "", "pad": 2},   # pad = 自動・アーカイブの採用の前後の余白(M8)
                                                         "autoAfterStream": False, "afterStreamPerHour": 6,   # 配信後の全自動(M7)は既定オフ
                                                         "detect": {"enabled": True, "sens": "normal", "perHour": 6},   # 配信中の検出(L2)は既定オン(リアルタイム切り抜きがオンのときだけ動く)
                                                         "autoAdopt": {"waitMin": 5},   # 自動の採用(M11)はいつもオン = 待つ分だけ
@@ -118,7 +118,9 @@ class PrefsLiveTest(unittest.TestCase):
                                                         "autoDeliver": True})   # 自動の切り抜きを確認なしで友人へ届ける
         self.assertIsInstance(P.DEFAULTS["live"]["autoDelete"], bool)
         self.assertEqual(self.p.patch("live", {"auto": {"pad": 0}})["auto"]["pad"], 0)   # 余白は 0〜5 秒(小数も可)。ほかの鍵はそのまま
-        self.assertEqual(self.p.patch("live", {"auto": {"pad": 3.5}})["auto"], {"after": "check", "cut": "", "engine": "", "model": "", "pad": 3.5})
+        self.assertEqual(self.p.patch("live", {"auto": {"pad": 3.5}})["auto"], {"after": "auto", "cut": "", "engine": "", "model": "", "pad": 3.5})
+        self.p.patch("live", {"auto": {"after": "none"}})
+        self.assertEqual(self.p.patch("live", {"auto": {"after": "check"}})["auto"]["after"], "auto")   # 消した「文字起こしまで」(10-19)は全自動として読む(古い画面・保存値)
         for bad in (True, "2", None):   # 範囲の端は test_settings_schema.py
             with self.assertRaises(P.PrefsError, msg=repr(bad)):
                 self.p.patch("live", {"auto": {"pad": bad}})
@@ -509,9 +511,9 @@ class PortalLiveTest(unittest.TestCase):
         self.assertEqual(self.jreq("POST", "/live/api/export", dict(body, studio="x"))[0], 400)
         # 書き出したあと(after)と配信者の名前(streamer)
         nb = {k: v for k, v in body.items() if k != "transcribe"}
-        for extra, want in (({}, ("check", True, "")), ({"transcribe": True}, ("check", True, "")), ({"after": "none"}, ("none", False, "")),
+        for extra, want in (({}, ("auto", True, "")), ({"transcribe": True}, ("auto", True, "")), ({"after": "none"}, ("none", False, "")),
                             ({"after": "auto", "transcribe": False, "streamer": " 兎田ぺこら "}, ("auto", True, "兎田ぺこら")),
-                            ({"after": "check", "streamer": ""}, ("check", True, "")), ({"after": "check", "streamer": None}, ("check", True, ""))):
+                            ({"after": "check", "streamer": ""}, ("auto", True, "")), ({"after": "check", "streamer": None}, ("auto", True, ""))):   # 古い画面の check は全自動
             code, d = self.jreq("POST", "/live/api/export", dict(nb, studio=dict(st, mark="after1"), **extra))
             self.assertEqual(code, 200, (extra, d))
             self.assertEqual((d["job"]["after"], d["job"]["transcribe"], d["job"]["streamer"]), want, extra)
@@ -665,23 +667,23 @@ class AutoDeliverTest(unittest.TestCase):
     def test_auto_and_archive_deliver_when_folder_is_set(self):
         self.prefs.patch("intake", {"folder": self.folder})
         for origin in ("auto", "archive"):
-            req, after, who = self.live._request_for("local", "20261008-183154-dMVBWMfHdVQ", origin, "check", "")
+            req, after, who = self.live._request_for("local", "20261008-183154-dMVBWMfHdVQ", origin, "auto", "")
             self.assertEqual((after, who), ("auto", ""), origin)
             self.assertEqual((req["deliverDir"], req["autoDeliver"]), (os.path.join(self.folder, "出力"), True), origin)
             self.assertRegex(req["rid"], r"^\d{8}-\d{6}-[0-9a-f]{6}$")   # 友人のアプリの依頼と同じ形(zip の名前の頭)
             self.assertNotIn("settings", req)   # 余白は live.auto.pad のまま(adopt は settings が無ければホームの設定)
-        a, _b, _c = self.live._request_for("local", "r1", "auto", "check", "")
-        b, _b2, _c2 = self.live._request_for("local", "r1", "auto", "check", "")
+        a, _b, _c = self.live._request_for("local", "r1", "auto", "auto", "")
+        b, _b2, _c2 = self.live._request_for("local", "r1", "auto", "auto", "")
         self.assertNotEqual(a["rid"], b["rid"])   # 切り抜きごとに別の依頼 id = 1 本ずつ別の zip
 
     def test_manual_off_or_no_folder_does_not_deliver(self):
         self.prefs.patch("intake", {"folder": self.folder})
-        self.assertEqual(self.live._request_for("local", "r1", "manual", "check", "x"), (None, "check", "x"))   # 人のマークは案件の [採用] で
+        self.assertEqual(self.live._request_for("local", "r1", "manual", "auto", "x"), (None, "auto", "x"))   # 人のマークは案件の [採用] で
         self.prefs.patch("live", {"autoDeliver": False})
-        self.assertEqual(self.live._request_for("local", "r1", "auto", "check", ""), (None, "check", ""))
+        self.assertEqual(self.live._request_for("local", "r1", "auto", "auto", ""), (None, "auto", ""))
         self.prefs.patch("live", {"autoDeliver": True})
         self.prefs.patch("intake", {"folder": ""})
-        self.assertEqual(self.live._request_for("local", "r1", "auto", "check", ""), (None, "check", ""))   # 届ける先が無い
+        self.assertEqual(self.live._request_for("local", "r1", "auto", "auto", ""), (None, "auto", ""))   # 届ける先が無い
         self.assertIsNone(self.live.deliver_dir())
 
     def test_request_limit_is_two(self):
@@ -693,10 +695,10 @@ class AutoDeliverTest(unittest.TestCase):
         """友人のライブ配信の依頼に結びついた録画は、その依頼の形(届け先は依頼の 出力)が先"""
         self.prefs.patch("intake", {"folder": self.folder})
         self.live.requests.put("local", "r2", {"rid": "20261008-120000-abcdef", "deliverDir": os.path.join(self.folder, "出力"), "settings": {"afterStream": False}})
-        req, after, _w = self.live._request_for("local", "r2", "auto", "check", "")
+        req, after, _w = self.live._request_for("local", "r2", "auto", "auto", "")
         self.assertEqual((req["rid"], after), ("20261008-120000-abcdef", "auto"))
-        req2, after2, _w2 = self.live._request_for("local", "r2", "archive", "check", "")   # 依頼が配信後の追加を要らないと言えば、自分の設定でも届けない
-        self.assertEqual((req2, after2), (None, "check"))
+        req2, after2, _w2 = self.live._request_for("local", "r2", "archive", "auto", "")   # 依頼が配信後の追加を要らないと言えば、自分の設定でも届けない
+        self.assertEqual((req2, after2), (None, "auto"))
 
 
 class StudioSettingsTest(unittest.TestCase):

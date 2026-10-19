@@ -427,7 +427,7 @@
     API: POST /live/api/archive・/live/api/archive/cancel、GET /live/api/exports の archive・archiveInfo。設定 live.autoArchive(既定オン)
   - 録画を自動で消す(src\home\live_cleanup.py。設定 live.autoDelete 既定オン): 全部入れ替わった録画はすぐ・マークの無い録画は 24 時間・退避した速報版は 3 日。
     録画の部品の POST /live/<録画>/delete を使います(画面からは呼べません)
-  - 書き出しのあとの流れ(POST /live/api/export の after: none / check / auto)と配信者の名前(streamer)を、まとめて実行に渡します。
+  - 書き出しのあとの流れ(POST /live/api/export の after: none / auto。古い画面・保存値の check = 文字起こしまでは auto として読みます)と配信者の名前(streamer)を、まとめて実行に渡します。
     POST /live/api/begin は配信のチャンネル名も返します
 
 ■ リアルタイム切り抜き(試験中)はスタジオの中で

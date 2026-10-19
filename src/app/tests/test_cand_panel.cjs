@@ -507,12 +507,12 @@ test('live export: one portal request per mark, saved first, busy marks skipped,
     S, LV, Studio: { token: 't', live: { api: async (rest, o) => { calls.push({ rest, body: o.body }); if (o.body.studio.mark === 'b') { const e = new Error('このマークは書き出しの途中です'); e.status = 409; throw e; } return { job: {} }; } } },
     toast: m => notes.push(m), flushSave: async () => { saved++; }, renderExportUI() {}, liveResume() {}, pollLiveJobs: async () => { polled++; },
     sortedMarks: () => v.marks.slice().sort((x, y) => x.start - y.start), exportTargets: () => v.marks.filter(m => m.status === 'adopted'), autoTxEnabled: () => true,
-    LIVE_AFTERS: ['none', 'check', 'auto'], liveWhoName: () => '兎田ぺこら' });
+    LIVE_AFTERS: ['none', 'auto'], liveWhoName: () => '兎田ぺこら' });
   await ctx.startLiveExport();
   assert.equal(saved, 1, 'the studio marks are saved before asking the portal');
   assert.deepEqual(calls.map(c => c.rest), ['api/export', 'api/export'], 'the mark already being exported (c) is not sent again');
-  assert.deepEqual(plain(calls[0].body), { recorder: 'local', recording: 'R1', title: '配信', url: 'https://youtu.be/x', after: 'check', transcribe: true,
-    streamer: '兎田ぺこら', studio: { video: 'V', mark: 'a', n: 1, label: 'A', start: 1, end: 5 } });   // 設定が無い = 文字起こしまで
+  assert.deepEqual(plain(calls[0].body), { recorder: 'local', recording: 'R1', title: '配信', url: 'https://youtu.be/x', after: 'auto', transcribe: true,
+    streamer: '兎田ぺこら', studio: { video: 'V', mark: 'a', n: 1, label: 'A', start: 1, end: 5 } });   // 設定が無い = 全自動
   assert.equal(calls[1].body.studio.n, 2);
   assert.ok(notes.at(-1).includes('書き出しの途中です'));
   assert.equal(LV.queued.size, 0); assert.equal(LV.starting, false);
@@ -666,10 +666,11 @@ test('the band line for the after-stream auto clipping: the portal text as is, w
 test('live after: the saved choice wins, else it follows autoTx; autoTx lives in the server settings and the old browser value is taken over once', () => {
   let legacy = null;
   const ctx = load([['const LIVE_AFTERS', '/* ---------- 状態 ---------- */']], { autoTxLegacy: () => legacy, sec1: (v, d) => d, sanitizeKeymap: () => ({}), KEY_PRESETS: { standard: {} }, DEFAULT_QUICK_SPANS: [30, 60, 120, 180, 300] });
-  assert.equal(ctx.sanitizeSettings({}).liveAfter, 'check');
+  assert.equal(ctx.sanitizeSettings({}).liveAfter, 'auto');
   assert.equal(ctx.sanitizeSettings({ autoTx: false }).liveAfter, 'none');
   assert.equal(ctx.sanitizeSettings({ autoTx: false, liveAfter: 'auto' }).liveAfter, 'auto');
-  assert.equal(ctx.sanitizeSettings({ autoTx: false, liveAfter: 'check' }).liveAfter, 'check', 'a saved choice is kept even when autoTx is off');
+  assert.equal(ctx.sanitizeSettings({ autoTx: false, liveAfter: 'auto' }).liveAfter, 'auto', 'a saved choice is kept even when autoTx is off');
+  assert.equal(ctx.sanitizeSettings({ autoTx: false, liveAfter: 'check' }).liveAfter, 'auto', 'the removed transcribe-only choice is read as full auto');
   assert.equal(ctx.sanitizeSettings({ autoTx: false, liveAfter: 'full' }).liveAfter, 'none', 'unknown values fall back');
   assert.equal(ctx.sanitizeSettings({}).autoTx, true, 'default on');
   legacy = false;
@@ -803,7 +804,7 @@ test('live export body: after / streamer follow the band (settings and the strea
   const S = { cur: v, settings: { liveAfter: 'auto' } };
   const LV = { who: { vid: 'V', name: ' 兎田ぺこら ', match: true } };
   const ctx = load([['function liveWhoName(', '/* 録画を開いたとき'], ['function liveExportBody(', '/* ライブの録画の書き出し(']],
-    { S, LV, LIVE_AFTERS: ['none', 'check', 'auto'], sortedMarks: () => v.marks });
+    { S, LV, LIVE_AFTERS: ['none', 'auto'], sortedMarks: () => v.marks });
   let b = ctx.liveExportBody(v, v.marks[0]);
   assert.equal(b.after, 'auto'); assert.equal(b.transcribe, true); assert.equal(b.streamer, '兎田ぺこら');
   S.settings.liveAfter = 'none';
@@ -1072,7 +1073,7 @@ function peakHarness(respond) {
     toast: m => notes.push(m), flushSave: async () => { after.push('save'); }, syncFromServer: async () => { after.push('sync'); }, pollLiveJobs: async () => { after.push('jobs'); }, liveResume: () => {},
     renderGraph: () => {}, previewClip: c => notes.push('preview ' + c.start + '-' + c.end), keybarScene: () => {}, liveSet: () => {},
     tickLabel: mmss, reasonTags: () => '', SVG: { play: '' }, esc: s => s, enc: encodeURIComponent, totalDur: () => 120, pct: t => t,
-    LIVE_AFTERS: ['none', 'check', 'auto'], liveWhoName: () => '兎田ぺこら', curKeymap: () => ({ nextPeak: 'p' }), keyText: k => k, Date, setTimeout, clearTimeout });
+    LIVE_AFTERS: ['none', 'auto'], liveWhoName: () => '兎田ぺこら', curKeymap: () => ({ nextPeak: 'p' }), keyText: k => k, Date, setTimeout, clearTimeout });
   const PKV = vm.runInContext('PKV', ctx);
   return { ctx, S, PKV, calls, notes, after };
 }

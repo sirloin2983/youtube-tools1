@@ -51,7 +51,7 @@ def handed(env, spec):
     if run.request_id:
         kw.update(request_id=run.request_id, deliver_dir=run.deliver_dir, speakers=run.speakers, video_tracks=run.video_tracks,
                   pool=run.pool)
-    return run.source_path, run.title, "auto" if run.mode == "file_auto" else "check", run.streamer, kw
+    return run.source_path, run.title, "auto" if run.mode == "file_auto" else run.mode, run.streamer, kw
 
 
 class FakeRunner:
@@ -341,9 +341,9 @@ class ExportTest(unittest.TestCase):
         self.assertAlmostEqual(clip["range"]["end"] - clip["range"]["start"], b - a, delta=0.01)
         self.assertEqual((clip["mark"]["id"], clip["mark"]["label"], clip["export"]["mode"]), (m["id"], "見どころ: 1", "precise"))
         self.assertEqual(clip["export"]["volume"], 100)   # 音量の設定が「変えない」
-        self.assertEqual(self.runner.files, [(path, os.path.splitext(os.path.basename(path))[0], "check")])   # 文字起こしへ(まとめて実行の文字起こしだけ)
+        self.assertEqual(self.runner.files, [(path, os.path.splitext(os.path.basename(path))[0], "auto")])   # まとめて実行へ(書き出したあとの既定は全自動。文字起こしまでは 10-19 に消した)
         self.assertEqual(self.runner.streamers, [None])   # 配信者の名前が無い = まとめて実行が自動で決める
-        self.assertEqual((done["runId"], done["after"], done["streamer"]), ("run-1", "check", ""))
+        self.assertEqual((done["runId"], done["after"], done["streamer"]), ("run-1", "auto", ""))
         self.assertEqual(self.job(j["id"])["tx"]["state"], "queued")
         self.assertEqual([x["key"] for x in self.job(j["id"])["tx"]["steps"]], ["transcribe"])   # 段ごとの進み具合も(画面が全自動の進み具合を出す)
         self.assertFalse(os.listdir(os.path.join(self.tmp, "live", "work")))   # 取ったセグメントは片付ける
@@ -693,14 +693,14 @@ class ExportPiecesTest(unittest.TestCase):
         a, b = LX.iso_epoch(j["start"]), LX.iso_epoch(j["end"])
         ex._finish(j, {"id": "local"}, rec, ans, {"path": media, "duration": 5.0, "title": "配信"}, a, b)
         self.assertEqual((j["state"], j["handoffWait"], j["runId"], runner.files), ("done", "disk", "", []))
-        self.assertIn("空き容量が少ないので、空くまで文字起こしへ渡すのを待っています", j["message"])
+        self.assertIn("空き容量が少ないので、空くまで文字起こし → パックへ渡すのを待っています", j["message"])   # 古いジョブの after check は全自動として読む
         self.assertIsNone(LX.live_failures.failure_of(j))                    # 待ちは失敗ではない
         self.assertTrue(ex.pending())                                        # 起動し直したら見回りが続ける
         self.assertEqual(ex._retry_handoffs(), 0)
         free["v"] = 30 * LX.GB
         self.assertEqual(ex._retry_handoffs(), 1)
-        self.assertEqual((j["handoffWait"], j["runId"], runner.files[0][0], runner.files[0][2]), ("", "run-1", media, "check"))
-        self.assertIn("文字起こしの順番に入れました", j["message"])
+        self.assertEqual((j["handoffWait"], j["runId"], runner.files[0][0], runner.files[0][2]), ("", "run-1", media, "auto"))
+        self.assertIn("文字起こし → パックの順番に入れました", j["message"])
         self.assertFalse(ex.pending())
         self.assertEqual(ex.disk()["state"], "ok")
         again = LX.Exporter(mock.Mock(), os.path.join(self.tmp, "live"), lambda: os.path.join(self.tmp, "out"))   # 記録に残る
@@ -737,7 +737,7 @@ class ExportPiecesTest(unittest.TestCase):
             ex._finish(j, {"id": "local"}, rec, ans, {"path": self.media("0%d_x.mp4" % k), "duration": 5.0, "title": "配信"}, LX.iso_epoch(j["start"]), LX.iso_epoch(j["end"]))
             return j
         j = finish(2, after="check", streamer="だれでもない人")
-        self.assertEqual((j["state"], runner.files[-1][2], runner.streamers[-1]), ("done", "check", None), j)
+        self.assertEqual((j["state"], runner.files[-1][2], runner.streamers[-1]), ("done", "auto", None), j)   # 古い画面の after check は全自動
         self.assertIn("字幕の色なし", j["warning"])
         runner.fail = "順番待ちが多すぎます(20本まで)"
         j = finish(3, after="check")
@@ -745,7 +745,7 @@ class ExportPiecesTest(unittest.TestCase):
         row = next(x for x in ex.snapshot() if x["id"] == j["id"])
         f = row["failure"]
         self.assertEqual(f["kind"], "handoff")
-        self.assertIn("文字起こしへ渡せませんでした: 順番待ちが多すぎます", f["text"])
+        self.assertIn("パックへ渡せませんでした: 順番待ちが多すぎます", f["text"])
         self.assertIn(os.path.basename(j["path"]), f["text"])
         self.assertIn(f["text"], row["warning"])   # 帯は warning の行に出す
 

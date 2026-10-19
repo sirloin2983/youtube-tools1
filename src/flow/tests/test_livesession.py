@@ -137,7 +137,7 @@ class SubmitTest(Base):
         self.assertEqual(self.s.archiver.settings_for("local", REC)["length"], 30)
         self.assertIsNone(self.s.archiver.settings_for("local", "20261011-210000-x"))
         self.assertEqual(self.s.exporter._audio_cfg({"recorder": "local", "recording": REC}), (120, None))
-        self.assertEqual(self.s.auto_cfg("local", REC), {"after": "check", "cut": "", "engine": "", "model": "", "pad": 2.0})
+        self.assertEqual(self.s.auto_cfg("local", REC), {"after": "auto", "cut": "", "engine": "", "model": "", "pad": 2.0})
         # 同じ配信をもう一度: 録画中のものを返し、束は始めたときのまま
         out2 = self.s.submit({"id": "live000002", "kind": "live", "input": {"videoId": VID}}, {"adopt": {"sens": "low"}})
         self.assertEqual((out2["existing"], len(self.rec.started()), self.s.bundle("local", REC)["adopt"]["sens"]), (True, 1, "high"))
@@ -164,8 +164,8 @@ class SubmitTest(Base):
                          ("high", 7, 4, 1.5, ["cut", "engine", "model"]))
         self.s.submit({"id": "live000005", "kind": "live", "input": {"videoId": VID}}, spec)
         self.cfg["auto"] = {"engine": "faster-whisper", "model": "small", "cut": "none", "pad": 0.5}   # 録画を始めたあとに変えても効かない
-        self.assertEqual(self.s.auto_cfg("local", REC), {"after": "check", "cut": "silence", "engine": "whisper.cpp", "model": "large-v3", "pad": 1.5})
-        self.assertEqual(self.s.auto_cfg(), {"after": "check", "cut": "none", "engine": "faster-whisper", "model": "small", "pad": 0.5})   # 束の無い録画
+        self.assertEqual(self.s.auto_cfg("local", REC), {"after": "auto", "cut": "silence", "engine": "whisper.cpp", "model": "large-v3", "pad": 1.5})
+        self.assertEqual(self.s.auto_cfg(), {"after": "auto", "cut": "none", "engine": "faster-whisper", "model": "small", "pad": 0.5})   # 束の無い録画
 
 
 class OwnStreamTest(Base):
@@ -204,7 +204,7 @@ class OwnStreamTest(Base):
         self.assertEqual((self.s.archiver.settings_for("local", REC)["length"], self.s.archiver.settings_for("local", REC)["headSec"]), (20, 0))
         self.assertEqual((self.s.exporter._audio_cfg({"recorder": "local", "recording": REC}), self.s.exporter._audio_cfg({"recorder": "local", "recording": other})),
                          ((100, -16), (50, None)))
-        self.assertEqual(self.s.auto_cfg("local", REC), {"after": "check", "cut": "", "engine": "whisper.cpp", "model": "large-v3", "pad": 1.0})
+        self.assertEqual(self.s.auto_cfg("local", REC), {"after": "auto", "cut": "", "engine": "whisper.cpp", "model": "large-v3", "pad": 1.0})
         self.assertEqual(self.s.auto_cfg("local", other)["pad"], 3.0)
         # 同じ配信をもう一度: 録画中のものを返し、束は始めたときのまま
         out2 = self.s.begin_own(URL)
@@ -339,7 +339,7 @@ class HeadlessTest(Base):
             b = s2.bundle("local", REC)
             self.assertEqual((b["hints"]["streamer"], sorted(b["run"]["requested"])), ("兎田ぺこら", ["cut", "engine", "model"]))
             self.assertNotIn("pinned", b["run"])
-            self.assertEqual(s2.auto_cfg("local", REC), {"after": "check", "cut": "silence", "engine": "whisper.cpp", "model": "large-v3", "pad": 1.5})
+            self.assertEqual(s2.auto_cfg("local", REC), {"after": "auto", "cut": "silence", "engine": "whisper.cpp", "model": "large-v3", "pad": 1.5})
             got = s2.bundles.get("local", REC)["envelope"]
             self.assertEqual((got["specVersion"], "note" in got, "batch" in got["deliver"]), (2, False, False))
             self.assertIsNone(s2.bundles.get("local", "20261011-210000-" + VID)["envelope"], "前の版の封筒は無しに(束は残す)")

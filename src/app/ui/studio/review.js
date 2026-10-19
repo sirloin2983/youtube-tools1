@@ -58,8 +58,9 @@ function sanitizeKeymap(x){
 const QUICK_SPAN_CHOICES = [10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 300, 420, 600];
 const DEFAULT_QUICK_SPANS = [30, 60, 120, 180, 300];
 const spanLabel = sec => sec >= 60 && sec % 60 === 0 ? sec / 60 + '分' : sec + '秒';
-/* ライブの録画: 書き出したあと(入口の POST /live/api/export の after)。何もしない / 文字起こしまで(まとめて実行の ② 軽く確認)/ 全自動(文字起こし → パック。① 全自動) */
-const LIVE_AFTERS = ['none', 'check', 'auto'];
+/* ライブの録画: 書き出したあと(入口の POST /live/api/export の after)。何もしない / 全自動(文字起こし → パック。① 全自動)。
+   文字起こしまで(check)は 10-19 に消した = 保存済みの check は全自動として読む */
+const LIVE_AFTERS = ['none', 'auto'];
 const DEFAULT_SETTINGS = { volume: 100, muted: false, quickSpans: DEFAULT_QUICK_SPANS, keymap: KEY_PRESETS.standard, lag: 0, liveMode: 'auto', exportVolume: 75, exportLoudness: -14, theater: false, graphLines: false, autoPlay: true, autoNext: true, exportTarget: 'adopted', sortBy: 'time', foldDefault: false, liveAutoExport: true, liveDuck: 'low' };
 function sanitizeSettings(x){
   x = x && typeof x === 'object' ? x : {};
@@ -81,8 +82,8 @@ function sanitizeSettings(x){
     /* 書き出しのあと自動で文字起こし(設定の「書き出し」節。入口から開いたときだけ効く。既定オン)。値はこの節(サーバー)に置く(窓とブラウザで値が変わらないように)。
        サーバーにまだ無いときは、このブラウザの古い値(localStorage の ytt:studio.autoTx)を引き継ぐ(loadSettings が1回だけ送る) */
     autoTx,
-    /* ライブの録画: 書き出したあと。まだ選んでいなければ、「書き出しのあと自動で文字起こし」(autoTx)がオンなら文字起こしまで・オフなら何もしない */
-    liveAfter: LIVE_AFTERS.includes(x.liveAfter) ? x.liveAfter : (autoTx ? 'check' : 'none')
+    /* ライブの録画: 書き出したあと。まだ選んでいなければ、「書き出しのあと自動で文字起こし」(autoTx)がオンなら全自動・オフなら何もしない */
+    liveAfter: x.liveAfter === 'check' ? 'auto' : LIVE_AFTERS.includes(x.liveAfter) ? x.liveAfter : (autoTx ? 'auto' : 'none')
   };
 }
 
@@ -206,7 +207,7 @@ function liveBarHTML(){
           <span class="pill" id="rvRecState" role="status">確かめています…</span><span class="hint rv-recmsg" id="rvRecMsg"></span>
           <span class="rv-topsp"></span>
           <label class="rv-check" for="rvAutoExp" title="今をマーク ①〜⑤・一瞬・IN/OUT の追加で付けたマークを採用にして、すぐ書き出しに回します(録画が届くのを待ってから作ります)"><input type="checkbox" class="ui-switch" id="rvAutoExp">マークしたらすぐ書き出す</label>
-          <label class="rv-duck rv-after" for="rvAfter" title="書き出した切り抜きを、ホームの「まとめて実行」でどこまで進めるか(手動の「書き出す」にも効きます)。文字起こしまで = 字幕は「編集」で直す / 全自動 = 文字起こしのあとパックまで作る(字幕は校正前)">書き出したあと <select id="rvAfter"><option value="none">何もしない</option><option value="check">文字起こしまで</option><option value="auto">全自動(パックまで)</option></select></label>
+          <label class="rv-duck rv-after" for="rvAfter" title="書き出した切り抜きを、ホームの「まとめて実行」でどこまで進めるか(手動の「書き出す」にも効きます)。全自動 = 文字起こしのあとパックまで作る(字幕は校正前)">書き出したあと <select id="rvAfter"><option value="none">何もしない</option><option value="auto">全自動(パックまで)</option></select></label>
           <details class="ui-pop rv-livewho" id="rvLiveWho" hidden><summary class="btn small ghost" title="字幕の色を決める配信者です(覚えた名前か、チャンネル名から自動)。押すと直せます(直した名前は、この録画とこのチャンネルで次からも使います)"><span id="rvLiveWhoText">配信者: 未設定(字幕は既定の色)</span></summary>
             <div class="ui-pop-body rv-livewhobody" data-align="left"><label class="rv-fl" for="rvLiveWhoIn">配信者(字幕の色)</label><input type="text" id="rvLiveWhoIn" placeholder="例: 兎田ぺこら" aria-describedby="rvLiveWhoNote">
               <p class="hint" id="rvLiveWhoNote">次の書き出しから、この名前のメンバーカラーで字幕を作ります(空 = 既定の色)</p></div></details>
@@ -1594,7 +1595,7 @@ function liveWhoOpened(v){
 }
 function liveExportBody(v, m){
   const n = sortedMarks().findIndex(x => x.id === m.id) + 1;
-  const after = LIVE_AFTERS.includes(S.settings.liveAfter) ? S.settings.liveAfter : 'check';
+  const after = LIVE_AFTERS.includes(S.settings.liveAfter) ? S.settings.liveAfter : 'auto';   // 古い check は sanitizeSettings が全自動に読み替え済み
   return { recorder: v.live.recorder, recording: v.live.recording, title: v.title || '', url: v.live.url || '',
     after, transcribe: after !== 'none',   // 帯の「書き出したあと」(入口の書き出しがまとめて実行へ渡す。スタジオからは頼まない = 二重にしない)。transcribe は入口の書き出しの body の形
     streamer: liveWhoName(v),   // 配信者の名前(字幕の色)。帯の「配信者」= 覚えた名前かチャンネル名から。空 = まとめて実行が決める(たいてい既定の色)
@@ -1994,7 +1995,7 @@ async function adoptPeak(id){
   if (p.endPending) return toast('この候補は区間の終わりがまだ録れていません。録れると採用できます', 5000);
   let r = null;
   try {
-    r = await peakPost(v, id, { op: 'adopt', after: LIVE_AFTERS.includes(S.settings.liveAfter) ? S.settings.liveAfter : 'check', streamer: liveWhoName(v) },
+    r = await peakPost(v, id, { op: 'adopt', after: LIVE_AFTERS.includes(S.settings.liveAfter) ? S.settings.liveAfter : 'auto', streamer: liveWhoName(v) },
       flushSave);   // 手元のマークを先に保存する(入口がスタジオのマークに足すので、保存が重ならないように)
   } catch (e){ if (S.cur === v) toast('候補を採用できませんでした: ' + e.message, 0, 'err'); }
   if (S.cur !== v) return;

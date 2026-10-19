@@ -245,7 +245,7 @@ def run(tmp, shots, force_chromium):
         def submit(self, env, spec=None, accept=False):
             from flow import run as run_mod
             run = run_mod.Run.from_envelope(env, spec)
-            handed.append((run.source_path, "auto" if run.mode == "file_auto" else "check"))
+            handed.append((run.source_path, "auto" if run.mode == "file_auto" else run.mode))
             return {"id": "run-%d" % len(handed)}
 
         def snapshot(self):

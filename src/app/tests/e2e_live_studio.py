@@ -229,7 +229,7 @@ def run(tmp, shots, force_chromium):
         def submit(self, env, spec=None, accept=False):
             from flow import run as run_mod
             run = run_mod.Run.from_envelope(env, spec)
-            handed.append((run.source_path, "auto" if run.mode == "file_auto" else "check"))
+            handed.append((run.source_path, "auto" if run.mode == "file_auto" else run.mode))
             handed_who.append(run.streamer)
             return {"id": "run-%d" % len(handed)}
 
@@ -406,7 +406,8 @@ def _scene_begin_and_play(cx):
     guide = pg.text_content("#rvLiveGuide") or ""
     check("マーク" in guide and pg.is_visible("#rvLiveGuide"), "3 次にすることの案内: %s" % guide)
     # 15. 書き出したあと・配信者(帯)
-    check(pg.input_value("#rvAfter") == "check" and pg.is_visible("#rvAfter"), "15 帯の「書き出したあと」は既定で「文字起こしまで」(今までの自動の文字起こしがオン)")
+    check(pg.input_value("#rvAfter") == "auto" and pg.is_visible("#rvAfter") and pg.eval_on_selector_all("#rvAfter option", "o => o.map(x => x.value)") == ["none", "auto"],
+          "15 帯の「書き出したあと」は既定で「全自動」・選べるのは 何もしない / 全自動(文字起こしまでは 10-19 に消した)")
     check(wait_js(pg, "() => document.querySelector('#rvLiveWhoText').textContent === '配信者: 兎田ぺこら'", 8000),
           "15 帯の「配信者」はチャンネル名から自動で決まる: %s" % pg.text_content("#rvLiveWhoText"))
     pg.select_option("#rvAfter", "auto")
@@ -676,8 +677,8 @@ def _scene_after_end(cx):
     # ---------------- 10. 終わった録画でマークして「書き出す」 ----------------
     pg.click("#rvAutoExp")   # 「マークしたらすぐ書き出す」を外す(いつものスタジオと同じ: 採用 → 書き出す)
     check(not pg.is_checked("#rvAutoExp"), "10 「マークしたらすぐ書き出す」を外せる")
-    # 15. 帯で配信者を直し、書き出したあとを「文字起こしまで」に → 次の(手動の)書き出しに渡る
-    pg.select_option("#rvAfter", "check")
+    # 15. 帯で配信者を直し、書き出したあとを「全自動」に → 次の(手動の)書き出しに渡る(選んだ値が残るかは test_cand_panel.cjs の sanitizeSettings)
+    pg.select_option("#rvAfter", "auto")
     pg.click("#rvLiveWho > summary")
     check(wait_js(pg, "() => document.querySelector('#rvLiveWho').open && !!document.querySelector('#rvLiveWhoIn').offsetParent", 3000), "15 「配信者」を押すと名前の欄が開く")
     if shots:
@@ -713,8 +714,8 @@ def _scene_after_end(cx):
     done2 = wait_for(lambda: (lambda js: len(js) == n_jobs + 1 and all(j["state"] == "done" for j in js) and js)(
         (api("GET", "/live/api/exports?recorder=local&recording=%s" % rid)[1] or {}).get("jobs") or []), 90, 0.5)
     check(done2, "10 終わった録画でも「書き出す」で書き出せる")
-    check(len(handed) == n_handed + 1 and handed[-1][1] == "check" and handed_who[-1] == "宝鐘マリン",
-          "15 直した配信者・「文字起こしまで」が次の書き出しに渡る: %s %s" % (handed[-1:], handed_who[-1:]))
+    check(len(handed) == n_handed + 1 and handed[-1][1] == "auto" and handed_who[-1] == "宝鐘マリン",
+          "15 直した配信者・「全自動」が次の書き出しに渡る: %s %s" % (handed[-1:], handed_who[-1:]))
     pg.click("#rvExpClose")
 
     # ---------------- 12. 読み込み直す(/cases?c=<id>#cand を開き直す) ----------------
@@ -726,7 +727,7 @@ def _scene_after_end(cx):
           "12 開き直すと、その録画が開いてマークが残っている")
     check(wait_js(pg, "() => /停止|終了/.test(document.querySelector('#rvRecState').textContent)", 10000), "12 開き直しても録画の状態は「停止」")
     check(pg.evaluate("() => document.querySelectorAll('#rvList .rv-chip.exported').length") == n_jobs + 1, "12 マークは全部「書き出し済み」")
-    check(pg.input_value("#rvAfter") == "check" and wait_js(pg, "() => document.querySelector('#rvLiveWhoText').textContent === '配信者: 宝鐘マリン'", 8000),
+    check(pg.input_value("#rvAfter") == "auto" and wait_js(pg, "() => document.querySelector('#rvLiveWhoText').textContent === '配信者: 宝鐘マリン'", 8000),
           "15 開き直しても「書き出したあと」と直した配信者のまま: %s / %s" % (pg.input_value("#rvAfter"), pg.text_content("#rvLiveWhoText")))
 
 
@@ -739,8 +740,8 @@ def _scene_adopt_api(cx):
     def marks_of(v):
         return ((api("GET", "/studio/api/video?id=%s" % v)[1] or {}).get("video") or {}).get("marks") or []
     code, ad = api("POST", "/live/api/adopt", {"recorder": "local", "recording": rid, "start": 10.04, "end": 13.0, "label": "自動の山", "origin": "auto"})
-    check(code == 200 and ad and ad["origin"] == "auto" and ad["existing"] is False and ad["job"]["after"] == "check",
-          "M1 adopt を受け付ける(after は設定 live.auto.after = 既定の文字起こしまで): %s" % ((ad or {}).get("job") or ad,))
+    check(code == 200 and ad and ad["origin"] == "auto" and ad["existing"] is False and ad["job"]["after"] == "auto",
+          "M1 adopt を受け付ける(after は設定 live.auto.after = 既定の全自動): %s" % ((ad or {}).get("job") or ad,))
     jid = ((ad or {}).get("job") or {}).get("id")
     done3 = wait_for(lambda: (lambda js: js and js[0]["state"] in ("done", "error") and js[0])(
         [j for j in (api("GET", "/live/api/exports?recorder=local&recording=%s" % rid)[1] or {}).get("jobs") or [] if j["id"] == jid]), 90, 0.5)

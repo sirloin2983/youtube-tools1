@@ -162,9 +162,9 @@ class FriendRequestTest(unittest.TestCase):
         j = adopt(rec_a, 200.0, 210.0, after="none", streamer="さくらみこ")
         self.assertEqual((j["origin"], j["after"], j["streamer"], j["request"]["rid"]), ("manual", "auto", "さくらみこ", ctx_a["rid"]))
         self.assertEqual((j["studio"]["start"], j["studio"]["end"]), (200.0, 210.0))
-        # 配信後のアーカイブ(archive): afterStream なしの依頼には結びつかない = ホームの設定(after check・余白 2 秒)
+        # 配信後のアーカイブ(archive): afterStream なしの依頼には結びつかない = ホームの設定(after auto・余白 2 秒)
         j = adopt(rec_a, 300.0, 330.0, origin="archive")
-        self.assertEqual((j["origin"], j["after"], j["streamer"], "request" in j), ("archive", "check", "", False))
+        self.assertEqual((j["origin"], j["after"], j["streamer"], "request" in j), ("archive", "auto", "", False))
         self.assertEqual((j["studio"]["start"], j["studio"]["end"]), (298.0, 332.0))
         # afterStream ありの依頼には結びつく(余白 0・配信者が空なら ""・カットの指定なし)
         j = adopt(rec_b, 100.0, 130.0, origin="archive")
@@ -173,7 +173,7 @@ class FriendRequestTest(unittest.TestCase):
         self.assertEqual((j["studio"]["start"], j["studio"]["end"]), (100.0, 130.0))
         # 結びついていない録画: 今までどおり
         j = adopt(rec_c, 100.0, 140.0, origin="auto")
-        self.assertEqual((j["after"], j["streamer"], "request" in j), ("check", "", False))
+        self.assertEqual((j["after"], j["streamer"], "request" in j), ("auto", "", False))
         self.assertEqual((j["studio"]["start"], j["studio"]["end"]), (98.0, 142.0))
         # 書き出しの記録(exports.json)にも request が残る(起動し直しても届け先が分かる)
         saved = fsio.read_json_file(os.path.join(live.store_dir, "exports.json"), 8 * 1024 * 1024)["jobs"]

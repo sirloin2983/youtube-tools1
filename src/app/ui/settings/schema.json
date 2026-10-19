@@ -39,7 +39,7 @@
         { "key": "live.liveTx.enabled", "type": "bool", "label": "配信中の候補を文字起こしする(GPU の whisper.cpp)", "default": true, "when": { "key": "live.enabled", "eq": true }, "hint": "候補の区間を短く聞いて「何と言っていたか」をスタジオの候補の行に出します。" }
       ] },
       { "id": "live-after", "title": "書き出したあとの自動の流れ", "hint": "新しく頼んだ書き出しから効きます(書き出しを頼んだときの値を覚えて、まとめて実行へ渡します)。", "items": [
-        { "key": "live.auto.after", "type": "enum", "label": "書き出したあと(画面・API が指定しないとき)", "default": "check", "options": [["none", "何もしない"], ["check", "文字起こしまで"], ["auto", "文字起こし → パック"]], "when": { "key": "live.enabled", "eq": true } },
+        { "key": "live.auto.after", "type": "enum", "label": "書き出したあと(画面・API が指定しないとき)", "default": "auto", "options": [["none", "何もしない"], ["auto", "文字起こし → パック"]], "when": { "key": "live.enabled", "eq": true } },
         { "key": "live.auto.cut", "type": "enum", "label": "パックのカット", "default": "", "options": [["", "ホームの設定のまま"], ["none", "カットしない"], ["silence", "無音で削る"]], "when": { "key": "live.enabled", "eq": true } },
         { "key": "live.auto.engine", "type": "enum", "label": "文字起こしのエンジン", "default": "", "options": [["", "「編集」の設定のまま"], ["whisper.cpp", "whisper.cpp(GPU)"]], "when": { "key": "live.enabled", "eq": true } },
         { "key": "live.auto.model", "type": "enum", "label": "モデル", "default": "", "options": [["", "「編集」の設定のまま"], ["large-v3", "large-v3"]], "when": { "key": "live.enabled", "eq": true } },

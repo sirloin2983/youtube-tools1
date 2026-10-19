@@ -66,7 +66,7 @@ DEFAULTS = {"autorun": {"mode": None, "top": 3, "cut": "none", "friendLength": T
             "backup": {"enabled": False, "folder": "", "everyHours": 24},   # 守る物は学習データ・ツール・関連資料 = 1 日 1 回で足りる(ユーザー)
             "hidden": {k: {} for k in HIDE_LISTS},
             "live": {"enabled": False, "folder": "", "recorders": [], "quality": "1080p", "autoDelete": True,
-                     "auto": {"after": "check", "cut": "", "engine": "", "model": "", "pad": _ADOPT["pad"]}, "autoAfterStream": False, "afterStreamPerHour": _ADOPT["perHour"],
+                     "auto": {"after": "auto", "cut": "", "engine": "", "model": "", "pad": _ADOPT["pad"]}, "autoAfterStream": False, "afterStreamPerHour": _ADOPT["perHour"],
                      "detect": {"enabled": True, "sens": "normal", "perHour": _ADOPT["perHour"]}, "autoAdopt": {"waitMin": _ADOPT["waitMin"]},
                      "liveTx": {"enabled": True, "model": "large-v3"},   # 配信中の候補の文字起こし(D-11 案 b。whisper.cpp の GPU。既定オン = 部品が無ければ何もしない)
                      "autoDeliver": True},   # 自分の配信の自動の切り抜き(配信中の自動採用・配信後の追加)を確認なしで友人へ 1 本ずつ届ける(ユーザー決定)
@@ -80,7 +80,7 @@ RECORDER_ID_RE = re.compile(r"^[a-z][a-z0-9-]{0,15}\Z")
 RECORDER_URL_RE = re.compile(r"^http://[A-Za-z0-9.\-]{1,100}:\d{2,5}\Z")   # 2台(P5)は LAN の http(合言葉つき)。パス・利用者名は付けさせない
 RECORDER_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{20,128}\Z")
 LIVE_QUALITIES = ("best", "1080p", "720p")   # 録画の画質(src/pipeline/ingest/rec_core.py の QUALITIES と同じ名前。既定 1080p = DEFAULT_QUALITY)
-LIVE_AFTERS = ("none", "check", "auto")      # 書き出したあと(src/flow/live_export.py の AFTERS と同じ名前)
+LIVE_AFTERS = ("none", "auto")      # 書き出したあと(src/flow/live_export.py の AFTERS と同じ名前。消した check = 文字起こしまでは auto として読む)
 LIVE_CUTS = ("", "none", "silence")          # 自動のパックのカット(src/app/autorun.py の CUTS。"" = ホームの autorun.cut)
 # 認識エンジンとモデル("" = 編集の設定のまま)。whisper.cpp・large-v3 だけ(ユーザー決定「普段よく使っているモデル以外は要らない」)。
 # 保存してある外れた値は読むときに "" = 編集の設定に戻る(_clean_keys)
@@ -285,7 +285,9 @@ def _clean_live_adopt(v, cur, strict=True):
 
 def _clean_live_auto(v, cur, strict=True):
     """live.auto(M2)+ 自動・アーカイブの採用の前後の余白 pad(M8)。strict=False は保存してある値を読むとき(形の違う鍵は既定に戻す。断らない)"""
-    checks = {"after": (lambda x: x in LIVE_AFTERS, "書き出したあと(after)は none・check・auto のどれかにしてください"),
+    if isinstance(v, dict) and v.get("after") == "check":   # 消した「文字起こしまで」(10-19): 保存済み・古い画面の値は全自動として読む
+        v = dict(v, after="auto")
+    checks = {"after": (lambda x: x in LIVE_AFTERS, "書き出したあと(after)は none か auto にしてください"),
               "cut": (lambda x: x in LIVE_CUTS, "カット(cut)は 空(ホームの設定)・none・silence のどれかにしてください"),
               "engine": (lambda x: x in LIVE_ENGINES, "認識エンジン(engine)は 空(編集の設定)・%s のどれかにしてください" % "・".join(LIVE_ENGINES[1:])),
               "model": (lambda x: x in LIVE_MODELS, "モデル(model)は 空(編集の設定)・%s のどれかにしてください" % "・".join(LIVE_MODELS[1:])),

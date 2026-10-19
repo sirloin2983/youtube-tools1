@@ -71,7 +71,8 @@ MODE_STEPS = {"full": ("analyze", "adopt", "export", "transcribe", "pack"), "ado
 NORMALIZE_STEP = "normalize"
 # 友人からの依頼(src/human/friend/intake.py。notes:docs/spec/friend.md)の形。ホームの画面の「まとめて実行」の選択肢には出さない(MODES に入れない)。
 # 友人が送るときに選ぶ(ユーザー決定): ① 全自動 auto = パックまで作って Dropbox の 出力\ へ / ② 軽く確認 check = 文字起こしまで /
-# (② check は自分の配信の書き出しのあと(L2)と手で置いた動画・URL が使う)。request* = 配信の URL(解析 → 上位 N 個を採用 → 書き出し → …)/ file* = 友人が切り抜いた動画
+# (② check は手で置いた動画・URL が使う。ライブの書き出しのあとの「文字起こしまで」= after check は 10-19 に消した = 保存済みは全自動 file_auto)。
+# request* = 配信の URL(解析 → 上位 N 個を採用 → 書き出し → …)/ file* = 友人が切り抜いた動画(file は ② の口・CLI の束で run.upto transcribe を頼んだときも)
 REQUEST_MODES = {"request_auto": "依頼 ① 全自動: 解析 → パック", "request": "依頼 ② 軽く確認: 解析 → 文字起こし",
                  "file_auto": "依頼 ① 全自動: 文字起こし → パック", "file": "依頼 ② 軽く確認: 文字起こし"}
 # 友人が時刻で指定した区間(notes:docs/spec/friend.md の 2-6): 前後に余白を足してスタジオの手動マーク(採用)にする。
@@ -145,7 +146,7 @@ def mode_of(kind, bundle, request_id=None):
     """封筒の kind + 束の run.from・run.upto + 依頼の id -> 実行の形(MODE_STEPS の鍵。記録の mode・modeLabel・届ける溜めの鍵の元)か None(合わない組)。
     url: from が export = 採用後(upto pack → adopted・transcribe → transcribe)/ 頭から(null・analyze)= upto pack なら依頼の id で request_auto か full・
     transcribe なら request / transcribe(run() の from_ = 配信の文字起こしから)= doc。docs: pack だけ(doc)。file: pack → file_auto・transcribe → file
-    (RV A2)"""
+    (手で置いた動画・② の口・CLI の束が upto transcribe を頼んだとき)(RV A2)"""
     frm, upto = bundle["run"]["from"], bundle["run"]["upto"]
     if kind == "docs":
         return DOC_MODE if upto == "pack" else None

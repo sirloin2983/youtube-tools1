@@ -15,8 +15,8 @@
 - **mount.py** (220 行) — 統合サーバーへのツールの取り込み(統合計画の段階3。notes:docs/design/integration-plan.md)。
   - 名前: `class MountError` :53・`tool_modules` :57・`check_no_collision` :67・`load_serve` :77・`inject_token` :104・`send_redirect` :115・`make_handler` :125・`class Mount` :172
   - 受ける口: `/api/ytt` :46
-- **prefs.py** (492 行) — ホームの設定(画面の直し「気が利く画面へ」の土台。notes:docs/design/briefs/ux-consistency/DESIGN_BRIEF.md)。
-  - 名前: `class PrefsError` :96・`guess_streamer` :386・`class Prefs` :398
+- **prefs.py** (494 行) — ホームの設定(画面の直し「気が利く画面へ」の土台。notes:docs/design/briefs/ux-consistency/DESIGN_BRIEF.md)。
+  - 名前: `class PrefsError` :96・`guess_streamer` :388・`class Prefs` :400
 - **server.py** (1889 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
   - 名前: `runtime_dir` :208・`ping` :218・`port_open` :223・`tail` :229・`expected_version` :250・`tool_python` :256・`rel_or_abs` :266・`signal_stop` :274・`class Tool` :287・`app_data_dir` :337・`logs_dir_for` :343・`class Supervisor` :349・ほか 20
   - 受ける口: `/api/intake` :651・`/api/backup` :652・`/api/accuracy` :653・`/api/flow/runs` :654・`/api/cases/auto` :656・`/api/flow/submit` :657・`/api/flow/estimate` :657・`/api/flow/cancel` :658・`/api/flow/retry` :658・`/api/flow/outbox/done` :659・`/api/intake/scan` :660・`/api/backup/run` :660・`/api/accuracy/run` :661・`/api/window` :661・`/api/check/answer` :662・`/api/check/skip` :662・`/api/check/flush` :662・`/api/cleanup` :663・`/api/shutdown` :663・`/api/ping` :764・`/api/status` :766・`/api/health` :770・`/api/log` :774・`/api/flow/machine` :789・`/api/flow/outbox` :794・`/api/flow/status` :796・`/api/flow/history` :800・`/api/check/next` :803・`/api/cases` :809
@@ -111,8 +111,8 @@
   - 名前: `$` :7・`mmss` :11・`entryHtml` :14・`settings` :51・`loadOpts` :55・`unquote` :60・`looksYt` :61・`entries` :62・`paintKinds` :72・`syncAdd` :77・`refocusForm` :87・`setMsg` :94・ほか 20
 - **rank.js** (785 行) — 切り抜きスタジオ: ① 探す(配信ランキング)。検索 → 結果(全部まとめて再生数の順 / 事務所ごと)→ チェックして「解析に追加」か「まとめて実行」(入口から開いたときだけ)
   - 名前: `$` :5・`lsGet` :8・`lsSet` :9・`fmtN` :10・`fmtDur` :11・`ymd` :12・`okThumb` :13・`atMs` :16・`saveReg` :27・`agKey` :32・`captureReg` :35・`restoreReg` :51・ほか 69
-- **review.js** (3476 行) — 切り抜きスタジオ ② 確認・書き出し(切り抜きマーカー由来)。
-  - 名前: `create` :9・`round1` :14・`uid` :15・`toast` :16・`parseTime` :20・`isAutoLike` :34・`marksPayload` :35・`sec1` :48・`sanitizeKeymap` :49・`spanLabel` :60・`sanitizeSettings` :64・`marks` :100・ほか 285
+- **review.js** (3477 行) — 切り抜きスタジオ ② 確認・書き出し(切り抜きマーカー由来)。
+  - 名前: `create` :9・`round1` :14・`uid` :15・`toast` :16・`parseTime` :20・`isAutoLike` :34・`marksPayload` :35・`sec1` :48・`sanitizeKeymap` :49・`spanLabel` :60・`sanitizeSettings` :65・`marks` :101・ほか 285
 
 ## テスト
 

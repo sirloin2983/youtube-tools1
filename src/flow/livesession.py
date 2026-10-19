@@ -553,7 +553,7 @@ class LiveSession:
         a = self.cfg().get("auto")
         a = a if isinstance(a, dict) else {}
         pad = a.get("pad")
-        out = {"after": a.get("after") if a.get("after") in LX.AFTERS else "check",
+        out = {"after": LX.read_after(a.get("after")) or "auto",   # 保存済みの check(消した文字起こしまで)は全自動
                "cut": a.get("cut") or "", "engine": a.get("engine") or "", "model": a.get("model") or "",
                "pad": float(pad) if schemas.is_num(pad) and 0 <= pad <= PAD_MAX else float(_spec.DEFAULTS["adopt"]["pad"])}
         b = self.bundle(rc, rec) if rc and rec else None

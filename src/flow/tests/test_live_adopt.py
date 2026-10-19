@@ -63,7 +63,7 @@ class Runner:
         """② の口(RS7-2 G2b: 書き出しの受け渡しは封筒 kind file + 束)。覚えるのは (動画, flow, 欄) = start_file の形"""
         run = R.Run.from_envelope(env, spec)
         kw = {k: getattr(run, k) for k in ("cut", "engine", "model") if getattr(run, k)}
-        self.files.append((run.source_path, "auto" if run.mode == "file_auto" else "check", kw))
+        self.files.append((run.source_path, "auto" if run.mode == "file_auto" else run.mode, kw))
         return {"id": "run-%d" % len(self.files)}
 
 
@@ -82,7 +82,7 @@ class Host:
         self.marks = LA.LocalMarks(lambda: self.exporter)
 
     def auto_cfg(self, rc=None, rec=None):
-        return {"after": "check", "cut": "", "engine": "", "model": "", "pad": 2.0}
+        return {"after": "auto", "cut": "", "engine": "", "model": "", "pad": 2.0}
 
     def recorders(self, cfg=None):
         return [{"id": "fake", "name": "偽物", "url": "http://127.0.0.1:9", "token": "t"}]
@@ -195,8 +195,8 @@ class LocalMarksTest(unittest.TestCase):
         """依頼が配信後の追加を要らないと言う(アーカイブからの採用 = Archiver の道)・届ける hook が無い = 届けない。
         依頼つきの採用の道(after auto・依頼の余白・検査)は src/flow/tests/test_live_export.py の通し"""
         self.host.requests.items["fake/" + REC] = {"rid": "r-1", "deliverDir": "", "streamer": "", "settings": {"pad": 0, "afterStream": False}}
-        self.assertEqual(self.ad.request_for("fake", REC, "archive", "check", "x"), (None, "check", "x"))
-        self.assertEqual(self.ad.request_for("fake", "20261011-200001-" + VID, "auto", "check", ""), (None, "check", ""))
+        self.assertEqual(self.ad.request_for("fake", REC, "archive", "auto", "x"), (None, "auto", "x"))
+        self.assertEqual(self.ad.request_for("fake", "20261011-200001-" + VID, "auto", "auto", ""), (None, "auto", ""))
 
     def test_top_of(self):
         """友人の PC の上限 = 束の adopt.top(親の auto_max が返す)。無い・形が違えば束の既定"""

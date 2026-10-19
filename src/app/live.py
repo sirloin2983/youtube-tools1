@@ -141,7 +141,7 @@ class Live(livesession.LiveSession):
                  store_dir=None, out_dir=None, runner=None, audio=None, server=None, archive_opts=None, cleanup_opts=None):
         """prefs: src/app/prefs.py の Prefs。data_dir: 手元の録画の部品の作業データ(テスト用。既定 recorder_data_dir)。
         store_dir: マークと書き出しの記録(既定 入口の作業データの live)。out_dir(): 書き出し先(既定 スタジオの書き出し先)。
-        runner(): 文字起こしへ渡す まとめて実行(既定 入口の server.autorun。画面の要求が来たときに覚える)。
+        runner(): 書き出した切り抜きを渡す まとめて実行(既定 入口の server.autorun。画面の要求が来たときに覚える)。
         audio(): 束の無い録画の書き出しの音量の設定 {"volume", "loudness"}(既定 スタジオの書き出しの設定 = studio_audio)。
         server: 入口のサーバー(取り込んだスタジオの API を呼ぶ = P4 の作り直し。画面の要求が来る前の自動の作り直しでも使えるように、入口が渡す)。
         archive_opts: src/flow/live_archive.py の Archiver へ渡す引数(テスト用: studio・probe・fetch・間隔)。
