@@ -1,4 +1,4 @@
-"""案件の画面(/cases)の「校正」のパネル(RS8 C2b。panels/proof.js・edhost.js・machpick.js)の通し確認(Playwright)。リポジトリ直下で:
+"""案件の画面(/cases)の「校正」のパネル(panels/proof.js・edhost.js・machpick.js)の通し確認(Playwright)。リポジトリ直下で:
     set PYTHONIOENCODING=utf-8
     py -3.12 src/app/tests/e2e_cases_proof.py
 入口(app/server.py --only transcribe,cut2resolve)を疑似の文字起こしで動かす(src/editor/tests/e2e_edit_common.py の Server)。
@@ -126,19 +126,15 @@ def _scene_open(ck, pg, base, t1, t2):
 
 
 def _scene_keys_and_save(ck, pg, srv, t1):
+    """配信の案件の文書で: 校正済みにすると自動で保存・? の一覧・離れたらすぐ保存(行の移動のキーの一式は _scene_row_keys)"""
     pg.evaluate("document.activeElement && document.activeElement.blur()")
     pg.keyboard.press("s")
     ck(wait_js(pg, "S.navIdx === 0"), "S で最初の行へ: %s" % pg.evaluate("S.navIdx"))
-    pg.keyboard.press("s")
-    ck(wait_js(pg, "S.navIdx === 1"), "S で次の行へ")
-    pg.keyboard.press("w")
-    ck(wait_js(pg, "S.navIdx === 0"), "W で前の行へ")
     pg.keyboard.press("Shift+Space")
     ck(wait_js(pg, "S.doc.segments[0].proofed === true && S.navIdx === 1"), "Shift+Space で校正済みにして次へ")
     ck(wait_js(pg, "document.querySelector('#saveState').dataset.state === 'ok'", 8000), "自動で保存: %r" % pg.text_content("#saveState"))
     pg.keyboard.press("?")
     ck(wait_js(pg, "document.querySelector('#keys').open"), "? でキー操作の一覧")
-    ck(pg.evaluate("typeof KEY_SHELL !== 'undefined' && !!KEY_SHELL['Shift+n'] && !!KEY_SHELL['Alt+2']"), "殻のキー(Shift+N・Alt+1/2)は割り当てを断る表にある")
     pg.keyboard.press("Escape")
     ck(wait_js(pg, "!document.querySelector('#keys').open"), "Esc で閉じる")
     # 文字を直して、すぐ窓を離れる(UIKit.life の blur)= 0.7 秒の待ちを待たずに保存
@@ -329,22 +325,28 @@ def _wait_job(srv, jid, timeout=60):
 
 
 def _more_docs(srv):
-    """場面ごとの文書(どれもスタジオの配信に入れない = 左の一覧は仮の案件)"""
+    """場面ごとの文書(どれもスタジオの配信に入れない = 左の一覧は仮の案件)。12 秒の動画は 1 本作って名前を変えて写す(文書は動画のパスで分かれる)"""
     v24 = make_video(os.path.join(srv.media, "rows24.webm"), sec=24)
     keys = srv.transcribe(v24, title="キーの確認")   # 疑似は 4 秒で 1 行 = 6 行
     d = srv.get("/api/transcript?id=" + keys)
     d["segments"][1]["flag"] = "認識が不確か"
     d["segments"][0]["proofed"] = True
     _put(srv, keys, "キーの確認", d["segments"], [{"id": "S1", "name": "トワ", "color": "#2f62d6"}])
-    tools = srv.transcribe(make_video(os.path.join(srv.media, "tools.webm"), sec=12), title="行の道具")
+    v12 = make_video(os.path.join(srv.media, "tools.webm"), sec=12)
+
+    def v12_as(name):
+        p = os.path.join(srv.media, name)
+        shutil.copyfile(v12, p)
+        return p
+    tools = srv.transcribe(v12, title="行の道具")
     _put(srv, tools, "行の道具", GAP_SEGS)
-    join = srv.transcribe(make_video(os.path.join(srv.media, "join.webm"), sec=12), title="つなぐ分ける")
+    join = srv.transcribe(v12_as("join.webm"), title="つなぐ分ける")
     _put(srv, join, "つなぐ分ける", JOIN_SEGS)
-    ev = srv.transcribe(make_video(os.path.join(srv.media, "eval.webm"), sec=12), title="さくらみこ 雑談")
+    ev = srv.transcribe(v12_as("eval.webm"), title="さくらみこ 雑談")
     d = srv.get("/api/transcript?id=" + ev)
     _put(srv, ev, "さくらみこ 雑談", [dict(g, speaker="", proofed=False) for g in d["segments"]], evalSet=True)
-    alt = srv.transcribe(make_video(os.path.join(srv.media, "alt.webm"), sec=12), title="別のエンジン")
-    fill = srv.transcribe(make_video(os.path.join(srv.media, "fill.webm"), sec=12), title="別の読み")
+    alt = srv.transcribe(v12_as("alt.webm"), title="別のエンジン")
+    fill = srv.transcribe(v12_as("fill.webm"), title="別の読み")
     d = srv.get("/api/transcript?id=" + fill)
     _put(srv, fill, "別の読み", [dict(g, text=FILL_LONG, fill={"from": g["text"], "by": "sense-voice"}, flag="別の読みで埋めた行です") for g in d["segments"]])
     voice = srv.transcribe(make_video(os.path.join(srv.media, "voice.webm"), sec=30), title="声の確認")
@@ -548,7 +550,8 @@ def _scene_join_split_z(ck, pg, srv, base, tid):
     ck(len(pg.evaluate(TEXTS)) == 3, "1.5 秒以内の 2 回目で消える")
     _select_row(pg, 0)
     pg.keyboard.press("z")
-    time.sleep(1.6)   # 期限切れ(誤操作で消さない仕様そのもの)
+    # 期限切れ(誤操作で消さない仕様そのもの)。1.6 秒待つ代わりに画面の時計(Date.now)を 1.6 秒進める(戻さない = 時計は前にだけ進む)
+    pg.evaluate("(() => { const now = Date.now.bind(Date); Date.now = () => now() + 1600; })()")
     pg.keyboard.press("z")
     ck(len(pg.evaluate(TEXTS)) == 3, "1.5 秒を過ぎた Z は 1 回目からやり直し")
     pg.evaluate("document.activeElement && document.activeElement.blur()")

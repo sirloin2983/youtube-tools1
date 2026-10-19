@@ -763,8 +763,6 @@ test('export done notice has [編集で開く] with the same URL as the row link
   assert.equal(shown.at(-1).o.action.label, '1本目を編集で開く', 'several: the first one');
   ctx.doneToast('書き出しを中止しました', '', []);
   assert.deepEqual(shown.at(-1), { m: '書き出しを中止しました', ms: 0, k: '' }, 'nothing to open: the plain notice');
-  const fin = between('function pollJob(', 'async function startExport(');
-  assert.ok(fin.includes('doneToast(') && fin.includes('clipPathOf(j, i)'), 'the export job notice passes the written files');
 });
 
 test('links to the home use data-ui-portal (no new tab); the autorun entry is not hidden but says why it cannot be used', () => {

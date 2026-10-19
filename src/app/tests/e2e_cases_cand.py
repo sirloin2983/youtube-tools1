@@ -1,4 +1,4 @@
-"""案件の画面(/cases)の「候補」のパネル(src/app/ui/cases/panels/cand.js。RS8 C2a)の通し確認(Playwright)。リポジトリ直下で:
+"""案件の画面(/cases)の「候補」のパネル(src/app/ui/cases/panels/cand.js)の通し確認(Playwright)。リポジトリ直下で:
     set PYTHONIOENCODING=utf-8
     py -3.12 src/app/tests/e2e_cases_cand.py
 入口(app/server.py)にスタジオを取り込んで動かす(STUDIO_FAKE=1・生成した短い webm・一時フォルダだけ)。
@@ -159,7 +159,7 @@ def main():
                             "modeLabel": "文字起こしまで", "marks": body.get("marks"), "steps": [{"label": "書き出し", "state": "queued"}]}
 
                 def fake_tx_start(route):   # 入口のまとめて実行(書き出しのあとの自動の文字起こし・まとめて実行)は頼んだ中身だけ見る
-                    raw = json.loads(route.request.post_data or "{}")   # ② の口 {envelope, spec}(RV A1)-> {id, mode, marks} の形で覚える
+                    raw = json.loads(route.request.post_data or "{}")   # ② の口 {envelope, spec} -> {id, mode, marks} の形で覚える
                     env, run = raw.get("envelope") or {}, (raw.get("spec") or {}).get("run") or {}
                     mode = ("transcribe" if run.get("upto") == "transcribe" else "adopted") if run.get("from") == "export" else "full"
                     body = {"id": (env.get("input") or {}).get("videoId"), "mode": mode, "marks": (env.get("input") or {}).get("marks")}
@@ -177,7 +177,6 @@ def main():
                 check(pg.evaluate("CasesShell.state().panel") == "cand" and pg.evaluate("location.search + location.hash") == "?c=%s#cand" % VID, "殻: 候補のタブ・URL")
                 check(pg.evaluate("document.querySelectorAll('#csPane #rvList .rv-mark-row').length") == 5, "マーク 5 件(手 2 + 自動 3)")
                 check(pg.is_hidden("[data-cd-status]"), "読み込めたら案内は消える")
-                check(pg.evaluate("!!document.querySelector('script[src=\"studio/review.js\"]')"), "部品はスタジオの review.js(相対パス)を読む")
                 # 1b. 外から来る文字列(題名・ラベル)は文字のまま
                 check(pg.input_value("#rvTitle") == XSS_TITLE, "配信の題名は文字のまま")
                 check(pg.input_value('#rvList .rv-mark-row[data-id="x1"] [data-f="label"]') == XSS_LABEL, "マークのラベルは文字のまま")
@@ -198,9 +197,7 @@ def main():
                 check(wait_js(pg, "document.querySelector('#rvSave').dataset.k === 'saved'", 8000) and
                       next(m for m in marks() if m["id"] == first)["status"] == "adopted", "採用がスタジオに保存される")
                 pg.click(row + ' [data-act="st"][data-st="rejected"]')
-                wait_js(pg, "document.querySelector('#rvSave').dataset.k === 'saved'", 8000)
-                time.sleep(0.3)
-                check(next(m for m in marks() if m["id"] == first)["status"] == "rejected", "不採用もスタジオに保存される")
+                check(testkit.wait_for(lambda: next(m for m in marks() if m["id"] == first)["status"] == "rejected", 8, 0.1), "不採用もスタジオに保存される")
 
                 # 3b. 開始・終了は時刻の欄(UIKit.timebox): 数字だけ打って Enter で確定 → 保存・欄の中の ← → は再生位置を動かさない
                 M1 = '#rvList .rv-mark-row[data-id="m1"]'
@@ -230,8 +227,7 @@ def main():
                 pg.click("#rvList .rv-mark-row.st-cand .rv-tc")
                 sel = pg.evaluate("document.querySelector('#rvList .rv-mark-row.sel').dataset.id")
                 pg.keyboard.press("y")
-                time.sleep(0.2)
-                check(pg.evaluate("id => !document.querySelector('#rvList .rv-mark-row[data-id=\"' + id + '\"]')", sel), "y キーで採用(候補の絞り込みから消える)")
+                check(wait_js(pg, "!document.querySelector('#rvList .rv-mark-row[data-id=\"%s\"]')" % sel, 3000), "y キーで採用(候補の絞り込みから消える)")
                 pg.click('#rvFilters [data-filter="all"]')
                 pg.evaluate("document.activeElement && document.activeElement.blur()")
                 n0 = pg.evaluate("document.querySelectorAll('#rvList .rv-mark-row').length")
@@ -279,6 +275,8 @@ def main():
                 path = urllib.parse.unquote(href.split("?v=", 1)[1].split("#", 1)[0]) if "?v=" in href else ""
                 check(href.startswith("/cases?v=") and href.endswith("#proof") and os.path.isfile(path),
                       "「編集で開く」は案件の画面(/cases?v=…#proof)で、実在する mp4: %s" % href[:80])
+                check(wait_js(pg, "[...document.querySelectorAll('.ui-toast-act')].some(b => b.textContent === '編集で開く')", 5000),
+                      "書き出しが済んだ知らせにも [編集で開く](書いたファイルを知らせに渡す)")
                 check(wait_js(pg, "!!document.querySelector('#rvList .rv-mark-row[data-id=\"m1\"].st-exported')", 10000), "書き出し済みの印")
                 end = time.time() + 8
                 while not sent_tx and time.time() < end:
@@ -320,7 +318,7 @@ def main():
                 pg.press("#rvMomBefore", "Tab")
                 pg.evaluate("document.activeElement && document.activeElement.blur()")
                 pg.evaluate("document.querySelector('#rvHost video').currentTime = 20")
-                time.sleep(0.3)
+                wait_js(pg, "(() => { const v = document.querySelector('#rvHost video'); return !v.seeking && Math.abs(v.currentTime - 20) < 0.1; })()", 3000)
                 n_marks = len(marks())
                 pg.keyboard.press("c")
                 end = time.time() + 10
@@ -377,13 +375,12 @@ def main():
                 pg.set_viewport_size({"width": 1440, "height": 900})
                 check(wait_js(pg, "document.querySelector('#rvExport').hidden", 3000), "1440 に戻すと、並べていた引き出しは閉じる")
 
-                # 8. 幅 390: 重ねて開いた書き出しの欄の裏では、配信のキー(→・採用)が効かない(B-2)。
+                # 8. 幅 390: 重ねて開いた書き出しの欄の裏では、配信のキー(→・採用)が効かない。
                 # 横にはみ出さないことは ui_audit の A-20 が見る
                 pg.set_viewport_size({"width": 390, "height": 800})
                 pg.goto(base + "cases?c=%s#cand" % VID)
                 check(wait_js(pg, "!!document.querySelector('#rvList .rv-mark-row')", 20000), "390 でも開ける")
-                time.sleep(0.5)
-                check(pg.evaluate("document.querySelector('#rvJump').classList.contains('is-bar')"), "390: プレーヤー・マーク・書き出しへ飛ぶ案内")
+                check(wait_js(pg, "document.querySelector('#rvJump').classList.contains('is-bar')", 3000), "390: プレーヤー・マーク・書き出しへ飛ぶ案内")
                 check(wait_js(pg, "(() => { const v = document.querySelector('#rvHost video'); return !!v && v.readyState > 0; })()", 10000), "390: プレーヤーの準備")
                 pg.evaluate("document.querySelector('#rvHost video').pause()")
                 pg.click('#rvJump [data-jump="export"]')

@@ -1,13 +1,13 @@
-"""確かめる(/check。部品は src/app/ui/check/。RS8 V1 = 殻)の通し確認(Playwright)。リポジトリ直下で:
+"""確かめる(/check。部品は src/app/ui/check/)の通し確認(Playwright)。リポジトリ直下で:
     set PYTHONIOENCODING=utf-8
     py -3.12 src/app/tests/e2e_check.py
-入口(server.py)は e2e_cases.py と同じ形で動かす(ツールは取り込まない)。⑤ の待ち行列の口(api/check/next・answer・skip。V0)は
+入口(server.py)はツールを取り込まずに動かす。⑤ の待ち行列の口(api/check/next・answer・skip)は
 計画 notes:docs/design/v1-check-build.md 2-3 の形の偽物(Playwright の route)で答える。動画は ffmpeg で作った webm を transcribe/media の偽物で返す。
 見るもの: 開く(帯 = 今日 n 件・この確認で決まる物・このあと・最初のカード)・URL の c / kind を口へ渡す / A で答える → 送った中身・すぐ次へ /
 Z で 1 つ前に戻す(undo の id・カードが戻る・今日の数)/ N で飛ばす(skip を送る・Z では戻らない)/ 答えのボタン = キーと同じ道 /
 誰の声のカード = 再生が終わるまで Enter は効かない・自動で再生して区間で止まる / 時刻のカード = 波形の帯 / 10 件ごとのまとめ(Enter で続ける)/
 全部答えた空の状態(back=cases なら案件へ戻る)/ 答えを記録できない(カードが戻る)/ 一覧を読めない(もう一度)/
-ヘッダー(appnav・版・設定)/ コンソールにエラーが無い。"""
+ヘッダー(appnav・版・設定がある。appnav の中身は e2e_portal)/ コンソールにエラーが無い。"""
 import json
 import os
 import re
@@ -97,7 +97,7 @@ class FakeQueue:
                         "goals": {"value": {"kind": "value", "id": "marks", "label": "採用の記録 配信 10 本", "left": max(0, 2 - values), "target": 10, "unit": "本",
                                             "opens": "C1 盛り上がりの重み(I-4a)", "now": 8 + values, "reached": False},
                                   "read": {"kind": "read", "id": "fill", "label": "後処理の札の判定 30 行", "left": None, "target": 30, "unit": "行",
-                                           "opens": "K1 後処理の割合", "now": None, "reached": False},   # 未測定(V4 で直した帯の文)
+                                           "opens": "K1 後処理の割合", "now": None, "reached": False},   # 未測定
                                   "time": {"kind": "time", "id": "timing", "label": "行の時刻の判定 100 行", "left": 0, "target": 100, "unit": "行",
                                            "opens": "B1 行の時刻", "now": 100, "reached": True}},
                         "held": [], "failed": [], "errors": []}
@@ -131,9 +131,15 @@ def state(pg):
     return pg.evaluate("CheckShell.state()")
 
 
+LOADED_JS = "document.getElementById('chkEmpty').hidden || !document.querySelector('#chkEmpty .chk-loading')"
+
+
 def press(pg, key):
+    """キーを押して、送った要求(答え・戻す・飛ばす)を偽の待ち行列が受け、カードの読み込み(先読みの api/check/next)が済むまで待つ。
+    同期版の route は Playwright を呼んでいる間しか動かない(time.sleep では届かない)ので wait_for_timeout と evaluate で待つ"""
     pg.keyboard.press(key)
-    time.sleep(0.15)
+    pg.wait_for_timeout(40)
+    wait_js(pg, LOADED_JS, 5000)
 
 
 def _scene_open(cx):
@@ -232,8 +238,6 @@ def _scene_summary_and_end(cx):
     check(wait_js(pg, "CheckShell.state().empty"), "全部答えたら空の状態: %s" % state(pg))
     check("今日の分は終わりです" in pg.text_content("#chkEmpty") and pg.get_attribute("#chkEmpty a.btn.primary", "href") == "cases?c=v1",
           "空の状態の文と 案件へ戻る(back=cases)")
-    check(pg.evaluate("[...document.querySelectorAll('[data-ui-appnav-item]')].map(a => a.dataset.uiAppnavItem + (a.getAttribute('aria-current') ? '*' : '')).join()") == "portal,cases,check*,settings",
-          "ヘッダーの appnav は ホーム / 案件 / 確かめる / 設定(確かめるが今の場所)")
     press(pg, "z")
     check(wait_js(pg, "!!CheckShell.state().cur && !CheckShell.state().empty"), "空の状態からも Z で 1 つ前に戻る")
 
@@ -260,7 +264,7 @@ def _scene_failures(cx):
 
 
 def _scene_read_type(cx):
-    """読みのカード(V2b): 1 / 2 で答える形は _scene_kinds。ここは 3(どちらも違う)= 入力欄 → 打つ → Enter で {choice: other, text}。入力欄の中の 1 は答えにならない"""
+    """読みのカード: 1 / 2 で答える形は _scene_kinds。ここは 3(どちらも違う)= 入力欄 → 打つ → Enter で {choice: other, text}。入力欄の中の 1 は答えにならない"""
     pg, check, fq = cx.pg, cx.check, cx.fq
     fq.cards = [card(90, "read", source="alt", guess=None, text="今日は晴れです", note="違い: 「晴」→「腫」",
                      options=[{"id": "1", "text": "今日は晴れです"}, {"id": "2", "text": "今日は腫れです"}])]
@@ -288,7 +292,7 @@ def _scene_read_type(cx):
 
 
 def _scene_real_api(cx):
-    """偽物を外して本物の入口の口(V0 の src/app/check/deck.py)で開く: 作業データが空なら「いま確かめる物はありません」・帯の目標は ⑤ の goals"""
+    """偽物を外して本物の入口の口(src/app/check/deck.py)で開く: 作業データが空なら「いま確かめる物はありません」・帯の目標は ⑤ の goals"""
     pg, check = cx.pg, cx.check
     cx.ctx.unroute(re.compile(r".*/api/check/.*"))
     pg.goto(cx.base + "check")
@@ -299,7 +303,7 @@ def _scene_real_api(cx):
 
 
 def _scene_voice(cx):
-    """誰の声のカード(V2c): 予想の Enter のボタンは再生が終わるまで押せない(理由つき)・登録簿の人(name:)は {name} で答える・M = 混ざり・Z で戻すとまた待つ"""
+    """誰の声のカード: 予想の Enter のボタンは再生が終わるまで押せない(理由つき)・登録簿の人(name:)は {name} で答える・M = 混ざり・Z で戻すとまた待つ"""
     pg, check = cx.pg, cx.check
     vid = {"url": "transcribe/media?id=a0000000000b", "start": 0.5, "end": 1.5, "pad": 0.2}
     fv = FakeQueue([card(30, "voice", source="diar", media=vid, guess={"id": "name:みこ", "name": "みこ"}, note="below_match",
@@ -492,7 +496,7 @@ def wait_for(fn, timeout=8):
 def fixture_cards():
     vid = {"url": "transcribe/media?id=a0000000000b", "start": 0.5, "end": 1.5, "pad": 0.2}
     cards = [card(i, "value", options=["good", "bad"], reasons=[{"id": "boring", "text": "場面がつまらない"}, {"id": "long", "text": "長すぎる"}],
-                  score=82.4 if i == 1 else None) for i in (1, 2, 3)]   # 自動の切り抜き = 送った後の品質の確認(良い / 悪い + 理由の札。D-SEND)
+                  score=82.4 if i == 1 else None) for i in (1, 2, 3)]   # 自動の切り抜き = 送った後の品質の確認(良い / 悪い + 理由の札)
     cards.append(card(4, "read", source="fill", guess="1", note="llm", options=[{"id": "1", "text": "負けないからね"}, {"id": "2", "text": "まけないからね"}]))
     cards.append(card(5, "voice", source="diar", media=vid, guess={"id": "B", "name": "配信者 B"},
                       options=[{"id": "A", "name": "配信者 A"}, {"id": "B", "name": "配信者 B"}, {"id": "other", "name": "その他"}, {"id": "mixed", "name": "混ざり"}]))

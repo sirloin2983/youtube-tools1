@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""案件の画面(/cases)の「カット・パック」パネル(src/app/ui/cases/panels/cut.js。RS8 C2c)の通し確認(Playwright)。リポジトリ直下で:
+"""案件の画面(/cases)の「カット・パック」パネル(src/app/ui/cases/panels/cut.js)の通し確認(Playwright)。リポジトリ直下で:
     set PYTHONIOENCODING=utf-8
     py -3.12 src/app/tests/e2e_cases_cut.py
 入口を編集と cut2resolve を取り込んだ形で動かし(編集の e2e と同じ Server。疑似の文字起こし)、/cases?d=<文書 id>#cut を開く(仮の案件 orphan に入る)。
 行からのたたき台・波形・区間の選択と削る / 戻す / 元に戻す・自動保存・
 殻のキー(Alt+1/2)とパネルのキーの両立・下の帯・字幕の一覧の「残す / カット」・カットしない・パックの設定(大きさ・音量・行の後の余白)が編集の設定に残る・
-「予備」の欄が無い(決定 3-34)・パックを作る(区間 = カットのとおり・EDL・SRT を入れない)・別の切り抜きを選んでも未保存のカットが残る・コンソールにエラーが無い。
+パックを作る(区間 = カットのとおり・EDL・SRT を入れない)・別の切り抜きを選んでも未保存のカットが残る・コンソールにエラーが無い。
 パックの記録と「作り直しが要る」の理由・同じ場所は確認なしで作り直す・別の場所は 3 択・zip でダウンロード/
 カット・パックで行を分けてすぐ校正へ(閉じる側の保存を待つ)/ キーボードだけで区間と端を選んで 1 コマ動かす・2 つの窓の 409 と読み直す・文書の競合の案内。"""
 import json
@@ -86,7 +86,7 @@ def main():
 
 
 def _scene_open(cx):
-    """開く: 行からのたたき台 5 区間・開いただけでは保存しない・波形・予備の欄が無い・殻のキーと下の帯"""
+    """開く: 行からのたたき台 5 区間・開いただけでは保存しない・波形・動画は編集の /transcribe/media から"""
     check, pg, srv, tid = cx.check, cx.pg, cx.srv, cx.tid
     shell = pg.evaluate("CasesShell.state()")
     check(shell["tab"] == "cut" and shell["panel"] == "cut" and shell["docId"] == tid, "#cut で、この切り抜きのカット・パックのパネル: %s" % shell)
@@ -374,7 +374,7 @@ def _scene_rows_to_proof(cx):
     pg.evaluate("i => document.querySelector('#segs .seg[data-i=\"' + i + '\"]').scrollIntoView({block: 'center'})", i)
     pg.click("#segs .seg[data-i='%d'] [data-act=cut]" % i)
     check(wait_js(pg, "[...document.querySelectorAll('.ui-toast')].some(t => /カット・パック」のタブで変えます/.test(t.textContent))", 5000), "区間があるときは校正で印を変えずにカット・パックへ案内する")
-    time.sleep(1.2)
+    wait_js(pg, "!S.dirty && !S.saving", 5000)   # 画面で印が変わっていれば保存が済むまで待つ(変わっていなければすぐ)
     check(pg.evaluate("i => S.doc.segments[i].cutState !== 'cut'", i) and srv.get("/api/transcript?id=" + tid)["segments"][i].get("cutState") == before,
           "画面の印もサーバーの印も変わらない(黙って消える印を付けない)")
 

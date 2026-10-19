@@ -95,7 +95,7 @@ def main():
                 return e.code, json.loads(e.read() or b"null")
 
         def submit(vid, frm=None, top=None):
-            """② の口 POST /api/flow/submit(RV A1。画面の UIKit.flow.order と同じ形: 封筒 + 束の差分)"""
+            """② の口 POST /api/flow/submit(画面の UIKit.flow.order と同じ形: 封筒 + 束の差分)"""
             spec = {"run": dict({"upto": "pack"}, **({"from": frm} if frm else {}))}
             if top is not None:
                 spec["adopt"] = {"top": top}
@@ -109,7 +109,7 @@ def main():
                 r = next((x for x in runs if x["id"] == run_id), None)
                 if r and r["state"] not in ("queued", "running"):
                     return r
-                time.sleep(0.5)
+                time.sleep(0.2)
             return r
 
         try:
@@ -164,9 +164,10 @@ def main():
                 pg.click(card + " .pt-auto-run")
                 check(wait_js(pg, "[...document.querySelectorAll('.ui-toast')].some(t => t.textContent.indexOf('やることがありません') >= 0)", 20000),
                       "2回目は見積もりで「やることがありません」と出す")
-                time.sleep(1.0)
+                # 始めるかどうかは知らせを出す前に決まっている = 待たずに見る
                 pills = pg.eval_on_selector_all(card + " .pt-auto-step .pill", "els => els.map(e => e.textContent)")
-                check(pills == ["書き出し 済み", "文字起こし 済み", "パック 済み"], "2回目は始めない(前の実行の表示のまま): %s" % pills)
+                check(pills == ["書き出し 済み", "文字起こし 済み", "パック 済み"] and pg.is_hidden(card + " .pt-auto-cancel"),
+                      "2回目は始めない(前の実行の表示のまま・中止は出さない): %s" % pills)
                 real = [e for e in errors if "Failed to load resource" not in e]
                 check(not real, "画面のエラーなし(CSP 違反を含む): %s" % real[:3])
                 browser.close()
