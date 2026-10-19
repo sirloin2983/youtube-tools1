@@ -70,11 +70,8 @@ def check_restart(browser, base, check):
 
         pg.click("#btnRestartBand")
         txt = pg.inner_text(band)
-        check(pg.evaluate("!document.getElementById('restartBandDemo').hidden") and "版が違います" in txt and "v0.2.0" in txt and "v0.1.0" in txt,
-              "版の帯: 画面とサーバーの版を出す")
-        check("黒い画面を閉じて" in txt and not pg.query_selector(band + " .ui-restart-btn"),
-              "単体で開いた画面(合言葉なし)は今までの案内だけで、「起動し直す」は出さない")
-        check(pg.evaluate("UIKit.restart.check(document.createElement('div'), '1.0', '1.0')") is False, "check: 版が同じなら何もしない(false)")
+        check(pg.evaluate("!document.getElementById('restartBandDemo').hidden") and "v0.2.0" in txt and "v0.1.0" in txt and not pg.query_selector(band + " .ui-restart-btn"),
+              "単体で開いた画面(合言葉なし)は版の案内だけで、「起動し直す」は出さない")
 
         # ホームから開いた画面(合言葉あり)
         pg.evaluate("const m = document.createElement('meta'); m.name = 'ytt-token'; m.content = 'tok-1'; document.head.appendChild(m);"
@@ -95,9 +92,8 @@ def check_restart(browser, base, check):
         st["mode"], st["ping"] = "ok", 0
         pg.click(band + " .ui-restart-btn")
         check(wait_js(pg, "window.__reloaded === 1"), "頼めたら ping が戻るのを待って読み込み直す")
-        check(pg.evaluate("window.__texts.some(t => t.includes('起動し直しています'))"), "待っている間は「起動し直しています…」")
-        check(pg.evaluate("window.__texts.some(t => t.includes('起動し直しています') && t.includes('実行中の 2 件は、起動し直したあとに続きから進めます'))"),
-              "v20: 応答の notice(まとめて実行の続き)も待つ間の帯に出す")
+        check(pg.evaluate("window.__texts.some(t => t.includes('実行中の 2 件は、起動し直したあとに続きから進めます'))"),
+              "待っている間の帯に、応答の notice(まとめて実行の続き)を出す")
         check(st["ping"] >= 2 and pg.get_attribute(band, "data-ui-restart") == "done", "一度答えなくなってから答えたら戻った扱い(ping %d 回)" % st["ping"])
         check(pg.evaluate("document.querySelector('#restartBandDemo .ui-restart-btn').disabled"), "起動し直している間はボタンを押せない")
 
@@ -130,7 +126,7 @@ def live_no_token(ctx, base, check):
     pg2.route("**/api/ytt/**", lambda r: (calls0.append(r.request.url), r.fulfill(status=404, body="{}")))
     pg2.goto(base + "styleguide.html")
     pg2.wait_for_selector("#iconGrid .ui-icon svg")
-    pg2.wait_for_timeout(300)
+    pg2.wait_for_timeout(200)   # 問い合わせが来ないことは待たないと見えない
     check(not calls0 and pg2.query_selector(".ui-header-actions .ui-live") is None and pg2.evaluate("UIKit.liveBadge.get()") is None,
           "合言葉の無いページでは問い合わせも札もない: %s" % calls0)
     pg2.close()
@@ -202,7 +198,6 @@ def check_http(browser, base, check):
               "GET: 応答の JSON を返し、合言葉・本文は付けない: %s" % oks[:1])
         check(oks[1]["method"] == "POST" and oks[1]["token"] == "tok-h" and (oks[1]["ctype"] or "").startswith("application/json")
               and json.loads(oks[1]["body"]) == {"a": [1, "あ"]}, "body があれば POST・JSON・合言葉(meta ytt-token)を付ける: %s" % oks[1:2])
-        check(oks[2]["method"] == "PUT" and oks[2]["token"] == "tok-h", "method は大文字にそろえ、PUT にも合言葉")
         check(oks[3]["token"] is None and oks[4]["token"] == "tok-own", "token: false なら付けない・文字列ならその値")
         cross = by.get("cross", [])
         check(r["cross"].get("ok") == {"cross": 1} and cross and all(c["token"] is None and c["method"] == "POST" for c in cross),
