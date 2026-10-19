@@ -736,6 +736,8 @@ def _next_case_buttons(cx):
     p2.wait_for_url(lambda u: "/cases" in u, timeout=20000)
     check(wait_js(p2, "new URLSearchParams(location.search).get('c') === 'e2eCase0001' && !!document.getElementById('csRail')", 20000)
           and len(ctx.pages) == n_pages, "[A] ボタンを押すと同じタブのまま案件の画面がその配信を開く: %s" % p2.url)
+    check(wait_js(p2, "document.querySelectorAll('#csPane #segs .seg').length === 2", 20000),
+          "[A] 着いた先の校正のパネルが文書の 2 行を出す(編集の API が文書を返す): %s" % p2.evaluate("document.querySelectorAll('#csPane #segs .seg').length"))
     p2.close()
 
 

@@ -161,9 +161,11 @@ def main():
                     os.makedirs(shots, exist_ok=True)
                     pg.screenshot(path=os.path.join(shots, "cases-autorun.png"), full_page=True)
                 # もう一度押す → 見積もりで「やることがありません」と出して、始めない
+                n_runs = len(call("GET", "/api/flow/runs")[1]["runs"])
                 pg.click(card + " .pt-auto-run")
                 check(wait_js(pg, "[...document.querySelectorAll('.ui-toast')].some(t => t.textContent.indexOf('やることがありません') >= 0)", 20000),
                       "2回目は見積もりで「やることがありません」と出す")
+                check(len(call("GET", "/api/flow/runs")[1]["runs"]) == n_runs, "2回目は実行を足さない(API の runs の数が同じ)")
                 # 始めるかどうかは知らせを出す前に決まっている = 待たずに見る
                 pills = pg.eval_on_selector_all(card + " .pt-auto-step .pill", "els => els.map(e => e.textContent)")
                 check(pills == ["書き出し 済み", "文字起こし 済み", "パック 済み"] and pg.is_hidden(card + " .pt-auto-cancel"),

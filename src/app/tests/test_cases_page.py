@@ -35,7 +35,7 @@ class CasesPageHttpTest(PageServerTest):
         self.assertIn(b'name="ytt-token"', body)
 
     def test_parts_headers(self):
-        for path in ("/cases.js", "/cases-panels/cand.css"):
+        for path in ("/cases.js", "/cases-panels/cand.css", "/cases-panels/new.css"):
             r, _ = self.req(path)
             self.assertEqual((r.status, r.getheader("X-Content-Type-Options")), (200, "nosniff"), path)
             self.assertIsNone(r.getheader("Content-Security-Policy"), path)   # CSP は画面(html)にだけ付ける

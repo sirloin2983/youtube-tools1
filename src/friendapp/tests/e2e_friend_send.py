@@ -74,6 +74,8 @@ def main():
                 expect(pg.locator("#formEmpty")).to_be_visible(timeout=WAIT)
                 row = pg.locator(".fr-sent-row", has_text=T_ARCH).first
                 expect(row).to_be_visible(timeout=WAIT)
+                sent = rig.app.inbox.rows[0]["form"]
+                ok &= check([list(x) for x in sent["ranges"]] == [[750.0, 780.0], [1200.0, 1290.0]] and sent["top"] is None, "区間 2 つが依頼に入る: %s" % sent["ranges"])
                 expect(row.locator(".fr-sent-line")).to_contain_text("順番", timeout=WAIT)
                 ok &= check(True, "[送る] の後、送る欄が閉じて「送った物」に行が出て、順番待ちと出る")
                 expect(pg.locator('.fr-card[data-vid="%s"] .fr-badge-sent' % V_ARCH)).to_have_text("順番待ち", timeout=WAIT)

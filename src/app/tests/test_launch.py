@@ -556,6 +556,12 @@ class PortalHttpTest(Base):
         r, _ = self.req("GET", "/settings/")
         self.assertEqual((r.status, r.getheader("Location")), (302, "/settings"))
         self.assertEqual(self.req("GET", "/server.py")[0].status, 404)   # コードや他のファイルは配らない
+        code, st = self.get_json("/api/status", headers={"Sec-Fetch-Site": "same-origin"})   # CLI(cli.py)と入口の画面が読む形
+        self.assertEqual((code, st["app"], st["version"]), (200, L.APP_ID, L.VERSION))
+        self.assertIn("dataDir", st)
+        self.assertEqual({t["id"] for t in st["tools"]}, set(L.TOOL_IDS))
+        for t in st["tools"]:
+            self.assertTrue({"state", "port"} <= set(t), t["id"])
 
     def test_cases_and_doc_lookup(self):
         """/api/cases?doc= の失敗の答え(一覧の中身は src/manage/cases/tests/test_cases.py・画面からは e2e_portal)"""

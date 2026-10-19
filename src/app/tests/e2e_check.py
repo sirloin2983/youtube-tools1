@@ -15,7 +15,6 @@ import subprocess
 import sys
 import tempfile
 import threading
-import time
 import types
 import urllib.parse
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所に書かない(ytt.datadir)
@@ -156,6 +155,7 @@ def _scene_open(cx):
     check(pg.is_disabled("#chkUndo") and bool(pg.get_attribute("#chkUndo", "title")), "まだ答えていないときは戻せない + 理由")
     check(wait_js(pg, "document.querySelector('#ver').textContent.startsWith('v')"), "版が出る")
     check(pg.evaluate("!!document.querySelector('.ui-header nav[data-ui-appnav]') && !!document.querySelector('.ui-header-actions [data-ui-settings]')"), "ヘッダーに appnav と設定")
+    check(pg.evaluate("document.querySelector('[data-ui-appnav-item][aria-current=\"page\"]').dataset.uiAppnavItem") == "check", "appnav の今の場所は「確かめる」")
 
 
 def _scene_answer_undo_skip(cx):
@@ -193,6 +193,7 @@ def _scene_kinds(cx):
     check(wait_js(pg, "CheckShell.state().kind === 'voice'") and fq.answers[-1]["body"]["answer"] == {"choice": "2"}, "2 で答える")
     check(wait_js(pg, "!!document.querySelector('#chkBody video')"), "誰の声のカードは動画を出す")
     press(pg, "Enter")
+    pg.wait_for_timeout(200)
     check(state(pg)["kind"] == "voice", "再生が終わるまで Enter は効かない")
     check(wait_js(pg, "(() => { const v = document.querySelector('#chkBody video'); return v && !v.paused && v.currentTime > 0.4; })()", 10000), "出したら自動で再生(区間の頭から)")
     check(wait_js(pg, "(() => { const v = document.querySelector('#chkBody video'); return v && v.paused && v.currentTime >= 1.6 && v.currentTime < 2.3; })()", 10000),
@@ -277,13 +278,14 @@ def _scene_read_type(cx):
     check(pg.is_visible("#chkBody [data-chk-text]") and pg.evaluate("document.activeElement.matches('[data-chk-text]')"), "3 で入力欄が開き、そこに入る")
     pg.fill("#chkBody [data-chk-text]", "")
     pg.keyboard.type("今日は春1です")
-    time.sleep(0.2)
+    pg.wait_for_timeout(200)
     check(len(fq.live_answers()) == n and state(pg)["cur"] == "read:e2e:90", "入力欄の中の 1 は答えにならない")
     press(pg, "Escape")
     check(pg.is_hidden("#chkBody [data-chk-type]") and len(fq.live_answers()) == n, "Esc でやめる(答えない)")
     press(pg, "3")
     pg.fill("#chkBody [data-chk-text]", "   ")
     press(pg, "Enter")
+    pg.wait_for_timeout(200)
     check(len(fq.live_answers()) == n, "空のままの Enter は答えにならない")
     pg.fill("#chkBody [data-chk-text]", "今日は晴れでした")
     press(pg, "Enter")

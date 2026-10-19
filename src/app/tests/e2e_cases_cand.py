@@ -175,6 +175,7 @@ def main():
                 pg.goto(base + "cases?c=%s#cand" % VID)
                 check(wait_js(pg, "!!document.querySelector('#csPane .cd-panel #rvList .rv-mark-row[data-id=\"m1\"]')", 20000), "候補のパネルにマークの一覧が出る")
                 check(pg.evaluate("CasesShell.state().panel") == "cand" and pg.evaluate("location.search + location.hash") == "?c=%s#cand" % VID, "殻: 候補のタブ・URL")
+                check(pg.evaluate("document.querySelector('[data-ui-appnav-item][aria-current=\"page\"]').dataset.uiAppnavItem") == "cases", "appnav の今の場所は「案件」")
                 check(pg.evaluate("document.querySelectorAll('#csPane #rvList .rv-mark-row').length") == 5, "マーク 5 件(手 2 + 自動 3)")
                 check(pg.is_hidden("[data-cd-status]"), "読み込めたら案内は消える")
                 # 1b. 外から来る文字列(題名・ラベル)は文字のまま
