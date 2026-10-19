@@ -4,11 +4,11 @@
 
 ## src/manage/
 
-- **__init__.py** (3 行) — ④ データの管理。ytt・flow・human を import してよい(① pipeline は直に読まない = ② を通す)
+- **__init__.py** (2 行) — ④ データの管理。ytt・flow・human を import してよい(① pipeline は直に読まない = ② を通す)
 
 ## src/manage/cases/
 
-- **__init__.py** (3 行) — ④ 案件(配信 1 本の束ね)・紐づけ(切り抜き ↔ 文字起こし ↔ パック)・成果物の鍵の読み取り
+- **__init__.py** (2 行) — ④ 案件(配信 1 本の束ね)・紐づけ(切り抜き ↔ 文字起こし ↔ パック)・成果物の鍵の読み取り
 - **cases.py** (823 行) — 案件(配信1本)ごとの紐づけ(統合計画の段階4)。入口の「案件」画面(src/app/ui/home/portal.html)の中身を作る。
   - 名前: `locations` :83・`read_studio` :97・`clip_state` :138・`clip_live` :159・`auto_info` :173・`live_failures_by_mark` :192・`delivered_of` :226・`virtual_cases` :285・`build` :332・`load_saved` :381・`snapshot` :471・`find_doc` :485・ほか 5
 - **doclist.py** (102 行) — ④ 文字起こしの一覧と、元の動画・パックの有無・前回のパックの手順(役割で組み直す RS3-E5a)。
@@ -26,7 +26,7 @@
 
 ## src/manage/keep/
 
-- **__init__.py** (3 行) — ④ 置き場所・バックアップ・ごみ箱・録画の片付け
+- **__init__.py** (2 行) — ④ 置き場所・バックアップ・ごみ箱・録画の片付け
 - **backup.py** (670 行) — 作業データのバックアップ(notes:docs/spec/data.md の「バックアップ」)。
   - 名前: `skip` :71・`plan` :138・`plan_cases` :174・`default_media_dirs` :201・`media_rel` :215・`plan_media` :232・`same` :239・`copy_one` :247・`run_once` :279・`class Backup` :329・`restore_once` :557・`main` :618
 - **cleanup.py** (478 行) — 作業データの片付け(全体の計画 段9 9-2。ユーザー決定: 元動画も候補に・ごみ箱フォルダ経由・日数を決めて消す)。

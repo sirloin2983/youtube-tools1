@@ -38,7 +38,7 @@
 
 ## src/human/find/
 
-- **__init__.py** (3 行) — ③ 配信の検索(YouTube Data API・事務所の登録)
+- **__init__.py** (2 行) — ③ 配信の検索(YouTube Data API・事務所の登録)
 - **fake_yt.py** (119 行) — ① 配信の検索 rank.py の疑似 YouTube Data API(STUDIO_FAKE=1 のときだけ使う。ネットワークなし。e2e と画面の確かめが使う)。
   - 名前: `fake_channel_id` :20・`fake_video` :24・`fake_get` :34・`fake_live` :97
 - **rank.py** (654 行) — ③ 配信の検索: 事務所・所属チャンネルの登録と、YouTube Data API による検索ジョブ。
@@ -80,7 +80,7 @@
 
 ## src/human/review/
 
-- **__init__.py** (3 行) — ③ 候補の確認(手動マーク・採用と不採用・端の調整・その記録)
+- **__init__.py** (2 行) — ③ 候補の確認(手動マーク・採用と不採用・端の調整・その記録)
 - **machinelog.py** (102 行) — スタジオのマークの機械の記録(machine_marks.jsonl。10-19 ③ の統合 Q2 で feedback.jsonl から名前を変えた)。
   - 名前: `path` :33・`record` :63・`nearest_auto` :81
 - **store.py** (858 行) — ③ 動画とマークの保存(data.json)。スレッドセーフ・原子的に書き込む。スタジオの `Store` が書き手(スタジオなしの書き手は ② flow/studiobook の StudioBook)。

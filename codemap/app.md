@@ -4,7 +4,7 @@
 
 ## src/app/
 
-- **__init__.py** (3 行) — 入口と画面。起動・1 つのポート・API の配線・設定の画面の API。全部の層を使ってよい
+- **__init__.py** (2 行) — 入口と画面。起動・1 つのポート・API の配線・設定の画面の API。全部の層を使ってよい
 - **autorun.py** (480 行) — まとめて実行(統合計画の段階5)。入口の「案件」の画面から、配信1本ぶんの作業を順に自動で流す。
   - 名前: `class ToolClient` :103・`spec_from_settings` :184・`live_auto_origin` :202・`class AutoRunner` :213
 - **cli.py** (550 行) — ② 管理 + ① 道具で動くコマンド(RS6 b-S1。決定 3-29)。
@@ -41,7 +41,7 @@
 
 ## src/app/ui/
 
-- **__init__.py** (3 行) — 画面(ホーム home・案件 cases・確かめる check・編集 editor・設定 settings・スタジオ studio)。共通の部品は src/ui-kit
+- **__init__.py** (2 行) — 画面(ホーム home・案件 cases・確かめる check・編集 editor・設定 settings・スタジオ studio)。共通の部品は src/ui-kit
 
 ## src/app/ui/cases/
 
