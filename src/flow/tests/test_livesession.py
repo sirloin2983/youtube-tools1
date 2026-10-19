@@ -74,7 +74,7 @@ class FakeQueue:
 class Base(unittest.TestCase):
     def setUp(self):
         self.tmp = testkit.tempdir(self, "ytt-livesession-")
-        self.cfg = {"enabled": True, "detect": {"enabled": True, "sens": "low", "perHour": 4}, "autoAdopt": {"enabled": True, "waitMin": 9}}
+        self.cfg = {"enabled": True, "detect": {"enabled": True, "sens": "low", "perHour": 4}, "autoAdopt": {"waitMin": 9}}
         self.logs = []
         self.queue = FakeQueue()
         self.rec = FakeRecorder()
@@ -132,7 +132,7 @@ class SubmitTest(Base):
         self.assertEqual((b["sens"], b["perHour"], b["spec"]["length"], b["spec"]["wChat"], b["spec"]["preRatio"]), ("high", 12, 30.0, 2.0, 0.5))
         self.assertEqual(c["detect"], {"sens": "low", "perHour": 4})
         self.assertEqual((self.s.detector.adopt_for(None, "local", REC), self.s.detector.adopt_for(None, "local", "20261011-210000-x")),
-                         ({"enabled": True, "waitMin": 3}, {"enabled": True, "waitMin": 9}))
+                         ({"waitMin": 3}, {"waitMin": 9}))
         # 配信後の全自動の解析の設定・書き出しの音量・書き出したあとの設定
         self.assertEqual(self.s.archiver.settings_for("local", REC)["length"], 30)
         self.assertIsNone(self.s.archiver.settings_for("local", "20261011-210000-x"))
@@ -192,13 +192,13 @@ class OwnStreamTest(Base):
         self.assertEqual(sorted(sp["run"]["requested"]), ["engine", "model"])
         self.assertEqual(self.s.requests.all(), {}, "自分の配信は依頼の結びつきを作らない")
         # 録画中に設定を変える(ホームの設定・スタジオの解析の設定・書き出しの音量)
-        self.cfg.update(detect={"enabled": True, "sens": "high", "perHour": 20}, autoAdopt={"enabled": True, "waitMin": 60},
+        self.cfg.update(detect={"enabled": True, "sens": "high", "perHour": 20}, autoAdopt={"waitMin": 60},
                         auto={"engine": "whisper.cpp", "model": "large-v3", "cut": "silence", "pad": 3.0})
         self.analyze.update(length=90, headSec=300)
         self.audio.update(volume=50, loudness=None)
         other = "20261011-210000-x"   # 束の無い録画は今の値
         self.assertEqual((self.s.detector.adopt_for(None, "local", REC), self.s.detector.adopt_for(None, "local", other)),
-                         ({"enabled": True, "waitMin": 9}, {"enabled": True, "waitMin": 60}))
+                         ({"waitMin": 9}, {"waitMin": 60}))
         b = self.s.detector.bundles_cfg()["local/" + REC]
         self.assertEqual((b["sens"], b["perHour"], b["spec"]["length"], b["spec"]["headSec"]), ("low", 4, 20.0, 0.0))
         self.assertEqual((self.s.archiver.settings_for("local", REC)["length"], self.s.archiver.settings_for("local", REC)["headSec"]), (20, 0))

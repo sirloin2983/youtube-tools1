@@ -4,7 +4,7 @@
 ライブ係 src/flow/livesession.py の LiveSession(入口の Live はそれを継ぐ)が持ち(live.detector)、見回り(tick。30 秒ごと)・API の振り分け・「調子」から呼ぶ(live.py を大きくしない。仮決め (br))。
 
 設定(ホームの設定の節 live。src/app/prefs.py): detect {enabled(既定オン。ユーザー決定), sens: high|normal|low, perHour: 1〜30(既定 6)}・
-autoAdopt {enabled(既定オン), waitMin: 1〜60(既定 5)}。検出はリアルタイム切り抜き(live.enabled)もオンのときだけ動く。
+autoAdopt {waitMin: 1〜60(既定 5)}(自動の採用はいつもオン。オフのスイッチは 10-19 に消した)。検出はリアルタイム切り抜き(live.enabled)もオンのときだけ動く。
 束のある録画(親の bundles = live/bundles.json。RS7-2 G2b)は、録画を始めたときの束の解析の設定(analyze)・感度・枠(adopt.sens・perHour)を
 config.json の bundles に、自動の採用の待ちは束の adopt.waitMin(決定 3-31 の仮 b1)。束の無い録画は上の設定とスタジオの解析の設定のまま。
 
@@ -19,7 +19,7 @@ config.json の bundles に、自動の採用の待ちは束の adopt.waitMin(�
 API(src/app/live.py の handle_get / _api_post から。書き込みは入口の合言葉が要る = 今の仕組みのまま):
   GET  /live/api/peaks?recorder=&recording=&since=<seq>
        → {ok, seq, enabled, recorder, recording, worker: {running, behindSec, chat, restarts, chatRestarts, memMB, lag, message, error},
-          hour: {perHour, counts: {"<h>": n}}, autoAdopt: {enabled, waitMin},
+          hour: {perHour, counts: {"<h>": n}}, autoAdopt: {waitMin},
           peaks: [peak…](since 省略) / changes: [{seq, id, state, peak}](since あり。変わった候補の今の形。まだワーカーが当てていない人の決定も入る),
           series?: {n, step, total, audio, chat}(600 点。since 省略のときだけ), reset?: true(since が古すぎる・新しすぎる = peaks に全部)}
        peak = {id, start, end, peak, score, parts, reasons, confirmedAt, hour, state: frame|bench|adopted|dismissed, endPending, origin, markId?, jobId?, seq, pending?}
@@ -68,7 +68,7 @@ OPS = ("adopt", "dismiss", "restore")
 DECISIONS_MAX = 5000
 PEAKS_MAX = 16 * 1024 * 1024
 DETECT_DEFAULT = {"enabled": True, "sens": "normal", "perHour": _spec.DEFAULTS["adopt"]["perHour"]}
-ADOPT_DEFAULT = {"enabled": True, "waitMin": _spec.DEFAULTS["adopt"]["waitMin"]}
+ADOPT_DEFAULT = {"waitMin": _spec.DEFAULTS["adopt"]["waitMin"]}
 CHAT_ORDER = ("none", "restarting", "ok", "off")   # 「調子」に出すチャットの状態(悪い順)
 
 
@@ -181,8 +181,9 @@ class Detector:
         return self._sub("detect", DETECT_DEFAULT)
 
     def adopt_cfg(self):
+        """自動の採用の待つ分 {"waitMin"}(ホームの設定 live.autoAdopt。自動の採用はいつもオン = 保存してある enabled は読まない)"""
         a = self._sub("autoAdopt", ADOPT_DEFAULT)
-        return {"enabled": a.get("enabled") is True, "waitMin": a.get("waitMin") if isinstance(a.get("waitMin"), int) else ADOPT_DEFAULT["waitMin"]}
+        return {"waitMin": a.get("waitMin") if isinstance(a.get("waitMin"), int) else ADOPT_DEFAULT["waitMin"]}
 
     def enabled(self):
         """検出を動かすか: リアルタイム切り抜きがオンで、検出のスイッチがオンか、友人のライブ配信の依頼の録画がある(2-15: 友人の録画は常に動かす)"""
@@ -196,13 +197,13 @@ class Detector:
                 for k, v in self.host.requests.all().items()}
 
     def adopt_for(self, req, rc=None, rec=None):
-        """録画ごとの自動の採用 {"enabled", "waitMin"}: 友人の依頼の録画(req = live.requests.get の項目)は常にオンで待ちは依頼の waitMin(2-15)、
+        """録画ごとの自動の採用の待ち {"waitMin"}: 友人の依頼の録画(req = live.requests.get の項目)は依頼の waitMin(2-15)、
         ほかはホームの設定(adopt_cfg)。録画(rc・rec)に束があれば待ちは束の adopt.waitMin(録画を始めたときの値。RS7-2 G2b)"""
         if req is None:
             a = self.adopt_cfg()
             b = self._bundle(rc, rec)
             return dict(a, waitMin=b["adopt"]["waitMin"]) if b is not None else a
-        return {"enabled": True, "waitMin": req["settings"]["waitMin"]}   # Store が検査済み(1〜60 の整数)
+        return {"waitMin": req["settings"]["waitMin"]}   # Store が検査済み(1〜60 の整数)
 
     def wake(self):
         """友人の依頼で録画を始めた直後: 次の見回りを待たずに config.json を書いてワーカーを起こす"""
@@ -455,7 +456,7 @@ class Detector:
             if t:
                 p["text"], p["textAt"] = t.get("text"), t.get("at")
         det = self.detect_cfg()
-        req = self.host.requests.get(rc, rec)   # 友人のライブ配信の依頼の録画は、ホームの検出・自動採用がオフでも依頼の設定で動く(2-15)
+        req = self.host.requests.get(rc, rec)   # 友人のライブ配信の依頼の録画は、ホームの検出がオフでも依頼の設定で動く(2-15)
         seq = int((doc or {}).get("seq") or 0)
         out = {"ok": True, "enabled": self.enabled() and (det.get("enabled") is True or req is not None), "recorder": rc, "recording": rec, "seq": seq,
                "worker": self.worker_view(doc),
@@ -594,23 +595,22 @@ class Detector:
     def auto_tick(self):
         """M11: 録画中の録画の候補のうち、枠の中で入口が最初に見てから waitMin 分たったものを自動で採用する -> 採用した数。
         D-14: 録画が終わって END_GRACE_SEC 以内でワーカーが締めた録画の、待ち中だった候補も同じ待ちで採用する。
-        D-13: 1 録画 auto_max 本まで(既定 AUTO_MAX_PER_REC)"""
-        a = self.adopt_cfg()
+        D-13: 1 録画 auto_max 本まで(既定 AUTO_MAX_PER_REC)。自動の採用はいつもオン(オフのスイッチは 10-19 に消した)"""
         now = self.clock()
         for key in [k for k, t in self._seen_at.items() if now - t > SEEN_KEEP_SEC]:   # 採用した・録画が終わった候補の分は残さない(録画のたびに増え続けない)
             self._seen.pop(key, None)
             self._seen_at.pop(key, None)
         if not self.enabled() or not self.running():   # ワーカーが止まっている間は採用しない(古い候補をまとめて採用しないため)
             return 0
-        # 依頼の無い録画は、ホームの検出と自動採用の両方がオンのときだけ(友人の依頼だけで検出が動いている間に、止めた録画の古い候補を採用しない)
-        home = a["enabled"] and self.detect_cfg().get("enabled") is True
+        # 依頼の無い録画は、ホームの検出がオンのときだけ(友人の依頼だけで検出が動いている間に、止めた録画の古い候補を採用しない)
+        home = self.detect_cfg().get("enabled") is True
         if not home and not self.requests_cfg():   # 採用する録画が無い(録画元に聞かない)
             return 0
         done = 0
         given = {(x.get("recorder"), x.get("recording"), x.get("id")) for x in self._load_fails()}
         for r, ended in self._target_recordings(now):
             rc, rec = r["recorder"], r["id"]
-            req = self.host.requests.get(rc, rec)   # 友人のライブ配信の依頼の録画は、自動採用のスイッチがオフでも採用する(待ちは依頼の設定。2-15)
+            req = self.host.requests.get(rc, rec)   # 友人のライブ配信の依頼の録画は、ホームの検出がオフでも採用する(待ちは依頼の設定。2-15)
             if req is None and not home:
                 continue
             wait_min = self.adopt_for(req, rc, rec)["waitMin"]

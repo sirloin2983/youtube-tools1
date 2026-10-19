@@ -44,7 +44,7 @@ P3(計画の 0-8): 録画と再生・マークは**スタジオの中**(② 確�
        録画が終わってアーカイブを使えるようになったら、アーカイブを解析して上位 N を M1 の採用(origin archive)→ アーカイブから書き出し → 文字起こし → パック。
        進み具合は GET /live/api/exports?recorder=&recording= の archiveInfo.afterStream {state, label, message, at, n, jobs}・失敗は「調子」の live.failures
   GET  /live/api/peaks?recorder=&recording=&since=  ・ POST /live/api/peaks {op: adopt|dismiss|restore, recorder, recording, id}
-                                          配信中の盛り上がりの候補(線 D の L2・M11。設定 live.detect・live.autoAdopt 既定オン。中身と形は src/flow/live_detect.py)
+                                          配信中の盛り上がりの候補(線 D の L2・M11。設定 live.detect 既定オン・自動の採用はいつもオンで live.autoAdopt は待つ分だけ。中身と形は src/flow/live_detect.py)
   POST api/ytt/live  {op: "status"} → {enabled, recordings: [{recorder, id, title, state, active, seconds, endedAt, url}]}(録画中 + 終わって 10 分以内。
                      全ツールのヘッダーの札が 10 秒ごとに呼ぶので、録画元への問い合わせは短い時間切れで、結果を 3 秒覚える)
                      {op: "stop", recorder, recording} → {ok: true, recording}(server.py の ytt_api から。合言葉・Origin の検査は ytt_request が済ませる)

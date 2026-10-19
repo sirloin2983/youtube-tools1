@@ -817,7 +817,7 @@ def _scene_peaks(cx):
 
     write_ctl()
     srv.prefs.patch("live", {"detect": {"enabled": True, "sens": "normal", "perHour": 6},
-                             "autoAdopt": {"enabled": False, "waitMin": 5}})   # 自動採用は既定オン。この場面は人の採用を見るので明示的にオフ
+                             "autoAdopt": {"waitMin": 60}})   # 自動採用はいつもオン(10-19)。この場面は人の採用を見るので、待ちを上限の 60 分にして通しの間は自動で採用させない
     check(det.tick() == "spawned", "L2 検出をオンにすると、見回りがワーカーを起動する(config.json を書いて)")
     check(wait_for(lambda: os.path.isfile(os.path.join(folder, "peaks.json")) and det.running(), 15), "L2 ワーカーが peaks.json と心拍(worker.json)を書く")
     pg.goto(cases_url(rid))   # M1 で画面を閉じた(about:blank)ので、ここで開き直す

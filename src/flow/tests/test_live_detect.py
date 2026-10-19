@@ -122,7 +122,7 @@ class DetectApiTest(unittest.TestCase):
         d = self.get()
         self.assertEqual((d["ok"], d["enabled"], d["seq"], [p["id"] for p in d["peaks"]], d["changes"]), (True, True, 5, ["p0-302", "p1-903", "p2-1002"], []))
         self.assertEqual(d["hour"], {"perHour": 6, "counts": {"0": 2}})
-        self.assertEqual(d["autoAdopt"], {"enabled": True, "waitMin": 5})
+        self.assertEqual(d["autoAdopt"], {"waitMin": 5})   # 自動の採用はいつもオン(待つ分だけ)
         self.assertEqual((d["worker"]["running"], d["worker"]["chat"], d["worker"]["behindSec"], d["worker"]["lag"]), (False, "ok", 4.0, 9))
         self.assertEqual((d["series"]["n"], d["series"]["step"], d["series"]["total"][61], d["series"]["total"][150]), (180, 1.0, 7.0, 2.0))
         c = self.get(since=3)
@@ -180,7 +180,7 @@ class DetectApiTest(unittest.TestCase):
 
     def test_auto_adopt_m11(self):
         """M11: 確定から waitMin 分たった枠の中の候補を 1 回だけ自動で採用(origin auto・after auto)。控え・見送りは採用しない"""
-        LF.patch_cfg(self.cfg, {"autoAdopt": {"enabled": True, "waitMin": 5}})
+        LF.patch_cfg(self.cfg, {"autoAdopt": {"waitMin": 5}})
         self.post("dismiss", "p1-903")
         self.rec.rel = 5000
         self.assertEqual(self.det.auto_tick(), 0)   # ワーカーが動いていない(心拍なし)間は採用しない
@@ -202,9 +202,12 @@ class DetectApiTest(unittest.TestCase):
         with open(os.path.join(self.tmp, "live", LX.FEEDBACK), encoding="utf-8") as f:
             fb = [json.loads(x) for x in f]
         self.assertEqual([(x["origin"], x["human"], x["verdict"]) for x in fb], [("auto", False, None)])   # 自動は「良い」に数えない
-        LF.patch_cfg(self.cfg, {"autoAdopt": {"enabled": False}})
+        LF.patch_cfg(self.cfg, {"detect": {"enabled": False}, "autoAdopt": {"enabled": False}})   # 古い保存値の enabled false は読み捨て(自動の採用はいつもオン)
         self.put_peaks([peak("p3-4000", 3970, 4000, 9.0, "frame", 4010, hour=1)], seq=7, changes=[[7, "p3-4000", "frame"]])
-        self.assertEqual(self.det.auto_tick(), 0)   # オフなら採用しない
+        t[0] += 600
+        self.assertEqual(self.det.auto_tick(), 0)   # ホームの検出がオフなら採用しない(自動の採用のオフのスイッチは 10-19 に消した)
+        self.assertEqual(self.det.adopt_cfg(), {"waitMin": 5})
+        LF.patch_cfg(self.cfg, {"detect": {"enabled": True}})
         key = ("fake", REC, "p0-302")
         self.assertIn(key, self.det._seen)   # 「最初に見た時刻」は、見かけなくなって(採用した・録画が終わった)1 時間で消す = 増え続けない
         t[0] += D.SEEN_KEEP_SEC + 1
@@ -214,7 +217,7 @@ class DetectApiTest(unittest.TestCase):
 
     def test_auto_adopt_retries_then_fails(self):
         """スタジオにつながらない(502)→ 見回りごとにやり直し、5 回で諦めて「調子」の失敗(kind detect)に出す"""
-        LF.patch_cfg(self.cfg, {"autoAdopt": {"enabled": True, "waitMin": 1}})
+        LF.patch_cfg(self.cfg, {"autoAdopt": {"waitMin": 1}})
         calls = []
 
         def down(method, path, body=None):
@@ -280,7 +283,7 @@ class DetectApiTest(unittest.TestCase):
 
     def test_auto_adopt_keeps_live_tx_text(self):
         """M11 の自動の採用も、配信中の文字起こしの文字を live_feedback.jsonl に残す(human false)"""
-        LF.patch_cfg(self.cfg, {"autoAdopt": {"enabled": True, "waitMin": 1}})
+        LF.patch_cfg(self.cfg, {"autoAdopt": {"waitMin": 1}})
         self.live.livetx.record("fake", REC, "p0-302", "自動で採用した候補の文字")
         self.rec.rel = 5000
         t = self.worker_alive()
@@ -325,7 +328,7 @@ class DetectApiTest(unittest.TestCase):
 
     def test_d13_auto_cap_per_recording(self):
         """D-13: 1 つの録画の自動の採用は AUTO_MAX_PER_REC 本まで(残りの候補は帯に残る = 人が採用できる)。「調子」の行に auto・autoCapped"""
-        LF.patch_cfg(self.cfg, {"autoAdopt": {"enabled": True, "waitMin": 1}})
+        LF.patch_cfg(self.cfg, {"autoAdopt": {"waitMin": 1}})
         pks = [peak("p%d-%d" % (i, 100 + i * 200), 70 + i * 200, 100 + i * 200, 10.0 - i * 0.1, "frame", 130 + i * 200) for i in range(D.AUTO_MAX_PER_REC + 2)]
         self.put_peaks(pks, seq=1, changes=[])
         self.rec.rel = 9000
@@ -348,7 +351,7 @@ class DetectApiTest(unittest.TestCase):
     def test_d14_adopt_after_end(self):
         """D-14: 録画が終わっても、ワーカーが帳簿を締めた(peaks.json の ended)あと END_GRACE_SEC の間は、待ち中だった候補を同じ待ちで採用する。
         締める前・終わって END_GRACE_SEC より古い録画は採用しない"""
-        LF.patch_cfg(self.cfg, {"autoAdopt": {"enabled": True, "waitMin": 1}})
+        LF.patch_cfg(self.cfg, {"autoAdopt": {"waitMin": 1}})
         t = self.worker_alive()
         self.rec.rel = t[0] - T0 - 100   # ライブ端 = 100 秒前に終わった
         self.rec.active = False
@@ -491,9 +494,9 @@ class DetectApiTest(unittest.TestCase):
         self.assertEqual(got["fake/20261007-210000-x"], {"sens": "high", "perHour": 3, "length": 30})
 
     def test_friend_request_with_detect_off(self):
-        """2-15: ホームの検出・自動採用がオフでも、友人のライブ配信の依頼に結びついた録画があれば検出を動かす(config.json の detectAll false と
-        録画ごとの requests)。画面の答え(enabled・autoAdopt)も録画ごと。リアルタイム切り抜きがオフなら動かさない"""
-        LF.patch_cfg(self.cfg, {"detect": {"enabled": False, "sens": "low", "perHour": 4}, "autoAdopt": {"enabled": False}})
+        """2-15: ホームの検出がオフでも、友人のライブ配信の依頼に結びついた録画があれば検出を動かす(config.json の detectAll false と
+        録画ごとの requests)。画面の答え(enabled・autoAdopt の待つ分)も録画ごと。リアルタイム切り抜きがオフなら動かさない"""
+        LF.patch_cfg(self.cfg, {"detect": {"enabled": False, "sens": "low", "perHour": 4}})
         self.assertFalse(self.det.enabled())
         self.assertEqual(self.det.tick(), "off")
         self.assertIsNone(self.det.health())
@@ -505,9 +508,9 @@ class DetectApiTest(unittest.TestCase):
         self.assertEqual((c["detectAll"], c["detect"]), (False, {"sens": "low", "perHour": 4}))   # ホームの設定はそのまま(ほかの録画は測らない)
         self.assertEqual(c["requests"], {"fake/" + REC: {"sens": "high", "perHour": 3, "length": 30}})
         d = self.get()
-        self.assertEqual((d["enabled"], d["autoAdopt"]), (True, {"enabled": True, "waitMin": 2}))   # 結びついた録画は依頼の設定
+        self.assertEqual((d["enabled"], d["autoAdopt"]), (True, {"waitMin": 2}))   # 結びついた録画は依頼の設定
         e = self.det.api_get({"recorder": ["fake"], "recording": ["20261007-210000-x"]})
-        self.assertEqual((e["enabled"], e["autoAdopt"]), (False, {"enabled": False, "waitMin": 5}))   # 結びついていない録画はホームの設定のまま
+        self.assertEqual((e["enabled"], e["autoAdopt"]), (False, {"waitMin": 5}))   # 結びついていない録画はホームの設定のまま
         self.assertIsNotNone(self.det.health())
         LF.patch_cfg(self.cfg, {"detect": {"enabled": True}})
         self.assertTrue(self.det.write_config())
@@ -522,18 +525,17 @@ class DetectApiTest(unittest.TestCase):
         self.assertEqual(self.det.tick(), "off")
 
     def test_auto_adopt_friend_request(self):
-        """2-15: 自動採用のスイッチがオフでも、友人の依頼に結びついた録画の枠の候補は依頼の waitMin で採用する(余白は依頼の pad・ジョブに依頼 id)。
+        """2-15: ホームの検出がオフでも、友人の依頼に結びついた録画の枠の候補は依頼の waitMin で採用する(余白は依頼の pad・ジョブに依頼 id)。
         結びついていない録画は、ホームの検出がオフなら(ほかの録画の依頼で検出が動いていても)採用しない"""
-        LF.patch_cfg(self.cfg, {"detect": {"enabled": False}, "autoAdopt": {"enabled": True, "waitMin": 1}})
+        LF.patch_cfg(self.cfg, {"detect": {"enabled": False}, "autoAdopt": {"waitMin": 1}})
         self.request(rec="20261007-210000-x")   # ほかの録画の依頼(これで検出は動く)
         self.rec.rel = 5000
         t = self.worker_alive()
         self.assertTrue(self.det.enabled())
         self.assertEqual(self.det.auto_tick(), 0)
         t[0] += 61
-        self.assertEqual(self.det.auto_tick(), 0)   # この録画は結びついていない・ホームの検出はオフ = 自動採用がオンでも採用しない
+        self.assertEqual(self.det.auto_tick(), 0)   # この録画は結びついていない・ホームの検出はオフ = 採用しない
         self.assertNotIn(REC, self.studio.videos)
-        LF.patch_cfg(self.cfg, {"autoAdopt": {"enabled": False}})
         self.request(waitMin=2, pad=1)
         self.assertEqual(self.det.auto_tick(), 0)   # 最初に見た(ここから依頼の waitMin を数える)
         t[0] += 119

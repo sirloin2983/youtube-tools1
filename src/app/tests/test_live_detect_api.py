@@ -105,13 +105,14 @@ class PrefsDetectTest(unittest.TestCase):
 
     def test_detect_and_auto_adopt(self):
         v = self.p.get(["live"])["live"]
-        self.assertEqual((v["detect"], v["autoAdopt"]), ({"enabled": True, "sens": "normal", "perHour": 6}, {"enabled": True, "waitMin": 5}))   # 既定はどちらもオン
+        self.assertEqual((v["detect"], v["autoAdopt"]), ({"enabled": True, "sens": "normal", "perHour": 6}, {"waitMin": 5}))   # 検出は既定オン・自動の採用はいつもオン(待つ分だけ)
         v = self.p.patch("live", {"detect": {"enabled": True, "sens": "low"}})
         self.assertEqual(v["detect"], {"enabled": True, "sens": "low", "perHour": 6})
         self.assertEqual(self.p.patch("live", {"detect": {"perHour": 30}})["detect"], {"enabled": True, "sens": "low", "perHour": 30})   # 鍵ごと
-        self.assertEqual(self.p.patch("live", {"autoAdopt": {"enabled": True, "waitMin": 60}})["autoAdopt"], {"enabled": True, "waitMin": 60})
+        self.assertEqual(self.p.patch("live", {"autoAdopt": {"waitMin": 60}})["autoAdopt"], {"waitMin": 60})
+        self.assertEqual(self.p.patch("live", {"autoAdopt": {"enabled": False}})["autoAdopt"], {"waitMin": 60})   # オフのスイッチは無い(古い画面が送っても黙って捨てる)
         for bad in ({"detect": "on"}, {"detect": {"enabled": "yes"}}, {"detect": {"sens": "max"}}, {"detect": {"perHour": True}},   # 範囲の端は test_settings_schema.py
-                    {"autoAdopt": []}, {"autoAdopt": {"waitMin": "5"}}, {"autoAdopt": {"enabled": 1}}):
+                    {"autoAdopt": []}, {"autoAdopt": {"waitMin": "5"}}):
             with self.assertRaises(P.PrefsError, msg=repr(bad)):
                 self.p.patch("live", bad)
         self.assertEqual(self.p.patch("live", {"quality": "720p"})["detect"]["perHour"], 30)   # ほかの鍵を直しても残る
@@ -122,7 +123,7 @@ class PrefsDetectTest(unittest.TestCase):
         with open(os.path.join(self.tmp, "prefs.json"), "w", encoding="utf-8") as f:
             json.dump(d, f)
         v = self.p.get(["live"])["live"]
-        self.assertEqual((v["detect"], v["autoAdopt"]), ({"enabled": True, "sens": "normal", "perHour": 6}, {"enabled": True, "waitMin": 5}))
+        self.assertEqual((v["detect"], v["autoAdopt"]), ({"enabled": True, "sens": "normal", "perHour": 6}, {"waitMin": 5}))
 
 
 if __name__ == "__main__":

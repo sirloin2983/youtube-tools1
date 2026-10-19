@@ -1669,8 +1669,8 @@ const PEAK_STATE = { frame: ['info', '枠', 'この 1 時間の枠に入って�
 const PEAK_CHAT = { ok: 'チャットを読んでいます', none: 'チャットなし(音だけで見ています)', restarting: 'チャットをつなぎ直しています', off: 'チャットは読んでいません' };
 const peakCounted = p => p.state === 'frame' || p.state === 'adopted';   // 候補として数える・いつも一覧に出す
 const peakUndecided = p => p.state === 'frame' || p.state === 'bench';   // まだ決めていない(採用・見送りできる。タイムラインに印を出す)
-/* 自動採用の設定(入口の live.autoAdopt)→ {enabled, waitMin}。形が違えば null(手元の値を変えない) */
-const peakAuto = a => (a && typeof a === 'object' ? { enabled: a.enabled === true, waitMin: Number(a.waitMin) || PEAK_DEFAULT.waitMin } : null);
+/* 自動採用の待ち(入口の live.autoAdopt)→ {waitMin}。自動の採用はいつもオン(10-19)。形が違えば null(手元の値を変えない) */
+const peakAuto = a => (a && typeof a === 'object' ? { waitMin: Number(a.waitMin) || PEAK_DEFAULT.waitMin } : null);
 /* 入口の候補 1 件 → 画面で使う形(形の違うものは null)。start・end・peak は録画の頭からの秒(スタジオのマークと同じ基準) */
 function peakNorm(p){
   if (!p || typeof p !== 'object' || typeof p.id !== 'string' || !p.id) return null;
@@ -1724,7 +1724,7 @@ function peakHead(list, hour, worker, auto, o){
     if (w.behindSec != null && Number.isFinite(Number(w.behindSec))) info.push(`遅れ ${Math.max(0, Math.round(Number(w.behindSec)))} 秒`);
     if (PEAK_CHAT[w.chat]) info.push(PEAK_CHAT[w.chat]);
   } else if (o.active) info.push(String(w.message || '') || '検出が止まっています(ホームが起動し直します)');
-  if (w.running || o.active) info.push(auto && auto.enabled ? `自動採用 オン(${Math.round(Number(auto.waitMin)) || PEAK_DEFAULT.waitMin} 分待ち)` : '自動採用 オフ');
+  if (w.running || o.active) info.push(`自動採用(${Math.round(Number(auto && auto.waitMin)) || PEAK_DEFAULT.waitMin} 分待ち)`);
   const tx = o.tx && typeof o.tx === 'object' ? o.tx : null;   // 配信中の文字起こし(D-11 案 b): 準備が無いときだけ理由を出す
   if (tx && tx.enabled && !tx.ready && (w.running || o.active)) info.push('文字起こしなし(' + String(tx.message || '準備がありません').replace(/\(.*$/, '') + ')');
   return { count: `候補 ${n} 件(この 1 時間 ${inHour}/${per})`, info: info.join('・') };
@@ -1734,7 +1734,7 @@ function peakView(p, busy){
   const len = Math.round((p.end - p.start) * 10) / 10, open = peakUndecided(p);
   return { time: tickLabel(p.start), title: `${tickLabel(p.start)} – ${tickLabel(p.end)}(${len} 秒)・山 ${tickLabel(p.peak)}`,
     score: p.score == null ? '' : p.score.toFixed(1) + '点',
-    pill: p.state === 'adopted' && p.origin === 'auto' ? ['ok', '自動で採用', '「候補を自動で採用する」でマークにしました'] : PEAK_STATE[p.state] || PEAK_STATE.frame,
+    pill: p.state === 'adopted' && p.origin === 'auto' ? ['ok', '自動で採用', '確定から待つ分が過ぎても枠に残っていたので、自動でマークにしました'] : PEAK_STATE[p.state] || PEAK_STATE.frame,
     pending: p.endPending && p.state !== 'adopted', adopt: open, dismiss: open, restore: p.state === 'dismissed',
     why: busy ? PEAK_SENDING : p.endPending ? '区間の終わりがまだ録れていません(録れると採用できます)' : '' };
 }
@@ -1771,7 +1771,7 @@ function peaksOpened(vid){
   const ol = $('#rvPeakList'); if (ol) ol.textContent = '';
   renderPeaks();
 }
-/* 設定の live.detect・live.autoAdopt(入口がまだ知らない間は無い = オフ扱い)。changed: 設定の引き出しで変えた(studio:liveprefs)= 断られた・404 を忘れて聞き直す */
+/* 設定の live.detect(入口がまだ知らない間は無い = オフ扱い)・live.autoAdopt の待つ分。changed: 設定の引き出しで変えた(studio:liveprefs)= 断られた・404 を忘れて聞き直す */
 function peakPrefs(l, changed){
   if (!l || typeof l !== 'object') return;
   if (l.detect && typeof l.detect === 'object') PKV.detect = { enabled: l.detect.enabled === true };   // 感度・本数は入口が使う(画面は見出しの答えの hour.perHour で出す)
@@ -3213,7 +3213,7 @@ function wire(){
   $('#rvArchRun').addEventListener('click', startLiveArchive);
   $('#rvArchCancel').addEventListener('click', cancelLiveArchive);
   wirePeaks();   // 配信中の候補の一覧([再生][採用][見送り][戻す]・控えも見る・マウスとフォーカスで行を留める)
-  Studio.on('liveprefs', d => {   // 設定の引き出しで「録画を消す」「配信中の候補」「候補を自動で採用する」を変えた
+  Studio.on('liveprefs', d => {   // 設定の引き出しで「録画を消す」「配信中の候補」「確定から待つ分」を変えた
     if (d && typeof d.autoDelete === 'boolean'){ LV.autoDelete = d.autoDelete; renderLiveRec(); }
     if (d && (d.detect || d.autoAdopt)) peakPrefs(d, true);
   });

@@ -1028,24 +1028,24 @@ test('live peaks: the header line (count, this hour x/perHour, delay, chat, auto
   const ctx = load([PEAK_FNS], { tickLabel: mmss });
   const list = ctx.peakList([pk('a', 10, 14, { state: 'adopted', origin: 'manual' }), pk('b', 30, 34, { state: 'bench' }), pk('c', 50, 58),
     pk('d', 3700, 3710, { hour: 1 }), pk('e', 3800, 3810, { hour: 1, state: 'adopted', origin: 'auto' })]);
-  let h = ctx.peakHead(list, { perHour: 6, counts: { 0: 1, 1: 2 } }, { running: true, behindSec: 34.6, chat: 'ok' }, { enabled: true, waitMin: 5 }, { hour: 1, active: true });
+  let h = ctx.peakHead(list, { perHour: 6, counts: { 0: 1, 1: 2 } }, { running: true, behindSec: 34.6, chat: 'ok' }, { waitMin: 5 }, { hour: 1, active: true });
   assert.equal(h.count, '候補 4 件(この 1 時間 2/6)', 'frame + adopted; this hour from the portal counts');
-  assert.equal(h.info, '遅れ 35 秒・チャットを読んでいます・自動採用 オン(5 分待ち)');
+  assert.equal(h.info, '遅れ 35 秒・チャットを読んでいます・自動採用(5 分待ち)');
   h = ctx.peakHead(list, null, { running: true, chat: 'restarting' }, null, { hour: 1, active: true });
   assert.equal(h.count, '候補 4 件(この 1 時間 2/6)', 'without counts: frame + auto-adopted in the hour (a hand-adopted one is not counted)');
-  assert.equal(h.info, 'チャットをつなぎ直しています・自動採用 オフ');
-  assert.equal(ctx.peakHead([], null, { running: false, message: '' }, null, { hour: 0, active: true }).info, '検出が止まっています(ホームが起動し直します)・自動採用 オフ');
-  assert.equal(ctx.peakHead(list, { perHour: 8, counts: {} }, { running: false }, { enabled: true }, { hour: 0, active: false }).info, '', 'an ended recording: nothing about the worker');
+  assert.equal(h.info, 'チャットをつなぎ直しています・自動採用(5 分待ち)', 'the portal has not said the wait yet: the default (auto-adopt is always on since 10-19)');
+  assert.equal(ctx.peakHead([], null, { running: false, message: '' }, null, { hour: 0, active: true }).info, '検出が止まっています(ホームが起動し直します)・自動採用(5 分待ち)');
+  assert.equal(ctx.peakHead(list, { perHour: 8, counts: {} }, { running: false }, { waitMin: 5 }, { hour: 0, active: false }).info, '', 'an ended recording: nothing about the worker');
   assert.equal(ctx.peakHead(list, { perHour: 8, counts: {} }, null, null, { hour: 0 }).count, '候補 4 件(この 1 時間 0/8)');
   // 配信中の文字起こしの状態 o.tx: オンで準備が無いときだけ「文字起こしなし(理由)」(whisper.cpp が無いときは e2e_live_studio の _scene_peak_text が見る)。
   // 準備がある・オフ・録画が終わった・o.tx が無い(tx を返さない入口)は何も出さない
-  const run = { running: true, chat: 'ok' }, auto = { enabled: false };
+  const run = { running: true, chat: 'ok' }, auto = { waitMin: 3 };
   const txOf = tx => ctx.peakHead(list, null, run, auto, { hour: 0, active: true, tx }).info;
-  assert.equal(txOf({ enabled: true, ready: false, message: '' }), 'チャットを読んでいます・自動採用 オフ・文字起こしなし(準備がありません)');
-  assert.equal(txOf({ enabled: true, ready: true, message: '' }), 'チャットを読んでいます・自動採用 オフ', 'ready: nothing');
-  assert.equal(txOf({ enabled: false, ready: false, message: 'オフ(設定 live.liveTx)' }), 'チャットを読んでいます・自動採用 オフ', 'turned off: nothing');
-  assert.equal(txOf(undefined), 'チャットを読んでいます・自動採用 オフ', 'an older portal (no tx): nothing');
-  assert.equal(txOf('x'), 'チャットを読んでいます・自動採用 オフ', 'not an object: nothing');
+  assert.equal(txOf({ enabled: true, ready: false, message: '' }), 'チャットを読んでいます・自動採用(3 分待ち)・文字起こしなし(準備がありません)');
+  assert.equal(txOf({ enabled: true, ready: true, message: '' }), 'チャットを読んでいます・自動採用(3 分待ち)', 'ready: nothing');
+  assert.equal(txOf({ enabled: false, ready: false, message: 'オフ(設定 live.liveTx)' }), 'チャットを読んでいます・自動採用(3 分待ち)', 'turned off: nothing');
+  assert.equal(txOf(undefined), 'チャットを読んでいます・自動採用(3 分待ち)', 'an older portal (no tx): nothing');
+  assert.equal(txOf('x'), 'チャットを読んでいます・自動採用(3 分待ち)', 'not an object: nothing');
   assert.equal(ctx.peakHead(list, null, { running: false }, auto, { hour: 0, active: false, tx: { enabled: true, ready: false, message: 'ffmpeg がありません' } }).info, '',
     'an ended recording: nothing about the transcription either');
   const v = p => plain(ctx.peakView(ctx.peakNorm(p), false));
@@ -1087,7 +1087,7 @@ test('live peaks: asked only when detection is on; full list first, then since-c
   assert.equal(h.calls.length, 0, 'detection off: the API is not asked (no 404 from an old portal)');
   reply = { ok: true, seq: 5, enabled: true, worker: { running: true, behindSec: 30, chat: 'ok' }, hour: { perHour: 6, counts: { 0: 2 } },
     peaks: [pk('b', 30, 34), pk('a', 10, 14)], series: { step: 1, total: [1, 2, 3], audio: [1], chat: [2] } };
-  h.ctx.peakPrefs({ detect: { enabled: true }, autoAdopt: { enabled: true, waitMin: 5 } });
+  h.ctx.peakPrefs({ detect: { enabled: true }, autoAdopt: { waitMin: 5 } });
   await settle();
   assert.equal(h.calls.length, 1);
   assert.equal(h.calls[0].url, 'api/peaks?recorder=local&recording=R', 'the first ask has no since (all + series)');

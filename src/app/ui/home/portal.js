@@ -1267,7 +1267,7 @@
     var recs = dd.recordings || [], chat = function (c) { return DETECT_CHAT[c] || c; };
     var text = (dd.running ? (recs.length ? '録画 ' + recs.length + ' 本を見ています・遅れ ' + Math.round(dd.behindSec || 0) + ' 秒・チャット ' + chat(dd.chat)
       : '動いています(録画中の配信はありません)') : '止まっています' + (dd.message ? '(' + dd.message + ')' : ''))
-      + '・ワーカーの起動し直し ' + (dd.restarts || 0) + ' 回' + (dd.autoAdopt && dd.autoAdopt.enabled ? '・自動の採用 オン(' + dd.autoAdopt.waitMin + ' 分待ち)' : '');
+      + '・ワーカーの起動し直し ' + (dd.restarts || 0) + ' 回' + (dd.autoAdopt ? '・自動の採用(' + dd.autoAdopt.waitMin + ' 分待ち)' : '');
     var row = healthRow(!dd.running || dd.error || (dd.restarts || 0) > 3 ? 'warn' : 'ok', '盛り上がりの検出', text,
       recs.map(function (x) { return x.id + ': 候補 ' + x.peaks + ' 本・遅れ ' + Math.round(x.behindSec || 0) + ' 秒・チャットの遅れ ' + (x.lag == null ? '—' : x.lag + ' 秒') + '・チャット ' + chat(x.chat); }));
     row.id = 'liveDetectHealth';

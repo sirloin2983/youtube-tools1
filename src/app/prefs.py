@@ -19,7 +19,7 @@
              配信が終わったらアーカイブの解析で自動で切り抜いてパックまで作る autoAfterStream(**既定オフ**。線 D の M7。src/flow/live_archive.py)と
              その数 afterStreamPerHour(1 時間あたり。1〜30。既定 6)・
              配信中の盛り上がりの検出 detect {enabled(**既定オン**。ユーザー決定), sens: high|normal|low(既定 normal), perHour: 1〜30(1 時間の候補の枠。既定 6)}
-             (線 D の L2。src/flow/live_detect.py・live_excite_worker.py)と、その候補の自動の採用 autoAdopt {enabled(**既定オン**), waitMin: 1〜60(入口が候補を最初に見てから待つ分。既定 5)}
+             (線 D の L2。src/flow/live_detect.py・live_excite_worker.py)と、その候補の自動の採用 autoAdopt {waitMin: 1〜60(入口が候補を最初に見てから待つ分。既定 5)}(自動の採用はいつもオン。オフのスイッチ enabled は 10-19 に消した = 保存してある enabled は読み捨て)
              (M11)。どちらも節の中の鍵ごとに直す(送らなかった鍵は今のまま)
   hidden   … 一覧で非表示にした項目: 一覧の名前(HIDE_LISTS)→ {項目の id: 非表示にした時刻(ms)}。
              画面の UIKit.hide が op "hide" で1件ずつ足す・外す(節ごと送ると、窓を2つ並べたときに相手の分を消すため)。データは消さない(表示だけ)
@@ -67,7 +67,7 @@ DEFAULTS = {"autorun": {"mode": None, "top": 3, "cut": "none", "friendLength": T
             "hidden": {k: {} for k in HIDE_LISTS},
             "live": {"enabled": False, "folder": "", "recorders": [], "quality": "1080p", "autoDelete": True,
                      "auto": {"after": "check", "cut": "", "engine": "", "model": "", "pad": _ADOPT["pad"]}, "autoAfterStream": False, "afterStreamPerHour": _ADOPT["perHour"],
-                     "detect": {"enabled": True, "sens": "normal", "perHour": _ADOPT["perHour"]}, "autoAdopt": {"enabled": True, "waitMin": _ADOPT["waitMin"]},
+                     "detect": {"enabled": True, "sens": "normal", "perHour": _ADOPT["perHour"]}, "autoAdopt": {"waitMin": _ADOPT["waitMin"]},
                      "liveTx": {"enabled": True, "model": "large-v3"},   # 配信中の候補の文字起こし(D-11 案 b。whisper.cpp の GPU。既定オン = 部品が無ければ何もしない)
                      "autoDeliver": True},   # 自分の配信の自動の切り抜き(配信中の自動採用・配信後の追加)を確認なしで友人へ 1 本ずつ届ける(ユーザー決定)
             "accuracy": {"enabled": True, "nightFrom": 1, "nightTo": 6}}
@@ -278,9 +278,8 @@ def _clean_live_tx(v, cur, strict=True):
 
 
 def _clean_live_adopt(v, cur, strict=True):
-    """live.autoAdopt(線 D の M11。候補の自動の採用)"""
+    """live.autoAdopt(線 D の M11。候補の自動の採用。いつもオン = 直せるのは待つ分だけ。古い enabled は _clean_keys が黙って捨てる)"""
     return _clean_keys(v, cur, DEFAULTS["live"]["autoAdopt"], {
-        "enabled": (lambda x: isinstance(x, bool), "「候補を自動で採用する」は true か false で指定してください"),
         "waitMin": (lambda x: _int_in(x, *LIVE_WAIT_MIN), "待つ分(waitMin)は %d〜%d の整数で指定してください" % LIVE_WAIT_MIN)}, strict)
 
 
