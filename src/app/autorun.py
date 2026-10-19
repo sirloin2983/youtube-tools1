@@ -61,7 +61,7 @@ from flow import machine as _machine  # noqa: E402  (この PC の設定 = 束�
 from flow import lengthhint as _lengthhint  # noqa: E402  (友人の区間の長さの目安をその場で数える。OPT-E2 7f-1)
 from flow import run as run_mod  # noqa: E402  (① の経路 = Run・Runner・段の表。RS1-7。AutoRunner は Runner を継いで hook を埋める。下で同じ名前で読み直す)
 from flow.run import (BUSY_WAIT, CANCEL_WAIT, DOC_LABEL, DOC_MODE, DONE_STEPS, JOB_STATE_JA, MODE_STEPS, MODES, NOTHING_MESSAGE,  # noqa: E402,F401
-                          REQUEST_MODES, REQUEST_URL_MODES, RUN_ID_RE, RUN_STATE_LABELS, STEP_LABELS, STEP_STATE_LABELS,
+                          REQUEST_MODES, RUN_ID_RE, RUN_STATE_LABELS, STEP_LABELS, STEP_STATE_LABELS,
                           Cancelled, Run, StepError, _has_captions, _job_why, clean_pool)
 from flow import runqueue as queue_mod  # noqa: E402  (② の待ち行列と糸 = AutoRunner が継ぐ Queue。RS7-1 S5。下で同じ名前で読み直す)
 from flow.runqueue import (ACTIVE_FILE, ACTIVE_VERSION, HISTORY_DEFAULT, HISTORY_MAX, LOG_MAX_BYTES, LOG_READ_BYTES, MAX_WAITING, PAST_MAX,  # noqa: E402,F401
@@ -395,7 +395,7 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
         new = run.spec is None
         super()._accept(run, convert)
         pending = any(s["key"] == "analyze" and s["state"] not in DONE_STEPS for s in run.steps)
-        if run.friend_plan is None and run.mode in REQUEST_URL_MODES and pending:
+        if run.friend_plan is None and run.friend_url and pending:
             fl = self._memo("friend", self._friend_length)
             if fl:
                 keys = [k for k in ("length", "preRatio") if k in fl]
@@ -404,7 +404,7 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
                 run.spec = dict(b, analyze=dict(b["analyze"], **{k: fl[k] for k in keys}))
         if run.streamer is None and (new or not convert):
             self._accept_streamer(run, self._memo("studio", self._studio_list))
-        if run.mode == "full" and run.deliver_origin == "auto" and not run.deliver_tag:
+        if run.kind() == "url" and not run.request_id and run.deliver_origin == "auto" and not run.deliver_tag:
             run.deliver_tag = deliver_mod.request_id(self.clock())
 
     def _accept_streamer(self, run, studio=None):

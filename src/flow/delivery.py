@@ -87,7 +87,7 @@ class Delivery:
 
     def _after_pack(self, run, st, prefix):
         """① 全自動: パックができるたびに 1 本ずつ届ける(全部を待たない)"""
-        if run.deliver_dir and "deliver" in run_mod.MODE_STEPS[run.mode]:
+        if run.deliver_dir and run.delivers() and (run.request_id or run.kind() != "url"):   # まとめて実行(依頼の番号の無い配信)は段 deliver で決めてから
             self._deliver_pending(run)
 
     # 依頼の動画(mode file) -------------------------------------
@@ -103,9 +103,9 @@ class Delivery:
             if found:
                 d = os.path.normpath(found["dir"])
                 dirs.append(d)
-                if run.mode == "full" and d not in run.pack_marks and m.get("id"):   # 前からあったパックも、どの切り抜きか分かるように(案件の印・友人の「要らない」)
+                if not run.request_id and d not in run.pack_marks and m.get("id"):   # 前からあったパックも、どの切り抜きか分かるように(案件の印・友人の「要らない」)
                     run.pack_marks[d] = {"path": m["path"], "markId": str(m["id"])}
-        if run.mode == "full" and self._origin(run) == "auto":   # まとめて実行で友人へ自動で送る(D-SEND): 先に送るかを決める
+        if not run.request_id and self._origin(run) == "auto":   # まとめて実行で友人へ自動で送る(D-SEND): 先に送るかを決める
             dirs = self._full_gate(run, st, v, clips, dirs)
             if dirs is None:
                 return None
@@ -222,7 +222,7 @@ class Delivery:
         if not pending:
             raise err
         tag = getattr(run, "deliver_tag", None) or run.request_id or run.id
-        key = "%s|%s|%s" % ("full" if run.mode == "full" else "auto", tag, run.video_id or run.id)
+        key = "%s|%s|%s" % ("full" if run.kind() == "url" else "auto", tag, run.video_id or run.id)   # 鍵の頭は前のまま(配信 = まとめて実行 full・ライブの書き出し = auto)
         ended = getattr(run, "send_ended_at", None)
         with self._pool_lock:
             pools = self._pools_load()
@@ -269,7 +269,7 @@ class Delivery:
 
     def _deliver_rest_quietly(self, run):
         """止まった実行に、まだ届けていないパックがあれば届ける。届けられなくても失敗の知らせは置く"""
-        if "deliver" not in run_mod.MODE_STEPS.get(run.mode, ()):
+        if not run.delivers():
             return
         try:
             self._deliver_pending(run)

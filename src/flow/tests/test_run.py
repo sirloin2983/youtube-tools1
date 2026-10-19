@@ -215,7 +215,7 @@ class TestStepsOf(unittest.TestCase):
         keys = list(R.MODE_STEPS[mode])
         if "normalize" in keys and not normalize:
             keys.remove("normalize")
-        if mode in R.REQUEST_URL_MODES and ranges and ranges >= (top or 0):
+        if mode == "request_auto" and ranges and ranges >= (top or 0):
             keys.remove("analyze")
             keys.append("analyze_later")
         if mode == "full" and dir_ and "deliver" not in keys:

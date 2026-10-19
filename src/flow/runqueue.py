@@ -36,7 +36,7 @@ import uuid
 
 from ytt import colors as _colors, fsio, jobs as _yjobs, schemas as _schemas, tools as _ytools
 from . import board as _board, envelope as _envelope, learning as _learning, machine as _machine, placement as _placement, prio as _prio, run as run_mod, runlog, spec as _spec
-from .run import (DOC_MODE, MODES, RUN_STATE_LABELS, STEP_LABELS, Cancelled, Run, StepError,
+from .run import (DOC_MODE, RUN_STATE_LABELS, STEP_LABELS, Cancelled, Run, StepError,
                   adopted_ids, pack_verdict, tx_verdict)
 
 MAX_KEEP = 30          # 終わった記録を残す数(メモリ。ファイルの記録は runlog.RUNS_LOG)
@@ -439,7 +439,7 @@ class Queue(run_mod.Runner):
         (何も書き込まない・積まない)。「飛ばすか」の判定は flow/run.py の _analyze_plan(analyze_verdict・redo_reason)・adopted_ids・tx_verdict・pack_verdict で、実行の段と同じ関数
         (鍵の比べも同じ _pack_state)。実行は実行したときの状態で決めるので、前の段の結果しだいの本数は None(分からない)で返す。
         文書の一覧と紐づけは hook の _docs・_pick_doc。-> {"steps": [{"key", "label", "count" (None = 前の段の結果しだい), "note"}],
-        "total": 分かっている本数の合計, "nothing": bool, "reason", "notes"}。配信の形(MODES)と文書だけ数える(ほかは段だけ・本数は None)。
+        "total": 分かっている本数の合計, "nothing": bool, "reason", "notes"}。配信(まとめて実行・友人の依頼)と文書だけ数える(ほかは段だけ・本数は None)。
         段 deliver(届け先がある)の行は本数 None・note「パックのあとで決まります」。封筒・束の形が違えば理由つきの ValueError"""
         check_spec(envelope, spec)
         env, bundle, _notes = self._bundle_for(envelope, spec)
@@ -447,7 +447,7 @@ class Queue(run_mod.Runner):
         docs = self._docs()
         if run.mode == DOC_MODE:   # 文書単位(文字起こし → パック)
             return self._estimate_docs(docs, run)
-        if run.mode not in MODES:
+        if run.kind() != "url":   # 配信(まとめて実行・友人の依頼)のほか = 段だけ・本数は None
             return self._estimate_out([{"key": s["key"], "label": s["label"], "count": None, "note": ""} for s in run.steps], [])
         video_id, top = run.video_id, run.top
         st, obj = self.tools.video(urllib.parse.quote(str(video_id or "")))

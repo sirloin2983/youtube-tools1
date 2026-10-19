@@ -76,8 +76,8 @@ NORMALIZE_STEP = "normalize"
 REQUEST_MODES = {"request_auto": "依頼 ① 全自動: 解析 → パック",
                  "file_auto": "依頼 ① 全自動: 文字起こし → パック", "file": "動画ファイル: 文字起こしまで"}
 # 友人が時刻で指定した区間(notes:docs/spec/friend.md の 2-6): 前後に余白を足してスタジオの手動マーク(採用)にする。
-# 区間が切り抜く数(top)に足りない分だけ、自動マークの上位で埋める(スタジオの /api/video/request-marks)
-REQUEST_URL_MODES = ("request_auto",)
+# 区間が切り抜く数(top)に足りない分だけ、自動マークの上位で埋める(スタジオの /api/video/request-marks)。
+# 友人の依頼の配信かは Run.friend_url(依頼の番号がある配信の実行)で見る(記録の mode の文字は分かれ目に使わない)
 # 文書単位の実行(notes:docs/design/edit-tool-design.md の 12 ⑦(b)): 「編集」の履歴で選んだ文書を、行が無ければ文字起こし → パック。
 # カットがある文書はカットのとおり(ユーザー決定。配信単位の実行と同じ)。パックがあるときは既定で飛ばす(overwrite で上書き)
 # 状態の言葉(気が利く画面へ 段4。どの入口の画面もこの言葉で出す = snapshot の labels)
@@ -176,10 +176,10 @@ def _gone_shape(env, spec):
     return mode_of(env.get("kind"), b, env.get("requestId")) is None
 
 
-def steps_of(mode, deliver_dir=None, origin=None, ranges=0, top=None, diarize=None, normalize=False, from_=None):
+def steps_of(mode, deliver_dir=None, origin=None, ranges=0, top=None, diarize=None, normalize=False, from_=None, request=False):
     """段の並び(鍵の並び)= MODE_STEPS[mode] + 今の付け足しの決まり(実行の段と見積もりが同じ物を使う。RV A2):
     束の run.from が export(書き出しから全部)なら解析・採用を外す(MODE_STEPS["full"] は変えない) /
-    normalize(動画ファイルの最初)は normalize が真のときだけ / 依頼の URL(REQUEST_URL_MODES)で区間が切り抜く数に足りていれば、解析なしで最後に analyze_later /
+    normalize(動画ファイルの最初)は normalize が真のときだけ / 友人の依頼の配信(request = 依頼の番号がある配信の実行)で区間が切り抜く数に足りていれば、解析なしで最後に analyze_later /
     まとめて実行(full)は届け先があるか出どころ auto(D-SEND。チェックを外した = 届け先なし = notSent)なら末尾に deliver /
     話す人の人数(diarize)があれば文字起こしの後ろに diarize"""
     keys = list(MODE_STEPS[mode])
@@ -187,7 +187,7 @@ def steps_of(mode, deliver_dir=None, origin=None, ranges=0, top=None, diarize=No
         keys = [k for k in keys if k not in ("analyze", "adopt")]
     if NORMALIZE_STEP in keys and not normalize:
         keys.remove(NORMALIZE_STEP)
-    if mode in REQUEST_URL_MODES and ranges and ranges >= (top or 0):
+    if request and ranges and ranges >= (top or 0):
         if "analyze" in keys:   # 書き出しから(from export)は解析の段がもう無い
             keys.remove("analyze")   # 区間が切り抜く数に足りている: 解析なしで、その区間だけを取りに行く
         keys.append("analyze_later")   # 解析は最後(届けたあと)に順番へ入れるだけ = 友人の区間と自動の候補を比べる材料(決定 3-49 Q6。OPT-E2)
@@ -368,7 +368,7 @@ class Run:
         self.result_path = None    # 結果の束 <案件>/作業用/runs/<id>.json(終わったら flow/placement.write_result が置く。記録の 1 行の resultPath = 索引。RS6 b-B0)
         self.run_from = bundle["run"]["from"]   # 束の run.from(書き出しから全部 = export。札と段の並びが使う)
         keys = steps_of(self.mode, self.deliver_dir, self.deliver_origin, len(self.ranges), self.top, bundle["transcribe"]["diarize"], self.normalize,
-                        self.run_from)
+                        self.run_from, self.friend_url)
         self.steps = [{"key": k, "label": STEP_LABELS[k], "state": "wait", "detail": ""} for k in keys]
 
     # ------------------------------------------------------------ 束から読む欄(読み取りだけ。RV A2 で Run の欄 → 束)
@@ -440,6 +440,15 @@ class Run:
         """封筒の種類(url・file・docs)。動画ファイルの実行は文字起こしのあと doc_id も持つが file のまま"""
         return self._kind
 
+    @property
+    def friend_url(self):
+        """友人の依頼の配信か(依頼の番号がある配信の実行 = 記録の mode request_auto)。区間・採用したマークの扱い・友人の区間の長さの分かれ目"""
+        return self._kind == "url" and self.mode != DOC_MODE and bool(self.request_id)
+
+    def delivers(self):
+        """段 deliver を持つか(届け先がある実行。どの入口も段の並びで決まる = steps_of)"""
+        return any(s["key"] == "deliver" for s in self.steps)
+
     def envelope(self):
         """この実行の封筒(flow/envelope.py の版 2)"""
         kind = self._kind
@@ -472,7 +481,7 @@ class Run:
         if kind == "live":
             raise ValueError("ライブの依頼は Run にしません(Queue.submit が live の hook へ回す)")
         b = _spec.validate(_spec.merge(spec))
-        if kind == "url" and inp.get("marks") and b["run"]["from"] != "export" and mode_of(kind, b, env["requestId"]) not in REQUEST_URL_MODES:
+        if kind == "url" and inp.get("marks") and b["run"]["from"] != "export" and not env["requestId"]:
             # 依頼の URL はこの実行で扱うマークを採用の段が置く(待ちの記録の封筒に入る)= 断らない
             raise ValueError("マークを選んだまとめて実行は書き出しから(run.from export)だけです")
         run = cls(env, b)
@@ -593,7 +602,7 @@ class Run:
                 "friendLength": dict(self.friend_length) if self.friend_length else None,
                 "videoId": self.video_id, "title": self.title, "mode": self.mode,
                 "modeLabel": (FROM_EXPORT_LABEL if self.mode == "full" and self.run_from == "export" else
-                              MODES.get(self.mode) or REQUEST_MODES.get(self.mode) or DOC_LABEL) +("(%d本)" % len(self.marks) if self.marks and self.mode not in REQUEST_URL_MODES else ""), "top": self.top,
+                              MODES.get(self.mode) or REQUEST_MODES.get(self.mode) or DOC_LABEL) +("(%d本)" % len(self.marks) if self.marks and not self.friend_url else ""), "top": self.top,
                 "streamer": self.streamer, "streamerFrom": self.streamer_from, "marks": list(self.marks) if self.marks else None, "fromSearch": bool(self.fresh),
                 "state": self.state, "stateLabel": RUN_STATE_LABELS["nothing" if self.nothing and self.state == "done" else self.state],
                 "nothing": self.nothing, "onFail": self.on_fail, "docs": list(self.docs[:20]),
@@ -988,7 +997,7 @@ class Runner:
         weights = tuple(saved[k] for k in WEIGHT_KEYS) if "weights" in _pins(b) else None
         # 友人の依頼の足りない分を自動で埋める: 自動の候補の長さを、友人が選んだ区間の長さの実績に合わせる(解析し直しの理由にはしない)。
         # 長さは受付で決めて束の analyze.length・preRatio に入れてある(RS7-1 S4。Run.friend_plan)。ここでは使った印と文だけ
-        fp = run.friend_plan if run.mode in REQUEST_URL_MODES and isinstance(run.friend_plan, dict) else None
+        fp = run.friend_plan if run.friend_url and isinstance(run.friend_plan, dict) else None
         fl = {k: v for k, v in fp.items() if k != "base"} if fp else None
         base = dict(saved, **(fp.get("base") or {})) if fp and isinstance(fp.get("base"), dict) else saved
         own = base != _spec.DEFAULTS["analyze"]   # 既定と違う = スタジオの画面で変えた設定(重みの指定が無いときだけ文に出す。友人の長さを重ねる前の値で見る)
@@ -1053,7 +1062,7 @@ class Runner:
         rids, hids, aids = res.get("rangeIds") or [], res.get("humanIds") or [], res.get("autoIds") or []
         added = set(res.get("added") or [])
         chosen = tuple(dict.fromkeys(rids + hids + aids))
-        if run.mode in REQUEST_URL_MODES:
+        if run.friend_url:
             run.marks = chosen
         if not chosen:
             st["state"], st["detail"] = "skip", "採用できる候補がありません"
@@ -1070,7 +1079,7 @@ class Runner:
         why = short_why(v.get("analysis")) if short > 0 else ""
         st["detail"] = "・".join(parts) + ("(うち %d 本は本数に届かないので、点数の低い山で埋めました)" % fills if fills else "") + \
             ("。候補が足りず %d 本は選べませんでした" % short if short > 0 else "") + ("(%s)" % why if why else "")   # 足りなかった理由(記録 autorun-runs.jsonl に残る)
-        if not added and run.mode not in REQUEST_URL_MODES:   # 新しく採用したものが無い(前の採用をそのまま使う)
+        if not added and not run.friend_url:   # 新しく採用したものが無い(前の採用をそのまま使う)
             st["state"] = "skip"
             st["detail"] += "(新しく採用したものはありません)"
         return None
