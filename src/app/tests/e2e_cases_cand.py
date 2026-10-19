@@ -161,7 +161,7 @@ def main():
                 def fake_tx_start(route):   # 入口のまとめて実行(書き出しのあとの自動の文字起こし・まとめて実行)は頼んだ中身だけ見る
                     raw = json.loads(route.request.post_data or "{}")   # ② の口 {envelope, spec} -> {id, mode, marks} の形で覚える
                     env, run = raw.get("envelope") or {}, (raw.get("spec") or {}).get("run") or {}
-                    mode = ("transcribe" if run.get("upto") == "transcribe" else "adopted") if run.get("from") == "export" else "full"
+                    mode = ("transcribe" if run.get("upto") == "transcribe" else "full-export") if run.get("from") == "export" else "full"   # full-export = 書き出しから全部(mode full + run.from export)
                     body = {"id": (env.get("input") or {}).get("videoId"), "mode": mode, "marks": (env.get("input") or {}).get("marks")}
                     sent_tx.append(body)
                     runs[:] = [run_of(body)]
@@ -255,8 +255,8 @@ def main():
                 end = time.time() + 8
                 while time.time() < end and len(sent_tx) < 2:
                     pg.wait_for_timeout(200)   # 同期版の route は Playwright を呼んでいる間しか動かない(time.sleep では届かない)
-                check(len(sent_tx) == 2 and sent_tx[-1].get("marks") == ["m1"] and sent_tx[-1].get("mode") == "adopted",
-                      "「この後を ▸」はこのマークだけ: %s" % sent_tx[-1:])
+                check(len(sent_tx) == 2 and sent_tx[-1].get("marks") == ["m1"] and sent_tx[-1].get("mode") == "full-export",
+                      "「この後を ▸」はこのマークだけ・書き出しから全部: %s" % sent_tx[-1:])
                 runs[:] = []   # 帯は 10 分より前に終わった実行を出さない = 空にすれば消える
                 sent_tx[:] = []
 
@@ -282,7 +282,7 @@ def main():
                 end = time.time() + 8
                 while not sent_tx and time.time() < end:
                     pg.wait_for_timeout(200)
-                check(bool(sent_tx) and sent_tx[0].get("mode") == "transcribe" and sent_tx[0].get("marks") == ["m1"], "書き出しのあと自動で文字起こしを頼む: %s" % sent_tx[:1])
+                check(bool(sent_tx) and sent_tx[0].get("mode") == "full-export" and sent_tx[0].get("marks") == ["m1"], "書き出しのあと自動でパックまで(書き出しから全部)を頼む: %s" % sent_tx[:1])
                 pg.keyboard.press("Escape")
                 wait_js(pg, "document.querySelector('#rvExport').hidden", 3000)
                 # 書き出した切り抜きを文字起こしした(文書を置く)→ 戻ってきたら、マークにセリフが元の配信の時刻で出る
