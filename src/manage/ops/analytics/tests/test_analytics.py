@@ -346,7 +346,7 @@ class FakeBridge:
         return {"id": fid, "name": n, "updated": u, "content": json.dumps(raw)}
 
     def report(self, kind, date, text, html, source, notify=True):
-        if not re.match(r"^\d{4}-\d{2}-\d{2}$", date):   # 本物の連携(gas/Code.gs)と同じ検査。月報の「2026-09」で断られた(10-09)
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", date):   # 本物の連携(gas/Code.gs)と同じ検査。月報の「2026-09」は断られる
             raise bridge.BridgeError("bad_request", "date は YYYY-MM-DD の形にしてください")
         self.reports.append((kind, date, source["rawId"]))
         return {"ok": True, "url": "https://script.google.com/macros/s/x/exec?v=key", "sent": True}
@@ -395,6 +395,7 @@ class ServiceTest(unittest.TestCase):
         self.assertEqual(self.fb.reports[-1][0], "weekly")
         self.svc.run_now("daily", False)   # 送らずに作り直す
         self.assertEqual(len(self.fb.reports), n + 1)
+        self.check_web()   # 作った日報が手元の画面で出る(日報を作る tick は重いので同じ状態を分け合う)
 
     def test_not_configured(self):
         s = service.Service(base_dir=self.tmp + "x", bridge_factory=lambda u, s: self.fb)
@@ -406,8 +407,7 @@ class ServiceTest(unittest.TestCase):
         self.assertNotIn(SECRET, snap)
         self.assertTrue(self.svc.snapshot()["config"]["hasSecret"])
 
-    def test_web(self):
-        self.svc.tick()
+    def check_web(self):
         h = FakeHandler()
         self.assertTrue(self.svc.handle_get(h, urllib.parse.urlsplit("/analytics/")))
         code, body, ctype, extra = h.out[-1]

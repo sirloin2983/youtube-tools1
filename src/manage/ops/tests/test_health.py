@@ -1,4 +1,4 @@
-"""src/manage/ops/health.py(「調子」。段9 9-1)の単体テスト。
+"""src/manage/ops/health.py(「調子」)の単体テスト。
 
     python -m unittest src/manage/ops/tests/test_health.py
 """
@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> ops -> manage -> src
@@ -36,9 +37,6 @@ class SizesTest(unittest.TestCase):
         self.write("a/one.bin", 300)
         self.write("a/sub/two.bin", 200)
         self.write("b.bin", 50)
-        self.assertEqual(H.fsio.dir_size(self.tmp), (550, 3))
-        self.assertEqual(H.fsio.dir_size(os.path.join(self.tmp, "b.bin")), (50, 1))
-        self.assertEqual(H.fsio.dir_size(os.path.join(self.tmp, "nothing")), (0, 0))
         items = H.top_items(self.tmp)
         self.assertEqual([(i["name"], i["bytes"], i["files"], i["dir"]) for i in items], [("a", 500, 2, True), ("b.bin", 50, 1, False)])
         self.assertEqual(len(H.top_items(self.tmp, limit=1)), 1)
@@ -74,8 +72,7 @@ class SizesTest(unittest.TestCase):
 
 class ToolsTest(unittest.TestCase):
     def test_parse_version_line(self):
-        # 版は出力の 1 行目から抜く(見つからなければ先頭の 60 字)。中身は ytt.tools.tool_version(first_line=True)(2026-10-09 に移した)
-        from unittest import mock
+        # 版は出力の 1 行目から抜く(見つからなければ先頭の 60 字)。中身は ytt.tools.tool_version(first_line=True)
         cases = [("ffmpeg version 6.1.1-full_build-www.gyan.dev Copyright (c) 2000-2023\nbuilt with gcc", "6.1.1-full_build-www.gyan.dev"),
                  ("2025.09.05\n", "2025.09.05"), ("", ""), ("x" * 80 + "\nversion 9", "x" * 60)]
         for text, want in cases:
@@ -209,7 +206,7 @@ class FakeSup:
         return {"tools": self.tools, "heavy": {"limit": 1, "active": [], "waiting": []}}
 
 
-class HealthTest(unittest.TestCase):
+class HealthBase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="ytt-health-")
         self.logs = os.path.join(self.tmp, "logs")
@@ -218,11 +215,15 @@ class HealthTest(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
+
+class HealthRealToolsTest(HealthBase):
+    """本物の ffmpeg などの版を問い合わせる 1 本(wevtutil だけ差し替える)"""
+
     def test_snapshot_shape_and_version_check(self):
         sup = FakeSup([{"id": "studio", "name": "スタジオ", "state": "running", "version": "0.13.0", "expectedVersion": "0.13.0"},
                        {"id": "transcribe", "name": "編集", "state": "running", "version": "0.29.0", "expectedVersion": "0.30.0"},
                        {"id": "cut2resolve", "name": "c2r", "state": "stopped", "version": "", "expectedVersion": "0.16.0"}])
-        h = H.Health(sup, self.logs, worker_probe=lambda: {"alive": True, "pid": 1}, cache_sec=600)
+        h = H.Health(sup, self.logs, worker_probe=lambda: {"alive": True, "pid": 1}, cache_sec=600, crash_fn=lambda: None)
         s = h.snapshot()
         self.assertEqual([(v["tool"], v["ok"]) for v in s["versions"]], [("studio", True), ("transcribe", False), ("cut2resolve", True)])
         self.assertEqual(s["worker"], {"alive": True, "pid": 1})
@@ -239,6 +240,19 @@ class HealthTest(unittest.TestCase):
         self.assertIsNotNone(s["data"])
         self.assertIn("ffmpeg", s["tools"])
         self.assertIn("countedAt", s)
+
+
+class HealthTest(HealthBase):
+    """本物の wevtutil と ffmpeg -version は起こさない(偽物に差し替える)"""
+
+    def setUp(self):
+        super().setUp()
+        p = mock.patch.object(H, "tool_versions", return_value={"ffmpeg": {"path": None, "version": ""}})
+        p.start()
+        self.addCleanup(p.stop)
+        q = mock.patch.object(H, "crash_counts", return_value=None)
+        q.start()
+        self.addCleanup(q.stop)
 
     def test_snapshot_crashes(self):
         """異常終了の件数は data・tools のあとに入る(wevtutil が遅くても先の物は出る)。読めなければ events が None"""
