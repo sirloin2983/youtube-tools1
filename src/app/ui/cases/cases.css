@@ -37,7 +37,7 @@
   .cs-pane{min-height:0}
 }
 
-/* ---- カット・パックのパネル(panels/cut.js。RS8 C2c)。編集の index.html の CSS のうち 2 カット・パックの分を移した(古い画面は C4 まで残る)。
+/* ---- カット・パックのパネル(panels/cut.js。RS8 C2c)。編集の index.html の CSS のうち 2 カット・パックの分。
    .cs-cut = パネルの根。@container editor はここが入れ物(編集の画面と同じ幅の決まり)。.savest・.pop・.vpop は編集の中だけの部品なので .cs-cut の下に限る ---- */
 .cs-cut{container:editor / inline-size;min-width:0}
 .cs-cut .savest{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-3);white-space:nowrap;flex:none}
@@ -67,7 +67,7 @@
 .tt-kc>button[aria-pressed=true]{background:var(--panel-3);color:var(--ink)}
 .tt-kc>button[aria-pressed=true]:is([data-act=cut],[data-act=cutrow]){background:var(--danger);color:var(--danger-on)}   /* カット済は赤(行の取り消し線と同じ意味) */
 .tt-kc>button:disabled{opacity:.5;cursor:not-allowed}
-/* 映像の上の字幕で、重なる行を積んだとき(2026-10-05)。1 行ずつ話者の色(--tt-cap-color。無ければ外側の色のまま) */
+/* 映像の上の字幕で、重なる行を積んだとき。1 行ずつ話者の色(--tt-cap-color。無ければ外側の色のまま) */
 .tt-cap-line{display:block;color:var(--tt-cap-color,#000)}   /* ui-audit: allow A-08 字幕の既定の黒(仕上がりと同じ色。両テーマで同じ) */
 .tt-cap-line+.tt-cap-line{margin-top:.15em}
 .tt-cut-off{margin:0 0 12px}
@@ -97,7 +97,7 @@
 .tt-csub.now .tt-csub-go .mono{color:var(--ink-2)}   /* 今の行(薄い accent の上)は --ink-3 だと 4.3:1(A-22) */
 .tt-csub-go .tx{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tt-csub.cut{background:repeating-linear-gradient(135deg,transparent 0 8px,color-mix(in srgb,var(--ink-4) 16%,transparent) 8px 10px)}
-.tt-csub.cut .tx,.tt-csub.cut .mono{text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--danger) 70%,transparent);color:var(--ink-3)}   /* 0.59.3(段9): 1 文字起こし のカット済の行(.seg.cut)と同じ色。--ink-4 は 3.5:1 で基準(4.5:1)に届かなかった */
+.tt-csub.cut .tx,.tt-csub.cut .mono{text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--danger) 70%,transparent);color:var(--ink-3)}   /* 段9: 1 文字起こし のカット済の行(.seg.cut)と同じ色。--ink-4 は 3.5:1 で基準(4.5:1)に届かなかった */
 .tt-csub-empty{margin:8px 4px}
 .tt-csub .tt-kc{margin-left:2px}
 .tt-cut-tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:12px 0 8px}
@@ -106,7 +106,7 @@
 .tt-cut-tools kbd{margin-left:4px}
 .tt-split{display:inline-flex;align-items:center;flex:none}   /* 「行から」と設定の山形は 1 つの塊(折り返しで山形だけ次の行に落ちない。S19) */
 .tt-split>#cutDraftRows{border-top-right-radius:0;border-bottom-right-radius:0}.tt-split>details>summary{border-top-left-radius:0;border-bottom-left-radius:0}
-.tt-cut-tools .btn .ui-icon{width:14px;height:14px}   /* 分割・元に戻す・やり直すの線のアイコン(以前の ✂ ↶ ↷ の文字と同じくらいの大きさ) */
+.tt-cut-tools .btn .ui-icon{width:14px;height:14px}   /* 分割・元に戻す・やり直すの線のアイコン */
 .tt-cut-tools details.pop>summary.disabled{opacity:.5;cursor:not-allowed}
 .tt-cut-tools .vpop{min-width:260px}
 .tt-cut-tools .vpop .fld>label{display:block;font-size:12.5px;font-weight:550;color:var(--ink-2);margin:8px 0 4px}
@@ -168,7 +168,7 @@
 @container editor (max-width:900px){.tt-cut-top{grid-template-columns:minmax(0,1fr)}.tt-cut-subs{max-height:260px}}
 
 /* ---------- 3 パック(E4。pack-tab.js) ---------- */
-/* パック(0.62.0 で「3 パック」のタブから 2 カット の末尾へ。設定は ⚙ の「パック」の節 #edSetPack) */
+/* パック(2 カット の末尾。設定は ⚙ の「パック」の節 #edSetPack) */
 .tt-pack{margin-top:22px;padding-top:16px;border-top:1px solid var(--line)}
 .tt-pack-h{margin:0 0 10px;font:650 16px/1.35 var(--font-display)}
 #edSetPack .tt-pk-row{margin:6px 0}
@@ -178,7 +178,7 @@
 .tt-pk-sumrow{display:flex;align-items:center;gap:7px;margin:0}   /* 前回の設定の要約 + 配信者の色の丸(段3。既定は色が無いので隠す) */
 .tt-pk-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}
 .tt-pk-col{display:flex;flex-direction:column;gap:14px;min-width:0}
-/* サムネの案(P5。0.64.0) */
+/* サムネの案(P5) */
 .tt-th-row{gap:8px;align-items:center;flex-wrap:wrap}
 .tt-th-img{display:block;width:100%;height:auto;margin-top:8px;border:1px solid var(--line);border-radius:var(--r)}
 .tt-pk-card{padding:14px 16px}

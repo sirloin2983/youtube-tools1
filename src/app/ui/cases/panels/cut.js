@@ -1,6 +1,6 @@
 /* 案件の画面の「カット・パック」のパネル(#cut。残す区間を決めて、末尾で DaVinci Resolve へ渡すパックを作る)。口の形は cases.js の先頭の説明。RS8 C2c。
    中身は編集の 2 カット(src/app/ui/editor/cut.js = EditCut)とパック(src/app/ui/editor/pack-tab.js = EditPack)をそのまま使う(動きを二重に持たない。古い編集の画面は C4 まで残る)。
-   ここが持つのは (1) 画面の骨組み(編集の index.html の 2 カットの節を移した。パックの設定の節 #edSetPack も画面の中に置く = 古い画面は ⚙ の引き出し。「予備」の欄は決定 3-34 で置かない)、
+   ここが持つのは (1) 画面の骨組み(編集の index.html の 2 カットの節と同じ。パックの設定の節 #edSetPack も画面の中に置く。「予備」の欄は決定 3-34 で置かない)、
    (2) 編集の app-*.js が cut.js / pack-tab.js に渡している「host」(文書 S・保存・元に戻す・字幕の積み方・話者の色・cut2resolve の口)の、このパネル用の小さい版、
    (3) 殻の口(mount / update / unmount / keys / keybar / leave / back)との橋。
    パネルの中の要素は root.querySelector で引く(document.getElementById・document.querySelector は使わない)。API は ctx.api('transcribe' | 'cut2resolve' | 'home', …) の相対パス。
@@ -29,7 +29,7 @@
     return scriptsP;
   }
 
-  /* 編集の index.html の 2 カットの節(#tabCut)を移した骨組み。id は cut.js / pack-tab.js が引く名前のまま */
+  /* 編集の index.html の 2 カットの節(#tabCut)と同じ骨組み。id は cut.js / pack-tab.js が引く名前のまま */
   var TEMPLATE = `
 <section id="tabCut">
  <div class="notice tt-cut-off" id="cutOff" hidden role="status"><span id="cutOffMsg"></span><button type="button" class="btn small" id="cutRelink" hidden>動画を選び直す</button><button type="button" class="btn small" id="cutRetry" hidden>もう一度読み込む</button></div>

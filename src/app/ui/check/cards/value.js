@@ -1,5 +1,5 @@
 /* 確かめるのカード「価値」(/check-cards/value.js)。口は check.js の先頭。
-   source auto(自動でできた切り抜き・10-16 の 2-8) = 送った後の品質の確認: [良い](A) / [悪い](X) / [不明](S・どちらとも言えない = 理由なしで記録)。悪いを押したら理由の札を 1 つ選べる(数字 1〜7・任意。Enter = 理由なしで記録)。
+   source auto(自動でできた切り抜き・2-8) = 送った後の品質の確認: [良い](A) / [悪い](X) / [不明](S・どちらとも言えない = 理由なしで記録)。悪いを押したら理由の札を 1 つ選べる(数字 1〜7・任意。Enter = 理由なしで記録)。
      記録だけ(src/human/check/value.py)。送るかには効かせない = [送る]・[要らない] は無い。すぐ記録(1 枚遅れなし)。Z で記録を取り消す。
    source cand(候補のまま) = 採用 / 不採用(殻の決まった形 CheckCards.simple・今のまま。1 枚遅れで確定)。
    カード(src/app/check/sources.py): auto = options ["good","bad","unknown"]・reasons [{id, text}] / cand = options ["adopt","reject"]。答え = {choice} / 悪いの理由 {choice:"bad", reason: id} */

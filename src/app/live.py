@@ -3,7 +3,7 @@
 オフの間は何もしない: /live/… は今までどおり 404(handle が False を返し、入口の 404 になる)・録画の部品も起動しない・「調子」にも出さない。
 api/ytt/live の status だけはオフでも {enabled: false} を返す(録画元に問い合わせない)。
 
-P3(2026-10-05。計画の 0-8): 録画と再生・マークは**スタジオの中**(② 確認・書き出し)。別ページ /live/(live.html・live.js・live.css)はやめた。
+P3(計画の 0-8): 録画と再生・マークは**スタジオの中**(② 確認・書き出し)。別ページ /live/ は無い。
 スタジオのサーバーは録画の部品と話さず、スタジオの**画面が**ここの API を呼ぶ(同じオリジン・入口の合言葉)。
 
 オンのとき:
@@ -15,14 +15,14 @@ P3(2026-10-05。計画の 0-8): 録画と再生・マークは**スタジオの�
   GET|POST /live/r/<録画元>/<残り>        録画元(src/pipeline/ingest/recorder.py)の /live/<残り> へ中継する(同じオリジンのまま。合言葉は入口が付ける)
                                           例: /live/r/local/<録画>/index.m3u8・…/status・…/stop・…/session_001/seg_000000.ts
                                           POST は <録画>/stop だけ(録画を消す …/delete・終わる quit などは中継しない = 入口の中の処理だけが呼ぶ。P4)
-  (/live/api/marks は消した = 画面から呼ぶ所が 0 件。POST は RS8 B3-5・GET は 10-18 のコードの棚卸し。マークの正本は書き出しのジョブの入力と、スタジオなしの採用の書き出しまでの置き場
+  (マークの API は無い。マークの正本は書き出しのジョブの入力と、スタジオなしの採用の書き出しまでの置き場
    = flow/live_export.py の MarkStore・flow/live_adopt.py の LocalMarks)
   GET  /live/api/exports?recorder=&recording=  書き出しのジョブの一覧(状態: 録画待ち・取得中・作り直し中・済み・失敗と理由・取り消し。studio を含む)
   POST /live/api/export  {recorder, recording, title, url, transcribe, studio: {video, mark, n, label, start, end}}
                                           スタジオのマークから書き出す(start・end は録画の最初のセグメントの受信時刻からの秒。入口が録画元の status の
-                                          firstPdt で絶対時刻にしてマークの正本へ入れる)。P2 の形 {recorder, recording, markId, transcribe} も残す
+                                          firstPdt で絶対時刻にしてマークの正本へ入れる)。P2 の形 {recorder, recording, markId, transcribe} も受ける
   POST /live/api/export/cancel  {id}     取り消し
-  POST /live/api/adopt  {recorder, recording, start, end, label?, origin?, after?, streamer?}   サーバー側の「マーク + 書き出し」(線 D の M1。入口 0.39.0。
+  POST /live/api/adopt  {recorder, recording, start, end, label?, origin?, after?, streamer?}   サーバー側の「マーク + 書き出し」(線 D の M1。
                                           中身は src/flow/live_adopt.py の Adopter。マークの置き場はスタジオ = StudioMarks。RS7-2 G1b)。
                                           画面を閉じていても API だけで書き出しまで通る: スタジオの配信(kind live)を(無ければ)登録して採用のマークを足し
                                           (同じ区間 ±0.5 秒のマークがあれば使い回す)、マークの正本に入れて書き出しのジョブを作る。済んだら入口がスタジオのマークを「書き出し済み」にする。
@@ -38,13 +38,13 @@ P3(2026-10-05。計画の 0-8): 録画と再生・マークは**スタジオの�
        ?recorder=&recording= を付けたときは応答に archiveInfo {ready: true|false|null, checkedAt, message}(その録画のアーカイブの用意)
   録画を自動で消す(中身は src/manage/keep/live_cleanup.py。設定 live.autoDelete・既定オン): 見回り(tick)と、アーカイブからの書き出しが済んだとき。
        消した録画のジョブには recordingDeleted(スタジオの画面が「録画は消しました」と出す)。録画元の …/delete は入口のこの処理だけが呼ぶ
-  ディスクの見張り(線 D の M4。入口 0.40.0): 「調子」の live.disk {state: ok|warn|low, rows, message}(書き出し先・パック・live\\work の空き。
+  ディスクの見張り(線 D の M4): 「調子」の live.disk {state: ok|warn|low, rows, message}(書き出し先・パック・live\\work の空き。
        20 GB 未満で注意・5 GB 未満で新しい書き出し・文字起こしを「空き待ち」。中身は src/flow/live_export.py の Exporter.disk)
-  配信後の全自動(線 D の M7。入口 0.40.0。設定 live.autoAfterStream 既定オフ・live.afterStreamPerHour 既定 6。中身は src/flow/live_archive.py):
+  配信後の全自動(線 D の M7。設定 live.autoAfterStream 既定オフ・live.afterStreamPerHour 既定 6。中身は src/flow/live_archive.py):
        録画が終わってアーカイブを使えるようになったら、アーカイブを解析して上位 N を M1 の採用(origin archive)→ アーカイブから書き出し → 文字起こし → パック。
        進み具合は GET /live/api/exports?recorder=&recording= の archiveInfo.afterStream {state, label, message, at, n, jobs}・失敗は「調子」の live.failures
   GET  /live/api/peaks?recorder=&recording=&since=  ・ POST /live/api/peaks {op: adopt|dismiss|restore, recorder, recording, id}
-                                          配信中の盛り上がりの候補(線 D の L2・M11。設定 live.detect・live.autoAdopt 既定オン(0.46.3 から)。中身と形は src/flow/live_detect.py)
+                                          配信中の盛り上がりの候補(線 D の L2・M11。設定 live.detect・live.autoAdopt 既定オン。中身と形は src/flow/live_detect.py)
   POST api/ytt/live  {op: "status"} → {enabled, recordings: [{recorder, id, title, state, active, seconds, endedAt, url}]}(録画中 + 終わって 10 分以内。
                      全ツールのヘッダーの札が 10 秒ごとに呼ぶので、録画元への問い合わせは短い時間切れで、結果を 3 秒覚える)
                      {op: "stop", recorder, recording} → {ok: true, recording}(server.py の ytt_api から。合言葉・Origin の検査は ytt_request が済ませる)
@@ -55,17 +55,17 @@ P3(2026-10-05。計画の 0-8): 録画と再生・マークは**スタジオの�
 
 録画の部品の起動(計画の 0-3 から選んだ形): オンの間、入口が 30 秒ごとに手元の録画元に問い合わせ、動いていなければ入口と切り離して起動する
 (別のプロセスグループ・隠れた黒い画面 = 黒い画面を閉じる・Ctrl+C の合図は届かない。落ちても次の見回りで起こし直す)。
-入口の終了(「すべて終了」・SIGTERM・SIGBREAK・Ctrl+C = close)では、**録画中でなければ録画の部品も止める**(入口 0.38.1。2026-10-07 ユーザー指示:
-残った録画の部品がフォルダを掴んで移動できなかった): POST /live/quit で静かに終わらせ、応答が無い・終わらないときは、この入口が起動したものだけ孫ごと止める
+入口の終了(「すべて終了」・SIGTERM・SIGBREAK・Ctrl+C = close)では、**録画中でなければ録画の部品も止める**(ユーザー指示:
+残った録画の部品がフォルダを掴んで移動できなくなるため): POST /live/quit で静かに終わらせ、応答が無い・終わらないときは、この入口が起動したものだけ孫ごと止める
 (スタジオの ffmpeg・yt-dlp と同じ taskkill /T /F)。**録画中(quit が 409)なら止めずに残し**、記録と「すべて終了」の画面に知らせる(録画は続き、次の入口が見回りでつなぐ)。
 スタートアップのショートカットにしない理由: 既定オフ(オンにするまで自動で起動しない)を、ショートカットを置く・消す手作業なしで守れるため。
-ログインしたら録画も上げたいときは、今までどおり入口を裏で起動するショートカット(src\\app\\start_hidden.vbs)を置けば、入口が録画の部品も起こす。
+ログインしたら録画も上げたいときは、入口を裏で起動するショートカット(src\\app\\start_hidden.vbs)を置けば、入口が録画の部品も起こす。
 
-役割で組み直す RS7-2 G2b(2026-10-11): app でない部分(録画元のクライアント・録画を始める begin/begin_request・受付 submit・見回りの列・子プロセス・「調子」・採用の口)は
-src/flow/livesession.py の LiveSession(ライブ係)へ移した。Live はそれを継ぎ、ここに残すのは app の物だけ: HTTP の受け口(handle_get・handle_post)・
+役割の分け方(RS7-2 G2b): app でない部分(録画元のクライアント・録画を始める begin/begin_request・受付 submit・見回りの列・子プロセス・「調子」・採用の口)は
+src/flow/livesession.py の LiveSession(ライブ係)にある。Live はそれを継ぎ、ここにあるのは app の物だけ: HTTP の受け口(handle_get・handle_post)・
 中継(_relay)・札(ytt)・スタジオ(studio_call・StudioMarks・書き出しの音量の settings-ui.json)・友人へ届ける(_auto_deliver_for)・6 時間の上限(stop_long_requests)・
 組の溜め(flush_pools)・日数で自動の切り抜きの片付け(expire_unseen)・ホームの設定(prefs)・片付けの部品(Cleaner)・依頼の録画の束(live_bundle)。
-自分の配信(スタジオの URL の欄 POST /live/api/begin)も RS8 から録画を始めたときに束を組む(livesession.begin_own。封筒 kind live + own_bundle =
+自分の配信(スタジオの URL の欄 POST /live/api/begin)も録画を始めたときに束を組む(livesession.begin_own。封筒 kind live + own_bundle =
 画面の設定の束 + ホームの設定 live + 今のスタジオの解析の設定・書き出しの音量)。録画中に設定を変えても、その録画の検出の感度・枠・採用の待ち・余白・
 配信後の解析・書き出しの音量・書き出したあとのエンジン・モデル・カットには効かない(決定 3-31 の b1・b2)。封筒にできない URL(テストの手元の録画元)は束なし。
 画面なし(--headless)は use_headless: スタジオなしの採用(LocalMarks)・届けない・6 時間で止めない・上限は束の adopt.top・空き容量の下限(machine.json の diskMinGB)。
@@ -82,7 +82,7 @@ from flow import live_export   # マークと書き出し。P2
 from flow import livesession   # ライブ係(RS7-2 G2b。Live はこれを継ぐ app の殻)
 from manage.keep import live_cleanup   # 録画を自動で消す。P4
 from human.friend import live_requests  # noqa: E402  (友人のライブ配信の依頼と録画の結びつき。notes:docs/spec/friend.md の 2-15)
-from flow import deliver as deliver_mod  # noqa: E402  (自動の切り抜きを友人へ届けるときの依頼 id の形。ds1 で ② へ)
+from flow import deliver as deliver_mod  # noqa: E402  (自動の切り抜きを友人へ届けるときの依頼 id の形)
 from human.friend import intake as intake_mod  # noqa: E402  (受付のフォルダと 出力\ の読み方 configured_folder・out_dir_of = 受付と同じ 1 か所)
 
 CODE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -218,8 +218,8 @@ class Live(livesession.LiveSession):
     def _app_watch(self):
         if self.headless:   # 友人の PC は届けない・③④ の片付けは画面なしでは動かさない
             return []
-        return [("溜めの見回りでエラー", self.flush_pools),   # 置けなかった自動の分の送り直し・前の版で組に溜めたライブの切り抜きの残り(F3-6 からは 1 本ずつ)
-                ("日数で自動の切り抜きの片付けでエラー", self.expire_unseen)]   # 作ってから・届けてから 3 日の自動の切り抜きはごみ箱へ(10-09・10-16 ユーザー決定。オフでも前の分は片付ける)
+        return [("溜めの見回りでエラー", self.flush_pools),   # 置けなかった自動の分の送り直し・組に溜めたライブの切り抜きの残り(今は 1 本ずつ届ける)
+                ("日数で自動の切り抜きの片付けでエラー", self.expire_unseen)]   # 作ってから・届けてから 3 日の自動の切り抜きはごみ箱へ(ユーザー決定。オフでも前の分は片付ける)
 
     # --- 束(RS7-2 G2b) ---
     def _bundle_base(self):
@@ -235,7 +235,7 @@ class Live(livesession.LiveSession):
     def live_bundle(self):
         """友人の依頼の録画を始めるときの束の土台 = _bundle_base + ホームの設定 live の
         検出・採用の待ち・余白・書き出したあとのエンジン・モデル・カット(決定 3-31 の仮 b1・b3。livesession.cfg_bundle)。
-        自分の配信の束は livesession の own_bundle(これに今のスタジオの解析の設定・書き出しの音量を重ねる。RS8)"""
+        自分の配信の束は livesession の own_bundle(これに今のスタジオの解析の設定・書き出しの音量を重ねる)"""
         return livesession.cfg_bundle(self._bundle_base(), self.cfg())
 
     def submit_request(self, url, ctx):
@@ -282,7 +282,7 @@ class Live(livesession.LiveSession):
                 rc, rec = (q.get("recorder") or [""])[0][:40], (q.get("recording") or [""])[0][:60]
                 out = {"jobs": self.exporter.snapshot(rc or None, rec or None)}
                 if rc and rec and live_export.ID_RE.match(rc) and live_export.REC_RE.match(rec):   # その録画のアーカイブの用意(P4)
-                    out["archiveInfo"] = self.archiver.info_view(rc, rec, out["jobs"])   # afterStream の進み具合はこの jobs から(M7。0.41.0)
+                    out["archiveInfo"] = self.archiver.info_view(rc, rec, out["jobs"])   # afterStream の進み具合はこの jobs から(M7)
                 h._json(200, out)
             except live_export.LiveError as e:
                 h._fail(e.code, "bad_request" if e.code == 400 else "not_found" if e.code == 404 else "error", str(e))
@@ -419,8 +419,8 @@ class Live(livesession.LiveSession):
         return intake_mod.out_dir_of(intake_mod.configured_folder(self.prefs))
 
     def _auto_deliver_for(self, origin, after, streamer):
-        """自分の配信の自動の切り抜き(配信中の自動採用 auto・配信後の追加 archive)を確認なしで友人へ届ける(設定 live.autoDeliver。10-08 ユーザー決定 = 10-06 の
-        「全自動で届けるスイッチは作らない」を変えた)。人のマーク(manual)は今までどおり案件の [採用(友人へ届ける)] で。届ける先(依頼の受付のフォルダ)が無ければ届けない。
+        """自分の配信の自動の切り抜き(配信中の自動採用 auto・配信後の追加 archive)を確認なしで友人へ届ける(設定 live.autoDeliver。ユーザー決定)。
+        人のマーク(manual)は案件の [採用(友人へ届ける)] で。届ける先(依頼の受付のフォルダ)が無ければ届けない。
         -> (届ける依頼の形 {rid, deliverDir, autoDeliver: True} か None, after, streamer)"""
         if origin == "manual" or self.cfg().get("autoDeliver") is not True:
             return None, after, streamer

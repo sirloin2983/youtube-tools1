@@ -89,7 +89,7 @@
 .rv-chip.live{color:var(--danger-ink);border-color:color-mix(in srgb,var(--danger) 40%,transparent);background:var(--danger-soft)}
 .rv-chip.score{color:var(--ink);font-family:var(--mono)}
 .rv-chip.st.exported{color:var(--ink-2);background:var(--panel-3)}
-.rv-chip.arch{color:var(--info-ink);border-color:color-mix(in srgb,var(--info-ink) 35%,transparent);background:var(--info-soft)}   /* 本番版(アーカイブから作り直して入れ替えた) */
+.rv-chip.arch{color:var(--info-ink);border-color:color-mix(in srgb,var(--info-ink) 35%,transparent);background:var(--info-soft)}   /* 本番版(アーカイブから作り直した物) */
 
 /* ---- プレーヤー(映像の背景は常に黒) ---- */
 .rv-player{aspect-ratio:16/9;max-width:100%;background:#000;border-radius:var(--r-lg);overflow:hidden;position:relative;box-shadow:var(--shadow-2)}

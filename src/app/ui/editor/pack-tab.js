@@ -1,5 +1,5 @@
 /* 「編集」のパック(2 カット の末尾 #packArea。notes:docs/design/edit-tool-design.md の 3・5)。app.js より先に読み、app.js が EditPack.create(host) で起動する。
-   0.62.0 で「3 パック」のタブを無くした: 作るのは 2 カット の末尾・設定(fps・大きさ・音量・字幕の 1 段の文字数・余白・話者の色)は ⚙ の「パック」の節 #edSetPack(欄の id は以前のまま)・
+   作るのは 2 カット の末尾・設定(fps・大きさ・音量・字幕の 1 段の文字数・余白・話者の色)は ⚙ の「パック」の節 #edSetPack・
    配信者(字幕の色)の欄は見せず、文書に覚えている名前(友人の依頼・まとめて実行の指定)を隠した欄 #pkWho に UIKit.streamer.autoFill で入れてそのまま使う(notes:docs/spec/data.md の 3)。
    パックは cut2resolve の pack.py だけが作る(api/build の spec.keeps = 2 カット のタブの残す区間。pack.EDIT_KEEPS)。ここに Resolve 用の計算を書かない。
    「これから作るパック」の字幕の数・注意は、文字起こしのサーバーの /api/edit/preview(同じ pack.py でファイルを作らずに見積もる)。
@@ -12,14 +12,14 @@ function create(h){
   const $ = h.$, esc = h.esc;
   const P = { docId: null, pack: null, rev: 0, preview: null, previewKey: '', previewErr: '', pv: 'idle', pvErrKey: '', pvT: 0, pvSeq: 0, building: false, job: null, err: '', readme: '', lastRes: null,
     notes: [], focusOpen: false };   // notes = 作ったときの案内(info。知らせに積まず「前回のパック」に出す)・focusOpen = 作り終えたら「フォルダを開く」へフォーカス(段7 E-11)
-  /* パックの fps は 30 固定(2026-10-11 RS7-1 S6a。素材は 30fps にそろえる = マスタープラン Q1。画面の欄は消した。設定に残っている packFps は読まない・消さない) */
+  /* パックの fps は 30 固定(RS7-1 S6a。素材は 30fps にそろえる = マスタープラン Q1。設定に packFps があっても読まない・消さない) */
   const fpsOf = () => '30';
   let disposed = false;
   /* 画面に出す「ほかの欄」の呼び名。古い編集の画面は タブの名前のまま、案件の画面は h.words で校正・カットの言い方に替える */
   const N = Object.assign({ tx: '1 文字起こし のタブ', txName: '1 文字起こし', cut: '2 カット のタブ', cutName: '2 カット', conflict: '1 文字起こし の映像の上の案内' }, h.words);
-  /* 「予備」(Text+ パックに足す EDL・SRT)は消した(決定 3-34)。字幕の無いパックは EDL が本体(サーバーが入れる) */
+  /* 「予備」(Text+ パックに足す EDL・SRT)は無い(決定 3-34)。字幕の無いパックは EDL が本体(サーバーが入れる) */
   const sizeOf = () => h.S.settings.packSize === '1920x1080' ? '1920x1080' : '1080x1920';
-  /* 音量のそろえ方(LUFS。編集の設定 packLoudness。0 = そろえない(% で決める)。まとめて実行のパックも同じ値。既定は 0・音量 30%(2026-10-01 ユーザー決定)) */
+  /* 音量のそろえ方(LUFS。編集の設定 packLoudness。0 = そろえない(% で決める)。まとめて実行のパックも同じ値。既定は 0・音量 30%(ユーザー決定)) */
   const loudOf = () => {
     const raw = h.S.settings.packLoudness; if (raw === undefined || raw === null || raw === '') return 0;
     const v = Number(raw); return v === 0 ? 0 : [-11, -14, -16, -18].includes(v) ? v : -14;
@@ -45,7 +45,7 @@ function create(h){
     const st = hasRows ? stylesNow() : null; if (st) o.speakerStyles = st;   // 1 人もいなければ鍵ごと送らない(今までと同じ要求)
     return o;
   }
-  /* 話者ごとの字幕の見た目(文書の話者の sub。今は色だけ。2026-10-05)-> {話者の名前: {color: "#RRGGBB"}} か null。
+  /* 話者ごとの字幕の見た目(文書の話者の sub。今は色だけ)-> {話者の名前: {color: "#RRGGBB"}} か null。
      cut2resolve は speakerStyles の色を最優先にする(「話者の名前がメンバーと合えば…」を切っていても効く) */
   function stylesNow(){
     const out = {}; let n = 0;
@@ -59,7 +59,7 @@ function create(h){
   /* 作ったときの出力の設定(記録)と今の設定の違い(4-3。監査 08)。記録が無ければ null(この版より前・まとめて実行で作ったパック) */
   const OUT_LABEL = { fps: 'フレームレート', size: '大きさ', wrap: '字幕の1段の文字数', textplus: 'Text+ 字幕', render: '粗編集の動画', speakerColors: '話者の色', streamer: '配信者', speakerStyles: '話者ごとの字幕の色',
     srcStartTc: '開始タイムコード', recStart: 'タイムラインの開始', reel: 'リール名' };
-  function outputDiff(rec, now){   // 古い記録の backup(予備。決定 3-34 で消した)は比べない(今は「無し」なので違いに出さない)
+  function outputDiff(rec, now){   // 古い記録の backup(予備。決定 3-34)は比べない(「無し」なので違いに出さない)
     if (!rec || typeof rec !== 'object') return null;
     const fmt = (k, v) => v === undefined || v === '' ? 'なし' : typeof v === 'boolean' ? (v ? 'あり' : 'なし') : k === 'size' ? (v === '1920x1080' ? '横 1920×1080' : '縦 1080×1920') : k === 'fps' ? v + 'fps' : String(v);
     const diffs = [];
@@ -75,7 +75,7 @@ function create(h){
     for (const k of ['srcStartTc', 'recStart', 'reel']) if (String(ra[k] || '') !== String(na[k] || '')) diffs.push(`${OUT_LABEL[k]}: ${ra[k] || 'なし'} → ${na[k] || 'なし'}`);
     return diffs;
   }
-  /* zip に渡らない設定(4-4。監査 10。zip の中身は今のまま = ユーザー決定 09-29)。dev/tests/test_resolve_pack_contract.py の ZipSkipsContract がこの差を固定している
+  /* zip に渡らない設定(4-4。監査 10。zip の中身はそのまま = ユーザー決定)。dev/tests/test_resolve_pack_contract.py の ZipSkipsContract がこの差を固定している
      (zip に渡すようにしたら、そのテストが落ちて、ここの説明を直す合図になる)。開始タイムコード・リール名は EDL(字幕の無いパック)にだけ効く */
   const ZIP_SKIPS = [['render', '粗編集の動画'], ['volume', '音量の調整'], ['srcStartTc', '開始タイムコード'], ['recStart', 'タイムラインの開始タイムコード'], ['reel', 'リール名']];
   const zipSkipped = o => ZIP_SKIPS.filter(([k]) => k === 'render' ? o.render : k === 'volume' ? !!(o.loudness || o.volume !== 100) : !!(o.advanced || {})[k]).map(([, l]) => l);
@@ -106,7 +106,7 @@ function create(h){
     }[b] || '';
   }
 
-  /* ---------- 配信者の名前(字幕の文字の色。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 4)----------
+  /* ---------- 配信者の名前(字幕の文字の色)----------
      手で入れたときだけ(自動では入れない)。文書ごとにこのブラウザに覚える(tx.streamer.v1。{文書の id: 名前}・新しい 300 件まで)。
      名前 → 色の照らし合わせは入口(ui-kit の UIKit.streamer → ytt/colors.py)。パックには名前のまま渡す(cut2resolve が同じ規則で照らし合わせる) */
   const WHO_KEY = 'tx.streamer.v1';
@@ -114,14 +114,14 @@ function create(h){
   const whoFor = id => { const v = whoMap()[id]; return typeof v === 'string' ? v : ''; };
   const whoOf = () => $('#pkWho').value.trim();
   /* 配信者の名前は、ホームの設定に文書ごとに覚える(UIKit.streamer.autoFill。直したら文書・配信・チャンネルに。段5)。
-     以前のこのブラウザの記憶(tx.streamer.v1)は、初めて開いた文書で1回だけ移す(消さない) */
+     このブラウザの記憶(tx.streamer.v1)が残っていれば、初めて開いた文書で1回だけ移す(消さない) */
   $('#pkWho').addEventListener('ui-streamer', e => {   // 合う人が決まったら、字幕の見本(パック・カットのタブ)の色と見出しを変える
     if (disposed) return;   // 案件の画面でパネルを開いてすぐ閉じたとき、照らし合わせの答えは閉じたあとに届く = 消えた欄に書かない(RS8 C4)
     const who = e.detail;
     const capHost = h.root || document.body;   // 古い画面は body(1 文字起こし の字幕も同じ色)。案件の画面はパネルの中だけ
     if (who) capHost.style.setProperty('--tt-cap-color', who.hex); else capHost.style.removeProperty('--tt-cap-color');
     $('#pkLookName').textContent = who ? `けいふぉんと・${who.name}の色の文字(${who.hex})・白いふち・黒いふち` : 'けいふぉんと・黒い文字・白いふち・黒いふち';
-    /* 配信者の欄は見せない(0.62.0)ので、どの名前を使うかを 1 行で */
+    /* 配信者の欄は見せないので、どの名前を使うかを 1 行で */
     const note = $('#pkWhoNote'), name = whoOf();
     if (note) note.textContent = who ? `配信者: ${who.name}(この文書に覚えている名前。字幕の文字をこの色に。変えるには題名の行の「まとめて実行」の配信者の欄)`
       : name ? `配信者「${name}」はメンバーカラーに見つからないので、黒い文字になります(ホロカラーのマイカラーに足すと使えます)`
@@ -131,7 +131,7 @@ function create(h){
 
   /* ---------- 話者ごとの字幕の色(A-2)。色を決めるのは app.js の speakerColor の1か所(気が利く画面へ 段2。照らし合わせは入口の
      api/ytt/streamer-colors → ytt/colors.py)。パックを作るのは cut2resolve(output.speakerColors)で、ここは「どの話者が何色になるか」を見せるだけ。
-     スイッチは編集の設定 speakerColors(1 文字起こし・カットのプレビュー・まとめて実行も同じ値。以前はこのブラウザの tx.pk.speakerColors) ---------- */
+     スイッチは編集の設定 speakerColors(1 文字起こし・カットのプレビュー・まとめて実行も同じ値) ---------- */
   const spkOn = () => h.S.settings.speakerColors !== false;
   $('#pkSpk').addEventListener('change', async () => { await saveLoud({ speakerColors: $('#pkSpk').checked }); h.onSpeakerColors(); });
   function renderSpk(){
@@ -175,7 +175,7 @@ function create(h){
     } catch {}
     render(); schedulePreview(0);
   }
-  /* ---------- サムネの案(提案 P5。0.64.0)----------
+  /* ---------- サムネの案(提案 P5)----------
      作るのはサーバーのジョブ kind thumb(POST /api/thumb-ideas → 作業用/<名前>_thumb-ideas.png)。結果は GET /api/thumb-ideas・画像は /api/thumb-ideas/image。
      切り取りは編集の設定 thumbCrop に覚える。文書は読むだけなので、作っている間も編集はできる(作る前に保存して、今の字幕で作る) */
   const TH = { docId: null, info: null, busy: false, msg: '', seq: 0 };
@@ -295,7 +295,7 @@ function create(h){
       const lanes = fresh ? Number(pv.captionLanes) || 0 : 0, stacked = fresh ? Number(pv.captionsStacked) || 0 : 0, el = $('#pkNoSub');
       const bits = [n ? `字幕に出さない行: ${n} 行(ゲームの声など。字幕は作らず、区間は残します)` : '', lanes >= 2 ? `重なる字幕を ${lanes} 段に分けます(${stacked} 個)` : ''].filter(Boolean);
       el.hidden = !bits.length; el.textContent = bits.join(' ・ '); }
-    { /* 読みにくい字幕(速い・短い。2026-10-05): 残す行のうち読む速さの印が付く行の数(画面の側で数える。パックは変えない。0 なら出さない)。
+    { /* 読みにくい字幕(速い・短い): 残す行のうち読む速さの印が付く行の数(画面の側で数える。パックは変えない。0 なら出さない)。
          readMark は app-rows.js(この画面の後に読む。描くときには読み終わっている) */
       /* readMark は古い編集の画面の app-rows.js の関数。案件の画面(h.root)では校正のパネルが同じページに編集の app-*.js を読むので、その名前を見ない(状態が別) */
       const el = $('#pkRead'), n = !h.root && typeof readMark === 'function' ? d.segments.filter(g => kept(g) && readMark(g)).length : 0;
@@ -362,7 +362,7 @@ function create(h){
     if (document.activeElement !== $('#pkVol')) $('#pkVol').value = String(volOf());
     $('#pkVolBox').hidden = loudOf() !== 0;
     $('#pkSummaryText').textContent = bits.join(' ・ ');   // 要約は覚えている物だけ(4-2): 再読み込みの前後で同じになる
-    // 出力先は覚えない(09-29 決定: 別の案件へ間違って出さないため)ので要約に入れず、毎回どこに作るかを1行で
+    // 出力先は覚えない(決定: 別の案件へ間違って出さないため)ので要約に入れず、毎回どこに作るかを1行で
     const dir = $('#pkDir').value.trim();
     $('#pkPlace').textContent = dir ? `作る場所(この文書を開いている間だけ): ${dir}` : `作る場所: 動画の隣の「${defaultDirName()}」(毎回ここ。変えるときは下の「詳しく」の出力先。出力先は覚えません)`;
     const color = hasRows ? ($('#pkWho').dataset.color || '') : '', sw = $('#pkSummarySw');
@@ -386,14 +386,14 @@ function create(h){
     return why;
   }
   const isStale = () => staleWhy().length > 0;
-  /* 別の場所に前のパックがあるとき(M3。ui-kit の 3 択 UIKit.dialog.choose。以前は画面ごとの #dlgOverwrite)-> 'over'(上書き)| 'other'(別の場所)| null(やめる・Esc) */
+  /* 別の場所に前のパックがあるとき(M3。ui-kit の 3 択 UIKit.dialog.choose)-> 'over'(上書き)| 'other'(別の場所)| null(やめる・Esc) */
   function overwriteChoice(files, dir){
     const list = files.slice(0, 20).map(f => '・' + f).join('\n') + (files.length > 20 ? `\n・ほか ${files.length - 20}件` : '');
     return UIKit.dialog.choose({ title: 'パックを作り直しますか?',
       body: '次のフォルダに、前に作ったパックがあります。作り直すと、中のファイルを上書きします(Resolve に取り込み済みなら、取り込み直してください)。' + (dir ? '\n\n' + dir : '') + (list ? '\n' + list : ''),
       buttons: [{ label: 'やめる', value: null, kind: 'ghost' }, { label: '別の場所を選ぶ', value: 'other' }, { label: '上書きして作り直す', value: 'over', kind: 'danger' }], cancel: null });
   }
-  /* 「詳しく」を開いて、その欄へ(上書きの確認の「別の場所を選ぶ」= 出力先。0.62.0 から出力先はカードの「詳しく」の中) */
+  /* 「詳しく」を開いて、その欄へ(上書きの確認の「別の場所を選ぶ」= 出力先。出力先はカードの「詳しく」の中) */
   function openMoreAt(sel){
     const m = $('#pkMore'); if (m) m.open = true;
     requestAnimationFrame(() => { const el = $(sel); if (el){ el.focus(); if (el.select) el.select(); } });
@@ -494,7 +494,7 @@ function create(h){
   }
 
   /* ---------- イベント ---------- */
-  /* 「設定を変える」= ⚙ の設定の引き出し(UIKit.settings)を開いて「パック」の節へ(0.62.0。以前はパックのタブの中の右の欄) */
+  /* 「設定を変える」= ⚙ の設定の引き出し(UIKit.settings)を開いて「パック」の節へ */
   $('#pkSettingsBtn').addEventListener('click', e => {
     const d = $('#uiSettingsDrawer');
     if (!d){ const c = $('#edSetPack'); if (c){ c.scrollIntoView({ block: 'start' }); const f = c.querySelector('button, input, select'); if (f) f.focus(); } return; }   // 案件の画面は設定の節がパネルの中にある
@@ -592,7 +592,7 @@ function create(h){
 
   return {
     load,
-    shown(){   // 2 カット を開いたとき(帯の場面はカットのものなので触らない。0.62.0)
+    shown(){   // 2 カット を開いたとき(帯の場面はカットのものなので触らない)
       if (h.S.doc){ render(); schedulePreview(0); }
       h.api('/api/settings').then(st => {   // パックの音量はほかの画面(まとめて実行の欄)でも変えられるので、開くたびに読み直す
         const keys = ['packLoudness', 'packVolume', 'packSize', 'speakerColors', 'packRender'];   // ほかの画面(まとめて実行の欄)でも変えられる値
@@ -600,7 +600,7 @@ function create(h){
       }, () => {});
     },
     changed(){ if (P.pv === 'save') P.pvErrKey = ''; render(); if (h.tab() === 'cut') schedulePreview(); else { P.previewKey = ''; } },
-    refreshWho(){ if (!disposed && h.S.docId) UIKit.streamer.autoFill($('#pkWho'), { docId: h.S.docId }); },   // 題名の行で配信者を直したあと(隠した欄を入れ直す。0.62.0)   // カット・文字起こしが変わった(保存できたときも来る → 保存待ちを解く)
+    refreshWho(){ if (!disposed && h.S.docId) UIKit.streamer.autoFill($('#pkWho'), { docId: h.S.docId }); },   // 題名の行で配信者を直したあと(隠した欄を入れ直す)   // カット・文字起こしが変わった(保存できたときも来る → 保存待ちを解く)
     refresh: render,
     state: () => ({ building: P.building, pack: P.pack }),
     /* 案件の画面のパネルを閉じるとき: 予約したタイマー・描き直し・読み込みを止める */

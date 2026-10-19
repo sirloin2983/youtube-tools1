@@ -18,7 +18,7 @@ const LIMITS = [10, 30, 50, 100, 0];   // 「全部まとめて」の上位の�
 
 /* busy: 解決・取り込みの実行中の事務所ID(同じ事務所への二重実行で API のクォータを無駄にしないため) */
 /* agPick: ユーザーが自分でチェックを変えた事務所だけ {事務所ID: true/false}。触っていない事務所は「解決済みのチャンネルがあれば選ぶ」。
-   以前は画面の未チェックの状態から選択を決めていたため、事務所を登録してから ① に戻ると、件数は出ているのに全部外れていた */
+   画面の未チェックの状態からは選択を決めない(決めると、事務所を登録してから ① に戻ったとき件数は出ているのに全部外れる) */
 const R = { reg: { agencies: [] }, job: null, result: null, poll: null, polling: false, picked: new Map(), inQueue: new Set(), analyzed: new Set(), auto: new Map(), regEls: [], busy: new Set(),
   agPick: {}, rgPick: {}, view: 'all', limit: 30, q: '' };
 
@@ -31,7 +31,7 @@ function saveReg(now){
 }
 const agKey = (a, i) => a.id || 'new-' + i;
 /* 作り直しの前後で、入力途中の文字・フォーカス・開閉を引き継ぐ。
-   以前は「公式チャンネル」欄の自動保存(0.5秒後)で全体を作り直していたため、入力中のカーソルと「チャンネルを追加」欄の書きかけが消えていた */
+   「公式チャンネル」欄の自動保存(0.5秒後)で全体を作り直しても、入力中のカーソルと「チャンネルを追加」欄の書きかけが消えないように */
 function captureReg(el){
   const st = { open: new Set(), paste: new Map(), off: new Map(), focus: null, newAgency: '' };
   el.querySelectorAll('.ag').forEach(d => {
@@ -129,7 +129,7 @@ function regClick(e){
       ag.channels.splice(Math.min(k, ag.channels.length), 0, ch); saveReg(true);
     } } });
   }
-  else if (act === 'delag'){   // 事務所ごと消すのは取り消せないので二度押し(共通の部品 UIKit.confirmTwice。以前は画面で作った二度押し。見直し S15)
+  else if (act === 'delag'){   // 事務所ごと消すのは取り消せないので二度押し(共通の部品 UIKit.confirmTwice。見直し S15)
     const i = Number(box.dataset.i);
     UIKit.confirmTwice(b, () => { if (R.reg.agencies[i] === a){ R.reg.agencies.splice(i, 1); saveReg(true); } }, 'もう一度押すと削除');
   }
@@ -203,13 +203,13 @@ const REGION_DEFAULT = { JP: true, EN: false, ID: false, unknown: true };
 const agGroups = () => [['hololive', 'ホロライブ'], ['other', 'その他']].map(([id, name]) => ({ id, name, n: R.reg.agencies.filter(a => (a.id === 'hololive') === (id === 'hololive')).reduce((x, a) => x + okCount(a), 0) }));
 const rgChecked = k => (Object.prototype.hasOwnProperty.call(R.rgPick, k) ? !!R.rgPick[k] : REGION_DEFAULT[k]);
 const rgSelected = () => REGION_KEYS.map(x => x[0]).filter(rgChecked);
-/* 事務所にチェックが入るか: ユーザーが変えたならその値、触っていないならホロライブだけ(解決済みのチャンネルがあるとき)。「その他」は手で入れたときだけ(10-16 ユーザー) */
+/* 事務所にチェックが入るか: ユーザーが変えたならその値、触っていないならホロライブだけ(解決済みのチャンネルがあるとき)。「その他」は手で入れたときだけ(ユーザー) */
 const agChecked = g => (Object.prototype.hasOwnProperty.call(R.agPick, g.id) ? !!R.agPick[g.id] : g.id === 'hololive' && g.n > 0);
 function loadAgPick(){
   const v = lsGet('agsel');
   if (v && typeof v === 'object' && !Array.isArray(v)){ for (const [k, x] of Object.entries(v)) if (typeof x === 'boolean') R.agPick[k] = x; return; }
   { const r = lsGet('rgsel'); if (r && typeof r === 'object' && !Array.isArray(r)) for (const [k, x] of Object.entries(r)) if (k in REGION_DEFAULT && typeof x === 'boolean') R.rgPick[k] = x; }
-  const old = lsGet('ags');   // v0.7.0 まで: 選んだ事務所の ID の配列(外したのか、まだ登録していなかったのかは区別できないので「選んだ」だけ引き継ぐ)
+  const old = lsGet('ags');   // 古い保存値: 選んだ事務所の ID の配列(外したのか、まだ登録していなかったのかは区別できないので「選んだ」だけ引き継ぐ)
   if (Array.isArray(old)) for (const k of old) if (typeof k === 'string' && k) R.agPick[k] = true;
 }
 function renderAgChecks(){
@@ -229,7 +229,7 @@ function agChipsHtml(cls){
 function rgChipsHtml(cls){
   return REGION_KEYS.map(([k, name]) => `<label class="cs-chip"><input type="checkbox" class="${cls}" value="${k}"${rgChecked(k) ? ' checked' : ''}>${name}</label>`).join('');
 }
-const MIN_DUR = 600;   // 「10分以上の動画だけ」の秒数(既定でオン。2026-10-04 ユーザー指示)
+const MIN_DUR = 600;   // 「10分以上の動画だけ」の秒数(既定でオン。ユーザー指示)
 function setRange(a, b){ $('#dStart').value = ymd(a); $('#dEnd').value = ymd(b); }
 /* 期間を「n 日前〜今日」(今日を含めて n 日)にする */
 function lastDays(n){ const s = new Date(); s.setDate(s.getDate() - (n - 1)); setRange(s, new Date()); }
@@ -254,7 +254,7 @@ function advSummary(){
 function setBusy(b){ $('#btnCancel').hidden = !b; $('#barWrap').hidden = !b; if (!b){ $('#phase').textContent = ''; $('#bar').style.width = '0'; } syncGo(); }
 const noKey = () => !(S.state && S.state.hasKey);
 function keyNotice(){ $('#rkKeyNotice').hidden = !noKey(); syncGo(); }
-/* 「検索する」が押せない理由(見直し M5。以前は押せるままで、押すと 2 回続けて失敗した)。[種類, 理由]。押せるなら ['', ''] */
+/* 「検索する」が押せない理由(見直し M5)。[種類, 理由]。押せるなら ['', ''] */
 function goState(){
   if (!$('#btnCancel').hidden) return ['busy', '検索しています…(終わるか「中止」を押すと、もう一度押せます)'];
   if (noKey()) return ['key', '先に設定で YouTube Data API キーを入れると押せます'];
@@ -310,7 +310,7 @@ async function pollJob(){
 }
 
 /* 検索の失敗(見直し M7): 何が起きたか + どうすればいいか + 次の一手のボタン(code で選ぶ。「配信中」のタブの lvPaint と同じ考え)。
-   元のメッセージ(HTTP の番号など)は畳んだ欄に。失敗は結果の欄の 1 か所に出す(以前は欄と知らせの 2 か所) */
+   元のメッセージ(HTTP の番号など)は畳んだ欄に。失敗は結果の欄の 1 か所に出す */
 function searchErrHTML(code, msg, detail){
   const act = ['no_key', 'key_invalid', 'api_permission'].includes(code) ? '<button type="button" class="btn small" data-rkopen="setKey">設定で API キーを入れる</button>'
     : code === 'no_channels' ? '<button type="button" class="btn small" data-rkopen="setReg">事務所の登録を開く</button>'
@@ -322,7 +322,7 @@ function searchErrHTML(code, msg, detail){
     (detail ? `<details class="q-raw ui-disclosure"><summary>元のメッセージ</summary><code>${esc(detail)}</code></details>` : '') + '</div>';
 }
 /* ================= 結果 =================
-   既定は「全部まとめて」(全事務所の結果を再生数の多い順に並べて上位 N 本。事務所をまたいで比べられる)。「事務所ごと」は以前の別々の表。
+   既定は「全部まとめて」(全事務所の結果を再生数の多い順に並べて上位 N 本。事務所をまたいで比べられる)。「事務所ごと」は事務所別の表。
    道具の行(絞り込み・見せ方・本数)は作り直さず、下の一覧だけを描き直す(絞り込みの入力中にフォーカスが外れないように) */
 function renderResults(){
   const r = R.result; if (!r) return;
@@ -381,7 +381,7 @@ function paintRows(){
   const full = R.picked.size >= MAX_PICK;
   document.querySelectorAll('#results tr[data-vid]').forEach(tr => {
     const id = tr.dataset.vid, a = R.auto.get(id), q = R.inQueue.has(id) || !!a, d = R.analyzed.has(id);
-    const chip = tr.querySelector('.chip');   // 以前は ID が不正な行に .chip が無く、ここで例外になって以降の行が塗られなかった
+    const chip = tr.querySelector('.chip');   // ID が不正な行には .chip が無いので null になりうる(以降の行を塗れるよう、下で確かめる)
     if (chip) chip.innerHTML = a ? `<span class="pill ${a === 'running' ? 'run' : 'wait'}">${a === 'running' ? 'まとめて実行中' : 'まとめて実行の順番待ち'}</span>` : q ? '<span class="pill wait">解析の順番待ち</span>' : d ? '<span class="pill ok">解析済み</span>' : '';
     const cb = tr.querySelector('.pk'); if (cb){ cb.checked = R.picked.has(id); cb.disabled = q || (full && !cb.checked); }
     tr.classList.toggle('picked', R.picked.has(id));
@@ -433,7 +433,7 @@ function focusNextAdd(tr){
   if (el) el.focus();
 }
 
-/* ================= まとめて実行(入口から開いたときだけ。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 5) =================
+/* ================= まとめて実行(入口から開いたときだけ) =================
    選んだ配信(まだスタジオに無くてよい)を「解析から全部」で、配信ごとに ② の口 /api/flow/submit へ(UIKit.flow.order の封筒の input.fresh = まだスタジオに無い配信。
    案件の一覧と同じ順番待ち。RV A1) */
 async function startAuto(){
@@ -458,7 +458,7 @@ async function startAuto(){
   await refreshMarks(); paintPick();
 }
 
-/* ================= 配信中・これからの予定(「配信中」のタブ。2026-10-05 ユーザー決定) =================
+/* ================= 配信中・これからの予定(「配信中」のタブ。ユーザー決定) =================
    サーバーの GET /api/rank/live(登録した事務所のチャンネル。結果は 60 秒覚える)を、開いている間 2 分ごとに読み直す(隠れている間は止める = UIKit.life)。
    各行の「録画する」「始まったら録画」は、① の先頭の URL 欄と同じ Studio.live.begin(入口の ../live/api/begin)。配信中なら ② で開き、予定なら行に「予約済み」。
    行は差分で直す(読み直しで作り直すと、押そうとしたボタンが入れ替わる。ヘッダーの札の一覧と同じ考え) */
@@ -745,7 +745,7 @@ S.onReady(async () => {
   $('#rkAutoGo').addEventListener('click', startAuto);
   if (S.token){
     UIKit.streamer.attach($('#rkAutoWho'));   // 配信者の名前(字幕の色)の候補と色の見本
-    /* まとめて実行の設定の要約と「設定を変える」・採用数はホームの設定(どの入口も同じ。段4。以前は毎回 3 に戻っていた) */
+    /* まとめて実行の設定の要約と「設定を変える」・採用数はホームの設定(どの入口も同じ。段4) */
     UIKit.autorun.panel($('#paneRank .rk-autopanel'), { kind: 'new' });
     UIKit.autorun.load().then(st => { $('#rkAutoTop').value = String(st.top); }, () => {});
     $('#rkAutoTop').addEventListener('change', () => { const n = Math.round(Number($('#rkAutoTop').value)); if (n >= 1 && n <= 20) UIKit.prefs.patch('autorun', { top: n }).catch(() => {}); });

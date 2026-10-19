@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""② 管理 + ① 道具で動くコマンド(役割で組み直す RS6 b-S1。決定 3-29・資料の git:cbe1a64:docs/design/surveys/rs6-survey-2026-10-10/plan_order_v2.md の b-S1)。
+"""② 管理 + ① 道具で動くコマンド(RS6 b-S1。決定 3-29)。
 
     py -3.12 src/app/cli.py <動画のパス | URL> [--spec spec.json] [--from 段] [--force] [--data-dir D] [--out result.json] [--title T]
 
@@ -169,7 +169,7 @@ def use_studio_data():
     return _studiobook.StudioBook(_studio_env.p(_flow_placement.STUDIO_DATA_NAME))
 
 
-# 学習データの読み手 Learning・置き場所 learning_dir は ② flow/learning へ移した(F1)。ここは別名(テスト・呼び出しの名前を変えない)
+# 学習データの読み手 Learning・置き場所 learning_dir は ② flow/learning にある(F1)。ここは別名(テスト・呼び出しの名前を変えない)
 learning_dir = _learning.learning_dir
 
 

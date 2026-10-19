@@ -14,8 +14,8 @@
 .cs-ed-tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .cs-ed-tools:empty{display:none}
 .cs-ed-wrap>.errbar{margin:0 0 8px}
-/* 編集の proof.css の「720〜1600px の画面では 2 列」(@media。編集が 1 枚の画面だったとき)が、案件の画面の狭い欄で 1 列の規則(@container editor)に勝って
-   横にはみ出した(960 の窓で 110px。RS8 C4 の ui_audit)。欄の幅で決める規則を強くする */
+/* 編集の proof.css の「720〜1600px の画面では 2 列」(@media)が、案件の画面の狭い欄で 1 列の規則(@container editor)に勝つと
+   横にはみ出す(960 の窓で 110px。RS8 C4 の ui_audit)。欄の幅で決める規則を強くする */
 @container editor (max-width:780px){
   .cs-ed-wrap .app.has-doc:not(.tab-wide) .tx-grid{grid-template-columns:minmax(0,1fr)}
 }
@@ -43,6 +43,6 @@
    下の帯(--keybar-h)の分だけ下へはみ出して、再生の追いかけの最後の行が窓の外に出た。殻の高さで固定し直す */
 @container editor (min-width:781px){#csPane .tx-list{top:calc(var(--cs-head, var(--header-h, 52px)) + 8px);max-height:calc(100dvh - var(--cs-head, var(--header-h, 52px)) - var(--keybar-h, 24px) - 24px)}}
 
-/* 編集の proof.css は video・html.vid-audio video に効く(編集の 1 枚の画面だったため)。候補のパネル(panels/cand.css の .rv-host)には効かせない */
+/* 編集の proof.css は video・html.vid-audio video に効く。候補のパネル(panels/cand.css の .rv-host)には効かせない */
 .rv-host video{max-height:none;border-radius:0}
 html.vid-audio .rv-host video{height:100%;max-height:none}

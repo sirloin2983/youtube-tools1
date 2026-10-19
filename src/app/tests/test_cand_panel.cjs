@@ -1,6 +1,6 @@
 // Run: node --test src/app/tests/test_cand_panel.cjs
 // Exercise real save/navigation/export functions with delayed and failed API replies.
-// 案件の画面の候補のパネル(panels/cand.js)の中身 = スタジオの部品 src/app/ui/studio/review.js を切り出して試す(RS8 C4 で src/studio/tests/test_review.cjs から移した)。
+// 案件の画面の候補のパネル(panels/cand.js)の中身 = スタジオの部品 src/app/ui/studio/review.js を切り出して試す。
 // 新しい案件の引き出し(panels/new.js)が読む src/app/ui/studio/rank.js・queue.js の小さな確かめと、2 つのパネルが渡す window.Studio の代わり(core.js の後継)もここ。
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -56,7 +56,7 @@ function harness(respond) {
   for (const name of ['refreshList', 'refreshListQuiet', 'renderExportUI',
     'renderTimeline', 'renderStats', 'renderMeta', 'renderLiveCount', 'renderList',
     'renderListKeep', 'renderAll', 'setNow', 'mountPlayer', 'fetchAutoTitle', 'syncFromServer', 'loadTranscripts', 'pollAuto',
-    // 0.23.4: loadVideo・startExportAll は typeof で確かめずに呼ぶ(前回の場所・ライブの録画・配信者の欄・書き出しの欄・書き出しのあとの文字起こし)
+    // loadVideo・startExportAll は typeof で確かめずに呼ぶ(前回の場所・ライブの録画・配信者の欄・書き出しの欄・書き出しのあとの文字起こし)
     'placeOf', 'placeScroll', 'liveOpened', 'fillAutoWho', 'syncExportDock', 'maybeAutoTranscribe']) context[name] = () => {};   // pollAuto: まとめて実行の進み具合(⑦)
   vm.createContext(withUIKit(context));
   vm.runInContext(
@@ -201,7 +201,7 @@ test('restoring a completed export shows its warnings and releases its saved ID'
   assert.equal(h.remembered.at(-1), null);
 });
 
-/* ---- 2026-09-24 画面の見直しで足したテスト ---- */
+/* ---- 画面の見直しのテスト ---- */
 function load(parts, extra) {
   const context = withUIKit({ Map, Set, Error, ...extra });
   vm.createContext(context);
@@ -305,7 +305,7 @@ test('transcript lines: escaped text, stale replies ignored, open state kept', a
   assert.equal(S.tx, null);
 });
 
-/* ---- 2026-09-26 v0.8.0 画面の全面見直しで足したテスト ---- */
+/* ---- 画面の全面見直しのテスト ---- */
 /* file: 'rank.js' など名前だけならスタジオの画面の部品のフォルダ(src/app/ui/studio/)、'app/ui/cases/panels/cand.js' のように / を含めば src/ から */
 function sliceOf(file, start, end) {
   const src = fs.readFileSync(path.join(SRC, file.includes('/') ? file : path.join('app', 'ui', 'studio', file)), 'utf8').replace(/\r\n/g, '\n');   // 作業フォルダが CRLF でも、'\n' を含む切り出しの印が当たるように
@@ -349,7 +349,7 @@ test('agency checks: untouched = hololive only when it has resolved channels, us
   assert.equal(context.agChecked(ag('hololive', 4)), false, 'the user unchecked it: stays unchecked');
   context.R.agPick.other = true;
   assert.equal(context.agChecked(ag('other', 0)), true, 'the user checked it: stays checked');
-  // v0.7.0 の保存(選んだ ID の配列)は「選んだ」だけ引き継ぐ。空の配列は「全部外した」とは読まない
+  // 古い保存(選んだ ID の配列)は「選んだ」だけ引き継ぐ。空の配列は「全部外した」とは読まない
   context.R.agPick = {}; store.ags = JSON.stringify(['hololive']);
   context.loadAgPick();
   assert.deepEqual({ ...context.R.agPick }, { hololive: true });
@@ -378,7 +378,7 @@ test('analysis errors are explained as what happened + what to do (queue.js)', (
   assert.ok(d.what && d.how);
 });
 
-/* ---- 2026-10-05 線 D の P3: ライブの録画(kind live)をスタジオの中で ---- */
+/* ---- 線 D の P3:ライブの録画(kind live)をスタジオの中で ---- */
 const plain = x => JSON.parse(JSON.stringify(x));   // vm の中で作った配列・オブジェクトを、この realm の形に(deepStrictEqual は realm の違いも見る)
 function liveTime() {
   const ctx = load([['const LT = {', '/* hls.js(入口の']], {});
@@ -676,7 +676,7 @@ test('live after: the saved choice wins; before choosing, it follows the "transc
   assert.equal(ctx.sanitizeSettings({ autoTx: false, liveAfter: 'full' }).liveAfter, 'none', 'unknown values fall back');
 });
 
-// ---- 0.22.0 段 7〜8: 書き出しのあと自動で文字起こしはサーバーの設定へ / 前回の場所 / 書き出し完了の [編集で開く] / 押せない理由 ----
+// ---- 段 7〜8:書き出しのあと自動で文字起こしはサーバーの設定へ / 前回の場所 / 書き出し完了の [編集で開く] / 押せない理由 ----
 test('autoTx lives in the review settings (server); before it is saved there, the old browser value is taken over once', () => {
   let legacy = null;
   const ctx = load([['const LIVE_AFTERS', '/* ---------- 状態 ---------- */']], { autoTxLegacy: () => legacy, sec1: (v, d) => d, sanitizeKeymap: () => ({}), KEY_PRESETS: { standard: {} }, DEFAULT_QUICK_SPANS: [30, 60, 120, 180, 300] });
@@ -688,7 +688,7 @@ test('autoTx lives in the review settings (server); before it is saved there, th
   assert.equal(ctx.sanitizeSettings({ autoTx: 'no' }).autoTx, false, 'a broken value falls back to the old value / default');
   const load2 = between('async function loadSettings(', 'function syncSettingsUI(');
   assert.ok(load2.includes("typeof raw.autoTx === 'boolean'") && load2.includes('autoTxLegacy() !== null') && load2.includes('touchSettings()'), 'loadSettings sends the old value to the server once');
-  // 0.25.0: the switch is on the settings page (home /settings → review.autoTx). RS8 C4: the studio ⚙ (settings.js) is gone; the panel's "settings" goes to that page
+  // the switch is on the settings page (home /settings → review.autoTx); the panel's "settings" goes to that page
   const open = sliceOf('app/ui/cases/panels/cand.js', 'openSettings:', 'enqueue:');
   assert.ok(open.includes("homeUrl('settings')") && open.includes('#sec-studio') && !open.includes('localStorage'), 'the panel opens the studio section of the settings page');
 });
@@ -753,7 +753,7 @@ test('opening a stream gives back the place (selected mark and the position the 
 test('export done notice has [編集で開く] with the same URL as the row link (S-7), opened the same way (S-15)', () => {
   const shown = [], opened = [];
   let app = false;
-  // 0.23.4: copyText は UIKit.copy にしたので、切り出しの終わりは次の関数(jobDirText)。openEditor は UIKit.win を直接使う
+  // copyText は UIKit.copy なので、切り出しの終わりは次の関数(jobDirText)。openEditor は UIKit.win を直接使う
   const ctx = load([['function editorHref(', 'function jobDirText(']], {
     enc: encodeURIComponent, toast: (m, ms, k) => shown.push({ m, ms, k }),
     Studio: { token: 't', toast: (m, o) => shown.push({ m, o }) },
@@ -888,7 +888,7 @@ test('live recordings are registered in one place with the channel name (new cas
   assert.ok(!sliceOf('review.js', 'async function openLiveRecording(', '/* ---------- マーク操作').includes("'/api/videos/open'"), 'the header badge "開く" uses register too');
 });
 
-// ---- 0.23.4(コードの見直し B): スタジオの API の包み 3 つは ui-kit の UIKit.http / homeApi を呼ぶだけ・② の設定と欄の対応は 1 つの表 ----
+// ---- コードの見直し B: スタジオの API の包み 3 つは ui-kit の UIKit.http / homeApi を呼ぶだけ・② の設定と欄の対応は 1 つの表 ----
 test('the panels\' Studio API wrappers (core.js successor) go through UIKit.http / homeApi with their messages, the live timeouts and the empty POST body', async () => {
   const calls = [];
   const kit = () => makeUIKit({
@@ -937,7 +937,7 @@ test('the panels\' Studio API wrappers (core.js successor) go through UIKit.http
   o = calls.at(-1)[2];
   assert.deepEqual([o.method, plain(o.body), o.timeout], ['POST', {}, 45000]);
   await assert.rejects(ctx.Studio.live.register('local', { id: 'R1' }), /録画の登録はしません/);
-  // Studio.toast(msg, 0, kind) の 0 は昔の「既定の秒数」(ui-kit の「消えない」ms: 0 として渡さない)。オブジェクトはそのまま(旧 e2e_ui の check_header)
+  // Studio.toast(msg, 0, kind) の 0 は「既定の秒数」(ui-kit の「消えない」ms: 0 として渡さない)。オブジェクトはそのまま
   for (const c of [CAND_SHIM, NEW_SHIM]) {
     const seen = [];
     const t = studioShim(...c, { UIKit: makeUIKit({ toast: (m, opt) => { seen.push(opt); } }) });
@@ -946,7 +946,7 @@ test('the panels\' Studio API wrappers (core.js successor) go through UIKit.http
   }
 });
 
-// ---- 0.23.4(コードの見直し B): ② の設定と欄の対応は 1 つの表 ----
+// ---- コードの見直し B: ② の設定と欄の対応は 1 つの表 ----
 test('review settings: one table of field ↔ setting; every field value read back through sanitizeSettings gives the same setting', () => {
   const ctx = load([['const LIVE_AFTERS', '/* ---------- 状態 ---------- */'], ['const SET_UI = [', 'function syncSettingsUI(']],
     { autoTxLegacy: () => null, sec1: (v, d) => d, sanitizeKeymap: () => ({}), KEY_PRESETS: { standard: {} }, DEFAULT_QUICK_SPANS: [30, 60, 120, 180, 300] });
@@ -965,7 +965,7 @@ test('review settings: one table of field ↔ setting; every field value read ba
   assert.ok(wire.includes('for (const [sel, k, prop, after, ev] of SET_UI)') && wire.includes('sanitizeSettings('), 'wireSettings reads every field through the table');
 });
 
-// ---- 2026-10-07 見直し 2 周目: buildDOM・renderExportUI を場所ごとの関数に分けた / LIVE の帯の状態の問い合わせに since ----
+// ---- 見直し 2 周目: buildDOM・renderExportUI は場所ごとの関数 / LIVE の帯の状態の問い合わせに since ----
 test('buildDOM: the parts put together keep every id exactly once (the split did not drop or repeat a section)', () => {
   const box = {};
   const ctx = { $: sel => (box[sel] ||= {}) };
@@ -976,7 +976,7 @@ test('buildDOM: the parts put together keep every id exactly once (the split did
   assert.equal(new Set(ids).size, ids.length, 'ids are unique: ' + ids.filter((x, i) => ids.indexOf(x) !== i));
   for (const id of ['rvRoot', 'rvJump', 'rvMain', 'rvPlayerBox', 'rvLiveBar', 'rvQuickbar', 'rvMarkDetails', 'rvExport', 'rvClipbox', 'rvList'])
     assert.ok(ids.includes(id), id);
-  /* 0.22.3(見直し M9): 操作の設定は ② の中ではなく ⚙ の節(#opsHost)に入れる(mountSettings) */
+  /* 見直し M9: 操作の設定は ② の中ではなく ⚙ の節(#opsHost)に入れる(mountSettings) */
   assert.ok(!ids.includes('rvSettings') && !ids.includes('rvAutoNext'), 'the operation settings are not in the review pane');
   assert.ok(html.startsWith('\n<div class="rv-root" id="rvRoot">\n  <div class="rv-warn notice cs-notice-act"') && html.endsWith('    </section>\n  </div>\n</div>'));
   assert.equal((html.match(/<section /g) || []).length, (html.match(/<\/section>/g) || []).length);
@@ -1004,7 +1004,7 @@ test('export count text: what will be written, or what to do when nothing can be
   assert.ok(ctx.exportCountText(v('adopted'), false, t2, null, false, 0, []).startsWith('採用と候補のマーク 2件'));
 });
 
-// ---- 2026-10-07 線 D の L3: 配信中の候補(LIVE の帯の一覧・タイムラインの印・p / z・入口の GET/POST ../live/api/peaks) ----
+// ---- 線 D の L3:配信中の候補(LIVE の帯の一覧・タイムラインの印・p / z・入口の GET/POST ../live/api/peaks) ----
 const PEAK_FNS = ['const PEAK_PRE = 5;', '/* 配信中の候補の状態'];
 const mmss = t => Math.floor(t / 60) + ':' + String(Math.floor(t % 60)).padStart(2, '0');
 const pk = (id, start, end, extra) => ({ id, start, end, peak: start + 2, score: 5, reasons: ['音量が急上昇'], hour: 0, state: 'frame', ...extra });

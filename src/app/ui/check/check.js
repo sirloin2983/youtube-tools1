@@ -2,7 +2,7 @@
    案件をまたいだ軽い確認の待ち行列を 1 枚ずつカードで出し、答えたらすぐ次へ。Z で 1 つ前に戻す・[飛ばす](N)はその日は後ろへ・10 件ごとに小さなまとめ。
    URL: /check?c=<案件 id>(その案件だけ)&kind=value|read|voice|time|speech(この種類だけ)&back=cases(終わったら案件へ戻るボタン)。URL を開いただけでは何も書かない。
    レーン(C-EVAL): 普段(既定)/ 評価(?lane=eval = 評価用の動画の区間カード section だけ。頭に評価用の一括の 始める / 止める / 進み具合・定点の「あと何分」・
-   未確認の本数。transcribe/api/eval-batch・transcribe/api/drill/status を直に読む = 編集の ⚙ にあったボタンを移した)。評価のカードは普段に出ない・その逆も。
+   未確認の本数。transcribe/api/eval-batch・transcribe/api/drill/status を直に読む)。評価のカードは普段に出ない・その逆も。
    読む口・書く口(入口。入口 src/app/check/ が数えて並べ、③ src/human/check/apply.py が実物に反映する。V0):
      GET  api/check/next?c=&kind=&n=<枚数。0 = 数だけ>&skip=<id,…>  → {cards: [カード], counts: {today, perKind, failed}, goal, goals: {種類: {label, left, unit, opens, reached}}, total}
      POST api/check/answer {card, answer, ms, skip(待っている id), page} → {ok, answer(答えの id = Z で戻すときに使う), applied, held, flushed, next}

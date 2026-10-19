@@ -159,7 +159,7 @@ def main():
                             "modeLabel": "文字起こしまで", "marks": body.get("marks"), "steps": [{"label": "書き出し", "state": "queued"}]}
 
                 def fake_tx_start(route):   # 入口のまとめて実行(書き出しのあとの自動の文字起こし・まとめて実行)は頼んだ中身だけ見る
-                    raw = json.loads(route.request.post_data or "{}")   # ② の口 {envelope, spec}(RV A1)-> 以前の形 {id, mode, marks} で覚える
+                    raw = json.loads(route.request.post_data or "{}")   # ② の口 {envelope, spec}(RV A1)-> {id, mode, marks} の形で覚える
                     env, run = raw.get("envelope") or {}, (raw.get("spec") or {}).get("run") or {}
                     mode = ("transcribe" if run.get("upto") == "transcribe" else "adopted") if run.get("from") == "export" else "full"
                     body = {"id": (env.get("input") or {}).get("videoId"), "mode": mode, "marks": (env.get("input") or {}).get("marks")}
@@ -202,7 +202,7 @@ def main():
                 time.sleep(0.3)
                 check(next(m for m in marks() if m["id"] == first)["status"] == "rejected", "不採用もスタジオに保存される")
 
-                # 3b. 開始・終了は時刻の欄(UIKit.timebox): 数字だけ打って Enter で確定 → 保存・欄の中の ← → は再生位置を動かさない(旧 check_review_timebox)
+                # 3b. 開始・終了は時刻の欄(UIKit.timebox): 数字だけ打って Enter で確定 → 保存・欄の中の ← → は再生位置を動かさない
                 M1 = '#rvList .rv-mark-row[data-id="m1"]'
                 pg.evaluate("document.querySelector('#rvHost video').pause()")
                 pg.click(M1 + " .rv-tc")
@@ -243,7 +243,7 @@ def main():
                 check(len(marks()) == n0 + 1, "今をマークがスタジオに保存される")
                 # ? のキー操作の一覧・キー配置の組み合わせ・下の帯の文字は画面の道に入れない(写真の関所で見る)
 
-                # 4c. まとめて実行(入口の /api/flow/submit。偽物で頼んだ中身だけ見る): 配信ごと・マークの行の「この後を ▸」(旧 check_review_autorun)
+                # 4c. まとめて実行(入口の /api/flow/submit。偽物で頼んだ中身だけ見る): 配信ごと・マークの行の「この後を ▸」
                 check(pg.is_visible("#rvAuto"), "「まとめて実行」が出る(入口の中)")
                 pg.click("#rvAuto > summary")
                 pg.click('#rvAuto [data-auto="transcribe"]')
@@ -286,7 +286,7 @@ def main():
                 check(bool(sent_tx) and sent_tx[0].get("mode") == "transcribe" and sent_tx[0].get("marks") == ["m1"], "書き出しのあと自動で文字起こしを頼む: %s" % sent_tx[:1])
                 pg.keyboard.press("Escape")
                 wait_js(pg, "document.querySelector('#rvExport').hidden", 3000)
-                # 書き出した切り抜きを文字起こしした(文書を置く)→ 戻ってきたら、マークにセリフが元の配信の時刻で出る(旧 check_review_export の後半)
+                # 書き出した切り抜きを文字起こしした(文書を置く)→ 戻ってきたら、マークにセリフが元の配信の時刻で出る
                 txdir = os.path.join(os.environ["TRANSCRIBE_DATA_DIR"], "transcripts")
                 os.makedirs(txdir, exist_ok=True)
                 with open(os.path.join(txdir, "e2etx0000001.json"), "w", encoding="utf-8") as f:
@@ -315,7 +315,7 @@ def main():
                       "セリフの行を押すと、その時刻から再生する")
                 pg.evaluate("document.querySelector('#rvHost video').pause()")
 
-                # 6b. 一瞬をマーク(C。前・後の秒数は設定に保存)・つなげて1本に(旧 check_review_moment_join)
+                # 6b. 一瞬をマーク(C。前・後の秒数は設定に保存)・つなげて1本に
                 pg.fill("#rvMomBefore", "1.5")
                 pg.press("#rvMomBefore", "Tab")
                 pg.evaluate("document.activeElement && document.activeElement.blur()")
@@ -348,7 +348,7 @@ def main():
                     pg.keyboard.press("Escape")
                     wait_js(pg, "document.querySelector('#rvExport').hidden", 3000)
 
-                # 7. 切り抜きの行へ移る = パネルを片付ける(キーが効かない・プレーヤーが無い)→ 戻ると作り直す・前回の場所(旧 check_review_place)に戻る
+                # 7. 切り抜きの行へ移る = パネルを片付ける(キーが効かない・プレーヤーが無い)→ 戻ると作り直す・前回の場所に戻る
                 pg.evaluate("document.querySelector('#rvHost video').pause()")
                 pg.click(M1 + " .rv-tc")
                 pg.evaluate("document.querySelector('#rvHost video').pause()")
@@ -369,7 +369,7 @@ def main():
                 check(wait_js(pg, "(() => { const v = document.querySelector('#rvHost video'); return !!v && v.readyState > 0 && Math.abs(v.currentTime - 21.5) < 0.6; })()", 8000)
                       and pg.evaluate("document.querySelector('#rvHost video').paused"), "開き直すと前の再生位置から(自動では再生しない): %s" % pg.input_value("#rvNow"))
 
-                # 7b. 1720: 書き出しの引き出しは横に並べて開き(docked)、映像・マークに重ならない(旧 check_review_drawer)
+                # 7b. 1720: 書き出しの引き出しは横に並べて開き(docked)、映像・マークに重ならない
                 pg.set_viewport_size({"width": 1720, "height": 900})
                 check(wait_js(pg, "!document.querySelector('#rvExport').hidden", 3000), "1720: 書き出しの引き出しはいつも開いている")
                 geo = pg.evaluate("['#rvPlayerBox', '#rvClipbox', '#rvExport'].map(s => { const r = document.querySelector(s).getBoundingClientRect(); return [r.left, r.right]; })")
@@ -377,7 +377,7 @@ def main():
                 pg.set_viewport_size({"width": 1440, "height": 900})
                 check(wait_js(pg, "document.querySelector('#rvExport').hidden", 3000), "1440 に戻すと、並べていた引き出しは閉じる")
 
-                # 8. 幅 390: 重ねて開いた書き出しの欄の裏では、配信のキー(→・採用)が効かない(B-2。旧 check_narrow_contrast)。
+                # 8. 幅 390: 重ねて開いた書き出しの欄の裏では、配信のキー(→・採用)が効かない(B-2)。
                 # 横にはみ出さないことは ui_audit の A-20 が見る
                 pg.set_viewport_size({"width": 390, "height": 800})
                 pg.goto(base + "cases?c=%s#cand" % VID)
@@ -398,7 +398,7 @@ def main():
                 check(wait_js(pg, "document.querySelector('#rvExport').hidden", 3000), "閉じるボタンで引き出しを閉じる")
                 pg.set_viewport_size({"width": 1440, "height": 900})
 
-                # 10. YouTube のプレーヤーが使えないとき: 1 か所に知らせる・判定は保存できる・自動では知らせず、自分で再生を押したときだけ(旧 check_player_unavailable)
+                # 10. YouTube のプレーヤーが使えないとき: 1 か所に知らせる・判定は保存できる・自動では知らせず、自分で再生を押したときだけ
                 pg.route("https://www.youtube.com/**", lambda route: route.abort())
                 pg.goto(base + "cases?c=%s#cand" % YT_ID)
                 check(wait_js(pg, "!!document.querySelector('#rvList .rv-mark-row[data-id=\"y0\"]')", 20000), "YouTube の配信の案件を開ける")

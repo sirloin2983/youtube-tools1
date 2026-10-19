@@ -278,7 +278,7 @@ async function onGroupClick(e){
       catch (er){ S.toast(er.message, 0, 'err'); }
     });
   } else if (act === 'removeMember'){
-    /* 以前は1回押すとすぐ外れていた。基準の動画を外す・残り1本になるとグループごと消えてズレの指定も失われるので、2回押しで確認する */
+    /* 基準の動画を外す・残り1本になるとグループごと消えてズレの指定も失われるので、2回押しで確認する */
     const g = C.groups.find(x => x.id === gid), m = g && g.members.find(x => x.id === vid);
     const lose = !!(m && m.isBase) || !!(g && g.members.length <= 2);
     armDelete(b, async () => {

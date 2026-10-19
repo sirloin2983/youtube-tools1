@@ -34,7 +34,7 @@ const FILTERS = [['all', '全部'], ['', '候補'], ['adopted', '採用'], ['rej
 const isAutoLike = m => m.src === 'auto' || m.score != null || (m.reasons && m.reasons.length > 0);
 const marksPayload = ms => ms.map(m => { const { auto0, ...r } = m; return r; });
 /* markIn/markOut/playPause/back5/fwd5/back1/fwd1 は全ツール共通の再生キー(Space・J/K/L・← →・I/O。UIKit.keys.playback)に
-   吸収されたので、ここでは変更できる操作から外した(共通キーと別のキーを割り当てても、共通キーが先に処理して silently 上書きされていたため) */
+   含まれるので、ここでは変更できる操作に入れない(共通キーと別のキーを割り当てても、共通キーが先に処理して silently 上書きされるため) */
 const ACTION_DEFS = [
   ['addClip', 'マーク追加'], ['quickMark', '今をマーク①'], ['quickMark2', '今をマーク②'], ['quickMark3', '今をマーク③'], ['quickMark4', '今をマーク④'], ['quickMark5', '今をマーク⑤'],
   ['volUp', '音量+'], ['volDown', '音量−'], ['mute', 'ミュート'], ['theater', 'シアター表示'],
@@ -102,7 +102,7 @@ const sortedMarks = () => [...marks()].sort((a, b) => a.start - b.start || (a.id
 const visible = () => Studio.step === 'review' && !document.hidden;
 
 /* ---------- 画面の組み立て ---------- */
-/* id はすべて従来のまま(JS・テストが参照する)。見た目は ui-kit の部品(card / btn / pill / ui-seg / btn-group)に寄せ、配置だけ review.css に書く */
+/* id は JS・テストが参照する。見た目は ui-kit の部品(card / btn / pill / ui-seg / btn-group)に寄せ、配置だけ review.css に書く */
 const SVG = {
   theater: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 9h20"/></svg>',
   play: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.9l10.2-6.5a1 1 0 0 0 0-1.7L9.5 4.6A1 1 0 0 0 8 5.5z"/></svg>',
@@ -256,9 +256,9 @@ function markToolsHTML(){
       </details>`;
 }
 /* ② の操作(キー配置を変える・ライブのマークをまとめてずらす)。置き場所は ⚙ 設定の「このツール」の節「② の操作」(settings.js の #opsHost)。
-   0.22.3(見直し M9・仮決め (aw)): 以前は ② の左の列の下の別の欄(「操作の設定」)で、設定の置き場所が ⚙ と 2 か所になっていた。
-   0.25.0(notes:docs/spec/data.md の 6): 音量・ミュート・確認の進め方・反応の遅れ補正・ライブ判定の欄は外した(値は設定の画面 = 入口の /settings のスタジオの節。
-   音量・ミュートは再生の欄とキーで)。設定の値 S.settings は今までどおり読み書きする(SET_UI は無い欄を飛ばす) */
+   (見直し M9・仮決め (aw): 設定の置き場所は ⚙ の 1 か所)
+   音量・ミュート・確認の進め方・反応の遅れ補正・ライブ判定の値は設定の画面 = 入口の /settings のスタジオの節(notes:docs/spec/data.md の 6。
+   音量・ミュートは再生の欄とキーで)。設定の値 S.settings は読み書きする(SET_UI は無い欄を飛ばす) */
 function settingsHTML(){
   return `      <div class="rv-settings" id="rvSettings">
         <div class="rv-setpanel">
@@ -766,7 +766,7 @@ class LivePlayer extends VideoPlayer {
     hls.on(H.Events.LEVEL_LOADED, onLevel);
     if (H.Events.LEVEL_UPDATED) hls.on(H.Events.LEVEL_UPDATED, onLevel);
     /* フラグメントを読んだあと、hls.js は映像の実際の時刻(PTS)で fragment.start を直す(繋ぎ直しの欠けのあとで 0.1 秒ほど動く)。
-       表を取り直して、getCurrentTime・seekTo を hls.playingDate と同じ値に保つ(2026-10-05 の通しの確認: 欠けのあとのマークが 0.115 秒早かった) */
+       表を取り直して、getCurrentTime・seekTo を hls.playingDate と同じ値に保つ(保たないと、欠けのあとのマークが 0.1 秒ほど早くなる) */
     if (H.Events.LEVEL_PTS_UPDATED) hls.on(H.Events.LEVEL_PTS_UPDATED, (_e, d) => { const fr = LT.frags(d && d.details && d.details.fragments); if (fr.length && this.ready) this.frags = fr; });
     hls.on(H.Events.ERROR, (_e, d) => {
       if (!d || !d.fatal) return;
@@ -1021,7 +1021,7 @@ function expSetSummary(){
   el.textContent = parts.filter(Boolean).join(' ・ ');
 }
 /* ライブの録画: ほかの窓(別の窓で開いた「編集」)で音が鳴っている間は、配信の音を下げる(2 割)か消す(UIKit.sound。設定 liveDuck)。
-   音が二重になって文字起こしを聞き取れない(2026-10-05 ユーザー)。設定の音量・消音そのものは変えない(止まれば元の音に戻る) */
+   音が二重になって文字起こしを聞き取れない(ユーザー)。設定の音量・消音そのものは変えない(止まれば元の音に戻る) */
 const DUCK_RATIO = 0.2;
 function duckMode(){
   if (!(S.cur && S.cur.kind === 'live') || S.settings.liveDuck === 'off') return 'off';
@@ -2307,7 +2307,7 @@ function openEditor(href){
   window.open(href, '_blank', 'noopener');
 }
 /* 書き出しが済んだ知らせ。paths: 書き出した mp4 の絶対パス(書き出しの順)。最初の1本を [編集で開く](行のリンクと同じ URL・同じ開き方)。
-   ボタンのある知らせは 8 秒(読んで押す間)。開けるものが無ければ今までどおりの知らせ */
+   ボタンのある知らせは 8 秒(読んで押す間)。開けるものが無ければ普通の知らせ */
 function doneToast(msg, kind, paths){
   const ok = (paths || []).filter(Boolean), href = ok.length ? editorHref(ok[0]) : '';
   if (!href) return toast(msg, 0, kind);
@@ -2714,7 +2714,7 @@ function renderTimeline(){
 }
 
 /* 盛り上がりグラフ: series.total の面グラフ + マークの帯。プレイヘッドの動きでは再描画しない(カーソル線だけ動かす)。
-   2026-10-04 見やすく: 高さ 150px・時間の目盛りと縦の補助線・帯をマークの状態(候補・採用・不採用・書き出し済み)の色に・選んだマークを強調・
+   見やすさ: 高さ 150px・時間の目盛りと縦の補助線・帯をマークの状態(候補・採用・不採用・書き出し済み)の色に・選んだマークを強調・
    山に点と縦の線・山の札は横に重ならないよう段を分ける(段の数だけ上を空けて、曲線と札が重ならない)・マウスの位置の時刻。
    形: 背景の SVG(補助線・帯。上から下の目盛りの帯まで)+ 曲線の SVG(札の段の下から)+ HTML(札・点・目盛りの文字。SVG は縦横に伸ばすので、丸や文字は HTML で置く) */
 const GW = 1000, GH = 100;
@@ -2924,7 +2924,7 @@ function placeQuickBar(){
   if (side) cb.prepend(qb); else if (anchor.previousElementSibling !== qb) anchor.before(qb);
   /* LIVE の帯(ライブの録画の状態・停止・「マークしたらすぐ書き出す」・次にすることの案内。YouTube のライブ配信の帯も同じ):
      広い画面(シアター以外)は右の列のマークの一覧の上(プレーヤーの横・右の列は貼り付くのでスクロールしても見える)、それ以外は「今をマーク」の上。
-     (2026-10-05 線 D の P3 の通しの確認: 「今をマーク」の下にあると、1440×900 でもスクロールしないと録画の状態・停止が見えなかった) */
+     (「今をマーク」の下だと、1440×900 でもスクロールしないと録画の状態・停止が見えないため。線 D の P3) */
   if (wide && !side){ if (cb.previousElementSibling !== lb) cb.before(lb); }
   else { const at = side ? anchor : qb; if (at.previousElementSibling !== lb) at.before(lb); }
 }
@@ -3445,7 +3445,7 @@ Studio.onReady(() => {
   Studio.on('step', st => { if (st === 'review') activate(); else deactivate(); renderLiveCount(); });   // ⚙ の [適用] が押せるかは ② にいるか次第
   Studio.on('state', () => { renderExportUI(); showDataWarning(); });
   /* 画面を離れた・戻った(ui-kit の UIKit.life。段階7-2。ブラウザのタブの切り替えの合図を直接使わない = notes:docs/spec/code.md の 9 の決まり)。別の窓へ移った('blur')ときは保存だけ:
-     再生を止めない・状態の確認も続ける(窓を並べて、見ながら別の窓で作業できるように)。タブを離れた・閉じるときは今までどおり再生も止める */
+     再生を止めない・状態の確認も続ける(窓を並べて、見ながら別の窓で作業できるように)。タブを離れた・閉じるときは再生も止める */
   const onLeft = reason => {
     if (setTimer) saveSettings();
     if (S.dirty) save();

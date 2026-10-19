@@ -109,7 +109,7 @@ class FakeUser32:
 
 
 class TestFocusWindow(unittest.TestCase):
-    """ツールの窓の「入口」: 入口の窓がほかにあれば、題名で探して前に出す(入口を二つにしない。2026-09-27)"""
+    """ツールの窓の「入口」: 入口の窓がほかにあれば、題名で探して前に出す(入口を二つにしない)"""
     T = L.PORTAL_TITLE
 
     @unittest.skipUnless(sys.platform == "win32", "Windows の窓の API(ctypes.WINFUNCTYPE)を使う(Windows 以外では飛ばす)")
@@ -219,7 +219,7 @@ class TestOpener(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_mode_setting(self):
-        self.assertEqual(self.o.mode, "app")   # 既定は窓(2026-09-27 ユーザー決定)
+        self.assertEqual(self.o.mode, "app")   # 既定は窓(ユーザー決定)
         self.o.set_mode("browser")
         self.assertEqual(W.Opener(self.tmp, fsio.atomic_write).mode, "browser")   # オフにしたら、ファイルに残る(次の起動で使う)
         self.o.set_mode("app")
@@ -329,7 +329,7 @@ class TestPrefs(unittest.TestCase):
         self.assertEqual(g(doc_id="d1", video_id="v1"), {"name": "", "source": "doc"})   # 空にした = 色なし(自動で入れ直さない)
 
     def test_hide_add_remove_and_limit(self):
-        """一覧の非表示(2026-10-04。UIKit.hide): 1件ずつ足す・外す・他の一覧と節は消さない・上限は古い順に捨てる・形の検査"""
+        """一覧の非表示(UIKit.hide): 1件ずつ足す・外す・他の一覧と節は消さない・上限は古い順に捨てる・形の検査"""
         self.p.remember("docs", "d1", "兎田ぺこら")
         self.assertEqual(list(self.p.hide("cases", ["v1", "v2"])), ["v1", "v2"])
         self.p.hide("transcripts", "t1")                      # 1件は文字でもよい
@@ -470,7 +470,7 @@ class TestPortalApi(unittest.TestCase):
 
     def test_streamer_guess_api(self):
         st, j = self.req("POST", "/api/ytt/streamer-guess", {"channel": "Pekora Ch. 兎田ぺこら"})
-        self.assertEqual((st, j["name"], j["source"], j["hex"]), (200, "兎田ぺこら", "auto", "#65BAEA"))   # 字幕の既定の色(members.json の subtitle。2026-10-05)
+        self.assertEqual((st, j["name"], j["source"], j["hex"]), (200, "兎田ぺこら", "auto", "#65BAEA"))   # 字幕の既定の色(members.json の subtitle)
         self.assertEqual(self.req("POST", "/api/ytt/streamer-guess", {}, {"X-YTT-Token": "wrong"})[0], 403)
 
     def test_streamer_colors(self):

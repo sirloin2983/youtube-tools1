@@ -176,7 +176,7 @@ class SourcesTest(unittest.TestCase):
                 "target": {"docId": DOC, "row": row}, "media": {}, "text": row, "guess": None, "options": [], "score": None, "note": "", "_order": [-1]}
 
     def test_find_sees_every_listed_card(self):
-        """一覧(next)に出たカードは必ず find で見つかる(10-16 CK-1: 読みのカードに答えると「もう確かめる物ではありません」で記録できなかった)"""
+        """一覧(next)に出たカードは必ず find で見つかる(CK-1:読みのカードに答えると「もう確かめる物ではありません」で記録できなかった)"""
         calls = []
 
         def flaky(view):   # 1 回目だけ読める出どころ(E: の文書が一瞬読めない・書き換え中など、一度きりの読みの失敗)

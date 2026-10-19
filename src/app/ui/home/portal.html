@@ -85,7 +85,7 @@
       <ul class="pt-vlist-ul" id="vlist"></ul>
     </div>
 
-    <!-- 単体の文字起こし(段5 5-1・B-5): 一覧は案件の画面の「どの案件にも入らない文字起こし」が主。ここは件数と「案件の画面で見る」の1行 + 選んでまとめて実行する入口(09-29 決定: 入口は減らさない) -->
+    <!-- 単体の文字起こし(段5 5-1・B-5): 一覧は案件の画面の「どの案件にも入らない文字起こし」が主。ここは件数と「案件の画面で見る」の1行 + 選んでまとめて実行する入口(決定: 入口は減らさない) -->
     <div class="row pt-unlinked" id="unlinkedHead" hidden>
       <span class="pt-group-label">単体の文字起こし <span class="ui-group-n" id="unlinkedCount"></span></span>
       <span class="hint grow">どの配信にも紐づかない文字起こし(手元の動画ファイルなど)。一覧は案件の画面の「どの案件にも入らない文字起こし」で</span>
@@ -136,7 +136,7 @@
         <button type="button" class="btn small" id="intakeScanBtn">今すぐ確認</button>
       </div>
 
-      <!-- 0.54.0: 見張るフォルダ・数の欄と「設定を保存」は設定の画面(/settings の「依頼の受付」)へ。ここはオン/オフと今のフォルダだけ(notes:docs/spec/data.md の 6) -->
+      <!-- 見張るフォルダ・数の欄と「設定を保存」は設定の画面(/settings の「依頼の受付」)にある。ここはオン/オフと今のフォルダだけ(notes:docs/spec/data.md の 6) -->
       <div class="pt-intake-settings card flat">
         <div class="row">
           <label class="lag"><input type="checkbox" class="ui-switch" id="intakeEnabled">依頼を受け付ける</label>
@@ -168,7 +168,7 @@
         <span class="hint num" id="backupLast"></span>
         <button type="button" class="btn small" id="backupRunBtn">今すぐ写す</button>
       </div>
-      <!-- 0.54.0: 写す先・間隔の欄と「設定を保存」は設定の画面(/settings の「作業データのバックアップ」)へ。ここはオン/オフと今の写す先だけ -->
+      <!-- 写す先・間隔の欄と「設定を保存」は設定の画面(/settings の「作業データのバックアップ」)にある。ここはオン/オフと今の写す先だけ -->
       <div class="pt-intake-settings card flat">
         <div class="row">
           <label class="lag"><input type="checkbox" class="ui-switch" id="backupEnabled">自動でバックアップする</label>
@@ -191,7 +191,7 @@
     </div>
   </details>
 
-  <!-- 編集の左メニューにあった「精度」「学習」(RS8 C3。古い編集の画面は C4 で消えるので、ここから使えるようにした。中身は portal-edit.js。開いたときに初めて読む) -->
+  <!-- 編集の「精度」「学習」(RS8 C3。中身は portal-edit.js。開いたときに初めて読む) -->
   <details class="ui-disclosure pt-intake" id="editOpsBox">
     <summary>編集の精度と学習</summary>
     <div class="pt-intake-body">
@@ -273,7 +273,7 @@
   <div class="ui-drawer-body" id="newBody"></div>
 </aside>
 
-<!-- ⚙ 設定の「ホーム」の節(M10。UIKit.settings.mount の tool に渡して、設定の引き出しの中へ移す)。以前は「詳しく」の中に散らばっていた
+<!-- ⚙ 設定の「ホーム」の節(M10。UIKit.settings.mount の tool に渡して、設定の引き出しの中へ移す)。
      窓で開く・試験中の機能と、まとめて実行の既定。依頼の受付・バックアップは状態と一覧を持つ欄なので今の場所に残し、ここからは開くボタンだけ -->
 <section id="homeSettings" class="pt-settings" hidden>
   <h3>ホーム</h3>
@@ -284,7 +284,7 @@
     </div>
     <p class="hint" id="winHint"></p>
   </div>
-  <!-- 0.54.0: まとめて実行の既定・試験中の機能(リアルタイム切り抜き)・受付・バックアップの欄は設定の画面(/settings)へ(notes:docs/spec/data.md の 6) -->
+  <!-- まとめて実行の既定・試験中の機能(リアルタイム切り抜き)・受付・バックアップの欄は設定の画面(/settings)にある(notes:docs/spec/data.md の 6) -->
   <div class="pt-set-block" id="setPageBox">
     <div class="pt-set-head">ほかの設定</div>
     <p class="hint">まとめて実行の既定・依頼の受付・バックアップ・精度の自動測定・リアルタイム切り抜きは、設定の画面にまとめました(スタジオ・編集の設定も同じ画面)。</p>

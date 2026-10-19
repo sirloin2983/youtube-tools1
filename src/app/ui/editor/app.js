@@ -1117,8 +1117,8 @@ async function boot(){
     $('#optLang').innerHTML = S.tools.langs.map(l => `<option value="${esc(l)}">${esc({ ja: '日本語', en: '英語', ko: '韓国語', zh: '中国語', auto: '自動判定' }[l] || l)}</option>`).join('');
   }
   await loadSettings();   // 読めなければ ⚙ に「読み直す」を出し、読み直すまで保存しない
-  KM.reload();   // 校正のキーは編集の設定。共通の再生キーを以前ここに保存していたら、ホームの設定へ移す(部品が 1 回だけ)
-  if (S.settings.speakerColors === undefined){   // 話者の色のスイッチは、以前はこのブラウザ(tx.pk.speakerColors)。初回だけサーバーへ移す(localStorage は消さない)
+  KM.reload();   // 校正のキーは編集の設定。共通の再生キーがここの保存に残っていたら、ホームの設定へ移す(部品が 1 回だけ)
+  if (S.settings.speakerColors === undefined){   // 話者の色のスイッチは、このブラウザの tx.pk.speakerColors が残っていれば初回だけサーバーへ移す(localStorage は消さない)
     try { if (localStorage.getItem('tx.pk.speakerColors') === '0'){ S.settings.speakerColors = false; saveSettings(); } } catch {}
   }
   applySettings(); renderSetup(); renderDiarSetup(); renderRtSetup(); renderAlt(); renderOptSummary(); renderKeyUI();   // キー配置は設定(サーバー)に入っている

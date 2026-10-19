@@ -1,4 +1,4 @@
-"""src/app/check/tests の共通の下ごしらえ(2026-10-18 テストの見直し)。test_ で始めない(流す対象ではない)。
+"""src/app/check/tests の共通の下ごしらえ。test_ で始めない(流す対象ではない)。
 
 各テストの頭にあった「src を sys.path へ・YTT_DATA_DIR の既定・JSON を書く write・一時フォルダ・Ctx」を 1 か所に置く。
 使い方(テストの頭):

@@ -4,7 +4,7 @@ read:fill(後処理が直した行)は sources.py の V0 のまま。ここは 2
 候補の計算は編集の「提案」と同じ(human/proof の alt_diffs。却下した候補は learn-feedback.json の dismissed に残っていて出さない)。
 校正済みの行には出さない(今の規則)。評価用の文書は View.docs が外した後の物だけを読む。1 行に複数の候補があるときは違いがいちばん小さい物を 1 つ
 (それを採る・却下するとまた次の候補が出る)。
-(YouTube の字幕の候補 read:yt は消した。古い答えの記録の read:yt の行は読み飛ばす)
+(古い答えの記録にある read:yt の行は読み飛ばす)
 """
 import os
 

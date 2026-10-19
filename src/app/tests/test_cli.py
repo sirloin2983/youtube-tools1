@@ -280,7 +280,7 @@ class TestPortal(Base):
         self.assertIn("すでに実行中", err)
 
     def test_old_portal_fails(self):
-        """submit の無い古い入口(404)には頼まない = 起動し直しを促して終了コード 1(2 段で頼む今までの形は消した)"""
+        """submit の無い古い入口(404)には頼まない = 起動し直しを促して終了コード 1"""
         for target in ("https://www.youtube.com/watch?v=abcdefghijk", self.dummy()):
             portal = self.use_portal(FakePortal(old=True))
             code, res, err = self.main(target)

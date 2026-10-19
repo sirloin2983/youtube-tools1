@@ -1,6 +1,6 @@
 /* 新しい案件のパネル(ホームの引き出し #newDrawer の中身 = panels/new.js)。スタジオ ① の見た目(src/studio/app.css の ① 探す・解析の節)を、
-   ホームの他の部分に影響しないように .nw-panel の下だけに写した物(スタジオの画面と app.css は RS8 C4 で消した = 今はここが正)。
-   色・部品は ui-kit のまま(配信中の札の赤だけは元の写し) */
+   ホームの他の部分に影響しないように .nw-panel の下だけに書いた物(ここが正)。
+   色・部品は ui-kit のまま(配信中の札の赤だけは別) */
 #newDrawer{--drawer-w:min(1120px,100%);--cs-head:0px}
 #newDrawer .ui-drawer-body{container-type:inline-size}
 .nw-panel{min-width:0}
@@ -148,7 +148,7 @@
 .nw-panel .cs-emptyacts{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-top:10px}
 
 /* ---- 探す設定(RS8 C4。スタジオの ⚙ にあった API キー・事務所の登録・コラボ = panels/new.js の #nwSet)。
-   事務所の登録とコラボの見た目は、消したスタジオの app.css の節を .nw-panel の下に写した物 ---- */
+   事務所の登録とコラボの見た目(.nw-panel の下) ---- */
 .nw-panel .nw-set{margin-top:16px}
 .nw-panel .nw-set>summary{display:flex;align-items:center;gap:6px 10px;flex-wrap:wrap;cursor:pointer;min-height:32px}
 .nw-panel .nw-set .set-title{font:650 14px/1.35 var(--font-display)}

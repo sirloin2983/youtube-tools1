@@ -34,8 +34,8 @@
 .pt-case+.pt-case{border-top:1px solid var(--line)}
 #list:has(>.pt-case){gap:0;border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;background:var(--panel)}   /* 案件の一覧も1枚の紙に(まとまりで分けたときは、まとまりの中が1枚) */
 .ui-group>.pt-case:first-of-type{border-top:1px solid var(--line)}
-/* 0.42.2(段9 見た目の確認): 行の中のポップオーバー(まとめて実行の「設定を変える」など)を開いている間は、行・一覧・まとまりの overflow:hidden(1枚の紙の角丸のため)を外す。
-   以前は開いた案件の行の下の端で切れて、カットの方法より下の欄(パックの出力・上書き・失敗したとき)に届かなかった */
+/* 段9 見た目の確認: 行の中のポップオーバー(まとめて実行の「設定を変える」など)を開いている間は、行・一覧・まとまりの overflow:hidden(1枚の紙の角丸のため)を外す。
+   外さないと、開いた案件の行の下の端で切れて、カットの方法より下の欄(パックの出力・上書き・失敗したとき)に届かない */
 .pt-case:has(details.ui-pop[open],details.ui-menu[open]),#list:has(details.ui-pop[open],details.ui-menu[open]),
 .ui-group:has(details.ui-pop[open],details.ui-menu[open]){overflow:visible}
 .pt-case-row{display:flex;align-items:center;gap:6px 12px;flex-wrap:wrap;list-style:none;cursor:pointer;padding:10px 14px;min-height:52px}
@@ -46,7 +46,7 @@
 .pt-case-title{font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:56ch}
 .pt-case-sub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pt-case-tx,.pt-case-pack{white-space:nowrap}
-/* 「次にやること」(S-18。入口 0.42.0): 押すとその作業の画面へ(同じ窓)。見た目は ui-kit の .ui-next-btn(v21。編集の履歴の次の一手と同じ)。
+/* 「次にやること」(S-18): 押すとその作業の画面へ(同じ窓)。見た目は ui-kit の .ui-next-btn(v21。編集の履歴の次の一手と同じ)。
    行き先が無いときは .btn を外して、押せない案内の文字だけ */
 .pt-case-tx.num,.pt-case-pack.num,.pt-doc-tx.num{font-family:var(--font)}   /* 数字の幅だけそろえる(ui-kit の .num は等幅。かなの字間が空くので書体は本文のまま) */
 .pt-case-body{padding:0 14px 14px}
@@ -192,7 +192,7 @@
    ここで nowrap にして防ぐ(足りなければ select 側が丸ごと次の行へ。audit #2) */
 .lag{white-space:nowrap}
 /* 書き出したあとの自動の流れ(試験中の機能の中。live.auto)。ラベルは上・欄は下に並べて、狭い画面でもはみ出さない */
-/* 一覧の非表示(UIKit.hide。2026-10-04): 「非表示にする」は行の右に控えめに(触れる・フォーカスで濃く) */
+/* 一覧の非表示(UIKit.hide): 「非表示にする」は行の右に控えめに(触れる・フォーカスで濃く) */
 .pt-todo-item{display:flex;align-items:center;background:var(--panel)}
 .pt-todo-item>.pt-todo-link{flex:1;min-width:0}
 .btn.pt-hide{flex:none;color:var(--ink-3)}   /* 控えめは色で(opacity は文字のコントラストを下げる。A-22)。触れると .btn.ghost:hover の --ink */

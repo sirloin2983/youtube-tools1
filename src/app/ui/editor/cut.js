@@ -353,7 +353,7 @@ function create(h){
     fillEdge();
     try { await h.putSettings(); return true; } catch (e){ h.toast('設定を保存できませんでした: ' + e.message, 5000, 'err'); return false; }
   }
-  /* 開いたまま(まだ手で直していない)下書きは、行が変わったら「行から」を作り直す(以前の「カットとパック」と同じ結果に保つ) */
+  /* 開いたまま(まだ手で直していない)下書きは、行が変わったら「行から」を作り直す */
   function docChanged(){
     if (!ready()) return;
     if (redraftable()){
@@ -495,7 +495,7 @@ function create(h){
     const io = $('#cutIOLabel');   // 「I〜O を削る」のボタンの文字も、始まり/終わりの印のキーから(段3 3-3。外していれば「印の間を削る」)
     if (io) io.textContent = pk('markIn') && pk('markOut') ? pk('markIn') + '〜' + pk('markOut') + ' を削る' : '印の間を削る';
     const kb = Q('#cutIO kbd'); if (kb) kb.textContent = IO_CUT_KEY;
-    /* タイムラインの下の長いキーの説明の行はやめた(帯・? の一覧と同じ中身を三度出していた。UI の見直し S17)。下の行は「すべてのキー: ?」だけ(index.html) */
+    /* タイムラインの下の行は「すべてのキー: ?」だけ(長いキーの説明は帯・? の一覧と重なるので出さない。UI の見直し S17。index.html) */
   }
   onWin('ytt-keys-changed', () => { renderKeysText(); cutKeybarScene(); });
   function tickStep(){
@@ -673,7 +673,7 @@ function create(h){
   let capIdx = -2;
   function showCaption(t){   // プレビューの字幕(Resolve の Text+ のおおよその見え方。カット後では削った行を出さない)
     const segs = h.S.doc ? h.S.doc.segments : [];
-    /* 出す行は 1 文字起こし の映像の上の字幕と同じ関数(app-rows.js の capStack。字幕に出さない行を外し、0.3 秒以上重なる行は上下に積む。2026-10-05) */
+    /* 出す行は 1 文字起こし の映像の上の字幕と同じ関数(app-rows.js の capStack。字幕に出さない行を外し、0.3 秒以上重なる行は上下に積む) */
     const idxs = h.capStack(segs, t, { skip: i => M.mode === 'cut' && !!M.rowFlags[i] });
     const key = idxs.join(',');
     if (key === capIdx) return;
@@ -720,8 +720,7 @@ function create(h){
     const dc = $('#cutDocConflict'); if (dc) dc.hidden = !(ok && h.S.conflict);   // 文字起こしの保存の競合は、このタブにも出す(段6 6-6。行の時刻はここからも変えるため)
   }
   /* 右の字幕の一覧(押すとその位置へ・行ごとの「残す / カット済」の札。文字は直さない)。
-     段7 E-25: 以前は「削る / 戻す」(押したらどうなるか)で、1 文字起こし の行の札「残す / カット済」(今の状態)と逆向きに読めた。
-     同じ札・同じ言葉(用語集)・同じ見た目(カット済は赤)にそろえた。押したらどうなるかは title に */
+     段7 E-25: 1 文字起こし の行の札「残す / カット済」(今の状態)と同じ札・同じ言葉(用語集)・同じ見た目(カット済は赤)にする。押したらどうなるかは title に */
   let sq = 0;
   function renderSubsSoon(){ if (!disposed && !sq) sq = requestAnimationFrame(() => { sq = 0; renderSubs(); }); }
   function renderSubs(){
@@ -841,7 +840,7 @@ function create(h){
     else { const hi = i < cs.length - 1 ? cs[i + 1][0] : M.total; f = Math.min(hi, Math.max(f, c[0] + 1)); if (f === c[1]) return false; c[1] = f; }
     return true;
   }
-  /* ---------- 字幕の段の行(段6 6-3〜6-6。git の履歴(679ff01 以前)の docs/plan/phase6-edit-features.md)。文書の時刻を書き、残す行を外へ広げたら残す区間も広げる ---------- */
+  /* ---------- 字幕の段の行(段6 6-3〜6-6)。文書の時刻を書き、残す行を外へ広げたら残す区間も広げる ---------- */
   const segAt = i => (h.S.doc && Number.isInteger(i) ? h.S.doc.segments[i] : null);
   const rowEditable = () => editable() && !h.S.conflict && !h.lockJob();
   const rowWhy = () => !editable() ? '' : h.S.conflict ? '文字起こしの保存が競合しています(' + N.conflict + 'から選んでください)' : h.lockJob() ? '処理中(話者判別・再認識)のため、今は行を動かせません' : '';
@@ -1144,7 +1143,7 @@ function create(h){
       case 'q': case 'Q': return run(() => pickEdge('in'));
       case 'w': case 'W': return run(() => pickEdge('out'));
       case 'Delete': case 'Backspace': return run(delOrRestore);
-      case IO_CUT_KEY.toLowerCase(): case IO_CUT_KEY: return run(cutIO);   // 始まりの印〜終わりの印を削る(外す)。以前の X は 1 文字起こし の「聞き取れない」と重なっていた(M2。仮決め (ay))
+      case IO_CUT_KEY.toLowerCase(): case IO_CUT_KEY: return run(cutIO);   // 始まりの印〜終わりの印を削る(外す)。X は 1 文字起こし の「聞き取れない」と重なるので使わない(M2。仮決め (ay))
       case '+': case '=': return run(() => zoom(1.5));
       case '-': return run(() => zoom(1 / 1.5));
       case 'Escape': if (M.sel || M.io.i !== null || M.io.o !== null){ run(() => { M.sel = null; M.io = { i: null, o: null }; render(); }); } return;

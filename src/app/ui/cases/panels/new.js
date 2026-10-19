@@ -1,12 +1,11 @@
 /* 新しい案件のパネル(ホームの引き出し #newDrawer で開く。配信を探す・URL から入れる・解析の順番待ち。RS8 C3)。
-   中身はスタジオ ① の部品 src/app/ui/studio/rank.js(配信を探す・配信中・まとめて実行)と src/app/ui/studio/queue.js(URL から入れる・解析の順番待ち)をそのまま使う
-   = 古い画面と同じコード・同じ動き(古い画面は C4 まで凍結。C4 で rank.js・queue.js をここへ移して古い画面を消す)。
+   中身はスタジオ ① の部品 src/app/ui/studio/rank.js(配信を探す・配信中・まとめて実行)と src/app/ui/studio/queue.js(URL から入れる・解析の順番待ち)をそのまま使う。
    このファイルは「つなぎ」だけ(panels/cand.js と同じ作り): 2 本のスクリプトは window.Studio(core.js)に頼って書かれているので、
    そのうち使う分だけの代わり(下の Studio)を渡して読み込み、パネルの箱の中に ① の器(#paneRank)を作る。
-   古い画面との違い(パネルの中だけ): 「確認する」「録画を ② で開く」は案件の画面(/cases?c=<配信 id>#cand)へ移る・
+   パネルの中だけの動き: 「確認する」「録画を ② で開く」は案件の画面(/cases?c=<配信 id>#cand)へ移る・
      解析の設定・出力先・ライブの録画は設定の画面(/settings のスタジオ・リアルタイム切り抜きの節)へ・ヘッダーの件数の札は出さない。
-   RS8 C4(スタジオの画面を消した)から、スタジオの ⚙ にあった「YouTube Data API キー」「事務所の登録」「コラボ」と ffmpeg・yt-dlp が無いときの案内は
-     このパネルの末尾の「探す設定」(#nwSet)に置く。事務所の登録は rank.js の mountRegistry・コラボは studio/collab.js(開いたときに初めて読む)= 古い画面と同じコード。
+   RS8 C4: 「YouTube Data API キー」「事務所の登録」「コラボ」と ffmpeg・yt-dlp が無いときの案内は
+     このパネルの末尾の「探す設定」(#nwSet)に置く。事務所の登録は rank.js の mountRegistry・コラボは studio/collab.js(開いたときに初めて読む)。
    口: window.NewCasePanel = { create() -> { mount(el, opts), update(opts), setVisible(on), unmount(), focus(), openSettings(which) } }(which = setKey | setReg | setCollab)。opts = { url, media }(?url= で受けた配信の URL・?media= で受けた動画のパス。欄に入れるだけ)。
    (案件の画面の殻が CasesPanels を持っているときは、同じ create を 'new' の名前でも登録する = V1 の確かめるが同じ口で開ける)
    パネルの箱の中の要素は、rank.js・queue.js が文書全体から id で引くので、その id はホームの id と重ならないこと(test_cases_page が検査)。CSS は panels/new.css(.nw-panel の下だけ)。CSP script-src 'self' のまま(スクリプトは相対パスで 1 回だけ読む)。 */
@@ -15,7 +14,7 @@
   var RANK_JS = 'studio/rank.js', QUEUE_JS = 'studio/queue.js', COLLAB_JS = 'studio/collab.js';
   var loadP = null, collabP = null;
 
-  /* 探す設定(RS8 C4。スタジオの ⚙ の 3 つの節を移した)。id は nwSet で始める(ホームの id と重ねない) */
+  /* 探す設定(RS8 C4。3 つの節)。id は nwSet で始める(ホームの id と重ねない) */
   var SET_HTML = '<div class="notice" id="nwToolNotice" role="alert" hidden></div>' +
     '<details class="card nw-set" id="nwSet"><summary><span class="set-title">探す設定</span><span class="set-sub">YouTube Data API キー・事務所の登録・コラボ</span><span class="pill" id="nwKeyState"></span></summary><div class="body">' +
     '<section class="nw-set-sec" id="nwSetKey" aria-labelledby="nwKeyH"><h3 class="nw-set-h" id="nwKeyH">YouTube Data API キー</h3>' +

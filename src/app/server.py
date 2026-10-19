@@ -11,10 +11,8 @@
   GET  /api/ping                          {"app": "ytt-launcher", "version"}
   GET  /api/cases                         案件(配信1本)ごとの切り抜き・文字起こし・パック(src/manage/cases/cases.py)
   POST /api/cases/auto                   {op: deliver|discard, id, markId} 自動でできた切り抜き(線 D の M9・M12)を 採用 = 友人へ届ける・
-                                          要らない = ごみ箱フォルダへ(src/manage/cases/cases.py の auto_review。deliver の応答の job は api/ytt/deliver の status で聞き直す)。
-                                          案件の状態・メモ(/api/cases/update)と「見た」(op seen)は MARKS-3 で消した
-  GET  /api/flow/runs                     まとめて実行の状態(src/flow/runqueue.py の snapshot)。runs = この起動の実行(public。mode・modeLabel・docs…)・
-                                          past = 配信・文書ごとの前回の結果(記録のファイルから)・modes(RV A1 で GET /api/autorun から改名)
+                                          要らない = ごみ箱フォルダへ(src/manage/cases/cases.py の auto_review。deliver の応答の job は api/ytt/deliver の status で聞き直す)。  GET  /api/flow/runs                     まとめて実行の状態(src/flow/runqueue.py の snapshot)。runs = この起動の実行(public。mode・modeLabel・docs…)・
+                                          past = 配信・文書ごとの前回の結果(記録のファイルから)・modes
   POST /api/flow/submit                   {envelope, spec?} ② の口 = 受付はこれ 1 本(RS7-1 S4・RV A1): 封筒(src/flow/envelope.py)+ 束の差分(src/flow/spec.py)を
                                           待ち行列に積む → {run}。欄から封筒と差分を作るのは src/flow/order.py(画面は UIKit.flow.order)。束の土台は画面の設定(build_spec)。
                                           形が違う・同じ入力が待ち・実行中は 400 と理由。動画ファイルの封筒は実在するパス・動画か音声の拡張子だけ。届け先が無ければ届けない。
@@ -42,7 +40,7 @@
   POST /api/intake/scan                   {} 今すぐフォルダを見る(裏で。応答は今の状態)
   GET  /api/backup                        作業データのバックアップの状態・設定(src/manage/keep/backup.py。notes:docs/spec/data.md の「バックアップ」)
   POST /api/backup/run                    {} 今すぐ写す(裏で。応答は今の状態)
-  GET  /api/accuracy                      精度の自動測定の状態・領域ごとの直近と前回・入口の条件 goals(今 / 目標 / あと。0.38.0)(src/eval/drill/accuracy.py。git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md の (a))
+  GET  /api/accuracy                      精度の自動測定の状態・領域ごとの直近と前回・入口の条件 goals(今 / 目標 / あと)(src/eval/drill/accuracy.py)
   POST /api/accuracy/run                  {} 今すぐ測る(裏で。手が空くまで待つ。オフなら 409。応答は今の状態)
   GET  /api/check/next?c=&kind=&n=&skip=  「確かめる」(V1)の待ち行列(src/app/check/deck.py。読むだけ)。c = 案件の id・kind = value|read|voice|time・
                                           n = 0〜50(既定 10。0 = 数だけ)・skip = 画面が持っているカードの id(カンマ区切り。外す)
@@ -56,21 +54,21 @@
   GET  /api/log?tool=<ID>&lines=N         ツールの出力(<作業データ>/app/logs/<ID>.log)の末尾
   POST /api/tools/<ID>/start|stop|restart {} → {"tool": {...}}
   POST /api/shutdown                      {} → この入口から起動したツールを止めて、入口も終わる。録画中でなければ録画の部品も止める
-                                          (録画中なら残して、応答に recorderKept・notice。0.38.1)
+                                          (録画中なら残して、応答に recorderKept・notice)
   POST /api/window                        {mode: browser|app} 画面を窓(Edge のアプリモード)で開くか(段階7-3。src/ytt/appwindow.py)
   POST api/ytt/client-log|open-window|open-external|focus-portal|streamer-colors   画面の共通の API(focus-portal: 入口の窓を前に出す・
-                                          streamer-colors: 配信者の名前 → メンバーカラーの候補。2026-09-27)。入口の画面(/api/ytt/…)と、取り込んだツールの画面
+                                          streamer-colors: 配信者の名前 → メンバーカラーの候補)。入口の画面(/api/ytt/…)と、取り込んだツールの画面
                                           (/studio/api/ytt/… など。src/app/mount.py が入口へ回す)のどちらからも同じ(段階7。PortalServer.ytt_request)
   POST api/ytt/restart-self               {} → 入口ごと起動し直す(段9 9-3。src/manage/ops/restart.py)。重い処理・人が始めた処理・書き出しの最中は 409 と理由の文。
-                                          まとめて実行の待ち・実行中は断らずに、応答に notice(何件が起動し直したあとに続くか。0.41.0)
-  GET  /live/…・POST /live/…              リアルタイム切り抜き(線 D。src/app/live.py)。**設定 live.enabled がオンのときだけ**(オフなら今までどおり 404):
+                                          まとめて実行の待ち・実行中は断らずに、応答に notice(何件が起動し直したあとに続くか)
+  GET  /live/…・POST /live/…              リアルタイム切り抜き(線 D。src/app/live.py)。**設定 live.enabled がオンのときだけ**(オフなら 404):
                                           録画を始める /live/api/begin・録画元(src/pipeline/ingest/recorder.py)への中継 /live/r/<録画元>/<残り>・マークと書き出し・
-                                          サーバー側の「マーク + 書き出し」/live/api/adopt(線 D の M1。0.39.0)。
-                                          画面はスタジオの中(P3。/live/ はスタジオへ 302)。0.40.0 から(線 D の M4〜M7): 「調子」の live.disk(空き容量)・
+                                          サーバー側の「マーク + 書き出し」/live/api/adopt(線 D の M1)。
+                                          画面はスタジオの中(P3。/live/ はスタジオへ 302)。線 D の M4〜M7: 「調子」の live.disk(空き容量)・
                                           archiveInfo.afterStream(配信後の全自動 = 設定 live.autoAfterStream)。まとめて実行の待ち・実行中は起動し直しで戻る
   POST api/ytt/live                       {op: "status"} → 録画中の録画(全ツールのヘッダーの札。オフなら {enabled: false})/ {op: "stop", recorder, recording}
   POST api/ytt/deliver                    {op: "start", dir, title} → {"job"} / {op: "status", job} → {"job"}。パックを友人へ届ける
-                                          (Dropbox の見張るフォルダの 出力 に zip で置く。src/flow/deliver.py。2026-10-04)
+                                          (Dropbox の見張るフォルダの 出力 に zip で置く。src/flow/deliver.py)
 
 設計の要点
 - 子プロセスの出力は <作業データ>/app/logs/<ID>.log に書く(1つの黒い画面に3つのツールの出力が混ざらないように)
@@ -107,7 +105,7 @@ import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src(このファイルは src/app/server.py。RS7-2 G5b で旧 launch.py から移し、RV C1 で旧 launch.py の転送は消した)
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src(このファイルは src/app/server.py)
 CODE_DIR = os.path.join(ROOT, "app")   # 入口の部品(mount・autorun・prefs・live・appwindow)の置き場所(画面は ui/home・ui/settings・ui/cases・ui/check)。layout.TOOL_DIRS["app"] と同じフォルダ(コードだけ。inplace の作業データは <リポジトリ直下>/.data/app)
 HOME_UI_DIR = os.path.join(CODE_DIR, "ui", "home")   # ホームの画面(portal.html・portal.js・portal.css・portal-edit.js)
 if ROOT not in sys.path:   # 役割の層・共通部品 ytt(src)
@@ -179,7 +177,7 @@ HEADLESS_NO_RESTART = "画面なしのホームは起動し直せません(起�
 PARENT_POLL = 2.0          # 親の見張り: Windows 以外で親の生死を見る間隔(秒。Windows は WaitForSingleObject で待つ)
 MACHINE_PUT_FIELDS = ("device", "llmModel", "caseRoot", "diskMinGB", "learningDir")   # PUT /api/flow/machine で変えられる項目(F1 の 1-2 の口)
 LEARNPACK_DIR = "学習"          # 学習の束の置き場所 <依頼の受付のフォルダ>/学習(F1 の 3 の (f1c))
-LEARNPACK_FIRST, LEARNPACK_EVERY = 60.0, 86400.0   # 起動のあと最初に置くまでの秒・置き直しを見る間隔(1 日。10-14 ユーザー「そんなに頻繁に送らなくていい」。中身が変わらなければ作らない)
+LEARNPACK_FIRST, LEARNPACK_EVERY = 60.0, 86400.0   # 起動のあと最初に置くまでの秒・置き直しを見る間隔(1 日。ユーザー「そんなに頻繁に送らなくていい」。中身が変わらなければ作らない)
 
 
 def _human_learn():
@@ -344,7 +342,7 @@ def app_data_dir(root):
 
 def logs_dir_for(root):
     """入口とツールの出力の記録の置き場所: 作業データの置き場所(ytt.datadir。%LOCALAPPDATA%\\youtube-tools\\app\\logs)。
-    YTT_DATA_DIR=inplace(テスト)なら .data/app/logs。記録だけなので、以前の場所からは写さない"""
+    YTT_DATA_DIR=inplace(テスト)なら .data/app/logs。記録だけなので、写しは作らない"""
     return os.path.join(app_data_dir(root), "logs")
 
 
@@ -1097,12 +1095,12 @@ class PortalServer(httpsec.ExclusiveServer):
         self.intake = intake_mod.Intake(self.prefs, lambda: self.autorun, app_dir, log=sup.log,
                                         feedback=lambda fb: friend_feedback_mod.apply(sup.logs_dir, fb, trash=self.cleanup, log=sup.log,
                                                                                       discard=cases_mod.discard_clip),   # 片付ける部品は入口が渡す(friend_feedback は cases を読まない)
-                                        live_begin=lambda url, ctx: self.live.submit_request(url, ctx),   # ライブ配信の依頼(2-15。封筒 + 束でライブ係の submit へ = RS7-2 G2b。live は下で作る)
+                                        live_begin=lambda url, ctx: self.live.submit_request(url, ctx),   # ライブ配信の依頼(2-15。封筒 + 束でライブ係の submit へ 。live は下で作る)
                                         defaults=prefs_mod.DEFAULTS["intake"],   # 設定が読めないときの既定は入口が渡す(intake は prefs を読まない)
                                         flush=self.flush_sends)   # 見回りの終わりに、届けられなかった自動の分を送り直す(D-SEND 2-6)
         # 作業データのバックアップ(見張りは main で start。inplace = テストなどでは写さない)
         self.backup = backup_mod.Backup(self.prefs, datadir.data_root(), app_dir, log=sup.log, defaults=prefs_mod.DEFAULTS["backup"],
-                                     out_dir=lambda: datadir.studio_out_dir(sup.root), media_dirs=backup_mod.default_media_dirs)   # 評価用・学習用の動画も(10-14)
+                                     out_dir=lambda: datadir.studio_out_dir(sup.root), media_dirs=backup_mod.default_media_dirs)   # 評価用・学習用の動画も
         # 精度の自動測定(見張りは main で start。テストで作る入口では動かさない)。手が空いた判定は _accuracy_busy・_accuracy_last_edit
         self.accuracy = accuracy_mod.Accuracy(self.prefs, app_dir, sup.root, busy=self._accuracy_busy,
                                               last_edit=self._accuracy_last_edit, log=sup.log, defaults=prefs_mod.DEFAULTS["accuracy"])
@@ -1114,7 +1112,7 @@ class PortalServer(httpsec.ExclusiveServer):
         self.health = health_mod.Health(sup, sup.logs_dir, sup.root, worker_probe=self._worker_probe, extra_dirs=self._extra_dirs,
                                         live_probe=self.live.health, accuracy_probe=self.accuracy.snapshot,
                                         places_probe=self._places_probe)   # 「調子」(段9 9-1。録画の行はオンのときだけ・精度の行・置き場所の行)
-        # 片付け(段9 9-2)。ごみ箱フォルダは動画と同じドライブ(書き出し先\ごみ箱。2026-10-01 ユーザー決定)
+        # 片付け(段9 9-2)。ごみ箱フォルダは動画と同じドライブ(書き出し先\ごみ箱。ユーザー決定)
         self.cleanup = cleanup_mod.Cleanup(app_dir, repo_root=sup.root, log=sup.log, out_dirs=self._extra_dirs)
         self.cleanup_lock = threading.Lock()
         # 分析と日報(見張りは main で start。テストで作る入口では動かさない。連携の設定が無ければ何もしない)
@@ -1197,7 +1195,7 @@ class PortalServer(httpsec.ExclusiveServer):
     def restart_self(self):
         """新しい入口(同じポートが空くのを待つ)を起こしてから、この入口は「すべて終了」と同じ後始末をして終わる。
         重い処理・取り込んだツールの処理(人が始めたもの・まとめて実行の書き出し)が動いていれば 409 で断る(理由の文)。
-        まとめて実行の待ち・実行中は断らない(M5 で起動し直したあとに続きから進む。入口 0.41.0): 応答の notice と記録で何件続くかを知らせる。
+        まとめて実行の待ち・実行中は断らない(M5 で起動し直したあとに続きから進む): 応答の notice と記録で何件続くかを知らせる。
         -> (HTTP の番号, JSON)"""
         if self.closing.is_set():
             return 409, {"ok": False, "error": "closing", "message": "終了の途中です"}
@@ -1347,7 +1345,7 @@ class PortalServer(httpsec.ExclusiveServer):
         """画面の共通の API(api/ytt/<名前>)の要求を受け持つ。h は入口か、取り込んだツールの Handler(_json を持つ)。
         取り込んだツールの画面の /studio/api/ytt/… も src/app/mount.py がここへ回す(ツールごとに同じものを書かないため)。
         検査は入口の API と同じ: POST だけ・Host・Origin・Sec-Fetch-Site・合言葉・本文は application/json で 16KB まで。
-        断るときは本文を読み捨てる(0.50.0 までは取り込んだ画面から来た要求を Host・Origin で断るときに読まずに閉じていた = Windows で 403 が届かないことがある形)"""
+        断るときは本文を読み捨てる(読まずに閉じると Windows で 403 が届かないことがある)"""
         path = urllib.parse.urlsplit(h.path).path
         if h.command != "POST":
             return h._json(405, {"error": "method", "message": "POST で送ってください"})
@@ -1501,14 +1499,13 @@ class PortalServer(httpsec.ExclusiveServer):
         self.intake.close()   # 依頼の受付の見張りを止める(まとめて実行に入れる前に)
         self.backup.close()
         self.accuracy.close()   # 測っている子プロセスも止める
-        self.live.close()     # 録画の部品の見回りを止め、録画中でなければ録画の部品も止める(録画中なら残す = 録画は続く。0.38.1)
+        self.live.close()     # 録画の部品の見回りを止め、録画中でなければ録画の部品も止める(録画中なら残す = 録画は続く)
         if self.analytics:
             self.analytics.close()
 
     def teardown(self):
         """終了の後始末(1 回だけ。2 回目からは何もしない)。画面の「すべて終了」(request_shutdown)と main の終わり(Ctrl+C・黒い画面の×も)の両方から呼ぶ。
-        順番: 裏の見張り → まとめて実行(実行中の段を止める。順番待ち・実行中の実行は次の起動で続く。M5)→ 監視 → ツールを止める → 取り込んだツールの後始末。
-        0.50.0 までは「すべて終了」で 2 回走り(取り込んだツールの finish も 2 回)、Ctrl+C・× ではまとめて実行を閉じていなかった"""
+        順番: 裏の見張り → まとめて実行(実行中の段を止める。順番待ち・実行中の実行は次の起動で続く。M5)→ 監視 → ツールを止める → 取り込んだツールの後始末。"""
         with self._teardown_lock:   # 途中で 2 つ目が来たら(「すべて終了」の後始末の最中の Ctrl+C)、終わるのを待ってから戻る
             if self._torn_down:
                 return

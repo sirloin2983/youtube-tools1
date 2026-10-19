@@ -245,7 +245,7 @@ def _mounted_cards_and_health(cx):
     # 段9 9-1: 「調子」(版・認識ワーカー・外部プログラム・空き容量・作業データ・エラーの件数)が「詳しく」の先頭に出る
     check(wait_js(pg, "[...document.querySelectorAll('#healthList > li')].length >= 6", 20000), "[A] 「調子」が出る(6 項目以上): %d" % pg.locator("#healthList > li").count())
     check(wait_js(pg, "document.querySelector('#healthList').textContent.indexOf('作業データ ') >= 0 && document.querySelector('#healthList').textContent.indexOf('数えています') < 0", 20000), "[A] 作業データの大きさは別のスレッドで数えて、終わったら出る")
-    # 入口 0.38.0: 入口の条件(あと何本・何分)。前回の測定の記録から「今 / 目標 / あと」を 1 行ずつ・無いものは「未測定」
+    # 入口の条件(あと何本・何分)。前回の測定の記録から「今 / 目標 / あと」を 1 行ずつ・無いものは「未測定」
     check(wait_js(pg, "!!document.getElementById('accuracyGoals')", 20000), "[A] 調子に「始める条件(あと何本・何分)」が出る")
     gt = pg.text_content("#accuracyGoals") if pg.query_selector("#accuracyGoals") else ""   # 畳んだ欄の中(RS8 C3)なので text_content
     check("始める条件(あと何本・何分)" in gt and "定点 15 分: 今 15.8 分 / 目標 15 分 / 届いた" in gt and "定点 30 分: 今 15.8 分 / 目標 30 分 / あと 14.2 分" in gt and "G1" not in gt and "G2" not in gt
@@ -308,7 +308,7 @@ def _mounted_open_tools(cx):
           "[A] 候補のパネルが /studio/ の API を読めた(マークの一覧。旧 Studio.state の確かめ)")
     check_appnav(check, tab, base, "cases", "案件の画面")
 
-    # 2c. 校正は取り込んだ編集の部品(edhost)が文書を読む・カットへ切り替わる(旧 /transcribe/ の画面の確かめの代わり)。
+    # 2c. 校正は取り込んだ編集の部品(edhost)が文書を読む・カットへ切り替わる。
     # d だけの URL は文書から案件を引いて、URL を c つきに直す
     tab.goto(base + "cases?d=deadbeef0001#proof")
     check(wait_js(tab, "CasesShell.state().caseId === 'e2eCase0001' && CasesShell.state().tab === 'proof' && CasesShell.state().sel === 'd:deadbeef0001'"
@@ -374,7 +374,7 @@ def _mounted_cases(cx):
     case_doc = [h for t, h in acts if t == "校正で開く" and "e2eCase0001" in h][0].split("&d=")[1].split("#")[0]
     cols = pg.eval_on_selector_all(".pt-case-clips, .pt-case-tx, .pt-case-pack", "els => els.map(e => [e.className.split(' ').pop(), e.textContent])")
     check(sorted(c for c, t in cols) == ["pt-case-clips", "pt-case-pack", "pt-case-tx"], "[A] RS8 C3: 案件の行の列は 切り抜き / 校正 / パック: %s" % cols)
-    # B-8(段1): 案件の行から、その配信をスタジオの ② 確認で開く。S-15(入口 0.42.0): 同じ窓で移る(target を付けない = 窓・タブを増やさない)
+    # B-8(段1): 案件の行から、その配信をスタジオの ② 確認で開く。S-15: 同じ窓で移る(target を付けない = 窓・タブを増やさない)
     sh = pg.eval_on_selector_all(".pt-case-studio a", "els => els.map(a => [a.textContent, a.getAttribute('href'), a.getAttribute('target')])")
     check(sh == [["案件の画面で開く", "/cases?c=e2eCase0001#cand", None]],
           "[A] 案件の行に「案件の画面で開く」(/cases?c= に案件の id・同じ窓で移る): %s" % sh)
@@ -488,7 +488,7 @@ def seed_next_cases(studio_json, tmp):
 
 
 def _mounted_next_steps(cx):
-    """[A] 2i. 気が利く画面へ 段 7〜8(入口 0.42.0): 次にやることの種類と並び(S-6)・同じ題名の副題(S-26)・案件の行のボタン(S-18)・
+    """[A] 2i. 気が利く画面へ 段 7〜8: 次にやることの種類と並び(S-6)・同じ題名の副題(S-26)・案件の行のボタン(S-18)・
     リンクの開き方(S-15)・依頼の受付の外の文字。空の表示(S-13)・消えた配信(S-25)・フォーカスと Enter(S-24)・UI の見直し 1 周目(M2〜M10)の
     細かい場面は画面の道に入れない"""
     check, pg = cx.check, cx.pg
@@ -616,7 +616,7 @@ def _watch_errors(p, errs):
 
 
 def _new_case_rank(cx):
-    """[A] 2j-3. 新しい案件の ① 配信を探す(旧スタジオ e2e_ui.py の ① の要点。RS8 C4 で引き出しへ): 登録した事務所だけにチェック・外したのは残る /
+    """[A] 2j-3. 新しい案件の ① 配信を探す(RS8 C4。引き出しの中): 登録した事務所だけにチェック・外したのは残る /
     期間の早見「昨日0時〜今」と「10分以上の動画だけ」(minDur 600)/ 検索の結果(疑似の YouTube API)/ まとめて実行(入口の start-new は偽物)"""
     check, ctx = cx.check, cx.ctx
     from human.find import rank as _rank   # 取り込んだスタジオと同じ部品(同じプロセス・置き場所は疑似のスタジオの STUDIO_HOME)
@@ -703,7 +703,7 @@ def _rank_autorun(cx, p):
 
 
 def _new_case_queue_narrow(cx):
-    """[A] 2j-4. 新しい案件の「URL から入れる」(旧スタジオ e2e_ui.py の check_queue の要点): 「解析に追加」で順番待ち → 疑似の解析が終わると「確認する」→
+    """[A] 2j-4. 新しい案件の「URL から入れる」: 「解析に追加」で順番待ち → 疑似の解析が終わると「確認する」→
     案件の画面の候補へ (失敗の文は test_cand_panel.cjs。?url= を欄に入れるだけは 2j で確かめた。幅 390 のはみ出しは ui_audit の A-20)"""
     check, ctx = cx.check, cx.ctx
     media = os.path.join(cx.tmp, "fake-media.webm")   # 疑似のスタジオの解析が「取ってきた」ことにする見本の動画(STUDIO_FAKE_MEDIA。main の環境の patch が戻す)
@@ -876,7 +876,7 @@ def seed_auto_clips(cx):
 
 
 def _mounted_auto_clips(cx):
-    """[A] 2j. 自動でできた切り抜きの確認(線 D の M9・M12。入口 0.43.1): 札・出どころ・[採用](パック・届ける先が無いと押せない → 届ける)・
+    """[A] 2j. 自動でできた切り抜きの確認(線 D の M9・M12): 札・出どころ・[採用](パック・届ける先が無いと押せない → 届ける)・
     [要らない](ごみ箱フォルダへ・スタジオのマークを不採用・誤検出の記録)"""
     check, pg = cx.check, cx.pg
     clips = seed_auto_clips(cx)

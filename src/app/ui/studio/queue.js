@@ -1,5 +1,5 @@
 /* 切り抜きスタジオ: 解析(① の先頭の「URL から入れる」と順番待ち)。Studio.enqueue(items) もここで定義する。
-   0.24.0 で「2 解析」のタブを無くした(notes:docs/spec/data.md の 3)。0.25.0 で解析の設定の欄も ⚙ から外した = 設定の画面(入口の /settings)だけ(同 6)。
+   解析の設定の欄は設定の画面(入口の /settings)だけ(notes:docs/spec/data.md の 3・6)。
    ここは保存してある設定(/api/settings の analyze)を読んで、解析に追加するときにそのまま送る */
 (() => {
 'use strict';
@@ -10,7 +10,7 @@ const STATUS = { waiting: ['待ち', 'wait'], running: ['実行中', 'run'], don
 const Q = { items: [], prev: null, timer: null, seq: 0, max: 10, sig: null, pressed: false, dirty: false, busy: false };
 const mmss = t => UIKit.fmt.dur(t, { floor: true, noHours: true });   // チャット取得の経過(83:45。ui-kit の 1 か所)
 
-/* ① 探す の先頭に置く「URL から入れる」のカードと解析の順番待ち。解析の設定は設定の画面(0.25.0。ここには「前回の音量の解析を使わない」だけ を入れる) */
+/* ① 探す の先頭に置く「URL から入れる」のカードと解析の順番待ち。解析の設定は設定の画面(ここには「前回の音量の解析を使わない」だけ を入れる) */
 function entryHtml(){
   return `
   <div id="qWarn" class="notice cs-notice-act" role="alert" hidden></div>
@@ -44,7 +44,7 @@ const EMPTY_LIST = '<div class="empty"><b>まだ解析する配信はありま�
 
 /* ---------- 設定 ---------- */
 /* 解析の設定(材料・本数・長さ・感度・詳しい設定・重み)の置き場所はスタジオのサーバー(/api/settings の settings.analyze。段階7-1)。
-   0.25.0: 欄は設定の画面(入口の /settings のスタジオの節)だけ(notes:docs/spec/data.md の 6)。ここは保存してある値を読んで、解析に追加するときにそのまま送る
+   欄は設定の画面(入口の /settings のスタジオの節)だけ(notes:docs/spec/data.md の 6)。ここは保存してある値を読んで、解析に追加するときにそのまま送る
    (範囲の外はサーバーの analyze.validate_settings が丸める。まとめて実行(入口)も同じ設定で解析する)。
    「前回の音量の解析を使わない」(noCache)だけは、その場だけの指定なので URL のカードに残す */
 const O = { value: {} };   // value = 読み込んだ設定(サーバーに保存したもの。無ければ {} = サーバーの既定)
@@ -73,7 +73,7 @@ function paintKinds(){
   const e = entries(), allFile = e.length > 0 && e.every(x => x.kind === 'file');
   syncAdd(e);
 }
-/* 「解析に追加」「解析せずに確認画面を開く」は、欄が空のときと送っている間は押せない。理由は title に(見直し S17。以前は押せるままで、押すと知らせが出た) */
+/* 「解析に追加」「解析せずに確認画面を開く」は、欄が空のときと送っている間は押せない。理由は title に(見直し S17) */
 function syncAdd(e){
   const empty = !(e || entries()).length;
   for (const id of ['qAdd', 'qOpen']){
@@ -133,7 +133,7 @@ S.enqueue = async (items, opts) => {
   setMsg(msg);
   const from = S.step;
   await tick(); if (!stay) showList();
-  /* ② の「この配信を解析する」から来たときは、入れた配信の行へフォーカス(2 周目 N4。以前は body に落ちた) */
+  /* ② の「この配信を解析する」から来たときは、入れた配信の行へフォーカス(2 周目 N4) */
   if (!stay && from !== 'rank' && r.added.length) focusItem(r.added[0].qid);
   return r;
 };
@@ -325,7 +325,7 @@ S.onReady(() => {
   $('#qHost').innerHTML = entryHtml();   // ① 探す の先頭(器は rank.js が作る)
   $('#qList').innerHTML = EMPTY_LIST;
   paintKinds(); loadOpts();
-  UIKit.life.onReturn(loadOpts);   // 設定の画面で解析の設定を変えて戻ってきたら読み直す(0.25.0)
+  UIKit.life.onReturn(loadOpts);   // 設定の画面で解析の設定を変えて戻ってきたら読み直す
   $('#qUrls').addEventListener('input', paintKinds); $('#qPath').addEventListener('input', paintKinds);
   $('#qUrls').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); addFromForm(); } });   // Ctrl+Enter で追加
   $('#qPath').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); addFromForm(); } });

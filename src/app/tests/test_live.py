@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """リアルタイム切り抜き(線 D の P1)の入口の側(src/app/live.py・prefs の節 live・server.py の /live/…・「調子」の行)のテスト。
-② の部分は src/flow/tests に移した: 録画元まわり(probe・stop_recorder・見回りの起動)= test_live_recorder.py、マークと書き出し・採用・失敗の集約・ディスク・重い処理の枠 = test_live_export.py。
+② の部分は src/flow/tests にある:録画元まわり(probe・stop_recorder・見回りの起動)= test_live_recorder.py、マークと書き出し・採用・失敗の集約・ディスク・重い処理の枠 = test_live_export.py。
 
     py -3.12 -m unittest src/app/tests/test_live.py
 
@@ -255,7 +255,7 @@ class PortalLiveTest(unittest.TestCase):
         return d
 
     def test_shutdown_quits_the_recorder_when_not_recording(self):
-        """入口の「すべて終了」で録画の部品にも quit を送る(録画中でなければ静かに終わる。入口 0.38.1)"""
+        """入口の「すべて終了」で録画の部品にも quit を送る(録画中でなければ静かに終わる)"""
         self.enable()
         self.fake.routes[("GET", "/live/list")] = lambda b: (200, {"active": 0, "recordings": [{"id": "20261004-000000-a", "active": False}]})
 
@@ -464,7 +464,7 @@ class PortalLiveTest(unittest.TestCase):
         j = d["job"]
         mid = "lm-" + __import__("hashlib").sha1(b"m1a2b3").hexdigest()[:12]
         self.assertEqual((j["markId"], j["state"], j["n"], j["label"], j["transcribe"]), (mid, "wait", 4, "見どころ", False))
-        self.assertEqual((j["after"], j["streamer"]), ("none", ""))   # 以前の transcribe: false = 何もしない
+        self.assertEqual((j["after"], j["streamer"]), ("none", ""))   # 古い設定の transcribe: false = 何もしない
         self.assertEqual(j["studio"], {"video": rec, "mark": "m1a2b3", "start": 10.0, "end": 22.5})
         self.assertEqual((j["start"], j["end"]), ("2026-10-05T09:53:10.000Z", "2026-10-05T09:53:22.500Z"))   # firstPdt + 秒
         self.assertIn("/live/%s/status?since=999999999" % rec, [x["path"] for x in self.fake.seen])   # セグメントの一覧は要らない

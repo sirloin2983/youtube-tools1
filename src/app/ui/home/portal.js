@@ -1,6 +1,6 @@
 /* ホーム(src/app/ui/home/portal.html。段階5で入口 + 案件を1つにした)。
-   - ツールの起動状態(旧・入口)は /api/status を定期的に読んで「詳しく」の中のカードに出す(開く・起動・停止・再起動・すべて終了)
-   - 案件(配信ごと)の一覧(旧・cases.html)は /api/cases を読んで組み立てる。状態・メモは持たない(MARKS-3)
+   - ツールの起動状態は /api/status を定期的に読んで「詳しく」の中のカードに出す(開く・起動・停止・再起動・すべて終了)
+   - 案件(配信ごと)の一覧は /api/cases を読んで組み立てる。状態・メモは持たない(MARKS-3)
    - 「やること」(RS8 C3)は、実行中の物(まとめて実行 /api/flow/runs)と、種類ごとの件数(採用待ち・校正待ち・パック待ち・失敗 = 案件の一覧の todoSum・todoFirst。
      cases.py)。押すと案件の画面(/cases?c=&d=#タブ)へ移る。「確かめる」は api/check/next?n=0 の goal から今いちばん効く確認を 1 つ・[始める] は /check(V1 確かめる)。
      「新しい案件」は引き出し(cases-panels/new.js = スタジオ ① のつなぎ)。受付・バックアップ・記録・編集の精度と学習・調子は「運用」の枠に畳む
@@ -93,7 +93,7 @@
     }
     return box;
   }
-  /* ---- 一覧の非表示(ui-kit の UIKit.hide。2026-10-04)---- 案件・次にやること・単体の文字起こし・届いた依頼・まとめて実行の記録。
+  /* ---- 一覧の非表示(ui-kit の UIKit.hide)---- 案件・次にやること・単体の文字起こし・届いた依頼・まとめて実行の記録。
      覚える場所はホームの設定の節 hidden(どの窓・ツールでも同じ)。データは消さない。「非表示 n件を表示」で薄く出して「表示に戻す」 */
   function hideApi() { return UIKit.hide.available() ? UIKit.hide : null; }   // 合言葉があるとき(start.bat から開いたとき)だけ使える
   function isHid(list, id) { var h = hideApi(); return !!(h && h.has(list, id)); }
@@ -177,9 +177,9 @@
     });
   }
 
-  /* ================================================================ ツールの起動状態(旧・入口。「詳しく」の中) ================================================================ */
+  /* ================================================================ ツールの起動状態(「詳しく」の中) ================================================================ */
 
-  /* ホームに取り込んだツールの画面のページは RS8 C4 で消した = 「開く」は今その仕事をする画面へ(スタジオ = 新しい案件・編集 = 案件の画面) */
+  /* ホームに取り込んだツールの画面のページは無い = 「開く」は今その仕事をする画面へ(スタジオ = 新しい案件・編集 = 案件の画面) */
   var MOUNTED_OPEN = { studio: '/#new', transcribe: '/cases' };
   function toolUrl(t) {
     if (t.mounted) return 'http://' + location.hostname + ':' + t.port + (MOUNTED_OPEN[t.id] || '/');
@@ -188,7 +188,7 @@
   }
 
   /* 取り込んだツールの場所(/studio/・/transcribe/・/cut2resolve/)を UIKit.tools.setPaths(v6)に渡す(ツールの API の base を引く部品のため)。
-     ヘッダー左の ui-appnav は今は ホーム/案件/確かめる/設定 で、入口の画面だけを指す(以前の「スタジオ」「編集」の項目は消えた)。
+     ヘッダー左の ui-appnav は今は ホーム/案件/確かめる/設定 で、入口の画面だけを指す。
      ここでは /api/status から場所だけ取り出して渡す(href を直接書き換えない) */
   function toolPaths(tools) {
     var out = {};
@@ -315,7 +315,7 @@
     }).then(poll);
   }
 
-  /* 窓で開く(段階7-3。2026-09-27 から既定で窓) */
+  /* 窓で開く(段階7-3。既定は窓) */
   var winBusy = false;
   function inApp() { return UIKit.win.isApp(); }
   function renderWin(w) {
@@ -357,7 +357,7 @@
     b.disabled = true;
     b.textContent = '終了しています…';
     api('api/shutdown', 'POST').then(function (r) {
-      quitNotice = (r && r.notice) || '';   // 録画中なので録画の部品を残した、など(0.38.1)
+      quitNotice = (r && r.notice) || '';   // 録画中なので録画の部品を残した、など
       closed = true;
       clearTimeout(timer);
       $('#main').hidden = true;
@@ -386,7 +386,7 @@
   }
   function doneText(title, text) { $('#doneTitle').textContent = title; $('#doneText').textContent = text + (quitNotice ? ' ' + quitNotice : ''); }
 
-  /* ================================================================ 案件(配信ごと)の一覧(旧・cases.html) ================================================================ */
+  /* ================================================================ 案件(配信ごと)の一覧 ================================================================ */
 
   function lsGet(k, d) { try { var v = localStorage.getItem('ytt.cases.' + k); return v === null ? d : v; } catch (e) { return d; } }
   function lsSet(k, v) { try { localStorage.setItem('ytt.cases.' + k, v); } catch (e) { /* 保存できなくても動く */ } }
@@ -631,7 +631,7 @@
     if (draft.streamer != null) { who.value = draft.streamer; who.dispatchEvent(new Event('input')); }   // 未保存の入力を再描画でも保つ(E2 finding 1)
     else UIKit.streamer.autoFill(who, { videoId: c.id, channel: c.channel || '' });   // 覚えた名前 → チャンネル名から(段5)
     who.addEventListener('input', function () { draftFor(c.id).streamer = who.value; });
-    /* 形・採用数・上書きはホームの設定(UIKit.autorun = どの入口で変えても同じ。気が利く画面へ 段4。以前はこのブラウザの ytt.cases.mode/top)。
+    /* 形・採用数・上書きはホームの設定(UIKit.autorun = どの入口で変えても同じ。気が利く画面へ 段4)。
        形の初期値は配信の状態から(マークが 0 = 解析から全部・採用あり = 採用後を全部。どちらでもなければ保存した形。S-4) */
     var ar = UIKit.autorun;
     var stateMode = !c.marks.total ? 'full' : c.marks.adopted ? 'adopted' : null;
@@ -677,7 +677,7 @@
     });
     renderAuto(node, c.id);
   }
-  /* 「実行」を押したが、やることが無かったとき(M2): 理由 + 次の一歩 + その画面へ行くボタン(以前は理由だけで、押せる次の一手が無かった) */
+  /* 「実行」を押したが、やることが無かったとき(M2): 理由 + 次の一歩 + その画面へ行くボタン */
   function nothingToDo(c, reason) {
     var cand = (c.marks && c.marks.candidates) || 0, adopted = (c.marks && c.marks.adopted) || 0, exported = (c.marks && c.marks.exported) || 0;
     var next = '', act = null;
@@ -842,7 +842,7 @@
   }
 
   /* 再描画で入力中のフォーカス・カーソル位置を失わないように、一覧を作り直す前後で保つ(E2 finding 1:
-     alt-tab で戻ったときの refreshCases → render が、行の中で入力中だったフォーカスを消してしまっていた) */
+     alt-tab で戻ったときの refreshCases → render で、行の中で入力中だったフォーカスが消えるため) */
   function captureFocus(container) {
     var a = document.activeElement;
     if (!a || !container || !container.contains(a)) return null;
@@ -983,7 +983,7 @@
     box.appendChild(row);
     return box;
   }
-  /* 受付・バックアップのパネルを開いて、オン/オフのスイッチへ(フォルダ・数の欄は設定の画面 = 0.54.0) */
+  /* 受付・バックアップのパネルを開いて、オン/オフのスイッチへ(フォルダ・数の欄は設定の画面) */
   function openOps() { var o = $('#opsBox'); if (o) o.open = true; }
   function openSettingsBox(boxSel, switchSel) {
     var box = $(boxSel);
@@ -1024,7 +1024,7 @@
   }
   function refreshCases() {
     // render() だけでなく、案件の一覧から組み立てる「次にやること」・「単体の文字起こし」も一緒に作り直す
-    // (E2 finding 1: 前は render() だけで、alt-tab で戻ったときにこの2つが古いままだった)
+    // (E2 finding 1: render() だけだと、alt-tab で戻ったときにこの2つが古いままになる)
     return api('api/cases').then(function (j) { casesLoadFailed = false; casesData = j; render(); renderDocs(); buildTodo(); }).catch(function () { /* 次の読み込みで直る */ });
   }
 
@@ -1034,7 +1034,7 @@
     if ($('#fGroup').querySelector('option[value="' + gr + '"]')) $('#fGroup').value = gr;
   }
 
-  /* ================================================================ 単体の文字起こし(紐づかない文書。旧・案件画面の下の一覧を拡張) ================================================================ */
+  /* ================================================================ 単体の文字起こし(紐づかない文書) ================================================================ */
 
   function loadTxList() {
     return api('transcribe/api/transcripts').then(function (j) {
@@ -1092,7 +1092,7 @@
     var r = runsByDoc[id], past = r ? null : pastByDoc[id], pill = $('.pt-doc-runpill', li), msg = $('.pt-doc-runmsg', li);
     if (msg) { msg.hidden = !past; msg.textContent = past ? pastText(past) : ''; }   // 前回の結果(入口を起動し直したあと。段2 B-6)
     if (!r && past && past.state === 'error') r = past;
-    if (r && r.state === 'error') {   // 失敗は札に残す(以前は終わると消えて、失敗したことが分からなかった。S-5)
+    if (r && r.state === 'error') {   // 失敗は札に残す(終わっても消さない。S-5)
       pill.hidden = false; pill.className = 'pill pt-doc-runpill err'; pill.textContent = '失敗'; pill.title = r.error || ''; return;
     }
     if (!active(r)) { pill.hidden = true; return; }
@@ -1318,7 +1318,7 @@
     // 自動の切り抜きの長さの目安(友人の区間からその場で数える = flow/lengthhint。使う ⇄ 使わないが切り替わったら分かるように。OPT-E2)
     if (h.lengthHint) ul.appendChild(healthRow(h.lengthHint.used ? 'ok' : 'info', '自動の切り抜きの長さ', h.lengthHint.text));
     ul.appendChild(healthRow(e.autorunFailedLast7d ? 'warn' : 'ok', 'まとめて実行の失敗(7 日)', (e.autorunFailedLast7d || 0) + ' 件' + (e.autorunFailedLast7d ? '(上の「まとめて実行の記録」に理由)' : ''), [e.autorunLog]));
-    // 異常終了(見張り役。git の履歴(679ff01 以前)の docs/plan/stability-review-2026-10.md)。OS 側が増えたら PC の不安定、アプリ側だけならこのツールの不具合の目安
+    // 異常終了(見張り役)。OS 側が増えたら PC の不安定、アプリ側だけならこのツールの不具合の目安
     var cr = h.crashes;
     if (!cr) ul.appendChild(healthRow('warn', '異常終了(7 日)', h.computing ? '数えています…' : '読めませんでした'));
     else if (!cr.events) ul.appendChild(healthRow('warn', '異常終了(7 日)', '読めませんでした(Windows のイベントログ)'));
@@ -1416,7 +1416,7 @@
     (ac.areas || []).forEach(function (a) { if (a.available || a.latest || a.error) ul.appendChild(accuracyRow(a)); });
     if (live) accTimer = setTimeout(function () { loadHealth(false); }, 2500);   // 測っている間・手が空くのを待っている間は軽く読み直す
   }
-  /* 入口の条件(入口 0.38.0。accuracy.py の GOALS = plan/README.md の 7): 各工程を始めてよい量の「今 / 目標 / あと」を 1 行ずつ。値は直近の測定のもの */
+  /* 入口の条件(accuracy.py の GOALS = plan/README.md の 7): 各工程を始めてよい量の「今 / 目標 / あと」を 1 行ずつ。値は直近の測定のもの */
   function goalAmount(v, unit) { return unit === 'sec' ? String(+(v / 60).toFixed(1)) + ' 分' : Math.round(v) + ' ' + unit; }
   function goalPlain(s) {   // 計画の記号(G1・B4・I-2a など)は本文から外し、元の文は title に(S9)
     return String(s || '').replace(/\([A-Z]-\d+[a-z]?\)/g, '').replace(/(^|・)[A-Z]\d+(?:-[a-z])?\s+/g, '$1').replace(/^[A-Z]\d\s+/, '').trim();
@@ -1675,7 +1675,7 @@
 
   var INTAKE_PILL = { off: 'wait', watching: 'ok', error: 'err' };
   var intakeData = null, intakeSig = '', noticeSig = '', intakeBusy = false, intakeOpened = false;
-  /* 0.54.0: 見張るフォルダ・数の欄は設定の画面(/settings。範囲は app/prefs.py の INTAKE_RANGES とスキーマを test_settings_schema が突き合わせる)。ここはスイッチと今のフォルダだけ */
+  /* 見張るフォルダ・数の欄は設定の画面(/settings。範囲は app/prefs.py の INTAKE_RANGES とスキーマを test_settings_schema が突き合わせる)。ここはスイッチと今のフォルダだけ */
   function fillIntakeSettings(d) {
     $('#intakeEnabled').checked = !!d.enabled;
     $('#intakeFolderNow').textContent = d.folder ? '見張るフォルダ: ' + d.folder : '見張るフォルダは未設定(「設定を変える」で決めます)';
@@ -1805,7 +1805,7 @@
 
   var BACKUP_PILL = { off: 'wait', idle: 'ok', running: 'run', error: 'err' };
   var backupData = null, backupBusy = false, backupOpened = false, backupTimer = null, backupFastUntil = 0;
-  /* 0.54.0: 写す先・間隔の欄は設定の画面(/settings)。ここはスイッチと今の写す先だけ */
+  /* 写す先・間隔の欄は設定の画面(/settings)。ここはスイッチと今の写す先だけ */
   function fillBackupSettings(d) {
     $('#backupEnabled').checked = !!d.enabled;
     $('#backupFolderNow').textContent = d.folder ? '写す先: ' + d.folder + (d.everyHours ? '(' + d.everyHours + ' 時間ごと)' : '') : '写す先は未設定(「設定を変える」で決めます)';
@@ -1928,13 +1928,13 @@
     }).then(function () { histBusy = false; });
   }
 
-  /* 試験中の機能(リアルタイム切り抜き。線 D)の欄は 0.54.0 で設定の画面(/settings の「リアルタイム切り抜き」の節)へ移した(notes:docs/spec/data.md の 6)。
-     録画と再生・マークはスタジオの中(P3)。入口の側の切り替え(録画の部品の起動)は api/ytt/prefs の patch(section live)で今までどおり動く */
+  /* 試験中の機能(リアルタイム切り抜き。線 D)の欄は設定の画面(/settings の「リアルタイム切り抜き」の節)にある(notes:docs/spec/data.md の 6)。
+     録画と再生・マークはスタジオの中(P3)。入口の側の切り替え(録画の部品の起動)は api/ytt/prefs の patch(section live)で動く */
 
   /* ================================================================ 新しい案件(RS8 C3。引き出し #newDrawer) ================================================================
      配信を探す・URL や動画ファイルから入れる・解析の順番待ち = スタジオ ① の部品(rank.js・queue.js)を、つなぎ cases-panels/new.js が載せる。
      引き出しを初めて開いたときに css と js を読む(ホームを開くたびには読まない)。URL: /#new(?url=<配信の URL>・?media=<動画のパス> は欄に入れるだけ。解析は押すまで始めない。
-     ?set=key|reg|collab = 末尾の「探す設定」の API キー・事務所の登録・コラボを開く(設定の画面のリンク。RS8 C4 でスタジオの ⚙ から移した)) */
+     ?set=key|reg|collab = 末尾の「探す設定」の API キー・事務所の登録・コラボを開く(設定の画面のリンク)) */
   var NEW_SET = { key: 'setKey', reg: 'setReg', collab: 'setCollab' };
   var newPanel = null, newLoad = null;
   function newCaseArgs() {
@@ -2018,7 +2018,7 @@
   UIKit.portal.listen();
 
   document.addEventListener('DOMContentLoaded', function () {
-    /* ⚙ 設定の「ホーム」の節(M10): 窓で開く と、設定の画面へのリンク(0.54.0: まとめて実行の既定・試験中の機能・受付・バックアップの欄は設定の画面へ) */
+    /* ⚙ 設定の「ホーム」の節(M10): 窓で開く と、設定の画面へのリンク(まとめて実行の既定・試験中の機能・受付・バックアップの欄は設定の画面にある) */
     var hs = $('#homeSettings');
     if (hs) hs.hidden = false;
     UIKit.settings.mount(hs ? { title: '設定', tool: hs } : { title: '設定' });

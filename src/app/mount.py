@@ -2,7 +2,7 @@
 """統合サーバーへのツールの取り込み(統合計画の段階3。notes:docs/design/integration-plan.md)。
 
 入口のサーバー(src/app/server.py の PortalServer)が、ツールの serve.py を別名のモジュールとして読み込み、
-同じポートの /studio/ などで画面と API を受け持つ。ファイルは動かさない。取り込めないときは入口が serve.py を子プロセスとして起動する(各ツールの start.bat による単独起動は 09-26 に廃止)。
+同じポートの /studio/ などで画面と API を受け持つ。ファイルは動かさない。取り込めないときは入口が serve.py を子プロセスとして起動する(各ツールの単独起動は無い)。
 
 - 読み込み: ツールのフォルダの serve.py を "ytt_tool_<ID>" という名前で読み込む(3つとも serve.py なので、名前をそろえると取り違える)。
   ツールの中の部品(startup.py・store.py など)は、そのツールのフォルダから名前で読み込まれる。
@@ -36,7 +36,7 @@ MOUNTS = {
     # YouTube のプレイヤー(iframe_api)だけ外部のスクリプトを許す。スタイルの属性は画面が使うので制限しない
     "studio": _mount_spec("studio", "script-src 'self' https://www.youtube.com https://s.ytimg.com; object-src 'none'; base-uri 'none'; "
                                     "form-action 'none'; frame-ancestors 'none'"),
-    # cut2resolve の画面は「編集」に統合して消した(/ は案内の 1 枚だけ。API は今までどおり /cut2resolve/api/...)
+    # cut2resolve の画面は「編集」にある(/ は案内の 1 枚だけ。API は /cut2resolve/api/...)
     "cut2resolve": _mount_spec("cut2resolve", None),
     # 文字起こし: 認識(faster-whisper・sherpa-onnx)は pipeline/transcribe/worker.py(別プロセス)で動くので、入口のプロセスにネイティブのライブラリは入らない
     "transcribe": _mount_spec("transcribe", "script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"),
@@ -145,7 +145,7 @@ def make_handler(mod, prefix, token, csp, access_log=None):
                 return False
             self.path = self.path[len(prefix):]
             if self.command not in SAFE_METHODS and not httpsec.token_ok(self.headers, token, TOKEN_HEADER):
-                # 断る要求の本文は読み捨てる(読まずに閉じると Windows では接続ごと切られ、403 が届かないことがある。2026-10-03)
+                # 断る要求の本文は読み捨てる(読まずに閉じると Windows では接続ごと切られ、403 が届かないことがある)
                 httpsec.drain_body(self.headers, self.rfile)
                 self._json(403, TOKEN_FAIL)
                 return False

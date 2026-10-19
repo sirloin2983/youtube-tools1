@@ -7,25 +7,25 @@
   intake   … 友人からの依頼の受付(src/human/friend/intake.py。notes:docs/spec/friend.md): 見張るフォルダ・オン/オフ・既定の切り抜く数・
              配信の長さと動画の大きさの上限・見る間隔
   backup   … 作業データのバックアップ(src/manage/keep/backup.py。notes:docs/spec/data.md): オン/オフ・写す先のフォルダ・間隔(時間)
-  accuracy … 精度の自動測定(src/eval/drill/accuracy.py。git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md の (a)): enabled(**既定オン**。読むだけで軽い)・夜の窓 nightFrom〜nightTo(時。既定 1〜6。from > to は日をまたぐ)
+  accuracy … 精度の自動測定(src/eval/drill/accuracy.py): enabled(**既定オン**。読むだけで軽い)・夜の窓 nightFrom〜nightTo(時。既定 1〜6。from > to は日をまたぐ)
   live     … リアルタイム切り抜き(線 D。src/app/live.py。**既定はオフ**): enabled・録画の置き場所 folder(空 = 録画の部品の前回の設定か既定 E:/Video/live-rec)・
              録画元の一覧 recorders(空 = 手元の1つ。[{id, name, url, token}]。token が空の手元の録画元は録画の部品の token.txt を読む)・
              録画の画質 quality(best|1080p|720p。既定 1080p。スタジオの URL の欄から始める録画 = POST /live/api/begin)・
              書き出し済みでアーカイブ化を確かめたら録画を消す(ごみ箱へ。3 日で消える。マークの無い録画は 1 日で・確かめられない録画は終わって 3 日で)
-             autoDelete(**既定オン**。src/manage/keep/live_cleanup.py)・(autoArchive は 2026-10-16 に消した = 本番版への入れ替えの廃止。保存してある値は読まない)・
+             autoDelete(**既定オン**。src/manage/keep/live_cleanup.py)・
              書き出したあとの自動の流れ auto {after: none|check|auto(既定 check)・cut: ""(ホームの autorun.cut)|none|silence・
-             engine: ""(編集の設定)|whisper.cpp・model: ""(編集の設定)|large-v3}(線 D の M2。入口 0.39.0。選択肢は 0.58.0 で絞った)。
+             engine: ""(編集の設定)|whisper.cpp・model: ""(編集の設定)|large-v3}(線 D の M2)。
              after は画面・API が書き出したあとを指定しないとき(POST /live/api/adopt など)の既定。cut・engine・model は書き出しを頼んだときに覚えてまとめて実行へ渡す・
-             配信が終わったらアーカイブの解析で自動で切り抜いてパックまで作る autoAfterStream(**既定オフ**。線 D の M7。入口 0.40.0。src/flow/live_archive.py)と
+             配信が終わったらアーカイブの解析で自動で切り抜いてパックまで作る autoAfterStream(**既定オフ**。線 D の M7。src/flow/live_archive.py)と
              その数 afterStreamPerHour(1 時間あたり。1〜30。既定 6)・
-             配信中の盛り上がりの検出 detect {enabled(**既定オン**。10-08 ユーザー決定), sens: high|normal|low(既定 normal), perHour: 1〜30(1 時間の候補の枠。既定 6)}
+             配信中の盛り上がりの検出 detect {enabled(**既定オン**。ユーザー決定), sens: high|normal|low(既定 normal), perHour: 1〜30(1 時間の候補の枠。既定 6)}
              (線 D の L2。src/flow/live_detect.py・live_excite_worker.py)と、その候補の自動の採用 autoAdopt {enabled(**既定オン**), waitMin: 1〜60(入口が候補を最初に見てから待つ分。既定 5)}
              (M11)。どちらも節の中の鍵ごとに直す(送らなかった鍵は今のまま)
-  hidden   … 一覧で非表示にした項目(2026-10-04): 一覧の名前(HIDE_LISTS)→ {項目の id: 非表示にした時刻(ms)}。
+  hidden   … 一覧で非表示にした項目: 一覧の名前(HIDE_LISTS)→ {項目の id: 非表示にした時刻(ms)}。
              画面の UIKit.hide が op "hide" で1件ずつ足す・外す(節ごと送ると、窓を2つ並べたときに相手の分を消すため)。データは消さない(表示だけ)
 画面は api/ytt/prefs(入口の server.py)で読み書きする。**節ごとに直す**(全体を上書きしない。窓を2つ並べたとき、後から送った側が他の節を消さないため)。
 値は許可した形だけ受け付け、知らないキーは捨てる。壊れたファイルは読まずに既定で動き、次に書くときに退避してから書き直す
-(読む・書く・退避・大きさの上限は ytt.settings.SettingsFile。スタジオ・編集の設定ファイルと同じ決まり。S4 2026-10-09)。
+(読む・書く・退避・大きさの上限は ytt.settings.SettingsFile。スタジオ・編集の設定ファイルと同じ決まり。S4)。
 """
 import copy
 import os
@@ -41,7 +41,7 @@ from flow import spec as _spec  # noqa: E402  (採用の数・余白・待ちの
 
 _ADOPT = _spec.DEFAULTS["adopt"]
 
-MAX_BYTES = 1024 * 1024   # 2026-10-04 に 256KB から(非表示の一覧の分)
+MAX_BYTES = 1024 * 1024   # 非表示の一覧の分を見込んだ上限
 MAX_REMEMBER = 2000        # 配信者の記憶は種類ごとにこの件数まで(古い順に捨てる)
 NAME_MAX = 60
 KEY_MAX = 120
@@ -58,18 +58,18 @@ HIDE_MAX = 2000            # 一覧ごとにこの件数まで(古い順に捨�
 HIDE_IDS_MAX = 200         # 1回で送れる数
 COMBO_RE = re.compile(r"^(?:Shift\+)?(?:[^\x00-\x1f\x7f]|[A-Z][A-Za-z0-9]{1,20})$")   # UIKit.keys.comboOf の表記(Shift+ と、1文字かキーの名前)
 ACTION_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,40}$")
-DEFAULTS = {"autorun": {"mode": None, "top": 3, "cut": "none", "friendLength": True,   # 既定はカットしない(2026-10-01 ユーザー決定)
+DEFAULTS = {"autorun": {"mode": None, "top": 3, "cut": "none", "friendLength": True,   # 既定はカットしない(ユーザー決定)
                          "overwrite": False, "onFail": "next"},
             "streamer": {k: {} for k in STREAMER_KINDS},
             "keymap": {"playback": {}},
             "intake": {"enabled": False, "folder": "", "top": 3, "maxHours": 8, "maxGB": 20, "interval": 30},   # 知らないキーは _clean_intake が捨てる
-            "backup": {"enabled": False, "folder": "", "everyHours": 24},   # 守る物は学習データ・ツール・関連資料 = 1 日 1 回で足りる(10-14 ユーザー)
+            "backup": {"enabled": False, "folder": "", "everyHours": 24},   # 守る物は学習データ・ツール・関連資料 = 1 日 1 回で足りる(ユーザー)
             "hidden": {k: {} for k in HIDE_LISTS},
             "live": {"enabled": False, "folder": "", "recorders": [], "quality": "1080p", "autoDelete": True,
                      "auto": {"after": "check", "cut": "", "engine": "", "model": "", "pad": _ADOPT["pad"]}, "autoAfterStream": False, "afterStreamPerHour": _ADOPT["perHour"],
                      "detect": {"enabled": True, "sens": "normal", "perHour": _ADOPT["perHour"]}, "autoAdopt": {"enabled": True, "waitMin": _ADOPT["waitMin"]},
                      "liveTx": {"enabled": True, "model": "large-v3"},   # 配信中の候補の文字起こし(D-11 案 b。whisper.cpp の GPU。既定オン = 部品が無ければ何もしない)
-                     "autoDeliver": True},   # 自分の配信の自動の切り抜き(配信中の自動採用・配信後の追加)を確認なしで友人へ 1 本ずつ届ける(10-08 ユーザー決定。10-06 の「スイッチを作らない」を変えた)
+                     "autoDeliver": True},   # 自分の配信の自動の切り抜き(配信中の自動採用・配信後の追加)を確認なしで友人へ 1 本ずつ届ける(ユーザー決定)
             "accuracy": {"enabled": True, "nightFrom": 1, "nightTo": 6}}
 INTAKE_RANGES = {"top": (1, 10, "既定の切り抜く数"), "maxHours": (1, 24, "配信の長さの上限(時間)"),
                  "maxGB": (1, 200, "動画の大きさの上限(GB)"), "interval": (10, 600, "見る間隔(秒)")}
@@ -82,13 +82,13 @@ RECORDER_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{20,128}\Z")
 LIVE_QUALITIES = ("best", "1080p", "720p")   # 録画の画質(src/pipeline/ingest/rec_core.py の QUALITIES と同じ名前。既定 1080p = DEFAULT_QUALITY)
 LIVE_AFTERS = ("none", "check", "auto")      # 書き出したあと(src/flow/live_export.py の AFTERS と同じ名前)
 LIVE_CUTS = ("", "none", "silence")          # 自動のパックのカット(src/app/autorun.py の CUTS。"" = ホームの autorun.cut)
-# 認識エンジンとモデル("" = 編集の設定のまま)。0.58.0(2026-10-11 ユーザー決定「普段よく使っているモデル以外は要らない」)で whisper.cpp・large-v3 だけに
-# (faster-whisper・qwen3-asr・llama.cpp と自由入力のモデルは外した。保存してある外れた値は読むときに "" = 編集の設定に戻る = _clean_keys)
+# 認識エンジンとモデル("" = 編集の設定のまま)。whisper.cpp・large-v3 だけ(ユーザー決定「普段よく使っているモデル以外は要らない」)。
+# 保存してある外れた値は読むときに "" = 編集の設定に戻る(_clean_keys)
 LIVE_ENGINES = ("", "whisper.cpp")   # flow/spec.py の TX_ENGINES と同じ名前(editor は読み込まない)
 LIVE_MODELS = ("", "large-v3")       # flow/spec.py の TX_MODELS と同じ名前
 LIVE_PER_HOUR = (1, 30)                      # 配信後の全自動(M7)の 1 時間あたりの数(上限はスタジオの解析の候補の数の上限 30)
 LIVE_SENS = ("high", "normal", "low")        # 配信中の検出の感度(src/pipeline/analyze/excite.py の SENS の名前)
-LIVE_TX_MODELS = ("large-v3",)   # 配信中の候補の文字起こしのモデル(編集の whisper.cpp の WCPP_MODELS と同じ名前。large-v3-turbo は 0.58.0 で外した = 保存値は既定に戻る)
+LIVE_TX_MODELS = ("large-v3",)   # 配信中の候補の文字起こしのモデル(編集の whisper.cpp の WCPP_MODELS と同じ名前。外れた保存値は既定に戻る)
 LIVE_PAD_SEC = (0, 5)                        # 自動・アーカイブの採用の区間の前後の余白(秒。M8。人の採用には足さない)
 LIVE_WAIT_MIN = (1, 60)                      # 自動の採用(M11)の、入口が候補を最初に見てから待つ分(終わり待ちの候補は採用しない)
 
@@ -285,7 +285,7 @@ def _clean_live_adopt(v, cur, strict=True):
 
 
 def _clean_live_auto(v, cur, strict=True):
-    """live.auto(M2)+ 自動・アーカイブの採用の前後の余白 pad(M8。10-08)。strict=False は保存してある値を読むとき(形の違う鍵は既定に戻す。断らない)"""
+    """live.auto(M2)+ 自動・アーカイブの採用の前後の余白 pad(M8)。strict=False は保存してある値を読むとき(形の違う鍵は既定に戻す。断らない)"""
     checks = {"after": (lambda x: x in LIVE_AFTERS, "書き出したあと(after)は none・check・auto のどれかにしてください"),
               "cut": (lambda x: x in LIVE_CUTS, "カット(cut)は 空(ホームの設定)・none・silence のどれかにしてください"),
               "engine": (lambda x: x in LIVE_ENGINES, "認識エンジン(engine)は 空(編集の設定)・%s のどれかにしてください" % "・".join(LIVE_ENGINES[1:])),
@@ -302,7 +302,7 @@ LIVE_PARTS = {"auto": (_clean_live_auto, "書き出したあとの設定(auto)")
 
 
 def _read_live(v):
-    """保存してある live の節を読む(_section)。壊れた鍵はその鍵だけ既定に戻し、節全体(録画元の一覧・置き場所・オン)は戻さない(10-08)。
+    """保存してある live の節を読む(_section)。壊れた鍵はその鍵だけ既定に戻し、節全体(録画元の一覧・置き場所・オン)は戻さない。
     まず全部を patch と同じ検査に通し、断られたら鍵ごとに通す(小さな節 auto・detect・autoAdopt は鍵ごとに直す = strict=False)"""
     v = v if isinstance(v, dict) else {}
     try:

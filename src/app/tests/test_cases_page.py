@@ -76,7 +76,7 @@ class CasesPageHttpTest(PageServerTest):
         self.assertEqual((r.status, r.getheader("Location")), (302, "/cases?c=abc"))
         r, _ = self.req("/cases/")
         self.assertEqual((r.status, r.getheader("Location")), (302, "/cases"))
-        r, _ = self.req("/cases.html")   # 以前の一覧のリンクの転送は棚卸し G5 で消した
+        r, _ = self.req("/cases.html")   # 古い一覧のリンクは転送しない
         self.assertEqual(r.status, 404)
 
     def test_navigation_from_other_screens(self):
