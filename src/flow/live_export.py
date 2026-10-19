@@ -703,7 +703,7 @@ class Exporter(Patrol):
         origin: 採用の出どころ(ORIGINS。M1)。auto: 書き出したあとの設定 {cut, engine, model}(clean_auto 済み。M2)。
         hold: "archive" = 録画からは書き出さず、アーカイブから書き出す(HOLDS。ジョブに from "archive"。M7 の配信後の全自動。入口の中からだけ。API からは渡せない)。
         score: 候補の点数(配信中の検出・アーカイブの解析。任意)。ジョブに残し、.clip.json の source.live.score へ(M9 の確認の一覧が出す)。
-        request: 友人のライブ配信の依頼(live_requests.Store の項目。2-15)。ジョブに {rid, deliverDir, speakers, videoTracks, cut} を残し、_handoff が まとめて実行へ渡す"""
+        request: 友人のライブ配信の依頼(live_rules.RequestBook の項目。2-15)。ジョブに {rid, deliverDir, speakers, videoTracks, cut} を残し、_handoff が まとめて実行へ渡す"""
         after = read_after(after) or ("auto" if transcribe else "none")
         origin = origin if origin in ORIGINS else "manual"
         if self.host.find(rc) is None:

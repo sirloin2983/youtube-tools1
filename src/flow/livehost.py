@@ -23,7 +23,7 @@ Reply = Tuple[Optional[int], Any]   # (HTTP の番号か None, JSON)
 
 
 class RequestBook(Protocol):
-    """友人のライブ配信の依頼と録画の結びつき(human/friend/live_requests.Store。flow は human を読めないので形だけ)"""
+    """友人のライブ配信の依頼と録画の結びつき(実装は flow/live_rules.RequestBook の 1 つ。テストの代わりの物も同じ形)"""
 
     def get(self, rc: str, rec: str) -> Optional[dict]: ...
 

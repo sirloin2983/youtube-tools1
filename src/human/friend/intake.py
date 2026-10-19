@@ -55,7 +55,6 @@ REQ_DIRS_MAX = 64   # 依頼 id -> 置き場所の覚えの数(古い物から�
 REQ_ID_RE = re.compile(r"^\d{8}-\d{6}-[0-9a-f]{6}$")
 APP_FILE_RE = re.compile(r"^(\d{8}-\d{6}-[0-9a-f]{6})__(.+)$")   # 友人のプログラムが送った動画の名前
 TEXT_MAX = 64 * 1024
-TOP_MAX = 10
 MAX_URLS = 10            # 1つの依頼に書ける配信の数(① 探す から一度に入れられる数と同じ)
 SETTLE = 20.0            # 大きさと更新時刻がこの秒数変わらなければ、同期が終わったとみなす
 INTERVAL = 30.0          # 見る間隔
@@ -149,8 +148,8 @@ def parse_lines(text, default_top):
             rest = parts[1:]
         if not vid:
             bad.append({"line": line[:200], "reason": "YouTube の配信・動画の URL ではありません"})
-        elif not 1 <= top <= TOP_MAX:
-            bad.append({"line": line[:200], "reason": "切り抜く数は 1〜%d です" % TOP_MAX})
+        elif not 1 <= top <= _spec.REQUEST_TOP_MAX:
+            bad.append({"line": line[:200], "reason": "切り抜く数は 1〜%d です" % _spec.REQUEST_TOP_MAX})
         elif rest and not rest[0].startswith("#"):
             bad.append({"line": line[:200], "reason": "URL と数のあとに余計な文字があります(メモは # のあとに書いてください)"})
         else:
@@ -226,58 +225,7 @@ def _is_os_file(name, path=None):
     return False
 
 
-def _speaker_name(x):
-    """依頼に書かれた人の名前 -> 整えた名前(空・制御文字を含む・文字列でない = "")。names と people で同じ整え方にする"""
-    s = x.strip()[:60] if isinstance(x, str) else ""
-    return s if s and not any(ord(c) < 32 for c in s) else ""
-
-
-# 字幕の見た目(people[].style)の許可の一覧: 鍵 -> 値を検査して整える関数(通らなければ None = その項目だけ捨てる)。
-# 鍵を増やすとき(font・size など)はここに足す。知らない鍵は黙って捨てる。
-# 色は外から来る文字で画面・Lua に入るので、必ず 16 進 6 桁だけにそろえる(src/ytt/colors.py の HEX_RE と同じ形。# は付けても付けなくてもよい)
-_STYLE_KEYS = {"color": lambda v: colors.norm_hex(v) if isinstance(v, str) else None}
-
-
-def _parse_style(v):
-    """人ごとの字幕の見た目 {"color": "FF00AA"} -> 許可した鍵だけを整えた dict({"color": "#FF00AA"})。形が違う・何も残らない = {}"""
-    out = {}
-    if isinstance(v, dict):
-        for k, check in _STYLE_KEYS.items():
-            if k in v:
-                x = check(v[k])
-                if x is not None:
-                    out[k] = x
-    return out
-
-
-def parse_speakers(v):
-    """依頼の「配信者」{"count": 1〜10, "names": [...], "people": [{"name", "style"}]?} ->
-    {"count", "names", "styles": {名前: {"color": "#RRGGBB"}}}(styles は見た目を指定した人だけ。無ければ {})か None(無い・形が違う = 話者分離しない)。
-    people は任意。styles の名前は count で切ったあとの names に入っている人だけ。同じ名前が2回あれば先のもの"""
-    if not isinstance(v, dict):
-        return None
-    n = v.get("count")
-    if not isinstance(n, int) or isinstance(n, bool) or not 1 <= n <= 10:
-        return None
-    names = []
-    for x in v.get("names") if isinstance(v.get("names"), list) else []:
-        s = _speaker_name(x)
-        if s and s not in names:
-            names.append(s)
-    names = names[:n]
-    styles = {}
-    for p in v.get("people") if isinstance(v.get("people"), list) else []:
-        if not isinstance(p, dict):
-            continue
-        s = _speaker_name(p.get("name"))
-        st = _parse_style(p.get("style"))
-        if s in names and st and s not in styles:
-            styles[s] = st
-    return {"count": n, "names": names, "styles": styles}
-
-
-VIDEO_TRACKS_DEFAULT, VIDEO_TRACKS_MAX = 1, 5
-CUT_LABELS = {"none": "カットしない", "silence": "無音で削る"}
+CUT_LABELS = {"none": "カットしない", "silence": "無音で削る"}   # 受付の記録の文(カットの検査は ② flow/order.cut_arg = spec.CUTS)
 
 
 def _hms(sec):
@@ -296,22 +244,12 @@ def parse_ranges(v):
     return _spec.check_ranges([(r.get("start"), r.get("end")) if isinstance(r, dict) else None for r in v[:50]])
 
 
-def parse_cut(v):
-    """依頼のカット(① のパック)-> "none" / "silence" か None(無い・知らない値 = ホームの設定)"""
-    return v if v in CUT_LABELS else None
-
-
 def parse_weights(v):
     """依頼の解析の重み {"audio", "chat", "comments"}(0〜3)-> スタジオの解析の設定の名前 {"wAudio", "wChat", "wComments"} か None(無い・形が違う)。
     受付の口(アプリの名前を束の名前に読み替えるだけ)。検査は ② flow/spec.check_weights(まとめて実行の clean_weights と同じ。opt-human 9b-2)"""
     if not isinstance(v, dict):
         return None
     return _spec.check_weights({dst: v.get(src) for src, dst in (("audio", "wAudio"), ("chat", "wChat"), ("comments", "wComments"))})[0]
-
-
-def parse_video_tracks(v):
-    """依頼の「映像トラックの数」(1〜5。① 全自動のときに送る)-> 1〜5 の整数(無い・形が違う = 既定の 1)"""
-    return v if isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= VIDEO_TRACKS_MAX else VIDEO_TRACKS_DEFAULT
 
 
 def _safe_name(name):
@@ -551,9 +489,10 @@ class Intake:
             return {n}
         flow = "auto"   # 友人の依頼は全部 ① 全自動(flow が check・manual・無しでも断らず ① として扱う)
         flow_orig = d.get("flow") if d.get("flow") in OLD_FLOWS else ""   # 元の値は受付の記録に残す(後で分かるように)
-        speakers = parse_speakers(d.get("speakers"))   # 話す人(無ければ話者分離しない)
-        tracks = parse_video_tracks(d.get("videoTracks"))   # 映像トラックの数 1〜5・既定 1(パックを作る ① だけ)
-        cut = parse_cut(d.get("cut"))   # カットの方法(パックを作る ① だけ。無ければホームの設定)
+        # 話す人(無ければ話者分離しない)・映像トラックの数 1〜5(既定 1)・カットの方法(無ければホームの設定)。検査は ② flow/order(束と同じ範囲)
+        speakers = _order.speakers_arg(d.get("speakers"))
+        tracks = _order.video_tracks_arg(d.get("videoTracks"))
+        cut = _order.cut_arg(d.get("cut"))
         if d["kind"] == "live":   # ライブ配信(2-15): 配信中・配信前なら録画を始めて結びつける。終わっていれば ① 全自動
             self._handle_live_request(folder, n, d, rid, cfg, speakers, tracks, cut)
             return {n}

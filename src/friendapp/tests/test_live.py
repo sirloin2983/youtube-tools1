@@ -1,6 +1,6 @@
 """送る欄の動画ファイル・ライブのテスト。リポジトリ直下で: py -3.12 -m unittest src/friendapp/tests/test_live.py
 
-- ライブの設定の検査(長さ 10〜180 = A-5b の仮)と、依頼と録画の結びつき RequestBook(③ の live_requests を読まない)
+- ライブの設定の検査(長さ 10〜180 = A-5b の仮)と、依頼と録画の結びつき(② flow/live_rules.RequestBook を友人の PC の形 deliver=False で)
 - ② のライブ係 FriendLive: 送る → ② の待ち行列(本物の flow/runqueue.Queue)の live の hook → 録画を始めて結びつける(長さは送った欄から)→
   切り抜きごとの実行が終わるたびに行にパック(1 本ずつの枠)→ 録画が終わったら行は「届いた」。録画中でも枠に入った物は決められる
 - 終了: 録画中でも、この玄関が起こした録画の部品は止める・止めた本数(起動役の状態の窓)・配信後の追加の解析をスタジオなしの台帳へ・終わった録画を 3 日で消す
@@ -22,7 +22,7 @@ if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
 from ytt import testkit  # noqa: E402
-from flow import live_export as LX, runqueue as Q  # noqa: E402
+from flow import live_export as LX, live_rules, runqueue as Q  # noqa: E402
 from friendapp import api as A, engine as E, inbox as I, live as L, live_session as LS, server as SV  # noqa: E402
 
 VID = "abcdefghijk"
@@ -92,10 +92,10 @@ class SettingsTest(unittest.TestCase):
     def test_request_book(self):
         tmp = testkit.tempdir(self, "friend-livebook-")
         now = [T0]
-        book = L.RequestBook(os.path.join(tmp, "requests.json"), clock=lambda: now[0])
+        book = live_rules.RequestBook(os.path.join(tmp, "requests.json"), clock=lambda: now[0], deliver=False)
         item = book.put("local", REC, {"rid": "20261016-120000-abcdef", "deliverDir": "C:/x", "settings": SETTINGS, "videoTracks": 2})
         self.assertEqual((item["deliverDir"], item["settings"]["length"], item["videoTracks"]), ("", 150, 2))   # 友人の PC は届けない
-        book2 = L.RequestBook(os.path.join(tmp, "requests.json"))
+        book2 = live_rules.RequestBook(os.path.join(tmp, "requests.json"))
         self.assertEqual(book2.get("local", REC)["settings"]["length"], 150)
         self.assertEqual(list(book2.all()), ["local/" + REC])
         now[0] += 4 * 86400

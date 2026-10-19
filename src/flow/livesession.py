@@ -9,7 +9,7 @@ use_headless でスタジオなしの採用(LocalMarks)・届けない・D-13 �
 
 受付 = submit(封筒, 束)(② の口 Queue.submit が kind live を回す = 入口が Queue.set_live_hook で登録する):
   封筒 kind live(flow/envelope.py)を受けて録画を始め、録画ごとに封筒 + 束を live/bundles.json に残す(BundleBook)。
-  友人の依頼(封筒の requestId・入口の intake から ctx つき)と画面なしの依頼は requests.json の結びつき(human/friend/live_requests.Store)も作る
+  友人の依頼(封筒の requestId・入口の intake から ctx つき)と画面なしの依頼は requests.json の結びつき(flow/live_rules.RequestBook)も作る
   (= 依頼の録画の検出・自動の採用・after auto・配信後の追加は「友人の依頼の録画」の決まり)。
   ユーザーの PC の自分の配信(スタジオの URL の欄 → begin_own)も録画を始めたときに束を組む(RS8): 封筒 kind live + own_bundle
   (土台 + ライブの設定 + 束の無い録画が読む値 = スタジオの解析の設定・書き出しの音量)。封筒にできない URL(テストの手元の録画元)だけ束なし。
@@ -258,7 +258,7 @@ def request_bundle(ctx, base=None, top=None):
 
 
 def request_settings(bundle):
-    """束 -> 友人の依頼の結びつきの設定 {sens, perHour, length, waitMin, pad, afterStream}(human/friend/live_requests.Store が範囲を検査する)"""
+    """束 -> 友人の依頼の結びつきの設定 {sens, perHour, length, waitMin, pad, afterStream}(flow/live_rules.RequestBook が範囲を検査する)"""
     a = bundle["adopt"]
     return {"sens": a["sens"], "perHour": a["perHour"], "length": int(round(bundle["analyze"]["length"])), "waitMin": a["waitMin"],
             "pad": float(a["pad"]), "afterStream": a["afterStream"]}
@@ -379,7 +379,7 @@ class BundleBook:
 
 
 class MemoryRequests:
-    """友人の依頼の結びつきの置き場の代わり(メモリだけ。入口は human/friend/live_requests.Store を渡す。flow/livehost.py の RequestBook)"""
+    """友人の依頼の結びつきの置き場の代わり(メモリだけ。入口は flow/live_rules.RequestBook を渡す。flow/livehost.py の RequestBook)"""
 
     def __init__(self):
         self.items = {}
@@ -403,7 +403,7 @@ class MemoryRequests:
 class LiveSession:
     def __init__(self, root, logs_dir, requests=None, cfg=None, log=None, python=None, data_dir=None, watch_sec=WATCH_SEC, spawn=True,
                  store_dir=None, out_dir=None, runner=None, audio=None, archive_opts=None, cleanup_opts=None, marks=None, deliver_for=None, board=None):
-        """root: src/(ツールの 1 つ上)。logs_dir: 入口の作業データの logs。requests: 友人の依頼の結びつき(livehost.RequestBook。入口は live_requests.Store。
+        """root: src/(ツールの 1 つ上)。logs_dir: 入口の作業データの logs。requests: 友人の依頼の結びつき(livehost.RequestBook。入口は live_rules.RequestBook。
         無ければメモリだけ)。cfg() -> ライブの設定 {enabled, folder, recorders, quality, auto, detect, autoAdopt, …}(入口はホームの設定の節 live。
         無い・読めなければオフ)。data_dir: 手元の録画の部品の作業データ(テスト用。既定 recorder_data_dir)。
         store_dir: マークと書き出しの記録(既定 入口の作業データの live)。out_dir(): 書き出し先(既定 スタジオの書き出し先)。

@@ -130,6 +130,7 @@ def clean_weights(v):
 
 
 TOP_MAX = 30   # 採用する数の上限(束の adopt.top。受付の submit_urls・束の検査 _top_ok もこの top_arg を通す)
+REQUEST_TOP_MAX = 10   # 友人の依頼の 1 配信の本数の上限(友人のアプリが書く数・受付の URL の行。束の上限 TOP_MAX より狭い。friendapp/sync・human/friend/intake が読む)
 
 
 def top_arg(top):
@@ -219,7 +220,7 @@ DEFAULTS = {
         "engine": "whisper.cpp", "model": "large-v3", "language": "ja",
         "quality": "best",    # best か fast(fast は beam 1)
         "device": "vulkan", "vadMode": "weak", "boost": False,
-        "diarize": None,      # 話者判別の人数のヒント(1〜10)。None = しない(src/human/friend/intake.py の parse_speakers の範囲)
+        "diarize": None,      # 話者判別の人数のヒント(1〜10)。None = しない(友人の依頼の人数 = flow/order.speakers_arg も同じ範囲)
     },
     "post": {                 # 後処理(軽い。doc_jobs.py の validate_job と SUBTITLE_DEFAULT・各 auto は validate_job の pref() の既定)
         "wordSplit": True, "stripPunct": True,
@@ -242,7 +243,7 @@ DEFAULTS = {
         "snapEdges": True,    # 切り抜きの両端を話の切れ目へ詰める(LD-2c = src/pipeline/analyze/breaks.py。スイッチ。「編集」でカットを決めた文書には効かない)
         "cut": LIVE_AUTO_CUT,                              # カットの方法 rows・none・silence(run.py の _cut_method の既定 none)
         "cutSilence": {"noise": -35.0, "min": 0.6, "pad": 0.15},   # 無音で削る値(cut2resolve_core.py の DEFAULT_NOISE_DB・SILENCE_MIN・SILENCE_PAD)
-        "videoTracks": 1,     # Text+ の映像トラックの数(1〜5。src/human/friend/intake.py の VIDEO_TRACKS_DEFAULT・MAX)
+        "videoTracks": 1,     # Text+ の映像トラックの数(1〜5。友人の依頼の数は flow/order.video_tracks_arg がここで確かめる)
     },
     "run": {
         "from": None,         # どの段からやり直すか(RUN_FROM)。None = 頭から

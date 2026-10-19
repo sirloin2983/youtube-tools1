@@ -20,6 +20,7 @@ for p in (HOME, ROOT):
         sys.path.insert(0, p)
 
 from human.friend import intake  # noqa: E402
+from flow import order as _order  # noqa: E402
 from human.friend import live_requests  # noqa: E402
 from app import prefs as prefs_mod  # noqa: E402
 from ytt import fsio, jobs, normalize, tools  # noqa: E402
@@ -457,10 +458,10 @@ class TestVideo(Base):
 
     def test_speakers_passed(self):
         """話す人(1.3.0 のアプリ): 人数と名前をまとめて実行へ。形が違えば話者分離しない"""
-        self.assertEqual(intake.parse_speakers({"count": 2, "names": [" 兎田ぺこら ", "", "兎田ぺこら", "宝鐘マリン", "x"]}),
+        self.assertEqual(_order.speakers_arg({"count": 2, "names": [" 兎田ぺこら ", "", "兎田ぺこら", "宝鐘マリン", "x"]}),
                          {"count": 2, "names": ["兎田ぺこら", "宝鐘マリン"], "styles": {}})   # 古い形(people なし)= styles は空
         for bad in (None, {"count": 0}, {"count": 11}, {"count": "2"}, {"count": True}):
-            self.assertIsNone(intake.parse_speakers(bad))
+            self.assertIsNone(_order.speakers_arg(bad))
         rid = "20261001-120000-abc130"
         self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "url", "id": rid, "speakers": {"count": 1, "names": ["さくらみこ"]},
                                                      "items": [{"url": "https://youtu.be/abcdefghijk", "top": 2}]}, ensure_ascii=False))
@@ -471,7 +472,7 @@ class TestVideo(Base):
     def test_parse_speakers_people_style(self):
         """2.1.0 のアプリ: people[].style.color(16 進 6 桁)を styles に。# つき・小文字も受け、# つきの形にそろえる。
         形の違う値・names に無い名前・知らない鍵はその項目だけ黙って捨てる(外から来る文字なので、画面・Lua に入る前に 6 桁だけにする)"""
-        ps = intake.parse_speakers
+        ps = _order.speakers_arg
         got = ps({"count": 3, "names": ["A", "B", "C"],
                   "people": [{"name": "A", "style": {"color": "FF00AA"}}, {"name": " B ", "style": {"color": "#00ff7f"}}, {"name": "C"}]})
         self.assertEqual(got, {"count": 3, "names": ["A", "B", "C"], "styles": {"A": {"color": "#FF00AA"}, "B": {"color": "#00FF7F"}}})
@@ -516,7 +517,7 @@ class TestVideo(Base):
     def test_video_tracks_passed_only_for_auto(self):
         """映像トラックの数(1.4.0 のアプリ。① 全自動のときだけ): 1〜5 をまとめて実行へ。無い・形が違えば 1。②③ は渡さない"""
         for v, want in ((3, 3), (5, 5), (1, 1), (6, 1), (0, 1), ("3", 1), (True, 1), (None, 1)):
-            self.assertEqual(intake.parse_video_tracks(v), want, v)
+            self.assertEqual(_order.video_tracks_arg(v), want, v)
         rid = "20261001-120000-abc131"
         self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "url", "id": rid, "flow": "auto", "videoTracks": 3,
                                                      "items": [{"url": "https://youtu.be/abcdefghijk", "top": 2}]}))
@@ -540,7 +541,7 @@ class TestVideo(Base):
         ok, bad = intake.parse_ranges([{"start": 0.01, "end": 0.04}, {"start": 1.26, "end": 2}])   # 丸めたあと長さ 0 は断る(9b-2)・丸めた値で渡す
         self.assertEqual((ok, len(bad)), ([(1.3, 2.0)], 1))
         self.assertIn("短すぎます", bad[0])
-        self.assertEqual([intake.parse_cut(x) for x in ("none", "silence", "rows", None, 1)], ["none", "silence", None, None, None])
+        self.assertEqual([_order.cut_arg(x) for x in ("none", "silence", "rows", None, 1)], ["none", "silence", None, None, None])
         self.assertEqual(intake.parse_weights({"audio": 1.5, "chat": 0, "comments": 3}), {"wAudio": 1.5, "wChat": 0.0, "wComments": 3.0})
         for badw in (None, {}, {"audio": 1, "chat": 1}, {"audio": 4, "chat": 1, "comments": 1}, {"audio": "1", "chat": 1, "comments": 1}, {"audio": True, "chat": 1, "comments": 1}):
             self.assertIsNone(intake.parse_weights(badw), badw)

@@ -41,7 +41,7 @@ class Strict:
 
 
 class Book:
-    """友人の依頼の結びつき(live_requests.Store の形だけ)"""
+    """友人の依頼の結びつき(live_rules.RequestBook の形だけ)"""
 
     def __init__(self):
         self.items = {}

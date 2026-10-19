@@ -191,7 +191,7 @@ class Detector:
 
     def requests_cfg(self):
         """友人のライブ配信の依頼の録画ごとの設定(config.json の requests。ワーカーはこの録画を、ホームの検出がオフでも測り、感度・枠・長さをこの値で)"""
-        # settings は live_requests.Store が検査済み(無い鍵・範囲の外は既定 = live_requests.SETTINGS_DEFAULT。読み直した項目も)
+        # settings は live_rules.RequestBook が検査済み(無い鍵・範囲の外は既定 = live_requests.SETTINGS_DEFAULT。読み直した項目も)
         # lengthMode auto(長さ「自動(場面ごと)」。C-2-11)だけ渡す = 無ければ固定の長さ(前の形の依頼)
         return {k: dict({x: v["settings"][x] for x in ("sens", "perHour", "length")}, **({"lengthMode": "auto"} if v["settings"].get("lengthMode") == "auto" else {}))
                 for k, v in self.host.requests.all().items()}

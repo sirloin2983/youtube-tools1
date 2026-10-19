@@ -79,6 +79,7 @@ import urllib.parse
 from ytt import datadir, fsio
 from flow import live_adopt   # 採用 = マーク + 書き出し(M1)の本体とマークの置き場(RS7-2 G1b。ここはスタジオの置き場 StudioMarks と友人へ届ける hook を渡すだけ)
 from flow import live_export   # マークと書き出し。P2
+from flow import live_rules   # 友人の依頼と録画の結びつき RequestBook(live/requests.json。友人の玄関と 1 つ)
 from flow import livesession   # ライブ係(RS7-2 G2b。Live はこれを継ぐ app の殻)
 from manage.keep import live_cleanup   # 録画を自動で消す。P4
 from human.friend import live_requests  # noqa: E402  (友人のライブ配信の依頼と録画の結びつき。notes:docs/spec/friend.md の 2-15)
@@ -151,7 +152,7 @@ class Live(livesession.LiveSession):
         self.headless = False              # 画面なし(use_headless)
         log = log or (lambda m: None)
         store_dir = store_dir or os.path.join(os.path.dirname(logs_dir), "live")
-        super().__init__(root, logs_dir, requests=live_requests.Store(os.path.join(store_dir, "requests.json"), log=log), log=log, python=python,
+        super().__init__(root, logs_dir, requests=live_rules.RequestBook(os.path.join(store_dir, "requests.json"), log=log), log=log, python=python,
                          data_dir=data_dir, watch_sec=watch_sec, spawn=spawn, store_dir=store_dir, out_dir=out_dir,
                          runner=runner or (lambda: getattr(self._server, "autorun", None) if self._server is not None else None),
                          audio=audio or (lambda: studio_audio(self.root)), archive_opts=archive_opts, cleanup_opts=cleanup_opts,

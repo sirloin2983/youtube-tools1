@@ -31,7 +31,7 @@ import threading
 import time
 import zipfile
 
-from flow import learning as _learning, machine as _machine
+from flow import learning as _learning, machine as _machine, order as _order, spec as _spec
 from ytt import fsio, version as _version
 
 from . import diag as _diag, dropbox as _dropbox, inbox as _inbox, places as _places
@@ -66,7 +66,6 @@ VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 NO_META_WAIT = 600                 # .meta.json も確認用の動画も無い zip を取り込むまで待つ秒(作る側はどちらも zip より先に置く = 一覧の遅れの分だけ待つ)
 KEEP_LEARNING = 3
 LEARN_PACK = "learning.json"
-TOP_MAX = 10                       # 受付の 1 配信の本数の上限(human/friend/intake.TOP_MAX と同じ)
 EXTRACT_MAX_FILES = 20000
 EXTRACT_MAX_BYTES = 64 * 1024 ** 3
 UPDATE_MAX_FILES = 60000
@@ -291,8 +290,8 @@ def request_doc(kind, rid, form, sent_at, files=None):
     d = {"v": 1, "kind": kind, "id": rid, "flow": "auto"}
     if kind == "url":
         ranges = form.get("ranges") or []
-        top = len(ranges) if ranges else (form.get("top") or 10)
-        item = {"url": form["url"], "top": max(1, min(TOP_MAX, int(top)))}
+        top = _order.request_top(form.get("top") or 10, ranges)   # 区間を選んだら区間の数(受付と同じ 1 か所)
+        item = {"url": form["url"], "top": max(1, min(_spec.REQUEST_TOP_MAX, int(top)))}   # 上限は受付と同じ flow/spec の 1 か所
         if ranges:
             item["ranges"] = [{"start": s, "end": e} for s, e in ranges]
         d["items"] = [item]

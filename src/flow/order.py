@@ -12,6 +12,7 @@ order(kind, ...) の欄(どれも無ければ既定):
     weights → analyze.w* + run.requested "weights" / cut → pack.cut + "cut" / video_tracks → pack.videoTracks + "videoTracks" /
     speakers {count, names, styles} → transcribe.diarize(人数)+ hints.people(名前と色)/ engine・model → transcribe.engine・model + "engine"・"model" /
     force → run.force / repack → run.repack / streamer → hints.streamer(None = 自動・"" = 色なし)
+  友人の依頼の欄の検査(受付の口): speakers_arg・cut_arg・video_tracks_arg(束の検査と同じ範囲。形が違う欄は既定・None)
   届け先: request_id・deliver_dir・pool・origin・tag / ほか: eid(封筒の id。None = 新しく 10 桁の 16 進 = 実行の id にもなる)・created(秒)
 形が違えば理由つきの ValueError(封筒の検査は envelope.check)。
 
@@ -29,6 +30,67 @@ PEOPLE_NAME_MAX = 40  # 束の hints.people の名前の長さ(flow/spec.py の�
 def new_id():
     """封筒の id(10 桁の 16 進 = 実行の id にもなる)"""
     return uuid.uuid4().hex[:10]
+
+
+SPEAKER_NAME_MAX = 60   # 依頼に書かれた人の名前の長さ(束へは people_of が PEOPLE_NAME_MAX で切る)
+# 字幕の見た目(people[].style)の許可の一覧: 鍵 -> 値を検査して整える関数(通らなければ None = その項目だけ捨てる)。
+# 鍵を増やすとき(font・size など)はここに足す。知らない鍵は黙って捨てる。
+# 色は外から来る文字で画面・Lua に入るので、必ず 16 進 6 桁だけにそろえる(ytt/colors.norm_hex。# は付けても付けなくてもよい)
+_STYLE_KEYS = {"color": lambda v: colors.norm_hex(v) if isinstance(v, str) else None}
+
+
+def _speaker_name(x):
+    """依頼に書かれた人の名前 -> 整えた名前(空・制御文字を含む・文字列でない = "")。names と people で同じ整え方にする"""
+    s = x.strip()[:SPEAKER_NAME_MAX] if isinstance(x, str) else ""
+    return s if s and not any(ord(c) < 32 for c in s) else ""
+
+
+def _style_arg(v):
+    """人ごとの字幕の見た目 {"color": "FF00AA"} -> 許可した鍵だけを整えた dict({"color": "#FF00AA"})。形が違う・何も残らない = {}"""
+    out = {}
+    if isinstance(v, dict):
+        for k, check in _STYLE_KEYS.items():
+            if k in v:
+                x = check(v[k])
+                if x is not None:
+                    out[k] = x
+    return out
+
+
+def speakers_arg(v):
+    """依頼の「配信者」{"count": 人数(束の transcribe.diarize と同じ 1〜10), "names": [...], "people": [{"name", "style"}]?} ->
+    {"count", "names", "styles": {名前: {"color": "#RRGGBB"}}}(styles は見た目を指定した人だけ。無ければ {})か None(無い・形が違う = 話者分離しない)。
+    people は任意。styles の名前は count で切ったあとの names に入っている人だけ。同じ名前が2回あれば先のもの(友人の受付の口)"""
+    if not isinstance(v, dict):
+        return None
+    n = v.get("count")
+    if n is None or not _spec.key_ok("transcribe", "diarize", n):
+        return None
+    names = []
+    for x in v.get("names") if isinstance(v.get("names"), list) else []:
+        s = _speaker_name(x)
+        if s and s not in names:
+            names.append(s)
+    names = names[:n]
+    styles = {}
+    for p in v.get("people") if isinstance(v.get("people"), list) else []:
+        if not isinstance(p, dict):
+            continue
+        s = _speaker_name(p.get("name"))
+        st = _style_arg(p.get("style"))
+        if s in names and st and s not in styles:
+            styles[s] = st
+    return {"count": n, "names": names, "styles": styles}
+
+
+def cut_arg(v):
+    """依頼のカット(① のパック)-> spec.CUTS のどれか(none・silence)か None(無い・知らない値 = ホームの設定)"""
+    return v if not isinstance(v, bool) and v in _spec.CUTS else None
+
+
+def video_tracks_arg(v):
+    """依頼の「映像トラックの数」-> 束の pack.videoTracks に合う整数(1〜5)。無い・形が違う = 既定(spec.DEFAULTS の 1)"""
+    return v if v is not None and _spec.key_ok("pack", "videoTracks", v) else _spec.DEFAULTS["pack"]["videoTracks"]
 
 
 def people_of(speakers):

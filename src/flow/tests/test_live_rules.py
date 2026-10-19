@@ -1,6 +1,6 @@
-"""友人のライブ配信の依頼と録画の結びつきの Store(src/human/friend/live_requests.py。入口の作業データの live/requests.json。2-15)のテスト。
+"""友人のライブ配信の依頼と録画の結びつき(src/flow/live_rules.py の RequestBook。作業データの live/requests.json。2-15)のテスト。
 
-実行(リポジトリ直下から): python -m unittest src/human/friend/tests/test_live_requests.py -v
+実行(リポジトリ直下から): python -m unittest src/flow/tests/test_live_rules.py -v
 """
 import json
 import os
@@ -9,16 +9,16 @@ import unittest
 from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> friend -> human -> src
+SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
-from human.friend import live_requests as LR  # noqa: E402
+from flow import live_rules as LR  # noqa: E402
 from ytt import testkit  # noqa: E402
 
 
 class LiveRequestsStoreTest(unittest.TestCase):
-    """友人のライブ配信の依頼と録画の結びつき(src/human/friend/live_requests.py の Store。入口の作業データの live/requests.json。2-15)"""
+    """友人のライブ配信の依頼と録画の結びつき(src/flow/live_rules.py の RequestBook。作業データの live/requests.json。2-15)"""
     REC = "20261008-200000-abcdefghijk"
 
     def setUp(self):
@@ -29,7 +29,7 @@ class LiveRequestsStoreTest(unittest.TestCase):
 
 
     def store(self):
-        return LR.Store(self.path, clock=lambda: self.now, log=self.logs.append)
+        return LR.RequestBook(self.path, clock=lambda: self.now, log=self.logs.append)
 
     def test_put_get_all_remove(self):
         s = self.store()
@@ -106,7 +106,7 @@ class LiveRequestsStoreTest(unittest.TestCase):
         blocked = os.path.join(self.tmp, "file")
         with open(blocked, "wb") as f:
             f.write(b"x")
-        s2 = LR.Store(os.path.join(blocked, "requests.json"), clock=lambda: self.now, log=self.logs.append)
+        s2 = LR.RequestBook(os.path.join(blocked, "requests.json"), clock=lambda: self.now, log=self.logs.append)
         s2.put("local", self.REC, {"rid": "r9"})
         self.assertEqual(s2.get("local", self.REC)["rid"], "r9")
         self.assertTrue(any("書けませんでした" in m for m in self.logs), self.logs)

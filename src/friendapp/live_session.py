@@ -7,7 +7,7 @@
   ② の待ち行列(engine.FriendQueue)の set_live_hook で封筒 kind live を回し、書き出した切り抜きは同じ待ち行列へ(runner)。
 
 違うところ(友人の PC だけ):
-  - 依頼と録画の結びつきは受信箱の側(friendapp/live.RequestBook。③ human の live_requests は読まない)
+  - 依頼と録画の結びつきは受信箱の側(② flow/live_rules.RequestBook。ユーザーの PC の入口と 1 つ・友人の PC は届けない)
   - 録画の置き場所は一時保管の中(<作業>/ライブの録画)。本番版への作り直し(P4)はしない(A-14)
   - [すべて止めて終了]・exe の「止める」 は録画中でも録画の部品まで止める(親の close は録画中なら残す)。止めても録画の記録は「録画中」のまま =
     次に開いたとき録画の部品が起動して(見回り)、同じ録画を新しいセッションで続ける(pipeline/ingest/rec_core の load)
@@ -23,7 +23,8 @@ from flow import live_export as _lx, livesession as _ls
 from pipeline.ingest import rec_core as _rec_core
 from ytt import layout, tools
 
-from .live import REC_FOLDER, REQUESTS_NAME, STORE_DIR, RequestBook, settings_label
+from flow.live_rules import RequestBook
+from .live import REC_FOLDER, REQUESTS_NAME, STORE_DIR, settings_label
 
 REC_KEEP_DAYS = 3                   # 終わった録画を消すまでの日数(配信後の追加が済んでから)
 CLEAN_EVERY = 600.0                 # 録画の片付けを見る間隔(秒)
@@ -52,7 +53,7 @@ class FriendLive(_ls.LiveSession):
         self._clean_at = 0.0
         store = os.path.join(places["data"], STORE_DIR)
         super().__init__(layout.src_root(), os.path.join(places["data"], "app", "logs"),
-                         requests=RequestBook(os.path.join(store, REQUESTS_NAME), clock=clock, log=log), cfg=self.live_cfg, log=log, spawn=spawn,
+                         requests=RequestBook(os.path.join(store, REQUESTS_NAME), clock=clock, log=log, deliver=False), cfg=self.live_cfg, log=log, spawn=spawn,
                          store_dir=store, out_dir=lambda: self.places["cases"], runner=self.queue_fn)
         self.always_on = self.request_all = True   # 入口 app の use_headless と同じ値(設定に関わらずオン・どの封筒も依頼の決まり)
         self.disk_min_gb = disk_min_gb

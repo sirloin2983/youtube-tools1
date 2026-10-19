@@ -425,7 +425,7 @@ class Archiver(LX.Patrol):
         self.after = after
         self.after_stream = after_stream or (lambda: False)
         self.per_hour = per_hour or (lambda: 6)
-        self.friend_request = request or (lambda rc, rec: None)   # 引数 request(録画元, 録画) = 友人のライブ配信の依頼(live_requests.Store.get。2-15)。無ければ None。
+        self.friend_request = request or (lambda rc, rec: None)   # 引数 request(録画元, 録画) = 友人のライブ配信の依頼(live_rules.RequestBook.get。2-15)。無ければ None。
         # 名前は friend_request(self.request は「アーカイブからの書き出しを頼む」メソッド = POST /live/api/archive。上書きしない)
         self.recordings = recordings or (lambda: [])
         self.adopt = adopt

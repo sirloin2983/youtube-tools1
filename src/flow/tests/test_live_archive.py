@@ -479,7 +479,7 @@ class AfterStreamTest(unittest.TestCase):
                        {"id": "x1", "src": "auto", "status": "rejected", "score": 99.0, "start": 500.0, "end": 560.0},   # 人が不採用にした
                        {"id": "x2", "src": "manual", "status": "", "score": 50.0, "start": 600.0, "end": 660.0}]          # 人のマーク
         self.live_marks = [{"id": "h1", "status": "exported", "start": 100.0, "end": 160.0}]   # 録画の配信の人のマーク(録画の秒)
-        self.reqs = {}   # (録画元, 録画) -> 友人のライブ配信の依頼(live_requests.Store.get の代わり。2-15)
+        self.reqs = {}   # (録画元, 録画) -> 友人のライブ配信の依頼(live_rules.RequestBook.get の代わり。2-15)
         self.arcs = []
 
     def tearDown(self):

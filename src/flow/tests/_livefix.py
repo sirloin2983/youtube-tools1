@@ -53,7 +53,7 @@ def recorder_cfg(url, token, rid="fake", **patch):
 
 
 class Requests(LS.MemoryRequests):
-    """友人の依頼の結びつき(human/friend/live_requests.Store の代わり。メモリだけ)。テストが結びつきを消せる"""
+    """友人の依頼の結びつき(flow/live_rules.RequestBook の代わり。メモリだけ)。テストが結びつきを消せる"""
 
     def put(self, rc, rec, ctx):
         """依頼の設定は human/friend/live_requests.SETTINGS_DEFAULT で欠けを埋める(Store.put と同じ)"""
