@@ -781,15 +781,9 @@ class Intake:
         """依頼 1 件の動画の置き場所 -> (フォルダ, 案件か)。書き出し先が設定されていて固定ディスクなら <書き出し先>/依頼/<日付>_<題>_<id6>/
         (案件にする。placement.request_root)、そうでなければ今までの作業データ app/intake/<日付>/<依頼 id>/。同じ依頼の 2 本目以降は 1 本目と同じフォルダ。
         rid は友人のアプリの依頼 id(REQ_ID_RE。受付が確かめ済み)。前からある app/intake/<日付>/ 直下の動画・手で置いた動画の m<乱数> のフォルダは動かさない(片付けが読む)"""
-        if rid in self._req_dirs:
+        if rid in self._req_dirs:   # 覚えは速さのため(起こし直したあとも placement.request_folder が同じフォルダを引く)
             return self._req_dirs[rid]
-        old = os.path.join(self.data_dir, "intake", day, rid)
-        root = placement.find_request_dir(rid)   # 入口を起こし直したあとも同じ依頼は同じフォルダへ(覚えは速さのため)
-        if root is None and os.path.isdir(old):
-            root = False
-        if root is None:
-            root = placement.request_root(day, os.path.splitext(label)[0], rid)
-        got = (root, True) if root else (old, False)
+        got = placement.request_folder(rid, os.path.splitext(label)[0], day, fallback=os.path.join(self.data_dir, "intake", day, rid))
         if len(self._req_dirs) >= REQ_DIRS_MAX:
             self._req_dirs.pop(next(iter(self._req_dirs)))
         self._req_dirs[rid] = got

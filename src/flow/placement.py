@@ -100,8 +100,7 @@ def doc_home(source_path, out_dir=None, eval_set=False):
         if _fsio.is_network_path(source_path) or _fsio.is_remote_drive(source_path):
             return None
         out = out_dir or _datadir.studio_out_dir()
-        if not isinstance(out, str) or not os.path.isabs(out) or _fsio.is_network_path(out) or _fsio.is_remote_drive(out) \
-                or not _fsio.is_fixed_drive(out):
+        if not _local_fixed(out):
             return None
         root = case_root({"kind": "file", "path": source_path})
         if not root or not _fsio.is_inside(root, out, strict=True):
@@ -121,6 +120,30 @@ REQUEST_DIR = "依頼"            # 友人の依頼の動画を置く 書き出�
 REQUEST_TITLE_MAX = 40          # フォルダ名に入れる題の長さ(文字数の上限。パスの長さの枠でさらに削る)
 
 
+def _local_fixed(out):
+    """書き出し先が、この PC の固定ディスクの絶対パスか(doc_home・request_root の同じ確かめ。ネットワーク・リモートのドライブは除く)"""
+    return isinstance(out, str) and os.path.isabs(out) and not _fsio.is_network_path(out) and not _fsio.is_remote_drive(out) \
+        and _fsio.is_fixed_drive(out)
+
+
+def request_id6(request_id):
+    """依頼 id -> 依頼のフォルダの名前の末尾に付く 6 文字(英数字だけの末尾。無ければ "")。名前を作る・探す・片付けの引き当ての 1 か所"""
+    return "".join(c for c in str(request_id or "") if c.isalnum())[-6:]
+
+
+def request_folder(request_id, title, day, out_dir=None, fallback=None):
+    """依頼 1 件の動画の置き場所 -> (フォルダ, 案件か)。決め方の 1 か所(③ 受付と友人のアプリが使う。フォルダは作らない):
+    前からある依頼のフォルダ(find_request_dir。起こし直したあとも同じ依頼は同じフォルダ)→ fallback がもうあればそれ(前の置き方のまま)→
+    request_root(書き出し先が固定ディスク = 案件にする)→ fallback(案件にしない)"""
+    got = find_request_dir(request_id, out_dir)
+    if got:
+        return got, True
+    if fallback and os.path.isdir(fallback):
+        return fallback, False
+    root = request_root(day, title, request_id, out_dir)
+    return (root, True) if root else (fallback, False)
+
+
 def configured_out_dir():
     """スタジオの設定に書かれた書き出し先(絶対パス)か None(未設定 = 既定の exports に落ちる状態)。読むだけ"""
     sdir = _datadir.resolve("studio")
@@ -136,11 +159,9 @@ def request_root(day, title, request_id, out_dir=None):
     題は ytt.names.safe_name で潰し、パスの長さの枠(MAX_PATH_UNITS から動画の名前の分を引いた残り)に収める"""
     try:
         out = out_dir or configured_out_dir()
-        if not isinstance(out, str) or not os.path.isabs(out) or _fsio.is_network_path(out) or _fsio.is_remote_drive(out) \
-                or not _fsio.is_fixed_drive(out):
+        if not _local_fixed(out):
             return None
-        rid = str(request_id or "")
-        id6 = "".join(c for c in rid if c.isalnum())[-6:] or "000000"
+        id6 = request_id6(request_id) or "000000"
         parent = os.path.join(out, REQUEST_DIR)
         fixed = "%s__%s" % (day, id6)   # 題の前後の分(区切りの _ を 2 つ数える)
         room = _names.MAX_PATH_UNITS - _names.path_units(parent) - 1 - _names.path_units(fixed) - _names.SUFFIX_ROOM - 60   # 60 = 動画の名前の最低の分
@@ -185,7 +206,7 @@ def find_request_dir(request_id, out_dir=None):
     try:
         out = out_dir or configured_out_dir()
         rid = str(request_id or "")
-        id6 = "".join(c for c in rid if c.isalnum())[-6:]
+        id6 = request_id6(rid)
         parent = os.path.join(out, REQUEST_DIR) if out else ""
         if not id6 or not parent or not os.path.isdir(parent):
             return None

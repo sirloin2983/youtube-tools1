@@ -78,11 +78,6 @@ def _item(kind, path, note="", extra=()):
             "mtime": _mtime(path), "dir": os.path.isdir(path), "note": note, "extra": extra}
 
 
-def _id6(rid):
-    """依頼 id → 依頼のフォルダの名前の末尾に付く 6 文字(英数字だけの末尾。flow/placement.request_root と同じ)"""
-    return "".join(c for c in str(rid or "") if c.isalnum())[-6:]
-
-
 def _parts_item(kind, folder, note, parts=None):
     """依頼の置き場所 folder の中の**動画とパックだけ**を移す候補(作業用\\ の文書と履歴は残す。Q4)。parts を渡さなければ folder の直下の動画と
     <名前>_pack のフォルダ。移す物が無ければ None(もう片付けた)"""
@@ -367,7 +362,7 @@ class Cleanup:
             return None
         out = {}
         for rid, sec in got.items():
-            for k in (rid, _id6(rid)):
+            for k in (rid, placement.request_id6(rid)):
                 out[k] = max(out.get(k, 0.0), sec)
         return out
 

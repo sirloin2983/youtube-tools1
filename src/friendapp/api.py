@@ -576,7 +576,7 @@ class Api:
     def _request_folder(self, rid, title):
         cases = self.places["cases"]
         day = datetime.date.fromtimestamp(self.clock()).isoformat()
-        folder = _placement.find_request_dir(rid, cases) or _placement.request_root(day, title, rid, out_dir=cases) or os.path.join(cases, "依頼", rid)
+        folder = _placement.request_folder(rid, title, day, out_dir=cases, fallback=os.path.join(cases, _placement.REQUEST_DIR, rid))[0]
         os.makedirs(folder, exist_ok=True)
         return folder
 
