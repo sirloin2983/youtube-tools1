@@ -52,7 +52,8 @@ class TestOrder(unittest.TestCase):
         m = "C:/x/a.mp4"
         cases = [("full", dict(kind="url", video_id=VID), ["analyze", "adopt", "export", "transcribe", "pack"]),
                  ("full", dict(kind="url", video_id=VID, deliver_dir="D:/o"), ["analyze", "adopt", "export", "transcribe", "pack", "deliver"]),
-                 ("adopted", dict(kind="url", video_id=VID, from_="export"), ["export", "transcribe", "pack"]),
+                 ("full", dict(kind="url", video_id=VID, from_="export"), ["export", "transcribe", "pack"]),   # 書き出しから全部(10-19。依頼の id があれば adopted)
+                 ("full", dict(kind="url", video_id=VID, from_="export", marks=["m1"], origin="auto", deliver_dir="D:/o"), ["export", "transcribe", "pack", "deliver"]),
                  ("transcribe", dict(kind="url", video_id=VID, from_="export", upto="transcribe", marks=["m1"]), ["export", "transcribe"]),
                  ("request", dict(kind="url", video_id=VID, upto="transcribe", request_id="r1", ranges=[(1, 5)], top=1),
                   ["adopt", "export", "transcribe", "analyze_later"]),

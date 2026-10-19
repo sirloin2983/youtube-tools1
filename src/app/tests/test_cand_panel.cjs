@@ -1146,3 +1146,26 @@ test('live peaks: adopt sends one request (no double press) with the band settin
   h.ctx.peakKeyAdopt();
   assert.ok(h.notes.at(-1).includes('終わりがまだ録れていません'), 'z: the one just played (end pending here)');
 });
+
+// ---- 書き出しのあと自動で(autoTx)・マークの行の「この後を」= 書き出しから全部(mode full + run.from export + marks。10-19) ----
+test('autoTx and "this one onward": the same order = from export to pack with the marks, and the send target when the intake folder is set', async () => {
+  const sent = [], started = [], notes = [];
+  let out = 'C:/Dropbox/切り抜き依頼/出力';
+  const UIKit = { flow: { order: f => f }, autorun: { watch() {}, state: () => ({ overwrite: false }), start: async orders => { started.push(...orders); return { runs: [] }; } },
+    streamer: { check: async () => '兎田ぺこら' } };
+  const ctx = load([['async function sendOutDir(', '/* ---------- 書き出しのあと自動でパックまで'], ['async function autoOrder(', '/* まとめて実行(② のメニュー'],
+    ['async function startAuto(', 'async function pollAuto(']], {
+    UIKit, Studio: { token: 't' }, S: { settings: {}, cur: { id: 'V', title: '配信' }, dirty: false }, toast: m => notes.push(m), pollAuto() {}, flushSave: async () => {},
+    portalApi: async (path, body) => { if (path === 'api/intake') return { outDir: out }; sent.push({ path, body }); return { run: { id: 'r1' } }; },
+    autoTxEnabled: () => true, $: sel => (sel === '#rvAutoTop' ? { value: '3' } : sel === '#rvAuto' ? { open: true } : {}) });
+  await ctx.maybeAutoTranscribe('V', ['m1', 'm2']);
+  assert.deepEqual(plain(sent[0]), { path: 'api/flow/submit', body: { kind: 'url', videoId: 'V', from: 'export', upto: 'pack', marks: ['m1', 'm2'],
+    deliver: { origin: 'auto', dir: out } } }, 'autoTx: from export to pack, with the send target (the send gate decides)');
+  assert.equal(notes.at(-1), '書き出しに続けて、文字起こし → パックを始めました');
+  await ctx.startAuto('adopted', ['m3']);
+  assert.deepEqual(plain(started[0]), { kind: 'url', videoId: 'V', from: 'export', upto: 'pack', marks: ['m3'], deliver: { origin: 'auto', dir: out },
+    title: '配信', streamer: '兎田ぺこら', repack: false }, '"this one onward" is the same order as autoTx');
+  out = null;   // 受付のフォルダが決まっていない: 届け先なし(送らない)
+  await ctx.maybeAutoTranscribe('V', ['m4']);
+  assert.equal('deliver' in sent[1].body, false);
+});

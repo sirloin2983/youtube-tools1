@@ -458,7 +458,7 @@ class TestMarks(Base):
 
     def test_only_selected_mark(self):
         run = start(self.r, VID, "adopted", marks=["m3", "m3"])
-        self.assertEqual((run["marks"], run["modeLabel"]), (["m3"], "採用後を全部(1本)"))
+        self.assertEqual((run["marks"], run["modeLabel"]), (["m3"], "書き出しから全部(1本)"))
         run = self.wait(run)
         self.assertEqual(run["state"], "done", run)
         self.assertEqual(self.tools.export_body["markIds"], ["m3"])                                   # 採用した m1 は書き出さない
@@ -471,7 +471,7 @@ class TestMarks(Base):
     def test_bad_marks(self):
         with self.assertRaisesRegex(ValueError, "マークの指定"):   # 形の違いは src/flow/tests/test_spec.py の test_marks_arg
             start(self.r, VID, "adopted", marks=["../x"])
-        with self.assertRaisesRegex(ValueError, "採用後を全部"):
+        with self.assertRaisesRegex(ValueError, "書き出しから"):
             start(self.r, VID, "full", marks=["m1"])
         self.assertEqual(self.r.snapshot()["runs"], [])
 
@@ -1737,6 +1737,29 @@ class TestAutoSend(Base):
         self.assertEqual(names, sorted([stem + ".zip", stem + ".preview.mp4", stem + ".meta.json"]), names)   # 組ではなく 1 本ずつ(batch 2 は読まない)
         self.assertEqual(self.meta(stem + ".zip")["origin"], "request", "古い溜め(依頼の id)は依頼として届ける")
 
+    def test_from_export_with_marks_goes_through_send_gate(self):
+        """書き出しから全部(mode full + 束の run.from export + marks。スタジオの「書き出しのあと自動でパックまで」・マークの行の「この後を」):
+        解析・採用の段は無く、そのマークだけ書き出し → 文字起こし → パック → 段 deliver(出どころ auto)が付き、送るかの判定(_full_gate)を通る"""
+        self.stream = self.info(49)
+        first = self.go()   # 古い配信: 解析・採用・書き出しはするが送らない
+        self.assertEqual(self.step(first)["state"], "skip", first)
+        adds = len([c for c in self.tools.calls if c[2] == "/api/queue/add"])
+        self.tools.video["analysis"].update(self.info(1))   # 配信の終わりが新しい = 送る
+        env, diff = O.order("url", video_id=VID, from_="export", upto="pack", marks=["a2"], origin="auto", deliver_dir=self.out)
+        run = self.wait(self.r.submit(env, diff))
+        self.assertEqual((run["state"], run["mode"], run["modeLabel"], [s["key"] for s in run["steps"]]),
+                         ("done", "full", "書き出しから全部(1本)", ["export", "transcribe", "pack", "deliver"]), run)
+        self.assertEqual(len([c for c in self.tools.calls if c[2] == "/api/queue/add"]), adds, "解析しない")
+        self.assertEqual(self.step(run)["state"], "done", run)
+        zips = [n for n in self.outs() if n.endswith(".zip")]
+        self.assertEqual(([self.meta(z)["origin"] for z in zips], sorted(p["markId"] for r in self.rows() for p in r["packs"])), (["auto"], ["a2"]))
+        self.assertEqual({(r["origin"], r["mode"]) for r in self.rows()}, {("auto", "full")})
+        # 古い配信なら同じ判定で送らない(段は飛ばして理由・送らなかった記録)
+        self.tools.video["analysis"].update(self.info(49))
+        env, diff = O.order("url", video_id=VID, from_="export", upto="pack", marks=["a3"], origin="auto", deliver_dir=self.out)
+        run = self.wait(self.r.submit(env, diff))
+        self.assertEqual((self.step(run)["state"], self.step(run)["detail"]), ("skip", "古い配信なので送りません(終わってから 49 時間)"), run)
+
     def test_only_full_with_folder_sends(self):
         """届けるのは full だけ・受付のフォルダが決まっているときだけ(2-10)。文書単位・adopted などは届けない"""
         self.prefs.patch("intake", {"folder": ""})
@@ -1779,7 +1802,7 @@ class TestSubmitBase(Base):
         with mock.patch.object(self.r, "_wake", lambda: None):
             run = self.queued(self.r.submit(*O.order("url", video_id=VID, from_="export")))
         self.assertEqual((run.spec["export"]["loudness"], run.spec["export"]["volume"], run.spec["transcribe"]["quality"]), (-16, 60, "fast"))
-        self.assertEqual((run.mode, run.spec["run"]["upto"], run.spec["run"]["onFail"]), ("adopted", "pack", "next"))
+        self.assertEqual((run.mode, run.spec["run"]["upto"], run.spec["run"]["onFail"]), ("full", "pack", "next"))   # 書き出しからパックまで = 書き出しから全部(full + run.from export)
 
     def test_full_bundle_wins_over_base(self):
         """全部の束を送る呼び手(CLI・友人のアプリ)は、土台に負けない(この PC の設定だけは重なる)"""

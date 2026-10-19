@@ -462,7 +462,7 @@ class Queue(run_mod.Runner):
         packable = [m for m, d in picked if d and self._pack_verdict(run, d, m["path"], opts, v) != "skip"]
         steps = []
         pending = False   # 前の段の結果しだい(解析・採用のあとで本数が決まる)
-        for key in MODE_STEPS[mode]:
+        for key in [s["key"] for s in run.steps if s["key"] in MODE_STEPS[mode]]:   # 実行と同じ段の並び(書き出しから全部は解析・採用なし。steps_of)
             label, count, note = STEP_LABELS[key], 0, ""
             if key == "analyze":
                 count, note = (0, "解析済み") if self._analyze_plan(run, v)[0] == "skip" else (1, "")   # 足りなければ解析し直すも実行と同じ

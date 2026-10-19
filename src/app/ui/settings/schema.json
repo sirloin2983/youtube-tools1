@@ -78,7 +78,7 @@
         { "key": "review.autoNext", "type": "bool", "label": "「採用」「不採用」を押したら、次の候補へ進む", "default": true },
         { "key": "review.lag", "type": "enum", "label": "反応の遅れ補正(IN・「今をマーク」)", "default": 0, "options": [[0, "なし"], [2, "2 秒前にずらす"], [3, "3 秒前にずらす"], [5, "5 秒前にずらす"]], "hint": "面白い場面を見てから押すまでの遅れの分だけ、開始を前にずらします。" },
         { "key": "review.liveMode", "type": "enum", "label": "ライブ判定", "default": "auto", "options": [["auto", "自動(おすすめ)"], ["on", "常にライブとして扱う"], ["off", "常に通常の配信(アーカイブ)として扱う"]], "hint": "ライブなのにライブ用の帯が出ないときだけ「常にライブ」を選びます。" },
-        { "key": "review.autoTx", "type": "bool", "label": "書き出しのあと自動で文字起こしを始める", "default": true, "hint": "② の書き出しが終わった切り抜きを、ホームの「まとめて実行」と同じ仕組みで文字起こしします。" },
+        { "key": "review.autoTx", "type": "bool", "label": "書き出しのあと自動でパックまで進める(友人へ送るかの判定も通る)", "default": true, "hint": "② の書き出しが終わった切り抜きを、ホームの「まとめて実行」と同じ仕組みで文字起こし → パックまで進めます。依頼の受付のフォルダが決まっていれば、友人へ自動で送るかの判定(終わってから 48 時間まで・依頼済みの配信は送らない など)も通ります。" },
         { "key": "review.exportTarget", "type": "enum", "label": "書き出す対象", "default": "adopted", "options": [["adopted", "採用のみ(おすすめ)"], ["pending", "採用 + 候補"], ["all", "不採用以外すべて(書き出し済みも)"]] },
         { "key": "review.exportLoudness", "type": "enum", "label": "音量のそろえ方(LUFS)", "default": -14, "options": [[-14, "-14(YouTube の目安・おすすめ)"], [-11, "-11(大きめ)"], [-16, "-16(控えめ)"], [-18, "-18(小さめ)"], [0, "そろえない(音量 % で指定)"]] },
         { "key": "review.exportVolume", "type": "int", "label": "書き出しの音量(そろえないとき)", "default": 75, "min": 1, "max": 200, "unit": "%", "when": { "key": "review.exportLoudness", "eq": 0 } }

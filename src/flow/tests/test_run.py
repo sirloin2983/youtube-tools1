@@ -64,7 +64,8 @@ class TestFromInput(unittest.TestCase):
         r = R.Run.from_input({"videoId": "abcdefghijk"})
         self.assertEqual((r.video_id, r.mode, r.top, r.doc_id, r.source_path, r.state), ("abcdefghijk", "full", 3, None, None, "queued"))
         self.assertEqual([s["key"] for s in r.steps], list(R.MODE_STEPS["full"]))
-        self.assertEqual(R.Run.from_input({"videoId": "abcdefghijk", "top": 5}, "export").mode, "adopted")
+        r = R.Run.from_input({"videoId": "abcdefghijk", "top": 5}, "export")   # 書き出しから全部 = full + run.from export(解析・採用なし)
+        self.assertEqual((r.mode, [s["key"] for s in r.steps], r.public()["modeLabel"]), ("full", ["export", "transcribe", "pack"], "書き出しから全部"))
         self.assertEqual(R.Run.from_input({"videoId": "abcdefghijk", "top": 5}, "export").top, 5)
         self.assertEqual(R.Run.from_input({"videoId": "abcdefghijk"}, "transcribe").mode, R.DOC_MODE)
         with self.assertRaises(ValueError):
@@ -238,7 +239,7 @@ class TestStepsOf(unittest.TestCase):
                 kw.update(source_path="C:/x/a.mp4", normalize=norm)
             if kind == "docs":
                 kw["doc_id"] = "d1"
-            if mode in ("request", "request_auto"):
+            if mode in ("request", "request_auto", "adopted"):   # adopted(書き出しから・パックまで)は依頼の id があるときだけ(無ければ full = 書き出しから全部)
                 kw["request_id"] = "r1"
             run = RF.run_of("abcdefghijk" if kind == "url" else None, "t", mode, 2 if kind == "url" else None, **kw)
             want = self.old_rule(mode, dir_, origin, len(kw.get("ranges") or []), 2 if kind == "url" else None, dz, norm and kind == "file")
@@ -251,7 +252,7 @@ class TestStepsOf(unittest.TestCase):
         """派生の mode と表 MODE_RUN(mode_of の逆)が合う(記録の mode・modeLabel・溜めの鍵・届けた記録の mode が変わらない)"""
         for mode, (kind, frm, upto) in R.MODE_RUN.items():
             b = SP.validate(SP.merge({"run": dict({"upto": upto}, **({"from": frm} if frm else {}))}))
-            self.assertEqual(R.mode_of(kind, b, "r1" if mode.startswith("request") else None), mode)
+            self.assertEqual(R.mode_of(kind, b, "r1" if mode.startswith("request") or mode == "adopted" else None), mode)
         self.assertIsNone(R.mode_of("url", SP.validate(SP.merge({"run": {"from": "adopt"}}))))
         self.assertIsNone(R.mode_of("docs", SP.validate(SP.merge({"run": {"upto": "transcribe"}}))))
 

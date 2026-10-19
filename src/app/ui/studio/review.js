@@ -3336,7 +3336,7 @@ Studio.review = {
   },
   refresh: refreshList,
   keymap: KM,   // キーの一覧(? の一覧も同じ部品を出す。core.js)
-  /* 書き出しのあと自動で文字起こし(設定の「書き出し」節のスイッチ。settings.js)。値は review の節(サーバー)の autoTx */
+  /* 書き出しのあと自動でパックまで進める(設定の「書き出し」節のスイッチ。settings.js)。値は review の節(サーバー)の autoTx(名前は前のまま) */
   autoTx: () => S.settings.autoTx !== false,
   setAutoTx(on){ S.settings.autoTx = !!on; touchSettings(); },
   /* 片付ける(案件の画面のパネルを閉じるとき。スタジオの画面は呼ばない): 離れたときと同じ保存と停止に加えて、プレーヤー・書き出しとまとめて実行の確かめを止め、書き出しの欄を閉じる */
@@ -3349,24 +3349,30 @@ const AUTO_STATE = { queued: 'wait', running: 'run', done: 'ok', error: 'err', c
 const portalApi = (path, body) => Studio.portalApi(path, body);
 /* 友人へ自動で送る届け先(受付のフォルダの 出力。入口の api/intake の outDir)。決まっていなければ null(D-SEND。解析から全部の既定はオン) */
 async function sendOutDir(){ try { return (await portalApi('api/intake')).outDir || null; } catch { return null; } }
-/* ---------- 書き出しのあと自動で文字起こし(入口から開いたときだけ。設定「書き出しのあと自動で文字起こし」既定オン。IMPLEMENTATION.md 4) ----------
-   入口の ② の口 /api/flow/submit に「書き出しから文字起こしまで」+ marks(書き出したものだけ)で頼む(UIKit.flow.order)。
+/* ---------- 書き出しのあと自動でパックまで(入口から開いたときだけ。設定「書き出しのあと自動でパックまで進める」既定オン。IMPLEMENTATION.md 4) ----------
+   入口の ② の口 /api/flow/submit に「書き出しから全部」(mode full + run.from export)+ marks(書き出したものだけ)で頼む(UIKit.flow.order = autoOrder)。
+   受付のフォルダが決まっていれば出どころ auto で届け先も付ける = 友人へ送るかの判定(D-SEND。flow/sendpolicy)も通る(10-19。前は文字起こしまで)。
    もう書き出し済みのマークは、その段だけ飛ばして続く(flow/run.py の _step_export) */
 function autoTxEnabled(){ return S.settings.autoTx !== false; }
 /* 0.21 までの保存(このブラウザの localStorage の ytt:studio.autoTx)→ true / false / null(無い)。サーバーの設定に autoTx が無いときだけ読む(消さない) */
 function autoTxLegacy(){ try { const x = localStorage.getItem('ytt:studio.autoTx'); return x === '0' ? false : x === '1' ? true : null; } catch { return null; } }
+/* 書き出しから全部の注文の欄(書き出しのあと自動で・マークの行の「この後を」の同じ形): そのマークだけ書き出し → 文字起こし → パック → 送るかの判定 */
+async function autoOrder(videoId, markIds, extra){
+  const out = await sendOutDir();
+  return { kind: 'url', videoId, from: 'export', upto: 'pack', marks: markIds, ...(out ? { deliver: { origin: 'auto', dir: out } } : {}), ...(extra || {}) };
+}
 async function maybeAutoTranscribe(videoId, markIds){
   if (!Studio.token || !autoTxEnabled() || !markIds || !markIds.length) return;
   try {
-    const r = await portalApi('api/flow/submit', UIKit.flow.order({ kind: 'url', videoId, from: 'export', upto: 'transcribe', marks: markIds }));
+    const r = await portalApi('api/flow/submit', UIKit.flow.order(await autoOrder(videoId, markIds)));
     if (r && r.run) UIKit.autorun.watch(r.run.id);   // 終わったら知らせる
-    toast('書き出しに続けて、文字起こしを始めました', 4000, 'ok');
+    toast('書き出しに続けて、文字起こし → パックを始めました', 4000, 'ok');
     if (S.cur && S.cur.id === videoId) pollAuto();
   } catch (e){
     // 「この配信はすでに実行中・順番待ちです」(同じ配信のまとめて実行が別に動いている)だけを見分ける。
     // 「順番待ちが多すぎます」(容量の上限)は別の理由の失敗なので、ここに含めて info 扱いにしない(同じ正規表現が両方に一致して誤報する)
     if (/実行中・順番待ちです/.test(e.message || '')) toast('この配信はすでに別のまとめて実行が動いています。終わってから「この後を」でやり直せます', 7000, 'info');
-    else toast('文字起こしを自動では始められませんでした: ' + e.message, 7000, 'err');
+    else toast('パックまでを自動では始められませんでした: ' + e.message, 7000, 'err');
   }
 }
 /* まとめて実行(② のメニュー・マークの行の「この後を」)。見積もり → 始める → 終わったら知らせる、は共通の部品 UIKit.autorun(どの入口も同じ)。
@@ -3384,10 +3390,12 @@ async function startAuto(mode, marks){
     const who = await UIKit.streamer.check($('#rvAutoWho'));
     if (who === null) return;   // 見つからない名前で「やめる」を選んだ
     const st = UIKit.autorun.state(), full = mode === 'full';
-    if (full && marks) throw new Error('マークを選んだまとめて実行は「採用後を全部」「文字起こしまで」だけです');
-    // 欄 → 封筒 + 束の差分(UIKit.flow.order): 解析から全部 = 頭からパックまで・採用後を全部 = 書き出しからパックまで・文字起こしまで = 書き出しから文字起こしまで
-    const f = { kind: 'url', videoId: S.cur.id, title: S.cur.title || '', from: full ? null : 'export', upto: mode === 'transcribe' ? 'transcribe' : 'pack',
-                streamer: who, repack: !!(st && st.overwrite), ...(full ? { top } : {}), ...(marks ? { marks } : {}) };   // 空 = 色なし(欄は自動で入る)
+    if (full && marks) throw new Error('マークを選んだまとめて実行は書き出しからだけです');
+    // 欄 → 封筒 + 束の差分(UIKit.flow.order): 解析から全部 = 頭からパックまで・採用後を全部 = 書き出しからパックまで・文字起こしまで = 書き出しから文字起こしまで・
+    // マークの行の「この後を」(marks)= 書き出しのあと自動でと同じ注文(autoOrder = 書き出しから全部・送るかの判定も通る。10-19)
+    const f = marks ? await autoOrder(S.cur.id, marks, { title: S.cur.title || '', streamer: who, repack: !!(st && st.overwrite) })
+      : { kind: 'url', videoId: S.cur.id, title: S.cur.title || '', from: full ? null : 'export', upto: mode === 'transcribe' ? 'transcribe' : 'pack',
+          streamer: who, repack: !!(st && st.overwrite), ...(full ? { top } : {}) };   // 空 = 色なし(欄は自動で入る)
     if (full){ const out = await sendOutDir(); if (out) f.deliver = { origin: 'auto', dir: out }; }   // 解析から全部は友人へ自動で送る(既定オン)
     const r = await UIKit.autorun.start([UIKit.flow.order(f)]);
     if (!r) return;   // やることが無い(見積もり。知らせは部品が出す)

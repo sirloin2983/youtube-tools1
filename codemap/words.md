@@ -66,7 +66,7 @@
   - 画面: src/app/ui/editor/app-list.js:208・src/app/ui/editor/app.js:1077・src/app/ui/editor/pack-tab.js:37
 - **掲示板** — ② のジョブの掲示板(RS8 の口 S1)
   - コード: `src/flow/board.py`・`src/flow/jobs.py`
-  - 画面: src/app/ui/home/portal.js:675・src/app/ui/studio/review.js:3438
+  - 画面: src/app/ui/home/portal.js:675・src/app/ui/studio/review.js:3446
 - **調子** — 入口の「調子」。空き容量・失敗・道具の版などの集計
   - コード: `src/manage/ops/health.py`・`/api/health` src/app/server.py:770
   - 画面: src/app/ui/cases/panels/cand.js:137・src/app/ui/cases/panels/new.js:240・src/app/ui/home/portal.html:124・src/app/ui/home/portal.js:1243

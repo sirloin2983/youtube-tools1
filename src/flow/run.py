@@ -95,7 +95,8 @@ CANCEL_WAIT = 30.0                   # 取り消したスタジオの解析が�
 DONE_STEPS = ("done", "skip", "warn")   # 済んだ段(戻した実行では飛ばす)
 RUN_ID_RE = re.compile(r"^[0-9a-f]{10}\Z")
 
-FROM_MODE = {None: "full", "analyze": "full", "export": "adopted", "transcribe": DOC_MODE}   # run(from_=段) の配信の ID の入力 -> 実行の形
+FROM_MODE = {None: "full", "analyze": "full", "export": "full", "transcribe": DOC_MODE}   # run(from_=段) の配信の ID の入力 -> 実行の形(export = 書き出しから全部)
+FROM_EXPORT_LABEL = "書き出しから全部"   # mode full で束の run.from export(解析・採用を飛ばす)の実行の札
 
 _num = _spec.num_ok   # 扱ってよい大きさの数か(src/flow/spec.py)
 
@@ -144,7 +145,8 @@ MODE_HINT = {"url": "run.from は null・analyze・export、run.upto は transcr
 
 def mode_of(kind, bundle, request_id=None):
     """封筒の kind + 束の run.from・run.upto + 依頼の id -> 実行の形(MODE_STEPS の鍵。記録の mode・modeLabel・届ける溜めの鍵の元)か None(合わない組)。
-    url: from が export = 採用後(upto pack → adopted・transcribe → transcribe)/ 頭から(null・analyze)= upto pack なら依頼の id で request_auto か full・
+    url: from が export = 書き出しから(upto pack → full。段の並びは steps_of が解析・採用を外す。依頼の id があれば今までどおり adopted・transcribe → transcribe)/
+    頭から(null・analyze)= upto pack なら依頼の id で request_auto か full・
     transcribe なら request / transcribe(run() の from_ = 配信の文字起こしから)= doc。docs: pack だけ(doc)。file: pack → file_auto・transcribe → file
     (手で置いた動画・② の口・CLI の束が upto transcribe を頼んだとき)(RV A2)"""
     frm, upto = bundle["run"]["from"], bundle["run"]["upto"]
@@ -155,7 +157,9 @@ def mode_of(kind, bundle, request_id=None):
     if kind != "url":
         return None
     if frm == "export":
-        return "adopted" if upto == "pack" else "transcribe"
+        if upto != "pack":
+            return "transcribe"
+        return "adopted" if request_id else "full"   # 書き出しから全部 = full(10-19。自動で送るかの判定 D-SEND も full と同じに通る)
     if frm == "transcribe" and upto == "pack":
         return DOC_MODE
     if frm in (None, "analyze"):
@@ -175,12 +179,15 @@ def _gone_shape(env, spec):
     return mode_of(env.get("kind"), b, env.get("requestId")) is None
 
 
-def steps_of(mode, deliver_dir=None, origin=None, ranges=0, top=None, diarize=None, normalize=False):
+def steps_of(mode, deliver_dir=None, origin=None, ranges=0, top=None, diarize=None, normalize=False, from_=None):
     """段の並び(鍵の並び)= MODE_STEPS[mode] + 今の付け足しの決まり(実行の段と見積もりが同じ物を使う。RV A2):
+    束の run.from が export(書き出しから全部)なら解析・採用を外す(MODE_STEPS["full"] は変えない) /
     normalize(動画ファイルの最初)は normalize が真のときだけ / 依頼の URL(REQUEST_URL_MODES)で区間が切り抜く数に足りていれば、解析なしで最後に analyze_later /
     まとめて実行(full)は届け先があるか出どころ auto(D-SEND。チェックを外した = 届け先なし = notSent)なら末尾に deliver /
     話す人の人数(diarize)があれば文字起こしの後ろに diarize"""
     keys = list(MODE_STEPS[mode])
+    if from_ == "export":
+        keys = [k for k in keys if k not in ("analyze", "adopt")]
     if NORMALIZE_STEP in keys and not normalize:
         keys.remove(NORMALIZE_STEP)
     if mode in REQUEST_URL_MODES and ranges and ranges >= (top or 0):
@@ -361,7 +368,9 @@ class Run:
         self.resumed = False       # 入口を起動し直して戻した実行(M5。始める前にツールの準備を待つ)
         self.owned = None          # 今ツールで動かしている仕事 (ツールの ID, [ジョブ・キューの id])(「起動し直す」の確かめ = restart_info。残さない)
         self.result_path = None    # 結果の束 <案件>/作業用/runs/<id>.json(終わったら flow/placement.write_result が置く。記録の 1 行の resultPath = 索引。RS6 b-B0)
-        keys = steps_of(self.mode, self.deliver_dir, self.deliver_origin, len(self.ranges), self.top, bundle["transcribe"]["diarize"], self.normalize)
+        self.run_from = bundle["run"]["from"]   # 束の run.from(書き出しから全部 = export。札と段の並びが使う)
+        keys = steps_of(self.mode, self.deliver_dir, self.deliver_origin, len(self.ranges), self.top, bundle["transcribe"]["diarize"], self.normalize,
+                        self.run_from)
         self.steps = [{"key": k, "label": STEP_LABELS[k], "state": "wait", "detail": ""} for k in keys]
 
     # ------------------------------------------------------------ 束から読む欄(読み取りだけ。RV A2 で Run の欄 → 束)
@@ -467,7 +476,7 @@ class Run:
         b = _spec.validate(_spec.merge(spec))
         if kind == "url" and inp.get("marks") and b["run"]["from"] != "export" and mode_of(kind, b, env["requestId"]) not in REQUEST_URL_MODES:
             # 依頼の URL はこの実行で扱うマークを採用の段が置く(待ちの記録の封筒に入る)= 断らない
-            raise ValueError("マークを選んだまとめて実行は「採用後を全部」「文字起こしまで」(書き出しから = run.from export)だけです")
+            raise ValueError("マークを選んだまとめて実行は書き出しから(run.from export)だけです")
         run = cls(env, b)
         run.diff = copy.deepcopy(spec) if isinstance(spec, dict) else None
         return run
@@ -585,7 +594,8 @@ class Run:
                 "engine": self.engine, "model": self.model,
                 "friendLength": dict(self.friend_length) if self.friend_length else None,
                 "videoId": self.video_id, "title": self.title, "mode": self.mode,
-                "modeLabel": (MODES.get(self.mode) or REQUEST_MODES.get(self.mode) or DOC_LABEL) +("(%d本)" % len(self.marks) if self.marks and self.mode not in REQUEST_URL_MODES else ""), "top": self.top,
+                "modeLabel": (FROM_EXPORT_LABEL if self.mode == "full" and self.run_from == "export" else
+                              MODES.get(self.mode) or REQUEST_MODES.get(self.mode) or DOC_LABEL) +("(%d本)" % len(self.marks) if self.marks and self.mode not in REQUEST_URL_MODES else ""), "top": self.top,
                 "streamer": self.streamer, "streamerFrom": self.streamer_from, "marks": list(self.marks) if self.marks else None, "fromSearch": bool(self.fresh),
                 "state": self.state, "stateLabel": RUN_STATE_LABELS["nothing" if self.nothing and self.state == "done" else self.state],
                 "nothing": self.nothing, "onFail": self.on_fail, "docs": list(self.docs[:20]),
