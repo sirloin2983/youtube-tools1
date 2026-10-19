@@ -12,9 +12,9 @@
 - **live.py** (519 行) — リアルタイム切り抜き(線 D。notes:plan/line-d-live-clipping.md の 0)の入口の側。**既定はオフ**(ホームの設定の節 live.enabled)。
   - 名前: `studio_review` :106・`studio_audio` :113・`studio_lag` :131・`class Live` :140
   - 受ける口: `/api/peaks` :272・`/api/exports` :279・`/api/info` :291・`/api/begin` :327・`/api/export` :330・`/api/adopt` :337・`/api/export/cancel` :341・`/api/archive/cancel` :343・`/api/archive` :346
-- **mount.py** (220 行) — 統合サーバーへのツールの取り込み(統合計画の段階3。notes:docs/design/integration-plan.md)。
-  - 名前: `class MountError` :53・`tool_modules` :57・`check_no_collision` :67・`load_serve` :77・`inject_token` :104・`send_redirect` :115・`make_handler` :125・`class Mount` :172
-  - 受ける口: `/api/ytt` :46
+- **mount.py** (208 行) — 統合サーバーへのツールの取り込み(統合計画の段階3。notes:docs/design/integration-plan.md)。
+  - 名前: `class MountError` :52・`tool_modules` :56・`check_no_collision` :66・`load_serve` :76・`send_redirect` :103・`make_handler` :113・`class Mount` :160
+  - 受ける口: `/api/ytt` :45
 - **prefs.py** (488 行) — ホームの設定(画面の直し「気が利く画面へ」の土台。notes:docs/design/briefs/ux-consistency/DESIGN_BRIEF.md)。
   - 名前: `class PrefsError` :95・`guess_streamer` :382・`class Prefs` :394
 - **server.py** (1888 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
@@ -97,7 +97,7 @@
 ## src/app/ui/home/
 
 - **portal-edit.js** (162 行) — ホームの運用の中の「編集の精度と学習」(src/app/ui/home/portal.html の #editOpsBox。RS8 C3)。
-- **portal.js** (2050 行) — ホーム(src/app/ui/home/portal.html。段階5で入口 + 案件を1つにした)。
+- **portal.js** (2049 行) — ホーム(src/app/ui/home/portal.html。段階5で入口 + 案件を1つにした)。
 
 ## src/app/ui/settings/
 

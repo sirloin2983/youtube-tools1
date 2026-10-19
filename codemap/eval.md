@@ -45,8 +45,8 @@
   - 名前: `real_data_dir` :105・`load_docs` :110・`has_proofed` :128・`whole_video` :132・`reviewed_sec` :138・`resolve_source` :159・`doc_time` :163・`select_docs` :177・`resolve_reviewed` :200・`pick_reviewed` :208・`runs_of` :226・`draft_run` :231・ほか 43
 - **eval_cloud.py** (514 行) — クラウドの文字起こし(OpenAI・ElevenLabs)に評価用の音声を送り、手元のエンジンと同じ物差し(src/eval/tools/eval_asr.py の採点)で測る道具
   - 名前: `request_fields` :82・`timing_kind` :96・`multipart` :103・`http_json` :115・`auth_headers` :134・`scrub` :138・`send_audio` :146・`delete_remote` :159・`rows_from_words` :183・`rows_from` :215・`cache_dir` :230・`audio_span` :234・ほか 17
-- **eval_cut.py** (416 行) — カットのたたき台(機械の最初の結果)と、人の最終の差を測る道具(マスタープラン Q3・I-3a: 無音のしきい値・行の後の余白の既定を見直す材料)。
-  - 名前: `num` :59・`ms_of` :63・`read_edit` :68・`read_draft` :98・`pack_final` :114・`find_pack` :139・`pct` :163・`clean` :174・`compare` :185・`class Agg` :227・`fmt_val` :267・`sig_of` :271・ほか 5
+- **eval_cut.py** (417 行) — カットのたたき台(機械の最初の結果)と、人の最終の差を測る道具(マスタープラン Q3・I-3a: 無音のしきい値・行の後の余白の既定を見直す材料)。
+  - 名前: `num` :60・`ms_of` :64・`read_edit` :69・`read_draft` :99・`pack_final` :115・`find_pack` :140・`pct` :164・`clean` :175・`compare` :186・`class Agg` :228・`fmt_val` :268・`sig_of` :272・ほか 5
 - **eval_fill.py** (416 行) — 認識のあとの後処理(src/pipeline/transcribe/fill.py・llm.py。A 文字の少ない行を別の読みで埋める・D 名簿の呼び名の 1 字違いを直す・
   - 名前: `fold` :70・`edit_distance` :75・`rows_of` :82・`overlap` :94・`first_run` :98・`read_answers` :107・`answer_of` :123・`answer_before` :127・`answer_time` :133・`checked_around` :138・`raw_text` :147・`match_seg` :153・ほか 15
 - **eval_marks.py** (1264 行) — 盛り上がりの検出(スタジオの自動マーク)の当たり具合を、人の判定の記録で測る道具(線 C の土台。notes:plan/line-bc-master-plan.md の Q3・I-4a)。

@@ -13,11 +13,11 @@
   - 名前: `class NotFound` :53・`split_id` :60・`norm_case` :68・`normalize` :126・`class Board` :154・`default` :393・`guess_case` :402
 - **casebook.py** (326 行) — ② 管理の層 flow: 案件の候補と採用のファイルの書く側(RS8 B3-3・B3-4a。決定 3-37 の (r8j)〜(r8q))。
   - 名前: `owners` :43・`case_of` :57・`split` :88・`carry_over` :140・`write` :168・`live_video` :207・`live_mark` :216・`live_into` :251・`live_adopt` :272・`live_exported` :295・`live_marks` :310・`live_has` :317
-- **deliver.py** (293 行) — ② パックを友人へ届ける(Dropbox の見張るフォルダの 出力\ に zip で置く。友人のアプリの「受け取る」が読む)。
-  - 名前: `safe_name` :42・`request_id` :46・`delivery_name` :51・`face_origin` :56・`meta_path_for` :66・`meta_doc` :78・`write_meta_json` :90・`unique_zip` :96・`zip_packs` :104・`preview_path_for` :140・`place_preview` :145・`deliver_one` :153・ほか 1
+- **deliver.py** (301 行) — ② パックを友人へ届ける(Dropbox の見張るフォルダの 出力\ に zip で置く。友人のアプリの「受け取る」が読む)。
+  - 名前: `outbox_ok` :42・`safe_name` :49・`request_id` :53・`delivery_name` :58・`face_origin` :63・`meta_path_for` :73・`meta_doc` :85・`write_meta_json` :97・`unique_zip` :103・`zip_packs` :111・`preview_path_for` :147・`place_preview` :152・ほか 2
 - **deliveries.py** (187 行) — ② 管理の層 flow: 友人へ届けた記録(入口の作業データの logs/deliveries.jsonl)の読み口(OPT-M2。notes:plan/done/opt-manage.md の 7x-2)。
   - 名前: `record` :23・`origin_of` :39・`rows` :47・`delivered_requests` :69・`pack_name` :84・`delivered_marks` :92・`record_not_sent` :148・`not_sent_marks` :159
-- **delivery.py** (385 行) — ② 友人へ届ける: まとめて実行の「Dropbox へ届ける」段と、置けなかった自動の分の溜め(まとめて実行 AutoRunner が継ぐ mixin)。
+- **delivery.py** (379 行) — ② 友人へ届ける: まとめて実行の「Dropbox へ届ける」段と、置けなかった自動の分の溜め(まとめて実行 AutoRunner が継ぐ mixin)。
   - 名前: `switched_off` :54・`class Delivery` :81
 - **diar.py** (299 行) — ② 管理の層 flow: 話者判別と声の段取り(RS6 a-4。決定 3-29)。
   - 名前: `models_ready` :29・`default_embedding` :40・`embedding` :45・`embeddings` :50・`diarize` :56・`assign` :86・`record_run` :110・`record_single` :117・`latest_run` :127・`embed` :134・`match_known_voices` :150・`voice_learn_rows` :163・ほか 10
@@ -29,8 +29,8 @@
   - 名前: `probe` :13
 - **jobs.py** (727 行) — ジョブの表・待機列・種類の登録・ワーカーの繰り返し・取り消しの受付(② 管理。RS6 a-2)。
   - 名前: `configure` :39・`tool_slot` :51・`register` :57・`set_cancelled` :71・`set_internal_error` :75・`job_errors` :82・`job_temp_wav` :104・`job_done` :113・`job_title` :117・`tid_busy` :127・`doc_busy` :141・`active_jobs` :153・ほか 13
-- **keys.py** (431 行) — ② 管理の層 flow: 成果物の鍵を書く・読む(RS6 b-K1。決定 3-29 / notes:plan/done/role-restructure.md 4 節の決まり 4・5-2)。
-  - 名前: `media_key_path` :40・`doc_key_path` :45・`pack_key_path` :55・`write` :60・`read` :71・`stale` :83・`remove` :95・`key_hash` :107・`export_inputs` :114・`transcribe_inputs` :122・`post_inputs` :134・`diar_inputs` :142・ほか 16
+- **keys.py** (397 行) — ② 管理の層 flow: 成果物の鍵を書く・読む(RS6 b-K1。決定 3-29 / notes:plan/done/role-restructure.md 4 節の決まり 4・5-2)。
+  - 名前: `media_key_path` :40・`doc_key_path` :45・`pack_key_path` :55・`write` :60・`read` :71・`stale` :83・`remove` :95・`key_hash` :107・`export_inputs` :114・`transcribe_inputs` :122・`post_inputs` :134・`diar_inputs` :142・ほか 15
 - **learning.py** (177 行) — ② 管理: 学習データを読む側(F1。notes:docs/design/f1-build.md の 2 の F1・3 の (f1c))。
   - 名前: `is_pack` :29・`pack_version` :34・`maker_pc` :41・`learning_dir_checked` :52・`learning_dir` :65・`apply_places` :77・`class Learning` :108・`stamp` :167
 - **lengthhint.py** (262 行) — ② 管理の層 flow: 自動の切り抜きの長さの目安(友人が依頼で指定した区間の長さから。OPT-E2 7f-1・7f-2。決定 3-49 の Q1)。

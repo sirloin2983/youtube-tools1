@@ -25,8 +25,8 @@
   - 名前: `replace_retry` :18・`unlink_quiet` :31・`temp_in` :39・`atomic_write` :58・`create_new` :76・`write_json` :98・`append_jsonl` :108・`class TooLarge` :115・`read_json_file` :123・`is_network_path` :143・`norm_path` :150・`long_path` :155・ほか 16
 - **gpuinfo.py** (165 行) — この PC の GPU の名前と VRAM を調べる(F1 F0-2。notes:docs/design/f1-build.md の 2 の F0-2・3 の (f1b))。標準ライブラリと ytt だけ。
   - 名前: `vendor_of` :28・`gb` :37・`parse_nvidia_smi` :46・`parse_cim` :62・`pick` :80・`from_nvidia_smi` :97・`from_registry` :104・`from_cim` :136・`probe` :144・`info` :158
-- **httpsec.py** (232 行) — ローカルサーバー(127.0.0.1)の安全検査。スタジオ・文字起こし・入口で同じ規則を1か所に持つ。
-  - 名前: `allowed_hosts` :31・`host_ok` :35・`origin_ok` :39・`fetch_site_ok` :44・`navigation_ok` :48・`send_head` :53・`send` :66・`class BodyError` :79・`drain_body` :92・`read_json_body` :107・`token_ok` :145・`byte_range` :155・ほか 3
+- **httpsec.py** (243 行) — ローカルサーバー(127.0.0.1)の安全検査。スタジオ・文字起こし・入口で同じ規則を1か所に持つ。
+  - 名前: `allowed_hosts` :31・`host_ok` :35・`origin_ok` :39・`fetch_site_ok` :44・`navigation_ok` :48・`send_head` :53・`send` :66・`class BodyError` :79・`drain_body` :92・`read_json_body` :107・`inject_token` :145・`token_ok` :156・ほか 4
 - **jobs.py** (266 行) — 重い処理の同時実行数の上限(統合計画の段階4)。
   - 名前: `limit_from_env` :42・`class HeavySlots` :51・`check_cancel` :190・`class Ctl` :198
 - **layout.py** (75 行) — リポジトリの中のフォルダの並び(段0 の改名は `notes:docs/design/phase0-restructure.md`)。
@@ -52,8 +52,8 @@
 - **runtime.py** (209 行) — 実行中のポートの共有(notes:docs/spec/pipeline.md の 4)。スタジオの handoff.py・文字起こしの pipeline_io.py・入口の server.py にあった同じ処理を1つにしたもの。
   - 名前: `valid_port` :28・`runtime_dir` :33・`runtime_path` :43・`valid_path` :49・`write_runtime` :53・`read_runtime` :79・`remove_runtime` :95・`ping` :107・`ping_app` :130・`port_open` :135・`siblings` :147・`safe_stdio` :185・ほか 1
   - 受ける口: `/api/ping` :116
-- **schemas.py** (484 行) — 受け渡しの形式(notes:docs/spec/pipeline.md の 1・2)。youtube-tools-clip/v1 は、スタジオが書き(build_clip)、文字起こしが読む(load_clip_file)。
-  - 名前: `iso_now` :21・`now_ms` :26・`num` :31・`is_num` :42・`is_int` :47・`plain_int` :52・`int_in` :57・`num_or` :62・`union_spans` :71・`fmt_hms` :82・`other_speaker` :105・`no_sub_row` :110・ほか 28
+- **schemas.py** (493 行) — 受け渡しの形式(notes:docs/spec/pipeline.md の 1・2)。youtube-tools-clip/v1 は、スタジオが書き(build_clip)、文字起こしが読む(load_clip_file)。
+  - 名前: `iso_now` :21・`now_ms` :26・`num` :31・`is_num` :42・`is_int` :47・`plain_int` :52・`int_in` :57・`num_or` :62・`union_spans` :71・`fmt_hms` :82・`other_speaker` :105・`no_sub_row` :110・ほか 29
 - **settings.py** (361 行) — 設定ファイル(JSON の辞書)の読み書きの共通部品(設定を 1 つにまとめる 段 2 = S4。notes:docs/spec/data.md の 4)。
   - 名前: `class SettingsError` :37・`class SettingsTooLarge` :41・`section_name_ok` :45・`retire_broken` :50・`class SettingsFile` :62・`load_settings` :191・`register_patch_key` :223・`patch_settings` :259・`merge_settings` :274・`replace_settings` :289・`eval_dirs` :326・`in_eval_dir` :342・ほか 1
 - **studio_env.py** (200 行) — スタジオの環境: データの置き場所・書き出し先・疑似の旗・外部の道具・失敗の記録。
@@ -66,8 +66,8 @@
   - 名前: `redact` :18・`permission_message` :23・`tail_reason` :31・`fmt_ts` :38・`fmt_ms` :44・`num` :50・`person_key` :64
 - **tools.py** (642 行) — 外部プログラム(ffmpeg・ffprobe・yt-dlp)の場所と、子プロセスを動かすときの小道具。
   - 名前: `remember` :32・`recent` :46・`ytt_env` :51・`find_tool` :65・`find_ffmpeg` :115・`media_tool` :120・`ffmpeg_info` :127・`parse_ffmpeg_info` :140・`duration_in` :151・`media_duration` :156・`check_source` :162・`probe_media` :172・ほか 17
-- **trashbin.py** (57 行) — ごみ箱フォルダの決まりの 1 か所(どの層からも使う。① の録画の部品も使うので ytt に置く)。
-  - 名前: `day_name` :15・`free_path` :20・`append_manifest` :30・`old_day_dirs` :38
+- **trashbin.py** (60 行) — ごみ箱フォルダの決まりの 1 か所(どの層からも使う。① の録画の部品も使うので ytt に置く)。
+  - 名前: `day_name` :18・`free_path` :23・`append_manifest` :33・`old_day_dirs` :41
 - **txbase.py** (103 行) — 認識の部品が共有する小さな物: 記録(ロガー)・決まった値(文字・言語・長さの上限)・要確認の印の文と幻覚の決まり文句・ジョブの注意。
   - 名前: `char_class` :40・`alt_fold` :56・`add_warning` :71・`env_off` :76・`wcpp_flavor` :87・`wcpp_bin_dir` :92・`wcpp_exe` :97・`wcpp_model_dir` :101
 - **txtext.py** (95 行) — 文字起こしの文字の語彙(標準ライブラリと ytt/txbase だけの純粋な関数と決まった値)。
