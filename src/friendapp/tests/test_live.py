@@ -210,7 +210,7 @@ class LiveFlowTest(unittest.TestCase):
         s = self.eng.live.requests.get("local", REC)["settings"]
         self.assertEqual((row["form"]["live"]["lengthMode"], row["form"]["live"]["length"], s["length"], s.get("lengthMode")), ("fixed", 90, 90, None))
         self.assertEqual(self.worker_req()[2], "fixed")
-        for bad, why in (({"perHour": 0}, "1 時間の枠"), ({"length": 181}, "長さは 10〜180"), ({"lengthMode": "x"}, "自動"), ({"afterStream": "yes"}, "配信後")):
+        for bad, why in (({"length": 181}, "長さは 10〜180"), ({"lengthMode": "x"}, "自動")):   # 値ごとの検査は SettingsTest.test_check_settings
             with self.subTest(bad=bad):
                 with self.assertRaises(A.FormError) as cm:
                     self.api.update_live(rid, bad)

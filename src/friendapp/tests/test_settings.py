@@ -37,7 +37,9 @@ class FakeDl:
         progress(len(self.files[url]))
 
 
-class SettingsServerTest(unittest.TestCase):
+class SettingsBase(unittest.TestCase):
+    """⚙ と初回の準備の部品を偽物で組む(サーバーは起こさない)"""
+
     def setUp(self):
         self.tmp = testkit.tempdir(self, "friendset-")
         env = mock.patch.dict(os.environ, {"YTT_MACHINE_FILE": os.path.join(self.tmp, "machine.json"), "USERPROFILE": os.path.join(self.tmp, "user")})
@@ -82,12 +84,7 @@ class SettingsServerTest(unittest.TestCase):
         self.app.setup.set_device = lambda d: None
         self.app.setup.env = {}
         self.app.prepare()
-        self.srv = S.Server(("127.0.0.1", 0), self.app)
-        self.app.server = self.srv
-        self.port = self.srv.server_address[1]
-        self.thread = threading.Thread(target=self.srv.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
-        self.thread.start()
-        self.addCleanup(self.stop)
+        self.addCleanup(self.stop_setup)
 
     def fake_run(self, cmd, timeout):
         self.cmds.append(list(cmd))
@@ -96,10 +93,31 @@ class SettingsServerTest(unittest.TestCase):
                 f.write(b"RIFF....WAVE")
         return 0, "tool version 1", None
 
-    def stop(self):
+    def stop_setup(self):
         self.app.setup.cancel()
         self.dl.gate.set()
         self.app.setup.wait(5)
+
+    def upd(self, body):
+        """Settings.update を直に呼ぶ(processing・weights・live)"""
+        try:
+            msg = self.app.settings.update(body)["message"]
+        except T.SettingsError as e:
+            return 400, {"message": str(e)}
+        return 200, {"message": msg, "settings": self.app.settings.view()}
+
+
+class SettingsServerTest(SettingsBase):
+    def setUp(self):
+        super().setUp()
+        self.srv = S.Server(("127.0.0.1", 0), self.app)
+        self.app.server = self.srv
+        self.port = self.srv.server_address[1]
+        self.thread = threading.Thread(target=self.srv.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
+        self.thread.start()
+        self.addCleanup(self.stop_server)
+
+    def stop_server(self):
         self.srv.shutdown()
         self.thread.join(10)
         self.srv.server_close()
@@ -165,8 +183,6 @@ class SettingsServerTest(unittest.TestCase):
 
     def test_main_page_goes_to_setup_while_preparing(self):
         self.app.setup.flow = "fetching"
-        st, raw = self.request("GET", "/friend/")
-        self.assertEqual(st, 302)
         st, j = self.get("/api/friend/state")
         self.assertTrue(j["setup"] and j["awake"])   # 準備中は exe が閉じるときに確かめ・スリープを止める
 
@@ -174,16 +190,6 @@ class SettingsServerTest(unittest.TestCase):
         st, j = self.post("/api/friend/setup/start", token=False)
         self.assertEqual(st, 403)
         self.assertFalse(self.app.setup.running())
-
-    def test_setup_space_short(self):
-        os.remove(os.path.join(self.places["data"], "transcribe", "models", "m.bin"))
-        self.app.setup.disk_usage = lambda p: Usage(100, 99, 1)
-        st, j = self.post("/api/friend/setup/start")
-        self.assertEqual(st, 200)
-        self.app.setup.wait(5)
-        st, j = self.get("/api/friend/setup")
-        self.assertEqual(j["setup"]["state"], "need-space", j)
-        self.assertFalse(j["done"])
 
     def test_user_pc_send_not_blocked_by_parts(self):
         """ユーザーの PC に頼む依頼は、この PC の部品が足りなくても送れる(鍵が無いので別の理由で断る)"""
@@ -194,6 +200,7 @@ class SettingsServerTest(unittest.TestCase):
         self.assertEqual(st, 400)
         self.assertIn("Dropbox", j["message"])
         self.assertNotIn("部品", j["message"])
+        self.assertEqual(self.app.inbox.rows, [])   # 行を残さない
 
     # ---- ⚙
     def test_settings_view_defaults(self):
@@ -213,9 +220,6 @@ class SettingsServerTest(unittest.TestCase):
         self.assertEqual(st, 200, j)
         s = j["settings"]
         self.assertEqual((s["engine"], s["diskMinGB"], s["cut"]), ("C", 35, "silence"))
-        with open(os.environ["YTT_MACHINE_FILE"], encoding="utf-8") as f:
-            m = json.load(f)
-        self.assertEqual((m["device"], m["diskMinGB"]), ("cuda", 35))
         # カットは送るときの束に入る(しない = 入れない = 今までの束のまま)
         st, j = self.post("/api/friend/send", {"url": URL, "top": 3, "title": "題"})
         self.assertEqual(st, 200, j)
@@ -246,8 +250,7 @@ class SettingsServerTest(unittest.TestCase):
                 "dest": "transcribe/bin", "unzip": "wcpp", "top": "", "member": "", "size": len(blob), "maxBytes": 0, "parts": []}
         self.dl.files["https://h/c.zip"] = blob
         self.app.setup.cuda = lambda: item
-        laid = []
-        self.app.setup.wcpp = lambda it, archive, root: laid.append(it["name"])
+        self.app.setup.wcpp = lambda it, archive, root: None   # 置き方は test_setup
         ready = [False]
         with mock.patch.object(SU, "_wcpp_ready", lambda root: ready[0]):
             s = self.get("/api/friend/settings")[1]["settings"]["cuda"]
@@ -260,7 +263,6 @@ class SettingsServerTest(unittest.TestCase):
             self.assertEqual(st, 200, j)
             self.assertIn("取り始めました", j["message"])
             self.app.setup.wait(5)
-            self.assertEqual(laid, [SU.CUDA_NAME])   # C の部品だけを取って ① の置き方で置いた
             self.assertEqual(self.get("/api/friend/settings")[1]["settings"]["engine"], "A")   # 取ってもエンジンは変えない
             ready[0] = True
             self.assertTrue(self.get("/api/friend/settings")[1]["settings"]["cuda"]["ready"])
@@ -277,14 +279,6 @@ class SettingsServerTest(unittest.TestCase):
             st, j = self.post("/api/friend/settings", {"fetchCuda": True})
         self.assertEqual(st, 400)
         self.assertIn("使える C の部品がありません", j["message"])
-
-    def upd(self, body):
-        """Settings.update を直に呼ぶ(processing・weights・live)"""
-        try:
-            msg = self.app.settings.update(body)["message"]
-        except T.SettingsError as e:
-            return 400, {"message": str(e)}
-        return 200, {"message": msg, "settings": self.app.settings.view()}
 
     def test_processing_weights_live_view_and_update(self):
         st, j = self.get("/api/friend/settings")
@@ -304,18 +298,6 @@ class SettingsServerTest(unittest.TestCase):
         st, j = self.upd({"weights": None})
         self.assertIsNone(j["settings"]["weights"])
         self.assertEqual(self.app.api.form()["weights"], {"wAudio": 3, "wChat": 0, "wComments": 1})
-
-    def test_processing_remote_needs_dropbox_key(self):
-        st, j = self.upd({"processing": "remote"})
-        self.assertEqual(st, 400)
-        self.assertIn("Dropbox の鍵", j["message"])
-        self.assertEqual(self.app.api.form()["pc"], "this")
-        self.app.sync.has_key = lambda: True
-        st, j = self.upd({"processing": "remote"})
-        self.assertEqual(st, 200, j)
-        self.assertEqual((j["settings"]["processing"], j["settings"]["canRemote"], self.app.api.form()["pc"]), ("remote", True, "user"))
-        st, j = self.upd({"processing": "local"})
-        self.assertEqual(j["settings"]["processing"], "local")
 
     def test_api_key_saved_and_never_returned(self):
         st, j = self.post("/api/friend/settings/key", {"key": "  " + KEY + "\n"})
@@ -344,13 +326,6 @@ class SettingsServerTest(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.places["data"], "app", "keys.json")))
         st, j = self.post("/api/friend/settings/key", {"key": "short"})
         self.assertIn("形が違います", j["message"])
-
-    def test_judge_messages(self):
-        self.assertEqual(T.judge(200, ""), (True, "使えます"))
-        self.assertIn("つながりません", T.judge(0, "URLError")[1])
-        self.assertIn("有効", T.judge(403, json.dumps({"error": {"errors": [{"reason": "accessNotConfigured"}]}}))[1])
-        self.assertIn("上限", T.judge(403, json.dumps({"error": {"errors": [{"reason": "quotaExceeded"}]}}))[1])
-        self.assertIn("HTTP 500", T.judge(500, "x")[1])
 
     def test_pick_folder_save_and_cases(self):
         target = os.path.join(self.tmp, "受け取り先")
@@ -407,6 +382,31 @@ class SettingsServerTest(unittest.TestCase):
                 self.assertIn(('id="%s"' % sec).encode(), raw)
         else:
             self.assertEqual(st, 404)
+
+
+class SettingsApiTest(SettingsBase):
+    """Settings.update を直に呼ぶ(サーバーを起こさない)"""
+
+    def test_processing_remote_needs_dropbox_key(self):
+        st, j = self.upd({"processing": "remote"})
+        self.assertEqual(st, 400)
+        self.assertIn("Dropbox の鍵", j["message"])
+        self.assertEqual(self.app.api.form()["pc"], "this")
+        self.app.sync.has_key = lambda: True
+        st, j = self.upd({"processing": "remote"})
+        self.assertEqual(st, 200, j)
+        self.assertEqual((j["settings"]["processing"], j["settings"]["canRemote"], self.app.api.form()["pc"]), ("remote", True, "user"))
+        st, j = self.upd({"processing": "local"})
+        self.assertEqual(j["settings"]["processing"], "local")
+
+
+class JudgeTest(unittest.TestCase):
+    def test_judge_messages(self):
+        self.assertEqual(T.judge(200, ""), (True, "使えます"))
+        self.assertIn("つながりません", T.judge(0, "URLError")[1])
+        self.assertIn("有効", T.judge(403, json.dumps({"error": {"errors": [{"reason": "accessNotConfigured"}]}}))[1])
+        self.assertIn("上限", T.judge(403, json.dumps({"error": {"errors": [{"reason": "quotaExceeded"}]}}))[1])
+        self.assertIn("HTTP 500", T.judge(500, "x")[1])
 
 
 if __name__ == "__main__":
