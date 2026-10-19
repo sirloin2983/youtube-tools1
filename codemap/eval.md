@@ -49,8 +49,8 @@
   - 名前: `num` :59・`ms_of` :63・`read_edit` :68・`read_draft` :98・`pack_final` :114・`find_pack` :139・`pct` :163・`clean` :174・`compare` :185・`class Agg` :227・`fmt_val` :267・`sig_of` :271・ほか 5
 - **eval_fill.py** (416 行) — 認識のあとの後処理(src/pipeline/transcribe/fill.py・llm.py。A 文字の少ない行を別の読みで埋める・D 名簿の呼び名の 1 字違いを直す・
   - 名前: `fold` :70・`edit_distance` :75・`rows_of` :82・`overlap` :94・`first_run` :98・`read_answers` :107・`answer_of` :123・`answer_before` :127・`answer_time` :133・`checked_around` :138・`raw_text` :147・`match_seg` :153・ほか 15
-- **eval_marks.py** (1246 行) — 盛り上がりの検出(スタジオの自動マーク)の当たり具合を、人の判定の記録で測る道具(線 C の土台。notes:plan/line-bc-master-plan.md の Q3・I-4a)。
-  - 名前: `read_jsonl` :94・`locate` :113・`studio_videos` :119・`load_feedback` :124・`archive_reader` :137・`load_archive` :148・`run_records` :164・`load_runs` :169・`ts_ms` :191・`num` :198・`dist` :202・`same` :207・ほか 33
+- **eval_marks.py** (1264 行) — 盛り上がりの検出(スタジオの自動マーク)の当たり具合を、人の判定の記録で測る道具(線 C の土台。notes:plan/line-bc-master-plan.md の Q3・I-4a)。
+  - 名前: `read_jsonl` :97・`locate` :116・`studio_videos` :122・`load_machine` :131・`human_marks` :144・`archive_reader` :154・`load_archive` :165・`run_records` :181・`load_runs` :186・`ts_ms` :208・`num` :215・`dist` :219・ほか 34
 - **eval_speakers.py** (1138 行) — 話者の判別(と覚えた声の照合)の当たり具合を、人が直した最終で測る道具(線 B の話者の評価。notes:plan/line-bc-master-plan.md の Q3・I-2a)。
   - 名前: `read_diar` :101・`num` :110・`norm_name` :114・`hungarian_max` :118・`best_mapping` :169・`time_edited_flags` :183・`is_other_row` :204・`in_period` :209・`confirm_map` :213・`human_rows` :244・`overlap_rows` :285・`class Overlap` :310・ほか 34
 - **eval_timing.py** (510 行) — 行の時刻(字幕の区間)を、行の時刻の原則(notes:docs/spec/subtitles.md)の数字で測る道具(notes:plan/done/line-b-row-timing.md の 7-4)。

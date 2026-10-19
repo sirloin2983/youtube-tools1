@@ -9,8 +9,8 @@
   - 名前: `check` :18・`pick` :26
 - **batch.py** (253 行) — 解析キュー(バッチ): 最大10本(待ち+実行中)。1つの糸が古い順に1本ずつ analyze.run(spec, ctl) で解析する(OPT2 の J1)。
   - 名前: `queued_already` :28・`class Batch` :47
-- **board.py** (428 行) — ② 管理の層 flow: ジョブの掲示板(RS8 の ② の口 S1。形は notes:docs/spec/pipeline.md 2.9・設計 notes:docs/design/rs8-flow-api.md)。
-  - 名前: `class NotFound` :53・`class Refused` :57・`split_id` :65・`norm_case` :73・`normalize` :131・`class Board` :159・`default` :398・`guess_case` :407
+- **board.py** (423 行) — ② 管理の層 flow: ジョブの掲示板(RS8 の ② の口 S1。形は notes:docs/spec/pipeline.md 2.9・設計 notes:docs/design/rs8-flow-api.md)。
+  - 名前: `class NotFound` :53・`split_id` :60・`norm_case` :68・`normalize` :126・`class Board` :154・`default` :393・`guess_case` :402
 - **casebook.py** (326 行) — ② 管理の層 flow: 案件の候補と採用のファイルの書く側(RS8 B3-3・B3-4a。決定 3-37 の (r8j)〜(r8q))。
   - 名前: `owners` :43・`case_of` :57・`split` :88・`carry_over` :140・`write` :168・`live_video` :207・`live_mark` :216・`live_into` :251・`live_adopt` :272・`live_exported` :295・`live_marks` :310・`live_has` :317
 - **deliver.py** (293 行) — ② パックを友人へ届ける(Dropbox の見張るフォルダの 出力\ に zip で置く。友人のアプリの「受け取る」が読む)。
@@ -51,8 +51,8 @@
   - 名前: `key_of` :60・`class Reporter` :64
 - **live_retire.py** (155 行) — 録画の片付けの ② の口(OPT2 の 7x-1。plan/opt-manage.md の 7e・7f): 「この録画を消してよいか(理由)」の読み口と、
   - 名前: `stale_ok` :26・`near` :31・`exported_why` :36・`adopted_why` :51・`class Retire` :65
-- **live_rules.py** (49 行) — 友人のライブ配信の依頼の設定の決まり(notes:docs/spec/friend.md の 2-15)。範囲・既定・読み直しの 1 か所。
-  - 名前: `num_in` :21・`clean_settings` :25・`settings_text` :44
+- **live_rules.py** (146 行) — 友人のライブ配信の依頼の設定の決まりと、依頼と録画の結びつきの記録(notes:docs/spec/friend.md の 2-15)。範囲・既定・読み直しの 1 か所。
+  - 名前: `num_in` :28・`clean_settings` :32・`settings_text` :51・`class RequestBook` :62
 - **live_tx.py** (481 行) — 配信中の候補の文字起こし(線 D の D-11 案 b。notes:plan/line-d-live-clipping.md の 0-11。ユーザー決定)。
   - 名前: `shift_rows` :59・`class LiveTx` :73
 - **live_watch.py** (166 行) — ② 配信の見回り: 登録した事務所のチャンネルから「配信中」と「これからの予定」を探す(いつ探すか・どれだけ覚えるか)。OPT-H2 D。
@@ -65,8 +65,8 @@
   - 名前: `check` :68・`root` :102・`path` :107・`read_file` :119・`read_env` :136・`llm_for_vram` :163・`auto_llm` :173・`overlay_llm` :179・`explicit` :212・`load` :221・`get` :239・`save` :247・ほか 1
 - **normalize.py** (166 行) — ② 管理の層 flow: 素材を 30fps(H.264・yuv420p・AAC)にそろえる 1 つの段(OPT-M2 5b-1。決定は資料 plan/opt-manage.md の 5b)。
   - 名前: `enabled` :28・`sibling_name` :33・`usable` :39・`plan` :48・`room` :86・`run` :106・`set_note` :137・`run_job` :146
-- **order.py** (147 行) — ② 管理の層 flow: 欄 → (封筒, 束の差分) の変換の 1 か所(RV A1)。
-  - 名前: `new_id` :29・`people_of` :34・`spec_diff` :52・`request_top` :103・`order` :108
+- **order.py** (209 行) — ② 管理の層 flow: 欄 → (封筒, 束の差分) の変換の 1 か所(RV A1)。
+  - 名前: `new_id` :30・`speakers_arg` :60・`cut_arg` :86・`video_tracks_arg` :91・`people_of` :96・`spec_diff` :114・`request_top` :165・`order` :170
 - **outbox.py** (264 行) — ② 管理の層 flow: 送り返しの zip(F1 の F2。docs/design/f1-build.md の 2・3 の (f1d)(f1m)・plan/f1-friend-pc.md の決めたこと 11)。
   - 名前: `outbox_dir` :48・`scrub` :57・`default_health` :92・`build` :131・`list_outbox` :223・`mark_done` :246
 - **pack.py** (65 行) — ② パックの口(RS6 a-5a)。人とデータの層(③・④)が Resolve のパックの部品(① pipeline/pack/resolve_export)を直に読まずに済む動詞。
@@ -85,8 +85,8 @@
   - 名前: `read_runs_log` :47・`read_result` :77
 - **runqueue.py** (831 行) — ② 管理の層 flow: 待ち行列と実行の糸(RS7-1 S5。決定 3-30・
   - 名前: `class SpecVersionError` :65・`class BadSpecError` :69・`check_spec` :73・`disk_blocked` :87・`gpu_info` :101・`busy_reason` :115・`doc_id_ok` :124・`result_case` :172・`board_job` :183・`class Queue` :201
-- **spec.py** (598 行) — ① に渡す指定の束(spec)の形・既定値・検査(RS1-6。計画 notes:plan/done/role-restructure.md の 5-4)。
-  - 名前: `num_ok` :48・`check_range` :58・`check_ranges` :73・`clean_ranges` :92・`pad_range` :108・`check_weights` :116・`clean_weights` :127・`top_arg` :135・`marks_arg` :144・`row_edge_ok` :154・`merge` :259・`merge_onto` :267・ほか 10
+- **spec.py** (599 行) — ① に渡す指定の束(spec)の形・既定値・検査(RS1-6。計画 notes:plan/done/role-restructure.md の 5-4)。
+  - 名前: `num_ok` :48・`check_range` :58・`check_ranges` :73・`clean_ranges` :92・`pad_range` :108・`check_weights` :116・`clean_weights` :127・`top_arg` :136・`marks_arg` :145・`row_edge_ok` :155・`merge` :260・`merge_onto` :268・ほか 10
 - **studiobook.py** (475 行) — ② 管理の層 flow: スタジオなしの配信の台帳と、URL の段の動詞(RS8 の「URL も CLI で」)。
   - 名前: `class Ledger` :54・`class StudioBook` :265・`class LocalStudio` :380
 - **thumbs.py** (28 行) — ② サムネの案の口(OPT-H2 の組 A)。③ の editor/thumb_ideas.py(案の決め方・文字起こしを読む殻)が、① pipeline/export/thumb_cards を直に読まずに済むための動詞だけを出す。
@@ -121,6 +121,7 @@
 - src/flow/tests/test_live_recorder.py — ライブ係(flow/livesession.LiveSession)の録画元まわりのテスト: 配信の状態を調べる yt-dlp の呼び方(probe_live・validate_url)・
 - src/flow/tests/test_live_request.py — 友人のライブ配信の依頼(notes:docs/spec/friend.md の 2-15)の ② の側: ライブ係 flow/livesession.LiveSession の begin_request(録画を始めて依頼に結びつける)と、
 - src/flow/tests/test_live_retire.py — 録画の片付けの ② の口(src/flow/live_retire.py の Retire。OPT2 の 7x-1)と、書き出しのジョブの切り詰め(live_export の _trim・cleaned_up。7e-3)のテスト。
+- src/flow/tests/test_live_rules.py — 友人のライブ配信の依頼と録画の結びつき(src/flow/live_rules.py の RequestBook。作業データの live/requests.json。2-15)のテスト。
 - src/flow/tests/test_live_tx.py — 配信中の候補の文字起こし(線 D の D-11 案 b)のテスト。② の側 src/flow/live_tx.py(入口 home の Live は使わず、ライブ係 flow/livesession.LiveSession で組む)。
 - src/flow/tests/test_livehost.py — flow/livehost(ライブの親の口。役割で組み直す RS7-2 G0)のテスト。  py -3.12 -m unittest src/flow/tests/test_livehost.py -v
 - src/flow/tests/test_livesession.py — flow/livesession(ライブ係)のテスト。  py -3.12 -m unittest src/flow/tests/test_livesession.py -v

@@ -9,9 +9,9 @@
   - 名前: `class ToolClient` :103・`spec_from_settings` :184・`live_auto_origin` :202・`class AutoRunner` :213
 - **cli.py** (550 行) — ② 管理 + ① 道具で動くコマンド(RS6 b-S1。決定 3-29)。
   - 名前: `class UsageError` :55・`class PortalError` :59・`parse_args` :70・`load_spec` :97・`classify_input` :122・`check_from` :137・`use_data_dir` :148・`use_studio_data` :163・`class Learning` :184・`find_doc` :200・`class Progress` :215・`class Portal` :241・ほか 10
-- **live.py** (518 行) — リアルタイム切り抜き(線 D。notes:plan/line-d-live-clipping.md の 0)の入口の側。**既定はオフ**(ホームの設定の節 live.enabled)。
-  - 名前: `studio_review` :105・`studio_audio` :112・`studio_lag` :130・`class Live` :139
-  - 受ける口: `/api/peaks` :271・`/api/exports` :278・`/api/info` :290・`/api/begin` :326・`/api/export` :329・`/api/adopt` :336・`/api/export/cancel` :340・`/api/archive/cancel` :342・`/api/archive` :345
+- **live.py** (519 行) — リアルタイム切り抜き(線 D。notes:plan/line-d-live-clipping.md の 0)の入口の側。**既定はオフ**(ホームの設定の節 live.enabled)。
+  - 名前: `studio_review` :106・`studio_audio` :113・`studio_lag` :131・`class Live` :140
+  - 受ける口: `/api/peaks` :272・`/api/exports` :279・`/api/info` :291・`/api/begin` :327・`/api/export` :330・`/api/adopt` :337・`/api/export/cancel` :341・`/api/archive/cancel` :343・`/api/archive` :346
 - **mount.py** (220 行) — 統合サーバーへのツールの取り込み(統合計画の段階3。notes:docs/design/integration-plan.md)。
   - 名前: `class MountError` :53・`tool_modules` :57・`check_no_collision` :67・`load_serve` :77・`inject_token` :104・`send_redirect` :115・`make_handler` :125・`class Mount` :172
   - 受ける口: `/api/ytt` :46

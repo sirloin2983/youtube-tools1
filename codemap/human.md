@@ -5,33 +5,31 @@
 ## src/human/
 
 - **__init__.py** (2 行) — ③ 人の操作。① ② の成果物とは別に人の直し(人の層・上書き)を書き、その段からやり直しを頼む。人の直しから学習データを作る。ytt と ② flow を import してよい(① pipeline は ② を通す)
-- **judgments.py** (194 行) — 人の判断の記録(judgments.jsonl。MARKS-3 の S1a)。人か友人が切り抜きを判断したときだけ 1 行足す。評価と学習が読む人の判断はここだけ。
-  - 名前: `friend_value` :38・`path` :47・`record` :114・`rows` :145・`keys` :160・`fold` :171
-- **judgments_migrate.py** (395 行) — 今の記録から人の判断だけを人の判断の記録(judgments.jsonl)へ 1 回写す道具(MARKS-3 の S2)。元の記録は読むだけで、消さない・直さない。
-  - 名前: `dirs` :104・`build` :314・`apply` :350・`report` :362・`main` :376
+- **judgments.py** (204 行) — 人の判断の記録(judgments.jsonl。MARKS-3 の S1a)。人か友人が切り抜きを判断したときだけ 1 行足す。評価と学習が読む人の判断はここだけ。
+  - 名前: `friend_value` :38・`path` :47・`record` :114・`retract` :124・`rows` :155・`keys` :170・`fold` :181
 
 ## src/human/check/
 
 - **__init__.py** (3 行) — ③ 確かめる(V1。カードの答えの記録 answerlog・答えを実物へ反映する土台 apply・文書の行を直す口 _doc と、種類ごとの反映 read・timerow・value・voice・speech・section・cutcard。
-- **_doc.py** (60 行) — 「確かめる」の文書の行を直す 1 つの口(読み・時刻・声のカードの反映と Z が使う。opt-human 6-1)。
-  - 名前: `busy` :21・`edit_row` :29・`flag_parts` :53・`join_flags` :58
+- **_doc.py** (104 行) — 「確かめる」の文書の行を直す 1 つの口(読み・時刻・声のカードの反映と Z が使う。opt-human 6-1)。
+  - 名前: `busy` :22・`edit_row` :30・`edit_fields` :54・`revert_fields` :64・`doc_id` :78・`row_target` :86・`choice` :96
 - **answerlog.py** (182 行) — 「確かめる」の答えの記録(notes:docs/design/v1-check-build.md の 3-1)。
   - 名前: `answers_path` :43・`new_id` :51・`day_of` :56・`append` :61・`class State` :92・`state` :159・`read_skips` :165・`add_skip` :173
-- **apply.py** (287 行) — 「確かめる」の答えを実物へ反映する土台(notes:docs/design/v1-check-build.md の 3-2・3-3)。
-  - 名前: `class Refused` :42・`class Context` :50・`register` :73・`flush` :211・`answer` :218・`undo` :259・`skip` :280
-- **cutcard.py** (68 行) — 「確かめる」の自動カットのカードの答えの記録(CUT-CARD。決定: plan/opt-eval.md の Q4 自動カットのカード)。
+- **apply.py** (282 行) — 「確かめる」の答えを実物へ反映する土台(notes:docs/design/v1-check-build.md の 3-2・3-3)。
+  - 名前: `class Context` :45・`register` :68・`flush` :206・`answer` :213・`undo` :254・`skip` :275
+- **cutcard.py** (54 行) — 「確かめる」の自動カットのカードの答えの記録(CUT-CARD。決定: plan/opt-eval.md の Q4 自動カットのカード)。
   - 名前: `enabled` :27
-- **read.py** (149 行) — 「確かめる」の読みのカード(どちらの読みが正しいか)の反映(notes:docs/design/v1-check-build.md の 2-2・3-2。import で apply に登録する)。
-  - 名前: `_check` :23・`_tid` :37・`_unflag` :44・`_row_state` :48・`_feedback` :53・`_cand_of` :65・`_apply` :72・`_same` :113・`_revert` :119
+- **read.py** (141 行) — 「確かめる」の読みのカード(どちらの読みが正しいか)の反映(notes:docs/design/v1-check-build.md の 2-2・3-2。import で apply に登録する)。
+  - 名前: `_check` :23・`_tid` :37・`_unflag` :41・`_row_state` :45・`_feedback` :50・`_cand_of` :62・`_apply` :69・`_same` :111・`_revert` :116
 - **section.py** (261 行) — 「確かめる」の評価のレーンの区間カードの反映(C-EVAL (2)。決定 3-47「確かめると評価をまとめる」・3-49 Q2。設計の相談は Fable)。
   - 名前: `enabled` :245
-- **speech.py** (88 行) — 「確かめる」の「この行は声ですか?」の反映(notes:docs/design/v1-check-build.md・C-EVAL (3))。
-  - 名前: `_check` :17・`_row_of` :24・`_tags` :32・`_state` :36・`_apply_speech` :41・`_revert_speech` :57
-- **timerow.py** (91 行) — 「確かめる」の時刻のカード「行の時刻が合っているか」の反映(notes:docs/design/v1-check-build.md の 3-2・5 節・決定 3-41)。
-  - 名前: `_move` :19・`_check` :27・`_row_of` :39・`_apply_time` :47・`_revert_time` :66
-- **value.py** (180 行) — 「確かめる」の価値のカード(切り抜く価値があるか = 70 点以上か)の反映(notes:docs/design/v1-check-build.md・決定 3-41)。
-  - 名前: `_check` :32・`_code` :41・`_msg` :45・`_need` :49・`_auto_check` :59・`_auto_apply` :73・`_auto_revert` :84・`_studio` :100・`_set_status` :107・`_cand_apply` :136・`_cancel_export` :151・`_cand_revert` :166
-- **voice.py** (366 行) — 「確かめる」の誰の声のカード(voice:diar)の答えの形・選択肢・反映・声の覚え直し(notes:docs/design/v1-check-build.md の 3-2・5 節、
+- **speech.py** (60 行) — 「確かめる」の「この行は声ですか?」の反映(notes:docs/design/v1-check-build.md・C-EVAL (3))。
+  - 名前: `_state` :15・`_apply_speech` :21・`_revert_speech` :37
+- **timerow.py** (83 行) — 「確かめる」の時刻のカード「行の時刻が合っているか」の反映(notes:docs/design/v1-check-build.md の 3-2・5 節・決定 3-41)。
+  - 名前: `_move` :19・`_check` :27・`_times` :39・`_apply_time` :43・`_revert_time` :65
+- **value.py** (167 行) — 「確かめる」の価値のカード(切り抜く価値があるか = 70 点以上か)の反映(notes:docs/design/v1-check-build.md・決定 3-41)。
+  - 名前: `_code` :32・`_msg` :36・`_need` :40・`_auto_check` :50・`_auto_apply` :64・`_auto_revert` :75・`_studio` :87・`_set_status` :94・`_cand_apply` :123・`_cancel_export` :138・`_cand_revert` :153
+- **voice.py** (353 行) — 「確かめる」の誰の声のカード(voice:diar)の答えの形・選択肢・反映・声の覚え直し(notes:docs/design/v1-check-build.md の 3-2・5 節、
   - 名前: `doc_embedding` :48・`registry` :52・`options_for` :67・`guess_for` :88
 
 ## src/human/cut/
@@ -49,30 +47,30 @@
 ## src/human/friend/
 
 - **__init__.py** (2 行) — ③ 友人: 受付(Dropbox)→ まとめて実行(②)に流す → 届ける。友人の返事・送り返し・ライブの依頼の結びつき
-- **friend_feedback.py** (142 行) — 友人の「要らない」を PC 側で片付ける(notes:docs/spec/friend.md の 2-14。ユーザー「不採用の場合こちらにフィードバック」)。
-  - 名前: `record_delivery` :26・`find_delivery` :37・`apply` :99
-- **intake.py** (849 行) — 友人からの依頼の受付(notes:docs/spec/friend.md)。
-  - 名前: `configured_folder` :73・`out_dir_of` :84・`submit_urls` :94・`submit_file` :119・`youtube_id` :129・`parse_lines` :135・`decode_text` :161・`probe_video` :175・`youtube_info` :187・`parse_speakers` :253・`parse_ranges` :288・`parse_cut` :299・ほか 3
-- **live_requests.py** (102 行) — 友人のライブ配信の依頼と録画の結びつき(notes:docs/spec/friend.md の 2-15)。
-  - 名前: `settings_label` :26・`key_of` :31・`class Store` :35
-- **returns.py** (478 行) — ③ 人の層: 友人からの送り返しを受け取って並べる(F1 の F2。notes:docs/design/f1-build.md の (f1d))。
-  - 名前: `class Refused` :54・`returns_dir` :58・`extract` :96・`parse_verdict` :130・`parse_notice` :177・`scan` :212・`recent_notices` :404・`iter_requests` :443
+- **friend_feedback.py** (118 行) — 友人の「要らない」を PC 側で片付ける(notes:docs/spec/friend.md の 2-14。ユーザー「不採用の場合こちらにフィードバック」)。
+  - 名前: `record_delivery` :24・`find_delivery` :29・`apply` :82
+- **intake.py** (788 行) — 友人からの依頼の受付(notes:docs/spec/friend.md)。
+  - 名前: `configured_folder` :72・`out_dir_of` :83・`submit_urls` :93・`submit_file` :118・`youtube_id` :128・`parse_lines` :134・`decode_text` :160・`probe_video` :174・`youtube_info` :186・`parse_ranges` :236・`parse_weights` :247・`class Intake` :273
+- **live_requests.py** (22 行) — 友人のライブ配信の依頼と録画の結びつき(notes:docs/spec/friend.md の 2-15)。
+  - 名前: `settings_label` :19
+- **returns.py** (476 行) — ③ 人の層: 友人からの送り返しを受け取って並べる(F1 の F2。notes:docs/design/f1-build.md の (f1d))。
+  - 名前: `returns_dir` :57・`extract` :95・`parse_verdict` :129・`parse_notice` :176・`scan` :211・`recent_notices` :402・`iter_requests` :441
 
 ## src/human/proof/
 
 - **__init__.py** (2 行) — ③ 字幕の校正(文書の置き場と機械の層・人の層・カットの「カット済」・文字起こしと再認識のジョブ・別の読み・話者と声・辞書と名簿の学習・校正の記録)
 - **alt.py** (416 行) — ③ 人の操作の層 human/proof: 2つ目のエンジンとの食い違いに候補を出す(精度改善の計画 第2版 D1-b。notes:plan/line-b-transcription.md)。
   - 名前: `alt_engine_key` :61・`alt_info` :70・`alt_first_run` :79・`alt_spec` :88・`alt_path` :121・`read_alt` :126・`run_alt` :136・`alt_after_transcribe` :160・`alt_notation_only` :193・`alt_diffs` :220・`alt_cached` :344・`alt_spans_of` :356・ほか 3
-- **doc_jobs.py** (405 行) — ③ 人の操作の層 human/proof: 文字起こしのジョブの本体(run_job)と書く先の決め方・受付(validate_job・
-  - 名前: `set_learning` :40・`glossary_of` :45・`validate_job` :62・`public_job` :131・`subtitle_settings` :169・`split_chars_for` :183・`learned_finder` :201・`dict_learned` :212・`carry_overrides` :230・`run_job` :269・`validate_retranscribe` :331・`redo_targets` :383
-- **layers.py** (1061 行) — ③ 文書を「機械の層 + 人の層」から組み立てる純粋な関数(O2-1。RS8。決定 3-37 の (r8r)〜(r8u)・notes:plan/done/rs8-cases-ui.md の決めたこと 3)。
-  - 名前: `match` :65・`join_flags` :126・`compose_rows` :328・`compose` :424・`split_meta` :445・`diff` :551・`mach_changes` :636・`pick` :656・`assign_speakers` :692・`carry` :747・`mach_from_doc` :829・`advance_mach` :870・ほか 5
+- **doc_jobs.py** (354 行) — ③ 人の操作の層 human/proof: 文字起こしのジョブの本体(run_job)と書く先の決め方・受付(validate_job と
+  - 名前: `set_learning` :40・`glossary_of` :45・`validate_job` :62・`public_job` :131・`subtitle_settings` :169・`split_chars_for` :183・`learned_finder` :201・`dict_learned` :212・`carry_overrides` :230・`run_job` :269・`redo_targets` :332
+- **layers.py** (1056 行) — ③ 文書を「機械の層 + 人の層」から組み立てる純粋な関数(O2-1。RS8。決定 3-37 の (r8r)〜(r8u)・notes:plan/done/rs8-cases-ui.md の決めたこと 3)。
+  - 名前: `match` :65・`compose_rows` :323・`compose` :419・`split_meta` :440・`diff` :546・`mach_changes` :631・`pick` :651・`assign_speakers` :687・`carry` :742・`mach_from_doc` :824・`advance_mach` :865・`replace_mach_span` :913・ほか 4
 - **learn.py** (470 行) — ③ 人の操作の層 human/proof: 人が直した内容からの学習(機械の出力と人の行の対応づけ・「誤=>正」の統計・確度)と、行への修正の提案・
   - 名前: `align_groups` :29・`prep_rows` :48・`is_nosub` :63・`split_nosub` :67・`row_text` :92・`learn_events` :103・`learn_groups` :145・`learned_candidates` :198・`load_feedback` :228・`unrecord_feedback` :258・`record_feedback` :280・`forget_doc` :302・ほか 7
 - **machpick.py** (46 行) — ③ 3 択の口(RS8 O2-4。決定 3-37・notes:plan/done/rs8-cases-ui.md の決めたこと 3 の案 A): 機械の結果が変わって人の直しと食い違う行(印 layers.MACH_CHANGED)を
   - 名前: `changes` :15・`pick` :24
-- **rerun.py** (357 行) — ③ 人の操作の層 human/proof: 再認識(選んだ行 each・範囲 range・全体 whole)のジョブの本体と、文書への反映・
-  - 名前: `record_rerun` :47・`apply_retranscribe` :83・`replace_original_multi` :152・`thin_rows` :171・`apply_range` :184・`run_retranscribe` :229・`rebuild_whole` :275・`validate_rerun` :330
+- **rerun.py** (424 行) — ③ 人の操作の層 human/proof: 再認識(選んだ行 each・範囲 range・全体 whole)のジョブの本体と、文書への反映・
+  - 名前: `record_rerun` :49・`apply_retranscribe` :85・`replace_original_multi` :154・`thin_rows` :173・`apply_range` :186・`run_retranscribe` :231・`rebuild_whole` :284・`validate_retranscribe` :344・`validate_rerun` :397
 - **retime.py** (32 行) — ③ 人の操作の層 human/proof: 行の時刻の候補の API の包み POST /api/retime {id, rows: [行の id…]}
   - 名前: `retime_engine` :12・`retime_doc` :18
 - **speakers.py** (672 行) — ③ 人の操作の層 human/proof: 話者判別の結果を文書へ(apply_diarization・1 人指定 single_speaker・守る行 diar_keep_row)・判別のジョブの受付と文書への書き込み(validate_diarize・
@@ -83,9 +81,9 @@
 ## src/human/review/
 
 - **__init__.py** (3 行) — ③ 候補の確認(手動マーク・採用と不採用・端の調整・その記録)
-- **feedback.py** (115 行) — 判定の記録(feedback.jsonl)。確認画面での人の結果(採用・不採用・削除・書き出し)と、人の最終の操作(手で足した・消した・採用の取り消し)を
-  - 名前: `feedback_path` :17・`feedback_for_mark` :66・`nearest_auto` :83・`feedback_event` :106
-- **store.py** (1043 行) — ③ 動画とマークの保存(data.json)。スレッドセーフ・原子的に書き込む。スタジオの `Store` が書き手(スタジオなしの書き手は ② flow/studiobook の StudioBook)。
+- **machinelog.py** (103 行) — スタジオのマークの機械の記録(machine_marks.jsonl。10-19 ③ の統合 Q2 で feedback.jsonl から名前を変えた)。
+  - 名前: `path` :34・`record` :64・`nearest_auto` :82
+- **store.py** (1042 行) — ③ 動画とマークの保存(data.json)。スレッドセーフ・原子的に書き込む。スタジオの `Store` が書き手(スタジオなしの書き手は ② flow/studiobook の StudioBook)。
   - 名前: `offset_from_anchors` :103・`class SeriesCache` :202・`class Store` :241
 
 ## テスト
@@ -100,7 +98,6 @@
 - src/human/check/tests/test_voice.py — 「確かめる」の誰の声のカード(src/human/check/voice.py)の単体テスト: 答えの形・選択肢と予想・文書の行への反映(commit why check:voice)と Z・
 - src/human/friend/tests/test_friend_feedback.py — 友人の「要らない」を PC 側で片付ける(src/human/friend/friend_feedback.py)の単体テスト。ごみ箱は本物の cleanup.Cleanup(一時フォルダ)。
 - src/human/friend/tests/test_intake.py — 友人からの依頼の受付(src/human/friend/intake.py)の単体テスト。まとめて実行・ffprobe・yt-dlp は偽物。
-- src/human/friend/tests/test_live_requests.py — 友人のライブ配信の依頼と録画の結びつきの Store(src/human/friend/live_requests.py。入口の作業データの live/requests.json。2-15)のテスト。
 - src/human/friend/tests/test_returns.py — src/human/friend/returns.py(友人の送り返しの受け取り。F1 の F2)のテスト。リポジトリ直下で:
 - src/human/proof/tests/test_commit.py — 文書を書く唯一の口 human/proof/store.commit のテスト(動きは write_doc と同じ・why をログに残す)。
 - src/human/proof/tests/test_doc_jobs.py — human/proof/doc_jobs のテスト(serve なしで読める・人の行の引き継ぎ)。
@@ -112,4 +109,3 @@
 - src/human/review/tests/test_studio.py — human/review/store.py の単体テスト(ネットワーク・ffmpeg 不要)。 実行(リポジトリ直下): py -3.12 -m unittest src/human/review/tests/test_studio.py
 - src/human/tests/_workdata.py — 人の操作のテストが共有する、一時の作業データの準備(S4)。
 - src/human/tests/test_judgments.py — 人の判断の記録(human/judgments)のテスト: 書いて読む・壊れた行・key の重複・fold の 3 レーンと retract と時刻順・.old・知らない what
-- src/human/tests/test_judgments_migrate.py — 今の記録から人の判断の記録への写し(human/judgments_migrate)のテスト: 下見の数・スイッチが既定でオフ・書く行・二度流しても増えない・

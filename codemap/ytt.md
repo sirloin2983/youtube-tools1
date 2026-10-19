@@ -19,8 +19,8 @@
   - 名前: `parse_replacements` :14・`spans` :36・`wb_split` :52・`apply_replacements` :59
 - **docloc.py** (267 行) — 文字起こしの文書の置き場所を引く口(文書 id → フォルダ。RS8 B-2)。
   - 名前: `tx_root` :53・`loc_path` :58・`check_folder` :67・`placed` :108・`doc_dir` :119・`doc_file` :132・`hist_dir` :139・`bak_dir` :144・`iter_tids` :149・`doc_files` :155・`unseen` :184・`place` :203・ほか 2
-- **errors.py** (26 行) — API の失敗の形。
-  - 名前: `class ApiError` :13・`class Cancelled` :19・`class ResolveExportError` :23
+- **errors.py** (35 行) — API の失敗の形。
+  - 名前: `class ApiError` :13・`class Cancelled` :19・`class Refused` :23・`class ResolveExportError` :32
 - **fsio.py** (472 行) — ファイルの読み書き(スタジオの common.atomic_write と、文字起こしの atomic_write / pipeline_io の書き込みを1つにしたもの)。
   - 名前: `replace_retry` :18・`unlink_quiet` :31・`temp_in` :39・`atomic_write` :58・`create_new` :76・`write_json` :98・`append_jsonl` :108・`class TooLarge` :115・`read_json_file` :123・`is_network_path` :143・`norm_path` :150・`long_path` :155・ほか 16
 - **gpuinfo.py** (165 行) — この PC の GPU の名前と VRAM を調べる(F1 F0-2。notes:docs/design/f1-build.md の 2 の F0-2・3 の (f1b))。標準ライブラリと ytt だけ。
