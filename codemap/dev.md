@@ -13,8 +13,8 @@
   - 名前: `run` :47・`make_media` :51・`seed` :65・`seed_check` :180・`main` :248
 - **doc_state.py** (241 行) — 計画の資料の頭の `状態`・`線` を計画の正(保管庫の plan/data/)から決めて書く・食い違いを止める。
   - 名前: `plan_data` :27・`task_lines` :33・`decide` :42・`derived` :50・`front` :74・`read_props` :85・`write_props` :109・`read` :142・`write` :147・`plan_docs` :156・`check` :166・`sync` :203・ほか 1
-- **drift_report.py** (176 行) — 資料どうし・資料とコードの食い違いをまとめて流し、1 枚の一覧(保管庫の plan/食い違いの一覧.md。自動)に出す。
-  - 名前: `read` :31・`md_files` :36・`is_index` :45・`caps` :49・`entry_docs` :65・`sentences` :71・`duplicates` :91・`collect` :103・`render` :112・`cell` :133・`write_report` :138・`main` :155
+- **drift_report.py** (181 行) — 資料どうし・資料とコードの食い違いをまとめて流し、1 枚の一覧(保管庫の plan/食い違いの一覧.md。自動)に出す。
+  - 名前: `read` :31・`md_files` :36・`is_index` :45・`caps` :54・`entry_docs` :70・`sentences` :76・`duplicates` :96・`collect` :108・`render` :117・`cell` :138・`write_report` :143・`main` :160
 - **dropbox_auth.py** (165 行) — 友人のアプリの Dropbox の鍵を作る(ユーザーの PC で1回だけ。標準ライブラリと ytt の fsio だけ)。
   - 名前: `make_verifier` :40・`challenge_for` :47・`authorize_url` :53・`token_request_body` :65・`exchange` :74・`extra_scopes` :95・`missing_scopes` :101・`write_config` :109・`main` :114
 - **fetch_webview2.py** (75 行) — 友人のアプリ FriendApp.exe が使う WebView2 の部品(DLL 3 つ)を NuGet の公式パッケージから取る(F3-1。notes:plan/f1-friend-requirements.md の C-1-1)。
@@ -85,6 +85,7 @@
 - dev/tests/test_build_friend_zip.py — dev/build_friend_zip.py(友人の PC に配る zip を作る。F1 の F4a)のテスト。ネットは使わない(偽のキャッシュ・取る関数は差し替えて呼ばれたら落とす)。
 - dev/tests/test_code_map.py — dev/code_map.py(コードの地図と言葉の索引を作る道具)の古さの判定と書き出しのテスト。リポジトリ直下で:
 - dev/tests/test_doc_state.py — 資料の食い違いの検査(dev/doc_state.py・dev/spec_check.py の --gone)のテスト。一時フォルダの偽の保管庫だけを使う
+- dev/tests/test_drift_report.py — dev/drift_report.py の索引の判定。リポジトリ直下で:
 - dev/tests/test_dropbox_auth.py — dev/dropbox_auth.py(切り抜き依頼の鍵を作る)のテスト。通信はしない(urlopen を差し替える)。
 - dev/tests/test_friend_diag.py — dev/friend_diag.py(届いた診断を読む道具)のテスト。一時フォルダだけ(本物の Dropbox は読まない)。
 - dev/tests/test_friend_preflight.py — 配る前の検査(dev/friend_preflight.py・dev/friend_preflight_shim.py)と、build_friend_zip.py --publish の関所のテスト。
