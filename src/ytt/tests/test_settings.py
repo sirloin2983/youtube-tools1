@@ -246,6 +246,14 @@ class TestEditorSettings(unittest.TestCase):
             self.st.merge_settings({"patch": {"big": "x" * (self.st.SETTINGS_MAX + 10)}})
         self.assertEqual(cm.exception.status, 413)
 
+    def test_keymap_values(self):
+        """キー配置(keymap)の値の検査: 鍵は英字で始まる名前・値は "" か組み合わせの表記・60 個まで"""
+        good = {"rowNext": "h", "proof": "Shift+Space", "seekBack": "ArrowLeft", "del": "", "insert": "+"}
+        self.assertTrue(self.st.SETTINGS_PATCH_KEYS["keymap"](good))
+        self.assertTrue(self.st.patch_settings({"values": {"keymap": good}})["ok"])
+        for bad in ({"rowNext": "Ctrl+s"}, {"rowNext": "s\n"}, {"1bad": "s"}, {"rowNext": 1}, ["s"], {"a%d" % i: "s" for i in range(61)}):
+            self.assertFalse(self.st.SETTINGS_PATCH_KEYS["keymap"](bad), bad)
+
 
 if __name__ == "__main__":
     unittest.main()

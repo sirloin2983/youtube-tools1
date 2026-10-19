@@ -1,0 +1,15 @@
+{
+ "schema": "youtube-tools-transcript/v1",
+ "tool": {"name": "transcribe-tool", "version": "0.2.0"},
+ "createdAt": "2026-10-18T10:00:00+09:00",
+ "media": {"path": "D:\\切り抜き\\作業\\配信_0001.mp4", "name": "配信_0001.mp4", "durationSec": 20.0},
+ "clip": {"schema": "youtube-tools-clip/v1", "range": {"start": 5.0, "end": 25.0}, "source": {"kind": "youtube", "videoId": "fqa00000001", "title": "配信 <テスト>"}},
+ "title": "通し",
+ "language": "ja",
+ "speakers": [{"id": 0, "name": "兎田ぺこら"}],
+ "segments": [
+  {"id": "a", "start": 0.5, "end": 4.0, "text": "残す1", "speaker": 0, "proofed": true, "cut": false},
+  {"id": "b", "start": 4.0, "end": 9.0, "text": "カットする", "speaker": 0, "proofed": false, "cut": true},
+  {"id": "c", "start": 12.5, "end": 18.0, "text": "残す2", "speaker": null, "proofed": false, "cut": false}
+ ]
+}

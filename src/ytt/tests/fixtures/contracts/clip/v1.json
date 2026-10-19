@@ -1,0 +1,10 @@
+{
+ "schema": "youtube-tools-clip/v1",
+ "tool": {"name": "clip-studio", "version": "0.2.0"},
+ "createdAt": "2026-10-18T10:00:00+09:00",
+ "media": {"path": "D:\\切り抜き\\作業\\配信_0001.mp4", "name": "配信_0001.mp4", "durationSec": 20.0},
+ "source": {"kind": "youtube", "videoId": "fqa00000001", "url": "https://www.youtube.com/watch?v=fqa00000001", "title": "配信 <テスト>", "path": null},
+ "range": {"start": 5.0, "end": 25.0},
+ "mark": {"id": "m1", "label": "見どころ", "status": "adopted", "src": "manual"},
+ "export": {"mode": "precise"}
+}

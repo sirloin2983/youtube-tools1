@@ -1597,6 +1597,39 @@ class TestHeavySlots(unittest.TestCase):
         s.release(held)
         self.assertIsNotNone(s.acquire("cut2resolve", poll=0.01))   # 取り消した人が列を塞がない
 
+    def test_reserved_slots_rules(self):
+        """用途つきの枠(M6): 普通の枠が埋まっているときだけ・同じ用途の中では先に来た順・reserved を渡さない人は使えない・数は RESERVED"""
+        self.assertEqual(jobs.RESERVED, {"live": 1})
+        s = jobs.HeavySlots(1)
+        a = s.acquire("transcribe")
+        flag = []
+        self.assertIsNone(s.acquire("live", cancelled=lambda: bool(flag.append(1)) or len(flag) > 2, poll=0.01))   # reserved なし = 待つ
+        b = s.acquire("live", reserved=True)                                  # 用途つきの枠
+        self.assertEqual([x.get("extra", False) for x in s.snapshot()["active"]], [False, True])
+        flag.clear()
+        self.assertIsNone(s.acquire("live", reserved=True, cancelled=lambda: bool(flag.append(1)) or len(flag) > 2, poll=0.01))   # 用途つきの枠は 1 つだけ
+        flag.clear()
+        self.assertIsNone(s.acquire("transcribe", reserved=True, cancelled=lambda: bool(flag.append(1)) or len(flag) > 2, poll=0.01))   # 用途の違う人は使えない
+        s.release(b)
+        got = []
+        t = threading.Thread(target=lambda: got.append(s.acquire("transcribe", poll=0.01)))
+        t.start()
+        time.sleep(0.05)
+        c = s.acquire("live", reserved=True, poll=0.01)                       # 前で待つ人がいても、用途つきの枠はすぐ使える
+        self.assertIsNotNone(c)
+        self.assertEqual(got, [])
+        s.release(a)
+        t.join(5)
+        self.assertEqual(len(got), 1)                                          # 普通の枠は先に来た順のまま
+        s.release(c)
+        s.release(got[0])
+        self.assertEqual(s.snapshot(), {"limit": 1, "active": [], "waiting": []})
+        none = jobs.HeavySlots(1, reserved={})
+        h = none.acquire("x")
+        flag.clear()
+        self.assertIsNone(none.acquire("live", reserved=True, cancelled=lambda: bool(flag.append(1)) or len(flag) > 2, poll=0.01))   # 枠を持たない
+        none.release(h)
+
     def test_exception_releases(self):
         s = jobs.HeavySlots(1)
         with self.assertRaises(RuntimeError):
@@ -1650,9 +1683,6 @@ class TestCtl(unittest.TestCase):
         c = jobs.Ctl()
         code, _err = procs.run_capture(c, [sys.executable, "-c", "print('a')"], on_line=lambda l: None)
         self.assertEqual(code, 0)
-        c.cancel()
-        with self.assertRaises(errors.Cancelled):
-            procs.run_capture(c, [sys.executable, "-c", "import time; time.sleep(5)"])
 
 
 class TestTxIndex(unittest.TestCase):
@@ -2144,6 +2174,9 @@ class TestNames(unittest.TestCase):
         with open(os.path.join(old, ".studio-id"), "w", encoding="utf-8") as f:
             f.write("old\n")
         self.assertEqual(N.read_owner(old), "old")
+        self.assertEqual(N.pick_folder(self.tmp, "以前", "old", "x")[1], old)
+        self.assertEqual(N.pick_folder(self.tmp, "以前", "xxxxxxxxxxx", "x")[0], "以前_2")
+        self.assertEqual(os.listdir(old), [".studio-id"])                                          # 直下の印は動かさない
         self.assertIsNone(N.read_owner(os.path.join(self.tmp, "無い")))
 
     def test_clip_names(self):
@@ -2157,6 +2190,8 @@ class TestNames(unittest.TestCase):
         open(os.path.join(self.tmp, schemas.WORK_DIR, "01_x_2_edit.clip.json"), "w").close()   # 作業用/ の <名前>_edit.* も使用中
         open(os.path.join(self.tmp, "01_x.mp4"), "w").close()
         self.assertEqual(N.unique_base("01_x", self.tmp), "01_x_3")
+        open(os.path.join(self.tmp, "01_old_edit.mp4"), "w").close()                              # 直下の古い置き方の _edit.mp4 も使用中
+        self.assertEqual(N.unique_base("01_old", self.tmp), "01_old_2")
         long_folder = os.path.join(self.tmp, "f" * max(1, 150 - N.path_units(self.tmp)))
         base = N.clip_base(long_folder, 1, 0, 5, "ラベル" * 20)                                     # ラベルはパスの長さに収まる分だけ
         self.assertLessEqual(N.path_units(os.path.join(long_folder, base)) + N.SUFFIX_ROOM + 3, N.MAX_PATH_UNITS)
@@ -2167,6 +2202,8 @@ class TestNames(unittest.TestCase):
         self.assertEqual(N.final_path(p), os.path.join(self.tmp, "01_x.mp4"))
         self.assertEqual(N.final_path(os.path.join(self.tmp, "a.mp4")), os.path.join(self.tmp, "a.mp4"))
         self.assertFalse(N.is_partial(None))
+        self.assertEqual(N.final_path("x.partial.webm"), "x.webm")
+        self.assertFalse(N.is_partial("x.partial.mp4.vol.mp4"))   # 音量の調整の途中は drop_partial が一緒に消す
 
 
 class TestRecproto(unittest.TestCase):

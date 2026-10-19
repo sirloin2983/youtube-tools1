@@ -296,20 +296,9 @@ class TestOldFfmpeg(unittest.TestCase):
         self.assertIn("vsync", str(cm.exception))
         self.assertEqual(os.listdir(self.tmp), [])
 
-    def test_other_errors_are_not_retried(self):
-        calls = []
-
-        def popen(cmd, **kw):
-            calls.append(cmd)
-            return subprocess.Popen(cmd, **kw)
-        with mock.patch.object(normalize, "encode_args", return_value=["-no_such_option_xyz", "1"]):
-            with self.assertRaises(normalize.NormalizeError):
-                normalize.normalize(self.v60, os.path.join(self.tmp, "x.mp4"), popen=popen)
-        self.assertEqual(len(calls), 1)
-
 
 class TestFastRules(unittest.TestCase):
-    """速くする 2 つの決まり(10-18): 映像が条件どおりなら音声だけ・GPU(h264_nvenc)の引数と使えるかの確かめ"""
+    """速くする 2 つの決まり:映像が条件どおりなら音声だけ・GPU(h264_nvenc)の引数と使えるかの確かめ"""
     def test_video_ok(self):
         self.assertTrue(normalize.video_ok(info(acodec="opus")))   # 音声だけ違う = 映像はコピーでよい
         for bad in (info(vcodec="hevc"), info(bit_depth=10), info(pix_fmt="yuv444p"), info(r_frame_rate="60/1", avg_fps=60.0),

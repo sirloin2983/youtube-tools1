@@ -16,8 +16,10 @@ import http.server
 import json
 import os
 import shutil
+import socket
 import tempfile
 import threading
+import time
 import unittest
 
 
@@ -79,6 +81,39 @@ def data_dir(case, prefix="ytt-data-"):
     cm.__enter__()
     case.addCleanup(cm.__exit__, None, None, None)
     return d
+
+
+def free_port():
+    """今空いている 127.0.0.1 の番号"""
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def wait_for(fn, timeout=20.0, step=0.2):
+    """fn() が真を返すまで待ち、その値を返す。時間切れは最後の fn() の値(偽)"""
+    end = time.time() + timeout
+    while time.time() < end:
+        v = fn()
+        if v:
+            return v
+        time.sleep(step)
+    return fn()
+
+
+def wait_js(pg, expr, timeout=15000, step=0.1, ignore_errors=False):
+    """ブラウザの画面で expr が真になるまで evaluate を繰り返す(CSP の画面では wait_for_function が動かない)。timeout はミリ秒。
+    待てなければ False。ignore_errors なら evaluate の例外(遷移中など)を待ちの続きにする"""
+    end = time.time() + timeout / 1000
+    while time.time() < end:
+        try:
+            if pg.evaluate(expr):
+                return True
+        except Exception:
+            if not ignore_errors:
+                raise
+        time.sleep(step)
+    return False
 
 
 def serve(case, handler, server_cls=http.server.ThreadingHTTPServer):
