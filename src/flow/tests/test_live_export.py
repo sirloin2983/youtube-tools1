@@ -441,8 +441,7 @@ class ExportPiecesTest(unittest.TestCase):
         """書き出し先(out)に書き出し済みの動画のふり(中身 1 バイト)を置く"""
         path = os.path.join(self.tmp, "out", name)
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "wb") as f:
-            f.write(b"x")
+        testkit.write_text(path, "x")
         return path
 
     def mark_job(self, ex, rec, start, end, **kw):

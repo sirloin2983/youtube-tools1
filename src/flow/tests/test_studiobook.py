@@ -11,7 +11,6 @@ import json
 import os
 import shutil
 import sys
-import tempfile
 import time
 import unittest
 from unittest import mock
@@ -150,8 +149,7 @@ class BookTest(Base):
 
     def test_broken_data_not_written(self):
         os.makedirs(self.home)
-        with open(self.data, "w", encoding="utf-8") as f:
-            f.write("{壊れた")
+        testkit.write_text(self.data, "{壊れた")
         with self.assertRaises(errors.ApiError) as cm:
             self.book.ensure({"kind": "youtube", "videoId": VID})
         self.assertEqual(cm.exception.status, 500)
@@ -205,8 +203,7 @@ class LedgerTest(unittest.TestCase):
             self.calls.append(("series", vid))
 
     def test_hooks(self):
-        tmp = tempfile.mkdtemp(prefix="ytt_ledger_")
-        self.addCleanup(shutil.rmtree, tmp, True)
+        tmp = testkit.tempdir(self, "ytt_ledger_")
         folder = os.path.join(tmp, "題")
         os.makedirs(folder)
         names.write_owner(folder, VID)

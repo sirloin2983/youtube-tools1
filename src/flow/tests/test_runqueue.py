@@ -9,6 +9,7 @@ import json
 import sys
 import threading
 import time
+import types
 import unittest
 from unittest import mock
 
@@ -65,8 +66,7 @@ class Base(unittest.TestCase):
         self.media = []
         for i in range(3):
             p = os.path.join(self.tmp, "clip%d.mp4" % i)
-            with open(p, "wb") as f:
-                f.write(b"x")
+            testkit.write_text(p, "x")
             self.media.append(p)
         self.env = {"YTT_MACHINE_FILE": os.path.join(self.tmp, "nai", "machine.json")}   # この PC の設定は無い(既定)
 
@@ -196,8 +196,7 @@ class TestSubmit(Base):
         """動画ファイルの封筒は、実在する絶対パスで拡張子が動画・音声の物だけ(RS7-1 S4)"""
         q = self.queue()
         txt = os.path.join(self.tmp, "memo.txt")
-        with open(txt, "wb") as f:
-            f.write(b"x")
+        testkit.write_text(txt, "x")
         for path, why in ((os.path.join(self.tmp, "nai.mp4"), "見つかりません"), ("clip0.mp4", "見つかりません"), (txt, "動画・音声")):
             with self.assertRaisesRegex(ValueError, why, msg=path):
                 self.sub(q, self.env_of(path))
@@ -508,24 +507,22 @@ class TestFriendIntake(Base):
 
     def test_status_machine(self):
         """status.machine = この PC の設定の engine・device・llmModel と GPU(ytt/gpuinfo が無い・失敗 = null)"""
-        from unittest import mock
         with mock.patch.object(Q, "gpu_info", return_value={"name": "RTX 3060", "vramGB": 12}):
             q = self.queue(env=dict(self.env, YTT_MACHINE_LLM_MODEL="qwen3-4b"))
             m = q.status()["machine"]
             self.assertEqual((m["engine"], m["device"], m["llmModel"]), (SP.TX_ENGINES[0], SP.TX_DEVICES[0], "qwen3-4b"))
             _until(lambda: q.status()["machine"]["gpu"] is not None, "GPU を調べ終える")
             self.assertEqual(q.status()["machine"]["gpu"], {"name": "RTX 3060", "vramGB": 12})
-        with mock.patch.dict(sys.modules, {"ytt.gpuinfo": None}):   # import できない = null
-            self.assertIsNone(Q.gpu_info())
 
-    def test_gpu_info_reads_module(self):
-        import types
-        from unittest import mock
+    def test_gpu_info(self):
+        """ytt/gpuinfo を読む。import できない・失敗 = null"""
         fake = types.ModuleType("ytt.gpuinfo")
         fake.info = lambda: {"name": "Radeon", "vramGB": None, "vendor": "amd"}
         with mock.patch.dict(sys.modules, {"ytt.gpuinfo": fake}):
             self.assertEqual(Q.gpu_info(), {"name": "Radeon", "vramGB": None, "vendor": "amd"})
             fake.info = lambda: 1 / 0
+            self.assertIsNone(Q.gpu_info())
+        with mock.patch.dict(sys.modules, {"ytt.gpuinfo": None}):
             self.assertIsNone(Q.gpu_info())
 
     def test_submit_spec_version_and_bad_spec(self):
@@ -651,8 +648,7 @@ class TestRunLog(Base):
 
     def test_unwritable_folder_does_not_stop_runs(self):
         blocker = os.path.join(self.tmp, "blocker")
-        with open(blocker, "w") as f:
-            f.write("x")   # フォルダの代わりにファイルがある = 書けない
+        testkit.write_text(blocker, "x")   # フォルダの代わりにファイルがある = 書けない
         q = self.make(log_dir=os.path.join(blocker, "logs"))
         self.run_file(q, 0, "0000000001")
         self.assertEqual(q.status()["runs"][0]["state"], "done")

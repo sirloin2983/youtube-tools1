@@ -33,8 +33,7 @@ class _Env(unittest.TestCase):
         self.addCleanup(p.stop)
         self.media = os.path.join(self.tmp, "clips", "a_0001.mp4")
         os.makedirs(os.path.dirname(self.media))
-        with open(self.media, "wb") as f:
-            f.write(b"movie-bytes")
+        testkit.write_text(self.media, "movie-bytes")
         packs = os.path.join(self.tmp, "packs")
         p = mock.patch.object(packrec, "packs_dir", lambda env=None, c2r_dir=None: packs)   # パックを作った記録は一時フォルダへ
         p.start()
@@ -44,8 +43,7 @@ class _Env(unittest.TestCase):
         """out にパックの中身(動画 1 つ)と、パックを作った記録を置く(作り終えたパックの形 = keys.pack_state の same の条件)"""
         os.makedirs(out, exist_ok=True)
         v = os.path.join(out, "a_0001.mp4")
-        with open(v, "wb") as f:
-            f.write(b"pack-movie")
+        testkit.write_text(v, "pack-movie")
         packrec.write_record({"out_dir": out, "files": [("video", v)]}, self.media, False)
 
 
@@ -66,8 +64,7 @@ class TestWriteReadStale(_Env):
         kp = keys.media_key_path(self.media, "export")
         self.assertIsNone(keys.read(kp, "export"))
         os.makedirs(os.path.dirname(kp))
-        with open(kp, "w", encoding="utf-8") as f:
-            f.write("{not json")
+        testkit.write_text(kp, "{not json")
         self.assertIsNone(keys.read(kp, "export"))
         testkit.write_json(kp, dict(schemas.make_key("export", {"a": 1}), inputs={"a": 2}))   # 書き換えられた鍵(hash が合わない)
         self.assertIsNone(keys.read(kp, "export"))
@@ -82,8 +79,7 @@ class TestWriteReadStale(_Env):
 
     def test_write_failure_returns_false(self):
         blocker = os.path.join(self.tmp, "file")
-        with open(blocker, "w") as f:
-            f.write("x")
+        testkit.write_text(blocker, "x")
         self.assertFalse(keys.write("export", os.path.join(blocker, "sub", "k.json"), {"a": 1}))   # フォルダを作れない
         self.assertFalse(keys.write("nope", os.path.join(self.tmp, "k.json"), {"a": 1}))   # 段が正しくない
 
@@ -99,8 +95,7 @@ class TestWriteReadStale(_Env):
         from ytt import docloc
         work = os.path.join(self.tmp, "案件", "作業用")
         os.makedirs(work)
-        with open(os.path.join(work, TID + ".json"), "w", encoding="utf-8") as f:
-            f.write("{}")
+        testkit.write_text(os.path.join(work, TID + ".json"), "{}")
         docloc.place(TID, work)
         kp = keys.doc_key_path(TID, "post")
         self.assertEqual(kp, os.path.join(os.path.normpath(work), TID + ".post.key.json"))
@@ -148,15 +143,13 @@ class TestStages(_Env):
     def test_diar(self):
         keys.write_after_transcribe(TID, {"start": 0, "end": 1, "whole": True, "sourcePath": self.media}, self.RUN)
         voices = os.path.join(self.tmp, "voices.json")
-        with open(voices, "w") as f:
-            f.write("{}")
+        testkit.write_text(voices, "{}")
         self.assertTrue(keys.write_diar(TID, {"requested": 2, "embedding": "e"}, voices))
         d = keys.read(keys.doc_key_path(TID, "diar"), "diar")
         self.assertEqual(d["inputs"]["transcribe"], keys.key_hash(keys.doc_key_path(TID, "transcribe"), "transcribe"))
         self.assertTrue(d["inputs"]["voices"])
         before = d["hash"]
-        with open(voices, "w") as f:
-            f.write('{"a":1}')   # 覚えた声が変わると別の鍵
+        testkit.write_text(voices, '{"a":1}')   # 覚えた声が変わると別の鍵
         keys.write_diar(TID, {"requested": 2, "embedding": "e"}, voices)
         self.assertNotEqual(keys.key_hash(keys.doc_key_path(TID, "diar"), "diar"), before)
 
@@ -283,8 +276,7 @@ class TestPackRecord(_Env):
         out = str(keys._pack.default_out_dir(self.media))
         os.makedirs(out)
         v = os.path.join(out, "a_0001.mp4")
-        with open(v, "wb") as f:
-            f.write(b"pack-movie")
+        testkit.write_text(v, "pack-movie")
         res = {"out_dir": out, "files": [("video", v)], "plan": {"cuts": 1}, "editMedia": None}
         body = {"spec": {"video": self.media, "keeps": [[0, 1]]}, "output": {"textplus": False}}
         self.assertEqual(packrec.after_build(res, self.media, body["spec"], body["output"], False, tool={"name": "flow"}), [])
@@ -302,8 +294,7 @@ class TestPackRecord(_Env):
         out = os.path.join(self.tmp, "p")
         os.makedirs(out)
         v = os.path.join(out, "a.mp4")
-        with open(v, "wb") as f:
-            f.write(b"x")
+        testkit.write_text(v, "x")
         packrec.write_record({"out_dir": out, "files": [("video", v)]}, self.media, True)
         self.assertEqual(packrec.ready(out)[0], False)
 

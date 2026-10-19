@@ -152,8 +152,7 @@ class LocalMarksTest(unittest.TestCase):
         # 書き出しが済んだ所から(録画元に繋がないので _finish を直に)= .clip.json・まとめて実行・印を「書き出し済み」に
         job = next(x for x in ex.jobs if x["id"] == j["id"])
         media = os.path.join(self.tmp, "out", "テスト配信", "01_00h01m38s-00h02m12s.mp4")
-        os.makedirs(os.path.dirname(media))
-        open(media, "wb").close()
+        testkit.write_text(media, "")
         ex._finish(job, h.find("fake"), REC, {"url": URL, "firstPdt": LX.epoch_iso(FIRST)}, {"path": media, "title": "テスト配信", "duration": 34.0},
                    FIRST + 98, FIRST + 132)
         self.assertEqual((job["state"], job["runId"], job["warning"]), ("done", "run-1", ""))
@@ -170,11 +169,20 @@ class LocalMarksTest(unittest.TestCase):
         self.assertEqual(sum(1 for x in ex.jobs if x["markId"] == LX.studio_mark_id(key)), 1)
         self.no_strays()
 
+    def use_case_folder(self):
+        """固定ディスクの書き出し先に、書き出しと同じ置き場(作業用/.studio-id = 配信の videoId)を決める"""
+        p = mock.patch.object(CB._fsio, "is_fixed_drive", return_value=True)
+        p.start()
+        self.addCleanup(p.stop)
+        out = os.path.join(self.tmp, "out")
+        os.makedirs(out)
+        self.folder = LX.pick_folder(out, "テスト配信", VID)
+
     def finish(self, job, name):
         """書き出しが済んだ所から(録画元に繋がないので _finish を直に)。-> 書き出した動画のパス"""
         ex = self.host.exporter
         media = os.path.join(self.folder, name)
-        open(media, "wb").close()
+        testkit.write_text(media, "")
         ex._finish(next(x for x in ex.jobs if x["id"] == job["id"]), self.host.find("fake"), REC, {"url": URL, "firstPdt": LX.epoch_iso(FIRST)},
                    {"path": media, "title": "テスト配信", "duration": 30.0}, FIRST + 1, FIRST + 31)
         return media
@@ -182,14 +190,9 @@ class LocalMarksTest(unittest.TestCase):
     def test_case_after_first_export(self):
         """RS8 B3-5(決定 3-37 の (r8j)): スタジオなしの採用は書き出しまで正本に置き、初めて書き出したとき録画の採用を全部 案件の 採用.json へ写す。
         そのあとの採用・書き出し済み・読み(G3 の adopted)は 採用.json を通り、正本には採用の印を足さない。片付けは写っていれば正本を消してよい"""
-        p = mock.patch.object(CB._fsio, "is_fixed_drive", return_value=True)
-        p.start()
-        self.addCleanup(p.stop)
-        h, ex = self.host, self.host.exporter
+        self.use_case_folder()
+        ex = self.host.exporter
         ms, marks = ex.marks, self.host.marks
-        out = os.path.join(self.tmp, "out")
-        os.makedirs(out)
-        self.folder = LX.pick_folder(out, "テスト配信", VID)   # 書き出しと同じ置き場(作業用/.studio-id = 配信の videoId)
         r1 = self.ad.adopt({"recorder": "fake", "recording": REC, "start": 100.0, "end": 130.0, "after": "none"})
         r2 = self.ad.adopt({"recorder": "fake", "recording": REC, "start": 200.0, "end": 230.0, "after": "none"})
         self.assertIsNone(ms.case("fake", REC))
@@ -229,12 +232,7 @@ class LocalMarksTest(unittest.TestCase):
 
     def test_case_unseen_refuses(self):
         """案件に写した録画の案件が見えない(フォルダを動かした・ドライブが外れた)→ 採用は 503 で断る((r8d)・(r8o))・読みは正本の印に落ちる"""
-        p = mock.patch.object(CB._fsio, "is_fixed_drive", return_value=True)
-        p.start()
-        self.addCleanup(p.stop)
-        out = os.path.join(self.tmp, "out")
-        os.makedirs(out)
-        self.folder = LX.pick_folder(out, "テスト配信", VID)
+        self.use_case_folder()
         r1 = self.ad.adopt({"recorder": "fake", "recording": REC, "start": 100.0, "end": 130.0, "after": "none"})
         self.finish(r1["job"], "01.mp4")
         shutil.move(self.folder, self.folder + "-moved")

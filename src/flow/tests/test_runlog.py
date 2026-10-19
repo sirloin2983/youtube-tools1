@@ -85,8 +85,7 @@ class TestRunlog(unittest.TestCase):
         self.assertIsNone(runlog.read_result(rec(1, resultPath=bundle_path), max_bytes=5))     # 大きすぎる
         self.assertIsNone(runlog.read_result(None))
         for bad in ({"schema": "x", "id": "r001"}, {"schema": runlog.RESULT_SCHEMA, "id": "r002"}, [], "{"):
-            with open(bundle_path, "w", encoding="utf-8") as f:
-                f.write(bad if isinstance(bad, str) else json.dumps(bad))
+            testkit.write_text(bundle_path, bad if isinstance(bad, str) else json.dumps(bad))
             self.assertIsNone(runlog.read_result(got[0]), bad)
         os.remove(bundle_path)
         self.assertIsNone(runlog.read_result(got[0]))   # 案件のフォルダを人が動かした・消した

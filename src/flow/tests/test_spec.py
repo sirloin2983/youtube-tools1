@@ -74,11 +74,9 @@ class TestMoved(unittest.TestCase):
 
     def test_clean_weights(self):
         self.assertEqual(spec.clean_weights({"wAudio": 1, "wChat": 0.25, "wComments": 3}), {"wAudio": 1.0, "wChat": 0.2, "wComments": 3.0})
-        self.assertIsNone(spec.clean_weights(None))
-        self.assertIsNone(spec.clean_weights({"wAudio": 4, "wChat": 1, "wComments": 1}))
-        self.assertIsNone(spec.clean_weights({"wAudio": True, "wChat": 1, "wComments": 1}))
-        self.assertIsNone(spec.clean_weights({"wAudio": 1, "wChat": 1}))
-        self.assertIsNone(spec.clean_weights({"wAudio": -0.1, "wChat": 1, "wComments": 1}))
+        for bad in (None, {"wAudio": 4, "wChat": 1, "wComments": 1}, {"wAudio": True, "wChat": 1, "wComments": 1}, {"wAudio": 1, "wChat": 1},
+                    {"wAudio": -0.1, "wChat": 1, "wComments": 1}):
+            self.assertIsNone(spec.clean_weights(bad), bad)
 
     def test_top_arg(self):
         self.assertEqual(spec.top_arg(None), 3)
@@ -163,24 +161,21 @@ class TestValidate(unittest.TestCase):
         return str(cm.exception)
 
     def test_shape(self):
+        def no_run(b):
+            del b["run"]
+
+        def no_size(b):
+            del b["pack"]["size"]
+
+        def pack_extra(b):
+            b["pack"]["extra"] = 1
+        for name, spoil in (("section", no_run), ("key", no_size), ("pack extra", pack_extra), ("top extra", lambda b: b.update(extra={}))):
+            b = spec.merge(None)
+            spoil(b)
+            with self.assertRaises(ValueError, msg=name):
+                spec.validate(b)
         with self.assertRaises(ValueError):
             spec.validate([])
-        b = spec.merge(None)
-        del b["run"]
-        with self.assertRaises(ValueError):
-            spec.validate(b)
-        b = spec.merge(None)
-        del b["pack"]["size"]
-        with self.assertRaises(ValueError):
-            spec.validate(b)
-        b = spec.merge(None)
-        b["pack"]["extra"] = 1
-        with self.assertRaises(ValueError):
-            spec.validate(b)
-        b = spec.merge(None)
-        b["extra"] = {}
-        with self.assertRaises(ValueError):
-            spec.validate(b)
 
     def test_messages_name_the_item(self):
         self.assertIn("adopt.top", self.bad("adopt", top=0))

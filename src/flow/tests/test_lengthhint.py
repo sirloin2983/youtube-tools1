@@ -36,9 +36,7 @@ class Base(unittest.TestCase):
 
     def write(self, records):
         testkit.write_json(os.path.join(self.studio, "data.json"), {"schema": "x", "videos": self.videos})
-        with open(os.path.join(self.app, "logs", "autorun-runs.jsonl"), "w", encoding="utf-8") as f:
-            for r in records:
-                f.write(json.dumps(r) + "\n")
+        testkit.write_text(os.path.join(self.app, "logs", "autorun-runs.jsonl"), "".join(json.dumps(r) + "\n" for r in records))
 
 
 class TestCompute(Base):

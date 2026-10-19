@@ -27,22 +27,17 @@ RULES = {"schema": "ytt-learned-rules/v1",
          "glossary": ["ぺこら", "マリン"], "dictLearned": '{"rules": [["ぺこ", "ぺこら", 4, 2]]}'}
 
 
-def jwrite(path, obj):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    testkit.write_json(path, obj)
-
-
 class Base(unittest.TestCase):
     def setUp(self):
         self.tmp = testkit.tempdir(self, "ytt-learning-")
         data = os.path.join(self.tmp, "data", "transcribe")
-        jwrite(os.path.join(data, "settings.json"), {"replacements": "a=>b"})
+        testkit.write_json(os.path.join(data, "settings.json"), {"replacements": "a=>b"})
         rp = os.path.join(self.tmp, "roster.json")
-        jwrite(rp, {"groups": [{"id": "g", "label": "G", "names": ["兎田ぺこら"]}]})
-        jwrite(os.path.join(data, "voices", "voxceleb.json"), {"voices": {"兎田ぺこら": {"vec": [1.0, 0.0], "rows": 1, "sec": 10, "updatedAt": 1},
+        testkit.write_json(rp, {"groups": [{"id": "g", "label": "G", "names": ["兎田ぺこら"]}]})
+        testkit.write_json(os.path.join(data, "voices", "voxceleb.json"), {"voices": {"兎田ぺこら": {"vec": [1.0, 0.0], "rows": 1, "sec": 10, "updatedAt": 1},
                                                                          "ほか": {"vec": [0.0, 1.0], "rows": 1, "sec": 10, "updatedAt": 1}}})
         mp = os.path.join(self.tmp, "members.json")
-        jwrite(mp, [])
+        testkit.write_json(mp, [])
         r = learnpack.build(os.path.join(self.tmp, "学習"), data_dir=data, roster_path=rp, members_path=mp, rules=RULES)
         self.pack = r["dir"]
         self.version = r["version"]
@@ -72,8 +67,7 @@ class TestPackReader(Base):
         self.assertEqual([(s["i"], s["wrong"], s["right"]) for s in find("ぺこらんとぺこ")], [(0, "ぺこらん", "ぺこらさん"), (5, "ぺこ", "ぺこら")])
 
     def test_broken_rules_means_no_learning(self):
-        with open(os.path.join(self.pack, "learned-rules.json"), "w") as f:
-            f.write("{not json")
+        testkit.write_text(os.path.join(self.pack, "learned-rules.json"), "{not json")
         lr = learning.Learning(self.pack, human_loader=self.loader_must_not_run)
         self.assertEqual((lr.glossary([]), lr.dict_learned(), lr.learned()), ([], "", None))
 
@@ -98,7 +92,7 @@ class TestPlaces(Base):
         root = os.path.join(self.tmp, "root-%s" % (folder is None and "none" or len(folder)))
         os.makedirs(os.path.join(root, "app"), exist_ok=True)
         if folder is not None:
-            jwrite(os.path.join(root, "app", "prefs.json"), {"intake": {"enabled": True, "folder": folder}})
+            testkit.write_json(os.path.join(root, "app", "prefs.json"), {"intake": {"enabled": True, "folder": folder}})
         return root
 
     def test_maker_pc_does_not_read_pack(self):
@@ -131,10 +125,9 @@ class TestPlaces(Base):
 
     def test_broken_prefs_is_not_maker(self):
         root = self._data_root(None)
-        with open(os.path.join(root, "app", "prefs.json"), "w", encoding="utf-8") as f:
-            f.write("{broken")
+        testkit.write_text(os.path.join(root, "app", "prefs.json"), "{broken")
         self.assertFalse(learning.maker_pc(env={"YTT_DATA_DIR": root}))
-        jwrite(os.path.join(root, "app", "prefs.json"), {"intake": "x"})
+        testkit.write_json(os.path.join(root, "app", "prefs.json"), {"intake": "x"})
         self.assertFalse(learning.maker_pc(env={"YTT_DATA_DIR": root}))
 
     def test_is_pack_and_version(self):

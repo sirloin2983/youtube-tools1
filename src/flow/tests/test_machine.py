@@ -94,8 +94,7 @@ class TestLoad(Base):
             M.load({"color": 1}, env=self.env)
 
     def test_broken_file_is_default(self):
-        with open(self.file, "w", encoding="utf-8") as f:
-            f.write("{not json")
+        testkit.write_text(self.file, "{not json")
         with self.assertLogs("ytt.flow.machine", "WARNING"):
             self.assertEqual(M.load(env=self.env)["sources"]["device"], "default")
 
@@ -132,8 +131,6 @@ class TestSave(Base):
 
     def test_migration_switches_are_gone(self):
         """移行の道具(docMove・markMove のスイッチ)は消した。知らない項目として断る(opt-manage 役割 4)"""
-        self.assertNotIn("docMove", M.FIELDS)
-        self.assertNotIn("markMove", M.FIELDS)
         with self.assertRaises(ValueError):
             M.check("docMove", True)
         self.write({"docMove": True, "markMove": False, "engine": "whisper.cpp"})   # 本物の machine.json に残っている = 黙って読み飛ばす

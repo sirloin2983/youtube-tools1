@@ -8,7 +8,6 @@
 """
 import json
 import os
-import shutil
 import subprocess
 import sys
 import time
@@ -110,7 +109,6 @@ class StopRecorderTest(unittest.TestCase):
                 p.kill()
                 p.wait(5)
         self.fake.close()
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def live(self, enabled=True, url=None):
         cfg = FIX.live_cfg(enabled=enabled, recorders=[{"id": "local", "name": "この PC", "url": url or self.fake.url, "token": TOKEN}])
@@ -180,7 +178,6 @@ class SpawnTest(unittest.TestCase):
                 self.live.proc.wait(10)
             except Exception:
                 self.live.proc.kill()
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_spawn_then_running_then_restart_old_version(self):
         self.assertEqual(self.live.tick(), "spawned", self.logs)

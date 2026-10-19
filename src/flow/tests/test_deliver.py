@@ -5,7 +5,6 @@
 """
 import json
 import os
-import re
 import sys
 import time
 import unittest
@@ -26,6 +25,14 @@ def put(path, data=b"x"):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "wb") as f:
         f.write(data)
+
+
+def fake_preview(case):
+    """ffmpeg を呼ばない(確認用の動画は偽物・長さは分からない)"""
+    for name, fake in (("make_preview", fake_make_preview), ("pack_seconds", lambda d, ffprobe=None: None)):
+        p = mock.patch.object(pv, name, fake)
+        p.start()
+        case.addCleanup(p.stop)
 
 
 def wait(dl, job, limit=10):
@@ -86,10 +93,7 @@ class OriginTest(unittest.TestCase):
         put(os.path.join(self.pack, "clip.mp4"), b"v")
         self.out = os.path.join(self.tmp, "Dropbox", deliver.OUT_DIR)
         self.logs = os.path.join(self.tmp, "logs")
-        for name, fake in (("make_preview", fake_make_preview), ("pack_seconds", lambda d, ffprobe=None: None)):
-            p = mock.patch.object(pv, name, fake)
-            p.start()
-            self.addCleanup(p.stop)
+        fake_preview(self)
 
     def run_(self, rid="rid"):
         import types
@@ -133,9 +137,7 @@ class OriginTest(unittest.TestCase):
                                        marks={self.pack: {"path": "x.mp4", "markId": "m7"}})
         with open(deliver.meta_path_for(dest), encoding="utf-8") as f:
             doc = json.load(f)
-        self.assertEqual(sorted(doc), sorted(["v", "kind", "origin", "sentAt", "requestId", "zip", "preview", "title", "videoId", "markId",
-                                              "streamTitle", "streamer", "seconds"]))
-        self.assertEqual(doc, {"v": 1, "kind": "clip", "origin": "request", "sentAt": doc["sentAt"], "requestId": "20261016-120000-abcdef",
+        self.assertEqual(doc,{"v": 1, "kind": "clip", "origin": "request", "sentAt": doc["sentAt"], "requestId": "20261016-120000-abcdef",
                                "zip": "20261016-120000-abcdef__題.zip", "preview": "20261016-120000-abcdef__題.preview.mp4", "title": "clip",
                                "videoId": "abcdefghijk", "markId": "m7", "streamTitle": "題", "streamer": "", "seconds": 48.26})
 
@@ -366,10 +368,7 @@ class DeliveriesTest(unittest.TestCase):
         self.logs = []
         self.log_dir = os.path.join(self.tmp, "logs")
         self.dl = deliver.Deliveries(lambda: self.cfg["folder"], lambda d: os.path.normpath(d) in self.packs, log=self.logs.append, log_dir=self.log_dir)
-        for name, fake in (("make_preview", fake_make_preview), ("pack_seconds", lambda d, ffprobe=None: None)):   # ffmpeg を呼ばない
-            p = mock.patch.object(pv, name, fake)
-            p.start()
-            self.addCleanup(p.stop)
+        fake_preview(self)
 
     def test_start_and_done(self):
         j = wait(self.dl, self.dl.start(self.pack, "【雑談】校正済み/1"))
@@ -395,17 +394,14 @@ class DeliveriesTest(unittest.TestCase):
         row = friend_feedback.find_delivery(self.log_dir, j["name"])
         self.assertEqual((row["requestId"], row["videoId"], row["title"], row["origin"]), (j["name"].split("__")[0], "abcdefghijk", "題", "manual"))
         self.assertEqual(row["packs"], [{"dir": os.path.normpath(self.pack), "path": clip, "markId": "m1"}])
-        j2 = wait(self.dl, self.dl.start(self.pack, ""))   # 切り抜きが分からなければパックだけ
+        j2 = wait(self.dl, self.dl.start(self.pack, ""))   # 切り抜きが分からなければパックだけ・題が空ならフォルダ名
+        self.assertRegex(j2["name"], r"__clip\.zip$")
         self.assertEqual(friend_feedback.find_delivery(self.log_dir, j2["name"])["packs"], [{"dir": os.path.normpath(self.pack), "path": "", "markId": ""}])
 
     def test_without_log_dir_does_not_record(self):
         dl = deliver.Deliveries(lambda: self.cfg["folder"], lambda d: os.path.normpath(d) in self.packs)
         self.assertEqual(wait(dl, dl.start(self.pack, "t"))["state"], "done")
         self.assertFalse(os.path.exists(self.log_dir))
-
-    def test_title_falls_back_to_folder_name(self):
-        j = wait(self.dl, self.dl.start(self.pack, ""))
-        self.assertTrue(re.search(r"__clip\.zip$", j["name"]), j["name"])
 
     def test_refuses_non_pack_folder(self):
         other = os.path.join(self.tmp, "secret")
@@ -473,9 +469,9 @@ class SameNameTest(unittest.TestCase):
         tmp = testkit.tempdir(self, "ytt-deliver-")
         pack, out = os.path.join(tmp, "clip_pack"), os.path.join(tmp, "Dropbox", deliver.OUT_DIR)
         put(os.path.join(pack, "clip.mp4"), b"v")
-        with mock.patch.object(pv, "make_preview", fake_make_preview), mock.patch.object(pv, "pack_seconds", lambda d, ffprobe=None: None):
-            first = deliver.deliver_one(pack, out, "rid__題", origin="auto")
-            second = deliver.deliver_one(pack, out, "rid__題", origin="auto")
+        fake_preview(self)
+        first = deliver.deliver_one(pack, out, "rid__題", origin="auto")
+        second = deliver.deliver_one(pack, out, "rid__題", origin="auto")
         self.assertEqual(os.path.basename(first), "rid__題.zip")
         self.assertRegex(os.path.basename(second), r"^rid__題-[0-9a-f]{4}\.zip$")
         stem = os.path.basename(second)[:-4]

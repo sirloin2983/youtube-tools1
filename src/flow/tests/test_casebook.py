@@ -67,19 +67,13 @@ class SplitMergeTest(unittest.TestCase):
         self.assertNotIn("order", a["sources"][VID])   # 時刻の順なら並びは持たない
 
     def test_round_trip(self):
-        v = self.sample()
-        self.assertEqual(CF.merge(*through_json(CB.split(v)), VID), v)
-
-    def test_round_trip_keeps_unsorted_order(self):
-        v = video([mark("m2", 500, 520), auto("a1", 10, 40), mark("m1", 50, 80, status="adopted")])
-        c, a = CB.split(v)
-        self.assertEqual(a["sources"][VID]["order"], ["m2", "a1", "m1"])
-        self.assertEqual(CF.merge(*through_json((c, a)), VID), v)
-
-    def test_round_trip_live(self):
         live = {"recorder": "rec1", "recording": REC, "url": "https://www.youtube.com/watch?v=" + VID, "videoId": VID}
-        v = video([mark("m1", 5, 30, status="adopted", live=True)], vid=REC, kind="live", live=live, analysis=None, duration=0.0)
-        self.assertEqual(CF.merge(*through_json(CB.split(v)), REC), v)
+        unsorted = video([mark("m2", 500, 520), auto("a1", 10, 40), mark("m1", 50, 80, status="adopted")])
+        liverec = video([mark("m1", 5, 30, status="adopted", live=True)], vid=REC, kind="live", live=live, analysis=None, duration=0.0)
+        for name, v, vid in (("sample", self.sample(), VID), ("unsorted", unsorted, VID), ("live", liverec, REC)):
+            with self.subTest(name):
+                self.assertEqual(CF.merge(*through_json(CB.split(v)), vid), v)
+        self.assertEqual(CB.split(unsorted)[1]["sources"][VID]["order"], ["m2", "a1", "m1"])   # 時刻の順でなければ並びを持つ
 
     def test_hidden_candidate_stays_on_adoption_side(self):
         """手つかずの自動マークが別のマークと same で重なっている(コラボ転写・手で足した)= 候補の側に置くと隠れるので採用の側に残す"""
@@ -273,8 +267,7 @@ class ReadWriteTest(unittest.TestCase):
 
     def test_broken_candidates_read_as_empty(self):
         CB.write(self.root, *CB.split(self.v))
-        with open(self.path(CF.CANDIDATES_NAME), "w", encoding="utf-8") as f:
-            f.write("{壊れた")
+        testkit.write_text(self.path(CF.CANDIDATES_NAME), "{壊れた")
         c, a = CF.read(self.root)
         self.assertEqual(c, CF.empty_candidates())
         self.assertEqual([m["id"] for m in CF.merge(c, a, VID)["marks"]], ["m1"])
@@ -283,8 +276,7 @@ class ReadWriteTest(unittest.TestCase):
         c, a = CB.split(self.v)
         CB.write(self.root, c, a)
         CB.write(self.root, adoptions=a)   # .bak ができる
-        with open(self.path(CF.ADOPTIONS_NAME), "w", encoding="utf-8") as f:
-            f.write("{壊れた")
+        testkit.write_text(self.path(CF.ADOPTIONS_NAME), "{壊れた")
         got = CF.read(self.root)[1]
         self.assertEqual([m["id"] for m in got["marks"]], ["m1"])
         # 壊れた物の上から書いても .bak は壊れた物で上書きしない(退ける)
@@ -298,8 +290,7 @@ class ReadWriteTest(unittest.TestCase):
 
     def test_broken_adoptions_without_bak_refuses(self):
         os.makedirs(os.path.join(self.root, schemas.WORK_DIR))
-        with open(self.path(CF.ADOPTIONS_NAME), "w", encoding="utf-8") as f:
-            f.write("[]")
+        testkit.write_text(self.path(CF.ADOPTIONS_NAME), "[]")
         with self.assertRaises(errors.ApiError) as cm:
             CF.read(self.root)
         self.assertEqual((cm.exception.code, cm.exception.status), (CF.BROKEN_CODE, 500))

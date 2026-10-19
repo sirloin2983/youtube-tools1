@@ -12,7 +12,7 @@ import unittest
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
 sys.path.insert(0, SRC)
 from flow import board as B  # noqa: E402
-from ytt import fsio  # noqa: E402
+from ytt import fsio, testkit  # noqa: E402
 
 ROOT = os.path.abspath(os.path.join(tempfile.gettempdir(), "案件A"))
 OTHER = os.path.abspath(os.path.join(tempfile.gettempdir(), "案件B"))
@@ -240,11 +240,7 @@ class TestDefault(unittest.TestCase):
     def test_guess_case(self):
         """既定の hook: 動画のパス = そのフォルダ(作業用/ の中なら 1 つ上)・引けなければ None"""
         with tempfile.TemporaryDirectory() as d:
-            work = os.path.join(d, "作業用")
-            os.makedirs(work)
-            clip = os.path.join(work, "a_edit.mp4")
-            with open(clip, "wb") as f:
-                f.write(b"x")
+            clip = testkit.write_text(os.path.join(d, "作業用", "a_edit.mp4"), "x")
             self.assertEqual(os.path.normcase(B.guess_case({"target": {"path": clip}})), os.path.normcase(d))
             self.assertIsNone(B.guess_case({"target": {"path": os.path.join(d, "nai", "x.mp4")}}))
             self.assertIsNone(B.guess_case({"target": {}}))
