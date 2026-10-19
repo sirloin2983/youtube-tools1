@@ -34,29 +34,20 @@ public static class WordsTests
             throw new Exception("失敗: " + msg + " (期待 " + expected + " / 実際 " + actual + ")");
     }
 
-    static string TempDir()
+    // 一時フォルダ(終わりに消す。消せなくても失敗にしない)
+    static void WithDir(Action<string> body)
     {
-        string d = Path.Combine(Path.GetTempPath(), "hc-words-" + Guid.NewGuid().ToString("N").Substring(0, 8));
-        Directory.CreateDirectory(d);
-        return d;
-    }
-
-    static void Cleanup(string dir)
-    {
-        try { Directory.Delete(dir, true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        CoreTests.WithDir(body, false);
     }
 
     static Store Reload(string dir)
     {
-        var s = new Store(dir);
-        s.Load();
-        return s;
+        return CoreTests.Loaded(dir);
     }
 
     static void Basic()
     {
-        string dir = TempDir();
-        try
+        WithDir(dir =>
         {
             var s = Reload(dir);
             var a = s.AddWord("あいさつ", "こんにちは");
@@ -90,8 +81,7 @@ public static class WordsTests
             r = Reload(dir);
             Eq(2, r.Words.Items.Count, "削除が残る");
             True(r.Words.Items.All(x => x.Id != b.Id), "消えた");
-            try { s.UpdateWord(a, "x", "   "); throw new Exception("失敗: 空の本文で例外にならない"); }
-            catch (ArgumentException) { }
+            CoreTests.Throws(() => s.UpdateWord(a, "x", "   "), "失敗: 空の本文で例外にならない", typeof(ArgumentException));
             Eq("新しい本文", a.Text, "失敗した編集は反映しない");
 
             // ドラッグの落とし先(項目)はマイワードでも同じ道。別のグループの項目へは動かない
@@ -100,8 +90,7 @@ public static class WordsTests
             var color = s.Add("色", "#123456");
             True(!s.MoveToEntry(a, color), "マイワードをマイカラーの位置へは動かない");
             True(!s.MoveToEntry(color, a), "マイカラーをマイワードの位置へは動かない");
-        }
-        finally { Cleanup(dir); }
+        });
     }
 
     static void Validate()
@@ -123,21 +112,18 @@ public static class WordsTests
         Eq("名", n, "trim");
 
         Eq("a\r\nb\r\nc", Store.ClipboardText("a\nb\r\nc"), "ClipboardText");
-        string dir = TempDir();
-        try
+        WithDir(dir =>
         {
             var s = Reload(dir);
             var e = s.AddWord("複数行", "1行目\r\n2行目\r\n\r\n4行目");
             Eq("1行目\n2行目\n\n4行目", e.Text, "内部は \\n");
             Eq("1行目\r\n2行目\r\n\r\n4行目", Store.ClipboardText(Reload(dir).Words.Items[0].Text), "往復して CRLF に戻る");
-        }
-        finally { Cleanup(dir); }
+        });
     }
 
     static void Corrupt()
     {
-        string dir = TempDir();
-        try
+        WithDir(dir =>
         {
             File.WriteAllText(Path.Combine(dir, "my-words.json"), "{ こわれた", new UTF8Encoding(false));
             var s = Reload(dir);
@@ -146,55 +132,44 @@ public static class WordsTests
             True(Directory.GetFiles(dir, "my-words.json.corrupt-*").Length == 1, "元のファイルを取っておく");
             s.AddWord("新しい", "本文");
             Eq(1, Reload(dir).Words.Items.Count, "そのあとは保存できる");
-        }
-        finally { Cleanup(dir); }
+        });
     }
 
     static void Locked()
     {
-        string dir = TempDir();
-        try
+        WithDir(dir =>
         {
             var first = Reload(dir);
             first.AddWord("元", "元の本文");
             string path = first.WordsPath;
             string before = File.ReadAllText(path, Encoding.UTF8);
             Store s;
-            using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
-            {
+            using (CoreTests.Lock(path))
                 s = Reload(dir);   // 開けない(数百 ms 待って諦める)
-            }
             True(s.Warnings.Any(w => w.Contains("my-words.json")), "警告が出る");
             Eq(0, s.Words.Items.Count, "読めていない");
-            bool threw = false;
-            try { s.AddWord("上書き", "だめ"); } catch (IOException) { threw = true; }
-            True(threw, "追加は IOException");
+            CoreTests.Throws(() => s.AddWord("上書き", "だめ"), "追加は IOException", typeof(IOException));
             Eq(0, s.Words.Items.Count, "巻き戻す");
             Eq(before, File.ReadAllText(path, Encoding.UTF8), "ファイルは上書きされない");
             // 別の Store でロックせずに読んだ項目を持ち、保存だけ止まる場合の巻き戻し(編集)
             var ok = Reload(dir);
             var e = ok.Words.Items[0];
             var w2 = new Store(dir);
-            using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None)) { w2.Load(); }
+            using (CoreTests.Lock(path)) { w2.Load(); }
             var inject = new ColorEntry { Id = "word/zzz", Name = "n", Text = "t", Group = w2.Words, IsUser = true };
             w2.Words.Items.Add(inject);
-            threw = false;
-            try { w2.UpdateWord(inject, "変更", "変更本文"); } catch (IOException) { threw = true; }
-            True(threw, "編集も IOException");
+            CoreTests.Throws(() => w2.UpdateWord(inject, "変更", "変更本文"), "編集も IOException", typeof(IOException));
             Eq("n", inject.Name, "編集を巻き戻す");
             Eq("t", inject.Text, "本文も巻き戻す");
-            threw = false;
-            try { w2.Remove(inject); } catch (IOException) { threw = true; }
-            True(threw && w2.Words.Items.Contains(inject), "削除も巻き戻す");
+            CoreTests.Throws(() => w2.Remove(inject), "削除も IOException", typeof(IOException));
+            True(w2.Words.Items.Contains(inject), "削除も巻き戻す");
             Eq("元の本文", e.Text, "ほかの Store には影響しない");
-        }
-        finally { Cleanup(dir); }
+        });
     }
 
     static void ColorsMove()
     {
-        string dir = TempDir();
-        try
+        WithDir(dir =>
         {
             var s = Reload(dir);
             var a = s.Add("あ", "#111111");
@@ -220,14 +195,12 @@ public static class WordsTests
             var r = Reload(dir);
             Eq(2, r.Mine.Items.Count, "削除が残る");
             True(!File.Exists(s.WordsPath), "my-words.json は作らない");
-        }
-        finally { Cleanup(dir); }
+        });
     }
 
     static void Favorites()
     {
-        string dir = TempDir();
-        try
+        WithDir(dir =>
         {
             var s = Reload(dir);
             var w = s.AddWord("ことば", "本文");
@@ -253,26 +226,20 @@ public static class WordsTests
 
             // 保存できないときは巻き戻して投げる
             var xw = s.AddWord("x", "x");
-            using (new FileStream(s.SettingsPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
-            {
-                bool threw = false;
-                try { s.ToggleFavorite(xw); } catch (IOException) { threw = true; } catch (UnauthorizedAccessException) { threw = true; }
-                True(threw, "保存できなければ投げる");
-                True(!s.IsFavorite(xw), "巻き戻す");
-            }
+            using (CoreTests.Lock(s.SettingsPath, FileMode.OpenOrCreate))
+                CoreTests.Throws(() => s.ToggleFavorite(xw), "保存できなければ投げる", typeof(IOException), typeof(UnauthorizedAccessException));
+            True(!s.IsFavorite(xw), "巻き戻す");
 
             // ResolveIds
             var all = new List<ColorEntry> { xw };
             var res = s.ResolveIds(new[] { "nothing", xw.Id, xw.Id }, all);
             Eq(2, res.Count, "知らない id は飛ばす");
-        }
-        finally { Cleanup(dir); }
+        });
     }
 
     static void Recent()
     {
-        string dir = TempDir();
-        try
+        WithDir(dir =>
         {
             var s = Reload(dir);
             var list = new List<ColorEntry>();
@@ -293,8 +260,7 @@ public static class WordsTests
             Eq(list[0].Id, r.Settings.Recent[0].Id, "順番が残る");
             Eq(list[4].Id, r.Settings.Recent[1].Id, "順番が残る");
             Eq(3, r.Settings.Recent[1].ColorIndex, "番号が残る");
-        }
-        finally { Cleanup(dir); }
+        });
     }
 
     static void Garbage()
@@ -334,16 +300,13 @@ public static class WordsTests
 
     static void Branch()
     {
-        string dir = TempDir();
-        try
+        WithDir(dir =>
         {
             foreach (string b in new[] { "WORD", "FAV", "RECENT", "MY" })
             {
                 string path = Path.Combine(dir, "m-" + b + ".json");
                 File.WriteAllText(path, "{\"groups\": [{\"id\": \"g\", \"branch\": \"" + b + "\", \"name\": \"x\", \"members\": [{\"name\": \"a\", \"hex\": \"#FF0000\"}]}]}", new UTF8Encoding(false));
-                bool threw = false;
-                try { Palette.Load(path); } catch (FormatException) { threw = true; }
-                True(threw, b + " は members.json に書けない");
+                CoreTests.Throws(() => Palette.Load(path), b + " は members.json に書けない", typeof(FormatException));
             }
             True(Array.IndexOf(Branches.Filters, "WORD") > 0, "札に WORD");
             Eq("マイワード", Branches.Short("WORD"), "Short WORD");
@@ -355,14 +318,12 @@ public static class WordsTests
             foreach (string b in new[] { "MY", "WORD", "FAV", "RECENT", "GRAD" })
                 Eq("名前", new ColorGroup { Branch = b, Name = "名前" }.Label, "Label は名前だけ: " + b);
             True(new ColorGroup { Branch = "JP", Name = "名前" }.Label.StartsWith("JP"), "メンバーの Label は branch 付き");
-        }
-        finally { Cleanup(dir); }
+        });
     }
 
     static void SearchAndColors()
     {
-        string dir = TempDir();
-        try
+        WithDir(dir =>
         {
             var s = Reload(dir);
             var w = s.AddWord("あいさつ", "みなさん こんにちは! ホロライブです");
@@ -380,7 +341,6 @@ public static class WordsTests
             var bare = new ColorEntry { Text = "x" };
             bare.SetColors(new List<ColorOption>());   // 例外にならない
             Eq(0, bare.AllColors.Count, "空の色");
-        }
-        finally { Cleanup(dir); }
+        });
     }
 }

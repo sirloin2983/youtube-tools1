@@ -78,6 +78,51 @@ static class CoreTests
         return d;
     }
 
+    // 一時フォルダを body に渡し、終わりに消す。strict なら消せないとき失敗(つかんだままのファイルに気づく)
+    internal static void WithDir(Action<string> body, bool strict = true)
+    {
+        string d = TempDir();
+        try { body(d); }
+        finally
+        {
+            try { Directory.Delete(d, true); }
+            catch (Exception) { if (strict) throw; }
+        }
+    }
+
+    internal static Store Loaded(string dir)
+    {
+        var s = new Store(dir);
+        s.Load();
+        return s;
+    }
+
+    // a が ok のどれかの例外を投げること(投げなければ what で失敗。ほかの例外はそのまま)
+    internal static void Throws(Action a, string what, params Type[] ok)
+    {
+        try { a(); }
+        catch (Exception ex)
+        {
+            if (ok.Any(t => t.IsInstanceOfType(ex))) return;
+            throw;
+        }
+        throw new Exception(what);
+    }
+
+    // ほかのソフトがつかんでいる状態(読み書きとも共有しない)
+    internal static IDisposable Lock(string path, FileMode mode = FileMode.Open)
+    {
+        return new FileStream(path, mode, mode == FileMode.Open ? FileAccess.Read : FileAccess.ReadWrite, FileShare.None);
+    }
+
+    // members.json を読み直し、s の直した色を当てて id の札を返す
+    static ColorEntry Member(Store s, string apps, string id, out Palette p)
+    {
+        p = SamplePalette(apps);
+        s.ApplyMemberColors(p.Members);
+        return p.Members.First(x => x.MemberId == id);
+    }
+
     // ---- 色 ----
     static void HexNormalize()
     {
@@ -179,11 +224,9 @@ static class CoreTests
 
     static void StoreColors()
     {
-        string dir = TempDir();
-        try
+        WithDir(dir =>
         {
-            var s = new Store(dir);
-            s.Load();
+            var s = Loaded(dir);
             Eq(0, s.Mine.Items.Count, "初めは空");
             var a = s.Add("  自分の赤 ", "#f00");
             var b = s.Add("青", "0000ff");
@@ -196,34 +239,28 @@ static class CoreTests
             True(s.Move(b, -1), "前へ");
             True(!s.Move(b, -1), "先頭より前へは動かない");
 
-            var s2 = new Store(dir);
-            s2.Load();
+            var s2 = Loaded(dir);
             Eq("濃い青,自分の赤,緑", string.Join(",", s2.Mine.Items.Select(x => x.Name)), "読み直しても同じ順番");
             Eq("#00008B", s2.Mine.Items[0].Hex, "編集が残る");
             s2.Remove(s2.Mine.Items[1]);
-            var s3 = new Store(dir);
-            s3.Load();
+            var s3 = Loaded(dir);
             Eq("濃い青,緑", string.Join(",", s3.Mine.Items.Select(x => x.Name)), "削除が残る");
 
             string hex;
             True(Store.Validate("", "#FFFFFF", out hex) != null, "名前が空は不可");
             True(Store.Validate(new string('あ', Store.MaxName + 1), "#FFFFFF", out hex) != null, "長すぎる名前は不可");
             True(Store.Validate("白", "#FFFFF", out hex) != null, "5桁は不可");
-            try { s3.Add("白", "white"); throw new Exception("読めない色が足せてしまった"); }
-            catch (ArgumentException) { }
+            Throws(() => s3.Add("白", "white"), "読めない色が足せてしまった", typeof(ArgumentException));
             Eq(2, s3.Mine.Items.Count, "失敗した追加は残らない");
             True(Directory.GetFiles(dir, "*.part").Length == 0, "一時ファイルが残っていない");
-        }
-        finally { Directory.Delete(dir, true); }
+        });
     }
 
     static void StoreSettings()
     {
-        string dir = TempDir();
-        try
+        WithDir(dir =>
         {
-            var s = new Store(dir);
-            s.Load();
+            var s = Loaded(dir);
             True(s.Settings.CloseAfterCopy && s.Settings.IncludeHash, "既定: コピーしたら閉じる・# あり");
             Eq(Hotkey.DefaultMods, s.Settings.HotkeyMods, "既定のキー");
             s.Settings.CloseAfterCopy = false;
@@ -233,8 +270,7 @@ static class CoreTests
             s.Settings.Filter = "EN";
             s.Settings.WindowWidth = 700;
             s.SaveSettings();
-            var s2 = new Store(dir);
-            s2.Load();
+            var s2 = Loaded(dir);
             True(!s2.Settings.CloseAfterCopy && !s2.Settings.IncludeHash, "チェックが残る");
             Eq(Hotkey.MOD_WIN | Hotkey.MOD_SHIFT, s2.Settings.HotkeyMods, "キーが残る");
             Eq((int)Keys.C, s2.Settings.HotkeyKey, "キーが残る");
@@ -242,47 +278,38 @@ static class CoreTests
             Eq(700, s2.Settings.WindowWidth, "大きさが残る");
 
             File.WriteAllText(s.SettingsPath, "{\"hotkeyModifiers\": 4, \"hotkeyKey\": 72, \"filter\": \"XX\", \"windowWidth\": -5, \"closeAfterCopy\": \"yes\"}");
-            var s3 = new Store(dir);
-            s3.Load();
+            var s3 = Loaded(dir);
             Eq(Hotkey.DefaultMods, s3.Settings.HotkeyMods, "使えないキー(Shift+H)は既定へ");
             Eq("ALL", s3.Settings.Filter, "知らない絞り込みは「すべて」");
             Eq(0, s3.Settings.WindowWidth, "負の大きさは既定");
             True(s3.Settings.CloseAfterCopy, "型の違う値は既定");
-        }
-        finally { Directory.Delete(dir, true); }
+        });
     }
 
     static void StoreCorrupt()
     {
-        string dir = TempDir();
-        try
+        WithDir(dir =>
         {
-            var s = new Store(dir);
-            s.Load();
+            var s = Loaded(dir);
             s.Add("赤", "#FF0000");
             File.WriteAllText(s.ColorsPath, "{ \"colors\": [ {\"name\": \"途中で");
-            var s2 = new Store(dir);
-            s2.Load();
+            var s2 = Loaded(dir);
             Eq(0, s2.Mine.Items.Count, "壊れていれば空で始める");
             Eq(1, s2.Warnings.Count, "知らせる");
             Eq(1, Directory.GetFiles(dir, "my-colors.json.corrupt-*").Length, "元のファイルは取っておく");
             // 名前や色の欠けた項目だけを飛ばす
             File.WriteAllText(s.ColorsPath, "{\"colors\": [{\"name\": \"\", \"hex\": \"#FFFFFF\"}, {\"name\": \"良い\", \"hex\": \"#abc\"}, {\"name\": \"悪い\", \"hex\": \"xyz\"}, 5]}");
-            var s3 = new Store(dir);
-            s3.Load();
+            var s3 = Loaded(dir);
             Eq("良い", string.Join(",", s3.Mine.Items.Select(x => x.Name)), "読める項目だけ");
             Eq("#AABBCC", s3.Mine.Items[0].Hex, "3桁を6桁に");
-        }
-        finally { Directory.Delete(dir, true); }
+        });
     }
 
     static void StoreLocked()
     {
-        string dir = TempDir();
-        try
+        WithDir(dir =>
         {
-            var s = new Store(dir);
-            s.Load();
+            var s = Loaded(dir);
             s.Add("赤", "#FF0000");
             s.Settings.HotkeyKey = (int)Keys.J;
             s.SaveSettings();
@@ -290,30 +317,23 @@ static class CoreTests
 
             // ほかのソフトがつかんでいる間に起動した → 初めの状態で始めても、元のファイルは上書きしない
             var s2 = new Store(dir);
-            using (new FileStream(s.ColorsPath, FileMode.Open, FileAccess.Read, FileShare.None))
+            using (Lock(s.ColorsPath))
                 s2.Load();
             Eq(0, s2.Mine.Items.Count, "読めなかった");
             True(s2.Warnings.Count == 1 && s2.Warnings[0].Contains("保存を止め"), "知らせる");
-            try { s2.Add("青", "#0000FF"); throw new Exception("保存できてしまった"); }
-            catch (IOException) { }
+            Throws(() => s2.Add("青", "#0000FF"), "保存できてしまった", typeof(IOException));
             Eq(0, s2.Mine.Items.Count, "保存できなかった追加は残らない");
             Eq(before, File.ReadAllText(s.ColorsPath), "元のマイカラーはそのまま");
             s2.SaveSettings();   // 設定は読めているので保存できる
-            Eq((int)Keys.J, new Func<int>(() => { var x = new Store(dir); x.Load(); return x.Settings.HotkeyKey; })(), "設定はそのまま");
+            Eq((int)Keys.J, Loaded(dir).Settings.HotkeyKey, "設定はそのまま");
 
             // 保存の途中で失敗したら、削除も元に戻す
-            var s3 = new Store(dir);
-            s3.Load();
+            var s3 = Loaded(dir);
             var red = s3.Mine.Items[0];
-            using (new FileStream(s.ColorsPath, FileMode.Open, FileAccess.Read, FileShare.None))
-            {
-                try { s3.Remove(red); throw new Exception("保存できてしまった"); }
-                catch (IOException) { }
-                catch (UnauthorizedAccessException) { }
-            }
+            using (Lock(s.ColorsPath))
+                Throws(() => s3.Remove(red), "保存できてしまった", typeof(IOException), typeof(UnauthorizedAccessException));
             Eq(1, s3.Mine.Items.Count, "保存できなかった削除は元に戻す");
-        }
-        finally { Directory.Delete(dir, true); }
+        });
     }
 
     // メンバー2人の members.json(1人は2色)を書いて読む
@@ -329,14 +349,11 @@ static class CoreTests
 
     static void StoreMemberColors()
     {
-        string dir = TempDir(), apps = TempDir();
-        try
+        WithDir(dir => WithDir(apps =>
         {
-            var s = new Store(dir);
-            s.Load();
-            var p = SamplePalette(apps);
-            s.ApplyMemberColors(p.Members);
-            var miko = p.Members.First(x => x.MemberId == "miko");
+            var s = Loaded(dir);
+            Palette p;
+            var miko = Member(s, apps, "miko", out p);
             True(!miko.Customized && miko.Hex == "#FF8FDF", "直していなければ members.json の色");
 
             // 主な色を入れ替えて、新しい色を足す
@@ -348,28 +365,23 @@ static class CoreTests
             True(SearchText.Matches(miko, "#1234") && SearchText.Matches(miko, "自分用"), "直した色でも検索できる");
 
             // 起動し直しても残る・members.json を読み直しても残る
-            var s2 = new Store(dir);
-            s2.Load();
-            var p2 = SamplePalette(apps);
-            s2.ApplyMemberColors(p2.Members);
-            var miko2 = p2.Members.First(x => x.MemberId == "miko");
+            var s2 = Loaded(dir);
+            Palette p2;
+            var miko2 = Member(s2, apps, "miko", out p2);
             True(miko2.Customized && miko2.Hex == "#FE4B74", "起動し直しても直した色");
             True(!p2.Members.First(x => x.MemberId == "pekora").Customized, "直していない人はそのまま");
 
             // members.json に無い id は使わないが、消さずに残す
             string text = File.ReadAllText(s2.MemberColorsPath).Replace("\"members\": {", "\"members\": {\"gone-member\": {\"colors\": [{\"hex\": \"#000001\", \"label\": \"\"}]}, ");
             File.WriteAllText(s2.MemberColorsPath, text);
-            var s3 = new Store(dir);
-            s3.Load();
+            var s3 = Loaded(dir);
             Eq(0, s3.Warnings.Count, "書き足したファイルが読める: " + string.Join(" / ", s3.Warnings));
             True(s3.MemberColors.ContainsKey("gone-member"), "知らない id も読む");
-            var p3 = SamplePalette(apps);
-            s3.ApplyMemberColors(p3.Members);
-            var miko3 = p3.Members.First(x => x.MemberId == "miko");
+            Palette p3;
+            var miko3 = Member(s3, apps, "miko", out p3);
             s3.ResetMemberColors(miko3);
             True(!miko3.Customized && miko3.Hex == "#FF8FDF" && miko3.Colors.Count == 2, "元に戻す = members.json の色");
-            var s4 = new Store(dir);
-            s4.Load();
+            var s4 = Loaded(dir);
             True(!s4.MemberColors.ContainsKey("miko"), "元に戻した人はファイルから消える");
             True(s4.MemberColors.ContainsKey("gone-member"), "知らない id は保存しても消えない");
 
@@ -381,89 +393,66 @@ static class CoreTests
             // 最低1色・形の違う色は断る(直した色はそのまま)
             s4.SetMemberColors(miko3, new[] { new ColorOption("#010101", "") });
             foreach (var bad in new[] { new ColorOption[0], new[] { new ColorOption("red", "") } })
-            {
-                try { s4.SetMemberColors(miko3, bad); throw new Exception("おかしな色が保存できてしまった"); }
-                catch (ArgumentException) { }
-            }
+                Throws(() => s4.SetMemberColors(miko3, bad), "おかしな色が保存できてしまった", typeof(ArgumentException));
             Eq("#010101", miko3.Hex, "断ったときは直した色のまま");
             var pekora = p3.Members.First(x => x.MemberId == "pekora");
             var mine = s4.Add("マイ", "#FFFFFF");
-            try { s4.SetMemberColors(mine, new[] { new ColorOption("#000000", "") }); throw new Exception("マイカラーを直せてしまった"); }
-            catch (ArgumentException) { }
+            Throws(() => s4.SetMemberColors(mine, new[] { new ColorOption("#000000", "") }), "マイカラーを直せてしまった", typeof(ArgumentException));
             s4.SetMemberColors(pekora, new[] { new ColorOption("#7EC2FE", ""), new ColorOption("#FFFFFF", "白") });
             True(pekora.Customized && pekora.Colors.Count == 2, "1色の人に2色目を足せる");
             True(Directory.GetFiles(dir, "*.part").Length == 0, "一時ファイルが残っていない");
-        }
-        finally { Directory.Delete(dir, true); Directory.Delete(apps, true); }
+        }));
     }
 
     static void StoreMemberColorsBroken()
     {
-        string dir = TempDir(), apps = TempDir();
-        try
+        WithDir(dir => WithDir(apps =>
         {
-            var s = new Store(dir);
-            s.Load();
-            var p = SamplePalette(apps);
-            s.ApplyMemberColors(p.Members);
-            var miko = p.Members.First(x => x.MemberId == "miko");
-            s.SetMemberColors(miko, new[] { new ColorOption("#111111", "") });
+            var s = Loaded(dir);
+            Palette p;
+            s.SetMemberColors(Member(s, apps, "miko", out p), new[] { new ColorOption("#111111", "") });
             string before = File.ReadAllText(s.MemberColorsPath);
 
             // 壊れたファイル: 取っておいて、直していない状態で始める(落ちない)
             File.WriteAllText(s.MemberColorsPath, "{\"members\": {\"miko\": ");
-            var s2 = new Store(dir);
-            s2.Load();
+            var s2 = Loaded(dir);
             Eq(0, s2.MemberColors.Count, "壊れていれば直した色なし");
             True(s2.Warnings.Count == 1 && s2.Warnings[0].Contains("member-colors.json"), "知らせる");
             Eq(1, Directory.GetFiles(dir, "member-colors.json.corrupt-*").Length, "元のファイルは取っておく");
 
             // 形の違う項目だけ飛ばす
             File.WriteAllText(s.MemberColorsPath, "{\"members\": {\"miko\": {\"colors\": [{\"hex\": \"xyz\"}, {\"hex\": \"#abc\"}]}, \"pekora\": {\"colors\": []}, \"x\": 5, \"y\": {\"colors\": \"#FFFFFF\"}}}");
-            var s3 = new Store(dir);
-            s3.Load();
+            var s3 = Loaded(dir);
             Eq("miko", string.Join(",", s3.MemberColors.Keys), "読める項目だけ");
             Eq("#AABBCC", s3.MemberColors["miko"][0].Hex, "読める色だけ");
 
             // 開けなかったときは上書きしない
             File.WriteAllText(s.MemberColorsPath, before);
             var s4 = new Store(dir);
-            using (new FileStream(s.MemberColorsPath, FileMode.Open, FileAccess.Read, FileShare.None))
+            using (Lock(s.MemberColorsPath))
                 s4.Load();
             True(s4.Warnings.Any(w => w.Contains("保存を止め")), "開けないと知らせる");
-            var p4 = SamplePalette(apps);
-            s4.ApplyMemberColors(p4.Members);
-            var miko4 = p4.Members.First(x => x.MemberId == "miko");
-            try { s4.SetMemberColors(miko4, new[] { new ColorOption("#222222", "") }); throw new Exception("保存できてしまった"); }
-            catch (IOException) { }
+            var miko4 = Member(s4, apps, "miko", out p);
+            Throws(() => s4.SetMemberColors(miko4, new[] { new ColorOption("#222222", "") }), "保存できてしまった", typeof(IOException));
             True(!miko4.Customized && miko4.Hex == "#FF8FDF", "保存できなかった色は反映しない");
             Eq(before, File.ReadAllText(s.MemberColorsPath), "元のファイルはそのまま");
 
             // 保存の途中で失敗したら、元に戻す
-            var s5 = new Store(dir);
-            s5.Load();
-            var p5 = SamplePalette(apps);
-            s5.ApplyMemberColors(p5.Members);
-            var miko5 = p5.Members.First(x => x.MemberId == "miko");
-            using (new FileStream(s.MemberColorsPath, FileMode.Open, FileAccess.Read, FileShare.None))
+            var s5 = Loaded(dir);
+            var miko5 = Member(s5, apps, "miko", out p);
+            using (Lock(s.MemberColorsPath))
             {
-                try { s5.SetMemberColors(miko5, new[] { new ColorOption("#333333", "") }); throw new Exception("保存できてしまった"); }
-                catch (IOException) { }
-                catch (UnauthorizedAccessException) { }
-                try { s5.ResetMemberColors(miko5); throw new Exception("保存できてしまった"); }
-                catch (IOException) { }
-                catch (UnauthorizedAccessException) { }
+                Throws(() => s5.SetMemberColors(miko5, new[] { new ColorOption("#333333", "") }), "保存できてしまった", typeof(IOException), typeof(UnauthorizedAccessException));
+                Throws(() => s5.ResetMemberColors(miko5), "保存できてしまった", typeof(IOException), typeof(UnauthorizedAccessException));
             }
             True(miko5.Customized && miko5.Hex == "#111111" && s5.MemberColors["miko"][0].Hex == "#111111", "保存できなかったときは前の直した色のまま");
-        }
-        finally { Directory.Delete(dir, true); Directory.Delete(apps, true); }
+        }));
     }
 
     // ---- 同梱のデータ ----
     static void BadMembers()
     {
-        string dir = TempDir();
-        try
+        WithDir(dir =>
         {
             string f = Path.Combine(dir, "m.json");
             var cases = new[]
@@ -478,22 +467,14 @@ static class CoreTests
             foreach (string c in cases)
             {
                 File.WriteAllText(f, c);
-                try
-                {
-                    Palette.Load(f);
-                    throw new Exception("読めてしまった: " + c);
-                }
-                catch (FormatException) { }
-                catch (ArgumentException) { }
+                Throws(() => Palette.Load(f), "読めてしまった: " + c, typeof(FormatException), typeof(ArgumentException));
             }
-        }
-        finally { Directory.Delete(dir, true); }
+        });
     }
 
     static void MultiColors()
     {
-        string dir = TempDir();
-        try
+        WithDir(dir =>
         {
             string f = Path.Combine(dir, "m.json");
             File.WriteAllText(f, "{\"groups\": [{\"id\": \"a\", \"branch\": \"JP\", \"name\": \"x\", \"members\": ["
@@ -527,8 +508,7 @@ static class CoreTests
             True(ColorOption.Validate(new ColorOption[0], out ok) != null, "Validate: 空は不可");
             True(ColorOption.Validate(new[] { new ColorOption("red", "") }, out ok) != null, "Validate: 読めない色は不可");
             True(ColorOption.Validate(new[] { new ColorOption("#FFFFFF", new string('あ', ColorOption.MaxLabel + 1)) }, out ok) != null, "Validate: 長いラベルは不可");
-        }
-        finally { Directory.Delete(dir, true); }
+        });
     }
 
     // ---- 自動起動(本物の Run には触らず、テスト用のキーで) ----
@@ -647,7 +627,7 @@ static class CoreTests
         }
     }
 
-    // 札の形(v1.4.0 案B): 上段 = 名前・★、下段 = 色の帯(色の数で等分。1段に入らなければ折り返す)
+    // 札の形: 上段 = 名前・★、下段 = 色の帯(色の数で等分。1段に入らなければ折り返す)
     static void PaletteBands()
     {
         using (var form = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000), ShowInTaskbar = false, Size = new Size(760, 460) })
