@@ -140,7 +140,11 @@ class TidyTest(unittest.TestCase):
         self.sync = FakeSync()
         self.places = {"home": h, "data": self.data, "friend": self.friend, "cases": self.cases}
         self.env = {"YTT_FRIEND_LAUNCHER": "1"}
-        self.t = T.Tidy(self.places, self.inbox, queue_fn=lambda: self.queue, setup=self.setup, sync=self.sync, version="0.1.0", env=self.env)
+        self.t = self.tidy()
+
+    def tidy(self, **kw):
+        kw = dict(dict(queue_fn=lambda: self.queue, setup=self.setup, sync=self.sync, version="0.1.0", env=self.env), **kw)
+        return T.Tidy(self.places, self.inbox, **kw)
 
     def kinds(self, got):
         return {(it["kind"], os.path.relpath(it["path"], self.home)) for it in got["items"]}
@@ -179,8 +183,7 @@ class TidyTest(unittest.TestCase):
 
     def test_case_found_by_request_id_or_queue_is_kept(self):
         self.inbox = FakeInbox(self.inbox.path, [{"id": "x-none", "state": "done"}])
-        t = T.Tidy(self.places, self.inbox, queue_fn=lambda: self.queue, setup=self.setup, sync=self.sync, version="0.1.0", env=self.env)
-        self.assertNotIn(("orphan-case", os.path.join("作業", "古い配信")), self.kinds(t.scan()))   # case.json の requestId が受信箱にある
+        self.assertNotIn(("orphan-case", os.path.join("作業", "古い配信")), self.kinds(self.tidy().scan()))   # case.json の requestId が受信箱にある
         self.queue.runs = [{"state": "queued", "resultPath": os.path.join(self.cases, "依頼", "req-old", "clip.mp4")}]
         self.assertNotIn(("orphan-case", os.path.join("作業", "依頼", "req-old")), self.kinds(self.t.scan()))   # 待ち行列が指している
 
@@ -228,7 +231,7 @@ class TidyTest(unittest.TestCase):
     def test_apply_skips_what_cannot_move(self):
         def stuck(a, b):
             raise PermissionError("使用中")
-        t = T.Tidy(self.places, self.inbox, queue_fn=lambda: self.queue, setup=self.setup, sync=self.sync, version="0.1.0", env=self.env, move=stuck)
+        t = self.tidy(move=stuck)
         got = t.scan()
         res = t.apply(got["items"])
         self.assertTrue(res["failed"])
@@ -272,18 +275,12 @@ class TidyTest(unittest.TestCase):
 
     def test_auto_waits_for_conditions(self):
         self.t.started -= 1000
-        env = dict(self.env)
-        t = T.Tidy(self.places, self.inbox, queue_fn=lambda: self.queue, setup=self.setup, sync=self.sync, version="0.1.0", env={})
-        t.started -= 1000
-        self.assertFalse(t.maybe_auto())   # exe から動いていない
-        t = T.Tidy(self.places, self.inbox, queue_fn=lambda: self.queue, setup=self.setup, sync=self.sync, version="0.1.0",
-                   env=dict(env, YTT_FRIEND_ROLLBACK="0.2.0"))
-        t.started -= 1000
-        self.assertFalse(t.maybe_auto())   # 戻した版
-        t = T.Tidy(self.places, self.inbox, queue_fn=lambda: self.queue, setup=self.setup, sync=self.sync, version="0.0.9", env=env)
-        t.started -= 1000
-        self.assertFalse(t.maybe_auto())   # current でない版
-        self.assertFalse(T.Tidy(self.places, self.inbox, queue_fn=lambda: self.queue, setup=self.setup, sync=self.sync, version="0.1.0", env=env).maybe_auto())   # 起動したばかり
+        for why, kw in (("exe から動いていない", {"env": {}}), ("戻した版", {"env": dict(self.env, YTT_FRIEND_ROLLBACK="0.2.0")}),
+                        ("current でない版", {"version": "0.0.9"})):
+            t = self.tidy(**kw)
+            t.started -= 1000
+            self.assertFalse(t.maybe_auto(), why)
+        self.assertFalse(self.tidy().maybe_auto())   # 起動したばかり
         self.queue.idle = False
         self.assertFalse(self.t.maybe_auto())   # 作業中
         self.queue.idle = True

@@ -156,7 +156,6 @@ class DropboxTest(unittest.TestCase):
         self.assertTrue(self.client(FakeNet(first, second)).download("/出力/a.zip", part, rev="r1"))
         with open(part, "rb") as f:
             self.assertEqual(f.read(), data)
-        # ---- test_download_rev_changed_and_missing
         part = os.path.join(self.tmp, "a.part")
         net = FakeNet((200, {"dropbox-api-result": json.dumps({"rev": "r2"})}, b"abc"))
         with self.assertRaises(D.DropboxError) as cm:

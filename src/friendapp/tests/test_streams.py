@@ -231,7 +231,6 @@ class StreamsTest(unittest.TestCase):
         self.assertEqual([sec["key"] for sec in self.s.view()["sections"]], ["today"])
 
     def test_checking_until_read_then_read(self):
-        self.web.routes.pop(S.WATCH_URL % "v0000000001", None)
         self.add(CH_A, "v0000000001", at(10, 17, 9, 0), "")
         self.web.routes[S.WATCH_URL % "v0000000001"] = (503, b"")   # まだ読めない
         self.run_at(NOW_TS)
@@ -249,18 +248,13 @@ class StreamsTest(unittest.TestCase):
         self.assertEqual(self.web.count(S.WATCH_URL % "v0000000011"), 1)
         self.assertEqual(self.s.view()["sections"], [])
 
-    def test_old_new_items_are_not_read(self):
-        self.add(CH_A, "v0000000021", at(10, 1, 9, 0), live_page(at(10, 1, 9, 0)))   # 2 日より前 = 範囲の外
-        self.run_at(NOW_TS)
-        self.assertEqual(self.web.count(S.WATCH_URL % "v0000000021"), 0)
-
-    def test_old_waiting_room_with_no_views_is_read(self):
-        """何日も前に立てた予定の枠(再生数 0)は古くても読む = 初めて開いた日にも出る"""
+    def test_old_items_are_not_read_except_waiting_room_with_no_views(self):
+        """2 日より前 = 範囲の外は読まない。ただし何日も前に立てた予定の枠(再生数 0)は読む = 初めて開いた日にも出る"""
+        self.add(CH_A, "v0000000021", at(10, 1, 9, 0), live_page(at(10, 1, 9, 0)))
         self.add(CH_A, "v0000000022", at(10, 1, 9, 0), upcoming_page(NOW + timedelta(hours=1)), views=0)
         self.add(CH_A, "v0000000023", at(10, 1, 9, 0), live_page(at(10, 1, 9, 0)), views=1200)
         self.run_at(NOW_TS)
-        self.assertEqual(self.web.count(S.WATCH_URL % "v0000000022"), 1)
-        self.assertEqual(self.web.count(S.WATCH_URL % "v0000000023"), 0)
+        self.assertEqual([self.web.count(S.WATCH_URL % v) for v in ("v0000000021", "v0000000022", "v0000000023")], [0, 1, 0])
         self.assertIn("v0000000022", [v for _k, vs in self.ids(self.s.view()) for v in vs])
 
     def test_tries_then_skip_for_unreadable_page(self):

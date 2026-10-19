@@ -323,18 +323,20 @@ class InboxTest(unittest.TestCase):
         self.assertEqual(self.box.keep_dest(r2, r2["packs"][0])[1], "#2")
 
     def test_decide_error_is_reported_and_not_decided(self):
-        self.arrive(RID, ["a_pack"])
-        with mock.patch("friendapp.inbox.shutil.move", side_effect=PermissionError("denied")):
-            got = self.box.decide(RID, [], "keep")
-        self.assertEqual(got["done"], [])
-        self.assertEqual(len(got["errors"]), 1)
-        self.assertEqual(got["errors"][0]["name"], "a_pack")
-        self.assertIn("保存先へ移せませんでした", got["errors"][0]["message"])
-        self.assertIn("PermissionError", got["errors"][0]["message"])
-        row = self.box.row(RID)
-        self.assertEqual(row["state"], "arrived")
-        self.assertIsNone(row["packs"][0]["verdict"])
-        self.assertEqual(self.verdict_files(RID, "a_pack"), [])
+        for verdict, exc, said in (("keep", PermissionError("denied"), "保存先へ移せませんでした"), ("skip", OSError("busy"), "片付けられませんでした")):
+            with self.subTest(verdict=verdict):
+                rid = RID if verdict == "keep" else RID2
+                self.arrive(rid, ["a_pack"])
+                with mock.patch("friendapp.inbox.shutil.move", side_effect=exc):
+                    got = self.box.decide(rid, [], verdict)
+                self.assertEqual(got["done"], [])
+                self.assertEqual([e["name"] for e in got["errors"]], ["a_pack"])
+                self.assertIn(said, got["errors"][0]["message"])
+                self.assertIn(type(exc).__name__, got["errors"][0]["message"])
+                row = self.box.row(rid)
+                self.assertEqual(row["state"], "arrived")
+                self.assertIsNone(row["packs"][0]["verdict"])
+                self.assertEqual(self.verdict_files(rid, "a_pack"), [])
 
     def test_decide_record_failure_puts_the_pack_back(self):
         """移したあとに判断の記録が書けない: 移した物を元の場所へ戻して「決めていない」のまま(もう一度押せば決まる。ごみ箱に残って日付で消えない)"""
@@ -358,14 +360,6 @@ class InboxTest(unittest.TestCase):
             got = self.box.decide(RID, [], "skip", by="auto")
         self.assertEqual(got["done"], ["a_pack"])
         self.assertEqual(self.box.row(RID)["packs"][0]["verdict"], "skip")
-
-    def test_decide_skip_error_message(self):
-        self.arrive(RID, ["a_pack"])
-        with mock.patch("friendapp.inbox.shutil.move", side_effect=OSError("busy")):
-            got = self.box.decide(RID, [], "skip")
-        self.assertIn("片付けられませんでした", got["errors"][0]["message"])
-        self.assertEqual(self.box.row(RID)["state"], "arrived")
-        self.assertEqual(self.verdict_files(RID, "a_pack"), [])
 
     def test_decide_missing_pack_dir_is_error(self):
         r, case, dirs = self.arrive(RID, ["a_pack"])

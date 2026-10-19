@@ -48,6 +48,13 @@ class EngineTest(unittest.TestCase):
         self.cases = os.path.join(self.tmp, "cases")
         self.ib = inbox.Inbox(os.path.join(self.tmp, "inbox.json"), os.path.join(self.tmp, "outbox"),
                               lambda: os.path.join(self.tmp, "save"), lambda: self.cases)
+        self.calls = []   # 確認用の動画の偽物が受けた (印, フォルダ)
+        self.built = []   # 送り返しの zip を作る口が受けた (結果のパス, 依頼 id)
+        for target, name, fn in ((engine._preview, "pack_seconds", lambda d: 30.0), (engine._preview, "clip_preview", self.fake_preview("clip")),
+                                 (engine._outbox, "build", lambda path, app_dir, request_id=None, **k: self.built.append((path, request_id)))):
+            patcher = mock.patch.object(target, name, fn)
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -80,11 +87,8 @@ class EngineTest(unittest.TestCase):
         self.ib.add("20261016-100000-aaaaaa", {}, {}, run_id="r1")
         dirs = self.packs(6)
         eng = self.make()
-        self.calls = []
-        with mock.patch.object(engine._preview, "pack_seconds", lambda d: 30.0), mock.patch.object(engine._preview, "clip_preview", self.fake_preview("clip")), \
-                mock.patch.object(engine._outbox, "build", lambda *a, **k: None):
-            eng.after_run(fake_run("r1", "done", dirs))
-            eng.make_previews("20261016-100000-aaaaaa")
+        eng.after_run(fake_run("r1", "done", dirs))
+        eng.make_previews("20261016-100000-aaaaaa")
         r = self.ib.row("20261016-100000-aaaaaa")
         self.assertEqual(r["state"], "arrived")
         self.assertEqual([len(g["names"]) for g in r["groups"]], [1] * 6)
@@ -99,14 +103,11 @@ class EngineTest(unittest.TestCase):
         self.ib.add("20261016-100000-aaaaaa", {}, {}, run_id="r1")
         dirs = self.packs(2)
         eng = self.make()
-        self.calls = []
-        with mock.patch.object(engine._preview, "pack_seconds", lambda d: 30.0), \
-                mock.patch.object(engine._preview, "clip_preview", self.fake_preview("clip")), mock.patch.object(engine._outbox, "build", lambda *a, **k: None):
-            eng.after_run(fake_run("r1", "done", dirs))
-            eng.make_previews("20261016-100000-aaaaaa")
-            n = len(self.calls)
-            eng.make_previews("20261016-100000-aaaaaa")   # 作った物は作り直さない
-            self.assertEqual(len(self.calls), n)
+        eng.after_run(fake_run("r1", "done", dirs))
+        eng.make_previews("20261016-100000-aaaaaa")
+        n = len(self.calls)
+        eng.make_previews("20261016-100000-aaaaaa")   # 作った物は作り直さない
+        self.assertEqual(len(self.calls), n)
         self.assertEqual(self.calls, [("clip", dirs[0]), ("clip", dirs[1])])   # 1 本のフォルダを渡す
         self.assertTrue(all(g["preview"] for g in self.ib.row("20261016-100000-aaaaaa")["groups"]))
 
@@ -114,28 +115,21 @@ class EngineTest(unittest.TestCase):
         self.ib.add("20261016-100000-aaaaaa", {}, {}, run_id="r1")
         dirs = self.packs(2)
         eng = self.make()
-        self.calls = []
-        with mock.patch.object(engine._preview, "pack_seconds", lambda d: 30.0), mock.patch.object(engine._preview, "clip_preview", self.fake_preview("clip")), \
-                mock.patch.object(engine._outbox, "build", lambda *a, **k: None):
-            eng.after_run(fake_run("r1", "done", dirs))
-            r = self.ib.row("20261016-100000-aaaaaa")
-            r["packs"][0]["verdict"] = "skip"   # 作る前に見送った
-            eng.make_previews(r["id"])
+        eng.after_run(fake_run("r1", "done", dirs))
+        r = self.ib.row("20261016-100000-aaaaaa")
+        r["packs"][0]["verdict"] = "skip"   # 作る前に見送った
+        eng.make_previews(r["id"])
         self.assertEqual(self.calls, [("clip", dirs[1])])
 
     def test_after_run_cancelled_row_is_removed(self):
         """[取り消す] で止めた実行(届いた物なし)は行ごと消える"""
         self.ib.add("20261016-100000-bbbbbb", {}, {}, run_id="r2")
-        eng = self.make()
-        with mock.patch.object(engine._outbox, "build", lambda *a, **k: None):
-            eng.after_run(fake_run("r2", "cancelled", []))
+        self.make().after_run(fake_run("r2", "cancelled", []))
         self.assertIsNone(self.ib.row("20261016-100000-bbbbbb"))
 
     def test_after_run_error_fails_row(self):
         self.ib.add("20261016-100000-bbbbbb", {}, {}, run_id="r2")
-        eng = self.make()
-        with mock.patch.object(engine._outbox, "build", lambda *a, **k: None):
-            eng.after_run(fake_run("r2", "error", [], error="配信を取ってこられませんでした"))
+        self.make().after_run(fake_run("r2", "error", [], error="配信を取ってこられませんでした"))
         r = self.ib.row("20261016-100000-bbbbbb")
         self.assertEqual((r["state"], r["error"]), ("failed", "配信を取ってこられませんでした"))
 
@@ -146,11 +140,8 @@ class EngineTest(unittest.TestCase):
 
     def test_outbox_built_for_request(self):
         self.ib.add("20261016-100000-cccccc", {}, {}, run_id="r3")
-        eng = self.make()
-        got = []
-        with mock.patch.object(engine._outbox, "build", lambda path, app_dir, request_id=None, **k: got.append((path, request_id))):
-            eng.after_run(fake_run("r3", "error", [], result_path="x.json", error="e"))
-        self.assertEqual(got, [("x.json", "20261016-100000-cccccc")])
+        self.make().after_run(fake_run("r3", "error", [], result_path="x.json", error="e"))
+        self.assertEqual(self.built, [("x.json", "20261016-100000-cccccc")])
 
     def test_reconcile_lost_row(self):
         self.ib.add("20261016-100000-dddddd", {}, {}, run_id="gone")

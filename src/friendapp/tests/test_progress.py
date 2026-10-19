@@ -24,10 +24,24 @@ class ClassifyTest(unittest.TestCase):
         self.assertEqual(r["detail"], text)
         return r
 
-    def test_members(self):
-        self.check("Join this channel to get access", "members")
-        self.check("メンバー限定の動画です", "members")
-        self.assertEqual(P.classify("members only")["retry"], False)
+    def test_codes_and_retry(self):
+        """言葉 -> 失敗の種類と「もう一度送る」を出すか(None は種類だけ見る)"""
+        for code, retry, texts in (
+                ("members", False, ("Join this channel to get access", "メンバー限定の動画です", "members only")),
+                ("unavailable", None, ("この動画は非公開です", "Private video. Sign in", "Video unavailable", "This live event will begin in 5 minutes.", "まだ公開されていません")),
+                ("noArchive", None, ("アーカイブが出ませんでした", "アーカイブがまだ作られていません", "no archive found for this stream")),
+                ("rangeOver", None, ("区間が配信の長さを超えています", "requested range is out of range", "区間が長すぎます(3 時間まで)")),
+                ("disk", True, ("パソコンの空きが足りません", "[Errno 28] No space left on device", "disk full")),
+                ("net", True, ("ネットにつながりませんでした", "<urlopen error [Errno 11001] getaddrinfo failed>", "ConnectionError: timed out", "HTTP Error 503: Service Unavailable")),
+                ("transcribe", False, ("文字起こしの部品が見つかりません", "whisper.cpp exited with code 1", "CUDA error")),
+                ("dropbox", True, ("Dropbox の鍵が無い", "invalid_grant: refresh token expired", "expired_access_token")),
+                ("noHighlights", None, ("見どころが見つかりませんでした", "切り抜く所が見つかりませんでした", "no highlights were found", "候補が 0 件です")),
+                ("cancelled", None, ("止めました", "Job cancelled by user"))):
+            for text in texts:
+                with self.subTest(text=text):
+                    r = self.check(text, code)
+                    if retry is not None:
+                        self.assertEqual(r["retry"], retry)
 
     def test_bot(self):
         bot = "方法1(区間取得): ERROR: [youtube] x: Sign in to confirm you’re not a bot. Use --cookies-from-browser"
@@ -47,23 +61,6 @@ class ClassifyTest(unittest.TestCase):
         self.assertEqual(P.LOGIN_CODES, ("bot", "age"))
         self.assertNotIn("retryMax", P.classify("timed out"))
 
-    def test_unavailable(self):
-        self.check("この動画は非公開です", "unavailable")
-        self.check("Private video. Sign in", "unavailable")
-        self.check("Video unavailable", "unavailable")
-        self.check("This live event will begin in 5 minutes.", "unavailable")
-        self.check("まだ公開されていません", "unavailable")
-
-    def test_no_archive(self):
-        self.check("アーカイブが出ませんでした", "noArchive")
-        self.check("アーカイブがまだ作られていません", "noArchive")
-        self.check("no archive found for this stream", "noArchive")
-
-    def test_range_over(self):
-        self.check("区間が配信の長さを超えています", "rangeOver")
-        self.check("requested range is out of range", "rangeOver")
-        self.check("区間が長すぎます(3 時間まで)", "rangeOver")
-
     def test_range_over_not_for_file(self):
         r = self.check("区間が配信の長さを超えています", "unknown", kind="file")
         self.assertTrue(r["retry"])   # 当たらない失敗は「もう一度送る」を出す
@@ -71,37 +68,6 @@ class ClassifyTest(unittest.TestCase):
         r = self.check("解析中に動画が削除されました", "unavailable", kind="file")   # 消えた動画は送り直しても同じ
         self.assertFalse(r["retry"])
         self.assertEqual(r["message"], P.FILE_UNAVAILABLE)
-
-    def test_disk(self):
-        self.check("パソコンの空きが足りません", "disk")
-        self.check("[Errno 28] No space left on device", "disk")
-        self.assertTrue(P.classify("disk full")["retry"])
-
-    def test_net(self):
-        self.check("ネットにつながりませんでした", "net")
-        self.check("<urlopen error [Errno 11001] getaddrinfo failed>", "net")
-        self.check("ConnectionError: timed out", "net")
-        self.assertTrue(P.classify("HTTP Error 503: Service Unavailable")["retry"])
-
-    def test_transcribe(self):
-        self.check("文字起こしの部品が見つかりません", "transcribe")
-        self.check("whisper.cpp exited with code 1", "transcribe")
-        self.assertFalse(P.classify("CUDA error")["retry"])
-
-    def test_dropbox(self):
-        self.check("Dropbox の鍵が無い", "dropbox")
-        self.check("invalid_grant: refresh token expired", "dropbox")
-        self.assertTrue(P.classify("expired_access_token")["retry"])
-
-    def test_no_highlights(self):
-        self.check("見どころが見つかりませんでした", "noHighlights")
-        self.check("切り抜く所が見つかりませんでした", "noHighlights")
-        self.check("no highlights were found", "noHighlights")
-        self.check("候補が 0 件です", "noHighlights")
-
-    def test_cancelled(self):
-        self.check("止めました", "cancelled")
-        self.check("Job cancelled by user", "cancelled")
 
     def test_detail_cut(self):
         self.assertEqual(len(P.classify("x" * 900)["detail"]), 500)
@@ -170,7 +136,6 @@ class EtaTest(unittest.TestCase):
     def test_remaining(self):
         # 切り抜き 平均 200・経った 50 → 150 + 文字起こし 300 + 仕上げ 30
         self.assertEqual(P.eta(self.STATS, "url", False, "切り抜き", 50), 480)
-        # ---- test_elapsed_longer_than_average
         self.assertEqual(P.eta(self.STATS, "url", False, "切り抜き", 999), 330)
 
     def test_missing_record_is_none(self):
@@ -202,10 +167,10 @@ class SlowTest(unittest.TestCase):
     def test_boundary(self):
         self.assertFalse(P.slow(0, 0, 599999))
         self.assertTrue(P.slow(0, 0, 600000))
-        # ---- test_change_resets
         self.assertFalse(P.slow(0, 500000, 1000000))
         self.assertTrue(P.slow(0, 500000, 1100000))
         self.assertFalse(P.slow(700000, 0, 1000000))
+
 
 class TextTest(unittest.TestCase):
     S = {"index": 2, "total": 5, "label": "見どころを探す", "detail": ""}

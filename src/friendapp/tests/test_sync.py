@@ -421,10 +421,9 @@ class SyncTest(unittest.TestCase):
         self.assertEqual(d, {"videoId": "dQw4w9WgXcQ", "markId": "m1", "streamTitle": "枠の題", "streamer": "星見ルナ", "seconds": 31.5})
         d = S.parse_meta_info(json.dumps({"v": 1, "videoId": "short", "markId": "", "streamTitle": "", "seconds": 0}).encode())
         self.assertEqual(d, {})   # 分からない欄は入れない
-        self.assertEqual(S.parse_meta_info(json.dumps({"v": 1, "seconds": 86400}).encode()), {})
-        self.assertEqual(S.parse_meta_info(json.dumps({"v": 1, "seconds": True}).encode()), {})
-        self.assertEqual(S.parse_meta_info(json.dumps({"v": 2, "videoId": "dQw4w9WgXcQ"}).encode()), {})
-        self.assertEqual(S.parse_meta_info(b"{broken"), {})
+        for raw in (json.dumps({"v": 1, "seconds": 86400}), json.dumps({"v": 1, "seconds": True}), json.dumps({"v": 2, "videoId": "dQw4w9WgXcQ"}), "{broken"):
+            with self.subTest(raw=raw):
+                self.assertEqual(S.parse_meta_info(raw.encode()), {})
 
     def test_single_pack_meta_fills_stream_info_and_keep_place(self):
         """.meta.json の配信の欄がパックの info に入り、受け取るの保存先 <日付>_<配信者>_<題> の中の #番号 になる。判断の記録にも videoId・markId"""

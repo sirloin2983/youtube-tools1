@@ -73,7 +73,9 @@ class FakeDownloader:
                 progress(i + 4)
 
 
-class SetupTest(unittest.TestCase):
+class HomeBase(unittest.TestCase):
+    """一時の home(data・app/friendapp・fetch.json の置き場)と、取得表の書き出し"""
+
     def setUp(self):
         self.tmp = testkit.tempdir(self, "friendsetup-")
         self.home = os.path.join(self.tmp, "home")
@@ -81,6 +83,14 @@ class SetupTest(unittest.TestCase):
         self.friend = os.path.join(self.data, "app", "friendapp")
         os.makedirs(self.friend)
         self.fetch = os.path.join(self.home, "fetch.json")
+
+    def write_fetch(self, items):
+        testkit.write_json(self.fetch, {"schema": "youtube-tools-friend-fetch/v1", "version": "0.93.0", "items": items})
+
+
+class SetupTest(HomeBase):
+    def setUp(self):
+        super().setUp()
         self.model = b"model-bytes-" * 10
         self.tool = zbytes({"ffmpeg-1/bin/ffmpeg.exe": b"exe", "ffmpeg-1/README.txt": b"r"})
         self.sv = tbytes({"sv/model.onnx": b"onnx", "sv/tokens.txt": b"tok"})
@@ -105,9 +115,6 @@ class SetupTest(unittest.TestCase):
         with open(p, "wb") as f:
             f.write(data)
         return p
-
-    def write_fetch(self, items):
-        testkit.write_json(self.fetch, {"schema": "youtube-tools-friend-fetch/v1", "version": "0.93.0", "items": items})
 
     def make(self, **kw):
         kw.setdefault("downloader", self.dl)
@@ -374,23 +381,17 @@ class HttpDownloaderTest(unittest.TestCase):
         self.tmp = testkit.tempdir(self, "friendhttp-")
         self.part = os.path.join(self.tmp, "a", "x.part")
 
-    def test_resume_with_range(self):
-        os.makedirs(os.path.dirname(self.part))
-        with open(self.part, "wb") as f:
-            f.write(b"abc")
-        op = FakeOpener(FakeResp(b"defg", 206))
-        S.HttpDownloader(opener=op).get("https://h/x", self.part, 100, lambda n: None, lambda: False)
-        self.assertEqual(op.reqs[0].get_header("Range"), "bytes=3-")
-        with open(self.part, "rb") as f:
-            self.assertEqual(f.read(), b"abcdefg")
-
-    def test_server_ignores_range_restarts(self):
-        os.makedirs(os.path.dirname(self.part))
-        with open(self.part, "wb") as f:
-            f.write(b"zzz")
-        S.HttpDownloader(opener=FakeOpener(FakeResp(b"whole", 200))).get("https://h/x", self.part, 100, lambda n: None, lambda: False)
-        with open(self.part, "rb") as f:
-            self.assertEqual(f.read(), b"whole")
+    def test_resume_with_range_or_restart_when_server_ignores_it(self):
+        for have, resp, status, want in ((b"abc", b"defg", 206, b"abcdefg"), (b"zzz", b"whole", 200, b"whole")):
+            with self.subTest(status=status):
+                os.makedirs(os.path.dirname(self.part), exist_ok=True)
+                with open(self.part, "wb") as f:
+                    f.write(have)
+                op = FakeOpener(FakeResp(resp, status))
+                S.HttpDownloader(opener=op).get("https://h/x", self.part, 100, lambda n: None, lambda: False)
+                self.assertEqual(op.reqs[0].get_header("Range"), "bytes=%d-" % len(have))
+                with open(self.part, "rb") as f:
+                    self.assertEqual(f.read(), want)
 
     def test_too_big_stops(self):
         with self.assertRaises(S.FetchError):
@@ -421,16 +422,11 @@ class HttpDownloaderTest(unittest.TestCase):
 
 
 # ================================================================ 準備だけの画面の流れ(begin・view・done・awake)
-class FlowTest(unittest.TestCase):
+class FlowTest(HomeBase):
     """本物のネット・本物の道具・本物の文字起こしは動かさない(偽の取り方・偽の run・偽の whisper)"""
 
     def setUp(self):
-        self.tmp = testkit.tempdir(self, "friendflow-")
-        self.home = os.path.join(self.tmp, "home")
-        self.data = os.path.join(self.home, "data")
-        self.friend = os.path.join(self.data, "app", "friendapp")
-        os.makedirs(self.friend)
-        self.fetch = os.path.join(self.home, "fetch.json")
+        super().setUp()
         self.model = b"model-bytes" * 5
         self.ffz = zbytes({"ffmpeg-9/bin/ffmpeg.exe": b"ff-exe", "ffmpeg-9/bin/ffprobe.exe": b"fp-exe", "ffmpeg-9/LICENSE": b"l"})
         self.ytd = b"ytdlp-exe"
@@ -455,8 +451,16 @@ class FlowTest(unittest.TestCase):
         self.device = ["vulkan"]
         self.devices_set = []
 
-    def write_fetch(self, items):
-        testkit.write_json(self.fetch, {"schema": "youtube-tools-friend-fetch/v1", "version": "0.93.0", "items": items})
+    def hold_downloads(self):
+        """取り方を gate が開くまで止める -> gate"""
+        gate = threading.Event()
+        orig = self.dl.get
+
+        def slow(url, part, expect, progress, cancelled):
+            gate.wait(5)
+            return orig(url, part, expect, progress, cancelled)
+        self.dl.get = slow
+        return gate
 
     def fake_run(self, cmd, timeout):
         self.cmds.append(list(cmd))
@@ -596,13 +600,7 @@ class FlowTest(unittest.TestCase):
         self.assertFalse(st.done)
 
     def test_cancel_stops_with_failed(self):
-        gate = threading.Event()
-        orig = self.dl.get
-
-        def slow(url, part, expect, progress, cancelled):
-            gate.wait(5)
-            return orig(url, part, expect, progress, cancelled)
-        self.dl.get = slow
+        gate = self.hold_downloads()
         st = self.make()
         st.start()
         self.assertTrue(st.awake())
@@ -665,13 +663,7 @@ class FlowTest(unittest.TestCase):
 
     # ---- 見た目の形
     def test_view_shape_while_fetching(self):
-        gate = threading.Event()
-        orig = self.dl.get
-
-        def slow(url, part, expect, progress, cancelled):
-            gate.wait(5)
-            return orig(url, part, expect, progress, cancelled)
-        self.dl.get = slow
+        gate = self.hold_downloads()
         st = self.make()
         st.start()
         for _ in range(100):
