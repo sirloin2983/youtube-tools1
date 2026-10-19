@@ -231,17 +231,11 @@ class TestRoundTrip(Base):
         shutil.copy(z, dst)
         os.utime(dst, (time.time() - 600,) * 2)
 
-    def test_outbox_zip_to_returns_and_requested_videos(self):
+    def test_outbox_zip_to_returns(self):
         self.to_inbox("r9", {"requestId": RID})
         self.assertEqual(self.scan()[0]["state"], "accepted")
         run = R.iter_requests(self.app)[0]["runs"][0]
         self.assertEqual((run["runId"], run["manifest"]["schema"], run["result"]["state"]), ("r9", outbox.SCHEMA, "done"))
-        self.assertEqual(R.requested_videos(self.app), {}, "封筒に配信の id が無い実行は数えない")
-        # D-SEND 2-9: 友人の PC で処理した依頼の配信(送り返しの run.json の封筒 input.videoId)-> {配信: 受け取った時刻(秒)}
-        self.to_inbox("r8", {"requestId": RID, "input": {"videoId": "abcdefghijk"}}, now=1760000000)
-        self.scan()
-        self.assertEqual(R.requested_videos(self.app), {"abcdefghijk": 1760000000.0})
-        self.assertEqual(R.requested_videos(os.path.join(self.tmp, "無い")), {})
 
     def test_no_folder_is_quiet(self):
         shutil.rmtree(self.inbox)

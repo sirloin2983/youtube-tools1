@@ -23,9 +23,9 @@ ORIGINS = ("request", "auto")   # 届いた物の出どころ(D-SEND 2-7。送�
 MAX_SCAN = 4 * 1024 * 1024                # 届けた記録を末尾から読む上限
 
 
-def record_delivery(log_dir, zip_path, run, packs, marks=None, origin="request", ended_at=None):
+def record_delivery(log_dir, zip_path, run, packs, marks=None, origin="request"):
     """zip を 出力\\ に置いたことを deliveries.jsonl に 1 行。書く口は ② flow/deliveries.record(D-SEND でそちらへ寄せた。ここは渡すだけ)"""
-    return deliveries.record(log_dir, zip_path, run, packs, marks, origin, ended_at)
+    return deliveries.record(log_dir, zip_path, run, packs, marks, origin)
 
 
 def _append(log_dir, name, row):

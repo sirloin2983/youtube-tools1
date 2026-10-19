@@ -73,7 +73,7 @@ class TestApply(Base):
     def test_origin_is_recorded(self):
         """D-SEND 2-7: 友人の返事の記録に出どころ(request・auto)。判断の任意の origin → 無ければ届けた記録の出どころ(手で届けるは auto)→ 無ければ null"""
         z_auto, z_req, z_man = "20261002-120000-0a1b2c__自動.zip", "20261002-120000-0a1b2c__依頼.zip", "20261002-120000-0a1b2c__手.zip"
-        F.record_delivery(self.logs, os.path.join(self.tmp, "出力", z_auto), self.run, [self.pack1], {}, "auto", 1000)
+        F.record_delivery(self.logs, os.path.join(self.tmp, "出力", z_auto), self.run, [self.pack1], {}, "auto")
         F.record_delivery(self.logs, os.path.join(self.tmp, "出力", z_req), self.run, [self.pack1], {})
         F.record_delivery(self.logs, os.path.join(self.tmp, "出力", z_man), self.run, [self.pack1], {}, "manual")
         for fb in (self.fb(z_auto), self.fb(z_req), self.fb(z_man), self.fb(z_req, origin="auto"), self.fb(z_req, origin="weird")):

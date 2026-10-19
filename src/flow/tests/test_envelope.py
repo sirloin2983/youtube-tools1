@@ -46,8 +46,6 @@ class TestCheck(unittest.TestCase):
             with self.assertRaises(ValueError, msg=bad) as cm:
                 E.check(dict(base, deliver={"dir": "D:/out", "origin": bad}))
             self.assertIn("封筒.deliver.origin", str(cm.exception))
-        from flow import sendpolicy
-        self.assertEqual(E.DELIVER_ORIGINS, sendpolicy.ORIGINS, "sendpolicy と同じ並び")
 
     def test_live_input(self):
         url = "https://www.youtube.com/watch?v=" + VID

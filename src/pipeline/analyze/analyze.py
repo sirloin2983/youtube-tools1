@@ -396,7 +396,7 @@ def run(spec, ctl=None):
                   "counts": {"chat": chat["count"], "chatWarm": chat["warm"], "cands": len(cands), "fills": sum(1 for c in cands if c.get("fill")),
 "commentStamps": len(stamps) if stamps else 0, "meta": bool(meta), "heatmap": len((meta or {}).get("heatmap") or [])},
                   "warnings": warnings, "spec": dict({k: spec.get(k) for k in SPEC_KEYS}, lag=spec.get("lagUsed", spec["lag"])),
-                  "stream": {k: meta[k] for k in STREAM_KEYS if (meta or {}).get(k) not in (None, "")}}   # 配信がいつ・どれだけ続いたか(② flow/sendpolicy.ended_at_of が読む。付加情報が取れなかったときは空)
+                  "stream": {k: meta[k] for k in STREAM_KEYS if (meta or {}).get(k) not in (None, "")}}   # 配信がいつ・どれだけ続いたか(② flow/run.stream_ended_at = チャットの取り直しが読む。付加情報が取れなかったときは空)
         ctl.report(1.0, "解析が完了しました")
         return result
     except (Cancelled, ApiError):

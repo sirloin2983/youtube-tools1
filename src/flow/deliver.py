@@ -150,14 +150,14 @@ def place_preview(preview, zip_path):
     return dest
 
 
-def deliver_one(d, out_dir, name, log_dir=None, run=None, marks=None, check=None, progress=None, log=None, origin="request", ended_at=None):
+def deliver_one(d, out_dir, name, log_dir=None, run=None, marks=None, check=None, progress=None, log=None, origin="request"):
     """1 本のパックを友人へ届ける(notes:docs/spec/friend.md の 2-7。まとめて実行の 1 本ずつ・手で届ける の 1 か所):
     ① その切り抜きの確認用の動画 <zip の名前>.preview.mp4 を zip より先に隣へ(480p・字幕なし。作れなければ無し = meta の preview が None)
     ② メタ <zip の名前>.meta.json を zip より先に隣へ(依頼の分にも必ず。meta_doc の形)
     ③ zip <name>.zip(同じ名前があれば末尾に 4 文字)④ 届けた記録 deliveries.jsonl に 1 行(log_dir と run があるとき。友人の判断が引く。書けなくても止めない)。
     run = request_id・id・video_id・title(・streamer・stream_title)を持つ物(まとめて実行の実行か、手で届けるときの代わり)。
     配信のタイトルは run.stream_title があればそれ・無ければ run.title。marks = {パックのフォルダ: {"path", "markId"}}。
-    origin = 届けた記録の出どころ(request・auto・manual)・ended_at = 配信が終わった時刻(秒。分からなければ None)。
+    origin = 届けた記録の出どころ(request・auto・manual)。
     -> 置いた zip のパス。途中で失敗したら置いた確認用の動画・meta を消して例外をそのまま上げる(一時の確認用の動画はいつも消す)"""
     preview = _preview.clip_preview(d, check=check, log=log)
     placed, meta = None, None
@@ -181,7 +181,7 @@ def deliver_one(d, out_dir, name, log_dir=None, run=None, marks=None, check=None
     finally:
         _preview.remove_quiet(preview)
     if log_dir and run is not None:
-        deliveries.record(log_dir, dest, run, [d], marks, origin or "request", ended_at)
+        deliveries.record(log_dir, dest, run, [d], marks, origin or "request")
     return dest
 
 

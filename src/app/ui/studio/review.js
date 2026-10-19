@@ -3350,12 +3350,12 @@ const portalApi = (path, body) => Studio.portalApi(path, body);
 async function sendOutDir(){ try { return (await portalApi('api/intake')).outDir || null; } catch { return null; } }
 /* ---------- 書き出しのあと自動でパックまで(入口から開いたときだけ。設定「書き出しのあと自動でパックまで進める」既定オン。IMPLEMENTATION.md 4) ----------
    入口の ② の口 /api/flow/submit に「書き出しから全部」(mode full + run.from export)+ marks(書き出したものだけ)で頼む(UIKit.flow.order = autoOrder)。
-   受付のフォルダが決まっていれば出どころ auto で届け先も付ける = 友人へ送るかの判定(D-SEND。flow/sendpolicy)も通る(10-19。前は文字起こしまで)。
+   受付のフォルダが決まっていれば出どころ auto で届け先も付ける = できたパックを友人へ送る(D-SEND。切り替えは作らない = 10-19 ユーザー決定)。
    もう書き出し済みのマークは、その段だけ飛ばして続く(flow/run.py の _step_export) */
 function autoTxEnabled(){ return S.settings.autoTx !== false; }
 /* 0.21 までの保存(このブラウザの localStorage の ytt:studio.autoTx)→ true / false / null(無い)。サーバーの設定に autoTx が無いときだけ読む(消さない) */
 function autoTxLegacy(){ try { const x = localStorage.getItem('ytt:studio.autoTx'); return x === '0' ? false : x === '1' ? true : null; } catch { return null; } }
-/* 書き出しから全部の注文の欄(書き出しのあと自動で・マークの行の「この後を」の同じ形): そのマークだけ書き出し → 文字起こし → パック → 送るかの判定 */
+/* 書き出しから全部の注文の欄(書き出しのあと自動で・マークの行の「この後を」の同じ形): そのマークだけ書き出し → 文字起こし → パック → (受付のフォルダがあれば)友人へ届ける */
 async function autoOrder(videoId, markIds, extra){
   const out = await sendOutDir();
   return { kind: 'url', videoId, from: 'export', upto: 'pack', marks: markIds, ...(out ? { deliver: { origin: 'auto', dir: out } } : {}), ...(extra || {}) };
@@ -3391,7 +3391,7 @@ async function startAuto(marks){
     if (who === null) return;   // 見つからない名前で「やめる」を選んだ
     const st = UIKit.autorun.state();
     // 欄 → 封筒 + 束の差分(UIKit.flow.order): 解析から全部 = 頭からパックまで(まとめて実行の形はこれだけ。10-19)・
-    // マークの行の「この後を」(marks)= 書き出しのあと自動でと同じ注文(autoOrder = 書き出しから全部・送るかの判定も通る)
+    // マークの行の「この後を」(marks)= 書き出しのあと自動でと同じ注文(autoOrder = 書き出しから全部・受付のフォルダがあれば友人へ届ける)
     const f = marks ? await autoOrder(S.cur.id, marks, { title: S.cur.title || '', streamer: who, repack: !!(st && st.overwrite) })
       : { kind: 'url', videoId: S.cur.id, title: S.cur.title || '', upto: 'pack', streamer: who, repack: !!(st && st.overwrite), top };   // 空 = 色なし(欄は自動で入る)
     if (!marks){ const out = await sendOutDir(); if (out) f.deliver = { origin: 'auto', dir: out }; }   // 解析から全部は友人へ自動で送る(既定オン)

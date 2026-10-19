@@ -149,7 +149,7 @@ class DeliverRun(unittest.TestCase):
         self.assertEqual((stored["一本目_pack/一本目.mp4"], stored["一本目_pack/cut-plan.json"]), (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED))   # 動画は圧縮しない
         row = friend_feedback.find_delivery(self.log_dir, j["name"])          # 届けた記録(友人の「要らない」が引く。Q16)
         self.assertEqual((row["requestId"], row["videoId"], row["title"], row["origin"]), (stem.split("__")[0], "abcdefghijk", "【雑談】校正済み/1", "manual"))
-        self.assertEqual((row["packs"], row["endedAt"]), ([{"dir": os.path.normpath(self.pack), "path": clip, "markId": "m1"}], 0))   # 終わった時刻が分からなければ 0
+        self.assertEqual(row["packs"], [{"dir": os.path.normpath(self.pack), "path": clip, "markId": "m1"}])
         board.refresh()
         got = board.get("dl:" + j["id"])
         self.assertEqual((got["kind"], got["state"], got["target"]["path"], got["finishedAt"] is not None), ("deliver", "done", os.path.normpath(self.pack), True))
@@ -162,7 +162,7 @@ class DeliverRun(unittest.TestCase):
 
         # 全自動・依頼の 1 本ずつ(deliver_one): 同じ名前でもう一度届けたら末尾に 4 文字(zip・確認用の動画・印は同じ名前)
         run = types.SimpleNamespace(request_id="rid", id="run1", video_id="abcdefghijk", title="題")
-        first = deliver.deliver_one(self.pack, self.out, "rid__題", log_dir=self.log_dir, run=run, origin="auto", ended_at=1000,
+        first = deliver.deliver_one(self.pack, self.out, "rid__題", log_dir=self.log_dir, run=run, origin="auto",
                                     marks={self.pack: {"path": "x.mp4", "markId": "m7"}})
         second = deliver.deliver_one(self.pack, self.out, "rid__題", origin="request")
         self.assertEqual(os.path.basename(first), "rid__題.zip")
@@ -175,14 +175,9 @@ class DeliverRun(unittest.TestCase):
         self.assertEqual((doc["origin"], doc["markId"], doc["streamTitle"], doc["videoId"]), ("auto", "m7", "題", "abcdefghijk"))
         from flow import deliveries
         last = deliveries.rows(self.log_dir)[-1]
-        self.assertEqual((last["origin"], last["endedAt"], last["zip"]), ("auto", 1000000, "rid__題.zip"))
-        # 届けた記録の読み口(全自動の判定・片付けが引く): 配信ごと・出どころごと・依頼 id
-        self.assertEqual(list(deliveries.delivered_videos(self.log_dir)), ["abcdefghijk"])
-        for origin in ("auto", "manual"):
-            self.assertEqual(list(deliveries.delivered_videos(self.log_dir, origin)), ["abcdefghijk"], origin)
-        self.assertEqual(deliveries.delivered_videos(self.log_dir, "request"), {})
-        self.assertIn("rid", deliveries.delivered_requests(self.log_dir))
-        self.assertTrue(all(v > 0 for v in deliveries.delivered_videos(self.log_dir).values()))
+        self.assertEqual((last["origin"], last["zip"]), ("auto", "rid__題.zip"))
+        # 届けた記録の読み口(片付けが引く): 依頼 id
+        self.assertGreater(deliveries.delivered_requests(self.log_dir)["rid"], 0)
         # 音の無い切り抜き → 音の無い確認用の動画。出どころを渡さなければ依頼(request)
         dest = deliver.deliver_one(self.silent, self.out, "rid__無音", origin=None)
         self.assertFalse(normalize.probe(deliver.preview_path_for(dest), ffprobe=self.ffprobe)["has_audio"])

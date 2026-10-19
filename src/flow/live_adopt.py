@@ -20,7 +20,7 @@ POST /live/api/adopt・配信中の自動の採用(live_detect の M11)・配信
 
 本数の上限(D-13)はここでは数えない = 自動の採用を数えるのは live_detect.Detector(親の auto_max。無ければ AUTO_MAX_PER_REC。
 友人の PC は束の adopt.top = top_of)。人のマーク・配信後の追加は数えない(今と同じ)。
-友人へ届ける(自分の配信の自動の切り抜き live.autoDeliver)は app の hook(deliver_for)。友人の依頼の結びつきは親の requests(livehost.RequestBook)。
+友人へ届ける(自分の配信の自動の切り抜き)は app の hook(deliver_for)。友人の依頼の結びつきは親の requests(livehost.RequestBook)。
 """
 import os
 import secrets

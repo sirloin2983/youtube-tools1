@@ -1,7 +1,7 @@
 """まとめて実行(統合計画の段階5)。入口の「案件」の画面から、配信1本ぶんの作業を順に自動で流す。
 
 形は「解析から全部」(full)だけ(10-19 ユーザー決定。前は 採用後を全部・文字起こしまで も選べた):
-  (未解析なら)解析 → 人の採用 + 自動マークの上位を採用する数まで → 書き出し → 文字起こし → Resolve パック(→ 友人へ自動で送るかの判定 D-SEND)
+  (未解析なら)解析 → 人の採用 + 自動マークの上位を採用する数まで → 書き出し → 文字起こし → Resolve パック(→ 届け先があれば友人へ届ける D-SEND)
   人が選んだ 1 本だけ進めるときは、案件の画面の候補のマークの行の「この後を」(と書き出しのあと自動で)= 書き出しから全部(full + 束の run.from export + marks)
 
 作り:
@@ -38,12 +38,12 @@
 - ① 全自動の Dropbox へ届ける段: パックができるたびに 1 本ずつ(1 本の zip + 480p の確認用の動画 <同じ名前>.preview.mp4 + .meta.json)Dropbox の 出力 へ置く
   (notes:plan/f1-friend-requirements.md の C-6)。作り方・名前は src/flow/deliver.py(確認用の動画は
   ① src/pipeline/pack/preview.py)、届ける段と置けなかった分の溜めの中身は src/flow/delivery.py
-- 友人へ自動で送る(D-SEND。notes:plan/done/d-send-requirements.md): 画面の「友人へ自動で送る」(既定 = 解析から全部のときだけオン・保存しない)。
-  画面は、依頼の受付の Dropbox のフォルダが決まっていれば(GET /api/intake の outDir)封筒の deliver に出どころ auto を置き、
-  チェックが入っていれば届け先(出力)も置く(段 deliver が付く)。受付(_accept)が名前の頭 deliver.tag(友人のアプリの依頼 id の形)を決める。
-  チェックを外した実行も段 deliver を付けて(flow/run.py の steps_of = 出どころ auto の full)、
-  そこで「チェックを外したので送りません」と切り抜きごとの送らなかった記録(② logs/not-sent.jsonl)を残す(品質のカードに出す = 2-8)。送るかの判定・溜め・送り直しは src/flow/delivery.py。
-  まとめて実行の文書単位・full 以外・CLI は届けない
+- 友人へ自動で送る(D-SEND。notes:plan/done/d-send-requirements.md): 送るかは注文を作る所が届け先を入れるかだけで決める(10-19 案 B3)。
+  切り替えはホームのまとめて実行・配信を探すの「友人へ自動で送る」のチェックだけ(既定オン・保存しない)。ほか(候補のタブの「まとめて実行 ▾」・
+  「この後を」・書き出しのあと自動で・ライブの自動の切り抜き)は、依頼の受付の Dropbox のフォルダが決まっていれば(GET /api/intake の outDir)いつも送る。
+  届け先があれば段 deliver が付く(flow/run.py の steps_of)。受付(_accept)が名前の頭 deliver.tag(友人のアプリの依頼 id の形)を決める。
+  友人の依頼済みか・終わってから 48 時間かは見ない(10-19 取り下げ。二重は防がない)。届け済みのパックを除く・溜め・送り直しは src/flow/delivery.py。
+  文書単位・CLI は届けない
 - 区間だけの依頼の最後の段「解析(あとで)」(flow/run の analyze_later)は、届けたあとに解析を順番へ入れるだけで待たない(OPT-E2 = 決定 3-49 Q6)
 """
 import http.client
@@ -69,7 +69,6 @@ from flow.runqueue import (ACTIVE_FILE, ACTIVE_VERSION, HISTORY_DEFAULT, HISTORY
 from manage.cases import cases  # noqa: E402  (src/manage/cases/cases.py: パックの有無・.clip.json の読み方・スタジオの一覧を案件の画面とそろえる。friend_feedback も先頭で読む = 循環しない)
 from flow import delivery as delivery_mod  # noqa: E402  (友人へ届ける段と溜め = AutoRunner が継ぐ Delivery。RS3-3 で切り出し、ds1 で ② へ)
 from flow import deliver as deliver_mod  # noqa: E402  (自動で送る分の名前の頭 = 友人のアプリの依頼 id の形。D-SEND)
-from human.friend import returns as returns_mod  # noqa: E402  (友人の PC で処理した依頼の配信 = 依頼済みの 3 つ目の引き方。D-SEND 2-9)
 from app import prefs as prefs_mod  # noqa: E402  (ホームの設定の既定値と範囲。読み書きは渡された Prefs で)
 
 # RANGE_MAX・RANGE_PAD・pad_range・CUTS・TX_ENGINES・TX_MODEL_RE・WEIGHT_KEYS は src/flow/spec.py に、
@@ -213,8 +212,7 @@ _top_arg = _spec.top_arg   # 採用する数(src/flow/spec.py)
 class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
     """入口のまとめて実行: ② の待ち行列(受付は submit の 1 本 = RV A1)の hook(案件・ホームの設定・友人へ届ける)。
     待ち行列・糸・中止・状態と記録・起動し直しで戻す・見積もりは src/flow/runqueue.py の Queue、段の中身は src/flow/run.py の Runner。
-    友人へ届ける段と溜めは src/flow/delivery.py の Delivery を継ぎ、そこが要る入口と ③ の物
-    (送り返しの依頼)は下の _returned_request で渡す。
+    友人へ届ける段と溜めは src/flow/delivery.py の Delivery を継ぐ。
     届けた・送らなかったは案件に写さない(② flow/deliveries の届けた記録・送らなかった記録を案件が読む。MARKS-3・ds1)"""
 
     def __init__(self, client, repo_root, env=None, poll=1.0, sleep=None, find_pack=None, prefs=None, log_dir=None, log_max=LOG_MAX_BYTES,
@@ -390,7 +388,7 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
         - 友人の区間の長さ(依頼の URL で解析の段があるとき。_friend_length を 1 回の受付の間だけ覚える)。束の analyze.length・preRatio に入れ、
           run.friend_plan に出どころと重ねる前の値(解析の段が使った印 run.friend_length と文を出す)
         - 配信者(まだ無いとき。覚えた名前 → チャンネル名から。決まらなければ実行中に _auto_streamer = 今までどおり)= 束の hints.streamer
-        - 届ける名前の頭(まとめて実行の自動で送る形 = mode full・出どころ auto で無ければ。友人のアプリの依頼 id の形。D-SEND)= 封筒の deliver.tag
+        - 届ける名前の頭(届け先があって出どころ auto で無ければ。友人のアプリの依頼 id の形。D-SEND)= 封筒の deliver.tag
         convert = 束の無い待ちの記録を戻すとき: 束が無ければ組む・まだ決めていない物だけ決める(始めていた実行の配信者は実行中に決めるまま)"""
         new = run.spec is None
         super()._accept(run, convert)
@@ -404,7 +402,7 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
                 run.spec = dict(b, analyze=dict(b["analyze"], **{k: fl[k] for k in keys}))
         if run.streamer is None and (new or not convert):
             self._accept_streamer(run, self._memo("studio", self._studio_list))
-        if run.kind() == "url" and not run.request_id and run.deliver_origin == "auto" and not run.deliver_tag:
+        if run.deliver_dir and run.deliver_origin == "auto" and not run.request_id and not run.deliver_tag:   # ライブの自動の分は依頼の id(rid)が名前の頭
             run.deliver_tag = deliver_mod.request_id(self.clock())
 
     def _accept_streamer(self, run, studio=None):
@@ -444,12 +442,6 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
 
     def _live_auto_origin(self, media):
         return live_auto_origin(media)
-
-    def _returned_request(self, video_id):
-        """Delivery の依頼済みの 3 つ目の引き方: 友人の PC で処理した依頼の配信か(③ 送り返し。D-SEND 2-9)。読めなければ OSError"""
-        if not self.log_path:
-            return False
-        return video_id in returns_mod.requested_videos(os.path.dirname(os.path.dirname(self.log_path)))
 
     def _remember_doc_streamer(self, tid, name):
         """依頼で選んだ配信者を、この文書の配信者として覚える(パックのときの字幕の色。段5 の記憶と同じ)。-> 覚えたか"""

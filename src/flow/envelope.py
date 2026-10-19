@@ -34,7 +34,7 @@ INPUT_KEYS = {"url": ("videoId", "url", "title", "duration", "fresh", "marks"), 
 DELIVER_KEYS = ("dir", "pool", "origin", "tag")
 # 保存済みの封筒(待ちの列 3 日・録画の束 7 日で入れ替わる)に残りうる古い鍵。読んで捨てる(断らない・出力に入れない)
 DROPPED_KEYS, DROPPED_DELIVER_KEYS = ("note",), ("batch",)
-DELIVER_ORIGINS = ("request", "auto", "manual")   # 届けるときの出どころ(flow/sendpolicy.ORIGINS と同じ。D-SEND。envelope は sendpolicy を読まない)
+DELIVER_ORIGINS = ("request", "auto", "manual")   # 届けるときの出どころ(request = 友人の依頼・auto = 自分の配信から自動で・manual = 人が [友人へ届ける]。D-SEND)
 ID_RE = re.compile(r"[0-9A-Za-z_-]{1,64}\Z")
 VIDEO_ID_RE = re.compile(r"[0-9A-Za-z_-]{1,64}\Z")
 DOC_ID_RE = re.compile(r"[0-9A-Za-z_-]{1,40}\Z")

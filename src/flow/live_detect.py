@@ -33,7 +33,7 @@ API(src/app/live.py の handle_get / _api_post から。書き込みは入口の
 配信の終わり(D-14): 録画が終わっても、ワーカーが帳簿を締めた(peaks.json の ended)あと END_GRACE_SEC の間は、待ち中だった候補(waitMin がまだ・
 終わり待ちだった候補が締めで確定したもの)を同じ待ちで採用する(終わった瞬間に待ち中だった候補を取りこぼさない)。
 安全弁(D-13。仮の数 = 使いながら直す): 1 つの録画の自動の採用は AUTO_MAX_PER_REC 本まで(decisions.json の adopted/auto を数える。
-友人の依頼の録画・live.autoDeliver で確認なしに届く分にも効く)。
+友人の依頼の録画・確認なしに届く自分の配信の自動の分にも効く)。
 (「人が見ていない」ことを理由に自動の採用を休むことはしない = 採用は全部届ける。opt-manage Q1・2a-1・2a-2)
 上限の数は親の hook auto_max(rc, rec)で変えられる(RS7-2 G1b。flow/livehost.py の LiveHost。持っていなくてもよい。友人の PC = 束の adopt.top = live_adopt.top_of)。
 親が持たない・None(ユーザーの PC = Live)なら AUTO_MAX_PER_REC のまま。

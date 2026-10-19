@@ -475,19 +475,3 @@ def iter_requests(app_dir):
             out.append({"month": mo, "requestId": rid, "dir": rp, "runs": runs, "verdicts": verdicts})
     return out
 
-
-def requested_videos(app_dir):
-    """友人の PC で処理した依頼(送り返しの実行の結果 run.json の封筒 input.videoId)-> {配信 id: 受け取った時刻(秒。分からなければ 0)}。
-    D-SEND 2-9(依頼済みの配信は自動で送らない)の 3 つ目の引き方(ユーザーの PC の受付を通らない依頼は、送り返しが届いてから分かる)。読むだけ"""
-    out = {}
-    for req in iter_requests(app_dir):
-        for r in req["runs"]:
-            env = (r.get("result") or {}).get("envelope")
-            inp = env.get("input") if isinstance(env, dict) else None
-            vid = inp.get("videoId") if isinstance(inp, dict) else None
-            if not isinstance(vid, str) or not vid:
-                continue
-            at = (r.get("manifest") or {}).get("at")
-            sec = at / 1000.0 if isinstance(at, (int, float)) and not isinstance(at, bool) and 0 < at < AT_MAX else 0.0
-            out[vid] = max(out.get(vid, 0.0), sec)
-    return out

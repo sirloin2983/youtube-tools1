@@ -122,7 +122,7 @@ class TestFromInput(unittest.TestCase):
         d["envelope"]["deliver"].pop("origin")
         back = R.Run.restore(d)
         self.assertEqual((back.deliver_tag, back.deliver_origin, back.deliver_dir), (None, None, "D:/out"))
-        self.assertEqual([s["key"] for s in back.steps], list(R.MODE_STEPS["request_auto"]))
+        self.assertEqual([s["key"] for s in back.steps], list(R.MODE_STEPS["request_auto"]) + ["deliver"])
         new_only = {k: d[k] for k in ("id", "envelope", "spec", "state", "steps", "created", "docs")}   # 封筒だけの形(origin の鍵が無い古い封筒)
         self.assertIsNone(R.Run.restore(new_only).deliver_origin)
 
@@ -195,7 +195,7 @@ class TestRestoreGolden(unittest.TestCase):
                         spec=SP.validate(SP.merge({"run": {"onFail": "next"}, "hints": {"streamer": ""}})))
         back = R.Run.restore(d)
         self.assertEqual((back.mode, back.deliver_tag, back.deliver_origin, back.deliver_dir, back.streamer), ("full", "20261016-120000-aaaaaa", "auto", None, ""))
-        self.assertEqual([s["key"] for s in back.steps], ["analyze", "adopt", "export", "transcribe", "pack", "deliver"])   # 届け先なし = notSent(D-SEND)
+        self.assertEqual([s["key"] for s in back.steps], ["analyze", "adopt", "export", "transcribe", "pack"])   # 届け先なし = 段 deliver なし(10-19 案 B3)
         fenv = {"id": "fedcba9876", "kind": "file", "input": {"title": "依頼", "path": "C:/x/依頼.mp4", "normalize": True}, "requestId": "rid",
                 "deliver": {"dir": "D:/out", "pool": None, "origin": None, "tag": None}, "createdAt": 1790000000000, "specVersion": 2}
         f = self.record(id="fedcba9876", envelope=fenv, mode="file_auto", docId="t9", sourcePath="C:/x/依頼.mp4",
@@ -215,15 +215,13 @@ class TestStepsOf(unittest.TestCase):
         keys = list(R.MODE_STEPS[mode])
         if "normalize" in keys and not normalize:
             keys.remove("normalize")
+        if dir_ and "pack" in keys and mode != "doc":   # 届け先があれば deliver(出どころは見ない。10-19 案 B3)
+            keys.append("deliver")
         if mode == "request_auto" and ranges and ranges >= (top or 0):
             keys.remove("analyze")
             keys.append("analyze_later")
-        if mode == "full" and dir_ and "deliver" not in keys:
-            keys.append("deliver")
         if diarize and "transcribe" in keys:
             keys.insert(keys.index("transcribe") + 1, "diarize")
-        if mode == "full" and origin == "auto" and "deliver" not in keys:   # auto の出どころは deliver を足す(steps_of)
-            keys.append("deliver")
         return keys
 
     def test_all_combinations(self):
@@ -256,6 +254,21 @@ class TestStepsOf(unittest.TestCase):
         self.assertIsNone(R.mode_of("url", SP.validate(SP.merge({"run": {"from": "adopt"}}))))
         self.assertIsNone(R.mode_of("url", SP.validate(SP.merge({"run": {"upto": "transcribe"}})), "r1"), "② 軽く確認(配信の頭から文字起こしまで)は消した")
         self.assertIsNone(R.mode_of("docs", SP.validate(SP.merge({"run": {"upto": "transcribe"}}))))
+
+    def test_stream_ended_at(self):
+        """配信が終わった時刻(チャットの取り直しが読む): releaseTs + duration。ライブの終わった配信だけ・壊れた値は None"""
+        good = {"releaseTs": 1000, "duration": 500}
+        cases = [(st, dict(good, liveStatus=st), 1500.0) for st in ("was_live", "post_live")]
+        cases += [(repr(a), a, None) for a in (
+            None, "x", {}, {"liveStatus": "not_live", "releaseTs": 1000, "duration": 500},
+            {"liveStatus": "is_live", "releaseTs": 1000, "duration": 500},
+            {"liveStatus": "was_live", "duration": 500}, {"liveStatus": "was_live", "releaseTs": 1000},
+            {"liveStatus": "was_live", "releaseTs": 0, "duration": 500}, {"liveStatus": "was_live", "releaseTs": 1000, "duration": 0},
+            {"liveStatus": "was_live", "releaseTs": "1000", "duration": 500}, {"liveStatus": "was_live", "releaseTs": True, "duration": 500})]
+        for name, a, want in cases:
+            with self.subTest(name):
+                self.assertEqual(R.stream_ended_at(a), want)
+        self.assertEqual(R.stream_ended_at({"liveStatus": "was_live", "releaseTs": 1_790_000_000, "duration": 3600}), 1_790_003_600.0)
 
 
 class TestRun(unittest.TestCase):

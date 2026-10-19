@@ -34,8 +34,9 @@
     その文字起こしを一覧で非表示に(データは消さない)。どちらも人の判断を ③ human/judgments に 1 行(who self・adopt / reject・via cases)
   - 案件ファイルには cases[配信]["auto"][スタジオのマーク] = {discardedAt, tx, expiredAt} を持つ(要らないにした文字起こし tx は
     「単体の文字起こし」に出さない)
-  - まとめて実行で友人へ自動で送る形(D-SEND。notes:plan/done/d-send-requirements.md の 2-8): 送らなかったら届ける段が ② の送らなかった記録 logs/not-sent.jsonl に
-    {配信, マーク, code, text, at}(理由の鍵と文は ② flow/sendpolicy.REASONS)を書く(flow/deliveries.record_not_sent。ds1 = 3-71 m3e)。送った物は届けた記録の mode full・origin auto で見分ける。
+  - まとめて実行で友人へ自動で送る形(D-SEND。notes:plan/done/d-send-requirements.md の 2-8): 送らなかった物は ② の送らなかった記録 logs/not-sent.jsonl
+    {配信, マーク, code, text, at}(flow/deliveries.record_not_sent。ds1 = 3-71 m3e。10-19 からは置けずに預けた分の期限切れ expired だけ・前の行の
+    unchecked・stale・requested・unknown_end もそのまま読む)。送った物は届けた記録の mode full・origin auto で見分ける。
     どちらかがある切り抜きはライブでなくても clip["auto"] = {origin "full", originLabel "まとめて実行"}(品質のカードに出る)。
     clip["review"]["notSent"] は届けていない間だけ(案件の画面の札)
   - 日数の片付け(expire_unseen。ユーザー決定): 届けた自動の切り抜きは届けてから・届けていない物は作ってから EXPIRE_SEC でごみ箱へ。
@@ -192,7 +193,7 @@ def auto_info(mark, media_path):
         return None
     score = next((x for x in (schemas.num(live.get("score")), schemas.num(cmark.get("score")), schemas.num(mark.get("score"))) if x is not None), None)
     return {"origin": origin, "originLabel": AUTO_ORIGINS[origin], "score": None if score is None else round(score, 2), "bench": live.get("bench") is True,
-            "deliver": bool(live.get("deliver"))}   # 届ける印つき(友人の依頼・live.autoDeliver)= まとめて実行が届ける物。日数の片付けは届けるまで待つ(opt-manage 2a-2)
+            "deliver": bool(live.get("deliver"))}   # 届ける印つき(友人の依頼・自分の配信の自動で届ける分)= まとめて実行が届ける物。日数の片付けは届けるまで待つ(opt-manage 2a-2)
 
 
 def _full_info(mark):

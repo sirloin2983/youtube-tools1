@@ -61,7 +61,6 @@ SETTLE = 20.0            # 大きさと更新時刻がこの秒数変わらな�
 INTERVAL = 30.0          # 見る間隔
 WAIT_FILES = 3600.0      # JSON があるのに動画がそろわないとき、断るまで待つ秒数
 KEEP_REQUESTS = 50       # 画面に出す最近の依頼の数
-KEEP_SEEN = 5000         # 覚えておく配信・動画の数
 STATE_FILE = "intake-state.json"
 # OS・同期のアプリが勝手に置くファイル(依頼ではない)。断って 失敗\ へ移すと、すぐまた作られて「断った」が毎回増えるので、見ない
 OS_FILES = ("desktop.ini", "thumbs.db", "ehthumbs.db", ".ds_store", "icon\r", ".dropbox", ".dropbox.attr")
@@ -374,16 +373,12 @@ class Intake:
         except (OSError, ValueError):
             d = None
         d = d if isinstance(d, dict) else {}
-        # videos = 受け付けた配信の時刻(覚えるだけ = 重複は断らない)・daily = 日ごとの受け付けた件数
-        return {"videos": d.get("videos") if isinstance(d.get("videos"), dict) else {},
-                "daily": d.get("daily") if isinstance(d.get("daily"), dict) else {},
+        # daily = 日ごとの受け付けた件数(10-19 までの videos = 受け付けた配信の覚えは、依頼済みの確かめと一緒に消した = 読み捨て)
+        return {"daily":d.get("daily") if isinstance(d.get("daily"), dict) else {},
                 # desktop.ini などを断った記録は外す
                 "requests": [r for r in d.get("requests") or [] if isinstance(r, dict) and not _is_os_file(str(r.get("title") or ""))][:KEEP_REQUESTS]}
 
     def _save_state(self):
-        m = self.st["videos"]
-        while len(m) > KEEP_SEEN:
-            m.pop(next(iter(m)))
         since = (datetime.date.fromisoformat(self._today()) - datetime.timedelta(days=DAILY_KEEP_DAYS)).isoformat()
         self.st["daily"] = {day: v for day, v in self.st["daily"].items() if day >= since}
         try:
@@ -452,11 +447,6 @@ class Intake:
     def out_dir(self):
         """受付のフォルダの 出力\\(友人のアプリの「受け取る」が読む)。フォルダが決まっていなければ None"""
         return out_dir_of(self.folder())
-
-    def requested_at(self, vid):
-        """その配信を友人の依頼で受け付けた時刻(秒)か None(D-SEND 2-9 = 依頼済みの配信は自動で送らない。まとめて実行の届ける段が読む)"""
-        v = self.st["videos"].get(vid) if isinstance(vid, str) and vid else None
-        return v if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0 else None
 
     # ------------------------------------------------------------ 見る
     def scan(self):
@@ -653,7 +643,6 @@ class Intake:
         if note:
             items.append({"label": "配信者", "state": "accepted", "reason": note})
         if res["state"] == "accepted":
-            self.st["videos"][vid] = int(self.clock())
             self._count()
         self._record(folder, "live", "app", title, moved, who or "", [], items, "auto", speakers, rid=rid, tracks=tracks, cut=cut)
 
@@ -711,7 +700,6 @@ class Intake:
                 r = by_vid.get(it["id"])
                 if r:
                     runs.append(r["id"])
-                    self.st["videos"][it["id"]] = int(self.clock())
                     self._count()
                     note = "" if it["checked"] else "配信の長さを確かめられませんでした(そのまま進めます)"
                     results.append({"label": (it["title"] or it["label"]), "state": "accepted", "reason": note, "runId": r["id"]})

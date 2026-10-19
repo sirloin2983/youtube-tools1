@@ -3,8 +3,8 @@
 
 データの持ち主は ②(届けた = 起きた事実は起こした層。決定 3-48 の「切り抜きの印を 3 本に」)。④ の片付けは記録のファイルを直に読まず、
 ここの delivered_requests だけを読む。書く口 record はここ(③human/friend/friend_feedback.record_delivery は
-ここへ渡すだけの薄い転送)。行の鍵 origin(request・auto・manual。flow/sendpolicy.ORIGINS)と endedAt(配信が終わった時刻。ミリ秒。分からなければ 0)は
-D-SEND から。無い古い行は、依頼の id があれば request・無ければ auto として読む。既存の読み手は知らない鍵を無視する。
+ここへ渡すだけの薄い転送)。行の鍵 origin(request・auto・manual。flow/envelope.DELIVER_ORIGINS)は D-SEND から。
+無い古い行は、依頼の id があれば request・無ければ auto として読む。既存の読み手は知らない鍵を無視する(10-19 までの行の endedAt も読まない)。
 行の鍵 mode(実行の形。まとめて実行の full など。手で届けた・無い古い行は "")は MARKS-3 から(④ 案件が「まとめて実行の自動で送った切り抜き」を見分ける)。
 ファイルの名前は書く側と同じ(テストが一致を見張る)。
 切り抜きごとの「届けた」(MARKS-3。案件の一覧の clip.review・3 日の片付け)は delivered_marks で引く(案件には写さない)。
@@ -20,13 +20,12 @@ LOG = "deliveries.jsonl"        # 届けた記録(入口の作業データの lo
 MAX_SCAN = 4 * 1024 * 1024      # 末尾から読む上限
 
 
-def record(log_dir, zip_path, run, packs, marks=None, origin="request", ended_at=None):
+def record(log_dir, zip_path, run, packs, marks=None, origin="request"):
     """zip を 出力\\ に置いたことを 1 行足す(あとで友人の「要らない」が来たときに中身を引くため・配信ごとの届けた時刻を引くため)。
-    書けなくても届けるのは止めない。ended_at = 配信が終わった時刻(秒。分からなければ None = 0)。-> 書いた行(dict)"""
+    書けなくても届けるのは止めない。-> 書いた行(dict)"""
     marks = marks or {}
-    end = int(ended_at * 1000) if isinstance(ended_at, (int, float)) and not isinstance(ended_at, bool) and ended_at > 0 else 0
     row = {"at": int(time.time() * 1000), "zip": os.path.basename(zip_path), "requestId": run.request_id or "", "runId": run.id,
-           "videoId": run.video_id or "", "title": run.title or "", "origin": origin, "endedAt": end,
+           "videoId": run.video_id or "", "title": run.title or "", "origin": origin,
            "mode": getattr(run, "mode", None) if isinstance(getattr(run, "mode", None), str) else "",
            "packs":[{"dir": d, "path": (marks.get(d) or {}).get("path") or "", "markId": (marks.get(d) or {}).get("markId") or ""} for d in packs]}
     try:
@@ -43,21 +42,6 @@ def origin_of(row):
     if o in ("request", "auto", "manual"):
         return o
     return "request" if row.get("requestId") else "auto"
-
-
-def delivered_videos(log_dir, origin=None):
-    """-> {配信 id: 最後に届けた時刻(秒)}。origin を渡すとその出どころの行だけ(request・auto・manual)。読めなければ None(届けたかが分からない)"""
-    got = rows(log_dir)
-    if got is None:
-        return None
-    out = {}
-    for d in got:
-        vid, at = d.get("videoId"), d.get("at")
-        if not isinstance(vid, str) or not vid or (origin is not None and origin_of(d) != origin):
-            continue
-        sec = at / 1000.0 if isinstance(at, (int, float)) and not isinstance(at, bool) and at > 0 else 0.0
-        out[vid] = max(out.get(vid, 0.0), sec)
-    return out
 
 
 def rows(log_dir):
@@ -158,11 +142,12 @@ def delivered_marks(log_dir):
 
 
 # ---- 送らなかった記録(ds1・3-71 m3e)
-NOT_SENT_LOG = "not-sent.jsonl"   # まとめて実行の自動で送る形(D-SEND)で送らなかった切り抜き(届けた記録の隣)
+NOT_SENT_LOG = "not-sent.jsonl"   # 自動で送る分(D-SEND)で送らなかった切り抜き(届けた記録の隣)
 
 
 def record_not_sent(log_dir, video_id, mark_id, code, text, run_id=""):
-    """送らなかった切り抜きを 1 行足す(段 deliver の判定 = flow/sendpolicy の理由の鍵 code と文 text・預けた分の 48 時間切れ expired)。
+    """送らなかった切り抜きを 1 行足す(今書くのは、置けずに預けた分の期限切れ expired だけ = flow/delivery。
+    10-19 までは送るかの判定の理由 unchecked・stale・requested・unknown_end も書いていた = 古い行は読み手がそのまま読む)。
     ④ 案件はこれを not_sent_marks で引き、送らなかった理由の札と「まとめて実行の切り抜き」(品質のカード)を出す。
     書けなければ OSError(呼び手 flow/delivery が段を止めずにログへ)。-> 書いた行"""
     row = {"at": int(time.time() * 1000), "videoId": str(video_id or ""), "markId": str(mark_id or ""), "code": str(code or "")[:40],

@@ -195,13 +195,6 @@ class TestSend(Base):
         self.scan2()
         self.assertEqual((self.runner.requests, self.runner.files, self.it.snapshot()["requests"]), ([], [], []))
 
-    def test_requested_at(self):
-        self.put_urls(["https://youtu.be/abcdefghijk 5"])
-        self.scan2()
-        self.assertEqual(self.it.requested_at("abcdefghijk"), int(self.now))
-        for bad in ("bbbbbbbbbbb", "", None, 3):
-            self.assertIsNone(self.it.requested_at(bad), bad)
-
     def test_flush_at_end_of_scan(self):
         """見回りの終わりに flush(受付がオフでも・依頼の処理で例外が出ても)。受付のフォルダが無ければ呼ばない。flush の失敗はログだけ"""
         calls, logs = [], []
@@ -266,7 +259,6 @@ class TestUrlRequest(Base):
         self.assertEqual(sorted((r["source"], r["state"], r["flowLabel"], r["reason"]) for r in recs),
                          [("manual", "rejected", "", intake.MANUAL_REASON)] * 3)
         self.assertFalse(os.path.exists(os.path.join(self.folder, intake.OUT_DIR)))
-        self.assertNotIn("abcdefghijk", self.it.st["videos"])
 
     def test_long_and_live(self):
         self.infos = {"aaaaaaaaaaa": {"duration": 9 * 3600.0, "live": "was_live", "title": "", "channel": ""},
@@ -612,7 +604,6 @@ class TestVideo(Base):
         self.scan2()
         again = intake.Intake(self.prefs, lambda: self.runner, self.data, clock=lambda: self.now, info=lambda v: None)
         self.assertEqual(again.snapshot()["today"], 1)
-        self.assertIn("aaaaaaaaaaa", again.st["videos"])
 
 
 @unittest.skipUnless(tools.find_tool("ffmpeg") and tools.find_tool("ffprobe"), "ffmpeg / ffprobe が無い")
@@ -880,7 +871,6 @@ class TestLiveRequest(Base):
         self.assertEqual(len(rec["items"]), 2, "配信者が合えば知らせの行は無い")
         self.assertTrue(os.path.isfile(self.done(rid + ".request.json")), "受付済み へ")
         self.assertFalse(os.path.exists(os.path.join(self.folder, intake.OUT_DIR)), "断った物が無ければ 出力 に何も置かない")
-        self.assertIn(self.VID, self.it.st["videos"])
         self.assertEqual(self.it.snapshot()["today"], 1)
         self.assertEqual(self.info_calls, [self.VID])
 
@@ -950,7 +940,6 @@ class TestLiveRequest(Base):
         self.assertTrue(texts[0].startswith("依頼を受け付けられませんでした。"), texts[0])
         self.assertIn("リアルタイム切り抜きが使えません", texts[0])
         self.assertNotIn("ライブの設定", texts[0], "知らせの行は 失敗.txt に書かない")
-        self.assertNotIn(self.VID, self.it.st["videos"])
         self.assertEqual(self.it.snapshot()["today"], 0)
         self.assertEqual((self.runner.requests, self.runner.files), ([], []))
 
@@ -967,7 +956,6 @@ class TestLiveRequest(Base):
         self.begin_out = RuntimeError("録画を始められませんでした: streamlink が入っていません")
         rec = self.send("20261008-200000-abc341")
         self.assertEqual(rec["reason"], "録画を始められませんでした: streamlink が入っていません")
-        self.assertNotIn(self.VID, self.it.st["videos"])
         self.assertEqual(self.runner.requests, [])
 
     def test_not_youtube_url_is_refused(self):
@@ -990,7 +978,6 @@ class TestLiveRequest(Base):
         self.assertEqual((rec["kind"], rec["state"]), ("live", "accepted"))
         self.assertIn("録画を始めました", rec["items"][0]["reason"])
         self.assertEqual(self.runner.requests, [], "アーカイブの ① には流さない")
-        self.assertIn(self.VID, self.it.st["videos"])
 
     def test_unknown_status_falls_back_to_archive_when_recording_fails(self):
         """状態を確かめられず、録画も始められない(終わっていた・録画元が動いていないなど)→ 今までどおりアーカイブから ① 全自動(理由を知らせの行に)。

@@ -419,10 +419,11 @@ class Live(livesession.LiveSession):
         return intake_mod.out_dir_of(intake_mod.configured_folder(self.prefs))
 
     def _auto_deliver_for(self, origin, after, streamer):
-        """自分の配信の自動の切り抜き(配信中の自動採用 auto・配信後の追加 archive)を確認なしで友人へ届ける(設定 live.autoDeliver。ユーザー決定)。
+        """自分の配信の自動の切り抜き(配信中の自動採用 auto・配信後の追加 archive)を確認なしで友人へ届ける(ユーザー決定。
+        切り替えの設定は作らない = 依頼の受付のフォルダが決まっていればいつも届ける。10-19 に設定 live.autoDeliver を消した)。
         人のマーク(manual)は案件の [採用(友人へ届ける)] で。届ける先(依頼の受付のフォルダ)が無ければ届けない。
-        -> (届ける依頼の形 {rid, deliverDir, autoDeliver: True} か None, after, streamer)"""
-        if origin == "manual" or self.cfg().get("autoDeliver") is not True:
+        -> (届ける依頼の形 {rid, deliverDir, autoDeliver: True(出どころ auto の印)} か None, after, streamer)"""
+        if origin == "manual":
             return None, after, streamer
         out = self.deliver_dir()
         if not out:

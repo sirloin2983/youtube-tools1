@@ -110,9 +110,6 @@ class FriendQueue(_runqueue.Queue):
     def _studio_video(self, vid):
         return self.tools.studio_video(vid)
 
-    def _shape_steps(self, run):   # _accept と起動し直しの復元の両方から呼ばれる(復元した実行が届ける段を持ち越さない)
-        run.steps = [s for s in run.steps if s["key"] != "deliver"]   # 友人の PC の ② は届ける段を持たない(4-7。パックは受信箱に並ぶ)
-
     def _step_analyze_later(self, run, st, v):
         st["state"], st["detail"] = "skip", "友人の PC では解析しません(区間だけを切りました)"
         return None

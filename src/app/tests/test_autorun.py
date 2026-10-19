@@ -44,14 +44,14 @@ EXPORT = "export"   # テストの呼び名: 書き出しから全部(mode full 
 
 def start(ar, video_id, mode, top=None, streamer=None, marks=None, overwrite=False, auto_send=None):
     """ホームの案件の行・スタジオのマークの行の「まとめて実行」(画面の UIKit.flow.order → submit と同じ形)。mode = full(解析から全部)か EXPORT(書き出しから全部)。
-    友人へ自動で送る(D-SEND): 解析から全部で、受付のフォルダが決まっていれば出どころ auto。auto_send False = 届け先なし"""
+    友人へ自動で送る(D-SEND): 解析から全部で、受付のフォルダが決まっていれば出どころ auto + 届け先。auto_send False(チェックを外した)= 届け先なし"""
     if mode not in A.MODES and mode != EXPORT:
         raise ValueError("実行の形が正しくありません")
     if top is not None:
         SP.top_arg(top)   # 画面は 1〜20 に丸めてから送る(合わない数は ValueError)
     full = mode == "full"
     folder = _send_folder(ar) if full else ""
-    dl = {"origin": "auto", "deliver_dir": IN.out_dir_of(folder) if auto_send is not False else None} if folder else {}
+    dl = {"origin": "auto", "deliver_dir": IN.out_dir_of(folder)} if folder and auto_send is not False else {}
     env, diff = O.order("url", video_id=video_id, from_=None if full else "export", upto="pack",
                         top=top, streamer=streamer, marks=marks, repack=overwrite, **dl)
     return ar.submit(env, diff)
@@ -76,7 +76,7 @@ def start_new(ar, items, top=None, streamer=None, auto_send=None):
     if top is not None:
         SP.top_arg(top)
     folder = _send_folder(ar)
-    dl = {"origin": "auto", "deliver_dir": IN.out_dir_of(folder) if auto_send is not False else None} if folder else {}
+    dl = {"origin": "auto", "deliver_dir": IN.out_dir_of(folder)} if folder and auto_send is not False else {}
 
     def make(it):
         it = it if isinstance(it, dict) else {}
@@ -899,7 +899,7 @@ class TestRestore(Base):
         self.tools.hold = False
         done = self.finished(run["id"])
         self.assertEqual((done["state"], done["id"]), ("done", run["id"]), done)
-        self.assertEqual(self.states(done), {"transcribe": "done", "pack": "done", "deliver": "skip"})
+        self.assertEqual(self.states(done), {"transcribe": "done", "pack": "done"})   # 届け先なし = 段 deliver なし
         tx = [j for j in self.tools.tx_jobs.values() if j["src"] == media]
         self.assertEqual([j["state"] for j in tx], ["cancelled", "done"])      # 止めた文字起こしは取り消して、頭からやり直した
         self.assertEqual((tx[-1]["body"]["engine"], tx[-1]["body"]["model"]), ("whisper.cpp", "large-v3"))   # 実行ごとのエンジン・モデルも戻る
@@ -1035,7 +1035,7 @@ class TestRequests(Base):
         run = self.wait(res["runs"][0])
         # 依頼はいつも ① 全自動(② 軽く確認 = 文字起こしまでは 10-19 に消した)
         self.assertEqual((run["state"], run["mode"], run["modeLabel"], run["requestId"]), ("done", "request_auto", "依頼 ① 全自動: 解析 → パック", "20261001-120000-abc123"))
-        self.assertEqual(list(self.states(run)), ["analyze", "adopt", "export", "transcribe", "pack", "deliver"])
+        self.assertEqual(list(self.states(run)), ["analyze", "adopt", "export", "transcribe", "pack"])   # 届け先なし = 段 deliver なし
         self.assertEqual(sorted(self.tools.export_body["markIds"]), ["a2", "a3"])   # 上位 2 個
 
     def test_file(self):
@@ -1380,7 +1380,7 @@ class TestRequests(Base):
         """区間が切り抜く数に足りている: 解析なしで、区間(前後に 2 秒の余白)だけを書き出し → 文字起こし。解析は最後に順番へ入れるだけ(待たない。決定 3-49 Q6)"""
         self.tools.known = False
         run = self.request({"id": VID, "top": 2, "title": "配信", "channel": "ch", "ranges": [(100, 190), (1, 30)], "duration": 191.0}, request_id="rid")
-        self.assertEqual((run["state"], list(self.states(run))), ("done", ["adopt", "export", "transcribe", "pack", "deliver", "analyze_later"]), run)
+        self.assertEqual((run["state"], list(self.states(run))), ("done", ["adopt", "export", "transcribe", "pack", "analyze_later"]), run)
         adds = [i for i, c in enumerate(self.tools.calls) if c[2] == "/api/queue/add"]
         self.assertEqual(len(adds), 1, "解析は最後に 1 回だけ順番へ")
         self.assertGreater(adds[0], max(i for i, c in enumerate(self.tools.calls) if c[2] == "/api/video/request-marks"), "切り抜く前には解析しない")
@@ -1396,7 +1396,7 @@ class TestRequests(Base):
         self.tools.known = False
         self.tools.video["marks"] = [{"id": "old", "src": "manual", "status": "adopted", "score": None, "start": 500, "end": 510}]   # 前からある人の採用
         run = self.request({"id": VID, "top": 3, "ranges": [(18, 23)]}, request_id="rid")
-        self.assertEqual((run["state"], list(self.states(run))), ("done", ["analyze", "adopt", "export", "transcribe", "pack", "deliver"]), run)
+        self.assertEqual((run["state"], list(self.states(run))), ("done", ["analyze", "adopt", "export", "transcribe", "pack"]), run)
         self.assertEqual((self.tools.request_marks["ranges"], self.tools.request_marks["top"]), ([[16.0, 25.0]], 3))
         self.assertEqual((len(self.tools.export_body["markIds"]), "old" in self.tools.export_body["markIds"], len(self.tools.tx_jobs)), (3, True, 3))
 
@@ -1572,7 +1572,8 @@ class TestToolSettingsFiles(Base):
 
 
 class TestAutoSend(Base):
-    """D-SEND(notes:plan/done/d-send-requirements.md): まとめて実行(full)で友人へ自動で送る。届け先は一時フォルダだけ(本物の Dropbox は使わない)"""
+    """D-SEND(notes:plan/done/d-send-requirements.md): まとめて実行(full)で友人へ自動で送る。届け先は一時フォルダだけ(本物の Dropbox は使わない)。
+    送るかは届け先があるかだけ(10-19 案 B3。終わってから 48 時間・友人の依頼済みは見ない)"""
     marks = []
     analysis = False
     TAG_RE = r"^\d{8}-\d{6}-[0-9a-f]{6}__"
@@ -1588,24 +1589,11 @@ class TestAutoSend(Base):
         self.out = os.path.join(self.folder, "出力")
         self.prefs = prefs_mod.Prefs(os.path.join(self.tmp, "prefs.json"), fsio.atomic_write)
         self.prefs.patch("intake", {"folder": self.folder})
-        self.stream = self.info(1)   # 1 時間前に終わった配信(新しい)
-        queue = self.tools.h_studio_GET_api_queue
-
-        def with_stream(path, body):   # 解析が済んだら、配信の始まり・長さ(D-SEND の鮮度)を analysis に
-            st, obj = queue(path, body)
-            if self.tools.video.get("analysis"):
-                self.tools.video["analysis"].update(self.stream)
-            return st, obj
-        self.tools.h_studio_GET_api_queue = with_stream
         self.msgs = []
         self.r = self.runner()
 
     def runner(self):
         return self.make_runner(prefs=self.prefs, log_dir=self.logs, log=self.msgs.append)
-
-    @staticmethod
-    def info(hours_ago, live="was_live"):
-        return {"liveStatus": live, "releaseTs": int(time.time() - hours_ago * 3600 - 7200), "duration": 7200}
 
     def go(self, mode="full", auto_send=None, timeout=10):
         return self.wait(start(self.r, VID, mode, 2, auto_send=auto_send), timeout)
@@ -1642,34 +1630,26 @@ class TestAutoSend(Base):
         rows = self.rows()   # 届けた記録の欄の形・案件の札は src/flow/tests/test_deliver.py の DeliverRun.test_deliver_run・src/manage/cases/tests/test_cases.py
         self.assertEqual(({(r["origin"], r["videoId"], r["mode"]) for r in rows}, sorted(p["markId"] for r in rows for p in r["packs"])),
                          ({("auto", VID, "full")}, ["a2", "a3"]))
-        self.assertTrue(all(r["endedAt"] == (self.stream["releaseTs"] + self.stream["duration"]) * 1000 for r in rows), rows)   # 配信の終わり(ミリ秒)
         self.assertEqual(self.recs(), {}, "届けたは案件に写さない(② の届けた記録から引く)")
 
-    def test_not_sent_reason(self):
-        """送らないとき(代表 = 48 時間を過ぎた): 段は飛ばして理由の文・切り抜きごとに ② の送らなかった記録。何も置かない
-        (理由の決め方は src/flow/tests/test_sendpolicy.py)"""
-        self.tools.video["analysis"] = None
-        self.stream = self.info(49)
-        run = self.go()
-        want = "古い配信なので送りません(終わってから 49 時間)"
-        self.assertEqual((run["state"], self.step(run)["state"], self.step(run)["detail"]), ("done", "skip", want), run)
-        self.assertEqual({k: (r["code"], r["text"]) for k, r in self.notsent().items()}, {k: ("stale", want) for k in ("a2", "a3")})
-        self.assertEqual((self.recs(), self.outs(), self.rows()), ({}, [], []))
+    def test_unchecked_has_no_deliver_step(self):
+        """チェックを外した(届け先なし)= 段 deliver が無い。何も置かない・送らなかった記録も書かない"""
+        run = self.go(auto_send=False)
+        self.assertEqual((run["state"], [s["key"] for s in run["steps"]]), ("done", ["analyze", "adopt", "export", "transcribe", "pack"]), run)
+        self.assertEqual((self.outs(), self.rows(), self.notsent()), ([], [], {}))
 
-    def test_requested_by_delivery_log_or_returns(self):
-        """友人の依頼済み(2-9)は受付の覚えのほか、届けた記録の origin request の配信・送り返し(友人の PC で処理した依頼)でも分かる"""
+    def test_requested_video_still_sends(self):
+        """友人が依頼済みの配信でも送る(二重は防がない = 10-19 ユーザー決定。D-SEND 2-9 の取り下げ)"""
         from human.friend import friend_feedback
         import types
         friend_feedback.record_delivery(self.logs, "x.zip", types.SimpleNamespace(request_id="rid", id="r", video_id=VID, title=""), [])
-        self.assertTrue(self.r._requested(VID))
-        self.assertFalse(self.r._requested("bbbbbbbbbbb"))
-        from human.friend import returns
-        with mock.patch.object(returns, "requested_videos", lambda app: {"bbbbbbbbbbb": 1.0}):
-            self.assertTrue(self.r._requested("bbbbbbbbbbb"))
+        run = self.go()
+        self.assertEqual(self.step(run)["state"], "done", run)
+        self.assertEqual(len([n for n in self.outs() if n.endswith(".zip")]), 2)
 
     def test_park_then_flush_and_expire(self):
         """置けない(受付の Dropbox のフォルダが無い)→ 実行は失敗にせず溜めに預ける(段は warn・友人に .失敗.txt を置かない)→ フォルダが戻れば flush で届く。
-        48 時間を過ぎた溜めは送らずに消して送らなかった記録に expired"""
+        預けてから 3 日(DL.PARK_KEEP_SEC)を過ぎた溜めは送らずに消して送らなかった記録に expired"""
         shutil.rmtree(self.folder)
         run = self.go()
         self.assertEqual((run["state"], self.step(run)["state"]), ("done", "warn"), run)
@@ -1693,17 +1673,16 @@ class TestAutoSend(Base):
         self.assertEqual({r["origin"] for r in self.rows()}, {"auto"})
         self.assertEqual({r["mode"] for r in self.rows()}, {"full"})   # 溜めから送った分も実行の形 full(案件は届けた記録で見分ける)
         self.assertFalse(any("deliveredAt" in r for r in self.recs().values()), "届けたは案件に写さない")
-        # 48 時間を過ぎた溜め
+        # 預けてから 3 日を過ぎた溜め(created 0)
         with self.r._pool_lock:
             self.r._pools_load()["full|x|" + VID] = {"rid": "x", "tag": None, "origin": "auto", "mode": "full", "title": "古い", "deliverDir": self.out,
-                                                      "batch": None, "meta": {"origin": "auto", "videoId": VID, "endedAt": time.time() - 49 * 3600, "parked": True},
+                                                      "batch": None, "meta": {"origin": "auto", "videoId": VID, "parked": True},
                                                       "packs": [os.path.join(self.tmp, "out", "a2_pack")], "delivered": [],
                                                       "marks": {os.path.join(self.tmp, "out", "a2_pack"): {"path": "", "markId": "zz"}}, "created": 0, "updated": 0}
         before = self.outs()
         self.assertEqual(self.r.flush_pools(lambda m: False), 0)
         self.assertEqual((self.r.pools(), self.outs()), ({}, before))
-        from flow import sendpolicy
-        self.assertEqual((self.notsent()["zz"]["code"], self.notsent()["zz"]["text"]), ("expired", sendpolicy.REASONS["expired"]))
+        self.assertEqual((self.notsent()["zz"]["code"], self.notsent()["zz"]["text"]), (DL.EXPIRED, DL.EXPIRED_TEXT))
         self.assertTrue(any("送りませんでした" in m for m in self.msgs), self.msgs)
 
     def test_no_double_on_resume_or_rerun(self):
@@ -1736,14 +1715,12 @@ class TestAutoSend(Base):
         self.assertEqual(names, sorted([stem + ".zip", stem + ".preview.mp4", stem + ".meta.json"]), names)   # 組ではなく 1 本ずつ(batch 2 は読まない)
         self.assertEqual(self.meta(stem + ".zip")["origin"], "request", "古い溜め(依頼の id)は依頼として届ける")
 
-    def test_from_export_with_marks_goes_through_send_gate(self):
+    def test_from_export_with_marks_sends(self):
         """書き出しから全部(mode full + 束の run.from export + marks。スタジオの「書き出しのあと自動でパックまで」・マークの行の「この後を」):
-        解析・採用の段は無く、そのマークだけ書き出し → 文字起こし → パック → 段 deliver(出どころ auto)が付き、送るかの判定(_full_gate)を通る"""
-        self.stream = self.info(49)
-        first = self.go()   # 古い配信: 解析・採用・書き出しはするが送らない
-        self.assertEqual(self.step(first)["state"], "skip", first)
+        解析・採用の段は無く、そのマークだけ書き出し → 文字起こし → パック → 段 deliver(出どころ auto)。届け済みのパックは除く"""
+        first = self.go(auto_send=False)   # 解析・採用・書き出しまで(届けない)
+        self.assertNotIn("deliver", [s["key"] for s in first["steps"]], first)
         adds = len([c for c in self.tools.calls if c[2] == "/api/queue/add"])
-        self.tools.video["analysis"].update(self.info(1))   # 配信の終わりが新しい = 送る
         env, diff = O.order("url", video_id=VID, from_="export", upto="pack", marks=["a2"], origin="auto", deliver_dir=self.out)
         run = self.wait(self.r.submit(env, diff))
         self.assertEqual((run["state"], run["mode"], run["modeLabel"], [s["key"] for s in run["steps"]]),
@@ -1753,11 +1730,6 @@ class TestAutoSend(Base):
         zips = [n for n in self.outs() if n.endswith(".zip")]
         self.assertEqual(([self.meta(z)["origin"] for z in zips], sorted(p["markId"] for r in self.rows() for p in r["packs"])), (["auto"], ["a2"]))
         self.assertEqual({(r["origin"], r["mode"]) for r in self.rows()}, {("auto", "full")})
-        # 古い配信なら同じ判定で送らない(段は飛ばして理由・送らなかった記録)
-        self.tools.video["analysis"].update(self.info(49))
-        env, diff = O.order("url", video_id=VID, from_="export", upto="pack", marks=["a3"], origin="auto", deliver_dir=self.out)
-        run = self.wait(self.r.submit(env, diff))
-        self.assertEqual((self.step(run)["state"], self.step(run)["detail"]), ("skip", "古い配信なので送りません(終わってから 49 時間)"), run)
 
     def test_only_full_with_folder_sends(self):
         """届けるのは full だけ・受付のフォルダが決まっているときだけ(2-10)。文書単位・adopted などは届けない"""

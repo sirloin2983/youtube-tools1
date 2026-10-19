@@ -30,7 +30,7 @@ FF = tools.find_tool("ffmpeg", "YTT_FFMPEG")
 LIVE_DEFAULTS = {"enabled": False, "folder": "", "recorders": [], "quality": "1080p", "autoArchive": True, "autoDelete": True,
                  "auto": {"after": "auto", "cut": "", "engine": "", "model": "", "pad": 2.0}, "autoAfterStream": False, "afterStreamPerHour": 6,
                  "detect": {"enabled": True, "sens": "normal", "perHour": 6}, "autoAdopt": {"waitMin": 5},
-                 "liveTx": {"enabled": True, "model": "large-v3"}, "autoDeliver": True}
+                 "liveTx": {"enabled": True, "model": "large-v3"}}
 
 
 def patch_cfg(cfg, patch):

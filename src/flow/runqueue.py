@@ -261,11 +261,6 @@ class Queue(run_mod.Runner):
             run.notes = list(notes)
         if run.streamer is None and not convert:
             run.streamer = _people_streamer(run.spec, self.env)
-        self._shape_steps(run)
-
-    def _shape_steps(self, run):
-        """段の並びを継ぐ側の形に整える(hook。_accept と、起動し直しで戻した実行(_restore_active。束のある記録は _accept を通らない)の両方で呼ぶ。
-        何度呼んでも同じ形になること)。既定は何もしない"""
 
     def _on_error(self, run):
         """失敗で終わった実行(記録に書く前。入口は友人へ、できていたパックと失敗の理由を届ける)。既定は何もしない"""
@@ -326,7 +321,6 @@ class Queue(run_mod.Runner):
                     self._accept(run, convert=True)
                 except (OSError, ValueError, TypeError, KeyError) as e:   # 決められなくても戻す(束の無い実行は _execute が組む)
                     self.log("まとめて実行: 前の起動の待ちの記録を今の形にできませんでした(%s %s)" % (run.id, e.__class__.__name__))
-            self._shape_steps(run)
             out.append(run)
         if out:
             self.log("まとめて実行: ホームを起動し直したので、待ち・実行中だった %d 件を続けます(%s)" % (len(out), "・".join(r.title or r.id for r in out[:5])))

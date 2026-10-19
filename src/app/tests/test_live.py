@@ -114,8 +114,7 @@ class PrefsLiveTest(unittest.TestCase):
                                                         "autoAfterStream": False, "afterStreamPerHour": 6,   # 配信後の全自動(M7)は既定オフ
                                                         "detect": {"enabled": True, "sens": "normal", "perHour": 6},   # 配信中の検出(L2)は既定オン(リアルタイム切り抜きがオンのときだけ動く)
                                                         "autoAdopt": {"waitMin": 5},   # 自動の採用(M11)はいつもオン = 待つ分だけ
-                                                        "liveTx": {"enabled": True, "model": "large-v3"},   # 配信中の候補の文字起こし(D-11 案 b)は既定オン(部品が無ければ何もしない)
-                                                        "autoDeliver": True})   # 自動の切り抜きを確認なしで友人へ届ける
+                                                        "liveTx": {"enabled": True, "model": "large-v3"}})   # 配信中の候補の文字起こし(D-11 案 b)は既定オン(部品が無ければ何もしない)
         self.assertIsInstance(P.DEFAULTS["live"]["autoDelete"], bool)
         self.assertEqual(self.p.patch("live", {"auto": {"pad": 0}})["auto"]["pad"], 0)   # 余白は 0〜5 秒(小数も可)。ほかの鍵はそのまま
         self.assertEqual(self.p.patch("live", {"auto": {"pad": 3.5}})["auto"], {"after": "auto", "cut": "", "engine": "", "model": "", "pad": 3.5})
@@ -183,22 +182,16 @@ class PrefsLiveTest(unittest.TestCase):
         v = P.Prefs(path, fsio.atomic_write).get(["live"])["live"]["auto"]
         self.assertEqual((v["engine"], v["model"], v["cut"]), ("", "", "silence"))
 
-    def test_auto_deliver_setting(self):
-        """live.autoDeliver: 真偽だけ・壊れた保存値は既定(オン)に戻る"""
-        self.assertIs(self.p.patch("live", {"autoDeliver": False})["autoDeliver"], False)
-        self.assertIs(self.p.get(["live"])["live"]["autoDeliver"], False)
-        for bad in (1, "true", None, [True]):
-            with self.assertRaises(P.PrefsError, msg=repr(bad)):
-                self.p.patch("live", {"autoDeliver": bad})
-        self.assertIs(self.p.get(["live"])["live"]["autoDeliver"], False)   # 断ったときは変えない
-        self.assertIs(self.p.patch("live", {"autoDeliver": True})["autoDeliver"], True)
+    def test_auto_deliver_setting_is_gone(self):
+        """live.autoDeliver は 10-19 に消した: 古い画面が送る値・保存してあった値は読み捨て(断らない)"""
+        self.assertNotIn("autoDeliver", self.p.patch("live", {"autoDeliver": False}))
         path = os.path.join(self.tmp, "prefs.json")
         with open(path, encoding="utf-8") as f:
             d = json.load(f)
-        d["live"]["autoDeliver"] = "yes"
+        d["live"]["autoDeliver"] = False
         with open(path, "w", encoding="utf-8") as f:
             json.dump(d, f)
-        self.assertIs(P.Prefs(path, fsio.atomic_write).get(["live"])["live"]["autoDeliver"], True)
+        self.assertNotIn("autoDeliver", P.Prefs(path, fsio.atomic_write).get(["live"])["live"])
 
     def test_live_tx_settings(self):
         """配信中の候補の文字起こし live.liveTx(D-11 案 b): 鍵ごとに直す・enabled は真偽・model は large-v3 だけ・壊れた保存値は既定に戻す"""
@@ -652,7 +645,7 @@ class StopLongTest(unittest.TestCase):
 
 
 class AutoDeliverTest(unittest.TestCase):
-    """自分の配信の自動の切り抜きを確認なしで友人へ届ける(live.autoDeliver): Live._request_for が届ける依頼の形を返す"""
+    """自分の配信の自動の切り抜きを確認なしで友人へ届ける(切り替えなし。受付のフォルダが決まっていればいつも): Live._request_for が届ける依頼の形を返す"""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="ytt-live-autodeliver-")
@@ -676,12 +669,9 @@ class AutoDeliverTest(unittest.TestCase):
         b, _b2, _c2 = self.live._request_for("local", "r1", "auto", "auto", "")
         self.assertNotEqual(a["rid"], b["rid"])   # 切り抜きごとに別の依頼 id = 1 本ずつ別の zip
 
-    def test_manual_off_or_no_folder_does_not_deliver(self):
+    def test_manual_or_no_folder_does_not_deliver(self):
         self.prefs.patch("intake", {"folder": self.folder})
         self.assertEqual(self.live._request_for("local", "r1", "manual", "auto", "x"), (None, "auto", "x"))   # 人のマークは案件の [採用] で
-        self.prefs.patch("live", {"autoDeliver": False})
-        self.assertEqual(self.live._request_for("local", "r1", "auto", "auto", ""), (None, "auto", ""))
-        self.prefs.patch("live", {"autoDeliver": True})
         self.prefs.patch("intake", {"folder": ""})
         self.assertEqual(self.live._request_for("local", "r1", "auto", "auto", ""), (None, "auto", ""))   # 届ける先が無い
         self.assertIsNone(self.live.deliver_dir())

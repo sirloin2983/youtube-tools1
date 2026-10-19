@@ -156,12 +156,14 @@ class EngineTest(unittest.TestCase):
         self.make()
         self.assertEqual(self.ib.row("20261016-100000-eeeeee")["state"], "sent")
 
-    def test_friend_queue_drops_deliver_and_skips_later_analysis(self):
+    def test_friend_queue_skips_later_analysis(self):
+        """友人の PC の依頼は届け先が無い = 段 deliver を持たない(flow/run.steps_of。10-19 から段を消す hook は無い)。あとの解析は飛ばす"""
+        from flow import order, run as run_mod
+        env, diff = order.order("url", video_id="abcdefghijk", title="t", upto="pack", top=1, ranges=[(1.0, 5.0)], request_id="20261016-100000-ffffff")
+        keys = [s["key"] for s in run_mod.Run.from_envelope(env, diff).steps]
+        self.assertEqual((keys[-1], "deliver" in keys), ("analyze_later", False))
         q = engine.FriendQueue.__new__(engine.FriendQueue)
-        run = types.SimpleNamespace(steps=[{"key": "export"}, {"key": "deliver"}, {"key": "analyze_later"}])
-        q._shape_steps(run)
-        q._shape_steps(run)   # 何度呼んでも同じ(_accept と復元の両方から呼ばれる)
-        self.assertEqual([s["key"] for s in run.steps], ["export", "analyze_later"])
+        run = types.SimpleNamespace(steps=[])
         st = {}
         self.assertIsNone(q._step_analyze_later(run, st, {}))
         self.assertEqual(st["state"], "skip")

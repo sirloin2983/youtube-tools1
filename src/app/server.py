@@ -1391,7 +1391,6 @@ class PortalServer(httpsec.ExclusiveServer):
                 self._autorun.attach_board(self.board)   # ② の Run を掲示板へ(引く形・頭 run。取り消し・やり直しも。RS8 の ② の口 S3)
                 self._autorun.learning = self.learning   # 学習の束の版を束の post.learning.version に(F1 F6a)
                 self._autorun.set_finished_hook(self.after_run)   # 画面なしの送り返しの zip(F1 F6a)
-                self._autorun.requested_hook = self.intake.requested_at   # 友人が依頼済みの配信は自動で送らない(受付の覚え。D-SEND 2-9)
                 prio_mod.watch(self._autorun)   # 後回しの仕事(評価用の一括など)は、まとめて実行と録画が無いときだけ重い処理の枠を取る(PRIO)
             return self._autorun
 

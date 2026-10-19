@@ -730,7 +730,7 @@ class Exporter(Patrol):
                 job["score"] = round(float(score), 2)   # 候補の点数(自動の採用。.clip.json の source.live.score へ)
             if isinstance(request, dict) and request.get("rid"):
                 job["request"] = {k: request.get(k) for k in ("rid", "deliverDir", "speakers", "videoTracks", "cut")}   # 友人の依頼(2-15)
-                if request.get("autoDeliver") is True:   # 自分の配信の自動の切り抜きを確認なしで届ける(live.autoDeliver)= 友人の依頼と分ける印
+                if request.get("autoDeliver") is True:   # 自分の配信の自動の切り抜きを確認なしで届ける(app/live._auto_deliver_for)= 友人の依頼と分ける印
                     job["request"]["autoDeliver"] = True
             self.jobs.append(job)
             self._trim()

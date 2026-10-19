@@ -259,10 +259,10 @@ class LocalStudioTest(Base):
         self.assertEqual((it["status"], it["marks"]), ("done", 2))
         st, obj = self.ls.video(VID)
         self.assertEqual((st, obj["video"]["title"], len(obj["video"]["marks"])), (200, "題", 2))
-        an = obj["video"]["analysis"]   # D-SEND: 配信の始まり・長さが analysis に入り、sendpolicy が終わった時刻を引ける
+        an = obj["video"]["analysis"]   # 配信の始まり・長さが analysis に入り、チャットの取り直し(run.stream_ended_at)が終わった時刻を引ける
         self.assertEqual((an["releaseTs"], an["liveStatus"], an["duration"]), (1000, "was_live", 300))
-        from flow import sendpolicy
-        self.assertEqual(sendpolicy.ended_at_of(an), 1300.0)
+        from flow import run as run_mod
+        self.assertEqual(run_mod.stream_ended_at(an), 1300.0)
         r = self.ls.request_marks({"id": VID, "ranges": [], "top": 1})
         self.assertEqual(len(r["autoIds"]), 1)
         with self.assertRaises(R.StepError):

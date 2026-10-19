@@ -53,7 +53,7 @@ import uuid
 from ytt import colors, fsio as _fsio, jobs as _slots, schemas as _schemas
 from pipeline.analyze import excite as _excite   # 埋めた候補の理由の文(FILL_REASON)を数えるだけ
 from . import batch as _batch   # 解析の順番の断りの種類(queued_already)
-from . import envelope as _envelope, keys as _keys, order as _order, normalize as _norm, placement as _placement, prio as _prio, sendpolicy as _sendpolicy, spec as _spec, tools as _tools
+from . import envelope as _envelope, keys as _keys, order as _order, normalize as _norm, placement as _placement, prio as _prio, spec as _spec, tools as _tools
 from .envelope import clean_pool  # noqa: F401  (src/app/autorun.py が同じ名前で読む。RS7-1 S3)
 from .spec import (CUTS, LIVE_AUTO_CUT, WEIGHT_KEYS)
 
@@ -63,8 +63,9 @@ STEP_LABELS = {"analyze": "解析", "adopt": "採用(自動)", "export": "書き
                "deliver": "Dropbox へ届ける", "diarize": "話者分離", "analyze_later": "解析(あとで)", "normalize": "30fps にそろえる"}
 MODE_STEPS = {"full": ("analyze", "adopt", "export", "transcribe", "pack"), "doc": ("transcribe", "pack"),
               "file": ("normalize", "transcribe"),
-              "request_auto": ("analyze", "adopt", "export", "transcribe", "pack", "deliver"),
-              "file_auto": ("normalize", "transcribe", "pack", "deliver")}
+              "request_auto": ("analyze", "adopt", "export", "transcribe", "pack"),
+              "file_auto": ("normalize", "transcribe", "pack")}
+# 段 deliver(友人へ届ける)は届け先(封筒の deliver.dir)があるときだけ steps_of が足す(どの入口も同じ。送るかは注文を作る所が届け先を入れるかで決める = D-SEND 案 B3)
 # 段 normalize(動画ファイルの実行の最初。opt-human 9a-1): 作業データへ写した動画を 30fps に置き換える(flow/normalize の replace=True)。
 # 置き換えは元を消すので、写しを渡す受付(友人の受付 intake.submit_file = 封筒の input.normalize true)の実行だけ。ほか(ライブの書き出し・CLI)は段を持たない
 NORMALIZE_STEP = "normalize"
@@ -176,23 +177,23 @@ def _gone_shape(env, spec):
     return mode_of(env.get("kind"), b, env.get("requestId")) is None
 
 
-def steps_of(mode, deliver_dir=None, origin=None, ranges=0, top=None, diarize=None, normalize=False, from_=None, request=False):
+def steps_of(mode, deliver_dir=None, ranges=0, top=None, diarize=None, normalize=False, from_=None, request=False):
     """段の並び(鍵の並び)= MODE_STEPS[mode] + 今の付け足しの決まり(実行の段と見積もりが同じ物を使う。RV A2):
     束の run.from が export(書き出しから全部)なら解析・採用を外す(MODE_STEPS["full"] は変えない) /
-    normalize(動画ファイルの最初)は normalize が真のときだけ / 友人の依頼の配信(request = 依頼の番号がある配信の実行)で区間が切り抜く数に足りていれば、解析なしで最後に analyze_later /
-    まとめて実行(full)は届け先があるか出どころ auto(D-SEND。チェックを外した = 届け先なし = notSent)なら末尾に deliver /
+    normalize(動画ファイルの最初)は normalize が真のときだけ / 届け先があればパックの後ろに deliver(文書単位は届けない) /
+    友人の依頼の配信(request = 依頼の番号がある配信の実行)で区間が切り抜く数に足りていれば、解析なしで最後に analyze_later /
     話す人の人数(diarize)があれば文字起こしの後ろに diarize"""
     keys = list(MODE_STEPS[mode])
     if from_ == "export":
         keys = [k for k in keys if k not in ("analyze", "adopt")]
     if NORMALIZE_STEP in keys and not normalize:
         keys.remove(NORMALIZE_STEP)
+    if deliver_dir and "pack" in keys and mode != DOC_MODE:
+        keys.append("deliver")
     if request and ranges and ranges >= (top or 0):
         if "analyze" in keys:   # 書き出しから(from export)は解析の段がもう無い
             keys.remove("analyze")   # 区間が切り抜く数に足りている: 解析なしで、その区間だけを取りに行く
         keys.append("analyze_later")   # 解析は最後(届けたあと)に順番へ入れるだけ = 友人の区間と自動の候補を比べる材料(決定 3-49 Q6。OPT-E2)
-    if mode == "full" and (deliver_dir or origin == "auto") and "deliver" not in keys:   # まとめて実行で友人へ自動で送る(D-SEND。MODE_STEPS の full は変えない)
-        keys.append("deliver")
     if diarize and "transcribe" in keys:   # 話す人の人数がある(束の transcribe.diarize)
         keys.insert(keys.index("transcribe") + 1, "diarize")
     return keys
@@ -226,7 +227,8 @@ def analyze_verdict(has_analysis, weights_differ):
 # 頼まれた本数に届かないとき(例: 配信の直後でチャットのリプレイが 0 件・山が 1 つだけ → 5 本のうち 1 本)
 CHAT_RETRY_SEC = 3600          # チャットのリプレイを取り直すまでの間(前の解析から)
 CHAT_RETRY_MAX = 3             # 見回りで取り直す回数の上限
-CHAT_RETRY_FRESH = _sendpolicy.FRESH_SEC   # 終わってからこの秒数までの配信だけ取り直す(友人へ自動で送る鮮度と同じ 48 時間)
+CHAT_RETRY_FRESH = 48 * 3600   # 終わってからこの秒数までの配信だけ取り直す(48 時間)
+WAS_LIVE = ("was_live", "post_live")
 REDO_TEXT = {"chat": "前の解析はチャットのリプレイが無かったので解析し直します",
              "short": "前の解析は候補が %d 本に届かなかったので、足りない分を埋めて解析し直します"}
 
@@ -245,8 +247,21 @@ def chat_retry_ok(analysis, now):
     """チャットを取り直す意味があるか: 使えなかった・配信(was_live)が終わって CHAT_RETRY_FRESH 秒以内(終わった時刻が分からない動画は取り直さない)"""
     if not chat_missing(analysis):
         return False
-    ended = _sendpolicy.ended_at_of(analysis)
+    ended = stream_ended_at(analysis)
     return ended is not None and now - ended <= CHAT_RETRY_FRESH
+
+
+def stream_ended_at(analysis):
+    """スタジオの配信の行の analysis -> 配信が終わった時刻(epoch 秒)か None(分からない)。
+    liveStatus が was_live・post_live で releaseTs(配信の始まり)と duration(長さ。秒)があれば releaseTs + duration。
+    ほか(動画・ライブ中・項目なし・壊れた値)は None(① pipeline/analyze/fetch.slim_meta の項目を batch が analysis に写す)"""
+    a = _dict(analysis)
+    if a.get("liveStatus") not in WAS_LIVE:
+        return None
+    start, dur = a.get("releaseTs"), a.get("duration")
+    if not (_schemas.is_num(start) and _schemas.is_num(dur)) or start <= 0 or dur <= 0:
+        return None
+    return float(start) + float(dur)
 
 
 def redo_reason(analysis, top, marks, now):
@@ -367,7 +382,7 @@ class Run:
         self.owned = None          # 今ツールで動かしている仕事 (ツールの ID, [ジョブ・キューの id])(「起動し直す」の確かめ = restart_info。残さない)
         self.result_path = None    # 結果の束 <案件>/作業用/runs/<id>.json(終わったら flow/placement.write_result が置く。記録の 1 行の resultPath = 索引。RS6 b-B0)
         self.run_from = bundle["run"]["from"]   # 束の run.from(書き出しから全部 = export。札と段の並びが使う)
-        keys = steps_of(self.mode, self.deliver_dir, self.deliver_origin, len(self.ranges), self.top, bundle["transcribe"]["diarize"], self.normalize,
+        keys = steps_of(self.mode, self.deliver_dir, len(self.ranges), self.top, bundle["transcribe"]["diarize"], self.normalize,
                         self.run_from, self.friend_url)
         self.steps = [{"key": k, "label": STEP_LABELS[k], "state": "wait", "detail": ""} for k in keys]
 

@@ -644,9 +644,9 @@
       chk.then(function (name) {
         if (name === null) return null;   // 見つからない名前で「やめる」を選んだ
         f.streamer = name;   // 欄の名前(空 = 色なし。欄は自動で入るので、空は「色なし」の意味)
-        // 友人へ自動で送る(D-SEND): 依頼の受付のフォルダが決まっていれば出どころ auto。チェックを外した = 届け先なし(送らなかった記録が残る)
+        // 友人へ自動で送る(D-SEND 案 B3): チェックが入っていて依頼の受付のフォルダが決まっていれば届け先を置く(段 deliver が付く)。外した = 届けない
         return sendOutDir().then(function (out) {
-          if (out) f.deliver = { origin: 'auto', dir: send.checked ? out : null };
+          if (out && send.checked) f.deliver = { origin: 'auto', dir: out };
           var order = UIKit.flow.order(f);
           // 先に見積もる: やることが無いなら、理由だけでなく次の一手(スタジオで候補を確認する など)を押せる形で知らせる(M2)
           return api('api/flow/estimate', 'POST', order).catch(function () { return null; }).then(function (est) {

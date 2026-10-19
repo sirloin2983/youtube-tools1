@@ -54,15 +54,16 @@ class TestOrder(unittest.TestCase):
                  ("full", dict(kind="url", video_id=VID, deliver_dir="D:/o"), ["analyze", "adopt", "export", "transcribe", "pack", "deliver"]),
                  ("full", dict(kind="url", video_id=VID, from_="export"), ["export", "transcribe", "pack"]),   # 書き出しから全部(10-19。依頼の id があれば request_auto)
                  ("full", dict(kind="url", video_id=VID, from_="export", marks=["m1"], origin="auto", deliver_dir="D:/o"), ["export", "transcribe", "pack", "deliver"]),
-                 ("request_auto", dict(kind="url", video_id=VID, from_="export", request_id="r1", marks=["m1"]), ["export", "transcribe", "pack", "deliver"]),
-                 ("request_auto", dict(kind="url", video_id=VID, request_id="r1", ranges=[(1, 5)], top=1),
+                 ("request_auto", dict(kind="url", video_id=VID, from_="export", request_id="r1", marks=["m1"]), ["export", "transcribe", "pack"]),   # 届け先なし = 段 deliver なし(友人の PC)
+                 ("request_auto", dict(kind="url", video_id=VID, request_id="r1", ranges=[(1, 5)], top=1, deliver_dir="D:/o"),
                   ["adopt", "export", "transcribe", "pack", "deliver", "analyze_later"]),
                  ("request_auto", dict(kind="url", video_id=VID, request_id="r1", deliver_dir="D:/o", cut="none", repack=True,
                                        speakers={"count": 2, "names": ["A"]}),
                   ["analyze", "adopt", "export", "transcribe", "diarize", "pack", "deliver"]),
                  ("doc", dict(kind="docs", doc_id="d1"), ["transcribe", "pack"]),
                  ("file", dict(kind="file", path=m, normalize=True, upto="transcribe"), ["normalize", "transcribe"]),
-                 ("file_auto", dict(kind="file", path=m, engine="whisper.cpp", upto="pack"), ["transcribe", "pack", "deliver"])]
+                 ("file_auto", dict(kind="file", path=m, engine="whisper.cpp", upto="pack"), ["transcribe", "pack"]),
+                 ("file_auto", dict(kind="file", path=m, upto="pack", deliver_dir="D:/o"), ["transcribe", "pack", "deliver"])]
         for mode, okw, steps in cases:
             kind = okw.pop("kind")
             env, diff = O.order(kind, **okw)
